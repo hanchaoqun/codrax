@@ -112,6 +112,7 @@ type explorerEvaluator struct {
 	// nearby context" without re-plumbing AgentContext into Observe.
 	exactResolution     *types.ExactResolutionContract
 	exactPendingTargets []string
+	exactContextFiles   []string
 
 	// complexity is a cached copy of the analyzer-classified
 	// Complexity (via irComplexity) captured at
@@ -216,6 +217,7 @@ func (e *explorerEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk 
 		e.declarativeCandidateFiles = nil
 		e.exactResolution = nil
 		e.exactPendingTargets = nil
+		e.exactContextFiles = nil
 		// Loop-policy counters (idleStreakInDepth, lastToolResultCount,
 		// midLoopLastInjectIter) are no longer fields on this struct —
 		// LoopPolicy constructs a fresh loopPolicyState per dispatch,
@@ -245,6 +247,7 @@ func (e *explorerEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk 
 		e.exactResolution = nil
 		e.exactPendingTargets = nil
 	}
+	e.exactContextFiles = nil
 	// CGEC: capture the analyzer's AnswerSubject classification so
 	// the chain ranker can score chain terminals against the
 	// expected subject kind. Empty when AnalysisIR not yet available
@@ -2686,17 +2689,30 @@ func (e *explorerEvaluator) buildPrimaryTargetBanner() string {
 }
 
 func (e *explorerEvaluator) buildExactResolutionScopeBanner(ctx *types.AgentContext, analyzerKeywords []string) string {
+	if ctx != nil && ctx.Mutable != nil {
+		ctx.Mutable.SetExactContextRequiredFiles(nil)
+	}
 	if ctx == nil || ctx.AnalysisIR == nil {
 		return ""
 	}
 	contract := ctx.AnalysisIR.AnswerContract.ExactResolution
-	if contract == nil || contract.RelatedContextPolicy != types.ExactContextSameFamilyGrounded {
+	if contract == nil {
 		return ""
 	}
 	if len(contract.Targets) == 0 {
 		return ""
 	}
 	cands := e.collectExactResolutionSymbolCandidates(contract, analyzerKeywords)
+	if ctx.Mutable != nil &&
+		contract.AllowAbsence &&
+		contract.RelatedContextPolicy != types.ExactContextGroundedOnly {
+		pending := pendingExactResolutionContextCandidates(contract, ctx.Mutable.EmittedEvidence(), cands)
+		e.exactContextFiles = exactResolutionContextFilesFromCandidates(pending)
+		ctx.Mutable.SetExactContextRequiredFiles(e.exactContextFiles)
+	}
+	if contract.RelatedContextPolicy != types.ExactContextSameFamilyGrounded {
+		return ""
+	}
 	if len(cands) == 0 {
 		return ""
 	}
@@ -3421,7 +3437,7 @@ func (e *explorerEvaluator) postExactAbsenceClosureSignal(obs LoopObservation) L
 			}
 		}
 	}
-	if !exactAbsenceClosureReady(e.exactResolution, targets, e.structuredEvidence) {
+	if !exactAbsenceClosureReady(e.exactResolution, targets, e.structuredEvidence, e.exactContextFiles) {
 		return LoopSignal{}
 	}
 	e.midLoopExactAbsenceSent = true
@@ -3454,7 +3470,7 @@ func currentBatchHasSuccessfulRead(results []types.ToolResult, prevLen int) bool
 	return false
 }
 
-func exactAbsenceClosureReady(contract *types.ExactResolutionContract, targets []string, evidence []types.EvidenceItem) bool {
+func exactAbsenceClosureReady(contract *types.ExactResolutionContract, targets []string, evidence []types.EvidenceItem, requiredFiles []string) bool {
 	if contract == nil || len(targets) == 0 || len(evidence) == 0 {
 		return false
 	}
@@ -3466,14 +3482,20 @@ func exactAbsenceClosureReady(contract *types.ExactResolutionContract, targets [
 		}
 	}
 	for _, item := range evidence {
-		switch item.GroundingStatus {
-		case types.GroundingGrounded, types.GroundingRecovered, "":
-		default:
-			continue
-		}
-		if types.EvidenceItemMentionsAnyTerm(item, scopeTerms) {
+		if types.ExactResolutionEvidenceCanSatisfyRelatedContext(contract, item, requiredFiles) {
 			hasScopedContext = true
 			break
+		}
+		if len(requiredFiles) == 0 {
+			switch item.GroundingStatus {
+			case types.GroundingGrounded, types.GroundingRecovered, "":
+			default:
+				continue
+			}
+			if types.EvidenceItemMentionsAnyTerm(item, scopeTerms) {
+				hasScopedContext = true
+				break
+			}
 		}
 	}
 	return hasScopedContext

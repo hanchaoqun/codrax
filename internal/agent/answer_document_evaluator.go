@@ -435,7 +435,7 @@ func renderAnswerDocDiagramSeeds(ctx *types.AgentContext, dc *types.DiagramContr
 	}
 
 	appendSection("Grounded Labeling", renderAnswerDocDiagramLabelSeed())
-	appendSection("Verbatim File/Path Labels", renderAnswerDocDiagramFileLabelSeed(ctx))
+	appendSection("Diagram Node Allowlist", renderAnswerDocDiagramFileLabelSeed(ctx))
 	appendSection("Config Trace Precedence", renderAnswerDocDiagramConfigTraceSeed(ctx))
 	appendSection("Log Triage", renderAnswerDocDiagramLogSeed(ctx.LogTriage))
 	appendSection("Flow Findings", renderAnswerDocDiagramFlowSeed(ctx.FlowFindings))
@@ -453,7 +453,8 @@ func renderAnswerDocDiagramLabelSeed() string {
 		"Label each node with grounded names you already have: cited repo files, cited symbols, log-frame functions, or path literals that appear in cited line text.\n" +
 			"- If the evidence names one spelling, keep that spelling in the diagram instead of renaming it to a nearby alias.\n" +
 			"- If you need an alternate label, only use it when that exact label appears in citations or log frames.\n" +
-			"- Prefer direct grounded names over abstract buckets such as `Level 1` / `Round 2` / `Step 3`.",
+			"- Prefer direct grounded names over abstract buckets such as `Level 1` / `Round 2` / `Step 3`.\n" +
+			"- Inside a fenced diagram, keep file/path node labels to the prompt's `Diagram Node Allowlist` unless the same exact label is also grounded by citations[] or Log Triage frames in this tool call.",
 	)
 }
 
@@ -463,11 +464,11 @@ func renderAnswerDocDiagramFileLabelSeed(ctx *types.AgentContext) string {
 		return ""
 	}
 	var b strings.Builder
-	b.WriteString("If your diagram names file or path nodes, copy one of these grounded labels VERBATIM:\n")
+	b.WriteString("If your fenced diagram names file or path nodes, keep them to this exact grounded allowlist unless the same exact alternate label is independently grounded in this dispatch:\n")
 	for _, label := range labels {
 		fmt.Fprintf(&b, "- `%s`\n", label)
 	}
-	b.WriteString("Do not shorten, strip suffixes, or rewrite one grounded label into a nearby alias unless that exact alternate label is independently grounded.")
+	b.WriteString("Do not shorten, strip suffixes, normalize example/demo filenames into runtime-looking aliases, or rewrite one grounded label into a nearby spelling unless that exact alternate label is independently grounded.")
 	return strings.TrimSpace(b.String())
 }
 
@@ -495,11 +496,25 @@ func collectAnswerDocDiagramFileLabels(ctx *types.AgentContext) []string {
 			appendLabel(file)
 		}
 	}
+	for _, anchor := range collectConfigTraceDiagramAnchors(ctx) {
+		label := strings.TrimSpace(anchor.Label)
+		if idx := strings.LastIndex(label, ":"); idx > 0 {
+			label = label[:idx]
+		}
+		appendLabel(label)
+	}
 	for _, chain := range ctx.AnswerChains {
-		appendLabel(chain.Item.Source)
+		if answerDocDiagramEvidenceEligible(chain.Item) {
+			appendLabel(chain.Item.Source)
+		}
 	}
 	for _, ev := range ctx.EvidenceItems {
-		appendLabel(ev.Source)
+		if ev.DiagramRole == "" {
+			continue
+		}
+		if answerDocDiagramEvidenceEligible(ev) {
+			appendLabel(ev.Source)
+		}
 	}
 	if len(labels) == 0 {
 		return nil
@@ -509,6 +524,26 @@ func collectAnswerDocDiagramFileLabels(ctx *types.AgentContext) []string {
 		labels = labels[:10]
 	}
 	return labels
+}
+
+func answerDocDiagramEvidenceEligible(ev types.EvidenceItem) bool {
+	if strings.TrimSpace(ev.Source) == "" {
+		return false
+	}
+	if ev.ContextRole == types.EvidenceContextRoleIllustrativeOnly ||
+		ev.ContextRole == types.EvidenceContextRoleAbsenceSupport {
+		return false
+	}
+	if ev.Kind == types.EvidenceUnresolved || ev.Kind == types.EvidenceTruncated {
+		return false
+	}
+	if ev.GroundingStatus == types.GroundingUngrounded {
+		return false
+	}
+	if ev.LineStart <= 0 && ev.GroundingStatus == types.GroundingRecovered {
+		return false
+	}
+	return true
 }
 
 func renderAnswerDocDiagramLogSeed(bundle *types.LogBundle) string {
@@ -1193,7 +1228,7 @@ func (e *answerDocumentEvaluator) unexpectedFinalizerToolSignal(obs LoopObservat
 	return LoopSignal{
 		HintRequested: true,
 		HintKey:       fmt.Sprintf("finalizer.unexpected_tool.%d.%s", obs.Iteration, toolList),
-		Hint:          fmt.Sprintf("This finalizer is a pure synthesizer. Do NOT call `%s` or any other read/search tool. Re-emit `emit_answer_document` using only the already-provided grounded evidence: `citations[]`, Diagram Seeds, Exact Resolution Seeds, and Verbatim File/Path Labels. If a step cannot honestly cite one grounded line, keep that fact in `summary` or set that step's `citation_ref=-1` instead of reopening files. Do not write free-form prose outside the tool call.", toolList),
+		Hint:          fmt.Sprintf("This finalizer is a pure synthesizer. Do NOT call `%s` or any other read/search tool. Re-emit `emit_answer_document` using only the already-provided grounded evidence: `citations[]`, Diagram Seeds, Exact Resolution Seeds, and the prompt's Diagram Node Allowlist. If a step cannot honestly cite one grounded line, keep that fact in `summary` or set that step's `citation_ref=-1` instead of reopening files. Do not write free-form prose outside the tool call.", toolList),
 	}
 }
 
@@ -1204,14 +1239,28 @@ func (e *answerDocumentEvaluator) emitAnswerDocumentRejectSignal(ctx *types.Agen
 	if e.maxRetries > 0 && e.rejectHintsUsed >= e.maxRetries {
 		return LoopSignal{}
 	}
+	repair := obs.LastToolResult.Repair
 	rejectCode, summary := parseAnswerDocRejectEnvelope(strings.TrimSpace(obs.LastToolResult.Summary))
-	if summary == "" {
+	if rejectCode == "" && repair != nil {
+		rejectCode = strings.TrimSpace(repair.Code)
+	}
+	if summary == "" && (repair == nil || strings.TrimSpace(repair.Hint) == "") {
 		return LoopSignal{}
 	}
 
 	hint := "Your last `emit_answer_document` call was rejected by the tool. Re-emit `emit_answer_document` now after fixing ONLY the field(s) named in the tool error. Keep the grounded evidence, citations, and answer shape unchanged unless the tool explicitly says to change them. Do not reopen files or call read/search tools. Do not write free-form prose outside the tool call."
 	reasonKey := "tool-reject"
-	if detail := compactToolRejectSummary(summary); detail != "" {
+	if repair != nil && strings.TrimSpace(repair.Hint) != "" {
+		hint = strings.TrimSpace(repair.Hint)
+		reasonKey = firstNonEmptyString(rejectCode, "tool-reject")
+		if len(repair.Fields) > 0 && !repairHintMentionsFields(hint, repair.Fields) {
+			hint = "Fix ONLY these field(s): `" + strings.Join(repair.Fields, "`, `") + "`. " + hint
+		}
+		if !strings.Contains(hint, "Do not write free-form prose outside the tool call.") {
+			hint += " Do not write free-form prose outside the tool call."
+		}
+	}
+	if detail := compactToolRejectSummary(summary); detail != "" && (repair == nil || strings.TrimSpace(repair.Hint) == "") {
 		hint = "Your last `emit_answer_document` call was rejected by the tool. Re-emit `emit_answer_document` now after fixing this exact tool error: " + detail + ". Only change the named field(s); keep grounded citations/evidence and do not reopen files. Do not write free-form prose outside the tool call."
 	}
 
@@ -1236,7 +1285,12 @@ func (e *answerDocumentEvaluator) emitAnswerDocumentRejectSignal(ctx *types.Agen
 	}
 	if rejectCode == answerDocRejectCodeDiagramGrounding || strings.Contains(summary, "references file(s) not present in citations[] or attached-log frames") {
 		reasonKey = "diagram-grounding"
-		hint = "Your last `emit_answer_document` call was rejected by the DIAGRAM-GROUNDING gate: the fenced diagram renamed or introduced file/path labels that are not grounded. Re-emit `emit_answer_document` now with the same answer, but inside the diagram reuse the exact grounded file / symbol / path labels from citations, cited line text, or Log Triage frames. Prefer copying directly from the prompt's `Verbatim File/Path Labels` section or from the tool error's allowed-label list. Do NOT normalize one grounded label into a different spelling unless that alternate label is itself grounded. Prefer direct grounded node names over abstract aliases. Do NOT call `read_file`, `grep`, or any other tool to repair this — use the existing citations / seeds only. Do not write free-form prose outside the tool call."
+		hint = "Your last `emit_answer_document` call was rejected by the DIAGRAM-GROUNDING gate: the fenced diagram renamed or introduced file/path labels that are not grounded. Re-emit `emit_answer_document` now with the same answer, but inside the diagram reuse the exact grounded file / symbol / path labels from citations, cited line text, or Log Triage frames. Prefer copying directly from the prompt's `Diagram Node Allowlist` section or from the tool error's allowed-label list. Do NOT normalize one grounded label into a different spelling unless that alternate label is itself grounded. Prefer direct grounded node names over abstract aliases. Do NOT call `read_file`, `grep`, or any other tool to repair this — use the existing citations / seeds only. Do not write free-form prose outside the tool call."
+		if repair != nil && repair.Metadata != nil {
+			if allowed := strings.TrimSpace(repair.Metadata["allowed_labels"]); allowed != "" {
+				hint += " Allowed grounded labels for this dispatch: `" + strings.ReplaceAll(allowed, ", ", "`, `") + "`."
+			}
+		}
 		if e.configTraceDiagram {
 			hint += " For config-precedence diagrams, keep the seeded precedence chain's node labels verbatim; do NOT rewrite them into abstract numbered placeholders. If the user asked for conceptual layers, explain those layer names in prose outside the fence unless the exact label is grounded."
 		}
@@ -1258,6 +1312,14 @@ func (e *answerDocumentEvaluator) emitAnswerDocumentRejectSignal(ctx *types.Agen
 		reasonKey = "absent-config-value-shape"
 		hint = "Your last `emit_answer_document` call was rejected because this dispatch is an exact-absent config-trace answer. Do NOT use `shape=config_value` with a synthetic literal like `(missing)` / `(不存在)`. Re-emit now with `shape=explanation`, keep `exact_resolution.status=\"absent\"`, and describe any grounded same-family precedence chain as related context only. Do not write free-form prose outside the tool call."
 	}
+	if rejectCode == answerDocRejectCodeLogTriageCoverage && repair != nil && strings.TrimSpace(repair.Hint) != "" {
+		reasonKey = "log-triage-coverage"
+		hint = strings.TrimSpace(repair.Hint)
+	}
+	if rejectCode == answerDocRejectCodeScalarSummaryRequired && repair != nil && strings.TrimSpace(repair.Hint) != "" {
+		reasonKey = "scalar-summary-required"
+		hint = strings.TrimSpace(repair.Hint)
+	}
 	if requiredFieldHint := buildAnswerDocRequiredFieldRetryHint(summary); requiredFieldHint != "" {
 		reasonKey = "required-field"
 		hint = requiredFieldHint
@@ -1273,9 +1335,19 @@ func (e *answerDocumentEvaluator) emitAnswerDocumentRejectSignal(ctx *types.Agen
 	// action-to-take at the top of the mid-loop hint so the LLM
 	// self-corrects in one round instead of burning the whole
 	// retry budget on more fabrications.
-	if strings.Contains(summary, "not corroborated by citations[") {
+	if rejectCode == answerDocRejectCodeLiteralGrounding || strings.Contains(summary, "not corroborated by citations[") {
 		reasonKey = "literal-grounding"
-		hint = buildLiteralGroundingRetryHint(summary)
+		if repair != nil && strings.TrimSpace(repair.Hint) != "" {
+			hint = strings.TrimSpace(repair.Hint)
+		} else {
+			hint = buildLiteralGroundingRetryHint(summary)
+		}
+	}
+	if repair != nil && len(repair.Fields) > 0 && !repairHintMentionsFields(hint, repair.Fields) {
+		hint = "Fix ONLY these field(s): `" + strings.Join(repair.Fields, "`, `") + "`. " + hint
+	}
+	if !strings.Contains(hint, "Do not write free-form prose outside the tool call.") {
+		hint += " Do not write free-form prose outside the tool call."
 	}
 
 	e.rejectHintsUsed++
@@ -1298,6 +1370,23 @@ func compactToolRejectSummary(summary string) string {
 	return ""
 }
 
+func repairHintMentionsFields(hint string, fields []string) bool {
+	hint = strings.TrimSpace(hint)
+	if hint == "" || len(fields) == 0 {
+		return false
+	}
+	for _, field := range fields {
+		field = strings.TrimSpace(field)
+		if field == "" {
+			continue
+		}
+		if !strings.Contains(hint, field) {
+			return false
+		}
+	}
+	return true
+}
+
 const answerDocRejectPrefix = "[answer_doc_reject:"
 
 const (
@@ -1306,6 +1395,9 @@ const (
 	answerDocRejectCodeDiagramCodename             = "diagram_codename"
 	answerDocRejectCodeExactResolution             = "exact_resolution"
 	answerDocRejectCodeAbsentExactConfigValueShape = "absent_exact_config_value_shape"
+	answerDocRejectCodeLiteralGrounding            = "literal_grounding"
+	answerDocRejectCodeScalarSummaryRequired       = "scalar_summary_required"
+	answerDocRejectCodeLogTriageCoverage           = "log_triage_coverage"
 )
 
 func parseAnswerDocRejectEnvelope(summary string) (code, detail string) {

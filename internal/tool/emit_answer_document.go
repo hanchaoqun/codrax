@@ -52,17 +52,58 @@ type EmitAnswerDocument struct {
 }
 
 type answerDocValidationError struct {
-	code string
-	msg  string
+	code     string
+	msg      string
+	hint     string
+	fields   []string
+	metadata map[string]string
 }
 
 func (e *answerDocValidationError) Error() string { return e.msg }
 
-func newAnswerDocValidationError(code, format string, args ...interface{}) error {
+func newAnswerDocValidationError(code, format string, args ...interface{}) *answerDocValidationError {
 	return &answerDocValidationError{
 		code: strings.TrimSpace(code),
 		msg:  fmt.Sprintf(format, args...),
 	}
+}
+
+func (e *answerDocValidationError) WithHint(hint string) *answerDocValidationError {
+	if e == nil {
+		return nil
+	}
+	e.hint = strings.TrimSpace(hint)
+	return e
+}
+
+func (e *answerDocValidationError) WithFields(fields ...string) *answerDocValidationError {
+	if e == nil {
+		return nil
+	}
+	for _, field := range fields {
+		field = strings.TrimSpace(field)
+		if field == "" {
+			continue
+		}
+		e.fields = append(e.fields, field)
+	}
+	return e
+}
+
+func (e *answerDocValidationError) WithMetadata(key, value string) *answerDocValidationError {
+	if e == nil {
+		return nil
+	}
+	key = strings.TrimSpace(key)
+	value = strings.TrimSpace(value)
+	if key == "" || value == "" {
+		return e
+	}
+	if e.metadata == nil {
+		e.metadata = make(map[string]string, 1)
+	}
+	e.metadata[key] = value
+	return e
 }
 
 func answerDocValidationCode(err error) string {
@@ -71,6 +112,30 @@ func answerDocValidationCode(err error) string {
 		return coded.code
 	}
 	return ""
+}
+
+func answerDocValidationRepair(err error) *types.ToolRepair {
+	var coded *answerDocValidationError
+	if !errors.As(err, &coded) || coded == nil {
+		return nil
+	}
+	repair := &types.ToolRepair{
+		Code: strings.TrimSpace(coded.code),
+		Hint: strings.TrimSpace(coded.hint),
+	}
+	if len(coded.fields) > 0 {
+		repair.Fields = append([]string(nil), coded.fields...)
+	}
+	if len(coded.metadata) > 0 {
+		repair.Metadata = make(map[string]string, len(coded.metadata))
+		for k, v := range coded.metadata {
+			repair.Metadata[k] = v
+		}
+	}
+	if repair.Code == "" && repair.Hint == "" && len(repair.Fields) == 0 && len(repair.Metadata) == 0 {
+		return nil
+	}
+	return repair
 }
 
 func renderAnswerDocRejectSummary(code, msg string) string {
@@ -672,15 +737,18 @@ func (t *EmitAnswerDocument) Execute(ctx *types.BusContext, params json.RawMessa
 			b.WriteString("\n  (c) for a citation whose file:line came from prior-stage prose like '[relationship] X calls Y – file:line', that line is X's CALL SITE for Y, not X's definition – do not cite it as X's location.")
 		}
 		code := ""
+		var repair *types.ToolRepair
 		if format == "%v" && len(args) == 1 {
 			if err, ok := args[0].(error); ok {
 				code = answerDocValidationCode(err)
+				repair = answerDocValidationRepair(err)
 			}
 		}
 		return types.ToolResult{
 			ToolName:  t.Name(),
 			Success:   false,
 			Summary:   renderAnswerDocRejectSummary(code, b.String()),
+			Repair:    repair,
 			Timestamp: now,
 		}, nil
 	}
@@ -1263,8 +1331,14 @@ func requireCitationCorroboration(claim, citeFile string, citeLine int, gc *grou
 			}
 		}
 	}
-	return fmt.Errorf("%s is not corroborated by %s (%s:%d): the cited line and ±%d-line window contain no identifier overlap with the claim. %s",
+	msg := fmt.Sprintf("%s is not corroborated by %s (%s:%d): the cited line and ±%d-line window contain no identifier overlap with the claim. %s",
 		cfg.claimLabel, cfg.citeLabel, citeFile, citeLine, corroborationWindow, cfg.escape)
+	if cfg.code == "" {
+		return fmt.Errorf("%s", msg)
+	}
+	return newAnswerDocValidationError(cfg.code, "%s", msg).
+		WithFields(cfg.fields...).
+		WithHint(cfg.hint)
 }
 
 // corroborationCfg holds the shape-specific strings the
@@ -1276,6 +1350,9 @@ type corroborationCfg struct {
 	citeLabel   string   // e.g. `citations[0]`, `symbols[2].file/line`
 	escape      string   // shape-specific retry guidance
 	extraClaims []string // additional tokens to union into the claim set (e.g. value.Key for ConfigValue)
+	code        string
+	fields      []string
+	hint        string
 }
 
 // validateValueShapeSummary enforces a non-empty Summary on shape=value
@@ -1300,8 +1377,10 @@ func validateValueShapeSummary(summary string, v *types.AnswerValue) error {
 		if v != nil {
 			literal = v.Literal
 		}
-		return fmt.Errorf("shape=value requires summary to name the subject (file path / symbol / directory / measurement target) AND the methodology (command, chain, lookup) that produced the literal — the bare literal %q alone is not a complete answer (current summary length %d runes, minimum %d). The renderer prints summary first, then the literal — readers need both to act on or audit the value. Examples of acceptable summary content: state what was measured (the entity from the question), how it was measured (the find/grep/wc/exec command or chain that produced the value), and any non-obvious scope notes (excluded files, traversal direction, etc.)",
-			literal, len([]rune(trimmed)), minSummaryChars)
+		return newAnswerDocValidationError("scalar_summary_required", "shape=value requires summary to name the subject (file path / symbol / directory / measurement target) AND the methodology (command, chain, lookup) that produced the literal — the bare literal %q alone is not a complete answer (current summary length %d runes, minimum %d). The renderer prints summary first, then the literal — readers need both to act on or audit the value. Examples of acceptable summary content: state what was measured (the entity from the question), how it was measured (the find/grep/wc/exec command or chain that produced the value), and any non-obvious scope notes (excluded files, traversal direction, etc.)",
+			literal, len([]rune(trimmed)), minSummaryChars).
+			WithFields("summary", "value.literal").
+			WithHint("Re-emit `emit_answer_document` with the same scalar payload, keep the grounded literal and citation unchanged, and expand `summary` so it names the measured subject and how the value was obtained. Do not reopen files or change the answer shape.")
 	}
 	return nil
 }
@@ -1323,6 +1402,9 @@ func validateValueLiteralGrounding(v *types.AnswerValue, citations []types.Citat
 		escape: "If this literal originates from the attached log / external source rather than repo code, " +
 			"set citation_ref=-1 and state in summary that the answer is derived from log semantics (no grounded repo source). " +
 			"Otherwise cite a real file:line where the literal appears.",
+		code:   "literal_grounding",
+		fields: []string{"value.literal", "value.citation_ref", "citations"},
+		hint:   "Re-emit `emit_answer_document` with a citation whose corroboration window contains an identifier from `value.literal`, or set `citation_ref=-1` if the scalar comes only from external/log context. Keep the answer shape unless the tool explicitly tells you otherwise.",
 	}
 	if isConfigValue && v.Key != "" {
 		cfg.extraClaims = []string{v.Key}
@@ -1353,6 +1435,9 @@ func validateSymbolsLiteralGrounding(symbols []types.AnswerSymbol, gc *ground.Co
 			escape: "If this symbol name is drawn from the attached log / an external trace rather than real repo code, " +
 				"drop the item (or set answer_symbols_completeness='unknown') — do NOT invent a repo file:line for a symbol the repo does not define. " +
 				"Otherwise cite a real file:line where the symbol appears.",
+			code:   "literal_grounding",
+			fields: []string{fmt.Sprintf("symbols[%d]", i)},
+			hint:   "Re-emit `emit_answer_document` with symbol entries whose cited file:line actually contains the symbol name, or drop external-only symbols instead of inventing a repo anchor.",
 		}
 		if err := requireCitationCorroboration(s.Name, s.File, s.Line, gc, cfg); err != nil {
 			return err
@@ -1379,6 +1464,9 @@ func validateStepsLiteralGrounding(steps []types.AnswerStep, citations []types.C
 			escape: "If this step paraphrases an attached log / external source without a repo anchor, " +
 				"set citation_ref=-1 so the renderer drops the suffix. " +
 				"Otherwise cite a real file:line that contains an identifier named in the step's description.",
+			code:   "literal_grounding",
+			fields: []string{fmt.Sprintf("steps[%d].description", i), fmt.Sprintf("steps[%d].citation_ref", i)},
+			hint:   "Re-emit `emit_answer_document` with each cited step grounded to a file:line that overlaps an identifier from that step description; if the step is an aggregate or external-only claim, keep it but set `citation_ref=-1`.",
 		}
 		if err := requireCitationCorroboration(s.Description, cite.File, cite.Line, gc, cfg); err != nil {
 			return err
@@ -1490,7 +1578,7 @@ func validateSummaryRequiredDiagram(summary string, ctx *types.BusContext) error
 		"missing_diagram",
 		"diagram required for this dispatch (preferred kinds: %s); summary must include at least %d grounded triple-backtick diagram block(s). This obligation is independent of answer shape.",
 		strings.Join(kinds, ", "), minimum,
-	)
+	).WithFields("summary").WithHint("Re-emit `emit_answer_document` with the same answer shape and payload, but add at least one grounded triple-backtick diagram to `summary`. Reuse grounded labels only; do not reopen files or change unrelated fields.")
 }
 
 func summaryDiagramFenceCount(summary string) int {
@@ -1592,12 +1680,15 @@ func validateSummaryDiagramGrounding(summary string, citations []types.Citation,
 	return newAnswerDocValidationError(
 		"diagram_grounding",
 		"summary fenced code block references file(s) not present in citations[] or attached-log frames: %s. "+
-			"ASCII diagrams are structural claims – every filename or path-like label named inside a triple-backtick block "+
+			"ASCII diagrams are structural claims — every filename or path-like label named inside a triple-backtick block "+
 			"must be grounded by a cited repo file, a cited line-text path literal, or an attached-log resolved frame. "+
 			"Either add a citations[] entry for each named file (and reference it from steps / symbols / value as needed), "+
 			"or remove the unsupported file name from the diagram and describe the relationship in prose. Allowed grounded labels for this dispatch: %s.",
 		strings.Join(violations, ", "), allowed,
-	)
+	).WithFields("summary", "citations").
+		WithMetadata("invalid_labels", strings.Join(violations, ", ")).
+		WithMetadata("allowed_labels", strings.Join(allow.labels, ", ")).
+		WithHint("Re-emit `emit_answer_document` with the same grounded answer, but inside fenced diagrams keep file/path node labels to the exact grounded allowlist for this dispatch. If a node has no grounded label, remove it from the fence and explain that relationship in prose instead.")
 }
 
 type summaryDiagramAllowlist struct {
@@ -1795,14 +1886,18 @@ func validateSummaryLogTriageCoverage(summary string, ctx *types.BusContext) err
 	if len(missing) == 0 {
 		return nil
 	}
-	return fmt.Errorf(
+	return newAnswerDocValidationError(
+		"log_triage_coverage",
 		"summary does not acknowledge the attached log's error type(s): %s. "+
 			"The log's structured Errors tree identifies these types (walk the top-level Errors and their Cause chain in the Log Triage section); "+
 			"the answer must name each one by its class / exception identifier at least once so the reader can connect the log to your explanation. "+
 			"Quote the Type literally from the structured extraction — do NOT paraphrase class names away or invent alternative stack traces. "+
 			"If the question resolves to just one layer of the chain (e.g. 'what does this panic mean?' when the chain is trivial), still include the single Type's identifier. "+
 			"Case-insensitive match; a single mention of the class / exception name anywhere in summary is sufficient coverage.",
-		strings.Join(missing, ", "))
+		strings.Join(missing, ", ")).
+		WithFields("summary").
+		WithMetadata("missing_types", strings.Join(missing, ", ")).
+		WithHint("Re-emit `emit_answer_document` and name each attached-log error type directly in `summary` at least once. Keep the same grounded explanation, but do not paraphrase the class/exception names away.")
 }
 
 // collectLogTriageTypes walks every top-level Error in the bundle
@@ -1984,13 +2079,17 @@ func validateSummaryCodenameGrounding(summary string, citations []types.Citation
 	if len(ungrounded) == 0 {
 		return nil
 	}
-	return fmt.Errorf(
+	return newAnswerDocValidationError(
+		"diagram_codename",
 		"summary introduces codename label(s) not present in any citation's ±%d-line window: %s. "+
 			"Short enumeration labels (S1/S2/Phase 0/Fallback X) are source-level identifiers — the exact token MUST "+
 			"appear in the cited line range. Either cite the line where each label is defined, or remove the label "+
 			"and describe the mechanism by its real behavior; do NOT extrapolate from an existing label by pattern "+
 			"(e.g. 'S1 exists so S2 must too' is not admissible).",
-		corroborationWindow, strings.Join(ungrounded, ", "))
+		corroborationWindow, strings.Join(ungrounded, ", ")).
+		WithFields("summary", "citations").
+		WithMetadata("invalid_labels", strings.Join(ungrounded, ", ")).
+		WithHint("Re-emit `emit_answer_document` with the same grounded answer, but remove invented numbered / phase-style labels unless those exact tokens are cited. Use grounded files, symbols, config keys, or other evidenced entities as node labels instead.")
 }
 
 // validateEvidenceSummaryCodenameGrounding is the emit_evidence-side
@@ -2257,7 +2356,9 @@ func validateAbsentExactConfigValueShape(shape types.AnswerShape, exact *types.A
 	if ctx.AnalysisIR.RequestModel.Scenario == types.ScenarioConfigTrace {
 		msg += " and keep any grounded same-family precedence chain in prose"
 	}
-	return newAnswerDocValidationError("absent_exact_config_value_shape", "%s", msg)
+	return newAnswerDocValidationError("absent_exact_config_value_shape", "%s", msg).
+		WithFields("shape", "exact_resolution", "summary").
+		WithHint("Re-emit `emit_answer_document` with `shape=explanation`, keep `exact_resolution.status=\"absent\"`, and present any grounded same-family context as explanation only rather than a synthetic missing scalar.")
 }
 
 func normalizeAnswerExactResolutionStatus(status types.AnswerExactResolutionStatus) types.AnswerExactResolutionStatus {

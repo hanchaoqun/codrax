@@ -482,6 +482,67 @@ func ExactResolutionSourceIsDefiningPrimaryProofLike(c *ExactResolutionContract,
 	return !LooksLikeAuxiliaryEvidencePath(source)
 }
 
+// ExactResolutionEvidenceCanSatisfyRelatedContext reports whether a
+// grounded evidence item is a production-like same-scope anchor that
+// can legitimately support the "related context" half of an exact-
+// absence answer. The LLM may recommend related-context material, but
+// the system decides structurally whether an emitted evidence item is
+// strong enough to justify that contextual guidance before closing.
+//
+// requiredFiles is optional. When non-empty, the evidence must come
+// from one of those repo-relative files; otherwise the contract's own
+// policy (same-family / same-directory / grounded-only) is used as the
+// structural scope check.
+func ExactResolutionEvidenceCanSatisfyRelatedContext(c *ExactResolutionContract, item EvidenceItem, requiredFiles []string) bool {
+	if c == nil {
+		return false
+	}
+	if item.GroundingStatus != GroundingGrounded {
+		return false
+	}
+	if !ExactResolutionSourceIsDefiningPrimaryProofLike(c, item.Source) {
+		return false
+	}
+	switch item.ContextRole {
+	case EvidenceContextRoleIllustrativeOnly, EvidenceContextRoleAbsenceSupport:
+		return false
+	}
+	if ExactResolutionDirectAnchorMatchesAnyTarget(c, item.Subject, item.AnchorSymbol, item.Object) {
+		return false
+	}
+	if item.ContextRole == EvidenceContextRoleDefining &&
+		ExactResolutionTextsMentionAnyTarget(c,
+			item.Subject, item.Predicate, item.Object, item.AnchorSymbol, item.Condition, item.Snippet, item.Summary) {
+		return false
+	}
+	if len(requiredFiles) > 0 {
+		required := make(map[string]bool, len(requiredFiles))
+		for _, file := range requiredFiles {
+			file = exactResolutionCanonicalPath(file)
+			if file != "" {
+				required[file] = true
+			}
+		}
+		if len(required) > 0 && !required[exactResolutionCanonicalPath(item.Source)] {
+			return false
+		}
+		return true
+	}
+	switch c.RelatedContextPolicy {
+	case ExactContextGroundedOnly:
+		return true
+	case ExactContextSameFamilyGrounded:
+		if ExactResolutionSameFamilyMatchScore(c, exactResolutionEvidenceSurface(item)) > 0 {
+			return true
+		}
+		fallthrough
+	case ExactContextSameDirectoryGrounded:
+		return EvidenceItemMentionsAnyTerm(item, ExactResolutionContextTerms(c))
+	default:
+		return false
+	}
+}
+
 func exactResolutionFindingKindMatches(expected, got string) bool {
 	got = strings.TrimSpace(strings.ToLower(got))
 	if got == "" {
@@ -712,6 +773,28 @@ func looksLikeExactPathToken(s string) bool {
 		return false
 	}
 	return strings.Contains(s, "/") || (filepath.Ext(s) != "" && !strings.Contains(s, " "))
+}
+
+func exactResolutionEvidenceSurface(item EvidenceItem) string {
+	return strings.Join([]string{
+		item.Source,
+		item.Subject,
+		item.Predicate,
+		item.Object,
+		item.AnchorSymbol,
+		item.Condition,
+		item.Snippet,
+		item.Summary,
+	}, "\n")
+}
+
+func exactResolutionCanonicalPath(path string) string {
+	path = strings.TrimSpace(strings.ReplaceAll(path, `\`, `/`))
+	path = strings.TrimPrefix(path, "./")
+	if path == "." {
+		return ""
+	}
+	return filepath.ToSlash(path)
 }
 
 func looksLikeRouteLikeToken(s string) bool {

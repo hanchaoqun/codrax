@@ -245,6 +245,24 @@ func (t *EmitInvestigationComplete) Execute(ctx *types.BusContext, params json.R
 			Timestamp: time.Now(),
 		}, nil
 	}
+	if resultKind == "absence" && justification != "" {
+		contract := exactResolutionContractForCompletion(ctx)
+		requiredFiles := exactAbsenceRequiredContextFiles(ctx, contract)
+		if len(requiredFiles) > 0 {
+			evidence := ctx.Mutable.EmittedEvidence()
+			if !evidenceHasGroundedRelatedContextProof(contract, evidence, requiredFiles) {
+				return types.ToolResult{
+					ToolName: t.Name(),
+					Summary: fmt.Sprintf(
+						"emit_investigation_complete rejected: this exact-absence answer still lacks a grounded production related-context anchor from the current same-scope candidate set. Read one of these repo_map-ranked files, emit at least one grounded related_context fact from it, then re-call emit_investigation_complete(..., result_kind=\"absence\", absence_justification=...). Pending same-scope files: %s",
+						strings.Join(requiredFiles, ", "),
+					),
+					Success:   false,
+					Timestamp: time.Now(),
+				}, nil
+			}
+		}
+	}
 
 	// CGEC E1: pre-complete contract simulation. Before flipping the
 	// investigationComplete flag, simulate whether the finalizer's
@@ -1492,6 +1510,30 @@ func evidenceDirectlyAnchorsAnyListedExactTarget(contract *types.ExactResolution
 		if types.ExactResolutionTextMentionsTarget(contract, item.Subject, target) ||
 			types.ExactResolutionTextMentionsTarget(contract, item.AnchorSymbol, target) ||
 			types.ExactResolutionTextMentionsTarget(contract, item.Object, target) {
+			return true
+		}
+	}
+	return false
+}
+
+func exactAbsenceRequiredContextFiles(ctx *types.BusContext, contract *types.ExactResolutionContract) []string {
+	if ctx == nil || ctx.Mutable == nil || contract == nil || !contract.AllowAbsence {
+		return nil
+	}
+	switch contract.RelatedContextPolicy {
+	case types.ExactContextSameFamilyGrounded, types.ExactContextSameDirectoryGrounded:
+	default:
+		return nil
+	}
+	return ctx.Mutable.ExactContextRequiredFiles()
+}
+
+func evidenceHasGroundedRelatedContextProof(contract *types.ExactResolutionContract, items []types.EvidenceItem, requiredFiles []string) bool {
+	if contract == nil || len(items) == 0 {
+		return false
+	}
+	for _, item := range items {
+		if types.ExactResolutionEvidenceCanSatisfyRelatedContext(contract, item, requiredFiles) {
 			return true
 		}
 	}

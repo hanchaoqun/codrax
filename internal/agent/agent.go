@@ -1702,6 +1702,21 @@ func validateAnalyzerPrescanToolCall(ctx *types.AgentContext, tc llm.ToolCall) *
 	if ctx == nil || ctx.Stage != types.StageAnalyze {
 		return nil
 	}
+	if !isPrescanTool(tc.Name) {
+		return nil
+	}
+	if ctx.EmitStageRetryAttempt > 0 {
+		return rejectAnalyzerPrescanTool(tc,
+			"analyze retry is already in terminal emit mode; do not call repo_map / grep / list_files again. Call emit_analysis now with the best classification you have.")
+	}
+	if ctx.Mutable != nil {
+		limit := ctx.Mutable.PrescanRoundLimit()
+		if limit > 0 && ctx.Mutable.PrescanRoundCount() >= limit {
+			return rejectAnalyzerPrescanTool(tc,
+				fmt.Sprintf("pre-scan budget already reached (%d/%d rounds used). Do not call repo_map / grep / list_files again; call emit_analysis now with the fields you have.",
+					ctx.Mutable.PrescanRoundCount(), limit))
+		}
+	}
 	if tc.Name != "grep" {
 		return nil
 	}
@@ -1726,11 +1741,11 @@ func validateAnalyzerPrescanToolCall(ctx *types.AgentContext, tc llm.ToolCall) *
 	// budget is not exhausted.
 	limits := tool.CurrentAnalysisLimits()
 	if !limits.ClassificationGrepEnabled {
-		return rejectAnalyzerGrepWithoutFilesOnly(tc,
+		return rejectAnalyzerPrescanTool(tc,
 			"classification_grep disabled by config; retry with files_only=true")
 	}
 	if ctx.Mutable == nil || !ctx.Mutable.ClassificationGrepTriggered() {
-		return rejectAnalyzerGrepWithoutFilesOnly(tc,
+		return rejectAnalyzerPrescanTool(tc,
 			"grep in analyze stage must be called with files_only=true "+
 				"(evidence-lite boundary). Round 2 line-level grep is only "+
 				"allowed after the classification_grep trigger fires "+
@@ -1740,7 +1755,7 @@ func validateAnalyzerPrescanToolCall(ctx *types.AgentContext, tc llm.ToolCall) *
 	// Call budget.
 	if limits.ClassificationGrepMaxCalls > 0 &&
 		ctx.Mutable.ClassificationGrepCalls() >= limits.ClassificationGrepMaxCalls {
-		return rejectAnalyzerGrepWithoutFilesOnly(tc,
+		return rejectAnalyzerPrescanTool(tc,
 			fmt.Sprintf("classification_grep call budget exhausted "+
 				"(%d/%d calls used). Call emit_analysis now with your "+
 				"best-effort classification — the reconciler will accept "+
@@ -1752,7 +1767,7 @@ func validateAnalyzerPrescanToolCall(ctx *types.AgentContext, tc llm.ToolCall) *
 	// cost before execution; block only when already exhausted.
 	if limits.ClassificationGrepMaxTotalBytes > 0 &&
 		ctx.Mutable.ClassificationGrepBytes() >= limits.ClassificationGrepMaxTotalBytes {
-		return rejectAnalyzerGrepWithoutFilesOnly(tc,
+		return rejectAnalyzerPrescanTool(tc,
 			fmt.Sprintf("classification_grep byte budget exhausted "+
 				"(%d/%d bytes used). Call emit_analysis now.",
 				ctx.Mutable.ClassificationGrepBytes(),
@@ -1779,13 +1794,13 @@ func validateAnalyzerPrescanToolCall(ctx *types.AgentContext, tc llm.ToolCall) *
 	return nil
 }
 
-// rejectAnalyzerGrepWithoutFilesOnly synthesises the failed
-// ToolResult returned from validateAnalyzerPrescanToolCall when the
-// LLM tries a line-level grep but none of the gates admit it. Logs
-// the rejection at WARN so operators can spot unexpected trigger
-// misfires in production.
-func rejectAnalyzerGrepWithoutFilesOnly(tc llm.ToolCall, reason string) *types.ToolResult {
-	logging.Warning("[analyzer] grep without files_only rejected: %s", reason)
+// rejectAnalyzerPrescanTool synthesises the failed ToolResult
+// returned from validateAnalyzerPrescanToolCall when the analyzer
+// issues a prescan tool call that the runtime gate will not admit.
+// Logs the rejection at WARN so operators can spot unexpected
+// trigger misfires in production.
+func rejectAnalyzerPrescanTool(tc llm.ToolCall, reason string) *types.ToolResult {
+	logging.Warning("[analyzer] prescan tool %q rejected: %s", tc.Name, reason)
 	return &types.ToolResult{
 		ToolName:  tc.Name,
 		Success:   false,
@@ -1946,12 +1961,12 @@ func scanGrepLinesIntoClassificationObs(ctx *types.AgentContext, pattern, summar
 //   - Python (pytest/unittest) _test.py / test_<name>.py
 //   - Ruby (RSpec)             _spec.rb / _test.rb
 //   - JavaScript / TypeScript  .test.js / .test.ts / .spec.js / .spec.ts
-//                              plus .test.jsx / .spec.jsx / .test.tsx / .spec.tsx
+//     plus .test.jsx / .spec.jsx / .test.tsx / .spec.tsx
 //   - Java / Kotlin            Test.java / Tests.java / Test.kt
-//                              plus common prefixes Test*.java /
-//                              IT*.java (integration tests)
+//     plus common prefixes Test*.java /
+//     IT*.java (integration tests)
 //   - C / C++                  _test.c / _test.cc / _test.cpp / _test.cxx
-//                              plus google-test convention *_unittest.cc
+//     plus google-test convention *_unittest.cc
 //
 // The matcher is conservative: files that look like test helpers but
 // do not match a recognised suffix fall through and are treated as

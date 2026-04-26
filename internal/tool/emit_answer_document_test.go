@@ -2485,6 +2485,12 @@ func TestEmitAnswerDocument_DiagramGate_RejectsUngroundedFileInFence(t *testing.
 	if !strings.Contains(res.Summary, "explorer.go") {
 		t.Errorf("rejection must name the offending file, got: %q", res.Summary)
 	}
+	if res.Repair == nil || res.Repair.Code != "diagram_grounding" {
+		t.Fatalf("diagram-grounding reject should emit structured repair metadata, got %+v", res.Repair)
+	}
+	if got := res.Repair.Metadata["allowed_labels"]; !strings.Contains(got, "internal/agent/analyzer.go") {
+		t.Fatalf("diagram-grounding repair should surface allowed labels, got %+v", res.Repair)
+	}
 }
 
 // TestEmitAnswerDocument_DiagramGate_AcceptsCitedFileInFence is the
@@ -2903,6 +2909,9 @@ func TestEmitAnswerDocument_CodenameGate_RejectsUngroundedFallbackLabel(t *testi
 	if !strings.Contains(res.Summary, "S2") {
 		t.Errorf("rejection must name the offending codename; got: %q", res.Summary)
 	}
+	if res.Repair == nil || res.Repair.Code != "diagram_codename" {
+		t.Fatalf("codename reject should emit structured repair metadata, got %+v", res.Repair)
+	}
 }
 
 // TestEmitAnswerDocument_CodenameGate_AcceptsGroundedLabel is the
@@ -3062,6 +3071,12 @@ func TestEmitAnswerDocument_ValueShape_RejectsEmptySummary(t *testing.T) {
 		if !strings.Contains(res.Summary, want) {
 			t.Errorf("rejection message missing %q.\nFull rejection:\n%s", want, res.Summary)
 		}
+	}
+	if res.Repair == nil || res.Repair.Code != "scalar_summary_required" {
+		t.Fatalf("empty-summary reject should emit structured repair metadata, got %+v", res.Repair)
+	}
+	if got := strings.Join(res.Repair.Fields, ","); !strings.Contains(got, "summary") || !strings.Contains(got, "value.literal") {
+		t.Fatalf("repair fields should name summary + literal, got %+v", res.Repair)
 	}
 }
 

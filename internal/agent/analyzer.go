@@ -98,6 +98,13 @@ func (e *analyzerEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk 
 			}
 		}
 	}
+	if ctx != nil && ctx.Mutable != nil {
+		limit := e.prescanBudgetOverride
+		if limit <= 0 {
+			limit = tool.CurrentAnalysisLimits().MaxPrescanRounds
+		}
+		ctx.Mutable.SetPrescanRoundLimit(limit)
+	}
 
 	// Pre-inject a repo_map task_map view so the analyzer starts its
 	// first iteration with structural context already visible. Without

@@ -212,6 +212,14 @@ type MutableState struct {
 	// (hasInvestigationEvidence ≥1 investigation tool) still runs.
 	absenceJustification    string
 	investigationResultKind string
+	// exactContextRequiredFiles stores repo-relative production files
+	// that the explorer structurally ranked as same-scope related-
+	// context anchors for an exact-resolution task. When an
+	// exact-absence answer wants to close with contextual guidance, the
+	// completion validator requires at least one grounded evidence item
+	// from this file set before allowing result_kind=absence. Reset per
+	// explore window together with the other investigation latches.
+	exactContextRequiredFiles []string
 	// retainedAbsenceJustification / retainedInvestigationResultKind
 	// preserve the most recently accepted terminal investigation state
 	// across explore-window retries. ResetInvestigationComplete clears
@@ -252,6 +260,8 @@ type MutableState struct {
 	// analyzerEvaluator.BuildInitialInstruction so cross-dispatch
 	// state never leaks.
 	prescanSummaryBlob strings.Builder
+	prescanRoundCount  int
+	prescanRoundLimit  int
 
 	// evidenceClosure is the cross-stage CGEC tracker (Citation-
 	// Grounded Evidence Closure). Records ReadSet, PendingReads,
@@ -1403,6 +1413,41 @@ func (m *MutableState) AppendPrescanSummary(summary string) {
 	defer m.mu.Unlock()
 	m.prescanSummaryBlob.WriteString(strings.ToLower(summary))
 	m.prescanSummaryBlob.WriteByte('\n')
+	m.prescanRoundCount++
+}
+
+// PrescanRoundCount returns the number of analyzer pre-scan rounds
+// that have completed in the current analyze dispatch.
+func (m *MutableState) PrescanRoundCount() int {
+	if m == nil {
+		return 0
+	}
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return m.prescanRoundCount
+}
+
+// SetPrescanRoundLimit records the active analyze-dispatch pre-scan
+// budget so runtime validators can enforce must-emit hard gates
+// against the same effective limit the analyzer prompt used.
+func (m *MutableState) SetPrescanRoundLimit(limit int) {
+	if m == nil {
+		return
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.prescanRoundLimit = limit
+}
+
+// PrescanRoundLimit returns the active analyze-dispatch pre-scan
+// budget recorded for the current dispatch.
+func (m *MutableState) PrescanRoundLimit() int {
+	if m == nil {
+		return 0
+	}
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return m.prescanRoundLimit
 }
 
 // PrescanSummaryBlob returns the lowercased concatenation of every
@@ -1431,6 +1476,8 @@ func (m *MutableState) ResetPrescanSummary() {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.prescanSummaryBlob.Reset()
+	m.prescanRoundCount = 0
+	m.prescanRoundLimit = 0
 }
 
 // ── Session 11 C0' ClassificationGrep accessors ────────────────────
@@ -1649,6 +1696,52 @@ func (m *MutableState) ResetInvestigationComplete() {
 	m.investigationCompleteReason = ""
 	m.absenceJustification = ""
 	m.investigationResultKind = ""
+	m.exactContextRequiredFiles = nil
+}
+
+// SetExactContextRequiredFiles stores the repo-relative file set that
+// must contribute at least one grounded production related-context
+// anchor before an exact-absence answer may close with contextual
+// guidance. The explorer refreshes this at the start of every explore
+// dispatch from structurally-ranked candidates; downstream validators
+// consume it deterministically instead of re-deriving the scope from
+// free-form prose.
+func (m *MutableState) SetExactContextRequiredFiles(files []string) {
+	if m == nil {
+		return
+	}
+	seen := make(map[string]bool)
+	var norm []string
+	for _, file := range files {
+		file = strings.TrimSpace(strings.ReplaceAll(file, `\`, `/`))
+		file = strings.TrimPrefix(file, "./")
+		if file == "" || seen[file] {
+			continue
+		}
+		seen[file] = true
+		norm = append(norm, file)
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.exactContextRequiredFiles = norm
+}
+
+// ExactContextRequiredFiles returns the structurally-ranked
+// same-scope related-context files that an exact-absence closure may
+// need to ground before completing. Empty means no additional
+// related-context anchor is currently required.
+func (m *MutableState) ExactContextRequiredFiles() []string {
+	if m == nil {
+		return nil
+	}
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	if len(m.exactContextRequiredFiles) == 0 {
+		return nil
+	}
+	out := make([]string, len(m.exactContextRequiredFiles))
+	copy(out, m.exactContextRequiredFiles)
+	return out
 }
 
 // SetAbsenceJustification stores the LLM's declarative claim that
@@ -1869,12 +1962,20 @@ type RepoFact struct {
 }
 
 // ToolResult records the outcome of a tool invocation.
+type ToolRepair struct {
+	Code     string            `json:"code,omitempty"`
+	Hint     string            `json:"hint,omitempty"`
+	Fields   []string          `json:"fields,omitempty"`
+	Metadata map[string]string `json:"metadata,omitempty"`
+}
+
 type ToolResult struct {
-	ToolName  string    `json:"tool_name"`
-	Summary   string    `json:"summary"`
-	RawRef    string    `json:"raw_ref,omitempty"`
-	Success   bool      `json:"success"`
-	Timestamp time.Time `json:"timestamp"`
+	ToolName  string      `json:"tool_name"`
+	Summary   string      `json:"summary"`
+	Repair    *ToolRepair `json:"repair,omitempty"`
+	RawRef    string      `json:"raw_ref,omitempty"`
+	Success   bool        `json:"success"`
+	Timestamp time.Time   `json:"timestamp"`
 }
 
 // MCPResponse records a response from an MCP server.

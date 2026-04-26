@@ -286,6 +286,23 @@ func pendingExactResolutionContextCandidates(contract *types.ExactResolutionCont
 	return pending
 }
 
+func exactResolutionContextFilesFromCandidates(candidates []exactResolutionSymbolCandidate) []string {
+	if len(candidates) == 0 {
+		return nil
+	}
+	seen := make(map[string]bool)
+	var files []string
+	for _, cand := range candidates {
+		file := canonicalExactResolutionPath(cand.File)
+		if file == "" || seen[file] {
+			continue
+		}
+		seen[file] = true
+		files = append(files, file)
+	}
+	return files
+}
+
 func exactResolutionEvidenceMentionsCandidate(contract *types.ExactResolutionContract, evidence []types.EvidenceItem, cand exactResolutionSymbolCandidate) bool {
 	if cand.Symbol == "" {
 		return false

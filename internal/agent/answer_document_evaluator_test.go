@@ -175,7 +175,7 @@ func TestAnswerDocumentEvaluator_BuildInitialInstruction_RendersDiagramContractA
 		"Avoid invented enumeration labels like `Level 1`, `Round 2`, or `Step 3`",
 		"## Diagram Seeds",
 		"### Grounded Labeling",
-		"### Verbatim File/Path Labels",
+		"### Diagram Node Allowlist",
 		"`internal/a.go`",
 		"`internal/b.go`",
 		"### Log Triage",
@@ -231,7 +231,7 @@ func TestAnswerDocumentEvaluator_BuildInitialInstruction_RendersConfigTraceDiagr
 		"## Submission Checklist",
 		"treat it as the grounded template for first-pass repair-resistant output",
 		"every fenced-diagram node must have its own grounded citation",
-		"### Verbatim File/Path Labels",
+		"### Diagram Node Allowlist",
 		"`codrax.yaml.example`",
 		"`internal/config/runtime.go`",
 	} {
@@ -291,12 +291,16 @@ func TestAnswerDocumentEvaluator_BuildInitialInstruction_ConfigTraceSeedWarnsWhe
 		EvidenceItems: []types.EvidenceItem{
 			{Source: "internal/types/config.go", LineStart: 707, Subject: "DefaultExploreHeuristics", Summary: "code defaults", Kind: types.EvidenceDirect, DiagramRole: types.EvidenceDiagramRoleDefault},
 			{Source: "internal/config/runtime.go", LineStart: 194, Subject: "ExploreMidLoopMinIteration", Summary: "runtime yaml binding", Kind: types.EvidenceDirect, DiagramRole: types.EvidenceDiagramRoleRuntime},
+			{Source: "codrax.yaml.example", LineStart: 20, Subject: "example only", Summary: "same-family background without a validated diagram role", Kind: types.EvidenceDirect},
 		},
 	}
 
 	prompt := (&answerDocumentEvaluator{}).BuildInitialInstruction(ctx, nil)
 	if !strings.Contains(prompt, "Current grounded evidence does NOT include anchor(s) for these precedence role(s): override, yaml") {
 		t.Fatalf("prompt missing generic missing-role warning:\n%s", prompt)
+	}
+	if strings.Contains(prompt, "### Diagram Node Allowlist") && strings.Contains(prompt, "`codrax.yaml.example`") {
+		t.Fatalf("diagram node allowlist must exclude non-diagram evidence labels when that role is missing:\n%s", prompt)
 	}
 }
 
@@ -950,6 +954,13 @@ func TestAnswerDocumentEvaluator_Observe_MidLoopDiagramGroundingRejectSurfacesAc
 			ToolName: "emit_answer_document",
 			Success:  false,
 			Summary:  "summary fenced code block references file(s) not present in citations[] or attached-log frames: codrax.yaml. ASCII diagrams are structural claims.",
+			Repair: &types.ToolRepair{
+				Code: "diagram_grounding",
+				Hint: "Re-emit `emit_answer_document` with the same grounded answer, but inside fenced diagrams keep file/path node labels to the exact grounded allowlist for this dispatch. If a node has no grounded label, remove it from the fence and explain that relationship in prose instead.",
+				Metadata: map[string]string{
+					"allowed_labels": "cmd/root.go, internal/config/runtime.go, internal/types/config.go",
+				},
+			},
 		},
 	})
 	if !sig.HintRequested {
@@ -958,7 +969,8 @@ func TestAnswerDocumentEvaluator_Observe_MidLoopDiagramGroundingRejectSurfacesAc
 	for _, want := range []string{
 		"DIAGRAM-GROUNDING",
 		"reuse the exact grounded file / symbol / path labels",
-		"Verbatim File/Path Labels",
+		"Diagram Node Allowlist",
+		"`cmd/root.go`, `internal/config/runtime.go`, `internal/types/config.go`",
 		"Do NOT normalize one grounded label into a different spelling",
 		"Do NOT call `read_file`, `grep`, or any other tool",
 	} {
@@ -1069,7 +1081,7 @@ func TestAnswerDocumentEvaluator_Observe_MidLoopUnexpectedReadToolRequestsSynthe
 		"pure synthesizer",
 		"Do NOT call `read_file`",
 		"emit_answer_document",
-		"Verbatim File/Path Labels",
+		"Diagram Node Allowlist",
 	} {
 		if !strings.Contains(sig.Hint, want) {
 			t.Fatalf("unexpected-tool hint missing %q: %q", want, sig.Hint)
@@ -1099,6 +1111,38 @@ func TestAnswerDocumentEvaluator_Observe_MidLoopGenericRejectSurfacesToolError(t
 	} {
 		if !strings.Contains(sig.Hint, want) {
 			t.Fatalf("generic reject hint missing %q: %q", want, sig.Hint)
+		}
+	}
+}
+
+func TestAnswerDocumentEvaluator_Observe_MidLoopStructuredRepairHintUsesRepairMetadata(t *testing.T) {
+	e := &answerDocumentEvaluator{maxRetries: 2}
+	sig := e.Observe(nil, LoopObservation{
+		Phase:     PhaseMidLoop,
+		Iteration: 0,
+		LastToolResult: &types.ToolResult{
+			ToolName: "emit_answer_document",
+			Success:  false,
+			Summary:  "validation failed",
+			Repair: &types.ToolRepair{
+				Code:   "scalar_summary_required",
+				Fields: []string{"summary", "value.literal"},
+				Hint:   "Re-emit `emit_answer_document` with the same scalar payload, keep the grounded literal and citation unchanged, and expand `summary` so it names the measured subject and how the value was obtained. Do not reopen files or change the answer shape.",
+			},
+		},
+	})
+	if !sig.HintRequested {
+		t.Fatalf("structured repair should request a correction hint, got %+v", sig)
+	}
+	for _, want := range []string{
+		"summary",
+		"value.literal",
+		"same scalar payload",
+		"Do not reopen files or change the answer shape",
+		"Do not write free-form prose outside the tool call",
+	} {
+		if !strings.Contains(sig.Hint, want) {
+			t.Fatalf("structured repair hint missing %q: %q", want, sig.Hint)
 		}
 	}
 }

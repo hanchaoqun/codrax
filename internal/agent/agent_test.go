@@ -434,6 +434,45 @@ func TestValidateAnalyzerPrescanToolCall(t *testing.T) {
 		}
 	})
 
+	t.Run("terminal emit retry blocks all prescan tools", func(t *testing.T) {
+		ctx := &types.AgentContext{
+			Stage:                 types.StageAnalyze,
+			EmitStageRetryAttempt: 1,
+			Mutable:               types.NewMutableState(""),
+		}
+		for _, name := range []string{"repo_map", "grep", "list_files"} {
+			tc := llm.ToolCall{Name: name, Params: json.RawMessage(`{"files_only":true}`)}
+			got := validateAnalyzerPrescanToolCall(ctx, tc)
+			if got == nil {
+				t.Fatalf("tool=%s should be blocked during terminal emit retry", name)
+			}
+			if !strings.Contains(got.Summary, "Call emit_analysis now") {
+				t.Fatalf("tool=%s summary should redirect to emit_analysis, got %q", name, got.Summary)
+			}
+		}
+	})
+
+	t.Run("must-emit wall blocks further prescan tools", func(t *testing.T) {
+		mu := types.NewMutableState("")
+		mu.SetPrescanRoundLimit(2)
+		mu.AppendPrescanSummary("round 1")
+		mu.AppendPrescanSummary("round 2")
+		ctx := &types.AgentContext{
+			Stage:   types.StageAnalyze,
+			Mutable: mu,
+		}
+		for _, name := range []string{"repo_map", "grep", "list_files"} {
+			tc := llm.ToolCall{Name: name, Params: json.RawMessage(`{"files_only":true}`)}
+			got := validateAnalyzerPrescanToolCall(ctx, tc)
+			if got == nil {
+				t.Fatalf("tool=%s should be blocked after prescan budget is reached", name)
+			}
+			if !strings.Contains(got.Summary, "pre-scan budget already reached") {
+				t.Fatalf("tool=%s summary should name must-emit wall, got %q", name, got.Summary)
+			}
+		}
+	})
+
 	t.Run("malformed params fall through to the tool", func(t *testing.T) {
 		// Defensive: a tool call with unparseable params is NOT
 		// rejected by the pre-check so the real grep tool produces
