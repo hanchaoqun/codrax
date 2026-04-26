@@ -266,8 +266,8 @@ func TestAnswerDocumentEvaluator_BuildInitialInstruction_ConfigTraceSeedWarnsWhe
 	}
 
 	prompt := (&answerDocumentEvaluator{}).BuildInitialInstruction(ctx, nil)
-	if !strings.Contains(prompt, "Current grounded evidence does NOT include an override-layer anchor") {
-		t.Fatalf("prompt missing missing-override warning:\n%s", prompt)
+	if !strings.Contains(prompt, "Current grounded evidence does NOT include anchor(s) for these precedence role(s): override") {
+		t.Fatalf("prompt missing generic missing-role warning:\n%s", prompt)
 	}
 }
 
@@ -295,8 +295,8 @@ func TestAnswerDocumentEvaluator_BuildInitialInstruction_ConfigTraceSeedWarnsWhe
 	}
 
 	prompt := (&answerDocumentEvaluator{}).BuildInitialInstruction(ctx, nil)
-	if !strings.Contains(prompt, "Current grounded evidence does NOT include a YAML-layer anchor") {
-		t.Fatalf("prompt missing missing-yaml warning:\n%s", prompt)
+	if !strings.Contains(prompt, "Current grounded evidence does NOT include anchor(s) for these precedence role(s): override, yaml") {
+		t.Fatalf("prompt missing generic missing-role warning:\n%s", prompt)
 	}
 }
 

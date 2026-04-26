@@ -288,7 +288,7 @@ func renderAnswerDocSubmissionChecklist(ctx *types.AgentContext, shape string, d
 		)
 		if ctx != nil && ctx.AnalysisIR != nil && ctx.AnalysisIR.RequestModel.Scenario == types.ScenarioConfigTrace {
 			items = append(items,
-				"For config-precedence answers, every fenced-diagram node must have its own grounded citation. If a YAML / runtime / CLI layer is missing a grounded anchor in this dispatch, leave that layer in prose only instead of inventing a diagram node for it.",
+				"For config-precedence answers, every fenced-diagram node must have its own grounded citation. If any precedence layer is missing a grounded anchor in this dispatch, leave that layer in prose only instead of inventing a diagram node for it.",
 			)
 		}
 	}
@@ -655,19 +655,34 @@ func renderAnswerDocDiagramConfigTraceSeed(ctx *types.AgentContext) string {
 	}
 	b.WriteString("```\n")
 	b.WriteString("Precedence semantics live in prose, not in invented node names: `override` = highest-precedence operator / CLI layer, `yaml` = repo or user config layer, `default` = code-default fallback. `runtime` is the binding / merge code path between those layers, not a standalone user-config tier.\n")
-	if !rolesPresent[string(types.EvidenceDiagramRoleYAML)] {
-		b.WriteString("Current grounded evidence does NOT include a YAML-layer anchor. Do not add `codrax.yaml`, `codrax.yaml.example`, or a generic YAML node to the fenced diagram unless you first cite a real repo anchor for it; if you mention YAML semantics in prose, label them as general precedence rules rather than a grounded node in this dispatch.\n")
-	}
-	if !rolesPresent[string(types.EvidenceDiagramRoleRuntime)] {
-		b.WriteString("Current grounded evidence does NOT include a runtime-binding anchor. Do not add a runtime / merge node to the fenced diagram unless you first cite a real repo anchor for it; if you mention runtime binding semantics in prose, keep them outside the fenced chain.\n")
-	}
-	if !rolesPresent[string(types.EvidenceDiagramRoleOverride)] {
-		b.WriteString("Current grounded evidence does NOT include an override-layer anchor. Do not add a CLI / override node to the fenced diagram unless you first cite a real repo anchor for it; if you mention generic override semantics in prose, label them as general precedence rules rather than a grounded node in this dispatch.\n")
+	if missing := missingConfigTraceDiagramRoles(rolesPresent); len(missing) > 0 {
+		fmt.Fprintf(&b, "Current grounded evidence does NOT include anchor(s) for these precedence role(s): %s. Do not add fenced-diagram nodes for missing roles unless you first cite a real repo anchor for them; if you need to explain those semantics, keep them in prose as general precedence rules rather than grounded nodes in this dispatch.\n", strings.Join(missing, ", "))
 	}
 	b.WriteString("The safest valid fenced diagram for this dispatch is an exact copy of that chain, or a strict subsequence made only by deleting unused nodes. Do not invent new node names, aliases, buckets, or tier markers.\n")
 	b.WriteString("Every node you keep in this diagram must also have a matching citation in `citations[]`. If you cannot cite a node, delete it from the chain instead of renaming it to an abstract bucket name (for example a generic step number, the literal `CLI`, or a tier label). Keep each node label as a plain grounded file/path label; do not prepend ordinal-tier wrappers.\n")
 	b.WriteString("If you only need part of the chain, delete unused nodes rather than inventing new abstract labels. Conceptual layer names requested by the user belong in prose headings or bullets unless those exact file/path labels are themselves cited. If you want to explain semantics such as defaults, YAML load, runtime binding, or CLI override, keep that explanation in prose outside the fenced diagram and cite it there. If you introduce a different file / symbol / path label, ground it first.")
 	return strings.TrimSpace(b.String())
+}
+
+func missingConfigTraceDiagramRoles(present map[string]bool) []string {
+	if len(present) == 0 {
+		return nil
+	}
+	order := []types.EvidenceDiagramRole{
+		types.EvidenceDiagramRoleOverride,
+		types.EvidenceDiagramRoleYAML,
+		types.EvidenceDiagramRoleRuntime,
+		types.EvidenceDiagramRoleDefault,
+	}
+	var missing []string
+	for _, role := range order {
+		key := string(role)
+		if key == "" || present[key] {
+			continue
+		}
+		missing = append(missing, key)
+	}
+	return missing
 }
 
 func collectConfigTraceDiagramAnchors(ctx *types.AgentContext) []configTraceDiagramAnchor {
