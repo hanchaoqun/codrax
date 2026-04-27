@@ -136,6 +136,8 @@ func (r *REPL) handleVerifyCmd(line string) {
 //
 //	/worktree              — alias for /worktree list
 //	/worktree list         — show every plan with a preserved worktree
+//	/worktree show         — alias for /worktree list (operator
+//	                         convenience: many users type `show` first)
 //	/worktree discard <id> — remove the worktree for plan <id>
 //
 // "Preserved" means Fix 4's keep-on-success fired: the plan's
@@ -152,7 +154,11 @@ func (r *REPL) handleWorktreeCmd(line string) {
 	}
 	fields := strings.Fields(rest)
 	switch fields[0] {
-	case "list":
+	case "list", "show":
+		// `show` is the natural verb operators reach for after a
+		// failed merge ("let me see what's there"); accept it as
+		// an alias for list rather than printing usage and forcing
+		// them to retype.
 		r.worktreeList()
 	case "discard":
 		if len(fields) < 2 {
@@ -161,7 +167,7 @@ func (r *REPL) handleWorktreeCmd(line string) {
 		}
 		r.worktreeDiscard(fields[1])
 	default:
-		r.info("/worktree subcommands: list, discard <plan-id>")
+		r.info("/worktree subcommands: list (or `show`), discard <plan-id>")
 	}
 }
 

@@ -68,6 +68,52 @@ func TestTagAppliedCommit_PinsRef(t *testing.T) {
 	}
 }
 
+// TestIsWorkingTreeDirty_IgnoresUntracked locks the customer-
+// reported behaviour: untracked files (codrax's own .codrax/
+// runtime dir, the user's .venv/) MUST NOT block /merge. Pre-fix
+// the dirty check used `git status --porcelain` (no flag) and
+// blocked on `?? .codrax/` lines; post-fix it uses
+// `--untracked-files=no` so only modified/staged TRACKED files
+// count as dirty.
+func TestIsWorkingTreeDirty_IgnoresUntracked(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not on PATH")
+	}
+	repo := initBareRepo(t)
+	writeAndCommit(t, repo, "tracked.txt", "v1\n", "seed")
+
+	// Untracked files reproducing the customer's `?? .codrax/`
+	// + `?? .venv/` shape should NOT mark the tree dirty.
+	for _, p := range []string{".codrax/plans/x.json", ".venv/bin/python"} {
+		full := filepath.Join(repo, p)
+		if err := os.MkdirAll(filepath.Dir(full), 0o755); err != nil {
+			t.Fatalf("mkdir: %v", err)
+		}
+		if err := os.WriteFile(full, []byte("stub"), 0o644); err != nil {
+			t.Fatalf("write: %v", err)
+		}
+	}
+	dirty, err := isWorkingTreeDirty(repo)
+	if err != nil {
+		t.Fatalf("isWorkingTreeDirty: %v", err)
+	}
+	if dirty {
+		t.Errorf("untracked files alone should NOT mark tree dirty")
+	}
+
+	// Modify a TRACKED file → must mark dirty.
+	if err := os.WriteFile(filepath.Join(repo, "tracked.txt"), []byte("v2\n"), 0o644); err != nil {
+		t.Fatalf("modify tracked: %v", err)
+	}
+	dirty, err = isWorkingTreeDirty(repo)
+	if err != nil {
+		t.Fatalf("isWorkingTreeDirty after modify: %v", err)
+	}
+	if !dirty {
+		t.Error("tracked-file modification should mark tree dirty")
+	}
+}
+
 // TestMergeFromRef_FastForward drives the keep_on_success=false
 // recovery path: tag a commit, discard the worktree, then fold the
 // ref into the main branch.

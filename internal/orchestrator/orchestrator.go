@@ -903,13 +903,13 @@ func renderApplySummary(plan *types.ChangePlan, applied map[string]bool, worktre
 			b.WriteString("\n")
 		}
 		if willPreserve {
-			fmt.Fprintf(&b, "*worktree 保留,可 `cd` 进去检查;落到当前分支用 `/merge`,或手动 `git cherry-pick %s` 回主仓。*\n",
+			fmt.Fprintf(&b, "worktree 已保留,可 `cd` 进去检查。落地:`/merge`(在 codrax 内)或 `git cherry-pick %s`(在主仓终端)。\n",
 				recoveryRef)
 		} else {
-			fmt.Fprintf(&b, "*worktree 进程退出时销毁,但 apply commit 已 pin 到主仓的 `%s`,bytes 不会丢:*\n"+
-				"*  - 在 codrax 内: `/merge`(零额外配置即可使用)*\n"+
-				"*  - 在主仓终端: `git cherry-pick %s`*\n"+
-				"*要保留 worktree 直接审阅,设置 `codrax.yaml :: pipeline_keep_worktree_on_success: true`。*\n",
+			fmt.Fprintf(&b, "worktree 进程退出时销毁,但 apply commit 已 pin 到主仓 ref `%s`,bytes 可恢复:\n\n"+
+				"- 在 codrax 内: `/merge`(主仓有未提交跟踪改动时先 commit 或 stash;未跟踪文件不影响)\n"+
+				"- 在主仓终端: `git cherry-pick %s`\n\n"+
+				"想保留 worktree 直接审阅,在 `codrax.yaml` 设置 `pipeline_keep_worktree_on_success: true`。\n",
 				recoveryRef, recoveryRef)
 		}
 		return b.String()
@@ -928,13 +928,13 @@ func renderApplySummary(plan *types.ChangePlan, applied map[string]bool, worktre
 		b.WriteString("\n")
 	}
 	if willPreserve {
-		fmt.Fprintf(&b, "*Worktree preserved; `cd` in to inspect. Land via `/merge` or manually `git cherry-pick %s` in the main repo.*\n",
+		fmt.Fprintf(&b, "Worktree preserved; `cd` in to inspect. Land via `/merge` (in codrax) or `git cherry-pick %s` (from a main-repo terminal).\n",
 			recoveryRef)
 	} else {
-		fmt.Fprintf(&b, "*The worktree dir is discarded on Run exit, but the apply commit is pinned in the main repo at `%s` so the bytes are recoverable:*\n"+
-			"*  - inside codrax: `/merge` (no extra config needed)*\n"+
-			"*  - from a main-repo terminal: `git cherry-pick %s`*\n"+
-			"*Set `codrax.yaml :: pipeline_keep_worktree_on_success: true` if you prefer to keep the worktree for direct inspection.*\n",
+		fmt.Fprintf(&b, "The worktree dir is discarded on Run exit, but the apply commit is pinned in the main repo at ref `%s` so the bytes are recoverable:\n\n"+
+			"- inside codrax: `/merge` (commit or stash any modified tracked files in main first; untracked files do not block)\n"+
+			"- from a main-repo terminal: `git cherry-pick %s`\n\n"+
+			"To keep the worktree for direct inspection, set `pipeline_keep_worktree_on_success: true` in `codrax.yaml`.\n",
 			recoveryRef, recoveryRef)
 	}
 	return b.String()

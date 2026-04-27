@@ -308,10 +308,21 @@ func isAncestor(dir, ancestor, descendant string) bool {
 }
 
 // isWorkingTreeDirty reports whether `git status --porcelain` shows
-// any modifications. Used to refuse merges that would silently move
-// HEAD past uncommitted user work.
+// any TRACKED-file modifications or staged changes. Untracked files
+// (`??` in porcelain output) are deliberately ignored: they include
+// codrax's own `.codrax/` runtime dir, the user's `.venv/`, OS
+// scratch files, etc., none of which conflict with cherry-pick or
+// fast-forward. If the cherry-pick itself would clobber an untracked
+// file, git will detect that case and abort — we don't need the
+// pre-flight to second-guess.
+//
+// Pre-fix: `git status --porcelain` (no flag) reported untracked
+// files as `??` lines and our check returned dirty=true, blocking
+// `/merge` on every customer who hadn't gitignored `.codrax/` —
+// which is most of them, because we never write a .gitignore entry
+// during plan emit.
 func isWorkingTreeDirty(dir string) (bool, error) {
-	out, err := runGitCapture(dir, "status", "--porcelain")
+	out, err := runGitCapture(dir, "status", "--porcelain", "--untracked-files=no")
 	if err != nil {
 		return false, err
 	}
