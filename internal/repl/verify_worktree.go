@@ -103,7 +103,10 @@ func (r *REPL) handleVerifyCmd(line string) {
 		}
 	}()
 
-	request := fmt.Sprintf("/verify %s", plan.ID)
+	// See approveDispatchRequest for why a literal "/verify <id>"
+	// can't be the synthetic request: it would trip the analyzer's
+	// REPL-control-input rejection and burn iterations.
+	request := verifyDispatchRequest(plan)
 	logging.Info("[repl] dispatching verify: plan=%s path=%s", plan.ID, planPath)
 	r.info(verifyDispatching(r.language, plan.ID))
 	if r.renderer != nil {

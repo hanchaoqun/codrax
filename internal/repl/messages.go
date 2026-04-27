@@ -3,6 +3,8 @@ package repl
 import (
 	"fmt"
 	"strings"
+
+	"github.com/hanchaoqun/codrax/internal/types"
 )
 
 // messages.go — short user-facing strings localized for the REPL.
@@ -62,6 +64,34 @@ func approveFailedNudge(lang string) []string {
 		"    1. /mode plan",
 		"    2. re-state your request, mentioning what failed — the planner sees this turn's outcome via /history.",
 	}
+}
+
+// approveDispatchRequest builds the synthetic request string the
+// REPL hands to runner.Run for /approve. It must NOT trip
+// types.IsREPLControlInput (i.e. its first token cannot be a known
+// slash-command alias like "/approve") or the analyzer's
+// emit_analysis tool will reject it on every iteration and burn
+// the analyzer's iter budget before the orchestrator gets to swap
+// in BuildWriteTaskGraph. Using plan.Summary gives the analyzer
+// real code-question content; the leading "Apply approved plan"
+// phrasing carries the user's intent into memory transcripts.
+func approveDispatchRequest(plan *types.ChangePlan) string {
+	summary := strings.TrimSpace(plan.Summary)
+	if summary == "" {
+		summary = "apply the reviewed plan"
+	}
+	return fmt.Sprintf("Apply approved plan %s: %s", plan.ID, summary)
+}
+
+// verifyDispatchRequest mirrors approveDispatchRequest for /verify.
+// Same rationale: avoid the REPL-control-input shape so the analyzer
+// classifier terminates without rejection retries.
+func verifyDispatchRequest(plan *types.ChangePlan) string {
+	summary := strings.TrimSpace(plan.Summary)
+	if summary == "" {
+		summary = "verify the applied plan"
+	}
+	return fmt.Sprintf("Verify applied plan %s: %s", plan.ID, summary)
 }
 
 // approveTitlePrompt — confirmation-dialog title for /approve.

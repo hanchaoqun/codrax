@@ -3,6 +3,8 @@ package repl
 import (
 	"strings"
 	"testing"
+
+	"github.com/hanchaoqun/codrax/internal/types"
 )
 
 // Locks the zh-as-default contract for every helper in messages.go:
@@ -220,5 +222,48 @@ func TestVerifyDispatching_BothLangs(t *testing.T) {
 	}
 	if !strings.Contains(en, "verify") || !strings.Contains(en, "plan-V") {
 		t.Errorf("en malformed; got %q", en)
+	}
+}
+
+// TestApproveDispatchRequest_NotREPLControlInput pins the contract
+// that the synthetic request handed to runner.Run for /approve does
+// not look like a REPL control command. Real bug: a literal
+// "/approve <id>" was rejected by emit_analysis on every classifier
+// iteration, burning the analyzer's iter cap until the user ctrl-C'd.
+func TestApproveDispatchRequest_NotREPLControlInput(t *testing.T) {
+	cases := []*types.ChangePlan{
+		{ID: "plan-1", Summary: "rename foo to bar in pkg/x"},
+		{ID: "plan-2", Summary: ""}, // fall back to generic phrasing
+	}
+	for _, p := range cases {
+		req := approveDispatchRequest(p)
+		if req == "" {
+			t.Errorf("empty request for plan %s", p.ID)
+		}
+		if types.IsREPLControlInput(req) {
+			t.Errorf("approve request %q must not be REPL-control-input shaped", req)
+		}
+		if !strings.Contains(req, p.ID) {
+			t.Errorf("approve request %q missing plan id %s", req, p.ID)
+		}
+	}
+}
+
+func TestVerifyDispatchRequest_NotREPLControlInput(t *testing.T) {
+	cases := []*types.ChangePlan{
+		{ID: "plan-3", Summary: "add tests for X"},
+		{ID: "plan-4", Summary: ""},
+	}
+	for _, p := range cases {
+		req := verifyDispatchRequest(p)
+		if req == "" {
+			t.Errorf("empty request for plan %s", p.ID)
+		}
+		if types.IsREPLControlInput(req) {
+			t.Errorf("verify request %q must not be REPL-control-input shaped", req)
+		}
+		if !strings.Contains(req, p.ID) {
+			t.Errorf("verify request %q missing plan id %s", req, p.ID)
+		}
 	}
 }

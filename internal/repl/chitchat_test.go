@@ -426,6 +426,56 @@ func TestChitchatClassifier_SkipsWhenAttachedLogPresent(t *testing.T) {
 	}
 }
 
+// TestChitchatClassifier_SkipsWhenInPlanMode verifies that an
+// explicit `/mode plan|apply|verify` selection bypasses the
+// classifier. Plan mode is the user telling the REPL "drive the
+// write pipeline"; the classifier's "no repo context" verdict for a
+// fresh-code request like "用Python写一个猜数字游戏" must not
+// reroute that turn to chit-chat. Regression for a real bug observed
+// in session 36 where four consecutive plan-mode turns were silently
+// answered by the chit-chat responder.
+func TestChitchatClassifier_SkipsWhenInPlanMode(t *testing.T) {
+	dir := t.TempDir()
+	store, err := memory.NewStore(dir, stubSummarizer{}, types.MemorySettings{})
+	if err != nil {
+		t.Fatalf("NewStore: %v", err)
+	}
+	defer store.Close()
+
+	runner := &logAwareRunner{}
+	resp := &stubResponder{reply: "should-not-appear"}
+	classifier := &stubClassifier{isChitchat: true}
+
+	out := &bytes.Buffer{}
+	r := New(Config{
+		Runner:             runner,
+		Store:              store,
+		Render:             renderNothing,
+		RepoRoot:           ".",
+		Branch:             "main",
+		In:                 strings.NewReader("/mode plan\nwrite a guessing game in python\n/exit\n"),
+		Out:                out,
+		Prompt:             ">",
+		PromptCont:         ".",
+		Banner:             "test-banner",
+		ChitchatResponder:  resp,
+		ChitchatClassifier: classifier,
+	})
+	if err := r.Loop(); err != nil {
+		t.Fatalf("Loop: %v", err)
+	}
+
+	if n := len(classifier.calls); n != 0 {
+		t.Errorf("classifier must be skipped in plan mode; calls=%d", n)
+	}
+	if n := len(resp.calls); n != 0 {
+		t.Errorf("responder must not fire in plan mode; calls=%d", n)
+	}
+	if n := len(runner.seenLogs); n != 1 {
+		t.Errorf("runner must fire on plan-mode turn; seenLogs=%d, want 1", n)
+	}
+}
+
 // TestChitchat_DoesNotTouchAttachedLogRunner verifies the sticky
 // attached-log invariant: /chat does not call the Runner and does
 // not clear / re-propagate the attachedLog. Uses logAwareRunner so

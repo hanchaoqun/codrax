@@ -654,7 +654,7 @@ func (r *REPL) readInputPair(prompt string) (string, string, error) {
 	if r.interactive() {
 		return r.readInputInteractive(prompt)
 	}
-	s, err := r.readInputLines()
+	s, err := r.readInputLines(prompt)
 	return s, s, err
 }
 
@@ -722,9 +722,16 @@ func (r *REPL) captureScanner() *bufio.Scanner {
 // readInputLines reads from r.in using a scanner. Supports multi-line
 // continuation (trailing \) and prints prompt/promptCont to r.out so
 // test assertions can verify continuation behavior.
-func (r *REPL) readInputLines() (string, error) {
+//
+// `prompt` is the caller's per-turn prompt (already includes the
+// sticky-state tag from promptStickyTag). Empty string falls back to
+// the static r.prompt so confirmation callers that print their own
+// title and just need a basic input echo keep working unchanged.
+func (r *REPL) readInputLines(prompt string) (string, error) {
 	r.scriptedScanner()
-	prompt := r.prompt
+	if prompt == "" {
+		prompt = r.prompt
+	}
 	if prompt != "" {
 		fmt.Fprint(r.out, prompt)
 	}
@@ -816,7 +823,11 @@ func (r *REPL) dispatch(line, display string) {
 	// safe: any classifier error (nil adapter, chat error, unparseable
 	// response, unknown decision) routes to the pipeline unchanged,
 	// so a broken classifier cannot silently misroute real questions.
-	if r.chitchatClassifier != nil && r.chitchatResponder != nil &&
+	// `/mode plan|apply|verify` is an explicit user intent to drive
+	// the write pipeline — skip the classifier so a "no repo context"
+	// verdict cannot reroute a write-mode turn to chit-chat.
+	if r.currentMode == types.ModeRead &&
+		r.chitchatClassifier != nil && r.chitchatResponder != nil &&
 		!r.attachedLogAutoRouted &&
 		strings.TrimSpace(r.attachedLog) == "" &&
 		strings.TrimSpace(r.attachedHitrace) == "" {
@@ -1086,7 +1097,7 @@ func (r *REPL) handleSlash(line string) bool {
 		} else {
 			// Line-oriented mode: print message and read y/n.
 			fmt.Fprintln(r.out, msg)
-			line, err := r.readInputLines()
+			line, err := r.readInputLines("")
 			if err == nil {
 				confirmed = strings.TrimSpace(strings.ToLower(line)) == "y"
 			}
@@ -1436,7 +1447,7 @@ func (r *REPL) handleApproveCmd(line string) {
 		}
 	} else {
 		fmt.Fprintln(r.out, title)
-		s, err := r.readInputLines()
+		s, err := r.readInputLines("")
 		if err == nil {
 			confirmed = strings.TrimSpace(strings.ToLower(s)) == "y"
 		}
@@ -1454,7 +1465,17 @@ func (r *REPL) handleApproveCmd(line string) {
 		pSetter.SetPlanPath("")
 	}()
 
-	request := fmt.Sprintf("/approve %s", plan.ID)
+	// Synthesize a natural-language request the analyzer can chew on.
+	// A literal "/approve <id>" looks like a REPL control input — the
+	// analyzer's emit_analysis tool rejects it (see
+	// internal/tool/emit_analysis.go::IsREPLControlInput) and the
+	// classifier loop spins to its iter cap before yielding. Even
+	// though the orchestrator discards the AnalysisIR in write mode
+	// (BuildWriteTaskGraph supersedes the analyzer's TaskGraph), the
+	// classifier still has to terminate cleanly. Use plan.Summary so
+	// the analyzer sees code-question content; fall back to a generic
+	// phrasing when the planner left the summary blank.
+	request := approveDispatchRequest(plan)
 	logging.Info("[repl] dispatching approve: plan=%s path=%s", plan.ID, r.pendingPlanPath)
 
 	if r.renderer != nil {

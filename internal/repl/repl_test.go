@@ -538,6 +538,39 @@ func TestVersionSlashCommand(t *testing.T) {
 	}
 }
 
+// TestStickyTag_RendersInScriptedMode pins the contract that the
+// per-turn sticky-state tag (mode/log/trace/plan/mem!) reaches the
+// scripted-mode output stream, not just the Bubble Tea path. Real
+// bug: readInputLines used to ignore its caller's prompt and fall
+// back to r.prompt, so `/mode plan` switched the mode but the next
+// turn's prompt still rendered as bare `>` with no `[mode:plan]`
+// indicator visible to anyone tailing the session.
+func TestStickyTag_RendersInScriptedMode(t *testing.T) {
+	dir := t.TempDir()
+	store, err := memory.NewStore(dir, stubSummarizer{}, types.MemorySettings{})
+	if err != nil {
+		t.Fatalf("NewStore: %v", err)
+	}
+	defer store.Close()
+
+	// /mode plan flips currentMode; the next turn's prompt must
+	// carry [mode:plan]. /exit ends the loop after one dispatch.
+	in := strings.NewReader("/mode plan\nsome request\n/exit\n")
+	out := &bytes.Buffer{}
+	r := New(Config{
+		Runner: stubRunner{}, Store: store, Render: renderNothing,
+		RepoRoot: ".", Branch: "main", In: in, Out: out,
+		Prompt: ">", PromptCont: ".", Banner: "test-banner",
+	})
+	if err := r.Loop(); err != nil {
+		t.Fatalf("Loop: %v", err)
+	}
+
+	if !strings.Contains(out.String(), "[mode:plan]") {
+		t.Errorf("expected [mode:plan] sticky tag in prompt; out:\n%s", out.String())
+	}
+}
+
 // TestVersionConfigDefaults verifies an empty Version/BuildTime in
 // Config falls back to "dev" / "unknown" so a `go run` build still
 // produces a coherent /version line.
