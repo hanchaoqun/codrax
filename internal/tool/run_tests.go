@@ -4,8 +4,10 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -319,6 +321,29 @@ func (t *RunTests) Execute(ctx *types.BusContext, params json.RawMessage) (types
 				ToolName:  t.Name(),
 				Success:   false,
 				Summary:   fmt.Sprintf("[run_tests: %s] killed by CPU-time cap (limit=%ds) — see ChangeReport.FailureSummary for retry guidance", runnerPlanLabel(ctx.RepoRoot, plan), caps.CPULimitSeconds),
+				RawRef:    ref,
+				Timestamp: time.Now(),
+			}, nil
+		}
+
+		// Runner-binary-missing detection. Distinct from build failure
+		// (compiler ran but project didn't compile) and tests-failed
+		// (runner ran tests that reported red): the runner BINARY
+		// itself isn't on PATH (`pytest: command not found`, exit 127,
+		// stderr "executable file not found"). Re-running the planner
+		// can't install software — fail-loud with a clean install hint
+		// and let the verify→plan retry loop short-circuit on the new
+		// FailureKindRunnerMissing tag.
+		if missing, missingBinary := detectRunnerMissing(runner, runErr, output); missing {
+			_, ref := StoreBlob(ctx, t.Name()+"-runner-missing", strings.Join(combinedOutputs, "\n\n"))
+			report := makeRunnerMissingReport(runner, missingBinary, output)
+			ctx.Mutable.SetChangeReport(qualifyChangeReport(report, plan, ctx.RepoRoot))
+			return types.ToolResult{
+				ToolName: t.Name(),
+				Success:  false,
+				Summary: fmt.Sprintf(
+					"[run_tests: %s] runner binary %q not found in PATH — install it before re-running verify; %s",
+					runnerPlanLabel(ctx.RepoRoot, plan), missingBinary, runnerInstallHint(runner)),
 				RawRef:    ref,
 				Timestamp: time.Now(),
 			}, nil
@@ -792,6 +817,183 @@ func makeResourceExhaustionReport(kind, detail string) *types.ChangeReport {
 		BuildFailed:    fk == types.FailureKindOOM || fk == types.FailureKindTimeout || fk == types.FailureKindCPULimit,
 		FailureSummary: detail,
 		FailureKind:    fk,
+	}
+}
+
+// detectRunnerMissing classifies whether the runner's primary binary
+// is absent from the execution environment. Returns (true, binaryName)
+// when the failure mode is "tool not installed" rather than "tool ran
+// and reported red". Three signals trigger detection:
+//
+//   1. Exit code 127 — POSIX convention for "command not found" set
+//      by sh / bash when invoking an unknown binary. Both Linux and
+//      macOS shells produce this.
+//   2. Go's os/exec returns exec.ErrNotFound when LookPath fails on
+//      a direct (non-shell-wrapped) invocation. We unwrap runErr's
+//      chain to spot it.
+//   3. Output (stderr captured via combined buffer) contains the
+//      shell-emitted "command not found" / "not found" / "executable
+//      file not found" patterns. Matched defensively against the
+//      runner's primary binary name so a test's literal "X not found"
+//      output doesn't false-positive.
+//
+// runnerPrimaryBinary maps each runner identifier to its expected
+// CLI binary so we know which substring to anchor detection on. The
+// shell wrapper inside Execute does `sh -c "<cmdStr>"`; we look at
+// runErr's exit code first (cheapest), then fall back to output
+// pattern matching for environments where the supervisor swallowed
+// the exit code.
+func detectRunnerMissing(runner string, runErr error, output string) (bool, string) {
+	bin := runnerPrimaryBinary(runner)
+	if bin == "" {
+		return false, ""
+	}
+	// 1. Exit code 127 from the shell wrapper.
+	if runErr != nil {
+		if exitCode := extractExitCode(runErr); exitCode == 127 {
+			return true, bin
+		}
+		// 2. Direct exec.ErrNotFound (rare with shell wrapper but
+		//    cheap to check; covers future direct-Cmd refactors).
+		if errors.Is(runErr, exec.ErrNotFound) {
+			return true, bin
+		}
+	}
+	// 3. Stderr/stdout patterns. We anchor on bin to keep false-
+	//    positive rate low — a test that prints "foo not found" in
+	//    its assertion message must NOT trip detection. The patterns
+	//    cover sh / bash / dash / zsh / Windows cmd shapes.
+	patterns := []string{
+		bin + ": command not found",
+		bin + ": not found",
+		bin + " not found",
+		"executable file not found",
+		"is not recognized as an internal or external command", // Windows cmd
+		"No such file or directory: '" + bin + "'",
+	}
+	lower := strings.ToLower(output)
+	for _, p := range patterns {
+		if strings.Contains(lower, strings.ToLower(p)) {
+			return true, bin
+		}
+	}
+	return false, ""
+}
+
+// extractExitCode best-effort pulls the process exit code out of an
+// exec error chain. *exec.ExitError is the typical wrapper; other
+// shapes return -1.
+func extractExitCode(err error) int {
+	var ee *exec.ExitError
+	if errors.As(err, &ee) {
+		if ee.ProcessState != nil {
+			return ee.ProcessState.ExitCode()
+		}
+	}
+	return -1
+}
+
+// runnerPrimaryBinary returns the CLI binary name we expect the
+// runner to invoke (i.e. the first token of the canonical command
+// template in buildRunCommand). Empty when the runner uses a
+// project-local launcher we can't predict (e.g. `npm test` calls
+// whatever package.json's "test" script defines).
+func runnerPrimaryBinary(runner string) string {
+	switch runner {
+	case "go":
+		return "go"
+	case "python":
+		return "pytest"
+	case "rust":
+		return "cargo"
+	case "java":
+		// Maven first, then Gradle wrapper. We can't know which
+		// without inspecting the project; default to mvn since
+		// `pom.xml` is the more common project shape, and the
+		// Gradle wrapper (`./gradlew`) is a project-local script
+		// that almost always exists when build.gradle is present.
+		return "mvn"
+	case "ruby":
+		return "bundle"
+	case "swift":
+		return "swift"
+	case "cmake":
+		return "ctest"
+	case "meson":
+		return "meson"
+	case "make":
+		return "make"
+	case "hvigor":
+		return "hvigorw"
+	case "cjpm":
+		return "cjpm"
+	case "node":
+		// `npm test` — npm is the binary; the test script is
+		// project-defined. If npm is missing we want to detect.
+		return "npm"
+	}
+	return ""
+}
+
+// runnerInstallHint maps a runner to a short, OS-agnostic install
+// suggestion the user-facing error embeds. Kept terse; the user can
+// search the runner's docs for full instructions.
+func runnerInstallHint(runner string) string {
+	switch runner {
+	case "go":
+		return "install Go from https://go.dev/dl/ (or your distro's package manager)"
+	case "python":
+		return "install pytest with `pip install pytest pytest-json-report`"
+	case "rust":
+		return "install Rust + Cargo from https://rustup.rs/"
+	case "java":
+		return "install Maven (`mvn`) or use the project's Gradle wrapper (`./gradlew`)"
+	case "ruby":
+		return "install Bundler with `gem install bundler` and run `bundle install` in the repo"
+	case "swift":
+		return "install the Swift toolchain from https://swift.org/download/"
+	case "cmake":
+		return "install CMake (provides ctest) from https://cmake.org/download/ and configure a build dir first"
+	case "meson":
+		return "install Meson with `pip install meson` (and ninja) and configure a build dir first"
+	case "make":
+		return "install GNU make from your distro's package manager"
+	case "hvigor":
+		return "install the HarmonyOS DevEco command-line tools (provides hvigorw)"
+	case "cjpm":
+		return "install the Cangjie toolchain (provides cjpm)"
+	case "node":
+		return "install Node.js (https://nodejs.org/) which bundles npm"
+	}
+	return "install the runner's CLI binary"
+}
+
+// makeRunnerMissingReport produces a ChangeReport tagged with
+// FailureKindRunnerMissing so downstream consumers (the verify→plan
+// retry suppressor in particular) can route on a single field. The
+// failure is BuildFailed=true because the runner never reached test
+// execution — same lifecycle slot as a compile error.
+func makeRunnerMissingReport(runner, binary, output string) *types.ChangeReport {
+	excerpt := strings.TrimSpace(output)
+	if len(excerpt) > 600 {
+		excerpt = excerpt[:600] + "\n…[output truncated]"
+	}
+	summary := fmt.Sprintf(
+		"runner %q's primary binary %q is not installed in this environment — %s. "+
+			"Re-run verify after installing the tool; the planner cannot fix a missing dependency.",
+		runner, binary, runnerInstallHint(runner))
+	return &types.ChangeReport{
+		TestResults: []types.TestResult{{
+			Kind:          types.TestResultKindBuildError,
+			AssertionID:   string(types.FailureKindRunnerMissing),
+			Suite:         "runner_missing",
+			Passed:        false,
+			FailureDetail: excerpt,
+		}},
+		Passed:         false,
+		BuildFailed:    true,
+		FailureSummary: summary,
+		FailureKind:    types.FailureKindRunnerMissing,
 	}
 }
 

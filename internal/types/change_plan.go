@@ -320,6 +320,23 @@ const (
 	// internal panic) without producing a parseable test report.
 	// Reserved; not yet emitted by run_tests.
 	FailureKindCrash FailureKind = "crash"
+
+	// FailureKindRunnerMissing — the test runner binary itself is
+	// not installed in the execution environment (e.g. `pytest:
+	// command not found`, exit 127). Distinct from BuildFailure
+	// (the runner ran but the project failed to build) and from
+	// TestsFailed (the runner ran tests that reported red). Set
+	// when the supervised process exits 127 with stderr containing
+	// "command not found" / "executable file not found" / "No such
+	// file or directory" patterns from sh / bash / Windows cmd.
+	//
+	// Retry policy: the verify→plan loop SKIPS retry on this kind.
+	// Re-running the planner cannot fix a missing tool — only the
+	// operator's environment can. The user-facing message names the
+	// missing binary + a per-runner install hint; downstream
+	// consumers (REPL, CLI exit code) treat this as a terminal
+	// environment error rather than a plan defect.
+	FailureKindRunnerMissing FailureKind = "runner_missing"
 )
 
 // Score returns the (passed, total) test counts for this report,

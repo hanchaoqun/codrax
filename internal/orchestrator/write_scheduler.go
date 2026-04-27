@@ -179,10 +179,17 @@ func (o *Orchestrator) runWriteSchedulerLoop(stepBudget int) int {
 		}
 
 		// SC failed (or stage returned an Error). Routing:
+		//   - verify SC fail with FailureKind=runner_missing → terminal
+		//     (re-running the planner cannot install missing software;
+		//     retry just burns LLM tokens on a problem the LLM can't
+		//     fix). User-facing error names the tool + install hint.
 		//   - verify SC fail with budget remaining → retry cycle
 		//   - any other failure → terminal
 		if n.Type == types.NodeVerify {
-			if state.retryUsed < g.ExecutionPolicy.RetryBudget {
+			if shouldSuppressVerifyRetry(o.busCtx.Mutable.ChangeReport()) {
+				logging.Warning("[orchestrator] verify failed with FailureKind=runner_missing; suppressing retry — env issue, not a plan defect")
+				// Fall through to terminal failure path below.
+			} else if state.retryUsed < g.ExecutionPolicy.RetryBudget {
 				retryAttempt++
 				clearForReplan(o, retryAttempt)
 				targets := state.requeueValidationTargets(n.ID)
@@ -292,3 +299,21 @@ func (s *graphState) readyWriteWindow(env criterion.Env) (ready []*types.TaskNod
 	return ready, blocked
 }
 
+
+// shouldSuppressVerifyRetry reports whether a verify failure was
+// caused by a missing test runner binary (FailureKindRunnerMissing).
+// In that case the verify→plan retry loop must short-circuit: the
+// LLM cannot install software and the planner would just regenerate
+// equivalent test code that hits the same missing-tool wall. The
+// caller falls through to the terminal failure path so the user
+// sees the install hint without burning retry budget.
+//
+// Defensive against nil report (apply or worktree errors that never
+// reached the runner) — returns false so the existing budget check
+// still applies.
+func shouldSuppressVerifyRetry(report *types.ChangeReport) bool {
+	if report == nil {
+		return false
+	}
+	return report.FailureKind == types.FailureKindRunnerMissing
+}

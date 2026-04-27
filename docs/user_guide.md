@@ -1049,7 +1049,24 @@ verify 阶段先看 `run_tests` 的 `runner` 参数 — verifier agent 自己会
 
 新版本把"零测试发现"作为一等信号 `NoTestsRunners` 单独记录,**Passed=true** 但同时把"verification ran but had no tests to execute"的事实暴露给下游;verifier 会据此走静态语法检查兜底,而不是去 fabricate 测试。
 
-#### 4.3.13 进程级安全网
+#### 4.3.13 测试 runner 缺失不会无脑重试
+
+当 verify 阶段发现 runner 二进制本身不在 PATH 上(`pytest: command not found`、`go: command not found`、Windows `'pytest' is not recognized as an internal or external command`),codrax 会:
+
+1. 把这次失败标记为 `FailureKind=runner_missing`(独立于 `tests_failed` / `build_failure`)
+2. **跳过 verify→plan 重试循环** —— 重新规划解决不了"工具没装"
+3. 给出清晰的安装提示:`runner "python"'s primary binary "pytest" is not installed in this environment — install pytest with pip install pytest pytest-json-report. Re-run verify after installing the tool; the planner cannot fix a missing dependency.`
+
+适用所有 12 个 runner;每个 runner 的 install hint 都本地化在错误消息里(Go / Python / Rust / Node / Java / Ruby / Swift / CMake / Meson / Make / hvigor / cjpm)。
+
+检测信号(任一即触发):
+- shell 退出码 127(POSIX "command not found" 约定)
+- `errors.Is(runErr, exec.ErrNotFound)`(直调 exec 时)
+- stdout/stderr 含 `<binary>: not found` / `<binary>: command not found` / `executable file not found` / Windows `is not recognized as an internal or external command`
+
+误报防御:`<binary>` 名称必须出现在 stderr 文本里才算数 —— 测试断言里出现 `'foo' not found` 这种字符串不会触发。
+
+#### 4.3.14 进程级安全网
 
 verify 阶段的子进程跑在隔离的进程组里,带内存 / CPU 上限:
 
@@ -1059,7 +1076,7 @@ verify 阶段的子进程跑在隔离的进程组里,带内存 / CPU 上限:
 
 `pipeline_max_steps` 超时时整个 Run 强制收尾,worktree 也会在 outer defer 里清理。
 
-#### 4.3.14 合并到主仓 — `/merge` 命令
+#### 4.3.15 合并到主仓 — `/merge` 命令
 
 `/approve` 成功后,worktree 里有一条或多条 codrax 提交(基于主仓的 `r.branch` 顶点)。把这条 commit 合回主仓有三种通路,任选其一:
 
@@ -1102,7 +1119,7 @@ verify 阶段的子进程跑在隔离的进程组里,带内存 / CPU 上限:
 
 主仓 HEAD **不动**,只是新拉了 `fix/parse-duration` 分支落了 commit。再 `git push -u origin fix/parse-duration` + GitHub UI 开 PR。
 
-#### 4.3.15 裸目录自动 init(三档授权)
+#### 4.3.16 裸目录自动 init(三档授权)
 
 写模式 apply 阶段需要 `git worktree add --detach HEAD` 跑,这要求目标目录:
 
@@ -1161,7 +1178,7 @@ codrax --mode=apply --plan-file /tmp/plan.json --auto-apply --auto-init-repo
 - 已经是 ready 的 repo → 这条路径完全跳过(idempotent)。多次 `/approve` 不会重复造空 commit。
 - 失败时(目录权限不足、git 不在 PATH 等)→ 报错,不留半成品。
 
-#### 4.3.16 Plan 状态查询恢复
+#### 4.3.17 Plan 状态查询恢复
 
 `/approve` 因为环境问题(目标不是 git repo、git 缺失、worktree 创建失败)失败时,plan **不会丢**:状态保持 `pending_approval`,你可以:
 
@@ -1171,7 +1188,7 @@ codrax --mode=apply --plan-file /tmp/plan.json --auto-apply --auto-init-repo
 
 REPL 会自动从 PlanStore 找最近一条 `pending_approval` plan 重新绑定指针,**跨进程也能恢复**(关掉 codrax 再开,`/plan show` 还能找到上次没合并的 plan)。
 
-#### 4.3.17 当前限制
+#### 4.3.18 当前限制
 
 - 写模式**不支持** multi-plan concurrency。同一仓库不要并行跑两个 `/approve`(plan 文件名带 PID,但 worktree 操作不是并发安全的)。
 - `git push` 永远是用户手动操作,`/merge` 不替你做(避免对远端的意外副作用)。
