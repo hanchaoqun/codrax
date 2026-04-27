@@ -636,6 +636,61 @@ func TestGrepTool(t *testing.T) {
 		}
 	})
 
+	t.Run("explicit excluded subtree path remains searchable", func(t *testing.T) {
+		repo := t.TempDir()
+		if err := os.MkdirAll(filepath.Join(repo, "dist", "bundle"), 0o755); err != nil {
+			t.Fatalf("mkdir dist: %v", err)
+		}
+		if err := os.WriteFile(filepath.Join(repo, "dist", "bundle", "app.js"), []byte("UNIQUE_DIST_TOKEN\n"), 0o644); err != nil {
+			t.Fatalf("write dist file: %v", err)
+		}
+
+		tool := &GrepTool{}
+		params, _ := json.Marshal(grepToolParams{Pattern: "UNIQUE_DIST_TOKEN", Path: "dist", FilesOnly: true})
+		result, err := tool.Execute(&types.BusContext{RepoRoot: repo}, params)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if !result.Success {
+			t.Fatalf("expected success, got: %s", result.Summary)
+		}
+		if !strings.Contains(result.Summary, "app.js") {
+			t.Fatalf("explicit dist/ target should still be searchable, got: %s", result.Summary)
+		}
+	})
+
+	t.Run("root only noise dirs do not hide nested project dirs", func(t *testing.T) {
+		repo := t.TempDir()
+		if err := os.MkdirAll(filepath.Join(repo, "logs"), 0o755); err != nil {
+			t.Fatalf("mkdir logs: %v", err)
+		}
+		if err := os.MkdirAll(filepath.Join(repo, "internal", "logs"), 0o755); err != nil {
+			t.Fatalf("mkdir internal/logs: %v", err)
+		}
+		if err := os.WriteFile(filepath.Join(repo, "logs", "root_noise.go"), []byte("NESTED_LOGS_TOKEN\n"), 0o644); err != nil {
+			t.Fatalf("write root logs file: %v", err)
+		}
+		if err := os.WriteFile(filepath.Join(repo, "internal", "logs", "nested_logger.go"), []byte("NESTED_LOGS_TOKEN\n"), 0o644); err != nil {
+			t.Fatalf("write nested logs file: %v", err)
+		}
+
+		tool := &GrepTool{}
+		params, _ := json.Marshal(grepToolParams{Pattern: "NESTED_LOGS_TOKEN", Path: ".", FilesOnly: true})
+		result, err := tool.Execute(&types.BusContext{RepoRoot: repo}, params)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if !result.Success {
+			t.Fatalf("expected success, got: %s", result.Summary)
+		}
+		if strings.Contains(result.Summary, "root_noise.go") {
+			t.Fatalf("root logs/ should be filtered from broad grep, got: %s", result.Summary)
+		}
+		if !strings.Contains(result.Summary, "nested_logger.go") {
+			t.Fatalf("nested internal/logs/ should remain searchable, got: %s", result.Summary)
+		}
+	})
+
 	t.Run("skips binary files", func(t *testing.T) {
 		tmpDir := t.TempDir()
 		srcFile := filepath.Join(tmpDir, "code.go")
@@ -1148,6 +1203,20 @@ func TestListFiles_NoiseDirsFilteredInBothModes(t *testing.T) {
 		// Legit files / dirs still present.
 		if !strings.Contains(out, "main.go") {
 			t.Errorf("recursive list_files must include main.go; got:\n%s", out)
+		}
+	})
+
+	t.Run("explicit root-only target remains listable", func(t *testing.T) {
+		if err := os.MkdirAll(filepath.Join(repo, "eval", "cases"), 0o755); err != nil {
+			t.Fatalf("seed eval/cases: %v", err)
+		}
+		if err := os.WriteFile(filepath.Join(repo, "eval", "cases", "u11a.case"), []byte("case"), 0o644); err != nil {
+			t.Fatalf("seed eval case: %v", err)
+		}
+		res, _ := tool.Execute(bus, json.RawMessage(`{"path":"eval","recursive":true}`))
+		out := res.Summary
+		if !strings.Contains(out, filepath.Join("eval", "cases", "u11a.case")) {
+			t.Fatalf("explicit eval/ target should remain listable, got:\n%s", out)
 		}
 	})
 }

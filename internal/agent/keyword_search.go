@@ -49,9 +49,6 @@ type keywordSearchResult struct {
 	Graph *repomap.Graph // may be nil if repo_map is unavailable
 }
 
-// searchExcludeDirs is the shared exclude list from tool.ExcludeDirs.
-var searchExcludeDirs = tool.ExcludeDirs
-
 // keywordSearchOptions tunes the scoring and cap behavior of
 // keywordSearchWithOptions. Zero values are treated as "use the
 // historical defaults" so the thin backwards-compat wrapper
@@ -797,7 +794,7 @@ var (
 
 // countSourceFiles returns an approximate count of source files in the repo.
 // Uses rg --files when available (fast, respects .gitignore), falls back to
-// Go-native filepath.WalkDir with the unified ExcludeDirs list.
+// Go-native filepath.WalkDir with the shared SearchDirFilter policy.
 // Result is cached for the process lifetime.
 func countSourceFiles(repoRoot string) int {
 	sourceCountOnce.Do(func() {
@@ -810,20 +807,21 @@ func countSourceFiles(repoRoot string) int {
 }
 
 func countSourceFilesOnce(repoRoot string) int {
+	dirFilter := tool.NewSearchDirFilter(repoRoot, repoRoot)
 	// Prefer rg --files: fast, auto-excludes .gitignore entries.
 	if tool.UseRipgrep() {
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
 		args := []string{"--files"}
-		for _, dir := range searchExcludeDirs {
-			args = append(args, "--glob", "!"+dir+"/")
+		for _, glob := range dirFilter.RipgrepGlobs() {
+			args = append(args, "--glob", glob)
 		}
 		args = append(args, repoRoot)
 		cmd := exec.CommandContext(ctx, tool.SearchExecutable(), args...)
 		var stdout bytes.Buffer
 		cmd.Stdout = &stdout
 		if err := cmd.Run(); err == nil {
-			return len(splitLines(stdout.String()))
+			return len(filterKeywordSearchPaths(splitLines(stdout.String()), repoRoot, dirFilter))
 		}
 	}
 	// Go-native fallback using the unified exclude list.
@@ -832,8 +830,14 @@ func countSourceFilesOnce(repoRoot string) int {
 		if err != nil {
 			return nil
 		}
-		if d.IsDir() && tool.DirNameMatchesExcludePattern(d.Name(), searchExcludeDirs) {
-			return filepath.SkipDir
+		if rel, relErr := filepath.Rel(repoRoot, path); relErr == nil {
+			rel = filepath.Clean(rel)
+			if rel != "." && dirFilter.ExcludesRepoRelativePath(strings.ReplaceAll(rel, `\`, `/`)) {
+				if d.IsDir() {
+					return filepath.SkipDir
+				}
+				return nil
+			}
 		}
 		if !d.IsDir() {
 			count++
@@ -902,6 +906,20 @@ func fileTypeWeight(path string) float64 {
 
 // --- low-level search helpers ---
 
+func filterKeywordSearchPaths(paths []string, repoRoot string, dirFilter tool.SearchDirFilter) []string {
+	if len(paths) == 0 {
+		return nil
+	}
+	out := make([]string, 0, len(paths))
+	for _, path := range paths {
+		if dirFilter.ExcludesRepoRelativePath(normalizeSearchPath(path, repoRoot)) {
+			continue
+		}
+		out = append(out, path)
+	}
+	return out
+}
+
 // grepFiles runs grep/rg on the repo and returns matching file paths.
 // All commands are guarded by searchTimeout to prevent hangs.
 // When neither ripgrep nor grep is on PATH, falls through to the
@@ -910,6 +928,7 @@ func fileTypeWeight(path string) float64 {
 func grepFiles(pattern, repoRoot string, ignoreCase bool) []string {
 	ctx, cancel := context.WithTimeout(context.Background(), searchTimeout)
 	defer cancel()
+	dirFilter := tool.NewSearchDirFilter(repoRoot, repoRoot)
 
 	if tool.UseNativeGrep() {
 		res, err := tool.NativeGrep(ctx, tool.NativeGrepOpts{
@@ -917,12 +936,23 @@ func grepFiles(pattern, repoRoot string, ignoreCase bool) []string {
 			Root:        repoRoot,
 			IgnoreCase:  ignoreCase,
 			FilesOnly:   true,
-			ExcludeDirs: searchExcludeDirs,
+			ExcludeDirs: dirFilter.AnyLevelPatterns(),
+			ShouldSkip: func(path string, d fs.DirEntry) bool {
+				rel, err := filepath.Rel(repoRoot, path)
+				if err != nil {
+					return false
+				}
+				rel = filepath.Clean(rel)
+				if rel == "." {
+					return false
+				}
+				return dirFilter.ExcludesRepoRelativePath(strings.ReplaceAll(rel, `\`, `/`))
+			},
 		})
 		if err != nil {
 			return nil
 		}
-		return splitLines(res.Output)
+		return filterKeywordSearchPaths(splitLines(res.Output), repoRoot, dirFilter)
 	}
 
 	var cmd *exec.Cmd
@@ -934,8 +964,8 @@ func grepFiles(pattern, repoRoot string, ignoreCase bool) []string {
 		} else {
 			args = append(args, "--case-sensitive")
 		}
-		for _, dir := range searchExcludeDirs {
-			args = append(args, "--glob", "!"+dir+"/")
+		for _, glob := range dirFilter.RipgrepGlobs() {
+			args = append(args, "--glob", glob)
 		}
 		args = append(args, pattern, repoRoot)
 		cmd = exec.CommandContext(ctx, tool.SearchExecutable(), args...)
@@ -944,7 +974,7 @@ func grepFiles(pattern, repoRoot string, ignoreCase bool) []string {
 		if ignoreCase {
 			args = []string{"-rlEIi"}
 		}
-		for _, dir := range searchExcludeDirs {
+		for _, dir := range dirFilter.AnyLevelPatterns() {
 			args = append(args, "--exclude-dir="+dir)
 		}
 		args = append(args, pattern, repoRoot)
@@ -956,7 +986,7 @@ func grepFiles(pattern, repoRoot string, ignoreCase bool) []string {
 	if err := cmd.Run(); err != nil {
 		return nil // exit 1 = no matches, timeout, or error — either way no results
 	}
-	return splitLines(stdout.String())
+	return filterKeywordSearchPaths(splitLines(stdout.String()), repoRoot, dirFilter)
 }
 
 // rgBatchFiles runs a single rg --json call with multiple -e patterns
@@ -969,10 +999,11 @@ func grepFiles(pattern, repoRoot string, ignoreCase bool) []string {
 func rgBatchFiles(keywords []string, repoRoot string) map[string][]string {
 	ctx, cancel := context.WithTimeout(context.Background(), searchTimeout)
 	defer cancel()
+	dirFilter := tool.NewSearchDirFilter(repoRoot, repoRoot)
 
 	args := []string{"--json", "--smart-case"}
-	for _, dir := range searchExcludeDirs {
-		args = append(args, "--glob", "!"+dir+"/")
+	for _, glob := range dirFilter.RipgrepGlobs() {
+		args = append(args, "--glob", glob)
 	}
 	for _, kw := range keywords {
 		args = append(args, "-e", kw)
@@ -1017,6 +1048,9 @@ func rgBatchFiles(keywords []string, repoRoot string) map[string][]string {
 		// Extract path and submatch texts from JSON.
 		filePath, matchTexts := parseRgMatchLine(line)
 		if filePath == "" {
+			continue
+		}
+		if dirFilter.ExcludesRepoRelativePath(normalizeSearchPath(filePath, repoRoot)) {
 			continue
 		}
 		for _, mt := range matchTexts {
@@ -1103,10 +1137,11 @@ func parseRgMatchLine(line string) (filePath string, matchTexts []string) {
 func findFilesByName(keyword, repoRoot string, ignoreCase bool) []string {
 	ctx, cancel := context.WithTimeout(context.Background(), searchTimeout)
 	defer cancel()
+	dirFilter := tool.NewSearchDirFilter(repoRoot, repoRoot)
 
 	if _, err := exec.LookPath("find"); err == nil {
 		args := []string{repoRoot}
-		for _, dir := range searchExcludeDirs {
+		for _, dir := range dirFilter.AnyLevelPatterns() {
 			args = append(args, "-path", "*/"+dir, "-prune", "-o")
 		}
 		nameFlag := "-name"
@@ -1119,7 +1154,7 @@ func findFilesByName(keyword, repoRoot string, ignoreCase bool) []string {
 		var stdout bytes.Buffer
 		cmd.Stdout = &stdout
 		if err := cmd.Run(); err == nil {
-			lines := splitLines(stdout.String())
+			lines := filterKeywordSearchPaths(splitLines(stdout.String()), repoRoot, dirFilter)
 			if len(lines) > 0 {
 				return lines
 			}
@@ -1143,7 +1178,13 @@ func findFilesByName(keyword, repoRoot string, ignoreCase bool) []string {
 			return ctx.Err()
 		}
 		if d.IsDir() {
-			if tool.DirNameMatchesExcludePattern(d.Name(), searchExcludeDirs) {
+			if rel, relErr := filepath.Rel(repoRoot, path); relErr == nil {
+				rel = filepath.Clean(rel)
+				if rel != "." && dirFilter.ExcludesRepoRelativePath(strings.ReplaceAll(rel, `\`, `/`)) {
+					return filepath.SkipDir
+				}
+			}
+			if tool.DirNameMatchesExcludePattern(d.Name(), dirFilter.AnyLevelPatterns()) {
 				return filepath.SkipDir
 			}
 			return nil
@@ -1157,7 +1198,7 @@ func findFilesByName(keyword, repoRoot string, ignoreCase bool) []string {
 		}
 		return nil
 	})
-	return out
+	return filterKeywordSearchPaths(out, repoRoot, dirFilter)
 }
 
 // keywordStem extracts a shorter stem from a keyword for fuzzy matching.

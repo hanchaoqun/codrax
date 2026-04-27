@@ -449,6 +449,30 @@ func TestPrescanHasDeclarativeCandidate_MatchesAndMisses(t *testing.T) {
 	}
 }
 
+func TestPrescanHasDeclarativeCandidateResults_IgnoresAuxiliaryHits(t *testing.T) {
+	history := []types.ToolResult{
+		{
+			ToolName: "grep",
+			Success:  true,
+			Summary: "[grep: 2 matching files]\n" +
+				"internal/skill/analysis_contract.go\n" +
+				"internal/agent/explorer_test.go\n",
+		},
+	}
+	if prescanHasDeclarativeCandidateResults(history, "", "") {
+		t.Fatal("auxiliary/test-only declarative hits must not open ClassificationGrep")
+	}
+
+	history = append(history, types.ToolResult{
+		ToolName: "grep",
+		Success:  true,
+		Summary:  "[grep: 1 matching files]\ninternal/config/defaults.go\n",
+	})
+	if !prescanHasDeclarativeCandidateResults(history, "", "") {
+		t.Fatal("production declarative hit should open ClassificationGrep")
+	}
+}
+
 // Session-22 follow-up root cause fix: the C0' observation sidecar
 // must ignore grep hits that land in test / spec / fixture files.
 // A test assertion string (e.g. `"flag=on must write TurnAArtifacts"`

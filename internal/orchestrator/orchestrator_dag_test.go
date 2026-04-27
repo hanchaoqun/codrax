@@ -1,6 +1,7 @@
 package orchestrator
 
 import (
+	"context"
 	"strings"
 	"testing"
 
@@ -62,7 +63,6 @@ func dagAnalyzerFn(ir *types.AnalysisIR) func(*types.AgentContext, *skill.Config
 
 func TestRunTaskGraph_HappyPath(t *testing.T) {
 
-
 	var explorerCalls, finalizeCalls int
 	var observedExplorerHints []string
 
@@ -122,7 +122,6 @@ func TestRunTaskGraph_HappyPath(t *testing.T) {
 }
 
 func TestRunTaskGraph_ContractFailureBacktracks(t *testing.T) {
-
 
 	var explorerCalls, finalizeCalls int
 
@@ -245,7 +244,6 @@ func TestRunTaskGraph_FinalizeSuccessCriterionFailureBacktracks(t *testing.T) {
 
 func TestRunTaskGraph_BudgetExhaustedFailLoud(t *testing.T) {
 
-
 	ir := dagIR(types.AnswerContract{
 		RequiredAnswerShape: types.ShapeListOfSymbols,
 		Language:            "en",
@@ -291,6 +289,96 @@ func TestRunTaskGraph_BudgetExhaustedFailLoud(t *testing.T) {
 	}
 }
 
+func TestRunTaskGraph_RetryableExploreErrorRequeuesWindow(t *testing.T) {
+	var explorerCalls, finalizeCalls int
+
+	ir := dagIR(types.AnswerContract{
+		RequiredAnswerShape: types.ShapeExplanation,
+		Language:            "en",
+	})
+
+	agentFns := map[types.AgentName]func(*types.AgentContext, *skill.Config) (*agent.StageOutput, error){
+		types.AgentAnalyzer: dagAnalyzerFn(ir),
+		types.AgentExplorer: func(ctx *types.AgentContext, sk *skill.Config) (*agent.StageOutput, error) {
+			explorerCalls++
+			if explorerCalls == 1 {
+				return nil, context.DeadlineExceeded
+			}
+			return &agent.StageOutput{MissingPiece: types.MissingFacts}, nil
+		},
+		types.AgentFinalizer: func(ctx *types.AgentContext, sk *skill.Config) (*agent.StageOutput, error) {
+			finalizeCalls++
+			return &agent.StageOutput{
+				MissingPiece: types.MissingNone,
+				FinalAnswer:  "Recovered answer.",
+			}, nil
+		},
+	}
+
+	ar, sr, sar := buildRegistries(agentFns)
+	o := New(types.PipelineSettings{}, ar, sr, sar)
+	o.SetMaxSteps(20)
+
+	busCtx, err := o.Run("explain X", "/tmp/repo", "main")
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if busCtx.TaskState.LastError != "" {
+		t.Fatalf("LastError = %q, want empty", busCtx.TaskState.LastError)
+	}
+	if explorerCalls != 2 {
+		t.Fatalf("explorer calls = %d, want 2", explorerCalls)
+	}
+	if finalizeCalls != 1 {
+		t.Fatalf("finalize calls = %d, want 1", finalizeCalls)
+	}
+}
+
+func TestRunTaskGraph_RetryableFinalizeErrorRequeuesFinalize(t *testing.T) {
+	var explorerCalls, finalizeCalls int
+
+	ir := dagIR(types.AnswerContract{
+		RequiredAnswerShape: types.ShapeExplanation,
+		Language:            "en",
+	})
+
+	agentFns := map[types.AgentName]func(*types.AgentContext, *skill.Config) (*agent.StageOutput, error){
+		types.AgentAnalyzer: dagAnalyzerFn(ir),
+		types.AgentExplorer: func(ctx *types.AgentContext, sk *skill.Config) (*agent.StageOutput, error) {
+			explorerCalls++
+			return &agent.StageOutput{MissingPiece: types.MissingFacts}, nil
+		},
+		types.AgentFinalizer: func(ctx *types.AgentContext, sk *skill.Config) (*agent.StageOutput, error) {
+			finalizeCalls++
+			if finalizeCalls == 1 {
+				return nil, context.DeadlineExceeded
+			}
+			return &agent.StageOutput{
+				MissingPiece: types.MissingNone,
+				FinalAnswer:  "Recovered answer.",
+			}, nil
+		},
+	}
+
+	ar, sr, sar := buildRegistries(agentFns)
+	o := New(types.PipelineSettings{}, ar, sr, sar)
+	o.SetMaxSteps(20)
+
+	busCtx, err := o.Run("explain X", "/tmp/repo", "main")
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if busCtx.TaskState.LastError != "" {
+		t.Fatalf("LastError = %q, want empty", busCtx.TaskState.LastError)
+	}
+	if explorerCalls != 1 {
+		t.Fatalf("explorer calls = %d, want 1", explorerCalls)
+	}
+	if finalizeCalls != 2 {
+		t.Fatalf("finalize calls = %d, want 2", finalizeCalls)
+	}
+}
+
 // TestRunTaskGraph_NilIRFailsFast: when the analyzer does not
 // produce a TaskGraph, runTaskGraph marks the task failed fast.
 // The legacy fallback was deleted in the 2026-04-14 simplification.
@@ -329,7 +417,6 @@ func TestRunTaskGraph_EvidencePlanBudgetCapsSteps(t *testing.T) {
 	// Build an IR whose EvidencePlan caps stepBudget tighter than
 	// the orchestrator's maxSteps. The merged schedule's per-task
 	// loop should respect the IR cap.
-
 
 	ir := dagIR(types.AnswerContract{
 		RequiredAnswerShape: types.ShapeListOfSymbols,

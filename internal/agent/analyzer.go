@@ -313,7 +313,7 @@ func (e *analyzerEvaluator) Observe(ctx *types.AgentContext, obs LoopObservation
 	// to grep(files_only=true) only. This keeps the token cost
 	// amortized to ambiguous-subject questions.
 	if e.prescanRounds >= 1 && ctx != nil && ctx.Mutable != nil {
-		if prescanHasDeclarativeCandidate(ctx.Mutable.PrescanSummaryBlob()) {
+		if prescanHasDeclarativeCandidateResults(obs.AllToolResults, ctx.RepoRoot, ctx.Mutable.PrescanSummaryBlob()) {
 			ctx.Mutable.SetClassificationGrepTriggered(true)
 			logging.Debug("[analyzer] C0' classification_grep triggered: Round %d pre-scan surfaced declarative candidates",
 				e.prescanRounds)
@@ -1540,6 +1540,25 @@ func prescanHasDeclarativeCandidate(blob string) bool {
 		}
 		if strings.Contains(blob, pat) {
 			return true
+		}
+	}
+	return false
+}
+
+func prescanHasDeclarativeCandidateResults(history []types.ToolResult, repoRoot, blob string) bool {
+	discovered, _, _ := extractFileCoverage(history, repoRoot)
+	if len(discovered) == 0 {
+		return prescanHasDeclarativeCandidate(strings.ToLower(blob))
+	}
+	for _, path := range discovered {
+		lower := strings.ToLower(strings.TrimSpace(path))
+		if lower == "" || types.LooksLikeAuxiliaryEvidencePath(lower) {
+			continue
+		}
+		for _, pat := range declarative.DefaultFilenamePatterns() {
+			if pat != "" && strings.Contains(lower, pat) {
+				return true
+			}
 		}
 	}
 	return false

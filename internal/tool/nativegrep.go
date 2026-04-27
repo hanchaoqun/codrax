@@ -24,8 +24,9 @@ type NativeGrepOpts struct {
 	ContextLines int      // lines of context before/after each match (0 = off, max 20)
 	Include      string   // glob filter against basename (filepath.Match syntax, e.g. "*.go")
 	ExcludeDirs  []string // directory names to skip at any depth
-	MaxFileBytes int      // skip files larger than this; 0 = no limit
-	MaxMatches   int      // stop after this many line-level matches across all files; 0 = no cap
+	ShouldSkip   func(path string, d fs.DirEntry) bool
+	MaxFileBytes int // skip files larger than this; 0 = no limit
+	MaxMatches   int // stop after this many line-level matches across all files; 0 = no cap
 }
 
 // NativeGrepResult carries the rendered output bytes plus a lightweight
@@ -105,6 +106,12 @@ func NativeGrep(ctx context.Context, opts NativeGrepOpts) (NativeGrepResult, err
 			return err
 		}
 		if IsWindowsReservedDevicePath(d.Name()) {
+			if d.IsDir() {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if opts.ShouldSkip != nil && opts.ShouldSkip(path, d) {
 			if d.IsDir() {
 				return filepath.SkipDir
 			}

@@ -9874,12 +9874,11 @@ func isNoisePath(path string) bool {
 	if strings.HasPrefix(path, ".") {
 		return true
 	}
-	// Directories from the shared exclude list (tool.ExcludeDirs).
-	for _, dir := range tool.ExcludeDirs {
-		dirSlash := dir + "/"
-		if strings.HasPrefix(path, dirSlash) || strings.Contains(path, "/"+dirSlash) {
-			return true
-		}
+	// Shared directory filter: excludes structural noise at any depth,
+	// but keeps root-only names (`memory`, `logs`, `eval`) legal when
+	// they appear nested inside real project packages.
+	if tool.IsExcludedRelativePath(path) {
+		return true
 	}
 	// Test files (cross-language naming conventions)
 	base := path

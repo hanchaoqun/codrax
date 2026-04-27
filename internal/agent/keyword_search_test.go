@@ -1,6 +1,8 @@
 package agent
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -187,5 +189,30 @@ func TestShouldDeprioritizeAuxiliaryExactHit(t *testing.T) {
 	}
 	if shouldDeprioritizeAuxiliaryExactHit("internal/config/runtime.go", contract) {
 		t.Fatal("production config file should not be deprioritized")
+	}
+}
+
+func TestGrepFiles_RootOnlyNoiseDoesNotHideNestedProjectDirs(t *testing.T) {
+	repo := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(repo, "logs"), 0o755); err != nil {
+		t.Fatalf("mkdir logs: %v", err)
+	}
+	if err := os.MkdirAll(filepath.Join(repo, "internal", "logs"), 0o755); err != nil {
+		t.Fatalf("mkdir internal/logs: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(repo, "logs", "root_noise.go"), []byte("SEARCH_SCOPE_TOKEN\n"), 0o644); err != nil {
+		t.Fatalf("write root logs file: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(repo, "internal", "logs", "nested_logger.go"), []byte("SEARCH_SCOPE_TOKEN\n"), 0o644); err != nil {
+		t.Fatalf("write nested logs file: %v", err)
+	}
+
+	got := grepFiles("SEARCH_SCOPE_TOKEN", repo, false)
+	joined := strings.Join(got, "\n")
+	if strings.Contains(joined, "root_noise.go") {
+		t.Fatalf("root logs/ should be filtered from keyword search, got %q", joined)
+	}
+	if !strings.Contains(joined, "nested_logger.go") {
+		t.Fatalf("nested internal/logs/ should remain searchable, got %q", joined)
 	}
 }

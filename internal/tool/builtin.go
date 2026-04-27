@@ -17,10 +17,6 @@ import (
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
-// defaultExcludeDirs is an alias for the shared ExcludeDirs list in
-// search.go, used by the grep tool and keyword search.
-var defaultExcludeDirs = ExcludeDirs
-
 // toolBannerMaxValueLen caps each k=v value in the per-tool params
 // banner so a pathological command / pattern does not blow the
 // banner into pages. 200 is roomy for typical shell pipelines and
@@ -359,6 +355,19 @@ func (t *GrepTool) Execute(ctx *types.BusContext, params json.RawMessage) (types
 	if searchPath == "" {
 		searchPath = "."
 	}
+	dirFilter := NewSearchDirFilter(ctx.RepoRoot, searchPath)
+	commandDir := ""
+	commandSearchPath := searchPath
+	if ctx != nil && ctx.RepoRoot != "" {
+		if rel, ok := repoRelativePathWithinRoot(ctx.RepoRoot, searchPath); ok {
+			commandDir = ctx.RepoRoot
+			if rel == "" {
+				commandSearchPath = "."
+			} else {
+				commandSearchPath = filepath.FromSlash(rel)
+			}
+		}
+	}
 
 	// Smart-case: if the LLM didn't pass ignore_case explicitly, fall
 	// back to ripgrep's smart-case rule — case-insensitive iff the
@@ -400,7 +409,14 @@ func (t *GrepTool) Execute(ctx *types.BusContext, params json.RawMessage) (types
 	// PATH (distroless / scratch containers / stripped CI images).
 	// Output format matches grep -rnH / grep -rl so the same count
 	// banner + params banner wrapper works unchanged below.
-	if UseNativeGrep() {
+	if UseNativeGrep() || (!UseRipgrep() && ctx != nil && ctx.RepoRoot != "") {
+		var shouldSkip func(path string, d fs.DirEntry) bool
+		if ctx != nil && ctx.RepoRoot != "" {
+			shouldSkip = func(path string, d fs.DirEntry) bool {
+				rel, ok := repoRelativePathWithinRoot(ctx.RepoRoot, path)
+				return ok && dirFilter.ExcludesRepoRelativePath(rel)
+			}
+		}
 		include := p.Include
 		if include == "" && p.FileType != "" {
 			// Best-effort: native scan applies the first glob only —
@@ -416,7 +432,8 @@ func (t *GrepTool) Execute(ctx *types.BusContext, params json.RawMessage) (types
 			FilesOnly:    p.FilesOnly,
 			ContextLines: contextLines,
 			Include:      include,
-			ExcludeDirs:  defaultExcludeDirs,
+			ExcludeDirs:  dirFilter.AnyLevelPatterns(),
+			ShouldSkip:   shouldSkip,
 		})
 		paramsBanner := kvBanner("grep params",
 			"pattern", p.Pattern,
@@ -504,8 +521,8 @@ func (t *GrepTool) Execute(ctx *types.BusContext, params json.RawMessage) (types
 			args = append(args, "--case-sensitive")
 		}
 		// Add manual exclusions for dirs not in .gitignore.
-		for _, dir := range defaultExcludeDirs {
-			args = append(args, "--glob", "!"+dir+"/")
+		for _, glob := range dirFilter.RipgrepGlobs() {
+			args = append(args, "--glob", glob)
 		}
 		for _, glob := range ReservedDeviceRipgrepGlobs() {
 			args = append(args, "--glob", "!"+glob)
@@ -516,7 +533,7 @@ func (t *GrepTool) Execute(ctx *types.BusContext, params json.RawMessage) (types
 		if p.Include != "" {
 			args = append(args, "--glob", p.Include)
 		}
-		args = append(args, p.Pattern, searchPath)
+		args = append(args, p.Pattern, commandSearchPath)
 		cmd = exec.CommandContext(searchCtx, SearchExecutable(), args...)
 	} else {
 		// GNU grep fallback: -E for ERE, -I to skip binary files,
@@ -532,7 +549,7 @@ func (t *GrepTool) Execute(ctx *types.BusContext, params json.RawMessage) (types
 		if caseInsensitive {
 			args = append(args, "-i")
 		}
-		for _, dir := range defaultExcludeDirs {
+		for _, dir := range dirFilter.AnyLevelPatterns() {
 			args = append(args, "--exclude-dir="+dir)
 		}
 		for _, glob := range ReservedDeviceGrepExcludes() {
@@ -548,8 +565,11 @@ func (t *GrepTool) Execute(ctx *types.BusContext, params json.RawMessage) (types
 		if p.Include != "" {
 			args = append(args, "--include="+p.Include)
 		}
-		args = append(args, searchPath)
+		args = append(args, commandSearchPath)
 		cmd = exec.CommandContext(searchCtx, SearchExecutable(), args...)
+	}
+	if commandDir != "" {
+		cmd.Dir = commandDir
 	}
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
@@ -972,26 +992,6 @@ type listFilesParams struct {
 	Recursive bool   `json:"recursive,omitempty"`
 }
 
-// isListFilesNoiseDir reports whether the directory name is on the
-// shared noise-dir blocklist that list_files / grep / repomap
-// already use. The set lives in tool.ExcludeDirsAnyLevelSet
-// (search.go); this wrapper is here so the list_files Execute body
-// stays grep-readable + the inline-vs-central drift that bit us
-// (recursive path filtered, non-recursive path didn't, AND the
-// recursive filter was a SHORTER inline list missing target/dist/
-// build/__pycache__/.codrax) is structurally impossible.
-//
-// `.git`, `.codrax`, `node_modules`, `vendor`, `target`, `dist`,
-// `build`, `.gradle`, `.next`, `.nuxt`, `.turbo`, `.pnpm-store`,
-// `__pycache__`, `.venv`, `venv`, `.tox`, `.mypy_cache`,
-// `.pytest_cache`, `.idea`, `.vscode`, `.hg`, `.svn`, `.cargo` are
-// all skipped — covers VCS noise, dep caches, build outputs, and
-// IDE state across all the languages run_tests + the V5/V6 lint
-// registries can drive.
-func isListFilesNoiseDir(name string) bool {
-	return IsExcludedDirName(name)
-}
-
 func (t *ListFiles) Name() string { return "list_files" }
 func (t *ListFiles) Description() string {
 	return "List files in a directory. Use this for navigation and discovery only. Do NOT use the result to count files, filter by extension, or sort — for any of those, run a shell pipeline through exec_command (e.g. `find . -name '*.go' | wc -l`) and trust its output."
@@ -1034,6 +1034,7 @@ func (t *ListFiles) Execute(ctx *types.BusContext, params json.RawMessage) (type
 	if displayPath == "" {
 		displayPath = "."
 	}
+	dirFilter := NewSearchDirFilter(ctx.RepoRoot, fsPath)
 
 	var files []string
 
@@ -1051,7 +1052,11 @@ func (t *ListFiles) Execute(ctx *types.BusContext, params json.RawMessage) (type
 			// build/__pycache__/.codrax which then leaked into LLM
 			// view of the repo.
 			if d.IsDir() && path != fsPath {
-				if isListFilesNoiseDir(d.Name()) {
+				if ctx != nil && ctx.RepoRoot != "" {
+					if rel, ok := repoRelativePathWithinRoot(ctx.RepoRoot, path); ok && dirFilter.ExcludesRepoRelativePath(rel) {
+						return filepath.SkipDir
+					}
+				} else if IsExcludedDirName(d.Name()) {
 					return filepath.SkipDir
 				}
 				if IsWindowsReservedDevicePath(d.Name()) {
@@ -1087,8 +1092,15 @@ func (t *ListFiles) Execute(ctx *types.BusContext, params json.RawMessage) (type
 			// codrax's own state dir as project content. Symmetric
 			// filtering with the recursive path is the load-bearing
 			// fix; the central set drives both.
-			if e.IsDir() && isListFilesNoiseDir(e.Name()) {
-				continue
+			if e.IsDir() {
+				if ctx != nil && ctx.RepoRoot != "" {
+					entryPath := filepath.Join(fsPath, e.Name())
+					if rel, ok := repoRelativePathWithinRoot(ctx.RepoRoot, entryPath); ok && dirFilter.ExcludesRepoRelativePath(rel) {
+						continue
+					}
+				} else if IsExcludedDirName(e.Name()) {
+					continue
+				}
 			}
 			if IsWindowsReservedDevicePath(e.Name()) {
 				continue

@@ -1697,6 +1697,9 @@ func (o *Orchestrator) runReadSchedulerLoop(stepBudget int) int {
 			stepsUsed++
 			if _, err := o.dispatchStage(types.StageExplore); err != nil {
 				logging.Error("[orchestrator] DAG explore window failed: %v", err)
+				if o.retryReadStageDispatchError(state, types.StageExplore, window, nil, err) {
+					continue
+				}
 				for _, n := range window {
 					state.markFailed(n.ID)
 					o.emitNodeEnd(n.ID, false, err.Error())
@@ -1997,6 +2000,9 @@ func (o *Orchestrator) runReadSchedulerLoop(stepBudget int) int {
 		out, err := o.dispatchStage(types.StageFinalize)
 		if err != nil {
 			logging.Error("[orchestrator] DAG finalize failed: %v", err)
+			if o.retryReadStageDispatchError(state, types.StageFinalize, nil, fin, err) {
+				continue
+			}
 			state.markFailed(fin.ID)
 			o.emitNodeEnd(fin.ID, false, err.Error())
 			break

@@ -1,6 +1,7 @@
 package tool
 
 import (
+	"os"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -70,9 +71,9 @@ func UseNativeGrep() bool {
 	return SearchCommand() == "native"
 }
 
-// ExcludeDirs is the single authoritative list of directories that
-// every search operation (grep tool, keyword search, file coverage
-// analysis) skips. Centralised here so all call sites stay in sync.
+// The directory exclusion policy is centralised here so grep,
+// list_files, keyword_search, repomap, and explorer all reason about
+// the same structural noise.
 //
 // Two overlapping categories, exposed separately so callers can
 // pick the semantics they need:
@@ -89,11 +90,8 @@ func UseNativeGrep() bool {
 //     `internal/memory/` package must NOT be accidentally matched
 //     against.
 //
-// ExcludeDirs is the concatenation, retained for backwards
-// compatibility with existing ripgrep-glob and filepath.WalkDir
-// callers that accept the old "any-level" semantics. New code
-// that runs inside nested paths (e.g. the repomap scanner) should
-// prefer ExcludeDirsAnyLevel + an explicit root-segment check.
+// New code should consume these slices through SearchDirFilter, which
+// preserves root-only semantics and explicit-target overrides.
 var ExcludeDirsAnyLevel = []string{
 	".git", ".hg", ".svn",
 	".codrax", // codrax's own per-repo state (logs / blob / worktrees / plans). Showed up in `list_files recursive=false` output and confused LLMs into thinking it was project state.
@@ -126,19 +124,6 @@ var ExcludeDirPatternsAnyLevel = func() []string {
 var ExcludeDirsRootOnly = []string{
 	"logs", "memory", "eval",
 }
-
-// ExcludeDirs is the flat union of any-level and root-only lists.
-// Kept for existing callers that treat the whole set as any-level
-// (GrepTool, keyword_search, explorer). Those sites accept some
-// false-positive exclusion of nested "memory"/"logs" directories
-// as an acceptable trade-off; scan paths that can't tolerate it
-// (repomap.scanner) build their own predicate from the two slices.
-var ExcludeDirs = func() []string {
-	out := make([]string, 0, len(ExcludeDirPatternsAnyLevel)+len(ExcludeDirsRootOnly))
-	out = append(out, ExcludeDirPatternsAnyLevel...)
-	out = append(out, ExcludeDirsRootOnly...)
-	return out
-}()
 
 // ExcludeDirsAnyLevelSet is the map form of ExcludeDirsAnyLevel,
 // built once at package init for O(1) membership checks.
@@ -213,6 +198,168 @@ func IsExcludedRelativePath(relPath string) bool {
 		}
 	}
 	return false
+}
+
+// SearchDirFilter is the path-aware exclusion policy shared by
+// repo-root walkers and shell-backed search tools.
+//
+// The key distinction from the old flat ExcludeDirs union is that
+// root-only names keep their root-only semantics, and an explicitly
+// targeted path inside an otherwise excluded subtree is allowed back
+// in. This lets broad discovery skip structural noise while still
+// honoring deliberate user/tool targets like `grep(path="dist")`.
+type SearchDirFilter struct {
+	targetDirRel     string
+	anyLevelPatterns []string
+	rootOnlySet      map[string]bool
+}
+
+// NewSearchDirFilter builds a reusable exclusion policy for searches
+// rooted at targetPath inside repoRoot.
+//
+// repoRoot may be empty (unit tests / ad-hoc temp dirs); in that case
+// the policy falls back to any-level exclusions only. targetPath may
+// name either a directory or a file. When it points inside an excluded
+// subtree, that exact target subtree is exempted so explicit requests
+// are not silently filtered away.
+func NewSearchDirFilter(repoRoot, targetPath string) SearchDirFilter {
+	filter := SearchDirFilter{
+		anyLevelPatterns: append([]string(nil), ExcludeDirPatternsAnyLevel...),
+		rootOnlySet:      make(map[string]bool, len(ExcludeDirsRootOnly)),
+	}
+	for _, name := range ExcludeDirsRootOnly {
+		filter.rootOnlySet[name] = true
+	}
+
+	targetDirRel := repoRelativeSearchDir(repoRoot, targetPath)
+	if targetDirRel == "" {
+		return filter
+	}
+	filter.targetDirRel = targetDirRel
+	segments := strings.Split(targetDirRel, "/")
+	if len(segments) > 0 {
+		delete(filter.rootOnlySet, segments[0])
+	}
+	filtered := make([]string, 0, len(filter.anyLevelPatterns))
+	for _, pattern := range filter.anyLevelPatterns {
+		exempt := false
+		for _, seg := range segments {
+			if DirNameMatchesExcludePattern(seg, []string{pattern}) {
+				exempt = true
+				break
+			}
+		}
+		if !exempt {
+			filtered = append(filtered, pattern)
+		}
+	}
+	filter.anyLevelPatterns = filtered
+	return filter
+}
+
+// AnyLevelPatterns returns the any-depth exclude patterns after
+// applying explicit-target exemptions.
+func (f SearchDirFilter) AnyLevelPatterns() []string {
+	return append([]string(nil), f.anyLevelPatterns...)
+}
+
+// RipgrepGlobs renders the policy as ripgrep --glob exclusions.
+// any-level patterns remain basename-style (`!node_modules/`);
+// root-only exclusions are anchored to the repo root (`!/logs/**`).
+func (f SearchDirFilter) RipgrepGlobs() []string {
+	out := make([]string, 0, len(f.anyLevelPatterns)+len(f.rootOnlySet))
+	for _, pattern := range f.anyLevelPatterns {
+		out = append(out, "!"+pattern+"/")
+	}
+	for _, name := range ExcludeDirsRootOnly {
+		if f.rootOnlySet[name] {
+			out = append(out, "!/"+name+"/**")
+		}
+	}
+	return out
+}
+
+// ExcludesRepoRelativePath reports whether relPath should be skipped
+// under this filter's policy. relPath must be repo-relative.
+func (f SearchDirFilter) ExcludesRepoRelativePath(relPath string) bool {
+	if IsWindowsReservedDevicePath(relPath) {
+		return true
+	}
+	normalized := strings.TrimSpace(strings.ReplaceAll(relPath, `\`, `/`))
+	if normalized == "" || normalized == "." {
+		return false
+	}
+	if f.targetDirRel != "" && (normalized == f.targetDirRel || strings.HasPrefix(normalized, f.targetDirRel+"/")) {
+		return false
+	}
+	parts := strings.Split(normalized, "/")
+	if len(parts) > 0 && f.rootOnlySet[parts[0]] {
+		return true
+	}
+	for _, part := range parts {
+		if DirNameMatchesExcludePattern(part, f.anyLevelPatterns) {
+			return true
+		}
+	}
+	return false
+}
+
+func repoRelativePathWithinRoot(repoRoot, targetPath string) (string, bool) {
+	repoRoot = strings.TrimSpace(repoRoot)
+	targetPath = strings.TrimSpace(targetPath)
+	if repoRoot == "" || targetPath == "" {
+		return "", false
+	}
+	repoRoot = filepath.Clean(repoRoot)
+	resolved := normalizeToolAbsolutePath(targetPath)
+	switch {
+	case resolved == "":
+		resolved = targetPath
+	case !toolPathIsAbs(resolved):
+		resolved = filepath.Join(repoRoot, resolved)
+	}
+	if !toolPathIsAbs(resolved) {
+		resolved = filepath.Join(repoRoot, resolved)
+	}
+	resolved = filepath.Clean(resolved)
+	rel, err := filepath.Rel(repoRoot, resolved)
+	if err != nil {
+		return "", false
+	}
+	rel = filepath.Clean(rel)
+	if rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		return "", false
+	}
+	if rel == "." {
+		return "", true
+	}
+	return strings.ReplaceAll(filepath.Clean(rel), `\`, `/`), true
+}
+
+func repoRelativeSearchDir(repoRoot, targetPath string) string {
+	rel, ok := repoRelativePathWithinRoot(repoRoot, targetPath)
+	if !ok || rel == "" {
+		return ""
+	}
+	resolved := normalizeToolAbsolutePath(strings.TrimSpace(targetPath))
+	switch {
+	case resolved == "":
+		resolved = targetPath
+	case !toolPathIsAbs(resolved):
+		resolved = filepath.Join(filepath.Clean(strings.TrimSpace(repoRoot)), resolved)
+	}
+	if !toolPathIsAbs(resolved) {
+		resolved = filepath.Join(filepath.Clean(strings.TrimSpace(repoRoot)), resolved)
+	}
+	if info, err := os.Stat(resolved); err == nil && !info.IsDir() {
+		rel = filepath.Dir(rel)
+	} else if err != nil {
+		rel = filepath.Dir(rel)
+	}
+	if rel == "." {
+		return ""
+	}
+	return strings.ReplaceAll(filepath.Clean(rel), `\`, `/`)
 }
 
 // windowsReservedDeviceNames are DOS device basenames that behave like
