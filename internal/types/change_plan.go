@@ -560,6 +560,42 @@ func UpdatePlanStatusOnDisk(path, status string, appliedAt *time.Time, worktreeP
 	return nil
 }
 
+// PersistAppliedRecoveryOnDisk records the apply commit SHA on the
+// plan's JSON file so /merge / /history / manual recovery can find
+// it after the worktree is destroyed. The companion ref name is
+// derived in the worktree package (worktree.AppliedRef(planID)) and
+// is NOT persisted here — it's recomputable from the plan ID.
+//
+// Call this AFTER worktree.TagAppliedCommit succeeds so the
+// invariant is "if the disk has AppliedCommitSHA, then either the
+// worktree at WorktreePath or the ref refs/codrax/applied/<id>
+// resolves it". Best-effort: an error here means the operator can't
+// auto-recover via /merge, but the bytes are still in main_repo/.git
+// /objects until git gc runs — manual recovery from log output is
+// still possible.
+func PersistAppliedRecoveryOnDisk(path, sha string) error {
+	path = strings.TrimSpace(path)
+	if path == "" {
+		return fmt.Errorf("PersistAppliedRecoveryOnDisk: empty path")
+	}
+	if strings.TrimSpace(sha) == "" {
+		return fmt.Errorf("PersistAppliedRecoveryOnDisk: empty sha")
+	}
+	plan, err := LoadChangePlanFromFile(path)
+	if err != nil {
+		return fmt.Errorf("PersistAppliedRecoveryOnDisk load: %w", err)
+	}
+	plan.AppliedCommitSHA = sha
+	data, err := json.MarshalIndent(plan, "", "  ")
+	if err != nil {
+		return fmt.Errorf("PersistAppliedRecoveryOnDisk marshal: %w", err)
+	}
+	if err := os.WriteFile(path, data, 0o644); err != nil {
+		return fmt.Errorf("PersistAppliedRecoveryOnDisk write %s: %w", path, err)
+	}
+	return nil
+}
+
 // LoadChangePlanFromFile reads a ChangePlan JSON from disk and
 // returns a deserialised *ChangePlan. Called by the orchestrator's
 // the apply stage hook when --mode=apply --plan-file=X needs to install

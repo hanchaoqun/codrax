@@ -460,6 +460,60 @@ func ResetHard(path, sha string) error {
 	return nil
 }
 
+// TagAppliedCommit pins the apply commit in the main repository's
+// ref namespace under refs/codrax/applied/<plan-id>. Worktree commits
+// share the main repo's object store; without a ref pointing to them,
+// `git gc` will eventually prune the apply commit. The pinned ref:
+//
+//   - Survives worktree.Discard (the bytes live in main_repo/.git/
+//     objects, the ref is in main_repo/.git/refs).
+//   - Lets /merge fall back to `git cherry-pick refs/codrax/applied/<id>`
+//     even when keep_on_success was off and the worktree dir is gone.
+//   - Lets the operator manually recover via the same ref name from
+//     the main repo without ever needing the SHA in clipboard form.
+//
+// Best-effort: failures log at warning. The "pinning is hygiene, not
+// correctness" model mirrors PruneDeadSessions — operators get the
+// same recovery path even on filesystem oddities.
+func TagAppliedCommit(mainRepoRoot, planID, sha string) (string, error) {
+	if strings.TrimSpace(mainRepoRoot) == "" {
+		return "", errors.New("worktree.TagAppliedCommit: empty mainRepoRoot")
+	}
+	if strings.TrimSpace(planID) == "" {
+		return "", errors.New("worktree.TagAppliedCommit: empty planID")
+	}
+	if strings.TrimSpace(sha) == "" {
+		return "", errors.New("worktree.TagAppliedCommit: empty sha")
+	}
+	ref := AppliedRef(planID)
+	if out, err := runGitIn(mainRepoRoot, "update-ref", ref, sha); err != nil {
+		return "", fmt.Errorf("worktree.TagAppliedCommit: update-ref %s %s: %w (output: %s)",
+			ref, sha, err, out)
+	}
+	return ref, nil
+}
+
+// AppliedRef returns the canonical recovery ref name for a plan ID.
+// Kept stable so /merge, error messages, and tests all agree.
+func AppliedRef(planID string) string {
+	return "refs/codrax/applied/" + planID
+}
+
+// DeleteAppliedRef tears down a recovery ref previously created by
+// TagAppliedCommit. Used by /worktree discard / /reject paths so
+// the ref namespace doesn't grow unbounded across abandoned plans.
+// Best-effort: a missing ref is a successful no-op.
+func DeleteAppliedRef(mainRepoRoot, planID string) error {
+	if strings.TrimSpace(mainRepoRoot) == "" || strings.TrimSpace(planID) == "" {
+		return nil
+	}
+	ref := AppliedRef(planID)
+	// `git update-ref -d <ref>` returns 0 when the ref existed and was
+	// removed; non-zero when it didn't exist. We tolerate both.
+	_, _ = runGitIn(mainRepoRoot, "update-ref", "-d", ref)
+	return nil
+}
+
 // runGitIn runs `git <args>` with cwd=path and returns combined
 // stdout/stderr. Internal helper for CommitChanges / ResetHard.
 func runGitIn(path string, args ...string) (string, error) {

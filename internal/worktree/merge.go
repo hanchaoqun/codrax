@@ -334,3 +334,140 @@ func branchExists(dir, branch string) bool {
 	cmd.Dir = dir
 	return cmd.Run() == nil
 }
+
+// MergeFromRefOptions parameterises MergeFromRef. Same shape as
+// MergeOptions but rooted on a ref (typically refs/codrax/applied/
+// <plan-id>) instead of a worktree path. Used by /merge when the
+// worktree was discarded but the apply commit is still pinned in
+// the main repo via TagAppliedCommit.
+type MergeFromRefOptions struct {
+	MainRepoRoot string
+	Ref          string
+	BaseBranch   string
+	TargetBranch string
+	Mode         MergeMode
+}
+
+// MergeFromRef folds a refs/codrax/applied/<id>-style ref into a
+// branch in the main repo. Mirrors MergeIntoBranch's safety machinery
+// (clean working tree, restore-on-fail, MergeAuto FF/new-branch
+// classification) but reads the source SHAs from a ref instead of a
+// worktree's HEAD.
+//
+// This is the keep_on_success=false recovery path: even when the
+// worktree directory is gone, the apply commit lives in main_repo/
+// .git/objects, and the ref keeps it reachable so cherry-pick works.
+func MergeFromRef(opts MergeFromRefOptions) (*MergeResult, error) {
+	if strings.TrimSpace(opts.MainRepoRoot) == "" {
+		return nil, errors.New("MergeFromRef: empty MainRepoRoot")
+	}
+	if strings.TrimSpace(opts.Ref) == "" {
+		return nil, errors.New("MergeFromRef: empty Ref")
+	}
+	if strings.TrimSpace(opts.BaseBranch) == "" {
+		return nil, errors.New("MergeFromRef: empty BaseBranch")
+	}
+	if strings.TrimSpace(opts.TargetBranch) == "" {
+		return nil, errors.New("MergeFromRef: empty TargetBranch")
+	}
+
+	// Resolve the ref to a SHA in the main repo's view. If the ref
+	// is missing, the apply state has been GC'd or never tagged —
+	// surface a typed error so /merge can suggest the operator open
+	// a fresh plan.
+	tipSHA, err := revParse(opts.MainRepoRoot, opts.Ref)
+	if err != nil {
+		return nil, fmt.Errorf("MergeFromRef: resolve %s: %w (the ref may have been pruned by `git gc`; re-run /approve to refresh)",
+			opts.Ref, err)
+	}
+	baseSHA, err := revParse(opts.MainRepoRoot, opts.BaseBranch)
+	if err != nil {
+		return nil, fmt.Errorf("MergeFromRef: read base branch %s: %w", opts.BaseBranch, err)
+	}
+	if tipSHA == baseSHA {
+		return nil, ErrNothingToMerge
+	}
+
+	// Enumerate commits ahead of base. Same as MergeIntoBranch but
+	// the rev-list runs in the main repo since the worktree is gone.
+	commits, err := revList(opts.MainRepoRoot, opts.BaseBranch+".."+tipSHA)
+	if err != nil {
+		// Falls through when the ref points at a commit not yet
+		// reachable from base — most commonly because base moved on.
+		// Single-commit cherry-pick still works if isAncestor reports
+		// the relationship cleanly; otherwise we need explicit list.
+		commits = []string{tipSHA}
+	}
+	if len(commits) == 0 {
+		commits = []string{tipSHA}
+	}
+
+	mode := opts.Mode
+	wantFF := opts.TargetBranch == opts.BaseBranch
+	if mode == MergeAuto {
+		if wantFF && isAncestor(opts.MainRepoRoot, baseSHA, tipSHA) {
+			mode = MergeFastForwardOnly
+		} else {
+			mode = MergeNewBranch
+		}
+	}
+
+	if dirty, _ := isWorkingTreeDirty(opts.MainRepoRoot); dirty {
+		return nil, fmt.Errorf("merge: working tree at %s has uncommitted changes — commit or stash before /merge",
+			opts.MainRepoRoot)
+	}
+
+	switch mode {
+	case MergeFastForwardOnly:
+		if !wantFF {
+			return nil, fmt.Errorf("merge: fast_forward_only requires TargetBranch == BaseBranch (got %q vs %q)",
+				opts.TargetBranch, opts.BaseBranch)
+		}
+		if !isAncestor(opts.MainRepoRoot, baseSHA, tipSHA) {
+			return nil, ErrNonFastForward
+		}
+		if err := checkoutBranch(opts.MainRepoRoot, opts.BaseBranch); err != nil {
+			return nil, fmt.Errorf("merge: checkout %s: %w", opts.BaseBranch, err)
+		}
+		if out, err := runGitCapture(opts.MainRepoRoot, "merge", "--ff-only", tipSHA); err != nil {
+			return nil, fmt.Errorf("merge: git merge --ff-only %s: %w (%s)", tipSHA, err, out)
+		}
+		logging.Info("[worktree] merged %d commit(s) ff-only into %s via ref %s",
+			len(commits), opts.BaseBranch, opts.Ref)
+		return &MergeResult{
+			Strategy:      "fast_forward",
+			CommitsLanded: commits,
+			FinalBranch:   opts.BaseBranch,
+		}, nil
+
+	case MergeNewBranch:
+		if branchExists(opts.MainRepoRoot, opts.TargetBranch) {
+			return nil, ErrTargetBranchExists
+		}
+		priorBranch, _ := runGitCapture(opts.MainRepoRoot, "symbolic-ref", "--short", "HEAD")
+		priorBranch = strings.TrimSpace(priorBranch)
+		if out, err := runGitCapture(opts.MainRepoRoot, "checkout", "-b", opts.TargetBranch, opts.BaseBranch); err != nil {
+			return nil, fmt.Errorf("merge: create branch %s: %w (%s)", opts.TargetBranch, err, out)
+		}
+		// Cherry-pick the apply commit. On conflict abort and roll
+		// back to priorBranch so the operator's working state isn't
+		// left half-merged.
+		if out, err := runGitCapture(opts.MainRepoRoot, "cherry-pick", tipSHA); err != nil {
+			_, _ = runGitCapture(opts.MainRepoRoot, "cherry-pick", "--abort")
+			if priorBranch != "" {
+				_ = checkoutBranch(opts.MainRepoRoot, priorBranch)
+			}
+			_, _ = runGitCapture(opts.MainRepoRoot, "branch", "-D", opts.TargetBranch)
+			return nil, fmt.Errorf("merge: cherry-pick %s onto %s conflicted — rolled back to %s: %w (%s)",
+				tipSHA, opts.TargetBranch, priorBranch, err, out)
+		}
+		logging.Info("[worktree] cherry-picked %s onto new branch %s via ref %s",
+			tipSHA, opts.TargetBranch, opts.Ref)
+		return &MergeResult{
+			Strategy:      "cherry_pick_branch",
+			CommitsLanded: commits,
+			FinalBranch:   opts.TargetBranch,
+		}, nil
+	}
+	return nil, fmt.Errorf("MergeFromRef: unknown mode %d", mode)
+}

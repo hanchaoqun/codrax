@@ -245,7 +245,8 @@ func applyPostHook(o *Orchestrator, out *agent.StageOutput) error {
 		return nil
 	}
 	applied := o.busCtx.Mutable.WriteClosure().AppliedSet()
-	o.busCtx.Mutable.SetResult(renderApplySummary(plan, applied, o.busCtx.WorktreePath, o.busCtx.Language))
+	o.busCtx.Mutable.SetResult(renderApplySummary(plan, applied, o.busCtx.WorktreePath,
+		worktree.AppliedRef(plan.ID), o.keepWorktreeOnSuccess || o.skipVerify, o.busCtx.Language))
 	logging.Info("[orchestrator] apply stage: completed, %d/%d changes applied",
 		len(applied), len(plan.TargetPaths))
 	// Warm-worktree retry checkpoint: commit the applied content as a
@@ -263,6 +264,33 @@ func applyPostHook(o *Orchestrator, out *agent.StageOutput) error {
 		} else {
 			o.currentIterCommitSHA = sha
 			logging.Debug("[orchestrator] apply post-hook: checkpoint committed at %s", sha)
+			// Pin the apply commit in the main repo's ref namespace
+			// at refs/codrax/applied/<plan-id>. The worktree's HEAD
+			// is detached; without a ref pointing to this commit,
+			// `git gc` can prune it after worktree.Discard. The ref
+			// is the keep_on_success=false recovery surface — /merge
+			// falls back to it when no preserved worktree exists,
+			// and the operator can manually `git cherry-pick
+			// refs/codrax/applied/<id>` from the main repo even
+			// after the worktree directory is destroyed.
+			if o.busCtx.MainRepoRoot != "" {
+				if ref, terr := worktree.TagAppliedCommit(o.busCtx.MainRepoRoot, plan.ID, sha); terr != nil {
+					logging.Warning("[orchestrator] apply post-hook: tag recovery ref failed: %v", terr)
+				} else {
+					logging.Info("[orchestrator] apply post-hook: tagged %s = %s (recovery ref for /merge)",
+						ref, sha)
+				}
+			}
+			// Persist SHA on the plan JSON so /merge can read it
+			// without scanning git refs. PlanPath is empty in plan-
+			// generation mode; in /approve dispatch it points at the
+			// reviewed plan file. Best-effort: log on failure, the
+			// ref above is still recoverable.
+			if o.busCtx.PlanPath != "" {
+				if perr := types.PersistAppliedRecoveryOnDisk(o.busCtx.PlanPath, sha); perr != nil {
+					logging.Warning("[orchestrator] apply post-hook: persist applied SHA failed: %v", perr)
+				}
+			}
 		}
 	}
 	return nil

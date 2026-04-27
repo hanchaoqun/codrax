@@ -2242,6 +2242,52 @@ func (r *REPL) runMerge(worktreePath, targetBranch string) {
 	}
 }
 
+// runMergeFromRef is the no-worktree counterpart to runMerge. It
+// drives worktree.MergeFromRef when /merge finds a plan whose
+// AppliedCommitSHA was persisted by the apply post-hook but whose
+// worktree directory has been discarded (the keep_on_success=false
+// default). Behaves the same way runMerge does on success: surfaces
+// the strategy + commit count + final branch, and on failure echoes
+// the raw error from MergeFromRef so operators can inspect.
+//
+// Note: there is no post-merge cleanup here — the worktree is
+// already gone, and we deliberately leave the recovery ref in place
+// so the operator can re-run /merge if they want to land on a
+// different branch later. /worktree discard is the explicit
+// teardown path.
+func (r *REPL) runMergeFromRef(planID, ref, targetBranch string) {
+	if r == nil || r.runner == nil {
+		return
+	}
+	mainRoot := r.repoRoot
+	base := defaultMergeTarget(mainRoot, r.branch)
+	if targetBranch == "" {
+		targetBranch = base
+	}
+	res, err := worktree.MergeFromRef(worktree.MergeFromRefOptions{
+		MainRepoRoot: mainRoot,
+		Ref:          ref,
+		BaseBranch:   base,
+		TargetBranch: targetBranch,
+		Mode:         worktree.MergeAuto,
+	})
+	if err != nil {
+		if errors.Is(err, worktree.ErrNothingToMerge) {
+			r.info(mergeNothingToDo(r.language, r.branch))
+			return
+		}
+		for _, line := range mergeFailure(r.language, err.Error()) {
+			r.warn("%s\n", line)
+		}
+		return
+	}
+	for _, line := range mergeSuccess(r.language, res.Strategy, res.FinalBranch, len(res.CommitsLanded)) {
+		r.info(line)
+	}
+	logging.Info("[repl] post-merge: plan %s landed via recovery ref %s (worktree was already discarded)",
+		planID, ref)
+}
+
 // clearWorktreePathOnAppliedPlan walks PlanStore.List for the entry
 // whose WorktreePath equals path and writes back an empty
 // WorktreePath. Idempotent — running on a plan whose path was
@@ -2340,9 +2386,21 @@ func (r *REPL) handleMergeCmd(line string) {
 		r.errorf("%s", mergeListPlansFailedMsg(r.language, err))
 		return
 	}
-	var wt string
-	var planID string
-	var planStatus string
+	// Two recovery surfaces, in priority order:
+	//   1. A preserved worktree directory (keep_on_success=true path).
+	//      Full MergeIntoBranch flow with rollback-on-conflict.
+	//   2. The pinned recovery ref refs/codrax/applied/<plan-id>
+	//      written by the apply post-hook. Works regardless of
+	//      keep_on_success — the worktree is gone but the apply
+	//      commit lives in main_repo/.git/objects, kept reachable
+	//      by this ref. /merge falls back to it via MergeFromRef.
+	var (
+		wt           string
+		planID       string
+		planStatus   string
+		recoverySHA  string // populated when surface 1 misses but surface 2 hits
+		recoveryRef  string
+	)
 	for _, inf := range infos {
 		eligible := inf.Status == types.PlanStatusApplied ||
 			(includeFailed && inf.Status == types.PlanStatusVerifyFailed)
@@ -2353,23 +2411,30 @@ func (r *REPL) handleMergeCmd(line string) {
 		if lerr != nil || full == nil {
 			continue
 		}
-		if full.WorktreePath == "" {
-			continue
+		// Surface 1: preserved worktree path that still exists.
+		if full.WorktreePath != "" {
+			if _, statErr := os.Stat(full.WorktreePath); statErr == nil {
+				wt = full.WorktreePath
+				planID = full.ID
+				planStatus = full.Status
+				break
+			}
 		}
-		if _, statErr := os.Stat(full.WorktreePath); statErr != nil {
-			continue
+		// Surface 2: pinned recovery ref. SHA was persisted by the
+		// apply post-hook; the ref name is derived from plan ID.
+		if recoverySHA == "" && strings.TrimSpace(full.AppliedCommitSHA) != "" {
+			recoverySHA = full.AppliedCommitSHA
+			recoveryRef = worktree.AppliedRef(full.ID)
+			planID = full.ID
+			planStatus = full.Status
 		}
-		wt = full.WorktreePath
-		planID = full.ID
-		planStatus = full.Status
-		break
 	}
 	if includeFailed && planStatus == types.PlanStatusVerifyFailed {
 		for _, line := range mergeForceFailedWarning(r.language, planID) {
 			r.warn("%s\n", line)
 		}
 	}
-	if wt == "" {
+	if wt == "" && recoveryRef == "" {
 		for _, line := range mergeNoApplyYet(r.language) {
 			r.info(line)
 		}
@@ -2405,8 +2470,14 @@ func (r *REPL) handleMergeCmd(line string) {
 			return
 		}
 	}
-	logging.Info("[repl] /merge plan=%s target=%s worktree=%s", planID, target, wt)
-	r.runMerge(wt, target)
+	if wt != "" {
+		logging.Info("[repl] /merge plan=%s target=%s worktree=%s", planID, target, wt)
+		r.runMerge(wt, target)
+		return
+	}
+	logging.Info("[repl] /merge plan=%s target=%s ref=%s (worktree was discarded; using recovery ref)",
+		planID, target, recoveryRef)
+	r.runMergeFromRef(planID, recoveryRef, target)
 }
 
 // handleRejectCmd discards the pending ChangePlan without invoking

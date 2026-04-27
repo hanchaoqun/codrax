@@ -645,6 +645,15 @@ func (o *Orchestrator) Run(request string, repoRoot string, branch string) (*typ
 		if err := worktree.DiscardByPath(o.busCtx.WorktreePath, o.busCtx.MainRepoRoot); err != nil {
 			logging.Warning("[orchestrator] worktree cleanup failed: %v", err)
 		}
+		// Zero out busCtx.WorktreePath now that the directory is
+		// gone. Without this, downstream consumers (the REPL's
+		// "worktree preserved: <path>" message, /merge handler,
+		// /worktree list) read a stale path that no longer exists
+		// on the filesystem and falsely tell the user the bytes are
+		// available. The applied bytes ARE still recoverable via
+		// refs/codrax/applied/<plan-id> set by the apply post-hook;
+		// /merge falls back to that ref when WorktreePath is empty.
+		o.busCtx.WorktreePath = ""
 	}()
 
 	stepsUsed := 0
@@ -870,7 +879,7 @@ func (o *Orchestrator) runTaskPhase(stepsUsed *int) error {
 // English regardless of --lang; the customer's lang=zh terminal
 // showed mixed Chinese / English depending on the rendering layer
 // (REPL chrome was zh, orchestrator-injected sections were en).
-func renderApplySummary(plan *types.ChangePlan, applied map[string]bool, worktreePath, lang string) string {
+func renderApplySummary(plan *types.ChangePlan, applied map[string]bool, worktreePath, recoveryRef string, willPreserve bool, lang string) string {
 	zh := isLangZh(lang)
 	if plan == nil {
 		if zh {
@@ -893,7 +902,16 @@ func renderApplySummary(plan *types.ChangePlan, applied map[string]bool, worktre
 			}
 			b.WriteString("\n")
 		}
-		b.WriteString("*进程退出时 worktree 默认销毁。如需持久化,在 codrax 退出前 `cd` 进 worktree `git cherry-pick` 回主仓 (或开 `pipeline_keep_worktree_on_success` + 用 `/merge`).*\n")
+		if willPreserve {
+			fmt.Fprintf(&b, "*worktree 保留,可 `cd` 进去检查;落到当前分支用 `/merge`,或手动 `git cherry-pick %s` 回主仓。*\n",
+				recoveryRef)
+		} else {
+			fmt.Fprintf(&b, "*worktree 进程退出时销毁,但 apply commit 已 pin 到主仓的 `%s`,bytes 不会丢:*\n"+
+				"*  - 在 codrax 内: `/merge`(零额外配置即可使用)*\n"+
+				"*  - 在主仓终端: `git cherry-pick %s`*\n"+
+				"*要保留 worktree 直接审阅,设置 `codrax.yaml :: pipeline_keep_worktree_on_success: true`。*\n",
+				recoveryRef, recoveryRef)
+		}
 		return b.String()
 	}
 	fmt.Fprintf(&b, "## Apply result: %s\n\n", plan.ID)
@@ -909,7 +927,16 @@ func renderApplySummary(plan *types.ChangePlan, applied map[string]bool, worktre
 		}
 		b.WriteString("\n")
 	}
-	b.WriteString("*The worktree is discarded on exit. To persist, cherry-pick the worktree commit into the main repo before the process terminates (or set `pipeline_keep_worktree_on_success` + use `/merge`).*\n")
+	if willPreserve {
+		fmt.Fprintf(&b, "*Worktree preserved; `cd` in to inspect. Land via `/merge` or manually `git cherry-pick %s` in the main repo.*\n",
+			recoveryRef)
+	} else {
+		fmt.Fprintf(&b, "*The worktree dir is discarded on Run exit, but the apply commit is pinned in the main repo at `%s` so the bytes are recoverable:*\n"+
+			"*  - inside codrax: `/merge` (no extra config needed)*\n"+
+			"*  - from a main-repo terminal: `git cherry-pick %s`*\n"+
+			"*Set `codrax.yaml :: pipeline_keep_worktree_on_success: true` if you prefer to keep the worktree for direct inspection.*\n",
+			recoveryRef, recoveryRef)
+	}
 	return b.String()
 }
 
