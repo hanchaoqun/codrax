@@ -434,6 +434,11 @@ func (t *EmitEvidence) Execute(ctx *types.BusContext, params json.RawMessage) (t
 			r.Tier = built[i].GroundingTier
 			r.Note = built[i].GroundingNote
 		}
+		if stabilizeIllustrativeEvidence(&built[i]) {
+			r.Status = built[i].GroundingStatus
+			r.Tier = built[i].GroundingTier
+			r.Note = built[i].GroundingNote
+		}
 		if appendDiagramRoleValidationNote(&built[i], requestedDiagramRole, exactResolutionContract, diagramRequiredFiles) {
 			r.Status = built[i].GroundingStatus
 			r.Tier = built[i].GroundingTier
@@ -1333,6 +1338,13 @@ func stabilizeExactResolutionEvidence(ev *types.EvidenceItem, gc *ground.Context
 		changed = true
 	}
 	return changed
+}
+
+func stabilizeIllustrativeEvidence(ev *types.EvidenceItem) bool {
+	if ev == nil || ev.ContextRole != types.EvidenceContextRoleIllustrativeOnly {
+		return false
+	}
+	return appendGroundingNoteOnce(ev, "this anchor points at comment/doc/example text, so it is illustrative context only. Do NOT repair this item.")
 }
 
 func exactResolutionEvidenceDirectlyAnchorsAnyTarget(contract *types.ExactResolutionContract, ev types.EvidenceItem) bool {

@@ -399,6 +399,58 @@ func TestEmitEvidence_DropsInconsistentDiagramRoleHint(t *testing.T) {
 	}
 }
 
+func TestEmitEvidence_ConfigCommentLineBecomesIllustrativeOnly(t *testing.T) {
+	tool := &EmitEvidence{}
+	ctx := newEmitCtx()
+	ctx.Mutable.SetTurnAArtifacts(types.TurnAArtifacts{
+		ToolResults: []types.ToolResult{
+			{
+				ToolName: "read_file",
+				Success:  true,
+				Summary: "[codrax.yaml.example: showing lines 22-22 of 801]\n" +
+					"  22│ #   code defaults  <  <exeDir>/codrax.yaml  <  command-line flags\n",
+			},
+		},
+	})
+	params := json.RawMessage(`{
+		"items": [
+			{
+				"kind": "direct",
+				"source": "codrax.yaml.example",
+				"line_start": 22,
+				"summary": "documents precedence comment",
+				"anchor_kind": "definition",
+				"anchor_symbol": "Precedence",
+				"context_role_hint": "related_context",
+				"diagram_role_hint": "config"
+			}
+		]
+	}`)
+	res, err := tool.Execute(ctx, params)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("expected success, got: %s", res.Summary)
+	}
+	got := ctx.Mutable.EmittedEvidence()
+	if len(got) != 1 {
+		t.Fatalf("want 1 item in buffer, got %d", len(got))
+	}
+	if got[0].ContextRole != types.EvidenceContextRoleIllustrativeOnly {
+		t.Fatalf("context role = %q, want illustrative_only for comment-only config line", got[0].ContextRole)
+	}
+	if got[0].DiagramRole != types.EvidenceDiagramRoleUnknown {
+		t.Fatalf("diagram role = %q, want unknown for comment-only config line", got[0].DiagramRole)
+	}
+	if !strings.Contains(strings.ToLower(got[0].GroundingNote), "do not repair this item") {
+		t.Fatalf("illustrative config comment should be marked non-repairable, got: %q", got[0].GroundingNote)
+	}
+	if !strings.Contains(strings.ToLower(res.Summary), "do not spend read_file budget") {
+		t.Fatalf("tool summary should tell the model to drop illustrative config comments, got: %s", res.Summary)
+	}
+}
+
 func TestEmitEvidence_KeepsFreeformExactMentionAsRelatedContextWithoutAnchoredTargetWindow(t *testing.T) {
 	tool := &EmitEvidence{}
 	ctx := newEmitCtx()

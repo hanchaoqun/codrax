@@ -4,6 +4,7 @@ import (
 	"strings"
 
 	repomaptypes "github.com/hanchaoqun/codrax/internal/tool/repomap/types"
+	codraxtypes "github.com/hanchaoqun/codrax/internal/types"
 )
 
 // isLineComment returns true when the given (1-based) line in fileLines
@@ -38,7 +39,13 @@ func isLineComment(fileLines map[int]string, line int, source string) bool {
 	lang := repomaptypes.DetectLanguage(source)
 	trimmed := strings.TrimSpace(raw)
 
+	if isConfigSoloComment(trimmed, source) {
+		return true
+	}
 	if isLineSoloComment(trimmed, lang) {
+		return true
+	}
+	if isInsideConfigBlockComment(fileLines, line, source) {
 		return true
 	}
 	if isInsideBlockComment(fileLines, line, lang) {
@@ -112,6 +119,23 @@ func isLineSoloComment(trimmed, lang string) bool {
 	return false
 }
 
+func isConfigSoloComment(trimmed, source string) bool {
+	if trimmed == "" || !codraxtypes.LooksLikeConfigFilePath(source) {
+		return false
+	}
+	switch {
+	case strings.HasPrefix(trimmed, "#"),
+		strings.HasPrefix(trimmed, ";"),
+		strings.HasPrefix(trimmed, "//"),
+		strings.HasPrefix(trimmed, "/*"),
+		strings.HasPrefix(trimmed, "<!--"):
+		return true
+	case trimmed == "*/", trimmed == "-->":
+		return true
+	}
+	return false
+}
+
 // isInsideBlockComment walks backward through the contiguous prefix of
 // fileLines from line-1 looking for an unclosed block-comment opener.
 // Walks at most maxWalk lines to cap cost. The walk only uses lines
@@ -141,6 +165,20 @@ func isInsideBlockComment(fileLines map[int]string, line int, lang string) bool 
 		if scanBlockBackward(fileLines, line, maxWalk, `'''`, `'''`) {
 			return true
 		}
+	}
+	return false
+}
+
+func isInsideConfigBlockComment(fileLines map[int]string, line int, source string) bool {
+	if !codraxtypes.LooksLikeConfigFilePath(source) {
+		return false
+	}
+	const maxWalk = 200
+	if scanBlockBackward(fileLines, line, maxWalk, "/*", "*/") {
+		return true
+	}
+	if scanBlockBackward(fileLines, line, maxWalk, "<!--", "-->") {
+		return true
 	}
 	return false
 }
