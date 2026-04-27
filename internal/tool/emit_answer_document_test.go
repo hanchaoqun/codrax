@@ -2974,6 +2974,62 @@ func TestResolveAnswerDocumentExactResolution_StripsLeadingExactAbsenceParagraph
 	}
 }
 
+func TestResolveAnswerDocumentExactResolution_KeepsAllowedAnchorWhenForbiddenSymbolOverlapsBySubstring(t *testing.T) {
+	ctx := newDocBusCtx("")
+	target := "explore_mid_loop_hint_budget"
+	ctx.AnalysisIR = &types.AnalysisIR{
+		RequestModel: types.RequestModel{
+			Scenario:      types.ScenarioConfigTrace,
+			AnswerSubject: types.AnswerSubject{Kind: types.SubjectConfigKey},
+		},
+		AnswerContract: types.AnswerContract{
+			ExactResolution: &types.ExactResolutionContract{
+				TargetKind:           types.SubjectConfigKey,
+				TargetLabel:          "config key",
+				Targets:              []string{target},
+				AllowAbsence:         true,
+				RelatedContextPolicy: types.ExactContextSameFamilyGrounded,
+				RelatedContextTerms:  []string{"explore"},
+			},
+		},
+	}
+	ctx.Mutable.SetAbsenceJustification("searched the repo and found no config key named `explore_mid_loop_hint_budget`")
+	ctx.Mutable.SetInvestigationResultKind("absence")
+	ctx.Mutable.AppendEvidence([]types.EvidenceItem{
+		{
+			Kind:            types.EvidenceDirect,
+			Source:          "internal/types/config.go",
+			LineStart:       707,
+			AnchorKind:      types.AnchorDefinition,
+			AnchorSymbol:    "DefaultExploreHeuristics",
+			ContextRole:     types.EvidenceContextRoleRelatedContext,
+			GroundingStatus: types.GroundingGrounded,
+		},
+		{
+			Kind:            types.EvidenceDirect,
+			Source:          "internal/types/config.go",
+			LineStart:       627,
+			AnchorKind:      types.AnchorDefinition,
+			AnchorSymbol:    "ExploreHeuristics",
+			ContextRole:     types.EvidenceContextRoleIllustrativeOnly,
+			GroundingStatus: types.GroundingGrounded,
+		},
+	})
+
+	resolved, gotSummary, err := resolveAnswerDocumentExactResolution("`DefaultExploreHeuristics()` 为 `ExploreHeuristics` 的零值字段提供代码默认值。", &types.AnswerExactResolution{
+		Status:      types.AnswerExactResolutionAbsent,
+		ContextMode: types.AnswerExactResolutionContextGroundedOnly,
+	}, ctx)
+	if err != nil {
+		t.Fatalf("resolveAnswerDocumentExactResolution: %v", err)
+	}
+	lead := renderAnswerDocumentExactResolutionLead(ctx.AnalysisIR.AnswerContract.ExactResolution, resolved, requestedAnswerDocumentLanguage(ctx))
+	body := exactContextSummaryBodyAfterLead(gotSummary, lead)
+	if !strings.Contains(body, "DefaultExploreHeuristics") {
+		t.Fatalf("allowed anchor should survive overlapping forbidden symbol cleanup, got %q", body)
+	}
+}
+
 func TestRenderExactResolutionLead_UsesNaturalAbsenceWording(t *testing.T) {
 	contract := &types.ExactResolutionContract{
 		TargetLabel: "config key",
@@ -3910,10 +3966,13 @@ func TestExtractCodeSnippets_ClustersAdjacentCitations(t *testing.T) {
 
 // -------- F4.1 diagram-block grounding gate --------
 
-func TestEmitAnswerDocument_DiagramRequired_RejectsMissingDiagram(t *testing.T) {
+func TestEmitAnswerDocument_DiagramRequired_AppendsCompiledLogDiagramWhenMissing(t *testing.T) {
 	tool := &EmitAnswerDocument{}
 	ctx := newDocBusCtx("")
 	ctx.AnalysisIR = &types.AnalysisIR{
+		RequestModel: types.RequestModel{
+			Scenario: types.ScenarioRootCause,
+		},
 		AnswerContract: types.AnswerContract{
 			Diagram: &types.DiagramContract{
 				Required:       true,
@@ -3938,11 +3997,12 @@ func TestEmitAnswerDocument_DiagramRequired_RejectsMissingDiagram(t *testing.T) 
 		},
 	})
 	res, _ := tool.Execute(ctx, params)
-	if res.Success {
-		t.Fatalf("missing required diagram must reject, got success")
+	if !res.Success {
+		t.Fatalf("missing diagram with compiled log skeleton should auto-heal, got %q", res.Summary)
 	}
-	if !strings.Contains(res.Summary, "diagram required for this dispatch") {
-		t.Fatalf("rejection must name the missing diagram contract, got %q", res.Summary)
+	doc := ctx.Mutable.AnswerDocument()
+	if doc == nil || !strings.Contains(doc.Summary, "innermost failure: internal/agent/analyzer.go:10") {
+		t.Fatalf("accepted summary should include appended compiled diagram, got %+v", doc)
 	}
 }
 
@@ -3988,10 +4048,13 @@ func TestAnswerDiagramContract_DowngradesHardRequirementWithoutGroundedStructure
 	}
 }
 
-func TestEmitAnswerDocument_DiagramRequired_RejectsPlainCodeFence(t *testing.T) {
+func TestEmitAnswerDocument_DiagramRequired_AppendsCompiledFlowDiagramWhenOnlyPlainCodeFenceExists(t *testing.T) {
 	tool := &EmitAnswerDocument{}
 	ctx := newDocBusCtx("")
 	ctx.AnalysisIR = &types.AnalysisIR{
+		RequestModel: types.RequestModel{
+			Scenario: types.ScenarioArchitectureExplain,
+		},
 		AnswerContract: types.AnswerContract{
 			Diagram: &types.DiagramContract{
 				Required:       true,
@@ -4013,11 +4076,12 @@ func TestEmitAnswerDocument_DiagramRequired_RejectsPlainCodeFence(t *testing.T) 
 			"```",
 	})
 	res, _ := tool.Execute(ctx, params)
-	if res.Success {
-		t.Fatalf("plain code fence must not satisfy diagram requirement")
+	if !res.Success {
+		t.Fatalf("plain code fence should be supplemented by compiled flow diagram, got %q", res.Summary)
 	}
-	if !strings.Contains(res.Summary, "diagram required for this dispatch") {
-		t.Fatalf("rejection must stay on the missing-diagram gate, got %q", res.Summary)
+	doc := ctx.Mutable.AnswerDocument()
+	if doc == nil || !strings.Contains(doc.Summary, "check condition") || !strings.Contains(doc.Summary, "apply fallback") {
+		t.Fatalf("accepted summary should include compiled flow diagram, got %+v", doc)
 	}
 }
 

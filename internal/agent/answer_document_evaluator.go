@@ -1959,6 +1959,13 @@ func renderRetryDiagramSeedFenceForRepair(ctx *types.AgentContext, repair *types
 		return ""
 	}
 	filter := buildRetryDiagramSeedFilter(repair)
+	if !filter.Strict {
+		if plan := answerSurfacePlan(ctx); plan != nil {
+			if fence := strings.TrimSpace(plan.CompiledDiagramFence); fence != "" {
+				return fence
+			}
+		}
+	}
 	for _, kind := range retryDiagramKinds(ctx) {
 		if fence := renderRetryDiagramSeedFenceForKind(ctx, kind, filter); fence != "" {
 			return fence

@@ -198,6 +198,43 @@ func TestBuildAnswerSurfacePlan_SplitsCitationGradeAndProseOnlyContext(t *testin
 	}
 }
 
+func TestBuildAnswerSurfacePlan_CompilesLogDiagramFence(t *testing.T) {
+	mut := NewMutableState("")
+	logBundle := &LogBundle{
+		Errors: []LogError{{
+			Frames: []LogFrame{
+				{File: "internal/agent/analyzer.go", Line: 250, Func: "buildAnalysisIR"},
+				{File: "internal/agent/analyzer.go", Line: 412, Func: "(*analyzerEvaluator).ParseOutput"},
+			},
+		}},
+	}
+	ir := &AnalysisIR{
+		RequestModel: RequestModel{
+			Scenario: ScenarioRootCause,
+		},
+		AnswerContract: AnswerContract{
+			RequiredAnswerShape: ShapeExplanation,
+			Diagram: &DiagramContract{
+				Required:       true,
+				Minimum:        1,
+				PreferredKinds: []DiagramKind{DiagramCallDAG, DiagramSequence},
+			},
+		},
+	}
+
+	plan := BuildAnswerSurfacePlan(ir, mut, logBundle, nil, nil, nil)
+	if plan == nil {
+		t.Fatalf("BuildAnswerSurfacePlan returned nil")
+	}
+	if plan.CompiledDiagramKind != DiagramCallDAG {
+		t.Fatalf("compiled kind = %s, want %s", plan.CompiledDiagramKind, DiagramCallDAG)
+	}
+	if !strings.Contains(plan.CompiledDiagramFence, "internal/agent/analyzer.go:250") ||
+		!strings.Contains(plan.CompiledDiagramFence, "internal/agent/analyzer.go:412") {
+		t.Fatalf("compiled fence missing resolved log frames: %q", plan.CompiledDiagramFence)
+	}
+}
+
 func TestEvidencePreferredSurfaceText_NeutralizesExactResolutionRelevantSummary(t *testing.T) {
 	contract := &ExactResolutionContract{
 		TargetKind:           SubjectConfigKey,

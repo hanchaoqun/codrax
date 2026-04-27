@@ -18,6 +18,8 @@ type AnswerSurfacePlan struct {
 	RequiredShape                 AnswerShape
 	Diagram                       *DiagramContract
 	DiagramHardRequirementDropped bool
+	CompiledDiagramKind           DiagramKind
+	CompiledDiagramFence          string
 
 	ExactResolution *ExactResolutionContract
 
@@ -96,6 +98,94 @@ func RenderConfigTraceDiagramFence(anchors []ConfigTraceDiagramAnchor) string {
 	return RenderLinearDiagramFence(nodes, 0)
 }
 
+func RenderLogDiagramFence(bundle *LogBundle) string {
+	frames := collectDiagramLogFrames(bundle)
+	if len(frames) < 2 {
+		return ""
+	}
+	var b strings.Builder
+	b.WriteString("```\n")
+	for i, frame := range frames {
+		location := fmt.Sprintf("%s:%d", frame.File, frame.Line)
+		name := strings.TrimSpace(frame.Func)
+		if name == "" {
+			name = "(no symbol)"
+		}
+		switch {
+		case i == 0:
+			fmt.Fprintf(&b, "innermost failure: %s in %s\n", location, name)
+		case i == len(frames)-1:
+			fmt.Fprintf(&b, "  -> caller (outermost): %s in %s\n", location, name)
+		default:
+			fmt.Fprintf(&b, "  -> caller:            %s in %s\n", location, name)
+		}
+	}
+	b.WriteString("```")
+	return b.String()
+}
+
+func RenderFlowFindingDiagramFence(findings []FlowFindingDigest) string {
+	for _, finding := range findings {
+		if fence := RenderLinearDiagramFence(flowFindingDiagramNodes(finding), 6); fence != "" {
+			return fence
+		}
+	}
+	return ""
+}
+
+func RenderAnswerChainDiagramFence(chains []AnswerChain) string {
+	nodes := make([]string, 0, len(chains))
+	for _, chain := range chains {
+		label := firstNonEmptySurfaceString(
+			chain.Item.DisplayLocation(true),
+			strings.TrimSpace(chain.Item.Source),
+			strings.TrimSpace(chain.Item.Subject),
+			strings.TrimSpace(chain.Item.AnchorSymbol),
+		)
+		if label != "" {
+			nodes = append(nodes, label)
+		}
+	}
+	return RenderLinearDiagramFence(nodes, 5)
+}
+
+func CompileDiagramSurfaceFence(
+	dc *DiagramContract,
+	scenario Scenario,
+	logBundle *LogBundle,
+	flowFindings []FlowFindingDigest,
+	answerChains []AnswerChain,
+	configAnchors []ConfigTraceDiagramAnchor,
+) (DiagramKind, string) {
+	for _, kind := range diagramSurfaceKinds(dc) {
+		switch kind {
+		case DiagramFlow:
+			if scenario == ScenarioConfigTrace {
+				if fence := RenderConfigTraceDiagramFence(configAnchors); fence != "" {
+					return kind, fence
+				}
+			}
+			if fence := RenderFlowFindingDiagramFence(flowFindings); fence != "" {
+				return kind, fence
+			}
+		case DiagramSequence, DiagramCallDAG:
+			if fence := RenderLogDiagramFence(logBundle); fence != "" {
+				return kind, fence
+			}
+			if kind == DiagramCallDAG {
+				if fence := RenderFlowFindingDiagramFence(flowFindings); fence != "" {
+					return kind, fence
+				}
+			}
+		case DiagramArchitecture:
+			if fence := RenderAnswerChainDiagramFence(answerChains); fence != "" {
+				return kind, fence
+			}
+		}
+	}
+	return DiagramNone, ""
+}
+
 // BuildAnswerSurfacePlan compiles the current answer-surface authority
 // from the already-grounded analysis and investigation state. It is a
 // pure helper shared by the finalizer prompt path and the structured
@@ -163,6 +253,14 @@ func BuildAnswerSurfacePlan(
 		plan.ExactResolution,
 		plan.ExactContextRequiredFiles,
 		plan.SurfaceEvidence,
+	)
+	plan.CompiledDiagramKind, plan.CompiledDiagramFence = CompileDiagramSurfaceFence(
+		plan.Diagram,
+		ir.RequestModel.Scenario,
+		logBundle,
+		flowFindings,
+		answerChains,
+		plan.ConfigTraceDiagramAnchors,
 	)
 	if plan.ExactResolution == nil || len(plan.ExactResolution.Targets) == 0 {
 		return plan
@@ -335,6 +433,76 @@ func CollectConfigTraceDiagramAnchors(
 		}
 	}
 	return out
+}
+
+func diagramSurfaceKinds(dc *DiagramContract) []DiagramKind {
+	if dc != nil && len(dc.PreferredKinds) > 0 {
+		out := make([]DiagramKind, 0, len(dc.PreferredKinds))
+		for _, kind := range dc.PreferredKinds {
+			if kind == DiagramNone {
+				continue
+			}
+			out = append(out, kind)
+		}
+		if len(out) > 0 {
+			return out
+		}
+	}
+	return []DiagramKind{
+		DiagramFlow,
+		DiagramSequence,
+		DiagramCallDAG,
+		DiagramArchitecture,
+	}
+}
+
+func collectDiagramLogFrames(bundle *LogBundle) []LogFrame {
+	if bundle == nil || len(bundle.Errors) == 0 {
+		return nil
+	}
+	resolved := make([]LogFrame, 0, 8)
+	for _, err := range bundle.Errors {
+		for _, frame := range err.Frames {
+			if frame.File == "" || frame.Line <= 0 {
+				continue
+			}
+			resolved = append(resolved, frame)
+			if len(resolved) >= 8 {
+				return resolved
+			}
+		}
+	}
+	return resolved
+}
+
+func flowFindingDiagramNodes(ff FlowFindingDigest) []string {
+	var nodes []string
+	nodes = append(nodes, ff.Path...)
+	if len(nodes) < 2 {
+		for _, hop := range ff.Hops {
+			for _, part := range strings.Split(hop, "->") {
+				part = strings.TrimSpace(part)
+				if part != "" {
+					nodes = append(nodes, part)
+				}
+			}
+		}
+	}
+	if len(nodes) < 2 {
+		nodes = append(nodes, ff.Sources...)
+		nodes = append(nodes, ff.Sinks...)
+	}
+	return nodes
+}
+
+func firstNonEmptySurfaceString(items ...string) string {
+	for _, item := range items {
+		item = strings.TrimSpace(item)
+		if item != "" {
+			return item
+		}
+	}
+	return ""
 }
 
 func configTraceSeedDiagramRoleInFiles(contract *ExactResolutionContract, item EvidenceItem, requiredFiles []string) EvidenceDiagramRole {

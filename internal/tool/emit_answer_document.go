@@ -680,6 +680,7 @@ func (t *EmitAnswerDocument) Execute(ctx *types.BusContext, params json.RawMessa
 	if dropped := countDroppedCitations(citationRemap); dropped > 0 || len(citationWarnings) > 0 {
 		logging.Warning("[emit_answer_document] citation grounding: kept=%d dropped=%d warnings=%d", numCites, dropped, len(citationWarnings))
 	}
+	p.Summary = normalizeRequiredDiagramSummarySurface(p.Summary, citations, groundCtx, ctx)
 	// CGEC D1: push the per-citation RepairDirectives onto the
 	// closure so the orchestrator's renderWindowHint can drain them
 	// into the next explore round's Forced Read List. AddRepair is
@@ -1705,11 +1706,13 @@ func validateExactResolutionContextSurface(summary string, exact *types.AnswerEx
 		}
 		return err.WithHint("Re-emit `emit_answer_document` with the same exact-absence conclusion, but treat `summary` as grounded nearby context only. Do not restate the exact target there: the renderer already prints the exact-absence lead. Keep later prose and diagrams on the already-allowed grounded anchors / mechanisms only.")
 	}
-	lowerBody := strings.ToLower(body)
-	pathBodyKey := types.ExactResolutionLookupKey("path", body)
-	symbolBodyKey := types.ExactResolutionLookupKey("symbol", body)
-	mentionedAllowed := mentionedExactContextSurfaceCandidates(lowerBody, pathBodyKey, symbolBodyKey, plan.AllowedExactContextLabels)
-	mentionedForbidden := mentionedExactContextSurfaceCandidates(lowerBody, pathBodyKey, symbolBodyKey, plan.ForbiddenExactContextLabels)
+	mentionedAllowedLabels := mentionedExactContextSurfaceLabelHits(body, plan.AllowedExactContextLabels)
+	mentionedForbiddenLabels := filterShadowedForbiddenExactContextSurfaceLabels(
+		mentionedAllowedLabels,
+		mentionedExactContextSurfaceLabelHits(body, plan.ForbiddenExactContextLabels),
+	)
+	mentionedAllowed := exactContextSurfaceLabelDisplays(mentionedAllowedLabels)
+	mentionedForbidden := exactContextSurfaceLabelDisplays(mentionedForbiddenLabels)
 	if exact.ContextMode == types.AnswerExactResolutionContextNone {
 		if strings.TrimSpace(body) == "" && len(mentionedAllowed) == 0 && len(mentionedForbidden) == 0 {
 			return nil
@@ -1748,23 +1751,131 @@ func validateExactResolutionContextSurface(summary string, exact *types.AnswerEx
 	return err.WithHint("Re-emit `emit_answer_document` with the same exact-absence conclusion, but keep `summary` on the renderer-produced exact lead's follow-on grounded context only. Drop illustrative/doc-example or broad same-family anchors from prose, diagrams, and citations instead of explaining them away.")
 }
 
-func mentionedExactContextSurfaceCandidates(lowerSummary, pathSummaryKey, symbolSummaryKey string, candidates []types.ExactContextSurfaceLabel) []string {
-	var mentioned []string
+func mentionedExactContextSurfaceCandidates(summary string, candidates []types.ExactContextSurfaceLabel) []string {
+	return exactContextSurfaceLabelDisplays(mentionedExactContextSurfaceLabelHits(summary, candidates))
+}
+
+func mentionedExactContextSurfaceLabelHits(summary string, candidates []types.ExactContextSurfaceLabel) []types.ExactContextSurfaceLabel {
+	lowerSummary := strings.ToLower(summary)
+	var mentioned []types.ExactContextSurfaceLabel
 	for _, candidate := range candidates {
-		matched := strings.Contains(lowerSummary, candidate.MatchLower)
-		if !matched && candidate.LookupKey != "" {
-			switch candidate.Kind {
-			case "path":
-				matched = strings.Contains(pathSummaryKey, candidate.LookupKey)
-			default:
-				matched = strings.Contains(symbolSummaryKey, candidate.LookupKey)
-			}
-		}
-		if matched {
-			mentioned = append(mentioned, candidate.Display)
+		if summaryMentionsExactContextSurfaceLabel(summary, lowerSummary, candidate) {
+			mentioned = append(mentioned, candidate)
 		}
 	}
 	return mentioned
+}
+
+func exactContextSurfaceLabelDisplays(labels []types.ExactContextSurfaceLabel) []string {
+	out := make([]string, 0, len(labels))
+	for _, label := range labels {
+		if display := strings.TrimSpace(label.Display); display != "" {
+			out = append(out, display)
+		}
+	}
+	return out
+}
+
+func filterShadowedForbiddenExactContextSurfaceLabels(allowed, forbidden []types.ExactContextSurfaceLabel) []types.ExactContextSurfaceLabel {
+	if len(allowed) == 0 || len(forbidden) == 0 {
+		return forbidden
+	}
+	var out []types.ExactContextSurfaceLabel
+	for _, bad := range forbidden {
+		if forbiddenExactContextLabelShadowedByAllowed(bad, allowed) {
+			continue
+		}
+		out = append(out, bad)
+	}
+	return out
+}
+
+func forbiddenExactContextLabelShadowedByAllowed(bad types.ExactContextSurfaceLabel, allowed []types.ExactContextSurfaceLabel) bool {
+	if bad.Kind != "symbol" || bad.LookupKey == "" {
+		return false
+	}
+	for _, good := range allowed {
+		if good.Kind != bad.Kind || good.LookupKey == "" || good.LookupKey == bad.LookupKey {
+			continue
+		}
+		if strings.Contains(good.LookupKey, bad.LookupKey) {
+			return true
+		}
+	}
+	return false
+}
+
+func summaryMentionsExactContextSurfaceLabel(summary, lowerSummary string, candidate types.ExactContextSurfaceLabel) bool {
+	if candidate.MatchLower == "" {
+		return false
+	}
+	switch candidate.Kind {
+	case "symbol":
+		return containsSurfaceToken(lowerSummary, candidate.MatchLower)
+	case "path":
+		if strings.Contains(lowerSummary, candidate.MatchLower) {
+			return true
+		}
+		if candidate.LookupKey == "" {
+			return false
+		}
+		for _, token := range summarySurfaceTokens(summary) {
+			if types.ExactResolutionLookupKey("path", token) == candidate.LookupKey {
+				return true
+			}
+		}
+		return false
+	default:
+		return strings.Contains(lowerSummary, candidate.MatchLower)
+	}
+}
+
+func containsSurfaceToken(lowerSummary, needle string) bool {
+	searchFrom := 0
+	for {
+		idx := strings.Index(lowerSummary[searchFrom:], needle)
+		if idx < 0 {
+			return false
+		}
+		start := searchFrom + idx
+		end := start + len(needle)
+		if isSurfaceTokenBoundary(lowerSummary, start-1) && isSurfaceTokenBoundary(lowerSummary, end) {
+			return true
+		}
+		searchFrom = start + 1
+	}
+}
+
+func isSurfaceTokenBoundary(s string, idx int) bool {
+	if idx < 0 || idx >= len(s) {
+		return true
+	}
+	b := s[idx]
+	return !((b >= 'a' && b <= 'z') || (b >= '0' && b <= '9') || b == '_')
+}
+
+func summarySurfaceTokens(summary string) []string {
+	var tokens []string
+	var b strings.Builder
+	flush := func() {
+		if b.Len() == 0 {
+			return
+		}
+		tokens = append(tokens, b.String())
+		b.Reset()
+	}
+	for _, r := range summary {
+		switch {
+		case (r >= 'A' && r <= 'Z') || (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9'):
+			b.WriteRune(r)
+		case strings.ContainsRune("._-/\\:()", r):
+			b.WriteRune(r)
+		default:
+			flush()
+		}
+	}
+	flush()
+	return tokens
 }
 
 func exactContextSummaryBodyAfterLead(summary, lead string) string {
@@ -2941,10 +3052,7 @@ func trimLeadingExactAbsenceRestatement(summary string, contract *types.ExactRes
 		candidates = plan.AllowedExactContextLabels
 	}
 	if len(candidates) > 0 {
-		lowerParagraph := strings.ToLower(paragraph)
-		pathParagraphKey := types.ExactResolutionLookupKey("path", paragraph)
-		symbolParagraphKey := types.ExactResolutionLookupKey("symbol", paragraph)
-		if len(mentionedExactContextSurfaceCandidates(lowerParagraph, pathParagraphKey, symbolParagraphKey, candidates)) > 0 {
+		if len(mentionedExactContextSurfaceCandidates(paragraph, candidates)) > 0 {
 			return summary
 		}
 	}
@@ -2982,10 +3090,12 @@ func sanitizeExactContextSummarySurface(summary string, contract *types.ExactRes
 				changed = true
 				continue
 			}
-			lowerSentence := strings.ToLower(sentence)
-			pathSentenceKey := types.ExactResolutionLookupKey("path", sentence)
-			symbolSentenceKey := types.ExactResolutionLookupKey("symbol", sentence)
-			if len(mentionedExactContextSurfaceCandidates(lowerSentence, pathSentenceKey, symbolSentenceKey, plan.ForbiddenExactContextLabels)) > 0 {
+			mentionedAllowed := mentionedExactContextSurfaceLabelHits(sentence, plan.AllowedExactContextLabels)
+			mentionedForbidden := filterShadowedForbiddenExactContextSurfaceLabels(
+				mentionedAllowed,
+				mentionedExactContextSurfaceLabelHits(sentence, plan.ForbiddenExactContextLabels),
+			)
+			if len(mentionedForbidden) > 0 {
 				changed = true
 				continue
 			}
@@ -3032,7 +3142,10 @@ func normalizeConfigTraceAbsentSummarySurface(summary string, ctx *types.BusCont
 		}
 		return summary
 	}
-	fence := types.RenderConfigTraceDiagramFence(plan.ConfigTraceDiagramAnchors)
+	fence := strings.TrimSpace(plan.CompiledDiagramFence)
+	if fence == "" || plan.CompiledDiagramKind != types.DiagramFlow {
+		fence = types.RenderConfigTraceDiagramFence(plan.ConfigTraceDiagramAnchors)
+	}
 	if fence == "" {
 		if stripped != "" {
 			return stripped
@@ -3043,6 +3156,28 @@ func normalizeConfigTraceAbsentSummarySurface(summary string, ctx *types.BusCont
 		return fence
 	}
 	return strings.TrimSpace(stripped + "\n\n" + fence)
+}
+
+func normalizeRequiredDiagramSummarySurface(summary string, citations []types.Citation, gc *ground.Context, ctx *types.BusContext) string {
+	summary = strings.TrimSpace(summary)
+	if summary == "" {
+		return summary
+	}
+	plan := answerSurfacePlan(ctx)
+	if plan == nil || plan.Diagram == nil || !plan.Diagram.Required {
+		return summary
+	}
+	if summaryDiagramFenceCount(summary) > 0 {
+		return summary
+	}
+	fence := strings.TrimSpace(plan.CompiledDiagramFence)
+	if fence == "" {
+		return summary
+	}
+	if err := validateSummaryDiagramGrounding(fence, citations, gc, ctx); err != nil {
+		return summary
+	}
+	return strings.TrimSpace(summary + "\n\n" + fence)
 }
 
 func stripSummaryFencedBlocks(summary string) string {
