@@ -36,16 +36,24 @@ import (
 // with replCommandAliases' target set in internal/types via the
 // TestSlashCommandsMatchCanonicalRegistry drift guard. Shown only
 // when the buffer looks like a bare slash token.
-// slashCommand carries autocomplete metadata for one /command. Help
-// strings are bilingual: HelpEn shows when --lang=en, HelpZh shows
-// for everything else (zh-default convention shared with banner /
-// messages.go). Adding a new command: fill BOTH variants — leaving
-// HelpZh empty will fall back to HelpEn at render time, but that
-// defeats the bilingual contract.
+// slashCommand carries autocomplete + /help metadata for one
+// /command. Help strings are bilingual: HelpEn shows when
+// --lang=en, HelpZh shows for everything else (zh-default
+// convention shared with banner / messages.go). Adding a new
+// command: fill BOTH variants — leaving HelpZh empty will fall
+// back to HelpEn at render time, but that defeats the bilingual
+// contract.
+//
+// Subs is the optional sub-syntax surface — subcommands and named
+// flags that the parent command accepts. /help renders these
+// indented under the parent so a user typing /help sees, e.g.,
+// `/plan list` exists, not just `/plan`. Empty Subs means "this
+// command takes no subcommands".
 type slashCommand struct {
 	Name   string
 	HelpEn string
 	HelpZh string
+	Subs   []slashSubcommand
 }
 
 // Help returns the language-appropriate help string. zh-default;
@@ -57,37 +65,130 @@ func (c slashCommand) Help(lang string) string {
 	return c.HelpEn
 }
 
+// slashSubcommand describes one accepted second-token form of a
+// parent slash command — either a positional subcommand
+// ("/plan list") or a recognised flag ("/merge --include-failed").
+// Bilingual help mirrors slashCommand.
+type slashSubcommand struct {
+	Name   string
+	HelpEn string
+	HelpZh string
+}
+
+// Help returns the language-appropriate sub help string.
+func (s slashSubcommand) Help(lang string) string {
+	if isZh(lang) && s.HelpZh != "" {
+		return s.HelpZh
+	}
+	return s.HelpEn
+}
+
 var slashCommands = []slashCommand{
-	{"/help", "show available commands", "显示可用命令"},
-	{"/history", "show recent turns", "显示最近会话"},
-	{"/compact", "compact memory", "压缩 memory(整理索引,腾出空间)"},
-	{"/clear", "wipe conversation memory", "清空会话 memory"},
-	{"/log", "attach/show/clear a runtime log", "附加 / 查看 / 清除运行时日志"},
-	{"/htrace", "attach/show/clear an ftrace-compatible trace (HiTrace / atrace / systrace / perfetto)",
-		"附加 / 查看 / 清除 trace(HiTrace / atrace / systrace / perfetto)"},
-	{"/atrace", "alias of /htrace — Android atrace / systrace spelling",
-		"/htrace 的别名 — Android atrace / systrace 拼法"},
-	{"/paste", "capture a paste when bracketed paste is stripped (SSH / tmux)",
-		"粘贴模式 — 适用于 SSH / tmux 吞掉 bracketed paste 的环境"},
-	{"/chat", "reply without invoking the analysis pipeline",
-		"闲聊回复(不走分析流水线)"},
-	{"/mode", "show/set sticky pipeline mode: read | plan | apply | verify",
-		"显示 / 设置粘滞模式:read | plan | apply | verify"},
-	{"/plan", "inspect / list / clear saved ChangePlans (write-mode)",
-		"查看 / 列出 / 清除已保存的 ChangePlan(写模式)"},
-	{"/approve", "consume the pending plan — apply + verify inside a git worktree",
-		"批准待处理的 plan — 在 git worktree 内 apply + verify"},
-	{"/reject", "discard the pending plan (optionally with a reason)",
-		"拒绝待处理的 plan(可选附理由)"},
-	{"/verify", "re-run verify against an applied plan without re-applying",
-		"对已 apply 的 plan 重跑 verify(不再重跑 apply)"},
-	{"/worktree", "list or discard preserved worktrees from successful applies",
-		"列出 / 销毁成功 apply 时保留的 worktree"},
-	{"/merge", "fold an applied plan back into the main repo (fast-forward into base, or cherry-pick onto a new branch)",
-		"把已 apply 的 plan 合回主仓(fast-forward 到 base 分支,或 cherry-pick 到新分支)"},
-	{"/version", "print build version", "打印构建版本"},
-	{"/exit", "leave the REPL", "退出 REPL"},
-	{"/quit", "leave the REPL", "退出 REPL"},
+	{Name: "/help", HelpEn: "show available commands", HelpZh: "显示可用命令"},
+	{Name: "/history", HelpEn: "show recent turns", HelpZh: "显示最近会话"},
+	{Name: "/compact", HelpEn: "compact memory", HelpZh: "压缩 memory(整理索引,腾出空间)"},
+	{Name: "/clear", HelpEn: "wipe conversation memory", HelpZh: "清空会话 memory"},
+	{
+		Name:   "/log",
+		HelpEn: "attach a runtime log (no arg = paste mode)",
+		HelpZh: "附加运行时日志(无参数 = 粘贴模式)",
+		Subs: []slashSubcommand{
+			{"<path>", "load file as the attached log (replaces any prior)",
+				"以指定文件为附加日志(覆盖之前的)"},
+			{"append <path>", "append <path> to the existing attached log with a `# codrax-source:` boundary header",
+				"在已有附加日志后追加 <path>,自动加 `# codrax-source:` 边界头"},
+			{"show", "print the first 20 lines + total bytes of the attached log",
+				"打印附加日志前 20 行 + 总字节"},
+			{"clear", "drop the attached log (does not touch conversation memory)",
+				"清除附加日志(不影响对话记忆)"},
+		},
+	},
+	{
+		Name:   "/htrace",
+		HelpEn: "attach an ftrace-compatible trace (HiTrace / atrace / systrace / perfetto)",
+		HelpZh: "附加 trace(HiTrace / atrace / systrace / perfetto)",
+		Subs: []slashSubcommand{
+			{"<path>", "load file as the attached trace", "以指定文件为附加 trace"},
+			{"append <path>", "append <path> to the existing attached trace", "追加 <path> 到已有附加 trace"},
+			{"show", "print the first 800 bytes of the attached trace", "打印附加 trace 前 800 字节"},
+			{"clear", "drop the attached trace", "清除附加 trace"},
+		},
+	},
+	{
+		Name:   "/atrace",
+		HelpEn: "alias of /htrace — Android atrace / systrace spelling (same subcommands)",
+		HelpZh: "/htrace 的别名 — Android atrace / systrace 拼法(子命令完全相同)",
+	},
+	{Name: "/paste", HelpEn: "capture a paste when bracketed paste is stripped (SSH / tmux)",
+		HelpZh: "粘贴模式 — 适用于 SSH / tmux 吞掉 bracketed paste 的环境"},
+	{Name: "/chat", HelpEn: "reply without invoking the analysis pipeline (e.g. /chat hi)",
+		HelpZh: "闲聊回复,不走分析流水线(例如 /chat 你好)"},
+	{
+		Name:   "/mode",
+		HelpEn: "show or set the sticky pipeline mode",
+		HelpZh: "显示 / 设置粘滞模式",
+		Subs: []slashSubcommand{
+			{"read", "switch to read mode (default; analyze→explore→extract→finalize)",
+				"切换到读模式(默认;analyze→explore→extract→finalize)"},
+			{"plan", "next request will produce a ChangePlan instead of an answer",
+				"下一条请求会产出 ChangePlan 而不是回答"},
+			{"apply", "consume an approved plan inside a worktree (usually reached via /approve, not directly)",
+				"在 worktree 内执行已批准的 plan(一般通过 /approve 进入,不直接 /mode apply)"},
+			{"verify", "re-run tests against an already-applied plan",
+				"对已 applied 的 plan 重跑测试"},
+		},
+	},
+	{
+		Name:   "/plan",
+		HelpEn: "inspect / list / clear saved ChangePlans (write-mode)",
+		HelpZh: "查看 / 列出 / 清除已保存的 ChangePlan(写模式)",
+		Subs: []slashSubcommand{
+			{"show", "render the pending plan with per-file unified-diff preview (16 KB total cap)",
+				"渲染当前待审 plan,每个文件带 unified-diff 预览(总共 16 KB 上限)"},
+			{"list", "enumerate every plan in PlanStore with status + size (newest first)",
+				"列出 PlanStore 里所有 plan(状态 + 字节,最新的在前)"},
+			{"clear", "discard the pending plan without recording a memory turn",
+				"丢弃待审 plan,不记入 memory(对比 /reject)"},
+		},
+	},
+	{
+		Name:   "/approve",
+		HelpEn: "consume the pending plan — apply + verify inside a git worktree",
+		HelpZh: "批准待审 plan — 在 git worktree 内 apply + verify",
+		Subs: []slashSubcommand{
+			{"--merge-to=<branch>", "after a clean apply+verify, immediately /merge into <branch>",
+				"apply+verify 通过后立即把改动合到 <branch>(等价 approve + merge 一步)"},
+		},
+	},
+	{Name: "/reject", HelpEn: "discard the pending plan (free-form reason recorded in memory)",
+		HelpZh: "拒绝待审 plan(可选附理由,记入 memory)"},
+	{Name: "/verify", HelpEn: "re-run verify against an applied plan without re-applying",
+		HelpZh: "对已 apply 的 plan 重跑 verify(不再重跑 apply)"},
+	{
+		Name:   "/worktree",
+		HelpEn: "manage preserved worktrees from successful applies",
+		HelpZh: "管理成功 apply 时保留的 worktree",
+		Subs: []slashSubcommand{
+			{"list", "show every applied plan with a live preserved worktree",
+				"列出所有 applied + worktree 仍存活的 plan"},
+			{"discard <plan-id>", "remove the named plan's worktree from disk (status stays applied)",
+				"删除指定 plan 的 worktree(plan 状态仍为 applied)"},
+		},
+	},
+	{
+		Name:   "/merge",
+		HelpEn: "fold an applied plan back into the main repo",
+		HelpZh: "把已 apply 的 plan 合回主仓",
+		Subs: []slashSubcommand{
+			{"--branch=<name>", "create a new branch on main repo + cherry-pick onto it (PR workflow); without this flag, fast-forward into r.branch",
+				"在主仓上拉新分支并 cherry-pick(PR 流);不传时 fast-forward 到 r.branch"},
+			{"--include-failed", "also accept verify_failed plans (alias: --force) — for env/CI failures the operator decides to merge anyway",
+				"把 verify_failed plan 也纳入候选(别名 --force)— 适合环境/CI 类失败,review 后强合"},
+		},
+	},
+	{Name: "/version", HelpEn: "print build version", HelpZh: "打印构建版本"},
+	{Name: "/exit", HelpEn: "leave the REPL", HelpZh: "退出 REPL"},
+	{Name: "/quit", HelpEn: "leave the REPL", HelpZh: "退出 REPL"},
 }
 
 // placeholderRE matches a folded-paste token. Group 1 is the id.

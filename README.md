@@ -323,7 +323,9 @@ REPL:`/htrace <path>` / `/htrace append <path>` / `/htrace show` / `/htrace clea
 - **写模式沙箱**:`plan → apply → verify → merge` 全部在 git worktree 里跑,主仓 HEAD 永不自动变;严格 W1/W1b 写闭包检查;可选 verify→plan 重试循环 + baseline 回归对比 + worktree 保留 + 12 种 test runner 自动探测;`NoTestsRunners` 一等信号区分"零测试发现"与"测试失败";`FailureKindRunnerMissing` 一等信号识别"runner 二进制没装"(`pytest: command not found`)并跳过 verify→plan 重试,直接给安装提示而非无脑 re-plan;analyzer 在写模式下跳过 `hypothesis_coverage` / `contract_complete`(读模式专属质量门),让"用 python 写一个猜数字游戏"这种从零起步的请求顺利分类;orchestrator 入口 fail-loud 拒收意外喂入的 slash 字面量(`/approve plan-XXX` 等),不再让 analyzer 烧 12+ 次迭代;执行进程组隔离(Linux `Setpgid` / Windows JobObject)+ 内存/CPU 上限,防止失控测试拖死主进程
 - **合并回主仓优雅化**:`/merge` 把 worktree 里的 commit 自动 fast-forward 到当前分支或 cherry-pick 到新分支(`--branch=fix/x`);`/approve --merge-to=fix/x` 一步合并;`--include-failed` / `--force` 在 review 后强制合入 verify_failed plan(适用于本地起不了集成测试、想扔 CI 跑的场景);冲突 = 完整回滚不留半成品,主仓工作区脏不动;裸目录 + commitless repo 三档授权(REPL y/N、yaml `write_auto_init_repo`、CLI `--auto-init-repo`)允许自动 `git init` 脚手架
 - **Python pytest 自动用 venv**:`.venv/bin/python` / `venv/bin/python` / `env/bin/python` 探测优先,`python3 -m pytest` 兜底;runner_missing 信号区分"python 没装"和"pytest 模块没装"两种 env 错误,跳过 verify→plan 重试,直接给中英双语安装提示
-- **REPL UX 调淡**:`SUCCESS` / `INFO` / `WARN` / `ERROR` 前缀去掉了 pterm 默认的高对比背景色,只用单字符 + 彩色前缀(`✓ ℹ ⚠ ✗`),消息体走终端默认色,不再咋眼
+- **REPL UX 调淡**:`SUCCESS` / `INFO` / `WARN` / `ERROR` 前缀去掉了 pterm 默认的高对比背景色,只用单字符 + 彩色前缀(`• ✓ ⚠ ✗`),消息体走终端默认色,不再咋眼
+- **/help 显示子命令**:`/plan show|list|clear`、`/log show|clear|append`、`/htrace show|clear|append`、`/worktree list|discard`、`/mode read|plan|apply|verify`、`/approve [<plan-id>] [--merge-to=][--skip-verify]`、`/merge [--branch=][--include-failed]` 全部缩进显示在 `/help` 里 —— 之前只有顶层命令可见,子命令"隐藏"在使用时才发现
+- **多 pending plan 时精确 approve**:`/approve <plan-id>` / `/plan show <plan-id>` 定向到任意 PlanStore 条目;弹出 confirm 前自动提示"还有 N 个其它可批准的 plan";`/approve --skip-verify` 在本地起不了集成测试时只 apply 不跑 verify(扔给 CI 跑)
 
 ## 文档
 

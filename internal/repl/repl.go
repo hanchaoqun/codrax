@@ -100,6 +100,14 @@ type autoInitRepoSetter interface {
 	SetAutoInitRepo(bool)
 }
 
+// skipVerifySetter lets `/approve --skip-verify` short-circuit the
+// verify stage for one Run. The orchestrator setter is scoped per-
+// Run via defer-restore so the override doesn't leak across
+// /approve invocations targeting different plans.
+type skipVerifySetter interface {
+	SetSkipVerify(bool)
+}
+
 // reuseWorktreeSetter is the capability `/verify <plan-id>` needs:
 // before kicking off a ModeVerify Run against an applied plan, the
 // REPL hands the orchestrator the preserved worktree path so the
@@ -441,7 +449,7 @@ var (
 	subduedInfoPrinter = pterm.PrefixPrinter{
 		Prefix: pterm.Prefix{
 			Style: pterm.NewStyle(pterm.FgCyan),
-			Text:  "ℹ",
+			Text:  "•",
 		},
 	}
 	subduedSuccessPrinter = pterm.PrefixPrinter{
@@ -1380,10 +1388,12 @@ func (r *REPL) handleModeCmd(line string) {
 
 // handlePlanCmd dispatches the `/plan` subcommands. Recognised forms:
 //
-//	/plan                — synonym for /plan show
-//	/plan show           — display the current pending plan from disk
-//	/plan clear          — remove the pending plan's file
-//	/plan list           — enumerate every saved plan (newest first)
+//	/plan                       — synonym for /plan show
+//	/plan show                  — display the current pending plan
+//	/plan show <plan-id>        — display a specific plan from PlanStore
+//	                              (any status; useful after /plan list)
+//	/plan clear                 — remove the pending plan's file
+//	/plan list                  — enumerate every saved plan (newest first)
 //
 // All subcommands require a non-nil PlanStore (cmd/root.go wires
 // one for the real REPL; tests that bypass cmd/ leave it nil and
@@ -1395,6 +1405,19 @@ func (r *REPL) handlePlanCmd(line string) {
 	}
 	rest := strings.TrimSpace(strings.TrimPrefix(line, "/plan"))
 	if rest == "" {
+		rest = "show"
+	}
+	// /plan show <plan-id> — explicit target. Falls through to the
+	// existing show path with the loaded plan's ID; r.pendingPlanPath
+	// is rebound to the named plan so subsequent /approve targets the
+	// same plan without retyping the ID.
+	if showID := strings.TrimSpace(strings.TrimPrefix(rest, "show ")); showID != rest && showID != "" {
+		full, err := r.planStore.Load(showID)
+		if err != nil || full == nil {
+			r.errorf("plan show: %q not found in PlanStore (try /plan list)\n", showID)
+			return
+		}
+		r.pendingPlanPath = filepath.Join(r.planStore.PlanDir(), showID+".json")
 		rest = "show"
 	}
 	switch rest {
@@ -1525,6 +1548,37 @@ func (r *REPL) recoverPendingPlanFromStore() (PlanInfo, bool) {
 	return PlanInfo{}, false
 }
 
+// countOtherPendingPlans enumerates PlanStore for re-approvable
+// plans (Status=pending_approval OR verify_failed) and returns
+// how many exist BESIDES `excludeID`. Used by /approve to surface
+// a "N other approvable plans" hint so the user notices when
+// /plan list has multiple candidates and the most-recent default
+// might not be the one they wanted.
+//
+// Robustness: nil store returns 0. List error logs at warning and
+// returns 0 — the hint is best-effort, never blocks the approve
+// flow.
+func countOtherPendingPlans(store *PlanStore, excludeID string) int {
+	if store == nil {
+		return 0
+	}
+	infos, err := store.List()
+	if err != nil {
+		logging.Warning("[repl] countOtherPendingPlans: list failed: %v", err)
+		return 0
+	}
+	n := 0
+	for _, inf := range infos {
+		if inf.ID == excludeID {
+			continue
+		}
+		if inf.Status == types.PlanStatusPending || inf.Status == types.PlanStatusVerifyFailed {
+			n++
+		}
+	}
+	return n
+}
+
 // collectPlanHistory enumerates saved plans and pairs each with its
 // sibling ChangeReport (if one exists on disk). Returns one oneLine
 // row per plan for /history rendering. An empty return means no
@@ -1626,14 +1680,17 @@ func (r *REPL) collectPlanHistory() []string {
 //     pendingPlanPath regardless of success (apply is terminal;
 //     the user re-plans if they want to try again)
 func (r *REPL) handleApproveCmd(line string) {
-	// Parse optional `--merge-to=<branch>` (also accepts the bare
-	// shape `--merge-to <branch>`). When set, a successful approve
-	// folds the worktree back via MergeIntoBranch in MergeAuto mode
-	// — fast-forwarding when the branch == r.branch and the diff is
-	// linear, otherwise creating that branch and cherry-picking
-	// onto it. Empty leaves the worktree preserved (the historical
-	// behaviour) so the user can /merge later by hand.
-	mergeTo := parseMergeToArg(line)
+	// Parse all /approve arguments in one pass:
+	//   `/approve` — operate on the most recent pending plan
+	//   `/approve <plan-id>` — explicitly target a plan; useful when
+	//      /plan list shows multiple pending plans
+	//   `/approve --plan-id=<id>` — long-flag form of the above
+	//   `/approve --merge-to=<branch>` — chain a merge after clean
+	//      apply+verify
+	//   `/approve --skip-verify` — apply only, skip the verify stage
+	//      (use when local box can't run integration tests; review
+	//      the diff carefully — no test-pass guarantee)
+	planArg, mergeTo, skipVerify := parseApproveArgs(line)
 	if r.planStore == nil {
 		r.info("/approve disabled (no PlanStore configured)")
 		return
@@ -1648,6 +1705,25 @@ func (r *REPL) handleApproveCmd(line string) {
 			r.warn("%s\n", line)
 		}
 		return
+	}
+
+	// Plan resolution. Three paths:
+	//   1. `/approve <plan-id>` or `--plan-id=<id>` — explicit
+	//      target. Required when /plan list shows multiple pending
+	//      plans and the user wants a specific one (not the
+	//      latest).
+	//   2. `/approve` with r.pendingPlanPath set — the most-recent-
+	//      pending pointer set by the prior plan-mode dispatch.
+	//   3. `/approve` with empty pointer — fall through to
+	//      noPendingPlan info; the user runs /mode plan or /plan
+	//      list to see what's available.
+	if planArg != "" {
+		full, err := r.planStore.Load(planArg)
+		if err != nil || full == nil {
+			r.errorf("approve: plan %q not found in PlanStore (try /plan list)\n", planArg)
+			return
+		}
+		r.pendingPlanPath = filepath.Join(r.planStore.PlanDir(), planArg+".json")
 	}
 	if r.pendingPlanPath == "" {
 		r.info(noPendingPlan(r.language))
@@ -1690,6 +1766,15 @@ func (r *REPL) handleApproveCmd(line string) {
 	}
 	if plan.Status == types.PlanStatusVerifyFailed {
 		r.info(fmt.Sprintf("re-approving plan %s (status was verify_failed; assuming env-fix retry)", plan.ID))
+	}
+
+	// Multi-pending hint. When PlanStore carries more than one
+	// pending plan, surface the count + how to target a specific
+	// one before the confirm prompt — this prevents the operator
+	// from approving "the wrong one" when /plan list has many
+	// rows and they forget which is the latest.
+	if extras := countOtherPendingPlans(r.planStore, plan.ID); extras > 0 {
+		r.info(otherPendingPlansHint(r.language, plan.ID, extras))
 	}
 
 	// Probe both setters up-front. Running Mode=ModeApply against a
@@ -1781,6 +1866,23 @@ func (r *REPL) handleApproveCmd(line string) {
 		mSetter.SetMode(originalMode)
 		pSetter.SetPlanPath("")
 	}()
+
+	// `--skip-verify` lifts the verify stage for this Run only. Use
+	// case: the operator's local box can't run integration tests
+	// (DB / GPU / external API), they reviewed the diff, and they
+	// want apply to land bytes immediately — verification will
+	// happen in CI on push. The orchestrator setter scopes the
+	// override to one Run; defer-restore prevents it from leaking
+	// to subsequent /approve calls against different plans.
+	if skipVerify {
+		if setter, ok := r.runner.(skipVerifySetter); ok {
+			setter.SetSkipVerify(true)
+			defer setter.SetSkipVerify(false)
+			r.info(skipVerifyAcknowledged(r.language))
+		} else {
+			r.warn("--skip-verify requested but runner does not implement SetSkipVerify (test stub?); ignoring\n")
+		}
+	}
 
 	// Synthesize a natural-language request the analyzer can chew on.
 	// A literal "/approve <id>" looks like a REPL control input — the
@@ -1885,29 +1987,53 @@ func (r *REPL) handleApproveCmd(line string) {
 	}
 }
 
-// parseMergeToArg extracts the branch name from a `/approve
-// --merge-to=<branch>` (or `--merge-to <branch>`) line. Returns ""
-// when the flag is absent. Tolerant of multi-token whitespace and
-// optional leading `/approve` prefix so tests can pass the same
-// helper a raw flag string.
-func parseMergeToArg(line string) string {
+// parseApproveArgs parses every recognised /approve argument in
+// one pass. Returns (planID, mergeTo, skipVerify):
+//   - planID: positional plan-id (e.g. "plan-1730834521-12345") or
+//     --plan-id=<id> long form. Empty when neither is supplied.
+//   - mergeTo: --merge-to=<branch> (or --merge-to <branch>); empty
+//     when not supplied.
+//   - skipVerify: true when --skip-verify is on the command line.
+//
+// Tolerant of leading "/approve" prefix so tests can pass the raw
+// flag string. Tolerant of split-token forms (`--merge-to <branch>`
+// with whitespace separator). Unknown tokens are silently ignored
+// — handleApproveCmd handles unknown shapes by falling through to
+// the "load most recent pending plan" path.
+func parseApproveArgs(line string) (planID, mergeTo string, skipVerify bool) {
 	rest := strings.TrimSpace(strings.TrimPrefix(line, "/approve"))
 	if rest == "" {
-		return ""
+		return "", "", false
 	}
-	for _, tok := range strings.Fields(rest) {
-		if strings.HasPrefix(tok, "--merge-to=") {
-			return strings.TrimSpace(strings.TrimPrefix(tok, "--merge-to="))
-		}
-	}
-	// Two-token form: `--merge-to <branch>`.
 	tokens := strings.Fields(rest)
 	for i, tok := range tokens {
-		if tok == "--merge-to" && i+1 < len(tokens) {
-			return strings.TrimSpace(tokens[i+1])
+		switch {
+		case tok == "--skip-verify":
+			skipVerify = true
+		case strings.HasPrefix(tok, "--merge-to="):
+			mergeTo = strings.TrimSpace(strings.TrimPrefix(tok, "--merge-to="))
+		case strings.HasPrefix(tok, "--plan-id="):
+			planID = strings.TrimSpace(strings.TrimPrefix(tok, "--plan-id="))
+		case tok == "--merge-to" && i+1 < len(tokens):
+			mergeTo = tokens[i+1]
+		case tok == "--plan-id" && i+1 < len(tokens):
+			planID = tokens[i+1]
+		case strings.HasPrefix(tok, "plan-") && planID == "":
+			// Positional plan-id form. Only the first token shaped
+			// like `plan-<...>` wins so a flag value that happens
+			// to begin with `plan-` doesn't get re-interpreted.
+			planID = tok
 		}
 	}
-	return ""
+	return planID, mergeTo, skipVerify
+}
+
+// parseMergeToArg is the legacy single-purpose helper kept as a
+// thin wrapper for tests + downstream callers that already use it.
+// New code should prefer parseApproveArgs.
+func parseMergeToArg(line string) string {
+	_, mergeTo, _ := parseApproveArgs(line)
+	return mergeTo
 }
 
 // runMerge is the shared body for the auto-merge tail of /approve

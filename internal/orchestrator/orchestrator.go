@@ -115,6 +115,19 @@ type Orchestrator struct {
 	// disk. Only the happy path is preserved.
 	keepWorktreeOnSuccess bool
 
+	// skipVerify, when true, short-circuits the verify stage in
+	// ModeApply: the apply node still runs (bytes land in the
+	// worktree), but the write scheduler marks the verify node
+	// done without dispatching the verifier agent. Used by REPL
+	// `/approve --skip-verify` for cases where the operator can't
+	// run integration tests locally (DB / GPU / external API)
+	// and prefers to defer testing to CI on push.
+	//
+	// Scope: per-Run. The REPL caller defers SetSkipVerify(false)
+	// after Run() returns so the override doesn't leak across
+	// /approve invocations against different plans.
+	skipVerify bool
+
 	// autoInitRepo, when true, lets the apply pre-hook silently
 	// transition a bare or commitless target through worktree.
 	// EnsureInitialCommit before calling worktree.Create. Default
@@ -392,6 +405,29 @@ func (o *Orchestrator) AutoInitRepo() bool {
 // of this flag.
 func (o *Orchestrator) SetKeepWorktreeOnSuccess(on bool) {
 	o.keepWorktreeOnSuccess = on
+}
+
+// SetSkipVerify toggles the verify-stage short-circuit for
+// ModeApply Runs. When true, the write scheduler marks the verify
+// node done immediately after apply succeeds — no run_tests
+// dispatch, no FailureSummary, no verify→plan retry. Per-Run
+// scope: REPL `/approve --skip-verify` flips this on then defers
+// SetSkipVerify(false) so the override doesn't bleed into the
+// next Run.
+//
+// Use case: integration tests need infra the operator's box can't
+// run (DB / GPU / external API). The operator reviews the plan
+// diff, decides to land bytes locally, and lets CI run tests on
+// push. The plan's on-disk Status is set to `applied` (clean
+// success path) — semantically different from a verify_failed
+// plan where tests ran and failed.
+func (o *Orchestrator) SetSkipVerify(on bool) {
+	o.skipVerify = on
+}
+
+// SkipVerify returns the current setting.
+func (o *Orchestrator) SkipVerify() bool {
+	return o.skipVerify
 }
 
 // SetReuseWorktreePath installs an existing worktree directory the

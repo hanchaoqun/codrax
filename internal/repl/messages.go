@@ -374,6 +374,32 @@ func mergeSuccess(lang, strategy, finalBranch string, count int) []string {
 	}
 }
 
+// otherPendingPlansHint — printed before the /approve confirm
+// prompt when PlanStore has more than one re-approvable plan
+// (pending_approval or verify_failed). Surfaces the count + how
+// to target a specific one so the user doesn't accidentally
+// approve the auto-resolved most-recent.
+func otherPendingPlansHint(lang, planID string, others int) string {
+	if isZh(lang) {
+		return formatN(lang,
+			"  注意:还有 %d 个其它可批准的 plan(pending_approval / verify_failed)。当前要批的是 %s;指定其它用 `/approve <plan-id>`(/plan list 看 ID)",
+			others, planID)
+	}
+	return formatN(lang,
+		"  note: %d other approvable plan(s) exist (pending_approval / verify_failed). about to approve %s; target a different one with `/approve <plan-id>` (see /plan list)",
+		others, planID)
+}
+
+// skipVerifyAcknowledged — printed when /approve --skip-verify is
+// honored. Tells the user the verify stage is being deliberately
+// skipped so they don't expect a "tests passed" verdict.
+func skipVerifyAcknowledged(lang string) string {
+	if isZh(lang) {
+		return "  --skip-verify 已生效:本次 approve 跳过 verify 阶段(只 apply,不跑测试)"
+	}
+	return "  --skip-verify acknowledged: this approve skips the verify stage (apply only, no tests)"
+}
+
 // mergeForceFailedWarning — printed when the user passes
 // `/merge --include-failed` (or --force) and the resolved plan's
 // Status is verify_failed. We surface a deliberate warning so the
@@ -629,11 +655,25 @@ func promptStickyTag(mode string, hasLog, hasTrace, hasPendingPlan, memPressure 
 // the longest command width so the help columns line up. Header is
 // localized; per-command help text comes from slashCommand.Help(lang).
 func helpLines(lang string) []string {
-	// Width of widest command name for column alignment.
+	// Two-column alignment: the parent-command and subcommand
+	// columns share a width budget so all rows line up. Width is
+	// the longest name across BOTH levels (parent + sub) since
+	// subs render with a 2-space indent prefix and need to fit
+	// inside the same column.
 	maxName := 0
 	for _, c := range slashCommands {
 		if n := len(c.Name); n > maxName {
 			maxName = n
+		}
+		for _, s := range c.Subs {
+			// The sub label rendered as `<parent> <sub>` (the
+			// shape the user types). That shape is wider than a
+			// bare sub name, so include the parent prefix when
+			// computing width.
+			candidate := c.Name + " " + s.Name
+			if n := len(candidate); n > maxName {
+				maxName = n
+			}
 		}
 	}
 	pad := func(s string) string {
@@ -644,12 +684,19 @@ func helpLines(lang string) []string {
 	}
 	out := make([]string, 0, len(slashCommands)+2)
 	if isZh(lang) {
-		out = append(out, "可用命令(共 "+itoa(len(slashCommands))+" 条):")
+		out = append(out, "可用命令(共 "+itoa(len(slashCommands))+" 条;子命令缩进显示):")
 	} else {
-		out = append(out, "available commands ("+itoa(len(slashCommands))+"):")
+		out = append(out, "available commands ("+itoa(len(slashCommands))+"; subcommands shown indented):")
 	}
 	for _, c := range slashCommands {
 		out = append(out, "  "+pad(c.Name)+"  "+c.Help(lang))
+		// Render subs as `<parent> <sub>` so the user sees the
+		// exact shape they would type. Indented by 4 spaces so
+		// the visual hierarchy is unambiguous.
+		for _, s := range c.Subs {
+			label := c.Name + " " + s.Name
+			out = append(out, "    "+pad(label)+"  "+s.Help(lang))
+		}
 	}
 	if isZh(lang) {
 		out = append(out, "提示:行尾加 \\ 进入多行输入。")

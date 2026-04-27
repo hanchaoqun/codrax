@@ -1251,7 +1251,50 @@ codrax --mode=apply --plan-file /tmp/plan.json --auto-apply --auto-init-repo
 
 REPL 会自动从 PlanStore 找最近一条 `pending_approval` plan 重新绑定指针,**跨进程也能恢复**(关掉 codrax 再开,`/plan show` 还能找到上次没合并的 plan)。
 
-#### 4.3.22 当前限制
+#### 4.3.22 多个 pending plan 时定向 approve / show / 跳过 verify
+
+`/plan list` 经常会列出多条候选(每次 `/mode plan` 会新生成一份);默认 `/approve` 操作的是**最新一条** pending/verify_failed plan。当用户想精确控制时:
+
+```
+❯❯ /plan list
+  3 plan(s) in /home/me/.../plans (newest first):
+    - [...] plan-1730845210-12345  status=pending_approval (4096 bytes)
+    - [...] plan-1730841098-12345  status=verify_failed     (3210 bytes)
+    - [...] plan-1730834521-12345  status=applied           (2400 bytes)
+
+❯❯ /plan show plan-1730841098-12345     # 看历史 plan 的 diff
+   ... 渲染 unified-diff 预览 ...
+
+❯❯ /approve plan-1730841098-12345        # 定向 approve(verify_failed env-fix retry)
+  • re-approving plan plan-1730841098-12345 (status was verify_failed; assuming env-fix retry)
+  • note: 1 other approvable plan(s) exist (pending_approval / verify_failed). about to approve plan-1730841098-12345; target a different one with `/approve <plan-id>` (see /plan list)
+  Approve plan plan-1730841098-12345 (3 change(s))? Apply inside a git worktree + run verify.
+  > Yes
+```
+
+**支持的 /approve 子命令**:
+
+| 形式 | 作用 |
+|---|---|
+| `/approve` | 最新一条 pending/verify_failed plan |
+| `/approve <plan-id>` | 定向到 PlanStore 里的某个具体 plan(必须是 pending_approval 或 verify_failed) |
+| `/approve --plan-id=<id>` | 等价上面的长 flag 形式 |
+| `/approve --merge-to=<branch>` | apply+verify 通过后立即合并到该分支(可与 plan-id 组合) |
+| `/approve --skip-verify` | 只 apply 不跑 verify(本地起不了集成测试时用,扔 CI 跑) |
+
+**多 plan 提示**:当 PlanStore 里还有其它可批准的 plan,confirm 弹出前会自动打一行 `note: N other approvable plan(s) exist...`,提醒用户可能选错了。
+
+**`/plan show <plan-id>`**:配合 /plan list 看历史 plan 的完整 diff(包括已 applied / verify_failed 的);执行后 pendingPlanPath 自动绑定到该 plan,下一句 `/approve` 不再需要重输 ID。
+
+**`--skip-verify` 适用场景**:
+
+- 本地起不了集成测试(数据库、外部服务、GPU 等)
+- 改动小且明显正确(typo 修正、注释更新等)
+- 想快速迭代,稍后让 CI 跑测试
+
+注意:`--skip-verify` 不影响 plan 状态机 —— apply 成功后 plan 标 `applied`,跟 verify 通过的 plan 一样。如果担心引入回归,后续可以用 `/verify <plan-id>` 单独补跑测试。
+
+#### 4.3.23 当前限制
 
 - 写模式**不支持** multi-plan concurrency。同一仓库不要并行跑两个 `/approve`(plan 文件名带 PID,但 worktree 操作不是并发安全的)。
 - `git push` 永远是用户手动操作,`/merge` 不替你做(避免对远端的意外副作用)。

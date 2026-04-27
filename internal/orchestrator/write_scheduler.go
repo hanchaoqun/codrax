@@ -105,6 +105,23 @@ func (o *Orchestrator) runWriteSchedulerLoop(stepBudget int) int {
 			continue
 		}
 
+		// /approve --skip-verify short-circuit. When the operator
+		// asked codrax to apply without testing (typically because
+		// integration tests need infra unavailable on this host),
+		// the verify node is marked done without dispatching the
+		// verifier. apply has already landed bytes in the worktree;
+		// status flips to applied via the verify post-hook below
+		// is bypassed too — we set it directly here so /plan list
+		// reflects the truth.
+		if n.Type == types.NodeVerify && o.skipVerify {
+			now := time.Now()
+			o.persistPlanStatus(types.PlanStatusApplied, &now)
+			logging.Info("[orchestrator] verify skipped (--skip-verify); plan marked applied without test execution")
+			state.markDone(n.ID)
+			o.emitNodeEnd(n.ID, true, "skipped (--skip-verify)")
+			continue
+		}
+
 		// Pre-hook: worktree provision, plan load, baseline capture.
 		// A failure terminates the Run.
 		if err := runStagePreHook(o, stage); err != nil {
