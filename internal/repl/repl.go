@@ -2534,6 +2534,15 @@ func (r *REPL) handleBranchCmd(line string) {
 // is reported back as a one-line warning when non-zero so the
 // user knows the command failed.
 //
+// The command + captured output are also persisted as a memory
+// turn (KindShell) so the next pipeline / chat turn's BuildContext
+// can surface them as prior conversation context. The operator
+// can then ask follow-up questions ("explain this error", "fix
+// the diff above") against the actual command output rather than
+// having to paste it back in. Captured output is capped at
+// shellBangCaptureCap to bound memory growth on commands that
+// dump multi-MB output.
+//
 // `cd` is special-cased: each `!` invocation spawns a fresh
 // shell, so `!cd <dir>` has no effect on subsequent commands.
 // We detect the shape and surface a clear message rather than
@@ -2553,13 +2562,77 @@ func (r *REPL) handleShellBangCmd(line string) {
 		// shell). Only the bare `!cd /x` is the no-op shape.
 		// Surface the warning either way so the user learns.
 	}
+	// io.MultiWriter splits the subprocess's output: one branch
+	// streams to the user's terminal as before; the other branch
+	// fills a bounded buffer the memory turn captures. The bounded
+	// writer drops bytes past the cap so a runaway `!find /` or
+	// `!cat huge_file` cannot blow up REPL memory.
+	captureBuf := newBoundedBuffer(shellBangCaptureCap)
+	writer := io.MultiWriter(r.out, captureBuf)
 	cmd := tool.NewShellCommandContext(context.Background(), line)
 	cmd.Dir = r.repoRoot
-	cmd.Stdout = r.out
-	cmd.Stderr = r.out
-	if err := cmd.Run(); err != nil {
-		r.warn("%s", shellBangExit(r.language, err))
+	cmd.Stdout = writer
+	cmd.Stderr = writer
+	runErr := cmd.Run()
+	if runErr != nil {
+		r.warn("%s", shellBangExit(r.language, runErr))
 	}
+	captured := captureBuf.String()
+	if captureBuf.Truncated() {
+		captured += fmt.Sprintf("\n[output truncated; first %d bytes captured for context — full output rendered above]", shellBangCaptureCap)
+	}
+	if runErr != nil {
+		captured = strings.TrimRight(captured, "\n") + fmt.Sprintf("\n[exit error: %v]", runErr)
+	}
+	// Record so the next /chat / pipeline turn picks it up via
+	// memory.BuildContext. Request and display both prefixed with
+	// `!` so the index entry is unambiguously a shell turn at a
+	// glance; Response is the captured stream.
+	r.recordTurn("!"+line, "!"+line, captured, memory.KindShell)
+}
+
+// shellBangCaptureCap is the upper bound on bytes captured from a
+// `!<cmd>` invocation for memory persistence. The full stream still
+// reaches the terminal — this only affects what the next turn's
+// prior-conversation context sees. 32 KiB covers typical ls / git
+// status / short tracebacks; large paste flows would dilute recent
+// context anyway, and compaction summarises the rest.
+const shellBangCaptureCap = 32 * 1024
+
+// boundedBuffer is an io.Writer that accepts up to cap bytes and
+// silently drops everything after. Truncated() reports whether the
+// drop happened so the caller can append a clear marker.
+type boundedBuffer struct {
+	buf       []byte
+	cap       int
+	truncated bool
+}
+
+func newBoundedBuffer(cap int) *boundedBuffer {
+	return &boundedBuffer{cap: cap}
+}
+
+func (b *boundedBuffer) Write(p []byte) (int, error) {
+	remaining := b.cap - len(b.buf)
+	if remaining <= 0 {
+		b.truncated = true
+		return len(p), nil
+	}
+	if len(p) <= remaining {
+		b.buf = append(b.buf, p...)
+		return len(p), nil
+	}
+	b.buf = append(b.buf, p[:remaining]...)
+	b.truncated = true
+	return len(p), nil
+}
+
+func (b *boundedBuffer) String() string {
+	return string(b.buf)
+}
+
+func (b *boundedBuffer) Truncated() bool {
+	return b.truncated
 }
 
 // plan was dropped.

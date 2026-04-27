@@ -108,6 +108,17 @@ const (
 	// policy for now — plan turns are infrequent but behave like
 	// pipeline turns for entity-based recall.
 	KindPlan Kind = "plan"
+	// KindShell = REPL turn produced by a `!<cmd>` shell-bang
+	// invocation. The Request is `!<cmd>`, the Response is the
+	// captured stdout/stderr (capped). Recorded so the next
+	// pipeline / chat turn's BuildContext includes the shell output
+	// — the operator can pose follow-up questions ("what does this
+	// error mean", "explain the diff") against the previous
+	// command's actual output instead of having to paste it back in.
+	// Retrieval mirrors the chitchat policy: recent same-session
+	// turns are pinned verbatim so the immediately-prior shell
+	// output is always in front of the model.
+	KindShell Kind = "shell"
 )
 
 // Turn is one user request + assembled assistant response.
@@ -226,8 +237,14 @@ type kindPolicy struct {
 // pass BuildOpts see byte-identical output.
 func policyFor(k Kind) kindPolicy {
 	switch k {
-	case KindChitchat:
-		return kindPolicy{sessionPinCount: 3, recentBodyChars: 800, compactedMatchCap: 3, entityScoreMul: 2, refsChainDepth: 1}
+	case KindChitchat, KindShell:
+		// Shell turns share chitchat's "keep recent thread" bias:
+		// the immediately-prior `!cmd` output is the most likely
+		// referent for a follow-up question ("explain this error").
+		// 3 same-session turns pinned at up to 1200 chars covers
+		// typical command output (ls, git status, short stack
+		// traces); larger paste flows into compaction normally.
+		return kindPolicy{sessionPinCount: 3, recentBodyChars: 1200, compactedMatchCap: 3, entityScoreMul: 2, refsChainDepth: 1}
 	case KindPipeline:
 		return kindPolicy{sessionPinCount: 2, recentBodyChars: 0, compactedMatchCap: 5, entityScoreMul: 3, refsChainDepth: 2}
 	default:

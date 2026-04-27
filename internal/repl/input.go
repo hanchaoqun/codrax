@@ -555,12 +555,33 @@ func (m *inputModel) handleSubmit() tea.Cmd {
 	echoStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("51"))
 	tagStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("214")).Bold(true)
 	divStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("240"))
-	echoLine := echoStyle.Render("> " + singleLine(display))
-	if m.echoTag != "" {
-		echoLine = tagStyle.Render(m.echoTag) + " " + echoLine
+	// Echo the EXPANDED form (`[Pasted text #N]` placeholders
+	// replaced by their full content) so what the user actually
+	// dispatched is what they see in the conversation log. Pre-fix
+	// the echo printed the folded placeholder on a single flattened
+	// line — handy for editing-time compaction, misleading once
+	// dispatched. Multi-line expansion preserves newlines in the
+	// echo: line 1 carries the `> ` prompt + (optional) tag, lines
+	// 2..N carry an indent so the block reads as one unit.
+	echoBody := expanded
+	if echoBody == "" {
+		echoBody = display
 	}
-	cmds := []tea.Cmd{
-		tea.Printf("  %s", echoLine),
+	echoLines := strings.Split(echoBody, "\n")
+	cmds := []tea.Cmd{}
+	for i, ln := range echoLines {
+		var rendered string
+		if i == 0 {
+			rendered = echoStyle.Render("> " + ln)
+			if m.echoTag != "" {
+				rendered = tagStyle.Render(m.echoTag) + " " + rendered
+			}
+		} else {
+			// Continuation lines inside an unfolded paste — align
+			// under the prompt so the block reads visually grouped.
+			rendered = echoStyle.Render("  " + ln)
+		}
+		cmds = append(cmds, tea.Printf("  %s", rendered))
 	}
 	if !continues {
 		cmds = append(cmds, tea.Printf("  %s", divStyle.Render("─────────────────────────────────────")))
@@ -932,12 +953,3 @@ func hasPrintable(s string) bool {
 	return false
 }
 
-// singleLine flattens any stray newlines in the display echo. The
-// fold logic already replaces multi-line pastes with a placeholder,
-// but a trailing "\" continuation line that we just submitted can
-// still contain intermediate \n when accumulated by the outer loop.
-func singleLine(s string) string {
-	s = strings.ReplaceAll(s, "\r\n", " ")
-	s = strings.ReplaceAll(s, "\n", " ")
-	return s
-}

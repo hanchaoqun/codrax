@@ -1823,11 +1823,16 @@ func pythonInterpreter(roots ...string) (string, bool) {
 	return "pytest", false
 }
 
-// runnerInstallHint maps a runner to a short install suggestion
-// the user-facing error embeds. Kept terse; the user can search
-// the runner's docs for full instructions. Bilingual: zh (default)
-// vs en. Drift-guard test TestRunnerInstallHint_AllRunnersCovered
-// asserts every allowedRunners entry has a non-empty hint in zh.
+// runnerInstallHint maps a runner to a short install suggestion the
+// user-facing error embeds. Bilingual zh (default) / en. Drift-guard
+// test TestRunnerInstallHint_AllRunnersCovered asserts every
+// allowedRunners entry has a non-empty hint in zh.
+//
+// Inline shell commands are prefixed with `!` so the operator can
+// copy-paste them directly into the codrax REPL prompt — the bang
+// shell-out runs the command in REPL's CWD, which is the main repo
+// for the typical /approve flow. Pure URLs / package-manager hints
+// without a runnable command stay plain prose.
 func runnerInstallHint(runner, lang string) string {
 	zh := isZh(lang)
 	switch runner {
@@ -1838,9 +1843,9 @@ func runnerInstallHint(runner, lang string) string {
 		return "install Go from https://go.dev/dl/ (or your distro's package manager)"
 	case "python":
 		if zh {
-			return "在项目 venv 里装(`python3 -m venv .venv && .venv/bin/pip install pytest pytest-json-report`)或用系统 python(`pip install pytest pytest-json-report`);codrax 会自动识别仓根的 .venv / venv / env / .virtualenv 目录"
+			return "在项目 venv 里装(`!python3 -m venv .venv && .venv/bin/pip install pytest pytest-json-report`)或用系统 python(`!pip install pytest pytest-json-report`);codrax 会自动识别仓根的 .venv / venv / env / .virtualenv 目录(`!` 前缀让 codrax 直接执行系统命令)"
 		}
-		return "install pytest in the project venv (`python3 -m venv .venv && .venv/bin/pip install pytest pytest-json-report`) or for the system python (`pip install pytest pytest-json-report`); codrax auto-detects .venv / venv / env / .virtualenv directories at the repo root"
+		return "install pytest in the project venv (`!python3 -m venv .venv && .venv/bin/pip install pytest pytest-json-report`) or for the system python (`!pip install pytest pytest-json-report`); codrax auto-detects .venv / venv / env / .virtualenv directories at the repo root (the `!` prefix runs commands directly from the codrax prompt)"
 	case "rust":
 		if zh {
 			return "从 https://rustup.rs/ 安装 Rust + Cargo"
@@ -1848,14 +1853,14 @@ func runnerInstallHint(runner, lang string) string {
 		return "install Rust + Cargo from https://rustup.rs/"
 	case "java":
 		if zh {
-			return "安装 Maven(`mvn`)或使用项目自带的 Gradle wrapper(`./gradlew`)"
+			return "安装 Maven(`mvn`)或使用项目自带的 Gradle wrapper(`!./gradlew test`)"
 		}
-		return "install Maven (`mvn`) or use the project's Gradle wrapper (`./gradlew`)"
+		return "install Maven (`mvn`) or use the project's Gradle wrapper (`!./gradlew test`)"
 	case "ruby":
 		if zh {
-			return "用 `gem install bundler` 装 Bundler,然后在仓根跑 `bundle install`"
+			return "在 codrax 提示符执行 `!gem install bundler` 装 Bundler,然后 `!bundle install`(`!` 前缀让 codrax 直接执行系统命令)"
 		}
-		return "install Bundler with `gem install bundler` and run `bundle install` in the repo"
+		return "from the codrax prompt run `!gem install bundler` and then `!bundle install` (the `!` prefix shells out directly)"
 	case "swift":
 		if zh {
 			return "从 https://swift.org/download/ 安装 Swift 工具链"
@@ -1863,14 +1868,14 @@ func runnerInstallHint(runner, lang string) string {
 		return "install the Swift toolchain from https://swift.org/download/"
 	case "cmake":
 		if zh {
-			return "从 https://cmake.org/download/ 安装 CMake(自带 ctest),并先配置好 build 目录"
+			return "从 https://cmake.org/download/ 安装 CMake(自带 ctest),并先配置好 build 目录(`!cmake -S . -B build`)"
 		}
-		return "install CMake (provides ctest) from https://cmake.org/download/ and configure a build dir first"
+		return "install CMake (provides ctest) from https://cmake.org/download/ and configure a build dir first (`!cmake -S . -B build`)"
 	case "meson":
 		if zh {
-			return "用 `pip install meson` 安装 Meson(并装 ninja),再配置 build 目录"
+			return "用 `!pip install meson` 安装 Meson(并装 ninja),再配置 build 目录(`!meson setup builddir`)"
 		}
-		return "install Meson with `pip install meson` (and ninja) and configure a build dir first"
+		return "install Meson with `!pip install meson` (and ninja) and configure a build dir first (`!meson setup builddir`)"
 	case "make":
 		if zh {
 			return "用发行版包管理器装 GNU make"
