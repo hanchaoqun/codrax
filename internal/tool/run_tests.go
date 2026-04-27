@@ -279,16 +279,35 @@ func (t *RunTests) Execute(ctx *types.BusContext, params json.RawMessage) (types
 		//     wall-clock timeout on multi-core hosts
 		caps := verifyResourceCaps()
 		wrappedCmd := wrapShellCommandWithCaps(cmdStr, caps)
+		// Pre-exec diagnostic: surface the resolved subprocess command
+		// + cwd so the operator can reproduce the failing run manually.
+		// Without this the only "what was actually executed" record was
+		// in the parser-output blob (compressed and not labelled by
+		// command line). Customer reports of "verify says X is missing
+		// but I just installed it" become tractable once the exact
+		// invocation is in the log.
+		logging.Info("[run_tests] %s exec: %s (cwd=%s timeout=%v)",
+			runnerPlanLabel(ctx.RepoRoot, plan), cmdStr, runnerRoot, timeout)
 		execCtx, cancel := context.WithTimeout(context.Background(), timeout)
 		cmd := NewShellCommandContext(execCtx, wrappedCmd)
 		cmd.Dir = runnerRoot
 		var buf bytes.Buffer
 		cmd.Stdout = &buf
 		cmd.Stderr = &buf
+		execStart := time.Now()
 		supRes := SupervisedRun(execCtx, cmd, caps)
+		execDuration := time.Since(execStart)
 		cancel()
 		runErr := supRes.Err
 		output := buf.String()
+		// Post-exec diagnostic: exit code + output size + stderr-ish
+		// excerpt. The 300-byte head is enough to spot "command not
+		// found" / "ModuleNotFoundError" / "BUILD FAILED" without
+		// flooding the log; the full output is still in the blob.
+		execExit := extractExitCode(runErr)
+		logging.Info("[run_tests] %s exit=%d duration=%v output_bytes=%d excerpt=%q",
+			runnerPlanLabel(ctx.RepoRoot, plan), execExit, execDuration, len(output),
+			truncateForLog(output, 300))
 		combinedOutputs = append(combinedOutputs, renderRunnerOutputSection(plan, output))
 
 		// Resource-exhaustion exits get classified explicitly so the
@@ -349,13 +368,21 @@ func (t *RunTests) Execute(ctx *types.BusContext, params json.RawMessage) (types
 		// can't install software — fail-loud with a clean install hint
 		// and let the verify→plan retry loop short-circuit on the new
 		// FailureKindRunnerMissing tag.
-		if missing, missingBinary := detectRunnerMissing(runner, runErr, output); missing {
+		if missing, missingBinary, missingReason := detectRunnerMissing(runner, runErr, output); missing {
+			// Surface which detection signal fired so operators (and
+			// support engineers triaging "but pytest IS installed!"
+			// reports) can tell apart the three failure modes —
+			// shell exit 127, Go's exec.ErrNotFound, or output-pattern
+			// match — and inspect the matching pattern when it's #3.
+			logging.Info("[run_tests] %s runner_missing detected: binary=%q reason=%s exit=%d",
+				runnerPlanLabel(ctx.RepoRoot, plan), missingBinary, missingReason, execExit)
 			_, ref := StoreBlob(ctx, t.Name()+"-runner-missing", strings.Join(combinedOutputs, "\n\n"))
-			report := makeRunnerMissingReport(runner, missingBinary, output, ctx.Language)
+			report := makeRunnerMissingReport(runner, missingBinary, output, ctx.Language, missingReason, execExit)
 			ctx.Mutable.SetChangeReport(qualifyChangeReport(report, plan, ctx.RepoRoot))
 			summary := runnerMissingToolResultSummary(
 				ctx.Language, runnerPlanLabel(ctx.RepoRoot, plan),
-				missingBinary, runnerInstallHint(runner, ctx.Language))
+				missingBinary, runnerInstallHint(runner, ctx.Language),
+				missingReason, execExit, output)
 			return types.ToolResult{
 				ToolName:  t.Name(),
 				Success:   false,
@@ -859,20 +886,20 @@ func makeResourceExhaustionReport(kind, detail string) *types.ChangeReport {
 // runErr's exit code first (cheapest), then fall back to output
 // pattern matching for environments where the supervisor swallowed
 // the exit code.
-func detectRunnerMissing(runner string, runErr error, output string) (bool, string) {
+func detectRunnerMissing(runner string, runErr error, output string) (bool, string, string) {
 	bin := runnerPrimaryBinary(runner)
 	if bin == "" {
-		return false, ""
+		return false, "", ""
 	}
 	// 1. Exit code 127 from the shell wrapper.
 	if runErr != nil {
 		if exitCode := extractExitCode(runErr); exitCode == 127 {
-			return true, bin
+			return true, bin, "exit_code_127"
 		}
 		// 2. Direct exec.ErrNotFound (rare with shell wrapper but
 		//    cheap to check; covers future direct-Cmd refactors).
 		if errors.Is(runErr, exec.ErrNotFound) {
-			return true, bin
+			return true, bin, "exec.ErrNotFound"
 		}
 	}
 	// 3. Stderr/stdout patterns. We anchor on bin to keep false-
@@ -908,10 +935,10 @@ func detectRunnerMissing(runner string, runErr error, output string) (bool, stri
 	lower := strings.ToLower(output)
 	for _, p := range patterns {
 		if strings.Contains(lower, strings.ToLower(p)) {
-			return true, bin
+			return true, bin, "pattern: " + p
 		}
 	}
-	return false, ""
+	return false, "", ""
 }
 
 // extractExitCode best-effort pulls the process exit code out of an
@@ -925,6 +952,36 @@ func extractExitCode(err error) int {
 		}
 	}
 	return -1
+}
+
+// truncateForLog returns a single-line excerpt suitable for embedding
+// in an INFO log line or a model-facing summary: trims surrounding
+// whitespace, replaces interior newlines + carriage returns with the
+// pilcrow visible-marker so multi-line output stays readable on one
+// log line, and caps to maxBytes (UTF-8 safe — backs up to a rune
+// boundary instead of slicing mid-rune).
+func truncateForLog(s string, maxBytes int) string {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return ""
+	}
+	s = strings.ReplaceAll(s, "\r", "")
+	s = strings.ReplaceAll(s, "\n", " ¶ ")
+	if maxBytes <= 0 || len(s) <= maxBytes {
+		return s
+	}
+	cut := maxBytes
+	for cut > 0 && cut < len(s) {
+		b := s[cut]
+		// Don't slice mid-UTF-8: continuation bytes have the high
+		// two bits = 10. Step back until we land on a leading byte
+		// or ASCII.
+		if b&0xC0 != 0x80 {
+			break
+		}
+		cut--
+	}
+	return s[:cut] + "…"
 }
 
 // runnerPrimaryBinary returns the CLI binary name we expect the
@@ -1019,27 +1076,37 @@ func pythonInterpreter(roots ...string) (string, bool) {
 		filepath.Join("Scripts", "python.exe"),
 	}
 	seen := make(map[string]bool, len(roots))
+	probedRoots := make([]string, 0, len(roots))
 	for _, root := range roots {
 		root = strings.TrimSpace(root)
 		if root == "" || seen[root] {
 			continue
 		}
 		seen[root] = true
+		probedRoots = append(probedRoots, root)
 		for _, dir := range venvDirs {
 			for _, sub := range venvSubpaths {
 				candidate := filepath.Join(root, dir, sub)
 				if info, err := os.Stat(candidate); err == nil && !info.IsDir() {
+					logging.Info("[run_tests/python] interpreter resolved: venv=%q (root=%q dir=%q sub=%q)",
+						filepath.ToSlash(candidate), root, dir, sub)
 					return filepath.ToSlash(candidate), true
 				}
 			}
 		}
 	}
-	if _, err := exec.LookPath("python3"); err == nil {
+	if path, err := exec.LookPath("python3"); err == nil {
+		logging.Info("[run_tests/python] interpreter resolved: PATH python3=%q (no venv at: %v)",
+			path, probedRoots)
 		return "python3", true
 	}
-	if _, err := exec.LookPath("python"); err == nil {
+	if path, err := exec.LookPath("python"); err == nil {
+		logging.Info("[run_tests/python] interpreter resolved: PATH python=%q (no venv at: %v; python3 absent)",
+			path, probedRoots)
 		return "python", true
 	}
+	logging.Warning("[run_tests/python] no python interpreter found (probed venv at: %v; python3 / python absent from PATH); falling back to bare pytest",
+		probedRoots)
 	return "pytest", false
 }
 
@@ -1123,15 +1190,25 @@ func runnerInstallHint(runner, lang string) string {
 // binary is missing. Mirrors the makeRunnerMissingReport prose
 // (which is what gets stored on ChangeReport) so the user sees
 // consistent wording in both surfaces.
-func runnerMissingToolResultSummary(lang, label, missingBinary, hint string) string {
+//
+// reason / exitCode / output are diagnostic context — the trigger
+// signal that fired (exit_code_127 / exec.ErrNotFound / "pattern: …"),
+// the actual subprocess exit code, and a short stderr excerpt. Without
+// these the only signal the LLM and user got was a generic install
+// hint, which masked cases like "python3 -m pytest exits 1 with
+// 'No module named pytest' under a different python than the one
+// pip installed pytest into" — diagnosable only with the actual
+// exit code + stderr in front of the operator.
+func runnerMissingToolResultSummary(lang, label, missingBinary, hint, reason string, exitCode int, output string) string {
+	excerpt := truncateForLog(output, 300)
 	if isZh(lang) {
 		return fmt.Sprintf(
-			"[run_tests: %s] 在 PATH 上找不到 runner 二进制 %q —— 重新跑 verify 之前请先安装;%s",
-			label, missingBinary, hint)
+			"[run_tests: %s] 子进程退出码=%d, 触发信号=%s, 主二进制=%q 在本环境不可调用 —— 重新跑 verify 之前请先安装;%s\n实际输出片段: %s",
+			label, exitCode, reason, missingBinary, hint, excerpt)
 	}
 	return fmt.Sprintf(
-		"[run_tests: %s] runner binary %q not found in PATH — install it before re-running verify; %s",
-		label, missingBinary, hint)
+		"[run_tests: %s] subprocess exit=%d trigger=%s runner binary %q not invokable in this env — install it before re-running verify; %s\nactual output excerpt: %s",
+		label, exitCode, reason, missingBinary, hint, excerpt)
 }
 
 // isZh mirrors the REPL helper of the same name. Duplicated rather
@@ -1150,7 +1227,7 @@ func isZh(lang string) bool {
 // Simplified Chinese; lang=en renders English. This text reaches
 // the user's terminal via the verify-failure renderer, so it must
 // match the rest of the REPL chrome's language.
-func makeRunnerMissingReport(runner, binary, output, lang string) *types.ChangeReport {
+func makeRunnerMissingReport(runner, binary, output, lang, reason string, exitCode int) *types.ChangeReport {
 	excerpt := strings.TrimSpace(output)
 	if len(excerpt) > 600 {
 		excerpt = excerpt[:600] + "\n…[output truncated]"
@@ -1159,13 +1236,14 @@ func makeRunnerMissingReport(runner, binary, output, lang string) *types.ChangeR
 	var summary string
 	if isZh(lang) {
 		summary = fmt.Sprintf(
-			"runner %q 的主二进制 %q 未在本环境安装 —— %s。安装后重新跑 verify;planner 无法修复缺失的依赖。",
-			runner, binary, hint)
+			"runner %q 的主二进制 %q 未在本环境安装(子进程 exit=%d, 触发信号=%s) —— %s。安装后重新跑 verify;planner 无法修复缺失的依赖。",
+			runner, binary, exitCode, reason, hint)
 	} else {
 		summary = fmt.Sprintf(
-			"runner %q's primary binary %q is not installed in this environment — %s. "+
+			"runner %q's primary binary %q is not installed in this environment "+
+				"(subprocess exit=%d, trigger=%s) — %s. "+
 				"Re-run verify after installing the tool; the planner cannot fix a missing dependency.",
-			runner, binary, hint)
+			runner, binary, exitCode, reason, hint)
 	}
 	return &types.ChangeReport{
 		TestResults: []types.TestResult{{
