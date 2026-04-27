@@ -3,6 +3,7 @@ package types
 import (
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 )
 
@@ -704,6 +705,61 @@ func ConfigTraceValidatedDiagramRoleInFiles(contract *ExactResolutionContract, i
 		}
 	}
 	return EvidenceDiagramRoleUnknown
+}
+
+type ConfigTraceRelatedContextCitationCandidate struct {
+	Source string
+	Line   int
+	Role   EvidenceDiagramRole
+}
+
+func ConfigTraceRelatedContextCitationCandidates(contract *ExactResolutionContract, requiredFiles []string, items []EvidenceItem) []ConfigTraceRelatedContextCitationCandidate {
+	if len(items) == 0 {
+		return nil
+	}
+	seen := make(map[string]bool)
+	var out []ConfigTraceRelatedContextCitationCandidate
+	for _, item := range items {
+		role := ConfigTraceValidatedDiagramRoleInFiles(contract, item, requiredFiles)
+		if role == EvidenceDiagramRoleUnknown || item.Source == "" || item.LineStart <= 0 {
+			continue
+		}
+		key := exactResolutionCanonicalPath(item.Source) + ":" + strconv.Itoa(item.LineStart)
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		out = append(out, ConfigTraceRelatedContextCitationCandidate{
+			Source: item.Source,
+			Line:   item.LineStart,
+			Role:   role,
+		})
+	}
+	sort.SliceStable(out, func(i, j int) bool {
+		if configTraceCitationCandidateScore(out[i].Role) != configTraceCitationCandidateScore(out[j].Role) {
+			return configTraceCitationCandidateScore(out[i].Role) > configTraceCitationCandidateScore(out[j].Role)
+		}
+		if out[i].Source != out[j].Source {
+			return out[i].Source < out[j].Source
+		}
+		return out[i].Line < out[j].Line
+	})
+	return out
+}
+
+func configTraceCitationCandidateScore(role EvidenceDiagramRole) int {
+	switch role {
+	case EvidenceDiagramRoleOverride:
+		return 40
+	case EvidenceDiagramRoleConfig:
+		return 36
+	case EvidenceDiagramRoleRuntime:
+		return 32
+	case EvidenceDiagramRoleDefault:
+		return 28
+	default:
+		return 0
+	}
 }
 
 func configTraceDiagramEvidenceWithinScope(contract *ExactResolutionContract, item EvidenceItem, requiredFiles []string) bool {

@@ -539,3 +539,73 @@ func TestExactResolutionRelatedContextProofAllowedInFiles_ConfigTraceRequiresVal
 		t.Fatal("config-trace closure should accept a validated precedence anchor")
 	}
 }
+
+func TestConfigTraceRelatedContextCitationCandidates_DedupesAndOrdersByPrecedenceRole(t *testing.T) {
+	contract := &ExactResolutionContract{
+		TargetKind:           SubjectConfigKey,
+		TargetLabel:          "config key",
+		Targets:              []string{"explore_mid_loop_hint_budget"},
+		AllowAbsence:         true,
+		RelatedContextPolicy: ExactContextSameFamilyGrounded,
+		RelatedContextTerms:  []string{"explore"},
+	}
+	items := []EvidenceItem{
+		{
+			Source:          "internal/types/config.go",
+			LineStart:       707,
+			AnchorKind:      AnchorDefinition,
+			AnchorSymbol:    "DefaultExploreHeuristics",
+			ContextRole:     EvidenceContextRoleRelatedContext,
+			DiagramRole:     EvidenceDiagramRoleDefault,
+			GroundingStatus: GroundingGrounded,
+		},
+		{
+			Source:          "internal/config/runtime.go",
+			LineStart:       231,
+			AnchorKind:      AnchorDefinition,
+			AnchorSymbol:    "ExploreMidLoopMinIteration",
+			ContextRole:     EvidenceContextRoleRelatedContext,
+			DiagramRole:     EvidenceDiagramRoleRuntime,
+			GroundingStatus: GroundingGrounded,
+		},
+		{
+			Source:          "codrax.yaml.example",
+			LineStart:       284,
+			AnchorKind:      AnchorDefinition,
+			AnchorSymbol:    "explore_midloop_min_iteration",
+			ContextRole:     EvidenceContextRoleRelatedContext,
+			DiagramRole:     EvidenceDiagramRoleConfig,
+			GroundingStatus: GroundingRecovered,
+		},
+		{
+			Source:          "codrax.yaml.example",
+			LineStart:       284,
+			AnchorKind:      AnchorDefinition,
+			AnchorSymbol:    "explore_midloop_min_iteration",
+			ContextRole:     EvidenceContextRoleRelatedContext,
+			DiagramRole:     EvidenceDiagramRoleConfig,
+			GroundingStatus: GroundingRecovered,
+		},
+		{
+			Source:          "internal/types/explore_budget.go",
+			LineStart:       40,
+			AnchorKind:      AnchorDefinition,
+			AnchorSymbol:    "ExploreBudget",
+			ContextRole:     EvidenceContextRoleRelatedContext,
+			GroundingStatus: GroundingGrounded,
+		},
+	}
+	got := ConfigTraceRelatedContextCitationCandidates(contract, []string{"internal/types/config.go"}, items)
+	if len(got) != 3 {
+		t.Fatalf("candidate count = %d, want 3: %+v", len(got), got)
+	}
+	if got[0].Role != EvidenceDiagramRoleConfig || got[0].Source != "codrax.yaml.example" || got[0].Line != 284 {
+		t.Fatalf("first candidate = %+v, want config precedence candidate first", got[0])
+	}
+	if got[1].Role != EvidenceDiagramRoleRuntime || got[1].Source != "internal/config/runtime.go" || got[1].Line != 231 {
+		t.Fatalf("second candidate = %+v, want runtime precedence candidate second", got[1])
+	}
+	if got[2].Role != EvidenceDiagramRoleDefault || got[2].Source != "internal/types/config.go" || got[2].Line != 707 {
+		t.Fatalf("third candidate = %+v, want default precedence candidate third", got[2])
+	}
+}

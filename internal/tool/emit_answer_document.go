@@ -1486,6 +1486,7 @@ func validateConfigTraceAbsenceCitationFocus(ctx *types.BusContext, exact *types
 	body := strings.TrimSpace(exactContextSummaryBodyAfterLead(summary, lead))
 	bodyNeedsLineageCitation := exactContextBodyNeedsStructuredGrounding(body)
 	requiredFiles := answerDocExactContextRequiredFiles(ctx)
+	lineageCandidates := types.ConfigTraceRelatedContextCitationCandidates(contract, requiredFiles, pool)
 	allowedAnchors := joinExactContextSurfaceDisplays(allowedExactContextSurfaceCandidates(contract, ctx.AnalysisIR.RequestModel.Scenario, true, pool, requiredFiles))
 	relatedContextCitations := 0
 	for idx, cite := range citations {
@@ -1536,7 +1537,7 @@ func validateConfigTraceAbsenceCitationFocus(ctx *types.BusContext, exact *types
 		}
 		return err
 	}
-	if !bodyNeedsLineageCitation || relatedContextCitations > 0 {
+	if !bodyNeedsLineageCitation || relatedContextCitations > 0 || len(lineageCandidates) == 0 {
 		return nil
 	}
 	err := newAnswerDocValidationError(
@@ -1592,13 +1593,21 @@ func formatConfigTraceAllowedCitations(contract *types.ExactResolutionContract, 
 	seen := make(map[string]bool)
 	var out []string
 	for _, item := range items {
-		if !types.ConfigTraceGroundedContextAnchorAllowedInFiles(contract, item, requiredFiles) {
-			continue
-		}
 		if item.Source == "" || item.LineStart <= 0 {
 			continue
 		}
+		if !types.ConfigTraceGroundedContextAnchorAllowedInFiles(contract, item, requiredFiles) {
+			continue
+		}
 		label := fmt.Sprintf("%s:%d", item.Source, item.LineStart)
+		if seen[label] {
+			continue
+		}
+		seen[label] = true
+		out = append(out, label)
+	}
+	for _, candidate := range types.ConfigTraceRelatedContextCitationCandidates(contract, requiredFiles, items) {
+		label := fmt.Sprintf("%s:%d", candidate.Source, candidate.Line)
 		if seen[label] {
 			continue
 		}
@@ -1650,7 +1659,7 @@ func validateExactResolutionContextSurface(summary string, exact *types.AnswerEx
 	mentionedAllowed := mentionedExactContextSurfaceCandidates(lowerBody, pathBodyKey, symbolBodyKey, allowedExactContextSurfaceCandidates(contract, ctx.AnalysisIR.RequestModel.Scenario, stableAbsent, pool, requiredFiles))
 	mentionedForbidden := mentionedExactContextSurfaceCandidates(lowerBody, pathBodyKey, symbolBodyKey, forbiddenExactContextSurfaceCandidates(contract, ctx.AnalysisIR.RequestModel.Scenario, stableAbsent, pool, requiredFiles))
 	if exact.ContextMode == types.AnswerExactResolutionContextNone {
-		if len(mentionedAllowed) == 0 && len(mentionedForbidden) == 0 {
+		if strings.TrimSpace(body) == "" && len(mentionedAllowed) == 0 && len(mentionedForbidden) == 0 {
 			return nil
 		}
 		err := newAnswerDocValidationError(
@@ -2821,6 +2830,12 @@ func resolveAnswerDocumentExactResolution(summary string, declared *types.Answer
 	}
 	if resolved.ContextMode == "" {
 		resolved.ContextMode = types.AnswerExactResolutionContextNone
+	}
+	if declared.ContextMode == "" &&
+		resolved.Status == types.AnswerExactResolutionAbsent &&
+		resolved.ContextMode == types.AnswerExactResolutionContextNone &&
+		strings.TrimSpace(summary) != "" {
+		resolved.ContextMode = types.AnswerExactResolutionContextGroundedOnly
 	}
 
 	switch resolved.Status {

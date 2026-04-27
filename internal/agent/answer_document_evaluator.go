@@ -1114,41 +1114,15 @@ func collectRelatedContextCitationCandidates(ctx *types.AgentContext, contract *
 		return nil
 	}
 	requiredFiles := answerDocExactContextRequiredFiles(ctx)
-	seen := make(map[string]bool)
 	var out []relatedContextCitationCandidate
-	for _, ev := range items {
-		role := types.ConfigTraceValidatedDiagramRoleInFiles(contract, ev, requiredFiles)
-		if role == types.EvidenceDiagramRoleUnknown || ev.Source == "" || ev.LineStart <= 0 {
-			continue
-		}
-		label := fmt.Sprintf("%s:%d", ev.Source, ev.LineStart)
-		if seen[label] {
-			continue
-		}
-		seen[label] = true
-		score := 0
-		switch role {
-		case types.EvidenceDiagramRoleOverride:
-			score = 40
-		case types.EvidenceDiagramRoleConfig:
-			score = 36
-		case types.EvidenceDiagramRoleRuntime:
-			score = 32
-		case types.EvidenceDiagramRoleDefault:
-			score = 28
-		}
+	for _, candidate := range types.ConfigTraceRelatedContextCitationCandidates(contract, requiredFiles, items) {
+		label := fmt.Sprintf("%s:%d", candidate.Source, candidate.Line)
 		out = append(out, relatedContextCitationCandidate{
 			Label: label,
-			Role:  string(role) + " precedence anchor",
-			Score: score,
+			Role:  string(candidate.Role) + " precedence anchor",
+			Score: 1,
 		})
 	}
-	sort.SliceStable(out, func(i, j int) bool {
-		if out[i].Score != out[j].Score {
-			return out[i].Score > out[j].Score
-		}
-		return out[i].Label < out[j].Label
-	})
 	if len(out) > 6 {
 		out = out[:6]
 	}

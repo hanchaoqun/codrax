@@ -2009,6 +2009,72 @@ func TestEmitAnswerDocument_ConfigTraceAbsenceRequiresLineageCitationForGrounded
 	}
 }
 
+func TestEmitAnswerDocument_ConfigTraceAbsenceAllowsStructuredSummaryWhenNoLineageCitationCandidateExists(t *testing.T) {
+	tool := &EmitAnswerDocument{}
+	ctx := newDocBusCtx("")
+	target := "explore_mid_loop_hint_budget"
+	ctx.AnalysisIR = &types.AnalysisIR{
+		RequestModel: types.RequestModel{
+			Scenario: types.ScenarioConfigTrace,
+			AnalyzerHints: types.AnalyzerHints{
+				Kind:         "config_mapping",
+				ExactTargets: []string{target},
+			},
+			AnswerSubject: types.AnswerSubject{Kind: types.SubjectConfigKey},
+		},
+		AnswerContract: types.AnswerContract{
+			ExactResolution: &types.ExactResolutionContract{
+				TargetKind:           types.SubjectConfigKey,
+				TargetLabel:          "config key",
+				Targets:              []string{target},
+				AllowAbsence:         true,
+				AliasRequiresProof:   true,
+				RequireTargetMention: true,
+				RelatedContextPolicy: types.ExactContextSameFamilyGrounded,
+			},
+		},
+	}
+	ctx.Mutable.SetAbsenceJustification("searched the repo and found no config key named `explore_mid_loop_hint_budget`")
+	ctx.Mutable.SetInvestigationResultKind("absence")
+	ctx.Mutable.SetExactContextRequiredFiles([]string{"internal/types/config.go"})
+	ctx.Mutable.AppendEvidence([]types.EvidenceItem{
+		{
+			Kind:            types.EvidenceDirect,
+			Source:          "internal/config/runtime.go",
+			LineStart:       231,
+			AnchorKind:      types.AnchorDefinition,
+			AnchorSymbol:    "ExploreMidLoopMinIteration",
+			ContextRole:     types.EvidenceContextRoleAbsenceSupport,
+			GroundingStatus: types.GroundingGrounded,
+			GroundingTier:   types.TierLineText,
+		},
+		{
+			Kind:            types.EvidenceDirect,
+			Source:          "internal/types/config.go",
+			LineStart:       707,
+			AnchorKind:      types.AnchorDefinition,
+			AnchorSymbol:    "DefaultExploreHeuristics",
+			ContextRole:     types.EvidenceContextRoleRelatedContext,
+			GroundingStatus: types.GroundingGrounded,
+			GroundingTier:   types.TierLineText,
+		},
+	})
+	params := mustDocJSON(t, map[string]interface{}{
+		"shape": "explanation",
+		"exact_resolution": map[string]interface{}{
+			"status": "absent",
+		},
+		"summary": "### Nearby grounded context\n\n`DefaultExploreHeuristics()` is still relevant nearby context for the same config family, but this answer has no validated precedence anchor to cite yet.",
+		"citations": []map[string]interface{}{
+			{"file": "internal/config/runtime.go", "line": 231},
+		},
+	})
+	res, _ := tool.Execute(ctx, params)
+	if !res.Success {
+		t.Fatalf("structured summary without citation-grade lineage anchors should be allowed, got: %q", res.Summary)
+	}
+}
+
 func TestEmitAnswerDocument_ConfigTraceAbsenceAllowsAnswerChainBackedLineageCitation(t *testing.T) {
 	tool := &EmitAnswerDocument{}
 	ctx := newDocBusCtx("")
