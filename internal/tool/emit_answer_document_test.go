@@ -2668,6 +2668,56 @@ func TestResolveAnswerDocumentExactResolution_StripsPureExactAbsenceRestatement(
 	}
 }
 
+func TestResolveAnswerDocumentExactResolution_StripsLeadingExactAbsenceParagraphEvenWhenItNamesNearbyAnchor(t *testing.T) {
+	ctx := newDocBusCtx("")
+	target := "explore_mid_loop_hint_budget"
+	ctx.AnalysisIR = &types.AnalysisIR{
+		RequestModel: types.RequestModel{
+			Scenario:      types.ScenarioConfigTrace,
+			AnswerSubject: types.AnswerSubject{Kind: types.SubjectConfigKey},
+		},
+		AnswerContract: types.AnswerContract{
+			ExactResolution: &types.ExactResolutionContract{
+				TargetKind:           types.SubjectConfigKey,
+				TargetLabel:          "config key",
+				Targets:              []string{target},
+				AllowAbsence:         true,
+				RelatedContextPolicy: types.ExactContextSameFamilyGrounded,
+				RelatedContextTerms:  []string{"explore"},
+			},
+		},
+	}
+	ctx.Mutable.SetAbsenceJustification("searched the repo and found no config key named `explore_mid_loop_hint_budget`")
+	ctx.Mutable.SetInvestigationResultKind("absence")
+	ctx.Mutable.AppendEvidence([]types.EvidenceItem{{
+		Kind:            types.EvidenceDirect,
+		Source:          "internal/types/config.go",
+		LineStart:       618,
+		AnchorKind:      types.AnchorDefinition,
+		AnchorSymbol:    "ExploreSettings",
+		ContextRole:     types.EvidenceContextRoleRelatedContext,
+		DiagramRole:     types.EvidenceDiagramRoleConfig,
+		GroundingStatus: types.GroundingGrounded,
+		GroundingTier:   types.TierLineText,
+	}})
+
+	resolved, gotSummary, err := resolveAnswerDocumentExactResolution("仓库中不存在 `explore_mid_loop_hint_budget` 这个配置键，`codrax.yaml.example` 里也只是示例说明。\n\n`ExploreSettings` 对应 `codrax.yaml` 的 `explore:` 节点。", &types.AnswerExactResolution{
+		Status:      types.AnswerExactResolutionAbsent,
+		ContextMode: types.AnswerExactResolutionContextGroundedOnly,
+	}, ctx)
+	if err != nil {
+		t.Fatalf("resolveAnswerDocumentExactResolution: %v", err)
+	}
+	lead := renderAnswerDocumentExactResolutionLead(ctx.AnalysisIR.AnswerContract.ExactResolution, resolved, requestedAnswerDocumentLanguage(ctx))
+	body := exactContextSummaryBodyAfterLead(gotSummary, lead)
+	if strings.Contains(body, target) {
+		t.Fatalf("leading repeated exact-target paragraph should be stripped, got %q", body)
+	}
+	if !strings.Contains(body, "ExploreSettings") {
+		t.Fatalf("grounded follow-on context should remain after stripping the leading paragraph, got %q", body)
+	}
+}
+
 func TestRenderExactResolutionLead_UsesNaturalAbsenceWording(t *testing.T) {
 	contract := &types.ExactResolutionContract{
 		TargetLabel: "config key",

@@ -2921,6 +2921,10 @@ func trimLeadingExactAbsenceRestatement(summary string, contract *types.ExactRes
 	if paragraph == "" || repeatedExactTargetAfterLead(contract, paragraph) == "" {
 		return summary
 	}
+	rest = strings.TrimSpace(rest)
+	if rest != "" {
+		return rest
+	}
 	candidates := []types.ExactContextSurfaceLabel(nil)
 	if plan != nil && len(plan.CitationGradeExactContextLabels) > 0 {
 		candidates = plan.CitationGradeExactContextLabels
@@ -2935,11 +2939,7 @@ func trimLeadingExactAbsenceRestatement(summary string, contract *types.ExactRes
 			return summary
 		}
 	}
-	rest = strings.TrimSpace(rest)
-	if rest == "" {
-		return ""
-	}
-	return rest
+	return ""
 }
 
 func splitLeadingSummaryParagraph(summary string) (heading, paragraph, rest string) {
