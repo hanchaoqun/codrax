@@ -711,9 +711,9 @@ func helpLines(lang string) []string {
 		}
 	}
 	if isZh(lang) {
-		out = append(out, "提示:行尾加 \\ 进入多行输入。")
+		out = append(out, "提示:行尾加 \\ 进入多行输入;以 ! 开头执行系统 shell 命令(例如 !ls / !cat foo / !grep -rn ...,工作目录是仓根)。")
 	} else {
-		out = append(out, "tip: end a line with \\ for multi-line input.")
+		out = append(out, "tip: end a line with \\ for multi-line input; prefix a line with ! to run a system shell command (e.g. !ls / !cat foo / !grep -rn ..., cwd = repo root).")
 	}
 	return out
 }

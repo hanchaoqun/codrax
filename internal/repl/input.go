@@ -121,8 +121,15 @@ var slashCommands = []slashCommand{
 	},
 	{Name: "/paste", HelpEn: "capture a paste when bracketed paste is stripped (SSH / tmux)",
 		HelpZh: "粘贴模式 — 适用于 SSH / tmux 吞掉 bracketed paste 的环境"},
-	{Name: "/chat", HelpEn: "reply without invoking the analysis pipeline (e.g. /chat hi)",
-		HelpZh: "闲聊回复,不走分析流水线(例如 /chat 你好)"},
+	{
+		Name:   "/chat",
+		HelpEn: "reply without invoking the analysis pipeline",
+		HelpZh: "闲聊回复,不走分析流水线",
+		Subs: []slashSubcommand{
+			{"<message>", "the message to send (single line; bypasses repo analysis + LLM tool calls)",
+				"要发送的消息(单行;绕过仓库分析与 LLM 工具调用)"},
+		},
+	},
 	{
 		Name:   "/mode",
 		HelpEn: "show or set the sticky pipeline mode",
@@ -145,6 +152,8 @@ var slashCommands = []slashCommand{
 		Subs: []slashSubcommand{
 			{"show", "render the pending plan with per-file unified-diff preview (16 KB total cap)",
 				"渲染当前待审 plan,每个文件带 unified-diff 预览(总共 16 KB 上限)"},
+			{"show <plan-id>", "render any plan from PlanStore by ID (any status); rebinds pending pointer to it",
+				"按 ID 渲染 PlanStore 里任意 plan(任何状态);随后 pending 指针绑到该 plan"},
 			{"list", "enumerate every plan in PlanStore with status + size (newest first)",
 				"列出 PlanStore 里所有 plan(状态 + 字节,最新的在前)"},
 			{"clear", "discard the pending plan without recording a memory turn",
@@ -156,14 +165,27 @@ var slashCommands = []slashCommand{
 		HelpEn: "consume the pending plan — apply + verify inside a git worktree",
 		HelpZh: "批准待审 plan — 在 git worktree 内 apply + verify",
 		Subs: []slashSubcommand{
+			{"<plan-id>", "target a specific plan by ID instead of the most-recent pending one (positional)",
+				"按 ID 指定 plan 而不是默认的最新 pending(位置参数)"},
+			{"--plan-id=<id>", "long-flag form of the positional plan-id selector",
+				"位置参数 plan-id 的长 flag 形式"},
 			{"--merge-to=<branch>", "after a clean apply+verify, immediately /merge into <branch>",
 				"apply+verify 通过后立即把改动合到 <branch>(等价 approve + merge 一步)"},
+			{"--skip-verify", "apply only, skip the verify stage entirely (no run_tests; plan goes straight to applied) — use when local can't run integration tests",
+				"只 apply,完全跳过 verify(不跑 run_tests,plan 直接标 applied)— 本地起不了集成测试时用"},
 		},
 	},
 	{Name: "/reject", HelpEn: "discard the pending plan (free-form reason recorded in memory)",
 		HelpZh: "拒绝待审 plan(可选附理由,记入 memory)"},
-	{Name: "/verify", HelpEn: "re-run verify against an applied plan without re-applying",
-		HelpZh: "对已 apply 的 plan 重跑 verify(不再重跑 apply)"},
+	{
+		Name:   "/verify",
+		HelpEn: "re-run verify against an applied plan without re-applying",
+		HelpZh: "对已 apply 的 plan 重跑 verify(不再重跑 apply)",
+		Subs: []slashSubcommand{
+			{"<plan-id>", "target a specific applied plan by ID instead of the pending pointer",
+				"按 ID 指定要重跑 verify 的 applied plan(默认用 pending 指针)"},
+		},
+	},
 	{
 		Name:   "/worktree",
 		HelpEn: "manage preserved worktrees from successful applies",
