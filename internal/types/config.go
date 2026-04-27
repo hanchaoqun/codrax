@@ -948,3 +948,44 @@ func ResolvedMemorySettings(s MemorySettings) MemorySettings {
 	// against DefaultMemoryKindPolicies" semantics.
 	return s
 }
+
+// ChitchatSettings carries the tunable numeric knobs for the /chat
+// tool-use loop. Zero values mean "use code default" — see
+// DefaultChitchatSettings.
+type ChitchatSettings struct {
+	// RecallDefaultLimit is the default `limit` arg the responder
+	// applies when the LLM calls recall_memory without supplying
+	// one. Tracks the explorer-side default to keep behaviour
+	// predictable across paths. Default 5.
+	RecallDefaultLimit int `yaml:"recall_default_limit"`
+
+	// RecallMaxLimit is the hard ceiling on the `limit` arg —
+	// values above this are clamped before Search runs so a
+	// misbehaving LLM cannot drown the second-round Chat call's
+	// token budget. Smaller than the explorer's 20 because chitchat
+	// is one-shot conversation, not iterative investigation.
+	// Default 10.
+	RecallMaxLimit int `yaml:"recall_max_limit"`
+}
+
+// DefaultChitchatSettings returns the code defaults for the chitchat
+// tool-use numeric knobs.
+func DefaultChitchatSettings() ChitchatSettings {
+	return ChitchatSettings{
+		RecallDefaultLimit: 5,
+		RecallMaxLimit:     10,
+	}
+}
+
+// ResolvedChitchatSettings hydrates zero fields from defaults, same
+// pattern as ResolvedMemorySettings.
+func ResolvedChitchatSettings(s ChitchatSettings) ChitchatSettings {
+	d := DefaultChitchatSettings()
+	if s.RecallDefaultLimit == 0 {
+		s.RecallDefaultLimit = d.RecallDefaultLimit
+	}
+	if s.RecallMaxLimit == 0 {
+		s.RecallMaxLimit = d.RecallMaxLimit
+	}
+	return s
+}

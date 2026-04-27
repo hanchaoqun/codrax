@@ -102,7 +102,7 @@ func TestRecallMemory_NoMemoryWired(t *testing.T) {
 	if res.Success {
 		t.Errorf("Success should be false when Memory is nil")
 	}
-	if !strings.Contains(res.Summary, "no REPL memory store wired") {
+	if !strings.Contains(res.Summary, "prior-conversation memory is not available") {
 		t.Errorf("expected nil-memory message; got %q", res.Summary)
 	}
 }

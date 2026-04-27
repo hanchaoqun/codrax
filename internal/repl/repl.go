@@ -184,6 +184,13 @@ type Config struct {
 	// without needing an LLM.
 	ChitchatResponder ChitchatResponder
 
+	// Memory is the read-side handle into the conversation memory
+	// store. cmd/root.go wires memory.NewAdapter(store) here so the
+	// chitchat tool-use loop can call recall_memory directly. nil
+	// disables the tool-use path (chitchat falls back to single-shot
+	// Chat with the keyword-injected priorContext only).
+	Memory types.MemoryReader
+
 	// ChitchatClassifier optionally runs a single LLM call before each
 	// normal dispatch to decide whether to reroute the turn to the
 	// chit-chat path. nil disables the gate; the REPL falls back to
@@ -296,6 +303,13 @@ type REPL struct {
 	// it into the new Bubble Tea model as a placeholder seed. Single-
 	// use; cleared on consumption or on abort of the seeded turn.
 	pendingPaste string
+
+	// memory is the read-side handle into the conversation memory
+	// store the chitchat tool-use loop hands the responder. Wired by
+	// cmd/root.go from memory.NewAdapter(store) so the responder can
+	// invoke recall_memory inline. Nil disables the tool-use path
+	// (chitchat falls back to the legacy single-shot Chat call).
+	memory types.MemoryReader
 
 	// chitchatResponder is the /chat handler; nil means the feature
 	// is disabled and /chat prints a warning. See Config for wiring.
@@ -419,6 +433,7 @@ func New(cfg Config) *REPL {
 		buildTime:          cfg.BuildTime,
 		language:           cfg.Language,
 		chitchatResponder:  cfg.ChitchatResponder,
+		memory:             cfg.Memory,
 		chitchatClassifier: cfg.ChitchatClassifier,
 		// Session ID embeds nano + pid so two codrax REPLs launched
 		// in the same clock tick (test harness, race) still get

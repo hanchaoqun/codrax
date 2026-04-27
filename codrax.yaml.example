@@ -590,6 +590,25 @@
 # → this yaml value wins.
 # chitchat_classifier_enabled: true
 
+# Chit-chat tool-use limits. The /chat path now runs a bounded
+# 2-round ReAct loop with the recall_memory tool when memory is
+# wired: round 1 the LLM may call recall_memory to look up prior
+# conversation, round 2 it synthesises the user-visible reply.
+# These two knobs clamp the LLM's `limit` argument to recall_memory
+# so a chatty LLM cannot drown the second-round Chat call's token
+# budget. Smaller than the explorer's hard cap (20) because chitchat
+# is one-shot conversation, not iterative investigation. Skipped
+# silently when memory is unwired (single-shot CLI).
+
+# Default `limit` applied when the LLM calls recall_memory without
+# specifying one. Tracks the explorer-side default to keep behaviour
+# predictable across paths.
+# chitchat_recall_default_limit: 5
+
+# Hard ceiling on the `limit` arg — values above this are clamped
+# before the search runs.
+# chitchat_recall_max_limit: 10
+
 # ---------------------------------------------------------------------------
 # Memory store limits (memory_*)
 # ---------------------------------------------------------------------------

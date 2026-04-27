@@ -557,9 +557,11 @@ llm:
 
 | 键 | 默认值 | 作用 |
 |---|---|---|
-| `chitchat_enabled` | `true` | `/chat` 命令开关。`false` 时 `/chat` 打印"未配置"警告,不发 LLM 调用 |
+| `chitchat_enabled` | `true` | `/chat` 命令开关。`false` 时 `/chat` 打印"未配置"警告,不发 LLM 调用。开启后走"有界 2 轮 ReAct"循环:第 1 轮 LLM 可选调 `recall_memory` 查记忆,第 2 轮综合答复;不调工具就退化为单次 Chat(行为字节级不变) |
 | `chitchat_classifier_enabled` | `true` | 自动分类器开关。默认开:每轮 REPL dispatch 前跑一次廉价 LLM 分类,判为 chitchat 自动走 `/chat` 路径;`repo_question` 或分类错误回落到流水线(fail-safe)。有附加日志时自动跳过。用 `providers.yaml` 把 `chitchat_classifier` 路由到小模型可控成本;设 `false` 可完全关闭 |
 | `--chitchat-classifier` (CLI flag) | — | 本次 run 覆盖 `chitchat_classifier_enabled`(三层优先级:code 默认 `true` → yaml → flag)。`--chitchat-classifier` 或 `=true` 强开,`=false` 强关,不传则 yaml 生效。适合调试误判时单次开关 |
+| `chitchat_recall_default_limit` | `5` | `/chat` 调 `recall_memory` 时,LLM 没传 `limit` 参数则用此默认值。建议保持 5(覆盖典型"我们之前讨论过 X 吗?"的话题) |
+| `chitchat_recall_max_limit` | `10` | `/chat` 调 `recall_memory` 时的 `limit` 硬上限,LLM 传更大值会被夹到此值。比 explorer 的 20 小,因为 chitchat 是单回合对话不是多步调查;太大会让第 2 轮 Chat 的 token 预算受压 |
 
 providers.yaml 分类器路由示例:
 

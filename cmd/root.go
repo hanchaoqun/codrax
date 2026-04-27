@@ -887,6 +887,11 @@ func runREPL(_ *cobra.Command) error {
 		Language:            flagLang,
 		ChitchatResponder:   app.chitchatResponder,
 		ChitchatClassifier:  app.chitchatClassifier,
+		// Hand the memory adapter to REPL so the chitchat tool-use
+		// loop can call recall_memory without a separate wiring step.
+		// The same adapter is also wired into the orchestrator above,
+		// so pipeline and chitchat see one source of truth.
+		Memory:              memory.NewAdapter(store),
 		PlanStore:           planStore,
 		AttachedLogMaxBytes:   maxAttachedLogBytes,
 		AttachedTraceMaxBytes: maxAttachedTraceBytes,
@@ -2030,7 +2035,24 @@ func initApp(cmd *cobra.Command, _ []string) error {
 		if adapter, err := llm.NewFromConfig(resolved); err != nil {
 			logging.Warning("[chitchat] responder adapter init failed; /chat will print a warning: %v", err)
 		} else {
-			app.chitchatResponder = repl.NewChitchatResponder(adapter)
+			responder := repl.NewChitchatResponder(adapter)
+			// Apply the chitchat tool-use limits from yaml. The
+			// responder's exported SetChitchatSettings setter is the
+			// single seam that keeps the constructor signature
+			// stable across this addition.
+			var chitchatCfg types.ChitchatSettings
+			if rs != nil {
+				if rs.ChitchatRecallDefaultLimit != nil {
+					chitchatCfg.RecallDefaultLimit = *rs.ChitchatRecallDefaultLimit
+				}
+				if rs.ChitchatRecallMaxLimit != nil {
+					chitchatCfg.RecallMaxLimit = *rs.ChitchatRecallMaxLimit
+				}
+			}
+			if r, ok := responder.(interface{ SetChitchatSettings(types.ChitchatSettings) }); ok {
+				r.SetChitchatSettings(types.ResolvedChitchatSettings(chitchatCfg))
+			}
+			app.chitchatResponder = responder
 		}
 	}
 

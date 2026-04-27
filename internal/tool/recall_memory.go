@@ -33,7 +33,7 @@ type RecallMemory struct {
 func (t *RecallMemory) Name() string { return "recall_memory" }
 
 func (t *RecallMemory) Description() string {
-	return "Search the user's prior REPL conversation memory. " +
+	return "Search the user's prior conversation memory. " +
 		"Use when the user references their own history (`之前 / " +
 		"上次 / 记忆里 / 历史 / 我们讨论过`, `previously / earlier / " +
 		"last time / in memory / we discussed`), OR when the current " +
@@ -41,7 +41,7 @@ func (t *RecallMemory) Description() string {
 		"block does not cover. Returns a list of compacted memory " +
 		"entries (Topic + LLM-generated Summary + Keywords + Kind + " +
 		"timestamp). Pass include_body=true to also fetch the full " +
-		"Response text for entries still in the recent buffer; " +
+		"prior response text for entries still in the recent buffer; " +
 		"defaults to false to save context tokens."
 }
 
@@ -59,7 +59,7 @@ func (t *RecallMemory) Parameters() json.RawMessage {
   "properties": {
     "query":        {"type": "string",  "description": "Natural-language search term. Entities + keywords work; the helper does its own tokenisation. Empty query returns no matches."},
     "kind":         {"type": "string",  "description": "Filter by turn kind: chitchat | pipeline | plan | shell | empty for any (default any).", "enum": ["", "chitchat", "pipeline", "plan", "shell"]},
-    "session_id":   {"type": "string",  "description": "Optional REPL session id. When set, same-session entries get the configured tie-breaker bonus."},
+    "session_id":   {"type": "string",  "description": "Optional conversation session id. When set, same-session entries get the configured tie-breaker bonus."},
     "limit":        {"type": "integer", "description": "Max entries to return. Default 5, hard cap 20."},
     "include_body": {"type": "boolean", "description": "When true AND an entry is still in the recent buffer, the full Turn.Response is included in the result. Default false to save tokens."}
   },
@@ -86,13 +86,13 @@ func (t *RecallMemory) Execute(ctx *types.BusContext, params json.RawMessage) (t
 		}, nil
 	}
 	if ctx == nil || ctx.Memory == nil {
-		// Single-shot CLI / non-REPL test — no Store wired. Surface
-		// a typed message rather than panicking, so the LLM can fall
-		// through to the standard repo_map / read_file path.
+		// Single-shot CLI / non-interactive test — no Store wired.
+		// Surface a typed message rather than panicking, so the LLM
+		// can fall through to the standard repo_map / read_file path.
 		return types.ToolResult{
 			ToolName:  t.Name(),
 			Success:   false,
-			Summary:   "recall_memory unavailable: no REPL memory store wired (typically: running outside REPL mode). Fall back to repo_map / grep for code-side searches.",
+			Summary:   "recall_memory unavailable: prior-conversation memory is not available in this run (typically a single-shot non-interactive invocation). Fall back to repo_map / grep for code-side searches.",
 			Timestamp: time.Now(),
 		}, nil
 	}
@@ -122,7 +122,7 @@ func renderRecallResults(query string, entries []types.MemoryIndexEntry) string 
 	var b strings.Builder
 	if len(entries) == 0 {
 		fmt.Fprintf(&b, "[recall_memory] query=%q matched 0 entries.\n", query)
-		fmt.Fprintln(&b, "Nothing in REPL conversation memory mentions this topic. Either widen the query (synonyms / parent concept) or fall back to repo_map / read_file for code-side answers.")
+		fmt.Fprintln(&b, "Nothing in prior conversation memory mentions this topic. Either widen the query (synonyms / parent concept) or fall back to repo_map / read_file for code-side answers.")
 		return b.String()
 	}
 	fmt.Fprintf(&b, "[recall_memory] query=%q matched %d entries (ranked by relevance):\n\n",

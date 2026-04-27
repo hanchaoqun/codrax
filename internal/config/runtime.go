@@ -364,6 +364,13 @@ type RuntimeSettings struct {
 	// false or pass --chitchat-classifier=false at startup.
 	ChitchatClassifierEnabled *bool `yaml:"chitchat_classifier_enabled"`
 
+	// Chitchat tool-use numeric knobs. /chat now runs a bounded
+	// 2-round ReAct loop with the recall_memory tool when memory
+	// is wired; these caps shape the LLM's `limit` parameter.
+	// nil → code default in types.DefaultChitchatSettings.
+	ChitchatRecallDefaultLimit *int `yaml:"chitchat_recall_default_limit"`
+	ChitchatRecallMaxLimit     *int `yaml:"chitchat_recall_max_limit"`
+
 	// CGEC (Citation-Grounded Evidence Closure) tunables. All
 	// optional; nil → code default in
 	// orchestrator.cgecForcedReadsPerRound /

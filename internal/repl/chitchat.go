@@ -12,7 +12,14 @@ import (
 	"github.com/hanchaoqun/codrax/internal/llm"
 	"github.com/hanchaoqun/codrax/internal/logging"
 	"github.com/hanchaoqun/codrax/internal/memory"
+	"github.com/hanchaoqun/codrax/internal/types"
 )
+
+// memoryReaderAlias is the package-private alias the public
+// MemoryReader name resolves to. Defined as a private name so the
+// chitchat package can import types and re-export the cleaner
+// MemoryReader identifier without syntactic noise at the use site.
+type memoryReaderAlias = types.MemoryReader
 
 // ChitchatResponder generates a conversational reply to a REPL turn
 // that has been routed away from the analysis pipeline. The caller
@@ -36,6 +43,25 @@ type ChitchatResponder interface {
 type streamingChitchatResponder interface {
 	RespondStream(userLine, priorContext string, onDelta func(string)) (reply string, err error)
 }
+
+// toolableChitchatResponder is the optional surface for responders
+// that can call tools (today: just recall_memory). The dispatcher
+// probes for this AFTER streaming and prefers it when both the
+// responder and BusContext.Memory are non-nil — the LLM can then
+// look up prior conversation entries on demand instead of relying
+// on the keyword-bound priorContext block alone.
+//
+// The boundary type is types.MemoryReader (defined in internal/types
+// to avoid import cycles); the responder implementation in this file
+// dispatches recall_memory tool calls onto it directly.
+type toolableChitchatResponder interface {
+	RespondWithMemory(userLine, priorContext string, memory MemoryReader, onDelta func(string)) (reply string, err error)
+}
+
+// MemoryReader re-exports types.MemoryReader so chitchat callers do
+// not have to import internal/types just to satisfy the optional
+// interface above. Pure type alias — same value, no wrapping.
+type MemoryReader = memoryReaderAlias
 
 // chitchatSystemPrompt is the responder's single source of persona.
 // It deliberately avoids naming pipeline internals (stages, agents,
@@ -64,12 +90,82 @@ Scope:
 - If the user asks what you can do, explain in plain terms: you answer questions about code repositories — functions, files, behaviours, or crash logs — by reading the relevant source and returning an answer grounded in the code. This /chat path is reserved for conversation that does not require repository access.
 - If the user's casual question drifts into asking for code analysis, suggest they ask it as a regular question instead of prefixing /chat.`
 
-// llmChitchatResponder is the default ChitchatResponder backed by a
-// single llm.Adapter.Chat call. No tools, no ReAct loop; the
-// responder is a one-shot exchange by design.
+// chitchatSystemPromptToolUse is appended to the base system prompt
+// when the recall_memory tool is wired in. Tells the LLM the single
+// tool is available and when to use it. Same trigger language as the
+// explorer skill prose: any meta-reference to "previous / earlier /
+// in memory / 之前 / 上次 / 记忆里 / 历史 / 我们讨论过" should call
+// recall_memory FIRST so the answer is grounded in the actual
+// IndexEntry results, not hallucinated continuity. Without the tool
+// (memory unwired) this addendum is omitted and the responder falls
+// back to the priorContext-only path.
+const chitchatSystemPromptToolUse = `
+
+Available tool:
+- recall_memory(query, kind?, limit?, include_body?) — search the user's prior conversation memory. Use ONLY when the user references their own past conversations (semantic markers in the question itself: 之前 / 上次 / 记忆里 / 历史 / 我们讨论过 / previously / last time / earlier / in memory / we discussed / I asked before), or when they ask "what did we ...?" / "did I ...?" about prior turns. The injected priorContext block above is keyword-bound to the literal question and may miss meta-references — recall_memory takes your interpretation of the user's intent as the query and searches the full IndexEntry catalogue.
+
+Tool-use rules:
+- For pure greetings / identity / capability questions (你好 / 谁做的 / 你能干什么), DO NOT call any tool — answer directly from this system prompt.
+- Call recall_memory at most once per turn. Either you have enough to answer after one search, or the topic is genuinely absent — say so honestly rather than guessing.
+- After the recall_memory result returns, write the final reply directly. Do not call recall_memory a second time even if the first miss looked tantalising.`
+
+// llmChitchatResponder is the default ChitchatResponder. The
+// pre-tool-use shape was a single one-shot Chat call; with the
+// optional recall_memory tool it becomes a bounded 2-round loop:
+// round 1 with the tool catalogue, round 2 (no tools) to answer.
+// Memory unwired → loop short-circuits to the original one-shot
+// behaviour byte-identically.
 type llmChitchatResponder struct {
-	adapter llm.Adapter
+	adapter  llm.Adapter
+	settings types.ChitchatSettings // tool-use limits; zero values fall through to package defaults
 }
+
+// SetChitchatSettings overrides the tool-use limits on the default
+// llmChitchatResponder. Called by cmd/root.go after construction so
+// codrax.yaml's chitchat_recall_default_limit / _max_limit reach
+// dispatchChitchatRecall without changing the constructor signature.
+// Operators who never set the yaml keys see the type's zero values
+// fall through to the package defaults (5 / 10).
+func (r *llmChitchatResponder) SetChitchatSettings(s types.ChitchatSettings) {
+	if r == nil {
+		return
+	}
+	r.settings = s
+}
+
+// recallMemoryToolSchema is the tool catalog entry the tool-use
+// loop hands to the LLM. Schema is held inline (not imported from
+// internal/tool) so this package does not depend on the tool layer
+// — the chitchat path is for non-pipeline conversation and must
+// stay independent of the analyzer/explorer wiring. The shape is
+// intentionally a SUBSET of the production recall_memory schema:
+// just query + limit. kind / session_id / include_body are not
+// surfaced because chitchat does not need that selectivity (it's
+// always a one-shot search at the topical level).
+func recallMemoryToolSchema() llm.ToolSchema {
+	return llm.ToolSchema{
+		Name: "recall_memory",
+		Description: "Search the user's prior conversation memory. " +
+			"Call ONLY when the user references their own past conversations " +
+			"(semantic markers like 之前 / 上次 / 记忆里 / 历史 / 我们讨论过 / " +
+			"previously / last time / earlier / in memory / we discussed / I asked). " +
+			"Returns a list of compacted memory entries (Topic + Summary + Keywords + Kind + timestamp).",
+		Parameters: json.RawMessage(`{
+  "type": "object",
+  "properties": {
+    "query": {"type": "string",  "description": "Natural-language search term — your interpretation of what the user is asking about, NOT the literal question text."},
+    "limit": {"type": "integer", "description": "Max entries to return. Default 5, hard cap 10."}
+  },
+  "required": ["query"]
+}`),
+	}
+}
+
+// Tool-use limits live on the responder's ChitchatSettings field
+// (settable via SetChitchatSettings, populated by cmd/root.go from
+// the codrax.yaml chitchat_recall_default_limit / _max_limit keys).
+// The package-level constants the previous shape held are gone —
+// the resolver in dispatchChitchatRecall handles zero values.
 
 // NewChitchatResponder builds the default responder. Callers pass the
 // adapter they want used; a nil adapter yields a responder that errors
@@ -152,6 +248,248 @@ func (r *llmChitchatResponder) RespondStream(userLine, priorContext string, onDe
 	return reply, nil
 }
 
+// RespondWithMemory is the toolableChitchatResponder entry point.
+// Runs a bounded 2-round ReAct loop with the recall_memory tool
+// available; falls through to the no-tool single-call path when
+// memory is nil. onDelta is the optional streaming callback — fires
+// only on the FINAL Chat call (the one that produces the user-
+// visible reply); intermediate tool-call rounds are non-streaming
+// because we need the complete tool_use payload before we can
+// decide whether the round is finished.
+//
+// Bounded by design: at most one recall_memory call per turn, then
+// one final synthesis Chat. Either the LLM has enough info from one
+// recall to answer, or the topic is genuinely absent and it should
+// say so honestly. A second tool call would give the LLM rope to
+// hang itself with an iterative search that costs tokens but adds
+// nothing — chitchat is conversation, not investigation.
+func (r *llmChitchatResponder) RespondWithMemory(userLine, priorContext string, mem types.MemoryReader, onDelta func(string)) (string, error) {
+	if r.adapter == nil {
+		return "", fmt.Errorf("chitchat responder not configured: no LLM adapter")
+	}
+	userLine = strings.TrimSpace(userLine)
+	if userLine == "" {
+		return "", fmt.Errorf("chitchat responder: empty user line")
+	}
+	// No memory wired → fall through to the historical one-shot
+	// path. Streaming preference preserved: when onDelta is non-nil
+	// we still light up the live area on RespondStream, otherwise
+	// the synchronous Respond.
+	if mem == nil {
+		if onDelta != nil {
+			return r.RespondStream(userLine, priorContext, onDelta)
+		}
+		return r.Respond(userLine, priorContext)
+	}
+
+	systemPrompt := chitchatSystemPrompt + chitchatSystemPromptToolUse
+	userContent := userLine
+	if prior := strings.TrimSpace(priorContext); prior != "" {
+		userContent = "## Prior conversation (for continuity)\n" + prior +
+			"\n\n## Current message\n" + userLine
+	}
+	messages := []llm.Message{
+		{Role: "system", Content: systemPrompt},
+		{Role: "user", Content: userContent},
+	}
+
+	// Round 1 — tool catalogue available, no streaming so we can
+	// fully observe ToolCalls before committing.
+	tools := []llm.ToolSchema{recallMemoryToolSchema()}
+	resp, err := r.adapter.Chat(messages, tools, llm.ChatOptions{})
+	if err != nil {
+		return "", fmt.Errorf("chitchat llm round 1: %w", err)
+	}
+
+	// No tool call → the LLM had enough to answer in one shot.
+	// Surface the content directly — but we lost the streaming
+	// opportunity here because we had to disable it for round 1.
+	// Acceptable trade-off: chitchat replies are short, and a
+	// brief non-streaming pause is fine when no tool is needed.
+	// The (much rarer) tool-use path also needs the final call to
+	// stream, so we run it explicitly below.
+	if len(resp.ToolCalls) == 0 {
+		reply := strings.TrimSpace(resp.Content)
+		if reply == "" {
+			return "", fmt.Errorf("chitchat llm returned empty content")
+		}
+		return reply, nil
+	}
+
+	// Tool dispatch. We honour exactly one recall_memory call —
+	// any extra calls in the same response are ignored (the
+	// system prompt already says so explicitly; this enforces it).
+	// Mismatched tool names also drop through; the model will
+	// notice the missing tool result and answer from priorContext.
+	messages = append(messages, llm.Message{
+		Role:      "assistant",
+		Content:   resp.Content,
+		ToolCalls: resp.ToolCalls,
+	})
+	for _, call := range resp.ToolCalls {
+		toolReply := dispatchChitchatRecall(call, mem, r.settings)
+		messages = append(messages, llm.Message{
+			Role:       "tool",
+			Content:    toolReply,
+			ToolCallID: call.ID,
+		})
+		// Bound: one tool dispatch per turn.
+		break
+	}
+
+	// Round 2 — synthesise the user-visible reply. No tools this
+	// round (system prompt already capped to one call). Streaming
+	// re-enabled here because it's the user-facing answer.
+	finalResp, err := r.adapter.Chat(messages, nil, llm.ChatOptions{OnContentDelta: onDelta})
+	if err != nil {
+		return "", fmt.Errorf("chitchat llm round 2: %w", err)
+	}
+	reply := strings.TrimSpace(finalResp.Content)
+	if reply == "" {
+		return "", fmt.Errorf("chitchat llm round 2 returned empty content")
+	}
+	return reply, nil
+}
+
+// dispatchChitchatRecall parses the LLM's tool_use params, calls
+// MemoryReader.Search, and returns the text payload the tool
+// message will carry back to the next Chat round. Errors are
+// transparently surfaced as the tool reply — the LLM sees the
+// failure and can mention "I tried to search but couldn't" in its
+// reply rather than hallucinating around the gap.
+func dispatchChitchatRecall(call llm.ToolCall, mem types.MemoryReader, settings types.ChitchatSettings) string {
+	if call.Name != "recall_memory" {
+		return fmt.Sprintf("(tool %q not available in this context — only recall_memory is wired)", call.Name)
+	}
+	var p struct {
+		Query string `json:"query"`
+		Limit int    `json:"limit,omitempty"`
+	}
+	if err := json.Unmarshal(call.Params, &p); err != nil {
+		return fmt.Sprintf("(recall_memory tool params invalid: %v)", err)
+	}
+	q := strings.TrimSpace(p.Query)
+	if q == "" {
+		return "(recall_memory rejected: empty query — pass at least one keyword / topic)"
+	}
+	settings = types.ResolvedChitchatSettings(settings)
+	limit := p.Limit
+	if limit <= 0 {
+		limit = settings.RecallDefaultLimit
+	}
+	if limit > settings.RecallMaxLimit {
+		limit = settings.RecallMaxLimit
+	}
+	entries := mem.Search(q, types.MemorySearchOpts{Limit: limit})
+	return renderChitchatRecallResults(q, entries)
+}
+
+// renderChitchatRecallResults formats the IndexEntry slice for
+// inclusion in a tool message. Same shape as the production
+// recall_memory tool's output (so the LLM's parsing patterns are
+// consistent across paths) but without the include_body branch
+// since chitchat doesn't surface that knob.
+func renderChitchatRecallResults(query string, entries []types.MemoryIndexEntry) string {
+	var b strings.Builder
+	if len(entries) == 0 {
+		fmt.Fprintf(&b, "[recall_memory] query=%q matched 0 entries.\n", query)
+		fmt.Fprintln(&b, "Nothing in prior conversation memory mentions this topic. Tell the user honestly that you do not recall such discussion.")
+		return b.String()
+	}
+	fmt.Fprintf(&b, "[recall_memory] query=%q matched %d entries (ranked by relevance):\n\n", query, len(entries))
+	for i, e := range entries {
+		fmt.Fprintf(&b, "#%d %s", i+1, e.ID)
+		if e.Kind != "" {
+			fmt.Fprintf(&b, " (kind=%s)", e.Kind)
+		}
+		b.WriteByte('\n')
+		if e.Topic != "" {
+			fmt.Fprintf(&b, "   topic: %s\n", e.Topic)
+		}
+		if e.Summary != "" {
+			fmt.Fprintf(&b, "   summary: %s\n", e.Summary)
+		}
+		if len(e.Keywords) > 0 {
+			fmt.Fprintf(&b, "   keywords: %s\n", strings.Join(e.Keywords, ", "))
+		}
+		b.WriteByte('\n')
+	}
+	return b.String()
+}
+
+// isStreamingChitchat / isToolableChitchat are the tiny type-assert
+// predicates the dispatcher uses to pick the path. Pulled out so the
+// switch in chitchatDispatch reads top-down without nested
+// `_, ok := X.(...)` clutter.
+func isStreamingChitchat(c ChitchatResponder) bool {
+	_, ok := c.(streamingChitchatResponder)
+	return ok
+}
+
+func isToolableChitchat(c ChitchatResponder) bool {
+	_, ok := c.(toolableChitchatResponder)
+	return ok
+}
+
+// runToolableChitchat drives the tool-use loop variant of the
+// dispatch. Streaming is wired into the FINAL synthesis call inside
+// the responder (round-1 must be non-streaming so we observe the
+// tool_use payload before deciding next step); the renderer-based
+// live area lights up only for the answer-producing chunks.
+func (r *REPL) runToolableChitchat(line, prior string) (string, error) {
+	tool := r.chitchatResponder.(toolableChitchatResponder)
+	// Streaming hookup mirrors runStreamingChitchat: when the
+	// renderer is alive AND the responder will eventually surface
+	// content deltas, we light up an Area that draws the partial
+	// reply. When renderer is nil (tests / non-TTY), pass nil to
+	// onDelta and let the synchronous Chat path serve the reply.
+	if r.renderer == nil {
+		return tool.RespondWithMemory(line, prior, r.memory, nil)
+	}
+	// Use a fresh pterm.Area so the streaming render path is
+	// contained — matches the runStreamingChitchat structure but
+	// without the streaming-only setup tail. Spinner during round 1
+	// (no tokens yet to stream); area opens at first delta.
+	r.renderer.StartSpinner()
+	var buf strings.Builder
+	var areaMu sync.Mutex
+	var area *pterm.AreaPrinter
+	startedArea := false
+	onDelta := func(delta string) {
+		if delta == "" {
+			return
+		}
+		areaMu.Lock()
+		defer areaMu.Unlock()
+		if !startedArea {
+			r.renderer.StopSpinner()
+			a, err := pterm.DefaultArea.Start()
+			if err != nil {
+				return
+			}
+			area = a
+			startedArea = true
+		}
+		buf.WriteString(delta)
+		if area != nil {
+			area.Update(buf.String())
+		}
+	}
+	reply, err := tool.RespondWithMemory(line, prior, r.memory, onDelta)
+	areaMu.Lock()
+	if area != nil {
+		_ = area.Stop()
+	}
+	if !startedArea {
+		// Stream never opened — the responder either never streamed
+		// or the round-1 path returned content directly. Stop the
+		// spinner manually so the user sees a clean state.
+		r.renderer.StopSpinner()
+	}
+	areaMu.Unlock()
+	return reply, err
+}
+
 // chitchatDispatch runs one /chat turn. line is the substantive user
 // text (command prefix already stripped); display is the form shown
 // on the terminal and persisted to memory. This path deliberately
@@ -179,19 +517,22 @@ func (r *REPL) chitchatDispatch(line, display string) {
 
 	logging.Info("[repl/chitchat] dispatching: %s", oneLine(line))
 
-	// Streaming path is used when (a) the responder implements the
-	// optional streaming interface AND (b) we have a live renderer —
-	// i.e. interactive TTY mode. In tests (renderer nil) and in any
-	// non-TTY context we skip the pterm.Area and fall back to the
-	// spinner+sync path so scripted output stays byte-stable.
-	streamer, canStream := r.chitchatResponder.(streamingChitchatResponder)
-	streaming := canStream && r.renderer != nil
-
+	// Dispatch path selection, in priority order:
+	//   1. toolableChitchatResponder + memory wired → tool-use loop.
+	//      Streaming is wired only into the FINAL Chat call inside
+	//      the loop (round-1 tool detection cannot stream).
+	//   2. streamingChitchatResponder + live renderer → streaming
+	//      single-call path with pterm.Area live area.
+	//   3. plain Respond → single-call sync with spinner.
 	var response string
 	var err error
-	if streaming {
+	switch {
+	case r.chitchatResponder != nil && r.memory != nil && isToolableChitchat(r.chitchatResponder):
+		response, err = r.runToolableChitchat(line, prior)
+	case isStreamingChitchat(r.chitchatResponder) && r.renderer != nil:
+		streamer := r.chitchatResponder.(streamingChitchatResponder)
 		response, err = r.runStreamingChitchat(streamer, line, prior)
-	} else {
+	default:
 		if r.renderer != nil {
 			r.renderer.StartSpinner()
 		}
