@@ -171,6 +171,8 @@ func initBareRepo(t *testing.T) string {
 	mustRunGit(t, dir, "init", "-q")
 	mustRunGit(t, dir, "config", "user.email", "test@codrax")
 	mustRunGit(t, dir, "config", "user.name", "test-user")
+	mustRunGit(t, dir, "config", "core.autocrlf", "false")
+	mustRunGit(t, dir, "config", "core.eol", "lf")
 	return dir
 }
 

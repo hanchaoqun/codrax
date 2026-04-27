@@ -1826,6 +1826,17 @@ func hasTerminalEvidence(items []types.EvidenceItem) bool {
 	return false
 }
 
+func hasGroundedTerminalEvidence(items []types.EvidenceItem) bool {
+	filtered := make([]types.EvidenceItem, 0, len(items))
+	for _, ev := range items {
+		switch ev.GroundingStatus {
+		case types.GroundingGrounded, types.GroundingRecovered:
+			filtered = append(filtered, ev)
+		}
+	}
+	return hasTerminalEvidence(filtered)
+}
+
 // terminalPredicate reports whether a candidate answer chain's terminal
 // segment (the right-hand side of its last hop) is structurally
 // compatible with the question kind's answer shape. Used by

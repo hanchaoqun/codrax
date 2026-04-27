@@ -3189,6 +3189,18 @@ func TestParseEmitEvidenceRepairTargets_SkipsDropOnlyMentions(t *testing.T) {
 	}
 }
 
+func TestParseEmitEvidenceRepairTargets_IgnoresAggregateCounters(t *testing.T) {
+	summary := "emit_evidence accepted 4 item(s)\n\n" +
+		"  [1] relationship buildAnalysisIR @ internal/agent/analyzer.go:412 - ParseOutput calls buildAnalysisIR\n" +
+		"      -> grounded (tier=line_text)\n" +
+		"  [2] direct buildAnalysisIR @ internal/agent/analyzer.go:612 - buildAnalysisIR definition\n" +
+		"      -> grounded (tier=line_text)\n" +
+		"\nEvidence so far: 4 grounded / 0 recovered / 0 ungrounded across 1 file(s).\n"
+	if got := parseEmitEvidenceRepairTargets(summary); len(got) != 0 {
+		t.Fatalf("aggregate counters should not create repair targets, got %+v", got)
+	}
+}
+
 func TestMidLoopCheck_ParallelCueSkippedBelowUnreadFloor(t *testing.T) {
 	eval := &explorerEvaluator{
 		phase:                 1,
@@ -4182,7 +4194,7 @@ func TestObserveMidLoop_CompletionReadyHint_UsesAuthoritativeLogCoverage(t *test
 				GroundingStatus: types.GroundingGrounded,
 			},
 			{
-				Kind:            types.EvidenceDirect,
+				Kind:            types.EvidenceConditional,
 				Subject:         "RequestModel",
 				Predicate:       "checked_at",
 				Object:          "line 616",

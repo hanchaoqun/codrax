@@ -3203,6 +3203,9 @@ func parseEmitEvidenceRepairTargets(summary string) []evidenceRepairTarget {
 			currentDrop = true
 			continue
 		}
+		if !isEmitEvidenceStatusLine(line) {
+			continue
+		}
 		if !strings.Contains(line, "recovered") && !strings.Contains(line, "ungrounded") {
 			continue
 		}
@@ -3227,6 +3230,11 @@ func parseEmitEvidenceRepairTargets(summary string) []evidenceRepairTarget {
 		out = append(out, evidenceRepairTarget{file: file, lines: lines})
 	}
 	return out
+}
+
+func isEmitEvidenceStatusLine(line string) bool {
+	line = strings.TrimSpace(line)
+	return strings.HasPrefix(line, "→") || strings.HasPrefix(line, "->")
 }
 
 func filterEvidenceRepairTargetsByFiles(targets []evidenceRepairTarget, preferred []string) []evidenceRepairTarget {
@@ -3658,6 +3666,9 @@ func (e *explorerEvaluator) completionReadiness(toolResults []types.ToolResult, 
 		fileCoverage = true
 	}
 	evidenceQuality := directCount >= 2
+	if !e.isEnumerationQuery && (hasGroundedTerminalEvidence(e.structuredEvidence) || len(e.flowFindings) > 0) {
+		evidenceQuality = true
+	}
 	if e.isEnumerationQuery {
 		fileCoverage = coverage >= 0.8 || (len(scope) > 0 && scopeReadCount >= len(scope))
 		minDirect := len(scope) / 3
