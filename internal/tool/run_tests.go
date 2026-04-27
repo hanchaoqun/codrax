@@ -1052,14 +1052,28 @@ func runnerPrimaryBinary(runner string) string {
 //     dependencies; running pytest from outside the venv would
 //     either miss the project's deps or use a different interpreter
 //     than `pip install` populated.
-//  2. `python3` from PATH — preferred over `python` because modern
-//     Linux/macOS distros ship only `python3` (the `python` symlink
-//     to Python 2 was removed). exec.LookPath probes the operator's
-//     PATH, which exec.Cmd inherits to the worktree subprocess.
-//  3. `python` from PATH — older systems / Windows.
-//  4. Bare `pytest` — last resort, only when no python interpreter
-//     resolves. The runner_missing detector catches this if pytest
-//     is also absent.
+//  2. Standalone `pytest` on PATH — preferred over `python3 -m pytest`
+//     because the pytest entry-point script's shebang already points
+//     at the python interpreter that pip installed pytest under, so
+//     `import pytest` is guaranteed to succeed. The earlier order
+//     (python3 -m pytest first) silently fails on hosts where the
+//     resolved python3 is a different build from the one pip used —
+//     e.g. customer-reported `/opt/python/bin/python3 -m pytest` →
+//     "No module named pytest" when pytest itself was installed via
+//     the system python (`apt install python3-pytest` /
+//     `pip install --user pytest` on a different python). The
+//     "python -m" CWD-on-sys.path benefit is preserved because pytest
+//     adds rootdir / conftest dirs to sys.path during its own
+//     rootdir discovery, so source-only repos still resolve their
+//     own packages without `pip install -e .`.
+//  3. `python3` from PATH — fallback when standalone pytest is
+//     missing. Modern Linux/macOS distros ship `python3` only (the
+//     `python` symlink to Python 2 was removed). asModule=true so
+//     the caller invokes `python3 -m pytest`.
+//  4. `python` from PATH — older systems / Windows.
+//  5. Bare `pytest` (asModule=false) — last resort, only when no
+//     python interpreter at all resolves. The runner_missing detector
+//     catches this if pytest is also absent.
 //
 // Cross-platform: filepath.Join uses the OS separator, so on
 // Windows the venv probe produces backslash paths. filepath.ToSlash
@@ -1095,17 +1109,25 @@ func pythonInterpreter(roots ...string) (string, bool) {
 			}
 		}
 	}
+	// Standalone `pytest` wins over `<python> -m pytest` because its
+	// shebang resolves to the python pip installed it under. See the
+	// long doc comment above for the customer scenario this fixes.
+	if path, err := exec.LookPath("pytest"); err == nil {
+		logging.Info("[run_tests/python] interpreter resolved: PATH pytest=%q (no venv at: %v; preferred over `python -m pytest` because pytest's shebang knows its own python)",
+			path, probedRoots)
+		return "pytest", false
+	}
 	if path, err := exec.LookPath("python3"); err == nil {
-		logging.Info("[run_tests/python] interpreter resolved: PATH python3=%q (no venv at: %v)",
+		logging.Info("[run_tests/python] interpreter resolved: PATH python3=%q (no venv at: %v; standalone pytest absent)",
 			path, probedRoots)
 		return "python3", true
 	}
 	if path, err := exec.LookPath("python"); err == nil {
-		logging.Info("[run_tests/python] interpreter resolved: PATH python=%q (no venv at: %v; python3 absent)",
+		logging.Info("[run_tests/python] interpreter resolved: PATH python=%q (no venv at: %v; standalone pytest + python3 absent)",
 			path, probedRoots)
 		return "python", true
 	}
-	logging.Warning("[run_tests/python] no python interpreter found (probed venv at: %v; python3 / python absent from PATH); falling back to bare pytest",
+	logging.Warning("[run_tests/python] no python interpreter found (probed venv at: %v; pytest / python3 / python all absent from PATH); falling back to bare pytest invocation which will fail loudly",
 		probedRoots)
 	return "pytest", false
 }

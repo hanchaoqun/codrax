@@ -211,9 +211,11 @@ func TestPythonInterpreter_VenvAlternateLayouts(t *testing.T) {
 }
 
 // TestPythonInterpreter_FallsBackToSystemPython verifies that with
-// no venv present, the helper returns python3 / python from PATH.
-// We can't guarantee what's installed on the test host, so the
-// assertion is loose: result is one of the expected fallbacks.
+// no venv present, the helper returns one of pytest / python3 /
+// python from PATH (whichever exists on the host). We can't
+// guarantee what's installed on the test host, so the assertion
+// is loose: result is one of the expected fallbacks AND asModule
+// matches the resolved interpreter (false only for bare pytest).
 func TestPythonInterpreter_FallsBackToSystemPython(t *testing.T) {
 	repo := t.TempDir()
 	interp, asModule := pythonInterpreter(repo)
@@ -228,6 +230,39 @@ func TestPythonInterpreter_FallsBackToSystemPython(t *testing.T) {
 		}
 	default:
 		t.Errorf("unexpected fallback interpreter %q", interp)
+	}
+}
+
+// TestPythonInterpreter_PrefersStandalonePytestOverPython3 locks the
+// load-bearing priority swap that fixed the customer scenario where
+// `python3 -m pytest` failed because the resolved python3 was a
+// different build (`/opt/python/bin/python3`) from the one pip
+// installed pytest under (the system `/usr/bin/python3`). When
+// standalone `pytest` is on PATH, its shebang knows the right python,
+// so we MUST prefer it over `<other-python> -m pytest`.
+//
+// The test sandboxes PATH so only fake `pytest` and `python3`
+// scripts are visible — the assertion is then deterministic
+// regardless of what's installed on the host.
+func TestPythonInterpreter_PrefersStandalonePytestOverPython3(t *testing.T) {
+	dir := t.TempDir()
+	pytestBin := filepath.Join(dir, "pytest")
+	if err := os.WriteFile(pytestBin, []byte("#!/bin/sh\nexit 0\n"), 0o755); err != nil {
+		t.Fatalf("write pytest: %v", err)
+	}
+	python3Bin := filepath.Join(dir, "python3")
+	if err := os.WriteFile(python3Bin, []byte("#!/bin/sh\nexit 1\n"), 0o755); err != nil {
+		t.Fatalf("write python3: %v", err)
+	}
+	t.Setenv("PATH", dir)
+
+	repo := t.TempDir() // no venv inside, so probe falls through
+	interp, asModule := pythonInterpreter(repo)
+	if interp != "pytest" {
+		t.Errorf("expected standalone pytest to win when both are on PATH; got %q", interp)
+	}
+	if asModule {
+		t.Errorf("standalone pytest must be invoked bare (asModule=false); got asModule=true")
 	}
 }
 
