@@ -1492,6 +1492,7 @@ func validateConfigTraceAbsenceCitationFocus(ctx *types.BusContext, exact *types
 	requiredFiles := plan.ExactContextRequiredFiles
 	lineageCandidates := plan.RelatedContextCitationCandidates
 	allowedAnchors := types.JoinExactContextSurfaceDisplays(plan.AllowedExactContextLabels)
+	roleCoverage := formatConfigTraceRoleCoverage(plan)
 	relatedContextCitations := 0
 	for idx, cite := range citations {
 		matched := matchingEvidenceForCitation(pool, cite)
@@ -1509,9 +1510,12 @@ func validateConfigTraceAbsenceCitationFocus(ctx *types.BusContext, exact *types
 				idx, cite.File, cite.Line,
 			).
 				WithFields(fmt.Sprintf("citations[%d]", idx), "exact_resolution.context_mode").
-				WithHint("Re-emit `emit_answer_document` with the same exact-absence conclusion, but remove this anchor from `citations[]` and from any fenced diagram nodes. You may keep it in `summary` as prose-only grounded nearby context, but if the user-visible answer still explains precedence / lineage, cite at least one validated default/config/runtime/override anchor. Here `config` means a grounded repo/user config-file layer (YAML/JSON/TOML/INI/etc.).")
+				WithHint("Re-emit `emit_answer_document` with the same exact-absence conclusion, but remove this anchor from `citations[]` and from any fenced diagram nodes. You may keep it in `summary` as prose-only grounded nearby context, but if the user-visible answer still explains precedence / lineage, cite at least one validated default/config/runtime/override anchor. Here `config` means a grounded repo/user config-file layer (YAML/JSON/TOML/INI/etc.). If you keep multi-layer precedence on the surface, preserve at least one visible anchor for each available precedence role instead of collapsing everything to a single mechanism anchor.")
 			if allowed := formatConfigTraceAllowedCitations(plan); allowed != "" {
 				err = err.WithMetadata("allowed_citations", allowed)
+			}
+			if roleCoverage != "" {
+				err = err.WithMetadata("precedence_role_anchors", roleCoverage)
 			}
 			if allowedAnchors != "" {
 				err = err.WithMetadata("allowed_anchors", allowedAnchors)
@@ -1528,9 +1532,12 @@ func validateConfigTraceAbsenceCitationFocus(ctx *types.BusContext, exact *types
 			idx, cite.File, cite.Line,
 		).
 			WithFields(fmt.Sprintf("citations[%d]", idx), "exact_resolution.context_mode").
-			WithHint("Re-emit `emit_answer_document` with the same exact-absence conclusion, but keep citations only for the missing-key proof sources and for grounded precedence anchors that already carry validated default/config/runtime/override roles. Here `config` means a grounded repo/user config-file layer (YAML/JSON/TOML/INI/etc.). Drop broad same-family structs, counters, or helper comments from `citations[]` and from the rendered answer.")
+			WithHint("Re-emit `emit_answer_document` with the same exact-absence conclusion, but keep citations only for the missing-key proof sources and for grounded precedence anchors that already carry validated default/config/runtime/override roles. Here `config` means a grounded repo/user config-file layer (YAML/JSON/TOML/INI/etc.). Drop broad same-family structs, counters, or helper comments from `citations[]` and from the rendered answer. If you still explain multi-layer precedence, preserve one visible anchor per available precedence role when possible.")
 		if allowed := formatConfigTraceAllowedCitations(plan); allowed != "" {
 			err = err.WithMetadata("allowed_citations", allowed)
+		}
+		if roleCoverage != "" {
+			err = err.WithMetadata("precedence_role_anchors", roleCoverage)
 		}
 		if allowedAnchors != "" {
 			err = err.WithMetadata("allowed_anchors", allowedAnchors)
@@ -1548,9 +1555,12 @@ func validateConfigTraceAbsenceCitationFocus(ctx *types.BusContext, exact *types
 		"config_trace_context_citation",
 		"exact-absent config-trace answers that keep grounded related context on the user-visible surface must cite at least one grounded precedence-capable lineage anchor. The current summary explains nearby precedence / context, but citations[] contains no validated default/config/runtime/override anchor for that explanation.",
 	).WithFields("citations", "summary", "exact_resolution.context_mode").
-		WithHint("Re-emit `emit_answer_document` with the same exact-absence conclusion, but if `summary` continues to explain nearby precedence / lineage context, keep at least one grounded precedence anchor in `citations[]` (for example a validated default/config/runtime/override anchor already named in the tool metadata). Here `config` means a grounded repo/user config-file layer (YAML/JSON/TOML/INI/etc.). If you do not want to cite nearby lineage context, drop that contextual explanation and keep only the renderer-generated absence lead.")
+		WithHint("Re-emit `emit_answer_document` with the same exact-absence conclusion, but if `summary` continues to explain nearby precedence / lineage context, keep at least one grounded precedence anchor in `citations[]` (for example a validated default/config/runtime/override anchor already named in the tool metadata). Here `config` means a grounded repo/user config-file layer (YAML/JSON/TOML/INI/etc.). If multiple precedence roles are available, preserve one visible anchor per role when possible instead of collapsing to a single mechanism anchor. If you do not want to cite nearby lineage context, drop that contextual explanation and keep only the renderer-generated absence lead.")
 	if allowed := formatConfigTraceAllowedCitations(plan); allowed != "" {
 		err = err.WithMetadata("allowed_citations", allowed)
+	}
+	if roleCoverage != "" {
+		err = err.WithMetadata("precedence_role_anchors", roleCoverage)
 	}
 	if allowedAnchors != "" {
 		err = err.WithMetadata("allowed_anchors", allowedAnchors)
@@ -1623,6 +1633,22 @@ func formatConfigTraceAllowedCitations(plan *types.AnswerSurfacePlan) string {
 	}
 	sort.Strings(out)
 	return strings.Join(out, ", ")
+}
+
+func formatConfigTraceRoleCoverage(plan *types.AnswerSurfacePlan) string {
+	if plan == nil || len(plan.ConfigTraceDiagramAnchors) == 0 {
+		return ""
+	}
+	parts := make([]string, 0, len(plan.ConfigTraceDiagramAnchors))
+	for _, anchor := range plan.ConfigTraceDiagramAnchors {
+		role := strings.TrimSpace(anchor.Role)
+		label := strings.TrimSpace(anchor.Label)
+		if role == "" || label == "" {
+			continue
+		}
+		parts = append(parts, fmt.Sprintf("%s=%s", role, label))
+	}
+	return strings.Join(parts, ", ")
 }
 
 func validateExactResolutionContextSurface(summary string, exact *types.AnswerExactResolution, ctx *types.BusContext) error {

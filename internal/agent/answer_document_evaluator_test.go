@@ -229,6 +229,10 @@ func TestAnswerDocumentEvaluator_BuildInitialInstruction_RendersConfigTraceDiagr
 	prompt := (&answerDocumentEvaluator{}).BuildInitialInstruction(ctx, nil)
 	for _, want := range []string{
 		"### Config Trace Precedence",
+		"## Precedence Role Coverage",
+		"`default` → `internal/types/config.go:707`",
+		"`config` → `codrax.yaml.example:20`",
+		"`runtime` → `internal/config/runtime.go:194`",
 		"codrax.yaml.example:20",
 		"internal/types/config.go:707",
 		"cmd/root.go:1381",

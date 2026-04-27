@@ -64,6 +64,10 @@ type explorerEvaluator struct {
 	midLoopExactAbsenceSent        bool                  // one-shot: exact-resolution absence already looks closure-ready this dispatch
 	midLoopEnumInjected            bool                  // session-22: enumeration-coverage hint already pushed this dispatch (was missing → 68 fires / run observed on goroutine_dump)
 	midLoopNoEmitPushSent          bool                  // one-shot: "you have read N files but never called emit_evidence" hint already pushed this dispatch
+	midLoopNoEmitEscalated         bool                  // one-shot: stronger "emit evidence now" escalation after the first no-emit nudge was ignored
+	midLoopExecRedirectSent        bool                  // one-shot: redirected shell-style browsing back to built-in grep/read_file before first emit_evidence
+	midLoopNoEmitPushIter          int                   // iteration where the initial read-without-emit nudge fired
+	midLoopNoEmitPushResultsLen    int                   // allResults length when the initial read-without-emit nudge fired
 	primaryReadSeen                bool                  // df3-drift: whether any primary-entity file has entered readSet this dispatch
 	primaryReadIter                int                   // df3-drift: iter at which a primary-entity file first entered readSet
 	notesLenAtPrimaryRead          int                   // df3-drift: snapshot of len(investigationNotes) at primaryReadIter
@@ -360,6 +364,7 @@ func (e *explorerEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk 
 			len(e.investigationNotes))
 		b.WriteString("Focus on the gaps identified above. Do NOT re-read files you already analyzed.\n\n")
 		b.WriteString("**Tools:** use `grep` (efficient for locating patterns and scanning large files), `read_file` (for reading content), or both together. Pick the most efficient approach for each situation.\n\n")
+		b.WriteString("Prefer the built-in `grep` / `read_file` tools for repository browsing. Reserve `exec_command` for deterministic computations or checks that the structured tools cannot perform directly.\n\n")
 		b.WriteString("Evidence format (examples — adapt to what you find):\n")
 		b.WriteString("- `[DIRECT] functionName line N: <what this code establishes>`\n")
 		b.WriteString("- `[CONDITIONAL] functionName line N: <what happens> IF <condition>`\n")
@@ -377,6 +382,7 @@ func (e *explorerEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk 
 	b.WriteString("- repo_map (task_map view) to get an overview of relevant files\n")
 	b.WriteString("- grep with files_only=true to find WHICH FILES contain key terms (just filenames, not lines). Use `file_type` when the language is obvious; do not use --include so you discover all relevant file types\n")
 	b.WriteString("- list_files to understand directory structure\n\n")
+	b.WriteString("Prefer the built-in repository tools above for discovery. Reserve `exec_command` for deterministic computations or checks that the structured tools cannot perform directly.\n\n")
 	b.WriteString("**Non-English questions:** When the user's question is not in English, search with BOTH the original terms AND their English programming equivalents. Most codebases use English identifiers, so always include the translated English terms alongside the original. Batch both versions as parallel grep calls.\n\n")
 	b.WriteString("**Keyword variants:** Start with exact identifiers and high-confidence translations. Broaden only when those searches return zero or too few useful files:\n")
 	b.WriteString("- Word roots and inflections (e.g. send/sending/sent)\n")
@@ -3351,6 +3357,8 @@ func (e *explorerEvaluator) postReadWithoutEmitSignal(obs LoopObservation) LoopS
 		return LoopSignal{}
 	}
 	e.midLoopNoEmitPushSent = true
+	e.midLoopNoEmitPushIter = obs.Iteration
+	e.midLoopNoEmitPushResultsLen = len(obs.AllToolResults)
 	return LoopSignal{
 		HintRequested: true,
 		HintKey:       "explorer.mid-loop.read-without-emit",
@@ -3360,6 +3368,63 @@ func (e *explorerEvaluator) postReadWithoutEmitSignal(obs LoopObservation) LoopS
 				"Pick the strongest anchors you have identified in the files you just read and emit them in ONE batch now. Line numbers MUST come verbatim from the `read_file` gutter (copy the leading `N| ` prefix). "+
 				"After the batch succeeds, continue investigating or call `emit_investigation_complete(reason, confidence, result_kind)`.",
 			reads),
+		Progress:       true,
+		BypassThrottle: true,
+	}
+}
+
+func (e *explorerEvaluator) postExecRedirectBeforeEmitSignal(obs LoopObservation) LoopSignal {
+	if e.midLoopExecRedirectSent || !e.midLoopNoEmitPushSent || e.midLoopNoEmitPushResultsLen == 0 {
+		return LoopSignal{}
+	}
+	if hasSuccessfulTool(obs.AllToolResults, "emit_evidence") {
+		return LoopSignal{}
+	}
+	if obs.Iteration <= e.midLoopNoEmitPushIter {
+		return LoopSignal{}
+	}
+	if successfulToolCountSince(obs.AllToolResults, e.midLoopNoEmitPushResultsLen, map[string]bool{"exec_command": true}) == 0 {
+		return LoopSignal{}
+	}
+	e.midLoopExecRedirectSent = true
+	return LoopSignal{
+		HintRequested: true,
+		HintKey:       "explorer.mid-loop.exec-redirect-before-emit",
+		Hint: "MID-LOOP CHECK: you are still browsing with `exec_command` before emitting any structured evidence. " +
+			"For repository investigation, switch back to the built-in `grep` / `read_file` tools so paths stay stable across OSes and line gutters remain machine-readable. " +
+			"Use the lines you already read to call `emit_evidence(items=[...])` now; reserve `exec_command` for deterministic computations or checks that the structured tools cannot perform directly.",
+		Progress:       true,
+		BypassThrottle: true,
+	}
+}
+
+func (e *explorerEvaluator) postReadWithoutEmitEscalationSignal(obs LoopObservation) LoopSignal {
+	if e.midLoopNoEmitEscalated || !e.midLoopNoEmitPushSent || e.midLoopNoEmitPushResultsLen == 0 {
+		return LoopSignal{}
+	}
+	if hasSuccessfulTool(obs.AllToolResults, "emit_evidence") {
+		return LoopSignal{}
+	}
+	if obs.Iteration < e.midLoopNoEmitPushIter+2 {
+		return LoopSignal{}
+	}
+	navigationCalls := successfulToolCountSince(obs.AllToolResults, e.midLoopNoEmitPushResultsLen, map[string]bool{
+		"read_file":    true,
+		"grep":         true,
+		"list_files":   true,
+		"repo_map":     true,
+		"exec_command": true,
+	})
+	if navigationCalls < 2 {
+		return LoopSignal{}
+	}
+	e.midLoopNoEmitEscalated = true
+	return LoopSignal{
+		HintRequested: true,
+		HintKey:       "explorer.mid-loop.read-without-emit-escalated",
+		Hint: "MID-LOOP CHECK: the earlier `emit_evidence` nudge was ignored and you still have zero successful `emit_evidence` calls after additional tool rounds. " +
+			"Stop expanding with more navigation for the moment. Use the grounded lines you have already read to emit ONE batch of `emit_evidence(items=[...])` now. " +
+			"After that batch succeeds, either continue on any truly unresolved branch or call `emit_investigation_complete(reason, confidence, result_kind)` if the evidence already answers the question.",
 		Progress:       true,
 		BypassThrottle: true,
 	}
@@ -3470,15 +3535,41 @@ func (e *explorerEvaluator) postExactAbsenceClosureSignal(obs LoopObservation) L
 }
 
 func currentBatchHasSuccessfulRead(results []types.ToolResult, prevLen int) bool {
+	return currentBatchHasSuccessfulTool(results, prevLen, "read_file")
+}
+
+func currentBatchHasSuccessfulTool(results []types.ToolResult, prevLen int, toolName string) bool {
 	if prevLen < 0 || prevLen > len(results) {
 		prevLen = 0
 	}
 	for _, r := range results[prevLen:] {
-		if r.Success && r.ToolName == "read_file" {
+		if r.Success && r.ToolName == toolName {
 			return true
 		}
 	}
 	return false
+}
+
+func hasSuccessfulTool(results []types.ToolResult, toolName string) bool {
+	for _, r := range results {
+		if r.Success && r.ToolName == toolName {
+			return true
+		}
+	}
+	return false
+}
+
+func successfulToolCountSince(results []types.ToolResult, prevLen int, names map[string]bool) int {
+	if prevLen < 0 || prevLen > len(results) {
+		prevLen = 0
+	}
+	count := 0
+	for _, r := range results[prevLen:] {
+		if r.Success && names[r.ToolName] {
+			count++
+		}
+	}
+	return count
 }
 
 func exactAbsenceClosureReady(contract *types.ExactResolutionContract, scenario types.Scenario, targets []string, evidence []types.EvidenceItem, requiredFiles []string) bool {
@@ -3821,6 +3912,12 @@ func (e *explorerEvaluator) observeMidLoop(obs LoopObservation) LoopSignal {
 		return sig
 	}
 	if sig := e.postReadWithoutEmitSignal(obs); sig.HintRequested {
+		return sig
+	}
+	if sig := e.postExecRedirectBeforeEmitSignal(obs); sig.HintRequested {
+		return sig
+	}
+	if sig := e.postReadWithoutEmitEscalationSignal(obs); sig.HintRequested {
 		return sig
 	}
 	if sig := e.postExternalLogRedirectSignal(obs); sig.HintRequested {

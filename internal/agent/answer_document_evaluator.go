@@ -162,6 +162,9 @@ func (e *answerDocumentEvaluator) BuildInitialInstruction(ctx *types.AgentContex
 		b.WriteString("- A diagram would normally help for this question type, but the currently grounded evidence does not yet provide a complete structural seed for a hard-required diagram.\n")
 		b.WriteString("- Prefer a grounded prose answer over an invented fence. Only draw a fenced diagram if every node / label can be copied from the existing citations, validated seeds, or Log Triage frames.\n\n")
 	}
+	if coverage := renderAnswerDocConfigTraceRoleCoverage(ctx, nil); coverage != "" {
+		b.WriteString(coverage)
+	}
 	if exact := renderAnswerDocExactResolutionContract(ctx); exact != "" {
 		b.WriteString(exact)
 	}
@@ -953,6 +956,24 @@ func renderAnswerDocRelatedContextCitationCandidates(ctx *types.AgentContext, co
 	b.WriteString("If `summary` or a fenced diagram keeps nearby grounded precedence / lineage context on the user-visible answer surface, cite at least one of these exact file:line anchors in `citations[]`. Background-only same-family context may stay uncited in prose only when it does not become the answer's visible lineage explanation or a diagram node.\n\n")
 	for _, candidate := range candidates {
 		fmt.Fprintf(&b, "- %s [%s]\n", candidate.Label, candidate.Role)
+	}
+	b.WriteString("\n")
+	return b.String()
+}
+
+func renderAnswerDocConfigTraceRoleCoverage(ctx *types.AgentContext, contract *types.ExactResolutionContract) string {
+	if ctx == nil || ctx.AnalysisIR == nil || ctx.AnalysisIR.RequestModel.Scenario != types.ScenarioConfigTrace {
+		return ""
+	}
+	anchors := collectConfigTraceDiagramAnchors(ctx)
+	if len(anchors) == 0 {
+		return ""
+	}
+	var b strings.Builder
+	b.WriteString("## Precedence Role Coverage\n\n")
+	b.WriteString("If you keep multi-layer precedence / lineage context on the user-visible surface, avoid collapsing it to a single mechanism anchor. Prefer keeping at least one validated anchor for each available precedence role below.\n\n")
+	for _, anchor := range anchors {
+		fmt.Fprintf(&b, "- `%s` → `%s`\n", anchor.Role, anchor.Label)
 	}
 	b.WriteString("\n")
 	return b.String()

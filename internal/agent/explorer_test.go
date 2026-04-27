@@ -3835,6 +3835,103 @@ func TestObserveMidLoop_ReadWithoutEmitNudge(t *testing.T) {
 	})
 }
 
+func TestObserveMidLoop_ReadWithoutEmitEscalation(t *testing.T) {
+	newReadResult := func(path string) types.ToolResult {
+		return types.ToolResult{
+			ToolName: "read_file",
+			Success:  true,
+			Summary:  "[" + path + ": showing lines 1-20 of 20]\npackage fixture\n",
+		}
+	}
+
+	eval := &explorerEvaluator{
+		phase:        1,
+		searchResult: &keywordSearchResult{Graph: &repomap.Graph{}},
+	}
+	initial := []types.ToolResult{
+		newReadResult("a.go"),
+		newReadResult("b.go"),
+	}
+	first := eval.observeMidLoop(LoopObservation{
+		Phase:          PhaseMidLoop,
+		Iteration:      2,
+		LastToolResult: &initial[len(initial)-1],
+		AllToolResults: initial,
+	})
+	if !first.HintRequested || first.HintKey != "explorer.mid-loop.read-without-emit" {
+		t.Fatalf("expected initial no-emit nudge, got %+v", first)
+	}
+
+	followup := append(append([]types.ToolResult{}, initial...),
+		types.ToolResult{ToolName: "grep", Success: true, Summary: "[grep: 2 matching lines]\na.go:12: foo"},
+		types.ToolResult{ToolName: "read_file", Success: true, Summary: "[c.go: showing lines 10-30 of 80]\npackage fixture\n"},
+	)
+	eval.midLoopLastResultsLen = len(initial)
+	sig := eval.observeMidLoop(LoopObservation{
+		Phase:          PhaseMidLoop,
+		Iteration:      4,
+		LastToolResult: &followup[len(followup)-1],
+		AllToolResults: followup,
+	})
+	if !sig.HintRequested {
+		t.Fatalf("escalation should fire after extra navigation with no emit_evidence, got %+v", sig)
+	}
+	if sig.HintKey != "explorer.mid-loop.read-without-emit-escalated" {
+		t.Fatalf("HintKey = %q, want explorer.mid-loop.read-without-emit-escalated", sig.HintKey)
+	}
+	if !strings.Contains(sig.Hint, "zero successful `emit_evidence` calls") {
+		t.Fatalf("escalation hint should explain the zero-emit condition, got: %s", sig.Hint)
+	}
+}
+
+func TestObserveMidLoop_ExecRedirectBeforeEmit(t *testing.T) {
+	newReadResult := func(path string) types.ToolResult {
+		return types.ToolResult{
+			ToolName: "read_file",
+			Success:  true,
+			Summary:  "[" + path + ": showing lines 1-20 of 20]\npackage fixture\n",
+		}
+	}
+
+	eval := &explorerEvaluator{
+		phase:        1,
+		searchResult: &keywordSearchResult{Graph: &repomap.Graph{}},
+	}
+	initial := []types.ToolResult{
+		newReadResult("a.go"),
+		newReadResult("b.go"),
+	}
+	first := eval.observeMidLoop(LoopObservation{
+		Phase:          PhaseMidLoop,
+		Iteration:      2,
+		LastToolResult: &initial[len(initial)-1],
+		AllToolResults: initial,
+	})
+	if !first.HintRequested || first.HintKey != "explorer.mid-loop.read-without-emit" {
+		t.Fatalf("expected initial no-emit nudge, got %+v", first)
+	}
+
+	followup := append(append([]types.ToolResult{}, initial...),
+		types.ToolResult{ToolName: "exec_command", Success: true, Summary: "[exec_command: $ sed -n '1,20p' a.go]\nfunc foo() {}"},
+	)
+	eval.midLoopLastResultsLen = len(initial)
+	sig := eval.observeMidLoop(LoopObservation{
+		Phase:          PhaseMidLoop,
+		Iteration:      3,
+		LastToolResult: &followup[len(followup)-1],
+		AllToolResults: followup,
+	})
+	if !sig.HintRequested {
+		t.Fatalf("exec redirect should fire when exec_command is used before first emit_evidence, got %+v", sig)
+	}
+	if sig.HintKey != "explorer.mid-loop.exec-redirect-before-emit" {
+		t.Fatalf("HintKey = %q, want explorer.mid-loop.exec-redirect-before-emit", sig.HintKey)
+	}
+	if !strings.Contains(sig.Hint, "switch back to the built-in `grep` / `read_file` tools") {
+		t.Fatalf("exec redirect hint should steer back to structured tools, got: %s", sig.Hint)
+	}
+}
+
 func TestObserveMidLoop_ExternalSourceLogRedirect(t *testing.T) {
 	eval := &explorerEvaluator{
 		logTriage: &types.LogBundle{
