@@ -2,7 +2,6 @@ package tool
 
 import (
 	"encoding/json"
-	"strconv"
 	"strings"
 	"testing"
 
@@ -12,14 +11,6 @@ import (
 
 func newEmitCtx() *types.BusContext {
 	return &types.BusContext{Mutable: types.NewMutableState("")}
-}
-
-func buildEmitReadResult(path string, startLine int, lines []string, totalLines int) types.ToolResult {
-	body := "[" + path + ": showing lines " + strconv.Itoa(startLine) + "-" + strconv.Itoa(startLine+len(lines)-1) + " of " + strconv.Itoa(totalLines) + "]\n"
-	for i, l := range lines {
-		body += "  " + strconv.Itoa(startLine+i) + "│" + l + "\n"
-	}
-	return types.ToolResult{ToolName: "read_file", Success: true, Summary: body}
 }
 
 func TestEmitEvidence_AcceptsValidBatch(t *testing.T) {
@@ -517,11 +508,14 @@ func TestEmitEvidence_PromotesAbsenceSupportWhenAnchoredWindowNamesExactTarget(t
 	ctx := newEmitCtx()
 	ctx.Mutable.SetTurnAArtifacts(types.TurnAArtifacts{
 		ToolResults: []types.ToolResult{
-			buildEmitReadResult("internal/agent/router.go", 40, []string{
-				"func buildFallbackHandlers() {",
-				"    // FooHandler is absent from the runtime router on this branch.",
-				"    _ = 0",
-			}, 60),
+			{
+				ToolName: "read_file",
+				Success:  true,
+				Summary: "[internal/agent/router.go: showing lines 40-42 of 60]\n" +
+					"  40│func buildFallbackHandlers() {\n" +
+					"  41│    // FooHandler is absent from the runtime router on this branch.\n" +
+					"  42│    _ = 0\n",
+			},
 		},
 	})
 	ctx.AnalysisIR = &types.AnalysisIR{
