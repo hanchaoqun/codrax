@@ -1298,6 +1298,30 @@ REPL 会自动从 PlanStore 找最近一条 `pending_approval` plan 重新绑定
 
 **`/plan show <plan-id>`**:配合 /plan list 看历史 plan 的完整 diff(包括已 applied / verify_failed 的);执行后 pendingPlanPath 自动绑定到该 plan,下一句 `/approve` 不再需要重输 ID。
 
+**精确 / 批量删除 plan**(`/plan clear` 三种参数形态):
+
+```
+❯❯ /plan list
+  3 plan(s) in /home/me/.../plans (newest first):
+    - [...] plan-1730845210-12345  status=rejected      (3120 bytes)
+    - [...] plan-1730841098-12345  status=verify_failed (3210 bytes)
+    - [...] plan-1730834521-12345  status=applied       (2400 bytes)
+
+❯❯ /plan clear plan-1730845210-12345        # 按 ID 删除一个(任意状态)
+  ✓ plan cleared: plan-1730845210-12345 (status was "rejected")
+
+❯❯ /plan clear --status=rejected            # 清掉所有 rejected
+  Delete 0 plan(s) matching status=rejected? ...   # 上一步刚刚删完,这次提示 0 match
+  • plan clear: no plans match status=rejected
+
+❯❯ /plan clear --all                         # 一把清空(必须二次确认)
+  Delete 2 plan(s) matching all plans? This is irreversible.
+  > Yes
+  ✓ plan clear: deleted 2/2 plan(s) matching all plans
+```
+
+每种形态都会同时删 sibling `.report.json`(避免 `/history` 出现 dangling 报告)。如果删除的 plan 恰好是当前 pending(`pendingPlanPath` 指向它),指针会一并清空。`--all` / `--status=` 在交互式 REPL 下走 huh.NewConfirm y/N 二次确认;脚本(非交互)模式下直接执行,假定调用方对 SCRIPT 的正确性负责。
+
 **`--skip-verify` 适用场景**:
 
 - 本地起不了集成测试(数据库、外部服务、GPU 等)
@@ -1439,6 +1463,9 @@ REPL 会自动从 PlanStore 找最近一条 `pending_approval` plan 重新绑定
 | `/plan show` | 审阅 pending plan(含 kind=patch / modify 的 unified diff 预览,per-change 4 KB、总计 16 KB 上限) |
 | `/plan list` | 列出 PlanStore 里所有 plan(显示状态:pending_approval / applied / applied_failed / verify_failed / rejected) |
 | `/plan clear` | 丢弃 pending plan(不记 memory;要记 memory 用 `/reject`) |
+| `/plan clear <plan-id>` | 按 ID 删除指定 plan(任意状态),同时删除 sibling `.report.json` |
+| `/plan clear --all` | 清空 PlanStore 所有 plan(交互式 y/N 二次确认) |
+| `/plan clear --status=<state>` | 清空所有指定状态的 plan(`rejected` / `applied_failed` / `verify_failed` 等;y/N 二次确认) |
 | `/approve [--merge-to=<branch>]` | 二次确认后触发 `apply + verify`。**只接受 Status=pending_approval 的 plan**,已 applied / rejected 的一律拒绝。`--merge-to=` 可选,成功后立即合并到该分支 |
 | `/reject [reason]` | 丢弃 pending plan 并把理由记入 memory 历史 |
 | `/verify [plan-id]` | 对已 applied 的 plan 重跑 verify(不重新 apply)。需要 plan 有保留的 worktree(即 Run 时开了 `pipeline_keep_worktree_on_success`)。无参数时用 pending plan |

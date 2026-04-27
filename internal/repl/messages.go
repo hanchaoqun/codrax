@@ -490,12 +490,12 @@ func modeWorkflowHint(lang, mode string) []string {
 		if zh {
 			return []string{
 				"  接下来你的下一条请求会产生 ChangePlan(改动提议),不是直接回答。",
-				"  生成后用 /plan show 审阅、/approve 落地、/reject 丢弃、/mode read 回读模式继续提问。",
+				"  生成后用 /plan show 审阅当前 plan、/plan list 看 PlanStore 里所有 plan、/approve 落地、/reject 丢弃、/mode read 回读模式继续提问。",
 			}
 		}
 		return []string{
 			"  Your next request will produce a ChangePlan instead of an answer.",
-			"  After that: /plan show to review, /approve to apply, /reject to discard, /mode read to keep questioning.",
+			"  After that: /plan show to review the pending plan, /plan list to enumerate every saved plan, /approve to apply, /reject to discard, /mode read to keep questioning.",
 		}
 	case "apply":
 		if zh {
@@ -530,18 +530,22 @@ func planReadyNudge(lang string, planID string, changeCount int) []string {
 	if isZh(lang) {
 		return []string{
 			formatN(lang, "Plan 已就绪: %s (%d 处改动)。下一步:", planID, changeCount),
-			"    /plan show   — 查看每个文件的改动 diff",
-			"    /approve     — 在 worktree 内 apply + 跑 verify",
-			"    /reject      — 丢弃本 plan",
-			"    /mode read   — 切回读模式继续问代码问题(plan 仍保留可后续 /approve)",
+			"    /plan show         — 查看本 plan 每个文件的改动 diff",
+			"    /plan list         — 列出 PlanStore 里所有已保存 plan(状态 + ID)",
+			"    /approve           — 在 worktree 内 apply + 跑 verify",
+			"    /approve --skip-verify  — 仅 apply,跳过测试(本地起不了集成测试时用)",
+			"    /reject            — 丢弃本 plan",
+			"    /mode read         — 切回读模式继续问代码问题(plan 仍保留可后续 /approve)",
 		}
 	}
 	return []string{
 		formatN(lang, "Plan ready: %s (%d change(s)). Next:", planID, changeCount),
-		"    /plan show   — inspect the proposed diff per file",
-		"    /approve     — apply inside a worktree + run verify",
-		"    /reject      — discard this plan",
-		"    /mode read   — return to read mode (plan stays saved for later /approve)",
+		"    /plan show              — inspect this plan's per-file diff",
+		"    /plan list              — enumerate every plan in PlanStore (status + ID)",
+		"    /approve                — apply inside a worktree + run verify",
+		"    /approve --skip-verify  — apply only, skip tests (when local can't run them)",
+		"    /reject                 — discard this plan",
+		"    /mode read              — return to read mode (plan stays saved for later /approve)",
 	}
 }
 

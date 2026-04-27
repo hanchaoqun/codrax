@@ -158,6 +158,12 @@ var slashCommands = []slashCommand{
 				"列出 PlanStore 里所有 plan(状态 + 字节,最新的在前)"},
 			{"clear", "discard the pending plan without recording a memory turn",
 				"丢弃待审 plan,不记入 memory(对比 /reject)"},
+			{"clear <plan-id>", "delete a specific plan from PlanStore by ID (also removes the sibling .report.json)",
+				"按 ID 从 PlanStore 删除指定 plan(同时删 .report.json 报告)"},
+			{"clear --all", "wipe every plan in PlanStore (interactive y/N confirm)",
+				"清空 PlanStore 所有 plan(交互式 y/N 二次确认)"},
+			{"clear --status=<state>", "wipe every plan with the given status (e.g. rejected, applied_failed, verify_failed; interactive y/N confirm)",
+				"清空所有指定状态的 plan(例如 rejected / applied_failed / verify_failed;交互式 y/N 二次确认)"},
 		},
 	},
 	{

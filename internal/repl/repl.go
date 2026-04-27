@@ -1451,6 +1451,16 @@ func (r *REPL) handlePlanCmd(line string) {
 		r.pendingPlanPath = filepath.Join(r.planStore.PlanDir(), showID+".json")
 		rest = "show"
 	}
+	// /plan clear <plan-id|--all|--status=X> — extends the bare
+	// `/plan clear` (which only drops the pending pointer) to let
+	// the user delete a specific plan from PlanStore by ID, or
+	// bulk-wipe by status. Bulk paths require interactive y/N
+	// confirmation so a stray scripted `/plan clear --all` can't
+	// silently nuke history.
+	if clearArg := strings.TrimSpace(strings.TrimPrefix(rest, "clear ")); clearArg != rest && clearArg != "" {
+		r.handlePlanClearArg(clearArg)
+		return
+	}
 	switch rest {
 	case "show":
 		if r.pendingPlanPath == "" {
@@ -1546,6 +1556,120 @@ func (r *REPL) handlePlanCmd(line string) {
 	default:
 		r.warn("%s", unknownPlanSubcommand(r.language, rest))
 	}
+}
+
+// handlePlanClearArg services the three argument forms of
+// `/plan clear <X>`:
+//
+//	/plan clear <plan-id>          — delete one named plan from
+//	                                  PlanStore (any status)
+//	/plan clear --all              — wipe every plan in store
+//	                                  (interactive y/N confirm)
+//	/plan clear --status=<state>   — wipe every plan whose Status
+//	                                  matches (interactive y/N
+//	                                  confirm)
+//
+// Sibling `<id>.report.json` files are removed alongside their
+// plan so /history doesn't keep dangling reports. The pending
+// pointer (r.pendingPlanPath) is cleared if the deleted plan
+// happens to be the pending one.
+func (r *REPL) handlePlanClearArg(arg string) {
+	// --all bulk wipe
+	if arg == "--all" {
+		r.handlePlanClearBulk("", "all plans")
+		return
+	}
+	// --status=<state>
+	if strings.HasPrefix(arg, "--status=") {
+		want := strings.TrimSpace(strings.TrimPrefix(arg, "--status="))
+		if want == "" {
+			r.errorf("plan clear: --status= requires a value (e.g. rejected, applied_failed, verify_failed)\n")
+			return
+		}
+		r.handlePlanClearBulk(want, fmt.Sprintf("status=%s", want))
+		return
+	}
+	// Otherwise treat as a plan ID.
+	planID := arg
+	full, err := r.planStore.Load(planID)
+	if err != nil || full == nil {
+		r.errorf("plan clear: %s", planNotFound(r.language, planID))
+		return
+	}
+	if err := r.planStore.Clear(planID); err != nil {
+		r.errorf("plan clear: %v\n", err)
+		return
+	}
+	// Sibling report file (if any) — best-effort delete.
+	reportPath := filepath.Join(r.planStore.PlanDir(), planID+".report.json")
+	if _, statErr := os.Stat(reportPath); statErr == nil {
+		_ = os.Remove(reportPath)
+	}
+	// Drop the pending pointer if it was pointing at this plan so
+	// the next /plan show / /approve doesn't surface a phantom.
+	if filepath.Base(r.pendingPlanPath) == planID+".json" {
+		r.pendingPlanPath = ""
+	}
+	r.success(fmt.Sprintf("plan cleared: %s (status was %q)", planID, full.Status))
+}
+
+// handlePlanClearBulk wipes every plan in PlanStore that matches
+// the filter. statusFilter "" means "all plans"; otherwise only
+// plans whose Status equals statusFilter are deleted. Interactive
+// y/N confirmation is required when r.interactive() is true; in
+// scripted mode the bulk delete proceeds without confirmation
+// (caller is responsible for the script's correctness).
+//
+// label is the human-readable description of what's about to be
+// deleted, used in the confirmation prompt and the success
+// message ("all plans" / "status=rejected" / etc.).
+func (r *REPL) handlePlanClearBulk(statusFilter, label string) {
+	infos, err := r.planStore.List()
+	if err != nil {
+		r.errorf("plan clear: list: %v\n", err)
+		return
+	}
+	var matches []PlanInfo
+	for _, inf := range infos {
+		if statusFilter != "" && inf.Status != statusFilter {
+			continue
+		}
+		matches = append(matches, inf)
+	}
+	if len(matches) == 0 {
+		r.info(fmt.Sprintf("plan clear: no plans match %s", label))
+		return
+	}
+	if r.interactive() {
+		title := fmt.Sprintf("Delete %d plan(s) matching %s? This is irreversible.", len(matches), label)
+		confirmed := false
+		if err := huh.NewConfirm().
+			Title(title).
+			Affirmative("Yes").
+			Negative("No").
+			Value(&confirmed).
+			Run(); err != nil {
+			confirmed = false
+		}
+		if !confirmed {
+			r.info("plan clear cancelled")
+			return
+		}
+	}
+	deleted := 0
+	for _, inf := range matches {
+		if err := r.planStore.Clear(inf.ID); err != nil {
+			r.warn("plan clear: %s: %v\n", inf.ID, err)
+			continue
+		}
+		reportPath := filepath.Join(r.planStore.PlanDir(), inf.ID+".report.json")
+		_ = os.Remove(reportPath)
+		if filepath.Base(r.pendingPlanPath) == inf.ID+".json" {
+			r.pendingPlanPath = ""
+		}
+		deleted++
+	}
+	r.success(fmt.Sprintf("plan clear: deleted %d/%d plan(s) matching %s", deleted, len(matches), label))
 }
 
 // recoverPendingPlanFromStore walks PlanStore.List for the most
