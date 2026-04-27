@@ -48,6 +48,13 @@ type Orchestrator struct {
 	blobSessionDir  string                   // persistent per-process blob dir; empty = tmpdir fallback
 	attachedLog     string                   // runtime log excerpt attached via --log / /log
 	attachedHitrace string                   // HiTrace / atrace excerpt attached via --htrace / /htrace
+
+	// memoryReader is the read handle into the REPL memory store.
+	// Wired by cmd/root.go via SetMemoryReader after the Store is
+	// constructed; nil in single-shot CLI / non-REPL test fixtures.
+	// Run() copies it into BusContext.Memory so tools (recall_memory)
+	// can query without a memory-package import.
+	memoryReader types.MemoryReader
 	// mode controls the B0 write-mode dispatch in Run(). Zero value
 	// ("") is treated as ModeRead by busCtx.Mode.Normalize at Run
 	// entry, so every pre-B0 caller sees identical read-only
@@ -265,6 +272,13 @@ func (o *Orchestrator) SetThinkAloudMap(m map[types.AgentName]bool) {
 // persistent layout).
 func (o *Orchestrator) SetBlobSessionDir(dir string) {
 	o.blobSessionDir = dir
+}
+
+// SetMemoryReader wires the REPL memory store's read handle so each
+// Run's BusContext gets it propagated. Single-shot CLI / tests may
+// leave this unset; tools that depend on it nil-check before use.
+func (o *Orchestrator) SetMemoryReader(m types.MemoryReader) {
+	o.memoryReader = m
 }
 
 // Cancel marks the in-flight Run as canceled with the given reason.
@@ -572,6 +586,7 @@ func (o *Orchestrator) Run(request string, repoRoot string, branch string) (*typ
 			Stage:   types.StageAnalyze,
 			Missing: types.MissingUnderstanding,
 		},
+		Memory: o.memoryReader,
 	}
 
 	// Thread repoRoot into MutableState so the lazy-init

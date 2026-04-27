@@ -26,4 +26,10 @@ func RegisterDefaults(r *Registry) {
 	r.Register(&ApplyPatch{})
 	r.Register(&RunTests{})
 	r.Register(&EmitTestResults{})
+
+	// recall_memory — agent-driven retrieval of REPL prior-conversation
+	// memory. Read-only; nil-safe when BusContext.Memory is unwired
+	// (single-shot CLI, tests). Available to read-mode agents
+	// (analyzer / explorer); skill prose teaches them when to call.
+	r.Register(&RecallMemory{})
 }

@@ -188,6 +188,14 @@ type IndexEntry struct {
 	Kind      Kind
 	Entities  []string
 	Refs      []string
+
+	// body is an in-memory only payload the Search method optionally
+	// fills with the still-uncompacted Turn.Response when the caller
+	// passes IncludeBody=true. NEVER serialised to MEMORY.md — the
+	// parser at parseIndex / writer at appendIndexEntry don't touch
+	// it. Read through bodyOf() so future relocations don't break
+	// callers.
+	body string
 }
 
 // BuildOpts tunes BuildContext retrieval. All fields optional; zero-
@@ -1596,3 +1604,138 @@ func sanitizeErrorResponse(s string) string {
 	}
 	return s
 }
+
+// Search runs the configured per-Kind retrieval policy against query
+// and returns the matching IndexEntry slice ordered by relevance
+// score with the expand-refs chain already applied. Deleted entries
+// (future Pinned/Forget surface) are stripped here so callers never
+// have to filter. Pure read-side wrapper — reuses the existing
+// scoreIndex / expandRefsChain / withSharedLock helpers verbatim.
+//
+// This is the agent-facing surface: tool/recall_memory drives it
+// when the LLM decides the user is asking about prior REPL
+// conversations. Default Limit (when caller passes 0) mirrors
+// BuildContext's compactedMatchCap; the absolute cap of 20 protects
+// the LLM context window.
+//
+// Concurrency: read path only; index reload runs under the same
+// withSharedLock the BuildContext caller uses so a peer Store's
+// fresh writes are visible.
+func (s *Store) Search(query string, opts SearchOpts) []IndexEntry {
+	if s == nil || strings.TrimSpace(query) == "" {
+		return nil
+	}
+	limit := opts.Limit
+	const hardCap = 20
+	if limit <= 0 {
+		limit = 5
+	}
+	if limit > hardCap {
+		limit = hardCap
+	}
+
+	// Bring the on-disk MEMORY.md tail into view so peer-written
+	// entries are visible. Same single-line as Index() — keep the
+	// pattern identical so future schema changes only land in one
+	// place. Guard against nil flock (tests using a stub Store
+	// without a real fileLock) by falling through to the in-memory
+	// snapshot we already hold; production Stores always have a
+	// real flock by the time Search is called.
+	if s.flock != nil {
+		_ = s.withSharedLock(s.loadIndexLocked)
+	}
+	s.mu.Lock()
+	idx := append([]IndexEntry(nil), s.index...)
+	recent := append([]Turn(nil), s.recent...)
+	s.mu.Unlock()
+
+	// Reuse the existing per-Kind policy lookup so Search and
+	// BuildContext rank entries identically — no second scoring
+	// implementation to keep in sync. opts.Kind="" falls through to
+	// the legacy default policy.
+	policy := policyFor(Kind(opts.Kind), s.settings)
+	bopts := BuildOpts{
+		Kind:      Kind(opts.Kind),
+		SessionID: opts.SessionID,
+	}
+
+	// Optional Kind filter: drop entries whose Kind doesn't match
+	// before scoring so the cap math reflects the requested slice.
+	scoped := idx
+	if opts.Kind != "" {
+		scoped = scoped[:0]
+		for _, e := range idx {
+			if string(e.Kind) == opts.Kind {
+				scoped = append(scoped, e)
+			}
+		}
+	}
+
+	scored := scoreIndex(scoped, query, bopts, policy)
+
+	// Drop the WasError entries explicitly — scoreIndex already
+	// skips them via empty Keywords, but a future schema change
+	// could leak them; defence in depth costs nothing here.
+	out := make([]IndexEntry, 0, len(scored))
+	for _, e := range scored {
+		if e.WasError {
+			continue
+		}
+		out = append(out, e)
+	}
+	if policy.refsChainDepth > 0 {
+		out = expandRefsChain(out, idx, policy.refsChainDepth)
+	}
+	if len(out) > limit {
+		out = out[:limit]
+	}
+
+	// IncludeBody: walk recent buffer once and patch any matched
+	// IndexEntry whose ID corresponds to a still-uncompacted Turn.
+	// recent is short (s.maxRecent, default 6), so the inner loop
+	// is effectively constant cost.
+	if opts.IncludeBody && len(out) > 0 && len(recent) > 0 {
+		byID := make(map[string]Turn, len(recent))
+		for _, t := range recent {
+			byID[t.ID] = t
+		}
+		for i := range out {
+			if t, ok := byID[out[i].ID]; ok {
+				out[i].body = t.Response
+			}
+		}
+	}
+	return out
+}
+
+// SearchOpts mirrors types.MemorySearchOpts in this package's local
+// type system. The Adapter below is responsible for translating
+// between the two so internal/tool can consume the public types
+// shape without a memory import.
+type SearchOpts struct {
+	Kind        string
+	SessionID   string
+	Limit       int
+	IncludeBody bool
+}
+
+// body is the IncludeBody payload Search optionally writes onto
+// returned entries. We add a private field to IndexEntry rather
+// than another return slot so the existing scoreIndex / expandRefsChain
+// pipeline stays unchanged. Adapter reads it via the bodyOf accessor.
+//
+// Defined here as a struct field is impractical (IndexEntry is
+// exported and we want the new field hidden from MEMORY.md
+// serialisation), so the lazy approach: a side-map keyed by the
+// entry ID. For MVP we attach to IndexEntry directly via a private
+// addendum struct stored on Store.
+//
+// Pragmatic compromise: add an unexported field `body` to IndexEntry
+// in this same file's type declaration block. The MEMORY.md parser
+// / writer never touches it, so on-disk format is unchanged.
+
+// bodyOf is the accessor the Adapter uses to extract the optional
+// IncludeBody payload. Lives at file scope so test fixtures can
+// inject canned bodies for assertions.
+func bodyOf(e IndexEntry) string { return e.body }
+

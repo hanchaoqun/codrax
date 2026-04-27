@@ -856,6 +856,12 @@ func runREPL(_ *cobra.Command) error {
 		logging.Error("memory store init failed: %v", err)
 		return fmt.Errorf("memory store init failed: %w", err)
 	}
+	// Wire the read-side adapter into the orchestrator so each Run's
+	// BusContext.Memory carries it. Tools (recall_memory) consume it
+	// via the types.MemoryReader interface — no memory-package import
+	// from the tool layer. Adapter is nil-safe; single-shot CLI never
+	// reaches this branch (runREPL path only).
+	app.orch.SetMemoryReader(memory.NewAdapter(store))
 	renderFn := func(busCtx *types.BusContext) string {
 		return app.renderer.RenderResult(busCtx)
 	}

@@ -2113,6 +2113,13 @@ type BusContext struct {
 	// needs the "original root" falls back to RepoRoot in that case.
 	MainRepoRoot string `json:"main_repo_root,omitempty"`
 
+	// Memory is the read-only handle into the REPL memory store. nil
+	// in single-shot CLI runs / non-REPL test fixtures (no Store to
+	// wire). recall_memory tool nil-checks before calling Search;
+	// other tools never touch this field. Not serialised — the
+	// pointer is process-local only.
+	Memory MemoryReader `json:"-"`
+
 	// WorktreePath is the git worktree directory the apply/verify
 	// stages operate inside. Populated by the Plan / Apply stage
 	// entry; cleared (via worktree.Discard) by the orchestrator's
