@@ -362,6 +362,8 @@ llm:
 
 #### 3.3.2 对话记忆(REPL 场景)
 
+**基础容量**(典型操作员只需关心这一组):
+
 | 键 | 默认值 | 作用 |
 |---|---|---|
 | `memory_dir` | `memory` | 记忆目录。相对路径相对于 `<CWD>/.codrax/` |
@@ -369,6 +371,38 @@ llm:
 | `memory_max_recent_bytes` | `20480` | 最近对话缓冲的总字节上限,任一边先超就压缩最旧轮次 |
 | `memory_max_turn_body_bytes` | `16384` | 单轮对话 request + response 的最大字节,超过会尾部截断 |
 | `memory_max_build_context_matches` | `3` | 每次提问最多召回多少条压缩历史作上下文 |
+
+**检索打分调优**(进阶,默认值与早先 hardcode 完全一致,不影响任何已部署):
+
+| 键 | 默认值 | 作用 |
+|---|---|---|
+| `memory_entity_min_runes` | `3` | 一条 IndexEntry 的 entity 至少要有这么多个 Unicode rune 才参与子串匹配。设大可以过滤掉 `id`/`go`/`x` 这类短噪声 token,代价是漏掉真实的短符号 |
+| `memory_session_tie_breaker_bonus` | `1` | 同 session 命中已有非零得分时额外加多少分。仅做并列时排序,不会让无关条目浮上来 |
+
+**按 Kind 检索策略**(进阶,每个 Kind 的同 5 字段独立可调):
+
+```yaml
+memory_policy_chitchat:    # 默认 {3, 1200, 3, 2, 1}
+  session_pin_count: 3     # 同 session 锚定多少条最近 turn (无条件保留)
+  recent_body_chars: 1200  # 锚定 turn 渲染的字符上限
+  compacted_match_cap: 3   # 压缩条目命中数上限
+  entity_score_mul: 2      # entity 命中相对 keyword 的倍率
+  refs_chain_depth: 1      # 沿 IndexEntry.Refs 链扩展几跳
+
+memory_policy_shell:       # 默认同 chitchat (`!cmd` follow-up 与对话同套语义)
+memory_policy_pipeline:    # 默认 {2, 0, 5, 3, 2} (entity 权重高,依赖结构化命中)
+memory_policy_plan:        # 默认 {0, 0, -1, 2, 0} (legacy fallback)
+memory_policy_default:     # 默认 {0, 0, -1, 2, 0} (Kind="" 时的 fallback)
+```
+
+> 字段级合并:override 字段 = 0 表示"沿用默认"。例如只想把 pipeline 的 `compacted_match_cap` 从 5 提到 10,只写这一行:
+>
+> ```yaml
+> memory_policy_pipeline:
+>   compacted_match_cap: 10
+> ```
+>
+> 其它 4 个字段仍保留 pipeline 默认。整段不写则全套默认。
 
 #### 3.3.3 响应语言与目标仓
 

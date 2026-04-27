@@ -634,6 +634,75 @@
 # memory_max_build_context_matches: 3
 
 # ---------------------------------------------------------------------------
+# Memory retrieval scoring (memory_entity_min_runes / _session_tie_breaker_bonus)
+# ---------------------------------------------------------------------------
+# Two scoreIndex-level magic numbers that previously lived inline in
+# internal/memory/store.go. Defaults preserve pre-refactor behaviour
+# byte-for-byte; touch only if the index is over- or under-firing
+# in your traces.
+
+# Minimum Unicode-rune length an entity surface must have to participate
+# in the entity-substring check. Below this, generic short tokens
+# ("id", "go", "rpc") would over-fire and surface irrelevant entries.
+# Raise to 4 or 5 if your codebase uses long identifier conventions
+# and you see noise hits.
+# memory_entity_min_runes: 3
+
+# Extra score added to a candidate IndexEntry whose SessionID matches
+# the current REPL session AND already has positive relevance. Bare
+# session membership is intentionally NOT enough to surface an
+# irrelevant entry — this only orders ties between equally-relevant
+# cross-session matches. Raise to 2-3 to bias more strongly toward
+# the live thread when answering follow-ups.
+# memory_session_tie_breaker_bonus: 1
+
+# ---------------------------------------------------------------------------
+# Per-Kind retrieval policy (memory_policy_*)
+# ---------------------------------------------------------------------------
+# Each turn carries a Kind label — chitchat / shell / pipeline / plan /
+# (legacy default for unknown). BuildContext applies a per-Kind tuning
+# when assembling the prior-conversation block:
+#
+#   session_pin_count   — how many same-session recent turns to keep
+#                         unconditionally regardless of keyword match.
+#   recent_body_chars   — rune cap for inlining session-pinned turn
+#                         bodies (0 = use the legacy ~200-char one-line
+#                         collapse).
+#   compacted_match_cap — top-K cap on matched compacted index entries
+#                         (-1 = use memory_max_build_context_matches).
+#   entity_score_mul    — multiplier on entity-substring hits vs
+#                         keyword hits in scoreIndex.
+#   refs_chain_depth    — how many hops of IndexEntry.Refs to follow
+#                         after the primary match list is picked.
+#
+# Defaults preserve the pre-refactor hardcoded values:
+#
+#   chitchat / shell : {3, 1200, 3, 2, 1}
+#   pipeline         : {2,    0, 5, 3, 2}
+#   plan / default   : {0,    0, -1, 2, 0}
+#
+# Field-level merge: omit a sub-policy entirely (or leave a field at 0)
+# to keep the corresponding default. The example below tightens
+# pipeline retrieval (more compacted matches, deeper refs chain) without
+# touching chitchat:
+#
+# memory_policy_pipeline:
+#   compacted_match_cap: 8
+#   refs_chain_depth: 3
+#
+# Full surface for completeness:
+# memory_policy_chitchat:
+#   session_pin_count: 3
+#   recent_body_chars: 1200
+#   compacted_match_cap: 3
+#   entity_score_mul: 2
+#   refs_chain_depth: 1
+# memory_policy_shell: {…}
+# memory_policy_pipeline: {…}
+# memory_policy_plan: {…}
+# memory_policy_default: {…}
+
+# ---------------------------------------------------------------------------
 # Log-triage (log_triage_*)
 # ---------------------------------------------------------------------------
 # When the user attaches a runtime log excerpt via --log / --log-text /
