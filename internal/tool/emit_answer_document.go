@@ -1443,15 +1443,12 @@ func validateValueCitationFocus(ctx *types.BusContext, v *types.AnswerValue, cit
 	if literalKey == "" {
 		return nil
 	}
-	var emitted []types.EvidenceItem
-	if ctx.Mutable != nil {
-		emitted = ctx.Mutable.EmittedEvidence()
-	}
+	pool := answerDocSurfaceEvidencePool(ctx)
 	for idx, cite := range citations {
 		if idx == v.CitationRef {
 			continue
 		}
-		matched := matchingEvidenceForCitation(emitted, cite)
+		matched := matchingEvidenceForCitation(pool, cite)
 		if valueCitationSupportsLiteral(subjectKind, literalKey, v.Literal, cite, matched, gc) {
 			continue
 		}
@@ -1480,14 +1477,14 @@ func validateConfigTraceAbsenceCitationFocus(ctx *types.BusContext, exact *types
 		return nil
 	}
 	contract := answerExactResolutionContract(ctx)
-	emitted := ctx.Mutable.EmittedEvidence()
+	pool := answerDocSurfaceEvidencePool(ctx)
 	lead := renderAnswerDocumentExactResolutionLead(contract, exact, requestedAnswerDocumentLanguage(ctx))
 	body := strings.TrimSpace(exactContextSummaryBodyAfterLead(summary, lead))
 	bodyNeedsLineageCitation := exactContextBodyNeedsStructuredGrounding(body)
 	requiredFiles := answerDocExactContextRequiredFiles(ctx)
 	relatedContextCitations := 0
 	for idx, cite := range citations {
-		matched := matchingEvidenceForCitation(emitted, cite)
+		matched := matchingEvidenceForCitation(pool, cite)
 		if configTraceAbsenceCitationAllowed(ctx, contract, matched) {
 			if matched.ContextRole != types.EvidenceContextRoleAbsenceSupport &&
 				types.ConfigTraceGroundedContextAnchorAllowedInFiles(contract, matched, requiredFiles) {
@@ -1502,7 +1499,7 @@ func validateConfigTraceAbsenceCitationFocus(ctx *types.BusContext, exact *types
 		).
 			WithFields(fmt.Sprintf("citations[%d]", idx), "exact_resolution.context_mode").
 			WithHint("Re-emit `emit_answer_document` with the same exact-absence conclusion, but keep citations only for the missing-key proof sources and for grounded precedence anchors that already carry validated default/config/runtime/override roles. Here `config` means a grounded repo/user config-file layer (YAML/JSON/TOML/INI/etc.). Drop broad same-family structs, counters, or helper comments from `citations[]` and from the rendered answer.")
-		if allowed := formatConfigTraceAllowedCitations(contract, emitted, requiredFiles); allowed != "" {
+		if allowed := formatConfigTraceAllowedCitations(contract, pool, requiredFiles); allowed != "" {
 			err = err.WithMetadata("allowed_citations", allowed)
 		}
 		return err
@@ -1515,7 +1512,7 @@ func validateConfigTraceAbsenceCitationFocus(ctx *types.BusContext, exact *types
 		"exact-absent config-trace answers that keep grounded related context on the user-visible surface must cite at least one grounded precedence-capable lineage anchor. The current summary explains nearby precedence / context, but citations[] contains no validated default/config/runtime/override anchor for that explanation.",
 	).WithFields("citations", "summary", "exact_resolution.context_mode").
 		WithHint("Re-emit `emit_answer_document` with the same exact-absence conclusion, but if `summary` continues to explain nearby precedence / lineage context, keep at least one grounded precedence anchor in `citations[]` (for example a validated default/config/runtime/override anchor already named in the tool metadata). Here `config` means a grounded repo/user config-file layer (YAML/JSON/TOML/INI/etc.). If you do not want to cite nearby lineage context, drop that contextual explanation and keep only the renderer-generated absence lead.")
-	if allowed := formatConfigTraceAllowedCitations(contract, emitted, requiredFiles); allowed != "" {
+	if allowed := formatConfigTraceAllowedCitations(contract, pool, requiredFiles); allowed != "" {
 		err = err.WithMetadata("allowed_citations", allowed)
 	}
 	return err
@@ -1543,6 +1540,17 @@ func answerDocExactContextRequiredFiles(ctx *types.BusContext) []string {
 		return nil
 	}
 	return ctx.Mutable.ExactContextRequiredFiles()
+}
+
+func answerDocSurfaceEvidencePool(ctx *types.BusContext) []types.EvidenceItem {
+	if ctx == nil {
+		return nil
+	}
+	var emitted []types.EvidenceItem
+	if ctx.Mutable != nil {
+		emitted = ctx.Mutable.EmittedEvidence()
+	}
+	return types.ExactResolutionSurfaceEvidencePool(emitted, ctx.EvidenceItems, ctx.AnswerChains)
 }
 
 func formatConfigTraceAllowedCitations(contract *types.ExactResolutionContract, items []types.EvidenceItem, requiredFiles []string) string {
@@ -1582,8 +1590,7 @@ func validateExactResolutionContextSurface(summary string, exact *types.AnswerEx
 	if !stableAbsent {
 		return nil
 	}
-	pool := append([]types.EvidenceItem{}, ctx.Mutable.EmittedEvidence()...)
-	pool = append(pool, ctx.EvidenceItems...)
+	pool := answerDocSurfaceEvidencePool(ctx)
 	requiredFiles := answerDocExactContextRequiredFiles(ctx)
 	allowedAnchors := joinExactContextSurfaceDisplays(allowedExactContextSurfaceCandidates(contract, ctx.AnalysisIR.RequestModel.Scenario, stableAbsent, pool, requiredFiles))
 	lead := renderAnswerDocumentExactResolutionLead(contract, exact, requestedAnswerDocumentLanguage(ctx))
@@ -3067,22 +3074,19 @@ func collectExactResolutionProof(contract *types.ExactResolutionContract, citati
 
 func exactResolutionProofEntries(contract *types.ExactResolutionContract, citations []types.Citation, gc *ground.Context, ctx *types.BusContext) []exactResolutionProofEntry {
 	var out []exactResolutionProofEntry
-	var emitted []types.EvidenceItem
-	if ctx != nil && ctx.Mutable != nil {
-		emitted = ctx.Mutable.EmittedEvidence()
-		for _, item := range emitted {
-			out = append(out, exactResolutionProofEntry{
-				Source:       item.Source,
-				Subject:      item.Subject,
-				AnchorSymbol: item.AnchorSymbol,
-				Object:       item.Object,
-				ContextRole:  item.ContextRole,
-				Grounded:     item.GroundingStatus == types.GroundingGrounded || item.GroundingStatus == types.GroundingRecovered,
-				Production:   types.ExactResolutionSourceIsDefiningPrimaryProofLike(contract, item.Source) && item.ContextRole != types.EvidenceContextRoleIllustrativeOnly && item.ContextRole != types.EvidenceContextRoleAbsenceSupport,
-				DirectAnchor: types.ExactResolutionDirectAnchorMatchesAnyTarget(contract, item.Subject, item.AnchorSymbol, item.Object),
-				FromEvidence: true,
-			})
-		}
+	evidencePool := answerDocSurfaceEvidencePool(ctx)
+	for _, item := range evidencePool {
+		out = append(out, exactResolutionProofEntry{
+			Source:       item.Source,
+			Subject:      item.Subject,
+			AnchorSymbol: item.AnchorSymbol,
+			Object:       item.Object,
+			ContextRole:  item.ContextRole,
+			Grounded:     item.GroundingStatus == types.GroundingGrounded || item.GroundingStatus == types.GroundingRecovered,
+			Production:   types.ExactResolutionSourceIsDefiningPrimaryProofLike(contract, item.Source) && item.ContextRole != types.EvidenceContextRoleIllustrativeOnly && item.ContextRole != types.EvidenceContextRoleAbsenceSupport,
+			DirectAnchor: types.ExactResolutionDirectAnchorMatchesAnyTarget(contract, item.Subject, item.AnchorSymbol, item.Object),
+			FromEvidence: true,
+		})
 	}
 	for _, c := range citations {
 		if c.File == "" || c.Line <= 0 {
@@ -3095,7 +3099,7 @@ func exactResolutionProofEntries(contract *types.ExactResolutionContract, citati
 			}
 		}
 		if lineText != "" {
-			matched := matchingEvidenceForCitation(emitted, c)
+			matched := matchingEvidenceForCitation(evidencePool, c)
 			out = append(out, exactResolutionProofEntry{
 				LineText:     lineText,
 				Source:       c.File,

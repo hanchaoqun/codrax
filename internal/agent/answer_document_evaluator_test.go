@@ -335,8 +335,17 @@ func TestAnswerDocumentEvaluator_BuildInitialInstruction_SanitizesIllustrativeAb
 	}
 
 	prompt := (&answerDocumentEvaluator{}).BuildInitialInstruction(ctx, nil)
-	if strings.Contains(prompt, "internal/skill/analysis_contract.go:367") {
-		t.Fatalf("prompt should not echo illustrative-only source details into absence justification:\n%s", prompt)
+	contractStart := strings.Index(prompt, "## Exact Resolution Contract")
+	if contractStart < 0 {
+		t.Fatalf("prompt missing exact-resolution contract:\n%s", prompt)
+	}
+	contractEnd := strings.Index(prompt[contractStart+1:], "\n## ")
+	contractBody := prompt[contractStart:]
+	if contractEnd > 0 {
+		contractBody = prompt[contractStart : contractStart+1+contractEnd]
+	}
+	if strings.Contains(contractBody, "internal/skill/analysis_contract.go:367") {
+		t.Fatalf("exact-resolution contract should not echo illustrative-only source details into absence justification:\n%s", contractBody)
 	}
 	if !strings.Contains(prompt, "doc/test/example/comment-only mentions are illustrative only") {
 		t.Fatalf("prompt should carry sanitized absence wording:\n%s", prompt)
@@ -503,6 +512,57 @@ func TestAnswerDocumentEvaluator_Observe_MidLoopExactResolutionLockedRejectUsesM
 		if !strings.Contains(sig.Hint, want) {
 			t.Fatalf("locked exact-resolution hint missing %q: %q", want, sig.Hint)
 		}
+	}
+}
+
+func TestRenderAnswerDocDiagramGradeExactContextAnchors_UsesAnswerChainPool(t *testing.T) {
+	mu := types.NewMutableState("explore_mid_loop_hint_budget 的最终有效值是怎么计算出来的？")
+	mu.SetInvestigationResultKind("absence")
+	mu.SetAbsenceJustification("no config key named `explore_mid_loop_hint_budget` exists in the repo")
+	mu.AppendEvidence([]types.EvidenceItem{{
+		Kind:            types.EvidenceDirect,
+		Source:          "internal/config/runtime.go",
+		LineStart:       32,
+		AnchorKind:      types.AnchorDefinition,
+		AnchorSymbol:    "RuntimeSettings",
+		ContextRole:     types.EvidenceContextRoleAbsenceSupport,
+		GroundingStatus: types.GroundingGrounded,
+	}})
+	ctx := &types.AgentContext{
+		Mutable: mu,
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				Scenario:      types.ScenarioConfigTrace,
+				AnswerSubject: types.AnswerSubject{Kind: types.SubjectConfigKey},
+			},
+			AnswerContract: types.AnswerContract{
+				ExactResolution: &types.ExactResolutionContract{
+					TargetKind:           types.SubjectConfigKey,
+					TargetLabel:          "config key",
+					Targets:              []string{"explore_mid_loop_hint_budget"},
+					AllowAbsence:         true,
+					AliasRequiresProof:   true,
+					RequireTargetMention: true,
+					RelatedContextPolicy: types.ExactContextSameFamilyGrounded,
+				},
+			},
+		},
+		AnswerChains: []types.AnswerChain{{
+			Item: types.EvidenceItem{
+				Kind:            types.EvidenceDirect,
+				Source:          "internal/types/config.go",
+				LineStart:       707,
+				AnchorKind:      types.AnchorDefinition,
+				AnchorSymbol:    "DefaultExploreHeuristics",
+				ContextRole:     types.EvidenceContextRoleRelatedContext,
+				DiagramRole:     types.EvidenceDiagramRoleDefault,
+				GroundingStatus: types.GroundingGrounded,
+			},
+		}},
+	}
+	got := renderAnswerDocDiagramGradeExactContextAnchors(ctx, ctx.AnalysisIR.AnswerContract.ExactResolution)
+	if !strings.Contains(got, "internal/types/config.go:707") {
+		t.Fatalf("diagram-grade anchors should include answer-chain precedence anchors, got:\n%s", got)
 	}
 }
 

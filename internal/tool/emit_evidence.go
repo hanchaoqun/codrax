@@ -1205,7 +1205,18 @@ func pendingExactResolutionTargets(ctx *types.BusContext, contract *types.ExactR
 	}
 	unverified := append(ctx.Mutable.EvidenceClosure().UnverifiedFindings(), unverifiedFindingsFromStageReports(ctx.StageReports)...)
 	unverified = dedupeUnverifiedFindings(unverified)
-	return types.ExactResolutionPendingTargets(contract, unverified)
+	if pending := types.ExactResolutionPendingTargets(contract, unverified); len(pending) > 0 {
+		return pending
+	}
+	if ctx.Mutable.StableInvestigationResultKind() == "absence" &&
+		strings.TrimSpace(ctx.Mutable.StableAbsenceJustification()) != "" {
+		return nil
+	}
+	pool := types.ExactResolutionSurfaceEvidencePool(ctx.Mutable.EmittedEvidence(), ctx.EvidenceItems, ctx.AnswerChains)
+	if types.ExactResolutionHasDefiningTargetProof(contract, pool) {
+		return nil
+	}
+	return append([]string(nil), contract.Targets...)
 }
 
 func stabilizeExactResolutionEvidence(ev *types.EvidenceItem, gc *ground.Context, contract *types.ExactResolutionContract, pendingTargets []string) bool {

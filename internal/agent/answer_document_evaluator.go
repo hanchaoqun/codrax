@@ -749,10 +749,7 @@ func collectConfigTraceDiagramAnchors(ctx *types.AgentContext) []configTraceDiag
 		}
 		best[role] = configTraceDiagramAnchor{Role: role, Label: label, Score: score}
 	}
-	for _, chain := range ctx.AnswerChains {
-		appendCandidate(chain.Item)
-	}
-	for _, ev := range ctx.EvidenceItems {
+	for _, ev := range exactResolutionSurfaceEvidencePool(ctx) {
 		appendCandidate(ev)
 	}
 	var out []configTraceDiagramAnchor
@@ -922,6 +919,17 @@ type exactResolutionSeed struct {
 	Score int
 }
 
+func exactResolutionSurfaceEvidencePool(ctx *types.AgentContext) []types.EvidenceItem {
+	if ctx == nil {
+		return nil
+	}
+	var emitted []types.EvidenceItem
+	if ctx.Mutable != nil {
+		emitted = ctx.Mutable.EmittedEvidence()
+	}
+	return types.ExactResolutionSurfaceEvidencePool(emitted, ctx.EvidenceItems, ctx.AnswerChains)
+}
+
 func renderAnswerDocAllowedExactContextAnchors(ctx *types.AgentContext, contract *types.ExactResolutionContract) string {
 	anchors := collectAllowedExactContextAnchors(ctx, contract)
 	if len(anchors) == 0 {
@@ -992,8 +1000,7 @@ func collectAllowedExactContextAnchors(ctx *types.AgentContext, contract *types.
 		strings.TrimSpace(ctx.Mutable.StableAbsenceJustification()) == "" {
 		return nil
 	}
-	items := ctx.Mutable.EmittedEvidence()
-	items = append(items, ctx.EvidenceItems...)
+	items := exactResolutionSurfaceEvidencePool(ctx)
 	if len(items) == 0 {
 		return nil
 	}
@@ -1070,8 +1077,7 @@ func collectDiagramGradeExactContextAnchors(ctx *types.AgentContext, contract *t
 		strings.TrimSpace(ctx.Mutable.StableAbsenceJustification()) == "" {
 		return nil
 	}
-	items := ctx.Mutable.EmittedEvidence()
-	items = append(items, ctx.EvidenceItems...)
+	items := exactResolutionSurfaceEvidencePool(ctx)
 	if len(items) == 0 {
 		return nil
 	}
@@ -1124,7 +1130,7 @@ func collectForbiddenExactContextAnchors(ctx *types.AgentContext, contract *type
 	if !stableAbsent {
 		return nil
 	}
-	items := ctx.Mutable.EmittedEvidence()
+	items := exactResolutionSurfaceEvidencePool(ctx)
 	if len(items) == 0 {
 		return nil
 	}

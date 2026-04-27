@@ -109,7 +109,11 @@ func collectExactResolutionSymbolCandidatesFromGraph(graph *repomap.Graph, contr
 			if bonus := roleAnchoredFiles[canonFile]; bonus > 0 {
 				score += bonus
 			}
-			if score < 6 {
+			minScore := 6
+			if contract.RelatedContextPolicy == types.ExactContextSameFamilyGrounded {
+				minScore = 5
+			}
+			if score < minScore {
 				continue
 			}
 			sym.Score = score

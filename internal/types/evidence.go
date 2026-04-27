@@ -536,6 +536,118 @@ type AnswerChain struct {
 	StrictOK bool         `json:"strict_ok"`
 }
 
+// AnswerChainItems flattens AnswerChains into their EvidenceItem
+// payloads so downstream consumers can reason over a single evidence
+// pool without reparsing chain envelopes.
+func AnswerChainItems(chains []AnswerChain) []EvidenceItem {
+	if len(chains) == 0 {
+		return nil
+	}
+	out := make([]EvidenceItem, 0, len(chains))
+	for _, chain := range chains {
+		out = append(out, chain.Item)
+	}
+	return out
+}
+
+// ExactResolutionSurfaceEvidencePool merges the evidence channels the
+// final answer stages consume today:
+//   - explorer/tool-emitted evidence in MutableState
+//   - deterministic / Turn-A evidence snapshots
+//   - answer-chain envelopes compiled from that evidence
+//
+// The exact-resolution prompt builder, repair seeds, and final
+// validators must agree on the same answer-grade evidence surface.
+// Keeping that pool centralized prevents one stage from treating an
+// anchor as available while another silently ignores it.
+func ExactResolutionSurfaceEvidencePool(emitted, evidence []EvidenceItem, chains []AnswerChain) []EvidenceItem {
+	merged := make(map[string]EvidenceItem)
+	order := make([]string, 0, len(emitted)+len(evidence)+len(chains))
+	appendItem := func(item EvidenceItem) {
+		if item.ID == "" {
+			item.ID = StableEvidenceID(item.Kind, item.Subject, item.Predicate, item.Object, item.Condition, item.Source, item.LineStart, item.LineEnd)
+		}
+		if existing, ok := merged[item.ID]; ok {
+			merged[item.ID] = mergeExactResolutionSurfaceEvidence(existing, item)
+			return
+		}
+		merged[item.ID] = item
+		order = append(order, item.ID)
+	}
+	for _, group := range [][]EvidenceItem{emitted, evidence, AnswerChainItems(chains)} {
+		for _, item := range group {
+			appendItem(item)
+		}
+	}
+	if len(order) == 0 {
+		return nil
+	}
+	out := make([]EvidenceItem, 0, len(order))
+	for _, id := range order {
+		out = append(out, merged[id])
+	}
+	return out
+}
+
+func mergeExactResolutionSurfaceEvidence(dst, src EvidenceItem) EvidenceItem {
+	if dst.Subject == "" {
+		dst.Subject = src.Subject
+	}
+	if dst.Predicate == "" {
+		dst.Predicate = src.Predicate
+	}
+	if dst.Object == "" {
+		dst.Object = src.Object
+	}
+	if dst.Condition == "" {
+		dst.Condition = src.Condition
+	}
+	if dst.AnchorSymbol == "" {
+		dst.AnchorSymbol = src.AnchorSymbol
+	}
+	if dst.AnchorKind == "" {
+		dst.AnchorKind = src.AnchorKind
+	}
+	if dst.Snippet == "" {
+		dst.Snippet = src.Snippet
+	}
+	if dst.Summary == "" {
+		dst.Summary = src.Summary
+	}
+	if dst.Source == "" {
+		dst.Source = src.Source
+	}
+	if dst.LineStart <= 0 {
+		dst.LineStart = src.LineStart
+	}
+	if dst.LineEnd <= 0 {
+		dst.LineEnd = src.LineEnd
+	}
+	if dst.ContextRole == EvidenceContextRoleUnknown {
+		dst.ContextRole = src.ContextRole
+	}
+	if dst.DiagramRole == EvidenceDiagramRoleUnknown {
+		dst.DiagramRole = src.DiagramRole
+	}
+	if dst.GroundingStatus == "" || dst.GroundingStatus == GroundingUngrounded {
+		if src.GroundingStatus == GroundingGrounded || src.GroundingStatus == GroundingRecovered {
+			dst.GroundingStatus = src.GroundingStatus
+			dst.GroundingTier = src.GroundingTier
+			dst.GroundingNote = src.GroundingNote
+		}
+	}
+	if dst.Confidence < src.Confidence {
+		dst.Confidence = src.Confidence
+	}
+	if dst.Producer == "" {
+		dst.Producer = src.Producer
+	}
+	if dst.EvidenceRef == "" {
+		dst.EvidenceRef = src.EvidenceRef
+	}
+	return dst
+}
+
 // MergeAnswerChains combines multiple AnswerChain slices into one,
 // preserving first-seen order and dropping duplicates by the chain
 // identity tuple (Summary, Source, LineStart, Subject, Predicate,

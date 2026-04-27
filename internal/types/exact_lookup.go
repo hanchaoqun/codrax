@@ -501,6 +501,40 @@ func ExactResolutionSourceIsDefiningPrimaryProofLike(c *ExactResolutionContract,
 	return !LooksLikeAuxiliaryEvidencePath(source)
 }
 
+// ExactResolutionHasDefiningTargetProof reports whether the current
+// structured evidence pool already contains grounded production-like
+// proof that directly anchors one of the exact targets. Callers use
+// this to keep the target "pending" until the system sees either a
+// real defining proof or a stable exact-absence closure.
+func ExactResolutionHasDefiningTargetProof(c *ExactResolutionContract, items []EvidenceItem) bool {
+	if c == nil || len(items) == 0 {
+		return false
+	}
+	for _, item := range items {
+		switch item.GroundingStatus {
+		case GroundingGrounded, GroundingRecovered:
+		default:
+			continue
+		}
+		switch item.ContextRole {
+		case EvidenceContextRoleIllustrativeOnly, EvidenceContextRoleAbsenceSupport:
+			continue
+		}
+		if !ExactResolutionSourceIsDefiningPrimaryProofLike(c, item.Source) {
+			continue
+		}
+		if ExactResolutionDirectAnchorMatchesAnyTarget(c, item.Subject, item.AnchorSymbol, item.Object) {
+			return true
+		}
+		if item.ContextRole == EvidenceContextRoleDefining &&
+			ExactResolutionTextsMentionAnyTarget(c,
+				item.Subject, item.Predicate, item.Object, item.AnchorSymbol, item.Condition, item.Snippet, item.Summary) {
+			return true
+		}
+	}
+	return false
+}
+
 // ExactResolutionEvidenceCanSatisfyRelatedContext reports whether a
 // grounded evidence item is a production-like same-scope anchor that
 // can legitimately support the "related context" half of an exact-
