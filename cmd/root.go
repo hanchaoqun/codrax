@@ -141,6 +141,13 @@ var (
 	flagAutoApply bool
 	flagPlanOut   string
 	flagPlanFile  string
+	// flagAutoInitRepo authorizes the orchestrator to run `git init`
+	// + an empty initial commit when the target repo is bare or has
+	// no HEAD. Symmetric with --auto-apply: the user must explicitly
+	// opt in for single-shot Runs that need scaffolding. yaml
+	// equivalent: write_auto_init_repo. REPL falls back to an
+	// interactive y/N prompt when neither flag nor yaml is set.
+	flagAutoInitRepo bool
 )
 
 // defaultAttachedLogMaxBytes is the out-of-the-box cap on attached-
@@ -216,6 +223,13 @@ type appContext struct {
 	// at the yaml knob, instead of dispatching and surfacing a confusing
 	// analyzer / planner failure deep inside the pipeline.
 	writeEnabled bool
+	// writeAutoInitRepo mirrors the resolved auto-init authorization
+	// (yaml `write_auto_init_repo` OR CLI `--auto-init-repo`). When
+	// true, the orchestrator's apply pre-hook will run `git init`
+	// + empty initial commit on a bare/headless target instead of
+	// failing. REPL also reads this to decide whether to skip the
+	// interactive y/N consent prompt (pre-authorized → silent init).
+	writeAutoInitRepo bool
 	// settingsPath is the resolved codrax.yaml path (or "" if none
 	// found). Surfaced verbatim in the REPL's L2 gate error message
 	// so the user knows WHICH file to edit. Set during initApp's
@@ -280,6 +294,7 @@ func init() {
 	f.BoolVar(&flagAutoApply, "auto-apply", false, "approve the generated ChangePlan without prompting (required with --mode=apply in single-shot)")
 	f.StringVar(&flagPlanOut, "plan-out", "", "plan-mode: path to write the generated ChangePlan JSON (default: .codrax/plans/<id>.json)")
 	f.StringVar(&flagPlanFile, "plan-file", "", "apply/verify-mode: path to an existing ChangePlan JSON to consume (required with --mode=apply|verify)")
+	f.BoolVar(&flagAutoInitRepo, "auto-init-repo", false, "authorize codrax to run `git init` + empty initial commit when the target dir is bare (yaml: write_auto_init_repo)")
 
 	rootCmd.AddCommand(versionCmd)
 
@@ -340,6 +355,7 @@ var compatLongFlagNames = map[string]struct{}{
 	"auto-apply":                {},
 	"plan-out":                  {},
 	"plan-file":                 {},
+	"auto-init-repo":            {},
 }
 
 // normalizeCompatArgs rewrites known codrax long flags from the
@@ -869,6 +885,7 @@ func runREPL(_ *cobra.Command) error {
 		AttachedLogMaxBytes:   maxAttachedLogBytes,
 		AttachedTraceMaxBytes: maxAttachedTraceBytes,
 		WriteEnabled:          app.writeEnabled,
+		WriteAutoInitRepo:     app.writeAutoInitRepo,
 		SettingsPath:          app.settingsPath,
 	})
 	if err := r.Loop(); err != nil {
@@ -1913,6 +1930,15 @@ func initApp(cmd *cobra.Command, _ []string) error {
 	if rs != nil && rs.WriteEnabled != nil && *rs.WriteEnabled {
 		app.writeEnabled = true
 	}
+	// Resolve auto-init authorization. CLI flag overrides yaml when
+	// set explicitly (cobra reports it as "Changed"); otherwise yaml
+	// is the source. Default false → interactive consent (REPL) or
+	// fail-loud (single-shot without flag).
+	if cmd.Flags().Changed("auto-init-repo") {
+		app.writeAutoInitRepo = flagAutoInitRepo
+	} else if rs != nil && rs.WriteAutoInitRepo != nil {
+		app.writeAutoInitRepo = *rs.WriteAutoInitRepo
+	}
 	// Cache the resolved yaml path for the REPL's L2 gate so the user
 	// gets pointed at an exact file rather than a generic "codrax.yaml".
 	if _, err := os.Stat(settingsPath); err == nil {
@@ -1947,6 +1973,13 @@ func initApp(cmd *cobra.Command, _ []string) error {
 	// are genuinely missing at apply time).
 	orch.SetPlanPath(flagPlanFile)
 	orch.SetWorktreeBase(worktreeBase)
+	// Pre-authorized auto-init? Forward to the orchestrator so the
+	// apply pre-hook can transparently scaffold a bare/headless
+	// repo. False (default) keeps the existing fail-loud behaviour;
+	// the REPL handleApproveCmd path additionally runs an interactive
+	// y/N prompt before lifting the gate, so single-shot CLI calls
+	// without the flag see a clean error and a hint.
+	orch.SetAutoInitRepo(app.writeAutoInitRepo)
 
 	// Chit-chat responder. Follows the llmSummarizer pattern: one
 	// direct adapter.Chat call, no agent framework. Default ON — the

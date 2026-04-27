@@ -115,6 +115,15 @@ type Orchestrator struct {
 	// disk. Only the happy path is preserved.
 	keepWorktreeOnSuccess bool
 
+	// autoInitRepo, when true, lets the apply pre-hook silently
+	// transition a bare or commitless target through worktree.
+	// EnsureInitialCommit before calling worktree.Create. Default
+	// false — the pre-hook fail-louds with a hint at the three
+	// authorization surfaces (CLI --auto-init-repo, yaml
+	// write_auto_init_repo, REPL interactive consent). Set via
+	// SetAutoInitRepo from cmd/root.go's flag/yaml resolver.
+	autoInitRepo bool
+
 	// reuseWorktreePath, when set, tells the verify pre-hook to swap
 	// busCtx.RepoRoot to this existing path INSTEAD of creating a
 	// fresh worktree. Used by REPL `/verify <plan-id>` to re-verify
@@ -358,6 +367,24 @@ func (o *Orchestrator) SetBaselineCaptureEnabled(on bool) {
 // BaselineCaptureEnabled returns the current setting.
 func (o *Orchestrator) BaselineCaptureEnabled() bool {
 	return o.baselineCaptureEnabled
+}
+
+// SetAutoInitRepo authorizes the apply pre-hook to run `git init`
+// + an empty initial commit on a bare or commitless main repo
+// before provisioning the worktree. False (default) preserves the
+// fail-loud behaviour: a non-repo target surfaces a clear error
+// pointing the operator at the --auto-init-repo flag, the
+// write_auto_init_repo yaml knob, or the REPL's interactive consent
+// prompt. Wired from cmd/root.go after resolving the flag/yaml
+// precedence.
+func (o *Orchestrator) SetAutoInitRepo(on bool) {
+	o.autoInitRepo = on
+}
+
+// AutoInitRepo returns the current setting (consumed by REPL when
+// it needs to know whether to skip the y/N consent prompt).
+func (o *Orchestrator) AutoInitRepo() bool {
+	return o.autoInitRepo
 }
 
 // SetKeepWorktreeOnSuccess toggles the post-Run worktree preservation

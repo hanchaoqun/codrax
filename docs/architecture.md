@@ -106,7 +106,7 @@ graph TB
         W["写模式工具 · WriteCapable
         emit_change_plan（含 git apply --check 预检）
         apply_patch（schema {path, kind}；内容源于 Mutable）
-        run_tests（11 种 runner：go / node / python / rust / java / kotlin via gradle / ruby / cmake / meson / make / hvigor / cjpm）
+        run_tests（12 种 runner：go / node / python / rust / java（含 Kotlin/Android via gradle）/ ruby / swift / cmake / meson / make / hvigor / cjpm）
         emit_test_results"]
         G["internal/tool/ground
         citation / evidence 落地验证
@@ -451,7 +451,7 @@ type Config struct {
 |------|-----------|------|
 | `emit_change_plan` | planner | 校验 + 写 `Mutable.ChangePlan`。多步校验（任一失败返回 ToolResult 拒收 Summary + re-prime schema reminder）：（a）empty / 截断 payload guard；（b）schema decode + summary/changes 非空；（c）dup-path；（d）empty / self / unknown depends_on；（e）depends_on cycle；（f）**deps-closure**（Go imports vs go.mod）；（g）**wiring-closure**（`internal/{mcp,skill,tool,agent}/*.go` create 必须搭配 wiring 文件 modify）；（h）**summary-fidelity**（summary 提及的路径/包名必须实际出现在 changes[]/imports）；（i）**dry-build**（多语言：Go `go vet` / Python `py_compile` / Node `node --check` / Ruby `ruby -c`，hardlink overlay 后跑）；（j）**单文件静态检查**（kind=create 限定，注册表式覆盖 10 语言：Go gofmt / C gcc-Werror / C++ g++-Werror / Python ruff / JS node --check / TS tsc --noEmit / Ruby ruby -wc / Rust rustc --emit=metadata / Java javac -Xlint / Swift swift -frontend）；（k）**项目级静态检查**（kind=create + 项目根有 manifest 时触发：ArkTS hvigor lint when oh-package.json5 / Cangjie cjpm check when cjpm.toml）；（l）kind=patch 预检 `git apply --check --recount`。dry-build / 静态检查在工具链缺失时优雅降级（log + skip）；其他验证硬性。静态检查总开关 `pipeline_lint_enabled` (yaml, default true) |
 | `apply_patch` | coder | JSON schema 仅 `{path, kind}`，`DisallowUnknownFields` 拒绝任何内容字段。Execute 从 `Mutable.ChangePlan().Changes[i]` 直接取 `NewContent`/`Patch`，LLM 物理上无法转抄错内容。按 kind：`create`（`os.Stat` 必须不存在 → `os.WriteFile(unit.NewContent)`）/ `modify`（必须存在 → `os.WriteFile(unit.NewContent)`）/ `delete`（缺失视作幂等，warning）/ `patch`（pipe `unit.Patch` 到 `runUnifiedDiff`）。每次调用前强 W1（path ∈ TargetPaths；失败 Summary 枚举 valid 路径）+ W1b（DependsOn 都已 applied；失败 Summary 枚举当前 AppliedSet）。kind=patch 失败时 `composeApplyRejection` 带冲突文件片段 |
-| `run_tests` | verifier | 9 种 runner 自动探测（见 §4.6）；build 阶段挂时合成 `build` suite 单条失败结果；run tests 异常时 `RawRef` 指向完整输出 blob |
+| `run_tests` | verifier | 12 种 runner（go / node / python / rust / java（含 Kotlin/Android via gradle）/ ruby / swift / cmake / meson / make / hvigor / cjpm）自动探测（见 §4.6）；build 阶段挂时合成 `build` suite 单条失败结果；run tests 异常时 `RawRef` 指向完整输出 blob；零测试发现（pytest exit 5 / jest "no tests found" / `go test ./...` 无 `_test.go`）作为 `ChangeReport.NoTestsRunners` 一等信号单独记录，**不**进 `FailureSummary`（`Passed=true`），避免 verifier 误判触发 fabricate-tests 重新规划 |
 | `emit_test_results` | verifier | 可选：LLM 写 FailureSummary narrative 叠加到 ChangeReport（不能覆盖 parser 产出的 Passed） |
 
 **统一 diff 应用链**（`apply_patch.go::runUnifiedDiff` / `CheckUnifiedDiff`）：先 `git apply --recount`（pre-processor 对非 `\n` 结尾的 patch 文本补一个 `\n`；`--recount` 让 git 从 body 重算 `@@ -X,Y +X,Y @@` header，容忍 LLM 的 off-by-one 计数错误），失败回退 `patch -p1 --force --no-backup-if-mismatch --silent`（GNU patch(1) 的 fuzz 匹配挽救 git 严格模式拒绝但语义等价的 LLM-slop 形状：缺尾部 context、header 计数严重不符等）。`checkOnly=true` 时两条路径分别加 `--check` / `--dry-run`。rejection message 统一走 `internal/tool/feedback.go`，把 git stderr 里的 `patch failed: <file>:<N>` 解析后读文件 ±5 行带 `▶` 标记嵌入。
@@ -948,6 +948,52 @@ type FileChange struct {
 
 REPL `/worktree list` 扫 PlanStore 过滤 `Status=applied && WorktreePath != ""`；`/worktree discard <plan-id>` 调 `DiscardByPath` + 清 `plan.WorktreePath` 字段。
 
+#### 合并回主仓（`internal/worktree/merge.go`）
+
+`/merge` 命令和 `/approve --merge-to=<branch>` 共用 `worktree.MergeIntoBranch`。语义：
+
+- **MergeAuto**（默认）：
+  - `TargetBranch == BaseBranch` 且 base 是 worktree HEAD 的 ancestor → fast-forward base
+  - 否则 → 在 base 上拉新分支 `TargetBranch`，cherry-pick `base..worktreeHEAD` 的 commits
+- **MergeFastForwardOnly**：强制 ff，非 ff 状态返回 `ErrNonFastForward`
+- **MergeNewBranch**：强制走 cherry-pick 新分支路径；分支已存在返回 `ErrTargetBranchExists`
+
+预检：
+- 主仓 `git status --porcelain` 非空 → 拒绝（避免 ff 越过用户未提交的本地改动）
+- worktree HEAD == base tip → `ErrNothingToMerge`
+
+冲突回滚（cherry-pick branch 路径）：单步 cherry-pick 失败 → `git cherry-pick --abort` → `git checkout <priorBranch>` → `git branch -D <newBranch>` → 返回带 git stderr 的 wrapped error。fast-forward 路径不会冲突（git 自身的 ff 语义保证）。
+
+REPL 流程：
+- `handleApproveCmd` 解析 `--merge-to=<branch>` → 仅在 `cleanSuccess`（apply + verify 都过、TaskState.LastError 空）后调 `runMerge`
+- `handleMergeCmd` 扫 PlanStore 找最近一条 `Status=applied && WorktreePath != "" && os.Stat(WorktreePath) == nil` 的 plan → 调 `runMerge`
+- `runMerge` 成功后调 `worktree.DiscardByPath` 清 worktree + 调 `clearWorktreePathOnAppliedPlan` 把 plan JSON 的 `WorktreePath` 字段写空（plan `Status=applied` 不变，历史可追）
+
+红线：
+- **永不 push**：`MergeIntoBranch` 不调 `git push`。所有远程动作由用户手动。
+- **永不动主仓 HEAD（除显式 ff 路径）**：MergeNewBranch 严格只新建分支不动 base
+- **失败 = 完整回滚**：cherry-pick 中途的 conflict / dirty-tree / 分支冲突 → 主仓状态字节回到调用前
+
+#### 裸目录三档授权（`internal/worktree/repo_state.go`）
+
+`git worktree add --detach HEAD` 在两种状态下失败：(1) `.git` 不存在；(2) `.git` 存在但 HEAD 不解析（无 commit）。三档授权让"裸目录脚手架"成为合法用例：
+
+- 档 1：REPL `/approve` 检测 `RepoState.NeedsInit() == true` → 弹 `huh.NewConfirm` 的 y/N → `y` 后 per-Run 调 `Orchestrator.SetAutoInitRepo(true)` defer-restore
+- 档 2：`codrax.yaml :: write_auto_init_repo: true` → 启动期 `cmd/root.go` 写到 `app.writeAutoInitRepo` → `orch.SetAutoInitRepo`
+- 档 3：CLI `--auto-init-repo` → 同档 2
+
+所有档汇聚到 `applyPreHook` 的同一段代码：
+1. `worktree.DetectRepoState(MainRepoRoot)` 分类 `RepoReady` / `RepoNotInitialized` / `RepoNoCommits`
+2. 仅 `NeedsInit()` 时进入授权检查；未授权 → fail-loud 错误带三条恢复路径
+3. 授权 → `worktree.EnsureInitialCommit(MainRepoRoot, "codrax: initial commit for "+plan.ID)`
+4. EnsureInitialCommit 跑最小命令集：缺 `.git` 跑 `git init`；缺 `user.email`/`user.name` 时本地设 `codrax@local`/`codrax`（不覆盖已存在的）；最后 `git commit --allow-empty -m <msg>`
+5. 成功后正常 `worktree.Create` + 后续 apply
+
+红线：
+- **idempotent**：`RepoReady` 状态下 `EnsureInitialCommit` 立即 return nil；不会重复造空 commit
+- **不动用户已有 git 状态**：只在缺失键时设默认值，不改 user 已设的 email / name
+- **不 add / 不 push**：仅 `git init` + `git commit --allow-empty`，不动 working tree
+
 #### 写模式 Criterion（`internal/analysis/criterion/eval.go`）
 
 读模式 19 种 Criterion Kind 之外，写模式新增 4 种，被 `AnswerContract.AcceptanceTests` / `TaskNode.SuccessCriteria` 消费：
@@ -1001,10 +1047,26 @@ Verifier 的 `BuildInitialInstruction` 在 baseline 非 nil 且有失败测试�
 | CMake | `CMakeLists.txt` + 已配置 build dir | `ctest --test-dir <build> --output-junit <tmp> --output-on-failure` | 单 JUnit XML 文件 |
 | Meson | `meson.build` + 已配置 build dir | `meson test -C <build> --xunit-file <tmp>` | 单 JUnit XML 文件 |
 | Make | `Makefile` / `makefile` / `GNUmakefile` | `make check` / `make test`（按 Makefile 首列扫择优） | 无结构化输出；`parseMakeOutput(stdout, runErr)` 用 exit code 判定 + `extractBuildErrorExcerpt` 抽取 stdout |
+| HarmonyOS hvigor (ArkTS) | `oh-package.json5` / `build-profile.json5` / `hvigorfile.ts` | `hvigorw --no-daemon test` | JUnit XML（复用 Java 解析器） |
+| HarmonyOS cjpm (Cangjie) | `cjpm.toml` | `cjpm test` | 文本（Cargo 风格）：`test result: FAILED. N passed; M failed` |
+| Swift | `Package.swift` | `swift test`（可带 `--filter`） | 文本：`Test Case '...' passed/failed`，`Executed N tests, with M failures` |
 
 CMake / Meson 要求 build dir 已配置（codrax 不跑 configure 步），探测的目录名：`build`（CMake / Meson）/ `Build` / `builddir`（Meson 默认）/ `out` / `cmake-build-debug` / `cmake-build-release`（CLion 默认）。每个候选必须含 `CMakeCache.txt`（CMake sentinel）或 `meson-info/`（Meson sentinel）才算数，避免空 `build/` 误判。
 
-**共用的 build-failure 合成**：Java / CMake / Meson 任何一个 runner 的 XML artifact 没产出（build 阶段就挂了）时，`synthesizeBuildFailureReport(ctx, toolName, runner, assertionID, label, output)` 合成一条 `{Passed: false, AssertionID: "<lang>-build", Suite: "build", FailureDetail: extractBuildErrorExcerpt(output)}`，写入 `Mutable.ChangeReport` 并在 ToolResult Summary 里带上截取的第一条错误行 —— retry loop 的 PlanningHint 因此总能拿到具体错误文本而不是"build 失败"这种空信号。
+manifest 探测优先级排序在 `runnerManifest` 表（`internal/tool/run_tests.go`）：HarmonyOS / Cangjie 的 manifest 排在通用语言（go/node/python/...）之前，确保混合工程优先走 hvigor / cjpm。verifier agent 也可以**绕过自动探测**，直接给 `run_tests` 传 `runner=<choice>` + 可选 `working_dir`（系统校验 ∈ allowedRunners 白名单 + working_dir 在 worktree 内即接受）。
+
+**共用的 build-failure 合成**：Java / CMake / Meson / hvigor 任何一个 runner 的 XML artifact 没产出（build 阶段就挂了）时，`synthesizeBuildFailureReport(ctx, toolName, runner, assertionID, label, output)` 合成一条 `{Passed: false, AssertionID: "<lang>-build", Suite: "build", FailureDetail: extractBuildErrorExcerpt(output)}`，写入 `Mutable.ChangeReport` 并在 ToolResult Summary 里带上截取的第一条错误行 —— retry loop 的 PlanningHint 因此总能拿到具体错误文本而不是"build 失败"这种空信号。
+
+**零测试发现作为一等信号**：pytest exit code 5（"no tests collected"）/ jest "no tests found" / `go test ./...` 在没有 `_test.go` 的项目上退出 0 但 `passed=0` —— 这些场景被旧 parser 误映射成 `Passed=false` 然后触发"加测试文件"的错误重新规划。12 个 runner 的 parser 全部把"零测试发现"作为 `ChangeReport.NoTestsRunners []string` 一等信号单独记录（runner label），**`Passed` 保持 true**；verifier prompt 据此驱动语法 only 兜底而不是 fabricate 测试。`internal/types/change_plan.go::ChangeReport.NoTestsRunners` 是 public API。
+
+#### 进程组隔离 + 资源墙（exec supervisor）
+
+`run_tests` / `emit_change_plan` 的 dry-build / 静态检查 / patch pre-check 全部走 `internal/tool/exec_supervisor.go::SupervisedRun`，跨平台等价语义包住测试子进程的 blast radius：
+
+- **Linux**：`cmd.SysProcAttr.Setpgid = true` 创建独立进程组 → 失控测试 fork 出来的子孙进程能被一并 kill；启动后挂 `prlimit` 设置内存上限 (`memoryLimitBytes`，默认按 cgroup 自适应) + CPU time 上限 (`cpuLimitSeconds`)。
+- **Windows**：`golang.org/x/sys/windows` 创建 JobObject + `JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE` + `JobObjectExtendedLimitInformation::JobMemoryLimit`，等价语义。
+- **退出归类**：`SupervisedRun` 返回 `SupervisedExitKind ∈ {Normal, Timeout, OOM, CPULimit}`；run_tests parser 把 `OOM` / `CPULimit` / `Timeout` 直接映射到 `ChangeReport.FailureKind`（6 值 enum：`tests_failed`(default) / `build_failure` / `timeout` / `oom` / `cpu_limit` / `crash`），retry-hint composer 据此分类 —— OOM 不会被当作"测试逻辑挂了"重写一份巨大 plan，而是触发"显存/内存上限"专属 hint 引导减小测试规模或 mock heavy fixture。
+- **超时**：`pipeline_max_steps` 把整个 Run 强制收尾，worktree 在 outer defer 里清理。SIGINT / SIGTERM 由 `internal/worktree/signal_exit_*.go` 装的进程级 handler 拦截，先遍历 `activeSessions` 统一 Discard 再 re-raise（Go 默认 `os.Exit` 不跑 defer，所以必须装 handler）。
 
 #### 红线总结
 

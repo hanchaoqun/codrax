@@ -713,175 +713,471 @@ codrax --log-level debug --log-stdout -r "你的问题"
 
 写模式让 codrax **提议并执行**代码变更,但所有写动作都发生在一个 `git worktree add` 出来的**独立沙箱**里。主仓库 HEAD 字节永不自动变;你看到结果后决定要不要 `git cherry-pick` 合进 main。
 
-**启用**(一次性):在 `codrax.yaml` 里显式:
+**核心保证(写之前先记牢)**:
+
+- 主仓 HEAD 字节永不被自动写入。任何修改都在沙箱 worktree 里,主仓的工作树不会被污染。
+- 任何写都必须显式触发(REPL `/approve`,或 CLI `--mode=apply --auto-apply`)。仅生成 plan、查看 plan 不会动一个字节。
+- 失败的 worktree 会被自动销毁,不会留下半成品垃圾;成功的 worktree 默认也销毁,除非你显式打开 `pipeline_keep_worktree_on_success`。
+- LLM 想改的每一个文件都必须先在 plan 的 `TargetPaths` 列表里声明过(写闭包保护),想越界改文件会被拒绝。
+
+#### 4.3.1 启用
+
+在 `codrax.yaml` 显式打开,这是一次性操作:
 
 ```yaml
 write_enabled: true
 ```
 
-没这一行所有写模式子命令都会 fail-loud 拒绝(避免误开)。
+没这一行所有写模式入口都会 fail-loud 拒绝。
 
-#### 三个阶段 + 四种 Mode
+可选调优(下面四项默认值已经能用,需要时再开):
 
-| Mode | 做什么 | 产出 |
+```yaml
+pipeline_keep_worktree_on_success: true   # apply+verify 都过的时候,把 worktree 留下来给你 review / cherry-pick / /merge
+pipeline_write_retry_budget: 3            # 测试失败后允许自动 re-plan 几次(0 关闭,硬上限 5)
+pipeline_baseline_capture_enabled: false  # 改之前先跑一遍测试做基线对比(测试时间翻倍)
+write_auto_init_repo: false               # 目标是裸目录(无 .git 或无 commit)时是否预先授权 codrax 自动 git init + 空 commit
+```
+
+`write_auto_init_repo` 默认关。详见 [4.3.15 裸目录自动 init](#4315-裸目录自动-init三档授权)。
+
+#### 4.3.2 四种 Mode 一张图
+
+| Mode | 做什么 | 改文件? | 跑测试? |
+|---|---|---|---|
+| `read` | 默认。普通问答,带 citation | 否 | 否 |
+| `plan` | 读代码 → 产出 ChangePlan JSON 落盘 | 否 | 否 |
+| `apply` | 加载 ChangePlan → 在 worktree 里逐文件 `apply_patch` → 自动接 verify | **是(在 worktree 里)** | **是** |
+| `verify` | 对已 applied 且保留的 worktree 重跑测试 | 否 | **是** |
+
+`apply` 一定自动接 `verify`(代码先落地,然后跑测试,出错会触发 re-plan)。所以日常你只需要 `plan` 和 `apply` 两个;`verify` 是给"我想再确认一下测试结果"或"flakey 测试想再跑一次"准备的。
+
+#### 4.3.3 文件变更的四种 kind
+
+planner 给你的 ChangePlan 里每条变更都有一个 `kind` 字段,语义如下。理解它们对你 review plan 至关重要:
+
+| kind | 语义 | 失败条件 |
 |---|---|---|
-| `read`(默认) | 走分析流水线,输出带 citation 的答案 | `AnswerDocument` |
-| `plan` | 读代码,产出一份"要改哪些文件、每个怎么改、先后依赖"的 ChangePlan | `.codrax/plans/<id>.json` |
-| `apply` | 在 git worktree 里执行 ChangePlan,每个单元一次 `apply_patch`(四种 kind:create / modify / delete / patch) | worktree 里的文件 + `ChangeReport` |
-| `verify` | 对 worktree 跑测试套件(9 种 runner 自动探测) | `.codrax/plans/<id>.report.json` |
+| `create` | 新建文件,`new_content` 是完整 body | 目标路径**必须不存在**,否则 apply 拒绝(避免误覆盖) |
+| `modify` | 覆盖整个文件,`new_content` 是新的完整 body | 目标路径**必须存在**,否则 apply 拒绝 |
+| `delete` | 删除文件 | 缺失文件视为幂等成功 |
+| `patch` | 把 `patch` 字段(unified diff)喂给 `git apply -` | 上下文行号严格匹配;不匹配 → 拒绝 → re-plan |
 
-`apply` 自动紧跟 `verify`,二者成对;你通常不需要手工触发 `--mode=verify`,除非要**重跑 verify**(如 flakey 测试、修改配置后验证)。
+planner 默认倾向 `patch`(改动小、上下文友好);需要整体重写时选 `modify`;新建文件用 `create`。
 
-#### 两种触发通路
+#### 4.3.4 端到端示例 A:在 REPL 里改一个小 bug(推荐路径)
 
-**REPL(推荐,支持审阅)**:
+适合大多数手工开发场景。这条路径让你在 apply 前看到完整 diff,confirm 后再写。
+
+```bash
+cd ~/code/myproject
+codrax
+```
 
 ```
-❯❯ /mode plan                   # 粘滞切换到 plan 模式
-❯❯ 把 handleFoo 里 X 的处理从 A 改成 B    # 正常提问,会生成 ChangePlan
-  ... (流水线运行) ...
-  plan saved: .codrax/plans/plan-<id>.json  (3 change(s))
+❯❯ /mode plan
+  mode → plan (sticky)
 
-❯❯ /plan show                   # 审阅 plan — 会渲染 unified diff 预览
-  current plan: .../plan-<id>.json
-    id:      plan-<id>
+❯❯ internal/server/handler.go 里 ParseDuration 处理负值时会 panic,改成
+…  返回 ErrInvalidDuration,同时给该函数补一条单元测试覆盖负值场景
+
+   ... (planner 跑约 30-90 秒) ...
+
+  plan saved: /home/me/code/myproject/.codrax/plans/plan-1730834521... json (2 changes)
+
+❯❯ /plan show
+  current plan: .../plan-1730834521-12345.json
+    id:      plan-1730834521-12345
     status:  pending_approval
-    changes: 3 file(s)
-    targets: internal/foo/handler.go, internal/foo/handler_test.go, ...
-    summary: <planner 写的 3-10 句话总结>
+    changes: 2 file(s)
+    targets:
+      - internal/server/handler.go
+      - internal/server/handler_test.go
+    summary: 在 ParseDuration 里把负值校验从 panic 改为返回
+             ErrInvalidDuration,并新增 TestParseDuration_Negative
+             覆盖该路径。
 
   diff preview:
 
-  ─── internal/foo/handler.go (kind=patch) ───
-  rationale: 把 X 分支的 A 策略改为 B
-  --- a/internal/foo/handler.go
-  +++ b/internal/foo/handler.go
-  @@ -42,7 +42,7 @@
-   func handleFoo(x int) int {
-  -  return strategyA(x)
-  +  return strategyB(x)
+  ─── internal/server/handler.go (kind=patch) ───
+  rationale: 用错误返回替代 panic,符合包的错误处理约定
+  --- a/internal/server/handler.go
+  +++ b/internal/server/handler.go
+  @@ -42,8 +42,8 @@
+   func ParseDuration(s string) (time.Duration, error) {
+     d, err := time.ParseDuration(s)
+     if err != nil { return 0, err }
+  -  if d < 0 { panic("negative duration not supported") }
+  +  if d < 0 { return 0, ErrInvalidDuration }
+     return d, nil
    }
-  ... (更多改动)
 
-❯❯ /approve                     # 二次确认后触发 apply + verify
-  Approve plan plan-<id> (3 change(s))? Apply inside a git worktree + run verify.
-  [Yes] / [No]
+  ─── internal/server/handler_test.go (kind=patch) ───
+  rationale: 锁定负值返回 ErrInvalidDuration 的契约
+  --- a/internal/server/handler_test.go
+  +++ b/internal/server/handler_test.go
+  @@ -88,3 +88,11 @@ func TestParseDuration_Valid(t *testing.T) {
+     ...
+   }
+  +
+  +func TestParseDuration_Negative(t *testing.T) {
+  +  _, err := ParseDuration("-3s")
+  +  if !errors.Is(err, ErrInvalidDuration) {
+  +    t.Fatalf("got %v, want ErrInvalidDuration", err)
+  +  }
+  +}
 
-❯❯ /reject [optional reason]    # 不想要了 — 丢弃 plan,记入 memory
-❯❯ /plan clear                  # 等价 reject 但不留记忆
-
-# 如果开了 pipeline_keep_worktree_on_success,apply+verify 成功后
-# worktree 会保留给你 review:
-  worktree preserved: /path/to/repo/.codrax/worktrees/<id>-<pid>
-
-❯❯ /worktree list               # 列出所有保留的 worktree
-❯❯ /worktree discard <plan-id>  # 手动清理某个
-
-❯❯ /verify <plan-id>            # 对某个已 applied 的 plan 重跑 verify
-                                # (需要 worktree 还在)
-```
-
-**单次命令(适合 CI / 自动化)**:
-
-```bash
-# 只生成 plan,不 apply(人工或脚本后续审查)
-codrax --mode=plan --request "描述变更" --plan-out /tmp/plan.json
-
-# 应用一份已有 plan(auto-apply 绕过交互确认;适合 CI)
-codrax --mode=apply --plan-file /tmp/plan.json --auto-apply
-
-# 只重跑 verify(需要已 applied 且 worktree 保留)
-codrax --mode=verify --plan-file /tmp/plan.json
-```
-
-#### 四种改动类型(FileChange.kind)
-
-| kind | 语义 | 要求 |
-|---|---|---|
-| `create` | 新建文件,写入 `new_content` 完整 body | 目标路径**必须不存在**,否则 apply 拒绝(避免误覆盖) |
-| `modify` | 覆盖整个文件 body,写入 `new_content` | 目标路径**必须存在**,否则 apply 拒绝(planner 若搞错应改成 `create`) |
-| `delete` | 删除文件 | 缺失文件视作幂等成功(带 warning 日志) |
-| `patch` | 把 `patch` 字段里的 unified diff 喂给 `git apply -` | git 会严格按上下文行号匹配;不匹配直接拒绝,coder 下轮自修正 |
-
-Planner 默认倾向于 `patch`(小改),需要整体重写时选 `modify`。
-
-#### 写闭包保护(W1 / W1b)
-
-每次 `apply_patch` 调用都经过:
-- **W1**:`path` 必须出现在 `ChangePlan.TargetPaths` 声明的写作用域内 —— 防止 coder 飘到未声明路径。
-- **W1b**:`DependsOn` 里每个前置单元必须已 applied(写入 `WriteClosure.AppliedSet`) —— 保证拓扑顺序。
-
-违规会被工具层直接拒绝,coder 在下一轮看到错误自修正。
-
-#### 测试失败后的自动重新规划
-
-`pipeline_write_retry_budget`(yaml,默认 3,硬上限 5)大于 0 时,如果应用后测试失败,系统会自动整理一份精炼的失败诊断(包含失败摘要、前 3 条失败测试的关键错误行、上次改过的文件清单),反喂给规划阶段重写一份新 plan,再次尝试 apply + 测试,直到成功或用尽预算。
-
-默认 3 是常见的甜点值;设 `0` 切换为严格 fail-loud(测试一失败就报告退出),适合需要确定性、不愿额外 LLM 成本的场景。
-
-#### 可选:baseline 测试快照
-
-`pipeline_baseline_capture_enabled`(yaml,默认 false)打开后,apply 之前先跑一遍测试套件作为 baseline。verifier LLM 在写 FailureSummary narrative 时会看到"这些测试在 apply 前就挂了"的清单,可以明确把失败分成:
-
-- **REGRESSION**:baseline 过,现在挂 — **这个 plan 造成的**
-- **PRE-EXISTING**:baseline 就挂,现在还挂 — 与本次变更无关
-- **FIXED**:baseline 挂,现在过 — 顺手修了(bonus)
-
-开启会让测试墙钟时间翻倍;适合你仓库本身有已知的 flakey 或 pre-existing 失败、否则容易把 pre-existing 误认为 regression。
-
-#### 可选:成功时保留 worktree
-
-`pipeline_keep_worktree_on_success`(yaml,默认 false)打开后,apply + verify 双双通过时,Run 结束**不销毁** worktree,把路径暴露给用户 review。失败路径无条件销毁(避免磁盘垃圾堆积)。
-
-典型工作流:
-
-```bash
-# 开启 keep-on-success 后走一轮 /approve
 ❯❯ /approve
-  ... 成功 ...
-  worktree preserved: /path/to/repo/.codrax/worktrees/abc-123
+  Approve plan plan-1730834521-12345 (2 change(s))?
+  Apply inside a git worktree + run verify.
+  > Yes
 
-# 在另一个终端:
-cd /path/to/repo/.codrax/worktrees/abc-123
-git log --oneline      # 看 apply 产生的 commit
-git diff main          # 看 worktree 相对 main 的 diff
-git checkout <sha>     # 如果想 cherry-pick 回 main
-cd /path/to/repo
-git cherry-pick <sha>  # 合回去(codrax 不会自动做这步)
+   ... (apply ~5s, verify ~30s) ...
 
-# REPL 里也能随时看 / 清:
-❯❯ /worktree list
-❯❯ /worktree discard abc-123
+  │ ## 变更应用成功
+  │ - 2 个文件已写入 worktree
+  │ - go test ./internal/server/ — 23 passed, 0 failed
+  │ - 没有 regression
+
+  worktree preserved: /home/me/code/myproject/.codrax/worktrees/<trace>-<pid>
+
+❯❯ /exit
 ```
 
-#### 11 种测试 runner 自动探测
+**合并回主仓**(推荐 — 最少操作):
 
-verify 阶段通过仓根的 manifest 文件自动选 runner(检测优先级见下表行序;HarmonyOS / Cangjie 的 manifest 排在通用语言之前,确保混合工程优先走 hvigor / cjpm):
+```
+❯❯ /merge
+  Fast-forward 1 commit(s) onto main repo branch main?
+  > Yes
+
+  ✓ Fast-forwarded 1 commit(s) onto main.
+  Next: git push (optional).
+```
+
+`/merge` 默认走 fast-forward 把 worktree 上的 commit 推到当前分支(`main`)。它会:
+
+1. 自动找到最近一个 `applied` plan 的保留 worktree
+2. 检查主仓工作区干净(有未提交改动会拒绝,避免误覆盖)
+3. fast-forward 可行 → 直接合;不可行 → 回退到下一节的"新分支"路径(显式提示)
+4. 成功后**自动销毁 worktree**(用过即销毁,磁盘干净)
+
+**走 PR 工作流**(推荐用于团队协作):
+
+```
+❯❯ /merge --branch=fix/parse-duration
+  Create branch fix/parse-duration on main repo and cherry-pick 1 commit(s) onto it?
+  > Yes
+
+  ✓ Branch fix/parse-duration created on main repo with 1 cherry-picked commit(s).
+  Next: cd <main repo> && git push -u origin fix/parse-duration, then open a PR.
+```
+
+主仓 HEAD **不会动**,只是新拉了一个分支落了 commit。再 `git push` 即可开 PR。
+
+**一步到位**(知道目标分支时,跳过中间审查):
+
+```
+❯❯ /approve --merge-to=fix/parse-duration
+  ... (apply + verify pass + auto-merge) ...
+  ✓ Branch fix/parse-duration created on main repo with 1 cherry-picked commit(s).
+  Next: cd <main repo> && git push -u origin fix/parse-duration, then open a PR.
+```
+
+`--merge-to=<branch>` 让 `/approve` 在测试通过后立刻调用 `/merge`,等价"approve + 合并 + 清理 worktree"三步合一。
+
+**冲突时的安全网**:
+
+`/merge` 在 cherry-pick 遇到冲突时**不会**让你陷入"主仓里有 conflict marker、不知道怎么继续"的状态,而是:
+
+1. `git cherry-pick --abort` 回滚
+2. 删掉刚刚创建的目标分支
+3. 主仓 HEAD 回到合并前的位置
+4. 打印 git 的诊断输出,告诉你哪一行哪个文件冲突
+5. worktree 不动 — 你可以 `cd` 进去查看,或者 `/worktree show`、`/reject` 后重新 plan
+
+**纯手工路径**(任何时候都可用):
+
+```bash
+cd ~/code/myproject/.codrax/worktrees/<trace>-<pid>
+git log --oneline main..HEAD     # 看 apply 产生的 commit
+git diff main                    # 看完整 diff
+cd ~/code/myproject
+git cherry-pick <sha>
+
+codrax
+❯❯ /worktree discard plan-1730834521-12345     # 用完后清理
+```
+
+直接在文件系统层 `rm -rf .codrax/worktrees/<trace>-<pid>` 也行,但 REPL 里清会同时把 plan 的 `worktree_path` 字段清空,`/worktree list` 不会再显示它。
+
+#### 4.3.5 端到端示例 B:不喜欢 plan 想换一个
+
+```
+❯❯ /reject 这版改动太大,我只想改 handler 不想动测试
+  plan plan-1730834521-12345 rejected (status → rejected,reason 已记入 memory)
+
+❯❯ 同样的问题,但**只改 handler.go**,不动测试文件
+   ... (planner 重新生成,这次 TargetPaths 只有 handler.go) ...
+
+  plan saved: .../plan-1730834612-12345.json (1 change)
+
+❯❯ /plan show
+   ...
+❯❯ /approve
+   ...
+```
+
+`/reject [reason]` 会把 plan 状态置为 `rejected`,理由写进 memory(让后续 plan 知道你为什么否了上一版)。如果不想留任何痕迹,用 `/plan clear` 直接丢弃。
+
+#### 4.3.6 端到端示例 C:CI / 自动化批处理
+
+适合"这是个一揽子小重构,我已经在另一份文档里描述过了,直接跑给我看结果"。
+
+```bash
+# 第一步:只生成 plan,不 apply。让人/脚本审查
+codrax --mode=plan \
+  --request "把 internal/util/httpx 里所有 http.Client 替换成全局 sharedClient" \
+  --plan-out /tmp/refactor.plan.json
+
+# 看一下 plan(标准 JSON)
+jq -r '.summary, (.changes[] | "\(.kind) \(.path): \(.rationale)")' /tmp/refactor.plan.json
+
+# 第二步:在另一个 step 里 apply + verify(--auto-apply 必填,绕过交互确认)
+codrax --mode=apply --plan-file /tmp/refactor.plan.json --auto-apply
+
+# 第三步:只想再跑一遍测试(例如 flakey 测试)— 需要 keep-on-success 已开
+codrax --mode=verify --plan-file /tmp/refactor.plan.json
+```
+
+CI 集成提示:
+
+- `--auto-apply` 是 `--mode=apply` 的**必填配套**,缺它会 fail-loud(防止 CI 误触)。
+- 退出码:Run 整体成功 = 0;apply 拒绝(W1/W1b 违规、git apply 不匹配)= 非零;verify 测试有失败(且 retry 用尽)= 非零。
+- ChangeReport 落在 `<plan-out 同目录>/<plan-id>.report.json`,可以用 `jq` 提取关键字段做断言。
+
+#### 4.3.7 端到端示例 D:多个 worktree 并存的清理
+
+如果你开了 `pipeline_keep_worktree_on_success: true`,跑了几次 plan 之后磁盘上会有多个保留的 worktree。
+
+```
+❯❯ /worktree list
+  3 worktree(s) preserved:
+    plan-1730834521-12345   /home/me/code/myproject/.codrax/worktrees/abc-12345
+        applied 2 hour(s) ago — fix ParseDuration negative panic
+    plan-1730841098-23456   /home/me/code/myproject/.codrax/worktrees/def-23456
+        applied 30 minute(s) ago — replace http.Client with sharedClient
+    plan-1730845210-34567   /home/me/code/myproject/.codrax/worktrees/ghi-34567
+        applied 5 minute(s) ago — add retry to outbound HTTP
+
+❯❯ /worktree discard plan-1730834521-12345
+  worktree removed: /home/me/code/myproject/.codrax/worktrees/abc-12345
+  plan plan-1730834521-12345 status retained as `applied` (history preserved)
+```
+
+`/worktree discard` 只删 worktree 文件,不动 plan 状态(`applied` 仍然显示在 `/plan list` 历史里);但 plan 的 `worktree_path` 字段会被清空,`/verify` 那条不再可用。
+
+#### 4.3.8 测试失败后的自动 re-plan
+
+`pipeline_write_retry_budget` 大于 0 时(默认 0,推荐设 2-3),verify 阶段测试如果挂了,系统会:
+
+1. 提取最有信息量的失败信号:`FailureSummary`(verifier 写的 narrative)+ 前 3 条失败测试的关键错误行 + 上版 plan 的 `TargetPaths`(嫌疑文件)。
+2. 把这些信号当作 PlanningHint 喂给 planner,让它**带着失败上下文**重写一份新 plan。
+3. 新 plan 自动 `apply + verify` 再来一次。
+4. 直到测试通过,或耗尽 retry budget。
+
+REPL 里看到的样子:
+
+```
+   ... 第 1 次 verify:3 个 test 失败 ...
+   ... 系统组装 retry hint:suspect=[handler.go,handler_test.go],top failure: ParseDuration("-3s") returned wrong error type ...
+   ... planner 重新规划(retry 1/3)... 改成在 handler.go 用 errors.Is 匹配而不是 ==
+   ... 第 2 次 apply + verify ... 全部通过 ✓
+```
+
+把它设为 `0` 切回严格模式 — verify 一挂就退出报告,适合你想保留确定性、不愿额外 LLM 成本的场景。
+
+#### 4.3.9 关于 baseline(`pipeline_baseline_capture_enabled`)
+
+打开后,apply 之前会先在 worktree(此时还是干净的 main 副本)上跑一遍测试当作 baseline。verifier 后续比对 baseline 和 apply 后的结果,把失败分成三类:
+
+- **REGRESSION**:baseline 过 / 现在挂 — 这次 plan 引入的退化
+- **PRE-EXISTING**:baseline 挂 / 现在还挂 — 与本次无关
+- **FIXED**:baseline 挂 / 现在过 — 顺手修了
+
+适合:仓库本身有已知的 flakey / pre-existing 失败,担心 verifier 把它们误判为 regression。代价是测试墙钟时间翻倍。
+
+#### 4.3.10 写闭包保护(W1 / W1b)
+
+`apply_patch` 是一个工具层强约束,任何 LLM 都越不过去:
+
+- **W1**:`path` 必须出现在 `ChangePlan.TargetPaths` 声明的写作用域内。planner 在 plan 阶段就声明了"我打算改这些路径",apply 阶段不允许临时扩张写域。如果 coder 想写 `TargetPaths` 之外的路径,会被工具拒绝并把全部合法路径回 LLM,coder 自修正。
+- **W1b**:每个 `DependsOn` 引用的前置变更必须已经 applied(已写入 `WriteClosure.AppliedSet`)。这保证了 plan 里"先改 A 再改 B"的拓扑序在执行层不能被打乱。
+- **幂等**:同一个路径再 apply 一次,直接成功返回(不重复写 IO)。
+
+W1/W1b 不是用 prompt 提醒 LLM 遵守的,是工具入口处直接验证的硬约束。
+
+#### 4.3.11 12 种测试 runner 自动探测
+
+verify 阶段先看 `run_tests` 的 `runner` 参数 — verifier agent 自己会在 worktree 里 list_files / read_file 一通,然后告诉 `run_tests` 用哪个 runner。这是首选。
+
+参数留空时,系统按下表顺序在仓根扫 manifest 自动选(HarmonyOS / Cangjie 优先级排在通用语言之前,确保混合工程优先走 hvigor / cjpm):
 
 | 探测文件 | Runner | 命令 |
 |---|---|---|
-| `go.mod` | Go | `go test -json ./...` |
-| `oh-package.json5` / `build-profile.json5` / `hvigorfile.ts` | hvigor | `hvigorw --no-daemon test`,JUnit XML(复用 Java 解析器) |
-| `cjpm.toml` | cjpm | `cjpm test`,Cargo 风格文本输出 |
-| `package.json` | Node | `npm test -- --json --silent`(兼容 jest / vitest) |
-| `pyproject.toml` / `pytest.ini` / `setup.py` | Python | `pytest --json-report` (需 `pytest-json-report` 插件) |
-| `Cargo.toml` | Rust | `cargo test` |
-| `pom.xml` | Java (Maven) | `mvn -B -q test`,读 `target/surefire-reports/*.xml` |
-| `build.gradle` / `build.gradle.kts` | Java / Kotlin (Gradle) | `./gradlew --no-daemon --console=plain test`,读 `build/test-results/test/*.xml`(Kotlin/Android 项目的 build.gradle.kts 也走这条路径) |
-| `Gemfile` | Ruby | `bundle exec rspec --format json` |
-| `CMakeLists.txt` | CMake | `ctest --output-junit`(需要 build 目录已配置,支持 `build/` / `builddir/` / `out/` / `cmake-build-debug/` / `cmake-build-release/`) |
-| `meson.build` | Meson | `meson test --xunit-file` |
-| `Makefile` / `makefile` / `GNUmakefile` | Make | 优先 `make check` 再 `make test`(读 Makefile 首行列扫),exit code 判定 |
+| `oh-package.json5` / `build-profile.json5` / `hvigorfile.ts` | hvigor (HarmonyOS ArkTS) | `hvigorw --no-daemon test`,JUnit XML(复用 Java 解析器) |
+| `cjpm.toml` | cjpm (HarmonyOS Cangjie) | `cjpm test`,Cargo 风格文本输出 |
+| `go.mod` | go | `go test -json ./...` |
+| `package.json` | node | `npm test -- --json --silent`(兼容 jest / vitest) |
+| `pyproject.toml` / `pytest.ini` / `setup.py` | python | `pytest --json-report` (需 `pytest-json-report` 插件) |
+| `Cargo.toml` | rust | `cargo test` |
+| `Package.swift` | swift | `swift test` |
+| `pom.xml` | java (Maven) | `mvn -B -q test`,读 `target/surefire-reports/*.xml` |
+| `build.gradle` / `build.gradle.kts` | java (Gradle,含 Kotlin/Android) | `./gradlew --no-daemon --console=plain test`,读 `build/test-results/test/*.xml` |
+| `Gemfile` | ruby | `bundle exec rspec --format json` |
+| `CMakeLists.txt` | cmake | `ctest --output-junit`(需要 build 目录已配置) |
+| `meson.build` | meson | `meson test --xunit-file` |
+| `Makefile` / `makefile` / `GNUmakefile` | make | 优先 `make check` 再 `make test`,exit code 判定 |
 
-多 manifest 并存时按上表顺序取先找到的(例如 CMake 生成的 Makefile 会被 CMakeLists.txt 压过)。构建失败(测试还没开始跑)时会自动合成一条失败 `TestResult`,`FailureDetail` 里带从 stdout / stderr 提取的错误行,给 retry 循环的 PlanningHint 真正有用的信息。
+多 manifest 并存时按上表顺序取**先找到的**(例如 CMake 生成的 Makefile 会被 CMakeLists.txt 压过)。构建失败(测试还没开始跑)会自动合成一条失败 `TestResult`,`FailureDetail` 里带从 stdout / stderr 提取的错误行,把真正有用的信息喂给 retry 循环。
 
-不在上表的语言 / 构建系统,`/verify` 会明确报错 "no supported test runner detected",并列出所有它查找过的文件名 —— 你可以补一份符合约定的 manifest,或者在 codrax.yaml 指定 Runner / 自行加装 wrapper。
+不在上表的语言 / 构建系统,verify 会明确报错 "no supported test runner detected" 并列出查找过的所有文件名 —— 你可以补一份符合约定的 manifest,或者让 verifier agent 在 prompt 里指定 `runner=<其它>` 的兜底命令。
 
-#### 当前限制
+#### 4.3.12 "零测试发现" 不再是失败
 
-- 写模式**不支持** multi-plan concurrency;同一仓库不要并行跑两个 `/approve`。
-- worktree 不会自动 push 到任何 remote;合并到主仓永远是用户的手动操作。
-- `git apply -` 失败时 git 的 stderr 会原样透传给 coder,但**不会**自动回退已 applied 的单元(符合 git 默认行为);如果你的 plan 有多文件依赖,建议用 `DependsOn` 明确排序,让失败单元及其下游整块被 retry。
+历史上 pytest exit code 5("no tests collected")、jest "no tests found"、`go test ./...` 在没有 `_test.go` 的项目下退出 0 但没有 case 跑过 —— 这些情况会被旧版 verifier 误判为测试失败,然后触发一次"我得加测试文件"的错误重新规划,典型反例是 planner 凭空捏造一个 `test_*.py` 来"修"一个本就不存在的测试套件。
+
+新版本把"零测试发现"作为一等信号 `NoTestsRunners` 单独记录,**Passed=true** 但同时把"verification ran but had no tests to execute"的事实暴露给下游;verifier 会据此走静态语法检查兜底,而不是去 fabricate 测试。
+
+#### 4.3.13 进程级安全网
+
+verify 阶段的子进程跑在隔离的进程组里,带内存 / CPU 上限:
+
+- **Linux**:`Setpgid` 创建独立进程组,fork 的子进程可被一并 kill;`prlimit` 给 OOM/CPU 双重墙;失控测试不会拖死主进程。
+- **Windows**:JobObject + `JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE`,等价语义。
+- 资源耗尽时 `FailureKind` 会标记成 `oom` / `cpu_limit` / `timeout`(而不是 `tests_failed`),retry-hint 据此分类不会把"OOM 了"当成"测试逻辑挂了"重新规划。
+
+`pipeline_max_steps` 超时时整个 Run 强制收尾,worktree 也会在 outer defer 里清理。
+
+#### 4.3.14 合并到主仓 — `/merge` 命令
+
+`/approve` 成功后,worktree 里有一条或多条 codrax 提交(基于主仓的 `r.branch` 顶点)。把这条 commit 合回主仓有三种通路,任选其一:
+
+| 通路 | 谁动手 | 适用 |
+|---|---|---|
+| `/approve --merge-to=<branch>` | codrax 一步合并 | 你已经知道目标分支(PR 名),希望"approve 同时合"。最少操作。 |
+| `/merge [--branch=<name>]` | codrax 显式合并 | 你想先 review worktree 再决定怎么合;或者 plan 已经 applied 了,后来才决定合。 |
+| 纯手工 cherry-pick | 你自己 | 想要完全控制,或者团队规范要求开 PR 不允许直接 fast-forward。 |
+
+**`/merge` 的安全契约**:
+
+- 只在 `pipeline_keep_worktree_on_success: true` 时可用 — 没有保留的 worktree 就没合并素材。`/merge` 会扫 PlanStore 找最近一条 `Status=applied` 且 `WorktreePath` 还指向真实目录的 plan。
+- 不传 `--branch=` 时默认目标分支是 `r.branch`(即 `--branch` 启动参数的值,通常 `main`),走 fast-forward。fast-forward 不可行(主仓已经移动)→ 自动回退到下一段说的"新分支"路径,**不会**强制 reset 主仓。
+- 传 `--branch=<name>` 强制走 cherry-pick 到新分支。如果分支已存在 → 拒绝(避免误覆盖)。
+- **主仓工作区脏不合**(有未提交 / 未 stash 的本地改动)— 会让你先 commit / stash,避免 fast-forward 越过你的本地未提交 work。
+- **冲突 = 完整回滚**:cherry-pick 任何一步出错 → `git cherry-pick --abort` + 删掉刚拉的目标分支 + 主仓 HEAD 回到合并前 + worktree 不动。然后告诉你冲突的文件 + 行,你可以 `cd` 进 worktree review、或 `/reject` 重新规划。
+- **永不 push**:`git push` 是用户的明确动作,codrax 不替你做。
+- **合并成功后自动销毁 worktree**:用过即销毁,`/worktree list` 自动更新。
+
+**fast-forward 模式工作流**:
+
+```
+❯❯ /approve
+   ... worktree preserved ...
+❯❯ /merge
+  ✓ Fast-forwarded 1 commit(s) onto main.
+  Next: git push (optional).
+```
+
+主仓的 `main` 分支移动到 worktree HEAD,worktree 销毁。一步搞定。
+
+**新分支 / PR 工作流**:
+
+```
+❯❯ /approve --merge-to=fix/parse-duration
+   ... apply + verify pass + auto-merge ...
+  ✓ Branch fix/parse-duration created on main repo with 1 cherry-picked commit(s).
+  Next: cd <main repo> && git push -u origin fix/parse-duration, then open a PR.
+```
+
+主仓 HEAD **不动**,只是新拉了 `fix/parse-duration` 分支落了 commit。再 `git push -u origin fix/parse-duration` + GitHub UI 开 PR。
+
+#### 4.3.15 裸目录自动 init(三档授权)
+
+写模式 apply 阶段需要 `git worktree add --detach HEAD` 跑,这要求目标目录:
+
+1. 是 git repo(`.git` 存在)
+2. HEAD 解析得到一条 commit(初始 commit 已经打过)
+
+如果目标是裸目录或 `git init` 后还没 commit,默认 codrax 会 fail-loud 拒绝(避免在用户文件系统上做静默状态变更)。三档授权让"裸目录脚手架"成为合法用例:
+
+| 档 | 触发 | 适用 |
+|---|---|---|
+| 1 | REPL 交互同意 | 单次手工跑,被弹一次 y/N 后再继续 |
+| 2 | `codrax.yaml :: write_auto_init_repo: true` | 部署期统一开,所有 Run 都自动 |
+| 3 | CLI `--auto-init-repo` | 单次 Run 显式 |
+
+**REPL 交互档示例**:
+
+```
+❯❯ /mode plan
+❯❯ 在这个空目录里创建一个 hello-world Go 项目
+   ... (planner 跑出一个 create main.go + go.mod 的 plan) ...
+   plan saved: ...
+
+❯❯ /approve
+  Approve plan plan-... (2 change(s))? Apply inside a git worktree + run verify.
+  > Yes
+
+  target /home/me/code/scaffold is not_initialized.
+  codrax can run `git init` + an empty initial commit, then apply inside a sandbox worktree.
+  Proceed?
+  > Yes
+
+  initializing git repo: /home/me/code/scaffold ...
+   ... (apply + verify) ...
+  ✓ 变更应用成功
+```
+
+**预授权档示例**(yaml 或 CLI):
+
+```yaml
+# codrax.yaml
+write_enabled: true
+write_auto_init_repo: true
+```
+
+或:
+
+```bash
+codrax --mode=apply --plan-file /tmp/plan.json --auto-apply --auto-init-repo
+```
+
+预授权后 codrax **不弹同意提示**,直接跑 `git init` + 空 initial commit,再 apply。
+
+**安全规则**:
+
+- 自动 init 只跑两条命令:`git init`(不存在 `.git` 时)+ `git commit --allow-empty -m "codrax: initial commit for plan-<id>"`(HEAD 不解析时)。不会 `add` / `push` / 改 user 已有 git config(只在 `user.email` / `user.name` 完全缺失时设默认值 `codrax@local` / `codrax`,你随时可以 `git config` 覆盖)。
+- 已经是 ready 的 repo → 这条路径完全跳过(idempotent)。多次 `/approve` 不会重复造空 commit。
+- 失败时(目录权限不足、git 不在 PATH 等)→ 报错,不留半成品。
+
+#### 4.3.16 Plan 状态查询恢复
+
+`/approve` 因为环境问题(目标不是 git repo、git 缺失、worktree 创建失败)失败时,plan **不会丢**:状态保持 `pending_approval`,你可以:
+
+- `/plan show` — 看 plan 详情
+- 修复环境(装 git、`/approve --auto-init-repo` 类的方式重试)再 `/approve`
+- `/reject [reason]` — 显式弃掉
+
+REPL 会自动从 PlanStore 找最近一条 `pending_approval` plan 重新绑定指针,**跨进程也能恢复**(关掉 codrax 再开,`/plan show` 还能找到上次没合并的 plan)。
+
+#### 4.3.17 当前限制
+
+- 写模式**不支持** multi-plan concurrency。同一仓库不要并行跑两个 `/approve`(plan 文件名带 PID,但 worktree 操作不是并发安全的)。
+- `git push` 永远是用户手动操作,`/merge` 不替你做(避免对远端的意外副作用)。
+- `git apply -` 失败时 git 的 stderr 原样透传给 coder 自修正,但**不会**自动回退已 applied 的同 plan 其它单元(符合 git 默认行为);多文件依赖的 plan 用 `DependsOn` 明确排序,让失败单元及其下游整块被 retry 是最稳的方式。
+- `--mode=verify --plan-file <path>` 只能在 worktree 仍然存在时跑(即 plan 是开了 `pipeline_keep_worktree_on_success` 后 applied 的)。否则会报 "no worktree associated with plan, re-apply first"。
+- `/merge` 是单 plan 单 worktree 的合并;一次只处理"最近一条 applied 且 worktree 还在的 plan"。同时合并多个 plan 仍需多次 `/merge`。
 
 ---
 
@@ -913,6 +1209,7 @@ verify 阶段通过仓根的 manifest 文件自动选 runner(检测优先级见�
 | `--htrace-text` | | (空) | 内联 trace 文本(与 `--htrace` 互斥) |
 | `--atrace` | | (空) | `--htrace` 的 Android 别名,等价用法 |
 | `--atrace-text` | | (空) | `--htrace-text` 的 Android 别名 |
+| `--auto-init-repo` | | `false` | 写模式:授权 codrax 在裸目录或无 commit 的 repo 上自动 `git init` + 空 initial commit。yaml 等价键 `write_auto_init_repo` |
 | `--version` / `-v` | | | 打印构建版本并退出 |
 
 `--log` / `--log-text` 互斥;`--htrace` / `--atrace` 是同一通道的两个别名,设其一即可,跨别名同时设会报错。stdin (`-`) 跨 `--log` / `--htrace` / `--atrace` 整体只允许一次。日志/trace 通道字节默认上限 50 MiB(`log_attach_max_bytes` / `trace_attach_max_bytes`,可独立配置),超限尾部截断。
@@ -950,11 +1247,12 @@ verify 阶段通过仓根的 manifest 文件自动选 runner(检测优先级见�
 |---|---|
 | `/mode [read\|plan\|apply\|verify]` | 无参数查看当前 mode;有参数切换(粘滞,影响后续所有提问) |
 | `/plan show` | 审阅 pending plan(含 kind=patch / modify 的 unified diff 预览,per-change 4 KB、总计 16 KB 上限) |
-| `/plan list` | 列出 PlanStore 里所有 plan(显示状态:pending / applied / applied_failed / verify_failed / rejected) |
+| `/plan list` | 列出 PlanStore 里所有 plan(显示状态:pending_approval / applied / applied_failed / verify_failed / rejected) |
 | `/plan clear` | 丢弃 pending plan(不记 memory;要记 memory 用 `/reject`) |
-| `/approve` | 二次确认后触发 `apply + verify`。**只接受 Status=pending_approval 的 plan**,已 applied / rejected 的一律拒绝 |
+| `/approve [--merge-to=<branch>]` | 二次确认后触发 `apply + verify`。**只接受 Status=pending_approval 的 plan**,已 applied / rejected 的一律拒绝。`--merge-to=` 可选,成功后立即合并到该分支 |
 | `/reject [reason]` | 丢弃 pending plan 并把理由记入 memory 历史 |
 | `/verify [plan-id]` | 对已 applied 的 plan 重跑 verify(不重新 apply)。需要 plan 有保留的 worktree(即 Run 时开了 `pipeline_keep_worktree_on_success`)。无参数时用 pending plan |
+| `/merge [--branch=<name>]` | 把最近 applied plan 的 worktree commit 合回主仓。无参数 → fast-forward 到 `--branch` 启动参数对应的分支(通常 `main`);有 `--branch=` → cherry-pick 到该新分支(主仓 HEAD 不动)。冲突时回滚,主仓恢复合并前状态 |
 | `/worktree list` | 列出所有保留的 worktree(带 plan-id、worktree 路径、summary) |
 | `/worktree discard <plan-id>` | 手动清理指定 plan 的 worktree 并清 `plan.worktree_path` 字段(plan 状态保持 applied,历史不改) |
 
@@ -1209,71 +1507,46 @@ codrax -r "应用卡顿后 crash,根因是什么?" \
 
 ### 7.3 写模式:小步修复一个 bug
 
-**目标**:用 codrax 自动生成 + 应用一个小补丁,跑测试验证,review 后手动 cherry-pick 到主仓。
+**目标**:用 codrax 自动生成 + 应用一个一行补丁,跑测试验证,review 后手动 cherry-pick 到主仓。完整的写模式介绍在 [4.3](#43-写模式--plan--apply--verify),这里给一个最小可复现示例。
 
-**前置**:`codrax.yaml` 里开:
+**前置**:`codrax.yaml` 里开三行:
 
 ```yaml
 write_enabled: true
-pipeline_keep_worktree_on_success: true   # 让 worktree 留下给你 review
-pipeline_write_retry_budget: 2            # 如果 plan 写得有问题允许自动再试两次
+pipeline_keep_worktree_on_success: true   # 成功后留下 worktree 让你 review
+pipeline_write_retry_budget: 2            # 测试一次失败可以让 planner 自动再试 2 次
 ```
 
 **操作**:
 
 ```bash
-cd ~/code/codrax           # 或你自己的仓库
+cd ~/code/myproject
 codrax
 ```
 
 ```
 ❯❯ /mode plan
-  mode → plan (sticky)
 
-❯❯ internal/repl/input.go 里 needsArg 缺了 /worktree,帮我把它加上,
-…  保持和其它几个命令同形状的 switch case
+❯❯ utils/parse.go 的 ParseTimeout 在收到 "0" 时返回了 0 秒(应该返回
+…  默认 30 秒),帮我修这个 bug 并补一条单元测试
 
    ... (planner 跑约 30-90 秒) ...
 
-  plan saved: /path/to/repo/.codrax/plans/plan-<id>.json  (1 change)
+  plan saved: /home/me/code/myproject/.codrax/plans/plan-1730834521... json (2 changes)
 
-❯❯ /plan show
-  current plan: .../plan-<id>.json
-    id:      plan-<id>
-    status:  pending_approval
-    changes: 1 file(s)
-    targets: internal/repl/input.go
-    summary: Add "/worktree" to needsArg switch so Tab-complete leaves
-             a trailing space for the subcommand argument.
-
-  diff preview:
-
-  ─── internal/repl/input.go (kind=patch) ───
-  rationale: 与其它接参命令保持一致
-  --- a/internal/repl/input.go
-  +++ b/internal/repl/input.go
-  @@ -620,7 +620,7 @@
-   func needsArg(cmd string) bool {
-    switch cmd {
-  -  case "/log", "/chat", "/mode", "/plan", "/reject", "/verify":
-  +  case "/log", "/chat", "/mode", "/plan", "/reject", "/verify", "/worktree":
-      return true
-    }
-    return false
-   }
+❯❯ /plan show         # 检查 unified diff 预览
+   ... (略,见 §4.3.4 的样例) ...
 
 ❯❯ /approve
-  Approve plan plan-<id> (1 change(s))? Apply inside a git worktree + run verify.
+  Approve plan plan-... (2 change(s))? Apply inside a git worktree + run verify.
   > Yes
 
    ... (apply + verify 约 1-3 分钟) ...
 
   │ ## 变更应用成功
-  │
-  │ 1 个文件已在 worktree 里更新; go test ./internal/repl/ 全部通过
-  │ (18 passed, 0 failed)
+  │ 2 个文件已在 worktree 里更新; go test ./utils/ 全部通过 (12 passed, 0 failed)
 
-  worktree preserved: /path/to/repo/.codrax/worktrees/<trace>-<pid>
+  worktree preserved: /home/me/code/myproject/.codrax/worktrees/<trace>-<pid>
 
 ❯❯ /exit
 ```
@@ -1281,32 +1554,32 @@ codrax
 **验收 + 合并**:
 
 ```bash
-# review 一下 worktree 里的实际改动
-cd /path/to/repo/.codrax/worktrees/<trace>-<pid>
-git log --oneline main..HEAD
-git diff main
+cd ~/code/myproject/.codrax/worktrees/<trace>-<pid>
+git log --oneline main..HEAD     # 看到 codrax 在 worktree 里产生的 commit
+git diff main                    # 完整 diff
 
 # 满意就 cherry-pick 回主仓
-cd /path/to/repo
-git cherry-pick <worktree-commit-sha>
+cd ~/code/myproject
+git cherry-pick <sha>            # codrax 永远不会自动做这一步
 
-# 不要了就手动清掉 worktree(或回 REPL 用 /worktree discard)
-rm -rf .codrax/worktrees/<trace>-<pid>
+# 用完后清理 worktree
+codrax
+❯❯ /worktree discard plan-1730834521-...
 ```
 
-**出错示例**:如果 planner 生成的 kind=patch 因为行号漂移 `git apply` 失败了,`pipeline_write_retry_budget` 为 2 时你会看到:
+**出错时的自动恢复**:如果 planner 生成的 kind=patch 因为行号漂移导致 `git apply` 失败,`pipeline_write_retry_budget=2` 会让系统:
 
-```
-   ... apply failed: hunk at @@ -620,7 +620,7 doesn't match ...
-   ... retry attempt 2: PlanningHint seeded with suspect file ...
-   ... planner 重新生成新 plan ...
-   ... apply + verify 成功 ...
-```
+1. 把"hunk @@ -620,7 +620,7 doesn't match"这个错误 + 嫌疑文件喂回 planner
+2. planner 重新生成一份带正确上下文的 plan
+3. 自动再 apply + verify
 
-**安全网**:
-- W1 写闭包保护 —— 哪怕 planner 想改未声明的文件,`apply_patch` 工具层也会拒绝。
-- 主仓 HEAD 字节永不被自动写;哪怕 worktree 里所有 commit 都已落盘,只要你不 cherry-pick,主仓就还是之前的样子。
-- 失败的 worktree 被自动销毁(`pipeline_keep_worktree_on_success` 只保留**成功**的)。
+直到成功或耗尽 retry。
+
+**安全网总结**:
+
+- 主仓 HEAD 字节永不被自动写;只要不 cherry-pick,主仓就保持原状
+- W1/W1b 写闭包检查在工具层硬挡(不是靠 prompt 提醒 LLM 的"软"约束)
+- 失败的 worktree 自动销毁;`pipeline_keep_worktree_on_success` 只保留**成功**的
 
 ### 7.4 脚本化批处理
 

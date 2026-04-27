@@ -83,6 +83,8 @@ var slashCommands = []slashCommand{
 		"对已 apply 的 plan 重跑 verify(不再重跑 apply)"},
 	{"/worktree", "list or discard preserved worktrees from successful applies",
 		"列出 / 销毁成功 apply 时保留的 worktree"},
+	{"/merge", "fold an applied plan back into the main repo (fast-forward into base, or cherry-pick onto a new branch)",
+		"把已 apply 的 plan 合回主仓(fast-forward 到 base 分支,或 cherry-pick 到新分支)"},
 	{"/version", "print build version", "打印构建版本"},
 	{"/exit", "leave the REPL", "退出 REPL"},
 	{"/quit", "leave the REPL", "退出 REPL"},
@@ -679,7 +681,7 @@ func (m *inputModel) handleSuggestKey(msg tea.KeyMsg) (tea.Cmd, bool) {
 // command whose handler reads a non-empty remainder.
 func needsArg(cmd string) bool {
 	switch cmd {
-	case "/log", "/htrace", "/chat", "/mode", "/plan", "/reject", "/verify", "/worktree":
+	case "/log", "/htrace", "/chat", "/mode", "/plan", "/reject", "/verify", "/worktree", "/merge":
 		return true
 	}
 	return false

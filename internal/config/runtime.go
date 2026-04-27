@@ -471,10 +471,23 @@ type RuntimeSettings struct {
 	//                        directory where ChangePlan JSONs land.
 	//                        Absolute or runtime-anchor-relative;
 	//                        cmd/root.go anchors non-absolute paths.
+	//   WriteAutoInitRepo  — yaml-level pre-authorization for the
+	//                        bare-directory scaffolding flow. When the
+	//                        target dir is not a git repo (or has no
+	//                        commits), worktree provisioning normally
+	//                        fail-louds; with this true, the orchestrator
+	//                        runs `git init` (if needed) and an empty
+	//                        initial commit before `git worktree add`.
+	//                        Same semantics as the CLI --auto-init-repo
+	//                        flag but applied to every Run from this
+	//                        deploy. REPL retains an interactive y/N
+	//                        prompt as the third tier when neither
+	//                        flag nor yaml is set.
 	WriteEnabled      *bool   `yaml:"write_enabled"`
 	WriteDefaultMode  *string `yaml:"write_default_mode"`
 	WriteAutoApproval *bool   `yaml:"write_auto_approval"`
 	WritePlanDir      *string `yaml:"write_plan_dir"`
+	WriteAutoInitRepo *bool   `yaml:"write_auto_init_repo"`
 
 	// REPL interactive knobs. `repl_*` prefix groups runtime tweaks
 	// to the interactive prompt. Today only the paste-fold threshold

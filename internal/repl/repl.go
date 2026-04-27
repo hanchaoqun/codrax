@@ -35,6 +35,7 @@ import (
 	"github.com/hanchaoqun/codrax/internal/render"
 	"github.com/hanchaoqun/codrax/internal/tool"
 	"github.com/hanchaoqun/codrax/internal/types"
+	"github.com/hanchaoqun/codrax/internal/worktree"
 )
 
 // Runner is the orchestrator-shaped surface the REPL needs. Defined
@@ -86,6 +87,17 @@ type modeSetter interface {
 // omit it make /approve a no-op with a warning.
 type planPathSetter interface {
 	SetPlanPath(string)
+}
+
+// autoInitRepoSetter is the optional capability `/approve` flips on
+// after the user (or the yaml/CLI pre-authorization) consents to
+// scaffolding a bare/headless target via `git init` + empty initial
+// commit. The orchestrator setter primes the apply pre-hook to
+// transparently transition through worktree.EnsureInitialCommit
+// instead of fail-louding. Test stubs that omit this method are fine
+// — auto-init only matters in real-orchestrator paths.
+type autoInitRepoSetter interface {
+	SetAutoInitRepo(bool)
 }
 
 // reuseWorktreeSetter is the capability `/verify <plan-id>` needs:
@@ -195,6 +207,15 @@ type Config struct {
 	// write_enabled was the cause. cmd/root.go forwards
 	// runtime_settings.WriteEnabled.
 	WriteEnabled bool
+
+	// WriteAutoInitRepo mirrors the resolved auto-init authorization
+	// (yaml `write_auto_init_repo` OR CLI `--auto-init-repo`). When
+	// true, the REPL's /approve flow skips the interactive y/N
+	// consent prompt for bare/headless repos and silently
+	// authorizes the orchestrator to scaffold. When false (default),
+	// /approve runs DetectRepoState before dispatching and prompts
+	// for consent if the target needs init.
+	WriteAutoInitRepo bool
 }
 
 // REPL drives the interactive prompt.
@@ -299,6 +320,14 @@ type REPL struct {
 	// confusing analyzer/planner failure deep inside the pipeline.
 	writeEnabled bool
 
+	// writeAutoInitRepo mirrors Config.WriteAutoInitRepo. When true
+	// the /approve flow skips the y/N consent prompt and silently
+	// authorizes the orchestrator's auto-init path on bare /
+	// commitless repos. When false, /approve calls
+	// worktree.DetectRepoState first; if NeedsInit() returns true,
+	// the user is prompted before any state mutation.
+	writeAutoInitRepo bool
+
 	// pendingPlanPath is the filesystem path of the last plan
 	// auto-saved by this REPL (via planStore.Save after a
 	// successful plan-mode dispatch). Used by /plan show to
@@ -358,6 +387,7 @@ func New(cfg Config) *REPL {
 		attachedLogMaxBytes:   cfg.AttachedLogMaxBytes,
 		attachedTraceMaxBytes: cfg.AttachedTraceMaxBytes,
 		writeEnabled:          cfg.WriteEnabled,
+		writeAutoInitRepo:     cfg.WriteAutoInitRepo,
 		settingsPath:          cfg.SettingsPath,
 	}
 	if r.version == "" {
@@ -1151,6 +1181,9 @@ func (r *REPL) handleSlash(line string) bool {
 	case "/worktree":
 		r.handleWorktreeCmd(line)
 		return false
+	case "/merge":
+		r.handleMergeCmd(line)
+		return false
 	case "/exit", "/quit":
 		fmt.Fprintln(r.out, "  Goodbye!")
 		return true
@@ -1327,17 +1360,29 @@ func (r *REPL) handlePlanCmd(line string) {
 	switch rest {
 	case "show":
 		if r.pendingPlanPath == "" {
-			// When write is disabled, "/mode plan" itself would bounce
-			// off the L2 gate — surface that root cause instead of
-			// telling the user to run a command they can't.
-			if !r.writeEnabled {
-				for _, line := range noPendingPlanWriteDisabled(r.language) {
-					r.info(line)
+			// Recovery: an earlier /approve may have failed and dropped
+			// the in-session pointer (older builds), or this REPL just
+			// started in a dir whose PlanStore already has a pending
+			// plan from a prior session. Walk PlanStore.List for the
+			// most recent Status=pending_approval entry and rebind.
+			// This makes the plan visible again without forcing the
+			// user to remember its file path or restart codrax.
+			if recovered, ok := r.recoverPendingPlanFromStore(); ok {
+				r.pendingPlanPath = recovered.Path
+				r.info(recoveredPendingPlan(r.language, recovered.ID))
+			} else {
+				// When write is disabled, "/mode plan" itself would bounce
+				// off the L2 gate — surface that root cause instead of
+				// telling the user to run a command they can't.
+				if !r.writeEnabled {
+					for _, line := range noPendingPlanWriteDisabled(r.language) {
+						r.info(line)
+					}
+					return
 				}
+				r.info(noPendingPlan(r.language))
 				return
 			}
-			r.info(noPendingPlan(r.language))
-			return
 		}
 		id := strings.TrimSuffix(filepath.Base(r.pendingPlanPath), ".json")
 		plan, err := r.planStore.Load(id)
@@ -1407,6 +1452,37 @@ func (r *REPL) handlePlanCmd(line string) {
 	default:
 		r.warn("unknown /plan subcommand %q — expected: show, clear, list\n", rest)
 	}
+}
+
+// recoverPendingPlanFromStore walks PlanStore.List for the most
+// recent plan whose Status is pending_approval and returns its
+// PlanInfo. Used by /plan show when r.pendingPlanPath is empty —
+// e.g. after a pre-flight /approve failure (older builds dropped
+// the pointer), or when a fresh REPL session lands in a dir whose
+// PlanStore inherited a pending plan from a prior process.
+//
+// Returns (PlanInfo{}, false) when:
+//   - PlanStore is nil
+//   - List errored (warning is logged)
+//   - no entry with Status=pending_approval exists
+//
+// PlanStore.List is already newest-first sorted, so the first match
+// is the right one.
+func (r *REPL) recoverPendingPlanFromStore() (PlanInfo, bool) {
+	if r.planStore == nil {
+		return PlanInfo{}, false
+	}
+	infos, err := r.planStore.List()
+	if err != nil {
+		logging.Warning("[repl] recover pending plan: list failed: %v", err)
+		return PlanInfo{}, false
+	}
+	for _, inf := range infos {
+		if inf.Status == types.PlanStatusPending {
+			return inf, true
+		}
+	}
+	return PlanInfo{}, false
 }
 
 // collectPlanHistory enumerates saved plans and pairs each with its
@@ -1510,7 +1586,14 @@ func (r *REPL) collectPlanHistory() []string {
 //     pendingPlanPath regardless of success (apply is terminal;
 //     the user re-plans if they want to try again)
 func (r *REPL) handleApproveCmd(line string) {
-	_ = line // /approve takes no arguments today
+	// Parse optional `--merge-to=<branch>` (also accepts the bare
+	// shape `--merge-to <branch>`). When set, a successful approve
+	// folds the worktree back via MergeIntoBranch in MergeAuto mode
+	// — fast-forwarding when the branch == r.branch and the diff is
+	// linear, otherwise creating that branch and cherry-picking
+	// onto it. Empty leaves the worktree preserved (the historical
+	// behaviour) so the user can /merge later by hand.
+	mergeTo := parseMergeToArg(line)
 	if r.planStore == nil {
 		r.info("/approve disabled (no PlanStore configured)")
 		return
@@ -1589,6 +1672,54 @@ func (r *REPL) handleApproveCmd(line string) {
 		return
 	}
 
+	// Bare-directory scaffolding gate. Before handing the plan to the
+	// orchestrator, probe the target repo. If it's not a git repo, or
+	// the repo has no HEAD commit yet, `git worktree add --detach HEAD`
+	// inside worktree.Create will fail. Three-tier authorization:
+	//
+	//   1. yaml/CLI pre-authorized (writeAutoInitRepo == true) →
+	//      forward the flag to the orchestrator and proceed silently.
+	//   2. interactive REPL → prompt y/N; on yes, forward; on no,
+	//      print the recovery hint and bail (plan stays pending).
+	//   3. non-interactive REPL (scripted) without pre-auth → bail
+	//      with the same hint.
+	//
+	// The orchestrator's apply pre-hook does the actual EnsureInitialCommit
+	// + worktree.Create call so all writes happen in one place.
+	if state, derr := worktree.DetectRepoState(r.repoRoot); derr == nil && state.NeedsInit() {
+		if !r.writeAutoInitRepo {
+			if !r.interactive() {
+				r.errorf("approve: target %s is %s — re-run with --auto-init-repo or set codrax.yaml :: write_auto_init_repo: true\n",
+					r.repoRoot, state)
+				return
+			}
+			autoConsent := false
+			if err := huh.NewConfirm().
+				Title(autoInitConsentTitle(r.language, r.repoRoot, state.String())).
+				Affirmative("Yes").
+				Negative("No").
+				Value(&autoConsent).
+				Run(); err != nil {
+				autoConsent = false
+			}
+			if !autoConsent {
+				for _, line := range autoInitDeclined(r.language) {
+					r.info(line)
+				}
+				return
+			}
+			r.info(autoInitProceeding(r.language, r.repoRoot))
+		}
+		// Per-Run authorization: forward to orchestrator. We restore
+		// the prior value in the defer so subsequent /approve calls
+		// against a different (already-initialized) repo don't keep
+		// the gate lifted.
+		if setter, ok := r.runner.(autoInitRepoSetter); ok {
+			setter.SetAutoInitRepo(true)
+			defer setter.SetAutoInitRepo(r.writeAutoInitRepo)
+		}
+	}
+
 	originalMode := r.currentMode
 	mSetter.SetMode(types.ModeApply)
 	pSetter.SetPlanPath(r.pendingPlanPath)
@@ -1620,9 +1751,11 @@ func (r *REPL) handleApproveCmd(line string) {
 	if runErr != nil {
 		logging.Error("[repl] approve failed: %v", runErr)
 		r.errorf("approve: %s\n", friendlyRunError(r.language, runErr))
-		// Drop pendingPlanPath so the user /mode plan's a fresh plan
-		// rather than re-running a known-broken apply.
-		r.pendingPlanPath = ""
+		// Pre-flight failures (worktree provisioning, missing git, etc.)
+		// never touched the plan — its on-disk Status stays
+		// pending_approval. Keep r.pendingPlanPath set so /plan show
+		// still works and the user can fix the environment + /approve
+		// again, or /reject the plan deliberately.
 		return
 	}
 
@@ -1673,11 +1806,234 @@ func (r *REPL) handleApproveCmd(line string) {
 	// policy can surface plan outcomes explicitly.
 	r.recordTurn(request, request, memResponse, memory.KindPlan)
 
-	// Apply is terminal. On success, the worktree has been discarded
-	// (orchestrator defer); on partial failure, TaskState.LastError
-	// already surfaced. Clear pendingPlanPath either way — replan if
-	// you want to try again.
-	r.pendingPlanPath = ""
+	// Clear pendingPlanPath only on a CLEAN success (apply + verify
+	// both passed). On TaskState.LastError, the plan is already
+	// stamped applied_failed / verify_failed on disk; /approve a
+	// second time would refuse on the status check, so keeping the
+	// pointer is harmless and lets /plan show display the failed
+	// plan + diff for post-mortem inspection.
+	cleanSuccess := busCtx != nil && busCtx.TaskState.LastError == ""
+
+	// `--merge-to=<branch>` opt-in chains the merge step right
+	// after a successful approve. Skipped on any failure path
+	// because the worktree was already discarded (or contains a
+	// half-applied plan) and merging would be meaningless.
+	if cleanSuccess && mergeTo != "" {
+		if busCtx == nil || busCtx.WorktreePath == "" {
+			r.warn("--merge-to=%s ignored: no worktree was preserved (set codrax.yaml :: pipeline_keep_worktree_on_success: true)\n", mergeTo)
+		} else {
+			r.runMerge(busCtx.WorktreePath, mergeTo)
+		}
+	}
+
+	if cleanSuccess {
+		r.pendingPlanPath = ""
+	}
+}
+
+// parseMergeToArg extracts the branch name from a `/approve
+// --merge-to=<branch>` (or `--merge-to <branch>`) line. Returns ""
+// when the flag is absent. Tolerant of multi-token whitespace and
+// optional leading `/approve` prefix so tests can pass the same
+// helper a raw flag string.
+func parseMergeToArg(line string) string {
+	rest := strings.TrimSpace(strings.TrimPrefix(line, "/approve"))
+	if rest == "" {
+		return ""
+	}
+	for _, tok := range strings.Fields(rest) {
+		if strings.HasPrefix(tok, "--merge-to=") {
+			return strings.TrimSpace(strings.TrimPrefix(tok, "--merge-to="))
+		}
+	}
+	// Two-token form: `--merge-to <branch>`.
+	tokens := strings.Fields(rest)
+	for i, tok := range tokens {
+		if tok == "--merge-to" && i+1 < len(tokens) {
+			return strings.TrimSpace(tokens[i+1])
+		}
+	}
+	return ""
+}
+
+// runMerge is the shared body for the auto-merge tail of /approve
+// and the explicit /merge handler. worktreePath must be the
+// absolute path of a preserved worktree; targetBranch is the user-
+// requested integration branch (== r.branch for fast-forward, any
+// other name for cherry-pick onto a new branch). All print
+// statements go through r.info / r.warn / r.success so the same
+// terminal styling rules apply.
+func (r *REPL) runMerge(worktreePath, targetBranch string) {
+	if mainSetter, ok := r.runner.(modeSetter); ok && mainSetter == nil {
+		_ = mainSetter // silence unused if interface check is the only use
+	}
+	mainRoot := r.repoRoot
+	res, err := worktree.MergeIntoBranch(worktree.MergeOptions{
+		MainRepoRoot: mainRoot,
+		WorktreePath: worktreePath,
+		BaseBranch:   r.branch,
+		TargetBranch: targetBranch,
+		Mode:         worktree.MergeAuto,
+	})
+	if err != nil {
+		if errors.Is(err, worktree.ErrNothingToMerge) {
+			r.info(mergeNothingToDo(r.language, r.branch))
+			return
+		}
+		for _, line := range mergeFailure(r.language, err.Error()) {
+			r.warn("%s\n", line)
+		}
+		return
+	}
+	for _, line := range mergeSuccess(r.language, res.Strategy, res.FinalBranch, len(res.CommitsLanded)) {
+		r.info(line)
+	}
+	// Worktree successfully folded back — discard it so /worktree
+	// list stays honest. This is opt-in via the merge step; users
+	// who don't run /merge keep the preserved worktree as before.
+	if err := worktree.DiscardByPath(worktreePath, mainRoot); err != nil {
+		logging.Warning("[repl] post-merge worktree discard failed: %v", err)
+	}
+	// Clear the WorktreePath field on disk so /worktree list and
+	// /merge no longer show this entry as a candidate. Status stays
+	// `applied` — the plan history is permanent.
+	if err := r.clearWorktreePathOnAppliedPlan(worktreePath); err != nil {
+		logging.Warning("[repl] post-merge plan WorktreePath clear failed: %v", err)
+	}
+}
+
+// clearWorktreePathOnAppliedPlan walks PlanStore.List for the entry
+// whose WorktreePath equals path and writes back an empty
+// WorktreePath. Idempotent — running on a plan whose path was
+// already cleared is a no-op.
+//
+// UpdatePlanStatusOnDisk treats empty worktreePath as "don't touch",
+// so this helper does the load/marshal directly rather than route
+// through it.
+func (r *REPL) clearWorktreePathOnAppliedPlan(path string) error {
+	if r.planStore == nil {
+		return nil
+	}
+	infos, err := r.planStore.List()
+	if err != nil {
+		return err
+	}
+	for _, inf := range infos {
+		full, lerr := r.planStore.Load(inf.ID)
+		if lerr != nil || full == nil {
+			continue
+		}
+		if full.WorktreePath != path {
+			continue
+		}
+		full.WorktreePath = ""
+		data, merr := json.MarshalIndent(full, "", "  ")
+		if merr != nil {
+			return merr
+		}
+		return os.WriteFile(inf.Path, data, 0o644)
+	}
+	return nil
+}
+
+// handleMergeCmd is the explicit `/merge [--branch=<name>]` slash
+// command. Used after /approve preserved a worktree (i.e. with
+// `pipeline_keep_worktree_on_success: true`) when the user wants
+// a deliberate review-and-merge step rather than the inline
+// `/approve --merge-to=` shortcut.
+//
+// Default target branch is r.branch (typically "main"), giving a
+// fast-forward when possible. `--branch=<name>` forces the new-
+// branch path (PR workflow). Either way the helper goes through
+// MergeIntoBranch's safety machinery: clean rollback on conflict,
+// refusal on dirty working tree, no surprise pushes.
+func (r *REPL) handleMergeCmd(line string) {
+	if !r.writeEnabled {
+		for _, line := range writeModeDisabled(r.language, "/merge", r.settingsPath) {
+			r.warn("%s\n", line)
+		}
+		return
+	}
+	if r.planStore == nil {
+		r.info("/merge disabled (no PlanStore configured)")
+		return
+	}
+	target := r.branch
+	rest := strings.TrimSpace(strings.TrimPrefix(line, "/merge"))
+	for _, tok := range strings.Fields(rest) {
+		if strings.HasPrefix(tok, "--branch=") {
+			target = strings.TrimSpace(strings.TrimPrefix(tok, "--branch="))
+			break
+		}
+	}
+	if target == "" {
+		target = r.branch
+	}
+
+	// Locate the most recent preserved worktree from PlanStore.
+	infos, err := r.planStore.List()
+	if err != nil {
+		r.errorf("merge: list plans: %v\n", err)
+		return
+	}
+	var wt string
+	var planID string
+	for _, inf := range infos {
+		if inf.Status != types.PlanStatusApplied {
+			continue
+		}
+		full, lerr := r.planStore.Load(inf.ID)
+		if lerr != nil || full == nil {
+			continue
+		}
+		if full.WorktreePath == "" {
+			continue
+		}
+		if _, statErr := os.Stat(full.WorktreePath); statErr != nil {
+			continue
+		}
+		wt = full.WorktreePath
+		planID = full.ID
+		break
+	}
+	if wt == "" {
+		for _, line := range mergeNoApplyYet(r.language) {
+			r.info(line)
+		}
+		return
+	}
+
+	// Probe the merge plan first so the confirm prompt can describe
+	// what will land. We skip this when not interactive — scripted
+	// callers want one-shot semantics, not a y/N round-trip.
+	if r.interactive() {
+		// Best-effort enumerate strategy + commit count by running
+		// the same logic in dry-mode. We don't have a separate
+		// "preview" path; instead we synthesize a confirm title
+		// from BaseBranch == TargetBranch (ff likely) vs different
+		// (cherry-pick branch). The post-merge surface still tells
+		// the truth even if our prediction was off.
+		strategy := "cherry_pick_branch"
+		if target == r.branch {
+			strategy = "fast_forward"
+		}
+		title := mergeConfirmTitle(r.language, strategy, target, 1)
+		confirmed := false
+		if err := huh.NewConfirm().
+			Title(title).
+			Affirmative("Yes").
+			Negative("No").
+			Value(&confirmed).
+			Run(); err != nil {
+			confirmed = false
+		}
+		if !confirmed {
+			r.info(approveCancelled(r.language))
+			return
+		}
+	}
+	logging.Info("[repl] /merge plan=%s target=%s worktree=%s", planID, target, wt)
+	r.runMerge(wt, target)
 }
 
 // handleRejectCmd discards the pending ChangePlan without invoking

@@ -94,11 +94,11 @@ Citation 由 finalizer 发射时同步校验(`internal/tool/ground/`),文件 / �
 
 ```
            /mode plan
-            或 --mode=plan                      /approve  或  --mode=apply
-read ────────────────────►  plan ────────────────►  apply  ────► verify ────► done
-                              │   (planner 写 ChangePlan)  │  (coder 在 worktree     │ (verifier 跑
-                              │                            │   里逐单元 apply_patch)  │  run_tests)
-                              ▼                            ▼
+            或 --mode=plan                      /approve  或  --mode=apply              /merge
+read ────────────────────►  plan ────────────────►  apply  ────► verify ────► applied ────► main
+                              │   (planner 写 ChangePlan)  │  (coder 在 worktree     │ (verifier 跑    (fast-forward
+                              │                            │   里逐单元 apply_patch)  │  run_tests)     或 cherry-pick
+                              ▼                            ▼                                            到新分支)
                           /plan show              /worktree list / discard
                           /reject [reason]        /verify [plan-id]
 ```
@@ -109,7 +109,7 @@ read ────────────────────►  plan ─�
 | `apply` | `coder` | `apply_patch`(每 ChangeUnit 一次) | 在 git worktree 里按拓扑序写文件;支持 `create` / `modify` / `delete` / `patch`(kind=patch 通过 `git apply -` 喂 unified diff) |
 | `verify` | `verifier` | `run_tests` + 可选 `emit_test_results` | 在 worktree 里跑测试套件,产出 `ChangeReport` |
 
-**`run_tests` 识别 11 种 runner**:Go(`go test -json`)、Node(jest/vitest `--json`)、Python(pytest-json-report)、Rust(cargo test)、Java / Kotlin(Maven `mvn test` 或 Gradle `./gradlew test`,JUnit XML)、Ruby(RSpec `--format json`)、CMake(ctest `--output-junit`)、Meson(`meson test --xunit-file`)、Make(`make check` / `make test`,exit-code 判定)、HarmonyOS hvigor(`hvigorw test`,JUnit XML 复用 Java 解析)、Cangjie cjpm(`cjpm test`,Cargo 风格文本)。探测通过仓根的 manifest 文件(`go.mod` / `oh-package.json5` / `cjpm.toml` / `package.json` / `Cargo.toml` / `pom.xml` / `build.gradle.kts` / `CMakeLists.txt` / `Makefile` 等),HarmonyOS / Cangjie manifest 优先级排在通用语言之前。缺失 runner 会在 verify 阶段 fail-loud。
+**`run_tests` 识别 12 种 runner**:Go(`go test -json`)、Node(jest/vitest `--json`)、Python(pytest-json-report)、Rust(cargo test)、Java / Kotlin(Maven `mvn test` 或 Gradle `./gradlew test`,JUnit XML)、Ruby(RSpec `--format json`)、Swift(`swift test`,Package.swift 探测)、CMake(ctest `--output-junit`)、Meson(`meson test --xunit-file`)、Make(`make check` / `make test`,exit-code 判定)、HarmonyOS hvigor(`hvigorw test`,JUnit XML 复用 Java 解析)、Cangjie cjpm(`cjpm test`,Cargo 风格文本)。探测通过仓根的 manifest 文件(`go.mod` / `oh-package.json5` / `cjpm.toml` / `package.json` / `Cargo.toml` / `pom.xml` / `build.gradle.kts` / `Package.swift` / `CMakeLists.txt` / `Makefile` 等),HarmonyOS / Cangjie manifest 优先级排在通用语言之前。**零测试发现**(pytest exit 5、jest "no tests found"、`go test ./...` 无 `_test.go`)被作为一等信号 `NoTestsRunners` 单独记录,不会被误判为测试失败。缺失 runner 会在 verify 阶段 fail-loud。
 
 **沙箱语义**:
 - 所有写操作都在 `git worktree add` 出来的独立 worktree 里执行,主仓库 HEAD 字节不变。
@@ -120,7 +120,9 @@ read ────────────────────►  plan ─�
 
 **baseline 捕获**(可选):`pipeline_baseline_capture_enabled: true` 会在 apply 前跑一遍测试套件作为 baseline 快照。verifier LLM 提示里会列出 baseline 已失败的测试,引导区分"这个 plan 造成的 REGRESSION"与"预存 PRE-EXISTING 失败"。默认关闭(测试墙钟时间翻倍)。
 
-**合并回主仓**:codrax 永远不自动推改动到主仓 HEAD。成功的 worktree(保留选项开启时)+ 用户的 `git cherry-pick` / `git rebase` 是规范通路;失败的 worktree 自动销毁。
+**合并回主仓**(`/merge` + `/approve --merge-to=`):codrax 提供两条优雅的合并通路,默认 fast-forward 到当前分支(`main`),或显式 `--branch=<name>` 在主仓上拉新分支 + cherry-pick(走 PR 流程)。冲突或主仓工作区脏时自动回滚到合并前状态、不留半成品分支;`git push` 永远是用户手动操作。`/approve --merge-to=fix/x` 把 approve + 合并合成一步,对已知目标分支的场景把手动操作降到最少。
+
+**裸目录脚手架**(三档授权):目标是空目录或 `git init` 后还没 commit 时,默认 fail-loud。三种方式可显式授权 codrax 自动 `git init` + 空 initial commit 后再 apply:CLI `--auto-init-repo`、yaml `write_auto_init_repo: true`、REPL 交互 y/N 同意。任何路径都不会动用户已有的 git 状态。
 
 详见 [用户指南 · 写模式](docs/user_guide.md#43-写模式)。
 
@@ -172,7 +174,7 @@ REPL 斜杠命令(支持 `\` 前缀别名,如 `\exit` ≡ `/exit`):
 ```
 /help  /exit  /quit  /version  /history  /clear  /compact
 /log   /paste  /chat
-/mode  /plan   /approve  /reject  /verify  /worktree
+/mode  /plan   /approve  /reject  /verify  /worktree  /merge
 ```
 
 每条都支持 Tab 补齐。
@@ -318,7 +320,8 @@ REPL:`/htrace <path>` / `/htrace append <path>` / `/htrace show` / `/htrace clea
 - **默认语言**:`--lang=zh` 默认简体中文作答;`--lang=off` / `none` 关闭;任一非空值保留"用户若用其他语言提问则跟随"兜底
 - **Answer contract**:finalizer 输出结构化 `AnswerDocument`(typed symbols / steps / value / boolean / explanation + citation pool),cardinality 验证器把"谎称 complete 但 slate 不足基线"的 claim 自动降级为 lower_bound
 - **日志分诊**:`--log / --log-text` 或 REPL `/log` 附加运行时日志,LLM 驱动的 log_triage 阶段把任意格式 panic / exception / sanitizer / traceback / 结构化应用日志解析成结构化锚点;日志正文独立通道不污染提问关键词识别
-- **写模式沙箱**:`plan → apply → verify` 全部在 git worktree 里跑,主仓 HEAD 永不自动变;严格 W1/W1b 写闭包检查;可选 verify→plan 重试循环 + baseline 回归对比 + worktree 保留 + 9 种 test runner 自动探测
+- **写模式沙箱**:`plan → apply → verify → merge` 全部在 git worktree 里跑,主仓 HEAD 永不自动变;严格 W1/W1b 写闭包检查;可选 verify→plan 重试循环 + baseline 回归对比 + worktree 保留 + 12 种 test runner 自动探测;`NoTestsRunners` 一等信号区分"零测试发现"与"测试失败";执行进程组隔离(Linux `Setpgid` / Windows JobObject)+ 内存/CPU 上限,防止失控测试拖死主进程
+- **合并回主仓优雅化**:`/merge` 把 worktree 里的 commit 自动 fast-forward 到当前分支或 cherry-pick 到新分支(`--branch=fix/x`);`/approve --merge-to=fix/x` 一步合并;冲突 = 完整回滚不留半成品,主仓工作区脏不动;裸目录 + commitless repo 三档授权(REPL y/N、yaml `write_auto_init_repo`、CLI `--auto-init-repo`)允许自动 `git init` 脚手架
 
 ## 文档
 

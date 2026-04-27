@@ -320,21 +320,74 @@ func (r *capturingRunner) Run(_, _, _ string) (*types.BusContext, error) {
 func (r *capturingRunner) SetMode(m types.PipelineMode) { r.curMode = m }
 func (r *capturingRunner) SetPlanPath(p string)         { r.curPlanPath = p }
 
-// TestApprove_RunErrorClearsPendingPath verifies that if Run returns
-// an error, pendingPlanPath is still cleared so the user doesn't
-// loop on a broken plan.
-func TestApprove_RunErrorClearsPendingPath(t *testing.T) {
+// TestApprove_RunErrorKeepsPendingPath verifies that if Run returns
+// a pre-flight error (worktree provisioning, missing git, bare dir
+// without auto-init authorization), pendingPlanPath is **kept** so
+// the user can /plan show the surviving pending plan, fix the
+// environment, and /approve again — or /reject deliberately. Earlier
+// builds dropped the pointer and made the plan invisible until the
+// user manually inspected the PlanStore JSON.
+func TestApprove_RunErrorKeepsPendingPath(t *testing.T) {
 	runner := &writeCapableRunner{runErr: errors.New("apply boom")}
 	r, _, out := newApprovalREPL(t, "y\n", runner)
+	priorPath := r.pendingPlanPath
+	if priorPath == "" {
+		t.Fatal("test setup: pendingPlanPath must be seeded")
+	}
 	r.handleApproveCmd("/approve")
 	if !runner.runCalled {
 		t.Fatal("Run should fire")
 	}
-	if r.pendingPlanPath != "" {
-		t.Errorf("pendingPlanPath should be cleared after Run error; got %q", r.pendingPlanPath)
+	if r.pendingPlanPath != priorPath {
+		t.Errorf("pendingPlanPath should be retained after pre-flight Run error; got %q want %q",
+			r.pendingPlanPath, priorPath)
 	}
 	if !strings.Contains(out.String(), "apply boom") {
 		t.Errorf("expected Run error text in output, got: %q", out.String())
+	}
+}
+
+// TestApprove_TaskStateLastErrorKeepsPendingPath verifies the same
+// retention behaviour for the "Run returned cleanly, but the
+// pipeline hit a soft failure" path. The plan is already stamped
+// applied_failed / verify_failed on disk, so /approve again would
+// refuse on the status check; keeping the pointer lets /plan show
+// surface the failed plan + diff for post-mortem inspection.
+func TestApprove_TaskStateLastErrorKeepsPendingPath(t *testing.T) {
+	runner := &writeCapableRunner{
+		runResult: &types.BusContext{
+			Mutable: types.NewMutableState("approve"),
+			TaskState: types.TaskState{
+				LastError: "apply: W1 violation",
+			},
+		},
+	}
+	r, _, _ := newApprovalREPL(t, "y\n", runner)
+	priorPath := r.pendingPlanPath
+	r.handleApproveCmd("/approve")
+	if r.pendingPlanPath != priorPath {
+		t.Errorf("pendingPlanPath should be retained when TaskState.LastError != \"\"; got %q want %q",
+			r.pendingPlanPath, priorPath)
+	}
+}
+
+// TestApprove_CleanSuccessClearsPendingPath verifies the only path
+// that DOES drop the pointer: apply + verify both succeeded and
+// TaskState.LastError is empty. The plan is now `applied`, not
+// re-approvable, so clearing keeps the next /plan show honest.
+func TestApprove_CleanSuccessClearsPendingPath(t *testing.T) {
+	runner := &writeCapableRunner{
+		runResult: &types.BusContext{
+			Mutable: types.NewMutableState("approve"),
+		},
+	}
+	r, _, _ := newApprovalREPL(t, "y\n", runner)
+	if r.pendingPlanPath == "" {
+		t.Fatal("test setup: pendingPlanPath must be seeded")
+	}
+	r.handleApproveCmd("/approve")
+	if r.pendingPlanPath != "" {
+		t.Errorf("pendingPlanPath should be cleared after clean success; got %q", r.pendingPlanPath)
 	}
 }
 

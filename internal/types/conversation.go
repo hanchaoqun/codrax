@@ -68,6 +68,7 @@ var replCommandAliases = map[string]string{
 	"/reject":    "/reject",
 	"/verify":    "/verify",
 	"/worktree":  "/worktree",
+	"/merge":     "/merge",
 	"\\q":        "/quit",
 	"\\quit":     "/quit",
 	"\\exit":     "/exit",
@@ -89,6 +90,7 @@ var replCommandAliases = map[string]string{
 	"\\reject":   "/reject",
 	"\\verify":   "/verify",
 	"\\worktree": "/worktree",
+	"\\merge":    "/merge",
 }
 
 // NormalizeREPLCommandAlias returns the canonical slash-command form

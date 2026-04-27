@@ -258,6 +258,150 @@ func noPendingPlanWriteDisabled(lang string) []string {
 	}
 }
 
+// autoInitConsentTitle — interactive y/N prompt body for the bare-
+// directory scaffolding flow. /approve fires this before dispatching
+// when DetectRepoState reports NeedsInit() and no pre-authorization
+// is in effect (yaml write_auto_init_repo / CLI --auto-init-repo).
+// stateLabel is "not_initialized" or "no_commits" so the user sees
+// which precondition is being lifted.
+func autoInitConsentTitle(lang, repoRoot, stateLabel string) string {
+	if isZh(lang) {
+		return formatN(lang,
+			"目标目录 %s 状态:%s。codrax 可以自动 `git init` + 空 initial commit,然后在沙箱 worktree 里 apply。是否同意?",
+			repoRoot, stateLabel)
+	}
+	return formatN(lang,
+		"target %s is %s. codrax can run `git init` + an empty initial commit, then apply inside a sandbox worktree. Proceed?",
+		repoRoot, stateLabel)
+}
+
+// autoInitDeclined — printed when the user answered No to the consent
+// prompt. Tells them how to switch on yaml/CLI pre-authorization
+// instead so they don't have to answer y every time.
+func autoInitDeclined(lang string) []string {
+	if isZh(lang) {
+		return []string{
+			"已取消。Plan 仍保留在 PlanStore (/plan show 可看)。",
+			"  下次想直接同意:codrax.yaml :: write_auto_init_repo: true,或单次跑 codrax --auto-init-repo --mode=apply ...",
+		}
+	}
+	return []string{
+		"cancelled. The plan is still saved (run /plan show to inspect).",
+		"  To skip this prompt next time: set `write_auto_init_repo: true` in codrax.yaml, or pass --auto-init-repo to one-shot CLI runs.",
+	}
+}
+
+// autoInitProceeding — printed right before EnsureInitialCommit fires
+// so the operator sees the state mutation as a deliberate step.
+func autoInitProceeding(lang, repoRoot string) string {
+	if isZh(lang) {
+		return formatN(lang, "正在初始化 git repo: %s ...", repoRoot)
+	}
+	return formatN(lang, "initializing git repo: %s ...", repoRoot)
+}
+
+// mergeNothingToDo — printed when /merge runs against a worktree
+// that hasn't produced any commits beyond the base. This usually
+// means /merge fired before /approve, or /approve produced an empty
+// plan.
+func mergeNothingToDo(lang, baseBranch string) string {
+	if isZh(lang) {
+		return formatN(lang, "  没有可合并的 commit:worktree HEAD 和 %s 一致", baseBranch)
+	}
+	return formatN(lang, "  nothing to merge: worktree HEAD is at %s tip", baseBranch)
+}
+
+// mergeNoApplyYet — /merge ran without a preserved worktree from a
+// successful /approve. Tell the user the prerequisite chain.
+func mergeNoApplyYet(lang string) []string {
+	if isZh(lang) {
+		return []string{
+			"没有可合并的 worktree。/merge 需要一次成功的 /approve 留下的 worktree。",
+			"  先 /mode plan 生成 plan,/approve 落地(确保 codrax.yaml 里 pipeline_keep_worktree_on_success: true),再 /merge。",
+		}
+	}
+	return []string{
+		"no worktree to merge from. /merge consumes a worktree preserved by a successful /approve.",
+		"  Run /mode plan, then /approve (with pipeline_keep_worktree_on_success: true), then /merge.",
+	}
+}
+
+// mergeConfirmTitle — interactive y/N before any git command runs.
+func mergeConfirmTitle(lang, strategy, target string, count int) string {
+	if isZh(lang) {
+		switch strategy {
+		case "fast_forward":
+			return formatN(lang, "把 %d 个 commit fast-forward 到主仓 %s 分支?", count, target)
+		default:
+			return formatN(lang, "在主仓上拉新分支 %s 并 cherry-pick %d 个 commit?", target, count)
+		}
+	}
+	switch strategy {
+	case "fast_forward":
+		return formatN(lang, "Fast-forward %d commit(s) onto main repo branch %s?", count, target)
+	default:
+		return formatN(lang, "Create branch %s on main repo and cherry-pick %d commit(s) onto it?", target, count)
+	}
+}
+
+// mergeSuccess — printed after a clean MergeIntoBranch return.
+func mergeSuccess(lang, strategy, finalBranch string, count int) []string {
+	if isZh(lang) {
+		switch strategy {
+		case "fast_forward":
+			return []string{
+				formatN(lang, "  ✓ 已 fast-forward %d 个 commit 到 %s。", count, finalBranch),
+				"  下一步:git push(可选)。",
+			}
+		default:
+			return []string{
+				formatN(lang, "  ✓ 已在主仓创建分支 %s,cherry-pick %d 个 commit。", finalBranch, count),
+				formatN(lang, "  下一步:cd <主仓> && git push -u origin %s,然后开 PR。", finalBranch),
+			}
+		}
+	}
+	switch strategy {
+	case "fast_forward":
+		return []string{
+			formatN(lang, "  ✓ Fast-forwarded %d commit(s) onto %s.", count, finalBranch),
+			"  Next: git push (optional).",
+		}
+	default:
+		return []string{
+			formatN(lang, "  ✓ Branch %s created on main repo with %d cherry-picked commit(s).", finalBranch, count),
+			formatN(lang, "  Next: cd <main repo> && git push -u origin %s, then open a PR.", finalBranch),
+		}
+	}
+}
+
+// mergeFailure — printed when MergeIntoBranch returned an error.
+// gitDiag is the raw git diagnostic from the helper; the second
+// line tells the user the helper rolled back so the main repo is
+// in its prior state.
+func mergeFailure(lang, gitDiag string) []string {
+	if isZh(lang) {
+		return []string{
+			formatN(lang, "  ✗ 合并失败:%s", oneLine(gitDiag)),
+			"  主仓已回滚到合并前的状态。可以 /worktree show 检查冲突文件,或 /reject 弃掉 plan 重新规划。",
+		}
+	}
+	return []string{
+		formatN(lang, "  ✗ Merge failed: %s", oneLine(gitDiag)),
+		"  Main repo restored to prior state. /worktree show to inspect, or /reject to discard the plan.",
+	}
+}
+
+// recoveredPendingPlan — printed when /plan show found pendingPlanPath
+// empty but PlanStore.List had a Status=pending_approval entry. The
+// REPL recovers the pointer transparently so a previous failed
+// /approve doesn't make the plan invisible.
+func recoveredPendingPlan(lang, planID string) string {
+	if isZh(lang) {
+		return formatN(lang, "  从 PlanStore 恢复待审批 plan: %s", planID)
+	}
+	return formatN(lang, "  recovered pending plan from PlanStore: %s", planID)
+}
+
 // noPendingPlanReject — same as noPendingPlan but for /reject.
 func noPendingPlanReject(lang string) string {
 	if isZh(lang) {

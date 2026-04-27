@@ -171,6 +171,41 @@ func applyPreHook(o *Orchestrator) error {
 		return fmt.Errorf("%s", msg)
 	}
 	if o.busCtx.WorktreePath == "" {
+		// Bare-directory scaffolding gate. DetectRepoState classifies
+		// the main repo as ready / not-initialized / no-commits.
+		// `git worktree add --detach HEAD` (inside worktree.Create)
+		// fails on the latter two, so transition them to ready first
+		// — but ONLY when the operator has authorized it via the
+		// three-tier surface (CLI --auto-init-repo, yaml
+		// write_auto_init_repo, or REPL consent that pre-toggles
+		// the orchestrator setter for this Run). Without authorization
+		// fail-loud with a hint that names every surface, so the
+		// operator picks the path that fits their workflow.
+		if state, err := worktree.DetectRepoState(o.busCtx.MainRepoRoot); err == nil && state.NeedsInit() {
+			if !o.autoInitRepo {
+				msg := fmt.Sprintf(
+					"apply stage: target %s is %s — codrax can scaffold it (`git init` + empty initial commit) but needs explicit authorization. "+
+						"Pass --auto-init-repo (single-shot CLI), set codrax.yaml :: write_auto_init_repo: true (deploy-wide), "+
+						"or in the REPL answer y to the consent prompt that fires before /approve.",
+					o.busCtx.MainRepoRoot, state)
+				o.busCtx.Mutable.SetResult(msg)
+				return fmt.Errorf("%s", msg)
+			}
+			commitMsg := "codrax: initial commit"
+			if plan := o.busCtx.Mutable.ChangePlan(); plan != nil && plan.ID != "" {
+				commitMsg = "codrax: initial commit for " + plan.ID
+			}
+			if err := worktree.EnsureInitialCommit(o.busCtx.MainRepoRoot, commitMsg); err != nil {
+				msg := fmt.Sprintf("apply stage: auto-init repo failed: %v", err)
+				o.busCtx.Mutable.SetResult(msg)
+				return fmt.Errorf("%s", msg)
+			}
+			logging.Info("[orchestrator] apply pre-hook: auto-initialized bare repo at %s", o.busCtx.MainRepoRoot)
+		} else if err != nil {
+			msg := fmt.Sprintf("apply stage: repo state probe failed: %v", err)
+			o.busCtx.Mutable.SetResult(msg)
+			return fmt.Errorf("%s", msg)
+		}
 		sess, err := worktree.Create(o.worktreeBase, o.busCtx.MainRepoRoot, o.busCtx.TraceID)
 		if err != nil {
 			msg := fmt.Sprintf("apply stage: worktree provisioning failed: %v", err)
