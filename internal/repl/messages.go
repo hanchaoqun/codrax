@@ -1078,9 +1078,9 @@ func memoryEmpty(lang string) string {
 // escalates to process exit.
 func spinnerCancelHint(lang string) string {
 	if isZh(lang) {
-		return "Ctrl+C 取消(连按 2 次强制退出 codrax)"
+		return "Ctrl+C 取消(连按 2 次强制退出)"
 	}
-	return "Ctrl+C to cancel (double-tap within 2s to force-exit codrax)"
+	return "Ctrl+C to cancel (double-tap within 2s to force-exit)"
 }
 
 // cancelInProgressMsg — surfaced after the user presses Ctrl+C (or
@@ -1089,7 +1089,7 @@ func spinnerCancelHint(lang string) string {
 // "spinner stuck for ~30s" surprise is preempted.
 func cancelInProgressMsg(lang string) string {
 	if isZh(lang) {
-		return "✗ 取消已请求,等当前 LLM call 返回后生效(最多 ~30s)。再按一次 Ctrl+C 强制退出 codrax。"
+		return "✗ 取消已请求,等当前 LLM call 返回后生效(最多 ~30s)。再按一次 Ctrl+C 强制退出。"
 	}
 	return "✗ cancel requested; takes effect when the current LLM call returns (up to ~30s). Press Ctrl+C again to force exit."
 }
@@ -1099,9 +1099,9 @@ func cancelInProgressMsg(lang string) string {
 // line, no exit — operators can still /exit themselves.
 func cancelNothingRunningMsg(lang string) string {
 	if isZh(lang) {
-		return "没有正在执行的请求可取消。/exit 退出 codrax。"
+		return "没有正在执行的请求可取消。/exit 退出。"
 	}
-	return "no Run in flight to cancel. /exit to leave codrax."
+	return "no Run in flight to cancel. /exit to leave."
 }
 
 // canceledByUserMsg — final user-facing summary line printed in the
