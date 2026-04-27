@@ -31,17 +31,17 @@ func parseRunnerOutput(runner, stdout, extraFile, cmdStr string, runErr error) (
 	case "python":
 		return parsePytestJSONReport(extraFile, stdout, cmdStr)
 	case "rust":
-		return parseCargoTestText(stdout)
+		return parseCargoTestText("rust", stdout)
 	case "java":
 		// extraFile is the report directory (populated by
 		// locateJUnitReportDir in run_tests.go's Execute).
-		return parseJUnitXMLDir(extraFile, stdout)
+		return parseJUnitXMLDir("java", extraFile, stdout)
 	case "cmake", "meson":
 		// extraFile is a single JUnit XML file written by
 		// ctest --output-junit or meson test --xunit-file.
 		// parseJUnitXMLDir's filepath.Walk handles a single-file
 		// root cleanly — the .xml suffix gate accepts our tmpfile.
-		return parseJUnitXMLDir(extraFile, stdout)
+		return parseJUnitXMLDir(runner, extraFile, stdout)
 	case "ruby":
 		return parseRSpecJSON(stdout)
 	case "make":
@@ -51,14 +51,14 @@ func parseRunnerOutput(runner, stdout, extraFile, cmdStr string, runErr error) (
 		// mechanism as Gradle; locateJUnitReportDir populates
 		// extraFile with the report root. Reuse the JUnit parser
 		// path without modification — the XML schema is identical.
-		return parseJUnitXMLDir(extraFile, stdout)
+		return parseJUnitXMLDir("hvigor", extraFile, stdout)
 	case "cjpm":
 		// Cangjie's cjpm emits Cargo-shaped text output (`test
 		// result: ok. N passed; N failed`) from its test command.
 		// The cargo parser handles both the exact Cargo line and
 		// the cjpm variant because the result footer grammar is
 		// identical — no dedicated parser required.
-		return parseCargoTestText(stdout)
+		return parseCargoTestText("cjpm", stdout)
 	case "swift":
 		// Swift Package Manager XCTest output is not cargo-shaped.
 		// We fall back to the make-style exit-code parser for
@@ -164,10 +164,16 @@ func parseSwiftOutput(stdout string, runErr error) (*types.ChangeReport, error) 
 		allPassed = false
 		buildFailed = true
 	}
+	// Zero per-test rows + clean exit = SwiftPM ran but found no
+	// XCTest cases. NoTestsRunners — same rationale as pytest exit 5.
+	noTests := len(results) == 0 && runErr == nil
 	report := &types.ChangeReport{
 		TestResults: results,
-		Passed:      allPassed && len(results) > 0 && !buildFailed,
+		Passed:      noTests || (allPassed && len(results) > 0 && !buildFailed),
 		BuildFailed: buildFailed,
+	}
+	if noTests {
+		report.NoTestsRunners = []string{"swift"}
 	}
 	if !report.Passed {
 		if buildFailed {
@@ -332,28 +338,48 @@ func parseGoTestJSONLines(stdout string) (*types.ChangeReport, error) {
 		}
 	}
 
-	// Compile-error path: zero per-test events + at least one
-	// package-level fail = the package never compiled. Synthesise a
-	// build-error row so evalTestsPass sees BuildFailed and surfaces
-	// "build failed before tests ran" instead of "0 tests passed".
+	// Compile-error path: zero per-test events + (a) at least one
+	// package-level fail OR (b) parseBuildErrors found .go file:line
+	// markers in non-JSON stdout. Either signal indicates the Go test
+	// run never compiled. Synthesise a build-error row so
+	// evalTestsPass sees BuildFailed and surfaces "build failed before
+	// tests ran" instead of "0 tests passed".
+	//
+	// (b) is necessary because go-test-json sometimes emits
+	// `FAIL    pkg [build failed]` as plain text on stderr without a
+	// corresponding JSON `{"Action":"fail"}` event — the JSON-line
+	// filter at the top of this parser drops those lines, so without
+	// the build-error fallback an unparseable stdout would leak into
+	// the no-tests branch and incorrectly pass verify.
 	buildFailed := false
-	if len(results) == 0 && pkgFail {
-		buildErrs := parseBuildErrors(stdout)
+	buildErrsScan := parseBuildErrors(stdout)
+	if len(results) == 0 && (pkgFail || len(buildErrsScan) > 0) {
 		results = append(results, types.TestResult{
 			Kind:          types.TestResultKindBuildError,
-			AssertionID:   firstBuildErrorAssertionID(buildErrs),
+			AssertionID:   firstBuildErrorAssertionID(buildErrsScan),
 			Suite:         "build",
 			Passed:        false,
 			FailureDetail: truncateDetail(stdout, 4000),
-			BuildErrors:   buildErrs,
+			BuildErrors:   buildErrsScan,
 		})
 		buildFailed = true
 	}
 
+	// Zero results + no package-level fail + no build error = the
+	// `go test ./...` walk found a Go module but no _test.go files.
+	// That is a clean run with zero work, not a verify failure — the
+	// plan that touched only non-test .go files (or a non-Go file
+	// inside a Go repo) doesn't have to invent tests to make verify
+	// happy. NoTestsRunners surfaces the signal so the verifier prompt
+	// can switch to a syntax-only check.
+	noTests := len(results) == 0 && !pkgFail && !buildFailed
 	report := &types.ChangeReport{
 		TestResults: results,
-		Passed:      allPassed && len(results) > 0 && !buildFailed,
+		Passed:      noTests || (allPassed && len(results) > 0 && !buildFailed),
 		BuildFailed: buildFailed,
+	}
+	if noTests {
+		report.NoTestsRunners = []string{"go"}
 	}
 	if !report.Passed {
 		if buildFailed {
@@ -479,9 +505,21 @@ func parseJestJSON(stdout string) (*types.ChangeReport, error) {
 		}
 	}
 
+	// Jest/vitest with no test files matched: NumTotalTests=0 and
+	// NumFailedTests=0. j.Success may be false (jest defaults to
+	// failing without --passWithNoTests). Treat as Passed=true +
+	// NoTestsRunners — same rationale as pytest exit code 5.
+	noTests := j.NumTotalTests == 0 && j.NumFailedTests == 0
+	passed := j.Success && j.NumFailedTests == 0
+	if noTests {
+		passed = true
+	}
 	report := &types.ChangeReport{
 		TestResults: results,
-		Passed:      j.Success && j.NumFailedTests == 0,
+		Passed:      passed,
+	}
+	if noTests {
+		report.NoTestsRunners = []string{"node"}
 	}
 	if !report.Passed {
 		report.FailureSummary = fmt.Sprintf(
@@ -564,9 +602,30 @@ func parsePytestJSONReport(reportFile, stdout, cmdStr string) (*types.ChangeRepo
 		})
 	}
 
+	// Pytest exit-code map (https://docs.pytest.org/en/stable/reference/exit-codes.html):
+	//   0 = all collected tests passed
+	//   1 = some tests failed
+	//   2 = test execution interrupted by user
+	//   3 = pytest internal error
+	//   4 = pytest CLI usage error
+	//   5 = no tests were collected (clean run with zero work)
+	// Code 5 is NOT a verify failure — generating a .py file in a repo
+	// without a pytest test suite is a legitimate plan outcome. We mark
+	// it as Passed=true and surface "no tests collected" through the
+	// NoTestsRunners channel so the verifier evaluator + LLM see the
+	// signal explicitly without invented test fixtures.
+	noTests := p.Summary.Total == 0 && p.Summary.Failed == 0 && p.Summary.Error == 0 &&
+		(p.Exitcode == 0 || p.Exitcode == 5)
+	passed := p.Exitcode == 0 && p.Summary.Failed == 0 && p.Summary.Error == 0
+	if noTests {
+		passed = true
+	}
 	report := &types.ChangeReport{
 		TestResults: results,
-		Passed:      p.Exitcode == 0 && p.Summary.Failed == 0 && p.Summary.Error == 0,
+		Passed:      passed,
+	}
+	if noTests {
+		report.NoTestsRunners = []string{"python"}
 	}
 	if !report.Passed {
 		report.FailureSummary = fmt.Sprintf(
@@ -607,7 +666,7 @@ var (
 	reCargoAggregate = regexp.MustCompile(`test result: (ok|FAILED)\. (\d+) passed; (\d+) failed`)
 )
 
-func parseCargoTestText(stdout string) (*types.ChangeReport, error) {
+func parseCargoTestText(runnerLabel, stdout string) (*types.ChangeReport, error) {
 	type cargoResult struct {
 		name   string
 		passed bool
@@ -661,15 +720,25 @@ func parseCargoTestText(stdout string) (*types.ChangeReport, error) {
 	// emit any per-test lines (build-error path, no tests ran),
 	// aggregate may still report a verdict.
 	aggMatch := reCargoAggregate.FindStringSubmatch(stdout)
+	aggPassed := 0
 	aggFailed := 0
 	if aggMatch != nil {
 		if aggMatch[1] == "FAILED" {
 			allPassed = false
 		}
+		if n, err := strconv.Atoi(aggMatch[2]); err == nil {
+			aggPassed = n
+		}
 		if n, err := strconv.Atoi(aggMatch[3]); err == nil {
 			aggFailed = n
 		}
 	}
+
+	// "test result: ok. 0 passed; 0 failed" with no per-test rows is
+	// cargo / cjpm's clean "no tests defined" footprint. Treat as
+	// NoTestsRunners — same rationale as pytest exit 5 / jest 0-total.
+	noTests := len(results) == 0 && aggMatch != nil &&
+		aggMatch[1] == "ok" && aggPassed == 0 && aggFailed == 0
 
 	buildFailed := false
 	if len(results) == 0 && aggMatch == nil {
@@ -700,8 +769,11 @@ func parseCargoTestText(stdout string) (*types.ChangeReport, error) {
 
 	report := &types.ChangeReport{
 		TestResults: results,
-		Passed:      allPassed && len(results) > 0,
+		Passed:      noTests || (allPassed && len(results) > 0),
 		BuildFailed: buildFailed,
+	}
+	if noTests {
+		report.NoTestsRunners = []string{runnerLabel}
 	}
 	if !report.Passed {
 		if buildFailed {
@@ -1164,7 +1236,7 @@ type junitSkipped struct {
 // build/test-results/test). stdout is included in the failure
 // summary when the XML walk found zero testcases so the operator
 // can see what mvn/gradle printed.
-func parseJUnitXMLDir(reportDir, stdout string) (*types.ChangeReport, error) {
+func parseJUnitXMLDir(runnerLabel, reportDir, stdout string) (*types.ChangeReport, error) {
 	if reportDir == "" {
 		return nil, fmt.Errorf("parseJUnitXMLDir: empty report directory")
 	}
@@ -1203,8 +1275,17 @@ func parseJUnitXMLDir(reportDir, stdout string) (*types.ChangeReport, error) {
 		return nil, fmt.Errorf("parseJUnitXMLDir: walk %s: %w", reportDir, walkErr)
 	}
 	if len(results) == 0 {
-		return nil, fmt.Errorf("parseJUnitXMLDir: no test cases parsed from %s (stdout head: %s)",
-			reportDir, stdoutHead(stdout, 200))
+		// Empty JUnit dir = the test runner ran cleanly but produced
+		// no testcase rows (no test classes / no testsuites configured).
+		// Treat as NoTestsRunners — same rationale as pytest exit 5.
+		// The report-dir path itself existed (locateJUnitReportDir
+		// caller already verified extraFile non-empty), so this is the
+		// "framework configured, no test code" branch, not a build
+		// failure.
+		return &types.ChangeReport{
+			Passed:         true,
+			NoTestsRunners: []string{runnerLabel},
+		}, nil
 	}
 
 	failed := 0
@@ -1219,8 +1300,8 @@ func parseJUnitXMLDir(reportDir, stdout string) (*types.ChangeReport, error) {
 	}
 	if !report.Passed {
 		report.FailureSummary = fmt.Sprintf(
-			"%d of %d Java test cases failed (JUnit XML from %s).",
-			failed, len(results), filepath.Base(reportDir))
+			"%d of %d %s test cases failed (JUnit XML from %s).",
+			failed, len(results), runnerLabel, filepath.Base(reportDir))
 	}
 	return report, nil
 }
@@ -1370,6 +1451,14 @@ func parseRSpecJSON(stdout string) (*types.ChangeReport, error) {
 	report := &types.ChangeReport{
 		TestResults: results,
 		Passed:      r.Summary.FailureCount == 0,
+	}
+	// Zero examples = no spec files found. Tag NoTestsRunners so the
+	// verifier evaluator + LLM see the signal explicitly. RSpec's
+	// FailureCount==0 already produced Passed=true, but without the
+	// NoTestsRunners marker the verifier prompt couldn't tell "all
+	// specs green" apart from "no specs at all".
+	if r.Summary.ExampleCount == 0 && r.Summary.FailureCount == 0 {
+		report.NoTestsRunners = []string{"ruby"}
 	}
 	if !report.Passed {
 		report.FailureSummary = fmt.Sprintf(

@@ -87,13 +87,20 @@ func (e *verifierEvaluator) BuildInitialInstruction(ctx *types.AgentContext, _ *
 	var s strings.Builder
 	s.WriteString("## Verify phase\n\n")
 	s.WriteString("The plan on Mutable.ChangePlan has been applied to the worktree. " +
-		"Your job: call run_tests once to execute the project test suite. The tool " +
-		"auto-detects supported projects (Go / Node / Python / Rust / Java / Kotlin / Ruby / Swift / HarmonyOS ArkTS via hvigor / HarmonyOS Cangjie via cjpm / CMake / " +
-		"Meson / Make), runs the matching suites from their project roots, parses the output, " +
-		"and installs Mutable.ChangeReport. On return the evaluator's ShouldStop fires " +
-		"on ChangeReport presence and the stage completes.\n\n" +
-		"Do NOT emit_change_plan (that was the plan stage; your role is only to verify). " +
-		"Do NOT read files or shell out to construct a diff — the plan is already applied.\n")
+		"Your job is mechanical: call run_tests EXACTLY ONCE with the runner that matches the " +
+		"plan-touched language, then stop. The evaluator's ShouldStop fires on ChangeReport " +
+		"presence and the stage completes.\n\n" +
+		"Workflow:\n" +
+		"  1. Briefly inspect the worktree (list_files / grep on test-file patterns) so you can pick the runner whose language matches the plan-touched files. Skip lengthy probes — one or two list_files calls is enough.\n" +
+		"  2. Call run_tests EXACTLY ONCE with `runner=<choice>` and (optionally) `working_dir=<repo-relative dir>`. Supported runners: go / node / python / rust / java / ruby / swift / cmake / meson / make / hvigor / cjpm.\n" +
+		"  3. STOP after run_tests returns. Read its tool result:\n" +
+		"     - verdict=PASSED → done; the verify stage will succeed. If the result also lists `NoTestsRunners=[...]`, that means the runner ran cleanly but found zero test cases (e.g. a plan that creates a Python script in a repo without a pytest suite). That is NOT a failure — it is a clean run with no test work to do. Do not invent additional checks.\n" +
+		"     - verdict=FAILED → optionally call emit_test_results once with a 1-4 sentence failure_summary narrative + classification arrays. Do not re-run tests; the verify→plan retry loop owns recovery.\n\n" +
+		"Hard rules:\n" +
+		"  - Do NOT call exec_command for ad-hoc syntax checks (py_compile, node --check, gofmt, etc.) AFTER run_tests has populated a ChangeReport — the parser-derived Passed verdict is authoritative and your exec_command output cannot override it. The previous-session transcript shows running py_compile + run_tests overwrites a syntax-pass with a runner zero-tests false-failure; that pattern is now banned.\n" +
+		"  - Do NOT emit_change_plan (that was the plan stage).\n" +
+		"  - Do NOT read files or shell out to construct a diff — the plan is already applied.\n" +
+		"  - Do NOT re-run tests to chase flakiness — verify is fail-loud.\n")
 
 	// Plan-touched paths section. Without this, the verifier picks a runner
 	// from worktree manifests alone (go.mod wins on a polyglot repo where
@@ -280,7 +287,14 @@ func (e *verifierEvaluator) ParseOutput(
 	}
 
 	if report.Passed {
-		logging.Info("[verifier] all tests passed: %d results", len(report.TestResults))
+		if len(report.NoTestsRunners) > 0 {
+			logging.Info(
+				"[verifier] verify passed with no tests collected: runners=%v results=%d "+
+					"(syntax-level signal only; no test fixture exists for these languages)",
+				report.NoTestsRunners, len(report.TestResults))
+		} else {
+			logging.Info("[verifier] all tests passed: %d results", len(report.TestResults))
+		}
 		out.MissingPiece = types.MissingNone
 		return out, nil
 	}

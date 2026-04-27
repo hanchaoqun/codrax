@@ -681,6 +681,7 @@ func mergeChangeReports(reports []*types.ChangeReport) *types.ChangeReport {
 		out.RegressionAssertions = append(out.RegressionAssertions, report.RegressionAssertions...)
 		out.PreexistingAssertions = append(out.PreexistingAssertions, report.PreexistingAssertions...)
 		out.FixedAssertions = append(out.FixedAssertions, report.FixedAssertions...)
+		out.NoTestsRunners = append(out.NoTestsRunners, report.NoTestsRunners...)
 		if !report.Passed {
 			out.Passed = false
 		}
@@ -705,6 +706,7 @@ func mergeChangeReports(reports []*types.ChangeReport) *types.ChangeReport {
 	out.RegressionAssertions = dedupStrings(out.RegressionAssertions)
 	out.PreexistingAssertions = dedupStrings(out.PreexistingAssertions)
 	out.FixedAssertions = dedupStrings(out.FixedAssertions)
+	out.NoTestsRunners = dedupStrings(out.NoTestsRunners)
 	if len(failureSummaries) > 0 {
 		out.FailureSummary = strings.Join(failureSummaries, " | ")
 	}
@@ -1288,6 +1290,14 @@ func renderTestSummary(runner string, report *types.ChangeReport) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "[run_tests: runner=%s verdict=%s] %d total, %d passed, %d failed",
 		runner, verdict, total, passed, failed)
+	if len(report.NoTestsRunners) > 0 {
+		fmt.Fprintf(&b,
+			"\n\nNote: runner(s) %s completed cleanly but discovered zero test cases. "+
+				"This is NOT a verify failure — the project either has no test fixture for "+
+				"the touched language, or no tests match the selector. Verification fell "+
+				"back to whatever non-test signals are available (e.g. compile / syntax check).",
+			strings.Join(report.NoTestsRunners, ", "))
+	}
 	if failed > 0 {
 		b.WriteString("\n\nFailed tests:")
 		shown := 0

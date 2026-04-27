@@ -178,7 +178,7 @@ func TestParseJUnitXMLDir_SingleSuite(t *testing.T) {
 	dir := seedJUnitDir(t, map[string]string{
 		"TEST-com.foo.BazTest.xml": junitSingleSuiteAllPass,
 	})
-	report, err := parseJUnitXMLDir(dir, "")
+	report, err := parseJUnitXMLDir("java", dir, "")
 	if err != nil {
 		t.Fatalf("parseJUnitXMLDir: %v", err)
 	}
@@ -197,7 +197,7 @@ func TestParseJUnitXMLDir_MixedFailuresAndSkipped(t *testing.T) {
 	dir := seedJUnitDir(t, map[string]string{
 		"TEST-com.foo.BarTest.xml": junitTwoSuitesMixed,
 	})
-	report, err := parseJUnitXMLDir(dir, "")
+	report, err := parseJUnitXMLDir("java", dir, "")
 	if err != nil {
 		t.Fatalf("parseJUnitXMLDir: %v", err)
 	}
@@ -243,7 +243,7 @@ func TestParseJUnitXMLDir_MultiFileAggregation(t *testing.T) {
 		"TEST-com.foo.BarTest.xml": junitTwoSuitesMixed,     // 3 cases
 		"TEST-com.foo.BazTest.xml": junitSingleSuiteAllPass, // 2 cases
 	})
-	report, err := parseJUnitXMLDir(dir, "")
+	report, err := parseJUnitXMLDir("java", dir, "")
 	if err != nil {
 		t.Fatalf("parseJUnitXMLDir: %v", err)
 	}
@@ -262,7 +262,7 @@ func TestParseJUnitXMLDir_NestedSubdirs(t *testing.T) {
 		"module-a/TEST-com.foo.A.xml": junitSingleSuiteAllPass,
 		"module-b/TEST-com.foo.B.xml": junitSingleSuiteAllPass,
 	})
-	report, err := parseJUnitXMLDir(dir, "")
+	report, err := parseJUnitXMLDir("java", dir, "")
 	if err != nil {
 		t.Fatalf("parseJUnitXMLDir: %v", err)
 	}
@@ -272,16 +272,23 @@ func TestParseJUnitXMLDir_NestedSubdirs(t *testing.T) {
 }
 
 func TestParseJUnitXMLDir_EmptyDir(t *testing.T) {
+	// Empty JUnit dir = the framework ran cleanly but produced zero
+	// testcase rows. Treated as NoTestsRunners (Passed=true) so a plan
+	// touching a project with no test classes doesn't get falsely
+	// flagged as a verify failure. Same rationale as pytest exit 5.
 	dir := t.TempDir()
-	_, err := parseJUnitXMLDir(dir, "stdout hint here")
-	if err == nil {
-		t.Fatal("empty dir should error")
+	report, err := parseJUnitXMLDir("java", dir, "stdout hint here")
+	if err != nil {
+		t.Fatalf("parseJUnitXMLDir(empty): unexpected error %v", err)
 	}
-	if !strings.Contains(err.Error(), "no test cases parsed") {
-		t.Errorf("err should explain zero cases; got %v", err)
+	if !report.Passed {
+		t.Errorf("report.Passed = false; want true for empty dir (no tests collected)")
 	}
-	if !strings.Contains(err.Error(), "stdout hint here") {
-		t.Errorf("err should include stdout hint; got %v", err)
+	if len(report.NoTestsRunners) != 1 || report.NoTestsRunners[0] != "java" {
+		t.Errorf("report.NoTestsRunners = %v; want [java]", report.NoTestsRunners)
+	}
+	if len(report.TestResults) != 0 {
+		t.Errorf("report.TestResults should be empty; got %d", len(report.TestResults))
 	}
 }
 
@@ -290,7 +297,7 @@ func TestParseJUnitXMLDir_MalformedFileSkipped(t *testing.T) {
 		"TEST-valid.xml":     junitSingleSuiteAllPass,
 		"TEST-malformed.xml": "<not-xml",
 	})
-	report, err := parseJUnitXMLDir(dir, "")
+	report, err := parseJUnitXMLDir("java", dir, "")
 	if err != nil {
 		t.Fatalf("parseJUnitXMLDir: %v", err)
 	}

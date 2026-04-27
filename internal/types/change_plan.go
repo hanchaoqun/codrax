@@ -245,6 +245,24 @@ type ChangeReport struct {
 	// signal; not used by any criterion but rendered to the user.
 	FixedAssertions []string `json:"fixed_assertions,omitempty"`
 
+	// NoTestsRunners records the runner names that completed cleanly
+	// but discovered zero test cases (e.g. pytest exit code 5, jest
+	// "no tests found", go test ./... with no _test.go files). The
+	// list is intentionally separate from FailureSummary so the
+	// verifier evaluator can keep Passed=true while still surfacing
+	// "verification ran but had no tests to execute" to the LLM /
+	// operator. Empty when every runner that ran found at least one
+	// test, which is the normal case.
+	//
+	// Provenance: a Python-script-in-a-Go-repo apply triggered the
+	// verify→plan retry loop because parsePytestJSONReport mapped exit
+	// 5 ("no tests collected") to Passed=false; the planner then
+	// hallucinated a test_*.py file to "fix" the absent suite. Making
+	// "zero tests discovered" a first-class signal across all 12
+	// runners stops the parser from inventing failures and lets the
+	// verifier prompt drive a syntax-only fallback when appropriate.
+	NoTestsRunners []string `json:"no_tests_runners,omitempty"`
+
 	// FailureKind classifies the terminal state when Passed=false so
 	// the verify→plan retry hint can surface resource exhaustion
 	// distinctly from a normal red test ("tests_failed"). Empty +

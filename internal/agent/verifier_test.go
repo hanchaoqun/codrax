@@ -111,6 +111,35 @@ func TestVerifier_ParseOutput_Passed(t *testing.T) {
 	}
 }
 
+// TestVerifier_ParseOutput_NoTestsRunners verifies that a clean run
+// with zero discovered tests (NoTestsRunners populated, Passed=true)
+// is treated as success — not a verify failure that triggers the
+// verify→plan retry loop. Provenance: pytest exit 5 on a Python
+// script in a Go-only repo previously surfaced as "verify failed:
+// pytest exitcode=5 — 0 of 0 total" and the planner hallucinated a
+// test_*.py to "fix" the absent suite.
+func TestVerifier_ParseOutput_NoTestsRunners(t *testing.T) {
+	report := &types.ChangeReport{
+		Passed:         true,
+		NoTestsRunners: []string{"python"},
+		TestResults:    nil,
+	}
+	ctx := verifierFixtureCtx(report, nil)
+	ev := &verifierEvaluator{}
+	ev.BuildInitialInstruction(ctx, &skill.Config{})
+
+	out, err := ev.ParseOutput(ctx, nil, nil, nil)
+	if err != nil {
+		t.Fatalf("ParseOutput: %v", err)
+	}
+	if out.MissingPiece != types.MissingNone {
+		t.Errorf("MissingPiece = %q, want MissingNone for NoTestsRunners pass", out.MissingPiece)
+	}
+	if out.Error != "" {
+		t.Errorf("unexpected error: %q", out.Error)
+	}
+}
+
 // TestVerifier_ParseOutput_Failed verifies verify-failure surfaces
 // as StageOutput.Error with narrative from report.FailureSummary.
 func TestVerifier_ParseOutput_Failed(t *testing.T) {

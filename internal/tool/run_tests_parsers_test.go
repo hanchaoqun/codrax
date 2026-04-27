@@ -312,7 +312,7 @@ test tests::baz ... ok
 
 test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out
 `
-	report, err := parseCargoTestText(output)
+	report, err := parseCargoTestText("rust", output)
 	if err != nil {
 		t.Fatalf("parse: %v", err)
 	}
@@ -342,7 +342,7 @@ failures:
 
 test result: FAILED. 2 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out
 `
-	report, err := parseCargoTestText(output)
+	report, err := parseCargoTestText("rust", output)
 	if err != nil {
 		t.Fatalf("parse: %v", err)
 	}
@@ -375,7 +375,7 @@ test tests::ignore_me ... ignored
 
 test result: ok. 1 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out
 `
-	report, err := parseCargoTestText(output)
+	report, err := parseCargoTestText("rust", output)
 	if err != nil {
 		t.Fatalf("parse: %v", err)
 	}
@@ -386,7 +386,7 @@ test result: ok. 1 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out
 
 func TestParseCargoTestText_BuildError(t *testing.T) {
 	output := "\nerror[E0308]: mismatched types\n --> src/lib.rs:10:5\nerror: aborting due to previous error\nerror: could not compile `mycrate`.\n"
-	report, err := parseCargoTestText(output)
+	report, err := parseCargoTestText("rust", output)
 	if err != nil {
 		t.Fatalf("parse: %v", err)
 	}
@@ -487,5 +487,144 @@ func TestBuildGoFailureSummary_TrueCompileErrorPreservesHint(t *testing.T) {
 	got := buildGoFailureSummary(results, pkgStatus)
 	if !strings.Contains(got, "typically compile or init errors") {
 		t.Errorf("zero per-test entries + package fail = real compile error; summary should keep the qualifier; got %q", got)
+	}
+}
+
+// ── NoTestsRunners coverage across all 12 runners ──────────────────
+//
+// "No tests collected" is a clean run with zero work, not a verify
+// failure. Every runner's parser must surface NoTestsRunners and keep
+// Passed=true when its underlying tool reports zero discoverable
+// tests; otherwise a plan that touches a non-test file in a project
+// without a test suite triggers a false-positive verify→plan retry.
+//
+// Provenance: pytest exit 5 ("no tests collected") on a Python script
+// in a Go-only repo produced FailureSummary="exitcode=5 — 0 of 0
+// total" → verify_failed → planner hallucinated test_*.py to "fix"
+// the absent suite. Generalising the signal closes the same hole for
+// 12 runners at once.
+
+func TestParseGoTestJSONLines_NoTests(t *testing.T) {
+	// `go test ./...` on a package with no _test.go files prints
+	// nothing JSON-shaped (test2json emits zero events).
+	report, err := parseGoTestJSONLines("")
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	if !report.Passed {
+		t.Errorf("Passed = false; want true (no tests is not a failure)")
+	}
+	if len(report.NoTestsRunners) != 1 || report.NoTestsRunners[0] != "go" {
+		t.Errorf("NoTestsRunners = %v; want [go]", report.NoTestsRunners)
+	}
+	if report.FailureSummary != "" {
+		t.Errorf("FailureSummary should be empty on Passed=true; got %q", report.FailureSummary)
+	}
+}
+
+func TestParseJestJSON_NoTests(t *testing.T) {
+	// Jest with no test files matched: numTotalTests=0, success=false
+	// (jest defaults to failing without --passWithNoTests).
+	output := `{
+		"numPassedTests": 0,
+		"numFailedTests": 0,
+		"numTotalTests": 0,
+		"success": false,
+		"testResults": []
+	}`
+	report, err := parseJestJSON(output)
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	if !report.Passed {
+		t.Errorf("Passed = false; want true (no tests is not a failure)")
+	}
+	if len(report.NoTestsRunners) != 1 || report.NoTestsRunners[0] != "node" {
+		t.Errorf("NoTestsRunners = %v; want [node]", report.NoTestsRunners)
+	}
+}
+
+func TestParsePytestJSONReport_ExitCode5(t *testing.T) {
+	// pytest exit 5 = "no tests were collected" — a clean run.
+	tmp := t.TempDir()
+	reportFile := filepath.Join(tmp, "pytest.json")
+	body := `{"exitcode": 5, "summary": {"passed": 0, "failed": 0, "error": 0, "skipped": 0, "total": 0}, "tests": []}`
+	if err := os.WriteFile(reportFile, []byte(body), 0o644); err != nil {
+		t.Fatalf("write report: %v", err)
+	}
+	report, err := parsePytestJSONReport(reportFile, "no tests ran", "pytest")
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	if !report.Passed {
+		t.Errorf("Passed = false; want true (exit 5 is not a failure)")
+	}
+	if len(report.NoTestsRunners) != 1 || report.NoTestsRunners[0] != "python" {
+		t.Errorf("NoTestsRunners = %v; want [python]", report.NoTestsRunners)
+	}
+	if report.FailureSummary != "" {
+		t.Errorf("FailureSummary should be empty on Passed=true; got %q", report.FailureSummary)
+	}
+}
+
+func TestParseCargoTestText_NoTests(t *testing.T) {
+	// `cargo test` on a crate with no #[test] items.
+	output := `running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out
+`
+	report, err := parseCargoTestText("rust", output)
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	if !report.Passed {
+		t.Errorf("Passed = false; want true (no tests is not a failure)")
+	}
+	if len(report.NoTestsRunners) != 1 || report.NoTestsRunners[0] != "rust" {
+		t.Errorf("NoTestsRunners = %v; want [rust]", report.NoTestsRunners)
+	}
+}
+
+func TestParseCargoTestText_NoTests_CJPM(t *testing.T) {
+	// cjpm reuses the cargo parser; runnerLabel must propagate.
+	output := `test result: ok. 0 passed; 0 failed
+`
+	report, err := parseCargoTestText("cjpm", output)
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	if !report.Passed {
+		t.Errorf("Passed = false; want true (no tests is not a failure)")
+	}
+	if len(report.NoTestsRunners) != 1 || report.NoTestsRunners[0] != "cjpm" {
+		t.Errorf("NoTestsRunners = %v; want [cjpm]", report.NoTestsRunners)
+	}
+}
+
+func TestParseRSpecJSON_NoTests(t *testing.T) {
+	output := `{"summary": {"example_count": 0, "failure_count": 0, "pending_count": 0}, "examples": []}`
+	report, err := parseRSpecJSON(output)
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	if !report.Passed {
+		t.Errorf("Passed = false; want true (no specs is not a failure)")
+	}
+	if len(report.NoTestsRunners) != 1 || report.NoTestsRunners[0] != "ruby" {
+		t.Errorf("NoTestsRunners = %v; want [ruby]", report.NoTestsRunners)
+	}
+}
+
+func TestParseSwiftOutput_NoTests(t *testing.T) {
+	// SwiftPM ran cleanly but found no XCTest cases. runErr=nil.
+	report, err := parseSwiftOutput("", nil)
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	if !report.Passed {
+		t.Errorf("Passed = false; want true (no tests is not a failure)")
+	}
+	if len(report.NoTestsRunners) != 1 || report.NoTestsRunners[0] != "swift" {
+		t.Errorf("NoTestsRunners = %v; want [swift]", report.NoTestsRunners)
 	}
 }
