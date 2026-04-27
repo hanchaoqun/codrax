@@ -1514,10 +1514,11 @@ func TestAnswerDocumentEvaluator_Observe_MidLoopConfigTraceContextCitationReject
 		t.Fatalf("config-trace context-citation reject should request a correction hint, got %+v", sig)
 	}
 	for _, want := range []string{
-		"Allowed related-context citations for this dispatch",
+		"Only these grounded file:line anchors may appear in `citations[]` or fenced diagrams",
 		"`internal/config/runtime.go:231`, `internal/types/config.go:707`",
-		"Keep any visible nearby context on this validated anchor set only",
+		"Visible nearby context may only use this validated anchor set",
 		"`DefaultExploreHeuristics`, `internal/config/runtime.go`",
+		"Being visible does NOT make every anchor citation-grade",
 		"Drop any prose / diagram node whose only support comes from these background-only anchors",
 		"`ExploreBudget`",
 		"Drop these invalid citation(s) from `citations[]`",
@@ -1572,10 +1573,11 @@ func TestAnswerDocumentEvaluator_Observe_MidLoopConfigTraceContextCitationReject
 	}
 	for _, want := range []string{
 		"treat the nearby grounded context as prose-only for this dispatch",
-		"Allowed related-context citations for this dispatch",
+		"Only these grounded file:line anchors may appear in `citations[]` or fenced diagrams",
 		"`internal/config/runtime.go:231`",
-		"Keep any visible nearby context on this validated anchor set only",
+		"Visible nearby context may only use this validated anchor set",
 		"`DefaultExploreHeuristics`, `internal/config/runtime.go`",
+		"Being visible does NOT make every anchor citation-grade",
 		"`exact_resolution.context_mode=\"grounded_context_only\"`",
 		"may stay on the user-visible answer surface as uncited prose-only grounded context",
 		"`DefaultExploreHeuristics`",

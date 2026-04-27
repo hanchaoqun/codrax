@@ -1765,30 +1765,49 @@ func (e *answerDocumentEvaluator) emitAnswerDocumentRejectSignal(ctx *types.Agen
 	if repair != nil && repair.Code == "config_trace_context_citation" {
 		reasonKey = "config-trace-context-citation"
 		hint = strings.TrimSpace(repair.Hint)
+		allowedCitations := ""
+		allowedAnchors := ""
+		roleCoverage := ""
+		proseOnly := ""
+		forbidden := ""
+		invalid := ""
 		if repair.Metadata != nil {
+			allowedCitations = strings.TrimSpace(repair.Metadata["allowed_citations"])
+			allowedAnchors = strings.TrimSpace(repair.Metadata["allowed_anchors"])
+			roleCoverage = strings.TrimSpace(repair.Metadata["precedence_role_anchors"])
+			proseOnly = strings.TrimSpace(repair.Metadata["prose_only_anchors"])
+			forbidden = strings.TrimSpace(repair.Metadata["forbidden_anchors"])
+			invalid = strings.TrimSpace(repair.Metadata["drop_citations"])
 			if strings.TrimSpace(repair.Metadata["nearby_context_citation_mode"]) == "prose_only" {
 				hint = "Re-emit `emit_answer_document` with the same exact-absence conclusion, but treat the nearby grounded context as prose-only for this dispatch: keep `citations[]` on the primary exact-proof / absence-proof anchors only, keep any nearby context uncited in `summary`, and if that nearby context stays visible set `exact_resolution.context_mode=\"grounded_context_only\"`."
 			}
-			if allowed := strings.TrimSpace(repair.Metadata["allowed_citations"]); allowed != "" {
-				hint += " Allowed related-context citations for this dispatch: `" + strings.ReplaceAll(allowed, ", ", "`, `") + "`."
+			if allowedCitations != "" {
+				hint += " Only these grounded file:line anchors may appear in `citations[]` or fenced diagrams for nearby lineage context: `" + strings.ReplaceAll(allowedCitations, ", ", "`, `") + "`."
 			}
-			if allowed := strings.TrimSpace(repair.Metadata["allowed_anchors"]); allowed != "" {
-				hint += " Keep any visible nearby context on this validated anchor set only: `" + strings.ReplaceAll(allowed, ", ", "`, `") + "`."
+			if allowedAnchors != "" {
+				hint += " Visible nearby context may only use this validated anchor set: `" + strings.ReplaceAll(allowedAnchors, ", ", "`, `") + "`. Being visible does NOT make every anchor citation-grade; use only the file:line list above inside `citations[]` or fenced diagrams."
+			}
+			if roleCoverage != "" {
+				hint += " If you keep multi-layer precedence on the user-visible surface, preserve it using this validated role coverage when possible: `" + strings.ReplaceAll(roleCoverage, ", ", "`, `") + "`."
 			}
 			if mode := strings.TrimSpace(repair.Metadata["preferred_context_mode"]); mode != "" && !strings.Contains(hint, "exact_resolution.context_mode") {
 				hint += " Keep `exact_resolution.context_mode=\"" + mode + "\"` whenever that nearby context stays on the user-visible surface."
 			}
-			if proseOnly := strings.TrimSpace(repair.Metadata["prose_only_anchors"]); proseOnly != "" {
+			if proseOnly != "" {
 				hint += " These anchors may stay on the user-visible answer surface as uncited prose-only grounded context after you remove their citation(s) and any diagram nodes that used them: `" + strings.ReplaceAll(proseOnly, ", ", "`, `") + "`."
 			}
-			if forbidden := strings.TrimSpace(repair.Metadata["forbidden_anchors"]); forbidden != "" {
+			if forbidden != "" {
 				hint += " Drop any prose / diagram node whose only support comes from these background-only anchors: `" + strings.ReplaceAll(forbidden, ", ", "`, `") + "`."
 			}
-			if invalid := strings.TrimSpace(repair.Metadata["drop_citations"]); invalid != "" {
-				hint += " Drop these invalid citation(s) from `citations[]` unless you replace them with one of the allowed related-context anchors: `" + strings.ReplaceAll(invalid, ", ", "`, `") + "`."
+			if invalid != "" {
+				hint += " Drop these invalid citation(s) from `citations[]`: `" + strings.ReplaceAll(invalid, ", ", "`, `") + "`."
 			}
 		}
-		hint += " Choose one valid repair path now: either (a) keep nearby precedence / lineage context, cite at least one allowed related-context anchor, and move any prose-only anchors out of `citations[]` / fenced diagrams, or (b) delete that nearby context from the user-visible answer surface and keep only the exact-absence lead. Do not keep broad same-family background as the cited explanation."
+		if allowedCitations != "" {
+			hint += " Choose one valid repair path now: either (a) keep nearby precedence / lineage context, cite at least one allowed file:line lineage anchor, and move any prose-only anchors out of `citations[]` / fenced diagrams, or (b) delete that nearby context from the user-visible answer surface and keep only the exact-absence lead. Do not keep broad same-family background as the cited explanation."
+		} else {
+			hint += " No citation-grade nearby lineage anchors are available for this dispatch, so do not invent a replacement citation. Either keep only short uncited background that does not become the answer's visible lineage explanation, or delete the nearby context entirely and keep only the exact-absence lead."
+		}
 		hint = appendRetryDiagramSeedHint(hint, ctx, repair)
 	}
 	if rejectCode == answerDocRejectCodeAbsentExactConfigValueShape || strings.Contains(summary, "must not use shape=config_value") {
@@ -2014,18 +2033,16 @@ func buildRetryConfigTraceDiagramSeed(ctx *types.AgentContext) retryDiagramSeed 
 	if len(anchors) < 2 {
 		return retryDiagramSeed{}
 	}
-	nodes := make([]string, 0, len(anchors))
 	keys := make([]string, 0, len(anchors)*2)
 	for _, anchor := range anchors {
 		label := strings.TrimSpace(anchor.Label)
 		if label == "" {
 			continue
 		}
-		nodes = append(nodes, label)
 		keys = append(keys, retryDiagramSeedMatchKeys(label)...)
 	}
 	return retryDiagramSeed{
-		Fence:     buildRetryDiagramFence(nodes),
+		Fence:     types.RenderConfigTraceDiagramFence(anchors),
 		MatchKeys: dedupeRetryDiagramNodes(keys, 0),
 	}
 }

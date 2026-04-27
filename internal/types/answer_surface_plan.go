@@ -55,6 +55,47 @@ type ConfigTraceDiagramAnchor struct {
 	Score int
 }
 
+func RenderLinearDiagramFence(nodes []string, limit int) string {
+	seen := make(map[string]bool)
+	out := make([]string, 0, len(nodes))
+	for _, node := range nodes {
+		node = strings.TrimSpace(node)
+		if node == "" || seen[node] {
+			continue
+		}
+		seen[node] = true
+		out = append(out, node)
+		if limit > 0 && len(out) >= limit {
+			break
+		}
+	}
+	if len(out) < 2 {
+		return ""
+	}
+	var b strings.Builder
+	b.WriteString("```\n")
+	for i, node := range out {
+		b.WriteString(node)
+		b.WriteByte('\n')
+		if i < len(out)-1 {
+			b.WriteString("  ->\n")
+		}
+	}
+	b.WriteString("```")
+	return b.String()
+}
+
+func RenderConfigTraceDiagramFence(anchors []ConfigTraceDiagramAnchor) string {
+	nodes := make([]string, 0, len(anchors))
+	for _, anchor := range anchors {
+		label := strings.TrimSpace(anchor.Label)
+		if label != "" {
+			nodes = append(nodes, label)
+		}
+	}
+	return RenderLinearDiagramFence(nodes, 0)
+}
+
 // BuildAnswerSurfacePlan compiles the current answer-surface authority
 // from the already-grounded analysis and investigation state. It is a
 // pure helper shared by the finalizer prompt path and the structured
@@ -524,7 +565,7 @@ func collectForbiddenExactContextLabels(
 		contract,
 		collectForbiddenExactContextItems(contract, scenario, stableAbsent, items, requiredFiles),
 		allowed,
-		false,
+		true,
 		true,
 	)
 }

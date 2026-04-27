@@ -2765,6 +2765,8 @@ func resolveAnswerDocumentExactResolution(summary string, declared *types.Answer
 	}
 	if resolved.Status == types.AnswerExactResolutionAbsent {
 		summary = trimLeadingExactAbsenceRestatement(summary, contract, answerSurfacePlan(ctx))
+		summary = sanitizeExactContextSummarySurface(summary, contract, answerSurfacePlan(ctx))
+		summary = normalizeConfigTraceAbsentSummarySurface(summary, ctx, resolved)
 	}
 	if declared.ContextMode == "" &&
 		resolved.Status == types.AnswerExactResolutionAbsent &&
@@ -2917,12 +2919,19 @@ func trimLeadingExactAbsenceRestatement(summary string, contract *types.ExactRes
 	if summary == "" || contract == nil || len(contract.Targets) == 0 {
 		return summary
 	}
-	_, paragraph, rest := splitLeadingSummaryParagraph(summary)
+	heading, paragraph, rest := splitLeadingSummaryParagraph(summary)
 	if paragraph == "" || repeatedExactTargetAfterLead(contract, paragraph) == "" {
 		return summary
 	}
 	rest = strings.TrimSpace(rest)
+	trimmedParagraph := trimLeadingExactTargetSentences(paragraph, contract)
+	if trimmedParagraph != "" && trimmedParagraph != paragraph {
+		return joinLeadingSummaryParts(heading, trimmedParagraph, rest)
+	}
 	if rest != "" {
+		if trimmedParagraph == "" {
+			return joinLeadingSummaryParts("", "", rest)
+		}
 		return rest
 	}
 	candidates := []types.ExactContextSurfaceLabel(nil)
@@ -2940,6 +2949,132 @@ func trimLeadingExactAbsenceRestatement(summary string, contract *types.ExactRes
 		}
 	}
 	return ""
+}
+
+func sanitizeExactContextSummarySurface(summary string, contract *types.ExactResolutionContract, plan *types.AnswerSurfacePlan) string {
+	summary = strings.TrimSpace(summary)
+	if summary == "" || contract == nil || plan == nil || len(plan.ForbiddenExactContextLabels) == 0 {
+		return summary
+	}
+	paragraphs := splitSummaryParagraphs(summary)
+	if len(paragraphs) == 0 {
+		return summary
+	}
+	changed := false
+	keptParagraphs := make([]string, 0, len(paragraphs))
+	for _, paragraph := range paragraphs {
+		trimmed := strings.TrimSpace(paragraph)
+		if trimmed == "" {
+			continue
+		}
+		if strings.HasPrefix(trimmed, "#") || strings.HasPrefix(trimmed, "```") {
+			keptParagraphs = append(keptParagraphs, trimmed)
+			continue
+		}
+		sentences := splitSummarySentences(trimmed)
+		if len(sentences) == 0 {
+			keptParagraphs = append(keptParagraphs, trimmed)
+			continue
+		}
+		keptSentences := make([]string, 0, len(sentences))
+		for _, sentence := range sentences {
+			if repeatedExactTargetAfterLead(contract, sentence) != "" {
+				changed = true
+				continue
+			}
+			lowerSentence := strings.ToLower(sentence)
+			pathSentenceKey := types.ExactResolutionLookupKey("path", sentence)
+			symbolSentenceKey := types.ExactResolutionLookupKey("symbol", sentence)
+			if len(mentionedExactContextSurfaceCandidates(lowerSentence, pathSentenceKey, symbolSentenceKey, plan.ForbiddenExactContextLabels)) > 0 {
+				changed = true
+				continue
+			}
+			keptSentences = append(keptSentences, sentence)
+		}
+		if len(keptSentences) == 0 {
+			changed = true
+			continue
+		}
+		rebuilt := strings.TrimSpace(strings.Join(keptSentences, " "))
+		if rebuilt != trimmed {
+			changed = true
+		}
+		keptParagraphs = append(keptParagraphs, rebuilt)
+	}
+	if !changed {
+		return summary
+	}
+	rebuilt := strings.TrimSpace(strings.Join(keptParagraphs, "\n\n"))
+	if rebuilt == "" {
+		return summary
+	}
+	return rebuilt
+}
+
+func normalizeConfigTraceAbsentSummarySurface(summary string, ctx *types.BusContext, exact *types.AnswerExactResolution) string {
+	if ctx == nil || exact == nil || exact.Status != types.AnswerExactResolutionAbsent || exact.ContextMode != types.AnswerExactResolutionContextGroundedOnly {
+		return summary
+	}
+	if ctx.AnalysisIR == nil ||
+		ctx.AnalysisIR.RequestModel.Scenario != types.ScenarioConfigTrace ||
+		ctx.AnalysisIR.RequestModel.AnswerSubject.Kind != types.SubjectConfigKey {
+		return summary
+	}
+	plan := answerSurfacePlan(ctx)
+	if plan == nil {
+		return summary
+	}
+	stripped := strings.TrimSpace(stripSummaryFencedBlocks(summary))
+	dc := answerDiagramContract(ctx)
+	if dc == nil || !dc.Required {
+		if stripped != "" {
+			return stripped
+		}
+		return summary
+	}
+	fence := types.RenderConfigTraceDiagramFence(plan.ConfigTraceDiagramAnchors)
+	if fence == "" {
+		if stripped != "" {
+			return stripped
+		}
+		return summary
+	}
+	if stripped == "" {
+		return fence
+	}
+	return strings.TrimSpace(stripped + "\n\n" + fence)
+}
+
+func stripSummaryFencedBlocks(summary string) string {
+	summary = strings.TrimSpace(summary)
+	if summary == "" {
+		return ""
+	}
+	out := fencedCodeBlockRe.ReplaceAllString(summary, "")
+	out = strings.TrimSpace(out)
+	for strings.Contains(out, "\n\n\n") {
+		out = strings.ReplaceAll(out, "\n\n\n", "\n\n")
+	}
+	return out
+}
+
+func trimLeadingExactTargetSentences(paragraph string, contract *types.ExactResolutionContract) string {
+	paragraph = strings.TrimSpace(paragraph)
+	if paragraph == "" || contract == nil {
+		return paragraph
+	}
+	sentences := splitSummarySentences(paragraph)
+	if len(sentences) == 0 {
+		return paragraph
+	}
+	dropUntil := 0
+	for dropUntil < len(sentences) && repeatedExactTargetAfterLead(contract, sentences[dropUntil]) != "" {
+		dropUntil++
+	}
+	if dropUntil == 0 || dropUntil >= len(sentences) {
+		return ""
+	}
+	return strings.TrimSpace(strings.Join(sentences[dropUntil:], " "))
 }
 
 func splitLeadingSummaryParagraph(summary string) (heading, paragraph, rest string) {
@@ -2966,6 +3101,95 @@ func splitLeadingSummaryParagraph(summary string) (heading, paragraph, rest stri
 	paragraph = strings.TrimSpace(strings.Join(lines[start:i], "\n"))
 	rest = strings.TrimSpace(strings.Join(lines[i:], "\n"))
 	return heading, paragraph, rest
+}
+
+func splitSummaryParagraphs(summary string) []string {
+	summary = strings.TrimSpace(summary)
+	if summary == "" {
+		return nil
+	}
+	parts := strings.Split(summary, "\n\n")
+	out := make([]string, 0, len(parts))
+	for _, part := range parts {
+		part = strings.TrimSpace(part)
+		if part != "" {
+			out = append(out, part)
+		}
+	}
+	return out
+}
+
+func joinLeadingSummaryParts(heading, paragraph, rest string) string {
+	var parts []string
+	heading = strings.TrimSpace(heading)
+	paragraph = strings.TrimSpace(paragraph)
+	rest = strings.TrimSpace(rest)
+	if heading != "" {
+		parts = append(parts, heading)
+	}
+	if paragraph != "" {
+		parts = append(parts, paragraph)
+	}
+	if rest != "" {
+		parts = append(parts, rest)
+	}
+	return strings.TrimSpace(strings.Join(parts, "\n\n"))
+}
+
+func splitSummarySentences(paragraph string) []string {
+	paragraph = strings.TrimSpace(paragraph)
+	if paragraph == "" {
+		return nil
+	}
+	runes := []rune(paragraph)
+	var sentences []string
+	start := 0
+	for i, r := range runes {
+		if !isSummarySentenceTerminator(r) || !isSummarySentenceBoundary(runes, i) {
+			continue
+		}
+		sentence := strings.TrimSpace(string(runes[start : i+1]))
+		if sentence != "" {
+			sentences = append(sentences, sentence)
+		}
+		start = i + 1
+	}
+	if tail := strings.TrimSpace(string(runes[start:])); tail != "" {
+		sentences = append(sentences, tail)
+	}
+	return sentences
+}
+
+func isSummarySentenceTerminator(r rune) bool {
+	switch r {
+	case '.', '!', '?', ';', '\u3002', '\uff01', '\uff1f', '\uff1b':
+		return true
+	default:
+		return false
+	}
+}
+
+func isSummarySentenceBoundary(runes []rune, idx int) bool {
+	if idx < 0 || idx >= len(runes) {
+		return false
+	}
+	switch runes[idx] {
+	case '\u3002', '\uff01', '\uff1f', '\uff1b':
+		return true
+	}
+	if idx == len(runes)-1 {
+		return true
+	}
+	next := runes[idx+1]
+	if unicode.IsSpace(next) {
+		return true
+	}
+	switch next {
+	case '`', '"', '\'', ')', ']', '}', '>', '\u300d', '\u300f', '\u201d', '\u2019':
+		return true
+	default:
+		return false
+	}
 }
 
 func renderAnswerDocumentExactResolutionLead(contract *types.ExactResolutionContract, exact *types.AnswerExactResolution, lang string) string {

@@ -83,6 +83,39 @@ func TestCollectForbiddenExactContextLabels_SkipsImportSymbols(t *testing.T) {
 	}
 }
 
+func TestCollectForbiddenExactContextLabels_IncludeStructuralSymbols(t *testing.T) {
+	contract := &ExactResolutionContract{
+		TargetKind:           SubjectConfigKey,
+		TargetLabel:          "config key",
+		Targets:              []string{"explore_mid_loop_hint_budget"},
+		AllowAbsence:         true,
+		RelatedContextPolicy: ExactContextSameFamilyGrounded,
+	}
+	items := []EvidenceItem{{
+		Kind:            EvidenceDirect,
+		Source:          "internal/types/explore_budget.go",
+		LineStart:       40,
+		AnchorKind:      AnchorDefinition,
+		AnchorSymbol:    "ExploreBudget",
+		ContextRole:     EvidenceContextRoleIllustrativeOnly,
+		GroundingStatus: GroundingGrounded,
+	}}
+
+	labels := collectForbiddenExactContextLabels(contract, ScenarioConfigTrace, true, items, []string{"internal/types/config.go"}, nil)
+	var sawSymbol, sawPath bool
+	for _, label := range labels {
+		if label.Kind == "symbol" && label.Display == "ExploreBudget" {
+			sawSymbol = true
+		}
+		if label.Kind == "path" && label.Display == "internal/types/explore_budget.go" {
+			sawPath = true
+		}
+	}
+	if !sawSymbol || !sawPath {
+		t.Fatalf("forbidden labels should retain structural background-only symbol + path, got %+v", labels)
+	}
+}
+
 func TestBuildAnswerSurfacePlan_SplitsCitationGradeAndProseOnlyContext(t *testing.T) {
 	mut := NewMutableState("")
 	mut.SetInvestigationResultKind("absence")
