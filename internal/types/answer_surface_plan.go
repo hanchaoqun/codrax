@@ -458,14 +458,26 @@ func collectForbiddenExactContextLabels(
 	requiredFiles []string,
 	allowed []ExactContextSurfaceLabel,
 ) []ExactContextSurfaceLabel {
-	return exactContextSurfaceLabelsFromItems(
+	return exactContextSurfaceLabelsFromItemsWithKinds(
 		contract,
 		collectForbiddenExactContextItems(contract, scenario, stableAbsent, items, requiredFiles),
 		allowed,
+		false,
+		true,
 	)
 }
 
 func exactContextSurfaceLabelsFromItems(contract *ExactResolutionContract, items []EvidenceItem, allowed []ExactContextSurfaceLabel) []ExactContextSurfaceLabel {
+	return exactContextSurfaceLabelsFromItemsWithKinds(contract, items, allowed, true, true)
+}
+
+func exactContextSurfaceLabelsFromItemsWithKinds(
+	contract *ExactResolutionContract,
+	items []EvidenceItem,
+	allowed []ExactContextSurfaceLabel,
+	includeSymbols bool,
+	includePaths bool,
+) []ExactContextSurfaceLabel {
 	if contract == nil || len(items) == 0 {
 		return nil
 	}
@@ -479,7 +491,7 @@ func exactContextSurfaceLabelsFromItems(contract *ExactResolutionContract, items
 	seen := make(map[string]bool)
 	var out []ExactContextSurfaceLabel
 	for _, item := range items {
-		for _, label := range exactContextSurfaceLabelsForItem(contract, item) {
+		for _, label := range exactContextSurfaceLabelsForItemWithKinds(contract, item, includeSymbols, includePaths) {
 			key := label.Kind + "|" + label.LookupKey
 			if label.Display == "" || label.MatchLower == "" || seen[label.MatchLower] || allowedKeys[key] {
 				continue
@@ -495,6 +507,15 @@ func exactContextSurfaceLabelsFromItems(contract *ExactResolutionContract, items
 }
 
 func exactContextSurfaceLabelsForItem(contract *ExactResolutionContract, item EvidenceItem) []ExactContextSurfaceLabel {
+	return exactContextSurfaceLabelsForItemWithKinds(contract, item, true, true)
+}
+
+func exactContextSurfaceLabelsForItemWithKinds(
+	contract *ExactResolutionContract,
+	item EvidenceItem,
+	includeSymbols bool,
+	includePaths bool,
+) []ExactContextSurfaceLabel {
 	var out []ExactContextSurfaceLabel
 	appendLabel := func(kind, display string) {
 		display = strings.TrimSpace(display)
@@ -517,9 +538,13 @@ func exactContextSurfaceLabelsForItem(contract *ExactResolutionContract, item Ev
 			Kind:       kind,
 		})
 	}
-	appendLabel("symbol", item.AnchorSymbol)
-	appendLabel("symbol", item.Subject)
-	appendLabel("path", item.Source)
+	if includeSymbols && item.AnchorKind != AnchorImport {
+		appendLabel("symbol", item.AnchorSymbol)
+		appendLabel("symbol", item.Subject)
+	}
+	if includePaths {
+		appendLabel("path", item.Source)
+	}
 	return out
 }
 

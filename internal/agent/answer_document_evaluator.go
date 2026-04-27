@@ -308,10 +308,16 @@ func renderAnswerDocSubmissionChecklist(ctx *types.AgentContext, shape string, d
 			"Fill `exact_resolution{status,anchor?,context_mode}` to match the current exact-target state; do not leave the status implicit in prose.",
 		)
 	}
+	if ctx != nil && ctx.LogTriage != nil && len(ctx.LogTriage.Errors) > 0 {
+		items = append(items,
+			"If this answer explains an attached log / stack trace, name each structured log error type or exception identifier from Log Triage at least once in `summary`. Do not paraphrase the type name away.",
+		)
+	}
 	if diagramRequired {
 		items = append(items,
 			"`summary` must include at least one grounded triple-backtick diagram for this dispatch.",
 			"When a `Diagram Seeds` section is present, treat it as the grounded template for first-pass repair-resistant output: prefer copying its node labels verbatim instead of renaming them into abstract aliases or numbered layers. Put any uncited conceptual layer names in prose outside the fenced diagram.",
+			"Every file/path node you keep inside a fenced diagram must also be grounded by `citations[]` or by attached Log Triage frames in this dispatch. If a relationship lacks a grounded node label, explain it in prose instead of inventing a diagram node.",
 		)
 		if ctx != nil && ctx.AnalysisIR != nil && ctx.AnalysisIR.RequestModel.Scenario == types.ScenarioConfigTrace {
 			items = append(items,

@@ -730,6 +730,44 @@ func TestAnswerDocumentEvaluator_BuildInitialInstruction_RendersRoleLocateScalar
 	}
 }
 
+func TestAnswerDocumentEvaluator_BuildInitialInstruction_RendersLogTriageAndDiagramChecklist(t *testing.T) {
+	ctx := &types.AgentContext{
+		AnalysisIR: &types.AnalysisIR{
+			AnswerContract: types.AnswerContract{
+				RequiredAnswerShape: types.ShapeExplanation,
+				Diagram: &types.DiagramContract{
+					Required:       true,
+					Minimum:        1,
+					PreferredKinds: []types.DiagramKind{types.DiagramSequence},
+				},
+			},
+			RequestModel: types.RequestModel{
+				Scenario: types.ScenarioRootCause,
+			},
+		},
+		LogTriage: &types.LogBundle{
+			Errors: []types.LogError{{
+				Type: "runtime error: invalid memory address or nil pointer dereference",
+				Frames: []types.LogFrame{
+					{File: "internal/agent/analyzer.go", Line: 250, Func: "buildAnalysisIR"},
+					{File: "internal/agent/analyzer.go", Line: 320, Func: "ParseOutput"},
+				},
+			}},
+		},
+	}
+
+	prompt := (&answerDocumentEvaluator{}).BuildInitialInstruction(ctx, nil)
+	for _, want := range []string{
+		"## Submission Checklist",
+		"name each structured log error type or exception identifier from Log Triage",
+		"Every file/path node you keep inside a fenced diagram must also be grounded by `citations[]` or by attached Log Triage frames",
+	} {
+		if !strings.Contains(prompt, want) {
+			t.Fatalf("prompt missing %q:\n%s", want, prompt)
+		}
+	}
+}
+
 func TestCollectExactResolutionSeeds_FiltersDifferentConfigFamilies(t *testing.T) {
 	contract := &types.ExactResolutionContract{
 		TargetKind:           types.SubjectConfigKey,
