@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -247,6 +248,57 @@ func (t *RunTests) Execute(ctx *types.BusContext, params json.RawMessage) (types
 			}
 		}
 
+		// Pre-flight: when the runner has nothing to run, don't run it.
+		// Unified flow per language:
+		//
+		//   1. Detect "is there test work for this runner under root?"
+		//      Python uses the broader signal (test files + pytest.ini
+		//      / pyproject.toml / setup.cfg / tox.ini / noxfile.py).
+		//      Other runners use file-name discovery conventions.
+		//   2. If test work exists → fall through to runner invoke.
+		//   3. If absent AND a syntax-check fallback exists for this
+		//      runner (python: py_compile, node: node --check,
+		//      ruby: ruby -wc) → run the fallback on plan-touched
+		//      files of the right extension. Pass means the plan's
+		//      newly-added code parses; fail means real syntax errors
+		//      that block any test runner anyway.
+		//   4. If absent AND no fallback applies (or no plan files
+		//      match) → emit synthetic Passed with NoTestsRunners.
+		//
+		// This was the customer-reported scenario: `guess_number.py`
+		// added in a repo with zero pytest infrastructure. Pre-fix we
+		// invoked pytest, which failed because pytest was not
+		// installed on this host's python3. Post-fix we run
+		// py_compile on the plan file → succeeds → verify passes.
+		if runnerHasNoTestWork(runner, runnerRoot) {
+			label := runnerPlanLabel(ctx.RepoRoot, plan)
+			exts := syntaxCheckExtensions(runner)
+			if len(exts) > 0 {
+				files := planFilesByExt(ctx, runnerRoot, exts)
+				if len(files) > 0 {
+					logging.Info("[run_tests] %s pre-flight: no %s test infrastructure under %s — running %s syntax-check fallback on %d plan file(s)",
+						label, runner, runnerRoot, runner, len(files))
+					report, syntaxOutput, ok := runSyntaxCheckFallback(ctx, label, runnerRoot, runner, files)
+					if ok {
+						projectReports = append(projectReports, qualifyChangeReport(report, plan, ctx.RepoRoot))
+						combinedOutputs = append(combinedOutputs, renderRunnerOutputSection(plan, syntaxOutput))
+						continue
+					}
+				}
+			}
+			logging.Info("[run_tests] %s pre-flight: no %s test work under %s — emitting synthetic Passed (NoTestsRunners) without invoking runner",
+				label, runner, runnerRoot)
+			synthetic := &types.ChangeReport{
+				Passed:         true,
+				NoTestsRunners: []string{runner},
+			}
+			projectReports = append(projectReports, qualifyChangeReport(synthetic, plan, ctx.RepoRoot))
+			combinedOutputs = append(combinedOutputs, renderRunnerOutputSection(plan,
+				fmt.Sprintf("[run_tests: %s] no %s test work in %s; runner not invoked",
+					label, runner, runnerRoot)))
+			continue
+		}
+
 		// MainRepoRoot is threaded through for python venv probing:
 		// during verify the worktree is a detached-HEAD checkout that
 		// excludes gitignored paths (`.venv/` typically is), so the
@@ -374,13 +426,33 @@ func (t *RunTests) Execute(ctx *types.BusContext, params json.RawMessage) (types
 			// reports) can tell apart the three failure modes —
 			// shell exit 127, Go's exec.ErrNotFound, or output-pattern
 			// match — and inspect the matching pattern when it's #3.
+			label := runnerPlanLabel(ctx.RepoRoot, plan)
 			logging.Info("[run_tests] %s runner_missing detected: binary=%q reason=%s exit=%d",
-				runnerPlanLabel(ctx.RepoRoot, plan), missingBinary, missingReason, execExit)
+				label, missingBinary, missingReason, execExit)
+			// Tier on tests_exist (matches the user's design fix C):
+			// runner_missing + no tests in repo → downgrade to a
+			// warning Pass, NOT a verify_failed. The plan didn't need
+			// the runner to begin with (e.g. plan creates a bare
+			// script in a repo with no test infrastructure); blocking
+			// on a missing binary is a false negative.
+			testsExist := !runnerHasNoTestWork(runner, runnerRoot)
+			if !testsExist {
+				logging.Warning("[run_tests] %s runner_missing AND no test work present (binary=%q) — downgrading to synthetic Passed with warning; install %s to enable real test execution",
+					label, missingBinary, missingBinary)
+				_, ref := StoreBlob(ctx, t.Name()+"-runner-missing-no-tests", strings.Join(combinedOutputs, "\n\n"))
+				warning := warningPassedReport(runner, missingBinary, missingReason, execExit, output, ctx.Language)
+				projectReports = append(projectReports, qualifyChangeReport(warning, plan, ctx.RepoRoot))
+				combinedOutputs = append(combinedOutputs, renderRunnerOutputSection(plan,
+					fmt.Sprintf("[run_tests: %s] runner_missing %q, but no test work to do — verify pass-with-warning",
+						label, missingBinary)))
+				_ = ref
+				continue
+			}
 			_, ref := StoreBlob(ctx, t.Name()+"-runner-missing", strings.Join(combinedOutputs, "\n\n"))
 			report := makeRunnerMissingReport(runner, missingBinary, output, ctx.Language, missingReason, execExit)
 			ctx.Mutable.SetChangeReport(qualifyChangeReport(report, plan, ctx.RepoRoot))
 			summary := runnerMissingToolResultSummary(
-				ctx.Language, runnerPlanLabel(ctx.RepoRoot, plan),
+				ctx.Language, label,
 				missingBinary, runnerInstallHint(runner, ctx.Language),
 				missingReason, execExit, output)
 			return types.ToolResult{
@@ -1026,6 +1098,591 @@ func runnerPrimaryBinary(runner string) string {
 	return ""
 }
 
+// hasPythonTestInfrastructure returns true when the given root
+// contains any signal that this project intends to be tested with
+// pytest. The detector is a superset of file-name discovery (per
+// fix B in the user's design spec): test source files
+// (test_*.py / *_test.py / conftest.py) AND project configuration
+// hints (pytest.ini / pyproject.toml / setup.cfg / tox.ini /
+// noxfile.py) all count. Any one signal flips the result to true.
+//
+// Rationale: a pyproject.toml without test files still implies the
+// operator has a pytest workflow they expect to drive — bare
+// scaffolding repos rarely have one. Conversely, a repo with only
+// a single .py file and no manifests is almost always a "throwaway
+// script" plan; running pytest there is wasted work and on hosts
+// without pytest installed produces a false-negative verify_failed.
+func hasPythonTestInfrastructure(root string) bool {
+	if root == "" {
+		return false
+	}
+	if info, err := os.Stat(root); err != nil || !info.IsDir() {
+		return false
+	}
+	// Top-level config files take precedence — cheaper to stat than
+	// to walk. Walk is the fallback for nested test sources.
+	configFiles := []string{
+		"pytest.ini", "pyproject.toml", "setup.cfg",
+		"tox.ini", "noxfile.py", "conftest.py",
+	}
+	for _, name := range configFiles {
+		if _, err := os.Stat(filepath.Join(root, name)); err == nil {
+			return true
+		}
+	}
+	stop := errors.New("found-test-infra")
+	err := filepath.WalkDir(root, func(path string, d fs.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return nil
+		}
+		name := d.Name()
+		if d.IsDir() {
+			if path == root {
+				return nil
+			}
+			switch name {
+			case ".git", ".hg", ".svn",
+				"node_modules", "vendor", "target",
+				"dist", "build", "out", ".tox",
+				".venv", "venv", "env", ".virtualenv",
+				"__pycache__", ".pytest_cache", ".mypy_cache",
+				".idea", ".vscode", ".gradle", ".mvn",
+				".codrax":
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		switch {
+		case name == "conftest.py":
+			return stop
+		case strings.HasPrefix(name, "test_") && strings.HasSuffix(name, ".py"):
+			return stop
+		case strings.HasSuffix(name, "_test.py"):
+			return stop
+		case name == "pytest.ini" || name == "pyproject.toml" ||
+			name == "setup.cfg" || name == "tox.ini" || name == "noxfile.py":
+			return stop
+		}
+		return nil
+	})
+	return errors.Is(err, stop)
+}
+
+// runnerHasNoTestWork is the unified "is there test work for this
+// runner under root?" predicate used by both the pre-flight skip
+// and the runner_missing tier (fix C). For python it consults
+// hasPythonTestInfrastructure (the broader signal); for other
+// runners it falls through to hasNoTestSources's file-name walk.
+// Returns true when there is NO test work.
+func runnerHasNoTestWork(runner, root string) bool {
+	if runner == "python" {
+		return !hasPythonTestInfrastructure(root)
+	}
+	return hasNoTestSources(runner, root)
+}
+
+// planFilesByExt returns the absolute paths of every plan TargetPath
+// whose lowercased basename ends in one of the supplied extensions
+// (each ext is matched as a suffix, so callers pass ".py", ".js",
+// etc.) AND whose path resolves inside `root` (typically the
+// worktree). Used by the per-runner syntax-check fallbacks to pick
+// files for the alternate verification when no test infrastructure
+// exists.
+func planFilesByExt(ctx *types.BusContext, root string, exts []string) []string {
+	if ctx == nil || ctx.Mutable == nil {
+		return nil
+	}
+	plan := ctx.Mutable.ChangePlan()
+	if plan == nil {
+		return nil
+	}
+	rootAbs, err := filepath.Abs(root)
+	if err != nil {
+		rootAbs = root
+	}
+	var out []string
+	seen := make(map[string]bool, len(plan.TargetPaths))
+	for _, p := range plan.TargetPaths {
+		p = strings.TrimSpace(p)
+		lower := strings.ToLower(p)
+		matched := false
+		for _, ext := range exts {
+			if strings.HasSuffix(lower, ext) {
+				matched = true
+				break
+			}
+		}
+		if !matched {
+			continue
+		}
+		var abs string
+		if filepath.IsAbs(p) {
+			abs = filepath.Clean(p)
+		} else {
+			abs = filepath.Clean(filepath.Join(rootAbs, p))
+		}
+		// Reject anything that resolves outside the worktree —
+		// belt-and-braces, since plan validation already enforces
+		// repo-relative + no-escape.
+		if rel, err := filepath.Rel(rootAbs, abs); err != nil || strings.HasPrefix(rel, "..") {
+			continue
+		}
+		if info, err := os.Stat(abs); err != nil || info.IsDir() {
+			continue
+		}
+		if seen[abs] {
+			continue
+		}
+		seen[abs] = true
+		out = append(out, abs)
+	}
+	return out
+}
+
+// planPythonFilesUnder is the python-specific shorthand for
+// planFilesByExt(ctx, root, []string{".py"}). Kept named so
+// runPyCompileFallback's intent reads cleanly.
+func planPythonFilesUnder(ctx *types.BusContext, root string) []string {
+	return planFilesByExt(ctx, root, []string{".py"})
+}
+
+// syntaxCheckExtensions returns the file extensions (with leading
+// dot, lowercase) whose source we know how to parse with the
+// runner's syntax-check tool. Empty result = no fallback for this
+// runner, caller emits synthetic Passed instead.
+func syntaxCheckExtensions(runner string) []string {
+	switch runner {
+	case "python":
+		return []string{".py"}
+	case "node":
+		// node --check parses CommonJS / ESM JavaScript. NOT TypeScript
+		// (needs tsc + project config). Skip .ts/.tsx here so we don't
+		// produce false-positive errors on TS-only repos.
+		return []string{".js", ".jsx", ".mjs", ".cjs"}
+	case "ruby":
+		return []string{".rb"}
+	}
+	return nil
+}
+
+// runSyntaxCheckFallback dispatches to the runner-specific syntax
+// checker (py_compile / node --check / ruby -c). Returns
+// (report, output, ok) — ok=false means this runner has no syntax-
+// check fallback (the caller emits synthetic Passed).
+func runSyntaxCheckFallback(ctx *types.BusContext, label, runnerRoot, runner string, files []string) (*types.ChangeReport, string, bool) {
+	switch runner {
+	case "python":
+		report, output := runPyCompileFallback(ctx, label, runnerRoot, files)
+		return report, output, true
+	case "node":
+		report, output := runNodeCheckFallback(ctx, label, runnerRoot, files)
+		return report, output, true
+	case "ruby":
+		report, output := runRubyCheckFallback(ctx, label, runnerRoot, files)
+		return report, output, true
+	}
+	return nil, "", false
+}
+
+// runNodeCheckFallback runs `node --check <file>` per JS file. node
+// --check is a syntax-only parse that catches missing semicolons,
+// unmatched braces, malformed expressions — the same class of errors
+// that block any test runner from importing the file. Used when the
+// repo has no node test infrastructure but the plan added .js files;
+// the operator's intent is "did this code parse?", not "do my tests
+// pass" (there are no tests).
+func runNodeCheckFallback(ctx *types.BusContext, label, runnerRoot string, files []string) (*types.ChangeReport, string) {
+	lang := ""
+	if ctx != nil {
+		lang = ctx.Language
+	}
+	bin := "node"
+	if _, err := exec.LookPath(bin); err != nil {
+		// Fall back to a synthetic Passed report — node missing AND
+		// no tests means there is nothing meaningful we can verify
+		// here; the operator gets a warning via the renderer.
+		var skipSummary string
+		if isZh(lang) {
+			skipSummary = "node --check 兜底跳过:PATH 上没有 node 二进制;同时也无 node 测试基础设施,verify 标记 pass-with-warning。要验证 JS 代码请先安装 Node.js。"
+		} else {
+			skipSummary = "node --check fallback skipped: node binary not on PATH; no node test infrastructure either, so verify pass-with-warning. Install Node.js if you intend to verify JS code."
+		}
+		return &types.ChangeReport{
+				Passed:         true,
+				NoTestsRunners: []string{"node"},
+				FailureSummary: skipSummary,
+			},
+			fmt.Sprintf("[run_tests: %s] node --check fallback skipped: node binary not on PATH\n", label)
+	}
+	var (
+		failures []types.TestResult
+		output   strings.Builder
+	)
+	output.WriteString(fmt.Sprintf("[run_tests: %s] node --check fallback (no node test infrastructure detected; runner not invoked)\n", label))
+	for _, f := range files {
+		cmd := exec.Command(bin, "--check", f)
+		cmd.Dir = runnerRoot
+		out, err := cmd.CombinedOutput()
+		rel, relErr := filepath.Rel(runnerRoot, f)
+		if relErr != nil {
+			rel = f
+		}
+		if err == nil {
+			output.WriteString(fmt.Sprintf("  ok    %s\n", rel))
+			continue
+		}
+		failures = append(failures, types.TestResult{
+			Kind:          types.TestResultKindBuildError,
+			Suite:         "node_check",
+			AssertionID:   rel,
+			Passed:        false,
+			FailureDetail: strings.TrimSpace(string(out)),
+		})
+		output.WriteString(fmt.Sprintf("  FAIL  %s: %v\n%s\n", rel, err,
+			truncateForLog(string(out), 300)))
+	}
+	if len(failures) == 0 {
+		return &types.ChangeReport{
+			Passed:         true,
+			NoTestsRunners: []string{"node"},
+		}, output.String()
+	}
+	var summary string
+	if isZh(lang) {
+		summary = fmt.Sprintf("node --check 兜底在 %d 个 plan 文件中发现 %d 处语法错误;由于仓内无 node 测试基础设施,本次未跑 jest/vitest。",
+			len(files), len(failures))
+	} else {
+		summary = fmt.Sprintf("node --check fallback found %d syntax error(s) across %d plan file(s); jest/vitest was not run because no node test infrastructure exists in the repo.",
+			len(failures), len(files))
+	}
+	return &types.ChangeReport{
+		Passed:         false,
+		BuildFailed:    true,
+		FailureSummary: summary,
+		FailureKind:    types.FailureKindBuildFailure,
+		TestResults:    failures,
+	}, output.String()
+}
+
+// runRubyCheckFallback runs `ruby -wc <file>` per .rb file. Same
+// rationale as runNodeCheckFallback: when no rspec/minitest layout
+// exists but the plan added .rb sources, the meaningful
+// verification is "does this Ruby parse" — that's what -c does.
+func runRubyCheckFallback(ctx *types.BusContext, label, runnerRoot string, files []string) (*types.ChangeReport, string) {
+	lang := ""
+	if ctx != nil {
+		lang = ctx.Language
+	}
+	bin := "ruby"
+	if _, err := exec.LookPath(bin); err != nil {
+		var skipSummary string
+		if isZh(lang) {
+			skipSummary = "ruby -c 兜底跳过:PATH 上没有 ruby 二进制;同时也无 ruby 测试基础设施,verify 标记 pass-with-warning。要验证 .rb 代码请先安装 Ruby。"
+		} else {
+			skipSummary = "ruby -c fallback skipped: ruby binary not on PATH; no ruby test infrastructure either, so verify pass-with-warning. Install Ruby if you intend to verify .rb code."
+		}
+		return &types.ChangeReport{
+				Passed:         true,
+				NoTestsRunners: []string{"ruby"},
+				FailureSummary: skipSummary,
+			},
+			fmt.Sprintf("[run_tests: %s] ruby -c fallback skipped: ruby binary not on PATH\n", label)
+	}
+	var (
+		failures []types.TestResult
+		output   strings.Builder
+	)
+	output.WriteString(fmt.Sprintf("[run_tests: %s] ruby -wc fallback (no ruby test infrastructure detected; runner not invoked)\n", label))
+	for _, f := range files {
+		cmd := exec.Command(bin, "-wc", f)
+		cmd.Dir = runnerRoot
+		out, err := cmd.CombinedOutput()
+		rel, relErr := filepath.Rel(runnerRoot, f)
+		if relErr != nil {
+			rel = f
+		}
+		if err == nil {
+			output.WriteString(fmt.Sprintf("  ok    %s\n", rel))
+			continue
+		}
+		failures = append(failures, types.TestResult{
+			Kind:          types.TestResultKindBuildError,
+			Suite:         "ruby_check",
+			AssertionID:   rel,
+			Passed:        false,
+			FailureDetail: strings.TrimSpace(string(out)),
+		})
+		output.WriteString(fmt.Sprintf("  FAIL  %s: %v\n%s\n", rel, err,
+			truncateForLog(string(out), 300)))
+	}
+	if len(failures) == 0 {
+		return &types.ChangeReport{
+			Passed:         true,
+			NoTestsRunners: []string{"ruby"},
+		}, output.String()
+	}
+	var summary string
+	if isZh(lang) {
+		summary = fmt.Sprintf("ruby -wc 兜底在 %d 个 plan 文件中发现 %d 处语法错误;由于仓内无 ruby 测试基础设施,本次未跑 rspec/minitest。",
+			len(files), len(failures))
+	} else {
+		summary = fmt.Sprintf("ruby -wc fallback found %d syntax error(s) across %d plan file(s); rspec/minitest was not run because no ruby test infrastructure exists in the repo.",
+			len(failures), len(files))
+	}
+	return &types.ChangeReport{
+		Passed:         false,
+		BuildFailed:    true,
+		FailureSummary: summary,
+		FailureKind:    types.FailureKindBuildFailure,
+		TestResults:    failures,
+	}, output.String()
+}
+
+// runPyCompileFallback runs `python3 -m py_compile <file>` for each
+// supplied python file under the worktree, then synthesises a
+// ChangeReport reflecting compile success/failure. Used when the
+// plan creates a bare python script in a repo with no test
+// infrastructure — pytest would fail (no tests + maybe not even
+// installed) but py_compile is the syntax-level "did this code parse"
+// check that maps onto the operator's actual intent.
+//
+// Returns (report, output-text) where output-text is the human-
+// readable section appended to combinedOutputs. The interpreter is
+// resolved via pythonInterpreter so the venv probe + Fix A interleaved
+// order applies here too — the operator's main-repo .venv with pytest
+// installed will also have py_compile (every venv does).
+func runPyCompileFallback(ctx *types.BusContext, label, runnerRoot string, pyFiles []string) (*types.ChangeReport, string) {
+	mainRoot := ""
+	lang := ""
+	if ctx != nil {
+		mainRoot = ctx.MainRepoRoot
+		lang = ctx.Language
+	}
+	interp, _ := pythonInterpreter(runnerRoot, mainRoot)
+	// Bare `pytest` resolution as the python-interpreter implies the
+	// host has no python3/python at all. py_compile cannot run on
+	// pytest. Fall back to literal python3 and let it fail loudly if
+	// it's also missing — the operator needs the env fix either way.
+	if interp == "pytest" {
+		interp = "python3"
+	}
+	var (
+		failures []types.TestResult
+		output   strings.Builder
+	)
+	output.WriteString(fmt.Sprintf("[run_tests: %s] py_compile fallback (no test infrastructure detected; runner not invoked)\n",
+		label))
+	for _, f := range pyFiles {
+		cmd := exec.Command(interp, "-m", "py_compile", f)
+		cmd.Dir = runnerRoot
+		out, err := cmd.CombinedOutput()
+		rel, relErr := filepath.Rel(runnerRoot, f)
+		if relErr != nil {
+			rel = f
+		}
+		if err == nil {
+			output.WriteString(fmt.Sprintf("  ok    %s\n", rel))
+			continue
+		}
+		failures = append(failures, types.TestResult{
+			Kind:          types.TestResultKindBuildError,
+			Suite:         "py_compile",
+			AssertionID:   rel,
+			Passed:        false,
+			FailureDetail: strings.TrimSpace(string(out)),
+		})
+		output.WriteString(fmt.Sprintf("  FAIL  %s: %v\n%s\n", rel, err,
+			truncateForLog(string(out), 300)))
+	}
+	if len(failures) == 0 {
+		return &types.ChangeReport{
+			Passed:         true,
+			NoTestsRunners: []string{"python"},
+		}, output.String()
+	}
+	var summary string
+	if isZh(lang) {
+		summary = fmt.Sprintf("py_compile 兜底在 %d 个 plan 文件中发现 %d 处语法/导入错误 —— 请修复列出的 Python 文件;由于仓内无 pytest 基础设施,本次未跑 pytest。",
+			len(pyFiles), len(failures))
+	} else {
+		summary = fmt.Sprintf("py_compile fallback found %d syntax/import error(s) across %d plan file(s) — fix the listed Python files; pytest was not run because no test infrastructure exists in the repo.",
+			len(failures), len(pyFiles))
+	}
+	return &types.ChangeReport{
+		Passed:         false,
+		BuildFailed:    true,
+		FailureSummary: summary,
+		FailureKind:    types.FailureKindBuildFailure,
+		TestResults:    failures,
+	}, output.String()
+}
+
+// warningPassedReport synthesises a Passed=true ChangeReport that
+// also carries an advisory FailureSummary noting the runner was
+// missing but no test work was needed. Used by the fix-C tier path:
+// runner_missing + tests_exist=false → don't fail verify, but DO
+// warn the operator so they can install the runner if they intended
+// to add tests later.
+func warningPassedReport(runner, missingBinary, reason string, exitCode int, output, lang string) *types.ChangeReport {
+	excerpt := truncateForLog(output, 200)
+	var summary string
+	if isZh(lang) {
+		summary = fmt.Sprintf(
+			"runner %q 的主二进制 %q 不在 PATH(子进程 exit=%d, 信号=%s),但工作目录无 %s 测试基础设施 —— 无测试任务可跑,verify 标记 pass-with-warning。如果后续要加测试,请安装 %s。实际输出片段: %s",
+			runner, missingBinary, exitCode, reason, runner, missingBinary, excerpt)
+	} else {
+		summary = fmt.Sprintf(
+			"runner %q's primary binary %q not on PATH (subprocess exit=%d, trigger=%s), but the working dir has no %s test infrastructure — no test work to do, verify pass-with-warning. Install %s if you plan to add tests later. Actual output excerpt: %s",
+			runner, missingBinary, exitCode, reason, runner, missingBinary, excerpt)
+	}
+	return &types.ChangeReport{
+		Passed:         true,
+		NoTestsRunners: []string{runner},
+		FailureSummary: summary,
+	}
+}
+
+// hasNoTestSources returns true when a recursive scan of root finds
+// zero files matching the runner's standard test-file discovery
+// conventions. Used as a pre-flight before invoking the runner: if
+// the repo has nothing to test, there is no point in launching the
+// runner — and on hosts where the runner binary is missing the
+// invocation would falsely fail verify with FailureKindRunnerMissing,
+// which is the customer-reported scenario this gates against.
+//
+// Returns false (the safe default — invoke the runner) for runners
+// whose discovery is too project-shape-dependent to reliably pre-check:
+// rust (#[test] inline annotations), cmake (CMakeLists.txt-driven),
+// meson (meson.build-driven), make (target-driven), hvigor / cjpm
+// (HarmonyOS / Cangjie project conventions vary).
+//
+// The walk skips well-known irrelevant directories (.git, build
+// caches, dependency vendors) so it stays cheap on large monorepos.
+// Total cost on a clean source tree is one or two stat passes — the
+// happy path bails early on the first matching file.
+func hasNoTestSources(runner, root string) bool {
+	matcher := testFileMatcher(runner)
+	if matcher == nil {
+		return false
+	}
+	if root == "" {
+		return false
+	}
+	if info, err := os.Stat(root); err != nil || !info.IsDir() {
+		return false
+	}
+	stop := errors.New("found-test-file")
+	err := filepath.WalkDir(root, func(path string, d fs.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return nil
+		}
+		name := d.Name()
+		if d.IsDir() {
+			if path == root {
+				return nil
+			}
+			switch name {
+			case ".git", ".hg", ".svn",
+				"node_modules", "vendor", "target",
+				"dist", "build", "out", ".tox",
+				".venv", "venv", "env", ".virtualenv",
+				"__pycache__", ".pytest_cache", ".mypy_cache",
+				".idea", ".vscode", ".gradle", ".mvn",
+				".codrax":
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if matcher(path, name) {
+			return stop
+		}
+		return nil
+	})
+	if errors.Is(err, stop) {
+		return false
+	}
+	return true
+}
+
+// testFileMatcher returns the per-runner predicate used by
+// hasNoTestSources. Returning nil signals "this runner does not opt
+// into pre-flight skip" — the caller falls through to invoking the
+// runner. Conventions are deliberately conservative: a false-positive
+// (matcher fires on a non-test file) produces a wasted runner exec;
+// a false-negative (matcher misses a real test) produces an incorrect
+// pre-flight pass. The latter is the worse failure mode, so the
+// matchers err on the side of NOT firing.
+func testFileMatcher(runner string) func(path, name string) bool {
+	switch runner {
+	case "go":
+		return func(_, name string) bool {
+			return strings.HasSuffix(name, "_test.go")
+		}
+	case "python":
+		return func(_, name string) bool {
+			if name == "conftest.py" {
+				return true
+			}
+			if strings.HasSuffix(name, ".py") &&
+				(strings.HasPrefix(name, "test_") || strings.HasSuffix(name, "_test.py")) {
+				return true
+			}
+			return false
+		}
+	case "node":
+		return func(path, name string) bool {
+			lower := strings.ToLower(name)
+			for _, frag := range []string{".test.", ".spec."} {
+				if strings.Contains(lower, frag) && (
+					strings.HasSuffix(lower, ".js") ||
+						strings.HasSuffix(lower, ".jsx") ||
+						strings.HasSuffix(lower, ".ts") ||
+						strings.HasSuffix(lower, ".tsx") ||
+						strings.HasSuffix(lower, ".mjs") ||
+						strings.HasSuffix(lower, ".cjs")) {
+					return true
+				}
+			}
+			// jest's __tests__/ directory: any JS/TS file inside
+			// counts as a test by convention. Walk up the path looking
+			// for the dir component.
+			for _, comp := range strings.Split(filepath.ToSlash(path), "/") {
+				if comp == "__tests__" {
+					return strings.HasSuffix(lower, ".js") ||
+						strings.HasSuffix(lower, ".jsx") ||
+						strings.HasSuffix(lower, ".ts") ||
+						strings.HasSuffix(lower, ".tsx") ||
+						strings.HasSuffix(lower, ".mjs") ||
+						strings.HasSuffix(lower, ".cjs")
+				}
+			}
+			return false
+		}
+	case "ruby":
+		return func(_, name string) bool {
+			return strings.HasSuffix(name, "_spec.rb") || strings.HasSuffix(name, "_test.rb")
+		}
+	case "swift":
+		return func(_, name string) bool {
+			return strings.HasSuffix(name, "Tests.swift") || strings.HasSuffix(name, "Test.swift")
+		}
+	case "java":
+		return func(_, name string) bool {
+			if !strings.HasSuffix(name, ".java") {
+				return false
+			}
+			base := strings.TrimSuffix(name, ".java")
+			return strings.HasPrefix(base, "Test") ||
+				strings.HasSuffix(base, "Test") ||
+				strings.HasSuffix(base, "Tests") ||
+				strings.HasSuffix(base, "IT") || // Maven Failsafe integration test
+				strings.HasSuffix(base, "ITCase") ||
+				strings.HasSuffix(base, "TestCase")
+		}
+	}
+	return nil
+}
+
 // pythonInterpreter resolves the Python invocation to use for the
 // repository under test. Returns (path-or-name, asModule) where
 // asModule tells the caller whether to invoke as
@@ -1090,45 +1747,56 @@ func pythonInterpreter(roots ...string) (string, bool) {
 		filepath.Join("Scripts", "python.exe"),
 	}
 	seen := make(map[string]bool, len(roots))
-	probedRoots := make([]string, 0, len(roots))
+	dedupedRoots := make([]string, 0, len(roots))
 	for _, root := range roots {
 		root = strings.TrimSpace(root)
 		if root == "" || seen[root] {
 			continue
 		}
 		seen[root] = true
-		probedRoots = append(probedRoots, root)
-		for _, dir := range venvDirs {
+		dedupedRoots = append(dedupedRoots, root)
+	}
+	// Interleaved probe order (fix A in the user design spec): all
+	// roots probed for `.venv` first, then all roots probed for
+	// `venv`, then `env`, then `.virtualenv`. This ensures that when
+	// the user has a `.venv` at the main repo root AND a stray
+	// `venv` at the worktree (or vice versa), the more conventional
+	// `.venv` wins regardless of which root it lives in. The
+	// pre-fix order (all dirs of root[0], then all dirs of root[1])
+	// would prefer worktree's `venv` over mainRepo's `.venv` — which
+	// is wrong: `.venv` is the modern convention, mainRepo is where
+	// the user typed `pip install pytest`.
+	for _, dir := range venvDirs {
+		for _, root := range dedupedRoots {
 			for _, sub := range venvSubpaths {
 				candidate := filepath.Join(root, dir, sub)
 				if info, err := os.Stat(candidate); err == nil && !info.IsDir() {
-					logging.Info("[run_tests/python] interpreter resolved: venv=%q (root=%q dir=%q sub=%q)",
-						filepath.ToSlash(candidate), root, dir, sub)
+					logging.Info("[run_tests/python] interpreter resolved: venv=%q (root=%q dir=%q sub=%q; probed roots=%v interleaved)",
+						filepath.ToSlash(candidate), root, dir, sub, dedupedRoots)
 					return filepath.ToSlash(candidate), true
 				}
 			}
 		}
 	}
 	// Standalone `pytest` wins over `<python> -m pytest` because its
-	// shebang resolves to the python pip installed it under. See the
-	// long doc comment above for the customer scenario this fixes.
+	// shebang resolves to the python pip installed it under.
 	if path, err := exec.LookPath("pytest"); err == nil {
 		logging.Info("[run_tests/python] interpreter resolved: PATH pytest=%q (no venv at: %v; preferred over `python -m pytest` because pytest's shebang knows its own python)",
-			path, probedRoots)
+			path, dedupedRoots)
 		return "pytest", false
 	}
 	if path, err := exec.LookPath("python3"); err == nil {
 		logging.Info("[run_tests/python] interpreter resolved: PATH python3=%q (no venv at: %v; standalone pytest absent)",
-			path, probedRoots)
+			path, dedupedRoots)
 		return "python3", true
 	}
 	if path, err := exec.LookPath("python"); err == nil {
 		logging.Info("[run_tests/python] interpreter resolved: PATH python=%q (no venv at: %v; standalone pytest + python3 absent)",
-			path, probedRoots)
+			path, dedupedRoots)
 		return "python", true
 	}
 	logging.Warning("[run_tests/python] no python interpreter found (probed venv at: %v; pytest / python3 / python all absent from PATH); falling back to bare pytest invocation which will fail loudly",
-		probedRoots)
+		dedupedRoots)
 	return "pytest", false
 }
 
