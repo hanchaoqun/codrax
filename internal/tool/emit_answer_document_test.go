@@ -2274,7 +2274,7 @@ func TestEmitAnswerDocument_RejectsBackgroundOnlyExactContextSurface(t *testing.
 			"status":       "absent",
 			"context_mode": "grounded_context_only",
 		},
-		"summary": "`DefaultExploreHeuristics()` is the grounded code-default anchor, but related same-family runtime counters such as `ExploreBudget` are not answer-grade context for this exact-absence answer.",
+		"summary": "`DefaultExploreHeuristics()` is the grounded code-default anchor, but broad same-family background from `internal/types/explore_budget.go` is not answer-grade context for this exact-absence answer.",
 		"citations": []map[string]interface{}{
 			{"file": "internal/types/config.go", "line": 707},
 		},
@@ -2286,7 +2286,7 @@ func TestEmitAnswerDocument_RejectsBackgroundOnlyExactContextSurface(t *testing.
 	if res.Repair == nil || res.Repair.Code != "exact_context_surface" {
 		t.Fatalf("reject should expose exact_context_surface repair metadata, got %+v", res.Repair)
 	}
-	if !strings.Contains(res.Repair.Metadata["forbidden_anchors"], "ExploreBudget") {
+	if !strings.Contains(res.Repair.Metadata["forbidden_anchors"], "internal/types/explore_budget.go") {
 		t.Fatalf("reject should name the background-only anchor, got %+v", res.Repair)
 	}
 	if !strings.Contains(res.Repair.Metadata["allowed_anchors"], "internal/types/config.go") {

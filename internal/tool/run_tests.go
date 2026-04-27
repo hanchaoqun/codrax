@@ -1458,13 +1458,27 @@ func runPyCompileFallback(ctx *types.BusContext, label, runnerRoot string, pyFil
 		mainRoot = ctx.MainRepoRoot
 		lang = ctx.Language
 	}
-	interp, _ := pythonInterpreter(runnerRoot, mainRoot)
-	// Bare `pytest` resolution as the python-interpreter implies the
-	// host has no python3/python at all. py_compile cannot run on
-	// pytest. Fall back to literal python3 and let it fail loudly if
-	// it's also missing — the operator needs the env fix either way.
-	if interp == "pytest" {
-		interp = "python3"
+	interp, asModule := pythonInterpreter(runnerRoot, mainRoot)
+	exePath := interp
+	fixedArgs := []string(nil)
+	if asModule && interp != "" && interp != "python3" && interp != "python" {
+		// Project venv path (or another concrete interpreter path) already
+		// won the pythonInterpreter probe; keep it so py_compile runs in the
+		// same environment as the repo's tests would.
+		exePath = interp
+	} else if runner, ok := resolvePythonDryBuildRunner(); ok {
+		// Reuse the dry-build probe so Windows PATH shims like
+		// WindowsApps/python3 don't get mistaken for a usable interpreter.
+		exePath = runner.ExePath
+		fixedArgs = append([]string{}, runner.FixedArgs...)
+	} else {
+		// Bare `pytest` resolution as the python-interpreter implies the
+		// host has no python3/python at all. py_compile cannot run on
+		// pytest. Fall back to literal python3 and let it fail loudly if
+		// it's also missing — the operator needs the env fix either way.
+		if strings.TrimSpace(exePath) == "" || exePath == "pytest" {
+			exePath = "python3"
+		}
 	}
 	var (
 		failures []types.TestResult
@@ -1473,7 +1487,8 @@ func runPyCompileFallback(ctx *types.BusContext, label, runnerRoot string, pyFil
 	output.WriteString(fmt.Sprintf("[run_tests: %s] py_compile fallback (no test infrastructure detected; runner not invoked)\n",
 		label))
 	for _, f := range pyFiles {
-		cmd := exec.Command(interp, "-m", "py_compile", f)
+		args := append(append([]string{}, fixedArgs...), "-m", "py_compile", f)
+		cmd := exec.Command(exePath, args...)
 		cmd.Dir = runnerRoot
 		out, err := cmd.CombinedOutput()
 		rel, relErr := filepath.Rel(runnerRoot, f)
@@ -1484,15 +1499,23 @@ func runPyCompileFallback(ctx *types.BusContext, label, runnerRoot string, pyFil
 			output.WriteString(fmt.Sprintf("  ok    %s\n", rel))
 			continue
 		}
+		failureDetail := strings.TrimSpace(string(out))
+		if failureDetail == "" {
+			failureDetail = err.Error()
+		}
 		failures = append(failures, types.TestResult{
 			Kind:          types.TestResultKindBuildError,
 			Suite:         "py_compile",
 			AssertionID:   rel,
 			Passed:        false,
-			FailureDetail: strings.TrimSpace(string(out)),
+			FailureDetail: failureDetail,
 		})
+		logText := strings.TrimSpace(string(out))
+		if logText == "" {
+			logText = failureDetail
+		}
 		output.WriteString(fmt.Sprintf("  FAIL  %s: %v\n%s\n", rel, err,
-			truncateForLog(string(out), 300)))
+			truncateForLog(logText, 300)))
 	}
 	if len(failures) == 0 {
 		return &types.ChangeReport{

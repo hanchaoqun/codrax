@@ -158,10 +158,12 @@ func TestPlanFilesByExt_FiltersAndResolves(t *testing.T) {
 
 // TestRunPyCompileFallback_PassWhenAllFilesParse drives the python
 // fallback end-to-end with a file that py_compile accepts. Skipped
-// when python3 isn't on the test host.
+// when no usable Python dry-build runner is available on the test
+// host (for example a PATH shim that resolves via LookPath but
+// cannot actually execute `-m py_compile`).
 func TestRunPyCompileFallback_PassWhenAllFilesParse(t *testing.T) {
-	if _, err := exec.LookPath("python3"); err != nil {
-		t.Skip("python3 not on PATH; skip")
+	if _, ok := resolvePythonDryBuildRunner(); !ok {
+		t.Skip("no usable python dry-build runner on PATH; skip")
 	}
 	root := t.TempDir()
 	good := filepath.Join(root, "guess_number.py")
@@ -186,10 +188,11 @@ func TestRunPyCompileFallback_PassWhenAllFilesParse(t *testing.T) {
 
 // TestRunPyCompileFallback_FailOnSyntaxError verifies broken syntax
 // produces a build_error TestResult with the file as AssertionID
-// and a non-empty FailureDetail. Skipped without python3.
+// and a non-empty FailureDetail. Skipped when no usable Python
+// dry-build runner is available.
 func TestRunPyCompileFallback_FailOnSyntaxError(t *testing.T) {
-	if _, err := exec.LookPath("python3"); err != nil {
-		t.Skip("python3 not on PATH; skip")
+	if _, ok := resolvePythonDryBuildRunner(); !ok {
+		t.Skip("no usable python dry-build runner on PATH; skip")
 	}
 	root := t.TempDir()
 	bad := filepath.Join(root, "bad.py")
@@ -255,7 +258,7 @@ func TestPythonInterpreter_InterleavedVenvOrdering(t *testing.T) {
 	if !asModule {
 		t.Error("asModule should be true for venv pythons")
 	}
-	if !strings.Contains(interp, mainRepo) {
+	if !strings.Contains(filepath.ToSlash(interp), filepath.ToSlash(mainRepo)) {
 		t.Errorf("expected mainRepo .venv to win; got %q", interp)
 	}
 	if !strings.Contains(interp, ".venv") {
