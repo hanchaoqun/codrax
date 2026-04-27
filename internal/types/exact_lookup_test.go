@@ -103,6 +103,30 @@ func TestBuildExactResolutionContract_ConfigKeyUsesExplicitExactTargets(t *testi
 	}
 }
 
+func TestBuildExactResolutionContract_ConfigTraceFiltersPathLikeExactTargetsEvenWhenAnswerSubjectDrifts(t *testing.T) {
+	rm := RequestModel{
+		RawRequest: "explore_mid_loop_hint_budget 的最终有效值是怎么计算出来的？给我 code default / codrax.yaml / CLI 三层的覆盖优先级。",
+		Scenario:   ScenarioConfigTrace,
+		AnalyzerHints: AnalyzerHints{
+			Kind: "config_mapping",
+			PrimaryEntities: []string{
+				"explore_mid_loop_hint_budget",
+				"codrax.yaml",
+			},
+			ExactTargets: []string{"explore_mid_loop_hint_budget", "codrax.yaml"},
+		},
+		AnswerSubject: AnswerSubject{Kind: SubjectNumeric},
+	}
+
+	got := BuildExactResolutionContract(rm)
+	if got == nil {
+		t.Fatal("contract = nil, want non-nil")
+	}
+	if !reflect.DeepEqual(got.Targets, []string{"explore_mid_loop_hint_budget"}) {
+		t.Fatalf("Targets = %v, want only the exact config key target after semantic subject filtering", got.Targets)
+	}
+}
+
 func TestBuildExactResolutionContract_PersistsValidatedContextTerms(t *testing.T) {
 	rm := RequestModel{
 		RawRequest: "explore_mid_loop_hint_budget 鐨勬渶缁堟湁鏁堝€兼槸鎬庝箞璁＄畻鍑烘潵鐨勶紵",

@@ -122,7 +122,7 @@ func exactResolutionNeedsExplicitDisambiguation(rm RequestModel) bool {
 	}
 	filtered := primary[:0]
 	for _, candidate := range primary {
-		if exactResolutionCandidateMatchesSubjectKind(rm.AnswerSubject.Kind, candidate) {
+		if exactResolutionCandidateMatchesRequest(rm, candidate) {
 			filtered = append(filtered, candidate)
 		}
 	}
@@ -148,7 +148,7 @@ func exactResolutionSubjectCompatibleCandidates(rm RequestModel, candidates []st
 	if len(primary) == 0 {
 		var out []string
 		for _, candidate := range candidates {
-			if exactResolutionCandidateMatchesSubjectKind(rm.AnswerSubject.Kind, candidate) {
+			if exactResolutionCandidateMatchesRequest(rm, candidate) {
 				out = append(out, candidate)
 			}
 		}
@@ -157,7 +157,7 @@ func exactResolutionSubjectCompatibleCandidates(rm RequestModel, candidates []st
 	kind := exactResolutionFindingKindForRM(rm)
 	allowed := make(map[string]bool, len(primary))
 	for _, item := range primary {
-		if !exactResolutionCandidateMatchesSubjectKind(rm.AnswerSubject.Kind, item) {
+		if !exactResolutionCandidateMatchesRequest(rm, item) {
 			continue
 		}
 		key := normalizeExactResolutionToken(kind, item)
@@ -170,7 +170,7 @@ func exactResolutionSubjectCompatibleCandidates(rm RequestModel, candidates []st
 	}
 	var out []string
 	for _, candidate := range candidates {
-		if !exactResolutionCandidateMatchesSubjectKind(rm.AnswerSubject.Kind, candidate) {
+		if !exactResolutionCandidateMatchesRequest(rm, candidate) {
 			continue
 		}
 		key := normalizeExactResolutionToken(kind, candidate)
@@ -200,6 +200,25 @@ func exactResolutionCandidateMatchesSubjectKind(kind AnswerSubjectKind, candidat
 		return true
 	default:
 		return !looksLikeExactPathToken(candidate) && !looksLikeRouteLikeToken(candidate)
+	}
+}
+
+func exactResolutionCandidateMatchesRequest(rm RequestModel, candidate string) bool {
+	switch exactResolutionSubjectLabel(rm) {
+	case "config key":
+		return exactResolutionCandidateMatchesSubjectKind(SubjectConfigKey, candidate)
+	case "file path":
+		return exactResolutionCandidateMatchesSubjectKind(SubjectFilePath, candidate)
+	case "route":
+		return exactResolutionCandidateMatchesSubjectKind(SubjectHandlerRoute, candidate)
+	case "symbol":
+		candidate = strings.TrimSpace(strings.Trim(candidate, "`\"' "))
+		return candidate != "" &&
+			!looksLikeExactPathToken(candidate) &&
+			!looksLikeRouteLikeToken(candidate) &&
+			!looksLikeConfigKeyToken(candidate)
+	default:
+		return exactResolutionCandidateMatchesSubjectKind(rm.AnswerSubject.Kind, candidate)
 	}
 }
 
