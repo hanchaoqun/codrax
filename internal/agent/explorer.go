@@ -3799,6 +3799,35 @@ func (e *explorerEvaluator) postCompletionReadyEscalationSignal(obs LoopObservat
 	}
 }
 
+func (e *explorerEvaluator) postCompletionReadyClosureOnlySignal(obs LoopObservation) LoopSignal {
+	if !e.midLoopCompletionReadyEscalated || e.investigationComplete {
+		return LoopSignal{}
+	}
+	navCount := successfulToolCountSince(obs.AllToolResults, e.midLoopLastResultsLen, map[string]bool{
+		"read_file":    true,
+		"grep":         true,
+		"list_files":   true,
+		"repo_map":     true,
+		"exec_command": true,
+	})
+	if navCount == 0 {
+		return LoopSignal{}
+	}
+	if successfulToolCountSince(obs.AllToolResults, e.midLoopLastResultsLen, map[string]bool{
+		"emit_evidence":                true,
+		"emit_investigation_complete": true,
+	}) > 0 {
+		return LoopSignal{}
+	}
+	return LoopSignal{
+		HintRequested:  true,
+		HintKey:        fmt.Sprintf("explorer.mid-loop.completion-ready-closure-only.%d", obs.Iteration),
+		Hint:           "MID-LOOP CHECK: completion-ready has already been established and escalated. The current batch still spent effort on navigation tools. Do NOT keep calling `read_file`, `grep`, `repo_map`, `list_files`, or `exec_command` unless this batch surfaced one concrete contradiction that would change the final answer. From here, either emit exactly one repair batch for that contradiction or call `emit_investigation_complete(reason, confidence, result_kind)` now.",
+		Progress:       true,
+		BypassThrottle: true,
+	}
+}
+
 func exactAbsenceClosureReady(contract *types.ExactResolutionContract, scenario types.Scenario, targets []string, evidence []types.EvidenceItem, requiredFiles []string) bool {
 	if contract == nil || len(targets) == 0 || len(evidence) == 0 {
 		return false
@@ -4157,6 +4186,9 @@ func (e *explorerEvaluator) observeMidLoop(obs LoopObservation) LoopSignal {
 		return sig
 	}
 	if sig := e.postCompletionReadyEscalationSignal(obs); sig.HintRequested {
+		return sig
+	}
+	if sig := e.postCompletionReadyClosureOnlySignal(obs); sig.HintRequested {
 		return sig
 	}
 

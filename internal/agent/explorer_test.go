@@ -4349,6 +4349,44 @@ func TestObserveMidLoop_CompletionReadyEscalation(t *testing.T) {
 	}
 }
 
+func TestObserveMidLoop_CompletionReadyClosureOnlyRedirectRepeatsAfterEscalation(t *testing.T) {
+	eval := &explorerEvaluator{
+		phase:                           1,
+		searchResult:                    &keywordSearchResult{Graph: &repomap.Graph{}},
+		midLoopCompletionReadySent:      true,
+		midLoopCompletionReadyIter:      3,
+		midLoopCompletionReadyEscalated: true,
+		midLoopLastResultsLen:           1,
+	}
+	results := []types.ToolResult{
+		{
+			ToolName: "emit_evidence",
+			Success:  true,
+			Summary:  "emit_evidence accepted 3 item(s)",
+		},
+		{
+			ToolName: "read_file",
+			Success:  true,
+			Summary:  "[internal/agent/agent.go: showing lines 1361-1380 of 2083 total]\n...",
+		},
+	}
+	sig := eval.observeMidLoop(LoopObservation{
+		Phase:          PhaseMidLoop,
+		Iteration:      6,
+		LastToolResult: &results[1],
+		AllToolResults: results,
+	})
+	if !sig.HintRequested {
+		t.Fatalf("closure-only redirect should fire after post-ready navigation, got %+v", sig)
+	}
+	if !strings.HasPrefix(sig.HintKey, "explorer.mid-loop.completion-ready-closure-only.") {
+		t.Fatalf("HintKey = %q, want completion-ready-closure-only prefix", sig.HintKey)
+	}
+	if !strings.Contains(sig.Hint, "emit_investigation_complete") {
+		t.Fatalf("closure-only redirect should steer back to completion, got: %s", sig.Hint)
+	}
+}
+
 func TestExactAbsenceClosureReady_IgnoresAbsenceSupportForFunctionTargets(t *testing.T) {
 	contract := &types.ExactResolutionContract{
 		TargetKind:           types.SubjectFunctionName,
