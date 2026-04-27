@@ -4223,6 +4223,60 @@ func TestObserveMidLoop_CompletionReadyHint_UsesAuthoritativeLogCoverage(t *test
 	}
 }
 
+func TestObserveMidLoop_CompletionReadySuppressesGenericHints(t *testing.T) {
+	eval := &explorerEvaluator{
+		phase:                      1,
+		searchResult:               &keywordSearchResult{Graph: &repomap.Graph{}},
+		midLoopCompletionReadySent: true,
+		midLoopCompletionReadyIter: 3,
+	}
+	results := []types.ToolResult{
+		{
+			ToolName: "read_file",
+			Success:  true,
+			Summary:  "[internal/agent/analyzer.go: showing lines 367-440 of 1723 total]\nfunc (e *analyzerEvaluator) ParseOutput(...)",
+		},
+	}
+	sig := eval.observeMidLoop(LoopObservation{
+		Phase:          PhaseMidLoop,
+		Iteration:      4,
+		LastToolResult: &results[0],
+		AllToolResults: results,
+	})
+	if sig.HintRequested {
+		t.Fatalf("generic expansion hints should stay silent after completion-ready until escalation, got %+v", sig)
+	}
+}
+
+func TestObserveMidLoop_CompletionReadyEscalation(t *testing.T) {
+	eval := &explorerEvaluator{
+		phase:                           1,
+		searchResult:                    &keywordSearchResult{Graph: &repomap.Graph{}},
+		midLoopCompletionReadySent:      true,
+		midLoopCompletionReadyIter:      3,
+		midLoopCompletionReadyEscalated: false,
+	}
+	results := []types.ToolResult{
+		{
+			ToolName: "read_file",
+			Success:  true,
+			Summary:  "[internal/agent/analyzer.go: showing lines 441-500 of 1723 total]\n...",
+		},
+	}
+	sig := eval.observeMidLoop(LoopObservation{
+		Phase:          PhaseMidLoop,
+		Iteration:      5,
+		LastToolResult: &results[0],
+		AllToolResults: results,
+	})
+	if !sig.HintRequested {
+		t.Fatalf("completion-ready escalation should fire after repeated drift, got %+v", sig)
+	}
+	if sig.HintKey != "explorer.mid-loop.completion-ready-escalated" {
+		t.Fatalf("HintKey = %q, want explorer.mid-loop.completion-ready-escalated", sig.HintKey)
+	}
+}
+
 func TestExactAbsenceClosureReady_IgnoresAbsenceSupportForFunctionTargets(t *testing.T) {
 	contract := &types.ExactResolutionContract{
 		TargetKind:           types.SubjectFunctionName,

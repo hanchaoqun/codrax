@@ -24,55 +24,57 @@ import (
 )
 
 type explorerEvaluator struct {
-	heuristics                     types.ExploreHeuristics
-	tools                          *tool.Registry
-	phase                          int                  // 0 = breadth scan, 1 = depth read
-	broadenAttempts                int                  // times we pushed for broader grep in Phase 0
-	preScannedFiles                []string             // top files from keyword search, for coverage tracking
-	allScoredFiles                 []string             // ALL files from keyword search (not just top 8), for supplementary evidence
-	fileSymbols                    map[string][]string  // path → symbol summaries from repo_map
-	searchResult                   *keywordSearchResult // full search result for cross-reference lookups
-	searchFingerprint              string               // T1.2: fingerprint of keyword_search inputs; reuses searchResult across explorer redispatches within one Run when inputs are unchanged
-	analyzerKeywords               []string             // analyzer-provided keywords cached from BuildInitialInstruction for exact-resolution scope hints
-	exactAnchorFiles               []string             // exact-entity anchor files from keyword search, in rank order
-	declarativeAnchorFiles         []string             // declarative registry/defaults/routes anchors for enumeration questions
-	declarativeCandidateFiles      []string             // analyzer-ranked structural candidates when no canonical declarative anchors were derived automatically
-	investigationNotes             []string             // assistant analysis messages from ReAct loop
-	userQuestion                   string               // original user question, for focus alignment
-	repoRoot                       string               // repository root path, cached from BuildInitialInstruction
-	preScannedPushCount            int                  // times we pushed for unread pre-scanned files without progress
-	lastPreScannedUnreadCount      int                  // count of unread pre-scanned files at last push
-	grepRedirectedFiles            map[string]bool      // files that already received a large-file grep redirect
-	isEnumerationQuery             bool                 // true if user question asks to list/enumerate all items
-	phase0ExtraRound               bool                 // whether we already gave one extra Phase 0 round for quality gate
-	hasPrescanRepoMap              bool                 // keywordSearch (run at BuildInitialInstruction) produced a ranked file list via repo_map; the Phase 0 quality gate treats this as satisfying the structural-discovery half of its requirement, so the LLM isn't penalized for not re-running repo_map at iter=0
-	structuredEvidence             []types.EvidenceItem
-	flowFindings                   []types.FlowFindingDigest
-	ermRequirements                []EvidenceRequirement // evidence requirement model
-	cachedConcreteValues           *concreteValuesResult // T1.1: built once per Execute, reused by gate + synthesis
-	midLoopLastResultsLen          int                   // #34: allResults length at prev observeMidLoop call (used to infer current batch size)
-	midLoopSerialStreak            int                   // #34: consecutive iters observed as single-call rounds
-	midLoopParallelInjected        bool                  // #34: parallel-batching hint already pushed this dispatch
-	midLoopSymbolRefInjected       bool                  // T3b: cross-file-symbol-reference hint already pushed this dispatch
-	midLoopPostPrimaryInjected     bool                  // one-shot: immediate "keep using tools after the first anchor read" hint already pushed this dispatch
-	midLoopEvidenceRepairSent      bool                  // one-shot: recovered/ungrounded emit_evidence repair hint already pushed this dispatch
-	midLoopIntentWindowSent        bool                  // session-22: structural-intent-vs-narrow-window hint already pushed this dispatch
-	midLoopRankerCoverageSent      bool                  // session-22: ranker-coverage-too-low hint already pushed this dispatch
-	midLoopAbsentRedirectSent      bool                  // session-22: emit_evidence kind=absent deprecation redirect already pushed this dispatch
-	midLoopExternalLogSent         bool                  // one-shot: external-source log runtime frames redirected this dispatch
-	midLoopExactAbsenceContextSent bool                  // one-shot: exact absence still needs one grounded same-family production anchor before closure
-	midLoopExactAbsenceSent        bool                  // one-shot: exact-resolution absence already looks closure-ready this dispatch
-	midLoopEnumInjected            bool                  // session-22: enumeration-coverage hint already pushed this dispatch (was missing → 68 fires / run observed on goroutine_dump)
-	midLoopNoEmitPushSent          bool                  // one-shot: "you have read N files but never called emit_evidence" hint already pushed this dispatch
-	midLoopNoEmitEscalated         bool                  // one-shot: stronger "emit evidence now" escalation after the first no-emit nudge was ignored
-	midLoopExecRedirectSent        bool                  // one-shot: redirected shell-style browsing back to built-in grep/read_file before first emit_evidence
-	midLoopCompletionReadySent     bool                  // one-shot: generic "you already have enough grounded evidence; close now" hint already pushed this dispatch
-	midLoopNoEmitPushIter          int                   // iteration where the initial read-without-emit nudge fired
-	midLoopNoEmitPushResultsLen    int                   // allResults length when the initial read-without-emit nudge fired
-	primaryReadSeen                bool                  // df3-drift: whether any primary-entity file has entered readSet this dispatch
-	primaryReadIter                int                   // df3-drift: iter at which a primary-entity file first entered readSet
-	notesLenAtPrimaryRead          int                   // df3-drift: snapshot of len(investigationNotes) at primaryReadIter
-	investigationComplete          bool                  // set when emit_investigation_complete tool was observed in MidLoop
+	heuristics                      types.ExploreHeuristics
+	tools                           *tool.Registry
+	phase                           int                  // 0 = breadth scan, 1 = depth read
+	broadenAttempts                 int                  // times we pushed for broader grep in Phase 0
+	preScannedFiles                 []string             // top files from keyword search, for coverage tracking
+	allScoredFiles                  []string             // ALL files from keyword search (not just top 8), for supplementary evidence
+	fileSymbols                     map[string][]string  // path → symbol summaries from repo_map
+	searchResult                    *keywordSearchResult // full search result for cross-reference lookups
+	searchFingerprint               string               // T1.2: fingerprint of keyword_search inputs; reuses searchResult across explorer redispatches within one Run when inputs are unchanged
+	analyzerKeywords                []string             // analyzer-provided keywords cached from BuildInitialInstruction for exact-resolution scope hints
+	exactAnchorFiles                []string             // exact-entity anchor files from keyword search, in rank order
+	declarativeAnchorFiles          []string             // declarative registry/defaults/routes anchors for enumeration questions
+	declarativeCandidateFiles       []string             // analyzer-ranked structural candidates when no canonical declarative anchors were derived automatically
+	investigationNotes              []string             // assistant analysis messages from ReAct loop
+	userQuestion                    string               // original user question, for focus alignment
+	repoRoot                        string               // repository root path, cached from BuildInitialInstruction
+	preScannedPushCount             int                  // times we pushed for unread pre-scanned files without progress
+	lastPreScannedUnreadCount       int                  // count of unread pre-scanned files at last push
+	grepRedirectedFiles             map[string]bool      // files that already received a large-file grep redirect
+	isEnumerationQuery              bool                 // true if user question asks to list/enumerate all items
+	phase0ExtraRound                bool                 // whether we already gave one extra Phase 0 round for quality gate
+	hasPrescanRepoMap               bool                 // keywordSearch (run at BuildInitialInstruction) produced a ranked file list via repo_map; the Phase 0 quality gate treats this as satisfying the structural-discovery half of its requirement, so the LLM isn't penalized for not re-running repo_map at iter=0
+	structuredEvidence              []types.EvidenceItem
+	flowFindings                    []types.FlowFindingDigest
+	ermRequirements                 []EvidenceRequirement // evidence requirement model
+	cachedConcreteValues            *concreteValuesResult // T1.1: built once per Execute, reused by gate + synthesis
+	midLoopLastResultsLen           int                   // #34: allResults length at prev observeMidLoop call (used to infer current batch size)
+	midLoopSerialStreak             int                   // #34: consecutive iters observed as single-call rounds
+	midLoopParallelInjected         bool                  // #34: parallel-batching hint already pushed this dispatch
+	midLoopSymbolRefInjected        bool                  // T3b: cross-file-symbol-reference hint already pushed this dispatch
+	midLoopPostPrimaryInjected      bool                  // one-shot: immediate "keep using tools after the first anchor read" hint already pushed this dispatch
+	midLoopEvidenceRepairSent       bool                  // one-shot: recovered/ungrounded emit_evidence repair hint already pushed this dispatch
+	midLoopIntentWindowSent         bool                  // session-22: structural-intent-vs-narrow-window hint already pushed this dispatch
+	midLoopRankerCoverageSent       bool                  // session-22: ranker-coverage-too-low hint already pushed this dispatch
+	midLoopAbsentRedirectSent       bool                  // session-22: emit_evidence kind=absent deprecation redirect already pushed this dispatch
+	midLoopExternalLogSent          bool                  // one-shot: external-source log runtime frames redirected this dispatch
+	midLoopExactAbsenceContextSent  bool                  // one-shot: exact absence still needs one grounded same-family production anchor before closure
+	midLoopExactAbsenceSent         bool                  // one-shot: exact-resolution absence already looks closure-ready this dispatch
+	midLoopEnumInjected             bool                  // session-22: enumeration-coverage hint already pushed this dispatch (was missing → 68 fires / run observed on goroutine_dump)
+	midLoopNoEmitPushSent           bool                  // one-shot: "you have read N files but never called emit_evidence" hint already pushed this dispatch
+	midLoopNoEmitEscalated          bool                  // one-shot: stronger "emit evidence now" escalation after the first no-emit nudge was ignored
+	midLoopExecRedirectSent         bool                  // one-shot: redirected shell-style browsing back to built-in grep/read_file before first emit_evidence
+	midLoopCompletionReadySent      bool                  // one-shot: generic "you already have enough grounded evidence; close now" hint already pushed this dispatch
+	midLoopCompletionReadyEscalated bool                  // one-shot: stronger close-now escalation after the completion-ready hint was ignored
+	midLoopCompletionReadyIter      int                   // iteration where completion-ready first fired
+	midLoopNoEmitPushIter           int                   // iteration where the initial read-without-emit nudge fired
+	midLoopNoEmitPushResultsLen     int                   // allResults length when the initial read-without-emit nudge fired
+	primaryReadSeen                 bool                  // df3-drift: whether any primary-entity file has entered readSet this dispatch
+	primaryReadIter                 int                   // df3-drift: iter at which a primary-entity file first entered readSet
+	notesLenAtPrimaryRead           int                   // df3-drift: snapshot of len(investigationNotes) at primaryReadIter
+	investigationComplete           bool                  // set when emit_investigation_complete tool was observed in MidLoop
 
 	// answerSubject is the AnswerSubject classification copied from
 	// the analyzer's IR at BuildInitialInstruction time. The chain
@@ -305,6 +307,8 @@ func (e *explorerEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk 
 	e.midLoopNoEmitEscalated = false
 	e.midLoopExecRedirectSent = false
 	e.midLoopCompletionReadySent = false
+	e.midLoopCompletionReadyEscalated = false
+	e.midLoopCompletionReadyIter = 0
 	e.midLoopNoEmitPushIter = 0
 	e.midLoopNoEmitPushResultsLen = 0
 	e.primaryReadSeen = false
@@ -3753,6 +3757,7 @@ func (e *explorerEvaluator) postCompletionReadySignal(obs LoopObservation) LoopS
 		return LoopSignal{}
 	}
 	e.midLoopCompletionReadySent = true
+	e.midLoopCompletionReadyIter = obs.Iteration
 	var b strings.Builder
 	b.WriteString("MID-LOOP CHECK: you already have enough evidence to answer this question on the current branch. ")
 	b.WriteString("Stop widening scope and close the investigation now with `emit_investigation_complete(reason, confidence, result_kind)` instead of reading more neighboring files. ")
@@ -3772,6 +3777,23 @@ func (e *explorerEvaluator) postCompletionReadySignal(obs LoopObservation) LoopS
 		HintRequested:  true,
 		HintKey:        "explorer.mid-loop.completion-ready",
 		Hint:           b.String(),
+		Progress:       true,
+		BypassThrottle: true,
+	}
+}
+
+func (e *explorerEvaluator) postCompletionReadyEscalationSignal(obs LoopObservation) LoopSignal {
+	if !e.midLoopCompletionReadySent || e.midLoopCompletionReadyEscalated || e.investigationComplete {
+		return LoopSignal{}
+	}
+	if e.midLoopCompletionReadyIter <= 0 || obs.Iteration < e.midLoopCompletionReadyIter+2 {
+		return LoopSignal{}
+	}
+	e.midLoopCompletionReadyEscalated = true
+	return LoopSignal{
+		HintRequested:  true,
+		HintKey:        "explorer.mid-loop.completion-ready-escalated",
+		Hint:           "MID-LOOP CHECK: an earlier hint already established that the current evidence is sufficient. Do NOT reopen adjacent files or widen scope by default. Either call `emit_investigation_complete(reason, confidence, result_kind)` now, or verify exactly one concrete unresolved branch only if that branch could still change the final answer.",
 		Progress:       true,
 		BypassThrottle: true,
 	}
@@ -4134,6 +4156,9 @@ func (e *explorerEvaluator) observeMidLoop(obs LoopObservation) LoopSignal {
 	if sig := e.postCompletionReadySignal(obs); sig.HintRequested {
 		return sig
 	}
+	if sig := e.postCompletionReadyEscalationSignal(obs); sig.HintRequested {
+		return sig
+	}
 
 	// Infer the current batch size from the allResults growth delta.
 	// observeMidLoop is called once per ReAct iteration, after all
@@ -4165,6 +4190,9 @@ func (e *explorerEvaluator) observeMidLoop(obs LoopObservation) LoopSignal {
 		return LoopSignal{}
 	}
 	if e.searchResult == nil || e.searchResult.Graph == nil {
+		return LoopSignal{}
+	}
+	if e.midLoopCompletionReadySent {
 		return LoopSignal{}
 	}
 
