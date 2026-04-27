@@ -68,11 +68,6 @@ func NativeGrep(ctx context.Context, opts NativeGrepOpts) (NativeGrepResult, err
 		maxBytes = nativeGrepMaxFileBytes
 	}
 
-	excludeSet := make(map[string]bool, len(opts.ExcludeDirs))
-	for _, d := range opts.ExcludeDirs {
-		excludeSet[d] = true
-	}
-
 	root := opts.Root
 	if root == "" {
 		root = "."
@@ -116,7 +111,7 @@ func NativeGrep(ctx context.Context, opts NativeGrepOpts) (NativeGrepResult, err
 			return nil
 		}
 		if d.IsDir() {
-			if excludeSet[d.Name()] {
+			if DirNameMatchesExcludePattern(d.Name(), opts.ExcludeDirs) {
 				return filepath.SkipDir
 			}
 			return nil

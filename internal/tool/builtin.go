@@ -263,9 +263,9 @@ func (t *ExecCommand) Execute(ctx *types.BusContext, params json.RawMessage) (ty
 	case SupervisedExitOOM:
 		preview, ref := StoreBlob(ctx, t.Name()+"-oom", output)
 		return types.ToolResult{
-			ToolName:  t.Name(),
-			Success:   false,
-			Summary:   banner + fmt.Sprintf("command killed by memory cap (%d MiB) — adjust verify_mem_limit_mb if your repo legitimately needs more RAM\n%s",
+			ToolName: t.Name(),
+			Success:  false,
+			Summary: banner + fmt.Sprintf("command killed by memory cap (%d MiB) — adjust verify_mem_limit_mb if your repo legitimately needs more RAM\n%s",
 				caps.MemoryLimitBytes/(1024*1024), preview),
 			RawRef:    ref,
 			Timestamp: time.Now(),
@@ -273,9 +273,9 @@ func (t *ExecCommand) Execute(ctx *types.BusContext, params json.RawMessage) (ty
 	case SupervisedExitCPULimit:
 		preview, ref := StoreBlob(ctx, t.Name()+"-cpu", output)
 		return types.ToolResult{
-			ToolName:  t.Name(),
-			Success:   false,
-			Summary:   banner + fmt.Sprintf("command killed by CPU-time cap (%ds)\n%s",
+			ToolName: t.Name(),
+			Success:  false,
+			Summary: banner + fmt.Sprintf("command killed by CPU-time cap (%ds)\n%s",
 				caps.CPULimitSeconds, preview),
 			RawRef:    ref,
 			Timestamp: time.Now(),
@@ -989,7 +989,7 @@ type listFilesParams struct {
 // IDE state across all the languages run_tests + the V5/V6 lint
 // registries can drive.
 func isListFilesNoiseDir(name string) bool {
-	return ExcludeDirsAnyLevelSet[name]
+	return IsExcludedDirName(name)
 }
 
 func (t *ListFiles) Name() string { return "list_files" }

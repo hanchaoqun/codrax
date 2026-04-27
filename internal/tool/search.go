@@ -98,11 +98,27 @@ var ExcludeDirsAnyLevel = []string{
 	".git", ".hg", ".svn",
 	".codrax", // codrax's own per-repo state (logs / blob / worktrees / plans). Showed up in `list_files recursive=false` output and confused LLMs into thinking it was project state.
 	"node_modules", "vendor", "__pycache__", ".tox", ".venv", "venv", ".mypy_cache", ".pytest_cache",
-	".idea", ".vscode",
+	".idea", ".vscode", ".vs",
 	"target", "dist", "build", ".gradle", ".cargo",
 	".next", ".nuxt", ".turbo", // common JS framework output dirs
 	".pnpm-store", // alternative to node_modules
 }
+
+// ExcludeDirPatternsAnyLevel extends the exact-name directory list
+// with wildcard/prefix patterns for transient cache roots that are
+// created by tooling inside a repo checkout. These are infrastructure
+// artifacts, not project content:
+//   - .gotmp*   — per-run temp roots used by codrax/go tooling
+//   - .gocache* — local Go build/module cache roots parked in-repo
+//
+// Kept central so shell-backed search and Go-native walkers apply the
+// same policy instead of drifting.
+var ExcludeDirPatternsAnyLevel = func() []string {
+	out := make([]string, 0, len(ExcludeDirsAnyLevel)+2)
+	out = append(out, ExcludeDirsAnyLevel...)
+	out = append(out, ".gotmp*", ".gocache*")
+	return out
+}()
 
 // ExcludeDirsRootOnly entries are matched only when they sit at
 // position 0 of a relative path. See ExcludeDirsAnyLevel for
@@ -118,8 +134,8 @@ var ExcludeDirsRootOnly = []string{
 // as an acceptable trade-off; scan paths that can't tolerate it
 // (repomap.scanner) build their own predicate from the two slices.
 var ExcludeDirs = func() []string {
-	out := make([]string, 0, len(ExcludeDirsAnyLevel)+len(ExcludeDirsRootOnly))
-	out = append(out, ExcludeDirsAnyLevel...)
+	out := make([]string, 0, len(ExcludeDirPatternsAnyLevel)+len(ExcludeDirsRootOnly))
+	out = append(out, ExcludeDirPatternsAnyLevel...)
 	out = append(out, ExcludeDirsRootOnly...)
 	return out
 }()
@@ -142,6 +158,62 @@ var ExcludeDirsRootOnlySet = func() map[string]bool {
 	}
 	return m
 }()
+
+// DirNameMatchesExcludePattern reports whether name matches any exact
+// or glob-style directory exclude pattern. Patterns are the same ones
+// passed to grep/rg (`node_modules`, `.gotmp*`, ...), so shell-backed
+// and Go-native scans stay aligned.
+func DirNameMatchesExcludePattern(name string, patterns []string) bool {
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return false
+	}
+	for _, pattern := range patterns {
+		pattern = strings.TrimSpace(pattern)
+		if pattern == "" {
+			continue
+		}
+		if pattern == name {
+			return true
+		}
+		if strings.ContainsAny(pattern, "*?[") {
+			if matched, err := filepath.Match(pattern, name); err == nil && matched {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// IsExcludedDirName reports whether a single directory basename should
+// be excluded at any depth.
+func IsExcludedDirName(name string) bool {
+	return DirNameMatchesExcludePattern(name, ExcludeDirPatternsAnyLevel)
+}
+
+// IsExcludedRelativePath reports whether a repo-relative path should be
+// skipped by repo search / scan layers. Root-only exclusions are only
+// applied to the first segment; any-level exclusions apply to every
+// directory segment.
+func IsExcludedRelativePath(relPath string) bool {
+	if IsWindowsReservedDevicePath(relPath) {
+		return true
+	}
+	normalized := strings.TrimSpace(strings.ReplaceAll(relPath, `\`, `/`))
+	if normalized == "" {
+		return false
+	}
+	parts := strings.Split(normalized, "/")
+	if len(parts) > 0 && ExcludeDirsRootOnlySet[parts[0]] {
+		return true
+	}
+	for _, part := range parts {
+		if IsExcludedDirName(part) {
+			return true
+		}
+	}
+	return false
+}
 
 // windowsReservedDeviceNames are DOS device basenames that behave like
 // pseudo-files on Windows (`nul`, `con`, `prn`, `aux`, `com1`...).

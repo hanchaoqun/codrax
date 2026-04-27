@@ -18,19 +18,6 @@ type FileEntry struct {
 	Size     int64
 }
 
-// excludedDirs delegates to the single authoritative any-level list
-// in tool.ExcludeDirsAnyLevelSet (see internal/tool/search.go).
-// Historically this was a separate map that drifted from GrepTool
-// and keyword search; Phase 3 unifies the sources of truth so one
-// list governs every scan and search.
-//
-// The any-level set excludes directories regardless of depth
-// (node_modules, target, .git, ...) while ExcludeDirsRootOnlySet
-// ("logs", "memory", "eval") is applied only at the top of a
-// RelPath by isExcludedPath below, so a legitimate nested package
-// such as `internal/memory/` is not accidentally dropped.
-var excludedDirs = tool.ExcludeDirsAnyLevelSet
-
 // specialFiles maps filenames to their special type.
 var specialFiles = map[string]string{
 	"go.mod":              "build_config",
@@ -175,7 +162,7 @@ func scanWalk(repoRoot string) ([]FileEntry, error) {
 			return nil
 		}
 		if info.IsDir() {
-			if excludedDirs[info.Name()] {
+			if tool.IsExcludedDirName(info.Name()) {
 				return filepath.SkipDir
 			}
 			return nil
@@ -200,19 +187,7 @@ func scanWalk(repoRoot string) ([]FileEntry, error) {
 }
 
 func isExcludedPath(relPath string) bool {
-	if tool.IsWindowsReservedDevicePath(relPath) {
-		return true
-	}
-	parts := strings.Split(relPath, string(os.PathSeparator))
-	if len(parts) > 0 && tool.ExcludeDirsRootOnlySet[parts[0]] {
-		return true
-	}
-	for _, p := range parts {
-		if excludedDirs[p] {
-			return true
-		}
-	}
-	return false
+	return tool.IsExcludedRelativePath(relPath)
 }
 
 // IsSpecialFile checks whether a filename is a notable project file.

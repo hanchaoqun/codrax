@@ -827,16 +827,12 @@ func countSourceFilesOnce(repoRoot string) int {
 		}
 	}
 	// Go-native fallback using the unified exclude list.
-	excludeSet := make(map[string]bool, len(searchExcludeDirs))
-	for _, d := range searchExcludeDirs {
-		excludeSet[d] = true
-	}
 	count := 0
 	filepath.WalkDir(repoRoot, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return nil
 		}
-		if d.IsDir() && excludeSet[d.Name()] {
+		if d.IsDir() && tool.DirNameMatchesExcludePattern(d.Name(), searchExcludeDirs) {
 			return filepath.SkipDir
 		}
 		if !d.IsDir() {
@@ -1138,10 +1134,6 @@ func findFilesByName(keyword, repoRoot string, ignoreCase bool) []string {
 	if ignoreCase {
 		needle = strings.ToLower(needle)
 	}
-	excludeSet := make(map[string]bool, len(searchExcludeDirs))
-	for _, d := range searchExcludeDirs {
-		excludeSet[d] = true
-	}
 	var out []string
 	_ = filepath.WalkDir(repoRoot, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
@@ -1151,7 +1143,7 @@ func findFilesByName(keyword, repoRoot string, ignoreCase bool) []string {
 			return ctx.Err()
 		}
 		if d.IsDir() {
-			if excludeSet[d.Name()] {
+			if tool.DirNameMatchesExcludePattern(d.Name(), searchExcludeDirs) {
 				return filepath.SkipDir
 			}
 			return nil

@@ -28,3 +28,23 @@ func TestIsExcludedPath_WindowsReservedDeviceName(t *testing.T) {
 		}
 	}
 }
+
+func TestIsExcludedPath_TransientToolCaches(t *testing.T) {
+	for _, rel := range []string{
+		filepath.Join(".gotmp-tool", "go-build", "x.go"),
+		filepath.Join("sub", ".gocache-worktree", "obj", "y.go"),
+		filepath.Join(".vs", "state", "solution.suo"),
+	} {
+		if !isExcludedPath(rel) {
+			t.Fatalf("isExcludedPath(%q)=false, want true", rel)
+		}
+	}
+	for _, rel := range []string{
+		filepath.Join("pkg", "gotmp_helper", "main.go"),
+		filepath.Join("internal", "memory", "cache.go"),
+	} {
+		if isExcludedPath(rel) {
+			t.Fatalf("isExcludedPath(%q) should be false", rel)
+		}
+	}
+}

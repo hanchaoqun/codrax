@@ -1159,13 +1159,35 @@ func TestExcludeDirsAnyLevel_Coverage(t *testing.T) {
 	mustHave := []string{
 		".git", ".hg", ".svn", ".codrax",
 		"node_modules", "vendor", "__pycache__", ".tox", ".venv", "venv",
-		".mypy_cache", ".pytest_cache", ".idea", ".vscode",
+		".mypy_cache", ".pytest_cache", ".idea", ".vscode", ".vs",
 		"target", "dist", "build", ".gradle", ".cargo",
 		".next", ".nuxt", ".turbo", ".pnpm-store",
 	}
 	for _, name := range mustHave {
 		if !ExcludeDirsAnyLevelSet[name] {
 			t.Errorf("ExcludeDirsAnyLevelSet missing required entry %q — list_files / grep / repomap will leak it", name)
+		}
+	}
+}
+
+func TestExcludeDirPatterns_CoverTransientToolCaches(t *testing.T) {
+	for _, name := range []string{".gotmp-tool", ".gotmp-eval", ".gocache", ".gocache-worktree", ".vs"} {
+		if !IsExcludedDirName(name) {
+			t.Fatalf("IsExcludedDirName(%q)=false, want true", name)
+		}
+	}
+	if !IsExcludedRelativePath(filepath.Join("sub", ".gotmp-tool", "file.go")) {
+		t.Fatal("nested .gotmp* directory should be excluded")
+	}
+	if !IsExcludedRelativePath(filepath.Join(".gocache-all", "obj", "x.go")) {
+		t.Fatal("root .gocache* directory should be excluded")
+	}
+	for _, rel := range []string{
+		filepath.Join("internal", "memory", "cache.go"),
+		filepath.Join("pkg", "gotmp_helper", "main.go"),
+	} {
+		if IsExcludedRelativePath(rel) {
+			t.Fatalf("IsExcludedRelativePath(%q) should be false", rel)
 		}
 	}
 }
