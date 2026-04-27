@@ -53,6 +53,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"syscall"
 
 	"github.com/hanchaoqun/codrax/internal/logging"
@@ -334,17 +335,58 @@ func InstallSignalHandler() {
 	ch := make(chan os.Signal, 1)
 	signal.Notify(ch, syscall.SIGINT, syscall.SIGTERM)
 	go func() {
-		sig := <-ch
-		logging.Warning("[worktree] received %s, discarding %d active session(s)",
-			sig, activeSessionCount())
-		cleanActiveSessions()
-		signal.Stop(ch)
-		// Terminate after cleanup. Unix can re-raise the original
-		// signal so the shell sees the canonical status; Windows
-		// falls back to an equivalent exit code.
-		terminateProcessAfterCleanup(sig)
+		for sig := range ch {
+			// Suppression check: when the REPL is alive it owns the
+			// signal disposition (one Ctrl+C = cancel current Run,
+			// double-tap = exit). Without this gate both this
+			// handler and the REPL's would race on the first
+			// signal — this handler would always win because it
+			// terminates the process immediately, and the REPL's
+			// cancel + double-tap UX would never engage. The REPL
+			// is responsible for calling CleanActiveSessions itself
+			// on its own exit paths so worktree state is still
+			// recovered correctly.
+			if signalHandlerSuppressed.Load() {
+				continue
+			}
+			logging.Warning("[worktree] received %s, discarding %d active session(s)",
+				sig, activeSessionCount())
+			cleanActiveSessions()
+			signal.Stop(ch)
+			// Terminate after cleanup. Unix can re-raise the original
+			// signal so the shell sees the canonical status; Windows
+			// falls back to an equivalent exit code.
+			terminateProcessAfterCleanup(sig)
+			return
+		}
 	}()
 }
+
+// signalHandlerSuppressed gates the package-level SIGINT/SIGTERM
+// handler. The REPL flips this to true while it is alive so its own
+// signal handler can implement the cancel-current-Run vs. force-exit
+// UX without the worktree handler racing it to os.Exit.
+var signalHandlerSuppressed atomic.Bool
+
+// SetSignalHandlerSuppressed toggles whether the package-level
+// SIGINT/SIGTERM handler should run cleanup-and-exit when a signal
+// arrives. The REPL sets this to true at Loop start so a single
+// Ctrl+C is interpreted as "cancel the in-flight Run" rather than
+// "exit codrax". Single-shot CLI callers leave it false (default)
+// so historical "Ctrl+C exits cleanly" behaviour is preserved.
+//
+// CleanActiveSessions remains exported so the REPL can drive
+// worktree cleanup itself on its own exit paths (idle Ctrl+C,
+// double-tap escalate, /exit).
+func SetSignalHandlerSuppressed(b bool) {
+	signalHandlerSuppressed.Store(b)
+}
+
+// CleanActiveSessions is the exported variant of cleanActiveSessions.
+// REPL calls it on exit paths the suppressed package handler can no
+// longer cover. Internal callers (the package handler's pre-exit
+// cleanup) keep using the lowercase version.
+func CleanActiveSessions() { cleanActiveSessions() }
 
 // cleanActiveSessions walks the active-sessions map and invokes
 // Discard on each. Exported to the package for the signal handler

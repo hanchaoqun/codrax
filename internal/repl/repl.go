@@ -606,19 +606,28 @@ func (r *REPL) currentStickyTag() string {
 // owns echo in the line-oriented (scripted/piped) branch.
 // installCancelSignalHandler arms a SIGINT listener that drives the
 // Run-in-flight cancel path. Idempotent (sync.Once); a single REPL
-// instance never reaches two handlers. Behaviour by state:
+// instance never reaches two handlers. Suppresses worktree's
+// package-level handler so the two don't race — REPL takes full
+// ownership of SIGINT for its lifetime and is responsible for
+// invoking worktree.CleanActiveSessions on its own exit paths.
 //
-//   - !runInFlight: signal is forwarded to the default disposition
-//     so worktree's package-level handler still runs (process exit
-//     with worktree cleanup). Idle Ctrl+C should not silently no-op.
+// Behaviour by state:
+//
+//   - !runInFlight (idle prompt): operator hit Ctrl+C with no Run
+//     active. Drive cleanup ourselves and exit cleanly. Bubbletea's
+//     bracketed-paste / readline modes don't handle SIGINT
+//     gracefully on every shell, so an explicit cleanup-and-exit
+//     mirrors the historical worktree-handler behaviour without the
+//     race.
 //   - runInFlight + first signal within doubleSigCancelWindow: call
 //     runner.Cancel("Ctrl+C") and stamp lastCancelSig. The pipeline
 //     unwinds at its next checkpoint; the user sees the standard
 //     "✗ canceled" rendering when Run returns.
 //   - runInFlight + second signal within doubleSigCancelWindow:
-//     escalate — re-raise so the worktree handler can clean and the
-//     process exits. The user explicitly asked twice; we stop being
-//     polite about graceful unwind.
+//     escalate — operator explicitly asked twice. Drive worktree
+//     cleanup + os.Exit. We do NOT just re-raise: signal.Reset would
+//     unsubscribe BOTH our channel and worktree's, leaving Go's
+//     default disposition which exits without cleanup.
 //
 // The handler runs in its own goroutine; signal channel is buffered
 // to drop replays we cannot service in real time.
@@ -628,31 +637,33 @@ func (r *REPL) installCancelSignalHandler() {
 		return // test stub or single-shot Runner — Ctrl+C keeps default semantics
 	}
 	r.cancelSigOnce.Do(func() {
+		// Take ownership of SIGINT for the REPL's lifetime. The
+		// worktree handler installed at cmd/root.go startup goes
+		// passive while this flag is set; the REPL drives cleanup
+		// on its own exit paths via worktree.CleanActiveSessions().
+		worktree.SetSignalHandlerSuppressed(true)
+
 		ch := make(chan os.Signal, 4)
 		signal.Notify(ch, syscall.SIGINT)
 		go func() {
-			for sig := range ch {
+			for range ch {
 				if !r.runInFlight.Load() {
-					// Idle prompt: hand back to default. signal.Reset
-					// + re-raise so worktree's package-level handler
-					// (installed at startup) gets to clean up and the
-					// process exits.
-					signal.Reset(syscall.SIGINT)
-					if p, err := os.FindProcess(os.Getpid()); err == nil {
-						_ = p.Signal(sig)
-					}
-					return
+					// Idle prompt: clean worktrees and exit. Mirrors
+					// the historical behaviour but routes through us
+					// instead of the suppressed package handler.
+					worktree.CleanActiveSessions()
+					fmt.Fprintln(r.out, "  Goodbye!")
+					os.Exit(130)
 				}
 				now := time.Now().UnixNano()
 				prev := r.lastCancelSig.Swap(now)
 				if prev > 0 && time.Duration(now-prev) < doubleSigCancelWindow {
-					// Second signal within the window — operator wants
-					// out. Reset + re-raise so worktree handler runs.
-					signal.Reset(syscall.SIGINT)
-					if p, err := os.FindProcess(os.Getpid()); err == nil {
-						_ = p.Signal(sig)
-					}
-					return
+					// Second signal within the window — escalate to
+					// exit. Drive cleanup ourselves since the package
+					// handler is suppressed.
+					worktree.CleanActiveSessions()
+					fmt.Fprintln(r.out, "  Goodbye!")
+					os.Exit(130)
 				}
 				canceller.Cancel("Ctrl+C")
 				r.warn("%s\n", cancelInProgressMsg(r.language))
