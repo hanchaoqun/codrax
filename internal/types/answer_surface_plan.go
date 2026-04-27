@@ -28,13 +28,15 @@ type AnswerSurfacePlan struct {
 
 	SurfaceEvidence []EvidenceItem
 
-	AllowedExactContextItems      []EvidenceItem
-	ProseOnlyExactContextItems    []EvidenceItem
-	DiagramGradeExactContextItems []EvidenceItem
-	ForbiddenExactContextItems    []EvidenceItem
+	AllowedExactContextItems       []EvidenceItem
+	CitationGradeExactContextItems []EvidenceItem
+	ProseOnlyExactContextItems     []EvidenceItem
+	DiagramGradeExactContextItems  []EvidenceItem
+	ForbiddenExactContextItems     []EvidenceItem
 
-	AllowedExactContextLabels   []ExactContextSurfaceLabel
-	ForbiddenExactContextLabels []ExactContextSurfaceLabel
+	AllowedExactContextLabels       []ExactContextSurfaceLabel
+	CitationGradeExactContextLabels []ExactContextSurfaceLabel
+	ForbiddenExactContextLabels     []ExactContextSurfaceLabel
 
 	RelatedContextCitationCandidates []ConfigTraceRelatedContextCitationCandidate
 	ConfigTraceDiagramAnchors        []ConfigTraceDiagramAnchor
@@ -132,6 +134,13 @@ func BuildAnswerSurfacePlan(
 		plan.SurfaceEvidence,
 		plan.ExactContextRequiredFiles,
 	)
+	plan.CitationGradeExactContextItems = collectCitationGradeExactContextItems(
+		plan.ExactResolution,
+		ir.RequestModel.Scenario,
+		plan.StableAbsent,
+		plan.SurfaceEvidence,
+		plan.ExactContextRequiredFiles,
+	)
 	plan.ProseOnlyExactContextItems = collectProseOnlyExactContextItems(
 		plan.ExactResolution,
 		ir.RequestModel.Scenario,
@@ -154,6 +163,13 @@ func BuildAnswerSurfacePlan(
 		plan.ExactContextRequiredFiles,
 	)
 	plan.AllowedExactContextLabels = collectAllowedExactContextLabels(
+		plan.ExactResolution,
+		ir.RequestModel.Scenario,
+		plan.StableAbsent,
+		plan.SurfaceEvidence,
+		plan.ExactContextRequiredFiles,
+	)
+	plan.CitationGradeExactContextLabels = collectCitationGradeExactContextLabels(
 		plan.ExactResolution,
 		ir.RequestModel.Scenario,
 		plan.StableAbsent,
@@ -344,7 +360,7 @@ func collectProseOnlyExactContextItems(
 	items []EvidenceItem,
 	requiredFiles []string,
 ) []EvidenceItem {
-	if contract == nil || scenario != ScenarioConfigTrace || contract.TargetKind != SubjectConfigKey || !stableAbsent {
+	if contract == nil {
 		return nil
 	}
 	var out []EvidenceItem
@@ -353,7 +369,7 @@ func collectProseOnlyExactContextItems(
 		if !ExactResolutionAnswerContextAnchorAllowedInFiles(contract, scenario, stableAbsent, ev, requiredFiles) {
 			continue
 		}
-		if ConfigTraceGroundedContextAnchorAllowedInFiles(contract, ev, requiredFiles) {
+		if ExactResolutionCitationContextAnchorAllowedInFiles(contract, scenario, stableAbsent, ev, requiredFiles) {
 			continue
 		}
 		key := exactContextItemKey(ev)
@@ -364,6 +380,38 @@ func collectProseOnlyExactContextItems(
 		out = append(out, ev)
 	}
 	sort.SliceStable(out, func(i, j int) bool {
+		return exactContextItemKey(out[i]) < exactContextItemKey(out[j])
+	})
+	return out
+}
+
+func collectCitationGradeExactContextItems(
+	contract *ExactResolutionContract,
+	scenario Scenario,
+	stableAbsent bool,
+	items []EvidenceItem,
+	requiredFiles []string,
+) []EvidenceItem {
+	if contract == nil {
+		return nil
+	}
+	var out []EvidenceItem
+	seen := make(map[string]bool)
+	for _, ev := range items {
+		if !ExactResolutionCitationContextAnchorAllowedInFiles(contract, scenario, stableAbsent, ev, requiredFiles) {
+			continue
+		}
+		key := exactContextItemKey(ev)
+		if key == "" || seen[key] {
+			continue
+		}
+		seen[key] = true
+		out = append(out, ev)
+	}
+	sort.SliceStable(out, func(i, j int) bool {
+		if scoreAllowedExactContextItem(out[i]) != scoreAllowedExactContextItem(out[j]) {
+			return scoreAllowedExactContextItem(out[i]) > scoreAllowedExactContextItem(out[j])
+		}
 		return exactContextItemKey(out[i]) < exactContextItemKey(out[j])
 	})
 	return out
@@ -446,6 +494,20 @@ func collectAllowedExactContextLabels(
 	return exactContextSurfaceLabelsFromItems(
 		contract,
 		collectAllowedExactContextItems(contract, scenario, stableAbsent, items, requiredFiles),
+		nil,
+	)
+}
+
+func collectCitationGradeExactContextLabels(
+	contract *ExactResolutionContract,
+	scenario Scenario,
+	stableAbsent bool,
+	items []EvidenceItem,
+	requiredFiles []string,
+) []ExactContextSurfaceLabel {
+	return exactContextSurfaceLabelsFromItems(
+		contract,
+		collectCitationGradeExactContextItems(contract, scenario, stableAbsent, items, requiredFiles),
 		nil,
 	)
 }

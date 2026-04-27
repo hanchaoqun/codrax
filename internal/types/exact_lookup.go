@@ -858,6 +858,37 @@ func ExactResolutionAnswerContextAnchorAllowedInFiles(c *ExactResolutionContract
 	return ExactResolutionEvidenceCanSatisfyRelatedContext(c, item, nil)
 }
 
+// ExactResolutionCitationContextAnchorAllowedInFiles reports whether an
+// evidence item is strong enough to appear in citations[] or fenced
+// diagrams when the answer keeps nearby grounded context on the user-
+// visible surface.
+//
+// The general rule is:
+//   - exact-proof / absence-proof anchors may always stay citation-grade
+//     when grounded
+//   - scenario-specific stricter lanes (for example config-trace exact
+//     absence) may further require a validated structural role before a
+//     related-context anchor can be cited
+//   - everything else can still be surface-allowed as prose-only nearby
+//     context, but should not be surfaced as a citation-grade anchor
+func ExactResolutionCitationContextAnchorAllowedInFiles(c *ExactResolutionContract, scenario Scenario, stableAbsent bool, item EvidenceItem, requiredFiles []string) bool {
+	if c == nil {
+		return false
+	}
+	if stableAbsent && scenario == ScenarioConfigTrace && c.TargetKind == SubjectConfigKey {
+		if item.ContextRole == EvidenceContextRoleAbsenceSupport {
+			switch item.GroundingStatus {
+			case GroundingGrounded, GroundingRecovered:
+				return ExactResolutionSourceIsDefiningPrimaryProofLike(c, item.Source)
+			default:
+				return false
+			}
+		}
+		return ConfigTraceGroundedContextAnchorAllowedInFiles(c, item, requiredFiles)
+	}
+	return ExactResolutionAnswerContextAnchorAllowedInFiles(c, scenario, stableAbsent, item, requiredFiles)
+}
+
 // ExactResolutionRelatedContextProofAllowedInFiles is the stricter
 // closure-time gate used before explorer / emit_investigation_complete
 // are allowed to end an exact-absence investigation. It intentionally

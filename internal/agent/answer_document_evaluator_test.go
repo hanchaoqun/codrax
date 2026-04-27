@@ -524,11 +524,14 @@ func TestAnswerDocumentEvaluator_BuildInitialInstruction_RendersExactResolutionC
 		"renderer will insert the exact-absence lead before `summary`",
 		"treat `summary` as the follow-on grounded-context block only",
 		"Keep the exact target name in the renderer-generated lead only",
+		"does NOT license an invented field inventory",
 		"Do not add a separate paragraph about the effect of supplying the absent target",
+		"Surface-allowed nearby context is not automatically citation-grade",
 		"only create a separate numbered step when that layer has its own grounded repo anchor",
 		"repo-wide search result, aggregate absence conclusion, or test-only proof step usually has no single corroborating production line",
-		"## Allowed Grounded Context Anchors",
-		"start the first sentence of `summary` directly on one of these validated anchors",
+		"## Citation-Grade Grounded Context Anchors",
+		"## Prose-Only Grounded Context Anchors",
+		"Other surface-allowed anchors may still appear in `summary`, but only as uncited prose",
 		"## Diagram-Grade Context Anchors",
 		"## Related Context Citation Candidates",
 		"## Background-Only Anchors",
@@ -543,6 +546,72 @@ func TestAnswerDocumentEvaluator_BuildInitialInstruction_RendersExactResolutionC
 	}
 	if !strings.Contains(prompt, "ExploreBudget") {
 		t.Fatalf("background-only same-family anchors should be surfaced explicitly in the background-only section:\n%s", prompt)
+	}
+}
+
+func TestAnswerDocumentEvaluator_BuildInitialInstruction_RendersProseOnlyNearbyContextPolicy(t *testing.T) {
+	mu := types.NewMutableState("")
+	target := "explore_mid_loop_hint_budget"
+	mu.SetAbsenceJustification("no config key named `explore_mid_loop_hint_budget` exists in the repo")
+	mu.SetInvestigationResultKind("absence")
+	mu.SetExactContextRequiredFiles([]string{"internal/types/config.go"})
+	mu.AppendEvidence([]types.EvidenceItem{
+		{
+			Kind:            types.EvidenceDirect,
+			Subject:         "RuntimeSettings",
+			Predicate:       "binds",
+			Object:          "explore_midloop_min_iteration",
+			Source:          "internal/config/runtime.go",
+			LineStart:       231,
+			ContextRole:     types.EvidenceContextRoleAbsenceSupport,
+			GroundingStatus: types.GroundingGrounded,
+		},
+		{
+			Kind:            types.EvidenceDirect,
+			Subject:         "DefaultExploreHeuristics",
+			Predicate:       "defines",
+			Object:          "ExploreHeuristics defaults",
+			Source:          "internal/types/config.go",
+			LineStart:       707,
+			ContextRole:     types.EvidenceContextRoleRelatedContext,
+			GroundingStatus: types.GroundingGrounded,
+		},
+	})
+	ctx := &types.AgentContext{
+		Mutable: mu,
+		AnalysisIR: &types.AnalysisIR{
+			AnswerContract: types.AnswerContract{
+				ExactResolution: &types.ExactResolutionContract{
+					TargetKind:           types.SubjectConfigKey,
+					TargetLabel:          "config key",
+					Targets:              []string{target},
+					AllowAbsence:         true,
+					RequireTargetMention: true,
+					AliasRequiresProof:   true,
+					RelatedContextPolicy: types.ExactContextSameFamilyGrounded,
+				},
+			},
+			RequestModel: types.RequestModel{
+				Scenario:      types.ScenarioConfigTrace,
+				AnswerSubject: types.AnswerSubject{Kind: types.SubjectConfigKey},
+			},
+		},
+	}
+
+	prompt := (&answerDocumentEvaluator{}).BuildInitialInstruction(ctx, nil)
+	for _, want := range []string{
+		"## Nearby Context Citation Policy",
+		"validated nearby grounded context is prose-only",
+		"Do NOT place nearby grounded context anchors into `citations[]` or fenced diagrams",
+		"Keep `citations[]` on the primary exact-proof / absence-proof anchors only",
+		"`exact_resolution.context_mode=\"grounded_context_only\"`",
+	} {
+		if !strings.Contains(prompt, want) {
+			t.Fatalf("prompt missing %q:\n%s", want, prompt)
+		}
+	}
+	if strings.Contains(prompt, "## Surface-Allowed Grounded Context Anchors") {
+		t.Fatalf("surface-allowed section should be suppressed when nearby context is prose-only:\n%s", prompt)
 	}
 }
 
@@ -1438,10 +1507,12 @@ func TestAnswerDocumentEvaluator_Observe_MidLoopConfigTraceContextCitationReject
 				Code: "config_trace_context_citation",
 				Hint: "Re-emit `emit_answer_document` with the same exact-absence conclusion, but remove this anchor from `citations[]` and from any fenced diagram nodes. You may keep it in `summary` as prose-only grounded nearby context, but if the user-visible answer still explains precedence / lineage, cite at least one validated default/config/runtime/override anchor.",
 				Metadata: map[string]string{
-					"allowed_citations":  "internal/config/runtime.go:231",
-					"allowed_anchors":    "DefaultExploreHeuristics, internal/config/runtime.go",
-					"prose_only_anchors": "DefaultExploreHeuristics",
-					"drop_citations":     "internal/types/config.go:707",
+					"allowed_citations":            "internal/config/runtime.go:231",
+					"allowed_anchors":              "DefaultExploreHeuristics, internal/config/runtime.go",
+					"prose_only_anchors":           "DefaultExploreHeuristics",
+					"drop_citations":               "internal/types/config.go:707",
+					"nearby_context_citation_mode": "prose_only",
+					"preferred_context_mode":       "grounded_context_only",
 				},
 			},
 		},
@@ -1450,10 +1521,12 @@ func TestAnswerDocumentEvaluator_Observe_MidLoopConfigTraceContextCitationReject
 		t.Fatalf("config-trace prose-only citation reject should request a correction hint, got %+v", sig)
 	}
 	for _, want := range []string{
+		"treat the nearby grounded context as prose-only for this dispatch",
 		"Allowed related-context citations for this dispatch",
 		"`internal/config/runtime.go:231`",
 		"Keep any visible nearby context on this validated anchor set only",
 		"`DefaultExploreHeuristics`, `internal/config/runtime.go`",
+		"`exact_resolution.context_mode=\"grounded_context_only\"`",
 		"may stay on the user-visible answer surface as uncited prose-only grounded context",
 		"`DefaultExploreHeuristics`",
 		"Drop these invalid citation(s) from `citations[]`",

@@ -70,12 +70,13 @@ func collectExactResolutionSymbolCandidatesFromGraph(graph *repomap.Graph, contr
 			continue
 		}
 		canonFile := canonicalExactResolutionPath(file)
-		if strictRoleAnchors && roleAnchoredFiles[canonFile] == 0 && !anchoredFiles[canonFile] {
+		if strictRoleAnchors && roleAnchoredFiles[canonFile] == 0 {
 			continue
 		}
 		for _, sym := range exactResolutionSymbolsForFile(file, graph, fileSymbols) {
 			symLower := strings.ToLower(sym.Symbol)
 			score := 0
+			keywordHit := false
 			combinedSurface := sym.Symbol + " " + file
 			familyScore := types.ExactResolutionSameFamilyMatchScore(contract, combinedSurface)
 			if contract.RelatedContextPolicy == types.ExactContextSameFamilyGrounded {
@@ -97,11 +98,21 @@ func collectExactResolutionSymbolCandidatesFromGraph(graph *repomap.Graph, contr
 				for _, term := range keywords {
 					if strings.Contains(symLower, term) {
 						score += 2
+						keywordHit = true
 					}
 					if strings.Contains(fileLower, term) {
 						score += 1
+						keywordHit = true
 					}
 				}
+			}
+			if contract.TargetKind == types.SubjectConfigKey &&
+				contract.RelatedContextPolicy == types.ExactContextSameFamilyGrounded &&
+				!strictRoleAnchors &&
+				len(keywords) > 0 &&
+				!keywordHit &&
+				!anchoredFiles[canonFile] {
+				continue
 			}
 			if anchoredFiles[canonFile] {
 				score += 4

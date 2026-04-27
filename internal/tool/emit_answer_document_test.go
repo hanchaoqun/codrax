@@ -2075,6 +2075,83 @@ func TestEmitAnswerDocument_ConfigTraceAbsenceAllowsStructuredSummaryWhenNoLinea
 	}
 }
 
+func TestEmitAnswerDocument_ConfigTraceAbsenceRejectMarksProseOnlyCitationModeWhenNoLineageCandidateExists(t *testing.T) {
+	tool := &EmitAnswerDocument{}
+	ctx := newDocBusCtx("")
+	target := "explore_mid_loop_hint_budget"
+	ctx.AnalysisIR = &types.AnalysisIR{
+		RequestModel: types.RequestModel{
+			Scenario: types.ScenarioConfigTrace,
+			AnalyzerHints: types.AnalyzerHints{
+				Kind:         "config_mapping",
+				ExactTargets: []string{target},
+			},
+			AnswerSubject: types.AnswerSubject{Kind: types.SubjectConfigKey},
+		},
+		AnswerContract: types.AnswerContract{
+			ExactResolution: &types.ExactResolutionContract{
+				TargetKind:           types.SubjectConfigKey,
+				TargetLabel:          "config key",
+				Targets:              []string{target},
+				AllowAbsence:         true,
+				AliasRequiresProof:   true,
+				RequireTargetMention: true,
+				RelatedContextPolicy: types.ExactContextSameFamilyGrounded,
+			},
+		},
+	}
+	ctx.Mutable.SetAbsenceJustification("searched the repo and found no config key named `explore_mid_loop_hint_budget`")
+	ctx.Mutable.SetInvestigationResultKind("absence")
+	ctx.Mutable.SetExactContextRequiredFiles([]string{"internal/types/config.go"})
+	ctx.Mutable.AppendEvidence([]types.EvidenceItem{
+		{
+			Kind:            types.EvidenceDirect,
+			Source:          "internal/config/runtime.go",
+			LineStart:       231,
+			AnchorKind:      types.AnchorDefinition,
+			AnchorSymbol:    "ExploreMidLoopMinIteration",
+			ContextRole:     types.EvidenceContextRoleAbsenceSupport,
+			GroundingStatus: types.GroundingGrounded,
+			GroundingTier:   types.TierLineText,
+		},
+		{
+			Kind:            types.EvidenceDirect,
+			Source:          "internal/types/config.go",
+			LineStart:       707,
+			AnchorKind:      types.AnchorDefinition,
+			AnchorSymbol:    "DefaultExploreHeuristics",
+			ContextRole:     types.EvidenceContextRoleRelatedContext,
+			GroundingStatus: types.GroundingGrounded,
+			GroundingTier:   types.TierLineText,
+		},
+	})
+	params := mustDocJSON(t, map[string]interface{}{
+		"shape": "explanation",
+		"exact_resolution": map[string]interface{}{
+			"status":       "absent",
+			"context_mode": "grounded_context_only",
+		},
+		"summary": "### Nearby grounded context\n\n`DefaultExploreHeuristics()` is still relevant nearby context for this missing key family.",
+		"citations": []map[string]interface{}{
+			{"file": "internal/config/runtime.go", "line": 231},
+			{"file": "internal/types/config.go", "line": 707},
+		},
+	})
+	res, _ := tool.Execute(ctx, params)
+	if res.Success {
+		t.Fatalf("nearby context citation should reject when no citation-grade lineage anchor exists")
+	}
+	if res.Repair == nil || res.Repair.Code != "config_trace_context_citation" {
+		t.Fatalf("reject should expose config_trace_context_citation repair metadata, got %+v", res.Repair)
+	}
+	if got := res.Repair.Metadata["nearby_context_citation_mode"]; got != "prose_only" {
+		t.Fatalf("reject should mark nearby context as prose-only citation mode, got %+v", res.Repair)
+	}
+	if got := res.Repair.Metadata["preferred_context_mode"]; got != string(types.AnswerExactResolutionContextGroundedOnly) {
+		t.Fatalf("reject should preserve grounded_context_only as the preferred context mode, got %+v", res.Repair)
+	}
+}
+
 func TestEmitAnswerDocument_ConfigTraceAbsenceAllowsAnswerChainBackedLineageCitation(t *testing.T) {
 	tool := &EmitAnswerDocument{}
 	ctx := newDocBusCtx("")
@@ -2495,6 +2572,99 @@ func TestResolveAnswerDocumentExactResolution_StableAbsenceCarriesLockedMetadata
 	}
 	if coded.metadata["locked_status"] != "absent" {
 		t.Fatalf("expected locked_status metadata, got %+v", coded.metadata)
+	}
+}
+
+func TestResolveAnswerDocumentExactResolution_StripsLeadingExactAbsenceRestatement(t *testing.T) {
+	ctx := newDocBusCtx("")
+	target := "explore_mid_loop_hint_budget"
+	ctx.AnalysisIR = &types.AnalysisIR{
+		RequestModel: types.RequestModel{
+			Scenario:      types.ScenarioConfigTrace,
+			AnswerSubject: types.AnswerSubject{Kind: types.SubjectConfigKey},
+		},
+		AnswerContract: types.AnswerContract{
+			ExactResolution: &types.ExactResolutionContract{
+				TargetKind:           types.SubjectConfigKey,
+				TargetLabel:          "config key",
+				Targets:              []string{target},
+				AllowAbsence:         true,
+				RelatedContextPolicy: types.ExactContextSameFamilyGrounded,
+				RelatedContextTerms:  []string{"explore"},
+			},
+		},
+	}
+	ctx.Mutable.SetAbsenceJustification("searched the repo and found no config key named `explore_mid_loop_hint_budget`")
+	ctx.Mutable.SetInvestigationResultKind("absence")
+	ctx.Mutable.SetExactContextRequiredFiles([]string{"internal/types/config.go"})
+	ctx.Mutable.AppendEvidence([]types.EvidenceItem{
+		{
+			Kind:            types.EvidenceDirect,
+			Source:          "internal/types/config.go",
+			LineStart:       707,
+			AnchorKind:      types.AnchorDefinition,
+			AnchorSymbol:    "DefaultExploreHeuristics",
+			ContextRole:     types.EvidenceContextRoleRelatedContext,
+			DiagramRole:     types.EvidenceDiagramRoleDefault,
+			GroundingStatus: types.GroundingGrounded,
+		},
+	})
+
+	resolved, gotSummary, err := resolveAnswerDocumentExactResolution("### 结论\n\n配置键 `explore_mid_loop_hint_budget` 在仓库中不存在。\n\n`DefaultExploreHeuristics` 定义了同族字段的代码默认值。", &types.AnswerExactResolution{
+		Status:      types.AnswerExactResolutionAbsent,
+		ContextMode: types.AnswerExactResolutionContextGroundedOnly,
+	}, ctx)
+	if err != nil {
+		t.Fatalf("resolveAnswerDocumentExactResolution: %v", err)
+	}
+	if resolved == nil || resolved.Status != types.AnswerExactResolutionAbsent {
+		t.Fatalf("resolved exact_resolution = %+v, want absent", resolved)
+	}
+	lead := renderAnswerDocumentExactResolutionLead(ctx.AnalysisIR.AnswerContract.ExactResolution, resolved, requestedAnswerDocumentLanguage(ctx))
+	body := exactContextSummaryBodyAfterLead(gotSummary, lead)
+	if strings.Contains(body, "### 结论") || strings.Contains(body, target) {
+		t.Fatalf("leading exact-absence restatement should be stripped from the post-lead body, got %q", body)
+	}
+	if !strings.Contains(body, "DefaultExploreHeuristics") {
+		t.Fatalf("grounded follow-on context should remain, got %q", body)
+	}
+}
+
+func TestResolveAnswerDocumentExactResolution_StripsPureExactAbsenceRestatement(t *testing.T) {
+	ctx := newDocBusCtx("")
+	target := "explore_mid_loop_hint_budget"
+	ctx.AnalysisIR = &types.AnalysisIR{
+		RequestModel: types.RequestModel{
+			Scenario:      types.ScenarioConfigTrace,
+			AnswerSubject: types.AnswerSubject{Kind: types.SubjectConfigKey},
+		},
+		AnswerContract: types.AnswerContract{
+			ExactResolution: &types.ExactResolutionContract{
+				TargetKind:           types.SubjectConfigKey,
+				TargetLabel:          "config key",
+				Targets:              []string{target},
+				AllowAbsence:         true,
+				RelatedContextPolicy: types.ExactContextSameFamilyGrounded,
+				RelatedContextTerms:  []string{"explore"},
+			},
+		},
+	}
+	ctx.Mutable.SetAbsenceJustification("searched the repo and found no config key named `explore_mid_loop_hint_budget`")
+	ctx.Mutable.SetInvestigationResultKind("absence")
+
+	resolved, gotSummary, err := resolveAnswerDocumentExactResolution("### 结论\n\n配置键 `explore_mid_loop_hint_budget` 在仓库中不存在。", &types.AnswerExactResolution{
+		Status:      types.AnswerExactResolutionAbsent,
+		ContextMode: types.AnswerExactResolutionContextNone,
+	}, ctx)
+	if err != nil {
+		t.Fatalf("resolveAnswerDocumentExactResolution: %v", err)
+	}
+	if resolved == nil || resolved.Status != types.AnswerExactResolutionAbsent {
+		t.Fatalf("resolved exact_resolution = %+v, want absent", resolved)
+	}
+	lead := renderAnswerDocumentExactResolutionLead(ctx.AnalysisIR.AnswerContract.ExactResolution, resolved, requestedAnswerDocumentLanguage(ctx))
+	if strings.TrimSpace(gotSummary) != lead {
+		t.Fatalf("pure exact-absence restatement should collapse to the deterministic lead only, got %q want %q", gotSummary, lead)
 	}
 }
 

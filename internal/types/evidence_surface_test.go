@@ -82,3 +82,85 @@ func TestCollectForbiddenExactContextLabels_SkipsImportSymbols(t *testing.T) {
 		t.Fatalf("expected forbidden labels to keep the path anchor, got %+v", labels)
 	}
 }
+
+func TestBuildAnswerSurfacePlan_SplitsCitationGradeAndProseOnlyContext(t *testing.T) {
+	mut := NewMutableState("")
+	mut.SetInvestigationResultKind("absence")
+	mut.SetAbsenceJustification("repo-wide search found no exact key")
+	mut.SetExactContextRequiredFiles([]string{"internal/types/config.go"})
+	mut.AppendEvidence([]EvidenceItem{
+		{
+			Kind:            EvidenceDirect,
+			Source:          "internal/config/runtime.go",
+			LineStart:       32,
+			AnchorKind:      AnchorDefinition,
+			AnchorSymbol:    "RuntimeSettings",
+			ContextRole:     EvidenceContextRoleAbsenceSupport,
+			GroundingStatus: GroundingGrounded,
+		},
+		{
+			Kind:            EvidenceDirect,
+			Source:          "internal/types/config.go",
+			LineStart:       707,
+			AnchorKind:      AnchorDefinition,
+			AnchorSymbol:    "DefaultExploreHeuristics",
+			ContextRole:     EvidenceContextRoleRelatedContext,
+			DiagramRole:     EvidenceDiagramRoleDefault,
+			GroundingStatus: GroundingGrounded,
+		},
+		{
+			Kind:            EvidenceDirect,
+			Source:          "internal/types/config.go",
+			LineStart:       627,
+			AnchorKind:      AnchorDefinition,
+			AnchorSymbol:    "ExploreHeuristics",
+			ContextRole:     EvidenceContextRoleRelatedContext,
+			GroundingStatus: GroundingGrounded,
+		},
+	})
+	ir := &AnalysisIR{
+		RequestModel: RequestModel{
+			Scenario: ScenarioConfigTrace,
+			AnswerSubject: AnswerSubject{
+				Kind: SubjectConfigKey,
+			},
+		},
+		AnswerContract: AnswerContract{
+			RequiredAnswerShape: ShapeExplanation,
+			ExactResolution: &ExactResolutionContract{
+				TargetKind:           SubjectConfigKey,
+				TargetLabel:          "config key",
+				Targets:              []string{"explore_mid_loop_hint_budget"},
+				AllowAbsence:         true,
+				RelatedContextPolicy: ExactContextSameFamilyGrounded,
+				RelatedContextTerms:  []string{"explore"},
+			},
+		},
+	}
+
+	plan := BuildAnswerSurfacePlan(ir, mut, nil, nil, nil, nil)
+	if plan == nil {
+		t.Fatalf("BuildAnswerSurfacePlan returned nil")
+	}
+	if len(plan.CitationGradeExactContextItems) != 2 {
+		t.Fatalf("citation-grade items = %d, want 2", len(plan.CitationGradeExactContextItems))
+	}
+	if len(plan.ProseOnlyExactContextItems) != 1 {
+		t.Fatalf("prose-only items = %d, want 1", len(plan.ProseOnlyExactContextItems))
+	}
+	if plan.ProseOnlyExactContextItems[0].AnchorSymbol != "ExploreHeuristics" {
+		t.Fatalf("prose-only anchor = %+v, want ExploreHeuristics", plan.ProseOnlyExactContextItems[0])
+	}
+	var sawRuntime, sawDefault bool
+	for _, item := range plan.CitationGradeExactContextItems {
+		switch item.AnchorSymbol {
+		case "RuntimeSettings":
+			sawRuntime = true
+		case "DefaultExploreHeuristics":
+			sawDefault = true
+		}
+	}
+	if !sawRuntime || !sawDefault {
+		t.Fatalf("citation-grade anchors missing runtime/default split: %+v", plan.CitationGradeExactContextItems)
+	}
+}

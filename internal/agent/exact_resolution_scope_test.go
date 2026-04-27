@@ -50,3 +50,66 @@ func TestCollectExactResolutionSymbolCandidatesFromGraph_IncludesStrongSameFamil
 		t.Fatalf("expected DefaultExploreHeuristics candidate, got %+v", cands)
 	}
 }
+
+func TestCollectExactResolutionSymbolCandidatesFromGraph_ConfigRoleAnchorsSuppressParallelRuntimeFamily(t *testing.T) {
+	contract := &types.ExactResolutionContract{
+		TargetKind:           types.SubjectConfigKey,
+		TargetLabel:          "config key",
+		Targets:              []string{"explore_mid_loop_hint_budget"},
+		AllowAbsence:         true,
+		RelatedContextPolicy: types.ExactContextSameFamilyGrounded,
+		RelatedContextTerms:  []string{"explore"},
+	}
+	fileSymbols := map[string][]string{
+		"internal/config/runtime.go": {
+			"ExploreMidLoopMinIteration internal/config/runtime.go:231",
+		},
+		"internal/types/config.go": {
+			"DefaultExploreHeuristics internal/types/config.go:707",
+		},
+		"internal/types/explore_budget.go": {
+			"ExploreBudget internal/types/explore_budget.go:40",
+		},
+	}
+	evidence := []types.EvidenceItem{
+		{
+			Kind:            types.EvidenceDirect,
+			Source:          "internal/config/runtime.go",
+			LineStart:       231,
+			AnchorKind:      types.AnchorAssignment,
+			AnchorSymbol:    "ExploreMidLoopMinIteration",
+			ContextRole:     types.EvidenceContextRoleRelatedContext,
+			DiagramRole:     types.EvidenceDiagramRoleRuntime,
+			GroundingStatus: types.GroundingGrounded,
+		},
+		{
+			Kind:            types.EvidenceDirect,
+			Source:          "internal/types/config.go",
+			LineStart:       707,
+			AnchorKind:      types.AnchorDefinition,
+			AnchorSymbol:    "DefaultExploreHeuristics",
+			ContextRole:     types.EvidenceContextRoleRelatedContext,
+			DiagramRole:     types.EvidenceDiagramRoleDefault,
+			GroundingStatus: types.GroundingGrounded,
+		},
+		{
+			Kind:            types.EvidenceDirect,
+			Source:          "internal/types/explore_budget.go",
+			LineStart:       40,
+			AnchorKind:      types.AnchorDefinition,
+			AnchorSymbol:    "ExploreBudget",
+			ContextRole:     types.EvidenceContextRoleRelatedContext,
+			GroundingStatus: types.GroundingGrounded,
+		},
+	}
+
+	cands := collectExactResolutionSymbolCandidatesFromGraph(nil, contract, nil, fileSymbols, evidence)
+	if len(cands) == 0 {
+		t.Fatalf("expected config-lane candidates, got none")
+	}
+	for _, cand := range cands {
+		if cand.File == "internal/types/explore_budget.go" || cand.Symbol == "ExploreBudget" {
+			t.Fatalf("parallel runtime family candidate leaked past strict role anchors: %+v", cands)
+		}
+	}
+}

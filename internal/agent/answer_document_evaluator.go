@@ -308,6 +308,9 @@ func renderAnswerDocSubmissionChecklist(ctx *types.AgentContext, shape string, d
 			"Fill `exact_resolution{status,anchor?,context_mode}` to match the current exact-target state; do not leave the status implicit in prose.",
 		)
 	}
+	items = append(items,
+		"Keep the answer at the abstraction already grounded by the evidence. A cited struct / function / type name does NOT license an invented field inventory, member count, default table, or exhaustive list unless a cited line or structured evidence item explicitly enumerates those members.",
+	)
 	if ctx != nil && ctx.LogTriage != nil && len(ctx.LogTriage.Errors) > 0 {
 		items = append(items,
 			"If this answer explains an attached log / stack trace, name each structured log error type or exception identifier from Log Triage at least once in `summary`. Do not paraphrase the type name away.",
@@ -822,6 +825,7 @@ func renderAnswerDocExactResolutionContract(ctx *types.AgentContext) string {
 		b.WriteString("- If you add related context, keep it grounded and clearly separate it from the exact target resolution by using `exact_resolution.context_mode=\"grounded_context_only\"`.\n")
 	}
 	b.WriteString("- If you cite nearby grounded context beyond the primary exact-proof sources, you MUST set `exact_resolution.context_mode=\"grounded_context_only\"`. Leave `context_mode=\"none\"` only when the answer stays on the exact target proof itself.\n")
+	b.WriteString("- Surface-allowed nearby context is not automatically citation-grade. When the prompt separates citation-grade anchors from prose-only anchors, only the citation-grade set may appear in `citations[]` or fenced diagrams; prose-only anchors must stay uncited in `summary`.\n")
 	if stateAbsent {
 		b.WriteString("- Investigation state: the exact target is currently absent in the repo / branch under inspection.\n")
 		fmt.Fprintf(&b, "- Absence justification: %s\n", justification)
@@ -830,6 +834,7 @@ func renderAnswerDocExactResolutionContract(ctx *types.AgentContext) string {
 		b.WriteString("- Do not speculate about hypothetical parser / runtime behavior (ignored, warning, error, fallback, etc.) unless a grounded repo anchor explicitly proves that behavior.\n")
 		b.WriteString("- When `context_mode=\"grounded_context_only\"`, treat `summary` as the follow-on grounded-context block only. Do not write a second absence paragraph there: the renderer already supplies the exact target lead.\n")
 		b.WriteString("- Keep the exact target name in the renderer-generated lead only. `summary` and diagrams should talk about grounded nearby anchors, not keep reusing the absent target as if it had a runtime path.\n")
+		b.WriteString("- Keep nearby context at the abstraction already grounded by the evidence. A cited struct / function / type name does NOT license an invented field inventory, member count, default-value table, or exhaustive list unless a cited line or structured evidence item explicitly enumerates those members.\n")
 		b.WriteString("- Do not add a separate paragraph about the effect of supplying the absent target unless the user explicitly asked for that behavior and a cited anchor proves it.\n")
 		if types.ExactResolutionTargetIsConfigKey(contract) {
 			b.WriteString("- Because the exact config key is absent, do NOT force `shape=config_value` with a synthetic literal such as `(missing)` / `(不存在)`. Prefer `shape=explanation` so the answer can lead with the exact absence before any nearby grounded context.\n")
@@ -843,7 +848,15 @@ func renderAnswerDocExactResolutionContract(ctx *types.AgentContext) string {
 		}
 	}
 	b.WriteString("\n")
-	if allowed := renderAnswerDocAllowedExactContextAnchors(ctx, contract); allowed != "" {
+	citationGradeRendered := false
+	if citationGrade := renderAnswerDocCitationGradeExactContextAnchors(ctx, contract); citationGrade != "" {
+		citationGradeRendered = true
+		b.WriteString(citationGrade)
+	}
+	if policy := renderAnswerDocNearbyContextCitationPolicy(ctx, contract); policy != "" {
+		b.WriteString(policy)
+	}
+	if allowed := renderAnswerDocAllowedExactContextAnchors(ctx, contract, citationGradeRendered); allowed != "" {
 		b.WriteString(allowed)
 	}
 	if proseOnly := renderAnswerDocProseOnlyExactContextAnchors(ctx, contract); proseOnly != "" {
@@ -881,15 +894,46 @@ func exactResolutionSurfaceEvidencePool(ctx *types.AgentContext) []types.Evidenc
 	return types.ExactResolutionSurfaceEvidencePool(emitted, ctx.EvidenceItems, ctx.AnswerChains)
 }
 
-func renderAnswerDocAllowedExactContextAnchors(ctx *types.AgentContext, contract *types.ExactResolutionContract) string {
+func renderAnswerDocAllowedExactContextAnchors(ctx *types.AgentContext, contract *types.ExactResolutionContract, citationGradeRendered bool) string {
 	anchors := collectAllowedExactContextAnchors(ctx, contract)
 	if len(anchors) == 0 {
 		return ""
 	}
+	if citationGradeRendered || answerDocNearbyContextIsProseOnly(ctx, contract) {
+		return ""
+	}
 	var b strings.Builder
-	b.WriteString("## Allowed Grounded Context Anchors\n\n")
+	b.WriteString("## Surface-Allowed Grounded Context Anchors\n\n")
 	b.WriteString("If you keep nearby grounded context in `summary`, keep it to these already-validated anchors. Anything outside this list is background only unless it is itself a primary exact-proof source.\n\n")
 	b.WriteString("When the exact target is absent, start the first sentence of `summary` directly on one of these validated anchors or mechanisms. Do not reopen with the absent target name — the renderer already prints that lead.\n\n")
+	for _, anchor := range anchors {
+		fmt.Fprintf(&b, "- %s\n", anchor.Text)
+	}
+	b.WriteString("\n")
+	return b.String()
+}
+
+func renderAnswerDocNearbyContextCitationPolicy(ctx *types.AgentContext, contract *types.ExactResolutionContract) string {
+	if !answerDocNearbyContextIsProseOnly(ctx, contract) {
+		return ""
+	}
+	var b strings.Builder
+	b.WriteString("## Nearby Context Citation Policy\n\n")
+	b.WriteString("For this dispatch, the validated nearby grounded context is prose-only. Keep it on the user-visible surface only as uncited explanation.\n\n")
+	b.WriteString("- Do NOT place nearby grounded context anchors into `citations[]` or fenced diagrams unless a later prompt section explicitly promotes one into the citation-grade set.\n")
+	b.WriteString("- Keep `citations[]` on the primary exact-proof / absence-proof anchors only.\n")
+	b.WriteString("- If you keep nearby grounded context in `summary`, set `exact_resolution.context_mode=\"grounded_context_only\"` and start directly from the grounded nearby anchor/mechanism rather than repeating the exact target name.\n\n")
+	return b.String()
+}
+
+func renderAnswerDocCitationGradeExactContextAnchors(ctx *types.AgentContext, contract *types.ExactResolutionContract) string {
+	anchors := collectCitationGradeExactContextAnchors(ctx, contract)
+	if len(anchors) == 0 {
+		return ""
+	}
+	var b strings.Builder
+	b.WriteString("## Citation-Grade Grounded Context Anchors\n\n")
+	b.WriteString("If nearby grounded context appears in `citations[]` or in any fenced diagram, it MUST come from this list (plus any primary exact-proof anchors). Other surface-allowed anchors may still appear in `summary`, but only as uncited prose.\n\n")
 	for _, anchor := range anchors {
 		fmt.Fprintf(&b, "- %s\n", anchor.Text)
 	}
@@ -910,6 +954,22 @@ func renderAnswerDocProseOnlyExactContextAnchors(ctx *types.AgentContext, contra
 	}
 	b.WriteString("\n")
 	return b.String()
+}
+
+func answerDocNearbyContextIsProseOnly(ctx *types.AgentContext, contract *types.ExactResolutionContract) bool {
+	plan := answerSurfacePlan(ctx)
+	if plan == nil || contract == nil {
+		return false
+	}
+	if len(plan.ProseOnlyExactContextItems) == 0 {
+		return false
+	}
+	for _, item := range plan.CitationGradeExactContextItems {
+		if item.ContextRole != types.EvidenceContextRoleAbsenceSupport {
+			return false
+		}
+	}
+	return true
 }
 
 func renderAnswerDocDiagramGradeExactContextAnchors(ctx *types.AgentContext, contract *types.ExactResolutionContract) string {
@@ -959,7 +1019,7 @@ func renderAnswerDocRelatedContextCitationCandidates(ctx *types.AgentContext, co
 	}
 	var b strings.Builder
 	b.WriteString("## Related Context Citation Candidates\n\n")
-	b.WriteString("If `summary` or a fenced diagram keeps nearby grounded precedence / lineage context on the user-visible answer surface, cite at least one of these exact file:line anchors in `citations[]`. Background-only same-family context may stay uncited in prose only when it does not become the answer's visible lineage explanation or a diagram node.\n\n")
+	b.WriteString("If `summary` or a fenced diagram keeps nearby grounded precedence / lineage context on the user-visible answer surface, cite at least one of these exact file:line anchors in `citations[]`. Treat this list as the file:line form of the citation-grade anchors above. Background-only same-family context may stay uncited in prose only when it does not become the answer's visible lineage explanation or a diagram node.\n\n")
 	for _, candidate := range candidates {
 		fmt.Fprintf(&b, "- %s [%s]\n", candidate.Label, candidate.Role)
 	}
@@ -1067,6 +1127,38 @@ func collectAllowedExactContextAnchors(ctx *types.AgentContext, contract *types.
 	})
 }
 
+func collectCitationGradeExactContextAnchors(ctx *types.AgentContext, contract *types.ExactResolutionContract) []exactResolutionSeed {
+	plan := answerSurfacePlan(ctx)
+	if plan == nil || contract == nil {
+		return nil
+	}
+	return exactResolutionSeedsFromItems(plan.CitationGradeExactContextItems, func(ev types.EvidenceItem) (string, int) {
+		role := "citation-grade grounded context"
+		score := 20
+		switch ev.ContextRole {
+		case types.EvidenceContextRoleAbsenceSupport:
+			role = "primary absence-proof source"
+			score = 40
+		default:
+			switch ev.DiagramRole {
+			case types.EvidenceDiagramRoleOverride:
+				role = string(ev.DiagramRole) + " precedence anchor"
+				score = 36
+			case types.EvidenceDiagramRoleConfig:
+				role = string(ev.DiagramRole) + " precedence anchor"
+				score = 34
+			case types.EvidenceDiagramRoleRuntime:
+				role = string(ev.DiagramRole) + " precedence anchor"
+				score = 32
+			case types.EvidenceDiagramRoleDefault:
+				role = string(ev.DiagramRole) + " precedence anchor"
+				score = 30
+			}
+		}
+		return role, score
+	})
+}
+
 func collectDiagramGradeExactContextAnchors(ctx *types.AgentContext, contract *types.ExactResolutionContract) []exactResolutionSeed {
 	plan := answerSurfacePlan(ctx)
 	if plan == nil || contract == nil {
@@ -1128,7 +1220,7 @@ func exactResolutionSeedsFromItems(items []types.EvidenceItem, classify func(typ
 	var anchors []exactResolutionSeed
 	seen := make(map[string]bool)
 	for _, ev := range items {
-		text := types.FormatExactResolutionSeed(ev)
+		text := formatExactResolutionSurfaceSeed(ev)
 		if text == "" {
 			continue
 		}
@@ -1156,6 +1248,45 @@ func exactResolutionSeedsFromItems(items []types.EvidenceItem, classify func(typ
 		anchors = anchors[:6]
 	}
 	return anchors
+}
+
+func formatExactResolutionSurfaceSeed(ev types.EvidenceItem) string {
+	parts := make([]string, 0, 2)
+	if triple := strings.TrimSpace(strings.Join(exactResolutionSeedParts(ev.Subject, ev.Predicate, ev.Object), " ")); triple != "" {
+		parts = append(parts, triple)
+	} else if anchor := strings.TrimSpace(ev.AnchorSymbol); anchor != "" {
+		parts = append(parts, anchor)
+	} else if subject := strings.TrimSpace(ev.Subject); subject != "" {
+		parts = append(parts, subject)
+	}
+	if len(parts) == 0 {
+		if summary := strings.TrimSpace(ev.Summary); summary != "" {
+			parts = append(parts, summary)
+		}
+	}
+	text := strings.Join(parts, " - ")
+	if text == "" {
+		text = strings.TrimSpace(ev.Source)
+	}
+	if ev.Source != "" {
+		if ev.LineStart > 0 {
+			text += fmt.Sprintf(" (%s:%d)", ev.Source, ev.LineStart)
+		} else {
+			text += fmt.Sprintf(" (%s)", ev.Source)
+		}
+	}
+	return text
+}
+
+func exactResolutionSeedParts(items ...string) []string {
+	out := make([]string, 0, len(items))
+	for _, item := range items {
+		item = strings.TrimSpace(item)
+		if item != "" {
+			out = append(out, item)
+		}
+	}
+	return out
 }
 
 func collectExactResolutionSeeds(ctx *types.AgentContext, contract *types.ExactResolutionContract) []exactResolutionSeed {
@@ -1617,11 +1748,17 @@ func (e *answerDocumentEvaluator) emitAnswerDocumentRejectSignal(ctx *types.Agen
 		reasonKey = "config-trace-context-citation"
 		hint = strings.TrimSpace(repair.Hint)
 		if repair.Metadata != nil {
+			if strings.TrimSpace(repair.Metadata["nearby_context_citation_mode"]) == "prose_only" {
+				hint = "Re-emit `emit_answer_document` with the same exact-absence conclusion, but treat the nearby grounded context as prose-only for this dispatch: keep `citations[]` on the primary exact-proof / absence-proof anchors only, keep any nearby context uncited in `summary`, and if that nearby context stays visible set `exact_resolution.context_mode=\"grounded_context_only\"`."
+			}
 			if allowed := strings.TrimSpace(repair.Metadata["allowed_citations"]); allowed != "" {
 				hint += " Allowed related-context citations for this dispatch: `" + strings.ReplaceAll(allowed, ", ", "`, `") + "`."
 			}
 			if allowed := strings.TrimSpace(repair.Metadata["allowed_anchors"]); allowed != "" {
 				hint += " Keep any visible nearby context on this validated anchor set only: `" + strings.ReplaceAll(allowed, ", ", "`, `") + "`."
+			}
+			if mode := strings.TrimSpace(repair.Metadata["preferred_context_mode"]); mode != "" && !strings.Contains(hint, "exact_resolution.context_mode") {
+				hint += " Keep `exact_resolution.context_mode=\"" + mode + "\"` whenever that nearby context stays on the user-visible surface."
 			}
 			if proseOnly := strings.TrimSpace(repair.Metadata["prose_only_anchors"]); proseOnly != "" {
 				hint += " These anchors may stay on the user-visible answer surface as uncited prose-only grounded context after you remove their citation(s) and any diagram nodes that used them: `" + strings.ReplaceAll(proseOnly, ", ", "`, `") + "`."

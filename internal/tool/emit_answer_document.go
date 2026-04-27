@@ -1493,6 +1493,7 @@ func validateConfigTraceAbsenceCitationFocus(ctx *types.BusContext, exact *types
 	lineageCandidates := plan.RelatedContextCitationCandidates
 	allowedAnchors := types.JoinExactContextSurfaceDisplays(plan.AllowedExactContextLabels)
 	roleCoverage := formatConfigTraceRoleCoverage(plan)
+	proseOnlyRelatedContext := configTraceNearbyContextIsProseOnly(plan)
 	relatedContextCitations := 0
 	for idx, cite := range citations {
 		matched := matchingEvidenceForCitation(pool, cite)
@@ -1520,6 +1521,10 @@ func validateConfigTraceAbsenceCitationFocus(ctx *types.BusContext, exact *types
 			if allowedAnchors != "" {
 				err = err.WithMetadata("allowed_anchors", allowedAnchors)
 			}
+			if proseOnlyRelatedContext {
+				err = err.WithMetadata("nearby_context_citation_mode", "prose_only")
+				err = err.WithMetadata("preferred_context_mode", string(types.AnswerExactResolutionContextGroundedOnly))
+			}
 			err = err.WithMetadata("drop_citations", fmt.Sprintf("%s:%d", cite.File, cite.Line))
 			if proseOnly := types.JoinExactContextSurfaceDisplays(types.ExactContextSurfaceLabelsForItem(contract, matched)); proseOnly != "" {
 				err = err.WithMetadata("prose_only_anchors", proseOnly)
@@ -1541,6 +1546,10 @@ func validateConfigTraceAbsenceCitationFocus(ctx *types.BusContext, exact *types
 		}
 		if allowedAnchors != "" {
 			err = err.WithMetadata("allowed_anchors", allowedAnchors)
+		}
+		if proseOnlyRelatedContext {
+			err = err.WithMetadata("nearby_context_citation_mode", "prose_only")
+			err = err.WithMetadata("preferred_context_mode", string(types.AnswerExactResolutionContextGroundedOnly))
 		}
 		err = err.WithMetadata("drop_citations", fmt.Sprintf("%s:%d", cite.File, cite.Line))
 		if forbidden := types.JoinExactContextSurfaceDisplays(types.ExactContextSurfaceLabelsForItem(contract, matched)); forbidden != "" {
@@ -1565,7 +1574,23 @@ func validateConfigTraceAbsenceCitationFocus(ctx *types.BusContext, exact *types
 	if allowedAnchors != "" {
 		err = err.WithMetadata("allowed_anchors", allowedAnchors)
 	}
+	if proseOnlyRelatedContext {
+		err = err.WithMetadata("nearby_context_citation_mode", "prose_only")
+		err = err.WithMetadata("preferred_context_mode", string(types.AnswerExactResolutionContextGroundedOnly))
+	}
 	return err
+}
+
+func configTraceNearbyContextIsProseOnly(plan *types.AnswerSurfacePlan) bool {
+	if plan == nil || len(plan.ProseOnlyExactContextItems) == 0 {
+		return false
+	}
+	for _, item := range plan.CitationGradeExactContextItems {
+		if item.ContextRole != types.EvidenceContextRoleAbsenceSupport {
+			return false
+		}
+	}
+	return true
 }
 
 func exactContextBodyNeedsStructuredGrounding(body string) bool {
@@ -1609,11 +1634,8 @@ func formatConfigTraceAllowedCitations(plan *types.AnswerSurfacePlan) string {
 	}
 	seen := make(map[string]bool)
 	var out []string
-	for _, item := range plan.AllowedExactContextItems {
+	for _, item := range plan.CitationGradeExactContextItems {
 		if item.Source == "" || item.LineStart <= 0 {
-			continue
-		}
-		if !types.ConfigTraceGroundedContextAnchorAllowedInFiles(plan.ExactResolution, item, plan.ExactContextRequiredFiles) {
 			continue
 		}
 		label := fmt.Sprintf("%s:%d", item.Source, item.LineStart)
@@ -2741,6 +2763,9 @@ func resolveAnswerDocumentExactResolution(summary string, declared *types.Answer
 	if resolved.ContextMode == "" {
 		resolved.ContextMode = types.AnswerExactResolutionContextNone
 	}
+	if resolved.Status == types.AnswerExactResolutionAbsent {
+		summary = trimLeadingExactAbsenceRestatement(summary, contract, answerSurfacePlan(ctx))
+	}
 	if declared.ContextMode == "" &&
 		resolved.Status == types.AnswerExactResolutionAbsent &&
 		resolved.ContextMode == types.AnswerExactResolutionContextNone &&
@@ -2778,7 +2803,6 @@ func resolveAnswerDocumentExactResolution(summary string, declared *types.Answer
 		err = err.WithHint("Re-emit `emit_answer_document` with `exact_resolution.status=\"absent\"`. If you keep any nearby grounded context, set `exact_resolution.context_mode=\"grounded_context_only\"`. Do not switch to `exact_match` or `alias_match` unless a newly cited grounded anchor explicitly proves the exact target or an explicit alias mapping.")
 		return nil, "", err
 	}
-
 	lead := renderAnswerDocumentExactResolutionLead(contract, resolved, requestedAnswerDocumentLanguage(ctx))
 	return resolved, joinAnswerDocumentLead(lead, summary), nil
 }
@@ -2886,6 +2910,62 @@ func joinAnswerDocumentLead(lead, summary string) string {
 		return lead
 	}
 	return lead + "\n\n" + summary
+}
+
+func trimLeadingExactAbsenceRestatement(summary string, contract *types.ExactResolutionContract, plan *types.AnswerSurfacePlan) string {
+	summary = strings.TrimSpace(summary)
+	if summary == "" || contract == nil || len(contract.Targets) == 0 {
+		return summary
+	}
+	_, paragraph, rest := splitLeadingSummaryParagraph(summary)
+	if paragraph == "" || repeatedExactTargetAfterLead(contract, paragraph) == "" {
+		return summary
+	}
+	candidates := []types.ExactContextSurfaceLabel(nil)
+	if plan != nil && len(plan.CitationGradeExactContextLabels) > 0 {
+		candidates = plan.CitationGradeExactContextLabels
+	} else if plan != nil {
+		candidates = plan.AllowedExactContextLabels
+	}
+	if len(candidates) > 0 {
+		lowerParagraph := strings.ToLower(paragraph)
+		pathParagraphKey := types.ExactResolutionLookupKey("path", paragraph)
+		symbolParagraphKey := types.ExactResolutionLookupKey("symbol", paragraph)
+		if len(mentionedExactContextSurfaceCandidates(lowerParagraph, pathParagraphKey, symbolParagraphKey, candidates)) > 0 {
+			return summary
+		}
+	}
+	rest = strings.TrimSpace(rest)
+	if rest == "" {
+		return ""
+	}
+	return rest
+}
+
+func splitLeadingSummaryParagraph(summary string) (heading, paragraph, rest string) {
+	summary = strings.TrimSpace(summary)
+	if summary == "" {
+		return "", "", ""
+	}
+	lines := strings.Split(summary, "\n")
+	i := 0
+	for i < len(lines) && strings.TrimSpace(lines[i]) == "" {
+		i++
+	}
+	if i < len(lines) && strings.HasPrefix(strings.TrimSpace(lines[i]), "#") {
+		heading = strings.TrimSpace(lines[i])
+		i++
+		for i < len(lines) && strings.TrimSpace(lines[i]) == "" {
+			i++
+		}
+	}
+	start := i
+	for i < len(lines) && strings.TrimSpace(lines[i]) != "" {
+		i++
+	}
+	paragraph = strings.TrimSpace(strings.Join(lines[start:i], "\n"))
+	rest = strings.TrimSpace(strings.Join(lines[i:], "\n"))
+	return heading, paragraph, rest
 }
 
 func renderAnswerDocumentExactResolutionLead(contract *types.ExactResolutionContract, exact *types.AnswerExactResolution, lang string) string {
