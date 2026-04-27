@@ -1297,6 +1297,65 @@ func TestEmitAnswerDocument_AllowsAbsenceWithProductionContextOnlyMention(t *tes
 	}
 }
 
+func TestEmitAnswerDocument_RejectsExactMatchWhenOnlySubjectRepeatsTargetButAnchorIsNearbySymbol(t *testing.T) {
+	tool := &EmitAnswerDocument{}
+	ctx := newDocBusCtx("")
+	target := "explore_mid_loop_hint_budget"
+	ctx.AnalysisIR = &types.AnalysisIR{
+		RequestModel: types.RequestModel{
+			Scenario: types.ScenarioConfigTrace,
+			AnalyzerHints: types.AnalyzerHints{
+				Kind:         "config_mapping",
+				ExactTargets: []string{target},
+			},
+			AnswerSubject: types.AnswerSubject{Kind: types.SubjectConfigKey},
+		},
+		AnswerContract: types.AnswerContract{
+			ExactResolution: &types.ExactResolutionContract{
+				TargetKind:              types.SubjectConfigKey,
+				TargetLabel:             "config key",
+				Targets:                 []string{target},
+				AllowAbsence:            true,
+				RequireTargetMention:    true,
+				AliasRequiresProof:      true,
+				RelatedContextPolicy:    types.ExactContextSameFamilyGrounded,
+				RelatedContextScopeHint: "same namespace / prefix family",
+			},
+		},
+	}
+	ctx.Mutable.AppendEvidence([]types.EvidenceItem{{
+		Kind:            types.EvidenceDirect,
+		Subject:         target,
+		Predicate:       "not mapping to",
+		Object:          "internal/types/explore_budget.go",
+		Source:          "internal/types/explore_budget.go",
+		LineStart:       40,
+		LineEnd:         48,
+		AnchorKind:      types.AnchorDefinition,
+		AnchorSymbol:    "ExploreBudget",
+		Summary:         "Nearby ExploreBudget context does not define the missing exact key.",
+		ContextRole:     types.EvidenceContextRoleRelatedContext,
+		GroundingStatus: types.GroundingGrounded,
+		Producer:        EmitEvidenceProducer,
+	}})
+
+	params := mustDocJSON(t, map[string]interface{}{
+		"shape": "explanation",
+		"exact_resolution": map[string]interface{}{
+			"status": "exact_match",
+		},
+		"summary": "The repo does not define this config key in production code.",
+	})
+	res, _ := tool.Execute(ctx, params)
+	if res.Success {
+		t.Fatalf("nearby related-context anchors must not satisfy exact_match just because the subject text repeats the target")
+	}
+	if !strings.Contains(res.Summary, "explicitly names the requested exact config key") &&
+		!strings.Contains(res.Summary, "requires production-grounded anchored proof") {
+		t.Fatalf("reject should explain the missing exact-proof requirement, got: %q", res.Summary)
+	}
+}
+
 func TestEmitAnswerDocument_AllowsAbsenceWithFunctionAbsenceSupport(t *testing.T) {
 	tool := &EmitAnswerDocument{}
 	ctx := newDocBusCtx("")
@@ -1768,6 +1827,15 @@ func TestEmitAnswerDocument_ConfigTraceAbsenceRejectsBroadSameFamilyCitation(t *
 	if res.Repair.Metadata == nil || !strings.Contains(res.Repair.Metadata["allowed_citations"], "internal/config/runtime.go:231") || !strings.Contains(res.Repair.Metadata["allowed_citations"], "internal/types/config.go:707") {
 		t.Fatalf("reject should enumerate allowed related-context citations, got %+v", res.Repair)
 	}
+	if !strings.Contains(res.Repair.Metadata["allowed_anchors"], "DefaultExploreHeuristics") {
+		t.Fatalf("reject should enumerate validated visible-context anchors, got %+v", res.Repair)
+	}
+	if !strings.Contains(res.Repair.Metadata["forbidden_anchors"], "ExploreBudget") {
+		t.Fatalf("reject should mark broad same-family anchors as background-only, got %+v", res.Repair)
+	}
+	if got := res.Repair.Metadata["drop_citations"]; got != "internal/types/explore_budget.go:40" {
+		t.Fatalf("reject should identify the invalid citation to drop, got %+v", res.Repair)
+	}
 }
 
 func TestEmitAnswerDocument_ConfigTraceAbsenceRequiresLineageCitationForGroundedContextSummary(t *testing.T) {
@@ -1841,6 +1909,9 @@ func TestEmitAnswerDocument_ConfigTraceAbsenceRequiresLineageCitationForGrounded
 	}
 	if !strings.Contains(res.Repair.Hint, "keep at least one grounded precedence anchor in `citations[]`") {
 		t.Fatalf("reject hint should require a lineage citation, got %+v", res.Repair)
+	}
+	if !strings.Contains(res.Repair.Metadata["allowed_anchors"], "DefaultExploreHeuristics") {
+		t.Fatalf("reject should surface validated visible-context anchors when a lineage citation is required, got %+v", res.Repair)
 	}
 }
 

@@ -478,6 +478,51 @@ func TestEmitInvestigationComplete_ConfigAbsenceAllowsAbsenceSupportProductionMe
 	}
 }
 
+func TestEmitInvestigationComplete_ConfigAbsenceAllowsRelatedContextThatKeepsTargetInSubjectOnly(t *testing.T) {
+	missingKey := "zz_absent_config_" + "knob"
+	mut := types.NewMutableState("q")
+	mut.AppendEvidence([]types.EvidenceItem{
+		{
+			Kind:            types.EvidenceDirect,
+			Source:          "internal/types/explore_budget.go",
+			LineStart:       40,
+			LineEnd:         48,
+			Subject:         missingKey,
+			AnchorKind:      types.AnchorDefinition,
+			AnchorSymbol:    "ExploreBudget",
+			Object:          "internal/types/explore_budget.go",
+			Summary:         "Nearby runtime budget struct does not define the missing exact config key.",
+			ContextRole:     types.EvidenceContextRoleRelatedContext,
+			GroundingStatus: types.GroundingGrounded,
+			GroundingTier:   types.TierLineText,
+		},
+	})
+	bus := &types.BusContext{
+		Mutable: mut,
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			RawRequest: missingKey + " 鐨勬渶缁堝€兼€庝箞璁＄畻锛?",
+			Scenario:   types.ScenarioConfigTrace,
+			AnalyzerHints: types.AnalyzerHints{
+				Kind:            "config_mapping",
+				PrimaryEntities: []string{missingKey},
+				Entities:        []string{missingKey},
+				ExactTargets:    []string{missingKey},
+			},
+			AnswerSubject: types.AnswerSubject{Kind: types.SubjectConfigKey},
+		}},
+	}
+	tool := &EmitInvestigationComplete{}
+
+	params := json.RawMessage(`{"reason":"searched the repo and found no exact config key ` + missingKey + ` in production code","confidence":"high","result_kind":"absence","absence_justification":"no config key named ` + missingKey + ` exists in the repo"}`)
+	res, err := tool.Execute(bus, params)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("related-context evidence that keeps the exact target only in subject text must not block exact absence closure: %s", res.Summary)
+	}
+}
+
 func TestEmitInvestigationComplete_ConfigAbsenceRejectsUngroundedRequiredContext(t *testing.T) {
 	missingKey := "explore_mid_loop_missing_knob"
 	mut := types.NewMutableState("q")

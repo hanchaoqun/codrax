@@ -73,7 +73,7 @@ func (t *EmitInvestigationComplete) Parameters() json.RawMessage {
 			},
 			"absence_justification": {
 				"type": "string",
-				"description": "OPTIONAL. Set this ONLY when the answer is an honest 'zero' / 'no X' / 'nothing found' that has no file:line to cite (e.g. 'how many .py files?' answered 0, 'does handler X exist?' answered no). A single short sentence explaining why the answer is genuinely empty. Leave unset for every non-absence answer. Do NOT set it after emit_evidence has already produced grounded/recovered anchors for the answer — that means you have a positive, citable answer path. This is a declarative claim, not a system override: the framework still audits that at least one investigation-class tool (grep / exec_command / list_files / read_file / repo_map) ran successfully before accepting the waiver."
+				"description": "OPTIONAL. Set this ONLY when the answer is an honest 'zero' / 'no X' / 'nothing found' that has no direct exact-target definition to cite (e.g. 'how many .py files?' answered 0, 'does handler X exist?' answered no). A single short sentence explaining why the answer is genuinely empty. Leave unset for every non-absence answer. Grounded related-context anchors are allowed when they remain clearly contextual (for example a nearby config family, call chain, or architecture edge) and do not define the missing exact target. This is a declarative claim, not a system override: the framework still audits that at least one investigation-class tool (grep / exec_command / list_files / read_file / repo_map) ran successfully before accepting the waiver."
 			}
 		},
 		"required": ["reason", "confidence", "result_kind"]
@@ -1521,9 +1521,12 @@ func evidenceMentionsAnyListedExactTarget(contract *types.ExactResolutionContrac
 
 func evidenceDirectlyAnchorsAnyListedExactTarget(contract *types.ExactResolutionContract, item types.EvidenceItem, targets []string) bool {
 	for _, target := range targets {
-		if types.ExactResolutionTextMentionsTarget(contract, item.Subject, target) ||
-			types.ExactResolutionTextMentionsTarget(contract, item.AnchorSymbol, target) ||
+		if types.ExactResolutionTextMentionsTarget(contract, item.AnchorSymbol, target) ||
 			types.ExactResolutionTextMentionsTarget(contract, item.Object, target) {
+			return true
+		}
+		if strings.TrimSpace(item.AnchorSymbol) == "" &&
+			types.ExactResolutionTextMentionsTarget(contract, item.Subject, target) {
 			return true
 		}
 	}

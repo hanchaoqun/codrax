@@ -1482,6 +1482,7 @@ func validateConfigTraceAbsenceCitationFocus(ctx *types.BusContext, exact *types
 	body := strings.TrimSpace(exactContextSummaryBodyAfterLead(summary, lead))
 	bodyNeedsLineageCitation := exactContextBodyNeedsStructuredGrounding(body)
 	requiredFiles := answerDocExactContextRequiredFiles(ctx)
+	allowedAnchors := joinExactContextSurfaceDisplays(allowedExactContextSurfaceCandidates(contract, ctx.AnalysisIR.RequestModel.Scenario, true, pool, requiredFiles))
 	relatedContextCitations := 0
 	for idx, cite := range citations {
 		matched := matchingEvidenceForCitation(pool, cite)
@@ -1502,6 +1503,13 @@ func validateConfigTraceAbsenceCitationFocus(ctx *types.BusContext, exact *types
 		if allowed := formatConfigTraceAllowedCitations(contract, pool, requiredFiles); allowed != "" {
 			err = err.WithMetadata("allowed_citations", allowed)
 		}
+		if allowedAnchors != "" {
+			err = err.WithMetadata("allowed_anchors", allowedAnchors)
+		}
+		err = err.WithMetadata("drop_citations", fmt.Sprintf("%s:%d", cite.File, cite.Line))
+		if forbidden := joinExactContextSurfaceDisplays(exactContextSurfaceCandidatesForItem(contract, matched)); forbidden != "" {
+			err = err.WithMetadata("forbidden_anchors", forbidden)
+		}
 		return err
 	}
 	if !bodyNeedsLineageCitation || relatedContextCitations > 0 {
@@ -1514,6 +1522,9 @@ func validateConfigTraceAbsenceCitationFocus(ctx *types.BusContext, exact *types
 		WithHint("Re-emit `emit_answer_document` with the same exact-absence conclusion, but if `summary` continues to explain nearby precedence / lineage context, keep at least one grounded precedence anchor in `citations[]` (for example a validated default/config/runtime/override anchor already named in the tool metadata). Here `config` means a grounded repo/user config-file layer (YAML/JSON/TOML/INI/etc.). If you do not want to cite nearby lineage context, drop that contextual explanation and keep only the renderer-generated absence lead.")
 	if allowed := formatConfigTraceAllowedCitations(contract, pool, requiredFiles); allowed != "" {
 		err = err.WithMetadata("allowed_citations", allowed)
+	}
+	if allowedAnchors != "" {
+		err = err.WithMetadata("allowed_anchors", allowedAnchors)
 	}
 	return err
 }
@@ -3084,7 +3095,7 @@ func exactResolutionProofEntries(contract *types.ExactResolutionContract, citati
 			ContextRole:  item.ContextRole,
 			Grounded:     item.GroundingStatus == types.GroundingGrounded || item.GroundingStatus == types.GroundingRecovered,
 			Production:   types.ExactResolutionSourceIsDefiningPrimaryProofLike(contract, item.Source) && item.ContextRole != types.EvidenceContextRoleIllustrativeOnly && item.ContextRole != types.EvidenceContextRoleAbsenceSupport,
-			DirectAnchor: types.ExactResolutionDirectAnchorMatchesAnyTarget(contract, item.Subject, item.AnchorSymbol, item.Object),
+			DirectAnchor: types.ExactResolutionProofAnchorMatchesAnyTarget(contract, item.Subject, item.AnchorSymbol, item.Object),
 			FromEvidence: true,
 		})
 	}
@@ -3142,7 +3153,7 @@ func entryMentionsAnchor(contract *types.ExactResolutionContract, entry exactRes
 }
 
 func entryDirectlyAnchorsAnyTarget(contract *types.ExactResolutionContract, entry exactResolutionProofEntry) bool {
-	return entry.DirectAnchor || types.ExactResolutionDirectAnchorMatchesAnyTarget(contract, entry.Subject, entry.AnchorSymbol, entry.Object)
+	return entry.DirectAnchor || types.ExactResolutionProofAnchorMatchesAnyTarget(contract, entry.Subject, entry.AnchorSymbol, entry.Object)
 }
 
 func exactResolutionProofIdentityTexts(entry exactResolutionProofEntry) []string {
@@ -3260,7 +3271,7 @@ func citationCountsAsPrimaryProofSource(contract *types.ExactResolutionContract,
 
 func citationDirectlyAnchorsAnyTarget(contract *types.ExactResolutionContract, c types.Citation, lineText string, matched types.EvidenceItem) bool {
 	if matched.Source != "" {
-		return types.ExactResolutionDirectAnchorMatchesAnyTarget(contract, matched.Subject, matched.AnchorSymbol, matched.Object)
+		return types.ExactResolutionProofAnchorMatchesAnyTarget(contract, matched.Subject, matched.AnchorSymbol, matched.Object)
 	}
 	if contract == nil {
 		return false

@@ -468,10 +468,12 @@ func TestAnswerDocumentEvaluator_BuildInitialInstruction_RendersExactResolutionC
 		"repo-wide search result, aggregate absence conclusion, or test-only proof step usually has no single corroborating production line",
 		"## Allowed Grounded Context Anchors",
 		"## Diagram-Grade Context Anchors",
+		"## Related Context Citation Candidates",
 		"## Background-Only Anchors",
 		"## Exact Resolution Seeds",
 		"DefaultExploreHeuristics",
 		"codrax.yaml.example:25",
+		"internal/types/config.go:520",
 	} {
 		if !strings.Contains(prompt, want) {
 			t.Fatalf("prompt missing %q:\n%s", want, prompt)
@@ -1254,6 +1256,61 @@ func TestAnswerDocumentEvaluator_Observe_MidLoopDiagramGroundingRejectSurfacesAc
 	}
 }
 
+func TestAnswerDocumentEvaluator_Observe_MidLoopConfigTraceContextCitationRejectSurfacesAllowedAndForbiddenAnchors(t *testing.T) {
+	e := &answerDocumentEvaluator{maxRetries: 2, configTraceDiagram: true}
+	sig := e.Observe(&types.AgentContext{
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{Scenario: types.ScenarioConfigTrace},
+			AnswerContract: types.AnswerContract{
+				Diagram: &types.DiagramContract{
+					Required:       true,
+					PreferredKinds: []types.DiagramKind{types.DiagramFlow},
+				},
+			},
+		},
+		EvidenceItems: []types.EvidenceItem{
+			{Source: "internal/config/runtime.go", LineStart: 231, DiagramRole: types.EvidenceDiagramRoleRuntime, Kind: types.EvidenceDirect, GroundingStatus: types.GroundingGrounded},
+			{Source: "internal/types/config.go", LineStart: 707, DiagramRole: types.EvidenceDiagramRoleDefault, Kind: types.EvidenceDirect, GroundingStatus: types.GroundingGrounded},
+		},
+	}, LoopObservation{
+		Phase:     PhaseMidLoop,
+		Iteration: 0,
+		LastToolResult: &types.ToolResult{
+			ToolName: "emit_answer_document",
+			Success:  false,
+			Summary:  "[answer_doc_reject:config_trace_context_citation] exact-absent config-trace answers may cite only precedence-capable lineage anchors.",
+			Repair: &types.ToolRepair{
+				Code: "config_trace_context_citation",
+				Hint: "Re-emit `emit_answer_document` with the same exact-absence conclusion, but if `summary` continues to explain nearby precedence / lineage context, keep at least one grounded precedence anchor in `citations[]`.",
+				Metadata: map[string]string{
+					"allowed_citations": "internal/config/runtime.go:231, internal/types/config.go:707",
+					"allowed_anchors":   "DefaultExploreHeuristics, internal/config/runtime.go",
+					"forbidden_anchors": "ExploreBudget",
+					"drop_citations":    "internal/types/explore_budget.go:40",
+				},
+			},
+		},
+	})
+	if !sig.HintRequested {
+		t.Fatalf("config-trace context-citation reject should request a correction hint, got %+v", sig)
+	}
+	for _, want := range []string{
+		"Allowed related-context citations for this dispatch",
+		"`internal/config/runtime.go:231`, `internal/types/config.go:707`",
+		"Keep any visible nearby context on this validated anchor set only",
+		"`DefaultExploreHeuristics`, `internal/config/runtime.go`",
+		"Drop any prose / diagram node whose only support comes from these background-only anchors",
+		"`ExploreBudget`",
+		"Drop these invalid citation(s) from `citations[]`",
+		"`internal/types/explore_budget.go:40`",
+		"Choose one valid repair path now",
+	} {
+		if !strings.Contains(sig.Hint, want) {
+			t.Fatalf("config-trace context-citation hint missing %q: %q", want, sig.Hint)
+		}
+	}
+}
+
 func TestAnswerDocumentEvaluator_Observe_MidLoopDiagramCodenameRejectSurfacesAction(t *testing.T) {
 	e := &answerDocumentEvaluator{maxRetries: 2, configTraceDiagram: true}
 	sig := e.Observe(nil, LoopObservation{
@@ -1273,7 +1330,7 @@ func TestAnswerDocumentEvaluator_Observe_MidLoopDiagramCodenameRejectSurfacesAct
 		"Level 1",
 		"Label the diagram directly with grounded files, functions, config keys",
 		"Do NOT call `read_file`, `grep`, or any other tool",
-		"defaults / YAML / runtime / override",
+		"defaults / config-file load / runtime binding / operator override",
 		"move that explanation into prose outside the fenced diagram",
 	} {
 		if !strings.Contains(sig.Hint, want) {
@@ -1535,8 +1592,16 @@ func TestAnswerDocumentEvaluator_Observe_MidLoopRejectStopsHintingAfterBudget(t 
 	if sig := e.Observe(nil, obs); !sig.HintRequested {
 		t.Fatalf("first reject should request a correction hint, got %+v", sig)
 	}
+	if sig := e.Observe(nil, obs); !sig.HintRequested {
+		t.Fatalf("tool-level rejects should continue surfacing repair hints beyond the first correction budget round, got %+v", sig)
+	}
+	for i := 0; i < e.rejectHintBudget()-2; i++ {
+		if sig := e.Observe(nil, obs); !sig.HintRequested {
+			t.Fatalf("repair hint %d should still be available before the extended budget is exhausted, got %+v", i+3, sig)
+		}
+	}
 	if sig := e.Observe(nil, obs); sig.HintRequested {
-		t.Fatalf("after reject-hint budget, evaluator should stay silent, got %+v", sig)
+		t.Fatalf("after the extended reject-hint budget, evaluator should stay silent, got %+v", sig)
 	}
 }
 

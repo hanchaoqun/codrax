@@ -90,6 +90,20 @@ type answerDocumentEvaluator struct {
 	configTraceDiagram bool
 }
 
+func (e *answerDocumentEvaluator) rejectHintBudget() int {
+	if e == nil {
+		return 0
+	}
+	if e.maxRetries <= 0 {
+		return 8
+	}
+	budget := e.maxRetries * 4
+	if budget < 8 {
+		budget = 8
+	}
+	return budget
+}
+
 // BuildInitialInstruction renders ONLY the dynamic per-dispatch data the
 // answer-document-skill system sections cannot carry:
 //
@@ -696,7 +710,7 @@ func renderAnswerDocDiagramConfigTraceSeed(ctx *types.AgentContext) string {
 	}
 	b.WriteString("The safest valid fenced diagram for this dispatch is an exact copy of that chain, or a strict subsequence made only by deleting unused nodes. Do not invent new node names, aliases, buckets, or tier markers.\n")
 	b.WriteString("Every node you keep in this diagram must also have a matching citation in `citations[]`. If you cannot cite a node, delete it from the chain instead of renaming it to an abstract bucket name (for example a generic step number, the literal `CLI`, or a tier label). Keep each node label as a plain grounded file/path label; do not prepend ordinal-tier wrappers.\n")
-	b.WriteString("If you only need part of the chain, delete unused nodes rather than inventing new abstract labels. Conceptual layer names requested by the user belong in prose headings or bullets unless those exact file/path labels are themselves cited. If you want to explain semantics such as defaults, YAML load, runtime binding, or CLI override, keep that explanation in prose outside the fenced diagram and cite it there. If you introduce a different file / symbol / path label, ground it first.")
+	b.WriteString("If you only need part of the chain, delete unused nodes rather than inventing new abstract labels. Conceptual layer names requested by the user belong in prose headings or bullets unless those exact file/path labels are themselves cited. If you want to explain semantics such as defaults, config-file load, runtime binding, or operator override, keep that explanation in prose outside the fenced diagram and cite it there. If you introduce a different file / symbol / path label, ground it first.")
 	return strings.TrimSpace(b.String())
 }
 
@@ -904,6 +918,9 @@ func renderAnswerDocExactResolutionContract(ctx *types.AgentContext) string {
 	if diagram := renderAnswerDocDiagramGradeExactContextAnchors(ctx, contract); diagram != "" {
 		b.WriteString(diagram)
 	}
+	if candidates := renderAnswerDocRelatedContextCitationCandidates(ctx, contract); candidates != "" {
+		b.WriteString(candidates)
+	}
 	if forbidden := renderAnswerDocForbiddenExactContextAnchors(ctx, contract); forbidden != "" {
 		b.WriteString(forbidden)
 	}
@@ -958,6 +975,83 @@ func renderAnswerDocDiagramGradeExactContextAnchors(ctx *types.AgentContext, con
 	}
 	b.WriteString("\n")
 	return b.String()
+}
+
+type relatedContextCitationCandidate struct {
+	Label string
+	Role  string
+	Score int
+}
+
+func renderAnswerDocRelatedContextCitationCandidates(ctx *types.AgentContext, contract *types.ExactResolutionContract) string {
+	candidates := collectRelatedContextCitationCandidates(ctx, contract)
+	if len(candidates) == 0 {
+		return ""
+	}
+	var b strings.Builder
+	b.WriteString("## Related Context Citation Candidates\n\n")
+	b.WriteString("If `summary` or a fenced diagram keeps nearby grounded precedence / lineage context on the user-visible answer surface, cite at least one of these exact file:line anchors in `citations[]`. Background-only same-family context may stay uncited in prose only when it does not become the answer's visible lineage explanation or a diagram node.\n\n")
+	for _, candidate := range candidates {
+		fmt.Fprintf(&b, "- %s [%s]\n", candidate.Label, candidate.Role)
+	}
+	b.WriteString("\n")
+	return b.String()
+}
+
+func collectRelatedContextCitationCandidates(ctx *types.AgentContext, contract *types.ExactResolutionContract) []relatedContextCitationCandidate {
+	if ctx == nil || ctx.Mutable == nil || ctx.AnalysisIR == nil || contract == nil {
+		return nil
+	}
+	if ctx.AnalysisIR.RequestModel.Scenario != types.ScenarioConfigTrace ||
+		contract.TargetKind != types.SubjectConfigKey ||
+		ctx.Mutable.StableInvestigationResultKind() != "absence" ||
+		strings.TrimSpace(ctx.Mutable.StableAbsenceJustification()) == "" {
+		return nil
+	}
+	items := exactResolutionSurfaceEvidencePool(ctx)
+	if len(items) == 0 {
+		return nil
+	}
+	requiredFiles := answerDocExactContextRequiredFiles(ctx)
+	seen := make(map[string]bool)
+	var out []relatedContextCitationCandidate
+	for _, ev := range items {
+		role := types.ConfigTraceValidatedDiagramRoleInFiles(contract, ev, requiredFiles)
+		if role == types.EvidenceDiagramRoleUnknown || ev.Source == "" || ev.LineStart <= 0 {
+			continue
+		}
+		label := fmt.Sprintf("%s:%d", ev.Source, ev.LineStart)
+		if seen[label] {
+			continue
+		}
+		seen[label] = true
+		score := 0
+		switch role {
+		case types.EvidenceDiagramRoleOverride:
+			score = 40
+		case types.EvidenceDiagramRoleConfig:
+			score = 36
+		case types.EvidenceDiagramRoleRuntime:
+			score = 32
+		case types.EvidenceDiagramRoleDefault:
+			score = 28
+		}
+		out = append(out, relatedContextCitationCandidate{
+			Label: label,
+			Role:  string(role) + " precedence anchor",
+			Score: score,
+		})
+	}
+	sort.SliceStable(out, func(i, j int) bool {
+		if out[i].Score != out[j].Score {
+			return out[i].Score > out[j].Score
+		}
+		return out[i].Label < out[j].Label
+	})
+	if len(out) > 6 {
+		out = out[:6]
+	}
+	return out
 }
 
 func renderAnswerDocForbiddenExactContextAnchors(ctx *types.AgentContext, contract *types.ExactResolutionContract) string {
@@ -1540,7 +1634,7 @@ func (e *answerDocumentEvaluator) unexpectedFinalizerToolSignal(obs LoopObservat
 	if len(unexpected) == 0 {
 		return LoopSignal{}
 	}
-	if e.maxRetries > 0 && e.rejectHintsUsed >= e.maxRetries {
+	if budget := e.rejectHintBudget(); budget > 0 && e.rejectHintsUsed >= budget {
 		return LoopSignal{}
 	}
 	e.rejectHintsUsed++
@@ -1556,7 +1650,7 @@ func (e *answerDocumentEvaluator) emitAnswerDocumentRejectSignal(ctx *types.Agen
 	if obs.LastToolResult == nil || obs.LastToolResult.ToolName != "emit_answer_document" || obs.LastToolResult.Success {
 		return LoopSignal{}
 	}
-	if e.maxRetries > 0 && e.rejectHintsUsed >= e.maxRetries {
+	if budget := e.rejectHintBudget(); budget > 0 && e.rejectHintsUsed >= budget {
 		return LoopSignal{}
 	}
 	repair := obs.LastToolResult.Repair
@@ -1620,7 +1714,7 @@ func (e *answerDocumentEvaluator) emitAnswerDocumentRejectSignal(ctx *types.Agen
 		reasonKey = "diagram-codename"
 		hint = "Your last `emit_answer_document` call was rejected by the CODENAME-GROUNDING gate: the summary introduced abstract enumeration labels that are not grounded. Re-emit `emit_answer_document` now with the same answer, but remove invented labels such as `Level 1` / `Round 2` / `Step 3` unless those exact tokens are cited. Label the diagram directly with grounded files, functions, config keys, or other evidenced entities instead. Do NOT call `read_file`, `grep`, or any other tool to repair this — use the existing citations / seeds only. Do not write free-form prose outside the tool call."
 		if e.configTraceDiagram {
-			hint += " In config-precedence diagrams, grounded file/path labels are the node names; numbered layer aliases are never required. If you need semantics like defaults / YAML / runtime / override, move that explanation into prose outside the fenced diagram and keep the fence itself as the seeded chain (or a strict subsequence of it)."
+			hint += " In config-precedence diagrams, grounded file/path labels are the node names; numbered layer aliases are never required. If you need semantics like defaults / config-file load / runtime binding / operator override, move that explanation into prose outside the fenced diagram and keep the fence itself as the seeded chain (or a strict subsequence of it)."
 		}
 		hint = appendRetryDiagramSeedHint(hint, ctx, repair)
 	}
@@ -1665,7 +1759,17 @@ func (e *answerDocumentEvaluator) emitAnswerDocumentRejectSignal(ctx *types.Agen
 			if allowed := strings.TrimSpace(repair.Metadata["allowed_citations"]); allowed != "" {
 				hint += " Allowed related-context citations for this dispatch: `" + strings.ReplaceAll(allowed, ", ", "`, `") + "`."
 			}
+			if allowed := strings.TrimSpace(repair.Metadata["allowed_anchors"]); allowed != "" {
+				hint += " Keep any visible nearby context on this validated anchor set only: `" + strings.ReplaceAll(allowed, ", ", "`, `") + "`."
+			}
+			if forbidden := strings.TrimSpace(repair.Metadata["forbidden_anchors"]); forbidden != "" {
+				hint += " Drop any prose / diagram node whose only support comes from these background-only anchors: `" + strings.ReplaceAll(forbidden, ", ", "`, `") + "`."
+			}
+			if invalid := strings.TrimSpace(repair.Metadata["drop_citations"]); invalid != "" {
+				hint += " Drop these invalid citation(s) from `citations[]` unless you replace them with one of the allowed related-context anchors: `" + strings.ReplaceAll(invalid, ", ", "`, `") + "`."
+			}
 		}
+		hint += " Choose one valid repair path now: either (a) keep nearby precedence / lineage context and cite at least one allowed related-context anchor, or (b) delete that nearby context from the user-visible answer surface and keep only the exact-absence lead. Do not keep broad same-family background as the cited explanation."
 		hint = appendRetryDiagramSeedHint(hint, ctx, repair)
 	}
 	if rejectCode == answerDocRejectCodeAbsentExactConfigValueShape || strings.Contains(summary, "must not use shape=config_value") {

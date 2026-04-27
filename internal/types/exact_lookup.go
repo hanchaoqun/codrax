@@ -375,6 +375,25 @@ func ExactResolutionDirectAnchorMatchesAnyTarget(c *ExactResolutionContract, sub
 		ExactResolutionTextsMentionAnyTarget(c, object)
 }
 
+// ExactResolutionProofAnchorMatchesAnyTarget is the stricter sibling
+// used by proof/absence validators. The model often keeps the user
+// requested exact target in Subject while AnchorSymbol names the real
+// nearby symbol it actually read. That pattern is useful for related
+// context, but it is NOT proof that the nearby symbol defines the exact
+// target. Proof-grade matching therefore prefers AnchorSymbol/Object
+// when present, and only falls back to Subject when no explicit anchor
+// symbol was supplied.
+func ExactResolutionProofAnchorMatchesAnyTarget(c *ExactResolutionContract, subject, anchorSymbol, object string) bool {
+	if ExactResolutionTextsMentionAnyTarget(c, anchorSymbol) ||
+		ExactResolutionTextsMentionAnyTarget(c, object) {
+		return true
+	}
+	if !ExactResolutionTextsMentionAnyTarget(c, subject) {
+		return false
+	}
+	return strings.TrimSpace(anchorSymbol) == ""
+}
+
 // ExactResolutionContextTerms returns the validated same-scope term
 // shortlist that the analyzer proposed for nearby-context narrowing.
 // These terms are LLM-recommended, then system-validated against the
