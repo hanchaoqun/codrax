@@ -391,7 +391,20 @@ func clearForReplan(o *Orchestrator, attempt int) {
 		if err != nil {
 			logging.Warning("[orchestrator] reflector failed (degrading to heuristic hint): %v", err)
 		} else if strings.TrimSpace(critique) != "" {
-			hint = critique + "\n\n" + heuristicHint
+			// When the critic emitted a "Preserve:" clause naming aspects
+			// of the previous plan that should be kept, the heuristic's
+			// "the regression is in the edits to these files" framing
+			// directly contradicts it. Soften the heuristic suspect list
+			// to a neutral "files modified" so the planner does not
+			// receive contradictory orders in the same prompt.
+			heuristic := heuristicHint
+			if strings.Contains(critique, "Preserve:") {
+				heuristic = strings.ReplaceAll(heuristic,
+					"Files modified by the previous plan (suspect list — the regression is in the edits to these files):",
+					"Files modified by the previous plan (review for compatibility; the critic above identified what to preserve):",
+				)
+			}
+			hint = critique + "\n\n" + heuristic
 		}
 	}
 	// Worktree handling — two paths:
@@ -434,7 +447,31 @@ func clearForReplan(o *Orchestrator, attempt int) {
 	}
 	o.busCtx.Mutable.ResetChangePlan()
 	o.busCtx.Mutable.ResetChangeReport()
-	o.busCtx.Mutable.WriteClosure().Reset()
+	// WriteClosure reset has two flavours, picked by the rewind path:
+	//  - Warm rewind succeeded: the worktree disk state carries the
+	//    files from the best plan's apply. AppliedSet MUST stay in sync
+	//    with that disk state so apply_patch's idempotent path (which
+	//    reads AppliedSet) engages on a re-emit and short-circuits the
+	//    "file already exists in worktree" rejection. Reseed
+	//    AppliedSet from the rewound plan's TargetPaths because, by
+	//    construction, that's exactly what the rewound commit holds.
+	//  - Cold discard: the worktree was thrown away; AppliedSet must
+	//    revert to empty so the next plan starts from a clean disk.
+	if rewound && bestPlan != nil && len(bestPlan.TargetPaths) > 0 {
+		o.busCtx.Mutable.WriteClosure().ResetExceptApplied()
+		// Reseed AppliedSet from the rewound plan's TargetPaths. The
+		// warm rewind landed at bestSHA, which was committed by
+		// applyPostHook AFTER bestPlan's apply succeeded — so every
+		// path in bestPlan.TargetPaths is on disk in the worktree right
+		// now and apply_patch must treat them as already-applied to
+		// keep idempotency aligned with disk.
+		closure := o.busCtx.Mutable.WriteClosure()
+		for _, p := range bestPlan.TargetPaths {
+			closure.MarkApplied(p)
+		}
+	} else {
+		o.busCtx.Mutable.WriteClosure().Reset()
+	}
 	o.planPath = ""
 	o.busCtx.PlanPath = ""
 	o.busCtx.Mutable.SetPlanningHint(hint)
@@ -531,6 +568,7 @@ func buildReflectorInput(busCtx *types.BusContext, report *types.ChangeReport, p
 	in := ReflectorInput{Attempt: attempt}
 	if busCtx != nil && busCtx.Mutable != nil {
 		in.OriginalRequest = strings.TrimSpace(busCtx.Mutable.Objective())
+		in.BaselineAvailable = busCtx.Mutable.BaselineReport() != nil
 	}
 	if plan != nil {
 		in.PlanSummary = plan.Summary

@@ -203,16 +203,22 @@ func (r *REPL) chitchatDispatch(line, display string) {
 
 	if err != nil {
 		logging.Warning("[repl/chitchat] responder failed: %v", err)
-		r.errorf("chat failed: %v\n", err)
+		r.errorf("chat failed: %s\n", friendlyRunError(r.language, err))
 		return
 	}
 
 	logging.Info("[repl/chitchat] reply:\n%s", response)
 
 	if response == "" {
-		fmt.Fprintln(r.out, "  ??")
+		fmt.Fprintln(r.out, emptyResponseHint(r.language))
 		return
 	}
+	// One-line marker so the user can tell at a glance the answer
+	// came from chitchat (no repo analysis, no plan) vs the main
+	// pipeline. Pre-fix: only difference was an INFO log line —
+	// invisible at the terminal — so a misrouted code question got
+	// a generic answer with no recovery hint.
+	fmt.Fprintln(r.out, chitchatReplyHeader(r.language))
 	r.renderBordered(response)
 	r.recordTurn(display, line, response, memory.KindChitchat)
 }

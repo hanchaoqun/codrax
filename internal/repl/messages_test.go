@@ -1,11 +1,124 @@
 package repl
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 
 	"github.com/hanchaoqun/codrax/internal/types"
 )
+
+// TestFriendlyRunError_TranslatesContextCanceled locks the UX
+// contract that "context canceled" — the canonical Ctrl+C symptom —
+// gets translated to user-actionable text in BOTH zh and en. Pre-fix
+// path printed the raw stream-level error which gave no recovery hint.
+func TestFriendlyRunError_TranslatesContextCanceled(t *testing.T) {
+	err := fmt.Errorf("LLM call failed: read stream: context canceled")
+	enGot := friendlyRunError("en", err)
+	if !strings.Contains(enGot, "interrupted") {
+		t.Errorf("en: expected 'interrupted' in friendly text, got %q", enGot)
+	}
+	zhGot := friendlyRunError("zh", err)
+	if !strings.Contains(zhGot, "中断") {
+		t.Errorf("zh: expected '中断' in friendly text, got %q", zhGot)
+	}
+}
+
+// TestFriendlyRunError_PreservesUnknown locks the fallback contract:
+// errors without a known translation pass through untouched so we
+// don't accidentally swallow real diagnostic content.
+func TestFriendlyRunError_PreservesUnknown(t *testing.T) {
+	err := fmt.Errorf("some weird IO error: read /dev/null: no such device")
+	got := friendlyRunError("en", err)
+	if got != err.Error() {
+		t.Errorf("unknown errors must pass through; got %q", got)
+	}
+}
+
+// TestBannerCapabilityLine locks the startup banner contract: the
+// user sees write_enabled state + yaml path immediately, in plain
+// text, rather than discovering it via a /mode plan reject deep in
+// a session.
+func TestBannerCapabilityLine(t *testing.T) {
+	cases := []struct {
+		name        string
+		lang        string
+		writable    bool
+		path        string
+		mustContain []string
+	}{
+		{"on", "en", true, "/etc/codrax.yaml", []string{"plan", "apply", "verify", "write_enabled=true", "/etc/codrax.yaml"}},
+		{"off", "en", false, "/etc/codrax.yaml", []string{"write_enabled=false", "disabled"}},
+		{"off-no-yaml", "en", false, "", []string{"write_enabled=false"}},
+		{"zh-off", "zh", false, "", []string{"write_enabled=false", "已禁用"}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := bannerCapabilityLine(tc.lang, tc.writable, tc.path)
+			for _, want := range tc.mustContain {
+				if !strings.Contains(got, want) {
+					t.Errorf("banner missing %q; got: %q", want, got)
+				}
+			}
+		})
+	}
+}
+
+// TestEmptyResponseHint_BothLangs locks the contract that the
+// empty-response path prints something actionable rather than the
+// cryptic "??" pre-fix rendering.
+func TestEmptyResponseHint_BothLangs(t *testing.T) {
+	en := emptyResponseHint("en")
+	if !strings.Contains(en, "no content") || !strings.Contains(en, "log") {
+		t.Errorf("en hint must explain absence + name log; got: %q", en)
+	}
+	zh := emptyResponseHint("zh")
+	if !strings.Contains(zh, "无内容") || !strings.Contains(zh, "log") {
+		t.Errorf("zh hint must explain absence + name log; got: %q", zh)
+	}
+}
+
+// TestChitchatReplyHeader_BothLangs locks that the chitchat marker
+// is visible (not just an INFO log line) and explains the recovery
+// path for misrouted code questions.
+func TestChitchatReplyHeader_BothLangs(t *testing.T) {
+	en := chitchatReplyHeader("en")
+	if !strings.Contains(en, "[chat]") {
+		t.Errorf("en marker must include [chat] tag; got: %q", en)
+	}
+	zh := chitchatReplyHeader("zh")
+	if !strings.Contains(zh, "[chat]") || !strings.Contains(zh, "闲聊") {
+		t.Errorf("zh marker must include [chat] tag and 闲聊; got: %q", zh)
+	}
+}
+
+// TestWriteModeDisabled_NamesActualPath locks that the L2 gate's
+// reject message points the user at the actual codrax.yaml path the
+// CLI loaded (when known) rather than a generic "in codrax.yaml" that
+// forces the user to hunt through default lookup paths.
+func TestWriteModeDisabled_NamesActualPath(t *testing.T) {
+	got := strings.Join(writeModeDisabled("en", "/mode plan", "/opt/codrax/codrax.yaml"), "\n")
+	if !strings.Contains(got, "/opt/codrax/codrax.yaml") {
+		t.Errorf("gate message must name the resolved yaml path; got:\n%s", got)
+	}
+	// No-yaml case names that directly so the user knows to CREATE one.
+	got2 := strings.Join(writeModeDisabled("en", "/mode plan", ""), "\n")
+	if !strings.Contains(got2, "No codrax.yaml") {
+		t.Errorf("no-yaml case must say so; got:\n%s", got2)
+	}
+}
+
+// TestPlanReadyNudge_NamesAllActions locks that every plan-mode
+// dispatch gets a nudge listing every legal next action so a user
+// fresh to write mode does not have to read the docs to find /approve.
+func TestPlanReadyNudge_NamesAllActions(t *testing.T) {
+	got := strings.Join(planReadyNudge("en", "plan-1", 3), "\n")
+	for _, want := range []string{"plan-1", "/plan show", "/approve", "/reject", "/mode read"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("planReadyNudge missing %q; got:\n%s", want, got)
+		}
+	}
+}
 
 // Locks the zh-as-default contract for every helper in messages.go:
 // only an explicit "en" flips to English; everything else (empty,

@@ -114,6 +114,29 @@ func (c *WriteClosure) Reset() {
 	c.stats = WriteClosureStats{}
 }
 
+// ResetExceptApplied clears every per-cycle queue (pendingApplies,
+// writeRepairs, verifySet, fingerprints, stats) BUT preserves
+// appliedSet. Used by clearForReplan when the verify→plan retry path
+// warm-rewinds the worktree to the previous apply's commit SHA: the
+// worktree disk state still carries the applied files, so AppliedSet
+// must stay aligned with disk reality. Resetting the whole closure on
+// warm rewind would leave apply_patch's idempotency check (which reads
+// AppliedSet) blind to files that physically exist, so the next plan
+// retry would re-emit kind=create for an existing file and apply_patch
+// would reject "file already exists in worktree".
+func (c *WriteClosure) ResetExceptApplied() {
+	if c == nil {
+		return
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.pendingApplies = nil
+	c.writeRepairs = nil
+	c.verifySet = make(map[string]VerifyResult)
+	c.fingerprints = nil
+	c.stats = WriteClosureStats{}
+}
+
 // AppliedSet returns a shallow copy of the applied file set so
 // callers can iterate without holding the closure lock. Mirrors
 // EvidenceClosure.ReadSet.

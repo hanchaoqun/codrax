@@ -178,6 +178,23 @@ type Config struct {
 	// or negative — a user who only configures the log cap still
 	// gets symmetric trace handling. Set independently to override.
 	AttachedTraceMaxBytes int
+
+	// SettingsPath is the resolved codrax.yaml the CLI loaded (or "" if
+	// none was found). Surfaced verbatim by the L2 gate's reject
+	// message so the user knows WHICH file to edit. Optional; empty
+	// falls back to a generic "in codrax.yaml" phrasing.
+	SettingsPath string
+
+	// WriteEnabled mirrors codrax.yaml :: write_enabled. Gates every
+	// REPL transition into a non-read mode (`/mode plan|apply|verify`,
+	// `/approve`). When false, the REPL refuses the transition with a
+	// clear error pointing at the yaml knob — the alternative was the
+	// pre-fix silent state where /mode plan accepted, the planner
+	// dispatched, the analyzer failed in a confusing way ("hypothesis
+	// coverage" / "context canceled"), and the user had no idea
+	// write_enabled was the cause. cmd/root.go forwards
+	// runtime_settings.WriteEnabled.
+	WriteEnabled bool
 }
 
 // REPL drives the interactive prompt.
@@ -261,6 +278,27 @@ type REPL struct {
 	// until explicit /mode read.
 	currentMode types.PipelineMode
 
+	// settingsPath is the resolved codrax.yaml path (or "" when no
+	// yaml was found / loaded). Surfaced verbatim by the write_enabled
+	// gate's error message so the user knows WHICH file to edit.
+	// Without this, "set write_enabled: true in codrax.yaml" left the
+	// user hunting through three default lookup locations.
+	settingsPath string
+
+	// echoTag is the sticky-state marker (promptStickyTag output) for
+	// the current turn. Loop sets this BEFORE each readInputPair so
+	// the Bubble Tea echo can re-render the same chrome above the
+	// inline viewport. Empty (read mode + no attachments) means no
+	// prefix on the echo line.
+	echoTag string
+
+	// writeEnabled mirrors Config.WriteEnabled. Read by handleModeCmd
+	// (rejects `/mode plan|apply|verify`) and by handleApprove (rejects
+	// /approve) so a user with `write_enabled: false` in codrax.yaml
+	// gets a clean error at the slash-command surface instead of a
+	// confusing analyzer/planner failure deep inside the pipeline.
+	writeEnabled bool
+
 	// pendingPlanPath is the filesystem path of the last plan
 	// auto-saved by this REPL (via planStore.Save after a
 	// successful plan-mode dispatch). Used by /plan show to
@@ -319,6 +357,8 @@ func New(cfg Config) *REPL {
 		planStore:             cfg.PlanStore,
 		attachedLogMaxBytes:   cfg.AttachedLogMaxBytes,
 		attachedTraceMaxBytes: cfg.AttachedTraceMaxBytes,
+		writeEnabled:          cfg.WriteEnabled,
+		settingsPath:          cfg.SettingsPath,
 	}
 	if r.version == "" {
 		r.version = "dev"
@@ -424,6 +464,24 @@ func (r *REPL) memoryStats() (int, int) {
 	return len(r.store.Recent()), len(r.store.Index())
 }
 
+// currentStickyTag returns the per-turn sticky-state marker
+// promptStickyTag would compose for the REPL's current state. Single
+// call site so every prompt-rendering surface (main input, paste/log
+// capture mode, multi-line continuation, scripted-mode echo) sees the
+// SAME tag for a given turn — without this helper each surface
+// re-derived the tag (or worse, omitted it) and the user lost
+// visibility of [mode:plan] / [log] / [trace] / [plan] / [mem!] mid-
+// flow.
+func (r *REPL) currentStickyTag() string {
+	return promptStickyTag(
+		string(r.currentMode),
+		r.attachedLog != "",
+		r.attachedHitrace != "",
+		r.pendingPlanPath != "",
+		r.memoryUnderPressure(),
+	)
+}
+
 // Loop runs the prompt until /exit, /quit, or EOF.
 //
 // The interactive readInput session renders its own echo + divider
@@ -436,13 +494,7 @@ func (r *REPL) Loop() error {
 		// Sticky-state tag prepended to the prompt so the user has a
 		// constant visual reminder of what attachments / mode / plan
 		// are live for this turn. Empty when nothing sticky.
-		tag := promptStickyTag(
-			string(r.currentMode),
-			r.attachedLog != "",
-			r.attachedHitrace != "",
-			r.pendingPlanPath != "",
-			r.memoryUnderPressure(),
-		)
+		tag := r.currentStickyTag()
 		// One-shot memory pressure hint — surface ABOVE the prompt
 		// the first time the threshold trips per session, so the
 		// nudge is unmissable but doesn't spam every turn. The
@@ -457,6 +509,9 @@ func (r *REPL) Loop() error {
 		if memNudgeShown && !r.memoryUnderPressure() {
 			memNudgeShown = false
 		}
+		// Stash the tag so readInputBubble can re-render it on the echo
+		// line above the inline viewport.
+		r.echoTag = tag
 		line, display, err := r.readInputPair(tag + "❯❯")
 		if err != nil {
 			fmt.Fprintln(r.out)
@@ -468,9 +523,15 @@ func (r *REPL) Loop() error {
 			continue
 		}
 		if !r.interactive() {
-			// Scanner mode: preserve the old echo so piped test output
-			// still contains a "> …" marker for visual assertions.
-			fmt.Fprintf(r.out, "  > %s\n", display)
+			// Scanner mode: preserve the "> " marker so piped test output
+			// still contains the visual assertion target. Prepend the
+			// sticky-state tag (mode / attachments) when non-empty so
+			// scripted assertions can verify mode-tagged echoes too.
+			if tag != "" {
+				fmt.Fprintf(r.out, "  %s > %s\n", tag, display)
+			} else {
+				fmt.Fprintf(r.out, "  > %s\n", display)
+			}
 		}
 		if cmd := types.NormalizeREPLCommandAlias(line); cmd != "" {
 			if quit := r.handleSlash(cmd); quit {
@@ -495,6 +556,13 @@ func (r *REPL) banner() {
 	ver := pterm.FgGray.Sprintf("v%s", shortVer)
 	hint := pterm.FgDarkGray.Sprint("/help · /exit")
 	fmt.Fprintf(r.out, "\n  %s %s  %s\n", badge, ver, hint)
+	// One-line capability summary so the user sees at startup which
+	// modes are available and which yaml file backs the config. With
+	// write_enabled=false the line names the gate explicitly so the
+	// user does not have to wait until /mode plan to discover it.
+	if cap := bannerCapabilityLine(r.language, r.writeEnabled, r.settingsPath); cap != "" {
+		fmt.Fprintf(r.out, "  %s\n", pterm.FgDarkGray.Sprint(cap))
+	}
 	if summary := r.memorySummaryLine(); summary != "" {
 		fmt.Fprintf(r.out, "  %s\n", summary)
 	}
@@ -679,7 +747,11 @@ func (r *REPL) readInputInteractive(prompt string) (string, string, error) {
 			display := strings.TrimSpace(strings.Join(displayParts, "\n"))
 			return expanded, display, nil
 		}
-		cur = "…"
+		// Continuation: keep the sticky tag visible so a multi-line
+		// plan-mode input does not lose the [mode:plan] marker after
+		// the first line. Pre-fix dropped to a bare "…" and the user
+		// could lose track mid-paste.
+		cur = r.currentStickyTag() + "…"
 	}
 }
 
@@ -884,7 +956,11 @@ func (r *REPL) dispatch(line, display string) {
 
 	if err != nil {
 		logging.Error("[repl] orchestrator error: %v", err)
-		r.errorf("error: %v\n", err)
+		// Translate well-known underlying errors into user-actionable
+		// text. "context canceled" surfacing as raw stream-level error
+		// gives no recovery hint; friendlyRunError says "interrupted"
+		// or "timed out" so the user knows whether to retry vs report.
+		r.errorf("error: %s\n", friendlyRunError(r.language, err))
 		return
 	}
 
@@ -903,6 +979,12 @@ func (r *REPL) dispatch(line, display string) {
 			} else {
 				r.pendingPlanPath = path
 				r.info(fmt.Sprintf("plan saved: %s", path))
+				// Action nudge: surface the next-step slash commands so
+				// the user does not have to remember /approve / /reject
+				// after seeing the bordered plan summary above.
+				for _, line := range planReadyNudge(r.language, plan.ID, len(plan.Changes)) {
+					r.info(line)
+				}
 			}
 		}
 	}
@@ -930,7 +1012,7 @@ func (r *REPL) dispatch(line, display string) {
 
 	// Skip rendering if no meaningful content.
 	if response == "" || response == "(no result)" {
-		fmt.Fprintln(r.out, "  ??")
+		fmt.Fprintln(r.out, emptyResponseHint(r.language))
 		r.recordTurn(display, line, memResponse, memory.KindPipeline)
 		return
 	}
@@ -1193,6 +1275,19 @@ func (r *REPL) handleModeCmd(line string) {
 	if target == "" {
 		target = types.ModeRead
 	}
+	// L2 gate: every non-read mode requires `write_enabled: true` in
+	// codrax.yaml. Without this check the REPL silently accepted the
+	// transition; the actual failure surfaced deep inside the pipeline
+	// as a confusing analyzer / planner error (e.g. "hypothesis
+	// coverage rejected", "context canceled"). cmd/root.go's
+	// resolveWriteMode covers --mode flag, but REPL's /mode bypassed
+	// it entirely. Reject up-front with a precise hint.
+	if target != types.ModeRead && !r.writeEnabled {
+		for _, line := range writeModeDisabled(r.language, "/mode "+string(target), r.settingsPath) {
+			r.warn("%s\n", line)
+		}
+		return
+	}
 	// Apply / verify modes normally require a --plan-file; in REPL
 	// the user is expected to first /mode plan → generate plan →
 	// then /mode apply. B0 does not prevent the transition at
@@ -1201,6 +1296,13 @@ func (r *REPL) handleModeCmd(line string) {
 	// stub and will fail-loud on the next dispatch.
 	r.currentMode = target
 	r.success(modeSwitched(r.language, string(target)))
+	// Workflow hint: explain in 1-3 lines what the new mode actually
+	// does. Empty for ModeRead (no special workflow). Surfaced once per
+	// /mode transition so a user new to write mode does not have to
+	// read the docs to find /approve / /reject / /mode read.
+	for _, line := range modeWorkflowHint(r.language, string(target)) {
+		r.info(line)
+	}
 }
 
 // handlePlanCmd dispatches the `/plan` subcommands. Recognised forms:
@@ -1225,6 +1327,15 @@ func (r *REPL) handlePlanCmd(line string) {
 	switch rest {
 	case "show":
 		if r.pendingPlanPath == "" {
+			// When write is disabled, "/mode plan" itself would bounce
+			// off the L2 gate — surface that root cause instead of
+			// telling the user to run a command they can't.
+			if !r.writeEnabled {
+				for _, line := range noPendingPlanWriteDisabled(r.language) {
+					r.info(line)
+				}
+				return
+			}
 			r.info(noPendingPlan(r.language))
 			return
 		}
@@ -1251,6 +1362,16 @@ func (r *REPL) handlePlanCmd(line string) {
 		// to read the plan JSON for full detail.
 		fmt.Fprintln(r.out, "\n  diff preview:")
 		fmt.Fprint(r.out, renderPlanDiff(plan, r.repoRoot, 16*1024, 4*1024))
+		// Footer: name the next slash commands so the user does not
+		// have to remember them after reading the diff. Only printed
+		// when the plan is still actionable (pending_approval); a plan
+		// already consumed by apply / verify shows status above and
+		// the action menu would be misleading.
+		if plan.Status == types.PlanStatusPending {
+			for _, line := range planShowFooter(r.language) {
+				fmt.Fprintln(r.out, line)
+			}
+		}
 	case "clear":
 		if r.pendingPlanPath == "" {
 			r.info("no pending plan to clear")
@@ -1394,6 +1515,17 @@ func (r *REPL) handleApproveCmd(line string) {
 		r.info("/approve disabled (no PlanStore configured)")
 		return
 	}
+	// L2 gate companion: /approve dispatches Mode=ModeApply, which the
+	// orchestrator gates on write_enabled. Reject here so the user gets
+	// the same clean error the /mode handler produces — without this,
+	// a user who somehow reached pendingPlanPath != "" (CLI single-shot
+	// then dropped into REPL?) would see a deep-pipeline failure.
+	if !r.writeEnabled {
+		for _, line := range writeModeDisabled(r.language, "/approve", r.settingsPath) {
+			r.warn("%s\n", line)
+		}
+		return
+	}
 	if r.pendingPlanPath == "" {
 		r.info(noPendingPlan(r.language))
 		return
@@ -1487,7 +1619,7 @@ func (r *REPL) handleApproveCmd(line string) {
 	}
 	if runErr != nil {
 		logging.Error("[repl] approve failed: %v", runErr)
-		r.errorf("approve: %v\n", runErr)
+		r.errorf("approve: %s\n", friendlyRunError(r.language, runErr))
 		// Drop pendingPlanPath so the user /mode plan's a fresh plan
 		// rather than re-running a known-broken apply.
 		r.pendingPlanPath = ""
@@ -1502,7 +1634,7 @@ func (r *REPL) handleApproveCmd(line string) {
 		memResponse = "(approve ended in error — details omitted from memory)"
 	}
 	if response == "" || response == "(no result)" {
-		fmt.Fprintln(r.out, "  ??")
+		fmt.Fprintln(r.out, emptyResponseHint(r.language))
 	} else {
 		r.renderBordered(response)
 	}
@@ -1523,6 +1655,16 @@ func (r *REPL) handleApproveCmd(line string) {
 	// action — re-run plan-mode incorporating the failure.
 	if busCtx != nil && busCtx.TaskState.LastError != "" {
 		for _, line := range approveFailedNudge(r.language) {
+			r.info(line)
+		}
+	} else {
+		// Success path nudge: after /approve completed, currentMode is
+		// restored to whatever it was before (typically ModePlan since
+		// the user just emitted a plan). Without this hint the user's
+		// next prompt would generate ANOTHER plan — usually not what
+		// they want right after a successful apply. Point at /mode read
+		// for further questions and /mode plan for another change.
+		for _, line := range applyDoneNudge(r.language) {
 			r.info(line)
 		}
 	}
@@ -1766,9 +1908,14 @@ func (r *REPL) handleLogPaste() {
 	r.info("paste log, terminate with a lone /end line")
 	scanner := r.captureScanner()
 	var buf strings.Builder
+	tag := r.currentStickyTag()
 	for {
 		if r.interactive() {
-			fmt.Fprint(r.out, "  log> ")
+			if tag != "" {
+				fmt.Fprintf(r.out, "  %s log> ", tag)
+			} else {
+				fmt.Fprint(r.out, "  log> ")
+			}
 		}
 		if !scanner.Scan() {
 			break
@@ -1809,9 +1956,14 @@ func (r *REPL) handlePasteCmd() {
 	r.info("paste content, terminate with a lone /end line; press Enter to cancel an empty capture")
 	scanner := r.captureScanner()
 	var buf strings.Builder
+	tag := r.currentStickyTag()
 	for {
 		if r.interactive() {
-			fmt.Fprint(r.out, "  paste> ")
+			if tag != "" {
+				fmt.Fprintf(r.out, "  %s paste> ", tag)
+			} else {
+				fmt.Fprint(r.out, "  paste> ")
+			}
 		}
 		if !scanner.Scan() {
 			break

@@ -174,6 +174,15 @@ type inputModel struct {
 	termWidth         int
 	pasteFoldMinChars int    // per-instance threshold, in runes
 	lang              string // zh | en — drives slash-command help language
+	// echoTag is the same sticky-state marker prepended to the prompt
+	// (promptStickyTag output). Echoed back ABOVE the inline viewport
+	// after submit so the user has a visual confirmation of which
+	// pipeline mode this turn ran under — without it, the [mode:plan]
+	// disappears the moment the prompt is replaced by the agent's
+	// streaming output and the user can lose track of which mode
+	// produced which result. Empty (read mode + no attachments) means
+	// no prefix.
+	echoTag string
 }
 
 // pasteSeed is a single pre-captured paste the caller injects into a
@@ -404,9 +413,14 @@ func (m *inputModel) handleSubmit() tea.Cmd {
 	// Skip divider on continuation — the next line's prompt already
 	// gives visual separation.
 	echoStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("51"))
+	tagStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("214")).Bold(true)
 	divStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("240"))
+	echoLine := echoStyle.Render("> " + singleLine(display))
+	if m.echoTag != "" {
+		echoLine = tagStyle.Render(m.echoTag) + " " + echoLine
+	}
 	cmds := []tea.Cmd{
-		tea.Printf("  %s", echoStyle.Render("> "+singleLine(display))),
+		tea.Printf("  %s", echoLine),
 	}
 	if !continues {
 		cmds = append(cmds, tea.Printf("  %s", divStyle.Render("─────────────────────────────────────")))
@@ -719,6 +733,11 @@ func (r *REPL) readInputBubble(prompt string, isContinue bool) (inputResult, err
 		r.pendingPaste = "" // single-use; consumed on inject
 	}
 	model := newInputModel(prompt, hist, isContinue, w, r.pasteFoldMinChars, seed, r.language)
+	// echoTag is the same sticky-state marker the Loop assembled for the
+	// prompt — re-render it ABOVE the inline viewport on submit so the
+	// confirmation line carries the same mode/attachment chrome the user
+	// typed against.
+	model.echoTag = r.echoTag
 
 	p := tea.NewProgram(model,
 		tea.WithOutput(r.out),

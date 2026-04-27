@@ -25,13 +25,14 @@ func newScriptedREPL(t *testing.T, planStore *PlanStore) (*REPL, *bytes.Buffer) 
 	in := strings.NewReader("") // unused but non-nil triggers line-oriented mode
 	out := &bytes.Buffer{}
 	r := New(Config{
-		In:        in,
-		Out:       out,
-		RepoRoot:  "/tmp/repo",
-		Branch:    "main",
-		Prompt:    "",
-		PlanStore: planStore,
-		Language:  "en",
+		In:           in,
+		Out:          out,
+		RepoRoot:     "/tmp/repo",
+		Branch:       "main",
+		Prompt:       "",
+		PlanStore:    planStore,
+		Language:     "en",
+		WriteEnabled: true, // tests target post-gate handler behaviour
 	})
 	return r, out
 }
@@ -57,6 +58,94 @@ func TestHandleMode_SetPlan(t *testing.T) {
 	}
 	if !strings.Contains(out.String(), "switched to plan mode") {
 		t.Errorf("expected success message, got: %q", out.String())
+	}
+}
+
+// TestHandleMode_PrintsWorkflowHint locks the UX contract that every
+// /mode plan|apply|verify transition prints a short workflow hint
+// pointing at /approve / /reject / /mode read so a user new to write
+// mode does not have to read the docs.
+func TestHandleMode_PrintsWorkflowHint(t *testing.T) {
+	cases := []struct {
+		mode     string
+		mustHave []string
+	}{
+		{"plan", []string{"ChangePlan", "/approve", "/reject", "/mode read"}},
+		{"apply", []string{"approved plan", "/approve"}},
+		{"verify", []string{"reruns tests"}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.mode, func(t *testing.T) {
+			in := strings.NewReader("")
+			out := &bytes.Buffer{}
+			r := New(Config{
+				In: in, Out: out,
+				RepoRoot: "/tmp/repo", Branch: "main",
+				Language: "en", WriteEnabled: true,
+			})
+			r.handleModeCmd("/mode " + tc.mode)
+			got := out.String()
+			for _, want := range tc.mustHave {
+				if !strings.Contains(got, want) {
+					t.Errorf("/mode %s hint missing %q; got:\n%s", tc.mode, want, got)
+				}
+			}
+		})
+	}
+	// Read mode prints the success line but no extra hint (nothing to
+	// explain about read mode).
+	in := strings.NewReader("")
+	out := &bytes.Buffer{}
+	r := New(Config{
+		In: in, Out: out,
+		RepoRoot: "/tmp/repo", Branch: "main",
+		Language: "en",
+	})
+	r.handleModeCmd("/mode read")
+	got := out.String()
+	if !strings.Contains(got, "switched to read mode") {
+		t.Errorf("/mode read should print success line; got: %q", got)
+	}
+	if strings.Contains(got, "ChangePlan") || strings.Contains(got, "/approve") {
+		t.Errorf("/mode read should NOT print write-mode hints; got: %q", got)
+	}
+}
+
+// TestHandleMode_RejectedWithoutWriteEnabled verifies the L2 gate:
+// /mode plan / apply / verify all refuse cleanly when codrax.yaml ::
+// write_enabled is false (or unset). Pre-fix path silently accepted
+// the mode and the planner failed downstream with a confusing
+// analyzer / "context canceled" error that did not name the missing
+// yaml gate.
+func TestHandleMode_RejectedWithoutWriteEnabled(t *testing.T) {
+	for _, m := range []string{"plan", "apply", "verify"} {
+		in := strings.NewReader("")
+		out := &bytes.Buffer{}
+		r := New(Config{
+			In: in, Out: out,
+			RepoRoot: "/tmp/repo", Branch: "main",
+			Language: "en",
+			// WriteEnabled left false (default).
+		})
+		r.handleModeCmd("/mode " + m)
+		if r.currentMode == types.PipelineMode(m) {
+			t.Errorf("/mode %s must NOT take effect when write_enabled=false; got currentMode=%q", m, r.currentMode)
+		}
+		if !strings.Contains(out.String(), "write_enabled") {
+			t.Errorf("/mode %s rejection must name write_enabled; got: %q", m, out.String())
+		}
+	}
+	// Read mode is always permitted regardless of write_enabled.
+	in := strings.NewReader("")
+	out := &bytes.Buffer{}
+	r := New(Config{
+		In: in, Out: out,
+		RepoRoot: "/tmp/repo", Branch: "main",
+		Language: "en",
+	})
+	r.handleModeCmd("/mode read")
+	if r.currentMode != types.ModeRead {
+		t.Errorf("/mode read must succeed without write_enabled; got currentMode=%q", r.currentMode)
 	}
 }
 

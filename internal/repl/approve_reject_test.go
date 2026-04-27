@@ -74,7 +74,8 @@ func newApprovalREPL(t *testing.T, confirmInput string, runner Runner) (*REPL, *
 		// English to keep the historical "approve cancelled" /
 		// "plan rejected" substring assertions deterministic across
 		// the bilingual messages.go rollout.
-		Language: "en",
+		Language:     "en",
+		WriteEnabled: true, // /approve gates on this; tests target post-gate behaviour
 	})
 	r.pendingPlanPath = path
 	return r, store, out
@@ -130,13 +131,14 @@ func TestApprove_StubRunnerWarns(t *testing.T) {
 	out := &bytes.Buffer{}
 	in := strings.NewReader("y\n")
 	r := New(Config{
-		Runner:    stubRunner{}, // no SetMode / SetPlanPath
-		In:        in,
-		Out:       out,
-		RepoRoot:  "/tmp/repo",
-		Branch:    "main",
-		Render:    renderNothing,
-		PlanStore: store,
+		Runner:       stubRunner{}, // no SetMode / SetPlanPath
+		In:           in,
+		Out:          out,
+		RepoRoot:     "/tmp/repo",
+		Branch:       "main",
+		Render:       renderNothing,
+		PlanStore:    store,
+		WriteEnabled: true,
 	})
 	r.pendingPlanPath = path
 	r.handleApproveCmd("/approve")
@@ -246,14 +248,15 @@ func TestApprove_RefusesNonPendingStatus(t *testing.T) {
 			t.Cleanup(func() { memStore.Close() })
 			out := &bytes.Buffer{}
 			r := New(Config{
-				Runner:    runner,
-				Store:     memStore,
-				In:        strings.NewReader("y\n"), // shouldn't get this far
-				Out:       out,
-				RepoRoot:  "/tmp/repo",
-				Branch:    "main",
-				Render:    renderNothing,
-				PlanStore: store,
+				Runner:       runner,
+				Store:        memStore,
+				In:           strings.NewReader("y\n"), // shouldn't get this far
+				Out:          out,
+				RepoRoot:     "/tmp/repo",
+				Branch:       "main",
+				Render:       renderNothing,
+				PlanStore:    store,
+				WriteEnabled: true,
 			})
 			r.pendingPlanPath = path
 

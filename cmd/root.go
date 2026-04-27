@@ -210,6 +210,17 @@ type appContext struct {
 	replPasteFoldMinChars int // 0 → repl.DefaultPasteFoldMinChars
 	chitchatResponder     repl.ChitchatResponder
 	chitchatClassifier    repl.ChitchatClassifier
+	// writeEnabled mirrors codrax.yaml :: write_enabled. Forwarded to
+	// the REPL Config so /mode plan|apply|verify and /approve can be
+	// rejected at the slash-command surface with a clear error pointing
+	// at the yaml knob, instead of dispatching and surfacing a confusing
+	// analyzer / planner failure deep inside the pipeline.
+	writeEnabled bool
+	// settingsPath is the resolved codrax.yaml path (or "" if none
+	// found). Surfaced verbatim in the REPL's L2 gate error message
+	// so the user knows WHICH file to edit. Set during initApp's
+	// settings-resolution block.
+	settingsPath string
 }
 
 var app appContext
@@ -857,6 +868,8 @@ func runREPL(_ *cobra.Command) error {
 		PlanStore:           planStore,
 		AttachedLogMaxBytes:   maxAttachedLogBytes,
 		AttachedTraceMaxBytes: maxAttachedTraceBytes,
+		WriteEnabled:          app.writeEnabled,
+		SettingsPath:          app.settingsPath,
 	})
 	if err := r.Loop(); err != nil {
 		logging.Error("repl exited with error: %v", err)
@@ -1892,6 +1905,18 @@ func initApp(cmd *cobra.Command, _ []string) error {
 	if rs != nil {
 		writeInputs.YamlEnabled = rs.WriteEnabled
 		writeInputs.YamlDefaultMode = rs.WriteDefaultMode
+	}
+	// Cache the resolved yaml gate on app so the REPL Config can
+	// forward it to repl.New. nil pointer (yaml absent OR field
+	// omitted) → false (refuse non-read modes by default; matches
+	// resolveWriteMode's posture).
+	if rs != nil && rs.WriteEnabled != nil && *rs.WriteEnabled {
+		app.writeEnabled = true
+	}
+	// Cache the resolved yaml path for the REPL's L2 gate so the user
+	// gets pointed at an exact file rather than a generic "codrax.yaml".
+	if _, err := os.Stat(settingsPath); err == nil {
+		app.settingsPath = settingsPath
 	}
 	effectiveMode, err := resolveWriteMode(writeInputs)
 	if err != nil {

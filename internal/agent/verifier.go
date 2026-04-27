@@ -2,11 +2,13 @@ package agent
 
 import (
 	"fmt"
+	"sort"
 	"strings"
 
 	"github.com/hanchaoqun/codrax/internal/llm"
 	"github.com/hanchaoqun/codrax/internal/logging"
 	"github.com/hanchaoqun/codrax/internal/skill"
+	repomaptypes "github.com/hanchaoqun/codrax/internal/tool/repomap/types"
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
@@ -92,6 +94,37 @@ func (e *verifierEvaluator) BuildInitialInstruction(ctx *types.AgentContext, _ *
 		"on ChangeReport presence and the stage completes.\n\n" +
 		"Do NOT emit_change_plan (that was the plan stage; your role is only to verify). " +
 		"Do NOT read files or shell out to construct a diff — the plan is already applied.\n")
+
+	// Plan-touched paths section. Without this, the verifier picks a runner
+	// from worktree manifests alone (go.mod wins on a polyglot repo where
+	// the plan only created a Python script) and runs an unrelated test
+	// suite. Surfacing TargetPaths + their extension set anchors the
+	// runner choice to what the plan actually changed: pick the runner
+	// whose language matches the touched files; only fall back to repo-
+	// wide suites when the touched language has no plan-relevant tests.
+	if len(plan.TargetPaths) > 0 {
+		s.WriteString("\n## Plan-touched paths\n\n")
+		s.WriteString("The plan modified ONLY these files in the worktree:\n\n")
+		const maxTouched = 20
+		shown := 0
+		for _, p := range plan.TargetPaths {
+			if shown >= maxTouched {
+				fmt.Fprintf(&s, "- … (+%d more)\n", len(plan.TargetPaths)-shown)
+				break
+			}
+			fmt.Fprintf(&s, "- %s\n", p)
+			shown++
+		}
+		langs := collectPathLanguages(plan.TargetPaths)
+		if len(langs) > 0 {
+			fmt.Fprintf(&s, "\nLanguages touched: %s\n", strings.Join(langs, ", "))
+			fmt.Fprintf(&s, "Pick the runner whose language matches FIRST. Manifests like "+
+				"go.mod / Cargo.toml only matter when the plan's touched language has tests "+
+				"in the repo. A plan that creates a single .py file in a Go repo MUST verify "+
+				"with the python runner (or `python3 -m py_compile <file>` via exec_command if "+
+				"no test fixture exists), NOT by running the unrelated Go suite.\n")
+		}
+	}
 	baseline := ctx.Mutable.BaselineReport()
 	baselineFailures := types.CollectBaselineFailures(baseline)
 	report := ctx.Mutable.ChangeReport()
@@ -175,6 +208,27 @@ func (e *verifierEvaluator) BuildInitialInstruction(ctx *types.AgentContext, _ *
 		}
 	}
 	return s.String()
+}
+
+// collectPathLanguages returns a sorted, deduplicated list of language
+// identifiers for the supplied paths. Reuses
+// repomap/types.DetectLanguage (the canonical extension→language map
+// used by the rest of the system) so the verifier prompt names the
+// same language identifiers the runner registry recognises. Paths the
+// repomap cannot classify are silently skipped.
+func collectPathLanguages(paths []string) []string {
+	seen := make(map[string]bool, len(paths))
+	for _, p := range paths {
+		if lang := repomaptypes.DetectLanguage(p); lang != "" {
+			seen[lang] = true
+		}
+	}
+	out := make([]string, 0, len(seen))
+	for lang := range seen {
+		out = append(out, lang)
+	}
+	sort.Strings(out)
+	return out
 }
 
 // ShouldStop terminates the ReAct loop as soon as a ChangeReport

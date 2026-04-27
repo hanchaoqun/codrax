@@ -131,13 +131,131 @@ func rejectConfirmedNoReason(lang, planID string) string {
 	return formatN(lang, "rejected plan %s", planID)
 }
 
+// writeModeDisabled — printed when /mode plan|apply|verify or
+// /approve fires while codrax.yaml :: write_enabled is false. The
+// pre-fix path silently accepted the transition and the failure
+// surfaced deep in the pipeline (analyzer "hypothesis_coverage" or
+// "context canceled"); this message names the yaml knob explicitly so
+// the user can fix it in one shot. settingsPath is the resolved
+// codrax.yaml path (or "" if none found) — when present the error
+// names the exact file the user needs to edit, not a generic
+// "in codrax.yaml" that forces them to hunt for it.
+func writeModeDisabled(lang, mode, settingsPath string) []string {
+	target := "codrax.yaml"
+	created := ""
+	if settingsPath != "" {
+		target = settingsPath
+	} else {
+		// No yaml resolved at startup — point the user at where to
+		// CREATE one rather than where to edit a file that doesn't
+		// exist yet.
+		if isZh(lang) {
+			created = "  当前未加载 codrax.yaml。新建一个并设置 write_enabled: true,默认查找路径见 codrax.yaml.example。"
+		} else {
+			created = "  No codrax.yaml is currently loaded. Create one with write_enabled: true; default lookup paths are documented in codrax.yaml.example."
+		}
+	}
+	if isZh(lang) {
+		out := []string{
+			formatN(lang, "%s 已被拒绝: codrax.yaml :: write_enabled 为 false (或未设置)", mode),
+			formatN(lang, "  在 %s 中设置 `write_enabled: true` 并重启 codrax 即可启用 plan / apply / verify 模式。", target),
+			"  read 模式(默认)无需额外配置。",
+		}
+		if created != "" {
+			out = append(out, created)
+		}
+		return out
+	}
+	out := []string{
+		formatN(lang, "%s rejected: codrax.yaml :: write_enabled is false (or unset)", mode),
+		formatN(lang, "  Set `write_enabled: true` in %s and restart codrax to enable plan / apply / verify modes.", target),
+		"  Read mode (default) needs no extra configuration.",
+	}
+	if created != "" {
+		out = append(out, created)
+	}
+	return out
+}
+
+// bannerCapabilityLine produces a single line describing the active
+// pipeline modes + the codrax.yaml backing them. Surfaced under the
+// version badge so the user sees write_enabled state at startup
+// rather than discovering it via a /mode plan reject 30 turns in.
+// Empty string when there's nothing useful to display (no yaml AND
+// write_enabled defaulted to false).
+func bannerCapabilityLine(lang string, writeEnabled bool, settingsPath string) string {
+	zh := isZh(lang)
+	cap := ""
+	if writeEnabled {
+		if zh {
+			cap = "modes: read · plan · apply · verify (write_enabled=true)"
+		} else {
+			cap = "modes: read · plan · apply · verify (write_enabled=true)"
+		}
+	} else {
+		if zh {
+			cap = "modes: read (write_enabled=false — /mode plan / apply / verify 已禁用)"
+		} else {
+			cap = "modes: read (write_enabled=false — /mode plan / apply / verify disabled)"
+		}
+	}
+	if settingsPath != "" {
+		cap += " · " + settingsPath
+	}
+	return cap
+}
+
+// emptyResponseHint replaces the cryptic "??" rendering when a Run
+// returned with no error AND no rendered text. Two real-world causes:
+// the analyzer/quality-gate produced no consumable result, OR the
+// renderer received a structured response without a body. Either way
+// printing "??" leaves the user staring at the screen — at least name
+// what to do next.
+func emptyResponseHint(lang string) string {
+	if isZh(lang) {
+		return "  (无内容输出 — 可能是分析器拒绝了请求或上游 LLM 返回为空)。详情见 codrax-*.log;尝试换种问法或 /clear 后重试。"
+	}
+	return "  (no content rendered — likely the analyzer rejected the request or the upstream LLM returned empty). See codrax-*.log for details; rephrase or /clear and retry."
+}
+
+// chitchatReplyHeader marks a chitchat-routed reply so the user can
+// tell at a glance the answer came from the side LLM (no repo
+// analysis, no plan), not from the main pipeline. Pre-fix: the only
+// difference between a chitchat reply and a pipeline reply was logged
+// at INFO level — invisible at the terminal — so a misrouted code
+// question got a generic answer with no recovery hint.
+func chitchatReplyHeader(lang string) string {
+	if isZh(lang) {
+		return "  [chat] 这是闲聊回复(未走代码分析流水线 / 未生成 plan)。如需仓库分析,显式提到具体文件 / 函数 / 行,或先 /chat off 再问。"
+	}
+	return "  [chat] chitchat reply (no repo analysis, no plan). For repo analysis, mention a specific file / function / line, or invoke the question explicitly without /chat."
+}
+
 // noPendingPlan — user typed /approve or /reject without a pending
-// plan to act on. Surface the recovery path (/mode plan first).
+// plan to act on. Surface the recovery path (/mode plan first), and
+// if write_enabled is off, name THAT first since a /mode plan dispatch
+// would just bounce off the L2 gate.
 func noPendingPlan(lang string) string {
 	if isZh(lang) {
 		return "没有待处理的 plan — 先 /mode plan 生成一份"
 	}
 	return "no pending plan — run a /mode plan dispatch to generate one"
+}
+
+// noPendingPlanWriteDisabled — same surface as noPendingPlan but for
+// the case where write_enabled is off, so the recovery path is "fix
+// the yaml first" rather than "run /mode plan".
+func noPendingPlanWriteDisabled(lang string) []string {
+	if isZh(lang) {
+		return []string{
+			"没有待处理的 plan,且 write 模式被禁用。",
+			"  在 codrax.yaml 中设置 `write_enabled: true` 并重启 codrax,然后 /mode plan 生成 plan。",
+		}
+	}
+	return []string{
+		"no pending plan, and write mode is disabled.",
+		"  Set `write_enabled: true` in codrax.yaml and restart codrax, then /mode plan to generate one.",
+	}
 }
 
 // noPendingPlanReject — same as noPendingPlan but for /reject.
@@ -154,6 +272,134 @@ func modeSwitched(lang, mode string) string {
 		return formatN(lang, "已切换到 %s 模式", mode)
 	}
 	return formatN(lang, "switched to %s mode", mode)
+}
+
+// modeWorkflowHint returns a 1-3 line hint explaining what the newly-
+// entered mode actually does, returned as a slice the caller emits via
+// r.info one line at a time. Surfaced ONCE per /mode transition so a
+// user new to write mode knows the plan→approve→read loop without
+// having to read the docs. Empty slice for ModeRead (no special
+// workflow to explain).
+func modeWorkflowHint(lang, mode string) []string {
+	zh := isZh(lang)
+	switch mode {
+	case "plan":
+		if zh {
+			return []string{
+				"  接下来你的下一条请求会产生 ChangePlan(改动提议),不是直接回答。",
+				"  生成后用 /plan show 审阅、/approve 落地、/reject 丢弃、/mode read 回读模式继续提问。",
+			}
+		}
+		return []string{
+			"  Your next request will produce a ChangePlan instead of an answer.",
+			"  After that: /plan show to review, /approve to apply, /reject to discard, /mode read to keep questioning.",
+		}
+	case "apply":
+		if zh {
+			return []string{
+				"  apply 模式直接执行已批准的 plan。一般通过 /approve 进入,而不是手动 /mode apply。",
+				"  如果你只想审 plan 再决定,先 /mode plan 生成,再 /approve。",
+			}
+		}
+		return []string{
+			"  Apply mode runs an approved plan. Most users reach this via /approve, not /mode apply directly.",
+			"  To review before applying: /mode plan first, then /approve.",
+		}
+	case "verify":
+		if zh {
+			return []string{
+				"  verify 模式只重跑测试,不再生成或 apply。需要已 apply 的 plan(/history 找)。",
+			}
+		}
+		return []string{
+			"  Verify mode reruns tests against an already-applied plan (find one in /history).",
+		}
+	}
+	return nil
+}
+
+// planReadyNudge prints next-step actions after the orchestrator
+// emitted a ChangePlan during plan-mode dispatch and the REPL
+// auto-saved it. Without this nudge the user sees "plan saved: <path>"
+// and has to remember the slash-command vocabulary; with it the path
+// to /approve / /reject / /mode read is one line away.
+func planReadyNudge(lang string, planID string, changeCount int) []string {
+	if isZh(lang) {
+		return []string{
+			formatN(lang, "Plan 已就绪: %s (%d 处改动)。下一步:", planID, changeCount),
+			"    /plan show   — 查看每个文件的改动 diff",
+			"    /approve     — 在 worktree 内 apply + 跑 verify",
+			"    /reject      — 丢弃本 plan",
+			"    /mode read   — 切回读模式继续问代码问题(plan 仍保留可后续 /approve)",
+		}
+	}
+	return []string{
+		formatN(lang, "Plan ready: %s (%d change(s)). Next:", planID, changeCount),
+		"    /plan show   — inspect the proposed diff per file",
+		"    /approve     — apply inside a worktree + run verify",
+		"    /reject      — discard this plan",
+		"    /mode read   — return to read mode (plan stays saved for later /approve)",
+	}
+}
+
+// applyDoneNudge prints next-step actions after /approve completed.
+// When apply succeeded, point at /mode read for further questions and
+// /mode plan for a new change. When apply failed, the
+// approveFailedNudge already covers recovery — applyDoneNudge skips
+// the failure path so we don't double-print.
+func applyDoneNudge(lang string) []string {
+	if isZh(lang) {
+		return []string{
+			"  apply 完成。下一步:",
+			"    /mode read   — 切回读模式问代码问题",
+			"    /mode plan   — 生成下一个改动的 plan",
+		}
+	}
+	return []string{
+		"  apply complete. Next:",
+		"    /mode read   — return to read mode for questions",
+		"    /mode plan   — generate another change",
+	}
+}
+
+// planShowFooter prints the next-step actions at the bottom of /plan
+// show output so the user does not have to remember the slash command
+// vocabulary after reviewing the diff.
+func planShowFooter(lang string) []string {
+	if isZh(lang) {
+		return []string{
+			"  下一步: /approve 落地 · /reject 丢弃 · /plan clear 仅删本地副本",
+		}
+	}
+	return []string{
+		"  next: /approve to apply · /reject to discard · /plan clear to delete the local copy",
+	}
+}
+
+// friendlyRunError translates a few well-known Run errors into a more
+// actionable user-facing form. "context canceled" is the canonical
+// case — it surfaces when the user hits Ctrl+C mid-LLM-call but the
+// raw text gives no recovery hint. Returns the original message when
+// no friendly mapping applies.
+func friendlyRunError(lang string, err error) string {
+	if err == nil {
+		return ""
+	}
+	msg := err.Error()
+	low := strings.ToLower(msg)
+	if strings.Contains(low, "context canceled") || strings.Contains(low, "context cancelled") {
+		if isZh(lang) {
+			return "请求被中断(可能是 Ctrl+C 或上游连接关闭)。再试一次或检查网络。"
+		}
+		return "request interrupted (likely Ctrl+C or upstream connection closed). Retry or check the network."
+	}
+	if strings.Contains(low, "deadline exceeded") {
+		if isZh(lang) {
+			return formatN(lang, "请求超时:%s", msg)
+		}
+		return formatN(lang, "request timed out: %s", msg)
+	}
+	return msg
 }
 
 // verifyDispatching — short status line printed by /verify before

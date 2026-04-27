@@ -54,6 +54,13 @@ type ReflectorInput struct {
 	FailingTests      []ReflectorFailedTest // top failing-test details
 	BuildFailed       bool                  // true if compile/build before tests
 	AcceptanceTests   []string              // plan.AcceptanceTests
+	// BaselineAvailable is true when a pre-apply baseline test snapshot
+	// was captured, false otherwise. When false, the critic must NOT
+	// classify any failing test as "pre-existing" or "unrelated" — there
+	// is no authoritative source to support such a claim, and a
+	// confident-sounding hallucination here causes the planner to
+	// preserve a regressed plan. Surfaced in the system prompt below.
+	BaselineAvailable bool
 }
 
 // ReflectorFailedTest is the per-test slice handed to the critic.
@@ -104,6 +111,19 @@ Hard rules:
 - If a build failed before tests ran, root_cause names the syntax / type / import issue and corrective_direction tells the planner to fix that first.
 - Use the same language as the original user request.`
 
+// reflectorNoBaselineGuard is appended to the system prompt when the
+// caller did not capture a pre-apply baseline. Without a baseline,
+// "pre-existing" / "unrelated" claims are unfalsifiable speculation
+// that, when wrong, lock in a regressed plan (the planner trusts the
+// critic and preserves the bad changes). The guard forces the critic
+// to reason from plan diff ↔ failing-test code-path overlap instead
+// of failure-name surface features.
+const reflectorNoBaselineGuard = `
+
+Additional rule for THIS run (no baseline captured):
+- DO NOT classify any failing test as "pre-existing", "unrelated to this plan", or "infrastructure issue". You have no authoritative pre-apply snapshot to support such a claim; saying so when wrong causes the planner to preserve a broken plan.
+- Reason ONLY from the structural overlap between (a) the files this plan touched and (b) the source files referenced by each failing test. If the overlap is empty AND no behavioural pathway plausibly connects them, name that fact concretely ("the plan only touched FOO.py; the failing tests in BAR/ reference no symbol from FOO") rather than asserting "pre-existing".`
+
 // llmReflector is the default Reflector implementation. One Chat
 // call per Reflect, opt-in via providers.yaml :: agents.reflector or
 // inheriting the default adapter.
@@ -131,8 +151,12 @@ func (r *llmReflector) Reflect(in ReflectorInput) (string, error) {
 	if strings.TrimSpace(user) == "" {
 		return "", fmt.Errorf("reflector: empty input")
 	}
+	systemPrompt := reflectorSystemPrompt
+	if !in.BaselineAvailable {
+		systemPrompt += reflectorNoBaselineGuard
+	}
 	messages := []llm.Message{
-		{Role: "system", Content: reflectorSystemPrompt},
+		{Role: "system", Content: systemPrompt},
 		{Role: "user", Content: user},
 	}
 	tools := []llm.ToolSchema{reflectorTool}

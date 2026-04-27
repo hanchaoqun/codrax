@@ -662,6 +662,27 @@ func (o *Orchestrator) runAnalyzePhase() (int, error) {
 	o.busCtx.TaskState.Stage = types.StageAnalyze
 	o.busCtx.TaskState.Missing = types.MissingUnderstanding
 
+	// Approved-plan fast path: when the user has supplied a vetted
+	// ChangePlan via --plan-file (CLI single-shot) or /approve (REPL),
+	// the analyzer has nothing useful to do. The plan-mode pipeline
+	// already classified the request that produced this plan; the
+	// apply / verify stages do not consume AnalysisIR (the planner
+	// would, but plan-stage SkipOnFirstVisit on these flows skips it
+	// when planPath != ""). Running the analyzer here wastes ~30-60s
+	// of LLM time, and worse: when the plan creates a NEW file the
+	// analyzer's task_map fuzzy-matches the (yet-uncreated) file
+	// against unrelated repo files at high score, surfacing
+	// "Pre-scored relevant files" that mislead any downstream prompt
+	// that consumes them. Install a stub IR so the Mode-switch in
+	// Run() (line ~612) finds AnalysisIR != nil; TaskGraph is
+	// overwritten by BuildWriteTaskGraph immediately afterwards so
+	// the empty stub is never read.
+	if (o.busCtx.Mode == types.ModeApply || o.busCtx.Mode == types.ModeVerify) && o.planPath != "" {
+		logging.Info("[orchestrator] analyze skipped: %s mode with --plan-file / /approve (using stub IR)", string(o.busCtx.Mode))
+		o.busCtx.AnalysisIR = &types.AnalysisIR{}
+		return 0, nil
+	}
+
 	max := o.settings.MaxRetriesPerStage
 	if max < 1 {
 		max = 1

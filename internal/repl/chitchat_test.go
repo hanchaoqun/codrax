@@ -460,6 +460,7 @@ func TestChitchatClassifier_SkipsWhenInPlanMode(t *testing.T) {
 		Banner:             "test-banner",
 		ChitchatResponder:  resp,
 		ChitchatClassifier: classifier,
+		WriteEnabled:       true,
 	})
 	if err := r.Loop(); err != nil {
 		t.Fatalf("Loop: %v", err)

@@ -227,6 +227,38 @@ func TestVerifier_BuildInitialInstruction_EmptyAcceptanceTests(t *testing.T) {
 	}
 }
 
+// TestVerifier_BuildInitialInstruction_TargetPathsAndLanguages locks
+// the runner-selection contract: when the plan's TargetPaths span
+// languages the worktree manifest doesn't represent (e.g. a single
+// .py file in a Go-manifest repo), the verifier prompt MUST surface
+// those paths AND their detected languages so the LLM picks the
+// runner whose language matches the change, not whichever language
+// the manifest scan trips over first. Pre-fix bug: the prompt
+// rendered nothing about TargetPaths and the verifier defaulted to
+// runner=go on go.mod presence, running the entire codrax Go suite
+// against a Python-only plan.
+func TestVerifier_BuildInitialInstruction_TargetPathsAndLanguages(t *testing.T) {
+	plan := &types.ChangePlan{
+		ID:          "plan-runner-hint",
+		TargetPaths: []string{"guess_number.py"},
+		Changes:     []types.FileChange{{Path: "guess_number.py", Kind: "create"}},
+	}
+	ctx := verifierFixtureCtx(nil, plan)
+	ev := &verifierEvaluator{}
+	inst := ev.BuildInitialInstruction(ctx, &skill.Config{})
+	for _, want := range []string{
+		"## Plan-touched paths",
+		"guess_number.py",
+		"Languages touched:",
+		"python",
+		"Pick the runner whose language matches FIRST",
+	} {
+		if !strings.Contains(inst, want) {
+			t.Errorf("instruction missing %q anchor; got:\n%s", want, inst)
+		}
+	}
+}
+
 // TestVerifier_BuildInitialInstruction_BaselineFailuresRendered checks
 // that when the orchestrator captured a pre-apply baseline that
 // already had failing tests, the verifier prompt lists them so the

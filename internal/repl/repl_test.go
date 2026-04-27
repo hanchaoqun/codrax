@@ -538,6 +538,46 @@ func TestVersionSlashCommand(t *testing.T) {
 	}
 }
 
+// TestStickyTag_PropagatesToPasteAndLogPasteModes locks that capture-
+// mode prompts (`/paste`, `/log paste`) prepend the sticky tag so a
+// user typing into paste mode while in plan mode does not lose the
+// [mode:plan] context. Pre-fix path printed bare "paste> "/"log> ".
+func TestStickyTag_PropagatesToPasteAndLogPasteModes(t *testing.T) {
+	dir := t.TempDir()
+	store, err := memory.NewStore(dir, stubSummarizer{}, types.MemorySettings{})
+	if err != nil {
+		t.Fatalf("NewStore: %v", err)
+	}
+	defer store.Close()
+
+	// /mode plan flips currentMode; then /paste enters capture and
+	// expects "[mode:plan] paste> " in its prompt.
+	in := strings.NewReader("/mode plan\n/paste\n/end\n/exit\n")
+	out := &bytes.Buffer{}
+	r := New(Config{
+		Runner: stubRunner{}, Store: store, Render: renderNothing,
+		RepoRoot: ".", Branch: "main", In: in, Out: out,
+		Banner: "test", WriteEnabled: true,
+	})
+	if err := r.Loop(); err != nil {
+		t.Fatalf("Loop: %v", err)
+	}
+	got := out.String()
+	if !strings.Contains(got, "[mode:plan]") {
+		t.Errorf("scripted mode echo lost [mode:plan]; out:\n%s", got)
+	}
+	// /paste prompt was wired to scripted scanner so the prompt itself
+	// is only printed when r.interactive(); the substring assertion is
+	// thus on the [mode:plan] tag in OTHER places (echo, banner) — the
+	// scripted-mode path tests the wiring; the interactive prompt path
+	// is exercised by inspecting r.currentStickyTag at handler time.
+	r.currentMode = types.ModePlan
+	r.attachedLog = "x"
+	if tag := r.currentStickyTag(); !strings.Contains(tag, "[mode:plan]") || !strings.Contains(tag, "[log]") {
+		t.Errorf("currentStickyTag must compose mode + attachments; got %q", tag)
+	}
+}
+
 // TestStickyTag_RendersInScriptedMode pins the contract that the
 // per-turn sticky-state tag (mode/log/trace/plan/mem!) reaches the
 // scripted-mode output stream, not just the Bubble Tea path. Real
@@ -561,6 +601,7 @@ func TestStickyTag_RendersInScriptedMode(t *testing.T) {
 		Runner: stubRunner{}, Store: store, Render: renderNothing,
 		RepoRoot: ".", Branch: "main", In: in, Out: out,
 		Prompt: ">", PromptCont: ".", Banner: "test-banner",
+		WriteEnabled: true,
 	})
 	if err := r.Loop(); err != nil {
 		t.Fatalf("Loop: %v", err)
