@@ -376,3 +376,83 @@ func TestExactResolutionSameFamilyMatchScore_ConfigKey(t *testing.T) {
 		t.Fatalf("match score for AgentLoopMaxMidLoopInjects = %d, want 0 for a different config family", got)
 	}
 }
+
+func TestConfigTraceGroundedContextAnchorAllowed_RejectsAuxiliaryAbsenceSupport(t *testing.T) {
+	contract := &ExactResolutionContract{
+		TargetKind:   SubjectConfigKey,
+		TargetLabel:  "config key",
+		Targets:      []string{"explore_mid_loop_hint_budget"},
+		AllowAbsence: true,
+	}
+	item := EvidenceItem{
+		Source:          "internal/skill/analysis_contract.go",
+		LineStart:       367,
+		ContextRole:     EvidenceContextRoleAbsenceSupport,
+		GroundingStatus: GroundingGrounded,
+	}
+	if ConfigTraceGroundedContextAnchorAllowed(contract, item) {
+		t.Fatal("auxiliary/doc absence-support evidence should not be answer-grade config-trace context")
+	}
+}
+
+func TestExactResolutionEvidenceCanSatisfyRelatedContext_IgnoresSummaryOnlyTermMatches(t *testing.T) {
+	contract := &ExactResolutionContract{
+		TargetKind:           SubjectConfigKey,
+		TargetLabel:          "config key",
+		Targets:              []string{"explore_mid_loop_hint_budget"},
+		AllowAbsence:         true,
+		RelatedContextPolicy: ExactContextSameFamilyGrounded,
+		RelatedContextTerms:  []string{"explore"},
+	}
+	item := EvidenceItem{
+		Source:          "internal/types/config.go",
+		Subject:         "LoopMaxMidLoopInjects",
+		AnchorSymbol:    "LoopMaxMidLoopInjects",
+		Summary:         "related context only for explore_* controls",
+		ContextRole:     EvidenceContextRoleRelatedContext,
+		GroundingStatus: GroundingGrounded,
+	}
+	if ExactResolutionEvidenceCanSatisfyRelatedContext(contract, item, []string{"internal/types/config.go"}) {
+		t.Fatal("summary-only same-family wording should not satisfy related-context proof")
+	}
+}
+
+func TestExactResolutionAnswerContextAnchorAllowedInFiles_RestrictsUngradedSameScopeContextToRequiredFiles(t *testing.T) {
+	contract := &ExactResolutionContract{
+		TargetKind:           SubjectConfigKey,
+		TargetLabel:          "config key",
+		Targets:              []string{"explore_mid_loop_hint_budget"},
+		AllowAbsence:         true,
+		RelatedContextPolicy: ExactContextSameFamilyGrounded,
+		RelatedContextTerms:  []string{"explore"},
+	}
+	item := EvidenceItem{
+		Source:          "internal/types/explore_budget.go",
+		LineStart:       40,
+		AnchorSymbol:    "ExploreBudget",
+		ContextRole:     EvidenceContextRoleRelatedContext,
+		GroundingStatus: GroundingGrounded,
+	}
+	if ExactResolutionAnswerContextAnchorAllowedInFiles(contract, ScenarioConfigTrace, true, item, []string{"internal/types/config.go"}) {
+		t.Fatal("same-family related-context outside the current same-scope file set should not be answer-grade context")
+	}
+}
+
+func TestConfigTraceGroundedContextAnchorAllowedInFiles_AllowsValidatedPrecedenceAnchorOutsideRequiredFiles(t *testing.T) {
+	contract := &ExactResolutionContract{
+		TargetKind:   SubjectConfigKey,
+		TargetLabel:  "config key",
+		Targets:      []string{"explore_mid_loop_hint_budget"},
+		AllowAbsence: true,
+	}
+	item := EvidenceItem{
+		Source:          "codrax.yaml.example",
+		LineStart:       25,
+		ContextRole:     EvidenceContextRoleRelatedContext,
+		DiagramRole:     EvidenceDiagramRoleYAML,
+		GroundingStatus: GroundingRecovered,
+	}
+	if !ConfigTraceGroundedContextAnchorAllowedInFiles(contract, item, []string{"internal/types/config.go"}) {
+		t.Fatal("validated precedence anchors should stay diagram-grade even when same-scope context is narrowed to other files")
+	}
+}

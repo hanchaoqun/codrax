@@ -347,6 +347,7 @@ func TestAnswerDocumentEvaluator_BuildInitialInstruction_RendersExactResolutionC
 	mu := types.NewMutableState("")
 	mu.SetAbsenceJustification("no config key named `explore_mid_loop_hint_budget` exists in the repo")
 	mu.SetInvestigationResultKind("absence")
+	mu.SetExactContextRequiredFiles([]string{"internal/types/config.go"})
 	mu.AppendEvidence([]types.EvidenceItem{
 		{
 			Kind:            types.EvidenceDirect,
@@ -448,10 +449,14 @@ func TestAnswerDocumentEvaluator_BuildInitialInstruction_RendersExactResolutionC
 		"you MUST set `exact_resolution.context_mode=\"grounded_context_only\"`",
 		"Locked exact-resolution output",
 		"Do not speculate about hypothetical parser / runtime behavior",
+		"renderer will insert the exact-absence lead before `summary`",
+		"treat `summary` as the follow-on grounded-context block only",
+		"Keep the exact target name in the renderer-generated lead only",
 		"Do not add a separate paragraph about the effect of supplying the absent target",
 		"only create a separate numbered step when that layer has its own grounded repo anchor",
 		"repo-wide search result, aggregate absence conclusion, or test-only proof step usually has no single corroborating production line",
 		"## Allowed Grounded Context Anchors",
+		"## Diagram-Grade Context Anchors",
 		"## Background-Only Anchors",
 		"## Exact Resolution Seeds",
 		"DefaultExploreHeuristics",
@@ -495,6 +500,41 @@ func TestAnswerDocumentEvaluator_Observe_MidLoopExactResolutionLockedRejectUsesM
 	} {
 		if !strings.Contains(sig.Hint, want) {
 			t.Fatalf("locked exact-resolution hint missing %q: %q", want, sig.Hint)
+		}
+	}
+}
+
+func TestAnswerDocumentEvaluator_Observe_MidLoopExactContextSurfaceRejectUsesMetadata(t *testing.T) {
+	e := &answerDocumentEvaluator{maxRetries: 2, diagramRequired: true}
+	sig := e.Observe(nil, LoopObservation{
+		Phase:     PhaseMidLoop,
+		Iteration: 0,
+		LastToolResult: &types.ToolResult{
+			ToolName: "emit_answer_document",
+			Success:  false,
+			Summary:  "[answer_doc_reject:exact_context_surface] summary leaked background-only anchors",
+			Repair: &types.ToolRepair{
+				Code: "exact_context_surface",
+				Metadata: map[string]string{
+					"repeated_target":   "`explore_mid_loop_hint_budget`",
+					"forbidden_anchors": "ExploreBudget, internal/config/runtime.go",
+					"allowed_anchors":   "DefaultExploreHeuristics(), codrax.yaml.example",
+				},
+			},
+		},
+	})
+	if !sig.HintRequested {
+		t.Fatalf("exact-context-surface reject should request a correction hint, got %+v", sig)
+	}
+	for _, want := range []string{
+		"Do NOT restate `explore_mid_loop_hint_budget` in `summary`",
+		"renderer already prints the exact-target lead",
+		"`ExploreBudget`, `internal/config/runtime.go`",
+		"`DefaultExploreHeuristics()`, `codrax.yaml.example`",
+		"A grounded diagram is still required for this dispatch",
+	} {
+		if !strings.Contains(sig.Hint, want) {
+			t.Fatalf("exact-context-surface hint missing %q: %q", want, sig.Hint)
 		}
 	}
 }
@@ -731,7 +771,7 @@ func TestAnswerDocumentEvaluator_BuildInitialInstruction_UsesStableAbsenceStateA
 		"no config key named `explore_mid_loop_hint_budget` exists in the repo",
 		"Emit `exact_resolution.status=\"absent\"`",
 		"do NOT force `shape=config_value` with a synthetic literal",
-		"prefer only grounded lineage anchors that already carry a validated `diagram_role_hint`",
+		"grounded same-scope anchors may appear in `summary` even when they do not carry a validated diagram role",
 		"Prefer `shape=explanation`",
 	} {
 		if !strings.Contains(prompt, want) {

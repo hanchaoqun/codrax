@@ -250,7 +250,11 @@ func (t *EmitInvestigationComplete) Execute(ctx *types.BusContext, params json.R
 		requiredFiles := exactAbsenceRequiredContextFiles(ctx, contract)
 		if len(requiredFiles) > 0 {
 			evidence := ctx.Mutable.EmittedEvidence()
-			if !evidenceHasGroundedRelatedContextProof(contract, evidence, requiredFiles) {
+			scenario := types.ScenarioGeneric
+			if ctx.AnalysisIR != nil {
+				scenario = ctx.AnalysisIR.RequestModel.Scenario
+			}
+			if !evidenceHasGroundedRelatedContextProof(contract, scenario, evidence, requiredFiles) {
 				return types.ToolResult{
 					ToolName: t.Name(),
 					Summary: fmt.Sprintf(
@@ -1531,12 +1535,12 @@ func exactAbsenceRequiredContextFiles(ctx *types.BusContext, contract *types.Exa
 	return ctx.Mutable.ExactContextRequiredFiles()
 }
 
-func evidenceHasGroundedRelatedContextProof(contract *types.ExactResolutionContract, items []types.EvidenceItem, requiredFiles []string) bool {
+func evidenceHasGroundedRelatedContextProof(contract *types.ExactResolutionContract, scenario types.Scenario, items []types.EvidenceItem, requiredFiles []string) bool {
 	if contract == nil || len(items) == 0 {
 		return false
 	}
 	for _, item := range items {
-		if types.ExactResolutionEvidenceCanSatisfyRelatedContext(contract, item, requiredFiles) {
+		if types.ExactResolutionRelatedContextProofAllowedInFiles(contract, scenario, true, item, requiredFiles) {
 			return true
 		}
 	}

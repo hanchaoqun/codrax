@@ -433,7 +433,7 @@ func TestEmitInvestigationComplete_ConfigAbsenceAllowsAbsenceSupportProductionMe
 }
 
 func TestEmitInvestigationComplete_ConfigAbsenceRejectsUngroundedRequiredContext(t *testing.T) {
-	missingKey := "zz_absent_config_" + "knob"
+	missingKey := "explore_mid_loop_missing_knob"
 	mut := types.NewMutableState("q")
 	mut.SetExactContextRequiredFiles([]string{"internal/types/config.go"})
 	mut.AppendEvidence([]types.EvidenceItem{
@@ -481,7 +481,7 @@ func TestEmitInvestigationComplete_ConfigAbsenceRejectsUngroundedRequiredContext
 }
 
 func TestEmitInvestigationComplete_ConfigAbsenceAllowsGroundedRequiredContext(t *testing.T) {
-	missingKey := "zz_absent_config_" + "knob"
+	missingKey := "explore_mid_loop_missing_knob"
 	mut := types.NewMutableState("q")
 	mut.SetExactContextRequiredFiles([]string{"internal/types/config.go"})
 	mut.AppendEvidence([]types.EvidenceItem{
@@ -508,6 +508,7 @@ func TestEmitInvestigationComplete_ConfigAbsenceAllowsGroundedRequiredContext(t 
 			AnchorSymbol:    "DefaultExploreHeuristics",
 			Summary:         "Grounded same-family defaults context for nearby explore settings.",
 			ContextRole:     types.EvidenceContextRoleRelatedContext,
+			DiagramRole:     types.EvidenceDiagramRoleDefault,
 			GroundingStatus: types.GroundingGrounded,
 			GroundingTier:   types.TierLineText,
 		},

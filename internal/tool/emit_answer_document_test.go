@@ -1395,7 +1395,7 @@ func TestEmitAnswerDocument_AbsenceIgnoresUngroundedProductionMention(t *testing
 			"status":       "absent",
 			"context_mode": "grounded_context_only",
 		},
-		"summary": "`explore_mid_loop_hint_budget` is absent; any nearby knobs are related context only.",
+		"summary": "Any nearby knobs are related context only.",
 	})
 	res, _ := tool.Execute(ctx, params)
 	if !res.Success {
@@ -1481,6 +1481,7 @@ func TestEmitAnswerDocument_ConfigTraceAbsenceAllowsPrecedenceAnchors(t *testing
 	}
 	ctx.Mutable.SetAbsenceJustification("searched the repo and found no config key named `explore_mid_loop_hint_budget`")
 	ctx.Mutable.SetInvestigationResultKind("absence")
+	ctx.Mutable.SetExactContextRequiredFiles([]string{"internal/types/config.go"})
 	ctx.Mutable.AppendEvidence([]types.EvidenceItem{
 		{
 			Kind:            types.EvidenceDirect,
@@ -1561,6 +1562,7 @@ func TestEmitAnswerDocument_ConfigTraceAbsenceRejectsBroadSameFamilyCitation(t *
 	}
 	ctx.Mutable.SetAbsenceJustification("searched the repo and found no config key named `explore_mid_loop_hint_budget`")
 	ctx.Mutable.SetInvestigationResultKind("absence")
+	ctx.Mutable.SetExactContextRequiredFiles([]string{"internal/types/config.go"})
 	ctx.Mutable.AppendEvidence([]types.EvidenceItem{
 		{
 			Kind:            types.EvidenceDirect,
@@ -1645,6 +1647,7 @@ func TestEmitAnswerDocument_AbsentExactResolutionRequiresGroundedContextModeForN
 	}
 	ctx.Mutable.SetAbsenceJustification("searched the repo and found no config key named `explore_mid_loop_hint_budget`")
 	ctx.Mutable.SetInvestigationResultKind("absence")
+	ctx.Mutable.SetExactContextRequiredFiles([]string{"internal/types/config.go"})
 	ctx.Mutable.AppendEvidence([]types.EvidenceItem{
 		{
 			Kind:            types.EvidenceDirect,
@@ -1718,6 +1721,7 @@ func TestEmitAnswerDocument_RejectsBackgroundOnlyExactContextSurface(t *testing.
 	}
 	ctx.Mutable.SetAbsenceJustification("searched the repo and found no config key named `explore_mid_loop_hint_budget`")
 	ctx.Mutable.SetInvestigationResultKind("absence")
+	ctx.Mutable.SetExactContextRequiredFiles([]string{"internal/types/config.go"})
 	ctx.Mutable.AppendEvidence([]types.EvidenceItem{
 		{
 			Kind:            types.EvidenceDirect,
@@ -1747,7 +1751,7 @@ func TestEmitAnswerDocument_RejectsBackgroundOnlyExactContextSurface(t *testing.
 			"status":       "absent",
 			"context_mode": "grounded_context_only",
 		},
-		"summary": "仓库中不存在该键。`ExploreBudget` 只是同前缀的运行时结构，不应进入这个缺失键答案。",
+		"summary": "Related same-family runtime counters such as `ExploreBudget` are not answer-grade context for this exact-absence answer.",
 		"citations": []map[string]interface{}{
 			{"file": "internal/types/config.go", "line": 707},
 		},
@@ -1761,6 +1765,152 @@ func TestEmitAnswerDocument_RejectsBackgroundOnlyExactContextSurface(t *testing.
 	}
 	if !strings.Contains(res.Repair.Metadata["forbidden_anchors"], "ExploreBudget") {
 		t.Fatalf("reject should name the background-only anchor, got %+v", res.Repair)
+	}
+	if !strings.Contains(res.Repair.Metadata["allowed_anchors"], "internal/types/config.go") {
+		t.Fatalf("reject should carry the validated allowed anchor set, got %+v", res.Repair)
+	}
+}
+
+func TestEmitAnswerDocument_RejectsExactTargetRestatedInGroundedContextSummary(t *testing.T) {
+	tool := &EmitAnswerDocument{}
+	ctx := newDocBusCtx("")
+	target := "explore_mid_loop_hint_budget"
+	ctx.AnalysisIR = &types.AnalysisIR{
+		RequestModel: types.RequestModel{
+			Scenario: types.ScenarioConfigTrace,
+			AnalyzerHints: types.AnalyzerHints{
+				Kind:         "config_mapping",
+				ExactTargets: []string{target},
+			},
+			AnswerSubject: types.AnswerSubject{Kind: types.SubjectConfigKey},
+		},
+		AnswerContract: types.AnswerContract{
+			RequiredAnswerShape: types.ShapeExplanation,
+			ExactResolution: &types.ExactResolutionContract{
+				TargetKind:              types.SubjectConfigKey,
+				TargetLabel:             "config key",
+				Targets:                 []string{target},
+				AllowAbsence:            true,
+				RequireTargetMention:    true,
+				AliasRequiresProof:      true,
+				RelatedContextPolicy:    types.ExactContextSameFamilyGrounded,
+				RelatedContextScopeHint: "same namespace / prefix family",
+			},
+			Diagram: &types.DiagramContract{
+				Required:       false,
+				PreferredKinds: []types.DiagramKind{types.DiagramFlow},
+			},
+		},
+	}
+	ctx.Mutable.SetAbsenceJustification("repo-wide search found no exact key")
+	ctx.Mutable.SetInvestigationResultKind("absence")
+	ctx.Mutable.AppendEvidence([]types.EvidenceItem{
+		{
+			Kind:            types.EvidenceDirect,
+			Source:          "internal/types/config.go",
+			LineStart:       707,
+			AnchorKind:      types.AnchorDefinition,
+			AnchorSymbol:    "DefaultExploreHeuristics",
+			ContextRole:     types.EvidenceContextRoleRelatedContext,
+			DiagramRole:     types.EvidenceDiagramRoleDefault,
+			GroundingStatus: types.GroundingGrounded,
+			GroundingTier:   types.TierLineText,
+		},
+	})
+	params := mustDocJSON(t, map[string]interface{}{
+		"shape": "explanation",
+		"exact_resolution": map[string]interface{}{
+			"status":       "absent",
+			"context_mode": "grounded_context_only",
+		},
+		"summary": "The config key `explore_mid_loop_hint_budget` is absent. Related grounded defaults live in `DefaultExploreHeuristics()`.",
+		"citations": []map[string]interface{}{
+			{"file": "internal/types/config.go", "line": 707},
+		},
+	})
+	res, _ := tool.Execute(ctx, params)
+	if res.Success {
+		t.Fatalf("summary should not restate the exact target once exact_resolution renders the lead")
+	}
+	if res.Repair == nil || res.Repair.Code != "exact_context_surface" {
+		t.Fatalf("reject should expose exact_context_surface repair metadata, got %+v", res.Repair)
+	}
+	if got := res.Repair.Metadata["repeated_target"]; got != "`explore_mid_loop_hint_budget`" {
+		t.Fatalf("repeated target metadata = %q, want exact target", got)
+	}
+	if got := res.Repair.Metadata["lead_source"]; got != "exact_resolution" {
+		t.Fatalf("lead_source metadata = %q, want exact_resolution", got)
+	}
+	if !strings.Contains(res.Repair.Metadata["allowed_anchors"], "DefaultExploreHeuristics") {
+		t.Fatalf("allowed_anchors metadata should surface nearby grounded context, got %+v", res.Repair)
+	}
+}
+
+func TestEmitAnswerDocument_RejectsNearbyContextWhenContextModeNone(t *testing.T) {
+	tool := &EmitAnswerDocument{}
+	ctx := newDocBusCtx("")
+	target := "explore_mid_loop_hint_budget"
+	ctx.AnalysisIR = &types.AnalysisIR{
+		RequestModel: types.RequestModel{
+			Scenario: types.ScenarioConfigTrace,
+			AnalyzerHints: types.AnalyzerHints{
+				Kind:         "config_mapping",
+				ExactTargets: []string{target},
+			},
+			AnswerSubject: types.AnswerSubject{Kind: types.SubjectConfigKey},
+		},
+		AnswerContract: types.AnswerContract{
+			RequiredAnswerShape: types.ShapeExplanation,
+			ExactResolution: &types.ExactResolutionContract{
+				TargetKind:              types.SubjectConfigKey,
+				TargetLabel:             "config key",
+				Targets:                 []string{target},
+				AllowAbsence:            true,
+				RequireTargetMention:    true,
+				AliasRequiresProof:      true,
+				RelatedContextPolicy:    types.ExactContextSameFamilyGrounded,
+				RelatedContextScopeHint: "same namespace / prefix family",
+			},
+		},
+	}
+	ctx.Mutable.SetAbsenceJustification("repo-wide search found no exact key")
+	ctx.Mutable.SetInvestigationResultKind("absence")
+	ctx.Mutable.AppendEvidence([]types.EvidenceItem{
+		{
+			Kind:            types.EvidenceDirect,
+			Source:          "internal/types/config.go",
+			LineStart:       707,
+			AnchorKind:      types.AnchorDefinition,
+			AnchorSymbol:    "DefaultExploreHeuristics",
+			ContextRole:     types.EvidenceContextRoleRelatedContext,
+			DiagramRole:     types.EvidenceDiagramRoleDefault,
+			GroundingStatus: types.GroundingGrounded,
+			GroundingTier:   types.TierLineText,
+		},
+	})
+	params := mustDocJSON(t, map[string]interface{}{
+		"shape": "explanation",
+		"exact_resolution": map[string]interface{}{
+			"status":       "absent",
+			"context_mode": "none",
+		},
+		"summary": "Related grounded defaults live in `DefaultExploreHeuristics()` and explain the nearby precedence baseline.",
+		"citations": []map[string]interface{}{
+			{"file": "internal/types/config.go", "line": 707},
+		},
+	})
+	res, _ := tool.Execute(ctx, params)
+	if res.Success {
+		t.Fatalf("nearby context should require grounded_context_only, not context_mode=none")
+	}
+	if res.Repair == nil || res.Repair.Code != "exact_resolution" {
+		t.Fatalf("reject should come back through exact_resolution, got %+v", res.Repair)
+	}
+	if got := res.Repair.Metadata["preferred_context_mode"]; got != "grounded_context_only" {
+		t.Fatalf("preferred_context_mode = %q, want grounded_context_only", got)
+	}
+	if !strings.Contains(res.Repair.Hint, "set `exact_resolution.context_mode=\"grounded_context_only\"`") {
+		t.Fatalf("hint should explain the context_mode fix, got %q", res.Repair.Hint)
 	}
 }
 
@@ -2508,7 +2658,7 @@ func TestEmitAnswerDocument_ShapeAutoCorrect_StableAbsentConfigKeyUsesExplanatio
 	tool := &EmitAnswerDocument{}
 	params := mustDocJSON(t, map[string]interface{}{
 		"shape":   "explanation",
-		"summary": "The repository does not contain the config key `explore_mid_loop_hint_budget`.",
+		"summary": "No nearby grounded context is needed beyond the exact-absence lead.",
 		"exact_resolution": map[string]interface{}{
 			"status":       "absent",
 			"context_mode": "grounded_context_only",

@@ -515,29 +515,29 @@ func ExactResolutionEvidenceCanSatisfyRelatedContext(c *ExactResolutionContract,
 			item.Subject, item.Predicate, item.Object, item.AnchorSymbol, item.Condition, item.Snippet, item.Summary) {
 		return false
 	}
-	if len(requiredFiles) > 0 {
-		required := make(map[string]bool, len(requiredFiles))
-		for _, file := range requiredFiles {
-			file = exactResolutionCanonicalPath(file)
-			if file != "" {
-				required[file] = true
-			}
-		}
-		if len(required) > 0 && !required[exactResolutionCanonicalPath(item.Source)] {
-			return false
-		}
-		return true
+	if len(requiredFiles) > 0 && !exactResolutionRequiredFilesContain(requiredFiles, item.Source) {
+		return false
 	}
 	switch c.RelatedContextPolicy {
 	case ExactContextGroundedOnly:
 		return true
 	case ExactContextSameFamilyGrounded:
-		if ExactResolutionSameFamilyMatchScore(c, exactResolutionEvidenceSurface(item)) > 0 {
+		if ExactResolutionSameFamilyMatchScore(c, strings.Join([]string{
+			item.Source,
+			item.Subject,
+			item.Object,
+			item.AnchorSymbol,
+			item.Condition,
+			item.Snippet,
+		}, "\n")) > 0 {
 			return true
 		}
-		fallthrough
+		return EvidenceItemStructurallyMentionsAnyTerm(item, ExactResolutionContextTerms(c))
 	case ExactContextSameDirectoryGrounded:
-		return EvidenceItemMentionsAnyTerm(item, ExactResolutionContextTerms(c))
+		if len(requiredFiles) > 0 {
+			return true
+		}
+		return EvidenceItemStructurallyMentionsAnyTerm(item, ExactResolutionContextTerms(c))
 	default:
 		return false
 	}
@@ -565,6 +565,10 @@ func exactResolutionFindingKindMatches(expected, got string) bool {
 // emit_answer_document validator so both stages consume the same
 // contract.
 func ConfigTraceGroundedContextAnchorAllowed(contract *ExactResolutionContract, item EvidenceItem) bool {
+	return ConfigTraceGroundedContextAnchorAllowedInFiles(contract, item, nil)
+}
+
+func ConfigTraceGroundedContextAnchorAllowedInFiles(contract *ExactResolutionContract, item EvidenceItem, requiredFiles []string) bool {
 	if item.Source == "" {
 		return false
 	}
@@ -580,7 +584,7 @@ func ConfigTraceGroundedContextAnchorAllowed(contract *ExactResolutionContract, 
 	case EvidenceContextRoleIllustrativeOnly:
 		return false
 	case EvidenceContextRoleAbsenceSupport:
-		return contract != nil
+		return contract != nil && ExactResolutionSourceIsDefiningPrimaryProofLike(contract, item.Source)
 	default:
 		return item.DiagramRole != EvidenceDiagramRoleUnknown
 	}
@@ -593,11 +597,26 @@ func ConfigTraceGroundedContextAnchorAllowed(contract *ExactResolutionContract, 
 // which items are answer-grade context before the finalizer is allowed
 // to surface them.
 func ExactResolutionAnswerContextAnchorAllowed(c *ExactResolutionContract, scenario Scenario, stableAbsent bool, item EvidenceItem) bool {
+	return ExactResolutionAnswerContextAnchorAllowedInFiles(c, scenario, stableAbsent, item, nil)
+}
+
+func ExactResolutionAnswerContextAnchorAllowedInFiles(c *ExactResolutionContract, scenario Scenario, stableAbsent bool, item EvidenceItem, requiredFiles []string) bool {
 	if c == nil {
 		return false
 	}
 	if stableAbsent && scenario == ScenarioConfigTrace && c.TargetKind == SubjectConfigKey {
-		return ConfigTraceGroundedContextAnchorAllowed(c, item)
+		if item.ContextRole == EvidenceContextRoleAbsenceSupport {
+			switch item.GroundingStatus {
+			case GroundingGrounded, GroundingRecovered:
+				return ExactResolutionSourceIsDefiningPrimaryProofLike(c, item.Source)
+			default:
+				return false
+			}
+		}
+		if ConfigTraceGroundedContextAnchorAllowedInFiles(c, item, nil) {
+			return true
+		}
+		return ExactResolutionEvidenceCanSatisfyRelatedContext(c, item, requiredFiles)
 	}
 	if item.ContextRole == EvidenceContextRoleAbsenceSupport {
 		switch item.GroundingStatus {
@@ -608,6 +627,38 @@ func ExactResolutionAnswerContextAnchorAllowed(c *ExactResolutionContract, scena
 		}
 	}
 	return ExactResolutionEvidenceCanSatisfyRelatedContext(c, item, nil)
+}
+
+// ExactResolutionRelatedContextProofAllowedInFiles is the stricter
+// closure-time gate used before explorer / emit_investigation_complete
+// are allowed to end an exact-absence investigation. It intentionally
+// excludes pure absence-proof items from counting as "related context
+// already gathered" in scenarios such as config-trace, where the
+// system still requires one grounded nearby lineage anchor.
+func ExactResolutionRelatedContextProofAllowedInFiles(c *ExactResolutionContract, scenario Scenario, stableAbsent bool, item EvidenceItem, requiredFiles []string) bool {
+	if c == nil {
+		return false
+	}
+	if stableAbsent && scenario == ScenarioConfigTrace && c.TargetKind == SubjectConfigKey {
+		if item.ContextRole == EvidenceContextRoleAbsenceSupport {
+			return false
+		}
+		return ExactResolutionEvidenceCanSatisfyRelatedContext(c, item, requiredFiles)
+	}
+	return ExactResolutionAnswerContextAnchorAllowedInFiles(c, scenario, stableAbsent, item, requiredFiles)
+}
+
+func exactResolutionRequiredFilesContain(requiredFiles []string, source string) bool {
+	source = exactResolutionCanonicalPath(source)
+	if source == "" || len(requiredFiles) == 0 {
+		return false
+	}
+	for _, file := range requiredFiles {
+		if exactResolutionCanonicalPath(file) == source {
+			return true
+		}
+	}
+	return false
 }
 
 // ExactResolutionContextSurfaceRelevant reports whether an evidence

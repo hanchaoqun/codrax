@@ -126,6 +126,11 @@ type explorerEvaluator struct {
 	// BuildInitialInstruction see no behavior change.
 	complexity types.Complexity
 
+	// scenario is the analyzer-classified request scenario cached from
+	// BuildInitialInstruction so exact-resolution closure checks can use
+	// the same scenario-aware contract as finalizer / validator stages.
+	scenario types.Scenario
+
 	// kindConfidence caches RequestModel.KindConfidence at
 	// BuildInitialInstruction. Schema-v4 downstream guard: gates
 	// aggressive narrowing such as tightenDeclarativeFrontier so a
@@ -232,6 +237,11 @@ func (e *explorerEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk 
 	// sites don't all receive ctx). Zero value ("") is preserved when
 	// the analyzer stage hasn't run yet (unit tests, sub-agent paths).
 	e.complexity = irComplexity(ctx)
+	if ctx != nil && ctx.AnalysisIR != nil {
+		e.scenario = ctx.AnalysisIR.RequestModel.Scenario
+	} else {
+		e.scenario = ""
+	}
 	e.requiredFiles = analyzerRequiredFilesFromIR(ctx)
 	// Session-22 fix F2.1: cache the log-triage bundle so Check 6's
 	// mid-loop gate can consult bundle.Meta.Signals + ResolvedFiles
@@ -3438,7 +3448,7 @@ func (e *explorerEvaluator) postExactAbsenceClosureSignal(obs LoopObservation) L
 			}
 		}
 	}
-	if !exactAbsenceClosureReady(e.exactResolution, targets, e.structuredEvidence, e.exactContextFiles) {
+	if !exactAbsenceClosureReady(e.exactResolution, e.scenario, targets, e.structuredEvidence, e.exactContextFiles) {
 		return LoopSignal{}
 	}
 	e.midLoopExactAbsenceSent = true
@@ -3471,7 +3481,7 @@ func currentBatchHasSuccessfulRead(results []types.ToolResult, prevLen int) bool
 	return false
 }
 
-func exactAbsenceClosureReady(contract *types.ExactResolutionContract, targets []string, evidence []types.EvidenceItem, requiredFiles []string) bool {
+func exactAbsenceClosureReady(contract *types.ExactResolutionContract, scenario types.Scenario, targets []string, evidence []types.EvidenceItem, requiredFiles []string) bool {
 	if contract == nil || len(targets) == 0 || len(evidence) == 0 {
 		return false
 	}
@@ -3483,7 +3493,7 @@ func exactAbsenceClosureReady(contract *types.ExactResolutionContract, targets [
 		}
 	}
 	for _, item := range evidence {
-		if types.ExactResolutionEvidenceCanSatisfyRelatedContext(contract, item, requiredFiles) {
+		if types.ExactResolutionRelatedContextProofAllowedInFiles(contract, scenario, true, item, requiredFiles) {
 			hasScopedContext = true
 			break
 		}
@@ -3493,7 +3503,7 @@ func exactAbsenceClosureReady(contract *types.ExactResolutionContract, targets [
 			default:
 				continue
 			}
-			if types.EvidenceItemMentionsAnyTerm(item, scopeTerms) {
+			if types.EvidenceItemStructurallyMentionsAnyTerm(item, scopeTerms) {
 				hasScopedContext = true
 				break
 			}

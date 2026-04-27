@@ -3944,7 +3944,7 @@ func TestExactAbsenceClosureReady_IgnoresAbsenceSupportForFunctionTargets(t *tes
 			AnchorSymbol:    "buildFallbackHandlers",
 		},
 	}
-	if !exactAbsenceClosureReady(contract, contract.Targets, evidence, nil) {
+	if !exactAbsenceClosureReady(contract, types.ScenarioGeneric, contract.Targets, evidence, nil) {
 		t.Fatal("absence_support + related_context should allow exact-absence closure for function lookups")
 	}
 }
@@ -3979,16 +3979,57 @@ func TestExactAbsenceClosureReady_RequiresGroundedContextFromCandidateFiles(t *t
 			Source:          "internal/types/config.go",
 			GroundingStatus: types.GroundingGrounded,
 			ContextRole:     types.EvidenceContextRoleRelatedContext,
+			DiagramRole:     types.EvidenceDiagramRoleDefault,
 			AnchorKind:      types.AnchorDefinition,
 			AnchorSymbol:    "DefaultExploreHeuristics",
 		},
 	}
-	if !exactAbsenceClosureReady(contract, contract.Targets, evidence, requiredFiles) {
+	if !exactAbsenceClosureReady(contract, types.ScenarioConfigTrace, contract.Targets, evidence, requiredFiles) {
 		t.Fatal("grounded related-context evidence from a required candidate file should allow exact-absence closure")
 	}
 	evidence[1].GroundingStatus = types.GroundingRecovered
-	if exactAbsenceClosureReady(contract, contract.Targets, evidence, requiredFiles) {
+	if exactAbsenceClosureReady(contract, types.ScenarioConfigTrace, contract.Targets, evidence, requiredFiles) {
 		t.Fatal("recovered-only related context from the candidate file should not allow exact-absence closure")
+	}
+}
+
+func TestExactAbsenceClosureReady_IgnoresSummaryOnlyScopeLaundry(t *testing.T) {
+	contract := &types.ExactResolutionContract{
+		TargetKind:           types.SubjectConfigKey,
+		TargetLabel:          "config key",
+		Targets:              []string{"explore_mid_loop_hint_budget"},
+		AllowAbsence:         true,
+		RelatedContextPolicy: types.ExactContextSameFamilyGrounded,
+		RelatedContextTerms:  []string{"explore"},
+	}
+	requiredFiles := []string{"internal/types/config.go"}
+	evidence := []types.EvidenceItem{
+		{
+			Kind:            types.EvidenceDirect,
+			Subject:         "explore_mid_loop_hint_budget",
+			Predicate:       "absent_from",
+			Object:          "RuntimeSettings",
+			Source:          "internal/config/runtime.go",
+			GroundingStatus: types.GroundingGrounded,
+			ContextRole:     types.EvidenceContextRoleAbsenceSupport,
+			AnchorKind:      types.AnchorDefinition,
+			AnchorSymbol:    "RuntimeSettings",
+		},
+		{
+			Kind:            types.EvidenceDirect,
+			Subject:         "LoopMaxMidLoopInjects",
+			Predicate:       "defaults_to",
+			Object:          "6",
+			Source:          "internal/types/config.go",
+			GroundingStatus: types.GroundingGrounded,
+			ContextRole:     types.EvidenceContextRoleRelatedContext,
+			AnchorKind:      types.AnchorDefinition,
+			AnchorSymbol:    "LoopMaxMidLoopInjects",
+			Summary:         "related context only for explore_* controls",
+		},
+	}
+	if exactAbsenceClosureReady(contract, types.ScenarioConfigTrace, contract.Targets, evidence, requiredFiles) {
+		t.Fatal("summary-only same-family wording should not satisfy exact-absence closure")
 	}
 }
 

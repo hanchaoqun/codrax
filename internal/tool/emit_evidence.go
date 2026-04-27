@@ -421,13 +421,14 @@ func (t *EmitEvidence) Execute(ctx *types.BusContext, params json.RawMessage) (t
 	// feedback in the tool Summary so the LLM sees grounded /
 	// recovered / ungrounded verdicts in the same turn it emitted them.
 	gc := ground.BuildContext(ctx)
+	diagramRequiredFiles := exactResolutionDiagramRequiredFiles(ctx, exactResolutionContract)
 	reports := make([]ground.Report, len(built))
 	for i := range built {
 		r := ground.GroundItem(&built[i], gc)
 		normalizeCallEvidenceDirection(&built[i], gc)
 		built[i].ContextRole = validatedEvidenceContextRole(built[i], gc, exactResolutionContract)
-		built[i].DiagramRole = validatedEvidenceDiagramRole(built[i], gc, exactResolutionContract)
-		if stabilizeExactResolutionEvidence(&built[i], exactResolutionContract, pendingExactTargets) {
+		built[i].DiagramRole = validatedEvidenceDiagramRole(built[i], gc, exactResolutionContract, diagramRequiredFiles)
+		if stabilizeExactResolutionEvidence(&built[i], gc, exactResolutionContract, pendingExactTargets) {
 			r.Status = built[i].GroundingStatus
 			r.Tier = built[i].GroundingTier
 			r.Note = built[i].GroundingNote
@@ -727,7 +728,7 @@ func validatedEvidenceContextRole(ev types.EvidenceItem, gc *ground.Context, con
 	return types.EvidenceContextRoleUnknown
 }
 
-func validatedEvidenceDiagramRole(ev types.EvidenceItem, gc *ground.Context, contract *types.ExactResolutionContract) types.EvidenceDiagramRole {
+func validatedEvidenceDiagramRole(ev types.EvidenceItem, gc *ground.Context, contract *types.ExactResolutionContract, requiredFiles []string) types.EvidenceDiagramRole {
 	if evidenceLooksIllustrative(ev, gc) {
 		return types.EvidenceDiagramRoleUnknown
 	}
@@ -737,15 +738,15 @@ func validatedEvidenceDiagramRole(ev types.EvidenceItem, gc *ground.Context, con
 			return ev.DiagramRole
 		}
 	case types.EvidenceDiagramRoleOverride:
-		if evidenceCanBeDiagramCodeLayer(ev, contract, ev.DiagramRole) {
+		if evidenceCanBeDiagramCodeLayer(ev, contract, ev.DiagramRole, requiredFiles) {
 			return ev.DiagramRole
 		}
 	case types.EvidenceDiagramRoleRuntime:
-		if evidenceCanBeDiagramCodeLayer(ev, contract, ev.DiagramRole) {
+		if evidenceCanBeDiagramCodeLayer(ev, contract, ev.DiagramRole, requiredFiles) {
 			return ev.DiagramRole
 		}
 	case types.EvidenceDiagramRoleDefault:
-		if evidenceCanBeDiagramCodeLayer(ev, contract, ev.DiagramRole) && !evidenceSourceHasYAMLExt(ev.Source) {
+		if evidenceCanBeDiagramCodeLayer(ev, contract, ev.DiagramRole, requiredFiles) && !evidenceSourceHasYAMLExt(ev.Source) {
 			return ev.DiagramRole
 		}
 	}
@@ -801,7 +802,7 @@ func evidenceSourceHasYAMLExt(source string) bool {
 	return strings.HasSuffix(source, ".yaml") || strings.HasSuffix(source, ".yml")
 }
 
-func evidenceCanBeDiagramCodeLayer(ev types.EvidenceItem, contract *types.ExactResolutionContract, role types.EvidenceDiagramRole) bool {
+func evidenceCanBeDiagramCodeLayer(ev types.EvidenceItem, contract *types.ExactResolutionContract, role types.EvidenceDiagramRole, requiredFiles []string) bool {
 	if ev.Source == "" || evidenceSourceHasYAMLExt(ev.Source) {
 		return false
 	}
@@ -814,10 +815,13 @@ func evidenceCanBeDiagramCodeLayer(ev types.EvidenceItem, contract *types.ExactR
 	if contract == nil || contract.TargetKind != types.SubjectConfigKey {
 		return true
 	}
+	if len(requiredFiles) > 0 && !emitSourceMatchesAnyRequiredFile(ev.Source, requiredFiles) {
+		return false
+	}
 	terms := types.ExactResolutionContextTerms(contract)
 	if !types.ExactResolutionTextsMentionAnyTarget(contract,
 		ev.Subject, ev.Predicate, ev.Object, ev.AnchorSymbol, ev.Condition, ev.Snippet, ev.Summary) &&
-		!types.EvidenceItemMentionsAnyTerm(ev, terms) {
+		!types.EvidenceItemStructurallyMentionsAnyTerm(ev, terms) {
 		return false
 	}
 	contextRole := ev.ContextRole
@@ -1218,7 +1222,7 @@ func pendingExactResolutionTargets(ctx *types.BusContext, contract *types.ExactR
 	return types.ExactResolutionPendingTargets(contract, unverified)
 }
 
-func stabilizeExactResolutionEvidence(ev *types.EvidenceItem, contract *types.ExactResolutionContract, pendingTargets []string) bool {
+func stabilizeExactResolutionEvidence(ev *types.EvidenceItem, gc *ground.Context, contract *types.ExactResolutionContract, pendingTargets []string) bool {
 	if ev == nil || contract == nil {
 		return false
 	}
@@ -1239,17 +1243,27 @@ func stabilizeExactResolutionEvidence(ev *types.EvidenceItem, contract *types.Ex
 	if ev.ContextRole != types.EvidenceContextRoleIllustrativeOnly &&
 		exactResolutionEvidenceMentionsAnyTarget(contract, *ev) &&
 		!exactResolutionEvidenceDirectlyAnchorsAnyTarget(contract, *ev) {
-		if ev.ContextRole != types.EvidenceContextRoleAbsenceSupport {
-			ev.ContextRole = types.EvidenceContextRoleAbsenceSupport
-			changed = true
-		}
 		note := fmt.Sprintf(
-			"this item names the requested exact %s only in explanatory context, not as a defining anchor. Treat it as absence support / nearby context only; do NOT repair this item.",
+			"this item names the requested exact %s only in explanatory context, not as a defining anchor. Treat it as nearby context only; do NOT repair this item.",
 			exactResolutionTargetLabel(contract),
 		)
+		if evidenceGroundedWindowMentionsAnyTarget(*ev, gc, contract) {
+			if ev.ContextRole != types.EvidenceContextRoleAbsenceSupport {
+				ev.ContextRole = types.EvidenceContextRoleAbsenceSupport
+				changed = true
+			}
+			note = fmt.Sprintf(
+				"this item names the requested exact %s in the anchored code/config window but not as a defining anchor. Treat it as absence support only; do NOT repair this item.",
+				exactResolutionTargetLabel(contract),
+			)
+		} else if ev.ContextRole == types.EvidenceContextRoleUnknown || ev.ContextRole == types.EvidenceContextRoleDefining {
+			ev.ContextRole = types.EvidenceContextRoleRelatedContext
+			changed = true
+		}
 		if appendGroundingNoteOnce(ev, note) {
 			changed = true
 		}
+		appendContextOnlySummary(ev, note)
 	}
 	if len(pendingTargets) == 0 {
 		return changed
@@ -1277,7 +1291,7 @@ func stabilizeExactResolutionEvidence(ev *types.EvidenceItem, contract *types.Ex
 			exactResolutionTargetLabel(contract),
 			strings.Join(pendingTargets, ", "),
 		)
-	} else if types.EvidenceItemMentionsAnyTerm(*ev, types.ExactResolutionContextTerms(contract)) || familyScore > 0 {
+	} else if types.EvidenceItemStructurallyMentionsAnyTerm(*ev, types.ExactResolutionContextTerms(contract)) || familyScore > 0 {
 		note = fmt.Sprintf(
 			"the primary exact %s %q remains unresolved; this grounded same-scope evidence is nearby context only and must not be treated as a substitute. Do NOT repair this item.",
 			exactResolutionTargetLabel(contract),
@@ -1298,6 +1312,37 @@ func exactResolutionEvidenceDirectlyAnchorsAnyTarget(contract *types.ExactResolu
 func exactResolutionEvidenceMentionsAnyTarget(contract *types.ExactResolutionContract, ev types.EvidenceItem) bool {
 	return types.ExactResolutionTextsMentionAnyTarget(contract,
 		ev.Subject, ev.Predicate, ev.Object, ev.AnchorSymbol, ev.Condition, ev.Snippet, ev.Summary)
+}
+
+func evidenceGroundedWindowMentionsAnyTarget(ev types.EvidenceItem, gc *ground.Context, contract *types.ExactResolutionContract) bool {
+	if gc == nil || contract == nil || ev.Source == "" || ev.LineStart <= 0 {
+		return false
+	}
+	fileLines, ok := gc.LineIndex[ev.Source]
+	if !ok || len(fileLines) == 0 {
+		return false
+	}
+	start := ev.LineStart - 3
+	if start < 1 {
+		start = 1
+	}
+	end := ev.LineEnd
+	if end < ev.LineStart {
+		end = ev.LineStart
+	}
+	end += 3
+	var b strings.Builder
+	for line := start; line <= end; line++ {
+		text, ok := fileLines[line]
+		if !ok {
+			continue
+		}
+		if b.Len() > 0 {
+			b.WriteByte('\n')
+		}
+		b.WriteString(text)
+	}
+	return types.ExactResolutionTextsMentionAnyTarget(contract, b.String())
 }
 
 func appendGroundingNoteOnce(ev *types.EvidenceItem, note string) bool {
@@ -1335,6 +1380,34 @@ func exactResolutionTargetLabel(contract *types.ExactResolutionContract) string 
 		return "target"
 	}
 	return strings.TrimSpace(contract.TargetLabel)
+}
+
+func exactResolutionDiagramRequiredFiles(ctx *types.BusContext, contract *types.ExactResolutionContract) []string {
+	if ctx == nil || ctx.AnalysisIR == nil || contract == nil {
+		return nil
+	}
+	if ctx.AnalysisIR.RequestModel.Scenario != types.ScenarioConfigTrace ||
+		contract.TargetKind != types.SubjectConfigKey ||
+		contract.RelatedContextPolicy != types.ExactContextSameFamilyGrounded {
+		return nil
+	}
+	return append([]string(nil), ctx.AnalysisIR.EvidencePlan.RequiredFiles...)
+}
+
+func emitSourceMatchesAnyRequiredFile(source string, requiredFiles []string) bool {
+	source = strings.TrimSpace(strings.ReplaceAll(source, `\`, `/`))
+	source = strings.TrimPrefix(source, "./")
+	if source == "" || len(requiredFiles) == 0 {
+		return false
+	}
+	for _, file := range requiredFiles {
+		file = strings.TrimSpace(strings.ReplaceAll(file, `\`, `/`))
+		file = strings.TrimPrefix(file, "./")
+		if file != "" && file == source {
+			return true
+		}
+	}
+	return false
 }
 
 // isSelfRefEvidence tests the triple-condition R4 predicate:

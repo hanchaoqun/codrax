@@ -334,7 +334,7 @@ func TestEmitEvidence_DropsInconsistentDiagramRoleHint(t *testing.T) {
 	}
 }
 
-func TestEmitEvidence_ConvertsFreeformExactMentionIntoAbsenceSupport(t *testing.T) {
+func TestEmitEvidence_KeepsFreeformExactMentionAsRelatedContextWithoutAnchoredTargetWindow(t *testing.T) {
 	tool := &EmitEvidence{}
 	ctx := newEmitCtx()
 	ctx.AnalysisIR = &types.AnalysisIR{
@@ -381,11 +381,75 @@ func TestEmitEvidence_ConvertsFreeformExactMentionIntoAbsenceSupport(t *testing.
 	if len(got) != 1 {
 		t.Fatalf("want 1 item in buffer, got %d", len(got))
 	}
+	if got[0].ContextRole != types.EvidenceContextRoleRelatedContext {
+		t.Fatalf("context role = %q, want related_context", got[0].ContextRole)
+	}
+	if !strings.Contains(strings.ToLower(got[0].GroundingNote), "nearby context only") {
+		t.Fatalf("freeform exact mention should stay nearby-context only, got: %q", got[0].GroundingNote)
+	}
+}
+
+func TestEmitEvidence_PromotesAbsenceSupportWhenAnchoredWindowNamesExactTarget(t *testing.T) {
+	tool := &EmitEvidence{}
+	ctx := newEmitCtx()
+	ctx.Mutable.SetTurnAArtifacts(types.TurnAArtifacts{
+		ToolResults: []types.ToolResult{
+			buildEmitReadResult("internal/agent/router.go", 40, []string{
+				"func buildFallbackHandlers() {",
+				"    // FooHandler is absent from the runtime router on this branch.",
+				"    _ = 0",
+			}, 60),
+		},
+	})
+	ctx.AnalysisIR = &types.AnalysisIR{
+		RequestModel: types.RequestModel{
+			RawRequest: "FooHandler 在哪里定义？",
+			AnalyzerHints: types.AnalyzerHints{
+				PrimaryEntities: []string{"FooHandler"},
+				ExactTargets:    []string{"FooHandler"},
+			},
+			AnswerSubject: types.AnswerSubject{Kind: types.SubjectFunctionName},
+		},
+		AnswerContract: types.AnswerContract{
+			ExactResolution: &types.ExactResolutionContract{
+				TargetKind:   types.SubjectFunctionName,
+				TargetLabel:  "symbol",
+				Targets:      []string{"FooHandler"},
+				AllowAbsence: true,
+			},
+		},
+	}
+	params := json.RawMessage(`{
+		"items": [
+			{
+				"kind": "mechanism",
+				"subject": "buildFallbackHandlers",
+				"predicate": "describes",
+				"source": "internal/agent/router.go",
+				"line_start": 40,
+				"summary": "The fallback path explains why FooHandler is absent from the runtime router.",
+				"anchor_kind": "definition",
+				"anchor_symbol": "buildFallbackHandlers",
+				"context_role_hint": "related_context"
+			}
+		]
+	}`)
+	res, err := tool.Execute(ctx, params)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("expected success, got: %s", res.Summary)
+	}
+	got := ctx.Mutable.EmittedEvidence()
+	if len(got) != 1 {
+		t.Fatalf("want 1 item in buffer, got %d", len(got))
+	}
 	if got[0].ContextRole != types.EvidenceContextRoleAbsenceSupport {
 		t.Fatalf("context role = %q, want absence_support", got[0].ContextRole)
 	}
-	if !strings.Contains(strings.ToLower(got[0].GroundingNote), "do not repair this item") {
-		t.Fatalf("absence-support evidence should suppress repair loops, got: %q", got[0].GroundingNote)
+	if !strings.Contains(strings.ToLower(got[0].GroundingNote), "absence support") {
+		t.Fatalf("anchored exact mention should be promoted to absence_support, got: %q", got[0].GroundingNote)
 	}
 }
 
