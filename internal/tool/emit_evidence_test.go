@@ -388,6 +388,15 @@ func TestEmitEvidence_DropsInconsistentDiagramRoleHint(t *testing.T) {
 	if got[0].DiagramRole != types.EvidenceDiagramRoleUnknown {
 		t.Fatalf("diagram role = %q, want unknown for inconsistent hint", got[0].DiagramRole)
 	}
+	if !strings.Contains(got[0].GroundingNote, "diagram_role_hint=config was ignored") {
+		t.Fatalf("grounding note should explain why the role hint was ignored, got: %q", got[0].GroundingNote)
+	}
+	if !strings.Contains(got[0].GroundingNote, "`default` / `runtime` / `override`") {
+		t.Fatalf("grounding note should point at valid code-layer roles, got: %q", got[0].GroundingNote)
+	}
+	if !strings.Contains(res.Summary, "diagram_role_hint=config was ignored") {
+		t.Fatalf("tool summary should surface the ignored-role guidance, got: %s", res.Summary)
+	}
 }
 
 func TestEmitEvidence_KeepsFreeformExactMentionAsRelatedContextWithoutAnchoredTargetWindow(t *testing.T) {

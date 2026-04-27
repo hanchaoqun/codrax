@@ -1493,6 +1493,26 @@ func validateConfigTraceAbsenceCitationFocus(ctx *types.BusContext, exact *types
 			}
 			continue
 		}
+		if types.ExactResolutionAnswerContextAnchorAllowedInFiles(contract, ctx.AnalysisIR.RequestModel.Scenario, true, matched, requiredFiles) {
+			err := newAnswerDocValidationError(
+				"config_trace_context_citation",
+				"exact-absent config-trace answers may cite only (a) the grounded absence-proof sources for the missing key or (b) grounded related-context anchors that carry a validated precedence role. citations[%d] (%s:%d) is a grounded same-scope context anchor, but it is not citation-grade precedence evidence yet; remove it from `citations[]` and any fenced diagram nodes. It may stay as uncited prose-only nearby context if the visible answer also cites a validated precedence anchor for its lineage explanation.",
+				idx, cite.File, cite.Line,
+			).
+				WithFields(fmt.Sprintf("citations[%d]", idx), "exact_resolution.context_mode").
+				WithHint("Re-emit `emit_answer_document` with the same exact-absence conclusion, but remove this anchor from `citations[]` and from any fenced diagram nodes. You may keep it in `summary` as prose-only grounded nearby context, but if the user-visible answer still explains precedence / lineage, cite at least one validated default/config/runtime/override anchor. Here `config` means a grounded repo/user config-file layer (YAML/JSON/TOML/INI/etc.).")
+			if allowed := formatConfigTraceAllowedCitations(contract, pool, requiredFiles); allowed != "" {
+				err = err.WithMetadata("allowed_citations", allowed)
+			}
+			if allowedAnchors != "" {
+				err = err.WithMetadata("allowed_anchors", allowedAnchors)
+			}
+			err = err.WithMetadata("drop_citations", fmt.Sprintf("%s:%d", cite.File, cite.Line))
+			if proseOnly := joinExactContextSurfaceDisplays(exactContextSurfaceCandidatesForItem(contract, matched)); proseOnly != "" {
+				err = err.WithMetadata("prose_only_anchors", proseOnly)
+			}
+			return err
+		}
 		err := newAnswerDocValidationError(
 			"config_trace_context_citation",
 			"exact-absent config-trace answers may cite only (a) the grounded absence-proof sources for the missing key or (b) grounded related-context anchors that carry a validated precedence role. citations[%d] (%s:%d) is broad same-family background rather than a precedence-capable lineage anchor; drop it from citations and keep that background out of the answer surface.",

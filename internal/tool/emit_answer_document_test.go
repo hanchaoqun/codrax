@@ -1838,6 +1838,100 @@ func TestEmitAnswerDocument_ConfigTraceAbsenceRejectsBroadSameFamilyCitation(t *
 	}
 }
 
+func TestEmitAnswerDocument_ConfigTraceAbsenceDowngradesSameScopeContextToProseOnly(t *testing.T) {
+	tool := &EmitAnswerDocument{}
+	ctx := newDocBusCtx("")
+	target := "explore_mid_loop_hint_budget"
+	ctx.AnalysisIR = &types.AnalysisIR{
+		RequestModel: types.RequestModel{
+			Scenario: types.ScenarioConfigTrace,
+			AnalyzerHints: types.AnalyzerHints{
+				Kind:         "config_mapping",
+				ExactTargets: []string{target},
+			},
+			AnswerSubject: types.AnswerSubject{Kind: types.SubjectConfigKey},
+		},
+		AnswerContract: types.AnswerContract{
+			ExactResolution: &types.ExactResolutionContract{
+				TargetKind:           types.SubjectConfigKey,
+				TargetLabel:          "config key",
+				Targets:              []string{target},
+				AllowAbsence:         true,
+				AliasRequiresProof:   true,
+				RequireTargetMention: true,
+				RelatedContextPolicy: types.ExactContextSameFamilyGrounded,
+			},
+		},
+	}
+	ctx.Mutable.SetAbsenceJustification("searched the repo and found no config key named `explore_mid_loop_hint_budget`")
+	ctx.Mutable.SetInvestigationResultKind("absence")
+	ctx.Mutable.SetExactContextRequiredFiles([]string{"internal/types/config.go"})
+	ctx.Mutable.AppendEvidence([]types.EvidenceItem{
+		{
+			Kind:            types.EvidenceDirect,
+			Source:          "internal/config/runtime.go",
+			LineStart:       231,
+			AnchorKind:      types.AnchorDefinition,
+			AnchorSymbol:    "ExploreMidLoopMinIteration",
+			ContextRole:     types.EvidenceContextRoleAbsenceSupport,
+			GroundingStatus: types.GroundingGrounded,
+			GroundingTier:   types.TierLineText,
+		},
+		{
+			Kind:            types.EvidenceDirect,
+			Source:          "internal/types/config.go",
+			LineStart:       707,
+			AnchorKind:      types.AnchorDefinition,
+			AnchorSymbol:    "DefaultExploreHeuristics",
+			ContextRole:     types.EvidenceContextRoleRelatedContext,
+			GroundingStatus: types.GroundingGrounded,
+			GroundingTier:   types.TierLineText,
+		},
+		{
+			Kind:            types.EvidenceDirect,
+			Source:          "codrax.yaml.example",
+			LineStart:       284,
+			AnchorKind:      types.AnchorDefinition,
+			AnchorSymbol:    "explore_midloop_min_iteration",
+			ContextRole:     types.EvidenceContextRoleRelatedContext,
+			DiagramRole:     types.EvidenceDiagramRoleConfig,
+			GroundingStatus: types.GroundingGrounded,
+			GroundingTier:   types.TierLineText,
+		},
+	})
+	params := mustDocJSON(t, map[string]interface{}{
+		"shape": "explanation",
+		"exact_resolution": map[string]interface{}{
+			"status":       "absent",
+			"context_mode": "grounded_context_only",
+		},
+		"summary": "### Nearby grounded context\n\n`DefaultExploreHeuristics()` explains the default-side behavior for this same-family config path, while the visible precedence chain is still grounded elsewhere.",
+		"citations": []map[string]interface{}{
+			{"file": "codrax.yaml.example", "line": 284},
+			{"file": "internal/types/config.go", "line": 707},
+		},
+	})
+	res, _ := tool.Execute(ctx, params)
+	if res.Success {
+		t.Fatalf("same-scope prose-only context should not be citation-grade without a validated precedence role")
+	}
+	if res.Repair == nil || res.Repair.Code != "config_trace_context_citation" {
+		t.Fatalf("reject should expose config_trace_context_citation repair metadata, got %+v", res.Repair)
+	}
+	if !strings.Contains(res.Repair.Hint, "prose-only grounded nearby context") {
+		t.Fatalf("reject hint should preserve prose-only context instead of dropping it, got %+v", res.Repair)
+	}
+	if !strings.Contains(res.Repair.Metadata["prose_only_anchors"], "DefaultExploreHeuristics") {
+		t.Fatalf("reject should mark same-scope context as prose-only, got %+v", res.Repair)
+	}
+	if got := res.Repair.Metadata["drop_citations"]; got != "internal/types/config.go:707" {
+		t.Fatalf("reject should identify the prose-only citation to drop, got %+v", res.Repair)
+	}
+	if got := strings.TrimSpace(res.Repair.Metadata["forbidden_anchors"]); got != "" {
+		t.Fatalf("prose-only same-scope context should not be marked as forbidden background, got %+v", res.Repair)
+	}
+}
+
 func TestEmitAnswerDocument_ConfigTraceAbsenceRequiresLineageCitationForGroundedContextSummary(t *testing.T) {
 	tool := &EmitAnswerDocument{}
 	ctx := newDocBusCtx("")

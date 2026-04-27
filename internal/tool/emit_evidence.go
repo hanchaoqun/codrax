@@ -426,9 +426,15 @@ func (t *EmitEvidence) Execute(ctx *types.BusContext, params json.RawMessage) (t
 	for i := range built {
 		r := ground.GroundItem(&built[i], gc)
 		normalizeCallEvidenceDirection(&built[i], gc)
+		requestedDiagramRole := built[i].DiagramRole
 		built[i].ContextRole = validatedEvidenceContextRole(built[i], gc, exactResolutionContract)
 		built[i].DiagramRole = validatedEvidenceDiagramRole(built[i], gc, exactResolutionContract, diagramRequiredFiles)
 		if stabilizeExactResolutionEvidence(&built[i], gc, exactResolutionContract, pendingExactTargets) {
+			r.Status = built[i].GroundingStatus
+			r.Tier = built[i].GroundingTier
+			r.Note = built[i].GroundingNote
+		}
+		if appendDiagramRoleValidationNote(&built[i], requestedDiagramRole, exactResolutionContract, diagramRequiredFiles) {
 			r.Status = built[i].GroundingStatus
 			r.Tier = built[i].GroundingTier
 			r.Note = built[i].GroundingNote
@@ -756,6 +762,36 @@ func validatedEvidenceDiagramRole(ev types.EvidenceItem, gc *ground.Context, con
 		}
 	}
 	return types.EvidenceDiagramRoleUnknown
+}
+
+func appendDiagramRoleValidationNote(ev *types.EvidenceItem, requested types.EvidenceDiagramRole, contract *types.ExactResolutionContract, requiredFiles []string) bool {
+	if ev == nil || requested == types.EvidenceDiagramRoleUnknown || requested == ev.DiagramRole {
+		return false
+	}
+	note := ""
+	switch requested {
+	case types.EvidenceDiagramRoleConfig:
+		if types.LooksLikeAuxiliaryEvidencePath(ev.Source) {
+			note = "diagram_role_hint=config was ignored because doc/test/example anchors are never precedence-grade config-file evidence. Keep this item as context only."
+		} else if !types.LooksLikeConfigFilePath(ev.Source) {
+			note = "diagram_role_hint=config was ignored because `config` is only for grounded config-file anchors (YAML/JSON/TOML/INI/etc.). This code anchor may stay prose-only context, or be re-emitted with `default` / `runtime` / `override` only if the anchored line itself proves that code-layer role."
+		}
+	case types.EvidenceDiagramRoleDefault, types.EvidenceDiagramRoleRuntime, types.EvidenceDiagramRoleOverride:
+		if types.LooksLikeAuxiliaryEvidencePath(ev.Source) {
+			note = fmt.Sprintf("diagram_role_hint=%s was ignored because doc/test/example anchors are never code-layer precedence evidence. Keep this item as context only.", requested)
+		} else if types.LooksLikeConfigFilePath(ev.Source) {
+			note = fmt.Sprintf("diagram_role_hint=%s was ignored because `%s` is only for grounded code-layer anchors. Config-file evidence should use `diagram_role_hint=config`.", requested, requested)
+		} else if len(requiredFiles) > 0 && !emitSourceMatchesAnyRequiredFile(ev.Source, requiredFiles) {
+			note = fmt.Sprintf("diagram_role_hint=%s was ignored because this anchor is outside the current same-scope required files for the exact-target context. Keep it as nearby context only.", requested)
+		}
+	}
+	if note == "" {
+		note = fmt.Sprintf("diagram_role_hint=%s was ignored because the anchored line does not structurally prove that precedence role. Keep it as prose-only grounded context, or re-emit with a role that the anchored line itself demonstrates.", requested)
+	}
+	if contract != nil && contract.TargetKind == types.SubjectConfigKey && types.ExactResolutionEvidenceCanSatisfyRelatedContext(contract, *ev, requiredFiles) {
+		note += " The current exact target is still unresolved, so nearby same-scope anchors can stay on the answer surface only as context until a validated precedence role is grounded."
+	}
+	return appendGroundingNoteOnce(ev, note)
 }
 
 func evidenceLooksIllustrative(ev types.EvidenceItem, gc *ground.Context) bool {
@@ -1087,15 +1123,15 @@ func renderEmitSummary(ctx *types.BusContext, items []types.EvidenceItem, report
 				i+1, it.Kind, prefOrDash(it.AnchorSymbol), it.Source, line)
 		}
 		switch it.GroundingStatus {
-	case types.GroundingGrounded:
-		fmt.Fprintf(&b, "      → grounded (tier=%s)\n", it.GroundingTier)
-		if note := strings.TrimSpace(it.GroundingNote); note != "" {
-			fmt.Fprintf(&b, "        note: %s\n", note)
-		}
-	case types.GroundingRecovered:
-		if r.OriginalLine != 0 && r.OriginalLine != r.AdjustedLine {
-			fmt.Fprintf(&b, "      → recovered (tier=%s, you claimed line %d, adjusted to %d)\n",
-				it.GroundingTier, r.OriginalLine, r.AdjustedLine)
+		case types.GroundingGrounded:
+			fmt.Fprintf(&b, "      → grounded (tier=%s)\n", it.GroundingTier)
+			if note := strings.TrimSpace(it.GroundingNote); note != "" {
+				fmt.Fprintf(&b, "        note: %s\n", note)
+			}
+		case types.GroundingRecovered:
+			if r.OriginalLine != 0 && r.OriginalLine != r.AdjustedLine {
+				fmt.Fprintf(&b, "      → recovered (tier=%s, you claimed line %d, adjusted to %d)\n",
+					it.GroundingTier, r.OriginalLine, r.AdjustedLine)
 			} else {
 				fmt.Fprintf(&b, "      → recovered (tier=%s)\n", it.GroundingTier)
 			}

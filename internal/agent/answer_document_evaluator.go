@@ -915,6 +915,9 @@ func renderAnswerDocExactResolutionContract(ctx *types.AgentContext) string {
 	if allowed := renderAnswerDocAllowedExactContextAnchors(ctx, contract); allowed != "" {
 		b.WriteString(allowed)
 	}
+	if proseOnly := renderAnswerDocProseOnlyExactContextAnchors(ctx, contract); proseOnly != "" {
+		b.WriteString(proseOnly)
+	}
 	if diagram := renderAnswerDocDiagramGradeExactContextAnchors(ctx, contract); diagram != "" {
 		b.WriteString(diagram)
 	}
@@ -962,6 +965,21 @@ func renderAnswerDocAllowedExactContextAnchors(ctx *types.AgentContext, contract
 	return b.String()
 }
 
+func renderAnswerDocProseOnlyExactContextAnchors(ctx *types.AgentContext, contract *types.ExactResolutionContract) string {
+	anchors := collectProseOnlyExactContextAnchors(ctx, contract)
+	if len(anchors) == 0 {
+		return ""
+	}
+	var b strings.Builder
+	b.WriteString("## Prose-Only Grounded Context Anchors\n\n")
+	b.WriteString("These grounded same-scope anchors may stay in `summary` as nearby context even when they do not yet carry a validated precedence role. Keep them out of fenced diagrams and `citations[]` unless upstream already provided a validated `diagram_role_hint` for them.\n\n")
+	for _, anchor := range anchors {
+		fmt.Fprintf(&b, "- %s\n", anchor.Text)
+	}
+	b.WriteString("\n")
+	return b.String()
+}
+
 func renderAnswerDocDiagramGradeExactContextAnchors(ctx *types.AgentContext, contract *types.ExactResolutionContract) string {
 	anchors := collectDiagramGradeExactContextAnchors(ctx, contract)
 	if len(anchors) == 0 {
@@ -975,6 +993,60 @@ func renderAnswerDocDiagramGradeExactContextAnchors(ctx *types.AgentContext, con
 	}
 	b.WriteString("\n")
 	return b.String()
+}
+
+func collectProseOnlyExactContextAnchors(ctx *types.AgentContext, contract *types.ExactResolutionContract) []exactResolutionSeed {
+	if ctx == nil || ctx.Mutable == nil || ctx.AnalysisIR == nil || contract == nil {
+		return nil
+	}
+	if ctx.AnalysisIR.RequestModel.Scenario != types.ScenarioConfigTrace ||
+		contract.TargetKind != types.SubjectConfigKey ||
+		ctx.Mutable.StableInvestigationResultKind() != "absence" ||
+		strings.TrimSpace(ctx.Mutable.StableAbsenceJustification()) == "" {
+		return nil
+	}
+	items := exactResolutionSurfaceEvidencePool(ctx)
+	if len(items) == 0 {
+		return nil
+	}
+	requiredFiles := answerDocExactContextRequiredFiles(ctx)
+	var anchors []exactResolutionSeed
+	seen := make(map[string]bool)
+	for _, ev := range items {
+		if !types.ExactResolutionAnswerContextAnchorAllowedInFiles(contract, ctx.AnalysisIR.RequestModel.Scenario, true, ev, requiredFiles) {
+			continue
+		}
+		if types.ConfigTraceGroundedContextAnchorAllowedInFiles(contract, ev, requiredFiles) {
+			continue
+		}
+		text := formatExactResolutionSeed(ev)
+		if text == "" {
+			continue
+		}
+		key := fmt.Sprintf("%s:%d:%s:%s", ev.Source, ev.LineStart, ev.AnchorSymbol, ev.Summary)
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		anchors = append(anchors, exactResolutionSeed{
+			Key:   key,
+			Text:  fmt.Sprintf("%s [grounded same-scope context, prose only]", text),
+			Score: 18,
+		})
+	}
+	if len(anchors) == 0 {
+		return nil
+	}
+	sort.SliceStable(anchors, func(i, j int) bool {
+		if anchors[i].Score != anchors[j].Score {
+			return anchors[i].Score > anchors[j].Score
+		}
+		return anchors[i].Text < anchors[j].Text
+	})
+	if len(anchors) > 6 {
+		anchors = anchors[:6]
+	}
+	return anchors
 }
 
 type relatedContextCitationCandidate struct {
@@ -1762,6 +1834,9 @@ func (e *answerDocumentEvaluator) emitAnswerDocumentRejectSignal(ctx *types.Agen
 			if allowed := strings.TrimSpace(repair.Metadata["allowed_anchors"]); allowed != "" {
 				hint += " Keep any visible nearby context on this validated anchor set only: `" + strings.ReplaceAll(allowed, ", ", "`, `") + "`."
 			}
+			if proseOnly := strings.TrimSpace(repair.Metadata["prose_only_anchors"]); proseOnly != "" {
+				hint += " These anchors may stay on the user-visible answer surface as uncited prose-only grounded context after you remove their citation(s) and any diagram nodes that used them: `" + strings.ReplaceAll(proseOnly, ", ", "`, `") + "`."
+			}
 			if forbidden := strings.TrimSpace(repair.Metadata["forbidden_anchors"]); forbidden != "" {
 				hint += " Drop any prose / diagram node whose only support comes from these background-only anchors: `" + strings.ReplaceAll(forbidden, ", ", "`, `") + "`."
 			}
@@ -1769,7 +1844,7 @@ func (e *answerDocumentEvaluator) emitAnswerDocumentRejectSignal(ctx *types.Agen
 				hint += " Drop these invalid citation(s) from `citations[]` unless you replace them with one of the allowed related-context anchors: `" + strings.ReplaceAll(invalid, ", ", "`, `") + "`."
 			}
 		}
-		hint += " Choose one valid repair path now: either (a) keep nearby precedence / lineage context and cite at least one allowed related-context anchor, or (b) delete that nearby context from the user-visible answer surface and keep only the exact-absence lead. Do not keep broad same-family background as the cited explanation."
+		hint += " Choose one valid repair path now: either (a) keep nearby precedence / lineage context, cite at least one allowed related-context anchor, and move any prose-only anchors out of `citations[]` / fenced diagrams, or (b) delete that nearby context from the user-visible answer surface and keep only the exact-absence lead. Do not keep broad same-family background as the cited explanation."
 		hint = appendRetryDiagramSeedHint(hint, ctx, repair)
 	}
 	if rejectCode == answerDocRejectCodeAbsentExactConfigValueShape || strings.Contains(summary, "must not use shape=config_value") {

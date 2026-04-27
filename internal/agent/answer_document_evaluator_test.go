@@ -1311,6 +1311,61 @@ func TestAnswerDocumentEvaluator_Observe_MidLoopConfigTraceContextCitationReject
 	}
 }
 
+func TestAnswerDocumentEvaluator_Observe_MidLoopConfigTraceContextCitationRejectPreservesProseOnlyAnchors(t *testing.T) {
+	e := &answerDocumentEvaluator{maxRetries: 2, configTraceDiagram: true}
+	sig := e.Observe(&types.AgentContext{
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{Scenario: types.ScenarioConfigTrace},
+			AnswerContract: types.AnswerContract{
+				Diagram: &types.DiagramContract{
+					Required:       true,
+					PreferredKinds: []types.DiagramKind{types.DiagramFlow},
+				},
+			},
+		},
+		EvidenceItems: []types.EvidenceItem{
+			{Source: "internal/config/runtime.go", LineStart: 231, DiagramRole: types.EvidenceDiagramRoleRuntime, Kind: types.EvidenceDirect, GroundingStatus: types.GroundingGrounded},
+			{Source: "internal/types/config.go", LineStart: 707, Kind: types.EvidenceDirect, GroundingStatus: types.GroundingGrounded},
+		},
+	}, LoopObservation{
+		Phase:     PhaseMidLoop,
+		Iteration: 0,
+		LastToolResult: &types.ToolResult{
+			ToolName: "emit_answer_document",
+			Success:  false,
+			Summary:  "[answer_doc_reject:config_trace_context_citation] exact-absent config-trace answers may cite only precedence-capable lineage anchors.",
+			Repair: &types.ToolRepair{
+				Code: "config_trace_context_citation",
+				Hint: "Re-emit `emit_answer_document` with the same exact-absence conclusion, but remove this anchor from `citations[]` and from any fenced diagram nodes. You may keep it in `summary` as prose-only grounded nearby context, but if the user-visible answer still explains precedence / lineage, cite at least one validated default/config/runtime/override anchor.",
+				Metadata: map[string]string{
+					"allowed_citations":  "internal/config/runtime.go:231",
+					"allowed_anchors":    "DefaultExploreHeuristics, internal/config/runtime.go",
+					"prose_only_anchors": "DefaultExploreHeuristics",
+					"drop_citations":     "internal/types/config.go:707",
+				},
+			},
+		},
+	})
+	if !sig.HintRequested {
+		t.Fatalf("config-trace prose-only citation reject should request a correction hint, got %+v", sig)
+	}
+	for _, want := range []string{
+		"Allowed related-context citations for this dispatch",
+		"`internal/config/runtime.go:231`",
+		"Keep any visible nearby context on this validated anchor set only",
+		"`DefaultExploreHeuristics`, `internal/config/runtime.go`",
+		"may stay on the user-visible answer surface as uncited prose-only grounded context",
+		"`DefaultExploreHeuristics`",
+		"Drop these invalid citation(s) from `citations[]`",
+		"`internal/types/config.go:707`",
+		"Choose one valid repair path now",
+	} {
+		if !strings.Contains(sig.Hint, want) {
+			t.Fatalf("config-trace prose-only context-citation hint missing %q: %q", want, sig.Hint)
+		}
+	}
+}
+
 func TestAnswerDocumentEvaluator_Observe_MidLoopDiagramCodenameRejectSurfacesAction(t *testing.T) {
 	e := &answerDocumentEvaluator{maxRetries: 2, configTraceDiagram: true}
 	sig := e.Observe(nil, LoopObservation{
