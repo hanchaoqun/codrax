@@ -117,7 +117,7 @@ func planPostHook(o *Orchestrator, out *agent.StageOutput) error {
 			})
 		}
 	}
-	o.busCtx.Mutable.SetResult(renderChangePlanSummary(plan))
+	o.busCtx.Mutable.SetResult(renderChangePlanSummary(plan, o.busCtx.Language))
 	logging.Info("[orchestrator] plan stage: id=%s changes=%d", plan.ID, len(plan.Changes))
 	return nil
 }
@@ -244,7 +244,7 @@ func applyPostHook(o *Orchestrator, out *agent.StageOutput) error {
 		return nil
 	}
 	applied := o.busCtx.Mutable.WriteClosure().AppliedSet()
-	o.busCtx.Mutable.SetResult(renderApplySummary(plan, applied, o.busCtx.WorktreePath))
+	o.busCtx.Mutable.SetResult(renderApplySummary(plan, applied, o.busCtx.WorktreePath, o.busCtx.Language))
 	logging.Info("[orchestrator] apply stage: completed, %d/%d changes applied",
 		len(applied), len(plan.TargetPaths))
 	// Warm-worktree retry checkpoint: commit the applied content as a
@@ -341,12 +341,12 @@ func verifyPostHook(o *Orchestrator, out *agent.StageOutput) error {
 		o.saveChangeReport(report)
 	}
 	if out != nil && out.Error != "" {
-		o.busCtx.Mutable.SetResult(renderVerifyFailure(report, out.Error))
+		o.busCtx.Mutable.SetResult(renderVerifyFailure(report, out.Error, o.busCtx.Language))
 		o.persistPlanStatus(types.PlanStatusVerifyFailed, nil)
 		return nil
 	}
 	existing := o.busCtx.Mutable.Result()
-	o.busCtx.Mutable.SetResult(existing + renderVerifySuccess(report))
+	o.busCtx.Mutable.SetResult(existing + renderVerifySuccess(report, o.busCtx.Language))
 	now := time.Now()
 	o.persistPlanStatus(types.PlanStatusApplied, &now)
 	return nil
@@ -557,11 +557,11 @@ func restoreBestIfRegressed(o *Orchestrator) {
 	// summary so the user can see the (better but still failing)
 	// state of the best iteration.
 	if bestReport.Passed {
-		o.busCtx.Mutable.SetResult(renderVerifySuccess(bestReport))
+		o.busCtx.Mutable.SetResult(renderVerifySuccess(bestReport, o.busCtx.Language))
 		now := time.Now()
 		o.persistPlanStatus(types.PlanStatusApplied, &now)
 	} else {
-		o.busCtx.Mutable.SetResult(renderVerifyFailure(bestReport, ""))
+		o.busCtx.Mutable.SetResult(renderVerifyFailure(bestReport, "", o.busCtx.Language))
 		o.persistPlanStatus(types.PlanStatusVerifyFailed, nil)
 	}
 	// Re-persist the report so the on-disk artifact reflects what is

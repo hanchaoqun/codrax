@@ -679,7 +679,10 @@ func TestRestoreBestIfRegressed_PersistsAfterPlanPathCleared(t *testing.T) {
 	// Mutable.Result reflects the restored (still-failing) verdict, not
 	// a stale "0/54" rendering.
 	result := o.busCtx.Mutable.Result()
-	if !strings.Contains(result, "Verify FAILED") {
+	// Match either localised heading; the verify failure renderer
+	// follows BusContext.Language (zh default, en flips on
+	// --lang=en).
+	if !strings.Contains(result, "Verify FAILED") && !strings.Contains(result, "Verify 失败") {
 		t.Errorf("Mutable.Result should be re-rendered for restored report; got %q", result)
 	}
 }

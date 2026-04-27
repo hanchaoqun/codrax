@@ -1819,7 +1819,7 @@ func (r *REPL) handleApproveCmd(line string) {
 		return
 	}
 
-	title := approveTitlePrompt(r.language, plan.ID, len(plan.Changes))
+	title := approveTitlePrompt(r.language, plan.ID, len(plan.Changes), skipVerify)
 	confirmed := false
 	if r.interactive() {
 		if err := huh.NewConfirm().

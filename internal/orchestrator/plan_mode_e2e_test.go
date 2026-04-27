@@ -95,8 +95,11 @@ func TestPlanMode_E2E_StubPlannerProducesChangePlan(t *testing.T) {
 	if !strings.Contains(result, "main.go") {
 		t.Errorf("Result should mention the target file 'main.go'; got %q", result)
 	}
-	if !strings.Contains(result, "Proposed change plan") {
-		t.Errorf("Result should include the 'Proposed change plan' header; got first 200 chars: %q",
+	// renderChangePlanSummary now follows BusContext.Language;
+	// fixture leaves it empty which maps to zh-default. Accept
+	// either localised heading.
+	if !strings.Contains(result, "Proposed change plan") && !strings.Contains(result, "提议的 ChangePlan") {
+		t.Errorf("Result should include the change-plan header (zh or en); got first 200 chars: %q",
 			result[:min(200, len(result))])
 	}
 

@@ -95,10 +95,25 @@ func verifyDispatchRequest(plan *types.ChangePlan) string {
 }
 
 // approveTitlePrompt — confirmation-dialog title for /approve.
-func approveTitlePrompt(lang, planID string, changeCount int) string {
+// skipVerify changes the trailing clause: when true the title says
+// "apply only" so the operator's eye registers that they're about
+// to land bytes WITHOUT running tests (matching what
+// --skip-verify will actually do). A pre-fix bug always said
+// "apply + run verify" even when the flag was on.
+func approveTitlePrompt(lang, planID string, changeCount int, skipVerify bool) string {
 	if isZh(lang) {
+		if skipVerify {
+			return formatN(lang,
+				"是否批准 plan %s (%d 处改动)?将在 git worktree 中只 apply,跳过 verify(--skip-verify 已生效)。",
+				planID, changeCount)
+		}
 		return formatN(lang,
 			"是否批准 plan %s (%d 处改动)?将在 git worktree 中 apply + 跑 verify。",
+			planID, changeCount)
+	}
+	if skipVerify {
+		return formatN(lang,
+			"Approve plan %s (%d change(s))? Apply inside a git worktree (skip verify — --skip-verify is set).",
 			planID, changeCount)
 	}
 	return formatN(lang,

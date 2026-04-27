@@ -605,10 +605,41 @@ func (o *Orchestrator) Run(request string, repoRoot string, branch string) (*typ
 		if o.busCtx == nil || o.busCtx.WorktreePath == "" {
 			return
 		}
-		if o.keepWorktreeOnSuccess &&
-			o.busCtx.Mode == types.ModeApply &&
-			o.busCtx.TaskState.LastError == "" {
-			logging.Info("[orchestrator] worktree preserved (keep_on_success): %s", o.busCtx.WorktreePath)
+		// Preserve-on-success: keep_on_success yaml knob OR
+		// --skip-verify implies "user wants the bytes".
+		// --skip-verify in particular: the operator's whole reason
+		// for skipping verify is "I'll test in CI / I trust this
+		// patch — just give me the changes." Discarding the
+		// worktree after a successful skip-verify apply makes the
+		// command meaningless (apply succeeded, then bytes vanished,
+		// then /merge can't find anything because plan.WorktreePath
+		// was never persisted to disk in the first place).
+		preserve := o.busCtx.Mode == types.ModeApply &&
+			o.busCtx.TaskState.LastError == "" &&
+			(o.keepWorktreeOnSuccess || o.skipVerify)
+		if preserve {
+			// Persist the worktree path to the on-disk plan JSON
+			// so /merge / /worktree list / /verify <plan-id>
+			// can find it later. persistPlanStatus uses
+			// UpdatePlanStatusOnDisk which honours empty
+			// worktreePath as "don't touch", so we have to write
+			// it explicitly here. The status was already set
+			// (applied) by the verify post-hook or the
+			// skip-verify shortcut; we re-stamp with the same
+			// status to attach the path.
+			if plan := o.busCtx.Mutable.ChangePlan(); plan != nil {
+				now := time.Now()
+				if err := types.UpdatePlanStatusOnDisk(o.busCtx.PlanPath,
+					types.PlanStatusApplied, &now, o.busCtx.WorktreePath); err != nil {
+					logging.Warning("[orchestrator] worktree preserve: persist path on plan %s failed: %v",
+						plan.ID, err)
+				}
+			}
+			reason := "keep_on_success"
+			if o.skipVerify {
+				reason = "skip_verify (apply succeeded; user wants bytes)"
+			}
+			logging.Info("[orchestrator] worktree preserved (%s): %s", reason, o.busCtx.WorktreePath)
 			return
 		}
 		if err := worktree.DiscardByPath(o.busCtx.WorktreePath, o.busCtx.MainRepoRoot); err != nil {
@@ -833,11 +864,38 @@ func (o *Orchestrator) runTaskPhase(stepsUsed *int) error {
 // by the REPL / single-shot renderer to show the user what landed
 // in the worktree. Intentionally markdown-adjacent so the content
 // survives glamour rendering without structural mangling.
-func renderApplySummary(plan *types.ChangePlan, applied map[string]bool, worktreePath string) string {
+//
+// Bilingual: lang follows the BusContext.Language convention
+// (zh-default, en-only flips to English). Pre-fix this rendered in
+// English regardless of --lang; the customer's lang=zh terminal
+// showed mixed Chinese / English depending on the rendering layer
+// (REPL chrome was zh, orchestrator-injected sections were en).
+func renderApplySummary(plan *types.ChangePlan, applied map[string]bool, worktreePath, lang string) string {
+	zh := isLangZh(lang)
 	if plan == nil {
+		if zh {
+			return "apply 阶段:没有可用的 ChangePlan"
+		}
 		return "apply phase: no ChangePlan available"
 	}
 	var b strings.Builder
+	if zh {
+		fmt.Fprintf(&b, "## Apply 结果:%s\n\n", plan.ID)
+		fmt.Fprintf(&b, "已在 worktree `%s` 中 apply **%d** 个变更。\n\n", worktreePath, len(applied))
+		if len(plan.Changes) > 0 {
+			b.WriteString("**变更列表**:\n\n")
+			for i, c := range plan.Changes {
+				status := "✓"
+				if !applied[c.Path] {
+					status = "✗"
+				}
+				fmt.Fprintf(&b, "%d. %s **%s** (`%s`)\n", i+1, status, c.Kind, c.Path)
+			}
+			b.WriteString("\n")
+		}
+		b.WriteString("*进程退出时 worktree 默认销毁。如需持久化,在 codrax 退出前 `cd` 进 worktree `git cherry-pick` 回主仓 (或开 `pipeline_keep_worktree_on_success` + 用 `/merge`).*\n")
+		return b.String()
+	}
 	fmt.Fprintf(&b, "## Apply result: %s\n\n", plan.ID)
 	fmt.Fprintf(&b, "Applied **%d** change(s) into worktree `%s`.\n\n", len(applied), worktreePath)
 	if len(plan.Changes) > 0 {
@@ -851,8 +909,18 @@ func renderApplySummary(plan *types.ChangePlan, applied map[string]bool, worktre
 		}
 		b.WriteString("\n")
 	}
-	b.WriteString("*The worktree is discarded on exit. To persist, cherry-pick the worktree commit into the main repo before the process terminates.*\n")
+	b.WriteString("*The worktree is discarded on exit. To persist, cherry-pick the worktree commit into the main repo before the process terminates (or set `pipeline_keep_worktree_on_success` + use `/merge`).*\n")
 	return b.String()
+}
+
+// isLangZh — mirror of the REPL-side language matcher to avoid an
+// internal/orchestrator → internal/repl edge. zh-default; only
+// "en" (case-insensitive) flips to English; everything else stays
+// zh because the orchestrator's user-visible chrome is not the
+// same surface as answer text and zh covers the majority user
+// base. Same convention as messages.go::isZh in the REPL.
+func isLangZh(lang string) bool {
+	return !strings.EqualFold(strings.TrimSpace(lang), "en")
 }
 
 // persistPlanStatus updates the on-disk plan JSON's Status field
@@ -881,8 +949,13 @@ func (o *Orchestrator) persistPlanStatus(status string, appliedAt *time.Time) {
 	// untouched so a later /reject or retry doesn't leak a stale
 	// path onto the plan JSON.
 	wt := ""
+	// Persist worktree path on every successful apply that ends up
+	// preserved — that's keep_on_success yaml knob OR --skip-verify
+	// (which implies preserve, see the outer Run() defer).
+	// Without persisting, /merge / /worktree list / /verify <id>
+	// can't find the worktree even though it's still on disk.
 	if status == types.PlanStatusApplied &&
-		o.keepWorktreeOnSuccess &&
+		(o.keepWorktreeOnSuccess || o.skipVerify) &&
 		o.busCtx.WorktreePath != "" {
 		wt = o.busCtx.WorktreePath
 	}
@@ -1295,10 +1368,15 @@ func (o *Orchestrator) saveChangeReport(report *types.ChangeReport) {
 // renderVerifyFailure builds the Mutable.Result message for a
 // verify-stage failure. Includes the failure summary + a short
 // list of failing test names so the user has actionable context
-// without opening the report JSON.
-func renderVerifyFailure(report *types.ChangeReport, agentError string) string {
+// without opening the report JSON. Bilingual.
+func renderVerifyFailure(report *types.ChangeReport, agentError, lang string) string {
+	zh := isLangZh(lang)
 	var b strings.Builder
-	b.WriteString("## Verify FAILED\n\n")
+	if zh {
+		b.WriteString("## Verify 失败\n\n")
+	} else {
+		b.WriteString("## Verify FAILED\n\n")
+	}
 	if report == nil {
 		b.WriteString(agentError + "\n")
 		return b.String()
@@ -1315,7 +1393,11 @@ func renderVerifyFailure(report *types.ChangeReport, agentError string) string {
 		}
 	}
 	if failed > 0 {
-		fmt.Fprintf(&b, "**Failing tests** (%d):\n\n", failed)
+		if zh {
+			fmt.Fprintf(&b, "**失败测试**(%d 个):\n\n", failed)
+		} else {
+			fmt.Fprintf(&b, "**Failing tests** (%d):\n\n", failed)
+		}
 		shown := 0
 		for _, r := range report.TestResults {
 			if r.Passed {
@@ -1323,25 +1405,41 @@ func renderVerifyFailure(report *types.ChangeReport, agentError string) string {
 			}
 			shown++
 			if shown > 10 {
-				fmt.Fprintf(&b, "- …(+%d more)\n", failed-10)
+				if zh {
+					fmt.Fprintf(&b, "- …(还有 %d 个)\n", failed-10)
+				} else {
+					fmt.Fprintf(&b, "- …(+%d more)\n", failed-10)
+				}
 				break
 			}
 			fmt.Fprintf(&b, "- `%s` (`%s`)\n", r.AssertionID, r.Suite)
 		}
 		b.WriteString("\n")
 	}
-	b.WriteString("*Re-plan with `--mode=plan` or REPL `/mode plan` incorporating this failure context.*\n")
+	if zh {
+		b.WriteString("*用 `--mode=plan` 或 REPL `/mode plan` 把这次失败上下文带进去重新规划。*\n")
+	} else {
+		b.WriteString("*Re-plan with `--mode=plan` or REPL `/mode plan` incorporating this failure context.*\n")
+	}
 	return b.String()
 }
 
 // renderVerifySuccess renders a short "all good" note appended to
 // the apply summary. Kept compact so it pairs visually with the
-// apply-phase output already in Mutable.Result.
-func renderVerifySuccess(report *types.ChangeReport) string {
+// apply-phase output already in Mutable.Result. Bilingual.
+func renderVerifySuccess(report *types.ChangeReport, lang string) string {
+	zh := isLangZh(lang)
 	if report == nil {
+		if zh {
+			return "\n## Verify 通过\n\n未产出 ChangeReport,verify 阶段已完成但无显式输出。\n"
+		}
 		return "\n## Verify PASSED\n\nNo ChangeReport produced; verify stage completed without explicit output.\n"
 	}
 	total := len(report.TestResults)
+	if zh {
+		return fmt.Sprintf("\n## Verify 通过\n\n%d 个测试通过。报告已存到 .codrax/plans/%s.report.json。\n",
+			total, report.PlanID)
+	}
 	return fmt.Sprintf("\n## Verify PASSED\n\n%d test(s) passed. Report saved to .codrax/plans/%s.report.json.\n",
 		total, report.PlanID)
 }
@@ -1352,11 +1450,42 @@ func renderVerifySuccess(report *types.ChangeReport) string {
 // richer rendering can land later if user feedback demands it.
 // Kept internal to orchestrator because no downstream package
 // consumes the rendered form.
-func renderChangePlanSummary(plan *types.ChangePlan) string {
+func renderChangePlanSummary(plan *types.ChangePlan, lang string) string {
 	if plan == nil {
 		return ""
 	}
+	zh := isLangZh(lang)
 	var b strings.Builder
+	if zh {
+		fmt.Fprintf(&b, "## 提议的 ChangePlan:%s\n\n", plan.ID)
+		if plan.Request != "" {
+			fmt.Fprintf(&b, "**请求**:%s\n\n", plan.Request)
+		}
+		if plan.Summary != "" {
+			fmt.Fprintf(&b, "**摘要**:%s\n\n", plan.Summary)
+		}
+		if len(plan.Changes) > 0 {
+			b.WriteString("**变更列表**:\n\n")
+			for i, c := range plan.Changes {
+				fmt.Fprintf(&b, "%d. **%s** (`%s`) — %s\n", i+1, c.Kind, c.Path, c.Rationale)
+			}
+			b.WriteString("\n")
+		}
+		if len(plan.TargetPaths) > 0 {
+			fmt.Fprintf(&b, "**目标路径**:%d 个文件 — %s\n\n",
+				len(plan.TargetPaths), strings.Join(plan.TargetPaths, ", "))
+		}
+		if len(plan.AcceptanceTests) > 0 {
+			b.WriteString("**验收测试**:\n\n")
+			for _, t := range plan.AcceptanceTests {
+				fmt.Fprintf(&b, "- %s\n", t)
+			}
+			b.WriteString("\n")
+		}
+		fmt.Fprintf(&b, "状态:%s。批准方式:`--mode=apply --plan-file=<已保存路径>` 或在 REPL 内 `/approve`。\n",
+			plan.Status)
+		return b.String()
+	}
 	fmt.Fprintf(&b, "## Proposed change plan: %s\n\n", plan.ID)
 	if plan.Request != "" {
 		fmt.Fprintf(&b, "**Request**: %s\n\n", plan.Request)

@@ -247,7 +247,22 @@ func (t *RunTests) Execute(ctx *types.BusContext, params json.RawMessage) (types
 			}
 		}
 
-		cmdStr, extraFile := buildRunCommand(runner, p.Suite, runnerRoot)
+		// MainRepoRoot is threaded through for python venv probing:
+		// during verify the worktree is a detached-HEAD checkout that
+		// excludes gitignored paths (`.venv/` typically is), so the
+		// venv lives at the user's main repo root, not under the
+		// worktree. pythonInterpreter probes both roots in order.
+		cmdStr, extraFile := buildRunCommand(runner, p.Suite, runnerRoot, ctx.MainRepoRoot)
+
+		// Same root cause as the python venv lookup — but for runners
+		// where the dep is consumed by name from cwd (Node's
+		// node_modules, Ruby's vendor, hvigor's oh_modules), we have
+		// to put the dep AT cwd (= worktree). linkProjectDeps probes
+		// the main repo for these gitignored dirs and symlinks them
+		// into the worktree before exec. Best-effort — failures log
+		// at warning and the runner's native "missing deps" error
+		// still surfaces.
+		linkProjectDeps(ctx.MainRepoRoot, runnerRoot, runner)
 		if extraFile != "" {
 			defer os.Remove(extraFile)
 		}
@@ -961,14 +976,25 @@ func runnerPrimaryBinary(runner string) string {
 // works for any python+pytest install and adds CWD to sys.path) or
 // to fall back to a bare `pytest` invocation.
 //
+// roots is the ordered list of repo paths to probe for a venv —
+// caller typically passes (worktreeRoot, mainRepoRoot). The first
+// root with a recognised venv layout wins. Empty / duplicate roots
+// are tolerated. Why both roots: during verify the worktree is a
+// detached-HEAD checkout that excludes gitignored paths (`.venv/`
+// is conventionally gitignored), so the venv exists only at the
+// user's main repo. The pre-fix code probed the worktree and missed
+// it; threading mainRepoRoot through fixes the customer-reported
+// "I just installed pytest in .venv but codrax says runner_missing".
+//
 // Priority order:
 //
-//  1. Project venv binaries — `.venv/bin/python` (Unix) /
-//     `.venv\Scripts\python.exe` (Windows), then `venv/`, `env/`,
-//     `.virtualenv/` variants. When a venv exists, its python sees
-//     the project's installed dependencies; running pytest from
-//     outside the venv would either miss the project's deps or use
-//     a different interpreter than `pip install` populated.
+//  1. Project venv binaries (per root, in roots order):
+//     `.venv/bin/python` (Unix) / `.venv\Scripts\python.exe`
+//     (Windows), then `venv/`, `env/`, `.virtualenv/` variants. When
+//     a venv exists, its python sees the project's installed
+//     dependencies; running pytest from outside the venv would
+//     either miss the project's deps or use a different interpreter
+//     than `pip install` populated.
 //  2. `python3` from PATH — preferred over `python` because modern
 //     Linux/macOS distros ship only `python3` (the `python` symlink
 //     to Python 2 was removed). exec.LookPath probes the operator's
@@ -985,18 +1011,26 @@ func runnerPrimaryBinary(runner string) string {
 // forward-slash paths on Windows, and avoiding backslashes
 // sidesteps shell-escape ambiguity (`\v`, `\t` etc as escape codes
 // in some sh implementations).
-func pythonInterpreter(repoRoot string) (string, bool) {
+func pythonInterpreter(roots ...string) (string, bool) {
 	venvDirs := []string{".venv", "venv", "env", ".virtualenv"}
 	venvSubpaths := []string{
 		filepath.Join("bin", "python"),
 		filepath.Join("bin", "python3"),
 		filepath.Join("Scripts", "python.exe"),
 	}
-	for _, dir := range venvDirs {
-		for _, sub := range venvSubpaths {
-			candidate := filepath.Join(repoRoot, dir, sub)
-			if info, err := os.Stat(candidate); err == nil && !info.IsDir() {
-				return filepath.ToSlash(candidate), true
+	seen := make(map[string]bool, len(roots))
+	for _, root := range roots {
+		root = strings.TrimSpace(root)
+		if root == "" || seen[root] {
+			continue
+		}
+		seen[root] = true
+		for _, dir := range venvDirs {
+			for _, sub := range venvSubpaths {
+				candidate := filepath.Join(root, dir, sub)
+				if info, err := os.Stat(candidate); err == nil && !info.IsDir() {
+					return filepath.ToSlash(candidate), true
+				}
 			}
 		}
 	}
@@ -1406,7 +1440,13 @@ func firstXMLDescendant(dir string, maxDepth int) bool {
 // the runner writes its JSON output to (pytest-json-report uses
 // a file argument; other runners print to stdout). Empty extraFile
 // means parse from stdout.
-func buildRunCommand(runner, suite, repoRoot string) (string, string) {
+// buildRunCommand assembles the shell command string for a runner.
+// repoRoot is the runner's working dir (worktree during verify);
+// mainRoot is the original repo path (BusContext.MainRepoRoot)
+// — only used by the python branch, where the user's venv often
+// lives at mainRoot/.venv/ but never reaches the worktree because
+// .venv/ is gitignored.
+func buildRunCommand(runner, suite, repoRoot, mainRoot string) (string, string) {
 	switch runner {
 	case "go":
 		pkg := strings.TrimSpace(suite)
@@ -1438,7 +1478,13 @@ func buildRunCommand(runner, suite, repoRoot string) (string, string) {
 		// their own package without `pip install -e .`, and (2)
 		// it works regardless of whether the pytest entry-point
 		// script is on PATH (only the module needs to be importable).
-		interp, asModule := pythonInterpreter(repoRoot)
+		//
+		// Probe order: worktree first (rare — venv tracked in git),
+		// main repo root second (typical — .venv/ gitignored, lives
+		// at mainRoot only). Caller passes both so verify-stage code
+		// running inside the worktree still finds the venv at the
+		// user's mainRoot.
+		interp, asModule := pythonInterpreter(repoRoot, mainRoot)
 		if asModule {
 			if filter == "" {
 				return fmt.Sprintf("%s -m pytest --json-report --json-report-file=%q", interp, tmpFile), tmpFile

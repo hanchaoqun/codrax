@@ -1106,7 +1106,19 @@ verify 阶段跑 pytest 时,codrax 会按下列顺序解析 Python 解释器:
 
 如果 venv 里没装 pytest,失败信号是 `No module named pytest`;codrax 把它和 `python: command not found` 一并归类为 `FailureKind=runner_missing`,跳过 verify→plan 重试,直接给安装提示(中英双语,跟随 `--lang`)。
 
-**其它语言不需要这种处理**:Go / Rust / Swift 把测试框架打包进语言工具链;Node / Java(Gradle)/ Ruby / hvigor / cjpm 用项目本地 wrapper(`npm test` / `./gradlew` / `bundle exec` / `hvigorw` / cjpm)自带依赖解析。Python 是唯一一个测试框架是**独立可装模块**的语言,所以是唯一需要 venv 感知的 runner。
+**其它语言不需要这种处理**:Go / Rust / Swift 把测试框架打包进语言工具链。
+
+**但 Node / Ruby / hvigor 有同源问题(已修复)**:这些 runner 的依赖目录(`node_modules/` / `vendor/` / `oh_modules/`)也通常 gitignored,跑 verify 时 worktree 里没有这些目录。codrax 自动**软链主仓的依赖目录到 worktree**(`os.Symlink`,Linux/macOS;Windows 需 Developer Mode):
+
+| Runner | 软链候选目录 |
+|---|---|
+| node | `node_modules/` |
+| ruby | `vendor/` / `vendor/bundle/` / `.bundle/` |
+| hvigor | `oh_modules/` / `node_modules/` |
+
+软链规则:仅当主仓有该目录、且 worktree 里还没有同名目录时才创建(避免覆盖 user committed 的 deps)。失败仅 warn,不阻塞 verify;runner 自己的 "module not found" 错误是兜底信号。
+
+**Java / Maven / Gradle / Cargo 不需要**:这些都用全局用户级缓存(`~/.m2`、`~/.gradle`、`~/.cargo`),跨工作目录共享。CMake / Meson 在显式 build dir 里跑,verify 之前要求用户已经 configure 过。Make 由项目自定义。
 
 #### 4.3.17 REPL 控制命令意外喂给 orchestrator 时立即拒
 
@@ -1293,6 +1305,8 @@ REPL 会自动从 PlanStore 找最近一条 `pending_approval` plan 重新绑定
 - 想快速迭代,稍后让 CI 跑测试
 
 注意:`--skip-verify` 不影响 plan 状态机 —— apply 成功后 plan 标 `applied`,跟 verify 通过的 plan 一样。如果担心引入回归,后续可以用 `/verify <plan-id>` 单独补跑测试。
+
+**`--skip-verify` 自动保留 worktree**:operator 用 `--skip-verify` 的本意是"我要这些字节",所以 `--skip-verify` 蕴含 `pipeline_keep_worktree_on_success`(无需另行配置 yaml);plan 的 `WorktreePath` 自动写到磁盘 plan JSON 里,后续 `/merge` / `/worktree list` / `/verify <plan-id>` 都能找到这次保留的 worktree。否则会出现"apply 成功了但 worktree 立刻被销毁,/merge 找不到东西可合"的 UX 死路。
 
 #### 4.3.23 当前 git 分支感知 + `/branch` 切换 + `!shell`
 

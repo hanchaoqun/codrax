@@ -384,7 +384,7 @@ func TestDetectJavaBuildSystem_MavenBeatsGradle(t *testing.T) {
 }
 
 func TestBuildRunCommand_RubyRSpec(t *testing.T) {
-	cmd, extra := buildRunCommand("ruby", "", "/tmp")
+	cmd, extra := buildRunCommand("ruby", "", "/tmp", "")
 	if !strings.Contains(cmd, "bundle exec rspec") {
 		t.Errorf("ruby command should be bundle-exec rspec; got %q", cmd)
 	}
@@ -395,7 +395,7 @@ func TestBuildRunCommand_RubyRSpec(t *testing.T) {
 		t.Errorf("ruby uses stdout; extraFile should be empty; got %q", extra)
 	}
 
-	cmdFilter, _ := buildRunCommand("ruby", "models/user_spec.rb", "/tmp")
+	cmdFilter, _ := buildRunCommand("ruby", "models/user_spec.rb", "/tmp", "")
 	if !strings.Contains(cmdFilter, "models/user_spec.rb") {
 		t.Errorf("filter should appear in command; got %q", cmdFilter)
 	}
@@ -404,7 +404,7 @@ func TestBuildRunCommand_RubyRSpec(t *testing.T) {
 func TestBuildRunCommand_JavaMaven(t *testing.T) {
 	dir := t.TempDir()
 	os.WriteFile(filepath.Join(dir, "pom.xml"), []byte("<project/>"), 0o644)
-	cmd, extra := buildRunCommand("java", "", dir)
+	cmd, extra := buildRunCommand("java", "", dir, "")
 	if !strings.Contains(cmd, "mvn") || !strings.Contains(cmd, "test") {
 		t.Errorf("maven command should be mvn test; got %q", cmd)
 	}
@@ -417,7 +417,7 @@ func TestBuildRunCommand_JavaMaven(t *testing.T) {
 func TestBuildRunCommand_JavaGradle(t *testing.T) {
 	dir := t.TempDir()
 	os.WriteFile(filepath.Join(dir, "build.gradle"), []byte(""), 0o644)
-	cmd, _ := buildRunCommand("java", "", dir)
+	cmd, _ := buildRunCommand("java", "", dir, "")
 	if !strings.Contains(cmd, "gradlew") {
 		t.Errorf("gradle command should invoke gradlew; got %q", cmd)
 	}

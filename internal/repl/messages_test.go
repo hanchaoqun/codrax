@@ -151,16 +151,34 @@ func TestIsZh_DefaultsToZh(t *testing.T) {
 }
 
 func TestApproveTitlePrompt_BothLangs(t *testing.T) {
-	zh := approveTitlePrompt("zh", "plan-1", 3)
+	zh := approveTitlePrompt("zh", "plan-1", 3, false)
 	if !strings.Contains(zh, "批准") || !strings.Contains(zh, "plan-1") || !strings.Contains(zh, "3 处") {
 		t.Errorf("zh prompt missing key fragments; got %q", zh)
 	}
-	en := approveTitlePrompt("en", "plan-1", 3)
+	en := approveTitlePrompt("en", "plan-1", 3, false)
 	if !strings.Contains(en, "Approve") || !strings.Contains(en, "plan-1") {
 		t.Errorf("en prompt missing key fragments; got %q", en)
 	}
 	if zh == en {
 		t.Errorf("zh and en prompts should differ; both = %q", zh)
+	}
+	// --skip-verify variants must mention skip / 跳过 verify so the
+	// operator's eye registers the deliberate bypass before they
+	// click Yes. Pre-fix the title always said "apply + run verify"
+	// regardless of the flag, masking the actual behaviour.
+	zhSkip := approveTitlePrompt("zh", "plan-1", 3, true)
+	if !strings.Contains(zhSkip, "跳过 verify") {
+		t.Errorf("zh skip-verify prompt should mention 跳过 verify; got %q", zhSkip)
+	}
+	if strings.Contains(zhSkip, "+ 跑 verify") {
+		t.Errorf("zh skip-verify prompt must NOT promise run-verify; got %q", zhSkip)
+	}
+	enSkip := approveTitlePrompt("en", "plan-1", 3, true)
+	if !strings.Contains(enSkip, "skip verify") {
+		t.Errorf("en skip-verify prompt should mention skip verify; got %q", enSkip)
+	}
+	if strings.Contains(enSkip, "run verify") {
+		t.Errorf("en skip-verify prompt must NOT promise run-verify; got %q", enSkip)
 	}
 }
 
