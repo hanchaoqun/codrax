@@ -1340,6 +1340,9 @@ func hasGroundedOrRecovered(items []types.EvidenceItem) bool {
 }
 
 func allowsContextualEvidenceForAbsence(ctx *types.BusContext, reason, justification string, evidence []types.EvidenceItem) bool {
+	if groundedEvidenceIsContextOnly(evidence) {
+		return true
+	}
 	contract := exactResolutionContractForCompletion(ctx)
 	if contract == nil || !contract.AllowAbsence {
 		return false
@@ -1370,6 +1373,27 @@ func allowsContextualEvidenceForAbsence(ctx *types.BusContext, reason, justifica
 	// supporting evidence is allowed as long as no defining proof for
 	// the exact target was emitted.
 	return len(targets) > 0 && !evidenceHasAnyDefiningExactTargetProof(contract, evidence, targets)
+}
+
+func groundedEvidenceIsContextOnly(items []types.EvidenceItem) bool {
+	sawGrounded := false
+	for _, item := range items {
+		switch item.GroundingStatus {
+		case types.GroundingGrounded, types.GroundingRecovered, "":
+		default:
+			continue
+		}
+		sawGrounded = true
+		switch item.ContextRole {
+		case types.EvidenceContextRoleAbsenceSupport,
+			types.EvidenceContextRoleRelatedContext,
+			types.EvidenceContextRoleIllustrativeOnly:
+			continue
+		default:
+			return false
+		}
+	}
+	return sawGrounded
 }
 
 func exactAbsencePendingTargets(ctx *types.BusContext) []string {

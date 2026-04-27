@@ -136,6 +136,69 @@ func TestEmitInvestigationComplete_ConfigTraceAbsenceRequiresValidatedPrecedence
 // TestEmitInvestigationComplete_CompletionWithoutAbsenceOnEvidenceAccepted
 // — the normal happy path: grounded evidence exists, LLM signals
 // completion WITHOUT absence_justification. Must succeed.
+func TestEmitInvestigationComplete_ConfigTraceContextOnlyEvidencePrefersPrecedenceReject(t *testing.T) {
+	missingKey := "explore_mid_loop_hint_budget"
+	mut := types.NewMutableState("q")
+	mut.SetExactContextRequiredFiles([]string{"internal/types/config.go"})
+	mut.AppendEvidence([]types.EvidenceItem{
+		{
+			Kind:            types.EvidenceDirect,
+			Source:          "internal/config/runtime.go",
+			LineStart:       32,
+			Subject:         "RuntimeSettings",
+			Object:          missingKey,
+			AnchorKind:      types.AnchorDefinition,
+			AnchorSymbol:    "RuntimeSettings",
+			Summary:         "RuntimeSettings does not define " + missingKey,
+			ContextRole:     types.EvidenceContextRoleAbsenceSupport,
+			GroundingStatus: types.GroundingGrounded,
+			GroundingTier:   types.TierLineText,
+		},
+		{
+			Kind:            types.EvidenceDirect,
+			Source:          "internal/types/config.go",
+			LineStart:       707,
+			Subject:         "DefaultExploreHeuristics",
+			AnchorKind:      types.AnchorDefinition,
+			AnchorSymbol:    "DefaultExploreHeuristics",
+			Summary:         "Grounded same-family defaults context for nearby explore settings.",
+			ContextRole:     types.EvidenceContextRoleRelatedContext,
+			GroundingStatus: types.GroundingGrounded,
+			GroundingTier:   types.TierLineText,
+		},
+	})
+	bus := &types.BusContext{
+		Mutable: mut,
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			RawRequest: missingKey + " 的最终有效值是怎么计算出来的？",
+			Scenario:   types.ScenarioConfigTrace,
+			AnalyzerHints: types.AnalyzerHints{
+				Kind:            "config_mapping",
+				PrimaryEntities: []string{missingKey},
+				Entities:        []string{missingKey},
+				ExactTargets:    []string{missingKey},
+			},
+			AnswerSubject: types.AnswerSubject{Kind: types.SubjectConfigKey},
+		}},
+	}
+	tool := &EmitInvestigationComplete{}
+
+	params := json.RawMessage(`{"reason":"searched the repo and found no exact config key ` + missingKey + ` in production code","confidence":"high","result_kind":"absence","absence_justification":"no config key named ` + missingKey + ` exists in the repo"}`)
+	res, err := tool.Execute(bus, params)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if res.Success {
+		t.Fatalf("config-trace absence should still reject until a validated precedence anchor exists")
+	}
+	if strings.Contains(res.Summary, "absence_justification is reserved") {
+		t.Fatalf("context-only absence should bypass the generic contradiction gate and surface the specific precedence repair instead: %s", res.Summary)
+	}
+	if !strings.Contains(res.Summary, "precedence-capable lineage anchor") {
+		t.Fatalf("rejection should point at the missing precedence anchor, got: %s", res.Summary)
+	}
+}
+
 func TestEmitInvestigationComplete_CompletionWithoutAbsenceOnEvidenceAccepted(t *testing.T) {
 	mut := types.NewMutableState("q")
 	mut.AppendEvidence([]types.EvidenceItem{{
