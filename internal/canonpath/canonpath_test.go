@@ -51,6 +51,43 @@ func TestCanonicalRepoRelative(t *testing.T) {
 			repoRoot: "/mnt/d/temp/donghu/iSulad-master",
 			want: "README.md",
 		},
+		// Windows-style backslash paths emitted by an LLM running on
+		// (or pretending to run on) Windows reach the canonicaliser
+		// regardless of host OS. cleanRepoPath must normalise them
+		// the same way on every platform — Linux's filepath.Clean
+		// does not recognise `\` as a separator, so without the
+		// upfront ReplaceAll backslashes leak through and the path
+		// never matches its slash-form siblings in the repo indices.
+		{
+			name: "windows volume path inside repoRoot (slash-form root)",
+			path: `C:\Users\me\codrax\internal\x.go`, repoRoot: "C:/Users/me/codrax",
+			want: "internal/x.go",
+		},
+		{
+			name: "windows volume path inside repoRoot (backslash-form root)",
+			path: `C:\Users\me\codrax\internal\x.go`, repoRoot: `C:\Users\me\codrax`,
+			want: "internal/x.go",
+		},
+		{
+			name: "windows volume path equals repoRoot",
+			path: `C:\Users\me\codrax`, repoRoot: `C:\Users\me\codrax`,
+			want: ".",
+		},
+		{
+			name: "windows volume case-insensitive prefix match",
+			path: `c:\users\me\codrax\internal\x.go`, repoRoot: `C:\Users\Me\codrax`,
+			want: "internal/x.go",
+		},
+		{
+			name: "windows volume outside repoRoot stays absolute (slashed)",
+			path: `D:\other\x.go`, repoRoot: `C:\repo`,
+			want: "D:/other/x.go",
+		},
+		{
+			name: "UNC share inside repoRoot",
+			path: `\\server\share\repo\internal\x.go`, repoRoot: `\\server\share\repo`,
+			want: "internal/x.go",
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

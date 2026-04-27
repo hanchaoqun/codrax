@@ -66,10 +66,36 @@ func cleanRepoPath(p string) string {
 	if p == "" {
 		return ""
 	}
-	// POSIX-rooted paths must stay on slash semantics even on Windows.
-	if strings.HasPrefix(p, "/") {
-		return path.Clean(strings.ReplaceAll(p, "\\", "/"))
+	// Unconditional backslash → slash normalisation. Without this
+	// step, Windows-style absolute paths (`C:\Users\...`) emitted
+	// by an LLM running on a Windows test box stay backslash-laden
+	// when the canonicaliser runs on Linux/macOS — `filepath.Clean`
+	// and `filepath.ToSlash` are platform-native, so on Linux they
+	// don't recognise `\` as a separator and `isWindowsAbsolutePath`
+	// (which keys on `<letter>:/`) misses. The result was that
+	// Windows-absolute paths never got stripped to repo-relative on
+	// non-Windows hosts, leaking through to evidence / citation /
+	// banner surfaces. Fixing it at the source means every caller
+	// (tool/ground, agent/explorer, types/EvidenceClosure) gets the
+	// correct cross-platform behaviour without per-call duplication.
+	p = strings.ReplaceAll(p, "\\", "/")
+	// UNC shares (`//server/share/...`) need the leading double
+	// slash preserved across `path.Clean`, which would otherwise
+	// collapse `//` to `/`. We strip one slash before clean and
+	// re-add it after so the rest of the path normalises while the
+	// UNC prefix survives.
+	if strings.HasPrefix(p, "//") {
+		return "/" + path.Clean(p)
 	}
+	// POSIX-rooted paths use slash semantics directly.
+	if strings.HasPrefix(p, "/") {
+		return path.Clean(p)
+	}
+	// Relative paths + Windows volume paths (`C:/Users/...`):
+	// after the ReplaceAll above no backslashes remain, so the
+	// platform-native filepath.Clean is safe — on Linux it cleans
+	// dot-segments without touching the slash-encoded volume,
+	// on Windows it keeps producing canonical-form paths.
 	return filepath.ToSlash(filepath.Clean(p))
 }
 
