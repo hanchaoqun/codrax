@@ -225,8 +225,8 @@ var slashCommands = []slashCommand{
 	},
 	{
 		Name:   "/cancel",
-		HelpEn: "cancel the in-flight Run (slash-command alternative to Ctrl+C; useful when the terminal swallows Ctrl+C)",
-		HelpZh: "取消正在执行的 Run(给被 tmux/screen 吞 Ctrl+C 的终端用的兜底)",
+		HelpEn: "cancel the in-flight Run. TTY mode: use Ctrl+C (the input box is closed during Run). Pipe / scripted stdin: a `/cancel` line on stdin triggers cancel.",
+		HelpZh: "取消正在执行的 Run。TTY 交互模式按 Ctrl+C(运行期输入框关闭,/cancel 输不进去);管道/脚本输入(stdin 重定向)发一行 /cancel 触发。",
 	},
 	{Name: "/version", HelpEn: "print build version", HelpZh: "打印构建版本"},
 	{Name: "/exit", HelpEn: "leave the REPL", HelpZh: "退出 REPL"},

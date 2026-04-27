@@ -667,8 +667,23 @@ func (r *REPL) installCancelSignalHandler() {
 // Centralising the lifecycle here means a future change to the
 // in-flight semantics — say, also disabling certain slash commands
 // while running — has exactly one place to land.
+//
+// Two cancel surfaces are armed for the duration of fn:
+//
+//  1. SIGINT handler — fires on Ctrl+C from any environment. Always
+//     installed (idempotent sync.Once). Primary path for TTY
+//     operators.
+//  2. Stdin cancel listener — only starts when stdin is non-TTY
+//     (pipe / redirect / scripted test). Reads `/cancel` lines and
+//     drives the same Cancel(reason) entry point. Skipped silently
+//     when stdin is a real TTY because bubbletea owns the input box
+//     during prompts and a concurrent reader would race with the
+//     next bubbletea iteration. TTY operators rely on Ctrl+C.
 func (r *REPL) runInFlightWrap(fn func() (*types.BusContext, error)) (*types.BusContext, error) {
 	r.installCancelSignalHandler()
+	canceller, _ := r.runner.(runnerCanceller)
+	listener := startCancelListener(r.in, canceller, r.warn)
+	defer listener.stop() // nil-safe
 	r.runInFlight.Store(true)
 	defer r.runInFlight.Store(false)
 	return fn()
