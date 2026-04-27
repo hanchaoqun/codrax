@@ -560,10 +560,19 @@ func (t *EmitAnswerDocument) Execute(ctx *types.BusContext, params json.RawMessa
 	if p.Boolean != nil && p.Boolean.Decision == "" {
 		p.Boolean = nil
 	}
+	failValidation := func(err error) (types.ToolResult, error) {
+		return types.ToolResult{
+			ToolName:  t.Name(),
+			Success:   false,
+			Summary:   renderAnswerDocRejectSummary(answerDocValidationCode(err), err.Error()),
+			Repair:    answerDocValidationRepair(err),
+			Timestamp: now,
+		}, nil
+	}
 
 	resolvedExact, resolvedSummary, err := resolveAnswerDocumentExactResolution(strings.TrimSpace(p.Summary), p.ExactResolution, ctx)
 	if err != nil {
-		return failEmit(t.Name(), now, "%s", err.Error())
+		return failValidation(err)
 	}
 	p.Summary = resolvedSummary
 
@@ -583,7 +592,7 @@ func (t *EmitAnswerDocument) Execute(ctx *types.BusContext, params json.RawMessa
 	}
 
 	if err := validateAnswerDocumentNaturalLanguage(ctx, shape, p); err != nil {
-		return failEmit(t.Name(), now, "%s", err.Error())
+		return failValidation(err)
 	}
 
 	workDir := strings.TrimSpace(ctx.WorkDir)
@@ -664,7 +673,7 @@ func (t *EmitAnswerDocument) Execute(ctx *types.BusContext, params json.RawMessa
 	}
 	citations, citationRemap, citationWarnings, citationRepairs, cerr := buildEmitAnswerDocumentCitations(p.Citations, workDir, groundCtx, readFiles)
 	if cerr != nil {
-		return failEmit(t.Name(), now, "%v", cerr)
+		return failValidation(cerr)
 	}
 	applyCitationRemap(&p, citationRemap)
 	numCites := len(citations)
@@ -824,7 +833,7 @@ func (t *EmitAnswerDocument) Execute(ctx *types.BusContext, params json.RawMessa
 	if err := validateAnswerDocumentExactResolutionProof(resolvedExact, citations, groundCtx, ctx); err != nil {
 		return failWithContext("%v", err)
 	}
-	if err := validateConfigTraceAbsenceCitationFocus(ctx, resolvedExact, citations); err != nil {
+	if err := validateConfigTraceAbsenceCitationFocus(ctx, resolvedExact, citations, p.Summary); err != nil {
 		return failWithContext("%v", err)
 	}
 	if err := validateExactResolutionContextSurface(p.Summary, resolvedExact, ctx); err != nil {
@@ -1457,8 +1466,8 @@ func validateValueCitationFocus(ctx *types.BusContext, v *types.AnswerValue, cit
 	return nil
 }
 
-func validateConfigTraceAbsenceCitationFocus(ctx *types.BusContext, exact *types.AnswerExactResolution, citations []types.Citation) error {
-	if ctx == nil || exact == nil || len(citations) == 0 {
+func validateConfigTraceAbsenceCitationFocus(ctx *types.BusContext, exact *types.AnswerExactResolution, citations []types.Citation, summary string) error {
+	if ctx == nil || exact == nil {
 		return nil
 	}
 	if exact.Status != types.AnswerExactResolutionAbsent || exact.ContextMode != types.AnswerExactResolutionContextGroundedOnly {
@@ -1472,9 +1481,18 @@ func validateConfigTraceAbsenceCitationFocus(ctx *types.BusContext, exact *types
 	}
 	contract := answerExactResolutionContract(ctx)
 	emitted := ctx.Mutable.EmittedEvidence()
+	lead := renderAnswerDocumentExactResolutionLead(contract, exact, requestedAnswerDocumentLanguage(ctx))
+	body := strings.TrimSpace(exactContextSummaryBodyAfterLead(summary, lead))
+	bodyNeedsLineageCitation := exactContextBodyNeedsStructuredGrounding(body)
+	requiredFiles := answerDocExactContextRequiredFiles(ctx)
+	relatedContextCitations := 0
 	for idx, cite := range citations {
 		matched := matchingEvidenceForCitation(emitted, cite)
 		if configTraceAbsenceCitationAllowed(ctx, contract, matched) {
+			if matched.ContextRole != types.EvidenceContextRoleAbsenceSupport &&
+				types.ConfigTraceGroundedContextAnchorAllowedInFiles(contract, matched, requiredFiles) {
+				relatedContextCitations++
+			}
 			continue
 		}
 		err := newAnswerDocValidationError(
@@ -1483,13 +1501,41 @@ func validateConfigTraceAbsenceCitationFocus(ctx *types.BusContext, exact *types
 			idx, cite.File, cite.Line,
 		).
 			WithFields(fmt.Sprintf("citations[%d]", idx), "exact_resolution.context_mode").
-			WithHint("Re-emit `emit_answer_document` with the same exact-absence conclusion, but keep citations only for the missing-key proof sources and for grounded precedence anchors that already carry validated default/yaml/runtime/override roles. Drop broad same-family structs, counters, or helper comments from `citations[]` and from the rendered answer.")
-		if allowed := formatConfigTraceAllowedCitations(contract, emitted, answerDocExactContextRequiredFiles(ctx)); allowed != "" {
+			WithHint("Re-emit `emit_answer_document` with the same exact-absence conclusion, but keep citations only for the missing-key proof sources and for grounded precedence anchors that already carry validated default/config/runtime/override roles. Here `config` means a grounded repo/user config-file layer (YAML/JSON/TOML/INI/etc.). Drop broad same-family structs, counters, or helper comments from `citations[]` and from the rendered answer.")
+		if allowed := formatConfigTraceAllowedCitations(contract, emitted, requiredFiles); allowed != "" {
 			err = err.WithMetadata("allowed_citations", allowed)
 		}
 		return err
 	}
-	return nil
+	if !bodyNeedsLineageCitation || relatedContextCitations > 0 {
+		return nil
+	}
+	err := newAnswerDocValidationError(
+		"config_trace_context_citation",
+		"exact-absent config-trace answers that keep grounded related context on the user-visible surface must cite at least one grounded precedence-capable lineage anchor. The current summary explains nearby precedence / context, but citations[] contains no validated default/config/runtime/override anchor for that explanation.",
+	).WithFields("citations", "summary", "exact_resolution.context_mode").
+		WithHint("Re-emit `emit_answer_document` with the same exact-absence conclusion, but if `summary` continues to explain nearby precedence / lineage context, keep at least one grounded precedence anchor in `citations[]` (for example a validated default/config/runtime/override anchor already named in the tool metadata). Here `config` means a grounded repo/user config-file layer (YAML/JSON/TOML/INI/etc.). If you do not want to cite nearby lineage context, drop that contextual explanation and keep only the renderer-generated absence lead.")
+	if allowed := formatConfigTraceAllowedCitations(contract, emitted, requiredFiles); allowed != "" {
+		err = err.WithMetadata("allowed_citations", allowed)
+	}
+	return err
+}
+
+func exactContextBodyNeedsStructuredGrounding(body string) bool {
+	body = strings.TrimSpace(body)
+	if body == "" {
+		return false
+	}
+	if strings.Contains(body, "```") {
+		return true
+	}
+	if strings.Contains(body, "\n###") || strings.HasPrefix(body, "###") {
+		return true
+	}
+	if strings.Count(body, "\n\n") >= 1 {
+		return true
+	}
+	return utf8.RuneCountInString(body) >= 180
 }
 
 func answerDocExactContextRequiredFiles(ctx *types.BusContext) []string {
@@ -2679,12 +2725,16 @@ func resolveAnswerDocumentExactResolution(summary string, declared *types.Answer
 	contract := answerExactResolutionContract(ctx)
 	if contract == nil || len(contract.Targets) == 0 {
 		if declared != nil {
-			return nil, "", newAnswerDocValidationError("exact_resolution", "exact-resolution contract violated: exact_resolution is only valid when the dispatch includes an Exact Resolution Contract")
+			return nil, "", newAnswerDocValidationError("exact_resolution", "exact-resolution contract violated: exact_resolution is only valid when the dispatch includes an Exact Resolution Contract").
+				WithFields("exact_resolution").
+				WithHint("Re-emit `emit_answer_document` without an `exact_resolution` object for this dispatch. Keep the grounded answer shape, citations, and payload fields unchanged unless another validator asked for a different fix.")
 		}
 		return nil, summary, nil
 	}
 	if declared == nil {
-		return nil, "", newAnswerDocValidationError("exact_resolution", "exact-resolution contract violated: exact_resolution{status,...} is required for this dispatch")
+		return nil, "", newAnswerDocValidationError("exact_resolution", "exact-resolution contract violated: exact_resolution{status,...} is required for this dispatch").
+			WithFields("exact_resolution").
+			WithHint("Re-emit `emit_answer_document` with `exact_resolution{status, anchor?, context_mode}` filled in. Use `exact_match` only with grounded proof that explicitly names the exact target, `alias_match` only with explicit grounded mapping proof plus `anchor`, and `absent` only when the upstream investigation has already closed as absence.")
 	}
 
 	resolved := &types.AnswerExactResolution{
@@ -2693,10 +2743,14 @@ func resolveAnswerDocumentExactResolution(summary string, declared *types.Answer
 		ContextMode: normalizeAnswerExactResolutionContextMode(declared.ContextMode),
 	}
 	if resolved.Status == "" {
-		return nil, "", newAnswerDocValidationError("exact_resolution", "exact-resolution contract violated: exact_resolution.status must be one of exact_match / alias_match / absent")
+		return nil, "", newAnswerDocValidationError("exact_resolution", "exact-resolution contract violated: exact_resolution.status must be one of exact_match / alias_match / absent").
+			WithFields("exact_resolution.status").
+			WithHint("Re-emit `emit_answer_document` with `exact_resolution.status` set to exactly one of `exact_match`, `alias_match`, or `absent`. Pick the status from the already-grounded proof; do not reopen files or invent a substitute status.")
 	}
 	if declared.ContextMode != "" && resolved.ContextMode == "" {
-		return nil, "", newAnswerDocValidationError("exact_resolution", "exact-resolution contract violated: exact_resolution.context_mode must be one of none / grounded_context_only")
+		return nil, "", newAnswerDocValidationError("exact_resolution", "exact-resolution contract violated: exact_resolution.context_mode must be one of none / grounded_context_only").
+			WithFields("exact_resolution.context_mode").
+			WithHint("Re-emit `emit_answer_document` with `exact_resolution.context_mode` set to either `none` or `grounded_context_only`. Use `grounded_context_only` when the summary keeps nearby grounded context beyond the exact-target proof itself.")
 	}
 	if resolved.ContextMode == "" {
 		resolved.ContextMode = types.AnswerExactResolutionContextNone
@@ -2705,14 +2759,20 @@ func resolveAnswerDocumentExactResolution(summary string, declared *types.Answer
 	switch resolved.Status {
 	case types.AnswerExactResolutionAliasMatch:
 		if resolved.Anchor == "" {
-			return nil, "", newAnswerDocValidationError("exact_resolution", "exact-resolution contract violated: exact_resolution.status=alias_match requires exact_resolution.anchor naming the grounded alias / mapping anchor")
+			return nil, "", newAnswerDocValidationError("exact_resolution", "exact-resolution contract violated: exact_resolution.status=alias_match requires exact_resolution.anchor naming the grounded alias / mapping anchor").
+				WithFields("exact_resolution.status", "exact_resolution.anchor").
+				WithHint("Re-emit `emit_answer_document` with `exact_resolution.anchor` naming the grounded alias / mapping anchor, or stop using `alias_match` if no explicit grounded mapping proof exists.")
 		}
 	case types.AnswerExactResolutionAbsent:
 		if ctx == nil || ctx.Mutable == nil {
-			return nil, "", newAnswerDocValidationError("exact_resolution", "exact-resolution contract violated: status=absent requires mutable exact-resolution state")
+			return nil, "", newAnswerDocValidationError("exact_resolution", "exact-resolution contract violated: status=absent requires mutable exact-resolution state").
+				WithFields("exact_resolution.status").
+				WithHint("Re-emit `emit_answer_document` with an `exact_resolution.status` supported by the current grounded state. Use `absent` only when the upstream investigation has already closed with an exact-absence result.")
 		}
 		if !contract.AllowAbsence || ctx.Mutable.StableInvestigationResultKind() != "absence" || strings.TrimSpace(ctx.Mutable.StableAbsenceJustification()) == "" {
-			return nil, "", newAnswerDocValidationError("exact_resolution", "exact-resolution contract violated: status=absent requires the exploration stage to close with emit_investigation_complete(result_kind=\"absence\", absence_justification=...)")
+			return nil, "", newAnswerDocValidationError("exact_resolution", "exact-resolution contract violated: status=absent requires the exploration stage to close with emit_investigation_complete(result_kind=\"absence\", absence_justification=...)").
+				WithFields("exact_resolution.status").
+				WithHint("Re-emit `emit_answer_document` with `status=absent` only if the upstream investigation has already closed as absence. Otherwise choose `exact_match` or `alias_match` only when the existing grounded proof supports it; do not force `absent` from summary wording alone.")
 		}
 	}
 	if ctx != nil && ctx.Mutable != nil &&
@@ -2720,8 +2780,10 @@ func resolveAnswerDocumentExactResolution(summary string, declared *types.Answer
 		strings.TrimSpace(ctx.Mutable.StableAbsenceJustification()) != "" &&
 		resolved.Status != types.AnswerExactResolutionAbsent {
 		err := newAnswerDocValidationError("exact_resolution", "exact-resolution contract violated: the upstream investigation already closed as absence, so finalizer output must keep exact_resolution.status=\"absent\" unless the investigation is reopened with new grounded proof").
+			WithFields("exact_resolution.status", "exact_resolution.context_mode").
 			WithMetadata("locked_status", string(types.AnswerExactResolutionAbsent)).
 			WithMetadata("preferred_context_mode", string(types.AnswerExactResolutionContextGroundedOnly))
+		err = err.WithHint("Re-emit `emit_answer_document` with `exact_resolution.status=\"absent\"`. If you keep any nearby grounded context, set `exact_resolution.context_mode=\"grounded_context_only\"`. Do not switch to `exact_match` or `alias_match` unless a newly cited grounded anchor explicitly proves the exact target or an explicit alias mapping.")
 		return nil, "", err
 	}
 
@@ -2746,24 +2808,38 @@ func validateAnswerDocumentExactResolutionProof(exact *types.AnswerExactResoluti
 	switch exact.Status {
 	case types.AnswerExactResolutionAbsent:
 		if proof.AnyNonPrimaryCitationContext && exact.ContextMode != types.AnswerExactResolutionContextGroundedOnly {
-			return newAnswerDocValidationError("exact_resolution", "exact-resolution contract violated: exact_resolution.status=absent cites nearby grounded context beyond the primary absence-proof sources, so exact_resolution.context_mode must be \"grounded_context_only\"")
+			return newAnswerDocValidationError("exact_resolution", "exact-resolution contract violated: exact_resolution.status=absent cites nearby grounded context beyond the primary absence-proof sources, so exact_resolution.context_mode must be \"grounded_context_only\"").
+				WithFields("exact_resolution.status", "exact_resolution.context_mode", "citations", "summary").
+				WithMetadata("preferred_context_mode", string(types.AnswerExactResolutionContextGroundedOnly)).
+				WithHint("Re-emit `emit_answer_document` with the same `status=\"absent\"`, but set `exact_resolution.context_mode=\"grounded_context_only\"` because the answer surface already includes nearby grounded context beyond the primary absence-proof sources.")
 		}
 		if proof.TargetMentionContradictsAbsence {
-			return newAnswerDocValidationError("exact_resolution", "exact-resolution contract violated: exact_resolution.status=absent contradicts the grounded evidence/citations, which still name the requested exact %s %s", label, exactTargetListForError(contract.Targets))
+			return newAnswerDocValidationError("exact_resolution", "exact-resolution contract violated: exact_resolution.status=absent contradicts the grounded evidence/citations, which still name the requested exact %s %s", label, exactTargetListForError(contract.Targets)).
+				WithFields("exact_resolution.status", "citations", "summary").
+				WithMetadata("preferred_status", string(types.AnswerExactResolutionExactMatch)).
+				WithHint("Re-emit `emit_answer_document` with `status=\"absent\"` only if you remove the contradictory exact-target proof from the answer surface. If the existing grounded proof truly defines the exact target, switch to `exact_match` instead of keeping `absent`.")
 		}
 	case types.AnswerExactResolutionExactMatch:
 		if !proof.AnyTarget {
-			return newAnswerDocValidationError("exact_resolution", "exact-resolution contract violated: exact_resolution.status=exact_match requires at least one grounded evidence item or cited line that explicitly names the requested exact %s %s", label, exactTargetListForError(contract.Targets))
+			return newAnswerDocValidationError("exact_resolution", "exact-resolution contract violated: exact_resolution.status=exact_match requires at least one grounded evidence item or cited line that explicitly names the requested exact %s %s", label, exactTargetListForError(contract.Targets)).
+				WithFields("exact_resolution.status", "citations", "summary").
+				WithHint("Re-emit `emit_answer_document` with `status=\"exact_match\"` only when a grounded evidence item's structured anchor fields (`subject` / `object` / `anchor_symbol`) or a cited line explicitly names the requested exact target. Free-form summary/background prose does not count as exact proof. Otherwise use `absent` only if the investigation closed as absence, or `alias_match` only with explicit grounded mapping proof.")
 		}
 		if proof.RequiresProductionProof && !proof.AnyProductionTargetAnchor {
-			return newAnswerDocValidationError("exact_resolution", "exact-resolution contract violated: exact_resolution.status=exact_match for the requested exact %s %s requires production-grounded anchored proof, not only test/spec/example or documentation-style mentions", label, exactTargetListForError(contract.Targets))
+			return newAnswerDocValidationError("exact_resolution", "exact-resolution contract violated: exact_resolution.status=exact_match for the requested exact %s %s requires production-grounded anchored proof, not only test/spec/example or documentation-style mentions", label, exactTargetListForError(contract.Targets)).
+				WithFields("exact_resolution.status", "citations", "summary").
+				WithHint("Re-emit `emit_answer_document` with `status=\"exact_match\"` only when the exact target is grounded by production code/config proof. Test/spec/example/documentation mentions may stay as background, but they cannot justify `exact_match` on their own, and summary prose alone never upgrades them into exact proof.")
 		}
 	case types.AnswerExactResolutionAliasMatch:
 		if !proof.anyPair(exact.Anchor) {
-			return newAnswerDocValidationError("exact_resolution", "exact-resolution contract violated: exact_resolution.status=alias_match requires explicit grounded proof that mentions both the requested exact %s %s and the claimed anchor `%s` together", label, exactTargetListForError(contract.Targets), exact.Anchor)
+			return newAnswerDocValidationError("exact_resolution", "exact-resolution contract violated: exact_resolution.status=alias_match requires explicit grounded proof that mentions both the requested exact %s %s and the claimed anchor `%s` together", label, exactTargetListForError(contract.Targets), exact.Anchor).
+				WithFields("exact_resolution.status", "exact_resolution.anchor", "citations", "summary").
+				WithHint("Re-emit `emit_answer_document` with `status=\"alias_match\"` only when one grounded proof item's structured anchor fields (`subject` / `object` / `anchor_symbol`) or one cited line mentions both the requested exact target and the claimed alias / mapping anchor together. Nearby-context explanation in `summary` does not count as alias proof. Otherwise keep `anchor` empty and use the status the current grounded proof actually supports.")
 		}
 		if proof.RequiresProductionProof && !proof.anyProductionPair(exact.Anchor) {
-			return newAnswerDocValidationError("exact_resolution", "exact-resolution contract violated: exact_resolution.status=alias_match for the requested exact %s %s requires production-grounded proof for anchor `%s`, not only test/spec/example mentions", label, exactTargetListForError(contract.Targets), exact.Anchor)
+			return newAnswerDocValidationError("exact_resolution", "exact-resolution contract violated: exact_resolution.status=alias_match for the requested exact %s %s requires production-grounded proof for anchor `%s`, not only test/spec/example mentions", label, exactTargetListForError(contract.Targets), exact.Anchor).
+				WithFields("exact_resolution.status", "exact_resolution.anchor", "citations", "summary").
+				WithHint("Re-emit `emit_answer_document` with `status=\"alias_match\"` only when the alias / mapping proof is grounded in production code/config. Test/spec/example/documentation mentions of the alias are not enough on their own, and summary prose alone cannot supply the missing mapping proof.")
 		}
 	}
 	return nil
@@ -2901,7 +2977,7 @@ func formatExactResolutionTargetReference(label string, targets []string, zh boo
 }
 
 type exactResolutionProofEntry struct {
-	Text         string
+	LineText     string
 	Source       string
 	Subject      string
 	AnchorSymbol string
@@ -2931,10 +3007,9 @@ func (p exactResolutionProof) anyPair(anchor string) bool {
 		return false
 	}
 	for _, entry := range p.Entries {
-		if !entry.Grounded || !entryMentionsAnchor(p.Contract, entry, anchor) || !entryMentionsAnyTarget(p.Contract, entry) {
-			continue
+		if entryCanEstablishAliasPair(p.Contract, entry, anchor) {
+			return true
 		}
-		return true
 	}
 	return false
 }
@@ -2945,10 +3020,9 @@ func (p exactResolutionProof) anyProductionPair(anchor string) bool {
 		return false
 	}
 	for _, entry := range p.Entries {
-		if !entry.Grounded || !entry.Production || !entryMentionsAnchor(p.Contract, entry, anchor) || !entryMentionsAnyTarget(p.Contract, entry) {
-			continue
+		if entry.Production && entryCanEstablishAliasPair(p.Contract, entry, anchor) {
+			return true
 		}
-		return true
 	}
 	return false
 }
@@ -2998,15 +3072,6 @@ func exactResolutionProofEntries(contract *types.ExactResolutionContract, citati
 		emitted = ctx.Mutable.EmittedEvidence()
 		for _, item := range emitted {
 			out = append(out, exactResolutionProofEntry{
-				Text: strings.Join([]string{
-					item.Subject,
-					item.Predicate,
-					item.Object,
-					item.AnchorSymbol,
-					item.Condition,
-					item.Snippet,
-					item.Summary,
-				}, "\n"),
 				Source:       item.Source,
 				Subject:      item.Subject,
 				AnchorSymbol: item.AnchorSymbol,
@@ -3032,7 +3097,7 @@ func exactResolutionProofEntries(contract *types.ExactResolutionContract, citati
 		if lineText != "" {
 			matched := matchingEvidenceForCitation(emitted, c)
 			out = append(out, exactResolutionProofEntry{
-				Text:         lineText,
+				LineText:     lineText,
 				Source:       c.File,
 				Subject:      matched.Subject,
 				Object:       matched.Object,
@@ -3051,23 +3116,68 @@ func entryMentionsAnyTarget(contract *types.ExactResolutionContract, entry exact
 	if contract == nil {
 		return false
 	}
-	for _, target := range contract.Targets {
-		if types.ExactResolutionTextMentionsTarget(contract, entry.Text, target) {
-			return true
-		}
+	if entryDirectlyAnchorsAnyTarget(contract, entry) {
+		return true
 	}
-	return false
+	if types.ExactResolutionTextsMentionAnyTarget(contract, exactResolutionProofIdentityTexts(entry)...) {
+		return true
+	}
+	return entry.LineText != "" && types.ExactResolutionTextsMentionAnyTarget(contract, entry.LineText)
 }
 
 func entryMentionsAnchor(contract *types.ExactResolutionContract, entry exactResolutionProofEntry, anchor string) bool {
 	if contract == nil {
 		return false
 	}
-	return types.ExactResolutionTextMentionsTarget(contract, entry.Text, anchor)
+	for _, text := range exactResolutionProofIdentityTexts(entry) {
+		if types.ExactResolutionTextMentionsTarget(contract, text, anchor) {
+			return true
+		}
+	}
+	return entry.LineText != "" && types.ExactResolutionTextMentionsTarget(contract, entry.LineText, anchor)
 }
 
 func entryDirectlyAnchorsAnyTarget(contract *types.ExactResolutionContract, entry exactResolutionProofEntry) bool {
 	return entry.DirectAnchor || types.ExactResolutionDirectAnchorMatchesAnyTarget(contract, entry.Subject, entry.AnchorSymbol, entry.Object)
+}
+
+func exactResolutionProofIdentityTexts(entry exactResolutionProofEntry) []string {
+	return compactNonEmptyStrings(entry.Subject, entry.AnchorSymbol, entry.Object)
+}
+
+func entryCanEstablishAliasPair(contract *types.ExactResolutionContract, entry exactResolutionProofEntry, anchor string) bool {
+	if contract == nil || !entry.Grounded || strings.TrimSpace(anchor) == "" {
+		return false
+	}
+	if types.ExactResolutionRequiresDefiningPrimaryProof(contract) && !entry.Production {
+		return false
+	}
+	switch entry.ContextRole {
+	case types.EvidenceContextRoleIllustrativeOnly, types.EvidenceContextRoleAbsenceSupport:
+		return false
+	}
+	identityTexts := exactResolutionProofIdentityTexts(entry)
+	if types.ExactResolutionTextsMentionAnyTarget(contract, identityTexts...) && entryMentionsAnchor(contract, entry, anchor) {
+		return true
+	}
+	if entry.LineText == "" {
+		return false
+	}
+	if !types.ExactResolutionTextsMentionAnyTarget(contract, entry.LineText) || !types.ExactResolutionTextMentionsTarget(contract, entry.LineText, anchor) {
+		return false
+	}
+	return entry.ContextRole == types.EvidenceContextRoleDefining || entryDirectlyAnchorsAnyTarget(contract, entry) || len(identityTexts) > 0
+}
+
+func compactNonEmptyStrings(items ...string) []string {
+	out := make([]string, 0, len(items))
+	for _, item := range items {
+		item = strings.TrimSpace(item)
+		if item != "" {
+			out = append(out, item)
+		}
+	}
+	return out
 }
 
 func entryCountsAsDefiningTargetProof(contract *types.ExactResolutionContract, entry exactResolutionProofEntry) bool {

@@ -779,7 +779,12 @@ func BuildPromptContext(ac *types.AgentContext, sk *skill.Config) *types.PromptC
 	// own recovered lines so iterative investigation can reference
 	// earlier-window anchors.
 	strictEvidenceLoc := ac.Stage == types.StageExtract || ac.Stage == types.StageFinalize
-	evidence := formatEvidenceItems(ac.EvidenceItems, 18, strictEvidenceLoc)
+	evidence := formatEvidenceItemsWithOptions(ac.EvidenceItems, 18, evidenceRenderOptions{
+		StrictLocation:             strictEvidenceLoc,
+		NeutralizeExactResolution:  ac.Stage == types.StageFinalize || ac.Stage == types.StageExtract,
+		ExactResolutionContract:    exactResolutionContractForRender(ac),
+		ExactResolutionScenario:    exactResolutionScenarioForRender(ac),
+	})
 	findings := formatFlowFindings(ac.FlowFindings, 10)
 	logging.Debug("[builder] %s/%s: evidence_section_len=%d findings_section_len=%d", ac.AgentName, ac.Stage, len(evidence), len(findings))
 	// Structured Evidence carries the full top-18 evidence dump.
@@ -1115,7 +1120,34 @@ func producerRank(item types.EvidenceItem) int {
 	}
 }
 
+type evidenceRenderOptions struct {
+	StrictLocation            bool
+	NeutralizeExactResolution bool
+	ExactResolutionContract   *types.ExactResolutionContract
+	ExactResolutionScenario   types.Scenario
+}
+
+func exactResolutionContractForRender(ac *types.AgentContext) *types.ExactResolutionContract {
+	if ac == nil || ac.AnalysisIR == nil {
+		return nil
+	}
+	return ac.AnalysisIR.AnswerContract.ExactResolution
+}
+
+func exactResolutionScenarioForRender(ac *types.AgentContext) types.Scenario {
+	if ac == nil || ac.AnalysisIR == nil {
+		return types.ScenarioGeneric
+	}
+	return ac.AnalysisIR.RequestModel.Scenario
+}
+
 func formatEvidenceItems(items []types.EvidenceItem, limit int, strictLocation bool) string {
+	return formatEvidenceItemsWithOptions(items, limit, evidenceRenderOptions{
+		StrictLocation: strictLocation,
+	})
+}
+
+func formatEvidenceItemsWithOptions(items []types.EvidenceItem, limit int, opts evidenceRenderOptions) string {
 	if len(items) == 0 {
 		return ""
 	}
@@ -1165,29 +1197,13 @@ func formatEvidenceItems(items []types.EvidenceItem, limit int, strictLocation b
 		if written >= limit {
 			break
 		}
-		line := item.Summary
-		if line == "" {
-			parts := []string{fmt.Sprintf("[%s]", item.Kind)}
-			if item.Subject != "" {
-				parts = append(parts, item.Subject)
-			}
-			if item.Predicate != "" {
-				parts = append(parts, item.Predicate)
-			}
-			if item.Object != "" {
-				parts = append(parts, item.Object)
-			}
-			line = strings.Join(parts, " ")
-			if item.Condition != "" {
-				line += " IF " + item.Condition
-			}
-		}
-		if loc := item.DisplayLocation(strictLocation); loc != "" {
+		line := evidencePromptLine(item, opts)
+		if loc := item.DisplayLocation(opts.StrictLocation); loc != "" {
 			line += " (" + loc + ")"
 		}
 		if item.GroundingStatus == types.GroundingRecovered {
-			if strictLocation {
-				line += " [recovered — line not read; re-run read_file before citing]"
+			if opts.StrictLocation {
+				line += " [recovered – line not read; re-run read_file before citing]"
 			} else {
 				line += " [recovered]"
 			}
@@ -1205,6 +1221,49 @@ func formatEvidenceItems(items []types.EvidenceItem, limit int, strictLocation b
 		}
 	}
 	return strings.TrimSpace(b.String())
+}
+
+func evidencePromptLine(item types.EvidenceItem, opts evidenceRenderOptions) string {
+	if opts.NeutralizeExactResolution &&
+		opts.ExactResolutionContract != nil &&
+		types.ExactResolutionContextSurfaceRelevant(opts.ExactResolutionContract, item) {
+		if line := evidenceStructuredSemanticLine(item); line != "" {
+			return line
+		}
+	}
+	if line := strings.TrimSpace(item.Summary); line != "" {
+		return line
+	}
+	return evidenceStructuredSemanticLine(item)
+}
+
+func evidenceStructuredSemanticLine(item types.EvidenceItem) string {
+	parts := []string{fmt.Sprintf("[%s]", item.Kind)}
+	if item.Subject != "" {
+		parts = append(parts, item.Subject)
+	}
+	if item.Predicate != "" {
+		parts = append(parts, item.Predicate)
+	}
+	if item.Object != "" {
+		parts = append(parts, item.Object)
+	}
+	if len(parts) == 1 && item.AnchorSymbol != "" {
+		parts = append(parts, item.AnchorSymbol)
+	}
+	line := strings.Join(parts, " ")
+	if item.Condition != "" {
+		line += " IF " + item.Condition
+	}
+	if strings.TrimSpace(line) == fmt.Sprintf("[%s]", item.Kind) {
+		switch {
+		case strings.TrimSpace(item.Snippet) != "":
+			line = strings.TrimSpace(item.Snippet)
+		case strings.TrimSpace(item.Summary) != "":
+			line = strings.TrimSpace(item.Summary)
+		}
+	}
+	return strings.TrimSpace(line)
 }
 
 func isStructuredEvidenceItem(item types.EvidenceItem) bool {

@@ -204,6 +204,62 @@ func TestEmitEvidence_PreservesValidatedDiagramRoleHint(t *testing.T) {
 	}
 }
 
+func TestEmitEvidence_AcceptsLegacyYAMLDiagramRoleAliasForConfigFiles(t *testing.T) {
+	tool := &EmitEvidence{}
+	ctx := newEmitCtx()
+	ctx.AnalysisIR = &types.AnalysisIR{
+		RequestModel: types.RequestModel{
+			RawRequest: "explore_mid_loop_hint_budget 怎么生效？",
+			Scenario:   types.ScenarioConfigTrace,
+			AnalyzerHints: types.AnalyzerHints{
+				Kind:         "config_mapping",
+				ExactTargets: []string{"explore_mid_loop_hint_budget"},
+			},
+			AnswerSubject: types.AnswerSubject{Kind: types.SubjectConfigKey},
+		},
+		AnswerContract: types.AnswerContract{
+			ExactResolution: &types.ExactResolutionContract{
+				TargetKind:           types.SubjectConfigKey,
+				TargetLabel:          "config key",
+				Targets:              []string{"explore_mid_loop_hint_budget"},
+				AllowAbsence:         true,
+				RelatedContextPolicy: types.ExactContextSameFamilyGrounded,
+				RelatedContextTerms:  []string{"explore"},
+			},
+		},
+	}
+	params := json.RawMessage(`{
+		"items": [
+			{
+				"kind": "direct",
+				"subject": "ExploreHeuristics",
+				"predicate": "documents",
+				"source": "codrax.json.example",
+				"line_start": 20,
+				"summary": "config precedence comment",
+				"anchor_kind": "definition",
+				"anchor_symbol": "ExploreHeuristics",
+				"context_role_hint": "related_context",
+				"diagram_role_hint": "yaml"
+			}
+		]
+	}`)
+	res, err := tool.Execute(ctx, params)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("expected success, got: %s", res.Summary)
+	}
+	got := ctx.Mutable.EmittedEvidence()
+	if len(got) != 1 {
+		t.Fatalf("want 1 item in buffer, got %d", len(got))
+	}
+	if got[0].DiagramRole != types.EvidenceDiagramRoleConfig {
+		t.Fatalf("diagram role = %q, want canonical config role", got[0].DiagramRole)
+	}
+}
+
 func TestEmitEvidence_DropsConfigTraceDiagramRoleForOutOfScopeHelper(t *testing.T) {
 	tool := &EmitEvidence{}
 	ctx := newEmitCtx()
@@ -387,6 +443,12 @@ func TestEmitEvidence_KeepsFreeformExactMentionAsRelatedContextWithoutAnchoredTa
 	if !strings.Contains(strings.ToLower(got[0].GroundingNote), "nearby context only") {
 		t.Fatalf("freeform exact mention should stay nearby-context only, got: %q", got[0].GroundingNote)
 	}
+	if strings.Contains(strings.ToLower(got[0].Summary), "context only") {
+		t.Fatalf("evidence summary should stay semantic; context-only guidance belongs in grounding_note, got: %q", got[0].Summary)
+	}
+	if !strings.Contains(strings.ToLower(res.Summary), "nearby context only") {
+		t.Fatalf("tool summary should still surface nearby-context guidance, got: %q", res.Summary)
+	}
 }
 
 func TestEmitEvidence_PromotesAbsenceSupportWhenAnchoredWindowNamesExactTarget(t *testing.T) {
@@ -450,6 +512,12 @@ func TestEmitEvidence_PromotesAbsenceSupportWhenAnchoredWindowNamesExactTarget(t
 	}
 	if !strings.Contains(strings.ToLower(got[0].GroundingNote), "absence support") {
 		t.Fatalf("anchored exact mention should be promoted to absence_support, got: %q", got[0].GroundingNote)
+	}
+	if strings.Contains(strings.ToLower(got[0].Summary), "absence support") {
+		t.Fatalf("evidence summary should stay semantic; absence-support guidance belongs in grounding_note, got: %q", got[0].Summary)
+	}
+	if !strings.Contains(strings.ToLower(res.Summary), "absence support") {
+		t.Fatalf("tool summary should still surface absence-support guidance, got: %q", res.Summary)
 	}
 }
 
@@ -573,6 +641,9 @@ func TestEmitEvidence_DowngradesCrossFamilyDefiningHintDuringExactAbsence(t *tes
 	}
 	if !strings.Contains(strings.ToLower(got[0].GroundingNote), "different nearby config family") {
 		t.Fatalf("grounding note should call out cross-family context, got: %q", got[0].GroundingNote)
+	}
+	if strings.Contains(strings.ToLower(got[0].Summary), "different nearby config family") {
+		t.Fatalf("evidence summary should stay semantic; cross-family guidance belongs in grounding_note, got: %q", got[0].Summary)
 	}
 }
 
@@ -870,11 +941,14 @@ func TestEmitEvidence_ConfigAbsentPrimaryMarksSubstituteEvidenceContextOnly(t *t
 	if got[0].ContextRole != types.EvidenceContextRoleRelatedContext {
 		t.Fatalf("related substitute evidence context role=%q, want related_context", got[0].ContextRole)
 	}
-	if !strings.Contains(got[0].Summary, "context only") {
-		t.Fatalf("summary should mark context-only evidence: %q", got[0].Summary)
+	if strings.Contains(strings.ToLower(got[0].Summary), "context only") {
+		t.Fatalf("evidence summary should stay semantic; context-only guidance belongs in grounding_note, got: %q", got[0].Summary)
 	}
 	if !strings.Contains(strings.ToLower(got[0].GroundingNote), "do not repair this item") {
 		t.Fatalf("grounding note should suppress substitute repair loops: %q", got[0].GroundingNote)
+	}
+	if !strings.Contains(strings.ToLower(res.Summary), "do not spend read_file budget") {
+		t.Fatalf("tool summary should still steer away from repairing substitute exact hits, got: %q", res.Summary)
 	}
 }
 

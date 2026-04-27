@@ -3512,6 +3512,49 @@ func exactAbsenceClosureReady(contract *types.ExactResolutionContract, scenario 
 	return hasScopedContext
 }
 
+func (e *explorerEvaluator) salvageExactAbsenceCompletion(ctx *types.AgentContext) bool {
+	if ctx == nil || ctx.Mutable == nil || ctx.AnalysisIR == nil {
+		return false
+	}
+	if ctx.Mutable.IsInvestigationComplete() || strings.TrimSpace(ctx.Mutable.StableInvestigationResultKind()) != "" {
+		return false
+	}
+	contract := ctx.AnalysisIR.AnswerContract.ExactResolution
+	if contract == nil || !contract.AllowAbsence || len(contract.Targets) == 0 {
+		return false
+	}
+	requiredFiles := ctx.Mutable.ExactContextRequiredFiles()
+	if len(requiredFiles) == 0 {
+		requiredFiles = e.exactContextFiles
+	}
+	if !exactAbsenceClosureReady(contract, e.scenario, contract.Targets, e.structuredEvidence, requiredFiles) {
+		return false
+	}
+	just := autoExactAbsenceJustification(contract)
+	if just == "" {
+		return false
+	}
+	ctx.Mutable.SetInvestigationResultKind("absence")
+	ctx.Mutable.SetAbsenceJustification(just)
+	logging.Info("[explorer] salvaged exact-absence completion from structured evidence (scenario=%s targets=%v)", e.scenario, contract.Targets)
+	return true
+}
+
+func autoExactAbsenceJustification(contract *types.ExactResolutionContract) string {
+	if contract == nil || len(contract.Targets) == 0 {
+		return ""
+	}
+	label := strings.TrimSpace(contract.TargetLabel)
+	if label == "" {
+		label = "target"
+	}
+	return fmt.Sprintf(
+		"grounded investigation found no defining repo anchor for exact %s %s; any remaining grounded same-scope items are related context only",
+		label,
+		backtickJoin(contract.Targets),
+	)
+}
+
 func exactResolutionEvidenceBlocksAbsence(contract *types.ExactResolutionContract, item types.EvidenceItem) bool {
 	switch item.GroundingStatus {
 	case types.GroundingGrounded, types.GroundingRecovered, "":
@@ -5098,14 +5141,26 @@ func (e *explorerEvaluator) formatReadFileOffsetGuidance(path string) string {
 // observeSoftStop based on the LoopPhase in the observation. See the
 // two helper methods for the detection logic; this function is pure
 // phase routing.
-func (e *explorerEvaluator) Observe(_ *types.AgentContext, obs LoopObservation) LoopSignal {
+func (e *explorerEvaluator) Observe(ctx *types.AgentContext, obs LoopObservation) LoopSignal {
 	switch obs.Phase {
 	case PhaseMidLoop:
+		e.refreshMidLoopStructuredEvidence(ctx)
 		return e.observeMidLoop(obs)
 	case PhaseSoftStop:
 		return e.observeSoftStop(obs)
 	}
 	return LoopSignal{}
+}
+
+func (e *explorerEvaluator) refreshMidLoopStructuredEvidence(ctx *types.AgentContext) {
+	if ctx == nil || ctx.Mutable == nil {
+		return
+	}
+	emitted := ctx.Mutable.EmittedEvidence()
+	if len(emitted) == 0 {
+		return
+	}
+	e.structuredEvidence = mergeEvidenceItems(e.structuredEvidence, emitted)
 }
 
 func (e *explorerEvaluator) ParseOutput(ctx *types.AgentContext, messages []llm.Message, toolResults []types.ToolResult, mcpResponses []types.MCPResponse) (*StageOutput, error) {
@@ -5147,6 +5202,7 @@ func (e *explorerEvaluator) ParseOutput(ctx *types.AgentContext, messages []llm.
 	}
 
 	e.ensureStructuredEvidence(ctx, toolResults)
+	exactAbsenceSalvaged := e.salvageExactAbsenceCompletion(ctx)
 
 	// Merge concrete values into structured evidence. Before the
 	// synthesis-LLM removal (2026-04-16) this merge lived inside
@@ -5309,6 +5365,10 @@ func (e *explorerEvaluator) ParseOutput(ctx *types.AgentContext, messages []llm.
 		}
 	}
 
+	if exactAbsenceSalvaged && !hasEnough {
+		logging.Debug("[explorer] exact-absence salvage promoted hasEnough=true")
+		hasEnough = true
+	}
 	signals := &types.ExecutionSignals{HasEnoughFacts: hasEnough}
 
 	// Rank evidence and findings by relevance to the user's question

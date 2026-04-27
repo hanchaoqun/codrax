@@ -726,6 +726,64 @@ func TestFormatEvidenceItemsExcludesUngrounded(t *testing.T) {
 	}
 }
 
+func TestBuildPromptContext_FinalizerStructuredEvidenceNeutralizesExactResolutionNotes(t *testing.T) {
+	target := "explore_mid_loop_hint_budget"
+	ac := &types.AgentContext{
+		AgentName: types.AgentFinalizer,
+		Stage:     types.StageFinalize,
+		Objective: "q",
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				Scenario: types.ScenarioConfigTrace,
+				AnalyzerHints: types.AnalyzerHints{
+					Kind:         "config_mapping",
+					ExactTargets: []string{target},
+				},
+				AnswerSubject: types.AnswerSubject{Kind: types.SubjectConfigKey},
+			},
+			AnswerContract: types.AnswerContract{
+				ExactResolution: &types.ExactResolutionContract{
+					TargetKind:           types.SubjectConfigKey,
+					TargetLabel:          "config key",
+					Targets:              []string{target},
+					AllowAbsence:         true,
+					RelatedContextPolicy: types.ExactContextSameFamilyGrounded,
+				},
+			},
+		},
+		EvidenceItems: []types.EvidenceItem{
+			{
+				Kind:            types.EvidenceMechanism,
+				Subject:         "DefaultExploreHeuristics",
+				Predicate:       "explains",
+				Object:          "nearby precedence baseline",
+				Summary:         "This item names explore_mid_loop_hint_budget only in explanatory context; do NOT repair this item.",
+				Source:          "internal/types/config.go",
+				LineStart:       707,
+				AnchorKind:      types.AnchorDefinition,
+				AnchorSymbol:    "DefaultExploreHeuristics",
+				ContextRole:     types.EvidenceContextRoleRelatedContext,
+				GroundingStatus: types.GroundingGrounded,
+			},
+		},
+	}
+
+	pc := BuildPromptContext(ac, &skill.Config{Name: "finalize-answer"})
+	sec := findSectionTitle(pc, "Structured Evidence")
+	if sec == nil {
+		t.Fatalf("missing Structured Evidence section")
+	}
+	if strings.Contains(strings.ToLower(sec.Content), "do not repair this item") {
+		t.Fatalf("finalizer Structured Evidence should not carry operational repair notes:\n%s", sec.Content)
+	}
+	if strings.Contains(sec.Content, target) {
+		t.Fatalf("finalizer Structured Evidence should neutralize repeated exact-target prose for nearby-context items:\n%s", sec.Content)
+	}
+	if !strings.Contains(sec.Content, "DefaultExploreHeuristics explains nearby precedence baseline") {
+		t.Fatalf("finalizer Structured Evidence should keep the structural evidence claim:\n%s", sec.Content)
+	}
+}
+
 // -----------------------------------------------------------------------------
 // P2.1 Phase 11 — AnswerSymbolCompleteness three-way rendering
 // -----------------------------------------------------------------------------

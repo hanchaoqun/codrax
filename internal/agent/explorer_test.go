@@ -3988,8 +3988,86 @@ func TestExactAbsenceClosureReady_RequiresGroundedContextFromCandidateFiles(t *t
 		t.Fatal("grounded related-context evidence from a required candidate file should allow exact-absence closure")
 	}
 	evidence[1].GroundingStatus = types.GroundingRecovered
-	if exactAbsenceClosureReady(contract, types.ScenarioConfigTrace, contract.Targets, evidence, requiredFiles) {
-		t.Fatal("recovered-only related context from the candidate file should not allow exact-absence closure")
+	if !exactAbsenceClosureReady(contract, types.ScenarioConfigTrace, contract.Targets, evidence, requiredFiles) {
+		t.Fatal("validated precedence anchors should keep exact-absence closure ready even when grounding is recovered")
+	}
+}
+
+func TestObserve_RefreshesStructuredEvidenceBeforeExactAbsenceCloseSignal(t *testing.T) {
+	contract := &types.ExactResolutionContract{
+		TargetKind:           types.SubjectConfigKey,
+		TargetLabel:          "config key",
+		Targets:              []string{"explore_mid_loop_hint_budget"},
+		AllowAbsence:         true,
+		RelatedContextPolicy: types.ExactContextSameFamilyGrounded,
+		RelatedContextTerms:  []string{"explore"},
+	}
+	ctx := &types.AgentContext{
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{Scenario: types.ScenarioConfigTrace},
+			AnswerContract: types.AnswerContract{
+				ExactResolution: contract,
+			},
+		},
+		Mutable: types.NewMutableState("where is explore_mid_loop_hint_budget defined"),
+	}
+	ctx.Mutable.SetExactContextRequiredFiles([]string{"internal/types/config.go"})
+	ctx.Mutable.AppendEvidence([]types.EvidenceItem{
+		{
+			Kind:            types.EvidenceDirect,
+			Subject:         "explore_mid_loop_hint_budget",
+			Predicate:       "absent_from",
+			Object:          "RuntimeSettings",
+			Source:          "internal/config/runtime.go",
+			GroundingStatus: types.GroundingGrounded,
+			ContextRole:     types.EvidenceContextRoleAbsenceSupport,
+			AnchorKind:      types.AnchorDefinition,
+			AnchorSymbol:    "RuntimeSettings",
+		},
+		{
+			Kind:            types.EvidenceDirect,
+			Subject:         "DefaultExploreHeuristics",
+			Predicate:       "provides_defaults_for",
+			Object:          "explore settings",
+			Source:          "internal/types/config.go",
+			GroundingStatus: types.GroundingGrounded,
+			ContextRole:     types.EvidenceContextRoleRelatedContext,
+			DiagramRole:     types.EvidenceDiagramRoleDefault,
+			AnchorKind:      types.AnchorDefinition,
+			AnchorSymbol:    "DefaultExploreHeuristics",
+		},
+	})
+	eval := &explorerEvaluator{
+		phase:           1,
+		scenario:        types.ScenarioConfigTrace,
+		exactResolution: contract,
+		exactContextFiles: []string{
+			"internal/types/config.go",
+		},
+	}
+
+	sig := eval.Observe(ctx, LoopObservation{
+		Phase:     PhaseMidLoop,
+		Iteration: 6,
+		LastToolResult: &types.ToolResult{
+			ToolName: "emit_evidence",
+			Success:  true,
+			Summary:  "emit_evidence accepted 2 item(s)",
+		},
+		AllToolResults: []types.ToolResult{
+			{ToolName: "read_file", Success: true, Summary: "[internal/config/runtime.go: showing lines 1-20 of 20]\n"},
+			{ToolName: "read_file", Success: true, Summary: "[internal/types/config.go: showing lines 1-20 of 20]\n"},
+			{ToolName: "emit_evidence", Success: true, Summary: "emit_evidence accepted 2 item(s)"},
+		},
+	})
+	if !sig.HintRequested {
+		t.Fatalf("exact-absence close hint should fire once current-batch evidence is merged, got %+v", sig)
+	}
+	if sig.HintKey != "explorer.mid-loop.exact-absence-close" {
+		t.Fatalf("HintKey = %q, want explorer.mid-loop.exact-absence-close", sig.HintKey)
+	}
+	if !strings.Contains(sig.Hint, "emit_investigation_complete") {
+		t.Fatalf("close hint should point at emit_investigation_complete, got: %s", sig.Hint)
 	}
 }
 
@@ -4030,6 +4108,66 @@ func TestExactAbsenceClosureReady_IgnoresSummaryOnlyScopeLaundry(t *testing.T) {
 	}
 	if exactAbsenceClosureReady(contract, types.ScenarioConfigTrace, contract.Targets, evidence, requiredFiles) {
 		t.Fatal("summary-only same-family wording should not satisfy exact-absence closure")
+	}
+}
+
+func TestSalvageExactAbsenceCompletion_FromStructuredEvidence(t *testing.T) {
+	contract := &types.ExactResolutionContract{
+		TargetKind:           types.SubjectConfigKey,
+		TargetLabel:          "config key",
+		Targets:              []string{"explore_mid_loop_hint_budget"},
+		AllowAbsence:         true,
+		RelatedContextPolicy: types.ExactContextSameFamilyGrounded,
+		RelatedContextTerms:  []string{"explore"},
+	}
+	ctx := &types.AgentContext{
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{Scenario: types.ScenarioConfigTrace},
+			AnswerContract: types.AnswerContract{
+				ExactResolution: contract,
+			},
+		},
+		Mutable: types.NewMutableState("where is explore_mid_loop_hint_budget defined"),
+	}
+	ctx.Mutable.SetExactContextRequiredFiles([]string{"internal/types/config.go"})
+	eval := &explorerEvaluator{
+		scenario:        types.ScenarioConfigTrace,
+		exactResolution: contract,
+		structuredEvidence: []types.EvidenceItem{
+			{
+				Kind:            types.EvidenceDirect,
+				Subject:         "explore_mid_loop_hint_budget",
+				Predicate:       "absent_from",
+				Object:          "RuntimeSettings",
+				Source:          "internal/config/runtime.go",
+				GroundingStatus: types.GroundingGrounded,
+				ContextRole:     types.EvidenceContextRoleAbsenceSupport,
+				AnchorKind:      types.AnchorDefinition,
+				AnchorSymbol:    "RuntimeSettings",
+			},
+			{
+				Kind:            types.EvidenceDirect,
+				Subject:         "DefaultExploreHeuristics",
+				Predicate:       "provides_defaults_for",
+				Object:          "explore settings",
+				Source:          "internal/types/config.go",
+				GroundingStatus: types.GroundingGrounded,
+				ContextRole:     types.EvidenceContextRoleRelatedContext,
+				DiagramRole:     types.EvidenceDiagramRoleDefault,
+				AnchorKind:      types.AnchorDefinition,
+				AnchorSymbol:    "DefaultExploreHeuristics",
+			},
+		},
+	}
+
+	if !eval.salvageExactAbsenceCompletion(ctx) {
+		t.Fatal("expected exact-absence salvage to retain the structured absence result")
+	}
+	if got := ctx.Mutable.StableInvestigationResultKind(); got != "absence" {
+		t.Fatalf("StableInvestigationResultKind = %q, want absence", got)
+	}
+	if got := ctx.Mutable.StableAbsenceJustification(); !strings.Contains(got, "`explore_mid_loop_hint_budget`") {
+		t.Fatalf("StableAbsenceJustification = %q, want exact target mention", got)
 	}
 }
 

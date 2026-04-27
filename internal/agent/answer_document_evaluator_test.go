@@ -207,7 +207,7 @@ func TestAnswerDocumentEvaluator_BuildInitialInstruction_RendersConfigTraceDiagr
 		},
 		EvidenceItems: []types.EvidenceItem{
 			{Source: "internal/types/config.go", LineStart: 707, Subject: "DefaultExploreHeuristics", Summary: "code defaults", Kind: types.EvidenceDirect, DiagramRole: types.EvidenceDiagramRoleDefault},
-			{Source: "codrax.yaml.example", LineStart: 20, Summary: "yaml precedence comment", Kind: types.EvidenceDirect, DiagramRole: types.EvidenceDiagramRoleYAML},
+			{Source: "codrax.yaml.example", LineStart: 20, Subject: "ExploreHeuristics", Summary: "yaml precedence comment", Kind: types.EvidenceDirect, AnchorKind: types.AnchorDefinition, AnchorSymbol: "ExploreHeuristics", DiagramRole: types.EvidenceDiagramRoleYAML},
 			{Source: "internal/config/runtime.go", LineStart: 194, Subject: "ExploreMidLoopMinIteration", Summary: "runtime yaml binding", Kind: types.EvidenceDirect, DiagramRole: types.EvidenceDiagramRoleRuntime},
 			{Source: "cmd/root.go", LineStart: 1381, Summary: "CLI override applies when non-nil", Kind: types.EvidenceDirect, DiagramRole: types.EvidenceDiagramRoleOverride},
 		},
@@ -260,7 +260,7 @@ func TestAnswerDocumentEvaluator_BuildInitialInstruction_ConfigTraceSeedWarnsWhe
 		},
 		EvidenceItems: []types.EvidenceItem{
 			{Source: "internal/types/config.go", LineStart: 707, Subject: "DefaultExploreHeuristics", Summary: "code defaults", Kind: types.EvidenceDirect, DiagramRole: types.EvidenceDiagramRoleDefault},
-			{Source: "codrax.yaml.example", LineStart: 20, Summary: "yaml precedence comment", Kind: types.EvidenceDirect, DiagramRole: types.EvidenceDiagramRoleYAML},
+			{Source: "codrax.yaml.example", LineStart: 20, Subject: "ExploreHeuristics", Summary: "yaml precedence comment", Kind: types.EvidenceDirect, AnchorKind: types.AnchorDefinition, AnchorSymbol: "ExploreHeuristics", DiagramRole: types.EvidenceDiagramRoleYAML},
 			{Source: "internal/config/runtime.go", LineStart: 194, Subject: "ExploreMidLoopMinIteration", Summary: "runtime yaml binding", Kind: types.EvidenceDirect, DiagramRole: types.EvidenceDiagramRoleRuntime},
 		},
 	}
@@ -291,12 +291,12 @@ func TestAnswerDocumentEvaluator_BuildInitialInstruction_ConfigTraceSeedWarnsWhe
 		EvidenceItems: []types.EvidenceItem{
 			{Source: "internal/types/config.go", LineStart: 707, Subject: "DefaultExploreHeuristics", Summary: "code defaults", Kind: types.EvidenceDirect, DiagramRole: types.EvidenceDiagramRoleDefault},
 			{Source: "internal/config/runtime.go", LineStart: 194, Subject: "ExploreMidLoopMinIteration", Summary: "runtime yaml binding", Kind: types.EvidenceDirect, DiagramRole: types.EvidenceDiagramRoleRuntime},
-			{Source: "codrax.yaml.example", LineStart: 20, Subject: "example only", Summary: "same-family background without a validated diagram role", Kind: types.EvidenceDirect},
+			{Source: "codrax.yaml.example", LineStart: 20, Subject: "ExploreHeuristics", Summary: "same-family background without a validated diagram role", Kind: types.EvidenceDirect, AnchorKind: types.AnchorDefinition, AnchorSymbol: "ExploreHeuristics"},
 		},
 	}
 
 	prompt := (&answerDocumentEvaluator{}).BuildInitialInstruction(ctx, nil)
-	if !strings.Contains(prompt, "Current grounded evidence does NOT include anchor(s) for these precedence role(s): override, yaml") {
+	if !strings.Contains(prompt, "Current grounded evidence does NOT include anchor(s) for these precedence role(s): override, config") {
 		t.Fatalf("prompt missing generic missing-role warning:\n%s", prompt)
 	}
 	if strings.Contains(prompt, "### Diagram Node Allowlist") && strings.Contains(prompt, "`codrax.yaml.example`") {
@@ -374,12 +374,14 @@ func TestAnswerDocumentEvaluator_BuildInitialInstruction_RendersExactResolutionC
 		},
 		{
 			Kind:            types.EvidenceDirect,
-			Subject:         "Precedence",
+			Subject:         "ExploreHeuristics",
 			Predicate:       "documents",
-			Object:          "code defaults < codrax.yaml < command-line flags",
+			Object:          "heuristics config layer",
 			Summary:         "codrax.yaml.example documents the three-layer precedence rule.",
 			Source:          "codrax.yaml.example",
 			LineStart:       25,
+			AnchorKind:      types.AnchorDefinition,
+			AnchorSymbol:    "ExploreHeuristics",
 			ContextRole:     types.EvidenceContextRoleRelatedContext,
 			DiagramRole:     types.EvidenceDiagramRoleYAML,
 			GroundingStatus: types.GroundingRecovered,
@@ -961,7 +963,7 @@ func TestAnswerDocumentEvaluator_Observe_MidLoopMissingDiagramRejectIncludesConf
 		},
 		EvidenceItems: []types.EvidenceItem{
 			{Source: "internal/types/config.go", LineStart: 707, Summary: "code defaults", Kind: types.EvidenceDirect, DiagramRole: types.EvidenceDiagramRoleDefault},
-			{Source: "codrax.yaml.example", LineStart: 20, Summary: "yaml precedence comment", Kind: types.EvidenceDirect, DiagramRole: types.EvidenceDiagramRoleYAML},
+			{Source: "codrax.yaml.example", LineStart: 20, Subject: "ExploreHeuristics", Summary: "yaml precedence comment", Kind: types.EvidenceDirect, AnchorKind: types.AnchorDefinition, AnchorSymbol: "ExploreHeuristics", DiagramRole: types.EvidenceDiagramRoleYAML},
 			{Source: "internal/config/runtime.go", LineStart: 194, Summary: "runtime yaml binding", Kind: types.EvidenceDirect, DiagramRole: types.EvidenceDiagramRoleRuntime},
 		},
 	}
@@ -1075,6 +1077,85 @@ func TestRenderRetryDiagramSeedFence_UsesAnswerChainSeedForArchitecture(t *testi
 		if !strings.Contains(got, want) {
 			t.Fatalf("architecture retry seed missing %q:\n%s", want, got)
 		}
+	}
+}
+
+func TestRenderRetryDiagramSeedFenceForRepair_ConfigTraceRejectKeepsValidatedPrecedenceSeed(t *testing.T) {
+	ctx := &types.AgentContext{
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				Scenario: types.ScenarioConfigTrace,
+			},
+			AnswerContract: types.AnswerContract{
+				Diagram: &types.DiagramContract{
+					Required:       true,
+					PreferredKinds: []types.DiagramKind{types.DiagramFlow},
+				},
+			},
+		},
+		EvidenceItems: []types.EvidenceItem{
+			{Source: "internal/types/config.go", LineStart: 707, DiagramRole: types.EvidenceDiagramRoleDefault, Kind: types.EvidenceDirect, GroundingStatus: types.GroundingGrounded},
+			{Source: "internal/config/runtime.go", LineStart: 231, DiagramRole: types.EvidenceDiagramRoleRuntime, Kind: types.EvidenceDirect, GroundingStatus: types.GroundingGrounded},
+		},
+		AnswerChains: []types.AnswerChain{
+			{Item: types.EvidenceItem{Source: "cmd/root.go", LineStart: 2036, GroundingStatus: types.GroundingGrounded}},
+			{Item: types.EvidenceItem{Source: "internal/analysis/declarative/classifier.go", LineStart: 66, GroundingStatus: types.GroundingGrounded}},
+		},
+	}
+	repair := &types.ToolRepair{
+		Code: "config_trace_context_citation",
+		Metadata: map[string]string{
+			"allowed_citations": "internal/config/runtime.go:231, internal/types/config.go:707",
+		},
+	}
+	got := renderRetryDiagramSeedFenceForRepair(ctx, repair)
+	for _, want := range []string{
+		"internal/config/runtime.go:231",
+		"internal/types/config.go:707",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("config-trace repair seed missing %q:\n%s", want, got)
+		}
+	}
+	for _, banned := range []string{
+		"cmd/root.go:2036",
+		"internal/analysis/declarative/classifier.go:66",
+	} {
+		if strings.Contains(got, banned) {
+			t.Fatalf("config-trace repair seed should not fall back to unrelated answer chain %q:\n%s", banned, got)
+		}
+	}
+}
+
+func TestRenderRetryDiagramSeedFenceForRepair_ConfigTraceRejectOmitsUnrelatedFallbackWhenNoValidatedPrecedenceSeed(t *testing.T) {
+	ctx := &types.AgentContext{
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				Scenario: types.ScenarioConfigTrace,
+			},
+			AnswerContract: types.AnswerContract{
+				Diagram: &types.DiagramContract{
+					Required:       true,
+					PreferredKinds: []types.DiagramKind{types.DiagramFlow},
+				},
+			},
+		},
+		EvidenceItems: []types.EvidenceItem{
+			{Source: "internal/config/runtime.go", LineStart: 231, DiagramRole: types.EvidenceDiagramRoleRuntime, Kind: types.EvidenceDirect, GroundingStatus: types.GroundingGrounded},
+		},
+		AnswerChains: []types.AnswerChain{
+			{Item: types.EvidenceItem{Source: "cmd/root.go", LineStart: 2036, GroundingStatus: types.GroundingGrounded}},
+			{Item: types.EvidenceItem{Source: "internal/analysis/declarative/classifier.go", LineStart: 66, GroundingStatus: types.GroundingGrounded}},
+		},
+	}
+	repair := &types.ToolRepair{
+		Code: "config_trace_context_citation",
+		Metadata: map[string]string{
+			"allowed_citations": "internal/config/runtime.go:231",
+		},
+	}
+	if got := renderRetryDiagramSeedFenceForRepair(ctx, repair); got != "" {
+		t.Fatalf("expected no repair seed when native precedence chain is incomplete, got:\n%s", got)
 	}
 }
 

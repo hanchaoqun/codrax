@@ -87,6 +87,52 @@ func TestEmitInvestigationComplete_AbsenceRequiresHonestZeroPhrasing(t *testing.
 	}
 }
 
+func TestEmitInvestigationComplete_ConfigTraceAbsenceRequiresValidatedPrecedenceAnchor(t *testing.T) {
+	mut := types.NewMutableState("q")
+	mut.SetExactContextRequiredFiles([]string{"internal/types/config.go"})
+	mut.AppendEvidence([]types.EvidenceItem{{
+		Kind:            types.EvidenceDirect,
+		Source:          "internal/types/config.go",
+		LineStart:       707,
+		AnchorKind:      types.AnchorDefinition,
+		AnchorSymbol:    "DefaultExploreHeuristics",
+		ContextRole:     types.EvidenceContextRoleRelatedContext,
+		GroundingStatus: types.GroundingGrounded,
+		GroundingTier:   types.TierLineText,
+	}})
+	bus := &types.BusContext{
+		Mutable: mut,
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				Scenario:      types.ScenarioConfigTrace,
+				AnswerSubject: types.AnswerSubject{Kind: types.SubjectConfigKey},
+			},
+			AnswerContract: types.AnswerContract{
+				ExactResolution: &types.ExactResolutionContract{
+					TargetKind:           types.SubjectConfigKey,
+					TargetLabel:          "config key",
+					Targets:              []string{"explore_mid_loop_hint_budget"},
+					AllowAbsence:         true,
+					RelatedContextPolicy: types.ExactContextSameFamilyGrounded,
+				},
+			},
+		},
+	}
+	tool := &EmitInvestigationComplete{}
+
+	params := json.RawMessage(`{"reason":"done","confidence":"high","result_kind":"absence","absence_justification":"no config key named explore_mid_loop_hint_budget exists"}`)
+	res, err := tool.Execute(bus, params)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if res.Success {
+		t.Fatalf("config-trace absence should reject until a validated precedence anchor exists")
+	}
+	if !strings.Contains(res.Summary, "diagram_role_hint") {
+		t.Fatalf("rejection should point the explorer at precedence-capable diagram_role_hint evidence, got %q", res.Summary)
+	}
+}
+
 // TestEmitInvestigationComplete_CompletionWithoutAbsenceOnEvidenceAccepted
 // — the normal happy path: grounded evidence exists, LLM signals
 // completion WITHOUT absence_justification. Must succeed.
@@ -475,7 +521,7 @@ func TestEmitInvestigationComplete_ConfigAbsenceRejectsUngroundedRequiredContext
 	if res.Success {
 		t.Fatalf("absence closure should be rejected until a grounded required related-context anchor exists")
 	}
-	if !strings.Contains(res.Summary, "grounded production related-context anchor") || !strings.Contains(res.Summary, "internal/types/config.go") {
+	if !strings.Contains(res.Summary, "precedence-capable lineage anchor") || !strings.Contains(res.Summary, "diagram_role_hint") || !strings.Contains(res.Summary, "internal/types/config.go") {
 		t.Fatalf("rejection should name the missing related-context requirement, got: %s", res.Summary)
 	}
 }

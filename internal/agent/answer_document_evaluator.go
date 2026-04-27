@@ -690,7 +690,7 @@ func renderAnswerDocDiagramConfigTraceSeed(ctx *types.AgentContext) string {
 		}
 	}
 	b.WriteString("```\n")
-	b.WriteString("Precedence semantics live in prose, not in invented node names: `override` = highest-precedence operator / CLI layer, `yaml` = repo or user config layer, `default` = code-default fallback. `runtime` is the binding / merge code path between those layers, not a standalone user-config tier.\n")
+	b.WriteString("Precedence semantics live in prose, not in invented node names: `override` = highest-precedence operator / CLI layer, `config` = grounded repo/user config-file layer (YAML/JSON/TOML/INI/etc.), `default` = code-default fallback. `runtime` is the binding / merge code path between those layers, not a standalone user-config tier.\n")
 	if missing := missingConfigTraceDiagramRoles(rolesPresent); len(missing) > 0 {
 		fmt.Fprintf(&b, "Current grounded evidence does NOT include anchor(s) for these precedence role(s): %s. Do not add fenced-diagram nodes for missing roles unless you first cite a real repo anchor for them; if you need to explain those semantics, keep them in prose as general precedence rules rather than grounded nodes in this dispatch.\n", strings.Join(missing, ", "))
 	}
@@ -706,7 +706,7 @@ func missingConfigTraceDiagramRoles(present map[string]bool) []string {
 	}
 	order := []types.EvidenceDiagramRole{
 		types.EvidenceDiagramRoleOverride,
-		types.EvidenceDiagramRoleYAML,
+		types.EvidenceDiagramRoleConfig,
 		types.EvidenceDiagramRoleRuntime,
 		types.EvidenceDiagramRoleDefault,
 	}
@@ -727,7 +727,7 @@ func collectConfigTraceDiagramAnchors(ctx *types.AgentContext) []configTraceDiag
 	}
 	roleOrder := []types.EvidenceDiagramRole{
 		types.EvidenceDiagramRoleOverride,
-		types.EvidenceDiagramRoleYAML,
+		types.EvidenceDiagramRoleConfig,
 		types.EvidenceDiagramRoleRuntime,
 		types.EvidenceDiagramRoleDefault,
 	}
@@ -804,7 +804,7 @@ func classifyConfigTraceDiagramRole(ev types.EvidenceItem) (string, int) {
 	switch ev.DiagramRole {
 	case types.EvidenceDiagramRoleDefault:
 		return string(ev.DiagramRole), 16 + configTraceLineScore(ev)
-	case types.EvidenceDiagramRoleYAML:
+	case types.EvidenceDiagramRoleConfig:
 		return string(ev.DiagramRole), 14 + configTraceLineScore(ev)
 	case types.EvidenceDiagramRoleOverride:
 		return string(ev.DiagramRole), 12 + configTraceLineScore(ev)
@@ -894,8 +894,8 @@ func renderAnswerDocExactResolutionContract(ctx *types.AgentContext) string {
 		}
 		if ctx.AnalysisIR != nil && ctx.AnalysisIR.RequestModel.Scenario == types.ScenarioConfigTrace {
 			b.WriteString("- Because the exact config key is absent, do NOT force `shape=config_value` with a synthetic literal such as `(missing)` / `(不存在)`. Prefer `shape=explanation` so the answer can lead with the exact absence and then explain any grounded same-family precedence chain as related context only.\n")
-			b.WriteString("- For config-trace related context, grounded same-scope anchors may appear in `summary` even when they do not carry a validated diagram role. But fenced diagrams and diagram citations are stricter: only anchors with a validated `diagram_role_hint` (`default`, `yaml`, `runtime`, or `override`) may become diagram nodes.\n")
-			b.WriteString("- For config-precedence answers, only create a separate numbered step when that layer has its own grounded repo anchor. If a layer is absent or only inferred from the exact-absence state, keep it in `summary` or set that step's `citation_ref=-1` instead of borrowing a nearby YAML / struct citation.\n")
+			b.WriteString("- For config-trace related context, grounded same-scope anchors may appear in `summary` even when they do not carry a validated diagram role. But fenced diagrams and diagram citations are stricter: only anchors with a validated `diagram_role_hint` (`default`, `config`, `runtime`, or `override`) may become diagram nodes.\n")
+			b.WriteString("- For config-precedence answers, only create a separate numbered step when that layer has its own grounded repo anchor. If a layer is absent or only inferred from the exact-absence state, keep it in `summary` or set that step's `citation_ref=-1` instead of borrowing a nearby config-file / struct citation.\n")
 			b.WriteString("- In `step_list`, any step with `citation_ref >= 0` must mention at least one identifier that appears on the cited line or its nearby corroboration window. If the step summarizes a whole struct/range/absence conclusion rather than one corroborated line, use `citation_ref=-1` and keep the precise line-backed facts in neighboring steps.\n")
 			b.WriteString("- A repo-wide search result, aggregate absence conclusion, or test-only proof step usually has no single corroborating production line. In `step_list`, default those steps to `citation_ref=-1` unless one cited line literally states the same claim.\n")
 		}
@@ -1005,7 +1005,7 @@ func collectAllowedExactContextAnchors(ctx *types.AgentContext, contract *types.
 		switch ev.DiagramRole {
 		case types.EvidenceDiagramRoleOverride:
 			return 36
-		case types.EvidenceDiagramRoleYAML:
+		case types.EvidenceDiagramRoleConfig:
 			return 34
 		case types.EvidenceDiagramRoleRuntime:
 			return 32
@@ -1595,7 +1595,7 @@ func (e *answerDocumentEvaluator) emitAnswerDocumentRejectSignal(ctx *types.Agen
 		if e.configTraceDiagram {
 			hint += " For config-precedence diagrams, do not invent a new box chart or layer aliases on retry; prefer copying the seeded grounded precedence chain verbatim."
 		}
-		hint = appendRetryDiagramSeedHint(hint, ctx)
+		hint = appendRetryDiagramSeedHint(hint, ctx, repair)
 	}
 	if rejectCode == answerDocRejectCodeDiagramGrounding || strings.Contains(summary, "references file(s) not present in citations[] or attached-log frames") {
 		reasonKey = "diagram-grounding"
@@ -1608,7 +1608,7 @@ func (e *answerDocumentEvaluator) emitAnswerDocumentRejectSignal(ctx *types.Agen
 		if e.configTraceDiagram {
 			hint += " For config-precedence diagrams, keep the seeded precedence chain's node labels verbatim; do NOT rewrite them into abstract numbered placeholders. If the user asked for conceptual layers, explain those layer names in prose outside the fence unless the exact label is grounded."
 		}
-		hint = appendRetryDiagramSeedHint(hint, ctx)
+		hint = appendRetryDiagramSeedHint(hint, ctx, repair)
 	}
 	if rejectCode == answerDocRejectCodeDiagramCodename || strings.Contains(summary, "summary introduces codename label(s) not present in any citation's") {
 		reasonKey = "diagram-codename"
@@ -1616,7 +1616,7 @@ func (e *answerDocumentEvaluator) emitAnswerDocumentRejectSignal(ctx *types.Agen
 		if e.configTraceDiagram {
 			hint += " In config-precedence diagrams, grounded file/path labels are the node names; numbered layer aliases are never required. If you need semantics like defaults / YAML / runtime / override, move that explanation into prose outside the fenced diagram and keep the fence itself as the seeded chain (or a strict subsequence of it)."
 		}
-		hint = appendRetryDiagramSeedHint(hint, ctx)
+		hint = appendRetryDiagramSeedHint(hint, ctx, repair)
 	}
 	if rejectCode == answerDocRejectCodeExactContextSurface {
 		reasonKey = "exact-context-surface"
@@ -1635,7 +1635,7 @@ func (e *answerDocumentEvaluator) emitAnswerDocumentRejectSignal(ctx *types.Agen
 		hint += " Do not reopen files or switch exact-resolution status; rewrite `summary` around the already-grounded context only."
 		if e.diagramRequired {
 			hint += " A grounded diagram is still required for this dispatch, so keep one fenced diagram and trim it down to the same allowed anchors instead of deleting it."
-			hint = appendRetryDiagramSeedHint(hint, ctx)
+			hint = appendRetryDiagramSeedHint(hint, ctx, repair)
 		}
 	}
 	if rejectCode == answerDocRejectCodeExactResolution || strings.Contains(summary, "exact-resolution contract violated:") {
@@ -1660,7 +1660,7 @@ func (e *answerDocumentEvaluator) emitAnswerDocumentRejectSignal(ctx *types.Agen
 				hint += " Allowed related-context citations for this dispatch: `" + strings.ReplaceAll(allowed, ", ", "`, `") + "`."
 			}
 		}
-		hint = appendRetryDiagramSeedHint(hint, ctx)
+		hint = appendRetryDiagramSeedHint(hint, ctx, repair)
 	}
 	if rejectCode == answerDocRejectCodeAbsentExactConfigValueShape || strings.Contains(summary, "must not use shape=config_value") {
 		reasonKey = "absent-config-value-shape"
@@ -1784,8 +1784,8 @@ func buildAnswerDocRequiredFieldRetryHint(summary string) string {
 	return ""
 }
 
-func appendRetryDiagramSeedHint(hint string, ctx *types.AgentContext) string {
-	seed := renderRetryDiagramSeedFence(ctx)
+func appendRetryDiagramSeedHint(hint string, ctx *types.AgentContext, repair *types.ToolRepair) string {
+	seed := renderRetryDiagramSeedFenceForRepair(ctx, repair)
 	if seed == "" {
 		return hint
 	}
@@ -1793,22 +1793,27 @@ func appendRetryDiagramSeedHint(hint string, ctx *types.AgentContext) string {
 }
 
 func renderRetryDiagramSeedFence(ctx *types.AgentContext) string {
+	return renderRetryDiagramSeedFenceForRepair(ctx, nil)
+}
+
+type retryDiagramSeed struct {
+	Fence     string
+	MatchKeys []string
+}
+
+type retryDiagramSeedFilter struct {
+	Strict  bool
+	Allowed map[string]bool
+}
+
+func renderRetryDiagramSeedFenceForRepair(ctx *types.AgentContext, repair *types.ToolRepair) string {
 	if ctx == nil {
 		return ""
 	}
+	filter := buildRetryDiagramSeedFilter(repair)
 	for _, kind := range retryDiagramKinds(ctx) {
-		if fence := renderRetryDiagramSeedFenceForKind(ctx, kind); fence != "" {
+		if fence := renderRetryDiagramSeedFenceForKind(ctx, kind, filter); fence != "" {
 			return fence
-		}
-	}
-	for _, seed := range []string{
-		extractFirstFencedBlock(renderAnswerDocDiagramConfigTraceSeed(ctx)),
-		extractFirstFencedBlock(renderAnswerDocDiagramLogSeed(ctx.LogTriage)),
-		renderRetryFlowFindingFence(ctx.FlowFindings),
-		renderRetryAnswerChainFence(ctx.AnswerChains),
-	} {
-		if seed != "" {
-			return seed
 		}
 	}
 	return ""
@@ -1840,54 +1845,123 @@ func retryDiagramKinds(ctx *types.AgentContext) []types.DiagramKind {
 	}
 }
 
-func renderRetryDiagramSeedFenceForKind(ctx *types.AgentContext, kind types.DiagramKind) string {
+func renderRetryDiagramSeedFenceForKind(ctx *types.AgentContext, kind types.DiagramKind, filter retryDiagramSeedFilter) string {
 	if ctx == nil {
 		return ""
 	}
+	var seeds []retryDiagramSeed
 	switch kind {
 	case types.DiagramFlow:
-		for _, seed := range []string{
-			extractFirstFencedBlock(renderAnswerDocDiagramConfigTraceSeed(ctx)),
-			renderRetryFlowFindingFence(ctx.FlowFindings),
-			renderRetryAnswerChainFence(ctx.AnswerChains),
-		} {
-			if seed != "" {
-				return seed
-			}
+		if ctx.AnalysisIR != nil && ctx.AnalysisIR.RequestModel.Scenario == types.ScenarioConfigTrace {
+			seeds = appendRetryDiagramSeed(seeds, buildRetryConfigTraceDiagramSeed(ctx))
+			break
 		}
+		seeds = appendRetryDiagramSeed(seeds, buildRetryFlowFindingSeed(ctx.FlowFindings))
 	case types.DiagramSequence, types.DiagramCallDAG:
-		for _, seed := range []string{
-			extractFirstFencedBlock(renderAnswerDocDiagramLogSeed(ctx.LogTriage)),
-			renderRetryFlowFindingFence(ctx.FlowFindings),
-			renderRetryAnswerChainFence(ctx.AnswerChains),
-		} {
-			if seed != "" {
-				return seed
-			}
+		seeds = appendRetryDiagramSeed(seeds, buildRetryLogDiagramSeed(ctx.LogTriage))
+		if kind == types.DiagramCallDAG {
+			seeds = appendRetryDiagramSeed(seeds, buildRetryFlowFindingSeed(ctx.FlowFindings))
 		}
 	case types.DiagramArchitecture:
-		for _, seed := range []string{
-			renderRetryFlowFindingFence(ctx.FlowFindings),
-			renderRetryAnswerChainFence(ctx.AnswerChains),
-			extractFirstFencedBlock(renderAnswerDocDiagramConfigTraceSeed(ctx)),
-			extractFirstFencedBlock(renderAnswerDocDiagramLogSeed(ctx.LogTriage)),
-		} {
-			if seed != "" {
-				return seed
-			}
+		seeds = appendRetryDiagramSeed(seeds, buildRetryAnswerChainSeed(ctx.AnswerChains))
+	}
+	for _, seed := range seeds {
+		if filter.Allows(seed) {
+			return seed.Fence
 		}
 	}
 	return ""
 }
 
-func renderRetryFlowFindingFence(findings []types.FlowFindingDigest) string {
+func appendRetryDiagramSeed(seeds []retryDiagramSeed, seed retryDiagramSeed) []retryDiagramSeed {
+	if strings.TrimSpace(seed.Fence) == "" {
+		return seeds
+	}
+	return append(seeds, seed)
+}
+
+func buildRetryConfigTraceDiagramSeed(ctx *types.AgentContext) retryDiagramSeed {
+	anchors := collectConfigTraceDiagramAnchors(ctx)
+	if len(anchors) < 2 {
+		return retryDiagramSeed{}
+	}
+	nodes := make([]string, 0, len(anchors))
+	keys := make([]string, 0, len(anchors)*2)
+	for _, anchor := range anchors {
+		label := strings.TrimSpace(anchor.Label)
+		if label == "" {
+			continue
+		}
+		nodes = append(nodes, label)
+		keys = append(keys, retryDiagramSeedMatchKeys(label)...)
+	}
+	return retryDiagramSeed{
+		Fence:     buildRetryDiagramFence(nodes),
+		MatchKeys: dedupeRetryDiagramNodes(keys, 0),
+	}
+}
+
+func buildRetryLogDiagramSeed(bundle *types.LogBundle) retryDiagramSeed {
+	resolved := collectRetryLogFrames(bundle)
+	if len(resolved) < 2 {
+		return retryDiagramSeed{}
+	}
+	var b strings.Builder
+	keys := make([]string, 0, len(resolved)*2)
+	b.WriteString("```\n")
+	for i, frame := range resolved {
+		name := strings.TrimSpace(frame.Func)
+		if name == "" {
+			name = "(no symbol)"
+		}
+		location := fmt.Sprintf("%s:%d", frame.File, frame.Line)
+		keys = append(keys, retryDiagramSeedMatchKeys(location)...)
+		switch {
+		case i == 0:
+			fmt.Fprintf(&b, "innermost failure: %s in %s\n", location, name)
+		case i == len(resolved)-1:
+			fmt.Fprintf(&b, "  -> caller (outermost): %s in %s\n", location, name)
+		default:
+			fmt.Fprintf(&b, "  -> caller:            %s in %s\n", location, name)
+		}
+	}
+	b.WriteString("```")
+	return retryDiagramSeed{
+		Fence:     b.String(),
+		MatchKeys: dedupeRetryDiagramNodes(keys, 0),
+	}
+}
+
+func collectRetryLogFrames(bundle *types.LogBundle) []types.LogFrame {
+	if bundle == nil || len(bundle.Errors) == 0 {
+		return nil
+	}
+	resolved := make([]types.LogFrame, 0, 8)
+	for _, err := range bundle.Errors {
+		for _, frame := range err.Frames {
+			if frame.File == "" || frame.Line <= 0 {
+				continue
+			}
+			resolved = append(resolved, frame)
+			if len(resolved) >= 8 {
+				return resolved
+			}
+		}
+	}
+	return resolved
+}
+
+func buildRetryFlowFindingSeed(findings []types.FlowFindingDigest) retryDiagramSeed {
 	for _, ff := range findings {
 		nodes := retryFlowFindingNodes(ff)
 		if len(nodes) >= 2 {
-			return buildRetryDiagramFence(nodes)
+			return retryDiagramSeed{
+				Fence:     buildRetryDiagramFence(nodes),
+				MatchKeys: dedupeRetryDiagramNodes(nodes, 0),
+			}
 		}
 	}
-	return ""
+	return retryDiagramSeed{}
 }
 
 func retryFlowFindingNodes(ff types.FlowFindingDigest) []string {
@@ -1907,8 +1981,9 @@ func retryFlowFindingNodes(ff types.FlowFindingDigest) []string {
 	return dedupeRetryDiagramNodes(nodes, 6)
 }
 
-func renderRetryAnswerChainFence(chains []types.AnswerChain) string {
+func buildRetryAnswerChainSeed(chains []types.AnswerChain) retryDiagramSeed {
 	nodes := make([]string, 0, len(chains))
+	keys := make([]string, 0, len(chains)*2)
 	for _, chain := range chains {
 		item := chain.Item
 		label := firstNonEmptyString(
@@ -1921,12 +1996,72 @@ func renderRetryAnswerChainFence(chains []types.AnswerChain) string {
 			continue
 		}
 		nodes = append(nodes, label)
+		keys = append(keys, retryDiagramSeedMatchKeys(label)...)
 	}
 	nodes = dedupeRetryDiagramNodes(nodes, 5)
 	if len(nodes) < 2 {
-		return ""
+		return retryDiagramSeed{}
 	}
-	return buildRetryDiagramFence(nodes)
+	return retryDiagramSeed{
+		Fence:     buildRetryDiagramFence(nodes),
+		MatchKeys: dedupeRetryDiagramNodes(keys, 0),
+	}
+}
+
+func buildRetryDiagramSeedFilter(repair *types.ToolRepair) retryDiagramSeedFilter {
+	filter := retryDiagramSeedFilter{Allowed: map[string]bool{}}
+	if repair == nil || repair.Metadata == nil {
+		return filter
+	}
+	appendCSV := func(raw string) {
+		for _, part := range strings.Split(raw, ",") {
+			part = strings.TrimSpace(part)
+			if part == "" {
+				continue
+			}
+			filter.Strict = true
+			for _, key := range retryDiagramSeedMatchKeys(part) {
+				filter.Allowed[key] = true
+			}
+		}
+	}
+	appendCSV(repair.Metadata["allowed_citations"])
+	appendCSV(repair.Metadata["allowed_labels"])
+	appendCSV(repair.Metadata["allowed_diagram_nodes"])
+	return filter
+}
+
+func (f retryDiagramSeedFilter) Allows(seed retryDiagramSeed) bool {
+	if strings.TrimSpace(seed.Fence) == "" {
+		return false
+	}
+	if !f.Strict {
+		return true
+	}
+	if len(seed.MatchKeys) == 0 {
+		return false
+	}
+	for _, key := range seed.MatchKeys {
+		if !f.Allowed[strings.TrimSpace(key)] {
+			return false
+		}
+	}
+	return true
+}
+
+func retryDiagramSeedMatchKeys(label string) []string {
+	label = strings.ReplaceAll(strings.TrimSpace(label), `\`, `/`)
+	if label == "" {
+		return nil
+	}
+	keys := []string{label}
+	if idx := strings.LastIndex(label, ":"); idx > 0 {
+		suffix := label[idx+1:]
+		if _, err := strconv.Atoi(suffix); err == nil {
+			keys = append(keys, label[:idx])
+		}
+	}
+	return dedupeRetryDiagramNodes(keys, 0)
 }
 
 func dedupeRetryDiagramNodes(nodes []string, limit int) []string {

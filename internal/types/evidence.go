@@ -213,7 +213,12 @@ type EvidenceDiagramRole string
 const (
 	EvidenceDiagramRoleUnknown  EvidenceDiagramRole = ""
 	EvidenceDiagramRoleDefault  EvidenceDiagramRole = "default"
-	EvidenceDiagramRoleYAML     EvidenceDiagramRole = "yaml"
+	EvidenceDiagramRoleConfig   EvidenceDiagramRole = "config"
+	// EvidenceDiagramRoleYAML is a deprecated alias kept so older
+	// tests / saved traces continue to compile; the canonical role is
+	// now `config`, which covers YAML/JSON/TOML/INI/... config-file
+	// layers instead of only YAML.
+	EvidenceDiagramRoleYAML     EvidenceDiagramRole = EvidenceDiagramRoleConfig
 	EvidenceDiagramRoleRuntime  EvidenceDiagramRole = "runtime"
 	EvidenceDiagramRoleOverride EvidenceDiagramRole = "override"
 )
@@ -221,7 +226,7 @@ const (
 var allEvidenceDiagramRoles = []EvidenceDiagramRole{
 	EvidenceDiagramRoleUnknown,
 	EvidenceDiagramRoleDefault,
-	EvidenceDiagramRoleYAML,
+	EvidenceDiagramRoleConfig,
 	EvidenceDiagramRoleRuntime,
 	EvidenceDiagramRoleOverride,
 }

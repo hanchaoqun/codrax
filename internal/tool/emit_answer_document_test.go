@@ -799,7 +799,7 @@ func TestEmitAnswerDocument_RejectsExactTargetSubstituteFramingAfterAbsence(t *t
 			AnswerSubject: types.AnswerSubject{Kind: types.SubjectConfigKey},
 		},
 		AnswerContract: types.AnswerContract{
-			RequiredAnswerShape: types.ShapeConfigValue,
+			RequiredAnswerShape: types.ShapeExplanation,
 			ExactResolution: &types.ExactResolutionContract{
 				TargetKind:              types.SubjectConfigKey,
 				TargetLabel:             "config key",
@@ -830,6 +830,12 @@ func TestEmitAnswerDocument_RejectsExactTargetSubstituteFramingAfterAbsence(t *t
 	if !strings.Contains(res.Summary, "exact-resolution contract violated") {
 		t.Fatalf("reject should name exact-resolution contract, got: %q", res.Summary)
 	}
+	if res.Repair == nil || res.Repair.Code != "exact_resolution" {
+		t.Fatalf("reject should expose exact_resolution repair metadata, got %+v", res.Repair)
+	}
+	if !strings.Contains(res.Repair.Hint, "exact_resolution{status, anchor?, context_mode}") {
+		t.Fatalf("repair hint should tell the caller to fill the structured exact_resolution object, got %q", res.Repair.Hint)
+	}
 }
 
 func TestEmitAnswerDocument_AcceptsExactTargetAbsenceWithContextOnlyFraming(t *testing.T) {
@@ -847,7 +853,7 @@ func TestEmitAnswerDocument_AcceptsExactTargetAbsenceWithContextOnlyFraming(t *t
 			AnswerSubject: types.AnswerSubject{Kind: types.SubjectConfigKey},
 		},
 		AnswerContract: types.AnswerContract{
-			RequiredAnswerShape: types.ShapeConfigValue,
+			RequiredAnswerShape: types.ShapeExplanation,
 			ExactResolution: &types.ExactResolutionContract{
 				TargetKind:              types.SubjectConfigKey,
 				TargetLabel:             "config key",
@@ -899,7 +905,7 @@ func TestEmitAnswerDocument_RejectsAliasMatchAfterAbsenceClosure(t *testing.T) {
 			AnswerSubject: types.AnswerSubject{Kind: types.SubjectConfigKey},
 		},
 		AnswerContract: types.AnswerContract{
-			RequiredAnswerShape: types.ShapeConfigValue,
+			RequiredAnswerShape: types.ShapeExplanation,
 			ExactResolution: &types.ExactResolutionContract{
 				TargetKind:              types.SubjectConfigKey,
 				TargetLabel:             "config key",
@@ -937,6 +943,139 @@ func TestEmitAnswerDocument_RejectsAliasMatchAfterAbsenceClosure(t *testing.T) {
 	}
 	if !strings.Contains(res.Summary, "already closed as absence") {
 		t.Fatalf("reject should point back to absence-closed investigation, got: %q", res.Summary)
+	}
+	if res.Repair == nil || res.Repair.Code != "exact_resolution" {
+		t.Fatalf("reject should expose exact_resolution repair metadata, got %+v", res.Repair)
+	}
+	if got := res.Repair.Metadata["locked_status"]; got != "absent" {
+		t.Fatalf("locked_status metadata = %q, want absent", got)
+	}
+	if !strings.Contains(res.Repair.Hint, "`exact_resolution.status=\"absent\"`") {
+		t.Fatalf("repair hint should lock the finalizer back to absent, got %q", res.Repair.Hint)
+	}
+}
+
+func TestEmitAnswerDocument_RejectsAliasMatchFromSummaryOnlyNearbyContext(t *testing.T) {
+	tool := &EmitAnswerDocument{}
+	ctx := newDocBusCtx("")
+	target := "explore_mid_loop_hint_budget"
+	anchor := "MidLoopHintBudget"
+	ctx.AnalysisIR = &types.AnalysisIR{
+		RequestModel: types.RequestModel{
+			Scenario: types.ScenarioConfigTrace,
+			AnalyzerHints: types.AnalyzerHints{
+				Kind:         "config_mapping",
+				ExactTargets: []string{target},
+			},
+			AnswerSubject: types.AnswerSubject{Kind: types.SubjectConfigKey},
+		},
+		AnswerContract: types.AnswerContract{
+			RequiredAnswerShape: types.ShapeExplanation,
+			ExactResolution: &types.ExactResolutionContract{
+				TargetKind:              types.SubjectConfigKey,
+				TargetLabel:             "config key",
+				Targets:                 []string{target},
+				AllowAbsence:            true,
+				RequireTargetMention:    true,
+				AliasRequiresProof:      true,
+				RelatedContextPolicy:    types.ExactContextSameFamilyGrounded,
+				RelatedContextScopeHint: "same namespace / prefix family",
+			},
+		},
+	}
+	ctx.Mutable.AppendEvidence([]types.EvidenceItem{{
+		Kind:            types.EvidenceDirect,
+		Subject:         "DefaultExploreHeuristics",
+		Predicate:       "defines",
+		Object:          "ExploreHeuristics defaults",
+		Summary:         "Nearby context only: explore_mid_loop_hint_budget is absent, and `MidLoopHintBudget` is merely a same-family guess rather than an explicit mapping.",
+		Source:          "internal/types/config.go",
+		LineStart:       707,
+		LineEnd:         707,
+		GroundingStatus: types.GroundingGrounded,
+		ContextRole:     types.EvidenceContextRoleRelatedContext,
+		AnchorKind:      types.AnchorDefinition,
+		AnchorSymbol:    "DefaultExploreHeuristics",
+		Producer:        EmitEvidenceProducer,
+	}})
+
+	params := mustDocJSON(t, map[string]interface{}{
+		"shape": "explanation",
+		"exact_resolution": map[string]interface{}{
+			"status": "alias_match",
+			"anchor": anchor,
+		},
+		"summary": "The exact key is absent; `MidLoopHintBudget` is just nearby family context.",
+	})
+	res, _ := tool.Execute(ctx, params)
+	if res.Success {
+		t.Fatalf("summary-only nearby context must not satisfy alias_match")
+	}
+	if !strings.Contains(res.Summary, "mentions both") {
+		t.Fatalf("reject should explain missing pair proof, got: %q", res.Summary)
+	}
+	if res.Repair == nil || res.Repair.Code != "exact_resolution" {
+		t.Fatalf("reject should expose exact_resolution repair metadata, got %+v", res.Repair)
+	}
+	if !strings.Contains(res.Repair.Hint, "structured anchor fields") {
+		t.Fatalf("repair hint should explain the structured proof model, got %q", res.Repair.Hint)
+	}
+	if !strings.Contains(res.Repair.Hint, "summary") {
+		t.Fatalf("repair hint should say summary-only nearby context does not count, got %q", res.Repair.Hint)
+	}
+}
+
+func TestEmitAnswerDocument_AllowsAliasMatchFromStructuredPairProof(t *testing.T) {
+	tool := &EmitAnswerDocument{}
+	ctx := newDocBusCtx("")
+	target := "old_parser_entry"
+	anchor := "buildAnalysisIR"
+	ctx.AnalysisIR = &types.AnalysisIR{
+		RequestModel: types.RequestModel{
+			AnswerSubject: types.AnswerSubject{Kind: types.SubjectFunctionName},
+		},
+		AnswerContract: types.AnswerContract{
+			RequiredAnswerShape: types.ShapeExplanation,
+			ExactResolution: &types.ExactResolutionContract{
+				TargetKind:           types.SubjectFunctionName,
+				TargetLabel:          "symbol",
+				Targets:              []string{target},
+				AllowAbsence:         true,
+				RequireTargetMention: true,
+				AliasRequiresProof:   true,
+				RelatedContextPolicy: types.ExactContextGroundedOnly,
+			},
+		},
+	}
+	ctx.Mutable.AppendEvidence([]types.EvidenceItem{{
+		Kind:            types.EvidenceRelationship,
+		Subject:         target,
+		Predicate:       "maps_to",
+		Object:          anchor,
+		Source:          "internal/agent/analyzer.go",
+		LineStart:       118,
+		LineEnd:         118,
+		GroundingStatus: types.GroundingGrounded,
+		ContextRole:     types.EvidenceContextRoleDefining,
+		AnchorKind:      types.AnchorAssignment,
+		AnchorSymbol:    target,
+		Producer:        EmitEvidenceProducer,
+	}})
+
+	params := mustDocJSON(t, map[string]interface{}{
+		"shape": "explanation",
+		"exact_resolution": map[string]interface{}{
+			"status": "alias_match",
+			"anchor": anchor,
+		},
+		"summary": "The legacy name is resolved through the current parser entry.",
+		"citations": []map[string]interface{}{
+			{"file": "internal/agent/analyzer.go", "line": 118},
+		},
+	})
+	res, _ := tool.Execute(ctx, params)
+	if !res.Success {
+		t.Fatalf("structured pair proof should satisfy alias_match, got: %q", res.Summary)
 	}
 }
 
@@ -989,6 +1128,12 @@ func TestEmitAnswerDocument_RejectsExactMatchFromTestOnlyConfigProof(t *testing.
 	if !strings.Contains(res.Summary, "anchored proof") {
 		t.Fatalf("reject should explain anchored-proof requirement, got: %q", res.Summary)
 	}
+	if res.Repair == nil || res.Repair.Code != "exact_resolution" {
+		t.Fatalf("reject should expose exact_resolution repair metadata, got %+v", res.Repair)
+	}
+	if !strings.Contains(res.Repair.Hint, "production code/config proof") {
+		t.Fatalf("repair hint should explain the production-proof requirement, got %q", res.Repair.Hint)
+	}
 }
 
 func TestEmitAnswerDocument_RejectsExactMatchFromDocOnlyConfigMention(t *testing.T) {
@@ -1038,8 +1183,11 @@ func TestEmitAnswerDocument_RejectsExactMatchFromDocOnlyConfigMention(t *testing
 	if res.Success {
 		t.Fatalf("documentation-style mention must not satisfy exact_match")
 	}
-	if !strings.Contains(res.Summary, "anchored proof") {
-		t.Fatalf("reject should explain anchored-proof requirement, got: %q", res.Summary)
+	if !strings.Contains(res.Summary, "explicitly names the requested exact config key") {
+		t.Fatalf("reject should explain the missing exact-proof requirement, got: %q", res.Summary)
+	}
+	if res.Repair == nil || !strings.Contains(res.Repair.Hint, "structured anchor fields") {
+		t.Fatalf("repair hint should explain the structured proof model, got %+v", res.Repair)
 	}
 }
 
@@ -1506,11 +1654,12 @@ func TestEmitAnswerDocument_ConfigTraceAbsenceAllowsPrecedenceAnchors(t *testing
 		},
 		{
 			Kind:            types.EvidenceDirect,
+			Subject:         "ExploreHeuristics",
 			Source:          "codrax.yaml.example",
 			LineStart:       22,
 			AnchorKind:      types.AnchorDefinition,
-			AnchorSymbol:    "code",
-			ContextRole:     types.EvidenceContextRoleDefining,
+			AnchorSymbol:    "ExploreHeuristics",
+			ContextRole:     types.EvidenceContextRoleRelatedContext,
 			DiagramRole:     types.EvidenceDiagramRoleYAML,
 			GroundingStatus: types.GroundingGrounded,
 			GroundingTier:   types.TierLineText,
@@ -1618,6 +1767,80 @@ func TestEmitAnswerDocument_ConfigTraceAbsenceRejectsBroadSameFamilyCitation(t *
 	}
 	if res.Repair.Metadata == nil || !strings.Contains(res.Repair.Metadata["allowed_citations"], "internal/config/runtime.go:231") || !strings.Contains(res.Repair.Metadata["allowed_citations"], "internal/types/config.go:707") {
 		t.Fatalf("reject should enumerate allowed related-context citations, got %+v", res.Repair)
+	}
+}
+
+func TestEmitAnswerDocument_ConfigTraceAbsenceRequiresLineageCitationForGroundedContextSummary(t *testing.T) {
+	tool := &EmitAnswerDocument{}
+	ctx := newDocBusCtx("")
+	target := "explore_mid_loop_hint_budget"
+	ctx.AnalysisIR = &types.AnalysisIR{
+		RequestModel: types.RequestModel{
+			Scenario: types.ScenarioConfigTrace,
+			AnalyzerHints: types.AnalyzerHints{
+				Kind:         "config_mapping",
+				ExactTargets: []string{target},
+			},
+			AnswerSubject: types.AnswerSubject{Kind: types.SubjectConfigKey},
+		},
+		AnswerContract: types.AnswerContract{
+			ExactResolution: &types.ExactResolutionContract{
+				TargetKind:           types.SubjectConfigKey,
+				TargetLabel:          "config key",
+				Targets:              []string{target},
+				AllowAbsence:         true,
+				AliasRequiresProof:   true,
+				RequireTargetMention: true,
+				RelatedContextPolicy: types.ExactContextSameFamilyGrounded,
+			},
+		},
+	}
+	ctx.Mutable.SetAbsenceJustification("searched the repo and found no config key named `explore_mid_loop_hint_budget`")
+	ctx.Mutable.SetInvestigationResultKind("absence")
+	ctx.Mutable.SetExactContextRequiredFiles([]string{"internal/types/config.go"})
+	ctx.Mutable.AppendEvidence([]types.EvidenceItem{
+		{
+			Kind:            types.EvidenceDirect,
+			Source:          "internal/config/runtime.go",
+			LineStart:       231,
+			AnchorKind:      types.AnchorDefinition,
+			AnchorSymbol:    "ExploreMidLoopMinIteration",
+			ContextRole:     types.EvidenceContextRoleAbsenceSupport,
+			GroundingStatus: types.GroundingGrounded,
+			GroundingTier:   types.TierLineText,
+		},
+		{
+			Kind:            types.EvidenceDirect,
+			Source:          "internal/types/config.go",
+			LineStart:       707,
+			AnchorKind:      types.AnchorDefinition,
+			AnchorSymbol:    "DefaultExploreHeuristics",
+			ContextRole:     types.EvidenceContextRoleRelatedContext,
+			DiagramRole:     types.EvidenceDiagramRoleDefault,
+			GroundingStatus: types.GroundingGrounded,
+			GroundingTier:   types.TierLineText,
+		},
+	})
+	params := mustDocJSON(t, map[string]interface{}{
+		"shape": "explanation",
+		"exact_resolution": map[string]interface{}{
+			"status":       "absent",
+			"context_mode": "grounded_context_only",
+		},
+		"summary": "### Code defaults\n\n`DefaultExploreHeuristics()` carries the code-default side of the nearby precedence explanation for this missing key family.\n\n### Why this matters\n\nThe answer is expanding the precedence / lineage context instead of stopping at the absence lead.",
+		"citations": []map[string]interface{}{
+			{"file": "internal/config/runtime.go", "line": 231},
+		},
+	})
+	res, _ := tool.Execute(ctx, params)
+	if res.Success {
+		t.Fatalf("grounded_context_only summary should require at least one lineage citation")
+	}
+	if res.Repair == nil || res.Repair.Code != "config_trace_context_citation" {
+		t.Fatalf("reject should expose config_trace_context_citation repair metadata, got %+v", res.Repair)
+	}
+	if !strings.Contains(res.Repair.Hint, "keep at least one grounded precedence anchor in `citations[]`") {
+		t.Fatalf("reject hint should require a lineage citation, got %+v", res.Repair)
 	}
 }
 
@@ -1751,7 +1974,7 @@ func TestEmitAnswerDocument_RejectsBackgroundOnlyExactContextSurface(t *testing.
 			"status":       "absent",
 			"context_mode": "grounded_context_only",
 		},
-		"summary": "Related same-family runtime counters such as `ExploreBudget` are not answer-grade context for this exact-absence answer.",
+		"summary": "`DefaultExploreHeuristics()` is the grounded code-default anchor, but related same-family runtime counters such as `ExploreBudget` are not answer-grade context for this exact-absence answer.",
 		"citations": []map[string]interface{}{
 			{"file": "internal/types/config.go", "line": 707},
 		},

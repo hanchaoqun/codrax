@@ -255,12 +255,19 @@ func (t *EmitInvestigationComplete) Execute(ctx *types.BusContext, params json.R
 				scenario = ctx.AnalysisIR.RequestModel.Scenario
 			}
 			if !evidenceHasGroundedRelatedContextProof(contract, scenario, evidence, requiredFiles) {
-				return types.ToolResult{
-					ToolName: t.Name(),
-					Summary: fmt.Sprintf(
-						"emit_investigation_complete rejected: this exact-absence answer still lacks a grounded production related-context anchor from the current same-scope candidate set. Read one of these repo_map-ranked files, emit at least one grounded related_context fact from it, then re-call emit_investigation_complete(..., result_kind=\"absence\", absence_justification=...). Pending same-scope files: %s",
+				summary := fmt.Sprintf(
+					"emit_investigation_complete rejected: this exact-absence answer still lacks a grounded production related-context anchor from the current same-scope candidate set. Read one of these repo_map-ranked files, emit at least one grounded related_context fact from it, then re-call emit_investigation_complete(..., result_kind=\"absence\", absence_justification=...). Pending same-scope files: %s",
+					strings.Join(requiredFiles, ", "),
+				)
+				if scenario == types.ScenarioConfigTrace && contract != nil && contract.TargetKind == types.SubjectConfigKey {
+					summary = fmt.Sprintf(
+						"emit_investigation_complete rejected: this exact-absence config-trace answer still lacks a grounded precedence-capable lineage anchor from the current same-scope candidate set. Read one of these repo_map-ranked files, then re-emit at least one grounded related_context fact that carries an explicit diagram_role_hint (`default`, `config`, `runtime`, or `override`) so downstream answers can cite a real precedence anchor. `config` means a grounded repo/user config-file layer (YAML/JSON/TOML/INI/etc.). Pending same-scope files: %s",
 						strings.Join(requiredFiles, ", "),
-					),
+					)
+				}
+				return types.ToolResult{
+					ToolName:  t.Name(),
+					Summary:   summary,
 					Success:   false,
 					Timestamp: time.Now(),
 				}, nil

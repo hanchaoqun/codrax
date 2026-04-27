@@ -464,19 +464,78 @@ func TestExactResolutionAnswerContextAnchorAllowedInFiles_RestrictsUngradedSameS
 
 func TestConfigTraceGroundedContextAnchorAllowedInFiles_AllowsValidatedPrecedenceAnchorOutsideRequiredFiles(t *testing.T) {
 	contract := &ExactResolutionContract{
-		TargetKind:   SubjectConfigKey,
-		TargetLabel:  "config key",
-		Targets:      []string{"explore_mid_loop_hint_budget"},
-		AllowAbsence: true,
+		TargetKind:           SubjectConfigKey,
+		TargetLabel:          "config key",
+		Targets:              []string{"explore_mid_loop_hint_budget"},
+		AllowAbsence:         true,
+		RelatedContextPolicy: ExactContextSameFamilyGrounded,
+		RelatedContextTerms:  []string{"explore"},
 	}
 	item := EvidenceItem{
 		Source:          "codrax.yaml.example",
 		LineStart:       25,
+		Subject:         "ExploreHeuristics",
+		AnchorSymbol:    "ExploreHeuristics",
+		AnchorKind:      AnchorDefinition,
 		ContextRole:     EvidenceContextRoleRelatedContext,
 		DiagramRole:     EvidenceDiagramRoleYAML,
 		GroundingStatus: GroundingRecovered,
 	}
 	if !ConfigTraceGroundedContextAnchorAllowedInFiles(contract, item, []string{"internal/types/config.go"}) {
 		t.Fatal("validated precedence anchors should stay diagram-grade even when same-scope context is narrowed to other files")
+	}
+}
+
+func TestLooksLikeConfigFilePath_AcceptsCommonConfigExtensionsAndChains(t *testing.T) {
+	for _, path := range []string{
+		"codrax.yaml",
+		"codrax.yaml.example",
+		"settings.json",
+		"settings.json5",
+		"settings.json.sample",
+		"pyproject.toml",
+		"service.ini",
+		"local.properties",
+	} {
+		if !LooksLikeConfigFilePath(path) {
+			t.Fatalf("LooksLikeConfigFilePath(%q)=false, want true", path)
+		}
+	}
+	for _, path := range []string{
+		"internal/types/config.go",
+		"docs/configuration.md",
+		"README",
+	} {
+		if LooksLikeConfigFilePath(path) {
+			t.Fatalf("LooksLikeConfigFilePath(%q)=true, want false", path)
+		}
+	}
+}
+
+func TestExactResolutionRelatedContextProofAllowedInFiles_ConfigTraceRequiresValidatedPrecedenceAnchor(t *testing.T) {
+	contract := &ExactResolutionContract{
+		TargetKind:           SubjectConfigKey,
+		TargetLabel:          "config key",
+		Targets:              []string{"explore_mid_loop_hint_budget"},
+		AllowAbsence:         true,
+		RelatedContextPolicy: ExactContextSameFamilyGrounded,
+		RelatedContextTerms:  []string{"explore"},
+	}
+	plainRelated := EvidenceItem{
+		Source:          "internal/types/config.go",
+		LineStart:       707,
+		Subject:         "DefaultExploreHeuristics",
+		AnchorSymbol:    "DefaultExploreHeuristics",
+		AnchorKind:      AnchorDefinition,
+		ContextRole:     EvidenceContextRoleRelatedContext,
+		GroundingStatus: GroundingGrounded,
+	}
+	if ExactResolutionRelatedContextProofAllowedInFiles(contract, ScenarioConfigTrace, true, plainRelated, []string{"internal/types/config.go"}) {
+		t.Fatal("config-trace closure should not accept same-scope related context without a validated precedence role")
+	}
+	precedenceRelated := plainRelated
+	precedenceRelated.DiagramRole = EvidenceDiagramRoleDefault
+	if !ExactResolutionRelatedContextProofAllowedInFiles(contract, ScenarioConfigTrace, true, precedenceRelated, []string{"internal/types/config.go"}) {
+		t.Fatal("config-trace closure should accept a validated precedence anchor")
 	}
 }

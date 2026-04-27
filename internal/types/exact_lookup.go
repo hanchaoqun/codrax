@@ -195,7 +195,7 @@ func exactResolutionCandidateMatchesSubjectKind(kind AnswerSubjectKind, candidat
 		if looksLikeExactPathToken(candidate) || looksLikeRouteLikeToken(candidate) {
 			return false
 		}
-		return looksLikeConfigKeyToken(candidate)
+		return looksLikeConfigKeyToken(candidate) || looksLikeBareConfigWord(candidate)
 	case SubjectStringLiteral, SubjectNumeric, SubjectUnknown:
 		return true
 	default:
@@ -513,10 +513,20 @@ func ExactResolutionSourceIsDefiningPrimaryProofLike(c *ExactResolutionContract,
 // policy (same-family / same-directory / grounded-only) is used as the
 // structural scope check.
 func ExactResolutionEvidenceCanSatisfyRelatedContext(c *ExactResolutionContract, item EvidenceItem, requiredFiles []string) bool {
+	return exactResolutionEvidenceCanSatisfyRelatedContextWithStatuses(c, item, requiredFiles, false)
+}
+
+func exactResolutionEvidenceCanSatisfyRelatedContextWithStatuses(c *ExactResolutionContract, item EvidenceItem, requiredFiles []string, allowRecovered bool) bool {
 	if c == nil {
 		return false
 	}
-	if item.GroundingStatus != GroundingGrounded {
+	switch item.GroundingStatus {
+	case GroundingGrounded:
+	case GroundingRecovered:
+		if !allowRecovered {
+			return false
+		}
+	default:
 		return false
 	}
 	if !ExactResolutionSourceIsDefiningPrimaryProofLike(c, item.Source) {
@@ -605,8 +615,99 @@ func ConfigTraceGroundedContextAnchorAllowedInFiles(contract *ExactResolutionCon
 	case EvidenceContextRoleAbsenceSupport:
 		return contract != nil && ExactResolutionSourceIsDefiningPrimaryProofLike(contract, item.Source)
 	default:
-		return item.DiagramRole != EvidenceDiagramRoleUnknown
+		return ConfigTraceValidatedDiagramRoleInFiles(contract, item, requiredFiles) != EvidenceDiagramRoleUnknown
 	}
+}
+
+func ConfigTraceValidatedDiagramRole(contract *ExactResolutionContract, item EvidenceItem) EvidenceDiagramRole {
+	return ConfigTraceValidatedDiagramRoleInFiles(contract, item, nil)
+}
+
+func ConfigTraceValidatedDiagramRoleInFiles(contract *ExactResolutionContract, item EvidenceItem, requiredFiles []string) EvidenceDiagramRole {
+	if item.Source == "" {
+		return EvidenceDiagramRoleUnknown
+	}
+	switch item.GroundingStatus {
+	case GroundingGrounded, GroundingRecovered:
+	default:
+		return EvidenceDiagramRoleUnknown
+	}
+	if item.Kind == EvidenceUnresolved || item.Kind == EvidenceTruncated {
+		return EvidenceDiagramRoleUnknown
+	}
+	switch item.ContextRole {
+	case EvidenceContextRoleIllustrativeOnly, EvidenceContextRoleAbsenceSupport:
+		return EvidenceDiagramRoleUnknown
+	}
+	switch item.DiagramRole {
+	case EvidenceDiagramRoleConfig:
+		if LooksLikeConfigFilePath(item.Source) &&
+			configTraceDiagramEvidenceWithinScope(contract, item, requiredFiles) {
+			return item.DiagramRole
+		}
+	case EvidenceDiagramRoleDefault, EvidenceDiagramRoleRuntime, EvidenceDiagramRoleOverride:
+		if configTraceDiagramCodeLayerAllowed(contract, item, requiredFiles) {
+			return item.DiagramRole
+		}
+	}
+	return EvidenceDiagramRoleUnknown
+}
+
+func configTraceDiagramEvidenceWithinScope(contract *ExactResolutionContract, item EvidenceItem, requiredFiles []string) bool {
+	if contract == nil {
+		if len(requiredFiles) == 0 {
+			return true
+		}
+		return exactResolutionRequiredFilesContain(requiredFiles, item.Source)
+	}
+	return configTraceDiagramEvidenceMatchesContext(contract, item)
+}
+
+func configTraceDiagramCodeLayerAllowed(contract *ExactResolutionContract, item EvidenceItem, requiredFiles []string) bool {
+	if item.Source == "" || LooksLikeConfigFilePath(item.Source) || LooksLikeAuxiliaryEvidencePath(item.Source) {
+		return false
+	}
+	if item.AnchorKind == "" {
+		return false
+	}
+	return configTraceDiagramEvidenceWithinScope(contract, item, requiredFiles)
+}
+
+func LooksLikeConfigFilePath(source string) bool {
+	source = strings.ToLower(strings.TrimSpace(strings.ReplaceAll(source, `\`, `/`)))
+	if source == "" {
+		return false
+	}
+	base := filepath.Base(source)
+	parts := strings.Split(base, ".")
+	for _, part := range parts[1:] {
+		switch part {
+		case "yaml", "yml", "json", "json5", "jsonc", "toml", "ini", "cfg", "conf", "config", "properties", "xml", "hcl", "env":
+			return true
+		}
+	}
+	return false
+}
+
+func configTraceDiagramEvidenceMatchesContext(contract *ExactResolutionContract, item EvidenceItem) bool {
+	if contract == nil {
+		return true
+	}
+	if ExactResolutionDirectAnchorMatchesAnyTarget(contract, item.Subject, item.AnchorSymbol, item.Object) {
+		return false
+	}
+	surface := strings.Join([]string{
+		item.Source,
+		item.Subject,
+		item.Object,
+		item.AnchorSymbol,
+		item.Condition,
+		item.Snippet,
+	}, "\n")
+	if ExactResolutionSameFamilyMatchScore(contract, surface) > 0 {
+		return true
+	}
+	return EvidenceItemStructurallyMentionsAnyTerm(item, ExactResolutionContextTerms(contract))
 }
 
 // ExactResolutionAnswerContextAnchorAllowed reports whether an
@@ -662,7 +763,7 @@ func ExactResolutionRelatedContextProofAllowedInFiles(c *ExactResolutionContract
 		if item.ContextRole == EvidenceContextRoleAbsenceSupport {
 			return false
 		}
-		return ExactResolutionEvidenceCanSatisfyRelatedContext(c, item, requiredFiles)
+		return ConfigTraceGroundedContextAnchorAllowedInFiles(c, item, requiredFiles)
 	}
 	return ExactResolutionAnswerContextAnchorAllowedInFiles(c, scenario, stableAbsent, item, requiredFiles)
 }
@@ -977,11 +1078,29 @@ func looksLikeConfigKeyToken(s string) bool {
 	if strings.Contains(s, "/") || filepath.Ext(strings.ReplaceAll(s, `\`, `/`)) != "" {
 		return false
 	}
-	if strings.ContainsAny(s, "._-") {
-		return true
+	return strings.ContainsAny(s, "._-")
+}
+
+func looksLikeBareConfigWord(s string) bool {
+	s = strings.TrimSpace(strings.Trim(s, "`\"' "))
+	if s == "" || strings.ContainsAny(s, " \t\r\n") {
+		return false
 	}
-	first := s[0]
-	return first >= 'a' && first <= 'z'
+	if strings.ContainsAny(s, "/._-") || filepath.Ext(strings.ReplaceAll(s, `\`, `/`)) != "" {
+		return false
+	}
+	hasLower := false
+	for _, r := range s {
+		switch {
+		case r >= 'a' && r <= 'z':
+			hasLower = true
+		case r >= '0' && r <= '9':
+			continue
+		default:
+			return false
+		}
+	}
+	return hasLower
 }
 
 func normalizeExactResolutionToken(kind, s string) string {

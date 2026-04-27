@@ -180,7 +180,7 @@ func (t *EmitEvidence) Description() string {
 		"`object=\"inner\"`.\n\n" +
 		"Optional hint fields: `context_role_hint` may be `defining`, `absence_support`, `related_context`, or `illustrative_only` " +
 		"to recommend how the item should be used for exact-target answers. `diagram_role_hint` may be `default`, " +
-		"`yaml`, `runtime`, or `override` for config-precedence traces. These are recommendations only: the tool " +
+		"`config`, `runtime`, or `override` for config-precedence traces (`config` = grounded repo/user config-file layer such as YAML/JSON/TOML/INI/etc.). These are recommendations only: the tool " +
 		"validates them structurally and may downgrade or ignore inconsistent hints.\n\n" +
 		"snippet is optional but recommended for conditional / mechanism / registration items: paste " +
 		"1-2 lines of the actual code so the snippet_fuzzy recovery tier can re-anchor if your " +
@@ -246,7 +246,7 @@ func emitEvidenceParametersSchema() json.RawMessage {
 						"diagram_role_hint": map[string]any{
 							"type":        "string",
 							"enum":        emitEvidenceDiagramRoleNames(),
-							"description": "OPTIONAL recommendation for config-precedence traces. default = code defaults, yaml = repo/user config layer, runtime = code/runtime binding layer, override = CLI/high-precedence override layer. The tool validates and may ignore inconsistent hints.",
+							"description": "OPTIONAL recommendation for config-precedence traces. default = code defaults, config = repo/user config-file layer (YAML/JSON/TOML/INI/etc.), runtime = code/runtime binding layer, override = CLI/high-precedence override layer. The tool validates and may ignore inconsistent hints.",
 						},
 						"anchor_kind": map[string]any{
 							"type":        "string",
@@ -303,7 +303,7 @@ func (t *EmitEvidence) Parameters() json.RawMessage {
           "condition":     {"type": "string", "description": "For conditional items: the exact IF clause that triggers the behaviour."},
           "summary":       {"type": "string", "description": "Free-text rationale describing the fact. Keep concise; do not paraphrase numbers or string literals."},
           "context_role_hint": {"type": "string", "enum": %s, "description": "OPTIONAL recommendation for exact-target questions. defining = direct defining proof, absence_support = grounded evidence that helps justify why the exact target is absent but does NOT define it, related_context = grounded nearby context but not the exact target itself, illustrative_only = comment/doc/test/example mention that should NOT be treated as defining proof. The tool validates and may downgrade the hint."},
-          "diagram_role_hint": {"type": "string", "enum": %s, "description": "OPTIONAL recommendation for config-precedence traces. default = code defaults, yaml = repo/user config layer, runtime = code/runtime binding layer, override = CLI/high-precedence override layer. The tool validates and may ignore inconsistent hints."},
+          "diagram_role_hint": {"type": "string", "enum": %s, "description": "OPTIONAL recommendation for config-precedence traces. default = code defaults, config = repo/user config-file layer (YAML/JSON/TOML/INI/etc.), runtime = code/runtime binding layer, override = CLI/high-precedence override layer. The tool validates and may ignore inconsistent hints."},
           "anchor_kind":   {"type": "string", "enum": %s, "description": "REQUIRED. What the line_start points at: 'definition' = symbol declaration, 'call' = function/method call site, 'condition' = if/when/switch/case/guard line, 'return' = return or yield, 'assignment' = := or = assignment, 'import' = import/use/require statement. The grounder dispatches on this so wrong kinds produce confusing ungrounded verdicts."},
           "anchor_symbol": {"type": "string", "description": "REQUIRED. The identifier the grounder should find on line_start. For a call like 'x.Execute()' the anchor_symbol is 'Execute'. For a type decl 'type Orchestrator struct' the anchor_symbol is 'Orchestrator'. For an import the anchor_symbol is the package path or local alias."},
           "snippet":       {"type": "string", "description": "Optional. 1-2 lines of actual code from the cited location. Enables snippet_fuzzy recovery when line_start is off by ±15 lines — recommended for conditional / mechanism / registration items."}
@@ -691,7 +691,12 @@ func parseEvidenceContextRoleHint(index int, raw string) (types.EvidenceContextR
 }
 
 func parseEvidenceDiagramRoleHint(index int, raw string) (types.EvidenceDiagramRole, error) {
-	role := types.EvidenceDiagramRole(strings.ToLower(strings.TrimSpace(raw)))
+	roleText := strings.ToLower(strings.TrimSpace(raw))
+	switch roleText {
+	case "yaml":
+		roleText = string(types.EvidenceDiagramRoleConfig)
+	}
+	role := types.EvidenceDiagramRole(roleText)
 	if role == "" {
 		return types.EvidenceDiagramRoleUnknown, nil
 	}
@@ -733,20 +738,20 @@ func validatedEvidenceDiagramRole(ev types.EvidenceItem, gc *ground.Context, con
 		return types.EvidenceDiagramRoleUnknown
 	}
 	switch ev.DiagramRole {
-	case types.EvidenceDiagramRoleYAML:
-		if evidenceSourceHasYAMLExt(ev.Source) {
+	case types.EvidenceDiagramRoleConfig:
+		if types.LooksLikeConfigFilePath(ev.Source) {
 			return ev.DiagramRole
 		}
 	case types.EvidenceDiagramRoleOverride:
-		if evidenceCanBeDiagramCodeLayer(ev, contract, ev.DiagramRole, requiredFiles) {
+		if evidenceCanBeDiagramCodeLayer(ev, contract, requiredFiles) {
 			return ev.DiagramRole
 		}
 	case types.EvidenceDiagramRoleRuntime:
-		if evidenceCanBeDiagramCodeLayer(ev, contract, ev.DiagramRole, requiredFiles) {
+		if evidenceCanBeDiagramCodeLayer(ev, contract, requiredFiles) {
 			return ev.DiagramRole
 		}
 	case types.EvidenceDiagramRoleDefault:
-		if evidenceCanBeDiagramCodeLayer(ev, contract, ev.DiagramRole, requiredFiles) && !evidenceSourceHasYAMLExt(ev.Source) {
+		if evidenceCanBeDiagramCodeLayer(ev, contract, requiredFiles) && !types.LooksLikeConfigFilePath(ev.Source) {
 			return ev.DiagramRole
 		}
 	}
@@ -797,13 +802,8 @@ func evidenceCanBeAbsenceSupport(ev types.EvidenceItem, contract *types.ExactRes
 		ev.Subject, ev.Predicate, ev.Object, ev.AnchorSymbol, ev.Condition, ev.Snippet, ev.Summary)
 }
 
-func evidenceSourceHasYAMLExt(source string) bool {
-	source = strings.ToLower(strings.TrimSpace(source))
-	return strings.HasSuffix(source, ".yaml") || strings.HasSuffix(source, ".yml")
-}
-
-func evidenceCanBeDiagramCodeLayer(ev types.EvidenceItem, contract *types.ExactResolutionContract, role types.EvidenceDiagramRole, requiredFiles []string) bool {
-	if ev.Source == "" || evidenceSourceHasYAMLExt(ev.Source) {
+func evidenceCanBeDiagramCodeLayer(ev types.EvidenceItem, contract *types.ExactResolutionContract, requiredFiles []string) bool {
+	if ev.Source == "" || types.LooksLikeConfigFilePath(ev.Source) {
 		return false
 	}
 	if types.LooksLikeAuxiliaryEvidencePath(ev.Source) {
@@ -824,25 +824,8 @@ func evidenceCanBeDiagramCodeLayer(ev types.EvidenceItem, contract *types.ExactR
 		!types.EvidenceItemStructurallyMentionsAnyTerm(ev, terms) {
 		return false
 	}
-	contextRole := ev.ContextRole
-	if contextRole == types.EvidenceContextRoleUnknown {
-		switch role {
-		case types.EvidenceDiagramRoleDefault:
-			contextRole = types.EvidenceContextRoleDefining
-		default:
-			contextRole = types.EvidenceContextRoleRelatedContext
-		}
-	}
-	switch role {
-	case types.EvidenceDiagramRoleDefault:
-		return contextRole == types.EvidenceContextRoleDefining
-	case types.EvidenceDiagramRoleRuntime:
-		return contextRole == types.EvidenceContextRoleDefining || contextRole == types.EvidenceContextRoleRelatedContext
-	case types.EvidenceDiagramRoleOverride:
-		return contextRole == types.EvidenceContextRoleDefining || contextRole == types.EvidenceContextRoleRelatedContext
-	default:
-		return false
-	}
+	return ev.ContextRole != types.EvidenceContextRoleIllustrativeOnly &&
+		ev.ContextRole != types.EvidenceContextRoleAbsenceSupport
 }
 
 var callLikePredicates = map[string]bool{
@@ -1104,12 +1087,15 @@ func renderEmitSummary(ctx *types.BusContext, items []types.EvidenceItem, report
 				i+1, it.Kind, prefOrDash(it.AnchorSymbol), it.Source, line)
 		}
 		switch it.GroundingStatus {
-		case types.GroundingGrounded:
-			fmt.Fprintf(&b, "      → grounded (tier=%s)\n", it.GroundingTier)
-		case types.GroundingRecovered:
-			if r.OriginalLine != 0 && r.OriginalLine != r.AdjustedLine {
-				fmt.Fprintf(&b, "      → recovered (tier=%s, you claimed line %d, adjusted to %d)\n",
-					it.GroundingTier, r.OriginalLine, r.AdjustedLine)
+	case types.GroundingGrounded:
+		fmt.Fprintf(&b, "      → grounded (tier=%s)\n", it.GroundingTier)
+		if note := strings.TrimSpace(it.GroundingNote); note != "" {
+			fmt.Fprintf(&b, "        note: %s\n", note)
+		}
+	case types.GroundingRecovered:
+		if r.OriginalLine != 0 && r.OriginalLine != r.AdjustedLine {
+			fmt.Fprintf(&b, "      → recovered (tier=%s, you claimed line %d, adjusted to %d)\n",
+				it.GroundingTier, r.OriginalLine, r.AdjustedLine)
 			} else {
 				fmt.Fprintf(&b, "      → recovered (tier=%s)\n", it.GroundingTier)
 			}
@@ -1151,7 +1137,7 @@ func renderEmitSummary(ctx *types.BusContext, items []types.EvidenceItem, report
 	fmt.Fprintf(&b, "\nEvidence so far: %d grounded / %d recovered / %d ungrounded across %d file(s).\n",
 		g, rc, u, len(srcList))
 	if shouldNudgeDiagramRoleHints(ctx, items) {
-		b.WriteString("Config-precedence task detected: when an evidence item represents code defaults, a YAML layer, a runtime binding layer, or a high-precedence override layer, set `diagram_role_hint` on that item so downstream diagram rendering can reuse validated structure instead of inferring roles from prose.\n")
+		b.WriteString("Config-precedence task detected: when an evidence item represents code defaults, a config-file layer (YAML/JSON/TOML/INI/etc.), a runtime binding layer, or a high-precedence override layer, set `diagram_role_hint` on that item so downstream diagram rendering can reuse validated structure instead of inferring roles from prose.\n")
 	}
 	return b.String()
 }
@@ -1237,7 +1223,6 @@ func stabilizeExactResolutionEvidence(ev *types.EvidenceItem, gc *ground.Context
 		ev.GroundingStatus = types.GroundingUngrounded
 		ev.GroundingTier = ""
 		ev.GroundingNote = note
-		appendContextOnlySummary(ev, note)
 		return true
 	}
 	if ev.ContextRole != types.EvidenceContextRoleIllustrativeOnly &&
@@ -1263,7 +1248,6 @@ func stabilizeExactResolutionEvidence(ev *types.EvidenceItem, gc *ground.Context
 		if appendGroundingNoteOnce(ev, note) {
 			changed = true
 		}
-		appendContextOnlySummary(ev, note)
 	}
 	if len(pendingTargets) == 0 {
 		return changed
@@ -1301,7 +1285,6 @@ func stabilizeExactResolutionEvidence(ev *types.EvidenceItem, gc *ground.Context
 	if appendGroundingNoteOnce(ev, note) {
 		changed = true
 	}
-	appendContextOnlySummary(ev, note)
 	return changed
 }
 
@@ -1359,20 +1342,6 @@ func appendGroundingNoteOnce(ev *types.EvidenceItem, note string) bool {
 	}
 	ev.GroundingNote = strings.TrimSpace(ev.GroundingNote) + " " + note
 	return true
-}
-
-func appendContextOnlySummary(ev *types.EvidenceItem, note string) {
-	if ev == nil {
-		return
-	}
-	if strings.TrimSpace(ev.Summary) == "" {
-		ev.Summary = note
-		return
-	}
-	if strings.Contains(strings.ToLower(ev.Summary), strings.ToLower(note)) {
-		return
-	}
-	ev.Summary = strings.TrimSpace(ev.Summary) + " [context only: " + note + "]"
 }
 
 func exactResolutionTargetLabel(contract *types.ExactResolutionContract) string {
