@@ -1411,26 +1411,43 @@ func exactResolutionTargetLabel(contract *types.ExactResolutionContract) string 
 }
 
 func exactResolutionDiagramRequiredFiles(ctx *types.BusContext, contract *types.ExactResolutionContract) []string {
-	if ctx == nil || ctx.AnalysisIR == nil || contract == nil {
+	if ctx == nil || contract == nil {
 		return nil
 	}
-	if ctx.AnalysisIR.RequestModel.Scenario != types.ScenarioConfigTrace ||
+	if ctx.AnalysisIR == nil ||
+		ctx.AnalysisIR.RequestModel.Scenario != types.ScenarioConfigTrace ||
 		contract.TargetKind != types.SubjectConfigKey ||
 		contract.RelatedContextPolicy != types.ExactContextSameFamilyGrounded {
 		return nil
 	}
-	return append([]string(nil), ctx.AnalysisIR.EvidencePlan.RequiredFiles...)
+	var files []string
+	if ctx.Mutable != nil {
+		files = ctx.Mutable.ExactContextRequiredFiles()
+	}
+	if len(files) == 0 {
+		files = ctx.AnalysisIR.EvidencePlan.RequiredFiles
+	}
+	if len(files) == 0 {
+		return nil
+	}
+	out := make([]string, 0, len(files))
+	for _, file := range files {
+		canon := ground.CanonicalRepoRelative(file, ctx.RepoRoot)
+		if canon == "" {
+			continue
+		}
+		out = append(out, canon)
+	}
+	return out
 }
 
 func emitSourceMatchesAnyRequiredFile(source string, requiredFiles []string) bool {
-	source = strings.TrimSpace(strings.ReplaceAll(source, `\`, `/`))
-	source = strings.TrimPrefix(source, "./")
+	source = ground.CanonicalRepoRelative(source, "")
 	if source == "" || len(requiredFiles) == 0 {
 		return false
 	}
 	for _, file := range requiredFiles {
-		file = strings.TrimSpace(strings.ReplaceAll(file, `\`, `/`))
-		file = strings.TrimPrefix(file, "./")
+		file = ground.CanonicalRepoRelative(file, "")
 		if file != "" && file == source {
 			return true
 		}

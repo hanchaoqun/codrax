@@ -195,6 +195,73 @@ func TestEmitEvidence_PreservesValidatedDiagramRoleHint(t *testing.T) {
 	}
 }
 
+func TestEmitEvidence_PrefersMutableExactContextFilesForDiagramRoleHint(t *testing.T) {
+	tool := &EmitEvidence{}
+	ctx := newEmitCtx()
+	ctx.RepoRoot = `C:\Users\ssccv\codrax`
+	ctx.AnalysisIR = &types.AnalysisIR{
+		RequestModel: types.RequestModel{
+			RawRequest: "explore_mid_loop_hint_budget 的最终有效值是怎么计算出来的？",
+			Scenario:   types.ScenarioConfigTrace,
+			AnalyzerHints: types.AnalyzerHints{
+				Kind:         "config_mapping",
+				ExactTargets: []string{"explore_mid_loop_hint_budget"},
+			},
+			AnswerSubject: types.AnswerSubject{Kind: types.SubjectConfigKey},
+		},
+		EvidencePlan: types.EvidencePlan{
+			RequiredFiles: []string{"internal/context/builder.go"},
+		},
+		AnswerContract: types.AnswerContract{
+			ExactResolution: &types.ExactResolutionContract{
+				TargetKind:           types.SubjectConfigKey,
+				TargetLabel:          "config key",
+				Targets:              []string{"explore_mid_loop_hint_budget"},
+				AllowAbsence:         true,
+				RelatedContextPolicy: types.ExactContextSameFamilyGrounded,
+				RelatedContextTerms:  []string{"explore"},
+			},
+		},
+	}
+	ctx.Mutable.SetExactContextRequiredFiles([]string{"internal/types/config.go"})
+	params := json.RawMessage(`{
+		"items": [
+			{
+				"kind": "direct",
+				"subject": "DefaultExploreHeuristics",
+				"predicate": "defines",
+				"source": "C:\\Users\\ssccv\\codrax\\internal\\types\\config.go",
+				"line_start": 707,
+				"summary": "code-default lineage anchor",
+				"anchor_kind": "definition",
+				"anchor_symbol": "DefaultExploreHeuristics",
+				"context_role_hint": "related_context",
+				"diagram_role_hint": "default"
+			}
+		]
+	}`)
+	res, err := tool.Execute(ctx, params)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("expected success, got: %s", res.Summary)
+	}
+	got := ctx.Mutable.EmittedEvidence()
+	if len(got) != 1 {
+		t.Fatalf("want 1 item in buffer, got %d", len(got))
+	}
+	if got[0].Source != "internal/types/config.go" {
+		t.Fatalf("source = %q, want canonical repo-relative path", got[0].Source)
+	}
+	if got[0].DiagramRole != types.EvidenceDiagramRoleDefault {
+		t.Fatalf("diagram role = %q, want default", got[0].DiagramRole)
+	}
+	if strings.Contains(got[0].GroundingNote, "outside the current same-scope required files") {
+		t.Fatalf("grounding note should not treat the mutable exact-context file as out of scope, got: %q", got[0].GroundingNote)
+	}
+}
+
 func TestEmitEvidence_AcceptsLegacyYAMLDiagramRoleAliasForConfigFiles(t *testing.T) {
 	tool := &EmitEvidence{}
 	ctx := newEmitCtx()
