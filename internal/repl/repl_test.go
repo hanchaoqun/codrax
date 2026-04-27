@@ -77,6 +77,11 @@ func newTestREPL(store *memory.Store, in *strings.Reader, out *bytes.Buffer) *RE
 		Prompt:     ">",
 		PromptCont: ".",
 		Banner:     "test-banner",
+		// Pin language to English so test assertions on literal
+		// English strings stay stable. Production zh-default
+		// behaviour is exercised by the bilingual messages.go
+		// helper tests.
+		Language: "en",
 	})
 }
 

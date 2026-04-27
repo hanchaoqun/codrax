@@ -1297,20 +1297,20 @@ func (r *REPL) handleSlash(line string) bool {
 			}
 		}
 		if !confirmed {
-			r.info("clear cancelled")
+			r.info(memoryClearCancelled(r.language))
 			break
 		}
 		if err := r.store.Clear(); err != nil {
 			r.errorf("clear failed: %v\n", err)
 		} else {
-			r.success("conversation memory cleared.")
+			r.success(memoryClearedMsg(r.language))
 		}
 	case "/history":
 		recent := r.store.Recent()
 		idx := r.store.Index()
 		planRows := r.collectPlanHistory()
 		if len(recent) == 0 && len(idx) == 0 && len(planRows) == 0 {
-			r.info("(empty)")
+			r.info(memoryEmpty(r.language))
 			return false
 		}
 		if len(idx) > 0 {
@@ -1353,7 +1353,7 @@ func (r *REPL) handleSlash(line string) bool {
 			r.info(line)
 		}
 	default:
-		r.warn("unknown command %q — try /help\n", cmd)
+		r.warn("%s", unknownSlashCommand(r.language, cmd))
 	}
 	return false
 }
@@ -1381,7 +1381,7 @@ func (r *REPL) handleModeCmd(line string) {
 	}
 	target := types.PipelineMode(strings.ToLower(rest))
 	if !target.IsValid() {
-		r.warn("unknown mode %q — expected one of: read, plan, apply, verify\n", rest)
+		r.warn("%s", unknownModeValue(r.language, rest))
 		return
 	}
 	if target == "" {
@@ -1431,7 +1431,7 @@ func (r *REPL) handleModeCmd(line string) {
 // see a "/plan disabled" message).
 func (r *REPL) handlePlanCmd(line string) {
 	if r.planStore == nil {
-		r.info("/plan disabled (no PlanStore configured)")
+		r.info(commandDisabled(r.language, "/plan", noPlanStoreReason(r.language)))
 		return
 	}
 	rest := strings.TrimSpace(strings.TrimPrefix(line, "/plan"))
@@ -1445,7 +1445,7 @@ func (r *REPL) handlePlanCmd(line string) {
 	if showID := strings.TrimSpace(strings.TrimPrefix(rest, "show ")); showID != rest && showID != "" {
 		full, err := r.planStore.Load(showID)
 		if err != nil || full == nil {
-			r.errorf("plan show: %q not found in PlanStore (try /plan list)\n", showID)
+			r.errorf("plan show: %s", planNotFound(r.language, showID))
 			return
 		}
 		r.pendingPlanPath = filepath.Join(r.planStore.PlanDir(), showID+".json")
@@ -1513,7 +1513,7 @@ func (r *REPL) handlePlanCmd(line string) {
 		}
 	case "clear":
 		if r.pendingPlanPath == "" {
-			r.info("no pending plan to clear")
+			r.info(noPendingPlanToClear(r.language))
 			return
 		}
 		id := strings.TrimSuffix(filepath.Base(r.pendingPlanPath), ".json")
@@ -1530,7 +1530,7 @@ func (r *REPL) handlePlanCmd(line string) {
 			return
 		}
 		if len(infos) == 0 {
-			r.info("no plans saved in " + r.planStore.PlanDir())
+			r.info(noPlansInStore(r.language, r.planStore.PlanDir()))
 			return
 		}
 		fmt.Fprintf(r.out, "  %d plan(s) in %s (newest first):\n", len(infos), r.planStore.PlanDir())
@@ -1544,7 +1544,7 @@ func (r *REPL) handlePlanCmd(line string) {
 				ts, inf.ID, status, inf.SizeB)
 		}
 	default:
-		r.warn("unknown /plan subcommand %q — expected: show, clear, list\n", rest)
+		r.warn("%s", unknownPlanSubcommand(r.language, rest))
 	}
 }
 
@@ -1723,7 +1723,7 @@ func (r *REPL) handleApproveCmd(line string) {
 	//      the diff carefully — no test-pass guarantee)
 	planArg, mergeTo, skipVerify := parseApproveArgs(line)
 	if r.planStore == nil {
-		r.info("/approve disabled (no PlanStore configured)")
+		r.info(commandDisabled(r.language, "/approve", noPlanStoreReason(r.language)))
 		return
 	}
 	// L2 gate companion: /approve dispatches Mode=ModeApply, which the
@@ -1751,7 +1751,7 @@ func (r *REPL) handleApproveCmd(line string) {
 	if planArg != "" {
 		full, err := r.planStore.Load(planArg)
 		if err != nil || full == nil {
-			r.errorf("approve: plan %q not found in PlanStore (try /plan list)\n", planArg)
+			r.errorf("approve: %s", planNotFound(r.language, planArg))
 			return
 		}
 		r.pendingPlanPath = filepath.Join(r.planStore.PlanDir(), planArg+".json")
@@ -1787,11 +1787,9 @@ func (r *REPL) handleApproveCmd(line string) {
 	case types.PlanStatusPending, types.PlanStatusVerifyFailed, "":
 		// re-approvable; "" is legacy unset, treated as pending
 	default:
-		r.warn("approve refused: plan %s is in status %q. "+
-			"Re-approvable statuses: %q (fresh plan), %q (env-fix retry). "+
-			"Run /mode plan to generate a fresh plan.\n",
+		r.warn("%s", approveRefusedStatusMsg(r.language,
 			plan.ID, plan.Status,
-			types.PlanStatusPending, types.PlanStatusVerifyFailed)
+			types.PlanStatusPending, types.PlanStatusVerifyFailed))
 		r.pendingPlanPath = ""
 		return
 	}
@@ -1815,7 +1813,7 @@ func (r *REPL) handleApproveCmd(line string) {
 	mSetter, mOK := r.runner.(modeSetter)
 	pSetter, pOK := r.runner.(planPathSetter)
 	if !mOK || !pOK {
-		r.warn("/approve requires a runner with SetMode + SetPlanPath (stub runner detected)\n")
+		r.warn("%s", approveStubRunnerMsg(r.language))
 		return
 	}
 
@@ -1859,8 +1857,7 @@ func (r *REPL) handleApproveCmd(line string) {
 	if state, derr := worktree.DetectRepoState(r.repoRoot); derr == nil && state.NeedsInit() {
 		if !r.writeAutoInitRepo {
 			if !r.interactive() {
-				r.errorf("approve: target %s is %s — re-run with --auto-init-repo or set codrax.yaml :: write_auto_init_repo: true\n",
-					r.repoRoot, state)
+				r.errorf("%s", approveBareDirNoAuthMsg(r.language, r.repoRoot, state.String()))
 				return
 			}
 			autoConsent := false
@@ -1911,7 +1908,7 @@ func (r *REPL) handleApproveCmd(line string) {
 			defer setter.SetSkipVerify(false)
 			r.info(skipVerifyAcknowledged(r.language))
 		} else {
-			r.warn("--skip-verify requested but runner does not implement SetSkipVerify (test stub?); ignoring\n")
+			r.warn("%s", approveSkipVerifyStubMsg(r.language))
 		}
 	}
 
@@ -2007,7 +2004,7 @@ func (r *REPL) handleApproveCmd(line string) {
 	// half-applied plan) and merging would be meaningless.
 	if cleanSuccess && mergeTo != "" {
 		if busCtx == nil || busCtx.WorktreePath == "" {
-			r.warn("--merge-to=%s ignored: no worktree was preserved (set codrax.yaml :: pipeline_keep_worktree_on_success: true)\n", mergeTo)
+			r.warn("%s", mergeToIgnoredNoWorktreeMsg(r.language, mergeTo))
 		} else {
 			r.runMerge(busCtx.WorktreePath, mergeTo)
 		}
@@ -2176,7 +2173,7 @@ func (r *REPL) handleMergeCmd(line string) {
 		return
 	}
 	if r.planStore == nil {
-		r.info("/merge disabled (no PlanStore configured)")
+		r.info(commandDisabled(r.language, "/merge", noPlanStoreReason(r.language)))
 		return
 	}
 	// Default merge target = live git HEAD of the main repo.
@@ -2216,7 +2213,7 @@ func (r *REPL) handleMergeCmd(line string) {
 	// deliberately discarded by the operator.
 	infos, err := r.planStore.List()
 	if err != nil {
-		r.errorf("merge: list plans: %v\n", err)
+		r.errorf("%s", mergeListPlansFailedMsg(r.language, err))
 		return
 	}
 	var wt string
@@ -2323,7 +2320,7 @@ func (r *REPL) handleBranchCmd(line string) {
 	cmd.Stdout = r.out
 	cmd.Stderr = r.out
 	if err := cmd.Run(); err != nil {
-		r.warn("branch: git checkout failed: %v\n", err)
+		r.warn("%s", branchCheckoutFailedMsg(r.language, err))
 		return
 	}
 	if cur := gitBranchProbe(r.repoRoot); cur != "" {
@@ -2350,14 +2347,12 @@ func (r *REPL) handleBranchCmd(line string) {
 func (r *REPL) handleShellBangCmd(line string) {
 	line = strings.TrimSpace(line)
 	if line == "" {
-		r.info("(empty `!` — type a command after the bang)")
+		r.info(shellBangEmpty(r.language))
 		return
 	}
 	first := strings.Fields(line)[0]
 	if first == "cd" || first == "pushd" || first == "popd" {
-		r.warn("`%s` inside `!` doesn't persist — every `!` invocation spawns a fresh shell. "+
-			"Restart codrax with --repo /new/path, or chain in one command: "+
-			"`!cd /tmp && cat foo.txt`.\n", first)
+		r.warn("%s", shellBangCdNonPersistent(r.language, first))
 		// Fall through and run anyway — `!cd /x && cat foo` IS
 		// a useful shape (the && side-effects are within one
 		// shell). Only the bare `!cd /x` is the no-op shape.
@@ -2368,7 +2363,7 @@ func (r *REPL) handleShellBangCmd(line string) {
 	cmd.Stdout = r.out
 	cmd.Stderr = r.out
 	if err := cmd.Run(); err != nil {
-		r.warn("! exit %v\n", err)
+		r.warn("%s", shellBangExit(r.language, err))
 	}
 }
 
@@ -2379,7 +2374,7 @@ func (r *REPL) handleShellBangCmd(line string) {
 //  2. Records a memory turn so /history shows the rejection.
 func (r *REPL) handleRejectCmd(line string) {
 	if r.planStore == nil {
-		r.info("/reject disabled (no PlanStore configured)")
+		r.info(commandDisabled(r.language, "/reject", noPlanStoreReason(r.language)))
 		return
 	}
 	if r.pendingPlanPath == "" {
@@ -2429,7 +2424,7 @@ func (r *REPL) handleLogCmd(line string) {
 		r.handleLogPaste()
 	case rest == "clear":
 		if r.attachedLog == "" {
-			r.info("no log attached")
+			r.info(noLogAttached(r.language))
 			return
 		}
 		r.attachedLog = ""
@@ -2437,7 +2432,7 @@ func (r *REPL) handleLogCmd(line string) {
 		if setter, ok := r.runner.(attachedLogSetter); ok {
 			setter.SetAttachedLog("")
 		}
-		r.success("attached log cleared")
+		r.success(attachedLogClearedMsg(r.language))
 	case rest == "show":
 		r.handleLogShow()
 	case strings.HasPrefix(rest, "append "):
@@ -2495,17 +2490,17 @@ func (r *REPL) handleHitraceCmd(line string) {
 		r.info("/htrace <path> | append <path> | clear | show — attach a HiTrace / atrace / systrace / perfetto file")
 	case rest == "clear":
 		if r.attachedHitrace == "" {
-			r.info("no hitrace attached")
+			r.info(noTraceAttached(r.language))
 			return
 		}
 		r.attachedHitrace = ""
 		if setter, ok := r.runner.(attachedHitraceSetter); ok {
 			setter.SetAttachedHitrace("")
 		}
-		r.success("attached hitrace cleared")
+		r.success(attachedTraceClearedMsg(r.language))
 	case rest == "show":
 		if r.attachedHitrace == "" {
-			r.info("no hitrace attached")
+			r.info(noTraceAttached(r.language))
 			return
 		}
 		head := r.attachedHitrace
@@ -2594,7 +2589,7 @@ func (r *REPL) handleLogLoad(path string) {
 // actually needs. We read straight from the caller's input stream
 // (os.Stdin in production, r.in in tests) one line at a time.
 func (r *REPL) handleLogPaste() {
-	r.info("paste log, terminate with a lone /end line")
+	r.info(pasteCapturePromptLog(r.language))
 	scanner := r.captureScanner()
 	var buf strings.Builder
 	tag := r.currentStickyTag()
@@ -2625,7 +2620,7 @@ func (r *REPL) handleLogPaste() {
 		logging.Warning("[repl] log paste scan error: %v", err)
 	}
 	if buf.Len() == 0 {
-		r.info("no input captured; attached log unchanged")
+		r.info(pasteNoCaptureLog(r.language))
 		return
 	}
 	r.attachedLog = buf.String()
@@ -2642,7 +2637,7 @@ func (r *REPL) handleLogPaste() {
 // lets the next readInputBubble inject it as a pre-seeded placeholder
 // token. User can then edit around the token and submit normally.
 func (r *REPL) handlePasteCmd() {
-	r.info("paste content, terminate with a lone /end line; press Enter to cancel an empty capture")
+	r.info(pasteCapturePromptGeneric(r.language))
 	scanner := r.captureScanner()
 	var buf strings.Builder
 	tag := r.currentStickyTag()
@@ -2674,7 +2669,7 @@ func (r *REPL) handlePasteCmd() {
 	}
 	captured := strings.TrimRight(buf.String(), "\n")
 	if captured == "" {
-		r.info("no input captured")
+		r.info(pasteNoCaptureGeneric(r.language))
 		return
 	}
 	r.pendingPaste = captured
@@ -2689,7 +2684,7 @@ func (r *REPL) handlePasteCmd() {
 // handleLogShow prints a preview of the currently-attached log.
 func (r *REPL) handleLogShow() {
 	if r.attachedLog == "" {
-		r.info("no log attached")
+		r.info(noLogAttached(r.language))
 		return
 	}
 	lines := strings.Split(r.attachedLog, "\n")

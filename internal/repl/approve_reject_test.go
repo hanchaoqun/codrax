@@ -260,6 +260,7 @@ func TestApprove_RefusesTerminalStatus(t *testing.T) {
 				Out:          out,
 				RepoRoot:     "/tmp/repo",
 				Branch:       "main",
+				Language:     "en",
 				Render:       renderNothing,
 				PlanStore:    store,
 				WriteEnabled: true,

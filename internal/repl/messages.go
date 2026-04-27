@@ -773,3 +773,276 @@ func memoryPressureHint(lang string, recentTurns, indexEntries int) string {
 		"memory has accumulated %d recent turns + %d index entries — retrieval quality may degrade. Run /compact or /clear",
 		recentTurns, indexEntries)
 }
+
+// ── Bilingual helpers for short user-facing REPL messages.
+//
+// These cover the long tail of warn/info/errorf strings the REPL
+// emits during command handling. zh-default per the project
+// convention (BusContext.Language; empty/zh/anything-not-en → zh,
+// "en" → English). Each helper is a single function so the call
+// site stays a one-liner and adding new languages later (ja, fr,
+// etc.) is a single-file edit.
+//
+// Naming convention: <surface>Msg(...) returning string for
+// single-line messages; ...Lines for multi-line.
+
+// shellBangCdNonPersistent — printed when the user types
+// `!cd <dir>`, `!pushd <dir>`, or `!popd`. The bare form has no
+// effect because each `!` invocation is a fresh shell. We still
+// pass the line through (so chained shapes like `!cd /tmp && cat foo`
+// work — the && side-effects stay in one shell process), but
+// surface a warning so the operator learns the shape.
+func shellBangCdNonPersistent(lang, builtin string) string {
+	if isZh(lang) {
+		return formatN(lang,
+			"`%s` 在 `!` 内不会持久 —— 每个 `!` 调用都新起一个 shell。"+
+				"用 --repo /new/path 启动 codrax,或链式写 `!cd /tmp && cat foo.txt` "+
+				"(同一个 shell 内执行)。\n",
+			builtin)
+	}
+	return formatN(lang,
+		"`%s` inside `!` doesn't persist — every `!` invocation spawns a fresh shell. "+
+			"Restart codrax with --repo /new/path, or chain in one command: "+
+			"`!cd /tmp && cat foo.txt`.\n",
+		builtin)
+}
+
+// shellBangEmpty — `!` with no command after it.
+func shellBangEmpty(lang string) string {
+	if isZh(lang) {
+		return "(空 `!`,请在感叹号后输入命令)"
+	}
+	return "(empty `!` — type a command after the bang)"
+}
+
+// shellBangExit — non-zero exit reported back.
+func shellBangExit(lang string, err error) string {
+	if isZh(lang) {
+		return formatN(lang, "! 退出码 %v\n", err)
+	}
+	return formatN(lang, "! exit %v\n", err)
+}
+
+// commandDisabled — "/X disabled (no PlanStore configured)" /
+// similar. Used by /plan, /approve, /reject, /merge when the
+// PlanStore wiring is missing (test stubs typically).
+func commandDisabled(lang, cmd, reason string) string {
+	if isZh(lang) {
+		return formatN(lang, "%s 已禁用 (%s)", cmd, reason)
+	}
+	return formatN(lang, "%s disabled (%s)", cmd, reason)
+}
+
+// noPlanStoreReason — common reason embedded in commandDisabled.
+func noPlanStoreReason(lang string) string {
+	if isZh(lang) {
+		return "未配置 PlanStore"
+	}
+	return "no PlanStore configured"
+}
+
+// unknownSlashCommand — printed when handleSlash falls through.
+func unknownSlashCommand(lang, cmd string) string {
+	if isZh(lang) {
+		return formatN(lang, "未知命令 %q —— 输入 /help 看完整列表\n", cmd)
+	}
+	return formatN(lang, "unknown command %q — try /help\n", cmd)
+}
+
+// unknownPlanSubcommand — /plan <unknown>.
+func unknownPlanSubcommand(lang, sub string) string {
+	if isZh(lang) {
+		return formatN(lang, "未知的 /plan 子命令 %q —— 应是 show / clear / list 之一\n", sub)
+	}
+	return formatN(lang, "unknown /plan subcommand %q — expected: show, clear, list\n", sub)
+}
+
+// unknownModeValue — /mode <unknown>.
+func unknownModeValue(lang, val string) string {
+	if isZh(lang) {
+		return formatN(lang, "未知模式 %q —— 应是 read / plan / apply / verify 之一\n", val)
+	}
+	return formatN(lang, "unknown mode %q — expected one of: read, plan, apply, verify\n", val)
+}
+
+// planNotFound — /approve <id> / /plan show <id> with non-existent ID.
+func planNotFound(lang, planID string) string {
+	if isZh(lang) {
+		return formatN(lang, "在 PlanStore 里找不到 plan %q (用 /plan list 看 ID)\n", planID)
+	}
+	return formatN(lang, "plan %q not found in PlanStore (try /plan list)\n", planID)
+}
+
+// noPendingPlanToClear — /plan clear with empty pendingPlanPath.
+func noPendingPlanToClear(lang string) string {
+	if isZh(lang) {
+		return "没有待清除的 plan"
+	}
+	return "no pending plan to clear"
+}
+
+// noPlansInStore — /plan list on an empty PlanStore.
+func noPlansInStore(lang, dir string) string {
+	if isZh(lang) {
+		return formatN(lang, "%s 里还没有 plan", dir)
+	}
+	return formatN(lang, "no plans saved in %s", dir)
+}
+
+// approveRefusedStatusMsg — re-approving a non-pending /
+// non-verify_failed plan.
+func approveRefusedStatusMsg(lang, planID, status, pending, retry string) string {
+	if isZh(lang) {
+		return formatN(lang,
+			"approve 被拒:plan %s 当前状态为 %q。可重新 approve 的状态:%q (新生成的 plan)、%q (修复环境后重试)。"+
+				"用 /mode plan 生成新 plan。\n",
+			planID, status, pending, retry)
+	}
+	return formatN(lang,
+		"approve refused: plan %s is in status %q. "+
+			"Re-approvable statuses: %q (fresh plan), %q (env-fix retry). "+
+			"Run /mode plan to generate a fresh plan.\n",
+		planID, status, pending, retry)
+}
+
+// approveStubRunnerMsg — runner doesn't implement modeSetter /
+// planPathSetter. Hits in tests; surfaces fail-loud in real REPL.
+func approveStubRunnerMsg(lang string) string {
+	if isZh(lang) {
+		return "/approve 需要 runner 支持 SetMode + SetPlanPath (检测到 stub runner)\n"
+	}
+	return "/approve requires a runner with SetMode + SetPlanPath (stub runner detected)\n"
+}
+
+// approveSkipVerifyStubMsg — runner doesn't implement
+// skipVerifySetter (test stubs). Operator sees this only in
+// scripted-test scenarios.
+func approveSkipVerifyStubMsg(lang string) string {
+	if isZh(lang) {
+		return "--skip-verify 已请求但 runner 未实现 SetSkipVerify (test stub?);忽略\n"
+	}
+	return "--skip-verify requested but runner does not implement SetSkipVerify (test stub?); ignoring\n"
+}
+
+// approveBareDirNoAuthMsg — non-interactive REPL or scripted run
+// with no --auto-init-repo when the target needs init.
+func approveBareDirNoAuthMsg(lang, repoRoot, state string) string {
+	if isZh(lang) {
+		return formatN(lang,
+			"approve:目标 %s 状态为 %s —— 用 --auto-init-repo 重跑或在 codrax.yaml 设 write_auto_init_repo: true\n",
+			repoRoot, state)
+	}
+	return formatN(lang,
+		"approve: target %s is %s — re-run with --auto-init-repo or set codrax.yaml :: write_auto_init_repo: true\n",
+		repoRoot, state)
+}
+
+// mergeToIgnoredNoWorktreeMsg — --merge-to= without keep-on-success.
+func mergeToIgnoredNoWorktreeMsg(lang, branch string) string {
+	if isZh(lang) {
+		return formatN(lang,
+			"--merge-to=%s 已忽略:没有保留的 worktree (在 codrax.yaml 设 pipeline_keep_worktree_on_success: true 即可)\n",
+			branch)
+	}
+	return formatN(lang,
+		"--merge-to=%s ignored: no worktree was preserved (set codrax.yaml :: pipeline_keep_worktree_on_success: true)\n",
+		branch)
+}
+
+// mergeListPlansFailedMsg — PlanStore.List error in /merge.
+func mergeListPlansFailedMsg(lang string, err error) string {
+	if isZh(lang) {
+		return formatN(lang, "merge:列出 plan 失败:%v\n", err)
+	}
+	return formatN(lang, "merge: list plans: %v\n", err)
+}
+
+// branchCheckoutFailedMsg — /branch <name> with bad name.
+func branchCheckoutFailedMsg(lang string, err error) string {
+	if isZh(lang) {
+		return formatN(lang, "branch: git checkout 失败:%v\n", err)
+	}
+	return formatN(lang, "branch: git checkout failed: %v\n", err)
+}
+
+// noLogAttached / noTraceAttached / attachedLogCleared etc.
+func noLogAttached(lang string) string {
+	if isZh(lang) {
+		return "未附加日志"
+	}
+	return "no log attached"
+}
+
+func noTraceAttached(lang string) string {
+	if isZh(lang) {
+		return "未附加 trace"
+	}
+	return "no hitrace attached"
+}
+
+func attachedLogClearedMsg(lang string) string {
+	if isZh(lang) {
+		return "已清除附加日志"
+	}
+	return "attached log cleared"
+}
+
+func attachedTraceClearedMsg(lang string) string {
+	if isZh(lang) {
+		return "已清除附加 trace"
+	}
+	return "attached hitrace cleared"
+}
+
+// pasteCapturePromptLog — /log paste capture mode prompt.
+func pasteCapturePromptLog(lang string) string {
+	if isZh(lang) {
+		return "粘贴日志,以单独一行 /end 结束捕获"
+	}
+	return "paste log, terminate with a lone /end line"
+}
+
+// pasteCapturePromptGeneric — /paste mode prompt.
+func pasteCapturePromptGeneric(lang string) string {
+	if isZh(lang) {
+		return "粘贴内容,以单独一行 /end 结束捕获;空捕获按 Enter 取消"
+	}
+	return "paste content, terminate with a lone /end line; press Enter to cancel an empty capture"
+}
+
+// pasteNoCapture — log/generic paste mode aborted with no input.
+func pasteNoCaptureLog(lang string) string {
+	if isZh(lang) {
+		return "未捕获到内容;附加日志保持不变"
+	}
+	return "no input captured; attached log unchanged"
+}
+
+func pasteNoCaptureGeneric(lang string) string {
+	if isZh(lang) {
+		return "未捕获到内容"
+	}
+	return "no input captured"
+}
+
+// memoryClearCancelled / Cleared / EmptyCancelled.
+func memoryClearCancelled(lang string) string {
+	if isZh(lang) {
+		return "已取消清除"
+	}
+	return "clear cancelled"
+}
+
+func memoryClearedMsg(lang string) string {
+	if isZh(lang) {
+		return "已清除会话 memory。"
+	}
+	return "conversation memory cleared."
+}
+
+func memoryEmpty(lang string) string {
+	if isZh(lang) {
+		return "(空)"
+	}
+	return "(empty)"
+}
