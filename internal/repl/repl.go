@@ -19,9 +19,13 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"os/signal"
 	"path/filepath"
 	"regexp"
 	"strings"
+	"sync"
+	"sync/atomic"
+	"syscall"
 	"time"
 	"unicode/utf8"
 
@@ -45,6 +49,16 @@ import (
 // full pipeline.
 type Runner interface {
 	Run(request, repoRoot, branch string) (*types.BusContext, error)
+}
+
+// runnerCanceller is the optional capability the REPL probes on its
+// Runner to drive Ctrl+C / `/cancel`. Real orchestrators implement
+// Cancel(reason); test stubs that omit it gracefully degrade —
+// the SIGINT path falls through to the previous "exit on first
+// signal" behaviour, and `/cancel` reports "no Run in flight".
+type runnerCanceller interface {
+	Cancel(reason string)
+	IsCanceled() bool
 }
 
 // attachedLogSetter is the optional capability the REPL probes on
@@ -366,7 +380,25 @@ type REPL struct {
 	// attachedLogMaxBytes (so the trace channel inherits whatever
 	// the log channel resolved to).
 	attachedTraceMaxBytes int
+
+	// runInFlight reports whether the REPL is currently inside a
+	// runner.Run() call. Set true around dispatchTurn / handleApprove
+	// / handleChat etc.; cleared when the call returns. Drives the
+	// SIGINT handler's behaviour: in-flight + first signal → cancel
+	// the Run; in-flight + second signal within doubleSigCancelWindow
+	// → re-raise so worktree cleanup + os.Exit can run; idle → ignore
+	// (bubbletea / readline owns the input line's Ctrl+C semantics).
+	runInFlight     atomic.Bool
+	cancelSigOnce   sync.Once // installs the signal handler exactly once per REPL lifetime
+	lastCancelSig   atomic.Int64 // unix nano of the previous Ctrl+C while in-flight; backs the double-tap escalation
 }
+
+// doubleSigCancelWindow caps how long we accept a second Ctrl+C as
+// "really exit codrax". Outside this window the second signal is a
+// fresh cancel (idempotent — the runner already canceled). Two
+// seconds matches the convention every Python REPL / Jupyter /
+// ipython established; operators don't have to retrain.
+const doubleSigCancelWindow = 2 * time.Second
 
 // New constructs a REPL from a Config.
 func New(cfg Config) *REPL {
@@ -572,6 +604,76 @@ func (r *REPL) currentStickyTag() string {
 // The interactive readInput session renders its own echo + divider
 // above the inline viewport via tea.Printf, so this function only
 // owns echo in the line-oriented (scripted/piped) branch.
+// installCancelSignalHandler arms a SIGINT listener that drives the
+// Run-in-flight cancel path. Idempotent (sync.Once); a single REPL
+// instance never reaches two handlers. Behaviour by state:
+//
+//   - !runInFlight: signal is forwarded to the default disposition
+//     so worktree's package-level handler still runs (process exit
+//     with worktree cleanup). Idle Ctrl+C should not silently no-op.
+//   - runInFlight + first signal within doubleSigCancelWindow: call
+//     runner.Cancel("Ctrl+C") and stamp lastCancelSig. The pipeline
+//     unwinds at its next checkpoint; the user sees the standard
+//     "✗ canceled" rendering when Run returns.
+//   - runInFlight + second signal within doubleSigCancelWindow:
+//     escalate — re-raise so the worktree handler can clean and the
+//     process exits. The user explicitly asked twice; we stop being
+//     polite about graceful unwind.
+//
+// The handler runs in its own goroutine; signal channel is buffered
+// to drop replays we cannot service in real time.
+func (r *REPL) installCancelSignalHandler() {
+	canceller, ok := r.runner.(runnerCanceller)
+	if !ok {
+		return // test stub or single-shot Runner — Ctrl+C keeps default semantics
+	}
+	r.cancelSigOnce.Do(func() {
+		ch := make(chan os.Signal, 4)
+		signal.Notify(ch, syscall.SIGINT)
+		go func() {
+			for sig := range ch {
+				if !r.runInFlight.Load() {
+					// Idle prompt: hand back to default. signal.Reset
+					// + re-raise so worktree's package-level handler
+					// (installed at startup) gets to clean up and the
+					// process exits.
+					signal.Reset(syscall.SIGINT)
+					if p, err := os.FindProcess(os.Getpid()); err == nil {
+						_ = p.Signal(sig)
+					}
+					return
+				}
+				now := time.Now().UnixNano()
+				prev := r.lastCancelSig.Swap(now)
+				if prev > 0 && time.Duration(now-prev) < doubleSigCancelWindow {
+					// Second signal within the window — operator wants
+					// out. Reset + re-raise so worktree handler runs.
+					signal.Reset(syscall.SIGINT)
+					if p, err := os.FindProcess(os.Getpid()); err == nil {
+						_ = p.Signal(sig)
+					}
+					return
+				}
+				canceller.Cancel("Ctrl+C")
+				r.warn("%s\n", cancelInProgressMsg(r.language))
+			}
+		}()
+	})
+}
+
+// runInFlightWrap is the dispatch helper every Run-driving slash
+// handler / pipeline turn calls. Sets runInFlight true, fires fn,
+// clears the flag in a defer (panic-safe), and returns fn's outputs.
+// Centralising the lifecycle here means a future change to the
+// in-flight semantics — say, also disabling certain slash commands
+// while running — has exactly one place to land.
+func (r *REPL) runInFlightWrap(fn func() (*types.BusContext, error)) (*types.BusContext, error) {
+	r.installCancelSignalHandler()
+	r.runInFlight.Store(true)
+	defer r.runInFlight.Store(false)
+	return fn()
+}
+
 func (r *REPL) Loop() error {
 	r.banner()
 	memNudgeShown := false
@@ -1050,10 +1152,12 @@ func (r *REPL) dispatch(line, display string) {
 	}
 
 	if r.renderer != nil {
-		r.renderer.StartSpinner()
+		r.renderer.StartSpinnerWithCancelHint(spinnerCancelHint(r.language))
 	}
 
-	busCtx, err := r.runner.Run(effective, r.repoRoot, r.branch)
+	busCtx, err := r.runInFlightWrap(func() (*types.BusContext, error) {
+		return r.runner.Run(effective, r.repoRoot, r.branch)
+	})
 
 	if r.renderer != nil {
 		// Stop spinner BEFORE printing response so task list comes first.
@@ -1262,6 +1366,14 @@ func (r *REPL) handleSlash(line string) bool {
 		return false
 	case "/branch":
 		r.handleBranchCmd(line)
+		return false
+	case "/cancel":
+		// Slash-command fallback for terminals where Ctrl+C is
+		// swallowed by tmux, screen, or a terminal multiplexer the
+		// operator can't reconfigure. Emits the same Cancel(reason)
+		// the Ctrl+C path emits, so the rendering / state-saving
+		// behaviour is identical.
+		r.handleCancelCmd(line)
 		return false
 	case "/exit", "/quit":
 		fmt.Fprintln(r.out, "  Goodbye!")
@@ -2050,9 +2162,11 @@ func (r *REPL) handleApproveCmd(line string) {
 	logging.Info("[repl] dispatching approve: plan=%s path=%s", plan.ID, r.pendingPlanPath)
 
 	if r.renderer != nil {
-		r.renderer.StartSpinner()
+		r.renderer.StartSpinnerWithCancelHint(spinnerCancelHint(r.language))
 	}
-	busCtx, runErr := r.runner.Run(request, r.repoRoot, r.branch)
+	busCtx, runErr := r.runInFlightWrap(func() (*types.BusContext, error) {
+		return r.runner.Run(request, r.repoRoot, r.branch)
+	})
 	if r.renderer != nil {
 		r.renderer.StopSpinner()
 	}
@@ -2499,6 +2613,25 @@ func (r *REPL) handleMergeCmd(line string) {
 // stdout/stderr (branch tracking notice, divergence warnings,
 // etc.). After a successful checkout the next prompt's sticky
 // tag automatically picks up the new branch via gitBranchProbe.
+// handleCancelCmd is the `/cancel` slash command — terminal
+// multiplexers (tmux/screen) sometimes swallow Ctrl+C; this gives
+// operators a typed alternative. Behaviour mirrors the SIGINT path:
+//
+//   - Run in flight: drives runner.Cancel("/cancel"). The pipeline
+//     unwinds at its next checkpoint.
+//   - No Run: prints a one-line "nothing to cancel" notice. Does
+//     NOT exit — Ctrl+D / `/exit` are the explicit exit verbs.
+func (r *REPL) handleCancelCmd(line string) {
+	_ = line // no args today; kept signature consistent with peers
+	canceller, ok := r.runner.(runnerCanceller)
+	if !ok || !r.runInFlight.Load() {
+		r.info(cancelNothingRunningMsg(r.language))
+		return
+	}
+	canceller.Cancel("/cancel")
+	r.warn("%s\n", cancelInProgressMsg(r.language))
+}
+
 func (r *REPL) handleBranchCmd(line string) {
 	rest := strings.TrimSpace(strings.TrimPrefix(line, "/branch"))
 	if rest == "" {

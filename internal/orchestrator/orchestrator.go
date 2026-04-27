@@ -201,6 +201,15 @@ type Orchestrator struct {
 	// regressions). In that case clearForReplan falls back to its
 	// historical "discard + reset to main" behavior.
 	bestAppliedCommitSHA string
+
+	// cancelToken backs the user-driven Run cancellation surface.
+	// Allocated at Run() entry; nil between Runs (tests / single-shot
+	// CLI never need to interact with it). REPL holds an
+	// orchestrator-side handle exposed via Cancel(reason); the
+	// pipeline polls IsCanceled() at well-known checkpoints
+	// (dispatchStage front, agent loop top, before tool exec) and
+	// unwinds with a CanceledError.
+	cancelToken *CancelToken
 }
 
 // New creates a new Orchestrator.
@@ -256,6 +265,67 @@ func (o *Orchestrator) SetThinkAloudMap(m map[types.AgentName]bool) {
 // persistent layout).
 func (o *Orchestrator) SetBlobSessionDir(dir string) {
 	o.blobSessionDir = dir
+}
+
+// Cancel marks the in-flight Run as canceled with the given reason.
+// Safe to call from any goroutine (the REPL's signal handler runs in
+// its own goroutine). Idempotent: subsequent calls preserve the FIRST
+// reason so a "Ctrl+C" cannot be overwritten by a follow-on
+// "/cancel". No-op when no Run is in flight (idle Orchestrator).
+//
+// The cancellation lands at the next pipeline checkpoint
+// (dispatchStage front, agent loop top, before tool exec). Worst-case
+// delay is the duration of the currently-running LLM Chat call —
+// Phase 1 by design accepts that latency in exchange for a tiny
+// surface area; Phase 2 will plumb context.Context through the LLM
+// adapter for immediate HTTP-level cancellation.
+func (o *Orchestrator) Cancel(reason string) {
+	if o == nil || o.cancelToken == nil {
+		return
+	}
+	o.cancelToken.Cancel(reason)
+}
+
+// IsCanceled reports whether a Run is in flight AND has been canceled.
+// Used by the REPL to drive the "✗ canceled" rendering path on top
+// of the standard Run() return. Cheap atomic read; safe under any
+// concurrent caller pattern.
+func (o *Orchestrator) IsCanceled() bool {
+	return o != nil && o.cancelToken != nil && o.cancelToken.IsCanceled()
+}
+
+// checkCanceled is the internal hot-path helper. Returns a populated
+// CanceledError when the current Run has been canceled, else nil.
+// Used by dispatchStage / runTaskGraph / agent loop checkpoints.
+func (o *Orchestrator) checkCanceled(stage string, iter int) error {
+	if o == nil || o.cancelToken == nil || !o.cancelToken.IsCanceled() {
+		return nil
+	}
+	return &CanceledError{
+		Reason:  o.cancelToken.Reason(),
+		AtStage: stage,
+		Iter:    iter,
+	}
+}
+
+// CancelChecker returns the cancel-probe callback wired into agent
+// Dependencies.CancelChecker. The agent loop polls it at iteration
+// boundaries and tool dispatches; a non-nil return unwinds the loop
+// with the same CanceledError shape dispatchStage emits, so the
+// REPL's "✗ canceled" rendering path is uniform regardless of which
+// checkpoint detected the cancel.
+//
+// Stage label is "agent_loop" because the agent layer doesn't know
+// which pipeline stage owns its dispatch — orchestrator-level
+// checkpoints (dispatchStage) carry the precise stage. The user-
+// facing message picks the most specific label observed.
+func (o *Orchestrator) CancelChecker() func() error {
+	if o == nil {
+		return nil
+	}
+	return func() error {
+		return o.checkCanceled("agent_loop", 0)
+	}
 }
 
 // SetAttachedLog stores a runtime log excerpt (panic, exception stack,
@@ -466,6 +536,13 @@ func (o *Orchestrator) KeepWorktreeOnSuccess() bool {
 //
 // The maxSteps budget is enforced globally across both phases.
 func (o *Orchestrator) Run(request string, repoRoot string, branch string) (*types.BusContext, error) {
+	// Allocate a fresh CancelToken for this Run. REPL grabs it via
+	// the public Cancel() method to drive Ctrl+C / `/cancel`. Cleared
+	// in the defer below so idle Orchestrators (between Runs) cannot
+	// leak a stale "canceled" state into the next Run.
+	o.cancelToken = NewCancelToken()
+	defer func() { o.cancelToken = nil }()
+
 	// Initialize BusContext
 	o.busCtx = &types.BusContext{
 		PipelineStage: types.StageAnalyze,
@@ -2785,6 +2862,14 @@ func (o *Orchestrator) recordTaskFinalize(out *agent.StageOutput) {
 // (runTaskGraph uses this to write the finalizer's answer onto the
 // task's Result).
 func (o *Orchestrator) dispatchStage(stage types.PipelineStage) (*agent.StageOutput, error) {
+	// Cancel checkpoint: between two stage dispatches the user's Ctrl+C
+	// / `/cancel` lands here first. We bail out before touching the
+	// agent registry / skill registry / per-stage hooks so partial
+	// state changes are minimised. Stage-aware so the user-facing
+	// "canceled at stage=explore" message has the right label.
+	if err := o.checkCanceled(string(stage), 0); err != nil {
+		return nil, err
+	}
 	info, ok := pipelineTopology[stage]
 	if !ok {
 		return nil, fmt.Errorf("unknown pipeline stage: %s", stage)

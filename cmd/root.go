@@ -1858,6 +1858,12 @@ func initApp(cmd *cobra.Command, _ []string) error {
 	logging.Info("registered %d agents", len(agentRegistry.List()))
 
 	orch := orchestrator.New(pipelineSettings, agentRegistry, skillRegistry, subAgentRegistry)
+	// Wire the cancel-probe callback into agent Dependencies AFTER the
+	// orchestrator exists. Closure captures orch by pointer so each Run
+	// reads its current cancelToken (allocated fresh per Run, nil
+	// between Runs — the closure handles both via Orchestrator.IsCanceled
+	// nil-safety).
+	deps.CancelChecker = orch.CancelChecker()
 	orch.SetMaxSteps(flagMaxSteps)
 	orch.SetLanguage(flagLang)
 	orch.SetEmitter(renderer.Emitter())

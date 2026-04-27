@@ -1,6 +1,7 @@
 package repl
 
 import (
+	"errors"
 	"fmt"
 	"strings"
 
@@ -592,6 +593,15 @@ func friendlyRunError(lang string, err error) string {
 	if err == nil {
 		return ""
 	}
+	// User-driven cancel (Ctrl+C / `/cancel`) gets the polished
+	// message with the most-specific stage label. Match by the typed
+	// CanceledError shape so HTTP-level "context canceled" (which
+	// surfaces a different shape) doesn't masquerade as a deliberate
+	// user cancel.
+	var ce cancelErrorCarrier
+	if errors.As(err, &ce) {
+		return canceledByUserMsg(lang, ce.Stage())
+	}
 	msg := err.Error()
 	low := strings.ToLower(msg)
 	if strings.Contains(low, "context canceled") || strings.Contains(low, "context cancelled") {
@@ -607,6 +617,17 @@ func friendlyRunError(lang string, err error) string {
 		return formatN(lang, "request timed out: %s", msg)
 	}
 	return msg
+}
+
+// cancelErrorCarrier is the messages-package boundary type for the
+// orchestrator's CanceledError. Defined here as a tiny interface so
+// internal/repl/messages.go does not depend on internal/orchestrator
+// (REPL → orchestrator depends on the inverse direction; circular
+// import is avoided). orchestrator.CanceledError implements Stage()
+// out of the box.
+type cancelErrorCarrier interface {
+	error
+	Stage() string
 }
 
 // verifyDispatching — short status line printed by /verify before
@@ -1049,4 +1070,54 @@ func memoryEmpty(lang string) string {
 		return "(空)"
 	}
 	return "(empty)"
+}
+
+// spinnerCancelHint — dim trailer line surfaced under the spinner
+// while the input box is closed. Tells the operator HOW to interrupt
+// since they cannot type a slash command. Two seconds of double-tap
+// escalates to process exit.
+func spinnerCancelHint(lang string) string {
+	if isZh(lang) {
+		return "Ctrl+C 取消(连按 2 次强制退出 codrax)"
+	}
+	return "Ctrl+C to cancel (double-tap within 2s to force-exit codrax)"
+}
+
+// cancelInProgressMsg — surfaced after the user presses Ctrl+C (or
+// types /cancel) while a Run is in flight. Tells them the cancel has
+// been requested but lands at the next pipeline checkpoint, so the
+// "spinner stuck for ~30s" surprise is preempted.
+func cancelInProgressMsg(lang string) string {
+	if isZh(lang) {
+		return "✗ 取消已请求,等当前 LLM call 返回后生效(最多 ~30s)。再按一次 Ctrl+C 强制退出 codrax。"
+	}
+	return "✗ cancel requested; takes effect when the current LLM call returns (up to ~30s). Press Ctrl+C again to force exit."
+}
+
+// cancelNothingRunningMsg — `/cancel` typed at the idle prompt or
+// when the runner doesn't expose a cancel surface (test stub). One
+// line, no exit — operators can still /exit themselves.
+func cancelNothingRunningMsg(lang string) string {
+	if isZh(lang) {
+		return "没有正在执行的请求可取消。/exit 退出 codrax。"
+	}
+	return "no Run in flight to cancel. /exit to leave codrax."
+}
+
+// canceledByUserMsg — final user-facing summary line printed in the
+// approve / pipeline result rendering when the Run unwound via
+// CanceledError. Stage label is the most-specific stage observed
+// (dispatchStage emits it; agent_loop fallback otherwise). Empty
+// stage hides the parenthetical.
+func canceledByUserMsg(lang, stage string) string {
+	if isZh(lang) {
+		if stage != "" {
+			return fmt.Sprintf("✗ 已取消(在 stage=%s 处中断)。worktree(若有)已保留以便检查 — /worktree show 列出。", stage)
+		}
+		return "✗ 已取消。worktree(若有)已保留以便检查 — /worktree show 列出。"
+	}
+	if stage != "" {
+		return fmt.Sprintf("✗ canceled (interrupted at stage=%s). Worktree (if any) preserved for inspection — /worktree show.", stage)
+	}
+	return "✗ canceled. Worktree (if any) preserved for inspection — /worktree show."
 }

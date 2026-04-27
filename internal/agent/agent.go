@@ -146,6 +146,16 @@ type Dependencies struct {
 	// refactor evaluator implementations.
 	LoopPolicy LoopPolicy
 
+	// CancelChecker is the user-driven cancellation probe. The agent
+	// loop polls it at the top of each iteration and at every tool
+	// dispatch; a non-nil error means the operator hit Ctrl+C / typed
+	// `/cancel` in the REPL and the loop should unwind immediately.
+	// Optional: nil disables the check entirely (single-shot CLI runs
+	// have no operator to interrupt). Wired by cmd/root.go from the
+	// Orchestrator's CancelToken so REPL and orchestrator share one
+	// source of truth.
+	CancelChecker func() error
+
 	// ExploreHeuristics carries the tunable thresholds for the
 	// explorer evaluator's mid-loop and soft-stop detection branches.
 	// Optional: zero fields are filled from DefaultExploreHeuristics()
@@ -899,6 +909,19 @@ func (b *BaseAgent) Execute(ctx *types.AgentContext, sk *skill.Config) (*StageOu
 	for i := 0; i < maxIter; i++ {
 		if forceStop {
 			break
+		}
+		// Cancel checkpoint: top of every ReAct iteration. The user's
+		// Ctrl+C / `/cancel` from the REPL fires CancelChecker; we
+		// unwind immediately rather than starting another LLM call.
+		// Phase 1 design: this is the cooperative checkpoint — an
+		// LLM call already in flight finishes naturally; we abort
+		// before sending the next one. Phase 2 will plumb context
+		// into llm.Chat for HTTP-level interruption.
+		if b.deps.CancelChecker != nil {
+			if err := b.deps.CancelChecker(); err != nil {
+				logging.Info("[diag %s] iter=%d cancel checkpoint fired: %v", b.name, i, err)
+				return nil, err
+			}
 		}
 		// Prune older "tool" role messages in-place so cumulative tool
 		// output never blows the model's context window on long

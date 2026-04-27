@@ -111,6 +111,15 @@ type Renderer struct {
 	objectiveDone bool
 	animFrame     int
 	animStop      chan struct{}
+
+	// cancelHint is rendered as a dim trailer line under the task
+	// list while the spinner is live. Used by the REPL to surface a
+	// "press Ctrl+C to cancel" affordance — without this the spinner
+	// silently locks the input box for the duration of the Run with
+	// no visible escape hatch. Empty string disables the line so
+	// single-shot CLI / non-REPL callers keep their historical
+	// byte-identical rendering.
+	cancelHint string
 }
 
 // maxVisibleTasks caps how many rows the live area shows at once.
@@ -195,6 +204,18 @@ func codraxStyleConfig() ansi.StyleConfig {
 
 // StartSpinner begins the live status area.
 func (r *Renderer) StartSpinner() {
+	r.startSpinnerWithHint("")
+}
+
+// StartSpinnerWithCancelHint is the REPL-aware variant: shows hint
+// as a dim trailer line under the task list so the operator sees the
+// cancel affordance the moment the input box closes. Single-shot CLI
+// callers keep using StartSpinner() and get historical rendering.
+func (r *Renderer) StartSpinnerWithCancelHint(hint string) {
+	r.startSpinnerWithHint(hint)
+}
+
+func (r *Renderer) startSpinnerWithHint(hint string) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	if r.area != nil {
@@ -207,6 +228,7 @@ func (r *Renderer) StartSpinner() {
 	r.analysisReady = false
 	r.startTime = time.Now()
 	r.animFrame = 0
+	r.cancelHint = hint
 
 	a, _ := pterm.DefaultArea.WithRemoveWhenDone(true).Start()
 	r.area = a
@@ -624,6 +646,14 @@ func (r *Renderer) redraw() {
 			pterm.FgDarkGray.Sprint("Total"),
 			pterm.FgWhite.Sprint(elapsed))
 		b.WriteString(truncByDisplayWidth(footer, maxCols))
+		// Cancel hint — surfaced ONLY while the spinner is live and
+		// only when the REPL set a hint via StartSpinnerWithCancelHint.
+		// Empty cancelHint preserves the historical single-shot CLI
+		// rendering byte-identically.
+		if r.cancelHint != "" {
+			b.WriteString("  ")
+			b.WriteString(pterm.FgDarkGray.Sprint(r.cancelHint))
+		}
 	}
 
 	r.area.Update(b.String())
