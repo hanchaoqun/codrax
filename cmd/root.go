@@ -1628,6 +1628,27 @@ func initApp(cmd *cobra.Command, _ []string) error {
 		if rs.MemoryMaxBuildContextMatches != nil {
 			memCfg.MaxBuildContextMatches = *rs.MemoryMaxBuildContextMatches
 		}
+		if rs.MemoryEntityMinRunes != nil {
+			memCfg.EntityMinRunes = *rs.MemoryEntityMinRunes
+		}
+		if rs.MemorySessionTieBreakerBonus != nil {
+			memCfg.SessionTieBreakerBonus = *rs.MemorySessionTieBreakerBonus
+		}
+		// Per-Kind retrieval policy override. Only allocate the
+		// MemoryRetrievalPolicy struct when at least one sub-policy
+		// is supplied — keeps memCfg.Policy nil for the typical
+		// operator who never touches these knobs.
+		if rs.MemoryPolicyChitchat != nil || rs.MemoryPolicyShell != nil ||
+			rs.MemoryPolicyPipeline != nil || rs.MemoryPolicyPlan != nil ||
+			rs.MemoryPolicyDefault != nil {
+			memCfg.Policy = &types.MemoryRetrievalPolicy{
+				Chitchat: rs.MemoryPolicyChitchat,
+				Shell:    rs.MemoryPolicyShell,
+				Pipeline: rs.MemoryPolicyPipeline,
+				Plan:     rs.MemoryPolicyPlan,
+				Default:  rs.MemoryPolicyDefault,
+			}
+		}
 	}
 	app.memorySettings = types.ResolvedMemorySettings(memCfg)
 

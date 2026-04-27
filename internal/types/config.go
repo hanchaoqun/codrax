@@ -802,6 +802,106 @@ type MemorySettings struct {
 	// MaxBuildContextMatches: maximum number of compacted index entries
 	// to inline in BuildContext. Default 3.
 	MaxBuildContextMatches int `yaml:"max_build_context_matches"`
+
+	// EntityMinRunes: a recorded entity's surface form must have at
+	// least this many runes to participate in scoreIndex matching.
+	// Below this, the substring check would over-fire on noise tokens
+	// like "id", "x", "go". Default 3 — 3 runes covers typical short
+	// symbols (e.g. "fnB", "rpc") without admitting noise.
+	EntityMinRunes int `yaml:"entity_min_runes"`
+
+	// SessionTieBreakerBonus: extra score added to a candidate
+	// IndexEntry whose SessionID matches the current Run when the
+	// entry already has positive relevance. Pure session membership
+	// is intentionally NOT enough to surface an irrelevant entry —
+	// this only breaks ties between equally-relevant cross-session
+	// matches. Default 1.
+	SessionTieBreakerBonus int `yaml:"session_tie_breaker_bonus"`
+
+	// Policy holds per-Kind retrieval tuning. nil means "use the
+	// hard-coded defaults" — typical operators leave it that way.
+	// Operators with unusual usage patterns (chat-heavy, deep-pipe,
+	// etc.) can override per Kind without touching the struct's
+	// other fields.
+	Policy *MemoryRetrievalPolicy `yaml:"policy,omitempty"`
+}
+
+// MemoryRetrievalPolicy bundles the per-Kind retrieval policies
+// BuildContext applies. Each pointer is independent: nil → use
+// the per-Kind hard-coded default; non-nil → override that Kind only.
+// New Kinds added later add a new pointer field here without
+// breaking existing yaml.
+type MemoryRetrievalPolicy struct {
+	// Chitchat: KindChitchat retrieval. Defaults pin 3 same-session
+	// recent turns at up to 1200 chars, 3 compacted matches, entities
+	// weighted 2x keywords, 1-hop Refs chain.
+	Chitchat *MemoryKindPolicy `yaml:"chitchat,omitempty"`
+
+	// Shell: KindShell retrieval. Defaults same as Chitchat (the
+	// natural follow-up to `!cmd` is "explain that output", which
+	// has the same recent-thread bias as chitchat).
+	Shell *MemoryKindPolicy `yaml:"shell,omitempty"`
+
+	// Pipeline: KindPipeline retrieval. Defaults pin 2 recent turns
+	// (no body inline — pipeline answers anchor on the Index entries),
+	// 5 compacted matches, entities weighted 3x, 2-hop Refs chain.
+	Pipeline *MemoryKindPolicy `yaml:"pipeline,omitempty"`
+
+	// Plan: KindPlan retrieval. Defaults to the legacy fallback
+	// today (no per-Kind tuning); exposed here so operators with a
+	// plan-heavy workflow can dial it up without code changes.
+	Plan *MemoryKindPolicy `yaml:"plan,omitempty"`
+
+	// Default: legacy fallback for empty Kind / unknown Kind.
+	// Defaults: 0 pin / 0 body / -1 cap (unbounded; the byte budget
+	// elsewhere caps the actual injection) / 2x entity / 0 refs.
+	Default *MemoryKindPolicy `yaml:"default,omitempty"`
+}
+
+// MemoryKindPolicy is one Kind's retrieval tuning. All five fields
+// echo the kindPolicy struct in internal/memory; a yaml override
+// replaces the corresponding hard-coded default verbatim.
+type MemoryKindPolicy struct {
+	SessionPinCount   int `yaml:"session_pin_count"`
+	RecentBodyChars   int `yaml:"recent_body_chars"`
+	CompactedMatchCap int `yaml:"compacted_match_cap"`
+	EntityScoreMul    int `yaml:"entity_score_mul"`
+	RefsChainDepth    int `yaml:"refs_chain_depth"`
+}
+
+// DefaultMemoryKindPolicies returns the per-Kind defaults the memory
+// package uses when MemorySettings.Policy is nil or a sub-policy is
+// nil. Mirrors internal/memory.policyFor — single source of truth so
+// adding a Kind only touches one switch.
+func DefaultMemoryKindPolicies() map[string]MemoryKindPolicy {
+	chitchat := MemoryKindPolicy{
+		SessionPinCount:   3,
+		RecentBodyChars:   1200,
+		CompactedMatchCap: 3,
+		EntityScoreMul:    2,
+		RefsChainDepth:    1,
+	}
+	pipeline := MemoryKindPolicy{
+		SessionPinCount:   2,
+		RecentBodyChars:   0,
+		CompactedMatchCap: 5,
+		EntityScoreMul:    3,
+		RefsChainDepth:    2,
+	}
+	def := MemoryKindPolicy{
+		SessionPinCount:   0,
+		RecentBodyChars:   0,
+		CompactedMatchCap: -1,
+		EntityScoreMul:    2,
+		RefsChainDepth:    0,
+	}
+	return map[string]MemoryKindPolicy{
+		"chitchat": chitchat,
+		"shell":    chitchat,
+		"pipeline": pipeline,
+		"plan":     def,
+		"default":  def,
+	}
 }
 
 // DefaultMemorySettings returns the code defaults for memory store limits.
@@ -811,6 +911,13 @@ func DefaultMemorySettings() MemorySettings {
 		MaxRecentBytes:         20 * 1024,
 		MaxTurnBodyBytes:       16 * 1024,
 		MaxBuildContextMatches: 3,
+		EntityMinRunes:         3,
+		SessionTieBreakerBonus: 1,
+		// Policy stays nil here. ResolvedMemorySettings does NOT
+		// hydrate it — internal/memory falls back to
+		// DefaultMemoryKindPolicies() per-Kind on a missing override.
+		// Keeping Policy nil means an operator who never sets it
+		// pays no marshal cost and YAML stays clean.
 	}
 }
 
@@ -830,5 +937,14 @@ func ResolvedMemorySettings(s MemorySettings) MemorySettings {
 	if s.MaxBuildContextMatches == 0 {
 		s.MaxBuildContextMatches = d.MaxBuildContextMatches
 	}
+	if s.EntityMinRunes == 0 {
+		s.EntityMinRunes = d.EntityMinRunes
+	}
+	if s.SessionTieBreakerBonus == 0 {
+		s.SessionTieBreakerBonus = d.SessionTieBreakerBonus
+	}
+	// s.Policy stays as-is: nil or partially populated. The memory
+	// package's policyFor lookup handles the "field-by-field merge
+	// against DefaultMemoryKindPolicies" semantics.
 	return s
 }

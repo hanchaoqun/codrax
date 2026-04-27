@@ -7,6 +7,8 @@ import (
 	"strings"
 
 	"gopkg.in/yaml.v3"
+
+	"github.com/hanchaoqun/codrax/internal/types"
 )
 
 // RuntimeSettings holds the per-process knobs that the codrax binary
@@ -289,6 +291,22 @@ type RuntimeSettings struct {
 	MemoryMaxRecentBytes         *int `yaml:"memory_max_recent_bytes"`
 	MemoryMaxTurnBodyBytes       *int `yaml:"memory_max_turn_body_bytes"`
 	MemoryMaxBuildContextMatches *int `yaml:"memory_max_build_context_matches"`
+
+	// Memory retrieval-tuning knobs. Previously hardcoded as magic
+	// numbers in internal/memory.scoreIndex (entityMinRunes=3,
+	// sessionTieBreakerBonus=1) and policyFor (15 numbers across
+	// 3 hardcoded policies). Surfaced here so operators with unusual
+	// usage patterns (chat-heavy, plan-heavy, very long sessions)
+	// can dial them without recompiling. nil → code default; missing
+	// sub-policy fields → corresponding hardcoded default for that
+	// Kind from types.DefaultMemoryKindPolicies.
+	MemoryEntityMinRunes         *int                          `yaml:"memory_entity_min_runes"`
+	MemorySessionTieBreakerBonus *int                          `yaml:"memory_session_tie_breaker_bonus"`
+	MemoryPolicyChitchat         *types.MemoryKindPolicy       `yaml:"memory_policy_chitchat,omitempty"`
+	MemoryPolicyShell            *types.MemoryKindPolicy       `yaml:"memory_policy_shell,omitempty"`
+	MemoryPolicyPipeline         *types.MemoryKindPolicy       `yaml:"memory_policy_pipeline,omitempty"`
+	MemoryPolicyPlan             *types.MemoryKindPolicy       `yaml:"memory_policy_plan,omitempty"`
+	MemoryPolicyDefault          *types.MemoryKindPolicy       `yaml:"memory_policy_default,omitempty"`
 
 	// Per-shape Summary length ceilings enforced by
 	// emit_answer_document and the shrinkage-salvage trimmer. All

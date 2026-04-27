@@ -206,9 +206,12 @@ type BuildOpts struct {
 	SessionID string
 }
 
-// kindPolicy holds the per-Kind retrieval tuning. Assembled inline in
-// policyFor(Kind) so the defaults are version-controlled in-code; a
-// yaml knob can override values later without changing the shape.
+// kindPolicy holds the per-Kind retrieval tuning. Built either from
+// the hard-coded defaults (legacy) or from MemorySettings.Policy when
+// the operator overrides via codrax.yaml. The two extra fields
+// (entityMinRunes / sessionTieBreakerBonus) are scoreIndex-level
+// magic numbers that previously lived inline at line 1005 / 1019;
+// surfacing them here keeps every score-time tunable in one struct.
 type kindPolicy struct {
 	// sessionPinCount: how many same-session recent turns to keep
 	// unconditionally (regardless of keyword match). 0 disables
@@ -230,26 +233,91 @@ type kindPolicy struct {
 	// after the primary match list is picked. 0 disables chain
 	// traversal entirely (legacy behavior + first-ship conservatism).
 	refsChainDepth int
+	// entityMinRunes: minimum Unicode-rune length an entity surface
+	// must have to participate in scoreIndex's entity-substring check.
+	// Below this, generic short tokens (e.g. "id", "go", "rpc") would
+	// over-fire on noise. Default 3 (was a hardcoded literal at
+	// scoreIndex line 1005 pre-refactor).
+	entityMinRunes int
+	// sessionTieBreakerBonus: extra score added to a candidate whose
+	// SessionID matches the current Run AND already had non-zero
+	// relevance. Pure session membership cannot surface an irrelevant
+	// entry; this only orders ties between equally-scored cross-session
+	// matches. Default 1 (was hardcoded `s++` at scoreIndex line 1019).
+	sessionTieBreakerBonus int
 }
 
-// policyFor returns the retrieval policy for the given Kind. Empty
-// Kind returns the legacy policy so BuildContext callers that did not
-// pass BuildOpts see byte-identical output.
-func policyFor(k Kind) kindPolicy {
-	switch k {
-	case KindChitchat, KindShell:
-		// Shell turns share chitchat's "keep recent thread" bias:
-		// the immediately-prior `!cmd` output is the most likely
-		// referent for a follow-up question ("explain this error").
-		// 3 same-session turns pinned at up to 1200 chars covers
-		// typical command output (ls, git status, short stack
-		// traces); larger paste flows into compaction normally.
-		return kindPolicy{sessionPinCount: 3, recentBodyChars: 1200, compactedMatchCap: 3, entityScoreMul: 2, refsChainDepth: 1}
-	case KindPipeline:
-		return kindPolicy{sessionPinCount: 2, recentBodyChars: 0, compactedMatchCap: 5, entityScoreMul: 3, refsChainDepth: 2}
-	default:
-		return kindPolicy{sessionPinCount: 0, recentBodyChars: 0, compactedMatchCap: -1, entityScoreMul: 2, refsChainDepth: 0}
+// defaultKindPolicy returns the hardcoded per-Kind defaults. Used as
+// the fallback when MemorySettings.Policy is nil or a sub-policy is
+// nil. types.DefaultMemoryKindPolicies() is the single source of
+// truth for the values; this helper bridges the type boundary.
+func defaultKindPolicy(k Kind, ms types.MemorySettings) kindPolicy {
+	defaults := types.DefaultMemoryKindPolicies()
+	key := string(k)
+	d, ok := defaults[key]
+	if !ok {
+		d = defaults["default"]
 	}
+	return kindPolicy{
+		sessionPinCount:        d.SessionPinCount,
+		recentBodyChars:        d.RecentBodyChars,
+		compactedMatchCap:      d.CompactedMatchCap,
+		entityScoreMul:         d.EntityScoreMul,
+		refsChainDepth:         d.RefsChainDepth,
+		entityMinRunes:         ms.EntityMinRunes,
+		sessionTieBreakerBonus: ms.SessionTieBreakerBonus,
+	}
+}
+
+// policyFor returns the retrieval policy for the given Kind, applying
+// the operator's per-Kind override from MemorySettings.Policy on top
+// of the hardcoded defaults. Field-level merge: a nil sub-policy
+// (e.g. ms.Policy.Pipeline == nil) keeps every default; a non-nil
+// sub-policy with zero fields keeps the corresponding defaults. Only
+// non-zero override fields replace defaults — matches the rest of
+// the package's "zero means take default" convention.
+//
+// Empty Kind returns the legacy policy so BuildContext callers that
+// did not pass BuildOpts see byte-identical output. New Kinds added
+// later inherit `default` until they get a switch case here AND a
+// matching key in types.DefaultMemoryKindPolicies.
+func policyFor(k Kind, ms types.MemorySettings) kindPolicy {
+	base := defaultKindPolicy(k, ms)
+	if ms.Policy == nil {
+		return base
+	}
+	var override *types.MemoryKindPolicy
+	switch k {
+	case KindChitchat:
+		override = ms.Policy.Chitchat
+	case KindShell:
+		override = ms.Policy.Shell
+	case KindPipeline:
+		override = ms.Policy.Pipeline
+	case KindPlan:
+		override = ms.Policy.Plan
+	default:
+		override = ms.Policy.Default
+	}
+	if override == nil {
+		return base
+	}
+	if override.SessionPinCount != 0 {
+		base.sessionPinCount = override.SessionPinCount
+	}
+	if override.RecentBodyChars != 0 {
+		base.recentBodyChars = override.RecentBodyChars
+	}
+	if override.CompactedMatchCap != 0 {
+		base.compactedMatchCap = override.CompactedMatchCap
+	}
+	if override.EntityScoreMul != 0 {
+		base.entityScoreMul = override.EntityScoreMul
+	}
+	if override.RefsChainDepth != 0 {
+		base.refsChainDepth = override.RefsChainDepth
+	}
+	return base
 }
 
 // Summarizer compresses a Turn into an IndexEntry. Implementations are
@@ -306,6 +374,7 @@ type Store struct {
 	maxRecent  int
 	maxBytes   int
 	bcLimits   buildContextLimits
+	settings   types.MemorySettings // resolved retrieval-tuning knobs (entityMinRunes, sessionTieBreakerBonus, per-Kind Policy override)
 	summarizer Summarizer
 
 	// compactInFlight is a single-flight latch: at most one
@@ -386,6 +455,7 @@ func NewStore(dir string, summarizer Summarizer, ms types.MemorySettings) (*Stor
 			maxTurnBodyBytes:       ms.MaxTurnBodyBytes,
 			maxBuildContextMatches: ms.MaxBuildContextMatches,
 		},
+		settings:   ms,
 		summarizer: summarizer,
 	}
 
@@ -913,7 +983,7 @@ func (s *Store) BuildContext(currentRequest string, optOverride ...BuildOpts) st
 	if len(optOverride) > 0 {
 		opts = optOverride[0]
 	}
-	policy := policyFor(opts.Kind)
+	policy := policyFor(opts.Kind, s.settings)
 
 	_ = s.withSharedLock(s.loadIndexLocked)
 	s.mu.Lock()
@@ -1000,9 +1070,13 @@ func scoreIndex(idx []IndexEntry, request string, opts BuildOpts, policy kindPol
 		}
 		entHits := 0
 		if len(e.Entities) > 0 && policy.entityScoreMul > 0 {
+			minRunes := policy.entityMinRunes
+			if minRunes <= 0 {
+				minRunes = 3 // safety fallback if settings hydration missed
+			}
 			for _, ent := range e.Entities {
 				le := strings.ToLower(strings.TrimSpace(ent))
-				if len([]rune(le)) < 3 {
+				if len([]rune(le)) < minRunes {
 					continue
 				}
 				if strings.Contains(lowerReq, le) {
@@ -1014,9 +1088,14 @@ func scoreIndex(idx []IndexEntry, request string, opts BuildOpts, policy kindPol
 		// Same-session tie-breaker. Only applies when the entry
 		// already has some relevance signal (s > 0); bare session
 		// membership is not enough to surface an otherwise-
-		// irrelevant entry.
+		// irrelevant entry. Bonus magnitude is configurable via
+		// MemorySettings.SessionTieBreakerBonus (default 1).
 		if s > 0 && opts.SessionID != "" && e.SessionID == opts.SessionID {
-			s++
+			bonus := policy.sessionTieBreakerBonus
+			if bonus <= 0 {
+				bonus = 1
+			}
+			s += bonus
 		}
 		if s > 0 {
 			out = append(out, scored{e, s})

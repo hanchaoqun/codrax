@@ -116,6 +116,60 @@ providers_config: /etc/codrax/providers.yaml
 	}
 }
 
+// TestLoadRuntimeSettings_MemoryRetrievalKnobs covers the magic
+// numbers exposed in this commit: per-Kind retrieval policy + the
+// two scoreIndex global tunables. Roundtrips a yaml fragment that
+// overrides Pipeline.SessionPinCount + Chitchat.RecentBodyChars +
+// the global EntityMinRunes / SessionTieBreakerBonus and asserts
+// the parsed pointer-typed fields land in the right slots.
+func TestLoadRuntimeSettings_MemoryRetrievalKnobs(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "codrax.yaml")
+	body := `
+memory_entity_min_runes: 5
+memory_session_tie_breaker_bonus: 4
+memory_policy_pipeline:
+  session_pin_count: 7
+  compacted_match_cap: 12
+memory_policy_chitchat:
+  recent_body_chars: 2400
+`
+	if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	s, err := LoadRuntimeSettings(path)
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	if s.MemoryEntityMinRunes == nil || *s.MemoryEntityMinRunes != 5 {
+		t.Errorf("MemoryEntityMinRunes = %v", s.MemoryEntityMinRunes)
+	}
+	if s.MemorySessionTieBreakerBonus == nil || *s.MemorySessionTieBreakerBonus != 4 {
+		t.Errorf("MemorySessionTieBreakerBonus = %v", s.MemorySessionTieBreakerBonus)
+	}
+	if s.MemoryPolicyPipeline == nil {
+		t.Fatal("MemoryPolicyPipeline missing")
+	}
+	if s.MemoryPolicyPipeline.SessionPinCount != 7 {
+		t.Errorf("Pipeline.SessionPinCount = %d, want 7", s.MemoryPolicyPipeline.SessionPinCount)
+	}
+	if s.MemoryPolicyPipeline.CompactedMatchCap != 12 {
+		t.Errorf("Pipeline.CompactedMatchCap = %d, want 12", s.MemoryPolicyPipeline.CompactedMatchCap)
+	}
+	if s.MemoryPolicyChitchat == nil || s.MemoryPolicyChitchat.RecentBodyChars != 2400 {
+		t.Errorf("Chitchat.RecentBodyChars = %v", s.MemoryPolicyChitchat)
+	}
+	// Sub-policy fields not specified must stay zero so the memory
+	// package's policyFor merge keeps the corresponding default.
+	if s.MemoryPolicyPipeline.EntityScoreMul != 0 {
+		t.Errorf("absent yaml field should parse as zero; EntityScoreMul = %d", s.MemoryPolicyPipeline.EntityScoreMul)
+	}
+	// Plan / Default were not configured — pointer must stay nil.
+	if s.MemoryPolicyPlan != nil || s.MemoryPolicyDefault != nil {
+		t.Error("unmentioned per-Kind sub-policies must parse as nil")
+	}
+}
+
 func TestLoadRuntimeSettings_Partial(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "codrax.yaml")
