@@ -1480,14 +1480,18 @@ func validateConfigTraceAbsenceCitationFocus(ctx *types.BusContext, exact *types
 		ctx.Mutable == nil {
 		return nil
 	}
-	contract := answerExactResolutionContract(ctx)
-	pool := answerDocSurfaceEvidencePool(ctx)
+	plan := answerSurfacePlan(ctx)
+	if plan == nil || plan.ExactResolution == nil {
+		return nil
+	}
+	contract := plan.ExactResolution
+	pool := plan.SurfaceEvidence
 	lead := renderAnswerDocumentExactResolutionLead(contract, exact, requestedAnswerDocumentLanguage(ctx))
 	body := strings.TrimSpace(exactContextSummaryBodyAfterLead(summary, lead))
 	bodyNeedsLineageCitation := exactContextBodyNeedsStructuredGrounding(body)
-	requiredFiles := answerDocExactContextRequiredFiles(ctx)
-	lineageCandidates := types.ConfigTraceRelatedContextCitationCandidates(contract, requiredFiles, pool)
-	allowedAnchors := joinExactContextSurfaceDisplays(allowedExactContextSurfaceCandidates(contract, ctx.AnalysisIR.RequestModel.Scenario, true, pool, requiredFiles))
+	requiredFiles := plan.ExactContextRequiredFiles
+	lineageCandidates := plan.RelatedContextCitationCandidates
+	allowedAnchors := types.JoinExactContextSurfaceDisplays(plan.AllowedExactContextLabels)
 	relatedContextCitations := 0
 	for idx, cite := range citations {
 		matched := matchingEvidenceForCitation(pool, cite)
@@ -1506,14 +1510,14 @@ func validateConfigTraceAbsenceCitationFocus(ctx *types.BusContext, exact *types
 			).
 				WithFields(fmt.Sprintf("citations[%d]", idx), "exact_resolution.context_mode").
 				WithHint("Re-emit `emit_answer_document` with the same exact-absence conclusion, but remove this anchor from `citations[]` and from any fenced diagram nodes. You may keep it in `summary` as prose-only grounded nearby context, but if the user-visible answer still explains precedence / lineage, cite at least one validated default/config/runtime/override anchor. Here `config` means a grounded repo/user config-file layer (YAML/JSON/TOML/INI/etc.).")
-			if allowed := formatConfigTraceAllowedCitations(contract, pool, requiredFiles); allowed != "" {
+			if allowed := formatConfigTraceAllowedCitations(plan); allowed != "" {
 				err = err.WithMetadata("allowed_citations", allowed)
 			}
 			if allowedAnchors != "" {
 				err = err.WithMetadata("allowed_anchors", allowedAnchors)
 			}
 			err = err.WithMetadata("drop_citations", fmt.Sprintf("%s:%d", cite.File, cite.Line))
-			if proseOnly := joinExactContextSurfaceDisplays(exactContextSurfaceCandidatesForItem(contract, matched)); proseOnly != "" {
+			if proseOnly := types.JoinExactContextSurfaceDisplays(types.ExactContextSurfaceLabelsForItem(contract, matched)); proseOnly != "" {
 				err = err.WithMetadata("prose_only_anchors", proseOnly)
 			}
 			return err
@@ -1525,14 +1529,14 @@ func validateConfigTraceAbsenceCitationFocus(ctx *types.BusContext, exact *types
 		).
 			WithFields(fmt.Sprintf("citations[%d]", idx), "exact_resolution.context_mode").
 			WithHint("Re-emit `emit_answer_document` with the same exact-absence conclusion, but keep citations only for the missing-key proof sources and for grounded precedence anchors that already carry validated default/config/runtime/override roles. Here `config` means a grounded repo/user config-file layer (YAML/JSON/TOML/INI/etc.). Drop broad same-family structs, counters, or helper comments from `citations[]` and from the rendered answer.")
-		if allowed := formatConfigTraceAllowedCitations(contract, pool, requiredFiles); allowed != "" {
+		if allowed := formatConfigTraceAllowedCitations(plan); allowed != "" {
 			err = err.WithMetadata("allowed_citations", allowed)
 		}
 		if allowedAnchors != "" {
 			err = err.WithMetadata("allowed_anchors", allowedAnchors)
 		}
 		err = err.WithMetadata("drop_citations", fmt.Sprintf("%s:%d", cite.File, cite.Line))
-		if forbidden := joinExactContextSurfaceDisplays(exactContextSurfaceCandidatesForItem(contract, matched)); forbidden != "" {
+		if forbidden := types.JoinExactContextSurfaceDisplays(types.ExactContextSurfaceLabelsForItem(contract, matched)); forbidden != "" {
 			err = err.WithMetadata("forbidden_anchors", forbidden)
 		}
 		return err
@@ -1545,7 +1549,7 @@ func validateConfigTraceAbsenceCitationFocus(ctx *types.BusContext, exact *types
 		"exact-absent config-trace answers that keep grounded related context on the user-visible surface must cite at least one grounded precedence-capable lineage anchor. The current summary explains nearby precedence / context, but citations[] contains no validated default/config/runtime/override anchor for that explanation.",
 	).WithFields("citations", "summary", "exact_resolution.context_mode").
 		WithHint("Re-emit `emit_answer_document` with the same exact-absence conclusion, but if `summary` continues to explain nearby precedence / lineage context, keep at least one grounded precedence anchor in `citations[]` (for example a validated default/config/runtime/override anchor already named in the tool metadata). Here `config` means a grounded repo/user config-file layer (YAML/JSON/TOML/INI/etc.). If you do not want to cite nearby lineage context, drop that contextual explanation and keep only the renderer-generated absence lead.")
-	if allowed := formatConfigTraceAllowedCitations(contract, pool, requiredFiles); allowed != "" {
+	if allowed := formatConfigTraceAllowedCitations(plan); allowed != "" {
 		err = err.WithMetadata("allowed_citations", allowed)
 	}
 	if allowedAnchors != "" {
@@ -1589,14 +1593,17 @@ func answerDocSurfaceEvidencePool(ctx *types.BusContext) []types.EvidenceItem {
 	return types.ExactResolutionSurfaceEvidencePool(emitted, ctx.EvidenceItems, ctx.AnswerChains)
 }
 
-func formatConfigTraceAllowedCitations(contract *types.ExactResolutionContract, items []types.EvidenceItem, requiredFiles []string) string {
+func formatConfigTraceAllowedCitations(plan *types.AnswerSurfacePlan) string {
+	if plan == nil {
+		return ""
+	}
 	seen := make(map[string]bool)
 	var out []string
-	for _, item := range items {
+	for _, item := range plan.AllowedExactContextItems {
 		if item.Source == "" || item.LineStart <= 0 {
 			continue
 		}
-		if !types.ConfigTraceGroundedContextAnchorAllowedInFiles(contract, item, requiredFiles) {
+		if !types.ConfigTraceGroundedContextAnchorAllowedInFiles(plan.ExactResolution, item, plan.ExactContextRequiredFiles) {
 			continue
 		}
 		label := fmt.Sprintf("%s:%d", item.Source, item.LineStart)
@@ -1606,7 +1613,7 @@ func formatConfigTraceAllowedCitations(contract *types.ExactResolutionContract, 
 		seen[label] = true
 		out = append(out, label)
 	}
-	for _, candidate := range types.ConfigTraceRelatedContextCitationCandidates(contract, requiredFiles, items) {
+	for _, candidate := range plan.RelatedContextCitationCandidates {
 		label := fmt.Sprintf("%s:%d", candidate.Source, candidate.Line)
 		if seen[label] {
 			continue
@@ -1625,18 +1632,15 @@ func validateExactResolutionContextSurface(summary string, exact *types.AnswerEx
 	if exact.Status != types.AnswerExactResolutionAbsent {
 		return nil
 	}
-	contract := answerExactResolutionContract(ctx)
-	if contract == nil || len(contract.Targets) == 0 {
+	plan := answerSurfacePlan(ctx)
+	if plan == nil || plan.ExactResolution == nil || len(plan.ExactResolution.Targets) == 0 {
 		return nil
 	}
-	stableAbsent := ctx.Mutable.StableInvestigationResultKind() == "absence" &&
-		strings.TrimSpace(ctx.Mutable.StableAbsenceJustification()) != ""
-	if !stableAbsent {
+	contract := plan.ExactResolution
+	if !plan.StableAbsent {
 		return nil
 	}
-	pool := answerDocSurfaceEvidencePool(ctx)
-	requiredFiles := answerDocExactContextRequiredFiles(ctx)
-	allowedAnchors := joinExactContextSurfaceDisplays(allowedExactContextSurfaceCandidates(contract, ctx.AnalysisIR.RequestModel.Scenario, stableAbsent, pool, requiredFiles))
+	allowedAnchors := types.JoinExactContextSurfaceDisplays(plan.AllowedExactContextLabels)
 	lead := renderAnswerDocumentExactResolutionLead(contract, exact, requestedAnswerDocumentLanguage(ctx))
 	body := exactContextSummaryBodyAfterLead(summary, lead)
 	if repeated := repeatedExactTargetAfterLead(contract, body); repeated != "" {
@@ -1656,8 +1660,8 @@ func validateExactResolutionContextSurface(summary string, exact *types.AnswerEx
 	lowerBody := strings.ToLower(body)
 	pathBodyKey := types.ExactResolutionLookupKey("path", body)
 	symbolBodyKey := types.ExactResolutionLookupKey("symbol", body)
-	mentionedAllowed := mentionedExactContextSurfaceCandidates(lowerBody, pathBodyKey, symbolBodyKey, allowedExactContextSurfaceCandidates(contract, ctx.AnalysisIR.RequestModel.Scenario, stableAbsent, pool, requiredFiles))
-	mentionedForbidden := mentionedExactContextSurfaceCandidates(lowerBody, pathBodyKey, symbolBodyKey, forbiddenExactContextSurfaceCandidates(contract, ctx.AnalysisIR.RequestModel.Scenario, stableAbsent, pool, requiredFiles))
+	mentionedAllowed := mentionedExactContextSurfaceCandidates(lowerBody, pathBodyKey, symbolBodyKey, plan.AllowedExactContextLabels)
+	mentionedForbidden := mentionedExactContextSurfaceCandidates(lowerBody, pathBodyKey, symbolBodyKey, plan.ForbiddenExactContextLabels)
 	if exact.ContextMode == types.AnswerExactResolutionContextNone {
 		if strings.TrimSpace(body) == "" && len(mentionedAllowed) == 0 && len(mentionedForbidden) == 0 {
 			return nil
@@ -1696,20 +1700,20 @@ func validateExactResolutionContextSurface(summary string, exact *types.AnswerEx
 	return err.WithHint("Re-emit `emit_answer_document` with the same exact-absence conclusion, but keep `summary` on the renderer-produced exact lead's follow-on grounded context only. Drop illustrative/doc-example or broad same-family anchors from prose, diagrams, and citations instead of explaining them away.")
 }
 
-func mentionedExactContextSurfaceCandidates(lowerSummary, pathSummaryKey, symbolSummaryKey string, candidates []exactContextSurfaceCandidate) []string {
+func mentionedExactContextSurfaceCandidates(lowerSummary, pathSummaryKey, symbolSummaryKey string, candidates []types.ExactContextSurfaceLabel) []string {
 	var mentioned []string
 	for _, candidate := range candidates {
-		matched := strings.Contains(lowerSummary, candidate.matchLower)
-		if !matched && candidate.lookupKey != "" {
-			switch candidate.kind {
+		matched := strings.Contains(lowerSummary, candidate.MatchLower)
+		if !matched && candidate.LookupKey != "" {
+			switch candidate.Kind {
 			case "path":
-				matched = strings.Contains(pathSummaryKey, candidate.lookupKey)
+				matched = strings.Contains(pathSummaryKey, candidate.LookupKey)
 			default:
-				matched = strings.Contains(symbolSummaryKey, candidate.lookupKey)
+				matched = strings.Contains(symbolSummaryKey, candidate.LookupKey)
 			}
 		}
 		if matched {
-			mentioned = append(mentioned, candidate.display)
+			mentioned = append(mentioned, candidate.Display)
 		}
 	}
 	return mentioned
@@ -1734,117 +1738,6 @@ func repeatedExactTargetAfterLead(contract *types.ExactResolutionContract, body 
 		}
 	}
 	return ""
-}
-
-type exactContextSurfaceCandidate struct {
-	display    string
-	matchLower string
-	lookupKey  string
-	kind       string
-}
-
-func allowedExactContextSurfaceCandidates(contract *types.ExactResolutionContract, scenario types.Scenario, stableAbsent bool, items []types.EvidenceItem, requiredFiles []string) []exactContextSurfaceCandidate {
-	var out []exactContextSurfaceCandidate
-	seen := make(map[string]bool)
-	for _, item := range items {
-		if !types.ExactResolutionAnswerContextAnchorAllowedInFiles(contract, scenario, stableAbsent, item, requiredFiles) {
-			continue
-		}
-		for _, candidate := range exactContextSurfaceCandidatesForItem(contract, item) {
-			key := candidate.kind + "|" + candidate.lookupKey
-			if candidate.display == "" || candidate.matchLower == "" || seen[key] {
-				continue
-			}
-			seen[key] = true
-			out = append(out, candidate)
-		}
-	}
-	sort.SliceStable(out, func(i, j int) bool {
-		return out[i].display < out[j].display
-	})
-	return out
-}
-
-func joinExactContextSurfaceDisplays(items []exactContextSurfaceCandidate) string {
-	if len(items) == 0 {
-		return ""
-	}
-	seen := make(map[string]bool)
-	var out []string
-	for _, item := range items {
-		display := strings.TrimSpace(item.display)
-		if display == "" || seen[display] {
-			continue
-		}
-		seen[display] = true
-		out = append(out, display)
-	}
-	sort.Strings(out)
-	if len(out) > 6 {
-		out = out[:6]
-	}
-	return strings.Join(out, ", ")
-}
-
-func forbiddenExactContextSurfaceCandidates(contract *types.ExactResolutionContract, scenario types.Scenario, stableAbsent bool, items []types.EvidenceItem, requiredFiles []string) []exactContextSurfaceCandidate {
-	var out []exactContextSurfaceCandidate
-	seen := make(map[string]bool)
-	allowed := make(map[string]bool)
-	for _, candidate := range allowedExactContextSurfaceCandidates(contract, scenario, stableAbsent, items, requiredFiles) {
-		if candidate.lookupKey == "" {
-			continue
-		}
-		allowed[candidate.kind+"|"+candidate.lookupKey] = true
-	}
-	for _, item := range items {
-		if !types.ExactResolutionContextSurfaceRelevant(contract, item) {
-			continue
-		}
-		if types.ExactResolutionAnswerContextAnchorAllowedInFiles(contract, scenario, stableAbsent, item, requiredFiles) {
-			continue
-		}
-		for _, candidate := range exactContextSurfaceCandidatesForItem(contract, item) {
-			key := candidate.kind + "|" + candidate.lookupKey
-			if candidate.display == "" || candidate.matchLower == "" || seen[candidate.matchLower] || allowed[key] {
-				continue
-			}
-			seen[candidate.matchLower] = true
-			out = append(out, candidate)
-		}
-	}
-	sort.SliceStable(out, func(i, j int) bool {
-		return out[i].display < out[j].display
-	})
-	return out
-}
-
-func exactContextSurfaceCandidatesForItem(contract *types.ExactResolutionContract, item types.EvidenceItem) []exactContextSurfaceCandidate {
-	var out []exactContextSurfaceCandidate
-	appendCandidate := func(kind, display string) {
-		display = strings.TrimSpace(display)
-		if display == "" {
-			return
-		}
-		lookupKey := types.ExactResolutionLookupKey(kind, display)
-		if lookupKey == "" {
-			return
-		}
-		for _, target := range contract.Targets {
-			if lookupKey == types.ExactResolutionLookupKey(kind, target) {
-				return
-			}
-		}
-		out = append(out, exactContextSurfaceCandidate{
-			display:    display,
-			matchLower: strings.ToLower(display),
-			lookupKey:  lookupKey,
-			kind:       kind,
-		})
-	}
-	appendCandidate("symbol", item.AnchorSymbol)
-	appendCandidate("symbol", item.Subject)
-	appendCandidate("path", item.Source)
-	return out
 }
 
 // validateSymbolsLiteralGrounding is the ShapeListOfSymbols wrapper.
@@ -2054,45 +1947,36 @@ var diagramCueTokens = []string{
 }
 
 func answerDiagramContract(ctx *types.BusContext) *types.DiagramContract {
-	if ctx == nil || ctx.AnalysisIR == nil || ctx.AnalysisIR.AnswerContract.Diagram == nil {
+	plan := answerSurfacePlan(ctx)
+	if plan == nil {
 		return nil
 	}
-	var (
-		stableAbsent  bool
-		contract      *types.ExactResolutionContract
-		requiredFiles []string
-	)
-	if ctx.Mutable != nil {
-		stableAbsent = ctx.Mutable.StableInvestigationResultKind() == "absence" &&
-			strings.TrimSpace(ctx.Mutable.StableAbsenceJustification()) != ""
-		requiredFiles = answerDocExactContextRequiredFiles(ctx)
+	return plan.Diagram
+}
+
+func answerExactResolutionContract(ctx *types.BusContext) *types.ExactResolutionContract {
+	if plan := answerSurfacePlan(ctx); plan != nil {
+		return plan.ExactResolution
 	}
-	contract = answerExactResolutionContract(ctx)
+	return nil
+}
+
+func answerSurfacePlan(ctx *types.BusContext) *types.AnswerSurfacePlan {
+	if ctx == nil || ctx.AnalysisIR == nil {
+		return nil
+	}
 	var logBundle *types.LogBundle
 	if ctx.Mutable != nil {
 		logBundle = ctx.Mutable.LogTriage()
 	}
-	supported := types.SupportedDiagramKindsForAnswer(
-		ctx.AnalysisIR.RequestModel.Scenario,
-		stableAbsent,
-		contract,
-		requiredFiles,
+	return types.BuildAnswerSurfacePlan(
+		ctx.AnalysisIR,
+		ctx.Mutable,
 		logBundle,
 		ctx.FlowFindings,
 		ctx.AnswerChains,
-		answerDocSurfaceEvidencePool(ctx),
+		ctx.EvidenceItems,
 	)
-	return types.EffectiveDiagramContract(ctx.AnalysisIR.AnswerContract.Diagram, supported)
-}
-
-func answerExactResolutionContract(ctx *types.BusContext) *types.ExactResolutionContract {
-	if ctx == nil || ctx.AnalysisIR == nil {
-		return nil
-	}
-	if ctx.AnalysisIR.AnswerContract.ExactResolution != nil {
-		return ctx.AnalysisIR.AnswerContract.ExactResolution
-	}
-	return types.BuildExactResolutionContract(ctx.AnalysisIR.RequestModel)
 }
 
 func validateSummaryRequiredDiagram(summary string, ctx *types.BusContext) error {

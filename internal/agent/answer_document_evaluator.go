@@ -391,6 +391,20 @@ func resolveAnswerDocShape(ctx *types.AgentContext) string {
 	return string(types.ShapeExplanation)
 }
 
+func answerSurfacePlan(ctx *types.AgentContext) *types.AnswerSurfacePlan {
+	if ctx == nil || ctx.AnalysisIR == nil {
+		return nil
+	}
+	return types.BuildAnswerSurfacePlan(
+		ctx.AnalysisIR,
+		ctx.Mutable,
+		ctx.LogTriage,
+		ctx.FlowFindings,
+		ctx.AnswerChains,
+		ctx.EvidenceItems,
+	)
+}
+
 func baseAnswerDocDiagramContract(ctx *types.AgentContext) *types.DiagramContract {
 	if ctx == nil || ctx.AnalysisIR == nil || ctx.AnalysisIR.AnswerContract.Diagram == nil {
 		return nil
@@ -399,49 +413,24 @@ func baseAnswerDocDiagramContract(ctx *types.AgentContext) *types.DiagramContrac
 }
 
 func answerDocDiagramContract(ctx *types.AgentContext) *types.DiagramContract {
-	base := baseAnswerDocDiagramContract(ctx)
-	if base == nil {
-		return nil
+	if plan := answerSurfacePlan(ctx); plan != nil {
+		return plan.Diagram
 	}
-	var (
-		scenario      types.Scenario
-		stableAbsent  bool
-		contract      *types.ExactResolutionContract
-		requiredFiles []string
-	)
-	if ctx != nil && ctx.AnalysisIR != nil {
-		scenario = ctx.AnalysisIR.RequestModel.Scenario
-	}
-	if ctx != nil && ctx.Mutable != nil {
-		stableAbsent = ctx.Mutable.StableInvestigationResultKind() == "absence" &&
-			strings.TrimSpace(ctx.Mutable.StableAbsenceJustification()) != ""
-		contract = answerDocExactResolutionContract(ctx)
-		requiredFiles = answerDocExactContextRequiredFiles(ctx)
-	}
-	supported := types.SupportedDiagramKindsForAnswer(
-		scenario,
-		stableAbsent,
-		contract,
-		requiredFiles,
-		ctx.LogTriage,
-		ctx.FlowFindings,
-		ctx.AnswerChains,
-		exactResolutionSurfaceEvidencePool(ctx),
-	)
-	return types.EffectiveDiagramContract(base, supported)
+	return nil
 }
 
 func answerDocDiagramHardRequirementDowngraded(ctx *types.AgentContext) bool {
-	base := baseAnswerDocDiagramContract(ctx)
-	effective := answerDocDiagramContract(ctx)
-	return base != nil && base.Required && (effective == nil || !effective.Required)
+	if plan := answerSurfacePlan(ctx); plan != nil {
+		return plan.DiagramHardRequirementDropped
+	}
+	return false
 }
 
 func answerDocExactResolutionContract(ctx *types.AgentContext) *types.ExactResolutionContract {
-	if ctx == nil || ctx.AnalysisIR == nil || ctx.AnalysisIR.AnswerContract.ExactResolution == nil {
-		return nil
+	if plan := answerSurfacePlan(ctx); plan != nil {
+		return plan.ExactResolution
 	}
-	return ctx.AnalysisIR.AnswerContract.ExactResolution
+	return nil
 }
 
 func renderAnswerDocDiagramContract(dc *types.DiagramContract) string {
@@ -704,11 +693,7 @@ func renderAnswerDocDiagramExactResolutionSeed(ctx *types.AgentContext) string {
 	return strings.TrimSpace(b.String())
 }
 
-type configTraceDiagramAnchor struct {
-	Role  string
-	Label string
-	Score int
-}
+type configTraceDiagramAnchor = types.ConfigTraceDiagramAnchor
 
 func renderAnswerDocDiagramConfigTraceSeed(ctx *types.AgentContext) string {
 	if ctx == nil || ctx.AnalysisIR == nil || ctx.AnalysisIR.RequestModel.Scenario != types.ScenarioConfigTrace {
@@ -764,64 +749,14 @@ func missingConfigTraceDiagramRoles(present map[string]bool) []string {
 }
 
 func collectConfigTraceDiagramAnchors(ctx *types.AgentContext) []configTraceDiagramAnchor {
-	if ctx == nil {
-		return nil
-	}
-	roleOrder := []types.EvidenceDiagramRole{
-		types.EvidenceDiagramRoleOverride,
-		types.EvidenceDiagramRoleConfig,
-		types.EvidenceDiagramRoleRuntime,
-		types.EvidenceDiagramRoleDefault,
-	}
-	best := make(map[string]configTraceDiagramAnchor, len(roleOrder))
-	appendCandidate := func(ev types.EvidenceItem) {
-		if !configTraceDiagramAnchorCandidateAllowed(ctx, ev) {
-			return
+	if plan := answerSurfacePlan(ctx); plan != nil {
+		out := make([]configTraceDiagramAnchor, 0, len(plan.ConfigTraceDiagramAnchors))
+		for _, anchor := range plan.ConfigTraceDiagramAnchors {
+			out = append(out, configTraceDiagramAnchor(anchor))
 		}
-		role, score := classifyConfigTraceDiagramRole(ev)
-		if role == "" || ev.Source == "" {
-			return
-		}
-		label := formatConfigTraceDiagramAnchorLabel(ev)
-		if label == "" {
-			return
-		}
-		if cur, ok := best[role]; ok && cur.Score >= score {
-			return
-		}
-		best[role] = configTraceDiagramAnchor{Role: role, Label: label, Score: score}
+		return out
 	}
-	for _, ev := range exactResolutionSurfaceEvidencePool(ctx) {
-		appendCandidate(ev)
-	}
-	var out []configTraceDiagramAnchor
-	for _, role := range roleOrder {
-		if anchor, ok := best[string(role)]; ok {
-			out = append(out, anchor)
-		}
-	}
-	return out
-}
-
-func configTraceDiagramAnchorCandidateAllowed(ctx *types.AgentContext, ev types.EvidenceItem) bool {
-	contract := configTraceStableAbsentExactContract(ctx)
-	if contract == nil {
-		return true
-	}
-	return types.ConfigTraceGroundedContextAnchorAllowedInFiles(contract, ev, answerDocExactContextRequiredFiles(ctx))
-}
-
-func configTraceStableAbsentExactContract(ctx *types.AgentContext) *types.ExactResolutionContract {
-	if ctx == nil || ctx.Mutable == nil || ctx.AnalysisIR == nil {
-		return nil
-	}
-	if ctx.AnalysisIR.RequestModel.Scenario != types.ScenarioConfigTrace ||
-		ctx.AnalysisIR.RequestModel.AnswerSubject.Kind != types.SubjectConfigKey ||
-		ctx.Mutable.StableInvestigationResultKind() != "absence" ||
-		strings.TrimSpace(ctx.Mutable.StableAbsenceJustification()) == "" {
-		return nil
-	}
-	return answerDocExactResolutionContract(ctx)
+	return nil
 }
 
 func answerDocExactContextRequiredFiles(ctx *types.AgentContext) []string {
@@ -829,47 +764,6 @@ func answerDocExactContextRequiredFiles(ctx *types.AgentContext) []string {
 		return nil
 	}
 	return ctx.Mutable.ExactContextRequiredFiles()
-}
-
-func classifyConfigTraceDiagramRole(ev types.EvidenceItem) (string, int) {
-	if ev.Source == "" ||
-		ev.ContextRole == types.EvidenceContextRoleIllustrativeOnly ||
-		ev.ContextRole == types.EvidenceContextRoleAbsenceSupport {
-		return "", 0
-	}
-	if ev.GroundingStatus == types.GroundingUngrounded || ev.Kind == types.EvidenceUnresolved || ev.Kind == types.EvidenceTruncated {
-		return "", 0
-	}
-	switch ev.DiagramRole {
-	case types.EvidenceDiagramRoleDefault:
-		return string(ev.DiagramRole), 16 + configTraceLineScore(ev)
-	case types.EvidenceDiagramRoleConfig:
-		return string(ev.DiagramRole), 14 + configTraceLineScore(ev)
-	case types.EvidenceDiagramRoleOverride:
-		return string(ev.DiagramRole), 12 + configTraceLineScore(ev)
-	case types.EvidenceDiagramRoleRuntime:
-		return string(ev.DiagramRole), 10 + configTraceLineScore(ev)
-	default:
-		return "", 0
-	}
-}
-
-func configTraceLineScore(ev types.EvidenceItem) int {
-	if ev.LineStart > 0 {
-		return 2
-	}
-	return 0
-}
-
-func formatConfigTraceDiagramAnchorLabel(ev types.EvidenceItem) string {
-	label := strings.TrimSpace(ev.Source)
-	if label == "" {
-		return ""
-	}
-	if ev.LineStart > 0 {
-		label = fmt.Sprintf("%s:%d", label, ev.LineStart)
-	}
-	return label
 }
 
 func firstNonEmptyString(items ...string) string {
@@ -1034,48 +928,13 @@ func collectProseOnlyExactContextAnchors(ctx *types.AgentContext, contract *type
 		strings.TrimSpace(ctx.Mutable.StableAbsenceJustification()) == "" {
 		return nil
 	}
-	items := exactResolutionSurfaceEvidencePool(ctx)
-	if len(items) == 0 {
+	plan := answerSurfacePlan(ctx)
+	if plan == nil {
 		return nil
 	}
-	requiredFiles := answerDocExactContextRequiredFiles(ctx)
-	var anchors []exactResolutionSeed
-	seen := make(map[string]bool)
-	for _, ev := range items {
-		if !types.ExactResolutionAnswerContextAnchorAllowedInFiles(contract, ctx.AnalysisIR.RequestModel.Scenario, true, ev, requiredFiles) {
-			continue
-		}
-		if types.ConfigTraceGroundedContextAnchorAllowedInFiles(contract, ev, requiredFiles) {
-			continue
-		}
-		text := formatExactResolutionSeed(ev)
-		if text == "" {
-			continue
-		}
-		key := fmt.Sprintf("%s:%d:%s:%s", ev.Source, ev.LineStart, ev.AnchorSymbol, ev.Summary)
-		if seen[key] {
-			continue
-		}
-		seen[key] = true
-		anchors = append(anchors, exactResolutionSeed{
-			Key:   key,
-			Text:  fmt.Sprintf("%s [grounded same-scope context, prose only]", text),
-			Score: 18,
-		})
-	}
-	if len(anchors) == 0 {
-		return nil
-	}
-	sort.SliceStable(anchors, func(i, j int) bool {
-		if anchors[i].Score != anchors[j].Score {
-			return anchors[i].Score > anchors[j].Score
-		}
-		return anchors[i].Text < anchors[j].Text
+	return exactResolutionSeedsFromItems(plan.ProseOnlyExactContextItems, func(ev types.EvidenceItem) (string, int) {
+		return "grounded same-scope context, prose only", 18
 	})
-	if len(anchors) > 6 {
-		anchors = anchors[:6]
-	}
-	return anchors
 }
 
 type relatedContextCitationCandidate struct {
@@ -1100,22 +959,12 @@ func renderAnswerDocRelatedContextCitationCandidates(ctx *types.AgentContext, co
 }
 
 func collectRelatedContextCitationCandidates(ctx *types.AgentContext, contract *types.ExactResolutionContract) []relatedContextCitationCandidate {
-	if ctx == nil || ctx.Mutable == nil || ctx.AnalysisIR == nil || contract == nil {
+	plan := answerSurfacePlan(ctx)
+	if plan == nil || contract == nil {
 		return nil
 	}
-	if ctx.AnalysisIR.RequestModel.Scenario != types.ScenarioConfigTrace ||
-		contract.TargetKind != types.SubjectConfigKey ||
-		ctx.Mutable.StableInvestigationResultKind() != "absence" ||
-		strings.TrimSpace(ctx.Mutable.StableAbsenceJustification()) == "" {
-		return nil
-	}
-	items := exactResolutionSurfaceEvidencePool(ctx)
-	if len(items) == 0 {
-		return nil
-	}
-	requiredFiles := answerDocExactContextRequiredFiles(ctx)
 	var out []relatedContextCitationCandidate
-	for _, candidate := range types.ConfigTraceRelatedContextCitationCandidates(contract, requiredFiles, items) {
+	for _, candidate := range plan.RelatedContextCitationCandidates {
 		label := fmt.Sprintf("%s:%d", candidate.Source, candidate.Line)
 		out = append(out, relatedContextCitationCandidate{
 			Label: label,
@@ -1160,195 +1009,68 @@ func renderAnswerDocExactResolutionSeeds(ctx *types.AgentContext, contract *type
 }
 
 func collectAllowedExactContextAnchors(ctx *types.AgentContext, contract *types.ExactResolutionContract) []exactResolutionSeed {
-	if ctx == nil || ctx.Mutable == nil || ctx.AnalysisIR == nil || contract == nil {
+	plan := answerSurfacePlan(ctx)
+	if plan == nil || contract == nil {
 		return nil
 	}
-	if ctx.AnalysisIR.RequestModel.Scenario != types.ScenarioConfigTrace ||
-		contract.TargetKind != types.SubjectConfigKey ||
-		ctx.Mutable.StableInvestigationResultKind() != "absence" ||
-		strings.TrimSpace(ctx.Mutable.StableAbsenceJustification()) == "" {
-		return nil
-	}
-	items := exactResolutionSurfaceEvidencePool(ctx)
-	if len(items) == 0 {
-		return nil
-	}
-	scoreFor := func(ev types.EvidenceItem) int {
+	return exactResolutionSeedsFromItems(plan.AllowedExactContextItems, func(ev types.EvidenceItem) (string, int) {
+		role := "grounded same-scope context"
+		score := 18
 		switch ev.ContextRole {
 		case types.EvidenceContextRoleAbsenceSupport:
-			return 40
-		}
-		switch ev.DiagramRole {
-		case types.EvidenceDiagramRoleOverride:
-			return 36
-		case types.EvidenceDiagramRoleConfig:
-			return 34
-		case types.EvidenceDiagramRoleRuntime:
-			return 32
-		case types.EvidenceDiagramRoleDefault:
-			return 30
-		default:
-			return 0
-		}
-	}
-	var anchors []exactResolutionSeed
-	seen := make(map[string]bool)
-	for _, ev := range items {
-		if !types.ExactResolutionAnswerContextAnchorAllowedInFiles(contract, ctx.AnalysisIR.RequestModel.Scenario, true, ev, answerDocExactContextRequiredFiles(ctx)) {
-			continue
-		}
-		text := formatExactResolutionSeed(ev)
-		if text == "" {
-			continue
-		}
-		key := fmt.Sprintf("%s:%d:%s:%s", ev.Source, ev.LineStart, ev.AnchorSymbol, ev.Summary)
-		if seen[key] {
-			continue
-		}
-		seen[key] = true
-		role := "primary absence-proof source"
-		switch {
-		case ev.ContextRole == types.EvidenceContextRoleAbsenceSupport:
 			role = "primary absence-proof source"
-		case ev.DiagramRole != types.EvidenceDiagramRoleUnknown:
-			role = string(ev.DiagramRole) + " precedence anchor"
+			score = 40
 		default:
-			role = "grounded same-scope context"
+			switch ev.DiagramRole {
+			case types.EvidenceDiagramRoleOverride:
+				role = string(ev.DiagramRole) + " precedence anchor"
+				score = 36
+			case types.EvidenceDiagramRoleConfig:
+				role = string(ev.DiagramRole) + " precedence anchor"
+				score = 34
+			case types.EvidenceDiagramRoleRuntime:
+				role = string(ev.DiagramRole) + " precedence anchor"
+				score = 32
+			case types.EvidenceDiagramRoleDefault:
+				role = string(ev.DiagramRole) + " precedence anchor"
+				score = 30
+			}
 		}
-		anchors = append(anchors, exactResolutionSeed{
-			Key:   key,
-			Text:  fmt.Sprintf("%s [%s]", text, role),
-			Score: scoreFor(ev),
-		})
-	}
-	if len(anchors) == 0 {
-		return nil
-	}
-	sort.SliceStable(anchors, func(i, j int) bool {
-		if anchors[i].Score != anchors[j].Score {
-			return anchors[i].Score > anchors[j].Score
-		}
-		return anchors[i].Text < anchors[j].Text
+		return role, score
 	})
-	if len(anchors) > 6 {
-		anchors = anchors[:6]
-	}
-	return anchors
 }
 
 func collectDiagramGradeExactContextAnchors(ctx *types.AgentContext, contract *types.ExactResolutionContract) []exactResolutionSeed {
-	if ctx == nil || ctx.Mutable == nil || ctx.AnalysisIR == nil || contract == nil {
+	plan := answerSurfacePlan(ctx)
+	if plan == nil || contract == nil {
 		return nil
 	}
-	if ctx.AnalysisIR.RequestModel.Scenario != types.ScenarioConfigTrace ||
-		contract.TargetKind != types.SubjectConfigKey ||
-		ctx.Mutable.StableInvestigationResultKind() != "absence" ||
-		strings.TrimSpace(ctx.Mutable.StableAbsenceJustification()) == "" {
-		return nil
-	}
-	items := exactResolutionSurfaceEvidencePool(ctx)
-	if len(items) == 0 {
-		return nil
-	}
-	var anchors []exactResolutionSeed
-	seen := make(map[string]bool)
-	for _, ev := range items {
-		if !types.ConfigTraceGroundedContextAnchorAllowedInFiles(contract, ev, answerDocExactContextRequiredFiles(ctx)) {
-			continue
-		}
-		text := formatExactResolutionSeed(ev)
-		if text == "" {
-			continue
-		}
-		key := fmt.Sprintf("%s:%d:%s:%s", ev.Source, ev.LineStart, ev.AnchorSymbol, ev.Summary)
-		if seen[key] {
-			continue
-		}
-		seen[key] = true
+	return exactResolutionSeedsFromItems(plan.DiagramGradeExactContextItems, func(ev types.EvidenceItem) (string, int) {
 		role := "primary absence-proof source"
 		if ev.ContextRole != types.EvidenceContextRoleAbsenceSupport && ev.DiagramRole != types.EvidenceDiagramRoleUnknown {
 			role = string(ev.DiagramRole) + " precedence anchor"
 		}
-		anchors = append(anchors, exactResolutionSeed{
-			Key:   key,
-			Text:  fmt.Sprintf("%s [%s]", text, role),
-			Score: scoreForbiddenExactContextAnchor(ev) + 20,
-		})
-	}
-	if len(anchors) == 0 {
-		return nil
-	}
-	sort.SliceStable(anchors, func(i, j int) bool {
-		if anchors[i].Score != anchors[j].Score {
-			return anchors[i].Score > anchors[j].Score
-		}
-		return anchors[i].Text < anchors[j].Text
+		return role, scoreForbiddenExactContextAnchor(ev) + 20
 	})
-	if len(anchors) > 6 {
-		anchors = anchors[:6]
-	}
-	return anchors
 }
 
 func collectForbiddenExactContextAnchors(ctx *types.AgentContext, contract *types.ExactResolutionContract) []exactResolutionSeed {
-	if ctx == nil || ctx.Mutable == nil || ctx.AnalysisIR == nil || contract == nil {
+	plan := answerSurfacePlan(ctx)
+	if plan == nil || contract == nil {
 		return nil
 	}
-	stableAbsent := ctx.Mutable.StableInvestigationResultKind() == "absence" &&
-		strings.TrimSpace(ctx.Mutable.StableAbsenceJustification()) != ""
-	if !stableAbsent {
-		return nil
-	}
-	items := exactResolutionSurfaceEvidencePool(ctx)
-	if len(items) == 0 {
-		return nil
-	}
-	var anchors []exactResolutionSeed
-	seen := make(map[string]bool)
-	for _, ev := range items {
-		if !types.ExactResolutionContextSurfaceRelevant(contract, ev) {
-			continue
-		}
-		if types.ExactResolutionAnswerContextAnchorAllowedInFiles(contract, ctx.AnalysisIR.RequestModel.Scenario, stableAbsent, ev, answerDocExactContextRequiredFiles(ctx)) {
-			continue
-		}
-		text := formatExactResolutionSeed(ev)
-		if text == "" {
-			continue
-		}
-		key := fmt.Sprintf("%s:%d:%s:%s", ev.Source, ev.LineStart, ev.AnchorSymbol, ev.Summary)
-		if seen[key] {
-			continue
-		}
-		seen[key] = true
+	return exactResolutionSeedsFromItems(plan.ForbiddenExactContextItems, func(ev types.EvidenceItem) (string, int) {
 		reason := "background only"
 		switch {
 		case ev.ContextRole == types.EvidenceContextRoleIllustrativeOnly:
 			reason = "illustrative only"
 		case types.LooksLikeAuxiliaryEvidencePath(ev.Source):
 			reason = "auxiliary path"
-		case ctx.AnalysisIR.RequestModel.Scenario == types.ScenarioConfigTrace && ev.DiagramRole == types.EvidenceDiagramRoleUnknown:
+		case ctx != nil && ctx.AnalysisIR != nil && ctx.AnalysisIR.RequestModel.Scenario == types.ScenarioConfigTrace && ev.DiagramRole == types.EvidenceDiagramRoleUnknown:
 			reason = "no validated precedence role"
 		}
-		anchors = append(anchors, exactResolutionSeed{
-			Key:   key,
-			Text:  fmt.Sprintf("%s [%s]", text, reason),
-			Score: scoreForbiddenExactContextAnchor(ev),
-		})
-	}
-	if len(anchors) == 0 {
-		return nil
-	}
-	sort.SliceStable(anchors, func(i, j int) bool {
-		if anchors[i].Score != anchors[j].Score {
-			return anchors[i].Score > anchors[j].Score
-		}
-		return anchors[i].Text < anchors[j].Text
+		return reason, scoreForbiddenExactContextAnchor(ev)
 	})
-	if len(anchors) > 6 {
-		anchors = anchors[:6]
-	}
-	return anchors
 }
 
 func scoreForbiddenExactContextAnchor(ev types.EvidenceItem) int {
@@ -1370,6 +1092,43 @@ func scoreForbiddenExactContextAnchor(ev types.EvidenceItem) int {
 		score += 2
 	}
 	return score
+}
+
+func exactResolutionSeedsFromItems(items []types.EvidenceItem, classify func(types.EvidenceItem) (string, int)) []exactResolutionSeed {
+	if len(items) == 0 {
+		return nil
+	}
+	var anchors []exactResolutionSeed
+	seen := make(map[string]bool)
+	for _, ev := range items {
+		text := types.FormatExactResolutionSeed(ev)
+		if text == "" {
+			continue
+		}
+		key := fmt.Sprintf("%s:%d:%s:%s", ev.Source, ev.LineStart, ev.AnchorSymbol, ev.Summary)
+		if key == "" || seen[key] {
+			continue
+		}
+		seen[key] = true
+		role, score := classify(ev)
+		if role != "" {
+			text = fmt.Sprintf("%s [%s]", text, role)
+		}
+		anchors = append(anchors, exactResolutionSeed{Key: key, Text: text, Score: score})
+	}
+	if len(anchors) == 0 {
+		return nil
+	}
+	sort.SliceStable(anchors, func(i, j int) bool {
+		if anchors[i].Score != anchors[j].Score {
+			return anchors[i].Score > anchors[j].Score
+		}
+		return anchors[i].Text < anchors[j].Text
+	})
+	if len(anchors) > 6 {
+		anchors = anchors[:6]
+	}
+	return anchors
 }
 
 func collectExactResolutionSeeds(ctx *types.AgentContext, contract *types.ExactResolutionContract) []exactResolutionSeed {
@@ -1435,7 +1194,7 @@ func collectExactResolutionSeeds(ctx *types.AgentContext, contract *types.ExactR
 		seen[key] = true
 		out = append(out, exactResolutionSeed{
 			Key:   key,
-			Text:  formatExactResolutionSeed(cand.ev),
+			Text:  types.FormatExactResolutionSeed(cand.ev),
 			Score: cand.score,
 		})
 		if len(out) >= 4 {
