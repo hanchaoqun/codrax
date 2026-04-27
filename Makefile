@@ -100,8 +100,7 @@ static:
 	& wsl bash -lc "set -euo pipefail; command -v $(MUSL_CC) >/dev/null 2>&1 || { echo 'musl-gcc not found in WSL; install musl-tools first.'; exit 1; }; cd '$(WSL_REPO)' && export GOPROXY='$(WSL_GOPROXY)' GOSUMDB='$(WSL_GOSUMDB)' && make static-native"
 
 static-native:
-	Write-Error 'static-native is a Linux/WSL-only target. Use `make static` from Windows.'
-	exit 1
+	Write-Error 'static-native is a Linux/WSL-only target. Use ''make static'' from Windows.' -ErrorAction Stop
 else
 static: static-native
 
@@ -127,12 +126,10 @@ cross-linux-arm64:
 	& wsl bash -lc "set -euo pipefail; command -v aarch64-linux-gnu-gcc >/dev/null 2>&1 || { echo 'aarch64-linux-gnu-gcc not found in WSL.'; exit 1; }; cd '$(WSL_REPO)' && export GOPROXY='$(WSL_GOPROXY)' GOSUMDB='$(WSL_GOSUMDB)' && CGO_ENABLED=1 GOOS=linux GOARCH=arm64 CC=aarch64-linux-gnu-gcc $(GO) build $(GOFLAGS) -ldflags '$(LD_VERSION) $(LDFLAGS)' -o dist/$(BINARY)-linux-arm64 ."
 
 cross-darwin:
-	Write-Error 'cross-darwin from Windows is not configured. Use a macOS host or osxcross in a POSIX environment.'
-	exit 1
+	Write-Error 'cross-darwin from Windows is not configured. Use a macOS host or osxcross in a POSIX environment.' -ErrorAction Stop
 
 cross-darwin-arm64:
-	Write-Error 'cross-darwin-arm64 from Windows is not configured. Use a macOS host or osxcross in a POSIX environment.'
-	exit 1
+	Write-Error 'cross-darwin-arm64 from Windows is not configured. Use a macOS host or osxcross in a POSIX environment.' -ErrorAction Stop
 
 cross-windows:
 	New-Item -ItemType Directory -Force dist | Out-Null
@@ -163,7 +160,7 @@ ifeq ($(HOST_OS),windows)
 release: clean-dist
 	New-Item -ItemType Directory -Force dist | Out-Null
 	$$env:CGO_ENABLED='1'; & $(GO) build $(GOFLAGS) -ldflags '$(LD_VERSION) $(LDFLAGS)' -o dist/$(BINARY)-windows-amd64.exe .
-	& wsl bash -lc "set -euo pipefail; command -v $(MUSL_CC) >/dev/null 2>&1 || { echo 'musl-gcc not found in WSL; install musl-tools first.'; exit 1; }; cd '$(WSL_REPO)' && export GOPROXY='$(WSL_GOPROXY)' GOSUMDB='$(WSL_GOSUMDB)' && CGO_ENABLED=1 CC=$(MUSL_CC) GOOS=linux GOARCH=amd64 $(GO) build $(GOFLAGS) -ldflags '-linkmode external -extldflags \"-static\" $(LD_VERSION) $(LDFLAGS)' -o dist/$(BINARY)-linux-amd64 ."
+	& wsl bash -lc "set -euo pipefail; command -v $(MUSL_CC) >/dev/null 2>&1 || { echo 'musl-gcc not found in WSL; install musl-tools first.'; exit 1; }; cd '$(WSL_REPO)' && export GOPROXY='$(WSL_GOPROXY)' GOSUMDB='$(WSL_GOSUMDB)' && CGO_ENABLED=1 CC=$(MUSL_CC) GOOS=linux GOARCH=amd64 $(GO) build $(GOFLAGS) -ldflags '-linkmode external -extldflags `"-static`" $(LD_VERSION) $(LDFLAGS)' -o dist/$(BINARY)-linux-amd64 ."
 	Write-Host 'Skipped Darwin artifacts on Windows host.'
 	Get-ChildItem dist
 else
@@ -279,10 +276,7 @@ verify-static: static
 	& wsl bash -lc "cd '$(WSL_REPO)' && file $(BINARY) && ldd $(BINARY) 2>&1 || true"
 
 verify-windows-runtime: build
-	$$dlls = (& objdump -p $(OUT) | Select-String 'DLL Name').ToString()
-	if ($$dlls -match 'libgcc|libstdc\+\+|libwinpthread') { Write-Error "Unexpected MinGW runtime DLL dependency detected:`n$$dlls"; exit 1 }
-	Write-Host 'OK: no MinGW runtime DLL dependencies detected.'
-	& objdump -p $(OUT) | Select-String 'DLL Name'
+	$$dlls = (& objdump -p $(OUT) | Select-String 'DLL Name' | Out-String); Write-Host $$dlls; if ($$dlls -match 'libgcc|libstdc\+\+|libwinpthread') { Write-Error 'Unexpected MinGW runtime DLL dependency detected.' -ErrorAction Stop } else { Write-Host 'OK: no MinGW runtime DLL dependencies detected.' }
 else
 verify-static: static
 	@file $(BINARY) | grep -q "statically linked" && \
