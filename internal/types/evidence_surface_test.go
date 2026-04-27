@@ -164,3 +164,38 @@ func TestBuildAnswerSurfacePlan_SplitsCitationGradeAndProseOnlyContext(t *testin
 		t.Fatalf("citation-grade anchors missing runtime/default split: %+v", plan.CitationGradeExactContextItems)
 	}
 }
+
+func TestEvidencePreferredSurfaceText_NeutralizesExactResolutionRelevantSummary(t *testing.T) {
+	contract := &ExactResolutionContract{
+		TargetKind:           SubjectConfigKey,
+		TargetLabel:          "config key",
+		Targets:              []string{"explore_mid_loop_hint_budget"},
+		AllowAbsence:         true,
+		RelatedContextPolicy: ExactContextSameFamilyGrounded,
+		RelatedContextTerms:  []string{"explore"},
+	}
+	item := EvidenceItem{
+		Kind:            EvidenceMechanism,
+		Subject:         "DefaultExploreHeuristics",
+		Predicate:       "explains",
+		Object:          "nearby precedence baseline",
+		Summary:         "This item names explore_mid_loop_hint_budget only in explanatory context; do NOT repair this item.",
+		Source:          "internal/types/config.go",
+		LineStart:       707,
+		AnchorKind:      AnchorDefinition,
+		AnchorSymbol:    "DefaultExploreHeuristics",
+		ContextRole:     EvidenceContextRoleRelatedContext,
+		GroundingStatus: GroundingGrounded,
+	}
+
+	got := EvidencePreferredSurfaceText(item, contract, true)
+	if strings.Contains(got, "explore_mid_loop_hint_budget") {
+		t.Fatalf("preferred surface leaked exact target prose: %q", got)
+	}
+	if strings.Contains(strings.ToLower(got), "do not repair") {
+		t.Fatalf("preferred surface leaked operational note: %q", got)
+	}
+	if !strings.Contains(got, "DefaultExploreHeuristics explains nearby precedence baseline") {
+		t.Fatalf("preferred surface lost structural claim: %q", got)
+	}
+}

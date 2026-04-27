@@ -1230,46 +1230,11 @@ func formatEvidenceItemsWithOptions(items []types.EvidenceItem, limit int, opts 
 }
 
 func evidencePromptLine(item types.EvidenceItem, opts evidenceRenderOptions) string {
-	if opts.NeutralizeExactResolution &&
-		opts.ExactResolutionContract != nil &&
-		types.ExactResolutionContextSurfaceRelevant(opts.ExactResolutionContract, item) {
-		if line := evidenceStructuredSemanticLine(item); line != "" {
-			return line
-		}
+	contract := (*types.ExactResolutionContract)(nil)
+	if opts.NeutralizeExactResolution {
+		contract = opts.ExactResolutionContract
 	}
-	if line := strings.TrimSpace(item.Summary); line != "" {
-		return line
-	}
-	return evidenceStructuredSemanticLine(item)
-}
-
-func evidenceStructuredSemanticLine(item types.EvidenceItem) string {
-	parts := []string{fmt.Sprintf("[%s]", item.Kind)}
-	if item.Subject != "" {
-		parts = append(parts, item.Subject)
-	}
-	if item.Predicate != "" {
-		parts = append(parts, item.Predicate)
-	}
-	if item.Object != "" {
-		parts = append(parts, item.Object)
-	}
-	if len(parts) == 1 && item.AnchorSymbol != "" {
-		parts = append(parts, item.AnchorSymbol)
-	}
-	line := strings.Join(parts, " ")
-	if item.Condition != "" {
-		line += " IF " + item.Condition
-	}
-	if strings.TrimSpace(line) == fmt.Sprintf("[%s]", item.Kind) {
-		switch {
-		case strings.TrimSpace(item.Snippet) != "":
-			line = strings.TrimSpace(item.Snippet)
-		case strings.TrimSpace(item.Summary) != "":
-			line = strings.TrimSpace(item.Summary)
-		}
-	}
-	return strings.TrimSpace(line)
+	return types.EvidencePreferredSurfaceText(item, contract, true)
 }
 
 func isStructuredEvidenceItem(item types.EvidenceItem) bool {

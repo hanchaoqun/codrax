@@ -503,7 +503,7 @@ func renderAnswerDocDiagramSeeds(ctx *types.AgentContext, dc *types.DiagramContr
 	appendSection("Config Trace Precedence", renderAnswerDocDiagramConfigTraceSeed(ctx))
 	appendSection("Log Triage", renderAnswerDocDiagramLogSeed(ctx.LogTriage))
 	appendSection("Flow Findings", renderAnswerDocDiagramFlowSeed(ctx.FlowFindings))
-	appendSection("Answer Chains", renderAnswerDocDiagramChainSeed(ctx.AnswerChains))
+	appendSection("Answer Chains", renderAnswerDocDiagramChainSeed(ctx))
 	appendSection("Exact Resolution Anchors", renderAnswerDocDiagramExactResolutionSeed(ctx))
 
 	if !wrote {
@@ -661,10 +661,15 @@ func renderAnswerDocDiagramFlowSeed(findings []types.FlowFindingDigest) string {
 	return strings.TrimSpace(b.String())
 }
 
-func renderAnswerDocDiagramChainSeed(chains []types.AnswerChain) string {
+func renderAnswerDocDiagramChainSeed(ctx *types.AgentContext) string {
+	if ctx == nil {
+		return ""
+	}
+	chains := ctx.AnswerChains
 	if len(chains) == 0 {
 		return ""
 	}
+	contract := answerDocExactResolutionContract(ctx)
 	var b strings.Builder
 	limit := len(chains)
 	if limit > 3 {
@@ -672,10 +677,7 @@ func renderAnswerDocDiagramChainSeed(chains []types.AnswerChain) string {
 	}
 	for i := 0; i < limit; i++ {
 		ev := chains[i].Item
-		display := ev.Summary
-		if display == "" {
-			display = fmt.Sprintf("[%s] %s %s %s", ev.Kind, ev.Subject, ev.Predicate, ev.Object)
-		}
+		display := types.EvidencePreferredSurfaceText(ev, contract, false)
 		if ev.Source != "" {
 			if ev.LineStart > 0 {
 				display += fmt.Sprintf(" (%s:%d)", ev.Source, ev.LineStart)

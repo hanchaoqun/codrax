@@ -5782,6 +5782,7 @@ func (e *explorerEvaluator) ParseOutput(ctx *types.AgentContext, messages []llm.
 	canonicalReport := renderExplorerStageReport(
 		irQuestionKind(ctx),
 		irAnswerShape(ctx),
+		irExactResolutionContract(ctx),
 		rankedEvidence,
 		answerChains,
 		nil, // symbols: deferred to Turn B

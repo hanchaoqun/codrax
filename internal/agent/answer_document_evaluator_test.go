@@ -549,6 +549,53 @@ func TestAnswerDocumentEvaluator_BuildInitialInstruction_RendersExactResolutionC
 	}
 }
 
+func TestAnswerDocumentEvaluator_BuildInitialInstruction_NeutralizesExactResolutionChainSeed(t *testing.T) {
+	ctx := &types.AgentContext{
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				Scenario:      types.ScenarioConfigTrace,
+				AnswerSubject: types.AnswerSubject{Kind: types.SubjectConfigKey},
+			},
+			AnswerContract: types.AnswerContract{
+				ExactResolution: &types.ExactResolutionContract{
+					TargetKind:           types.SubjectConfigKey,
+					TargetLabel:          "config key",
+					Targets:              []string{"explore_mid_loop_hint_budget"},
+					AllowAbsence:         true,
+					RelatedContextPolicy: types.ExactContextSameFamilyGrounded,
+					RelatedContextTerms:  []string{"explore"},
+				},
+			},
+		},
+		AnswerChains: []types.AnswerChain{{
+			Item: types.EvidenceItem{
+				Kind:            types.EvidenceMechanism,
+				Subject:         "DefaultExploreHeuristics",
+				Predicate:       "explains",
+				Object:          "nearby precedence baseline",
+				Summary:         "This item names explore_mid_loop_hint_budget only in explanatory context; do NOT repair this item.",
+				Source:          "internal/types/config.go",
+				LineStart:       707,
+				AnchorKind:      types.AnchorDefinition,
+				AnchorSymbol:    "DefaultExploreHeuristics",
+				ContextRole:     types.EvidenceContextRoleRelatedContext,
+				GroundingStatus: types.GroundingGrounded,
+			},
+		}},
+	}
+
+	seed := renderAnswerDocDiagramChainSeed(ctx)
+	if strings.Contains(seed, "do NOT repair this item") {
+		t.Fatalf("Answer Chains seed leaked operational repair prose:\n%s", seed)
+	}
+	if strings.Contains(seed, "explore_mid_loop_hint_budget") {
+		t.Fatalf("Answer Chains seed leaked repeated exact target prose:\n%s", seed)
+	}
+	if !strings.Contains(seed, "DefaultExploreHeuristics explains nearby precedence baseline") {
+		t.Fatalf("Answer Chains seed lost structural nearby-context claim:\n%s", seed)
+	}
+}
+
 func TestAnswerDocumentEvaluator_BuildInitialInstruction_RendersProseOnlyNearbyContextPolicy(t *testing.T) {
 	mu := types.NewMutableState("")
 	target := "explore_mid_loop_hint_budget"

@@ -63,6 +63,7 @@ import (
 func renderExplorerStageReport(
 	questionKind string,
 	answerShape string,
+	exactResolution *types.ExactResolutionContract,
 	evidence []types.EvidenceItem,
 	chains []types.AnswerChain,
 	symbols []types.AnswerSymbol,
@@ -104,7 +105,7 @@ func renderExplorerStageReport(
 			if i >= topN {
 				break
 			}
-			b.WriteString("- " + formatEvidenceLineForReport(ev) + "\n")
+			b.WriteString("- " + formatEvidenceLineForReport(ev, exactResolution) + "\n")
 		}
 		if len(primaryEvidence) > topN {
 			fmt.Fprintf(&b, "- ... (+%d more in Structured Evidence section)\n", len(primaryEvidence)-topN)
@@ -124,7 +125,7 @@ func renderExplorerStageReport(
 			"The rightmost hop of each chain (after the final `→`) is the ANSWER TERMINAL the question resolves to; " +
 			"intermediate nodes are MECHANISM, not answer.\n\n")
 		for _, c := range chains {
-			b.WriteString("- " + renderAnswerChain(c) + "\n")
+			b.WriteString("- " + renderAnswerChain(c, exactResolution) + "\n")
 		}
 		b.WriteString("\n")
 	}
@@ -207,14 +208,11 @@ func primaryEvidenceForReport(items []types.EvidenceItem) []types.EvidenceItem {
 // grounder's stricter Tier 2 will later reject. Routed through
 // types.EvidenceItem.DisplayLocation(true) for consistency with the
 // context/builder.go renderers.
-func formatEvidenceLineForReport(ev types.EvidenceItem) string {
+func formatEvidenceLineForReport(ev types.EvidenceItem, exactResolution *types.ExactResolutionContract) string {
 	var parts []string
 	parts = append(parts, fmt.Sprintf("[%s]", ev.Kind))
 
-	semantic := strings.TrimSpace(strings.Join(nonEmpty([]string{ev.Subject, ev.Predicate, ev.Object}), " "))
-	if semantic == "" {
-		semantic = strings.TrimSpace(ev.Summary)
-	}
+	semantic := types.EvidencePreferredSurfaceText(ev, exactResolution, false)
 	if semantic != "" {
 		parts = append(parts, semantic)
 	}
@@ -284,12 +282,9 @@ func emptyAsDash(s string) string {
 // Format: `<summary> (<source>:<line>)` with sane fallbacks.
 // Session-8: non-Tier-1 lines are stripped via DisplayLocation(true)
 // — same cross-stage strictness as formatEvidenceLineForReport.
-func renderAnswerChain(c types.AnswerChain) string {
+func renderAnswerChain(c types.AnswerChain, exactResolution *types.ExactResolutionContract) string {
 	ev := c.Item
-	display := ev.Summary
-	if display == "" {
-		display = fmt.Sprintf("[%s] %s %s %s", ev.Kind, ev.Subject, ev.Predicate, ev.Object)
-	}
+	display := types.EvidencePreferredSurfaceText(ev, exactResolution, false)
 	if loc := ev.DisplayLocation(true); loc != "" {
 		display += " (" + loc + ")"
 	}

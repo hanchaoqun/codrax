@@ -66,9 +66,9 @@ func TestRenderExplorerStageReport_Deterministic(t *testing.T) {
 	}
 
 	first := renderExplorerStageReport("mechanism", "step_list",
-		evidence, chains, symbols, findings, files, false)
+		nil, evidence, chains, symbols, findings, files, false)
 	second := renderExplorerStageReport("mechanism", "step_list",
-		evidence, chains, symbols, findings, files, false)
+		nil, evidence, chains, symbols, findings, files, false)
 
 	if first != second {
 		t.Fatalf("renderer is non-deterministic.\nfirst:\n%s\nsecond:\n%s", first, second)
@@ -78,14 +78,14 @@ func TestRenderExplorerStageReport_Deterministic(t *testing.T) {
 	// output — files are sorted internally.
 	shuffled := []string{files[1], files[0]}
 	third := renderExplorerStageReport("mechanism", "step_list",
-		evidence, chains, symbols, findings, shuffled, false)
+		nil, evidence, chains, symbols, findings, shuffled, false)
 	if third != first {
 		t.Fatalf("renderer is order-sensitive on read files.\nstable:\n%s\nshuffled:\n%s", first, third)
 	}
 }
 
 func TestRenderExplorerStageReport_EmptyInputs(t *testing.T) {
-	got := renderExplorerStageReport("", "", nil, nil, nil, nil, nil, false)
+	got := renderExplorerStageReport("", "", nil, nil, nil, nil, nil, nil, false)
 	if got == "" {
 		t.Fatal("renderer returned empty string on empty inputs; expected structured skeleton")
 	}
@@ -147,7 +147,7 @@ func TestRenderExplorerStageReport_NoSiblingProseLeak(t *testing.T) {
 		},
 	}
 	got := renderExplorerStageReport("mechanism", "step_list",
-		evidence, nil, nil, nil, nil, false)
+		nil, evidence, nil, nil, nil, nil, false)
 
 	// The renderer never invokes the `## Evidence from <path>`
 	// header convention — that was an LLM prose artifact. Sources
@@ -175,7 +175,7 @@ func TestFormatEvidenceLineForReport_UngroundedTagPreserved(t *testing.T) {
 		Source: "internal/agent/foo.go", LineStart: 10,
 		GroundingStatus: types.GroundingUngrounded,
 	}
-	got := formatEvidenceLineForReport(ev)
+	got := formatEvidenceLineForReport(ev, nil)
 	if !strings.Contains(got, "[UNGROUNDED]") {
 		t.Errorf("ungrounded marker not preserved in render:\n%s", got)
 	}
@@ -189,7 +189,7 @@ func TestFormatEvidenceLineForReport_RecoveredTagPreserved(t *testing.T) {
 		GroundingStatus: types.GroundingRecovered,
 		GroundingTier:   types.TierFQNameSameFile,
 	}
-	got := formatEvidenceLineForReport(ev)
+	got := formatEvidenceLineForReport(ev, nil)
 	// Session-8: recovered tag still rendered, with new "read_file
 	// before citing" guidance; LineStart (42) stripped so downstream
 	// cannot pick it up.
@@ -236,7 +236,7 @@ func TestRenderExplorerStageReport_PrimaryEvidenceExcludesNonCitableNoise(t *tes
 	}
 
 	got := renderExplorerStageReport("mechanism", "value",
-		evidence, nil, nil, nil, nil, false)
+		nil, evidence, nil, nil, nil, nil, false)
 	if !strings.Contains(got, "evidence_items: 5") {
 		t.Fatalf("summary should retain raw evidence count for auditability:\n%s", got)
 	}
@@ -247,6 +247,50 @@ func TestRenderExplorerStageReport_PrimaryEvidenceExcludesNonCitableNoise(t *tes
 		if strings.Contains(got, noise) {
 			t.Fatalf("non-primary evidence %q leaked into Primary Evidence:\n%s", noise, got)
 		}
+	}
+}
+
+func TestRenderExplorerStageReport_NeutralizesExactResolutionNearbyContext(t *testing.T) {
+	contract := &types.ExactResolutionContract{
+		TargetKind:           types.SubjectConfigKey,
+		TargetLabel:          "config key",
+		Targets:              []string{"explore_mid_loop_hint_budget"},
+		AllowAbsence:         true,
+		RelatedContextPolicy: types.ExactContextSameFamilyGrounded,
+		RelatedContextTerms:  []string{"explore"},
+	}
+	item := types.EvidenceItem{
+		Kind:            types.EvidenceMechanism,
+		Subject:         "DefaultExploreHeuristics",
+		Predicate:       "explains",
+		Object:          "nearby precedence baseline",
+		Summary:         "This item names explore_mid_loop_hint_budget only in explanatory context; do NOT repair this item.",
+		Source:          "internal/types/config.go",
+		LineStart:       707,
+		AnchorKind:      types.AnchorDefinition,
+		AnchorSymbol:    "DefaultExploreHeuristics",
+		ContextRole:     types.EvidenceContextRoleRelatedContext,
+		GroundingStatus: types.GroundingGrounded,
+	}
+	got := renderExplorerStageReport(
+		"mechanism",
+		"explanation",
+		contract,
+		[]types.EvidenceItem{item},
+		[]types.AnswerChain{{Item: item, Score: 1.0, StrictOK: true}},
+		nil,
+		nil,
+		nil,
+		false,
+	)
+	if strings.Contains(got, "do NOT repair this item") {
+		t.Fatalf("StageReport leaked operational repair prose:\n%s", got)
+	}
+	if strings.Contains(got, "explore_mid_loop_hint_budget") {
+		t.Fatalf("StageReport leaked repeated exact target prose for nearby-context item:\n%s", got)
+	}
+	if !strings.Contains(got, "DefaultExploreHeuristics explains nearby precedence baseline") {
+		t.Fatalf("StageReport lost the structural nearby-context claim:\n%s", got)
 	}
 }
 
@@ -282,7 +326,7 @@ func TestRenderExplorerStageReport_AnchorKindTag(t *testing.T) {
 		},
 	}
 	got := renderExplorerStageReport("mechanism", "step_list",
-		evidence, nil, nil, nil, nil, false)
+		nil, evidence, nil, nil, nil, nil, false)
 
 	if !strings.Contains(got, "internal/agent/explorer.go:992 (call site)") {
 		t.Errorf("call-site anchor tag missing; render:\n%s", got)
@@ -297,9 +341,9 @@ func TestRenderExplorerStageReport_KindAgnostic(t *testing.T) {
 		{Kind: types.EvidenceConcrete, Subject: "X", Source: "a.go", LineStart: 1},
 	}
 	mech := renderExplorerStageReport("mechanism", "step_list",
-		evidence, nil, nil, nil, nil, false)
+		nil, evidence, nil, nil, nil, nil, false)
 	enum := renderExplorerStageReport("enumeration", "list_of_symbols",
-		evidence, nil, nil, nil, nil, true)
+		nil, evidence, nil, nil, nil, nil, true)
 
 	// The Investigation Summary metadata differs (that is the entire
 	// purpose), but every other section must be byte-equal.
