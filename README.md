@@ -326,6 +326,8 @@ REPL:`/htrace <path>` / `/htrace append <path>` / `/htrace show` / `/htrace clea
 - **REPL UX 调淡**:`SUCCESS` / `INFO` / `WARN` / `ERROR` 前缀去掉了 pterm 默认的高对比背景色,只用单字符 + 彩色前缀(`• ✓ ⚠ ✗`),消息体走终端默认色,不再咋眼
 - **/help 显示子命令**:`/plan show|list|clear`、`/log show|clear|append`、`/htrace show|clear|append`、`/worktree list|discard`、`/mode read|plan|apply|verify`、`/approve [<plan-id>] [--merge-to=][--skip-verify]`、`/merge [--branch=][--include-failed]` 全部缩进显示在 `/help` 里 —— 之前只有顶层命令可见,子命令"隐藏"在使用时才发现
 - **多 pending plan 时精确 approve**:`/approve <plan-id>` / `/plan show <plan-id>` 定向到任意 PlanStore 条目;弹出 confirm 前自动提示"还有 N 个其它可批准的 plan";`/approve --skip-verify` 在本地起不了集成测试时只 apply 不跑 verify(扔给 CI 跑)
+- **当前 git 分支感知**:启动 banner 和每行 REPL prompt 的 sticky tag 带 `[git:<branch>]`(detached 显示 `[git:detached@<sha>]`),跨进程切换分支也能在下一行 prompt 反映;`/branch [<name>]` 在 REPL 内查看 / 切换分支(`git checkout` 透传,支持 `-b new-name` 创建);`/approve --merge-to=` 和 `/merge`(无 flag)默认目标自动跟随实时 git HEAD,不再用启动时的 `--branch` 粘滞值
+- **`!shell` 直通**:`!ls` / `!cat foo` / `!grep -rn ...` 等系统 shell 命令在 REPL 内直接执行,工作目录是 r.repoRoot,stdout/stderr 实时显示。`!cd` 特殊提醒(bare cd 不持久,链式 `!cd /tmp && ...` 有效)
 
 ## 文档
 

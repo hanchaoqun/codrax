@@ -186,6 +186,15 @@ var slashCommands = []slashCommand{
 				"把 verify_failed plan 也纳入候选(别名 --force)— 适合环境/CI 类失败,review 后强合"},
 		},
 	},
+	{
+		Name:   "/branch",
+		HelpEn: "show or switch the current git branch in the repo",
+		HelpZh: "查看 / 切换当前仓库的 git 分支",
+		Subs: []slashSubcommand{
+			{"<name>", "git checkout <name> in the main repo (use `/branch -b <name>` to create + switch)",
+				"在主仓上 `git checkout <name>`(用 `/branch -b <name>` 创建并切换)"},
+		},
+	},
 	{Name: "/version", HelpEn: "print build version", HelpZh: "打印构建版本"},
 	{Name: "/exit", HelpEn: "leave the REPL", HelpZh: "退出 REPL"},
 	{Name: "/quit", HelpEn: "leave the REPL", HelpZh: "退出 REPL"},
@@ -782,7 +791,7 @@ func (m *inputModel) handleSuggestKey(msg tea.KeyMsg) (tea.Cmd, bool) {
 // command whose handler reads a non-empty remainder.
 func needsArg(cmd string) bool {
 	switch cmd {
-	case "/log", "/htrace", "/chat", "/mode", "/plan", "/reject", "/verify", "/worktree", "/merge":
+	case "/log", "/htrace", "/chat", "/mode", "/plan", "/reject", "/verify", "/worktree", "/merge", "/branch":
 		return true
 	}
 	return false

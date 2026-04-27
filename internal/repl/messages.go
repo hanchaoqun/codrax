@@ -615,17 +615,29 @@ func formatN(_ string, format string, args ...interface{}) string {
 //	[trace]                     — AttachedHitrace non-empty
 //	[plan]                      — pendingPlanPath non-empty
 //	[mem!]                      — memory under pressure (cleanup nudge)
+//	[git:<branch>]              — current git branch in repoRoot
+//	[git:detached@<sha7>]       — detached HEAD (rebase / cherry-pick
+//	                              / explicit checkout of a SHA)
 //
 // Multiple markers concatenate without spaces:
-// "[mode:plan][log][plan] ❯❯". Empty when nothing sticky.
+// "[git:main][mode:plan][plan] ❯❯". Empty when nothing sticky.
 //
-// All five markers are language-agnostic (zh and en both use the
-// same bracketed labels) — they're terminal chrome, optimised for
+// All markers are language-agnostic (zh and en both use the same
+// bracketed labels) — they're terminal chrome, optimised for
 // scan-ability, not for translation. The full localized hint when
 // the user types /help or hits a memory-pressure threshold goes
 // through the normal localized helpers.
-func promptStickyTag(mode string, hasLog, hasTrace, hasPendingPlan, memPressure bool) string {
+//
+// branch is the resolved git HEAD (from gitBranchProbe). Empty
+// when the path is not a git repo or git is missing — the marker
+// is dropped entirely, since absence is unambiguous.
+func promptStickyTag(mode, branch string, hasLog, hasTrace, hasPendingPlan, memPressure bool) string {
 	var b strings.Builder
+	if branch != "" {
+		b.WriteString("[git:")
+		b.WriteString(branch)
+		b.WriteString("]")
+	}
 	if mode != "" && !strings.EqualFold(mode, "read") {
 		b.WriteString("[mode:")
 		b.WriteString(mode)

@@ -1294,7 +1294,60 @@ REPL 会自动从 PlanStore 找最近一条 `pending_approval` plan 重新绑定
 
 注意:`--skip-verify` 不影响 plan 状态机 —— apply 成功后 plan 标 `applied`,跟 verify 通过的 plan 一样。如果担心引入回归,后续可以用 `/verify <plan-id>` 单独补跑测试。
 
-#### 4.3.23 当前限制
+#### 4.3.23 当前 git 分支感知 + `/branch` 切换 + `!shell`
+
+**REPL prompt 显示当前 git 分支**:启动 banner 和每行 prompt 的 sticky tag 都会带 `[git:<branch>]` 标记,跨进程实时反映 — 用户在另一个终端 `git checkout` 后,下一次 prompt 自动显示新分支。Detached HEAD 显示 `[git:detached@<sha>]`;不在 git repo 显示空(无 git 标记)。
+
+**`/branch` 命令**:
+
+```
+❯❯ /branch                    # 看当前分支
+  current branch: main
+
+❯❯ /branch develop            # 切换到 develop
+  Switched to branch 'develop'
+  ✓ now on branch: develop
+
+❯❯ /branch -b fix/foo         # 创建并切换
+  Switched to a new branch 'fix/foo'
+  ✓ now on branch: fix/foo
+
+❯❯ /branch -b fix/bar origin/main   # 从特定起点创建
+```
+
+`/branch <参数>` 把所有参数透传给 `git checkout`,所以 `-b new-name`、`-b new-name origin/main`、`<sha>` (detach) 等所有 git checkout 形式都支持。git 自己的输出(分支跟踪、divergence 警告)直接显示给用户。
+
+**`/approve --merge-to=` 和 `/merge` 默认目标 = 当前 git 分支**:
+
+之前默认是 `--branch` 启动 flag 的值(粘滞,不跟随)。现在默认跟随**实时 git HEAD**,fallback 到 `--branch` 仅在以下情况发生:
+- detached HEAD(没有有意义的分支名)
+- 不是 git repo 或 git 缺失
+
+例子:用户启动时 `--branch=main`,过程中 `/branch feature-x` 切到 feature-x,`/approve` 和 `/merge` 自动以 feature-x 为基/目标(不再用 main)。
+
+**`!<command>` 系统 shell 直通**:
+
+```
+❯❯ !ls
+   ... 当前目录文件列表(repoRoot 为 cwd) ...
+
+❯❯ !cat README.md | head -20
+   ... 文件内容 ...
+
+❯❯ !grep -rn "FailureKindRunnerMissing" internal/types/
+   ... grep 输出 ...
+
+❯❯ !cd ..
+  ⚠ `cd` inside `!` doesn't persist — every `!` invocation spawns a fresh shell.
+   Restart codrax with --repo /new/path, or chain in one command:
+   `!cd /tmp && cat foo.txt`.
+```
+
+`!<cmd>` 的整个行被原样喂给系统 shell(Linux/macOS 用 `sh -c`,Windows 用 git-bash 或 cmd),工作目录是 `r.repoRoot`。stdout/stderr 直接显示给用户。退出码非 0 会用 `! exit ...` 提示。
+
+`!cd` 特殊提醒:每次 `!` 是新 shell,bare `!cd ..` 不会改 codrax 的工作目录;要持久切换目录用 `--repo` 重启。但链式 `!cd /tmp && cat foo` 是有效的(在同一 shell 进程里完整执行)。
+
+#### 4.3.24 当前限制
 
 - 写模式**不支持** multi-plan concurrency。同一仓库不要并行跑两个 `/approve`(plan 文件名带 PID,但 worktree 操作不是并发安全的)。
 - `git push` 永远是用户手动操作,`/merge` 不替你做(避免对远端的意外副作用)。

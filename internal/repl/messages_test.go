@@ -238,29 +238,33 @@ func TestPromptStickyTag_StateCombinations(t *testing.T) {
 	cases := []struct {
 		name        string
 		mode        string
+		branch      string
 		hasLog      bool
 		hasTrace    bool
 		hasPlan     bool
 		memPressure bool
 		want        string
 	}{
-		{"empty", "", false, false, false, false, ""},
-		{"read mode no attachments", "read", false, false, false, false, ""},
-		{"plan mode only", "plan", false, false, false, false, "[mode:plan]"},
-		{"log only", "read", true, false, false, false, "[log]"},
-		{"trace only", "read", false, true, false, false, "[trace]"},
-		{"pending plan only", "read", false, false, true, false, "[plan]"},
-		{"memory pressure only", "read", false, false, false, true, "[mem!]"},
-		{"plan+log", "plan", true, false, false, false, "[mode:plan][log]"},
-		{"all on", "apply", true, true, true, true, "[mode:apply][log][trace][plan][mem!]"},
-		{"case-insensitive read", "READ", false, false, false, false, ""},
+		{"empty", "", "", false, false, false, false, ""},
+		{"read mode no attachments", "read", "", false, false, false, false, ""},
+		{"plan mode only", "plan", "", false, false, false, false, "[mode:plan]"},
+		{"log only", "read", "", true, false, false, false, "[log]"},
+		{"trace only", "read", "", false, true, false, false, "[trace]"},
+		{"pending plan only", "read", "", false, false, true, false, "[plan]"},
+		{"memory pressure only", "read", "", false, false, false, true, "[mem!]"},
+		{"plan+log", "plan", "", true, false, false, false, "[mode:plan][log]"},
+		{"all on", "apply", "", true, true, true, true, "[mode:apply][log][trace][plan][mem!]"},
+		{"case-insensitive read", "READ", "", false, false, false, false, ""},
+		{"git branch alone", "read", "main", false, false, false, false, "[git:main]"},
+		{"git branch + plan mode", "plan", "feature-x", false, false, false, false, "[git:feature-x][mode:plan]"},
+		{"git detached + everything", "apply", "detached@abc1234", true, true, true, true, "[git:detached@abc1234][mode:apply][log][trace][plan][mem!]"},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			got := promptStickyTag(c.mode, c.hasLog, c.hasTrace, c.hasPlan, c.memPressure)
+			got := promptStickyTag(c.mode, c.branch, c.hasLog, c.hasTrace, c.hasPlan, c.memPressure)
 			if got != c.want {
-				t.Errorf("promptStickyTag(%q,%v,%v,%v,%v) = %q; want %q",
-					c.mode, c.hasLog, c.hasTrace, c.hasPlan, c.memPressure, got, c.want)
+				t.Errorf("promptStickyTag(%q,%q,%v,%v,%v,%v) = %q; want %q",
+					c.mode, c.branch, c.hasLog, c.hasTrace, c.hasPlan, c.memPressure, got, c.want)
 			}
 		})
 	}

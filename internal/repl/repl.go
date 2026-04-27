@@ -12,11 +12,13 @@ package repl
 
 import (
 	"bufio"
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -551,8 +553,13 @@ func (r *REPL) memoryStats() (int, int) {
 // visibility of [mode:plan] / [log] / [trace] / [plan] / [mem!] mid-
 // flow.
 func (r *REPL) currentStickyTag() string {
+	// Probe git branch fresh per call — this fires once per user
+	// input, so the cost is bounded (one local git exec ~1ms) and
+	// the user sees branch changes from another terminal at the
+	// VERY NEXT prompt cycle. No caching; correctness > 1ms.
 	return promptStickyTag(
 		string(r.currentMode),
+		gitBranchProbe(r.repoRoot),
 		r.attachedLog != "",
 		r.attachedHitrace != "",
 		r.pendingPlanPath != "",
@@ -611,6 +618,18 @@ func (r *REPL) Loop() error {
 				fmt.Fprintf(r.out, "  > %s\n", display)
 			}
 		}
+		// Bang-prefix shell escape. Lets the user run a one-shot
+		// system command without leaving the REPL — typical use is
+		// `!ls`, `!cat file.go`, `!grep -n foo *.go`. We intercept
+		// before the slash dispatcher and the LLM dispatch so a
+		// line that starts with `!` never reaches the analyzer.
+		// Multi-line / paste shapes that happen to start with `!`
+		// are also caught here; that's a rare collision and the
+		// shell error is informative enough.
+		if strings.HasPrefix(line, "!") {
+			r.handleShellBangCmd(line[1:])
+			continue
+		}
 		if cmd := types.NormalizeREPLCommandAlias(line); cmd != "" {
 			if quit := r.handleSlash(cmd); quit {
 				return nil
@@ -633,7 +652,16 @@ func (r *REPL) banner() {
 	shortVer := strings.TrimSuffix(r.version, "-dirty")
 	ver := pterm.FgGray.Sprintf("v%s", shortVer)
 	hint := pterm.FgDarkGray.Sprint("/help · /exit")
-	fmt.Fprintf(r.out, "\n  %s %s  %s\n", badge, ver, hint)
+	// Surface git branch up-front so the operator sees which branch
+	// codrax is operating against (and which one /merge will fast-
+	// forward into when --branch is omitted) before they type any
+	// command. Empty when the path isn't a git repo (rare for
+	// codrax usage; possible during /mode plan auto-init scaffold).
+	branchInfo := ""
+	if br := gitBranchProbe(r.repoRoot); br != "" {
+		branchInfo = pterm.FgDarkGray.Sprintf("  git:%s", br)
+	}
+	fmt.Fprintf(r.out, "\n  %s %s%s  %s\n", badge, ver, branchInfo, hint)
 	// One-line capability summary so the user sees at startup which
 	// modes are available and which yaml file backs the config. With
 	// write_enabled=false the line names the gate explicitly so the
@@ -1231,6 +1259,9 @@ func (r *REPL) handleSlash(line string) bool {
 		return false
 	case "/merge":
 		r.handleMergeCmd(line)
+		return false
+	case "/branch":
+		r.handleBranchCmd(line)
 		return false
 	case "/exit", "/quit":
 		fmt.Fprintln(r.out, "  Goodbye!")
@@ -2048,10 +2079,18 @@ func (r *REPL) runMerge(worktreePath, targetBranch string) {
 		_ = mainSetter // silence unused if interface check is the only use
 	}
 	mainRoot := r.repoRoot
+	// Base branch defaults to the live git HEAD of the main repo
+	// — that's the branch the worktree forked from when /approve
+	// fired, so it's the natural fast-forward target. Falls back
+	// to r.branch (the --branch flag) when HEAD is detached.
+	base := defaultMergeTarget(mainRoot, r.branch)
+	if targetBranch == "" {
+		targetBranch = base
+	}
 	res, err := worktree.MergeIntoBranch(worktree.MergeOptions{
 		MainRepoRoot: mainRoot,
 		WorktreePath: worktreePath,
-		BaseBranch:   r.branch,
+		BaseBranch:   base,
 		TargetBranch: targetBranch,
 		Mode:         worktree.MergeAuto,
 	})
@@ -2122,11 +2161,13 @@ func (r *REPL) clearWorktreePathOnAppliedPlan(path string) error {
 // a deliberate review-and-merge step rather than the inline
 // `/approve --merge-to=` shortcut.
 //
-// Default target branch is r.branch (typically "main"), giving a
-// fast-forward when possible. `--branch=<name>` forces the new-
-// branch path (PR workflow). Either way the helper goes through
-// MergeIntoBranch's safety machinery: clean rollback on conflict,
-// refusal on dirty working tree, no surprise pushes.
+// Default target branch is the LIVE git HEAD (gitBranchProbe of
+// the main repo), giving a fast-forward into whatever the user
+// is currently on. Detached HEAD or git-missing falls back to
+// r.branch (the --branch flag). `--branch=<name>` forces the
+// new-branch path (PR workflow). Either way the helper goes
+// through MergeIntoBranch's safety machinery: clean rollback on
+// conflict, refusal on dirty working tree, no surprise pushes.
 func (r *REPL) handleMergeCmd(line string) {
 	if !r.writeEnabled {
 		for _, line := range writeModeDisabled(r.language, "/merge", r.settingsPath) {
@@ -2138,7 +2179,13 @@ func (r *REPL) handleMergeCmd(line string) {
 		r.info("/merge disabled (no PlanStore configured)")
 		return
 	}
-	target := r.branch
+	// Default merge target = live git HEAD of the main repo.
+	// Falls back to r.branch (the --branch flag) when HEAD is
+	// detached or git is missing. Rationale: the user expects
+	// `/merge` (no flags) to fast-forward whatever branch they're
+	// currently on, not a stale branch name they configured at
+	// codrax startup. /merge --branch=<name> still overrides.
+	target := defaultMergeTarget(r.repoRoot, r.branch)
 	includeFailed := false
 	rest := strings.TrimSpace(strings.TrimPrefix(line, "/merge"))
 	for _, tok := range strings.Fields(rest) {
@@ -2244,6 +2291,87 @@ func (r *REPL) handleMergeCmd(line string) {
 // handleRejectCmd discards the pending ChangePlan without invoking
 // the runner. Optional reason text trailing /reject is recorded in
 // memory so the conversation's prior-turns block reflects why this
+// handleBranchCmd dispatches `/branch [<args>]`:
+//
+//	/branch                   — print the current git branch (or
+//	                            "detached@<sha7>" / "(not a git
+//	                            repo)" depending on state).
+//	/branch <name>            — `git checkout <name>` in repoRoot;
+//	                            forwards extra args verbatim so
+//	                            `/branch -b feature-x` (create +
+//	                            switch) and `/branch -b feature-x
+//	                            origin/main` (create from a
+//	                            specific point) work.
+//
+// Output streams to the REPL's writer so the user sees git's own
+// stdout/stderr (branch tracking notice, divergence warnings,
+// etc.). After a successful checkout the next prompt's sticky
+// tag automatically picks up the new branch via gitBranchProbe.
+func (r *REPL) handleBranchCmd(line string) {
+	rest := strings.TrimSpace(strings.TrimPrefix(line, "/branch"))
+	if rest == "" {
+		cur := gitBranchProbe(r.repoRoot)
+		if cur == "" {
+			r.info(fmt.Sprintf("(%s is not a git repo, or git missing on PATH)", r.repoRoot))
+			return
+		}
+		r.info(fmt.Sprintf("current branch: %s", cur))
+		return
+	}
+	args := append([]string{"-C", r.repoRoot, "checkout"}, strings.Fields(rest)...)
+	cmd := exec.Command("git", args...)
+	cmd.Stdout = r.out
+	cmd.Stderr = r.out
+	if err := cmd.Run(); err != nil {
+		r.warn("branch: git checkout failed: %v\n", err)
+		return
+	}
+	if cur := gitBranchProbe(r.repoRoot); cur != "" {
+		r.success(fmt.Sprintf("now on branch: %s", cur))
+	}
+}
+
+// handleShellBangCmd executes a system shell command on behalf of
+// the user. Triggered by typing `!<cmd>` at the prompt — the
+// leading `!` is stripped before this handler sees the line.
+//
+// stdout + stderr stream to r.out so the user sees the command's
+// real output (not buffered, not summarised). Working directory
+// is r.repoRoot so commands like `!ls` / `!cat <file>` /
+// `!grep <pat>` operate on the repo by default. The exit status
+// is reported back as a one-line warning when non-zero so the
+// user knows the command failed.
+//
+// `cd` is special-cased: each `!` invocation spawns a fresh
+// shell, so `!cd <dir>` has no effect on subsequent commands.
+// We detect the shape and surface a clear message rather than
+// silently no-oping (the surprising failure mode is "I typed
+// `!cd ..` and the next `!ls` showed the same files").
+func (r *REPL) handleShellBangCmd(line string) {
+	line = strings.TrimSpace(line)
+	if line == "" {
+		r.info("(empty `!` — type a command after the bang)")
+		return
+	}
+	first := strings.Fields(line)[0]
+	if first == "cd" || first == "pushd" || first == "popd" {
+		r.warn("`%s` inside `!` doesn't persist — every `!` invocation spawns a fresh shell. "+
+			"Restart codrax with --repo /new/path, or chain in one command: "+
+			"`!cd /tmp && cat foo.txt`.\n", first)
+		// Fall through and run anyway — `!cd /x && cat foo` IS
+		// a useful shape (the && side-effects are within one
+		// shell). Only the bare `!cd /x` is the no-op shape.
+		// Surface the warning either way so the user learns.
+	}
+	cmd := tool.NewShellCommandContext(context.Background(), line)
+	cmd.Dir = r.repoRoot
+	cmd.Stdout = r.out
+	cmd.Stderr = r.out
+	if err := cmd.Run(); err != nil {
+		r.warn("! exit %v\n", err)
+	}
+}
+
 // plan was dropped.
 //
 // Behaviour mirrors /plan clear with two differences:
