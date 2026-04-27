@@ -1219,13 +1219,10 @@ func isListOfSymbolsShape(ctx *types.AgentContext) bool {
 // Threshold: SubTopics > 0. Single-topic explanation keeps the old
 // path — the summary IS the answer and doesn't need a skeleton.
 func isMultiTopicExplanation(ctx *types.AgentContext) bool {
-	if ctx == nil || ctx.AnalysisIR == nil {
+	if ctx == nil {
 		return false
 	}
-	if ctx.AnalysisIR.AnswerContract.RequiredAnswerShape != types.ShapeExplanation {
-		return false
-	}
-	return len(ctx.AnalysisIR.RequestModel.SubTopics) > 0
+	return types.ExplanationAllowsAnchorSkeleton(ctx.AnalysisIR)
 }
 
 // hasPendingHypotheses reports whether the analyzer posed hypotheses

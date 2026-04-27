@@ -2883,6 +2883,12 @@ type docSymbol struct {
 func TestEmitAnswerDocument_Explanation_AcceptsAnchorSkeleton(t *testing.T) {
 	tool := &EmitAnswerDocument{}
 	ctx := newDocBusCtx("")
+	ctx.AnalysisIR = &types.AnalysisIR{
+		AnswerContract: types.AnswerContract{RequiredAnswerShape: types.ShapeExplanation},
+		RequestModel: types.RequestModel{
+			SubTopics: []types.SubTopic{{Summary: "topic 1"}, {Summary: "topic 2"}},
+		},
+	}
 	params := mustDocJSON(t, map[string]interface{}{
 		"shape":   "explanation",
 		"summary": "explorer delegates work to SubExplorer via ProposeSubAgents.",
@@ -2931,6 +2937,32 @@ func TestEmitAnswerDocument_Explanation_ScrubsStrayValue(t *testing.T) {
 	}
 	if !strings.Contains(res.Summary, "value{}") {
 		t.Errorf("scrub note must name value: %q", res.Summary)
+	}
+}
+
+func TestEmitAnswerDocument_Explanation_ScrubsSymbolsWithoutAnchorSkeletonMode(t *testing.T) {
+	tool := &EmitAnswerDocument{}
+	ctx := newDocBusCtx("")
+	ctx.AnalysisIR = &types.AnalysisIR{
+		AnswerContract: types.AnswerContract{RequiredAnswerShape: types.ShapeExplanation},
+	}
+	params := mustDocJSON(t, map[string]interface{}{
+		"shape":   "explanation",
+		"summary": "valid answer body",
+		"symbols": []map[string]interface{}{
+			{"name": "ExploreHeuristics", "file": "internal/types/config.go", "line": 627, "kind": "struct", "rationale": "single-topic noise"},
+		},
+	})
+	res, _ := tool.Execute(ctx, params)
+	if !res.Success {
+		t.Fatalf("single-topic explanation with stray symbols must accept with scrub, got: %s", res.Summary)
+	}
+	doc := ctx.Mutable.AnswerDocument()
+	if len(doc.Symbols) != 0 {
+		t.Fatalf("single-topic explanation must scrub auxiliary symbols, got %d", len(doc.Symbols))
+	}
+	if !strings.Contains(res.Summary, "symbols[]") {
+		t.Fatalf("scrub note must mention symbols[]: %q", res.Summary)
 	}
 }
 

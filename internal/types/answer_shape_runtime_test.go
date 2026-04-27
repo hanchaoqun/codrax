@@ -35,6 +35,23 @@ func TestStableAbsentExactConfigRequiresExplanation(t *testing.T) {
 	}
 }
 
+func TestExplanationAllowsAnchorSkeleton(t *testing.T) {
+	ir := &AnalysisIR{
+		AnswerContract: AnswerContract{RequiredAnswerShape: ShapeExplanation},
+		RequestModel: RequestModel{
+			SubTopics: []SubTopic{{Summary: "one"}},
+		},
+	}
+	if !ExplanationAllowsAnchorSkeleton(ir) {
+		t.Fatal("multi-topic explanation should allow anchor skeleton")
+	}
+
+	ir.RequestModel.SubTopics = nil
+	if ExplanationAllowsAnchorSkeleton(ir) {
+		t.Fatal("single-topic explanation should not allow anchor skeleton")
+	}
+}
+
 func TestEffectiveRequiredAnswerShape_PreservesConfiguredShapeWithoutStableAbsence(t *testing.T) {
 	ir := &AnalysisIR{
 		AnswerContract: AnswerContract{

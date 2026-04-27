@@ -50,3 +50,21 @@ func EffectiveRequiredAnswerShape(ir *AnalysisIR, mutable *MutableState) AnswerS
 	}
 	return shape
 }
+
+// ExplanationAllowsAnchorSkeleton reports whether an explanation
+// answer may legitimately carry the optional symbols[] anchor
+// skeleton. This is reserved for multi-topic explanation answers,
+// where each sub-topic gets one load-bearing anchor beneath the main
+// prose. Single-topic explanations should keep symbols[] empty so
+// auxiliary symbol validation cannot derail an otherwise valid
+// narrative answer.
+func ExplanationAllowsAnchorSkeleton(ir *AnalysisIR) bool {
+	if ir == nil {
+		return false
+	}
+	if EffectiveRequiredAnswerShape(ir, nil) != ShapeExplanation &&
+		ir.AnswerContract.RequiredAnswerShape != ShapeExplanation {
+		return false
+	}
+	return len(ir.RequestModel.SubTopics) > 0
+}

@@ -980,7 +980,11 @@ func (t *EmitAnswerDocument) Execute(ctx *types.BusContext, params json.RawMessa
 		if strings.TrimSpace(p.Summary) == "" {
 			return failWithContext("shape=explanation requires a non-empty summary")
 		}
-		if len(p.Symbols) > 0 {
+		if !types.ExplanationAllowsAnchorSkeleton(ctx.AnalysisIR) {
+			if note := scrubForbiddenNonZeroFields(&p, shape, forbidSymbols); note != "" {
+				shapeCorrectionNote = joinNote(shapeCorrectionNote, note)
+			}
+		} else if len(p.Symbols) > 0 {
 			built := make([]types.AnswerSymbol, 0, len(p.Symbols))
 			for i, in := range p.Symbols {
 				sym, perr := buildEmitAnswerSymbolItem(in, i, workDir, docLogTriageBundle, groundCtx)

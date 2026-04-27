@@ -294,6 +294,11 @@ func renderAnswerDocSubmissionChecklist(ctx *types.AgentContext, shape string, d
 		items = append(items,
 			"`summary` is REQUIRED and is the main answer body for this dispatch.",
 		)
+		if ctx == nil || !types.ExplanationAllowsAnchorSkeleton(ctx.AnalysisIR) {
+			items = append(items,
+				"Leave `symbols[]` empty for this single-topic explanation. Anchor skeletons are only for multi-topic explanation answers whose prompt includes an Anchor skeleton section.",
+			)
+		}
 	}
 	if ctx != nil && ctx.AnalysisIR != nil && ctx.AnalysisIR.AnswerContract.ExactResolution != nil {
 		items = append(items,
@@ -981,6 +986,7 @@ func renderAnswerDocAllowedExactContextAnchors(ctx *types.AgentContext, contract
 	var b strings.Builder
 	b.WriteString("## Allowed Grounded Context Anchors\n\n")
 	b.WriteString("If you keep nearby grounded context in `summary`, keep it to these already-validated anchors. Anything outside this list is background only unless it is itself a primary exact-proof source.\n\n")
+	b.WriteString("When the exact target is absent, start the first sentence of `summary` directly on one of these validated anchors or mechanisms. Do not reopen with the absent target name — the renderer already prints that lead.\n\n")
 	for _, anchor := range anchors {
 		fmt.Fprintf(&b, "- %s\n", anchor.Text)
 	}

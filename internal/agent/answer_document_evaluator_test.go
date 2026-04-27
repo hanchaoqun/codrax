@@ -64,6 +64,19 @@ func TestAnswerDocumentEvaluator_BuildInitialInstruction_RendersResolvedShape(t 
 	}
 }
 
+func TestAnswerDocumentEvaluator_BuildInitialInstruction_SingleTopicExplanationLeavesSymbolsEmpty(t *testing.T) {
+	ctx := &types.AgentContext{
+		AnalysisIR: &types.AnalysisIR{
+			AnswerContract: types.AnswerContract{RequiredAnswerShape: types.ShapeExplanation},
+		},
+		Mutable: types.NewMutableState(""),
+	}
+	prompt := (&answerDocumentEvaluator{}).BuildInitialInstruction(ctx, nil)
+	if !strings.Contains(prompt, "Leave `symbols[]` empty for this single-topic explanation") {
+		t.Fatalf("single-topic explanation checklist must forbid anchor skeleton noise:\n%s", prompt)
+	}
+}
+
 func TestAnswerDocumentEvaluator_BuildInitialInstruction_ResolvesAbsentConfigValueToExplanation(t *testing.T) {
 	mut := types.NewMutableState("")
 	mut.SetInvestigationResultKind("absence")
@@ -511,6 +524,7 @@ func TestAnswerDocumentEvaluator_BuildInitialInstruction_RendersExactResolutionC
 		"only create a separate numbered step when that layer has its own grounded repo anchor",
 		"repo-wide search result, aggregate absence conclusion, or test-only proof step usually has no single corroborating production line",
 		"## Allowed Grounded Context Anchors",
+		"start the first sentence of `summary` directly on one of these validated anchors",
 		"## Diagram-Grade Context Anchors",
 		"## Related Context Citation Candidates",
 		"## Background-Only Anchors",
