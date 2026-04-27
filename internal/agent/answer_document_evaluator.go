@@ -157,6 +157,10 @@ func (e *answerDocumentEvaluator) BuildInitialInstruction(ctx *types.AgentContex
 		if seeds := renderAnswerDocDiagramSeeds(ctx, dc); seeds != "" {
 			b.WriteString(seeds)
 		}
+	} else if answerDocDiagramHardRequirementDowngraded(ctx) {
+		b.WriteString("## Diagram Preference\n\n")
+		b.WriteString("- A diagram would normally help for this question type, but the currently grounded evidence does not yet provide a complete structural seed for a hard-required diagram.\n")
+		b.WriteString("- Prefer a grounded prose answer over an invented fence. Only draw a fenced diagram if every node / label can be copied from the existing citations, validated seeds, or Log Triage frames.\n\n")
 	}
 	if exact := renderAnswerDocExactResolutionContract(ctx); exact != "" {
 		b.WriteString(exact)
@@ -382,11 +386,50 @@ func resolveAnswerDocShape(ctx *types.AgentContext) string {
 	return string(types.ShapeExplanation)
 }
 
-func answerDocDiagramContract(ctx *types.AgentContext) *types.DiagramContract {
+func baseAnswerDocDiagramContract(ctx *types.AgentContext) *types.DiagramContract {
 	if ctx == nil || ctx.AnalysisIR == nil || ctx.AnalysisIR.AnswerContract.Diagram == nil {
 		return nil
 	}
 	return ctx.AnalysisIR.AnswerContract.Diagram
+}
+
+func answerDocDiagramContract(ctx *types.AgentContext) *types.DiagramContract {
+	base := baseAnswerDocDiagramContract(ctx)
+	if base == nil {
+		return nil
+	}
+	var (
+		scenario      types.Scenario
+		stableAbsent  bool
+		contract      *types.ExactResolutionContract
+		requiredFiles []string
+	)
+	if ctx != nil && ctx.AnalysisIR != nil {
+		scenario = ctx.AnalysisIR.RequestModel.Scenario
+	}
+	if ctx != nil && ctx.Mutable != nil {
+		stableAbsent = ctx.Mutable.StableInvestigationResultKind() == "absence" &&
+			strings.TrimSpace(ctx.Mutable.StableAbsenceJustification()) != ""
+		contract = answerDocExactResolutionContract(ctx)
+		requiredFiles = answerDocExactContextRequiredFiles(ctx)
+	}
+	supported := types.SupportedDiagramKindsForAnswer(
+		scenario,
+		stableAbsent,
+		contract,
+		requiredFiles,
+		ctx.LogTriage,
+		ctx.FlowFindings,
+		ctx.AnswerChains,
+		exactResolutionSurfaceEvidencePool(ctx),
+	)
+	return types.EffectiveDiagramContract(base, supported)
+}
+
+func answerDocDiagramHardRequirementDowngraded(ctx *types.AgentContext) bool {
+	base := baseAnswerDocDiagramContract(ctx)
+	effective := answerDocDiagramContract(ctx)
+	return base != nil && base.Required && (effective == nil || !effective.Required)
 }
 
 func answerDocExactResolutionContract(ctx *types.AgentContext) *types.ExactResolutionContract {
@@ -519,7 +562,7 @@ func collectAnswerDocDiagramFileLabels(ctx *types.AgentContext) []string {
 		appendLabel(label)
 	}
 	for _, chain := range ctx.AnswerChains {
-		if answerDocDiagramEvidenceEligible(chain.Item) {
+		if types.DiagramEvidenceEligible(chain.Item) {
 			appendLabel(chain.Item.Source)
 		}
 	}
@@ -527,7 +570,7 @@ func collectAnswerDocDiagramFileLabels(ctx *types.AgentContext) []string {
 		if ev.DiagramRole == "" {
 			continue
 		}
-		if answerDocDiagramEvidenceEligible(ev) {
+		if types.DiagramEvidenceEligible(ev) {
 			appendLabel(ev.Source)
 		}
 	}
@@ -539,26 +582,6 @@ func collectAnswerDocDiagramFileLabels(ctx *types.AgentContext) []string {
 		labels = labels[:10]
 	}
 	return labels
-}
-
-func answerDocDiagramEvidenceEligible(ev types.EvidenceItem) bool {
-	if strings.TrimSpace(ev.Source) == "" {
-		return false
-	}
-	if ev.ContextRole == types.EvidenceContextRoleIllustrativeOnly ||
-		ev.ContextRole == types.EvidenceContextRoleAbsenceSupport {
-		return false
-	}
-	if ev.Kind == types.EvidenceUnresolved || ev.Kind == types.EvidenceTruncated {
-		return false
-	}
-	if ev.GroundingStatus == types.GroundingUngrounded {
-		return false
-	}
-	if ev.LineStart <= 0 && ev.GroundingStatus == types.GroundingRecovered {
-		return false
-	}
-	return true
 }
 
 func renderAnswerDocDiagramLogSeed(bundle *types.LogBundle) string {
@@ -2348,9 +2371,13 @@ func (e *answerDocumentEvaluator) ParseOutput(ctx *types.AgentContext, messages 
 		warning := "⚠️ answer_document emission missing — the finalizer could not produce a " +
 			"structured AnswerDocument. The text below is the raw LLM response; no schema-level " +
 			"validation ran on it."
+		safeFallback := sanitizePriorDraftForSummary(lastContent)
+		if safeFallback == "" {
+			safeFallback = strings.TrimSpace(lastContent)
+		}
 		combined := warning
-		if lastContent != "" {
-			combined = warning + "\n\n" + lastContent
+		if safeFallback != "" {
+			combined = warning + "\n\n" + safeFallback
 		}
 		logging.Warning("[finalizer/answer_document] emit_answer_document missing after retries; falling back to raw content (len=%d)",
 			len(lastContent))

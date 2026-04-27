@@ -2044,7 +2044,32 @@ func answerDiagramContract(ctx *types.BusContext) *types.DiagramContract {
 	if ctx == nil || ctx.AnalysisIR == nil || ctx.AnalysisIR.AnswerContract.Diagram == nil {
 		return nil
 	}
-	return ctx.AnalysisIR.AnswerContract.Diagram
+	var (
+		stableAbsent  bool
+		contract      *types.ExactResolutionContract
+		requiredFiles []string
+	)
+	if ctx.Mutable != nil {
+		stableAbsent = ctx.Mutable.StableInvestigationResultKind() == "absence" &&
+			strings.TrimSpace(ctx.Mutable.StableAbsenceJustification()) != ""
+		requiredFiles = answerDocExactContextRequiredFiles(ctx)
+	}
+	contract = answerExactResolutionContract(ctx)
+	var logBundle *types.LogBundle
+	if ctx.Mutable != nil {
+		logBundle = ctx.Mutable.LogTriage()
+	}
+	supported := types.SupportedDiagramKindsForAnswer(
+		ctx.AnalysisIR.RequestModel.Scenario,
+		stableAbsent,
+		contract,
+		requiredFiles,
+		logBundle,
+		ctx.FlowFindings,
+		ctx.AnswerChains,
+		answerDocSurfaceEvidencePool(ctx),
+	)
+	return types.EffectiveDiagramContract(ctx.AnalysisIR.AnswerContract.Diagram, supported)
 }
 
 func answerExactResolutionContract(ctx *types.BusContext) *types.ExactResolutionContract {

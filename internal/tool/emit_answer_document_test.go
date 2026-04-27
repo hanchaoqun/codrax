@@ -3348,6 +3348,14 @@ func TestEmitAnswerDocument_DiagramRequired_RejectsMissingDiagram(t *testing.T) 
 			},
 		},
 	}
+	ctx.Mutable.SetLogTriage(&types.LogBundle{
+		Errors: []types.LogError{{
+			Frames: []types.LogFrame{
+				{File: "internal/agent/analyzer.go", Line: 10},
+				{File: "internal/orchestrator/topology.go", Line: 20},
+			},
+		}},
+	})
 	params := mustDocJSON(t, map[string]interface{}{
 		"shape":   "step_list",
 		"summary": "The sequence starts at dispatch and ends in the handler, but this summary has no fenced diagram.",
@@ -3364,6 +3372,48 @@ func TestEmitAnswerDocument_DiagramRequired_RejectsMissingDiagram(t *testing.T) 
 	}
 }
 
+func TestAnswerDiagramContract_DowngradesHardRequirementWithoutGroundedStructure(t *testing.T) {
+	ctx := newDocBusCtx("")
+	ctx.AnalysisIR = &types.AnalysisIR{
+		RequestModel: types.RequestModel{
+			Scenario: types.ScenarioConfigTrace,
+		},
+		AnswerContract: types.AnswerContract{
+			Diagram: &types.DiagramContract{
+				Required:       true,
+				Minimum:        1,
+				PreferredKinds: []types.DiagramKind{types.DiagramArchitecture, types.DiagramFlow},
+			},
+			ExactResolution: &types.ExactResolutionContract{
+				TargetKind:   types.SubjectConfigKey,
+				TargetLabel:  "config key",
+				Targets:      []string{"missing_key"},
+				AllowAbsence: true,
+			},
+		},
+	}
+	ctx.Mutable.SetInvestigationResultKind("absence")
+	ctx.Mutable.SetAbsenceJustification("missing_key is absent from the current repo state")
+	ctx.EvidenceItems = []types.EvidenceItem{
+		{
+			Source:          "internal/types/config.go",
+			LineStart:       707,
+			GroundingStatus: types.GroundingGrounded,
+			ContextRole:     types.EvidenceContextRoleAbsenceSupport,
+			AnchorKind:      types.AnchorDefinition,
+			AnchorSymbol:    "DefaultExploreHeuristics",
+			Summary:         "absence proof only",
+		},
+	}
+	dc := answerDiagramContract(ctx)
+	if dc == nil {
+		t.Fatal("diagram contract should stay present")
+	}
+	if dc.Required {
+		t.Fatalf("hard diagram requirement should downgrade when grounded structure is incomplete, got %+v", dc)
+	}
+}
+
 func TestEmitAnswerDocument_DiagramRequired_RejectsPlainCodeFence(t *testing.T) {
 	tool := &EmitAnswerDocument{}
 	ctx := newDocBusCtx("")
@@ -3376,6 +3426,10 @@ func TestEmitAnswerDocument_DiagramRequired_RejectsPlainCodeFence(t *testing.T) 
 			},
 		},
 	}
+	ctx.FlowFindings = []types.FlowFindingDigest{{
+		Path:       []string{"check condition", "apply fallback"},
+		Conditions: []string{"if budget exhausted"},
+	}}
 	params := mustDocJSON(t, map[string]interface{}{
 		"shape": "explanation",
 		"summary": "This answer includes a fenced block, but it is just code.\n\n" +

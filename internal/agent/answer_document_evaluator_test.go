@@ -241,6 +241,50 @@ func TestAnswerDocumentEvaluator_BuildInitialInstruction_RendersConfigTraceDiagr
 	}
 }
 
+func TestAnswerDocumentEvaluator_BuildInitialInstruction_DowngradesHardDiagramWithoutGroundedStructure(t *testing.T) {
+	ctx := &types.AgentContext{
+		Mutable: types.NewMutableState(""),
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				Scenario: types.ScenarioConfigTrace,
+			},
+			AnswerContract: types.AnswerContract{
+				Diagram: &types.DiagramContract{
+					Required:       true,
+					Minimum:        1,
+					PreferredKinds: []types.DiagramKind{types.DiagramArchitecture, types.DiagramFlow},
+				},
+				ExactResolution: &types.ExactResolutionContract{
+					TargetKind:   types.SubjectConfigKey,
+					TargetLabel:  "config key",
+					Targets:      []string{"missing_key"},
+					AllowAbsence: true,
+				},
+			},
+		},
+		EvidenceItems: []types.EvidenceItem{
+			{
+				Source:          "internal/types/config.go",
+				LineStart:       707,
+				GroundingStatus: types.GroundingGrounded,
+				ContextRole:     types.EvidenceContextRoleAbsenceSupport,
+				AnchorKind:      types.AnchorDefinition,
+				AnchorSymbol:    "DefaultExploreHeuristics",
+			},
+		},
+	}
+	ctx.Mutable.SetInvestigationResultKind("absence")
+	ctx.Mutable.SetAbsenceJustification("missing_key is absent from the current repo state")
+	e := &answerDocumentEvaluator{}
+	text := e.BuildInitialInstruction(ctx, nil)
+	if strings.Contains(text, "## Diagram Contract") {
+		t.Fatalf("hard diagram contract should downgrade when grounded structure is incomplete, got: %s", text)
+	}
+	if !strings.Contains(text, "## Diagram Preference") {
+		t.Fatalf("downgraded diagram requirement should still leave a preference note, got: %s", text)
+	}
+}
+
 func TestAnswerDocumentEvaluator_BuildInitialInstruction_ConfigTraceSeedWarnsWhenOverrideAnchorMissing(t *testing.T) {
 	ctx := &types.AgentContext{
 		AnalysisIR: &types.AnalysisIR{
@@ -1720,6 +1764,33 @@ func TestAnswerDocumentEvaluator_ParseOutput_MissingDoc_FailLoud(t *testing.T) {
 	}
 	if !strings.Contains(out.FinalAnswer, "raw fallback text") {
 		t.Errorf("raw content lost: %q", out.FinalAnswer)
+	}
+}
+
+func TestAnswerDocumentEvaluator_ParseOutput_MissingDoc_SanitizesFallback(t *testing.T) {
+	ctx := &types.AgentContext{
+		Mutable: types.NewMutableState(""),
+	}
+	messages := []llm.Message{
+		{
+			Role: "assistant",
+			Content: "<think>internal reasoning</think>\n\n" +
+				"Grounded user-facing answer.\n\n" +
+				"<minimax:tool_call>\n" +
+				"{\"shape\":\"explanation\"}\n" +
+				"</minimax:tool_call>\n",
+		},
+	}
+	e := &answerDocumentEvaluator{language: "en"}
+	out, err := e.ParseOutput(ctx, messages, nil, nil)
+	if err != nil {
+		t.Fatalf("ParseOutput err: %v", err)
+	}
+	if strings.Contains(out.FinalAnswer, "<think>") || strings.Contains(out.FinalAnswer, "<minimax:tool_call>") || strings.Contains(out.FinalAnswer, "\"shape\"") {
+		t.Fatalf("fail-loud fallback leaked internal scaffolding: %q", out.FinalAnswer)
+	}
+	if !strings.Contains(out.FinalAnswer, "Grounded user-facing answer.") {
+		t.Fatalf("sanitized fallback lost user-facing content: %q", out.FinalAnswer)
 	}
 }
 
