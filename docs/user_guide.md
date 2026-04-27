@@ -1296,7 +1296,7 @@ REPL 会自动从 PlanStore 找最近一条 `pending_approval` plan 重新绑定
 
 #### 4.3.23 当前 git 分支感知 + `/branch` 切换 + `!shell`
 
-**REPL prompt 显示当前 git 分支**:启动 banner 和每行 prompt 的 sticky tag 都会带 `[git:<branch>]` 标记,跨进程实时反映 — 用户在另一个终端 `git checkout` 后,下一次 prompt 自动显示新分支。Detached HEAD 显示 `[git:detached@<sha>]`;不在 git repo 显示空(无 git 标记)。
+**REPL prompt 显示当前 git 分支**:启动 banner 和每行 prompt 的 sticky tag 都会带 `[git:<branch>]` 标记,跨进程实时反映 — 用户在另一个终端 `git checkout` 后,下一次 prompt 自动显示新分支。Detached HEAD 显示 `[git:detached@<sha>]`;不在 git repo 显示空(无 git 标记)。完整的 sticky tag 标记列表(git / mode / log / trace / plan / mem!)及组合示例见 [§6.2 REPL prompt 的 sticky tag](#62-repl-prompt-的-sticky-tag)。
 
 **`/branch` 命令**:
 
@@ -1487,7 +1487,39 @@ git 只要没装就报:
 
 英文版(`--lang en`)相应渲染成 `Search backend: grep (install ripgrep for faster scans)` / `Search backend: native Go scanner (install ripgrep for a 10× speedup)` / `git not detected (...)`。更多安装提示见 [2.1 运行环境依赖](#21-运行环境依赖)。
 
-### 6.2 流水线进行时的任务列表
+### 6.2 REPL prompt 的 sticky tag
+
+每行 prompt(`❯❯` 前面)会带零或多个**bracketed sticky 标记**,反映本会话当前的状态。标记顺序固定,从左到右依次:
+
+| 标记 | 触发条件 | 怎么清 |
+|---|---|---|
+| `[git:<branch>]` | 在 git repo 内,HEAD 在某个分支(每次 prompt 实时探测) | 切走或退出 git repo;detached HEAD 显示 `[git:detached@<sha7>]` |
+| `[mode:<plan\|apply\|verify>]` | `currentMode != read`(由 `/mode <X>` 切换,粘滞) | `/mode read` |
+| `[log]` | 附加日志通道非空(`/log <path>` 或 `--log`) | `/log clear` |
+| `[trace]` | 附加性能 trace 通道非空(`/htrace` / `/atrace` / `--htrace` / `--atrace`) | `/htrace clear`(或 `/atrace clear`,同一通道) |
+| `[plan]` | PlanStore 里有待审 plan(`pendingPlanPath` 非空) | `/approve` 或 `/reject` 或 `/plan clear` |
+| `[mem!]` | 对话记忆超过软阈值,需要清理 | `/compact` 或 `/clear` |
+
+标记**直接拼接,不带空格**。读模式 + 不在 git repo + 全部清空 → prompt 是裸的 `❯❯`。
+
+**典型组合**:
+
+```
+❯❯                                              # 读模式默认,纯净
+[git:main] ❯❯                                   # 进了 git repo,主干分支
+[git:feature-x][mode:plan] ❯❯                   # 切到 feature 分支,/mode plan 准备生成 plan
+[git:main][mode:plan][log] ❯❯                   # plan 模式 + 已挂日志
+[git:main][mode:plan][trace] ❯❯                 # plan 模式 + 已挂性能 trace
+[git:main][log][trace] ❯❯                       # 同时挂日志和 trace(混合 panic + jank 分析)
+[git:main][mode:plan][log][trace][plan] ❯❯      # 全开:plan 模式 + 日志 + trace + 已生成待审 plan
+[git:main][mode:plan][log][trace][plan][mem!] ❯❯ # 上面 + 内存压力提示
+[git:detached@abc1234][trace] ❯❯                # 用 git checkout <sha> 进了 detached 状态 + trace
+[trace] ❯❯                                      # 不在 git repo,只挂了 trace(裸目录脚手架场景)
+```
+
+`[log]` 和 `[trace]` 是**两条独立通道**(各自走 `log_triage` / `perf_triage` 前置阶段),可以同时挂。一个通道清掉不影响另一个。
+
+### 6.3 流水线进行时的任务列表
 
 每次提问后,codrax 会在 stderr(REPL 下直接在界面上,单次模式下会打到 stderr)绘制一块**可原地刷新的任务列表**:
 
@@ -1504,7 +1536,7 @@ git 只要没装就报:
 - `✓` 表示该条已完成
 - 每行末尾是该条已运行的时间
 
-### 6.3 实时推理 / 系统事件提示
+### 6.4 实时推理 / 系统事件提示
 
 流水线内部的调度决策会以**暗灰色 `💭` 行**打印在任务列表之上,不影响最终答案排版:
 
@@ -1518,7 +1550,7 @@ git 只要没装就报:
 - `[<agent>-<iter>]` 是某个 agent 的 ReAct 轮次(`iter` 从 1 开始)
 - `[orchestrator]` 是系统事件(补读、重试、准备答案、组织答案等),这些是**中英文本地化**的简短提示
 
-### 6.4 最终答案
+### 6.5 最终答案
 
 所有阶段完成后,答案渲染在一个**带左侧竖线**的块里:
 
