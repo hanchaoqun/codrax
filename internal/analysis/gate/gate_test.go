@@ -57,7 +57,7 @@ func validIR() *types.AnalysisIR {
 
 func TestRun_GoldenPath_Passes(t *testing.T) {
 	ir := validIR()
-	report := Run(ir, Thresholds{})
+	report := Run(ir, Thresholds{}, "")
 	if !report.Passed {
 		t.Fatalf("golden IR should pass; report=%+v", report)
 	}
@@ -70,7 +70,7 @@ func TestRun_GoldenPath_Passes(t *testing.T) {
 }
 
 func TestRun_NilIR_RejectedNonRetryable(t *testing.T) {
-	report := Run(nil, Thresholds{})
+	report := Run(nil, Thresholds{}, "")
 	if !report.Rejected {
 		t.Fatal("nil IR must be rejected")
 	}
@@ -92,7 +92,7 @@ func TestRun_DAGClosure_DetectsDuplicateID(t *testing.T) {
 	ir := validIR()
 	// Duplicate node ID
 	ir.TaskGraph.Nodes = append(ir.TaskGraph.Nodes, types.TaskNode{ID: ir.TaskGraph.Nodes[0].ID, Type: types.NodeEvidence})
-	report := Run(ir, Thresholds{})
+	report := Run(ir, Thresholds{}, "")
 	c := findCheck(report, "dag_closure")
 	if c == nil || c.Passed {
 		t.Fatalf("duplicate node id must fail dag_closure; got %+v", c)
@@ -107,7 +107,7 @@ func TestRun_DAGClosure_DetectsDanglingEdge(t *testing.T) {
 	ir.TaskGraph.Edges = append(ir.TaskGraph.Edges, types.TaskEdge{
 		From: "does_not_exist", To: ir.TaskGraph.Nodes[0].ID, EdgeType: types.EdgeHardDependency,
 	})
-	report := Run(ir, Thresholds{})
+	report := Run(ir, Thresholds{}, "")
 	if findCheck(report, "dag_closure").Passed {
 		t.Fatal("dangling edge must fail dag_closure")
 	}
@@ -121,7 +121,7 @@ func TestRun_DAGClosure_DetectsCycle(t *testing.T) {
 	ir.TaskGraph.Edges = append(ir.TaskGraph.Edges, types.TaskEdge{
 		From: last, To: first, EdgeType: types.EdgeHardDependency,
 	})
-	report := Run(ir, Thresholds{})
+	report := Run(ir, Thresholds{}, "")
 	if findCheck(report, "dag_closure").Passed {
 		t.Fatal("hard-dependency cycle must fail dag_closure")
 	}
@@ -148,7 +148,7 @@ func TestRun_DAGClosure_IgnoresValidationFeedbackCycles(t *testing.T) {
 		TaskGraph: out.TaskGraph, EvidencePlan: out.EvidencePlan,
 		AnswerContract: out.AnswerContract, HypothesisSet: hs,
 	}
-	report := Run(ir, Thresholds{})
+	report := Run(ir, Thresholds{}, "")
 	if !findCheck(report, "dag_closure").Passed {
 		t.Fatalf("validation_feedback must not count as a cycle; got %+v", findCheck(report, "dag_closure"))
 	}
@@ -158,7 +158,7 @@ func TestRun_BudgetTooSmall_Rejected(t *testing.T) {
 	ir := validIR()
 	ir.EvidencePlan.Budget.MaxFiles = 1
 	ir.EvidencePlan.Budget.MaxReactIters = 1
-	report := Run(ir, Thresholds{})
+	report := Run(ir, Thresholds{}, "")
 	if findCheck(report, "budget_sanity").Passed {
 		t.Fatal("tiny budget must fail")
 	}
@@ -171,7 +171,7 @@ func TestRun_BudgetTooLarge_Rejected(t *testing.T) {
 	ir := validIR()
 	ir.EvidencePlan.Budget.MaxFiles = 99999
 	ir.EvidencePlan.Budget.MaxReactIters = 99999
-	report := Run(ir, Thresholds{})
+	report := Run(ir, Thresholds{}, "")
 	if findCheck(report, "budget_sanity").Passed {
 		t.Fatal("absurd budget must fail")
 	}
@@ -180,7 +180,7 @@ func TestRun_BudgetTooLarge_Rejected(t *testing.T) {
 func TestRun_ContractMissingShape_Rejected(t *testing.T) {
 	ir := validIR()
 	ir.AnswerContract.RequiredAnswerShape = ""
-	report := Run(ir, Thresholds{})
+	report := Run(ir, Thresholds{}, "")
 	if findCheck(report, "contract_complete").Passed {
 		t.Fatal("missing shape must fail")
 	}
@@ -189,7 +189,7 @@ func TestRun_ContractMissingShape_Rejected(t *testing.T) {
 func TestRun_ContractUnknownShape_Rejected(t *testing.T) {
 	ir := validIR()
 	ir.AnswerContract.RequiredAnswerShape = "not_a_real_shape"
-	report := Run(ir, Thresholds{})
+	report := Run(ir, Thresholds{}, "")
 	if findCheck(report, "contract_complete").Passed {
 		t.Fatal("unknown shape must fail")
 	}
@@ -198,7 +198,7 @@ func TestRun_ContractUnknownShape_Rejected(t *testing.T) {
 func TestRun_ContractMissingLanguage_Rejected(t *testing.T) {
 	ir := validIR()
 	ir.AnswerContract.Language = ""
-	report := Run(ir, Thresholds{})
+	report := Run(ir, Thresholds{}, "")
 	if findCheck(report, "contract_complete").Passed {
 		t.Fatal("missing language must fail")
 	}
@@ -211,7 +211,7 @@ func TestRun_ContractInvalidExactResolution_Rejected(t *testing.T) {
 		Targets:              []string{"foo.bar"},
 		RelatedContextPolicy: "not_a_real_policy",
 	}
-	report := Run(ir, Thresholds{})
+	report := Run(ir, Thresholds{}, "")
 	if findCheck(report, "contract_complete").Passed {
 		t.Fatal("invalid exact-resolution policy must fail")
 	}
@@ -223,7 +223,7 @@ func TestRun_Coverage_FailsWhenSymbolsMissing(t *testing.T) {
 	for i := range ir.TaskGraph.Nodes {
 		ir.TaskGraph.Nodes[i].SearchHints = types.SearchHints{}
 	}
-	report := Run(ir, Thresholds{})
+	report := Run(ir, Thresholds{}, "")
 	if findCheck(report, "coverage").Passed {
 		t.Fatalf("coverage must fail when no symbols are hinted; report=%+v", report)
 	}
@@ -237,7 +237,7 @@ func TestRun_HypothesisCoverage_FailsWhenNodeUnbound(t *testing.T) {
 			ir.TaskGraph.Nodes[i].Hypotheses = nil
 		}
 	}
-	report := Run(ir, Thresholds{})
+	report := Run(ir, Thresholds{}, "")
 	if findCheck(report, "hypothesis_coverage").Passed {
 		t.Fatal("unbound nodes must fail hypothesis_coverage")
 	}
@@ -248,7 +248,7 @@ func TestRun_HypothesisCoverage_FailsWhenAllLowPriority(t *testing.T) {
 	for i := range ir.HypothesisSet {
 		ir.HypothesisSet[i].Priority = 10
 	}
-	report := Run(ir, Thresholds{HypothesisMinPrio: 50})
+	report := Run(ir, Thresholds{HypothesisMinPrio: 50}, "")
 	if findCheck(report, "hypothesis_coverage").Passed {
 		t.Fatal("low-priority-only hypotheses must fail")
 	}
@@ -258,7 +258,7 @@ func TestRun_EmptyTaskGraph_FailsClosure(t *testing.T) {
 	ir := validIR()
 	ir.TaskGraph.Nodes = nil
 	ir.TaskGraph.Edges = nil
-	report := Run(ir, Thresholds{})
+	report := Run(ir, Thresholds{}, "")
 	if findCheck(report, "dag_closure").Passed {
 		t.Fatal("empty graph must fail")
 	}

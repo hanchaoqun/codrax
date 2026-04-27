@@ -612,10 +612,11 @@ Per-agent 模型路由在 `providers.yaml` 配（不同 Agent 可指向不同模
 
 #### Quality Gate
 
-`internal/analysis/gate.Run` 7 检查：
+`internal/analysis/gate.Run(ir, th, mode)` 7 检查：
 
 - **Hard**：`nil_ir` / `dag_closure` / `contract_complete` / `coverage` / `budget_sanity` / `hypothesis_coverage` / `criterion_resolvable`。Coverage 加权（Symbol=1.0, Config=0.7, Concept=0.4），阈值通过 `gate.GlobalThresholds()`（`gate_coverage_*`、`gate_hypothesis_min_priority`）。
 - **Soft**：`pending_fields_wellformed`（pending artifact-exchange 字段检查）→ warning，继续跑。
+- **Mode-aware skipping**：`mode` 参数从 `BusContext.Mode` 透传(读 `""` / `"read"`,写 `"plan"` / `"apply"` / `"verify"`)。写模式跳过 `hypothesis_coverage` 和 `contract_complete` —— planner 不消费 `HypothesisSet`,`AnswerContract` 也被写图的 criterion 套件(`CritPlanReady` / `CritPatchApplies` / `CritTestsPass` / `CritNoRegression`)替代。否则 "用 python 写一个猜数字游戏" 这种从零起步的 plan 请求会因为没有可调查的代码实体导致所有 hypothesis priority < 30 → check fail → retry budget 烧光在凭空捏造假设上。结构性检查(`coverage` / `dag_closure` / `budget_sanity` / `criterion_resolvable` / `pending_fields_wellformed`)所有模式都跑。
 
 ### 4.2 `explore` — Turn A：调查 + 证据收集
 

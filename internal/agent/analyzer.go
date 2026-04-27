@@ -1049,7 +1049,17 @@ func buildAnalysisIR(ctx *types.AgentContext) (*types.AnalysisIR, error) {
 	// all land on an empty RequiredFiles slice. Downstream consumers
 	// already handle the empty case.
 	ir.EvidencePlan.RequiredFiles = analyzerRequiredFiles(ctx, rm)
-	ir.QualityGate = gate.Run(ir, gate.GlobalThresholds())
+	// gate.Run skips read-mode-only quality checks
+	// (hypothesis_coverage / contract_complete) when ctx.Mode is plan
+	// / apply / verify, where the write pipeline carries its own
+	// criterion suite and the planner does not consume HypothesisSet.
+	// Without this, a "create from scratch" write request rejects at
+	// the gate because the codebase has nothing to hypothesize about.
+	mode := ""
+	if ctx != nil && ctx.Mode != "" {
+		mode = string(ctx.Mode)
+	}
+	ir.QualityGate = gate.Run(ir, gate.GlobalThresholds(), mode)
 
 	// Writeback the reconciled RequestModel to Mutable so downstream
 	// agents reading via ctx.Mutable.RequestModel() see the same

@@ -94,7 +94,26 @@ func (t Thresholds) withDefaults() Thresholds {
 // GateReport. The caller — typically the analyzer agent's
 // ParseOutput — should set the IR's QualityGate field to the
 // returned report and, if Rejected, act on Retryable.
-func Run(ir *types.AnalysisIR, th Thresholds) types.GateReport {
+//
+// mode mirrors BusContext.Mode at the time Run() is called.
+// When mode is anything other than "" / "read" (i.e. "plan" /
+// "apply" / "verify"), the read-mode-specific quality checks
+// (`hypothesis_coverage`, `contract_complete`) are skipped —
+// they gate AnswerDocument quality and read-mode investigation
+// depth, neither of which applies to the write pipeline. The
+// planner doesn't consume the HypothesisSet and the
+// AnswerContract is replaced by the write graph's criterion
+// suite (CritPlanReady / CritPatchApplies / CritTestsPass /
+// CritNoRegression).
+//
+// Without this gating, a "create from scratch" write request
+// like "用 python 写一个猜数字游戏" reliably fails the analyzer's
+// quality gate because no codebase entity to investigate exists →
+// HypothesisSet either empty or all priorities ≤ 0 → check fails →
+// retry budget burns trying to manufacture hypotheses for code
+// that doesn't exist yet. Skipping the read-mode checks lets the
+// analyzer finish classifying intent and hand off to the planner.
+func Run(ir *types.AnalysisIR, th Thresholds, mode string) types.GateReport {
 	th = th.withDefaults()
 	if ir == nil {
 		return types.GateReport{
@@ -102,13 +121,20 @@ func Run(ir *types.AnalysisIR, th Thresholds) types.GateReport {
 			Checks: []types.GateCheck{{Name: "nil_ir", Passed: false, Detail: "analyzer returned nil AnalysisIR"}},
 		}
 	}
+	isWrite := mode != "" && mode != "read"
 
 	var checks []types.GateCheck
 	checks = append(checks, checkCoverage(ir, th))
 	checks = append(checks, checkDAGClosure(ir))
 	checks = append(checks, checkBudgetSanity(ir, th))
-	checks = append(checks, checkContractComplete(ir, th))
-	checks = append(checks, checkHypothesisCoverage(ir, th))
+	if !isWrite {
+		// Read-mode-only quality checks. The write pipeline carries
+		// its own AnswerContract substitute (write_graph criterion
+		// suite) and does not consume HypothesisSet at all, so these
+		// checks would gate on irrelevant data.
+		checks = append(checks, checkContractComplete(ir, th))
+		checks = append(checks, checkHypothesisCoverage(ir, th))
+	}
 	checks = append(checks, checkCriterionResolvable(ir))
 	checks = append(checks, checkPendingFieldsWellformed(ir))
 

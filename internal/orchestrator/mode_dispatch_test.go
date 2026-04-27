@@ -317,7 +317,10 @@ func TestMode_ApplyWithPlanPathSkipsPlanPhase(t *testing.T) {
 	// with "worktree base not configured" which is the signal we
 	// reached StageApply without going through plan.
 
-	busCtx, err := o.Run("/approve plan-skip-test", "/tmp/repo", "main")
+	// Use the same synthesized phrasing handleApproveCmd produces;
+	// passing the bare slash form would trip the orchestrator's
+	// REPL-control-input fail-loud guard.
+	busCtx, err := o.Run("Apply approved plan plan-skip-test", "/tmp/repo", "main")
 	if err != nil {
 		t.Fatalf("Run: %v", err)
 	}

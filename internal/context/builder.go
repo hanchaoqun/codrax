@@ -37,6 +37,12 @@ func BuildAgentContext(bus *types.BusContext, agentName types.AgentName, stage t
 		AnalysisIR:      bus.AnalysisIR,
 		AttachedLog:     bus.AttachedLog,
 		AttachedHitrace: bus.AttachedHitrace,
+		// Mirror BusContext.Mode onto the agent view so the analyzer
+		// can route mode-conditional behaviour (read-mode quality
+		// gate vs write-mode classifier-only) without reaching back
+		// to BusContext. Zero-value preserves pre-write-mode
+		// behaviour byte-identically.
+		Mode: bus.Mode,
 	}
 	// Mirror the validated log-triage bundle onto the AgentContext so
 	// analyzer / explorer / extractor / finalizer consumers can read

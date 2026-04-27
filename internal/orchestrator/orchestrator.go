@@ -469,6 +469,23 @@ func (o *Orchestrator) Run(request string, repoRoot string, branch string) (*typ
 	// paths mismatch the repo-relative CGEC ReadSet.
 	o.busCtx.Mutable.SetRepoRoot(repoRoot)
 
+	// Fail-loud guard for REPL control inputs that escaped the slash
+	// dispatcher. The customer trigger was a CLI invocation that
+	// passed `/approve plan-XXX` literally as `--request`: the
+	// orchestrator dispatched the analyzer, which iterated 12+ times
+	// rejecting its own emit_analysis call (`IsREPLControlInput`
+	// returns true) before being killed by SIGINT. The slash form is
+	// never a code question; refusing here before any LLM call saves
+	// the round-trip cost and gives the operator a clear signal.
+	// The guard strips the REPL conversation prefix so a legitimate
+	// REPL turn whose Prior Conversation memory contains a `/approve`
+	// line in summary doesn't false-fire.
+	if probe := types.StripConversationPrefix(request); types.IsREPLControlInput(probe) {
+		err := fmt.Errorf("orchestrator: request %q is a REPL control command, not a code question — slash commands must be intercepted by the REPL dispatcher (or removed from CLI --request); refusing to dispatch the analyzer because it would iterate to its budget cap rejecting its own emit_analysis call", probe)
+		o.busCtx.TaskState.LastError = err.Error()
+		return o.busCtx, err
+	}
+
 	// Capture a stable report directory before any retry-loop reset
 	// can wipe busCtx.PlanPath. saveChangeReport reads o.reportDir as
 	// a fallback so post-retry reports still land on disk under the

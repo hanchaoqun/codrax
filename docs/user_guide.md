@@ -1066,7 +1066,24 @@ verify 阶段先看 `run_tests` 的 `runner` 参数 — verifier agent 自己会
 
 误报防御:`<binary>` 名称必须出现在 stderr 文本里才算数 —— 测试断言里出现 `'foo' not found` 这种字符串不会触发。
 
-#### 4.3.14 进程级安全网
+#### 4.3.14 写模式跳过读模式的质量门
+
+analyzer 的 quality gate 有两条**只对读模式有意义**的检查:
+
+- `hypothesis_coverage` —— 至少存在一条优先级 ≥ 30 的假设。读模式靠这个保证 explorer 的调查方向不空。
+- `contract_complete` —— `AnswerContract` 的字段填齐了。读模式靠这个保证 finalizer 有完整的输出契约。
+
+写模式(`plan` / `apply` / `verify`)既不消费 `HypothesisSet` 也不用 `AnswerContract`(写流水线走 `CritPlanReady` / `CritPatchApplies` / `CritTestsPass` / `CritNoRegression` 套件),所以 analyzer 在写模式下**只跑结构性检查**(`coverage` / `dag_closure` / `budget_sanity` / `criterion_resolvable` / `pending_fields_wellformed`),跳过这两条。
+
+否则"用 python 写一个猜数字游戏"这种从零起步的请求会被读模式 gate 误拒:仓里没有可调查的实体 → 所有 hypothesis priority 全是 0 → `hypothesis_coverage` fail → analyzer 重试预算烧光在凭空捏造假设上,planner 永远等不到 RequestModel。
+
+#### 4.3.15 REPL 控制命令意外喂给 orchestrator 时立即拒
+
+`/approve plan-XXX` / `/verify plan-XXX` / `/merge --branch=...` 这类字面量必须经 REPL slash dispatcher 拦截;如果通过 CLI `--request="/approve ..."` 或别的边缘路径直接喂到 orchestrator,**Run() 入口立即报错**(1 round-trip,不进 analyzer)。这避免了 analyzer 在 12+ 次迭代里反复拒绝自己的 `emit_analysis` 调用、最终被 SIGINT 杀掉的浪费场景。
+
+合法的写模式 dispatch 字串(REPL 内部合成的 `Apply approved plan plan-XXX: ...` / `Verify applied plan plan-XXX: ...`)不受影响 —— 守门只识别 slash 字面量。
+
+#### 4.3.16 进程级安全网
 
 verify 阶段的子进程跑在隔离的进程组里,带内存 / CPU 上限:
 
@@ -1076,7 +1093,7 @@ verify 阶段的子进程跑在隔离的进程组里,带内存 / CPU 上限:
 
 `pipeline_max_steps` 超时时整个 Run 强制收尾,worktree 也会在 outer defer 里清理。
 
-#### 4.3.15 合并到主仓 — `/merge` 命令
+#### 4.3.17 合并到主仓 — `/merge` 命令
 
 `/approve` 成功后,worktree 里有一条或多条 codrax 提交(基于主仓的 `r.branch` 顶点)。把这条 commit 合回主仓有三种通路,任选其一:
 
@@ -1119,7 +1136,7 @@ verify 阶段的子进程跑在隔离的进程组里,带内存 / CPU 上限:
 
 主仓 HEAD **不动**,只是新拉了 `fix/parse-duration` 分支落了 commit。再 `git push -u origin fix/parse-duration` + GitHub UI 开 PR。
 
-#### 4.3.16 裸目录自动 init(三档授权)
+#### 4.3.18 裸目录自动 init(三档授权)
 
 写模式 apply 阶段需要 `git worktree add --detach HEAD` 跑,这要求目标目录:
 
@@ -1178,7 +1195,7 @@ codrax --mode=apply --plan-file /tmp/plan.json --auto-apply --auto-init-repo
 - 已经是 ready 的 repo → 这条路径完全跳过(idempotent)。多次 `/approve` 不会重复造空 commit。
 - 失败时(目录权限不足、git 不在 PATH 等)→ 报错,不留半成品。
 
-#### 4.3.17 Plan 状态查询恢复
+#### 4.3.19 Plan 状态查询恢复
 
 `/approve` 因为环境问题(目标不是 git repo、git 缺失、worktree 创建失败)失败时,plan **不会丢**:状态保持 `pending_approval`,你可以:
 
@@ -1188,7 +1205,7 @@ codrax --mode=apply --plan-file /tmp/plan.json --auto-apply --auto-init-repo
 
 REPL 会自动从 PlanStore 找最近一条 `pending_approval` plan 重新绑定指针,**跨进程也能恢复**(关掉 codrax 再开,`/plan show` 还能找到上次没合并的 plan)。
 
-#### 4.3.18 当前限制
+#### 4.3.20 当前限制
 
 - 写模式**不支持** multi-plan concurrency。同一仓库不要并行跑两个 `/approve`(plan 文件名带 PID,但 worktree 操作不是并发安全的)。
 - `git push` 永远是用户手动操作,`/merge` 不替你做(避免对远端的意外副作用)。

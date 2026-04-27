@@ -2132,6 +2132,14 @@ type AgentContext struct {
 	AgentName AgentName     `json:"agent_name"`
 	Stage     PipelineStage `json:"stage"`
 
+	// Mode mirrors BusContext.Mode for the agent's narrowed view.
+	// The analyzer reads it to gate read-mode-only quality checks
+	// (hypothesis_coverage / contract_complete) so write-mode
+	// classifier dispatches don't reject "create from scratch"
+	// requests that have nothing to investigate. Zero-value ("" or
+	// ModeRead) preserves pre-write-mode behaviour byte-identically.
+	Mode PipelineMode `json:"mode,omitempty"`
+
 	Objective string `json:"objective"`
 
 	// AnalysisIR aliases BusContext.AnalysisIR for agents that have

@@ -93,7 +93,10 @@ func main() { _ = "applied-bytes" }
 	})
 	o.SetPlanPath(planPath)
 
-	busCtx, err := o.Run("/verify plan-verify-e2e", mainRepo, "main")
+	// Use the same synthesized phrasing handleVerifyCmd produces;
+	// passing the bare slash form would trip the orchestrator's
+	// REPL-control-input fail-loud guard.
+	busCtx, err := o.Run("Verify applied plan plan-verify-e2e", mainRepo, "main")
 	if err != nil {
 		t.Fatalf("Run: %v", err)
 	}
