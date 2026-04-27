@@ -66,6 +66,7 @@ type explorerEvaluator struct {
 	midLoopNoEmitPushSent          bool                  // one-shot: "you have read N files but never called emit_evidence" hint already pushed this dispatch
 	midLoopNoEmitEscalated         bool                  // one-shot: stronger "emit evidence now" escalation after the first no-emit nudge was ignored
 	midLoopExecRedirectSent        bool                  // one-shot: redirected shell-style browsing back to built-in grep/read_file before first emit_evidence
+	midLoopCompletionReadySent     bool                  // one-shot: generic "you already have enough grounded evidence; close now" hint already pushed this dispatch
 	midLoopNoEmitPushIter          int                   // iteration where the initial read-without-emit nudge fired
 	midLoopNoEmitPushResultsLen    int                   // allResults length when the initial read-without-emit nudge fired
 	primaryReadSeen                bool                  // df3-drift: whether any primary-entity file has entered readSet this dispatch
@@ -297,9 +298,15 @@ func (e *explorerEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk 
 	e.midLoopRankerCoverageSent = false
 	e.midLoopAbsentRedirectSent = false
 	e.midLoopExternalLogSent = false
+	e.midLoopExactAbsenceContextSent = false
 	e.midLoopExactAbsenceSent = false
 	e.midLoopEnumInjected = false
 	e.midLoopNoEmitPushSent = false
+	e.midLoopNoEmitEscalated = false
+	e.midLoopExecRedirectSent = false
+	e.midLoopCompletionReadySent = false
+	e.midLoopNoEmitPushIter = 0
+	e.midLoopNoEmitPushResultsLen = 0
 	e.primaryReadSeen = false
 	e.primaryReadIter = 0
 	e.notesLenAtPrimaryRead = 0
@@ -3572,6 +3579,193 @@ func successfulToolCountSince(results []types.ToolResult, prevLen int, names map
 	return count
 }
 
+type explorerCompletionReadiness struct {
+	HasEnough             bool
+	ERMSatisfied          bool
+	ToolDiversity         bool
+	FileCoverage          bool
+	EvidenceQuality       bool
+	AuthoritativeCoverage bool
+	ToolSources           int
+	ReadCount             int
+	DirectCount           int
+	ScopeReadCount        int
+	ScopeTotalCount       int
+	DiscoveredCount       int
+	RelevantRead          int
+	Coverage              float64
+}
+
+func cloneEvidenceRequirements(reqs []EvidenceRequirement) []EvidenceRequirement {
+	if len(reqs) == 0 {
+		return nil
+	}
+	out := make([]EvidenceRequirement, len(reqs))
+	copy(out, reqs)
+	return out
+}
+
+func (e *explorerEvaluator) completionReadiness(toolResults []types.ToolResult, sourceCount int, exactAbsenceSalvaged, mutateERM bool) explorerCompletionReadiness {
+	discovered, readSet, _ := extractFileCoverage(toolResults, e.repoRoot)
+	scope := e.coverageScopeFiles(discovered, readSet, strings.Join(e.investigationNotes, "\n"))
+	scopeReadCount, scopeCoverage, _ := coverageSnapshot(scope, readSet)
+	coverage := 0.0
+	if len(scope) > 0 {
+		coverage = scopeCoverage
+	} else if len(discovered) > 0 {
+		coverage = float64(len(readSet)) / float64(len(discovered))
+	}
+
+	if sourceCount < 0 {
+		sources := make(map[string]struct{})
+		for _, r := range toolResults {
+			if !r.Success {
+				continue
+			}
+			if e.toolConfidence(r.ToolName) > 0.5 {
+				sources[r.ToolName] = struct{}{}
+			}
+		}
+		sourceCount = len(sources)
+	}
+
+	directCount := 0
+	for _, item := range e.structuredEvidence {
+		switch item.Kind {
+		case types.EvidenceDirect, types.EvidenceRegistration:
+			directCount++
+		}
+	}
+
+	relevantRead := 0
+	rankedFiles := e.rankerCoverageFilesForReadSet(readSet)
+	if len(rankedFiles) > 0 {
+		scoredSet := make(map[string]bool, len(rankedFiles))
+		for _, f := range rankedFiles {
+			scoredSet[f] = true
+		}
+		for f := range readSet {
+			if scoredSet[f] {
+				relevantRead++
+			}
+		}
+	}
+
+	toolDiversity := sourceCount >= 2
+	fileCoverage := coverage >= 0.5 || len(readSet) >= 3
+	authoritativeCoverage := e.logTriageAuthoritativeAndCovered(toolResults)
+	if authoritativeCoverage {
+		fileCoverage = true
+	}
+	evidenceQuality := directCount >= 2
+	if e.isEnumerationQuery {
+		fileCoverage = coverage >= 0.8 || (len(scope) > 0 && scopeReadCount >= len(scope))
+		minDirect := len(scope) / 3
+		if minDirect == 0 {
+			minDirect = len(discovered) / 3
+		}
+		if minDirect < 2 {
+			minDirect = 2
+		}
+		evidenceQuality = directCount >= minDirect
+	}
+	if sourceCount == 1 {
+		toolDiversity = true
+		fileCoverage = true
+		evidenceQuality = true
+	}
+
+	hasEnough := toolDiversity && fileCoverage && evidenceQuality
+	ermSatisfied := len(e.ermRequirements) == 0
+	if len(e.ermRequirements) > 0 {
+		reqs := e.ermRequirements
+		if !mutateERM {
+			reqs = cloneEvidenceRequirements(e.ermRequirements)
+		}
+		reqs = checkRequirementSatisfaction(reqs, e.investigationNotes, e.structuredEvidence, e.complexity)
+		ermSatisfied = ermAllSatisfied(reqs)
+		if mutateERM {
+			e.ermRequirements = reqs
+		}
+		if hasEnough && !ermSatisfied {
+			hasEnough = false
+		} else if !hasEnough && ermSatisfied && len(e.structuredEvidence) > 0 {
+			hasEnough = true
+		}
+	}
+	if exactAbsenceSalvaged && !hasEnough {
+		hasEnough = true
+	}
+
+	return explorerCompletionReadiness{
+		HasEnough:             hasEnough,
+		ERMSatisfied:          ermSatisfied,
+		ToolDiversity:         toolDiversity,
+		FileCoverage:          fileCoverage,
+		EvidenceQuality:       evidenceQuality,
+		AuthoritativeCoverage: authoritativeCoverage,
+		ToolSources:           sourceCount,
+		ReadCount:             len(readSet),
+		DirectCount:           directCount,
+		ScopeReadCount:        scopeReadCount,
+		ScopeTotalCount:       len(scope),
+		DiscoveredCount:       len(discovered),
+		RelevantRead:          relevantRead,
+		Coverage:              coverage,
+	}
+}
+
+func (e *explorerEvaluator) postCompletionReadySignal(obs LoopObservation) LoopSignal {
+	if e.midLoopCompletionReadySent || e.phase != 1 || e.investigationComplete {
+		return LoopSignal{}
+	}
+	if obs.Iteration < e.heuristics.MidLoopMinIteration {
+		return LoopSignal{}
+	}
+	if !hasSuccessfulTool(obs.AllToolResults, "emit_evidence") {
+		return LoopSignal{}
+	}
+	if e.exactResolution != nil && e.exactResolution.AllowAbsence {
+		targets := e.exactPendingTargets
+		if len(targets) == 0 {
+			targets = e.exactResolution.Targets
+		}
+		if exactAbsenceClosureReady(e.exactResolution, e.scenario, targets, e.structuredEvidence, e.exactContextFiles) {
+			return LoopSignal{}
+		}
+	}
+	readiness := e.completionReadiness(obs.AllToolResults, -1, false, false)
+	if !readiness.HasEnough {
+		return LoopSignal{}
+	}
+	if !hasTerminalEvidence(e.structuredEvidence) && len(e.flowFindings) == 0 {
+		return LoopSignal{}
+	}
+	e.midLoopCompletionReadySent = true
+	var b strings.Builder
+	b.WriteString("MID-LOOP CHECK: you already have enough evidence to answer this question on the current branch. ")
+	b.WriteString("Stop widening scope and close the investigation now with `emit_investigation_complete(reason, confidence, result_kind)` instead of reading more neighboring files. ")
+	b.WriteString("Use `result_kind=\"resolved\"` unless this is a genuine honest-zero / not-found answer.\n")
+	fmt.Fprintf(&b, "- evidence-bearing tool sources: %d\n", readiness.ToolSources)
+	fmt.Fprintf(&b, "- direct/registration evidence items: %d\n", readiness.DirectCount)
+	if readiness.ScopeTotalCount > 0 {
+		fmt.Fprintf(&b, "- scoped file coverage: %d / %d\n", readiness.ScopeReadCount, readiness.ScopeTotalCount)
+	} else {
+		fmt.Fprintf(&b, "- files read: %d\n", readiness.ReadCount)
+	}
+	if len(e.ermRequirements) > 0 && readiness.ERMSatisfied {
+		b.WriteString("- all current evidence requirements are satisfied\n")
+	}
+	b.WriteString("Only continue reading if one specific unresolved branch would still change the final answer.")
+	return LoopSignal{
+		HintRequested:  true,
+		HintKey:        "explorer.mid-loop.completion-ready",
+		Hint:           b.String(),
+		Progress:       true,
+		BypassThrottle: true,
+	}
+}
+
 func exactAbsenceClosureReady(contract *types.ExactResolutionContract, scenario types.Scenario, targets []string, evidence []types.EvidenceItem, requiredFiles []string) bool {
 	if contract == nil || len(targets) == 0 || len(evidence) == 0 {
 		return false
@@ -3924,6 +4118,9 @@ func (e *explorerEvaluator) observeMidLoop(obs LoopObservation) LoopSignal {
 		return sig
 	}
 	if sig := e.postExactAbsenceClosureSignal(obs); sig.HintRequested {
+		return sig
+	}
+	if sig := e.postCompletionReadySignal(obs); sig.HintRequested {
 		return sig
 	}
 
@@ -5358,115 +5555,18 @@ func (e *explorerEvaluator) ParseOutput(ctx *types.AgentContext, messages []llm.
 	// 3. Evidence quality: count structured evidence tags in notes.
 	//    Require at least 2 [DIRECT]/[REGISTRATION] entries (ground-truth facts).
 	// 4. File relevance: weight read files by their keyword search rank.
-	discovered, readSet, _ := extractFileCoverage(toolResults, e.repoRoot)
-	scope := e.coverageScopeFiles(discovered, readSet, strings.Join(e.investigationNotes, "\n"))
-	scopeReadCount, scopeCoverage, _ := coverageSnapshot(scope, readSet)
-	coverage := 0.0
-	if len(scope) > 0 {
-		coverage = scopeCoverage
-	} else if len(discovered) > 0 {
-		coverage = float64(len(readSet)) / float64(len(discovered))
-	}
-
-	// Count structured evidence quality after merging both channels:
-	// emit_evidence items plus any markdown/bare-tag evidence that
-	// survived parsing in ensureStructuredEvidence.
-	directCount := 0
-	for _, item := range e.structuredEvidence {
-		switch item.Kind {
-		case types.EvidenceDirect, types.EvidenceRegistration:
-			directCount++
-		}
-	}
-
-	// Compute relevance-weighted coverage: files in allScoredFiles
-	// (top keyword-search hits) count more than random grep results.
-	relevantRead := 0
-	rankedFiles := e.rankerCoverageFilesForReadSet(readSet)
-	if len(rankedFiles) > 0 {
-		scoredSet := make(map[string]bool, len(rankedFiles))
-		for _, f := range rankedFiles {
-			scoredSet[f] = true
-		}
-		for f := range readSet {
-			if scoredSet[f] {
-				relevantRead++
-			}
-		}
-	}
-
-	toolDiversity := len(sources) >= 2
-	fileCoverage := coverage >= 0.5 || len(readSet) >= 3
-	evidenceQuality := directCount >= 2
-	// Enumeration queries need stricter thresholds: higher file coverage
-	// and more evidence entries to ensure exhaustive listing.
-	if e.isEnumerationQuery {
-		fileCoverage = coverage >= 0.8 || (len(scope) > 0 && scopeReadCount >= len(scope))
-		minDirect := len(scope) / 3
-		if minDirect == 0 {
-			minDirect = len(discovered) / 3
-		}
-		if minDirect < 2 {
-			minDirect = 2
-		}
-		evidenceQuality = directCount >= minDirect
-	}
-	// Single-source investigation bypass: when exactly one type of
-	// high-confidence evidence tool was used, the multi-dimensional
-	// quality floor is inapplicable. The LLM answered using a single
-	// tool type — file counts via exec_command, version checks via
-	// read_file, existence checks via grep, directory listings via
-	// list_files. If the answer is insufficient, the AnswerContract
-	// checker will backtrack via the retry budget.
-	if len(sources) == 1 {
-		toolDiversity = true
-		fileCoverage = true
-		evidenceQuality = true
-	}
-	hasEnough := toolDiversity && fileCoverage && evidenceQuality
+	readiness := e.completionReadiness(toolResults, len(sources), exactAbsenceSalvaged, true)
 
 	// Primary signal: the LLM explicitly called emit_investigation_complete.
 	// When set, it overrides ALL heuristic calculations — the LLM
 	// declared it has enough evidence, and we trust it.
-	if ctx != nil && ctx.Mutable != nil && ctx.Mutable.IsInvestigationComplete() {
-		if !hasEnough {
-			logging.Debug("[explorer] HasEnoughFacts promoted by emit_investigation_complete (heuristic was: toolDiv=%v fileCov=%v evQual=%v)",
-				toolDiversity, fileCoverage, evidenceQuality)
-		}
-		hasEnough = true
-	} else {
-		// Fallback: ERM quality gate (only when no explicit signal).
-		if len(e.ermRequirements) > 0 {
-			e.ermRequirements = checkRequirementSatisfaction(e.ermRequirements, e.investigationNotes, e.structuredEvidence, e.complexity)
-			allSat := ermAllSatisfied(e.ermRequirements)
-			if hasEnough && !allSat {
-				unsatCount := 0
-				for _, r := range e.ermRequirements {
-					if r.Status == "unsatisfied" {
-						unsatCount++
-					}
-				}
-				if unsatCount > 0 {
-					logging.Debug("[explorer] ERM gate: %d unsatisfied requirements, demoting hasEnough", unsatCount)
-					hasEnough = false
-				}
-			} else if !hasEnough && allSat {
-				if len(e.structuredEvidence) > 0 {
-					logging.Debug("[explorer] ERM all-satisfied promote: hasEnough=true (quantitative floors: toolDiv=%v fileCov=%v evQual=%v)",
-						toolDiversity, fileCoverage, evidenceQuality)
-					hasEnough = true
-				} else {
-					logging.Debug("[explorer] ERM all-satisfied but not promoted: no structured evidence was captured")
-				}
-			}
-		}
+	if ctx != nil && ctx.Mutable != nil && ctx.Mutable.IsInvestigationComplete() && !readiness.HasEnough {
+		logging.Debug("[explorer] HasEnoughFacts promoted by emit_investigation_complete (heuristic was: toolDiv=%v fileCov=%v evQual=%v)",
+			readiness.ToolDiversity, readiness.FileCoverage, readiness.EvidenceQuality)
+		readiness.HasEnough = true
 	}
-
-	if exactAbsenceSalvaged && !hasEnough {
-		logging.Debug("[explorer] exact-absence salvage promoted hasEnough=true")
-		hasEnough = true
-	}
-	signals := &types.ExecutionSignals{HasEnoughFacts: hasEnough}
+	signals := &types.ExecutionSignals{HasEnoughFacts: readiness.HasEnough}
+	_, readSet, _ := extractFileCoverage(toolResults, e.repoRoot)
 
 	// Rank evidence and findings by relevance to the user's question
 	// so downstream consumers (finalizer) get the most useful items first.
@@ -5721,18 +5821,18 @@ func (e *explorerEvaluator) ParseOutput(ctx *types.AgentContext, messages []llm.
 
 	if !signals.HasEnoughFacts {
 		var hintKey string
-		if !toolDiversity {
+		if !readiness.ToolDiversity {
 			hintKey = "explorer.retry.tool-diversity"
 			out.RetryHint = "Previous attempt used fewer than 2 distinct evidence tool types. Use both grep and read_file."
-		} else if !evidenceQuality {
+		} else if !readiness.EvidenceQuality {
 			hintKey = "explorer.retry.evidence-quality"
-			out.RetryHint = fmt.Sprintf("Previous attempt collected only %d [DIRECT]/[REGISTRATION] evidence entries (need ≥2). Read more files and extract structured evidence with [DIRECT], [REGISTRATION], [CONDITIONAL] tags.", directCount)
+			out.RetryHint = fmt.Sprintf("Previous attempt collected only %d [DIRECT]/[REGISTRATION] evidence entries (need ≥2). Read more files and extract structured evidence with [DIRECT], [REGISTRATION], [CONDITIONAL] tags.", readiness.DirectCount)
 		} else if len(e.ermRequirements) > 0 && !ermAllSatisfied(e.ermRequirements) {
 			hintKey = "explorer.retry.erm-unsatisfied"
 			out.RetryHint = "Previous attempt left evidence requirements unsatisfied. " + ermUnsatisfiedGaps(e.ermRequirements)
 		} else {
 			hintKey = "explorer.retry.file-coverage"
-			out.RetryHint = fmt.Sprintf("Previous attempt read only %d of %d discovered relevant files (%.0f%% coverage, %d relevant). Read more of the discovered files.", scopeReadCount, max(len(scope), len(discovered)), coverage*100, relevantRead)
+			out.RetryHint = fmt.Sprintf("Previous attempt read only %d of %d discovered relevant files (%.0f%% coverage, %d relevant). Read more of the discovered files.", readiness.ScopeReadCount, max(readiness.ScopeTotalCount, readiness.DiscoveredCount), readiness.Coverage*100, readiness.RelevantRead)
 		}
 		logging.Debug("[explorer] retry hint built key=%q len=%d body=%q",
 			hintKey, len(out.RetryHint), logging.Truncate(out.RetryHint, logging.HintBodyMax))

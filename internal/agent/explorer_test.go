@@ -1400,19 +1400,25 @@ $$ LANGUAGE plpgsql;`
 // question.
 func TestBuildInitialInstruction_CrossRunResetOnQuestionChange(t *testing.T) {
 	eval := &explorerEvaluator{
-		userQuestion:              "how many agents can invoke subagent",
-		investigationNotes:        []string{"[DIRECT] prior turn note"},
-		preScannedFiles:           []string{"internal/agent/explorer.go"},
-		allScoredFiles:            []string{"internal/agent/explorer.go"},
-		searchResult:              &keywordSearchResult{}, // non-nil stale pointer
-		ermRequirements:           []EvidenceRequirement{{Kind: "registration", Entities: []string{"subagent"}}},
-		fileSymbols:               map[string][]string{"stale.go": {"Foo"}},
-		phase0ExtraRound:          true,
-		hasPrescanRepoMap:         true,
-		grepRedirectedFiles:       map[string]bool{"stale.go": true},
-		preScannedPushCount:       3,
-		lastPreScannedUnreadCount: 2,
-		broadenAttempts:           1,
+		userQuestion:                "how many agents can invoke subagent",
+		investigationNotes:          []string{"[DIRECT] prior turn note"},
+		preScannedFiles:             []string{"internal/agent/explorer.go"},
+		allScoredFiles:              []string{"internal/agent/explorer.go"},
+		searchResult:                &keywordSearchResult{}, // non-nil stale pointer
+		ermRequirements:             []EvidenceRequirement{{Kind: "registration", Entities: []string{"subagent"}}},
+		fileSymbols:                 map[string][]string{"stale.go": {"Foo"}},
+		phase0ExtraRound:            true,
+		hasPrescanRepoMap:           true,
+		grepRedirectedFiles:         map[string]bool{"stale.go": true},
+		preScannedPushCount:         3,
+		lastPreScannedUnreadCount:   2,
+		broadenAttempts:             1,
+		midLoopNoEmitPushSent:       true,
+		midLoopNoEmitEscalated:      true,
+		midLoopExecRedirectSent:     true,
+		midLoopCompletionReadySent:  true,
+		midLoopNoEmitPushIter:       5,
+		midLoopNoEmitPushResultsLen: 8,
 		// idleStreakInDepth and lastToolResultCount used to live on
 		// this struct too; they moved to LoopPolicy and are rebuilt
 		// per dispatch, so there is nothing to stuff into the fixture.
@@ -1459,6 +1465,13 @@ func TestBuildInitialInstruction_CrossRunResetOnQuestionChange(t *testing.T) {
 	if eval.preScannedPushCount != 0 || eval.lastPreScannedUnreadCount != 0 ||
 		eval.broadenAttempts != 0 {
 		t.Error("per-run counters not reset")
+	}
+	if eval.midLoopNoEmitPushSent || eval.midLoopNoEmitEscalated ||
+		eval.midLoopExecRedirectSent || eval.midLoopCompletionReadySent {
+		t.Error("per-dispatch one-shot hint flags not reset")
+	}
+	if eval.midLoopNoEmitPushIter != 0 || eval.midLoopNoEmitPushResultsLen != 0 {
+		t.Error("mid-loop no-emit counters not reset")
 	}
 	// New userQuestion should reflect the new task.
 	if eval.userQuestion != "how does BuildContext cap turn file size" {
@@ -4004,6 +4017,197 @@ func TestObserveMidLoop_ExactAbsenceClosureHint(t *testing.T) {
 	}
 	if !strings.Contains(sig.Hint, "absence_justification") || !strings.Contains(sig.Hint, "related context only") {
 		t.Fatalf("hint should drive absence closure, got: %s", sig.Hint)
+	}
+}
+
+func TestObserveMidLoop_CompletionReadyHint(t *testing.T) {
+	newReadResult := func(path string) types.ToolResult {
+		return types.ToolResult{
+			ToolName: "read_file",
+			Success:  true,
+			Summary:  "[" + path + ": showing lines 1-20 of 20]\npackage fixture\n",
+		}
+	}
+
+	eval := &explorerEvaluator{
+		phase:                      1,
+		heuristics:                 types.ExploreHeuristics{MidLoopMinIteration: 2},
+		searchResult:               &keywordSearchResult{Graph: &repomap.Graph{}},
+		midLoopPostPrimaryInjected: true,
+		structuredEvidence: []types.EvidenceItem{
+			{
+				Kind:            types.EvidenceRegistration,
+				Subject:         "BuildAnalysisIR",
+				Predicate:       "registers",
+				Object:          "analysis pipeline entry",
+				Source:          "internal/agent/analyzer.go",
+				GroundingStatus: types.GroundingGrounded,
+			},
+			{
+				Kind:            types.EvidenceDirect,
+				Subject:         "AnalysisIR",
+				Predicate:       "defined_in",
+				Object:          "internal/types/analysis_ir.go",
+				Source:          "internal/types/analysis_ir.go",
+				GroundingStatus: types.GroundingGrounded,
+			},
+		},
+		investigationNotes: []string{
+			"[DIRECT] BuildAnalysisIR is the structured IR entrypoint for analyzer dispatch.",
+		},
+	}
+	results := []types.ToolResult{
+		{ToolName: "grep", Success: true, Summary: "internal/agent/analyzer.go\ninternal/types/analysis_ir.go"},
+		newReadResult("internal/agent/analyzer.go"),
+		newReadResult("internal/types/analysis_ir.go"),
+		newReadResult("internal/context/builder.go"),
+		{ToolName: "emit_evidence", Success: true, Summary: "emit_evidence accepted 2 items"},
+	}
+
+	sig := eval.observeMidLoop(LoopObservation{
+		Phase:          PhaseMidLoop,
+		Iteration:      3,
+		LastToolResult: &results[len(results)-1],
+		AllToolResults: results,
+	})
+	if !sig.HintRequested {
+		t.Fatalf("completion-ready hint should fire, got %+v", sig)
+	}
+	if sig.HintKey != "explorer.mid-loop.completion-ready" {
+		t.Fatalf("HintKey = %q, want explorer.mid-loop.completion-ready", sig.HintKey)
+	}
+	if !strings.Contains(sig.Hint, "emit_investigation_complete") || !strings.Contains(sig.Hint, "enough evidence") {
+		t.Fatalf("hint should direct immediate closure, got: %s", sig.Hint)
+	}
+	if !eval.midLoopCompletionReadySent {
+		t.Fatal("one-shot guard should be set after firing")
+	}
+
+	again := eval.observeMidLoop(LoopObservation{
+		Phase:          PhaseMidLoop,
+		Iteration:      4,
+		LastToolResult: &results[len(results)-1],
+		AllToolResults: results,
+	})
+	if again.HintRequested && again.HintKey == "explorer.mid-loop.completion-ready" {
+		t.Fatalf("completion-ready hint must be one-shot, fired again: %+v", again)
+	}
+}
+
+func TestObserveMidLoop_CompletionReadyRequiresEmitEvidence(t *testing.T) {
+	newReadResult := func(path string) types.ToolResult {
+		return types.ToolResult{
+			ToolName: "read_file",
+			Success:  true,
+			Summary:  "[" + path + ": showing lines 1-20 of 20]\npackage fixture\n",
+		}
+	}
+
+	eval := &explorerEvaluator{
+		phase:                      1,
+		heuristics:                 types.ExploreHeuristics{MidLoopMinIteration: 2},
+		searchResult:               &keywordSearchResult{Graph: &repomap.Graph{}},
+		midLoopPostPrimaryInjected: true,
+		midLoopNoEmitPushSent:      true,
+		structuredEvidence: []types.EvidenceItem{
+			{
+				Kind:            types.EvidenceRegistration,
+				Subject:         "BuildAnalysisIR",
+				Predicate:       "registers",
+				Object:          "analysis pipeline entry",
+				Source:          "internal/agent/analyzer.go",
+				GroundingStatus: types.GroundingGrounded,
+			},
+			{
+				Kind:            types.EvidenceDirect,
+				Subject:         "AnalysisIR",
+				Predicate:       "defined_in",
+				Object:          "internal/types/analysis_ir.go",
+				Source:          "internal/types/analysis_ir.go",
+				GroundingStatus: types.GroundingGrounded,
+			},
+		},
+	}
+	results := []types.ToolResult{
+		{ToolName: "grep", Success: true, Summary: "internal/agent/analyzer.go\ninternal/types/analysis_ir.go"},
+		newReadResult("internal/agent/analyzer.go"),
+		newReadResult("internal/types/analysis_ir.go"),
+		newReadResult("internal/context/builder.go"),
+	}
+
+	sig := eval.observeMidLoop(LoopObservation{
+		Phase:          PhaseMidLoop,
+		Iteration:      3,
+		LastToolResult: &results[len(results)-1],
+		AllToolResults: results,
+	})
+	if sig.HintRequested && sig.HintKey == "explorer.mid-loop.completion-ready" {
+		t.Fatalf("completion-ready hint must not fire before a successful emit_evidence, got %+v", sig)
+	}
+}
+
+func TestObserveMidLoop_CompletionReadyHint_UsesAuthoritativeLogCoverage(t *testing.T) {
+	newReadResult := func(path string) types.ToolResult {
+		return types.ToolResult{
+			ToolName: "read_file",
+			Success:  true,
+			Summary:  "[" + path + ": showing lines 1-40 of 400]\npackage fixture\n",
+		}
+	}
+
+	eval := &explorerEvaluator{
+		phase:                      1,
+		heuristics:                 types.ExploreHeuristics{MidLoopMinIteration: 2},
+		searchResult:               &keywordSearchResult{Graph: &repomap.Graph{}},
+		midLoopPostPrimaryInjected: true,
+		logTriage: &types.LogBundle{
+			Meta:          types.LogMeta{Signals: []types.LogSignal{types.SignalPanic}},
+			ResolvedFiles: []string{"internal/agent/analyzer.go"},
+		},
+		structuredEvidence: []types.EvidenceItem{
+			{
+				Kind:            types.EvidenceRelationship,
+				Subject:         "analyzerEvaluator.ParseOutput",
+				Predicate:       "calls",
+				Object:          "buildAnalysisIR",
+				Source:          "internal/agent/analyzer.go",
+				GroundingStatus: types.GroundingGrounded,
+			},
+			{
+				Kind:            types.EvidenceDirect,
+				Subject:         "buildAnalysisIR",
+				Predicate:       "defined_in",
+				Object:          "internal/agent/analyzer.go",
+				Source:          "internal/agent/analyzer.go",
+				GroundingStatus: types.GroundingGrounded,
+			},
+			{
+				Kind:            types.EvidenceDirect,
+				Subject:         "RequestModel",
+				Predicate:       "checked_at",
+				Object:          "line 616",
+				Source:          "internal/agent/analyzer.go",
+				GroundingStatus: types.GroundingGrounded,
+			},
+		},
+	}
+	results := []types.ToolResult{
+		{ToolName: "grep", Success: true, Summary: "internal/agent/analyzer.go"},
+		newReadResult("internal/agent/analyzer.go"),
+		{ToolName: "emit_evidence", Success: true, Summary: "emit_evidence accepted 3 items"},
+	}
+
+	sig := eval.observeMidLoop(LoopObservation{
+		Phase:          PhaseMidLoop,
+		Iteration:      3,
+		LastToolResult: &results[len(results)-1],
+		AllToolResults: results,
+	})
+	if !sig.HintRequested {
+		t.Fatalf("completion-ready hint should fire once authoritative log coverage is satisfied, got %+v", sig)
+	}
+	if sig.HintKey != "explorer.mid-loop.completion-ready" {
+		t.Fatalf("HintKey = %q, want explorer.mid-loop.completion-ready", sig.HintKey)
 	}
 }
 
