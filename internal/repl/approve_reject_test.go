@@ -214,17 +214,23 @@ func TestApprove_HappyPath(t *testing.T) {
 	_ = originalPath
 }
 
-// TestApprove_RefusesNonPendingStatus verifies /approve blocks when
-// the saved plan's Status has already transitioned out of
-// pending_approval (any of applied / applied_failed / verify_failed /
-// rejected). Blast radius: prevents a wasteful re-dispatch of apply +
-// verify against a plan the orchestrator already took to a terminal
-// state.
-func TestApprove_RefusesNonPendingStatus(t *testing.T) {
+// TestApprove_RefusesTerminalStatus verifies /approve blocks
+// re-approval of plans that have already reached a terminal
+// resolution: applied (already landed), applied_failed (W1/W1b
+// or git apply rejected, planner needs to be re-run), rejected
+// (operator's deliberate /reject decision must not be silently
+// undone).
+//
+// verify_failed is INTENTIONALLY NOT in this list — see
+// TestApprove_AcceptsVerifyFailedForRetry. A plan that applied
+// cleanly but failed verify is the env-fix retry path: the
+// operator installs the missing test runner / starts the missing
+// service / etc., then /approve to re-run apply+verify against
+// the same reviewed plan.
+func TestApprove_RefusesTerminalStatus(t *testing.T) {
 	cases := []struct{ status string }{
 		{types.PlanStatusApplied},
 		{types.PlanStatusApplyFailed},
-		{types.PlanStatusVerifyFailed},
 		{types.PlanStatusRejected},
 	}
 	for _, tc := range cases {
@@ -276,6 +282,56 @@ func TestApprove_RefusesNonPendingStatus(t *testing.T) {
 				t.Errorf("pendingPlanPath should be cleared on non-pending refusal; got %q", r.pendingPlanPath)
 			}
 		})
+	}
+}
+
+// TestApprove_AcceptsVerifyFailedForRetry locks the env-fix retry
+// contract. A plan that applied cleanly but failed verify (because
+// pytest wasn't installed, the test database wasn't running, a
+// network endpoint flaked, etc.) MUST be re-approvable after the
+// operator fixes the environment — re-running /mode plan would
+// wastefully re-classify the same code-write request and produce
+// an equivalent ChangePlan.
+func TestApprove_AcceptsVerifyFailedForRetry(t *testing.T) {
+	runner := &writeCapableRunner{}
+	store := NewPlanStore(t.TempDir())
+	plan := &types.ChangePlan{
+		ID:      "plan-verify-failed-retry",
+		Summary: "x",
+		Status:  types.PlanStatusVerifyFailed,
+		Changes: []types.FileChange{{Path: "a.go", Kind: "modify"}},
+	}
+	path, err := store.Save(plan)
+	if err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+	memStore, err := memory.NewStore(t.TempDir(), stubSummarizer{}, types.MemorySettings{})
+	if err != nil {
+		t.Fatalf("memory.NewStore: %v", err)
+	}
+	t.Cleanup(func() { memStore.Close() })
+	out := &bytes.Buffer{}
+	r := New(Config{
+		Runner:       runner,
+		Store:        memStore,
+		In:           strings.NewReader("y\n"),
+		Out:          out,
+		RepoRoot:     "/tmp/repo",
+		Branch:       "main",
+		Render:       renderNothing,
+		PlanStore:    store,
+		Language:     "en",
+		WriteEnabled: true,
+	})
+	r.pendingPlanPath = path
+
+	r.handleApproveCmd("/approve")
+
+	if !runner.runCalled {
+		t.Error("/approve must dispatch Run for verify_failed plans (env-fix retry)")
+	}
+	if !strings.Contains(out.String(), "re-approving") || !strings.Contains(out.String(), "verify_failed") {
+		t.Errorf("output should announce the verify_failed retry; got %q", out.String())
 	}
 }
 

@@ -374,6 +374,24 @@ func mergeSuccess(lang, strategy, finalBranch string, count int) []string {
 	}
 }
 
+// mergeForceFailedWarning — printed when the user passes
+// `/merge --include-failed` (or --force) and the resolved plan's
+// Status is verify_failed. We surface a deliberate warning so the
+// operator's eye registers that they're overriding the safety
+// gate before any git command runs.
+func mergeForceFailedWarning(lang, planID string) []string {
+	if isZh(lang) {
+		return []string{
+			formatN(lang, "  ⚠ 强制合入 plan %s — 该 plan 的 verify 阶段曾失败。", planID),
+			"  请先确认 /plan show 的 diff 与失败摘要,确保失败是环境/CI 类原因(非代码缺陷)。",
+		}
+	}
+	return []string{
+		formatN(lang, "  ⚠ Force-merging plan %s — its verify stage previously failed.", planID),
+		"  Confirm /plan show diff + failure summary; only proceed if the failure is environmental (CI/infra), not a code defect.",
+	}
+}
+
 // mergeFailure — printed when MergeIntoBranch returned an error.
 // gitDiag is the raw git diagnostic from the helper; the second
 // line tells the user the helper rolled back so the main repo is

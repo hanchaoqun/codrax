@@ -336,14 +336,15 @@ func (t *RunTests) Execute(ctx *types.BusContext, params json.RawMessage) (types
 		// FailureKindRunnerMissing tag.
 		if missing, missingBinary := detectRunnerMissing(runner, runErr, output); missing {
 			_, ref := StoreBlob(ctx, t.Name()+"-runner-missing", strings.Join(combinedOutputs, "\n\n"))
-			report := makeRunnerMissingReport(runner, missingBinary, output)
+			report := makeRunnerMissingReport(runner, missingBinary, output, ctx.Language)
 			ctx.Mutable.SetChangeReport(qualifyChangeReport(report, plan, ctx.RepoRoot))
+			summary := runnerMissingToolResultSummary(
+				ctx.Language, runnerPlanLabel(ctx.RepoRoot, plan),
+				missingBinary, runnerInstallHint(runner, ctx.Language))
 			return types.ToolResult{
-				ToolName: t.Name(),
-				Success:  false,
-				Summary: fmt.Sprintf(
-					"[run_tests: %s] runner binary %q not found in PATH — install it before re-running verify; %s",
-					runnerPlanLabel(ctx.RepoRoot, plan), missingBinary, runnerInstallHint(runner)),
+				ToolName:  t.Name(),
+				Success:   false,
+				Summary:   summary,
 				RawRef:    ref,
 				Timestamp: time.Now(),
 			}, nil
@@ -871,6 +872,24 @@ func detectRunnerMissing(runner string, runErr error, output string) (bool, stri
 		"is not recognized as an internal or external command", // Windows cmd
 		"No such file or directory: '" + bin + "'",
 	}
+	if runner == "python" {
+		// pythonInterpreter resolves to `python3` / `python` / a
+		// venv path, NOT bare `pytest`. The shell can therefore
+		// fail with the interpreter name in its missing-binary
+		// message, AND Python itself can fail with a distinct
+		// "No module named pytest" error when the interpreter
+		// resolves but pytest isn't installed for it. Both shapes
+		// indicate operator-fixable env issues that re-running
+		// the planner can't address.
+		patterns = append(patterns,
+			"python: command not found",
+			"python: not found",
+			"python3: command not found",
+			"python3: not found",
+			"No module named pytest",
+			"No module named 'pytest'",
+		)
+	}
 	lower := strings.ToLower(output)
 	for _, p := range patterns {
 		if strings.Contains(lower, strings.ToLower(p)) {
@@ -935,37 +954,156 @@ func runnerPrimaryBinary(runner string) string {
 	return ""
 }
 
-// runnerInstallHint maps a runner to a short, OS-agnostic install
-// suggestion the user-facing error embeds. Kept terse; the user can
-// search the runner's docs for full instructions.
-func runnerInstallHint(runner string) string {
+// pythonInterpreter resolves the Python invocation to use for the
+// repository under test. Returns (path-or-name, asModule) where
+// asModule tells the caller whether to invoke as
+// `<interp> -m pytest` (the recommended pytest documentation form;
+// works for any python+pytest install and adds CWD to sys.path) or
+// to fall back to a bare `pytest` invocation.
+//
+// Priority order:
+//
+//  1. Project venv binaries — `.venv/bin/python` (Unix) /
+//     `.venv\Scripts\python.exe` (Windows), then `venv/`, `env/`,
+//     `.virtualenv/` variants. When a venv exists, its python sees
+//     the project's installed dependencies; running pytest from
+//     outside the venv would either miss the project's deps or use
+//     a different interpreter than `pip install` populated.
+//  2. `python3` from PATH — preferred over `python` because modern
+//     Linux/macOS distros ship only `python3` (the `python` symlink
+//     to Python 2 was removed). exec.LookPath probes the operator's
+//     PATH, which exec.Cmd inherits to the worktree subprocess.
+//  3. `python` from PATH — older systems / Windows.
+//  4. Bare `pytest` — last resort, only when no python interpreter
+//     resolves. The runner_missing detector catches this if pytest
+//     is also absent.
+//
+// Cross-platform: filepath.Join uses the OS separator, so on
+// Windows the venv probe produces backslash paths. filepath.ToSlash
+// normalises to forward slashes for shell consumption — both the
+// codrax-default sh wrapper (Git for Windows) and cmd.exe accept
+// forward-slash paths on Windows, and avoiding backslashes
+// sidesteps shell-escape ambiguity (`\v`, `\t` etc as escape codes
+// in some sh implementations).
+func pythonInterpreter(repoRoot string) (string, bool) {
+	venvDirs := []string{".venv", "venv", "env", ".virtualenv"}
+	venvSubpaths := []string{
+		filepath.Join("bin", "python"),
+		filepath.Join("bin", "python3"),
+		filepath.Join("Scripts", "python.exe"),
+	}
+	for _, dir := range venvDirs {
+		for _, sub := range venvSubpaths {
+			candidate := filepath.Join(repoRoot, dir, sub)
+			if info, err := os.Stat(candidate); err == nil && !info.IsDir() {
+				return filepath.ToSlash(candidate), true
+			}
+		}
+	}
+	if _, err := exec.LookPath("python3"); err == nil {
+		return "python3", true
+	}
+	if _, err := exec.LookPath("python"); err == nil {
+		return "python", true
+	}
+	return "pytest", false
+}
+
+// runnerInstallHint maps a runner to a short install suggestion
+// the user-facing error embeds. Kept terse; the user can search
+// the runner's docs for full instructions. Bilingual: zh (default)
+// vs en. Drift-guard test TestRunnerInstallHint_AllRunnersCovered
+// asserts every allowedRunners entry has a non-empty hint in zh.
+func runnerInstallHint(runner, lang string) string {
+	zh := isZh(lang)
 	switch runner {
 	case "go":
+		if zh {
+			return "从 https://go.dev/dl/ 安装 Go(或用发行版包管理器)"
+		}
 		return "install Go from https://go.dev/dl/ (or your distro's package manager)"
 	case "python":
-		return "install pytest with `pip install pytest pytest-json-report`"
+		if zh {
+			return "在项目 venv 里装(`python3 -m venv .venv && .venv/bin/pip install pytest pytest-json-report`)或用系统 python(`pip install pytest pytest-json-report`);codrax 会自动识别仓根的 .venv / venv / env / .virtualenv 目录"
+		}
+		return "install pytest in the project venv (`python3 -m venv .venv && .venv/bin/pip install pytest pytest-json-report`) or for the system python (`pip install pytest pytest-json-report`); codrax auto-detects .venv / venv / env / .virtualenv directories at the repo root"
 	case "rust":
+		if zh {
+			return "从 https://rustup.rs/ 安装 Rust + Cargo"
+		}
 		return "install Rust + Cargo from https://rustup.rs/"
 	case "java":
+		if zh {
+			return "安装 Maven(`mvn`)或使用项目自带的 Gradle wrapper(`./gradlew`)"
+		}
 		return "install Maven (`mvn`) or use the project's Gradle wrapper (`./gradlew`)"
 	case "ruby":
+		if zh {
+			return "用 `gem install bundler` 装 Bundler,然后在仓根跑 `bundle install`"
+		}
 		return "install Bundler with `gem install bundler` and run `bundle install` in the repo"
 	case "swift":
+		if zh {
+			return "从 https://swift.org/download/ 安装 Swift 工具链"
+		}
 		return "install the Swift toolchain from https://swift.org/download/"
 	case "cmake":
+		if zh {
+			return "从 https://cmake.org/download/ 安装 CMake(自带 ctest),并先配置好 build 目录"
+		}
 		return "install CMake (provides ctest) from https://cmake.org/download/ and configure a build dir first"
 	case "meson":
+		if zh {
+			return "用 `pip install meson` 安装 Meson(并装 ninja),再配置 build 目录"
+		}
 		return "install Meson with `pip install meson` (and ninja) and configure a build dir first"
 	case "make":
+		if zh {
+			return "用发行版包管理器装 GNU make"
+		}
 		return "install GNU make from your distro's package manager"
 	case "hvigor":
+		if zh {
+			return "安装 HarmonyOS DevEco 命令行工具(自带 hvigorw)"
+		}
 		return "install the HarmonyOS DevEco command-line tools (provides hvigorw)"
 	case "cjpm":
+		if zh {
+			return "安装 Cangjie 工具链(自带 cjpm)"
+		}
 		return "install the Cangjie toolchain (provides cjpm)"
 	case "node":
+		if zh {
+			return "从 https://nodejs.org/ 安装 Node.js(自带 npm)"
+		}
 		return "install Node.js (https://nodejs.org/) which bundles npm"
 	}
+	if zh {
+		return "安装该 runner 的 CLI 二进制"
+	}
 	return "install the runner's CLI binary"
+}
+
+// runnerMissingToolResultSummary builds the bilingual ToolResult.
+// Summary text rendered to the user's terminal when a runner
+// binary is missing. Mirrors the makeRunnerMissingReport prose
+// (which is what gets stored on ChangeReport) so the user sees
+// consistent wording in both surfaces.
+func runnerMissingToolResultSummary(lang, label, missingBinary, hint string) string {
+	if isZh(lang) {
+		return fmt.Sprintf(
+			"[run_tests: %s] 在 PATH 上找不到 runner 二进制 %q —— 重新跑 verify 之前请先安装;%s",
+			label, missingBinary, hint)
+	}
+	return fmt.Sprintf(
+		"[run_tests: %s] runner binary %q not found in PATH — install it before re-running verify; %s",
+		label, missingBinary, hint)
+}
+
+// isZh mirrors the REPL helper of the same name. Duplicated rather
+// than imported to avoid an internal/tool → internal/repl edge.
+func isZh(lang string) bool {
+	return !strings.EqualFold(strings.TrimSpace(lang), "en")
 }
 
 // makeRunnerMissingReport produces a ChangeReport tagged with
@@ -973,15 +1111,28 @@ func runnerInstallHint(runner string) string {
 // retry suppressor in particular) can route on a single field. The
 // failure is BuildFailed=true because the runner never reached test
 // execution — same lifecycle slot as a compile error.
-func makeRunnerMissingReport(runner, binary, output string) *types.ChangeReport {
+//
+// Bilingual: lang=zh (default) renders the FailureSummary in
+// Simplified Chinese; lang=en renders English. This text reaches
+// the user's terminal via the verify-failure renderer, so it must
+// match the rest of the REPL chrome's language.
+func makeRunnerMissingReport(runner, binary, output, lang string) *types.ChangeReport {
 	excerpt := strings.TrimSpace(output)
 	if len(excerpt) > 600 {
 		excerpt = excerpt[:600] + "\n…[output truncated]"
 	}
-	summary := fmt.Sprintf(
-		"runner %q's primary binary %q is not installed in this environment — %s. "+
-			"Re-run verify after installing the tool; the planner cannot fix a missing dependency.",
-		runner, binary, runnerInstallHint(runner))
+	hint := runnerInstallHint(runner, lang)
+	var summary string
+	if isZh(lang) {
+		summary = fmt.Sprintf(
+			"runner %q 的主二进制 %q 未在本环境安装 —— %s。安装后重新跑 verify;planner 无法修复缺失的依赖。",
+			runner, binary, hint)
+	} else {
+		summary = fmt.Sprintf(
+			"runner %q's primary binary %q is not installed in this environment — %s. "+
+				"Re-run verify after installing the tool; the planner cannot fix a missing dependency.",
+			runner, binary, hint)
+	}
 	return &types.ChangeReport{
 		TestResults: []types.TestResult{{
 			Kind:          types.TestResultKindBuildError,
@@ -1278,10 +1429,27 @@ func buildRunCommand(runner, suite, repoRoot string) (string, string) {
 		// worktree so the report doesn't escape.
 		tmpFile := filepath.Join(repoRoot, ".codrax-pytest-report.json")
 		filter := strings.TrimSpace(suite)
-		if filter == "" {
-			return fmt.Sprintf("pytest --json-report --json-report-file=%q", tmpFile), tmpFile
+		// Resolve interpreter: prefer the project's venv when one
+		// exists (so pytest runs against the project's installed
+		// deps, not whatever is on PATH); fall back to system
+		// python3 / python; last resort bare pytest. The python -m
+		// pytest form is preferred over bare pytest because (1) it
+		// adds CWD to sys.path so source-only repos can import
+		// their own package without `pip install -e .`, and (2)
+		// it works regardless of whether the pytest entry-point
+		// script is on PATH (only the module needs to be importable).
+		interp, asModule := pythonInterpreter(repoRoot)
+		if asModule {
+			if filter == "" {
+				return fmt.Sprintf("%s -m pytest --json-report --json-report-file=%q", interp, tmpFile), tmpFile
+			}
+			return fmt.Sprintf("%s -m pytest %q --json-report --json-report-file=%q", interp, filter, tmpFile), tmpFile
 		}
-		return fmt.Sprintf("pytest %q --json-report --json-report-file=%q", filter, tmpFile), tmpFile
+		// Bare pytest fallback (no python interpreter resolvable).
+		if filter == "" {
+			return fmt.Sprintf("%s --json-report --json-report-file=%q", interp, tmpFile), tmpFile
+		}
+		return fmt.Sprintf("%s %q --json-report --json-report-file=%q", interp, filter, tmpFile), tmpFile
 	case "rust":
 		filter := strings.TrimSpace(suite)
 		if filter == "" {

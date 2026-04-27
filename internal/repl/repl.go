@@ -424,12 +424,52 @@ func New(cfg Config) *REPL {
 // scripted io.Reader.
 func (r *REPL) interactive() bool { return r.in == nil }
 
+// REPL prefix printers — subdued variants of pterm's defaults.
+// pterm.Info / Success / Warning / Error use the library's themed
+// styles which paint a bright-white-on-coloured-background block
+// for the prefix label and bold the message body. On screenshots
+// the result reads as "the REPL is shouting at me about an info
+// message" — a UX cost the codrax style guide consistently avoids.
+//
+// These replacements:
+//   - drop the background colour entirely (foreground-only prefix)
+//   - use a single Unicode symbol instead of a 4-7 char label
+//     (less visual noise, same intent legibility)
+//   - leave the message body in the terminal's default text style
+//     so the user's chrome / theme stays in control
+var (
+	subduedInfoPrinter = pterm.PrefixPrinter{
+		Prefix: pterm.Prefix{
+			Style: pterm.NewStyle(pterm.FgCyan),
+			Text:  "ℹ",
+		},
+	}
+	subduedSuccessPrinter = pterm.PrefixPrinter{
+		Prefix: pterm.Prefix{
+			Style: pterm.NewStyle(pterm.FgGreen),
+			Text:  "✓",
+		},
+	}
+	subduedWarnPrinter = pterm.PrefixPrinter{
+		Prefix: pterm.Prefix{
+			Style: pterm.NewStyle(pterm.FgYellow),
+			Text:  "⚠",
+		},
+	}
+	subduedErrorPrinter = pterm.PrefixPrinter{
+		Prefix: pterm.Prefix{
+			Style: pterm.NewStyle(pterm.FgRed),
+			Text:  "✗",
+		},
+	}
+)
+
 // info prints an informational message. In interactive mode it uses
-// pterm styling; in line-oriented mode it writes plain text to r.out
-// so tests can capture it.
+// the subdued cyan-prefix printer; in line-oriented mode it writes
+// plain text to r.out so tests can capture it.
 func (r *REPL) info(msg string) {
 	if r.interactive() {
-		pterm.Info.Println(msg)
+		subduedInfoPrinter.Println(msg)
 	} else {
 		fmt.Fprintln(r.out, msg)
 	}
@@ -438,7 +478,7 @@ func (r *REPL) info(msg string) {
 // success prints a success message.
 func (r *REPL) success(msg string) {
 	if r.interactive() {
-		pterm.Success.Println(msg)
+		subduedSuccessPrinter.Println(msg)
 	} else {
 		fmt.Fprintln(r.out, msg)
 	}
@@ -447,7 +487,7 @@ func (r *REPL) success(msg string) {
 // errorf prints an error message.
 func (r *REPL) errorf(format string, args ...interface{}) {
 	if r.interactive() {
-		pterm.Error.Printf(format, args...)
+		subduedErrorPrinter.Printf(format, args...)
 	} else {
 		fmt.Fprintf(r.out, format, args...)
 	}
@@ -456,7 +496,7 @@ func (r *REPL) errorf(format string, args ...interface{}) {
 // warn prints a warning message.
 func (r *REPL) warn(format string, args ...interface{}) {
 	if r.interactive() {
-		pterm.Warning.Printf(format, args...)
+		subduedWarnPrinter.Printf(format, args...)
 	} else {
 		fmt.Fprintf(r.out, format, args...)
 	}
@@ -1624,18 +1664,32 @@ func (r *REPL) handleApproveCmd(line string) {
 		return
 	}
 
-	// Only pending_approval plans are eligible for /approve. Anything
-	// past pending (applied / applied_failed / verify_failed / rejected)
-	// has already been through a terminal transition on disk; a second
-	// approve would re-provision a worktree and re-run apply+verify
-	// wastefully while muddling the Status lifecycle. Clear the pointer
-	// so the user can /mode plan a fresh one.
-	if plan.Status != "" && plan.Status != types.PlanStatusPending {
-		r.warn("approve refused: plan %s is in status %q, not %q. "+
+	// /approve accepts pending_approval AND verify_failed plans.
+	// pending_approval is the obvious case (a fresh plan straight
+	// out of /mode plan). verify_failed is the env-fix retry path:
+	// the plan applied cleanly but tests failed because the runner
+	// binary was missing, the database wasn't running, network
+	// flakes, etc. After the operator fixes the environment, they
+	// want to re-run apply+verify against the SAME reviewed plan
+	// without regenerating it. Re-approving applied / applied_failed
+	// / rejected plans is refused because they are either already
+	// landed (re-running would wastefully re-apply) or were rejected
+	// by the operator's earlier deliberate /reject (re-approving
+	// would silently undo that decision).
+	switch plan.Status {
+	case types.PlanStatusPending, types.PlanStatusVerifyFailed, "":
+		// re-approvable; "" is legacy unset, treated as pending
+	default:
+		r.warn("approve refused: plan %s is in status %q. "+
+			"Re-approvable statuses: %q (fresh plan), %q (env-fix retry). "+
 			"Run /mode plan to generate a fresh plan.\n",
-			plan.ID, plan.Status, types.PlanStatusPending)
+			plan.ID, plan.Status,
+			types.PlanStatusPending, types.PlanStatusVerifyFailed)
 		r.pendingPlanPath = ""
 		return
+	}
+	if plan.Status == types.PlanStatusVerifyFailed {
+		r.info(fmt.Sprintf("re-approving plan %s (status was verify_failed; assuming env-fix retry)", plan.ID))
 	}
 
 	// Probe both setters up-front. Running Mode=ModeApply against a
@@ -1959,11 +2013,22 @@ func (r *REPL) handleMergeCmd(line string) {
 		return
 	}
 	target := r.branch
+	includeFailed := false
 	rest := strings.TrimSpace(strings.TrimPrefix(line, "/merge"))
 	for _, tok := range strings.Fields(rest) {
-		if strings.HasPrefix(tok, "--branch=") {
+		switch {
+		case strings.HasPrefix(tok, "--branch="):
 			target = strings.TrimSpace(strings.TrimPrefix(tok, "--branch="))
-			break
+		case tok == "--include-failed", tok == "--force":
+			// --include-failed (preferred name) and --force (alias)
+			// allow merging a verify_failed plan. Use case: tests
+			// require infra the local box can't run (integration DB,
+			// external API, GPU); the operator reviews the diff,
+			// decides the failures are acceptable, and merges to
+			// run tests in CI. Without this flag /merge skips
+			// verify_failed plans because the safe default is "only
+			// merge code that passed verify".
+			includeFailed = true
 		}
 	}
 	if target == "" {
@@ -1971,6 +2036,11 @@ func (r *REPL) handleMergeCmd(line string) {
 	}
 
 	// Locate the most recent preserved worktree from PlanStore.
+	// Default: Status=applied only. With --include-failed: also
+	// accept Status=verify_failed (the operator override path).
+	// applied_failed / rejected are NEVER mergeable: those plans
+	// either never landed bytes (apply rejected by W1/W1b) or were
+	// deliberately discarded by the operator.
 	infos, err := r.planStore.List()
 	if err != nil {
 		r.errorf("merge: list plans: %v\n", err)
@@ -1978,8 +2048,11 @@ func (r *REPL) handleMergeCmd(line string) {
 	}
 	var wt string
 	var planID string
+	var planStatus string
 	for _, inf := range infos {
-		if inf.Status != types.PlanStatusApplied {
+		eligible := inf.Status == types.PlanStatusApplied ||
+			(includeFailed && inf.Status == types.PlanStatusVerifyFailed)
+		if !eligible {
 			continue
 		}
 		full, lerr := r.planStore.Load(inf.ID)
@@ -1994,7 +2067,13 @@ func (r *REPL) handleMergeCmd(line string) {
 		}
 		wt = full.WorktreePath
 		planID = full.ID
+		planStatus = full.Status
 		break
+	}
+	if includeFailed && planStatus == types.PlanStatusVerifyFailed {
+		for _, line := range mergeForceFailedWarning(r.language, planID) {
+			r.warn("%s\n", line)
+		}
 	}
 	if wt == "" {
 		for _, line := range mergeNoApplyYet(r.language) {

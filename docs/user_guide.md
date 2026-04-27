@@ -1077,13 +1077,44 @@ analyzer 的 quality gate 有两条**只对读模式有意义**的检查:
 
 否则"用 python 写一个猜数字游戏"这种从零起步的请求会被读模式 gate 误拒:仓里没有可调查的实体 → 所有 hypothesis priority 全是 0 → `hypothesis_coverage` fail → analyzer 重试预算烧光在凭空捏造假设上,planner 永远等不到 RequestModel。
 
-#### 4.3.15 REPL 控制命令意外喂给 orchestrator 时立即拒
+#### 4.3.15 verify_failed plan 可重新 /approve(环境修复重试)
+
+verify 阶段失败的 plan 状态是 `verify_failed`,默认情况下:
+
+- 未触发 verify→plan 自动重试(`pipeline_write_retry_budget=0` 或失败原因是 `runner_missing` 等环境类问题)
+- worktree 已被销毁(失败路径无条件清理)
+
+这种情形下用户可以:
+
+1. 修复环境(装 pytest、启动测试数据库、修复网络等)
+2. `/approve` 同一个 plan —— REPL 接受 `verify_failed` 状态,重新跑 apply + verify
+
+`/approve` 拒绝的状态:`applied`(已落地)/ `applied_failed`(W1/W1b 拒,需要重新规划)/ `rejected`(用户主动否决,不能静默撤销)。
+
+#### 4.3.16 Python pytest 自动用 venv
+
+verify 阶段跑 pytest 时,codrax 会按下列顺序解析 Python 解释器:
+
+1. **项目 venv**:`.venv/bin/python` / `.venv\Scripts\python.exe`(优先);其次 `venv/`、`env/`、`.virtualenv/`
+2. **系统 PATH**:`python3` 优先(现代 Linux/macOS 标准),`python` 兜底(老系统 / Windows)
+3. **裸 pytest**:都没有时回退
+
+调用形式始终是 `<interpreter> -m pytest --json-report ...`,**不**直接调 `pytest`。这做了两件事:
+
+- 自动用上 venv(无需 `source .venv/bin/activate`)
+- `python -m pytest` 把 cwd 加进 sys.path,源码-only 仓库无需 `pip install -e .` 也能 import 自己的包(这是 pytest 官方文档推荐的形式)
+
+如果 venv 里没装 pytest,失败信号是 `No module named pytest`;codrax 把它和 `python: command not found` 一并归类为 `FailureKind=runner_missing`,跳过 verify→plan 重试,直接给安装提示(中英双语,跟随 `--lang`)。
+
+**其它语言不需要这种处理**:Go / Rust / Swift 把测试框架打包进语言工具链;Node / Java(Gradle)/ Ruby / hvigor / cjpm 用项目本地 wrapper(`npm test` / `./gradlew` / `bundle exec` / `hvigorw` / cjpm)自带依赖解析。Python 是唯一一个测试框架是**独立可装模块**的语言,所以是唯一需要 venv 感知的 runner。
+
+#### 4.3.17 REPL 控制命令意外喂给 orchestrator 时立即拒
 
 `/approve plan-XXX` / `/verify plan-XXX` / `/merge --branch=...` 这类字面量必须经 REPL slash dispatcher 拦截;如果通过 CLI `--request="/approve ..."` 或别的边缘路径直接喂到 orchestrator,**Run() 入口立即报错**(1 round-trip,不进 analyzer)。这避免了 analyzer 在 12+ 次迭代里反复拒绝自己的 `emit_analysis` 调用、最终被 SIGINT 杀掉的浪费场景。
 
 合法的写模式 dispatch 字串(REPL 内部合成的 `Apply approved plan plan-XXX: ...` / `Verify applied plan plan-XXX: ...`)不受影响 —— 守门只识别 slash 字面量。
 
-#### 4.3.16 进程级安全网
+#### 4.3.18 进程级安全网
 
 verify 阶段的子进程跑在隔离的进程组里,带内存 / CPU 上限:
 
@@ -1093,7 +1124,7 @@ verify 阶段的子进程跑在隔离的进程组里,带内存 / CPU 上限:
 
 `pipeline_max_steps` 超时时整个 Run 强制收尾,worktree 也会在 outer defer 里清理。
 
-#### 4.3.17 合并到主仓 — `/merge` 命令
+#### 4.3.19 合并到主仓 — `/merge` 命令
 
 `/approve` 成功后,worktree 里有一条或多条 codrax 提交(基于主仓的 `r.branch` 顶点)。把这条 commit 合回主仓有三种通路,任选其一:
 
@@ -1136,7 +1167,22 @@ verify 阶段的子进程跑在隔离的进程组里,带内存 / CPU 上限:
 
 主仓 HEAD **不动**,只是新拉了 `fix/parse-duration` 分支落了 commit。再 `git push -u origin fix/parse-duration` + GitHub UI 开 PR。
 
-#### 4.3.18 裸目录自动 init(三档授权)
+**强制合入 verify_failed plan**(`--include-failed` / `--force`):
+
+verify 失败 = 测试有问题。但有些场景失败是环境/CI 类原因(本地起不了集成 DB、外部服务挂了、需要 GPU 等),用户 review 完 diff 决定还是要合,扔到 CI 里再跑测试。这时可以:
+
+```
+❯❯ /merge --include-failed --branch=fix/parse-duration
+  ⚠ 强制合入 plan plan-1730834521-12345 — 该 plan 的 verify 阶段曾失败。
+  请先确认 /plan show 的 diff 与失败摘要,确保失败是环境/CI 类原因(非代码缺陷)。
+  Create branch fix/parse-duration on main repo and cherry-pick 1 commit(s) onto it?
+  > Yes
+  ✓ Branch fix/parse-duration created on main repo with 1 cherry-picked commit(s).
+```
+
+`--force` 是 `--include-failed` 的别名,功能等价。仅 `verify_failed` 状态可被这个 flag 覆盖;`applied_failed`(W1/W1b 拒,代码没真正落地)和 `rejected`(用户主动否决)永远不能合 —— 前者没东西可合,后者覆盖用户决定。
+
+#### 4.3.20 裸目录自动 init(三档授权)
 
 写模式 apply 阶段需要 `git worktree add --detach HEAD` 跑,这要求目标目录:
 
@@ -1195,7 +1241,7 @@ codrax --mode=apply --plan-file /tmp/plan.json --auto-apply --auto-init-repo
 - 已经是 ready 的 repo → 这条路径完全跳过(idempotent)。多次 `/approve` 不会重复造空 commit。
 - 失败时(目录权限不足、git 不在 PATH 等)→ 报错,不留半成品。
 
-#### 4.3.19 Plan 状态查询恢复
+#### 4.3.21 Plan 状态查询恢复
 
 `/approve` 因为环境问题(目标不是 git repo、git 缺失、worktree 创建失败)失败时,plan **不会丢**:状态保持 `pending_approval`,你可以:
 
@@ -1205,7 +1251,7 @@ codrax --mode=apply --plan-file /tmp/plan.json --auto-apply --auto-init-repo
 
 REPL 会自动从 PlanStore 找最近一条 `pending_approval` plan 重新绑定指针,**跨进程也能恢复**(关掉 codrax 再开,`/plan show` 还能找到上次没合并的 plan)。
 
-#### 4.3.20 当前限制
+#### 4.3.22 当前限制
 
 - 写模式**不支持** multi-plan concurrency。同一仓库不要并行跑两个 `/approve`(plan 文件名带 PID,但 worktree 操作不是并发安全的)。
 - `git push` 永远是用户手动操作,`/merge` 不替你做(避免对远端的意外副作用)。

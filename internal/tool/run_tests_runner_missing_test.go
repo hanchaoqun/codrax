@@ -2,7 +2,9 @@ package tool
 
 import (
 	"errors"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -107,7 +109,7 @@ func TestDetectRunnerMissing_UnknownRunnerNoBinary(t *testing.T) {
 // (the verify→plan retry suppressor + persistPlanStatus) can route
 // on a single field.
 func TestMakeRunnerMissingReport_ShapeAndFailureKind(t *testing.T) {
-	report := makeRunnerMissingReport("python", "pytest", "/bin/sh: 1: pytest: not found")
+	report := makeRunnerMissingReport("python", "pytest", "/bin/sh: 1: pytest: not found", "en")
 	if report.FailureKind != types.FailureKindRunnerMissing {
 		t.Errorf("FailureKind = %q, want %q", report.FailureKind, types.FailureKindRunnerMissing)
 	}
@@ -137,12 +139,134 @@ func TestMakeRunnerMissingReport_ShapeAndFailureKind(t *testing.T) {
 
 // TestRunnerInstallHint_AllRunnersCovered locks the install-hint
 // surface so adding a new runner forces a hint update via this
-// drift-guard test.
+// drift-guard test. Both languages must be populated.
 func TestRunnerInstallHint_AllRunnersCovered(t *testing.T) {
 	for r := range allowedRunners {
-		hint := runnerInstallHint(r)
-		if strings.TrimSpace(hint) == "" {
-			t.Errorf("runner %q has no install hint — add one in runnerInstallHint", r)
+		for _, lang := range []string{"zh", "en"} {
+			hint := runnerInstallHint(r, lang)
+			if strings.TrimSpace(hint) == "" {
+				t.Errorf("runner %q lang=%q has no install hint — add one in runnerInstallHint",
+					r, lang)
+			}
 		}
+	}
+}
+
+// TestPythonInterpreter_PrefersDotVenv verifies the venv probe
+// catches the canonical `.venv/bin/python` Unix layout and reports
+// asModule=true so the caller invokes `<path> -m pytest`.
+func TestPythonInterpreter_PrefersDotVenv(t *testing.T) {
+	repo := t.TempDir()
+	venvBin := filepath.Join(repo, ".venv", "bin")
+	if err := os.MkdirAll(venvBin, 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	pyPath := filepath.Join(venvBin, "python")
+	if err := os.WriteFile(pyPath, []byte("#!/bin/sh\nexit 0\n"), 0o755); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+
+	interp, asModule := pythonInterpreter(repo)
+	if !asModule {
+		t.Errorf("asModule should be true when venv exists")
+	}
+	if !strings.Contains(interp, ".venv") {
+		t.Errorf("interpreter should point inside .venv; got %q", interp)
+	}
+	if !strings.Contains(interp, "/python") {
+		t.Errorf("interpreter should be the venv python; got %q", interp)
+	}
+}
+
+// TestPythonInterpreter_VenvAlternateLayouts verifies all four
+// recognised venv directory names resolve. Each test creates a
+// fresh tmp dir so the priority order doesn't interfere.
+func TestPythonInterpreter_VenvAlternateLayouts(t *testing.T) {
+	for _, dir := range []string{"venv", "env", ".virtualenv"} {
+		t.Run(dir, func(t *testing.T) {
+			repo := t.TempDir()
+			binDir := filepath.Join(repo, dir, "bin")
+			if err := os.MkdirAll(binDir, 0o755); err != nil {
+				t.Fatalf("mkdir: %v", err)
+			}
+			py := filepath.Join(binDir, "python3")
+			if err := os.WriteFile(py, []byte("#!/bin/sh\n"), 0o755); err != nil {
+				t.Fatalf("write: %v", err)
+			}
+			interp, asModule := pythonInterpreter(repo)
+			if !asModule {
+				t.Errorf("asModule should be true for %s/bin/python3 layout", dir)
+			}
+			if !strings.Contains(interp, dir) {
+				t.Errorf("interpreter should reference %s; got %q", dir, interp)
+			}
+		})
+	}
+}
+
+// TestPythonInterpreter_FallsBackToSystemPython verifies that with
+// no venv present, the helper returns python3 / python from PATH.
+// We can't guarantee what's installed on the test host, so the
+// assertion is loose: result is one of the expected fallbacks.
+func TestPythonInterpreter_FallsBackToSystemPython(t *testing.T) {
+	repo := t.TempDir()
+	interp, asModule := pythonInterpreter(repo)
+	switch interp {
+	case "python3", "python":
+		if !asModule {
+			t.Errorf("asModule should be true for system %s", interp)
+		}
+	case "pytest":
+		if asModule {
+			t.Errorf("asModule should be false for bare pytest fallback")
+		}
+	default:
+		t.Errorf("unexpected fallback interpreter %q", interp)
+	}
+}
+
+// TestDetectRunnerMissing_PythonModuleMissing covers the
+// `python -m pytest` failure mode where the interpreter resolves
+// but pytest isn't installed. Should classify as runner_missing
+// so the verify→plan retry suppressor short-circuits.
+func TestDetectRunnerMissing_PythonModuleMissing(t *testing.T) {
+	for _, output := range []string{
+		"/usr/bin/python3: No module named pytest\n",
+		"/path/to/python: No module named 'pytest'\n",
+	} {
+		missing, bin := detectRunnerMissing("python", nil, output)
+		if !missing {
+			t.Errorf("python -m pytest output %q should trigger runner_missing", output)
+		}
+		if bin != "pytest" {
+			t.Errorf("missing binary = %q, want pytest", bin)
+		}
+	}
+}
+
+// TestDetectRunnerMissing_PythonInterpreterMissing covers the
+// inverse: the python interpreter itself isn't on PATH.
+func TestDetectRunnerMissing_PythonInterpreterMissing(t *testing.T) {
+	for _, output := range []string{
+		"/bin/sh: 1: python: not found\n",
+		"bash: python3: command not found\n",
+	} {
+		missing, _ := detectRunnerMissing("python", nil, output)
+		if !missing {
+			t.Errorf("python interpreter missing output %q should trigger runner_missing", output)
+		}
+	}
+}
+
+// TestRunnerMissingReport_Bilingual locks the language gating: zh
+// (default) emits Chinese FailureSummary; en flips to English.
+func TestRunnerMissingReport_Bilingual(t *testing.T) {
+	zh := makeRunnerMissingReport("python", "pytest", "stderr", "zh")
+	if !strings.Contains(zh.FailureSummary, "未在本环境安装") {
+		t.Errorf("zh report should contain Chinese phrasing; got %q", zh.FailureSummary)
+	}
+	en := makeRunnerMissingReport("python", "pytest", "stderr", "en")
+	if !strings.Contains(en.FailureSummary, "is not installed in this environment") {
+		t.Errorf("en report should contain English phrasing; got %q", en.FailureSummary)
 	}
 }
