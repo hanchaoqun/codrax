@@ -1,6 +1,7 @@
 package types
 
 import (
+	"strings"
 	"sync"
 	"time"
 )
@@ -84,6 +85,18 @@ type WriteClosure struct {
 	// the current task. Populated by the B2/B3 enforcers; read by
 	// the orchestrator at task-end for the one-line summary.
 	stats WriteClosureStats
+
+	// rejectionCounts tracks how many CONSECUTIVE times apply_patch
+	// rejected a given path on W1 (path not in TargetPaths) or W1b
+	// (DependsOn unsatisfied). Cleared per-path by MarkApplied
+	// (forward progress wipes the slate). When any path's count
+	// reaches the threshold, SaturatedRejectionPath() returns it
+	// and the coder ShouldStop predicate fast-fails with a plan-
+	// defect signal — repeating the same illegal apply 3+ times in
+	// a row is structurally a planner mistake (TargetPaths is too
+	// narrow / wrong), not a coder typo, and burning more coder
+	// iterations on it just delays the right escalation.
+	rejectionCounts map[string]int
 }
 
 // NewWriteClosure constructs a zero-state WriteClosure. The mutex
@@ -112,6 +125,7 @@ func (c *WriteClosure) Reset() {
 	c.verifySet = make(map[string]VerifyResult)
 	c.fingerprints = nil
 	c.stats = WriteClosureStats{}
+	c.rejectionCounts = nil
 }
 
 // ResetExceptApplied clears every per-cycle queue (pendingApplies,
@@ -135,6 +149,7 @@ func (c *WriteClosure) ResetExceptApplied() {
 	c.verifySet = make(map[string]VerifyResult)
 	c.fingerprints = nil
 	c.stats = WriteClosureStats{}
+	c.rejectionCounts = nil
 }
 
 // AppliedSet returns a shallow copy of the applied file set so
@@ -166,6 +181,65 @@ func (c *WriteClosure) HasApplied(file string) bool {
 
 // MarkApplied records that apply_patch successfully wrote content
 // to file. Idempotent. Called from apply_patch.Execute on success.
+// RecordRejection bumps the per-path apply-rejection counter. Called
+// by apply_patch.Execute when a W1 (path not in TargetPaths) or W1b
+// (DependsOn unsatisfied) check rejects a tool call. After repeated
+// rejections of the SAME path the coder ShouldStop predicate
+// surfaces a plan-defect signal so the verify→plan retry hint can
+// tell the planner "your TargetPaths excludes <path> the LLM keeps
+// trying" — that's a planner-side fix (widen TargetPaths or rewrite
+// the plan), not something more coder iterations will solve.
+//
+// Counts are per-path; a different path resets that path's counter
+// independently. MarkApplied(path) clears path's counter (forward
+// progress).
+func (c *WriteClosure) RecordRejection(path string) int {
+	if c == nil || strings.TrimSpace(path) == "" {
+		return 0
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.rejectionCounts == nil {
+		c.rejectionCounts = make(map[string]int)
+	}
+	c.rejectionCounts[path]++
+	return c.rejectionCounts[path]
+}
+
+// RejectionCount returns the current consecutive-rejection count for
+// path. Zero when MarkApplied has cleared it or the path was never
+// rejected.
+func (c *WriteClosure) RejectionCount(path string) int {
+	if c == nil {
+		return 0
+	}
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.rejectionCounts[path]
+}
+
+// SaturatedRejectionPath returns the first path whose rejection
+// count has reached threshold (the "plan defect" signal). Empty
+// string means no path saturated. Threshold is fixed at 3 — that's
+// "LLM tried, got the rejection summary explaining valid TargetPaths,
+// tried again, got it again, tried a third time" which is a clear
+// signal the LLM is fixated and the plan's TargetPaths is the real
+// issue.
+func (c *WriteClosure) SaturatedRejectionPath() string {
+	const threshold = 3
+	if c == nil {
+		return ""
+	}
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	for path, n := range c.rejectionCounts {
+		if n >= threshold {
+			return path
+		}
+	}
+	return ""
+}
+
 func (c *WriteClosure) MarkApplied(file string) {
 	if c == nil || file == "" {
 		return
@@ -176,6 +250,12 @@ func (c *WriteClosure) MarkApplied(file string) {
 		c.appliedSet = make(map[string]bool)
 	}
 	c.appliedSet[file] = true
+	// Forward progress: any successful apply clears EVERY rejection
+	// counter — the LLM is moving (a different file landed even
+	// when X kept rejecting), so we don't want a stale W1 reject
+	// from earlier in the loop to trip SaturatedRejectionPath()
+	// after a clean apply has happened.
+	c.rejectionCounts = nil
 }
 
 // PendingApplies returns the current queue (copy).
@@ -329,11 +409,33 @@ type VerifyResult struct {
 // detector. Apply and verify enforcers append a fingerprint per
 // round; the stall detector compares adjacent entries to decide
 // whether the system made progress.
+//
+// FailureSummaryHash carries a fixed-size digest of the verify
+// stage's FailureSummary (FNV-32 hex). The verify→plan retry
+// detector compares adjacent fingerprints across all four fields;
+// if every field is identical to the previous round, no progress
+// was made and further retry would just burn LLM budget on a
+// problem the planner is structurally unable to fix from the
+// signal it has. Hashing avoids storing arbitrary-length runner
+// stderr in the fingerprint (which is supposed to be a small
+// per-round snapshot) while preserving exact-match semantics.
 type ApplyVerifyFingerprint struct {
-	AppliedCount  int
-	VerifyPassed  int
-	VerifyFailed  int
-	Timestamp     time.Time
+	AppliedCount       int
+	VerifyPassed       int
+	VerifyFailed       int
+	FailureSummaryHash string
+	Timestamp          time.Time
+}
+
+// SameSignal reports whether two fingerprints describe the same
+// outcome — used by the verify→plan retry detector to identify a
+// "no progress" loop. Compares every field except Timestamp (which
+// always differs across rounds and is irrelevant to convergence).
+func (a ApplyVerifyFingerprint) SameSignal(b ApplyVerifyFingerprint) bool {
+	return a.AppliedCount == b.AppliedCount &&
+		a.VerifyPassed == b.VerifyPassed &&
+		a.VerifyFailed == b.VerifyFailed &&
+		a.FailureSummaryHash == b.FailureSummaryHash
 }
 
 // WriteClosureStats accumulates the enforcer fire counters for one

@@ -146,8 +146,21 @@ func (e *coderEvaluator) ShouldStop(resp llm.Response, iteration int) bool {
 	if plan == nil {
 		return true // no plan — ParseOutput will report the error
 	}
-	applied := e.mu.WriteClosure().AppliedSet()
+	wc := e.mu.WriteClosure()
+	applied := wc.AppliedSet()
 	if isAppliedComplete(plan, applied) {
+		return true
+	}
+	// Plan-defect short-circuit: when apply_patch has rejected the
+	// SAME path 3+ consecutive times on W1 / W1b violations, the LLM
+	// is fixated and the rejection summary already named the valid
+	// TargetPaths set. Continuing to iterate just burns budget on a
+	// problem the LLM can't fix — TargetPaths was defined by the
+	// PLANNER, so the right escalation is the verify→plan retry hint
+	// telling the planner "widen TargetPaths to include <path>".
+	// ParseOutput surfaces the saturated path so StageOutput.Error
+	// carries the plan-defect signal into the scheduler.
+	if wc.SaturatedRejectionPath() != "" {
 		return true
 	}
 	softCap := len(plan.TargetPaths) + e.softIterSlack
@@ -183,12 +196,37 @@ func (e *coderEvaluator) ParseOutput(
 		return out, fmt.Errorf("%s", out.Error)
 	}
 
-	applied := ctx.Mutable.WriteClosure().AppliedSet()
+	wc := ctx.Mutable.WriteClosure()
+	applied := wc.AppliedSet()
 	if isAppliedComplete(plan, applied) {
 		logging.Info("[coder] apply complete: %d/%d paths applied",
 			len(applied), len(plan.TargetPaths))
 		out.MissingPiece = types.MissingNone
 		return out, nil
+	}
+
+	// Plan-defect surface: ShouldStop fired because the LLM kept
+	// trying to apply the SAME illegal path. The error is
+	// structurally a planner mistake — TargetPaths excludes the
+	// path the LLM keeps reaching for. Surface a directed signal
+	// so the verify→plan retry hint tells the planner to widen
+	// TargetPaths instead of letting the coder churn another N
+	// iterations on the same wall.
+	if stuck := wc.SaturatedRejectionPath(); stuck != "" {
+		validList := strings.Join(plan.TargetPaths, ", ")
+		if validList == "" {
+			validList = "(empty)"
+		}
+		reason := fmt.Sprintf(
+			"coder: plan defect — apply_patch rejected path %q on 3 consecutive iterations (W1/W1b violations). "+
+				"The path is NOT in plan.TargetPaths but the LLM repeatedly tried to write it. "+
+				"This is a planner-side mistake: TargetPaths is too narrow OR the plan's intent maps to a path the planner forgot to declare. "+
+				"Current valid TargetPaths: [%s]. Re-plan with TargetPaths widened to include %q (or restructure the plan so the work fits inside the declared set).",
+			stuck, validList, stuck)
+		logging.Warning("[coder] plan-defect short-circuit on path %q (3 consecutive rejections)", stuck)
+		out.MissingPiece = types.MissingFacts
+		out.Error = reason
+		return out, fmt.Errorf("coder: plan defect — saturated rejections on %q", stuck)
 	}
 
 	// Incomplete. Report every missing path + the reason derived

@@ -137,6 +137,13 @@ func (t *ApplyPatch) Execute(ctx *types.BusContext, params json.RawMessage) (typ
 		if len(plan.TargetPaths) > 0 {
 			valid = strings.Join(plan.TargetPaths, ", ")
 		}
+		// Bump the per-path consecutive-rejection counter. Coder
+		// ShouldStop reads SaturatedRejectionPath() to detect when
+		// the LLM is fixated on a path the planner didn't include —
+		// at that point the right escalation is "tell the planner
+		// to widen TargetPaths" (verify→plan retry hint), not "let
+		// coder churn through more iterations".
+		ctx.Mutable.WriteClosure().RecordRejection(path)
 		return errResult(t.Name(),
 			fmt.Sprintf("apply_patch rejected: path %q is not in plan.TargetPaths (W1 violation). "+
 				"Valid target paths for this plan: [%s]. The planner must emit a ChangeUnit for a path before the coder may apply it; pick one of the listed paths or abandon this target.",

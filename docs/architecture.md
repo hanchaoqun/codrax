@@ -931,6 +931,14 @@ type FileChange struct {
 
 成功 apply 后 `WriteClosure.MarkApplied(path)`。**幂等性**：二次 apply 同一路径是无操作 success。coder 的 ShouldStop 等价于 `WriteClosure.AppliedSet ⊇ plan.TargetPaths`。
 
+##### W1 / W1b 同路径连续拒 → plan-defect 升级
+
+`WriteClosure.RecordRejection(path)` 在 W1 / W1b 拒收时累计该 path 的连续拒次数。`MarkApplied(any path)` **清零所有计数**(任意路径成功 = 前进信号,先前的拒不再算"卡死")。
+
+`SaturatedRejectionPath()` 阈值固定为 3:LLM 已经在 ToolResult 看过 valid TargetPaths 列表 + 改正建议,仍连续 3 次拒同一路径 → 不是 LLM 笔误,**是 planner 的 TargetPaths 没正确包含 LLM 想改的路径**。`coderEvaluator.ShouldStop` 探测到 saturation 即返回 true;`ParseOutput` 把这条信号写进 `StageOutput.Error`("plan defect — apply_patch rejected path %q on 3 consecutive iterations …")。
+
+scheduler 把 StageOutput.Error 当 SuccessCriteria fail 处理 → 进入 verify→plan retry 分支(如果 budget > 0):planner 下一次 dispatch 在 PlanningHint 里看到这条 plan-defect narrative,知道要么改写 plan(改成 LLM 实际想做的事)、要么把 stuck 路径加进 TargetPaths,而不是让 coder 在同一面墙上再撞 N 次。
+
 结构性测试 `internal/tool/write_mode_red_lines_test.go` 用 `go/ast` 扫描断言 `apply_patch` / `emit_change_plan` / `run_tests` **从不** import `internal/tool/ground`（L3：写路径不是 citation 路径，grounding 语义无意义）。
 
 #### Worktree 沙箱生命周期
@@ -1022,6 +1030,16 @@ REPL 流程：
 3. 下一次 `runPlanPhase` 正常跑，planner 看到 hint 里的嫌疑文件 + 失败 narrative 修订 plan。
 
 失败到顶：`verifyErr > applyErr > planErr` 的优先级把最深的一层塞进 `TaskState.LastError`。
+
+##### 重试停滞早停（fingerprint 同信号守门）
+
+retry budget 不是无脑用满的。两个守门器在 `runWriteSchedulerLoop` 的 retry 决策分支里前置短路:
+
+1. **`shouldSuppressVerifyRetry(report)`** — `ChangeReport.FailureKind == runner_missing` 时直接 fall-through 到 terminal(env 类失败 LLM 解决不了,前面 commit 已上)。
+
+2. **`verifyStallReason(closure)`**(本轮新增)— 比较 WriteClosure.fingerprints 最末两条 `ApplyVerifyFingerprint`:`AppliedCount` / `VerifyPassed` / `VerifyFailed` / `FailureSummaryHash` 全相等 → 视为"无进展" → 跳过本轮 retry。
+
+`ApplyVerifyFingerprint.FailureSummaryHash` 是 FailureSummary 的 FNV-32 hex(verify post-hook 在 `appendVerifyFingerprint` 里追加)。完全 byte-equal 才算"同信号",任一维度变(多 apply 一个文件、多过 / 少过一个测试、failure 文本变样)都视为有进展继续 retry。这个守门是**通用的**:不分 failure 类型,在 tests-failed plateau / build-failure plateau 等所有 budget 耗尽前的"原地重打"场景都生效。
 
 #### 可选：Baseline 捕获
 

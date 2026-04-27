@@ -1,6 +1,7 @@
 package orchestrator
 
 import (
+	"fmt"
 	"strings"
 	"time"
 
@@ -206,6 +207,17 @@ func (o *Orchestrator) runWriteSchedulerLoop(stepBudget int) int {
 			if shouldSuppressVerifyRetry(o.busCtx.Mutable.ChangeReport()) {
 				logging.Warning("[orchestrator] verify failed with FailureKind=runner_missing; suppressing retry — env issue, not a plan defect")
 				// Fall through to terminal failure path below.
+			} else if reason := verifyStallReason(o.busCtx.Mutable.WriteClosure()); reason != "" {
+				// Two adjacent verify rounds produced the EXACT same
+				// signal (applied count + pass/fail count + failure
+				// summary hash all match). The planner just regenerated
+				// what was already tried; further retry is plateau
+				// burn. Fall through to terminal so the user sees the
+				// best-known-good plan + a clear "stuck on same
+				// failure" diagnostic rather than waiting for the
+				// retry budget to drain on identical outcomes.
+				logging.Warning("[orchestrator] suppressing verify retry — %s", reason)
+				// Fall through to terminal failure path below.
 			} else if state.retryUsed < g.ExecutionPolicy.RetryBudget {
 				retryAttempt++
 				clearForReplan(o, retryAttempt)
@@ -333,4 +345,38 @@ func shouldSuppressVerifyRetry(report *types.ChangeReport) bool {
 		return false
 	}
 	return report.FailureKind == types.FailureKindRunnerMissing
+}
+
+// verifyStallReason inspects the last two verify-round fingerprints
+// and returns a non-empty reason string when consecutive rounds
+// produced identical signal — applied count, verify pass/fail
+// counts, AND failure summary hash all match. That's a stall:
+// retry would just regenerate the same outcome, so further LLM
+// budget is wasted on a problem the planner is structurally unable
+// to fix from the signal it has.
+//
+// Returns empty when:
+//   - fewer than 2 fingerprints recorded (can't compare adjacency)
+//   - the two latest differ in any field
+//   - WriteClosure / busCtx is nil (defensive)
+//
+// Generic by design: the predicate compares hashes, not specific
+// failure text — works the same for tests-failed plateau, build-
+// failure plateau, OOM plateau, etc. New retry kinds get coverage
+// for free.
+func verifyStallReason(closure *types.WriteClosure) string {
+	if closure == nil {
+		return ""
+	}
+	hist := closure.Fingerprints()
+	if len(hist) < 2 {
+		return ""
+	}
+	cur := hist[len(hist)-1]
+	prev := hist[len(hist)-2]
+	if !cur.SameSignal(prev) {
+		return ""
+	}
+	return fmt.Sprintf("two consecutive verify rounds produced identical signal (applied=%d passed=%d failed=%d failureHash=%s) — planner stuck on the same outcome",
+		cur.AppliedCount, cur.VerifyPassed, cur.VerifyFailed, cur.FailureSummaryHash)
 }

@@ -2,6 +2,7 @@ package orchestrator
 
 import (
 	"fmt"
+	"hash/fnv"
 	"os"
 	"strings"
 	"time"
@@ -339,6 +340,14 @@ func verifyPostHook(o *Orchestrator, out *agent.StageOutput) error {
 	report := o.busCtx.Mutable.ChangeReport()
 	if report != nil {
 		o.saveChangeReport(report)
+		// Append a fingerprint per verify round so the write-scheduler
+		// retry decision can spot "no change in any signal" stalls.
+		// Adjacent identical fingerprints across (AppliedCount,
+		// VerifyPassed, VerifyFailed, FailureSummaryHash) mean the
+		// current iteration produced the exact same outcome as the
+		// previous one — further retry burns LLM budget on a problem
+		// the planner can't structurally fix.
+		appendVerifyFingerprint(o.busCtx, report)
 	}
 	if out != nil && out.Error != "" {
 		o.busCtx.Mutable.SetResult(renderVerifyFailure(report, out.Error, o.busCtx.Language))
@@ -350,6 +359,40 @@ func verifyPostHook(o *Orchestrator, out *agent.StageOutput) error {
 	now := time.Now()
 	o.persistPlanStatus(types.PlanStatusApplied, &now)
 	return nil
+}
+
+// appendVerifyFingerprint snapshots the current verify-round signal
+// onto WriteClosure.fingerprints. The retry detector reads these
+// to compare adjacent rounds; a no-progress signal triggers
+// retry-suppression in the write scheduler. Hash is FNV-32 over
+// the trimmed FailureSummary so the in-memory fingerprint stays
+// small regardless of stderr length.
+func appendVerifyFingerprint(busCtx *types.BusContext, report *types.ChangeReport) {
+	if busCtx == nil || busCtx.Mutable == nil || report == nil {
+		return
+	}
+	wc := busCtx.Mutable.WriteClosure()
+	if wc == nil {
+		return
+	}
+	passed, failed := 0, 0
+	for _, r := range report.TestResults {
+		if r.Passed {
+			passed++
+		} else {
+			failed++
+		}
+	}
+	hash := fnv.New32a()
+	_, _ = hash.Write([]byte(strings.TrimSpace(report.FailureSummary)))
+	applied := len(busCtx.Mutable.WriteClosure().AppliedSet())
+	wc.AppendFingerprint(types.ApplyVerifyFingerprint{
+		AppliedCount:       applied,
+		VerifyPassed:       passed,
+		VerifyFailed:       failed,
+		FailureSummaryHash: fmt.Sprintf("%x", hash.Sum32()),
+		Timestamp:          time.Now(),
+	})
 }
 
 // clearForReplan resets write-mode Mutable state between verify→plan
