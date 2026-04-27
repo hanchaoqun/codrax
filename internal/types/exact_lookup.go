@@ -899,6 +899,9 @@ func ExactResolutionRelatedContextProofAllowedInFiles(c *ExactResolutionContract
 	if c == nil {
 		return false
 	}
+	if item.GroundingStatus != GroundingGrounded {
+		return false
+	}
 	if stableAbsent && scenario == ScenarioConfigTrace && c.TargetKind == SubjectConfigKey {
 		if item.ContextRole == EvidenceContextRoleAbsenceSupport {
 			return false

@@ -194,6 +194,8 @@ func TestAnswerDocumentEvaluator_BuildInitialInstruction_RendersDiagramContractA
 		"### Log Triage",
 		"### Flow Findings",
 		"### Answer Chains",
+		"## First-Pass Diagram Skeleton",
+		"innermost failure:",
 	} {
 		if !strings.Contains(prompt, want) {
 			t.Fatalf("prompt missing %q:\n%s", want, prompt)
@@ -229,6 +231,7 @@ func TestAnswerDocumentEvaluator_BuildInitialInstruction_RendersConfigTraceDiagr
 	prompt := (&answerDocumentEvaluator{}).BuildInitialInstruction(ctx, nil)
 	for _, want := range []string{
 		"### Config Trace Precedence",
+		"## First-Pass Diagram Skeleton",
 		"## Precedence Role Coverage",
 		"`default` → `internal/types/config.go:707`",
 		"`config` → `codrax.yaml.example:20`",

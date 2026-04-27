@@ -365,9 +365,7 @@ func exactResolutionEvidenceMentionsCandidate(contract *types.ExactResolutionCon
 		return false
 	}
 	for _, item := range evidence {
-		switch item.GroundingStatus {
-		case types.GroundingGrounded, types.GroundingRecovered, "":
-		default:
+		if item.GroundingStatus != types.GroundingGrounded {
 			continue
 		}
 		if !exactResolutionSourceIsProductionLike(contract, item.Source) {
@@ -383,7 +381,6 @@ func exactResolutionEvidenceMentionsCandidate(contract *types.ExactResolutionCon
 			item.AnchorSymbol,
 			item.Condition,
 			item.Snippet,
-			item.Summary,
 		}, "\n"))
 		if strings.Contains(text, normSym) {
 			return true

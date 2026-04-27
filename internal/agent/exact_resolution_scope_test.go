@@ -113,3 +113,49 @@ func TestCollectExactResolutionSymbolCandidatesFromGraph_ConfigRoleAnchorsSuppre
 		}
 	}
 }
+
+func TestPendingExactResolutionContextCandidates_IgnoresRecoveredSummaryOnlyMentions(t *testing.T) {
+	contract := &types.ExactResolutionContract{
+		TargetKind:           types.SubjectConfigKey,
+		TargetLabel:          "config key",
+		Targets:              []string{"explore_mid_loop_hint_budget"},
+		AllowAbsence:         true,
+		RelatedContextPolicy: types.ExactContextSameFamilyGrounded,
+		RelatedContextTerms:  []string{"explore"},
+	}
+	cands := []exactResolutionSymbolCandidate{{
+		File:   "internal/types/config.go",
+		Symbol: "DefaultExploreHeuristics",
+		Line:   707,
+	}}
+	recoveredSummaryOnly := []types.EvidenceItem{{
+		Kind:            types.EvidenceDirect,
+		Source:          "internal/types/config.go",
+		LineStart:       627,
+		AnchorKind:      types.AnchorDefinition,
+		AnchorSymbol:    "RuntimeSettings",
+		ContextRole:     types.EvidenceContextRoleRelatedContext,
+		GroundingStatus: types.GroundingRecovered,
+		Summary:         "DefaultExploreHeuristics defines explore defaults for the same family.",
+	}}
+	if got := pendingExactResolutionContextCandidates(contract, recoveredSummaryOnly, cands); len(got) != 1 {
+		t.Fatalf("recovered summary-only evidence should leave candidate pending, got %+v", got)
+	}
+
+	groundedStructured := []types.EvidenceItem{{
+		Kind:            types.EvidenceDirect,
+		Source:          "internal/types/config.go",
+		LineStart:       707,
+		Subject:         "DefaultExploreHeuristics",
+		Predicate:       "defines",
+		Object:          "ExploreHeuristics defaults",
+		AnchorKind:      types.AnchorDefinition,
+		AnchorSymbol:    "DefaultExploreHeuristics",
+		ContextRole:     types.EvidenceContextRoleRelatedContext,
+		DiagramRole:     types.EvidenceDiagramRoleDefault,
+		GroundingStatus: types.GroundingGrounded,
+	}}
+	if got := pendingExactResolutionContextCandidates(contract, groundedStructured, cands); len(got) != 0 {
+		t.Fatalf("grounded structured evidence should satisfy candidate, got %+v", got)
+	}
+}

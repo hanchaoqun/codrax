@@ -157,6 +157,9 @@ func (e *answerDocumentEvaluator) BuildInitialInstruction(ctx *types.AgentContex
 		if seeds := renderAnswerDocDiagramSeeds(ctx, dc); seeds != "" {
 			b.WriteString(seeds)
 		}
+		if skeleton := renderAnswerDocFirstPassDiagramSkeleton(ctx); skeleton != "" {
+			b.WriteString(skeleton)
+		}
 	} else if answerDocDiagramHardRequirementDowngraded(ctx) {
 		b.WriteString("## Diagram Preference\n\n")
 		b.WriteString("- A diagram would normally help for this question type, but the currently grounded evidence does not yet provide a complete structural seed for a hard-required diagram.\n")
@@ -509,6 +512,19 @@ func renderAnswerDocDiagramSeeds(ctx *types.AgentContext, dc *types.DiagramContr
 	if !wrote {
 		return ""
 	}
+	return b.String()
+}
+
+func renderAnswerDocFirstPassDiagramSkeleton(ctx *types.AgentContext) string {
+	fence := renderRetryDiagramSeedFenceForRepair(ctx, nil)
+	if fence == "" {
+		return ""
+	}
+	var b strings.Builder
+	b.WriteString("## First-Pass Diagram Skeleton\n\n")
+	b.WriteString("If you do not already have a richer grounded diagram, copy this fenced skeleton verbatim for the first pass and explain any extra semantics in prose around it. You may delete unused nodes, but do not rename the remaining ones.\n\n")
+	b.WriteString(fence)
+	b.WriteString("\n\n")
 	return b.String()
 }
 

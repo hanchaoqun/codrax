@@ -4223,6 +4223,78 @@ func TestObserveMidLoop_CompletionReadyHint_UsesAuthoritativeLogCoverage(t *test
 	}
 }
 
+func TestObserveMidLoop_CompletionReadyBeatsPartialReadWhenAuthoritativeLogCoverageSatisfied(t *testing.T) {
+	graph := &repomap.Graph{
+		FileIndex: map[string]*repomap.FileInfo{
+			"internal/agent/analyzer.go": {
+				Symbols: []repomap.Symbol{
+					{Name: "buildAnalysisIR", Kind: "function", Line: 612, EndLine: 1085, File: "internal/agent/analyzer.go"},
+				},
+			},
+		},
+	}
+	eval := &explorerEvaluator{
+		phase:                      1,
+		heuristics:                 types.ExploreHeuristics{MidLoopMinIteration: 2},
+		searchResult:               &keywordSearchResult{Graph: graph},
+		midLoopPostPrimaryInjected: true,
+		logTriage: &types.LogBundle{
+			Meta:          types.LogMeta{Signals: []types.LogSignal{types.SignalPanic}},
+			ResolvedFiles: []string{"internal/agent/analyzer.go"},
+		},
+		structuredEvidence: []types.EvidenceItem{
+			{
+				Kind:            types.EvidenceRelationship,
+				Subject:         "ParseOutput",
+				Predicate:       "calls",
+				Object:          "buildAnalysisIR",
+				Source:          "internal/agent/analyzer.go",
+				LineStart:       412,
+				GroundingStatus: types.GroundingGrounded,
+			},
+			{
+				Kind:            types.EvidenceDirect,
+				Subject:         "buildAnalysisIR",
+				Predicate:       "defined_in",
+				Object:          "internal/agent/analyzer.go",
+				Source:          "internal/agent/analyzer.go",
+				LineStart:       612,
+				GroundingStatus: types.GroundingGrounded,
+			},
+			{
+				Kind:            types.EvidenceConditional,
+				Subject:         "buildAnalysisIR",
+				Predicate:       "guards",
+				Object:          "ctx == nil || ctx.Mutable == nil",
+				Source:          "internal/agent/analyzer.go",
+				LineStart:       613,
+				GroundingStatus: types.GroundingGrounded,
+			},
+		},
+	}
+	results := []types.ToolResult{
+		{ToolName: "grep", Success: true, Summary: "internal/agent/analyzer.go"},
+		{ToolName: "read_file", Success: true, Summary: "[internal/agent/analyzer.go: showing lines 612-758 of 1723 total]\nfunc buildAnalysisIR(...)"},
+		{ToolName: "emit_evidence", Success: true, Summary: "emit_evidence accepted 3 items"},
+	}
+
+	sig := eval.observeMidLoop(LoopObservation{
+		Phase:          PhaseMidLoop,
+		Iteration:      4,
+		LastToolResult: &results[len(results)-1],
+		AllToolResults: results,
+	})
+	if !sig.HintRequested {
+		t.Fatalf("completion-ready hint should win once authoritative log coverage and grounded evidence are satisfied, got %+v", sig)
+	}
+	if sig.HintKey != "explorer.mid-loop.completion-ready" {
+		t.Fatalf("HintKey = %q, want explorer.mid-loop.completion-ready", sig.HintKey)
+	}
+	if strings.Contains(sig.Hint, "read the rest") || strings.Contains(sig.Hint, "grep for key identifiers") {
+		t.Fatalf("completion-ready hint should suppress partial-read expansion once closure is already sufficient, got: %s", sig.Hint)
+	}
+}
+
 func TestObserveMidLoop_CompletionReadySuppressesGenericHints(t *testing.T) {
 	eval := &explorerEvaluator{
 		phase:                      1,
@@ -4355,8 +4427,8 @@ func TestExactAbsenceClosureReady_RequiresGroundedContextFromCandidateFiles(t *t
 		t.Fatal("grounded related-context evidence from a required candidate file should allow exact-absence closure")
 	}
 	evidence[1].GroundingStatus = types.GroundingRecovered
-	if !exactAbsenceClosureReady(contract, types.ScenarioConfigTrace, contract.Targets, evidence, requiredFiles) {
-		t.Fatal("validated precedence anchors should keep exact-absence closure ready even when grounding is recovered")
+	if exactAbsenceClosureReady(contract, types.ScenarioConfigTrace, contract.Targets, evidence, requiredFiles) {
+		t.Fatal("recovered related-context evidence should not satisfy exact-absence closure")
 	}
 }
 
