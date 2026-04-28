@@ -544,6 +544,65 @@ func TestEmitAnalysis_ConfigTraceNoMatchRequiresExactPatternToken(t *testing.T) 
 	}
 }
 
+func TestEmitAnalysis_ConfigTraceRecordsAuxiliaryOnlyExactMatchesAsUnverified(t *testing.T) {
+	prev := CurrentAnalysisLimits()
+	t.Cleanup(func() { SetAnalysisLimits(prev) })
+	SetAnalysisLimits(AnalysisLimits{
+		WarnBelowKeywords:   0,
+		RejectBelowKeywords: 0,
+	})
+
+	key := "explore_mid_loop_hint_budget"
+	mu := types.NewMutableState("how is " + key + " resolved?")
+	mu.AppendPrescanSummary(
+		"[grep params: pattern=" + key + " case_insensitive=true files_only=true]\n" +
+			"internal/skill/analysis_contract.go\n" +
+			"internal/agent/explorer_test.go\n",
+	)
+	payload := `{
+		"intent": "config_query",
+		"scenario": "config_trace",
+		"complexity": "moderate",
+		"keywords": ["explore", "mid", "loop", "hint", "budget"],
+		"entities": ["` + key + `"],
+		"question_kind": "config_mapping",
+		"answer_shape": "explanation",
+		"answer_subject": {"kind": "config_key"},
+		"exact_targets": ["` + key + `"]
+	}`
+
+	tl := &EmitAnalysis{}
+	res, err := tl.Execute(&types.BusContext{Mutable: mu}, json.RawMessage(withV4Required(payload)))
+	if err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("Execute should succeed, got %q", res.Summary)
+	}
+	finds := mu.EvidenceClosure().UnverifiedFindings()
+	if len(finds) != 1 {
+		t.Fatalf("unverified findings = %d, want 1: %+v", len(finds), finds)
+	}
+	if finds[0].Token != key || finds[0].Reason != "exact target matched only auxiliary prescan files" {
+		t.Fatalf("unexpected auxiliary-only finding: %+v", finds[0])
+	}
+}
+
+func TestPrescanShowsExactOnlyAuxiliaryMatches(t *testing.T) {
+	token := "explore_mid_loop_hint_budget"
+	auxOnly := "[grep params: pattern=" + token + " case_insensitive=true files_only=true]\n" +
+		"internal/skill/analysis_contract.go\n" +
+		"internal/agent/explorer_test.go\n"
+	if !prescanShowsExactOnlyAuxiliaryMatches(auxOnly, token) {
+		t.Fatal("auxiliary-only prescan hit set should be detected")
+	}
+
+	withProduction := auxOnly + "internal/types/config.go\n"
+	if prescanShowsExactOnlyAuxiliaryMatches(withProduction, token) {
+		t.Fatal("production hit should disable auxiliary-only detection")
+	}
+}
+
 func TestEmitAnalysis_Execute_PersistsDiagramHint(t *testing.T) {
 	mu := types.NewMutableState("trace the dispatch path")
 	payload := `{

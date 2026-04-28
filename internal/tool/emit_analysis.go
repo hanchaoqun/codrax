@@ -452,7 +452,7 @@ func (t *EmitAnalysis) Execute(ctx *types.BusContext, params json.RawMessage) (t
 		DiagramHint:          diagramHint,
 	}
 	ctx.Mutable.SetRequestModel(rm)
-	recordConfigTraceNoMatchFindings(ctx, rm, seenBlob)
+	recordExactTargetPrescanFindings(ctx, rm, seenBlob)
 
 	return types.ToolResult{
 		ToolName:  t.Name(),
@@ -462,23 +462,18 @@ func (t *EmitAnalysis) Execute(ctx *types.BusContext, params json.RawMessage) (t
 	}, nil
 }
 
-func recordConfigTraceNoMatchFindings(ctx *types.BusContext, rm types.RequestModel, seenBlob string) {
+func recordExactTargetPrescanFindings(ctx *types.BusContext, rm types.RequestModel, seenBlob string) {
 	if ctx == nil || ctx.Mutable == nil {
 		return
 	}
-	if rm.Scenario != types.ScenarioConfigTrace &&
-		rm.AnalyzerHints.Kind != "config_mapping" &&
-		rm.AnswerSubject.Kind != types.SubjectConfigKey {
-		return
-	}
-	targets := types.ExactResolutionTargets(rm)
-	if len(targets) == 0 {
+	contract := types.BuildExactResolutionContract(rm)
+	if contract == nil || len(contract.Targets) == 0 {
 		return
 	}
 	graph, _ := ctx.Mutable.SearchGraph().(*repomap.Graph)
 	closure := ctx.Mutable.EvidenceClosure()
 	recorded := 0
-	for _, candidate := range targets {
+	for _, candidate := range contract.Targets {
 		token := strings.TrimSpace(candidate)
 		if token == "" {
 			continue
@@ -486,18 +481,36 @@ func recordConfigTraceNoMatchFindings(ctx *types.BusContext, rm types.RequestMod
 		if graphHasExactSymbol(graph, token) {
 			continue
 		}
-		if !prescanShowsExactNoMatches(seenBlob, token) {
+		reason := ""
+		switch {
+		case prescanShowsExactNoMatches(seenBlob, token):
+			reason = "exact target had no prescan matches"
+		case types.ExactResolutionRequiresDefiningPrimaryProof(contract) &&
+			prescanShowsExactOnlyAuxiliaryMatches(seenBlob, token):
+			reason = "exact target matched only auxiliary prescan files"
+		default:
 			continue
 		}
 		closure.AppendUnverifiedFinding(types.UnverifiedFinding{
 			Token:  token,
-			Kind:   "symbol",
-			Reason: "exact config key had no prescan matches",
+			Kind:   exactTargetFindingKind(rm),
+			Reason: reason,
 		})
 		recorded++
 	}
 	if recorded > 0 {
 		closure.BumpUnverifiedFinds(recorded)
+	}
+}
+
+func exactTargetFindingKind(rm types.RequestModel) string {
+	switch rm.AnswerSubject.Kind {
+	case types.SubjectFilePath:
+		return "path"
+	case types.SubjectHandlerRoute:
+		return "route"
+	default:
+		return "symbol"
 	}
 }
 
@@ -535,6 +548,59 @@ func prescanShowsExactNoMatches(seenBlob, token string) bool {
 		}
 	}
 	return false
+}
+
+func prescanShowsExactOnlyAuxiliaryMatches(seenBlob, token string) bool {
+	token = strings.ToLower(strings.TrimSpace(token))
+	if token == "" {
+		return false
+	}
+	sawMatch := false
+	for _, block := range strings.Split(seenBlob, "[grep params:") {
+		pattern := grepPatternFromPrescanBlock(block)
+		if pattern == "" || !grepPatternHasExactToken(pattern, token) {
+			continue
+		}
+		paths := grepMatchedPathsFromPrescanBlock(block)
+		if len(paths) == 0 {
+			continue
+		}
+		sawMatch = true
+		for _, path := range paths {
+			if !types.LooksLikeAuxiliaryEvidencePath(path) {
+				return false
+			}
+		}
+	}
+	return sawMatch
+}
+
+func grepMatchedPathsFromPrescanBlock(block string) []string {
+	var paths []string
+	for _, line := range strings.Split(block, "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" ||
+			strings.HasPrefix(line, "no matches found") ||
+			strings.HasPrefix(line, "pattern=") ||
+			strings.HasPrefix(line, "path=") ||
+			strings.HasPrefix(line, "files_only=") ||
+			strings.HasPrefix(line, "case_insensitive=") ||
+			strings.HasPrefix(line, "summary=") ||
+			strings.HasPrefix(line, "success=") ||
+			strings.HasPrefix(line, "[") {
+			continue
+		}
+		path := line
+		if idx := strings.Index(line, ":"); idx > 0 {
+			path = line[:idx]
+		}
+		path = strings.Trim(strings.ReplaceAll(path, `\`, `/`), "`\"' -")
+		if path == "" || (!strings.Contains(path, "/") && !strings.Contains(path, ".")) {
+			continue
+		}
+		paths = append(paths, path)
+	}
+	return paths
 }
 
 func grepPatternFromPrescanBlock(block string) string {
