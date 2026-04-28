@@ -1364,9 +1364,9 @@ func TestAnswerDocumentEvaluator_Observe_MidLoopMissingDiagramRejectIncludesConf
 			},
 		},
 		EvidenceItems: []types.EvidenceItem{
-			{Source: "internal/types/config.go", LineStart: 707, Summary: "code defaults", Kind: types.EvidenceDirect, DiagramRole: types.EvidenceDiagramRoleDefault},
+			{Source: "internal/types/config.go", LineStart: 707, Summary: "code defaults", Kind: types.EvidenceDirect, AnchorKind: types.AnchorDefinition, AnchorSymbol: "DefaultExploreHeuristics", DiagramRole: types.EvidenceDiagramRoleDefault},
 			{Source: "codrax.yaml.example", LineStart: 20, Subject: "ExploreHeuristics", Summary: "yaml precedence comment", Kind: types.EvidenceDirect, AnchorKind: types.AnchorDefinition, AnchorSymbol: "ExploreHeuristics", DiagramRole: types.EvidenceDiagramRoleYAML},
-			{Source: "internal/config/runtime.go", LineStart: 194, Summary: "runtime yaml binding", Kind: types.EvidenceDirect, DiagramRole: types.EvidenceDiagramRoleRuntime},
+			{Source: "internal/config/runtime.go", LineStart: 194, Summary: "runtime yaml binding", Kind: types.EvidenceDirect, AnchorKind: types.AnchorAssignment, AnchorSymbol: "ExploreMidLoopMinIteration", DiagramRole: types.EvidenceDiagramRoleRuntime},
 		},
 	}
 	e := &answerDocumentEvaluator{maxRetries: 2, configTraceDiagram: true}

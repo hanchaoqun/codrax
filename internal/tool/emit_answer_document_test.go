@@ -3269,6 +3269,98 @@ func TestEmitAnswerDocument_FallsBackToFollowOnGroundedContextSeedWhenRestatemen
 	}
 }
 
+func TestEmitAnswerDocument_FollowOnSeedPrefersProseScopeAnchorOverMisleadingRuntimeCounter(t *testing.T) {
+	tool := &EmitAnswerDocument{}
+	ctx := newDocBusCtx("")
+	target := "explore_mid_loop_hint_budget"
+	ctx.AnalysisIR = &types.AnalysisIR{
+		RequestModel: types.RequestModel{
+			Scenario: types.ScenarioConfigTrace,
+			AnalyzerHints: types.AnalyzerHints{
+				Kind:         "config_mapping",
+				ExactTargets: []string{target},
+			},
+			AnswerSubject: types.AnswerSubject{Kind: types.SubjectConfigKey},
+		},
+		AnswerContract: types.AnswerContract{
+			RequiredAnswerShape: types.ShapeExplanation,
+			ExactResolution: &types.ExactResolutionContract{
+				TargetKind:              types.SubjectConfigKey,
+				TargetLabel:             "config key",
+				Targets:                 []string{target},
+				AllowAbsence:            true,
+				RequireTargetMention:    true,
+				AliasRequiresProof:      true,
+				RelatedContextPolicy:    types.ExactContextSameFamilyGrounded,
+				RelatedContextScopeHint: "same namespace / prefix family",
+			},
+		},
+	}
+	ctx.Mutable.SetAbsenceJustification("repo-wide search found no exact key")
+	ctx.Mutable.SetInvestigationResultKind("absence")
+	ctx.Mutable.SetExactContextRequiredFiles([]string{"internal/types/config.go"})
+	ctx.Mutable.AppendEvidence([]types.EvidenceItem{
+		{
+			Kind:            types.EvidenceDirect,
+			Source:          "internal/types/config.go",
+			LineStart:       618,
+			AnchorKind:      types.AnchorDefinition,
+			AnchorSymbol:    "ExploreSettings",
+			ContextRole:     types.EvidenceContextRoleRelatedContext,
+			GroundingStatus: types.GroundingGrounded,
+			GroundingTier:   types.TierLineText,
+		},
+		{
+			Kind:            types.EvidenceDirect,
+			Source:          "internal/types/config.go",
+			LineStart:       707,
+			AnchorKind:      types.AnchorDefinition,
+			AnchorSymbol:    "DefaultExploreHeuristics",
+			ContextRole:     types.EvidenceContextRoleRelatedContext,
+			GroundingStatus: types.GroundingGrounded,
+			GroundingTier:   types.TierLineText,
+		},
+		{
+			Kind:            types.EvidenceDirect,
+			Source:          "internal/types/explore_budget.go",
+			LineStart:       40,
+			AnchorKind:      types.AnchorDefinition,
+			AnchorSymbol:    "ExploreBudget",
+			ContextRole:     types.EvidenceContextRoleRelatedContext,
+			DiagramRole:     types.EvidenceDiagramRoleRuntime,
+			GroundingStatus: types.GroundingRecovered,
+			GroundingTier:   types.TierSnippetFuzzy,
+		},
+	})
+	params := mustDocJSON(t, map[string]interface{}{
+		"shape": "explanation",
+		"exact_resolution": map[string]interface{}{
+			"status":       "absent",
+			"context_mode": "grounded_context_only",
+		},
+		"summary": "`explore_mid_loop_hint_budget` does not exist. `explore_mid_loop_hint_budget` also has no three-layer precedence chain.",
+	})
+	res, _ := tool.Execute(ctx, params)
+	if !res.Success {
+		t.Fatalf("restatement fallback should still preserve the strongest same-scope prose anchor, got %+v", res)
+	}
+	doc := ctx.Mutable.AnswerDocument()
+	if doc == nil {
+		t.Fatal("answer document missing after successful emit")
+	}
+	lead := renderAnswerDocumentExactResolutionLeadClean(ctx.AnalysisIR.AnswerContract.ExactResolution, &types.AnswerExactResolution{
+		Status:      types.AnswerExactResolutionAbsent,
+		ContextMode: types.AnswerExactResolutionContextGroundedOnly,
+	}, requestedAnswerDocumentLanguage(ctx))
+	body := exactContextSummaryBodyAfterLead(doc.Summary, lead)
+	if !strings.Contains(body, "DefaultExploreHeuristics") {
+		t.Fatalf("fallback summary should keep the strongest same-scope prose anchor, got %q", doc.Summary)
+	}
+	if strings.Contains(body, "ExploreBudget") {
+		t.Fatalf("fallback summary should not pivot to a misleading runtime counter anchor, got %q", doc.Summary)
+	}
+}
+
 func TestEmitAnswerDocument_PrunesFollowOnGroundedContextCitationsToCitationGradeSet(t *testing.T) {
 	tool := &EmitAnswerDocument{}
 	ctx := newDocBusCtx("")

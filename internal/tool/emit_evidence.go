@@ -750,19 +750,24 @@ func validatedEvidenceDiagramRole(ev types.EvidenceItem, gc *ground.Context, con
 	}
 	switch ev.DiagramRole {
 	case types.EvidenceDiagramRoleConfig:
-		if types.LooksLikeConfigFilePath(ev.Source) {
+		if types.ConfigTraceDiagramRoleAnchorCompatible(ev.DiagramRole, ev) &&
+			types.LooksLikeConfigFilePath(ev.Source) {
 			return ev.DiagramRole
 		}
 	case types.EvidenceDiagramRoleOverride:
-		if evidenceCanBeDiagramCodeLayer(ev, contract, requiredFiles) {
+		if types.ConfigTraceDiagramRoleAnchorCompatible(ev.DiagramRole, ev) &&
+			evidenceCanBeDiagramCodeLayer(ev, contract, requiredFiles) {
 			return ev.DiagramRole
 		}
 	case types.EvidenceDiagramRoleRuntime:
-		if evidenceCanBeDiagramCodeLayer(ev, contract, requiredFiles) {
+		if types.ConfigTraceDiagramRoleAnchorCompatible(ev.DiagramRole, ev) &&
+			evidenceCanBeDiagramCodeLayer(ev, contract, requiredFiles) {
 			return ev.DiagramRole
 		}
 	case types.EvidenceDiagramRoleDefault:
-		if evidenceCanBeDiagramCodeLayer(ev, contract, requiredFiles) && !types.LooksLikeConfigFilePath(ev.Source) {
+		if types.ConfigTraceDiagramRoleAnchorCompatible(ev.DiagramRole, ev) &&
+			evidenceCanBeDiagramCodeLayer(ev, contract, requiredFiles) &&
+			!types.LooksLikeConfigFilePath(ev.Source) {
 			return ev.DiagramRole
 		}
 	}

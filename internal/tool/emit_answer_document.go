@@ -3613,7 +3613,66 @@ func renderFollowOnGroundedContextSummarySeed(plan *types.AnswerSurfacePlan, lan
 			}
 		}
 	}
-	appendLabels(plan.CitationGradeExactContextLabels)
+	appendItemLabels := func(items []types.EvidenceItem) {
+		if len(items) == 0 {
+			return
+		}
+		sorted := append([]types.EvidenceItem(nil), items...)
+		sort.SliceStable(sorted, func(i, j int) bool {
+			si := followOnGroundedContextSeedScore(plan, sorted[i])
+			sj := followOnGroundedContextSeedScore(plan, sorted[j])
+			if si != sj {
+				return si > sj
+			}
+			leni := len(strings.TrimSpace(sorted[i].AnchorSymbol))
+			lenj := len(strings.TrimSpace(sorted[j].AnchorSymbol))
+			if leni != lenj {
+				return leni > lenj
+			}
+			return strings.TrimSpace(sorted[i].Source) < strings.TrimSpace(sorted[j].Source)
+		})
+		for _, kind := range []string{"symbol", "path"} {
+			for _, item := range sorted {
+				for _, label := range types.ExactContextSurfaceLabelsForItem(plan.ExactResolution, item) {
+					if label.Kind != kind {
+						continue
+					}
+					display := strings.TrimSpace(label.Display)
+					if display == "" || seen[display] {
+						continue
+					}
+					seen[display] = true
+					labels = append(labels, display)
+					if len(labels) >= 2 {
+						return
+					}
+				}
+			}
+		}
+	}
+	mergedItems := func(plan *types.AnswerSurfacePlan) []types.EvidenceItem {
+		var out []types.EvidenceItem
+		seen := make(map[string]bool)
+		appendUnique := func(items []types.EvidenceItem) {
+			for _, item := range items {
+				key := fmt.Sprintf("%s:%d:%s:%s", strings.TrimSpace(item.Source), item.LineStart, strings.TrimSpace(item.AnchorSymbol), strings.TrimSpace(item.Summary))
+				if key == "" || seen[key] {
+					continue
+				}
+				seen[key] = true
+				out = append(out, item)
+			}
+		}
+		appendUnique(plan.ProseOnlyExactContextItems)
+		appendUnique(plan.CitationGradeExactContextItems)
+		appendUnique(plan.AllowedExactContextItems)
+		return out
+	}
+	// Summary fallback seeds are prose-oriented recovery aids, not
+	// citation selectors. Pick the strongest nearby same-scope anchors
+	// from the unified allowed pool, then fall back to the flattened
+	// label set only when the item-backed pool is empty.
+	appendItemLabels(mergedItems(plan))
 	if len(labels) < 2 {
 		appendLabels(plan.AllowedExactContextLabels)
 	}
@@ -3630,6 +3689,43 @@ func renderFollowOnGroundedContextSummarySeed(plan *types.AnswerSurfacePlan, lan
 		return fmt.Sprintf("The grounded nearby context is `%s`.", labels[0])
 	}
 	return fmt.Sprintf("The grounded nearby context includes `%s` and `%s`.", labels[0], labels[1])
+}
+
+func followOnGroundedContextSeedScore(plan *types.AnswerSurfacePlan, item types.EvidenceItem) int {
+	score := 0
+	if item.ContextRole == types.EvidenceContextRoleRelatedContext {
+		score += 20
+	}
+	if item.GroundingStatus == types.GroundingGrounded {
+		score += 6
+	}
+	if source := strings.TrimSpace(item.Source); source != "" {
+		score += 4
+		for _, file := range plan.ExactContextRequiredFiles {
+			if strings.EqualFold(strings.ReplaceAll(strings.TrimSpace(file), `\`, `/`), strings.ReplaceAll(source, `\`, `/`)) {
+				score += 30
+				break
+			}
+		}
+	}
+	score += len(strings.TrimSpace(item.AnchorSymbol))
+	switch item.DiagramRole {
+	case types.EvidenceDiagramRoleDefault:
+		score += 10
+	case types.EvidenceDiagramRoleConfig:
+		score += 8
+	case types.EvidenceDiagramRoleOverride, types.EvidenceDiagramRoleRuntime:
+		score += 4
+	}
+	switch item.AnchorKind {
+	case types.AnchorAssignment, types.AnchorCall:
+		score += 6
+	case types.AnchorDefinition:
+		score += 4
+	case types.AnchorReturn, types.AnchorCondition:
+		score += 2
+	}
+	return score
 }
 
 func normalizeConfigTraceAbsentSummarySurface(summary string, ctx *types.BusContext, exact *types.AnswerExactResolution) string {

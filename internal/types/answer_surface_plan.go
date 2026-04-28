@@ -1453,12 +1453,14 @@ func configTraceSeedDiagramRoleInFiles(contract *ExactResolutionContract, item E
 	}
 	switch item.DiagramRole {
 	case EvidenceDiagramRoleConfig:
-		if LooksLikeConfigFilePath(item.Source) &&
+		if ConfigTraceDiagramRoleAnchorCompatible(item.DiagramRole, item) &&
+			LooksLikeConfigFilePath(item.Source) &&
 			configTraceDiagramEvidenceWithinScope(contract, item, requiredFiles) {
 			return item.DiagramRole
 		}
 	case EvidenceDiagramRoleDefault, EvidenceDiagramRoleRuntime, EvidenceDiagramRoleOverride:
-		if item.Source != "" &&
+		if ConfigTraceDiagramRoleAnchorCompatible(item.DiagramRole, item) &&
+			item.Source != "" &&
 			!LooksLikeConfigFilePath(item.Source) &&
 			!LooksLikeAuxiliaryEvidencePath(item.Source) &&
 			configTraceDiagramEvidenceWithinScope(contract, item, requiredFiles) {

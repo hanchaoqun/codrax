@@ -695,16 +695,50 @@ func ConfigTraceValidatedDiagramRoleInFiles(contract *ExactResolutionContract, i
 	}
 	switch item.DiagramRole {
 	case EvidenceDiagramRoleConfig:
-		if LooksLikeConfigFilePath(item.Source) &&
+		if ConfigTraceDiagramRoleAnchorCompatible(item.DiagramRole, item) &&
+			LooksLikeConfigFilePath(item.Source) &&
 			configTraceDiagramEvidenceWithinScope(contract, item, requiredFiles) {
 			return item.DiagramRole
 		}
 	case EvidenceDiagramRoleDefault, EvidenceDiagramRoleRuntime, EvidenceDiagramRoleOverride:
-		if configTraceDiagramCodeLayerAllowed(contract, item, requiredFiles) {
+		if ConfigTraceDiagramRoleAnchorCompatible(item.DiagramRole, item) &&
+			configTraceDiagramCodeLayerAllowed(contract, item, requiredFiles) {
 			return item.DiagramRole
 		}
 	}
 	return EvidenceDiagramRoleUnknown
+}
+
+// ConfigTraceDiagramRoleAnchorCompatible applies role-specific
+// structural validation to LLM-recommended precedence roles.
+//
+// The model is encouraged to recommend the semantic layer
+// (`default`/`config`/`runtime`/`override`), but the system still
+// validates whether the anchored line has the right structural shape
+// for that layer. This keeps repo-specific naming out of the
+// validator: we do not rely on words like "default" or "flag", only
+// on the anchored file kind and code-location kind.
+func ConfigTraceDiagramRoleAnchorCompatible(role EvidenceDiagramRole, item EvidenceItem) bool {
+	switch role {
+	case EvidenceDiagramRoleConfig:
+		return item.Source != "" && LooksLikeConfigFilePath(item.Source)
+	case EvidenceDiagramRoleDefault:
+		switch item.AnchorKind {
+		case AnchorDefinition, AnchorAssignment, AnchorReturn:
+			return true
+		default:
+			return false
+		}
+	case EvidenceDiagramRoleRuntime, EvidenceDiagramRoleOverride:
+		switch item.AnchorKind {
+		case AnchorAssignment, AnchorCall, AnchorCondition:
+			return true
+		default:
+			return false
+		}
+	default:
+		return false
+	}
 }
 
 type ConfigTraceRelatedContextCitationCandidate struct {

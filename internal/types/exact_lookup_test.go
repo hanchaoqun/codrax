@@ -562,7 +562,7 @@ func TestConfigTraceRelatedContextCitationCandidates_DedupesAndOrdersByPrecedenc
 		{
 			Source:          "internal/config/runtime.go",
 			LineStart:       231,
-			AnchorKind:      AnchorDefinition,
+			AnchorKind:      AnchorAssignment,
 			AnchorSymbol:    "ExploreMidLoopMinIteration",
 			ContextRole:     EvidenceContextRoleRelatedContext,
 			DiagramRole:     EvidenceDiagramRoleRuntime,
@@ -607,5 +607,28 @@ func TestConfigTraceRelatedContextCitationCandidates_DedupesAndOrdersByPrecedenc
 	}
 	if got[2].Role != EvidenceDiagramRoleDefault || got[2].Source != "internal/types/config.go" || got[2].Line != 707 {
 		t.Fatalf("third candidate = %+v, want default precedence candidate third", got[2])
+	}
+}
+
+func TestConfigTraceValidatedDiagramRoleInFiles_RejectsRuntimeOnStaticDefinition(t *testing.T) {
+	contract := &ExactResolutionContract{
+		TargetKind:           SubjectConfigKey,
+		TargetLabel:          "config key",
+		Targets:              []string{"feature_timeout_budget"},
+		AllowAbsence:         true,
+		RelatedContextPolicy: ExactContextSameFamilyGrounded,
+		RelatedContextTerms:  []string{"feature"},
+	}
+	item := EvidenceItem{
+		Source:          "internal/types/feature_budget.go",
+		LineStart:       40,
+		AnchorKind:      AnchorDefinition,
+		AnchorSymbol:    "FeatureBudget",
+		ContextRole:     EvidenceContextRoleRelatedContext,
+		DiagramRole:     EvidenceDiagramRoleRuntime,
+		GroundingStatus: GroundingGrounded,
+	}
+	if got := ConfigTraceValidatedDiagramRoleInFiles(contract, item, []string{"internal/types/config.go"}); got != EvidenceDiagramRoleUnknown {
+		t.Fatalf("runtime role on static definition = %s, want unknown", got)
 	}
 }
