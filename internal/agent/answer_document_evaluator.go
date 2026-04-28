@@ -1988,6 +1988,7 @@ func (e *answerDocumentEvaluator) emitAnswerDocumentRejectSignal(ctx *types.Agen
 		Hint:           hint,
 		Progress:       true,
 		BypassThrottle: true,
+		BypassBudget:   true,
 	}
 }
 

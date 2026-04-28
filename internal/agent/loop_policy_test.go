@@ -233,6 +233,36 @@ func TestLoopPolicy_BudgetDropsExcessMidLoopHints(t *testing.T) {
 	}
 }
 
+func TestLoopPolicy_BypassBudgetAllowsCriticalMidLoopHint(t *testing.T) {
+	s := newTestPolicyState(LoopPolicy{
+		MinInjectInterval: 0,
+		MaxMidLoopInjects: 2,
+	})
+
+	for i := 0; i < 2; i++ {
+		if r := s.Apply(PhaseMidLoop, midLoopObs(i, nil), LoopSignal{
+			HintRequested: true,
+			Hint:          "ordinary",
+			HintKey:       "k" + string(rune('A'+i)),
+		}); r.Outcome != OutcomeInjectHint {
+			t.Fatalf("inject %d should pass, got %s", i, r.Outcome)
+		}
+	}
+
+	r := s.Apply(PhaseMidLoop, midLoopObs(2, nil), LoopSignal{
+		HintRequested: true,
+		Hint:          "close now",
+		HintKey:       "critical-close",
+		BypassBudget:  true,
+	})
+	if r.Outcome != OutcomeInjectHint {
+		t.Fatalf("critical mid-loop hint should bypass the exhausted budget, got %s (%s)", r.Outcome, r.Reason)
+	}
+	if s.midLoopInjects != 2 {
+		t.Fatalf("budget-bypassed hint should not consume the ordinary inject counter, got %d", s.midLoopInjects)
+	}
+}
+
 // TestLoopPolicy_BudgetForceStopsExcessSoftStop is the other half:
 // PhaseSoftStop over-budget force-stops the loop. The difference
 // matters because continuing past the budget is an option for

@@ -347,6 +347,13 @@ type LoopSignal struct {
 	// delivered immediately after a prior accepted hint, such as
 	// "repair the evidence you just emitted before widening scope".
 	BypassThrottle bool
+
+	// BypassBudget skips the phase-specific hint budget accounting while
+	// still honoring HintKey dedup and (unless also set) the throttle.
+	// Reserve this for repair / closure / materialization corrections
+	// that should not compete with ordinary exploratory nudges for the
+	// same finite mid-loop budget.
+	BypassBudget bool
 }
 
 // LoopController is the unified replacement for ContinuingEvaluator +

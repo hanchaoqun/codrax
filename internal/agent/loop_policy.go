@@ -485,14 +485,16 @@ func (s *loopPolicyState) Apply(phase LoopPhase, obs LoopObservation, sig LoopSi
 			}
 			s.continuations++
 		case PhaseMidLoop:
-			if s.policy.MaxMidLoopInjects > 0 && s.midLoopInjects >= s.policy.MaxMidLoopInjects {
+			if !sig.BypassBudget && s.policy.MaxMidLoopInjects > 0 && s.midLoopInjects >= s.policy.MaxMidLoopInjects {
 				return LoopResult{
 					Outcome: OutcomeContinue,
 					Reason: fmt.Sprintf("mid-loop inject budget exhausted (%d/%d)",
 						s.midLoopInjects, s.policy.MaxMidLoopInjects),
 				}
 			}
-			s.midLoopInjects++
+			if !sig.BypassBudget {
+				s.midLoopInjects++
+			}
 		}
 		s.setLastInjectIterForPhase(phase, obs.Iteration)
 		s.lastAcceptedKey = sig.HintKey

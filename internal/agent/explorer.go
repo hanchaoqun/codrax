@@ -3418,6 +3418,7 @@ func (e *explorerEvaluator) postEmitEvidenceRepairSignal(obs LoopObservation) Lo
 		Hint:           renderEmitEvidenceRepairHint(targets),
 		Progress:       true,
 		BypassThrottle: true,
+		BypassBudget:   true,
 	}
 }
 
@@ -3438,6 +3439,7 @@ func (e *explorerEvaluator) postEmitEvidenceRepairClosureOnlySignal(obs LoopObse
 		Hint:           "MID-LOOP CHECK: the current dispatch already has a concrete `emit_evidence` repair to do on previously-read anchors. Finish that repair and re-emit grounded evidence before widening scope or opening more files. Do not keep navigating until the repaired `emit_evidence(items=[...])` batch succeeds.",
 		Progress:       true,
 		BypassThrottle: true,
+		BypassBudget:   true,
 	}
 }
 
@@ -3498,6 +3500,7 @@ func (e *explorerEvaluator) postReadWithoutEmitSignal(obs LoopObservation) LoopS
 			reads, scope, recording, e.authoritativeLogDriftReminder(obs.AllToolResults)),
 		Progress:       true,
 		BypassThrottle: true,
+		BypassBudget:   true,
 	}
 }
 
@@ -3526,6 +3529,7 @@ func (e *explorerEvaluator) postExecRedirectBeforeEmitSignal(obs LoopObservation
 			"Use the lines you already read to call `emit_evidence(items=[...])` now; reserve `exec_command` for deterministic computations or checks that the structured tools cannot perform directly.",
 		Progress:       true,
 		BypassThrottle: true,
+		BypassBudget:   true,
 	}
 }
 
@@ -3560,6 +3564,7 @@ func (e *explorerEvaluator) postReadWithoutEmitEscalationSignal(obs LoopObservat
 			e.authoritativeLogDriftReminder(obs.AllToolResults),
 		Progress:       true,
 		BypassThrottle: true,
+		BypassBudget:   true,
 	}
 }
 
@@ -3580,6 +3585,7 @@ func (e *explorerEvaluator) postReadWithoutEmitClosureOnlySignal(obs LoopObserva
 		Hint:           "MID-LOOP CHECK: an earlier hint already established that your next useful step is to materialize structured evidence. The current batch still spent effort on navigation tools without recording the current backlog. Do NOT keep expanding with `read_file`, `grep`, `repo_map`, `list_files`, or `exec_command` until you first emit ONE grounded `emit_evidence(items=[...])` batch from the lines you already have." + e.authoritativeLogDriftReminder(obs.AllToolResults),
 		Progress:       true,
 		BypassThrottle: true,
+		BypassBudget:   true,
 	}
 }
 
@@ -3621,6 +3627,7 @@ func (e *explorerEvaluator) postClosureReadyBacklogSignal(obs LoopObservation) L
 			"Do NOT keep widening scope or opening more neighboring files from here.",
 		Progress:       true,
 		BypassThrottle: true,
+		BypassBudget:   true,
 	}
 }
 
@@ -3647,6 +3654,7 @@ func (e *explorerEvaluator) postExternalLogRedirectSignal(obs LoopObservation) L
 				"Only continue repo reads if you have identified a real repository file that explains how this repo handles the logged failure.",
 			Progress:       true,
 			BypassThrottle: true,
+			BypassBudget:   true,
 		}
 	}
 	return LoopSignal{}
@@ -3704,6 +3712,7 @@ func (e *explorerEvaluator) postExactAbsenceClosureSignal(obs LoopObservation) L
 				Hint:           b.String(),
 				Progress:       true,
 				BypassThrottle: true,
+				BypassBudget:   true,
 			}
 		}
 	}
@@ -3725,6 +3734,7 @@ func (e *explorerEvaluator) postExactAbsenceClosureSignal(obs LoopObservation) L
 			label),
 		Progress:       true,
 		BypassThrottle: true,
+		BypassBudget:   true,
 	}
 }
 
@@ -3939,6 +3949,7 @@ func (e *explorerEvaluator) postClosureRepairSignal(obs LoopObservation) LoopSig
 		Hint:           renderClosureRepairHint(repairs),
 		Progress:       true,
 		BypassThrottle: true,
+		BypassBudget:   true,
 	}
 }
 
@@ -3959,6 +3970,7 @@ func (e *explorerEvaluator) postClosureRepairClosureOnlySignal(obs LoopObservati
 		Hint:           "MID-LOOP CHECK: the last completion attempt already queued structured closure repairs, and the current batch still spent effort on generic navigation. Do not keep widening scope yet. Finish the queued repair first, then re-emit grounded evidence or retry `emit_investigation_complete(...)`.",
 		Progress:       true,
 		BypassThrottle: true,
+		BypassBudget:   true,
 	}
 }
 
@@ -4181,6 +4193,7 @@ func (e *explorerEvaluator) postCompletionReadySignal(obs LoopObservation) LoopS
 		Hint:           b.String(),
 		Progress:       true,
 		BypassThrottle: true,
+		BypassBudget:   true,
 	}
 }
 
@@ -4232,6 +4245,7 @@ func (e *explorerEvaluator) postExplanationAnchorSignal(obs LoopObservation) Loo
 		Hint:           b.String(),
 		Progress:       true,
 		BypassThrottle: true,
+		BypassBudget:   true,
 	}
 }
 
@@ -4249,6 +4263,7 @@ func (e *explorerEvaluator) postCompletionReadyEscalationSignal(obs LoopObservat
 		Hint:           "MID-LOOP CHECK: an earlier hint already established that the current evidence is sufficient. Do NOT reopen adjacent files or widen scope by default. Either call `emit_investigation_complete(reason, confidence, result_kind)` now, or verify exactly one concrete unresolved branch only if that branch could still change the final answer.",
 		Progress:       true,
 		BypassThrottle: true,
+		BypassBudget:   true,
 	}
 }
 
@@ -4269,6 +4284,7 @@ func (e *explorerEvaluator) postCompletionReadyClosureOnlySignal(obs LoopObserva
 		Hint:           "MID-LOOP CHECK: completion-ready has already been established and escalated. The current batch still spent effort on navigation tools. Do NOT keep calling `read_file`, `grep`, `repo_map`, `list_files`, or `exec_command` unless this batch surfaced one concrete contradiction that would change the final answer. From here, either emit exactly one repair batch for that contradiction or call `emit_investigation_complete(reason, confidence, result_kind)` now.",
 		Progress:       true,
 		BypassThrottle: true,
+		BypassBudget:   true,
 	}
 }
 
@@ -4459,6 +4475,48 @@ func (e *explorerEvaluator) filterPartialReadsByAuthoritativeFrames(hints []part
 		if len(tails) == 0 || tails[types.NormalizedSurfaceSymbolTail(hint.symbolName)] {
 			out = append(out, hint)
 		}
+	}
+	return out
+}
+
+func (e *explorerEvaluator) filterPartialReadsForCurrentContext(hints []partialReadHint) []partialReadHint {
+	if len(hints) == 0 {
+		return nil
+	}
+	hints = e.filterPartialReadsByAuthoritativeFrames(hints)
+	hints = filterPartialReadsByRelevance(hints, e.userQuestion)
+	hints = e.filterPartialReadsByGroundedEvidence(hints)
+	return hints
+}
+
+func (e *explorerEvaluator) filterPartialReadsByGroundedEvidence(hints []partialReadHint) []partialReadHint {
+	if len(hints) == 0 || len(e.structuredEvidence) == 0 {
+		return hints
+	}
+	counts := make(map[string]int)
+	add := func(file, symbol string) {
+		file = canonicalExplorerPath(file)
+		tail := types.NormalizedSurfaceSymbolTail(symbol)
+		if file == "" || tail == "" {
+			return
+		}
+		counts[file+"\x00"+tail]++
+	}
+	for _, item := range e.structuredEvidence {
+		if item.GroundingStatus != types.GroundingGrounded {
+			continue
+		}
+		add(item.Source, item.AnchorSymbol)
+		add(item.Source, item.Subject)
+		add(item.Source, item.Object)
+	}
+	out := make([]partialReadHint, 0, len(hints))
+	for _, hint := range hints {
+		key := canonicalExplorerPath(hint.file) + "\x00" + types.NormalizedSurfaceSymbolTail(hint.symbolName)
+		if counts[key] >= 2 && hint.coverage >= 0.15 {
+			continue
+		}
+		out = append(out, hint)
 	}
 	return out
 }
@@ -4850,7 +4908,7 @@ func (e *explorerEvaluator) observeMidLoop(obs LoopObservation) LoopSignal {
 	}
 
 	// Check 1: function-boundary coverage.
-	if hints := detectPartiallyReadSymbols(allResults, e.searchResult.Graph); len(hints) > 0 {
+	if hints := e.filterPartialReadsForCurrentContext(detectPartiallyReadSymbols(allResults, e.searchResult.Graph)); len(hints) > 0 {
 		h := hints[0] // worst-coverage offender
 		unreadLines := h.symEnd - h.readEnd
 		if unreadLines <= e.heuristics.PartialReadLineThreshold {
@@ -5494,11 +5552,7 @@ func (e *explorerEvaluator) observeSoftStop(obs LoopObservation) LoopSignal {
 	// attention budget is spent on reading NEW relevant files
 	// instead of finishing irrelevant large functions.
 	if e.searchResult != nil && e.searchResult.Graph != nil {
-		partialHints := detectPartiallyReadSymbols(history, e.searchResult.Graph)
-		partialHints = e.filterPartialReadsByAuthoritativeFrames(partialHints)
-		// Filter to relevant hints: function name must match an
-		// entity or keyword from the analyzer classification.
-		partialHints = filterPartialReadsByRelevance(partialHints, e.userQuestion)
+		partialHints := e.filterPartialReadsForCurrentContext(detectPartiallyReadSymbols(history, e.searchResult.Graph))
 		if len(partialHints) > 0 {
 			progress = true // keep the loop alive via LoopSignal.Progress
 			var hint strings.Builder

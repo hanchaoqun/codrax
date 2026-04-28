@@ -1324,6 +1324,9 @@ func TestAnswerDocumentEvaluator_Observe_MidLoopSummaryCapRejectRequestsTargeted
 	if !sig.BypassThrottle {
 		t.Fatalf("summary-cap reject hint should bypass throttle, got %+v", sig)
 	}
+	if !sig.BypassBudget {
+		t.Fatalf("summary-cap reject hint should bypass the ordinary mid-loop budget, got %+v", sig)
+	}
 	if !strings.Contains(sig.Hint, "2500") || !strings.Contains(sig.Hint, "explanation") {
 		t.Fatalf("targeted summary-cap hint missing cap/shape detail: %q", sig.Hint)
 	}

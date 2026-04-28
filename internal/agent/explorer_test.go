@@ -4200,6 +4200,51 @@ func TestObserveMidLoop_ReadWithoutEmitSuppressesPartialReadUntilFirstEmit(t *te
 	}
 }
 
+func TestFilterPartialReadsForCurrentContext_DropsAlreadyGroundedSymbol(t *testing.T) {
+	eval := &explorerEvaluator{
+		structuredEvidence: []types.EvidenceItem{
+			{
+				Kind:            types.EvidenceDirect,
+				Source:          "internal/agent/analyzer.go",
+				Subject:         "buildAnalysisIR",
+				GroundingStatus: types.GroundingGrounded,
+			},
+			{
+				Kind:            types.EvidenceConditional,
+				Source:          "internal/agent/analyzer.go",
+				AnchorSymbol:    "buildAnalysisIR",
+				GroundingStatus: types.GroundingGrounded,
+			},
+		},
+	}
+	hints := []partialReadHint{
+		{
+			file:       "internal/agent/analyzer.go",
+			symbolName: "buildAnalysisIR",
+			symStart:   860,
+			symEnd:     1365,
+			readEnd:    955,
+			coverage:   0.19,
+		},
+		{
+			file:       "internal/agent/analyzer.go",
+			symbolName: "ParseOutput",
+			symStart:   606,
+			symEnd:     760,
+			readEnd:    640,
+			coverage:   0.22,
+		},
+	}
+
+	filtered := eval.filterPartialReadsForCurrentContext(hints)
+	if len(filtered) != 1 {
+		t.Fatalf("filtered partial hints = %d, want 1", len(filtered))
+	}
+	if filtered[0].symbolName != "ParseOutput" {
+		t.Fatalf("remaining hint = %q, want ParseOutput", filtered[0].symbolName)
+	}
+}
+
 func TestObserveMidLoop_ReadWithoutEmitHint_AddsAuthoritativeLogDriftReminder(t *testing.T) {
 	newReadResult := func(path string) types.ToolResult {
 		return types.ToolResult{
@@ -4441,6 +4486,9 @@ func TestObserveMidLoop_ExactAbsenceClosureHint(t *testing.T) {
 	if sig.HintKey != "explorer.mid-loop.exact-absence-close" {
 		t.Fatalf("HintKey = %q, want explorer.mid-loop.exact-absence-close", sig.HintKey)
 	}
+	if !sig.BypassBudget {
+		t.Fatal("exact-absence closure hint should bypass ordinary mid-loop budget pressure")
+	}
 	if !strings.Contains(sig.Hint, "absence_justification") || !strings.Contains(sig.Hint, "related context only") {
 		t.Fatalf("hint should drive absence closure, got: %s", sig.Hint)
 	}
@@ -4501,6 +4549,9 @@ func TestObserveMidLoop_CompletionReadyHint(t *testing.T) {
 	}
 	if sig.HintKey != "explorer.mid-loop.completion-ready" {
 		t.Fatalf("HintKey = %q, want explorer.mid-loop.completion-ready", sig.HintKey)
+	}
+	if !sig.BypassBudget {
+		t.Fatal("completion-ready hint should bypass ordinary mid-loop budget pressure")
 	}
 	if !strings.Contains(sig.Hint, "emit_investigation_complete") || !strings.Contains(sig.Hint, "enough evidence") {
 		t.Fatalf("hint should direct immediate closure, got: %s", sig.Hint)
