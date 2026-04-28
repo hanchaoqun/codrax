@@ -2756,17 +2756,15 @@ func TestEmitAnswerDocument_RejectsNearbyContextWhenContextModeNone(t *testing.T
 		},
 	})
 	res, _ := tool.Execute(ctx, params)
-	if res.Success {
-		t.Fatalf("nearby context should require grounded_context_only, not context_mode=none")
+	if !res.Success {
+		t.Fatalf("nearby context with a compiled grounded-context plan should normalize context_mode, got %+v", res)
 	}
-	if res.Repair == nil || res.Repair.Code != "exact_resolution" {
-		t.Fatalf("reject should come back through exact_resolution, got %+v", res.Repair)
+	doc := ctx.Mutable.AnswerDocument()
+	if doc == nil || doc.ExactResolution == nil {
+		t.Fatalf("answer document missing exact resolution after success")
 	}
-	if got := res.Repair.Metadata["preferred_context_mode"]; got != "grounded_context_only" {
-		t.Fatalf("preferred_context_mode = %q, want grounded_context_only", got)
-	}
-	if !strings.Contains(res.Repair.Hint, "set `exact_resolution.context_mode=\"grounded_context_only\"`") {
-		t.Fatalf("hint should explain the context_mode fix, got %q", res.Repair.Hint)
+	if got := doc.ExactResolution.ContextMode; got != types.AnswerExactResolutionContextGroundedOnly {
+		t.Fatalf("stored context_mode = %q, want grounded_context_only", got)
 	}
 }
 

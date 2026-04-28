@@ -196,6 +196,18 @@ func TestBuildAnswerSurfacePlan_SplitsCitationGradeAndProseOnlyContext(t *testin
 	if !sawRuntime || !sawDefault {
 		t.Fatalf("citation-grade anchors missing runtime/default split: %+v", plan.CitationGradeExactContextItems)
 	}
+	if plan.PreferredExactResolution == nil {
+		t.Fatalf("preferred exact resolution should be compiled for stable absence")
+	}
+	if plan.PreferredExactResolution.Status != AnswerExactResolutionAbsent {
+		t.Fatalf("preferred status = %s, want %s", plan.PreferredExactResolution.Status, AnswerExactResolutionAbsent)
+	}
+	if plan.PreferredExactResolution.ContextMode != AnswerExactResolutionContextGroundedOnly {
+		t.Fatalf("preferred context mode = %s, want %s", plan.PreferredExactResolution.ContextMode, AnswerExactResolutionContextGroundedOnly)
+	}
+	if plan.SummarySurfaceMode != AnswerSummarySurfaceFollowOnGroundedContext {
+		t.Fatalf("summary surface mode = %s, want %s", plan.SummarySurfaceMode, AnswerSummarySurfaceFollowOnGroundedContext)
+	}
 }
 
 func TestBuildAnswerSurfacePlan_CompilesLogDiagramFence(t *testing.T) {

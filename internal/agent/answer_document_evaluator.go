@@ -824,6 +824,7 @@ func renderAnswerDocExactResolutionContract(ctx *types.AgentContext) string {
 		ctx.Mutable.StableInvestigationResultKind() == "absence" &&
 		justification != "" &&
 		len(pending) > 0
+	plan := answerSurfacePlan(ctx)
 
 	var b strings.Builder
 	b.WriteString("## Exact Resolution Contract\n\n")
@@ -864,6 +865,13 @@ func renderAnswerDocExactResolutionContract(ctx *types.AgentContext) string {
 			b.WriteString("- In `step_list`, any step with `citation_ref >= 0` must mention at least one identifier that appears on the cited line or its nearby corroboration window. If the step summarizes a whole struct/range/absence conclusion rather than one corroborated line, use `citation_ref=-1` and keep the precise line-backed facts in neighboring steps.\n")
 			b.WriteString("- A repo-wide search result, aggregate absence conclusion, or test-only proof step usually has no single corroborating production line. In `step_list`, default those steps to `citation_ref=-1` unless one cited line literally states the same claim.\n")
 		}
+	}
+	if plan != nil && plan.PreferredExactResolution != nil {
+		fmt.Fprintf(&b, "- Preferred exact_resolution object for this dispatch: `{\"status\":\"%s\",\"context_mode\":\"%s\"}`.\n",
+			plan.PreferredExactResolution.Status, plan.PreferredExactResolution.ContextMode)
+	}
+	if plan != nil && plan.SummarySurfaceMode == types.AnswerSummarySurfaceFollowOnGroundedContext {
+		b.WriteString("- Summary surface mode: follow-on grounded context only. The renderer already prints the exact-target absence lead, so `summary` should start directly on the grounded nearby context/mechanism and must not restate the exact target.\n")
 	}
 	b.WriteString("\n")
 	citationGradeRendered := false

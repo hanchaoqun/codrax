@@ -21,7 +21,9 @@ type AnswerSurfacePlan struct {
 	CompiledDiagramKind           DiagramKind
 	CompiledDiagramFence          string
 
-	ExactResolution *ExactResolutionContract
+	ExactResolution          *ExactResolutionContract
+	PreferredExactResolution *AnswerExactResolution
+	SummarySurfaceMode       AnswerSummarySurfaceMode
 
 	StableInvestigationResultKind string
 	StableAbsenceJustification    string
@@ -43,6 +45,13 @@ type AnswerSurfacePlan struct {
 	RelatedContextCitationCandidates []ConfigTraceRelatedContextCitationCandidate
 	ConfigTraceDiagramAnchors        []ConfigTraceDiagramAnchor
 }
+
+type AnswerSummarySurfaceMode string
+
+const (
+	AnswerSummarySurfaceDefault                 AnswerSummarySurfaceMode = ""
+	AnswerSummarySurfaceFollowOnGroundedContext AnswerSummarySurfaceMode = "follow_on_grounded_context_only"
+)
 
 type ExactContextSurfaceLabel struct {
 	Display    string
@@ -328,8 +337,40 @@ func BuildAnswerSurfacePlan(
 		plan.ExactContextRequiredFiles,
 		plan.SurfaceEvidence,
 	)
+	plan.PreferredExactResolution = preferredExactResolutionSurface(plan)
+	plan.SummarySurfaceMode = preferredAnswerSummarySurfaceMode(plan)
 
 	return plan
+}
+
+func preferredExactResolutionSurface(plan *AnswerSurfacePlan) *AnswerExactResolution {
+	if plan == nil || plan.ExactResolution == nil {
+		return nil
+	}
+	resolved := &AnswerExactResolution{
+		ContextMode: AnswerExactResolutionContextNone,
+	}
+	if plan.StableAbsent {
+		resolved.Status = AnswerExactResolutionAbsent
+		if len(plan.AllowedExactContextItems) > 0 ||
+			len(plan.CitationGradeExactContextItems) > 0 ||
+			len(plan.ProseOnlyExactContextItems) > 0 {
+			resolved.ContextMode = AnswerExactResolutionContextGroundedOnly
+		}
+		return resolved
+	}
+	return nil
+}
+
+func preferredAnswerSummarySurfaceMode(plan *AnswerSurfacePlan) AnswerSummarySurfaceMode {
+	if plan == nil || plan.PreferredExactResolution == nil {
+		return AnswerSummarySurfaceDefault
+	}
+	if plan.PreferredExactResolution.Status == AnswerExactResolutionAbsent &&
+		plan.PreferredExactResolution.ContextMode == AnswerExactResolutionContextGroundedOnly {
+		return AnswerSummarySurfaceFollowOnGroundedContext
+	}
+	return AnswerSummarySurfaceDefault
 }
 
 // FormatExactResolutionSeed formats one grounded evidence item into the

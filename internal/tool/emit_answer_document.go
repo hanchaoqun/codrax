@@ -2874,15 +2874,25 @@ func resolveAnswerDocumentExactResolution(summary string, declared *types.Answer
 	if resolved.ContextMode == "" {
 		resolved.ContextMode = types.AnswerExactResolutionContextNone
 	}
+	plan := answerSurfacePlan(ctx)
 	if resolved.Status == types.AnswerExactResolutionAbsent {
-		summary = trimLeadingExactAbsenceRestatement(summary, contract, answerSurfacePlan(ctx))
-		summary = sanitizeExactContextSummarySurface(summary, contract, answerSurfacePlan(ctx))
+		summary = trimLeadingExactAbsenceRestatement(summary, contract, plan)
+		summary = sanitizeExactContextSummarySurface(summary, contract, plan)
 		summary = normalizeConfigTraceAbsentSummarySurface(summary, ctx, resolved)
 	}
 	if declared.ContextMode == "" &&
 		resolved.Status == types.AnswerExactResolutionAbsent &&
 		resolved.ContextMode == types.AnswerExactResolutionContextNone &&
 		strings.TrimSpace(summary) != "" {
+		resolved.ContextMode = types.AnswerExactResolutionContextGroundedOnly
+	}
+	if resolved.Status == types.AnswerExactResolutionAbsent &&
+		strings.TrimSpace(summary) != "" &&
+		plan != nil &&
+		plan.PreferredExactResolution != nil &&
+		plan.PreferredExactResolution.Status == types.AnswerExactResolutionAbsent &&
+		plan.PreferredExactResolution.ContextMode == types.AnswerExactResolutionContextGroundedOnly &&
+		resolved.ContextMode == types.AnswerExactResolutionContextNone {
 		resolved.ContextMode = types.AnswerExactResolutionContextGroundedOnly
 	}
 
