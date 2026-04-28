@@ -63,14 +63,15 @@ type explorerEvaluator struct {
 	midLoopExactAbsenceContextSent  bool                  // one-shot: exact absence still needs one grounded same-family production anchor before closure
 	midLoopExactAbsenceSent         bool                  // one-shot: exact-resolution absence already looks closure-ready this dispatch
 	midLoopEnumInjected             bool                  // session-22: enumeration-coverage hint already pushed this dispatch (was missing → 68 fires / run observed on goroutine_dump)
-	midLoopNoEmitPushSent           bool                  // one-shot: "you have read N files but never called emit_evidence" hint already pushed this dispatch
-	midLoopNoEmitEscalated          bool                  // one-shot: stronger "emit evidence now" escalation after the first no-emit nudge was ignored
-	midLoopExecRedirectSent         bool                  // one-shot: redirected shell-style browsing back to built-in grep/read_file before first emit_evidence
+	midLoopNoEmitPushSent           bool                  // one-shot: current evidence-materialization backlog window already received its read-without-emit nudge
+	midLoopNoEmitEscalated          bool                  // one-shot: stronger "emit evidence now" escalation after the current backlog window's nudge was ignored
+	midLoopExecRedirectSent         bool                  // one-shot: redirected shell-style browsing back to built-in grep/read_file before recording the current backlog window
 	midLoopCompletionReadySent      bool                  // one-shot: generic "you already have enough grounded evidence; close now" hint already pushed this dispatch
 	midLoopCompletionReadyEscalated bool                  // one-shot: stronger close-now escalation after the completion-ready hint was ignored
 	midLoopCompletionReadyIter      int                   // iteration where completion-ready first fired
-	midLoopNoEmitPushIter           int                   // iteration where the initial read-without-emit nudge fired
-	midLoopNoEmitPushResultsLen     int                   // allResults length when the initial read-without-emit nudge fired
+	midLoopNoEmitPushIter           int                   // iteration where the current backlog window's read-without-emit nudge fired
+	midLoopNoEmitPushResultsLen     int                   // allResults length when the current backlog window's read-without-emit nudge fired
+	midLoopEmitBacklogBaseLen       int                   // allResults length immediately after the last successful emit_evidence that closed the prior backlog window
 	primaryReadSeen                 bool                  // df3-drift: whether any primary-entity file has entered readSet this dispatch
 	primaryReadIter                 int                   // df3-drift: iter at which a primary-entity file first entered readSet
 	notesLenAtPrimaryRead           int                   // df3-drift: snapshot of len(investigationNotes) at primaryReadIter
@@ -218,6 +219,11 @@ func (e *explorerEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk 
 		e.midLoopExactAbsenceSent = false
 		e.midLoopEnumInjected = false
 		e.midLoopNoEmitPushSent = false
+		e.midLoopNoEmitEscalated = false
+		e.midLoopExecRedirectSent = false
+		e.midLoopNoEmitPushIter = 0
+		e.midLoopNoEmitPushResultsLen = 0
+		e.midLoopEmitBacklogBaseLen = 0
 		e.primaryReadSeen = false
 		e.primaryReadIter = 0
 		e.notesLenAtPrimaryRead = 0
@@ -311,6 +317,7 @@ func (e *explorerEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk 
 	e.midLoopCompletionReadyIter = 0
 	e.midLoopNoEmitPushIter = 0
 	e.midLoopNoEmitPushResultsLen = 0
+	e.midLoopEmitBacklogBaseLen = 0
 	e.primaryReadSeen = false
 	e.primaryReadIter = 0
 	e.notesLenAtPrimaryRead = 0
@@ -3349,10 +3356,10 @@ func (e *explorerEvaluator) postEmitEvidenceRepairSignal(obs LoopObservation) Lo
 // Thresholds are intentionally "early but not first-hop": 2+
 // iterations and 2+ successful read_file calls, with the CURRENT
 // batch containing a successful read_file. This catches the common
-// drift where the model keeps reading breadth files without ever
-// materializing the first evidence batch, even when the batch ends
-// in grep / a failed emit_evidence retry rather than the read_file
-// result itself.
+// drift where the model keeps reading files without ever
+// materializing the current evidence backlog, even when the batch
+// ends in grep / a failed emit_evidence retry rather than the
+// read_file result itself.
 func (e *explorerEvaluator) postReadWithoutEmitSignal(obs LoopObservation) LoopSignal {
 	if e.midLoopNoEmitPushSent {
 		return LoopSignal{}
@@ -3360,33 +3367,28 @@ func (e *explorerEvaluator) postReadWithoutEmitSignal(obs LoopObservation) LoopS
 	if obs.Iteration < 2 || !currentBatchHasSuccessfulRead(obs.AllToolResults, e.midLoopLastResultsLen) {
 		return LoopSignal{}
 	}
-	var reads, emits int
-	for _, r := range obs.AllToolResults {
-		if !r.Success {
-			continue
-		}
-		switch r.ToolName {
-		case "read_file":
-			reads++
-		case "emit_evidence":
-			emits++
-		}
-	}
-	if reads < 2 || emits > 0 {
+	reads := successfulToolCountSince(obs.AllToolResults, e.midLoopEmitBacklogBaseLen, map[string]bool{"read_file": true})
+	if reads < 2 || successfulToolCountSince(obs.AllToolResults, e.midLoopEmitBacklogBaseLen, map[string]bool{"emit_evidence": true}) > 0 {
 		return LoopSignal{}
 	}
 	e.midLoopNoEmitPushSent = true
 	e.midLoopNoEmitPushIter = obs.Iteration
 	e.midLoopNoEmitPushResultsLen = len(obs.AllToolResults)
+	scope := "this round"
+	recording := "have not called `emit_evidence` yet"
+	if e.midLoopEmitBacklogBaseLen > 0 {
+		scope = "since your last successful `emit_evidence`"
+		recording = "have not recorded any new structured evidence yet"
+	}
 	return LoopSignal{
 		HintRequested: true,
 		HintKey:       "explorer.mid-loop.read-without-emit",
 		Hint: fmt.Sprintf(
-			"MID-LOOP CHECK: you have read %d file(s) this round but have not called `emit_evidence` yet. "+
+			"MID-LOOP CHECK: you have read %d file(s) %s but %s. "+
 				"Facts left only in your prose notes are NOT recorded — downstream stages cannot see any concrete value, definition, call-site, or condition that is not passed through `emit_evidence(items=[...])`. "+
 				"Pick the strongest anchors you have identified in the files you just read and emit them in ONE batch now. Line numbers MUST come verbatim from the `read_file` gutter (copy the leading `N| ` prefix). "+
 				"After the batch succeeds, continue investigating or call `emit_investigation_complete(reason, confidence, result_kind)`.",
-			reads),
+			reads, scope, recording),
 		Progress:       true,
 		BypassThrottle: true,
 	}
@@ -3396,7 +3398,7 @@ func (e *explorerEvaluator) postExecRedirectBeforeEmitSignal(obs LoopObservation
 	if e.midLoopExecRedirectSent || !e.midLoopNoEmitPushSent || e.midLoopNoEmitPushResultsLen == 0 {
 		return LoopSignal{}
 	}
-	if hasSuccessfulTool(obs.AllToolResults, "emit_evidence") {
+	if !e.awaitingStructuredEvidenceMaterialization(obs.AllToolResults) {
 		return LoopSignal{}
 	}
 	if obs.Iteration <= e.midLoopNoEmitPushIter {
@@ -3409,7 +3411,7 @@ func (e *explorerEvaluator) postExecRedirectBeforeEmitSignal(obs LoopObservation
 	return LoopSignal{
 		HintRequested: true,
 		HintKey:       "explorer.mid-loop.exec-redirect-before-emit",
-		Hint: "MID-LOOP CHECK: you are still browsing with `exec_command` before emitting any structured evidence. " +
+		Hint: "MID-LOOP CHECK: you are still browsing with `exec_command` before recording the current structured-evidence backlog. " +
 			"For repository investigation, switch back to the built-in `grep` / `read_file` tools so paths stay stable across OSes and line gutters remain machine-readable. " +
 			"Use the lines you already read to call `emit_evidence(items=[...])` now; reserve `exec_command` for deterministic computations or checks that the structured tools cannot perform directly.",
 		Progress:       true,
@@ -3421,29 +3423,47 @@ func (e *explorerEvaluator) postReadWithoutEmitEscalationSignal(obs LoopObservat
 	if e.midLoopNoEmitEscalated || !e.midLoopNoEmitPushSent || e.midLoopNoEmitPushResultsLen == 0 {
 		return LoopSignal{}
 	}
-	if hasSuccessfulTool(obs.AllToolResults, "emit_evidence") {
+	if !e.awaitingStructuredEvidenceMaterialization(obs.AllToolResults) {
 		return LoopSignal{}
 	}
 	if obs.Iteration < e.midLoopNoEmitPushIter+2 {
 		return LoopSignal{}
 	}
-	navigationCalls := successfulToolCountSince(obs.AllToolResults, e.midLoopNoEmitPushResultsLen, map[string]bool{
-		"read_file":    true,
-		"grep":         true,
-		"list_files":   true,
-		"repo_map":     true,
-		"exec_command": true,
-	})
+	navigationCalls := successfulToolCountSince(obs.AllToolResults, e.midLoopNoEmitPushResultsLen, navigationToolNames)
 	if navigationCalls < 2 {
 		return LoopSignal{}
 	}
 	e.midLoopNoEmitEscalated = true
+	backlogScope := "after additional tool rounds"
+	if e.midLoopEmitBacklogBaseLen > 0 {
+		backlogScope = "after opening additional files since the last successful `emit_evidence`"
+	}
 	return LoopSignal{
 		HintRequested: true,
 		HintKey:       "explorer.mid-loop.read-without-emit-escalated",
-		Hint: "MID-LOOP CHECK: the earlier `emit_evidence` nudge was ignored and you still have zero successful `emit_evidence` calls after additional tool rounds. " +
+		Hint: "MID-LOOP CHECK: the earlier `emit_evidence` nudge was ignored and you still have an unrecorded evidence backlog " + backlogScope + ". " +
 			"Stop expanding with more navigation for the moment. Use the grounded lines you have already read to emit ONE batch of `emit_evidence(items=[...])` now. " +
 			"After that batch succeeds, either continue on any truly unresolved branch or call `emit_investigation_complete(reason, confidence, result_kind)` if the evidence already answers the question.",
+		Progress:       true,
+		BypassThrottle: true,
+	}
+}
+
+func (e *explorerEvaluator) postReadWithoutEmitClosureOnlySignal(obs LoopObservation) LoopSignal {
+	if !e.midLoopNoEmitEscalated || e.investigationComplete || !e.awaitingStructuredEvidenceMaterialization(obs.AllToolResults) {
+		return LoopSignal{}
+	}
+	navCount := successfulToolCountSince(obs.AllToolResults, e.midLoopLastResultsLen, navigationToolNames)
+	if navCount == 0 {
+		return LoopSignal{}
+	}
+	if successfulToolCountSince(obs.AllToolResults, e.midLoopLastResultsLen, completionProgressToolNames) > 0 {
+		return LoopSignal{}
+	}
+	return LoopSignal{
+		HintRequested:  true,
+		HintKey:        fmt.Sprintf("explorer.mid-loop.read-without-emit-closure-only.%d", obs.Iteration),
+		Hint:           "MID-LOOP CHECK: an earlier hint already established that your next useful step is to materialize structured evidence. The current batch still spent effort on navigation tools without recording the current backlog. Do NOT keep expanding with `read_file`, `grep`, `repo_map`, `list_files`, or `exec_command` until you first emit ONE grounded `emit_evidence(items=[...])` batch from the lines you already have.",
 		Progress:       true,
 		BypassThrottle: true,
 	}
@@ -3569,6 +3589,28 @@ func currentBatchHasSuccessfulTool(results []types.ToolResult, prevLen int, tool
 	return false
 }
 
+func lastSuccessfulToolIndex(results []types.ToolResult, toolName string) int {
+	for i := len(results) - 1; i >= 0; i-- {
+		if results[i].Success && results[i].ToolName == toolName {
+			return i
+		}
+	}
+	return -1
+}
+
+var navigationToolNames = map[string]bool{
+	"read_file":    true,
+	"grep":         true,
+	"list_files":   true,
+	"repo_map":     true,
+	"exec_command": true,
+}
+
+var completionProgressToolNames = map[string]bool{
+	"emit_evidence":               true,
+	"emit_investigation_complete": true,
+}
+
 func hasSuccessfulTool(results []types.ToolResult, toolName string) bool {
 	for _, r := range results {
 		if r.Success && r.ToolName == toolName {
@@ -3589,6 +3631,29 @@ func successfulToolCountSince(results []types.ToolResult, prevLen int, names map
 		}
 	}
 	return count
+}
+
+func (e *explorerEvaluator) syncEmitBacklogWindow(results []types.ToolResult) {
+	baseLen := 0
+	if idx := lastSuccessfulToolIndex(results, "emit_evidence"); idx >= 0 {
+		baseLen = idx + 1
+	}
+	if baseLen == e.midLoopEmitBacklogBaseLen {
+		return
+	}
+	e.midLoopEmitBacklogBaseLen = baseLen
+	e.midLoopNoEmitPushSent = false
+	e.midLoopNoEmitEscalated = false
+	e.midLoopExecRedirectSent = false
+	e.midLoopNoEmitPushIter = 0
+	e.midLoopNoEmitPushResultsLen = 0
+}
+
+func (e *explorerEvaluator) awaitingStructuredEvidenceMaterialization(results []types.ToolResult) bool {
+	if !e.midLoopNoEmitPushSent {
+		return false
+	}
+	return successfulToolCountSince(results, e.midLoopEmitBacklogBaseLen, completionProgressToolNames) == 0
 }
 
 type explorerCompletionReadiness struct {
@@ -3753,7 +3818,9 @@ func (e *explorerEvaluator) postCompletionReadySignal(obs LoopObservation) LoopS
 	if !readiness.HasEnough {
 		return LoopSignal{}
 	}
-	if !hasTerminalEvidence(e.structuredEvidence) && len(e.flowFindings) == 0 {
+	if !hasTerminalEvidence(e.structuredEvidence) &&
+		len(e.flowFindings) == 0 &&
+		!hasGroundedRequirementCarrier(e.structuredEvidence, e.ermRequirements) {
 		return LoopSignal{}
 	}
 	e.midLoopCompletionReadySent = true
@@ -3803,20 +3870,11 @@ func (e *explorerEvaluator) postCompletionReadyClosureOnlySignal(obs LoopObserva
 	if !e.midLoopCompletionReadyEscalated || e.investigationComplete {
 		return LoopSignal{}
 	}
-	navCount := successfulToolCountSince(obs.AllToolResults, e.midLoopLastResultsLen, map[string]bool{
-		"read_file":    true,
-		"grep":         true,
-		"list_files":   true,
-		"repo_map":     true,
-		"exec_command": true,
-	})
+	navCount := successfulToolCountSince(obs.AllToolResults, e.midLoopLastResultsLen, navigationToolNames)
 	if navCount == 0 {
 		return LoopSignal{}
 	}
-	if successfulToolCountSince(obs.AllToolResults, e.midLoopLastResultsLen, map[string]bool{
-		"emit_evidence":                true,
-		"emit_investigation_complete": true,
-	}) > 0 {
+	if successfulToolCountSince(obs.AllToolResults, e.midLoopLastResultsLen, completionProgressToolNames) > 0 {
 		return LoopSignal{}
 	}
 	return LoopSignal{
@@ -4122,6 +4180,7 @@ func (e *explorerEvaluator) ShouldStop(resp llm.Response, iteration int) bool {
 // phase-specific behavior the policy can't express.
 func (e *explorerEvaluator) observeMidLoop(obs LoopObservation) LoopSignal {
 	e.ensureHeuristics()
+	e.syncEmitBacklogWindow(obs.AllToolResults)
 	iteration := obs.Iteration
 	allResults := obs.AllToolResults
 
@@ -4191,6 +4250,9 @@ func (e *explorerEvaluator) observeMidLoop(obs LoopObservation) LoopSignal {
 	if sig := e.postCompletionReadyClosureOnlySignal(obs); sig.HintRequested {
 		return sig
 	}
+	if sig := e.postReadWithoutEmitClosureOnlySignal(obs); sig.HintRequested {
+		return sig
+	}
 
 	// Infer the current batch size from the allResults growth delta.
 	// observeMidLoop is called once per ReAct iteration, after all
@@ -4237,6 +4299,15 @@ func (e *explorerEvaluator) observeMidLoop(obs LoopObservation) LoopSignal {
 	// the final hint body reflects every fired check and the last
 	// branch to fire names the most salient problem.
 	var hintKey string
+
+	// Once the dispatch has already been told to materialize the
+	// current structured-evidence backlog, generic expansion nudges like
+	// partial-read / enumeration / cross-file would only compete with
+	// that higher-priority action and recreate the tail-spin we are
+	// trying to avoid. Higher-priority closure signals above still run.
+	if e.awaitingStructuredEvidenceMaterialization(obs.AllToolResults) {
+		return LoopSignal{}
+	}
 
 	// Check 1: function-boundary coverage.
 	if hints := detectPartiallyReadSymbols(allResults, e.searchResult.Graph); len(hints) > 0 {

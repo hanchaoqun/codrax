@@ -2230,10 +2230,12 @@ func TestMidLoopCheck_ParallelCueFiresOnGrepReadPair(t *testing.T) {
 		phase:                 1,
 		searchResult:          &keywordSearchResult{Graph: &repomap.Graph{}},
 		midLoopSerialStreak:   1, // 1 prior serial-ish round
-		midLoopLastResultsLen: 2, // previous iteration had 2 results total
-		// This test is about the parallel batching cue specifically;
-		// suppress the earlier read-without-emit nudge so the serial
-		// streak can be observed in isolation.
+		midLoopLastResultsLen: 3, // previous iteration had 3 results total
+		// This test is about the parallel batching cue specifically.
+		// Model a realistic state where the earlier batch already
+		// materialized structured evidence, so the no-emit priority gate
+		// is no longer active and the serial streak can be observed in
+		// isolation.
 		midLoopNoEmitPushSent: true,
 	}
 	// This iteration adds 2 more results (1 grep + 1 read_file).
@@ -2249,6 +2251,7 @@ func TestMidLoopCheck_ParallelCueFiresOnGrepReadPair(t *testing.T) {
 		// Previous iteration's results (already counted).
 		{ToolName: "grep", Success: true, Summary: grepSummary},
 		{ToolName: "read_file", Success: true, Summary: readSummary},
+		{ToolName: "emit_evidence", Success: true, Summary: "emit_evidence accepted 2 items"},
 		// Current iteration's batch: 1 grep + 1 read_file (same file re-grepped).
 		{ToolName: "grep", Success: true, Summary: grepSummary},
 		{ToolName: "read_file", Success: true, Summary: readSummary},
@@ -3904,8 +3907,112 @@ func TestObserveMidLoop_ReadWithoutEmitEscalation(t *testing.T) {
 	if sig.HintKey != "explorer.mid-loop.read-without-emit-escalated" {
 		t.Fatalf("HintKey = %q, want explorer.mid-loop.read-without-emit-escalated", sig.HintKey)
 	}
-	if !strings.Contains(sig.Hint, "zero successful `emit_evidence` calls") {
-		t.Fatalf("escalation hint should explain the zero-emit condition, got: %s", sig.Hint)
+	if !strings.Contains(sig.Hint, "unrecorded evidence backlog") {
+		t.Fatalf("escalation hint should explain the backlog condition, got: %s", sig.Hint)
+	}
+}
+
+func TestObserveMidLoop_ReadWithoutEmitSuppressesPartialReadUntilFirstEmit(t *testing.T) {
+	graph := &repomap.Graph{
+		FileIndex: map[string]*repomap.FileInfo{
+			"internal/agent/analyzer.go": {
+				Symbols: []repomap.Symbol{
+					{Name: "buildAnalysisIR", Kind: "function", Line: 612, EndLine: 1085, File: "internal/agent/analyzer.go"},
+				},
+			},
+		},
+	}
+	eval := &explorerEvaluator{
+		phase:                 1,
+		searchResult:          &keywordSearchResult{Graph: graph},
+		midLoopNoEmitPushSent: true,
+		midLoopNoEmitPushIter: 2,
+	}
+	results := []types.ToolResult{
+		{
+			ToolName: "read_file",
+			Success:  true,
+			Summary:  "[internal/agent/analyzer.go: showing lines 612-758 of 1723 total]\nfunc buildAnalysisIR(...)",
+		},
+	}
+
+	sig := eval.observeMidLoop(LoopObservation{
+		Phase:          PhaseMidLoop,
+		Iteration:      3,
+		LastToolResult: &results[0],
+		AllToolResults: results,
+	})
+	if sig.HintRequested {
+		t.Fatalf("generic navigation hints should stay silent until the first emit_evidence succeeds, got %+v", sig)
+	}
+}
+
+func TestObserveMidLoop_ReadWithoutEmitRefiresForNewBacklogAfterSuccessfulEmit(t *testing.T) {
+	eval := &explorerEvaluator{
+		phase:        1,
+		searchResult: &keywordSearchResult{Graph: &repomap.Graph{}},
+	}
+	results := []types.ToolResult{
+		{ToolName: "read_file", Success: true, Summary: "[a.go: showing lines 1-20 of 20]\npackage fixture\n"},
+		{ToolName: "read_file", Success: true, Summary: "[b.go: showing lines 1-20 of 20]\npackage fixture\n"},
+		{ToolName: "emit_evidence", Success: true, Summary: "emit_evidence accepted 2 items"},
+		{ToolName: "read_file", Success: true, Summary: "[c.go: showing lines 1-20 of 20]\npackage fixture\n"},
+		{ToolName: "read_file", Success: true, Summary: "[d.go: showing lines 1-20 of 20]\npackage fixture\n"},
+	}
+
+	sig := eval.observeMidLoop(LoopObservation{
+		Phase:          PhaseMidLoop,
+		Iteration:      5,
+		LastToolResult: &results[len(results)-1],
+		AllToolResults: results,
+	})
+	if !sig.HintRequested {
+		t.Fatalf("read-without-emit should re-fire for a new backlog window after a successful emit, got %+v", sig)
+	}
+	if sig.HintKey != "explorer.mid-loop.read-without-emit" {
+		t.Fatalf("HintKey = %q, want explorer.mid-loop.read-without-emit", sig.HintKey)
+	}
+	if !strings.Contains(sig.Hint, "since your last successful `emit_evidence`") {
+		t.Fatalf("hint should explain the new backlog window, got: %s", sig.Hint)
+	}
+}
+
+func TestObserveMidLoop_ReadWithoutEmitClosureOnlyRedirectRepeatsAfterEscalation(t *testing.T) {
+	eval := &explorerEvaluator{
+		phase:                       1,
+		searchResult:                &keywordSearchResult{Graph: &repomap.Graph{}},
+		midLoopNoEmitPushSent:       true,
+		midLoopNoEmitEscalated:      true,
+		midLoopLastResultsLen:       1,
+		midLoopNoEmitPushIter:       2,
+		midLoopNoEmitPushResultsLen: 1,
+	}
+	results := []types.ToolResult{
+		{
+			ToolName: "read_file",
+			Success:  true,
+			Summary:  "[internal/agent/agent.go: showing lines 1361-1380 of 2083 total]\n...",
+		},
+		{
+			ToolName: "grep",
+			Success:  true,
+			Summary:  "internal/agent/analyzer.go:612:func buildAnalysisIR(...)",
+		},
+	}
+	sig := eval.observeMidLoop(LoopObservation{
+		Phase:          PhaseMidLoop,
+		Iteration:      6,
+		LastToolResult: &results[1],
+		AllToolResults: results,
+	})
+	if !sig.HintRequested {
+		t.Fatalf("closure-only redirect should repeat after escalated no-emit navigation, got %+v", sig)
+	}
+	if !strings.HasPrefix(sig.HintKey, "explorer.mid-loop.read-without-emit-closure-only.") {
+		t.Fatalf("HintKey = %q, want read-without-emit-closure-only prefix", sig.HintKey)
+	}
+	if !strings.Contains(sig.Hint, "emit_evidence") {
+		t.Fatalf("closure-only redirect should steer back to emit_evidence, got: %s", sig.Hint)
 	}
 }
 
@@ -4346,6 +4453,64 @@ func TestObserveMidLoop_CompletionReadyEscalation(t *testing.T) {
 	}
 	if sig.HintKey != "explorer.mid-loop.completion-ready-escalated" {
 		t.Fatalf("HintKey = %q, want explorer.mid-loop.completion-ready-escalated", sig.HintKey)
+	}
+}
+
+func TestObserveMidLoop_CompletionReadyHint_UsesRequirementBackedCarrierForMechanismQuestions(t *testing.T) {
+	newReadResult := func(path string) types.ToolResult {
+		return types.ToolResult{
+			ToolName: "read_file",
+			Success:  true,
+			Summary:  "[" + path + ": showing lines 1-40 of 400]\npackage fixture\n",
+		}
+	}
+
+	eval := &explorerEvaluator{
+		phase:                      1,
+		heuristics:                 types.ExploreHeuristics{MidLoopMinIteration: 2},
+		searchResult:               &keywordSearchResult{Graph: &repomap.Graph{}},
+		midLoopPostPrimaryInjected: true,
+		structuredEvidence: []types.EvidenceItem{
+			{
+				Kind:            types.EvidenceDirect,
+				Subject:         "analyzerEvaluator.ParseOutput",
+				Predicate:       "calls",
+				Object:          "buildAnalysisIR",
+				Source:          "internal/agent/analyzer.go",
+				AnchorKind:      types.AnchorCall,
+				GroundingStatus: types.GroundingGrounded,
+			},
+			{
+				Kind:            types.EvidenceDirect,
+				Subject:         "buildAnalysisIR",
+				Predicate:       "guards",
+				Object:          "ctx == nil || ctx.Mutable == nil",
+				Source:          "internal/agent/analyzer.go",
+				AnchorKind:      types.AnchorCondition,
+				GroundingStatus: types.GroundingGrounded,
+			},
+		},
+		ermRequirements: []EvidenceRequirement{
+			{Kind: types.ReqMechanism, Status: "satisfied"},
+		},
+	}
+	results := []types.ToolResult{
+		{ToolName: "grep", Success: true, Summary: "internal/agent/analyzer.go"},
+		newReadResult("internal/agent/analyzer.go"),
+		{ToolName: "emit_evidence", Success: true, Summary: "emit_evidence accepted 2 items"},
+	}
+
+	sig := eval.observeMidLoop(LoopObservation{
+		Phase:          PhaseMidLoop,
+		Iteration:      3,
+		LastToolResult: &results[len(results)-1],
+		AllToolResults: results,
+	})
+	if !sig.HintRequested {
+		t.Fatalf("completion-ready hint should fire for satisfied mechanism evidence, got %+v", sig)
+	}
+	if sig.HintKey != "explorer.mid-loop.completion-ready" {
+		t.Fatalf("HintKey = %q, want explorer.mid-loop.completion-ready", sig.HintKey)
 	}
 }
 

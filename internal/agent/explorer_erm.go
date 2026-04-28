@@ -714,8 +714,8 @@ func checkRequirementSatisfaction(reqs []EvidenceRequirement, notes []string, ev
 			// CONCRETE (which carries deterministic "binds"/"registers"
 			// chains that are stronger evidence than LLM-tagged notes).
 			hasRelationship := countEvidenceTags(notesJoined, []string{"[relationship]", "[mechanism]"}) > 0
-			hasRelationship = hasRelationship || countEvidenceByKinds(evidence, req.Entities,
-				types.EvidenceRelationship, types.EvidenceMechanism, types.EvidenceConcrete) > 0
+			hasRelationship = hasRelationship || countEvidenceForRequirement(evidence, req.Entities, types.ReqCallChain) > 0
+			hasRelationship = hasRelationship || countEvidenceByKinds(evidence, req.Entities, types.EvidenceConcrete) > 0
 			// Check if entities appear together in notes or evidence
 			entitiesFound := 0
 			for _, ent := range req.Entities {
@@ -854,7 +854,7 @@ func checkRequirementSatisfaction(reqs []EvidenceRequirement, notes []string, ev
 			}
 
 		case types.ReqConfigMapping:
-			count := countEvidenceByKinds(evidence, req.Entities, types.EvidenceConcrete, types.EvidenceMechanism)
+			count := countEvidenceForRequirement(evidence, req.Entities, types.ReqConfigMapping)
 			if count >= th.Satisfied {
 				req.Status = "satisfied"
 			} else if count >= 1 {
@@ -863,7 +863,7 @@ func checkRequirementSatisfaction(reqs []EvidenceRequirement, notes []string, ev
 
 		case types.ReqConditional:
 			count := countEvidenceTags(notesJoined, []string{"[conditional]"})
-			count += countEvidenceByKinds(evidence, req.Entities, types.EvidenceConditional)
+			count += countEvidenceForRequirement(evidence, req.Entities, types.ReqConditional)
 			if count >= th.Satisfied {
 				req.Status = "satisfied"
 			} else if count >= 1 && th.Partial > 0 {
@@ -872,9 +872,10 @@ func checkRequirementSatisfaction(reqs []EvidenceRequirement, notes []string, ev
 
 		case types.ReqMechanism:
 			// Mechanism requirements need either LLM-tagged [MECHANISM]
-			// notes or structured EvidenceMechanism items mentioning the
-			// requirement entities. Reuses the same per-Kind counter as
-			// conditional/config_mapping for consistency.
+			// notes or structured carriers mentioning the requirement
+			// entities. The shared carrier helper counts canonical
+			// mechanism/relationship items and also validated call /
+			// condition anchors emitted as direct facts.
 			//
 			// T1c: th.Satisfied scales with complexity — complex
 			// cross-package mechanism questions (6+ files) need ≥4
@@ -886,13 +887,12 @@ func checkRequirementSatisfaction(reqs []EvidenceRequirement, notes []string, ev
 			// the LLM read just sub_explorer.go and agent.go, missing
 			// orchestrator.go and subagent_runtime.go entirely.
 			count := countEvidenceTags(notesJoined, []string{"[mechanism]"})
-			count += countEvidenceByKinds(evidence, req.Entities, types.EvidenceMechanism)
+			count += countEvidenceForRequirement(evidence, req.Entities, types.ReqMechanism)
 			// Also accept relationship items mentioning the entity —
 			// "calls / writes_field / reads_field" are mechanism-shaped
 			// when they appear together. T2.2 (mechanism scan pipeline)
 			// will produce richer EvidenceMechanism directly; until then
 			// the dataflow lowering's relationships fill the gap.
-			count += countEvidenceByKinds(evidence, req.Entities, types.EvidenceRelationship)
 			if count >= th.Satisfied {
 				req.Status = "satisfied"
 			} else if count >= 1 {
@@ -1021,6 +1021,32 @@ func countEvidenceByKinds(evidence []types.EvidenceItem, entities []string, kind
 				count++
 				break
 			}
+		}
+	}
+	return count
+}
+
+func evidenceMatchesRequirementEntities(ev types.EvidenceItem, entities []string) bool {
+	if len(entities) == 0 {
+		return true
+	}
+	text := normalizeForMatch(ev.Subject + " " + ev.Object + " " + ev.Summary)
+	for _, ent := range entities {
+		if strings.Contains(text, normalizeForMatch(ent)) {
+			return true
+		}
+	}
+	return false
+}
+
+func countEvidenceForRequirement(evidence []types.EvidenceItem, entities []string, reqKind types.RequirementKind) int {
+	count := 0
+	for _, ev := range evidence {
+		if !types.EvidenceStructurallyMatchesRequirement(ev, reqKind) {
+			continue
+		}
+		if evidenceMatchesRequirementEntities(ev, entities) {
+			count++
 		}
 	}
 	return count
@@ -1835,6 +1861,26 @@ func hasGroundedTerminalEvidence(items []types.EvidenceItem) bool {
 		}
 	}
 	return hasTerminalEvidence(filtered)
+}
+
+func hasGroundedRequirementCarrier(items []types.EvidenceItem, reqs []EvidenceRequirement) bool {
+	if len(items) == 0 || len(reqs) == 0 {
+		return false
+	}
+	for _, ev := range items {
+		switch ev.GroundingStatus {
+		case types.GroundingGrounded, types.GroundingRecovered, "":
+		default:
+			continue
+		}
+		for _, req := range reqs {
+			if types.EvidenceStructurallyMatchesRequirement(ev, req.Kind) &&
+				evidenceMatchesRequirementEntities(ev, req.Entities) {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // terminalPredicate reports whether a candidate answer chain's terminal

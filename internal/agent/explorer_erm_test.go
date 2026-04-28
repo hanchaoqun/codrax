@@ -657,6 +657,54 @@ func TestCheckRequirementSatisfaction_MechanismPartial(t *testing.T) {
 	}
 }
 
+func TestCheckRequirementSatisfaction_MechanismFromStructuralCarriers(t *testing.T) {
+	reqs := []EvidenceRequirement{
+		{Kind: "mechanism", Entities: []string{"ParseOutput", "buildAnalysisIR"}, Status: "unsatisfied"},
+	}
+	evidence := []types.EvidenceItem{
+		{
+			Kind:       types.EvidenceDirect,
+			Subject:    "ParseOutput",
+			Predicate:  "calls",
+			Object:     "buildAnalysisIR",
+			Summary:    "ParseOutput calls buildAnalysisIR",
+			AnchorKind: types.AnchorCall,
+		},
+		{
+			Kind:       types.EvidenceDirect,
+			Subject:    "buildAnalysisIR",
+			Predicate:  "guards",
+			Object:     "ctx == nil || ctx.Mutable == nil",
+			Summary:    "buildAnalysisIR guards ctx == nil || ctx.Mutable == nil",
+			AnchorKind: types.AnchorCondition,
+		},
+	}
+	reqs = checkRequirementSatisfaction(reqs, nil, evidence, types.ComplexityModerate)
+	if reqs[0].Status != "satisfied" {
+		t.Errorf("mechanism structural carriers: status = %q, want satisfied", reqs[0].Status)
+	}
+}
+
+func TestCheckRequirementSatisfaction_CallChainFromStructuralCallCarrier(t *testing.T) {
+	reqs := []EvidenceRequirement{
+		{Kind: "call_chain", Entities: []string{"ParseOutput", "buildAnalysisIR"}, Status: "unsatisfied"},
+	}
+	evidence := []types.EvidenceItem{
+		{
+			Kind:       types.EvidenceDirect,
+			Subject:    "ParseOutput",
+			Predicate:  "calls",
+			Object:     "buildAnalysisIR",
+			Summary:    "ParseOutput calls buildAnalysisIR",
+			AnchorKind: types.AnchorCall,
+		},
+	}
+	reqs = checkRequirementSatisfaction(reqs, nil, evidence, types.ComplexityModerate)
+	if reqs[0].Status != "satisfied" {
+		t.Errorf("call_chain structural carrier: status = %q, want satisfied", reqs[0].Status)
+	}
+}
+
 func TestCheckRequirementSatisfaction_RegistrationFallthroughLLMNotes(t *testing.T) {
 	// Coexistence check: the new binds-Concrete branch must not displace
 	// the existing LLM-notes [REGISTRATION] branch. When evidence is empty

@@ -204,3 +204,60 @@ var RequirementToEvidenceKinds = map[RequirementKind][]EvidenceKind{
 	ReqEnumeration:   {EvidenceDirect, EvidenceRegistration},
 	ReqCallChain:     {EvidenceRelationship, EvidenceMechanism},
 }
+
+// RequirementAcceptsEvidenceKind reports whether the declared
+// RequirementKind's primary carrier table includes the given
+// EvidenceKind. This is the exact membership relation represented by
+// RequirementToEvidenceKinds.
+func RequirementAcceptsEvidenceKind(req RequirementKind, kind EvidenceKind) bool {
+	for _, allowed := range RequirementToEvidenceKinds[req] {
+		if allowed == kind {
+			return true
+		}
+	}
+	return false
+}
+
+// IsCallLikeEvidencePredicate reports whether a predicate expresses a
+// caller -> callee edge. Shared by ERM satisfaction and tool-side
+// evidence validation so both layers interpret call-shaped evidence
+// consistently from structured fields rather than prompt prose.
+func IsCallLikeEvidencePredicate(predicate string) bool {
+	switch strings.ToLower(strings.TrimSpace(predicate)) {
+	case "call", "calls", "invoke", "invokes", "dispatch", "dispatches", "delegates", "delegates to":
+		return true
+	}
+	return false
+}
+
+// EvidenceStructurallyMatchesRequirement reports whether an evidence
+// item's validated structure can contribute to the given requirement.
+//
+// This extends RequirementToEvidenceKinds with a small amount of
+// schema-backed shape recognition:
+//   - call-like anchors (anchor_kind=call + call predicate) satisfy
+//     call_chain and mechanism even when the LLM emitted them as
+//     direct/conditional facts rather than relationship/mechanism
+//   - condition anchors satisfy conditional and also contribute to
+//     mechanism, because a guarded branch is a real mechanism step
+//
+// The helper intentionally uses only structured fields that the system
+// already validates (kind / anchor_kind / predicate), keeping the
+// behavior repo-agnostic and avoiding prompt-keyword coupling.
+func EvidenceStructurallyMatchesRequirement(ev EvidenceItem, req RequirementKind) bool {
+	if RequirementAcceptsEvidenceKind(req, ev.Kind) {
+		return true
+	}
+	switch req {
+	case ReqConditional:
+		return ev.AnchorKind == AnchorCondition
+	case ReqCallChain:
+		return ev.AnchorKind == AnchorCall && IsCallLikeEvidencePredicate(ev.Predicate)
+	case ReqMechanism:
+		if ev.AnchorKind == AnchorCall && IsCallLikeEvidencePredicate(ev.Predicate) {
+			return true
+		}
+		return ev.AnchorKind == AnchorCondition
+	}
+	return false
+}

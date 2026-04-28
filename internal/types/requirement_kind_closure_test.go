@@ -162,3 +162,41 @@ func TestNormalizeRequirementKind_Synonyms(t *testing.T) {
 		}
 	}
 }
+
+func TestEvidenceStructurallyMatchesRequirement(t *testing.T) {
+	callEv := EvidenceItem{
+		Kind:       EvidenceDirect,
+		Predicate:  "calls",
+		AnchorKind: AnchorCall,
+	}
+	if !EvidenceStructurallyMatchesRequirement(callEv, ReqCallChain) {
+		t.Fatal("call-shaped direct evidence should satisfy call_chain structurally")
+	}
+	if !EvidenceStructurallyMatchesRequirement(callEv, ReqMechanism) {
+		t.Fatal("call-shaped direct evidence should satisfy mechanism structurally")
+	}
+	if EvidenceStructurallyMatchesRequirement(callEv, ReqConditional) {
+		t.Fatal("call-shaped direct evidence must not satisfy conditional")
+	}
+
+	condEv := EvidenceItem{
+		Kind:       EvidenceDirect,
+		Predicate:  "guards",
+		AnchorKind: AnchorCondition,
+	}
+	if !EvidenceStructurallyMatchesRequirement(condEv, ReqConditional) {
+		t.Fatal("condition anchors should satisfy conditional structurally")
+	}
+	if !EvidenceStructurallyMatchesRequirement(condEv, ReqMechanism) {
+		t.Fatal("condition anchors should contribute to mechanism structurally")
+	}
+
+	defEv := EvidenceItem{
+		Kind:       EvidenceDirect,
+		Predicate:  "defines",
+		AnchorKind: AnchorDefinition,
+	}
+	if EvidenceStructurallyMatchesRequirement(defEv, ReqMechanism) {
+		t.Fatal("plain definitions must not satisfy mechanism structurally")
+	}
+}
