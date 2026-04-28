@@ -432,6 +432,17 @@ type REPL struct {
 	runInFlight     atomic.Bool
 	cancelSigOnce   sync.Once // installs the signal handler exactly once per REPL lifetime
 	lastCancelSig   atomic.Int64 // unix nano of the previous Ctrl+C while in-flight; backs the double-tap escalation
+
+	// turnCancelMu + turnCancel form the per-turn HTTP-level
+	// cancellation surface for non-pipeline paths (chitchat
+	// classifier + responder). The signal handler invokes turnCancel
+	// when Ctrl+C arrives during a chitchat turn so the in-flight
+	// LLM HTTP request unwinds immediately rather than waiting for
+	// its natural completion. Pipeline turns don't use this — they
+	// route through orchestrator's CancelToken which has its own
+	// ctx already plumbed via BusContext.Ctx.
+	turnCancelMu sync.Mutex
+	turnCancel   context.CancelFunc
 }
 
 // doubleSigCancelWindow caps how long we accept a second Ctrl+C as
@@ -742,10 +753,57 @@ func (r *REPL) installCancelSignalHandler() {
 					os.Exit(130)
 				}
 				canceller.Cancel("Ctrl+C")
+				// Also cancel any in-flight chitchat turn ctx — chitchat
+				// runs on the REPL goroutine outside runInFlightWrap, so
+				// orchestrator's Cancel doesn't reach it. The per-turn
+				// cancel func (set by chitchatDispatch / classifier
+				// dispatch) is the surface that closes the chitchat
+				// HTTP socket immediately.
+				r.cancelTurn()
 				r.warn("%s\n", cancelInProgressMsg(r.language))
 			}
 		}()
 	})
+}
+
+// startTurn allocates a fresh per-turn ctx and stores its cancel
+// func so the SIGINT handler can fire it. Pairs with endTurn (defer
+// safe). Returns the ctx to plumb into chitchat / classifier calls.
+func (r *REPL) startTurn() context.Context {
+	ctx, cancel := context.WithCancel(context.Background())
+	r.turnCancelMu.Lock()
+	if prev := r.turnCancel; prev != nil {
+		// Previous turn never reached endTurn (panic mid-dispatch?)
+		// — release its goroutines explicitly so we don't leak ctx
+		// channels.
+		prev()
+	}
+	r.turnCancel = cancel
+	r.turnCancelMu.Unlock()
+	return ctx
+}
+
+// endTurn cancels + clears the per-turn ctx. Safe to call multiple
+// times; idempotent. Defer this from the entry of any non-pipeline
+// LLM dispatch so a panic / early return still releases resources.
+func (r *REPL) endTurn() {
+	r.turnCancelMu.Lock()
+	defer r.turnCancelMu.Unlock()
+	if r.turnCancel != nil {
+		r.turnCancel()
+		r.turnCancel = nil
+	}
+}
+
+// cancelTurn fires the per-turn cancel func without clearing it
+// (the dispatch goroutine still owns the lifecycle and will clear
+// via endTurn / defer). Used by the SIGINT handler.
+func (r *REPL) cancelTurn() {
+	r.turnCancelMu.Lock()
+	defer r.turnCancelMu.Unlock()
+	if r.turnCancel != nil {
+		r.turnCancel()
+	}
 }
 
 // runInFlightWrap is the dispatch helper every Run-driving slash
@@ -1219,7 +1277,13 @@ func (r *REPL) dispatch(line, display string) {
 		// hint on first turn / no recent buffer / nil store
 		// preserves byte-identical pre-fix behaviour.
 		hint := r.buildPriorTurnHint()
-		if isChat, err := r.chitchatClassifier.Classify(line, hint); err != nil {
+		// Per-turn ctx so a Ctrl+C during the classifier LLM call
+		// closes the HTTP socket immediately. Cleared after dispatch
+		// completes so the chitchat path can install its own ctx.
+		classifierCtx := r.startTurn()
+		isChat, err := r.chitchatClassifier.Classify(classifierCtx, line, hint)
+		r.endTurn()
+		if err != nil {
 			logging.Warning("[repl/chitchat] classifier error: %v — falling back to pipeline", err)
 		} else if isChat {
 			logging.Info("[repl/chitchat] classifier routed turn to chit-chat: %s", oneLine(line))

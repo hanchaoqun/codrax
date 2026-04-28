@@ -70,7 +70,11 @@ func recommendFromLLM(d types.Diagnosis, env *types.EnvFacts, settings types.Env
 	}
 	ch := make(chan result, 1)
 	go func() {
-		resp, err := adapter.Chat(messages, tools, llm.ChatOptions{ToolChoice: "required"})
+		// ctx already enforces the LLM timeout; the inner Adapter.Chat
+		// honours it for HTTP-level cancellation, so a timeout fires
+		// the SSE socket close immediately rather than leaking the
+		// goroutine until natural completion.
+		resp, err := adapter.Chat(ctx, messages, tools, llm.ChatOptions{ToolChoice: "required"})
 		ch <- result{resp: resp, err: err}
 	}()
 

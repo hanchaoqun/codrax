@@ -995,7 +995,7 @@ func (b *BaseAgent) Execute(ctx *types.AgentContext, sk *skill.Config) (*StageOu
 		// detail updates live without flooding the renderer with
 		// per-token events. Non-streaming adapters never call onDelta.
 		streamBuf := newStreamPreviewBuffer(b.deps.Emit, b.name, ctx.Stage, i)
-		resp, err := b.deps.LLM.Chat(messages, toolSchemas, llm.ChatOptions{
+		resp, err := b.deps.LLM.Chat(ctx.Context(), messages, toolSchemas, llm.ChatOptions{
 			ToolChoice:     resolveToolChoice(ctx),
 			OnContentDelta: streamBuf.onDelta,
 		})

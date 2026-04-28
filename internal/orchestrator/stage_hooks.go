@@ -494,7 +494,7 @@ func clearForReplan(o *Orchestrator, attempt int) {
 	hint := heuristicHint
 	if o.reflector != nil {
 		input := buildReflectorInput(o.busCtx, prevReport, prevPlan, attempt)
-		critique, err := o.reflector.Reflect(input)
+		critique, err := o.reflector.Reflect(o.busCtx.Context(), input)
 		if err != nil {
 			logging.Warning("[orchestrator] reflector failed (degrading to heuristic hint): %v", err)
 		} else if strings.TrimSpace(critique) != "" {

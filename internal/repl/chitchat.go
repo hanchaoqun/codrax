@@ -1,6 +1,7 @@
 package repl
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"strings"
@@ -28,7 +29,7 @@ type memoryReaderAlias = types.MemoryReader
 // failed responder does not pollute future prior-conversation
 // context.
 type ChitchatResponder interface {
-	Respond(userLine, priorContext string) (reply string, err error)
+	Respond(ctx context.Context, userLine, priorContext string) (reply string, err error)
 }
 
 // streamingChitchatResponder is an optional extension interface. When
@@ -41,7 +42,7 @@ type ChitchatResponder interface {
 // formatting. Callers that do not implement this fall back to the
 // synchronous Respond with a spinner.
 type streamingChitchatResponder interface {
-	RespondStream(userLine, priorContext string, onDelta func(string)) (reply string, err error)
+	RespondStream(ctx context.Context, userLine, priorContext string, onDelta func(string)) (reply string, err error)
 }
 
 // toolableChitchatResponder is the optional surface for responders
@@ -55,7 +56,7 @@ type streamingChitchatResponder interface {
 // to avoid import cycles); the responder implementation in this file
 // dispatches recall_memory tool calls onto it directly.
 type toolableChitchatResponder interface {
-	RespondWithMemory(userLine, priorContext string, memory MemoryReader, onDelta func(string)) (reply string, err error)
+	RespondWithMemory(ctx context.Context, userLine, priorContext string, memory MemoryReader, onDelta func(string)) (reply string, err error)
 }
 
 // MemoryReader re-exports types.MemoryReader so chitchat callers do
@@ -220,7 +221,10 @@ func NewChitchatResponder(adapter llm.Adapter) ChitchatResponder {
 // Prior context is folded into the same user message as the current
 // line — mirrors the dispatch() idiom so the "match user's language"
 // instruction applies to the current turn, not the prior.
-func (r *llmChitchatResponder) Respond(userLine, priorContext string) (string, error) {
+func (r *llmChitchatResponder) Respond(ctx context.Context, userLine, priorContext string) (string, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	if r.adapter == nil {
 		return "", fmt.Errorf("chitchat responder not configured: no LLM adapter")
 	}
@@ -240,7 +244,7 @@ func (r *llmChitchatResponder) Respond(userLine, priorContext string) (string, e
 		{Role: "user", Content: content},
 	}
 
-	resp, err := r.adapter.Chat(messages, nil, llm.ChatOptions{})
+	resp, err := r.adapter.Chat(ctx, messages, nil, llm.ChatOptions{})
 	if err != nil {
 		return "", fmt.Errorf("chitchat llm call: %w", err)
 	}
@@ -257,7 +261,10 @@ func (r *llmChitchatResponder) Respond(userLine, priorContext string) (string, e
 // simply never invoked and the final reply still arrives via the
 // return value). Implements streamingChitchatResponder so the REPL
 // can light up the pterm.Area live-reply path.
-func (r *llmChitchatResponder) RespondStream(userLine, priorContext string, onDelta func(string)) (string, error) {
+func (r *llmChitchatResponder) RespondStream(ctx context.Context, userLine, priorContext string, onDelta func(string)) (string, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	if r.adapter == nil {
 		return "", fmt.Errorf("chitchat responder not configured: no LLM adapter")
 	}
@@ -277,7 +284,7 @@ func (r *llmChitchatResponder) RespondStream(userLine, priorContext string, onDe
 		{Role: "user", Content: content},
 	}
 
-	resp, err := r.adapter.Chat(messages, nil, llm.ChatOptions{OnContentDelta: onDelta})
+	resp, err := r.adapter.Chat(ctx, messages, nil, llm.ChatOptions{OnContentDelta: onDelta})
 	if err != nil {
 		return "", fmt.Errorf("chitchat llm call: %w", err)
 	}
@@ -303,7 +310,10 @@ func (r *llmChitchatResponder) RespondStream(userLine, priorContext string, onDe
 // say so honestly. A second tool call would give the LLM rope to
 // hang itself with an iterative search that costs tokens but adds
 // nothing — chitchat is conversation, not investigation.
-func (r *llmChitchatResponder) RespondWithMemory(userLine, priorContext string, mem types.MemoryReader, onDelta func(string)) (string, error) {
+func (r *llmChitchatResponder) RespondWithMemory(ctx context.Context, userLine, priorContext string, mem types.MemoryReader, onDelta func(string)) (string, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	if r.adapter == nil {
 		return "", fmt.Errorf("chitchat responder not configured: no LLM adapter")
 	}
@@ -317,9 +327,9 @@ func (r *llmChitchatResponder) RespondWithMemory(userLine, priorContext string, 
 	// the synchronous Respond.
 	if mem == nil {
 		if onDelta != nil {
-			return r.RespondStream(userLine, priorContext, onDelta)
+			return r.RespondStream(ctx, userLine, priorContext, onDelta)
 		}
-		return r.Respond(userLine, priorContext)
+		return r.Respond(ctx, userLine, priorContext)
 	}
 
 	systemPrompt := chitchatSystemPrompt + chitchatSystemPromptToolUse
@@ -339,7 +349,7 @@ func (r *llmChitchatResponder) RespondWithMemory(userLine, priorContext string, 
 	// so the LLM picks by intent — the system prompt teaches the
 	// TOPIC-vs-LISTING routing rule.
 	tools := []llm.ToolSchema{recallMemoryToolSchema(), listMemoryToolSchema()}
-	resp, err := r.adapter.Chat(messages, tools, llm.ChatOptions{})
+	resp, err := r.adapter.Chat(ctx, messages, tools, llm.ChatOptions{})
 	if err != nil {
 		return "", fmt.Errorf("chitchat llm round 1: %w", err)
 	}
@@ -392,7 +402,7 @@ func (r *llmChitchatResponder) RespondWithMemory(userLine, priorContext string, 
 	// Round 2 — synthesise the user-visible reply. No tools this
 	// round (system prompt already capped to one call). Streaming
 	// re-enabled here because it's the user-facing answer.
-	finalResp, err := r.adapter.Chat(messages, nil, llm.ChatOptions{OnContentDelta: onDelta})
+	finalResp, err := r.adapter.Chat(ctx, messages, nil, llm.ChatOptions{OnContentDelta: onDelta})
 	if err != nil {
 		return "", fmt.Errorf("chitchat llm round 2: %w", err)
 	}
@@ -595,7 +605,7 @@ func isToolableChitchat(c ChitchatResponder) bool {
 // the responder (round-1 must be non-streaming so we observe the
 // tool_use payload before deciding next step); the renderer-based
 // live area lights up only for the answer-producing chunks.
-func (r *REPL) runToolableChitchat(line, prior string) (string, error) {
+func (r *REPL) runToolableChitchat(ctx context.Context, line, prior string) (string, error) {
 	tool := r.chitchatResponder.(toolableChitchatResponder)
 	// Streaming hookup mirrors runStreamingChitchat: when the
 	// renderer is alive AND the responder will eventually surface
@@ -603,7 +613,7 @@ func (r *REPL) runToolableChitchat(line, prior string) (string, error) {
 	// reply. When renderer is nil (tests / non-TTY), pass nil to
 	// onDelta and let the synchronous Chat path serve the reply.
 	if r.renderer == nil {
-		return tool.RespondWithMemory(line, prior, r.memory, nil)
+		return tool.RespondWithMemory(ctx, line, prior, r.memory, nil)
 	}
 	// Use a fresh pterm.Area so the streaming render path is
 	// contained — matches the runStreamingChitchat structure but
@@ -642,7 +652,7 @@ func (r *REPL) runToolableChitchat(line, prior string) (string, error) {
 			area.Update(buf.String())
 		}
 	}
-	reply, err := tool.RespondWithMemory(line, prior, r.memory, onDelta)
+	reply, err := tool.RespondWithMemory(ctx, line, prior, r.memory, onDelta)
 	areaMu.Lock()
 	if area != nil {
 		_ = area.Stop()
@@ -677,6 +687,12 @@ func (r *REPL) chitchatDispatch(line, display string) {
 		return
 	}
 
+	// Per-turn ctx: SIGINT handler can cancel us via cancelTurn()
+	// so an in-flight chitchat HTTP request unwinds immediately
+	// instead of waiting for the LLM call's natural completion.
+	ctx := r.startTurn()
+	defer r.endTurn()
+
 	prior := r.store.BuildContext(line, memory.BuildOpts{
 		Kind:      memory.KindChitchat,
 		SessionID: r.sessionID,
@@ -695,15 +711,15 @@ func (r *REPL) chitchatDispatch(line, display string) {
 	var err error
 	switch {
 	case r.chitchatResponder != nil && r.memory != nil && isToolableChitchat(r.chitchatResponder):
-		response, err = r.runToolableChitchat(line, prior)
+		response, err = r.runToolableChitchat(ctx, line, prior)
 	case isStreamingChitchat(r.chitchatResponder) && r.renderer != nil:
 		streamer := r.chitchatResponder.(streamingChitchatResponder)
-		response, err = r.runStreamingChitchat(streamer, line, prior)
+		response, err = r.runStreamingChitchat(ctx, streamer, line, prior)
 	default:
 		if r.renderer != nil {
 			r.renderer.StartSpinner()
 		}
-		response, err = r.chitchatResponder.Respond(line, prior)
+		response, err = r.chitchatResponder.Respond(ctx, line, prior)
 		if r.renderer != nil {
 			r.renderer.StopSpinner()
 		}
@@ -751,14 +767,14 @@ const chitchatStreamRedrawInterval = 80 * time.Millisecond
 // network goroutine (where a slow terminal could block SSE reads)
 // and ensures redraws happen at a bounded rate even when the model
 // emits chunks faster than the terminal can repaint.
-func (r *REPL) runStreamingChitchat(streamer streamingChitchatResponder, userLine, prior string) (string, error) {
+func (r *REPL) runStreamingChitchat(ctx context.Context, streamer streamingChitchatResponder, userLine, prior string) (string, error) {
 	area, err := pterm.DefaultArea.WithRemoveWhenDone(true).Start()
 	if err != nil {
 		// Falling back to the sync path keeps chit-chat usable when the
 		// terminal refuses to host a live area (uncommon; pterm starts
 		// succeed on every TTY we've seen).
 		logging.Warning("[repl/chitchat] pterm area start failed, falling back to sync: %v", err)
-		return r.chitchatResponder.Respond(userLine, prior)
+		return r.chitchatResponder.Respond(ctx, userLine, prior)
 	}
 
 	var mu sync.Mutex
@@ -803,7 +819,7 @@ func (r *REPL) runStreamingChitchat(streamer streamingChitchatResponder, userLin
 		mu.Unlock()
 	}
 
-	response, err := streamer.RespondStream(userLine, prior, onDelta)
+	response, err := streamer.RespondStream(ctx, userLine, prior, onDelta)
 
 	close(stopTicker)
 	<-tickerDone
@@ -837,7 +853,7 @@ func (r *REPL) runStreamingChitchat(streamer streamingChitchatResponder, userLin
 // types "expand 10" after a list_memory listing) that the classifier
 // cannot route correctly from the current line alone.
 type ChitchatClassifier interface {
-	Classify(userLine, priorTurnHint string) (isChitchat bool, err error)
+	Classify(ctx context.Context, userLine, priorTurnHint string) (isChitchat bool, err error)
 }
 
 // chitchatClassifierTool is the structured-output schema the LLM
@@ -950,7 +966,10 @@ func NewChitchatClassifier(adapter llm.Adapter) ChitchatClassifier {
 // section above the current message so the LLM can disambiguate
 // continuation references. Empty hint preserves byte-identical
 // behaviour with the no-hint shape (locked by test).
-func (c *llmChitchatClassifier) Classify(userLine, priorTurnHint string) (bool, error) {
+func (c *llmChitchatClassifier) Classify(ctx context.Context, userLine, priorTurnHint string) (bool, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	if c.adapter == nil {
 		return false, fmt.Errorf("chitchat classifier not configured: no LLM adapter")
 	}
@@ -967,7 +986,7 @@ func (c *llmChitchatClassifier) Classify(userLine, priorTurnHint string) (bool, 
 		{Role: "user", Content: userContent},
 	}
 	tools := []llm.ToolSchema{chitchatClassifierTool}
-	resp, err := c.adapter.Chat(messages, tools, llm.ChatOptions{ToolChoice: "required"})
+	resp, err := c.adapter.Chat(ctx, messages, tools, llm.ChatOptions{ToolChoice: "required"})
 	if err != nil {
 		return false, fmt.Errorf("chitchat classifier llm call: %w", err)
 	}

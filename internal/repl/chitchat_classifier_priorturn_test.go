@@ -1,6 +1,7 @@
 package repl
 
 import (
+	"context"
 	"strings"
 	"testing"
 	"time"
@@ -137,7 +138,7 @@ func TestClassifyAcceptsHintParameter(t *testing.T) {
 	}
 	c := &llmChitchatClassifier{adapter: adapter}
 
-	got, err := c.Classify(current, hint)
+	got, err := c.Classify(context.Background(), current, hint)
 	if err != nil {
 		t.Fatalf("Classify with hint failed: %v", err)
 	}
@@ -165,7 +166,7 @@ func TestClassify_EmptyHintIsByteIdenticalToNoHint(t *testing.T) {
 		responses: []llm.Response{classifierResp("repo_question")},
 	}
 	c := &llmChitchatClassifier{adapter: adapter}
-	if _, err := c.Classify("how does X work?", ""); err != nil {
+	if _, err := c.Classify(context.Background(), "how does X work?", ""); err != nil {
 		t.Fatalf("Classify err: %v", err)
 	}
 	if got := lastClassifierUserContent(adapter); got != "how does X work?" {
@@ -182,7 +183,7 @@ func TestClassify_WhitespaceHintTreatedAsEmpty(t *testing.T) {
 		responses: []llm.Response{classifierResp("repo_question")},
 	}
 	c := &llmChitchatClassifier{adapter: adapter}
-	if _, err := c.Classify("test", "   \n\t  "); err != nil {
+	if _, err := c.Classify(context.Background(), "test", "   \n\t  "); err != nil {
 		t.Fatalf("Classify err: %v", err)
 	}
 	if user := lastClassifierUserContent(adapter); strings.Contains(user, "priorTurn:") {

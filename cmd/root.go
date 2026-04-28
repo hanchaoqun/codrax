@@ -2242,7 +2242,7 @@ func createDefaultAdapter(cfg *types.ProvidersConfig) llm.Adapter {
 // placeholderAdapter is a minimal LLM adapter for testing the pipeline structure.
 type placeholderAdapter struct{}
 
-func (p *placeholderAdapter) Chat(messages []llm.Message, tools []llm.ToolSchema, _ llm.ChatOptions) (llm.Response, error) {
+func (p *placeholderAdapter) Chat(_ context.Context, messages []llm.Message, tools []llm.ToolSchema, _ llm.ChatOptions) (llm.Response, error) {
 	var lastMsg string
 	for i := len(messages) - 1; i >= 0; i-- {
 		if messages[i].Role == "user" || messages[i].Role == "system" {
@@ -2382,7 +2382,12 @@ func (s *llmSummarizer) Summarize(_ context.Context, turn memory.Turn) (memory.I
 		{Role: "user", Content: userContent},
 	}
 	tools := []llm.ToolSchema{memorySummarizerTool}
-	resp, err := s.adapter.Chat(messages, tools, llm.ChatOptions{ToolChoice: "required"})
+	// Memory summarizer is a background compaction worker — no
+	// user-cancel surface today. context.Background() declares
+	// "no cancel" explicitly; when memory compaction grows a
+	// cancel surface (e.g. /clear pre-empts in-flight compaction)
+	// thread the right ctx here.
+	resp, err := s.adapter.Chat(context.Background(), messages, tools, llm.ChatOptions{ToolChoice: "required"})
 	if err != nil {
 		logging.Warning("[memory] summarizer LLM error, using fallback: %v", err)
 		return fallback, nil

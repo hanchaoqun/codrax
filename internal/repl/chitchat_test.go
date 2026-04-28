@@ -2,6 +2,7 @@ package repl
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"strings"
 	"testing"
@@ -24,7 +25,7 @@ type stubResponderCall struct {
 	prior    string
 }
 
-func (s *stubResponder) Respond(userLine, prior string) (string, error) {
+func (s *stubResponder) Respond(_ context.Context, userLine, prior string) (string, error) {
 	s.calls = append(s.calls, stubResponderCall{userLine: userLine, prior: prior})
 	return s.reply, s.err
 }
@@ -165,7 +166,7 @@ type streamingStubResponder struct {
 	deltas   []string
 }
 
-func (s *streamingStubResponder) Respond(userLine, prior string) (string, error) {
+func (s *streamingStubResponder) Respond(_ context.Context, userLine, prior string) (string, error) {
 	// Kept for interface completeness — the REPL should prefer the
 	// streaming branch, so any Respond call here is a bug.
 	s.gotLine = userLine
@@ -173,7 +174,7 @@ func (s *streamingStubResponder) Respond(userLine, prior string) (string, error)
 	return strings.Join(s.chunks, ""), s.err
 }
 
-func (s *streamingStubResponder) RespondStream(userLine, prior string, onDelta func(string)) (string, error) {
+func (s *streamingStubResponder) RespondStream(_ context.Context, userLine, prior string, onDelta func(string)) (string, error) {
 	s.gotLine = userLine
 	s.gotPrior = prior
 	for _, c := range s.chunks {
@@ -235,7 +236,7 @@ type stubClassifier struct {
 	err        error
 }
 
-func (c *stubClassifier) Classify(line, priorTurnHint string) (bool, error) {
+func (c *stubClassifier) Classify(_ context.Context, line, priorTurnHint string) (bool, error) {
 	c.calls = append(c.calls, line)
 	c.hints = append(c.hints, priorTurnHint)
 	return c.isChitchat, c.err

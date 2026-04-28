@@ -1,6 +1,7 @@
 package orchestrator
 
 import (
+	"context"
 	"errors"
 	"sync/atomic"
 )
@@ -21,20 +22,35 @@ import (
 // Thread-safety: atomic.Bool + atomic.Pointer give lock-free reads
 // from any goroutine. Cancel() is idempotent; multiple Cancel() calls
 // keep the FIRST recorded reason so tests / logs see a stable value.
+//
+// Phase 2 (this commit): tokens carry a context.Context so HTTP-level
+// callers (LLM Adapter, exec subprocess via context) get immediate
+// cancellation via the standard ctx.Done() channel — Phase 1's
+// cooperative checkpoint pattern (poll IsCanceled() at iteration
+// boundaries) is preserved as a complement for non-ctx-aware code
+// paths and as a fast-path inside agent loops.
 type CancelToken struct {
 	flag   atomic.Bool
 	reason atomic.Pointer[string]
+	ctx    context.Context
+	cancel context.CancelFunc
 }
 
 // NewCancelToken returns an active token. The orchestrator allocates
 // one per Run; idle tokens (between Runs) are nil.
 func NewCancelToken() *CancelToken {
-	return &CancelToken{}
+	ctx, cancel := context.WithCancel(context.Background())
+	return &CancelToken{ctx: ctx, cancel: cancel}
 }
 
 // Cancel marks the token as canceled. Safe to call from any goroutine,
 // safe to call multiple times. The first non-empty reason wins so
 // "Ctrl+C" cannot be overwritten by a later "/cancel".
+//
+// Cancel also propagates to the embedded context so any caller
+// holding a derived ctx (HTTP request, exec.CommandContext, etc.)
+// observes ctx.Done() the moment Cancel returns — no cooperative
+// polling needed for ctx-aware paths.
 func (t *CancelToken) Cancel(reason string) {
 	if t == nil {
 		return
@@ -45,6 +61,23 @@ func (t *CancelToken) Cancel(reason string) {
 	// CompareAndSwap on the pointer — first writer wins.
 	t.reason.CompareAndSwap(nil, &reason)
 	t.flag.Store(true)
+	if t.cancel != nil {
+		t.cancel()
+	}
+}
+
+// Context returns the cancellation-aware context backing this token.
+// HTTP requests, subprocess.CommandContext, and any other
+// ctx.Done()-aware code path should derive from this ctx so Cancel()
+// produces immediate (HTTP socket close / SIGKILL) interruption
+// rather than waiting for the next cooperative checkpoint. Callers
+// MUST nil-check: idle tokens (between Runs) return context.TODO()
+// so a derive-then-store pattern still works.
+func (t *CancelToken) Context() context.Context {
+	if t == nil || t.ctx == nil {
+		return context.TODO()
+	}
+	return t.ctx
 }
 
 // IsCanceled reports whether Cancel has been called on this token.

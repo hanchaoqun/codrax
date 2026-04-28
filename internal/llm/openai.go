@@ -256,7 +256,14 @@ func (o *OpenAIAdapter) RequestTimeout() time.Duration { return o.requestTimeout
 // transient-error retry loop (429 / 5xx).
 func (o *OpenAIAdapter) RetryMaxAttempts() int { return o.retryMaxAttempts }
 
-func (o *OpenAIAdapter) Chat(messages []Message, tools []ToolSchema, opts ChatOptions) (Response, error) {
+func (o *OpenAIAdapter) Chat(ctx context.Context, messages []Message, tools []ToolSchema, opts ChatOptions) (Response, error) {
+	if ctx == nil {
+		// Reject nil ctx fail-loud: callers MUST pass either a real
+		// cancel-aware ctx or context.Background() to declare "no
+		// cancel". Silent fallback to context.Background() would mask
+		// integration mistakes where Ctrl+C should have flowed.
+		return Response{}, fmt.Errorf("llm: Chat called with nil ctx (callers must pass at least context.Background())")
+	}
 	reqBody := o.buildRequest(messages, tools, opts)
 
 	bodyBytes, err := json.Marshal(reqBody)
@@ -279,10 +286,17 @@ func (o *OpenAIAdapter) Chat(messages []Message, tools []ToolSchema, opts ChatOp
 	// more / less coverage.
 	maxAttempts := o.retryMaxAttempts
 	for attempt := 0; attempt < maxAttempts; attempt++ {
+		// ctx-aware cancel: exit retry loop immediately when the
+		// caller's ctx is already canceled. Pre-Phase-2 the loop
+		// would burn through all attempts before the cooperative
+		// agent-loop checkpoint noticed and returned ErrCanceled.
+		if cerr := ctx.Err(); cerr != nil {
+			return Response{}, cerr
+		}
 		if o.stream {
-			resp, err = o.doStreamRequest(bodyBytes, opts.OnContentDelta)
+			resp, err = o.doStreamRequest(ctx, bodyBytes, opts.OnContentDelta)
 		} else {
-			resp, err = o.doRequest(bodyBytes)
+			resp, err = o.doRequest(ctx, bodyBytes)
 		}
 		if err == nil {
 			// Diagnostic floor: every successful response logs its
@@ -330,8 +344,8 @@ func (o *OpenAIAdapter) Chat(messages []Message, tools []ToolSchema, opts ChatOp
 	return Response{}, fmt.Errorf("all retries failed: %w", lastErr)
 }
 
-func (o *OpenAIAdapter) doRequest(bodyBytes []byte) (Response, error) {
-	req, err := http.NewRequest("POST", o.baseURL+"/chat/completions", bytes.NewReader(bodyBytes))
+func (o *OpenAIAdapter) doRequest(ctx context.Context, bodyBytes []byte) (Response, error) {
+	req, err := http.NewRequestWithContext(ctx, "POST", o.baseURL+"/chat/completions", bytes.NewReader(bodyBytes))
 	if err != nil {
 		return Response{}, fmt.Errorf("create request: %w", err)
 	}
@@ -364,7 +378,7 @@ func (o *OpenAIAdapter) doRequest(bodyBytes []byte) (Response, error) {
 // accumulated silently — they arrive as partial JSON that cannot be
 // parsed until the stream closes, and mid-stream surfacing would
 // leak broken JSON into logs / UI.
-func (o *OpenAIAdapter) doStreamRequest(bodyBytes []byte, onDelta func(string)) (Response, error) {
+func (o *OpenAIAdapter) doStreamRequest(ctx context.Context, bodyBytes []byte, onDelta func(string)) (Response, error) {
 	// Stall-detection scaffold: a request-scoped context lets a
 	// watchdog goroutine cancel the in-flight HTTP body read when
 	// the upstream stops sending bytes for too long. The HTTP
@@ -379,7 +393,13 @@ func (o *OpenAIAdapter) doStreamRequest(bodyBytes []byte, onDelta func(string)) 
 	// Watchdog catches this earlier (30 s of silence vs 120 s of
 	// total) and surfaces a distinct error message so the planner
 	// retry loop can react instead of waiting on the 120 s cap.
-	reqCtx, cancel := context.WithCancel(context.Background())
+	// Derive from the caller-supplied ctx so an outer Cancel
+	// (Ctrl+C / /cancel / orchestrator timeout) propagates to the
+	// streaming HTTP request immediately. The watchdog cancel
+	// path remains the inner mechanism for "no bytes for N
+	// seconds"; the new outer parent makes Phase 2 user-cancel
+	// HTTP-level instead of cooperative.
+	reqCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	req, err := http.NewRequestWithContext(reqCtx, "POST", o.baseURL+"/chat/completions", bytes.NewReader(bodyBytes))
 	if err != nil {
@@ -448,10 +468,22 @@ func (o *OpenAIAdapter) doStreamRequest(bodyBytes []byte, onDelta func(string)) 
 	resp, err := parseSSEStream(httpResp.Body, onDelta, &lastReadNano)
 	cancel()
 	<-watchDone
-	if err != nil && watchdogFired.Load() {
-		err = &StreamStalledError{
-			IdleFor: time.Duration(watchdogIdle.Load()),
-			Cause:   err,
+	if err != nil {
+		// Disambiguate the cancel cause:
+		//   - outer ctx cancel (Ctrl+C / /cancel / orch timeout) → return
+		//     ctx.Err() so the caller's errors.Is(err, context.Canceled)
+		//     matcher fires WITHOUT being mis-wrapped as StreamStalled.
+		//   - watchdog fired (idle > stallTimeout) → wrap as
+		//     StreamStalledError. Watchdog-fired AND outer-canceled
+		//     simultaneously is rare; outer-cancel wins because that's
+		//     the user's explicit intent.
+		if cerr := ctx.Err(); cerr != nil {
+			err = cerr
+		} else if watchdogFired.Load() {
+			err = &StreamStalledError{
+				IdleFor: time.Duration(watchdogIdle.Load()),
+				Cause:   err,
+			}
 		}
 	}
 	return resp, err

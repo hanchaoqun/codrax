@@ -1,6 +1,7 @@
 package orchestrator
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"strings"
@@ -19,7 +20,7 @@ type reflectorStubAdapter struct {
 	err  error
 }
 
-func (s *reflectorStubAdapter) Chat(_ []llm.Message, _ []llm.ToolSchema, _ llm.ChatOptions) (llm.Response, error) {
+func (s *reflectorStubAdapter) Chat(_ context.Context, _ []llm.Message, _ []llm.ToolSchema, _ llm.ChatOptions) (llm.Response, error) {
 	return s.resp, s.err
 }
 func (s *reflectorStubAdapter) ModelID() string                { return "stub" }
@@ -33,7 +34,7 @@ func (s *reflectorStubAdapter) RetryMaxAttempts() int          { return 1 }
 // hint without aborting the retry.
 func TestReflector_Disabled(t *testing.T) {
 	r := NewReflector(nil)
-	got, err := r.Reflect(ReflectorInput{Attempt: 1})
+	got, err := r.Reflect(context.Background(), ReflectorInput{Attempt: 1})
 	if err != nil {
 		t.Errorf("nil adapter Reflect should return (\"\", nil); got err=%v", err)
 	}
@@ -59,7 +60,7 @@ func TestReflector_HappyPath(t *testing.T) {
 		},
 	}
 	r := NewReflector(stub)
-	got, err := r.Reflect(ReflectorInput{
+	got, err := r.Reflect(context.Background(), ReflectorInput{
 		Attempt:         1,
 		OriginalRequest: "implement parse_trinary",
 		PlanSummary:     "trinary parser",
@@ -83,7 +84,7 @@ func TestReflector_HappyPath(t *testing.T) {
 func TestReflector_ChatErrorDegrades(t *testing.T) {
 	stub := &reflectorStubAdapter{err: errors.New("provider timeout")}
 	r := NewReflector(stub)
-	got, err := r.Reflect(ReflectorInput{Attempt: 1, FailingTests: []ReflectorFailedTest{{Suite: "x", AssertionID: "y"}}})
+	got, err := r.Reflect(context.Background(), ReflectorInput{Attempt: 1, FailingTests: []ReflectorFailedTest{{Suite: "x", AssertionID: "y"}}})
 	if err == nil {
 		t.Errorf("chat error should surface as Reflect error; got nil")
 	}
@@ -98,7 +99,7 @@ func TestReflector_ChatErrorDegrades(t *testing.T) {
 func TestReflector_NoToolCallDegrades(t *testing.T) {
 	stub := &reflectorStubAdapter{resp: llm.Response{Content: "I think the bug is..."}}
 	r := NewReflector(stub)
-	_, err := r.Reflect(ReflectorInput{Attempt: 1, FailingTests: []ReflectorFailedTest{{Suite: "x", AssertionID: "y"}}})
+	_, err := r.Reflect(context.Background(), ReflectorInput{Attempt: 1, FailingTests: []ReflectorFailedTest{{Suite: "x", AssertionID: "y"}}})
 	if err == nil {
 		t.Errorf("no-tool-call response should error; got nil")
 	}
@@ -120,7 +121,7 @@ func TestReflector_PreserveWhatWorked(t *testing.T) {
 		}}},
 	}
 	r := NewReflector(stub)
-	got, err := r.Reflect(ReflectorInput{Attempt: 1, FailingTests: []ReflectorFailedTest{{Suite: "x", AssertionID: "y"}}})
+	got, err := r.Reflect(context.Background(), ReflectorInput{Attempt: 1, FailingTests: []ReflectorFailedTest{{Suite: "x", AssertionID: "y"}}})
 	if err != nil {
 		t.Fatalf("Reflect err: %v", err)
 	}

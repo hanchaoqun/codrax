@@ -28,7 +28,7 @@ type summarizerStubAdapter struct {
 	lastOpts     llm.ChatOptions
 }
 
-func (s *summarizerStubAdapter) Chat(messages []llm.Message, tools []llm.ToolSchema, opts llm.ChatOptions) (llm.Response, error) {
+func (s *summarizerStubAdapter) Chat(_ context.Context, messages []llm.Message, tools []llm.ToolSchema, opts llm.ChatOptions) (llm.Response, error) {
 	s.lastMessages = messages
 	s.lastTools = tools
 	s.lastOpts = opts

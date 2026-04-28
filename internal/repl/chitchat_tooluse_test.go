@@ -1,6 +1,7 @@
 package repl
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"os"
@@ -28,7 +29,7 @@ type scriptedCall struct {
 	tools    []llm.ToolSchema
 }
 
-func (a *scriptedChatAdapter) Chat(messages []llm.Message, tools []llm.ToolSchema, opts llm.ChatOptions) (llm.Response, error) {
+func (a *scriptedChatAdapter) Chat(_ context.Context, messages []llm.Message, tools []llm.ToolSchema, opts llm.ChatOptions) (llm.Response, error) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	a.calls = append(a.calls, scriptedCall{
@@ -88,7 +89,7 @@ func TestChitchatToolUse_NoToolCallShortCircuits(t *testing.T) {
 	}
 	mem := &stubMemReader{}
 	r := &llmChitchatResponder{adapter: adapter}
-	reply, err := r.RespondWithMemory("你好", "", mem, nil)
+	reply, err := r.RespondWithMemory(context.Background(), "你好", "", mem, nil)
 	if err != nil {
 		t.Fatalf("RespondWithMemory: %v", err)
 	}
@@ -136,7 +137,7 @@ func TestChitchatToolUse_ToolCallDispatchesAndAnswers(t *testing.T) {
 		}},
 	}
 	r := &llmChitchatResponder{adapter: adapter}
-	reply, err := r.RespondWithMemory("我们之前聊过 OAuth 吗?", "", mem, nil)
+	reply, err := r.RespondWithMemory(context.Background(), "我们之前聊过 OAuth 吗?", "", mem, nil)
 	if err != nil {
 		t.Fatalf("RespondWithMemory: %v", err)
 	}
@@ -186,7 +187,7 @@ func TestChitchatToolUse_NilMemoryFallsBackToOneShot(t *testing.T) {
 		},
 	}
 	r := &llmChitchatResponder{adapter: adapter}
-	reply, err := r.RespondWithMemory("hi", "", nil, nil)
+	reply, err := r.RespondWithMemory(context.Background(), "hi", "", nil, nil)
 	if err != nil {
 		t.Fatalf("RespondWithMemory: %v", err)
 	}

@@ -55,6 +55,9 @@ func BuildAgentContext(bus *types.BusContext, agentName types.AgentName, stage t
 		Memory:               bus.Memory,
 		EnvFacts:             bus.EnvFacts,
 		EnvRecommendSettings: bus.EnvRecommendSettings,
+		// Phase 2 cancel ctx: Adapter.Chat + ctx-aware tools read
+		// AgentContext.Context() to plumb cancellation HTTP-deep.
+		Ctx: bus.Ctx,
 	}
 	// Mirror the validated log-triage bundle onto the AgentContext so
 	// analyzer / explorer / extractor / finalizer consumers can read

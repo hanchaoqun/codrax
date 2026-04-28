@@ -1,6 +1,7 @@
 package orchestrator
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -355,6 +356,20 @@ func (o *Orchestrator) CancelChecker() func() error {
 	}
 }
 
+// CancelContext returns the cancellation-aware context.Context
+// backing the current Run's CancelToken. HTTP-level callers (LLM
+// Adapter, exec.CommandContext, worktree git operations) derive
+// from this ctx so Cancel produces immediate interruption instead
+// of waiting for a cooperative checkpoint. Returns context.TODO()
+// when no Run is in flight or no token is allocated — callers can
+// always derive from the returned ctx without nil-checking.
+func (o *Orchestrator) CancelContext() context.Context {
+	if o == nil || o.cancelToken == nil {
+		return context.TODO()
+	}
+	return o.cancelToken.Context()
+}
+
 // SetAttachedLog stores a runtime log excerpt (panic, exception stack,
 // sanitizer diagnostic, traceback) that every subsequent Run() should
 // attach to BusContext.AttachedLog so the log_triage pre-stage
@@ -601,6 +616,11 @@ func (o *Orchestrator) Run(request string, repoRoot string, branch string) (*typ
 		},
 		Memory:               o.memoryReader,
 		EnvRecommendSettings: o.envSettings,
+		// Phase 2 cancellation: BusContext.Ctx is the standard ctx
+		// surface tools / agents derive from. Cancel propagates to
+		// HTTP / subprocess / any ctx-aware path immediately rather
+		// than waiting for a cooperative checkpoint.
+		Ctx: o.cancelToken.Context(),
 	}
 	// env_recommend: probe once at Run entry when enabled. Cached
 	// on BusContext for the lifetime of the Run; tools (run_tests,
@@ -1942,6 +1962,15 @@ func (o *Orchestrator) runReadSchedulerLoop(stepBudget int) int {
 	}
 
 	for stepsUsed < stepBudget && !state.allDone() {
+		// Phase 2 cancel checkpoint at the top of every window-merge
+		// iteration. Pre-this-fix the only cancel-poll was inside
+		// BaseAgent.Execute (one per ReAct iter); a Cancel arriving
+		// between window dispatches sat un-noticed until the next
+		// agent dispatched and hit its own checkpoint.
+		if cerr := o.checkCanceled("scheduler", stepsUsed); cerr != nil {
+			o.busCtx.TaskState.LastError = cerr.Error()
+			return stepsUsed
+		}
 		env := buildEnv("", 0)
 
 		if !forceFinalizeTriggered {

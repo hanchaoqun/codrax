@@ -1,6 +1,7 @@
 package orchestrator
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"strings"
@@ -39,7 +40,13 @@ type Reflector interface {
 	// state. Returns ("", nil) when reflection is disabled (nil
 	// adapter); returns ("", err) on any LLM error so callers can
 	// fall back to the heuristic hint without losing the retry.
-	Reflect(input ReflectorInput) (string, error)
+	//
+	// ctx is the cancellation-aware context the orchestrator hands
+	// down via BusContext.Ctx. A canceled ctx causes immediate
+	// HTTP-socket close on the LLM call so a Ctrl+C between verify
+	// failures and retry-plan dispatch unwinds without the reflector
+	// burning the cooperative checkpoint window.
+	Reflect(ctx context.Context, input ReflectorInput) (string, error)
 }
 
 // ReflectorInput bundles every signal the critic needs to write a
@@ -143,7 +150,7 @@ func NewReflector(adapter llm.Adapter) Reflector {
 // (nil adapter, no tool call, malformed JSON) return ("", err) so
 // the caller falls back to the heuristic hint. The retry itself is
 // never blocked by reflection failure.
-func (r *llmReflector) Reflect(in ReflectorInput) (string, error) {
+func (r *llmReflector) Reflect(ctx context.Context, in ReflectorInput) (string, error) {
 	if r == nil || r.adapter == nil {
 		return "", nil
 	}
@@ -160,7 +167,10 @@ func (r *llmReflector) Reflect(in ReflectorInput) (string, error) {
 		{Role: "user", Content: user},
 	}
 	tools := []llm.ToolSchema{reflectorTool}
-	resp, err := r.adapter.Chat(messages, tools, llm.ChatOptions{ToolChoice: "required"})
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	resp, err := r.adapter.Chat(ctx, messages, tools, llm.ChatOptions{ToolChoice: "required"})
 	if err != nil {
 		return "", fmt.Errorf("reflector llm call: %w", err)
 	}

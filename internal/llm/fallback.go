@@ -1,6 +1,7 @@
 package llm
 
 import (
+	"context"
 	"fmt"
 	"time"
 )
@@ -14,10 +15,15 @@ func NewFallbackAdapter(adapters ...Adapter) *FallbackAdapter {
 	return &FallbackAdapter{adapters: adapters}
 }
 
-func (f *FallbackAdapter) Chat(messages []Message, tools []ToolSchema, opts ChatOptions) (Response, error) {
+func (f *FallbackAdapter) Chat(ctx context.Context, messages []Message, tools []ToolSchema, opts ChatOptions) (Response, error) {
 	var lastErr error
 	for _, a := range f.adapters {
-		resp, err := a.Chat(messages, tools, opts)
+		// Honour ctx between adapters too — a canceled outer ctx
+		// must NOT keep iterating through fallback list.
+		if cerr := ctx.Err(); cerr != nil {
+			return Response{}, cerr
+		}
+		resp, err := a.Chat(ctx, messages, tools, opts)
 		if err == nil {
 			return resp, nil
 		}

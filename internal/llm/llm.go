@@ -1,6 +1,7 @@
 package llm
 
 import (
+	"context"
 	"encoding/json"
 	"time"
 )
@@ -80,7 +81,16 @@ type ChatOptions struct {
 // side cap" (the default) — callers must treat 0 as "server uses
 // model ceiling" rather than "infinite local budget."
 type Adapter interface {
-	Chat(messages []Message, tools []ToolSchema, opts ChatOptions) (Response, error)
+	// Chat dispatches one chat-completion round. ctx is the
+	// cancellation-aware context the orchestrator hands down via the
+	// CancelToken; HTTP-level cancellation (Ctrl+C unwind, /cancel,
+	// stage timeout) propagates through ctx.Done() so the in-flight
+	// request socket closes immediately rather than waiting for the
+	// next cooperative agent-loop checkpoint. Callers that genuinely
+	// have no cancel surface (single-shot CLI, unit tests) pass
+	// context.Background() to declare "no cancel" explicitly — nil
+	// is rejected by the canonical adapter implementation.
+	Chat(ctx context.Context, messages []Message, tools []ToolSchema, opts ChatOptions) (Response, error)
 	ModelID() string
 	MaxContextTokens() int
 	MaxOutputTokens() int

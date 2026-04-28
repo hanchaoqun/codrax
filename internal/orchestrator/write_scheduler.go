@@ -63,6 +63,14 @@ func (o *Orchestrator) runWriteSchedulerLoop(stepBudget int) int {
 	}
 
 	for stepsUsed < stepBudget && !state.allDone() {
+		// Phase 2 cancel checkpoint between write-window dispatches
+		// (plan / apply / verify). A Ctrl+C during the long apply
+		// stage would otherwise wait until the agent's next ReAct
+		// iter; this returns immediately with CanceledError.
+		if cerr := o.checkCanceled("write_scheduler", stepsUsed); cerr != nil {
+			o.busCtx.TaskState.LastError = cerr.Error()
+			return stepsUsed
+		}
 		env := buildEnv()
 		ready, blocked := state.readyWriteWindow(env)
 		if len(ready) == 0 {

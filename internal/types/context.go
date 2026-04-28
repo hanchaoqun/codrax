@@ -1,6 +1,7 @@
 package types
 
 import (
+	"context"
 	"strings"
 	"sync"
 	"time"
@@ -2120,6 +2121,15 @@ type BusContext struct {
 	// pointer is process-local only.
 	Memory MemoryReader `json:"-"`
 
+	// Ctx is the cancellation-aware context the orchestrator
+	// derives from its CancelToken at Run() entry. HTTP-level
+	// callers (LLM Adapter.Chat, exec.CommandContext, worktree
+	// git operations) should use BusContext.Context() — never read
+	// this field directly — so nil-safe degradation works in test
+	// fixtures and single-shot CLI paths. Set to nil between Runs;
+	// Context() returns context.TODO() in that case.
+	Ctx context.Context `json:"-"`
+
 	// EnvFacts is the cached environment snapshot the env_recommend
 	// subsystem produces. nil when env_recommend is disabled or
 	// the probe failed; tools that consume it must nil-check.
@@ -2243,6 +2253,14 @@ type AgentContext struct {
 	// recall_memory to return "unavailable" even in interactive REPL
 	// runs where the orchestrator HAD wired the adapter.
 	Memory MemoryReader `json:"-"`
+
+	// Ctx mirrors BusContext.Ctx — the cancellation-aware context
+	// the orchestrator hands down so HTTP-level operations (LLM
+	// Adapter.Chat, subprocess via context.Context) cancel
+	// immediately on Ctrl+C / /cancel rather than waiting for the
+	// next cooperative checkpoint. Read via Context() for nil-safe
+	// degradation.
+	Ctx context.Context `json:"-"`
 
 	// EnvFacts mirrors BusContext.EnvFacts (the env_recommend probe
 	// snapshot). Tools that surface install hints / bare-dir guidance
@@ -2393,4 +2411,26 @@ type PromptContext struct {
 	AgentName AgentName     `json:"agent_name"`
 	Stage     PipelineStage `json:"stage"`
 	SkillName string        `json:"skill_name"`
+}
+
+// Context returns the cancellation-aware context.Context attached to
+// this BusContext, or context.TODO() when the field is unset (test
+// fixtures, single-shot CLI paths between Runs). Callers that want
+// HTTP-level cancellation derive from this — passing nil is rejected
+// by the LLM Adapter so context.TODO() is the safest fallback.
+func (b *BusContext) Context() context.Context {
+	if b == nil || b.Ctx == nil {
+		return context.TODO()
+	}
+	return b.Ctx
+}
+
+// Context mirrors BusContext.Context() for the agent-scoped view.
+// Same nil-safety contract: returns context.TODO() when the agent
+// view never had a ctx attached.
+func (a *AgentContext) Context() context.Context {
+	if a == nil || a.Ctx == nil {
+		return context.TODO()
+	}
+	return a.Ctx
 }
