@@ -357,20 +357,44 @@ func (r *llmChitchatResponder) RespondWithMemory(userLine, priorContext string, 
 // transparently surfaced as the tool reply — the LLM sees the
 // failure and can mention "I tried to search but couldn't" in its
 // reply rather than hallucinating around the gap.
+//
+// Debug coverage: every dispatch logs (call.Params raw, parsed
+// query, mem-state, entry count) so an operator inspecting a
+// finalised chitchat turn can reconstruct what happened in the
+// tool round between the two LLM calls. Pre-this-fix the round
+// was a black box — the user only saw the round-1 finish_reason
+// and the round-2 final reply.
 func dispatchChitchatRecall(call llm.ToolCall, mem types.MemoryReader, settings types.ChitchatSettings) string {
+	logging.Debug("[repl/chitchat] tool_use recall_memory params=%s mem_nil=%t",
+		string(call.Params), mem == nil)
 	if call.Name != "recall_memory" {
-		return fmt.Sprintf("(tool %q not available in this context — only recall_memory is wired)", call.Name)
+		msg := fmt.Sprintf("(tool %q not available in this context — only recall_memory is wired)", call.Name)
+		logging.Debug("[repl/chitchat] tool_result recall_memory rejected: unknown tool %q", call.Name)
+		return msg
 	}
 	var p struct {
 		Query string `json:"query"`
 		Limit int    `json:"limit,omitempty"`
 	}
 	if err := json.Unmarshal(call.Params, &p); err != nil {
-		return fmt.Sprintf("(recall_memory tool params invalid: %v)", err)
+		msg := fmt.Sprintf("(recall_memory tool params invalid: %v)", err)
+		logging.Debug("[repl/chitchat] tool_result recall_memory rejected: bad params: %v", err)
+		return msg
 	}
 	q := strings.TrimSpace(p.Query)
 	if q == "" {
+		logging.Debug("[repl/chitchat] tool_result recall_memory rejected: empty query")
 		return "(recall_memory rejected: empty query — pass at least one keyword / topic)"
+	}
+	if mem == nil {
+		// Defensive: r.memory should be non-nil by REPL construction
+		// (cmd/root.go wires memory.NewAdapter(store)) but a future
+		// refactor that hands a nil adapter into RespondWithMemory
+		// would otherwise panic on mem.Search. Surface a typed reply
+		// matching the production recall_memory tool's "unavailable"
+		// message so the LLM has a consistent fail-mode to react to.
+		logging.Debug("[repl/chitchat] tool_result recall_memory unavailable: mem is nil (REPL not wired)")
+		return "(recall_memory unavailable: prior-conversation memory is not wired in this REPL session)"
 	}
 	settings = types.ResolvedChitchatSettings(settings)
 	limit := p.Limit
@@ -381,6 +405,8 @@ func dispatchChitchatRecall(call llm.ToolCall, mem types.MemoryReader, settings 
 		limit = settings.RecallMaxLimit
 	}
 	entries := mem.Search(q, types.MemorySearchOpts{Limit: limit})
+	logging.Debug("[repl/chitchat] tool_result recall_memory query=%q limit=%d entries=%d",
+		q, limit, len(entries))
 	return renderChitchatRecallResults(q, entries)
 }
 

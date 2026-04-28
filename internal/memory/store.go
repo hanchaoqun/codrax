@@ -1064,6 +1064,15 @@ func scoreIndex(idx []IndexEntry, request string, opts BuildOpts, policy kindPol
 	if len(tokens) == 0 && lowerReq == "" {
 		return nil
 	}
+	// Unicode / Chinese fallback flag: when tokenize() finds zero
+	// ASCII tokens (e.g. "看一下记忆里有什么"), the keyword path
+	// scores 0 for every entry. We additionally substring-match the
+	// trimmed lowercase query against each entry's Topic / Summary /
+	// Keywords / Entities text so the entry surfaces if the query
+	// occurs verbatim. ≥3-rune guard avoids noise on tiny queries.
+	// Mirrors the H-pattern shipped in the grounder.
+	trimmedReq := strings.TrimSpace(lowerReq)
+	useSubstringFallback := len(tokens) == 0 && len([]rune(trimmedReq)) >= 3
 	type scored struct {
 		e     IndexEntry
 		score int
@@ -1090,6 +1099,23 @@ func scoreIndex(idx []IndexEntry, request string, opts BuildOpts, policy kindPol
 				if strings.Contains(lowerReq, le) {
 					entHits++
 				}
+			}
+		}
+		// Unicode substring fallback: search the entry's narrative
+		// text for the trimmed query verbatim. Adds 1 hit per
+		// entry-side surface that contains the query (Topic / Summary /
+		// Keywords concatenated / Entities concatenated). Bounded —
+		// score caps at +len(surfaces)=4 — so the fallback can't
+		// outrank a genuine multi-keyword token match.
+		if useSubstringFallback {
+			haystack := strings.ToLower(
+				e.Topic + "\n" +
+					e.Summary + "\n" +
+					strings.Join(e.Keywords, " ") + "\n" +
+					strings.Join(e.Entities, " "),
+			)
+			if strings.Contains(haystack, trimmedReq) {
+				kwHits++
 			}
 		}
 		s := kwHits + entHits*policy.entityScoreMul
@@ -1686,6 +1712,32 @@ func (s *Store) Search(query string, opts SearchOpts) []IndexEntry {
 	if policy.refsChainDepth > 0 {
 		out = expandRefsChain(out, idx, policy.refsChainDepth)
 	}
+
+	// Merge in recent (uncompacted) turns. Pre-this-fix Search only
+	// consulted s.index, so a user with many recent turns but no
+	// compacted history saw recall_memory return 0 entries — even
+	// when /history clearly listed the same turns under "recent
+	// turns". scoreRecent synthesises IndexEntries on the fly so
+	// the merge layer treats recent and compacted entries
+	// uniformly. Index entries take precedence (higher curation —
+	// they have LLM-generated Topic / Summary / Keywords); recent
+	// fills in anything not already represented. Optional Kind
+	// filter is applied identically on both sides.
+	recentScored := scoreRecent(recent, query, opts.Kind)
+	if len(recentScored) > 0 {
+		seen := make(map[string]bool, len(out))
+		for _, e := range out {
+			seen[e.ID] = true
+		}
+		for _, e := range recentScored {
+			if seen[e.ID] {
+				continue
+			}
+			out = append(out, e)
+			seen[e.ID] = true
+		}
+	}
+
 	if len(out) > limit {
 		out = out[:limit]
 	}
@@ -1706,6 +1758,85 @@ func (s *Store) Search(query string, opts SearchOpts) []IndexEntry {
 		}
 	}
 	return out
+}
+
+// scoreRecent ranks recent (uncompacted) Turns by overlap with the
+// query, synthesising IndexEntries on the fly so Search can merge
+// them with compacted matches uniformly. Pre-this-helper recent
+// turns were invisible to recall_memory — Search only consulted
+// s.index, so a user with many ongoing-conversation turns saw 0
+// matches until the compaction threshold fired.
+//
+// Scoring is intentionally simpler than scoreIndex (no entity
+// boost, no session tie-breaker, no per-Kind policy) because
+// recent turns lack the curated Keywords / Entities / Topic the
+// compactor produces. Two pathways:
+//
+//  1. ASCII tokens: count tokens that appear in lower(Request +
+//     Response). Same shape as scoreIndex's keyword path so the
+//     two ranking modes feel consistent.
+//  2. Unicode / Chinese / mixed-language fallback: when tokenize
+//     extracts zero ASCII tokens, do a byte-level substring
+//     search of the trimmed query against the body. ≥3-rune
+//     query guard avoids spurious "go" / "id" matches. Mirrors
+//     the H-pattern fix shipped earlier in the grounder.
+//
+// Recency tie-breaker (timestamp desc) when scores tie, so the
+// most recent matching turn surfaces first.
+func scoreRecent(recent []Turn, request, kindFilter string) []IndexEntry {
+	if request == "" || len(recent) == 0 {
+		return nil
+	}
+	tokens := tokenize(request)
+	lowerReq := strings.ToLower(strings.TrimSpace(request))
+	type scored struct {
+		e  IndexEntry
+		s  int
+		ts time.Time
+	}
+	var out []scored
+	for _, t := range recent {
+		if kindFilter != "" && string(t.Kind) != kindFilter {
+			continue
+		}
+		body := strings.ToLower(t.Request + " " + t.Response)
+		hits := 0
+		if len(tokens) > 0 {
+			for tok := range tokens {
+				if strings.Contains(body, tok) {
+					hits++
+				}
+			}
+		}
+		if hits == 0 && len([]rune(lowerReq)) >= 3 {
+			if strings.Contains(body, lowerReq) {
+				hits = 1
+			}
+		}
+		if hits == 0 {
+			continue
+		}
+		entry := IndexEntry{
+			ID:        t.ID,
+			Topic:     oneLine(t.Request),
+			Summary:   oneLine(t.Response),
+			Kind:      t.Kind,
+			SessionID: t.SessionID,
+			FullRef:   "turns/turn-" + t.ID + ".md",
+		}
+		out = append(out, scored{entry, hits, t.Timestamp})
+	}
+	sort.SliceStable(out, func(i, j int) bool {
+		if out[i].s != out[j].s {
+			return out[i].s > out[j].s
+		}
+		return out[i].ts.After(out[j].ts)
+	})
+	res := make([]IndexEntry, len(out))
+	for i, v := range out {
+		res[i] = v.e
+	}
+	return res
 }
 
 // SearchOpts mirrors types.MemorySearchOpts in this package's local

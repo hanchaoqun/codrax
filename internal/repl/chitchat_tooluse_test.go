@@ -227,3 +227,26 @@ func TestChitchatRecall_MissingLimitUsesDefault(t *testing.T) {
 		t.Errorf("missing limit should use RecallDefaultLimit=3; got %d", mem.lastOpt.Limit)
 	}
 }
+
+// TestDispatchChitchatRecall_NilMemDoesNotPanic guards the
+// defensive nil check added with the chitchat debug-log sweep.
+// Pre-fix `dispatchChitchatRecall` called `mem.Search(...)`
+// unconditionally; passing a nil MemoryReader would have crashed
+// the REPL turn. The fix surfaces a typed "unavailable" reply
+// matching the production recall_memory tool's nil-Memory message
+// so the LLM has a consistent fail-mode to react to.
+func TestDispatchChitchatRecall_NilMemDoesNotPanic(t *testing.T) {
+	defer func() {
+		if r := recover(); r != nil {
+			t.Errorf("dispatchChitchatRecall panicked on nil mem: %v", r)
+		}
+	}()
+	settings := types.ChitchatSettings{RecallDefaultLimit: 3, RecallMaxLimit: 10}
+	out := dispatchChitchatRecall(llm.ToolCall{
+		ID: "x", Name: "recall_memory",
+		Params: json.RawMessage(`{"query": "anything"}`),
+	}, nil, settings)
+	if !strings.Contains(out, "unavailable") {
+		t.Errorf("nil mem must produce typed unavailable reply; got %q", out)
+	}
+}
