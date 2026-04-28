@@ -1056,6 +1056,58 @@ func TestExtractor_MultiTopicExplanationTriggersAnchorSkeleton(t *testing.T) {
 	}
 }
 
+func TestExtractor_MultiTopicExplanationPromptReusesCompiledAnchorBackbone(t *testing.T) {
+	ir := &types.AnalysisIR{
+		RequestModel: types.RequestModel{
+			SubTopics: []types.SubTopic{
+				{Summary: "Criterion 的角色", Entities: []string{"Criterion"}},
+				{Summary: "Hypothesis 的角色", Entities: []string{"Hypothesis"}},
+			},
+		},
+		AnswerContract: types.AnswerContract{
+			RequiredAnswerShape: types.ShapeExplanation,
+		},
+	}
+	mut := types.NewMutableState("q")
+	mut.SetTurnAArtifacts(types.TurnAArtifacts{ReadFiles: []string{"internal/types/analysis_ir.go"}})
+	ctx := &types.AgentContext{
+		AnalysisIR: ir,
+		Mutable:    mut,
+		EvidenceItems: []types.EvidenceItem{
+			{
+				Kind:            types.EvidenceDirect,
+				Source:          "internal/types/analysis_ir.go",
+				LineStart:       574,
+				AnchorKind:      types.AnchorDefinition,
+				AnchorSymbol:    "Criterion",
+				Summary:         "Criterion 定义 hypothesis criterion 的结构。",
+				GroundingStatus: types.GroundingGrounded,
+			},
+			{
+				Kind:            types.EvidenceDirect,
+				Source:          "internal/types/analysis_ir.go",
+				LineStart:       896,
+				AnchorKind:      types.AnchorDefinition,
+				AnchorSymbol:    "Hypothesis",
+				Summary:         "Hypothesis 表示单条假设。",
+				GroundingStatus: types.GroundingGrounded,
+			},
+		},
+	}
+
+	e := &extractorEvaluator{}
+	prompt := e.BuildInitialInstruction(ctx, nil)
+	if !contains(prompt, "Grounded anchor candidates already compiled") {
+		t.Fatalf("prompt must surface compiled anchor backbone: %q", prompt)
+	}
+	if !contains(prompt, "Criterion") || !contains(prompt, "internal/types/analysis_ir.go:574") {
+		t.Fatalf("prompt must expose the first compiled anchor candidate: %q", prompt)
+	}
+	if !contains(prompt, "Hypothesis") || !contains(prompt, "internal/types/analysis_ir.go:896") {
+		t.Fatalf("prompt must expose the second compiled anchor candidate: %q", prompt)
+	}
+}
+
 // TestExtractor_SingleTopicExplanationNoSkeleton — shape=explanation
 // without sub_topics is a single-topic question; the old "summary is
 // the answer" path applies and no skeleton is emitted.

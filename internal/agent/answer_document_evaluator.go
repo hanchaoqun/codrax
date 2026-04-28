@@ -403,14 +403,7 @@ func answerSurfacePlan(ctx *types.AgentContext) *types.AnswerSurfacePlan {
 	if ctx == nil || ctx.AnalysisIR == nil {
 		return nil
 	}
-	plan := types.BuildAnswerSurfacePlan(
-		ctx.AnalysisIR,
-		ctx.Mutable,
-		ctx.LogTriage,
-		ctx.FlowFindings,
-		ctx.AnswerChains,
-		ctx.EvidenceItems,
-	)
+	plan := types.BuildAnswerSurfacePlanForAgentContext(ctx)
 	if plan != nil && len(ctx.AnswerSymbols) > 0 {
 		types.ApplyAnswerSymbolStepBackbone(plan, ctx.AnswerSymbols, ctx.AnswerSymbolCompleteness)
 	}

@@ -242,6 +242,7 @@ func (e *extractorEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk
 	// emit and what each anchor is for.
 	if isMultiTopicExplanation(ctx) {
 		st := ctx.AnalysisIR.RequestModel.SubTopics
+		plan := extractorAnswerSurfacePlan(ctx)
 		b.WriteString("## Anchor skeleton (one per sub-topic)\n\n")
 		fmt.Fprintf(&b, "The analyzer identified %d independently-answerable sub-topic(s). ", len(st))
 		b.WriteString("For each, call emit_answer_symbol with ONE anchor symbol — the load-bearing ")
@@ -256,6 +257,29 @@ func (e *extractorEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk
 			fmt.Fprintf(&b, "%d. %s", i+1, summary)
 			if len(topic.Entities) > 0 {
 				fmt.Fprintf(&b, " — entities: %s", strings.Join(topic.Entities, ", "))
+			}
+			b.WriteString("\n")
+		}
+		if plan != nil && len(plan.ExplanationAnchorBackbone) > 0 {
+			b.WriteString("\nGrounded anchor candidates already compiled from the current investigation (reuse these exact file:line anchors instead of inventing a fresh skeleton when they match the sub-topics):\n")
+			for i, anchor := range plan.ExplanationAnchorBackbone {
+				label := strings.TrimSpace(anchor.Rationale)
+				if label == "" {
+					label = fmt.Sprintf("anchor %d", i+1)
+				}
+				desc := strings.TrimSpace(types.RenderStepSurfaceAnchorDescription(anchor))
+				if desc == "" {
+					desc = strings.TrimSpace(anchor.Name)
+				}
+				if anchor.File != "" && anchor.Line > 0 {
+					fmt.Fprintf(&b, "- %s: %s @ %s:%d", label, desc, anchor.File, anchor.Line)
+				} else {
+					fmt.Fprintf(&b, "- %s: %s", label, desc)
+				}
+				b.WriteString("\n")
+			}
+			if len(plan.ExplanationAnchorMissingTopics) > 0 {
+				b.WriteString("If any sub-topic is still missing from that compiled anchor set, do not invent coverage — it means the investigation closed before that topic got a grounded owner/definition line.\n")
 			}
 			b.WriteString("\n")
 		}
@@ -1198,6 +1222,10 @@ func isListOfSymbolsShape(ctx *types.AgentContext) bool {
 		return false
 	}
 	return ctx.AnalysisIR.AnswerContract.RequiredAnswerShape == types.ShapeListOfSymbols
+}
+
+func extractorAnswerSurfacePlan(ctx *types.AgentContext) *types.AnswerSurfacePlan {
+	return types.BuildAnswerSurfacePlanForAgentContext(ctx)
 }
 
 // isMultiTopicExplanation reports whether the analyzer produced a

@@ -311,6 +311,78 @@ func TestEmitInvestigationComplete_PreCompleteCheck_MultiTopicExplanationAnchors
 	}
 }
 
+func TestEmitInvestigationComplete_PreCompleteCheck_MultiTopicExplanationAnchorsUseSharedSurfacePlan(t *testing.T) {
+	mut := types.NewMutableState("test")
+	mut.EvidenceClosure().SetReadSet(map[string]bool{
+		"internal/types/analysis_ir.go": true,
+	})
+	bus := &types.BusContext{
+		Mutable:  mut,
+		RepoRoot: t.TempDir(),
+		EvidenceItems: []types.EvidenceItem{
+			{
+				Source:          "internal/types/analysis_ir.go",
+				LineStart:       574,
+				AnchorKind:      types.AnchorDefinition,
+				AnchorSymbol:    "Criterion",
+				Kind:            types.EvidenceDirect,
+				Summary:         "Criterion 定义 hypothesis criterion 的结构。",
+				GroundingStatus: types.GroundingGrounded,
+				GroundingTier:   types.TierLineText,
+			},
+			{
+				Source:          "internal/types/analysis_ir.go",
+				LineStart:       896,
+				AnchorKind:      types.AnchorDefinition,
+				AnchorSymbol:    "Hypothesis",
+				Kind:            types.EvidenceDirect,
+				Summary:         "Hypothesis 表示单条假设。",
+				GroundingStatus: types.GroundingGrounded,
+				GroundingTier:   types.TierLineText,
+			},
+			{
+				Source:          "internal/types/analysis_ir.go",
+				LineStart:       933,
+				AnchorKind:      types.AnchorDefinition,
+				AnchorSymbol:    "AnalysisIR.HypothesisSet",
+				Kind:            types.EvidenceDirect,
+				Summary:         "AnalysisIR.HypothesisSet 持有 analyzer 产出的假设集合。",
+				GroundingStatus: types.GroundingGrounded,
+				GroundingTier:   types.TierLineText,
+			},
+		},
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				SubTopics: []types.SubTopic{
+					{Summary: "Criterion 的角色", Entities: []string{"Criterion"}},
+					{Summary: "Hypothesis 的角色", Entities: []string{"Hypothesis"}},
+					{Summary: "AnalysisIR 如何持有 HypothesisSet", Entities: []string{"AnalysisIR.HypothesisSet", "HypothesisSet"}},
+				},
+			},
+			AnswerContract: types.AnswerContract{
+				RequiredAnswerShape: types.ShapeExplanation,
+			},
+		},
+	}
+
+	tool := &EmitInvestigationComplete{}
+	params, _ := json.Marshal(map[string]any{
+		"reason":      "enough evidence collected",
+		"confidence":  "high",
+		"result_kind": "resolved",
+	})
+	res, err := tool.Execute(bus, params)
+	if err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+	if strings.Contains(res.Summary, "DOWNGRADED") {
+		t.Fatalf("shared answer surface plan should accept grounded bus evidence, got: %s", res.Summary)
+	}
+	if !mut.IsInvestigationComplete() {
+		t.Fatalf("InvestigationComplete should be set when the shared plan already covers every explanation sub-topic")
+	}
+}
+
 // TestEmitInvestigationComplete_PreCompleteCheck_Phase1UnreadBlocks
 // reproduces the 2026-04-18 "explorer calls subagent how" bug at the
 // tool level. When the explorer's keyword-search top-K ranked files

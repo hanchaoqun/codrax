@@ -1345,23 +1345,36 @@ func requireCitationCorroboration(claim, citeFile string, citeLine int, gc *grou
 		WithHint(cfg.hint)
 }
 
+type citationCorroborationState int
+
+const (
+	citationCorroborationUnavailable citationCorroborationState = iota
+	citationCorroborationTokenless
+	citationCorroborationCorroborated
+	citationCorroborationMissing
+)
+
 func citationCorroboratesClaim(claim, citeFile string, citeLine int, gc *ground.Context, extraClaims ...string) bool {
+	return citationCorroborationStatus(claim, citeFile, citeLine, gc, extraClaims...) != citationCorroborationMissing
+}
+
+func citationCorroborationStatus(claim, citeFile string, citeLine int, gc *ground.Context, extraClaims ...string) citationCorroborationState {
 	if gc == nil || len(gc.LineIndex) == 0 {
-		return true
+		return citationCorroborationUnavailable
 	}
 	if citeFile == "" || citeLine <= 0 {
-		return true
+		return citationCorroborationUnavailable
 	}
 	fileLines, ok := gc.LineIndex[citeFile]
 	if !ok || len(fileLines) == 0 {
-		return true
+		return citationCorroborationUnavailable
 	}
 	tokens := valueLiteralTokenRe.FindAllString(claim, -1)
 	for _, extra := range extraClaims {
 		tokens = append(tokens, valueLiteralTokenRe.FindAllString(extra, -1)...)
 	}
 	if len(tokens) == 0 {
-		return true
+		return citationCorroborationTokenless
 	}
 	wanted := make(map[string]bool, len(tokens))
 	for _, tok := range tokens {
@@ -1377,7 +1390,7 @@ func citationCorroboratesClaim(claim, citeFile string, citeLine int, gc *ground.
 		}
 		for _, tok := range valueLiteralTokenRe.FindAllString(text, -1) {
 			if wanted[tok] {
-				return true
+				return citationCorroborationCorroborated
 			}
 		}
 	}
@@ -1398,11 +1411,11 @@ func citationCorroboratesClaim(claim, citeFile string, citeLine int, gc *ground.
 				continue
 			}
 			if strings.Contains(text, trimmed) {
-				return true
+				return citationCorroborationCorroborated
 			}
 		}
 	}
-	return false
+	return citationCorroborationMissing
 }
 
 // corroborationCfg holds the shape-specific strings the
@@ -2311,18 +2324,7 @@ func answerSurfacePlan(ctx *types.BusContext) *types.AnswerSurfacePlan {
 	if ctx == nil || ctx.AnalysisIR == nil {
 		return nil
 	}
-	var logBundle *types.LogBundle
-	if ctx.Mutable != nil {
-		logBundle = ctx.Mutable.LogTriage()
-	}
-	plan := types.BuildAnswerSurfacePlan(
-		ctx.AnalysisIR,
-		ctx.Mutable,
-		logBundle,
-		ctx.FlowFindings,
-		ctx.AnswerChains,
-		ctx.EvidenceItems,
-	)
+	plan := types.BuildAnswerSurfacePlanForBusContext(ctx)
 	if plan != nil && len(ctx.AnswerSymbols) > 0 {
 		types.ApplyAnswerSymbolStepBackbone(plan, ctx.AnswerSymbols, ctx.AnswerSymbolCompleteness)
 	}
@@ -2356,7 +2358,10 @@ func normalizeStepBackboneDescriptions(steps []types.AnswerStep, citations []typ
 		if !ok {
 			continue
 		}
-		if citationCorroboratesClaim(step.Description, cite.File, cite.Line, gc) {
+		if stepDescriptionMentionsAnchor(step.Description, anchor) {
+			continue
+		}
+		if citationCorroborationStatus(step.Description, cite.File, cite.Line, gc) == citationCorroborationCorroborated {
 			continue
 		}
 		if desc := strings.TrimSpace(types.RenderStepSurfaceAnchorDescription(anchor)); desc != "" {
@@ -2364,6 +2369,14 @@ func normalizeStepBackboneDescriptions(steps []types.AnswerStep, citations []typ
 		}
 	}
 	return out
+}
+
+func stepDescriptionMentionsAnchor(description string, anchor types.StepSurfaceAnchor) bool {
+	name := strings.ToLower(strings.TrimSpace(anchor.Name))
+	if name == "" {
+		return false
+	}
+	return strings.Contains(strings.ToLower(description), name)
 }
 
 func normalizeLogSourceDriftObservedCitations(in []types.Citation, ctx *types.BusContext) []types.Citation {

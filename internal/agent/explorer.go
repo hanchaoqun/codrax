@@ -116,6 +116,12 @@ type explorerEvaluator struct {
 	// remaining top-K are noise siblings sharing method names.
 	logTriage *types.LogBundle
 
+	// mutable caches the current dispatch's MutableState so mid-loop
+	// readiness checks can consume the same compiled AnswerSurfacePlan
+	// authority as pre-complete / extractor / finalizer instead of
+	// re-deriving explanation-anchor policy from local evidence slices.
+	mutable *types.MutableState
+
 	// exactResolution caches the analyzer's exact-target contract and
 	// the subset of still-pending targets so mid-loop closure nudges
 	// can recognize "exact absence already proven; stop expanding
@@ -246,6 +252,8 @@ func (e *explorerEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk 
 		e.exactPendingTargets = nil
 		e.exactContextFiles = nil
 		e.analysisIR = nil
+		e.logTriage = nil
+		e.mutable = nil
 		// Loop-policy counters (idleStreakInDepth, lastToolResultCount,
 		// midLoopLastInjectIter) are no longer fields on this struct —
 		// LoopPolicy constructs a fresh loopPolicyState per dispatch,
@@ -266,11 +274,13 @@ func (e *explorerEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk 
 		e.scenario = ""
 	}
 	e.analysisIR = ctx.AnalysisIR
+	e.mutable = ctx.Mutable
 	e.requiredFiles = analyzerRequiredFilesFromIR(ctx)
 	// Session-22 fix F2.1: cache the log-triage bundle so Check 6's
 	// mid-loop gate can consult bundle.Meta.Signals + ResolvedFiles
 	// without re-reading ctx (observeMidLoop takes only a
 	// LoopObservation, which does not carry the bus context).
+	e.logTriage = nil
 	if ctx.Mutable != nil {
 		e.logTriage = ctx.Mutable.LogTriage()
 	}
@@ -1102,6 +1112,20 @@ func declarativeAnchorFilesFromPaths(paths []string, questionKind string, axis t
 		return anchors
 	}
 	return nil
+}
+
+func (e *explorerEvaluator) answerSurfacePlan() *types.AnswerSurfacePlan {
+	if e == nil || e.analysisIR == nil {
+		return nil
+	}
+	return types.BuildAnswerSurfacePlan(
+		e.analysisIR,
+		e.mutable,
+		e.logTriage,
+		e.flowFindings,
+		nil,
+		e.structuredEvidence,
+	)
 }
 
 func structuralCandidateFilesFromPaths(paths []string, questionKind string, axis types.PredicateAxis, isEnumeration bool) []string {
@@ -3834,10 +3858,17 @@ func (e *explorerEvaluator) completionReadiness(toolResults []types.ToolResult, 
 	explanationAnchorCovered := 0
 	explanationAnchorTotal := 0
 	if e.analysisIR != nil && types.ExplanationAllowsAnchorSkeleton(e.analysisIR) {
-		anchors, missing, _ := types.CompileExplanationAnchorBackbone(e.analysisIR, e.structuredEvidence)
-		explanationAnchorCovered = len(anchors)
-		explanationAnchorTotal = len(e.analysisIR.RequestModel.SubTopics)
-		explanationAnchorReady = len(missing) == 0 && explanationAnchorTotal > 0
+		if plan := e.answerSurfacePlan(); plan != nil {
+			explanationAnchorCovered = len(plan.ExplanationAnchorBackbone)
+			explanationAnchorTotal = explanationAnchorCovered + len(plan.ExplanationAnchorMissingTopics)
+			if explanationAnchorTotal == 0 {
+				explanationAnchorTotal = len(e.analysisIR.RequestModel.SubTopics)
+			}
+			explanationAnchorReady = len(plan.ExplanationAnchorMissingTopics) == 0 && explanationAnchorTotal > 0
+		} else {
+			explanationAnchorTotal = len(e.analysisIR.RequestModel.SubTopics)
+			explanationAnchorReady = explanationAnchorTotal == 0
+		}
 		if !explanationAnchorReady {
 			hasEnough = false
 		}
@@ -3935,14 +3966,24 @@ func (e *explorerEvaluator) postExplanationAnchorSignal(obs LoopObservation) Loo
 	if !hasSuccessfulTool(obs.AllToolResults, "emit_evidence") {
 		return LoopSignal{}
 	}
-	anchors, missing, claim := types.CompileExplanationAnchorBackbone(e.analysisIR, e.structuredEvidence)
+	plan := e.answerSurfacePlan()
+	if plan == nil {
+		return LoopSignal{}
+	}
+	anchors := plan.ExplanationAnchorBackbone
+	missing := plan.ExplanationAnchorMissingTopics
+	claim := plan.ExplanationAnchorCompleteness
 	if len(anchors) == 0 || len(missing) == 0 {
 		return LoopSignal{}
 	}
 	e.midLoopExplanationAnchorSent = true
 	var b strings.Builder
 	b.WriteString("MID-LOOP CHECK: this is a multi-topic explanation answer, and the current evidence still lacks one grounded anchor line per sub-topic. Before closing, make sure each sub-topic has one load-bearing symbol/field/owner line that the extractor can turn into the Key Anchors skeleton.\n")
-	fmt.Fprintf(&b, "- grounded anchor coverage: %d / %d sub-topics\n", len(anchors), len(e.analysisIR.RequestModel.SubTopics))
+	total := len(anchors) + len(missing)
+	if total == 0 {
+		total = len(e.analysisIR.RequestModel.SubTopics)
+	}
+	fmt.Fprintf(&b, "- grounded anchor coverage: %d / %d sub-topics\n", len(anchors), total)
 	switch claim {
 	case types.CompletenessLowerBound:
 		b.WriteString("- current anchor coverage is only a lower bound\n")

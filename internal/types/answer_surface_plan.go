@@ -111,9 +111,9 @@ type LogSourceDriftAnchor struct {
 type DriftReason string
 
 const (
-	DriftReasonLineDrift   DriftReason = "line_drift"
-	DriftReasonTailRename  DriftReason = "tail_rename"
-	DriftReasonFileMoved   DriftReason = "file_moved"
+	DriftReasonLineDrift  DriftReason = "line_drift"
+	DriftReasonTailRename DriftReason = "tail_rename"
+	DriftReasonFileMoved  DriftReason = "file_moved"
 )
 
 type StepSurfaceAnchor struct {
@@ -410,6 +410,13 @@ func explanationAnchorCandidateScore(topic SubTopic, item EvidenceItem) int {
 			score += 14
 		case EvidenceItemStructurallyMentionsAnyTerm(item, []string{trimmed}):
 			score += 8
+		case EvidenceItemMentionsAnyTerm(item, []string{trimmed}):
+			score += 4
+		}
+	}
+	if summary := strings.TrimSpace(topic.Summary); summary != "" {
+		if overlap := explanationAnchorSharedSummaryRun(summary, item.Summary); overlap >= 5 {
+			score += minInt(10, overlap)
 		}
 	}
 	if score == 0 {
@@ -447,6 +454,47 @@ func explanationAnchorWinsTie(candidate, incumbent StepSurfaceAnchor) bool {
 		return candidate.Name < incumbent.Name
 	}
 	return false
+}
+
+func explanationAnchorSharedSummaryRun(a, b string) int {
+	a = explanationAnchorNormalizeSurfaceText(a)
+	b = explanationAnchorNormalizeSurfaceText(b)
+	if a == "" || b == "" {
+		return 0
+	}
+	ar := []rune(a)
+	br := []rune(b)
+	prev := make([]int, len(br)+1)
+	best := 0
+	for i := 1; i <= len(ar); i++ {
+		curr := make([]int, len(br)+1)
+		for j := 1; j <= len(br); j++ {
+			if ar[i-1] != br[j-1] {
+				continue
+			}
+			curr[j] = prev[j-1] + 1
+			if curr[j] > best {
+				best = curr[j]
+			}
+		}
+		prev = curr
+	}
+	return best
+}
+
+func explanationAnchorNormalizeSurfaceText(s string) string {
+	s = strings.ToLower(strings.TrimSpace(s))
+	if s == "" {
+		return ""
+	}
+	return strings.Join(strings.Fields(s), " ")
+}
+
+func minInt(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
 }
 
 func RenderLinearDiagramFence(nodes []string, limit int) string {
@@ -741,6 +789,51 @@ func BuildAnswerSurfacePlan(
 	plan.SummarySurfaceMode = preferredAnswerSummarySurfaceMode(plan, ir.RequestModel)
 
 	return plan
+}
+
+// BuildAnswerSurfacePlanForAgentContext compiles the current
+// answer-surface authority from an AgentContext. This keeps prompt
+// builders and loop controllers on the same effective surface plan
+// without each stage manually repacking AnalysisIR / Mutable /
+// FlowFindings / AnswerChains / EvidenceItems.
+func BuildAnswerSurfacePlanForAgentContext(ctx *AgentContext) *AnswerSurfacePlan {
+	if ctx == nil {
+		return nil
+	}
+	logBundle := ctx.LogTriage
+	if logBundle == nil && ctx.Mutable != nil {
+		logBundle = ctx.Mutable.LogTriage()
+	}
+	return BuildAnswerSurfacePlan(
+		ctx.AnalysisIR,
+		ctx.Mutable,
+		logBundle,
+		ctx.FlowFindings,
+		ctx.AnswerChains,
+		ctx.EvidenceItems,
+	)
+}
+
+// BuildAnswerSurfacePlanForBusContext is the BusContext equivalent of
+// BuildAnswerSurfacePlanForAgentContext. Shared validators and
+// tool-stage gates consume the same compiled surface plan instead of
+// re-deriving explanation / exact-resolution policy from local slices.
+func BuildAnswerSurfacePlanForBusContext(ctx *BusContext) *AnswerSurfacePlan {
+	if ctx == nil {
+		return nil
+	}
+	var logBundle *LogBundle
+	if ctx.Mutable != nil {
+		logBundle = ctx.Mutable.LogTriage()
+	}
+	return BuildAnswerSurfacePlan(
+		ctx.AnalysisIR,
+		ctx.Mutable,
+		logBundle,
+		ctx.FlowFindings,
+		ctx.AnswerChains,
+		ctx.EvidenceItems,
+	)
 }
 
 func preferredExactResolutionSurface(plan *AnswerSurfacePlan) *AnswerExactResolution {
@@ -1184,10 +1277,11 @@ func nearestLogSourceDriftCrossFileAnchor(items []EvidenceItem, tail string, fra
 // logSourceDriftFuzzyTailMatch returns true when two tail tokens
 // are similar enough to plausibly represent the same renamed
 // function. Two checks:
-//   1. Substring containment (one is in the other) for length ≥ 4 —
-//      catches prefix/suffix renames (FooHandler → FooHandlerV2).
-//   2. Levenshtein distance ≤ 2 for length ≥ 5 — catches typo /
-//      single-letter rename (handleAuth → handleAuthN).
+//  1. Substring containment (one is in the other) for length ≥ 4 —
+//     catches prefix/suffix renames (FooHandler → FooHandlerV2).
+//  2. Levenshtein distance ≤ 2 for length ≥ 5 — catches typo /
+//     single-letter rename (handleAuth → handleAuthN).
+//
 // Bounds are conservative: short tokens (do, run, go) and long
 // tokens (>30 chars) bypass the fuzzy match — the former because
 // false-positive risk is too high, the latter because Levenshtein

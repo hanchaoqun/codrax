@@ -685,14 +685,12 @@ func explanationAnchorBackboneDowngrade(ctx *types.BusContext) string {
 	if ctx == nil || ctx.AnalysisIR == nil || !types.ExplanationAllowsAnchorSkeleton(ctx.AnalysisIR) {
 		return ""
 	}
-	emitted := []types.EvidenceItem(nil)
-	if ctx.Mutable != nil {
-		emitted = ctx.Mutable.EmittedEvidence()
+	plan := types.BuildAnswerSurfacePlanForBusContext(ctx)
+	if plan == nil {
+		return ""
 	}
-	anchors, missing, _ := types.CompileExplanationAnchorBackbone(
-		ctx.AnalysisIR,
-		types.ExactResolutionSurfaceEvidencePool(emitted, nil, nil),
-	)
+	anchors := plan.ExplanationAnchorBackbone
+	missing := plan.ExplanationAnchorMissingTopics
 	if len(missing) == 0 {
 		return ""
 	}
@@ -710,7 +708,11 @@ func explanationAnchorBackboneDowngrade(ctx *types.BusContext) string {
 	}
 	var b strings.Builder
 	b.WriteString(EmitInvestigationCompleteDowngradePrefix + " — multi-topic explanation still lacks one grounded anchor per sub-topic.\n\n")
-	fmt.Fprintf(&b, "Current grounded anchor coverage: %d / %d sub-topics.\n", len(anchors), len(ctx.AnalysisIR.RequestModel.SubTopics))
+	total := len(anchors) + len(missing)
+	if total == 0 {
+		total = len(ctx.AnalysisIR.RequestModel.SubTopics)
+	}
+	fmt.Fprintf(&b, "Current grounded anchor coverage: %d / %d sub-topics.\n", len(anchors), total)
 	b.WriteString("Missing sub-topics:\n")
 	for _, topic := range missing {
 		fmt.Fprintf(&b, "  - %s\n", topic)

@@ -553,6 +553,54 @@ func TestBuildAnswerSurfacePlan_ExplanationAnchorBackboneSkipsAuxiliaryEvidence(
 	}
 }
 
+func TestBuildAnswerSurfacePlan_ExplanationAnchorBackboneUsesGroundedSummaryBridge(t *testing.T) {
+	ir := &AnalysisIR{
+		RequestModel: RequestModel{
+			SubTopics: []SubTopic{
+				{Summary: "missing_key 配置键的最终有效值的计算逻辑", Entities: []string{"missing_key"}},
+				{Summary: "code default / codrax.yaml / CLI 三层配置的覆盖优先级顺序", Entities: []string{"codrax.yaml", "CLI"}},
+			},
+		},
+		AnswerContract: AnswerContract{
+			RequiredAnswerShape: ShapeExplanation,
+		},
+	}
+	evidence := []EvidenceItem{
+		{
+			Kind:            EvidenceConditional,
+			Source:          "internal/types/config.go",
+			LineStart:       727,
+			AnchorKind:      AnchorDefinition,
+			AnchorSymbol:    "ResolvedExampleSettings",
+			Summary:         "ResolvedExampleSettings 实现各字段最终有效值的计算逻辑，零值时回填默认值。",
+			GroundingStatus: GroundingGrounded,
+		},
+		{
+			Kind:            EvidenceConditional,
+			Source:          "cmd/root.go",
+			LineStart:       2144,
+			AnchorKind:      AnchorCondition,
+			AnchorSymbol:    "flagExample",
+			Summary:         "注释明确声明 code default → codrax.yaml → CLI flag 的三层覆盖优先级。",
+			GroundingStatus: GroundingGrounded,
+		},
+	}
+
+	plan := BuildAnswerSurfacePlan(ir, NewMutableState(""), nil, nil, nil, evidence)
+	if plan == nil {
+		t.Fatal("BuildAnswerSurfacePlan returned nil")
+	}
+	if len(plan.ExplanationAnchorBackbone) != 2 {
+		t.Fatalf("explanation anchor backbone = %d, want 2", len(plan.ExplanationAnchorBackbone))
+	}
+	if plan.ExplanationAnchorCompleteness != CompletenessComplete {
+		t.Fatalf("explanation anchor completeness = %q, want %q", plan.ExplanationAnchorCompleteness, CompletenessComplete)
+	}
+	if len(plan.ExplanationAnchorMissingTopics) != 0 {
+		t.Fatalf("missing topics = %v, want none", plan.ExplanationAnchorMissingTopics)
+	}
+}
+
 func TestEvidencePreferredSurfaceText_NeutralizesExactResolutionRelevantSummary(t *testing.T) {
 	contract := &ExactResolutionContract{
 		TargetKind:           SubjectConfigKey,
