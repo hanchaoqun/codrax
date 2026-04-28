@@ -16,6 +16,7 @@ import (
 // downstream stages do not re-derive the same policy independently.
 type AnswerSurfacePlan struct {
 	RequiredShape                  AnswerShape
+	RequestedEnumerationBoundary   *RequestedEnumerationBoundary
 	Diagram                        *DiagramContract
 	DiagramHardRequirementDropped  bool
 	CompiledDiagramKind            DiagramKind
@@ -253,6 +254,31 @@ func ApplyEvidenceStepBackbone(plan *AnswerSurfacePlan, evidence []EvidenceItem)
 	}
 	plan.StepBackbone = best
 	if plan.StepBackboneCompleteness == "" {
+		plan.StepBackboneCompleteness = CompletenessLowerBound
+	}
+}
+
+func applyRequestedEnumerationBoundaryStepBackbone(plan *AnswerSurfacePlan, ir *AnalysisIR) {
+	if plan == nil || ir == nil || plan.RequiredShape != ShapeStepList || len(plan.StepBackbone) == 0 {
+		return
+	}
+	boundary := plan.RequestedEnumerationBoundary
+	if boundary == nil || boundary.DeclaredCount <= 0 {
+		return
+	}
+	if len(plan.StepBackbone) != boundary.DeclaredCount+1 {
+		return
+	}
+	owner := RequestedEnumerationBoundaryOwner(ir.RequestModel)
+	if owner == "" {
+		return
+	}
+	first := strings.TrimSpace(plan.StepBackbone[0].Name)
+	if first == "" || normalizedSurfaceSymbolTail(first) != normalizedSurfaceSymbolTail(owner) {
+		return
+	}
+	plan.StepBackbone = append([]StepSurfaceAnchor(nil), plan.StepBackbone[1:]...)
+	if plan.StepBackboneCompleteness == CompletenessComplete {
 		plan.StepBackboneCompleteness = CompletenessLowerBound
 	}
 }
@@ -644,7 +670,8 @@ func BuildAnswerSurfacePlan(
 	}
 
 	plan := &AnswerSurfacePlan{
-		RequiredShape: EffectiveRequiredAnswerShape(ir, mutable),
+		RequiredShape:                EffectiveRequiredAnswerShape(ir, mutable),
+		RequestedEnumerationBoundary: ir.RequestModel.EnumerationBoundary,
 	}
 	if plan.RequiredShape == ShapeNone {
 		plan.RequiredShape = ir.AnswerContract.RequiredAnswerShape
@@ -675,6 +702,7 @@ func BuildAnswerSurfacePlan(
 	}
 	plan.SurfaceEvidence = ExactResolutionSurfaceEvidencePool(emitted, evidence, answerChains)
 	ApplyEvidenceStepBackbone(plan, plan.SurfaceEvidence)
+	applyRequestedEnumerationBoundaryStepBackbone(plan, ir)
 	ApplyEvidenceExplanationAnchorBackbone(plan, ir, plan.SurfaceEvidence)
 
 	supported := SupportedDiagramKindsForAnswer(

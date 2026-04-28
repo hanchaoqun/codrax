@@ -183,6 +183,37 @@ func TestAxisAnchorRetryHint_NoMatchingEvidenceNoOp(t *testing.T) {
 	}
 }
 
+func TestAxisAnchorRetryHint_BoundedPrincipalStepListSkipsRetry(t *testing.T) {
+	ir := &types.AnalysisIR{
+		RequestModel: types.RequestModel{
+			PredicateAxis: types.AxisCondition,
+			RawRequest:    "What order do gate.Run's 7 checks execute in?",
+			AnalyzerHints: types.AnalyzerHints{
+				MentionedEntities: []string{"gate.Run"},
+			},
+			EnumerationBoundary: &types.RequestedEnumerationBoundary{
+				DeclaredCount: 7,
+				SourceQuote:   "7 checks",
+			},
+		},
+		AnswerContract: types.AnswerContract{RequiredAnswerShape: types.ShapeStepList},
+	}
+	mut := types.NewMutableState("")
+	mut.SetRequestModel(ir.RequestModel)
+	mut.SetTurnAArtifacts(types.TurnAArtifacts{EvidenceItems: []types.EvidenceItem{
+		{Source: "internal/analysis/gate/gate.go", LineStart: 130, AnchorKind: types.AnchorCondition, AnchorSymbol: "isWrite"},
+	}})
+	mut.SetEmittedAnswerSymbols([]types.AnswerSymbol{
+		{Name: "checkCoverage", File: "internal/analysis/gate/gate.go", Line: 127, Kind: "function"},
+		{Name: "checkDAGClosure", File: "internal/analysis/gate/gate.go", Line: 128, Kind: "function"},
+	}, types.CompletenessLowerBound)
+
+	ctx := &types.AgentContext{AnalysisIR: ir, Mutable: mut}
+	if hint := axisAnchorRetryHint(ctx); hint != "" {
+		t.Fatalf("bounded principal step_list should not be forced to mix condition anchors into the member slate; got %q", hint)
+	}
+}
+
 func containsAll(haystack string, needles []string) bool {
 	for _, n := range needles {
 		if !stringsContains(haystack, n) {

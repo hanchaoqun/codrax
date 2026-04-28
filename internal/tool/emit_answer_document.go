@@ -613,6 +613,7 @@ func (t *EmitAnswerDocument) Execute(ctx *types.BusContext, params json.RawMessa
 	// anchor but have their Quote cleared (file:line exists but the
 	// quote is not corroborated by the line text).
 	groundCtx := ground.BuildContext(ctx)
+	stepCandidates := compiledStepCandidateNames(answerSurfacePlan(ctx))
 	// Session-8 whitelist: citations must reference a file Turn A
 	// actually read. Addresses the trace 1776448040358685830 case
 	// where the finalizer LLM cited internal/agent/subagent.go:63 but
@@ -849,6 +850,9 @@ func (t *EmitAnswerDocument) Execute(ctx *types.BusContext, params json.RawMessa
 	if err := validateAbsentExactConfigValueShape(shape, resolvedExact, ctx); err != nil {
 		return failWithContext("%v", err)
 	}
+	if err := validateRequestedEnumerationBoundary(shape, &p, ctx); err != nil {
+		return failWithContext("%v", err)
+	}
 	// Shape-dispatch: each branch validates its own required fields,
 	// rejects fields that do not belong to this shape, and populates
 	// the AnswerDocument slot the renderer will read.
@@ -874,7 +878,7 @@ func (t *EmitAnswerDocument) Execute(ctx *types.BusContext, params json.RawMessa
 		}
 		built := make([]types.AnswerSymbol, 0, len(p.Symbols))
 		for i, in := range p.Symbols {
-			sym, perr := buildEmitAnswerSymbolItem(in, i, workDir, docLogTriageBundle, groundCtx)
+			sym, perr := buildEmitAnswerSymbolItem(in, i, workDir, docLogTriageBundle, groundCtx, stepCandidates)
 			if perr != nil {
 				return failWithContext("symbols[%d]: %v", i, perr)
 			}
@@ -999,7 +1003,7 @@ func (t *EmitAnswerDocument) Execute(ctx *types.BusContext, params json.RawMessa
 		} else if len(p.Symbols) > 0 {
 			built := make([]types.AnswerSymbol, 0, len(p.Symbols))
 			for i, in := range p.Symbols {
-				sym, perr := buildEmitAnswerSymbolItem(in, i, workDir, docLogTriageBundle, groundCtx)
+				sym, perr := buildEmitAnswerSymbolItem(in, i, workDir, docLogTriageBundle, groundCtx, stepCandidates)
 				if perr != nil {
 					return failWithContext("symbols[%d]: %v", i, perr)
 				}
@@ -5070,6 +5074,42 @@ func validateCitationRef(field string, index int, ref int, numCites int) error {
 	}
 	if ref >= numCites {
 		return fmt.Errorf("%s[%d]: citation_ref %d is out of range (citations pool has %d entries)", field, index, ref, numCites)
+	}
+	return nil
+}
+
+func validateRequestedEnumerationBoundary(shape types.AnswerShape, p *emitAnswerDocumentParams, ctx *types.BusContext) error {
+	if p == nil || ctx == nil {
+		return nil
+	}
+	plan := answerSurfacePlan(ctx)
+	if plan == nil || plan.RequestedEnumerationBoundary == nil || plan.RequestedEnumerationBoundary.DeclaredCount <= 0 {
+		return nil
+	}
+	boundary := plan.RequestedEnumerationBoundary
+	switch shape {
+	case types.ShapeStepList:
+		if len(p.Steps) <= boundary.DeclaredCount {
+			return nil
+		}
+		return newAnswerDocValidationError(
+			"requested_set_boundary",
+			"the user explicitly requested a bounded principal set `%s` (%d item(s)), so shape=step_list must keep steps[] to at most %d principal item(s). Move extra adjacent guards/helpers into summary prose or a short caveat instead of extending the main ordered list to %d item(s).",
+			boundary.SourceQuote, boundary.DeclaredCount, boundary.DeclaredCount, len(p.Steps),
+		).
+			WithFields("steps", "summary").
+			WithHint("Re-emit `emit_answer_document` with the same shape and evidence, but keep the main `steps[]` sequence within the user-declared boundary. Do NOT simply truncate to the first N chronological lines when grounded comments or summaries indicate some nearby items are auxiliary guards/coherence/repair checks. Keep the principal ordered set in `steps[]`; move auxiliary adjacent items into `summary` as a caveat if they are still relevant.")
+	case types.ShapeListOfSymbols:
+		if len(p.Symbols) <= boundary.DeclaredCount {
+			return nil
+		}
+		return newAnswerDocValidationError(
+			"requested_set_boundary",
+			"the user explicitly requested a bounded principal set `%s` (%d item(s)), so shape=list_of_symbols must keep symbols[] to at most %d principal item(s). Move extra adjacent symbols into summary prose instead of extending the main slate to %d item(s).",
+			boundary.SourceQuote, boundary.DeclaredCount, boundary.DeclaredCount, len(p.Symbols),
+		).
+			WithFields("symbols", "summary", "symbols_completeness").
+			WithHint("Re-emit `emit_answer_document` with the same shape, but keep `symbols[]` within the user-declared boundary. Do NOT simply take the first N nearby names if grounded summaries/comments mark some of them as auxiliary or caveat-only; keep the principal bounded set in `symbols[]` and move secondary neighbors into `summary` if needed.")
 	}
 	return nil
 }

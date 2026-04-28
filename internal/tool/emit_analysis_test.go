@@ -800,6 +800,75 @@ func TestEmitAnalysis_Execute_PersistsNormalizedRequestModel(t *testing.T) {
 	}
 }
 
+func TestEmitAnalysis_Execute_PersistsEnumerationBoundary(t *testing.T) {
+	prev := CurrentAnalysisLimits()
+	t.Cleanup(func() { SetAnalysisLimits(prev) })
+	SetAnalysisLimits(AnalysisLimits{WarnBelowKeywords: 0, RejectBelowKeywords: 0})
+
+	payload := `{
+		"intent": "explain",
+		"scenario": "generic",
+		"complexity": "moderate",
+		"keywords": ["gate", "run", "checks"],
+		"entities": ["gate.Run", "checkCoverage"],
+		"question_kind": "mechanism",
+		"answer_shape": "step_list",
+		"enumeration_boundary": {
+			"declared_count": 7,
+			"source_quote": "7 checks"
+		}
+	}`
+
+	res, mu := runEmitAnalysisWithObjective(t, "What order do gate.Run's 7 checks execute in?", payload)
+	if !res.Success {
+		t.Fatalf("Execute should succeed, got summary=%q", res.Summary)
+	}
+	rm := mu.RequestModel()
+	if rm == nil || rm.EnumerationBoundary == nil {
+		t.Fatal("EnumerationBoundary not persisted on RequestModel")
+	}
+	if rm.EnumerationBoundary.DeclaredCount != 7 {
+		t.Fatalf("DeclaredCount = %d, want 7", rm.EnumerationBoundary.DeclaredCount)
+	}
+	if rm.EnumerationBoundary.SourceQuote != "7 checks" {
+		t.Fatalf("SourceQuote = %q, want %q", rm.EnumerationBoundary.SourceQuote, "7 checks")
+	}
+	if !strings.Contains(res.Summary, "boundary=7") {
+		t.Fatalf("summary missing boundary count: %q", res.Summary)
+	}
+}
+
+func TestEmitAnalysis_Execute_RejectsEnumerationBoundaryQuoteOutsideRequest(t *testing.T) {
+	prev := CurrentAnalysisLimits()
+	t.Cleanup(func() { SetAnalysisLimits(prev) })
+	SetAnalysisLimits(AnalysisLimits{WarnBelowKeywords: 0, RejectBelowKeywords: 0})
+
+	payload := `{
+		"intent": "explain",
+		"scenario": "generic",
+		"complexity": "moderate",
+		"keywords": ["gate", "run", "checks"],
+		"entities": ["gate.Run"],
+		"question_kind": "mechanism",
+		"answer_shape": "step_list",
+		"enumeration_boundary": {
+			"declared_count": 7,
+			"source_quote": "9 checks"
+		}
+	}`
+
+	res, mu := runEmitAnalysisWithObjective(t, "What order do gate.Run's 7 checks execute in?", payload)
+	if res.Success {
+		t.Fatalf("Execute should reject mismatched enumeration boundary, got summary=%q", res.Summary)
+	}
+	if !strings.Contains(res.Summary, "enumeration_boundary.source_quote must appear in the current request text") {
+		t.Fatalf("unexpected reject summary: %q", res.Summary)
+	}
+	if mu.RequestModel() != nil {
+		t.Fatal("RequestModel should not persist on rejected enumeration boundary")
+	}
+}
+
 func TestEmitAnalysis_Summary_ReportsNormalizedDelta(t *testing.T) {
 	prev := CurrentAnalysisLimits()
 	t.Cleanup(func() { SetAnalysisLimits(prev) })

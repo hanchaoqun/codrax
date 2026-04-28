@@ -261,6 +261,38 @@ func TestExtractor_Validator_Complete_BaselineMet_PassThrough(t *testing.T) {
 	}
 }
 
+func TestExtractor_Validator_Complete_EnumerationBoundaryOverridesTerminalBaseline(t *testing.T) {
+	syms := []types.AnswerSymbol{
+		{Name: "checkCoverage", File: "internal/analysis/gate/gate.go", Line: 127, Kind: "function"},
+		{Name: "checkDAGClosure", File: "internal/analysis/gate/gate.go", Line: 128, Kind: "function"},
+		{Name: "checkBudgetSanity", File: "internal/analysis/gate/gate.go", Line: 129, Kind: "function"},
+		{Name: "checkContractComplete", File: "internal/analysis/gate/gate.go", Line: 135, Kind: "function"},
+		{Name: "checkHypothesisCoverage", File: "internal/analysis/gate/gate.go", Line: 136, Kind: "function"},
+		{Name: "checkCriterionResolvable", File: "internal/analysis/gate/gate.go", Line: 147, Kind: "function"},
+		{Name: "checkPendingFieldsWellformed", File: "internal/analysis/gate/gate.go", Line: 148, Kind: "function"},
+	}
+	ctx := extractorCtxWithBaseline(15, nil, syms, types.CompletenessComplete)
+	ctx.AnalysisIR.RequestModel = types.RequestModel{
+		RawRequest: "What order do gate.Run's 7 checks execute in?",
+		AnalyzerHints: types.AnalyzerHints{
+			MentionedEntities: []string{"gate.Run"},
+		},
+		EnumerationBoundary: &types.RequestedEnumerationBoundary{
+			DeclaredCount: 7,
+			SourceQuote:   "7 checks",
+		},
+	}
+	ctx.AnalysisIR.AnswerContract.RequiredAnswerShape = types.ShapeStepList
+	e := &extractorEvaluator{}
+	out, err := e.ParseOutput(ctx, nil, nil, nil)
+	if err != nil {
+		t.Fatalf("ParseOutput: %v", err)
+	}
+	if out.AnswerSymbolCompleteness != types.CompletenessComplete {
+		t.Fatalf("enumeration boundary should override larger terminal baseline: got %q", out.AnswerSymbolCompleteness)
+	}
+}
+
 func TestExtractor_Validator_Complete_TerminalCountShortfall_Downgrade(t *testing.T) {
 	// Turn A found 5 terminal items, LLM only emitted 2 and claimed
 	// complete. β baseline catches this; downgrade to lower_bound.
@@ -545,6 +577,43 @@ func TestExtractor_BuildPrompt_DigestsTurnAArtifacts(t *testing.T) {
 	}
 }
 
+func TestExtractor_BuildPrompt_EnumerationBoundaryOverridesDisplayedFloor(t *testing.T) {
+	mu := types.NewMutableState("")
+	mu.SetTurnAArtifacts(types.TurnAArtifacts{TerminalEvidenceCount: 15})
+	ctx := &types.AgentContext{
+		Objective: "q",
+		Mutable:   mu,
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				RawRequest: "What order do gate.Run's 7 checks execute in?",
+				AnalyzerHints: types.AnalyzerHints{
+					MentionedEntities: []string{"gate.Run"},
+				},
+				EnumerationBoundary: &types.RequestedEnumerationBoundary{
+					DeclaredCount: 7,
+					SourceQuote:   "7 checks",
+				},
+			},
+			AnswerContract: types.AnswerContract{
+				RequiredAnswerShape: types.ShapeStepList,
+				MustInclude:         []string{"checkCoverage", "checkDAGClosure"},
+			},
+		},
+	}
+
+	e := &extractorEvaluator{}
+	prompt := e.BuildInitialInstruction(ctx, nil)
+	if !contains(prompt, "Requested set boundary override") || !contains(prompt, "7 item(s) from `7 checks`") {
+		t.Fatalf("prompt must surface requested boundary override, got %q", prompt)
+	}
+	if !contains(prompt, "bounded principal set overrides the wider evidence floor") {
+		t.Fatalf("prompt must explain why the displayed floor changed, got %q", prompt)
+	}
+	if !contains(prompt, "MUST have") || !contains(prompt, "7 items") {
+		t.Fatalf("prompt must reuse the requested boundary as the completeness floor, got %q", prompt)
+	}
+}
+
 func TestExtractor_BuildPrompt_NoArtifacts_GracefulDegrade(t *testing.T) {
 	// When Mutable exists but TurnAArtifacts is nil (unit test
 	// bootstrap, or wiring bug), the prompt must still be usable and
@@ -814,6 +883,9 @@ func TestExtractor_Observe_MidLoop_BothExpected_BothSucceeded_Stops(t *testing.T
 			{ToolName: "emit_hypothesis_verdict", Success: true},
 		},
 	)
+	ctx.Mutable.SetEmittedAnswerSymbols([]types.AnswerSymbol{
+		{Name: "Foo", File: "a.go", Line: 5, Kind: "function"},
+	}, types.CompletenessLowerBound)
 	e := &extractorEvaluator{}
 	sig := e.Observe(ctx, obs)
 	if !sig.StopRequested {
@@ -857,6 +929,79 @@ func TestExtractor_Observe_MidLoop_MissingSymbols_Continues(t *testing.T) {
 	}
 }
 
+func TestExtractor_Observe_MidLoop_BoundedStepListMissingSymbols_Continues(t *testing.T) {
+	mu := types.NewMutableState("q")
+	ctx := &types.AgentContext{
+		Objective: "q",
+		Mutable:   mu,
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				RawRequest: "What order do gate.Run's 7 checks execute in?",
+				AnalyzerHints: types.AnalyzerHints{
+					MentionedEntities: []string{"gate.Run"},
+				},
+				EnumerationBoundary: &types.RequestedEnumerationBoundary{
+					DeclaredCount: 7,
+					SourceQuote:   "7 checks",
+				},
+			},
+			AnswerContract: types.AnswerContract{RequiredAnswerShape: types.ShapeStepList},
+		},
+	}
+	obs := LoopObservation{
+		Phase:     PhaseMidLoop,
+		Iteration: 0,
+		AllToolResults: []types.ToolResult{
+			{ToolName: "emit_hypothesis_verdict", Success: true},
+		},
+	}
+	e := &extractorEvaluator{}
+	sig := e.Observe(ctx, obs)
+	if sig.StopRequested {
+		t.Fatalf("bounded principal step_list still expects emit_answer_symbol; got %+v", sig)
+	}
+}
+
+func TestExtractor_Observe_MidLoop_BoundedStepListPartialSymbols_Hints(t *testing.T) {
+	mu := types.NewMutableState("q")
+	mu.SetEmittedAnswerSymbols([]types.AnswerSymbol{
+		{Name: "checkCoverage", File: "internal/analysis/gate/gate.go", Line: 127, Kind: "function"},
+		{Name: "checkDAGClosure", File: "internal/analysis/gate/gate.go", Line: 128, Kind: "function"},
+	}, types.CompletenessLowerBound)
+	ctx := &types.AgentContext{
+		Objective: "q",
+		Mutable:   mu,
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				RawRequest: "What order do gate.Run's 7 checks execute in?",
+				AnalyzerHints: types.AnalyzerHints{
+					MentionedEntities: []string{"gate.Run"},
+				},
+				EnumerationBoundary: &types.RequestedEnumerationBoundary{
+					DeclaredCount: 7,
+					SourceQuote:   "7 checks",
+				},
+			},
+			AnswerContract: types.AnswerContract{RequiredAnswerShape: types.ShapeStepList},
+		},
+	}
+	obs := LoopObservation{
+		Phase:     PhaseMidLoop,
+		Iteration: 0,
+		AllToolResults: []types.ToolResult{
+			{ToolName: "emit_answer_symbol", Success: true},
+		},
+	}
+	e := &extractorEvaluator{maxRetries: 1}
+	sig := e.Observe(ctx, obs)
+	if !sig.HintRequested {
+		t.Fatalf("partial bounded slate should trigger a materialization hint; got %+v", sig)
+	}
+	if !strings.Contains(sig.Hint, "full principal member slate") {
+		t.Fatalf("hint must ask for the full principal member slate, got %q", sig.Hint)
+	}
+}
+
 func TestExtractor_Observe_MidLoop_AutoVerdictAlreadyInBuffer_StopsOnSymbolsOnly(t *testing.T) {
 	// Dominant production case: orchestrator pre-injected an auto-verdict
 	// before extractor ran, so hasPendingHypotheses=false. The LLM only
@@ -869,6 +1014,9 @@ func TestExtractor_Observe_MidLoop_AutoVerdictAlreadyInBuffer_StopsOnSymbolsOnly
 			{ToolName: "emit_answer_symbol", Success: true},
 		},
 	)
+	ctx.Mutable.SetEmittedAnswerSymbols([]types.AnswerSymbol{
+		{Name: "Foo", File: "a.go", Line: 5, Kind: "function"},
+	}, types.CompletenessLowerBound)
 	e := &extractorEvaluator{}
 	sig := e.Observe(ctx, obs)
 	if !sig.StopRequested {
@@ -966,6 +1114,36 @@ func TestExtractor_Observe_SoftStop_NothingMissing_NoHint(t *testing.T) {
 	sig := e.Observe(ctx, obs)
 	if sig.HintRequested {
 		t.Errorf("nothing missing → must NOT inject hint; got %+v", sig)
+	}
+}
+
+func TestExtractor_Observe_SoftStop_BoundedStepListMissingSymbols_Hint(t *testing.T) {
+	mu := types.NewMutableState("q")
+	ctx := &types.AgentContext{
+		Objective: "q",
+		Mutable:   mu,
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				RawRequest: "What order do gate.Run's 7 checks execute in?",
+				AnalyzerHints: types.AnalyzerHints{
+					MentionedEntities: []string{"gate.Run"},
+				},
+				EnumerationBoundary: &types.RequestedEnumerationBoundary{
+					DeclaredCount: 7,
+					SourceQuote:   "7 checks",
+				},
+			},
+			AnswerContract: types.AnswerContract{RequiredAnswerShape: types.ShapeStepList},
+		},
+	}
+	obs := LoopObservation{Phase: PhaseSoftStop, Iteration: 1}
+	e := &extractorEvaluator{maxRetries: 1}
+	sig := e.Observe(ctx, obs)
+	if !sig.HintRequested {
+		t.Fatalf("bounded step_list without symbols should trigger a correction hint; got %+v", sig)
+	}
+	if !strings.Contains(sig.Hint, "principal member slate") {
+		t.Fatalf("hint must name the principal member slate path, got %q", sig.Hint)
 	}
 }
 
@@ -1105,6 +1283,73 @@ func TestExtractor_MultiTopicExplanationPromptReusesCompiledAnchorBackbone(t *te
 	}
 	if !contains(prompt, "Hypothesis") || !contains(prompt, "internal/types/analysis_ir.go:896") {
 		t.Fatalf("prompt must expose the second compiled anchor candidate: %q", prompt)
+	}
+}
+
+func TestExtractor_BoundedPrincipalStepListPromptReusesCompiledCandidates(t *testing.T) {
+	ir := &types.AnalysisIR{
+		RequestModel: types.RequestModel{
+			RawRequest: "What order do gate.Run's 7 checks execute in?",
+			AnalyzerHints: types.AnalyzerHints{
+				MentionedEntities: []string{"gate.Run"},
+			},
+			EnumerationBoundary: &types.RequestedEnumerationBoundary{
+				DeclaredCount: 7,
+				SourceQuote:   "7 checks",
+			},
+		},
+		AnswerContract: types.AnswerContract{
+			RequiredAnswerShape: types.ShapeStepList,
+		},
+	}
+	mut := types.NewMutableState("q")
+	mut.SetTurnAArtifacts(types.TurnAArtifacts{ReadFiles: []string{"internal/analysis/gate/gate.go"}})
+	ctx := &types.AgentContext{
+		AnalysisIR: ir,
+		Mutable:    mut,
+		EvidenceItems: []types.EvidenceItem{
+			{
+				Kind:            types.EvidenceDirect,
+				Source:          "internal/analysis/gate/gate.go",
+				LineStart:       127,
+				AnchorKind:      types.AnchorCall,
+				AnchorSymbol:    "checkCoverage",
+				Summary:         "checkCoverage is appended as check 1",
+				GroundingStatus: types.GroundingGrounded,
+			},
+			{
+				Kind:            types.EvidenceDirect,
+				Source:          "internal/analysis/gate/gate.go",
+				LineStart:       128,
+				AnchorKind:      types.AnchorCall,
+				AnchorSymbol:    "checkDAGClosure",
+				Summary:         "checkDAGClosure is appended as check 2",
+				GroundingStatus: types.GroundingGrounded,
+			},
+			{
+				Kind:            types.EvidenceDirect,
+				Source:          "internal/analysis/gate/gate.go",
+				LineStart:       129,
+				AnchorKind:      types.AnchorCall,
+				AnchorSymbol:    "checkBudgetSanity",
+				Summary:         "checkBudgetSanity is appended as check 3",
+				GroundingStatus: types.GroundingGrounded,
+			},
+		},
+	}
+	e := &extractorEvaluator{}
+	prompt := e.BuildInitialInstruction(ctx, nil)
+	if !contains(prompt, "## Principal member slate") {
+		t.Fatalf("bounded step_list prompt must include principal member slate section: %q", prompt)
+	}
+	if !contains(prompt, "`7 checks` (7 item(s))") {
+		t.Fatalf("prompt must surface the requested boundary: %q", prompt)
+	}
+	if !contains(prompt, "`checkCoverage` @ internal/analysis/gate/gate.go:127") {
+		t.Fatalf("prompt must expose compiled candidate pool: %q", prompt)
+	}
+	if !isBoundedPrincipalStepList(ctx) {
+		t.Fatal("isBoundedPrincipalStepList must return true for step_list + explicit boundary + single owner")
 	}
 }
 

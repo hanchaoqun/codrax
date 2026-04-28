@@ -880,6 +880,25 @@ func buildAnalysisIR(ctx *types.AgentContext) (*types.AnalysisIR, error) {
 	rm.AnalyzerHints.PrimaryEntities = append([]string(nil), rm.AnalyzerHints.Entities...)
 	rm.AnalyzerHints.MentionedEntities = types.MentionedEntitiesFromRawRequest(
 		rm.RawRequest, rm.AnalyzerHints.PrimaryEntities)
+	if rm.EnumerationBoundary == nil {
+		if recovered := types.RecoverRequestedEnumerationBoundary(rm); recovered != nil {
+			rm.EnumerationBoundary = recovered
+			logging.Debug("[analyzer] recovered enumeration-boundary: count=%d quote=%q", recovered.DeclaredCount, recovered.SourceQuote)
+		}
+	}
+	graph := analyzerGraphForNormalize(ctx, rm)
+	if resolved, reason := reconcileEnumerationBoundaryScope(rm, graph); reason != "" {
+		logging.Debug("[analyzer] enumeration-boundary reconcile: %s", reason)
+		recordReconcileObservation(ctxMutable(ctx), reconcileEvent(
+			"enumeration_boundary",
+			fmt.Sprintf("sub_topics=%d entities=%d shape=%s", len(rm.SubTopics), len(rm.AnalyzerHints.Entities), rm.AnalyzerHints.Shape),
+			fmt.Sprintf("sub_topics=%d entities=%d shape=%s", len(resolved.SubTopics), len(resolved.AnalyzerHints.Entities), resolved.AnalyzerHints.Shape),
+			rm.KindConfidence,
+			reason,
+			rm.Predicates,
+		))
+		rm = resolved
+	}
 
 	// Log-triage augmentation. The log_triage pre-stage has already
 	// run and written a validated LogBundle onto Mutable.LogTriage

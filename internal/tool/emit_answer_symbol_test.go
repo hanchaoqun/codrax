@@ -216,6 +216,87 @@ func TestEmitAnswerSymbol_PartialDropKeepsValidItems(t *testing.T) {
 	}
 }
 
+func TestEmitAnswerSymbol_RejectsBeyondRequestedEnumerationBoundary(t *testing.T) {
+	tool := &EmitAnswerSymbol{}
+	ctx := newAnswerSymbolCtx()
+	ctx.AnalysisIR = &types.AnalysisIR{
+		RequestModel: types.RequestModel{
+			EnumerationBoundary: &types.RequestedEnumerationBoundary{
+				DeclaredCount: 2,
+				SourceQuote:   "2 checks",
+			},
+		},
+	}
+	params := json.RawMessage(`{
+        "items": [
+          {"name": "checkCoverage", "file": "internal/analysis/gate/gate.go", "line": 127, "kind": "function"},
+          {"name": "checkDAGClosure", "file": "internal/analysis/gate/gate.go", "line": 128, "kind": "function"},
+          {"name": "checkBudgetSanity", "file": "internal/analysis/gate/gate.go", "line": 129, "kind": "function"}
+        ],
+        "completeness": "lower_bound"
+    }`)
+	res, _ := tool.Execute(ctx, params)
+	if res.Success {
+		t.Fatal("expected boundary rejection for oversized answer-symbol slate")
+	}
+	if !strings.Contains(res.Summary, "bounded principal set") {
+		t.Fatalf("reject summary must mention bounded principal set, got %q", res.Summary)
+	}
+}
+
+func TestEmitAnswerSymbol_ReusesCompiledStepCandidateNameAtSameLine(t *testing.T) {
+	tool := &EmitAnswerSymbol{}
+	ctx := newAnswerSymbolCtx()
+	ctx.AnalysisIR = &types.AnalysisIR{
+		RequestModel: types.RequestModel{
+			RawRequest: "What order do gate.Run's 7 checks execute in?",
+			AnalyzerHints: types.AnalyzerHints{
+				MentionedEntities: []string{"gate.Run"},
+			},
+			EnumerationBoundary: &types.RequestedEnumerationBoundary{
+				DeclaredCount: 7,
+				SourceQuote:   "7 checks",
+			},
+		},
+		AnswerContract: types.AnswerContract{RequiredAnswerShape: types.ShapeStepList},
+	}
+	ctx.EvidenceItems = []types.EvidenceItem{
+		{Kind: types.EvidenceDirect, Source: "internal/analysis/gate/gate.go", LineStart: 135, AnchorKind: types.AnchorCall, AnchorSymbol: "checkContractComplete", Subject: "Run", GroundingStatus: types.GroundingGrounded},
+		{Kind: types.EvidenceDirect, Source: "internal/analysis/gate/gate.go", LineStart: 136, AnchorKind: types.AnchorCall, AnchorSymbol: "checkHypothesisCoverage", Subject: "Run", GroundingStatus: types.GroundingGrounded},
+		{Kind: types.EvidenceDirect, Source: "internal/analysis/gate/gate.go", LineStart: 144, AnchorKind: types.AnchorCall, AnchorSymbol: "checkSubtopicCoherence", Subject: "Run", GroundingStatus: types.GroundingGrounded},
+	}
+	ctx.Mutable.AppendDispatchToolResult(types.ToolResult{
+		ToolName: "read_file",
+		Success:  true,
+		Summary:  "[internal/analysis/gate/gate.go: showing lines 135-145 of 471 total]\n   135│ \t\tchecks = append(checks, checkContractComplete(ir, th))\n   136│ \t\tchecks = append(checks, checkHypothesisCoverage(ir, th))\n   137│ \t\t// Cross-signal coherence gates.\n   138│ \t\t// for the multi-topic / shape-vs-subject mis-classification\n   139│ \t\t// patterns the downstream explorer / extractor / finalizer\n   140│ \t\t// layers historically had to clean up after the fact.\n   141│ \t\t// purely structural (no keyword tables)\n   142│ \t\t// emitted IR fields against each other and against the\n   143│ \t\t// repomap-verified TermGraph domains.\n   144│ \t\tchecks = append(checks, checkSubtopicCoherence(ir))\n   145│ \t\tchecks = append(checks, checkShapeSubjectCoherence(ir))\n",
+	})
+	params := json.RawMessage(`{
+        "items": [
+          {"name": "checkResourceCount", "file": "internal/analysis/gate/gate.go", "line": 135, "kind": "method"},
+          {"name": "checkOutputValueCount", "file": "internal/analysis/gate/gate.go", "line": 136, "kind": "method"},
+          {"name": "checkResourceAddressing", "file": "internal/analysis/gate/gate.go", "line": 144, "kind": "method"}
+        ],
+        "completeness": "lower_bound"
+    }`)
+	res, err := tool.Execute(ctx, params)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("expected success via compiled candidate reuse, got %q", res.Summary)
+	}
+	got, _ := ctx.Mutable.EmittedAnswerSymbols()
+	if len(got) != 3 {
+		t.Fatalf("want 3 accepted symbols, got %d", len(got))
+	}
+	want := []string{"checkContractComplete", "checkHypothesisCoverage", "checkSubtopicCoherence"}
+	for i, name := range want {
+		if got[i].Name != name {
+			t.Fatalf("accepted symbol[%d] = %q, want %q", i, got[i].Name, name)
+		}
+	}
+}
+
 func TestEmitAnswerSymbol_RejectsBlobPath(t *testing.T) {
 	// Blob-file path leak gate. ctx.WorkDir is the per-trace temp
 	// directory where StoreBlob persists large tool outputs. If the
@@ -335,10 +416,10 @@ func TestEmitAnswerSymbol_RejectsUnknownFields(t *testing.T) {
 // empty symbols[] is now a legitimate answer shape for "how many X"
 // questions that turn out to be zero. Rules:
 //
-//   items=[] + completeness=complete     → ACCEPT (confirmed empty set)
-//   items=[] + completeness=unknown      → ACCEPT (could not determine)
-//   items=[] + completeness=lower_bound  → REJECT (nonsensical — claims
-//                                          MORE items exist beyond zero)
+//	items=[] + completeness=complete     → ACCEPT (confirmed empty set)
+//	items=[] + completeness=unknown      → ACCEPT (could not determine)
+//	items=[] + completeness=lower_bound  → REJECT (nonsensical — claims
+//	                                       MORE items exist beyond zero)
 func TestEmitAnswerSymbol_EmptySetSemantics(t *testing.T) {
 	cases := []struct {
 		name         string
@@ -417,7 +498,7 @@ func TestEmitAnswerSymbol_UnknownCompleteness_Rejected(t *testing.T) {
 
 func TestEmitAnswerSymbol_CompletenessValues_AllAccepted(t *testing.T) {
 	cases := []struct {
-		raw   string
+		raw    string
 		stored types.CompletenessClaim
 	}{
 		{"complete", types.CompletenessComplete},

@@ -207,6 +207,31 @@ func TestAnswerDocumentEvaluator_BuildInitialInstruction_RendersFallbackStepBack
 	}
 }
 
+func TestAnswerDocumentEvaluator_BuildInitialInstruction_RendersRequestedEnumerationBoundary(t *testing.T) {
+	ctx := &types.AgentContext{
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				EnumerationBoundary: &types.RequestedEnumerationBoundary{
+					DeclaredCount: 7,
+					SourceQuote:   "7 checks",
+				},
+			},
+			AnswerContract: types.AnswerContract{RequiredAnswerShape: types.ShapeStepList},
+		},
+	}
+	prompt := (&answerDocumentEvaluator{}).BuildInitialInstruction(ctx, nil)
+	for _, want := range []string{
+		"## Requested Set Boundary",
+		"`7 checks` (7 item(s))",
+		"Keep the main ordered `steps[]` sequence to 7 principal item(s).",
+		"do not silently blend them into the principal set",
+	} {
+		if !strings.Contains(prompt, want) {
+			t.Fatalf("requested set boundary prompt missing %q:\n%s", want, prompt)
+		}
+	}
+}
+
 // TestAnswerDocumentEvaluator_BuildInitialInstruction_NoFloorWithoutMustInclude
 // checks the other branch: when MustInclude is empty, the prompt
 // says "no floor is enforced" so the LLM picks the claim from its

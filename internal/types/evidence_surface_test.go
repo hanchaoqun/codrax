@@ -461,6 +461,45 @@ func TestBuildAnswerSurfacePlan_CompilesFallbackStepBackboneFromEvidence(t *test
 	}
 }
 
+func TestBuildAnswerSurfacePlan_DropsOwnerFromRequestedEnumerationBoundaryStepBackbone(t *testing.T) {
+	mut := NewMutableState("")
+	mut.SetEmittedAnswerSymbols([]AnswerSymbol{
+		{Name: "gate.Run", File: "internal/analysis/gate/gate.go", Line: 120, Kind: KindMethod},
+		{Name: "checkCoverage", File: "internal/analysis/gate/gate.go", Line: 127, Kind: KindFunction},
+		{Name: "checkDAGClosure", File: "internal/analysis/gate/gate.go", Line: 128, Kind: KindFunction},
+		{Name: "checkBudgetSanity", File: "internal/analysis/gate/gate.go", Line: 129, Kind: KindFunction},
+	}, CompletenessComplete)
+	ir := &AnalysisIR{
+		RequestModel: RequestModel{
+			RawRequest: "What order do gate.Run's 3 checks execute in?",
+			AnalyzerHints: AnalyzerHints{
+				MentionedEntities: []string{"gate.Run"},
+			},
+			EnumerationBoundary: &RequestedEnumerationBoundary{
+				DeclaredCount: 3,
+				SourceQuote:   "3 checks",
+			},
+		},
+		AnswerContract: AnswerContract{
+			RequiredAnswerShape: ShapeStepList,
+		},
+	}
+
+	plan := BuildAnswerSurfacePlan(ir, mut, nil, nil, nil, nil)
+	if plan == nil {
+		t.Fatal("BuildAnswerSurfacePlan returned nil")
+	}
+	if len(plan.StepBackbone) != 3 {
+		t.Fatalf("step backbone anchors = %d, want 3 after owner drop", len(plan.StepBackbone))
+	}
+	if got := plan.StepBackbone[0].Name; got != "checkCoverage" {
+		t.Fatalf("first step backbone anchor = %q, want checkCoverage", got)
+	}
+	if plan.StepBackboneCompleteness != CompletenessLowerBound {
+		t.Fatalf("step backbone completeness = %q, want %q after owner drop", plan.StepBackboneCompleteness, CompletenessLowerBound)
+	}
+}
+
 func TestBuildAnswerSurfacePlan_CompilesExplanationAnchorBackboneFromEvidence(t *testing.T) {
 	ir := &AnalysisIR{
 		RequestModel: RequestModel{

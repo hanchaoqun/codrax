@@ -242,7 +242,14 @@ func (e *extractorEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk
 			if len(must) > baseline {
 				baseline = len(must)
 			}
-			fmt.Fprintf(&b, "- **Effective floor (the larger of the two):** %d\n", baseline)
+			if boundary := requestedEnumerationBoundary(ctx); boundary != nil {
+				baseline = boundary.DeclaredCount
+				fmt.Fprintf(&b, "- **Requested set boundary override:** %d item(s) from `%s`\n", boundary.DeclaredCount, boundary.SourceQuote)
+				b.WriteString("- **Effective floor (bounded principal set overrides the wider evidence floor):** ")
+			} else {
+				b.WriteString("- **Effective floor (the larger of the two):** ")
+			}
+			fmt.Fprintf(&b, "%d\n", baseline)
 			if baseline > 0 {
 				fmt.Fprintf(&b, "\nIf you claim `complete`, your `emit_answer_symbol` batch MUST have ≥ %d items. ",
 					baseline)
@@ -305,6 +312,37 @@ func (e *extractorEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk
 			b.WriteString("\n")
 		}
 		b.WriteString("\n")
+	}
+
+	// -------- Bounded principal member slate --------
+	if isBoundedPrincipalStepList(ctx) {
+		boundary := requestedEnumerationBoundary(ctx)
+		count := boundary.DeclaredCount
+		plan := extractorAnswerSurfacePlan(ctx)
+		b.WriteString("## Principal member slate\n\n")
+		fmt.Fprintf(&b, "The user explicitly declared a bounded principal set: `%s` (%d item(s)). Emit `emit_answer_symbol` with the principal member slate for that bounded set before the finalizer writes the step list.\n\n",
+			boundary.SourceQuote, count)
+		b.WriteString("Rules for this slate:\n")
+		fmt.Fprintf(&b, "- Keep `items[]` within %d principal member(s).\n", count)
+		b.WriteString("- Choose the members that answer the bounded set itself, not every adjacent helper, guard, compatibility shim, or side condition that appears nearby in the same owner flow.\n")
+		b.WriteString("- If the owner flow contains extra caveat-only items beyond the bounded set, leave them out of the main slate and let downstream prose mention them only as follow-on context.\n")
+		b.WriteString("- Use `complete` only when you can name the full bounded set; otherwise use `lower_bound`.\n\n")
+		if plan != nil && len(plan.StepBackbone) > 0 {
+			fmt.Fprintf(&b, "Ordered grounded candidates already compiled from the current investigation (the pool may be wider than %d items — select the principal bounded set from it):\n", count)
+			for i, anchor := range plan.StepBackbone {
+				desc := strings.TrimSpace(types.RenderStepSurfaceAnchorDescription(anchor))
+				if anchor.File != "" && anchor.Line > 0 {
+					fmt.Fprintf(&b, "%d. `%s` @ %s:%d", i+1, anchor.Name, anchor.File, anchor.Line)
+				} else {
+					fmt.Fprintf(&b, "%d. `%s`", i+1, anchor.Name)
+				}
+				if desc != "" {
+					fmt.Fprintf(&b, " — %s", desc)
+				}
+				b.WriteString("\n")
+			}
+			b.WriteString("\nPrefer these compiled candidates over inventing a fresh slate from prose memory.\n\n")
+		}
 	}
 
 	// -------- Hypothesis set --------
@@ -524,19 +562,26 @@ func validateCompletenessClaim(ctx *types.AgentContext, syms []types.AnswerSymbo
 		return claim
 	}
 
+	baseline := 0
 	termCount := 0
 	mustInclude := 0
-	if ctx != nil && ctx.Mutable != nil {
-		if ta := ctx.Mutable.TurnAArtifacts(); ta != nil {
-			termCount = ta.TerminalEvidenceCount
+	boundaryCount := 0
+	if boundary := requestedEnumerationBoundary(ctx); boundary != nil {
+		boundaryCount = boundary.DeclaredCount
+		baseline = boundaryCount
+	} else {
+		if ctx != nil && ctx.Mutable != nil {
+			if ta := ctx.Mutable.TurnAArtifacts(); ta != nil {
+				termCount = ta.TerminalEvidenceCount
+			}
 		}
-	}
-	if ctx != nil && ctx.AnalysisIR != nil {
-		mustInclude = len(ctx.AnalysisIR.AnswerContract.MustInclude)
-	}
-	baseline := termCount
-	if mustInclude > baseline {
-		baseline = mustInclude
+		if ctx != nil && ctx.AnalysisIR != nil {
+			mustInclude = len(ctx.AnalysisIR.AnswerContract.MustInclude)
+		}
+		baseline = termCount
+		if mustInclude > baseline {
+			baseline = mustInclude
+		}
 	}
 
 	if baseline <= 0 {
@@ -544,8 +589,8 @@ func validateCompletenessClaim(ctx *types.AgentContext, syms []types.AnswerSymbo
 		// turns where Turn A did not produce terminal-literal
 		// evidence AND the analyzer did not set MustInclude. We trust
 		// the claim — there is nothing structural to cross-check.
-		logging.Debug("[extractor] completeness=complete passed through: no baseline data (termCount=%d mustInclude=%d)",
-			termCount, mustInclude)
+		logging.Debug("[extractor] completeness=complete passed through: no baseline data (termCount=%d mustInclude=%d boundary=%d)",
+			termCount, mustInclude, boundaryCount)
 		return claim
 	}
 
@@ -949,6 +994,14 @@ func axisAnchorRetryHint(ctx *types.AgentContext) string {
 	if ctx == nil || ctx.Mutable == nil || ctx.AnalysisIR == nil {
 		return ""
 	}
+	if isBoundedPrincipalStepList(ctx) {
+		// A user-declared bounded principal set uses the answer-symbol
+		// slate to lock the member set itself. Axis-aligned condition /
+		// call anchors can remain in the evidence pool and final prose;
+		// forcing them into the principal slate mixes two different
+		// surface authorities and destabilizes ordered-set questions.
+		return ""
+	}
 	rm := ctx.Mutable.RequestModel()
 	if rm == nil {
 		return ""
@@ -1140,9 +1193,19 @@ func (e *extractorEvaluator) Observe(ctx *types.AgentContext, obs LoopObservatio
 				gotVerdicts = true
 			}
 		}
-		needSymbols := isListOfSymbolsShape(ctx) || isMultiTopicExplanation(ctx)
+		needSymbols := needsAnswerSymbols(ctx)
 		needVerdicts := hasPendingHypotheses(ctx)
-		if (!needSymbols || gotSymbols) && (!needVerdicts || gotVerdicts) {
+		if needSymbols && gotSymbols && !hasSufficientAnswerSymbols(ctx) && e.retriesUsed < e.maxRetries {
+			e.retriesUsed++
+			hint := answerSymbolMaterializationHint(ctx)
+			logging.Info("[extractor] answer-symbol materialization retry #%d: %s", e.retriesUsed, hint)
+			return LoopSignal{
+				HintRequested: true,
+				HintKey:       fmt.Sprintf("extractor.answer_symbol_materialization.%d", e.retriesUsed),
+				Hint:          hint,
+			}
+		}
+		if (!needSymbols || hasSufficientAnswerSymbols(ctx)) && (!needVerdicts || gotVerdicts) {
 			// L3 axis-anchor alignment gate. Before accepting the stop,
 			// if the question carries a PredicateAxis AND the evidence
 			// pool contains at least one axis-matching item, the picked
@@ -1181,8 +1244,7 @@ func (e *extractorEvaluator) Observe(ctx *types.AgentContext, obs LoopObservatio
 	if ctx == nil || ctx.AnalysisIR == nil || ctx.Mutable == nil {
 		return LoopSignal{}
 	}
-	syms, _ := ctx.Mutable.EmittedAnswerSymbols()
-	missingSymbols := (isListOfSymbolsShape(ctx) || isMultiTopicExplanation(ctx)) && len(syms) == 0
+	missingSymbols := needsAnswerSymbols(ctx) && !hasSufficientAnswerSymbols(ctx)
 	missingVerdicts := hasPendingHypotheses(ctx)
 	if !missingSymbols && !missingVerdicts {
 		return LoopSignal{}
@@ -1198,6 +1260,16 @@ func (e *extractorEvaluator) Observe(ctx *types.AgentContext, obs LoopObservatio
 		case isListOfSymbolsShape(ctx):
 			missingParts = append(missingParts,
 				"call `emit_answer_symbol` with the symbols that answer this list_of_symbols question (cite each with a concrete file:line from the 'Files the investigation read' list)")
+		case isBoundedPrincipalStepList(ctx):
+			boundary := requestedEnumerationBoundary(ctx)
+			count := 0
+			quote := ""
+			if boundary != nil {
+				count = boundary.DeclaredCount
+				quote = boundary.SourceQuote
+			}
+			missingParts = append(missingParts,
+				fmt.Sprintf("call `emit_answer_symbol` with the principal member slate for the bounded set `%s` (%d item(s)); keep the slate within that boundary, cite each item with a concrete file:line from the 'Files the investigation read' list, and leave adjacent caveat-only items out of the main slate", quote, count))
 		case isMultiTopicExplanation(ctx):
 			missingParts = append(missingParts,
 				"call `emit_answer_symbol` with ONE anchor symbol per sub-topic — the load-bearing identifier the final answer's prose should hang on. Cite each with a concrete file:line from the 'Files the investigation read' list. Downstream rendering presents these as a Key Anchors skeleton beneath the summary")
@@ -1251,6 +1323,75 @@ func isListOfSymbolsShape(ctx *types.AgentContext) bool {
 
 func extractorAnswerSurfacePlan(ctx *types.AgentContext) *types.AnswerSurfacePlan {
 	return types.BuildAnswerSurfacePlanForAgentContext(ctx)
+}
+
+func requestedEnumerationBoundary(ctx *types.AgentContext) *types.RequestedEnumerationBoundary {
+	if ctx == nil || ctx.AnalysisIR == nil {
+		return nil
+	}
+	boundary := ctx.AnalysisIR.RequestModel.EnumerationBoundary
+	if boundary == nil || boundary.DeclaredCount <= 0 {
+		return nil
+	}
+	return boundary
+}
+
+func isBoundedPrincipalStepList(ctx *types.AgentContext) bool {
+	if ctx == nil || ctx.AnalysisIR == nil {
+		return false
+	}
+	if ctx.AnalysisIR.AnswerContract.RequiredAnswerShape != types.ShapeStepList {
+		return false
+	}
+	if requestedEnumerationBoundary(ctx) == nil {
+		return false
+	}
+	return types.RequestedEnumerationBoundaryOwner(ctx.AnalysisIR.RequestModel) != ""
+}
+
+func needsAnswerSymbols(ctx *types.AgentContext) bool {
+	return isListOfSymbolsShape(ctx) || isMultiTopicExplanation(ctx) || isBoundedPrincipalStepList(ctx)
+}
+
+func requiredAnswerSymbolCount(ctx *types.AgentContext) int {
+	if boundary := requestedEnumerationBoundary(ctx); boundary != nil && isBoundedPrincipalStepList(ctx) {
+		return boundary.DeclaredCount
+	}
+	if isMultiTopicExplanation(ctx) && ctx != nil && ctx.AnalysisIR != nil {
+		return len(ctx.AnalysisIR.RequestModel.SubTopics)
+	}
+	return 0
+}
+
+func hasSufficientAnswerSymbols(ctx *types.AgentContext) bool {
+	if !needsAnswerSymbols(ctx) {
+		return true
+	}
+	if ctx == nil || ctx.Mutable == nil {
+		return false
+	}
+	syms, _ := ctx.Mutable.EmittedAnswerSymbols()
+	required := requiredAnswerSymbolCount(ctx)
+	if required > 0 {
+		return len(syms) >= required
+	}
+	return len(syms) > 0
+}
+
+func answerSymbolMaterializationHint(ctx *types.AgentContext) string {
+	if ctx == nil || ctx.Mutable == nil {
+		return "Re-emit `emit_answer_symbol` with the grounded answer-symbol slate before stopping."
+	}
+	syms, _ := ctx.Mutable.EmittedAnswerSymbols()
+	if isBoundedPrincipalStepList(ctx) {
+		if boundary := requestedEnumerationBoundary(ctx); boundary != nil {
+			return fmt.Sprintf("The user explicitly requested the bounded principal set `%s` (%d item(s)), but the accepted `emit_answer_symbol` slate currently contains only %d grounded item(s). Re-emit `emit_answer_symbol` now with the full principal member slate for that bounded set. Reuse the compiled candidate pool's exact file:line + symbol names when available, keep the slate within %d items, and leave adjacent caveat-only checks out of the main slate.", boundary.SourceQuote, boundary.DeclaredCount, len(syms), boundary.DeclaredCount)
+		}
+	}
+	if isMultiTopicExplanation(ctx) && ctx.AnalysisIR != nil {
+		return fmt.Sprintf("The analyzer produced %d sub-topic(s), but the accepted `emit_answer_symbol` slate currently contains only %d grounded anchor(s). Re-emit `emit_answer_symbol` now with one grounded anchor per sub-topic, reusing the compiled anchor backbone when available.", len(ctx.AnalysisIR.RequestModel.SubTopics), len(syms))
+	}
+	return "Re-emit `emit_answer_symbol` with the grounded answer-symbol slate before stopping."
 }
 
 // isMultiTopicExplanation reports whether the analyzer produced a

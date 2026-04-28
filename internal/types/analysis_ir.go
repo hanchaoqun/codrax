@@ -37,7 +37,7 @@ type AnalysisIR struct {
 // AnalysisIRVersion is the current schema version string. Bump on any
 // breaking change to the wire format so downstream consumers can refuse
 // to parse IRs they do not understand.
-const AnalysisIRVersion = "v7"
+const AnalysisIRVersion = "v8"
 
 // ── RequestModel ────────────────────────────────────────────────────────
 
@@ -121,6 +121,14 @@ type RequestModel struct {
 	// with the resolved shape, predicate axis, intent, cross-component
 	// signals, and log-triage data to derive AnswerContract.Diagram.
 	DiagramHint *DiagramHint `json:"diagram_hint,omitempty"`
+
+	// EnumerationBoundary is the analyzer LLM's request-grounded hint
+	// that the user explicitly asked for a bounded set size ("the 7
+	// checks", "the first 3 handlers", "top 5 stages"). The system
+	// validates SourceQuote against RawRequest before downstream stages
+	// use it, so this remains an LLM recommendation rather than an
+	// authority lane.
+	EnumerationBoundary *RequestedEnumerationBoundary `json:"enumeration_boundary,omitempty"`
 }
 
 // AnswerSubjectKind enumerates the distinct kinds of source-code

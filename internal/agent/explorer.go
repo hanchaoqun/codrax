@@ -457,6 +457,17 @@ func (e *explorerEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk 
 		b.WriteString("- Prefer the built-in `grep` tool for repo-wide token sweeps. It keeps breadth scans path-stable on every OS and avoids shell-specific path drift.\n")
 		b.WriteString("- Spend read_file budget on production config/default/loader/flag-binding surfaces before repairing doc/test mentions.\n\n")
 	}
+	if ctx != nil && ctx.AnalysisIR != nil && ctx.AnalysisIR.RequestModel.EnumerationBoundary != nil {
+		boundary := ctx.AnalysisIR.RequestModel.EnumerationBoundary
+		if boundary.DeclaredCount > 0 && strings.TrimSpace(boundary.SourceQuote) != "" {
+			b.WriteString("### Requested Principal Set Boundary\n\n")
+			fmt.Fprintf(&b, "The user explicitly declared a bounded principal set: `%s` (%d item(s)). Preserve that boundary while you investigate.\n\n",
+				boundary.SourceQuote, boundary.DeclaredCount)
+			b.WriteString("- If the same owner/file also contains adjacent guards, coherence checks, repair hooks, compatibility shims, or later-added caveats beyond that boundary, do not promote them into the principal set just because they are nearby in code.\n")
+			b.WriteString("- Emit the principal bounded set as defining evidence first. Emit extra adjacent items only as `related_context` or `illustrative_only` when they matter as caveats.\n")
+			b.WriteString("- When the main set is ordered in one owner file, prefer the owner's primary append/registration sequence itself over drifting into sibling helper definitions unless the boundary cannot be grounded otherwise.\n\n")
+		}
+	}
 
 	// Conditional-enumeration hint: when the question asks "how many X
 	// can Y" / "有几个X可以Y", the answer requires enumerating ALL

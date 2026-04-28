@@ -64,13 +64,14 @@ type emitAnalysisParams struct {
 	// / predicateVerbMap) with cross-language LLM judgement. All
 	// predicate fields are required to be explicit (true OR false) — a
 	// missing field is fail-loud, not a silent default.
-	IntentConfidence     float64               `json:"intent_confidence"`
-	ComplexityConfidence float64               `json:"complexity_confidence"`
-	KindConfidence       float64               `json:"kind_confidence"`
-	ShapeConfidence      float64               `json:"shape_confidence"`
-	Predicates           *emitPredicatesParam  `json:"predicates"`
-	PredicateAxis        string                `json:"predicate_axis,omitempty"`
-	DiagramHint          *emitDiagramHintParam `json:"diagram_hint,omitempty"`
+	IntentConfidence     float64                       `json:"intent_confidence"`
+	ComplexityConfidence float64                       `json:"complexity_confidence"`
+	KindConfidence       float64                       `json:"kind_confidence"`
+	ShapeConfidence      float64                       `json:"shape_confidence"`
+	Predicates           *emitPredicatesParam          `json:"predicates"`
+	PredicateAxis        string                        `json:"predicate_axis,omitempty"`
+	DiagramHint          *emitDiagramHintParam         `json:"diagram_hint,omitempty"`
+	EnumerationBoundary  *emitEnumerationBoundaryParam `json:"enumeration_boundary,omitempty"`
 }
 
 // emitPredicatesParam is the wire shape of the required `predicates`
@@ -104,6 +105,11 @@ type emitAnswerSubjectParam struct {
 // compiler still derives the final contract from stronger signals.
 type emitDiagramHintParam struct {
 	Kind string `json:"kind"`
+}
+
+type emitEnumerationBoundaryParam struct {
+	DeclaredCount int    `json:"declared_count"`
+	SourceQuote   string `json:"source_quote"`
 }
 
 func (t *EmitAnalysis) Name() string { return "emit_analysis" }
@@ -215,6 +221,15 @@ func buildEmitAnalysisSchema() {
 					"kind": stringProp{Type: "string", Enum: skill.AnalysisDiagramKindValues()},
 				},
 				"required": []string{"kind"},
+			},
+			"enumeration_boundary": map[string]any{
+				"type":        "object",
+				"description": "Optional. Use only when the user explicitly declares a bounded principal set such as 'the 7 checks', 'the first 3 handlers', or 'top 5 stages'. Copy the evidence-bearing phrase verbatim from the current request into source_quote and set declared_count to that same user-declared number.",
+				"properties": map[string]any{
+					"declared_count": map[string]any{"type": "integer", "minimum": 1},
+					"source_quote":   map[string]string{"type": "string"},
+				},
+				"required": []string{"declared_count", "source_quote"},
 			},
 		},
 		"required": []string{
@@ -403,6 +418,15 @@ func (t *EmitAnalysis) Execute(ctx *types.BusContext, params json.RawMessage) (t
 			Timestamp: time.Now(),
 		}, nil
 	}
+	enumerationBoundary, enumerationBoundaryErr := parseEnumerationBoundary(raw, p.EnumerationBoundary)
+	if enumerationBoundaryErr != "" {
+		return types.ToolResult{
+			ToolName:  t.Name(),
+			Success:   false,
+			Summary:   "emit_analysis rejected: " + enumerationBoundaryErr,
+			Timestamp: time.Now(),
+		}, nil
+	}
 	exactTargets, exactTargetErr := validateExactTargets(raw, p.ExactTargets)
 	if exactTargetErr != "" {
 		return types.ToolResult{
@@ -450,6 +474,7 @@ func (t *EmitAnalysis) Execute(ctx *types.BusContext, params json.RawMessage) (t
 		Predicates:           predicates,
 		PredicateAxis:        axis,
 		DiagramHint:          diagramHint,
+		EnumerationBoundary:  enumerationBoundary,
 	}
 	ctx.Mutable.SetRequestModel(rm)
 	recordExactTargetPrescanFindings(ctx, rm, seenBlob)
@@ -904,6 +929,26 @@ func parseDiagramHint(p *emitDiagramHintParam) (*types.DiagramHint, string) {
 	return &types.DiagramHint{Kind: kind}, ""
 }
 
+func parseEnumerationBoundary(raw string, p *emitEnumerationBoundaryParam) (*types.RequestedEnumerationBoundary, string) {
+	if p == nil {
+		return nil, ""
+	}
+	if p.DeclaredCount <= 0 {
+		return nil, "enumeration_boundary.declared_count must be >= 1"
+	}
+	if strings.TrimSpace(p.SourceQuote) == "" {
+		return nil, "enumeration_boundary.source_quote must be copied verbatim from the current request"
+	}
+	boundary := types.NormalizeRequestedEnumerationBoundary(raw, &types.RequestedEnumerationBoundary{
+		DeclaredCount: p.DeclaredCount,
+		SourceQuote:   p.SourceQuote,
+	})
+	if boundary == nil {
+		return nil, "enumeration_boundary.source_quote must appear in the current request text (whitespace-insensitive match allowed)"
+	}
+	return boundary, ""
+}
+
 // parseAnswerSubject coerces the optional emit_analysis.answer_subject
 // field into a typed AnswerSubject. Returns the zero value when the
 // LLM omitted the field; the analyzer's deterministic
@@ -963,6 +1008,9 @@ func buildEmitAnalysisSummary(raw emitAnalysisParams, rm types.RequestModel, val
 	}
 	if rm.DiagramHint != nil && rm.DiagramHint.Kind != types.DiagramNone {
 		fmt.Fprintf(&b, " diagram_hint=%s", rm.DiagramHint.Kind)
+	}
+	if rm.EnumerationBoundary != nil {
+		fmt.Fprintf(&b, " boundary=%s", types.EnumerationBoundaryCountString(rm.EnumerationBoundary))
 	}
 	if rm.Predicates.IsHistoryLookup {
 		b.WriteString(" history_lookup=true")

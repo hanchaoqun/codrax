@@ -189,6 +189,14 @@ func (t *EmitAnswerSymbol) Execute(ctx *types.BusContext, params json.RawMessage
 			return failEmit(t.Name(), now, "items is empty but completeness=lower_bound claims more items exist; use completeness=complete for a confirmed empty set or completeness=unknown when you cannot determine")
 		}
 	}
+	if ctx.AnalysisIR != nil && ctx.AnalysisIR.RequestModel.EnumerationBoundary != nil {
+		boundary := ctx.AnalysisIR.RequestModel.EnumerationBoundary
+		if boundary.DeclaredCount > 0 && len(p.Items) > boundary.DeclaredCount {
+			return failEmit(t.Name(), now,
+				"the user explicitly requested a bounded principal set %q (%d item(s)), so emit_answer_symbol must keep items[] within that boundary; got %d item(s)",
+				boundary.SourceQuote, boundary.DeclaredCount, len(p.Items))
+		}
+	}
 
 	workDir := strings.TrimSpace(ctx.WorkDir)
 	var bundle *types.LogBundle
@@ -205,10 +213,11 @@ func (t *EmitAnswerSymbol) Execute(ctx *types.BusContext, params json.RawMessage
 	// file:line pointed at a call-site line rather than the symbol's
 	// definition line.
 	groundCtx := ground.BuildContext(ctx)
+	stepCandidates := compiledStepCandidateNames(types.BuildAnswerSurfacePlanForBusContext(ctx))
 	built := make([]types.AnswerSymbol, 0, len(p.Items))
 	var dropped []string
 	for i, in := range p.Items {
-		sym, perr := buildEmitAnswerSymbolItem(in, i, workDir, bundle, groundCtx)
+		sym, perr := buildEmitAnswerSymbolItem(in, i, workDir, bundle, groundCtx, stepCandidates)
 		if perr != nil {
 			dropped = append(dropped, perr.Error())
 			continue
@@ -254,7 +263,7 @@ func (t *EmitAnswerSymbol) Execute(ctx *types.BusContext, params json.RawMessage
 // message names. This is the symmetric sibling of the kind=absent
 // retirement on emit_evidence: both channels reject an unsatisfiable
 // item and point at the proper whole-shape escape.
-func buildEmitAnswerSymbolItem(in emitAnswerSymbolItem, index int, workDir string, bundle *types.LogBundle, groundCtx *ground.Context) (types.AnswerSymbol, error) {
+func buildEmitAnswerSymbolItem(in emitAnswerSymbolItem, index int, workDir string, bundle *types.LogBundle, groundCtx *ground.Context, stepCandidates map[string]string) (types.AnswerSymbol, error) {
 	externalSource := bundle.IsExternalSource()
 	name := strings.TrimSpace(in.Name)
 	if name == "" {
@@ -296,6 +305,13 @@ func buildEmitAnswerSymbolItem(in emitAnswerSymbolItem, index int, workDir strin
 	// alone (typical for method definitions where the receiver is
 	// already visible in the surrounding def line).
 	if groundCtx != nil && ground.HasFileInIndex(groundCtx, file) {
+		if candidate := stepCandidates[compiledStepCandidateKey(file, lineN)]; candidate != "" &&
+			answerSymbolNameGrounds(groundCtx, file, lineN, candidate) &&
+			!answerSymbolNameGrounds(groundCtx, file, lineN, name) {
+			name = candidate
+		}
+	}
+	if groundCtx != nil && ground.HasFileInIndex(groundCtx, file) {
 		if _, ok := ground.VerifyLineAnchor(groundCtx, file, lineN, name, 2); !ok {
 			leaf := name
 			if idx := strings.LastIndex(name, "."); idx >= 0 && idx+1 < len(name) {
@@ -318,6 +334,41 @@ func buildEmitAnswerSymbolItem(in emitAnswerSymbolItem, index int, workDir strin
 		Chain:     strings.TrimSpace(in.Chain),
 		Rationale: strings.TrimSpace(in.Rationale),
 	}, nil
+}
+
+func answerSymbolNameGrounds(groundCtx *ground.Context, file string, line int, name string) bool {
+	if groundCtx == nil || strings.TrimSpace(file) == "" || line <= 0 || strings.TrimSpace(name) == "" {
+		return false
+	}
+	if _, ok := ground.VerifyLineAnchor(groundCtx, file, line, name, 2); ok {
+		return true
+	}
+	if idx := strings.LastIndex(name, "."); idx >= 0 && idx+1 < len(name) {
+		if _, ok := ground.VerifyLineAnchor(groundCtx, file, line, name[idx+1:], 2); ok {
+			return true
+		}
+	}
+	return false
+}
+
+func compiledStepCandidateNames(plan *types.AnswerSurfacePlan) map[string]string {
+	if plan == nil || len(plan.StepBackbone) == 0 {
+		return nil
+	}
+	out := make(map[string]string, len(plan.StepBackbone))
+	for _, anchor := range plan.StepBackbone {
+		name := strings.TrimSpace(anchor.Name)
+		file := strings.TrimSpace(anchor.File)
+		if name == "" || file == "" || anchor.Line <= 0 {
+			continue
+		}
+		out[compiledStepCandidateKey(file, anchor.Line)] = name
+	}
+	return out
+}
+
+func compiledStepCandidateKey(file string, line int) string {
+	return strings.TrimSpace(strings.ReplaceAll(file, `\`, `/`)) + "#" + fmt.Sprintf("%d", line)
 }
 
 // isInsideWorkDir reports whether path is inside (or equal to) the

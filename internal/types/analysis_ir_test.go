@@ -172,14 +172,14 @@ func TestAnalysisIR_JSONRoundtrip(t *testing.T) {
 }
 
 func TestAnalysisIR_VersionConstant(t *testing.T) {
-	// v7 adds analyzer-validated exact_context_terms / related_context_terms
-	// so same-scope exact-resolution narrowing is LLM-recommended and
-	// system-validated rather than generated from hardcoded keyword tables.
-	if AnalysisIRVersion != "v7" {
+	// v8 adds analyzer-validated enumeration_boundary so user-declared
+	// bounded sets ("the 7 checks", "top 5 stages") survive downstream
+	// synthesis without promoting adjacent helper facts into the main set.
+	if AnalysisIRVersion != "v8" {
 		t.Fatalf("unexpected AnalysisIRVersion: %q", AnalysisIRVersion)
 	}
 	ir := AnalysisIR{Version: AnalysisIRVersion}
-	if ir.Version != "v7" {
+	if ir.Version != "v8" {
 		t.Fatalf("version not propagated: %q", ir.Version)
 	}
 }

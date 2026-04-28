@@ -180,6 +180,9 @@ func (e *answerDocumentEvaluator) BuildInitialInstruction(ctx *types.AgentContex
 	if backbone := renderAnswerDocStepBackbone(ctx, shape); backbone != "" {
 		b.WriteString(backbone)
 	}
+	if boundary := renderAnswerDocEnumerationBoundary(ctx, shape); boundary != "" {
+		b.WriteString(boundary)
+	}
 	if ctx != nil && ctx.AnalysisIR != nil && types.IsScalarSourceLiteralLookup(ctx.AnalysisIR.RequestModel) {
 		b.WriteString("## Scalar Lookup Discipline\n\n")
 		b.WriteString("- This dispatch asks for one named source-code literal, not for a walkthrough of the surrounding pipeline.\n")
@@ -444,6 +447,33 @@ func renderAnswerDocStepBackbone(ctx *types.AgentContext, shape string) string {
 		b.WriteByte('\n')
 	}
 	b.WriteString("\n")
+	return b.String()
+}
+
+func renderAnswerDocEnumerationBoundary(ctx *types.AgentContext, shape string) string {
+	if ctx == nil || ctx.AnalysisIR == nil || ctx.AnalysisIR.RequestModel.EnumerationBoundary == nil {
+		return ""
+	}
+	boundary := ctx.AnalysisIR.RequestModel.EnumerationBoundary
+	if boundary.DeclaredCount <= 0 || strings.TrimSpace(boundary.SourceQuote) == "" {
+		return ""
+	}
+	var b strings.Builder
+	b.WriteString("## Requested Set Boundary\n\n")
+	fmt.Fprintf(&b, "The user explicitly asked for a bounded principal set: `%s` (%d item(s)). Preserve that boundary in the main answer body.\n\n",
+		boundary.SourceQuote, boundary.DeclaredCount)
+	switch shape {
+	case string(types.ShapeStepList):
+		fmt.Fprintf(&b, "- Keep the main ordered `steps[]` sequence to %d principal item(s).\n", boundary.DeclaredCount)
+	case string(types.ShapeListOfSymbols):
+		fmt.Fprintf(&b, "- Keep the principal `symbols[]` slate to %d item(s) when the grounded evidence supports that boundary.\n", boundary.DeclaredCount)
+	default:
+		fmt.Fprintf(&b, "- Keep the main enumerated set in `summary` to %d principal item(s).\n", boundary.DeclaredCount)
+	}
+	b.WriteString("- If current code also contains adjacent guards, helpers, or later-added side conditions around the same owner, do not silently blend them into the principal set.\n")
+	b.WriteString("- If there are more adjacent sequence items than the user-declared boundary, do not simply take the first N chronological lines. Use the grounded evidence summaries and nearby code comments to keep the principal bounded set in the main answer, and move auxiliary guard/coherence/repair items into a short caveat instead.\n")
+	b.WriteString("- Mention those extras only as a short caveat or follow-on note after the principal set, and only when grounded evidence makes the distinction clear.\n")
+	b.WriteString("- Prefer members declared/appended in the same grounded owner file before drifting to helper definitions in sibling files.\n\n")
 	return b.String()
 }
 

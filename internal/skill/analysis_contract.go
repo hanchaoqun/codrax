@@ -393,11 +393,16 @@ func BuildAnalysisSkill() *Config {
 	of.WriteString("When the user's question contains multiple independently-answerable sub-topics, list each in sub_topics. Rules:\n")
 	of.WriteString("- Each sub_topic has a one-sentence summary and its own entities\n")
 	of.WriteString("- Do NOT split topics when the second depends on the first (e.g. a definition followed by its downstream effects belongs to one topic, not two)\n")
-	of.WriteString("- DO split when the topics are structurally independent — different answer shapes, different subjects, or different subsystems — and each could stand as its own separate question\n")
+	of.WriteString("- DO split when the topics are structurally independent – different answer shapes, different subjects, or different subsystems – and each could stand as its own separate question\n")
 	of.WriteString("- When sub_topics is non-empty, answer_shape MUST be explanation\n")
 	of.WriteString("- When unsure, do NOT split (empty array is safe)\n")
 	of.WriteString("- Maximum 5 sub-topics\n\n")
-	of.WriteString("After emit_analysis succeeds, you may add a one-paragraph rationale for the trace log. This text is captured but does not drive any agent — the structured fields are what matter.")
+	of.WriteString("## Explicit set boundary (enumeration_boundary field)\n\n")
+	of.WriteString("When the user explicitly declares a bounded principal set such as 'the 7 checks', 'the first 3 handlers', or 'top 5 stages', emit `enumeration_boundary` with:\n")
+	of.WriteString("- `declared_count`: the same user-declared count\n")
+	of.WriteString("- `source_quote`: the exact phrase copied verbatim from the current request text\n")
+	of.WriteString("Omit this field when the request does not explicitly declare such a boundary. Do NOT invent a count from the repository; this field is only for preserving a user-stated boundary.\n\n")
+	of.WriteString("After emit_analysis succeeds, you may add a one-paragraph rationale for the trace log. This text is captured but does not drive any agent – the structured fields are what matter.")
 
 	return &Config{
 		Name: "analysis-skill",
@@ -409,7 +414,7 @@ func BuildAnalysisSkill() *Config {
 			"Round 2 is allowed at most once, when Round 1 ended ambiguous on either signal: (a) a key entity came back empty → broaden keyword stems / variants (still files_only=true); or (b) classification remains uncertain AND Round 1 surfaced a declarative file (e.g. a name matching topology / defaults / registry / routes / wire / init / manifest / schema / enum patterns) → a single response MAY include up to 3 grep(files_only=false, max_count=20) calls targeting those declarative files, to peek at the literal forms inside map/struct/enum bodies. Then call emit_analysis regardless of the Round 2 result.",
 			"For count / size / total / measurement-scalar questions: Round 1 confirms the subject exists (the directory / file / symbol the question is asking about), then immediately call emit_analysis with intent=return_value + answer_shape=value + predicates.is_count_question=true. Do NOT attempt to compute the answer literal yourself in pre-scan — the explore stage is the one that runs wc / find / grep -c and reads file content. Trying to retrieve full file content via grep(files_only=false) to count lines yourself will exhaust the pre-scan budget and fail-loud the analyze stage.",
 			"If the request spans multiple independent sub-topics, fill sub_topics (at most 5) and set answer_shape=explanation.",
-			"Call emit_analysis exactly once. Required fields: intent, scenario, complexity, keywords, entities, question_kind, answer_shape, the four confidence floats (intent_confidence, complexity_confidence, kind_confidence, shape_confidence), and the predicates object (six booleans: is_scalar_answer, is_count_question, is_cross_component, is_relational_lookup, is_category_enumeration, is_history_lookup). Optional: sub_topics, answer_subject, predicate_axis, diagram_hint, exact_targets, exact_context_terms, language.",
+			"Call emit_analysis exactly once. Required fields: intent, scenario, complexity, keywords, entities, question_kind, answer_shape, the four confidence floats (intent_confidence, complexity_confidence, kind_confidence, shape_confidence), and the predicates object (six booleans: is_scalar_answer, is_count_question, is_cross_component, is_relational_lookup, is_category_enumeration, is_history_lookup). Optional: sub_topics, answer_subject, predicate_axis, diagram_hint, enumeration_boundary, exact_targets, exact_context_terms, language.",
 		},
 		ToolSuggestions: append([]string(nil), AnalysisToolSuggestions...),
 		OutputFormat:    of.String(),

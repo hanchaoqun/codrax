@@ -265,6 +265,47 @@ func TestEmitAnswerDocument_StepList_Happy(t *testing.T) {
 	}
 }
 
+func TestEmitAnswerDocument_StepList_RejectsBeyondRequestedEnumerationBoundary(t *testing.T) {
+	tool := &EmitAnswerDocument{}
+	ctx := newDocBusCtx("")
+	ctx.AnalysisIR = &types.AnalysisIR{
+		RequestModel: types.RequestModel{
+			RawRequest: "What order do gate.Run's 7 checks execute in?",
+			AnalyzerHints: types.AnalyzerHints{
+				MentionedEntities: []string{"gate.Run"},
+			},
+			EnumerationBoundary: &types.RequestedEnumerationBoundary{
+				DeclaredCount: 7,
+				SourceQuote:   "7 checks",
+			},
+		},
+		AnswerContract: types.AnswerContract{RequiredAnswerShape: types.ShapeStepList},
+	}
+	steps := make([]map[string]interface{}, 0, 8)
+	for i := 1; i <= 8; i++ {
+		steps = append(steps, map[string]interface{}{
+			"index":        i,
+			"description":  fmt.Sprintf("step %d", i),
+			"citation_ref": -1,
+		})
+	}
+	params := mustDocJSON(t, map[string]interface{}{
+		"shape":   "step_list",
+		"summary": "Seven principal checks.",
+		"steps":   steps,
+	})
+	res, _ := tool.Execute(ctx, params)
+	if res.Success {
+		t.Fatal("expected requested_set_boundary rejection")
+	}
+	if !strings.Contains(res.Summary, "requested_set_boundary") {
+		t.Fatalf("reject summary missing requested_set_boundary code: %q", res.Summary)
+	}
+	if !strings.Contains(res.Summary, "7 checks") {
+		t.Fatalf("reject summary missing boundary quote: %q", res.Summary)
+	}
+}
+
 func TestEmitAnswerDocument_StepList_RejectsOutOfRangeCitationRef(t *testing.T) {
 	tool := &EmitAnswerDocument{}
 	params := mustDocJSON(t, map[string]interface{}{
