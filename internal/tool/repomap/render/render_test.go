@@ -152,7 +152,7 @@ func TestGenerateViewDataOverview(t *testing.T) {
 		"Languages",
 		"Project Files",
 		"Packages/Modules",
-		"Top 5 Files (by importance)",
+		"Top 5 Files",
 	} {
 		if !headings[want] {
 			t.Errorf("missing section %q; got %v", want, headings)
@@ -165,10 +165,9 @@ func TestGenerateViewDataOverview(t *testing.T) {
 		"## Languages",
 		"## Project Files",
 		"## Packages/Modules",
-		"## Top 5 Files (by importance)",
+		"## Top 5 Files",
 		"`internal/a.go`",
 		"`go.mod`",
-		"---",
 	} {
 		if !strings.Contains(md, want) {
 			t.Errorf("markdown missing %q:\n%s", want, md)

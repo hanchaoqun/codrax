@@ -175,7 +175,6 @@ func buildSemanticSubgraphData(g *types.Graph, params types.ViewParams) *ViewDat
 	d := &ViewData{
 		Type:  "semantic_subgraph",
 		Title: "Semantic Subgraphs",
-		Intro: "> **Navigation index only.** Topological summary of the import graph — use it to decide where to read, not as evidence of behaviour.",
 	}
 
 	// Chains.
@@ -252,7 +251,6 @@ func buildOverviewData(g *types.Graph, params types.ViewParams) *ViewData {
 	d := &ViewData{
 		Type:  "overview",
 		Title: "Repository Overview",
-		Intro: "> **This is a navigation index, not evidence.** Use it to decide which files to read or grep next. Do not cite repo_map output as a source of truth — always verify by reading the actual file.",
 	}
 
 	// Languages section — sorted by file count, descending.
@@ -260,7 +258,7 @@ func buildOverviewData(g *types.Graph, params types.ViewParams) *ViewData {
 	langSection := ViewSection{Heading: "Languages"}
 	for _, lc := range langs {
 		langSection.Items = append(langSection.Items, ViewItem{
-			Text: fmt.Sprintf("**%s**: %d files", lc.lang, lc.count),
+			Text: fmt.Sprintf("%s: %d files", lc.lang, lc.count),
 			Kind: "language",
 		})
 	}
@@ -283,11 +281,11 @@ func buildOverviewData(g *types.Graph, params types.ViewParams) *ViewData {
 	pkgSection := ViewSection{Heading: "Packages/Modules"}
 	for _, p := range topPackages(g) {
 		pkgSection.Items = append(pkgSection.Items, ViewItem{
-			Text: fmt.Sprintf("**%s** — %d files, %d symbols", p.name, p.fileCount, p.symCount),
+			Text: fmt.Sprintf("%s — %d files, %d symbols", p.name, p.fileCount, p.symCount),
 			Kind: "package",
 		})
 	}
-	d.Sections = append(d.Sections, pkgSection);
+	d.Sections = append(d.Sections, pkgSection)
 
 	// Top files by importance.
 	topN := params.TopN
@@ -295,8 +293,8 @@ func buildOverviewData(g *types.Graph, params types.ViewParams) *ViewData {
 		topN = 15
 	}
 	topFiles := retrieve.TopFiles(g, topN)
-	topSection := ViewSection{Heading: fmt.Sprintf("Top %d Files (by importance)", topN)}
-	for i, fi := range topFiles {
+	topSection := ViewSection{Heading: fmt.Sprintf("Top %d Files", topN)}
+	for _, fi := range topFiles {
 		score := g.Scores[fi.RelPath]
 		exportedCount := 0
 		for _, sym := range fi.Symbols {
@@ -305,16 +303,13 @@ func buildOverviewData(g *types.Graph, params types.ViewParams) *ViewData {
 			}
 		}
 		topSection.Items = append(topSection.Items, ViewItem{
-			Text:  fmt.Sprintf("%d. `%s` — %d symbols (%d exported), score %.1f", i+1, fi.RelPath, len(fi.Symbols), exportedCount, score),
+			Text:  fmt.Sprintf("`%s` — %d symbols (%d exported)", fi.RelPath, len(fi.Symbols), exportedCount),
 			File:  fi.RelPath,
 			Score: score,
 			Kind:  "top_file",
 		})
 	}
 	d.Sections = append(d.Sections, topSection)
-
-	d.Footer = fmt.Sprintf("*%d files, %d symbols, %d relations*",
-		g.Metadata.FileCount, g.Metadata.SymbolCount, g.Metadata.RelationCount)
 	return d
 }
 
@@ -399,7 +394,6 @@ func buildFileMapData(g *types.Graph, params types.ViewParams) *ViewData {
 	d := &ViewData{
 		Type:  "file_map",
 		Title: "File Map",
-		Intro: "> **Navigation index only.** Verify symbols and line numbers by reading the actual files.",
 	}
 
 	for _, fi := range files {
@@ -473,7 +467,6 @@ func buildCallPathData(g *types.Graph, params types.ViewParams) *ViewData {
 	d := &ViewData{
 		Type:  "call_path",
 		Title: "Call Path from " + entry,
-		Intro: "> **Navigation index only.** Verify call chains by reading the actual source files.",
 	}
 	walk := ViewSection{}
 
@@ -546,7 +539,6 @@ func buildEditImpactData(g *types.Graph, params types.ViewParams) *ViewData {
 	d := &ViewData{
 		Type:  "edit_impact",
 		Title: "Edit Impact: " + target,
-		Intro: "> **Navigation index only.** Verify impact by reading the dependent files.",
 	}
 
 	fi := g.FileIndex[target]
@@ -713,10 +705,9 @@ func buildTaskMapData(g *types.Graph, params types.ViewParams) *ViewData {
 	}
 
 	return &ViewData{
-		Type:  "task_map",
-		Title: "Task Map: " + params.Query,
-		Query: params.Query,
-		Intro: "> **Navigation index only.** Use these results to decide which files to read or grep — do not treat them as evidence.",
+		Type:     "task_map",
+		Title:    "Task Map: " + params.Query,
+		Query:    params.Query,
 		Sections: []ViewSection{body},
 	}
 }
