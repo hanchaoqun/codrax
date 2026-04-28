@@ -3827,16 +3827,10 @@ func normalizeLogSourceDriftSummarySurface(summary string, ctx *types.BusContext
 		if plan.CompiledDiagramKind == types.DiagramCallDAG || plan.CompiledDiagramKind == types.DiagramSequence {
 			fence = strings.TrimSpace(plan.CompiledDiagramFence)
 		}
-		switch {
-		case lead == "" && fence == "":
-			return summary
-		case lead == "":
-			return fence
-		case fence == "":
-			return lead
-		default:
-			return strings.TrimSpace(lead + "\n\n" + fence)
+		if fence != "" && summary != "" && strings.Contains(summary, fence) {
+			fence = ""
 		}
+		return joinDistinctSummaryBlocks(lead, summary, fence)
 	}
 	lead := renderLogSourceDriftLeadClean(ctx)
 	if lead == "" {
@@ -3846,6 +3840,20 @@ func normalizeLogSourceDriftSummarySurface(summary string, ctx *types.BusContext
 		return lead
 	}
 	return strings.TrimSpace(lead + "\n\n" + summary)
+}
+
+func joinDistinctSummaryBlocks(parts ...string) string {
+	seen := make(map[string]bool, len(parts))
+	out := make([]string, 0, len(parts))
+	for _, part := range parts {
+		part = strings.TrimSpace(part)
+		if part == "" || seen[part] {
+			continue
+		}
+		seen[part] = true
+		out = append(out, part)
+	}
+	return strings.Join(out, "\n\n")
 }
 
 func appendLogSourceDriftCaveat(caveats []string, ctx *types.BusContext) []string {

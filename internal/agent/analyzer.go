@@ -24,6 +24,7 @@ import (
 	"github.com/hanchaoqun/codrax/internal/skill"
 	"github.com/hanchaoqun/codrax/internal/tool"
 	"github.com/hanchaoqun/codrax/internal/tool/repomap"
+	"github.com/hanchaoqun/codrax/internal/tool/repomap/retrieve"
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
@@ -244,6 +245,7 @@ func buildAnalyzerRepoOverview(repoRoot, objective string) (string, *repomap.Gra
 		logging.Debug("[analyzer] repo overview unavailable: %v", err)
 		return "", nil
 	}
+	caution := renderAnalyzerOverviewPrescanCaution(graph, objective)
 
 	var view, output, header string
 	if len(entities) > 0 {
@@ -269,7 +271,7 @@ func buildAnalyzerRepoOverview(repoRoot, objective string) (string, *repomap.Gra
 	}
 
 	if output == "" {
-		return "", graph
+		return caution, graph
 	}
 	// Cap the overview to keep the initial prompt bounded.
 	const maxLen = 4096
@@ -277,7 +279,198 @@ func buildAnalyzerRepoOverview(repoRoot, objective string) (string, *repomap.Gra
 		output = output[:maxLen] + "\n... [truncated]\n"
 	}
 	logging.Debug("[analyzer] pre-injected %s view (%d bytes, entities=%v)", view, len(output), entities)
+	if caution != "" {
+		header += caution + "\n\n"
+	}
 	return header + output, graph
+}
+
+func renderAnalyzerOverviewPrescanCaution(graph *repomap.Graph, objective string) string {
+	if graph == nil {
+		return ""
+	}
+	tokens := extractAnalyzerOverviewCautionTokens(objective)
+	if len(tokens) == 0 {
+		return ""
+	}
+	type caution struct {
+		Token string
+		Kind  string
+		Paths []string
+	}
+	var cautions []caution
+	for _, token := range tokens {
+		if analyzerGraphHasPrimaryExactAnchor(graph, token) {
+			continue
+		}
+		if paths := analyzerGraphExactMatchFiles(graph, token); len(paths) > 0 {
+			auxOnly := true
+			for _, path := range paths {
+				if !types.LooksLikeAuxiliaryEvidencePath(path) {
+					auxOnly = false
+					break
+				}
+			}
+			if auxOnly {
+				cautions = append(cautions, caution{Token: token, Kind: "auxiliary_only", Paths: paths})
+			}
+			continue
+		}
+		files := analyzerTopFilesForQuery(graph, token, 4)
+		if len(files) == 0 {
+			cautions = append(cautions, caution{Token: token, Kind: "unresolved"})
+			continue
+		}
+		auxOnly := true
+		paths := make([]string, 0, len(files))
+		for _, fi := range files {
+			if fi == nil || strings.TrimSpace(fi.RelPath) == "" {
+				continue
+			}
+			paths = append(paths, fi.RelPath)
+			if !types.LooksLikeAuxiliaryEvidencePath(fi.RelPath) {
+				auxOnly = false
+			}
+		}
+		if len(paths) == 0 {
+			cautions = append(cautions, caution{Token: token, Kind: "unresolved"})
+			continue
+		}
+		if auxOnly {
+			cautions = append(cautions, caution{Token: token, Kind: "auxiliary_only", Paths: paths})
+			continue
+		}
+		cautions = append(cautions, caution{Token: token, Kind: "unresolved"})
+	}
+	if len(cautions) == 0 {
+		return ""
+	}
+	var b strings.Builder
+	b.WriteString("## Identifier Pre-scan Cautions\n\n")
+	b.WriteString("Some identifier-shaped mentions from the request are not yet backed by a production repo anchor. Treat them as search leads, not as proof, until `grep` / `read_file` finds a non-auxiliary repo definition.\n")
+	for _, c := range cautions {
+		switch c.Kind {
+		case "auxiliary_only":
+			paths := c.Paths
+			if len(paths) > 3 {
+				paths = paths[:3]
+			}
+			fmt.Fprintf(&b, "- `%s`: current pre-scan hits are auxiliary-only (%s)\n", c.Token, strings.Join(paths, ", "))
+		case "unresolved":
+			fmt.Fprintf(&b, "- `%s`: no current exact production hit in the repo graph\n", c.Token)
+		}
+	}
+	return strings.TrimSpace(b.String())
+}
+
+func extractAnalyzerOverviewCautionTokens(objective string) []string {
+	seen := make(map[string]bool)
+	var out []string
+	scanQuestionTokens(objective, func(tok string, src tokenSource) {
+		tok = strings.TrimSpace(strings.Trim(tok, "(){}[]?!.,;:'\""))
+		if len(tok) < 4 {
+			return
+		}
+		qualifies := src == tokenBacktick || strings.ContainsAny(tok, "_./\\")
+		if !qualifies {
+			for _, r := range tok {
+				if unicode.IsUpper(r) {
+					qualifies = true
+					break
+				}
+			}
+		}
+		if !qualifies {
+			return
+		}
+		key := strings.ToLower(strings.ReplaceAll(tok, `\`, `/`))
+		if seen[key] {
+			return
+		}
+		seen[key] = true
+		out = append(out, tok)
+	})
+	return out
+}
+
+func analyzerGraphHasPrimaryExactAnchor(graph *repomap.Graph, token string) bool {
+	if graph == nil {
+		return false
+	}
+	token = strings.TrimSpace(strings.ReplaceAll(token, `\`, `/`))
+	if token == "" {
+		return false
+	}
+	if fi, ok := graph.FileIndex[token]; ok && fi != nil {
+		return true
+	}
+	for path := range graph.FileIndex {
+		if strings.EqualFold(strings.ReplaceAll(strings.TrimSpace(path), `\`, `/`), token) {
+			return true
+		}
+	}
+	norm := types.ExactResolutionLookupKey("symbol", token)
+	if norm == "" {
+		return false
+	}
+	for name, defs := range graph.SymbolDefs {
+		if types.ExactResolutionLookupKey("symbol", name) != norm {
+			continue
+		}
+		for _, def := range defs {
+			if def == nil || types.LooksLikeAuxiliaryEvidencePath(def.File) {
+				continue
+			}
+			return true
+		}
+	}
+	return false
+}
+
+func analyzerGraphExactMatchFiles(graph *repomap.Graph, token string) []string {
+	if graph == nil {
+		return nil
+	}
+	norm := types.ExactResolutionLookupKey("symbol", token)
+	if norm == "" {
+		return nil
+	}
+	seen := make(map[string]bool)
+	var out []string
+	for name, defs := range graph.SymbolDefs {
+		if types.ExactResolutionLookupKey("symbol", name) != norm {
+			continue
+		}
+		for _, def := range defs {
+			path := strings.TrimSpace(strings.ReplaceAll(def.File, `\`, `/`))
+			if path == "" || seen[path] {
+				continue
+			}
+			seen[path] = true
+			out = append(out, path)
+		}
+	}
+	sort.Strings(out)
+	return out
+}
+
+func analyzerTopFilesForQuery(graph *repomap.Graph, query string, topN int) []*repomap.FileInfo {
+	if graph == nil || strings.TrimSpace(query) == "" {
+		return nil
+	}
+	retrieve.RankGraph(graph, query)
+	files := retrieve.TopFiles(graph, topN)
+	out := make([]*repomap.FileInfo, 0, len(files))
+	for _, fi := range files {
+		if fi == nil || strings.TrimSpace(fi.RelPath) == "" {
+			continue
+		}
+		if graph.Scores[fi.RelPath] <= 0 {
+			continue
+		}
+		out = append(out, fi)
+	}
+	return out
 }
 
 func (e *analyzerEvaluator) ShouldStop(resp llm.Response, iteration int) bool {
@@ -782,6 +975,19 @@ func buildAnalysisIR(ctx *types.AgentContext) (*types.AnalysisIR, error) {
 		// Raw request stripped of the REPL conversation prefix — otherwise
 		// "## Current request\nrepomap的作用" would show simple-lookup
 		// cues even for a complex question re-asked in REPL mode.
+		predsResolved, predsReason := reconcileSemanticPredicates(rm)
+		if predsResolved != rm.Predicates {
+			logPredicateReconcile(rm.Predicates, predsResolved, predsReason)
+			recordReconcileObservation(ctxMutable(ctx), reconcileEvent(
+				"predicates",
+				fmt.Sprintf("%t", rm.Predicates.IsCrossComponent),
+				fmt.Sprintf("%t", predsResolved.IsCrossComponent),
+				0,
+				predsReason,
+				predsResolved,
+			))
+			rm.Predicates = predsResolved
+		}
 		resolved, reason := reconcileComplexity(rm.Complexity,
 			rm.AnalyzerHints.Entities, rm.AnalyzerHints.Keywords, len(rm.SubTopics),
 			rm.AnalyzerHints.Kind, rm.Predicates)

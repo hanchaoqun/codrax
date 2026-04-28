@@ -901,7 +901,7 @@ func renderAnswerDocExactResolutionContract(ctx *types.AgentContext) string {
 		b.WriteString("- Summary surface mode: follow-on grounded context only. The renderer already prints the exact-target absence lead, so `summary` should start directly on the grounded nearby context/mechanism and must not restate the exact target.\n")
 	}
 	if plan != nil && plan.SummarySurfaceMode == types.AnswerSummarySurfaceDriftBoundedRootCause {
-		b.WriteString("- Summary surface mode: drift-bounded root cause. The renderer will carry the log-source-drift lead, so keep `summary` minimal and grounded (typically just the compiled call-chain fence). Do not assert a more specific historical failure cause than the current cited code proves.\n")
+		b.WriteString("- Summary surface mode: drift-bounded root cause. The renderer will prepend the log-source-drift lead, but it will keep your grounded `summary`. Use `summary` for the concise present-tense cause/mechanism sentence (and the compiled call-chain fence when helpful). Do not assert a more specific historical failure cause than the current cited code proves.\n")
 		if resolveAnswerDocShape(ctx) == string(types.ShapeStepList) {
 			b.WriteString("- Because this dispatch uses `shape=step_list`, put the detailed explanation into `steps[]` and keep every step directly citation-backed instead of adding uncited root-cause hypotheses.\n")
 		}

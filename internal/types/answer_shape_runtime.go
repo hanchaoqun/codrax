@@ -66,5 +66,5 @@ func ExplanationAllowsAnchorSkeleton(ir *AnalysisIR) bool {
 		ir.AnswerContract.RequiredAnswerShape != ShapeExplanation {
 		return false
 	}
-	return len(ir.RequestModel.SubTopics) > 0
+	return len(ir.RequestModel.SubTopics) > 1
 }

@@ -3006,6 +3006,11 @@ type evidenceRepairTarget struct {
 	lines []int
 }
 
+type readInterval struct {
+	start int
+	end   int
+}
+
 func lineWithinAnySpan(line int, spans []symbolSpan) bool {
 	if line <= 0 || len(spans) == 0 {
 		return false
@@ -3422,6 +3427,9 @@ func (e *explorerEvaluator) postEmitEvidenceRepairClosureOnlySignal(obs LoopObse
 // ends in grep / a failed emit_evidence retry rather than the
 // read_file result itself.
 func (e *explorerEvaluator) postReadWithoutEmitSignal(obs LoopObservation) LoopSignal {
+	if e.closureReadyLatched() {
+		return LoopSignal{}
+	}
 	if e.midLoopNoEmitPushSent {
 		return LoopSignal{}
 	}
@@ -3456,6 +3464,9 @@ func (e *explorerEvaluator) postReadWithoutEmitSignal(obs LoopObservation) LoopS
 }
 
 func (e *explorerEvaluator) postExecRedirectBeforeEmitSignal(obs LoopObservation) LoopSignal {
+	if e.closureReadyLatched() {
+		return LoopSignal{}
+	}
 	if e.midLoopExecRedirectSent || !e.midLoopNoEmitPushSent || e.midLoopNoEmitPushResultsLen == 0 {
 		return LoopSignal{}
 	}
@@ -3481,6 +3492,9 @@ func (e *explorerEvaluator) postExecRedirectBeforeEmitSignal(obs LoopObservation
 }
 
 func (e *explorerEvaluator) postReadWithoutEmitEscalationSignal(obs LoopObservation) LoopSignal {
+	if e.closureReadyLatched() {
+		return LoopSignal{}
+	}
 	if e.midLoopNoEmitEscalated || !e.midLoopNoEmitPushSent || e.midLoopNoEmitPushResultsLen == 0 {
 		return LoopSignal{}
 	}
@@ -3525,6 +3539,37 @@ func (e *explorerEvaluator) postReadWithoutEmitClosureOnlySignal(obs LoopObserva
 		HintRequested:  true,
 		HintKey:        fmt.Sprintf("explorer.mid-loop.read-without-emit-closure-only.%d", obs.Iteration),
 		Hint:           "MID-LOOP CHECK: an earlier hint already established that your next useful step is to materialize structured evidence. The current batch still spent effort on navigation tools without recording the current backlog. Do NOT keep expanding with `read_file`, `grep`, `repo_map`, `list_files`, or `exec_command` until you first emit ONE grounded `emit_evidence(items=[...])` batch from the lines you already have.",
+		Progress:       true,
+		BypassThrottle: true,
+	}
+}
+
+func (e *explorerEvaluator) closureReadyLatched() bool {
+	return e.midLoopCompletionReadySent || e.midLoopExactAbsenceSent
+}
+
+func (e *explorerEvaluator) postClosureReadyBacklogSignal(obs LoopObservation) LoopSignal {
+	if !e.closureReadyLatched() || e.investigationComplete || !e.awaitingStructuredEvidenceMaterialization(obs.AllToolResults) {
+		return LoopSignal{}
+	}
+	if successfulToolCountSince(obs.AllToolResults, e.midLoopLastResultsLen, completionProgressToolNames) > 0 {
+		return LoopSignal{}
+	}
+	navCount := successfulToolCountSince(obs.AllToolResults, e.midLoopLastResultsLen, navigationToolNames)
+	if navCount == 0 {
+		return LoopSignal{}
+	}
+	state := "the current branch is already closure-ready"
+	if e.midLoopExactAbsenceSent && !e.midLoopCompletionReadySent {
+		state = "the exact-absence closure is already established"
+	}
+	return LoopSignal{
+		HintRequested: true,
+		HintKey:       fmt.Sprintf("explorer.mid-loop.closure-ready-backlog.%d", obs.Iteration),
+		Hint: "MID-LOOP CHECK: " + state + ", but this batch reopened navigation before finishing the answer. " +
+			"If the new lines you opened truly change the answer, emit exactly ONE grounded `emit_evidence(items=[...])` repair batch from those lines now. " +
+			"Otherwise stop and call `emit_investigation_complete(reason, confidence, result_kind)` immediately. " +
+			"Do NOT keep widening scope or opening more neighboring files from here.",
 		Progress:       true,
 		BypassThrottle: true,
 	}
@@ -4291,7 +4336,20 @@ func (e *explorerEvaluator) postPrimaryReadMidLoopSignal(obs LoopObservation) Lo
 	if len(readSet) == 0 {
 		return LoopSignal{}
 	}
+	if hint := e.authoritativeFrameRealignmentHint(obs.AllToolResults); hint != "" {
+		e.midLoopPostPrimaryInjected = true
+		return LoopSignal{
+			HintRequested: true,
+			HintKey:       "explorer.mid-loop.post-primary-read",
+			Hint:          hint,
+			Progress:      true,
+		}
+	}
 	if partials := detectPartiallyReadSymbols(obs.AllToolResults, e.searchResult.Graph); len(partials) > 0 {
+		partials = e.filterPartialReadsByAuthoritativeFrames(partials)
+		if len(partials) == 0 {
+			return LoopSignal{}
+		}
 		allowed := e.activeFrontierFileSet(readSet, "")
 		var chosen partialReadHint
 		found := false
@@ -4361,6 +4419,168 @@ func (e *explorerEvaluator) postPrimaryReadMidLoopSignal(obs LoopObservation) Lo
 		Hint:          b.String(),
 		Progress:      true,
 	}
+}
+
+func (e *explorerEvaluator) filterPartialReadsByAuthoritativeFrames(hints []partialReadHint) []partialReadHint {
+	if len(hints) == 0 {
+		return nil
+	}
+	preferred := e.authoritativeFrameSymbolTailsByFile()
+	if len(preferred) == 0 {
+		return hints
+	}
+	out := make([]partialReadHint, 0, len(hints))
+	for _, hint := range hints {
+		tails := preferred[canonicalExplorerPath(hint.file)]
+		if len(tails) == 0 || tails[types.NormalizedSurfaceSymbolTail(hint.symbolName)] {
+			out = append(out, hint)
+		}
+	}
+	return out
+}
+
+func (e *explorerEvaluator) authoritativeFrameRealignmentHint(history []types.ToolResult) string {
+	if e.searchResult == nil || e.searchResult.Graph == nil {
+		return ""
+	}
+	preferred := e.authoritativeFrameSymbolTailsByFile()
+	if len(preferred) == 0 {
+		return ""
+	}
+	intervalsByFile := readFileIntervalsFromHistory(history)
+	if len(intervalsByFile) == 0 {
+		return ""
+	}
+	anchorFile := ""
+	for _, file := range e.primaryEntityFiles() {
+		canon := canonicalExplorerPath(file)
+		if canon == "" || len(preferred[canon]) == 0 {
+			continue
+		}
+		if len(intervalsByFile[canon]) == 0 {
+			continue
+		}
+		anchorFile = canon
+		break
+	}
+	if anchorFile == "" {
+		return ""
+	}
+	fi := e.searchResult.Graph.FileIndex[anchorFile]
+	if fi == nil {
+		return ""
+	}
+	preferredTails := preferred[anchorFile]
+	intervals := intervalsByFile[anchorFile]
+	if len(preferredTails) == 0 || len(intervals) == 0 {
+		return ""
+	}
+
+	var partialPreferred *partialReadHint
+	var unreadPreferred []string
+	for _, sym := range fi.Symbols {
+		if sym.Kind != "function" && sym.Kind != "method" {
+			continue
+		}
+		tail := types.NormalizedSurfaceSymbolTail(sym.Name)
+		if !preferredTails[tail] {
+			continue
+		}
+		startedFromTop, maxEnd := symbolReadProgress(sym, intervals)
+		if startedFromTop && maxEnd > 0 && maxEnd < sym.EndLine {
+			qualName := sym.Name
+			if sym.Receiver != "" {
+				qualName = sym.Receiver + "." + sym.Name
+			} else if sym.Parent != "" {
+				qualName = sym.Parent + "." + sym.Name
+			}
+			partial := partialReadHint{
+				file:       anchorFile,
+				symbolName: qualName,
+				symbolKind: sym.Kind,
+				symStart:   sym.Line,
+				symEnd:     sym.EndLine,
+				readEnd:    maxEnd,
+				coverage:   float64(maxEnd-sym.Line+1) / float64(sym.EndLine-sym.Line+1),
+			}
+			partialPreferred = &partial
+			break
+		}
+		if !startedFromTop {
+			unreadPreferred = append(unreadPreferred, sym.Name)
+		}
+	}
+	if partialPreferred != nil {
+		return "MID-LOOP CHECK: the attached runtime log already points to this file, and the authoritative function body is only partially read. " +
+			"Do NOT widen to nearby helpers yet.\n" +
+			renderPartialReadHint(*partialPreferred, e.heuristics.PartialReadLineThreshold)
+	}
+	if len(unreadPreferred) == 0 {
+		return ""
+	}
+	if len(unreadPreferred) > 3 {
+		unreadPreferred = unreadPreferred[:3]
+	}
+	var b strings.Builder
+	b.WriteString("MID-LOOP CHECK: the attached runtime log already names concrete function(s) in this file, but the lines you opened do not cover them yet. ")
+	b.WriteString("Before following nearby helpers, grep/read these authoritative function names in the same file and ground them first:\n")
+	for _, name := range unreadPreferred {
+		fmt.Fprintf(&b, "  - `%s` in `%s`\n", name, anchorFile)
+	}
+	b.WriteString("\nUse the function name from the log frame as the next hop; treat the current line number as a stale locator, not as proof that the surrounding helper is the failure site.")
+	return b.String()
+}
+
+func (e *explorerEvaluator) authoritativeFrameSymbolTailsByFile() map[string]map[string]bool {
+	if e.logTriage == nil || len(e.logTriage.ResolvedFiles) == 0 {
+		return nil
+	}
+	hasCrash := false
+	for _, s := range e.logTriage.Meta.Signals {
+		if s == types.SignalPanic || s == types.SignalCrash {
+			hasCrash = true
+			break
+		}
+	}
+	if !hasCrash {
+		return nil
+	}
+	out := make(map[string]map[string]bool)
+	for _, err := range e.logTriage.Errors {
+		for _, frame := range err.Frames {
+			file := canonicalExplorerPath(frame.File)
+			tail := types.NormalizedSurfaceSymbolTail(frame.Func)
+			if file == "" || tail == "" {
+				continue
+			}
+			if out[file] == nil {
+				out[file] = make(map[string]bool)
+			}
+			out[file][tail] = true
+		}
+	}
+	return out
+}
+
+func symbolReadProgress(sym repomap.Symbol, intervals []readInterval) (startedFromTop bool, maxEnd int) {
+	if sym.EndLine == 0 || sym.EndLine < sym.Line || len(intervals) == 0 {
+		return false, 0
+	}
+	bodyLines := sym.EndLine - sym.Line + 1
+	entryZone := sym.Line + bodyLines/5
+	for _, iv := range intervals {
+		if iv.start <= entryZone && iv.end >= sym.Line {
+			startedFromTop = true
+		}
+		if iv.end > maxEnd && iv.start <= sym.EndLine && iv.end >= sym.Line {
+			if iv.end > sym.EndLine {
+				maxEnd = sym.EndLine
+			} else {
+				maxEnd = iv.end
+			}
+		}
+	}
+	return startedFromTop, maxEnd
 }
 
 func (e *explorerEvaluator) ShouldStop(resp llm.Response, iteration int) bool {
@@ -4546,6 +4766,9 @@ func (e *explorerEvaluator) observeMidLoop(obs LoopObservation) LoopSignal {
 		return sig
 	}
 	if sig := e.postExactAbsenceClosureSignal(obs); sig.HintRequested {
+		return sig
+	}
+	if sig := e.postClosureReadyBacklogSignal(obs); sig.HintRequested {
 		return sig
 	}
 	if sig := e.postExplanationAnchorSignal(obs); sig.HintRequested {
@@ -5265,6 +5488,7 @@ func (e *explorerEvaluator) observeSoftStop(obs LoopObservation) LoopSignal {
 	// instead of finishing irrelevant large functions.
 	if e.searchResult != nil && e.searchResult.Graph != nil {
 		partialHints := detectPartiallyReadSymbols(history, e.searchResult.Graph)
+		partialHints = e.filterPartialReadsByAuthoritativeFrames(partialHints)
 		// Filter to relevant hints: function name must match an
 		// entity or keyword from the analyzer classification.
 		partialHints = filterPartialReadsByRelevance(partialHints, e.userQuestion)
@@ -11048,46 +11272,7 @@ func detectPartiallyReadSymbols(history []types.ToolResult, graph *repomap.Graph
 	if graph == nil {
 		return nil
 	}
-
-	// Build per-file read intervals: keep every individual read_file
-	// range instead of collapsing to a single min/max. The old
-	// aggregation caused false positives: a targeted grep-directed
-	// read (e.g. lines 440-470) would be merged with an earlier
-	// import scan (lines 1-50) into {minStart:1, maxEnd:470}, making
-	// every large function starting before line 470 look "partially
-	// read" even though the LLM never tried to read it.
-	type readInterval struct {
-		start, end int
-	}
-	fileReads := make(map[string][]readInterval)
-
-	for _, r := range history {
-		if !r.Success || r.ToolName != "read_file" {
-			continue
-		}
-		first := strings.SplitN(r.Summary, "\n", 2)[0]
-		if !strings.HasPrefix(first, "[") {
-			continue
-		}
-		colonIdx := strings.Index(first, ": showing lines ")
-		if colonIdx < 1 {
-			continue
-		}
-		path := first[1:colonIdx]
-		rest := first[colonIdx+len(": showing lines "):]
-		dashIdx := strings.Index(rest, "-")
-		ofIdx := strings.Index(rest, " of ")
-		if dashIdx < 0 || ofIdx < 0 {
-			continue
-		}
-		startLine, err1 := strconv.Atoi(rest[:dashIdx])
-		endLine, err2 := strconv.Atoi(rest[dashIdx+1 : ofIdx])
-		if err1 != nil || err2 != nil {
-			continue
-		}
-		fileReads[path] = append(fileReads[path], readInterval{startLine, endLine})
-	}
-
+	fileReads := readFileIntervalsFromHistory(history)
 	if len(fileReads) == 0 {
 		return nil
 	}
@@ -11114,23 +11299,7 @@ func detectPartiallyReadSymbols(history []types.ToolResult, graph *repomap.Graph
 			// function read — the LLM was checking a specific spot, not
 			// trying to read the whole function.
 			bodyLines := sym.EndLine - sym.Line + 1
-			entryZone := sym.Line + bodyLines/5 // first 20% of the function
-			startedFromTop := false
-			maxEnd := 0
-			for _, iv := range intervals {
-				if iv.start <= entryZone && iv.end >= sym.Line {
-					// This read entered the function near its start.
-					startedFromTop = true
-				}
-				// Track the furthest line read within this function.
-				if iv.end > maxEnd && iv.start <= sym.EndLine && iv.end >= sym.Line {
-					if iv.end > sym.EndLine {
-						maxEnd = sym.EndLine
-					} else {
-						maxEnd = iv.end
-					}
-				}
-			}
+			startedFromTop, maxEnd := symbolReadProgress(sym, intervals)
 			if !startedFromTop || maxEnd == 0 {
 				continue
 			}
@@ -11176,6 +11345,37 @@ func detectPartiallyReadSymbols(history []types.ToolResult, graph *repomap.Graph
 		hints = hints[:5]
 	}
 	return hints
+}
+
+func readFileIntervalsFromHistory(history []types.ToolResult) map[string][]readInterval {
+	fileReads := make(map[string][]readInterval)
+	for _, r := range history {
+		if !r.Success || r.ToolName != "read_file" {
+			continue
+		}
+		first := strings.SplitN(r.Summary, "\n", 2)[0]
+		if !strings.HasPrefix(first, "[") {
+			continue
+		}
+		colonIdx := strings.Index(first, ": showing lines ")
+		if colonIdx < 1 {
+			continue
+		}
+		path := first[1:colonIdx]
+		rest := first[colonIdx+len(": showing lines "):]
+		dashIdx := strings.Index(rest, "-")
+		ofIdx := strings.Index(rest, " of ")
+		if dashIdx < 0 || ofIdx < 0 {
+			continue
+		}
+		startLine, err1 := strconv.Atoi(rest[:dashIdx])
+		endLine, err2 := strconv.Atoi(rest[dashIdx+1 : ofIdx])
+		if err1 != nil || err2 != nil {
+			continue
+		}
+		fileReads[path] = append(fileReads[path], readInterval{start: startLine, end: endLine})
+	}
+	return fileReads
 }
 
 // structuralIntentTokens are the surface forms the LLM uses when it

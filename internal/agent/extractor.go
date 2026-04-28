@@ -1269,7 +1269,7 @@ func extractorAnswerSurfacePlan(ctx *types.AgentContext) *types.AnswerSurfacePla
 // sub-topic about sub-agent proposal). The finalizer renders them
 // as a Key Anchors skeleton beneath the multi-paragraph summary.
 //
-// Threshold: SubTopics > 0. Single-topic explanation keeps the old
+// Threshold: SubTopics > 1. Single-topic explanation keeps the old
 // path — the summary IS the answer and doesn't need a skeleton.
 func isMultiTopicExplanation(ctx *types.AgentContext) bool {
 	if ctx == nil {

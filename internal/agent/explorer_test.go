@@ -4529,6 +4529,74 @@ func TestObserveMidLoop_CompletionReadyBeatsPartialReadWhenAuthoritativeLogCover
 	}
 }
 
+func TestObserveMidLoop_PostPrimaryReadRealignsToAuthoritativeLogFunction(t *testing.T) {
+	graph := &repomap.Graph{
+		FileIndex: map[string]*repomap.FileInfo{
+			"internal/agent/analyzer.go": {
+				Symbols: []repomap.Symbol{
+					{Name: "renderAnalyzerOverviewPrescanCaution", Kind: "function", Line: 288, EndLine: 364, File: "internal/agent/analyzer.go"},
+					{Name: "buildAnalysisIR", Kind: "function", Line: 857, EndLine: 1330, File: "internal/agent/analyzer.go"},
+				},
+			},
+		},
+		SymbolDefs: map[string][]*repomap.Symbol{
+			"buildAnalysisIR": {{
+				Name:    "buildAnalysisIR",
+				Kind:    "function",
+				Line:    857,
+				EndLine: 1330,
+				File:    "internal/agent/analyzer.go",
+			}},
+		},
+	}
+	eval := &explorerEvaluator{
+		phase:           1,
+		heuristics:      types.ExploreHeuristics{PartialReadLineThreshold: 20},
+		searchResult:    &keywordSearchResult{Graph: graph},
+		primaryReadSeen: true,
+		primaryReadIter: 0,
+		ermRequirements: []EvidenceRequirement{{Entities: []string{"buildAnalysisIR"}, Status: "unsatisfied"}},
+		logTriage: &types.LogBundle{
+			Meta:          types.LogMeta{Signals: []types.LogSignal{types.SignalPanic}},
+			ResolvedFiles: []string{"internal/agent/analyzer.go"},
+			Errors: []types.LogError{{
+				Frames: []types.LogFrame{
+					{File: "internal/agent/analyzer.go", Line: 250, Func: "github.com/hanchaoqun/codrax/internal/agent.buildAnalysisIR"},
+				},
+			}},
+		},
+	}
+	results := []types.ToolResult{
+		{
+			ToolName: "read_file",
+			Success:  true,
+			Summary:  "[internal/agent/analyzer.go: showing lines 240-330 of 1463 total]\n...",
+		},
+	}
+
+	sig := eval.observeMidLoop(LoopObservation{
+		Phase:          PhaseMidLoop,
+		Iteration:      0,
+		LastToolResult: &results[0],
+		AllToolResults: results,
+	})
+	if !sig.HintRequested {
+		t.Fatalf("authoritative log-frame realignment should fire after a stale-line helper read, got %+v", sig)
+	}
+	if sig.HintKey != "explorer.mid-loop.post-primary-read" {
+		t.Fatalf("HintKey = %q, want explorer.mid-loop.post-primary-read", sig.HintKey)
+	}
+	if !strings.Contains(sig.Hint, "buildAnalysisIR") {
+		t.Fatalf("hint should steer back to the authoritative function name, got: %s", sig.Hint)
+	}
+	if strings.Contains(sig.Hint, "renderAnalyzerOverviewPrescanCaution") {
+		t.Fatalf("hint should not expand the nearby helper when the log names a different function, got: %s", sig.Hint)
+	}
+	if !strings.Contains(sig.Hint, "stale locator") {
+		t.Fatalf("hint should explain that the line number can drift, got: %s", sig.Hint)
+	}
+}
+
 func TestObserveMidLoop_CompletionReadySuppressesGenericHints(t *testing.T) {
 	eval := &explorerEvaluator{
 		phase:                      1,
@@ -4580,6 +4648,69 @@ func TestObserveMidLoop_CompletionReadyEscalation(t *testing.T) {
 	}
 	if sig.HintKey != "explorer.mid-loop.completion-ready-escalated" {
 		t.Fatalf("HintKey = %q, want explorer.mid-loop.completion-ready-escalated", sig.HintKey)
+	}
+}
+
+func TestObserveMidLoop_ClosureReadyBacklogBeatsGenericReadWithoutEmit(t *testing.T) {
+	eval := &explorerEvaluator{
+		phase:                      1,
+		searchResult:               &keywordSearchResult{Graph: &repomap.Graph{}},
+		midLoopCompletionReadySent: true,
+		midLoopCompletionReadyIter: 3,
+		midLoopNoEmitPushSent:      true,
+		midLoopEmitBacklogBaseLen:  1,
+		midLoopLastResultsLen:      1,
+	}
+	results := []types.ToolResult{
+		{ToolName: "emit_evidence", Success: true, Summary: "emit_evidence accepted 2 items"},
+		{ToolName: "read_file", Success: true, Summary: "[internal/agent/analyzer.go: showing lines 1-20 of 40]\n..."},
+		{ToolName: "read_file", Success: true, Summary: "[internal/types/analysis_ir.go: showing lines 1-20 of 40]\n..."},
+	}
+	sig := eval.observeMidLoop(LoopObservation{
+		Phase:          PhaseMidLoop,
+		Iteration:      4,
+		LastToolResult: &results[len(results)-1],
+		AllToolResults: results,
+	})
+	if !sig.HintRequested {
+		t.Fatalf("closure-ready backlog hint should fire, got %+v", sig)
+	}
+	if !strings.HasPrefix(sig.HintKey, "explorer.mid-loop.closure-ready-backlog.") {
+		t.Fatalf("HintKey = %q, want closure-ready-backlog prefix", sig.HintKey)
+	}
+	if strings.Contains(sig.Hint, "have not called `emit_evidence` yet") {
+		t.Fatalf("generic read-without-emit wording should stay suppressed after closure-ready, got: %s", sig.Hint)
+	}
+}
+
+func TestObserveMidLoop_ExactAbsenceClosureBacklogBeatsGenericReadWithoutEmit(t *testing.T) {
+	eval := &explorerEvaluator{
+		phase:                     1,
+		searchResult:              &keywordSearchResult{Graph: &repomap.Graph{}},
+		midLoopExactAbsenceSent:   true,
+		midLoopNoEmitPushSent:     true,
+		midLoopEmitBacklogBaseLen: 1,
+		midLoopLastResultsLen:     1,
+	}
+	results := []types.ToolResult{
+		{ToolName: "emit_evidence", Success: true, Summary: "emit_evidence accepted 2 items"},
+		{ToolName: "read_file", Success: true, Summary: "[internal/types/config.go: showing lines 1-20 of 40]\n..."},
+		{ToolName: "grep", Success: true, Summary: "internal/types/config.go"},
+	}
+	sig := eval.observeMidLoop(LoopObservation{
+		Phase:          PhaseMidLoop,
+		Iteration:      7,
+		LastToolResult: &results[len(results)-1],
+		AllToolResults: results,
+	})
+	if !sig.HintRequested {
+		t.Fatalf("exact-absence closure backlog hint should fire, got %+v", sig)
+	}
+	if !strings.HasPrefix(sig.HintKey, "explorer.mid-loop.closure-ready-backlog.") {
+		t.Fatalf("HintKey = %q, want closure-ready-backlog prefix", sig.HintKey)
+	}
+	if !strings.Contains(sig.Hint, "exact-absence closure is already established") {
+		t.Fatalf("hint should preserve exact-absence closure framing, got: %s", sig.Hint)
 	}
 }
 

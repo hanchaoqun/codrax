@@ -524,6 +524,7 @@ func TestBuildAnswerSurfacePlan_ExplanationAnchorBackboneSkipsAuxiliaryEvidence(
 		RequestModel: RequestModel{
 			SubTopics: []SubTopic{
 				{Summary: "Planner 的职责", Entities: []string{"Planner"}},
+				{Summary: "Orchestrator 的职责", Entities: []string{"Orchestrator"}},
 			},
 		},
 		AnswerContract: AnswerContract{
@@ -548,8 +549,8 @@ func TestBuildAnswerSurfacePlan_ExplanationAnchorBackboneSkipsAuxiliaryEvidence(
 	if len(plan.ExplanationAnchorBackbone) != 0 {
 		t.Fatalf("auxiliary docs evidence must not satisfy explanation anchors, got %+v", plan.ExplanationAnchorBackbone)
 	}
-	if len(plan.ExplanationAnchorMissingTopics) != 1 {
-		t.Fatalf("missing topics = %d, want 1", len(plan.ExplanationAnchorMissingTopics))
+	if len(plan.ExplanationAnchorMissingTopics) != 2 {
+		t.Fatalf("missing topics = %d, want 2", len(plan.ExplanationAnchorMissingTopics))
 	}
 }
 

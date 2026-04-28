@@ -1577,8 +1577,8 @@ func TestEmitAnswerDocument_PrependsLogSourceDriftLeadAndCaveat(t *testing.T) {
 	if !strings.Contains(doc.Summary, "does not fully align with the current checkout") {
 		t.Fatalf("summary missing log-source-drift lead: %q", doc.Summary)
 	}
-	if strings.Contains(doc.Summary, "dereferencing the request model after the guard path") {
-		t.Fatalf("drift-bounded explanation should drop speculative free prose: %q", doc.Summary)
+	if !strings.Contains(doc.Summary, "dereferencing the request model after the guard path") {
+		t.Fatalf("drift-bounded explanation should preserve the grounded summary prose after the drift lead: %q", doc.Summary)
 	}
 	if len(doc.Caveats) == 0 || !strings.Contains(doc.Caveats[0], "older build") {
 		t.Fatalf("caveats = %v, want older-build drift caveat", doc.Caveats)
@@ -1837,7 +1837,7 @@ func TestEmitAnswerDocument_NormalizesDriftBoundedRootCauseStepListSummarySurfac
 
 	params := mustDocJSON(t, map[string]interface{}{
 		"shape":   "step_list",
-		"summary": "This older panic most likely happened because ctx was nil before any guards ran.",
+		"summary": "The current code path passes ctx from ParseOutput into buildAnalysisIR, so a nil or unusable context turns into the observed panic path instead of a normal error return.",
 		"steps": []map[string]interface{}{
 			{"index": 1, "description": "`ParseOutput` calls `buildAnalysisIR(ctx)` on the current code path.", "citation_ref": 0},
 			{"index": 2, "description": "`buildAnalysisIR` now guards `ctx == nil || ctx.Mutable == nil` before continuing.", "citation_ref": 1},
@@ -1856,11 +1856,11 @@ func TestEmitAnswerDocument_NormalizesDriftBoundedRootCauseStepListSummarySurfac
 	if doc == nil {
 		t.Fatal("answer document not stored")
 	}
-	if strings.Contains(doc.Summary, "ctx was nil before any guards ran") {
-		t.Fatalf("drift-bounded summary should drop speculative prose: %q", doc.Summary)
-	}
 	if !strings.Contains(doc.Summary, "does not fully align with the current checkout") {
 		t.Fatalf("summary missing drift lead: %q", doc.Summary)
+	}
+	if !strings.Contains(doc.Summary, "passes ctx from ParseOutput into buildAnalysisIR") {
+		t.Fatalf("drift-bounded summary should preserve grounded cause prose: %q", doc.Summary)
 	}
 	if !strings.Contains(doc.Summary, "innermost failure: internal/agent/analyzer.go:250 in buildAnalysisIR") {
 		t.Fatalf("summary missing compiled call-chain fence: %q", doc.Summary)

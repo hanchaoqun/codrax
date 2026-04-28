@@ -311,6 +311,54 @@ func TestEmitInvestigationComplete_PreCompleteCheck_MultiTopicExplanationAnchors
 	}
 }
 
+func TestEmitInvestigationComplete_PreCompleteCheck_SingleTopicExplanationSkipsAnchorSkeleton(t *testing.T) {
+	mut := types.NewMutableState("test")
+	mut.EvidenceClosure().SetReadSet(map[string]bool{
+		"internal/types/analysis_ir.go": true,
+	})
+	mut.AppendEvidence([]types.EvidenceItem{
+		{
+			Source:          "internal/types/analysis_ir.go",
+			LineStart:       574,
+			AnchorKind:      types.AnchorDefinition,
+			AnchorSymbol:    "Criterion",
+			Kind:            types.EvidenceDirect,
+			GroundingStatus: types.GroundingGrounded,
+			GroundingTier:   types.TierLineText,
+		},
+	})
+	bus := &types.BusContext{
+		Mutable:  mut,
+		RepoRoot: t.TempDir(),
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				SubTopics: []types.SubTopic{
+					{Summary: "Criterion 的角色", Entities: []string{"Criterion"}},
+				},
+			},
+			AnswerContract: types.AnswerContract{
+				RequiredAnswerShape: types.ShapeExplanation,
+			},
+		},
+	}
+	tool := &EmitInvestigationComplete{}
+	params, _ := json.Marshal(map[string]any{
+		"reason":      "single-topic explanation is already grounded",
+		"confidence":  "high",
+		"result_kind": "resolved",
+	})
+	res, err := tool.Execute(bus, params)
+	if err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+	if strings.Contains(res.Summary, "DOWNGRADED") {
+		t.Fatalf("single-topic explanation must not be blocked by anchor skeleton downgrade: %s", res.Summary)
+	}
+	if !mut.IsInvestigationComplete() {
+		t.Fatal("InvestigationComplete should be set for single-topic explanation")
+	}
+}
+
 func TestEmitInvestigationComplete_PreCompleteCheck_MultiTopicExplanationAnchorsUseSharedSurfacePlan(t *testing.T) {
 	mut := types.NewMutableState("test")
 	mut.EvidenceClosure().SetReadSet(map[string]bool{

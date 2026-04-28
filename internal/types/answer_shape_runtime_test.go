@@ -42,13 +42,16 @@ func TestExplanationAllowsAnchorSkeleton(t *testing.T) {
 			SubTopics: []SubTopic{{Summary: "one"}},
 		},
 	}
-	if !ExplanationAllowsAnchorSkeleton(ir) {
-		t.Fatal("multi-topic explanation should allow anchor skeleton")
-	}
-
-	ir.RequestModel.SubTopics = nil
 	if ExplanationAllowsAnchorSkeleton(ir) {
 		t.Fatal("single-topic explanation should not allow anchor skeleton")
+	}
+
+	ir.RequestModel.SubTopics = []SubTopic{
+		{Summary: "one"},
+		{Summary: "two"},
+	}
+	if !ExplanationAllowsAnchorSkeleton(ir) {
+		t.Fatal("multi-topic explanation should allow anchor skeleton")
 	}
 }
 
