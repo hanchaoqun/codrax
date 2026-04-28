@@ -3757,18 +3757,49 @@ func renderLogSourceDriftLeadClean(ctx *types.BusContext) string {
 	if plan == nil || len(plan.LogSourceDriftAnchors) == 0 {
 		return ""
 	}
-	if emitAnswerDocIsZh(ctx) {
+	zh := emitAnswerDocIsZh(ctx)
+	// Single-anchor case: pick prose by Reason so Tier 2 / Tier 3
+	// drifts get clearer attribution than the generic "lines don't
+	// align" framing. Multi-anchor case falls back to the generic
+	// summary because per-anchor reasons may differ.
+	if len(plan.LogSourceDriftAnchors) == 1 {
 		anchor := plan.LogSourceDriftAnchors[0]
-		if len(plan.LogSourceDriftAnchors) == 1 && anchor.File != "" && anchor.ObservedLine > 0 && anchor.AnchoredLine > 0 {
-			return fmt.Sprintf("运行日志里的源码行号和当前代码仓并不完全对齐：日志指向 `%s:%d`，但当前仓库里同名函数最近的已锚定位置是 `%s:%d`。下面的解释以当前代码中已经验证的调用路径为准，而不是声称精确还原旧二进制里的那一行。",
-				anchor.File, anchor.ObservedLine, anchor.File, anchor.AnchoredLine)
+		if anchor.File != "" && anchor.ObservedLine > 0 && anchor.AnchoredLine > 0 {
+			switch anchor.Reason {
+			case types.DriftReasonTailRename:
+				if zh {
+					return fmt.Sprintf("运行日志里的函数名 `%s` 看起来已被重命名为当前仓库里的 `%s`(同文件 `%s`)。日志指向 `%s:%d`,当前对应位置在 `%s:%d`。下面的解释以当前代码中已经验证的函数/调用链为准。",
+						anchor.OriginalFunc, anchor.Func, anchor.File,
+						anchor.File, anchor.ObservedLine,
+						anchor.File, anchor.AnchoredLine)
+				}
+				return fmt.Sprintf("The function name in the runtime log (`%s`) appears to have been renamed to `%s` in the current checkout (same file `%s`). The log points at `%s:%d`; the corresponding location now is `%s:%d`. The explanation below is anchored to the current verified function.",
+					anchor.OriginalFunc, anchor.Func, anchor.File,
+					anchor.File, anchor.ObservedLine,
+					anchor.File, anchor.AnchoredLine)
+			case types.DriftReasonFileMoved:
+				if zh {
+					return fmt.Sprintf("运行日志里的文件 `%s` 看起来已被搬到当前仓库的 `%s`(同名函数 `%s`)。日志指向 `%s:%d`,当前对应位置在 `%s:%d`。下面的解释以当前代码中已经验证的位置为准。",
+						anchor.OriginalFile, anchor.File, anchor.Func,
+						anchor.OriginalFile, anchor.ObservedLine,
+						anchor.File, anchor.AnchoredLine)
+				}
+				return fmt.Sprintf("The file in the runtime log (`%s`) appears to have moved to `%s` in the current checkout (same function `%s`). The log points at `%s:%d`; the corresponding location now is `%s:%d`. The explanation below is anchored to the current verified location.",
+					anchor.OriginalFile, anchor.File, anchor.Func,
+					anchor.OriginalFile, anchor.ObservedLine,
+					anchor.File, anchor.AnchoredLine)
+			default: // DriftReasonLineDrift or empty (back-compat)
+				if zh {
+					return fmt.Sprintf("运行日志里的源码行号和当前代码仓并不完全对齐：日志指向 `%s:%d`，但当前仓库里同名函数最近的已锚定位置是 `%s:%d`。下面的解释以当前代码中已经验证的调用路径为准，而不是声称精确还原旧二进制里的那一行。",
+						anchor.File, anchor.ObservedLine, anchor.File, anchor.AnchoredLine)
+				}
+				return fmt.Sprintf("The runtime log's source line does not fully align with the current checkout: the log points at `%s:%d`, while the closest grounded anchor for the same function in the current repo is `%s:%d`. The explanation below is therefore anchored to the current verified code path, not a byte-for-byte reconstruction of the older logged line.",
+					anchor.File, anchor.ObservedLine, anchor.File, anchor.AnchoredLine)
+			}
 		}
-		return "运行日志里的源码行号和当前代码仓并不完全对齐。下面的解释以当前仓库中已经验证的函数/调用链为准，而不是声称精确还原旧日志里的每一个行号。"
 	}
-	anchor := plan.LogSourceDriftAnchors[0]
-	if len(plan.LogSourceDriftAnchors) == 1 && anchor.File != "" && anchor.ObservedLine > 0 && anchor.AnchoredLine > 0 {
-		return fmt.Sprintf("The runtime log's source line does not fully align with the current checkout: the log points at `%s:%d`, while the closest grounded anchor for the same function in the current repo is `%s:%d`. The explanation below is therefore anchored to the current verified code path, not a byte-for-byte reconstruction of the older logged line.",
-			anchor.File, anchor.ObservedLine, anchor.File, anchor.AnchoredLine)
+	if zh {
+		return "运行日志里的源码行号和当前代码仓并不完全对齐。下面的解释以当前仓库中已经验证的函数/调用链为准，而不是声称精确还原旧日志里的每一个行号。"
 	}
 	return "The runtime log's source lines do not fully align with the current checkout. The explanation below is therefore anchored to the current verified function / call-chain in the repo, not a byte-for-byte reconstruction of the older logged lines."
 }

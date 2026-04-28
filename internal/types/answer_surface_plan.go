@@ -77,7 +77,41 @@ type LogSourceDriftAnchor struct {
 	Func         string
 	ObservedLine int
 	AnchoredLine int
+
+	// OriginalFile carries the LOG-side path when Tier 3
+	// (cross-file move) detected the source moved between
+	// the build that produced the log and the current
+	// checkout. Empty for Tier 1 (line drift) and Tier 2
+	// (rename within same file). Renderers can show "log
+	// pointed at OriginalFile, current code lives at File"
+	// when this is non-empty.
+	OriginalFile string
+
+	// OriginalFunc carries the LOG-side function/symbol
+	// name when Tier 2 (tail rename) detected the function
+	// was renamed. Empty for Tier 1 and Tier 3.
+	OriginalFunc string
+
+	// Reason classifies why this anchor was emitted so the
+	// downstream renderer can pick prose:
+	//   line_drift  — same file + same function, line numbers shifted
+	//   tail_rename — same file, function name changed
+	//   file_moved  — function lives in a different file now
+	// Empty / "" treated as line_drift for backward compat
+	// with anchors emitted before this field existed.
+	Reason DriftReason
 }
+
+// DriftReason classifies log-source drift for renderer
+// dispatch. Strings (rather than int enum) so the values
+// survive YAML / JSON round-trips and tests stay readable.
+type DriftReason string
+
+const (
+	DriftReasonLineDrift   DriftReason = "line_drift"
+	DriftReasonTailRename  DriftReason = "tail_rename"
+	DriftReasonFileMoved   DriftReason = "file_moved"
+)
 
 type StepSurfaceAnchor struct {
 	Name      string
@@ -759,29 +793,65 @@ func collectLogSourceAnchors(rm RequestModel, bundle *LogBundle, items []Evidenc
 		if file == "" || frame.Line <= 0 {
 			continue
 		}
-		candidates := byFile[file]
-		if len(candidates) == 0 {
-			continue
-		}
 		tail := normalizedSurfaceSymbolTail(frame.Func)
 		if tail == "" {
 			continue
 		}
-		bestLine, bestDelta := nearestLogSourceDriftAnchorLine(candidates, tail, frame.Line)
-		if bestLine == 0 || bestDelta <= minGap {
-			continue
+
+		// Tier 1 — exact file + exact tail (line drift in same
+		// place). Pre-T1.2 was the only path; preserves byte-
+		// identical behaviour when tail matches verbatim.
+		if candidates := byFile[file]; len(candidates) > 0 {
+			bestLine, bestDelta := nearestLogSourceDriftAnchorLine(candidates, tail, frame.Line)
+			if bestLine != 0 && bestDelta > minGap {
+				key := fmt.Sprintf("t1|%s|%s|%d|%d", file, tail, frame.Line, bestLine)
+				if !seen[key] {
+					seen[key] = true
+					out = append(out, LogSourceDriftAnchor{
+						File:         file,
+						Func:         strings.TrimSpace(frame.Func),
+						ObservedLine: frame.Line,
+						AnchoredLine: bestLine,
+						Reason:       DriftReasonLineDrift,
+					})
+				}
+				continue
+			}
+
+			// Tier 2 — exact file + fuzzy tail (function renamed
+			// within the same file). Only fires when same-file
+			// candidates exist but Tier 1 found no exact-tail match
+			// AND the candidate set is small enough (<=10) that a
+			// fuzzy match is statistically meaningful (large files
+			// with 30 functions and one matches "fooBar" → too many
+			// false positives).
+			if len(candidates) <= 10 {
+				if anchor, ok := nearestLogSourceDriftFuzzyAnchor(candidates, tail, frame); ok {
+					key := fmt.Sprintf("t2|%s|%s|%d|%d", file, tail, frame.Line, anchor.AnchoredLine)
+					if !seen[key] {
+						seen[key] = true
+						out = append(out, anchor)
+					}
+					continue
+				}
+			}
 		}
-		key := fmt.Sprintf("%s|%s|%d|%d", file, tail, frame.Line, bestLine)
-		if seen[key] {
-			continue
+
+		// Tier 3 — cross-file move (same tail in a different file).
+		// Fires only when frame.File has zero evidence AND the tail
+		// uniquely identifies one evidence item elsewhere. Both
+		// gates protect against ambiguous matches: a tail like
+		// "handle" could appear in many files, but if it appears in
+		// EXACTLY ONE evidence item the move is unambiguous.
+		if _, sameFileSeen := byFile[file]; !sameFileSeen {
+			if anchor, ok := nearestLogSourceDriftCrossFileAnchor(items, tail, frame); ok {
+				key := fmt.Sprintf("t3|%s|%s|%d|%d|%s", file, tail, frame.Line, anchor.AnchoredLine, anchor.File)
+				if !seen[key] {
+					seen[key] = true
+					out = append(out, anchor)
+				}
+			}
 		}
-		seen[key] = true
-		out = append(out, LogSourceDriftAnchor{
-			File:         file,
-			Func:         strings.TrimSpace(frame.Func),
-			ObservedLine: frame.Line,
-			AnchoredLine: bestLine,
-		})
 	}
 
 	sort.SliceStable(out, func(i, j int) bool {
@@ -825,6 +895,160 @@ func nearestLogSourceDriftAnchorLineByPass(candidates []EvidenceItem, tail strin
 		}
 	}
 	return bestLine, bestDelta
+}
+
+// nearestLogSourceDriftFuzzyAnchor implements Tier 2: same-file
+// candidates exist but no exact tail match. Try a fuzzy similarity
+// check: substring containment (one is in the other) for length
+// >= 4 OR Levenshtein distance ≤ 2 for length >= 5. Symmetric
+// length floor avoids 3-char false positives like `do` matching
+// `doX`. The picked candidate's tail is recorded as OriginalFunc.
+func nearestLogSourceDriftFuzzyAnchor(candidates []EvidenceItem, tail string, frame LogFrame) (LogSourceDriftAnchor, bool) {
+	bestLine := 0
+	bestDelta := 0
+	bestRenamedTail := ""
+	for _, item := range candidates {
+		if item.AnchorKind != AnchorDefinition {
+			continue
+		}
+		for _, candidateTail := range logSourceDriftCandidateTails(item, true) {
+			if candidateTail == tail {
+				continue // exact match would have hit Tier 1
+			}
+			if !logSourceDriftFuzzyTailMatch(candidateTail, tail) {
+				continue
+			}
+			line := item.LineStart
+			if line <= 0 {
+				continue
+			}
+			delta := absInt(line - frame.Line)
+			if bestLine == 0 || delta < bestDelta {
+				bestLine = line
+				bestDelta = delta
+				bestRenamedTail = candidateTail
+			}
+		}
+	}
+	if bestLine == 0 {
+		return LogSourceDriftAnchor{}, false
+	}
+	return LogSourceDriftAnchor{
+		File:         strings.TrimSpace(strings.ReplaceAll(frame.File, `\`, `/`)),
+		Func:         bestRenamedTail,
+		ObservedLine: frame.Line,
+		AnchoredLine: bestLine,
+		OriginalFunc: strings.TrimSpace(frame.Func),
+		Reason:       DriftReasonTailRename,
+	}, true
+}
+
+// nearestLogSourceDriftCrossFileAnchor implements Tier 3: the
+// log's frame.File is absent from the evidence pool (file was
+// moved / renamed at the path level), but the symbol tail
+// matches EXACTLY ONE evidence item elsewhere. The unique-match
+// gate is critical: a generic tail like "handle" might appear
+// in many files; only when there's a single hit do we consider
+// the move resolved.
+func nearestLogSourceDriftCrossFileAnchor(items []EvidenceItem, tail string, frame LogFrame) (LogSourceDriftAnchor, bool) {
+	type hit struct {
+		file string
+		line int
+	}
+	var matches []hit
+	for _, item := range items {
+		if item.AnchorKind != AnchorDefinition {
+			continue
+		}
+		for _, candidateTail := range logSourceDriftCandidateTails(item, true) {
+			if candidateTail != tail {
+				continue
+			}
+			source := strings.TrimSpace(strings.ReplaceAll(item.Source, `\`, `/`))
+			if source == "" || item.LineStart <= 0 {
+				continue
+			}
+			matches = append(matches, hit{file: source, line: item.LineStart})
+			break // one tail-match per item is enough
+		}
+	}
+	if len(matches) != 1 {
+		return LogSourceDriftAnchor{}, false
+	}
+	return LogSourceDriftAnchor{
+		File:         matches[0].file,
+		Func:         strings.TrimSpace(frame.Func),
+		ObservedLine: frame.Line,
+		AnchoredLine: matches[0].line,
+		OriginalFile: strings.TrimSpace(strings.ReplaceAll(frame.File, `\`, `/`)),
+		Reason:       DriftReasonFileMoved,
+	}, true
+}
+
+// logSourceDriftFuzzyTailMatch returns true when two tail tokens
+// are similar enough to plausibly represent the same renamed
+// function. Two checks:
+//   1. Substring containment (one is in the other) for length ≥ 4 —
+//      catches prefix/suffix renames (FooHandler → FooHandlerV2).
+//   2. Levenshtein distance ≤ 2 for length ≥ 5 — catches typo /
+//      single-letter rename (handleAuth → handleAuthN).
+// Bounds are conservative: short tokens (do, run, go) and long
+// tokens (>30 chars) bypass the fuzzy match — the former because
+// false-positive risk is too high, the latter because Levenshtein
+// becomes O(n²) on long strings without buying anything.
+func logSourceDriftFuzzyTailMatch(a, b string) bool {
+	a = strings.ToLower(a)
+	b = strings.ToLower(b)
+	if a == b || a == "" || b == "" {
+		return false // exact match path is Tier 1
+	}
+	if len(a) >= 4 && len(b) >= 4 {
+		if strings.Contains(a, b) || strings.Contains(b, a) {
+			return true
+		}
+	}
+	if len(a) >= 5 && len(b) >= 5 && len(a) <= 30 && len(b) <= 30 {
+		if logSourceDriftLevenshtein(a, b) <= 2 {
+			return true
+		}
+	}
+	return false
+}
+
+// logSourceDriftLevenshtein returns the edit distance between two
+// strings using a single-row DP. Caller-bounded by length so the
+// O(n*m) cost stays cheap (max 30*30=900 operations).
+func logSourceDriftLevenshtein(a, b string) int {
+	if a == b {
+		return 0
+	}
+	la, lb := len(a), len(b)
+	prev := make([]int, lb+1)
+	curr := make([]int, lb+1)
+	for j := 0; j <= lb; j++ {
+		prev[j] = j
+	}
+	for i := 1; i <= la; i++ {
+		curr[0] = i
+		for j := 1; j <= lb; j++ {
+			cost := 1
+			if a[i-1] == b[j-1] {
+				cost = 0
+			}
+			del := prev[j] + 1
+			ins := curr[j-1] + 1
+			sub := prev[j-1] + cost
+			curr[j] = del
+			if ins < curr[j] {
+				curr[j] = ins
+			}
+			if sub < curr[j] {
+				curr[j] = sub
+			}
+		}
+		prev, curr = curr, prev
+	}
+	return prev[lb]
 }
 
 func logSourceDriftCandidateTails(item EvidenceItem, definitionOnly bool) []string {
