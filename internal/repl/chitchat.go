@@ -939,7 +939,27 @@ current message. Concrete rules:
   content. Pipeline-to-pipeline follow-ups stay in the pipeline.
 
 - When priorTurn is absent (no '## priorTurn:' section), ignore this
-  block entirely and classify by current message content.`
+  block entirely and classify by current message content.
+
+- The hint may carry an attachment=true token when the user has
+  a sticky runtime log (set via /log <path>) or perf trace (set
+  via /htrace) attached to the session. Routing rules under
+  attachment:
+    * If the current message references the attachment content
+      (panic, exception, stack frame, perf metric, error message,
+      or any code-side analysis of the attached payload), route
+      to repo_question — the pipeline path consumes the attachment
+      via log_triage / perf_triage; chitchat does not.
+    * If the current message is unrelated to the attachment
+      (memory-meta, greeting, capability question, casual chat),
+      route to chitchat normally — the chitchat handler ignores
+      the attachment field, so the sticky payload survives for
+      the next pipeline turn.
+    * Treat attachment=true as a SOFT signal: weighted toward
+      repo_question only when the message also mentions the
+      attached content. Never as a hard route — a clear chitchat
+      signal in the message itself (e.g. "记忆里都有什么")
+      always wins over the attachment hint.`
 
 // llmChitchatClassifier is the default ChitchatClassifier. One
 // adapter.Chat call per turn, with tool_choice=required and the local

@@ -206,6 +206,12 @@ func TestChitchatClassifierSystemPrompt_TeachesPriorTurnRouting(t *testing.T) {
 		"Do NOT route to chitchat just because", // false-positive guard
 		"Pipeline-to-pipeline",                  // pipeline-prior path stays
 		"absent",           // empty hint behaviour
+		// T2.2 attachment routing — replaces the hard-coded REPL-side
+		// skip with prompt-driven LLM judgement.
+		"attachment=true",                  // signal name
+		"references the attachment content", // route-to-repo trigger
+		"unrelated to the attachment",      // route-to-chitchat trigger
+		"SOFT signal",                      // weighting discipline
 	}
 	for _, sub := range mustContain {
 		if !strings.Contains(chitchatClassifierSystemPrompt, sub) {

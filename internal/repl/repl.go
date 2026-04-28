@@ -1266,17 +1266,42 @@ func (r *REPL) dispatch(line, display string) {
 	// `/mode plan|apply|verify` is an explicit user intent to drive
 	// the write pipeline — skip the classifier so a "no repo context"
 	// verdict cannot reroute a write-mode turn to chit-chat.
+	// `/mode plan|apply|verify` is an explicit user intent to drive
+	// the write pipeline — skip the classifier so a "no repo context"
+	// verdict cannot reroute a write-mode turn to chit-chat.
+	//
+	// Pre-T2.2 the gate also skipped when attachedLog / attachedHitrace
+	// was sticky, on the theory that "user attached a log → must want
+	// pipeline analysis." That hard-coded routing rule conflicts with
+	// `feedback_no_custom_keyword_matching.md` (LLM mis-classification
+	// is a prompt-quality issue, not a Go-side override). The
+	// attachment signal is now passed to the classifier as part of
+	// priorTurnHint so the LLM judges by content: a log-related code
+	// question with attachedLog still routes to repo_question (LLM
+	// reads the attachment + current message and decides), while a
+	// pure memory-meta question that happens to follow a sticky
+	// attached log correctly routes to chitchat (chitchat doesn't
+	// consume the attachment).
 	if r.currentMode == types.ModeRead &&
-		r.chitchatClassifier != nil && r.chitchatResponder != nil &&
-		!r.attachedLogAutoRouted &&
-		strings.TrimSpace(r.attachedLog) == "" &&
-		strings.TrimSpace(r.attachedHitrace) == "" {
+		r.chitchatClassifier != nil && r.chitchatResponder != nil {
 		// Build a compact 1-line hint from the most recent turn so
 		// the classifier can disambiguate continuation references
 		// (e.g. "expand 10" after a list_memory listing). Empty
 		// hint on first turn / no recent buffer / nil store
 		// preserves byte-identical pre-fix behaviour.
 		hint := r.buildPriorTurnHint()
+		// Add structured attachment signal so the LLM can route
+		// based on whether the user is referencing the attachment.
+		// Format mirrors the priorTurn shape: space-separated
+		// key=value pairs the prompt teaches as load-bearing.
+		if hasAttach := r.attachedLog != "" || r.attachedHitrace != "" ||
+			r.attachedLogAutoRouted; hasAttach {
+			if hint != "" {
+				hint += " attachment=true"
+			} else {
+				hint = "attachment=true"
+			}
+		}
 		// Per-turn ctx so a Ctrl+C during the classifier LLM call
 		// closes the HTTP socket immediately. Cleared after dispatch
 		// completes so the chitchat path can install its own ctx.

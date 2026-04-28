@@ -381,12 +381,19 @@ func TestChitchatClassifier_ErrorFallsThroughToRunner(t *testing.T) {
 	}
 }
 
-// TestChitchatClassifier_SkipsWhenAttachedLogPresent verifies the
-// explicit log skip rule: when the user has attached a runtime log
-// via /log, classifier is bypassed because a log is strong evidence
-// of a code question. Saves an LLM call and avoids classifying a
-// turn where the user's intent is already unambiguous.
-func TestChitchatClassifier_SkipsWhenAttachedLogPresent(t *testing.T) {
+// TestChitchatClassifier_AttachedLogPassesAttachmentSignal verifies
+// the post-T2.2 contract: the classifier IS called when an
+// attached log is sticky (the prior hard-coded skip rule was
+// removed because it conflicted with the no-keyword-matching red
+// line). Instead, the priorTurnHint carries an `attachment=true`
+// token so the LLM judges by content — a log-related code question
+// gets routed to repo_question, a memory-meta drift turn to
+// chitchat. This test pins both:
+//   (a) classifier IS invoked
+//   (b) the hint embeds `attachment=true`
+// Routing direction itself is exercised by the prompt and verified
+// in the prompt-content guard test.
+func TestChitchatClassifier_AttachedLogPassesAttachmentSignal(t *testing.T) {
 	dir := t.TempDir()
 	store, err := memory.NewStore(dir, stubSummarizer{}, types.MemorySettings{})
 	if err != nil {
@@ -398,7 +405,9 @@ func TestChitchatClassifier_SkipsWhenAttachedLogPresent(t *testing.T) {
 	runner.SetAttachedLog("panic: boom")
 
 	resp := &stubResponder{reply: "should-not-appear"}
-	classifier := &stubClassifier{isChitchat: true}
+	// Stub returns repo_question (false) so the pipeline path runs —
+	// matches the realistic intent for a log-related question.
+	classifier := &stubClassifier{isChitchat: false}
 
 	out := &bytes.Buffer{}
 	r := New(Config{
@@ -415,17 +424,21 @@ func TestChitchatClassifier_SkipsWhenAttachedLogPresent(t *testing.T) {
 		ChitchatResponder:  resp,
 		ChitchatClassifier: classifier,
 	})
-	// Seed the REPL's attachedLog state to mirror /log or --log CLI.
 	r.attachedLog = "panic: boom"
 	if err := r.Loop(); err != nil {
 		t.Fatalf("Loop: %v", err)
 	}
 
-	if n := len(classifier.calls); n != 0 {
-		t.Errorf("classifier must be skipped when attached log present; calls=%d", n)
+	if n := len(classifier.calls); n != 1 {
+		t.Errorf("classifier MUST run (T2.2): calls=%d, want 1", n)
 	}
+	if len(classifier.hints) == 0 || !strings.Contains(classifier.hints[0], "attachment=true") {
+		t.Errorf("classifier hint must embed attachment=true signal; got %v", classifier.hints)
+	}
+	// Pipeline still receives the attached log (classifier returned
+	// repo_question; routing to chitchat would have skipped this).
 	if n := len(runner.seenLogs); n != 1 {
-		t.Errorf("runner must fire (pipeline path); seenLogs=%d, want 1", n)
+		t.Errorf("runner must fire when classifier=repo_question; seenLogs=%d, want 1", n)
 	}
 }
 
