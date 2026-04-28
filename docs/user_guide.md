@@ -376,6 +376,8 @@ llm:
 |---|---|---|
 | `memory_entity_min_runes` | `3` | 一条 IndexEntry 的 entity 至少要有这么多个 Unicode rune 才参与子串匹配。设大可以过滤掉 `id`/`go`/`x` 这类短噪声 token,代价是漏掉真实的短符号 |
 | `memory_session_tie_breaker_bonus` | `1` | 同 session 命中已有非零得分时额外加多少分。仅做并列时排序,不会让无关条目浮上来 |
+| `memory_search_max_limit` | `20` | `Store.Search` `limit` opt 的硬上限。`recall_memory` / explorer recall 走这条路 |
+| `memory_list_max_limit` | `30` | `Store.List` `limit` opt 的硬上限(浏览模式,无关 query)。`list_memory` 工具走这条路 |
 
 **按 Kind 检索策略**(进阶,每个 Kind 的同 5 字段独立可调):
 
@@ -593,6 +595,8 @@ llm:
 | `--chitchat-classifier` (CLI flag) | — | 本次 run 覆盖 `chitchat_classifier_enabled`(三层优先级:code 默认 `true` → yaml → flag)。`--chitchat-classifier` 或 `=true` 强开,`=false` 强关,不传则 yaml 生效。适合调试误判时单次开关 |
 | `chitchat_recall_default_limit` | `5` | `/chat` 调 `recall_memory` 时,LLM 没传 `limit` 参数则用此默认值。建议保持 5(覆盖典型"我们之前讨论过 X 吗?"的话题) |
 | `chitchat_recall_max_limit` | `10` | `/chat` 调 `recall_memory` 时的 `limit` 硬上限,LLM 传更大值会被夹到此值。比 explorer 的 20 小,因为 chitchat 是单回合对话不是多步调查;太大会让第 2 轮 Chat 的 token 预算受压 |
+| `chitchat_list_default_limit` | `10` | `/chat` 调 `list_memory`(浏览模式)时的默认 limit。比 recall 的 5 大,因为 list 不做相关性筛选,正好用来"列最近 N 条" |
+| `chitchat_list_max_limit` | `30` | `/chat` 调 `list_memory` 时的 `limit` 硬上限。比 recall_max_limit 大,因为 list 仅渲染 Topic + Summary,per-entry token 成本更低 |
 
 providers.yaml 分类器路由示例:
 

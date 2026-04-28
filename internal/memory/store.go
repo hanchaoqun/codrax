@@ -1652,7 +1652,10 @@ func (s *Store) Search(query string, opts SearchOpts) []IndexEntry {
 		return nil
 	}
 	limit := opts.Limit
-	const hardCap = 20
+	hardCap := s.settings.SearchMaxLimit
+	if hardCap <= 0 {
+		hardCap = 20
+	}
 	if limit <= 0 {
 		limit = 5
 	}
@@ -1867,7 +1870,10 @@ func (s *Store) List(opts ListOpts) []IndexEntry {
 		return nil
 	}
 	limit := opts.Limit
-	const hardCap = 30
+	hardCap := s.settings.ListMaxLimit
+	if hardCap <= 0 {
+		hardCap = 30
+	}
 	if limit <= 0 {
 		limit = 10
 	}

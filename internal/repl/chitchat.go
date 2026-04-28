@@ -385,7 +385,7 @@ func (r *llmChitchatResponder) RespondWithMemory(ctx context.Context, userLine, 
 		case "recall_memory":
 			toolReply = dispatchChitchatRecall(call, mem, r.settings)
 		case "list_memory":
-			toolReply = dispatchChitchatList(call, mem)
+			toolReply = dispatchChitchatList(call, mem, r.settings)
 		default:
 			toolReply = fmt.Sprintf("(tool %q not available — only recall_memory and list_memory are wired)", call.Name)
 			logging.Debug("[repl/chitchat] tool_use unknown tool=%q", call.Name)
@@ -479,7 +479,7 @@ func dispatchChitchatRecall(call llm.ToolCall, mem types.MemoryReader, settings 
 // alternative impls), surfaces a typed unavailable reply matching
 // the recall_memory unavailable shape so the LLM has a consistent
 // fail-mode.
-func dispatchChitchatList(call llm.ToolCall, mem types.MemoryReader) string {
+func dispatchChitchatList(call llm.ToolCall, mem types.MemoryReader, settings types.ChitchatSettings) string {
 	logging.Debug("[repl/chitchat] tool_use list_memory params=%s mem_nil=%t",
 		string(call.Params), mem == nil)
 	var p struct {
@@ -501,13 +501,13 @@ func dispatchChitchatList(call llm.ToolCall, mem types.MemoryReader) string {
 		logging.Debug("[repl/chitchat] tool_result list_memory unavailable: MemoryReader does not implement MemoryLister")
 		return "(list_memory unavailable: the wired MemoryReader does not support browse-mode listing in this build)"
 	}
+	settings = types.ResolvedChitchatSettings(settings)
 	limit := p.Limit
 	if limit <= 0 {
-		limit = 10
+		limit = settings.ListDefaultLimit
 	}
-	const hardCap = 30
-	if limit > hardCap {
-		limit = hardCap
+	if limit > settings.ListMaxLimit {
+		limit = settings.ListMaxLimit
 	}
 	entries := lister.List(types.MemoryListOpts{Limit: limit})
 	logging.Debug("[repl/chitchat] tool_result list_memory limit=%d entries=%d",

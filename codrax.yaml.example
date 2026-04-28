@@ -675,6 +675,13 @@
 # before the search runs.
 # chitchat_recall_max_limit: 10
 
+# list_memory tool — browse-mode listing (no relevance scoring,
+# returns the most-recent N entries). Default and hard-cap caps
+# track the recall_* pair; list mode usually surfaces fewer
+# per-entry tokens so the cap can be slightly larger.
+# chitchat_list_default_limit: 10
+# chitchat_list_max_limit: 30
+
 # ---------------------------------------------------------------------------
 # Environment recommendation pipeline (env_recommend_*)
 # ---------------------------------------------------------------------------
@@ -790,6 +797,15 @@
 # cross-session matches. Raise to 2-3 to bias more strongly toward
 # the live thread when answering follow-ups.
 # memory_session_tie_breaker_bonus: 1
+
+# Hard caps on Store.Search and Store.List `limit` opts. Search is the
+# relevance-ranked path used by the explorer's recall_memory and the
+# chitchat responder's recall tool; List is the browse-mode path used
+# by chitchat list_memory. Defaults match the historical hardcoded
+# literals (20 / 30); raise only if BuildContext's byte budget can
+# clearly absorb the extra matches without hurting downstream prompts.
+# memory_search_max_limit: 20
+# memory_list_max_limit: 30
 
 # ---------------------------------------------------------------------------
 # Per-Kind retrieval policy (memory_policy_*)

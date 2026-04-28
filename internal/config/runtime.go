@@ -351,6 +351,14 @@ type RuntimeSettings struct {
 	// Kind from types.DefaultMemoryKindPolicies.
 	MemoryEntityMinRunes         *int                          `yaml:"memory_entity_min_runes"`
 	MemorySessionTieBreakerBonus *int                          `yaml:"memory_session_tie_breaker_bonus"`
+
+	// MemorySearchMaxLimit / MemoryListMaxLimit — hard caps on
+	// Store.Search / Store.List `limit` opts. Default 20 / 30
+	// (matching the historical hardcoded literals); raise only when
+	// BuildContext's byte budget can clearly absorb the extra
+	// matches.
+	MemorySearchMaxLimit *int `yaml:"memory_search_max_limit"`
+	MemoryListMaxLimit   *int `yaml:"memory_list_max_limit"`
 	MemoryPolicyChitchat         *types.MemoryKindPolicy       `yaml:"memory_policy_chitchat,omitempty"`
 	MemoryPolicyShell            *types.MemoryKindPolicy       `yaml:"memory_policy_shell,omitempty"`
 	MemoryPolicyPipeline         *types.MemoryKindPolicy       `yaml:"memory_policy_pipeline,omitempty"`
@@ -419,6 +427,14 @@ type RuntimeSettings struct {
 	// nil → code default in types.DefaultChitchatSettings.
 	ChitchatRecallDefaultLimit *int `yaml:"chitchat_recall_default_limit"`
 	ChitchatRecallMaxLimit     *int `yaml:"chitchat_recall_max_limit"`
+
+	// Chitchat list_memory tool caps. Mirror the recall_* pair but
+	// for the browse-mode list tool: ListDefaultLimit is the default
+	// when the LLM omits `limit`, ListMaxLimit clamps user-supplied
+	// values. nil → code default in types.DefaultChitchatSettings
+	// (10 / 30, matching the historical hardcoded literals).
+	ChitchatListDefaultLimit *int `yaml:"chitchat_list_default_limit"`
+	ChitchatListMaxLimit     *int `yaml:"chitchat_list_max_limit"`
 
 	// env_recommend (environment diagnosis + install recommendation
 	// pipeline). All optional; nil → code default in

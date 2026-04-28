@@ -1751,6 +1751,12 @@ func initApp(cmd *cobra.Command, _ []string) error {
 		if rs.MemorySessionTieBreakerBonus != nil {
 			memCfg.SessionTieBreakerBonus = *rs.MemorySessionTieBreakerBonus
 		}
+		if rs.MemorySearchMaxLimit != nil {
+			memCfg.SearchMaxLimit = *rs.MemorySearchMaxLimit
+		}
+		if rs.MemoryListMaxLimit != nil {
+			memCfg.ListMaxLimit = *rs.MemoryListMaxLimit
+		}
 		// Per-Kind retrieval policy override. Only allocate the
 		// MemoryRetrievalPolicy struct when at least one sub-policy
 		// is supplied — keeps memCfg.Policy nil for the typical
@@ -2195,6 +2201,12 @@ func initApp(cmd *cobra.Command, _ []string) error {
 				}
 				if rs.ChitchatRecallMaxLimit != nil {
 					chitchatCfg.RecallMaxLimit = *rs.ChitchatRecallMaxLimit
+				}
+				if rs.ChitchatListDefaultLimit != nil {
+					chitchatCfg.ListDefaultLimit = *rs.ChitchatListDefaultLimit
+				}
+				if rs.ChitchatListMaxLimit != nil {
+					chitchatCfg.ListMaxLimit = *rs.ChitchatListMaxLimit
 				}
 			}
 			if r, ok := responder.(interface{ SetChitchatSettings(types.ChitchatSettings) }); ok {

@@ -932,6 +932,18 @@ type MemorySettings struct {
 	// etc.) can override per Kind without touching the struct's
 	// other fields.
 	Policy *MemoryRetrievalPolicy `yaml:"policy,omitempty"`
+
+	// SearchMaxLimit is the absolute hard cap on Store.Search's
+	// `limit` opt — values above this are clamped before retrieval
+	// runs so a misbehaving caller cannot exhaust BuildContext's
+	// byte budget by asking for too many matches. Default 20.
+	SearchMaxLimit int `yaml:"search_max_limit"`
+
+	// ListMaxLimit is the absolute hard cap on Store.List's `limit`
+	// opt (browse-mode listing). Default 30 — slightly larger than
+	// SearchMaxLimit because browse mode does not pay the same
+	// per-entry token cost as relevance-ranked retrieval.
+	ListMaxLimit int `yaml:"list_max_limit"`
 }
 
 // MemoryRetrievalPolicy bundles the per-Kind retrieval policies
@@ -1021,6 +1033,8 @@ func DefaultMemorySettings() MemorySettings {
 		MaxBuildContextMatches: 3,
 		EntityMinRunes:         3,
 		SessionTieBreakerBonus: 1,
+		SearchMaxLimit:         20,
+		ListMaxLimit:           30,
 		// Policy stays nil here. ResolvedMemorySettings does NOT
 		// hydrate it — internal/memory falls back to
 		// DefaultMemoryKindPolicies() per-Kind on a missing override.
@@ -1051,6 +1065,12 @@ func ResolvedMemorySettings(s MemorySettings) MemorySettings {
 	if s.SessionTieBreakerBonus == 0 {
 		s.SessionTieBreakerBonus = d.SessionTieBreakerBonus
 	}
+	if s.SearchMaxLimit <= 0 {
+		s.SearchMaxLimit = d.SearchMaxLimit
+	}
+	if s.ListMaxLimit <= 0 {
+		s.ListMaxLimit = d.ListMaxLimit
+	}
 	// s.Policy stays as-is: nil or partially populated. The memory
 	// package's policyFor lookup handles the "field-by-field merge
 	// against DefaultMemoryKindPolicies" semantics.
@@ -1074,6 +1094,19 @@ type ChitchatSettings struct {
 	// is one-shot conversation, not iterative investigation.
 	// Default 10.
 	RecallMaxLimit int `yaml:"recall_max_limit"`
+
+	// ListDefaultLimit is the default `limit` arg the chitchat
+	// list_memory tool applies when the LLM calls it without
+	// supplying one. Browse-mode listing is broader than relevance
+	// search; default 10 is the historical literal.
+	ListDefaultLimit int `yaml:"list_default_limit"`
+
+	// ListMaxLimit is the hard ceiling on the `limit` arg of
+	// the chitchat list_memory tool. Default 30 — slightly larger
+	// than RecallMaxLimit because list mode bypasses the relevance
+	// score and only carries Topic + Summary in the rendered tool
+	// result, so the per-entry token cost is lower.
+	ListMaxLimit int `yaml:"list_max_limit"`
 }
 
 // DefaultChitchatSettings returns the code defaults for the chitchat
@@ -1082,6 +1115,8 @@ func DefaultChitchatSettings() ChitchatSettings {
 	return ChitchatSettings{
 		RecallDefaultLimit: 5,
 		RecallMaxLimit:     10,
+		ListDefaultLimit:   10,
+		ListMaxLimit:       30,
 	}
 }
 
@@ -1094,6 +1129,12 @@ func ResolvedChitchatSettings(s ChitchatSettings) ChitchatSettings {
 	}
 	if s.RecallMaxLimit == 0 {
 		s.RecallMaxLimit = d.RecallMaxLimit
+	}
+	if s.ListDefaultLimit == 0 {
+		s.ListDefaultLimit = d.ListDefaultLimit
+	}
+	if s.ListMaxLimit == 0 {
+		s.ListMaxLimit = d.ListMaxLimit
 	}
 	return s
 }

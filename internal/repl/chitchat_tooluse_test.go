@@ -281,7 +281,7 @@ func TestDispatchChitchatList_HappyPath(t *testing.T) {
 	out := dispatchChitchatList(llm.ToolCall{
 		ID: "x", Name: "list_memory",
 		Params: json.RawMessage(`{"limit": 5}`),
-	}, lister)
+	}, lister, types.ChitchatSettings{})
 	if !strings.Contains(out, "[list_memory]") {
 		t.Errorf("missing list banner: %q", out)
 	}
@@ -306,7 +306,7 @@ func TestDispatchChitchatList_NilMemReturnsUnavailable(t *testing.T) {
 	}()
 	out := dispatchChitchatList(llm.ToolCall{
 		ID: "x", Name: "list_memory", Params: json.RawMessage(`{}`),
-	}, nil)
+	}, nil, types.ChitchatSettings{})
 	if !strings.Contains(out, "unavailable") {
 		t.Errorf("nil mem must produce typed unavailable reply; got %q", out)
 	}
@@ -319,7 +319,7 @@ func TestDispatchChitchatList_NilMemReturnsUnavailable(t *testing.T) {
 func TestDispatchChitchatList_NoListerCapability(t *testing.T) {
 	out := dispatchChitchatList(llm.ToolCall{
 		ID: "x", Name: "list_memory", Params: json.RawMessage(`{}`),
-	}, &stubMemReader{})
+	}, &stubMemReader{}, types.ChitchatSettings{})
 	// Either the Reader nil-check or the type-assertion message is
 	// fine; the load-bearing invariant is that we get a typed
 	// unavailable reply (not a panic) AND the message names the
@@ -338,7 +338,7 @@ func TestDispatchChitchatList_DefaultLimit(t *testing.T) {
 	lister := &stubChitchatLister{}
 	dispatchChitchatList(llm.ToolCall{
 		ID: "x", Name: "list_memory", Params: json.RawMessage(`{}`),
-	}, lister)
+	}, lister, types.ChitchatSettings{})
 	if lister.last.Limit != 10 {
 		t.Errorf("default limit should be 10; got %d", lister.last.Limit)
 	}
@@ -349,7 +349,7 @@ func TestDispatchChitchatList_HardCap(t *testing.T) {
 	lister := &stubChitchatLister{}
 	dispatchChitchatList(llm.ToolCall{
 		ID: "x", Name: "list_memory", Params: json.RawMessage(`{"limit": 999}`),
-	}, lister)
+	}, lister, types.ChitchatSettings{})
 	if lister.last.Limit != 30 {
 		t.Errorf("hard cap should be 30; got %d", lister.last.Limit)
 	}
