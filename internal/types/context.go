@@ -2228,6 +2228,34 @@ type AgentContext struct {
 	Commit   string `json:"commit"`
 	WorkDir  string `json:"work_dir,omitempty"`
 
+	// MainRepoRoot mirrors BusContext.MainRepoRoot — the original
+	// user-supplied target repo path BEFORE any worktree swap that
+	// write-mode stage hooks may perform. Tools (env_recommend bare-dir
+	// authorization, recall_memory diagnostics) read this when they
+	// need to talk about "the user's repo" rather than the sandbox.
+	// Empty in non-write paths is fine — RepoRoot is then the same dir.
+	MainRepoRoot string `json:"main_repo_root,omitempty"`
+
+	// Memory mirrors BusContext.Memory so the recall_memory tool can
+	// query prior-conversation memory from the agent dispatch path.
+	// Pre-this-fix, BuildAgentContext dropped Memory and the agent's
+	// executeTool then reconstructed a busCtx without it — causing
+	// recall_memory to return "unavailable" even in interactive REPL
+	// runs where the orchestrator HAD wired the adapter.
+	Memory MemoryReader `json:"-"`
+
+	// EnvFacts mirrors BusContext.EnvFacts (the env_recommend probe
+	// snapshot). Tools that surface install hints / bare-dir guidance
+	// (run_tests env_recommend integration, write-mode apply pre-hook
+	// fallback) read this. nil in single-shot CLI / when env_recommend
+	// is disabled.
+	EnvFacts *EnvFacts `json:"env_facts,omitempty"`
+
+	// EnvRecommendSettings mirrors BusContext.EnvRecommendSettings —
+	// the resolved yaml knobs for env_recommend (master switch, LLM
+	// fallback, sudo gate, cache TTL). Same consumers as EnvFacts.
+	EnvRecommendSettings EnvRecommendSettings `json:"env_recommend_settings,omitempty"`
+
 	// Mutable aliases the orchestrator's BusContext.Mutable so that
 	// tools dispatched from this agent (via BaseAgent.executeTool)
 	// can write to the shared region. This breaks the strict

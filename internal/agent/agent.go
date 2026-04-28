@@ -1610,17 +1610,30 @@ func (b *BaseAgent) executeTool(ctx *types.AgentContext, tc llm.ToolCall) (*type
 	if b.deps.Tools != nil {
 		if _, err := b.deps.Tools.Get(tc.Name); err == nil {
 			// The busCtx handed to a tool is intentionally narrow:
-			// only RepoRoot/Branch/Commit (read-only env info) plus
-			// Mutable (the shared, tool-writable region) are populated.
-			// All other BusContext fields are zero-valued, so tools
-			// physically cannot mutate stage-output state.
+			// RepoRoot / Branch / Commit / WorkDir / MainRepoRoot
+			// (read-only env info) plus Mutable (the shared,
+			// tool-writable region) plus AnalysisIR (read-only IR).
+			// Memory / EnvFacts / EnvRecommendSettings / Language /
+			// Preferences are read-only by construction (interface
+			// or value type) and tools depend on them — recall_memory
+			// reads Memory; run_tests env_recommend integration reads
+			// EnvFacts + EnvRecommendSettings + Language; reports
+			// honour Preferences. All other BusContext fields stay
+			// zero-valued, so tools physically cannot mutate
+			// stage-output state.
 			busCtx := &types.BusContext{
-				RepoRoot:   ctx.RepoRoot,
-				Branch:     ctx.Branch,
-				Commit:     ctx.Commit,
-				WorkDir:    ctx.WorkDir,
-				Mutable:    ctx.Mutable,
-				AnalysisIR: ctx.AnalysisIR,
+				RepoRoot:             ctx.RepoRoot,
+				Branch:               ctx.Branch,
+				Commit:               ctx.Commit,
+				WorkDir:              ctx.WorkDir,
+				MainRepoRoot:         ctx.MainRepoRoot,
+				Mutable:              ctx.Mutable,
+				AnalysisIR:           ctx.AnalysisIR,
+				Memory:               ctx.Memory,
+				EnvFacts:             ctx.EnvFacts,
+				EnvRecommendSettings: ctx.EnvRecommendSettings,
+				Language:             ctx.Language,
+				Preferences:          ctx.Preferences,
 			}
 			result, execErr := b.deps.Tools.Execute(busCtx, tc.Name, tc.Params)
 			if execErr != nil {

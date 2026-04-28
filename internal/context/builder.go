@@ -33,6 +33,7 @@ func BuildAgentContext(bus *types.BusContext, agentName types.AgentName, stage t
 		Branch:          bus.Branch,
 		Commit:          bus.Commit,
 		WorkDir:         bus.WorkDir,
+		MainRepoRoot:    bus.MainRepoRoot,
 		Mutable:         bus.Mutable,
 		AnalysisIR:      bus.AnalysisIR,
 		AttachedLog:     bus.AttachedLog,
@@ -43,6 +44,17 @@ func BuildAgentContext(bus *types.BusContext, agentName types.AgentName, stage t
 		// to BusContext. Zero-value preserves pre-write-mode
 		// behaviour byte-identically.
 		Mode: bus.Mode,
+		// Read-only handles + value-types that downstream tools need.
+		// Pre-this-fix these were stripped at the agent boundary; the
+		// recall_memory tool returned "unavailable" and the env_recommend
+		// integration was a no-op even in REPL runs that had the
+		// orchestrator wire them. They are read-only by construction
+		// (interface / pointer-to-immutable / value type), so adding
+		// them here does NOT widen the agent's mutation surface — the
+		// "agents are a narrow read-only view" contract is preserved.
+		Memory:               bus.Memory,
+		EnvFacts:             bus.EnvFacts,
+		EnvRecommendSettings: bus.EnvRecommendSettings,
 	}
 	// Mirror the validated log-triage bundle onto the AgentContext so
 	// analyzer / explorer / extractor / finalizer consumers can read

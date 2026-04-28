@@ -706,12 +706,18 @@ Examples of chitchat (not exhaustive — use structural judgement):
 - "hello", "你好", "谢谢" without a follow-on code question
 - "what can you do?", "你是谁?"
 - pleasantries, acknowledgements, meta-conversation about the tool
+- meta-references to the conversation itself rather than the codebase:
+  "记忆里有什么 / 之前我们聊过什么 / 历史里有 / 我之前问过什么"
+  "what's in memory / what did we discuss before / show me my history /
+  what have I asked you previously" — the chitchat handler has direct
+  access to recall_memory and is the right route for these.
 
 Examples of repo_question (not exhaustive):
 - "how does X work?", "X 在哪里被调用?"
 - "why did this panic happen?", "这个函数返回什么?"
 - any question that names a file, function, symbol, config key, or behaviour
-- any request to read, find, trace, compare, or explain code
+- any request to read, find, trace, compare, or explain CODE in the
+  repository (not the conversation history)
 
 When a turn looks ambiguous (e.g. a continuation like "那它呢" without
 prior context), emit repo_question — the pipeline handles it safely

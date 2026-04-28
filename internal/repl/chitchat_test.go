@@ -520,3 +520,41 @@ func TestChitchat_DoesNotTouchAttachedLogRunner(t *testing.T) {
 		t.Errorf("/chat must not re-set attached log; setCalls=%d", n)
 	}
 }
+
+// TestChitchatClassifierSystemPrompt_RoutesMemoryMetaToChitchat is
+// the prompt-level guard for the routing fix shipped in this
+// commit. Memory-meta questions like "找一下之前的记忆里 / what's
+// in memory" must route to the chitchat handler, NOT the pipeline.
+// Pre-fix the classifier prompt only listed pleasantries / "meta-
+// conversation about the tool" as chitchat triggers, so a
+// "find/search" verb on "记忆里" got classified as repo_question
+// and dispatched the explorer — where recall_memory unhelpfully
+// returns "unavailable". We pin the prompt KEYWORDS here so a
+// future edit dropping the memory-meta examples regresses this
+// test; testing the classifier's actual LLM-output is brittle and
+// out of scope.
+func TestChitchatClassifierSystemPrompt_RoutesMemoryMetaToChitchat(t *testing.T) {
+	mustContain := []string{
+		// zh meta-references
+		"记忆里",
+		"之前我们聊",
+		"历史里有",
+		// en meta-references
+		"what's in memory",
+		"what did we discuss before",
+		// concept tag — operators reading the prompt should
+		// understand WHY these route to chitchat
+		"meta-references to the conversation itself",
+		// repo_question side must explicitly say CODE (uppercase)
+		// so the LLM disambiguates "find/search" verbs by their
+		// object — repository code, not conversation history
+		"explain CODE",
+		"not the conversation history",
+	}
+	for _, sub := range mustContain {
+		if !strings.Contains(chitchatClassifierSystemPrompt, sub) {
+			t.Errorf("classifier prompt missing memory-meta routing keyword %q\nfull prompt:\n%s",
+				sub, chitchatClassifierSystemPrompt)
+		}
+	}
+}

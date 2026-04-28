@@ -2381,3 +2381,57 @@ func TestFormatStageReports_StripsThinkBlocks(t *testing.T) {
 		t.Errorf("formatStageReports dropped section header:\n%s", out)
 	}
 }
+
+// stubMemReader is the minimal MemoryReader fake the propagation
+// tests need — Search returns a single canned IndexEntry so callers
+// can detect "yes, the same instance flowed through".
+type stubMemReader struct{ tag string }
+
+func (s *stubMemReader) Search(query string, opts types.MemorySearchOpts) []types.MemoryIndexEntry {
+	return []types.MemoryIndexEntry{{ID: s.tag, Topic: query}}
+}
+
+// TestBuildAgentContext_PlumbsReadOnlyToolFields pins the regression
+// fix shipped in this commit: BuildAgentContext MUST propagate the
+// read-only fields tools depend on (Memory / EnvFacts /
+// EnvRecommendSettings / MainRepoRoot) from BusContext to
+// AgentContext. Pre-fix these were silently dropped, causing
+// recall_memory to return "unavailable" and the env_recommend
+// integration to be DOA in agent dispatch paths.
+func TestBuildAgentContext_PlumbsReadOnlyToolFields(t *testing.T) {
+	mem := &stubMemReader{tag: "MEM-PROP"}
+	facts := &types.EnvFacts{OS: "linux"}
+	settings := types.EnvRecommendSettings{Enabled: true}
+	bus := &types.BusContext{
+		RepoRoot:             "/tmp/repo",
+		MainRepoRoot:         "/home/user/orig-repo",
+		Mutable:              types.NewMutableState("q"),
+		Memory:               mem,
+		EnvFacts:             facts,
+		EnvRecommendSettings: settings,
+		Language:             "zh",
+	}
+	ac := BuildAgentContext(bus, types.AgentExplorer, types.StageExplore)
+
+	if ac.MainRepoRoot != "/home/user/orig-repo" {
+		t.Errorf("MainRepoRoot lost: got %q, want %q", ac.MainRepoRoot, "/home/user/orig-repo")
+	}
+	if ac.Memory == nil {
+		t.Fatalf("Memory dropped — recall_memory tool would see nil")
+	}
+	got := ac.Memory.Search("probe", types.MemorySearchOpts{})
+	if len(got) != 1 || got[0].ID != "MEM-PROP" {
+		t.Errorf("Memory adapter identity lost: %+v", got)
+	}
+	if ac.EnvFacts == nil || ac.EnvFacts.OS != "linux" {
+		t.Errorf("EnvFacts dropped: got %+v", ac.EnvFacts)
+	}
+	if !ac.EnvRecommendSettings.Enabled {
+		t.Errorf("EnvRecommendSettings dropped: got %+v", ac.EnvRecommendSettings)
+	}
+	// Language was already plumbed pre-fix; pin it here too so the
+	// "5 read-only fields" set is locked as a unit.
+	if ac.Language != "zh" {
+		t.Errorf("Language dropped: got %q", ac.Language)
+	}
+}
