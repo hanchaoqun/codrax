@@ -1344,14 +1344,20 @@ func TestEmitAnswerDocument_RejectsLeadOnlySurfaceWhenFollowOnGroundedContextIsR
 		"summary": "该精确配置键不存在。",
 	})
 	res, _ := tool.Execute(ctx, params)
-	if res.Success {
-		t.Fatal("lead-only summary should be rejected when follow-on grounded context is required")
+	if !res.Success {
+		t.Fatalf("lead-only summary should auto-expand to a validated follow-on grounded-context seed, got %+v", res.Repair)
 	}
-	if res.Repair == nil || res.Repair.Code != "follow_on_grounded_context" {
-		t.Fatalf("reject should expose follow_on_grounded_context repair metadata, got %+v", res.Repair)
+	doc := ctx.Mutable.AnswerDocument()
+	if doc == nil {
+		t.Fatal("answer document missing after successful emit")
 	}
-	if !strings.Contains(res.Repair.Hint, "do not collapse the answer to the exact-absence lead alone") {
-		t.Fatalf("repair hint should keep nearby grounded context visible, got %+v", res.Repair)
+	lead := renderAnswerDocumentExactResolutionLeadClean(ctx.AnalysisIR.AnswerContract.ExactResolution, &types.AnswerExactResolution{
+		Status:      types.AnswerExactResolutionAbsent,
+		ContextMode: types.AnswerExactResolutionContextGroundedOnly,
+	}, requestedAnswerDocumentLanguage(ctx))
+	body := exactContextSummaryBodyAfterLead(doc.Summary, lead)
+	if !strings.Contains(body, "DefaultExploreHeuristics") {
+		t.Fatalf("lead-only summary should expand to a validated nearby anchor, got %q", doc.Summary)
 	}
 }
 
@@ -2333,23 +2339,23 @@ func TestEmitAnswerDocument_ConfigTraceAbsenceRejectsBroadSameFamilyCitation(t *
 		},
 	})
 	res, _ := tool.Execute(ctx, params)
-	if res.Success {
-		t.Fatalf("broad same-family context without a validated precedence role should reject")
+	if !res.Success {
+		t.Fatalf("broad same-family context should auto-normalize onto validated nearby anchors, got reject: %+v", res.Repair)
 	}
-	if res.Repair == nil || res.Repair.Code != "config_trace_context_citation" {
-		t.Fatalf("reject should expose config_trace_context_citation repair metadata, got %+v", res.Repair)
+	doc := ctx.Mutable.AnswerDocument()
+	if doc == nil {
+		t.Fatal("answer document missing after successful emit")
 	}
-	if res.Repair.Metadata == nil || !strings.Contains(res.Repair.Metadata["allowed_citations"], "internal/config/runtime.go:231") || !strings.Contains(res.Repair.Metadata["allowed_citations"], "internal/types/config.go:707") {
-		t.Fatalf("reject should enumerate allowed related-context citations, got %+v", res.Repair)
+	for _, cit := range doc.Citations {
+		if cit.File == "internal/types/explore_budget.go" && cit.Line == 40 {
+			t.Fatalf("background-only same-family citation should be pruned from the final surface: %+v", doc.Citations)
+		}
 	}
-	if !strings.Contains(res.Repair.Metadata["allowed_anchors"], "DefaultExploreHeuristics") {
-		t.Fatalf("reject should enumerate validated visible-context anchors, got %+v", res.Repair)
+	if !strings.Contains(doc.Summary, "DefaultExploreHeuristics") {
+		t.Fatalf("normalized summary should fall back to a validated nearby anchor, got %q", doc.Summary)
 	}
-	if !strings.Contains(res.Repair.Metadata["forbidden_anchors"], "ExploreBudget") {
-		t.Fatalf("reject should mark broad same-family anchors as background-only, got %+v", res.Repair)
-	}
-	if got := res.Repair.Metadata["drop_citations"]; got != "internal/types/explore_budget.go:40" {
-		t.Fatalf("reject should identify the invalid citation to drop, got %+v", res.Repair)
+	if strings.Contains(doc.Summary, "ExploreBudget") {
+		t.Fatalf("normalized summary should keep broad background anchors off the final surface, got %q", doc.Summary)
 	}
 }
 
@@ -2427,23 +2433,20 @@ func TestEmitAnswerDocument_ConfigTraceAbsenceDowngradesSameScopeContextToProseO
 		},
 	})
 	res, _ := tool.Execute(ctx, params)
-	if res.Success {
-		t.Fatalf("same-scope prose-only context should not be citation-grade without a validated precedence role")
+	if !res.Success {
+		t.Fatalf("same-scope grounded context should downgrade to prose-only automatically, got reject: %+v", res.Repair)
 	}
-	if res.Repair == nil || res.Repair.Code != "config_trace_context_citation" {
-		t.Fatalf("reject should expose config_trace_context_citation repair metadata, got %+v", res.Repair)
+	doc := ctx.Mutable.AnswerDocument()
+	if doc == nil {
+		t.Fatal("answer document missing after successful emit")
 	}
-	if !strings.Contains(res.Repair.Hint, "prose-only grounded nearby context") {
-		t.Fatalf("reject hint should preserve prose-only context instead of dropping it, got %+v", res.Repair)
+	for _, cit := range doc.Citations {
+		if cit.File == "internal/types/config.go" && cit.Line == 707 {
+			t.Fatalf("same-scope prose-only context should not remain citation-grade without validated precedence role: %+v", doc.Citations)
+		}
 	}
-	if !strings.Contains(res.Repair.Metadata["prose_only_anchors"], "DefaultExploreHeuristics") {
-		t.Fatalf("reject should mark same-scope context as prose-only, got %+v", res.Repair)
-	}
-	if got := res.Repair.Metadata["drop_citations"]; got != "internal/types/config.go:707" {
-		t.Fatalf("reject should identify the prose-only citation to drop, got %+v", res.Repair)
-	}
-	if got := strings.TrimSpace(res.Repair.Metadata["forbidden_anchors"]); got != "" {
-		t.Fatalf("prose-only same-scope context should not be marked as forbidden background, got %+v", res.Repair)
+	if !strings.Contains(doc.Summary, "DefaultExploreHeuristics") {
+		t.Fatalf("same-scope context should remain visible as prose-only nearby context, got %q", doc.Summary)
 	}
 }
 
@@ -2510,17 +2513,22 @@ func TestEmitAnswerDocument_ConfigTraceAbsenceRequiresLineageCitationForGrounded
 		},
 	})
 	res, _ := tool.Execute(ctx, params)
-	if res.Success {
-		t.Fatalf("grounded_context_only summary should require at least one lineage citation")
+	if !res.Success {
+		t.Fatalf("grounded_context_only summary should auto-add a lineage citation when the nearby context remains visible, got %+v", res.Repair)
 	}
-	if res.Repair == nil || res.Repair.Code != "config_trace_context_citation" {
-		t.Fatalf("reject should expose config_trace_context_citation repair metadata, got %+v", res.Repair)
+	doc := ctx.Mutable.AnswerDocument()
+	if doc == nil {
+		t.Fatal("answer document missing after successful emit")
 	}
-	if !strings.Contains(res.Repair.Hint, "keep at least one grounded precedence anchor in `citations[]`") {
-		t.Fatalf("reject hint should require a lineage citation, got %+v", res.Repair)
+	found := false
+	for _, cit := range doc.Citations {
+		if cit.File == "internal/types/config.go" && cit.Line == 707 {
+			found = true
+			break
+		}
 	}
-	if !strings.Contains(res.Repair.Metadata["allowed_anchors"], "DefaultExploreHeuristics") {
-		t.Fatalf("reject should surface validated visible-context anchors when a lineage citation is required, got %+v", res.Repair)
+	if !found {
+		t.Fatalf("expected auto-added lineage citation for DefaultExploreHeuristics, got %+v", doc.Citations)
 	}
 }
 
@@ -2653,17 +2661,20 @@ func TestEmitAnswerDocument_ConfigTraceAbsenceRejectMarksProseOnlyCitationModeWh
 		},
 	})
 	res, _ := tool.Execute(ctx, params)
-	if res.Success {
-		t.Fatalf("nearby context citation should reject when no citation-grade lineage anchor exists")
+	if !res.Success {
+		t.Fatalf("nearby context without citation-grade lineage candidates should stay prose-only instead of rejecting, got %+v", res.Repair)
 	}
-	if res.Repair == nil || res.Repair.Code != "config_trace_context_citation" {
-		t.Fatalf("reject should expose config_trace_context_citation repair metadata, got %+v", res.Repair)
+	doc := ctx.Mutable.AnswerDocument()
+	if doc == nil {
+		t.Fatal("answer document missing after successful emit")
 	}
-	if got := res.Repair.Metadata["nearby_context_citation_mode"]; got != "prose_only" {
-		t.Fatalf("reject should mark nearby context as prose-only citation mode, got %+v", res.Repair)
+	for _, cit := range doc.Citations {
+		if cit.File == "internal/types/config.go" && cit.Line == 707 {
+			t.Fatalf("prose-only nearby context should be uncited when no lineage candidate exists: %+v", doc.Citations)
+		}
 	}
-	if got := res.Repair.Metadata["preferred_context_mode"]; got != string(types.AnswerExactResolutionContextGroundedOnly) {
-		t.Fatalf("reject should preserve grounded_context_only as the preferred context mode, got %+v", res.Repair)
+	if !strings.Contains(doc.Summary, "DefaultExploreHeuristics") {
+		t.Fatalf("prose-only nearby context should remain visible in summary, got %q", doc.Summary)
 	}
 }
 
@@ -2800,12 +2811,12 @@ func TestEmitAnswerDocument_AbsentExactResolutionRequiresGroundedContextModeForN
 	if err != nil {
 		t.Fatalf("resolveAnswerDocumentExactResolution: %v", err)
 	}
-	err = validateAnswerDocumentExactResolutionProof(resolvedExact, citations, nil, ctx)
-	if err == nil {
-		t.Fatalf("direct exact-resolution proof validation should require grounded_context_only when nearby citations survive")
+	if resolvedExact.ContextMode != types.AnswerExactResolutionContextGroundedOnly {
+		t.Fatalf("resolved exact-resolution should compile grounded_context_only automatically, got %+v", resolvedExact)
 	}
-	if !strings.Contains(err.Error(), "grounded_context_only") {
-		t.Fatalf("reject should instruct the caller to set exact_resolution.context_mode=grounded_context_only, got %q", err)
+	err = validateAnswerDocumentExactResolutionProof(resolvedExact, citations, nil, ctx)
+	if err != nil {
+		t.Fatalf("compiled exact-resolution should already satisfy grounded_context_only when nearby citations survive, got %v", err)
 	}
 }
 
@@ -2945,20 +2956,23 @@ func TestEmitAnswerDocument_RejectsExactTargetRestatedInGroundedContextSummary(t
 		},
 	})
 	res, _ := tool.Execute(ctx, params)
-	if res.Success {
-		t.Fatalf("summary should not restate the exact target once exact_resolution renders the lead")
+	if !res.Success {
+		t.Fatalf("summary should auto-normalize onto grounded nearby context after the exact lead, got reject: %+v", res.Repair)
 	}
-	if res.Repair == nil || res.Repair.Code != "exact_context_surface" {
-		t.Fatalf("reject should expose exact_context_surface repair metadata, got %+v", res.Repair)
+	doc := ctx.Mutable.AnswerDocument()
+	if doc == nil {
+		t.Fatal("answer document missing after successful emit")
 	}
-	if got := res.Repair.Metadata["repeated_target"]; got != "`explore_mid_loop_hint_budget`" {
-		t.Fatalf("repeated target metadata = %q, want exact target", got)
+	lead := renderAnswerDocumentExactResolutionLeadClean(ctx.AnalysisIR.AnswerContract.ExactResolution, &types.AnswerExactResolution{
+		Status:      types.AnswerExactResolutionAbsent,
+		ContextMode: types.AnswerExactResolutionContextGroundedOnly,
+	}, requestedAnswerDocumentLanguage(ctx))
+	body := exactContextSummaryBodyAfterLead(doc.Summary, lead)
+	if strings.Contains(body, target) {
+		t.Fatalf("nearby grounded-context body should not restate the exact target after the lead, got %q", body)
 	}
-	if got := res.Repair.Metadata["lead_source"]; got != "exact_resolution" {
-		t.Fatalf("lead_source metadata = %q, want exact_resolution", got)
-	}
-	if !strings.Contains(res.Repair.Metadata["allowed_anchors"], "DefaultExploreHeuristics") {
-		t.Fatalf("allowed_anchors metadata should surface nearby grounded context, got %+v", res.Repair)
+	if !strings.Contains(body, "DefaultExploreHeuristics") {
+		t.Fatalf("nearby grounded-context body should stay on validated anchors, got %q", body)
 	}
 }
 
@@ -3044,6 +3058,280 @@ func TestEmitAnswerDocument_StripsLeadingExactAbsenceRestatementWhenNearbyContex
 	}
 	if !strings.Contains(doc.Summary, "DefaultExploreHeuristics") || !strings.Contains(doc.Summary, "ExploreHeuristics") {
 		t.Fatalf("sanitized summary lost nearby grounded context: %q", doc.Summary)
+	}
+}
+
+func TestEmitAnswerDocument_FallsBackToFollowOnGroundedContextSeedWhenRestatementConsumesSummary(t *testing.T) {
+	tool := &EmitAnswerDocument{}
+	ctx := newDocBusCtx("")
+	target := "explore_mid_loop_hint_budget"
+	ctx.AnalysisIR = &types.AnalysisIR{
+		RequestModel: types.RequestModel{
+			Scenario: types.ScenarioConfigTrace,
+			AnalyzerHints: types.AnalyzerHints{
+				Kind:         "config_mapping",
+				ExactTargets: []string{target},
+			},
+			AnswerSubject: types.AnswerSubject{Kind: types.SubjectConfigKey},
+		},
+		AnswerContract: types.AnswerContract{
+			RequiredAnswerShape: types.ShapeExplanation,
+			ExactResolution: &types.ExactResolutionContract{
+				TargetKind:              types.SubjectConfigKey,
+				TargetLabel:             "config key",
+				Targets:                 []string{target},
+				AllowAbsence:            true,
+				RequireTargetMention:    true,
+				AliasRequiresProof:      true,
+				RelatedContextPolicy:    types.ExactContextSameFamilyGrounded,
+				RelatedContextScopeHint: "same namespace / prefix family",
+			},
+		},
+	}
+	ctx.Mutable.SetAbsenceJustification("repo-wide search found no exact key")
+	ctx.Mutable.SetInvestigationResultKind("absence")
+	ctx.Mutable.SetExactContextRequiredFiles([]string{"internal/types/config.go"})
+	ctx.Mutable.AppendEvidence([]types.EvidenceItem{
+		{
+			Kind:            types.EvidenceDirect,
+			Source:          "internal/types/config.go",
+			LineStart:       707,
+			AnchorKind:      types.AnchorDefinition,
+			AnchorSymbol:    "DefaultExploreHeuristics",
+			ContextRole:     types.EvidenceContextRoleRelatedContext,
+			DiagramRole:     types.EvidenceDiagramRoleDefault,
+			GroundingStatus: types.GroundingGrounded,
+			GroundingTier:   types.TierLineText,
+		},
+		{
+			Kind:            types.EvidenceDirect,
+			Source:          "internal/types/config.go",
+			LineStart:       627,
+			AnchorKind:      types.AnchorDefinition,
+			AnchorSymbol:    "ExploreHeuristics",
+			ContextRole:     types.EvidenceContextRoleRelatedContext,
+			GroundingStatus: types.GroundingGrounded,
+			GroundingTier:   types.TierLineText,
+		},
+	})
+	params := mustDocJSON(t, map[string]interface{}{
+		"shape": "explanation",
+		"exact_resolution": map[string]interface{}{
+			"status":       "absent",
+			"context_mode": "grounded_context_only",
+		},
+		"summary": "仓库中不存在 `explore_mid_loop_hint_budget`。`explore_mid_loop_hint_budget` 也没有任何 YAML、JSON、CLI 或代码默认值绑定。",
+		"citations": []map[string]interface{}{
+			{"file": "internal/types/config.go", "line": 707},
+		},
+	})
+	res, _ := tool.Execute(ctx, params)
+	if !res.Success {
+		t.Fatalf("follow-on grounded-context mode should fall back to validated nearby-context seed, got %+v", res)
+	}
+	doc := ctx.Mutable.AnswerDocument()
+	if doc == nil {
+		t.Fatal("answer document missing after successful emit")
+	}
+	lead := renderAnswerDocumentExactResolutionLeadClean(ctx.AnalysisIR.AnswerContract.ExactResolution, &types.AnswerExactResolution{
+		Status:      types.AnswerExactResolutionAbsent,
+		ContextMode: types.AnswerExactResolutionContextGroundedOnly,
+	}, requestedAnswerDocumentLanguage(ctx))
+	body := exactContextSummaryBodyAfterLead(doc.Summary, lead)
+	if strings.Contains(body, target) {
+		t.Fatalf("fallback nearby-context body should not restate exact target, got %q", body)
+	}
+	if !strings.Contains(body, "DefaultExploreHeuristics") {
+		t.Fatalf("fallback summary should include a validated nearby-context seed, got %q", doc.Summary)
+	}
+}
+
+func TestEmitAnswerDocument_PrunesFollowOnGroundedContextCitationsToCitationGradeSet(t *testing.T) {
+	tool := &EmitAnswerDocument{}
+	ctx := newDocBusCtx("")
+	target := "explore_mid_loop_hint_budget"
+	ctx.AnalysisIR = &types.AnalysisIR{
+		RequestModel: types.RequestModel{
+			Scenario: types.ScenarioConfigTrace,
+			AnalyzerHints: types.AnalyzerHints{
+				Kind:         "config_mapping",
+				ExactTargets: []string{target},
+			},
+			AnswerSubject: types.AnswerSubject{Kind: types.SubjectConfigKey},
+		},
+		AnswerContract: types.AnswerContract{
+			RequiredAnswerShape: types.ShapeExplanation,
+			ExactResolution: &types.ExactResolutionContract{
+				TargetKind:              types.SubjectConfigKey,
+				TargetLabel:             "config key",
+				Targets:                 []string{target},
+				AllowAbsence:            true,
+				RequireTargetMention:    true,
+				AliasRequiresProof:      true,
+				RelatedContextPolicy:    types.ExactContextSameFamilyGrounded,
+				RelatedContextScopeHint: "same namespace / prefix family",
+			},
+		},
+	}
+	ctx.Mutable.SetAbsenceJustification("repo-wide search found no exact key")
+	ctx.Mutable.SetInvestigationResultKind("absence")
+	ctx.Mutable.SetExactContextRequiredFiles([]string{"internal/types/config.go"})
+	ctx.Mutable.AppendEvidence([]types.EvidenceItem{
+		{
+			Kind:            types.EvidenceDirect,
+			Source:          "internal/config/runtime.go",
+			LineStart:       231,
+			AnchorKind:      types.AnchorDefinition,
+			AnchorSymbol:    "ExploreMidLoopMinIteration",
+			ContextRole:     types.EvidenceContextRoleAbsenceSupport,
+			GroundingStatus: types.GroundingGrounded,
+			GroundingTier:   types.TierLineText,
+		},
+		{
+			Kind:            types.EvidenceDirect,
+			Source:          "internal/types/config.go",
+			LineStart:       707,
+			AnchorKind:      types.AnchorDefinition,
+			AnchorSymbol:    "DefaultExploreHeuristics",
+			ContextRole:     types.EvidenceContextRoleRelatedContext,
+			DiagramRole:     types.EvidenceDiagramRoleDefault,
+			GroundingStatus: types.GroundingGrounded,
+			GroundingTier:   types.TierLineText,
+		},
+		{
+			Kind:            types.EvidenceDirect,
+			Source:          "internal/types/explore_budget.go",
+			LineStart:       40,
+			AnchorKind:      types.AnchorDefinition,
+			AnchorSymbol:    "ExploreBudget",
+			ContextRole:     types.EvidenceContextRoleRelatedContext,
+			GroundingStatus: types.GroundingGrounded,
+			GroundingTier:   types.TierLineText,
+		},
+	})
+	params := mustDocJSON(t, map[string]interface{}{
+		"shape": "explanation",
+		"exact_resolution": map[string]interface{}{
+			"status":       "absent",
+			"context_mode": "grounded_context_only",
+		},
+		"summary": "### Nearby grounded context\n\n`DefaultExploreHeuristics()` explains the nearby defaults-side behavior for this same-family config path.",
+		"citations": []map[string]interface{}{
+			{"file": "internal/config/runtime.go", "line": 231},
+			{"file": "internal/types/config.go", "line": 707},
+			{"file": "internal/types/explore_budget.go", "line": 40},
+		},
+	})
+	res, _ := tool.Execute(ctx, params)
+	if !res.Success {
+		t.Fatalf("follow-on grounded-context citations should prune to the citation-grade set, got %+v", res)
+	}
+	doc := ctx.Mutable.AnswerDocument()
+	if doc == nil {
+		t.Fatal("answer document missing after successful emit")
+	}
+	if len(doc.Citations) != 2 {
+		t.Fatalf("citations = %+v, want 2 kept citations", doc.Citations)
+	}
+	for _, cit := range doc.Citations {
+		if cit.File == "internal/types/explore_budget.go" && cit.Line == 40 {
+			t.Fatalf("background-only citation should be pruned from follow-on grounded-context surface: %+v", doc.Citations)
+		}
+	}
+}
+
+func TestEmitAnswerDocument_AddsCitationGradeFollowOnGroundedContextCitationsWhenSummaryKeepsNearbyAnchors(t *testing.T) {
+	tool := &EmitAnswerDocument{}
+	ctx := newDocBusCtx("")
+	target := "explore_mid_loop_hint_budget"
+	ctx.AnalysisIR = &types.AnalysisIR{
+		RequestModel: types.RequestModel{
+			Scenario: types.ScenarioConfigTrace,
+			AnalyzerHints: types.AnalyzerHints{
+				Kind:         "config_mapping",
+				ExactTargets: []string{target},
+			},
+			AnswerSubject: types.AnswerSubject{Kind: types.SubjectConfigKey},
+		},
+		AnswerContract: types.AnswerContract{
+			RequiredAnswerShape: types.ShapeExplanation,
+			ExactResolution: &types.ExactResolutionContract{
+				TargetKind:              types.SubjectConfigKey,
+				TargetLabel:             "config key",
+				Targets:                 []string{target},
+				AllowAbsence:            true,
+				RequireTargetMention:    true,
+				AliasRequiresProof:      true,
+				RelatedContextPolicy:    types.ExactContextSameFamilyGrounded,
+				RelatedContextScopeHint: "same namespace / prefix family",
+			},
+		},
+	}
+	ctx.Mutable.SetAbsenceJustification("repo-wide search found no exact key")
+	ctx.Mutable.SetInvestigationResultKind("absence")
+	ctx.Mutable.SetExactContextRequiredFiles([]string{"internal/types/config.go"})
+	ctx.Mutable.AppendEvidence([]types.EvidenceItem{
+		{
+			Kind:            types.EvidenceDirect,
+			Source:          "internal/config/runtime.go",
+			LineStart:       231,
+			AnchorKind:      types.AnchorDefinition,
+			AnchorSymbol:    "RuntimeSettings",
+			ContextRole:     types.EvidenceContextRoleAbsenceSupport,
+			GroundingStatus: types.GroundingGrounded,
+			GroundingTier:   types.TierLineText,
+		},
+		{
+			Kind:            types.EvidenceDirect,
+			Source:          "internal/types/config.go",
+			LineStart:       707,
+			AnchorKind:      types.AnchorDefinition,
+			AnchorSymbol:    "DefaultExploreHeuristics",
+			ContextRole:     types.EvidenceContextRoleRelatedContext,
+			DiagramRole:     types.EvidenceDiagramRoleDefault,
+			GroundingStatus: types.GroundingGrounded,
+			GroundingTier:   types.TierLineText,
+		},
+		{
+			Kind:            types.EvidenceMechanism,
+			Source:          "internal/types/config.go",
+			LineStart:       729,
+			AnchorKind:      types.AnchorCall,
+			AnchorSymbol:    "ResolvedExploreHeuristics",
+			ContextRole:     types.EvidenceContextRoleRelatedContext,
+			DiagramRole:     types.EvidenceDiagramRoleRuntime,
+			GroundingStatus: types.GroundingGrounded,
+			GroundingTier:   types.TierLineText,
+		},
+	})
+	params := mustDocJSON(t, map[string]interface{}{
+		"shape": "explanation",
+		"exact_resolution": map[string]interface{}{
+			"status":       "absent",
+			"context_mode": "grounded_context_only",
+		},
+		"summary": "### 同族优先级机制\n\n`DefaultExploreHeuristics()` 提供代码默认值，`ResolvedExploreHeuristics()` 负责在运行时解析同族配置的最终值。",
+	})
+	res, _ := tool.Execute(ctx, params)
+	if !res.Success {
+		t.Fatalf("follow-on grounded-context mode should auto-add citation-grade nearby-context citations, got %+v", res)
+	}
+	doc := ctx.Mutable.AnswerDocument()
+	if doc == nil {
+		t.Fatal("answer document missing after successful emit")
+	}
+	if len(doc.Citations) == 0 {
+		t.Fatalf("expected auto-added citation-grade nearby-context citations, got none")
+	}
+	found := false
+	for _, cit := range doc.Citations {
+		if cit.File == "internal/types/config.go" && (cit.Line == 707 || cit.Line == 729) {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("expected at least one auto-added citation-grade nearby-context citation, got %+v", doc.Citations)
 	}
 }
 

@@ -230,6 +230,26 @@ func IsCallLikeEvidencePredicate(predicate string) bool {
 	return false
 }
 
+// IsNegativeEvidencePredicate reports whether a structured evidence
+// predicate encodes a negated / absence-style claim rather than a
+// positive defining relationship. This is intentionally schema-level:
+// callers should use the predicate the LLM already emitted as a
+// structured fact, instead of reparsing free-form prose.
+func IsNegativeEvidencePredicate(predicate string) bool {
+	p := strings.ToLower(strings.TrimSpace(predicate))
+	if p == "" {
+		return false
+	}
+	if strings.HasPrefix(p, "does not ") || strings.HasPrefix(p, "did not ") || strings.HasPrefix(p, "is not ") {
+		return true
+	}
+	switch p {
+	case "absent from", "confirms absent from", "lacks", "missing", "omits":
+		return true
+	}
+	return false
+}
+
 // EvidenceStructurallyMatchesRequirement reports whether an evidence
 // item's validated structure can contribute to the given requirement.
 //

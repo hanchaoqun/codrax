@@ -532,6 +532,65 @@ func TestEmitInvestigationComplete_ConfigAbsenceAllowsAbsenceSupportProductionMe
 	}
 }
 
+func TestEmitInvestigationComplete_ConfigAbsenceIgnoresNegativeProbeDefiningHints(t *testing.T) {
+	missingKey := "zz_absent_config_" + "knob"
+	mut := types.NewMutableState("q")
+	mut.AppendEvidence([]types.EvidenceItem{
+		{
+			Kind:            types.EvidenceDirect,
+			Source:          "internal/config/runtime.go",
+			LineStart:       231,
+			Subject:         "RuntimeSettings",
+			Predicate:       "does not bind",
+			Object:          missingKey,
+			AnchorKind:      types.AnchorDefinition,
+			AnchorSymbol:    "RuntimeSettings",
+			Summary:         "RuntimeSettings does not bind the missing exact config key.",
+			ContextRole:     types.EvidenceContextRoleDefining,
+			GroundingStatus: types.GroundingGrounded,
+			GroundingTier:   types.TierLineText,
+		},
+		{
+			Kind:            types.EvidenceDirect,
+			Source:          "internal/types/config.go",
+			LineStart:       707,
+			Subject:         "DefaultExploreHeuristics",
+			Predicate:       "does not provide",
+			Object:          "mid_loop_hint_budget",
+			AnchorKind:      types.AnchorDefinition,
+			AnchorSymbol:    "DefaultExploreHeuristics",
+			Summary:         "Same-family defaults code does not provide a mid_loop_hint_budget field.",
+			ContextRole:     types.EvidenceContextRoleDefining,
+			GroundingStatus: types.GroundingGrounded,
+			GroundingTier:   types.TierLineText,
+		},
+	})
+	bus := &types.BusContext{
+		Mutable: mut,
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			RawRequest: missingKey + " 的最终有效值怎么计算？",
+			Scenario:   types.ScenarioConfigTrace,
+			AnalyzerHints: types.AnalyzerHints{
+				Kind:            "config_mapping",
+				PrimaryEntities: []string{missingKey},
+				Entities:        []string{missingKey},
+				ExactTargets:    []string{missingKey},
+			},
+			AnswerSubject: types.AnswerSubject{Kind: types.SubjectConfigKey},
+		}},
+	}
+	tool := &EmitInvestigationComplete{}
+
+	params := json.RawMessage(`{"reason":"searched the repo and found no exact config key ` + missingKey + ` in production code","confidence":"high","result_kind":"absence","absence_justification":"no config key named ` + missingKey + ` exists in the repo"}`)
+	res, err := tool.Execute(bus, params)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("negative exact-target probes should not block honest absence closure even if their context_role is stale/defining: %s", res.Summary)
+	}
+}
+
 func TestEmitInvestigationComplete_ConfigAbsenceAllowsRelatedContextThatKeepsTargetInSubjectOnly(t *testing.T) {
 	missingKey := "zz_absent_config_" + "knob"
 	mut := types.NewMutableState("q")

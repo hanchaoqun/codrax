@@ -1277,6 +1277,38 @@ func stabilizeExactResolutionEvidence(ev *types.EvidenceItem, gc *ground.Context
 		ev.GroundingNote = note
 		return true
 	}
+	if len(pendingTargets) > 0 &&
+		types.IsNegativeEvidencePredicate(ev.Predicate) &&
+		(ev.ContextRole == types.EvidenceContextRoleUnknown || ev.ContextRole == types.EvidenceContextRoleDefining) {
+		surface := strings.Join([]string{
+			ev.Subject, ev.AnchorSymbol, ev.Object, ev.Source,
+		}, "\n")
+		sameFamily := types.ExactResolutionSameFamilyMatchScore(contract, surface) > 0 ||
+			types.ExactResolutionEvidenceCanSatisfyRelatedContext(contract, *ev, nil)
+		targetMention := exactResolutionEvidenceMentionsAnyTarget(contract, *ev) ||
+			evidenceGroundedWindowMentionsAnyTarget(*ev, gc, contract)
+		if targetMention || sameFamily {
+			if targetMention {
+				ev.ContextRole = types.EvidenceContextRoleAbsenceSupport
+			} else {
+				ev.ContextRole = types.EvidenceContextRoleRelatedContext
+			}
+			note := fmt.Sprintf(
+				"this item is a grounded negative probe about the unresolved exact %s and cannot count as defining proof. Treat it as context only; do NOT repair this item.",
+				exactResolutionTargetLabel(contract),
+			)
+			if targetMention {
+				note = fmt.Sprintf(
+					"this item is a grounded negative probe for the unresolved exact %s and supports the absence conclusion, but it does not define the target. Treat it as absence support only; do NOT repair this item.",
+					exactResolutionTargetLabel(contract),
+				)
+			}
+			if appendGroundingNoteOnce(ev, note) {
+				changed = true
+			}
+			changed = true
+		}
+	}
 	if ev.ContextRole != types.EvidenceContextRoleIllustrativeOnly &&
 		exactResolutionEvidenceMentionsAnyTarget(contract, *ev) &&
 		!exactResolutionEvidenceDirectlyAnchorsAnyTarget(contract, *ev) {

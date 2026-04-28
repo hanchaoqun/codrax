@@ -1515,6 +1515,9 @@ func evidenceHasAnyDefiningExactTargetProof(contract *types.ExactResolutionContr
 		if !evidenceMentionsAnyListedExactTarget(contract, it, targets) {
 			continue
 		}
+		if types.IsNegativeEvidencePredicate(it.Predicate) {
+			continue
+		}
 		if !types.ExactResolutionSourceIsDefiningPrimaryProofLike(contract, it.Source) {
 			continue
 		}

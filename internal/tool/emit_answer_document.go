@@ -678,6 +678,7 @@ func (t *EmitAnswerDocument) Execute(ctx *types.BusContext, params json.RawMessa
 		return failValidation(cerr)
 	}
 	citations = pruneExplanationCitationsForSurface(shape, citations, rawSurfaceCitations, groundCtx, ctx)
+	citations = normalizeFollowOnGroundedContextCitations(citations, resolvedExact, p.Summary, ctx)
 	applyCitationRemap(&p, citationRemap)
 	numCites := len(citations)
 	if dropped := countDroppedCitations(citationRemap); dropped > 0 || len(citationWarnings) > 0 {
@@ -1622,6 +1623,98 @@ func configTraceNearbyContextIsProseOnly(plan *types.AnswerSurfacePlan) bool {
 		}
 	}
 	return true
+}
+
+func normalizeFollowOnGroundedContextCitations(citations []types.Citation, exact *types.AnswerExactResolution, summary string, ctx *types.BusContext) []types.Citation {
+	if len(citations) == 0 || exact == nil || exact.Status != types.AnswerExactResolutionAbsent || exact.ContextMode != types.AnswerExactResolutionContextGroundedOnly {
+		if exact == nil || exact.Status != types.AnswerExactResolutionAbsent || exact.ContextMode != types.AnswerExactResolutionContextGroundedOnly {
+			return citations
+		}
+	}
+	plan := answerSurfacePlan(ctx)
+	if plan == nil || plan.SummarySurfaceMode != types.AnswerSummarySurfaceFollowOnGroundedContext {
+		return citations
+	}
+	contract := plan.ExactResolution
+	lead := renderAnswerDocumentExactResolutionLeadClean(contract, exact, requestedAnswerDocumentLanguage(ctx))
+	body := strings.TrimSpace(exactContextSummaryBodyAfterLead(summary, lead))
+	mentionsAllowed := len(mentionedExactContextSurfaceLabelHits(body, plan.AllowedExactContextLabels)) > 0
+	allowed := make(map[string]bool)
+	citationGrade := make(map[string]bool)
+	for _, item := range plan.CitationGradeExactContextItems {
+		if key := explanationCitationLookupKey(item.Source, item.LineStart); key != "" {
+			allowed[key] = true
+			citationGrade[key] = true
+		}
+	}
+	for _, candidate := range plan.RelatedContextCitationCandidates {
+		if key := explanationCitationLookupKey(candidate.Source, candidate.Line); key != "" {
+			allowed[key] = true
+		}
+	}
+	if len(allowed) == 0 {
+		return citations
+	}
+	pool := answerDocSurfaceEvidencePool(ctx)
+	out := make([]types.Citation, 0, len(citations))
+	changed := false
+	hasCitationGrade := false
+	for _, cite := range citations {
+		matched := matchingEvidenceForCitation(pool, cite)
+		if matched.ContextRole == types.EvidenceContextRoleAbsenceSupport {
+			out = append(out, cite)
+			continue
+		}
+		key := explanationCitationLookupKey(cite.File, cite.Line)
+		if allowed[key] {
+			out = append(out, cite)
+			if citationGrade[key] {
+				hasCitationGrade = true
+			}
+			continue
+		}
+		changed = true
+	}
+	if mentionsAllowed && !hasCitationGrade {
+		existing := make(map[string]bool, len(out))
+		for _, cite := range out {
+			existing[explanationCitationLookupKey(cite.File, cite.Line)] = true
+		}
+		appended := 0
+		for _, item := range plan.CitationGradeExactContextItems {
+			key := explanationCitationLookupKey(item.Source, item.LineStart)
+			if key == "" || existing[key] {
+				continue
+			}
+			out = append(out, types.Citation{File: item.Source, Line: item.LineStart})
+			existing[key] = true
+			changed = true
+			hasCitationGrade = true
+			appended++
+			if appended >= 2 {
+				break
+			}
+		}
+		if !hasCitationGrade {
+			for _, candidate := range plan.RelatedContextCitationCandidates {
+				key := explanationCitationLookupKey(candidate.Source, candidate.Line)
+				if key == "" || existing[key] {
+					continue
+				}
+				out = append(out, types.Citation{File: candidate.Source, Line: candidate.Line})
+				existing[key] = true
+				changed = true
+				appended++
+				if appended >= 2 {
+					break
+				}
+			}
+		}
+	}
+	if !changed {
+		return citations
+	}
+	return out
 }
 
 func exactContextBodyNeedsStructuredGrounding(body string) bool {
@@ -3132,6 +3225,7 @@ func resolveAnswerDocumentExactResolution(summary string, declared *types.Answer
 	if resolved.Status == types.AnswerExactResolutionAbsent {
 		summary = trimLeadingExactAbsenceRestatement(summary, contract, plan)
 		summary = sanitizeExactContextSummarySurface(summary, contract, plan)
+		summary = normalizeFollowOnGroundedContextSummarySurface(summary, contract, plan, ctx)
 		summary = normalizeConfigTraceAbsentSummarySurface(summary, ctx, resolved)
 	}
 	if declared.ContextMode == "" &&
@@ -3383,6 +3477,75 @@ func sanitizeExactContextSummarySurface(summary string, contract *types.ExactRes
 		return summary
 	}
 	return rebuilt
+}
+
+func normalizeFollowOnGroundedContextSummarySurface(summary string, contract *types.ExactResolutionContract, plan *types.AnswerSurfacePlan, ctx *types.BusContext) string {
+	summary = strings.TrimSpace(summary)
+	if contract == nil || plan == nil || plan.SummarySurfaceMode != types.AnswerSummarySurfaceFollowOnGroundedContext {
+		return summary
+	}
+	if summary == "" {
+		if fallback := renderFollowOnGroundedContextSummarySeed(plan, requestedAnswerDocumentLanguage(ctx)); fallback != "" {
+			return fallback
+		}
+		return summary
+	}
+	lead := renderAnswerDocumentExactResolutionLeadClean(contract, &types.AnswerExactResolution{
+		Status:      types.AnswerExactResolutionAbsent,
+		ContextMode: types.AnswerExactResolutionContextGroundedOnly,
+	}, requestedAnswerDocumentLanguage(ctx))
+	body := exactContextSummaryBodyAfterLead(summary, lead)
+	if repeatedExactTargetAfterLead(contract, body) != "" {
+		if fallback := renderFollowOnGroundedContextSummarySeed(plan, requestedAnswerDocumentLanguage(ctx)); fallback != "" {
+			return fallback
+		}
+		return summary
+	}
+	if len(mentionedExactContextSurfaceLabelHits(body, plan.AllowedExactContextLabels)) > 0 {
+		return summary
+	}
+	if fallback := renderFollowOnGroundedContextSummarySeed(plan, requestedAnswerDocumentLanguage(ctx)); fallback != "" {
+		return fallback
+	}
+	return summary
+}
+
+func renderFollowOnGroundedContextSummarySeed(plan *types.AnswerSurfacePlan, lang string) string {
+	if plan == nil {
+		return ""
+	}
+	var labels []string
+	seen := make(map[string]bool)
+	appendLabels := func(items []types.ExactContextSurfaceLabel) {
+		for _, item := range items {
+			label := strings.TrimSpace(item.Display)
+			if label == "" || seen[label] {
+				continue
+			}
+			seen[label] = true
+			labels = append(labels, label)
+			if len(labels) >= 2 {
+				return
+			}
+		}
+	}
+	appendLabels(plan.CitationGradeExactContextLabels)
+	if len(labels) < 2 {
+		appendLabels(plan.AllowedExactContextLabels)
+	}
+	if len(labels) == 0 {
+		return ""
+	}
+	if answerDocumentRequiresChinese(lang) {
+		if len(labels) == 1 {
+			return fmt.Sprintf("相关的已锚定上下文是 `%s`。", labels[0])
+		}
+		return fmt.Sprintf("相关的已锚定上下文包括 `%s` 和 `%s`。", labels[0], labels[1])
+	}
+	if len(labels) == 1 {
+		return fmt.Sprintf("The grounded nearby context is `%s`.", labels[0])
+	}
+	return fmt.Sprintf("The grounded nearby context includes `%s` and `%s`.", labels[0], labels[1])
 }
 
 func normalizeConfigTraceAbsentSummarySurface(summary string, ctx *types.BusContext, exact *types.AnswerExactResolution) string {
