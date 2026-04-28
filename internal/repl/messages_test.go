@@ -64,6 +64,55 @@ func TestFriendlyRunError_TranslatesStreamStalled(t *testing.T) {
 	}
 }
 
+// TestFriendlyRunError_FirstByteTimeoutHasDistinctMessage pins the
+// new typed-error branch: provider accepted the request but never
+// emitted a body chunk. Operator remediation differs from mid-
+// stream stall (provider deadlock / cold-start hang vs flaky
+// upstream), so the message must be distinct.
+func TestFriendlyRunError_FirstByteTimeoutHasDistinctMessage(t *testing.T) {
+	fb := &llm.StreamFirstByteTimeoutError{
+		IdleFor: 20 * time.Second,
+		Cause:   context.Canceled,
+	}
+	wrapped := fmt.Errorf("LLM call failed: %w", fb)
+
+	enGot := friendlyRunError("en", wrapped)
+	if !strings.Contains(enGot, "no SSE bytes") {
+		t.Errorf("en: expected 'no SSE bytes' phrase; got %q", enGot)
+	}
+	if !strings.Contains(enGot, "20s") && !strings.Contains(enGot, "20.0s") {
+		t.Errorf("en: idle duration missing; got %q", enGot)
+	}
+	// Must NOT mention "stalled mid-stream" (different error class).
+	if strings.Contains(enGot, "mid-emit") {
+		t.Errorf("en: first-byte must not borrow stall prose; got %q", enGot)
+	}
+
+	zhGot := friendlyRunError("zh", wrapped)
+	if !strings.Contains(zhGot, "未返回任何 SSE 字节") {
+		t.Errorf("zh: expected '未返回任何 SSE 字节'; got %q", zhGot)
+	}
+}
+
+// TestFriendlyRunError_FirstByteMatchesBeforeStreamStalled guards
+// the order of branches: a typed StreamFirstByteTimeoutError must
+// take its own branch BEFORE StreamStalledError because the chain
+// preserves both error types in its Unwrap path. Reverse order
+// would always surface the more generic stall message.
+func TestFriendlyRunError_FirstByteMatchesBeforeStreamStalled(t *testing.T) {
+	fb := &llm.StreamFirstByteTimeoutError{
+		IdleFor: 18 * time.Second,
+		Cause:   context.Canceled,
+	}
+	got := friendlyRunError("en", fb)
+	if !strings.Contains(got, "no SSE bytes") {
+		t.Errorf("first-byte branch must take precedence over stall branch; got %q", got)
+	}
+	if strings.Contains(got, "stalled with no bytes") {
+		t.Errorf("first-byte error must NOT fall through to stall message; got %q", got)
+	}
+}
+
 // TestFriendlyRunError_StreamStalledMatchesBeforeGenericContextCanceled
 // guards the order of branches in friendlyRunError: the typed
 // StreamStalledError matcher MUST come BEFORE the generic

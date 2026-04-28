@@ -97,6 +97,9 @@ func merge(dst, src *types.LLMProviderConfig) {
 	if src.StreamStallTimeoutSeconds != 0 {
 		dst.StreamStallTimeoutSeconds = src.StreamStallTimeoutSeconds
 	}
+	if src.StreamFirstByteTimeoutSeconds != 0 {
+		dst.StreamFirstByteTimeoutSeconds = src.StreamFirstByteTimeoutSeconds
+	}
 }
 
 // mergeEnv fills empty fields from environment variables.

@@ -76,12 +76,22 @@ llm:
     # retry_max_attempts:    transient 429 / 5xx retry cap. Code
     #                        default 6 (≈62s of total backoff
     #                        coverage at base = 2s exponential).
-    # stream_stall_timeout_seconds: SSE no-bytes ceiling before the
-    #                        watchdog aborts the request. 60s default;
-    #                        deep-thinking models routinely pause
-    #                        30+ s between thinking blocks, so set
-    #                        higher (90-120s) on those and lower
-    #                        (15-30s) on fast small models.
+    # stream_stall_timeout_seconds: SSE no-bytes ceiling AFTER the
+    #                        first chunk arrives — for mid-stream
+    #                        pauses. 60s default; deep-thinking
+    #                        models routinely pause 30+ s between
+    #                        thinking blocks, so set higher (90-
+    #                        120s) on those and lower (15-30s) on
+    #                        fast small models.
+    # stream_first_byte_timeout_seconds: distinct ceiling that
+    #                        applies BEFORE the first SSE chunk —
+    #                        catches "request accepted, server
+    #                        never speaks" (provider deadlock,
+    #                        middlebox interference, model cold-
+    #                        start hang). 20s default. Healthy
+    #                        providers serve first byte in 100-
+    #                        500ms; raise only when chasing a
+    #                        provider-specific cold-start spike.
     #
     # context_window: 128000
     # max_output_tokens: 0
@@ -89,6 +99,7 @@ llm:
     # request_timeout_seconds: 120
     # retry_max_attempts: 6
     # stream_stall_timeout_seconds: 60
+    # stream_first_byte_timeout_seconds: 20
 
   # --- Per-agent overrides ------------------------------------------------
   # Valid agent keys are `analyzer`, `explorer`, `extractor`,

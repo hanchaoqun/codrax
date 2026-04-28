@@ -119,4 +119,15 @@ type LLMProviderConfig struct {
 	// 120s because they pause 30+ s between thinking blocks. Zero
 	// (the absent form) inherits the code default (60s).
 	StreamStallTimeoutSeconds int `yaml:"stream_stall_timeout_seconds"`
+
+	// StreamFirstByteTimeoutSeconds caps the maximum time between
+	// "request accepted (200 OK)" and the FIRST SSE chunk. Distinct
+	// from StreamStallTimeoutSeconds: covers the dead-on-arrival
+	// case where a provider hangs before emitting any bytes (server
+	// deadlock, middlebox interference, model genuinely stuck before
+	// its first token). Healthy providers serve first-byte in 100-
+	// 500ms; a 20s default fails fast on dead requests without
+	// compromising legitimate slow first-byte paths. Zero inherits
+	// the code default.
+	StreamFirstByteTimeoutSeconds int `yaml:"stream_first_byte_timeout_seconds"`
 }

@@ -13,9 +13,10 @@ import (
 // other LLM client does and what we want by default. Capping output
 // client-side is opt-in via providers.yaml::max_output_tokens.
 const (
-	defaultRequestTimeoutSeconds      = 120
-	defaultRetryMaxAttempts           = 6
-	defaultStreamStallTimeoutSeconds  = 60
+	defaultRequestTimeoutSeconds         = 120
+	defaultRetryMaxAttempts              = 6
+	defaultStreamStallTimeoutSeconds     = 60
+	defaultStreamFirstByteTimeoutSeconds = 20
 )
 
 // NewFromConfig creates an Adapter from a resolved provider config.
@@ -94,14 +95,19 @@ func NewFromConfig(cfg types.LLMProviderConfig) (Adapter, error) {
 		cfg.StreamStallTimeoutSeconds,
 		defaultStreamStallTimeoutSeconds,
 	)
+	streamFirstByteTimeout := config.ResolveDurationSeconds(
+		cfg.StreamFirstByteTimeoutSeconds,
+		defaultStreamFirstByteTimeoutSeconds,
+	)
 
 	return NewOpenAIAdapter(cfg.APIKey, cfg.Model, cfg.BaseURL, AdapterOptions{
-		Stream:             stream,
-		ContextWindow:      cfg.ContextWindow,
-		MaxOutputTokens:    maxOutputTokens,
-		RequestTimeout:     requestTimeout,
-		RetryMaxAttempts:   retryMaxAttempts,
-		StreamStallTimeout: streamStallTimeout,
+		Stream:                 stream,
+		ContextWindow:          cfg.ContextWindow,
+		MaxOutputTokens:        maxOutputTokens,
+		RequestTimeout:         requestTimeout,
+		RetryMaxAttempts:       retryMaxAttempts,
+		StreamStallTimeout:     streamStallTimeout,
+		StreamFirstByteTimeout: streamFirstByteTimeout,
 		TLS: TLSOptions{
 			CAFile:             cfg.TLSCAFile,
 			InsecureSkipVerify: cfg.TLSInsecureSkipVerify,

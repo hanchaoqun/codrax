@@ -603,15 +603,23 @@ func friendlyRunError(lang string, err error) string {
 	if errors.As(err, &ce) {
 		return canceledByUserMsg(lang, ce.Stage())
 	}
-	// Streaming-watchdog stall: the LLM SSE scanner saw no bytes for
-	// more than streamStallTimeout (default 30s) and the watchdog
-	// cancelled the request context. Pre-this-match the resulting
-	// error percolated up as "read stream: context canceled" and
-	// the generic "context canceled" branch below mis-attributed it
-	// to a Ctrl+C / upstream-disconnect — confusing the user when
-	// they pressed nothing. Match the typed sentinel BEFORE the
-	// generic branch so the upstream-stalled case gets its own
-	// dedicated message.
+	// Streaming-watchdog first-byte timeout: handshake completed
+	// (provider returned 200 OK) but never emitted any SSE chunk
+	// within streamFirstByteTimeout (default 20s). Match BEFORE
+	// the StreamStalledError branch because the typed error chain
+	// preserves both signatures and we want the more specific
+	// "never started" prose to surface — different operator
+	// remediation than mid-stream stall.
+	var fb *llm.StreamFirstByteTimeoutError
+	if errors.As(err, &fb) {
+		idle := fb.IdleFor
+		if isZh(lang) {
+			return fmt.Sprintf("上游 LLM 在请求被接受 %s 后仍未返回任何 SSE 字节。可能是 provider 服务侧死锁、网络中间设备劫持、或模型 cold-start 卡死。再试一次,或换 provider/model 看看。", idle)
+		}
+		return fmt.Sprintf("upstream LLM produced no SSE bytes within %s of the request being accepted. Likely causes: provider-side deadlock, middlebox interference, or cold-start hang. Retry, or try a different provider/model.", idle)
+	}
+	// Streaming-watchdog mid-stream stall: stream started but went
+	// silent for more than streamStallTimeout (default 60s).
 	var ss *llm.StreamStalledError
 	if errors.As(err, &ss) {
 		idle := ss.IdleFor

@@ -73,6 +73,16 @@ type OpenAIAdapter struct {
 	// through to defaultStreamStallTimeout (60s).
 	streamStallTimeout time.Duration
 
+	// streamFirstByteTimeout is the no-SSE-bytes ceiling the
+	// watchdog uses BEFORE the first chunk arrives. Distinct
+	// from streamStallTimeout because "request accepted but
+	// server never speaks" must fail fast (typical first-byte
+	// is 100-500ms even on slow providers), while mid-stream
+	// pauses on thinking models legitimately reach 30-60s.
+	// Resolved from providers.yaml :: stream_first_byte_timeout_seconds;
+	// zero falls through to defaultStreamFirstByteTimeout (20s).
+	streamFirstByteTimeout time.Duration
+
 	stream bool
 	// httpClient is the non-streaming client; honors requestTimeout
 	// as the outer cap on a single round-trip.
@@ -126,6 +136,12 @@ type AdapterOptions struct {
 	// llm_stream_stall_timeout_seconds; cmd/root.go threads the
 	// resolved value here.
 	StreamStallTimeout time.Duration
+
+	// StreamFirstByteTimeout is the no-SSE-bytes ceiling that
+	// applies BEFORE the first chunk arrives. Zero falls through
+	// to defaultStreamFirstByteTimeout (20s). Distinct from
+	// StreamStallTimeout — see field doc on OpenAIAdapter.
+	StreamFirstByteTimeout time.Duration
 }
 
 // NewOpenAIAdapter creates a new OpenAI adapter. apiKey, model, and
@@ -157,17 +173,22 @@ func NewOpenAIAdapter(apiKey, model, baseURL string, opts AdapterOptions) *OpenA
 	if stallTimeout <= 0 {
 		stallTimeout = defaultStreamStallTimeout
 	}
+	firstByteTimeout := opts.StreamFirstByteTimeout
+	if firstByteTimeout <= 0 {
+		firstByteTimeout = defaultStreamFirstByteTimeout
+	}
 	return &OpenAIAdapter{
-		apiKey:             apiKey,
-		model:              model,
-		baseURL:            baseURL,
-		maxOutputTokens:    opts.MaxOutputTokens,
-		contextWindow:      opts.ContextWindow,
-		requestTimeout:     opts.RequestTimeout,
-		retryMaxAttempts:   opts.RetryMaxAttempts,
-		streamStallTimeout: stallTimeout,
-		stream:             opts.Stream,
-		httpClient:         buildHTTPClient(opts.TLS, baseURL, opts.RequestTimeout),
+		apiKey:                 apiKey,
+		model:                  model,
+		baseURL:                baseURL,
+		maxOutputTokens:        opts.MaxOutputTokens,
+		contextWindow:          opts.ContextWindow,
+		requestTimeout:         opts.RequestTimeout,
+		retryMaxAttempts:       opts.RetryMaxAttempts,
+		streamStallTimeout:     stallTimeout,
+		streamFirstByteTimeout: firstByteTimeout,
+		stream:                 opts.Stream,
+		httpClient:             buildHTTPClient(opts.TLS, baseURL, opts.RequestTimeout),
 		// Streaming client gets NO outer timeout (Duration(0)); the
 		// per-request context + streamStallTimeout watchdog own
 		// cancellation. See struct field commentary for rationale.
@@ -437,16 +458,33 @@ func (o *OpenAIAdapter) doStreamRequest(ctx context.Context, bodyBytes []byte, o
 	// thinking they pressed Ctrl+C when really upstream stalled.
 	var lastReadNano atomic.Int64
 	lastReadNano.Store(time.Now().UnixNano())
+	var firstByteReceived atomic.Bool
 	var watchdogFired atomic.Bool
+	var firstByteFired atomic.Bool
 	var watchdogIdle atomic.Int64 // ns
 	watchDone := make(chan struct{})
 	stallTimeout := o.streamStallTimeout
 	if stallTimeout <= 0 {
 		stallTimeout = defaultStreamStallTimeout
 	}
+	firstByteTimeout := o.streamFirstByteTimeout
+	if firstByteTimeout <= 0 {
+		firstByteTimeout = defaultStreamFirstByteTimeout
+	}
+	// Tick interval is the smaller of the two thresholds / 4 to give
+	// the SHORTER timeout adequate detection resolution. Bounded
+	// above by streamStallTickInterval (5s) so long stallTimeouts
+	// don't drift the tick to wasteful tens of seconds.
+	tickInterval := streamStallTickInterval
+	if firstByteTimeout/4 < tickInterval {
+		tickInterval = firstByteTimeout / 4
+	}
+	if tickInterval < streamWatchdogMinTickInterval {
+		tickInterval = streamWatchdogMinTickInterval
+	}
 	go func() {
 		defer close(watchDone)
-		ticker := time.NewTicker(streamStallTickInterval)
+		ticker := time.NewTicker(tickInterval)
 		defer ticker.Stop()
 		for {
 			select {
@@ -454,31 +492,55 @@ func (o *OpenAIAdapter) doStreamRequest(ctx context.Context, bodyBytes []byte, o
 				return
 			case <-ticker.C:
 				idle := time.Since(time.Unix(0, lastReadNano.Load()))
-				if idle > stallTimeout {
-					logging.Warning("[llm/stream] stream stalled (no bytes for %v, threshold=%v); aborting (outer http timeout was %v)", idle, stallTimeout, o.requestTimeout)
-					watchdogIdle.Store(int64(idle))
-					watchdogFired.Store(true)
-					cancel()
-					return
+				// Two-threshold gate: pre-firstByte uses the SHORTER
+				// firstByteTimeout (typical 20s); post-firstByte
+				// switches to the LONGER stallTimeout (typical 60s).
+				// Keeps the dead-on-arrival "provider never speaks"
+				// case failing fast without compromising thinking-
+				// model mid-stream pauses.
+				if !firstByteReceived.Load() {
+					if idle > firstByteTimeout {
+						logging.Warning("[llm/stream] no first byte for %v (firstByteTimeout=%v); aborting", idle, firstByteTimeout)
+						watchdogIdle.Store(int64(idle))
+						firstByteFired.Store(true)
+						cancel()
+						return
+					}
+				} else {
+					if idle > stallTimeout {
+						logging.Warning("[llm/stream] stream stalled mid-stream (no bytes for %v, threshold=%v); aborting (outer http timeout was %v)", idle, stallTimeout, o.requestTimeout)
+						watchdogIdle.Store(int64(idle))
+						watchdogFired.Store(true)
+						cancel()
+						return
+					}
 				}
 			}
 		}
 	}()
 
-	resp, err := parseSSEStream(httpResp.Body, onDelta, &lastReadNano)
+	resp, err := parseSSEStream(httpResp.Body, onDelta, &lastReadNano, &firstByteReceived)
 	cancel()
 	<-watchDone
 	if err != nil {
-		// Disambiguate the cancel cause:
-		//   - outer ctx cancel (Ctrl+C / /cancel / orch timeout) → return
-		//     ctx.Err() so the caller's errors.Is(err, context.Canceled)
-		//     matcher fires WITHOUT being mis-wrapped as StreamStalled.
-		//   - watchdog fired (idle > stallTimeout) → wrap as
-		//     StreamStalledError. Watchdog-fired AND outer-canceled
-		//     simultaneously is rare; outer-cancel wins because that's
-		//     the user's explicit intent.
+		// Disambiguate the cancel cause, in priority order:
+		//   1. outer ctx cancel (user Ctrl+C / orch timeout) → return
+		//      ctx.Err() so existing context.Canceled matchers fire.
+		//   2. firstByteFired → no SSE chunk after handshake within
+		//      firstByteTimeout. Distinct typed error so the REPL's
+		//      friendlyRunError surfaces "provider never started
+		//      streaming" rather than "stalled mid-stream".
+		//   3. watchdogFired → mid-stream stall after first byte.
+		// Order matters: user intent (1) wins over both watchdog
+		// branches; first-byte (2) wins over generic stall because
+		// it carries more specific operator guidance.
 		if cerr := ctx.Err(); cerr != nil {
 			err = cerr
+		} else if firstByteFired.Load() {
+			err = &StreamFirstByteTimeoutError{
+				IdleFor: time.Duration(watchdogIdle.Load()),
+				Cause:   err,
+			}
 		} else if watchdogFired.Load() {
 			err = &StreamStalledError{
 				IdleFor: time.Duration(watchdogIdle.Load()),
@@ -502,8 +564,17 @@ func (o *OpenAIAdapter) doStreamRequest(ctx context.Context, bodyBytes []byte, o
 // the idle counter. 5 s gives sub-default-cap reaction time without
 // consuming meaningful CPU on long streams.
 const (
-	defaultStreamStallTimeout = 60 * time.Second
-	streamStallTickInterval   = 5 * time.Second
+	defaultStreamStallTimeout     = 60 * time.Second
+	defaultStreamFirstByteTimeout = 20 * time.Second
+	streamStallTickInterval       = 5 * time.Second
+	// streamWatchdogMinTickInterval is the floor on the watchdog's
+	// poll interval when firstByteTimeout / 4 would otherwise drop
+	// below it. 100 ms gives sub-second cancel responsiveness without
+	// burning CPU on long-lived streams (the watchdog is a single
+	// goroutine, an extra 10 polls/sec is negligible vs the SSE
+	// scanner work). Not operator-tunable: the 100 ms bound is a
+	// kernel-scheduling sanity floor, not a knob worth exposing.
+	streamWatchdogMinTickInterval = 100 * time.Millisecond
 )
 
 // parseSSEStream reads SSE frames from r and folds them into a single
@@ -526,7 +597,7 @@ const (
 //   - finish_reason appears in the last non-DONE chunk
 //   - usage typically ships in a dedicated last chunk (stream_options),
 //     but providers vary; we read it when present
-func parseSSEStream(r io.Reader, onDelta func(string), progress *atomic.Int64) (Response, error) {
+func parseSSEStream(r io.Reader, onDelta func(string), progress *atomic.Int64, firstByte *atomic.Bool) (Response, error) {
 	br := bufio.NewScanner(r)
 	// Single SSE frames can exceed bufio's default 64 KB line cap when
 	// a provider batches many deltas into one frame; raise to 1 MB to
@@ -557,6 +628,13 @@ func parseSSEStream(r io.Reader, onDelta func(string), progress *atomic.Int64) (
 		payload := strings.TrimSpace(strings.TrimPrefix(line, "data:"))
 		if payload == "" || payload == "[DONE]" {
 			continue
+		}
+		// Signal first-byte arrival to the watchdog so it switches
+		// from firstByteTimeout to stallTimeout. Only fire on the
+		// first real data chunk (not SSE keep-alives / blank lines).
+		// Nil-safe for test callers that don't need the signal.
+		if !gotAnyChunk && firstByte != nil {
+			firstByte.Store(true)
 		}
 		gotAnyChunk = true
 
@@ -808,7 +886,7 @@ func (o *OpenAIAdapter) parseResponse(body []byte) (Response, error) {
 	// because the body is already fully buffered by doRequest.
 	if looksLikeSSEResponse(body) {
 		logging.Debug("[llm] non-streaming request returned SSE; parsing as stream")
-		return parseSSEStream(bytes.NewReader(body), nil, nil)
+		return parseSSEStream(bytes.NewReader(body), nil, nil, nil)
 	}
 
 	var oResp openaiResponse

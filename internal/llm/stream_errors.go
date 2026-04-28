@@ -66,3 +66,55 @@ func (e *StreamStalledError) Unwrap() error {
 func (e *StreamStalledError) Is(target error) bool {
 	return target == ErrStreamStalled
 }
+
+// ErrStreamFirstByteTimeout is the sentinel a StreamFirstByteTimeoutError
+// unwraps to. Distinct from ErrStreamStalled because the operator
+// remediation differs: first-byte timeout almost always means
+// "provider accepted the request but never started streaming"
+// (provider-side deadlock, middlebox holding the response, or a
+// model genuinely stuck before its first thinking block). Stalled
+// streams typically mean a flaky upstream MID-stream — different
+// retry / provider-switch decisions.
+var ErrStreamFirstByteTimeout = errors.New("llm: upstream first-byte timeout")
+
+// StreamFirstByteTimeoutError wraps the timeout error when the
+// streaming watchdog detects no SSE chunk after the configured
+// firstByteTimeout window — distinct from the longer stallTimeout
+// that catches mid-stream pauses.
+//
+// Why two timeouts: thinking models routinely pause 30-60s between
+// thinking blocks, so stallTimeout sits at 60s. But "request
+// accepted, server just won't speak" needs to fail much faster
+// (typical first-byte in any healthy provider is 100-500ms; even
+// slow provisioning rarely exceeds 5s). Sharing a single 60s
+// timeout for both cases burns 60s on a dead-on-arrival request
+// instead of failing fast and letting the agent retry.
+//
+// IdleFor records how long the request was open with no SSE chunks
+// before the watchdog fired. Unwrap returns the underlying ctx
+// cancellation so existing matchers keep working.
+type StreamFirstByteTimeoutError struct {
+	IdleFor time.Duration
+	Cause   error
+}
+
+func (e *StreamFirstByteTimeoutError) Error() string {
+	if e == nil {
+		return ErrStreamFirstByteTimeout.Error()
+	}
+	if e.Cause != nil {
+		return fmt.Sprintf("upstream LLM produced no SSE bytes within %s of the request being accepted: %v", e.IdleFor, e.Cause)
+	}
+	return fmt.Sprintf("upstream LLM produced no SSE bytes within %s of the request being accepted", e.IdleFor)
+}
+
+func (e *StreamFirstByteTimeoutError) Unwrap() error {
+	if e == nil {
+		return nil
+	}
+	return e.Cause
+}
+
+func (e *StreamFirstByteTimeoutError) Is(target error) bool {
+	return target == ErrStreamFirstByteTimeout
+}
