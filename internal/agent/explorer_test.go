@@ -3223,6 +3223,43 @@ func TestParseEmitEvidenceRepairTargets_SkipsDropOnlyMentions(t *testing.T) {
 	}
 }
 
+func TestObserveMidLoop_EvidenceRepairPrefersStructuredTargets(t *testing.T) {
+	eval := &explorerEvaluator{
+		phase:            1,
+		searchResult:     &keywordSearchResult{Graph: &repomap.Graph{}},
+		exactAnchorFiles: []string{"codrax.yaml.example"},
+	}
+	history := []types.ToolResult{
+		{
+			ToolName: "emit_evidence",
+			Success:  true,
+			Summary:  "emit_evidence accepted 5 item(s)\n\n  [1] summary intentionally truncated before any drop-note lines ...",
+			Repair: &types.ToolRepair{
+				Code: "evidence_line_text_repair",
+				Targets: []types.ToolRepairTarget{
+					{File: "codrax.yaml.example", Lines: []int{22}, Action: string(types.RepairReadFile)},
+				},
+			},
+		},
+	}
+
+	sig := eval.observeMidLoop(LoopObservation{
+		Phase:          PhaseMidLoop,
+		Iteration:      5,
+		LastToolResult: &history[0],
+		AllToolResults: history,
+	})
+	if !sig.HintRequested {
+		t.Fatalf("structured repair targets should trigger a repair hint, got %+v", sig)
+	}
+	if sig.HintKey != "explorer.mid-loop.evidence-repair" {
+		t.Fatalf("HintKey = %q, want explorer.mid-loop.evidence-repair", sig.HintKey)
+	}
+	if !strings.Contains(sig.Hint, "codrax.yaml.example") || !strings.Contains(sig.Hint, "22") {
+		t.Fatalf("structured repair hint should render the explicit target file/line, got: %s", sig.Hint)
+	}
+}
+
 func TestObserveMidLoop_EvidenceRepairClosureOnlySuppressesExpansion(t *testing.T) {
 	eval := &explorerEvaluator{
 		phase:                           1,

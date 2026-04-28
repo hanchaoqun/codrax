@@ -5,7 +5,10 @@ import (
 	"encoding/json"
 	"fmt"
 	"math"
+	"path"
+	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -515,8 +518,10 @@ func (t *EmitEvidence) Execute(ctx *types.BusContext, params json.RawMessage) (t
 		}
 		summary = b.String()
 	}
+	repair := buildEmitEvidenceRepair(ctx, built, reports)
 	return types.ToolResult{
 		ToolName:  t.Name(),
+		Repair:    repair,
 		Success:   true,
 		Summary:   summary,
 		Timestamp: now,
@@ -1058,6 +1063,14 @@ func emitLooksLikePath(s string) bool {
 	return strings.Contains(s, "/") || strings.Contains(s, ".")
 }
 
+func canonicalEmitPath(s string) string {
+	s = filepath.ToSlash(strings.TrimSpace(s))
+	if s == "" {
+		return ""
+	}
+	return path.Clean(s)
+}
+
 // evidenceSemantic renders the semantic payload of an evidence item
 // ("Subject Predicate Object" when all present, else Summary, else
 // empty). Called by renderEmitSummary so the emit_evidence tool
@@ -1216,6 +1229,114 @@ func prefOrDash(s string) string {
 func evidenceRepairShouldDrop(it types.EvidenceItem) bool {
 	note := strings.ToLower(strings.TrimSpace(it.GroundingNote))
 	return strings.Contains(note, "do not repair this item") || strings.Contains(note, "non-defining proof")
+}
+
+func buildEmitEvidenceRepair(ctx *types.BusContext, items []types.EvidenceItem, reports []ground.Report) *types.ToolRepair {
+	targets := emitEvidenceRepairTargets(items, reports)
+	if len(targets) == 0 {
+		return nil
+	}
+	return &types.ToolRepair{
+		Code:    "evidence_line_text_repair",
+		Hint:    renderEmitEvidenceRepairToolHint(targets),
+		Targets: targets,
+		Metadata: map[string]string{
+			"repair_scope": "line_text_grounding",
+			"repair_stage": "explorer",
+		},
+	}
+}
+
+func emitEvidenceRepairTargets(items []types.EvidenceItem, reports []ground.Report) []types.ToolRepairTarget {
+	type bucket struct {
+		order []int
+		seen  map[int]bool
+	}
+	byFile := make(map[string]*bucket)
+	for i, it := range items {
+		if it.Source == "" || it.LineStart <= 0 {
+			continue
+		}
+		switch it.GroundingStatus {
+		case types.GroundingRecovered, types.GroundingUngrounded:
+		default:
+			continue
+		}
+		if evidenceRepairShouldDrop(it) {
+			continue
+		}
+		file := canonicalEmitPath(it.Source)
+		if file == "" {
+			file = it.Source
+		}
+		line := it.LineStart
+		if i < len(reports) && reports[i].AdjustedLine > 0 {
+			line = reports[i].AdjustedLine
+		}
+		b := byFile[file]
+		if b == nil {
+			b = &bucket{seen: make(map[int]bool)}
+			byFile[file] = b
+		}
+		if !b.seen[line] {
+			b.seen[line] = true
+			b.order = append(b.order, line)
+		}
+	}
+	if len(byFile) == 0 {
+		return nil
+	}
+	files := make([]string, 0, len(byFile))
+	for file := range byFile {
+		files = append(files, file)
+	}
+	sort.Strings(files)
+	out := make([]types.ToolRepairTarget, 0, len(files))
+	for _, file := range files {
+		lines := append([]int(nil), byFile[file].order...)
+		sort.Ints(lines)
+		out = append(out, types.ToolRepairTarget{
+			File:   file,
+			Lines:  lines,
+			Action: string(types.RepairReadFile),
+		})
+	}
+	return out
+}
+
+func renderEmitEvidenceRepairToolHint(targets []types.ToolRepairTarget) string {
+	if len(targets) == 0 {
+		return ""
+	}
+	var b strings.Builder
+	b.WriteString("Re-read the exact source locations below and re-emit grounded evidence before widening scope:\n")
+	for _, target := range targets {
+		lines := renderToolRepairLineList(target.Lines, 4)
+		if lines == "" {
+			fmt.Fprintf(&b, "- %s\n", target.File)
+			continue
+		}
+		fmt.Fprintf(&b, "- %s near lines %s\n", target.File, lines)
+	}
+	b.WriteString("Do not spend read_file budget on non-repairable illustrative/context-only mentions.")
+	return b.String()
+}
+
+func renderToolRepairLineList(lines []int, max int) string {
+	if len(lines) == 0 {
+		return ""
+	}
+	if max <= 0 || max > len(lines) {
+		max = len(lines)
+	}
+	parts := make([]string, 0, max+1)
+	for _, line := range lines[:max] {
+		parts = append(parts, strconv.Itoa(line))
+	}
+	if len(lines) > max {
+		parts = append(parts, "...")
+	}
+	return strings.Join(parts, ", ")
 }
 
 func failEmit(name string, now time.Time, format string, args ...interface{}) (types.ToolResult, error) {

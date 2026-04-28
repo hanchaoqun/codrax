@@ -3299,6 +3299,30 @@ func parseEmitEvidenceRepairTargets(summary string) []evidenceRepairTarget {
 	return out
 }
 
+func repairTargetsFromToolRepair(repair *types.ToolRepair) []evidenceRepairTarget {
+	if repair == nil || repair.Code != "evidence_line_text_repair" || len(repair.Targets) == 0 {
+		return nil
+	}
+	out := make([]evidenceRepairTarget, 0, len(repair.Targets))
+	for _, target := range repair.Targets {
+		if !strings.EqualFold(strings.TrimSpace(target.Action), string(types.RepairReadFile)) {
+			continue
+		}
+		file := canonicalExplorerPath(target.File)
+		if file == "" || len(target.Lines) == 0 {
+			continue
+		}
+		lines := append([]int(nil), target.Lines...)
+		sort.Ints(lines)
+		out = append(out, evidenceRepairTarget{file: file, lines: lines})
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].file < out[j].file })
+	return out
+}
+
 func isEmitEvidenceStatusLine(line string) bool {
 	line = strings.TrimSpace(line)
 	return strings.HasPrefix(line, "→") || strings.HasPrefix(line, "->")
@@ -3371,7 +3395,10 @@ func (e *explorerEvaluator) postEmitEvidenceRepairSignal(obs LoopObservation) Lo
 	if e.midLoopEvidenceRepairSent || obs.LastToolResult == nil || obs.LastToolResult.ToolName != "emit_evidence" || !obs.LastToolResult.Success {
 		return LoopSignal{}
 	}
-	targets := parseEmitEvidenceRepairTargets(obs.LastToolResult.Summary)
+	targets := repairTargetsFromToolRepair(obs.LastToolResult.Repair)
+	if len(targets) == 0 {
+		targets = parseEmitEvidenceRepairTargets(obs.LastToolResult.Summary)
+	}
 	if len(targets) == 0 {
 		return LoopSignal{}
 	}

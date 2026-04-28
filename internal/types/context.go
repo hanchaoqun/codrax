@@ -2010,11 +2010,18 @@ type RepoFact struct {
 }
 
 // ToolResult records the outcome of a tool invocation.
+type ToolRepairTarget struct {
+	File   string `json:"file,omitempty"`
+	Lines  []int  `json:"lines,omitempty"`
+	Action string `json:"action,omitempty"`
+}
+
 type ToolRepair struct {
-	Code     string            `json:"code,omitempty"`
-	Hint     string            `json:"hint,omitempty"`
-	Fields   []string          `json:"fields,omitempty"`
-	Metadata map[string]string `json:"metadata,omitempty"`
+	Code     string             `json:"code,omitempty"`
+	Hint     string             `json:"hint,omitempty"`
+	Fields   []string           `json:"fields,omitempty"`
+	Targets  []ToolRepairTarget `json:"targets,omitempty"`
+	Metadata map[string]string  `json:"metadata,omitempty"`
 }
 
 type ToolResult struct {

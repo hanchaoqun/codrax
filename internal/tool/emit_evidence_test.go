@@ -2,6 +2,7 @@ package tool
 
 import (
 	"encoding/json"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -158,6 +159,63 @@ func TestEmitEvidence_DemotesDocumentationStyleExactConfigMention(t *testing.T) 
 	}
 	if !strings.Contains(strings.ToLower(got[0].GroundingNote), "do not repair this item") {
 		t.Fatalf("grounding note should mark the mention non-repairable, got: %s", got[0].GroundingNote)
+	}
+	if res.Repair != nil && len(res.Repair.Targets) > 0 {
+		t.Fatalf("drop-only illustrative mention must not queue structured repair targets, got %+v", res.Repair.Targets)
+	}
+}
+
+func TestEmitEvidence_QueuesStructuredRepairTargetsForRecoveredEvidence(t *testing.T) {
+	tool := &EmitEvidence{}
+	ctx := newEmitCtx()
+	params := json.RawMessage(`{
+		"items": [
+			{
+				"kind": "conditional",
+				"subject": "buildOrLoadGraph",
+				"predicate": "calls",
+				"object": "fullScan",
+				"source": "internal/tool/repomap/tool.go",
+				"line_start": 148,
+				"summary": "full scan branch",
+				"anchor_kind": "call",
+				"anchor_symbol": "fullScan"
+			},
+			{
+				"kind": "conditional",
+				"subject": "buildOrLoadGraph",
+				"predicate": "calls",
+				"object": "loadFromCache",
+				"source": "internal/tool/repomap/tool.go",
+				"line_start": 156,
+				"summary": "cache branch",
+				"anchor_kind": "call",
+				"anchor_symbol": "loadFromCache"
+			}
+		]
+	}`)
+	res, err := tool.Execute(ctx, params)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("expected success with structured repair feedback, got: %s", res.Summary)
+	}
+	if res.Repair == nil || res.Repair.Code != "evidence_line_text_repair" {
+		t.Fatalf("expected structured line-text repair metadata, got %+v", res.Repair)
+	}
+	if len(res.Repair.Targets) != 1 {
+		t.Fatalf("expected one grouped repair target, got %+v", res.Repair.Targets)
+	}
+	target := res.Repair.Targets[0]
+	if target.File != "internal/tool/repomap/tool.go" {
+		t.Fatalf("repair target file = %q, want internal/tool/repomap/tool.go", target.File)
+	}
+	if !reflect.DeepEqual(target.Lines, []int{148, 156}) {
+		t.Fatalf("repair target lines = %v, want [148 156]", target.Lines)
+	}
+	if target.Action != string(types.RepairReadFile) {
+		t.Fatalf("repair target action = %q, want %q", target.Action, types.RepairReadFile)
 	}
 }
 
