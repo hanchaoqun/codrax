@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html lang="zh-CN">
 <head>
   <meta charset="UTF-8" />
@@ -9,18 +9,26 @@
       --body-bg: #d6d3d1;
       --bg-main: #fdfcf8;
       --bg-panel: #f4f1eb;
-      --border-color: rgba(0, 0, 0, 0.06);
+      --bg-soft: rgba(244, 241, 235, 0.86);
+      --border-color: rgba(0, 0, 0, 0.07);
       --title-text: #27272a;
       --text-main: #3f3f46;
       --text-muted: #71717a;
       --accent-orange: #d97706;
+      --accent-orange-soft: rgba(217, 119, 6, 0.1);
       --accent-cyan: #0f766e;
+      --accent-cyan-soft: rgba(15, 118, 110, 0.08);
       --shadow-color: rgba(0, 0, 0, 0.08);
     }
 
-    * { box-sizing: border-box; margin: 0; padding: 0; }
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
 
-    html, body {
+    html,
+    body {
       min-height: 100%;
     }
 
@@ -31,17 +39,23 @@
       -webkit-font-smoothing: antialiased;
     }
 
+    code,
+    pre {
+      font-family: "Cascadia Code", Consolas, "SFMono-Regular", monospace;
+    }
+
     .shell {
       width: min(1240px, calc(100vw - 28px));
       margin: 0 auto;
-      padding: 12px 0 22px;
+      padding: 12px 0 24px;
       display: grid;
       gap: 12px;
     }
 
     .topbar,
     .hero,
-    .card {
+    .card,
+    .install-note {
       border: 1px solid var(--border-color);
       border-radius: 22px;
       background: rgba(253, 252, 248, 0.82);
@@ -60,7 +74,7 @@
     .brand {
       min-width: 0;
       display: grid;
-      gap: 0.2rem;
+      gap: 0.22rem;
     }
 
     .eyebrow {
@@ -89,7 +103,7 @@
       color: var(--text-muted);
       font-size: 0.9rem;
       line-height: 1.6;
-      max-width: 52rem;
+      max-width: 58rem;
     }
 
     .top-actions {
@@ -102,7 +116,7 @@
     .hero {
       padding: clamp(22px, 3.2vw, 34px);
       display: grid;
-      gap: 0.82rem;
+      gap: 0.92rem;
     }
 
     .hero-copy {
@@ -111,17 +125,46 @@
       max-width: 62rem;
     }
 
+    .decision-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 0.72rem;
+      max-width: 62rem;
+    }
+
+    .decision {
+      display: grid;
+      gap: 0.34rem;
+      padding: 0.9rem 1rem;
+      border-radius: 16px;
+      border: 1px solid var(--border-color);
+      background: rgba(253, 252, 248, 0.92);
+    }
+
+    .decision strong {
+      color: var(--title-text);
+      font-size: 0.92rem;
+      line-height: 1.3;
+    }
+
+    .decision span {
+      color: var(--text-main);
+      font-size: 0.84rem;
+      line-height: 1.58;
+    }
+
     .hero h2 {
       color: var(--title-text);
-      font-size: clamp(1.34rem, 2.4vw, 2.08rem);
-      line-height: 1.16;
-      letter-spacing: -0.03em;
+      font-size: clamp(1.16rem, 2.1vw, 1.72rem);
+      line-height: 1.2;
+      letter-spacing: -0.02em;
+      text-wrap: balance;
     }
 
     .hero p {
       color: var(--text-main);
-      font-size: 0.94rem;
-      line-height: 1.66;
+      font-size: 0.95rem;
+      line-height: 1.68;
     }
 
     .hero-note {
@@ -129,7 +172,7 @@
       align-items: center;
       gap: 0.48rem;
       width: fit-content;
-      padding: 0.64rem 0.9rem;
+      padding: 0.64rem 0.92rem;
       border-radius: 999px;
       background: #f7f4ee;
       border: 1px solid var(--border-color);
@@ -156,14 +199,26 @@
     .card {
       padding: 20px 20px 18px;
       display: grid;
-      gap: 0.88rem;
+      gap: 0.92rem;
       align-content: start;
       min-height: 100%;
     }
 
     .card-head {
       display: grid;
-      gap: 0.4rem;
+      gap: 0.42rem;
+    }
+
+    .badge {
+      width: fit-content;
+      padding: 0.34rem 0.62rem;
+      border-radius: 999px;
+      background: var(--accent-cyan-soft);
+      color: var(--accent-cyan);
+      font-size: 0.72rem;
+      font-weight: 700;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
     }
 
     .platform {
@@ -174,52 +229,208 @@
       letter-spacing: -0.03em;
     }
 
-    .badge {
-      width: fit-content;
-      padding: 0.34rem 0.62rem;
-      border-radius: 999px;
-      background: rgba(15, 118, 110, 0.08);
-      color: var(--accent-cyan);
-      font-size: 0.72rem;
-      font-weight: 700;
-      letter-spacing: 0.06em;
-      text-transform: uppercase;
-    }
-
     .desc {
       color: var(--text-main);
-      font-size: 0.9rem;
+      font-size: 0.92rem;
+      line-height: 1.64;
+    }
+
+    .quick,
+    .manual-block,
+    .install-note {
+      display: grid;
+      gap: 0.66rem;
+      padding: 0.96rem 1rem;
+      border-radius: 16px;
+      border: 1px solid var(--border-color);
+      background: var(--bg-soft);
+    }
+
+    .fold-summary {
+      list-style: none;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 0.8rem;
+      cursor: pointer;
+      padding: 0.92rem 1rem;
+      color: var(--title-text);
+      font-size: 0.98rem;
+      line-height: 1.2;
+      font-weight: 700;
+    }
+
+    .fold-summary::-webkit-details-marker {
+      display: none;
+    }
+
+    .fold-summary::after {
+      content: "展开";
+      flex: none;
+      color: var(--text-muted);
+      font-size: 0.76rem;
+      letter-spacing: 0.04em;
+      font-weight: 700;
+    }
+
+    details[open] > .fold-summary::after {
+      content: "收起";
+    }
+
+    .manual-body,
+    .note-body {
+      display: grid;
+      gap: 0.72rem;
+      padding: 0 1rem 1rem;
+    }
+
+    .section-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 0.6rem;
+      flex-wrap: wrap;
+    }
+
+    .section-head-main {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      flex-wrap: wrap;
+      min-width: 0;
+    }
+
+    .section-head h3 {
+      color: var(--title-text);
+      font-size: 0.98rem;
+      line-height: 1.2;
+      font-weight: 700;
+    }
+
+    .tag {
+      display: inline-flex;
+      align-items: center;
+      padding: 0.3rem 0.56rem;
+      border-radius: 999px;
+      background: var(--accent-orange-soft);
+      color: var(--accent-orange);
+      font-size: 0.72rem;
+      font-weight: 700;
+      letter-spacing: 0.04em;
+    }
+
+    .quick p,
+    .manual-block p,
+    .install-note p {
+      color: var(--text-main);
+      font-size: 0.85rem;
       line-height: 1.62;
     }
 
-    .specs {
+    .install-points {
       list-style: none;
-      display: grid;
-      gap: 0.62rem;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.44rem;
     }
 
-    .specs li {
-      position: relative;
-      padding-left: 18px;
-      color: var(--text-main);
-      font-size: 0.88rem;
-      line-height: 1.48;
-    }
-
-    .specs li::before {
-      content: "";
-      position: absolute;
-      left: 0;
-      top: 0.52rem;
-      width: 0.42rem;
-      height: 0.42rem;
+    .install-points li {
+      padding: 0.42rem 0.68rem;
       border-radius: 999px;
-      background: var(--accent-orange);
-      box-shadow: 0 0 0 3px rgba(217, 119, 6, 0.12);
+      background: rgba(253, 252, 248, 0.96);
+      border: 1px solid var(--border-color);
+      color: var(--text-main);
+      font-size: 0.78rem;
+      line-height: 1.3;
+      white-space: nowrap;
+    }
+
+    .command-shell {
+      display: grid;
+      gap: 0.48rem;
+    }
+
+    .command-top {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 0.6rem;
+      flex-wrap: wrap;
+    }
+
+    .command-meta,
+    .command-actions {
+      display: flex;
+      align-items: center;
+      gap: 0.46rem;
+      flex-wrap: wrap;
+    }
+
+    .command-label {
+      color: var(--text-muted);
+      font-size: 0.74rem;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      font-weight: 700;
+    }
+
+    .inline-link {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 30px;
+      padding: 0.34rem 0.62rem;
+      border-radius: 999px;
+      border: 1px solid var(--border-color);
+      background: rgba(253, 252, 248, 0.96);
+      color: var(--text-muted);
+      text-decoration: none;
+      font-size: 0.74rem;
+      font-weight: 700;
+      transition: 0.2s ease;
+    }
+
+    .inline-link:hover {
+      border-color: rgba(15, 118, 110, 0.18);
+      background: #f7f4ee;
+      color: var(--title-text);
+    }
+
+    .copy-button {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 34px;
+      padding: 0.44rem 0.78rem;
+      border-radius: 999px;
+      border: 1px solid var(--border-color);
+      background: var(--bg-main);
+      color: var(--title-text);
+      font-size: 0.78rem;
+      font-weight: 700;
+      cursor: pointer;
+      transition: 0.2s ease;
+    }
+
+    .copy-button:hover {
+      border-color: rgba(15, 118, 110, 0.18);
+      background: #f7f4ee;
+    }
+
+    .command-line {
+      border-radius: 14px;
+      border: 1px solid var(--border-color);
+      background: var(--bg-main);
+      padding: 0.84rem 0.88rem;
+      font-size: 0.8rem;
+      line-height: 1.5;
+      color: var(--accent-cyan);
+      white-space: pre-wrap;
+      word-break: break-word;
     }
 
     .actions {
-      margin-top: auto;
+      margin-top: 0.04rem;
       display: flex;
       gap: 0.6rem;
       flex-wrap: wrap;
@@ -258,6 +469,92 @@
       background: #c96d06;
     }
 
+    .mini-action {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 32px;
+      padding: 0.42rem 0.78rem;
+      border-radius: 999px;
+      border: 1px solid transparent;
+      background: var(--accent-orange);
+      color: #fffdf8;
+      text-decoration: none;
+      font-size: 0.74rem;
+      font-weight: 700;
+      line-height: 1;
+      white-space: nowrap;
+      transition: 0.2s ease;
+    }
+
+    .mini-action:hover {
+      background: #c96d06;
+    }
+
+    .manual-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 0.72rem;
+    }
+
+    .setup {
+      display: grid;
+      gap: 0.62rem;
+      padding: 0.9rem 0.94rem;
+      border-radius: 14px;
+      border: 1px solid var(--border-color);
+      background: rgba(253, 252, 248, 0.96);
+    }
+
+    .setup h4 {
+      color: var(--title-text);
+      font-size: 0.9rem;
+      line-height: 1.2;
+      font-weight: 700;
+    }
+
+    .setup p {
+      color: var(--text-main);
+      font-size: 0.82rem;
+      line-height: 1.58;
+    }
+
+    .command-list {
+      display: grid;
+      gap: 0.42rem;
+    }
+
+    .specs {
+      list-style: none;
+      display: grid;
+      gap: 0.58rem;
+    }
+
+    .specs li {
+      position: relative;
+      padding-left: 18px;
+      color: var(--text-main);
+      font-size: 0.86rem;
+      line-height: 1.52;
+    }
+
+    .specs li::before {
+      content: "";
+      position: absolute;
+      left: 0;
+      top: 0.5rem;
+      width: 0.42rem;
+      height: 0.42rem;
+      border-radius: 999px;
+      background: var(--accent-orange);
+      box-shadow: 0 0 0 3px rgba(217, 119, 6, 0.12);
+    }
+
+    .install-note strong,
+    .footnote strong {
+      color: var(--title-text);
+    }
+
     .footnote {
       color: var(--text-muted);
       font-size: 0.84rem;
@@ -265,12 +562,10 @@
       padding: 0 2px;
     }
 
-    .footnote strong {
-      color: var(--title-text);
-    }
-
     @media (max-width: 1080px) {
-      .cards {
+      .cards,
+      .manual-grid,
+      .decision-grid {
         grid-template-columns: 1fr;
       }
 
@@ -281,20 +576,6 @@
 
       .top-actions {
         justify-content: flex-start;
-      }
-    }
-
-    @media (max-width: 760px) {
-      .shell {
-        width: min(100vw - 16px, 1280px);
-        padding: 8px 0 18px;
-        gap: 10px;
-      }
-
-      .topbar,
-      .hero,
-      .card {
-        border-radius: 18px;
       }
     }
 
@@ -327,47 +608,55 @@
         min-width: 0;
       }
 
-      .hero {
-        padding: 18px 16px;
-        gap: 0.74rem;
+      .topbar,
+      .hero,
+      .card,
+      .install-note {
+        border-radius: 18px;
       }
 
-      .hero-copy {
-        gap: 0.62rem;
+      .hero {
+        padding: 18px 16px;
       }
 
       .hero h2 {
-        font-size: clamp(1.12rem, 5vw, 1.46rem);
-        line-height: 1.2;
+        font-size: clamp(1rem, 4.4vw, 1.24rem);
+        line-height: 1.24;
       }
 
-      .hero p {
-        font-size: 0.88rem;
-        line-height: 1.58;
-      }
-
-      .cards {
-        grid-template-columns: 1fr;
-        gap: 10px;
+      .hero p,
+      .desc,
+      .specs li,
+      .footnote {
+        font-size: 0.84rem;
       }
 
       .card {
         padding: 16px;
-        gap: 0.72rem;
+        gap: 0.78rem;
       }
 
       .platform {
         font-size: 1.12rem;
       }
 
-      .desc,
-      .specs li,
-      .footnote {
-        font-size: 0.82rem;
-      }
-
       .actions .action {
         width: 100%;
+      }
+
+      .mini-action {
+        min-height: 30px;
+        padding: 0.38rem 0.72rem;
+        font-size: 0.72rem;
+      }
+
+      .manual-body,
+      .note-body {
+        padding: 0 0.9rem 0.9rem;
+      }
+
+      .fold-summary {
+        padding: 0.88rem 0.9rem;
       }
     }
 
@@ -380,7 +669,8 @@
 
       .topbar,
       .hero,
-      .card {
+      .card,
+      .install-note {
         border-radius: 16px;
       }
 
@@ -411,6 +701,14 @@
       .hero-note {
         font-size: 0.76rem;
       }
+
+      .command-line {
+        font-size: 0.76rem;
+      }
+
+      .install-points li {
+        white-space: normal;
+      }
     }
   </style>
 </head>
@@ -420,7 +718,7 @@
       <div class="brand">
         <div class="eyebrow">CODRAX</div>
         <h1>下载安装</h1>
-        <div class="sub">按平台区分下载入口。Linux 包使用 <strong>musl-libc 静态链接</strong> 生成，不依赖目标机上的 glibc 或额外共享库。</div>
+        <div class="sub">这里提供两套入口：普通环境用短命令脚本安装；受限网络或企业网关环境请直接下载每个平台对应的离线总包，再拷入目标机安装。手动下载仍然保留在下面作为备选。</div>
       </div>
       <nav class="top-actions" aria-label="页面导航">
         <a class="action" href="../index.html">返回首页</a>
@@ -430,27 +728,114 @@
 
     <section class="hero">
       <div class="hero-copy">
-        <div class="hero-note">静态部署友好 · 按系统分发</div>
-        <h2>首页看演示，下载页选平台，安装入口和文档入口都保持最短路径。</h2>
-        <p>当前只提供 Windows 预编译包和 Linux 静态包。macOS 下载暂不开放，这里先不放未验证的安装入口，避免把“将来可能支持”和“现在可以直接使用”混成一种承诺。</p>
+        <div class="hero-note">双通道安装 · 按环境选择</div>
+        <h2>先判断环境，再选入口。能在线就走短命令；不能在线就直接下载离线总包。</h2>
+        <p>短命令方案会自动检查依赖、按需安装并显示进度；如果企业网关会拦截脚本文本入口，或者目标环境根本不能直连 <code>codrax.net</code>，就不要再反复尝试在线安装，直接改走离线总包。</p>
+      </div>
+      <div class="decision-grid" aria-label="安装方式判断">
+        <div class="decision">
+          <strong>能直接访问 codrax.net</strong>
+          <span>选“在线安装”。复制一条短命令执行即可，依赖检查、下载和覆盖更新都会自动完成。</span>
+        </div>
+        <div class="decision">
+          <strong>代理返回 403，或去掉代理也连不通</strong>
+          <span>选“离线总包安装”。先在可访问机器下载总包，再拷到目标机本地解压并执行里面的安装脚本。</span>
+        </div>
       </div>
     </section>
 
-    <section class="cards" aria-label="平台下载">
+    <section class="cards" aria-label="平台下载安装">
       <article class="card">
         <div class="card-head">
           <div class="badge">Windows</div>
           <div class="platform">Windows x64</div>
         </div>
-        <p class="desc">面向常规 Windows 使用者的预编译包，解压后即可使用。</p>
-        <ul class="specs">
-          <li>包含 <code>codrax.exe</code> 与默认配置样例。</li>
-          <li>适合本地终端、REPL、日志与 trace 分诊等常见场景。</li>
-          <li>依赖系统自带的标准 Windows 运行库，不额外携带第三方 DLL 包。</li>
-        </ul>
-        <div class="actions">
-          <a class="action action-primary" href="./codrax-windows-amd64.zip">下载 Windows 包</a>
-        </div>
+        <p class="desc">适合本地 PowerShell、CMD 和常规开发机环境。脚本会把程序安装到当前用户目录，并把命令入口加入 PATH。</p>
+
+        <section class="quick" aria-label="Windows 普通环境安装">
+          <div class="section-head">
+            <h3>在线安装</h3>
+            <span class="tag">短命令</span>
+          </div>
+          <p>适合可以直接执行远程安装脚本的环境。建议在 PowerShell 中执行。<strong>这条路径不需要先下载任何离线包。</strong></p>
+          <div class="command-shell">
+            <div class="command-top">
+              <div class="command-meta">
+                <div class="command-label">PowerShell</div>
+              </div>
+              <div class="command-actions">
+                <a class="inline-link" href="../install.ps1">查看在线脚本</a>
+                <button class="copy-button" type="button">复制命令</button>
+              </div>
+            </div>
+            <pre class="command-line"><code>$p=Join-Path $env:TEMP 'codrax-install.ps1'; iwr 'http://codrax.net/install.ps1' -OutFile $p -UseBasicParsing -UserAgent 'Mozilla/5.0'; &amp; powershell -ExecutionPolicy Bypass -File $p</code></pre>
+          </div>
+        </section>
+
+        <section class="quick" aria-label="Windows 受限环境安装">
+          <div class="section-head">
+            <div class="section-head-main">
+              <h3>离线总包安装</h3>
+              <span class="tag">一包式</span>
+            </div>
+            <a class="mini-action" href="./codrax-windows-amd64-offline.zip">下载离线总包</a>
+          </div>
+          <p>适合会拦截脚本文本入口，或者目标机器根本不能直连 <code>codrax.net</code> 的环境。先在可访问机器下载 <code>Windows 离线总包</code>，再把它解压到目标机的 <code>下载</code> 目录，最后在目标机本地执行。</p>
+          <ul class="install-points">
+            <li>先下载 Windows 离线总包</li>
+            <li>再拷到目标 Windows 机器的 Downloads 目录</li>
+            <li>解压后目录里已经带安装脚本和依赖包</li>
+            <li>最后在本机 PowerShell 执行</li>
+          </ul>
+          <div class="command-shell">
+            <div class="command-top">
+              <div class="command-meta">
+                <div class="command-label">PowerShell</div>
+              </div>
+              <div class="command-actions">
+                <a class="inline-link" href="../install-local.ps1">查看本地脚本</a>
+                <button class="copy-button" type="button">复制命令</button>
+              </div>
+            </div>
+            <pre class="command-line"><code>powershell -ExecutionPolicy Bypass -File "$env:USERPROFILE\Downloads\codrax-windows-amd64-offline\install-local.ps1"</code></pre>
+          </div>
+          <p>也就是先下载 <code>codrax-windows-amd64-offline.zip</code>，把它解压成 <code>C:\Users\你的用户名\Downloads\codrax-windows-amd64-offline\</code>，再直接复制执行上面的命令。</p>
+        </section>
+
+        <details class="manual-block" aria-label="Windows 手动说明">
+          <summary class="fold-summary">展开手动依赖与手动启动</summary>
+          <div class="manual-body">
+            <div class="manual-grid">
+            <div class="setup">
+              <h4>手动准备依赖</h4>
+              <p>如果你不想跑一键脚本，也可以先自己装好依赖。Windows 上最省事的是先装 Portable Git 或 Git for Windows，它会把 <code>git / sh / bash / grep / find / patch</code> 一起补齐，再额外装 <code>ripgrep</code>。</p>
+              <div class="command-list">
+                <div class="command-line">Portable Git:
+./PortableGit-2.54.0-64-bit.7z.exe</div>
+                <div class="command-line">ripgrep:
+./ripgrep-15.1.0-x86_64-pc-windows-msvc.zip</div>
+                <div class="command-line">git --version
+sh -c "exit 0"
+bash -lc "exit 0"
+grep --version
+find --version
+patch --version
+rg --version</div>
+              </div>
+            </div>
+            <div class="setup">
+              <h4>手动启动</h4>
+              <p>把压缩包解压到任意目录，首次把 <code>providers.yaml.example</code> 复制成 <code>providers.yaml</code>，再填入你的模型配置。</p>
+              <div class="command-list">
+                <div class="command-line">PowerShell:
+cd C:\tools\codrax
+Copy-Item .\providers.yaml.example .\providers.yaml
+.\codrax.exe</div>
+              </div>
+            </div>
+            </div>
+          </div>
+        </details>
       </article>
 
       <article class="card">
@@ -458,22 +843,162 @@
           <div class="badge">Linux</div>
           <div class="platform">Linux x64 静态包</div>
         </div>
-        <p class="desc">由仓库内置的 <code>make static</code> 目标生成，适合在尽量少依赖的服务器和容器环境中部署。</p>
-        <ul class="specs">
-          <li>使用 <strong>musl-libc</strong> 静态链接，已校验为 <strong>statically linked</strong>。</li>
-          <li>无需目标机额外安装 glibc 或其他共享运行时。</li>
-          <li>包内包含 <code>codrax</code> 可执行文件与两份配置样例。</li>
-        </ul>
-        <div class="actions">
-          <a class="action action-primary" href="./codrax-linux-amd64-musl.tar.gz">下载 Linux 静态包</a>
-        </div>
-      </article>
+        <p class="desc">适合服务器、容器和远程终端环境。安装脚本会优先补齐常用依赖，再把静态链接版本装进你的用户目录。</p>
 
+        <section class="quick" aria-label="Linux 普通环境安装">
+          <div class="section-head">
+            <h3>在线安装</h3>
+            <span class="tag">短命令</span>
+          </div>
+          <p>适合可以直接执行远程安装脚本的环境。请在 Bash 中执行。<strong>这条路径不需要先下载任何离线包。</strong></p>
+          <div class="command-shell">
+            <div class="command-top">
+              <div class="command-meta">
+                <div class="command-label">Bash</div>
+              </div>
+              <div class="command-actions">
+                <a class="inline-link" href="../install.sh">查看在线脚本</a>
+                <button class="copy-button" type="button">复制命令</button>
+              </div>
+            </div>
+            <pre class="command-line"><code>wget --user-agent="Mozilla/5.0" -qO- http://codrax.net/install.sh | bash</code></pre>
+          </div>
+        </section>
+
+        <section class="quick" aria-label="Linux 受限环境安装">
+          <div class="section-head">
+            <div class="section-head-main">
+              <h3>离线总包安装</h3>
+              <span class="tag">一包式</span>
+            </div>
+            <a class="mini-action" href="./codrax-linux-amd64-offline.tar.gz">下载离线总包</a>
+          </div>
+          <p>适合会拦截脚本文本入口，或者目标机器根本不能直连 <code>codrax.net</code> 的环境。先在可访问机器下载 <code>Linux 离线总包</code>，再把它解压到目标 Linux 机器的 <code>~/Downloads</code> 目录，最后在目标机本地执行。</p>
+          <ul class="install-points">
+            <li>先下载 Linux 离线总包</li>
+            <li>再拷到目标 Linux 机器的 ~/Downloads 目录</li>
+            <li>解压后目录里已经带安装脚本和依赖包</li>
+            <li>最后在本机 Bash 执行</li>
+          </ul>
+          <div class="command-shell">
+            <div class="command-top">
+              <div class="command-meta">
+                <div class="command-label">Bash</div>
+              </div>
+              <div class="command-actions">
+                <a class="inline-link" href="../install-local.sh">查看本地脚本</a>
+                <button class="copy-button" type="button">复制命令</button>
+              </div>
+            </div>
+            <pre class="command-line"><code>bash "$HOME/Downloads/codrax-linux-amd64-offline/install-local.sh"</code></pre>
+          </div>
+          <p>也就是先下载 <code>codrax-linux-amd64-offline.tar.gz</code>，把它解压成 <code>~/Downloads/codrax-linux-amd64-offline/</code>，再直接复制执行上面的命令。</p>
+        </section>
+
+        <details class="manual-block" aria-label="Linux 手动说明">
+          <summary class="fold-summary">展开手动依赖与手动启动</summary>
+          <div class="manual-body">
+            <div class="manual-grid">
+            <div class="setup">
+              <h4>手动准备依赖</h4>
+              <p>Linux 侧的最佳状态建议至少具备 <code>git / ripgrep / grep / findutils / patch</code>。下面给的是最常见的安装方式。</p>
+              <div class="command-list">
+                <div class="command-line">Debian / Ubuntu:
+sudo apt-get update
+sudo apt-get install -y git ripgrep grep findutils patch bash</div>
+                <div class="command-line">RHEL / Rocky / CentOS:
+sudo yum install -y git ripgrep grep findutils patch bash</div>
+                <div class="command-line">Alpine:
+sudo apk add --no-cache git ripgrep grep findutils patch bash</div>
+              </div>
+            </div>
+            <div class="setup">
+              <h4>手动启动</h4>
+              <p>解压后进入目录，把示例配置复制成正式配置，再运行静态链接二进制即可。</p>
+              <div class="command-list">
+                <div class="command-line">tar -xzf codrax-linux-amd64-musl.tar.gz
+cd codrax-linux-amd64-musl
+cp ./providers.yaml.example ./providers.yaml
+chmod +x ./codrax
+./codrax</div>
+              </div>
+            </div>
+            </div>
+          </div>
+        </details>
+      </article>
     </section>
 
+    <details class="install-note" aria-label="安装补充说明">
+      <summary class="fold-summary">展开补充说明</summary>
+      <div class="note-body">
+        <p><strong>普通环境方案</strong> 会自动检查依赖、按需安装、覆盖更新 Codrax；已有的 <code>providers.yaml</code> 和 <code>codrax.yaml</code> 不会被覆盖。</p>
+        <p><strong>受限环境方案</strong> 现在已经是一包式离线总包，不再要求你自己分别下载脚本、主程序包和依赖包。如果你的环境走代理会被 403，去掉代理又直连卡住，这就说明它应该直接走离线总包安装。</p>
+        <p><strong>离线总包里已经包含</strong>：本地安装脚本、Codrax 主程序包，以及脚本会优先使用的依赖包。Windows 总包内含 <code>Portable Git</code> 和 <code>ripgrep</code>；Linux 总包内含 <code>ripgrep</code>。如果目标机仍缺 <code>git / grep / find / patch</code> 这类基础工具，请继续参考上面的手动说明。</p>
+        <p><strong>安装完成后的第一件事</strong> 是打开 <code>providers.yaml</code>，填入你的模型地址、模型名和密钥；更完整的配置说明、日志和 trace 的使用方法，请直接看上面的 <a href="../user_guide.html">使用手册</a>。</p>
+      </div>
+    </details>
+
     <p class="footnote">
-      <strong>说明：</strong>Linux 包已按静态链接要求生成并校验。当前页面只开放已经明确验证过的下载入口，先把 Windows 与 Linux 的安装体验收稳，再决定是否补充其他平台分发。
+      <strong>说明：</strong> 这页只保留和安装直接相关的内容。如果你更关心如何提问、如何带日志分析、如何切换模式，或者想看完整的配置说明，请打开上方的“使用手册”。
     </p>
   </main>
+
+  <script>
+    function legacyCopy(text) {
+      const textarea = document.createElement("textarea");
+      textarea.value = text;
+      textarea.setAttribute("readonly", "");
+      textarea.style.position = "fixed";
+      textarea.style.top = "-9999px";
+      textarea.style.left = "-9999px";
+      document.body.appendChild(textarea);
+      textarea.focus();
+      textarea.select();
+      textarea.setSelectionRange(0, textarea.value.length);
+
+      let ok = false;
+      try {
+        ok = document.execCommand("copy");
+      } finally {
+        document.body.removeChild(textarea);
+      }
+      return ok;
+    }
+
+    async function copyText(text) {
+      if (navigator.clipboard && window.isSecureContext) {
+        await navigator.clipboard.writeText(text);
+        return true;
+      }
+      return legacyCopy(text);
+    }
+
+    const copyButtons = document.querySelectorAll(".copy-button");
+
+    copyButtons.forEach((button) => {
+      button.addEventListener("click", async () => {
+        const code = button.closest(".command-shell")?.querySelector("code");
+        if (!code) return;
+
+        const text = code.textContent.trim();
+        const original = button.textContent;
+
+        try {
+          const ok = await copyText(text);
+          button.textContent = ok ? "已复制" : "复制失败";
+          setTimeout(() => {
+            button.textContent = original;
+          }, 1400);
+        } catch (error) {
+          button.textContent = "复制失败";
+          setTimeout(() => {
+            button.textContent = original;
+          }, 1400);
+        }
+      });
+    });
+  </script>
 </body>
 </html>
+

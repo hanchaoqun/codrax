@@ -41,10 +41,12 @@
       display: flex;
       align-items: center;
       justify-content: space-between;
+      width: calc(100% - 16px);
+      justify-self: center;
       gap: 0.85rem;
       padding: 10px 14px;
       border: 1px solid var(--border-color);
-      border-radius: 18px;
+      border-radius: 10px;
       background: rgba(253, 252, 248, 0.82);
       backdrop-filter: blur(10px);
       box-shadow: 0 18px 40px var(--shadow-color);
@@ -172,12 +174,13 @@
     .stage {
       position: relative;
       min-height: 0;
-      border: 1px solid var(--border-color);
-      border-radius: 22px;
+      padding: 0;
+      border: 0;
+      border-radius: 0;
       overflow: hidden;
-      background: rgba(253, 252, 248, 0.74);
-      backdrop-filter: blur(12px);
-      box-shadow: 0 28px 70px var(--shadow-color);
+      background: transparent;
+      backdrop-filter: none;
+      box-shadow: none;
     }
 
     .mobile-dock {
@@ -192,8 +195,10 @@
       width: 100%;
       height: 100%;
       border: 0;
+      border-radius: 8px;
       display: block;
       background: transparent;
+      box-shadow: none;
     }
 
     @media (max-width: 1040px) {
@@ -203,6 +208,8 @@
       }
 
       .topbar {
+        width: 100%;
+        justify-self: stretch;
         align-items: flex-start;
         flex-direction: column;
       }
@@ -236,8 +243,8 @@
         height: 100svh;
         min-height: 100svh;
         grid-template-rows: auto 1fr auto;
-        padding: 6px 6px calc(env(safe-area-inset-bottom) + 4px);
-        gap: 6px;
+        padding: 5px 5px calc(env(safe-area-inset-bottom) + 3px);
+        gap: 5px;
       }
 
       .topbar {
@@ -255,11 +262,11 @@
         display: inline-flex;
         align-items: center;
         justify-content: center;
-        padding: 0.24rem 0.68rem;
+        padding: 0.2rem 0.6rem;
         border-radius: 999px;
         background: linear-gradient(135deg, #d97706 0%, #b45309 100%);
         color: #fffdf8;
-        font-size: 0.62rem;
+        font-size: 0.58rem;
         letter-spacing: 0.14em;
         text-transform: uppercase;
         font-weight: 800;
@@ -267,48 +274,57 @@
       }
 
       .stage {
+        padding: 0;
         height: 100%;
         min-height: 0;
         border-radius: 14px;
+        box-shadow: 0 18px 34px rgba(0, 0, 0, 0.06);
+      }
+
+      .stage-frame {
+        width: 100%;
+        height: 100%;
+        padding: 0;
+        border: 0;
+        border-radius: inherit;
+        background: transparent;
+        box-shadow: none;
       }
 
       .mobile-dock {
-        display: grid;
-        gap: 0.34rem;
-        padding-bottom: 0;
+        display: block;
+        padding-top: 0.34rem;
+        padding-bottom: calc(env(safe-area-inset-bottom) + 0.18rem);
       }
 
       .mobile-links {
         display: grid;
         grid-template-columns: repeat(2, minmax(0, 1fr));
-        gap: 0.34rem;
+        gap: 0.28rem;
       }
 
       .mobile-links .action {
         width: 100%;
         min-width: 0;
-        min-height: 36px;
-        padding: 0.46rem 0.24rem;
-        font-size: 0.74rem;
-      }
-
-      .mobile-controls {
-        display: grid;
-        grid-template-columns: repeat(3, minmax(0, 1fr));
-        gap: 0.16rem;
-        padding: 0.12rem;
-        border: 1px solid var(--border-color);
-        border-radius: 999px;
-        background: rgba(253, 252, 248, 0.88);
-        box-shadow: 0 10px 22px rgba(0, 0, 0, 0.05);
-      }
-
-      .mobile-controls .control-btn {
-        min-width: 0;
-        padding: 0.42rem 0.18rem;
         min-height: 34px;
+        padding: 0.4rem 0.18rem;
         font-size: 0.7rem;
+        box-shadow: none;
+        background: rgba(253, 252, 248, 0.92);
+        color: rgba(39, 39, 42, 0.82);
+        border-color: rgba(39, 39, 42, 0.08);
       }
+
+      .mobile-links .action-primary {
+        background: rgba(253, 252, 248, 0.92);
+        border-color: rgba(184, 106, 23, 0.18);
+        color: #9a5b10;
+      }
+
+      .mobile-links .action-primary:hover {
+        background: rgba(253, 252, 248, 0.96);
+      }
+
     }
 
     @media (max-width: 520px) {
@@ -316,7 +332,7 @@
         height: 100svh;
         min-height: 100svh;
         padding: 4px 4px calc(env(safe-area-inset-bottom) + 2px);
-        gap: 5px;
+        gap: 4px;
       }
 
       .mobile-brandline {
@@ -324,12 +340,13 @@
       }
 
       .mobile-brandline .mobile-badge {
-        padding: 0.2rem 0.56rem;
-        font-size: 0.58rem;
+        padding: 0.18rem 0.52rem;
+        font-size: 0.54rem;
       }
 
       .mobile-dock {
-        gap: 0.28rem;
+        padding-top: 0.28rem;
+        padding-bottom: calc(env(safe-area-inset-bottom) + 0.22rem);
       }
 
       .mobile-links {
@@ -337,24 +354,18 @@
       }
 
       .mobile-links .action {
-        min-height: 32px;
-        padding: 0.34rem 0.14rem;
-        font-size: 0.66rem;
-      }
-
-      .mobile-controls {
-        gap: 0.12rem;
-        padding: 0.1rem;
-      }
-
-      .mobile-controls .control-btn {
-        min-height: 32px;
-        padding: 0.34rem 0.12rem;
-        font-size: 0.66rem;
+        min-height: 30px;
+        padding: 0.3rem 0.12rem;
+        font-size: 0.64rem;
       }
 
       .stage {
-        border-radius: 12px;
+        border-radius: 0;
+      }
+
+      iframe {
+        border-radius: 8px;
+        box-shadow: none;
       }
     }
   </style>
@@ -398,23 +409,30 @@
         <a class="action action-primary" href="./download/index.html">下载安装</a>
         <a class="action" href="./user_guide.html">使用手册</a>
       </nav>
-      <div class="mobile-controls" role="group" aria-label="移动端演示控制">
-        <button class="control-btn" id="mobileDeckPrevBtn" type="button">上页</button>
-        <button class="control-btn" id="mobileDeckToggleBtn" type="button" aria-pressed="false">暂停</button>
-        <button class="control-btn" id="mobileDeckNextBtn" type="button">下页</button>
-      </div>
     </section>
   </main>
 
   <script>
     const deckFrame = document.getElementById("deckFrame");
+    const pageParams = new URLSearchParams(window.location.search);
+    const pageHash = (window.location.hash || "").replace(/^#/, "");
     const deckPrevBtn = document.getElementById("deckPrevBtn");
     const deckToggleBtn = document.getElementById("deckToggleBtn");
     const deckNextBtn = document.getElementById("deckNextBtn");
-    const mobileDeckPrevBtn = document.getElementById("mobileDeckPrevBtn");
-    const mobileDeckToggleBtn = document.getElementById("mobileDeckToggleBtn");
-    const mobileDeckNextBtn = document.getElementById("mobileDeckNextBtn");
     let autoplayActive = true;
+
+    if (deckFrame) {
+      const deckUrl = new URL("./codrax_authoritative_guide.html", window.location.href);
+      deckUrl.searchParams.set("embed", "1");
+      deckUrl.searchParams.set("autoplay", "1");
+      deckUrl.searchParams.set("loop", "1");
+      deckUrl.searchParams.set("interval", "6000");
+      const requestedPage = pageParams.get("page") || pageParams.get("slide") || pageHash;
+      if (requestedPage) {
+        deckUrl.searchParams.set("page", requestedPage);
+      }
+      deckFrame.src = deckUrl.toString();
+    }
 
     function sendDeckAction(action, value) {
       if (!deckFrame || !deckFrame.contentWindow) return;
@@ -422,7 +440,7 @@
     }
 
     function syncToggleButton() {
-      [deckToggleBtn, mobileDeckToggleBtn].filter(Boolean).forEach((button) => {
+      [deckToggleBtn].filter(Boolean).forEach((button) => {
         button.textContent = autoplayActive ? "暂停" : "继续";
         button.classList.toggle("is-paused", !autoplayActive);
         button.setAttribute("aria-label", autoplayActive ? "暂停自动播放" : "继续自动播放");
@@ -449,13 +467,13 @@
       }
     }
 
-    [deckPrevBtn, mobileDeckPrevBtn].filter(Boolean).forEach((button) => {
+    [deckPrevBtn].filter(Boolean).forEach((button) => {
       button.addEventListener("click", () => sendDeckAction("prev"));
     });
-    [deckToggleBtn, mobileDeckToggleBtn].filter(Boolean).forEach((button) => {
+    [deckToggleBtn].filter(Boolean).forEach((button) => {
       button.addEventListener("click", () => sendDeckAction("toggleAutoplay"));
     });
-    [deckNextBtn, mobileDeckNextBtn].filter(Boolean).forEach((button) => {
+    [deckNextBtn].filter(Boolean).forEach((button) => {
       button.addEventListener("click", () => sendDeckAction("next"));
     });
 
