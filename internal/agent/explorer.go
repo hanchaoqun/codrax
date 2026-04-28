@@ -4222,34 +4222,7 @@ func (e *explorerEvaluator) postCompletionReadyClosureOnlySignal(obs LoopObserva
 }
 
 func exactAbsenceClosureReady(contract *types.ExactResolutionContract, scenario types.Scenario, targets []string, evidence []types.EvidenceItem, requiredFiles []string) bool {
-	if contract == nil || len(targets) == 0 || len(evidence) == 0 {
-		return false
-	}
-	scopeTerms := types.ExactResolutionContextTerms(contract)
-	hasScopedContext := len(scopeTerms) == 0
-	for _, item := range evidence {
-		if exactResolutionEvidenceBlocksAbsence(contract, item) {
-			return false
-		}
-	}
-	for _, item := range evidence {
-		if types.ExactResolutionRelatedContextProofAllowedInFiles(contract, scenario, true, item, requiredFiles) {
-			hasScopedContext = true
-			break
-		}
-		if len(requiredFiles) == 0 {
-			switch item.GroundingStatus {
-			case types.GroundingGrounded, types.GroundingRecovered, "":
-			default:
-				continue
-			}
-			if types.EvidenceItemStructurallyMentionsAnyTerm(item, scopeTerms) {
-				hasScopedContext = true
-				break
-			}
-		}
-	}
-	return hasScopedContext
+	return types.ExactResolutionAbsenceClosureReady(contract, scenario, targets, evidence, requiredFiles)
 }
 
 func (e *explorerEvaluator) salvageExactAbsenceCompletion(ctx *types.AgentContext) bool {
@@ -4270,7 +4243,7 @@ func (e *explorerEvaluator) salvageExactAbsenceCompletion(ctx *types.AgentContex
 	if !exactAbsenceClosureReady(contract, e.scenario, contract.Targets, e.structuredEvidence, requiredFiles) {
 		return false
 	}
-	just := autoExactAbsenceJustification(contract)
+	just := types.ExactResolutionAutoAbsenceJustification(contract)
 	if just == "" {
 		return false
 	}
@@ -4278,43 +4251,6 @@ func (e *explorerEvaluator) salvageExactAbsenceCompletion(ctx *types.AgentContex
 	ctx.Mutable.SetAbsenceJustification(just)
 	logging.Info("[explorer] salvaged exact-absence completion from structured evidence (scenario=%s targets=%v)", e.scenario, contract.Targets)
 	return true
-}
-
-func autoExactAbsenceJustification(contract *types.ExactResolutionContract) string {
-	if contract == nil || len(contract.Targets) == 0 {
-		return ""
-	}
-	label := strings.TrimSpace(contract.TargetLabel)
-	if label == "" {
-		label = "target"
-	}
-	return fmt.Sprintf(
-		"grounded investigation found no defining repo anchor for exact %s %s; any remaining grounded same-scope items are related context only",
-		label,
-		backtickJoin(contract.Targets),
-	)
-}
-
-func exactResolutionEvidenceBlocksAbsence(contract *types.ExactResolutionContract, item types.EvidenceItem) bool {
-	switch item.GroundingStatus {
-	case types.GroundingGrounded, types.GroundingRecovered, "":
-	default:
-		return false
-	}
-	switch item.ContextRole {
-	case types.EvidenceContextRoleIllustrativeOnly, types.EvidenceContextRoleAbsenceSupport:
-		return false
-	}
-	if !types.ExactResolutionTextsMentionAnyTarget(contract,
-		item.Subject, item.Predicate, item.Object, item.AnchorSymbol, item.Condition, item.Snippet, item.Summary) {
-		return false
-	}
-	if types.ExactResolutionRequiresDefiningPrimaryProof(contract) &&
-		!types.ExactResolutionSourceIsDefiningPrimaryProofLike(contract, item.Source) {
-		return false
-	}
-	return item.ContextRole == types.EvidenceContextRoleDefining ||
-		types.ExactResolutionDirectAnchorMatchesAnyTarget(contract, item.Subject, item.AnchorSymbol, item.Object)
 }
 
 func (e *explorerEvaluator) postPrimaryReadMidLoopSignal(obs LoopObservation) LoopSignal {

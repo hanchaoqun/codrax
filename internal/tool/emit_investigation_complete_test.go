@@ -216,6 +216,83 @@ func TestEmitInvestigationComplete_CompletionWithoutAbsenceOnEvidenceAccepted(t 
 	}
 }
 
+func TestEmitInvestigationComplete_NormalizesResolvedToAbsenceForExactConfigTraceClosure(t *testing.T) {
+	missingKey := "explore_mid_loop_hint_budget"
+	mut := types.NewMutableState("q")
+	mut.SetExactContextRequiredFiles([]string{"internal/types/config.go"})
+	mut.AppendEvidence([]types.EvidenceItem{
+		{
+			Kind:            types.EvidenceDirect,
+			Source:          "internal/config/runtime.go",
+			LineStart:       32,
+			Subject:         "RuntimeSettings",
+			Object:          missingKey,
+			AnchorKind:      types.AnchorDefinition,
+			AnchorSymbol:    "RuntimeSettings",
+			Summary:         "RuntimeSettings does not define " + missingKey,
+			ContextRole:     types.EvidenceContextRoleAbsenceSupport,
+			GroundingStatus: types.GroundingGrounded,
+			GroundingTier:   types.TierLineText,
+		},
+		{
+			Kind:            types.EvidenceDirect,
+			Source:          "internal/types/config.go",
+			LineStart:       815,
+			Subject:         "DefaultExploreHeuristics",
+			AnchorKind:      types.AnchorDefinition,
+			AnchorSymbol:    "DefaultExploreHeuristics",
+			Summary:         "Code defaults for the surviving explore heuristics fields.",
+			ContextRole:     types.EvidenceContextRoleRelatedContext,
+			DiagramRole:     types.EvidenceDiagramRoleDefault,
+			GroundingStatus: types.GroundingGrounded,
+			GroundingTier:   types.TierLineText,
+		},
+	})
+	bus := &types.BusContext{
+		Mutable: mut,
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				RawRequest: missingKey + " 的最终有效值是怎么计算出来的？",
+				Scenario:   types.ScenarioConfigTrace,
+				AnalyzerHints: types.AnalyzerHints{
+					Kind:              "config_mapping",
+					PrimaryEntities:   []string{missingKey},
+					Entities:          []string{missingKey},
+					MentionedEntities: []string{missingKey},
+				},
+				AnswerSubject: types.AnswerSubject{Kind: types.SubjectConfigKey},
+			},
+			AnswerContract: types.AnswerContract{
+				ExactResolution: &types.ExactResolutionContract{
+					TargetKind:           types.SubjectConfigKey,
+					TargetLabel:          "config key",
+					Targets:              []string{missingKey},
+					AllowAbsence:         true,
+					RelatedContextPolicy: types.ExactContextSameFamilyGrounded,
+				},
+			},
+		},
+	}
+	tool := &EmitInvestigationComplete{}
+	params := json.RawMessage(`{"reason":"searched the repo and found no exact config key explore_mid_loop_hint_budget in any layer","confidence":"high","result_kind":"resolved"}`)
+	res, err := tool.Execute(bus, params)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("expected structured exact-absence closure to auto-normalize, got: %s", res.Summary)
+	}
+	if got := mut.StableInvestigationResultKind(); got != "absence" {
+		t.Fatalf("StableInvestigationResultKind = %q, want absence", got)
+	}
+	if got := mut.StableAbsenceJustification(); got == "" {
+		t.Fatal("StableAbsenceJustification = empty, want synthesized justification")
+	}
+	if !strings.Contains(res.Summary, "result_kind=absence") {
+		t.Fatalf("summary should reflect normalized absence result, got: %s", res.Summary)
+	}
+}
+
 // TestEmitInvestigationComplete_Tier1FloorRejectsPureRecovery pins the
 // session-8 upstream-intercept: when every item is Recovered (the LLM
 // never read_file'd any of the cited sources), the Tier-1 floor fires

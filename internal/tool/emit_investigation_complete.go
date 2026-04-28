@@ -142,6 +142,8 @@ func (t *EmitInvestigationComplete) Execute(ctx *types.BusContext, params json.R
 			Timestamp: time.Now(),
 		}, nil
 	}
+	justification := strings.TrimSpace(p.AbsenceJustification)
+	resultKind, justification = normalizeExactAbsenceCompletion(ctx, resultKind, reason, justification)
 
 	// Grounding gates. Two independent floors evaluated in AND:
 	//
@@ -159,7 +161,6 @@ func (t *EmitInvestigationComplete) Execute(ctx *types.BusContext, params json.R
 	// these floors, then pass through the dedicated absence validation
 	// below; otherwise absent targets can be rejected for having no
 	// positive evidence to cite.
-	justification := strings.TrimSpace(p.AbsenceJustification)
 	if justification == "" {
 		if targets := exactAbsencePendingTargets(ctx); len(targets) > 0 {
 			evidence := ctx.Mutable.EmittedEvidence()
@@ -1540,6 +1541,41 @@ func exactResolutionContractForCompletion(ctx *types.BusContext) *types.ExactRes
 		return c
 	}
 	return types.BuildExactResolutionContract(ctx.AnalysisIR.RequestModel)
+}
+
+func normalizeExactAbsenceCompletion(ctx *types.BusContext, resultKind, reason, justification string) (string, string) {
+	if ctx == nil || ctx.Mutable == nil {
+		return resultKind, justification
+	}
+	contract := exactResolutionContractForCompletion(ctx)
+	if contract == nil || !contract.AllowAbsence || len(contract.Targets) == 0 {
+		return resultKind, justification
+	}
+	if justification != "" && resultKind == "absence" {
+		return resultKind, justification
+	}
+	scenario := types.ScenarioGeneric
+	if ctx.AnalysisIR != nil {
+		scenario = ctx.AnalysisIR.RequestModel.Scenario
+	}
+	requiredFiles := exactAbsenceRequiredContextFiles(ctx, contract)
+	evidence := ctx.Mutable.EmittedEvidence()
+	if !types.ExactResolutionAbsenceClosureReady(contract, scenario, contract.Targets, evidence, requiredFiles) {
+		return resultKind, justification
+	}
+	auto := types.ExactResolutionAutoAbsenceJustification(contract)
+	if auto == "" {
+		return resultKind, justification
+	}
+	if resultKind == "absence" && justification == "" {
+		logging.Info("[emit_investigation_complete] synthesized exact-absence justification from structured evidence (targets=%v)", contract.Targets)
+		return "absence", auto
+	}
+	if resultKind == "resolved" && justification == "" {
+		logging.Info("[emit_investigation_complete] normalized result_kind resolved -> absence from structured exact-absence evidence (targets=%v)", contract.Targets)
+		return "absence", auto
+	}
+	return resultKind, justification
 }
 
 func evidenceHasAnyDefiningExactTargetProof(contract *types.ExactResolutionContract, items []types.EvidenceItem, targets []string) bool {

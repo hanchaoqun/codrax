@@ -1,6 +1,7 @@
 package types
 
 import (
+	"fmt"
 	"path/filepath"
 	"sort"
 	"strconv"
@@ -943,6 +944,124 @@ func ExactResolutionRelatedContextProofAllowedInFiles(c *ExactResolutionContract
 		return ConfigTraceGroundedContextAnchorAllowedInFiles(c, item, requiredFiles)
 	}
 	return ExactResolutionAnswerContextAnchorAllowedInFiles(c, scenario, stableAbsent, item, requiredFiles)
+}
+
+// ExactResolutionEvidenceBlocksAbsence reports whether one structured
+// evidence item disproves an exact-absence closure for the current
+// target lane. Illustrative and absence-support items are ignored;
+// grounded/recovered items that explicitly mention the exact target on
+// a non-contextual lane block absence.
+func ExactResolutionEvidenceBlocksAbsence(c *ExactResolutionContract, item EvidenceItem) bool {
+	switch item.GroundingStatus {
+	case GroundingGrounded, GroundingRecovered, "":
+	default:
+		return false
+	}
+	switch item.ContextRole {
+	case EvidenceContextRoleIllustrativeOnly, EvidenceContextRoleAbsenceSupport:
+		return false
+	}
+	if !ExactResolutionTextsMentionAnyTarget(c,
+		item.Subject, item.Predicate, item.Object, item.AnchorSymbol, item.Condition, item.Snippet, item.Summary) {
+		return false
+	}
+	if IsNegativeEvidencePredicate(item.Predicate) {
+		return false
+	}
+	if item.ContextRole == EvidenceContextRoleRelatedContext {
+		return false
+	}
+	return true
+}
+
+// ExactResolutionEvidenceSupportsAbsence reports whether one grounded
+// evidence item explicitly carries exact-target absence support rather
+// than merely being nearby related context.
+func ExactResolutionEvidenceSupportsAbsence(c *ExactResolutionContract, item EvidenceItem) bool {
+	switch item.GroundingStatus {
+	case GroundingGrounded, GroundingRecovered:
+	default:
+		return false
+	}
+	if item.ContextRole != EvidenceContextRoleAbsenceSupport {
+		return false
+	}
+	if !ExactResolutionTextsMentionAnyTarget(c,
+		item.Subject, item.Predicate, item.Object, item.AnchorSymbol, item.Condition, item.Snippet, item.Summary) {
+		return false
+	}
+	return true
+}
+
+// ExactResolutionAbsenceClosureReady reports whether the current
+// grounded evidence pool already supports closing an exact-target
+// investigation as absence while keeping any remaining same-scope
+// anchors as related context only.
+func ExactResolutionAbsenceClosureReady(c *ExactResolutionContract, scenario Scenario, targets []string, evidence []EvidenceItem, requiredFiles []string) bool {
+	if c == nil || len(targets) == 0 || len(evidence) == 0 {
+		return false
+	}
+	scopeTerms := ExactResolutionContextTerms(c)
+	hasScopedContext := len(scopeTerms) == 0
+	hasAbsenceSupport := false
+	for _, item := range evidence {
+		if ExactResolutionEvidenceBlocksAbsence(c, item) {
+			return false
+		}
+		if ExactResolutionEvidenceSupportsAbsence(c, item) {
+			hasAbsenceSupport = true
+		}
+	}
+	for _, item := range evidence {
+		if ExactResolutionRelatedContextProofAllowedInFiles(c, scenario, true, item, requiredFiles) {
+			hasScopedContext = true
+			break
+		}
+		if len(requiredFiles) == 0 {
+			switch item.GroundingStatus {
+			case GroundingGrounded, GroundingRecovered, "":
+			default:
+				continue
+			}
+			if EvidenceItemStructurallyMentionsAnyTerm(item, scopeTerms) {
+				hasScopedContext = true
+				break
+			}
+		}
+	}
+	return hasAbsenceSupport && hasScopedContext
+}
+
+// ExactResolutionAutoAbsenceJustification synthesizes a deterministic
+// absence justification for a validated exact-target absence closure.
+func ExactResolutionAutoAbsenceJustification(c *ExactResolutionContract) string {
+	if c == nil || len(c.Targets) == 0 {
+		return ""
+	}
+	label := strings.TrimSpace(c.TargetLabel)
+	if label == "" {
+		label = "target"
+	}
+	return fmt.Sprintf(
+		"grounded investigation found no defining repo anchor for exact %s %s; any remaining grounded same-scope items are related context only",
+		label,
+		exactResolutionBacktickJoin(c.Targets),
+	)
+}
+
+func exactResolutionBacktickJoin(items []string) string {
+	if len(items) == 0 {
+		return ""
+	}
+	parts := make([]string, 0, len(items))
+	for _, item := range items {
+		item = strings.TrimSpace(item)
+		if item == "" {
+			continue
+		}
+		parts = append(parts, "`"+item+"`")
+	}
+	return strings.Join(parts, ", ")
 }
 
 func exactResolutionRequiredFilesContain(requiredFiles []string, source string) bool {
