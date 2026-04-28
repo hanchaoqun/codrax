@@ -278,7 +278,24 @@ func reconcileShape(rm types.RequestModel, declared types.AnswerShape, subject t
 			"scalar source-literal lookup resolves to one named token, not a prose/list shape"
 	}
 
-	// Rule 0b: single exact config-trace question.
+	// Rule 0b: static multi-axis structural explanation.
+	//
+	// Questions that compare multiple type/field facets ("what roles do
+	// A and B play, what fields do they have, how do they relate?")
+	// often contain surface list verbs ("列出", "分别"), but they are not
+	// sequential hop lists. When the analyzer already says this is an
+	// explain-intent, define-axis question over a type-like subject with
+	// multiple entity axes, prefer explanation so downstream stages do
+	// not force an ordered step carrier onto a static structural answer.
+	if declared == types.ShapeStepList &&
+		rm.Intent == types.IntentExplain &&
+		rm.PredicateAxis == types.AxisDefine &&
+		multiAxisStructuralSubject(subject) {
+		return types.ShapeExplanation,
+			"multi-axis structural explanation prefers prose explanation over ordered step_list"
+	}
+
+	// Rule 0c: single exact config-trace question.
 	//
 	// When the request names one exact config key and asks for lineage /
 	// precedence, a symbol set is the wrong carrier. Scalar asks belong
@@ -328,6 +345,20 @@ func reconcileShape(rm types.RequestModel, declared types.AnswerShape, subject t
 			"answer subject is source-code literal (" + string(subject.Kind) + ") not a YAML config key"
 	}
 	return declared, ""
+}
+
+func multiAxisStructuralSubject(subject types.AnswerSubject) bool {
+	if len(subject.EntityAxes) < 2 {
+		return false
+	}
+	switch subject.Kind {
+	case types.SubjectStructField,
+		types.SubjectTypeName,
+		types.SubjectInterface,
+		types.SubjectGeneric:
+		return true
+	}
+	return false
 }
 
 // reconcileDiagramContract derives the finalizer-facing diagram

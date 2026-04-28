@@ -497,6 +497,30 @@ func TestReconcileShape(t *testing.T) {
 			},
 			types.ShapeExplanation, types.AnswerSubject{Kind: types.SubjectFunctionName},
 			types.SemanticPredicates{IsScalarAnswer: true}, types.ShapeValue, true},
+		{"multi-axis structural explanation lifts step_list to explanation",
+			types.RequestModel{
+				Intent:        types.IntentExplain,
+				Scenario:      types.ScenarioArchitectureExplain,
+				PredicateAxis: types.AxisDefine,
+			},
+			types.ShapeStepList,
+			types.AnswerSubject{
+				Kind:       types.SubjectStructField,
+				EntityAxes: []string{"Criterion → fields", "Hypothesis → fields", "Criterion ↔ Hypothesis → relationship"},
+			},
+			types.SemanticPredicates{}, types.ShapeExplanation, true},
+		{"single-axis define step_list stays step_list",
+			types.RequestModel{
+				Intent:        types.IntentExplain,
+				Scenario:      types.ScenarioArchitectureExplain,
+				PredicateAxis: types.AxisDefine,
+			},
+			types.ShapeStepList,
+			types.AnswerSubject{
+				Kind:       types.SubjectStructField,
+				EntityAxes: []string{"Criterion → fields"},
+			},
+			types.SemanticPredicates{}, types.ShapeStepList, false},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
