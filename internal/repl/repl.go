@@ -191,6 +191,12 @@ type Config struct {
 	// Chat with the keyword-injected priorContext only).
 	Memory types.MemoryReader
 
+	// EnvSettings forwards codrax.yaml's env_recommend_* knobs into
+	// the REPL so /env probe / explain / cache use the right
+	// timeouts and strategy filters. Zero value falls through to
+	// types.DefaultEnvRecommendSettings via ResolvedEnvRecommendSettings.
+	EnvSettings types.EnvRecommendSettings
+
 	// ChitchatClassifier optionally runs a single LLM call before each
 	// normal dispatch to decide whether to reroute the turn to the
 	// chit-chat path. nil disables the gate; the REPL falls back to
@@ -303,6 +309,16 @@ type REPL struct {
 	// it into the new Bubble Tea model as a placeholder seed. Single-
 	// use; cleared on consumption or on abort of the seeded turn.
 	pendingPaste string
+
+	// envFacts is the cached environment snapshot the /env command
+	// surfaces and the chitchat/pipeline path can use for diagnosis
+	// when a runner failure surfaces. Populated lazily on first
+	// /env call; refreshed by /env probe.
+	envFacts *types.EnvFacts
+
+	// envSettings carries the resolved env_recommend yaml config.
+	// cmd/root.go populates this before REPL Loop starts.
+	envSettings types.EnvRecommendSettings
 
 	// memory is the read-side handle into the conversation memory
 	// store the chitchat tool-use loop hands the responder. Wired by
@@ -434,6 +450,7 @@ func New(cfg Config) *REPL {
 		language:           cfg.Language,
 		chitchatResponder:  cfg.ChitchatResponder,
 		memory:             cfg.Memory,
+		envSettings:        types.ResolvedEnvRecommendSettings(cfg.EnvSettings),
 		chitchatClassifier: cfg.ChitchatClassifier,
 		// Session ID embeds nano + pid so two codrax REPLs launched
 		// in the same clock tick (test harness, race) still get
@@ -1407,6 +1424,9 @@ func (r *REPL) handleSlash(line string) bool {
 		return false
 	case "/branch":
 		r.handleBranchCmd(line)
+		return false
+	case "/env":
+		r.handleEnvCmd(line)
 		return false
 	case "/cancel":
 		// Slash-command fallback for terminals where Ctrl+C is

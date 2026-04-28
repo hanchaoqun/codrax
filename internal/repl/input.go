@@ -228,6 +228,18 @@ var slashCommands = []slashCommand{
 		HelpEn: "cancel the in-flight Run. TTY mode: use Ctrl+C (the input box is closed during Run). Pipe / scripted stdin: a `/cancel` line on stdin triggers cancel.",
 		HelpZh: "取消正在执行的 Run。TTY 交互模式按 Ctrl+C(运行期输入框关闭,/cancel 输不进去);管道/脚本输入(stdin 重定向)发一行 /cancel 触发。",
 	},
+	{
+		Name:   "/env",
+		HelpEn: "show the probed environment + run env_recommend explain on a stderr excerpt",
+		HelpZh: "查看探测到的环境画像 / 对 stderr 跑 env_recommend 诊断与推荐",
+		Subs: []slashSubcommand{
+			{"show", "render the cached EnvFacts (default subcommand)", "渲染当前环境快照(默认子命令)"},
+			{"probe", "re-run the environment probe and refresh", "重新探测并刷新缓存"},
+			{"explain <stderr>", "run diagnose+recommend on supplied or last-shell stderr", "对参数或最近一次 ! shell 输出跑 diagnose+recommend"},
+			{"cache list", "show entries in the disk cache", "列出磁盘缓存条目"},
+			{"cache clear", "wipe the disk cache", "清空磁盘缓存"},
+		},
+	},
 	{Name: "/version", HelpEn: "print build version", HelpZh: "打印构建版本"},
 	{Name: "/exit", HelpEn: "leave the REPL", HelpZh: "退出 REPL"},
 	{Name: "/quit", HelpEn: "leave the REPL", HelpZh: "退出 REPL"},

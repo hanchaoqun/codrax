@@ -22,6 +22,7 @@ import (
 	"github.com/hanchaoqun/codrax/internal/llm"
 	"github.com/hanchaoqun/codrax/internal/logging"
 	"github.com/hanchaoqun/codrax/internal/mcp"
+	"github.com/hanchaoqun/codrax/internal/env"
 	"github.com/hanchaoqun/codrax/internal/memory"
 	"github.com/hanchaoqun/codrax/internal/orchestrator"
 	"github.com/hanchaoqun/codrax/internal/render"
@@ -214,6 +215,7 @@ type appContext struct {
 	reflectorLLM          llm.Adapter // providers.yaml :: agents.reflector, else defaultLLM
 	logger                *logging.Logger
 	memorySettings        types.MemorySettings
+	envRecommendSettings  types.EnvRecommendSettings
 	replPasteFoldMinChars int // 0 → repl.DefaultPasteFoldMinChars
 	chitchatResponder     repl.ChitchatResponder
 	chitchatClassifier    repl.ChitchatClassifier
@@ -862,6 +864,12 @@ func runREPL(_ *cobra.Command) error {
 	// from the tool layer. Adapter is nil-safe; single-shot CLI never
 	// reaches this branch (runREPL path only).
 	app.orch.SetMemoryReader(memory.NewAdapter(store))
+	app.orch.SetEnvRecommendSettings(app.envRecommendSettings)
+	env.SetCacheTTL(app.envRecommendSettings.CacheTTLDays)
+	// LLM adapter for env_recommend was wired earlier in runApp's
+	// setup phase (where providersCfg is in scope) and reaches here
+	// via env.SetLLMAdapter — REPL setup just confirms the
+	// settings via SetEnvRecommendSettings.
 	renderFn := func(busCtx *types.BusContext) string {
 		return app.renderer.RenderResult(busCtx)
 	}
@@ -892,6 +900,7 @@ func runREPL(_ *cobra.Command) error {
 		// The same adapter is also wired into the orchestrator above,
 		// so pipeline and chitchat see one source of truth.
 		Memory:              memory.NewAdapter(store),
+		EnvSettings:         app.envRecommendSettings,
 		PlanStore:           planStore,
 		AttachedLogMaxBytes:   maxAttachedLogBytes,
 		AttachedTraceMaxBytes: maxAttachedTraceBytes,
@@ -1663,6 +1672,38 @@ func initApp(cmd *cobra.Command, _ []string) error {
 	}
 	app.memorySettings = types.ResolvedMemorySettings(memCfg)
 
+	// env_recommend settings — Stage 1 (deterministic table) is on
+	// by default; LLM fallback is also on by default (cheap-model
+	// routed, can be disabled via yaml). Operators with strict
+	// audit requirements can `env_recommend_enabled: false` to
+	// fully disable and fall back to legacy runnerInstallHint.
+	envCfg := types.DefaultEnvRecommendSettings()
+	if rs != nil {
+		if rs.EnvRecommendEnabled != nil {
+			envCfg.Enabled = *rs.EnvRecommendEnabled
+		}
+		if rs.EnvRecommendLLMEnabled != nil {
+			envCfg.LLMEnabled = *rs.EnvRecommendLLMEnabled
+		}
+		if rs.EnvRecommendLLMTimeoutSec != nil {
+			envCfg.LLMTimeoutSec = *rs.EnvRecommendLLMTimeoutSec
+		}
+		if rs.RecommendGlobalInstall != nil {
+			envCfg.RecommendGlobalInstall = *rs.RecommendGlobalInstall
+		}
+		if rs.EnvProbeNetwork != nil {
+			envCfg.ProbeNetwork = *rs.EnvProbeNetwork
+		}
+		if rs.EnvCacheTTLDays != nil {
+			envCfg.CacheTTLDays = *rs.EnvCacheTTLDays
+		}
+	}
+	app.envRecommendSettings = types.ResolvedEnvRecommendSettings(envCfg)
+	logging.Info("env_recommend: enabled=%t llm=%t timeout=%ds global_install=%t probe_network=%t cache_ttl=%dd",
+		app.envRecommendSettings.Enabled, app.envRecommendSettings.LLMEnabled,
+		app.envRecommendSettings.LLMTimeoutSec, app.envRecommendSettings.RecommendGlobalInstall,
+		app.envRecommendSettings.ProbeNetwork, app.envRecommendSettings.CacheTTLDays)
+
 	logging.Info("pipeline_settings: max_steps=%d max_retries_per_stage=%d max_stage_visits=%d",
 		flagMaxSteps,
 		pipelineSettings.MaxRetriesPerStage,
@@ -2053,6 +2094,22 @@ func initApp(cmd *cobra.Command, _ []string) error {
 				r.SetChitchatSettings(types.ResolvedChitchatSettings(chitchatCfg))
 			}
 			app.chitchatResponder = responder
+		}
+	}
+
+	// env_recommend LLM fallback adapter. Routed via providers.yaml
+	// agents.env_recommender; falls back to chitchat_classifier
+	// (cheap model). nil → Stage 3 LLM fallback short-circuits and
+	// the recommender returns whatever Stage 1/2 produced (or empty).
+	if app.envRecommendSettings.LLMEnabled {
+		envProvider := config.ResolveProvider(providersCfg, "env_recommender")
+		if _, has := providersCfg.LLM.Agents["env_recommender"]; !has {
+			envProvider = config.ResolveProvider(providersCfg, "chitchat_classifier")
+		}
+		if adapter, err := llm.NewFromConfig(envProvider); err != nil {
+			logging.Warning("[env_recommend] LLM adapter init failed; deterministic-only: %v", err)
+		} else {
+			env.SetLLMAdapter(adapter)
 		}
 	}
 

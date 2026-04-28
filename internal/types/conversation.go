@@ -70,6 +70,8 @@ var replCommandAliases = map[string]string{
 	"/worktree":  "/worktree",
 	"/merge":     "/merge",
 	"/branch":    "/branch",
+	"/env":       "/env",
+	"\\env":      "/env",
 	"/cancel":    "/cancel",
 	"\\cancel":   "/cancel",
 	"\\q":        "/quit",

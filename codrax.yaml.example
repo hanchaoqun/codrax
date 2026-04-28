@@ -610,6 +610,56 @@
 # chitchat_recall_max_limit: 10
 
 # ---------------------------------------------------------------------------
+# Environment recommendation pipeline (env_recommend_*)
+# ---------------------------------------------------------------------------
+# When a runner / build / test step fails because of a missing
+# binary, dependency, system library, or git-state issue, codrax
+# runs a deterministic Layer 1-3 pipeline (probe → diagnose →
+# recommend) that surfaces precise, environment-aware install
+# commands in the failure message. Commands are prefixed with `!`
+# so they can be copy-pasted directly into the codrax prompt.
+#
+# Architecture:
+#   Layer 1 — probe: scans OS / shell / package managers / project
+#             manifests / Python interpreters / Node / Rust / Java /
+#             Ruby toolchains + git repo state. ~400ms once per Run.
+#   Layer 2 — diagnose: structured Diagnosis from stderr + EnvFacts
+#             across 8 DiagKinds (runner_missing, deps_missing,
+#             toolchain_missing, system_lib_missing, config_missing,
+#             git_not_installed, git_not_initialized, git_no_commits)
+#             plus Unknown sentinel for LLM fallback.
+#   Layer 3 — recommend: per-runner table → disk cache → LLM fallback
+#             → DocsLink. Returns up to 3 ranked install candidates
+#             with InstallStrategy (venv/project/user/toolchain/
+#             global/docs) priority.
+#
+# Master switch. false → fall back to legacy hardcoded
+# runnerInstallHint strings (byte-identical with pre-feature behaviour).
+# env_recommend_enabled: true
+
+# Stage 3 LLM fallback for Diagnosis=Unknown / niche package-name
+# translation. false → only deterministic table is consulted.
+# env_recommend_llm_enabled: true
+
+# LLM call timeout. Hitting this drops to deterministic-only.
+# env_recommend_llm_timeout_sec: 5
+
+# Whether the Recommender produces sudo / global-install commands
+# (apt/dnf/brew install, npm install -g, sudo gem install). Default
+# false — operator must opt in. When false, GlobalInstall candidates
+# are silently filtered before render.
+# recommend_global_install: false
+
+# Whether the probe layer attempts a network reachability check
+# (TCP connect to 1.1.1.1:443). Disabling saves ~200ms startup.
+# env_probe_network: true
+
+# TTL for cached LLM-derived recommendations stored at
+# ~/.codrax/cache/env-cache.json. Default 90 days; package name
+# mappings stay stable in this window.
+# env_cache_ttl_days: 90
+
+# ---------------------------------------------------------------------------
 # Memory store limits (memory_*)
 # ---------------------------------------------------------------------------
 # Multi-turn REPL memory: buffer sizes and context-building caps.

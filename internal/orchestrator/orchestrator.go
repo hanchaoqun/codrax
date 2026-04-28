@@ -12,6 +12,7 @@ import (
 	"github.com/aymanbagabas/go-udiff"
 	"github.com/hanchaoqun/codrax/internal/agent"
 	"github.com/hanchaoqun/codrax/internal/analysis/contract"
+	"github.com/hanchaoqun/codrax/internal/env"
 	"github.com/hanchaoqun/codrax/internal/analysis/criterion"
 	"github.com/hanchaoqun/codrax/internal/analysis/stopcond"
 	ctxbuilder "github.com/hanchaoqun/codrax/internal/context"
@@ -55,6 +56,11 @@ type Orchestrator struct {
 	// Run() copies it into BusContext.Memory so tools (recall_memory)
 	// can query without a memory-package import.
 	memoryReader types.MemoryReader
+
+	// envSettings is the resolved env_recommend yaml config. Run()
+	// uses it to decide whether to probe + populates
+	// BusContext.EnvRecommendSettings so tools can gate.
+	envSettings types.EnvRecommendSettings
 	// mode controls the B0 write-mode dispatch in Run(). Zero value
 	// ("") is treated as ModeRead by busCtx.Mode.Normalize at Run
 	// entry, so every pre-B0 caller sees identical read-only
@@ -279,6 +285,13 @@ func (o *Orchestrator) SetBlobSessionDir(dir string) {
 // leave this unset; tools that depend on it nil-check before use.
 func (o *Orchestrator) SetMemoryReader(m types.MemoryReader) {
 	o.memoryReader = m
+}
+
+// SetEnvRecommendSettings stashes the resolved yaml config so each
+// Run's BusContext receives it. cmd/root.go calls this once after
+// loading codrax.yaml.
+func (o *Orchestrator) SetEnvRecommendSettings(s types.EnvRecommendSettings) {
+	o.envSettings = types.ResolvedEnvRecommendSettings(s)
 }
 
 // Cancel marks the in-flight Run as canceled with the given reason.
@@ -586,7 +599,20 @@ func (o *Orchestrator) Run(request string, repoRoot string, branch string) (*typ
 			Stage:   types.StageAnalyze,
 			Missing: types.MissingUnderstanding,
 		},
-		Memory: o.memoryReader,
+		Memory:               o.memoryReader,
+		EnvRecommendSettings: o.envSettings,
+	}
+	// env_recommend: probe once at Run entry when enabled. Cached
+	// on BusContext for the lifetime of the Run; tools (run_tests,
+	// chitchat fallback) read EnvFacts to power the recommend
+	// pipeline. Probe never errors fatally — partial facts beat
+	// no facts. Skipped when env_recommend_enabled=false (R6 red
+	// line: legacy hardcoded hint stays the only signal).
+	if o.envSettings.Enabled {
+		o.busCtx.EnvFacts = env.Probe(env.ProbeOptions{
+			RepoRoot:     repoRoot,
+			ProbeNetwork: o.envSettings.ProbeNetwork,
+		})
 	}
 
 	// Thread repoRoot into MutableState so the lazy-init

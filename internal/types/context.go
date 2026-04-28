@@ -2120,6 +2120,19 @@ type BusContext struct {
 	// pointer is process-local only.
 	Memory MemoryReader `json:"-"`
 
+	// EnvFacts is the cached environment snapshot the env_recommend
+	// subsystem produces. nil when env_recommend is disabled or
+	// the probe failed; tools that consume it must nil-check.
+	// Probed once per Run at orchestrator entry.
+	EnvFacts *EnvFacts `json:"env_facts,omitempty"`
+
+	// EnvRecommendSettings carries the resolved yaml knobs for the
+	// env_recommend pipeline. Used by tools (run_tests) and the
+	// orchestrator's diagnose/recommend dispatch to gate on the
+	// master switch and pass the LLM-timeout / RecommendGlobalInstall
+	// flags through to the recommender.
+	EnvRecommendSettings EnvRecommendSettings `json:"env_recommend_settings,omitempty"`
+
 	// WorktreePath is the git worktree directory the apply/verify
 	// stages operate inside. Populated by the Plan / Apply stage
 	// entry; cleared (via worktree.Discard) by the orchestrator's

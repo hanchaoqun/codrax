@@ -371,6 +371,19 @@ type RuntimeSettings struct {
 	ChitchatRecallDefaultLimit *int `yaml:"chitchat_recall_default_limit"`
 	ChitchatRecallMaxLimit     *int `yaml:"chitchat_recall_max_limit"`
 
+	// env_recommend (environment diagnosis + install recommendation
+	// pipeline). All optional; nil → code default in
+	// types.DefaultEnvRecommendSettings.
+	//
+	// EnvRecommendEnabled is the master switch. false → fall back
+	// to the legacy hardcoded `runnerInstallHint` strings.
+	EnvRecommendEnabled       *bool `yaml:"env_recommend_enabled"`
+	EnvRecommendLLMEnabled    *bool `yaml:"env_recommend_llm_enabled"`
+	EnvRecommendLLMTimeoutSec *int  `yaml:"env_recommend_llm_timeout_sec"`
+	RecommendGlobalInstall    *bool `yaml:"recommend_global_install"`
+	EnvProbeNetwork           *bool `yaml:"env_probe_network"`
+	EnvCacheTTLDays           *int  `yaml:"env_cache_ttl_days"`
+
 	// CGEC (Citation-Grounded Evidence Closure) tunables. All
 	// optional; nil → code default in
 	// orchestrator.cgecForcedReadsPerRound /

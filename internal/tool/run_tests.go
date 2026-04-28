@@ -450,10 +450,20 @@ func (t *RunTests) Execute(ctx *types.BusContext, params json.RawMessage) (types
 			}
 			_, ref := StoreBlob(ctx, t.Name()+"-runner-missing", strings.Join(combinedOutputs, "\n\n"))
 			report := makeRunnerMissingReport(runner, missingBinary, output, ctx.Language, missingReason, execExit)
+			// env_recommend integration: when enabled, replace the
+			// hardcoded hint with the new pipeline's diagnose +
+			// recommend output. Falls through to the legacy hint on
+			// disable / error so behaviour is byte-identical with
+			// env_recommend_enabled=false.
+			hint := runnerInstallHint(runner, ctx.Language)
+			if envRec := envRecommendOutput(ctx, runner, output); envRec != "" {
+				hint = envRec
+			}
+			report.FailureSummary = updateFailureSummaryWithHint(report.FailureSummary, hint)
 			ctx.Mutable.SetChangeReport(qualifyChangeReport(report, plan, ctx.RepoRoot))
 			summary := runnerMissingToolResultSummary(
 				ctx.Language, label,
-				missingBinary, runnerInstallHint(runner, ctx.Language),
+				missingBinary, hint,
 				missingReason, execExit, output)
 			return types.ToolResult{
 				ToolName:  t.Name(),
