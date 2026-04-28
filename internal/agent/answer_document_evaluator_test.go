@@ -158,6 +158,55 @@ func TestAnswerDocumentEvaluator_BuildInitialInstruction_RendersStepBackboneForS
 	}
 }
 
+func TestAnswerDocumentEvaluator_BuildInitialInstruction_RendersFallbackStepBackboneFromEvidence(t *testing.T) {
+	ctx := &types.AgentContext{
+		AnalysisIR: &types.AnalysisIR{
+			AnswerContract: types.AnswerContract{RequiredAnswerShape: types.ShapeStepList},
+		},
+		Mutable: types.NewMutableState(""),
+		EvidenceItems: []types.EvidenceItem{
+			{
+				Kind:            types.EvidenceDirect,
+				Source:          "internal/analysis/gate/gate.go",
+				LineStart:       127,
+				AnchorKind:      types.AnchorCall,
+				AnchorSymbol:    "checkCoverage",
+				Summary:         "checkCoverage is appended as the first gate check",
+				GroundingStatus: types.GroundingGrounded,
+			},
+			{
+				Kind:            types.EvidenceDirect,
+				Source:          "internal/analysis/gate/gate.go",
+				LineStart:       128,
+				AnchorKind:      types.AnchorCall,
+				AnchorSymbol:    "checkDAGClosure",
+				Summary:         "checkDAGClosure is appended next",
+				GroundingStatus: types.GroundingGrounded,
+			},
+			{
+				Kind:            types.EvidenceDirect,
+				Source:          "internal/analysis/gate/gate.go",
+				LineStart:       129,
+				AnchorKind:      types.AnchorCall,
+				AnchorSymbol:    "checkBudgetSanity",
+				Summary:         "checkBudgetSanity is appended after DAG closure",
+				GroundingStatus: types.GroundingGrounded,
+			},
+		},
+	}
+	prompt := (&answerDocumentEvaluator{}).BuildInitialInstruction(ctx, nil)
+	for _, want := range []string{
+		"## Step Backbone",
+		"`checkCoverage` (internal/analysis/gate/gate.go:127)",
+		"`checkDAGClosure` (internal/analysis/gate/gate.go:128)",
+		"`checkBudgetSanity` (internal/analysis/gate/gate.go:129)",
+	} {
+		if !strings.Contains(prompt, want) {
+			t.Fatalf("fallback step backbone prompt missing %q:\n%s", want, prompt)
+		}
+	}
+}
+
 // TestAnswerDocumentEvaluator_BuildInitialInstruction_NoFloorWithoutMustInclude
 // checks the other branch: when MustInclude is empty, the prompt
 // says "no floor is enforced" so the LLM picks the claim from its

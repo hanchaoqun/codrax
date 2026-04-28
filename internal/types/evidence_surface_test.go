@@ -411,6 +411,56 @@ func TestBuildAnswerSurfacePlan_CompilesStepBackboneFromAnswerSymbols(t *testing
 	}
 }
 
+func TestBuildAnswerSurfacePlan_CompilesFallbackStepBackboneFromEvidence(t *testing.T) {
+	ir := &AnalysisIR{
+		AnswerContract: AnswerContract{
+			RequiredAnswerShape: ShapeStepList,
+		},
+	}
+	evidence := []EvidenceItem{
+		{
+			Kind:            EvidenceDirect,
+			Source:          "internal/analysis/gate/gate.go",
+			LineStart:       127,
+			AnchorKind:      AnchorCall,
+			AnchorSymbol:    "checkCoverage",
+			Summary:         "checkCoverage is appended as the first gate check",
+			GroundingStatus: GroundingGrounded,
+		},
+		{
+			Kind:            EvidenceDirect,
+			Source:          "internal/analysis/gate/gate.go",
+			LineStart:       128,
+			AnchorKind:      AnchorCall,
+			AnchorSymbol:    "checkDAGClosure",
+			Summary:         "checkDAGClosure is appended next",
+			GroundingStatus: GroundingGrounded,
+		},
+		{
+			Kind:            EvidenceDirect,
+			Source:          "internal/analysis/gate/gate.go",
+			LineStart:       129,
+			AnchorKind:      AnchorCall,
+			AnchorSymbol:    "checkBudgetSanity",
+			Summary:         "checkBudgetSanity is appended after DAG closure",
+			GroundingStatus: GroundingGrounded,
+		},
+	}
+	plan := BuildAnswerSurfacePlan(ir, NewMutableState(""), nil, nil, nil, evidence)
+	if plan == nil {
+		t.Fatal("BuildAnswerSurfacePlan returned nil")
+	}
+	if len(plan.StepBackbone) != 3 {
+		t.Fatalf("fallback step backbone anchors = %d, want 3", len(plan.StepBackbone))
+	}
+	if got := plan.StepBackbone[0]; got.Name != "checkCoverage" || got.Line != 127 {
+		t.Fatalf("first fallback step backbone anchor = %+v", got)
+	}
+	if plan.StepBackboneCompleteness != CompletenessLowerBound {
+		t.Fatalf("fallback step backbone completeness = %q, want %q", plan.StepBackboneCompleteness, CompletenessLowerBound)
+	}
+}
+
 func TestEvidencePreferredSurfaceText_NeutralizesExactResolutionRelevantSummary(t *testing.T) {
 	contract := &ExactResolutionContract{
 		TargetKind:           SubjectConfigKey,

@@ -388,6 +388,73 @@ func TestEmitAnswerDocument_StepList_NormalizesDescriptionToCompiledBackbone(t *
 	}
 }
 
+func TestEmitAnswerDocument_StepList_NormalizesDescriptionToEvidenceBackbone(t *testing.T) {
+	tool := &EmitAnswerDocument{}
+	ctx := newDocBusCtx("")
+	ctx.AnalysisIR = &types.AnalysisIR{
+		AnswerContract: types.AnswerContract{RequiredAnswerShape: types.ShapeStepList},
+	}
+	ctx.EvidenceItems = []types.EvidenceItem{
+		{
+			Kind:            types.EvidenceDirect,
+			Source:          "internal/analysis/gate/gate.go",
+			LineStart:       127,
+			AnchorKind:      types.AnchorCall,
+			AnchorSymbol:    "checkCoverage",
+			Summary:         "checkCoverage is appended as the first gate check",
+			GroundingStatus: types.GroundingGrounded,
+		},
+		{
+			Kind:            types.EvidenceDirect,
+			Source:          "internal/analysis/gate/gate.go",
+			LineStart:       128,
+			AnchorKind:      types.AnchorCall,
+			AnchorSymbol:    "checkDAGClosure",
+			Summary:         "checkDAGClosure is appended next",
+			GroundingStatus: types.GroundingGrounded,
+		},
+		{
+			Kind:            types.EvidenceDirect,
+			Source:          "internal/analysis/gate/gate.go",
+			LineStart:       129,
+			AnchorKind:      types.AnchorCall,
+			AnchorSymbol:    "checkBudgetSanity",
+			Summary:         "checkBudgetSanity is appended after DAG closure",
+			GroundingStatus: types.GroundingGrounded,
+		},
+	}
+	ctx.Mutable.AppendDispatchToolResult(types.ToolResult{
+		ToolName: "read_file",
+		Success:  true,
+		Summary: "[internal/analysis/gate/gate.go: showing lines 126-129 of 300 total]\n" +
+			"   126│ \tvar checks []types.GateCheck\n" +
+			"   127│ \tchecks = append(checks, checkCoverage(ir, th))\n" +
+			"   128│ \tchecks = append(checks, checkDAGClosure(ir))\n" +
+			"   129│ \tchecks = append(checks, checkBudgetSanity(ir, th))\n",
+	})
+	params := mustDocJSON(t, map[string]interface{}{
+		"shape":   "step_list",
+		"summary": "下面是 gate.Run 的已验证顺序。",
+		"steps": []map[string]interface{}{
+			{"index": 1, "description": "第一项检查验证覆盖率是否达标。", "citation_ref": 0},
+		},
+		"citations": []map[string]interface{}{
+			{"file": "internal/analysis/gate/gate.go", "line": 127},
+		},
+	})
+	res, _ := tool.Execute(ctx, params)
+	if !res.Success {
+		t.Fatalf("evidence-backbone normalization should rescue citation-backed step, got reject: %q", res.Summary)
+	}
+	doc := ctx.Mutable.AnswerDocument()
+	if doc == nil || len(doc.Steps) != 1 {
+		t.Fatalf("answer document steps missing after fallback normalization: %+v", doc)
+	}
+	if !strings.Contains(doc.Steps[0].Description, "checkCoverage") {
+		t.Fatalf("normalized step should include the evidence backbone anchor name, got %q", doc.Steps[0].Description)
+	}
+}
+
 // -------- value + config_value --------
 
 func TestEmitAnswerDocument_Value_Happy(t *testing.T) {

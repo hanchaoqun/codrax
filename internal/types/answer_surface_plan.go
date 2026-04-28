@@ -86,22 +86,26 @@ type StepSurfaceAnchor struct {
 	Kind      AnswerSymbolKind
 	Rationale string
 	Chain     string
+	SurfaceText string
 }
 
 func RenderStepSurfaceAnchorDescription(anchor StepSurfaceAnchor) string {
 	name := strings.TrimSpace(anchor.Name)
-	rationale := strings.TrimSpace(anchor.Rationale)
+	text := strings.TrimSpace(anchor.SurfaceText)
+	if text == "" {
+		text = strings.TrimSpace(anchor.Rationale)
+	}
 	switch {
-	case name == "" && rationale == "":
+	case name == "" && text == "":
 		return ""
 	case name == "":
-		return rationale
-	case rationale == "":
+		return text
+	case text == "":
 		return fmt.Sprintf("`%s` is one grounded hop in the resolved sequence.", name)
-	case strings.Contains(strings.ToLower(rationale), strings.ToLower(name)):
-		return rationale
+	case strings.Contains(strings.ToLower(text), strings.ToLower(name)):
+		return text
 	default:
-		return fmt.Sprintf("`%s` %s", name, rationale)
+		return fmt.Sprintf("`%s` %s", name, text)
 	}
 }
 
@@ -140,6 +144,79 @@ func ApplyAnswerSymbolStepBackbone(plan *AnswerSurfacePlan, symbols []AnswerSymb
 	plan.StepBackbone = anchors
 	if claim != "" {
 		plan.StepBackboneCompleteness = claim
+	}
+}
+
+func ApplyEvidenceStepBackbone(plan *AnswerSurfacePlan, evidence []EvidenceItem) {
+	if plan == nil || plan.RequiredShape != ShapeStepList || len(plan.StepBackbone) > 0 || len(evidence) == 0 {
+		return
+	}
+	type group struct {
+		file    string
+		anchors []StepSurfaceAnchor
+	}
+	groups := make(map[string][]StepSurfaceAnchor)
+	for _, item := range evidence {
+		if item.GroundingStatus == GroundingUngrounded || strings.TrimSpace(item.Source) == "" || item.LineStart <= 0 {
+			continue
+		}
+		switch item.Kind {
+		case EvidenceDirect, EvidenceConditional, EvidenceRelationship, EvidenceMechanism:
+		default:
+			continue
+		}
+		switch item.AnchorKind {
+		case AnchorDefinition, AnchorCall, AnchorCondition, AnchorAssignment:
+		default:
+			continue
+		}
+		name := firstNonEmptySurfaceString(
+			strings.TrimSpace(item.AnchorSymbol),
+			strings.TrimSpace(item.Subject),
+			strings.TrimSpace(item.Object),
+		)
+		if name == "" {
+			continue
+		}
+		file := strings.TrimSpace(strings.ReplaceAll(item.Source, `\`, `/`))
+		groups[file] = append(groups[file], StepSurfaceAnchor{
+			Name:        name,
+			File:        file,
+			Line:        item.LineStart,
+			SurfaceText: strings.TrimSpace(EvidencePreferredSurfaceText(item, nil, true)),
+		})
+	}
+	var best []StepSurfaceAnchor
+	for _, anchors := range groups {
+		if len(anchors) < 3 {
+			continue
+		}
+		sort.SliceStable(anchors, func(i, j int) bool {
+			if anchors[i].Line == anchors[j].Line {
+				return anchors[i].Name < anchors[j].Name
+			}
+			return anchors[i].Line < anchors[j].Line
+		})
+		dedup := anchors[:0]
+		seen := make(map[string]bool, len(anchors))
+		for _, anchor := range anchors {
+			key := fmt.Sprintf("%s:%d:%s", anchor.File, anchor.Line, anchor.Name)
+			if seen[key] {
+				continue
+			}
+			seen[key] = true
+			dedup = append(dedup, anchor)
+		}
+		if len(dedup) > len(best) {
+			best = append([]StepSurfaceAnchor(nil), dedup...)
+		}
+	}
+	if len(best) == 0 {
+		return
+	}
+	plan.StepBackbone = best
+	if plan.StepBackboneCompleteness == "" {
+		plan.StepBackboneCompleteness = CompletenessLowerBound
 	}
 }
 
@@ -320,6 +397,7 @@ func BuildAnswerSurfacePlan(
 		emitted = mutable.EmittedEvidence()
 	}
 	plan.SurfaceEvidence = ExactResolutionSurfaceEvidencePool(emitted, evidence, answerChains)
+	ApplyEvidenceStepBackbone(plan, plan.SurfaceEvidence)
 
 	supported := SupportedDiagramKindsForAnswer(
 		ir.RequestModel.Scenario,
