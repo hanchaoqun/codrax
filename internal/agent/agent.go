@@ -388,18 +388,24 @@ func NewBaseAgent(name types.AgentName, deps *Dependencies, eval Evaluator) *Bas
 	if loopPolicy == (LoopPolicy{}) {
 		loopPolicy = DefaultLoopPolicy()
 	}
+	// Copy ALL fields from the input deps via dereference + override.
+	// Pre-fix this was an explicit field-by-field assignment list of
+	// 8 fields, silently dropping CancelChecker / AgentSettings /
+	// ExploreHeuristics / Skills — which broke Ctrl+C interruption
+	// (b.deps.CancelChecker stayed nil), made yaml-tuned tool-history
+	// + context-pressure overrides ineffective at the BaseAgent layer,
+	// and disabled the log_triager / perf_triager two-step
+	// segmentation fallback (base.deps.Skills nil). Dereference +
+	// override removes the omission risk and auto-picks up any
+	// future Dependencies field with no maintenance.
+	copied := *deps
+	copied.MaxIterations = maxIter
+	copied.Emit = emit
+	copied.PromptAssembler = assembler
+	copied.LoopPolicy = loopPolicy
 	return &BaseAgent{
 		name: name,
-		deps: &Dependencies{
-			LLM:             deps.LLM,
-			Tools:           deps.Tools,
-			MCPServers:      deps.MCPServers,
-			SubAgents:       deps.SubAgents,
-			MaxIterations:   maxIter,
-			Emit:            emit,
-			PromptAssembler: assembler,
-			LoopPolicy:      loopPolicy,
-		},
+		deps: &copied,
 		eval: eval,
 	}
 }

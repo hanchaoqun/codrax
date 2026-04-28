@@ -1908,17 +1908,27 @@ func initApp(cmd *cobra.Command, _ []string) error {
 		}
 	}
 
+	// Lazy-bind the cancel-probe callback BEFORE RegisterDefaults so
+	// every agent constructed in this loop captures a non-nil
+	// deps.CancelChecker via the dereference-copy in NewBaseAgent.
+	// Pre-fix the assignment lived AFTER RegisterDefaults — by then
+	// every BaseAgent had already snapshotted deps with CancelChecker
+	// = nil, silently disabling Ctrl+C interruption (the user-trigger
+	// for this commit). The closure resolves orch lazily; orch is
+	// declared below and assigned after RegisterDefaults completes.
+	var orch *orchestrator.Orchestrator
+	deps.CancelChecker = func() error {
+		if orch == nil {
+			return nil
+		}
+		return orch.CancelChecker()()
+	}
+
 	agentRegistry := agent.NewRegistry()
 	agent.RegisterDefaults(agentRegistry, deps, resolver, triageSettings, perfSettings)
 	logging.Info("registered %d agents", len(agentRegistry.List()))
 
-	orch := orchestrator.New(pipelineSettings, agentRegistry, skillRegistry, subAgentRegistry)
-	// Wire the cancel-probe callback into agent Dependencies AFTER the
-	// orchestrator exists. Closure captures orch by pointer so each Run
-	// reads its current cancelToken (allocated fresh per Run, nil
-	// between Runs — the closure handles both via Orchestrator.IsCanceled
-	// nil-safety).
-	deps.CancelChecker = orch.CancelChecker()
+	orch = orchestrator.New(pipelineSettings, agentRegistry, skillRegistry, subAgentRegistry)
 	orch.SetMaxSteps(flagMaxSteps)
 	orch.SetLanguage(flagLang)
 	orch.SetEmitter(renderer.Emitter())
