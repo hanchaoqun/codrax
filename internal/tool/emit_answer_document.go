@@ -4450,6 +4450,7 @@ func buildEmitAnswerDocumentCitations(in []types.Citation, workDir string, gc *g
 
 	kept := make([]types.Citation, 0, len(in))
 	remap := make([]int, len(in))
+	seenCitations := make(map[string]int, len(in))
 	for i, p := range scratch {
 		if !p.keep {
 			remap[i] = types.CitationRefUnset
@@ -4461,7 +4462,13 @@ func buildEmitAnswerDocumentCitations(in []types.Citation, workDir string, gc *g
 			remap[i] = types.CitationRefUnset
 			continue
 		}
+		key := fmt.Sprintf("%s|%d|%s", p.cit.File, p.cit.Line, p.cit.Quote)
+		if existing, ok := seenCitations[key]; ok {
+			remap[i] = existing
+			continue
+		}
 		remap[i] = len(kept)
+		seenCitations[key] = remap[i]
 		kept = append(kept, p.cit)
 	}
 	return kept, remap, warnings, repairs, nil

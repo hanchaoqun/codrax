@@ -1533,6 +1533,68 @@ func TestEmitAnswerDocument_RemapsDriftedObservedCitationsToAnchoredLines(t *tes
 	}
 }
 
+func TestEmitAnswerDocument_DedupesCitationPoolAfterRemap(t *testing.T) {
+	tool := &EmitAnswerDocument{}
+	ctx := newDocBusCtx("")
+	ctx.Language = "en"
+	ctx.AnalysisIR = &types.AnalysisIR{
+		RequestModel: types.RequestModel{
+			Scenario: types.ScenarioRootCause,
+			Intent:   types.IntentRootCause,
+		},
+		AnswerContract: types.AnswerContract{
+			RequiredAnswerShape: types.ShapeStepList,
+		},
+	}
+	ctx.Mutable.SetLogTriage(&types.LogBundle{
+		Errors: []types.LogError{{
+			Frames: []types.LogFrame{
+				{File: "internal/agent/analyzer.go", Line: 320, Func: "ParseOutput"},
+			},
+		}},
+	})
+	ctx.Mutable.AppendEvidence([]types.EvidenceItem{{
+		Kind:            types.EvidenceDirect,
+		Source:          "internal/agent/analyzer.go",
+		LineStart:       367,
+		AnchorKind:      types.AnchorDefinition,
+		AnchorSymbol:    "ParseOutput",
+		GroundingStatus: types.GroundingGrounded,
+		Producer:        EmitEvidenceProducer,
+	}})
+
+	params := mustDocJSON(t, map[string]interface{}{
+		"shape":   "step_list",
+		"summary": "The current checkout anchors the call chain at one current ParseOutput definition line.",
+		"steps": []map[string]interface{}{
+			{"index": 1, "description": "`ParseOutput` is the caller frame observed in the log.", "citation_ref": 0},
+			{"index": 2, "description": "The current checkout anchors that frame at the current `ParseOutput` definition.", "citation_ref": 1},
+		},
+		"citations": []map[string]interface{}{
+			{"file": "internal/agent/analyzer.go", "line": 320},
+			{"file": "internal/agent/analyzer.go", "line": 367},
+		},
+	})
+
+	res, _ := tool.Execute(ctx, params)
+	if !res.Success {
+		t.Fatalf("Execute failed: %q", res.Summary)
+	}
+	doc := ctx.Mutable.AnswerDocument()
+	if doc == nil {
+		t.Fatal("answer document not stored")
+	}
+	if len(doc.Citations) != 1 {
+		t.Fatalf("deduped citations = %+v, want exactly one current anchor", doc.Citations)
+	}
+	if doc.Citations[0].Line != 367 {
+		t.Fatalf("deduped citation line = %d, want 367", doc.Citations[0].Line)
+	}
+	if len(doc.Steps) != 2 || doc.Steps[0].CitationRef != 0 || doc.Steps[1].CitationRef != 0 {
+		t.Fatalf("step citation refs = %+v, want both remapped to citation 0", doc.Steps)
+	}
+}
+
 func TestEmitAnswerDocument_NormalizesDriftBoundedRootCauseStepListSummarySurface(t *testing.T) {
 	tool := &EmitAnswerDocument{}
 	ctx := newDocBusCtx("")
