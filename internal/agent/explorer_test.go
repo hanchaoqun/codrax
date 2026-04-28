@@ -3192,6 +3192,36 @@ func TestParseEmitEvidenceRepairTargets_SkipsDropOnlyMentions(t *testing.T) {
 	}
 }
 
+func TestObserveMidLoop_EvidenceRepairClosureOnlySuppressesExpansion(t *testing.T) {
+	eval := &explorerEvaluator{
+		phase:                           1,
+		searchResult:                    &keywordSearchResult{Graph: &repomap.Graph{}},
+		midLoopEvidenceRepairSent:       true,
+		midLoopEvidenceRepairResultsLen: 1,
+		midLoopLastResultsLen:           1,
+	}
+	results := []types.ToolResult{
+		{ToolName: "emit_evidence", Success: true, Summary: "emit_evidence accepted 2 item(s)"},
+		{ToolName: "read_file", Success: true, Summary: "[internal/tool/repomap/tool.go: showing lines 121-180 of 323 total]\nfunc buildOrLoadGraph(...)"},
+	}
+
+	sig := eval.observeMidLoop(LoopObservation{
+		Phase:          PhaseMidLoop,
+		Iteration:      2,
+		LastToolResult: &results[1],
+		AllToolResults: results,
+	})
+	if !sig.HintRequested {
+		t.Fatalf("repair closure-only redirect should fire while a grounded repair is still pending, got %+v", sig)
+	}
+	if !strings.HasPrefix(sig.HintKey, "explorer.mid-loop.evidence-repair-closure-only.") {
+		t.Fatalf("HintKey = %q, want evidence-repair-closure-only prefix", sig.HintKey)
+	}
+	if !strings.Contains(sig.Hint, "Finish that repair") {
+		t.Fatalf("repair closure-only redirect should steer back to the existing repair, got: %s", sig.Hint)
+	}
+}
+
 func TestParseEmitEvidenceRepairTargets_IgnoresAggregateCounters(t *testing.T) {
 	summary := "emit_evidence accepted 4 item(s)\n\n" +
 		"  [1] relationship buildAnalysisIR @ internal/agent/analyzer.go:412 - ParseOutput calls buildAnalysisIR\n" +

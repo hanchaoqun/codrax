@@ -56,6 +56,7 @@ type explorerEvaluator struct {
 	midLoopSymbolRefInjected        bool                  // T3b: cross-file-symbol-reference hint already pushed this dispatch
 	midLoopPostPrimaryInjected      bool                  // one-shot: immediate "keep using tools after the first anchor read" hint already pushed this dispatch
 	midLoopEvidenceRepairSent       bool                  // one-shot: recovered/ungrounded emit_evidence repair hint already pushed this dispatch
+	midLoopEvidenceRepairResultsLen int                   // allResults length when the current emit_evidence repair hint fired
 	midLoopIntentWindowSent         bool                  // session-22: structural-intent-vs-narrow-window hint already pushed this dispatch
 	midLoopRankerCoverageSent       bool                  // session-22: ranker-coverage-too-low hint already pushed this dispatch
 	midLoopAbsentRedirectSent       bool                  // session-22: emit_evidence kind=absent deprecation redirect already pushed this dispatch
@@ -212,6 +213,7 @@ func (e *explorerEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk 
 		e.midLoopSymbolRefInjected = false
 		e.midLoopPostPrimaryInjected = false
 		e.midLoopEvidenceRepairSent = false
+		e.midLoopEvidenceRepairResultsLen = 0
 		e.midLoopIntentWindowSent = false
 		e.midLoopRankerCoverageSent = false
 		e.midLoopAbsentRedirectSent = false
@@ -302,6 +304,7 @@ func (e *explorerEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk 
 	e.midLoopSymbolRefInjected = false
 	e.midLoopPostPrimaryInjected = false
 	e.midLoopEvidenceRepairSent = false
+	e.midLoopEvidenceRepairResultsLen = 0
 	e.midLoopIntentWindowSent = false
 	e.midLoopRankerCoverageSent = false
 	e.midLoopAbsentRedirectSent = false
@@ -3328,10 +3331,31 @@ func (e *explorerEvaluator) postEmitEvidenceRepairSignal(obs LoopObservation) Lo
 		return LoopSignal{}
 	}
 	e.midLoopEvidenceRepairSent = true
+	e.midLoopEvidenceRepairResultsLen = len(obs.AllToolResults)
 	return LoopSignal{
 		HintRequested:  true,
 		HintKey:        "explorer.mid-loop.evidence-repair",
 		Hint:           renderEmitEvidenceRepairHint(targets),
+		Progress:       true,
+		BypassThrottle: true,
+	}
+}
+
+func (e *explorerEvaluator) postEmitEvidenceRepairClosureOnlySignal(obs LoopObservation) LoopSignal {
+	if !e.awaitingEvidenceRepair(obs.AllToolResults) || e.investigationComplete {
+		return LoopSignal{}
+	}
+	navCount := successfulToolCountSince(obs.AllToolResults, e.midLoopLastResultsLen, navigationToolNames)
+	if navCount == 0 {
+		return LoopSignal{}
+	}
+	if successfulToolCountSince(obs.AllToolResults, e.midLoopLastResultsLen, completionProgressToolNames) > 0 {
+		return LoopSignal{}
+	}
+	return LoopSignal{
+		HintRequested:  true,
+		HintKey:        fmt.Sprintf("explorer.mid-loop.evidence-repair-closure-only.%d", obs.Iteration),
+		Hint:           "MID-LOOP CHECK: the current dispatch already has a concrete `emit_evidence` repair to do on previously-read anchors. Finish that repair and re-emit grounded evidence before widening scope or opening more files. Do not keep navigating until the repaired `emit_evidence(items=[...])` batch succeeds.",
 		Progress:       true,
 		BypassThrottle: true,
 	}
@@ -3654,6 +3678,24 @@ func (e *explorerEvaluator) awaitingStructuredEvidenceMaterialization(results []
 		return false
 	}
 	return successfulToolCountSince(results, e.midLoopEmitBacklogBaseLen, completionProgressToolNames) == 0
+}
+
+func (e *explorerEvaluator) awaitingEvidenceRepair(results []types.ToolResult) bool {
+	if !e.midLoopEvidenceRepairSent || e.midLoopEvidenceRepairResultsLen == 0 {
+		return false
+	}
+	return successfulToolCountSince(results, e.midLoopEvidenceRepairResultsLen, map[string]bool{"emit_evidence": true}) == 0
+}
+
+func (e *explorerEvaluator) syncEvidenceRepairState(results []types.ToolResult) {
+	if !e.midLoopEvidenceRepairSent || e.midLoopEvidenceRepairResultsLen == 0 {
+		return
+	}
+	if successfulToolCountSince(results, e.midLoopEvidenceRepairResultsLen, map[string]bool{"emit_evidence": true}) == 0 {
+		return
+	}
+	e.midLoopEvidenceRepairSent = false
+	e.midLoopEvidenceRepairResultsLen = 0
 }
 
 type explorerCompletionReadiness struct {
@@ -4181,6 +4223,7 @@ func (e *explorerEvaluator) ShouldStop(resp llm.Response, iteration int) bool {
 func (e *explorerEvaluator) observeMidLoop(obs LoopObservation) LoopSignal {
 	e.ensureHeuristics()
 	e.syncEmitBacklogWindow(obs.AllToolResults)
+	e.syncEvidenceRepairState(obs.AllToolResults)
 	iteration := obs.Iteration
 	allResults := obs.AllToolResults
 
@@ -4225,6 +4268,12 @@ func (e *explorerEvaluator) observeMidLoop(obs LoopObservation) LoopSignal {
 	}
 	if sig := e.postEmitEvidenceRepairSignal(obs); sig.HintRequested {
 		return sig
+	}
+	if sig := e.postEmitEvidenceRepairClosureOnlySignal(obs); sig.HintRequested {
+		return sig
+	}
+	if e.awaitingEvidenceRepair(obs.AllToolResults) {
+		return LoopSignal{}
 	}
 	if sig := e.postReadWithoutEmitSignal(obs); sig.HintRequested {
 		return sig
