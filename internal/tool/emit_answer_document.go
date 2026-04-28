@@ -771,6 +771,7 @@ func (t *EmitAnswerDocument) Execute(ctx *types.BusContext, params json.RawMessa
 		ExactResolution: resolvedExact,
 		Citations:       citations,
 	}
+	doc.Summary = normalizeLogSourceDriftSummarySurface(doc.Summary, ctx)
 
 	// Session-22 fix F4.1 — diagram-block literal-grounding gate.
 	//
@@ -1008,6 +1009,7 @@ func (t *EmitAnswerDocument) Execute(ctx *types.BusContext, params json.RawMessa
 	if len(p.Caveats) > 0 {
 		doc.Caveats = append([]string(nil), p.Caveats...)
 	}
+	doc.Caveats = appendLogSourceDriftCaveat(doc.Caveats, ctx)
 
 	// Populate deterministic render-only code snippets from the
 	// read_file gutter index at each citation line. The LLM never
@@ -3241,6 +3243,63 @@ func normalizeMinimalRoleLocateSummarySurface(summary string, shape types.Answer
 		return summary
 	}
 	return renderMinimalRoleLocateSummary(ctx, literal, location)
+}
+
+func normalizeLogSourceDriftSummarySurface(summary string, ctx *types.BusContext) string {
+	summary = strings.TrimSpace(summary)
+	lead := renderLogSourceDriftLead(ctx)
+	if lead == "" {
+		return summary
+	}
+	if summary == "" {
+		return lead
+	}
+	return strings.TrimSpace(lead + "\n\n" + summary)
+}
+
+func appendLogSourceDriftCaveat(caveats []string, ctx *types.BusContext) []string {
+	caveat := renderLogSourceDriftCaveat(ctx)
+	if caveat == "" {
+		return caveats
+	}
+	for _, existing := range caveats {
+		if strings.TrimSpace(existing) == caveat {
+			return caveats
+		}
+	}
+	return append(caveats, caveat)
+}
+
+func renderLogSourceDriftLead(ctx *types.BusContext) string {
+	plan := answerSurfacePlan(ctx)
+	if plan == nil || len(plan.LogSourceDriftAnchors) == 0 {
+		return ""
+	}
+	if emitAnswerDocIsZh(ctx) {
+		anchor := plan.LogSourceDriftAnchors[0]
+		if len(plan.LogSourceDriftAnchors) == 1 && anchor.File != "" && anchor.ObservedLine > 0 && anchor.AnchoredLine > 0 {
+			return fmt.Sprintf("杩愯鏃ュ織涓殑婧愮爜琛屽彿涓庡綋鍓嶄粨搴撶増鏈苟鏈畬鍏ㄥ榻愶細鏃ュ織鎸囧悜 `%s:%d`锛屼絾褰撳墠浠撳簱涓凡閿氬畾鐨勫悓鍚嶅嚱鏁版満鍒堕敋鐐规洿鎺ヨ繎 `%s:%d`銆備笅闈㈢殑瑙ｉ噴浠ュ綋鍓嶄粨搴撻噷宸查敋瀹氱殑浠ｇ爜璺緞涓哄噯锛岃€屼笉鏄鏃ュ織鏃х増琛屽彿鐨勯€愬瓧杩樺師銆?",
+				anchor.File, anchor.ObservedLine, anchor.File, anchor.AnchoredLine)
+		}
+		return "杩愯鏃ュ織涓殑婧愮爜琛屽彿涓庡綋鍓嶄粨搴撶増鏈苟鏈畬鍏ㄥ榻愩€備笅闈㈢殑瑙ｉ噴浠ュ綋鍓嶄粨搴撻噷宸查敋瀹氱殑鍚屼竴鍑芥暟 / 璋冪敤閾句负鍑嗭紝鐢ㄦ潵璇存槑鏈€鎺ヨ繎鐨勭幇琛屾満鍒躲€?"
+	}
+	anchor := plan.LogSourceDriftAnchors[0]
+	if len(plan.LogSourceDriftAnchors) == 1 && anchor.File != "" && anchor.ObservedLine > 0 && anchor.AnchoredLine > 0 {
+		return fmt.Sprintf("The runtime log's source line does not fully align with the current checkout: the log points at `%s:%d`, while the closest grounded anchor for the same function in the current repo is `%s:%d`. The explanation below is therefore anchored to the current verified code path, not a byte-for-byte reconstruction of the older logged line.",
+			anchor.File, anchor.ObservedLine, anchor.File, anchor.AnchoredLine)
+	}
+	return "The runtime log's source lines do not fully align with the current checkout. The explanation below is therefore anchored to the current verified function / call-chain in the repo, not a byte-for-byte reconstruction of the older logged lines."
+}
+
+func renderLogSourceDriftCaveat(ctx *types.BusContext) string {
+	plan := answerSurfacePlan(ctx)
+	if plan == nil || len(plan.LogSourceDriftAnchors) == 0 {
+		return ""
+	}
+	if emitAnswerDocIsZh(ctx) {
+		return "杩愯鏃ュ織鐨勮鍙蜂笌褰撳墠浠撳簱浠ｇ爜鏈夊亸绉伙紝鏈瓟妗堜互褰撳墠宸查敋瀹氱殑浠ｇ爜璺緞瑙ｉ噴鏈€鎺ヨ繎鐨勭幇琛屾満鍒躲€?"
+	}
+	return "The runtime log line numbers differ from the current checkout, so this answer explains the nearest current grounded mechanism rather than claiming a byte-exact reconstruction of the older build."
 }
 
 func renderMinimalRoleLocateSummary(ctx *types.BusContext, literal, location string) string {

@@ -274,6 +274,56 @@ func TestBuildAnswerSurfacePlan_UsesMinimalSummaryModeForRoleLocateScalar(t *tes
 	}
 }
 
+func TestBuildAnswerSurfacePlan_CollectsLogSourceDriftAnchors(t *testing.T) {
+	mut := NewMutableState("")
+	logBundle := &LogBundle{
+		Errors: []LogError{{
+			Frames: []LogFrame{
+				{File: "internal/agent/analyzer.go", Line: 250, Func: "buildAnalysisIR"},
+				{File: "internal/agent/analyzer.go", Line: 320, Func: "ParseOutput"},
+			},
+		}},
+	}
+	ir := &AnalysisIR{
+		RequestModel: RequestModel{
+			Scenario: ScenarioRootCause,
+			Intent:   IntentRootCause,
+		},
+		AnswerContract: AnswerContract{
+			RequiredAnswerShape: ShapeExplanation,
+		},
+	}
+	evidence := []EvidenceItem{
+		{
+			Kind:            EvidenceDirect,
+			Source:          "internal/agent/analyzer.go",
+			LineStart:       612,
+			AnchorKind:      AnchorDefinition,
+			AnchorSymbol:    "buildAnalysisIR",
+			GroundingStatus: GroundingGrounded,
+		},
+		{
+			Kind:            EvidenceDirect,
+			Source:          "internal/agent/analyzer.go",
+			LineStart:       367,
+			AnchorKind:      AnchorDefinition,
+			AnchorSymbol:    "ParseOutput",
+			GroundingStatus: GroundingGrounded,
+		},
+	}
+
+	plan := BuildAnswerSurfacePlan(ir, mut, logBundle, nil, nil, evidence)
+	if plan == nil {
+		t.Fatal("BuildAnswerSurfacePlan returned nil")
+	}
+	if len(plan.LogSourceDriftAnchors) != 1 {
+		t.Fatalf("log source drift anchors = %d, want 1", len(plan.LogSourceDriftAnchors))
+	}
+	if got := plan.LogSourceDriftAnchors[0]; got.File != "internal/agent/analyzer.go" || got.ObservedLine != 250 || got.AnchoredLine != 612 {
+		t.Fatalf("first drift anchor = %+v, want analyzer.go 250 -> 612", got)
+	}
+}
+
 func TestEvidencePreferredSurfaceText_NeutralizesExactResolutionRelevantSummary(t *testing.T) {
 	contract := &ExactResolutionContract{
 		TargetKind:           SubjectConfigKey,

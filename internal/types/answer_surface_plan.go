@@ -20,6 +20,7 @@ type AnswerSurfacePlan struct {
 	DiagramHardRequirementDropped bool
 	CompiledDiagramKind           DiagramKind
 	CompiledDiagramFence          string
+	LogSourceDriftAnchors         []LogSourceDriftAnchor
 
 	ExactResolution          *ExactResolutionContract
 	PreferredExactResolution *AnswerExactResolution
@@ -65,6 +66,13 @@ type ConfigTraceDiagramAnchor struct {
 	Role  string
 	Label string
 	Score int
+}
+
+type LogSourceDriftAnchor struct {
+	File         string
+	Func         string
+	ObservedLine int
+	AnchoredLine int
 }
 
 func RenderLinearDiagramFence(nodes []string, limit int) string {
@@ -271,6 +279,11 @@ func BuildAnswerSurfacePlan(
 		flowFindings,
 		answerChains,
 		plan.ConfigTraceDiagramAnchors,
+	)
+	plan.LogSourceDriftAnchors = CollectLogSourceDriftAnchors(
+		ir.RequestModel,
+		logBundle,
+		plan.SurfaceEvidence,
 	)
 	plan.PreferredExactResolution = preferredExactResolutionSurface(plan)
 	plan.SummarySurfaceMode = preferredAnswerSummarySurfaceMode(plan, ir.RequestModel)
@@ -506,6 +519,8 @@ func diagramSurfaceKinds(dc *DiagramContract) []DiagramKind {
 	}
 }
 
+const logSourceDriftLineGap = 48
+
 func collectDiagramLogFrames(bundle *LogBundle) []LogFrame {
 	if bundle == nil || len(bundle.Errors) == 0 {
 		return nil
@@ -523,6 +538,126 @@ func collectDiagramLogFrames(bundle *LogBundle) []LogFrame {
 		}
 	}
 	return resolved
+}
+
+func CollectLogSourceDriftAnchors(rm RequestModel, bundle *LogBundle, items []EvidenceItem) []LogSourceDriftAnchor {
+	if (rm.Scenario != ScenarioRootCause && rm.Intent != IntentRootCause) || bundle == nil || len(items) == 0 {
+		return nil
+	}
+	frames := collectDiagramLogFrames(bundle)
+	if len(frames) == 0 {
+		return nil
+	}
+
+	byFile := make(map[string][]EvidenceItem)
+	for _, item := range items {
+		source := strings.TrimSpace(strings.ReplaceAll(item.Source, `\`, `/`))
+		if source == "" || item.LineStart <= 0 {
+			continue
+		}
+		byFile[source] = append(byFile[source], item)
+	}
+
+	var out []LogSourceDriftAnchor
+	seen := make(map[string]bool)
+	for _, frame := range frames {
+		file := strings.TrimSpace(strings.ReplaceAll(frame.File, `\`, `/`))
+		if file == "" || frame.Line <= 0 {
+			continue
+		}
+		candidates := byFile[file]
+		if len(candidates) == 0 {
+			continue
+		}
+		tail := normalizedSurfaceSymbolTail(frame.Func)
+		if tail == "" {
+			continue
+		}
+		bestLine := 0
+		bestDelta := 0
+		for _, item := range candidates {
+			for _, candidateTail := range evidenceSurfaceSymbolTails(item) {
+				if candidateTail != tail {
+					continue
+				}
+				delta := absInt(item.LineStart - frame.Line)
+				if bestLine == 0 || delta < bestDelta {
+					bestLine = item.LineStart
+					bestDelta = delta
+				}
+			}
+		}
+		if bestLine == 0 || bestDelta <= logSourceDriftLineGap {
+			continue
+		}
+		key := fmt.Sprintf("%s|%s|%d|%d", file, tail, frame.Line, bestLine)
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		out = append(out, LogSourceDriftAnchor{
+			File:         file,
+			Func:         strings.TrimSpace(frame.Func),
+			ObservedLine: frame.Line,
+			AnchoredLine: bestLine,
+		})
+	}
+
+	sort.SliceStable(out, func(i, j int) bool {
+		if out[i].File != out[j].File {
+			return out[i].File < out[j].File
+		}
+		if out[i].ObservedLine != out[j].ObservedLine {
+			return out[i].ObservedLine < out[j].ObservedLine
+		}
+		return out[i].AnchoredLine < out[j].AnchoredLine
+	})
+	return out
+}
+
+func evidenceSurfaceSymbolTails(item EvidenceItem) []string {
+	var out []string
+	seen := make(map[string]bool)
+	for _, raw := range []string{item.AnchorSymbol, item.Subject, item.Object} {
+		tail := normalizedSurfaceSymbolTail(raw)
+		if tail == "" || seen[tail] {
+			continue
+		}
+		seen[tail] = true
+		out = append(out, tail)
+	}
+	return out
+}
+
+func normalizedSurfaceSymbolTail(raw string) string {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return ""
+	}
+	if fields := strings.Fields(raw); len(fields) > 0 {
+		raw = fields[0]
+	}
+	raw = strings.TrimSuffix(raw, "()")
+	raw = strings.Trim(raw, "`")
+	if idx := strings.LastIndex(raw, "::"); idx >= 0 {
+		raw = raw[idx+2:]
+	}
+	if idx := strings.LastIndexAny(raw, `/\`); idx >= 0 {
+		raw = raw[idx+1:]
+	}
+	if idx := strings.LastIndex(raw, "."); idx >= 0 {
+		raw = raw[idx+1:]
+	}
+	raw = strings.Trim(raw, "()")
+	raw = strings.TrimLeft(raw, "*&")
+	return strings.ToLower(strings.TrimSpace(raw))
+}
+
+func absInt(v int) int {
+	if v < 0 {
+		return -v
+	}
+	return v
 }
 
 func flowFindingDiagramNodes(ff FlowFindingDigest) []string {

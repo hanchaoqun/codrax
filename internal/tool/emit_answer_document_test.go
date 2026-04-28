@@ -1347,6 +1347,61 @@ func TestEmitAnswerDocument_NormalizesRoleLocateScalarSummarySurface(t *testing.
 	}
 }
 
+func TestEmitAnswerDocument_PrependsLogSourceDriftLeadAndCaveat(t *testing.T) {
+	tool := &EmitAnswerDocument{}
+	ctx := newDocBusCtx("")
+	ctx.Language = "en"
+	ctx.AnalysisIR = &types.AnalysisIR{
+		RequestModel: types.RequestModel{
+			Scenario: types.ScenarioRootCause,
+			Intent:   types.IntentRootCause,
+		},
+		AnswerContract: types.AnswerContract{
+			RequiredAnswerShape: types.ShapeExplanation,
+		},
+	}
+	ctx.Mutable.SetLogTriage(&types.LogBundle{
+		Errors: []types.LogError{{
+			Frames: []types.LogFrame{
+				{File: "internal/agent/analyzer.go", Line: 250, Func: "buildAnalysisIR"},
+			},
+		}},
+	})
+	ctx.Mutable.AppendEvidence([]types.EvidenceItem{{
+		Kind:            types.EvidenceDirect,
+		Source:          "internal/agent/analyzer.go",
+		LineStart:       612,
+		AnchorKind:      types.AnchorDefinition,
+		AnchorSymbol:    "buildAnalysisIR",
+		GroundingStatus: types.GroundingGrounded,
+		Producer:        EmitEvidenceProducer,
+	}})
+
+	params := mustDocJSON(t, map[string]interface{}{
+		"shape":   "explanation",
+		"summary": "The current code path shows buildAnalysisIR dereferencing the request model after the guard path.",
+		"citations": []map[string]interface{}{{
+			"file": "internal/agent/analyzer.go",
+			"line": 612,
+		}},
+	})
+
+	res, _ := tool.Execute(ctx, params)
+	if !res.Success {
+		t.Fatalf("Execute failed: %q", res.Summary)
+	}
+	doc := ctx.Mutable.AnswerDocument()
+	if doc == nil {
+		t.Fatal("answer document not stored")
+	}
+	if !strings.Contains(doc.Summary, "does not fully align with the current checkout") {
+		t.Fatalf("summary missing log-source-drift lead: %q", doc.Summary)
+	}
+	if len(doc.Caveats) == 0 || !strings.Contains(doc.Caveats[0], "older build") {
+		t.Fatalf("caveats = %v, want older-build drift caveat", doc.Caveats)
+	}
+}
+
 func TestEmitAnswerDocument_RejectsExactMatchWhenOnlySubjectRepeatsTargetButAnchorIsNearbySymbol(t *testing.T) {
 	tool := &EmitAnswerDocument{}
 	ctx := newDocBusCtx("")

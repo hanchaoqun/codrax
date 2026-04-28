@@ -890,6 +890,46 @@ func TestAnswerDocumentEvaluator_BuildInitialInstruction_RendersLogTriageAndDiag
 	}
 }
 
+func TestAnswerDocumentEvaluator_BuildInitialInstruction_RendersLogSourceDriftGuidance(t *testing.T) {
+	ctx := &types.AgentContext{
+		AnalysisIR: &types.AnalysisIR{
+			AnswerContract: types.AnswerContract{
+				RequiredAnswerShape: types.ShapeExplanation,
+			},
+			RequestModel: types.RequestModel{
+				Scenario: types.ScenarioRootCause,
+				Intent:   types.IntentRootCause,
+			},
+		},
+		LogTriage: &types.LogBundle{
+			Errors: []types.LogError{{
+				Frames: []types.LogFrame{
+					{File: "internal/agent/analyzer.go", Line: 250, Func: "buildAnalysisIR"},
+				},
+			}},
+		},
+		EvidenceItems: []types.EvidenceItem{{
+			Kind:            types.EvidenceDirect,
+			Source:          "internal/agent/analyzer.go",
+			LineStart:       612,
+			AnchorKind:      types.AnchorDefinition,
+			AnchorSymbol:    "buildAnalysisIR",
+			GroundingStatus: types.GroundingGrounded,
+		}},
+	}
+
+	prompt := (&answerDocumentEvaluator{}).BuildInitialInstruction(ctx, nil)
+	for _, want := range []string{
+		"## Log Source Drift",
+		"older or shifted build snapshot",
+		"Do not claim that the current cited line is the exact crashing line from the log",
+	} {
+		if !strings.Contains(prompt, want) {
+			t.Fatalf("prompt missing %q:\n%s", want, prompt)
+		}
+	}
+}
+
 func TestCollectExactResolutionSeeds_FiltersDifferentConfigFamilies(t *testing.T) {
 	contract := &types.ExactResolutionContract{
 		TargetKind:           types.SubjectConfigKey,

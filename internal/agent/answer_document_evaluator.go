@@ -171,6 +171,9 @@ func (e *answerDocumentEvaluator) BuildInitialInstruction(ctx *types.AgentContex
 	if exact := renderAnswerDocExactResolutionContract(ctx); exact != "" {
 		b.WriteString(exact)
 	}
+	if drift := renderAnswerDocLogSourceDrift(ctx); drift != "" {
+		b.WriteString(drift)
+	}
 	if checklist := renderAnswerDocSubmissionChecklist(ctx, shape, e.diagramRequired); checklist != "" {
 		b.WriteString(checklist)
 	}
@@ -1053,6 +1056,34 @@ func renderAnswerDocConfigTraceRoleCoverage(ctx *types.AgentContext, contract *t
 	b.WriteString("If you keep multi-layer precedence / lineage context on the user-visible surface, avoid collapsing it to a single mechanism anchor. Prefer keeping at least one validated anchor for each available precedence role below.\n\n")
 	for _, anchor := range anchors {
 		fmt.Fprintf(&b, "- `%s` → `%s`\n", anchor.Role, anchor.Label)
+	}
+	b.WriteString("\n")
+	return b.String()
+}
+
+func renderAnswerDocLogSourceDrift(ctx *types.AgentContext) string {
+	plan := answerSurfacePlan(ctx)
+	if plan == nil || len(plan.LogSourceDriftAnchors) == 0 {
+		return ""
+	}
+	var b strings.Builder
+	b.WriteString("## Log Source Drift\n\n")
+	b.WriteString("The runtime log resolves to files in this repo, but at least one resolved frame no longer aligns to the same line range in the current checkout. Treat the current repo as the authoritative explanation surface and the log line numbers as an older or shifted build snapshot.\n\n")
+	b.WriteString("- Do not claim that the current cited line is the exact crashing line from the log unless that exact line is itself cited.\n")
+	b.WriteString("- Use the current grounded code to explain the nearest verified function / call-chain / guard path, and keep the line-number mismatch as a caveat rather than guessing how the old build differed internally.\n")
+	b.WriteString("- Avoid speculative bypass stories (race, skipped guard, alternate branch) unless a cited anchor explicitly proves them.\n\n")
+	limit := len(plan.LogSourceDriftAnchors)
+	if limit > 4 {
+		limit = 4
+	}
+	for i := 0; i < limit; i++ {
+		anchor := plan.LogSourceDriftAnchors[i]
+		funcLabel := strings.TrimSpace(anchor.Func)
+		if funcLabel == "" {
+			funcLabel = "(unknown symbol)"
+		}
+		fmt.Fprintf(&b, "- `%s:%d` in `%s` aligns most closely to current grounded anchor `%s:%d`.\n",
+			anchor.File, anchor.ObservedLine, funcLabel, anchor.File, anchor.AnchoredLine)
 	}
 	b.WriteString("\n")
 	return b.String()
