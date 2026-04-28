@@ -613,6 +613,21 @@ func (o *Orchestrator) Run(request string, repoRoot string, branch string) (*typ
 			RepoRoot:     repoRoot,
 			ProbeNetwork: o.envSettings.ProbeNetwork,
 		})
+		// One-shot INFO when the target dir is not a fully initialised
+		// git repo. Read-mode never auto-scaffolds, but operators see a
+		// clear signal here instead of being puzzled by downstream
+		// stages that quietly degrade. The bare-dir authorization gate
+		// only surfaces in write mode (apply_pre_hook).
+		if facts := o.busCtx.EnvFacts; facts != nil {
+			switch facts.GitRepoState {
+			case "not_initialized":
+				logging.Info("[orchestrator] target %s is not a git repo; read-mode continues, write modes will require auto-init authorization (CLI --auto-init-repo / yaml write_auto_init_repo / REPL consent)", repoRoot)
+			case "no_commits":
+				logging.Info("[orchestrator] target %s is a git repo with no commits; read-mode continues, write modes will require auto-init authorization", repoRoot)
+			case "git_missing":
+				logging.Warning("[orchestrator] git binary not found on PATH; some pipeline features (worktree, repo_map walk, write mode) will be unavailable")
+			}
+		}
 	}
 
 	// Thread repoRoot into MutableState so the lazy-init

@@ -184,11 +184,12 @@ func applyPreHook(o *Orchestrator) error {
 		// operator picks the path that fits their workflow.
 		if state, err := worktree.DetectRepoState(o.busCtx.MainRepoRoot); err == nil && state.NeedsInit() {
 			if !o.autoInitRepo {
-				msg := fmt.Sprintf(
-					"apply stage: target %s is %s — codrax can scaffold it (`git init` + empty initial commit) but needs explicit authorization. "+
-						"Pass --auto-init-repo (single-shot CLI), set codrax.yaml :: write_auto_init_repo: true (deploy-wide), "+
-						"or in the REPL answer y to the consent prompt that fires before /approve.",
-					o.busCtx.MainRepoRoot, state)
+				// Build the user-facing error message via the
+				// env_recommend Renderer when EnvFacts is available
+				// (env_recommend_enabled=true). Falls back to the
+				// legacy hardcoded prose when env_recommend is
+				// disabled (R6 byte-identical retention guarantee).
+				msg := bareDirAuthorizationMessage(o.busCtx, state)
 				o.busCtx.Mutable.SetResult(msg)
 				return fmt.Errorf("%s", msg)
 			}

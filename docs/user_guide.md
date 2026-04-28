@@ -650,6 +650,45 @@ llm:
 
 不写就全继承 `default`。
 
+#### 3.3.20 环境诊断 + 安装推荐(`env_recommend_*`)
+
+当测试失败的根因是「这台机器没装该工具」(`pytest`、`cargo`、`hvigor` 等),codrax 会把诊断结果和**可直接复制粘贴**的安装命令一起写进 `FailureSummary`,而不是只丢一句"`pytest: not found`,自己装"。同样适用于:
+
+- 写模式下目标目录非 git 仓且没授权自动初始化 → 给出 `!git init` + `!git add .` + `!git commit -m "init"` 三条命令,带上 `--auto-init-repo` 等三层授权门说明。
+- REPL 里 `!cargo build` 报 `command not found: cargo` → `/env explain` 一键得到 `!curl ...rustup.rs | sh` 的安装命令(用户级,免 sudo)。
+
+| 键 | 默认值 | 作用 |
+|---|---|---|
+| `env_recommend_enabled` | `true` | 总开关。`false` 时所有提示退化为旧版的硬编码字符串(R6 红线:字节级一致),整个 env_recommend 管线不运行,适合容器或 CI 这种不需要诊断的环境 |
+| `env_recommend_llm_enabled` | `true` | 兜底 LLM 调用开关。当确定性推荐表对当前 `(诊断类型, 环境)` 组合没有命中时,触发一次便宜模型 LLM 调用补全建议。`false` 时只走静态表 + DocsLink 兜底 |
+| `env_recommend_llm_timeout_sec` | `6` | LLM 兜底超时(秒)。超时返回 DocsLink,主流程不阻塞 |
+| `recommend_global_install` | `false` | sudo / 全局安装命令开关(R8 红线)。默认关 —— 推荐器只产 venv / project / user-level / toolchain 命令,不会主动建议 `sudo apt install` 等会污染系统的命令。开启后才解锁 `apt` / `yum` / `pacman` / `brew` 等 |
+| `env_probe_network` | `false` | 启动探测时是否做轻量级网络 reachability 测试(DNS + HTTPS HEAD)。默认关 —— 多数场景不需要且会拖慢启动几百毫秒;离线环境或代理诊断打开 |
+| `env_cache_ttl_days` | `90` | 磁盘缓存 TTL(天)。缓存路径 `~/.codrax/cache/env-cache.json`,schema_version=1,原子重命名写入。LLM 兜底结果会缓存,下次相同 `(诊断, 环境)` 组合直接命中,省 LLM 调用 |
+
+LLM 兜底由 `providers.yaml :: agents.env_recommender` 路由,缺省继承 `agents.chitchat_classifier`,再缺省继承 `llm.default`。建议路由便宜模型 —— 单次输入只有几行诊断 + 环境画像,token 消耗极低:
+
+```yaml
+llm:
+  agents:
+    env_recommender:
+      model: your-cheap-model   # 比如 deepseek-chat / qwen-turbo
+```
+
+**所有推荐命令都是 `!` 前缀**,可以直接粘进 codrax REPL 提示符回车执行(REPL 的 `!cmd` 通道会捕获 stdout/stderr 并带进下一轮上下文)。也可以去掉 `!` 在主仓终端跑。
+
+REPL 的 `/env` 命令族(详见 [5.2 REPL 斜杠命令](#52-repl-斜杠命令)):
+
+```
+❯❯ /env                         # = /env show
+❯❯ /env probe                   # 重新探测
+❯❯ /env explain                 # 用最近一次 !cmd 的 stderr 诊断 + 推荐
+❯❯ /env explain "<paste stderr>"
+❯❯ /env cache list / clear
+```
+
+启动时 `[orchestrator] target ... is not a git repo / no commits` 这条 INFO 也是这套管线的产物 —— 在读模式下不会做任何动作,只让用户看清状态;在写模式下 `apply_pre_hook` 会用同一套 Renderer 产出带 `!` 前缀的 scaffold 命令清单。
+
 ### 3.4 配置文件查找顺序
 
 **`providers.yaml`**:只看 `codrax.yaml` 里的 `providers_config` 字段(默认 `<exeDir>/providers.yaml`)。通过 `CODRAX_SETTINGS=/path/to/codrax.yaml` 可以一键切换整套环境。
@@ -1490,6 +1529,11 @@ REPL 会自动从 PlanStore 找最近一条 `pending_approval` plan 重新绑定
 | `/atrace ...` | | `/htrace` 的 Android 别名(同一通道,所有子命令通用) |
 | `/paste` | | 通用粘贴兜底(与 `/log` 不同,内容会作为下一次提问的输入) |
 | `/chat <message>` | | 闲聊通道:本条消息不走分析流水线,单次 LLM 直接回复。适合打招呼、问工具能力、不需要读仓库的对话。详见 [3.3.15](#3315-闲聊命令chitchat_enabled) |
+| `/env` | | `/env show` 的简写,显示已缓存的环境画像(OS / shell / Python / Node / Rust / Java / Ruby / 包管理器 / 项目 manifest / 网络 / git 状态) |
+| `/env probe` | | 重新探测环境并刷新缓存,打印新画像和耗时 |
+| `/env explain [stderr]` | | 把上一次 `!cmd` 的 stderr(或显式参数)喂进诊断 → 推荐管线,得到 `!`-prefixed 安装命令清单(中英双语,按 strategy 排序;`venv > project > user > toolchain > global > docs`)。无参时自动从最近 shell-bang 回合取 |
+| `/env cache list` | | 列出磁盘缓存条目(路径 `~/.codrax/cache/env-cache.json`,schema_version=1,默认 90 天 TTL) |
+| `/env cache clear` | | 清空磁盘缓存。下次 probe 重建 |
 
 **写模式**(需 `codrax.yaml :: write_enabled: true`)
 

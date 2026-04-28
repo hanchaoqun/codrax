@@ -1096,6 +1096,96 @@ manifest 探测优先级排序在 `runnerManifest` 表（`internal/tool/run_test
 - **L5**：worktree 清理 defer 位于 `Run()` 顶层，失败路径**无条件**触发；keep-on-success 仅是成功路径的 opt-out。
 - **L6**：写模式的 skill（`change-plan-skill` / `code-write-skill` / `test-execute-skill`）在 `ToolSuggestions` 里**保留** `exec_command` —— worktree 沙箱已经把 blast radius 限住，LLM 偶尔用 `git status` / `ls` 诊断是合理的。
 
+### 4.7 env_recommend — 环境诊断 + 安装推荐
+
+`internal/env/`（probe / diag / recommend / cache）+ `internal/env/render.go` + `internal/repl/handle_env.go` 实现的 3 层管线，把"测试失败 / scaffold 拒绝时丢一条硬编码字符串"升级为"诊断 → 推荐 → 双语渲染 → 复制即用"。
+
+#### 数据流
+
+```
+                 (一次性，Run 入口)
+   orchestrator.Run ──► env.Probe ──► EnvFacts ──► BusContext.EnvFacts
+                                                          │
+   ┌──────────────────────────────────────────────────────┤
+   │                                                      │
+run_tests 失败                                  apply_pre_hook 拒裸仓
+   │                                                      │
+   ▼                                                      ▼
+env.Diagnose(stderr, runner, EnvFacts)        env.Diagnose(state) （NeedsInit）
+   │                                                      │
+   ▼                                                      ▼
+env.Recommend(d, EnvFacts, settings)           env.Recommend(d, EnvFacts, settings)
+   │                                                      │
+   ▼                                                      ▼
+env.RenderRecommendations(d, recs, lang)       env.RenderRecommendations(...)
+   │                                                      │
+   ▼                                                      ▼
+updateFailureSummaryWithHint                   bareDirAuthorizationMessage
+（替换 legacy "请先安装"标记）                  （三层授权门 prose 包裹）
+```
+
+#### 三层组件
+
+| 层 | 包 | 入口 | 角色 |
+|---|---|---|---|
+| L1 Probe | `internal/env/probe` | `Probe(ProbeOptions) *EnvFacts` | OS / shell / Python（多解释器）/ Node / Rust / Java / Ruby / 40+ 包管理器 / 项目 manifest / 容器探测 / 网络 reachability（可选）/ git state（复用 `internal/worktree.DetectRepoState`） |
+| L2 Diagnose | `internal/env/diag` | `Diagnose(stderr, runner, *EnvFacts) Diagnosis` | 6 个检测器顺序：`system_lib > git_state > runner_missing > deps_missing > toolchain_missing > config_missing`，全 miss 落 `DiagUnknown` |
+| L3 Recommend | `internal/env/recommend` | `Recommend(Diagnosis, *EnvFacts, Settings) []Recommendation` | 4 段决策：deterministic registry → 磁盘缓存命中 → LLM 兜底 → DocsLink；策略优先级 `Venv > Project > User > ToolchainBootstrap > Global > Docs`（`recommend_global_install: false` 时 Global 整段过滤） |
+
+`Diagnosis.Kind` 8 个值 + Unknown sentinel：`runner_missing` / `deps_missing` / `toolchain_missing` / `system_lib_missing` / `config_missing` / `git_not_installed` / `git_not_initialized` / `git_no_commits`。每条 `Recommendation` 携带 `Strategy`、`NeedsSudo`、`NeedsNetwork`、`EstimatedSec`、`Why`、`Caveats[]`，命令 `Command` 一律 `!` 前缀（`internal/env/render.go` 的双语渲染按 strategy 分组打印 `# ~Ns, 项目隔离, 需 sudo, 无需网络` 这类提示行）。
+
+#### 缓存 + LLM 兜底
+
+- **磁盘缓存** `~/.codrax/cache/env-cache.json`（schema_version=1，原子重命名写入）。键 = SHA(`DiagKind` + 关键 EnvFacts 字段)；值 = `[]Recommendation` + 时间戳。默认 90 天 TTL，`env_cache_ttl_days` 可调；`/env cache list` / `/env cache clear` 由 REPL 暴露。
+- **LLM 兜底** registry miss 且缓存 miss 时触发，单次 Chat 调用，结构化 schema 限制输出（`Command` 必须 `!` 前缀、`Strategy` enum）。`providers.yaml :: agents.env_recommender` 路由（缺省继承 `agents.chitchat_classifier` 再缺省 `llm.default`，**强烈建议路由便宜模型**）。`env_recommend_llm_timeout_sec`（默认 6 秒）超时即返回 DocsLink，不阻塞主流程。结果回写缓存。
+
+#### 8 条红线（R1-R8）
+
+| 红线 | 内容 | 守护方式 |
+|---|---|---|
+| R1 LLM-only-as-fallback | LLM 不参与诊断、不参与高优先级推荐；只补 deterministic 表 miss 的洞 | `internal/env/recommend/llm.go` 仅在 `Recommend` 末尾被调用 |
+| R2 Schema-bound output | LLM 输出走 `emit_env_recommendation` tool schema，结构性 reject 不合规 | tool 注册 + JSON schema 验证 |
+| R3 全部可缓存 | LLM / probe / diag 结果都过 disk cache，第二次相同输入 0 LLM 调用 | `internal/env/cache` |
+| R4 便宜模型路由 | `agents.env_recommender` 默认继承 `chitchat_classifier`（已是便宜模型） | provider 链 fallback |
+| R5 Fully off-able | `env_recommend_enabled: false` 把整条管线短路 | `BusContext.EnvRecommendSettings.Enabled` 检查 |
+| **R6 Byte-identical fallback** | **关掉时 `FailureSummary` / `apply_pre_hook` 字节级回到 v1 硬编码字符串** | **`internal/tool/run_tests_env_recommend_test.go` 5 个 guard test;`internal/orchestrator/stage_hooks_env_recommend.go::bareDirAuthorizationMessage` 先用 `legacy` 字符串构造，再 `if !ctx.EnvRecommendSettings.Enabled \|\| ctx.EnvFacts == nil { return legacy }`** |
+| R7 No auto-execution | codrax 永不自己执行推荐命令；`!` 前缀只是给用户一个粘贴提示 | 设计层面，无代码执行点 |
+| R8 Sudo recommend default-disabled | `recommend_global_install: false`（默认）下 registry 不产 sudo / `apt install` 等命令 | `internal/env/recommend/registry.go` 的 strategy 过滤 |
+
+#### 消费者
+
+| 调用点 | 文件 | 触发场景 | 替换的旧行为 |
+|---|---|---|---|
+| 测试 runner 缺失 | `internal/tool/run_tests.go::~451` | `run_tests` 检测到 runner binary 不在 PATH | 旧版硬编码 `runnerInstallHint` |
+| 写模式裸仓拒绝 | `internal/orchestrator/stage_hooks_env_recommend.go::bareDirAuthorizationMessage` | apply_pre_hook 检测目标目录非 git 仓 / 无 commits 且未授权自动 init | 旧版 `apply stage: target ... is X` 单行 |
+| REPL 显式触发 | `internal/repl/handle_env.go` | `/env show / probe / explain [stderr] / cache list / cache clear` | 没有等价旧行为 —— 全新功能 |
+| 读模式 INFO 信号 | `internal/orchestrator/orchestrator.go::Run` | Run 入口探测后 `EnvFacts.GitRepoState ∈ {not_initialized, no_commits, git_missing}` | 旧版 silent —— 用户不知情 |
+
+#### 与三层授权门的协作（写模式 scaffold）
+
+env_recommend 提供 *推荐 + 解释*；`worktree.EnsureInitialCommit` 提供 *执行*；三层授权门（`--auto-init-repo` CLI / `write_auto_init_repo: true` yaml / REPL `/approve` 前 y/N 提示）提供 *授权*。`bareDirAuthorizationMessage` 把三者拼成一段:
+
+```
+apply stage 拒绝:目标目录非 git 仓且未授权自动初始化。
+
+✗ 环境诊断:目标目录非 git 仓 (git)
+信号: apply_pre_hook: detected via worktree.DetectRepoState
+
+推荐:
+  1) !git init -q  # ~1s, 项目目录内, 无需网络
+     原因: 创建 .git 目录使 worktree 沙箱可以工作
+  2) !git add . && git commit -m "init" -q  # ~1s, 项目目录内, 无需网络
+     原因: codrax 写模式需要至少一个 commit 作为基线
+...
+
+如需 codrax 自动 scaffold(走三层授权门):
+  - 单次 CLI:加 --auto-init-repo
+  - 持久化:codrax.yaml 设 write_auto_init_repo: true
+  - REPL 模式:下次 /approve 前会有 y/N 确认提示
+```
+
+设计文档 `docs/design/env_recommend.md` 锁定 8 阶段架构 + 5 项客户决策 + 12 runner × 8 DiagKind 矩阵；CLAUDE.md 的 yaml-key 段落收录 6 个 `env_recommend_*` 键。
+
 ---
 
 ## 5. 数据结构
