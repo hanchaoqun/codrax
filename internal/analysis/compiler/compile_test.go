@@ -140,6 +140,35 @@ func TestCompile_Generic_ReactsToIntent(t *testing.T) {
 	}
 }
 
+func TestCompile_StructuralTraceUsesTraceWalkthroughTemplate(t *testing.T) {
+	rm := sampleRM(types.ScenarioArchitectureExplain, types.IntentTrace, types.ComplexityModerate)
+	rm.PredicateAxis = types.AxisCall
+	rm.AnalyzerHints.Kind = "call_chain"
+
+	out := compileT(rm)
+	if countNodeType(out.TaskGraph, types.NodeReconcile) != 0 {
+		t.Fatalf("single-topic structural trace should not allocate a reconcile node; graph=%+v", out.TaskGraph.Nodes)
+	}
+	if countNodeType(out.TaskGraph, types.NodeValidate) != 1 {
+		t.Fatalf("single-topic structural trace should keep one validate node")
+	}
+	if out.AnswerContract.CitationReq.MinCitations != TmplCitationCountMedium {
+		t.Fatalf("citation floor = %d, want %d", out.AnswerContract.CitationReq.MinCitations, TmplCitationCountMedium)
+	}
+}
+
+func TestCompile_CrossComponentTraceKeepsArchitectureTemplate(t *testing.T) {
+	rm := sampleRM(types.ScenarioArchitectureExplain, types.IntentTrace, types.ComplexityModerate)
+	rm.PredicateAxis = types.AxisCall
+	rm.AnalyzerHints.Kind = "call_chain"
+	rm.Predicates.IsCrossComponent = true
+
+	out := compileT(rm)
+	if countNodeType(out.TaskGraph, types.NodeReconcile) != 1 {
+		t.Fatalf("cross-component trace should keep reconcile node")
+	}
+}
+
 func TestCompile_UnknownScenarioFallsBackToGeneric(t *testing.T) {
 	out := compileT(sampleRM("no_such_scenario", types.IntentExplain, types.ComplexityModerate))
 	// Generic template has exactly 3 nodes: probe, evidence, finalize.
@@ -183,6 +212,15 @@ func TestInferScenario(t *testing.T) {
 	}{
 		{"config intent", types.RequestModel{Intent: types.IntentConfigQuery}, types.ScenarioConfigTrace},
 		{"root cause intent", types.RequestModel{Intent: types.IntentRootCause}, types.ScenarioRootCause},
+		{
+			"single-topic structural trace uses generic scenario",
+			types.RequestModel{
+				Intent:        types.IntentTrace,
+				PredicateAxis: types.AxisCall,
+				AnalyzerHints: types.AnalyzerHints{Kind: "call_chain"},
+			},
+			types.ScenarioGeneric,
+		},
 		{"explain default", types.RequestModel{Intent: types.IntentExplain}, types.ScenarioArchitectureExplain},
 		{
 			"perf terms trigger perf scenario",
@@ -205,7 +243,6 @@ func TestInferScenario(t *testing.T) {
 		}
 	}
 }
-
 
 func TestCompile_LanguagePropagatesToContract(t *testing.T) {
 	rm := sampleRM(types.ScenarioArchitectureExplain, types.IntentExplain, types.ComplexityModerate)

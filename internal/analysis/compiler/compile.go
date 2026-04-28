@@ -34,7 +34,7 @@ type Output struct {
 // hdp AFTER compile finishes. Callers (analyzer.buildAnalysisIR)
 // re-run CompileFinalize with the final hypothesis count after hdp.
 func Compile(rm types.RequestModel, sig budget.BudgetSignals) Output {
-	t := pickTemplate(rm.Scenario)
+	t := pickTemplate(rm)
 	out := t(rm)
 	// Adapt citation thresholds to complexity + subtopic count so a
 	// "simple single-lookup" question is not held to the same bar as
@@ -62,8 +62,16 @@ func RecomputeBudget(out *Output, rm types.RequestModel, sig budget.BudgetSignal
 // NodeBudgetHints are zero — Compile fills those in centrally.
 type templateFn func(types.RequestModel) Output
 
-func pickTemplate(s types.Scenario) templateFn {
-	switch s {
+func pickTemplate(rm types.RequestModel) templateFn {
+	// Defense-in-depth: even if an upstream caller kept
+	// architecture_explain/generic, single-topic structural trace
+	// requests should still compile to the lighter trace walkthrough
+	// DAG rather than the reconcile-heavy architecture template.
+	if types.IsSingleTopicStructuralTrace(rm) &&
+		(rm.Scenario == types.ScenarioGeneric || rm.Scenario == types.ScenarioArchitectureExplain) {
+		return templateTraceWalkthrough
+	}
+	switch rm.Scenario {
 	case types.ScenarioArchitectureExplain:
 		return templateArchitectureExplain
 	case types.ScenarioRootCause:

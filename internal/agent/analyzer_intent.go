@@ -104,6 +104,10 @@ func reconcileScenario(rm types.RequestModel) (types.Scenario, string) {
 		return types.ScenarioGeneric,
 			"scalar source-literal lookup uses generic scenario (avoid architecture-only diagram/reconcile overhead)"
 	}
+	if types.IsSingleTopicStructuralTrace(rm) && rm.Scenario != types.ScenarioGeneric {
+		return types.ScenarioGeneric,
+			"single-topic structural trace uses generic scenario (avoid architecture reconcile window for linear call/flow walkthroughs)"
+	}
 	return rm.Scenario, ""
 }
 

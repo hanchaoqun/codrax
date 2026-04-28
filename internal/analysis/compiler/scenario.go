@@ -24,6 +24,11 @@ func InferScenario(rm types.RequestModel) types.Scenario {
 		return types.ScenarioConfigTrace
 	case types.IntentRootCause:
 		return types.ScenarioRootCause
+	case types.IntentTrace:
+		if types.IsSingleTopicStructuralTrace(rm) {
+			return types.ScenarioGeneric
+		}
+		return types.ScenarioArchitectureExplain
 	case types.IntentEnumerate, types.IntentReturnValue:
 		// Enumerate/return_value questions produce short answers (a
 		// list of symbols or a single value) that rarely need the
@@ -55,13 +60,7 @@ func hasReconcileWorthyAmbiguity(rm types.RequestModel) bool {
 	if rm.Complexity != types.ComplexityModerate && rm.Complexity != types.ComplexityComplex {
 		return false
 	}
-	for _, a := range rm.Ambiguities {
-		if a.Clause == "" {
-			continue
-		}
-		return true
-	}
-	return false
+	return types.HasNonEmptyAmbiguity(rm)
 }
 
 // perfTerms are canonical IDs the normalizer emits for concepts that

@@ -12,6 +12,7 @@ import (
 // require reading the full template function.
 const (
 	TmplEvidenceCountHigh   = 3  // evidence_count for moderate/complex templates
+	TmplEvidenceCountMedium = 2  // evidence_count for structural trace templates
 	TmplEvidenceCountLow    = 1  // evidence_count for simple/generic templates
 	TmplCitationCountHigh   = 3  // architecture_explain, root_cause
 	TmplCitationCountMedium = 2  // config_trace, performance_bottleneck
@@ -463,6 +464,80 @@ func templatePerformanceBottleneck(rm types.RequestModel) Output {
 }
 
 // ── generic fallback ────────────────────────────────────────────
+
+func templateTraceWalkthrough(rm types.RequestModel) Output {
+	hints := hintsFromRM(rm)
+	probe := types.TaskNode{
+		ID: nodeID(0, "probe"), Type: types.NodeProbe,
+		Objective:   "Locate the concrete entry points and linear path segments relevant to the requested trace.",
+		Inputs:      []string{"user_question", "term_graph"},
+		Outputs:     []string{"file_candidates", "symbol_table"},
+		SearchHints: hints,
+		SuccessCriteria: []types.Criterion{
+			{Kind: types.CritEvidenceCount, Expr: ">=" + strconv.Itoa(TmplEvidenceCountLow)},
+		},
+	}
+	evNodes := expandEvidenceNodes(rm, EvidenceNodeSpec{
+		IDPrefix:      nodeID(1, "evidence"),
+		Inputs:        []string{"file_candidates", "symbol_table"},
+		Outputs:       []string{"evidence_items", "answer_chains"},
+		Objective:     "Collect grounded steps for the requested call / flow / registration walkthrough.",
+		Hints:         hints,
+		EvidenceCount: TmplEvidenceCountMedium,
+	})
+	val := types.TaskNode{
+		ID: nodeID(2, "validate"), Type: types.NodeValidate,
+		Objective: "Check that the traced steps are grounded, ordered, and terminate on the requested target.",
+		Inputs:    []string{"evidence_items", "answer_chains"},
+		Outputs:   []string{"validation_report"},
+		SuccessCriteria: []types.Criterion{
+			{Kind: types.CritAnswerSetBounded, Expr: "<=" + strconv.Itoa(TmplAnswerSetMaxSize)},
+		},
+	}
+	final := types.TaskNode{
+		ID: nodeID(3, "finalize"), Type: types.NodeFinalize,
+		Objective: "Render the traced explanation with citations.",
+		Inputs:    []string{"validation_report", "answer_chains"},
+		Outputs:   []string{"answer_document"},
+		SuccessCriteria: []types.Criterion{
+			{Kind: types.CritCitationCountGE, Expr: strconv.Itoa(TmplCitationCountMedium)},
+		},
+	}
+	edges := evidenceChain(probe.ID, evNodes, val.ID, final.ID)
+	for _, ev := range evNodes {
+		edges = append(edges, types.TaskEdge{
+			From: val.ID, To: ev.ID, EdgeType: types.EdgeValidationFeedback,
+			Guard: "symbol_not_covered",
+		})
+	}
+	nodes := []types.TaskNode{probe}
+	nodes = append(nodes, evNodes...)
+	nodes = append(nodes, val, final)
+	graph := types.TaskGraph{
+		Nodes: nodes,
+		Edges: edges,
+		ExecutionPolicy: types.ExecutionPolicy{
+			MaxParallelism: 1, RetryBudget: subTopicRetryBudgetBoost(rm, TmplRetryBudgetMedium),
+			CriticalPath: evidenceCriticalPath(probe.ID, evNodes, val.ID, final.ID),
+		},
+	}
+	plan := types.EvidencePlan{
+		SourceMix: map[string]int{"grep": 30, "repomap": 40, "read": 30},
+		StopConditions: []types.StopCondition{
+			{Kind: types.CritContractSatisfied},
+			{Kind: types.CritBudgetExhausted},
+		},
+	}
+	contract := types.AnswerContract{
+		RequiredAnswerShape: types.ShapeExplanation,
+		CitationReq:         types.CitationReq{Required: true, Granularity: "file_line", MinCitations: TmplCitationCountMedium},
+		AcceptanceTests: []types.Criterion{
+			{Kind: types.CritCitationCountGE, Expr: strconv.Itoa(TmplCitationCountMedium)},
+		},
+		Language: rm.Language,
+	}
+	return Output{TaskGraph: graph, EvidencePlan: plan, AnswerContract: contract}
+}
 
 func templateGeneric(rm types.RequestModel) Output {
 	hints := hintsFromRM(rm)

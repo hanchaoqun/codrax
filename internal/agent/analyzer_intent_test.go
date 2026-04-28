@@ -541,18 +541,53 @@ func TestReconcileShape(t *testing.T) {
 }
 
 func TestReconcileScenario(t *testing.T) {
-	rm := types.RequestModel{
-		Scenario:      types.ScenarioArchitectureExplain,
-		AnswerSubject: types.AnswerSubject{Kind: types.SubjectFunctionName},
-		Predicates:    types.SemanticPredicates{IsScalarAnswer: true},
-	}
-	got, reason := reconcileScenario(rm)
-	if got != types.ScenarioGeneric {
-		t.Fatalf("scenario = %q, want %q", got, types.ScenarioGeneric)
-	}
-	if reason == "" {
-		t.Fatal("reason = empty, want non-empty reconcile reason")
-	}
+	t.Run("scalar source literal lookup downgrades to generic", func(t *testing.T) {
+		rm := types.RequestModel{
+			Scenario:      types.ScenarioArchitectureExplain,
+			AnswerSubject: types.AnswerSubject{Kind: types.SubjectFunctionName},
+			Predicates:    types.SemanticPredicates{IsScalarAnswer: true},
+		}
+		got, reason := reconcileScenario(rm)
+		if got != types.ScenarioGeneric {
+			t.Fatalf("scenario = %q, want %q", got, types.ScenarioGeneric)
+		}
+		if reason == "" {
+			t.Fatal("reason = empty, want non-empty reconcile reason")
+		}
+	})
+
+	t.Run("single-topic structural trace downgrades to generic", func(t *testing.T) {
+		rm := types.RequestModel{
+			Scenario:      types.ScenarioArchitectureExplain,
+			Intent:        types.IntentTrace,
+			PredicateAxis: types.AxisCall,
+			AnalyzerHints: types.AnalyzerHints{Kind: "call_chain"},
+		}
+		got, reason := reconcileScenario(rm)
+		if got != types.ScenarioGeneric {
+			t.Fatalf("scenario = %q, want %q", got, types.ScenarioGeneric)
+		}
+		if reason == "" {
+			t.Fatal("reason = empty, want non-empty reconcile reason")
+		}
+	})
+
+	t.Run("cross-component trace keeps architecture scenario", func(t *testing.T) {
+		rm := types.RequestModel{
+			Scenario:      types.ScenarioArchitectureExplain,
+			Intent:        types.IntentTrace,
+			PredicateAxis: types.AxisCall,
+			AnalyzerHints: types.AnalyzerHints{Kind: "call_chain"},
+			Predicates:    types.SemanticPredicates{IsCrossComponent: true},
+		}
+		got, reason := reconcileScenario(rm)
+		if got != types.ScenarioArchitectureExplain {
+			t.Fatalf("scenario = %q, want %q", got, types.ScenarioArchitectureExplain)
+		}
+		if reason != "" {
+			t.Fatalf("reason = %q, want empty", reason)
+		}
+	})
 }
 
 func TestReconcileDiagramContract(t *testing.T) {
