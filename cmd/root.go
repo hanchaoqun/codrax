@@ -66,6 +66,13 @@ const (
 	runtimeAnchorDir       = ".codrax"
 	blobSubdir             = "blob"
 	defaultBlobMaxSessions = 7
+
+	// T3.1 keep-on-success worktree GC defaults.
+	// 168 hours = 7 days; 20 worktrees keeps a busy operator's
+	// disk under control without amputating active try-before-merge
+	// flows. Both are pointer-overridable via codrax.yaml.
+	defaultWorktreeKeepTTLHours = 168
+	defaultWorktreeKeepMaxCount = 20
 )
 
 // CLI flag variables.
@@ -238,6 +245,14 @@ type appContext struct {
 	// so the user knows WHICH file to edit. Set during initApp's
 	// settings-resolution block.
 	settingsPath string
+
+	// worktreeKeepTTL + worktreeKeepMaxCount mirror the resolved
+	// codrax.yaml :: worktree_keep_ttl_hours +
+	// worktree_keep_max_count knobs (T3.1). Forwarded into the
+	// REPL Config so /worktree gc applies the same caps as
+	// startup. Zero on either disables that gate.
+	worktreeKeepTTL      time.Duration
+	worktreeKeepMaxCount int
 }
 
 var app appContext
@@ -904,6 +919,9 @@ func runREPL(_ *cobra.Command) error {
 		Memory:              memory.NewAdapter(store),
 		EnvSettings:         app.envRecommendSettings,
 		ColorMode:           render.ParseColorMode(flagColor),
+		RuntimeAnchor:       runtimeAnchor,
+		WorktreeKeepTTL:     app.worktreeKeepTTL,
+		WorktreeKeepMaxCount: app.worktreeKeepMaxCount,
 		PlanStore:           planStore,
 		AttachedLogMaxBytes:   maxAttachedLogBytes,
 		AttachedTraceMaxBytes: maxAttachedTraceBytes,
@@ -1240,6 +1258,27 @@ func initApp(cmd *cobra.Command, _ []string) error {
 	// startup, before any Run() has a chance to create a worktree.
 	worktreeBase := filepath.Join(runtimeAnchor, "worktrees")
 	worktree.PruneDeadSessions(worktreeBase, flagRepo)
+	// T3.1 TTL + quota reaping for preserved (keep-on-success)
+	// worktrees. Runs AFTER PruneDeadSessions so the dead-PID
+	// orphans are already gone — leaving only kept dirs whose
+	// mtime / count we want to bound. yaml defaults: 168 hours
+	// (7 days) TTL, 20-count quota. Zero on either knob disables
+	// that gate; explicit zero from yaml is honoured.
+	keepTTL := time.Duration(defaultWorktreeKeepTTLHours) * time.Hour
+	keepMaxCount := defaultWorktreeKeepMaxCount
+	if rs != nil {
+		if rs.WorktreeKeepTTLHours != nil {
+			keepTTL = time.Duration(*rs.WorktreeKeepTTLHours) * time.Hour
+		}
+		if rs.WorktreeKeepMaxCount != nil {
+			keepMaxCount = *rs.WorktreeKeepMaxCount
+		}
+	}
+	worktree.PruneByAgeAndQuota(worktreeBase, flagRepo, keepTTL, keepMaxCount)
+	// Persist resolved values on app so runREPL → REPL Config can
+	// thread them into /worktree gc without re-resolving the yaml.
+	app.worktreeKeepTTL = keepTTL
+	app.worktreeKeepMaxCount = keepMaxCount
 	worktree.InstallSignalHandler()
 
 	// One-shot environment probe: logs which external binaries

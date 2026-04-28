@@ -50,11 +50,13 @@ import (
 	"os/exec"
 	"os/signal"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
 	"syscall"
+	"time"
 
 	"github.com/hanchaoqun/codrax/internal/logging"
 )
@@ -292,6 +294,123 @@ func PruneDeadSessions(baseDir, mainRepoRoot string) {
 	if reaped > 0 {
 		logging.Info("[worktree] reaped %d orphan session(s) in %s", reaped, baseDir)
 	}
+}
+
+// PruneByAgeAndQuota walks baseDir and removes preserved (keep-on-
+// success) worktree directories that exceed the supplied retention
+// rules. Two independent gates, both opt-in:
+//
+//  1. Age TTL: dirs older than ttl (modified time) are removed.
+//     ttl == 0 disables the age check entirely.
+//  2. Quota: at most maxCount dirs survive; LRU-ordered (oldest
+//     mtime evicts first). maxCount == 0 disables the quota.
+//
+// Within-process safety: never removes a dir registered in
+// activeSessions (a Run that's currently using it). Cross-process:
+// callers should run PruneDeadSessions first to clear orphans
+// from dead peer processes; this function targets *kept* dirs
+// from THIS process or from past sessions whose PID is no longer
+// reachable but whose dir was deliberately preserved.
+//
+// Returns the count of dirs removed for logging visibility.
+func PruneByAgeAndQuota(baseDir, mainRepoRoot string, ttl time.Duration, maxCount int) int {
+	if baseDir == "" || (ttl == 0 && maxCount == 0) {
+		return 0
+	}
+	entries, err := os.ReadDir(baseDir)
+	if err != nil {
+		return 0 // missing baseDir = nothing to prune
+	}
+	mainAbs := ""
+	if mainRepoRoot != "" {
+		if abs, err := filepath.Abs(mainRepoRoot); err == nil {
+			mainAbs = abs
+		}
+	}
+	type candidate struct {
+		path  string
+		mtime time.Time
+	}
+	now := time.Now()
+	var cands []candidate
+	for _, e := range entries {
+		if !e.IsDir() {
+			continue
+		}
+		// Only operate on session-shaped names so we never touch
+		// operator-laid directories that happen to live under
+		// baseDir.
+		if pidFromSessionName(e.Name()) == 0 {
+			continue
+		}
+		full := filepath.Join(baseDir, e.Name())
+		// Active-session lock: a dir registered in activeSessions
+		// is in-use by a Run NOW. Never reap.
+		if _, inUse := activeSessions.Load(full); inUse {
+			continue
+		}
+		info, err := e.Info()
+		if err != nil {
+			continue
+		}
+		cands = append(cands, candidate{path: full, mtime: info.ModTime()})
+	}
+
+	// Stage 1: age TTL. Remove dirs whose mtime is older than ttl.
+	removed := 0
+	if ttl > 0 {
+		survivors := cands[:0]
+		for _, c := range cands {
+			if now.Sub(c.mtime) > ttl {
+				if err := removeKeptWorktree(c.path, mainAbs); err == nil {
+					removed++
+				}
+				continue
+			}
+			survivors = append(survivors, c)
+		}
+		cands = survivors
+	}
+
+	// Stage 2: quota. After TTL eviction, if dirs still exceed
+	// maxCount, drop the oldest until count <= maxCount. Sort by
+	// mtime asc (oldest first) so the bottom of the slice is the
+	// LRU.
+	if maxCount > 0 && len(cands) > maxCount {
+		sort.Slice(cands, func(i, j int) bool { return cands[i].mtime.Before(cands[j].mtime) })
+		excess := len(cands) - maxCount
+		for i := 0; i < excess; i++ {
+			if err := removeKeptWorktree(cands[i].path, mainAbs); err == nil {
+				removed++
+			}
+		}
+	}
+
+	if mainAbs != "" && removed > 0 {
+		runGitPrune(mainAbs)
+	}
+	if removed > 0 {
+		logging.Info("[worktree] reaped %d kept worktree(s) by ttl=%v/quota=%d in %s",
+			removed, ttl, maxCount, baseDir)
+	}
+	return removed
+}
+
+// removeKeptWorktree wraps the standard "git worktree remove +
+// rm -rf" cleanup so PruneByAgeAndQuota's two stages share one
+// implementation. Logs at warning when removal fails (operator
+// can manually clean) but does not abort.
+func removeKeptWorktree(path, mainAbs string) error {
+	if mainAbs != "" {
+		cmd := exec.Command("git", "worktree", "remove", "--force", path)
+		cmd.Dir = mainAbs
+		_ = cmd.Run()
+	}
+	if err := os.RemoveAll(path); err != nil && !os.IsNotExist(err) {
+		logging.Warning("[worktree] reap %s: %v", path, err)
+		return err
+	}
+	return nil
 }
 
 // activeSessions tracks every outstanding Session for the signal

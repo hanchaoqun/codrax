@@ -183,6 +183,20 @@ type RuntimeSettings struct {
 	// paths always discard regardless of this flag. Default false.
 	PipelineKeepWorktreeOnSuccess *bool `yaml:"pipeline_keep_worktree_on_success"`
 
+	// WorktreeKeepTTLHours bounds how long preserved (keep-on-
+	// success) worktrees survive at startup. Dirs in
+	// <runtime-anchor>/worktrees/ whose mtime is older than the
+	// TTL are removed at codrax launch. 0 = disabled (no age
+	// reaping; quota still applies). Default 168 (7 days).
+	WorktreeKeepTTLHours *int `yaml:"worktree_keep_ttl_hours"`
+
+	// WorktreeKeepMaxCount caps how many preserved worktrees may
+	// exist after age-reaping. When the survivor count exceeds
+	// this, the oldest (by mtime) are LRU-evicted until count <=
+	// the cap. 0 = disabled (no quota; only TTL applies). Default
+	// 20.
+	WorktreeKeepMaxCount *int `yaml:"worktree_keep_max_count"`
+
 	// VerifyMemLimitMB caps the resident+virtual memory each
 	// run_tests / exec_command invocation may use. Unix: enforced via
 	// `ulimit -v` shell prefix. Windows: enforced via JobObject

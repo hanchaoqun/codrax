@@ -259,6 +259,18 @@ type Config struct {
 	// /approve runs DetectRepoState before dispatching and prompts
 	// for consent if the target needs init.
 	WriteAutoInitRepo bool
+
+	// RuntimeAnchor is <CWD>/.codrax/ — used by /worktree gc to
+	// locate the worktree base under <RuntimeAnchor>/worktrees/.
+	// Empty disables the gc subcommand (the slash dispatcher
+	// surfaces a typed warning).
+	RuntimeAnchor string
+
+	// WorktreeKeepTTL + WorktreeKeepMaxCount mirror the resolved
+	// codrax.yaml knobs so /worktree gc uses the same caps as
+	// startup. Zero on either disables that gate.
+	WorktreeKeepTTL      time.Duration
+	WorktreeKeepMaxCount int
 }
 
 // REPL drives the interactive prompt.
@@ -268,6 +280,9 @@ type REPL struct {
 	render            ResultRenderer
 	renderer          *render.Renderer
 	repoRoot          string
+	runtimeAnchor     string
+	worktreeKeepTTL   time.Duration
+	worktreeKeepMaxCount int
 	branch            string
 	in                io.Reader
 	out               io.Writer
@@ -459,7 +474,10 @@ func New(cfg Config) *REPL {
 		store:              cfg.Store,
 		render:             cfg.Render,
 		renderer:           cfg.Renderer,
-		repoRoot:           cfg.RepoRoot,
+		repoRoot:             cfg.RepoRoot,
+		runtimeAnchor:        cfg.RuntimeAnchor,
+		worktreeKeepTTL:      cfg.WorktreeKeepTTL,
+		worktreeKeepMaxCount: cfg.WorktreeKeepMaxCount,
 		branch:             cfg.Branch,
 		in:                 cfg.In,
 		out:                cfg.Out,

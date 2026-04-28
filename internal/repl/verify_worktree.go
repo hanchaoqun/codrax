@@ -139,6 +139,8 @@ func (r *REPL) handleVerifyCmd(line string) {
 //	/worktree show         — alias for /worktree list (operator
 //	                         convenience: many users type `show` first)
 //	/worktree discard <id> — remove the worktree for plan <id>
+//	/worktree gc           — apply TTL + max-count caps now (manual
+//	                         trigger of T3.1's startup reaper)
 //
 // "Preserved" means Fix 4's keep-on-success fired: the plan's
 // Status=applied and its WorktreePath field was persisted by
@@ -166,9 +168,31 @@ func (r *REPL) handleWorktreeCmd(line string) {
 			return
 		}
 		r.worktreeDiscard(fields[1])
+	case "gc":
+		r.worktreeGC()
 	default:
-		r.info("/worktree subcommands: list (or `show`), discard <plan-id>")
+		r.info("/worktree subcommands: list (or `show`), discard <plan-id>, gc")
 	}
+}
+
+// worktreeGC manually triggers the TTL + quota reaper that runs
+// at startup. Useful when an operator wants to clean stale kept
+// worktrees mid-session (e.g. just finished a heavy review batch
+// and the disk is low). Reads the same yaml knobs the startup
+// path uses; reports the count reaped.
+func (r *REPL) worktreeGC() {
+	if r.runtimeAnchor == "" {
+		r.warn("/worktree gc: runtime anchor unset — cannot locate worktree base\n")
+		return
+	}
+	base := filepath.Join(r.runtimeAnchor, "worktrees")
+	reaped := worktree.PruneByAgeAndQuota(base, r.repoRoot,
+		r.worktreeKeepTTL, r.worktreeKeepMaxCount)
+	if reaped == 0 {
+		r.info(fmt.Sprintf("/worktree gc: no preserved worktrees exceeded ttl=%v / max=%d", r.worktreeKeepTTL, r.worktreeKeepMaxCount))
+		return
+	}
+	r.success(fmt.Sprintf("/worktree gc: reaped %d worktree(s) by ttl=%v / max=%d", reaped, r.worktreeKeepTTL, r.worktreeKeepMaxCount))
 }
 
 // worktreeList walks PlanStore and surfaces every plan whose
