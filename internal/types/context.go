@@ -186,6 +186,13 @@ type MutableState struct {
 	bestPlan   *ChangePlan
 	bestReport *ChangeReport
 
+	// analyzerRetryHint carries IR-field-level coherence detail from
+	// the prior buildAnalysisIR rejection. The next analyze dispatch's
+	// prependEmitRetryDirective consumes + clears it before the LLM
+	// sees its prompt, so the model gets concrete contradiction
+	// signals rather than a generic "gate rejected" message.
+	analyzerRetryHint string
+
 	// planningHint carries structured feedback from a failed verify
 	// run back to the planner on B2.3 retry dispatches. Non-empty
 	// only during retry iterations; cleared on first retry entry.
@@ -1275,6 +1282,46 @@ func (m *MutableState) ResetBaselineReport() {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.baselineReport = nil
+}
+
+// SetAnalyzerRetryHint installs the IR-field-level coherence detail
+// the analyzer's next emit_analysis dispatch should see. Called by
+// buildAnalysisIR when the QualityGate's coherence checks fire so
+// the LLM gets concrete feedback ("R1.1 domain_divergence: TermGraph
+// spans 3 domains [agent, orchestrator, finalizer] but only 1
+// sub-topic emitted") rather than a generic "the gate rejected
+// you" prompt. Mirror of the planner's PlanningHint channel; the
+// analyzer reads + clears it in prependEmitRetryDirective on the
+// next dispatch.
+func (m *MutableState) SetAnalyzerRetryHint(hint string) {
+	if m == nil {
+		return
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.analyzerRetryHint = hint
+}
+
+// AnalyzerRetryHint returns the coherence retry detail, or "" when
+// no hint is pending.
+func (m *MutableState) AnalyzerRetryHint() string {
+	if m == nil {
+		return ""
+	}
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return m.analyzerRetryHint
+}
+
+// ResetAnalyzerRetryHint clears the coherence retry detail; called
+// once the analyzer has consumed it.
+func (m *MutableState) ResetAnalyzerRetryHint() {
+	if m == nil {
+		return
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.analyzerRetryHint = ""
 }
 
 // SetPlanningHint installs the retry feedback text the planner's

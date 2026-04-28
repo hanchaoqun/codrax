@@ -172,10 +172,48 @@ The previous attempt produced text-only output and FAILED. The analyze stage MUS
 If you call any other tool or produce text without a tool call, this dispatch will fail loud and the analyze stage will exit.
 
 `, ctx.EmitStageRetryAttempt)
+
+	// Coherence retry hint: when buildAnalysisIR's previous attempt
+	// rejected the IR for a cross-signal coherence violation, the
+	// detail strings are pre-staged on Mutable. Render them here so
+	// the LLM sees the structural contradiction rather than guessing
+	// from "gate rejected".
+	if ctx.Mutable != nil {
+		if hint := ctx.Mutable.AnalyzerRetryHint(); hint != "" {
+			ctx.Mutable.ResetAnalyzerRetryHint()
+			directive += "## Structural contradiction in your previous emit_analysis\n\n" +
+				hint + "\n\n" +
+				"Re-emit emit_analysis with these contradictions resolved. The fields above are LLM-emitted IR cross-references — the system has not changed your repo, only verified the relationships you yourself declared.\n\n"
+		}
+	}
+
 	if base == "" {
 		return directive
 	}
 	return directive + base
+}
+
+// composeCoherenceRetryHint inspects a rejected GateReport and
+// renders the failing coherence-check details into a multi-line
+// retry hint suitable for the analyzer's next dispatch directive.
+// Returns "" when none of the coherence-named checks failed, so the
+// generic retry path stays in effect for non-coherence rejections
+// (coverage, dag_closure, budget_sanity, etc.).
+func composeCoherenceRetryHint(report types.GateReport) string {
+	if !report.Rejected {
+		return ""
+	}
+	var b strings.Builder
+	for _, c := range report.Checks {
+		if c.Passed {
+			continue
+		}
+		switch c.Name {
+		case "subtopic_coherence", "shape_subject_coherence":
+			fmt.Fprintf(&b, "- %s: %s\n", c.Name, c.Detail)
+		}
+	}
+	return strings.TrimSpace(b.String())
 }
 
 // buildAnalyzerRepoOverview builds a repo overview for the analyzer's
@@ -512,6 +550,15 @@ func (e *analyzerEvaluator) ParseOutput(ctx *types.AgentContext, messages []llm.
 		if hard, detail := classifyGateFailure(ir.QualityGate); hard {
 			logging.Error("[analyzer-v3] quality gate HARD failure: %s", detail)
 			out.Error = fmt.Sprintf("analyzer quality gate rejected: %s", detail)
+			// Coherence-specific feedback: when the failing checks
+			// are the cross-signal coherence gates, render an IR-
+			// field-level retry hint so the next dispatch's directive
+			// shows the LLM what specific contradiction to fix. Falls
+			// back to the generic "rejected" path for non-coherence
+			// hard failures.
+			if hint := composeCoherenceRetryHint(ir.QualityGate); hint != "" && ctx != nil && ctx.Mutable != nil {
+				ctx.Mutable.SetAnalyzerRetryHint(hint)
+			}
 			return out, nil
 		}
 		logging.Warning("[analyzer-v3] quality gate soft warning: %+v", ir.QualityGate.Checks)

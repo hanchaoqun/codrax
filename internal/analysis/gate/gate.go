@@ -134,6 +134,15 @@ func Run(ir *types.AnalysisIR, th Thresholds, mode string) types.GateReport {
 		// checks would gate on irrelevant data.
 		checks = append(checks, checkContractComplete(ir, th))
 		checks = append(checks, checkHypothesisCoverage(ir, th))
+		// Cross-signal coherence gates. Up-stream root-cause guards
+		// for the multi-topic / shape-vs-subject mis-classification
+		// patterns the downstream explorer / extractor / finalizer
+		// layers historically had to clean up after the fact. Both
+		// purely structural (no keyword tables) — they compare LLM-
+		// emitted IR fields against each other and against the
+		// repomap-verified TermGraph domains.
+		checks = append(checks, checkSubtopicCoherence(ir))
+		checks = append(checks, checkShapeSubjectCoherence(ir))
 	}
 	checks = append(checks, checkCriterionResolvable(ir))
 	checks = append(checks, checkPendingFieldsWellformed(ir))
