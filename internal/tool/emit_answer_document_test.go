@@ -1595,6 +1595,78 @@ func TestEmitAnswerDocument_DedupesCitationPoolAfterRemap(t *testing.T) {
 	}
 }
 
+func TestEmitAnswerDocument_PrunesDriftBoundedExplanationCitationsToSurfaceRelevantAnchors(t *testing.T) {
+	tool := &EmitAnswerDocument{}
+	ctx := newDocBusCtx("")
+	ctx.Language = "zh"
+	ctx.AnalysisIR = &types.AnalysisIR{
+		RequestModel: types.RequestModel{
+			Scenario: types.ScenarioRootCause,
+			Intent:   types.IntentRootCause,
+		},
+		AnswerContract: types.AnswerContract{
+			RequiredAnswerShape: types.ShapeExplanation,
+		},
+	}
+	ctx.Mutable.SetLogTriage(&types.LogBundle{
+		Errors: []types.LogError{{
+			Frames: []types.LogFrame{
+				{File: "internal/agent/analyzer.go", Line: 250, Func: "buildAnalysisIR"},
+				{File: "internal/agent/analyzer.go", Line: 320, Func: "ParseOutput"},
+			},
+		}},
+	})
+	ctx.Mutable.AppendEvidence([]types.EvidenceItem{
+		{
+			Kind:            types.EvidenceDirect,
+			Source:          "internal/agent/analyzer.go",
+			LineStart:       612,
+			AnchorKind:      types.AnchorDefinition,
+			AnchorSymbol:    "buildAnalysisIR",
+			GroundingStatus: types.GroundingGrounded,
+			Producer:        EmitEvidenceProducer,
+		},
+		{
+			Kind:            types.EvidenceDirect,
+			Source:          "internal/agent/analyzer.go",
+			LineStart:       367,
+			AnchorKind:      types.AnchorDefinition,
+			AnchorSymbol:    "ParseOutput",
+			GroundingStatus: types.GroundingGrounded,
+			Producer:        EmitEvidenceProducer,
+		},
+	})
+
+	params := mustDocJSON(t, map[string]interface{}{
+		"shape":   "explanation",
+		"summary": "当前仓库只能锚定最近的调用链和函数邻域。",
+		"citations": []map[string]interface{}{
+			{"file": "internal/agent/analyzer.go", "line": 412, "quote": "ir, err := buildAnalysisIR(ctx)"},
+			{"file": "internal/agent/analyzer.go", "line": 612, "quote": "func buildAnalysisIR(ctx *types.AgentContext) (*types.AnalysisIR, error) {"},
+			{"file": "internal/agent/analyzer.go", "line": 613, "quote": "if ctx == nil || ctx.Mutable == nil {"},
+			{"file": "internal/agent/analyzer.go", "line": 616, "quote": "raw := ctx.Mutable.RequestModel()"},
+			{"file": "internal/agent/analyzer.go", "line": 391, "quote": "if emitCalls == 0 {"},
+		},
+	})
+
+	res, _ := tool.Execute(ctx, params)
+	if !res.Success {
+		t.Fatalf("Execute failed: %q", res.Summary)
+	}
+	doc := ctx.Mutable.AnswerDocument()
+	if doc == nil {
+		t.Fatal("answer document not stored")
+	}
+	if len(doc.Citations) != 4 {
+		t.Fatalf("citations = %+v, want 4 surface-relevant anchors", doc.Citations)
+	}
+	for _, cit := range doc.Citations {
+		if cit.Line == 391 {
+			t.Fatalf("surface pruning should drop tangential explanation citation 391: %+v", doc.Citations)
+		}
+	}
+}
+
 func TestEmitAnswerDocument_NormalizesDriftBoundedRootCauseStepListSummarySurface(t *testing.T) {
 	tool := &EmitAnswerDocument{}
 	ctx := newDocBusCtx("")

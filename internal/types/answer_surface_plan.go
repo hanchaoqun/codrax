@@ -714,7 +714,7 @@ func evidenceSurfaceSymbolTails(item EvidenceItem) []string {
 	return out
 }
 
-func normalizedSurfaceSymbolTail(raw string) string {
+func NormalizedSurfaceSymbolTail(raw string) string {
 	raw = strings.TrimSpace(raw)
 	if raw == "" {
 		return ""
@@ -736,6 +736,10 @@ func normalizedSurfaceSymbolTail(raw string) string {
 	raw = strings.Trim(raw, "()")
 	raw = strings.TrimLeft(raw, "*&")
 	return strings.ToLower(strings.TrimSpace(raw))
+}
+
+func normalizedSurfaceSymbolTail(raw string) string {
+	return NormalizedSurfaceSymbolTail(raw)
 }
 
 func absInt(v int) int {
