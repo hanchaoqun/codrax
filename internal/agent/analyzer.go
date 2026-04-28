@@ -348,6 +348,9 @@ func renderAnalyzerOverviewPrescanCaution(graph *repomap.Graph, objective string
 	var b strings.Builder
 	b.WriteString("## Identifier Pre-scan Cautions\n\n")
 	b.WriteString("Some identifier-shaped mentions from the request are not yet backed by a production repo anchor. Treat them as search leads, not as proof, until `grep` / `read_file` finds a non-auxiliary repo definition.\n")
+	b.WriteString("- Do not let auxiliary-only hits in docs / tests / examples upgrade a token into production proof, a positive exact match, or a substitute answer.\n")
+	b.WriteString("- Keep user-mentioned exact targets as unverified leads until a non-auxiliary file grounds them; if that grounding never appears, prefer an honest not-found / absence path over nearby replacements.\n")
+	b.WriteString("- Do not promote nearby files or symbols from these cautions into new `exact_targets` unless the user also named them explicitly.\n")
 	for _, c := range cautions {
 		switch c.Kind {
 		case "auxiliary_only":
@@ -355,9 +358,9 @@ func renderAnalyzerOverviewPrescanCaution(graph *repomap.Graph, objective string
 			if len(paths) > 3 {
 				paths = paths[:3]
 			}
-			fmt.Fprintf(&b, "- `%s`: current pre-scan hits are auxiliary-only (%s)\n", c.Token, strings.Join(paths, ", "))
+			fmt.Fprintf(&b, "- `%s`: current pre-scan hits are auxiliary-only (%s) — keep this token unverified until `grep` / `read_file` finds a non-auxiliary definition.\n", c.Token, strings.Join(paths, ", "))
 		case "unresolved":
-			fmt.Fprintf(&b, "- `%s`: no current exact production hit in the repo graph\n", c.Token)
+			fmt.Fprintf(&b, "- `%s`: no current exact production hit in the repo graph — treat it as a search lead, not a proof-bearing anchor.\n", c.Token)
 		}
 	}
 	return strings.TrimSpace(b.String())
