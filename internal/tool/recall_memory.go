@@ -177,13 +177,21 @@ func renderRecallResults(query string, entries []types.MemoryIndexEntry) string 
 		}
 		b.WriteByte('\n')
 	}
-	// Self-referential / low-recall hint. Fires when ≤2 entries
+	// Self-referential / low-recall hint. Fires when ≤5 entries
 	// returned AND every match's Topic resembles a meta-reference
 	// to memory itself — the canonical sign of a generic listing-
 	// intent query that should have used list_memory. Suggesting
 	// list_memory in the tool-result trains the LLM's next-turn
 	// choice without changing the schema.
-	if len(entries) <= 2 && allTopicsLookSelfReferential(entries) {
+	//
+	// Threshold ≤5 (was ≤2 originally) was raised after the
+	// 2026-04-28 user trace where 3 of 25 entries matched a
+	// generic query ("memory recall history content") and all 3
+	// were self-referential, but the prior ≤2 guard didn't fire.
+	// 5 self-referential matches is a strong signal in any
+	// realistic memory store — natural conversation rarely
+	// generates that many meta-questions about memory.
+	if len(entries) <= 5 && allTopicsLookSelfReferential(entries) {
 		fmt.Fprintln(&b, "Note: only a few entries matched and they look self-referential (their Topics are about memory itself, not actual conversation content). If the user is asking for an INVENTORY of memory ('都有哪些 / what's in memory / list all'), call list_memory(limit=20) instead — that returns the most-recent N entries by time, regardless of topic.")
 	}
 	return b.String()

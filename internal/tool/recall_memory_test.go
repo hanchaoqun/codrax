@@ -229,16 +229,39 @@ func TestRecallMemory_NoHintOnGenuineMatches(t *testing.T) {
 	}
 }
 
-// TestRecallMemory_NoHintAboveLowRecallThreshold pins the size gate:
-// even if entries look self-referential, ≥3 of them is not "low
-// recall" — the hint is for the "the LLM picked the wrong tool" case
-// where matches are sparse, not for genuine listing intent that
-// surfaces many self-references.
+// TestRecallMemory_HintFiresAtThreeSelfReferential covers the
+// 2026-04-28 user-trace bump: 3 entries all self-referential must
+// fire the list_memory hint. Pre-bump threshold (≤2) missed this
+// realistic pattern.
+func TestRecallMemory_HintFiresAtThreeSelfReferential(t *testing.T) {
+	mem := &stubMemory{results: []types.MemoryIndexEntry{
+		{ID: "a", Topic: "看一下记忆力都有哪些内容"},
+		{ID: "b", Topic: "找一下之前的记忆里"},
+		{ID: "c", Topic: "看一下记忆里有多少"},
+	}}
+	ctx := &types.BusContext{Memory: mem}
+	tool := &RecallMemory{}
+	res, _ := tool.Execute(ctx, json.RawMessage(`{"query": "memory recall history content"}`))
+	if !res.Success {
+		t.Fatalf("Execute failed: %q", res.Summary)
+	}
+	if !strings.Contains(res.Summary, "list_memory") {
+		t.Errorf("3 self-referential entries must fire list_memory hint: %q", res.Summary)
+	}
+}
+
+// TestRecallMemory_NoHintAboveLowRecallThreshold pins the size
+// gate at ≤5: 6 self-referential entries no longer fire the hint
+// (genuinely large self-ref result set means the user really IS
+// asking about memory-meta and is getting useful results).
 func TestRecallMemory_NoHintAboveLowRecallThreshold(t *testing.T) {
 	mem := &stubMemory{results: []types.MemoryIndexEntry{
 		{ID: "a", Topic: "记忆里有哪些"},
 		{ID: "b", Topic: "what's in memory"},
 		{ID: "c", Topic: "history of our chat"},
+		{ID: "d", Topic: "previously discussed memory"},
+		{ID: "e", Topic: "look at my memory"},
+		{ID: "f", Topic: "the memory contents I asked"},
 	}}
 	ctx := &types.BusContext{Memory: mem}
 	tool := &RecallMemory{}
@@ -247,7 +270,7 @@ func TestRecallMemory_NoHintAboveLowRecallThreshold(t *testing.T) {
 		t.Fatalf("Execute failed: %q", res.Summary)
 	}
 	if strings.Contains(res.Summary, "INVENTORY of memory") {
-		t.Errorf("hint should NOT fire above ≤2 threshold: %q", res.Summary)
+		t.Errorf("hint should NOT fire above ≤5 threshold: %q", res.Summary)
 	}
 }
 
