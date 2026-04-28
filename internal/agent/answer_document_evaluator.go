@@ -177,6 +177,9 @@ func (e *answerDocumentEvaluator) BuildInitialInstruction(ctx *types.AgentContex
 	if checklist := renderAnswerDocSubmissionChecklist(ctx, shape, e.diagramRequired); checklist != "" {
 		b.WriteString(checklist)
 	}
+	if backbone := renderAnswerDocStepBackbone(ctx, shape); backbone != "" {
+		b.WriteString(backbone)
+	}
 	if ctx != nil && ctx.AnalysisIR != nil && types.IsScalarSourceLiteralLookup(ctx.AnalysisIR.RequestModel) {
 		b.WriteString("## Scalar Lookup Discipline\n\n")
 		b.WriteString("- This dispatch asks for one named source-code literal, not for a walkthrough of the surrounding pipeline.\n")
@@ -400,7 +403,7 @@ func answerSurfacePlan(ctx *types.AgentContext) *types.AnswerSurfacePlan {
 	if ctx == nil || ctx.AnalysisIR == nil {
 		return nil
 	}
-	return types.BuildAnswerSurfacePlan(
+	plan := types.BuildAnswerSurfacePlan(
 		ctx.AnalysisIR,
 		ctx.Mutable,
 		ctx.LogTriage,
@@ -408,6 +411,47 @@ func answerSurfacePlan(ctx *types.AgentContext) *types.AnswerSurfacePlan {
 		ctx.AnswerChains,
 		ctx.EvidenceItems,
 	)
+	if plan != nil && len(ctx.AnswerSymbols) > 0 {
+		types.ApplyAnswerSymbolStepBackbone(plan, ctx.AnswerSymbols, ctx.AnswerSymbolCompleteness)
+	}
+	return plan
+}
+
+func renderAnswerDocStepBackbone(ctx *types.AgentContext, shape string) string {
+	if shape != string(types.ShapeStepList) {
+		return ""
+	}
+	plan := answerSurfacePlan(ctx)
+	if plan == nil || len(plan.StepBackbone) == 0 {
+		return ""
+	}
+	var b strings.Builder
+	b.WriteString("## Step Backbone\n\n")
+	switch plan.StepBackboneCompleteness {
+	case types.CompletenessComplete:
+		b.WriteString("The upstream deterministic pipeline already resolved a complete ordered backbone for this step list. Use these anchors as the default spine of `steps[]`.\n\n")
+	case types.CompletenessLowerBound:
+		b.WriteString("The upstream deterministic pipeline already resolved an ordered lower-bound backbone for this step list. Keep these anchors in order, and only add more cited hops when another grounded line independently supports them.\n\n")
+	default:
+		b.WriteString("The upstream deterministic pipeline already resolved an ordered grounded backbone for this step list. Use these anchors as the default spine of `steps[]`.\n\n")
+	}
+	b.WriteString("- Keep each cited step at the abstraction directly corroborated by its own citation.\n")
+	b.WriteString("- If a cited anchor is a call site / assignment / guard, describe that call site / assignment / guard there; helper internals belong in a separately grounded step or in uncited summary prose.\n")
+	b.WriteString("- Do not merge one anchor's citation with semantics that only appear in another file / definition.\n\n")
+	for i, anchor := range plan.StepBackbone {
+		desc := types.RenderStepSurfaceAnchorDescription(anchor)
+		if anchor.File != "" && anchor.Line > 0 {
+			fmt.Fprintf(&b, "%d. `%s` (%s:%d)", i+1, anchor.Name, anchor.File, anchor.Line)
+		} else {
+			fmt.Fprintf(&b, "%d. `%s`", i+1, anchor.Name)
+		}
+		if desc != "" {
+			fmt.Fprintf(&b, " — %s", desc)
+		}
+		b.WriteByte('\n')
+	}
+	b.WriteString("\n")
+	return b.String()
 }
 
 func baseAnswerDocDiagramContract(ctx *types.AgentContext) *types.DiagramContract {

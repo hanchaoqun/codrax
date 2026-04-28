@@ -339,6 +339,55 @@ func TestEmitAnswerDocument_StepList_AllowsChineseProseWithCodeIdentifiers(t *te
 	}
 }
 
+func TestEmitAnswerDocument_StepList_NormalizesDescriptionToCompiledBackbone(t *testing.T) {
+	tool := &EmitAnswerDocument{}
+	ctx := newDocBusCtx("")
+	ctx.AnalysisIR = &types.AnalysisIR{
+		AnswerContract: types.AnswerContract{RequiredAnswerShape: types.ShapeStepList},
+	}
+	syms := []types.AnswerSymbol{{
+		Name:      "RequestModel",
+		File:      "internal/agent/analyzer.go",
+		Line:      616,
+		Kind:      types.KindMethod,
+		Rationale: "在 buildAnalysisIR 内部获取 LLM 输出的 RequestModel，是后续步骤的输入基础",
+	}}
+	ctx.Mutable.SetEmittedAnswerSymbols(syms, types.CompletenessLowerBound)
+	ctx.AnswerSymbols = syms
+	ctx.AnswerSymbolCompleteness = types.CompletenessLowerBound
+	ctx.Mutable.AppendDispatchToolResult(types.ToolResult{
+		ToolName: "read_file",
+		Success:  true,
+		Summary: "[internal/agent/analyzer.go: showing lines 614-618 of 1500 total]\n" +
+			"   614│ \tif rm == nil {\n" +
+			"   615│ \t\treturn nil, fmt.Errorf(\"missing request model\")\n" +
+			"   616│ \trm := ctx.Mutable.RequestModel()\n" +
+			"   617│ \tlang := rm.Language\n" +
+			"   618│ \t_ = lang\n",
+	})
+	params := mustDocJSON(t, map[string]interface{}{
+		"shape":   "step_list",
+		"summary": "下面是当前已验证的处理链。",
+		"steps": []map[string]interface{}{
+			{"index": 1, "description": "读取 LLM 输出并开始后续处理。", "citation_ref": 0},
+		},
+		"citations": []map[string]interface{}{
+			{"file": "internal/agent/analyzer.go", "line": 616},
+		},
+	})
+	res, _ := tool.Execute(ctx, params)
+	if !res.Success {
+		t.Fatalf("step backbone normalization should rescue citation-backed step, got reject: %q", res.Summary)
+	}
+	doc := ctx.Mutable.AnswerDocument()
+	if doc == nil || len(doc.Steps) != 1 {
+		t.Fatalf("answer document steps missing after normalization: %+v", doc)
+	}
+	if !strings.Contains(doc.Steps[0].Description, "RequestModel") {
+		t.Fatalf("normalized step should include the backbone anchor name, got %q", doc.Steps[0].Description)
+	}
+}
+
 // -------- value + config_value --------
 
 func TestEmitAnswerDocument_Value_Happy(t *testing.T) {

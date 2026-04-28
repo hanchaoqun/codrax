@@ -896,6 +896,7 @@ func (t *EmitAnswerDocument) Execute(ctx *types.BusContext, params json.RawMessa
 			}
 			p.Steps[i].Description = strings.TrimSpace(p.Steps[i].Description)
 		}
+		p.Steps = normalizeStepBackboneDescriptions(p.Steps, citations, groundCtx, ctx)
 		p.Steps = normalizeDriftBoundedRootCauseSteps(p.Steps, ctx)
 		if err := validateStepsLiteralGrounding(p.Steps, citations, groundCtx); err != nil {
 			return failWithContext("%v", err)
@@ -1331,22 +1332,36 @@ const corroborationWindow = 3
 // claim in the error message, how to name the escape route) so the
 // LLM sees actionable guidance no matter which shape it is emitting.
 func requireCitationCorroboration(claim, citeFile string, citeLine int, gc *ground.Context, cfg corroborationCfg) error {
-	if gc == nil || len(gc.LineIndex) == 0 {
+	if citationCorroboratesClaim(claim, citeFile, citeLine, gc, cfg.extraClaims...) {
 		return nil
 	}
+	msg := fmt.Sprintf("%s is not corroborated by %s (%s:%d): the cited line and ±%d-line window contain no identifier overlap with the claim. %s",
+		cfg.claimLabel, cfg.citeLabel, citeFile, citeLine, corroborationWindow, cfg.escape)
+	if cfg.code == "" {
+		return fmt.Errorf("%s", msg)
+	}
+	return newAnswerDocValidationError(cfg.code, "%s", msg).
+		WithFields(cfg.fields...).
+		WithHint(cfg.hint)
+}
+
+func citationCorroboratesClaim(claim, citeFile string, citeLine int, gc *ground.Context, extraClaims ...string) bool {
+	if gc == nil || len(gc.LineIndex) == 0 {
+		return true
+	}
 	if citeFile == "" || citeLine <= 0 {
-		return nil
+		return true
 	}
 	fileLines, ok := gc.LineIndex[citeFile]
 	if !ok || len(fileLines) == 0 {
-		return nil
+		return true
 	}
 	tokens := valueLiteralTokenRe.FindAllString(claim, -1)
-	for _, extra := range cfg.extraClaims {
+	for _, extra := range extraClaims {
 		tokens = append(tokens, valueLiteralTokenRe.FindAllString(extra, -1)...)
 	}
 	if len(tokens) == 0 {
-		return nil
+		return true
 	}
 	wanted := make(map[string]bool, len(tokens))
 	for _, tok := range tokens {
@@ -1362,7 +1377,7 @@ func requireCitationCorroboration(claim, citeFile string, citeLine int, gc *grou
 		}
 		for _, tok := range valueLiteralTokenRe.FindAllString(text, -1) {
 			if wanted[tok] {
-				return nil
+				return true
 			}
 		}
 	}
@@ -1383,18 +1398,11 @@ func requireCitationCorroboration(claim, citeFile string, citeLine int, gc *grou
 				continue
 			}
 			if strings.Contains(text, trimmed) {
-				return nil
+				return true
 			}
 		}
 	}
-	msg := fmt.Sprintf("%s is not corroborated by %s (%s:%d): the cited line and ±%d-line window contain no identifier overlap with the claim. %s",
-		cfg.claimLabel, cfg.citeLabel, citeFile, citeLine, corroborationWindow, cfg.escape)
-	if cfg.code == "" {
-		return fmt.Errorf("%s", msg)
-	}
-	return newAnswerDocValidationError(cfg.code, "%s", msg).
-		WithFields(cfg.fields...).
-		WithHint(cfg.hint)
+	return false
 }
 
 // corroborationCfg holds the shape-specific strings the
@@ -2307,7 +2315,7 @@ func answerSurfacePlan(ctx *types.BusContext) *types.AnswerSurfacePlan {
 	if ctx.Mutable != nil {
 		logBundle = ctx.Mutable.LogTriage()
 	}
-	return types.BuildAnswerSurfacePlan(
+	plan := types.BuildAnswerSurfacePlan(
 		ctx.AnalysisIR,
 		ctx.Mutable,
 		logBundle,
@@ -2315,6 +2323,47 @@ func answerSurfacePlan(ctx *types.BusContext) *types.AnswerSurfacePlan {
 		ctx.AnswerChains,
 		ctx.EvidenceItems,
 	)
+	if plan != nil && len(ctx.AnswerSymbols) > 0 {
+		types.ApplyAnswerSymbolStepBackbone(plan, ctx.AnswerSymbols, ctx.AnswerSymbolCompleteness)
+	}
+	return plan
+}
+
+func normalizeStepBackboneDescriptions(steps []types.AnswerStep, citations []types.Citation, gc *ground.Context, ctx *types.BusContext) []types.AnswerStep {
+	plan := answerSurfacePlan(ctx)
+	if plan == nil || len(plan.StepBackbone) == 0 || len(steps) == 0 {
+		return steps
+	}
+	anchors := make(map[string]types.StepSurfaceAnchor, len(plan.StepBackbone))
+	for _, anchor := range plan.StepBackbone {
+		file := strings.TrimSpace(strings.ReplaceAll(anchor.File, `\`, `/`))
+		if file == "" || anchor.Line <= 0 {
+			continue
+		}
+		anchors[fmt.Sprintf("%s:%d", file, anchor.Line)] = anchor
+	}
+	if len(anchors) == 0 {
+		return steps
+	}
+	out := append([]types.AnswerStep(nil), steps...)
+	for i, step := range out {
+		if step.CitationRef < 0 || step.CitationRef >= len(citations) {
+			continue
+		}
+		cite := citations[step.CitationRef]
+		key := fmt.Sprintf("%s:%d", strings.TrimSpace(strings.ReplaceAll(cite.File, `\`, `/`)), cite.Line)
+		anchor, ok := anchors[key]
+		if !ok {
+			continue
+		}
+		if citationCorroboratesClaim(step.Description, cite.File, cite.Line, gc) {
+			continue
+		}
+		if desc := strings.TrimSpace(types.RenderStepSurfaceAnchorDescription(anchor)); desc != "" {
+			out[i].Description = desc
+		}
+	}
+	return out
 }
 
 func normalizeLogSourceDriftObservedCitations(in []types.Citation, ctx *types.BusContext) []types.Citation {

@@ -20,6 +20,8 @@ type AnswerSurfacePlan struct {
 	DiagramHardRequirementDropped bool
 	CompiledDiagramKind           DiagramKind
 	CompiledDiagramFence          string
+	StepBackbone                  []StepSurfaceAnchor
+	StepBackboneCompleteness      CompletenessClaim
 	LogSourceDriftAnchors         []LogSourceDriftAnchor
 	LogObservedAnchors            []LogSourceDriftAnchor
 
@@ -75,6 +77,70 @@ type LogSourceDriftAnchor struct {
 	Func         string
 	ObservedLine int
 	AnchoredLine int
+}
+
+type StepSurfaceAnchor struct {
+	Name      string
+	File      string
+	Line      int
+	Kind      AnswerSymbolKind
+	Rationale string
+	Chain     string
+}
+
+func RenderStepSurfaceAnchorDescription(anchor StepSurfaceAnchor) string {
+	name := strings.TrimSpace(anchor.Name)
+	rationale := strings.TrimSpace(anchor.Rationale)
+	switch {
+	case name == "" && rationale == "":
+		return ""
+	case name == "":
+		return rationale
+	case rationale == "":
+		return fmt.Sprintf("`%s` is one grounded hop in the resolved sequence.", name)
+	case strings.Contains(strings.ToLower(rationale), strings.ToLower(name)):
+		return rationale
+	default:
+		return fmt.Sprintf("`%s` %s", name, rationale)
+	}
+}
+
+func compileStepSurfaceAnchors(symbols []AnswerSymbol) []StepSurfaceAnchor {
+	if len(symbols) == 0 {
+		return nil
+	}
+	out := make([]StepSurfaceAnchor, 0, len(symbols))
+	for _, sym := range symbols {
+		if strings.TrimSpace(sym.Name) == "" {
+			continue
+		}
+		out = append(out, StepSurfaceAnchor{
+			Name:      strings.TrimSpace(sym.Name),
+			File:      strings.TrimSpace(sym.File),
+			Line:      sym.Line,
+			Kind:      sym.Kind,
+			Rationale: strings.TrimSpace(sym.Rationale),
+			Chain:     strings.TrimSpace(sym.Chain),
+		})
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
+}
+
+func ApplyAnswerSymbolStepBackbone(plan *AnswerSurfacePlan, symbols []AnswerSymbol, claim CompletenessClaim) {
+	if plan == nil || plan.RequiredShape != ShapeStepList || len(symbols) == 0 {
+		return
+	}
+	anchors := compileStepSurfaceAnchors(symbols)
+	if len(anchors) == 0 {
+		return
+	}
+	plan.StepBackbone = anchors
+	if claim != "" {
+		plan.StepBackboneCompleteness = claim
+	}
 }
 
 func RenderLinearDiagramFence(nodes []string, limit int) string {
@@ -239,6 +305,9 @@ func BuildAnswerSurfacePlan(
 		plan.StableInvestigationResultKind = strings.TrimSpace(mutable.StableInvestigationResultKind())
 		plan.StableAbsenceJustification = strings.TrimSpace(mutable.StableAbsenceJustification())
 		plan.ExactContextRequiredFiles = mutable.ExactContextRequiredFiles()
+		if syms, claim := mutable.EmittedAnswerSymbols(); len(syms) > 0 {
+			ApplyAnswerSymbolStepBackbone(plan, syms, claim)
+		}
 		if logBundle == nil {
 			logBundle = mutable.LogTriage()
 		}

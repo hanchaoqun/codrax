@@ -129,6 +129,35 @@ func TestAnswerDocumentEvaluator_BuildInitialInstruction_SurfacesCardinalityBase
 	}
 }
 
+func TestAnswerDocumentEvaluator_BuildInitialInstruction_RendersStepBackboneForStepList(t *testing.T) {
+	mut := types.NewMutableState("")
+	syms := []types.AnswerSymbol{
+		{Name: "RequestModel", File: "internal/agent/analyzer.go", Line: 616, Rationale: "在 buildAnalysisIR 内部获取 LLM 输出的 RequestModel，是后续步骤的输入基础"},
+		{Name: "gate.Run", File: "internal/agent/analyzer.go", Line: 1062, Rationale: "执行质量门检查，生成最终 gate 结果"},
+	}
+	mut.SetEmittedAnswerSymbols(syms, types.CompletenessLowerBound)
+	ctx := &types.AgentContext{
+		AnalysisIR: &types.AnalysisIR{
+			AnswerContract: types.AnswerContract{RequiredAnswerShape: types.ShapeStepList},
+		},
+		Mutable:                  mut,
+		AnswerSymbols:            syms,
+		AnswerSymbolCompleteness: types.CompletenessLowerBound,
+	}
+	prompt := (&answerDocumentEvaluator{}).BuildInitialInstruction(ctx, nil)
+	for _, want := range []string{
+		"## Step Backbone",
+		"ordered lower-bound backbone",
+		"`RequestModel` (internal/agent/analyzer.go:616)",
+		"`gate.Run` (internal/agent/analyzer.go:1062)",
+		"Do not merge one anchor's citation with semantics that only appear in another file / definition",
+	} {
+		if !strings.Contains(prompt, want) {
+			t.Fatalf("step backbone prompt missing %q:\n%s", want, prompt)
+		}
+	}
+}
+
 // TestAnswerDocumentEvaluator_BuildInitialInstruction_NoFloorWithoutMustInclude
 // checks the other branch: when MustInclude is empty, the prompt
 // says "no floor is enforced" so the LLM picks the claim from its

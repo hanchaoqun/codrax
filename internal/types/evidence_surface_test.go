@@ -373,6 +373,44 @@ func TestBuildAnswerSurfacePlan_UsesDriftBoundedRootCauseModeForRootCauseLogs(t 
 	}
 }
 
+func TestBuildAnswerSurfacePlan_CompilesStepBackboneFromAnswerSymbols(t *testing.T) {
+	mut := NewMutableState("")
+	mut.SetEmittedAnswerSymbols([]AnswerSymbol{
+		{
+			Name:      "RequestModel",
+			File:      "internal/agent/analyzer.go",
+			Line:      616,
+			Kind:      KindMethod,
+			Rationale: "在 buildAnalysisIR 内部获取 LLM 输出的 RequestModel，是后续步骤的输入基础",
+		},
+		{
+			Name:      "gate.Run",
+			File:      "internal/agent/analyzer.go",
+			Line:      1062,
+			Kind:      KindFunction,
+			Rationale: "执行质量门检查，生成最终 gate 结果",
+		},
+	}, CompletenessLowerBound)
+	ir := &AnalysisIR{
+		AnswerContract: AnswerContract{
+			RequiredAnswerShape: ShapeStepList,
+		},
+	}
+	plan := BuildAnswerSurfacePlan(ir, mut, nil, nil, nil, nil)
+	if plan == nil {
+		t.Fatal("BuildAnswerSurfacePlan returned nil")
+	}
+	if plan.StepBackboneCompleteness != CompletenessLowerBound {
+		t.Fatalf("step backbone completeness = %q, want %q", plan.StepBackboneCompleteness, CompletenessLowerBound)
+	}
+	if len(plan.StepBackbone) != 2 {
+		t.Fatalf("step backbone anchors = %d, want 2", len(plan.StepBackbone))
+	}
+	if got := plan.StepBackbone[0]; got.Name != "RequestModel" || got.File != "internal/agent/analyzer.go" || got.Line != 616 {
+		t.Fatalf("first step backbone anchor = %+v", got)
+	}
+}
+
 func TestEvidencePreferredSurfaceText_NeutralizesExactResolutionRelevantSummary(t *testing.T) {
 	contract := &ExactResolutionContract{
 		TargetKind:           SubjectConfigKey,
