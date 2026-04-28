@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/hanchaoqun/codrax/internal/env"
+	"github.com/hanchaoqun/codrax/internal/memory"
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
@@ -91,17 +92,8 @@ func (r *REPL) envExplain(stderrArg string) {
 		return
 	}
 	stderr := stderrArg
-	if stderr == "" {
-		// Try to pull the last shell-bang turn's response from
-		// memory recent buffer.
-		if r.store != nil {
-			for _, t := range r.store.Recent() {
-				if strings.HasPrefix(t.Request, "!") {
-					stderr = t.Response
-					break
-				}
-			}
-		}
+	if stderr == "" && r.store != nil {
+		stderr = latestShellTurnResponse(r.store.Recent())
 	}
 	if strings.TrimSpace(stderr) == "" {
 		r.warn("no stderr supplied; usage: /env explain <stderr text>\n")
@@ -223,4 +215,24 @@ func (r *REPL) envCacheClear() {
 		return
 	}
 	r.info("env cache cleared")
+}
+
+// latestShellTurnResponse scans the recent buffer in reverse and
+// returns the Response of the newest `!`-prefixed shell-bang turn.
+// Pre-this-helper the inline loop iterated forward and break'd on
+// the FIRST match, which surfaced the OLDEST shell turn — the
+// opposite of what /env explain wants. Returns "" when no shell
+// turn exists.
+//
+// memory.Store.Recent() returns chronologically (oldest at slice
+// index 0); the helper walks i := len(recent)-1; i >= 0; i-- so
+// the first match is the most-recent shell turn.
+func latestShellTurnResponse(recent []memory.Turn) string {
+	for i := len(recent) - 1; i >= 0; i-- {
+		t := recent[i]
+		if strings.HasPrefix(t.Request, "!") {
+			return t.Response
+		}
+	}
+	return ""
 }

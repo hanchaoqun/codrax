@@ -101,13 +101,28 @@ Scope:
 // back to the priorContext-only path.
 const chitchatSystemPromptToolUse = `
 
-Available tool:
-- recall_memory(query, kind?, limit?, include_body?) — search the user's prior conversation memory. Use ONLY when the user references their own past conversations (semantic markers in the question itself: 之前 / 上次 / 记忆里 / 历史 / 我们讨论过 / previously / last time / earlier / in memory / we discussed / I asked before), or when they ask "what did we ...?" / "did I ...?" about prior turns. The injected priorContext block above is keyword-bound to the literal question and may miss meta-references — recall_memory takes your interpretation of the user's intent as the query and searches the full IndexEntry catalogue.
+Available tools:
+- recall_memory(query, kind?, limit?, include_body?) — TOPIC search. Use when the user references a SPECIFIC past topic ("我们之前讨论过 OAuth / what did we say about the panic? / did I ask about X?"). recall_memory ranks entries by keyword overlap with your chosen query. Generic listing-intent queries like "memory recall history content" only surface self-referential meta-entries — don't use recall_memory for listings.
+- list_memory(limit?, kind?, since?) — LISTING / browse mode. Use when the user asks for an INVENTORY of memory ("都有哪些 / 历史里有什么 / 记忆里都记了些什么 / what's in memory / list all / show me my history / what have I asked you"). Returns the most-recent N entries by TIME, no keyword filter. This is the right tool when the user wants to SEE the conversation history, not search a specific topic.
+
+Tool routing — pick by intent:
+  TOPIC (specific keyword)  → recall_memory(query="oauth migration")
+  LISTING (broad inventory) → list_memory(limit=10)
+  AMBIGUOUS                 → start with list_memory; subsequent
+                              user turns can drill into a specific
+                              entry via recall_memory next turn.
+
+Multi-turn refinement pattern (preferred for "precise" recall):
+  Turn N — user asks "都有哪些 X 相关的" (broad)
+           you call list_memory; reply "I see 3 turns about X: A, B, C — which one?"
+  Turn N+1 — user picks "A"
+              you call recall_memory(query="A details") for the deep look.
+This is more reliable than guessing a topic-specific query when the user themselves haven't named one.
 
 Tool-use rules:
 - For pure greetings / identity / capability questions (你好 / 谁做的 / 你能干什么), DO NOT call any tool — answer directly from this system prompt.
-- Call recall_memory at most once per turn. Either you have enough to answer after one search, or the topic is genuinely absent — say so honestly rather than guessing.
-- After the recall_memory result returns, write the final reply directly. Do not call recall_memory a second time even if the first miss looked tantalising.`
+- Call AT MOST ONE tool per turn (either recall_memory OR list_memory, never both within one turn — multi-turn refinement is the chained path).
+- After the tool result returns, write the final reply directly. Do not call a second tool even if the first result looked thin.`
 
 // llmChitchatResponder is the default ChitchatResponder. The
 // pre-tool-use shape was a single one-shot Chat call; with the
@@ -145,11 +160,14 @@ func (r *llmChitchatResponder) SetChitchatSettings(s types.ChitchatSettings) {
 func recallMemoryToolSchema() llm.ToolSchema {
 	return llm.ToolSchema{
 		Name: "recall_memory",
-		Description: "Search the user's prior conversation memory. " +
-			"Call ONLY when the user references their own past conversations " +
-			"(semantic markers like 之前 / 上次 / 记忆里 / 历史 / 我们讨论过 / " +
-			"previously / last time / earlier / in memory / we discussed / I asked). " +
-			"Returns a list of compacted memory entries (Topic + Summary + Keywords + Kind + timestamp).",
+		Description: "TOPIC search of the user's prior conversation memory. " +
+			"Call when the user references a SPECIFIC past topic " +
+			"('did we discuss X / 之前关于 X 怎么说的'). For LISTING " +
+			"intent ('what's in memory / 都有哪些'), use list_memory " +
+			"instead — recall_memory's keyword scoring will only " +
+			"surface self-referential entries on a generic query. " +
+			"Returns a list of compacted memory entries (Topic + " +
+			"Summary + Keywords + Kind + timestamp).",
 		Parameters: json.RawMessage(`{
   "type": "object",
   "properties": {
@@ -157,6 +175,28 @@ func recallMemoryToolSchema() llm.ToolSchema {
     "limit": {"type": "integer", "description": "Max entries to return. Default 5, hard cap 10."}
   },
   "required": ["query"]
+}`),
+	}
+}
+
+// listMemoryToolSchema is the chitchat-side companion to
+// recallMemoryToolSchema. Browse-mode (recency-ordered) listing
+// of memory; same boundary discipline (subset schema, no Kind /
+// Since exposure since chitchat doesn't need that selectivity).
+func listMemoryToolSchema() llm.ToolSchema {
+	return llm.ToolSchema{
+		Name: "list_memory",
+		Description: "LISTING / browse mode of the user's prior " +
+			"conversation memory. Call when the user asks for an " +
+			"INVENTORY of memory ('都有哪些 / 历史里有什么 / 记忆里都记了 / " +
+			"what's in memory / list all / show my history'). Returns " +
+			"the most-recent N entries by TIME, no keyword filter. " +
+			"For TOPIC search ('we discussed X'), use recall_memory.",
+		Parameters: json.RawMessage(`{
+  "type": "object",
+  "properties": {
+    "limit": {"type": "integer", "description": "Max entries to return. Default 10, hard cap 30."}
+  }
 }`),
 	}
 }
@@ -294,8 +334,11 @@ func (r *llmChitchatResponder) RespondWithMemory(userLine, priorContext string, 
 	}
 
 	// Round 1 — tool catalogue available, no streaming so we can
-	// fully observe ToolCalls before committing.
-	tools := []llm.ToolSchema{recallMemoryToolSchema()}
+	// fully observe ToolCalls before committing. Both recall_memory
+	// (topic search) and list_memory (recency listing) are exposed
+	// so the LLM picks by intent — the system prompt teaches the
+	// TOPIC-vs-LISTING routing rule.
+	tools := []llm.ToolSchema{recallMemoryToolSchema(), listMemoryToolSchema()}
 	resp, err := r.adapter.Chat(messages, tools, llm.ChatOptions{})
 	if err != nil {
 		return "", fmt.Errorf("chitchat llm round 1: %w", err)
@@ -327,7 +370,16 @@ func (r *llmChitchatResponder) RespondWithMemory(userLine, priorContext string, 
 		ToolCalls: resp.ToolCalls,
 	})
 	for _, call := range resp.ToolCalls {
-		toolReply := dispatchChitchatRecall(call, mem, r.settings)
+		var toolReply string
+		switch call.Name {
+		case "recall_memory":
+			toolReply = dispatchChitchatRecall(call, mem, r.settings)
+		case "list_memory":
+			toolReply = dispatchChitchatList(call, mem)
+		default:
+			toolReply = fmt.Sprintf("(tool %q not available — only recall_memory and list_memory are wired)", call.Name)
+			logging.Debug("[repl/chitchat] tool_use unknown tool=%q", call.Name)
+		}
 		messages = append(messages, llm.Message{
 			Role:       "tool",
 			Content:    toolReply,
@@ -410,6 +462,87 @@ func dispatchChitchatRecall(call llm.ToolCall, mem types.MemoryReader, settings 
 	return renderChitchatRecallResults(q, entries)
 }
 
+// dispatchChitchatList is the chitchat companion to dispatchChitchat-
+// Recall: instead of scoring by query, it enumerates the most-recent
+// N entries via MemoryLister.List. Capability-gated — when the wired
+// MemoryReader does not implement MemoryLister (test stubs, future
+// alternative impls), surfaces a typed unavailable reply matching
+// the recall_memory unavailable shape so the LLM has a consistent
+// fail-mode.
+func dispatchChitchatList(call llm.ToolCall, mem types.MemoryReader) string {
+	logging.Debug("[repl/chitchat] tool_use list_memory params=%s mem_nil=%t",
+		string(call.Params), mem == nil)
+	var p struct {
+		Limit int `json:"limit,omitempty"`
+	}
+	if len(call.Params) > 0 {
+		if err := json.Unmarshal(call.Params, &p); err != nil {
+			msg := fmt.Sprintf("(list_memory tool params invalid: %v)", err)
+			logging.Debug("[repl/chitchat] tool_result list_memory rejected: bad params: %v", err)
+			return msg
+		}
+	}
+	if mem == nil {
+		logging.Debug("[repl/chitchat] tool_result list_memory unavailable: mem is nil (REPL not wired)")
+		return "(list_memory unavailable: prior-conversation memory is not wired in this REPL session)"
+	}
+	lister, ok := mem.(types.MemoryLister)
+	if !ok {
+		logging.Debug("[repl/chitchat] tool_result list_memory unavailable: MemoryReader does not implement MemoryLister")
+		return "(list_memory unavailable: the wired MemoryReader does not support browse-mode listing in this build)"
+	}
+	limit := p.Limit
+	if limit <= 0 {
+		limit = 10
+	}
+	const hardCap = 30
+	if limit > hardCap {
+		limit = hardCap
+	}
+	entries := lister.List(types.MemoryListOpts{Limit: limit})
+	logging.Debug("[repl/chitchat] tool_result list_memory limit=%d entries=%d",
+		limit, len(entries))
+	return renderChitchatListResults(limit, entries)
+}
+
+// renderChitchatListResults formats listing entries for tool-message
+// inclusion. Same per-entry shape as renderChitchatRecallResults so
+// the LLM parses both consistently; banner says "[list_memory]" so
+// the LLM doesn't confuse listing with topic search.
+//
+// Closing hint (multi-turn refinement): list_memory output ends
+// with a one-line guidance reminding the LLM that recall_memory is
+// the next step when the user names a specific entry. Trains the
+// chained-tool pattern documented in chitchatSystemPromptToolUse.
+func renderChitchatListResults(limit int, entries []types.MemoryIndexEntry) string {
+	var b strings.Builder
+	if len(entries) == 0 {
+		fmt.Fprintf(&b, "[list_memory] requested limit=%d returned 0 entries.\n", limit)
+		fmt.Fprintln(&b, "Memory is genuinely empty in this REPL session. Tell the user honestly there is no prior conversation yet.")
+		return b.String()
+	}
+	fmt.Fprintf(&b, "[list_memory] %d entries (most-recent first):\n\n", len(entries))
+	for i, e := range entries {
+		fmt.Fprintf(&b, "#%d %s", i+1, e.ID)
+		if e.Kind != "" {
+			fmt.Fprintf(&b, " (kind=%s)", e.Kind)
+		}
+		if !e.Timestamp.IsZero() {
+			fmt.Fprintf(&b, " ts=%s", e.Timestamp.Format("2006-01-02 15:04:05"))
+		}
+		b.WriteByte('\n')
+		if e.Topic != "" {
+			fmt.Fprintf(&b, "   topic: %s\n", e.Topic)
+		}
+		if e.Summary != "" {
+			fmt.Fprintf(&b, "   summary: %s\n", e.Summary)
+		}
+		b.WriteByte('\n')
+	}
+	fmt.Fprintln(&b, "Hint: present these entries to the user as a menu of available conversation topics. If the user names a SPECIFIC entry on their next turn, call recall_memory(query=\"<topic words>\") to surface the full content of that entry.")
+	return b.String()
+}
+
 // renderChitchatRecallResults formats the IndexEntry slice for
 // inclusion in a tool message. Same shape as the production
 // recall_memory tool's output (so the LLM's parsing patterns are
@@ -476,6 +609,14 @@ func (r *REPL) runToolableChitchat(line, prior string) (string, error) {
 	// contained — matches the runStreamingChitchat structure but
 	// without the streaming-only setup tail. Spinner during round 1
 	// (no tokens yet to stream); area opens at first delta.
+	//
+	// WithRemoveWhenDone(true) is load-bearing: the dispatcher
+	// renders the final reply via r.renderBordered after this fn
+	// returns, so the live-stream area must be CLEARED on Stop.
+	// Without it the user sees the reply twice — once as the
+	// streamed snapshot (no border) and once again inside the
+	// bordered block. runStreamingChitchat already uses the same
+	// option for the same reason; both paths must stay in sync.
 	r.renderer.StartSpinner()
 	var buf strings.Builder
 	var areaMu sync.Mutex
@@ -489,7 +630,7 @@ func (r *REPL) runToolableChitchat(line, prior string) (string, error) {
 		defer areaMu.Unlock()
 		if !startedArea {
 			r.renderer.StopSpinner()
-			a, err := pterm.DefaultArea.Start()
+			a, err := pterm.DefaultArea.WithRemoveWhenDone(true).Start()
 			if err != nil {
 				return
 			}

@@ -43,6 +43,51 @@ type MemorySearchOpts struct {
 	IncludeBody bool
 }
 
+// MemoryLister is the optional capability surface a MemoryReader may
+// implement when it can enumerate entries by time rather than score
+// them by keyword. Tools that need a LISTING (rather than a topic
+// search) type-assert this interface and degrade gracefully when
+// the underlying reader does not support it. Pattern mirrors the
+// chitchat package's `toolableChitchatResponder` opt-in:
+// extending behaviour without breaking existing implementers /
+// test fixtures that only conform to MemoryReader.Search.
+//
+// Why this is separate from Search:
+//   - Search ranks by keyword/entity overlap with a query. Generic
+//     queries like "memory recall history content" only surface
+//     self-referential entries (those whose Topic contains the
+//     query tokens), not the full conversation history.
+//   - List returns the most recent N entries by timestamp without
+//     scoring. Used when the user asks for a LISTING ("what's in
+//     memory / 都有哪些 / list all") rather than a TOPIC ("we
+//     discussed X").
+//
+// Production implementer: *internal/memory.Adapter. Test stubs
+// that only need Search keep working — type-assertion fails and
+// the caller surfaces a typed "list_memory unavailable" reply.
+type MemoryLister interface {
+	List(opts MemoryListOpts) []MemoryIndexEntry
+}
+
+// MemoryListOpts parameterises List. All fields optional; zero
+// values fall through to "all entries, most-recent first, no time
+// cutoff, default limit".
+type MemoryListOpts struct {
+	// Kind narrows to one Kind. Empty = any.
+	Kind string
+
+	// Limit caps the returned slice. 0 → caller-default (10);
+	// >0 → exact cap up to the implementation's hard ceiling
+	// (30, larger than Search's 20 because listing is browse-mode
+	// and benefits from more context).
+	Limit int
+
+	// Since is an optional time floor — only entries newer than
+	// Since are returned. Zero time means "no floor". Surfaces in
+	// the wire as an RFC3339 string.
+	Since time.Time
+}
+
 // MemoryIndexEntry mirrors internal/memory.IndexEntry's exported
 // shape so tools can render results without importing the memory
 // package directly. Field set is intentionally a superset of the

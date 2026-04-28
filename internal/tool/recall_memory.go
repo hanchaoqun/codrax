@@ -118,11 +118,21 @@ func (t *RecallMemory) Execute(ctx *types.BusContext, params json.RawMessage) (t
 // Summary + Keywords / Kind / SessionID / FullRef + (optional) Body.
 // Empty result set returns an explicit "no matches" so the LLM
 // knows to widen the query or move on.
+//
+// Self-referential hint: when ≤2 entries match AND every match's
+// Topic looks like a meta-reference to memory itself ("记忆 / 历史 /
+// memory / recall / list / 都有哪些"), the renderer appends a
+// "consider list_memory" suggestion. The pattern surfaced in a
+// 2026-04-28 user trace where the LLM picked a generic listing-
+// style query against recall_memory and only matched self-
+// referential entries — list_memory would have been the right tool.
+// Educating via tool-result text avoids schema churn while training
+// the LLM's next-turn decision.
 func renderRecallResults(query string, entries []types.MemoryIndexEntry) string {
 	var b strings.Builder
 	if len(entries) == 0 {
 		fmt.Fprintf(&b, "[recall_memory] query=%q matched 0 entries.\n", query)
-		fmt.Fprintln(&b, "Nothing in prior conversation memory mentions this topic. Either widen the query (synonyms / parent concept) or fall back to repo_map / read_file for code-side answers.")
+		fmt.Fprintln(&b, "Nothing in prior conversation memory mentions this topic. Either widen the query (synonyms / parent concept), call list_memory(limit=20) for an inventory listing, or fall back to repo_map / read_file for code-side answers.")
 		return b.String()
 	}
 	fmt.Fprintf(&b, "[recall_memory] query=%q matched %d entries (ranked by relevance):\n\n",
@@ -167,6 +177,15 @@ func renderRecallResults(query string, entries []types.MemoryIndexEntry) string 
 		}
 		b.WriteByte('\n')
 	}
+	// Self-referential / low-recall hint. Fires when ≤2 entries
+	// returned AND every match's Topic resembles a meta-reference
+	// to memory itself — the canonical sign of a generic listing-
+	// intent query that should have used list_memory. Suggesting
+	// list_memory in the tool-result trains the LLM's next-turn
+	// choice without changing the schema.
+	if len(entries) <= 2 && allTopicsLookSelfReferential(entries) {
+		fmt.Fprintln(&b, "Note: only a few entries matched and they look self-referential (their Topics are about memory itself, not actual conversation content). If the user is asking for an INVENTORY of memory ('都有哪些 / what's in memory / list all'), call list_memory(limit=20) instead — that returns the most-recent N entries by time, regardless of topic.")
+	}
 	return b.String()
 }
 
@@ -175,4 +194,46 @@ func trunc(s string, max int) string {
 		return s
 	}
 	return s[:max] + "…"
+}
+
+// allTopicsLookSelfReferential reports whether every entry's Topic
+// reads like a meta-reference to memory itself (rather than actual
+// conversation content). Used by renderRecallResults to detect the
+// "LLM picked a generic listing-intent query against recall_memory"
+// failure mode: the only matches will be the user's prior questions
+// about memory itself, which makes recall look broken.
+//
+// Detection is bilingual (zh + en) and case-insensitive; minimum 3
+// runes per Topic so very short Topics that happen to match a
+// keyword don't false-fire. Requires ALL entries to look
+// self-referential — a single non-meta entry means the LLM did
+// find real content and the hint would be misleading.
+func allTopicsLookSelfReferential(entries []types.MemoryIndexEntry) bool {
+	if len(entries) == 0 {
+		return false
+	}
+	keywords := []string{
+		"记忆", "历史", "对话", "聊过", "讨论过",
+		"都有哪些", "看一下", "找一下",
+		"memory", "history", "recall", "list all",
+		"prior conversation", "what did we", "what's in",
+		"chat history",
+	}
+	for _, e := range entries {
+		topic := strings.ToLower(strings.TrimSpace(e.Topic))
+		if len([]rune(topic)) < 3 {
+			return false
+		}
+		matched := false
+		for _, kw := range keywords {
+			if strings.Contains(topic, kw) {
+				matched = true
+				break
+			}
+		}
+		if !matched {
+			return false
+		}
+	}
+	return true
 }

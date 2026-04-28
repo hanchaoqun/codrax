@@ -59,6 +59,41 @@ func (a *Adapter) Search(query string, opts types.MemorySearchOpts) []types.Memo
 			SessionID: e.SessionID,
 			FullRef:   e.FullRef,
 			Body:      bodyOf(e),
+			Timestamp: timestampFromTurnID(e.ID),
+		})
+	}
+	return out
+}
+
+// List implements types.MemoryLister. Mirrors Search's translation
+// shape but without scoring — just delegates to Store.List which
+// returns recent + compacted entries by timestamp desc.
+func (a *Adapter) List(opts types.MemoryListOpts) []types.MemoryIndexEntry {
+	if a == nil || a.store == nil {
+		return nil
+	}
+	rows := a.store.List(ListOpts{
+		Kind:  opts.Kind,
+		Limit: opts.Limit,
+		Since: opts.Since,
+	})
+	if len(rows) == 0 {
+		return nil
+	}
+	out := make([]types.MemoryIndexEntry, 0, len(rows))
+	for _, e := range rows {
+		out = append(out, types.MemoryIndexEntry{
+			ID:        e.ID,
+			Topic:     e.Topic,
+			Summary:   e.Summary,
+			Keywords:  append([]string(nil), e.Keywords...),
+			Entities:  append([]string(nil), e.Entities...),
+			Refs:      append([]string(nil), e.Refs...),
+			Kind:      string(e.Kind),
+			SessionID: e.SessionID,
+			FullRef:   e.FullRef,
+			Body:      bodyOf(e),
+			Timestamp: timestampFromTurnID(e.ID),
 		})
 	}
 	return out

@@ -3,6 +3,7 @@ package repl
 import (
 	"encoding/json"
 	"errors"
+	"os"
 	"strings"
 	"sync"
 	"testing"
@@ -248,5 +249,169 @@ func TestDispatchChitchatRecall_NilMemDoesNotPanic(t *testing.T) {
 	}, nil, settings)
 	if !strings.Contains(out, "unavailable") {
 		t.Errorf("nil mem must produce typed unavailable reply; got %q", out)
+	}
+}
+
+// stubChitchatLister is a MemoryReader + MemoryLister test double for
+// the chitchat dispatchList path. Captures last call params so tests
+// can assert limit clamping / kind filtering reach the lister.
+type stubChitchatLister struct {
+	rows []types.MemoryIndexEntry
+	last types.MemoryListOpts
+}
+
+func (s *stubChitchatLister) Search(_ string, _ types.MemorySearchOpts) []types.MemoryIndexEntry {
+	return nil
+}
+
+func (s *stubChitchatLister) List(opts types.MemoryListOpts) []types.MemoryIndexEntry {
+	s.last = opts
+	return s.rows
+}
+
+// TestDispatchChitchatList_HappyPath exercises the typical browse
+// call: lister returns 2 entries, dispatch renders them with the
+// [list_memory] banner + the recall_memory follow-up hint.
+func TestDispatchChitchatList_HappyPath(t *testing.T) {
+	lister := &stubChitchatLister{rows: []types.MemoryIndexEntry{
+		{ID: "turn-200-1", Topic: "newer", Kind: "chitchat", Timestamp: time.Now()},
+		{ID: "turn-100-1", Topic: "older", Kind: "pipeline", Timestamp: time.Now().Add(-1 * time.Hour)},
+	}}
+	out := dispatchChitchatList(llm.ToolCall{
+		ID: "x", Name: "list_memory",
+		Params: json.RawMessage(`{"limit": 5}`),
+	}, lister)
+	if !strings.Contains(out, "[list_memory]") {
+		t.Errorf("missing list banner: %q", out)
+	}
+	if !strings.Contains(out, "newer") || !strings.Contains(out, "older") {
+		t.Errorf("entries not rendered: %q", out)
+	}
+	if !strings.Contains(out, "recall_memory") {
+		t.Errorf("multi-turn refinement hint missing: %q", out)
+	}
+	if lister.last.Limit != 5 {
+		t.Errorf("limit not threaded; got %d", lister.last.Limit)
+	}
+}
+
+// TestDispatchChitchatList_NilMemReturnsUnavailable mirrors the
+// recall path's nil-safety guard. No panic on nil mem.
+func TestDispatchChitchatList_NilMemReturnsUnavailable(t *testing.T) {
+	defer func() {
+		if r := recover(); r != nil {
+			t.Errorf("dispatchChitchatList panicked on nil mem: %v", r)
+		}
+	}()
+	out := dispatchChitchatList(llm.ToolCall{
+		ID: "x", Name: "list_memory", Params: json.RawMessage(`{}`),
+	}, nil)
+	if !strings.Contains(out, "unavailable") {
+		t.Errorf("nil mem must produce typed unavailable reply; got %q", out)
+	}
+}
+
+// TestDispatchChitchatList_NoListerCapability covers the soft gate:
+// when MemoryReader is wired but does NOT implement MemoryLister,
+// the dispatcher returns a typed unavailable reply naming the
+// missing capability so the LLM gets a consistent fail-mode.
+func TestDispatchChitchatList_NoListerCapability(t *testing.T) {
+	out := dispatchChitchatList(llm.ToolCall{
+		ID: "x", Name: "list_memory", Params: json.RawMessage(`{}`),
+	}, &stubMemReader{})
+	// Either the Reader nil-check or the type-assertion message is
+	// fine; the load-bearing invariant is that we get a typed
+	// unavailable reply (not a panic) AND the message names the
+	// missing browse capability.
+	if !strings.Contains(out, "unavailable") {
+		t.Errorf("missing-Lister reply should be unavailable: %q", out)
+	}
+	if !strings.Contains(out, "browse-mode") {
+		t.Errorf("missing-Lister reply should name browse-mode capability: %q", out)
+	}
+}
+
+// TestDispatchChitchatList_DefaultLimit pins the limit-default
+// path (0 → 10).
+func TestDispatchChitchatList_DefaultLimit(t *testing.T) {
+	lister := &stubChitchatLister{}
+	dispatchChitchatList(llm.ToolCall{
+		ID: "x", Name: "list_memory", Params: json.RawMessage(`{}`),
+	}, lister)
+	if lister.last.Limit != 10 {
+		t.Errorf("default limit should be 10; got %d", lister.last.Limit)
+	}
+}
+
+// TestDispatchChitchatList_HardCap pins the 30-entry hard cap.
+func TestDispatchChitchatList_HardCap(t *testing.T) {
+	lister := &stubChitchatLister{}
+	dispatchChitchatList(llm.ToolCall{
+		ID: "x", Name: "list_memory", Params: json.RawMessage(`{"limit": 999}`),
+	}, lister)
+	if lister.last.Limit != 30 {
+		t.Errorf("hard cap should be 30; got %d", lister.last.Limit)
+	}
+}
+
+// TestChitchatStreamingArea_RemoveWhenDone is a structural guard
+// for the duplicate-display fix: BOTH chitchat live-area paths
+// (runToolableChitchat + runStreamingChitchat) MUST use
+// pterm.DefaultArea.WithRemoveWhenDone(true) so the streamed
+// snapshot is cleared before chitchatDispatch's renderBordered
+// prints the final reply. Pre-fix runToolableChitchat used
+// pterm.DefaultArea.Start() without the option, leaving the
+// streamed copy on screen — the user saw the reply twice.
+//
+// We pin both call-sites by reading the source file. Future
+// refactors that drop WithRemoveWhenDone(true) on either path
+// regress this test instead of silently regressing UX.
+func TestChitchatStreamingArea_RemoveWhenDone(t *testing.T) {
+	body, err := os.ReadFile("chitchat.go")
+	if err != nil {
+		t.Fatalf("could not read chitchat.go: %v", err)
+	}
+	src := string(body)
+	starts := strings.Count(src, "pterm.DefaultArea.")
+	withRemove := strings.Count(src, "pterm.DefaultArea.WithRemoveWhenDone(true)")
+	if starts == 0 {
+		t.Fatalf("expected pterm.DefaultArea usage in chitchat.go; got 0")
+	}
+	if withRemove != starts {
+		t.Errorf("every pterm.DefaultArea call must use WithRemoveWhenDone(true); "+
+			"got %d total, %d with the option (delta = %d unguarded calls)",
+			starts, withRemove, starts-withRemove)
+	}
+	// Belt-and-suspenders: explicitly assert the bare ".Start()"
+	// pattern does not appear (i.e. all Starts go through the
+	// WithRemoveWhenDone(true).Start() chain).
+	if strings.Contains(src, "pterm.DefaultArea.Start()") {
+		t.Errorf("found pterm.DefaultArea.Start() without WithRemoveWhenDone(true) — would duplicate display under chitchatDispatch's renderBordered")
+	}
+}
+
+// TestChitchatSystemPromptToolUse_TeachesListAndRecall is the prompt-
+// content guard for the X2 routing fix. The chitchat tool-use system
+// prompt MUST teach the LLM both tools AND the TOPIC-vs-LISTING
+// routing rule. A future edit dropping either tool name or the
+// routing keywords regresses this test instead of silently
+// regressing routing in production.
+func TestChitchatSystemPromptToolUse_TeachesListAndRecall(t *testing.T) {
+	mustContain := []string{
+		"recall_memory", // tool 1 named
+		"list_memory",   // tool 2 named
+		"TOPIC",         // routing label 1
+		"LISTING",       // routing label 2
+		"都有哪些",         // zh listing trigger
+		"what's in memory", // en listing trigger
+		// Multi-turn refinement pattern (answers user's "list +
+		// recall 精准搜索" question)
+		"Multi-turn refinement",
+	}
+	for _, sub := range mustContain {
+		if !strings.Contains(chitchatSystemPromptToolUse, sub) {
+			t.Errorf("system prompt missing %q\nfull prompt:\n%s",
+				sub, chitchatSystemPromptToolUse)
+		}
 	}
 }

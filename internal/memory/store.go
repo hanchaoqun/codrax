@@ -1839,6 +1839,138 @@ func scoreRecent(recent []Turn, request, kindFilter string) []IndexEntry {
 	return res
 }
 
+// List enumerates memory entries by time rather than score. Used by
+// the list_memory tool when the user asks for a LISTING of memory
+// content (browse mode) rather than a TOPIC search. Merges recent
+// (uncompacted) Turns and compacted IndexEntries, sorts by
+// timestamp desc, applies optional Kind / Since filters, caps at
+// the supplied limit (default 10, hard cap 30 — larger than
+// Search's 20 because listing benefits from more context).
+//
+// Recent turns synthesise IndexEntries on the fly using the same
+// shape as scoreRecent (Topic = oneLine(Request), Summary =
+// oneLine(Response)) so the rendered output is consistent with
+// recall_memory results. Index entries take precedence on
+// duplicate IDs — a turn that has already been compacted shows up
+// with its LLM-curated Topic / Summary / Keywords rather than the
+// raw oneLine'd text.
+//
+// IndexEntry timestamps come from the embedded turn ID (unix-nano
+// in the prefix `turn-<unix-nano>-<pid>`). When the prefix doesn't
+// parse, the entry sorts to the end (treated as oldest).
+//
+// Concurrency: read path; reloads the on-disk MEMORY.md tail under
+// the same shared lock Search uses so peer-written entries are
+// visible.
+func (s *Store) List(opts ListOpts) []IndexEntry {
+	if s == nil {
+		return nil
+	}
+	limit := opts.Limit
+	const hardCap = 30
+	if limit <= 0 {
+		limit = 10
+	}
+	if limit > hardCap {
+		limit = hardCap
+	}
+	if s.flock != nil {
+		_ = s.withSharedLock(s.loadIndexLocked)
+	}
+	s.mu.Lock()
+	idx := append([]IndexEntry(nil), s.index...)
+	recent := append([]Turn(nil), s.recent...)
+	s.mu.Unlock()
+
+	type tagged struct {
+		e  IndexEntry
+		ts time.Time
+	}
+	tags := make([]tagged, 0, len(idx)+len(recent))
+	seen := make(map[string]bool, len(idx)+len(recent))
+
+	// Compacted entries first so they win the dedup race against
+	// recent turns with the same ID.
+	for _, e := range idx {
+		if e.WasError {
+			continue
+		}
+		if opts.Kind != "" && string(e.Kind) != opts.Kind {
+			continue
+		}
+		ts := timestampFromTurnID(e.ID)
+		if !opts.Since.IsZero() && ts.Before(opts.Since) {
+			continue
+		}
+		seen[e.ID] = true
+		tags = append(tags, tagged{e, ts})
+	}
+	for _, t := range recent {
+		if seen[t.ID] {
+			continue
+		}
+		if opts.Kind != "" && string(t.Kind) != opts.Kind {
+			continue
+		}
+		if !opts.Since.IsZero() && t.Timestamp.Before(opts.Since) {
+			continue
+		}
+		entry := IndexEntry{
+			ID:        t.ID,
+			Topic:     oneLine(t.Request),
+			Summary:   oneLine(t.Response),
+			Kind:      t.Kind,
+			SessionID: t.SessionID,
+			FullRef:   "turns/turn-" + t.ID + ".md",
+		}
+		seen[t.ID] = true
+		tags = append(tags, tagged{entry, t.Timestamp})
+	}
+
+	sort.SliceStable(tags, func(i, j int) bool {
+		return tags[i].ts.After(tags[j].ts)
+	})
+
+	if len(tags) > limit {
+		tags = tags[:limit]
+	}
+	out := make([]IndexEntry, len(tags))
+	for i, v := range tags {
+		out[i] = v.e
+	}
+	return out
+}
+
+// ListOpts mirrors types.MemoryListOpts in this package's local
+// type system. The Adapter below is responsible for translating
+// between the two so internal/tool can consume the public types
+// shape without a memory import.
+type ListOpts struct {
+	Kind  string
+	Limit int
+	Since time.Time
+}
+
+// timestampFromTurnID extracts the embedded unix-nano from a turn
+// ID of the shape `turn-<unix-nano>-<pid>`. Returns zero time
+// (sorts to end / oldest) on any parse failure so a malformed ID
+// can never panic the listing path.
+func timestampFromTurnID(id string) time.Time {
+	if !strings.HasPrefix(id, "turn-") {
+		return time.Time{}
+	}
+	rest := id[len("turn-"):]
+	dash := strings.IndexByte(rest, '-')
+	if dash < 0 {
+		return time.Time{}
+	}
+	nano, err := strconv.ParseInt(rest[:dash], 10, 64)
+	if err != nil || nano <= 0 {
+		return time.Time{}
+	}
+	return time.Unix(0, nano)
+}
+
 // SearchOpts mirrors types.MemorySearchOpts in this package's local
 // type system. The Adapter below is responsible for translating
 // between the two so internal/tool can consume the public types

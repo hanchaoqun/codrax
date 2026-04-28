@@ -186,3 +186,83 @@ var _ types.MemoryReader = &stubMemory{}
 // configurations strip imports lazily; this prevents the linter
 // from removing the dependency this test indirectly uses).
 var _ = context.Background
+
+// TestRecallMemory_AppendsListMemoryHintOnSelfReferentialMatch
+// pins the cross-tool guidance feature: when recall_memory returns
+// ≤2 entries AND every match's Topic looks like a meta-reference
+// to memory itself, the tool result appends a "consider
+// list_memory" suggestion. This trains the LLM's next-turn
+// decision without changing schema.
+func TestRecallMemory_AppendsListMemoryHintOnSelfReferentialMatch(t *testing.T) {
+	mem := &stubMemory{results: []types.MemoryIndexEntry{
+		{ID: "a", Topic: "看一下记忆里都有哪些"},
+		{ID: "b", Topic: "what's in memory today"},
+	}}
+	ctx := &types.BusContext{Memory: mem}
+	tool := &RecallMemory{}
+	res, _ := tool.Execute(ctx, json.RawMessage(`{"query": "memory recall history content"}`))
+	if !res.Success {
+		t.Fatalf("Execute failed: %q", res.Summary)
+	}
+	if !strings.Contains(res.Summary, "list_memory") {
+		t.Errorf("self-referential hint missing — should suggest list_memory: %q", res.Summary)
+	}
+}
+
+// TestRecallMemory_NoHintOnGenuineMatches guards the false-positive:
+// when recall returns ≥1 substantive entry (not all self-referential),
+// the hint must NOT fire. Otherwise we'd dilute legitimate searches
+// with off-topic suggestions.
+func TestRecallMemory_NoHintOnGenuineMatches(t *testing.T) {
+	mem := &stubMemory{results: []types.MemoryIndexEntry{
+		{ID: "a", Topic: "OAuth refresh token rotation"},
+		{ID: "b", Topic: "看一下记忆里都有哪些"},
+	}}
+	ctx := &types.BusContext{Memory: mem}
+	tool := &RecallMemory{}
+	res, _ := tool.Execute(ctx, json.RawMessage(`{"query": "oauth"}`))
+	if !res.Success {
+		t.Fatalf("Execute failed: %q", res.Summary)
+	}
+	if strings.Contains(res.Summary, "self-referential") {
+		t.Errorf("hint mis-fired on a genuine match: %q", res.Summary)
+	}
+}
+
+// TestRecallMemory_NoHintAboveLowRecallThreshold pins the size gate:
+// even if entries look self-referential, ≥3 of them is not "low
+// recall" — the hint is for the "the LLM picked the wrong tool" case
+// where matches are sparse, not for genuine listing intent that
+// surfaces many self-references.
+func TestRecallMemory_NoHintAboveLowRecallThreshold(t *testing.T) {
+	mem := &stubMemory{results: []types.MemoryIndexEntry{
+		{ID: "a", Topic: "记忆里有哪些"},
+		{ID: "b", Topic: "what's in memory"},
+		{ID: "c", Topic: "history of our chat"},
+	}}
+	ctx := &types.BusContext{Memory: mem}
+	tool := &RecallMemory{}
+	res, _ := tool.Execute(ctx, json.RawMessage(`{"query": "history"}`))
+	if !res.Success {
+		t.Fatalf("Execute failed: %q", res.Summary)
+	}
+	if strings.Contains(res.Summary, "INVENTORY of memory") {
+		t.Errorf("hint should NOT fire above ≤2 threshold: %q", res.Summary)
+	}
+}
+
+// TestRecallMemory_HintInZeroResultsPath also surfaces in the zero-
+// matches branch: the empty-result message names list_memory as one
+// of the alternatives.
+func TestRecallMemory_HintInZeroResultsPath(t *testing.T) {
+	mem := &stubMemory{results: nil}
+	ctx := &types.BusContext{Memory: mem}
+	tool := &RecallMemory{}
+	res, _ := tool.Execute(ctx, json.RawMessage(`{"query": "anything"}`))
+	if !res.Success {
+		t.Fatalf("Execute failed: %q", res.Summary)
+	}
+	if !strings.Contains(res.Summary, "list_memory") {
+		t.Errorf("zero-result message should mention list_memory option: %q", res.Summary)
+	}
+}

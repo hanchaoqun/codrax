@@ -32,4 +32,12 @@ func RegisterDefaults(r *Registry) {
 	// (single-shot CLI, tests). Available to read-mode agents
 	// (analyzer / explorer); skill prose teaches them when to call.
 	r.Register(&RecallMemory{})
+
+	// list_memory — agent-driven enumeration of recent memory entries
+	// by time. Use when the user asks for a LISTING ("都有哪些 / what's
+	// in memory / list all") rather than a TOPIC search. Capability-
+	// gated: requires the wired MemoryReader to also implement
+	// MemoryLister (production *memory.Adapter does; test stubs
+	// surface a typed unavailable reply).
+	r.Register(&ListMemory{})
 }
