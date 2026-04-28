@@ -642,6 +642,7 @@ func (t *EmitAnswerDocument) Execute(ctx *types.BusContext, params json.RawMessa
 			Success:   false,
 		}, nil
 	}
+	p.Citations = normalizeLogSourceDriftObservedCitations(p.Citations, ctx)
 	// Session 11 C5 — literal form check. When the answer shape is
 	// `value` and the contract knows the AnswerSubject.Kind, the
 	// emitted value.literal must match the kind's regex form (e.g.
@@ -903,6 +904,9 @@ func (t *EmitAnswerDocument) Execute(ctx *types.BusContext, params json.RawMessa
 			if err := validateSummaryCodenameGrounding(s.Description, citations, groundCtx); err != nil {
 				return failWithContext("steps[%d]: %v", i, err)
 			}
+		}
+		if err := validateLogSourceDriftStepCitations(p.Steps, ctx); err != nil {
+			return failWithContext("%v", err)
 		}
 		if note := scrubForbiddenNonZeroFields(&p, shape, forbidSymbols|forbidValue|forbidBoolean); note != "" {
 			shapeCorrectionNote = joinNote(shapeCorrectionNote, note)
@@ -1511,7 +1515,7 @@ func validateConfigTraceAbsenceCitationFocus(ctx *types.BusContext, exact *types
 	}
 	contract := plan.ExactResolution
 	pool := plan.SurfaceEvidence
-	lead := renderAnswerDocumentExactResolutionLead(contract, exact, requestedAnswerDocumentLanguage(ctx))
+	lead := renderAnswerDocumentExactResolutionLeadClean(contract, exact, requestedAnswerDocumentLanguage(ctx))
 	body := strings.TrimSpace(exactContextSummaryBodyAfterLead(summary, lead))
 	bodyNeedsLineageCitation := exactContextBodyNeedsStructuredGrounding(body)
 	requiredFiles := plan.ExactContextRequiredFiles
@@ -1714,7 +1718,7 @@ func validateExactResolutionContextSurface(summary string, exact *types.AnswerEx
 		return nil
 	}
 	allowedAnchors := types.JoinExactContextSurfaceDisplays(plan.AllowedExactContextLabels)
-	lead := renderAnswerDocumentExactResolutionLead(contract, exact, requestedAnswerDocumentLanguage(ctx))
+	lead := renderAnswerDocumentExactResolutionLeadClean(contract, exact, requestedAnswerDocumentLanguage(ctx))
 	body := exactContextSummaryBodyAfterLead(summary, lead)
 	if repeated := repeatedExactTargetAfterLead(contract, body); repeated != "" {
 		err := newAnswerDocValidationError(
@@ -2084,6 +2088,25 @@ func validateStepsLiteralGrounding(steps []types.AnswerStep, citations []types.C
 	return nil
 }
 
+func validateLogSourceDriftStepCitations(steps []types.AnswerStep, ctx *types.BusContext) error {
+	plan := answerSurfacePlan(ctx)
+	if plan == nil || plan.SummarySurfaceMode != types.AnswerSummarySurfaceDriftBoundedRootCause {
+		return nil
+	}
+	for i, step := range steps {
+		if step.CitationRef >= 0 {
+			continue
+		}
+		return newAnswerDocValidationError(
+			"log_source_drift_step_citation",
+			"root-cause answers in log-source-drift mode must keep every step directly citation-backed; steps[%d] currently has citation_ref=-1 and can introduce an unsupported hypothesis beyond the grounded current mechanism.",
+			i,
+		).WithFields(fmt.Sprintf("steps[%d].citation_ref", i), "summary").
+			WithHint("Re-emit `emit_answer_document` with the same grounded call chain and drift-bounded explanation, but either ground this step to a cited file:line or delete the unsupported hypothesis step. Do not use `citation_ref=-1` for root-cause steps in this drift-bounded mode.")
+	}
+	return nil
+}
+
 // validateBooleanLiteralGrounding is the ShapeBoolean wrapper. The
 // Rationale sentence is the claim; the cited line should mention
 // at least one identifier the rationale names. Fire / bypass rules
@@ -2175,6 +2198,39 @@ func answerSurfacePlan(ctx *types.BusContext) *types.AnswerSurfacePlan {
 		ctx.AnswerChains,
 		ctx.EvidenceItems,
 	)
+}
+
+func normalizeLogSourceDriftObservedCitations(in []types.Citation, ctx *types.BusContext) []types.Citation {
+	if len(in) == 0 {
+		return in
+	}
+	plan := answerSurfacePlan(ctx)
+	if plan == nil || len(plan.LogObservedAnchors) == 0 {
+		return in
+	}
+	remap := make(map[string]int, len(plan.LogObservedAnchors))
+	for _, anchor := range plan.LogObservedAnchors {
+		file := strings.TrimSpace(strings.ReplaceAll(anchor.File, `\`, `/`))
+		if file == "" || anchor.ObservedLine <= 0 || anchor.AnchoredLine <= 0 {
+			continue
+		}
+		remap[fmt.Sprintf("%s:%d", file, anchor.ObservedLine)] = anchor.AnchoredLine
+	}
+	if len(remap) == 0 {
+		return in
+	}
+	out := append([]types.Citation(nil), in...)
+	for i := range out {
+		file := strings.TrimSpace(strings.ReplaceAll(out[i].File, `\`, `/`))
+		if file == "" || out[i].Line <= 0 {
+			continue
+		}
+		if anchored, ok := remap[fmt.Sprintf("%s:%d", file, out[i].Line)]; ok && anchored > 0 && anchored != out[i].Line {
+			out[i].Line = anchored
+			out[i].Quote = ""
+		}
+	}
+	return out
 }
 
 func validateSummaryRequiredDiagram(summary string, ctx *types.BusContext) error {
@@ -2965,7 +3021,7 @@ func resolveAnswerDocumentExactResolution(summary string, declared *types.Answer
 		err = err.WithHint("Re-emit `emit_answer_document` with `exact_resolution.status=\"absent\"`. If you keep any nearby grounded context, set `exact_resolution.context_mode=\"grounded_context_only\"`. Do not switch to `exact_match` or `alias_match` unless a newly cited grounded anchor explicitly proves the exact target or an explicit alias mapping.")
 		return nil, "", err
 	}
-	lead := renderAnswerDocumentExactResolutionLead(contract, resolved, requestedAnswerDocumentLanguage(ctx))
+	lead := renderAnswerDocumentExactResolutionLeadClean(contract, resolved, requestedAnswerDocumentLanguage(ctx))
 	return resolved, joinAnswerDocumentLead(lead, summary), nil
 }
 
@@ -3257,12 +3313,30 @@ func normalizeMinimalRoleLocateSummarySurface(summary string, shape types.Answer
 	if location == "" {
 		return summary
 	}
-	return renderMinimalRoleLocateSummary(ctx, literal, location)
+	return renderMinimalRoleLocateSummaryClean(ctx, literal, location)
 }
 
 func normalizeLogSourceDriftSummarySurface(summary string, ctx *types.BusContext) string {
 	summary = strings.TrimSpace(summary)
-	lead := renderLogSourceDriftLead(ctx)
+	plan := answerSurfacePlan(ctx)
+	if plan != nil && plan.SummarySurfaceMode == types.AnswerSummarySurfaceDriftBoundedRootCause {
+		lead := renderLogSourceDriftLeadClean(ctx)
+		fence := ""
+		if plan.CompiledDiagramKind == types.DiagramCallDAG || plan.CompiledDiagramKind == types.DiagramSequence {
+			fence = strings.TrimSpace(plan.CompiledDiagramFence)
+		}
+		switch {
+		case lead == "" && fence == "":
+			return summary
+		case lead == "":
+			return fence
+		case fence == "":
+			return lead
+		default:
+			return strings.TrimSpace(lead + "\n\n" + fence)
+		}
+	}
+	lead := renderLogSourceDriftLeadClean(ctx)
 	if lead == "" {
 		return summary
 	}
@@ -3273,7 +3347,7 @@ func normalizeLogSourceDriftSummarySurface(summary string, ctx *types.BusContext
 }
 
 func appendLogSourceDriftCaveat(caveats []string, ctx *types.BusContext) []string {
-	caveat := renderLogSourceDriftCaveat(ctx)
+	caveat := renderLogSourceDriftCaveatClean(ctx)
 	if caveat == "" {
 		return caveats
 	}
@@ -3283,6 +3357,83 @@ func appendLogSourceDriftCaveat(caveats []string, ctx *types.BusContext) []strin
 		}
 	}
 	return append(caveats, caveat)
+}
+
+func renderLogSourceDriftLeadClean(ctx *types.BusContext) string {
+	plan := answerSurfacePlan(ctx)
+	if plan == nil || len(plan.LogSourceDriftAnchors) == 0 {
+		return ""
+	}
+	if emitAnswerDocIsZh(ctx) {
+		anchor := plan.LogSourceDriftAnchors[0]
+		if len(plan.LogSourceDriftAnchors) == 1 && anchor.File != "" && anchor.ObservedLine > 0 && anchor.AnchoredLine > 0 {
+			return fmt.Sprintf("运行日志里的源码行号和当前代码仓并不完全对齐：日志指向 `%s:%d`，但当前仓库里同名函数最近的已锚定位置是 `%s:%d`。下面的解释以当前代码中已经验证的调用路径为准，而不是声称精确还原旧二进制里的那一行。",
+				anchor.File, anchor.ObservedLine, anchor.File, anchor.AnchoredLine)
+		}
+		return "运行日志里的源码行号和当前代码仓并不完全对齐。下面的解释以当前仓库中已经验证的函数/调用链为准，而不是声称精确还原旧日志里的每一个行号。"
+	}
+	anchor := plan.LogSourceDriftAnchors[0]
+	if len(plan.LogSourceDriftAnchors) == 1 && anchor.File != "" && anchor.ObservedLine > 0 && anchor.AnchoredLine > 0 {
+		return fmt.Sprintf("The runtime log's source line does not fully align with the current checkout: the log points at `%s:%d`, while the closest grounded anchor for the same function in the current repo is `%s:%d`. The explanation below is therefore anchored to the current verified code path, not a byte-for-byte reconstruction of the older logged line.",
+			anchor.File, anchor.ObservedLine, anchor.File, anchor.AnchoredLine)
+	}
+	return "The runtime log's source lines do not fully align with the current checkout. The explanation below is therefore anchored to the current verified function / call-chain in the repo, not a byte-for-byte reconstruction of the older logged lines."
+}
+
+func renderLogSourceDriftCaveatClean(ctx *types.BusContext) string {
+	plan := answerSurfacePlan(ctx)
+	if plan == nil || len(plan.LogSourceDriftAnchors) == 0 {
+		return ""
+	}
+	if emitAnswerDocIsZh(ctx) {
+		return "运行日志里的行号与当前仓库代码存在偏移，所以这份答案解释的是当前代码里最近、且已经锚定的机制，而不是声称精确复原旧构建中的每一行。"
+	}
+	return "The runtime log line numbers differ from the current checkout, so this answer explains the nearest current grounded mechanism rather than claiming a byte-exact reconstruction of the older build."
+}
+
+func renderMinimalRoleLocateSummaryClean(ctx *types.BusContext, literal, location string) string {
+	kind := types.SubjectUnknown
+	if ctx != nil && ctx.AnalysisIR != nil {
+		kind = ctx.AnalysisIR.RequestModel.AnswerSubject.Kind
+	}
+	if emitAnswerDocIsZh(ctx) {
+		switch kind {
+		case types.SubjectFunctionName:
+			return fmt.Sprintf("对应的函数是 `%s`，位置在 `%s`。", literal, location)
+		case types.SubjectTypeName, types.SubjectInterface:
+			return fmt.Sprintf("对应的类型是 `%s`，位置在 `%s`。", literal, location)
+		case types.SubjectFilePath:
+			return fmt.Sprintf("对应的文件是 `%s`，相关锚点见 `%s`。", literal, location)
+		case types.SubjectHandlerRoute:
+			return fmt.Sprintf("对应的路由是 `%s`，锚点在 `%s`。", literal, location)
+		case types.SubjectStringLiteral:
+			return fmt.Sprintf("对应的字符串字面量是 `%s`，锚点在 `%s`。", literal, location)
+		case types.SubjectEnumValue:
+			return fmt.Sprintf("对应的枚举值是 `%s`，锚点在 `%s`。", literal, location)
+		case types.SubjectStructField:
+			return fmt.Sprintf("对应的字段是 `%s`，锚点在 `%s`。", literal, location)
+		default:
+			return fmt.Sprintf("对应的结果是 `%s`，锚点在 `%s`。", literal, location)
+		}
+	}
+	switch kind {
+	case types.SubjectFunctionName:
+		return fmt.Sprintf("The matching function is `%s`, anchored at `%s`.", literal, location)
+	case types.SubjectTypeName, types.SubjectInterface:
+		return fmt.Sprintf("The matching type is `%s`, anchored at `%s`.", literal, location)
+	case types.SubjectFilePath:
+		return fmt.Sprintf("The matching file is `%s`; the grounding anchor is `%s`.", literal, location)
+	case types.SubjectHandlerRoute:
+		return fmt.Sprintf("The matching route is `%s`, anchored at `%s`.", literal, location)
+	case types.SubjectStringLiteral:
+		return fmt.Sprintf("The matching string literal is `%s`, anchored at `%s`.", literal, location)
+	case types.SubjectEnumValue:
+		return fmt.Sprintf("The matching enum value is `%s`, anchored at `%s`.", literal, location)
+	case types.SubjectStructField:
+		return fmt.Sprintf("The matching field is `%s`, anchored at `%s`.", literal, location)
+	default:
+		return fmt.Sprintf("The matching result is `%s`, anchored at `%s`.", literal, location)
+	}
 }
 
 func renderLogSourceDriftLead(ctx *types.BusContext) string {
@@ -3514,6 +3665,42 @@ func isSummarySentenceBoundary(runes []rune, idx int) bool {
 		return true
 	default:
 		return false
+	}
+}
+
+func renderAnswerDocumentExactResolutionLeadClean(contract *types.ExactResolutionContract, exact *types.AnswerExactResolution, lang string) string {
+	if contract == nil || exact == nil || len(contract.Targets) == 0 {
+		return ""
+	}
+	zh := answerDocumentRequiresChinese(lang)
+	label := localizedExactResolutionTargetLabel(strings.TrimSpace(contract.TargetLabel), zh)
+	targetRef := formatExactResolutionTargetReference(label, contract.Targets, zh)
+	switch exact.Status {
+	case types.AnswerExactResolutionAbsent:
+		if zh {
+			lead := fmt.Sprintf("仓库里没有找到 %s。", targetRef)
+			if exact.ContextMode == types.AnswerExactResolutionContextGroundedOnly {
+				lead += " 下面如果补充同族、且已经落地的上下文，也只是帮助理解背景，不表示它就是你问的那个目标。"
+			}
+			return lead
+		}
+		lead := fmt.Sprintf("The repository does not contain %s.", targetRef)
+		if exact.ContextMode == types.AnswerExactResolutionContextGroundedOnly {
+			lead += " Any grounded same-family context below is only there to explain the background; it is not the requested target itself."
+		}
+		return lead
+	case types.AnswerExactResolutionAliasMatch:
+		if zh {
+			return fmt.Sprintf("已引用的证据表明，%s 明确映射到 `%s`。", targetRef, exact.Anchor)
+		}
+		return fmt.Sprintf("Grounded evidence shows that %s resolves explicitly through `%s`.", targetRef, exact.Anchor)
+	case types.AnswerExactResolutionExactMatch:
+		if zh {
+			return fmt.Sprintf("已在引用证据中直接找到 %s。", targetRef)
+		}
+		return fmt.Sprintf("%s appears directly in the cited evidence.", targetRef)
+	default:
+		return ""
 	}
 }
 

@@ -863,6 +863,12 @@ func renderAnswerDocExactResolutionContract(ctx *types.AgentContext) string {
 	if plan != nil && plan.SummarySurfaceMode == types.AnswerSummarySurfaceFollowOnGroundedContext {
 		b.WriteString("- Summary surface mode: follow-on grounded context only. The renderer already prints the exact-target absence lead, so `summary` should start directly on the grounded nearby context/mechanism and must not restate the exact target.\n")
 	}
+	if plan != nil && plan.SummarySurfaceMode == types.AnswerSummarySurfaceDriftBoundedRootCause {
+		b.WriteString("- Summary surface mode: drift-bounded root cause. The renderer will carry the log-source-drift lead, so keep `summary` minimal and grounded (typically just the compiled call-chain fence). Do not assert a more specific historical failure cause than the current cited code proves.\n")
+		if resolveAnswerDocShape(ctx) == string(types.ShapeStepList) {
+			b.WriteString("- Because this dispatch uses `shape=step_list`, put the detailed explanation into `steps[]` and keep every step directly citation-backed instead of adding uncited root-cause hypotheses.\n")
+		}
+	}
 	b.WriteString("\n")
 	citationGradeRendered := false
 	if citationGrade := renderAnswerDocCitationGradeExactContextAnchors(ctx, contract); citationGrade != "" {
@@ -1778,6 +1784,11 @@ func (e *answerDocumentEvaluator) emitAnswerDocumentRejectSignal(ctx *types.Agen
 		reasonKey = "exact-resolution"
 		hint = "Your last `emit_answer_document` call was rejected by the exact-resolution contract. Re-emit `emit_answer_document` now with a valid `exact_resolution{status,anchor?,context_mode}` object that matches the grounded evidence and current absence state for the requested exact target. Use `exact_match` only when a cited line or grounded evidence explicitly names the exact target, `alias_match` only with explicit grounded mapping proof plus `anchor`, and `absent` only when the investigation closed with `result_kind=\"absence\"` (absence-only is acceptable). Any nearby related context must remain `grounded_context_only`, not an equivalent, alias, or substitute. Do NOT call `read_file`, `grep`, or any other tool to repair this — decide from the current grounded evidence, citations, and seeds. Do not write free-form prose outside the tool call."
 	}
+	if rejectCode == answerDocRejectCodeLogSourceDriftStepCitation && repair != nil {
+		reasonKey = "log-source-drift-step-citation"
+		hint = strings.TrimSpace(repair.Hint)
+		hint += " Keep the drift explanation in the renderer-generated lead / caveat, keep the call-chain fence grounded, and make every remaining step directly citation-backed."
+	}
 	if repair != nil && repair.Code == "exact_resolution" && repair.Metadata != nil {
 		if locked := strings.TrimSpace(repair.Metadata["locked_status"]); locked != "" {
 			reasonKey = "exact-resolution-locked"
@@ -1946,6 +1957,7 @@ const (
 	answerDocRejectCodeExactContextSurface         = "exact_context_surface"
 	answerDocRejectCodeFollowOnGroundedContext     = "follow_on_grounded_context"
 	answerDocRejectCodeExactResolution             = "exact_resolution"
+	answerDocRejectCodeLogSourceDriftStepCitation  = "log_source_drift_step_citation"
 	answerDocRejectCodeAbsentExactConfigValueShape = "absent_exact_config_value_shape"
 	answerDocRejectCodeLiteralGrounding            = "literal_grounding"
 	answerDocRejectCodeScalarSummaryRequired       = "scalar_summary_required"

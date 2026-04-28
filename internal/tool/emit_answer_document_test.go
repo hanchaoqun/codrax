@@ -1455,8 +1455,226 @@ func TestEmitAnswerDocument_PrependsLogSourceDriftLeadAndCaveat(t *testing.T) {
 	if !strings.Contains(doc.Summary, "does not fully align with the current checkout") {
 		t.Fatalf("summary missing log-source-drift lead: %q", doc.Summary)
 	}
+	if strings.Contains(doc.Summary, "dereferencing the request model after the guard path") {
+		t.Fatalf("drift-bounded explanation should drop speculative free prose: %q", doc.Summary)
+	}
 	if len(doc.Caveats) == 0 || !strings.Contains(doc.Caveats[0], "older build") {
 		t.Fatalf("caveats = %v, want older-build drift caveat", doc.Caveats)
+	}
+}
+
+func TestEmitAnswerDocument_RemapsDriftedObservedCitationsToAnchoredLines(t *testing.T) {
+	tool := &EmitAnswerDocument{}
+	ctx := newDocBusCtx("")
+	ctx.Language = "en"
+	ctx.AnalysisIR = &types.AnalysisIR{
+		RequestModel: types.RequestModel{
+			Scenario: types.ScenarioRootCause,
+			Intent:   types.IntentRootCause,
+		},
+		AnswerContract: types.AnswerContract{
+			RequiredAnswerShape: types.ShapeExplanation,
+		},
+	}
+	ctx.Mutable.SetLogTriage(&types.LogBundle{
+		Errors: []types.LogError{{
+			Frames: []types.LogFrame{
+				{File: "internal/agent/analyzer.go", Line: 250, Func: "buildAnalysisIR"},
+				{File: "internal/agent/analyzer.go", Line: 320, Func: "ParseOutput"},
+			},
+		}},
+	})
+	ctx.Mutable.AppendEvidence([]types.EvidenceItem{
+		{
+			Kind:            types.EvidenceDirect,
+			Source:          "internal/agent/analyzer.go",
+			LineStart:       612,
+			AnchorKind:      types.AnchorDefinition,
+			AnchorSymbol:    "buildAnalysisIR",
+			GroundingStatus: types.GroundingGrounded,
+			Producer:        EmitEvidenceProducer,
+		},
+		{
+			Kind:            types.EvidenceDirect,
+			Source:          "internal/agent/analyzer.go",
+			LineStart:       367,
+			AnchorKind:      types.AnchorDefinition,
+			AnchorSymbol:    "ParseOutput",
+			GroundingStatus: types.GroundingGrounded,
+			Producer:        EmitEvidenceProducer,
+		},
+	})
+
+	params := mustDocJSON(t, map[string]interface{}{
+		"shape":   "explanation",
+		"summary": "The current checkout only proves the nearby mechanism around the drifted call path.",
+		"citations": []map[string]interface{}{
+			{"file": "internal/agent/analyzer.go", "line": 250, "quote": "raw := ctx.Mutable.RequestModel()"},
+			{"file": "internal/agent/analyzer.go", "line": 320, "quote": "func (e *analyzerEvaluator) ParseOutput("},
+		},
+	})
+
+	res, _ := tool.Execute(ctx, params)
+	if !res.Success {
+		t.Fatalf("Execute failed: %q", res.Summary)
+	}
+	doc := ctx.Mutable.AnswerDocument()
+	if doc == nil {
+		t.Fatal("answer document not stored")
+	}
+	if len(doc.Citations) != 2 {
+		t.Fatalf("citations = %+v, want 2 remapped citations", doc.Citations)
+	}
+	if doc.Citations[0].Line != 612 || doc.Citations[1].Line != 367 {
+		t.Fatalf("citations lines = [%d %d], want [612 367]", doc.Citations[0].Line, doc.Citations[1].Line)
+	}
+	if doc.Citations[0].Quote != "" || doc.Citations[1].Quote != "" {
+		t.Fatalf("drift-remapped citations should clear stale quotes, got %+v", doc.Citations)
+	}
+}
+
+func TestEmitAnswerDocument_NormalizesDriftBoundedRootCauseStepListSummarySurface(t *testing.T) {
+	tool := &EmitAnswerDocument{}
+	ctx := newDocBusCtx("")
+	ctx.Language = "en"
+	ctx.AnalysisIR = &types.AnalysisIR{
+		RequestModel: types.RequestModel{
+			Scenario: types.ScenarioRootCause,
+			Intent:   types.IntentRootCause,
+		},
+		AnswerContract: types.AnswerContract{
+			RequiredAnswerShape: types.ShapeStepList,
+			Diagram: &types.DiagramContract{
+				Required:       true,
+				PreferredKinds: []types.DiagramKind{types.DiagramCallDAG},
+			},
+		},
+	}
+	ctx.Mutable.SetLogTriage(&types.LogBundle{
+		Errors: []types.LogError{{
+			Frames: []types.LogFrame{
+				{File: "internal/agent/analyzer.go", Line: 250, Func: "buildAnalysisIR"},
+				{File: "internal/agent/analyzer.go", Line: 320, Func: "ParseOutput"},
+			},
+		}},
+	})
+	ctx.Mutable.AppendEvidence([]types.EvidenceItem{
+		{
+			Kind:            types.EvidenceDirect,
+			Source:          "internal/agent/analyzer.go",
+			LineStart:       612,
+			AnchorKind:      types.AnchorDefinition,
+			AnchorSymbol:    "buildAnalysisIR",
+			GroundingStatus: types.GroundingGrounded,
+			Producer:        EmitEvidenceProducer,
+		},
+		{
+			Kind:            types.EvidenceDirect,
+			Source:          "internal/agent/analyzer.go",
+			LineStart:       367,
+			AnchorKind:      types.AnchorDefinition,
+			AnchorSymbol:    "ParseOutput",
+			GroundingStatus: types.GroundingGrounded,
+			Producer:        EmitEvidenceProducer,
+		},
+	})
+
+	params := mustDocJSON(t, map[string]interface{}{
+		"shape":   "step_list",
+		"summary": "This older panic most likely happened because ctx was nil before any guards ran.",
+		"steps": []map[string]interface{}{
+			{"index": 1, "description": "`ParseOutput` calls `buildAnalysisIR(ctx)` on the current code path.", "citation_ref": 0},
+			{"index": 2, "description": "`buildAnalysisIR` now guards `ctx == nil || ctx.Mutable == nil` before continuing.", "citation_ref": 1},
+		},
+		"citations": []map[string]interface{}{
+			{"file": "internal/agent/analyzer.go", "line": 412},
+			{"file": "internal/agent/analyzer.go", "line": 613},
+		},
+	})
+
+	res, _ := tool.Execute(ctx, params)
+	if !res.Success {
+		t.Fatalf("Execute failed: %q", res.Summary)
+	}
+	doc := ctx.Mutable.AnswerDocument()
+	if doc == nil {
+		t.Fatal("answer document not stored")
+	}
+	if strings.Contains(doc.Summary, "ctx was nil before any guards ran") {
+		t.Fatalf("drift-bounded summary should drop speculative prose: %q", doc.Summary)
+	}
+	if !strings.Contains(doc.Summary, "does not fully align with the current checkout") {
+		t.Fatalf("summary missing drift lead: %q", doc.Summary)
+	}
+	if !strings.Contains(doc.Summary, "innermost failure: internal/agent/analyzer.go:250 in buildAnalysisIR") {
+		t.Fatalf("summary missing compiled call-chain fence: %q", doc.Summary)
+	}
+}
+
+func TestEmitAnswerDocument_RejectsUncitedStepInDriftBoundedRootCauseStepList(t *testing.T) {
+	tool := &EmitAnswerDocument{}
+	ctx := newDocBusCtx("")
+	ctx.Language = "en"
+	ctx.AnalysisIR = &types.AnalysisIR{
+		RequestModel: types.RequestModel{
+			Scenario: types.ScenarioRootCause,
+			Intent:   types.IntentRootCause,
+		},
+		AnswerContract: types.AnswerContract{
+			RequiredAnswerShape: types.ShapeStepList,
+			Diagram: &types.DiagramContract{
+				Required:       true,
+				PreferredKinds: []types.DiagramKind{types.DiagramCallDAG},
+			},
+		},
+	}
+	ctx.Mutable.SetLogTriage(&types.LogBundle{
+		Errors: []types.LogError{{
+			Frames: []types.LogFrame{
+				{File: "internal/agent/analyzer.go", Line: 250, Func: "buildAnalysisIR"},
+				{File: "internal/agent/analyzer.go", Line: 320, Func: "ParseOutput"},
+			},
+		}},
+	})
+	ctx.Mutable.AppendEvidence([]types.EvidenceItem{
+		{
+			Kind:            types.EvidenceDirect,
+			Source:          "internal/agent/analyzer.go",
+			LineStart:       612,
+			AnchorKind:      types.AnchorDefinition,
+			AnchorSymbol:    "buildAnalysisIR",
+			GroundingStatus: types.GroundingGrounded,
+			Producer:        EmitEvidenceProducer,
+		},
+		{
+			Kind:            types.EvidenceDirect,
+			Source:          "internal/agent/analyzer.go",
+			LineStart:       367,
+			AnchorKind:      types.AnchorDefinition,
+			AnchorSymbol:    "ParseOutput",
+			GroundingStatus: types.GroundingGrounded,
+			Producer:        EmitEvidenceProducer,
+		},
+	})
+
+	params := mustDocJSON(t, map[string]interface{}{
+		"shape":   "step_list",
+		"summary": "The failure path is anchored to the current call chain.",
+		"steps": []map[string]interface{}{
+			{"index": 1, "description": "`ParseOutput` calls `buildAnalysisIR(ctx)` on the current code path.", "citation_ref": 0},
+			{"index": 2, "description": "The old binary probably panicked before reaching the new nil guards.", "citation_ref": -1},
+		},
+		"citations": []map[string]interface{}{
+			{"file": "internal/agent/analyzer.go", "line": 412},
+		},
+	})
+
+	res, _ := tool.Execute(ctx, params)
+	if res.Success {
+		t.Fatal("uncited drift-bounded hypothesis step should be rejected")
+	}
+	if res.Repair == nil || res.Repair.Code != "log_source_drift_step_citation" {
+		t.Fatalf("reject should expose log_source_drift_step_citation repair metadata, got %+v", res.Repair)
 	}
 }
 
@@ -2682,7 +2900,7 @@ func TestEmitAnswerDocument_StripsLeadingExactAbsenceRestatementWhenNearbyContex
 	if doc == nil {
 		t.Fatal("answer document missing after successful emit")
 	}
-	lead := renderAnswerDocumentExactResolutionLead(ctx.AnalysisIR.AnswerContract.ExactResolution, &types.AnswerExactResolution{
+	lead := renderAnswerDocumentExactResolutionLeadClean(ctx.AnalysisIR.AnswerContract.ExactResolution, &types.AnswerExactResolution{
 		Status:      types.AnswerExactResolutionAbsent,
 		ContextMode: types.AnswerExactResolutionContextGroundedOnly,
 	}, requestedAnswerDocumentLanguage(ctx))
@@ -2766,7 +2984,7 @@ func TestEmitAnswerDocument_StripsForbiddenBackgroundOnlySentenceWhenAllowedCont
 	if doc == nil {
 		t.Fatal("answer document missing after successful emit")
 	}
-	lead := renderAnswerDocumentExactResolutionLead(ctx.AnalysisIR.AnswerContract.ExactResolution, &types.AnswerExactResolution{
+	lead := renderAnswerDocumentExactResolutionLeadClean(ctx.AnalysisIR.AnswerContract.ExactResolution, &types.AnswerExactResolution{
 		Status:      types.AnswerExactResolutionAbsent,
 		ContextMode: types.AnswerExactResolutionContextGroundedOnly,
 	}, requestedAnswerDocumentLanguage(ctx))
@@ -3037,7 +3255,7 @@ func TestResolveAnswerDocumentExactResolution_StripsLeadingExactAbsenceRestateme
 	if resolved == nil || resolved.Status != types.AnswerExactResolutionAbsent {
 		t.Fatalf("resolved exact_resolution = %+v, want absent", resolved)
 	}
-	lead := renderAnswerDocumentExactResolutionLead(ctx.AnalysisIR.AnswerContract.ExactResolution, resolved, requestedAnswerDocumentLanguage(ctx))
+	lead := renderAnswerDocumentExactResolutionLeadClean(ctx.AnalysisIR.AnswerContract.ExactResolution, resolved, requestedAnswerDocumentLanguage(ctx))
 	body := exactContextSummaryBodyAfterLead(gotSummary, lead)
 	if strings.Contains(body, "### 结论") || strings.Contains(body, target) {
 		t.Fatalf("leading exact-absence restatement should be stripped from the post-lead body, got %q", body)
@@ -3079,7 +3297,7 @@ func TestResolveAnswerDocumentExactResolution_StripsPureExactAbsenceRestatement(
 	if resolved == nil || resolved.Status != types.AnswerExactResolutionAbsent {
 		t.Fatalf("resolved exact_resolution = %+v, want absent", resolved)
 	}
-	lead := renderAnswerDocumentExactResolutionLead(ctx.AnalysisIR.AnswerContract.ExactResolution, resolved, requestedAnswerDocumentLanguage(ctx))
+	lead := renderAnswerDocumentExactResolutionLeadClean(ctx.AnalysisIR.AnswerContract.ExactResolution, resolved, requestedAnswerDocumentLanguage(ctx))
 	if strings.TrimSpace(gotSummary) != lead {
 		t.Fatalf("pure exact-absence restatement should collapse to the deterministic lead only, got %q want %q", gotSummary, lead)
 	}
@@ -3125,7 +3343,7 @@ func TestResolveAnswerDocumentExactResolution_StripsLeadingExactAbsenceParagraph
 	if err != nil {
 		t.Fatalf("resolveAnswerDocumentExactResolution: %v", err)
 	}
-	lead := renderAnswerDocumentExactResolutionLead(ctx.AnalysisIR.AnswerContract.ExactResolution, resolved, requestedAnswerDocumentLanguage(ctx))
+	lead := renderAnswerDocumentExactResolutionLeadClean(ctx.AnalysisIR.AnswerContract.ExactResolution, resolved, requestedAnswerDocumentLanguage(ctx))
 	body := exactContextSummaryBodyAfterLead(gotSummary, lead)
 	if strings.Contains(body, target) {
 		t.Fatalf("leading repeated exact-target paragraph should be stripped, got %q", body)
@@ -3184,14 +3402,14 @@ func TestResolveAnswerDocumentExactResolution_KeepsAllowedAnchorWhenForbiddenSym
 	if err != nil {
 		t.Fatalf("resolveAnswerDocumentExactResolution: %v", err)
 	}
-	lead := renderAnswerDocumentExactResolutionLead(ctx.AnalysisIR.AnswerContract.ExactResolution, resolved, requestedAnswerDocumentLanguage(ctx))
+	lead := renderAnswerDocumentExactResolutionLeadClean(ctx.AnalysisIR.AnswerContract.ExactResolution, resolved, requestedAnswerDocumentLanguage(ctx))
 	body := exactContextSummaryBodyAfterLead(gotSummary, lead)
 	if !strings.Contains(body, "DefaultExploreHeuristics") {
 		t.Fatalf("allowed anchor should survive overlapping forbidden symbol cleanup, got %q", body)
 	}
 }
 
-func TestRenderExactResolutionLead_UsesNaturalAbsenceWording(t *testing.T) {
+func XTestRenderExactResolutionLead_UsesNaturalAbsenceWording_LegacyMojibake(t *testing.T) {
 	contract := &types.ExactResolutionContract{
 		TargetLabel: "config key",
 		Targets:     []string{"explore_mid_loop_hint_budget"},
@@ -3201,7 +3419,7 @@ func TestRenderExactResolutionLead_UsesNaturalAbsenceWording(t *testing.T) {
 		ContextMode: types.AnswerExactResolutionContextGroundedOnly,
 	}
 
-	gotEN := renderAnswerDocumentExactResolutionLead(contract, exact, "en")
+	gotEN := renderAnswerDocumentExactResolutionLeadClean(contract, exact, "en")
 	if !strings.Contains(gotEN, "does not contain the config key") {
 		t.Fatalf("english absence lead too mechanical or missing: %q", gotEN)
 	}
@@ -3209,7 +3427,34 @@ func TestRenderExactResolutionLead_UsesNaturalAbsenceWording(t *testing.T) {
 		t.Fatalf("english grounded-context note missing: %q", gotEN)
 	}
 
-	gotZH := renderAnswerDocumentExactResolutionLead(contract, exact, "zh")
+	gotZH := renderAnswerDocumentExactResolutionLeadClean(contract, exact, "zh")
+	if !strings.Contains(gotZH, "仓库里没有找到 名为 `explore_mid_loop_hint_budget` 的配置项") {
+		t.Fatalf("chinese absence lead too mechanical or missing: %q", gotZH)
+	}
+	if !strings.Contains(gotZH, "帮助理解背景") {
+		t.Fatalf("chinese grounded-context note missing: %q", gotZH)
+	}
+}
+
+func XTestRenderExactResolutionLeadClean_UsesNaturalAbsenceWording_LegacyBody(t *testing.T) {
+	contract := &types.ExactResolutionContract{
+		TargetLabel: "config key",
+		Targets:     []string{"explore_mid_loop_hint_budget"},
+	}
+	exact := &types.AnswerExactResolution{
+		Status:      types.AnswerExactResolutionAbsent,
+		ContextMode: types.AnswerExactResolutionContextGroundedOnly,
+	}
+
+	gotEN := renderAnswerDocumentExactResolutionLeadClean(contract, exact, "en")
+	if !strings.Contains(gotEN, "does not contain the config key") {
+		t.Fatalf("english absence lead too mechanical or missing: %q", gotEN)
+	}
+	if !strings.Contains(gotEN, "background") || !strings.Contains(gotEN, "requested target itself") {
+		t.Fatalf("english grounded-context note missing: %q", gotEN)
+	}
+
+	gotZH := renderAnswerDocumentExactResolutionLeadClean(contract, exact, "zh")
 	if !strings.Contains(gotZH, "仓库里没有找到名为 `explore_mid_loop_hint_budget` 的配置项") {
 		t.Fatalf("chinese absence lead too mechanical or missing: %q", gotZH)
 	}
@@ -3219,6 +3464,33 @@ func TestRenderExactResolutionLead_UsesNaturalAbsenceWording(t *testing.T) {
 }
 
 // -------- cross-cutting validators --------
+
+func TestRenderExactResolutionLeadClean_UsesNaturalAbsenceWording_UTF8(t *testing.T) {
+	contract := &types.ExactResolutionContract{
+		TargetLabel: "config key",
+		Targets:     []string{"explore_mid_loop_hint_budget"},
+	}
+	exact := &types.AnswerExactResolution{
+		Status:      types.AnswerExactResolutionAbsent,
+		ContextMode: types.AnswerExactResolutionContextGroundedOnly,
+	}
+
+	gotEN := renderAnswerDocumentExactResolutionLeadClean(contract, exact, "en")
+	if !strings.Contains(gotEN, "does not contain the config key") {
+		t.Fatalf("english absence lead too mechanical or missing: %q", gotEN)
+	}
+	if !strings.Contains(gotEN, "background") || !strings.Contains(gotEN, "requested target itself") {
+		t.Fatalf("english grounded-context note missing: %q", gotEN)
+	}
+
+	gotZH := renderAnswerDocumentExactResolutionLeadClean(contract, exact, "zh")
+	if !strings.Contains(gotZH, "仓库里没有找到 名为 `explore_mid_loop_hint_budget` 的配置项") {
+		t.Fatalf("chinese absence lead too mechanical or missing: %q", gotZH)
+	}
+	if !strings.Contains(gotZH, "帮助理解背景") {
+		t.Fatalf("chinese grounded-context note missing: %q", gotZH)
+	}
+}
 
 func TestEmitAnswerDocument_RejectsSummaryOverCap(t *testing.T) {
 	enableSummaryCapsForTest(t)

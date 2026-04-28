@@ -21,6 +21,7 @@ type AnswerSurfacePlan struct {
 	CompiledDiagramKind           DiagramKind
 	CompiledDiagramFence          string
 	LogSourceDriftAnchors         []LogSourceDriftAnchor
+	LogObservedAnchors            []LogSourceDriftAnchor
 
 	ExactResolution          *ExactResolutionContract
 	PreferredExactResolution *AnswerExactResolution
@@ -53,6 +54,7 @@ const (
 	AnswerSummarySurfaceDefault                 AnswerSummarySurfaceMode = ""
 	AnswerSummarySurfaceFollowOnGroundedContext AnswerSummarySurfaceMode = "follow_on_grounded_context_only"
 	AnswerSummarySurfaceMinimalScalarRoleLocate AnswerSummarySurfaceMode = "minimal_scalar_role_locate"
+	AnswerSummarySurfaceDriftBoundedRootCause   AnswerSummarySurfaceMode = "drift_bounded_root_cause"
 )
 
 type ExactContextSurfaceLabel struct {
@@ -280,6 +282,11 @@ func BuildAnswerSurfacePlan(
 		answerChains,
 		plan.ConfigTraceDiagramAnchors,
 	)
+	plan.LogObservedAnchors = CollectLogObservedAnchors(
+		ir.RequestModel,
+		logBundle,
+		plan.SurfaceEvidence,
+	)
 	plan.LogSourceDriftAnchors = CollectLogSourceDriftAnchors(
 		ir.RequestModel,
 		logBundle,
@@ -377,11 +384,27 @@ func preferredExactResolutionSurface(plan *AnswerSurfacePlan) *AnswerExactResolu
 }
 
 func preferredAnswerSummarySurfaceMode(plan *AnswerSurfacePlan, rm RequestModel) AnswerSummarySurfaceMode {
-	if plan == nil || plan.PreferredExactResolution == nil {
+	if plan == nil {
 		if IsScalarRoleLocateLookup(rm) {
 			return AnswerSummarySurfaceMinimalScalarRoleLocate
 		}
 		return AnswerSummarySurfaceDefault
+	}
+	if plan.PreferredExactResolution == nil {
+		if rm.Scenario == ScenarioRootCause &&
+			len(plan.LogSourceDriftAnchors) > 0 &&
+			(plan.RequiredShape == ShapeStepList || plan.RequiredShape == ShapeExplanation) {
+			return AnswerSummarySurfaceDriftBoundedRootCause
+		}
+		if IsScalarRoleLocateLookup(rm) {
+			return AnswerSummarySurfaceMinimalScalarRoleLocate
+		}
+		return AnswerSummarySurfaceDefault
+	}
+	if rm.Scenario == ScenarioRootCause &&
+		len(plan.LogSourceDriftAnchors) > 0 &&
+		(plan.RequiredShape == ShapeStepList || plan.RequiredShape == ShapeExplanation) {
+		return AnswerSummarySurfaceDriftBoundedRootCause
 	}
 	if plan.PreferredExactResolution.Status == AnswerExactResolutionAbsent &&
 		plan.PreferredExactResolution.ContextMode == AnswerExactResolutionContextGroundedOnly &&
@@ -556,7 +579,15 @@ func collectDiagramLogFrames(bundle *LogBundle) []LogFrame {
 	return resolved
 }
 
+func CollectLogObservedAnchors(rm RequestModel, bundle *LogBundle, items []EvidenceItem) []LogSourceDriftAnchor {
+	return collectLogSourceAnchors(rm, bundle, items, 0)
+}
+
 func CollectLogSourceDriftAnchors(rm RequestModel, bundle *LogBundle, items []EvidenceItem) []LogSourceDriftAnchor {
+	return collectLogSourceAnchors(rm, bundle, items, logSourceDriftLineGap)
+}
+
+func collectLogSourceAnchors(rm RequestModel, bundle *LogBundle, items []EvidenceItem, minGap int) []LogSourceDriftAnchor {
 	if (rm.Scenario != ScenarioRootCause && rm.Intent != IntentRootCause) || bundle == nil || len(items) == 0 {
 		return nil
 	}
@@ -589,21 +620,8 @@ func CollectLogSourceDriftAnchors(rm RequestModel, bundle *LogBundle, items []Ev
 		if tail == "" {
 			continue
 		}
-		bestLine := 0
-		bestDelta := 0
-		for _, item := range candidates {
-			for _, candidateTail := range evidenceSurfaceSymbolTails(item) {
-				if candidateTail != tail {
-					continue
-				}
-				delta := absInt(item.LineStart - frame.Line)
-				if bestLine == 0 || delta < bestDelta {
-					bestLine = item.LineStart
-					bestDelta = delta
-				}
-			}
-		}
-		if bestLine == 0 || bestDelta <= logSourceDriftLineGap {
+		bestLine, bestDelta := nearestLogSourceDriftAnchorLine(candidates, tail, frame.Line)
+		if bestLine == 0 || bestDelta <= minGap {
 			continue
 		}
 		key := fmt.Sprintf("%s|%s|%d|%d", file, tail, frame.Line, bestLine)
@@ -628,6 +646,57 @@ func CollectLogSourceDriftAnchors(rm RequestModel, bundle *LogBundle, items []Ev
 		}
 		return out[i].AnchoredLine < out[j].AnchoredLine
 	})
+	return out
+}
+
+func nearestLogSourceDriftAnchorLine(candidates []EvidenceItem, tail string, observedLine int) (bestLine, bestDelta int) {
+	bestLine, bestDelta = nearestLogSourceDriftAnchorLineByPass(candidates, tail, observedLine, true)
+	if bestLine != 0 {
+		return bestLine, bestDelta
+	}
+	return nearestLogSourceDriftAnchorLineByPass(candidates, tail, observedLine, false)
+}
+
+func nearestLogSourceDriftAnchorLineByPass(candidates []EvidenceItem, tail string, observedLine int, definitionOnly bool) (bestLine, bestDelta int) {
+	for _, item := range candidates {
+		if definitionOnly && item.AnchorKind != AnchorDefinition {
+			continue
+		}
+		for _, candidateTail := range logSourceDriftCandidateTails(item, definitionOnly) {
+			if candidateTail != tail {
+				continue
+			}
+			line := item.LineStart
+			if line <= 0 {
+				continue
+			}
+			delta := absInt(line - observedLine)
+			if bestLine == 0 || delta < bestDelta {
+				bestLine = line
+				bestDelta = delta
+			}
+		}
+	}
+	return bestLine, bestDelta
+}
+
+func logSourceDriftCandidateTails(item EvidenceItem, definitionOnly bool) []string {
+	var raws []string
+	if item.AnchorKind == AnchorDefinition {
+		raws = append(raws, item.AnchorSymbol, item.Subject)
+	} else if !definitionOnly {
+		raws = append(raws, item.AnchorSymbol)
+	}
+	var out []string
+	seen := make(map[string]bool)
+	for _, raw := range raws {
+		tail := normalizedSurfaceSymbolTail(raw)
+		if tail == "" || seen[tail] {
+			continue
+		}
+		seen[tail] = true
+		out = append(out, tail)
+	}
 	return out
 }
 

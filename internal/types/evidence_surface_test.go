@@ -324,6 +324,55 @@ func TestBuildAnswerSurfacePlan_CollectsLogSourceDriftAnchors(t *testing.T) {
 	}
 }
 
+func TestBuildAnswerSurfacePlan_UsesDriftBoundedRootCauseModeForRootCauseLogs(t *testing.T) {
+	mut := NewMutableState("")
+	logBundle := &LogBundle{
+		Errors: []LogError{{
+			Frames: []LogFrame{
+				{File: "internal/agent/analyzer.go", Line: 250, Func: "buildAnalysisIR"},
+				{File: "internal/agent/analyzer.go", Line: 320, Func: "ParseOutput"},
+			},
+		}},
+	}
+	evidence := []EvidenceItem{
+		{
+			Kind:            EvidenceDirect,
+			Source:          "internal/agent/analyzer.go",
+			LineStart:       612,
+			AnchorKind:      AnchorDefinition,
+			AnchorSymbol:    "buildAnalysisIR",
+			GroundingStatus: GroundingGrounded,
+		},
+		{
+			Kind:            EvidenceDirect,
+			Source:          "internal/agent/analyzer.go",
+			LineStart:       367,
+			AnchorKind:      AnchorDefinition,
+			AnchorSymbol:    "ParseOutput",
+			GroundingStatus: GroundingGrounded,
+		},
+	}
+
+	for _, shape := range []AnswerShape{ShapeStepList, ShapeExplanation} {
+		ir := &AnalysisIR{
+			RequestModel: RequestModel{
+				Scenario: ScenarioRootCause,
+				Intent:   IntentRootCause,
+			},
+			AnswerContract: AnswerContract{
+				RequiredAnswerShape: shape,
+			},
+		}
+		plan := BuildAnswerSurfacePlan(ir, mut, logBundle, nil, nil, evidence)
+		if plan == nil {
+			t.Fatalf("BuildAnswerSurfacePlan returned nil for shape=%s", shape)
+		}
+		if plan.SummarySurfaceMode != AnswerSummarySurfaceDriftBoundedRootCause {
+			t.Fatalf("shape=%s summary surface mode = %s, want %s", shape, plan.SummarySurfaceMode, AnswerSummarySurfaceDriftBoundedRootCause)
+		}
+	}
+}
+
 func TestEvidencePreferredSurfaceText_NeutralizesExactResolutionRelevantSummary(t *testing.T) {
 	contract := &ExactResolutionContract{
 		TargetKind:           SubjectConfigKey,
