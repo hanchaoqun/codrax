@@ -826,8 +826,18 @@ func (r *REPL) runStreamingChitchat(streamer streamingChitchatResponder, userLin
 // the REPL's gate treats it as "fall through to pipeline" — the safe
 // default, because over-analyzing a casual greeting wastes cycles but
 // under-analyzing a real code question gives the wrong answer.
+//
+// priorTurnHint is a compact 1-line summary of the previous turn the
+// REPL provides for multi-turn disambiguation. Empty string means "no
+// prior turn / first turn / hint unavailable" — classifier MUST
+// behave byte-identically to the no-hint case in that scenario.
+// Format (REPL constructs, classifier consumes as opaque text):
+//   kind=<chitchat|pipeline|plan|shell> topic=<oneLine, ≤100 chars>
+// The hint exists to disambiguate continuation references (e.g. user
+// types "expand 10" after a list_memory listing) that the classifier
+// cannot route correctly from the current line alone.
 type ChitchatClassifier interface {
-	Classify(userLine string) (isChitchat bool, err error)
+	Classify(userLine, priorTurnHint string) (isChitchat bool, err error)
 }
 
 // chitchatClassifierTool is the structured-output schema the LLM
@@ -888,7 +898,32 @@ Examples of repo_question (not exhaustive):
 
 When a turn looks ambiguous (e.g. a continuation like "那它呢" without
 prior context), emit repo_question — the pipeline handles it safely
-and the cost of being wrong is higher for chitchat than for pipeline.`
+and the cost of being wrong is higher for chitchat than for pipeline.
+
+priorTurn (when shown ABOVE the current message in the user content)
+hints what the previous turn produced. The shape is one line:
+  kind=<chitchat|pipeline|plan|shell> topic=<one-line summary>
+Use priorTurn ONLY to disambiguate continuation references in the
+current message. Concrete rules:
+
+- If priorTurn.kind=chitchat AND priorTurn.topic suggests a numbered
+  listing, inventory, or menu the user was asked to pick from, AND
+  the current message is a SHORT continuation reference (drill-in
+  on a numbered item, pick-N style, pronoun-style "那个" / "that one"
+  / "show me details"), route to chitchat — the chitchat handler
+  can call recall_memory to surface the picked entry's details.
+  This is the multi-turn refinement chain: list → user picks → recall.
+
+- Do NOT route to chitchat just because priorTurn.kind=chitchat. A
+  real code question after a greeting ("foo() is defined where?"
+  after "你好") is still a code question.
+
+- If priorTurn.kind=pipeline / plan / shell, the previous turn was
+  not chitchat — apply normal classification by current message
+  content. Pipeline-to-pipeline follow-ups stay in the pipeline.
+
+- When priorTurn is absent (no '## priorTurn:' section), ignore this
+  block entirely and classify by current message content.`
 
 // llmChitchatClassifier is the default ChitchatClassifier. One
 // adapter.Chat call per turn, with tool_choice=required and the local
@@ -910,7 +945,12 @@ func NewChitchatClassifier(adapter llm.Adapter) ChitchatClassifier {
 // The caller treats that as "fall through to pipeline", so the
 // classifier cannot silently reroute a real code question to the
 // chit-chat responder when it is genuinely confused.
-func (c *llmChitchatClassifier) Classify(userLine string) (bool, error) {
+//
+// priorTurnHint, when non-empty, is rendered as a `## priorTurn:`
+// section above the current message so the LLM can disambiguate
+// continuation references. Empty hint preserves byte-identical
+// behaviour with the no-hint shape (locked by test).
+func (c *llmChitchatClassifier) Classify(userLine, priorTurnHint string) (bool, error) {
 	if c.adapter == nil {
 		return false, fmt.Errorf("chitchat classifier not configured: no LLM adapter")
 	}
@@ -918,9 +958,13 @@ func (c *llmChitchatClassifier) Classify(userLine string) (bool, error) {
 	if userLine == "" {
 		return false, fmt.Errorf("chitchat classifier: empty user line")
 	}
+	userContent := userLine
+	if hint := strings.TrimSpace(priorTurnHint); hint != "" {
+		userContent = "## priorTurn: " + hint + "\n\n## current: " + userLine
+	}
 	messages := []llm.Message{
 		{Role: "system", Content: chitchatClassifierSystemPrompt},
-		{Role: "user", Content: userLine},
+		{Role: "user", Content: userContent},
 	}
 	tools := []llm.ToolSchema{chitchatClassifierTool}
 	resp, err := c.adapter.Chat(messages, tools, llm.ChatOptions{ToolChoice: "required"})

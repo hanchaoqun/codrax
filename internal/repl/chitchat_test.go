@@ -229,13 +229,15 @@ func TestChitchat_StreamingResponderUsesStreamBranch(t *testing.T) {
 // stubClassifier records every call and returns a canned decision
 // or error. Lets tests drive the classifier gate without an LLM.
 type stubClassifier struct {
-	calls       []string
-	isChitchat  bool
-	err         error
+	calls      []string
+	hints      []string
+	isChitchat bool
+	err        error
 }
 
-func (c *stubClassifier) Classify(line string) (bool, error) {
+func (c *stubClassifier) Classify(line, priorTurnHint string) (bool, error) {
 	c.calls = append(c.calls, line)
+	c.hints = append(c.hints, priorTurnHint)
 	return c.isChitchat, c.err
 }
 

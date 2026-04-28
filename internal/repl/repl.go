@@ -620,6 +620,38 @@ func (r *REPL) memoryStats() (int, int) {
 	return len(r.store.Recent()), len(r.store.Index())
 }
 
+// buildPriorTurnHint produces the compact 1-line hint the chitchat
+// classifier consumes to disambiguate continuation references
+// ("expand 10" after a list_memory listing should route back to
+// chitchat, not to the pipeline). Format:
+//
+//	kind=<chitchat|pipeline|plan|shell> topic=<one-line, ≤100 chars>
+//
+// Empty string on first turn / nil store / empty Recent buffer —
+// classifier MUST behave byte-identically to the no-hint shape on
+// empty hint (regression-locked by test). The 200-rune cap (with
+// ellipsis) prevents pathological topics from inflating classifier
+// prompt budget.
+func (r *REPL) buildPriorTurnHint() string {
+	if r.store == nil {
+		return ""
+	}
+	recent := r.store.Recent()
+	if len(recent) == 0 {
+		return ""
+	}
+	last := recent[len(recent)-1]
+	topic := oneLine(last.Request)
+	if len([]rune(topic)) > 100 {
+		topic = string([]rune(topic)[:100]) + "…"
+	}
+	hint := fmt.Sprintf("kind=%s topic=%s", string(last.Kind), topic)
+	if len([]rune(hint)) > 200 {
+		hint = string([]rune(hint)[:200]) + "…"
+	}
+	return hint
+}
+
 // currentStickyTag returns the per-turn sticky-state marker
 // promptStickyTag would compose for the REPL's current state. Single
 // call site so every prompt-rendering surface (main input, paste/log
@@ -1181,7 +1213,13 @@ func (r *REPL) dispatch(line, display string) {
 		!r.attachedLogAutoRouted &&
 		strings.TrimSpace(r.attachedLog) == "" &&
 		strings.TrimSpace(r.attachedHitrace) == "" {
-		if isChat, err := r.chitchatClassifier.Classify(line); err != nil {
+		// Build a compact 1-line hint from the most recent turn so
+		// the classifier can disambiguate continuation references
+		// (e.g. "expand 10" after a list_memory listing). Empty
+		// hint on first turn / no recent buffer / nil store
+		// preserves byte-identical pre-fix behaviour.
+		hint := r.buildPriorTurnHint()
+		if isChat, err := r.chitchatClassifier.Classify(line, hint); err != nil {
 			logging.Warning("[repl/chitchat] classifier error: %v — falling back to pipeline", err)
 		} else if isChat {
 			logging.Info("[repl/chitchat] classifier routed turn to chit-chat: %s", oneLine(line))
