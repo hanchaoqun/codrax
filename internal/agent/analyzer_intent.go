@@ -96,28 +96,7 @@ func isCitationFreeToolValueRequest(rm types.RequestModel) bool {
 }
 
 func isScalarSourceLiteralLookup(rm types.RequestModel) bool {
-	if len(rm.SubTopics) > 1 {
-		return false
-	}
-	if !rm.Predicates.IsScalarAnswer ||
-		rm.Predicates.IsCountQuestion ||
-		rm.Predicates.IsCategoryEnumeration ||
-		rm.Predicates.IsCrossComponent ||
-		rm.Predicates.IsRelationalLookup {
-		return false
-	}
-	switch rm.AnswerSubject.Kind {
-	case types.SubjectFunctionName,
-		types.SubjectTypeName,
-		types.SubjectInterface,
-		types.SubjectHandlerRoute,
-		types.SubjectFilePath,
-		types.SubjectStringLiteral,
-		types.SubjectEnumValue,
-		types.SubjectStructField:
-		return true
-	}
-	return false
+	return types.IsScalarSourceLiteralLookup(rm)
 }
 
 func reconcileScenario(rm types.RequestModel) (types.Scenario, string) {

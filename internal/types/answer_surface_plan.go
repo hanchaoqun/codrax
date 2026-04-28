@@ -51,6 +51,7 @@ type AnswerSummarySurfaceMode string
 const (
 	AnswerSummarySurfaceDefault                 AnswerSummarySurfaceMode = ""
 	AnswerSummarySurfaceFollowOnGroundedContext AnswerSummarySurfaceMode = "follow_on_grounded_context_only"
+	AnswerSummarySurfaceMinimalScalarRoleLocate AnswerSummarySurfaceMode = "minimal_scalar_role_locate"
 )
 
 type ExactContextSurfaceLabel struct {
@@ -271,6 +272,8 @@ func BuildAnswerSurfacePlan(
 		answerChains,
 		plan.ConfigTraceDiagramAnchors,
 	)
+	plan.PreferredExactResolution = preferredExactResolutionSurface(plan)
+	plan.SummarySurfaceMode = preferredAnswerSummarySurfaceMode(plan, ir.RequestModel)
 	if plan.ExactResolution == nil || len(plan.ExactResolution.Targets) == 0 {
 		return plan
 	}
@@ -338,7 +341,7 @@ func BuildAnswerSurfacePlan(
 		plan.SurfaceEvidence,
 	)
 	plan.PreferredExactResolution = preferredExactResolutionSurface(plan)
-	plan.SummarySurfaceMode = preferredAnswerSummarySurfaceMode(plan)
+	plan.SummarySurfaceMode = preferredAnswerSummarySurfaceMode(plan, ir.RequestModel)
 
 	return plan
 }
@@ -362,13 +365,19 @@ func preferredExactResolutionSurface(plan *AnswerSurfacePlan) *AnswerExactResolu
 	return nil
 }
 
-func preferredAnswerSummarySurfaceMode(plan *AnswerSurfacePlan) AnswerSummarySurfaceMode {
+func preferredAnswerSummarySurfaceMode(plan *AnswerSurfacePlan, rm RequestModel) AnswerSummarySurfaceMode {
 	if plan == nil || plan.PreferredExactResolution == nil {
+		if IsScalarRoleLocateLookup(rm) {
+			return AnswerSummarySurfaceMinimalScalarRoleLocate
+		}
 		return AnswerSummarySurfaceDefault
 	}
 	if plan.PreferredExactResolution.Status == AnswerExactResolutionAbsent &&
 		plan.PreferredExactResolution.ContextMode == AnswerExactResolutionContextGroundedOnly {
 		return AnswerSummarySurfaceFollowOnGroundedContext
+	}
+	if IsScalarRoleLocateLookup(rm) {
+		return AnswerSummarySurfaceMinimalScalarRoleLocate
 	}
 	return AnswerSummarySurfaceDefault
 }

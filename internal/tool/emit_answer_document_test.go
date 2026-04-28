@@ -1297,6 +1297,56 @@ func TestEmitAnswerDocument_AllowsAbsenceWithProductionContextOnlyMention(t *tes
 	}
 }
 
+func TestEmitAnswerDocument_NormalizesRoleLocateScalarSummarySurface(t *testing.T) {
+	tool := &EmitAnswerDocument{}
+	ctx := newDocBusCtx("")
+	ctx.Language = "zh"
+	ctx.AnalysisIR = &types.AnalysisIR{
+		RequestModel: types.RequestModel{
+			Scenario:      types.ScenarioGeneric,
+			AnswerSubject: types.AnswerSubject{Kind: types.SubjectFunctionName},
+			AnalyzerHints: types.AnalyzerHints{
+				Kind: "return_value",
+			},
+			PredicateAxis: types.AxisReturn,
+			Predicates: types.SemanticPredicates{
+				IsScalarAnswer: true,
+			},
+		},
+		AnswerContract: types.AnswerContract{
+			RequiredAnswerShape: types.ShapeValue,
+		},
+	}
+
+	params := mustDocJSON(t, map[string]interface{}{
+		"shape":   "value",
+		"summary": "仓库中负责解析用户请求并产出结构化 AnalysisIR 的入口函数是 `buildAnalysisIR`，定义于 `internal/agent/analyzer.go:612`。该函数接收 `AgentContext`，然后编排 hypothesis planner、risk evaluator 等周边阶段。",
+		"value": map[string]interface{}{
+			"literal":      "buildAnalysisIR",
+			"citation_ref": 0,
+		},
+		"citations": []map[string]interface{}{{
+			"file": "internal/agent/analyzer.go",
+			"line": 612,
+		}},
+	})
+
+	res, _ := tool.Execute(ctx, params)
+	if !res.Success {
+		t.Fatalf("Execute failed: %q", res.Summary)
+	}
+	doc := ctx.Mutable.AnswerDocument()
+	if doc == nil {
+		t.Fatal("answer document not stored")
+	}
+	if strings.Contains(strings.ToLower(doc.Summary), "planner") {
+		t.Fatalf("normalized summary should drop surrounding mechanism prose: %q", doc.Summary)
+	}
+	if want := "对应的函数是 `buildAnalysisIR`，位置在 `internal/agent/analyzer.go:612`。"; doc.Summary != want {
+		t.Fatalf("summary = %q, want %q", doc.Summary, want)
+	}
+}
+
 func TestEmitAnswerDocument_RejectsExactMatchWhenOnlySubjectRepeatsTargetButAnchorIsNearbySymbol(t *testing.T) {
 	tool := &EmitAnswerDocument{}
 	ctx := newDocBusCtx("")

@@ -681,6 +681,7 @@ func (t *EmitAnswerDocument) Execute(ctx *types.BusContext, params json.RawMessa
 		logging.Warning("[emit_answer_document] citation grounding: kept=%d dropped=%d warnings=%d", numCites, dropped, len(citationWarnings))
 	}
 	p.Summary = normalizeRequiredDiagramSummarySurface(p.Summary, citations, groundCtx, ctx)
+	p.Summary = normalizeMinimalRoleLocateSummarySurface(p.Summary, shape, &p, citations, ctx)
 	// CGEC D1: push the per-citation RepairDirectives onto the
 	// closure so the orchestrator's renderWindowHint can drain them
 	// into the next explore round's Forced Read List. AddRepair is
@@ -3209,6 +3210,90 @@ func normalizeRequiredDiagramSummarySurface(summary string, citations []types.Ci
 		return summary
 	}
 	return strings.TrimSpace(summary + "\n\n" + fence)
+}
+
+func normalizeMinimalRoleLocateSummarySurface(summary string, shape types.AnswerShape, p *emitAnswerDocumentParams, citations []types.Citation, ctx *types.BusContext) string {
+	summary = strings.TrimSpace(summary)
+	if ctx == nil || p == nil {
+		return summary
+	}
+	plan := answerSurfacePlan(ctx)
+	if plan == nil || plan.SummarySurfaceMode != types.AnswerSummarySurfaceMinimalScalarRoleLocate {
+		return summary
+	}
+	if shape != types.ShapeValue && shape != types.ShapeConfigValue {
+		return summary
+	}
+	if p.Value == nil || strings.TrimSpace(p.Value.Literal) == "" {
+		return summary
+	}
+	literal := strings.TrimSpace(p.Value.Literal)
+	ref := p.Value.CitationRef
+	if ref < 0 || ref >= len(citations) {
+		return summary
+	}
+	cit := citations[ref]
+	location := strings.TrimSpace(cit.File)
+	if location != "" && cit.Line > 0 {
+		location = fmt.Sprintf("%s:%d", cit.File, cit.Line)
+	}
+	if location == "" {
+		return summary
+	}
+	return renderMinimalRoleLocateSummary(ctx, literal, location)
+}
+
+func renderMinimalRoleLocateSummary(ctx *types.BusContext, literal, location string) string {
+	kind := types.SubjectUnknown
+	if ctx != nil && ctx.AnalysisIR != nil {
+		kind = ctx.AnalysisIR.RequestModel.AnswerSubject.Kind
+	}
+	if emitAnswerDocIsZh(ctx) {
+		switch kind {
+		case types.SubjectFunctionName:
+			return fmt.Sprintf("对应的函数是 `%s`，位置在 `%s`。", literal, location)
+		case types.SubjectTypeName, types.SubjectInterface:
+			return fmt.Sprintf("对应的类型是 `%s`，位置在 `%s`。", literal, location)
+		case types.SubjectFilePath:
+			return fmt.Sprintf("对应的文件是 `%s`。相关锚点见 `%s`。", literal, location)
+		case types.SubjectHandlerRoute:
+			return fmt.Sprintf("对应的路由是 `%s`，锚点在 `%s`。", literal, location)
+		case types.SubjectStringLiteral:
+			return fmt.Sprintf("对应的字符串字面量是 `%s`，锚点在 `%s`。", literal, location)
+		case types.SubjectEnumValue:
+			return fmt.Sprintf("对应的枚举值是 `%s`，锚点在 `%s`。", literal, location)
+		case types.SubjectStructField:
+			return fmt.Sprintf("对应的字段是 `%s`，锚点在 `%s`。", literal, location)
+		default:
+			return fmt.Sprintf("对应的结果是 `%s`，锚点在 `%s`。", literal, location)
+		}
+	}
+	switch kind {
+	case types.SubjectFunctionName:
+		return fmt.Sprintf("The matching function is `%s`, anchored at `%s`.", literal, location)
+	case types.SubjectTypeName, types.SubjectInterface:
+		return fmt.Sprintf("The matching type is `%s`, anchored at `%s`.", literal, location)
+	case types.SubjectFilePath:
+		return fmt.Sprintf("The matching file is `%s`; the grounding anchor is `%s`.", literal, location)
+	case types.SubjectHandlerRoute:
+		return fmt.Sprintf("The matching route is `%s`, anchored at `%s`.", literal, location)
+	case types.SubjectStringLiteral:
+		return fmt.Sprintf("The matching string literal is `%s`, anchored at `%s`.", literal, location)
+	case types.SubjectEnumValue:
+		return fmt.Sprintf("The matching enum value is `%s`, anchored at `%s`.", literal, location)
+	case types.SubjectStructField:
+		return fmt.Sprintf("The matching field is `%s`, anchored at `%s`.", literal, location)
+	default:
+		return fmt.Sprintf("The matching result is `%s`, anchored at `%s`.", literal, location)
+	}
+}
+
+func emitAnswerDocIsZh(ctx *types.BusContext) bool {
+	if ctx == nil {
+		return false
+	}
+	lang := strings.ToLower(strings.TrimSpace(ctx.Language))
+	return strings.HasPrefix(lang, "zh") || lang == "cn" || lang == "chinese"
 }
 
 func stripSummaryFencedBlocks(summary string) string {

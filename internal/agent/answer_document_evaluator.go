@@ -174,7 +174,7 @@ func (e *answerDocumentEvaluator) BuildInitialInstruction(ctx *types.AgentContex
 	if checklist := renderAnswerDocSubmissionChecklist(ctx, shape, e.diagramRequired); checklist != "" {
 		b.WriteString(checklist)
 	}
-	if ctx != nil && ctx.AnalysisIR != nil && isScalarSourceLiteralLookup(ctx.AnalysisIR.RequestModel) {
+	if ctx != nil && ctx.AnalysisIR != nil && types.IsScalarSourceLiteralLookup(ctx.AnalysisIR.RequestModel) {
 		b.WriteString("## Scalar Lookup Discipline\n\n")
 		b.WriteString("- This dispatch asks for one named source-code literal, not for a walkthrough of the surrounding pipeline.\n")
 		b.WriteString("- Keep `summary` narrow: identify the literal, give its grounded file:line location, and add only the minimal role sentence needed to justify why it is the answer.\n")
@@ -183,7 +183,7 @@ func (e *answerDocumentEvaluator) BuildInitialInstruction(ctx *types.AgentContex
 		b.WriteString("- For scalar payloads (`value`, `config_value`, `boolean`), every non-negative `citation_ref` must point at a real entry in `citations[]`. Do not emit `citation_ref: 0` with an empty citations pool.\n")
 		b.WriteString("- If you include a secondary citation beyond the defining one, it must still directly name or call/reference the SAME emitted literal. Drop type comments, nearby docstrings, or broad background citations even when they are grounded.\n")
 		b.WriteString("- If a related-context evidence item mentions surrounding pipeline pieces, treat that as background noise rather than answer content.\n\n")
-		if isScalarRoleLocateLookup(ctx.AnalysisIR.RequestModel) {
+		if types.IsScalarRoleLocateLookup(ctx.AnalysisIR.RequestModel) {
 			b.WriteString("- This is a role-locate lookup: the question names a clue or output, but the answer is the function / file / symbol that plays that role. Do not promote the clue itself into the exact target lane or the lead sentence.\n")
 			b.WriteString("- For this kind of lookup, answer with the located literal and its file:line first. Mention surrounding pipeline stages only if they are strictly necessary to disambiguate the role.\n\n")
 		}
@@ -343,19 +343,6 @@ func renderAnswerDocSubmissionChecklist(ctx *types.AgentContext, shape string, d
 	}
 	b.WriteString("\n")
 	return b.String()
-}
-
-func isScalarRoleLocateLookup(rm types.RequestModel) bool {
-	if !isScalarSourceLiteralLookup(rm) {
-		return false
-	}
-	if rm.AnswerSubject.Kind == types.SubjectReturnValue {
-		return false
-	}
-	if strings.EqualFold(strings.TrimSpace(rm.AnalyzerHints.Kind), "return_value") {
-		return true
-	}
-	return rm.PredicateAxis == types.AxisReturn
 }
 
 // extractAnswerDocLang reads the language from AgentContext.Language,

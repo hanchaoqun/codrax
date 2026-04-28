@@ -247,6 +247,33 @@ func TestBuildAnswerSurfacePlan_CompilesLogDiagramFence(t *testing.T) {
 	}
 }
 
+func TestBuildAnswerSurfacePlan_UsesMinimalSummaryModeForRoleLocateScalar(t *testing.T) {
+	ir := &AnalysisIR{
+		RequestModel: RequestModel{
+			Scenario:      ScenarioGeneric,
+			AnswerSubject: AnswerSubject{Kind: SubjectFunctionName},
+			AnalyzerHints: AnalyzerHints{
+				Kind: "return_value",
+			},
+			PredicateAxis: AxisReturn,
+			Predicates: SemanticPredicates{
+				IsScalarAnswer: true,
+			},
+		},
+		AnswerContract: AnswerContract{
+			RequiredAnswerShape: ShapeValue,
+		},
+	}
+
+	plan := BuildAnswerSurfacePlan(ir, NewMutableState(""), nil, nil, nil, nil)
+	if plan == nil {
+		t.Fatalf("BuildAnswerSurfacePlan returned nil")
+	}
+	if plan.SummarySurfaceMode != AnswerSummarySurfaceMinimalScalarRoleLocate {
+		t.Fatalf("summary surface mode = %s, want %s", plan.SummarySurfaceMode, AnswerSummarySurfaceMinimalScalarRoleLocate)
+	}
+}
+
 func TestEvidencePreferredSurfaceText_NeutralizesExactResolutionRelevantSummary(t *testing.T) {
 	contract := &ExactResolutionContract{
 		TargetKind:           SubjectConfigKey,
