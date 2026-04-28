@@ -3731,6 +3731,72 @@ func TestObserveMidLoop_EmitInvestigationCompleteDowngradeKeepsLoopAlive(t *test
 		}
 	})
 
+	t.Run("DOWNGRADED summary prioritizes structured closure repair", func(t *testing.T) {
+		mut := types.NewMutableState("q")
+		mut.EvidenceClosure().AddRepair(types.RepairDirective{
+			Kind:      types.RepairReadFile,
+			Files:     []string{"internal/agent/analyzer.go"},
+			Rationale: "Tier-1 floor: read_file internal/agent/analyzer.go near the cited lines and re-emit grounded evidence.",
+			Origin:    "emit_investigation_complete.tier1_floor",
+		})
+		eval := &explorerEvaluator{phase: 1, mutable: mut}
+		downgradeResult := types.ToolResult{
+			ToolName: "emit_investigation_complete",
+			Success:  true,
+			Summary:  tool.EmitInvestigationCompleteDowngradePrefix + " — Tier-1 proven ratio too low.\n\nRepair: structured read_file repairs have been queued.",
+		}
+		results := []types.ToolResult{downgradeResult}
+
+		sig := eval.observeMidLoop(LoopObservation{
+			Phase:          PhaseMidLoop,
+			Iteration:      6,
+			LastToolResult: &results[0],
+			AllToolResults: results,
+		})
+		if !sig.HintRequested || sig.HintKey != "explorer.mid-loop.closure-repair" {
+			t.Fatalf("downgraded completion should surface structured closure repair first, got %+v", sig)
+		}
+		if !strings.Contains(sig.Hint, "Forced Read List") || !strings.Contains(sig.Hint, "internal/agent/analyzer.go") {
+			t.Fatalf("closure repair hint should expose the queued read repair, got: %s", sig.Hint)
+		}
+	})
+
+	t.Run("closure repair blocks generic navigation until progress", func(t *testing.T) {
+		eval := &explorerEvaluator{
+			phase:                          1,
+			midLoopClosureRepairSent:       true,
+			midLoopClosureRepairResultsLen: 1,
+			midLoopLastResultsLen:          1,
+		}
+		results := []types.ToolResult{
+			{
+				ToolName: "emit_investigation_complete",
+				Success:  true,
+				Summary:  tool.EmitInvestigationCompleteDowngradePrefix + " — Tier-1 proven ratio too low.",
+			},
+			{
+				ToolName: "read_file",
+				Success:  true,
+				Summary:  "[internal/agent/analyzer.go: showing lines 400-430 of 1200 total]\n",
+			},
+		}
+		sig := eval.observeMidLoop(LoopObservation{
+			Phase:          PhaseMidLoop,
+			Iteration:      7,
+			LastToolResult: &results[len(results)-1],
+			AllToolResults: results,
+		})
+		if !sig.HintRequested {
+			t.Fatalf("closure-only redirect should fire while a structured closure repair is still pending, got %+v", sig)
+		}
+		if !strings.HasPrefix(sig.HintKey, "explorer.mid-loop.closure-repair-closure-only.") {
+			t.Fatalf("HintKey = %q, want closure-repair-closure-only prefix", sig.HintKey)
+		}
+		if !strings.Contains(sig.Hint, "queued structured closure repairs") {
+			t.Fatalf("closure-only redirect should steer back to the queued repair, got: %s", sig.Hint)
+		}
+	})
+
 	t.Run("non-downgrade success stops the loop as before", func(t *testing.T) {
 		eval := &explorerEvaluator{phase: 1}
 		completeResult := types.ToolResult{

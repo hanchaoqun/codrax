@@ -57,6 +57,8 @@ type explorerEvaluator struct {
 	midLoopPostPrimaryInjected      bool                  // one-shot: immediate "keep using tools after the first anchor read" hint already pushed this dispatch
 	midLoopEvidenceRepairSent       bool                  // one-shot: recovered/ungrounded emit_evidence repair hint already pushed this dispatch
 	midLoopEvidenceRepairResultsLen int                   // allResults length when the current emit_evidence repair hint fired
+	midLoopClosureRepairSent        bool                  // one-shot: structured closure repair from a downgraded completion already pushed this dispatch
+	midLoopClosureRepairResultsLen  int                   // allResults length when the current closure repair hint fired
 	midLoopIntentWindowSent         bool                  // session-22: structural-intent-vs-narrow-window hint already pushed this dispatch
 	midLoopRankerCoverageSent       bool                  // session-22: ranker-coverage-too-low hint already pushed this dispatch
 	midLoopAbsentRedirectSent       bool                  // session-22: emit_evidence kind=absent deprecation redirect already pushed this dispatch
@@ -226,6 +228,8 @@ func (e *explorerEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk 
 		e.midLoopPostPrimaryInjected = false
 		e.midLoopEvidenceRepairSent = false
 		e.midLoopEvidenceRepairResultsLen = 0
+		e.midLoopClosureRepairSent = false
+		e.midLoopClosureRepairResultsLen = 0
 		e.midLoopIntentWindowSent = false
 		e.midLoopRankerCoverageSent = false
 		e.midLoopAbsentRedirectSent = false
@@ -3731,6 +3735,137 @@ func (e *explorerEvaluator) syncEvidenceRepairState(results []types.ToolResult) 
 	e.midLoopEvidenceRepairResultsLen = 0
 }
 
+func closureRepairDirectives(mutable *types.MutableState) []types.RepairDirective {
+	if mutable == nil {
+		return nil
+	}
+	closure := mutable.EvidenceClosure()
+	if closure == nil {
+		return nil
+	}
+	repairs := closure.PendingRepairs()
+	if len(repairs) == 0 && len(closure.PendingReads()) == 0 {
+		return nil
+	}
+	out := make([]types.RepairDirective, 0, len(repairs)+1)
+	hasReadDirective := false
+	for _, repair := range repairs {
+		switch repair.Kind {
+		case types.RepairReadFile, types.RepairExpandSearch, types.RepairRebindSubject, types.RepairForceCompleteDowngrade:
+			out = append(out, repair)
+			if repair.Kind == types.RepairReadFile {
+				hasReadDirective = true
+			}
+		}
+	}
+	if !hasReadDirective {
+		pending := closure.PendingReads()
+		files := make([]string, 0, len(pending))
+		seen := make(map[string]bool, len(pending))
+		for _, pr := range pending {
+			if pr.File == "" || seen[pr.File] {
+				continue
+			}
+			seen[pr.File] = true
+			files = append(files, pr.File)
+		}
+		if len(files) > 0 {
+			out = append(out, types.RepairDirective{
+				Kind:      types.RepairReadFile,
+				Files:     files,
+				Rationale: "pending forced reads from the current closure must be covered before retrying completion.",
+				Origin:    "explorer.pending_reads",
+			})
+		}
+	}
+	return types.MergeRepairs(out)
+}
+
+func renderClosureRepairHint(repairs []types.RepairDirective) string {
+	if len(repairs) == 0 {
+		return ""
+	}
+	var b strings.Builder
+	b.WriteString("MID-LOOP CHECK: the last completion attempt already produced structured closure repairs. Finish these exact repairs before returning to generic navigation.\n\n")
+	limit := len(repairs)
+	if limit > 3 {
+		limit = 3
+	}
+	for i := 0; i < limit; i++ {
+		rendered := strings.TrimSpace(repairs[i].Render())
+		if rendered == "" {
+			continue
+		}
+		b.WriteString(rendered)
+		b.WriteString("\n\n")
+	}
+	if len(repairs) > limit {
+		fmt.Fprintf(&b, "... and %d more queued repair(s).\n\n", len(repairs)-limit)
+	}
+	b.WriteString("After one repair batch succeeds, either re-emit grounded evidence or retry `emit_investigation_complete(reason, confidence, result_kind)`.")
+	return strings.TrimSpace(b.String())
+}
+
+func (e *explorerEvaluator) awaitingClosureRepair(results []types.ToolResult) bool {
+	if !e.midLoopClosureRepairSent || e.midLoopClosureRepairResultsLen == 0 {
+		return false
+	}
+	return successfulToolCountSince(results, e.midLoopClosureRepairResultsLen, completionProgressToolNames) == 0
+}
+
+func (e *explorerEvaluator) syncClosureRepairState(results []types.ToolResult) {
+	if !e.midLoopClosureRepairSent || e.midLoopClosureRepairResultsLen == 0 {
+		return
+	}
+	if successfulToolCountSince(results, e.midLoopClosureRepairResultsLen, completionProgressToolNames) == 0 {
+		return
+	}
+	e.midLoopClosureRepairSent = false
+	e.midLoopClosureRepairResultsLen = 0
+}
+
+func (e *explorerEvaluator) postClosureRepairSignal(obs LoopObservation) LoopSignal {
+	if e.midLoopClosureRepairSent || obs.LastToolResult == nil || obs.LastToolResult.ToolName != "emit_investigation_complete" || !obs.LastToolResult.Success {
+		return LoopSignal{}
+	}
+	if !strings.HasPrefix(obs.LastToolResult.Summary, tool.EmitInvestigationCompleteDowngradePrefix) {
+		return LoopSignal{}
+	}
+	repairs := closureRepairDirectives(e.mutable)
+	if len(repairs) == 0 {
+		return LoopSignal{}
+	}
+	e.midLoopClosureRepairSent = true
+	e.midLoopClosureRepairResultsLen = len(obs.AllToolResults)
+	return LoopSignal{
+		HintRequested:  true,
+		HintKey:        "explorer.mid-loop.closure-repair",
+		Hint:           renderClosureRepairHint(repairs),
+		Progress:       true,
+		BypassThrottle: true,
+	}
+}
+
+func (e *explorerEvaluator) postClosureRepairClosureOnlySignal(obs LoopObservation) LoopSignal {
+	if !e.awaitingClosureRepair(obs.AllToolResults) || e.investigationComplete {
+		return LoopSignal{}
+	}
+	navCount := successfulToolCountSince(obs.AllToolResults, e.midLoopLastResultsLen, navigationToolNames)
+	if navCount == 0 {
+		return LoopSignal{}
+	}
+	if successfulToolCountSince(obs.AllToolResults, e.midLoopLastResultsLen, completionProgressToolNames) > 0 {
+		return LoopSignal{}
+	}
+	return LoopSignal{
+		HintRequested:  true,
+		HintKey:        fmt.Sprintf("explorer.mid-loop.closure-repair-closure-only.%d", obs.Iteration),
+		Hint:           "MID-LOOP CHECK: the last completion attempt already queued structured closure repairs, and the current batch still spent effort on generic navigation. Do not keep widening scope yet. Finish the queued repair first, then re-emit grounded evidence or retry `emit_investigation_complete(...)`.",
+		Progress:       true,
+		BypassThrottle: true,
+	}
+}
+
 type explorerCompletionReadiness struct {
 	HasEnough                bool
 	ERMSatisfied             bool
@@ -4337,6 +4472,7 @@ func (e *explorerEvaluator) observeMidLoop(obs LoopObservation) LoopSignal {
 	e.ensureHeuristics()
 	e.syncEmitBacklogWindow(obs.AllToolResults)
 	e.syncEvidenceRepairState(obs.AllToolResults)
+	e.syncClosureRepairState(obs.AllToolResults)
 	iteration := obs.Iteration
 	allResults := obs.AllToolResults
 
@@ -4386,6 +4522,15 @@ func (e *explorerEvaluator) observeMidLoop(obs LoopObservation) LoopSignal {
 		return sig
 	}
 	if e.awaitingEvidenceRepair(obs.AllToolResults) {
+		return LoopSignal{}
+	}
+	if sig := e.postClosureRepairSignal(obs); sig.HintRequested {
+		return sig
+	}
+	if sig := e.postClosureRepairClosureOnlySignal(obs); sig.HintRequested {
+		return sig
+	}
+	if e.awaitingClosureRepair(obs.AllToolResults) {
 		return LoopSignal{}
 	}
 	if sig := e.postReadWithoutEmitSignal(obs); sig.HintRequested {
