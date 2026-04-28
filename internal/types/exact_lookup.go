@@ -1023,6 +1023,7 @@ func ExactResolutionAbsenceClosureReady(c *ExactResolutionContract, scenario Sce
 	}
 	scopeTerms := ExactResolutionContextTerms(c)
 	hasScopedContext := len(scopeTerms) == 0
+	hasAllowedRelatedContext := false
 	hasAbsenceSupport := false
 	for _, item := range evidence {
 		if ExactResolutionEvidenceBlocksAbsence(c, item) {
@@ -1035,6 +1036,7 @@ func ExactResolutionAbsenceClosureReady(c *ExactResolutionContract, scenario Sce
 	for _, item := range evidence {
 		if ExactResolutionRelatedContextProofAllowedInFiles(c, scenario, true, item, requiredFiles) {
 			hasScopedContext = true
+			hasAllowedRelatedContext = true
 			break
 		}
 		if len(requiredFiles) == 0 {
@@ -1045,11 +1047,18 @@ func ExactResolutionAbsenceClosureReady(c *ExactResolutionContract, scenario Sce
 			}
 			if EvidenceItemStructurallyMentionsAnyTerm(item, scopeTerms) {
 				hasScopedContext = true
+				hasAllowedRelatedContext = true
 				break
 			}
 		}
 	}
-	return hasAbsenceSupport && hasScopedContext
+	if hasAbsenceSupport && hasScopedContext {
+		return true
+	}
+	if !hasAllowedRelatedContext {
+		return false
+	}
+	return !ExactResolutionHasDefiningTargetProof(c, evidence)
 }
 
 // ExactResolutionAutoAbsenceJustification synthesizes a deterministic

@@ -597,6 +597,34 @@ func TestExactResolutionRelatedContextProofAllowedInFiles_ConfigTraceRequiresVal
 	}
 }
 
+func TestExactResolutionAbsenceClosureReady_AllowsRelatedContextOnlyWhenNoDefiningProof(t *testing.T) {
+	contract := &ExactResolutionContract{
+		TargetKind:           SubjectConfigKey,
+		TargetLabel:          "config key",
+		Targets:              []string{"explore_mid_loop_hint_budget"},
+		AllowAbsence:         true,
+		RelatedContextPolicy: ExactContextSameFamilyGrounded,
+		RelatedContextTerms:  []string{"explore"},
+	}
+	evidence := []EvidenceItem{
+		{
+			Kind:            EvidenceDirect,
+			Source:          "internal/types/config.go",
+			LineStart:       815,
+			Subject:         "DefaultExploreHeuristics",
+			AnchorKind:      AnchorDefinition,
+			AnchorSymbol:    "DefaultExploreHeuristics",
+			ContextRole:     EvidenceContextRoleRelatedContext,
+			DiagramRole:     EvidenceDiagramRoleDefault,
+			GroundingStatus: GroundingGrounded,
+			GroundingTier:   TierLineText,
+		},
+	}
+	if !ExactResolutionAbsenceClosureReady(contract, ScenarioConfigTrace, contract.Targets, evidence, []string{"internal/types/config.go"}) {
+		t.Fatal("validated same-scope related-context anchor with no exact defining proof should allow exact-absence closure")
+	}
+}
+
 func TestConfigTraceRelatedContextCitationCandidates_DedupesAndOrdersByPrecedenceRole(t *testing.T) {
 	contract := &ExactResolutionContract{
 		TargetKind:           SubjectConfigKey,
