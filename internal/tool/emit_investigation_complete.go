@@ -1619,18 +1619,20 @@ func evidenceHasGroundedRelatedContextProof(contract *types.ExactResolutionContr
 	if contract == nil || len(items) == 0 {
 		return false
 	}
-	var groundedSameScopeContext bool
 	for _, item := range items {
 		if types.ExactResolutionRelatedContextProofAllowedInFiles(contract, scenario, true, item, requiredFiles) {
 			return true
 		}
-		if scenario == types.ScenarioConfigTrace &&
-			contract.TargetKind == types.SubjectConfigKey &&
-			types.ExactResolutionEvidenceCanSatisfyRelatedContext(contract, item, requiredFiles) {
-			groundedSameScopeContext = true
+	}
+	if scenario == types.ScenarioConfigTrace && contract.TargetKind == types.SubjectConfigKey {
+		return false
+	}
+	for _, item := range items {
+		if types.ExactResolutionEvidenceCanSatisfyRelatedContext(contract, item, requiredFiles) {
+			return true
 		}
 	}
-	return groundedSameScopeContext
+	return false
 }
 
 func looksLikeHonestZeroClaim(reason, justification string) bool {

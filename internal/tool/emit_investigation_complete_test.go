@@ -87,7 +87,7 @@ func TestEmitInvestigationComplete_AbsenceRequiresHonestZeroPhrasing(t *testing.
 	}
 }
 
-func TestEmitInvestigationComplete_ConfigTraceAbsenceAllowsGroundedSameScopeContextBeforeValidatedPrecedenceRole(t *testing.T) {
+func TestEmitInvestigationComplete_ConfigTraceAbsenceRejectsGroundedSameScopeContextBeforeValidatedPrecedenceRole(t *testing.T) {
 	mut := types.NewMutableState("q")
 	mut.SetExactContextRequiredFiles([]string{"internal/types/config.go"})
 	mut.AppendEvidence([]types.EvidenceItem{{
@@ -125,15 +125,18 @@ func TestEmitInvestigationComplete_ConfigTraceAbsenceAllowsGroundedSameScopeCont
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if !res.Success {
-		t.Fatalf("grounded same-scope context should allow config-trace absence closure before a precedence role is explicitly validated, got %q", res.Summary)
+	if res.Success {
+		t.Fatal("config-trace absence closure should keep requiring a precedence-capable anchor before closing")
+	}
+	if !strings.Contains(res.Summary, "precedence-capable lineage anchor") || !strings.Contains(res.Summary, "diagram_role_hint") {
+		t.Fatalf("rejection should explain the missing precedence-role requirement, got %q", res.Summary)
 	}
 }
 
 // TestEmitInvestigationComplete_CompletionWithoutAbsenceOnEvidenceAccepted
 // — the normal happy path: grounded evidence exists, LLM signals
 // completion WITHOUT absence_justification. Must succeed.
-func TestEmitInvestigationComplete_ConfigTraceContextOnlyEvidenceAllowsAbsenceClosure(t *testing.T) {
+func TestEmitInvestigationComplete_ConfigTraceContextOnlyEvidenceRequiresValidatedPrecedenceRole(t *testing.T) {
 	missingKey := "explore_mid_loop_hint_budget"
 	mut := types.NewMutableState("q")
 	mut.SetExactContextRequiredFiles([]string{"internal/types/config.go"})
@@ -185,8 +188,11 @@ func TestEmitInvestigationComplete_ConfigTraceContextOnlyEvidenceAllowsAbsenceCl
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if !res.Success {
-		t.Fatalf("grounded same-scope context should allow config-trace absence closure even when the precedence role is not explicitly validated yet, got: %s", res.Summary)
+	if res.Success {
+		t.Fatal("config-trace context-only evidence should not close absence until one same-scope anchor carries a validated precedence role")
+	}
+	if !strings.Contains(res.Summary, "precedence-capable lineage anchor") || !strings.Contains(res.Summary, "diagram_role_hint") {
+		t.Fatalf("rejection should explain the validated-precedence requirement, got: %s", res.Summary)
 	}
 }
 
@@ -743,7 +749,7 @@ func TestEmitInvestigationComplete_ConfigAbsenceAllowsGroundedRequiredContext(t 
 	}
 }
 
-func TestEmitInvestigationComplete_ConfigAbsenceAllowsGroundedRequiredContextWithoutDiagramRole(t *testing.T) {
+func TestEmitInvestigationComplete_ConfigAbsenceRejectsGroundedRequiredContextWithoutDiagramRole(t *testing.T) {
 	missingKey := "explore_mid_loop_missing_knob"
 	mut := types.NewMutableState("q")
 	mut.SetExactContextRequiredFiles([]string{"internal/types/config.go"})
@@ -796,8 +802,11 @@ func TestEmitInvestigationComplete_ConfigAbsenceAllowsGroundedRequiredContextWit
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if !res.Success {
-		t.Fatalf("grounded same-scope required context should allow absence closure even before a diagram role is explicitly validated: %s", res.Summary)
+	if res.Success {
+		t.Fatal("config-trace absence closure should keep requiring a precedence-capable lineage anchor when the nearby context lacks a validated diagram role")
+	}
+	if !strings.Contains(res.Summary, "precedence-capable lineage anchor") || !strings.Contains(res.Summary, "diagram_role_hint") {
+		t.Fatalf("rejection should explain the missing precedence anchor requirement, got: %s", res.Summary)
 	}
 }
 
