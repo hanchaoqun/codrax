@@ -289,6 +289,7 @@ func TestAnswerDocumentEvaluator_BuildInitialInstruction_RendersDiagramContractA
 		"Required: yes",
 		"Preferred kinds: call_dag",
 		"Avoid invented enumeration labels like `Level 1`, `Round 2`, or `Step 3`",
+		"Do not synthesize bare line-number aliases such as `L877`, `Line 42`",
 		"## Diagram Seeds",
 		"### Grounded Labeling",
 		"### Diagram Node Allowlist",
@@ -299,6 +300,8 @@ func TestAnswerDocumentEvaluator_BuildInitialInstruction_RendersDiagramContractA
 		"### Answer Chains",
 		"## First-Pass Diagram Skeleton",
 		"innermost failure:",
+		"Do not invent shorthand labels from citation line numbers",
+		"split the hop or cite the line that actually names the action",
 	} {
 		if !strings.Contains(prompt, want) {
 			t.Fatalf("prompt missing %q:\n%s", want, prompt)

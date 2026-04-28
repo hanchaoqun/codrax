@@ -289,6 +289,8 @@ func renderAnswerDocSubmissionChecklist(ctx *types.AgentContext, shape string, d
 		items = append(items,
 			"Fill `steps[]` with ordered logical hops. Each step must either cite one grounded line or set `citation_ref=-1` honestly.",
 			"Keep the hop-by-hop detail in `steps[]`; `summary` is only the lead-in and any required diagram.",
+			"Do not invent shorthand labels from citation line numbers (for example `L877` or `Line 42`) unless that exact token is itself grounded in cited text.",
+			"Keep each cited step at the abstraction directly named by its own citation. If one step needs both a guard/condition and a downstream action that are named on different lines, split the hop or cite the line that actually names the action instead of blending both into one cited sentence.",
 		)
 	case string(types.ShapeValue):
 		items = append(items,
@@ -590,6 +592,7 @@ func renderAnswerDocDiagramLabelSeed() string {
 		"Label each node with grounded names you already have: cited repo files, cited symbols, log-frame functions, or path literals that appear in cited line text.\n" +
 			"- If the evidence names one spelling, keep that spelling in the diagram instead of renaming it to a nearby alias.\n" +
 			"- If you need an alternate label, only use it when that exact label appears in citations or log frames.\n" +
+			"- Do not synthesize bare line-number aliases such as `L877`, `Line 42`, or similar citation-derived shorthand unless the cited text itself contains that exact token.\n" +
 			"- Prefer direct grounded names over abstract buckets such as `Level 1` / `Round 2` / `Step 3`.\n" +
 			"- Inside a fenced diagram, keep file/path node labels to the prompt's `Diagram Node Allowlist` unless the same exact label is also grounded by citations[] or Log Triage frames in this tool call.",
 	)
