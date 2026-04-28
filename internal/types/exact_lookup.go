@@ -544,10 +544,12 @@ func ExactResolutionHasDefiningTargetProof(c *ExactResolutionContract, items []E
 		if !ExactResolutionSourceIsDefiningPrimaryProofLike(c, item.Source) {
 			continue
 		}
-		if ExactResolutionDirectAnchorMatchesAnyTarget(c, item.Subject, item.AnchorSymbol, item.Object) {
+		if exactResolutionEvidenceHasProofGradeAnchor(item) &&
+			ExactResolutionDirectAnchorMatchesAnyTarget(c, item.Subject, item.AnchorSymbol, item.Object) {
 			return true
 		}
 		if item.ContextRole == EvidenceContextRoleDefining &&
+			exactResolutionEvidenceHasProofGradeAnchor(item) &&
 			ExactResolutionTextsMentionAnyTarget(c,
 				item.Subject, item.Predicate, item.Object, item.AnchorSymbol, item.Condition, item.Snippet, item.Summary) {
 			return true
@@ -965,6 +967,9 @@ func ExactResolutionEvidenceBlocksAbsence(c *ExactResolutionContract, item Evide
 		item.Subject, item.Predicate, item.Object, item.AnchorSymbol, item.Condition, item.Snippet, item.Summary) {
 		return false
 	}
+	if !exactResolutionEvidenceHasProofGradeAnchor(item) {
+		return false
+	}
 	if IsNegativeEvidencePredicate(item.Predicate) {
 		return false
 	}
@@ -972,6 +977,21 @@ func ExactResolutionEvidenceBlocksAbsence(c *ExactResolutionContract, item Evide
 		return false
 	}
 	return true
+}
+
+// exactResolutionEvidenceHasProofGradeAnchor reports whether an
+// evidence item carries a structural anchor strong enough to justify
+// exact-match / alias-match / absence-contradiction decisions on its
+// own. This intentionally excludes bare surface mentions that only
+// survive because a deterministic parser extracted a string literal or
+// prose fragment into Subject/Object without an explicit anchor kind.
+//
+// Citations stay as an independent proof lane in emit_answer_document:
+// a cited line that explicitly names the target can still prove
+// exact-match even when the matching EvidenceItem is only contextual.
+// The restriction here applies only to raw evidence-pool items.
+func exactResolutionEvidenceHasProofGradeAnchor(item EvidenceItem) bool {
+	return strings.TrimSpace(string(item.AnchorKind)) != ""
 }
 
 // ExactResolutionEvidenceSupportsAbsence reports whether one grounded

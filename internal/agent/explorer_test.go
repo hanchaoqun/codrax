@@ -4074,6 +4074,47 @@ func TestObserveMidLoop_ReadWithoutEmitSuppressesPartialReadUntilFirstEmit(t *te
 	}
 }
 
+func TestObserveMidLoop_ReadWithoutEmitHint_AddsAuthoritativeLogDriftReminder(t *testing.T) {
+	newReadResult := func(path string) types.ToolResult {
+		return types.ToolResult{
+			ToolName: "read_file",
+			Success:  true,
+			Summary:  "[" + path + ": showing lines 1-40 of 400]\npackage fixture\n",
+		}
+	}
+
+	eval := &explorerEvaluator{
+		phase:        1,
+		searchResult: &keywordSearchResult{Graph: &repomap.Graph{}},
+		logTriage: &types.LogBundle{
+			Meta:          types.LogMeta{Signals: []types.LogSignal{types.SignalPanic}},
+			ResolvedFiles: []string{"internal/agent/analyzer.go"},
+			Errors: []types.LogError{{
+				Frames: []types.LogFrame{
+					{File: "internal/agent/analyzer.go", Line: 250, Func: "github.com/hanchaoqun/codrax/internal/agent.buildAnalysisIR"},
+				},
+			}},
+		},
+	}
+	results := []types.ToolResult{
+		newReadResult("internal/agent/analyzer.go"),
+		newReadResult("internal/agent/analyzer.go"),
+	}
+
+	sig := eval.observeMidLoop(LoopObservation{
+		Phase:          PhaseMidLoop,
+		Iteration:      2,
+		LastToolResult: &results[len(results)-1],
+		AllToolResults: results,
+	})
+	if !sig.HintRequested || sig.HintKey != "explorer.mid-loop.read-without-emit" {
+		t.Fatalf("expected read-without-emit nudge, got %+v", sig)
+	}
+	if !strings.Contains(sig.Hint, "stale locators") {
+		t.Fatalf("authoritative log reminder should mention stale locators, got: %s", sig.Hint)
+	}
+}
+
 func TestObserveMidLoop_ReadWithoutEmitRefiresForNewBacklogAfterSuccessfulEmit(t *testing.T) {
 	eval := &explorerEvaluator{
 		phase:        1,

@@ -419,6 +419,63 @@ func TestConfigTraceGroundedContextAnchorAllowed_RejectsAuxiliaryAbsenceSupport(
 	}
 }
 
+func TestExactResolutionHasDefiningTargetProof_RequiresProofGradeAnchor(t *testing.T) {
+	contract := &ExactResolutionContract{
+		TargetKind:   SubjectConfigKey,
+		TargetLabel:  "config key",
+		Targets:      []string{"explore_mid_loop_hint_budget"},
+		AllowAbsence: true,
+	}
+	rawMention := EvidenceItem{
+		Source:          "internal/config/runtime.go",
+		LineStart:       271,
+		Subject:         "RuntimeSettings",
+		Predicate:       "documents",
+		Object:          "explore_mid_loop_hint_budget",
+		ContextRole:     EvidenceContextRoleUnknown,
+		GroundingStatus: GroundingGrounded,
+	}
+	if ExactResolutionHasDefiningTargetProof(contract, []EvidenceItem{rawMention}) {
+		t.Fatal("raw surface mention without a structured anchor must not satisfy defining target proof")
+	}
+	proof := rawMention
+	proof.AnchorKind = AnchorAssignment
+	proof.AnchorSymbol = "explore_mid_loop_hint_budget"
+	proof.ContextRole = EvidenceContextRoleDefining
+	if !ExactResolutionHasDefiningTargetProof(contract, []EvidenceItem{proof}) {
+		t.Fatal("structured anchored proof should satisfy defining target proof")
+	}
+}
+
+func TestExactResolutionEvidenceBlocksAbsence_RequiresProofGradeAnchor(t *testing.T) {
+	contract := &ExactResolutionContract{
+		TargetKind:   SubjectConfigKey,
+		TargetLabel:  "config key",
+		Targets:      []string{"explore_mid_loop_hint_budget"},
+		AllowAbsence: true,
+	}
+	rawMention := EvidenceItem{
+		Source:          "internal/config/runtime.go",
+		LineStart:       271,
+		Subject:         "RuntimeSettings",
+		Predicate:       "documents",
+		Object:          "explore_mid_loop_hint_budget",
+		ContextRole:     EvidenceContextRoleUnknown,
+		GroundingStatus: GroundingGrounded,
+	}
+	if ExactResolutionEvidenceBlocksAbsence(contract, rawMention) {
+		t.Fatal("raw surface mention without a structured anchor must not block absence")
+	}
+	proof := rawMention
+	proof.AnchorKind = AnchorAssignment
+	proof.AnchorSymbol = "explore_mid_loop_hint_budget"
+	proof.ContextRole = EvidenceContextRoleDefining
+	proof.Predicate = "defines"
+	if !ExactResolutionEvidenceBlocksAbsence(contract, proof) {
+		t.Fatal("structured anchored exact-target proof should block absence")
+	}
+}
+
 func TestExactResolutionEvidenceCanSatisfyRelatedContext_IgnoresSummaryOnlyTermMatches(t *testing.T) {
 	contract := &ExactResolutionContract{
 		TargetKind:           SubjectConfigKey,

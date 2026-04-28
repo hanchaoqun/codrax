@@ -4334,6 +4334,7 @@ type exactResolutionProofEntry struct {
 	Source       string
 	Subject      string
 	AnchorSymbol string
+	AnchorKind   types.AnchorKind
 	Object       string
 	ContextRole  types.EvidenceContextRole
 	Grounded     bool
@@ -4426,6 +4427,7 @@ func exactResolutionProofEntries(contract *types.ExactResolutionContract, citati
 			Source:       item.Source,
 			Subject:      item.Subject,
 			AnchorSymbol: item.AnchorSymbol,
+			AnchorKind:   item.AnchorKind,
 			Object:       item.Object,
 			ContextRole:  item.ContextRole,
 			Grounded:     item.GroundingStatus == types.GroundingGrounded || item.GroundingStatus == types.GroundingRecovered,
@@ -4452,6 +4454,7 @@ func exactResolutionProofEntries(contract *types.ExactResolutionContract, citati
 				Subject:      matched.Subject,
 				Object:       matched.Object,
 				AnchorSymbol: matched.AnchorSymbol,
+				AnchorKind:   matched.AnchorKind,
 				ContextRole:  matched.ContextRole,
 				Grounded:     true,
 				Production:   citationCountsAsPrimaryProofSource(contract, c.File, matched),
@@ -4502,6 +4505,9 @@ func entryCanEstablishAliasPair(contract *types.ExactResolutionContract, entry e
 	if types.ExactResolutionRequiresDefiningPrimaryProof(contract) && !entry.Production {
 		return false
 	}
+	if entry.FromEvidence && strings.TrimSpace(string(entry.AnchorKind)) == "" {
+		return false
+	}
 	switch entry.ContextRole {
 	case types.EvidenceContextRoleIllustrativeOnly, types.EvidenceContextRoleAbsenceSupport:
 		return false
@@ -4542,6 +4548,9 @@ func entryCountsAsDefiningTargetProof(contract *types.ExactResolutionContract, e
 	}
 	switch entry.ContextRole {
 	case types.EvidenceContextRoleIllustrativeOnly, types.EvidenceContextRoleAbsenceSupport:
+		return false
+	}
+	if entry.FromEvidence && strings.TrimSpace(string(entry.AnchorKind)) == "" {
 		return false
 	}
 	if entry.ContextRole == types.EvidenceContextRoleDefining {
@@ -4822,7 +4831,7 @@ func simulateCitationGrounding(citations []types.Citation, readFiles map[string]
 		"emit_answer_document REJECTED: none of your %d citation(s) point to a file the investigation actually read, so the grounder will drop every one and the answer contract will fail.\n\n"+
 			"Your citations: %s\n\n"+
 			"Allowed files (the investigation's read-files list): %s\n\n"+
-			"Re-emit emit_answer_document with file:line in the allowed list. If none of the allowed files contain the real answer anchor, call read_file on the missing file BEFORE re-emitting, or accept an absence answer via emit_investigation_complete(absence_justification=...).",
+			"Re-emit `emit_answer_document` using only file:line anchors from the allowed list. If the current grounded evidence does not support an allowed citation for a point, either drop/renumber the offending citation_ref fields or keep that fact uncited in summary. Do not treat this finalizer retry as permission to reopen files or switch stages; a later exploration retry can surface missing files if the answer truly needs them.",
 		len(citations),
 		strings.Join(missing, ", "),
 		strings.Join(allowed, ", "))
@@ -4918,7 +4927,7 @@ func buildEmitAnswerDocumentCitations(in []types.Citation, workDir string, gc *g
 			repairs = append(repairs, types.RepairDirective{
 				Kind:      types.RepairReadFile,
 				Files:     []string{c.File},
-				Rationale: fmt.Sprintf("emit_answer_document cited %s:%d but file is not in the investigation's read-files list — read it before next emit_investigation_complete", c.File, c.Line),
+				Rationale: fmt.Sprintf("emit_answer_document cited %s:%d but file is not in the investigation's read-files list — a later exploration retry must read it before the final answer can cite it", c.File, c.Line),
 				Origin:    "emit_answer_document.grounder",
 			})
 			continue
@@ -5069,11 +5078,51 @@ func validateCitationRef(field string, index int, ref int, numCites int) error {
 	if ref == types.CitationRefUnset {
 		return nil
 	}
+	fieldPath := fmt.Sprintf("%s[%d].citation_ref", field, index)
+	if field == "value" || field == "boolean" {
+		fieldPath = field + ".citation_ref"
+	}
 	if ref < 0 {
-		return fmt.Errorf("%s[%d]: citation_ref %d is negative; use -1 for 'no citation' or a valid pool index", field, index, ref)
+		hint := fmt.Sprintf(
+			"Re-emit `emit_answer_document` and fix ONLY `%s`: citation_ref is zero-based. Use `-1` for 'no citation' or a valid citations[] index from `0` to `%d`. Keep all other grounded fields unchanged and do not reopen files.",
+			fieldPath, max(numCites-1, 0),
+		)
+		if numCites == 0 {
+			hint = fmt.Sprintf(
+				"Re-emit `emit_answer_document` and fix ONLY `%s`: the current citations[] pool is empty, so this field must be `-1` unless you can reuse already-grounded evidence to add citations[] entries in the same tool call and renumber every citation_ref against that zero-based pool. Do not reopen files.",
+				fieldPath,
+			)
+		}
+		return newAnswerDocValidationError(
+			"citation_ref_range",
+			"%s %d is negative; use -1 for 'no citation' or a valid zero-based citations[] index",
+			fieldPath, ref,
+		).WithFields(fieldPath).
+			WithMetadata("citation_ref_field", fieldPath).
+			WithMetadata("citation_ref_actual", strconv.Itoa(ref)).
+			WithMetadata("citation_ref_pool_size", strconv.Itoa(numCites)).
+			WithHint(hint)
 	}
 	if ref >= numCites {
-		return fmt.Errorf("%s[%d]: citation_ref %d is out of range (citations pool has %d entries)", field, index, ref, numCites)
+		hint := fmt.Sprintf(
+			"Re-emit `emit_answer_document` and fix ONLY `%s`: citation_ref is zero-based. The current citations[] pool has %d entries, so valid indices are `0` through `%d`, or `-1` for 'no citation'. Keep the existing grounded evidence and renumber only the offending citation_ref fields; do not reopen files.",
+			fieldPath, numCites, max(numCites-1, 0),
+		)
+		if numCites == 0 {
+			hint = fmt.Sprintf(
+				"Re-emit `emit_answer_document` and fix ONLY `%s`: the current citations[] pool is empty, so this field must be `-1` unless you can reuse already-grounded evidence to add citations[] entries in the same tool call and then renumber the citation_ref against that zero-based pool. Do not reopen files.",
+				fieldPath,
+			)
+		}
+		return newAnswerDocValidationError(
+			"citation_ref_range",
+			"%s %d is out of range (citations pool has %d entries)",
+			fieldPath, ref, numCites,
+		).WithFields(fieldPath).
+			WithMetadata("citation_ref_field", fieldPath).
+			WithMetadata("citation_ref_actual", strconv.Itoa(ref)).
+			WithMetadata("citation_ref_pool_size", strconv.Itoa(numCites)).
+			WithHint(hint)
 	}
 	return nil
 }

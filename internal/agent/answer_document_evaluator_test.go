@@ -2004,6 +2004,37 @@ func TestAnswerDocumentEvaluator_Observe_MidLoopStructuredRepairHintUsesRepairMe
 	}
 }
 
+func TestAnswerDocumentEvaluator_Observe_MidLoopCitationRefRepairUsesStructuredHint(t *testing.T) {
+	e := &answerDocumentEvaluator{maxRetries: 2}
+	sig := e.Observe(nil, LoopObservation{
+		Phase:     PhaseMidLoop,
+		Iteration: 0,
+		LastToolResult: &types.ToolResult{
+			ToolName: "emit_answer_document",
+			Success:  false,
+			Summary:  "[answer_doc_reject:citation_ref_range] steps[3].citation_ref 6 is out of range (citations pool has 6 entries)",
+			Repair: &types.ToolRepair{
+				Code:   "citation_ref_range",
+				Fields: []string{"steps[3].citation_ref"},
+				Hint:   "Re-emit `emit_answer_document` and fix ONLY `steps[3].citation_ref`: citation_ref is zero-based. The current citations[] pool has 6 entries, so valid indices are `0` through `5`, or `-1` for 'no citation'. Keep the existing grounded evidence and renumber only the offending citation_ref fields; do not reopen files.",
+			},
+		},
+	})
+	if !sig.HintRequested {
+		t.Fatalf("structured citation_ref repair should request a correction hint, got %+v", sig)
+	}
+	for _, want := range []string{
+		"steps[3].citation_ref",
+		"zero-based",
+		"`0` through `5`",
+		"Do not write free-form prose outside the tool call",
+	} {
+		if !strings.Contains(sig.Hint, want) {
+			t.Fatalf("citation_ref repair hint missing %q: %q", want, sig.Hint)
+		}
+	}
+}
+
 func TestAnswerDocumentEvaluator_Observe_MidLoopValueSummaryRejectSurfacesAction(t *testing.T) {
 	e := &answerDocumentEvaluator{maxRetries: 2}
 	sig := e.Observe(nil, LoopObservation{

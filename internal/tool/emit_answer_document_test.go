@@ -2295,6 +2295,61 @@ func TestEmitAnswerDocument_AbsenceIgnoresUngroundedProductionMention(t *testing
 	}
 }
 
+func TestEmitAnswerDocument_AbsenceIgnoresRawSurfaceMentionWithoutStructuredAnchor(t *testing.T) {
+	tool := &EmitAnswerDocument{}
+	ctx := newDocBusCtx("")
+	target := "explore_mid_loop_hint_budget"
+	ctx.AnalysisIR = &types.AnalysisIR{
+		RequestModel: types.RequestModel{
+			Scenario: types.ScenarioConfigTrace,
+			AnalyzerHints: types.AnalyzerHints{
+				Kind:         "config_mapping",
+				ExactTargets: []string{target},
+			},
+			AnswerSubject: types.AnswerSubject{Kind: types.SubjectConfigKey},
+		},
+		AnswerContract: types.AnswerContract{
+			ExactResolution: &types.ExactResolutionContract{
+				TargetKind:              types.SubjectConfigKey,
+				TargetLabel:             "config key",
+				Targets:                 []string{target},
+				AllowAbsence:            true,
+				RequireTargetMention:    true,
+				AliasRequiresProof:      true,
+				RelatedContextPolicy:    types.ExactContextSameFamilyGrounded,
+				RelatedContextScopeHint: "same namespace / prefix family",
+			},
+		},
+	}
+	ctx.Mutable.SetAbsenceJustification("searched the repo and found no config key named `explore_mid_loop_hint_budget`")
+	ctx.Mutable.SetInvestigationResultKind("absence")
+	ctx.Mutable.AppendEvidence([]types.EvidenceItem{{
+		Kind:            types.EvidenceConcrete,
+		Subject:         "BuildAnalysisContract",
+		Predicate:       "documents",
+		Object:          target,
+		Summary:         "prompt text uses the exact target only as an example token",
+		Source:          "internal/skill/analysis_contract.go",
+		LineStart:       367,
+		LineEnd:         367,
+		GroundingStatus: types.GroundingGrounded,
+		Producer:        "concrete_values",
+	}})
+
+	params := mustDocJSON(t, map[string]interface{}{
+		"shape": "explanation",
+		"exact_resolution": map[string]interface{}{
+			"status":       "absent",
+			"context_mode": "grounded_context_only",
+		},
+		"summary": "Related grounded context stays context only.",
+	})
+	res, _ := tool.Execute(ctx, params)
+	if !res.Success {
+		t.Fatalf("raw exact-target surface mentions without structured anchors must not contradict absence, got: %q", res.Summary)
+	}
+}
+
 func TestEmitAnswerDocument_RejectsConfigValueForAbsentConfigTrace(t *testing.T) {
 	tool := &EmitAnswerDocument{}
 	ctx := newDocBusCtx("")
@@ -5859,6 +5914,69 @@ func TestEmitAnswerDocument_ValueShape_RejectsEmptySummary(t *testing.T) {
 	}
 	if got := strings.Join(res.Repair.Fields, ","); !strings.Contains(got, "summary") || !strings.Contains(got, "value.literal") {
 		t.Fatalf("repair fields should name summary + literal, got %+v", res.Repair)
+	}
+}
+
+func TestEmitAnswerDocument_StepCitationRefReject_EmitsStructuredRepair(t *testing.T) {
+	tool := &EmitAnswerDocument{}
+	ctx := newDocBusCtx("")
+	params := mustDocJSON(t, map[string]interface{}{
+		"shape":   "step_list",
+		"summary": "grounded step chain",
+		"steps": []map[string]interface{}{
+			{"index": 1, "description": "first hop", "citation_ref": 1},
+		},
+		"citations": []map[string]interface{}{
+			{"file": "internal/agent/analyzer.go", "line": 603, "quote": "func (e *analyzerEvaluator) ParseOutput("},
+		},
+	})
+	res, _ := tool.Execute(ctx, params)
+	if res.Success {
+		t.Fatalf("out-of-range citation_ref must reject")
+	}
+	if res.Repair == nil || res.Repair.Code != "citation_ref_range" {
+		t.Fatalf("citation_ref reject should expose structured repair metadata, got %+v", res.Repair)
+	}
+	if got := strings.Join(res.Repair.Fields, ","); !strings.Contains(got, "steps[0].citation_ref") {
+		t.Fatalf("repair fields should name the offending citation_ref, got %+v", res.Repair)
+	}
+	for _, want := range []string{"zero-based", "0` through `0", "steps[0].citation_ref"} {
+		if !strings.Contains(res.Repair.Hint, want) {
+			t.Fatalf("repair hint missing %q: %q", want, res.Repair.Hint)
+		}
+	}
+}
+
+func TestEmitAnswerDocument_WhitelistReject_StaysFinalizerSafe(t *testing.T) {
+	graph := newDocGraph(map[string][]docSymbol{
+		"internal/types/subagent.go": {{name: "Foo", line: 10, end: 30}},
+		"internal/agent/subagent.go": {{name: "Bar", line: 10, end: 30}},
+	})
+	ctx := newDocBusCtx("")
+	ctx.Mutable.SetSearchGraph(graph)
+	ctx.Mutable.SetTurnAArtifacts(types.TurnAArtifacts{
+		ReadFiles: []string{"internal/types/subagent.go"},
+	})
+
+	tool := &EmitAnswerDocument{}
+	params := mustDocJSON(t, map[string]interface{}{
+		"shape":   "explanation",
+		"summary": "x",
+		"citations": []map[string]interface{}{
+			{"file": "internal/agent/subagent.go", "line": 15},
+		},
+	})
+	res, _ := tool.Execute(ctx, params)
+	if res.Success {
+		t.Fatalf("all-whitelist-miss citations must reject so the answer does not ship uncited")
+	}
+	for _, bad := range []string{"call read_file", "emit_investigation_complete"} {
+		if strings.Contains(res.Summary, bad) {
+			t.Fatalf("finalizer-facing whitelist reject must stay stage-safe; found %q in %q", bad, res.Summary)
+		}
+	}
+	if !strings.Contains(res.Summary, "Do not treat this finalizer retry as permission to reopen files or switch stages") {
+		t.Fatalf("reject should explicitly keep the retry inside finalizer scope, got %q", res.Summary)
 	}
 }
 

@@ -3467,8 +3467,8 @@ func (e *explorerEvaluator) postReadWithoutEmitSignal(obs LoopObservation) LoopS
 			"MID-LOOP CHECK: you have read %d file(s) %s but %s. "+
 				"Facts left only in your prose notes are NOT recorded — downstream stages cannot see any concrete value, definition, call-site, or condition that is not passed through `emit_evidence(items=[...])`. "+
 				"Pick the strongest anchors you have identified in the files you just read and emit them in ONE batch now. Line numbers MUST come verbatim from the `read_file` gutter (copy the leading `N| ` prefix). "+
-				"After the batch succeeds, continue investigating or call `emit_investigation_complete(reason, confidence, result_kind)`.",
-			reads, scope, recording),
+				"After the batch succeeds, continue investigating or call `emit_investigation_complete(reason, confidence, result_kind)`.%s",
+			reads, scope, recording, e.authoritativeLogDriftReminder(obs.AllToolResults)),
 		Progress:       true,
 		BypassThrottle: true,
 	}
@@ -3529,7 +3529,8 @@ func (e *explorerEvaluator) postReadWithoutEmitEscalationSignal(obs LoopObservat
 		HintKey:       "explorer.mid-loop.read-without-emit-escalated",
 		Hint: "MID-LOOP CHECK: the earlier `emit_evidence` nudge was ignored and you still have an unrecorded evidence backlog " + backlogScope + ". " +
 			"Stop expanding with more navigation for the moment. Use the grounded lines you have already read to emit ONE batch of `emit_evidence(items=[...])` now. " +
-			"After that batch succeeds, either continue on any truly unresolved branch or call `emit_investigation_complete(reason, confidence, result_kind)` if the evidence already answers the question.",
+			"After that batch succeeds, either continue on any truly unresolved branch or call `emit_investigation_complete(reason, confidence, result_kind)` if the evidence already answers the question." +
+			e.authoritativeLogDriftReminder(obs.AllToolResults),
 		Progress:       true,
 		BypassThrottle: true,
 	}
@@ -3549,10 +3550,20 @@ func (e *explorerEvaluator) postReadWithoutEmitClosureOnlySignal(obs LoopObserva
 	return LoopSignal{
 		HintRequested:  true,
 		HintKey:        fmt.Sprintf("explorer.mid-loop.read-without-emit-closure-only.%d", obs.Iteration),
-		Hint:           "MID-LOOP CHECK: an earlier hint already established that your next useful step is to materialize structured evidence. The current batch still spent effort on navigation tools without recording the current backlog. Do NOT keep expanding with `read_file`, `grep`, `repo_map`, `list_files`, or `exec_command` until you first emit ONE grounded `emit_evidence(items=[...])` batch from the lines you already have.",
+		Hint:           "MID-LOOP CHECK: an earlier hint already established that your next useful step is to materialize structured evidence. The current batch still spent effort on navigation tools without recording the current backlog. Do NOT keep expanding with `read_file`, `grep`, `repo_map`, `list_files`, or `exec_command` until you first emit ONE grounded `emit_evidence(items=[...])` batch from the lines you already have." + e.authoritativeLogDriftReminder(obs.AllToolResults),
 		Progress:       true,
 		BypassThrottle: true,
 	}
+}
+
+func (e *explorerEvaluator) authoritativeLogDriftReminder(allResults []types.ToolResult) string {
+	if !e.logTriageAuthoritativeAndCovered(allResults) {
+		return ""
+	}
+	if len(e.authoritativeFrameSymbolTailsByFile()) == 0 {
+		return ""
+	}
+	return " For attached crash/panic logs, treat raw stack line numbers as stale locators once the named file/function has been grounded. Emit evidence from the current grounded functions/calls you already read instead of chasing historical numeric offsets."
 }
 
 func (e *explorerEvaluator) closureReadyLatched() bool {
