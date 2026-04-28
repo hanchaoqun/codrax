@@ -1355,6 +1355,27 @@ func requireCitationCorroboration(claim, citeFile string, citeLine int, gc *grou
 			}
 		}
 	}
+	// Token-set route did not corroborate. For mixed-language claims
+	// — e.g. `value.literal "用户已存在 ProcessRequest"` cited at a line
+	// whose ASCII identifier portion happens not to match — try a
+	// byte-level substring fallback against the same ±window. The
+	// trimmed full claim must appear verbatim somewhere in the window
+	// for the fallback to accept; otherwise the strict rejection
+	// below stands.
+	if trimmed := strings.TrimSpace(claim); trimmed != "" {
+		for line := citeLine - corroborationWindow; line <= citeLine+corroborationWindow; line++ {
+			if line <= 0 {
+				continue
+			}
+			text, ok := fileLines[line]
+			if !ok {
+				continue
+			}
+			if strings.Contains(text, trimmed) {
+				return nil
+			}
+		}
+	}
 	msg := fmt.Sprintf("%s is not corroborated by %s (%s:%d): the cited line and ±%d-line window contain no identifier overlap with the claim. %s",
 		cfg.claimLabel, cfg.citeLabel, citeFile, citeLine, corroborationWindow, cfg.escape)
 	if cfg.code == "" {

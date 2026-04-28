@@ -396,8 +396,16 @@ func GroundCitation(c types.Citation, gc *Context) CitationReport {
 // quoteCorroboratesLine checks whether the citation's Quote shares at
 // least one identifier-shaped token with the cited line or its
 // immediate neighbours. Prose quotes ("the repomap facade binds …")
-// that contain zero identifier tokens fall through as uncorroborated —
-// structural, not keyword-list based.
+// that contain zero identifier tokens fall through to a byte-level
+// substring check — covers Unicode literals (Chinese / Japanese /
+// Korean prompt strings, Cyrillic identifiers etc.) the ASCII
+// identifierTokenRe cannot tokenise.
+//
+// The fallback only fires when the ASCII path would have hard-rejected
+// the quote (zero tokens). Quotes that DO carry ASCII tokens still
+// take the original token-set route byte-identically; this keeps the
+// false-positive surface unchanged for the common code-symbol case
+// where token-set's word-boundary semantics matter.
 func quoteCorroboratesLine(quote string, fileLines map[int]string, line, radius int) bool {
 	text, ok := lookupLineWithNeighbours(fileLines, line, radius)
 	if !ok {
@@ -405,10 +413,7 @@ func quoteCorroboratesLine(quote string, fileLines map[int]string, line, radius 
 	}
 	qTokens := tokenSet(quote)
 	if len(qTokens) == 0 {
-		// Quote with no identifier tokens is pure prose — we cannot
-		// corroborate it against code, so report false so the caller
-		// clears it.
-		return false
+		return nonASCIISubstringMatch(quote, text)
 	}
 	hTokens := tokenSet(text)
 	for t := range qTokens {
@@ -417,6 +422,24 @@ func quoteCorroboratesLine(quote string, fileLines map[int]string, line, radius 
 		}
 	}
 	return false
+}
+
+// nonASCIISubstringMatch reports whether trimmed needle appears as a
+// byte-level substring of haystack. Used as the deterministic fallback
+// for quote / anchor checks when the ASCII identifierTokenRe extracts
+// zero tokens — i.e. the input is a Unicode literal, a punctuation-only
+// string, or any text the regex cannot tokenise.
+//
+// Trimming both sides handles the common case where the LLM emits the
+// quote with leading / trailing whitespace that is not present in the
+// raw source line. An empty needle after trim is conservatively rejected
+// (can never corroborate anything).
+func nonASCIISubstringMatch(needle, haystack string) bool {
+	n := strings.TrimSpace(needle)
+	if n == "" {
+		return false
+	}
+	return strings.Contains(haystack, n)
 }
 
 // tier2DocRadius is how many lines above a symbol's declaration are
@@ -594,16 +617,33 @@ func recoverSnippetFuzzy(it *types.EvidenceItem, gc *Context) (string, int, bool
 	if !ok {
 		return "", 0, false
 	}
+	if it.LineStart <= 0 {
+		return "", 0, false
+	}
 	want := tokenSet(snippet)
+	radius := 15
 	if len(want) == 0 {
+		// Unicode-only snippet (Chinese / Japanese / pure punctuation
+		// LLM evidence): the ASCII regex extracts zero tokens. Fall
+		// back to byte-level substring scan within the same ±radius
+		// window. Strict equivalence to "found exact snippet at line"
+		// — no fractional threshold because we don't have a token
+		// vocabulary to score against. Keeps the recovery feature
+		// available for non-ASCII evidence instead of silently
+		// dropping it.
+		for i := it.LineStart - radius; i <= it.LineStart+radius; i++ {
+			text, exists := fileLines[i]
+			if !exists {
+				continue
+			}
+			if nonASCIISubstringMatch(snippet, text) {
+				return "", i, true
+			}
+		}
 		return "", 0, false
 	}
 	bestLine, bestScore := 0, 0.0
 	threshold := 0.6
-	radius := 15
-	if it.LineStart <= 0 {
-		return "", 0, false
-	}
 	for i := it.LineStart - radius; i <= it.LineStart+radius; i++ {
 		text, exists := fileLines[i]
 		if !exists {
@@ -902,11 +942,27 @@ func HasFileInIndex(gc *Context, source string) bool {
 
 func findAnchorLine(fileLines map[int]string, center, radius int, anchor string) (int, bool) {
 	seg := lastDotSegment(anchor)
+	// When the anchor itself yields zero ASCII identifier tokens
+	// (Chinese / Japanese / Korean literals, Unicode-only identifiers,
+	// punctuation-bearing string literals), the ASCII token-set path
+	// is structurally unable to corroborate it. Switch to byte-level
+	// substring matching against each line in the window. ASCII
+	// anchors take the original path byte-identically — guarded by
+	// internal/tool/ground/ground_unicode_test.go to keep token-set
+	// precision intact for the dominant code-symbol case.
+	anchorTokens := tokenSet(anchor)
+	useSubstring := len(anchorTokens) == 0
 	// Center-first: if the claimed line matches, take it.
 	if text, ok := fileLines[center]; ok {
-		have := tokenSet(text)
-		if have[anchor] || (seg != anchor && have[seg]) {
-			return center, true
+		if useSubstring {
+			if nonASCIISubstringMatch(anchor, text) {
+				return center, true
+			}
+		} else {
+			have := tokenSet(text)
+			if have[anchor] || (seg != anchor && have[seg]) {
+				return center, true
+			}
 		}
 	}
 	// Nearest-neighbour scan.
@@ -919,9 +975,15 @@ func findAnchorLine(fileLines map[int]string, center, radius int, anchor string)
 		if !ok {
 			continue
 		}
-		have := tokenSet(text)
-		if !have[anchor] && (seg == anchor || !have[seg]) {
-			continue
+		if useSubstring {
+			if !nonASCIISubstringMatch(anchor, text) {
+				continue
+			}
+		} else {
+			have := tokenSet(text)
+			if !have[anchor] && (seg == anchor || !have[seg]) {
+				continue
+			}
 		}
 		d := i - center
 		if d < 0 {
