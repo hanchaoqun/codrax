@@ -3290,6 +3290,58 @@ func TestObserveMidLoop_EvidenceRepairClosureOnlySuppressesExpansion(t *testing.
 	}
 }
 
+func TestObserveMidLoop_EvidenceRepairHintAdvancesBatchBaseline(t *testing.T) {
+	eval := &explorerEvaluator{
+		phase:        1,
+		searchResult: &keywordSearchResult{Graph: &repomap.Graph{}},
+	}
+	firstBatch := []types.ToolResult{
+		{
+			ToolName: "emit_evidence",
+			Success:  true,
+			Summary:  "emit_evidence accepted 1 item(s)",
+			Repair: &types.ToolRepair{
+				Code: "evidence_line_text_repair",
+				Targets: []types.ToolRepairTarget{
+					{File: "internal/agent/analyzer.go", Lines: []int{651}, Action: string(types.RepairReadFile)},
+				},
+			},
+		},
+	}
+	first := eval.observeMidLoop(LoopObservation{
+		Phase:          PhaseMidLoop,
+		Iteration:      3,
+		LastToolResult: &firstBatch[0],
+		AllToolResults: firstBatch,
+	})
+	if !first.HintRequested || first.HintKey != "explorer.mid-loop.evidence-repair" {
+		t.Fatalf("first pass should raise the evidence-repair hint, got %+v", first)
+	}
+	if eval.midLoopLastResultsLen != len(firstBatch) {
+		t.Fatalf("midLoopLastResultsLen = %d, want %d after early repair hint", eval.midLoopLastResultsLen, len(firstBatch))
+	}
+
+	secondBatch := append(append([]types.ToolResult(nil), firstBatch...),
+		types.ToolResult{
+			ToolName: "read_file",
+			Success:  true,
+			Summary:  "[internal/agent/analyzer.go: showing lines 646-660 of 2003 total]\nir, buildErr := buildAnalysisIR(ctx)",
+		},
+	)
+	second := eval.observeMidLoop(LoopObservation{
+		Phase:          PhaseMidLoop,
+		Iteration:      4,
+		LastToolResult: &secondBatch[len(secondBatch)-1],
+		AllToolResults: secondBatch,
+	})
+	if !second.HintRequested {
+		t.Fatalf("second pass should notice navigation after the repair cue, got %+v", second)
+	}
+	if !strings.HasPrefix(second.HintKey, "explorer.mid-loop.evidence-repair-closure-only.") {
+		t.Fatalf("HintKey = %q, want evidence-repair-closure-only prefix", second.HintKey)
+	}
+}
+
 func TestParseEmitEvidenceRepairTargets_IgnoresAggregateCounters(t *testing.T) {
 	summary := "emit_evidence accepted 4 item(s)\n\n" +
 		"  [1] relationship buildAnalysisIR @ internal/agent/analyzer.go:412 - ParseOutput calls buildAnalysisIR\n" +

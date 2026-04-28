@@ -4272,6 +4272,43 @@ func (e *explorerEvaluator) postCompletionReadyClosureOnlySignal(obs LoopObserva
 	}
 }
 
+func (e *explorerEvaluator) updateMidLoopSerialStreak(prevResultsLen, currentResultsLen int) {
+	if currentResultsLen < 0 {
+		currentResultsLen = 0
+	}
+	if prevResultsLen < 0 {
+		prevResultsLen = 0
+	}
+	if prevResultsLen > currentResultsLen {
+		prevResultsLen = currentResultsLen
+	}
+	currentBatch := currentResultsLen - prevResultsLen
+	serialThresh := e.heuristics.SerialBatchThreshold
+	if prevResultsLen > 0 && currentBatch <= serialThresh {
+		e.midLoopSerialStreak++
+	} else if currentBatch > serialThresh {
+		e.midLoopSerialStreak = 0
+	}
+}
+
+func (e *explorerEvaluator) finalizeMidLoopBatch(prevResultsLen, currentResultsLen int) {
+	if currentResultsLen < 0 {
+		currentResultsLen = 0
+	}
+	if prevResultsLen < 0 {
+		prevResultsLen = 0
+	}
+	if prevResultsLen > currentResultsLen {
+		prevResultsLen = currentResultsLen
+	}
+	// Consume the current tool-result batch even when observeMidLoop exits
+	// early through a high-priority hint. Otherwise the next iteration
+	// still compares against a stale baseline, which can hide the exact
+	// “you only navigated after a repair/completion cue” follow-up we want
+	// to emit.
+	e.midLoopLastResultsLen = currentResultsLen
+}
+
 func exactAbsenceClosureReady(contract *types.ExactResolutionContract, scenario types.Scenario, targets []string, evidence []types.EvidenceItem, requiredFiles []string) bool {
 	return types.ExactResolutionAbsenceClosureReady(contract, scenario, targets, evidence, requiredFiles)
 }
@@ -4682,6 +4719,10 @@ func (e *explorerEvaluator) observeMidLoop(obs LoopObservation) LoopSignal {
 	e.syncClosureRepairState(obs.AllToolResults)
 	iteration := obs.Iteration
 	allResults := obs.AllToolResults
+	prevResultsLen := e.midLoopLastResultsLen
+	currentResultsLen := len(allResults)
+	e.updateMidLoopSerialStreak(prevResultsLen, currentResultsLen)
+	defer e.finalizeMidLoopBatch(prevResultsLen, currentResultsLen)
 
 	// Detect explicit completion signal from the LLM.
 	// emit_investigation_complete is the explorer's terminal action —
@@ -4773,27 +4814,6 @@ func (e *explorerEvaluator) observeMidLoop(obs LoopObservation) LoopSignal {
 	if sig := e.postReadWithoutEmitClosureOnlySignal(obs); sig.HintRequested {
 		return sig
 	}
-
-	// Infer the current batch size from the allResults growth delta.
-	// observeMidLoop is called once per ReAct iteration, after all
-	// tool calls in the current batch have executed and their
-	// results have been appended. Update the serial-streak counter
-	// every call so the parallel-batching cue (Check 3) has
-	// accurate degradation history when it fires.
-	//
-	// Threshold: batch <= 2 counts as "serial-ish" because the LLM's
-	// most common low-parallelism pattern is a 1-grep + 1-read pair
-	// per round — technically 2 calls, but sequential in intent (grep
-	// to locate, then read what was found). Real parallelism means 3+
-	// independent calls in one batch.
-	currentBatch := len(allResults) - e.midLoopLastResultsLen
-	serialThresh := e.heuristics.SerialBatchThreshold
-	if e.midLoopLastResultsLen > 0 && currentBatch <= serialThresh {
-		e.midLoopSerialStreak++
-	} else if currentBatch > serialThresh {
-		e.midLoopSerialStreak = 0
-	}
-	e.midLoopLastResultsLen = len(allResults)
 
 	// The old "fire at most every 3 iters, not before iter N" throttle
 	// now lives in LoopPolicy.MinInjectInterval. We still want the
