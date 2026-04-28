@@ -417,10 +417,13 @@ memory_policy_default:     # 默认 {0, 0, -1, 2, 0} (Kind="" 时的 fallback)
 | 键 | 默认值 | 作用 |
 |---|---|---|
 | `pipeline_max_steps` | `50` | 单次 Run 总步数上限(每个 LLM 调用或工具调用 = 1 步) |
-| `pipeline_max_retries_per_stage` | `2` | 某个阶段连续失败多少次后放弃 |
+| `pipeline_max_steps_ceil` | `100` | 多 sub-topic 自适应放大后的步数硬顶 |
+| `pipeline_max_retries_per_stage` | `2` | analyze 阶段重试基线;**按 sub-topic 数动态扩展**(见 `agent_subtopic_retry_extra` + `agent_max_retry_budget_ceil`) |
 | `pipeline_max_stage_visits` | `4` | 同一阶段最多被调度几次(防死循环) |
+| `pipeline_write_retry_budget` | `3` | 写模式 verify→plan retry 上限 |
+| `pipeline_write_retry_budget_ceil` | `5` | `SetWriteRetryBudget` 内部硬上限,防 yaml 笔误把 retry 拉到极大值 |
 
-以上三个都有同名 CLI flag 可临时覆盖。
+`pipeline_max_steps` / `pipeline_max_retries_per_stage` / `pipeline_max_stage_visits` 都有同名 CLI flag 可临时覆盖;`*_ceil` 系列仅 yaml。
 
 #### 3.3.5 工具产物(blob)大小
 
@@ -500,10 +503,40 @@ memory_policy_default:     # 默认 {0, 0, -1, 2, 0} (Kind="" 时的 fallback)
 |---|---|---|
 | `agent_subtopic_prescan_extra` | `1` | 每 2 个 sub-topic 加几轮 pre-scan |
 | `agent_subtopic_explorer_extra` | `3` | 每个 sub-topic 加几轮 explorer 迭代 |
-| `agent_subtopic_planner_extra` | `3` | 每个 sub-topic 加几次 planner soft-cap 迭代（写模式 `--mode=plan`）；硬顶 20 |
-| `agent_planner_complexity_extra` | `2` | analyzer 的 complexity 等级 × 此值额外加给 planner soft-cap：Simple +0、Moderate +2、Complex +4 |
+| `agent_subtopic_planner_extra` | `3` | 每个 sub-topic 加几次 planner soft-cap 迭代(写模式 `--mode=plan`) |
+| `agent_planner_complexity_extra` | `2` | analyzer 的 complexity 等级 × 此值额外加给 planner soft-cap:Simple +0、Moderate +2、Complex +4 |
 | `agent_subtopic_pipeline_extra` | `5` | 每个 sub-topic 加几步 pipeline |
-| `agent_subtopic_retry_extra` | `1` | 每 2 个 sub-topic 加几次 retry |
+| `agent_subtopic_retry_extra` | `1` | 每 2 个 sub-topic 加几次 analyze retry(由 `runAnalyzePhase` 入口的 `dynamicAnalyzeRetries` 消费,基于 `EstimateSubTopicCount(objective)` 启发) |
+| `agent_subtopic_extractor_extra` | `1` | 每个 sub-topic 加几次 extractor soft-cap 迭代。多 sub-topic explanation 答案要求每个子话题一行 Key Anchor,静态 `extractor_soft_iter_cap=3` 不够 |
+| `agent_extractor_complexity_extra` | `1` | analyzer 的 complexity 等级 × 此值额外加给 extractor soft-cap:Simple +0、Moderate +1、Complex +2 |
+| `agent_target_paths_verifier_extra` | `1` | 写模式 verify 阶段每个 `plan.TargetPaths` 加几次 verifier soft-cap 迭代。多语言 monorepo 计划需要 N 个 runner 跑 N 次 |
+
+**Per-evaluator 双段 iter caps**(soft / hard pair。soft 命中时若 LLM 正在调对应 emit 工具(streaming-truncation 恢复窗口)则继续一轮;hard 命中无条件停。零值落到代码默认):
+
+| 键 | 默认值 | 作用 |
+|---|---|---|
+| `agent_planner_soft_iter_cap` / `agent_planner_hard_iter_cap` | `6` / `9` | planner ReAct 软/硬上限 |
+| `agent_extractor_soft_iter_cap` / `agent_extractor_hard_iter_cap` | `3` / `5` | extractor ReAct 软/硬上限 |
+| `agent_verifier_soft_iter_cap` / `agent_verifier_hard_iter_cap` | `5` / `8` | verifier ReAct 软/硬上限(写模式) |
+| `agent_coder_soft_iter_slack` / `agent_coder_hard_iter_recovery` | `3` / `3` | coder 软上限 = `len(plan.TargetPaths) + slack`,硬 = soft + recovery |
+
+**自适应放大硬顶**(防 yaml 误配把扩充乘数拉到极大):
+
+| 键 | 默认值 | 作用 |
+|---|---|---|
+| `agent_prescan_rounds_ceil` | `4` | 多 sub-topic 扩充后 pre-scan 总轮数硬顶 |
+| `agent_explorer_scaled_iter_max` | `35` | explorer 扩充后总迭代数硬顶 |
+| `agent_planner_scaled_iter_max` | `20` | planner soft-cap 扩充后硬顶(planner 单 emit,不需要更多) |
+| `agent_extractor_scaled_iter_max` | `8` | extractor soft-cap 扩充后硬顶 |
+| `agent_verifier_scaled_iter_max` | `12` | verifier soft-cap 扩充后硬顶 |
+| `agent_max_retry_budget_ceil` | `5` | analyze 动态 retry 数硬顶,超出说明 LLM 反复失败同一闸门,bounded retry 控制 token 成本 |
+
+**Triager 硬上限**:
+
+| 键 | 默认值 | 作用 |
+|---|---|---|
+| `agent_log_triager_iter_cap` | `6` | log_triager 外层 ReAct 循环上限 |
+| `agent_perf_triager_iter_cap` | `6` | perf_triager 外层 ReAct 循环上限 |
 
 #### 3.3.12 explorer 启发式(`explore_*`)
 
@@ -1150,7 +1183,27 @@ analyzer 的 quality gate 有两条**只对读模式有意义**的检查:
 
 否则"用 python 写一个猜数字游戏"这种从零起步的请求会被读模式 gate 误拒:仓里没有可调查的实体 → 所有 hypothesis priority 全是 0 → `hypothesis_coverage` fail → analyzer 重试预算烧光在凭空捏造假设上,planner 永远等不到 RequestModel。
 
-#### 4.3.15 verify_failed plan 可重新 /approve(环境修复重试)
+#### 4.3.15 Analyzer 跨信号 coherence 闸门(读模式)
+
+analyzer 在产出 `RequestModel` 之后会跑两条额外的**结构性闸门**,把 LLM 自己的字段拿出来交叉对照,任何一条不通过都会触发一次重新 emit:
+
+- `subtopic_coherence` —— 三个子规则
+  - **R1.1 Domain divergence**:`TermGraph` 里 ≥ 2 个 repomap 验证过的独立 package(置信度 ≥ 0.7),但只切了 ≤ 1 个 sub-topic
+  - **R1.2 Predicate self-contradiction**:LLM 自评 `IsCrossComponent=true` 却只切 ≤ 1 个 sub-topic
+  - **R1.3 Sub-topic entity orphan**:`PrimaryEntities ≥ 2` 时,sub-topic 里声明的实体跟主 entity 完全不交集
+- `shape_subject_coherence` —— 两个子规则
+  - **R2.1 Scalar vs multi-topic**:`IsScalarAnswer=true` 但切了 ≥ 2 个 sub-topic(标量答案不可能由多个独立子主题合成)
+  - **R2.2 Explanation vs scalar subject**:答案 shape 是 `Explanation` 但 `AnswerSubject.Kind` 是 Numeric / StringLiteral / ReturnValue 中的某个,且置信度 ≥ 0.6
+
+闸门**完全不依赖关键字表**:输入全部是 LLM 自己 emit 的结构化字段(`SemanticPredicates` 自评 bool、`AnswerSubject.Kind` 枚举、`SubTopics`)和 normalizer + repomap 验证过的 `TermGraph.Domain`。
+
+失败时 analyzer 把 IR 字段级的具体矛盾(例如 `R1.1 domain_divergence: TermGraph spans 3 distinct repomap-verified domains [agent, finalizer, orchestrator] but only 1 sub-topic emitted`)写到 `Mutable.AnalyzerRetryHint`(consume-once);下一轮 retry 的 prompt 里 LLM 看到的是具体的 cross-signal 不匹配,而不是泛泛的 "gate rejected"。
+
+阈值常量(`coherenceTermSymbolMinConfidence=0.7` / `coherenceSubjectConfidenceFloor=0.6` / `coherenceMinPrimaryEntitiesForOrphan=2`)是**正确性边界**,不是 budget 旋钮,**不暴露 yaml**;降低这些值只会削弱闸门,不解决 LLM 上游的误分类。
+
+写模式跳过这两条闸门(同 §4.3.14 的理由,写流水线有自己的 SuccessCriteria 套件)。
+
+#### 4.3.16 verify_failed plan 可重新 /approve(环境修复重试)
 
 verify 阶段失败的 plan 状态是 `verify_failed`,默认情况下:
 
@@ -1164,7 +1217,7 @@ verify 阶段失败的 plan 状态是 `verify_failed`,默认情况下:
 
 `/approve` 拒绝的状态:`applied`(已落地)/ `applied_failed`(W1/W1b 拒,需要重新规划)/ `rejected`(用户主动否决,不能静默撤销)。
 
-#### 4.3.16 Python pytest 自动用 venv
+#### 4.3.17 Python pytest 自动用 venv
 
 verify 阶段跑 pytest 时,codrax 会按下列顺序解析 Python 解释器:
 
@@ -1193,13 +1246,13 @@ verify 阶段跑 pytest 时,codrax 会按下列顺序解析 Python 解释器:
 
 **Java / Maven / Gradle / Cargo 不需要**:这些都用全局用户级缓存(`~/.m2`、`~/.gradle`、`~/.cargo`),跨工作目录共享。CMake / Meson 在显式 build dir 里跑,verify 之前要求用户已经 configure 过。Make 由项目自定义。
 
-#### 4.3.17 REPL 控制命令意外喂给 orchestrator 时立即拒
+#### 4.3.18 REPL 控制命令意外喂给 orchestrator 时立即拒
 
 `/approve plan-XXX` / `/verify plan-XXX` / `/merge --branch=...` 这类字面量必须经 REPL slash dispatcher 拦截;如果通过 CLI `--request="/approve ..."` 或别的边缘路径直接喂到 orchestrator,**Run() 入口立即报错**(1 round-trip,不进 analyzer)。这避免了 analyzer 在 12+ 次迭代里反复拒绝自己的 `emit_analysis` 调用、最终被 SIGINT 杀掉的浪费场景。
 
 合法的写模式 dispatch 字串(REPL 内部合成的 `Apply approved plan plan-XXX: ...` / `Verify applied plan plan-XXX: ...`)不受影响 —— 守门只识别 slash 字面量。
 
-#### 4.3.18 进程级安全网
+#### 4.3.19 进程级安全网
 
 verify 阶段的子进程跑在隔离的进程组里,带内存 / CPU 上限:
 
@@ -1209,7 +1262,7 @@ verify 阶段的子进程跑在隔离的进程组里,带内存 / CPU 上限:
 
 `pipeline_max_steps` 超时时整个 Run 强制收尾,worktree 也会在 outer defer 里清理。
 
-#### 4.3.19 合并到主仓 — `/merge` 命令
+#### 4.3.20 合并到主仓 — `/merge` 命令
 
 `/approve` 成功后,worktree 里有一条或多条 codrax 提交(基于主仓的 `r.branch` 顶点)。把这条 commit 合回主仓有三种通路,任选其一:
 
@@ -1267,7 +1320,7 @@ verify 失败 = 测试有问题。但有些场景失败是环境/CI 类原因(�
 
 `--force` 是 `--include-failed` 的别名,功能等价。仅 `verify_failed` 状态可被这个 flag 覆盖;`applied_failed`(W1/W1b 拒,代码没真正落地)和 `rejected`(用户主动否决)永远不能合 —— 前者没东西可合,后者覆盖用户决定。
 
-#### 4.3.20 裸目录自动 init(三档授权)
+#### 4.3.21 裸目录自动 init(三档授权)
 
 写模式 apply 阶段需要 `git worktree add --detach HEAD` 跑,这要求目标目录:
 
@@ -1326,7 +1379,7 @@ codrax --mode=apply --plan-file /tmp/plan.json --auto-apply --auto-init-repo
 - 已经是 ready 的 repo → 这条路径完全跳过(idempotent)。多次 `/approve` 不会重复造空 commit。
 - 失败时(目录权限不足、git 不在 PATH 等)→ 报错,不留半成品。
 
-#### 4.3.21 Plan 状态查询恢复
+#### 4.3.22 Plan 状态查询恢复
 
 `/approve` 因为环境问题(目标不是 git repo、git 缺失、worktree 创建失败)失败时,plan **不会丢**:状态保持 `pending_approval`,你可以:
 
@@ -1336,7 +1389,7 @@ codrax --mode=apply --plan-file /tmp/plan.json --auto-apply --auto-init-repo
 
 REPL 会自动从 PlanStore 找最近一条 `pending_approval` plan 重新绑定指针,**跨进程也能恢复**(关掉 codrax 再开,`/plan show` 还能找到上次没合并的 plan)。
 
-#### 4.3.22 多个 pending plan 时定向 approve / show / 跳过 verify
+#### 4.3.23 多个 pending plan 时定向 approve / show / 跳过 verify
 
 `/plan list` 经常会列出多条候选(每次 `/mode plan` 会新生成一份);默认 `/approve` 操作的是**最新一条** pending/verify_failed plan。当用户想精确控制时:
 
@@ -1405,7 +1458,7 @@ REPL 会自动从 PlanStore 找最近一条 `pending_approval` plan 重新绑定
 
 **`--skip-verify` 自动保留 worktree**:operator 用 `--skip-verify` 的本意是"我要这些字节",所以 `--skip-verify` 蕴含 `pipeline_keep_worktree_on_success`(无需另行配置 yaml);plan 的 `WorktreePath` 自动写到磁盘 plan JSON 里,后续 `/merge` / `/worktree list` / `/verify <plan-id>` 都能找到这次保留的 worktree。否则会出现"apply 成功了但 worktree 立刻被销毁,/merge 找不到东西可合"的 UX 死路。
 
-#### 4.3.23 当前 git 分支感知 + `/branch` 切换 + `!shell`
+#### 4.3.24 当前 git 分支感知 + `/branch` 切换 + `!shell`
 
 **REPL prompt 显示当前 git 分支**:启动 banner 和每行 prompt 的 sticky tag 都会带 `[git:<branch>]` 标记,跨进程实时反映 — 用户在另一个终端 `git checkout` 后,下一次 prompt 自动显示新分支。Detached HEAD 显示 `[git:detached@<sha>]`;不在 git repo 显示空(无 git 标记)。完整的 sticky tag 标记列表(git / mode / log / trace / plan / mem!)及组合示例见 [§6.2 REPL prompt 的 sticky tag](#62-repl-prompt-的-sticky-tag)。
 
@@ -1458,7 +1511,7 @@ REPL 会自动从 PlanStore 找最近一条 `pending_approval` plan 重新绑定
 
 `!cd` 特殊提醒:每次 `!` 是新 shell,bare `!cd ..` 不会改 codrax 的工作目录;要持久切换目录用 `--repo` 重启。但链式 `!cd /tmp && cat foo` 是有效的(在同一 shell 进程里完整执行)。
 
-#### 4.3.24 当前限制
+#### 4.3.25 当前限制
 
 - 写模式**不支持** multi-plan concurrency。同一仓库不要并行跑两个 `/approve`(plan 文件名带 PID,但 worktree 操作不是并发安全的)。
 - `git push` 永远是用户手动操作,`/merge` 不替你做(避免对远端的意外副作用)。

@@ -149,8 +149,14 @@
 # -pipeline-max-stage-visits) override these.
 
 # pipeline_max_steps: 50
-# pipeline_max_retries_per_stage: 3
+# pipeline_max_retries_per_stage: 2
 # pipeline_max_stage_visits: 4
+
+# Absolute ceilings on per-Run multi-topic budget scaling. Non-zero
+# overrides the historical hardcoded literals; zero falls back to the
+# code default shown after each key.
+# pipeline_max_steps_ceil: 100
+# pipeline_write_retry_budget_ceil: 5
 
 # Write-mode-only pipeline knobs. No-op when write_enabled: false.
 
@@ -158,9 +164,11 @@
 # orchestrator seeds a PlanningHint from the ChangeReport's failure
 # summary + top-3 failing tests + plan.TargetPaths (suspect files),
 # resets ChangePlan / ChangeReport / WriteClosure / plan-path, and
-# re-enters plan. Default 0 preserves the fail-loud-on-first-fail
-# behaviour. Hard cap 5 guards against typo'd large numbers.
-# pipeline_write_retry_budget: 0
+# re-enters plan. Default 3 — Reflexion / Self-Refine / AutoCodeRover
+# literature consensus is 3-5; past 5 is marginal lift and burns
+# tokens on unfixable plans. Hard cap pipeline_write_retry_budget_ceil
+# (default 5) is enforced inside SetWriteRetryBudget.
+# pipeline_write_retry_budget: 3
 
 # Baseline capture. When true, the apply pre-hook runs run_tests
 # against the worktree BEFORE the coder dispatches (post-provision,
@@ -444,8 +452,66 @@
 # Extra pipeline steps per sub-topic. Adjusted step budget capped at 100.
 # agent_subtopic_pipeline_extra: 5
 
-# Extra retry budget per 2 sub-topics. Adjusted retry budget capped at 5.
+# Extra retry budget per 2 sub-topics. Adjusted retry budget capped at
+# agent_max_retry_budget_ceil. Consumed by orchestrator.dynamicAnalyzeRetries
+# at runAnalyzePhase entry: base + (EstimateSubTopicCount/2) * extra.
 # agent_subtopic_retry_extra: 1
+
+# Extra extractor soft-cap iterations per sub-topic. Required for
+# multi-topic explanation answers that emit one Key-Anchor row per
+# sub-topic; static ExtractorSoftIterCap=3 starves at 4+ sub-topics.
+# Hard-capped at agent_extractor_scaled_iter_max (default 8).
+# agent_subtopic_extractor_extra: 1
+
+# Per-complexity-level uplift to the extractor soft cap. Multiplied by
+# the analyzer's Complexity classification: Simple = 0×, Moderate = 1×,
+# Complex = 2×. Default 1 → Moderate adds +1, Complex adds +2. Stacks
+# with agent_subtopic_extractor_extra. Mirrors agent_planner_complexity_extra.
+# agent_extractor_complexity_extra: 1
+
+# Extra verifier soft-cap iterations per ChangePlan target path
+# (write mode only). Multi-language monorepo plans with N target paths
+# may need N runner invocations; static VerifierSoftIterCap=5 cannot
+# accommodate that. Hard-capped at agent_verifier_scaled_iter_max (default 12).
+# agent_target_paths_verifier_extra: 1
+
+# --- Per-evaluator iteration caps (soft / hard pair) ---
+# Two-stage cap: at the soft cap continue ONLY when the LLM is
+# currently calling the agent's structured emit tool (recovery window
+# for streaming truncation); at the hard cap stop unconditionally.
+# All zero (the absent-YAML state) inherits the code defaults below.
+# Per-dispatch overrides via AgentContext.{Planner,Extractor,Verifier}
+# SoftIterCapOverride supersede these for a single dispatch.
+
+# agent_planner_soft_iter_cap: 6
+# agent_planner_hard_iter_cap: 9
+# agent_extractor_soft_iter_cap: 3
+# agent_extractor_hard_iter_cap: 5
+# agent_verifier_soft_iter_cap: 5
+# agent_verifier_hard_iter_cap: 8
+# agent_coder_soft_iter_slack: 3        # soft = len(plan.TargetPaths) + slack
+# agent_coder_hard_iter_recovery: 3     # hard = soft + recovery
+
+# --- Absolute ceilings for per-dispatch scaling ---
+# Each ceiling caps the result of (base + sub-topic uplift + complexity
+# uplift). Zero falls back to the historical hardcoded literal so
+# existing yaml continues to behave identically.
+
+# agent_prescan_rounds_ceil: 4              # was hardcoded 4
+# agent_explorer_scaled_iter_max: 35        # was hardcoded 35
+# agent_planner_scaled_iter_max: 20         # was const plannerScaledIterMax
+# agent_extractor_scaled_iter_max: 8        # new — see agent_subtopic_extractor_extra
+# agent_verifier_scaled_iter_max: 12        # new — see agent_target_paths_verifier_extra
+# agent_max_retry_budget_ceil: 5            # cap for dynamicAnalyzeRetries
+
+# --- Triager outer-loop iteration caps ---
+# Hard outer-loop cap on the log_triager / perf_triager agents. Both
+# are single-emit (one emit_log_triage / emit_perf_trace terminates
+# the ReAct loop); the cap only matters when a misbehaving LLM never
+# calls the emit tool — in that case it prevents unbounded token spend.
+# Zero or unset falls back to 6 (the historical hardcoded literal).
+# agent_log_triager_iter_cap: 6
+# agent_perf_triager_iter_cap: 6
 
 # How the DAG scheduler treats explore nodes when emit_investigation_complete
 # was called but SuccessCriteria (e.g. evidence_count>=3) still fail:
