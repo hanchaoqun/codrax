@@ -2,7 +2,6 @@ package orchestrator
 
 import (
 	"fmt"
-	"strings"
 
 	"github.com/hanchaoqun/codrax/internal/env"
 	"github.com/hanchaoqun/codrax/internal/types"
@@ -33,13 +32,12 @@ func bareDirAuthorizationMessage(ctx *types.BusContext, state worktree.RepoState
 		return legacy
 	}
 
-	// Map RepoState to the env_recommend DiagKind. Only NeedsInit
-	// states reach this function so we never produce "ready" /
-	// "no_commits" diagnoses here — those don't trip the bare-dir
-	// path.
+	// Map RepoState to the env_recommend DiagKind. Both NeedsInit
+	// states reach this function (RepoNotInitialized + RepoNoCommits);
+	// RepoReady is filtered upstream in stage_hooks.go.
 	var kind types.DiagKind
-	switch {
-	case strings.Contains(state.String(), "no commits"):
+	switch state {
+	case worktree.RepoNoCommits:
 		kind = types.DiagGitRepoNoCommits
 	default:
 		kind = types.DiagGitRepoNotInitialized

@@ -695,8 +695,8 @@ llm:
 | 键 | 默认值 | 作用 |
 |---|---|---|
 | `env_recommend_enabled` | `true` | 总开关。`false` 时所有提示退化为旧版的硬编码字符串(R6 红线:字节级一致),整个 env_recommend 管线不运行,适合容器或 CI 这种不需要诊断的环境 |
-| `env_recommend_llm_enabled` | `true` | 兜底 LLM 调用开关。当确定性推荐表对当前 `(诊断类型, 环境)` 组合没有命中时,触发一次便宜模型 LLM 调用补全建议。`false` 时只走静态表 + DocsLink 兜底 |
-| `env_recommend_llm_timeout_sec` | `6` | LLM 兜底超时(秒)。超时返回 DocsLink,主流程不阻塞 |
+| `env_recommend_llm_enabled` | `true` | LLM 推荐开关。`runner_missing` / `deps_missing` / `toolchain_missing` / `config_missing` 触发一次便宜模型调用,带上当前 OS family / 包管理器 / 项目 manifest 让 LLM 合成本机适配的安装命令,结果回写 disk cache。`false` 时所有 per-runner 诊断退化为 DocsLink 兜底(每个 runner 一条官方文档链接,12 runner 全覆盖、零网络) |
+| `env_recommend_llm_timeout_sec` | `6` | LLM 调用超时(秒)。超时直落 DocsLink 兜底,不阻塞主流程 |
 | `recommend_global_install` | `false` | sudo / 全局安装命令开关(R8 红线)。默认关 —— 推荐器只产 venv / project / user-level / toolchain 命令,不会主动建议 `sudo apt install` 等会污染系统的命令。开启后才解锁 `apt` / `yum` / `pacman` / `brew` 等 |
 | `env_probe_network` | `false` | 启动探测时是否做轻量级网络 reachability 测试(DNS + HTTPS HEAD)。默认关 —— 多数场景不需要且会拖慢启动几百毫秒;离线环境或代理诊断打开 |
 | `env_cache_ttl_days` | `90` | 磁盘缓存 TTL(天)。缓存路径 `~/.codrax/cache/env-cache.json`,schema_version=1,原子重命名写入。LLM 兜底结果会缓存,下次相同 `(诊断, 环境)` 组合直接命中,省 LLM 调用 |
@@ -720,6 +720,7 @@ REPL 的 `/env` 命令族(详见 [5.2 REPL 斜杠命令](#52-repl-斜杠命令))
 ❯❯ /env explain                 # 用最近一次 !cmd 的 stderr 诊断 + 推荐
 ❯❯ /env explain "<paste stderr>"
 ❯❯ /env cache list / clear
+❯❯ /env stats / stats reset    # 看每阶段命中分布
 ```
 
 启动时 `[orchestrator] target ... is not a git repo / no commits` 这条 INFO 也是这套管线的产物 —— 在读模式下不会做任何动作,只让用户看清状态;在写模式下 `apply_pre_hook` 会用同一套 Renderer 产出带 `!` 前缀的 scaffold 命令清单。
@@ -1590,6 +1591,8 @@ REPL 会自动从 PlanStore 找最近一条 `pending_approval` plan 重新绑定
 | `/env explain [stderr]` | | 把上一次 `!cmd` 的 stderr(或显式参数)喂进诊断 → 推荐管线,得到 `!`-prefixed 安装命令清单(中英双语,按 strategy 排序;`venv > project > user > toolchain > global > docs`)。无参时自动从最近 shell-bang 回合取 |
 | `/env cache list` | | 列出磁盘缓存条目(路径 `~/.codrax/cache/env-cache.json`,schema_version=1,默认 90 天 TTL) |
 | `/env cache clear` | | 清空磁盘缓存。下次 probe 重建 |
+| `/env stats` | | 显示推荐管线计数器(调用次数 / Stage 1 命中 / 缓存命中 / LLM 调用次数 + 成功/超时/错误 / DocsLink 兜底次数 / 完全空结果),让运维看到自家机器实际走哪条 stage、LLM 触发率多少 |
+| `/env stats reset` | | 清零计数器,从此刻起重新累计 |
 
 **写模式**(需 `codrax.yaml :: write_enabled: true`)
 

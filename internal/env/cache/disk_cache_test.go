@@ -115,3 +115,56 @@ func TestCache_Clear(t *testing.T) {
 		t.Errorf("Snapshot should be empty after Clear; got %d", len(c.Snapshot()))
 	}
 }
+
+// TestCache_DeleteOneKey verifies surgical removal: deleting a
+// single key leaves siblings intact and persists the change.
+func TestCache_DeleteOneKey(t *testing.T) {
+	withTempHome(t)
+	c, _ := Open(90)
+	_ = c.Set("k1", json.RawMessage(`"v1"`), "test")
+	_ = c.Set("k2", json.RawMessage(`"v2"`), "test")
+	if err := c.Delete("k1"); err != nil {
+		t.Fatalf("Delete: %v", err)
+	}
+	if _, ok := c.Get("k1"); ok {
+		t.Errorf("k1 should be gone after Delete")
+	}
+	v, ok := c.Get("k2")
+	if !ok || string(v) != `"v2"` {
+		t.Errorf("sibling k2 must survive; ok=%v v=%q", ok, string(v))
+	}
+	// Re-open to confirm persistence.
+	c2, _ := Open(90)
+	if _, ok := c2.Get("k1"); ok {
+		t.Errorf("Delete did not persist; k1 reappeared after re-Open")
+	}
+	if _, ok := c2.Get("k2"); !ok {
+		t.Errorf("k2 missing after re-Open")
+	}
+}
+
+// TestCache_TTLBoundary verifies behavior right at the TTL edge:
+// entry created exactly N days ago with TTL=N should be considered
+// fresh; one day past should be expired.
+func TestCache_TTLBoundary(t *testing.T) {
+	withTempHome(t)
+	c, _ := Open(7) // 7-day TTL
+
+	// Inject an entry 6 days old (within window).
+	c.data["fresh"] = Entry{
+		Key: "fresh", Value: json.RawMessage(`"ok"`),
+		Source: "test", CreatedAt: time.Now().AddDate(0, 0, -6),
+	}
+	if _, ok := c.Get("fresh"); !ok {
+		t.Errorf("entry within TTL window should be returned")
+	}
+
+	// Inject an entry 8 days old (past window).
+	c.data["stale"] = Entry{
+		Key: "stale", Value: json.RawMessage(`"old"`),
+		Source: "test", CreatedAt: time.Now().AddDate(0, 0, -8),
+	}
+	if _, ok := c.Get("stale"); ok {
+		t.Errorf("entry past TTL window should NOT be returned")
+	}
+}

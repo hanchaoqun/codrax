@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/hanchaoqun/codrax/internal/env"
 	"github.com/hanchaoqun/codrax/internal/memory"
@@ -15,11 +16,11 @@ import (
 //   /env              — alias for /env show
 //   /env show         — render the cached EnvFacts snapshot
 //   /env probe        — re-run the probe and refresh the cache
-//   /env explain      — LLM-powered conversational explanation of the
-//                       current diagnosis (only when stderr is in
-//                       recent context)
+//   /env explain      — diagnose stderr + render Recommendations
 //   /env cache list   — show entries in the disk cache
 //   /env cache clear  — wipe the disk cache
+//   /env stats        — show pipeline counters (§21 observability)
+//   /env stats reset  — zero the counters
 func (r *REPL) handleEnvCmd(line string) {
 	rest := strings.TrimSpace(strings.TrimPrefix(line, "/env"))
 	if rest == "" {
@@ -46,8 +47,14 @@ func (r *REPL) handleEnvCmd(line string) {
 		default:
 			r.info("/env cache <list|clear>")
 		}
+	case "stats":
+		if len(fields) >= 2 && fields[1] == "reset" {
+			r.envStatsReset()
+			return
+		}
+		r.envStats()
 	default:
-		r.info("/env subcommands: show, probe, explain [stderr], cache list, cache clear")
+		r.info("/env subcommands: show, probe, explain [stderr], cache list, cache clear, stats [reset]")
 	}
 }
 
@@ -215,6 +222,49 @@ func (r *REPL) envCacheClear() {
 		return
 	}
 	r.info("env cache cleared")
+}
+
+// envStats renders the env_recommend pipeline counters since the
+// last reset. Used by operators to understand which stage their
+// machine actually hits — feeds back into §21 data-driven tuning.
+func (r *REPL) envStats() {
+	s := env.Metrics()
+	zh := strings.ToLower(strings.TrimSpace(r.language)) != "en"
+	var b strings.Builder
+	since := time.Unix(s.SinceUnix, 0).Format("2006-01-02 15:04:05")
+	if zh {
+		fmt.Fprintf(&b, "## env_recommend 计数器(自 %s)\n\n", since)
+		fmt.Fprintf(&b, "- 调用总次数: %d\n", s.Calls)
+		fmt.Fprintf(&b, "- 关闭短路 (R5):  %d\n", s.DisabledCalls)
+		fmt.Fprintf(&b, "- Stage 1 命中 (git/system_lib): %d\n", s.Stage1Hits)
+		fmt.Fprintf(&b, "- Stage 2 缓存命中:               %d\n", s.CacheHits)
+		fmt.Fprintf(&b, "- Stage 3 LLM 调用次数:           %d\n", s.LLMCalls)
+		fmt.Fprintf(&b, "  - 成功:   %d\n", s.LLMSuccess)
+		fmt.Fprintf(&b, "  - 超时:   %d\n", s.LLMTimeouts)
+		fmt.Fprintf(&b, "  - 错误:   %d\n", s.LLMErrors)
+		fmt.Fprintf(&b, "- Stage 4 DocsLink 兜底:          %d\n", s.DocsLinkFallbacks)
+		fmt.Fprintf(&b, "- 完全空结果:                     %d\n", s.EmptyResults)
+		b.WriteString("\n`/env stats reset` 清零计数,从此刻起重新累计。\n")
+	} else {
+		fmt.Fprintf(&b, "## env_recommend counters (since %s)\n\n", since)
+		fmt.Fprintf(&b, "- Total calls:                %d\n", s.Calls)
+		fmt.Fprintf(&b, "- Disabled (R5 short-circuit): %d\n", s.DisabledCalls)
+		fmt.Fprintf(&b, "- Stage 1 hits (git/system_lib): %d\n", s.Stage1Hits)
+		fmt.Fprintf(&b, "- Stage 2 cache hits:           %d\n", s.CacheHits)
+		fmt.Fprintf(&b, "- Stage 3 LLM calls:            %d\n", s.LLMCalls)
+		fmt.Fprintf(&b, "  - success: %d\n", s.LLMSuccess)
+		fmt.Fprintf(&b, "  - timeout: %d\n", s.LLMTimeouts)
+		fmt.Fprintf(&b, "  - error:   %d\n", s.LLMErrors)
+		fmt.Fprintf(&b, "- Stage 4 DocsLink fallbacks:   %d\n", s.DocsLinkFallbacks)
+		fmt.Fprintf(&b, "- Empty results:                %d\n", s.EmptyResults)
+		b.WriteString("\n`/env stats reset` zeros the counters and starts a new window.\n")
+	}
+	r.renderBordered(b.String())
+}
+
+func (r *REPL) envStatsReset() {
+	env.ResetMetrics()
+	r.info("env stats reset")
 }
 
 // latestShellTurnResponse scans the recent buffer in reverse and

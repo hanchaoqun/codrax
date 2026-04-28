@@ -1144,20 +1144,39 @@ updateFailureSummaryWithHint                   bareDirAuthorizationMessage
 |---|---|---|---|
 | L1 Probe | `internal/env/probe` | `Probe(ProbeOptions) *EnvFacts` | OS / shell / Python（多解释器）/ Node / Rust / Java / Ruby / 40+ 包管理器 / 项目 manifest / 容器探测 / 网络 reachability（可选）/ git state（复用 `internal/worktree.DetectRepoState`） |
 | L2 Diagnose | `internal/env/diag` | `Diagnose(stderr, runner, *EnvFacts) Diagnosis` | 6 个检测器顺序：`system_lib > git_state > runner_missing > deps_missing > toolchain_missing > config_missing`，全 miss 落 `DiagUnknown` |
-| L3 Recommend | `internal/env/recommend` | `Recommend(Diagnosis, *EnvFacts, Settings) []Recommendation` | 4 段决策：deterministic registry → 磁盘缓存命中 → LLM 兜底 → DocsLink；策略优先级 `Venv > Project > User > ToolchainBootstrap > Global > Docs`（`recommend_global_install: false` 时 Global 整段过滤） |
+| L3 Recommend | `internal/env/recommend` | `Recommend(Diagnosis, *EnvFacts, Settings) []Recommendation` | 4 段决策：`recommend_system.go`（git_state / system_lib_missing 稳定表）→ 磁盘缓存 → LLM 推荐（`agents.env_recommender`）→ DocsLink 兜底。Per-runner 推荐由 LLM 在结构化 prompt（DiagKind + OS family + 包管理器 + 项目 manifest）下合成，结果回写 disk cache 摊销。策略优先级 `Venv > Project > User > ToolchainBootstrap > Global > Docs`，`recommend_global_install: false` 时 Global 整段过滤。 |
 
 `Diagnosis.Kind` 8 个值 + Unknown sentinel：`runner_missing` / `deps_missing` / `toolchain_missing` / `system_lib_missing` / `config_missing` / `git_not_installed` / `git_not_initialized` / `git_no_commits`。每条 `Recommendation` 携带 `Strategy`、`NeedsSudo`、`NeedsNetwork`、`EstimatedSec`、`Why`、`Caveats[]`，命令 `Command` 一律 `!` 前缀（`internal/env/render.go` 的双语渲染按 strategy 分组打印 `# ~Ns, 项目隔离, 需 sudo, 无需网络` 这类提示行）。
 
-#### 缓存 + LLM 兜底
+#### 决策流
+
+```
+DiagKind ∈ {git_*, system_lib_missing}
+    └─► Stage 1 systemRecommender 直接出，零 LLM
+
+DiagKind ∈ {runner_missing, deps_missing, toolchain_missing, config_missing}
+    └─► Stage 2 disk cache 命中 → 直接返回
+        └─► Stage 3 LLM 调 emit_env_recommendation → 写回 cache → 返回
+            └─► Stage 4 DocsLink fallback（`runnerDocsURL` 12 入口）
+```
+
+设计要点：
+
+- **覆盖度**：包名 / 包管理器 / OS family 由 LLM 在 prompt 上下文里合成，覆盖到罕见 distro（Void / Gentoo / NixOS）等长尾。
+- **首次延迟**：LLM 单次调用 ~2-3 秒可见；命中 disk cache 后 sub-ms，同机同诊断只付一次成本。
+- **离线降级**：`env_recommend_llm_enabled: false` 时 Stage 3 短路，直接走 Stage 4 DocsLink，12 runner 全部覆盖、零网络依赖。
+
+#### 缓存 + LLM
 
 - **磁盘缓存** `~/.codrax/cache/env-cache.json`（schema_version=1，原子重命名写入）。键 = SHA(`DiagKind` + 关键 EnvFacts 字段)；值 = `[]Recommendation` + 时间戳。默认 90 天 TTL，`env_cache_ttl_days` 可调；`/env cache list` / `/env cache clear` 由 REPL 暴露。
-- **LLM 兜底** registry miss 且缓存 miss 时触发，单次 Chat 调用，结构化 schema 限制输出（`Command` 必须 `!` 前缀、`Strategy` enum）。`providers.yaml :: agents.env_recommender` 路由（缺省继承 `agents.chitchat_classifier` 再缺省 `llm.default`，**强烈建议路由便宜模型**）。`env_recommend_llm_timeout_sec`（默认 6 秒）超时即返回 DocsLink，不阻塞主流程。结果回写缓存。
+- **LLM 推荐** Stage 1 不命中时触发（即所有 per-runner DiagKind），单次 Chat 调用，结构化 schema 限制输出（`Command` 必须 `!` 前缀、`Strategy` enum）。`providers.yaml :: agents.env_recommender` 路由（缺省继承 `agents.chitchat_classifier` 再缺省 `llm.default`，**强烈建议路由便宜模型**）。`env_recommend_llm_timeout_sec`（默认 6 秒）超时直落 Stage 4 DocsLink，不阻塞主流程。结果回写缓存。
+- **观测埋点**：`internal/env/recommend/metrics.go` 累加 `Calls / Stage1Hits / CacheHits / LLMCalls / LLMSuccess / LLMTimeouts / LLMErrors / DocsLinkFallbacks / EmptyResults / DisabledCalls`。REPL `/env stats` 渲染当前窗口、`/env stats reset` 清零。
 
 #### 8 条红线（R1-R8）
 
 | 红线 | 内容 | 守护方式 |
 |---|---|---|
-| R1 LLM-only-as-fallback | LLM 不参与诊断、不参与高优先级推荐；只补 deterministic 表 miss 的洞 | `internal/env/recommend/llm.go` 仅在 `Recommend` 末尾被调用 |
+| R1 Per-runner LLM-driven | git / system_lib 走稳定表；per-runner 推荐由 LLM 合成 | `internal/env/recommend/registry.go::Recommend` 流程；`internal/env/recommend/docslink.go` 离线兜底 |
 | R2 Schema-bound output | LLM 输出走 `emit_env_recommendation` tool schema，结构性 reject 不合规 | tool 注册 + JSON schema 验证 |
 | R3 全部可缓存 | LLM / probe / diag 结果都过 disk cache，第二次相同输入 0 LLM 调用 | `internal/env/cache` |
 | R4 便宜模型路由 | `agents.env_recommender` 默认继承 `chitchat_classifier`（已是便宜模型） | provider 链 fallback |

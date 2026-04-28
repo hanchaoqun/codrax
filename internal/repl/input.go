@@ -238,6 +238,8 @@ var slashCommands = []slashCommand{
 			{"explain <stderr>", "run diagnose+recommend on supplied or last-shell stderr", "对参数或最近一次 ! shell 输出跑 diagnose+recommend"},
 			{"cache list", "show entries in the disk cache", "列出磁盘缓存条目"},
 			{"cache clear", "wipe the disk cache", "清空磁盘缓存"},
+			{"stats", "show pipeline counters (calls / stage hits / cache / LLM / docslink)", "查看推荐管线计数器(调用 / 各阶段命中 / 缓存 / LLM / 兜底)"},
+			{"stats reset", "zero the pipeline counters", "清零计数器,重新累计窗口"},
 		},
 	},
 	{Name: "/version", HelpEn: "print build version", HelpZh: "打印构建版本"},

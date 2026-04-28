@@ -50,3 +50,18 @@ func SetLLMAdapter(a llm.Adapter) {
 func SetCacheTTL(days int) {
 	recommend.SetCacheTTL(days)
 }
+
+// Metrics returns a snapshot of the env_recommend pipeline counters
+// (calls / stage1 hits / cache hits / LLM calls / docslink
+// fallbacks / etc). Stable schema — used by REPL `/env stats` and
+// any future telemetry exporter. Pure read; safe to call from any
+// goroutine.
+func Metrics() recommend.MetricsSnapshot {
+	return recommend.Snapshot()
+}
+
+// ResetMetrics zeros the counter set and bumps SinceUnix. Called
+// by REPL `/env stats reset` and by tests that want a clean window.
+func ResetMetrics() {
+	recommend.ResetMetrics()
+}

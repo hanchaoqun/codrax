@@ -49,6 +49,7 @@ func recommendFromLLM(d types.Diagnosis, env *types.EnvFacts, settings types.Env
 	if adapter == nil {
 		return nil
 	}
+	metrics.llmCalls.Add(1)
 	timeout := time.Duration(settings.LLMTimeoutSec) * time.Second
 	if timeout <= 0 {
 		timeout = 5 * time.Second
@@ -80,22 +81,28 @@ func recommendFromLLM(d types.Diagnosis, env *types.EnvFacts, settings types.Env
 
 	select {
 	case <-ctx.Done():
+		metrics.llmTimeouts.Add(1)
 		logging.Warning("[env/recommend/llm] timeout after %v", timeout)
 		return nil
 	case r := <-ch:
 		if r.err != nil {
+			metrics.llmErrors.Add(1)
 			logging.Warning("[env/recommend/llm] chat err: %v", r.err)
 			return nil
 		}
 		if len(r.resp.ToolCalls) == 0 {
+			metrics.llmErrors.Add(1)
 			logging.Debug("[env/recommend/llm] no tool_calls in response")
 			return nil
 		}
 		recs := parseLLMRecommendations(r.resp.ToolCalls[0])
 		if len(recs) > 0 {
+			metrics.llmSuccess.Add(1)
 			// Source-tag and write through to cache so next time
 			// is free.
 			storeInCache(d, env, recs, "llm")
+		} else {
+			metrics.llmErrors.Add(1)
 		}
 		return recs
 	}
