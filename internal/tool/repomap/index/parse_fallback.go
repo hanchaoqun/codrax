@@ -2,6 +2,9 @@ package index
 
 import (
 	"context"
+	"fmt"
+	"sort"
+	"strings"
 
 	sitter "github.com/smacker/go-tree-sitter"
 
@@ -94,12 +97,14 @@ func recordFallback(fi *types.FileInfo, fromTier, toTier int, reason string) {
 		fi.Language, fi.RelPath, fromTier, toTier, reason)
 }
 
-// fallbackBannerThreshold is the per-language Tier-2 ratio above
-// which the scanner emits the once-per-build "consider grammar
-// update" banner. ArkTS uses 0.4 (TS grammar is well-aligned;
-// 40%+ falling through is a real signal); Cangjie uses 0.5
-// (the regex Tier 2 sees more action because the Go-native
-// extractor is still maturing — relax the bar).
+// fallbackBannerThreshold is the legacy per-language Tier-2 ratio
+// above which the scanner emits the once-per-build "consider
+// grammar update" warning. ArkTS uses 0.4 (TS grammar is well-
+// aligned; 40%+ falling through is a real signal); Cangjie uses
+// 0.5 (the regex Tier 2 sees more action because the Go-native
+// extractor is still maturing — relax the bar). Languages not
+// listed here fall through to defaultTierAlertRatio for back-
+// compat with the original two-language banner.
 //
 // Public test seam: a unit test reads these to assert no silent
 // drift if a future change tightens the bar.
@@ -108,19 +113,60 @@ var fallbackBannerThreshold = map[string]float64{
 	types.LangCangjie: 0.5,
 }
 
+// Default thresholds for the global tier-distribution alert
+// (T3.2). Operators can override via codrax.yaml ::
+// repomap_tier_warn_ratio / repomap_tier_alert_ratio. WARN
+// boundary is the lower bar (signals an emerging issue);
+// ALERT is the higher bar that triggers per-language remediation
+// banner. INFO summary always emits when any language has files,
+// regardless of threshold.
+const (
+	defaultTierWarnRatio  = 0.30
+	defaultTierAlertRatio = 0.50
+	tierStatsMinFiles     = 5 // languages with fewer files: skip ratio judgement
+)
+
+var (
+	tierWarnRatio  = defaultTierWarnRatio
+	tierAlertRatio = defaultTierAlertRatio
+)
+
+// SetTierThresholds plumbs the yaml-resolved thresholds into the
+// repomap reporter. Callers (cmd/root.go) invoke this once at
+// startup before any ScanFiles runs. Zero on either field
+// inherits the package default.
+func SetTierThresholds(warn, alert float64) {
+	if warn > 0 {
+		tierWarnRatio = warn
+	}
+	if alert > 0 {
+		tierAlertRatio = alert
+	}
+}
+
 // reportFallbackRatios is called once per ScanFiles run. It walks
-// the produced FileInfos, computes per-language Tier-2 share, and
-// emits the banner if any language exceeds its threshold.
+// the produced FileInfos and emits:
+//
+//   1. ONE INFO summary line listing per-language Tier 1/2/3/4
+//      distribution for every language with >= tierStatsMinFiles
+//      files. Always fires so operators can see the parse-tier
+//      health at a glance, even when nothing exceeds a threshold.
+//
+//   2. ONE WARN line per language whose Tier-2+ ratio exceeds
+//      the alert threshold (fallbackBannerThreshold or
+//      tierAlertRatio default), naming the language + ratio +
+//      remediation hint.
 //
 // Idempotent: callers do not need to gate this on "first time"
-// — it just emits at most one Warning per language per call.
+// — it just emits at most one of each per language per call.
 func reportFallbackRatios(files []*types.FileInfo) {
-	type counts struct{ total, t2 int }
+	type counts struct {
+		total int
+		tier  [5]int // tier[1..4]; tier[0] unused
+	}
 	stats := map[string]*counts{}
 	for _, fi := range files {
-		switch fi.Language {
-		case types.LangArkTS, types.LangCangjie:
-		default:
+		if strings.TrimSpace(fi.Language) == "" {
 			continue
 		}
 		c, ok := stats[fi.Language]
@@ -129,23 +175,64 @@ func reportFallbackRatios(files []*types.FileInfo) {
 			stats[fi.Language] = c
 		}
 		c.total++
-		if fi.ParseTier == 2 {
-			c.t2++
+		t := fi.ParseTier
+		if t < 1 {
+			t = 1 // empty / pre-Tier code path counts as Tier 1
+		}
+		if t > 4 {
+			t = 4
+		}
+		c.tier[t]++
+	}
+
+	// Stage 1: INFO summary. Sorted languages so the line is
+	// stable across runs (no map-iteration jitter in test logs).
+	if len(stats) > 0 {
+		langs := make([]string, 0, len(stats))
+		for lang, c := range stats {
+			if c.total >= tierStatsMinFiles {
+				langs = append(langs, lang)
+			}
+		}
+		if len(langs) > 0 {
+			sort.Strings(langs)
+			parts := make([]string, 0, len(langs))
+			for _, lang := range langs {
+				c := stats[lang]
+				degradedPct := int(100 * float64(c.tier[2]+c.tier[3]+c.tier[4]) / float64(c.total))
+				if degradedPct == 0 {
+					parts = append(parts, fmt.Sprintf("%s: %d files all T1", lang, c.total))
+					continue
+				}
+				parts = append(parts, fmt.Sprintf("%s: %d files (T1=%d T2=%d T3=%d T4=%d, %d%% degraded)",
+					lang, c.total, c.tier[1], c.tier[2], c.tier[3], c.tier[4], degradedPct))
+			}
+			logging.Info("repomap parse-tier breakdown — %s", strings.Join(parts, "; "))
 		}
 	}
+
+	// Stage 2: per-language WARN above alert threshold.
 	for lang, c := range stats {
-		if c.total < 5 {
-			continue // too few files to draw conclusions
-		}
-		threshold, ok := fallbackBannerThreshold[lang]
-		if !ok {
+		if c.total < tierStatsMinFiles {
 			continue
 		}
-		ratio := float64(c.t2) / float64(c.total)
+		degraded := c.tier[2] + c.tier[3] + c.tier[4]
+		ratio := float64(degraded) / float64(c.total)
+		threshold := tierAlertRatio
+		if perLang, ok := fallbackBannerThreshold[lang]; ok {
+			threshold = perLang
+		}
 		if ratio > threshold {
 			logging.Warning(
-				"repomap: %d%% of %s files (%d/%d) fell back to Tier-2 — consider extractor/grammar update",
-				int(ratio*100), lang, c.t2, c.total)
+				"repomap: %d%% of %s files (%d/%d) fell back to Tier-2+ (T2=%d T3=%d T4=%d) — consider extractor/grammar update",
+				int(ratio*100), lang, degraded, c.total, c.tier[2], c.tier[3], c.tier[4])
+		} else if ratio > tierWarnRatio {
+			// Below alert but above the soft warn threshold:
+			// log at INFO with a milder phrasing so operators
+			// can see emerging degradation before it breaches.
+			logging.Info(
+				"repomap: %d%% of %s files (%d/%d) below Tier-1 — within tolerance but trending toward extractor maintenance",
+				int(ratio*100), lang, degraded, c.total)
 		}
 	}
 }

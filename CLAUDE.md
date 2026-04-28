@@ -180,7 +180,11 @@ Tree-sitter and Go-native extractors live under `internal/tool/repomap/index/`. 
 | ArkTS | `arkts` | `.ets` (and `.ts` when `oh-package.json5` lives in any ancestor dir) | `extract_arkts.go` (TS grammar + post-pass for `struct` / 21-decorator whitelist) | `resolver_arkts.go` (oh-package.json5 bundle map via `json5_parser.go`; `@ohos.*` / `@kit.*` / `@hms.*` / `@arkui.*` / `@system.*` builtin black-hole) |
 | Cangjie | `cangjie` | `.cj` (`.cjo` denied at scan) | `cangjie_lexer.go` + `cangjie_parser.go` (recursive-descent Go-native, tracks enclosing-type stack) | `resolver_cangjie.go` (cjpm.toml deps via `toml_parser.go`; `std.*` / `core.*` / `runtime.*` / `ohos.*` builtin black-hole) |
 
-**Fallback chain** (`parse_fallback.go`): every parse records a `FileInfo.ParseTier` (1 = primary grammar, 2 = secondary salvage, 3 = regex-only, 4 = path-only). `retrieve.rank.go::parseTierDiscount` multiplies the rank score by 1.0/0.85/0.6/0.3 so degraded parses cannot outrank Tier 1 siblings. Per-language Tier 2+ ratios above `fallbackBannerThreshold` (ArkTS 0.4 / Cangjie 0.5) emit a one-shot WARN banner suggesting an extractor / grammar update.
+**Fallback chain** (`parse_fallback.go`): every parse records a `FileInfo.ParseTier` (1 = primary grammar, 2 = secondary salvage, 3 = regex-only, 4 = path-only). `retrieve.rank.go::parseTierDiscount` multiplies the rank score by 1.0/0.85/0.6/0.3 so degraded parses cannot outrank Tier 1 siblings. **Tier-degradation reporting** (T3.2):
+- Per-scan INFO summary: one line listing every language with ≥5 files, showing `T1=N T2=N T3=N T4=N` distribution + total degraded percentage so operators see parse-tier health at a glance even when nothing exceeds a threshold.
+- Per-language WARN above the alert threshold: ArkTS keeps its strict 0.4 / Cangjie 0.5 (`fallbackBannerThreshold` map); other languages fall back to `tierAlertRatio` (default 0.50). Trigger emits "consider extractor/grammar update".
+- Per-language INFO when ratio > `tierWarnRatio` (default 0.30) but ≤ alert: milder "trending toward extractor maintenance" so operators see emerging degradation BEFORE it breaches.
+- yaml tunables: `repomap_tier_warn_ratio` / `repomap_tier_alert_ratio` (both pointer-typed, zero inherits the code default; cmd/root.go threads via `repomapindex.SetTierThresholds`).
 
 **Red lines**:
 - `extToLang[".ts"] → LangArkTS` only when `IsArkTSProject` finds an `oh-package.json5` in any ancestor dir. Pure TypeScript projects keep `LangTypeScript`.

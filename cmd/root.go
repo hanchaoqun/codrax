@@ -30,6 +30,7 @@ import (
 	"github.com/hanchaoqun/codrax/internal/skill"
 	"github.com/hanchaoqun/codrax/internal/tool"
 	"github.com/hanchaoqun/codrax/internal/tool/repomap"
+	repomapindex "github.com/hanchaoqun/codrax/internal/tool/repomap/index"
 	"github.com/hanchaoqun/codrax/internal/types"
 	"github.com/hanchaoqun/codrax/internal/worktree"
 )
@@ -1489,6 +1490,21 @@ func initApp(cmd *cobra.Command, _ []string) error {
 		// this knob just lets operators veto the entire family.
 		if rs.PipelineLintEnabled != nil {
 			tool.SetLintEnabled(*rs.PipelineLintEnabled)
+		}
+		// T3.2 repomap tier-degradation thresholds. Both knobs
+		// inherit the code default when unset / zero. Setting
+		// just one is fine — SetTierThresholds skips the unset
+		// side. Plumb BEFORE any ScanFiles can fire.
+		if rs.RepomapTierWarnRatio != nil || rs.RepomapTierAlertRatio != nil {
+			warn := 0.0
+			alert := 0.0
+			if rs.RepomapTierWarnRatio != nil {
+				warn = *rs.RepomapTierWarnRatio
+			}
+			if rs.RepomapTierAlertRatio != nil {
+				alert = *rs.RepomapTierAlertRatio
+			}
+			repomapindex.SetTierThresholds(warn, alert)
 		}
 		// Verify resource caps — applied to every run_tests +
 		// exec_command supervised invocation. Either knob unset =

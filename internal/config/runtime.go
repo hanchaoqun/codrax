@@ -197,6 +197,19 @@ type RuntimeSettings struct {
 	// 20.
 	WorktreeKeepMaxCount *int `yaml:"worktree_keep_max_count"`
 
+	// RepomapTierWarnRatio is the soft floor: per-language Tier-2+
+	// fall-through ratio at which the repomap reporter emits an
+	// INFO line ("trending toward extractor maintenance"). 0
+	// inherits the code default (0.30). Operators get visibility
+	// before degradation breaches the louder alert.
+	RepomapTierWarnRatio *float64 `yaml:"repomap_tier_warn_ratio"`
+
+	// RepomapTierAlertRatio is the per-language fall-through ratio
+	// at which a WARN-level "consider extractor/grammar update"
+	// banner fires. 0 inherits the code default (0.50; ArkTS/
+	// Cangjie keep their stricter language-specific overrides).
+	RepomapTierAlertRatio *float64 `yaml:"repomap_tier_alert_ratio"`
+
 	// VerifyMemLimitMB caps the resident+virtual memory each
 	// run_tests / exec_command invocation may use. Unix: enforced via
 	// `ulimit -v` shell prefix. Windows: enforced via JobObject
