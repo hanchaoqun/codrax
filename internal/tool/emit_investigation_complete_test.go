@@ -131,6 +131,19 @@ func TestEmitInvestigationComplete_ConfigTraceAbsenceRejectsGroundedSameScopeCon
 	if !strings.Contains(res.Summary, "precedence-capable lineage anchor") || !strings.Contains(res.Summary, "diagram_role_hint") {
 		t.Fatalf("rejection should explain the missing precedence-role requirement, got %q", res.Summary)
 	}
+	if res.Repair == nil {
+		t.Fatal("missing structured repair on precedence-anchor rejection")
+	}
+	if got := res.Repair.Code; got != "exact_absence_precedence_anchor" {
+		t.Fatalf("repair code = %q, want exact_absence_precedence_anchor", got)
+	}
+	if len(res.Repair.Targets) != 1 || res.Repair.Targets[0].File != "internal/types/config.go" || res.Repair.Targets[0].Action != string(types.RepairReadFile) {
+		t.Fatalf("repair targets = %+v, want read_file on internal/types/config.go", res.Repair.Targets)
+	}
+	repairs := mut.EvidenceClosure().PendingRepairs()
+	if len(repairs) == 0 || repairs[0].Kind != types.RepairReadFile {
+		t.Fatalf("closure repairs = %+v, want queued read repair", repairs)
+	}
 }
 
 // TestEmitInvestigationComplete_CompletionWithoutAbsenceOnEvidenceAccepted
@@ -193,6 +206,12 @@ func TestEmitInvestigationComplete_ConfigTraceContextOnlyEvidenceRequiresValidat
 	}
 	if !strings.Contains(res.Summary, "precedence-capable lineage anchor") || !strings.Contains(res.Summary, "diagram_role_hint") {
 		t.Fatalf("rejection should explain the validated-precedence requirement, got: %s", res.Summary)
+	}
+	if res.Repair == nil || res.Repair.Code != "exact_absence_precedence_anchor" {
+		t.Fatalf("repair = %+v, want exact_absence_precedence_anchor", res.Repair)
+	}
+	if len(res.Repair.Targets) != 1 || res.Repair.Targets[0].File != "internal/types/config.go" {
+		t.Fatalf("repair targets = %+v, want internal/types/config.go", res.Repair.Targets)
 	}
 }
 

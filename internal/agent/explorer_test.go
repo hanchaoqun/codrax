@@ -3829,6 +3829,43 @@ func TestObserveMidLoop_EmitInvestigationCompleteDowngradeKeepsLoopAlive(t *test
 		}
 	})
 
+	t.Run("hard rejection with structured repair also prioritizes closure repair", func(t *testing.T) {
+		mut := types.NewMutableState("q")
+		mut.EvidenceClosure().AddRepair(types.RepairDirective{
+			Kind:      types.RepairReadFile,
+			Files:     []string{"internal/types/config.go"},
+			Rationale: "exact-absence config-trace closure still lacks a grounded precedence-capable same-scope anchor; read one of these files, emit related_context evidence with a validated diagram role, then retry emit_investigation_complete.",
+			Origin:    "emit_investigation_complete.exact_absence_precedence",
+		})
+		eval := &explorerEvaluator{phase: 1, mutable: mut}
+		rejectedResult := types.ToolResult{
+			ToolName: "emit_investigation_complete",
+			Success:  false,
+			Summary:  "emit_investigation_complete rejected: this exact-absence config-trace answer still lacks a grounded precedence-capable lineage anchor from the current same-scope candidate set.",
+			Repair: &types.ToolRepair{
+				Code: "exact_absence_precedence_anchor",
+				Targets: []types.ToolRepairTarget{{
+					File:   "internal/types/config.go",
+					Action: string(types.RepairReadFile),
+				}},
+			},
+		}
+		results := []types.ToolResult{rejectedResult}
+
+		sig := eval.observeMidLoop(LoopObservation{
+			Phase:          PhaseMidLoop,
+			Iteration:      6,
+			LastToolResult: &results[0],
+			AllToolResults: results,
+		})
+		if !sig.HintRequested || sig.HintKey != "explorer.mid-loop.closure-repair" {
+			t.Fatalf("hard completion rejection should surface structured closure repair first, got %+v", sig)
+		}
+		if !strings.Contains(sig.Hint, "internal/types/config.go") {
+			t.Fatalf("closure repair hint should expose the queued same-scope file, got: %s", sig.Hint)
+		}
+	})
+
 	t.Run("closure repair blocks generic navigation until progress", func(t *testing.T) {
 		eval := &explorerEvaluator{
 			phase:                          1,

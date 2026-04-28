@@ -3919,10 +3919,12 @@ func (e *explorerEvaluator) syncClosureRepairState(results []types.ToolResult) {
 }
 
 func (e *explorerEvaluator) postClosureRepairSignal(obs LoopObservation) LoopSignal {
-	if e.midLoopClosureRepairSent || obs.LastToolResult == nil || obs.LastToolResult.ToolName != "emit_investigation_complete" || !obs.LastToolResult.Success {
+	if e.midLoopClosureRepairSent || obs.LastToolResult == nil || obs.LastToolResult.ToolName != "emit_investigation_complete" {
 		return LoopSignal{}
 	}
-	if !strings.HasPrefix(obs.LastToolResult.Summary, tool.EmitInvestigationCompleteDowngradePrefix) {
+	triggeredByDowngrade := obs.LastToolResult.Success && strings.HasPrefix(obs.LastToolResult.Summary, tool.EmitInvestigationCompleteDowngradePrefix)
+	triggeredByRepair := !obs.LastToolResult.Success && obs.LastToolResult.Repair != nil
+	if !triggeredByDowngrade && !triggeredByRepair {
 		return LoopSignal{}
 	}
 	repairs := closureRepairDirectives(e.mutable)

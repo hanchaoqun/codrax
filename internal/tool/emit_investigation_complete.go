@@ -260,15 +260,42 @@ func (t *EmitInvestigationComplete) Execute(ctx *types.BusContext, params json.R
 					"emit_investigation_complete rejected: this exact-absence answer still lacks a grounded production related-context anchor from the current same-scope candidate set. Read one of these repo_map-ranked files, emit at least one grounded related_context fact from it, then re-call emit_investigation_complete(..., result_kind=\"absence\", absence_justification=...). Pending same-scope files: %s",
 					strings.Join(requiredFiles, ", "),
 				)
+				repairOrigin := "emit_investigation_complete.exact_absence_context"
+				rationale := "exact-absence closure is still missing a grounded same-scope related-context anchor; read one of these files, emit related_context evidence, then retry emit_investigation_complete."
+				repair := completionReadRepair(
+					"exact_absence_context_anchor",
+					"Read one of the queued same-scope files, emit at least one grounded `related_context` fact from it, then retry `emit_investigation_complete(..., result_kind=\"absence\", absence_justification=...)`.",
+					requiredFiles,
+					map[string]string{
+						"result_kind":   "absence",
+						"context_role":  string(types.EvidenceContextRoleRelatedContext),
+						"repair_origin": repairOrigin,
+					},
+				)
 				if scenario == types.ScenarioConfigTrace && contract != nil && contract.TargetKind == types.SubjectConfigKey {
 					summary = fmt.Sprintf(
 						"emit_investigation_complete rejected: this exact-absence config-trace answer still lacks a grounded precedence-capable lineage anchor from the current same-scope candidate set. Read one of these repo_map-ranked files, then re-emit at least one grounded related_context fact that carries an explicit diagram_role_hint (`default`, `config`, `runtime`, or `override`) so downstream answers can cite a real precedence anchor. `config` means a grounded repo/user config-file layer (YAML/JSON/TOML/INI/etc.). Pending same-scope files: %s",
 						strings.Join(requiredFiles, ", "),
 					)
+					repairOrigin = "emit_investigation_complete.exact_absence_precedence"
+					rationale = "exact-absence config-trace closure still lacks a grounded precedence-capable same-scope anchor; read one of these files, emit related_context evidence with a validated diagram role, then retry emit_investigation_complete."
+					repair = completionReadRepair(
+						"exact_absence_precedence_anchor",
+						"Read one of the queued same-scope files, emit at least one grounded `related_context` fact with a validated precedence `diagram_role_hint`, then retry `emit_investigation_complete(..., result_kind=\"absence\", absence_justification=...)`.",
+						requiredFiles,
+						map[string]string{
+							"result_kind":            "absence",
+							"context_role":           string(types.EvidenceContextRoleRelatedContext),
+							"required_diagram_roles": "default,config,runtime,override",
+							"repair_origin":          repairOrigin,
+						},
+					)
 				}
+				queueCompletionReadRepairs(ctx, requiredFiles, rationale, repairOrigin)
 				return types.ToolResult{
 					ToolName:  t.Name(),
 					Summary:   summary,
+					Repair:    repair,
 					Success:   false,
 					Timestamp: time.Now(),
 				}, nil
@@ -1175,6 +1202,59 @@ func (t evidenceTally) hasAny() bool { return t.acceptedTotal() > 0 }
 type tier1RepairTarget struct {
 	File  string
 	Lines []int
+}
+
+func toolRepairTargetsForFiles(files []string) []types.ToolRepairTarget {
+	if len(files) == 0 {
+		return nil
+	}
+	seen := make(map[string]bool, len(files))
+	out := make([]types.ToolRepairTarget, 0, len(files))
+	for _, file := range files {
+		file = strings.TrimSpace(strings.ReplaceAll(file, `\`, `/`))
+		if file == "" || seen[file] {
+			continue
+		}
+		seen[file] = true
+		out = append(out, types.ToolRepairTarget{
+			File:   file,
+			Action: string(types.RepairReadFile),
+		})
+	}
+	return out
+}
+
+func queueCompletionReadRepairs(ctx *types.BusContext, files []string, rationale, origin string) {
+	if ctx == nil || ctx.Mutable == nil || len(files) == 0 {
+		return
+	}
+	closure := ctx.Mutable.EvidenceClosure()
+	if closure == nil {
+		return
+	}
+	files = append([]string(nil), files...)
+	for i := range files {
+		files[i] = strings.TrimSpace(strings.ReplaceAll(files[i], `\`, `/`))
+	}
+	closure.AddRepair(types.RepairDirective{
+		Kind:      types.RepairReadFile,
+		Files:     files,
+		Rationale: rationale,
+		Origin:    origin,
+	})
+}
+
+func completionReadRepair(code, hint string, files []string, metadata map[string]string) *types.ToolRepair {
+	targets := toolRepairTargetsForFiles(files)
+	if code == "" && hint == "" && len(targets) == 0 && len(metadata) == 0 {
+		return nil
+	}
+	return &types.ToolRepair{
+		Code:     code,
+		Hint:     hint,
+		Targets:  targets,
+		Metadata: metadata,
+	}
 }
 
 func buildTier1RepairTargets(ctx *types.BusContext, items []types.EvidenceItem) []tier1RepairTarget {
