@@ -63,8 +63,8 @@ func TestVerifier_ShouldStop_ReportMissingCap(t *testing.T) {
 	ctx := verifierFixtureCtx(nil, nil)
 	s := types.ResolvedAgentSettings(types.AgentSettings{})
 	ev := &verifierEvaluator{
-		softIterCap: s.VerifierSoftIterCap,
-		hardIterCap: s.VerifierHardIterCap,
+		defaultSoftIterCap: s.VerifierSoftIterCap,
+		defaultHardIterCap: s.VerifierHardIterCap,
 	}
 	ev.BuildInitialInstruction(ctx, &skill.Config{})
 	// Below soft cap: no stop when no report.

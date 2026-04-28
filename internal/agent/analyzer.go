@@ -76,7 +76,7 @@ func (e *analyzerEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk 
 	// BEFORE emit_analysis is called. This allows prescan budget
 	// scaling without waiting for the LLM's SubTopics field.
 	if ctx != nil && ctx.Objective != "" {
-		estimated := estimateSubTopicCount(ctx.Objective)
+		estimated := EstimateSubTopicCount(ctx.Objective)
 		if estimated > 1 {
 			base := tool.CurrentAnalysisLimits().MaxPrescanRounds
 			if base > 0 {
@@ -551,11 +551,11 @@ func (e *analyzerEvaluator) DetermineMissingPiece(ctx *types.AgentContext, _ *St
 	return types.MissingFacts
 }
 
-// estimateSubTopicCount heuristically detects the number of
+// EstimateSubTopicCount heuristically detects the number of
 // independent sub-topics in a question string by counting question
 // marks (Chinese and ASCII) and numbered list patterns (e.g. "1. ",
 // "2) "). Returns at least 1.
-func estimateSubTopicCount(text string) int {
+func EstimateSubTopicCount(text string) int {
 	// Count question marks (? and ？).
 	qmarks := 0
 	for _, r := range text {

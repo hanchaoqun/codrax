@@ -141,8 +141,8 @@ func TestExtractor_ShouldStopFiresAfterRetryBudget(t *testing.T) {
 	// or emit_hypothesis_verdict.
 	s := types.ResolvedAgentSettings(types.AgentSettings{})
 	e := &extractorEvaluator{
-		softIterCap: s.ExtractorSoftIterCap,
-		hardIterCap: s.ExtractorHardIterCap,
+		defaultSoftIterCap: s.ExtractorSoftIterCap,
+		defaultHardIterCap: s.ExtractorHardIterCap,
 	}
 	for i := 0; i < s.ExtractorSoftIterCap; i++ {
 		if e.ShouldStop(llm.Response{}, i) {

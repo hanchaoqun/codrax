@@ -42,10 +42,20 @@ type verifierEvaluator struct {
 	// is complete.
 	mu *types.MutableState
 
-	// Iteration caps populated from AgentSettings at construction.
+	// Iteration caps populated from AgentSettings at construction —
+	// the static floor used when no per-dispatch override is present.
 	// See types.AgentSettings.VerifierSoftIterCap / VerifierHardIterCap.
-	softIterCap int
-	hardIterCap int
+	defaultSoftIterCap int
+	defaultHardIterCap int
+
+	// Per-dispatch caps captured in BuildInitialInstruction from
+	// ctx.VerifierSoftIterCapOverride. Zero = "no override seen,
+	// fall back to the defaults." Mirrors plannerEvaluator's
+	// dispatch-override pattern so multi-language monorepo plans
+	// (N target paths needing N runner invocations) get enough
+	// soft-cap headroom without bumping into the 5-iter static default.
+	dispatchSoftIterCap int
+	dispatchHardIterCap int
 }
 
 // BuildInitialInstruction captures Mutable and renders a dynamic
@@ -68,6 +78,17 @@ func (e *verifierEvaluator) BuildInitialInstruction(ctx *types.AgentContext, _ *
 		return ""
 	}
 	e.mu = ctx.Mutable
+	if ctx.VerifierSoftIterCapOverride > 0 {
+		e.dispatchSoftIterCap = ctx.VerifierSoftIterCapOverride
+		recoverySlack := e.defaultHardIterCap - e.defaultSoftIterCap
+		if recoverySlack < 1 {
+			recoverySlack = 1
+		}
+		e.dispatchHardIterCap = e.dispatchSoftIterCap + recoverySlack
+	} else {
+		e.dispatchSoftIterCap = 0
+		e.dispatchHardIterCap = 0
+	}
 	plan := ctx.Mutable.ChangePlan()
 	if plan == nil {
 		return "No ChangePlan installed — verify phase cannot proceed. Return without tool calls."
@@ -256,8 +277,12 @@ func (e *verifierEvaluator) ShouldStop(resp llm.Response, iteration int) bool {
 	if e.mu.ChangeReport() != nil {
 		return true
 	}
+	soft, hard := e.dispatchSoftIterCap, e.dispatchHardIterCap
+	if soft <= 0 || hard <= soft {
+		soft, hard = e.defaultSoftIterCap, e.defaultHardIterCap
+	}
 	return iterationCapShouldStop(resp, iteration,
-		e.softIterCap, e.hardIterCap,
+		soft, hard,
 		emitTestResultsToolName)
 }
 
@@ -327,8 +352,8 @@ func (e *verifierEvaluator) DetermineMissingPiece(_ *types.AgentContext, output 
 // NewVerifierAgent constructs the B1 verify-stage agent.
 func NewVerifierAgent(deps *Dependencies) Agent {
 	return NewBaseAgent(types.AgentVerifier, deps, &verifierEvaluator{
-		softIterCap: deps.AgentSettings.VerifierSoftIterCap,
-		hardIterCap: deps.AgentSettings.VerifierHardIterCap,
+		defaultSoftIterCap: deps.AgentSettings.VerifierSoftIterCap,
+		defaultHardIterCap: deps.AgentSettings.VerifierHardIterCap,
 	})
 }
 

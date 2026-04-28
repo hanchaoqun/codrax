@@ -929,6 +929,45 @@ func (o *Orchestrator) Run(request string, repoRoot string, branch string) (*typ
 	return o.busCtx, nil
 }
 
+// dynamicAnalyzeRetries scales the analyzer retry budget by the
+// estimated number of sub-topics in the user's request. Multi-topic
+// questions are more likely to fail the analyzer's coherence /
+// quality gate on the first emit (the LLM has more independent
+// fields to align), so granting one extra retry per pair of
+// estimated sub-topics gives the gate-driven re-emit path room to
+// converge without inflating the cost on simple single-topic
+// questions. Capped at AgentSettings.MaxRetryBudgetCeil (default 5).
+func (o *Orchestrator) dynamicAnalyzeRetries(base int) int {
+	if base < 1 {
+		base = 1
+	}
+	objective := ""
+	if o.busCtx != nil && o.busCtx.Mutable != nil {
+		objective = o.busCtx.Mutable.Objective()
+	}
+	if objective == "" {
+		return base
+	}
+	est := agent.EstimateSubTopicCount(objective)
+	if est < 2 {
+		return base
+	}
+	extra := (est / 2) * o.settings.Agent.SubTopicRetryBudgetExtra
+	adjusted := base + extra
+	ceil := o.settings.Agent.MaxRetryBudgetCeil
+	if ceil <= 0 {
+		ceil = 5
+	}
+	if adjusted > ceil {
+		adjusted = ceil
+	}
+	if adjusted > base {
+		logging.Debug("[orchestrator] analyze retry scaling: estimated=%d sub-topics, retry budget %d → %d",
+			est, base, adjusted)
+	}
+	return adjusted
+}
+
 // runAnalyzePhase dispatches the analyze stage with hard fail-loud
 // retry semantics. Each attempt is counted; the loop exits early
 // on a clean StageOutput (no Error, non-nil AnalysisIR). After the
@@ -960,7 +999,7 @@ func (o *Orchestrator) runAnalyzePhase() (int, error) {
 		return 0, nil
 	}
 
-	max := o.settings.MaxRetriesPerStage
+	max := o.dynamicAnalyzeRetries(o.settings.MaxRetriesPerStage)
 	if max < 1 {
 		max = 1
 	}
@@ -3100,6 +3139,68 @@ func (o *Orchestrator) dispatchStage(stage types.PipelineStage) (*agent.StageOut
 				agentCtx.PlannerSoftIterCapOverride = adjusted
 				logging.Debug("[orchestrator] planner scaling: complexity=%s sub-topics=%d, soft cap %d → %d",
 					complexity, nSub, base, adjusted)
+			}
+		case types.StageExtract:
+			// Extractor soft-cap scaling. The default soft cap (3) is
+			// calibrated for single-topic answers where one or two
+			// emit_answer_symbol calls suffice. Multi-topic explanation
+			// answers require one Key-Anchor row per sub-topic
+			// (5a356ec); a static 3 starves at 4+ sub-topics. Mirrors
+			// the planner's two-axis scaling: per-sub-topic uplift
+			// (SubTopicExtractorBudgetExtra default 1) plus complexity
+			// uplift (ExtractorComplexityBudgetExtra: Simple=0×,
+			// Moderate=1×, Complex=2×). Hard cap at
+			// ExtractorScaledIterMax (default 8).
+			base := agentCfg.ExtractorSoftIterCap
+			extra := 0
+			if nSub > 1 {
+				extra += nSub * agentCfg.SubTopicExtractorBudgetExtra
+			}
+			switch complexity {
+			case types.ComplexityModerate:
+				extra += agentCfg.ExtractorComplexityBudgetExtra
+			case types.ComplexityComplex:
+				extra += 2 * agentCfg.ExtractorComplexityBudgetExtra
+			}
+			adjusted := base + extra
+			ceil := agentCfg.ExtractorScaledIterMax
+			if ceil <= 0 {
+				ceil = 8
+			}
+			if adjusted > ceil {
+				adjusted = ceil
+			}
+			if adjusted > base {
+				agentCtx.ExtractorSoftIterCapOverride = adjusted
+				logging.Debug("[orchestrator] extractor scaling: complexity=%s sub-topics=%d, soft cap %d → %d",
+					complexity, nSub, base, adjusted)
+			}
+		case types.StageVerify:
+			// Verifier soft-cap scaling. Driven by ChangePlan target-path
+			// count rather than sub-topic count: a multi-language
+			// monorepo plan with N target paths may need N runner
+			// invocations (each an iteration of run_tests). Mirrors
+			// CoderSoftIterSlack but lifted from the static 5 default
+			// when an installed plan justifies it. Hard cap at
+			// VerifierScaledIterMax (default 12).
+			if o.busCtx.Mutable != nil {
+				if plan := o.busCtx.Mutable.ChangePlan(); plan != nil && len(plan.TargetPaths) > 0 {
+					base := agentCfg.VerifierSoftIterCap
+					extra := len(plan.TargetPaths) * agentCfg.TargetPathsVerifierBudgetExtra
+					adjusted := base + extra
+					ceil := agentCfg.VerifierScaledIterMax
+					if ceil <= 0 {
+						ceil = 12
+					}
+					if adjusted > ceil {
+						adjusted = ceil
+					}
+					if adjusted > base {
+						agentCtx.VerifierSoftIterCapOverride = adjusted
+						logging.Debug("[orchestrator] verifier scaling: target_paths=%d, soft cap %d → %d",
+							len(plan.TargetPaths), base, adjusted)
+					}
+				}
 			}
 		}
 	}

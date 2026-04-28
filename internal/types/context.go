@@ -2321,6 +2321,24 @@ type AgentContext struct {
 	// soft→hard recovery window can actually run.
 	PlannerSoftIterCapOverride int `json:"-"`
 
+	// ExtractorSoftIterCapOverride mirrors PlannerSoftIterCapOverride
+	// for the extractor evaluator. Set by the orchestrator's
+	// per-dispatch scaling block when nSub > 1 or complexity is
+	// elevated, so the extractor has room to emit one Key-Anchor row
+	// per sub-topic (5a356ec). Hard cap is derived as soft + recovery
+	// slack inside the evaluator. Zero leaves the static
+	// AgentSettings.ExtractorSoftIterCap in effect.
+	ExtractorSoftIterCapOverride int `json:"-"`
+
+	// VerifierSoftIterCapOverride mirrors PlannerSoftIterCapOverride
+	// for the verifier evaluator. Set by the orchestrator's
+	// per-dispatch scaling block from len(plan.TargetPaths), so a
+	// multi-language monorepo plan that needs N runner invocations
+	// gets enough iterations to dispatch run_tests N times before
+	// the soft cap fires. Zero leaves the static
+	// AgentSettings.VerifierSoftIterCap in effect.
+	VerifierSoftIterCapOverride int `json:"-"`
+
 	// EmitStageRetryAttempt is the 0-based retry-attempt counter for
 	// stages whose terminal action is a structured `emit_*` tool call
 	// (analyze / extract / finalize / log_triage / perf_triage). The

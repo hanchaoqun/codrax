@@ -72,10 +72,20 @@ type extractorEvaluator struct {
 	// AgentSettings.ExtractorMaxCorrectionRetries at construction.
 	maxRetries int
 
-	// Iteration caps populated from AgentSettings at construction.
+	// Iteration caps populated from AgentSettings at construction —
+	// the static floor used when no per-dispatch override is present.
 	// See types.AgentSettings.ExtractorSoftIterCap / ExtractorHardIterCap.
-	softIterCap int
-	hardIterCap int
+	defaultSoftIterCap int
+	defaultHardIterCap int
+
+	// Per-dispatch caps captured in BuildInitialInstruction from
+	// ctx.ExtractorSoftIterCapOverride. Zero = "no override seen,
+	// fall back to the defaults." Mirrors plannerEvaluator's
+	// dispatch-override pattern so multi-topic explanations get
+	// enough soft-cap headroom to emit one Key-Anchor row per
+	// sub-topic without bumping into the 3-iter static default.
+	dispatchSoftIterCap int
+	dispatchHardIterCap int
 }
 
 // BuildInitialInstruction implements Evaluator.
@@ -103,6 +113,17 @@ type extractorEvaluator struct {
 // on nil TurnAArtifacts is preserved.
 func (e *extractorEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk *skill.Config) string {
 	e.retriesUsed = 0
+	if ctx != nil && ctx.ExtractorSoftIterCapOverride > 0 {
+		e.dispatchSoftIterCap = ctx.ExtractorSoftIterCapOverride
+		recoverySlack := e.defaultHardIterCap - e.defaultSoftIterCap
+		if recoverySlack < 1 {
+			recoverySlack = 1
+		}
+		e.dispatchHardIterCap = e.dispatchSoftIterCap + recoverySlack
+	} else {
+		e.dispatchSoftIterCap = 0
+		e.dispatchHardIterCap = 0
+	}
 	var b strings.Builder
 
 	// User question is already rendered by builder.go as "User Request"
@@ -316,8 +337,12 @@ func (e *extractorEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk
 // can run kilobytes when many candidates are surfaced, and a streaming
 // truncation on iter=2 would otherwise be discarded by the flat cap.
 func (e *extractorEvaluator) ShouldStop(resp llm.Response, iteration int) bool {
+	soft, hard := e.dispatchSoftIterCap, e.dispatchHardIterCap
+	if soft <= 0 || hard <= soft {
+		soft, hard = e.defaultSoftIterCap, e.defaultHardIterCap
+	}
 	return iterationCapShouldStop(resp, iteration,
-		e.softIterCap, e.hardIterCap,
+		soft, hard,
 		emitAnswerSymbolToolName, emitHypothesisVerdictToolName)
 }
 
@@ -1208,9 +1233,9 @@ func (e *extractorEvaluator) DetermineMissingPiece(_ *types.AgentContext, _ *Sta
 // uniform.
 func NewExtractorAgent(deps *Dependencies) Agent {
 	return NewBaseAgent(types.AgentExtractor, deps, &extractorEvaluator{
-		maxRetries:  deps.AgentSettings.ExtractorMaxCorrectionRetries,
-		softIterCap: deps.AgentSettings.ExtractorSoftIterCap,
-		hardIterCap: deps.AgentSettings.ExtractorHardIterCap,
+		maxRetries:         deps.AgentSettings.ExtractorMaxCorrectionRetries,
+		defaultSoftIterCap: deps.AgentSettings.ExtractorSoftIterCap,
+		defaultHardIterCap: deps.AgentSettings.ExtractorHardIterCap,
 	})
 }
 
