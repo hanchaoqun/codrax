@@ -10729,8 +10729,8 @@ func detectDetailListingIntent(question string) bool {
 
 func enumerationIntentForContext(ctx *types.AgentContext) bool {
 	if rm := requestModelFromContext(ctx); rm != nil {
-		if isEnumerationRequestModel(*rm) {
-			return true
+		if hasStructuredRequestModel(ctx, rm) {
+			return isEnumerationRequestModel(*rm)
 		}
 	}
 	if ctx == nil {
@@ -10750,6 +10750,31 @@ func requestModelFromContext(ctx *types.AgentContext) *types.RequestModel {
 		return ctx.Mutable.RequestModel()
 	}
 	return nil
+}
+
+func hasStructuredRequestModel(ctx *types.AgentContext, rm *types.RequestModel) bool {
+	if ctx != nil && ctx.AnalysisIR != nil {
+		return true
+	}
+	if rm == nil {
+		return false
+	}
+	if rm.Intent != "" || rm.PredicateAxis != types.AxisUnknown || rm.AnswerSubject.Kind != "" {
+		return true
+	}
+	if rm.Language != "" || rm.AnalyzerHints.Kind != "" || rm.AnalyzerHints.Shape != "" {
+		return true
+	}
+	if rm.Predicates.IsCategoryEnumeration || rm.Predicates.IsRelationalLookup || rm.Predicates.IsScalarAnswer {
+		return true
+	}
+	if len(rm.SubTopics) > 0 ||
+		len(rm.AnalyzerHints.Entities) > 0 ||
+		len(rm.AnalyzerHints.PrimaryEntities) > 0 ||
+		len(rm.AnalyzerHints.ExactTargets) > 0 {
+		return true
+	}
+	return false
 }
 
 // detectEnumerationIntent checks if a question asks to list or enumerate

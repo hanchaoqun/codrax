@@ -748,6 +748,37 @@ func TestEnumerationIntentForContext_PrefersStructuredSignals(t *testing.T) {
 	}
 }
 
+func TestEnumerationIntentForContext_StructuredNonEnumerationSuppressesRawListVerb(t *testing.T) {
+	ctx := &types.AgentContext{
+		Objective: "从 analyzer.go 的 buildAnalysisIR 到 gate.Run 之间的确定性处理链都经过哪几步？按调用顺序列出中间的关键函数。",
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				Intent: types.IntentTrace,
+				AnalyzerHints: types.AnalyzerHints{
+					Kind:  "call_chain",
+					Shape: string(types.ShapeStepList),
+				},
+			},
+			AnswerContract: types.AnswerContract{
+				RequiredAnswerShape: types.ShapeStepList,
+			},
+		},
+	}
+	if enumerationIntentForContext(ctx) {
+		t.Fatal("structured non-enumeration trace/step-list question must not be upgraded to enumeration by raw list verbs")
+	}
+}
+
+func TestEnumerationIntentForContext_FallsBackWithoutStructuredModel(t *testing.T) {
+	ctx := &types.AgentContext{
+		Objective: "列出所有 agent 的类型",
+		Mutable:   types.NewMutableState("列出所有 agent 的类型"),
+	}
+	if !enumerationIntentForContext(ctx) {
+		t.Fatal("raw-question fallback should still work when no structured request model is available")
+	}
+}
+
 func TestExtractQuestionEntities(t *testing.T) {
 	tests := []struct {
 		question string
