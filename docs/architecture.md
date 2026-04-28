@@ -1,7 +1,5 @@
 # 架构设计文档
 
-> **文档对应版本**：`0.1.20260424`（CalVer，`make` 产出的二进制 `codrax --version` 打印准确值）
-
 codrax 是一个**代码分析 + 变更提议**工具：
 
 - **读模式**（默认）：接收自然语言问题，经确定性主流水线 `analyze → explore → extract → finalize`（4 阶段 × 4 Agent）产出带 citation 的结构化答案；附加日志时条件触发 `log_triage` 前置阶段，附加性能 trace（HiTrace / atrace / systrace / perfetto）时条件触发 `perf_triage` 前置阶段。**不触碰源文件**。

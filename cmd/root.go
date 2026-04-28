@@ -81,6 +81,7 @@ var (
 	flagMemoryDir      string
 	flagCacheDir       string
 	flagLang           string
+	flagColor          string
 	flagMaxRetries     int
 	flagMaxStageVisits int
 
@@ -274,6 +275,7 @@ func init() {
 	f.StringVar(&flagMemoryDir, "memory-dir", "", "directory for conversation memory")
 	f.StringVar(&flagCacheDir, "cache-dir", "", "base directory for repo map caches (empty = ~/.cache/codrax)")
 	f.StringVar(&flagLang, "lang", defaultLang, "default response language (zh/en/...); 'off' to disable")
+	f.StringVar(&flagColor, "color", "auto", "color mode for diff rendering: auto (TTY-detect, default) | always | never. NO_COLOR env always forces never.")
 	f.IntVar(&flagMaxRetries, "pipeline-max-retries", 0, "override max consecutive failures per stage; 0 = inherit from codrax.yaml")
 	f.IntVar(&flagMaxStageVisits, "pipeline-max-stage-visits", 0, "override max entries per stage per Run; 0 = inherit from codrax.yaml")
 	f.StringArrayVar(&flagAttachLog, "log", nil, "attach a runtime log excerpt (panic / exception / traceback) from a file path, or '-' for stdin. Repeatable: --log a.log --log b.log attaches both, joined with `# codrax-source: <path>` headers so the LLM can distinguish boundaries. Total bytes capped by codrax.yaml :: log_attach_max_bytes.")
@@ -901,6 +903,7 @@ func runREPL(_ *cobra.Command) error {
 		// so pipeline and chitchat see one source of truth.
 		Memory:              memory.NewAdapter(store),
 		EnvSettings:         app.envRecommendSettings,
+		ColorMode:           render.ParseColorMode(flagColor),
 		PlanStore:           planStore,
 		AttachedLogMaxBytes:   maxAttachedLogBytes,
 		AttachedTraceMaxBytes: maxAttachedTraceBytes,

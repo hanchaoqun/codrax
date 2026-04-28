@@ -197,6 +197,12 @@ type Config struct {
 	// types.DefaultEnvRecommendSettings via ResolvedEnvRecommendSettings.
 	EnvSettings types.EnvRecommendSettings
 
+	// ColorMode controls ANSI escape emission for diff rendering
+	// (and any other code blocks added later). Default ColorAuto:
+	// on for TTY, off for pipes. NO_COLOR env wins over everything.
+	// Surfaces --color={auto,always,never} on the CLI.
+	ColorMode render.ColorMode
+
 	// ChitchatClassifier optionally runs a single LLM call before each
 	// normal dispatch to decide whether to reroute the turn to the
 	// chit-chat path. nil disables the gate; the REPL falls back to
@@ -319,6 +325,11 @@ type REPL struct {
 	// envSettings carries the resolved env_recommend yaml config.
 	// cmd/root.go populates this before REPL Loop starts.
 	envSettings types.EnvRecommendSettings
+
+	// colorMode is the resolved color policy for diff rendering.
+	// Default ColorAuto inherits TTY detection at write time. Set
+	// from cmd/root.go via Config.ColorMode (ultimately from --color).
+	colorMode render.ColorMode
 
 	// memory is the read-side handle into the conversation memory
 	// store the chitchat tool-use loop hands the responder. Wired by
@@ -451,6 +462,7 @@ func New(cfg Config) *REPL {
 		chitchatResponder:  cfg.ChitchatResponder,
 		memory:             cfg.Memory,
 		envSettings:        types.ResolvedEnvRecommendSettings(cfg.EnvSettings),
+		colorMode:          cfg.ColorMode,
 		chitchatClassifier: cfg.ChitchatClassifier,
 		// Session ID embeds nano + pid so two codrax REPLs launched
 		// in the same clock tick (test harness, race) still get
@@ -1683,7 +1695,9 @@ func (r *REPL) handlePlanCmd(line string) {
 		// doesn't flood the terminal; the cap message tells the user
 		// to read the plan JSON for full detail.
 		fmt.Fprintln(r.out, "\n  diff preview:")
-		fmt.Fprint(r.out, renderPlanDiff(plan, r.repoRoot, 16*1024, 4*1024))
+		fmt.Fprint(r.out, render.ColorizeUnifiedDiff(
+			renderPlanDiff(plan, r.repoRoot, 16*1024, 4*1024),
+			r.colorMode, r.out))
 		// Footer: name the next slash commands so the user does not
 		// have to remember them after reading the diff. Only printed
 		// when the plan is still actionable (pending_approval); a plan

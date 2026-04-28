@@ -5,8 +5,6 @@
 > 每条结论锚到字节,每段推理可被复核。
 > **确定性诚实,不是态度,是契约。**
 
-> **文档对应版本**:`0.1.20260424`(CalVer,`make` 产出的二进制 `codrax --version` 打印准确值)
-
 本文档面向从未用过 codrax 的用户,讲清楚:**怎么装、怎么配、怎么用、各模式怎么选、界面怎么看、典型场景怎么跑**。不讨论编译和内部实现。
 
 - [1. codrax 是什么](#1-codrax-是什么)
@@ -1482,6 +1480,7 @@ REPL 会自动从 PlanStore 找最近一条 `pending_approval` plan 重新绑定
 | `--repo` | | `.` | 目标仓库路径 |
 | `--branch` | | `main` | 分支名 |
 | `--lang` | | `zh` | 答案语言,`off` / `none` 关闭 |
+| `--color` | | `auto` | diff 块的 ANSI 染色策略:`auto`(终端是 TTY 才上色)/ `always`(强开,适合管道到 `less -R`)/ `never`(强关)。`NO_COLOR` 环境变量(任意非空值)始终覆盖一切强制关闭(no-color.org 事实标准) |
 | `--providers` | | (代码默认路径) | `providers.yaml` 显式路径 |
 | `--log-dir` | | (代码默认) | 日志目录 |
 | `--log-level` | | `debug` | `error` / `warning` / `info` / `debug` |

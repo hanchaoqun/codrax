@@ -275,7 +275,9 @@ Pipeline topology (stages/agents/skills) is code-only; no YAML counterpart.
 
 **`codrax.yaml` lookup**: `$CODRAX_SETTINGS` → `<exeDir>/codrax.yaml` → `<exeDir>/codrax/codrax.yaml` → three legacy `config/` paths (deprecation warning). Stops at first hit.
 
-**Precedence** (lowest wins last): code default → `codrax.yaml` → CLI flag. Only `bare`, `pipeline_*`, log-triage attach (`--log` / `--log-text` / `--log-source-prefix`), and `--chitchat-classifier` have CLI overrides; every other yaml key is yaml-only.
+**Precedence** (lowest wins last): code default → `codrax.yaml` → CLI flag. Only `bare`, `pipeline_*`, log-triage attach (`--log` / `--log-text` / `--log-source-prefix`), `--chitchat-classifier`, and `--color` have CLI overrides; every other yaml key is yaml-only.
+
+**Diff colorization**: `internal/render/diff_color.go` exposes `ColorizeUnifiedDiff(text, mode, w)` — wraps `+` / `-` / `@@` / `+++` / `---` / `diff --git` / `index` lines with ANSI SGR codes. Resolution order (highest first): `NO_COLOR` env (any non-empty value forces off, no-color.org defacto standard) → explicit `--color={always,never}` → `--color=auto` (default) which checks `term.IsTerminal(stdout)`. Wired into `/plan show` in REPL; pipeline final-answer rendering already gets diff colors via glamour/chroma when the LLM emits ` ```diff ` fenced blocks. R6-style byte-identity guard: `TestColorizeUnifiedDiff_DisabledIsByteIdentical` in `internal/render/diff_color_test.go` (input passes through unchanged when off).
 
 **Path anchors** (`cmd/root.go`, resolved to absolute paths before flag registration):
 
