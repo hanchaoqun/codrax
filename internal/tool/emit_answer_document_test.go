@@ -1810,11 +1810,18 @@ func TestEmitAnswerDocument_RejectsUncitedStepInDriftBoundedRootCauseStepList(t 
 	})
 
 	res, _ := tool.Execute(ctx, params)
-	if res.Success {
-		t.Fatal("uncited drift-bounded hypothesis step should be rejected")
+	if !res.Success {
+		t.Fatalf("uncited drift-bounded hypothesis step should be pruned automatically, got %+v", res.Repair)
 	}
-	if res.Repair == nil || res.Repair.Code != "log_source_drift_step_citation" {
-		t.Fatalf("reject should expose log_source_drift_step_citation repair metadata, got %+v", res.Repair)
+	doc := ctx.Mutable.AnswerDocument()
+	if doc == nil {
+		t.Fatal("answer document missing after successful emit")
+	}
+	if len(doc.Steps) != 1 {
+		t.Fatalf("drift-bounded step normalization should keep only cited steps, got %+v", doc.Steps)
+	}
+	if doc.Steps[0].CitationRef < 0 || doc.Steps[0].Index != 1 {
+		t.Fatalf("remaining drift-bounded step should stay cited and be reindexed, got %+v", doc.Steps)
 	}
 }
 

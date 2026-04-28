@@ -896,6 +896,7 @@ func (t *EmitAnswerDocument) Execute(ctx *types.BusContext, params json.RawMessa
 			}
 			p.Steps[i].Description = strings.TrimSpace(p.Steps[i].Description)
 		}
+		p.Steps = normalizeDriftBoundedRootCauseSteps(p.Steps, ctx)
 		if err := validateStepsLiteralGrounding(p.Steps, citations, groundCtx); err != nil {
 			return failWithContext("%v", err)
 		}
@@ -2200,6 +2201,27 @@ func validateLogSourceDriftStepCitations(steps []types.AnswerStep, ctx *types.Bu
 			WithHint("Re-emit `emit_answer_document` with the same grounded call chain and drift-bounded explanation, but either ground this step to a cited file:line or delete the unsupported hypothesis step. Do not use `citation_ref=-1` for root-cause steps in this drift-bounded mode.")
 	}
 	return nil
+}
+
+func normalizeDriftBoundedRootCauseSteps(steps []types.AnswerStep, ctx *types.BusContext) []types.AnswerStep {
+	plan := answerSurfacePlan(ctx)
+	if plan == nil || plan.SummarySurfaceMode != types.AnswerSummarySurfaceDriftBoundedRootCause || len(steps) == 0 {
+		return steps
+	}
+	kept := make([]types.AnswerStep, 0, len(steps))
+	for _, step := range steps {
+		if step.CitationRef < 0 {
+			continue
+		}
+		kept = append(kept, step)
+	}
+	if len(kept) == 0 || len(kept) == len(steps) {
+		return steps
+	}
+	for i := range kept {
+		kept[i].Index = i + 1
+	}
+	return kept
 }
 
 // validateBooleanLiteralGrounding is the ShapeBoolean wrapper. The
