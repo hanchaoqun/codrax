@@ -4544,6 +4544,63 @@ func TestObserveMidLoop_CompletionReadyHint_UsesRequirementBackedCarrierForMecha
 	}
 }
 
+func TestObserveMidLoop_MultiTopicExplanationAnchorHint(t *testing.T) {
+	eval := &explorerEvaluator{
+		phase: 1,
+		analysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				SubTopics: []types.SubTopic{
+					{Summary: "Criterion 的角色", Entities: []string{"Criterion"}},
+					{Summary: "Hypothesis 的角色", Entities: []string{"Hypothesis"}},
+					{Summary: "AnalysisIR 如何持有 HypothesisSet", Entities: []string{"AnalysisIR.HypothesisSet", "HypothesisSet"}},
+				},
+			},
+			AnswerContract: types.AnswerContract{
+				RequiredAnswerShape: types.ShapeExplanation,
+			},
+		},
+		heuristics: types.ExploreHeuristics{MidLoopMinIteration: 2},
+		structuredEvidence: []types.EvidenceItem{
+			{
+				Kind:            types.EvidenceDirect,
+				Source:          "internal/types/analysis_ir.go",
+				LineStart:       574,
+				AnchorKind:      types.AnchorDefinition,
+				AnchorSymbol:    "Criterion",
+				GroundingStatus: types.GroundingGrounded,
+			},
+			{
+				Kind:            types.EvidenceDirect,
+				Source:          "internal/types/analysis_ir.go",
+				LineStart:       896,
+				AnchorKind:      types.AnchorDefinition,
+				AnchorSymbol:    "Hypothesis",
+				GroundingStatus: types.GroundingGrounded,
+			},
+		},
+	}
+	results := []types.ToolResult{
+		{ToolName: "read_file", Success: true, Summary: "[internal/types/analysis_ir.go: showing lines 560-905 of 1040 total]\n"},
+		{ToolName: "emit_evidence", Success: true, Summary: "emit_evidence accepted 2 items"},
+	}
+
+	sig := eval.observeMidLoop(LoopObservation{
+		Phase:          PhaseMidLoop,
+		Iteration:      3,
+		LastToolResult: &results[len(results)-1],
+		AllToolResults: results,
+	})
+	if !sig.HintRequested {
+		t.Fatalf("expected explanation anchor hint, got %+v", sig)
+	}
+	if sig.HintKey != "explorer.mid-loop.explanation-anchor-skeleton" {
+		t.Fatalf("HintKey = %q, want explorer.mid-loop.explanation-anchor-skeleton", sig.HintKey)
+	}
+	if !strings.Contains(sig.Hint, "HypothesisSet") {
+		t.Fatalf("hint should name the missing sub-topic, got: %s", sig.Hint)
+	}
+}
+
 func TestObserveMidLoop_CompletionReadyClosureOnlyRedirectRepeatsAfterEscalation(t *testing.T) {
 	eval := &explorerEvaluator{
 		phase:                           1,

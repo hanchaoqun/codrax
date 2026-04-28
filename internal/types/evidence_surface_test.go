@@ -461,6 +461,98 @@ func TestBuildAnswerSurfacePlan_CompilesFallbackStepBackboneFromEvidence(t *test
 	}
 }
 
+func TestBuildAnswerSurfacePlan_CompilesExplanationAnchorBackboneFromEvidence(t *testing.T) {
+	ir := &AnalysisIR{
+		RequestModel: RequestModel{
+			SubTopics: []SubTopic{
+				{Summary: "Criterion 的角色", Entities: []string{"Criterion"}},
+				{Summary: "Hypothesis 的角色", Entities: []string{"Hypothesis"}},
+				{Summary: "AnalysisIR 如何持有 HypothesisSet", Entities: []string{"AnalysisIR.HypothesisSet", "HypothesisSet"}},
+			},
+		},
+		AnswerContract: AnswerContract{
+			RequiredAnswerShape: ShapeExplanation,
+		},
+	}
+	evidence := []EvidenceItem{
+		{
+			Kind:            EvidenceDirect,
+			Source:          "internal/types/analysis_ir.go",
+			LineStart:       574,
+			AnchorKind:      AnchorDefinition,
+			AnchorSymbol:    "Criterion",
+			GroundingStatus: GroundingGrounded,
+		},
+		{
+			Kind:            EvidenceDirect,
+			Source:          "internal/types/analysis_ir.go",
+			LineStart:       896,
+			AnchorKind:      AnchorDefinition,
+			AnchorSymbol:    "Hypothesis",
+			GroundingStatus: GroundingGrounded,
+		},
+		{
+			Kind:            EvidenceDirect,
+			Source:          "internal/types/analysis_ir.go",
+			LineStart:       33,
+			AnchorKind:      AnchorDefinition,
+			AnchorSymbol:    "AnalysisIR.HypothesisSet",
+			GroundingStatus: GroundingGrounded,
+		},
+	}
+
+	plan := BuildAnswerSurfacePlan(ir, NewMutableState(""), nil, nil, nil, evidence)
+	if plan == nil {
+		t.Fatal("BuildAnswerSurfacePlan returned nil")
+	}
+	if len(plan.ExplanationAnchorBackbone) != 3 {
+		t.Fatalf("explanation anchor backbone = %d, want 3", len(plan.ExplanationAnchorBackbone))
+	}
+	if plan.ExplanationAnchorCompleteness != CompletenessComplete {
+		t.Fatalf("explanation anchor completeness = %q, want %q", plan.ExplanationAnchorCompleteness, CompletenessComplete)
+	}
+	if len(plan.ExplanationAnchorMissingTopics) != 0 {
+		t.Fatalf("missing topics = %v, want none", plan.ExplanationAnchorMissingTopics)
+	}
+	if got := plan.ExplanationAnchorBackbone[2]; got.Name != "AnalysisIR.HypothesisSet" || got.Line != 33 {
+		t.Fatalf("third explanation anchor = %+v", got)
+	}
+}
+
+func TestBuildAnswerSurfacePlan_ExplanationAnchorBackboneSkipsAuxiliaryEvidence(t *testing.T) {
+	ir := &AnalysisIR{
+		RequestModel: RequestModel{
+			SubTopics: []SubTopic{
+				{Summary: "Planner 的职责", Entities: []string{"Planner"}},
+			},
+		},
+		AnswerContract: AnswerContract{
+			RequiredAnswerShape: ShapeExplanation,
+		},
+	}
+	evidence := []EvidenceItem{
+		{
+			Kind:            EvidenceDirect,
+			Source:          "docs/architecture.md",
+			LineStart:       12,
+			AnchorKind:      AnchorDefinition,
+			AnchorSymbol:    "Planner",
+			GroundingStatus: GroundingGrounded,
+		},
+	}
+
+	plan := BuildAnswerSurfacePlan(ir, NewMutableState(""), nil, nil, nil, evidence)
+	if plan == nil {
+		t.Fatal("BuildAnswerSurfacePlan returned nil")
+	}
+	if len(plan.ExplanationAnchorBackbone) != 0 {
+		t.Fatalf("auxiliary docs evidence must not satisfy explanation anchors, got %+v", plan.ExplanationAnchorBackbone)
+	}
+	if len(plan.ExplanationAnchorMissingTopics) != 1 {
+		t.Fatalf("missing topics = %d, want 1", len(plan.ExplanationAnchorMissingTopics))
+	}
+}
+
 func TestEvidencePreferredSurfaceText_NeutralizesExactResolutionRelevantSummary(t *testing.T) {
 	contract := &ExactResolutionContract{
 		TargetKind:           SubjectConfigKey,

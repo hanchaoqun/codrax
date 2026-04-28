@@ -15,15 +15,18 @@ import (
 // categorized answer-surface evidence into one deterministic view so
 // downstream stages do not re-derive the same policy independently.
 type AnswerSurfacePlan struct {
-	RequiredShape                 AnswerShape
-	Diagram                       *DiagramContract
-	DiagramHardRequirementDropped bool
-	CompiledDiagramKind           DiagramKind
-	CompiledDiagramFence          string
-	StepBackbone                  []StepSurfaceAnchor
-	StepBackboneCompleteness      CompletenessClaim
-	LogSourceDriftAnchors         []LogSourceDriftAnchor
-	LogObservedAnchors            []LogSourceDriftAnchor
+	RequiredShape                  AnswerShape
+	Diagram                        *DiagramContract
+	DiagramHardRequirementDropped  bool
+	CompiledDiagramKind            DiagramKind
+	CompiledDiagramFence           string
+	StepBackbone                   []StepSurfaceAnchor
+	StepBackboneCompleteness       CompletenessClaim
+	ExplanationAnchorBackbone      []StepSurfaceAnchor
+	ExplanationAnchorCompleteness  CompletenessClaim
+	ExplanationAnchorMissingTopics []string
+	LogSourceDriftAnchors          []LogSourceDriftAnchor
+	LogObservedAnchors             []LogSourceDriftAnchor
 
 	ExactResolution          *ExactResolutionContract
 	PreferredExactResolution *AnswerExactResolution
@@ -114,12 +117,12 @@ const (
 )
 
 type StepSurfaceAnchor struct {
-	Name      string
-	File      string
-	Line      int
-	Kind      AnswerSymbolKind
-	Rationale string
-	Chain     string
+	Name        string
+	File        string
+	Line        int
+	Kind        AnswerSymbolKind
+	Rationale   string
+	Chain       string
 	SurfaceText string
 }
 
@@ -252,6 +255,198 @@ func ApplyEvidenceStepBackbone(plan *AnswerSurfacePlan, evidence []EvidenceItem)
 	if plan.StepBackboneCompleteness == "" {
 		plan.StepBackboneCompleteness = CompletenessLowerBound
 	}
+}
+
+// CompileExplanationAnchorBackbone derives one grounded anchor per
+// analyzer sub-topic for multi-topic explanation answers. The analyzer
+// already uses the LLM to identify the independently-answerable
+// sub-topics; this helper keeps downstream completion/finalization
+// deterministic by validating that each topic has at least one
+// grounded anchor line the extractor can hang a Key Anchors skeleton
+// on.
+func CompileExplanationAnchorBackbone(ir *AnalysisIR, evidence []EvidenceItem) ([]StepSurfaceAnchor, []string, CompletenessClaim) {
+	if !ExplanationAllowsAnchorSkeleton(ir) || len(evidence) == 0 {
+		return nil, nil, CompletenessUnknown
+	}
+	topics := ir.RequestModel.SubTopics
+	if len(topics) == 0 {
+		return nil, nil, CompletenessUnknown
+	}
+	used := make(map[string]bool, len(topics))
+	anchors := make([]StepSurfaceAnchor, 0, len(topics))
+	missing := make([]string, 0, len(topics))
+	for i, topic := range topics {
+		best := StepSurfaceAnchor{}
+		bestKey := ""
+		bestScore := 0
+		for _, item := range evidence {
+			score := explanationAnchorCandidateScore(topic, item)
+			if score <= 0 {
+				continue
+			}
+			name := explanationAnchorPreferredName(item)
+			if name == "" {
+				continue
+			}
+			key := fmt.Sprintf("%s:%d:%s",
+				strings.TrimSpace(strings.ReplaceAll(item.Source, `\`, `/`)),
+				item.LineStart,
+				name,
+			)
+			if used[key] {
+				continue
+			}
+			candidate := StepSurfaceAnchor{
+				Name:        name,
+				File:        strings.TrimSpace(strings.ReplaceAll(item.Source, `\`, `/`)),
+				Line:        item.LineStart,
+				Rationale:   strings.TrimSpace(topic.Summary),
+				SurfaceText: strings.TrimSpace(EvidencePreferredSurfaceText(item, nil, true)),
+			}
+			if score > bestScore || (score == bestScore && explanationAnchorWinsTie(candidate, best)) {
+				best = candidate
+				bestKey = key
+				bestScore = score
+			}
+		}
+		if bestScore == 0 {
+			missing = append(missing, explanationAnchorTopicLabel(topic, i))
+			continue
+		}
+		used[bestKey] = true
+		anchors = append(anchors, best)
+	}
+	claim := CompletenessUnknown
+	if len(anchors) > 0 {
+		if len(missing) == 0 && len(anchors) == len(topics) {
+			claim = CompletenessComplete
+		} else {
+			claim = CompletenessLowerBound
+		}
+	}
+	return anchors, missing, claim
+}
+
+func ApplyEvidenceExplanationAnchorBackbone(plan *AnswerSurfacePlan, ir *AnalysisIR, evidence []EvidenceItem) {
+	if plan == nil {
+		return
+	}
+	anchors, missing, claim := CompileExplanationAnchorBackbone(ir, evidence)
+	plan.ExplanationAnchorBackbone = anchors
+	plan.ExplanationAnchorMissingTopics = missing
+	if claim != "" {
+		plan.ExplanationAnchorCompleteness = claim
+	}
+}
+
+func explanationAnchorTopicLabel(topic SubTopic, index int) string {
+	if summary := strings.TrimSpace(topic.Summary); summary != "" {
+		return summary
+	}
+	return fmt.Sprintf("sub-topic %d", index+1)
+}
+
+func explanationAnchorTopicTerms(topic SubTopic) []string {
+	seen := make(map[string]bool, len(topic.Entities)+1)
+	out := make([]string, 0, len(topic.Entities)+1)
+	for _, raw := range topic.Entities {
+		term := strings.TrimSpace(raw)
+		if term == "" {
+			continue
+		}
+		key := strings.ToLower(term)
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		out = append(out, term)
+	}
+	if summary := strings.TrimSpace(topic.Summary); summary != "" {
+		key := strings.ToLower(summary)
+		if !seen[key] {
+			out = append(out, summary)
+		}
+	}
+	return out
+}
+
+func explanationAnchorPreferredName(item EvidenceItem) string {
+	return firstNonEmptySurfaceString(
+		item.AnchorSymbol,
+		item.Subject,
+		item.Object,
+	)
+}
+
+func explanationAnchorCandidateScore(topic SubTopic, item EvidenceItem) int {
+	if item.Source == "" || item.LineStart <= 0 || LooksLikeAuxiliaryEvidencePath(item.Source) {
+		return 0
+	}
+	if item.ContextRole == EvidenceContextRoleIllustrativeOnly || item.GroundingStatus == GroundingUngrounded {
+		return 0
+	}
+	terms := explanationAnchorTopicTerms(topic)
+	if len(terms) == 0 {
+		return 0
+	}
+	name := explanationAnchorPreferredName(item)
+	if name == "" {
+		return 0
+	}
+	score := 0
+	for _, term := range terms {
+		trimmed := strings.TrimSpace(term)
+		if trimmed == "" {
+			continue
+		}
+		switch {
+		case strings.EqualFold(strings.TrimSpace(item.AnchorSymbol), trimmed):
+			score += 20
+		case strings.EqualFold(strings.TrimSpace(item.Subject), trimmed):
+			score += 18
+		case strings.EqualFold(strings.TrimSpace(item.Object), trimmed):
+			score += 16
+		case strings.EqualFold(strings.TrimSpace(name), trimmed):
+			score += 14
+		case EvidenceItemStructurallyMentionsAnyTerm(item, []string{trimmed}):
+			score += 8
+		}
+	}
+	if score == 0 {
+		return 0
+	}
+	switch item.Kind {
+	case EvidenceDirect:
+		score += 6
+	case EvidenceRelationship, EvidenceMechanism, EvidenceRegistration:
+		score += 4
+	case EvidenceConditional:
+		score += 2
+	}
+	switch item.AnchorKind {
+	case AnchorDefinition:
+		score += 6
+	case AnchorAssignment:
+		score += 4
+	case AnchorCall, AnchorCondition:
+		score += 3
+	case AnchorReturn:
+		score += 1
+	}
+	return score
+}
+
+func explanationAnchorWinsTie(candidate, incumbent StepSurfaceAnchor) bool {
+	if candidate.Line > 0 && (incumbent.Line == 0 || candidate.Line < incumbent.Line) {
+		return true
+	}
+	if candidate.Line == incumbent.Line && candidate.File != incumbent.File {
+		return candidate.File < incumbent.File
+	}
+	if candidate.Line == incumbent.Line && candidate.File == incumbent.File {
+		return candidate.Name < incumbent.Name
+	}
+	return false
 }
 
 func RenderLinearDiagramFence(nodes []string, limit int) string {
@@ -432,6 +627,7 @@ func BuildAnswerSurfacePlan(
 	}
 	plan.SurfaceEvidence = ExactResolutionSurfaceEvidencePool(emitted, evidence, answerChains)
 	ApplyEvidenceStepBackbone(plan, plan.SurfaceEvidence)
+	ApplyEvidenceExplanationAnchorBackbone(plan, ir, plan.SurfaceEvidence)
 
 	supported := SupportedDiagramKindsForAnswer(
 		ir.RequestModel.Scenario,

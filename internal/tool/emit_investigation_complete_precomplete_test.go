@@ -248,6 +248,69 @@ func TestEmitInvestigationComplete_PreCompleteCheck_ExplanationFunctionSubject_N
 	}
 }
 
+func TestEmitInvestigationComplete_PreCompleteCheck_MultiTopicExplanationAnchorsBlock(t *testing.T) {
+	mut := types.NewMutableState("test")
+	mut.EvidenceClosure().SetReadSet(map[string]bool{
+		"internal/types/analysis_ir.go": true,
+	})
+	mut.AppendEvidence([]types.EvidenceItem{
+		{
+			Source:          "internal/types/analysis_ir.go",
+			LineStart:       574,
+			AnchorKind:      types.AnchorDefinition,
+			AnchorSymbol:    "Criterion",
+			Kind:            types.EvidenceDirect,
+			GroundingStatus: types.GroundingGrounded,
+			GroundingTier:   types.TierLineText,
+		},
+		{
+			Source:          "internal/types/analysis_ir.go",
+			LineStart:       896,
+			AnchorKind:      types.AnchorDefinition,
+			AnchorSymbol:    "Hypothesis",
+			Kind:            types.EvidenceDirect,
+			GroundingStatus: types.GroundingGrounded,
+			GroundingTier:   types.TierLineText,
+		},
+	})
+	bus := &types.BusContext{
+		Mutable:  mut,
+		RepoRoot: t.TempDir(),
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				SubTopics: []types.SubTopic{
+					{Summary: "Criterion 的角色", Entities: []string{"Criterion"}},
+					{Summary: "Hypothesis 的角色", Entities: []string{"Hypothesis"}},
+					{Summary: "AnalysisIR 如何持有 HypothesisSet", Entities: []string{"AnalysisIR.HypothesisSet", "HypothesisSet"}},
+				},
+			},
+			AnswerContract: types.AnswerContract{
+				RequiredAnswerShape: types.ShapeExplanation,
+			},
+		},
+	}
+
+	tool := &EmitInvestigationComplete{}
+	params, _ := json.Marshal(map[string]any{
+		"reason":      "enough evidence collected",
+		"confidence":  "high",
+		"result_kind": "resolved",
+	})
+	res, err := tool.Execute(bus, params)
+	if err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+	if !strings.Contains(res.Summary, "DOWNGRADED") {
+		t.Fatalf("expected downgrade for incomplete multi-topic anchors, got: %s", res.Summary)
+	}
+	if !strings.Contains(res.Summary, "HypothesisSet") {
+		t.Fatalf("expected missing sub-topic in message, got: %s", res.Summary)
+	}
+	if mut.IsInvestigationComplete() {
+		t.Fatalf("InvestigationComplete must remain false on downgrade")
+	}
+}
+
 // TestEmitInvestigationComplete_PreCompleteCheck_Phase1UnreadBlocks
 // reproduces the 2026-04-18 "explorer calls subagent how" bug at the
 // tool level. When the explorer's keyword-search top-K ranked files

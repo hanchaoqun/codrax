@@ -434,6 +434,9 @@ func preCompleteContractCheck(ctx *types.BusContext, justification string) strin
 		raisePhase1UnreadPendingReads(ctx, closure)
 		raiseMultiPathCoverageParity(ctx, closure)
 	}
+	if downgrade := explanationAnchorBackboneDowngrade(ctx); downgrade != "" {
+		return downgrade
+	}
 
 	pending := closure.PendingReads()
 
@@ -675,6 +678,44 @@ func preCompleteContractCheck(ctx *types.BusContext, justification string) strin
 	fmt.Fprintf(&b, "The answer contract requires ≥%d citation(s) but the current evidence buffer has only %d cite-eligible item(s) (Source non-empty AND in the read-files list).\n",
 		min, eligible)
 	b.WriteString("Continue the investigation: emit more file:line evidence anchored in files you actually read, or read additional files first.")
+	return b.String()
+}
+
+func explanationAnchorBackboneDowngrade(ctx *types.BusContext) string {
+	if ctx == nil || ctx.AnalysisIR == nil || !types.ExplanationAllowsAnchorSkeleton(ctx.AnalysisIR) {
+		return ""
+	}
+	emitted := []types.EvidenceItem(nil)
+	if ctx.Mutable != nil {
+		emitted = ctx.Mutable.EmittedEvidence()
+	}
+	anchors, missing, _ := types.CompileExplanationAnchorBackbone(
+		ctx.AnalysisIR,
+		types.ExactResolutionSurfaceEvidencePool(emitted, nil, nil),
+	)
+	if len(missing) == 0 {
+		return ""
+	}
+	if ctx.Mutable != nil {
+		keywords := make([]string, 0, len(ctx.AnalysisIR.RequestModel.SubTopics))
+		for _, topic := range ctx.AnalysisIR.RequestModel.SubTopics {
+			keywords = append(keywords, topic.Entities...)
+		}
+		ctx.Mutable.EvidenceClosure().AddRepair(types.RepairDirective{
+			Kind:      types.RepairExpandSearch,
+			Keywords:  keywords,
+			Rationale: fmt.Sprintf("multi-topic explanation still lacks one grounded anchor per sub-topic (%d/%d covered); read the exact owner/definition line for each missing sub-topic before re-calling emit_investigation_complete", len(anchors), len(ctx.AnalysisIR.RequestModel.SubTopics)),
+			Origin:    "pre_complete.explanation_anchor_skeleton",
+		})
+	}
+	var b strings.Builder
+	b.WriteString(EmitInvestigationCompleteDowngradePrefix + " — multi-topic explanation still lacks one grounded anchor per sub-topic.\n\n")
+	fmt.Fprintf(&b, "Current grounded anchor coverage: %d / %d sub-topics.\n", len(anchors), len(ctx.AnalysisIR.RequestModel.SubTopics))
+	b.WriteString("Missing sub-topics:\n")
+	for _, topic := range missing {
+		fmt.Fprintf(&b, "  - %s\n", topic)
+	}
+	b.WriteString("\nRead the exact definition/owner line for the missing sub-topic(s), emit grounded evidence from those lines, then re-call emit_investigation_complete.")
 	return b.String()
 }
 

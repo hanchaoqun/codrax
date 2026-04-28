@@ -67,6 +67,7 @@ type explorerEvaluator struct {
 	midLoopNoEmitPushSent           bool                  // one-shot: current evidence-materialization backlog window already received its read-without-emit nudge
 	midLoopNoEmitEscalated          bool                  // one-shot: stronger "emit evidence now" escalation after the current backlog window's nudge was ignored
 	midLoopExecRedirectSent         bool                  // one-shot: redirected shell-style browsing back to built-in grep/read_file before recording the current backlog window
+	midLoopExplanationAnchorSent    bool                  // one-shot: multi-topic explanation still lacks one grounded anchor per sub-topic
 	midLoopCompletionReadySent      bool                  // one-shot: generic "you already have enough grounded evidence; close now" hint already pushed this dispatch
 	midLoopCompletionReadyEscalated bool                  // one-shot: stronger close-now escalation after the completion-ready hint was ignored
 	midLoopCompletionReadyIter      int                   // iteration where completion-ready first fired
@@ -139,6 +140,11 @@ type explorerEvaluator struct {
 	// BuildInitialInstruction so exact-resolution closure checks can use
 	// the same scenario-aware contract as finalizer / validator stages.
 	scenario types.Scenario
+
+	// analysisIR caches the analyzer output so mid-loop readiness checks
+	// can reuse the same sub-topic / shape contract without re-deriving
+	// it from prose.
+	analysisIR *types.AnalysisIR
 
 	// kindConfidence caches RequestModel.KindConfidence at
 	// BuildInitialInstruction. Schema-v4 downstream guard: gates
@@ -223,6 +229,7 @@ func (e *explorerEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk 
 		e.midLoopNoEmitPushSent = false
 		e.midLoopNoEmitEscalated = false
 		e.midLoopExecRedirectSent = false
+		e.midLoopExplanationAnchorSent = false
 		e.midLoopNoEmitPushIter = 0
 		e.midLoopNoEmitPushResultsLen = 0
 		e.midLoopEmitBacklogBaseLen = 0
@@ -238,6 +245,7 @@ func (e *explorerEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk 
 		e.exactResolution = nil
 		e.exactPendingTargets = nil
 		e.exactContextFiles = nil
+		e.analysisIR = nil
 		// Loop-policy counters (idleStreakInDepth, lastToolResultCount,
 		// midLoopLastInjectIter) are no longer fields on this struct —
 		// LoopPolicy constructs a fresh loopPolicyState per dispatch,
@@ -257,6 +265,7 @@ func (e *explorerEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk 
 	} else {
 		e.scenario = ""
 	}
+	e.analysisIR = ctx.AnalysisIR
 	e.requiredFiles = analyzerRequiredFilesFromIR(ctx)
 	// Session-22 fix F2.1: cache the log-triage bundle so Check 6's
 	// mid-loop gate can consult bundle.Meta.Signals + ResolvedFiles
@@ -3699,20 +3708,23 @@ func (e *explorerEvaluator) syncEvidenceRepairState(results []types.ToolResult) 
 }
 
 type explorerCompletionReadiness struct {
-	HasEnough             bool
-	ERMSatisfied          bool
-	ToolDiversity         bool
-	FileCoverage          bool
-	EvidenceQuality       bool
-	AuthoritativeCoverage bool
-	ToolSources           int
-	ReadCount             int
-	DirectCount           int
-	ScopeReadCount        int
-	ScopeTotalCount       int
-	DiscoveredCount       int
-	RelevantRead          int
-	Coverage              float64
+	HasEnough                bool
+	ERMSatisfied             bool
+	ToolDiversity            bool
+	FileCoverage             bool
+	EvidenceQuality          bool
+	AuthoritativeCoverage    bool
+	ExplanationAnchorReady   bool
+	ExplanationAnchorCovered int
+	ExplanationAnchorTotal   int
+	ToolSources              int
+	ReadCount                int
+	DirectCount              int
+	ScopeReadCount           int
+	ScopeTotalCount          int
+	DiscoveredCount          int
+	RelevantRead             int
+	Coverage                 float64
 }
 
 func cloneEvidenceRequirements(reqs []EvidenceRequirement) []EvidenceRequirement {
@@ -3818,22 +3830,37 @@ func (e *explorerEvaluator) completionReadiness(toolResults []types.ToolResult, 
 	if exactAbsenceSalvaged && !hasEnough {
 		hasEnough = true
 	}
+	explanationAnchorReady := true
+	explanationAnchorCovered := 0
+	explanationAnchorTotal := 0
+	if e.analysisIR != nil && types.ExplanationAllowsAnchorSkeleton(e.analysisIR) {
+		anchors, missing, _ := types.CompileExplanationAnchorBackbone(e.analysisIR, e.structuredEvidence)
+		explanationAnchorCovered = len(anchors)
+		explanationAnchorTotal = len(e.analysisIR.RequestModel.SubTopics)
+		explanationAnchorReady = len(missing) == 0 && explanationAnchorTotal > 0
+		if !explanationAnchorReady {
+			hasEnough = false
+		}
+	}
 
 	return explorerCompletionReadiness{
-		HasEnough:             hasEnough,
-		ERMSatisfied:          ermSatisfied,
-		ToolDiversity:         toolDiversity,
-		FileCoverage:          fileCoverage,
-		EvidenceQuality:       evidenceQuality,
-		AuthoritativeCoverage: authoritativeCoverage,
-		ToolSources:           sourceCount,
-		ReadCount:             len(readSet),
-		DirectCount:           directCount,
-		ScopeReadCount:        scopeReadCount,
-		ScopeTotalCount:       len(scope),
-		DiscoveredCount:       len(discovered),
-		RelevantRead:          relevantRead,
-		Coverage:              coverage,
+		HasEnough:                hasEnough,
+		ERMSatisfied:             ermSatisfied,
+		ToolDiversity:            toolDiversity,
+		FileCoverage:             fileCoverage,
+		EvidenceQuality:          evidenceQuality,
+		AuthoritativeCoverage:    authoritativeCoverage,
+		ExplanationAnchorReady:   explanationAnchorReady,
+		ExplanationAnchorCovered: explanationAnchorCovered,
+		ExplanationAnchorTotal:   explanationAnchorTotal,
+		ToolSources:              sourceCount,
+		ReadCount:                len(readSet),
+		DirectCount:              directCount,
+		ScopeReadCount:           scopeReadCount,
+		ScopeTotalCount:          len(scope),
+		DiscoveredCount:          len(discovered),
+		RelevantRead:             relevantRead,
+		Coverage:                 coverage,
 	}
 }
 
@@ -3881,10 +3908,55 @@ func (e *explorerEvaluator) postCompletionReadySignal(obs LoopObservation) LoopS
 	if len(e.ermRequirements) > 0 && readiness.ERMSatisfied {
 		b.WriteString("- all current evidence requirements are satisfied\n")
 	}
+	if readiness.ExplanationAnchorTotal > 0 {
+		fmt.Fprintf(&b, "- topic anchors ready: %d / %d\n",
+			readiness.ExplanationAnchorCovered, readiness.ExplanationAnchorTotal)
+	}
 	b.WriteString("Only continue reading if one specific unresolved branch would still change the final answer.")
 	return LoopSignal{
 		HintRequested:  true,
 		HintKey:        "explorer.mid-loop.completion-ready",
+		Hint:           b.String(),
+		Progress:       true,
+		BypassThrottle: true,
+	}
+}
+
+func (e *explorerEvaluator) postExplanationAnchorSignal(obs LoopObservation) LoopSignal {
+	if e.midLoopExplanationAnchorSent || e.phase != 1 || e.investigationComplete || e.analysisIR == nil {
+		return LoopSignal{}
+	}
+	if !types.ExplanationAllowsAnchorSkeleton(e.analysisIR) {
+		return LoopSignal{}
+	}
+	if obs.Iteration < e.heuristics.MidLoopMinIteration {
+		return LoopSignal{}
+	}
+	if !hasSuccessfulTool(obs.AllToolResults, "emit_evidence") {
+		return LoopSignal{}
+	}
+	anchors, missing, claim := types.CompileExplanationAnchorBackbone(e.analysisIR, e.structuredEvidence)
+	if len(anchors) == 0 || len(missing) == 0 {
+		return LoopSignal{}
+	}
+	e.midLoopExplanationAnchorSent = true
+	var b strings.Builder
+	b.WriteString("MID-LOOP CHECK: this is a multi-topic explanation answer, and the current evidence still lacks one grounded anchor line per sub-topic. Before closing, make sure each sub-topic has one load-bearing symbol/field/owner line that the extractor can turn into the Key Anchors skeleton.\n")
+	fmt.Fprintf(&b, "- grounded anchor coverage: %d / %d sub-topics\n", len(anchors), len(e.analysisIR.RequestModel.SubTopics))
+	switch claim {
+	case types.CompletenessLowerBound:
+		b.WriteString("- current anchor coverage is only a lower bound\n")
+	case types.CompletenessUnknown:
+		b.WriteString("- current anchor coverage is still incomplete\n")
+	}
+	b.WriteString("- missing sub-topics:\n")
+	for _, topic := range missing {
+		fmt.Fprintf(&b, "  - %s\n", topic)
+	}
+	b.WriteString("Read the exact definition/owner line for the missing sub-topic(s), emit grounded evidence from those lines, then call `emit_investigation_complete(...)`.")
+	return LoopSignal{
+		HintRequested:  true,
+		HintKey:        "explorer.mid-loop.explanation-anchor-skeleton",
 		Hint:           b.String(),
 		Progress:       true,
 		BypassThrottle: true,
@@ -4288,6 +4360,9 @@ func (e *explorerEvaluator) observeMidLoop(obs LoopObservation) LoopSignal {
 		return sig
 	}
 	if sig := e.postExactAbsenceClosureSignal(obs); sig.HintRequested {
+		return sig
+	}
+	if sig := e.postExplanationAnchorSignal(obs); sig.HintRequested {
 		return sig
 	}
 	if sig := e.postCompletionReadySignal(obs); sig.HintRequested {
