@@ -67,6 +67,12 @@ type OpenAIAdapter struct {
 	// config.ResolveRetryAttempts; always positive post-construction.
 	retryMaxAttempts int
 
+	// streamStallTimeout is the SSE no-bytes ceiling the watchdog
+	// uses to abort hung upstream streams. Resolved from
+	// codrax.yaml :: llm_stream_stall_timeout_seconds; zero falls
+	// through to defaultStreamStallTimeout (60s).
+	streamStallTimeout time.Duration
+
 	stream bool
 	// httpClient is the non-streaming client; honors requestTimeout
 	// as the outer cap on a single round-trip.
@@ -112,6 +118,14 @@ type AdapterOptions struct {
 	RequestTimeout   time.Duration
 	RetryMaxAttempts int
 	TLS              TLSOptions
+
+	// StreamStallTimeout is how long the SSE scanner may go without
+	// receiving a single byte before the watchdog aborts the request.
+	// Zero falls through to the package default
+	// defaultStreamStallTimeout (60s). Surfaces in codrax.yaml as
+	// llm_stream_stall_timeout_seconds; cmd/root.go threads the
+	// resolved value here.
+	StreamStallTimeout time.Duration
 }
 
 // NewOpenAIAdapter creates a new OpenAI adapter. apiKey, model, and
@@ -139,16 +153,21 @@ func NewOpenAIAdapter(apiKey, model, baseURL string, opts AdapterOptions) *OpenA
 	if opts.RetryMaxAttempts <= 0 {
 		panic("llm: AdapterOptions.RetryMaxAttempts must be positive (factory must apply code default)")
 	}
+	stallTimeout := opts.StreamStallTimeout
+	if stallTimeout <= 0 {
+		stallTimeout = defaultStreamStallTimeout
+	}
 	return &OpenAIAdapter{
-		apiKey:           apiKey,
-		model:            model,
-		baseURL:          baseURL,
-		maxOutputTokens:  opts.MaxOutputTokens,
-		contextWindow:    opts.ContextWindow,
-		requestTimeout:   opts.RequestTimeout,
-		retryMaxAttempts: opts.RetryMaxAttempts,
-		stream:           opts.Stream,
-		httpClient:       buildHTTPClient(opts.TLS, baseURL, opts.RequestTimeout),
+		apiKey:             apiKey,
+		model:              model,
+		baseURL:            baseURL,
+		maxOutputTokens:    opts.MaxOutputTokens,
+		contextWindow:      opts.ContextWindow,
+		requestTimeout:     opts.RequestTimeout,
+		retryMaxAttempts:   opts.RetryMaxAttempts,
+		streamStallTimeout: stallTimeout,
+		stream:             opts.Stream,
+		httpClient:         buildHTTPClient(opts.TLS, baseURL, opts.RequestTimeout),
 		// Streaming client gets NO outer timeout (Duration(0)); the
 		// per-request context + streamStallTimeout watchdog own
 		// cancellation. See struct field commentary for rationale.
@@ -387,9 +406,24 @@ func (o *OpenAIAdapter) doStreamRequest(bodyBytes []byte, onDelta func(string)) 
 	// streamStallTimeout. Cancellation closes the response body, so
 	// the scanner's next Read call returns an error and parseSSEStream
 	// exits with a stalled-stream error.
+	//
+	// watchdogFired distinguishes "we cancelled the stream because
+	// upstream stalled" from "the surrounding ReAct loop / user
+	// Ctrl+C cancelled the request" so the post-Scan error wrapper
+	// below can attach the typed StreamStalledError sentinel. Without
+	// this differentiation the resulting "context canceled" error
+	// surfaces in the REPL as "request interrupted (likely Ctrl+C
+	// or upstream connection closed)" — misleading the user into
+	// thinking they pressed Ctrl+C when really upstream stalled.
 	var lastReadNano atomic.Int64
 	lastReadNano.Store(time.Now().UnixNano())
+	var watchdogFired atomic.Bool
+	var watchdogIdle atomic.Int64 // ns
 	watchDone := make(chan struct{})
+	stallTimeout := o.streamStallTimeout
+	if stallTimeout <= 0 {
+		stallTimeout = defaultStreamStallTimeout
+	}
 	go func() {
 		defer close(watchDone)
 		ticker := time.NewTicker(streamStallTickInterval)
@@ -400,8 +434,10 @@ func (o *OpenAIAdapter) doStreamRequest(bodyBytes []byte, onDelta func(string)) 
 				return
 			case <-ticker.C:
 				idle := time.Since(time.Unix(0, lastReadNano.Load()))
-				if idle > streamStallTimeout {
-					logging.Warning("[llm/stream] stream stalled (no bytes for %v); aborting (outer http timeout was %v)", idle, o.requestTimeout)
+				if idle > stallTimeout {
+					logging.Warning("[llm/stream] stream stalled (no bytes for %v, threshold=%v); aborting (outer http timeout was %v)", idle, stallTimeout, o.requestTimeout)
+					watchdogIdle.Store(int64(idle))
+					watchdogFired.Store(true)
 					cancel()
 					return
 				}
@@ -412,22 +448,30 @@ func (o *OpenAIAdapter) doStreamRequest(bodyBytes []byte, onDelta func(string)) 
 	resp, err := parseSSEStream(httpResp.Body, onDelta, &lastReadNano)
 	cancel()
 	<-watchDone
+	if err != nil && watchdogFired.Load() {
+		err = &StreamStalledError{
+			IdleFor: time.Duration(watchdogIdle.Load()),
+			Cause:   err,
+		}
+	}
 	return resp, err
 }
 
-// streamStallTimeout caps the maximum time the SSE scanner may go
-// without receiving a byte before doStreamRequest's watchdog
-// considers the upstream stalled and aborts the request. 30 s is a
-// conservative middle ground: thinking models pause for several
-// seconds between content chunks, so anything below ~10 s would
-// false-positive; >60 s starts to overlap with the outer 120 s HTTP
-// timeout, giving little benefit. 30 s is 4× the longest legitimate
-// inter-chunk pause we have observed and 4× shorter than the outer
-// cap, so the watchdog catches stalls clearly before the outer
-// timeout fires.
+// defaultStreamStallTimeout is the package-level fallback for the
+// per-adapter o.streamStallTimeout. Hit when AdapterOptions doesn't
+// supply a value and providers.yaml didn't tune the knob. Thinking
+// models pause for several seconds between content chunks, deep-
+// reasoning models routinely pause 30+ seconds between thinking
+// blocks, so anything below ~30 s false-positives on legitimate slow
+// upstreams. 60 s is the conservative middle ground; operators tune
+// per-provider via providers.yaml :: stream_stall_timeout_seconds.
+//
+// streamStallTickInterval is how often the watchdog goroutine polls
+// the idle counter. 5 s gives sub-default-cap reaction time without
+// consuming meaningful CPU on long streams.
 const (
-	streamStallTimeout      = 30 * time.Second
-	streamStallTickInterval = 5 * time.Second
+	defaultStreamStallTimeout = 60 * time.Second
+	streamStallTickInterval   = 5 * time.Second
 )
 
 // parseSSEStream reads SSE frames from r and folds them into a single

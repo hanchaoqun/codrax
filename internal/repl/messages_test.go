@@ -1,10 +1,13 @@
 package repl
 
 import (
+	"context"
 	"fmt"
 	"strings"
 	"testing"
+	"time"
 
+	"github.com/hanchaoqun/codrax/internal/llm"
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
@@ -21,6 +24,68 @@ func TestFriendlyRunError_TranslatesContextCanceled(t *testing.T) {
 	zhGot := friendlyRunError("zh", err)
 	if !strings.Contains(zhGot, "中断") {
 		t.Errorf("zh: expected '中断' in friendly text, got %q", zhGot)
+	}
+}
+
+// TestFriendlyRunError_TranslatesStreamStalled pins the typed
+// StreamStalledError path: when the LLM streaming watchdog aborts
+// a hung upstream stream, the user sees a dedicated "upstream
+// stalled" message naming the idle duration — NOT the generic
+// Ctrl+C / network-disconnect prose. Pre-fix the wrapper produced
+// "read stream: context canceled" which was substring-matched as
+// "context canceled" → mis-attributed to Ctrl+C.
+func TestFriendlyRunError_TranslatesStreamStalled(t *testing.T) {
+	stalled := &llm.StreamStalledError{
+		IdleFor: 60 * time.Second,
+		Cause:   fmt.Errorf("read stream: %w", context.Canceled),
+	}
+	// Wrap in a layer to mirror the real pipeline shape: the orchestrator
+	// + agent layers fmt.Errorf-wrap the LLM error before it reaches the
+	// REPL's friendlyRunError.
+	wrapped := fmt.Errorf("LLM call failed: %w", stalled)
+
+	enGot := friendlyRunError("en", wrapped)
+	if !strings.Contains(enGot, "upstream LLM stream stalled") {
+		t.Errorf("en: expected 'upstream LLM stream stalled' phrase; got %q", enGot)
+	}
+	if !strings.Contains(enGot, "60s") && !strings.Contains(enGot, "1m0s") {
+		t.Errorf("en: expected idle duration in friendly text; got %q", enGot)
+	}
+	if strings.Contains(enGot, "Ctrl+C") {
+		t.Errorf("en: stalled message must NOT mention Ctrl+C; got %q", enGot)
+	}
+
+	zhGot := friendlyRunError("zh", wrapped)
+	if !strings.Contains(zhGot, "停滞") {
+		t.Errorf("zh: expected '停滞' in friendly text; got %q", zhGot)
+	}
+	if strings.Contains(zhGot, "Ctrl+C") {
+		t.Errorf("zh: stalled message must NOT mention Ctrl+C; got %q", zhGot)
+	}
+}
+
+// TestFriendlyRunError_StreamStalledMatchesBeforeGenericContextCanceled
+// guards the order of branches in friendlyRunError: the typed
+// StreamStalledError matcher MUST come BEFORE the generic
+// "context canceled" substring matcher. If the order flips the
+// stalled path silently regresses to the Ctrl+C message because
+// errors.As(StreamStalledError) implies "context canceled" is in
+// the chain.
+func TestFriendlyRunError_StreamStalledMatchesBeforeGenericContextCanceled(t *testing.T) {
+	stalled := &llm.StreamStalledError{
+		IdleFor: 30 * time.Second,
+		Cause:   context.Canceled,
+	}
+	got := friendlyRunError("en", stalled)
+	// The stalled path produces a message containing "stalled" /
+	// "no bytes". The generic context-canceled path would produce
+	// "request interrupted (likely Ctrl+C ...)". They are
+	// distinguishable.
+	if !strings.Contains(got, "stalled") {
+		t.Errorf("typed StreamStalledError must take the stalled branch; got %q", got)
+	}
+	if strings.Contains(got, "Ctrl+C") {
+		t.Errorf("typed StreamStalledError must NOT fall through to Ctrl+C branch; got %q", got)
 	}
 }
 

@@ -111,4 +111,12 @@ type LLMProviderConfig struct {
 	// inherits the code default (6 attempts ≈ 62s of total backoff
 	// coverage).
 	RetryMaxAttempts int `yaml:"retry_max_attempts"`
+
+	// StreamStallTimeoutSeconds caps the maximum time the SSE scanner
+	// may go without receiving a single byte before the watchdog
+	// aborts the request. Tuned per-provider — fast small models can
+	// use 15-30s, deep-thinking / reasoning models often need 90-
+	// 120s because they pause 30+ s between thinking blocks. Zero
+	// (the absent form) inherits the code default (60s).
+	StreamStallTimeoutSeconds int `yaml:"stream_stall_timeout_seconds"`
 }

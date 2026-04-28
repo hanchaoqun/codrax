@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/hanchaoqun/codrax/internal/llm"
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
@@ -601,6 +602,23 @@ func friendlyRunError(lang string, err error) string {
 	var ce cancelErrorCarrier
 	if errors.As(err, &ce) {
 		return canceledByUserMsg(lang, ce.Stage())
+	}
+	// Streaming-watchdog stall: the LLM SSE scanner saw no bytes for
+	// more than streamStallTimeout (default 30s) and the watchdog
+	// cancelled the request context. Pre-this-match the resulting
+	// error percolated up as "read stream: context canceled" and
+	// the generic "context canceled" branch below mis-attributed it
+	// to a Ctrl+C / upstream-disconnect — confusing the user when
+	// they pressed nothing. Match the typed sentinel BEFORE the
+	// generic branch so the upstream-stalled case gets its own
+	// dedicated message.
+	var ss *llm.StreamStalledError
+	if errors.As(err, &ss) {
+		idle := ss.IdleFor
+		if isZh(lang) {
+			return fmt.Sprintf("上游 LLM 流式响应停滞 %s 无新字节,已自动中止。原因可能是模型 mid-emit 卡住、上游网络抖动、或 thinking 块过大。再试一次,或换一个 provider/model 看看。", idle)
+		}
+		return fmt.Sprintf("upstream LLM stream stalled with no bytes for %s; aborted automatically. Likely causes: model stuck mid-emit, upstream network blip, or oversized thinking block. Retry, or try a different provider/model.", idle)
 	}
 	msg := err.Error()
 	low := strings.ToLower(msg)

@@ -94,6 +94,9 @@ func merge(dst, src *types.LLMProviderConfig) {
 	if src.RetryMaxAttempts != 0 {
 		dst.RetryMaxAttempts = src.RetryMaxAttempts
 	}
+	if src.StreamStallTimeoutSeconds != 0 {
+		dst.StreamStallTimeoutSeconds = src.StreamStallTimeoutSeconds
+	}
 }
 
 // mergeEnv fills empty fields from environment variables.

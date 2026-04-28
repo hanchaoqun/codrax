@@ -56,6 +56,40 @@ llm:
     # warning on stderr + log every startup while true.
     # tls_insecure_skip_verify: false
 
+    # --- Sizing knobs (all optional; per-provider, per-agent inheritable)
+    # Zero / unset on any field means "use the code default".
+    #
+    # context_window:        max input tokens the model accepts. Affects
+    #                        the agent's context-pressure watchdog and
+    #                        the fraction-form max_output_fraction.
+    #                        Code default 128000 when unset.
+    # max_output_tokens:     wire-level `max_tokens`. 0 / unset means
+    #                        "don't send the field" — server uses the
+    #                        model's own ceiling (the recommended
+    #                        default; capping client-side caused
+    #                        emit_change_plan streaming truncation).
+    # max_output_fraction:   alternative form: fraction × context_window.
+    #                        Used only if non-zero AND max_output_tokens
+    #                        is zero.
+    # request_timeout_seconds: outer HTTP timeout for non-streaming
+    #                        requests. Code default 120s.
+    # retry_max_attempts:    transient 429 / 5xx retry cap. Code
+    #                        default 6 (≈62s of total backoff
+    #                        coverage at base = 2s exponential).
+    # stream_stall_timeout_seconds: SSE no-bytes ceiling before the
+    #                        watchdog aborts the request. 60s default;
+    #                        deep-thinking models routinely pause
+    #                        30+ s between thinking blocks, so set
+    #                        higher (90-120s) on those and lower
+    #                        (15-30s) on fast small models.
+    #
+    # context_window: 128000
+    # max_output_tokens: 0
+    # max_output_fraction: 0.5
+    # request_timeout_seconds: 120
+    # retry_max_attempts: 6
+    # stream_stall_timeout_seconds: 60
+
   # --- Per-agent overrides ------------------------------------------------
   # Valid agent keys are `analyzer`, `explorer`, `extractor`,
   # `finalizer`, `log_triager`, `perf_triager`, `planner`, `coder`,

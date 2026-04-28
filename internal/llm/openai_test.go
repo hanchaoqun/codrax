@@ -668,13 +668,20 @@ func TestStreamHTTPClient_HasNoOuterTimeout(t *testing.T) {
 }
 
 func TestStreamStallTimeout_SaneDefaults(t *testing.T) {
-	if streamStallTimeout < 10*time.Second {
-		t.Errorf("streamStallTimeout=%v is too aggressive; thinking-model inter-chunk pauses can hit 5-10s, would false-positive", streamStallTimeout)
+	if defaultStreamStallTimeout < 10*time.Second {
+		t.Errorf("defaultStreamStallTimeout=%v is too aggressive; thinking-model inter-chunk pauses can hit 5-10s, would false-positive", defaultStreamStallTimeout)
 	}
-	if streamStallTimeout > 60*time.Second {
-		t.Errorf("streamStallTimeout=%v is too lax; should bail well before the 120s outer http timeout", streamStallTimeout)
+	// Upper bound widened to 120s in 2026-04-28: deep-thinking models
+	// (DeepSeek-R1 / o1-style) routinely pause 30-60s between
+	// thinking blocks. The previous 60s ceiling fired the watchdog
+	// mid-stream on legitimate slow upstreams. Outer http timeout is
+	// owned by RequestTimeout (default 120s), and the stream client
+	// has NO outer timeout, so the upper bound is a sanity guard
+	// rather than a coupling to the http path.
+	if defaultStreamStallTimeout > 120*time.Second {
+		t.Errorf("defaultStreamStallTimeout=%v is too lax; should be ≤120s to keep the upper bound disciplined", defaultStreamStallTimeout)
 	}
-	if streamStallTickInterval >= streamStallTimeout {
-		t.Errorf("tick interval %v must be < stall timeout %v so detection has resolution", streamStallTickInterval, streamStallTimeout)
+	if streamStallTickInterval >= defaultStreamStallTimeout {
+		t.Errorf("tick interval %v must be < stall timeout %v so detection has resolution", streamStallTickInterval, defaultStreamStallTimeout)
 	}
 }
