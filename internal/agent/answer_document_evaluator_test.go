@@ -1634,6 +1634,106 @@ func TestAnswerDocumentEvaluator_Observe_MidLoopConfigTraceContextCitationReject
 	}
 }
 
+func TestAnswerDocumentEvaluator_Observe_MidLoopConfigTraceContextCitationRejectKeepsFollowOnContextVisible(t *testing.T) {
+	mu := types.NewMutableState("")
+	mu.SetAbsenceJustification("no config key named `explore_mid_loop_hint_budget` exists in the repo")
+	mu.SetInvestigationResultKind("absence")
+	mu.AppendEvidence([]types.EvidenceItem{{
+		Kind:            types.EvidenceDirect,
+		Subject:         "DefaultExploreHeuristics",
+		Predicate:       "defines",
+		Object:          "ExploreHeuristics defaults",
+		Source:          "internal/types/config.go",
+		LineStart:       707,
+		AnchorKind:      types.AnchorDefinition,
+		AnchorSymbol:    "DefaultExploreHeuristics",
+		ContextRole:     types.EvidenceContextRoleRelatedContext,
+		GroundingStatus: types.GroundingGrounded,
+	}})
+	e := &answerDocumentEvaluator{maxRetries: 2, configTraceDiagram: true}
+	sig := e.Observe(&types.AgentContext{
+		Mutable: mu,
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				Scenario:      types.ScenarioConfigTrace,
+				AnswerSubject: types.AnswerSubject{Kind: types.SubjectConfigKey},
+			},
+			AnswerContract: types.AnswerContract{
+				ExactResolution: &types.ExactResolutionContract{
+					TargetKind:           types.SubjectConfigKey,
+					TargetLabel:          "config key",
+					Targets:              []string{"explore_mid_loop_hint_budget"},
+					AllowAbsence:         true,
+					RelatedContextPolicy: types.ExactContextSameFamilyGrounded,
+				},
+			},
+		},
+	}, LoopObservation{
+		Phase:     PhaseMidLoop,
+		Iteration: 0,
+		LastToolResult: &types.ToolResult{
+			ToolName: "emit_answer_document",
+			Success:  false,
+			Summary:  "[answer_doc_reject:config_trace_context_citation] exact-absent config-trace answers may cite only precedence-capable lineage anchors.",
+			Repair: &types.ToolRepair{
+				Code: "config_trace_context_citation",
+				Hint: "Re-emit `emit_answer_document` with the same exact-absence conclusion, but remove this anchor from `citations[]`.",
+				Metadata: map[string]string{
+					"allowed_anchors":              "DefaultExploreHeuristics",
+					"drop_citations":               "internal/types/config.go:707",
+					"nearby_context_citation_mode": "prose_only",
+					"preferred_context_mode":       "grounded_context_only",
+				},
+			},
+		},
+	})
+	if !sig.HintRequested {
+		t.Fatalf("follow-on grounded-context citation reject should request a correction hint, got %+v", sig)
+	}
+	for _, want := range []string{
+		"follow-on grounded-context mode",
+		"Keep the nearby grounded context visible as uncited prose-only explanation instead of collapsing to the exact-absence lead alone",
+		"Keep the nearby grounded context visible as uncited prose-only explanation",
+	} {
+		if !strings.Contains(sig.Hint, want) {
+			t.Fatalf("follow-on grounded-context hint missing %q: %q", want, sig.Hint)
+		}
+	}
+}
+
+func TestAnswerDocumentEvaluator_Observe_MidLoopFollowOnGroundedContextRejectUsesAllowedAnchors(t *testing.T) {
+	e := &answerDocumentEvaluator{maxRetries: 2}
+	sig := e.Observe(nil, LoopObservation{
+		Phase:     PhaseMidLoop,
+		Iteration: 0,
+		LastToolResult: &types.ToolResult{
+			ToolName: "emit_answer_document",
+			Success:  false,
+			Summary:  "[answer_doc_reject:follow_on_grounded_context] exact-absent answers in follow-on grounded-context mode collapsed to the lead only.",
+			Repair: &types.ToolRepair{
+				Code: "follow_on_grounded_context",
+				Hint: "Re-emit `emit_answer_document` with the same exact-absence conclusion, but keep the grounded nearby context visible after the renderer-generated lead.",
+				Metadata: map[string]string{
+					"allowed_anchors":        "DefaultExploreHeuristics, ResolvedExploreHeuristics",
+					"preferred_context_mode": "grounded_context_only",
+				},
+			},
+		},
+	})
+	if !sig.HintRequested {
+		t.Fatalf("follow-on grounded-context reject should request a correction hint, got %+v", sig)
+	}
+	for _, want := range []string{
+		"`DefaultExploreHeuristics`, `ResolvedExploreHeuristics`",
+		"`exact_resolution.context_mode=\"grounded_context_only\"`",
+		"Do not collapse the answer to the renderer-generated exact-absence lead alone",
+	} {
+		if !strings.Contains(sig.Hint, want) {
+			t.Fatalf("follow-on grounded-context hint missing %q: %q", want, sig.Hint)
+		}
+	}
+}
+
 func TestAnswerDocumentEvaluator_Observe_MidLoopDiagramCodenameRejectSurfacesAction(t *testing.T) {
 	e := &answerDocumentEvaluator{maxRetries: 2, configTraceDiagram: true}
 	sig := e.Observe(nil, LoopObservation{

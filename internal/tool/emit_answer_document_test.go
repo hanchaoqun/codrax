@@ -1289,11 +1289,69 @@ func TestEmitAnswerDocument_AllowsAbsenceWithProductionContextOnlyMention(t *tes
 			"status":       "absent",
 			"context_mode": "grounded_context_only",
 		},
-		"summary": "Related grounded defaults stay context only.",
+		"summary": "DefaultExploreHeuristics 提供了这个 explore 配置家族的 nearby grounded default baseline，但它只是同族上下文，不是缺失键本身。",
 	})
 	res, _ := tool.Execute(ctx, params)
 	if !res.Success {
 		t.Fatalf("production context-only mentions should not contradict absence, got: %q", res.Summary)
+	}
+}
+
+func TestEmitAnswerDocument_RejectsLeadOnlySurfaceWhenFollowOnGroundedContextIsRequired(t *testing.T) {
+	tool := &EmitAnswerDocument{}
+	ctx := newDocBusCtx("")
+	target := "explore_mid_loop_hint_budget"
+	ctx.AnalysisIR = &types.AnalysisIR{
+		RequestModel: types.RequestModel{
+			Scenario:      types.ScenarioConfigTrace,
+			AnswerSubject: types.AnswerSubject{Kind: types.SubjectConfigKey},
+		},
+		AnswerContract: types.AnswerContract{
+			RequiredAnswerShape: types.ShapeExplanation,
+			ExactResolution: &types.ExactResolutionContract{
+				TargetKind:              types.SubjectConfigKey,
+				TargetLabel:             "config key",
+				Targets:                 []string{target},
+				AllowAbsence:            true,
+				RequireTargetMention:    true,
+				AliasRequiresProof:      true,
+				RelatedContextPolicy:    types.ExactContextSameFamilyGrounded,
+				RelatedContextScopeHint: "same namespace / prefix family",
+			},
+		},
+	}
+	ctx.Mutable.SetAbsenceJustification("no config key named `explore_mid_loop_hint_budget` exists in the repo")
+	ctx.Mutable.SetInvestigationResultKind("absence")
+	ctx.Mutable.AppendEvidence([]types.EvidenceItem{{
+		Kind:            types.EvidenceDirect,
+		Subject:         "DefaultExploreHeuristics",
+		Predicate:       "defines",
+		Object:          "ExploreHeuristics defaults",
+		Source:          "internal/types/config.go",
+		LineStart:       707,
+		AnchorKind:      types.AnchorDefinition,
+		AnchorSymbol:    "DefaultExploreHeuristics",
+		ContextRole:     types.EvidenceContextRoleRelatedContext,
+		GroundingStatus: types.GroundingGrounded,
+	}})
+
+	params := mustDocJSON(t, map[string]interface{}{
+		"shape": "explanation",
+		"exact_resolution": map[string]interface{}{
+			"status":       "absent",
+			"context_mode": "grounded_context_only",
+		},
+		"summary": "该精确配置键不存在。",
+	})
+	res, _ := tool.Execute(ctx, params)
+	if res.Success {
+		t.Fatal("lead-only summary should be rejected when follow-on grounded context is required")
+	}
+	if res.Repair == nil || res.Repair.Code != "follow_on_grounded_context" {
+		t.Fatalf("reject should expose follow_on_grounded_context repair metadata, got %+v", res.Repair)
+	}
+	if !strings.Contains(res.Repair.Hint, "do not collapse the answer to the exact-absence lead alone") {
+		t.Fatalf("repair hint should keep nearby grounded context visible, got %+v", res.Repair)
 	}
 }
 
@@ -1835,7 +1893,7 @@ func TestEmitAnswerDocument_ConfigTraceAbsenceAllowsPrecedenceAnchors(t *testing
 			"status":       "absent",
 			"context_mode": "grounded_context_only",
 		},
-		"summary": "该精确配置键不存在，下面只保留真实的缺失证明与 precedence 相关上下文。",
+		"summary": "该精确配置键不存在。`DefaultExploreHeuristics()` 提供 code-default 一侧的 nearby grounded precedence 锚点，`codrax.yaml.example:22` 提供 config-file precedence 说明；它们都是同族上下文，不是缺失键本身。",
 		"citations": []map[string]interface{}{
 			{"file": "internal/config/runtime.go", "line": 232},
 			{"file": "internal/types/config.go", "line": 707},

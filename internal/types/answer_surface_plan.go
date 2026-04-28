@@ -368,9 +368,7 @@ func preferredExactResolutionSurface(plan *AnswerSurfacePlan) *AnswerExactResolu
 	}
 	if plan.StableAbsent {
 		resolved.Status = AnswerExactResolutionAbsent
-		if len(plan.AllowedExactContextItems) > 0 ||
-			len(plan.CitationGradeExactContextItems) > 0 ||
-			len(plan.ProseOnlyExactContextItems) > 0 {
+		if hasVisibleNearbyGroundedContext(plan) {
 			resolved.ContextMode = AnswerExactResolutionContextGroundedOnly
 		}
 		return resolved
@@ -386,13 +384,31 @@ func preferredAnswerSummarySurfaceMode(plan *AnswerSurfacePlan, rm RequestModel)
 		return AnswerSummarySurfaceDefault
 	}
 	if plan.PreferredExactResolution.Status == AnswerExactResolutionAbsent &&
-		plan.PreferredExactResolution.ContextMode == AnswerExactResolutionContextGroundedOnly {
+		plan.PreferredExactResolution.ContextMode == AnswerExactResolutionContextGroundedOnly &&
+		hasVisibleNearbyGroundedContext(plan) {
 		return AnswerSummarySurfaceFollowOnGroundedContext
 	}
 	if IsScalarRoleLocateLookup(rm) {
 		return AnswerSummarySurfaceMinimalScalarRoleLocate
 	}
 	return AnswerSummarySurfaceDefault
+}
+
+func hasVisibleNearbyGroundedContext(plan *AnswerSurfacePlan) bool {
+	if plan == nil {
+		return false
+	}
+	for _, ev := range plan.CitationGradeExactContextItems {
+		if ev.ContextRole != EvidenceContextRoleAbsenceSupport {
+			return true
+		}
+	}
+	for _, ev := range plan.ProseOnlyExactContextItems {
+		if ev.ContextRole != EvidenceContextRoleAbsenceSupport {
+			return true
+		}
+	}
+	return false
 }
 
 // FormatExactResolutionSeed formats one grounded evidence item into the

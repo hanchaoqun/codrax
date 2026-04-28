@@ -1829,12 +1829,34 @@ func (e *answerDocumentEvaluator) emitAnswerDocumentRejectSignal(ctx *types.Agen
 				hint += " Drop these invalid citation(s) from `citations[]`: `" + strings.ReplaceAll(invalid, ", ", "`, `") + "`."
 			}
 		}
+		plan := answerSurfacePlan(ctx)
 		if allowedCitations != "" {
-			hint += " Choose one valid repair path now: either (a) keep nearby precedence / lineage context, cite at least one allowed file:line lineage anchor, and move any prose-only anchors out of `citations[]` / fenced diagrams, or (b) delete that nearby context from the user-visible answer surface and keep only the exact-absence lead. Do not keep broad same-family background as the cited explanation."
+			if plan != nil && plan.SummarySurfaceMode == types.AnswerSummarySurfaceFollowOnGroundedContext {
+				hint += " This dispatch is in follow-on grounded-context mode, so do NOT collapse the answer to the exact-absence lead alone. Keep the nearby precedence / lineage context on the user-visible surface, cite at least one allowed file:line lineage anchor when you keep citation-grade lineage, and move any prose-only anchors out of `citations[]` / fenced diagrams."
+			} else {
+				hint += " Choose one valid repair path now: either (a) keep nearby precedence / lineage context, cite at least one allowed file:line lineage anchor, and move any prose-only anchors out of `citations[]` / fenced diagrams, or (b) delete that nearby context from the user-visible answer surface and keep only the exact-absence lead. Do not keep broad same-family background as the cited explanation."
+			}
 		} else {
-			hint += " No citation-grade nearby lineage anchors are available for this dispatch, so do not invent a replacement citation. Either keep only short uncited background that does not become the answer's visible lineage explanation, or delete the nearby context entirely and keep only the exact-absence lead."
+			if plan != nil && plan.SummarySurfaceMode == types.AnswerSummarySurfaceFollowOnGroundedContext {
+				hint += " This dispatch is in follow-on grounded-context mode. No citation-grade nearby lineage anchors are available for this dispatch, so do not invent a replacement citation. Keep the nearby grounded context visible as uncited prose-only explanation instead of collapsing to the exact-absence lead alone."
+			} else {
+				hint += " No citation-grade nearby lineage anchors are available for this dispatch, so do not invent a replacement citation. Either keep only short uncited background that does not become the answer's visible lineage explanation, or delete the nearby context entirely and keep only the exact-absence lead."
+			}
 		}
 		hint = appendRetryDiagramSeedHint(hint, ctx, repair)
+	}
+	if rejectCode == answerDocRejectCodeFollowOnGroundedContext && repair != nil {
+		reasonKey = "follow-on-grounded-context"
+		hint = strings.TrimSpace(repair.Hint)
+		if repair.Metadata != nil {
+			if allowed := strings.TrimSpace(repair.Metadata["allowed_anchors"]); allowed != "" {
+				hint += " Keep the visible nearby context on this validated anchor set: `" + strings.ReplaceAll(allowed, ", ", "`, `") + "`."
+			}
+			if mode := strings.TrimSpace(repair.Metadata["preferred_context_mode"]); mode != "" && !strings.Contains(hint, "exact_resolution.context_mode") {
+				hint += " Keep `exact_resolution.context_mode=\"" + mode + "\"` while that nearby context remains visible."
+			}
+		}
+		hint += " Do not collapse the answer to the renderer-generated exact-absence lead alone."
 	}
 	if rejectCode == answerDocRejectCodeAbsentExactConfigValueShape || strings.Contains(summary, "must not use shape=config_value") {
 		reasonKey = "absent-config-value-shape"
@@ -1922,6 +1944,7 @@ const (
 	answerDocRejectCodeDiagramGrounding            = "diagram_grounding"
 	answerDocRejectCodeDiagramCodename             = "diagram_codename"
 	answerDocRejectCodeExactContextSurface         = "exact_context_surface"
+	answerDocRejectCodeFollowOnGroundedContext     = "follow_on_grounded_context"
 	answerDocRejectCodeExactResolution             = "exact_resolution"
 	answerDocRejectCodeAbsentExactConfigValueShape = "absent_exact_config_value_shape"
 	answerDocRejectCodeLiteralGrounding            = "literal_grounding"

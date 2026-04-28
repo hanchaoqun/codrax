@@ -1758,6 +1758,21 @@ func validateExactResolutionContextSurface(summary string, exact *types.AnswerEx
 	if exact.ContextMode != types.AnswerExactResolutionContextGroundedOnly {
 		return nil
 	}
+	if plan.SummarySurfaceMode == types.AnswerSummarySurfaceFollowOnGroundedContext {
+		bodyTrimmed := strings.TrimSpace(body)
+		if bodyTrimmed == "" || len(mentionedAllowed) == 0 {
+			err := newAnswerDocValidationError(
+				"follow_on_grounded_context",
+				"exact-absent answers in follow-on grounded-context mode must keep at least one validated nearby grounded anchor on the user-visible answer surface; the current summary collapses to the exact-absence lead without any grounded follow-on context.",
+			).WithFields("summary", "exact_resolution.context_mode").
+				WithMetadata("lead_source", "exact_resolution").
+				WithMetadata("preferred_context_mode", string(types.AnswerExactResolutionContextGroundedOnly))
+			if allowedAnchors != "" {
+				err = err.WithMetadata("allowed_anchors", allowedAnchors)
+			}
+			return err.WithHint("Re-emit `emit_answer_document` with the same exact-absence conclusion, but keep the grounded nearby context visible after the renderer-generated lead. Name at least one validated nearby anchor in `summary`, keep it grounded, and do not collapse the answer to the exact-absence lead alone.")
+		}
+	}
 	if len(mentionedForbidden) == 0 {
 		return nil
 	}
