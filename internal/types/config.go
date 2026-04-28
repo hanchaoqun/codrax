@@ -23,9 +23,20 @@ type PipelineSettings struct {
 	// via EdgeValidationFeedback when verify SuccessCriteria fail).
 	// Zero preserves fail-loud semantics (one attempt, surface
 	// failure). Positive values enable retry with PlanningHint
-	// seeded from the failure summary. Hard-capped at 5 by
-	// orchestrator.SetWriteRetryBudget.
+	// seeded from the failure summary. Hard-capped by
+	// WriteRetryBudgetCeil (default 5) inside SetWriteRetryBudget.
 	WriteRetryBudget int `yaml:"write_retry_budget"`
+
+	// WriteRetryBudgetCeil is the absolute ceiling enforced by
+	// SetWriteRetryBudget on WriteRetryBudget. Default 5; higher
+	// values almost always mean misconfiguration that would burn
+	// LLM tokens on an unfixable plan. Zero falls back to default.
+	WriteRetryBudgetCeil int `yaml:"write_retry_budget_ceil"`
+
+	// MaxStepsCeil is the absolute ceiling on the multi-topic-scaled
+	// pipeline step budget after SubTopicPipelineStepsExtra adds
+	// uplift. Default 100. Zero falls back to default.
+	MaxStepsCeil int `yaml:"max_steps_ceil"`
 
 	// BaselineCaptureEnabled toggles the pre-apply test snapshot
 	// that feeds CritNoRegression. When true, the apply stage hook runs
@@ -44,11 +55,6 @@ type PipelineSettings struct {
 	// regardless of this flag. Default false preserves historical
 	// "Run ends, worktree gone" behaviour.
 	KeepWorktreeOnSuccess bool `yaml:"keep_worktree_on_success"`
-
-	// GateThresholds tunes the analyzer quality gate's numeric
-	// cutoffs. Defaults live in internal/analysis/gate.Thresholds
-	// and are applied when the zero value is loaded.
-	GateThresholds GateThresholdSettings `yaml:"gate_thresholds"`
 
 	// Explore carries the explorer-side budget knobs used by the
 	// sourcemix throttler.
@@ -73,14 +79,18 @@ type PipelineSettings struct {
 // ViolationBudgetSettings — Session 11 F5 controls. See the
 // full-design doc §4 for the semantics.
 type ViolationBudgetSettings struct {
-	// MaxPatchesPerRun is the global F3 IR-patch cap. The F3
-	// IRPatchEngine refuses new PatchRequests once this count is
-	// reached; the fail-loud warning fires after that. Default 4.
+	// MaxPatchesPerRun is the global F3 IR-patch cap. Reserved for
+	// the not-yet-wired G6/G7 hookup that will route real patch
+	// requests through internal/analysis/patcher.Engine; default 4
+	// is duplicated by patcher.New's zero-Budget fallback so user
+	// yaml writes are inert today (no production caller of
+	// patcher.New consumes this value yet).
 	MaxPatchesPerRun int `yaml:"max_patches_per_run"`
 
-	// MaxPatchesPerField is the per-IR-field patch cap (same
-	// field cannot be patched more than this many times in a
-	// single Run, preventing oscillation). Default 2.
+	// MaxPatchesPerField is the per-IR-field patch cap. Same
+	// G6/G7-pending wiring story as MaxPatchesPerRun above; default
+	// 2 today comes from patcher.New's fallback rather than this
+	// field. Wire when the patch engine acquires a real entry point.
 	MaxPatchesPerField int `yaml:"max_patches_per_field"`
 
 	// MinRetryYield is the threshold below which the yield check
@@ -95,11 +105,6 @@ type ViolationBudgetSettings struct {
 	// answer when the yield kill fires or any budget is exhausted.
 	// Default true — never silently hide a failure.
 	FailLoudEnabled bool `yaml:"fail_loud_enabled"`
-
-	// YieldKillStage, when true, makes the yield kill per-stage
-	// rather than per-Run. Default true; setting false pauses the
-	// entire Run on any stage's zero-yield retry.
-	YieldKillStage bool `yaml:"yield_kill_stage"`
 }
 
 // RetryBudgetByKindSettings — Session 11 C6. Zero entries mean
@@ -140,14 +145,13 @@ func (r RetryBudgetByKindSettings) For(kind ViolationKind, fallback int) int {
 }
 
 // DefaultViolationBudgetSettings returns the full-design §4
-// defaults: 4/2/1/true/true.
+// defaults: 4/2/1/true.
 func DefaultViolationBudgetSettings() ViolationBudgetSettings {
 	return ViolationBudgetSettings{
 		MaxPatchesPerRun:   4,
 		MaxPatchesPerField: 2,
 		MinRetryYield:      1,
 		FailLoudEnabled:    true,
-		YieldKillStage:     true,
 	}
 }
 
@@ -342,8 +346,74 @@ type AgentSettings struct {
 
 	// SubTopicRetryBudgetExtra is the number of extra retry budget
 	// granted per 2 sub-topics. Default 1. The adjusted retry budget
-	// is capped at 5.
+	// is capped at MaxRetryBudgetCeil.
 	SubTopicRetryBudgetExtra int `yaml:"subtopic_retry_budget_extra"`
+
+	// SubTopicExtractorBudgetExtra is the number of extra extractor
+	// soft-cap iterations granted per sub-topic when
+	// RequestModel.SubTopics > 1. Default 1. Multi-topic explanations
+	// require one Key-Anchor row per sub-topic so a static
+	// ExtractorSoftIterCap=3 starves at 4+ sub-topics; this knob lifts
+	// the soft cap by N per sub-topic, capped at ExtractorScaledIterMax.
+	SubTopicExtractorBudgetExtra int `yaml:"subtopic_extractor_budget_extra"`
+
+	// ExtractorComplexityBudgetExtra is the per-complexity-level
+	// uplift to the extractor soft cap. Mirrors the planner's
+	// PlannerComplexityBudgetExtra mechanism: ComplexitySimple = 0×,
+	// ComplexityModerate = 1×, ComplexityComplex = 2×. Default 1.
+	ExtractorComplexityBudgetExtra int `yaml:"extractor_complexity_budget_extra"`
+
+	// TargetPathsVerifierBudgetExtra is the number of extra verifier
+	// soft-cap iterations granted per ChangePlan target path when
+	// the orchestrator dispatches StageVerify. Default 1. Mirrors
+	// CoderSoftIterSlack but for the runner-iteration cost on
+	// multi-language monorepo plans.
+	TargetPathsVerifierBudgetExtra int `yaml:"target_paths_verifier_budget_extra"`
+
+	// PrescanRoundsCeil is the absolute ceiling on analyzer pre-scan
+	// rounds after SubTopicPrescanBudgetExtra adds uplift. Default 4.
+	// Pre-scan is repo_map / grep / list_files only — beyond 4 rounds
+	// the LLM is almost certainly drifting rather than discovering.
+	PrescanRoundsCeil int `yaml:"prescan_rounds_ceil"`
+
+	// ExplorerScaledIterMax is the absolute ceiling on the explorer
+	// outer-loop iteration count after SubTopicExplorerBudgetExtra
+	// adds uplift. Default 35.
+	ExplorerScaledIterMax int `yaml:"explorer_scaled_iter_max"`
+
+	// PlannerScaledIterMax is the absolute ceiling on the planner
+	// soft cap after SubTopicPlannerBudgetExtra + PlannerComplexity
+	// BudgetExtra add uplift. Default 20. Planner is single-emit;
+	// legitimate completion never needs more than this many ReAct
+	// turns of preparation.
+	PlannerScaledIterMax int `yaml:"planner_scaled_iter_max"`
+
+	// ExtractorScaledIterMax is the absolute ceiling on the extractor
+	// soft cap after SubTopicExtractorBudgetExtra +
+	// ExtractorComplexityBudgetExtra add uplift. Default 8.
+	ExtractorScaledIterMax int `yaml:"extractor_scaled_iter_max"`
+
+	// VerifierScaledIterMax is the absolute ceiling on the verifier
+	// soft cap after TargetPathsVerifierBudgetExtra adds uplift.
+	// Default 12.
+	VerifierScaledIterMax int `yaml:"verifier_scaled_iter_max"`
+
+	// MaxRetryBudgetCeil is the absolute ceiling on the dynamic
+	// analyzer retry budget after SubTopicRetryBudgetExtra adds uplift.
+	// Default 5. Higher values almost always mean the LLM is failing
+	// the same gate repeatedly; bounded retry contains LLM token cost.
+	MaxRetryBudgetCeil int `yaml:"max_retry_budget_ceil"`
+
+	// PerfTriagerIterCap is the hard outer-loop cap on the perf_triager
+	// agent. Default 6. perf_triager is single-emit (emit_perf_trace
+	// terminates the loop); the cap only matters when a misbehaving
+	// LLM never calls the emit tool — in that case this prevents
+	// unbounded token spend.
+	PerfTriagerIterCap int `yaml:"perf_triager_iter_cap"`
+
+	// LogTriagerIterCap is the hard outer-loop cap on the log_triager
+	// agent. Default 6. Same single-emit semantics as PerfTriagerIterCap.
+	LogTriagerIterCap int `yaml:"log_triager_iter_cap"`
 
 	// InvestigationCompletePolicy controls how the DAG scheduler treats
 	// nodes when the LLM has called emit_investigation_complete.
@@ -464,7 +534,22 @@ func DefaultAgentSettings() AgentSettings {
 		PlannerComplexityBudgetExtra:  2,
 		SubTopicPipelineStepsExtra:    5,
 		SubTopicRetryBudgetExtra:      1,
-		InvestigationCompletePolicy:   ICPolicySoft,
+
+		SubTopicExtractorBudgetExtra:   1,
+		ExtractorComplexityBudgetExtra: 1,
+		TargetPathsVerifierBudgetExtra: 1,
+
+		PrescanRoundsCeil:     4,
+		ExplorerScaledIterMax: 35,
+		PlannerScaledIterMax:  20,
+		ExtractorScaledIterMax: 8,
+		VerifierScaledIterMax: 12,
+		MaxRetryBudgetCeil:    5,
+
+		PerfTriagerIterCap: 6,
+		LogTriagerIterCap:  6,
+
+		InvestigationCompletePolicy: ICPolicySoft,
 		PriorConvPolicy:               PriorConvPolicyAnalyzer,
 		// Context-pressure defaults: warn at 70 % of the estimated
 		// byte capacity, force-stop at 90 %. These are empirical —
@@ -572,6 +657,39 @@ func ResolvedAgentSettings(s AgentSettings) AgentSettings {
 	if s.SubTopicRetryBudgetExtra == 0 {
 		s.SubTopicRetryBudgetExtra = d.SubTopicRetryBudgetExtra
 	}
+	if s.SubTopicExtractorBudgetExtra == 0 {
+		s.SubTopicExtractorBudgetExtra = d.SubTopicExtractorBudgetExtra
+	}
+	if s.ExtractorComplexityBudgetExtra == 0 {
+		s.ExtractorComplexityBudgetExtra = d.ExtractorComplexityBudgetExtra
+	}
+	if s.TargetPathsVerifierBudgetExtra == 0 {
+		s.TargetPathsVerifierBudgetExtra = d.TargetPathsVerifierBudgetExtra
+	}
+	if s.PrescanRoundsCeil <= 0 {
+		s.PrescanRoundsCeil = d.PrescanRoundsCeil
+	}
+	if s.ExplorerScaledIterMax <= 0 {
+		s.ExplorerScaledIterMax = d.ExplorerScaledIterMax
+	}
+	if s.PlannerScaledIterMax <= 0 {
+		s.PlannerScaledIterMax = d.PlannerScaledIterMax
+	}
+	if s.ExtractorScaledIterMax <= 0 {
+		s.ExtractorScaledIterMax = d.ExtractorScaledIterMax
+	}
+	if s.VerifierScaledIterMax <= 0 {
+		s.VerifierScaledIterMax = d.VerifierScaledIterMax
+	}
+	if s.MaxRetryBudgetCeil <= 0 {
+		s.MaxRetryBudgetCeil = d.MaxRetryBudgetCeil
+	}
+	if s.PerfTriagerIterCap <= 0 {
+		s.PerfTriagerIterCap = d.PerfTriagerIterCap
+	}
+	if s.LogTriagerIterCap <= 0 {
+		s.LogTriagerIterCap = d.LogTriagerIterCap
+	}
 	switch s.InvestigationCompletePolicy {
 	case ICPolicySoft, ICPolicyOverride, ICPolicyStrict:
 		// valid
@@ -594,16 +712,6 @@ func ResolvedAgentSettings(s AgentSettings) AgentSettings {
 		s.ContextPressureHardRatio = d.ContextPressureHardRatio
 	}
 	return s
-}
-
-// GateThresholdSettings mirrors gate.Thresholds through the YAML
-// surface. All zero values fall through to package-level defaults.
-type GateThresholdSettings struct {
-	CoverageMin           float32 `yaml:"coverage_min"`
-	CoverageWeightSymbol  float32 `yaml:"coverage_weight_symbol"`
-	CoverageWeightConfig  float32 `yaml:"coverage_weight_config"`
-	CoverageWeightConcept float32 `yaml:"coverage_weight_concept"`
-	HypothesisMinPriority int     `yaml:"hypothesis_min_priority"`
 }
 
 // ExploreSettings carries the explorer-side knobs. PerToolDefaultCap

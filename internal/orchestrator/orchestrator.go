@@ -25,14 +25,13 @@ import (
 	"github.com/hanchaoqun/codrax/internal/worktree"
 )
 
-// plannerScaledIterMax is the absolute ceiling on the planner soft
-// cap after the per-dispatch scaling block adds sub-topic + complexity
-// uplifts. The planner is single-emit (one emit_change_plan call per
-// dispatch); legitimate completion never needs more than this many
-// ReAct turns of preparation. Mirrors the explorer's hardcoded 35
-// ceiling — both are runaway-cost guards rather than tuning knobs,
-// hence not exposed via yaml.
-const plannerScaledIterMax = 20
+// Pipeline-budget ceiling defaults are now sourced from the
+// resolved AgentSettings / PipelineSettings. The historical
+// `plannerScaledIterMax = 20` literal lives in
+// AgentSettings.PlannerScaledIterMax (yaml `agent_planner_scaled_iter_max`).
+// Mirror knobs cover the explorer (35), pipeline-step ceil (100),
+// extractor (8), verifier (12), prescan rounds (4), retry budget (5),
+// and the perf/log triager iter caps (6 each).
 
 // Orchestrator is the Layer 1 component that drives the pipeline state
 // machine. It walks the hardcoded 4-stage topology (see topology.go),
@@ -454,14 +453,19 @@ func (o *Orchestrator) SetWorktreeBase(dir string) {
 }
 
 // SetWriteRetryBudget installs the T4 verify→plan retry cap. Zero
-// disables retry (fail-loud semantics). Values are clamped to [0, 5]
-// — anything higher is almost certainly a misconfiguration that
-// would burn LLM tokens on an unfixable plan.
+// disables retry (fail-loud semantics). Values are clamped to
+// [0, PipelineSettings.WriteRetryBudgetCeil] — the resolved settings
+// fill a default of 5 when the yaml leaves it blank — anything higher
+// is almost certainly a misconfiguration that would burn LLM tokens
+// on an unfixable plan.
 func (o *Orchestrator) SetWriteRetryBudget(n int) {
 	if n < 0 {
 		n = 0
 	}
-	const hardCap = 5
+	hardCap := o.settings.WriteRetryBudgetCeil
+	if hardCap <= 0 {
+		hardCap = 5
+	}
 	if n > hardCap {
 		n = hardCap
 	}
@@ -1860,8 +1864,12 @@ func (o *Orchestrator) runReadSchedulerLoop(stepBudget int) int {
 		agentCfg := o.settings.Agent
 		extraSteps := nSub * agentCfg.SubTopicPipelineStepsExtra
 		adjusted := stepBudget + extraSteps
-		if adjusted > 100 {
-			adjusted = 100
+		ceil := o.settings.MaxStepsCeil
+		if ceil <= 0 {
+			ceil = 100
+		}
+		if adjusted > ceil {
+			adjusted = ceil
 		}
 		if adjusted > stepBudget {
 			logging.Info("[orchestrator] multi-topic scaling: %d sub-topics, step budget %d → %d",
@@ -3033,8 +3041,12 @@ func (o *Orchestrator) dispatchStage(stage types.PipelineStage) (*agent.StageOut
 				base := agentCfg.MaxIterations
 				extra := nSub * agentCfg.SubTopicExplorerBudgetExtra
 				adjusted := base + extra
-				if adjusted > 35 {
-					adjusted = 35
+				ceil := agentCfg.ExplorerScaledIterMax
+				if ceil <= 0 {
+					ceil = 35
+				}
+				if adjusted > ceil {
+					adjusted = ceil
 				}
 				if adjusted > base {
 					agentCtx.MaxIterOverride = adjusted
@@ -3077,8 +3089,12 @@ func (o *Orchestrator) dispatchStage(stage types.PipelineStage) (*agent.StageOut
 				extra += 2 * agentCfg.PlannerComplexityBudgetExtra
 			}
 			adjusted := base + extra
-			if adjusted > plannerScaledIterMax {
-				adjusted = plannerScaledIterMax
+			ceil := agentCfg.PlannerScaledIterMax
+			if ceil <= 0 {
+				ceil = 20
+			}
+			if adjusted > ceil {
+				adjusted = ceil
 			}
 			if adjusted > base {
 				agentCtx.PlannerSoftIterCapOverride = adjusted

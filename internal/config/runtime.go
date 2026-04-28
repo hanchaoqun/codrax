@@ -165,10 +165,21 @@ type RuntimeSettings struct {
 	// initial attempt (so 2 = up to 3 total attempts). T4 renamed
 	// from PipelineMaxVerifyRetries when write modes folded into the
 	// scheduler. Default 0 preserves fail-loud semantics (one
-	// attempt, surface failure). Hard-capped to 5 by
+	// attempt, surface failure). Hard-capped by
+	// PipelineWriteRetryBudgetCeil (default 5) inside
 	// orchestrator.SetWriteRetryBudget so operator typos can't burn
 	// an unbounded LLM budget on an unfixable plan.
 	PipelineWriteRetryBudget *int `yaml:"pipeline_write_retry_budget"`
+
+	// PipelineWriteRetryBudgetCeil overrides the absolute ceiling on
+	// PipelineWriteRetryBudget enforced inside SetWriteRetryBudget.
+	// Default 5; raise only after measuring that the LLM is producing
+	// genuinely improved plans on attempts 6+, which is rare.
+	PipelineWriteRetryBudgetCeil *int `yaml:"pipeline_write_retry_budget_ceil"`
+
+	// PipelineMaxStepsCeil is the absolute ceiling on the multi-topic
+	// scaled pipeline step budget. Default 100. Zero falls back.
+	PipelineMaxStepsCeil *int `yaml:"pipeline_max_steps_ceil"`
 
 	// PipelineBaselineCaptureEnabled toggles the pre-apply test
 	// snapshot that feeds CritNoRegression. When true, the apply stage hook
@@ -309,6 +320,17 @@ type RuntimeSettings struct {
 	AgentPlannerComplexityExtra        *int     `yaml:"agent_planner_complexity_extra"`
 	AgentSubTopicPipelineExtra         *int     `yaml:"agent_subtopic_pipeline_extra"`
 	AgentSubTopicRetryExtra            *int     `yaml:"agent_subtopic_retry_extra"`
+	AgentSubTopicExtractorExtra        *int     `yaml:"agent_subtopic_extractor_extra"`
+	AgentExtractorComplexityExtra      *int     `yaml:"agent_extractor_complexity_extra"`
+	AgentTargetPathsVerifierExtra      *int     `yaml:"agent_target_paths_verifier_extra"`
+	AgentPrescanRoundsCeil             *int     `yaml:"agent_prescan_rounds_ceil"`
+	AgentExplorerScaledIterMax         *int     `yaml:"agent_explorer_scaled_iter_max"`
+	AgentPlannerScaledIterMax          *int     `yaml:"agent_planner_scaled_iter_max"`
+	AgentExtractorScaledIterMax        *int     `yaml:"agent_extractor_scaled_iter_max"`
+	AgentVerifierScaledIterMax         *int     `yaml:"agent_verifier_scaled_iter_max"`
+	AgentMaxRetryBudgetCeil            *int     `yaml:"agent_max_retry_budget_ceil"`
+	AgentPerfTriagerIterCap            *int     `yaml:"agent_perf_triager_iter_cap"`
+	AgentLogTriagerIterCap             *int     `yaml:"agent_log_triager_iter_cap"`
 	AgentInvestigationCompletePolicy   *string  `yaml:"agent_investigation_complete_policy"`
 	AgentPriorConvPolicy               *string  `yaml:"agent_prior_conversation_policy"`
 

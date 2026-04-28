@@ -500,11 +500,17 @@ func NewLogTriagerAgent(deps *Dependencies, settings LogTriageSettings) Agent {
 	eval := &logTriagerEvaluator{settings: settings}
 
 	// The log_triager's ReAct loop is short: single emit terminates
-	// it. Cap at 6 iterations so a misbehaving LLM that never calls
-	// emit_log_triage cannot burn iterations indefinitely.
+	// it. Cap iterations via AgentSettings.LogTriagerIterCap (yaml:
+	// agent_log_triager_iter_cap, default 6) so a misbehaving LLM
+	// that never calls emit_log_triage cannot burn iterations
+	// indefinitely.
 	d := *deps
-	if d.MaxIterations == 0 || d.MaxIterations > 6 {
-		d.MaxIterations = 6
+	cap := d.AgentSettings.LogTriagerIterCap
+	if cap <= 0 {
+		cap = 6
+	}
+	if d.MaxIterations == 0 || d.MaxIterations > cap {
+		d.MaxIterations = cap
 	}
 	base := NewBaseAgent(types.AgentLogTriager, &d, eval)
 	return &logTriager{

@@ -82,10 +82,15 @@ func (e *analyzerEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk 
 			if base > 0 {
 				extra := (estimated / 2) * e.agentSettings.SubTopicPrescanBudgetExtra
 				adjusted := base + extra
-				// Cap at base + 2 (max 4 total).
+				// Cap at base + 2, bounded by AgentSettings.PrescanRoundsCeil
+				// (yaml: agent_prescan_rounds_ceil, default 4).
 				cap := base + 2
-				if cap > 4 {
-					cap = 4
+				ceil := e.agentSettings.PrescanRoundsCeil
+				if ceil <= 0 {
+					ceil = 4
+				}
+				if cap > ceil {
+					cap = ceil
 				}
 				if adjusted > cap {
 					adjusted = cap

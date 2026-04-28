@@ -1465,11 +1465,17 @@ func initApp(cmd *cobra.Command, _ []string) error {
 		if rs.PipelineMaxStageVisits != nil {
 			pipelineSettings.MaxStageVisits = *rs.PipelineMaxStageVisits
 		}
+		if rs.PipelineMaxStepsCeil != nil {
+			pipelineSettings.MaxStepsCeil = *rs.PipelineMaxStepsCeil
+		}
 		// T4: verify→plan retry cap. Stored alongside the rest of the
 		// pipelineSettings snapshot; orchestrator.SetWriteRetryBudget
 		// applies it below where other orch getters are wired.
 		if rs.PipelineWriteRetryBudget != nil {
 			pipelineSettings.WriteRetryBudget = *rs.PipelineWriteRetryBudget
+		}
+		if rs.PipelineWriteRetryBudgetCeil != nil {
+			pipelineSettings.WriteRetryBudgetCeil = *rs.PipelineWriteRetryBudgetCeil
 		}
 		// Baseline capture toggle for CritNoRegression (Item 1).
 		// Pointer-typed yaml so explicit false is distinguishable
@@ -1669,6 +1675,39 @@ func initApp(cmd *cobra.Command, _ []string) error {
 		}
 		if rs.AgentSubTopicRetryExtra != nil {
 			a.SubTopicRetryBudgetExtra = *rs.AgentSubTopicRetryExtra
+		}
+		if rs.AgentSubTopicExtractorExtra != nil {
+			a.SubTopicExtractorBudgetExtra = *rs.AgentSubTopicExtractorExtra
+		}
+		if rs.AgentExtractorComplexityExtra != nil {
+			a.ExtractorComplexityBudgetExtra = *rs.AgentExtractorComplexityExtra
+		}
+		if rs.AgentTargetPathsVerifierExtra != nil {
+			a.TargetPathsVerifierBudgetExtra = *rs.AgentTargetPathsVerifierExtra
+		}
+		if rs.AgentPrescanRoundsCeil != nil {
+			a.PrescanRoundsCeil = *rs.AgentPrescanRoundsCeil
+		}
+		if rs.AgentExplorerScaledIterMax != nil {
+			a.ExplorerScaledIterMax = *rs.AgentExplorerScaledIterMax
+		}
+		if rs.AgentPlannerScaledIterMax != nil {
+			a.PlannerScaledIterMax = *rs.AgentPlannerScaledIterMax
+		}
+		if rs.AgentExtractorScaledIterMax != nil {
+			a.ExtractorScaledIterMax = *rs.AgentExtractorScaledIterMax
+		}
+		if rs.AgentVerifierScaledIterMax != nil {
+			a.VerifierScaledIterMax = *rs.AgentVerifierScaledIterMax
+		}
+		if rs.AgentMaxRetryBudgetCeil != nil {
+			a.MaxRetryBudgetCeil = *rs.AgentMaxRetryBudgetCeil
+		}
+		if rs.AgentPerfTriagerIterCap != nil {
+			a.PerfTriagerIterCap = *rs.AgentPerfTriagerIterCap
+		}
+		if rs.AgentLogTriagerIterCap != nil {
+			a.LogTriagerIterCap = *rs.AgentLogTriagerIterCap
 		}
 		if rs.AgentInvestigationCompletePolicy != nil {
 			a.InvestigationCompletePolicy = *rs.AgentInvestigationCompletePolicy

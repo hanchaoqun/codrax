@@ -381,8 +381,12 @@ func NewPerfTriagerAgent(deps *Dependencies, settings PerfTriageSettings) Agent 
 	}
 	eval := &perfTriagerEvaluator{settings: settings}
 	d := *deps
-	if d.MaxIterations == 0 || d.MaxIterations > 6 {
-		d.MaxIterations = 6
+	cap := d.AgentSettings.PerfTriagerIterCap
+	if cap <= 0 {
+		cap = 6
+	}
+	if d.MaxIterations == 0 || d.MaxIterations > cap {
+		d.MaxIterations = cap
 	}
 	base := NewBaseAgent(types.AgentPerfTriager, &d, eval)
 	return &perfTriager{base: base, settings: settings, deps: &d}

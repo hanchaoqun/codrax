@@ -124,7 +124,7 @@ The actor/critic split is load-bearing: feeding the planner an LLM-curated *inte
 - **StageOutput** — agent return: data, signals, facts, errors, analysis IR, final answer.
 - **AnalysisIR** (`analysis_ir.go`) — `RequestModel`, `TaskGraph`, `EvidencePlan`, `AnswerContract`, `HypothesisSet`, `QualityGate`. `TaskNode.EntryConditions` and `AnswerContract.AcceptanceTests` are `[]Criterion`. Analyzer is the sole writer; downstream uses `MarkHypothesis` and never rewrites structural fields.
 - **ExecutionSignals** — single field `HasEnoughFacts bool`.
-- **PipelineSettings** — budget knobs + `GateThresholds` + `Explore` cap.
+- **PipelineSettings** — budget knobs + `Explore` cap.
 
 ### Agent system (`internal/agent/`)
 
