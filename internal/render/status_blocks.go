@@ -113,14 +113,22 @@ func (r *Renderer) buildStatusLine(row *taskRow, frame string, now time.Time) st
 // the spinner area from overflowing when the analyzer emits a
 // long sub-topic list.
 func (r *Renderer) buildTopicGroup(topicRows []*taskRow, frame string, now time.Time) statusBlock {
-	// The topic group's parent line reads as the EXPLORE stage —
-	// each topic row is a per-sub-topic NodeEvidence (compiler.
-	// expandEvidenceNodes splits explore into N evidence nodes when
-	// multiple sub-topics are present). Pre-2026-04-30 this was
-	// labelled as "analyze" which contradicted the actual flow —
-	// analyze finishes BEFORE topics are dispatched, and the user
-	// understands the request once analyze is done; the topics then
-	// drive the deep investigation.
+	// Topic group's parent line reads as the EVIDENCE substep —
+	// each topic row is a per-sub-topic NodeEvidence
+	// (compiler.expandEvidenceNodes splits explore into N evidence
+	// nodes when multiple sub-topics are present). Using the
+	// "evidence" key surfaces the substantive label "正在探索代码
+	// 并收集证据 / Exploring code, collecting evidence" that tells
+	// the user this is the read_file / grep / repo_map phase.
+	//
+	// Pre-2026-04-30 the parent line used "explore" → "正在深入
+	// 分析" as an artificial umbrella layer; the user reported the
+	// "探索代码" wording never reached the UI because production
+	// runs are predominantly multi-topic and individual evidence
+	// rows fold into the bullet list. The substantive label only
+	// rendered for single-topic flow which is rare. Switching the
+	// parent to the evidence key makes the label visible in the
+	// common case.
 	parentRow := topicRows[0] // any topic row carries the stage; index 0 is the canonical anchor
 	parentLine := r.buildStatusLine(parentRow, frame, now)
 	// Group is "running" until ALL topic rows have terminated.
@@ -131,7 +139,7 @@ func (r *Renderer) buildTopicGroup(topicRows []*taskRow, frame string, now time.
 			break
 		}
 	}
-	parentLine.PrimaryText = stagePhrase("explore", r.lang, !allDone)
+	parentLine.PrimaryText = stagePhrase("evidence", r.lang, !allDone)
 	count := len(topicRows)
 	parentLine.DetailText = topicCountPhrase(count, r.lang)
 

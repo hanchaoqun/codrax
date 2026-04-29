@@ -47,11 +47,13 @@ func TestStatus_TopicAggregation_Zh(t *testing.T) {
 	}
 	out := renderRows(t, "zh", rows...)
 	for _, want := range []string{
-		// Topic group reads as the deep-analysis (explore) stage
-		// since topic rows are NodeEvidence sub-tasks within the
-		// explore phase — analyze has already finished by the time
-		// topics dispatch.
-		"正在深入分析", "识别到 3 个关注点",
+		// Topic group's parent line uses the "evidence" key so the
+		// substantive "探索代码" wording reaches the UI. The
+		// previous "explore" → "正在深入分析" framing was an
+		// artificial umbrella that hid the load-bearing label
+		// because production flows are predominantly multi-topic
+		// and per-row evidence labels fold into the bullet list.
+		"正在探索代码并收集证据", "识别到 3 个关注点",
 		"关注点 1：", "关注点 2：", "关注点 3：",
 		"analyzers 包", "trace 分析器",
 		"reporters 包",
@@ -67,7 +69,7 @@ func TestStatus_TopicAggregation_Zh(t *testing.T) {
 		"AnalyzerAgent", "[evidence]",
 		// The topic-group parent is NOT analyze — analyze finished
 		// upstream of these rows. Pin the rule so a regression
-		// doesn't collapse explore into analyze.
+		// doesn't collapse evidence into analyze.
 		"正在理解问题",
 	} {
 		if strings.Contains(out, banned) {
@@ -87,7 +89,7 @@ func TestStatus_TopicAggregation_En(t *testing.T) {
 	}
 	out := renderRows(t, "en", rows...)
 	for _, want := range []string{
-		"Investigating the problem", "3 focus areas found",
+		"Exploring code, collecting evidence", "3 focus areas found",
 		"Focus 1:", "Focus 2:", "Focus 3:",
 		"analyzers package trace analyzers",
 	} {
