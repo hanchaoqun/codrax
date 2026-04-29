@@ -999,6 +999,69 @@ func truncByDisplayWidth(s string, maxCols int) string {
 	return b.String()
 }
 
+// wrapByDisplayWidth inserts '\n' into s so no visible line exceeds
+// maxCols display columns. ANSI CSI escapes pass through with zero
+// width; runes count via runewidth so CJK takes 2 cols and combining
+// marks take 0. Existing '\n' in the input start a new line and
+// reset the column counter — pre-wrapped paragraphs keep their
+// shape.
+//
+// Why this exists: pterm.AreaPrinter.Update tracks how many rows it
+// printed by counting '\n' in its argument. If the rendered content
+// visually wraps in the terminal (long CJK sentence narrower than
+// content), Area's cursor-up math goes up fewer lines than the
+// terminal actually drew, leaving leftover rows that subsequent
+// Updates print BELOW. The stacking-header bug the streaming
+// preview hit pre-2026-04-29 is the canonical instance. Inserting
+// our own wraps keeps Area's line count aligned with the terminal's
+// drawn rows so Update / Stop erase exactly what was painted.
+//
+// Edge cases: maxCols < 1 → return s untouched (caller's problem).
+// A single rune wider than maxCols (rare; combining sequences) is
+// emitted on its own line — better than infinite loop on the wrap
+// boundary.
+func wrapByDisplayWidth(s string, maxCols int) string {
+	if maxCols < 1 || s == "" {
+		return s
+	}
+	var b strings.Builder
+	b.Grow(len(s) + len(s)/16)
+	col := 0
+	i := 0
+	for i < len(s) {
+		// Pass through ANSI CSI escapes unchanged.
+		if s[i] == 0x1b {
+			loc := reAnsi.FindStringIndex(s[i:])
+			if loc != nil && loc[0] == 0 {
+				b.WriteString(s[i : i+loc[1]])
+				i += loc[1]
+				continue
+			}
+		}
+		// Explicit newline — reset column.
+		if s[i] == '\n' {
+			b.WriteByte('\n')
+			col = 0
+			i++
+			continue
+		}
+		r, size := utf8.DecodeRuneInString(s[i:])
+		rw := runewidth.RuneWidth(r)
+		// Negative or zero-width runes don't trigger a wrap on their own.
+		if rw < 0 {
+			rw = 0
+		}
+		if rw > 0 && col+rw > maxCols {
+			b.WriteByte('\n')
+			col = 0
+		}
+		b.WriteRune(r)
+		col += rw
+		i += size
+	}
+	return b.String()
+}
+
 // stripAnsiEscapes removes CSI sequences from s. Used by
 // truncByDisplayWidth's tail-shrink loop.
 func stripAnsiEscapes(s string) string {
@@ -1159,7 +1222,21 @@ func (r *Renderer) handlePreviewChunkLocked(ev Event) {
 	r.previewBuf.WriteString(previewHeader(r.previewRound))
 	r.previewBuf.WriteString("\n")
 	r.previewBuf.WriteString(ev.PreviewText)
-	r.previewArea.Update(r.previewBuf.String())
+	// pterm.AreaPrinter tracks how many rows it printed by counting
+	// '\n' in the supplied string. When the content visually wraps
+	// (long CJK sentence on a narrow terminal), the displayed row
+	// count exceeds the '\n' count and Area's "cursor up + clear"
+	// math leaves leftover rows behind. Subsequent Update / Stop
+	// then prints fresh content BELOW the leftovers — stacking
+	// headers and preventing the final answer from overlaying the
+	// preview cleanly. Pre-wrap to terminal width so the '\n' count
+	// matches the actual displayed rows. CJK width-aware via
+	// runewidth.RuneWidth (each Han char counts as 2 columns).
+	maxCols := pterm.GetTerminalWidth() - 4
+	if maxCols < 20 {
+		maxCols = 20
+	}
+	r.previewArea.Update(wrapByDisplayWidth(r.previewBuf.String(), maxCols))
 }
 
 // handlePreviewClearLocked is called with r.mu held. Tears down
@@ -1175,9 +1252,15 @@ func (r *Renderer) handlePreviewClearLocked(ev Event) {
 		// Append rejected marker, brief pause so the user can read
 		// it, then erase. The 200ms is long enough to register at
 		// reading speed but short enough not to delay the next
-		// retry round noticeably.
+		// retry round noticeably. Same wrap as handlePreviewChunkLocked
+		// so Stop()'s eventual erase covers every visible row, not
+		// just the '\n'-counted ones.
 		r.previewBuf.WriteString(previewRejectedSuffix)
-		r.previewArea.Update(r.previewBuf.String())
+		maxCols := pterm.GetTerminalWidth() - 4
+		if maxCols < 20 {
+			maxCols = 20
+		}
+		r.previewArea.Update(wrapByDisplayWidth(r.previewBuf.String(), maxCols))
 		// Release the lock during sleep so other events (reasoning,
 		// next chunk) don't deadlock waiting on us.
 		r.mu.Unlock()
