@@ -170,6 +170,46 @@ func TestRenderMermaidBlocks_NarrowMultibyteLeftAsSource(t *testing.T) {
 	}
 }
 
+// TestRenderMermaidBlocks_FlattensSubgraphs pins the subgraph
+// flatten compatibility shim. Models routinely emit
+// `subgraph cluster ... end` for architectural questions even
+// though the skill prompt warns the renderer subset doesn't
+// support it. Pre-2026-04-30 the library rejected and the user
+// saw raw Mermaid source. Now the renderer strips the cluster
+// declarations and renders a flat flowchart instead.
+func TestRenderMermaidBlocks_FlattensSubgraphs(t *testing.T) {
+	in := strings.Join([]string{
+		"```mermaid",
+		"flowchart TD",
+		"    Start[\"启动\"]",
+		"    subgraph PreStages [\"条件预阶段\"]",
+		"        Pre1[\"日志诊断\"]",
+		"        Pre2[\"性能诊断\"]",
+		"    end",
+		"    subgraph Main [\"主流水线\"]",
+		"        A[\"分析\"]",
+		"        B[\"探索\"]",
+		"    end",
+		"    Start --> Pre1",
+		"    Pre1 --> A",
+		"    A --> B",
+		"```",
+	}, "\n")
+	out := RenderMermaidBlocks(in)
+	if out == in {
+		t.Fatalf("subgraph mermaid block must be rendered (was passed through):\n%s", out)
+	}
+	if !strings.Contains(out, "```text\n") {
+		t.Errorf("output must rewrap fence as ```text```; got:\n%s", out)
+	}
+	// Every node label must survive the flatten + render.
+	for _, want := range []string{"启动", "日志诊断", "性能诊断", "分析", "探索"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("flattened render must contain node %q; got:\n%s", want, out)
+		}
+	}
+}
+
 // TestRenderMermaidBlocks_DoesNotTouchOtherFences verifies that
 // fenced blocks tagged with anything other than `mermaid` are
 // preserved byte-identical UNLESS the body is unambiguously a

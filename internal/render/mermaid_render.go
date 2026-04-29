@@ -181,6 +181,38 @@ func infoLineStartsWithMermaidKeyword(info string) bool {
 	return false
 }
 
+// flattenMermaidSubgraphs removes `subgraph <name> [...]` and the
+// matching `end` lines from a mermaid body while preserving every
+// node declaration and every edge inside the cluster. Pgavlin's
+// flowchart parser rejects subgraph syntax; flattening keeps the
+// graph structure renderable as a flat flowchart at the cost of
+// losing the visual cluster boundary (acceptable in terminal).
+//
+// Algorithm: scan line-by-line, drop lines whose trimmed content
+// starts with "subgraph " or equals "end" at any indentation. A
+// stray "end" outside a subgraph is impossible in valid Mermaid
+// because end is reserved for subgraph close — the parser uses
+// it nowhere else inside flowchart bodies.
+func flattenMermaidSubgraphs(body string) string {
+	if !strings.Contains(body, "subgraph") {
+		return body
+	}
+	var b strings.Builder
+	b.Grow(len(body))
+	for _, line := range strings.Split(body, "\n") {
+		trimmed := strings.TrimSpace(line)
+		if strings.HasPrefix(trimmed, "subgraph ") || trimmed == "subgraph" {
+			continue
+		}
+		if trimmed == "end" {
+			continue
+		}
+		b.WriteString(line)
+		b.WriteByte('\n')
+	}
+	return strings.TrimRight(b.String(), "\n")
+}
+
 // looksLikeMermaidBody returns true when body's first non-empty
 // trimmed line begins with a known mermaid diagram-type keyword.
 // Used to opt untagged fences into mermaid rendering.
@@ -315,6 +347,19 @@ func renderMermaidFenceBody(match string) (out string, ok bool) {
 	if body == "" {
 		return "", false
 	}
+
+	// Compatibility shim: pgavlin/mermaid-ascii's flowchart subset
+	// rejects `subgraph ... end` nesting. Models routinely reach
+	// for subgraph on architectural questions ("流水线四阶段" /
+	// "组件分层") even though the skill prompt warns against it.
+	// Pre-2026-04-30 the renderer surrendered and left the raw
+	// mermaid source in the answer (glamour then printed it as a
+	// plain code block, not an aligned diagram). Now: flatten the
+	// subgraph wrappers — keep every node + edge, drop the group
+	// declarations — and retry. The flattened body still expresses
+	// the relationship structure; only the "boxed cluster"
+	// presentation is lost, which is acceptable for terminal output.
+	body = flattenMermaidSubgraphs(body)
 
 	// Library limitation: pgavlin/mermaid-ascii's graph renderer
 	// width-counts node labels by byte length (not runewidth), so
