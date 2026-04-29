@@ -1,11 +1,13 @@
 package orchestrator
 
 import (
+	"errors"
 	"fmt"
 	"strings"
 	"time"
 
 	"github.com/hanchaoqun/codrax/internal/analysis/criterion"
+	"github.com/hanchaoqun/codrax/internal/llm"
 	"github.com/hanchaoqun/codrax/internal/logging"
 	"github.com/hanchaoqun/codrax/internal/render"
 	"github.com/hanchaoqun/codrax/internal/types"
@@ -161,6 +163,37 @@ func (o *Orchestrator) runWriteSchedulerLoop(stepBudget int) int {
 			//       instead of breaking out of the loop, so the
 			//       configured retry budget actually fires.
 			logging.Error("[orchestrator] %s dispatch: %v", stage, dispatchErr)
+			// Transient-dispatch retry. When the underlying error is one
+			// IsRetryableDispatchError accepts (HTTP 429/5xx, network
+			// timeouts, stream watchdog kills, EOF, etc.), the failure
+			// has nothing to do with plan / apply correctness — the LLM
+			// connection blipped. Requeue the SAME node within the
+			// shared RetryBudget instead of going terminal. This branch
+			// fires for plan + apply + verify uniformly so a stream
+			// stall mid-plan no longer wastes the user's 60-90s wait
+			// for nothing. Verify SC failures still take the plan→
+			// verify retry branch further below, which pays for plan
+			// regeneration after a real test failure.
+			if llm.IsRetryableDispatchError(dispatchErr) {
+				if state.retryUsed < g.ExecutionPolicy.RetryBudget {
+					state.recordRetry()
+					state.requeue(n.ID)
+					o.busCtx.TaskState.LastError = ""
+					reason := friendlyDispatchErr(dispatchErr)
+					logging.Warning("[orchestrator] %s transient dispatch error; requeued for retry %d/%d: %v",
+						stage, state.retryUsed, g.ExecutionPolicy.RetryBudget, reason)
+					o.emit(render.Event{
+						Kind:      render.EventAgentReasoning,
+						Timestamp: time.Now(),
+						Agent:     "orchestrator",
+						Reasoning: softRetryHintMessage(o.busCtx.Language),
+					})
+					o.emitNodeEnd(n.ID, false, fmt.Sprintf("%s transient: retrying", stage))
+					continue
+				}
+				logging.Warning("[orchestrator] %s transient dispatch error but retry budget exhausted (%d/%d); going terminal",
+					stage, state.retryUsed, g.ExecutionPolicy.RetryBudget)
+			}
 			if out == nil {
 				switch stage {
 				case types.StageApply:
@@ -168,9 +201,15 @@ func (o *Orchestrator) runWriteSchedulerLoop(stepBudget int) int {
 				case types.StageVerify:
 					o.persistPlanStatus(types.PlanStatusVerifyFailed, nil)
 				}
-				o.busCtx.TaskState.LastError = dispatchErr.Error()
+				// Translate typed dispatch errors to a friendlier surface
+				// so the user-facing LastError names the upstream
+				// condition (e.g. "upstream LLM stream stalled") instead
+				// of the raw "context canceled" the watchdog leaves
+				// behind. Non-typed errors pass through unchanged.
+				friendly := friendlyDispatchErr(dispatchErr)
+				o.busCtx.TaskState.LastError = friendly
 				state.markFailed(n.ID)
-				o.emitNodeEnd(n.ID, false, dispatchErr.Error())
+				o.emitNodeEnd(n.ID, false, friendly)
 				break
 			}
 			// Structured failure: post-hook runs (persists report +
@@ -179,7 +218,7 @@ func (o *Orchestrator) runWriteSchedulerLoop(stepBudget int) int {
 			// populated. The post-hook itself sets PlanStatusVerifyFailed
 			// on the verify path, so we don't double-persist here.
 			if strings.TrimSpace(out.Error) == "" {
-				out.Error = dispatchErr.Error()
+				out.Error = friendlyDispatchErr(dispatchErr)
 			}
 		}
 		// Soft (StageOutput-level) failures still get the post-hook
@@ -336,6 +375,34 @@ func (s *graphState) readyWriteWindow(env criterion.Env) (ready []*types.TaskNod
 	return ready, blocked
 }
 
+
+// friendlyDispatchErr translates typed transport/streaming errors
+// into a user-readable single-sentence surface for LastError /
+// out.Error / log lines. Non-typed errors pass through verbatim.
+//
+// Why this exists: *llm.StreamStalledError and
+// *llm.StreamFirstByteTimeoutError unwrap to context.Canceled (the
+// watchdog cancels the request to abort the stream). When Err()
+// re-emits the wrapped form ("upstream LLM stream stalled (no bytes
+// for 1m1s): read stream: context canceled") it carries a confusing
+// "context canceled" tail the user reads as "I cancelled this" —
+// they didn't, the watchdog did. This helper strips the inner
+// context.Canceled chain so the user-visible surface names the
+// actual upstream condition.
+func friendlyDispatchErr(err error) string {
+	if err == nil {
+		return ""
+	}
+	var stall *llm.StreamStalledError
+	if errors.As(err, &stall) && stall != nil {
+		return fmt.Sprintf("upstream LLM stream stalled (no bytes for %s)", stall.IdleFor)
+	}
+	var firstByte *llm.StreamFirstByteTimeoutError
+	if errors.As(err, &firstByte) && firstByte != nil {
+		return fmt.Sprintf("upstream LLM produced no SSE bytes within %s of the request being accepted", firstByte.IdleFor)
+	}
+	return err.Error()
+}
 
 // shouldSuppressVerifyRetry reports whether a verify failure was
 // caused by a missing test runner binary (FailureKindRunnerMissing).

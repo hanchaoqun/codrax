@@ -27,6 +27,19 @@ func IsRetryableDispatchError(err error) bool {
 		errors.Is(err, io.ErrUnexpectedEOF) {
 		return true
 	}
+	// Stream watchdog kills are transient by definition — the watchdog
+	// fired because upstream went silent past the configured threshold,
+	// not because the request itself was malformed. Both stall (mid-
+	// stream pause) and first-byte timeout (request accepted but server
+	// never started speaking) are recoverable on a fresh attempt. The
+	// underlying chain unwraps to context.Canceled (the watchdog's cancel),
+	// which is NOT retryable on its own — without these explicit sentinel
+	// matches, stream stalls fall through to terminal failure even though
+	// they are the most common transient error with thinking-mode LLMs.
+	if errors.Is(err, ErrStreamStalled) ||
+		errors.Is(err, ErrStreamFirstByteTimeout) {
+		return true
+	}
 	var netErr net.Error
 	if errors.As(err, &netErr) {
 		return true

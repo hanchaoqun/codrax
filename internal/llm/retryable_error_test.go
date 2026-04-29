@@ -6,6 +6,7 @@ import (
 	"net"
 	"net/url"
 	"testing"
+	"time"
 )
 
 func TestIsRetryableDispatchError(t *testing.T) {
@@ -32,6 +33,32 @@ func TestIsRetryableDispatchError(t *testing.T) {
 	t.Run("ordinary error", func(t *testing.T) {
 		if IsRetryableDispatchError(fmt.Errorf("boom")) {
 			t.Fatal("plain errors should not be classified as retryable dispatch errors")
+		}
+	})
+
+	t.Run("stream stalled", func(t *testing.T) {
+		err := &StreamStalledError{IdleFor: 61 * time.Second, Cause: context.Canceled}
+		if !IsRetryableDispatchError(err) {
+			t.Fatal("stream-stall watchdog kills should be retryable")
+		}
+		wrapped := fmt.Errorf("dispatch: %w", err)
+		if !IsRetryableDispatchError(wrapped) {
+			t.Fatal("wrapped stream-stall should still be retryable")
+		}
+	})
+
+	t.Run("stream first-byte timeout", func(t *testing.T) {
+		err := &StreamFirstByteTimeoutError{IdleFor: 21 * time.Second, Cause: context.Canceled}
+		if !IsRetryableDispatchError(err) {
+			t.Fatal("stream first-byte timeout should be retryable")
+		}
+	})
+
+	t.Run("plain context.Canceled stays terminal", func(t *testing.T) {
+		// User-initiated Ctrl+C must not be classified as retryable —
+		// only the typed stream errors above are.
+		if IsRetryableDispatchError(context.Canceled) {
+			t.Fatal("plain context.Canceled (user cancel) should NOT be retryable")
 		}
 	})
 }

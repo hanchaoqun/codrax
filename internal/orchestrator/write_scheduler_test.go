@@ -1,10 +1,13 @@
 package orchestrator
 
 import (
+	"context"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/hanchaoqun/codrax/internal/agent"
+	"github.com/hanchaoqun/codrax/internal/llm"
 	"github.com/hanchaoqun/codrax/internal/skill"
 	"github.com/hanchaoqun/codrax/internal/types"
 )
@@ -302,6 +305,106 @@ func TestReadyWriteWindow_OneShotPreventsReYield(t *testing.T) {
 	ready, _ = state.readyWriteWindow(emptyEnv())
 	if len(ready) != 0 {
 		t.Errorf("OneShot plan should not re-yield; got %v", writeNodeIDs(ready))
+	}
+}
+
+// TestWriteScheduler_PlanTransientStreamStall_Retries is the
+// regression for the production bug observed in /home/chatpp/pytest:
+// in plan mode, the planner's LLM stream stalled mid-response (a
+// thinking-mode pause crossed the 60s watchdog threshold) and the
+// orchestrator surfaced a terminal failure with retryUsed=0,
+// budget=3 — the retry budget existed but never fired because the
+// write scheduler only retried verify-stage SC failures, not
+// transient dispatch errors. Combined with IsRetryableDispatchError
+// not recognising *llm.StreamStalledError (it unwraps to
+// context.Canceled, which is intentionally not retryable on its own),
+// the user lost ~90s to an unrecoverable failure.
+//
+// This test verifies: planner returning a *llm.StreamStalledError on
+// first dispatch causes the scheduler to requeue + retry; the second
+// dispatch succeeds and the plan completes.
+func TestWriteScheduler_PlanTransientStreamStall_Retries(t *testing.T) {
+	expectedPlan := &types.ChangePlan{
+		ID:          "plan-stall-retry",
+		TargetPaths: []string{"main.go"},
+		Changes:     []types.FileChange{{Path: "main.go", Kind: "modify"}},
+	}
+	planCalls := 0
+	agentFns := map[types.AgentName]func(*types.AgentContext, *skill.Config) (*agent.StageOutput, error){
+		types.AgentAnalyzer: dagAnalyzerFn(dagIR(types.AnswerContract{Language: "en"})),
+		types.AgentPlanner: func(ctx *types.AgentContext, _ *skill.Config) (*agent.StageOutput, error) {
+			planCalls++
+			if planCalls == 1 {
+				// Simulate the watchdog kill — typed StreamStalledError
+				// wrapping context.Canceled, the exact shape produced by
+				// llm.streamingChatCall when it aborts a stalled stream.
+				return nil, &llm.StreamStalledError{
+					IdleFor: 61 * time.Second,
+					Cause:   context.Canceled,
+				}
+			}
+			ctx.Mutable.SetChangePlan(expectedPlan)
+			return &agent.StageOutput{MissingPiece: types.MissingNone}, nil
+		},
+	}
+	ar, sr, sar := buildRegistries(agentFns)
+	o := New(types.PipelineSettings{}, ar, sr, sar)
+	o.SetMaxSteps(20)
+	o.SetMode(types.ModePlan) // plan-only graph, no worktree provisioning
+	o.SetWriteRetryBudget(3)
+
+	busCtx, _ := o.Run("snake game in python", "/tmp/repo", "main")
+
+	if planCalls != 2 {
+		t.Errorf("planner should retry once after stream stall; got %d calls (want 2)", planCalls)
+	}
+	if busCtx.Mutable.ChangePlan() == nil {
+		t.Error("ChangePlan should be installed by the second (successful) plan dispatch")
+	}
+	if busCtx.TaskState.LastError != "" {
+		t.Errorf("LastError should be cleared after successful retry; got %q", busCtx.TaskState.LastError)
+	}
+}
+
+// TestWriteScheduler_PlanTransientStreamStall_BudgetExhausted locks
+// the upper bound: with budget=1, planner gets initial attempt + 1
+// retry = 2 calls total; if it stalls both times, the 3rd call must
+// NOT happen, the run goes terminal, and LastError carries the
+// friendly stream-stall surface (NOT the raw "context canceled" tail).
+func TestWriteScheduler_PlanTransientStreamStall_BudgetExhausted(t *testing.T) {
+	planCalls := 0
+	agentFns := map[types.AgentName]func(*types.AgentContext, *skill.Config) (*agent.StageOutput, error){
+		types.AgentAnalyzer: dagAnalyzerFn(dagIR(types.AnswerContract{Language: "en"})),
+		types.AgentPlanner: func(ctx *types.AgentContext, _ *skill.Config) (*agent.StageOutput, error) {
+			planCalls++
+			return nil, &llm.StreamStalledError{
+				IdleFor: 61 * time.Second,
+				Cause:   context.Canceled,
+			}
+		},
+	}
+	ar, sr, sar := buildRegistries(agentFns)
+	o := New(types.PipelineSettings{}, ar, sr, sar)
+	o.SetMaxSteps(20)
+	o.SetMode(types.ModePlan)
+	o.SetWriteRetryBudget(1) // 1 retry + 1 initial = 2 calls cap
+
+	busCtx, _ := o.Run("snake game", "/tmp/repo", "main")
+
+	if planCalls != 2 {
+		t.Errorf("planner should hit budget+1=2 calls; got %d", planCalls)
+	}
+	if busCtx.TaskState.LastError == "" {
+		t.Errorf("LastError should be populated on terminal failure")
+	}
+	// User-visible message must NOT contain the misleading "context
+	// canceled" tail — friendlyDispatchErr strips it because the
+	// watchdog cancellation is internal plumbing, not user intent.
+	if strings.Contains(busCtx.TaskState.LastError, "context canceled") {
+		t.Errorf("LastError should not leak 'context canceled'; got %q", busCtx.TaskState.LastError)
+	}
+	if !strings.Contains(busCtx.TaskState.LastError, "stalled") {
+		t.Errorf("LastError should name the stall condition; got %q", busCtx.TaskState.LastError)
 	}
 }
 
