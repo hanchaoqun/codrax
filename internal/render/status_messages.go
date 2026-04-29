@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"regexp"
 	"strings"
+	"time"
 )
 
 // status_messages.go is the renderer's localization layer. Every
@@ -149,33 +150,94 @@ func tCommonProcessing(zh bool, running bool) string {
 // Returns the localized form OR an empty string when the input is
 // not a thinking-shaped detail (caller falls through to other
 // detail formatters).
+//
+// Three distinct phases collapse into the "thinking" detail prefix
+// in the event stream; the user asked to see them separately so the
+// long quiet windows in front of the spinner read as a specific
+// waiting mode rather than an undifferentiated stall:
+//
+//   1. "发送中" / "sending" — bare "thinking" within `sendingThreshold`
+//      of detailStart. EventAgentThinking just fired; the HTTP
+//      request body is still being dispatched OR the server hasn't
+//      even acknowledged yet. Brief by design (typically <1s).
+//
+//   2. "等待响应" / "awaiting" — bare "thinking" beyond the threshold.
+//      Request is fully in flight; we are waiting on the server /
+//      model to start producing tokens. This is the slow window
+//      (5-30s on thinking models) where the user previously had no
+//      signal that "the request was sent and we're just waiting".
+//
+//   3. "回复中：…" / "replying: …" — "thinking: …" with a preview
+//      tail. EventAgentContent fired with the first response
+//      chunk; the model IS actively streaming back tokens.
+//
+// Phrasing is kept short (3-5 chars zh, ≤ 8 chars en) per the user's
+// "尽量简短，不易太长，又能区分" callout. The distinction is the
+// load-bearing UX, not the verbosity.
 var thinkingRoundRe = regexp.MustCompile(`^(?:►\s*)?thinking\s*\(round\s*(\d+)\)\s*$`)
 var thinkingTextRe = regexp.MustCompile(`^(?:►\s*)?thinking[:：]\s*(.*)$`)
 var thinkingBareRe = regexp.MustCompile(`^(?:►\s*)?thinking\s*$`)
 
-func thinkingPhrase(detail string, lang string) string {
+// sendingThreshold splits "sending" from "awaiting". Empirically,
+// HTTP request dispatch + initial server handshake completes well
+// under 1s on healthy networks; beyond that the latency is
+// server-side queue or model think-time, not local IO.
+const sendingThreshold = 1500 * time.Millisecond
+
+func thinkingPhrase(detail string, lang string, now, detailStart time.Time) string {
 	zh := isZh(lang)
 	d := strings.TrimSpace(detail)
-	if m := thinkingRoundRe.FindStringSubmatch(d); m != nil {
-		if zh {
-			return fmt.Sprintf("思考中 · 第 %s 轮", m[1])
-		}
-		return fmt.Sprintf("thinking · round %s", m[1])
-	}
+	// "thinking: …" — first content chunk arrived; model is replying.
 	if m := thinkingTextRe.FindStringSubmatch(d); m != nil {
 		body := strings.TrimSpace(m[1])
 		if zh {
-			return "思考中：" + body
+			return "回复中：" + body
 		}
-		return "thinking: " + body
+		return "replying: " + body
 	}
-	if thinkingBareRe.MatchString(d) {
+	// "thinking (round N)" — bare-thinking with iteration counter.
+	if m := thinkingRoundRe.FindStringSubmatch(d); m != nil {
+		phase := bareThinkingPhase(now, detailStart, zh)
 		if zh {
-			return "思考中"
+			return fmt.Sprintf("%s · 第 %s 轮", phase, m[1])
 		}
-		return "thinking"
+		return fmt.Sprintf("%s · round %s", phase, m[1])
+	}
+	// "thinking" — bare; split into "sending" vs "awaiting" by elapsed.
+	if thinkingBareRe.MatchString(d) {
+		return bareThinkingPhase(now, detailStart, zh)
 	}
 	return ""
+}
+
+// bareThinkingPhase returns the localized "sending" vs "awaiting"
+// phrase for a bare-thinking row, splitting on detailStart age. When
+// detailStart is zero (test path, or row constructed without an
+// event timestamp), default to "awaiting" so we don't claim "sending"
+// for stale rows.
+//
+// NTP-jump guard: if the wall clock moves backward between the time
+// detailStart was captured and `now` is read (rare but observed in
+// systems whose monotonic clock disagrees with the real-time clock,
+// or when the runner re-synchronises on boot), now.Sub(detailStart)
+// can be negative — strictly less than sendingThreshold but not in
+// the "fresh" semantic sense. We require a non-negative elapsed
+// before claiming "sending" so a backward-jumped clock never lies
+// about request freshness.
+func bareThinkingPhase(now, detailStart time.Time, zh bool) string {
+	if !detailStart.IsZero() {
+		elapsed := now.Sub(detailStart)
+		if elapsed >= 0 && elapsed < sendingThreshold {
+			if zh {
+				return "发送中"
+			}
+			return "sending"
+		}
+	}
+	if zh {
+		return "等待响应"
+	}
+	return "awaiting"
 }
 
 // toolDetailPhrase localizes a tool-call detail like "grep main.go" /

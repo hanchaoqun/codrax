@@ -38,17 +38,42 @@ import "github.com/pterm/pterm"
 //   - statusRecoverable uses 215 (#ffaf5f) muted amber — the
 //     "I'm working on it" hue, NOT the "danger" red.
 var (
-	statusPrimary       = pterm.NewStyle(pterm.FgLightBlue)
-	statusDetail        = pterm.NewStyle(pterm.FgGray)
-	statusSecondary     = pterm.NewStyle(pterm.FgGray)
-	statusTopicLabel    = pterm.NewStyle(pterm.FgLightBlue)
-	statusTopicText     = pterm.NewStyle(pterm.FgDefault)
-	statusMeta          = pterm.NewStyle(pterm.FgDarkGray)
-	statusSpinner       = pterm.NewStyle(pterm.FgGray)
-	statusSuccessMuted  = pterm.NewStyle(pterm.FgGreen)
-	statusFatal         = pterm.NewStyle(pterm.FgRed)
-	statusRecoverable   = pterm.NewStyle(pterm.FgYellow)
-	statusWarningMuted  = pterm.NewStyle(pterm.FgYellow)
+	// Running primary — the active stage label catches the eye.
+	// Light blue is the brightness peak of the status family;
+	// done labels demote to a muted grey so the timeline reads
+	// as "this is happening now" / "this already finished".
+	statusPrimary      = pterm.NewStyle(pterm.FgLightBlue)
+	statusPrimaryDone  = pterm.NewStyle(pterm.FgGray)
+
+	// Objective line — the user's own question echoed back at the
+	// top of the status area. Visually distinct from statusPrimary
+	// so the user reads "this is what I asked" vs "this is the
+	// stage running right now". The hue choice is the discriminator:
+	// FgLightCyan pulls out of the blue family used for running
+	// stages and remains readable on both dark and light terminals
+	// (cyan is one of the few colours with consistent luminance
+	// across schemes). Bold modifier is intentionally NOT applied —
+	// the pterm Bold attribute is unevenly supported across CI log
+	// emulators, some tmux themes, and IDE-integrated terminals, so
+	// "objective looks distinct" must be carried by hue alone for
+	// universal correctness.
+	statusObjective    = pterm.NewStyle(pterm.FgLightCyan)
+	statusObjectiveDone = pterm.NewStyle(pterm.FgCyan)
+
+	statusDetail       = pterm.NewStyle(pterm.FgGray)
+	statusSecondary    = pterm.NewStyle(pterm.FgGray)
+	statusTopicLabel   = pterm.NewStyle(pterm.FgLightBlue)
+	// Topic body lives below the spotlighted parent line; dim it
+	// to a regular grey so the topic_label "关注点 N：" carries
+	// the eye and the body is supporting context rather than
+	// competing with prose answers further down.
+	statusTopicText    = pterm.NewStyle(pterm.FgGray)
+	statusMeta         = pterm.NewStyle(pterm.FgDarkGray)
+	statusSpinner      = pterm.NewStyle(pterm.FgGray)
+	statusSuccessMuted = pterm.NewStyle(pterm.FgGreen)
+	statusFatal        = pterm.NewStyle(pterm.FgRed)
+	statusRecoverable  = pterm.NewStyle(pterm.FgYellow)
+	statusWarningMuted = pterm.NewStyle(pterm.FgYellow)
 )
 
 // Status-line glyphs. Centralised so a future glyph change touches

@@ -64,43 +64,200 @@ func RenderMermaidBlocks(text string) string {
 	if text == "" {
 		return text
 	}
-	if !strings.Contains(text, "```mermaid") {
+	// Two-stage prefilter so chitchat / fallback prose carrying
+	// non-mermaid fenced blocks (```bash```, ```json```, ```go```)
+	// short-circuits BEFORE the regex scan:
+	//
+	//   1. Must contain at least one fenced block ("```").
+	//   2. Must contain either an explicit `mermaid` tag OR one of
+	//      the body-keyword markers used by looksLikeMermaidBody.
+	//
+	// Step 2 is a fast strings.Contains on the source — a single
+	// pass over the text — instead of running the regex on every
+	// fence in long replies that have no diagram. If neither
+	// indicator is present the function returns text byte-identical.
+	if !strings.Contains(text, "```") {
 		return text
 	}
-	return mermaidFenceRe.ReplaceAllStringFunc(text, replaceMermaidFence)
+	if !mayContainMermaid(text) {
+		return text
+	}
+	return fencedBlockRe.ReplaceAllStringFunc(text, maybeReplaceMermaidFence)
 }
 
-// mermaidFenceRe matches a fenced block whose info-string starts
-// with `mermaid` (case-sensitive, mermaid spec). The capture group
-// holds the body (without trailing newline). `(?s)` makes `.`
-// match newlines so the body spans multiple lines. Non-greedy `+?`
-// handles two adjacent blocks correctly.
+// mayContainMermaid is the cheap prefilter for RenderMermaidBlocks.
+// True iff the text either carries a `mermaid` tag or a known
+// diagram-type keyword anywhere — both quick substring checks. A
+// false positive here just costs one regex scan; a false negative
+// would silently skip rendering, so the keyword set MUST stay in
+// sync with mermaidBodyKeywords (the per-block decision used inside
+// looksLikeMermaidBody).
+func mayContainMermaid(text string) bool {
+	if strings.Contains(text, "```mermaid") {
+		return true
+	}
+	for _, kw := range mermaidBodyKeywords {
+		if strings.Contains(text, kw) {
+			return true
+		}
+	}
+	return false
+}
+
+// fencedBlockRe matches any fenced code block. We dispatch in
+// maybeReplaceMermaidFence based on info-string + body shape so a
+// model-emitted bare ``` fence whose body starts with a mermaid
+// diagram-type keyword still gets rendered. The capture group holds
+// the info-string (info[0]) and the body (info[1]).
+//
+// Pre-2026-04-30 the regex was tag-anchored at ```mermaid only, so
+// the user reported that a model-emitted bare ``` fence containing
+// `flowchart LR ...` printed as raw text. The model commonly drops
+// the tag when the surrounding prose already names the diagram type;
+// we cope by detecting mermaid-shaped bodies regardless of tag.
 //
 // Pattern shape:
-//   ``` mermaid          ← optional whitespace tolerated after the tag
+//   ``` <info-string-zero-or-more-chars>
 //   <BODY>
 //   ```
+var fencedBlockRe = regexp.MustCompile("(?s)```([^\\n]*)\\n(.*?)\\n```")
+
+// mermaidFenceRe is retained for the original ```mermaid``` shape.
+// Used by replaceMermaidFence's body extraction (it lifts the body
+// from match using string indexing, not the regex captures, so
+// callers downstream remain stable).
 var mermaidFenceRe = regexp.MustCompile("(?s)```mermaid[^\\n]*\\n(.*?)\\n```")
+
+// mermaidBodyKeywords lists the diagram-type tokens that mark a
+// mermaid block. The first non-empty body line of an untagged fence
+// must begin with one of these (case-sensitive — mermaid spec).
+// We deliberately omit shorter / ambiguous tokens like "graph"
+// alone might match (it's the umbrella alias for flowchart in
+// mermaid, but rare in modern diagrams). Including it explicitly
+// here is fine because any false-positive falls through to
+// replaceMermaidFence's library-render error path which leaves the
+// block as source.
+var mermaidBodyKeywords = []string{
+	"flowchart",
+	"graph",
+	"sequenceDiagram",
+	"classDiagram",
+	"stateDiagram",
+	"stateDiagram-v2",
+	"erDiagram",
+	"journey",
+	"gantt",
+	"pie",
+	"mindmap",
+	"timeline",
+	"gitGraph",
+	"requirementDiagram",
+	"C4Context",
+}
+
+// looksLikeMermaidBody returns true when body's first non-empty
+// trimmed line begins with a known mermaid diagram-type keyword.
+// Used to opt untagged fences into mermaid rendering.
+func looksLikeMermaidBody(body string) bool {
+	for _, line := range strings.Split(body, "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		for _, kw := range mermaidBodyKeywords {
+			if line == kw || strings.HasPrefix(line, kw+" ") || strings.HasPrefix(line, kw+"\t") {
+				return true
+			}
+		}
+		return false
+	}
+	return false
+}
+
+// maybeReplaceMermaidFence dispatches a fenced-block match to either
+// the mermaid renderer or pass-through. Three cases:
+//
+//   1. info-string starts with `mermaid` → render via library
+//   2. info-string is empty / `text` AND body looks like mermaid →
+//      render via library (the model dropped the tag)
+//   3. anything else → leave unchanged (untouched contract for
+//      `go`, `bash`, `json`, `diff`, etc.)
+func maybeReplaceMermaidFence(match string) string {
+	// Find newline that ends the info-string line.
+	nl := strings.Index(match, "\n")
+	if nl < 0 {
+		return match
+	}
+	infoLine := strings.TrimSpace(match[3:nl]) // skip leading ```
+	bodyEnd := strings.LastIndex(match, "\n```")
+	if bodyEnd <= nl {
+		return match
+	}
+	body := match[nl+1 : bodyEnd]
+
+	// Case 1: explicit mermaid tag.
+	if strings.HasPrefix(infoLine, "mermaid") {
+		return replaceMermaidFence(match)
+	}
+	// Case 2: untagged or `text`-tagged fence whose body shape is
+	// mermaid. We only match the empty-info-string and `text` cases
+	// to keep the contract narrow — a body with `flowchart` keywords
+	// inside a ```bash``` fence is unambiguously not a diagram.
+	if (infoLine == "" || infoLine == "text") && looksLikeMermaidBody(body) {
+		// Synthesize a `mermaid`-tagged match so the renderer's
+		// body-extraction logic stays load-bearing on a single
+		// shape. We use the explicit (rendered, ok) signal — NOT
+		// string-equality against the synthesized form — so the
+		// failure path returns the ORIGINAL match (not the synth)
+		// regardless of how the failure manifests inside the
+		// renderer.
+		synth := "```mermaid\n" + body + "\n```"
+		if rendered, ok := renderMermaidFenceBody(synth); ok {
+			return rendered
+		}
+		return match
+	}
+	return match
+}
 
 
 // replaceMermaidFence is the per-match closure handed to
 // ReplaceAllStringFunc. `match` is the full fence (including the
 // opening ```mermaid line and closing ```).
 //
-// The function lifts the body, attempts to render via the library,
-// and on success rewrites the fence to:
-//
-//   ```text
-//   <RENDERED ASCII>
-//   ```
-//
-// On any failure the original `match` is returned unchanged —
+// On success it returns the rewritten fence (```text``` wrapping the
+// rendered ASCII grid). On failure it returns `match` unchanged —
 // strict no-regression contract.
-func replaceMermaidFence(match string) (out string) {
+//
+// Callers that need to distinguish success from "left unchanged on
+// purpose" (e.g. maybeReplaceMermaidFence which synthesises a fake
+// `mermaid`-tagged match for untagged-but-mermaid-shaped bodies and
+// must NOT leak the synthesised form back to the user when render
+// fails) should use renderMermaidFenceBody directly — that helper
+// returns an explicit (rendered, ok) pair so success vs failure is
+// not inferred from string identity.
+func replaceMermaidFence(match string) string {
+	if rendered, ok := renderMermaidFenceBody(match); ok {
+		return rendered
+	}
+	return match
+}
+
+// renderMermaidFenceBody is the explicit (rendered, ok) core of
+// mermaid → ASCII transformation. ok=false means the caller should
+// keep the ORIGINAL source unchanged (whatever shape it was — bare
+// fence, text-tagged fence, mermaid-tagged fence). This separates
+// "successfully rendered" from "no-op return value" so callers
+// don't have to compare strings to detect failure.
+//
+// All four failure modes (panic, missing body, library reject,
+// empty render) collapse to ok=false here.
+func renderMermaidFenceBody(match string) (out string, ok bool) {
 	defer func() {
 		if r := recover(); r != nil {
 			logging.Warning("[render/mermaid] panic during render (block left unchanged): %v", r)
-			out = match
+			out = ""
+			ok = false
 		}
 	}()
 
@@ -109,15 +266,15 @@ func replaceMermaidFence(match string) (out string) {
 	// ```.
 	bodyStart := strings.Index(match, "\n")
 	if bodyStart < 0 {
-		return match
+		return "", false
 	}
 	bodyEnd := strings.LastIndex(match, "\n```")
 	if bodyEnd <= bodyStart {
-		return match
+		return "", false
 	}
 	body := strings.TrimSpace(match[bodyStart+1 : bodyEnd])
 	if body == "" {
-		return match
+		return "", false
 	}
 
 	// Library limitation: pgavlin/mermaid-ascii's graph renderer
@@ -141,7 +298,7 @@ func replaceMermaidFence(match string) (out string) {
 	preparedBody, _, substErr := adapter.substitute(body)
 	if substErr != nil {
 		logging.Info("[render/mermaid] cjk adapter cannot substitute (%v); block left as source", substErr)
-		return match
+		return "", false
 	}
 
 	cfg := diagram.DefaultConfig()
@@ -158,11 +315,11 @@ func replaceMermaidFence(match string) (out string) {
 	rendered, err := render.Render(preparedBody, cfg)
 	if err != nil {
 		logging.Warning("[render/mermaid] render failed (block left unchanged): %v", err)
-		return match
+		return "", false
 	}
 	rendered = strings.TrimRight(rendered, "\n")
 	if rendered == "" {
-		return match
+		return "", false
 	}
 	// Restore wide runes in the rendered grid. The adapter walks
 	// the placeholder map and byte-replaces each occurrence; the
@@ -179,5 +336,5 @@ func replaceMermaidFence(match string) (out string) {
 	b.WriteString("```text\n")
 	b.WriteString(rendered)
 	b.WriteString("\n```")
-	return b.String()
+	return b.String(), true
 }

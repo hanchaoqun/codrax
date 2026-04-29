@@ -7,17 +7,18 @@ import (
 
 // TestStylePalette_DarkHeadingHierarchy locks the H1-H6 brightness
 // gradient so a regression doesn't collapse the hierarchy back to
-// "every level the same color". H1 must be the brightest, H6 the
-// dimmest.
+// "every level the same color". H1 = pure white, H2-H4 = bright/
+// light/mid cyan-blue, H5/H6 = readable greys. The 2026-04-30
+// brightening fixed user feedback that H3/H4 was too dim.
 func TestStylePalette_DarkHeadingHierarchy(t *testing.T) {
 	cfg := buildDarkPalette()
 	want := map[string]string{
 		"H1": "15",
-		"H2": "117",
-		"H3": "75",
-		"H4": "67",
-		"H5": "246",
-		"H6": "240",
+		"H2": "51",
+		"H3": "117",
+		"H4": "75",
+		"H5": "250",
+		"H6": "245",
 	}
 	got := map[string]*string{
 		"H1": cfg.H1.Color,
@@ -32,12 +33,33 @@ func TestStylePalette_DarkHeadingHierarchy(t *testing.T) {
 			t.Errorf("%s color = %v, want %s", level, deref(got[level]), expected)
 		}
 	}
-	// H1-H5 bold; H6 explicitly NOT bold (visually retreats).
+	// H1-H4 bold; H5 + H6 italic, not bold (visually retreated).
+	for _, level := range []struct {
+		name string
+		bold *bool
+	}{
+		{"H1", cfg.H1.Bold},
+		{"H2", cfg.H2.Bold},
+		{"H3", cfg.H3.Bold},
+		{"H4", cfg.H4.Bold},
+	} {
+		if level.bold == nil || !*level.bold {
+			t.Errorf("%s must be bold; got %v", level.name, level.bold)
+		}
+	}
+	if cfg.H5.Bold == nil || *cfg.H5.Bold {
+		t.Errorf("H5 must be non-bold; got %v", cfg.H5.Bold)
+	}
 	if cfg.H6.Bold == nil || *cfg.H6.Bold {
 		t.Errorf("H6 must be non-bold; got %v", cfg.H6.Bold)
 	}
-	if cfg.H1.Bold == nil || !*cfg.H1.Bold {
-		t.Errorf("H1 must be bold; got %v", cfg.H1.Bold)
+	// Italics intentionally disabled per user feedback — heading
+	// hierarchy expressed via colour alone, not weight or slant.
+	if cfg.H5.Italic == nil || *cfg.H5.Italic {
+		t.Errorf("H5 must NOT be italic (color-only hierarchy); got %v", cfg.H5.Italic)
+	}
+	if cfg.H6.Italic == nil || *cfg.H6.Italic {
+		t.Errorf("H6 must NOT be italic (color-only hierarchy); got %v", cfg.H6.Italic)
 	}
 }
 
@@ -105,14 +127,53 @@ func TestStylePalette_DarkHueDiscipline(t *testing.T) {
 		t.Errorf("generic.deleted %s — diff red is load-bearing, must be red family", gd)
 	}
 	// generic.inserted must remain green — diff semantics ditto.
+	// Accept any hex colour where the green channel dominates (or at
+	// least matches) red and blue, so a soft mint like #87d7af passes
+	// the same family check as a pure green like #50fa7b.
 	if chroma.GenericInserted.Color == nil {
 		t.Fatal("generic.inserted must have an explicit color")
 	}
 	gi := strings.ToLower(*chroma.GenericInserted.Color)
-	if !strings.HasPrefix(gi, "#5") && !strings.HasPrefix(gi, "#0") &&
-		!strings.HasPrefix(gi, "#1") {
+	if !isGreenFamily(gi) {
 		t.Errorf("generic.inserted %s — diff green is load-bearing, must be green family", gi)
 	}
+}
+
+// isGreenFamily reports whether a hex colour reads as visually
+// green (G channel ≥ R AND G channel ≥ B). Accepts both #rrggbb
+// and shorter forms; returns false on parse failure.
+func isGreenFamily(hex string) bool {
+	if !strings.HasPrefix(hex, "#") || len(hex) != 7 {
+		return false
+	}
+	r, ok1 := parseHexByte(hex[1:3])
+	g, ok2 := parseHexByte(hex[3:5])
+	b, ok3 := parseHexByte(hex[5:7])
+	if !ok1 || !ok2 || !ok3 {
+		return false
+	}
+	return g >= r && g >= b && g > 0x40
+}
+
+func parseHexByte(s string) (int, bool) {
+	if len(s) != 2 {
+		return 0, false
+	}
+	var v int
+	for i := 0; i < 2; i++ {
+		c := s[i]
+		switch {
+		case c >= '0' && c <= '9':
+			v = v*16 + int(c-'0')
+		case c >= 'a' && c <= 'f':
+			v = v*16 + int(c-'a'+10)
+		case c >= 'A' && c <= 'F':
+			v = v*16 + int(c-'A'+10)
+		default:
+			return 0, false
+		}
+	}
+	return v, true
 }
 
 // TestStylePalette_DarkInlineCodeAndLinksMatch confirms the cohort

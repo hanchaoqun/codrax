@@ -172,14 +172,16 @@ func TestRenderMermaidBlocks_NarrowMultibyteLeftAsSource(t *testing.T) {
 
 // TestRenderMermaidBlocks_DoesNotTouchOtherFences verifies that
 // fenced blocks tagged with anything other than `mermaid` are
-// preserved byte-identical. The model's free ASCII art (typically
-// in a bare ``` fence or `text` fence) MUST flow through the
-// pipeline untouched per the F-design philosophy: codrax only
-// processes content the model explicitly tagged for processing.
+// preserved byte-identical UNLESS the body is unambiguously a
+// mermaid diagram (first non-empty line is a known diagram-type
+// keyword like `flowchart`/`sequenceDiagram`). The model commonly
+// drops the `mermaid` tag when surrounding prose names the diagram
+// type; we render those bodies anyway. Non-mermaid-shaped content
+// (raw arrows, shell, JSON) still passes through untouched.
 func TestRenderMermaidBlocks_DoesNotTouchOtherFences(t *testing.T) {
 	cases := []string{
-		"```\nA --> B\n```",         // bare fence with mermaid-shaped content
-		"```text\nA --> B\n```",     // text fence
+		"```\nA --> B\n```",         // bare fence; body NOT a known diagram keyword
+		"```text\nA --> B\n```",     // text fence; same
 		"```bash\nls -la\n```",      // shell
 		"```json\n{\"a\": 1}\n```",  // JSON
 	}
@@ -187,6 +189,53 @@ func TestRenderMermaidBlocks_DoesNotTouchOtherFences(t *testing.T) {
 		out := RenderMermaidBlocks(in)
 		if out != in {
 			t.Errorf("non-mermaid fence must pass through unchanged\n  in:  %q\n  out: %q",
+				in, out)
+		}
+	}
+}
+
+// TestRenderMermaidBlocks_UntaggedFlowchartRendered pins the
+// session-fix for "model emits flowchart LR without the mermaid
+// tag". User reported a final answer that printed `flowchart LR`
+// as raw text because the fence was bare. We now detect mermaid
+// keyword bodies inside bare ``` fences AND `text`-tagged fences
+// and render them through the library.
+func TestRenderMermaidBlocks_UntaggedFlowchartRendered(t *testing.T) {
+	cases := []string{
+		"prose\n\n```\nflowchart LR\n    A --> B --> C\n```\n\nend",
+		"prose\n\n```text\nflowchart LR\n    A --> B --> C\n```\n\nend",
+	}
+	for _, in := range cases {
+		out := RenderMermaidBlocks(in)
+		if out == in {
+			t.Errorf("untagged flowchart must be rendered (was passed through):\n%s", out)
+			continue
+		}
+		if !strings.Contains(out, "```text\n") {
+			t.Errorf("rendered output must rewrap fence as ```text```; got:\n%s", out)
+		}
+		for _, want := range []string{"prose", "end", "A", "B", "C"} {
+			if !strings.Contains(out, want) {
+				t.Errorf("expected token %q in rendered output:\n%s", want, out)
+			}
+		}
+	}
+}
+
+// TestRenderMermaidBlocks_UntaggedNonMermaidUnchanged guards the
+// narrow contract: untagged fences whose body does NOT begin with
+// a known mermaid keyword must NOT be touched. This prevents the
+// detector from over-reaching into ASCII art / pseudo-code blocks.
+func TestRenderMermaidBlocks_UntaggedNonMermaidUnchanged(t *testing.T) {
+	cases := []string{
+		"```\nA --> B (raw arrow, no flowchart keyword)\n```",
+		"```\nfoo bar baz\n```",
+		"```\n+----+\n| ok |\n+----+\n```",
+	}
+	for _, in := range cases {
+		out := RenderMermaidBlocks(in)
+		if out != in {
+			t.Errorf("untagged non-mermaid fence must pass through unchanged\n  in:  %q\n  out: %q",
 				in, out)
 		}
 	}

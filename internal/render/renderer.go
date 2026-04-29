@@ -242,43 +242,89 @@ func codraxStyleConfig() ansi.StyleConfig {
 // applyHeadingHierarchy installs a brightness-graded set of heading
 // colours so the user perceives heading level by colour AND by '#'
 // prefix. Pre-2026-04-29 every heading inherited Heading.Color (cyan
-// 39 in dark, blue 27 in light) so H2-H6 were visually identical.
+// 39 in dark, blue 27 in light) so H2-H6 were visually identical;
+// the 2026-04-30 audit then over-corrected by darkening H3/H4 so
+// far ("75" / "67") that the user reported "### xxx 字体颜色就很
+// 暗，看着很不协调". This third pass brightens the ladder one full
+// step so every active heading (H1-H4) reads as clearly visible
+// against a typical dark terminal, while H5/H6 retreat to italic
+// grey to mark them as supporting structure.
+//
+// Hue identity:
+//
+//   H1 — pure white / black: the "title" tier, neutral. Bold.
+//   H2 — bright cyan: dominant section heading. Bold.
+//   H3 — light cyan: subsection. Bold; matches the inline-code hue
+//        so heading + code references read as the same family.
+//   H4 — mid blue: minor heading. Bold.
+//   H5 — light grey: italic, not bold; visibly retreated.
+//   H6 — deep grey: italic, not bold; bottommost.
+//
+// All four active levels (H1-H4) now sit at clearly readable
+// luminance on dark backgrounds; the gradient discriminator is
+// hue + bold/italic, not "drop the brightness 30% per level".
 func applyHeadingHierarchy(cfg *ansi.StyleConfig, dark bool) {
 	cfg.H1.BackgroundColor = nil
 	if dark {
-		// Dark backgrounds: brightest at top, descending to deep grey.
-		cfg.H1.Color = strPtr("15")  // white
-		cfg.H2.Color = strPtr("117") // light cyan #87d7ff (matches inline code family)
-		cfg.H3.Color = strPtr("75")  // mid blue #5fafff
-		cfg.H4.Color = strPtr("67")  // dark blue #5f87af
-		cfg.H5.Color = strPtr("246") // mid grey #949494
-		cfg.H6.Color = strPtr("240") // deep grey #585858
+		cfg.H1.Color = strPtr("15")  // pure white
+		cfg.H2.Color = strPtr("51")  // bright cyan #00ffff
+		cfg.H3.Color = strPtr("117") // light cyan #87d7ff (matches inline code)
+		cfg.H4.Color = strPtr("75")  // mid blue #5fafff
+		cfg.H5.Color = strPtr("250") // light grey #bcbcbc — readable, not loud
+		cfg.H6.Color = strPtr("245") // mid grey #8a8a8a
 		// Heading.Color cascades into any H without its own Color;
-		// keep cyan as the family default for unexpected H levels.
+		// keep light cyan as the family default for unexpected H levels.
 		cfg.Heading.Color = strPtr("117")
 	} else {
-		// Light backgrounds: darkest at top, ascending to medium grey.
+		// Light backgrounds: invert the brightness ladder. Darker hues
+		// at the top because dark text on light reads bolder; lift the
+		// lower levels into mid-grey territory so they remain visible
+		// without becoming heavier than the structural prose.
 		cfg.H1.Color = strPtr("16")  // black
-		cfg.H2.Color = strPtr("25")  // dark blue #005faf
-		cfg.H3.Color = strPtr("31")  // mid blue #0087af
-		cfg.H4.Color = strPtr("67")  // mid blue-grey
-		cfg.H5.Color = strPtr("242") // dark grey
-		cfg.H6.Color = strPtr("245") // mid grey
+		cfg.H2.Color = strPtr("21")  // pure blue #0000ff
+		cfg.H3.Color = strPtr("25")  // dark blue #005faf
+		cfg.H4.Color = strPtr("31")  // mid blue #0087af
+		cfg.H5.Color = strPtr("241") // dark grey
+		cfg.H6.Color = strPtr("244") // mid grey
 		cfg.Heading.Color = strPtr("25")
 	}
 	cfg.H1.Bold = boolPtr(true)
 	cfg.H2.Bold = boolPtr(true)
 	cfg.H3.Bold = boolPtr(true)
 	cfg.H4.Bold = boolPtr(true)
-	cfg.H5.Bold = boolPtr(true)
-	cfg.H6.Bold = boolPtr(false) // visually retreats — bottom of hierarchy
+	// H5 + H6 stay non-bold; the user's session-37+1 follow-up
+	// asked to keep heading hierarchy expressed via colour alone
+	// ("标题什么的,最好避免用斜体字，主要通过颜色来统一美感"),
+	// so italics are explicitly disabled here. The brightness drop
+	// from 75 (H4) → 250 (H5) → 245 (H6) carries the level signal.
+	cfg.H5.Bold = boolPtr(false)
+	cfg.H5.Italic = boolPtr(false)
+	cfg.H6.Bold = boolPtr(false)
+	cfg.H6.Italic = boolPtr(false)
 }
 
 // applyInlineAndStructure tunes non-heading prose elements: inline
-// code, links, horizontal rule, block quote indent, table grid.
-// Inline code's red→cyan move is the original codrax customisation
-// (red triggered alert fatigue on identifier-heavy answers); other
-// surfaces follow the same hue-discipline philosophy.
+// code, links, horizontal rule, block quote indent, table grid,
+// bold/emphasis runs, and list-item bullets.
+//
+// Hue discipline ladder used here (dark-mode reference, light mode
+// is the symmetric inverted-luminance counterpart):
+//
+//   115 (#87d7af) — soft mint, used for emphasis (italic prose)
+//   117 (#87d7ff) — light cyan, anchor / inline-code / heading family
+//   151 (#afd7af) — pale green, list bullet markers
+//   244 (#808080) — neutral grey, structural dividers
+//
+// Pre-2026-04-30 Strong / Emphasis inherited bare bold/italic from
+// glamour DarkStyleConfig — no explicit Color — which on dark
+// terminals rendered as the terminal-default foreground (often a
+// dim "off-white"). Inline-bold tokens like "**关键锚点**：" or
+// "**Key anchors:**" therefore read as visually quieter than the
+// surrounding prose, which is exactly the user's "字体颜色就很暗，
+// 看着很不协调" complaint applied to the Strong run. Pinning
+// Strong + Emphasis + Item to explicit colours keeps every prose
+// surface in the heading-family hue space without re-introducing
+// the rainbow per token.
 func applyInlineAndStructure(cfg *ansi.StyleConfig, dark bool) {
 	cfg.Code.BackgroundColor = nil
 	if dark {
@@ -297,6 +343,26 @@ func applyInlineAndStructure(cfg *ansi.StyleConfig, dark bool) {
 		// Block quote: colour the `│ ` indent token so quotes are
 		// visually delimited. Use cyan to match the heading family.
 		cfg.BlockQuote.Color = strPtr("117")
+		// Strong (`**bold**`) — used by all the answer-doc section
+		// labels ("**Key anchors:**", "**关键锚点**：") and by the
+		// snippet headers ("📄 **`file:line`**"). Pale cyan + bold
+		// keeps Strong in the heading-cyan cohort (so the label
+		// reads as "structural marker") while staying distinct from
+		// H1 (pure white) AND from inline code (light cyan 117).
+		// The brightness ladder is H1=15 > Strong=159 > Code=117 so
+		// the eye reads Section ⊃ Label ⊃ identifier without any
+		// hue switch.
+		cfg.Strong.Color = strPtr("159") // #afffff very pale cyan
+		cfg.Strong.Bold = boolPtr(true)
+		// Emphasis (`*italic*`) — pale green-cyan so italics read
+		// as a distinct accent without leaning into the heading-
+		// cyan family or competing with inline code.
+		cfg.Emph.Color = strPtr("115") // #87d7af pale green-cyan
+		cfg.Emph.Italic = boolPtr(true)
+		// List items — bullet markers in pale green so structured
+		// lists (steps, key anchors, citations) read as clearly
+		// itemised. Body text inherits the prose default.
+		cfg.Item.Color = strPtr("151") // #afd7af
 		// Tables: fill in grid characters at glamour's medium-grey
 		// neutral so the structure reads without being noisy. The
 		// runes themselves are the standard ASCII set glamour ships.
@@ -310,6 +376,14 @@ func applyInlineAndStructure(cfg *ansi.StyleConfig, dark bool) {
 		cfg.LinkText.Color = strPtr("25")
 		cfg.LinkText.Bold = boolPtr(true)
 		cfg.BlockQuote.Color = strPtr("25")
+		// Light-mode Strong / Emphasis / Item — symmetric to the
+		// dark palette but anchored at a darker luminance so prose
+		// stays readable on white-ish terminal backgrounds.
+		cfg.Strong.Color = strPtr("16") // black
+		cfg.Strong.Bold = boolPtr(true)
+		cfg.Emph.Color = strPtr("28") // dark green
+		cfg.Emph.Italic = boolPtr(true)
+		cfg.Item.Color = strPtr("28")
 		cfg.Table.CenterSeparator = strPtr("┼")
 		cfg.Table.ColumnSeparator = strPtr("│")
 		cfg.Table.RowSeparator = strPtr("─")
@@ -317,12 +391,33 @@ func applyInlineAndStructure(cfg *ansi.StyleConfig, dark bool) {
 }
 
 // applyChromaPalette repaints the syntax-highlighting palette inside
-// fenced code blocks. The default (glamour DarkStyleConfig) packs
-// five different reds/pinks (#FF5FD2 / #FF5F87 / #EF8080 / #FF8EC7 /
-// #FD5B5B) into keywords / namespace / operator / built-in / diff-
-// deleted, all of which read as the same "warm-red alarm" hue.
-// We reserve red for the ONE place it carries semantic load (diff-
-// deleted + error) and pull every other token into a distinct family.
+// fenced code blocks. The 2026-04-30 audit (in response to user
+// feedback "追求美感，协调，简洁，大方，清晰") consolidates the
+// previous 10-hue dracula-derived palette down to a 6-hue family
+// where every token has ONE clear semantic. Fewer hues = calmer
+// page and zero ambiguity about what each colour means.
+//
+// Hue assignments (dark mode reference):
+//
+//   blue   #5fafff — control-flow keywords (if / for / return ...)
+//   purple #bd93f9 — declaration keywords (class / def / func) + decorators
+//   cyan   #87d7ff — types + classes + namespace (the "shape" family,
+//                    same hue as inline `code` in prose so types read
+//                    consistently across prose and fenced blocks)
+//   green  #87d7af — functions + attributes + diff-inserted (the
+//                    "definition / new content" family)
+//   yellow #d7d787 — literal strings + builtins (the "data + lib"
+//                    family; warm but desaturated so it doesn't
+//                    fight the cyan headings above)
+//   orange #ffaf87 — literal numbers (sole hue, distinct from strings)
+//   slate  #6272a4 — comments + preproc (low-contrast, calm)
+//   grey   #909090 — operators + subheading (structural neutral)
+//   red    #ff5555 — diff-deleted + exceptions (the ONE place red
+//                    carries semantic load)
+//
+// Punctuation stays uncoloured so it inherits prose default. Pink /
+// orange-pink / extra blue shades the dracula palette previously
+// scattered across namespaces / escape sequences / preproc are gone.
 //
 // CodeBlock.Chroma is a pointer into a shared global StyleConfig, so
 // shallow-copy before mutating to avoid leaking edits across the
@@ -337,63 +432,68 @@ func applyChromaPalette(cfg *ansi.StyleConfig, dark bool) {
 	chroma.Background.BackgroundColor = nil
 	chroma.Error.BackgroundColor = nil
 	if dark {
-		// keyword / keyword.reserved / keyword.namespace / keyword.type:
-		// ONE blue family + a distinct purple for "reserved" so the
-		// reader can tell `if` apart from `class`.
+		// Keyword family — control-flow blue, declaration purple,
+		// "shape" cyan. KeywordNamespace folds into KeywordType
+		// because both denote "where this thing lives" in the type
+		// graph; one hue keeps the eye scanning naturally.
 		chroma.Keyword.Color = strPtr("#5fafff")           // mid blue
-		chroma.KeywordReserved.Color = strPtr("#bd93f9")   // dracula purple
-		chroma.KeywordNamespace.Color = strPtr("#87afff")  // pale blue
-		chroma.KeywordType.Color = strPtr("#8be9fd")       // dracula cyan
-		// Operator → neutral grey so high-frequency `=` / `+` / `<`
-		// stop screaming. Pre-fix used #EF8080 light red which
-		// visually merged with diff-deleted lines.
+		chroma.KeywordReserved.Color = strPtr("#bd93f9")   // soft purple
+		chroma.KeywordNamespace.Color = strPtr("#87d7ff")  // light cyan (was its own pale blue)
+		chroma.KeywordType.Color = strPtr("#87d7ff")       // light cyan (matches namespace + inline-code)
+		// Operator + Punctuation: structural neutral. Operator stays
+		// grey so high-frequency `=` / `+` / `<` don't blend with
+		// diff markers. Punctuation inherits text colour.
 		chroma.Operator.Color = strPtr("#909090")
-		// Punctuation → no colour (inherits text). Pale yellow
-		// (#E8E8A8) was distracting.
 		chroma.Punctuation.Color = nil
-		// Identifiers
+		// Names — the "definition" family in green, "type-shape"
+		// in cyan. Tag (HTML/XML) folds into the cyan family because
+		// it's a structural shape marker, not a keyword.
 		chroma.Name.Color = strPtr("#dadada")              // near-white default
-		chroma.NameBuiltin.Color = strPtr("#f1fa8c")       // dracula yellow (was hot pink)
-		chroma.NameTag.Color = strPtr("#bd93f9")           // purple (HTML/XML tags)
-		chroma.NameAttribute.Color = strPtr("#50fa7b")     // green attribute name
-		chroma.NameClass.Color = strPtr("#ffffff")         // white + bold + underline (kept)
-		chroma.NameDecorator.Color = strPtr("#f1fa8c")     // yellow (decorators ~ marker)
-		chroma.NameFunction.Color = strPtr("#50fa7b")      // dracula green
-		chroma.NameException.Color = strPtr("#ff5555")     // red (semantic: errors)
-		// Literals
-		chroma.LiteralString.Color = strPtr("#f1fa8c")     // yellow string (was warm orange — kept warm hue)
-		chroma.LiteralStringEscape.Color = strPtr("#ff79c6") // dracula pink for \n / \t markers
-		chroma.LiteralNumber.Color = strPtr("#ffb86c")     // dracula orange (was green — collided with function)
-		// Comments: keep dim grey but slightly lift for readability.
+		chroma.NameBuiltin.Color = strPtr("#d7d787")       // soft yellow (matches strings)
+		chroma.NameTag.Color = strPtr("#87d7ff")           // cyan (was purple — pulled into shape family)
+		chroma.NameAttribute.Color = strPtr("#87d7af")     // soft green
+		chroma.NameClass.Color = strPtr("#87d7ff")         // cyan + bold + underline (kept; was pure white)
+		chroma.NameDecorator.Color = strPtr("#bd93f9")     // purple (matches reserved)
+		chroma.NameFunction.Color = strPtr("#87d7af")      // soft green
+		chroma.NameException.Color = strPtr("#ff5555")     // red — exception is the ONE alert hue
+		// Literals — string vs number unambiguously distinct.
+		chroma.LiteralString.Color = strPtr("#d7d787")          // soft yellow
+		chroma.LiteralStringEscape.Color = strPtr("#ffaf87")    // orange (was pink) — escapes share orange with numbers
+		chroma.LiteralNumber.Color = strPtr("#ffaf87")          // soft orange
+		// Comments — slate is calm, low-contrast. Preproc folds in
+		// because both are "side-channel" context the reader skims.
 		chroma.Comment.Color = strPtr("#6272a4")           // dracula slate
-		chroma.CommentPreproc.Color = strPtr("#ff79c6")    // pink
-		// Diff markers — the ONE place red and green carry meaning.
+		chroma.CommentPreproc.Color = strPtr("#6272a4")    // (was pink — folded into comment family)
+		// Diff markers — the load-bearing red + green semantics.
 		chroma.GenericDeleted.Color = strPtr("#ff5555")
-		chroma.GenericInserted.Color = strPtr("#50fa7b")
+		chroma.GenericInserted.Color = strPtr("#87d7af")   // matches function-green so "added" reads as "definition"
 		chroma.GenericSubheading.Color = strPtr("#909090")
 		// Default text inside fenced blocks
 		chroma.Text.Color = strPtr("#dadada")
 	} else {
-		// Light theme mirror — same hue-discipline, inverted brightness.
+		// Light theme mirror — same hue-discipline, inverted
+		// luminance. Strings + builtins share dark-amber, classes +
+		// types + namespace share dark-cyan, functions + attributes
+		// share dark-green. Comments retreat to a calm slate-grey.
 		chroma.Keyword.Color = strPtr("#005faf")           // dark blue
-		chroma.KeywordReserved.Color = strPtr("#6f42c1")   // GitHub-light purple
-		chroma.KeywordNamespace.Color = strPtr("#0087af")
+		chroma.KeywordReserved.Color = strPtr("#6f42c1")   // dark purple
+		chroma.KeywordNamespace.Color = strPtr("#0087af")  // dark cyan (matches type)
 		chroma.KeywordType.Color = strPtr("#0087af")
-		chroma.Operator.Color = strPtr("#6e7781")          // GitHub-light grey
+		chroma.Operator.Color = strPtr("#6e7781")
 		chroma.Punctuation.Color = nil
 		chroma.Name.Color = strPtr("#24292f")
-		chroma.NameBuiltin.Color = strPtr("#cf222e")       // dark red but reserved for builtins; light-theme builtins are conventionally red (e.g. GitHub)
-		chroma.NameTag.Color = strPtr("#116329")           // dark green (HTML/XML)
-		chroma.NameAttribute.Color = strPtr("#116329")
-		chroma.NameClass.Color = strPtr("#24292f")
-		chroma.NameDecorator.Color = strPtr("#953800")
-		chroma.NameFunction.Color = strPtr("#8250df")      // GitHub-light purple
+		chroma.NameBuiltin.Color = strPtr("#9a6700")       // dark amber (matches strings; was warm red)
+		chroma.NameTag.Color = strPtr("#0087af")           // dark cyan (was dark green)
+		chroma.NameAttribute.Color = strPtr("#116329")     // dark green
+		chroma.NameClass.Color = strPtr("#0087af")         // dark cyan
+		chroma.NameDecorator.Color = strPtr("#6f42c1")     // dark purple (was orange)
+		chroma.NameFunction.Color = strPtr("#116329")      // dark green (was purple)
 		chroma.NameException.Color = strPtr("#cf222e")
-		chroma.LiteralString.Color = strPtr("#0a3069")     // dark navy string
-		chroma.LiteralStringEscape.Color = strPtr("#cf222e")
-		chroma.LiteralNumber.Color = strPtr("#0550ae")
+		chroma.LiteralString.Color = strPtr("#9a6700")     // dark amber
+		chroma.LiteralStringEscape.Color = strPtr("#953800") // dark orange (matches numbers)
+		chroma.LiteralNumber.Color = strPtr("#953800")
 		chroma.Comment.Color = strPtr("#6e7781")
-		chroma.CommentPreproc.Color = strPtr("#0550ae")
+		chroma.CommentPreproc.Color = strPtr("#6e7781")    // (was blue — folded into comment family)
 		chroma.GenericDeleted.Color = strPtr("#cf222e")
 		chroma.GenericInserted.Color = strPtr("#116329")
 		chroma.GenericSubheading.Color = strPtr("#6e7781")
@@ -848,6 +948,20 @@ func (r *Renderer) redraw() {
 //
 // Must be called with r.mu held (same as redraw).
 func (r *Renderer) composeStatusFrame() string {
+	return r.composeStatusFrameWithFilter(false)
+}
+
+// composeStatusFrameWithFilter renders the status frame with an
+// optional "drop the still-running finalize row" filter. The freeze-
+// for-preview path passes hideRunningFinalize=true so the snapshot
+// printed to scrollback shows only the COMPLETED upstream history;
+// the live ticker below carries the finalize state. Without this
+// filter the frozen line reads "⠙ 正在生成最终答案 …" while the
+// ticker right below it animates the same stage — the user reads
+// two contradictory live indicators for one row, then later a third
+// "✓ 已生成最终答案" persists below both. Filtering eliminates the
+// duplicate so the screen reads as one timeline.
+func (r *Renderer) composeStatusFrameWithFilter(hideRunningFinalize bool) string {
 	var b strings.Builder
 	elapsed := time.Since(r.startTime).Truncate(time.Second)
 	frame := spinnerFrames[r.animFrame%len(spinnerFrames)]
@@ -868,6 +982,23 @@ func (r *Renderer) composeStatusFrame() string {
 	}
 
 	rows := r.visibleRows()
+	if hideRunningFinalize {
+		filtered := make([]*taskRow, 0, len(rows))
+		for _, row := range rows {
+			if !row.endTime.IsZero() {
+				filtered = append(filtered, row)
+				continue
+			}
+			// Running row — drop iff it's finalize. Use the same
+			// stage-key resolver renderStatusLine uses so we don't
+			// drift on alias names ("finalizer", "finaliser").
+			if stageKeyFor(row) == "finalize" {
+				continue
+			}
+			filtered = append(filtered, row)
+		}
+		rows = filtered
+	}
 	now := time.Now()
 	blocks := r.buildStatusBlocks(rows, frame, now)
 	for bi, blk := range blocks {
@@ -880,7 +1011,11 @@ func (r *Renderer) composeStatusFrame() string {
 		}
 	}
 
-	if len(blocks) > 0 {
+	// Footer line (frame + elapsed + cancel hint) is suppressed in
+	// the freeze snapshot — the live ticker below carries that info,
+	// duplicating it stains the static printout with a stale spinner
+	// that never updates.
+	if len(blocks) > 0 && !hideRunningFinalize {
 		b.WriteByte('\n')
 		footer := composeFooter(frame, elapsed.String(), r.cancelHint, r.lang)
 		b.WriteString(truncByDisplayWidth(footer, maxCols))
@@ -1182,8 +1317,26 @@ func (r *Renderer) RenderResult(busCtx *types.BusContext) string {
 				// the markdown path so styled headings / code
 				// blocks / lists render as expected.
 				if busCtx.Mutable.ResultIsPlain() {
+					// Plain (fail-loud) path: NO success banner.
+					// The result is an error / diagnostic message —
+					// printing "✓ 已生成最终答案" above an error
+					// would be self-contradicting. RenderResult is
+					// the single source of the success line so both
+					// streaming and non-streaming finalize converge
+					// here without double-printing.
 					b.WriteString(clean)
 				} else {
+					// Real LLM answer path: prepend the persistent
+					// "✓ 已生成最终答案" line so the user gets a
+					// consistent done confirmation regardless of
+					// whether the streaming preview ticker fired
+					// (long summary) or not (short value/boolean
+					// shape, where the spinner area would have
+					// terminated the row to ✓ briefly before being
+					// wiped at StopSpinner).
+					notice := truncByTerminalWidth(finalizeDoneLine(r.lang), previewLineMaxCols())
+					b.WriteString(statusSuccessMuted.Sprint(notice))
+					b.WriteString("\n\n")
 					b.WriteString(r.renderMarkdown(clean))
 				}
 				b.WriteString("\n")
@@ -1319,7 +1472,13 @@ func (r *Renderer) handlePreviewChunkLocked(ev Event) {
 				}
 				r.animStop = nil
 			}
-			frozen := r.composeStatusFrame()
+			// hideRunningFinalize=true: the live ticker below this
+			// snapshot owns the finalize state, so don't print a
+			// stale "⠙ 正在生成最终答案" line in scrollback that
+			// would later contradict the persistent "✓ 已生成最终
+			// 答案" line RenderResult prepends to the bordered
+			// answer.
+			frozen := r.composeStatusFrameWithFilter(true)
 			r.area.Stop()
 			r.area = nil
 			if frozen != "" {
@@ -1339,7 +1498,13 @@ func (r *Renderer) handlePreviewChunkLocked(ev Event) {
 	if r.previewRound > 1 {
 		roundLabel = fmt.Sprintf("#%d ", r.previewRound)
 	}
-	prefix := fmt.Sprintf("⟳ 正在生成最终答案 %s· 已收到 %d 字 · ", roundLabel, chars)
+	// Indent the ticker by 2 columns so it aligns with the status
+	// row layout ("  <icon> <primary> · <detail>"). Pre-2026-04-30
+	// the ticker pinned to column 0 while every status row above it
+	// sat at column 2 — the misalignment read as "ticker is from a
+	// different subsystem". The 2-space prefix is part of `prefix`
+	// so truncByTerminalWidth's width budget accounts for it.
+	prefix := fmt.Sprintf("  %s 正在生成最终答案 %s· 已收到 %d 字 · ", string(glyphRecoverable), roundLabel, chars)
 	prefixCols := runewidth.StringWidth(prefix)
 	tailCols := maxCols - prefixCols
 	if tailCols < 8 {
@@ -1376,11 +1541,28 @@ func (r *Renderer) handlePreviewClearLocked(ev Event) {
 		r.mu.Unlock()
 		time.Sleep(300 * time.Millisecond)
 		r.mu.Lock()
-	}
-	if r.previewArea != nil {
 		r.previewArea.Stop()
 		r.previewArea = nil
+		return
 	}
+	// Success path: just wipe the ticker row. The persistent
+	// "✓ 已生成最终答案" line is printed by RenderResult so both
+	// streaming-finalize (ticker was open) and non-streaming
+	// (ticker never opened) paths surface the same confirmation
+	// — single source of truth, no duplicate printing.
+	r.previewArea.Stop()
+	r.previewArea = nil
+}
+
+// finalizeDoneLine returns the localized "final answer ready" line
+// for the success path of handlePreviewClearLocked. Mirrors the
+// "  ✓ ..." layout of completed status rows so the swap reads as
+// "the ticker just turned into one more done row".
+func finalizeDoneLine(lang string) string {
+	if isZh(lang) {
+		return fmt.Sprintf("  %s 已生成最终答案", string(glyphSuccess))
+	}
+	return fmt.Sprintf("  %s Final answer ready", string(glyphSuccess))
 }
 
 // tailByDisplayWidth returns the suffix of s whose display width

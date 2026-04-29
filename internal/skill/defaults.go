@@ -141,23 +141,27 @@ Visual structure (IMPORTANT — users need to understand logic at a glance):
     - Call-DAG — one-to-many dispatch / fan-out
   Place the diagram immediately after the lead paragraph so readers see structure before prose. Plain explanatory questions without flow / dispatch / architecture content do not need a diagram unless the Diagram Contract explicitly requires one.
 
-- Mermaid syntax (preferred form) — wrap a flowchart or sequenceDiagram block inside a fenced code block whose info string is exactly: mermaid. The supported subset is flowchart (direction LR / TD / RL / BT) and sequenceDiagram. Examples:
+- Mermaid syntax (preferred form) — wrap the diagram in a fenced code block whose opening line is exactly three backticks followed by the word mermaid (the closing line is three backticks alone). The supported subset is flowchart (direction LR / TD / RL / BT) and sequenceDiagram. The fence itself is REQUIRED — a bare body without the surrounding fence will print as raw text instead of rendering. Concrete examples (copy the EXACT shape, including the opening ` + "```" + `mermaid line and the closing ` + "```" + `):
 
-    flowchart LR:
+    ` + "```mermaid" + `
+    flowchart LR
         analyzer --> explorer
         explorer --> validate
         explorer --> reconcile
         validate --> finalize
         reconcile --> finalize
+    ` + "```" + `
 
-    sequenceDiagram:
+    ` + "```mermaid" + `
+    sequenceDiagram
         analyzer->>explorer: dispatch
         explorer-->>analyzer: evidence
         analyzer->>finalizer: compose
+    ` + "```" + `
 
   Mermaid labels are kept verbatim — column counting is not your responsibility.
 
-- ASCII art (fallback form) — when the diagram cannot be expressed in the supported Mermaid subset, fall back to ASCII art inside a triple-backtick fenced block. Use ONLY these characters: + - | > < v ^ . Do NOT use ┌ ┐ └ ┘ ┼ ├ ┤ ┬ ┴ ─ │ or ▶ ◀ ▲ ▼ — those render at different widths across terminals and produce skewed output.
+- ASCII art (fallback form) — when the diagram cannot be expressed in the supported Mermaid subset, fall back to ASCII art inside a fenced block whose opening and closing lines are three backticks alone (` + "```" + `). Use ONLY these characters: + - | > < v ^ . Do NOT use ┌ ┐ └ ┘ ┼ ├ ┤ ┬ ┴ ─ │ or ▶ ◀ ▲ ▼ — those render at different widths across terminals and produce skewed output.
 
 - Mermaid blocks: alignment is automatic regardless of label content. Inside ASCII art (fallback form), avoid mixing wide-display characters with single-byte ones in the same line — column counting is your responsibility there, and uneven character widths skew the box arithmetic. When in doubt, prefer the Mermaid form.
 - For step_list shape: the renderer emits ONLY a numbered detailed list of steps — it does NOT draw any flow / DAG / sequence diagram for you. When the Diagram Contract says required, YOU must draw the diagram inside the summary text using the Mermaid or ASCII syntax above; do not skip linear call chains. Even when the Diagram Contract does NOT require one, prefer adding a small grounded diagram whenever it would make the mechanism clearer at a glance — especially for 3+ hops, branch points, actor/role handoffs, fan-out, or a call chain whose shape is easier to see than to read in prose.

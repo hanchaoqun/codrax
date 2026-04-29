@@ -96,7 +96,7 @@ func (r *Renderer) buildStatusLine(row *taskRow, frame string, now time.Time) st
 		Icon:        icon,
 		IconStyle:   iconStyle,
 		PrimaryText: friendlyPrimaryText(row, r.lang),
-		DetailText:  friendlyDetailText(row, errKind, r.lang),
+		DetailText:  friendlyDetailText(row, errKind, r.lang, now),
 		MetaText:    friendlyMetaText(row, now, r.lang),
 		State:       state,
 		ErrorKind:   errKind,
@@ -142,6 +142,24 @@ func (r *Renderer) buildTopicGroup(topicRows []*taskRow, frame string, now time.
 	parentLine.PrimaryText = stagePhrase("evidence", r.lang, !allDone)
 	count := len(topicRows)
 	parentLine.DetailText = topicCountPhrase(count, r.lang)
+	// Override Icon / IconStyle / State to follow allDone, not the
+	// state of topicRows[0]. statusIcon was computed from row[0]
+	// alone — when topic[0] terminates while others still run, the
+	// parent line would otherwise read "✓ 正在探索代码 …" (done
+	// glyph + running text + statusPrimaryDone gray colour) which
+	// is internally inconsistent. Recomputing here keeps the parent
+	// line's three signals — glyph, primary text, primary colour —
+	// in lockstep with the aggregated done/running state of all
+	// topic rows.
+	if allDone {
+		parentLine.Icon = string(glyphSuccess)
+		parentLine.IconStyle = statusSuccessMuted
+		parentLine.State = "done"
+	} else {
+		parentLine.Icon = frame
+		parentLine.IconStyle = statusSpinner
+		parentLine.State = "running"
+	}
 
 	const visibleCap = 5
 	visible := topicRows
@@ -317,7 +335,7 @@ func localizeCollapsedMarker(s string, lang string) string {
 // after the row is done would mislead the user into thinking the
 // stage is still working on it. Live (still-running) rows keep
 // their detail as the "what is happening right now" signal.
-func friendlyDetailText(row *taskRow, errKind statusErrorKind, lang string) string {
+func friendlyDetailText(row *taskRow, errKind statusErrorKind, lang string, now time.Time) string {
 	if row == nil {
 		return ""
 	}
@@ -350,7 +368,12 @@ func friendlyDetailText(row *taskRow, errKind statusErrorKind, lang string) stri
 	if d == "" {
 		return ""
 	}
-	if p := thinkingPhrase(d, lang); p != "" {
+	// thinkingPhrase needs `now` so it can split bare "thinking"
+	// into "sending" (very recent — request still being dispatched)
+	// vs "awaiting" (the network-bound wait while the server thinks).
+	// detailStart is the timestamp of the most recent state change
+	// on this row.
+	if p := thinkingPhrase(d, lang, now, row.detailStart); p != "" {
 		return p
 	}
 	if p := toolDetailPhrase(d, lang); p != "" {
@@ -415,12 +438,31 @@ func renderStatusLine(line statusLine) string {
 	b.WriteString("  ")
 	b.WriteString(iconStyle.Sprint(line.Icon))
 	b.WriteString(" ")
+	// Brightness ladder for the primary stage label:
+	//   - error states (fatal / cancelled / recoverable) get the
+	//     loudest hue so the user notices regressions
+	//   - running rows use statusPrimary (light blue) so the active
+	//     stage spotlights against the timeline
+	//   - DONE rows demote to statusPrimaryDone (gray) so the
+	//     completed timeline reads as "history" not "live work"
+	//   - PENDING rows use statusMeta (dark gray) — distinct from
+	//     done because pending is "not yet started" while done is
+	//     "finished". Same gray family for visual cohesion, but
+	//     two luminance steps apart so a pending row never reads
+	//     as a completed row
 	primaryStyle := statusPrimary
 	switch line.ErrorKind {
 	case statusErrorFatal, statusErrorCancelled:
 		primaryStyle = statusFatal
 	case statusErrorRecoverable:
 		primaryStyle = statusRecoverable
+	default:
+		switch line.State {
+		case "done":
+			primaryStyle = statusPrimaryDone
+		case "pending":
+			primaryStyle = statusMeta
+		}
 	}
 	b.WriteString(primaryStyle.Sprint(line.PrimaryText))
 	if line.DetailText != "" {
@@ -477,18 +519,25 @@ func composeFooter(frame, elapsed, cancelHint, lang string) string {
 }
 
 // composeObjectiveLine renders the user-question header above the
-// task list. Done-state uses muted green check; running uses a dim
-// arrow. Neither uses high-saturation colour so the spinner area
-// stays calmer than the bordered final answer that prints later.
+// task list. Done-state uses muted green check; running uses a
+// "❯" prompt chevron. Text uses statusObjective (bold light cyan)
+// rather than statusPrimary (light blue) so the user-question
+// header is unambiguously distinct from the running-stage row
+// labels in the timeline below — the user's session 37+1 callout
+// "状态颜色和用户输入问题的回显也没有区分" is the contract this
+// styling has to honour.
 func composeObjectiveLine(objective string, done bool) string {
 	var icon string
 	var iconStyle *pterm.Style
+	var textStyle *pterm.Style
 	if done {
 		icon = string(glyphSuccess)
 		iconStyle = statusSuccessMuted
+		textStyle = statusObjectiveDone
 	} else {
-		icon = "►"
-		iconStyle = statusSpinner
+		icon = "❯"
+		iconStyle = statusObjective
+		textStyle = statusObjective
 	}
-	return fmt.Sprintf("  %s %s", iconStyle.Sprint(icon), statusPrimary.Sprint(objective))
+	return fmt.Sprintf("  %s %s", iconStyle.Sprint(icon), textStyle.Sprint(objective))
 }

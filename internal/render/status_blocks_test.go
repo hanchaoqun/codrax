@@ -14,13 +14,19 @@ func newTestRenderer(lang string) *Renderer {
 	return r
 }
 
+// renderRowsFixedNow is the fixed wall-clock used by renderRows so
+// timing-sensitive tests can set detailStart relative to it (e.g.
+// "fresh detailStart" = renderRowsFixedNow.Add(-100ms) → bare-thinking
+// renders as "sending"; "stale" = .Add(-5s) → "awaiting").
+var renderRowsFixedNow = time.Date(2026, 4, 30, 12, 0, 0, 0, time.UTC)
+
 // renderRows is a convenience that drives buildStatusBlocks +
 // renderStatusBlock and returns the joined output (with ANSI
 // escapes stripped for substring assertions).
 func renderRows(t *testing.T, lang string, rows ...*taskRow) string {
 	t.Helper()
 	r := newTestRenderer(lang)
-	now := time.Date(2026, 4, 30, 12, 0, 0, 0, time.UTC)
+	now := renderRowsFixedNow
 	frame := "⠇"
 	blocks := r.buildStatusBlocks(rows, frame, now)
 	var b strings.Builder
@@ -291,23 +297,29 @@ func TestStatus_CompletedRowDropsLiveThinking(t *testing.T) {
 	if !strings.Contains(zhOut, "5 次工具调用") || !strings.Contains(zhOut, "第 13 轮") {
 		t.Errorf("zh: completed row must keep meta trailer (elapsed + round + tool count); got:\n%s", zhOut)
 	}
-	// Live-progress phrasing MUST be gone: no "思考中" lingering on
-	// a finished row.
-	if strings.Contains(zhOut, "思考中") {
-		t.Errorf("zh: completed row leaked live thinking detail; got:\n%s", zhOut)
+	// Live-progress phrasing MUST be gone: neither the legacy "思考中"
+	// nor any of the current 3 phases (发送中 / 等待响应 / 回复中)
+	// should linger on a finished row.
+	for _, leaked := range []string{"思考中", "发送中", "等待响应", "回复中"} {
+		if strings.Contains(zhOut, leaked) {
+			t.Errorf("zh: completed row leaked live thinking detail (%q); got:\n%s", leaked, zhOut)
+		}
 	}
 
-	// Running row with the same detail SHOULD keep it.
+	// Running row with the same detail SHOULD keep it. Bare
+	// "thinking (round N)" maps to "等待响应" when detailStart is
+	// older than sendingThreshold (1.5s). detailStart is anchored
+	// to renderRowsFixedNow so the elapsed comparison is stable.
 	running := &taskRow{
 		stage: "analyze", agent: "AnalyzerAgent",
-		startTime:   time.Now().Add(-2 * time.Second),
+		startTime:   renderRowsFixedNow.Add(-5 * time.Second),
 		detail:      "thinking (round 13)",
-		detailStart: time.Now().Add(-1 * time.Second),
+		detailStart: renderRowsFixedNow.Add(-5 * time.Second),
 		iteration:   13,
 	}
 	zhRun := renderRows(t, "zh", running)
-	if !strings.Contains(zhRun, "思考中") {
-		t.Errorf("zh: running row must keep live thinking detail; got:\n%s", zhRun)
+	if !strings.Contains(zhRun, "等待响应") {
+		t.Errorf("zh: running row must show awaiting-model phrase; got:\n%s", zhRun)
 	}
 	if !strings.Contains(zhRun, "第 13 轮") {
 		t.Errorf("zh: running row must include round number; got:\n%s", zhRun)
@@ -379,15 +391,25 @@ func TestStatus_ThinkingDetailLocalized(t *testing.T) {
 		zhWant []string
 		enWant []string
 	}{
-		{"thinking", []string{"思考中"}, []string{"thinking"}},
-		{"thinking (round 13)", []string{"思考中", "第 13 轮"}, []string{"thinking", "round 13"}},
-		{"thinking: merging evidence chains", []string{"思考中", "merging"}, []string{"thinking", "merging"}},
+		// Bare "thinking" → "等待响应" / "awaiting" (the test row's
+		// detailStart will be set to 5s ago by the test harness so
+		// the >sendingThreshold branch fires). "thinking (round N)"
+		// inherits the same phase. "thinking: ..." carries the
+		// "回复中" / "replying" phrase regardless of timing because
+		// the body presence indicates the server is responding.
+		{"thinking", []string{"等待响应"}, []string{"awaiting"}},
+		{"thinking (round 13)", []string{"等待响应", "第 13 轮"}, []string{"awaiting", "round 13"}},
+		{"thinking: merging evidence chains", []string{"回复中", "merging"}, []string{"replying", "merging"}},
 	}
 	for _, c := range cases {
 		row := &taskRow{
 			isNodeRow: true, nodeID: "vN", nodeKind: "validate",
-			detail:      c.detail,
-			detailStart: time.Now(),
+			detail: c.detail,
+			// Anchor detailStart against renderRowsFixedNow (the
+			// renderer's `now`) so the elapsed delta is bounded.
+			// 5s before now → past sendingThreshold → "等待响应"
+			// branch fires for the bare-thinking forms.
+			detailStart: renderRowsFixedNow.Add(-5 * time.Second),
 		}
 		zhOut := renderRows(t, "zh", row)
 		for _, w := range c.zhWant {
@@ -401,6 +423,166 @@ func TestStatus_ThinkingDetailLocalized(t *testing.T) {
 				t.Errorf("en thinking detail %q: expected %q in:\n%s", c.detail, w, enOut)
 			}
 		}
+	}
+}
+
+// TestStatus_ThinkingNTPJumpGuard pins the negative-elapsed clamp:
+// when the wall clock jumps backward (rare but observed on NTP
+// resync) so detailStart > now, the elapsed comparison would
+// otherwise return a negative duration < sendingThreshold and
+// claim "发送中" for a request that's actually been in flight a
+// while. The clamp guarantees "等待响应" surfaces in this case.
+func TestStatus_ThinkingNTPJumpGuard(t *testing.T) {
+	row := &taskRow{
+		isNodeRow: true, nodeID: "vN", nodeKind: "validate",
+		detail: "thinking",
+		// detailStart 5 seconds AFTER the renderer's `now` —
+		// simulates a backward NTP jump.
+		detailStart: renderRowsFixedNow.Add(5 * time.Second),
+	}
+	zh := renderRows(t, "zh", row)
+	if !strings.Contains(zh, "等待响应") {
+		t.Errorf("zh: backward-clock-jumped row must default to 等待响应; got:\n%s", zh)
+	}
+	if strings.Contains(zh, "发送中") {
+		t.Errorf("zh: backward-clock-jumped row must NOT claim 发送中; got:\n%s", zh)
+	}
+}
+
+// TestStatus_PendingDistinctFromDone pins issue 5 — pending and
+// done must use DIFFERENT primary-text styles even though both are
+// in the gray family. statusMeta (DarkGray) for pending vs
+// statusPrimaryDone (Gray) for done. The user-visible distinction
+// here is "this hasn't started yet" vs "this finished".
+func TestStatus_PendingDistinctFromDone(t *testing.T) {
+	doneRow := &taskRow{
+		isNodeRow: true, nodeID: "vN", nodeKind: "validate",
+		startTime:  renderRowsFixedNow.Add(-5 * time.Second),
+		endTime:    renderRowsFixedNow,
+		okFinished: true,
+	}
+	pendingRow := &taskRow{
+		isNodeRow: true, nodeID: "v2", nodeKind: "validate",
+		pending: true,
+	}
+	r := newTestRenderer("zh")
+	frame := "⠇"
+	doneLine := r.buildStatusLine(doneRow, frame, renderRowsFixedNow)
+	pendingLine := r.buildStatusLine(pendingRow, frame, renderRowsFixedNow)
+	doneOut := stripAnsiEscapes(renderStatusLine(doneLine))
+	pendingOut := stripAnsiEscapes(renderStatusLine(pendingLine))
+	// Both should render text; the visual distinction is in ANSI
+	// codes that strip out, but the State must differ so the
+	// downstream style branch picks different tokens.
+	if doneLine.State != "done" {
+		t.Errorf("done row State = %q, want 'done'", doneLine.State)
+	}
+	if pendingLine.State != "pending" {
+		t.Errorf("pending row State = %q, want 'pending'", pendingLine.State)
+	}
+	// Sanity: ANSI-stripped text labels are non-empty for both.
+	if doneOut == "" || pendingOut == "" {
+		t.Errorf("both rows must render text — done=%q pending=%q", doneOut, pendingOut)
+	}
+	// Direct ANSI inspection: the raw rendered strings carry
+	// distinct color codes for done (FgGray = 37/38;5;245-ish) vs
+	// pending (FgDarkGray = 90/38;5;240-ish). Without comparing
+	// exact codes, just ensure the two RAW outputs differ — same
+	// text content + identical styling would mean we collapsed.
+	rawDone := renderStatusLine(doneLine)
+	rawPending := renderStatusLine(pendingLine)
+	if rawDone == rawPending {
+		t.Errorf("done and pending styling collapsed to identical output:\n%q", rawDone)
+	}
+}
+
+// TestStatus_TopicGroupAllDoneIconAndState pins issue 2 — when ALL
+// topic rows have terminated, the parent line MUST flip to ✓ +
+// "已完成证据收集", regardless of topic[0]'s individual state.
+// Pre-fix the parent line's State was inherited from topic[0] only
+// so a partially-done group could render "✓ 正在探索..." (done
+// glyph + running text) when topic[0] terminated before others.
+func TestStatus_TopicGroupAllDoneIconAndState(t *testing.T) {
+	now := renderRowsFixedNow
+	rows := []*taskRow{
+		{isNodeRow: true, nodeID: "n1_evidence_t0", nodeKind: "evidence",
+			objective: "topic A", endTime: now.Add(-10 * time.Second), okFinished: true},
+		{isNodeRow: true, nodeID: "n2_evidence_t1", nodeKind: "evidence",
+			objective: "topic B", endTime: now.Add(-5 * time.Second), okFinished: true},
+	}
+	out := renderRows(t, "zh", rows...)
+	if !strings.Contains(out, "已完成证据收集") {
+		t.Errorf("all-done topic group must show done primary text; got:\n%s", out)
+	}
+	if strings.Contains(out, "正在探索代码并收集证据") {
+		t.Errorf("all-done topic group must NOT show running text; got:\n%s", out)
+	}
+}
+
+// TestStatus_TopicGroupPartialDoneStaysRunning pins the inverse —
+// when topic[0] terminated but other topics still run, parent line
+// must read "running": running text + spinner glyph + light-blue
+// primary colour (statusPrimary).
+func TestStatus_TopicGroupPartialDoneStaysRunning(t *testing.T) {
+	now := renderRowsFixedNow
+	rows := []*taskRow{
+		{isNodeRow: true, nodeID: "n1_evidence_t0", nodeKind: "evidence",
+			objective: "topic A", endTime: now.Add(-10 * time.Second), okFinished: true},
+		{isNodeRow: true, nodeID: "n2_evidence_t1", nodeKind: "evidence",
+			objective: "topic B" /* no endTime → still running */},
+	}
+	out := renderRows(t, "zh", rows...)
+	if !strings.Contains(out, "正在探索代码并收集证据") {
+		t.Errorf("partial-done topic group must show running text; got:\n%s", out)
+	}
+	if strings.Contains(out, "已完成证据收集") {
+		t.Errorf("partial-done topic group must NOT show done text; got:\n%s", out)
+	}
+}
+
+// TestStatus_ThinkingSendingPhase pins the time-based "sending" vs
+// "awaiting" split for bare-thinking rows. detailStart fresh (just
+// fired EventAgentThinking) → "发送中" / "sending"; detailStart
+// older than sendingThreshold → "等待响应" / "awaiting".
+//
+// The renderer's `now` parameter is fixed (renderRowsFixedNow) so
+// the test's detailStart must be expressed relative to that anchor,
+// not time.Now(), or the elapsed comparison reads as multi-hour and
+// always falls past the threshold.
+func TestStatus_ThinkingSendingPhase(t *testing.T) {
+	freshRow := &taskRow{
+		isNodeRow: true, nodeID: "vN", nodeKind: "validate",
+		detail:      "thinking",
+		// 100ms before the fixed now → ≪ sendingThreshold → "sending"
+		detailStart: renderRowsFixedNow.Add(-100 * time.Millisecond),
+	}
+	zhFresh := renderRows(t, "zh", freshRow)
+	if !strings.Contains(zhFresh, "发送中") {
+		t.Errorf("zh fresh-thinking row must show 发送中; got:\n%s", zhFresh)
+	}
+	if strings.Contains(zhFresh, "等待响应") {
+		t.Errorf("zh fresh-thinking row must NOT show 等待响应; got:\n%s", zhFresh)
+	}
+	enFresh := renderRows(t, "en", freshRow)
+	if !strings.Contains(enFresh, "sending") {
+		t.Errorf("en fresh-thinking row must show 'sending'; got:\n%s", enFresh)
+	}
+	if strings.Contains(enFresh, "awaiting") {
+		t.Errorf("en fresh-thinking row must NOT show 'awaiting'; got:\n%s", enFresh)
+	}
+
+	staleRow := &taskRow{
+		isNodeRow: true, nodeID: "vN", nodeKind: "validate",
+		detail: "thinking",
+		// 5s before the fixed now → ≫ sendingThreshold → "awaiting"
+		detailStart: renderRowsFixedNow.Add(-5 * time.Second),
+	}
+	zhStale := renderRows(t, "zh", staleRow)
+	if !strings.Contains(zhStale, "等待响应") {
+		t.Errorf("zh stale-thinking row must show 等待响应; got:\n%s", zhStale)
+	}
+	if strings.Contains(zhStale, "发送中") {
+		t.Errorf("zh stale-thinking row must NOT show 发送中; got:\n%s", zhStale)
 	}
 }
 
