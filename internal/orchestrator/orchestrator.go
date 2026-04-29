@@ -17,6 +17,7 @@ import (
 	"github.com/hanchaoqun/codrax/internal/analysis/stopcond"
 	ctxbuilder "github.com/hanchaoqun/codrax/internal/context"
 	"github.com/hanchaoqun/codrax/internal/env"
+	"github.com/hanchaoqun/codrax/internal/llm"
 	"github.com/hanchaoqun/codrax/internal/logging"
 	"github.com/hanchaoqun/codrax/internal/render"
 	"github.com/hanchaoqun/codrax/internal/skill"
@@ -2754,12 +2755,57 @@ func (o *Orchestrator) runReadSchedulerLoop(stepBudget int) int {
 			Agent:     "orchestrator",
 			Reasoning: softFinalizingMessage(o.busCtx.Language),
 		})
-		stepsUsed++
-		out, err := o.dispatchStage(types.StageFinalize)
+		// Force-finalize transient retry. Pre-2026-04-30 the
+		// force-finalize was a single-shot dispatch; an
+		// `unexpected EOF` / `stream stalled` blip on the
+		// composition-only call (which is the user's only chance
+		// to recover ANY answer at this point) immediately
+		// terminated the Run with a raw English error string.
+		// Network connections drop occasionally; a 2-retry budget
+		// (3 total attempts) with short backoff catches the
+		// overwhelming majority of transient blips while still
+		// bailing out promptly when the upstream is genuinely down.
+		const forceFinalizeMaxAttempts = 3
+		var (
+			out *agent.StageOutput
+			err error
+		)
+		for attempt := 0; attempt < forceFinalizeMaxAttempts; attempt++ {
+			stepsUsed++
+			out, err = o.dispatchStage(types.StageFinalize)
+			if err == nil {
+				break
+			}
+			if !llm.IsRetryableDispatchError(err) {
+				break
+			}
+			if attempt+1 >= forceFinalizeMaxAttempts {
+				break
+			}
+			logging.Warning("[orchestrator] forced finalize transient failure (attempt %d/%d): %v — retrying",
+				attempt+1, forceFinalizeMaxAttempts, err)
+			// Surface a brief recovery cue to the user so the
+			// spinner area shows we're not stuck silent.
+			o.emit(render.Event{
+				Kind:      render.EventAgentReasoning,
+				Timestamp: time.Now(),
+				Agent:     "orchestrator",
+				Reasoning: softRetryHintMessage(o.busCtx.Language),
+			})
+			// Brief backoff: 500ms × attempt, capped. Keeps the
+			// retry tight enough that the user doesn't feel the
+			// pause but gives the upstream a moment to recover.
+			backoff := time.Duration(500*(attempt+1)) * time.Millisecond
+			if backoff > 2*time.Second {
+				backoff = 2 * time.Second
+			}
+			time.Sleep(backoff)
+		}
 		if err != nil {
-			logging.Error("[orchestrator] forced finalize failed: %v", err)
+			logging.Error("[orchestrator] forced finalize failed after %d attempts: %v",
+				forceFinalizeMaxAttempts, err)
 			o.busCtx.Mutable.SetResult("")
-			o.busCtx.TaskState.LastError = fmt.Sprintf("forced finalize: %v", err)
+			o.busCtx.TaskState.LastError = forcedFinalizeFailureMessage(err, o.busCtx.Language)
 			return stepsUsed
 		}
 		lastFinalize = out

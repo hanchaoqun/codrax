@@ -111,3 +111,56 @@ func softFinalizingMessage(lang string) string {
 	}
 	return "⟳ Composing the final answer"
 }
+
+// forcedFinalizeFailureMessage classifies a force-finalize terminal
+// error and surfaces a localized, plain-language fatal message. The
+// raw error string ("forced finalize: agent finalizer execution:
+// read stream: unexpected EOF") is internal terminology that reads
+// as a stack trace to the user — replaced here with a sentence
+// that names the actual user-facing problem (model connection
+// dropped, server unavailable, timeout) plus a concrete next-step
+// suggestion.
+//
+// The returned text lands on TaskState.LastError, which the
+// renderer surfaces via classifyStatusError → fatalDetailPhrase
+// (the localized "无法继续" / "Cannot continue" prefix) for
+// terminal failure styling.
+func forcedFinalizeFailureMessage(err error, lang string) string {
+	zh := preferZhMessage(lang)
+	probe := strings.ToLower(err.Error())
+	switch {
+	case strings.Contains(probe, "unexpected eof"),
+		strings.Contains(probe, "stream stalled"),
+		strings.Contains(probe, "stream first byte"),
+		strings.Contains(probe, "broken pipe"),
+		strings.Contains(probe, "connection reset"),
+		strings.Contains(probe, "connection refused"):
+		if zh {
+			return "无法继续：与模型的连接中断,可能是网络抖动或上游临时不可用,请稍后重试"
+		}
+		return "Cannot continue: connection to the model dropped (transient network or upstream issue); please retry"
+	case strings.Contains(probe, "no deployments available"),
+		strings.Contains(probe, "rate limit"),
+		strings.Contains(probe, "429"):
+		if zh {
+			return "无法继续：模型服务暂不可用或限流,请稍后重试"
+		}
+		return "Cannot continue: model service is unavailable or rate-limited; please retry"
+	case strings.Contains(probe, "context canceled"),
+		strings.Contains(probe, "context cancelled"):
+		if zh {
+			return "已取消：用户中断了本次任务"
+		}
+		return "Cancelled: interrupted by user"
+	case strings.Contains(probe, "deadline exceeded"),
+		strings.Contains(probe, "timeout"):
+		if zh {
+			return "无法继续：模型响应超时"
+		}
+		return "Cannot continue: model response timed out"
+	}
+	if zh {
+		return "无法继续：最终答案生成失败"
+	}
+	return "Cannot continue: failed to generate the final answer"
+}

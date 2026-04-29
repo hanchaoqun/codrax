@@ -90,6 +90,20 @@ var (
 		"no deployments available",
 		"insufficient permissions",
 		"target dependency is missing",
+		// Force-finalize terminal failures. By the time we see
+		// these the orchestrator already tried 3 attempts —
+		// further retries are not happening, so the error reads
+		// as fatal even though the underlying transport is
+		// transient by nature.
+		"forced finalize",
+		"failed to generate the final answer",
+		"最终答案生成失败",
+		"connection to the model dropped",
+		"与模型的连接中断",
+		"model response timed out",
+		"模型响应超时",
+		"model service is unavailable or rate-limited",
+		"模型服务暂不可用或限流",
 	}
 	cancelledMarkers = []string{
 		"interrupted by user",
@@ -266,11 +280,36 @@ func fatalDetailPhrase(row *taskRow, lang string) string {
 			return "无法继续：缺少必要依赖"
 		}
 		return "Cannot continue: required dependency is missing"
-	case strings.Contains(probe, "no deployments available"):
+	case strings.Contains(probe, "no deployments available"),
+		strings.Contains(probe, "model service is unavailable or rate-limited"),
+		strings.Contains(probe, "模型服务暂不可用或限流"):
 		if zh {
-			return "无法继续：模型服务暂不可用"
+			return "无法继续：模型服务暂不可用或限流"
 		}
-		return "Cannot continue: model service is unavailable"
+		return "Cannot continue: model service is unavailable or rate-limited"
+	case strings.Contains(probe, "connection to the model dropped"),
+		strings.Contains(probe, "与模型的连接中断"),
+		strings.Contains(probe, "unexpected eof"),
+		strings.Contains(probe, "stream stalled"),
+		strings.Contains(probe, "stream first byte"):
+		if zh {
+			return "无法继续：与模型的连接中断,可能是网络抖动或上游临时不可用"
+		}
+		return "Cannot continue: connection to the model dropped (transient network or upstream issue)"
+	case strings.Contains(probe, "model response timed out"),
+		strings.Contains(probe, "模型响应超时"),
+		strings.Contains(probe, "deadline exceeded"):
+		if zh {
+			return "无法继续：模型响应超时"
+		}
+		return "Cannot continue: model response timed out"
+	case strings.Contains(probe, "failed to generate the final answer"),
+		strings.Contains(probe, "最终答案生成失败"),
+		strings.Contains(probe, "forced finalize"):
+		if zh {
+			return "无法继续：最终答案生成失败"
+		}
+		return "Cannot continue: failed to generate the final answer"
 	}
 	return ""
 }
