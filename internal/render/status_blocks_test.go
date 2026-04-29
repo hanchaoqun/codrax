@@ -449,6 +449,44 @@ func TestStatus_ThinkingNTPJumpGuard(t *testing.T) {
 	}
 }
 
+// TestStatus_PendingHasOwnPhrase pins the "待 X" lexical form for
+// pending rows. Pre-fix pending rows reused the running phrase
+// ("正在 X"), distinguishable only by colour — two queued rows
+// rendered as "正在校核分析结论" / "正在整理结论" reading like
+// concurrent execution. The pending phrasing kills the ambiguity
+// at the lexical level.
+func TestStatus_PendingHasOwnPhrase(t *testing.T) {
+	pendingRows := []*taskRow{
+		{isNodeRow: true, nodeID: "vN", nodeKind: "validate", pending: true},
+		{isNodeRow: true, nodeID: "rN", nodeKind: "reconcile", pending: true},
+		{isNodeRow: true, nodeID: "fN", nodeKind: "finalize", pending: true},
+	}
+	zh := renderRows(t, "zh", pendingRows...)
+	for _, want := range []string{"待校核分析结论", "待整理结论", "待生成最终答案"} {
+		if !strings.Contains(zh, want) {
+			t.Errorf("zh: expected pending phrase %q in:\n%s", want, zh)
+		}
+	}
+	// Pending rows MUST NOT use the running form — that would
+	// re-introduce the ambiguity.
+	for _, banned := range []string{"正在校核分析结论", "正在整理结论", "正在生成最终答案"} {
+		if strings.Contains(zh, banned) {
+			t.Errorf("zh: pending row leaked running form %q in:\n%s", banned, zh)
+		}
+	}
+
+	enRows := []*taskRow{
+		{isNodeRow: true, nodeID: "vN", nodeKind: "validate", pending: true},
+	}
+	en := renderRows(t, "en", enRows...)
+	if !strings.Contains(en, "Awaiting cross-check") {
+		t.Errorf("en: expected pending phrase 'Awaiting cross-check' in:\n%s", en)
+	}
+	if strings.Contains(en, "Cross-checking findings") {
+		t.Errorf("en: pending row must not use running form 'Cross-checking findings' in:\n%s", en)
+	}
+}
+
 // TestStatus_PendingDistinctFromDone pins issue 5 — pending and
 // done must use DIFFERENT primary-text styles even though both are
 // in the gray family. statusMeta (DarkGray) for pending vs
@@ -525,8 +563,10 @@ func TestStatus_TopicGroupOrderingAfterAnalyze(t *testing.T) {
 			objective: "cross-check"},
 	}
 	out := renderRows(t, "zh", rows...)
-	// All three primary phrases must appear.
-	for _, want := range []string{"已理解问题", "正在探索代码并收集证据", "正在校核分析结论"} {
+	// All three primary phrases must appear. Validate is pending in
+	// this fixture (queued behind running evidence) so it carries
+	// the "待校核 …" form, not "正在校核 …".
+	for _, want := range []string{"已理解问题", "正在探索代码并收集证据", "待校核分析结论"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("expected %q in output; got:\n%s", want, out)
 		}
@@ -535,7 +575,7 @@ func TestStatus_TopicGroupOrderingAfterAnalyze(t *testing.T) {
 	// must come BEFORE validate.
 	idxAnalyze := strings.Index(out, "已理解问题")
 	idxEvidence := strings.Index(out, "正在探索代码并收集证据")
-	idxValidate := strings.Index(out, "正在校核分析结论")
+	idxValidate := strings.Index(out, "待校核分析结论")
 	if !(idxAnalyze < idxEvidence && idxEvidence < idxValidate) {
 		t.Errorf("expected order analyze < evidence < validate; got idx %d / %d / %d in:\n%s",
 			idxAnalyze, idxEvidence, idxValidate, out)

@@ -36,11 +36,27 @@ func isZh(lang string) bool {
 	return strings.HasPrefix(l, "zh")
 }
 
+// stagePhraseState is the lifecycle slot stagePhrase resolves
+// against. Three values: running ("正在 ..."), done ("已 ..."),
+// and pending ("待 ..." — queued, has NOT started yet). The third
+// value is load-bearing because two rows reading "正在 X" and
+// "正在 Y" side by side mislead the user into thinking both are
+// executing concurrently — but the TaskGraph wires upstream stages
+// as hard dependencies, so a row's pending state needs an
+// unambiguous lexical form (not just a colour cue) the user reads
+// as "this hasn't started yet".
+type stagePhraseState int
+
+const (
+	stagePhraseRunning stagePhraseState = iota
+	stagePhraseDone
+	stagePhrasePending
+)
+
 // stagePhrase returns the localized "primary" label for a normalized
 // stage key. Stage keys are derived by friendlyPrimaryText from the
-// taskRow's nodeKind / stage / agent fields. running == true picks
-// the in-progress phrasing; running == false picks the completion
-// phrasing (used when a row's endTime is non-zero).
+// taskRow's nodeKind / stage / agent fields. The state argument
+// picks one of three lifecycle phrasings: running / done / pending.
 //
 // Phrasing follows the actual problem-solving narrative the user
 // experiences:
@@ -68,20 +84,20 @@ func isZh(lang string) bool {
 // Unknown keys fall through to a generic "正在处理任务" /
 // "Processing task" so an unmapped stage never surfaces an internal
 // label like "ExtractorAgent(extract)".
-func stagePhrase(key string, lang string, running bool) string {
+func stagePhrase(key string, lang string, state stagePhraseState) string {
 	zh := isZh(lang)
-	type pair struct{ run, done string }
-	tableZh := map[string]pair{
+	type triple struct{ run, done, pending string }
+	tableZh := map[string]triple{
 		// Pre-stages
-		"log_triage":  {"正在解析日志", "已解析日志"},
-		"perf_triage": {"正在解析性能数据", "已解析性能数据"},
+		"log_triage":  {"正在解析日志", "已解析日志", "待解析日志"},
+		"perf_triage": {"正在解析性能数据", "已解析性能数据", "待解析性能数据"},
 		// Read-mode core flow
-		"analyze": {"正在理解问题", "已理解问题"},
+		"analyze": {"正在理解问题", "已理解问题", "待理解问题"},
 		// "explore" is the orchestrator-level stage AND the topic-
 		// group parent label when multiple sub-topics fan out. As a
 		// single status line it reads as "正在深入分析" — the broad
 		// umbrella over the per-topic evidence work.
-		"explore": {"正在深入分析", "已完成深入分析"},
+		"explore": {"正在深入分析", "已完成深入分析", "待深入分析"},
 		// "evidence" is the NodeEvidence sub-step where the agent
 		// actually reads code (read_file / grep / repo_map) and
 		// emits structured evidence (emit_evidence /
@@ -89,60 +105,69 @@ func stagePhrase(key string, lang string, running bool) string {
 		// "explore" so the user can tell THIS step is where the
 		// substantive code reading happens — collapsing it into
 		// the parent stage label hid the most important phase.
-		"evidence":  {"正在探索代码并收集证据", "已完成证据收集"},
-		"validate":  {"正在校核分析结论", "已校核分析结论"},
-		"reconcile": {"正在整理结论", "已整理结论"},
-		"extract":   {"正在提取关键要点", "已提取关键要点"},
-		"finalize":  {"正在生成最终答案", "已生成最终答案"},
+		"evidence":  {"正在探索代码并收集证据", "已完成证据收集", "待探索代码并收集证据"},
+		"validate":  {"正在校核分析结论", "已校核分析结论", "待校核分析结论"},
+		"reconcile": {"正在整理结论", "已整理结论", "待整理结论"},
+		"extract":   {"正在提取关键要点", "已提取关键要点", "待提取关键要点"},
+		"finalize":  {"正在生成最终答案", "已生成最终答案", "待生成最终答案"},
 		// Write-mode flow
-		"plan":   {"正在设计改动方案", "已设计改动方案"},
-		"apply":  {"正在应用改动", "已应用改动"},
-		"verify": {"正在跑测试验证改动", "已通过测试验证改动"},
+		"plan":   {"正在设计改动方案", "已设计改动方案", "待设计改动方案"},
+		"apply":  {"正在应用改动", "已应用改动", "待应用改动"},
+		"verify": {"正在跑测试验证改动", "已通过测试验证改动", "待跑测试验证改动"},
 	}
-	tableEn := map[string]pair{
-		"log_triage":  {"Parsing attached log", "Log parsed"},
-		"perf_triage": {"Parsing performance trace", "Performance trace parsed"},
-		"analyze":     {"Understanding the request", "Request understood"},
-		"explore":     {"Investigating the problem", "Investigation complete"},
-		"evidence":    {"Exploring code, collecting evidence", "Evidence collected"},
-		"validate":    {"Cross-checking findings", "Findings cross-checked"},
-		"reconcile":   {"Reconciling findings", "Findings reconciled"},
-		"extract":     {"Extracting key findings", "Key findings extracted"},
-		"finalize":    {"Generating final answer", "Final answer generated"},
-		"plan":        {"Drafting change plan", "Change plan ready"},
-		"apply":       {"Applying changes", "Changes applied"},
-		"verify":      {"Running tests for verification", "Tests verified"},
+	tableEn := map[string]triple{
+		"log_triage":  {"Parsing attached log", "Log parsed", "Awaiting log parse"},
+		"perf_triage": {"Parsing performance trace", "Performance trace parsed", "Awaiting trace parse"},
+		"analyze":     {"Understanding the request", "Request understood", "Awaiting request understanding"},
+		"explore":     {"Investigating the problem", "Investigation complete", "Awaiting investigation"},
+		"evidence":    {"Exploring code, collecting evidence", "Evidence collected", "Awaiting code exploration"},
+		"validate":    {"Cross-checking findings", "Findings cross-checked", "Awaiting cross-check"},
+		"reconcile":   {"Reconciling findings", "Findings reconciled", "Awaiting reconciliation"},
+		"extract":     {"Extracting key findings", "Key findings extracted", "Awaiting key-finding extraction"},
+		"finalize":    {"Generating final answer", "Final answer generated", "Awaiting final answer"},
+		"plan":        {"Drafting change plan", "Change plan ready", "Awaiting change plan"},
+		"apply":       {"Applying changes", "Changes applied", "Awaiting change apply"},
+		"verify":      {"Running tests for verification", "Tests verified", "Awaiting verification"},
 	}
-	var p pair
+	var t triple
 	var ok bool
 	if zh {
-		p, ok = tableZh[key]
+		t, ok = tableZh[key]
 	} else {
-		p, ok = tableEn[key]
+		t, ok = tableEn[key]
 	}
 	if !ok {
-		if zh {
-			return tCommonProcessing(true /*zh*/, running)
-		}
-		return tCommonProcessing(false, running)
+		return tCommonProcessing(zh, state)
 	}
-	if running {
-		return p.run
+	switch state {
+	case stagePhraseDone:
+		return t.done
+	case stagePhrasePending:
+		return t.pending
+	default:
+		return t.run
 	}
-	return p.done
 }
 
-func tCommonProcessing(zh bool, running bool) string {
+func tCommonProcessing(zh bool, state stagePhraseState) string {
 	if zh {
-		if running {
+		switch state {
+		case stagePhraseDone:
+			return "已完成任务"
+		case stagePhrasePending:
+			return "待处理任务"
+		default:
 			return "正在处理任务"
 		}
-		return "已完成任务"
 	}
-	if running {
+	switch state {
+	case stagePhraseDone:
+		return "Task complete"
+	case stagePhrasePending:
+		return "Awaiting task"
+	default:
 		return "Processing task"
 	}
-	return "Task complete"
 }
 
 // thinkingPhrase localizes a row.detail string that begins with

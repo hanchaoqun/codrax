@@ -169,31 +169,50 @@ func (r *Renderer) buildTopicGroup(topicRows []*taskRow, frame string, now time.
 	// common case.
 	parentRow := topicRows[0] // any topic row carries the stage; index 0 is the canonical anchor
 	parentLine := r.buildStatusLine(parentRow, frame, now)
-	// Group is "running" until ALL topic rows have terminated.
+	// Group state aggregates topic rows along three axes:
+	//   - allDone: every topic row terminated → state=done
+	//   - allPending: not a single topic row started yet → state=pending
+	//   - otherwise: at least one running → state=running
+	// The pending case is load-bearing — without it a topic group
+	// queued behind upstream nodes would render "正在探索代码 …"
+	// while upstream is still running, misleading the user into
+	// reading the timeline as concurrent execution.
 	allDone := true
+	allPending := true
 	for _, row := range topicRows {
 		if row.endTime.IsZero() {
 			allDone = false
-			break
+		}
+		if !row.pending {
+			allPending = false
 		}
 	}
-	parentLine.PrimaryText = stagePhrase("evidence", r.lang, !allDone)
+	state := stagePhraseRunning
+	switch {
+	case allDone:
+		state = stagePhraseDone
+	case allPending:
+		state = stagePhrasePending
+	}
+	parentLine.PrimaryText = stagePhrase("evidence", r.lang, state)
 	count := len(topicRows)
 	parentLine.DetailText = topicCountPhrase(count, r.lang)
-	// Override Icon / IconStyle / State to follow allDone, not the
-	// state of topicRows[0]. statusIcon was computed from row[0]
-	// alone — when topic[0] terminates while others still run, the
-	// parent line would otherwise read "✓ 正在探索代码 …" (done
-	// glyph + running text + statusPrimaryDone gray colour) which
-	// is internally inconsistent. Recomputing here keeps the parent
-	// line's three signals — glyph, primary text, primary colour —
-	// in lockstep with the aggregated done/running state of all
-	// topic rows.
-	if allDone {
+	// Override Icon / IconStyle / State to follow the aggregated
+	// state, not topicRows[0] alone. Three branches keep glyph +
+	// primary text + primary colour in lockstep:
+	//   - allDone   → ✓ green + done text + gray primary
+	//   - allPending → · dim + pending text + dark-gray primary
+	//   - else      → spinner glyph + running text + light-blue primary
+	switch {
+	case allDone:
 		parentLine.Icon = string(glyphSuccess)
 		parentLine.IconStyle = statusSuccessMuted
 		parentLine.State = "done"
-	} else {
+	case allPending:
+		parentLine.Icon = string(glyphPending)
+		parentLine.IconStyle = statusMeta
+		parentLine.State = "pending"
+	default:
 		parentLine.Icon = frame
 		parentLine.IconStyle = statusSpinner
 		parentLine.State = "running"
@@ -264,6 +283,12 @@ func (r *Renderer) statusIcon(row *taskRow, frame string, errKind statusErrorKin
 // friendlyPrimaryText derives the localized stage label for a row.
 // The stage-key resolver mirrors the priority order the spec calls
 // out: nodeKind > stage > agent > generic fallback.
+//
+// Three lifecycle phrasings: pending ("待 X" — queued, has not
+// started), running ("正在 X" — currently executing), done
+// ("已 X" — terminated). The pending case is critical so two
+// rows of "正在 X" / "正在 Y" can never read as concurrent
+// execution when one is actually queued behind the other.
 func friendlyPrimaryText(row *taskRow, lang string) string {
 	if row == nil {
 		return ""
@@ -274,8 +299,14 @@ func friendlyPrimaryText(row *taskRow, lang string) string {
 		return localizeCollapsedMarker(row.stage, lang)
 	}
 	key := stageKeyFor(row)
-	running := row.endTime.IsZero()
-	return stagePhrase(key, lang, running)
+	state := stagePhraseRunning
+	switch {
+	case row.isNodeRow && row.pending:
+		state = stagePhrasePending
+	case !row.endTime.IsZero():
+		state = stagePhraseDone
+	}
+	return stagePhrase(key, lang, state)
 }
 
 // stageKeyFor extracts a normalized stage key from a taskRow's
