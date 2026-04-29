@@ -4640,6 +4640,12 @@ func TestObserveMidLoop_CompletionReadyHint_UsesAuthoritativeLogCoverage(t *test
 		logTriage: &types.LogBundle{
 			Meta:          types.LogMeta{Signals: []types.LogSignal{types.SignalPanic}},
 			ResolvedFiles: []string{"internal/agent/analyzer.go"},
+			Errors: []types.LogError{{
+				Frames: []types.LogFrame{
+					{File: "internal/agent/analyzer.go", Line: 860, Func: "buildAnalysisIR"},
+					{File: "internal/agent/analyzer.go", Line: 606, Func: "(*analyzerEvaluator).ParseOutput"},
+				},
+			}},
 		},
 		structuredEvidence: []types.EvidenceItem{
 			{
@@ -4660,10 +4666,12 @@ func TestObserveMidLoop_CompletionReadyHint_UsesAuthoritativeLogCoverage(t *test
 			},
 			{
 				Kind:            types.EvidenceConditional,
-				Subject:         "RequestModel",
-				Predicate:       "checked_at",
-				Object:          "line 616",
+				Subject:         "buildAnalysisIR",
+				Predicate:       "guards",
+				Object:          "ctx == nil || ctx.Mutable == nil",
 				Source:          "internal/agent/analyzer.go",
+				AnchorKind:      types.AnchorCondition,
+				AnchorSymbol:    "buildAnalysisIR",
 				GroundingStatus: types.GroundingGrounded,
 			},
 		},
@@ -4706,6 +4714,12 @@ func TestObserveMidLoop_CompletionReadyBeatsPartialReadWhenAuthoritativeLogCover
 		logTriage: &types.LogBundle{
 			Meta:          types.LogMeta{Signals: []types.LogSignal{types.SignalPanic}},
 			ResolvedFiles: []string{"internal/agent/analyzer.go"},
+			Errors: []types.LogError{{
+				Frames: []types.LogFrame{
+					{File: "internal/agent/analyzer.go", Line: 612, Func: "buildAnalysisIR"},
+					{File: "internal/agent/analyzer.go", Line: 412, Func: "ParseOutput"},
+				},
+			}},
 		},
 		structuredEvidence: []types.EvidenceItem{
 			{
@@ -4776,6 +4790,12 @@ func TestObserveMidLoop_CompletionReadyUsesStructuralAuthoritativeClosureAfterRe
 		logTriage: &types.LogBundle{
 			Meta:          types.LogMeta{Signals: []types.LogSignal{types.SignalPanic}},
 			ResolvedFiles: []string{"internal/agent/analyzer.go"},
+			Errors: []types.LogError{{
+				Frames: []types.LogFrame{
+					{File: "internal/agent/analyzer.go", Line: 861, Func: "buildAnalysisIR"},
+					{File: "internal/agent/analyzer.go", Line: 651, Func: "ParseOutput"},
+				},
+			}},
 		},
 		structuredEvidence: []types.EvidenceItem{
 			{
@@ -4847,6 +4867,12 @@ func TestObserveMidLoop_CompletionReadyDoesNotFireForAuthoritativeCallOnlyEviden
 		logTriage: &types.LogBundle{
 			Meta:          types.LogMeta{Signals: []types.LogSignal{types.SignalPanic}},
 			ResolvedFiles: []string{"internal/agent/analyzer.go"},
+			Errors: []types.LogError{{
+				Frames: []types.LogFrame{
+					{File: "internal/agent/analyzer.go", Line: 861, Func: "buildAnalysisIR"},
+					{File: "internal/agent/analyzer.go", Line: 651, Func: "ParseOutput"},
+				},
+			}},
 		},
 		structuredEvidence: []types.EvidenceItem{
 			{
@@ -4876,6 +4902,65 @@ func TestObserveMidLoop_CompletionReadyDoesNotFireForAuthoritativeCallOnlyEviden
 	})
 	if sig.HintRequested && sig.HintKey == "explorer.mid-loop.completion-ready" {
 		t.Fatalf("completion-ready must not fire on authoritative log coverage with only a call-edge and no grounded mechanism anchor, got %+v", sig)
+	}
+}
+
+func TestObserveMidLoop_CompletionReadyDoesNotFireForUnboundConditionInAuthoritativeFile(t *testing.T) {
+	eval := &explorerEvaluator{
+		phase:                      1,
+		heuristics:                 types.ExploreHeuristics{MidLoopMinIteration: 2},
+		searchResult:               &keywordSearchResult{Graph: &repomap.Graph{}},
+		midLoopPostPrimaryInjected: true,
+		logTriage: &types.LogBundle{
+			Meta:          types.LogMeta{Signals: []types.LogSignal{types.SignalPanic}},
+			ResolvedFiles: []string{"internal/agent/analyzer.go"},
+			Errors: []types.LogError{{
+				Frames: []types.LogFrame{
+					{File: "internal/agent/analyzer.go", Line: 860, Func: "buildAnalysisIR"},
+					{File: "internal/agent/analyzer.go", Line: 606, Func: "(*analyzerEvaluator).ParseOutput"},
+				},
+			}},
+		},
+		structuredEvidence: []types.EvidenceItem{
+			{
+				Kind:            types.EvidenceDirect,
+				Subject:         "ParseOutput",
+				Predicate:       "calls",
+				Object:          "buildAnalysisIR",
+				Source:          "internal/agent/analyzer.go",
+				LineStart:       651,
+				AnchorKind:      types.AnchorCall,
+				AnchorSymbol:    "buildAnalysisIR",
+				GroundingStatus: types.GroundingGrounded,
+			},
+			{
+				Kind:            types.EvidenceConditional,
+				Subject:         "ParseOutput",
+				Predicate:       "returns",
+				Object:          "StageOutput",
+				Condition:       "emitCalls == 0",
+				Source:          "internal/agent/analyzer.go",
+				LineStart:       630,
+				AnchorKind:      types.AnchorCondition,
+				AnchorSymbol:    "emitCalls",
+				GroundingStatus: types.GroundingGrounded,
+			},
+		},
+	}
+	results := []types.ToolResult{
+		{ToolName: "grep", Success: true, Summary: "internal/agent/analyzer.go"},
+		{ToolName: "read_file", Success: true, Summary: "[internal/agent/analyzer.go: showing lines 626-655 of 2003 total]\nif emitCalls == 0 { ... }"},
+		{ToolName: "emit_evidence", Success: true, Summary: "emit_evidence accepted 2 item(s)"},
+	}
+
+	sig := eval.observeMidLoop(LoopObservation{
+		Phase:          PhaseMidLoop,
+		Iteration:      4,
+		LastToolResult: &results[len(results)-1],
+		AllToolResults: results,
+	})
+	if sig.HintRequested && sig.HintKey == "explorer.mid-loop.completion-ready" {
+		t.Fatalf("completion-ready must not treat an unrelated condition in the same authoritative file as a closure mechanism, got %+v", sig)
 	}
 }
 

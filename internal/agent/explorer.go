@@ -4210,8 +4210,17 @@ func (e *explorerEvaluator) postCompletionReadySignal(obs LoopObservation) LoopS
 	}
 }
 
+type authoritativeFrameRef struct {
+	File string
+	Tail string
+}
+
 func (e *explorerEvaluator) authoritativeLogClosureCarrierReady() bool {
 	if e == nil || e.logTriage == nil || len(e.logTriage.ResolvedFiles) == 0 || len(e.structuredEvidence) == 0 {
+		return false
+	}
+	frames := e.authoritativeResolvedFrames()
+	if len(frames) == 0 {
 		return false
 	}
 	allowed := make(map[string]bool, len(e.logTriage.ResolvedFiles))
@@ -4227,8 +4236,9 @@ func (e *explorerEvaluator) authoritativeLogClosureCarrierReady() bool {
 	if len(allowed) == 0 {
 		return false
 	}
-	hasCallCarrier := false
-	hasMechanismCarrier := false
+
+	mechanismByFailure := make(map[string]bool, len(frames))
+	callByFailure := make(map[string]bool, len(frames))
 	for _, ev := range e.structuredEvidence {
 		switch ev.GroundingStatus {
 		case types.GroundingGrounded, types.GroundingRecovered:
@@ -4239,27 +4249,100 @@ func (e *explorerEvaluator) authoritativeLogClosureCarrierReady() bool {
 		case types.EvidenceContextRoleIllustrativeOnly, types.EvidenceContextRoleAbsenceSupport:
 			continue
 		}
-		canon := canonicalExplorerPath(ev.Source)
-		if canon == "" {
-			canon = ev.Source
+		source := canonicalExplorerPath(ev.Source)
+		if source == "" {
+			source = ev.Source
 		}
-		if canon == "" || !allowed[canon] {
+		if source == "" || !allowed[source] {
 			continue
 		}
-		if types.EvidenceStructurallyMatchesRequirement(ev, types.ReqCallChain) {
-			hasCallCarrier = true
+
+		tails := evidenceSurfaceTailSet(ev)
+		if len(tails) == 0 {
+			continue
 		}
-		if types.EvidenceStructurallyMatchesRequirement(ev, types.ReqConditional) ||
-			ev.AnchorKind == types.AnchorDefinition ||
-			ev.AnchorKind == types.AnchorReturn ||
-			ev.AnchorKind == types.AnchorAssignment {
-			hasMechanismCarrier = true
-		}
-		if hasCallCarrier && hasMechanismCarrier {
-			return true
+
+		for i, failure := range frames {
+			failureKey := failure.File + "\x00" + failure.Tail
+			if types.EvidenceStructurallyMatchesRequirement(ev, types.ReqCallChain) &&
+				evidenceBindsAuthoritativeFailureCall(ev, tails, frames, i, source) {
+				callByFailure[failureKey] = true
+			}
+			if evidenceBindsAuthoritativeFailureMechanism(ev, tails, frames, i, source) {
+				mechanismByFailure[failureKey] = true
+			}
+			if callByFailure[failureKey] && mechanismByFailure[failureKey] {
+				return true
+			}
 		}
 	}
 	return false
+}
+
+func evidenceSurfaceTailSet(ev types.EvidenceItem) map[string]bool {
+	tails := types.EvidenceSurfaceSymbolTails(ev)
+	if len(tails) == 0 {
+		return nil
+	}
+	out := make(map[string]bool, len(tails))
+	for _, tail := range tails {
+		if tail == "" {
+			continue
+		}
+		out[tail] = true
+	}
+	return out
+}
+
+func evidenceBindsAuthoritativeFailureCall(
+	ev types.EvidenceItem,
+	tails map[string]bool,
+	frames []authoritativeFrameRef,
+	idx int,
+	source string,
+) bool {
+	if idx < 0 || idx >= len(frames) {
+		return false
+	}
+	failure := frames[idx]
+	if !tails[failure.Tail] {
+		return false
+	}
+	if len(frames) == 1 {
+		return source == failure.File
+	}
+	if idx+1 >= len(frames) {
+		return false
+	}
+	caller := frames[idx+1]
+	return source == caller.File && tails[caller.Tail]
+}
+
+func evidenceBindsAuthoritativeFailureMechanism(
+	ev types.EvidenceItem,
+	tails map[string]bool,
+	frames []authoritativeFrameRef,
+	idx int,
+	source string,
+) bool {
+	if idx < 0 || idx >= len(frames) {
+		return false
+	}
+	if !(types.EvidenceStructurallyMatchesRequirement(ev, types.ReqConditional) ||
+		ev.AnchorKind == types.AnchorDefinition ||
+		ev.AnchorKind == types.AnchorReturn ||
+		ev.AnchorKind == types.AnchorAssignment) {
+		return false
+	}
+	failure := frames[idx]
+	if source == failure.File && tails[failure.Tail] {
+		return true
+	}
+	if idx+1 >= len(frames) {
+		return false
+	}
+	caller := frames[idx+1]
+	return source == caller.File && tails[caller.Tail] && tails[failure.Tail]
 }
 
 func (e *explorerEvaluator) postExplanationAnchorSignal(obs LoopObservation) LoopSignal {
@@ -4679,20 +4762,26 @@ func (e *explorerEvaluator) authoritativeFrameRealignmentHint(history []types.To
 }
 
 func (e *explorerEvaluator) authoritativeFrameSymbolTailsByFile() map[string]map[string]bool {
-	if e.logTriage == nil || len(e.logTriage.ResolvedFiles) == 0 {
-		return nil
-	}
-	hasCrash := false
-	for _, s := range e.logTriage.Meta.Signals {
-		if s == types.SignalPanic || s == types.SignalCrash {
-			hasCrash = true
-			break
-		}
-	}
-	if !hasCrash {
+	frames := e.authoritativeResolvedFrames()
+	if len(frames) == 0 {
 		return nil
 	}
 	out := make(map[string]map[string]bool)
+	for _, frame := range frames {
+		if out[frame.File] == nil {
+			out[frame.File] = make(map[string]bool)
+		}
+		out[frame.File][frame.Tail] = true
+	}
+	return out
+}
+
+func (e *explorerEvaluator) authoritativeResolvedFrames() []authoritativeFrameRef {
+	if e == nil || e.logTriage == nil || len(e.logTriage.ResolvedFiles) == 0 || !e.hasAuthoritativeCrashLog() {
+		return nil
+	}
+	out := make([]authoritativeFrameRef, 0, 8)
+	seen := make(map[string]bool)
 	for _, err := range e.logTriage.Errors {
 		for _, frame := range err.Frames {
 			file := canonicalExplorerPath(frame.File)
@@ -4700,13 +4789,27 @@ func (e *explorerEvaluator) authoritativeFrameSymbolTailsByFile() map[string]map
 			if file == "" || tail == "" {
 				continue
 			}
-			if out[file] == nil {
-				out[file] = make(map[string]bool)
+			key := file + "\x00" + tail
+			if seen[key] {
+				continue
 			}
-			out[file][tail] = true
+			seen[key] = true
+			out = append(out, authoritativeFrameRef{File: file, Tail: tail})
 		}
 	}
 	return out
+}
+
+func (e *explorerEvaluator) hasAuthoritativeCrashLog() bool {
+	if e == nil || e.logTriage == nil {
+		return false
+	}
+	for _, s := range e.logTriage.Meta.Signals {
+		if s == types.SignalPanic || s == types.SignalCrash {
+			return true
+		}
+	}
+	return false
 }
 
 func symbolReadProgress(sym repomap.Symbol, intervals []readInterval) (startedFromTop bool, maxEnd int) {
