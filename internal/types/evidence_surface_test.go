@@ -631,6 +631,126 @@ func TestBuildAnswerSurfacePlan_CompilesFallbackStepBackboneFromEvidence(t *test
 	}
 }
 
+func TestBuildAnswerSurfacePlan_AugmentsLowerBoundStepBackboneWithEvidence(t *testing.T) {
+	mut := NewMutableState("")
+	mut.SetEmittedAnswerSymbols([]AnswerSymbol{
+		{Name: "detectLanguage", File: "internal/agent/analyzer.go", Line: 869, Kind: KindFunction},
+		{Name: "Compile", File: "internal/agent/analyzer.go", Line: 1175, Kind: KindFunction},
+		{Name: "gate.Run", File: "internal/agent/analyzer.go", Line: 1334, Kind: KindFunction},
+	}, CompletenessLowerBound)
+	ir := &AnalysisIR{
+		AnswerContract: AnswerContract{
+			RequiredAnswerShape: ShapeStepList,
+		},
+	}
+	evidence := []EvidenceItem{
+		{
+			Kind:            EvidenceDirect,
+			Source:          "internal/agent/analyzer.go",
+			LineStart:       869,
+			AnchorKind:      AnchorCall,
+			AnchorSymbol:    "detectLanguage",
+			GroundingStatus: GroundingGrounded,
+		},
+		{
+			Kind:            EvidenceDirect,
+			Source:          "internal/agent/analyzer.go",
+			LineStart:       1186,
+			AnchorKind:      AnchorCall,
+			AnchorSymbol:    "Evaluate",
+			GroundingStatus: GroundingGrounded,
+		},
+		{
+			Kind:            EvidenceDirect,
+			Source:          "internal/agent/analyzer.go",
+			LineStart:       1187,
+			AnchorKind:      AnchorCall,
+			AnchorSymbol:    "Plan",
+			GroundingStatus: GroundingGrounded,
+		},
+		{
+			Kind:            EvidenceDirect,
+			Source:          "internal/agent/analyzer.go",
+			LineStart:       1175,
+			AnchorKind:      AnchorCall,
+			AnchorSymbol:    "Compile",
+			GroundingStatus: GroundingGrounded,
+		},
+		{
+			Kind:            EvidenceDirect,
+			Source:          "internal/agent/analyzer.go",
+			LineStart:       1334,
+			AnchorKind:      AnchorCall,
+			AnchorSymbol:    "Run",
+			GroundingStatus: GroundingGrounded,
+		},
+	}
+
+	plan := BuildAnswerSurfacePlan(ir, mut, nil, nil, nil, evidence)
+	if plan == nil {
+		t.Fatal("BuildAnswerSurfacePlan returned nil")
+	}
+	if len(plan.StepBackbone) != 5 {
+		t.Fatalf("step backbone anchors = %d, want 5 after evidence augmentation", len(plan.StepBackbone))
+	}
+	gotNames := []string{
+		plan.StepBackbone[0].Name,
+		plan.StepBackbone[1].Name,
+		plan.StepBackbone[2].Name,
+		plan.StepBackbone[3].Name,
+		plan.StepBackbone[4].Name,
+	}
+	wantNames := []string{"detectLanguage", "Compile", "Evaluate", "Plan", "gate.Run"}
+	if strings.Join(gotNames, ",") != strings.Join(wantNames, ",") {
+		t.Fatalf("augmented step backbone names = %v, want %v", gotNames, wantNames)
+	}
+	if plan.StepBackbone[2].Line != 1186 || plan.StepBackbone[3].Line != 1187 {
+		t.Fatalf("augmented evidence anchors not inserted in file order: %+v", plan.StepBackbone)
+	}
+}
+
+func TestBuildAnswerSurfacePlan_DoesNotAugmentCompleteOrBoundedStepBackbone(t *testing.T) {
+	mut := NewMutableState("")
+	mut.SetEmittedAnswerSymbols([]AnswerSymbol{
+		{Name: "checkCoverage", File: "internal/analysis/gate/gate.go", Line: 127, Kind: KindFunction},
+		{Name: "checkDAGClosure", File: "internal/analysis/gate/gate.go", Line: 128, Kind: KindFunction},
+		{Name: "checkBudgetSanity", File: "internal/analysis/gate/gate.go", Line: 129, Kind: KindFunction},
+	}, CompletenessComplete)
+	ir := &AnalysisIR{
+		RequestModel: RequestModel{
+			RawRequest: "What order do gate.Run's 3 checks execute in?",
+			EnumerationBoundary: &RequestedEnumerationBoundary{
+				DeclaredCount: 3,
+				SourceQuote:   "3 checks",
+			},
+		},
+		AnswerContract: AnswerContract{
+			RequiredAnswerShape: ShapeStepList,
+		},
+	}
+	evidence := []EvidenceItem{
+		{
+			Kind:            EvidenceDirect,
+			Source:          "internal/analysis/gate/gate.go",
+			LineStart:       130,
+			AnchorKind:      AnchorCall,
+			AnchorSymbol:    "checkCleanup",
+			GroundingStatus: GroundingGrounded,
+		},
+	}
+
+	plan := BuildAnswerSurfacePlan(ir, mut, nil, nil, nil, evidence)
+	if plan == nil {
+		t.Fatal("BuildAnswerSurfacePlan returned nil")
+	}
+	if len(plan.StepBackbone) != 3 {
+		t.Fatalf("bounded principal step backbone should remain at 3 checks, got %d", len(plan.StepBackbone))
+	}
+	if got := plan.StepBackbone[len(plan.StepBackbone)-1].Name; got != "checkBudgetSanity" {
+		t.Fatalf("bounded complete step backbone should not be augmented, last = %q", got)
+	}
+}
+
 func TestBuildAnswerSurfacePlan_DropsOwnerFromRequestedEnumerationBoundaryStepBackbone(t *testing.T) {
 	mut := NewMutableState("")
 	mut.SetEmittedAnswerSymbols([]AnswerSymbol{

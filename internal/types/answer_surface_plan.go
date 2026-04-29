@@ -186,13 +186,9 @@ func ApplyAnswerSymbolStepBackbone(plan *AnswerSurfacePlan, symbols []AnswerSymb
 	}
 }
 
-func ApplyEvidenceStepBackbone(plan *AnswerSurfacePlan, evidence []EvidenceItem) {
-	if plan == nil || plan.RequiredShape != ShapeStepList || len(plan.StepBackbone) > 0 || len(evidence) == 0 {
-		return
-	}
-	type group struct {
-		file    string
-		anchors []StepSurfaceAnchor
+func compileEvidenceStepBackbone(evidence []EvidenceItem) []StepSurfaceAnchor {
+	if len(evidence) == 0 {
+		return nil
 	}
 	groups := make(map[string][]StepSurfaceAnchor)
 	for _, item := range evidence {
@@ -250,10 +246,83 @@ func ApplyEvidenceStepBackbone(plan *AnswerSurfacePlan, evidence []EvidenceItem)
 			best = append([]StepSurfaceAnchor(nil), dedup...)
 		}
 	}
+	return best
+}
+
+func stepBackboneIsBoundedPrincipal(plan *AnswerSurfacePlan) bool {
+	if plan == nil || plan.RequestedEnumerationBoundary == nil {
+		return false
+	}
+	return plan.RequestedEnumerationBoundary.DeclaredCount > 0
+}
+
+func mergeStepBackboneAnchors(base []StepSurfaceAnchor, extra []StepSurfaceAnchor) []StepSurfaceAnchor {
+	if len(base) == 0 {
+		return append([]StepSurfaceAnchor(nil), extra...)
+	}
+	if len(extra) == 0 {
+		return append([]StepSurfaceAnchor(nil), base...)
+	}
+	merged := append([]StepSurfaceAnchor(nil), base...)
+	seen := make(map[string]bool, len(merged))
+	for _, anchor := range merged {
+		key := fmt.Sprintf("%s:%d", strings.TrimSpace(strings.ReplaceAll(anchor.File, `\`, `/`)), anchor.Line)
+		if key != ":" && key != "" {
+			seen[key] = true
+		}
+	}
+	for _, anchor := range extra {
+		file := strings.TrimSpace(strings.ReplaceAll(anchor.File, `\`, `/`))
+		key := fmt.Sprintf("%s:%d", file, anchor.Line)
+		if file == "" || anchor.Line <= 0 || seen[key] {
+			continue
+		}
+		insertAt := -1
+		lastSameFile := -1
+		for i, existing := range merged {
+			existingFile := strings.TrimSpace(strings.ReplaceAll(existing.File, `\`, `/`))
+			if existingFile != file {
+				continue
+			}
+			lastSameFile = i
+			if existing.Line > anchor.Line {
+				insertAt = i
+				break
+			}
+		}
+		switch {
+		case insertAt >= 0:
+			merged = append(merged[:insertAt], append([]StepSurfaceAnchor{anchor}, merged[insertAt:]...)...)
+		case lastSameFile >= 0:
+			pos := lastSameFile + 1
+			merged = append(merged[:pos], append([]StepSurfaceAnchor{anchor}, merged[pos:]...)...)
+		default:
+			merged = append(merged, anchor)
+		}
+		seen[key] = true
+	}
+	return merged
+}
+
+func ApplyEvidenceStepBackbone(plan *AnswerSurfacePlan, evidence []EvidenceItem) {
+	if plan == nil || plan.RequiredShape != ShapeStepList || len(evidence) == 0 {
+		return
+	}
+	best := compileEvidenceStepBackbone(evidence)
 	if len(best) == 0 {
 		return
 	}
-	plan.StepBackbone = best
+	if len(plan.StepBackbone) == 0 {
+		plan.StepBackbone = best
+		if plan.StepBackboneCompleteness == "" {
+			plan.StepBackboneCompleteness = CompletenessLowerBound
+		}
+		return
+	}
+	if plan.StepBackboneCompleteness == CompletenessComplete || stepBackboneIsBoundedPrincipal(plan) {
+		return
+	}
+	plan.StepBackbone = mergeStepBackboneAnchors(plan.StepBackbone, best)
 	if plan.StepBackboneCompleteness == "" {
 		plan.StepBackboneCompleteness = CompletenessLowerBound
 	}
