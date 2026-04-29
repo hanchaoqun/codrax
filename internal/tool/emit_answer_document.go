@@ -3828,7 +3828,11 @@ func normalizeLogSourceDriftSummarySurface(summary string, citations []types.Cit
 	summary = strings.TrimSpace(summary)
 	plan := answerSurfacePlan(ctx)
 	if plan != nil && plan.SummarySurfaceMode == types.AnswerSummarySurfaceDriftBoundedRootCause {
+		rawNeedsFallback := driftBoundedSummaryNeedsFallback(summary)
 		summary = sanitizeDriftBoundedRootCauseSummary(summary, citations, gc, ctx)
+		if rawNeedsFallback || driftBoundedSummaryNeedsFallback(summary) {
+			summary = ""
+		}
 		if summary == "" {
 			summary = renderDriftBoundedRootCauseFallbackSummary(ctx)
 		}
@@ -3870,7 +3874,6 @@ func sanitizeDriftBoundedRootCauseSummary(summary string, citations []types.Cita
 			continue
 		}
 		if strings.HasPrefix(block, "```") {
-			kept = append(kept, block)
 			continue
 		}
 		if isDriftBoundedDecorativeSummaryBlock(block) {
@@ -3895,6 +3898,27 @@ func sanitizeDriftBoundedRootCauseSummary(summary string, citations []types.Cita
 		return strings.TrimSpace(strings.Join(fences, "\n\n"))
 	}
 	return strings.TrimSpace(strings.Join(kept, "\n\n"))
+}
+
+func driftBoundedSummaryNeedsFallback(summary string) bool {
+	summary = strings.TrimSpace(summary)
+	if summary == "" {
+		return false
+	}
+	if strings.Contains(summary, "```") {
+		return true
+	}
+	blocks := 0
+	for _, block := range strings.Split(summary, "\n\n") {
+		if strings.TrimSpace(block) == "" {
+			continue
+		}
+		blocks++
+		if blocks > 1 {
+			return true
+		}
+	}
+	return false
 }
 
 func driftBoundedSummaryAllowedLabels(citations []types.Citation, gc *ground.Context, plan *types.AnswerSurfacePlan) map[string]bool {
@@ -4032,13 +4056,23 @@ func driftBoundedObservedFunctions(plan *types.AnswerSurfacePlan) []string {
 	}
 	var out []string
 	seen := make(map[string]bool)
-	for _, anchor := range plan.LogObservedAnchors {
-		name := strings.TrimSpace(anchor.Func)
+	appendName := func(name string) {
+		name = strings.TrimSpace(name)
 		if name == "" || seen[name] {
-			continue
+			return
 		}
 		seen[name] = true
 		out = append(out, name)
+	}
+	for _, anchor := range plan.LogObservedAnchors {
+		appendName(anchor.Func)
+	}
+	for _, anchor := range plan.LogSourceDriftAnchors {
+		name := strings.TrimSpace(anchor.OriginalFunc)
+		if name == "" || seen[name] {
+			name = strings.TrimSpace(anchor.Func)
+		}
+		appendName(name)
 	}
 	return out
 }

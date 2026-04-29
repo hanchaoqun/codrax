@@ -324,6 +324,89 @@ func TestBuildAnswerSurfacePlan_CollectsLogSourceDriftAnchors(t *testing.T) {
 	}
 }
 
+func TestBuildAnswerSurfacePlan_LogObservedAnchorsPreferAuthoritativeBindings(t *testing.T) {
+	mut := NewMutableState("")
+	logBundle := &LogBundle{
+		Errors: []LogError{{
+			Frames: []LogFrame{
+				{File: "internal/agent/analyzer.go", Line: 250, Func: "buildAnalysisIR"},
+				{File: "internal/agent/analyzer.go", Line: 320, Func: "ParseOutput"},
+			},
+		}},
+	}
+	ir := &AnalysisIR{
+		RequestModel: RequestModel{
+			Scenario: ScenarioRootCause,
+			Intent:   IntentRootCause,
+		},
+		AnswerContract: AnswerContract{
+			RequiredAnswerShape: ShapeExplanation,
+		},
+	}
+	evidence := []EvidenceItem{
+		{
+			Kind:            EvidenceDirect,
+			Source:          "internal/agent/analyzer.go",
+			LineStart:       860,
+			AnchorKind:      AnchorDefinition,
+			AnchorSymbol:    "buildAnalysisIR",
+			GroundingStatus: GroundingGrounded,
+		},
+		{
+			Kind:            EvidenceDirect,
+			Source:          "internal/agent/analyzer.go",
+			LineStart:       651,
+			AnchorKind:      AnchorCall,
+			AnchorSymbol:    "buildAnalysisIR",
+			Subject:         "analyzerEvaluator.ParseOutput",
+			Object:          "buildAnalysisIR",
+			GroundingStatus: GroundingGrounded,
+		},
+		{
+			Kind:            EvidenceDirect,
+			Source:          "internal/agent/analyzer.go",
+			LineStart:       233,
+			AnchorKind:      AnchorDefinition,
+			AnchorSymbol:    "buildAnalyzerRepoOverview",
+			GroundingStatus: GroundingGrounded,
+		},
+		{
+			Kind:            EvidenceConditional,
+			Source:          "internal/agent/analyzer.go",
+			LineStart:       243,
+			AnchorKind:      AnchorCondition,
+			AnchorSymbol:    "buildAnalyzerRepoOverview",
+			Subject:         "buildAnalyzerRepoOverview",
+			Object:          "repoRoot",
+			GroundingStatus: GroundingGrounded,
+		},
+	}
+
+	plan := BuildAnswerSurfacePlan(ir, mut, logBundle, nil, nil, evidence)
+	if plan == nil {
+		t.Fatal("BuildAnswerSurfacePlan returned nil")
+	}
+	if len(plan.LogObservedAnchors) != 2 {
+		t.Fatalf("log observed anchors = %d, want 2", len(plan.LogObservedAnchors))
+	}
+	gotLines := make(map[int]string, len(plan.LogObservedAnchors))
+	for _, anchor := range plan.LogObservedAnchors {
+		gotLines[anchor.AnchoredLine] = anchor.Func
+	}
+	if gotLines[860] != "buildAnalysisIR" {
+		t.Fatalf("authoritative callee anchor missing, got %+v", plan.LogObservedAnchors)
+	}
+	if gotLines[651] != "ParseOutput" {
+		t.Fatalf("authoritative caller anchor should recover from relationship evidence, got %+v", plan.LogObservedAnchors)
+	}
+	if _, ok := gotLines[233]; ok {
+		t.Fatalf("same-file helper definition must not become a log authoritative anchor, got %+v", plan.LogObservedAnchors)
+	}
+	if _, ok := gotLines[243]; ok {
+		t.Fatalf("same-file helper condition must not become a log authoritative anchor, got %+v", plan.LogObservedAnchors)
+	}
+}
+
 func TestBuildAnswerSurfacePlan_UsesDriftBoundedRootCauseModeForRootCauseLogs(t *testing.T) {
 	mut := NewMutableState("")
 	logBundle := &LogBundle{

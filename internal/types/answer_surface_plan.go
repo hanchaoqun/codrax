@@ -1093,11 +1093,15 @@ func collectLogSourceAnchors(rm RequestModel, bundle *LogBundle, items []Evidenc
 	if len(frames) == 0 {
 		return nil
 	}
+	authoritativeTailsByFile := logSourceAuthoritativeTailsByFile(frames)
 
 	byFile := make(map[string][]EvidenceItem)
 	for _, item := range items {
 		source := strings.TrimSpace(strings.ReplaceAll(item.Source, `\`, `/`))
 		if source == "" || item.LineStart <= 0 {
+			continue
+		}
+		if !logSourceAnchorItemAllowed(item, authoritativeTailsByFile[source]) {
 			continue
 		}
 		byFile[source] = append(byFile[source], item)
@@ -1181,6 +1185,46 @@ func collectLogSourceAnchors(rm RequestModel, bundle *LogBundle, items []Evidenc
 		return out[i].AnchoredLine < out[j].AnchoredLine
 	})
 	return out
+}
+
+func logSourceAuthoritativeTailsByFile(frames []LogFrame) map[string]map[string]bool {
+	if len(frames) == 0 {
+		return nil
+	}
+	out := make(map[string]map[string]bool)
+	for _, frame := range frames {
+		file := strings.TrimSpace(strings.ReplaceAll(frame.File, `\`, `/`))
+		tail := normalizedSurfaceSymbolTail(frame.Func)
+		if file == "" || tail == "" {
+			continue
+		}
+		if out[file] == nil {
+			out[file] = make(map[string]bool)
+		}
+		out[file][tail] = true
+	}
+	return out
+}
+
+func logSourceAnchorItemAllowed(item EvidenceItem, authoritativeTails map[string]bool) bool {
+	if len(authoritativeTails) == 0 {
+		return true
+	}
+	if item.GroundingStatus == GroundingUngrounded || item.ContextRole == EvidenceContextRoleIllustrativeOnly {
+		return false
+	}
+	// Keep definition anchors eligible even when the current symbol tail no
+	// longer matches verbatim: Tier 2 rename recovery needs those candidates
+	// to compare the log-side tail against the current definition name.
+	if item.AnchorKind == AnchorDefinition {
+		return true
+	}
+	for _, tail := range EvidenceSurfaceSymbolTails(item) {
+		if authoritativeTails[tail] {
+			return true
+		}
+	}
+	return false
 }
 
 func nearestLogSourceDriftAnchorLine(candidates []EvidenceItem, tail string, observedLine int) (bestLine, bestDelta int) {
@@ -1374,7 +1418,12 @@ func logSourceDriftCandidateTails(item EvidenceItem, definitionOnly bool) []stri
 	if item.AnchorKind == AnchorDefinition {
 		raws = append(raws, item.AnchorSymbol, item.Subject)
 	} else if !definitionOnly {
-		raws = append(raws, item.AnchorSymbol)
+		// Non-definition evidence often carries the authoritative symbol in
+		// Subject/Object even when AnchorSymbol names the local owner/callee.
+		// Keeping all three aligned with EvidenceSurfaceSymbolTails lets the
+		// log-drift surface reuse the same structural symbol binding the rest
+		// of the answer pipeline already trusts.
+		raws = append(raws, item.AnchorSymbol, item.Subject, item.Object)
 	}
 	var out []string
 	seen := make(map[string]bool)

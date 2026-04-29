@@ -120,19 +120,21 @@ func (t *EmitLogSegmentation) Execute(ctx *types.BusContext, params json.RawMess
 
 	logLen := len(ctx.AttachedLog)
 	kept := make([]LogSegment, 0, len(p.Segments))
+	normalized := 0
 	for _, s := range p.Segments {
-		if s.ByteStart < 0 || s.ByteEnd <= s.ByteStart || s.ByteEnd > logLen {
-			continue // silently drop malformed
+		start, end, changed, ok := normalizeSegmentationRange(s.ByteStart, s.ByteEnd, logLen)
+		if !ok {
+			continue
 		}
+		if changed {
+			normalized++
+		}
+		s.ByteStart = start
+		s.ByteEnd = end
 		kept = append(kept, s)
 	}
 	if len(kept) == 0 {
-		return types.ToolResult{
-			ToolName:  t.Name(),
-			Success:   false,
-			Summary:   "emit_log_segmentation rejected: no valid segments after coordinate validation",
-			Timestamp: time.Now(),
-		}, nil
+		return segmentationCoordinateRejected(t.Name(), "runtime log", logLen, len(p.Segments)), nil
 	}
 
 	// Marshal segments + store on MutableState via the opaque
@@ -151,7 +153,7 @@ func (t *EmitLogSegmentation) Execute(ctx *types.BusContext, params json.RawMess
 	return types.ToolResult{
 		ToolName:  t.Name(),
 		Success:   true,
-		Summary:   fmt.Sprintf("[emit_log_segmentation: kept=%d bytes=%d]\nsegments recorded", len(kept), logLen),
+		Summary:   fmt.Sprintf("[emit_log_segmentation: kept=%d bytes=%d normalized=%d]\nsegments recorded", len(kept), logLen, normalized),
 		Timestamp: time.Now(),
 	}, nil
 }

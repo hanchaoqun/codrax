@@ -582,7 +582,7 @@ func BuildPromptContext(ac *types.AgentContext, sk *skill.Config) *types.PromptC
 	// bundle via ac.PerfTrace. The section size follows the same
 	// inline-vs-blob strategy as the log section; a multi-MB trace
 	// would otherwise balloon every prompt.
-	if section := formatAttachedLog(ac.AttachedHitrace, ac.WorkDir); section != "" {
+	if section := formatAttachedTrace(ac.AttachedHitrace, ac.WorkDir); section != "" {
 		pc.UserSections = append(pc.UserSections, types.PromptSection{
 			// Title order matches the user-facing CLI flag order:
 			// HiTrace / atrace / systrace / perfetto are all
@@ -801,10 +801,10 @@ func BuildPromptContext(ac *types.AgentContext, sk *skill.Config) *types.PromptC
 	// earlier-window anchors.
 	strictEvidenceLoc := ac.Stage == types.StageExtract || ac.Stage == types.StageFinalize
 	evidence := formatEvidenceItemsWithOptions(ac.EvidenceItems, 18, evidenceRenderOptions{
-		StrictLocation:             strictEvidenceLoc,
-		NeutralizeExactResolution:  ac.Stage == types.StageFinalize || ac.Stage == types.StageExtract,
-		ExactResolutionContract:    exactResolutionContractForRender(ac),
-		ExactResolutionScenario:    exactResolutionScenarioForRender(ac),
+		StrictLocation:            strictEvidenceLoc,
+		NeutralizeExactResolution: ac.Stage == types.StageFinalize || ac.Stage == types.StageExtract,
+		ExactResolutionContract:   exactResolutionContractForRender(ac),
+		ExactResolutionScenario:   exactResolutionScenarioForRender(ac),
 	})
 	findings := formatFlowFindings(ac.FlowFindings, 10)
 	logging.Debug("[builder] %s/%s: evidence_section_len=%d findings_section_len=%d", ac.AgentName, ac.Stage, len(evidence), len(findings))
@@ -1561,6 +1561,12 @@ func formatNumberedList(items []string) string {
 // as a blob-backed attachment (avoids a repo path check false-positive).
 const AttachedLogBlobName = "attached_log.txt"
 
+// AttachedTraceBlobName is the perf-trace companion to
+// AttachedLogBlobName. Kept distinct so a run carrying both a panic
+// log and a performance trace cannot overwrite one attachment blob
+// with the other inside the shared WorkDir.
+const AttachedTraceBlobName = "attached_trace.txt"
+
 const (
 	attachedLogInlineCap = 4 * 1024 // ≤ 4 KB → inline whole body
 	attachedLogHeadCap   = 2 * 1024 // head preview when blobbed
@@ -1632,6 +1638,60 @@ func formatAttachedLog(raw, workDir string) string {
 	// an elision marker so the caller still gets bounded rendering.
 	return preamble +
 		fmt.Sprintf("Total log size: %d bytes; showing head (%d B) + tail (%d B), middle elided.\n\n",
+			len(raw), attachedLogHeadCap, attachedLogTailCap) +
+		"```\n" + head +
+		fmt.Sprintf("\n... [%d bytes elided] ...\n", elided) +
+		tail + "\n```"
+}
+
+// formatAttachedTrace mirrors formatAttachedLog for performance traces
+// but keeps the blob filename and preamble specific to the trace
+// channel. This avoids prompt leakage from the runtime-log wording
+// and prevents blob-path collisions when a run carries both
+// attachments.
+func formatAttachedTrace(raw, workDir string) string {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return ""
+	}
+	preamble := "The user attached the performance trace below alongside their question. " +
+		"The perf_triage stage has already extracted structured hotspots, stalls, " +
+		"and startup / jank envelopes when possible. Use the validated Perf Triage " +
+		"section first; consult the raw trace only when you need literal timestamps, " +
+		"thread names, or event tags from the attached capture.\n\n"
+
+	if len(raw) <= attachedLogInlineCap {
+		return preamble + "```\n" + raw + "\n```"
+	}
+
+	blobPath := ""
+	if workDir != "" {
+		target := filepath.Join(workDir, AttachedTraceBlobName)
+		if err := os.WriteFile(target, []byte(raw), 0o644); err == nil {
+			blobPath = target
+		} else {
+			logging.Warning("[context] attached-trace blob write failed: %v (falling back to head+tail)", err)
+		}
+	}
+
+	head := raw[:attachedLogHeadCap]
+	tail := raw[len(raw)-attachedLogTailCap:]
+	elided := len(raw) - attachedLogHeadCap - attachedLogTailCap
+
+	if blobPath != "" {
+		return preamble +
+			fmt.Sprintf("Total trace size: %d bytes. Preview below shows head (%d B) + tail (%d B); "+
+				"the middle (%d B) is elided. The complete trace is saved to `%s` — "+
+				"use `read_file` with offset+limit on that path to paginate through the "+
+				"elided region if you need events beyond the preview.\n\n",
+				len(raw), attachedLogHeadCap, attachedLogTailCap, elided, blobPath) +
+			"```\n" + head +
+			fmt.Sprintf("\n... [%d bytes elided — read %s for full trace] ...\n", elided, blobPath) +
+			tail + "\n```"
+	}
+
+	return preamble +
+		fmt.Sprintf("Total trace size: %d bytes; showing head (%d B) + tail (%d B), middle elided.\n\n",
 			len(raw), attachedLogHeadCap, attachedLogTailCap) +
 		"```\n" + head +
 		fmt.Sprintf("\n... [%d bytes elided] ...\n", elided) +

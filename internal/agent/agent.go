@@ -1634,20 +1634,7 @@ func (b *BaseAgent) executeTool(ctx *types.AgentContext, tc llm.ToolCall) (*type
 			// honour Preferences. All other BusContext fields stay
 			// zero-valued, so tools physically cannot mutate
 			// stage-output state.
-			busCtx := &types.BusContext{
-				RepoRoot:             ctx.RepoRoot,
-				Branch:               ctx.Branch,
-				Commit:               ctx.Commit,
-				WorkDir:              ctx.WorkDir,
-				MainRepoRoot:         ctx.MainRepoRoot,
-				Mutable:              ctx.Mutable,
-				AnalysisIR:           ctx.AnalysisIR,
-				Memory:               ctx.Memory,
-				EnvFacts:             ctx.EnvFacts,
-				EnvRecommendSettings: ctx.EnvRecommendSettings,
-				Language:             ctx.Language,
-				Preferences:          ctx.Preferences,
-			}
+			busCtx := b.buildToolBusContext(ctx)
 			result, execErr := b.deps.Tools.Execute(busCtx, tc.Name, tc.Params)
 			if execErr != nil {
 				logging.Error("tool %s execution error: %v", tc.Name, execErr)
@@ -1695,6 +1682,34 @@ func (b *BaseAgent) executeTool(ctx *types.AgentContext, tc llm.ToolCall) (*type
 
 	logging.Warning("tool not found: %s", tc.Name)
 	return nil, nil
+}
+
+func (b *BaseAgent) buildToolBusContext(ctx *types.AgentContext) *types.BusContext {
+	if ctx == nil {
+		return &types.BusContext{}
+	}
+	active := ctx.AgentName
+	if active == "" {
+		active = b.name
+	}
+	return &types.BusContext{
+		Mutable:              ctx.Mutable,
+		PipelineStage:        ctx.Stage,
+		ActiveAgent:          active,
+		RepoRoot:             ctx.RepoRoot,
+		Branch:               ctx.Branch,
+		Commit:               ctx.Commit,
+		WorkDir:              ctx.WorkDir,
+		MainRepoRoot:         ctx.MainRepoRoot,
+		AnalysisIR:           ctx.AnalysisIR,
+		AttachedLog:          ctx.AttachedLog,
+		AttachedHitrace:      ctx.AttachedHitrace,
+		Memory:               ctx.Memory,
+		EnvFacts:             ctx.EnvFacts,
+		EnvRecommendSettings: ctx.EnvRecommendSettings,
+		Language:             ctx.Language,
+		Preferences:          ctx.Preferences,
+	}
 }
 
 // canParallelizeToolBatch returns true when all tool calls in the

@@ -14,6 +14,7 @@ import (
 	"strings"
 	"time"
 
+	promptctx "github.com/hanchaoqun/codrax/internal/context"
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
@@ -93,6 +94,115 @@ func normalizeToolAbsolutePath(p string) string {
 		return normalized
 	}
 	return p
+}
+
+type attachmentReadPolicy struct {
+	blobPath      string
+	blobName      string
+	artifactLabel string
+	emitTools     string
+}
+
+func readFileAttachmentPolicy(ctx *types.BusContext) (attachmentReadPolicy, bool) {
+	if ctx == nil {
+		return attachmentReadPolicy{}, false
+	}
+	switch {
+	case ctx.ActiveAgent == types.AgentLogTriager || ctx.PipelineStage == types.StageLogTriage:
+		return attachmentReadPolicy{
+			blobPath:      attachedArtifactBlobPath(ctx.WorkDir, promptctx.AttachedLogBlobName),
+			blobName:      promptctx.AttachedLogBlobName,
+			artifactLabel: "runtime log",
+			emitTools:     "emit_log_triage / emit_log_segmentation",
+		}, true
+	case ctx.ActiveAgent == types.AgentPerfTriager || ctx.PipelineStage == types.StagePerfTriage:
+		return attachmentReadPolicy{
+			blobPath:      attachedArtifactBlobPath(ctx.WorkDir, promptctx.AttachedTraceBlobName),
+			blobName:      promptctx.AttachedTraceBlobName,
+			artifactLabel: "performance trace",
+			emitTools:     "emit_perf_trace / emit_perf_segmentation",
+		}, true
+	default:
+		return attachmentReadPolicy{}, false
+	}
+}
+
+func attachedArtifactBlobPath(workDir, blobName string) string {
+	if strings.TrimSpace(workDir) == "" || strings.TrimSpace(blobName) == "" {
+		return ""
+	}
+	path := filepath.Join(workDir, blobName)
+	if _, err := os.Stat(path); err != nil {
+		return ""
+	}
+	return path
+}
+
+func resolveAttachmentScopedReadPath(ctx *types.BusContext, requested string, policy attachmentReadPolicy) string {
+	requested = strings.TrimSpace(requested)
+	if requested == "" {
+		return resolveToolPath(ctx, requested)
+	}
+	trimmed := strings.ReplaceAll(requested, "\\", "/")
+	if strings.EqualFold(path.Base(trimmed), policy.blobName) {
+		return policy.blobPath
+	}
+	return resolveToolPath(ctx, requested)
+}
+
+func toolPathsEqual(a, b string) bool {
+	a = filepath.Clean(a)
+	b = filepath.Clean(b)
+	if runtime.GOOS == "windows" {
+		return strings.EqualFold(a, b)
+	}
+	return a == b
+}
+
+func resolveReadFilePath(ctx *types.BusContext, requested string) (string, *types.ToolResult) {
+	if policy, restricted := readFileAttachmentPolicy(ctx); restricted {
+		if policy.blobPath == "" {
+			hint := fmt.Sprintf("This dispatch may only paginate the attached %s blob, but no blob path is available. Decide from the inline attached %s section and emit %s directly instead of reading repository files.", policy.artifactLabel, policy.artifactLabel, policy.emitTools)
+			return "", &types.ToolResult{
+				ToolName: "read_file",
+				Success:  false,
+				Summary:  fmt.Sprintf("read_file rejected: this dispatch may only paginate the attached %s blob, but no blob path is available. Decide from the inline attached %s section and emit the structured triage tool instead of reading repository files.", policy.artifactLabel, policy.artifactLabel),
+				Repair: &types.ToolRepair{
+					Code:   "attachment_only_read_file",
+					Hint:   hint,
+					Fields: []string{"path"},
+					Metadata: map[string]string{
+						"artifact":   policy.artifactLabel,
+						"emit_tools": policy.emitTools,
+					},
+				},
+				Timestamp: time.Now(),
+			}
+		}
+		resolved := resolveAttachmentScopedReadPath(ctx, requested, policy)
+		if !toolPathsEqual(resolved, policy.blobPath) {
+			hint := fmt.Sprintf("This dispatch may only read the attached %s blob at %s. Re-issue `read_file` on that blob path (or its basename `%s`) if you need pagination; do not read repository source files during triage.", policy.artifactLabel, policy.blobPath, policy.blobName)
+			return "", &types.ToolResult{
+				ToolName: "read_file",
+				Success:  false,
+				Summary:  "read_file rejected: triage-stage attachment paging is restricted to the attached artifact blob",
+				Repair: &types.ToolRepair{
+					Code:   "attachment_only_read_file",
+					Hint:   hint,
+					Fields: []string{"path"},
+					Metadata: map[string]string{
+						"allowed_path":     policy.blobPath,
+						"allowed_basename": policy.blobName,
+						"artifact":         policy.artifactLabel,
+						"emit_tools":       policy.emitTools,
+					},
+				},
+				Timestamp: time.Now(),
+			}
+		}
+		return policy.blobPath, nil
+	}
+	return resolveToolPath(ctx, requested), nil
 }
 
 func normalizeWindowsPOSIXPath(p string) (string, bool) {
@@ -797,7 +907,10 @@ func (t *ReadFile) Execute(ctx *types.BusContext, params json.RawMessage) (types
 	// in repo-relative form (the canonicaliser also stores them that
 	// way); the banner below echoes p.Path verbatim so those downstream
 	// keys stay aligned.
-	fsPath := resolveToolPath(ctx, p.Path)
+	fsPath, reject := resolveReadFilePath(ctx, p.Path)
+	if reject != nil {
+		return *reject, nil
+	}
 	data, err := os.ReadFile(fsPath)
 	if err != nil {
 		return types.ToolResult{ToolName: t.Name(), Success: false, Summary: fmt.Sprintf("read failed: %v", err), Timestamp: time.Now()}, nil

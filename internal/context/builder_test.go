@@ -227,6 +227,29 @@ func TestFormatAttachedLog_NoWorkDirFallsBack(t *testing.T) {
 	}
 }
 
+func TestFormatAttachedTrace_BlobOffload_UsesDistinctBlobName(t *testing.T) {
+	dir := t.TempDir()
+	const N = 8 * 1024
+	payload := strings.Repeat("T", N)
+	got := formatAttachedTrace(payload, dir)
+	if !strings.Contains(got, AttachedTraceBlobName) {
+		t.Fatalf("trace blob path not referenced: %s", got)
+	}
+	if strings.Contains(got, AttachedLogBlobName) {
+		t.Fatalf("trace rendering should not reuse runtime-log blob name: %s", got)
+	}
+	if !strings.Contains(strings.ToLower(got), "performance trace") {
+		t.Fatalf("trace preamble should mention performance trace: %s", got)
+	}
+	written, err := os.ReadFile(filepath.Join(dir, AttachedTraceBlobName))
+	if err != nil {
+		t.Fatalf("read trace blob: %v", err)
+	}
+	if len(written) != N {
+		t.Fatalf("trace blob size = %d, want %d", len(written), N)
+	}
+}
+
 func sectionTitles(sections []types.PromptSection) []string {
 	out := make([]string, 0, len(sections))
 	for _, s := range sections {

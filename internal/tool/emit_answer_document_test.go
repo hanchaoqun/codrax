@@ -1972,8 +1972,8 @@ func TestEmitAnswerDocument_NormalizesDriftBoundedRootCauseStepListSummarySurfac
 	if !strings.Contains(doc.Summary, "does not fully align with the current checkout") {
 		t.Fatalf("summary missing drift lead: %q", doc.Summary)
 	}
-	if !strings.Contains(doc.Summary, "passes ctx from ParseOutput into buildAnalysisIR") {
-		t.Fatalf("drift-bounded summary should preserve grounded cause prose: %q", doc.Summary)
+	if !strings.Contains(doc.Summary, "The current repo only grounds the verified path where `ParseOutput` calls `buildAnalysisIR`.") {
+		t.Fatalf("drift-bounded summary should fall back to the compiled bounded explanation: %q", doc.Summary)
 	}
 	if !strings.Contains(doc.Summary, "innermost failure: internal/agent/analyzer.go:250 in buildAnalysisIR") {
 		t.Fatalf("summary missing compiled call-chain fence: %q", doc.Summary)
@@ -2051,6 +2051,85 @@ func TestEmitAnswerDocument_DriftBoundedSummaryDropsUnsupportedAuxiliaryLabels(t
 	}
 	if !strings.Contains(doc.Summary, "ParseOutput") || !strings.Contains(doc.Summary, "buildAnalysisIR") {
 		t.Fatalf("drift-bounded summary should preserve or recover the grounded frame-bounded path: %q", doc.Summary)
+	}
+}
+
+func TestEmitAnswerDocument_DriftBoundedSummaryFallsBackForMultiBlockReasoning(t *testing.T) {
+	tool := &EmitAnswerDocument{}
+	ctx := newDocBusCtx("")
+	ctx.Language = "en"
+	ctx.AnalysisIR = &types.AnalysisIR{
+		RequestModel: types.RequestModel{
+			Scenario: types.ScenarioRootCause,
+			Intent:   types.IntentRootCause,
+		},
+		AnswerContract: types.AnswerContract{
+			RequiredAnswerShape: types.ShapeExplanation,
+			Diagram: &types.DiagramContract{
+				Required:       true,
+				PreferredKinds: []types.DiagramKind{types.DiagramCallDAG},
+			},
+		},
+	}
+	ctx.Mutable.SetLogTriage(&types.LogBundle{
+		Errors: []types.LogError{{
+			Frames: []types.LogFrame{
+				{File: "internal/agent/analyzer.go", Line: 250, Func: "buildAnalysisIR"},
+				{File: "internal/agent/analyzer.go", Line: 320, Func: "ParseOutput"},
+			},
+		}},
+	})
+	ctx.Mutable.AppendEvidence([]types.EvidenceItem{
+		{
+			Kind:            types.EvidenceDirect,
+			Source:          "internal/agent/analyzer.go",
+			LineStart:       860,
+			AnchorKind:      types.AnchorDefinition,
+			AnchorSymbol:    "buildAnalysisIR",
+			GroundingStatus: types.GroundingGrounded,
+			Producer:        EmitEvidenceProducer,
+		},
+		{
+			Kind:            types.EvidenceDirect,
+			Source:          "internal/agent/analyzer.go",
+			LineStart:       651,
+			AnchorKind:      types.AnchorCall,
+			AnchorSymbol:    "buildAnalysisIR",
+			Subject:         "ParseOutput",
+			GroundingStatus: types.GroundingGrounded,
+			Producer:        EmitEvidenceProducer,
+		},
+	})
+
+	params := mustDocJSON(t, map[string]interface{}{
+		"shape": "explanation",
+		"summary": "The current call path is grounded from `ParseOutput` into `buildAnalysisIR`.\n\n" +
+			"The nil receiver theory means the older build must have skipped the guard before entering `buildAnalysisIR`.",
+		"citations": []map[string]interface{}{
+			{"file": "internal/agent/analyzer.go", "line": 651, "quote": "ir, buildErr := buildAnalysisIR(ctx)"},
+			{"file": "internal/agent/analyzer.go", "line": 860, "quote": "func buildAnalysisIR(ctx *types.AgentContext) (*types.AnalysisIR, error) {"},
+		},
+	})
+
+	res, _ := tool.Execute(ctx, params)
+	if !res.Success {
+		t.Fatalf("Execute failed: %q", res.Summary)
+	}
+	doc := ctx.Mutable.AnswerDocument()
+	if doc == nil {
+		t.Fatal("answer document not stored")
+	}
+	if strings.Contains(doc.Summary, "nil receiver theory") {
+		t.Fatalf("multi-block speculative drift summary should fall back to the compiled bounded summary: %q", doc.Summary)
+	}
+	if !strings.Contains(doc.Summary, "The current repo only grounds") {
+		t.Fatalf("fallback summary missing compiled bounded explanation: %q", doc.Summary)
+	}
+	if !strings.Contains(doc.Summary, "buildAnalysisIR") {
+		t.Fatalf("fallback summary should stay anchored on the grounded failure path: %q", doc.Summary)
+	}
+	if !strings.Contains(doc.Summary, "innermost failure: internal/agent/analyzer.go:250 in buildAnalysisIR") {
+		t.Fatalf("fallback summary should still append compiled call-chain fence: %q", doc.Summary)
 	}
 }
 

@@ -248,6 +248,67 @@ func TestReadFile(t *testing.T) {
 			t.Fatalf("clamped content should fit inline without blob truncation, but got truncation hint")
 		}
 	})
+
+	t.Run("log triage rejects repo files when no attachment blob exists", func(t *testing.T) {
+		repoRoot := t.TempDir()
+		src := filepath.Join(repoRoot, "internal", "agent")
+		if err := os.MkdirAll(src, 0o755); err != nil {
+			t.Fatalf("mkdir: %v", err)
+		}
+		file := filepath.Join(src, "analyzer.go")
+		if err := os.WriteFile(file, []byte("package agent\n"), 0o644); err != nil {
+			t.Fatalf("write: %v", err)
+		}
+
+		ctx := &types.BusContext{
+			RepoRoot:      repoRoot,
+			WorkDir:       t.TempDir(),
+			PipelineStage: types.StageLogTriage,
+			ActiveAgent:   types.AgentLogTriager,
+			AttachedLog:   "panic: boom",
+			Mutable:       types.NewMutableState("test"),
+		}
+		tool := &ReadFile{}
+		params, _ := json.Marshal(readFileParams{Path: "internal/agent/analyzer.go"})
+		result, err := tool.Execute(ctx, params)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if result.Success {
+			t.Fatalf("expected rejection, got success summary=%q", result.Summary)
+		}
+		if result.Repair == nil || result.Repair.Code != "attachment_only_read_file" {
+			t.Fatalf("expected attachment-only repair, got %+v", result.Repair)
+		}
+	})
+
+	t.Run("log triage allows attached-log blob basename", func(t *testing.T) {
+		workDir := t.TempDir()
+		blobPath := filepath.Join(workDir, "attached_log.txt")
+		if err := os.WriteFile(blobPath, []byte("panic: boom\nframe\n"), 0o644); err != nil {
+			t.Fatalf("write blob: %v", err)
+		}
+
+		ctx := &types.BusContext{
+			WorkDir:       workDir,
+			PipelineStage: types.StageLogTriage,
+			ActiveAgent:   types.AgentLogTriager,
+			AttachedLog:   strings.Repeat("x", 8192),
+			Mutable:       types.NewMutableState("test"),
+		}
+		tool := &ReadFile{}
+		params, _ := json.Marshal(readFileParams{Path: "attached_log.txt"})
+		result, err := tool.Execute(ctx, params)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if !result.Success {
+			t.Fatalf("expected success, got %s", result.Summary)
+		}
+		if !strings.Contains(result.Summary, "panic: boom") {
+			t.Fatalf("expected blob contents, got %q", result.Summary)
+		}
+	})
 }
 
 func min(a, b int) int {

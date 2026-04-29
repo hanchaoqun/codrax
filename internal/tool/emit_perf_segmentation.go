@@ -129,10 +129,17 @@ func (t *EmitPerfSegmentation) Execute(ctx *types.BusContext, params json.RawMes
 
 	traceLen := len(ctx.AttachedHitrace)
 	kept := make([]PerfSegment, 0, len(p.Segments))
+	normalized := 0
 	for _, s := range p.Segments {
-		if s.ByteStart < 0 || s.ByteEnd <= s.ByteStart || s.ByteEnd > traceLen {
-			continue // silently drop malformed
+		start, end, changed, ok := normalizeSegmentationRange(s.ByteStart, s.ByteEnd, traceLen)
+		if !ok {
+			continue
 		}
+		if changed {
+			normalized++
+		}
+		s.ByteStart = start
+		s.ByteEnd = end
 		// Filter noise + context segments — Step B only re-dispatches
 		// emit_perf_trace on actionable segments. Keeping the noise
 		// segment on bus is fine for diagnostics but the controller
@@ -140,12 +147,7 @@ func (t *EmitPerfSegmentation) Execute(ctx *types.BusContext, params json.RawMes
 		kept = append(kept, s)
 	}
 	if len(kept) == 0 {
-		return types.ToolResult{
-			ToolName:  t.Name(),
-			Success:   false,
-			Summary:   "emit_perf_segmentation rejected: no valid segments after coordinate validation",
-			Timestamp: time.Now(),
-		}, nil
+		return segmentationCoordinateRejected(t.Name(), "performance trace", traceLen, len(p.Segments)), nil
 	}
 
 	raw, err := json.Marshal(kept)
@@ -162,7 +164,7 @@ func (t *EmitPerfSegmentation) Execute(ctx *types.BusContext, params json.RawMes
 	return types.ToolResult{
 		ToolName:  t.Name(),
 		Success:   true,
-		Summary:   fmt.Sprintf("[emit_perf_segmentation: kept=%d bytes=%d]\nsegments recorded", len(kept), traceLen),
+		Summary:   fmt.Sprintf("[emit_perf_segmentation: kept=%d bytes=%d normalized=%d]\nsegments recorded", len(kept), traceLen, normalized),
 		Timestamp: time.Now(),
 	}, nil
 }

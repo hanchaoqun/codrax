@@ -289,3 +289,66 @@ func TestEmitLogSegmentation_Execute_StoresValidSegments(t *testing.T) {
 		t.Errorf("kept = %d, want 2", len(back))
 	}
 }
+
+func TestEmitLogSegmentation_Execute_ClampsSlightlyOutOfBoundsSegments(t *testing.T) {
+	bus := &types.BusContext{
+		AttachedLog: strings.Repeat("x", 200),
+		Mutable:     types.NewMutableState("test"),
+	}
+
+	params, _ := json.Marshal(emitLogSegmentationParams{
+		Segments: []LogSegment{
+			{ByteStart: 150, ByteEnd: 205, Kind: "stack"},
+		},
+	})
+
+	tool := &EmitLogSegmentation{}
+	res, err := tool.Execute(bus, params)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !res.Success {
+		t.Fatalf("success=false, summary=%s", res.Summary)
+	}
+	var back []LogSegment
+	if err := json.Unmarshal(bus.Mutable.LogSegments(), &back); err != nil {
+		t.Fatal(err)
+	}
+	if len(back) != 1 {
+		t.Fatalf("kept = %d, want 1", len(back))
+	}
+	if back[0].ByteEnd != 200 {
+		t.Fatalf("ByteEnd = %d, want 200", back[0].ByteEnd)
+	}
+	if !strings.Contains(res.Summary, "normalized=1") {
+		t.Fatalf("expected normalized summary, got %q", res.Summary)
+	}
+}
+
+func TestEmitLogSegmentation_Execute_RejectsWithCoordinateRepair(t *testing.T) {
+	bus := &types.BusContext{
+		AttachedLog: strings.Repeat("x", 50),
+		Mutable:     types.NewMutableState("test"),
+	}
+
+	params, _ := json.Marshal(emitLogSegmentationParams{
+		Segments: []LogSegment{
+			{ByteStart: 75, ByteEnd: 90, Kind: "stack"},
+		},
+	})
+
+	tool := &EmitLogSegmentation{}
+	res, err := tool.Execute(bus, params)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Success {
+		t.Fatalf("expected rejection, got success summary=%q", res.Summary)
+	}
+	if res.Repair == nil || res.Repair.Code != "segmentation_coordinates" {
+		t.Fatalf("expected segmentation coordinate repair, got %+v", res.Repair)
+	}
+	if !strings.Contains(res.Summary, "attachment_bytes=50") {
+		t.Fatalf("expected attachment size in summary, got %q", res.Summary)
+	}
+}
