@@ -356,6 +356,7 @@ func (t *EmitInvestigationComplete) Execute(ctx *types.BusContext, params json.R
 		}, nil
 	}
 
+	reason = normalizeLogSourceDriftCompletionReason(ctx, reason)
 	ctx.Mutable.SetInvestigationComplete(reason)
 	ctx.Mutable.SetInvestigationResultKind(resultKind)
 	summary := fmt.Sprintf("Investigation marked complete (confidence=%s, result_kind=%s): %s", conf, resultKind, reason)
@@ -1231,7 +1232,6 @@ func requiresCrossFileCoverage(k types.RequirementKind, primaryAnchors int) bool
 	}
 	return false
 }
-
 
 func countPrimaryAnchorFiles(ranked []types.Phase1RankedFile) int {
 	if len(ranked) == 0 {

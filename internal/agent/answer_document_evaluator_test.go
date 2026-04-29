@@ -1014,14 +1014,27 @@ func TestAnswerDocumentEvaluator_BuildInitialInstruction_RendersLogSourceDriftGu
 				},
 			}},
 		},
-		EvidenceItems: []types.EvidenceItem{{
-			Kind:            types.EvidenceDirect,
-			Source:          "internal/agent/analyzer.go",
-			LineStart:       612,
-			AnchorKind:      types.AnchorDefinition,
-			AnchorSymbol:    "buildAnalysisIR",
-			GroundingStatus: types.GroundingGrounded,
-		}},
+		EvidenceItems: []types.EvidenceItem{
+			{
+				Kind:            types.EvidenceRelationship,
+				Source:          "internal/agent/analyzer.go",
+				LineStart:       651,
+				AnchorKind:      types.AnchorCall,
+				AnchorSymbol:    "buildAnalysisIR",
+				Subject:         "ParseOutput",
+				Object:          "buildAnalysisIR",
+				GroundingStatus: types.GroundingGrounded,
+			},
+			{
+				Kind:            types.EvidenceConditional,
+				Source:          "internal/agent/analyzer.go",
+				LineStart:       861,
+				AnchorKind:      types.AnchorCondition,
+				AnchorSymbol:    "buildAnalysisIR",
+				Condition:       "ctx == nil || ctx.Mutable == nil",
+				GroundingStatus: types.GroundingGrounded,
+			},
+		},
 	}
 
 	prompt := (&answerDocumentEvaluator{}).BuildInitialInstruction(ctx, nil)
@@ -1029,6 +1042,8 @@ func TestAnswerDocumentEvaluator_BuildInitialInstruction_RendersLogSourceDriftGu
 		"## Log Source Drift",
 		"older or shifted build snapshot",
 		"Do not claim that the current cited line is the exact crashing line from the log",
+		"### Drift-Bounded Current Surface",
+		"buildAnalysisIR IF ctx == nil || ctx.Mutable == nil",
 	} {
 		if !strings.Contains(prompt, want) {
 			t.Fatalf("prompt missing %q:\n%s", want, prompt)

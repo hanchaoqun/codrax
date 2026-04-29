@@ -456,6 +456,93 @@ func TestBuildAnswerSurfacePlan_UsesDriftBoundedRootCauseModeForRootCauseLogs(t 
 	}
 }
 
+func TestBuildAnswerSurfacePlan_CollectsDriftBoundedSurfaceItems(t *testing.T) {
+	mut := NewMutableState("")
+	logBundle := &LogBundle{
+		Errors: []LogError{{
+			Frames: []LogFrame{
+				{File: "internal/agent/analyzer.go", Line: 250, Func: "buildAnalysisIR"},
+				{File: "internal/agent/analyzer.go", Line: 320, Func: "(*analyzerEvaluator).ParseOutput"},
+			},
+		}},
+	}
+	ir := &AnalysisIR{
+		RequestModel: RequestModel{
+			Scenario: ScenarioRootCause,
+			Intent:   IntentRootCause,
+		},
+		AnswerContract: AnswerContract{
+			RequiredAnswerShape: ShapeExplanation,
+		},
+	}
+	evidence := []EvidenceItem{
+		{
+			Kind:            EvidenceRelationship,
+			Source:          "internal/agent/analyzer.go",
+			LineStart:       651,
+			AnchorKind:      AnchorCall,
+			AnchorSymbol:    "buildAnalysisIR",
+			Subject:         "ParseOutput",
+			Object:          "buildAnalysisIR",
+			GroundingStatus: GroundingGrounded,
+		},
+		{
+			Kind:            EvidenceConditional,
+			Source:          "internal/agent/analyzer.go",
+			LineStart:       861,
+			AnchorKind:      AnchorCondition,
+			AnchorSymbol:    "buildAnalysisIR",
+			Condition:       "ctx == nil || ctx.Mutable == nil",
+			GroundingStatus: GroundingGrounded,
+		},
+		{
+			Kind:            EvidenceDirect,
+			Source:          "internal/agent/analyzer.go",
+			LineStart:       860,
+			AnchorKind:      AnchorDefinition,
+			AnchorSymbol:    "buildAnalysisIR",
+			GroundingStatus: GroundingGrounded,
+		},
+		{
+			Kind:            EvidenceDirect,
+			Source:          "internal/agent/analyzer.go",
+			LineStart:       233,
+			AnchorKind:      AnchorDefinition,
+			AnchorSymbol:    "buildAnalyzerRepoOverview",
+			GroundingStatus: GroundingGrounded,
+		},
+		{
+			Kind:            EvidenceRelationship,
+			Source:          "internal/agent/analyzer.go",
+			LineStart:       892,
+			AnchorKind:      AnchorCall,
+			AnchorSymbol:    "analyzerGraphForNormalize",
+			Subject:         "buildAnalysisIR",
+			Object:          "analyzerGraphForNormalize",
+			GroundingStatus: GroundingGrounded,
+		},
+	}
+
+	plan := BuildAnswerSurfacePlan(ir, mut, logBundle, nil, nil, evidence)
+	if plan == nil {
+		t.Fatal("BuildAnswerSurfacePlan returned nil")
+	}
+	if len(plan.DriftBoundedSurfaceItems) < 2 {
+		t.Fatalf("drift-bounded surface items = %d, want at least 2", len(plan.DriftBoundedSurfaceItems))
+	}
+	if got := plan.DriftBoundedSurfaceItems[0].LineStart; got != 651 {
+		t.Fatalf("first drift-bounded surface item line = %d, want call edge at 651", got)
+	}
+	if got := plan.DriftBoundedSurfaceItems[1].LineStart; got != 861 {
+		t.Fatalf("second drift-bounded surface item line = %d, want guard anchor at 861", got)
+	}
+	for _, item := range plan.DriftBoundedSurfaceItems {
+		if item.LineStart == 233 || item.LineStart == 892 {
+			t.Fatalf("drift-bounded surface must not elevate helper/speculative anchors, got %+v", plan.DriftBoundedSurfaceItems)
+		}
+	}
+}
+
 func TestBuildAnswerSurfacePlan_CompilesStepBackboneFromAnswerSymbols(t *testing.T) {
 	mut := NewMutableState("")
 	mut.SetEmittedAnswerSymbols([]AnswerSymbol{

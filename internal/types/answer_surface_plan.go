@@ -28,6 +28,7 @@ type AnswerSurfacePlan struct {
 	ExplanationAnchorMissingTopics []string
 	LogSourceDriftAnchors          []LogSourceDriftAnchor
 	LogObservedAnchors             []LogSourceDriftAnchor
+	DriftBoundedSurfaceItems       []EvidenceItem
 
 	ExactResolution          *ExactResolutionContract
 	PreferredExactResolution *AnswerExactResolution
@@ -745,6 +746,11 @@ func BuildAnswerSurfacePlan(
 		logBundle,
 		plan.SurfaceEvidence,
 	)
+	plan.DriftBoundedSurfaceItems = CollectDriftBoundedSurfaceItems(
+		plan.LogObservedAnchors,
+		plan.LogSourceDriftAnchors,
+		plan.SurfaceEvidence,
+	)
 	plan.PreferredExactResolution = preferredExactResolutionSurface(plan)
 	plan.SummarySurfaceMode = preferredAnswerSummarySurfaceMode(plan, ir.RequestModel)
 	if plan.ExactResolution == nil || len(plan.ExactResolution.Targets) == 0 {
@@ -1083,6 +1089,252 @@ func CollectLogObservedAnchors(rm RequestModel, bundle *LogBundle, items []Evide
 
 func CollectLogSourceDriftAnchors(rm RequestModel, bundle *LogBundle, items []EvidenceItem) []LogSourceDriftAnchor {
 	return collectLogSourceAnchors(rm, bundle, items, logSourceDriftLineGap)
+}
+
+func CollectDriftBoundedSurfaceItems(observed, drift []LogSourceDriftAnchor, items []EvidenceItem) []EvidenceItem {
+	if len(items) == 0 {
+		return nil
+	}
+	anchors := observed
+	if len(anchors) == 0 {
+		anchors = drift
+	}
+	if len(anchors) == 0 {
+		return nil
+	}
+	anchorFiles := make(map[string]bool, len(anchors))
+	for _, anchor := range anchors {
+		file := strings.TrimSpace(strings.ReplaceAll(anchor.File, `\`, `/`))
+		if file != "" {
+			anchorFiles[file] = true
+		}
+	}
+	innerFunc := strings.TrimSpace(firstNonEmptySurfaceString(
+		func() string {
+			if len(observed) > 0 {
+				return observed[0].Func
+			}
+			if len(drift) > 0 {
+				return drift[0].OriginalFunc
+			}
+			return ""
+		}(),
+		func() string {
+			if len(drift) > 0 {
+				return drift[0].Func
+			}
+			return ""
+		}(),
+	))
+	outerFunc := strings.TrimSpace(firstNonEmptySurfaceString(
+		func() string {
+			if len(observed) > 1 {
+				return observed[1].Func
+			}
+			if len(drift) > 1 {
+				return drift[1].OriginalFunc
+			}
+			return ""
+		}(),
+		func() string {
+			if len(drift) > 1 {
+				return drift[1].Func
+			}
+			return ""
+		}(),
+	))
+	var out []EvidenceItem
+	if ev, ok := bestDriftBoundedCallEdge(items, anchorFiles, outerFunc, innerFunc); ok {
+		out = append(out, ev)
+	}
+	if ev, ok := bestDriftBoundedFunctionItem(items, anchorFiles, innerFunc, out); ok {
+		out = append(out, ev)
+	}
+	if ev, ok := bestDriftBoundedFunctionItem(items, anchorFiles, outerFunc, out); ok {
+		out = append(out, ev)
+	}
+	if len(out) == 0 {
+		if ev, ok := bestDriftBoundedFallbackItem(items, anchorFiles); ok {
+			out = append(out, ev)
+		}
+	}
+	return out
+}
+
+func bestDriftBoundedCallEdge(items []EvidenceItem, anchorFiles map[string]bool, outerFunc, innerFunc string) (EvidenceItem, bool) {
+	outerTail := normalizedSurfaceSymbolTail(outerFunc)
+	innerTail := normalizedSurfaceSymbolTail(innerFunc)
+	if outerTail == "" || innerTail == "" {
+		return EvidenceItem{}, false
+	}
+	bestScore := -1
+	var best EvidenceItem
+	for _, item := range items {
+		if !driftBoundedSurfaceItemAllowed(item, anchorFiles) || !driftBoundedIsCallItem(item) {
+			continue
+		}
+		subjectTail := normalizedSurfaceSymbolTail(item.Subject)
+		objectTail := normalizedSurfaceSymbolTail(firstNonEmptySurfaceString(item.Object, item.AnchorSymbol))
+		if subjectTail == "" || objectTail == "" || subjectTail != outerTail || objectTail != innerTail {
+			continue
+		}
+		score := 1000
+		if item.LineStart > 0 {
+			score += 10000 - item.LineStart
+		}
+		if score > bestScore {
+			bestScore = score
+			best = item
+		}
+	}
+	return best, bestScore >= 0
+}
+
+func bestDriftBoundedFunctionItem(items []EvidenceItem, anchorFiles map[string]bool, fn string, existing []EvidenceItem) (EvidenceItem, bool) {
+	target := normalizedSurfaceSymbolTail(fn)
+	if target == "" {
+		return EvidenceItem{}, false
+	}
+	bestScore := -1
+	var best EvidenceItem
+	for _, item := range items {
+		if !driftBoundedSurfaceItemAllowed(item, anchorFiles) || driftBoundedItemSeen(existing, item) {
+			continue
+		}
+		if driftBoundedIsCallItem(item) {
+			continue
+		}
+		if !driftBoundedMentionsFunc(item, target) {
+			continue
+		}
+		score := 0
+		switch item.AnchorKind {
+		case AnchorCondition:
+			score += 500
+		case AnchorDefinition:
+			score += 400
+		case AnchorAssignment:
+			score += 300
+		case AnchorReturn:
+			score += 200
+		case AnchorCall:
+			score += 100
+		default:
+			score += 50
+		}
+		switch item.Kind {
+		case EvidenceConditional:
+			score += 40
+		case EvidenceDirect:
+			score += 30
+		case EvidenceMechanism:
+			score += 20
+		case EvidenceRelationship:
+			score += 10
+		}
+		if item.LineStart > 0 {
+			score += 10000 - item.LineStart
+		}
+		if score > bestScore {
+			bestScore = score
+			best = item
+		}
+	}
+	return best, bestScore >= 0
+}
+
+func bestDriftBoundedFallbackItem(items []EvidenceItem, anchorFiles map[string]bool) (EvidenceItem, bool) {
+	bestScore := -1
+	var best EvidenceItem
+	for _, item := range items {
+		if !driftBoundedSurfaceItemAllowed(item, anchorFiles) {
+			continue
+		}
+		score := 0
+		switch item.AnchorKind {
+		case AnchorCondition:
+			score += 300
+		case AnchorCall:
+			score += 250
+		case AnchorDefinition:
+			score += 200
+		case AnchorReturn, AnchorAssignment:
+			score += 150
+		default:
+			score += 100
+		}
+		switch item.Kind {
+		case EvidenceConditional:
+			score += 40
+		case EvidenceRelationship:
+			score += 30
+		case EvidenceDirect:
+			score += 20
+		}
+		if item.LineStart > 0 {
+			score += 10000 - item.LineStart
+		}
+		if score > bestScore {
+			bestScore = score
+			best = item
+		}
+	}
+	return best, bestScore >= 0
+}
+
+func driftBoundedSurfaceItemAllowed(item EvidenceItem, anchorFiles map[string]bool) bool {
+	file := strings.TrimSpace(strings.ReplaceAll(item.Source, `\`, `/`))
+	if file == "" || !anchorFiles[file] || LooksLikeAuxiliaryEvidencePath(file) {
+		return false
+	}
+	switch item.GroundingStatus {
+	case GroundingGrounded, GroundingRecovered, "":
+	default:
+		return false
+	}
+	switch item.ContextRole {
+	case EvidenceContextRoleIllustrativeOnly, EvidenceContextRoleAbsenceSupport:
+		return false
+	}
+	return true
+}
+
+func driftBoundedIsCallItem(item EvidenceItem) bool {
+	if item.AnchorKind == AnchorCall {
+		if strings.TrimSpace(item.Subject) != "" && strings.TrimSpace(firstNonEmptySurfaceString(item.Object, item.AnchorSymbol)) != "" {
+			return true
+		}
+		if IsCallLikeEvidencePredicate(item.Predicate) {
+			return true
+		}
+	}
+	return IsCallLikeEvidencePredicate(item.Predicate)
+}
+
+func driftBoundedMentionsFunc(item EvidenceItem, target string) bool {
+	for _, raw := range []string{item.AnchorSymbol, item.Subject, item.Object} {
+		if normalizedSurfaceSymbolTail(raw) == target {
+			return true
+		}
+	}
+	return false
+}
+
+func driftBoundedItemSeen(existing []EvidenceItem, candidate EvidenceItem) bool {
+	file := strings.TrimSpace(strings.ReplaceAll(candidate.Source, `\`, `/`))
+	for _, item := range existing {
+		if strings.TrimSpace(strings.ReplaceAll(item.Source, `\`, `/`)) != file {
+			continue
+		}
+		if item.LineStart != candidate.LineStart {
+			continue
+		}
+		if normalizedSurfaceSymbolTail(firstNonEmptySurfaceString(item.AnchorSymbol, item.Object, item.Subject)) ==
+			normalizedSurfaceSymbolTail(firstNonEmptySurfaceString(candidate.AnchorSymbol, candidate.Object, candidate.Subject)) {
+			return true
+		}
+	}
+	return false
 }
 
 func collectLogSourceAnchors(rm RequestModel, bundle *LogBundle, items []EvidenceItem, minGap int) []LogSourceDriftAnchor {

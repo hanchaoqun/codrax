@@ -3828,9 +3828,10 @@ func normalizeLogSourceDriftSummarySurface(summary string, citations []types.Cit
 	summary = strings.TrimSpace(summary)
 	plan := answerSurfacePlan(ctx)
 	if plan != nil && plan.SummarySurfaceMode == types.AnswerSummarySurfaceDriftBoundedRootCause {
-		rawNeedsFallback := driftBoundedSummaryNeedsFallback(summary)
 		summary = sanitizeDriftBoundedRootCauseSummary(summary, citations, gc, ctx)
-		if rawNeedsFallback || driftBoundedSummaryNeedsFallback(summary) {
+		if bounded := strings.TrimSpace(renderDriftBoundedCurrentRootCauseSummary(ctx)); bounded != "" {
+			summary = bounded
+		} else if driftBoundedSummaryNeedsFallback(summary) {
 			summary = ""
 		}
 		if summary == "" {

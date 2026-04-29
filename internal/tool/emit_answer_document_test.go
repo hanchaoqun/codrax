@@ -1690,8 +1690,8 @@ func TestEmitAnswerDocument_PrependsLogSourceDriftLeadAndCaveat(t *testing.T) {
 	if !strings.Contains(doc.Summary, "does not fully align with the current checkout") {
 		t.Fatalf("summary missing log-source-drift lead: %q", doc.Summary)
 	}
-	if !strings.Contains(doc.Summary, "dereferencing the request model after the guard path") {
-		t.Fatalf("drift-bounded explanation should preserve the grounded summary prose after the drift lead: %q", doc.Summary)
+	if !strings.Contains(doc.Summary, "current definition anchor for `buildAnalysisIR` is `internal/agent/analyzer.go:612`") {
+		t.Fatalf("drift-bounded explanation should normalize to the compiled bounded current-code surface: %q", doc.Summary)
 	}
 	if len(doc.Caveats) == 0 || !strings.Contains(doc.Caveats[0], "older build") {
 		t.Fatalf("caveats = %v, want older-build drift caveat", doc.Caveats)
@@ -1972,8 +1972,8 @@ func TestEmitAnswerDocument_NormalizesDriftBoundedRootCauseStepListSummarySurfac
 	if !strings.Contains(doc.Summary, "does not fully align with the current checkout") {
 		t.Fatalf("summary missing drift lead: %q", doc.Summary)
 	}
-	if !strings.Contains(doc.Summary, "The current repo only grounds the verified path where `ParseOutput` calls `buildAnalysisIR`.") {
-		t.Fatalf("drift-bounded summary should fall back to the compiled bounded explanation: %q", doc.Summary)
+	if !strings.Contains(doc.Summary, "current definition anchor for `buildAnalysisIR` is `internal/agent/analyzer.go:612`") {
+		t.Fatalf("drift-bounded summary should normalize to the compiled bounded current-code surface: %q", doc.Summary)
 	}
 	if !strings.Contains(doc.Summary, "innermost failure: internal/agent/analyzer.go:250 in buildAnalysisIR") {
 		t.Fatalf("summary missing compiled call-chain fence: %q", doc.Summary)
@@ -2122,7 +2122,7 @@ func TestEmitAnswerDocument_DriftBoundedSummaryFallsBackForMultiBlockReasoning(t
 	if strings.Contains(doc.Summary, "nil receiver theory") {
 		t.Fatalf("multi-block speculative drift summary should fall back to the compiled bounded summary: %q", doc.Summary)
 	}
-	if !strings.Contains(doc.Summary, "The current repo only grounds") {
+	if !strings.Contains(doc.Summary, "`ParseOutput` calls `buildAnalysisIR` at `internal/agent/analyzer.go:651`") {
 		t.Fatalf("fallback summary missing compiled bounded explanation: %q", doc.Summary)
 	}
 	if !strings.Contains(doc.Summary, "buildAnalysisIR") {

@@ -66,6 +66,72 @@ func TestEmitInvestigationComplete_AbsenceWithoutEvidenceAccepted(t *testing.T) 
 	}
 }
 
+func TestEmitInvestigationComplete_NormalizesLogSourceDriftReasonToBoundedSurface(t *testing.T) {
+	mut := types.NewMutableState("q")
+	mut.SetLogTriage(&types.LogBundle{
+		Errors: []types.LogError{{
+			Frames: []types.LogFrame{
+				{File: "internal/agent/analyzer.go", Line: 250, Func: "buildAnalysisIR"},
+				{File: "internal/agent/analyzer.go", Line: 320, Func: "(*analyzerEvaluator).ParseOutput"},
+			},
+		}},
+	})
+	mut.AppendEvidence([]types.EvidenceItem{
+		{
+			Kind:            types.EvidenceRelationship,
+			Source:          "internal/agent/analyzer.go",
+			LineStart:       651,
+			AnchorKind:      types.AnchorCall,
+			AnchorSymbol:    "buildAnalysisIR",
+			Subject:         "ParseOutput",
+			Object:          "buildAnalysisIR",
+			GroundingStatus: types.GroundingGrounded,
+			GroundingTier:   types.TierLineText,
+		},
+		{
+			Kind:            types.EvidenceConditional,
+			Source:          "internal/agent/analyzer.go",
+			LineStart:       861,
+			AnchorKind:      types.AnchorCondition,
+			AnchorSymbol:    "buildAnalysisIR",
+			Condition:       "ctx == nil || ctx.Mutable == nil",
+			GroundingStatus: types.GroundingGrounded,
+			GroundingTier:   types.TierLineText,
+		},
+	})
+	bus := &types.BusContext{
+		Mutable: mut,
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				Scenario: types.ScenarioRootCause,
+				Intent:   types.IntentRootCause,
+			},
+			AnswerContract: types.AnswerContract{
+				RequiredAnswerShape: types.ShapeExplanation,
+			},
+		},
+	}
+	tool := &EmitInvestigationComplete{}
+
+	params := json.RawMessage(`{"reason":"the nil receiver path proves ParseOutput panicked before entering the method body","confidence":"high","result_kind":"resolved"}`)
+	res, err := tool.Execute(bus, params)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("bounded drift completion should still succeed: %s", res.Summary)
+	}
+	got := mut.InvestigationCompleteReason()
+	if strings.Contains(strings.ToLower(got), "nil receiver") {
+		t.Fatalf("completion reason should be normalized to bounded drift surface, got %q", got)
+	}
+	for _, want := range []string{"ParseOutput", "buildAnalysisIR"} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("completion reason missing %q: %q", want, got)
+		}
+	}
+}
+
 func TestEmitInvestigationComplete_AbsenceRequiresHonestZeroPhrasing(t *testing.T) {
 	mut := types.NewMutableState("q")
 	bus := &types.BusContext{Mutable: mut}

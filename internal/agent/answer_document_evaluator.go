@@ -1161,6 +1161,28 @@ func renderAnswerDocLogSourceDrift(ctx *types.AgentContext) string {
 		fmt.Fprintf(&b, "- `%s:%d` in `%s` aligns most closely to current grounded anchor `%s:%d`.\n",
 			anchor.File, anchor.ObservedLine, funcLabel, anchor.File, anchor.AnchoredLine)
 	}
+	if len(plan.DriftBoundedSurfaceItems) > 0 {
+		b.WriteString("\n### Drift-Bounded Current Surface\n\n")
+		b.WriteString("Only claims directly expressible from the grounded anchors below belong in `summary` / `steps[]`. Treat anything beyond them as unproven older-build detail.\n\n")
+		for _, item := range plan.DriftBoundedSurfaceItems {
+			label := strings.TrimSpace(types.EvidenceStructuredSemanticLine(item, false))
+			if label == "" {
+				label = strings.TrimSpace(item.AnchorSymbol)
+			}
+			if label == "" {
+				continue
+			}
+			location := strings.TrimSpace(strings.ReplaceAll(item.Source, `\`, `/`))
+			if location != "" && item.LineStart > 0 {
+				location = fmt.Sprintf("%s:%d", location, item.LineStart)
+			}
+			if location != "" {
+				fmt.Fprintf(&b, "- %s (`%s`)\n", label, location)
+			} else {
+				fmt.Fprintf(&b, "- %s\n", label)
+			}
+		}
+	}
 	b.WriteString("\n")
 	return b.String()
 }
