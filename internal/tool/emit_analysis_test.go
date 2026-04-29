@@ -504,7 +504,7 @@ func TestEmitAnalysis_ConfigTraceRecordsExactNoMatchAsUnverified(t *testing.T) {
 	if len(finds) != 1 {
 		t.Fatalf("unverified findings = %d, want 1: %+v", len(finds), finds)
 	}
-	if finds[0].Token != missingKey || finds[0].Kind != "symbol" {
+	if finds[0].Token != missingKey || finds[0].Kind != "symbol" || finds[0].Reason != "exact target has no current production-defining prescan hit" {
 		t.Fatalf("unexpected unverified finding: %+v", finds[0])
 	}
 }
@@ -588,18 +588,42 @@ func TestEmitAnalysis_ConfigTraceRecordsAuxiliaryOnlyExactMatchesAsUnverified(t 
 	}
 }
 
-func TestPrescanShowsExactOnlyAuxiliaryMatches(t *testing.T) {
-	token := "explore_mid_loop_hint_budget"
-	auxOnly := "[grep params: pattern=" + token + " case_insensitive=true files_only=true]\n" +
-		"internal/skill/analysis_contract.go\n" +
-		"internal/agent/explorer_test.go\n"
-	if !prescanShowsExactOnlyAuxiliaryMatches(auxOnly, token) {
-		t.Fatal("auxiliary-only prescan hit set should be detected")
-	}
+func TestEmitAnalysis_ConfigTraceProductionTextHitDoesNotMarkTargetUnverified(t *testing.T) {
+	prev := CurrentAnalysisLimits()
+	t.Cleanup(func() { SetAnalysisLimits(prev) })
+	SetAnalysisLimits(AnalysisLimits{
+		WarnBelowKeywords:   0,
+		RejectBelowKeywords: 0,
+	})
 
-	withProduction := auxOnly + "internal/types/config.go\n"
-	if prescanShowsExactOnlyAuxiliaryMatches(withProduction, token) {
-		t.Fatal("production hit should disable auxiliary-only detection")
+	key := "explore_mid_loop_hint_budget"
+	mu := types.NewMutableState("how is " + key + " resolved?")
+	mu.AppendPrescanSummary(
+		"[grep params: pattern=" + key + " case_insensitive=true files_only=true]\n" +
+			"configs/runtime.json:14\n",
+	)
+	payload := `{
+		"intent": "config_query",
+		"scenario": "config_trace",
+		"complexity": "moderate",
+		"keywords": ["explore", "mid", "loop", "hint", "budget"],
+		"entities": ["` + key + `"],
+		"question_kind": "config_mapping",
+		"answer_shape": "explanation",
+		"answer_subject": {"kind": "config_key"},
+		"exact_targets": ["` + key + `"]
+	}`
+
+	tl := &EmitAnalysis{}
+	res, err := tl.Execute(&types.BusContext{Mutable: mu}, json.RawMessage(withV4Required(payload)))
+	if err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("Execute should succeed, got %q", res.Summary)
+	}
+	if finds := mu.EvidenceClosure().UnverifiedFindings(); len(finds) != 0 {
+		t.Fatalf("production config text hit should clear unverified target, got %+v", finds)
 	}
 }
 

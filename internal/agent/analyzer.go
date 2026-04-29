@@ -18,6 +18,7 @@ import (
 	"github.com/hanchaoqun/codrax/internal/analysis/hdp"
 	"github.com/hanchaoqun/codrax/internal/analysis/logtriage"
 	"github.com/hanchaoqun/codrax/internal/analysis/normalizer"
+	"github.com/hanchaoqun/codrax/internal/analysis/prescan"
 	"github.com/hanchaoqun/codrax/internal/analysis/risk"
 	"github.com/hanchaoqun/codrax/internal/llm"
 	"github.com/hanchaoqun/codrax/internal/logging"
@@ -300,47 +301,35 @@ func renderAnalyzerOverviewPrescanCaution(graph *repomap.Graph, objective string
 	}
 	var cautions []caution
 	for _, token := range tokens {
-		if analyzerGraphHasPrimaryExactAnchor(graph, token) {
+		finding := prescan.ClassifyToken(graph, "", token, true)
+		switch finding.Status {
+		case prescan.TokenStatusPrimary:
 			continue
-		}
-		if paths := analyzerGraphExactMatchFiles(graph, token); len(paths) > 0 {
-			auxOnly := true
-			for _, path := range paths {
-				if !types.LooksLikeAuxiliaryEvidencePath(path) {
-					auxOnly = false
-					break
+		case prescan.TokenStatusAuxiliaryOnly:
+			cautions = append(cautions, caution{Token: token, Kind: "auxiliary_only", Paths: finding.Paths})
+			continue
+		case prescan.TokenStatusUnresolved:
+			if len(finding.Paths) == 0 {
+				files := analyzerTopFilesForQuery(graph, token, 4)
+				paths := make([]string, 0, len(files))
+				for _, fi := range files {
+					if fi == nil || strings.TrimSpace(fi.RelPath) == "" {
+						continue
+					}
+					paths = append(paths, fi.RelPath)
 				}
-			}
-			if auxOnly {
-				cautions = append(cautions, caution{Token: token, Kind: "auxiliary_only", Paths: paths})
-			}
-			continue
-		}
-		files := analyzerTopFilesForQuery(graph, token, 4)
-		if len(files) == 0 {
-			cautions = append(cautions, caution{Token: token, Kind: "unresolved"})
-			continue
-		}
-		auxOnly := true
-		paths := make([]string, 0, len(files))
-		for _, fi := range files {
-			if fi == nil || strings.TrimSpace(fi.RelPath) == "" {
+				if len(paths) == 0 {
+					cautions = append(cautions, caution{Token: token, Kind: "unresolved"})
+					continue
+				}
+				cautions = append(cautions, caution{Token: token, Kind: "unresolved", Paths: paths})
 				continue
 			}
-			paths = append(paths, fi.RelPath)
-			if !types.LooksLikeAuxiliaryEvidencePath(fi.RelPath) {
-				auxOnly = false
-			}
-		}
-		if len(paths) == 0 {
+			cautions = append(cautions, caution{Token: token, Kind: "unresolved", Paths: finding.Paths})
+			continue
+		default:
 			cautions = append(cautions, caution{Token: token, Kind: "unresolved"})
-			continue
 		}
-		if auxOnly {
-			cautions = append(cautions, caution{Token: token, Kind: "auxiliary_only", Paths: paths})
-			continue
-		}
-		cautions = append(cautions, caution{Token: token, Kind: "unresolved"})
 	}
 	if len(cautions) == 0 {
 		return ""
@@ -393,67 +382,6 @@ func extractAnalyzerOverviewCautionTokens(objective string) []string {
 		seen[key] = true
 		out = append(out, tok)
 	})
-	return out
-}
-
-func analyzerGraphHasPrimaryExactAnchor(graph *repomap.Graph, token string) bool {
-	if graph == nil {
-		return false
-	}
-	token = strings.TrimSpace(strings.ReplaceAll(token, `\`, `/`))
-	if token == "" {
-		return false
-	}
-	if fi, ok := graph.FileIndex[token]; ok && fi != nil {
-		return true
-	}
-	for path := range graph.FileIndex {
-		if strings.EqualFold(strings.ReplaceAll(strings.TrimSpace(path), `\`, `/`), token) {
-			return true
-		}
-	}
-	norm := types.ExactResolutionLookupKey("symbol", token)
-	if norm == "" {
-		return false
-	}
-	for name, defs := range graph.SymbolDefs {
-		if types.ExactResolutionLookupKey("symbol", name) != norm {
-			continue
-		}
-		for _, def := range defs {
-			if def == nil || types.LooksLikeAuxiliaryEvidencePath(def.File) {
-				continue
-			}
-			return true
-		}
-	}
-	return false
-}
-
-func analyzerGraphExactMatchFiles(graph *repomap.Graph, token string) []string {
-	if graph == nil {
-		return nil
-	}
-	norm := types.ExactResolutionLookupKey("symbol", token)
-	if norm == "" {
-		return nil
-	}
-	seen := make(map[string]bool)
-	var out []string
-	for name, defs := range graph.SymbolDefs {
-		if types.ExactResolutionLookupKey("symbol", name) != norm {
-			continue
-		}
-		for _, def := range defs {
-			path := strings.TrimSpace(strings.ReplaceAll(def.File, `\`, `/`))
-			if path == "" || seen[path] {
-				continue
-			}
-			seen[path] = true
-			out = append(out, path)
-		}
-	}
-	sort.Strings(out)
 	return out
 }
 

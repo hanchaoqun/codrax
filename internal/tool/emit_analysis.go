@@ -8,6 +8,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/hanchaoqun/codrax/internal/analysis/prescan"
 	"github.com/hanchaoqun/codrax/internal/skill"
 	repomap "github.com/hanchaoqun/codrax/internal/tool/repomap/types"
 	"github.com/hanchaoqun/codrax/internal/types"
@@ -503,18 +504,16 @@ func recordExactTargetPrescanFindings(ctx *types.BusContext, rm types.RequestMod
 		if token == "" {
 			continue
 		}
-		if graphHasExactSymbol(graph, token) {
+		finding := prescan.ClassifyToken(graph, seenBlob, token, types.ExactResolutionRequiresDefiningPrimaryProof(contract))
+		if finding.Status == prescan.TokenStatusPrimary {
 			continue
 		}
-		reason := ""
-		switch {
-		case prescanShowsExactNoMatches(seenBlob, token):
-			reason = "exact target had no prescan matches"
-		case types.ExactResolutionRequiresDefiningPrimaryProof(contract) &&
-			prescanShowsExactOnlyAuxiliaryMatches(seenBlob, token):
-			reason = "exact target matched only auxiliary prescan files"
-		default:
+		if finding.Status == prescan.TokenStatusUnresolved && !finding.Observed {
 			continue
+		}
+		reason := "exact target has no current production-defining prescan hit"
+		if finding.Status == prescan.TokenStatusAuxiliaryOnly {
+			reason = "exact target matched only auxiliary prescan files"
 		}
 		closure.AppendUnverifiedFinding(types.UnverifiedFinding{
 			Token:  token,
@@ -537,123 +536,6 @@ func exactTargetFindingKind(rm types.RequestModel) string {
 	default:
 		return "symbol"
 	}
-}
-
-func graphHasExactSymbol(graph *repomap.Graph, token string) bool {
-	if graph == nil || token == "" {
-		return false
-	}
-	if defs := graph.SymbolDefs[token]; len(defs) > 0 {
-		return true
-	}
-	norm := types.ExactResolutionLookupKey("symbol", token)
-	if norm == "" {
-		return false
-	}
-	for name, defs := range graph.SymbolDefs {
-		if len(defs) > 0 && types.ExactResolutionLookupKey("symbol", name) == norm {
-			return true
-		}
-	}
-	return false
-}
-
-func prescanShowsExactNoMatches(seenBlob, token string) bool {
-	token = strings.ToLower(strings.TrimSpace(token))
-	if token == "" || !strings.Contains(seenBlob, "no matches found") {
-		return false
-	}
-	for _, block := range strings.Split(seenBlob, "[grep params:") {
-		pattern := grepPatternFromPrescanBlock(block)
-		if pattern == "" || !grepPatternHasExactToken(pattern, token) {
-			continue
-		}
-		if strings.Contains(block, "no matches found") {
-			return true
-		}
-	}
-	return false
-}
-
-func prescanShowsExactOnlyAuxiliaryMatches(seenBlob, token string) bool {
-	token = strings.ToLower(strings.TrimSpace(token))
-	if token == "" {
-		return false
-	}
-	sawMatch := false
-	for _, block := range strings.Split(seenBlob, "[grep params:") {
-		pattern := grepPatternFromPrescanBlock(block)
-		if pattern == "" || !grepPatternHasExactToken(pattern, token) {
-			continue
-		}
-		paths := grepMatchedPathsFromPrescanBlock(block)
-		if len(paths) == 0 {
-			continue
-		}
-		sawMatch = true
-		for _, path := range paths {
-			if !types.LooksLikeAuxiliaryEvidencePath(path) {
-				return false
-			}
-		}
-	}
-	return sawMatch
-}
-
-func grepMatchedPathsFromPrescanBlock(block string) []string {
-	var paths []string
-	for _, line := range strings.Split(block, "\n") {
-		line = strings.TrimSpace(line)
-		if line == "" ||
-			strings.HasPrefix(line, "no matches found") ||
-			strings.HasPrefix(line, "pattern=") ||
-			strings.HasPrefix(line, "path=") ||
-			strings.HasPrefix(line, "files_only=") ||
-			strings.HasPrefix(line, "case_insensitive=") ||
-			strings.HasPrefix(line, "summary=") ||
-			strings.HasPrefix(line, "success=") ||
-			strings.HasPrefix(line, "[") {
-			continue
-		}
-		path := line
-		if idx := strings.Index(line, ":"); idx > 0 {
-			path = line[:idx]
-		}
-		path = strings.Trim(strings.ReplaceAll(path, `\`, `/`), "`\"' -")
-		if path == "" || (!strings.Contains(path, "/") && !strings.Contains(path, ".")) {
-			continue
-		}
-		paths = append(paths, path)
-	}
-	return paths
-}
-
-func grepPatternFromPrescanBlock(block string) string {
-	idx := strings.Index(block, "pattern=")
-	if idx < 0 {
-		return ""
-	}
-	rest := block[idx+len("pattern="):]
-	end := strings.IndexAny(rest, " \n]")
-	if end >= 0 {
-		rest = rest[:end]
-	}
-	return strings.ToLower(strings.TrimSpace(rest))
-}
-
-func grepPatternHasExactToken(pattern, token string) bool {
-	pattern = strings.ToLower(strings.TrimSpace(pattern))
-	token = strings.ToLower(strings.TrimSpace(token))
-	if pattern == "" || token == "" {
-		return false
-	}
-	for _, alt := range strings.Split(pattern, "|") {
-		alt = strings.Trim(alt, "`\"'()^$")
-		if alt == token {
-			return true
-		}
-	}
-	return false
 }
 
 // rejectDegenerateClassification blocks the fully-collapsed
