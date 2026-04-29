@@ -56,6 +56,29 @@ type statusTopic struct {
 func (r *Renderer) buildStatusBlocks(rows []*taskRow, frame string, now time.Time) []statusBlock {
 	var blocks []statusBlock
 	var topicRows []*taskRow
+	// Insertion index for the topic group in `blocks` — must be
+	// the position immediately AFTER the analyze stage block so the
+	// timeline reads in pipeline order:
+	//
+	//   ✓ 已理解问题 (analyze)
+	//   ⠙ 正在探索代码并收集证据 (topic group, with focus bullets)
+	//   · 正在校核分析结论 (validate)
+	//   ...
+	//
+	// Pre-2026-04-30 the group was UNCONDITIONALLY prepended to
+	// blocks[0]; that put "正在探索 …" ABOVE the analyze row, which
+	// the user read as "topic group is missing" because the eye
+	// scans down from "已理解问题" and lands on the next stage
+	// (校核分析结论) without registering the dim pending evidence
+	// parent line above. Anchoring on "first non-pre-stage block"
+	// places the group in its chronological slot in the timeline.
+	insertAt := 0
+	insertSet := false
+	preStageKeys := map[string]bool{
+		"log_triage":  true,
+		"perf_triage": true,
+		"analyze":     true,
+	}
 
 	for _, row := range rows {
 		if row.isNodeRow && row.nodeKind == "evidence" {
@@ -68,16 +91,31 @@ func (r *Renderer) buildStatusBlocks(rows []*taskRow, frame string, now time.Tim
 			Kind: "line",
 			Line: r.buildStatusLine(row, frame, now),
 		})
+		// Track the boundary: the topic group's anchor index is the
+		// FIRST block whose stage key is NOT a pre-stage (log_triage
+		// / perf_triage / analyze). Once we cross that boundary, the
+		// remaining blocks (validate / reconcile / extract / finalize
+		// / plan / apply / verify) are downstream of evidence and
+		// the group must precede them.
+		if !insertSet {
+			key := stageKeyFor(row)
+			if !preStageKeys[key] {
+				insertAt = len(blocks) - 1
+				insertSet = true
+			}
+		}
 	}
 
 	if len(topicRows) > 0 {
 		group := r.buildTopicGroup(topicRows, frame, now)
-		// Topic group goes in front of the other rows so the user
-		// reads "what is being investigated" before "what stage we
-		// are at" — most useful narrative order during the explore
-		// phase. After explore completes the group's parent line
-		// flips to "Analysis complete" and stays as a quiet anchor.
-		blocks = append([]statusBlock{group}, blocks...)
+		if !insertSet {
+			// No downstream stages have surfaced yet — append the
+			// group at the end so it sits below analyze rather than
+			// above it.
+			blocks = append(blocks, group)
+		} else {
+			blocks = append(blocks[:insertAt], append([]statusBlock{group}, blocks[insertAt:]...)...)
+		}
 	}
 	return blocks
 }
@@ -417,8 +455,15 @@ func renderStatusBlock(b statusBlock, lang string) []string {
 	if b.Kind != "topic_group" {
 		return lines
 	}
+	// Propagate parent done-ness into the bullets so a topic group
+	// that has terminated demotes its "关注点 N：" label to the
+	// gray family — pre-2026-04-30 the label stayed FgLightBlue
+	// regardless of state, so a done parent line (gray "已完成证据
+	// 收集") sat above light-blue topic labels and the colours
+	// disagreed on whether this section was past or live.
+	parentDone := b.Line.State == "done"
 	for _, t := range b.Topics {
-		lines = append(lines, renderTopic(t, lang))
+		lines = append(lines, renderTopic(t, lang, parentDone))
 	}
 	return lines
 }
@@ -483,7 +528,13 @@ func renderStatusLine(line statusLine) string {
 // renderTopic renders one topic line: indented bullet + label +
 // body. Overflow lines (Index==0) skip the label and just surface
 // the "N more focus areas" sentinel as a dim continuation.
-func renderTopic(t statusTopic, lang string) string {
+//
+// parentDone flips the "关注点 N：" label from statusTopicLabel
+// (light blue, "live") to statusPrimaryDone (gray, "history") so
+// the bullets stay in lockstep with the parent line's state.
+// Otherwise a done parent + light-blue bullets would read as
+// "section is past but the items are still active".
+func renderTopic(t statusTopic, lang string, parentDone bool) string {
 	var b strings.Builder
 	b.WriteString("    ")
 	b.WriteString(statusMeta.Sprint(string(glyphTopicBullet)))
@@ -492,7 +543,11 @@ func renderTopic(t statusTopic, lang string) string {
 		b.WriteString(statusMeta.Sprint(t.Text))
 		return b.String()
 	}
-	b.WriteString(statusTopicLabel.Sprint(topicLabelPhrase(t.Index, lang)))
+	labelStyle := statusTopicLabel
+	if parentDone {
+		labelStyle = statusPrimaryDone
+	}
+	b.WriteString(labelStyle.Sprint(topicLabelPhrase(t.Index, lang)))
 	b.WriteString(statusTopicText.Sprint(t.Text))
 	return b.String()
 }

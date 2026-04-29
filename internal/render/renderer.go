@@ -1320,23 +1320,23 @@ func (r *Renderer) RenderResult(busCtx *types.BusContext) string {
 					// Plain (fail-loud) path: NO success banner.
 					// The result is an error / diagnostic message —
 					// printing "✓ 已生成最终答案" above an error
-					// would be self-contradicting. RenderResult is
-					// the single source of the success line so both
-					// streaming and non-streaming finalize converge
-					// here without double-printing.
+					// would be self-contradicting.
 					b.WriteString(clean)
 				} else {
-					// Real LLM answer path: prepend the persistent
-					// "✓ 已生成最终答案" line so the user gets a
-					// consistent done confirmation regardless of
-					// whether the streaming preview ticker fired
-					// (long summary) or not (short value/boolean
-					// shape, where the spinner area would have
-					// terminated the row to ✓ briefly before being
-					// wiped at StopSpinner).
-					notice := truncByTerminalWidth(finalizeDoneLine(r.lang), previewLineMaxCols())
-					b.WriteString(statusSuccessMuted.Sprint(notice))
-					b.WriteString("\n\n")
+					// Real LLM answer path: print the persistent
+					// "✓ 已生成最终答案" line DIRECTLY to stdout
+					// (NOT into the response buffer) so the line
+					// lands ABOVE the bordered answer the REPL
+					// emits via renderBordered, aligned with the
+					// upstream done rows ("  ✓ 已整理结论 …") in
+					// both indent and colour. Pre-2026-04-30 it was
+					// concatenated into the response string, which
+					// renderBordered then wrapped with `│ ` — the
+					// banner ended up INSIDE the bordered answer
+					// area, mis-aligned, and rendered with a green
+					// text body that didn't match the gray-family
+					// done rows above it.
+					r.printFinalizeBanner()
 					b.WriteString(r.renderMarkdown(clean))
 				}
 				b.WriteString("\n")
@@ -1554,15 +1554,34 @@ func (r *Renderer) handlePreviewClearLocked(ev Event) {
 	r.previewArea = nil
 }
 
-// finalizeDoneLine returns the localized "final answer ready" line
-// for the success path of handlePreviewClearLocked. Mirrors the
-// "  ✓ ..." layout of completed status rows so the swap reads as
-// "the ticker just turned into one more done row".
-func finalizeDoneLine(lang string) string {
+// printFinalizeBanner emits the persistent "✓ 已生成最终答案" /
+// "✓ Final answer ready" line directly to stdout. The line MUST
+// match the visual shape of the upstream done status rows
+// rendered by renderStatusLine — same 2-space indent, same green
+// glyph (statusSuccessMuted), same gray text (statusPrimaryDone) —
+// so the user reads the timeline as one continuous family:
+//
+//   ✓ 已校核分析结论 · 5s · 1 次工具调用
+//   ✓ 已整理结论 · 5s
+//   ✓ 已生成最终答案
+//   ┌─ Final answer ─┐
+//
+// Pre-2026-04-30 the line was sprinted with statusSuccessMuted
+// across the WHOLE string (icon + text both green), and the user
+// reported it as visually inconsistent with the gray-text done
+// rows above. Splitting the styles per token mirrors the row
+// layout exactly.
+func (r *Renderer) printFinalizeBanner() {
+	icon := statusSuccessMuted.Sprint(string(glyphSuccess))
+	text := statusPrimaryDone.Sprint(finalizeDoneText(r.lang))
+	fmt.Fprintf(os.Stdout, "  %s %s\n\n", icon, text)
+}
+
+func finalizeDoneText(lang string) string {
 	if isZh(lang) {
-		return fmt.Sprintf("  %s 已生成最终答案", string(glyphSuccess))
+		return "已生成最终答案"
 	}
-	return fmt.Sprintf("  %s Final answer ready", string(glyphSuccess))
+	return "Final answer ready"
 }
 
 // tailByDisplayWidth returns the suffix of s whose display width

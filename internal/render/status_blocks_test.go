@@ -496,6 +496,52 @@ func TestStatus_PendingDistinctFromDone(t *testing.T) {
 	}
 }
 
+// TestStatus_TopicGroupOrderingAfterAnalyze pins the chronological
+// placement of the topic group: it MUST surface AFTER the analyze
+// row but BEFORE downstream stages (validate / reconcile / extract
+// / finalize). Pre-2026-04-30 it was prepended to blocks[0] which
+// put "正在探索代码 ..." ABOVE "已理解问题"; users read the analyze
+// row first and looked below for the next stage, missing the topic
+// group entirely. Anchoring on the first downstream block restores
+// pipeline order.
+func TestStatus_TopicGroupOrderingAfterAnalyze(t *testing.T) {
+	now := renderRowsFixedNow
+	rows := []*taskRow{
+		// Analyze stage row (terminated).
+		{
+			stage:      "analyze",
+			agent:      "AnalyzerAgent",
+			startTime:  now.Add(-30 * time.Second),
+			endTime:    now.Add(-10 * time.Second),
+			okFinished: true,
+		},
+		// Two topic evidence rows (still running).
+		{isNodeRow: true, nodeID: "n1_evidence_t0", nodeKind: "evidence",
+			objective: "topic A"},
+		{isNodeRow: true, nodeID: "n2_evidence_t1", nodeKind: "evidence",
+			objective: "topic B"},
+		// Validate stage (pending — not yet started).
+		{isNodeRow: true, nodeID: "vN", nodeKind: "validate", pending: true,
+			objective: "cross-check"},
+	}
+	out := renderRows(t, "zh", rows...)
+	// All three primary phrases must appear.
+	for _, want := range []string{"已理解问题", "正在探索代码并收集证据", "正在校核分析结论"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("expected %q in output; got:\n%s", want, out)
+		}
+	}
+	// Order check: analyze must come BEFORE the topic group, which
+	// must come BEFORE validate.
+	idxAnalyze := strings.Index(out, "已理解问题")
+	idxEvidence := strings.Index(out, "正在探索代码并收集证据")
+	idxValidate := strings.Index(out, "正在校核分析结论")
+	if !(idxAnalyze < idxEvidence && idxEvidence < idxValidate) {
+		t.Errorf("expected order analyze < evidence < validate; got idx %d / %d / %d in:\n%s",
+			idxAnalyze, idxEvidence, idxValidate, out)
+	}
+}
+
 // TestStatus_TopicGroupAllDoneIconAndState pins issue 2 — when ALL
 // topic rows have terminated, the parent line MUST flip to ✓ +
 // "已完成证据收集", regardless of topic[0]'s individual state.
