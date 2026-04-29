@@ -6122,6 +6122,9 @@ func TestEmitAnswerDocument_DiagramGate_RejectsUngroundedFileInFence(t *testing.
 	if res.Repair == nil || res.Repair.Code != "diagram_grounding" {
 		t.Fatalf("diagram-grounding reject should emit structured repair metadata, got %+v", res.Repair)
 	}
+	if got := strings.Join(res.Repair.Fields, ","); got != "summary" {
+		t.Fatalf("diagram-grounding repair should only expose summary for repair, got %q", got)
+	}
 	if got := res.Repair.Metadata["allowed_labels"]; !strings.Contains(got, "internal/agent/analyzer.go") {
 		t.Fatalf("diagram-grounding repair should surface allowed labels, got %+v", res.Repair)
 	}
@@ -6176,6 +6179,30 @@ func TestEmitAnswerDocument_DiagramGate_AcceptsUniqueBasenameAlias(t *testing.T)
 	res, _ := tool.Execute(ctx, params)
 	if !res.Success {
 		t.Fatalf("unique basename alias must pass the diagram gate; got Success=false Summary=%q", res.Summary)
+	}
+}
+
+func TestEmitAnswerDocument_DiagramGate_AcceptsMermaidEscapedLineBreakFileLabels(t *testing.T) {
+	tool := &EmitAnswerDocument{}
+	ctx := newDocBusCtx("")
+	ctx.Mutable.AppendDispatchToolResult(types.ToolResult{
+		ToolName: "read_file",
+		Success:  true,
+		Summary:  "[internal/agent/analyzer.go: showing lines 1-5 of 1500 total]\n     1┃package agent\n     2┃\n     3┃import (\n     4┃\t\"context\"\n     5┃)\n",
+	})
+	summary := "The panic path stays inside analyzer.go.\n\n" +
+		"```mermaid\n" +
+		"flowchart TD\n" +
+		"entry[\"buildAnalysisIR\\\\nanalyzer.go:5\"] --> caller[\"ParseOutput\\\\nanalyzer.go:5\"]\n" +
+		"```\n"
+	params := mustDocJSON(t, map[string]interface{}{
+		"shape":     "explanation",
+		"summary":   summary,
+		"citations": []map[string]interface{}{{"file": "internal/agent/analyzer.go", "line": 5}},
+	})
+	res, _ := tool.Execute(ctx, params)
+	if !res.Success {
+		t.Fatalf("mermaid escaped line breaks should not corrupt diagram grounding, got Success=false Summary=%q", res.Summary)
 	}
 }
 

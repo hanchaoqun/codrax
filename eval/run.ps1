@@ -12,6 +12,10 @@ param(
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
+if ($PSVersionTable.PSVersion.Major -lt 7) {
+    throw "eval/run.ps1 requires PowerShell 7+; invoke it via `pwsh` or eval\\run.cmd."
+}
+$PSNativeCommandUseErrorActionPreference = $false
 
 function Resolve-PathRelativeToRepo {
     param(
@@ -143,6 +147,116 @@ function Extract-AnswerBody {
     return $cleaned.Trim()
 }
 
+function Extract-AnswerBodyV2 {
+    param([string]$Text)
+    $cleaned = Remove-Ansi $Text
+    $cleaned = $cleaned -replace "`r", ""
+    $separator = "━━━"
+    $separatorIndex = $cleaned.LastIndexOf($separator, [System.StringComparison]::Ordinal)
+    $hasSeparator = $separatorIndex -ge 0
+    $candidate = if ($hasSeparator) {
+        $cleaned.Substring($separatorIndex + $separator.Length)
+    } else {
+        $cleaned
+    }
+
+    $lines = New-Object System.Collections.Generic.List[string]
+    foreach ($rawLine in ($candidate -split "`n")) {
+        $line = [string]$rawLine
+        $trimmed = $line.Trim()
+        if ([string]::IsNullOrWhiteSpace($trimmed)) {
+            $lines.Add("")
+            continue
+        }
+        if ($trimmed -eq "(no result)") {
+            continue
+        }
+        if ($trimmed -match '<think>') {
+            continue
+        }
+        if ($trimmed -match '^\s*💭\s+\[[^\]]+\]') {
+            continue
+        }
+        if ($trimmed -match '^\s*[⠁-⣿].*(正在|已|次工具调用|第\s*\d+\s*轮)') {
+            continue
+        }
+        if ($trimmed -match '^\s*[✓✔✗].*(\d+/\d+|次工具调用|第\s*\d+\s*轮)') {
+            continue
+        }
+        $lines.Add($line)
+    }
+
+    $result = (($lines.ToArray()) -join "`n").Trim()
+    if (-not $hasSeparator) {
+        $looksLikePipelineNoise = $cleaned -match '<think>' -or
+            $cleaned -match '\[[a-z_]+-\d+\]' -or
+            $cleaned -match '正在准备流水线' -or
+            $cleaned -match '\(no result\)'
+        if ($looksLikePipelineNoise) {
+            return ""
+        }
+    }
+    if ($result -eq "(no result)") {
+        return ""
+    }
+    return $result
+}
+
+function Extract-AnswerBodyV3 {
+    param([string]$Text)
+    $cleaned = Remove-Ansi $Text
+    $cleaned = $cleaned -replace "`r", ""
+    $separator = ([string][char]0x2501) * 3
+    $separatorIndex = $cleaned.LastIndexOf($separator, [System.StringComparison]::Ordinal)
+    $hasSeparator = $separatorIndex -ge 0
+    $candidate = if ($hasSeparator) {
+        $cleaned.Substring($separatorIndex + $separator.Length)
+    } else {
+        $cleaned
+    }
+
+    $lines = New-Object System.Collections.Generic.List[string]
+    foreach ($rawLine in ($candidate -split "`n")) {
+        $line = [string]$rawLine
+        $trimmed = $line.Trim()
+        if ([string]::IsNullOrWhiteSpace($trimmed)) {
+            $lines.Add("")
+            continue
+        }
+        if ($trimmed -eq "(no result)") {
+            continue
+        }
+        if ($trimmed -match '<think>') {
+            continue
+        }
+        if ($trimmed -match '^\s*(💭\s+)?\[[A-Za-z0-9_-]+-\d+\]') {
+            continue
+        }
+        if ($trimmed -match '^\s*[^\p{L}\p{Nd}``''""\[\]()/_.:-]{1,6}\s*\d+/\d+.*$') {
+            continue
+        }
+        if ($trimmed -match '^\s*[✓✔✗]\s*\d+/\d+.*$') {
+            continue
+        }
+        $lines.Add($line)
+    }
+
+    $result = (($lines.ToArray()) -join "`n").Trim()
+    if (-not $hasSeparator) {
+        $looksLikePipelineNoise = $cleaned -match '<think>' -or
+            $cleaned -match '\[[a-z_]+-\d+\]' -or
+            $cleaned -match '\d+/\d+' -or
+            $cleaned -match '\(no result\)'
+        if ($looksLikePipelineNoise) {
+            return ""
+        }
+    }
+    if ($result -eq "(no result)") {
+        return ""
+    }
+    return $result
+}
+
 function Count-RegexMatchesInFile {
     param(
         [string]$Path,
@@ -174,52 +288,6 @@ function Get-Median {
     $sorted = @($Values | Sort-Object)
     $index = [int][math]::Floor(($sorted.Count - 1) / 2)
     return $sorted[$index]
-}
-
-function Quote-WindowsArgument {
-    param([string]$Text)
-    if ($null -eq $Text) {
-        return '""'
-    }
-    if ($Text.Length -eq 0) {
-        return '""'
-    }
-    if ($Text -notmatch '[\s"]') {
-        return $Text
-    }
-
-    $sb = New-Object System.Text.StringBuilder
-    [void]$sb.Append('"')
-    $backslashes = 0
-    foreach ($ch in $Text.ToCharArray()) {
-        if ($ch -eq '\') {
-            $backslashes++
-            continue
-        }
-        if ($ch -eq '"') {
-            if ($backslashes -gt 0) {
-                [void]$sb.Append(('\' * ($backslashes * 2)))
-                $backslashes = 0
-            }
-            [void]$sb.Append('\"')
-            continue
-        }
-        if ($backslashes -gt 0) {
-            [void]$sb.Append(('\' * $backslashes))
-            $backslashes = 0
-        }
-        [void]$sb.Append($ch)
-    }
-    if ($backslashes -gt 0) {
-        [void]$sb.Append(('\' * ($backslashes * 2)))
-    }
-    [void]$sb.Append('"')
-    return $sb.ToString()
-}
-
-function Join-WindowsArguments {
-    param([string[]]$Items)
-    return (($Items | ForEach-Object { Quote-WindowsArgument ([string]$_) }) -join ' ')
 }
 
 $scriptRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
@@ -305,23 +373,12 @@ for ($run = 1; $run -le $Runs; $run++) {
     try {
         $stdoutPath = Join-Path $runLogDir "native.stdout.txt"
         $stderrPath = Join-Path $runLogDir "native.stderr.txt"
-        $quotedArgs = Join-WindowsArguments $cmdArgs
-        $process = Start-Process -FilePath $binaryPath `
-            -ArgumentList $quotedArgs `
-            -WorkingDirectory $repoRoot `
-            -NoNewWindow `
-            -Wait `
-            -PassThru `
-            -RedirectStandardOutput $stdoutPath `
-            -RedirectStandardError $stderrPath
-        $stdoutText = if (Test-Path -LiteralPath $stdoutPath) { Get-Content -LiteralPath $stdoutPath -Raw -Encoding UTF8 } else { "" }
-        $stderrText = if (Test-Path -LiteralPath $stderrPath) { Get-Content -LiteralPath $stderrPath -Raw -Encoding UTF8 } else { "" }
-        if ($stderrText -and $stdoutText) {
-            $output = $stderrText + "`n" + $stdoutText
-        } else {
-            $output = $stderrText + $stdoutText
-        }
-        $exitCode = $process.ExitCode
+        $combinedPath = Join-Path $runLogDir "native.combined.txt"
+        $nativeOutput = @(& $binaryPath @cmdArgs 2>&1 | Tee-Object -FilePath $combinedPath)
+        $exitCode = $LASTEXITCODE
+        $output = (($nativeOutput | ForEach-Object { $_.ToString() }) -join "`n")
+        Set-Content -LiteralPath $stdoutPath -Value $output -Encoding UTF8
+        Set-Content -LiteralPath $stderrPath -Value "" -Encoding UTF8
     } finally {
         $stopwatch.Stop()
         Pop-Location
@@ -342,7 +399,7 @@ for ($run = 1; $run -le $Runs; $run++) {
     ) + $metricLines
     Set-Content -LiteralPath $runMetrics -Value ($metricLines -join "`n") -Encoding UTF8
 
-    $answerBody = Extract-AnswerBody $output
+    $answerBody = Extract-AnswerBodyV3 $output
     $stripped = ($answerBody -replace '\s+', "")
     $passed = $true
     $reasons = New-Object System.Collections.Generic.List[string]

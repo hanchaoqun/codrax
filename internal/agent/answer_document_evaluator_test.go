@@ -1695,6 +1695,7 @@ func TestAnswerDocumentEvaluator_Observe_MidLoopDiagramGroundingRejectSurfacesAc
 		"Diagram Node Allowlist",
 		"`cmd/root.go`, `internal/config/runtime.go`, `internal/types/config.go`",
 		"Do NOT normalize one grounded label into a different spelling",
+		"Keep `citations[]` byte-identical while repairing this gate",
 		"Do NOT call `read_file`, `grep`, or any other tool",
 	} {
 		if !strings.Contains(sig.Hint, want) {

@@ -2452,6 +2452,14 @@ var diagramFileExtensions = map[string]bool{
 // `foo.Bar` or numeric patterns like `1.0.0` do not match.
 var diagramFileTokenRe = regexp.MustCompile(`[A-Za-z0-9_./-]+\.[A-Za-z]{1,6}(?::\d+)?`)
 
+var diagramGroundingBodyReplacer = strings.NewReplacer(
+	`\\n`, "\n",
+	`\\r`, "\n",
+	`<br/>`, "\n",
+	`<br />`, "\n",
+	`<br>`, "\n",
+)
+
 // fencedCodeBlockRe captures the body of every triple-backtick fenced
 // block in the summary. The (?s) flag lets `.` cross newlines so the
 // full block body is returned in submatch[1]. Anchoring on `\n` after
@@ -2832,8 +2840,8 @@ func validateSummaryDiagramGrounding(summary string, citations []types.Citation,
 	var violations []string
 	seen := make(map[string]bool)
 	for _, block := range blocks {
-		body := block[1]
-		for _, tok := range diagramFileTokenRe.FindAllString(body, -1) {
+		scanBody := diagramGroundingBodyReplacer.Replace(block[1])
+		for _, tok := range diagramFileTokenRe.FindAllString(scanBody, -1) {
 			bare := tok
 			if idx := strings.LastIndex(bare, ":"); idx >= 0 {
 				bare = bare[:idx]
@@ -2864,7 +2872,7 @@ func validateSummaryDiagramGrounding(summary string, citations []types.Citation,
 			"Either add a citations[] entry for each named file (and reference it from steps / symbols / value as needed), "+
 			"or remove the unsupported file name from the diagram and describe the relationship in prose. Allowed grounded labels for this dispatch: %s.",
 		strings.Join(violations, ", "), allowed,
-	).WithFields("summary", "citations").
+	).WithFields("summary").
 		WithMetadata("invalid_labels", strings.Join(violations, ", ")).
 		WithMetadata("allowed_labels", strings.Join(allow.labels, ", ")).
 		WithHint("Re-emit `emit_answer_document` with the same grounded answer, but inside fenced diagrams keep file/path node labels to the exact grounded allowlist for this dispatch. If a node has no grounded label, remove it from the fence and explain that relationship in prose instead.")
