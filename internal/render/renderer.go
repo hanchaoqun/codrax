@@ -1183,63 +1183,42 @@ func previewIsTTY() bool {
 	return isTTY(os.Stdout)
 }
 
-// previewHeader builds the pretty header line above the streaming
-// summary. Round number tells the user "this is draft N of the
-// finalize step" so a reader who walks in mid-Run knows the visible
-// text might still be reshaped by the contract gate.
-func previewHeader(round int) string {
-	if round <= 1 {
-		return "─── 草稿渲染中 (流式预览) ───"
+// previewLineMaxCols caps the ticker line width. Single-line ticker
+// design — every Update fits in one terminal row, never wraps. The
+// margin protects against off-by-one auto-wrap at the right edge.
+// Capped above at 160 cols so the line stays readable on ultra-wide
+// monitors; floored at 40 cols so degenerate split panes still get
+// useful content.
+func previewLineMaxCols() int {
+	w := pterm.GetTerminalWidth() - 2
+	if w > 160 {
+		w = 160
 	}
-	return fmt.Sprintf("─── 草稿渲染中 #%d (流式预览, 此前轮次已重写) ───", round)
-}
-
-// previewRejectedSuffix is the brief flash appended when a draft is
-// torn down on AnswerContract / Tier1 floor reject. The renderer
-// updates the area once with this suffix, sleeps 200ms, then
-// previewArea.Stop() with WithRemoveWhenDone erases the whole thing.
-const previewRejectedSuffix = "\n[已重写]"
-
-// previewWrapMargin is how many columns we reserve as slack between
-// the content's wrap column and the terminal's actual width. The
-// margin protects against:
-//   - A terminal that auto-wraps when cursor advances PAST col=W
-//     (some terminals wrap at col=W+1, others at col=W).
-//   - East-Asian-Width-ambiguous runes whose terminal-displayed
-//     width disagrees with runewidth's table (Greek / Cyrillic /
-//     box-drawing under non-CJK locales).
-//   - A multiplexer (tmux / screen) that reports a wider terminal
-//     to its inner shell than the outer terminal actually renders
-//     at the moment the preview is drawn.
-//
-// 8 cols of slack is more conservative than the renderer's spinner
-// path (4 cols) because the preview path goes through pterm's row
-// math which is less forgiving than the spinner's full redraw.
-const previewWrapMargin = 8
-
-// previewMaxCols computes the wrap budget for the streaming preview.
-// Capped at 200 cols so a very wide terminal (panoramic monitors)
-// still produces moderate-length lines that read naturally; bounded
-// below by 24 cols so degenerate small terminals (split panes) stay
-// usable. Centralised so both the chunk handler and the rejected
-// flash share the exact same width — any drift between the two
-// would break the row-count tracking.
-func previewMaxCols() int {
-	w := pterm.GetTerminalWidth() - previewWrapMargin
-	if w > 200 {
-		w = 200
-	}
-	if w < 24 {
-		w = 24
+	if w < 40 {
+		w = 40
 	}
 	return w
 }
 
-// handlePreviewChunkLocked is called with r.mu held. Manages the
-// lifecycle of r.previewArea and updates it with the cumulative
-// summary text. First chunk after Clear (or first ever) opens a new
-// area + increments the round counter. The spinner area is stopped
-// IF active so the preview owns the bottom of the terminal.
+// previewLineLastSnippetCols is how many display columns of the
+// most-recent stream tail we surface inside the ticker line. The
+// rest of the line is the round + char-count prefix. Tuned so the
+// snippet is informative without dominating: a 140-col terminal
+// dedicates ~35 cols to prefix and ~105 cols to snippet.
+func previewLineLastSnippetCols(total int) int {
+	tail := total - 36
+	if tail < 8 {
+		tail = 8
+	}
+	return tail
+}
+
+// handlePreviewChunkLocked is called with r.mu held. Renders the
+// streaming-summary progress as a single-line ticker via
+// ttyPreviewArea (`\r` + `\x1b[2K` + content). Single-line is the
+// load-bearing simplification: no multi-line cursor positioning,
+// no row-count tracking, no possibility of leftover wrap rows
+// staining the screen when the final answer prints.
 func (r *Renderer) handlePreviewChunkLocked(ev Event) {
 	if !previewIsTTY() {
 		return
@@ -1248,15 +1227,12 @@ func (r *Renderer) handlePreviewChunkLocked(ev Event) {
 		return
 	}
 	if r.previewArea == nil {
-		// Stop the spinner area if it is still active. Restarting
-		// it later (on retry) is intentionally not done — the user
-		// accepted "杂乱中间态" and the rolling reasoning events
-		// keep them oriented during the retry investigation.
+		// Stop the spinner area if it is still active so the ticker
+		// owns the bottom row of the terminal cleanly.
 		if r.area != nil {
 			if r.animStop != nil {
 				select {
 				case <-r.animStop:
-					// already closed
 				default:
 					close(r.animStop)
 				}
@@ -1268,37 +1244,79 @@ func (r *Renderer) handlePreviewChunkLocked(ev Event) {
 		r.previewArea = newTTYPreviewArea(os.Stdout)
 		r.previewRound++
 	}
-	r.previewBuf.Reset()
-	r.previewBuf.WriteString(previewHeader(r.previewRound))
-	r.previewBuf.WriteString("\n")
-	r.previewBuf.WriteString(ev.PreviewText)
-	r.previewArea.Update(wrapByDisplayWidth(r.previewBuf.String(), previewMaxCols()))
+	chars := utf8.RuneCountInString(ev.PreviewText)
+	maxCols := previewLineMaxCols()
+	roundLabel := ""
+	if r.previewRound > 1 {
+		roundLabel = fmt.Sprintf("#%d ", r.previewRound)
+	}
+	prefix := fmt.Sprintf("⟳ 正在生成最终答案 %s· 已收到 %d 字 · ", roundLabel, chars)
+	prefixCols := runewidth.StringWidth(prefix)
+	tailCols := maxCols - prefixCols
+	if tailCols < 8 {
+		tailCols = previewLineLastSnippetCols(maxCols)
+	}
+	// Show the most-recent slice of streamed content, not the head:
+	// the user's interest is "what is the model writing now". A
+	// rolling tail-window also makes the line visibly change every
+	// chunk so the eye perceives progress.
+	flat := flattenToOneLine(ev.PreviewText)
+	snippetRaw := tailByDisplayWidth(flat, tailCols)
+	line := truncByTerminalWidth(prefix+snippetRaw, maxCols)
+	// pterm.FgDarkGray dims the ticker line so it visually
+	// recedes — the bordered final answer is what the user reads,
+	// the ticker is just a "still working" signal.
+	r.previewArea.Update(pterm.FgDarkGray.Sprint(line))
 }
 
 // handlePreviewClearLocked is called with r.mu held. Tears down
-// r.previewArea. PreviewRejected=true flashes a "[已重写]" marker
-// briefly so the user knows the just-shown text was thrown away by
-// the AnswerContract / Tier1 floor gates; PreviewRejected=false
-// (success path) just erases.
+// r.previewArea. PreviewRejected=true briefly flashes a "[已重写]"
+// notice on the same single line so the user knows the just-shown
+// draft was rejected by the AnswerContract / Tier1 floor gates;
+// PreviewRejected=false (success path) just wipes the line so the
+// styled final answer prints on a clean canvas.
 func (r *Renderer) handlePreviewClearLocked(ev Event) {
 	if r.previewArea == nil {
 		return
 	}
 	if ev.PreviewRejected {
-		// Append rejected marker, brief pause so the user can read
-		// it, then erase. The 200ms is long enough to register at
-		// reading speed but short enough not to delay the next
-		// retry round noticeably.
-		r.previewBuf.WriteString(previewRejectedSuffix)
-		r.previewArea.Update(wrapByDisplayWidth(r.previewBuf.String(), previewMaxCols()))
-		// Release the lock during sleep so other events (reasoning,
-		// next chunk) don't deadlock waiting on us.
+		notice := truncByTerminalWidth("✗ 上一份草稿已被规则丢弃,正在重写", previewLineMaxCols())
+		r.previewArea.Update(pterm.FgYellow.Sprint(notice))
+		// Release the lock during the brief flash so other events
+		// (reasoning, next chunk) can not deadlock waiting on us.
 		r.mu.Unlock()
-		time.Sleep(200 * time.Millisecond)
+		time.Sleep(300 * time.Millisecond)
 		r.mu.Lock()
 	}
 	if r.previewArea != nil {
 		r.previewArea.Stop()
 		r.previewArea = nil
 	}
+}
+
+// tailByDisplayWidth returns the suffix of s whose display width
+// fits within maxCols. Used by the streaming ticker to surface the
+// most-recent N columns of the cumulative summary so the user
+// always sees what is being written *right now* rather than the
+// long-stale opening sentence.
+func tailByDisplayWidth(s string, maxCols int) string {
+	if maxCols <= 0 {
+		return ""
+	}
+	if runewidth.StringWidth(s) <= maxCols {
+		return s
+	}
+	runes := []rune(s)
+	col := 0
+	for i := len(runes) - 1; i >= 0; i-- {
+		rw := runewidth.RuneWidth(runes[i])
+		if rw < 0 {
+			rw = 0
+		}
+		if col+rw > maxCols {
+			return string(runes[i+1:])
+		}
+		col += rw
+	}
+	return s
 }

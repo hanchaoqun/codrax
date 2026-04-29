@@ -8,90 +8,93 @@ import (
 
 // TestTTYPreviewArea_FirstUpdateClearsLineThenWrites pins the very
 // first Update behaviour: cursor is repositioned to col 0, the
-// current line + everything below is erased, then content writes.
-// Defends against bug where the first write leaves debris from
-// prior CLI output mid-line.
+// current line is erased, then content writes. Defends against
+// debris from prior CLI output mid-line.
 func TestTTYPreviewArea_FirstUpdateClearsLineThenWrites(t *testing.T) {
 	var buf bytes.Buffer
 	a := newTTYPreviewArea(&buf)
 	a.Update("hello")
 	got := buf.String()
-	// Must START with the clear sequence — `\r\x1b[J`.
-	if !strings.HasPrefix(got, "\r\x1b[J") {
-		t.Errorf("first Update must begin with \\r\\x1b[J; got %q", got)
+	if !strings.HasPrefix(got, "\r\x1b[2K") {
+		t.Errorf("first Update must begin with \\r\\x1b[2K; got %q", got)
 	}
 	if !strings.HasSuffix(got, "hello") {
 		t.Errorf("first Update must end with the content; got %q", got)
 	}
 }
 
-// TestTTYPreviewArea_SecondUpdateRewindsByPreviousNewlineCount is
-// the canonical correctness test: after Update writes content with
-// N newlines, the NEXT Update must emit `\x1b[NA` (cursor up N
-// rows) so the next clear-to-EOS lands at the row the previous
-// Update started writing on.
-func TestTTYPreviewArea_SecondUpdateRewindsByPreviousNewlineCount(t *testing.T) {
+// TestTTYPreviewArea_SecondUpdateAlsoClearsLine is the canonical
+// correctness test: every Update emits a fresh single-line clear
+// before writing — no multi-line cursor positioning, no
+// row-count tracking, no off-by-one possible.
+func TestTTYPreviewArea_SecondUpdateAlsoClearsLine(t *testing.T) {
 	var buf bytes.Buffer
 	a := newTTYPreviewArea(&buf)
-	a.Update("line1\nline2\nline3") // 2 newlines
+	a.Update("first")
 	buf.Reset()
-	a.Update("only-one-line")
+	a.Update("second")
 	got := buf.String()
-	want := "\r\x1b[2A\x1b[J" + "only-one-line"
+	want := "\r\x1b[2Ksecond"
 	if got != want {
 		t.Errorf("second Update: got %q want %q", got, want)
 	}
 }
 
-// TestTTYPreviewArea_StopWipesArea verifies Stop emits the same
-// rewind+clear sequence and resets internal state so a subsequent
-// Update behaves as a first-time write again.
-func TestTTYPreviewArea_StopWipesArea(t *testing.T) {
+// TestTTYPreviewArea_StopWipesLineAndResets verifies Stop emits the
+// single-line clear sequence and resets internal state so the
+// subsequent Update behaves as a first-time write again.
+func TestTTYPreviewArea_StopWipesLineAndResets(t *testing.T) {
 	var buf bytes.Buffer
 	a := newTTYPreviewArea(&buf)
-	a.Update("one\ntwo\nthree\nfour") // 3 newlines
+	a.Update("anything")
 	buf.Reset()
 	a.Stop()
 	got := buf.String()
-	want := "\r\x1b[3A\x1b[J"
+	want := "\r\x1b[2K"
 	if got != want {
 		t.Errorf("Stop: got %q want %q", got, want)
 	}
-	if a.height != 0 {
-		t.Errorf("Stop must reset height; got %d", a.height)
-	}
-	// After Stop, the next Update should be treated as first-time.
-	buf.Reset()
-	a.Update("post-stop")
-	if !strings.HasPrefix(buf.String(), "\r\x1b[J") {
-		t.Errorf("post-stop Update must begin with first-time clear; got %q", buf.String())
+	if a.dirty {
+		t.Errorf("Stop must reset dirty; got dirty=true")
 	}
 }
 
-// TestTTYPreviewArea_ClearFromCursorToEOSEvenWhenWrapHappens is the
-// load-bearing test for the "leftover wrap" defence: even when the
-// printed content visually wraps in the terminal (i.e. produces
-// MORE physical rows than the '\n' count), the next Update's
-// `\x1b[J` clears from cursor to end of screen, wiping the wrap
-// residue. We can't simulate terminal wrap in a bytes.Buffer
-// (there's no terminal width), but we CAN verify the emitted
-// sequence is `\x1b[J` (clear-to-EOS) rather than per-line clears
-// that would leave wrap residue. Pin the sequence shape.
-func TestTTYPreviewArea_ClearFromCursorToEOSEvenWhenWrapHappens(t *testing.T) {
+// TestTTYPreviewArea_StopWithoutUpdate_NoOp ensures a stray Stop
+// (e.g. from the orchestrator's defensive defer at Run exit) does
+// nothing when no Update preceded it. Defends against ghost-clear
+// sequences leaking into the user's piped output.
+func TestTTYPreviewArea_StopWithoutUpdate_NoOp(t *testing.T) {
 	var buf bytes.Buffer
 	a := newTTYPreviewArea(&buf)
-	a.Update("x\ny") // 1 newline
-	buf.Reset()
-	a.Update("z")
-	got := buf.String()
-	// MUST contain `\x1b[J` (NOT `\x1b[2K` + per-line up loop) so
-	// the clear is screen-region-bulk, robust against under-counted
-	// wrap rows.
-	if !strings.Contains(got, "\x1b[J") {
-		t.Errorf("erase must use \\x1b[J (clear-to-EOS); got %q", got)
+	a.Stop()
+	if buf.Len() != 0 {
+		t.Errorf("Stop without prior Update must emit nothing; got %q", buf.String())
 	}
-	if strings.Contains(got, "\x1b[2K") {
-		t.Errorf("MUST NOT use per-line \\x1b[2K (vulnerable to wrap residue); got %q", got)
+}
+
+// TestTTYPreviewArea_FlattensNewlinesIntoSeparator pins the
+// single-line guarantee: any '\n' or '\r' embedded in the content
+// must be collapsed to a visible separator so the line never breaks.
+// A literal newline mid-render would push subsequent text to a new
+// row that the next Update's `\x1b[2K` would not clear.
+func TestTTYPreviewArea_FlattensNewlinesIntoSeparator(t *testing.T) {
+	var buf bytes.Buffer
+	a := newTTYPreviewArea(&buf)
+	a.Update("line1\nline2\rline3\n\nline4")
+	got := buf.String()
+	if strings.ContainsAny(got, "\n") {
+		t.Errorf("content '\\n' must be flattened; got %q", got)
+	}
+	// Bare \r is the head escape sequence (\r\x1b[2K), but no other
+	// \r should appear.
+	if strings.Count(got, "\r") != 1 {
+		t.Errorf("only the leading \\r escape allowed; got %q", got)
+	}
+	// All four logical lines must still appear in order.
+	for _, frag := range []string{"line1", "line2", "line3", "line4"} {
+		if !strings.Contains(got, frag) {
+			t.Errorf("missing fragment %q in %q", frag, got)
+		}
 	}
 }
 
@@ -106,21 +109,35 @@ func TestTTYPreviewArea_NilSafe(t *testing.T) {
 	a.Stop()            // must not panic
 }
 
-// TestTTYPreviewArea_HeightTracksContentNewlines ensures height
-// updates after each write so subsequent rewinds use the correct
-// row count.
-func TestTTYPreviewArea_HeightTracksContentNewlines(t *testing.T) {
-	a := newTTYPreviewArea(&bytes.Buffer{})
-	a.Update("a")
-	if a.height != 0 {
-		t.Errorf("single-line content must yield height=0; got %d", a.height)
+// TestTruncByTerminalWidth_FitsExact verifies the fast path: text
+// already within the column budget passes through unchanged.
+func TestTruncByTerminalWidth_FitsExact(t *testing.T) {
+	got := truncByTerminalWidth("hello", 80)
+	if got != "hello" {
+		t.Errorf("short text must pass through; got %q", got)
 	}
-	a.Update("a\nb\nc")
-	if a.height != 2 {
-		t.Errorf("two newlines must yield height=2; got %d", a.height)
+}
+
+// TestTruncByTerminalWidth_TruncatesWithEllipsis verifies overflow
+// path: text wider than budget is clipped and " …" is appended.
+func TestTruncByTerminalWidth_TruncatesWithEllipsis(t *testing.T) {
+	got := truncByTerminalWidth("abcdefghij", 6)
+	if !strings.HasSuffix(got, "…") {
+		t.Errorf("truncated text must end in ellipsis; got %q", got)
 	}
-	a.Update("a\nb\nc\nd\ne")
-	if a.height != 4 {
-		t.Errorf("four newlines must yield height=4; got %d", a.height)
+}
+
+// TestTruncByTerminalWidth_CJKCountsAsTwoColumns verifies CJK
+// runes consume 2 cols each — so a 5-char Chinese string fits in
+// 10 cols, not 5.
+func TestTruncByTerminalWidth_CJKCountsAsTwoColumns(t *testing.T) {
+	in := "你好世界abc" // 4×2 + 3×1 = 11 cols
+	got := truncByTerminalWidth(in, 10)
+	if !strings.HasSuffix(got, "…") {
+		t.Errorf("11-col content into 10-col budget must truncate; got %q", got)
+	}
+	got2 := truncByTerminalWidth(in, 12)
+	if got2 != in {
+		t.Errorf("11-col content into 12-col budget must pass; got %q", got2)
 	}
 }

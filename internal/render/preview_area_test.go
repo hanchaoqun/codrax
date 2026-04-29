@@ -48,18 +48,3 @@ func TestRenderer_PreviewChunk_NonTTYShortCircuit(t *testing.T) {
 	}
 }
 
-// TestRenderer_PreviewHeader_RoundLabels confirms the bilingual
-// round-aware header text. Round 1 → bare "草稿渲染中"; round 2+ →
-// includes "#N (此前轮次已重写)" so the user knows previous drafts
-// were rejected.
-func TestRenderer_PreviewHeader_RoundLabels(t *testing.T) {
-	if h := previewHeader(1); h != "─── 草稿渲染中 (流式预览) ───" {
-		t.Errorf("round 1 header = %q", h)
-	}
-	if h := previewHeader(2); h != "─── 草稿渲染中 #2 (流式预览, 此前轮次已重写) ───" {
-		t.Errorf("round 2 header = %q", h)
-	}
-	if h := previewHeader(5); h != "─── 草稿渲染中 #5 (流式预览, 此前轮次已重写) ───" {
-		t.Errorf("round 5 header = %q", h)
-	}
-}

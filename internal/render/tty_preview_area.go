@@ -3,92 +3,155 @@ package render
 import (
 	"fmt"
 	"io"
-	"strings"
+	"unicode/utf8"
+
+	"github.com/mattn/go-runewidth"
 )
 
-// ttyPreviewArea is a minimal in-place text region for the streaming
-// finalize-preview. It bypasses pterm.AreaPrinter (whose per-line
-// clear loop relies on the printed string's '\n' count exactly
-// matching the visible row count — a precondition that is hard to
-// guarantee under terminal auto-wrap, EAW-ambiguous runes, or
-// multiplexer width misreporting) in favour of a single
-// `\x1b[J` (erase-from-cursor-to-end-of-screen) sequence per
-// Update. As long as the cursor is at-or-above the topmost printed
-// row when erase fires, the entire previously-drawn region is
-// wiped, regardless of how many physical rows the terminal added
-// during display wrapping. The result: the next content prints on
-// a clean canvas every time, and Stop() leaves no leftover prose
-// for the bordered final answer to print over.
+// ttyPreviewArea is a SINGLE-LINE in-place ticker for the streaming
+// finalize-preview. Two prior multi-line implementations
+// (pterm.AreaPrinter, then a self-managed `\x1b[J` clear-to-EOS
+// region) both failed in real terminals: any time the printed
+// content's physical row count drifted from our predicted row count
+// — auto-wrap at the right edge, EAW-ambiguous runes that the
+// terminal renders wider than runewidth predicts, multiplexer
+// (tmux/screen) WINSZ desync between the time we asked and the time
+// the terminal drew, IDE-integrated terminals with their own line
+// buffering — the cursor-up math left visible debris that the next
+// update or final answer printed on top of.
 //
-// Output protocol per Update(content):
+// Single-line ticker via `\r` (carriage return) plus `\x1b[2K`
+// (erase entire line) avoids the failure modes entirely:
 //
-//   1. If a previous Update wrote N '\n' characters (height>0),
-//      emit `\r\x1b[<N>A` to move cursor to column 0 of N rows
-//      above the current row. That is the row where the previous
-//      Update started writing.
-//   2. Emit `\x1b[J` to clear from cursor to end of screen,
-//      regardless of how many physical rows the prior content
-//      occupied (auto-wraps, expanded tabs, anything).
-//   3. Write the new content verbatim.
-//   4. Record the new content's '\n' count as height for the next
-//      Update.
+//   - `\r` is universally supported. Every terminal ever made,
+//     including dumb terminals and CI log emulators, returns the
+//     cursor to column 0 of the CURRENT line. Zero ambiguity.
+//   - `\x1b[2K` erases the entire current line regardless of cursor
+//     column. ANSI X3.64 / ECMA-48 standard since the 1970s; every
+//     Windows 10+ VT-mode console, macOS Terminal, Linux emulator,
+//     tmux, and screen all honour it.
+//   - The line never wraps because we truncate every Update to fit
+//     terminal width via display-column counting (CJK = 2 cols).
+//     Auto-wrap can never produce ghost rows we'd need to clear.
+//   - No multi-line cursor positioning, no row-count tracking, no
+//     possibility of off-by-one between predicted and actual rows.
 //
-// Stop() runs the same rewind+clear sequence with empty content so
-// the area's footprint disappears entirely.
+// The trade-off: the user sees a one-line indicator instead of the
+// multi-line streaming text. That is acceptable: the prior
+// behaviour was already broken for many users and produced a worse
+// experience than no preview at all. A reliable one-liner ("正在
+// 生成最终答案 12s · 已收到 234 字 · …最近内容…") gives the user
+// the progress signal without the visual chaos.
 //
-// Cross-platform note: every escape used (\r, \x1b[NA, \x1b[J) is
-// part of the canonical ANSI X3.64 / ECMA-48 set that Windows 10+
-// console (with VT mode), macOS Terminal, and every Linux terminal
-// emulator interpret natively. Older Windows console (cmd.exe pre-
-// VT) would render the escapes as literal text — but the renderer
-// only constructs ttyPreviewArea on a TTY where ANSI colour codes
-// are already in use, so by the time we reach this code the host
-// has already committed to ANSI-on. No build-tagged platform
-// branches are necessary.
+// Cross-platform: \r and \x1b[2K work on Windows 10+ console with
+// VT mode (the renderer's TTY check already gates this), macOS
+// Terminal, every Linux terminal emulator. No build tags needed.
 type ttyPreviewArea struct {
-	w      io.Writer
-	height int // newline count of the last-written content
+	w     io.Writer
+	dirty bool // true once Update has written at least once and the line needs clearing on the next Update or Stop
 }
 
-// newTTYPreviewArea constructs a preview area writing to w. The
-// caller is expected to pass os.Stdout in production; tests pass a
-// bytes.Buffer so the emitted byte sequence can be inspected.
+// newTTYPreviewArea constructs a single-line ticker writing to w.
+// Production passes os.Stdout; tests pass a bytes.Buffer to inspect
+// the emitted byte sequence.
 func newTTYPreviewArea(w io.Writer) *ttyPreviewArea {
 	return &ttyPreviewArea{w: w}
 }
 
-// Update overwrites the preview region with content. The first call
-// (height == 0) has nothing to erase, so it just clears the current
-// line's leftover before writing — defensive against the cursor
-// having mid-line debris from a prior bare write.
-func (p *ttyPreviewArea) Update(content string) {
+// Update overwrites the ticker line with text. text MUST be
+// pre-truncated by the caller to fit one terminal row — Update
+// itself does not truncate beyond the safety cap (truncByTerminalWidth)
+// because the caller knows the right format string and where to
+// insert ellipsis. Embedded '\n' in text is replaced with a visible
+// glyph (' · ') so the line never breaks.
+func (p *ttyPreviewArea) Update(text string) {
 	if p == nil {
 		return
 	}
-	if p.height > 0 {
-		// `\r` reset to col 0; `\x1b[NA` go up N rows; `\x1b[J`
-		// erase from cursor to end of screen.
-		fmt.Fprintf(p.w, "\r\x1b[%dA\x1b[J", p.height)
-	} else {
-		// Clear current line + any wrap-residue below before the
-		// first write. `\r` returns to col 0 so `\x1b[J` covers
-		// from the start of the line.
-		fmt.Fprint(p.w, "\r\x1b[J")
-	}
-	fmt.Fprint(p.w, content)
-	p.height = strings.Count(content, "\n")
+	clean := flattenToOneLine(text)
+	// `\r` returns to column 0 of the current line; `\x1b[2K` erases
+	// the entire current line. Together: clean slate before writing.
+	fmt.Fprint(p.w, "\r\x1b[2K")
+	fmt.Fprint(p.w, clean)
+	p.dirty = true
 }
 
-// Stop wipes the preview region completely and resets internal
-// state. After Stop the next Update behaves as the first.
+// Stop wipes the ticker line entirely and resets state. After Stop,
+// the next Update behaves as the first.
 func (p *ttyPreviewArea) Stop() {
 	if p == nil {
 		return
 	}
-	if p.height > 0 {
-		fmt.Fprintf(p.w, "\r\x1b[%dA\x1b[J", p.height)
-	} else {
-		fmt.Fprint(p.w, "\r\x1b[J")
+	if p.dirty {
+		fmt.Fprint(p.w, "\r\x1b[2K")
+		p.dirty = false
 	}
-	p.height = 0
+}
+
+// flattenToOneLine collapses any '\n' / '\r' in s into ' · '
+// separators so the ticker output stays on a single physical line.
+// Carriage returns inside content would otherwise rewind cursor
+// mid-render, scrambling the display.
+func flattenToOneLine(s string) string {
+	if s == "" {
+		return ""
+	}
+	out := make([]byte, 0, len(s))
+	prevSpace := false
+	for i := 0; i < len(s); {
+		r, size := utf8.DecodeRuneInString(s[i:])
+		if r == '\n' || r == '\r' {
+			if !prevSpace {
+				out = append(out, ' ', 0xc2, 0xb7, ' ') // " · "
+				prevSpace = true
+			}
+			i += size
+			continue
+		}
+		out = append(out, s[i:i+size]...)
+		prevSpace = false
+		i += size
+	}
+	return string(out)
+}
+
+// truncByTerminalWidth clamps text so its display width fits within
+// maxCols columns. CJK chars cost 2 cols; ANSI escapes cost 0. When
+// truncation happens, ' …' (ellipsis with leading space) is appended
+// so the user knows the suffix was clipped. Returns text unchanged
+// when it already fits.
+//
+// The function is the SINGLE-LINE counterpart to wrapByDisplayWidth
+// (which wraps multi-line content). Used by handlePreviewChunkLocked
+// to size the ticker text to terminal width before passing to
+// ttyPreviewArea.Update.
+func truncByTerminalWidth(text string, maxCols int) string {
+	if maxCols < 4 {
+		maxCols = 4
+	}
+	width := runewidth.StringWidth(text)
+	if width <= maxCols {
+		return text
+	}
+	// Reserve 2 columns for the trailing " …".
+	limit := maxCols - 2
+	if limit < 1 {
+		limit = 1
+	}
+	var b []byte
+	col := 0
+	for i := 0; i < len(text); {
+		r, size := utf8.DecodeRuneInString(text[i:])
+		rw := runewidth.RuneWidth(r)
+		if rw < 0 {
+			rw = 0
+		}
+		if col+rw > limit {
+			break
+		}
+		b = append(b, text[i:i+size]...)
+		col += rw
+		i += size
+	}
+	return string(b) + " …"
 }
