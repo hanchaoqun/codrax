@@ -5868,6 +5868,34 @@ func TestStructuralCandidateFilesFromPaths_UsesAnalyzerRankedOrder(t *testing.T)
 	}
 }
 
+func TestDeclarativeAnchorFilesFromPaths_PrefersProductionBeforeAuxiliary(t *testing.T) {
+	anchors := declarativeAnchorFilesFromPaths([]string{
+		"codrax.yaml.example",
+		"codrax.yaml",
+		"configs/providers.yaml",
+	}, "config_mapping", types.AxisConfigure, false)
+	if got, want := len(anchors), 2; got != want {
+		t.Fatalf("anchor count = %d, want %d (%v)", got, want, anchors)
+	}
+	if anchors[0] != "codrax.yaml" || anchors[1] != "configs/providers.yaml" {
+		t.Fatalf("production declarative files should win before auxiliary examples, got %v", anchors)
+	}
+}
+
+func TestStructuralCandidateFilesFromPaths_PrefersProductionBeforeAuxiliary(t *testing.T) {
+	cands := structuralCandidateFilesFromPaths([]string{
+		"codrax.yaml.example",
+		"internal/config/runtime.go",
+		"internal/types/config.go",
+	}, "config_mapping", types.AxisConfigure, false)
+	if got, want := len(cands), 2; got != want {
+		t.Fatalf("candidate count = %d, want %d (%v)", got, want, cands)
+	}
+	if cands[0] != "internal/config/runtime.go" || cands[1] != "internal/types/config.go" {
+		t.Fatalf("production structural candidates should win before auxiliary examples, got %v", cands)
+	}
+}
+
 func TestBuildDeclarativeCandidateStartInstruction_TellsLLMToChooseByContent(t *testing.T) {
 	e := &explorerEvaluator{
 		declarativeCandidateFiles: []string{

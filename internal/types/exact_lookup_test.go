@@ -569,6 +569,28 @@ func TestLooksLikeConfigFilePath_AcceptsCommonConfigExtensionsAndChains(t *testi
 	}
 }
 
+func TestLooksLikeWrappedConfigFilePath_DetectsSecondaryConfigSurfaces(t *testing.T) {
+	for _, path := range []string{
+		"codrax.yaml.example",
+		"settings.json.sample",
+		"service.toml.template",
+	} {
+		if !LooksLikeWrappedConfigFilePath(path) {
+			t.Fatalf("LooksLikeWrappedConfigFilePath(%q)=false, want true", path)
+		}
+	}
+	for _, path := range []string{
+		"codrax.yaml",
+		"settings.json",
+		"service.config.json",
+		"internal/types/config.go",
+	} {
+		if LooksLikeWrappedConfigFilePath(path) {
+			t.Fatalf("LooksLikeWrappedConfigFilePath(%q)=true, want false", path)
+		}
+	}
+}
+
 func TestExactResolutionRelatedContextProofAllowedInFiles_ConfigTraceRequiresValidatedPrecedenceAnchor(t *testing.T) {
 	contract := &ExactResolutionContract{
 		TargetKind:           SubjectConfigKey,

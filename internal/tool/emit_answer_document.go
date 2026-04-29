@@ -3602,6 +3602,9 @@ func renderFollowOnGroundedContextSummarySeed(plan *types.AnswerSurfacePlan, lan
 	if plan == nil {
 		return ""
 	}
+	if fallback := renderConfigTraceFollowOnGroundedContextSummarySeed(plan, lang); fallback != "" {
+		return fallback
+	}
 	var labels []string
 	seen := make(map[string]bool)
 	appendLabels := func(items []types.ExactContextSurfaceLabel) {
@@ -3683,6 +3686,7 @@ func renderFollowOnGroundedContextSummarySeed(plan *types.AnswerSurfacePlan, lan
 	if len(labels) == 0 {
 		return ""
 	}
+	return renderNearbyContextSummarySentence(labels, lang)
 	if answerDocumentRequiresChinese(lang) {
 		if len(labels) == 1 {
 			return fmt.Sprintf("相关的已锚定上下文是 `%s`。", labels[0])
@@ -3693,6 +3697,195 @@ func renderFollowOnGroundedContextSummarySeed(plan *types.AnswerSurfacePlan, lan
 		return fmt.Sprintf("The grounded nearby context is `%s`.", labels[0])
 	}
 	return fmt.Sprintf("The grounded nearby context includes `%s` and `%s`.", labels[0], labels[1])
+}
+
+func renderConfigTraceFollowOnGroundedContextSummarySeed(plan *types.AnswerSurfacePlan, lang string) string {
+	if plan == nil || plan.ExactResolution == nil || plan.ExactResolution.TargetKind != types.SubjectConfigKey {
+		return ""
+	}
+	if len(plan.ConfigTraceDiagramAnchors) == 0 {
+		return ""
+	}
+	labels := configTraceRoleSeedLabels(plan)
+	if len(labels) == 0 {
+		return ""
+	}
+	return renderNearbyContextSummarySentence(labels, lang)
+}
+
+func renderNearbyContextSummarySentence(labels []string, lang string) string {
+	if len(labels) == 0 {
+		return ""
+	}
+	if answerDocumentRequiresChinese(lang) {
+		switch len(labels) {
+		case 1:
+			return fmt.Sprintf("相关的已锚定上下文是 `%s`。", labels[0])
+		case 2:
+			return fmt.Sprintf("相关的已锚定上下文包括 `%s` 和 `%s`。", labels[0], labels[1])
+		default:
+			head := make([]string, 0, len(labels)-1)
+			for _, label := range labels[:len(labels)-1] {
+				head = append(head, fmt.Sprintf("`%s`", label))
+			}
+			return fmt.Sprintf("相关的已锚定上下文包括 %s，以及 `%s`。", strings.Join(head, "、"), labels[len(labels)-1])
+		}
+	}
+	switch len(labels) {
+	case 1:
+		return fmt.Sprintf("The grounded nearby context is `%s`.", labels[0])
+	case 2:
+		return fmt.Sprintf("The grounded nearby context includes `%s` and `%s`.", labels[0], labels[1])
+	default:
+		head := make([]string, 0, len(labels)-1)
+		for _, label := range labels[:len(labels)-1] {
+			head = append(head, fmt.Sprintf("`%s`", label))
+		}
+		return fmt.Sprintf("The grounded nearby context includes %s, and `%s`.", strings.Join(head, ", "), labels[len(labels)-1])
+	}
+}
+
+func configTraceRoleSeedLabels(plan *types.AnswerSurfacePlan) []string {
+	if plan == nil || plan.ExactResolution == nil {
+		return nil
+	}
+	mergedItems := func(plan *types.AnswerSurfacePlan) []types.EvidenceItem {
+		var out []types.EvidenceItem
+		seenItems := make(map[string]bool)
+		appendUnique := func(items []types.EvidenceItem) {
+			for _, item := range items {
+				key := fmt.Sprintf("%s:%d:%s:%s", strings.TrimSpace(item.Source), item.LineStart, strings.TrimSpace(item.AnchorSymbol), strings.TrimSpace(item.Summary))
+				if key == "" || seenItems[key] {
+					continue
+				}
+				seenItems[key] = true
+				out = append(out, item)
+			}
+		}
+		appendUnique(plan.ProseOnlyExactContextItems)
+		appendUnique(plan.CitationGradeExactContextItems)
+		appendUnique(plan.AllowedExactContextItems)
+		return out
+	}
+	bestByRole := make(map[types.EvidenceDiagramRole]types.EvidenceItem)
+	bestScore := make(map[types.EvidenceDiagramRole]int)
+	appendRoleItems := func(items []types.EvidenceItem) {
+		for _, item := range items {
+			role := types.ConfigTraceValidatedDiagramRoleInFiles(plan.ExactResolution, item, plan.ExactContextRequiredFiles)
+			if role == types.EvidenceDiagramRoleUnknown {
+				continue
+			}
+			score := followOnGroundedContextSeedScore(plan, item)
+			if cur, ok := bestScore[role]; ok && cur >= score {
+				continue
+			}
+			bestScore[role] = score
+			bestByRole[role] = item
+		}
+	}
+	appendRoleItems(plan.CitationGradeExactContextItems)
+	appendRoleItems(plan.ProseOnlyExactContextItems)
+	appendRoleItems(plan.AllowedExactContextItems)
+
+	roleOrder := []types.EvidenceDiagramRole{
+		types.EvidenceDiagramRoleDefault,
+		types.EvidenceDiagramRoleConfig,
+		types.EvidenceDiagramRoleRuntime,
+		types.EvidenceDiagramRoleOverride,
+	}
+	var labels []string
+	seen := make(map[string]bool)
+	for _, role := range roleOrder {
+		if item, ok := bestByRole[role]; ok {
+			label := configTraceRoleSeedLabel(role, item)
+			if label == "" || seen[label] {
+				continue
+			}
+			seen[label] = true
+			labels = append(labels, label)
+		}
+	}
+	if len(labels) >= 2 {
+		return labels
+	}
+	supplemental := append([]types.EvidenceItem(nil), mergedItems(plan)...)
+	sort.SliceStable(supplemental, func(i, j int) bool {
+		si := followOnGroundedContextSeedScore(plan, supplemental[i])
+		sj := followOnGroundedContextSeedScore(plan, supplemental[j])
+		if si != sj {
+			return si > sj
+		}
+		leni := len(strings.TrimSpace(supplemental[i].AnchorSymbol))
+		lenj := len(strings.TrimSpace(supplemental[j].AnchorSymbol))
+		if leni != lenj {
+			return leni > lenj
+		}
+		return strings.TrimSpace(supplemental[i].Source) < strings.TrimSpace(supplemental[j].Source)
+	})
+	for _, item := range supplemental {
+		if item.ContextRole == types.EvidenceContextRoleAbsenceSupport {
+			continue
+		}
+		label := configTraceSupplementalSeedLabel(item)
+		if label == "" || seen[label] {
+			continue
+		}
+		seen[label] = true
+		labels = append(labels, label)
+		if len(labels) >= 3 {
+			return labels
+		}
+	}
+	if len(labels) > 0 {
+		return labels
+	}
+	for _, role := range roleOrder {
+		for _, anchor := range plan.ConfigTraceDiagramAnchors {
+			if strings.TrimSpace(anchor.Role) != string(role) {
+				continue
+			}
+			label := strings.TrimSpace(anchor.Label)
+			if label == "" || seen[label] {
+				continue
+			}
+			seen[label] = true
+			labels = append(labels, label)
+			break
+		}
+	}
+	return labels
+}
+
+func configTraceRoleSeedLabel(role types.EvidenceDiagramRole, item types.EvidenceItem) string {
+	trimmed := func(values ...string) string {
+		for _, value := range values {
+			value = strings.TrimSpace(value)
+			if value != "" {
+				return value
+			}
+		}
+		return ""
+	}
+	switch role {
+	case types.EvidenceDiagramRoleConfig:
+		return trimmed(item.Source, item.AnchorSymbol, item.Subject, item.Object)
+	default:
+		return trimmed(item.AnchorSymbol, item.Subject, item.Object, item.Source)
+	}
+}
+
+func configTraceSupplementalSeedLabel(item types.EvidenceItem) string {
+	for _, value := range []string{
+		strings.TrimSpace(item.AnchorSymbol),
+		strings.TrimSpace(item.Subject),
+		strings.TrimSpace(item.Object),
+		strings.TrimSpace(item.Source),
+	} {
+		if value != "" {
+			return value
+		}
+	}
+	return ""
 }
 
 func followOnGroundedContextSeedScore(plan *types.AnswerSurfacePlan, item types.EvidenceItem) int {

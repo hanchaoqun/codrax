@@ -1120,12 +1120,15 @@ func declarativeAnchorFilesFromPaths(paths []string, questionKind string, axis t
 		return nil
 	}
 	allowed := declarativeAllowedKinds(questionKind, axis)
-	collect := func(anyDeclarative bool) []string {
+	collect := func(anyDeclarative, allowSecondary bool) []string {
 		seen := make(map[string]bool)
 		var out []string
 		for _, rawPath := range paths {
 			path := canonicalExplorerPath(rawPath)
 			if path == "" || isNoisePath(path) || seen[path] {
+				continue
+			}
+			if !allowSecondary && declarativeSecondarySurfacePath(path) {
 				continue
 			}
 			kind, _ := declarativeClassifier.ClassifyPath(path)
@@ -1143,10 +1146,16 @@ func declarativeAnchorFilesFromPaths(paths []string, questionKind string, axis t
 		}
 		return out
 	}
-	if anchors := collect(false); len(anchors) > 0 {
+	if anchors := collect(false, false); len(anchors) > 0 {
 		return anchors
 	}
-	if anchors := collect(true); len(anchors) > 0 {
+	if anchors := collect(true, false); len(anchors) > 0 {
+		return anchors
+	}
+	if anchors := collect(false, true); len(anchors) > 0 {
+		return anchors
+	}
+	if anchors := collect(true, true); len(anchors) > 0 {
 		return anchors
 	}
 	return nil
@@ -1170,20 +1179,33 @@ func structuralCandidateFilesFromPaths(paths []string, questionKind string, axis
 	if len(paths) == 0 || !declarativeFocusRelevant(questionKind, isEnumeration, axis) {
 		return nil
 	}
-	seen := make(map[string]bool)
-	out := make([]string, 0, min(4, len(paths)))
-	for _, rawPath := range paths {
-		path := canonicalExplorerPath(rawPath)
-		if path == "" || isNoisePath(path) || seen[path] {
-			continue
+	collect := func(allowSecondary bool) []string {
+		seen := make(map[string]bool)
+		out := make([]string, 0, min(4, len(paths)))
+		for _, rawPath := range paths {
+			path := canonicalExplorerPath(rawPath)
+			if path == "" || isNoisePath(path) || seen[path] {
+				continue
+			}
+			if !allowSecondary && declarativeSecondarySurfacePath(path) {
+				continue
+			}
+			seen[path] = true
+			out = append(out, path)
+			if len(out) >= 4 {
+				break
+			}
 		}
-		seen[path] = true
-		out = append(out, path)
-		if len(out) >= 4 {
-			break
-		}
+		return out
 	}
-	return out
+	if out := collect(false); len(out) > 0 {
+		return out
+	}
+	return collect(true)
+}
+
+func declarativeSecondarySurfacePath(path string) bool {
+	return types.LooksLikeAuxiliaryEvidencePath(path) || types.LooksLikeWrappedConfigFilePath(path)
 }
 
 func canonicalExplorerPath(path string) string {

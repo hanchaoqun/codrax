@@ -827,10 +827,39 @@ func LooksLikeConfigFilePath(source string) bool {
 	base := filepath.Base(source)
 	parts := strings.Split(base, ".")
 	for _, part := range parts[1:] {
-		switch part {
-		case "yaml", "yml", "json", "json5", "jsonc", "toml", "ini", "cfg", "conf", "config", "properties", "xml", "hcl", "env":
+		if isConfigLikeExtension(part) {
 			return true
 		}
+	}
+	return false
+}
+
+func LooksLikeWrappedConfigFilePath(source string) bool {
+	source = strings.ToLower(strings.TrimSpace(strings.ReplaceAll(source, `\`, `/`)))
+	if source == "" {
+		return false
+	}
+	base := filepath.Base(source)
+	parts := strings.Split(base, ".")
+	if len(parts) < 3 {
+		return false
+	}
+	last := parts[len(parts)-1]
+	if isConfigLikeExtension(last) {
+		return false
+	}
+	for _, part := range parts[1 : len(parts)-1] {
+		if isConfigLikeExtension(part) {
+			return true
+		}
+	}
+	return false
+}
+
+func isConfigLikeExtension(part string) bool {
+	switch strings.ToLower(strings.TrimSpace(part)) {
+	case "yaml", "yml", "json", "json5", "jsonc", "toml", "ini", "cfg", "conf", "config", "properties", "xml", "hcl", "env":
+		return true
 	}
 	return false
 }
