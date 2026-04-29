@@ -133,18 +133,40 @@ func TestRenderMermaidBlocks_DisabledMasterSwitch_PassThrough(t *testing.T) {
 	}
 }
 
-// TestRenderMermaidBlocks_NonASCIIBodyLeftAsSource defends against
-// the upstream library limitation: pgavlin/mermaid-ascii's graph
-// renderer processes node-label text as bytes (not runes) so
-// multi-byte UTF-8 characters get garbled into Latin-1 sequences.
-// We detect non-ASCII content in the mermaid body and skip
-// rendering — the user sees the original mermaid source instead
-// of a corrupted grid.
-func TestRenderMermaidBlocks_NonASCIIBodyLeftAsSource(t *testing.T) {
+// TestRenderMermaidBlocks_CJKLabelsRenderViaAdapter verifies the
+// CJK adapter path: wide-rune labels (CJK / Hiragana / Katakana /
+// Hangul / full-width) substitute to 2-byte ASCII placeholders
+// before the library renders, then the original wide runes
+// restore in the output. Box widths stay aligned because both
+// placeholders and wide runes occupy exactly 2 display cells.
+func TestRenderMermaidBlocks_CJKLabelsRenderViaAdapter(t *testing.T) {
 	in := "```mermaid\nflowchart LR\n    A[分析器] --> B[探索器]\n```"
 	out := RenderMermaidBlocks(in)
+	if out == in {
+		t.Fatalf("CJK labels must be rendered (not left as source); got unchanged:\n%s", out)
+	}
+	if !strings.Contains(out, "```text\n") {
+		t.Errorf("output must rewrap fence as ```text```; got:\n%s", out)
+	}
+	for _, want := range []string{"分析器", "探索器"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("CJK label %q must survive restoration in the rendered grid; got:\n%s", want, out)
+		}
+	}
+}
+
+// TestRenderMermaidBlocks_NarrowMultibyteLeftAsSource pins the
+// fallback for multi-byte runes the adapter cannot safely
+// substitute (accented Latin / emoji at display-width 1). Library
+// would still byte-count them wrong; adapter refuses to substitute
+// because its 2-byte ASCII placeholder would occupy 2 cells where
+// the original rune occupies only 1, breaking box arithmetic.
+// Keep source as-is so user sees readable mermaid, not garbled output.
+func TestRenderMermaidBlocks_NarrowMultibyteLeftAsSource(t *testing.T) {
+	in := "```mermaid\nflowchart LR\n    A[café] --> B\n```"
+	out := RenderMermaidBlocks(in)
 	if out != in {
-		t.Errorf("CJK content must skip render and stay as source; got:\n%s", out)
+		t.Errorf("narrow multi-byte rune must skip render and stay as source; got:\n%s", out)
 	}
 }
 

@@ -82,17 +82,6 @@ func RenderMermaidBlocks(text string) string {
 //   ```
 var mermaidFenceRe = regexp.MustCompile("(?s)```mermaid[^\\n]*\\n(.*?)\\n```")
 
-// hasNonASCII reports whether s contains any byte >= 0x80. Faster
-// than utf8.ValidString — we only care that something multi-byte
-// is present, not whether it's well-formed UTF-8.
-func hasNonASCII(s string) bool {
-	for i := 0; i < len(s); i++ {
-		if s[i] >= 0x80 {
-			return true
-		}
-	}
-	return false
-}
 
 // replaceMermaidFence is the per-match closure handed to
 // ReplaceAllStringFunc. `match` is the full fence (including the
@@ -132,15 +121,26 @@ func replaceMermaidFence(match string) (out string) {
 	}
 
 	// Library limitation: pgavlin/mermaid-ascii's graph renderer
-	// processes node-label text as bytes (not runes), so multi-
-	// byte UTF-8 characters get split and rendered as garbled
-	// Latin-1 byte sequences. Detect any non-ASCII content and
-	// skip — leave the mermaid source as-is so the user reads
-	// the original (and a markdown viewer can still render it
-	// natively). Strict no-regression: a corrupted render is
-	// strictly worse than the original source.
-	if hasNonASCII(body) {
-		logging.Info("[render/mermaid] non-ASCII content detected; library would garble — block left as source")
+	// width-counts node labels by byte length (not runewidth), so
+	// multi-byte UTF-8 characters break the box arithmetic. We
+	// route through a CJK adapter that pre-substitutes every
+	// wide rune (CJK / Hiragana / Katakana / Hangul / full-width)
+	// with a 2-byte ASCII placeholder, calls the library, and
+	// restores the original characters in the rendered output.
+	// Cell arithmetic stays consistent because each wide rune
+	// occupies exactly 2 display cells AND each 2-byte ASCII
+	// placeholder occupies exactly 2 display cells, so the box
+	// widths the library computes match what the terminal draws.
+	//
+	// When the adapter cannot safely substitute (narrow
+	// multi-byte rune like accented Latin or emoji, or the
+	// placeholder pool is exhausted), we fall back to the
+	// original "leave as source" path — the user reads readable
+	// mermaid syntax, never garbled bytes.
+	adapter := newCJKAdapter(body)
+	preparedBody, _, substErr := adapter.substitute(body)
+	if substErr != nil {
+		logging.Info("[render/mermaid] cjk adapter cannot substitute (%v); block left as source", substErr)
 		return match
 	}
 
@@ -155,7 +155,7 @@ func replaceMermaidFence(match string) (out string) {
 	// CLI style (no HTML colour markup); plain text body.
 	cfg.StyleType = "cli"
 
-	rendered, err := render.Render(body, cfg)
+	rendered, err := render.Render(preparedBody, cfg)
 	if err != nil {
 		logging.Warning("[render/mermaid] render failed (block left unchanged): %v", err)
 		return match
@@ -164,6 +164,11 @@ func replaceMermaidFence(match string) (out string) {
 	if rendered == "" {
 		return match
 	}
+	// Restore wide runes in the rendered grid. The adapter walks
+	// the placeholder map and byte-replaces each occurrence; the
+	// pool was chosen to exclude any 2-byte pair already present
+	// in the source so we don't risk false-positive replacements.
+	rendered = adapter.restore(rendered)
 
 	// Rewrap as `text` fence so chroma doesn't tokenize the box-
 	// drawing chars as code (which it would if the fence stayed
