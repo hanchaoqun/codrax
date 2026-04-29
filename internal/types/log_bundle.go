@@ -202,6 +202,33 @@ func AllLogSignals() []LogSignal {
 	}
 }
 
+// LogBundleErrorTypes walks every top-level error and its Cause chain,
+// returning the ordered, de-duplicated list of non-empty Type strings.
+// Downstream consumers use this shared helper instead of re-walking the
+// recursive tree ad hoc in each stage.
+func LogBundleErrorTypes(bundle *LogBundle) []string {
+	if bundle == nil {
+		return nil
+	}
+	var out []string
+	seen := make(map[string]bool)
+	var walk func(*LogError)
+	walk = func(err *LogError) {
+		if err == nil {
+			return
+		}
+		if t := err.Type; t != "" && !seen[t] {
+			seen[t] = true
+			out = append(out, t)
+		}
+		walk(err.Cause)
+	}
+	for i := range bundle.Errors {
+		walk(&bundle.Errors[i])
+	}
+	return out
+}
+
 // IsValidLogSignal reports whether s is one of the canonical signals.
 // Used by the validator to reject LLM-emitted values outside the enum
 // (defence-in-depth; the schema's enum constraint catches it first).

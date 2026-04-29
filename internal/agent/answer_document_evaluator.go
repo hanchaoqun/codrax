@@ -329,6 +329,9 @@ func renderAnswerDocSubmissionChecklist(ctx *types.AgentContext, shape string, d
 		items = append(items,
 			"If this answer explains an attached log / stack trace, name each structured log error type or exception identifier from Log Triage at least once in `summary`. Do not paraphrase the type name away.",
 		)
+		if explicit := renderRequiredLogTriageTypes(ctx.LogTriage); explicit != "" {
+			items = append(items, explicit)
+		}
 	}
 	if diagramRequired {
 		items = append(items,
@@ -706,6 +709,14 @@ func renderAnswerDocDiagramLogSeed(bundle *types.LogBundle) string {
 	}
 	b.WriteString("```")
 	return b.String()
+}
+
+func renderRequiredLogTriageTypes(bundle *types.LogBundle) string {
+	typeNames := types.LogBundleErrorTypes(bundle)
+	if len(typeNames) == 0 {
+		return ""
+	}
+	return "For this dispatch, the exact structured log error type(s) you must mention literally in `summary` are: `" + strings.Join(typeNames, "`, `") + "`."
 }
 
 func renderAnswerDocDiagramFlowSeed(findings []types.FlowFindingDigest) string {

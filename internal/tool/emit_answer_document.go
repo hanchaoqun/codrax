@@ -2912,7 +2912,7 @@ func validateSummaryLogTriageCoverage(summary string, ctx *types.BusContext) err
 	if bundle == nil || len(bundle.Errors) == 0 {
 		return nil
 	}
-	errorTypes := collectLogTriageTypes(bundle)
+	errorTypes := types.LogBundleErrorTypes(bundle)
 	if len(errorTypes) == 0 {
 		return nil
 	}
@@ -2938,35 +2938,6 @@ func validateSummaryLogTriageCoverage(summary string, ctx *types.BusContext) err
 		WithFields("summary").
 		WithMetadata("missing_types", strings.Join(missing, ", ")).
 		WithHint("Re-emit `emit_answer_document` and name each attached-log error type directly in `summary` at least once. Keep the same grounded explanation, but do not paraphrase the class/exception names away.")
-}
-
-// collectLogTriageTypes walks every top-level Error in the bundle
-// and its Cause recursion, returning the ordered list of Type
-// strings. Duplicates are preserved in declaration order so the
-// reject message reads naturally ("missing: RuntimeException,
-// NullPointerException, IOException"). Empty Types are skipped.
-func collectLogTriageTypes(bundle *types.LogBundle) []string {
-	if bundle == nil {
-		return nil
-	}
-	var out []string
-	seen := make(map[string]bool)
-	var walk func(*types.LogError)
-	walk = func(e *types.LogError) {
-		if e == nil {
-			return
-		}
-		t := strings.TrimSpace(e.Type)
-		if t != "" && !seen[t] {
-			seen[t] = true
-			out = append(out, t)
-		}
-		walk(e.Cause)
-	}
-	for i := range bundle.Errors {
-		walk(&bundle.Errors[i])
-	}
-	return out
 }
 
 // logTriageTypeCovered reports whether lowerSummary mentions at

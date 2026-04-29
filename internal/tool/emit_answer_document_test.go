@@ -5983,7 +5983,7 @@ func TestCollectLogTriageTypes_WalksCauseChain(t *testing.T) {
 			{Type: "D"},
 		},
 	}
-	got := collectLogTriageTypes(bundle)
+	got := types.LogBundleErrorTypes(bundle)
 	want := []string{"A", "B", "C", "D"}
 	if len(got) != len(want) {
 		t.Fatalf("got %v, want %v", got, want)

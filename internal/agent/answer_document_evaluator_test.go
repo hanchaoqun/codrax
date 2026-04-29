@@ -988,6 +988,7 @@ func TestAnswerDocumentEvaluator_BuildInitialInstruction_RendersLogTriageAndDiag
 	for _, want := range []string{
 		"## Submission Checklist",
 		"name each structured log error type or exception identifier from Log Triage",
+		"the exact structured log error type(s) you must mention literally in `summary` are: `runtime error: invalid memory address or nil pointer dereference`",
 		"Every file/path node you keep inside a fenced diagram must also be grounded by `citations[]` or by attached Log Triage frames",
 	} {
 		if !strings.Contains(prompt, want) {
