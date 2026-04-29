@@ -322,6 +322,86 @@ func exactResolutionContextFilesFromCandidates(candidates []exactResolutionSymbo
 	return files
 }
 
+func exactResolutionContextFilesFromGroundedEvidence(
+	contract *types.ExactResolutionContract,
+	scenario types.Scenario,
+	evidence []types.EvidenceItem,
+	preferredFiles []string,
+) []string {
+	if contract == nil || len(evidence) == 0 {
+		return nil
+	}
+	preferredRank := make(map[string]int, len(preferredFiles))
+	for i, file := range preferredFiles {
+		file = canonicalExactResolutionPath(file)
+		if file != "" {
+			preferredRank[file] = len(preferredFiles) - i
+		}
+	}
+	type scoredFile struct {
+		File  string
+		Score int
+	}
+	bestByFile := make(map[string]int)
+	for _, item := range evidence {
+		if !types.ExactResolutionRelatedContextProofAllowedInFiles(contract, scenario, true, item, nil) {
+			continue
+		}
+		file := canonicalExactResolutionPath(item.Source)
+		if file == "" {
+			continue
+		}
+		score := 12
+		if item.ContextRole == types.EvidenceContextRoleDefining {
+			score += 4
+		}
+		if item.DiagramRole != types.EvidenceDiagramRoleUnknown {
+			score += 4
+		}
+		if item.LineStart > 0 {
+			score += 1
+		}
+		if bonus := preferredRank[file]; bonus > 0 {
+			score += 8 + bonus
+		}
+		if cur := bestByFile[file]; cur < score {
+			bestByFile[file] = score
+		}
+	}
+	if len(bestByFile) == 0 {
+		return nil
+	}
+	scored := make([]scoredFile, 0, len(bestByFile))
+	for file, score := range bestByFile {
+		scored = append(scored, scoredFile{File: file, Score: score})
+	}
+	sort.SliceStable(scored, func(i, j int) bool {
+		if scored[i].Score != scored[j].Score {
+			return scored[i].Score > scored[j].Score
+		}
+		return scored[i].File < scored[j].File
+	})
+	files := make([]string, 0, len(scored))
+	for _, item := range scored {
+		files = append(files, item.File)
+	}
+	return files
+}
+
+func refreshedExactResolutionContextFiles(
+	contract *types.ExactResolutionContract,
+	scenario types.Scenario,
+	evidence []types.EvidenceItem,
+	candidates []exactResolutionSymbolCandidate,
+	preferredFiles []string,
+) []string {
+	if files := exactResolutionContextFilesFromGroundedEvidence(contract, scenario, evidence, preferredFiles); len(files) > 0 {
+		return files
+	}
+	pending := pendingExactResolutionContextCandidates(contract, evidence, candidates)
+	return exactResolutionContextFilesFromCandidates(pending, preferredFiles)
+}
+
 func exactResolutionFilterCandidatesToPreferredFiles(candidates []exactResolutionSymbolCandidate, preferredFiles []string) []exactResolutionSymbolCandidate {
 	if len(candidates) == 0 {
 		return nil

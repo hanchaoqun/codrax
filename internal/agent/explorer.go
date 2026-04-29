@@ -2849,8 +2849,14 @@ func (e *explorerEvaluator) buildExactResolutionScopeBanner(ctx *types.AgentCont
 	if ctx.Mutable != nil &&
 		contract.AllowAbsence &&
 		contract.RelatedContextPolicy != types.ExactContextGroundedOnly {
-		pending := pendingExactResolutionContextCandidates(contract, ctx.Mutable.EmittedEvidence(), cands)
-		e.exactContextFiles = exactResolutionContextFilesFromCandidates(pending, e.requiredFiles)
+		evidence := mergeEvidenceItems(e.structuredEvidence, ctx.Mutable.EmittedEvidence())
+		e.exactContextFiles = refreshedExactResolutionContextFiles(
+			contract,
+			ctx.AnalysisIR.RequestModel.Scenario,
+			evidence,
+			cands,
+			e.requiredFiles,
+		)
 		ctx.Mutable.SetExactContextRequiredFiles(e.exactContextFiles)
 	}
 	if contract.RelatedContextPolicy != types.ExactContextSameFamilyGrounded {
@@ -4575,14 +4581,19 @@ func (e *explorerEvaluator) driftBoundedCompletionReadyMode() bool {
 	if e == nil {
 		return false
 	}
-	plan := e.answerSurfacePlan()
-	if plan == nil || plan.SummarySurfaceMode != types.AnswerSummarySurfaceDriftBoundedRootCause {
+	if !e.authoritativeLogClosureCarrierReady() || e.analysisIR == nil ||
+		e.analysisIR.RequestModel.Scenario != types.ScenarioRootCause {
 		return false
 	}
-	if len(plan.DriftBoundedSurfaceItems) == 0 {
+	shape := types.EffectiveRequiredAnswerShape(e.analysisIR, nil)
+	if shape != types.ShapeStepList && shape != types.ShapeExplanation {
 		return false
 	}
-	return e.authoritativeLogClosureCarrierReady()
+	if plan := e.answerSurfacePlan(); plan != nil && len(plan.DriftBoundedSurfaceItems) > 0 {
+		return true
+	}
+	_, _, items := e.currentDriftBoundedSurface()
+	return len(items) > 0
 }
 
 func (e *explorerEvaluator) driftBoundedCompletionReason() string {
@@ -4590,9 +4601,6 @@ func (e *explorerEvaluator) driftBoundedCompletionReason() string {
 		return ""
 	}
 	plan := e.answerSurfacePlan()
-	if plan == nil {
-		return ""
-	}
 	lang := ""
 	if e.analysisIR != nil {
 		lang = strings.TrimSpace(e.analysisIR.AnswerContract.Language)
@@ -4600,7 +4608,75 @@ func (e *explorerEvaluator) driftBoundedCompletionReason() string {
 			lang = strings.TrimSpace(e.analysisIR.RequestModel.Language)
 		}
 	}
-	return strings.TrimSpace(tool.RenderDriftBoundedCurrentRootCauseSummary(plan, lang))
+	if plan == nil || len(plan.DriftBoundedSurfaceItems) == 0 {
+		observed, drift, items := e.currentDriftBoundedSurface()
+		if len(items) == 0 {
+			return ""
+		}
+		shape := types.ShapeExplanation
+		if e.analysisIR != nil {
+			if resolved := types.EffectiveRequiredAnswerShape(e.analysisIR, nil); resolved != "" {
+				shape = resolved
+			}
+		}
+		plan = &types.AnswerSurfacePlan{
+			RequiredShape:            shape,
+			SummarySurfaceMode:       types.AnswerSummarySurfaceDriftBoundedRootCause,
+			LogObservedAnchors:       observed,
+			LogSourceDriftAnchors:    drift,
+			DriftBoundedSurfaceItems: items,
+		}
+	}
+	if reason := strings.TrimSpace(tool.RenderDriftBoundedCurrentRootCauseSummary(plan, lang)); reason != "" {
+		return reason
+	}
+	return renderFallbackDriftBoundedCompletionReason(plan)
+}
+
+func (e *explorerEvaluator) currentDriftBoundedSurface() ([]types.LogSourceDriftAnchor, []types.LogSourceDriftAnchor, []types.EvidenceItem) {
+	if e == nil || e.analysisIR == nil || e.logTriage == nil {
+		return nil, nil, nil
+	}
+	observed := types.CollectLogObservedAnchors(e.analysisIR.RequestModel, e.logTriage, e.structuredEvidence)
+	drift := types.CollectLogSourceDriftAnchors(e.analysisIR.RequestModel, e.logTriage, e.structuredEvidence)
+	items := types.CollectDriftBoundedSurfaceItems(observed, drift, e.structuredEvidence)
+	return observed, drift, items
+}
+
+func renderFallbackDriftBoundedCompletionReason(plan *types.AnswerSurfacePlan) string {
+	if plan == nil || len(plan.DriftBoundedSurfaceItems) == 0 {
+		return ""
+	}
+	clauses := make([]string, 0, 2)
+	for _, item := range plan.DriftBoundedSurfaceItems {
+		clause := strings.TrimSpace(types.EvidenceStructuredSemanticLine(item, false))
+		if clause == "" {
+			for _, candidate := range []string{item.AnchorSymbol, item.Subject, item.Object} {
+				if candidate = strings.TrimSpace(candidate); candidate != "" {
+					clause = candidate
+					break
+				}
+			}
+		}
+		if clause == "" {
+			continue
+		}
+		if item.Source != "" && item.LineStart > 0 {
+			clause = fmt.Sprintf("%s (%s:%d)", clause, strings.TrimSpace(strings.ReplaceAll(item.Source, `\`, `/`)), item.LineStart)
+		}
+		clauses = append(clauses, clause)
+		if len(clauses) >= 2 {
+			break
+		}
+	}
+	switch len(clauses) {
+	case 0:
+		return ""
+	case 1:
+		return "Stay within the grounded current-branch anchor: " + clauses[0] + "."
+	default:
+		return "Stay within the grounded current-branch anchors: " + clauses[0] + "; " + clauses[1] + "."
+	}
 }
 
 func (e *explorerEvaluator) updateMidLoopSerialStreak(prevResultsLen, currentResultsLen int) {
@@ -6752,10 +6828,33 @@ func (e *explorerEvaluator) refreshMidLoopStructuredEvidence(ctx *types.AgentCon
 		return
 	}
 	emitted := ctx.Mutable.EmittedEvidence()
-	if len(emitted) == 0 {
+	if len(emitted) > 0 {
+		e.structuredEvidence = mergeEvidenceItems(e.structuredEvidence, emitted)
+	}
+	e.refreshExactContextFiles(ctx)
+}
+
+func (e *explorerEvaluator) refreshExactContextFiles(ctx *types.AgentContext) {
+	if e == nil || ctx == nil || ctx.Mutable == nil || ctx.AnalysisIR == nil {
 		return
 	}
-	e.structuredEvidence = mergeEvidenceItems(e.structuredEvidence, emitted)
+	contract := ctx.AnalysisIR.AnswerContract.ExactResolution
+	if contract == nil || !contract.AllowAbsence || len(contract.Targets) == 0 ||
+		contract.RelatedContextPolicy == types.ExactContextGroundedOnly {
+		e.exactContextFiles = nil
+		ctx.Mutable.SetExactContextRequiredFiles(nil)
+		return
+	}
+	cands := e.collectExactResolutionSymbolCandidates(contract, e.analyzerKeywords)
+	cands = exactResolutionFilterCandidatesToPreferredFiles(cands, e.requiredFiles)
+	e.exactContextFiles = refreshedExactResolutionContextFiles(
+		contract,
+		ctx.AnalysisIR.RequestModel.Scenario,
+		e.structuredEvidence,
+		cands,
+		e.requiredFiles,
+	)
+	ctx.Mutable.SetExactContextRequiredFiles(e.exactContextFiles)
 }
 
 func (e *explorerEvaluator) ParseOutput(ctx *types.AgentContext, messages []llm.Message, toolResults []types.ToolResult, mcpResponses []types.MCPResponse) (*StageOutput, error) {
@@ -6797,7 +6896,6 @@ func (e *explorerEvaluator) ParseOutput(ctx *types.AgentContext, messages []llm.
 	}
 
 	e.ensureStructuredEvidence(ctx, toolResults)
-	exactAbsenceSalvaged := e.salvageExactAbsenceCompletion(ctx)
 
 	// Merge concrete values into structured evidence. Before the
 	// synthesis-LLM removal (2026-04-16) this merge lived inside
@@ -6852,6 +6950,8 @@ func (e *explorerEvaluator) ParseOutput(ctx *types.AgentContext, messages []llm.
 	if len(cvResult.evidence) > 0 {
 		e.structuredEvidence = mergeEvidenceItems(e.structuredEvidence, cvResult.evidence)
 	}
+	e.refreshExactContextFiles(ctx)
+	exactAbsenceSalvaged := e.salvageExactAbsenceCompletion(ctx)
 
 	// HasEnoughFacts: multi-dimensional quality check.
 	// 1. Tool diversity: at least 2 distinct evidence tools (grep + read_file).

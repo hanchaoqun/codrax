@@ -159,3 +159,50 @@ func TestPendingExactResolutionContextCandidates_IgnoresRecoveredSummaryOnlyMent
 		t.Fatalf("grounded structured evidence should satisfy candidate, got %+v", got)
 	}
 }
+
+func TestRefreshedExactResolutionContextFiles_PrefersGroundedEvidenceOverPendingNeighbors(t *testing.T) {
+	contract := &types.ExactResolutionContract{
+		TargetKind:           types.SubjectConfigKey,
+		TargetLabel:          "config key",
+		Targets:              []string{"explore_mid_loop_hint_budget"},
+		AllowAbsence:         true,
+		RelatedContextPolicy: types.ExactContextSameFamilyGrounded,
+		RelatedContextTerms:  []string{"explore"},
+	}
+	cands := []exactResolutionSymbolCandidate{
+		{File: "internal/types/explore_budget.go", Symbol: "ExploreBudget", Score: 12},
+		{File: "internal/types/config.go", Symbol: "DefaultExploreHeuristics", Score: 11},
+	}
+	evidence := []types.EvidenceItem{
+		{
+			Kind:            types.EvidenceDirect,
+			Subject:         "explore_mid_loop_hint_budget",
+			Predicate:       "absent_from",
+			Object:          "RuntimeSettings",
+			Source:          "internal/config/runtime.go",
+			GroundingStatus: types.GroundingGrounded,
+			ContextRole:     types.EvidenceContextRoleAbsenceSupport,
+			AnchorKind:      types.AnchorDefinition,
+			AnchorSymbol:    "RuntimeSettings",
+		},
+		{
+			Kind:            types.EvidenceDirect,
+			Subject:         "DefaultExploreHeuristics",
+			Predicate:       "provides_defaults_for",
+			Object:          "explore settings",
+			Source:          "internal/types/config.go",
+			GroundingStatus: types.GroundingGrounded,
+			ContextRole:     types.EvidenceContextRoleRelatedContext,
+			DiagramRole:     types.EvidenceDiagramRoleDefault,
+			AnchorKind:      types.AnchorDefinition,
+			AnchorSymbol:    "DefaultExploreHeuristics",
+		},
+	}
+	got := refreshedExactResolutionContextFiles(contract, types.ScenarioConfigTrace, evidence, cands, []string{
+		"internal/types/config.go",
+		"internal/types/explore_budget.go",
+	})
+	if len(got) != 1 || got[0] != "internal/types/config.go" {
+		t.Fatalf("grounded related-context files should override pending lexical neighbors, got %v", got)
+	}
+}

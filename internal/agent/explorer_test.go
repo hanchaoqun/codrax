@@ -5164,6 +5164,66 @@ func TestObserveMidLoop_DriftBoundedAuthoritativeClosureBypassesUnsatisfiedERM(t
 	}
 }
 
+func TestDriftBoundedCompletionReadyMode_AllowsObservedCurrentBranchWithoutDriftMode(t *testing.T) {
+	eval := &explorerEvaluator{
+		analysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				Scenario: types.ScenarioRootCause,
+				Intent:   types.IntentRootCause,
+			},
+			AnswerContract: types.AnswerContract{
+				RequiredAnswerShape: types.ShapeExplanation,
+			},
+		},
+		logTriage: &types.LogBundle{
+			Meta:          types.LogMeta{Signals: []types.LogSignal{types.SignalPanic}},
+			ResolvedFiles: []string{"internal/agent/analyzer.go"},
+			Errors: []types.LogError{{
+				Frames: []types.LogFrame{
+					{File: "internal/agent/analyzer.go", Line: 648, Func: "buildAnalysisIR"},
+					{File: "internal/agent/analyzer.go", Line: 603, Func: "(*analyzerEvaluator).ParseOutput"},
+				},
+			}},
+		},
+		structuredEvidence: []types.EvidenceItem{
+			{
+				Kind:            types.EvidenceRelationship,
+				Subject:         "ParseOutput",
+				Predicate:       "calls",
+				Object:          "buildAnalysisIR",
+				Source:          "internal/agent/analyzer.go",
+				LineStart:       648,
+				AnchorKind:      types.AnchorCall,
+				AnchorSymbol:    "buildAnalysisIR",
+				GroundingStatus: types.GroundingGrounded,
+			},
+			{
+				Kind:            types.EvidenceConditional,
+				Subject:         "buildAnalysisIR",
+				Predicate:       "panics_when",
+				Object:          "ctx.Mutable is nil",
+				Condition:       "ctx == nil || ctx.Mutable == nil",
+				Source:          "internal/agent/analyzer.go",
+				LineStart:       857,
+				AnchorKind:      types.AnchorCondition,
+				AnchorSymbol:    "buildAnalysisIR",
+				GroundingStatus: types.GroundingGrounded,
+			},
+		},
+	}
+	if plan := eval.answerSurfacePlan(); plan == nil {
+		t.Fatal("expected answer surface plan")
+	} else if plan.SummarySurfaceMode == types.AnswerSummarySurfaceDriftBoundedRootCause {
+		t.Fatalf("expected observed-current-branch case to stay out of drift-only mode, got %+v", plan)
+	}
+	if !eval.driftBoundedCompletionReadyMode() {
+		t.Fatal("authoritative current-branch closure should not wait for drift-only surface mode")
+	}
+	if got := eval.driftBoundedCompletionReason(); got == "" {
+		t.Fatal("bounded completion reason should still be available from current observed anchors")
+	}
+}
+
 func TestObserveMidLoop_CompletionReadyDoesNotFireForAuthoritativeCallOnlyEvidence(t *testing.T) {
 	eval := &explorerEvaluator{
 		phase:                      1,
