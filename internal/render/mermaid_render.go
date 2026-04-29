@@ -10,12 +10,35 @@ import (
 	"github.com/hanchaoqun/codrax/internal/logging"
 )
 
+// mermaidRenderingEnabled is the master switch for the
+// mermaid → ASCII transformation. Default true (REPL / interactive
+// terminal mode); set to false by single-shot CLI runners so the
+// model's mermaid source ships verbatim to stdout. CLI users
+// commonly pipe codrax output to a file, a markdown renderer, a
+// mermaid-cli, or paste into a doc — all of those consume mermaid
+// source natively and would not benefit from a pre-baked ASCII
+// grid. REPL users read the answer immediately in a terminal so
+// the ASCII transformation is the right default.
+//
+// Process-global because there is exactly one render mode per
+// invocation; cmd/root.go's runSingleShot toggles it off before
+// orchestrator dispatch.
+var mermaidRenderingEnabled = true
+
+// SetMermaidRenderingEnabled is the master switch toggle. Pass
+// false to disable the mermaid → ASCII transformation; mermaid
+// fenced blocks then pass through unchanged.
+func SetMermaidRenderingEnabled(enabled bool) {
+	mermaidRenderingEnabled = enabled
+}
+
 // RenderMermaidBlocks scans `text` for fenced code blocks tagged
 // `mermaid` and rewrites each block in place: the mermaid source
 // is rendered to deterministically-aligned ASCII via the
 // pgavlin/mermaid-ascii library, then the fence is rewritten to
 // `text` (so glamour's chroma path skips syntax highlighting and
-// preserves monospace alignment).
+// preserves monospace alignment). Returns text unchanged when the
+// master switch (mermaidRenderingEnabled) is off.
 //
 // Failure semantics — strictly safe / no regression possible:
 //
@@ -35,6 +58,9 @@ import (
 // dep, MIT licensed), uses runewidth for width calculations, no
 // syscalls or shell-out. Output is the same on every platform.
 func RenderMermaidBlocks(text string) string {
+	if !mermaidRenderingEnabled {
+		return text
+	}
 	if text == "" {
 		return text
 	}

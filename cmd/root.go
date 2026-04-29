@@ -780,6 +780,12 @@ func resolveWriteMode(in writeModeInputs) (types.PipelineMode, error) {
 // its own RenderResult callback.
 func runSingleShot(_ *cobra.Command, request string) error {
 	logging.Info("starting pipeline for request: %s", request)
+	// Single-shot CLI: ship mermaid source as-is so users piping
+	// output to file / markdown viewers / mermaid-cli get the
+	// authoritative source, not a pre-baked ASCII transformation.
+	// REPL keeps the default (enabled) so terminal readers see
+	// aligned diagrams immediately.
+	render.SetMermaidRenderingEnabled(false)
 	busCtx, err := app.orch.Run(request, flagRepo, flagBranch)
 	if err != nil {
 		logging.Error("pipeline failed: %v", err)

@@ -105,6 +105,34 @@ func TestRenderMermaidBlocks_EmptyBody_LeftAlone(t *testing.T) {
 	}
 }
 
+// TestRenderMermaidBlocks_DisabledMasterSwitch_PassThrough pins
+// the CLI single-shot contract: when SetMermaidRenderingEnabled
+// is false, mermaid blocks must ship as source so users piping
+// output to file / markdown viewers / mermaid-cli get the
+// authoritative source. The REPL path keeps the default-enabled
+// behaviour for interactive terminal reading.
+func TestRenderMermaidBlocks_DisabledMasterSwitch_PassThrough(t *testing.T) {
+	in := "prose\n\n```mermaid\nflowchart LR\n    A --> B\n```\n\nend"
+	// Save and restore the master switch so this test doesn't
+	// leak state into the other tests in the suite.
+	prev := mermaidRenderingEnabled
+	t.Cleanup(func() { SetMermaidRenderingEnabled(prev) })
+
+	SetMermaidRenderingEnabled(false)
+	out := RenderMermaidBlocks(in)
+	if out != in {
+		t.Errorf("master switch off must pass mermaid block through unchanged\n  in:  %q\n  out: %q",
+			in, out)
+	}
+
+	// Re-enable to confirm the toggle works both directions.
+	SetMermaidRenderingEnabled(true)
+	out2 := RenderMermaidBlocks(in)
+	if out2 == in {
+		t.Errorf("master switch on must rewrite mermaid block; got unchanged:\n%s", out2)
+	}
+}
+
 // TestRenderMermaidBlocks_NonASCIIBodyLeftAsSource defends against
 // the upstream library limitation: pgavlin/mermaid-ascii's graph
 // renderer processes node-label text as bytes (not runes) so
