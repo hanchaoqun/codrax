@@ -209,6 +209,78 @@ func TestAddRepair_ReadFile_Dedupe(t *testing.T) {
 	}
 }
 
+// TestActiveRepairs_PrefersPendingReadsOverHistoricalReadRepairs pins
+// the shared live-repair view used by explorer and scheduler. When a
+// historical RepairReadFile directive targets a file that has already
+// been satisfied, but pendingReads now points at a different live
+// blocker, ActiveRepairs must surface the current pending file rather
+// than the stale historical directive.
+func TestActiveRepairs_PrefersPendingReadsOverHistoricalReadRepairs(t *testing.T) {
+	c := NewEvidenceClosure("")
+	c.AddRepair(RepairDirective{
+		Kind:      RepairReadFile,
+		Files:     []string{"internal/agent/analyzer.go"},
+		Rationale: "old read target",
+		Origin:    "emit_investigation_complete.old",
+	})
+	c.ClearPendingReadFor("internal/agent/analyzer.go")
+	c.AddPendingRead(PendingRead{
+		File:      "internal/types/analysis_ir.go",
+		Rationale: "new live blocker",
+		Origin:    "emit_investigation_complete.current",
+	})
+
+	repairs := c.ActiveRepairs()
+	if len(repairs) != 1 {
+		t.Fatalf("ActiveRepairs len=%d, want 1: %+v", len(repairs), repairs)
+	}
+	if repairs[0].Kind != RepairReadFile {
+		t.Fatalf("ActiveRepairs[0].Kind=%q, want %q", repairs[0].Kind, RepairReadFile)
+	}
+	if len(repairs[0].Files) != 1 || repairs[0].Files[0] != "internal/types/analysis_ir.go" {
+		t.Fatalf("ActiveRepairs read files=%v, want [internal/types/analysis_ir.go]", repairs[0].Files)
+	}
+	if repairs[0].Rationale != "new live blocker" {
+		t.Fatalf("ActiveRepairs rationale=%q, want current pending-read rationale", repairs[0].Rationale)
+	}
+}
+
+// TestConsumeRepairs_RetainsLivePendingReadRepairs ensures scheduler
+// prompts keep seeing unresolved forced reads even after the queued
+// repairs ledger is drained. Read-file surfacing is anchored to
+// pendingReads, not to whether the historical RepairReadFile
+// directive has already been consumed once.
+func TestConsumeRepairs_RetainsLivePendingReadRepairs(t *testing.T) {
+	c := NewEvidenceClosure("")
+	c.AddRepair(RepairDirective{
+		Kind:      RepairReadFile,
+		Files:     []string{"internal/agent/analyzer.go"},
+		Rationale: "current read blocker",
+		Origin:    "emit_investigation_complete.current",
+	})
+	c.AddRepair(RepairDirective{
+		Kind:      RepairEmitEvidence,
+		Files:     []string{"internal/agent/analyzer.go"},
+		Rationale: "materialize evidence after the read",
+		Origin:    "emit_investigation_complete.current",
+	})
+
+	first := c.ConsumeRepairs()
+	if len(first) != 2 {
+		t.Fatalf("first ConsumeRepairs len=%d, want 2: %+v", len(first), first)
+	}
+	second := c.ConsumeRepairs()
+	if len(second) != 1 {
+		t.Fatalf("second ConsumeRepairs len=%d, want 1 live read repair: %+v", len(second), second)
+	}
+	if second[0].Kind != RepairReadFile {
+		t.Fatalf("second ConsumeRepairs kind=%q, want %q", second[0].Kind, RepairReadFile)
+	}
+	if len(second[0].Files) != 1 || second[0].Files[0] != "internal/agent/analyzer.go" {
+		t.Fatalf("second ConsumeRepairs files=%v, want [internal/agent/analyzer.go]", second[0].Files)
+	}
+}
+
 // TestAddRepair_ExpandSearch_BumpsStats is the B1 producer
 // regression: every RepairExpandSearch written to the closure MUST
 // bump ClosureStats.ExpandSearchRaised (on top of the generic

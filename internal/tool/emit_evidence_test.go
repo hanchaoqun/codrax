@@ -245,6 +245,41 @@ func TestEmitEvidenceRepairTargets_DropsRecoveredItemCoveredByGroundedSibling(t 
 	}
 }
 
+func TestBuildEmitEvidenceRepair_EmitsStructuredNoopEnvelopeForCoveredRecoveredItems(t *testing.T) {
+	items := []types.EvidenceItem{
+		{
+			Source:          "internal/agent/analyzer.go",
+			LineStart:       852,
+			GroundingStatus: types.GroundingGrounded,
+			AnchorSymbol:    "buildAnalysisIR",
+		},
+		{
+			Source:          "internal/agent/analyzer.go",
+			LineStart:       849,
+			GroundingStatus: types.GroundingRecovered,
+			AnchorSymbol:    "buildAnalysisIR",
+			Subject:         "buildAnalysisIR",
+		},
+	}
+	reports := []ground.Report{
+		{},
+		{AdjustedLine: 852},
+	}
+	repair := buildEmitEvidenceRepair(nil, items, reports)
+	if repair == nil {
+		t.Fatal("expected structured repair envelope even when no actionable line-text repair remains")
+	}
+	if repair.Code != "evidence_line_text_repair" {
+		t.Fatalf("repair code=%q, want evidence_line_text_repair", repair.Code)
+	}
+	if len(repair.Targets) != 0 {
+		t.Fatalf("covered recovered sibling should not produce actionable targets, got %+v", repair.Targets)
+	}
+	if got := repair.Metadata["repair_status"]; got != "satisfied_or_non_actionable" {
+		t.Fatalf("repair_status=%q, want satisfied_or_non_actionable", got)
+	}
+}
+
 func TestEmitEvidence_PreservesValidatedDiagramRoleHint(t *testing.T) {
 	tool := &EmitEvidence{}
 	ctx := newEmitCtx()

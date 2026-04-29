@@ -693,6 +693,78 @@ func (c *EvidenceClosure) PendingReads() []PendingRead {
 	return out
 }
 
+// activeReadRepairsLocked compiles the current live read-file repair
+// view from pendingReads. This is the authoritative runtime source
+// for "which files still block closure" because pendingReads is
+// drained as soon as a file enters ReadSet, while queued
+// RepairReadFile directives are historical provenance that can go
+// stale after the repair target moves. Caller MUST hold either the
+// read or write lock.
+func (c *EvidenceClosure) activeReadRepairsLocked() []RepairDirective {
+	if len(c.pendingReads) == 0 {
+		return nil
+	}
+	type groupKey struct {
+		rationale string
+		origin    string
+	}
+	var order []groupKey
+	filesByGroup := make(map[groupKey][]string)
+	seenFile := make(map[string]bool, len(c.pendingReads))
+	for _, pending := range c.pendingReads {
+		file := c.canonicalize(pending.File)
+		if file == "" || seenFile[file] {
+			continue
+		}
+		seenFile[file] = true
+		key := groupKey{rationale: pending.Rationale, origin: pending.Origin}
+		if _, ok := filesByGroup[key]; !ok {
+			order = append(order, key)
+		}
+		filesByGroup[key] = append(filesByGroup[key], file)
+	}
+	if len(order) == 0 {
+		return nil
+	}
+	out := make([]RepairDirective, 0, len(order))
+	for _, key := range order {
+		files := filesByGroup[key]
+		if len(files) == 0 {
+			continue
+		}
+		out = append(out, RepairDirective{
+			Kind:      RepairReadFile,
+			Files:     append([]string(nil), files...),
+			Rationale: key.rationale,
+			Origin:    key.origin,
+		})
+	}
+	return out
+}
+
+// ActiveRepairs returns the live repair surface the next retry
+// should follow. Read-file repairs are compiled from pendingReads
+// so the rendered hint always reflects the current closure state;
+// queued RepairReadFile directives remain in the internal repairs
+// ledger for provenance/debugging but are intentionally not treated
+// as authoritative repair targets once pendingReads has evolved.
+func (c *EvidenceClosure) ActiveRepairs() []RepairDirective {
+	if c == nil {
+		return nil
+	}
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	var out []RepairDirective
+	out = append(out, c.activeReadRepairsLocked()...)
+	for _, repair := range c.repairs {
+		if repair.Kind == RepairReadFile {
+			continue
+		}
+		out = append(out, repair)
+	}
+	return MergeRepairs(out)
+}
+
 // ClearPendingReadFor removes every PendingRead whose File equals the
 // argument. Called by the Lazy Auto-Read path after a forced read
 // succeeds and by the explorer once it sees an LLM-driven read_file
@@ -1134,12 +1206,16 @@ func (c *EvidenceClosure) ConsumeRepairs() []RepairDirective {
 	}
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	if len(c.repairs) == 0 {
-		return nil
+	var out []RepairDirective
+	out = append(out, c.activeReadRepairsLocked()...)
+	for _, repair := range c.repairs {
+		if repair.Kind == RepairReadFile {
+			continue
+		}
+		out = append(out, repair)
 	}
-	out := c.repairs
 	c.repairs = nil
-	return out
+	return MergeRepairs(out)
 }
 
 // Reset wipes the closure back to NewEvidenceClosure() state. Called

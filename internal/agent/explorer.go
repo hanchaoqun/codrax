@@ -3362,9 +3362,12 @@ func parseEmitEvidenceRepairTargets(summary string) []evidenceRepairTarget {
 	return out
 }
 
-func repairTargetsFromToolRepair(repair *types.ToolRepair) []evidenceRepairTarget {
-	if repair == nil || repair.Code != "evidence_line_text_repair" || len(repair.Targets) == 0 {
-		return nil
+func repairTargetsFromToolRepair(repair *types.ToolRepair) ([]evidenceRepairTarget, bool) {
+	if repair == nil || repair.Code != "evidence_line_text_repair" {
+		return nil, false
+	}
+	if len(repair.Targets) == 0 {
+		return nil, true
 	}
 	out := make([]evidenceRepairTarget, 0, len(repair.Targets))
 	for _, target := range repair.Targets {
@@ -3380,10 +3383,10 @@ func repairTargetsFromToolRepair(repair *types.ToolRepair) []evidenceRepairTarge
 		out = append(out, evidenceRepairTarget{file: file, lines: lines})
 	}
 	if len(out) == 0 {
-		return nil
+		return nil, true
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].file < out[j].file })
-	return out
+	return out, true
 }
 
 func isEmitEvidenceStatusLine(line string) bool {
@@ -3458,8 +3461,8 @@ func (e *explorerEvaluator) postEmitEvidenceRepairSignal(obs LoopObservation) Lo
 	if e.midLoopEvidenceRepairSent || obs.LastToolResult == nil || obs.LastToolResult.ToolName != "emit_evidence" || !obs.LastToolResult.Success {
 		return LoopSignal{}
 	}
-	targets := repairTargetsFromToolRepair(obs.LastToolResult.Repair)
-	if len(targets) == 0 {
+	targets, structured := repairTargetsFromToolRepair(obs.LastToolResult.Repair)
+	if !structured {
 		targets = parseEmitEvidenceRepairTargets(obs.LastToolResult.Summary)
 	}
 	if len(targets) == 0 {
@@ -3910,39 +3913,15 @@ func closureRepairDirectives(mutable *types.MutableState) []types.RepairDirectiv
 	if closure == nil {
 		return nil
 	}
-	repairs := closure.PendingRepairs()
-	if len(repairs) == 0 && len(closure.PendingReads()) == 0 {
+	repairs := closure.ActiveRepairs()
+	if len(repairs) == 0 {
 		return nil
 	}
-	out := make([]types.RepairDirective, 0, len(repairs)+1)
-	hasReadDirective := false
+	out := make([]types.RepairDirective, 0, len(repairs))
 	for _, repair := range repairs {
 		switch repair.Kind {
 		case types.RepairReadFile, types.RepairEmitEvidence, types.RepairExpandSearch, types.RepairRebindSubject, types.RepairForceCompleteDowngrade:
 			out = append(out, repair)
-			if repair.Kind == types.RepairReadFile {
-				hasReadDirective = true
-			}
-		}
-	}
-	if !hasReadDirective {
-		pending := closure.PendingReads()
-		files := make([]string, 0, len(pending))
-		seen := make(map[string]bool, len(pending))
-		for _, pr := range pending {
-			if pr.File == "" || seen[pr.File] {
-				continue
-			}
-			seen[pr.File] = true
-			files = append(files, pr.File)
-		}
-		if len(files) > 0 {
-			out = append(out, types.RepairDirective{
-				Kind:      types.RepairReadFile,
-				Files:     files,
-				Rationale: "pending forced reads from the current closure must be covered before retrying completion.",
-				Origin:    "explorer.pending_reads",
-			})
 		}
 	}
 	return types.MergeRepairs(out)

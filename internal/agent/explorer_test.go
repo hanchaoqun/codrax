@@ -3361,6 +3361,38 @@ func TestObserveMidLoop_EvidenceRepairPrefersStructuredTargets(t *testing.T) {
 	}
 }
 
+func TestObserveMidLoop_EvidenceRepairStructuredNoopSuppressesSummaryFallback(t *testing.T) {
+	eval := &explorerEvaluator{
+		phase:        1,
+		searchResult: &keywordSearchResult{Graph: &repomap.Graph{}},
+	}
+	history := []types.ToolResult{
+		{
+			ToolName: "emit_evidence",
+			Success:  true,
+			Summary: "emit_evidence accepted 2 item(s)\n\n" +
+				"  [1] direct buildAnalysisIR @ internal/agent/analyzer.go:852 — primary definition\n" +
+				"      → grounded (tier=line_text)\n" +
+				"  [2] direct buildAnalysisIR @ internal/agent/analyzer.go:852 — companion comment\n" +
+				"      → recovered (tier=fqname_same_file, you claimed line 849, adjusted to 852)\n",
+			Repair: &types.ToolRepair{
+				Code:     "evidence_line_text_repair",
+				Metadata: map[string]string{"repair_status": "satisfied_or_non_actionable"},
+			},
+		},
+	}
+
+	sig := eval.observeMidLoop(LoopObservation{
+		Phase:          PhaseMidLoop,
+		Iteration:      5,
+		LastToolResult: &history[0],
+		AllToolResults: history,
+	})
+	if sig.HintRequested {
+		t.Fatalf("structured no-op repair must suppress summary fallback parsing, got %+v", sig)
+	}
+}
+
 func TestObserveMidLoop_EvidenceRepairClosureOnlySuppressesExpansion(t *testing.T) {
 	eval := &explorerEvaluator{
 		phase:                           1,
@@ -4016,6 +4048,45 @@ func TestObserveMidLoop_EmitInvestigationCompleteDowngradeKeepsLoopAlive(t *test
 		}
 		if !strings.Contains(sig.Hint, "internal/types/config.go") {
 			t.Fatalf("closure repair hint should expose the queued same-scope file, got: %s", sig.Hint)
+		}
+	})
+
+	t.Run("closure repair follows current pending read, not stale historical read directive", func(t *testing.T) {
+		mut := types.NewMutableState("q")
+		mut.EvidenceClosure().AddRepair(types.RepairDirective{
+			Kind:      types.RepairReadFile,
+			Files:     []string{"internal/agent/analyzer.go"},
+			Rationale: "old read target",
+			Origin:    "emit_investigation_complete.old",
+		})
+		mut.EvidenceClosure().ClearPendingReadFor("internal/agent/analyzer.go")
+		mut.EvidenceClosure().AddPendingRead(types.PendingRead{
+			File:      "internal/types/analysis_ir.go",
+			Rationale: "current exact-anchor blocker",
+			Origin:    "emit_investigation_complete.current",
+		})
+		eval := &explorerEvaluator{phase: 1, mutable: mut}
+		downgradeResult := types.ToolResult{
+			ToolName: "emit_investigation_complete",
+			Success:  true,
+			Summary:  tool.EmitInvestigationCompleteDowngradePrefix + " — exact anchor still unread.",
+		}
+		results := []types.ToolResult{downgradeResult}
+
+		sig := eval.observeMidLoop(LoopObservation{
+			Phase:          PhaseMidLoop,
+			Iteration:      6,
+			LastToolResult: &results[0],
+			AllToolResults: results,
+		})
+		if !sig.HintRequested || sig.HintKey != "explorer.mid-loop.closure-repair" {
+			t.Fatalf("downgraded completion should surface structured closure repair first, got %+v", sig)
+		}
+		if strings.Contains(sig.Hint, "internal/agent/analyzer.go") {
+			t.Fatalf("closure repair hint must drop stale read targets, got: %s", sig.Hint)
+		}
+		if !strings.Contains(sig.Hint, "internal/types/analysis_ir.go") {
+			t.Fatalf("closure repair hint should expose the current pending read target, got: %s", sig.Hint)
 		}
 	})
 

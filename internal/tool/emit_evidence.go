@@ -1233,18 +1233,31 @@ func evidenceRepairShouldDrop(it types.EvidenceItem) bool {
 
 func buildEmitEvidenceRepair(ctx *types.BusContext, items []types.EvidenceItem, reports []ground.Report) *types.ToolRepair {
 	targets := emitEvidenceRepairTargets(items, reports)
-	if len(targets) == 0 {
+	hasNonGrounded := false
+	for _, item := range items {
+		if item.GroundingStatus == types.GroundingRecovered || item.GroundingStatus == types.GroundingUngrounded {
+			hasNonGrounded = true
+			break
+		}
+	}
+	if len(targets) == 0 && !hasNonGrounded {
 		return nil
 	}
-	return &types.ToolRepair{
+	repair := &types.ToolRepair{
 		Code:    "evidence_line_text_repair",
-		Hint:    renderEmitEvidenceRepairToolHint(targets),
-		Targets: targets,
 		Metadata: map[string]string{
 			"repair_scope": "line_text_grounding",
 			"repair_stage": "explorer",
 		},
 	}
+	if len(targets) == 0 {
+		repair.Metadata["repair_status"] = "satisfied_or_non_actionable"
+		return repair
+	}
+	repair.Hint = renderEmitEvidenceRepairToolHint(targets)
+	repair.Targets = targets
+	repair.Metadata["repair_status"] = "action_required"
+	return repair
 }
 
 type groundedRepairCarrier struct {
