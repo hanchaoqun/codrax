@@ -1607,6 +1607,40 @@ func TestRenderRetryDiagramSeedFenceForRepair_ConfigTraceRejectOmitsUnrelatedFal
 	}
 }
 
+func TestRenderRetryDiagramSeedFenceForRepair_FallsBackToAllowedCitationsWhenScenarioSeedsDoNotMatch(t *testing.T) {
+	ctx := &types.AgentContext{
+		AnalysisIR: &types.AnalysisIR{
+			AnswerContract: types.AnswerContract{
+				Diagram: &types.DiagramContract{
+					Required:       true,
+					PreferredKinds: []types.DiagramKind{types.DiagramCallDAG},
+				},
+			},
+		},
+		FlowFindings: []types.FlowFindingDigest{
+			{Path: []string{"internal/agent/agent.go:1786", "internal/agent/agent.go:1814"}},
+		},
+	}
+	repair := &types.ToolRepair{
+		Code: "diagram_codename",
+		Metadata: map[string]string{
+			"allowed_citations": "internal/agent/analyzer.go:651, internal/agent/analyzer.go:861",
+		},
+	}
+	got := renderRetryDiagramSeedFenceForRepair(ctx, repair)
+	for _, want := range []string{
+		"internal/agent/analyzer.go:651",
+		"internal/agent/analyzer.go:861",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("repair seed should fall back to current allowed citations %q:\n%s", want, got)
+		}
+	}
+	if strings.Contains(got, "internal/agent/agent.go:1786") {
+		t.Fatalf("repair seed should not reuse unrelated scenario seed when it falls outside the allowed citation set:\n%s", got)
+	}
+}
+
 func TestAnswerDocumentEvaluator_Observe_MidLoopDiagramGroundingRejectSurfacesAction(t *testing.T) {
 	e := &answerDocumentEvaluator{maxRetries: 2}
 	sig := e.Observe(nil, LoopObservation{

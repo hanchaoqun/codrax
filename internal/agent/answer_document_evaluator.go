@@ -2113,7 +2113,7 @@ func renderRetryDiagramSeedFenceForRepair(ctx *types.AgentContext, repair *types
 		return ""
 	}
 	filter := buildRetryDiagramSeedFilter(repair)
-	if !filter.Strict {
+	if repair == nil && !filter.Strict {
 		if plan := answerSurfacePlan(ctx); plan != nil {
 			if fence := strings.TrimSpace(plan.CompiledDiagramFence); fence != "" {
 				return fence
@@ -2122,6 +2122,11 @@ func renderRetryDiagramSeedFenceForRepair(ctx *types.AgentContext, repair *types
 	}
 	for _, kind := range retryDiagramKinds(ctx) {
 		if fence := renderRetryDiagramSeedFenceForKind(ctx, kind, filter); fence != "" {
+			return fence
+		}
+	}
+	if repair != nil {
+		if fence := buildRetryCitationSeedFence(repair, filter); fence != "" {
 			return fence
 		}
 	}
@@ -2313,6 +2318,36 @@ func buildRetryAnswerChainSeed(chains []types.AnswerChain) retryDiagramSeed {
 		Fence:     buildRetryDiagramFence(nodes),
 		MatchKeys: dedupeRetryDiagramNodes(keys, 0),
 	}
+}
+
+func buildRetryCitationSeedFence(repair *types.ToolRepair, filter retryDiagramSeedFilter) string {
+	if repair == nil || repair.Metadata == nil {
+		return ""
+	}
+	raw := strings.TrimSpace(repair.Metadata["allowed_citations"])
+	if raw == "" {
+		return ""
+	}
+	var nodes []string
+	for _, part := range strings.Split(raw, ",") {
+		part = strings.TrimSpace(part)
+		if part == "" {
+			continue
+		}
+		nodes = append(nodes, part)
+	}
+	nodes = dedupeRetryDiagramNodes(nodes, 8)
+	if len(nodes) < 2 {
+		return ""
+	}
+	seed := retryDiagramSeed{
+		Fence:     buildRetryDiagramFence(nodes),
+		MatchKeys: dedupeRetryDiagramNodes(nodes, 0),
+	}
+	if !filter.Allows(seed) {
+		return ""
+	}
+	return seed.Fence
 }
 
 func buildRetryDiagramSeedFilter(repair *types.ToolRepair) retryDiagramSeedFilter {

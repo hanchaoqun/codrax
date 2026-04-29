@@ -1807,6 +1807,25 @@ func formatConfigTraceAllowedCitations(plan *types.AnswerSurfacePlan) string {
 	return strings.Join(out, ", ")
 }
 
+func formatCitationLocations(citations []types.Citation) string {
+	seen := make(map[string]bool)
+	var out []string
+	for _, c := range citations {
+		file := strings.TrimSpace(c.File)
+		if file == "" || c.Line <= 0 {
+			continue
+		}
+		label := fmt.Sprintf("%s:%d", file, c.Line)
+		if seen[label] {
+			continue
+		}
+		seen[label] = true
+		out = append(out, label)
+	}
+	sort.Strings(out)
+	return strings.Join(out, ", ")
+}
+
 func formatConfigTraceRoleCoverage(plan *types.AnswerSurfacePlan) string {
 	if plan == nil || len(plan.ConfigTraceDiagramAnchors) == 0 {
 		return ""
@@ -3110,6 +3129,7 @@ func validateSummaryCodenameGrounding(summary string, citations []types.Citation
 		corroborationWindow, strings.Join(ungrounded, ", ")).
 		WithFields("summary", "citations").
 		WithMetadata("invalid_labels", strings.Join(ungrounded, ", ")).
+		WithMetadata("allowed_citations", formatCitationLocations(citations)).
 		WithHint("Re-emit `emit_answer_document` with the same grounded answer, but remove invented numbered / phase-style labels unless those exact tokens are cited. Use grounded files, symbols, config keys, or other evidenced entities as node labels instead.")
 }
 
