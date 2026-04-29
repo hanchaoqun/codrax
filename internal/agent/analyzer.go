@@ -201,6 +201,15 @@ If you call any other tool or produce text without a tool call, this dispatch wi
 // Returns "" when none of the coherence-named checks failed, so the
 // generic retry path stays in effect for non-coherence rejections
 // (coverage, dag_closure, budget_sanity, etc.).
+//
+// The Detail field on GateCheck encodes internal rule codes (R1.1,
+// R1.2, R1.3, R2.1, R2.2) for log/trace forensics. Those codes are
+// internal language — the LLM doesn't know what "R1.2 predicate
+// contradiction" means and gets confused. Translate to plain prose
+// before injecting into the next-dispatch hint, so the LLM sees a
+// concrete description of the structural issue rather than a code
+// reference. Internal Detail still flows to logs verbatim via the
+// gate's recordReconcileObservation path.
 func composeCoherenceRetryHint(report types.GateReport) string {
 	if !report.Rejected {
 		return ""
@@ -212,10 +221,32 @@ func composeCoherenceRetryHint(report types.GateReport) string {
 		}
 		switch c.Name {
 		case "subtopic_coherence", "shape_subject_coherence":
-			fmt.Fprintf(&b, "- %s: %s\n", c.Name, c.Detail)
+			fmt.Fprintf(&b, "- %s\n", plainCoherenceDetail(c.Detail))
 		}
 	}
 	return strings.TrimSpace(b.String())
+}
+
+// plainCoherenceDetail strips internal rule codes ("R1.1", "R1.2",
+// etc.) from the gate's Detail string and returns plain-language
+// prose the LLM can act on. Pre-2026-04-30 the raw Detail flowed
+// straight to the LLM hint and the codes confused models that had
+// no internal documentation context.
+func plainCoherenceDetail(detail string) string {
+	d := strings.TrimSpace(detail)
+	// Strip leading code references like "R1.2 predicate_contradiction:".
+	for _, prefix := range []string{
+		"R1.1 domain_divergence: ",
+		"R1.2 predicate_contradiction: ",
+		"R1.3 entity_orphan: ",
+		"R2.1 scalar_multi_topic: ",
+		"R2.2 explanation_scalar_subject: ",
+	} {
+		if strings.HasPrefix(d, prefix) {
+			return strings.TrimPrefix(d, prefix)
+		}
+	}
+	return d
 }
 
 // buildAnalyzerRepoOverview builds a repo overview for the analyzer's

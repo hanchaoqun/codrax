@@ -26,11 +26,19 @@ func TestComposeCoherenceRetryHint_FormatsCoherenceFailuresOnly(t *testing.T) {
 	if hint == "" {
 		t.Fatal("expected a non-empty hint when coherence checks failed")
 	}
-	if !strings.Contains(hint, "subtopic_coherence: R1.1") {
-		t.Errorf("hint must surface R1.1 detail; got %q", hint)
+	// Internal R-codes (R1.1, R2.1) MUST be stripped before reaching
+	// the LLM hint — they are internal documentation references and
+	// confuse models with no awareness of the coherence-rule numbering.
+	// The plain-language body that followed each code is what the LLM
+	// can act on.
+	if strings.Contains(hint, "R1.1") || strings.Contains(hint, "R2.1") {
+		t.Errorf("hint must NOT surface internal R-codes; got %q", hint)
 	}
-	if !strings.Contains(hint, "shape_subject_coherence: R2.1") {
-		t.Errorf("hint must surface R2.1 detail; got %q", hint)
+	if !strings.Contains(hint, "TermGraph spans 3 distinct") {
+		t.Errorf("hint must surface the R1.1 plain-language detail; got %q", hint)
+	}
+	if !strings.Contains(hint, "IsScalarAnswer=true but 2 sub-topics") {
+		t.Errorf("hint must surface the R2.1 plain-language detail; got %q", hint)
 	}
 	if strings.Contains(hint, "coverage") || strings.Contains(hint, "dag_closure") {
 		t.Errorf("hint must NOT include non-coherence checks; got %q", hint)

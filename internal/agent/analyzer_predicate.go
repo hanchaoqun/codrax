@@ -55,15 +55,37 @@ func reconcileSemanticPredicates(rm types.RequestModel) (types.SemanticPredicate
 	if !resolved.IsCrossComponent {
 		return resolved, ""
 	}
-	if len(rm.SubTopics) > 0 || resolved.IsRelationalLookup || rm.Intent == types.IntentTrace {
-		return resolved, ""
+	// Existing rule: single exact-target lookup keeps one answer
+	// topic regardless of nearby layers.
+	if len(types.ExactResolutionTargets(rm)) == 1 &&
+		len(rm.SubTopics) == 0 &&
+		!resolved.IsRelationalLookup &&
+		rm.Intent != types.IntentTrace {
+		resolved.IsCrossComponent = false
+		return resolved,
+			"single exact-target lookup keeps one answer topic; nearby layers/anchors are context, not independent cross-component sub-topics"
 	}
-	if len(types.ExactResolutionTargets(rm)) != 1 {
-		return resolved, ""
+	// New rule (R1.2 auto-fix): when the LLM emits IsCrossComponent=true
+	// but provides ZERO sub-topics, that's an internal contradiction
+	// — IsCrossComponent claims the question crosses multiple
+	// components, yet no sub-topics were enumerated. Pre-2026-04-30
+	// the gate (subtopic_coherence R1.2 in internal/analysis/gate)
+	// rejected this and pushed the LLM into a retry loop with a
+	// hint, but the LLM frequently couldn't recover within budget
+	// and the pipeline aborted. The structural fact (0 sub-topics)
+	// is unambiguous; the meta-claim (IsCrossComponent) is the
+	// soft signal. Demote IsCrossComponent so the pipeline treats
+	// the question as single-topic and proceeds. The gate's R1.1
+	// (domain divergence — separate signal from TermGraph) still
+	// catches genuine multi-domain questions where the LLM emitted
+	// 0 sub-topics by mistake — those need true sub-topic synthesis,
+	// not just the predicate flip.
+	if len(rm.SubTopics) <= 1 && !resolved.IsRelationalLookup && rm.Intent != types.IntentTrace {
+		resolved.IsCrossComponent = false
+		return resolved,
+			"R1.2 auto-fix: predicate IsCrossComponent=true contradicts SubTopics empty/single — demoting to false rather than failing the coherence gate; downstream behaviour is single-topic, with R1.1 (domain divergence) still active for true multi-domain catches"
 	}
-	resolved.IsCrossComponent = false
-	return resolved,
-		"single exact-target lookup keeps one answer topic; nearby layers/anchors are context, not independent cross-component sub-topics"
+	return resolved, ""
 }
 
 // logPredicateAxisReconcile mirrors logIntentReconcile: one info
