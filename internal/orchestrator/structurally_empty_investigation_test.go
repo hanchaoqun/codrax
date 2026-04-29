@@ -106,3 +106,4 @@ func TestHandleStructurallyEmptyInvestigation_IgnoresUnknownState(t *testing.T) 
 		t.Fatalf("unknown / unobserved investigation state should not be treated as structurally empty: out=%+v retryMsg=%q", out, retryMsg)
 	}
 }
+

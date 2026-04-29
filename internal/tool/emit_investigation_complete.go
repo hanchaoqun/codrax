@@ -3,6 +3,7 @@ package tool
 import (
 	"encoding/json"
 	"fmt"
+	"math"
 	"sort"
 	"strings"
 	"time"
@@ -457,6 +458,13 @@ func preCompleteContractCheck(ctx *types.BusContext, justification string) strin
 	// where R5 ghost-anchor promotion chased red-herring files because
 	// the real answer-bearing file never produced a ghost anchor (the
 	// LLM simply never read it, so no chain could reference it).
+	//
+	// requiresCrossFileCoverage further refines: a project-orientation
+	// question (intent=explain, complexity=simple, no PrimaryEntities,
+	// not cross-component) reads as "tour the repo, not investigate
+	// a specific subsystem". The breadth-intent gates skip those
+	// because there is no code-level cross-file flow to balance —
+	// README + manifest + entry-point already cover the answer space.
 	if justification == "" {
 		raisePrimaryAnchorPendingRead(ctx, closure)
 		raisePhase1UnreadPendingReads(ctx, closure)
@@ -778,6 +786,15 @@ func raisePrimaryAnchorPendingRead(ctx *types.BusContext, closure *types.Evidenc
 	if ctx == nil || ctx.Mutable == nil || closure == nil || ctx.AnalysisIR == nil {
 		return
 	}
+	// Orientation skip — a "what does this project do?" question
+	// should not be blocked on "primary anchor unread"; the very
+	// concept of a primary anchor implies a specific code subject
+	// the user pinned to, which orientation questions explicitly
+	// lack (Predicates clean + len(PrimaryEntities)==0). Mirrors
+	// the same predicate the multi-path coverage parity gate uses.
+	if types.IsProjectOrientationQuestion(ctx.AnalysisIR.RequestModel) {
+		return
+	}
 	if !strings.EqualFold(strings.TrimSpace(ctx.AnalysisIR.RequestModel.AnalyzerHints.Kind), "mechanism") {
 		return
 	}
@@ -808,40 +825,79 @@ func raisePrimaryAnchorPendingRead(ctx *types.BusContext, closure *types.Evidenc
 	}
 }
 
-// multiPathCoverageParityFloor is the minimum relative coverage each
-// primary-anchor file must reach for emit_investigation_complete to
-// honour a completion call. 0.3 matches the session 27 G-followup
-// prompt directive (baf1f52) which said "investigate each path with
-// EQUIVALENT depth — equal read_file calls, proportional emit_evidence
-// per path". That was advisory and held ~90% of the time; this gate
-// promotes the same ratio to a hard validator so the miss-case goes
-// to 0% instead of noise-band probabilistic.
-const multiPathCoverageParityFloor = 0.3
+// resolveMultiPathCoverageParityFloor returns the per-file coverage
+// ratio floor (read_lines / total_lines) the multi-path parity gate
+// uses. Pulled from analysisLimits which threads the
+// codrax.yaml :: cgec_multi_path_coverage_parity_floor knob via
+// cmd/root.go. Zero / negative falls through to the historical
+// default 0.3 so an unconfigured deployment keeps working.
+//
+// PRE-FIX (2026-04-29): the floor was a hard-coded const + applied
+// as max_primary_lines * 0.30, comparing absolute line counts. A
+// 113-line file fully read produced coverage=113 while a 683-line
+// sibling at coverage=400 made the gate demand 400*0.30 = 120
+// lines from the 113-line file — impossible to satisfy. Production
+// trace at /home/chatpp/pytest 2026-04-29 burned 31 explorer
+// rounds on this loop.
+//
+// POST-FIX: the floor is per-file. A FullyRead anchor short-
+// circuits the check; otherwise CoverageRatio (= MergedReadLines /
+// TotalLines) must reach the floor. Yaml-tunable so the floor can
+// be loosened (0.2 for orientation-style deployments) or tightened
+// (0.5 for thoroughness audits) without recompiling.
+func resolveMultiPathCoverageParityFloor() float64 {
+	limits := CurrentAnalysisLimits()
+	if limits.MultiPathCoverageParityFloor > 0 {
+		return limits.MultiPathCoverageParityFloor
+	}
+	return 0.3
+}
 
 // raiseMultiPathCoverageParity queues PendingReads for primary-anchor
-// files whose read coverage is less than multiPathCoverageParityFloor
-// of the most-covered primary file. Applies only when ≥ 2 primary
-// anchors exist — single-subject questions have no balance target.
+// files whose per-file coverage ratio is below
+// multiPathCoverageParityFloor. Applies only when ≥ 2 primary anchors
+// exist and at least one of them is NOT FullyRead — single-subject
+// questions have no balance target, and an all-FullyRead set has
+// nothing left to read.
 //
 // "Primary anchor" is Phase1RankedFile.ExactEntityRank > 0: files the
 // keyword_search layer resolved as exact hits for a user-named entity
 // (file name, symbol name, qualified symbol). This is the same signal
 // ce02655's phase1UnreadFilter uses to decide which unread files are
-// mandatory-read — we reuse it so the two gates agree on "what counts
-// as a primary file".
+// mandatory-read.
 //
-// Coverage = sum(line_end - line_start + 1) across ReadRanges(file).
-// When min < floor * max the under-covered file gets a PendingRead +
-// RepairExpandSearch directive; the downstream PendingReads branch
-// emits the downgrade message so the LLM has to balance before the
-// next completion attempt. Relative (ratio) rather than absolute
-// (minimum lines) so small files at full coverage don't false-trigger
-// against large files at partial coverage.
+// Per-file gate (replaces the pre-fix max-anchor parity comparison):
+//
+//  1. FullyRead → never queue PendingRead. The file has no more
+//     lines; demanding parity against a larger sibling makes the
+//     LLM read past EOF.
+//  2. CoverageRatio known and < floor → queue PendingRead. Compares
+//     against THIS file's own total, so a 113-line file at 100%
+//     never trips against a 683-line file at 60%.
+//  3. CoverageRatio unknown (no banner total recorded) → fall back
+//     to the legacy max-anchor comparison so callers that bypass
+//     the banner still see the historical safety net.
+//
+// project_overview / project_orientation level questions skip the
+// gate entirely — the question is not about cross-component depth,
+// it's about identifying what the project does. See
+// types.InvestigationLevelProjectOverview.
 func raiseMultiPathCoverageParity(ctx *types.BusContext, closure *types.EvidenceClosure) {
 	if ctx == nil || ctx.Mutable == nil || closure == nil || ctx.AnalysisIR == nil {
 		return
 	}
-	kind := types.NormalizeRequirementKind(ctx.AnalysisIR.RequestModel.AnalyzerHints.Kind)
+	rm := ctx.AnalysisIR.RequestModel
+	// Project-orientation skip. A "what does this project do?"
+	// question reaches us with intent=explain, complexity=simple,
+	// no PrimaryEntities, predicates clean. Forcing cross-file
+	// depth parity here demands the explorer balance reads across
+	// random sibling modules that the question does not require —
+	// the production trace at /home/chatpp/pytest 2026-04-29 looped
+	// 31 explorer rounds because of this exact mismatch.
+	if types.IsProjectOrientationQuestion(rm) {
+		return
+	}
+	kind := types.NormalizeRequirementKind(rm.AnalyzerHints.Kind)
 	ranked := ctx.Mutable.Phase1Ranking()
 	if len(ranked) == 0 {
 		return
@@ -849,6 +905,8 @@ func raiseMultiPathCoverageParity(ctx *types.BusContext, closure *types.Evidence
 	type primaryAnchor struct {
 		file     string
 		coverage int
+		ratio    float64 // -1 when total unknown
+		fully    bool
 	}
 	anchors := make([]primaryAnchor, 0, len(ranked))
 	maxCoverage := 0
@@ -860,13 +918,13 @@ func raiseMultiPathCoverageParity(ctx *types.BusContext, closure *types.Evidence
 		if canon == "" {
 			continue
 		}
-		cov := 0
-		for _, r := range closure.ReadRanges(canon) {
-			if r.End >= r.Start {
-				cov += r.End - r.Start + 1
-			}
-		}
-		anchors = append(anchors, primaryAnchor{file: canon, coverage: cov})
+		cov := closure.MergedReadLines(canon)
+		anchors = append(anchors, primaryAnchor{
+			file:     canon,
+			coverage: cov,
+			ratio:    closure.CoverageRatio(canon),
+			fully:    closure.HasFullyRead(canon),
+		})
 		if cov > maxCoverage {
 			maxCoverage = cov
 		}
@@ -877,25 +935,103 @@ func raiseMultiPathCoverageParity(ctx *types.BusContext, closure *types.Evidence
 	if len(anchors) < 2 || maxCoverage == 0 {
 		return
 	}
-	floor := float64(maxCoverage) * multiPathCoverageParityFloor
+	floorRatio := resolveMultiPathCoverageParityFloor()
 	for _, a := range anchors {
-		if float64(a.coverage) >= floor {
+		// FullyRead bypass: there are no more lines to read in this
+		// file. Demanding parity here is the bug this fix targets.
+		if a.fully {
 			continue
 		}
+		// Per-file ratio path (preferred when total is known).
+		if a.ratio >= 0 {
+			if a.ratio >= floorRatio {
+				continue
+			}
+			total := closure.FileTotalLines(a.file)
+			targetLines := int(math.Ceil(float64(total) * floorRatio))
+			needMore := targetLines - a.coverage
+			if needMore < 1 {
+				needMore = 1
+			}
+			nextOffset := nextReadOffset(closure.ReadRanges(a.file))
+			closure.AddPendingRead(types.PendingRead{
+				File: a.file,
+				Rationale: fmt.Sprintf(
+					"multi-path balance: covered %d / %d lines (%.0f%%, below %.0f%% per-file floor). Need ≥ %d lines covered to clear the gate (%d more). Use `read_file(path=%q, offset=%d, limit=%d)` to continue without re-reading what you already have.",
+					a.coverage, total, a.ratio*100, floorRatio*100,
+					targetLines, needMore, a.file, nextOffset, needMore,
+				),
+				Origin: "pre_complete.multi_path_coverage",
+			})
+			closure.AddRepair(types.RepairDirective{
+				Kind:  types.RepairExpandSearch,
+				Files: []string{a.file},
+				Rationale: fmt.Sprintf(
+					"Balance coverage: %s is at %d/%d lines (%.0f%%); read with offset=%d limit=%d to reach the %.0f%% floor",
+					a.file, a.coverage, total, a.ratio*100, nextOffset, needMore, floorRatio*100,
+				),
+				Origin: "pre_complete.multi_path_coverage",
+			})
+			logging.Info("[CGEC] multi_path_coverage: queued forced-read file=%s coverage=%d/%d ratio=%.2f floor=%.2f next_offset=%d need=%d",
+				a.file, a.coverage, total, a.ratio, floorRatio, nextOffset, needMore)
+			continue
+		}
+		// Fallback: total unknown (banner missing). Use the
+		// historical max-anchor comparison so we don't regress
+		// callers that bypass the banner. Subject to the same
+		// FullyRead bypass above so this branch only fires when we
+		// genuinely cannot prove "no more to read".
+		floorAbs := float64(maxCoverage) * floorRatio
+		if float64(a.coverage) >= floorAbs {
+			continue
+		}
+		needMore := int(math.Ceil(floorAbs)) - a.coverage
+		if needMore < 1 {
+			needMore = 1
+		}
+		nextOffset := nextReadOffset(closure.ReadRanges(a.file))
 		closure.AddPendingRead(types.PendingRead{
-			File:      a.file,
-			Rationale: fmt.Sprintf("multi-path balance: primary anchor covers %d line(s), max primary covers %d (< %.0f%% parity) — read more of this file before completing so both paths get equivalent depth", a.coverage, maxCoverage, multiPathCoverageParityFloor*100),
-			Origin:    "pre_complete.multi_path_coverage",
+			File: a.file,
+			Rationale: fmt.Sprintf(
+				"multi-path balance (file total unknown — banner missing): covered %d lines; the most-covered primary anchor in this run covers %d lines. Need ≥ %.0f lines covered (%.0f%% of max) to clear the gate (%d more). Use `read_file(path=%q, offset=%d, limit=%d)` and the banner total will populate so subsequent retries can compute exact ratio.",
+				a.coverage, maxCoverage, floorAbs, floorRatio*100,
+				needMore, a.file, nextOffset, needMore,
+			),
+			Origin: "pre_complete.multi_path_coverage",
 		})
 		closure.AddRepair(types.RepairDirective{
-			Kind:      types.RepairExpandSearch,
-			Files:     []string{a.file},
-			Rationale: fmt.Sprintf("Balance coverage across primary anchors before completing: %s has %d line(s) read vs %d at the most-covered primary", a.file, a.coverage, maxCoverage),
-			Origin:    "pre_complete.multi_path_coverage",
+			Kind:  types.RepairExpandSearch,
+			Files: []string{a.file},
+			Rationale: fmt.Sprintf(
+				"Balance coverage (no per-file total): %s covered %d vs max %d; read with offset=%d limit=%d",
+				a.file, a.coverage, maxCoverage, nextOffset, needMore,
+			),
+			Origin: "pre_complete.multi_path_coverage",
 		})
-		logging.Info("[CGEC] multi_path_coverage: queued forced-read file=%s coverage=%d max=%d floor=%.0f%%",
-			a.file, a.coverage, maxCoverage, multiPathCoverageParityFloor*100)
+		logging.Info("[CGEC] multi_path_coverage: queued forced-read file=%s coverage=%d max=%d next_offset=%d need=%d (fallback, total unknown)",
+			a.file, a.coverage, maxCoverage, nextOffset, needMore)
 	}
+}
+
+// nextReadOffset suggests the file offset (1-based line number) the
+// LLM should pass to read_file to continue WITHOUT re-reading
+// already-covered ranges. Strategy: take the largest End of any
+// merged read range, return End+1. When the file has no recorded
+// reads (fresh anchor) returns 1. The offset is a hint, not a
+// constraint — the LLM may pass a different offset to reach a
+// specific section. Helps the LLM avoid the "I already read 1-100
+// so let me re-read 1-100" loop the production trace exposed.
+func nextReadOffset(ranges []types.LineRange) int {
+	maxEnd := 0
+	for _, r := range ranges {
+		if r.End > maxEnd {
+			maxEnd = r.End
+		}
+	}
+	if maxEnd <= 0 {
+		return 1
+	}
+	return maxEnd + 1
 }
 
 // raisePhase1UnreadPendingReads is the session-12 CGEC gate that
@@ -934,6 +1070,13 @@ func raisePhase1UnreadPendingReads(ctx *types.BusContext, closure *types.Evidenc
 		return
 	}
 	if ctx.AnalysisIR == nil {
+		return
+	}
+	// Orientation skip — orientation questions don't carry a
+	// breadth-intent obligation to read the keyword-search top-K.
+	// Same predicate as raisePrimaryAnchorPendingRead +
+	// raiseMultiPathCoverageParity for cross-gate consistency.
+	if types.IsProjectOrientationQuestion(ctx.AnalysisIR.RequestModel) {
 		return
 	}
 	// T2.1: once-per-pipeline latch. The first firing queues the
@@ -1088,6 +1231,7 @@ func requiresCrossFileCoverage(k types.RequirementKind, primaryAnchors int) bool
 	}
 	return false
 }
+
 
 func countPrimaryAnchorFiles(ranked []types.Phase1RankedFile) int {
 	if len(ranked) == 0 {

@@ -2,6 +2,7 @@ package tool
 
 import (
 	"encoding/json"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -1186,3 +1187,268 @@ func TestEmitInvestigationComplete_PreCompleteCheck_AbsenceWaivesFloor(t *testin
 		t.Errorf("absence path should still mark complete")
 	}
 }
+
+// TestMultiPathCoverageParity_FullyReadShortFile_DoesNotBlock locks
+// the central 2026-04-29 fix: a 113-line file fully read via the
+// banner ("[file: showing all 113 lines ...]") must NOT be queued
+// as a PendingRead even when a 683-line sibling has 400 absolute
+// lines covered. Pre-fix behaviour: floor = 400 * 0.30 = 120, so
+// 113 < 120 → the 113-line file got demanded for re-read, the LLM
+// re-read the whole file, total stayed at 113, the gate fired
+// again — production trace at /home/chatpp/pytest 2026-04-29
+// looped 31 times before the user Ctrl+C'd.
+func TestMultiPathCoverageParity_FullyReadShortFile_DoesNotBlock(t *testing.T) {
+	mut := types.NewMutableState("test")
+	mut.SetPhase1Ranking([]types.Phase1RankedFile{
+		{Path: "perfetto_analyzer.py", Score: 60, ExactEntityRank: 2},
+		{Path: "hitrace_analyzer.py", Score: 58, ExactEntityRank: 2},
+	})
+	closure := mut.EvidenceClosure()
+	closure.SetReadSet(map[string]bool{
+		"perfetto_analyzer.py": true,
+		"hitrace_analyzer.py":  true,
+	})
+	closure.SetReadRanges(map[string][]types.LineRange{
+		// Short file fully read.
+		"perfetto_analyzer.py": {{Start: 1, End: 113}},
+		// Long file partially read (400/683 = 58%).
+		"hitrace_analyzer.py": {{Start: 1, End: 400}},
+	})
+	closure.SetFileTotalLines(map[string]int{
+		"perfetto_analyzer.py": 113,
+		"hitrace_analyzer.py":  683,
+	})
+
+	bus := &types.BusContext{
+		Mutable:  mut,
+		RepoRoot: t.TempDir(),
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				AnalyzerHints: types.AnalyzerHints{
+					Kind:            "mechanism",
+					PrimaryEntities: []string{"perfetto_analyzer", "hitrace_analyzer"},
+				},
+			},
+		},
+	}
+	tool := &EmitInvestigationComplete{}
+	params, _ := json.Marshal(map[string]any{
+		"reason": "compared analyzers", "confidence": "high", "result_kind": "resolved",
+	})
+	if _, err := tool.Execute(bus, params); err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+	for _, p := range closure.PendingReads() {
+		if p.Origin == "pre_complete.multi_path_coverage" && p.File == "perfetto_analyzer.py" {
+			t.Fatalf("FullyRead 113-line file MUST NOT be queued by multi-path parity; got %+v", p)
+		}
+	}
+	// Sanity check: the 683-line file is still under-covered (58% vs
+	// 30% floor → above floor, so also not queued — both files OK).
+	for _, p := range closure.PendingReads() {
+		if p.Origin == "pre_complete.multi_path_coverage" {
+			t.Errorf("no parity PendingRead expected when both files clear the per-file floor; got %+v", p)
+		}
+	}
+}
+
+// TestMultiPathCoverageParity_PerFileRatioBelowFloor_Queues locks
+// the OTHER half: a file at < 30% of its OWN total still gets
+// queued. The fix only relaxes the gate for full reads; partial
+// reads of large files are still flagged.
+func TestMultiPathCoverageParity_PerFileRatioBelowFloor_Queues(t *testing.T) {
+	mut := types.NewMutableState("test")
+	mut.SetPhase1Ranking([]types.Phase1RankedFile{
+		{Path: "alpha.go", Score: 60, ExactEntityRank: 2},
+		{Path: "beta.go", Score: 58, ExactEntityRank: 2},
+	})
+	closure := mut.EvidenceClosure()
+	closure.SetReadSet(map[string]bool{
+		"alpha.go": true,
+		"beta.go":  true,
+	})
+	closure.SetReadRanges(map[string][]types.LineRange{
+		"alpha.go": {{Start: 1, End: 800}}, // 80% of 1000
+		"beta.go":  {{Start: 1, End: 100}}, // 10% of 1000 — below floor
+	})
+	closure.SetFileTotalLines(map[string]int{
+		"alpha.go": 1000,
+		"beta.go":  1000,
+	})
+
+	bus := &types.BusContext{
+		Mutable:  mut,
+		RepoRoot: t.TempDir(),
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				AnalyzerHints: types.AnalyzerHints{
+					Kind:            "mechanism",
+					PrimaryEntities: []string{"alpha", "beta"},
+				},
+			},
+		},
+	}
+	tool := &EmitInvestigationComplete{}
+	params, _ := json.Marshal(map[string]any{
+		"reason": "compared", "confidence": "high", "result_kind": "resolved",
+	})
+	if _, err := tool.Execute(bus, params); err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+	betaQueued := false
+	for _, p := range closure.PendingReads() {
+		if p.Origin == "pre_complete.multi_path_coverage" && p.File == "beta.go" {
+			betaQueued = true
+		}
+	}
+	if !betaQueued {
+		t.Errorf("partial-read beta.go (10%% of own file, < 30%% floor) must be queued; got %+v", closure.PendingReads())
+	}
+}
+
+// TestPrimaryAnchorPendingRead_ProjectOrientationSkipsGate proves
+// that the "primary anchor unread" gate also short-circuits on
+// project-orientation questions. Cross-gate consistency: all three
+// pre-complete gates (primary_anchor / phase1_unread /
+// multi_path_coverage) must agree on what "orientation question"
+// means so an orientation answer cannot be partially blocked.
+func TestPrimaryAnchorPendingRead_ProjectOrientationSkipsGate(t *testing.T) {
+	mut := types.NewMutableState("test")
+	// Phase1 ranking with an unread exact-anchor file. Pre-fix the
+	// primary_anchor gate would queue this as a PendingRead. The
+	// orientation skip must prevent that.
+	mut.SetPhase1Ranking([]types.Phase1RankedFile{
+		{Path: "explorer.go", Score: 60, ExactEntityRank: 2},
+	})
+	closure := mut.EvidenceClosure()
+
+	bus := &types.BusContext{
+		Mutable:  mut,
+		RepoRoot: t.TempDir(),
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				Intent:     types.IntentExplain,
+				Complexity: types.ComplexitySimple,
+				AnalyzerHints: types.AnalyzerHints{
+					Kind: "mechanism", // would otherwise trigger
+				},
+			},
+		},
+	}
+	tool := &EmitInvestigationComplete{}
+	params, _ := json.Marshal(map[string]any{
+		"reason": "project overview", "confidence": "high", "result_kind": "resolved",
+	})
+	if _, err := tool.Execute(bus, params); err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+	for _, p := range closure.PendingReads() {
+		if p.Origin == "pre_complete.primary_anchor" {
+			t.Errorf("orientation must skip primary_anchor gate; got %+v", p)
+		}
+	}
+}
+
+// TestPhase1UnreadPendingReads_ProjectOrientationSkipsGate proves
+// the phase1_unread gate also honours the orientation short-circuit.
+func TestPhase1UnreadPendingReads_ProjectOrientationSkipsGate(t *testing.T) {
+	mut := types.NewMutableState("test")
+	// Populate Phase1Ranking with > Phase1UnreadTopK entries, all
+	// unread — pre-fix this would trigger the gate.
+	ranks := make([]types.Phase1RankedFile, 0, 6)
+	for i := 0; i < 6; i++ {
+		ranks = append(ranks, types.Phase1RankedFile{
+			Path:            fmt.Sprintf("file%d.go", i),
+			Score:           float64(60 - i),
+			ExactEntityRank: 1,
+		})
+	}
+	mut.SetPhase1Ranking(ranks)
+	closure := mut.EvidenceClosure()
+
+	bus := &types.BusContext{
+		Mutable:  mut,
+		RepoRoot: t.TempDir(),
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				Intent:     types.IntentExplain,
+				Complexity: types.ComplexitySimple,
+				AnalyzerHints: types.AnalyzerHints{
+					Kind: "mechanism",
+				},
+			},
+		},
+	}
+	tool := &EmitInvestigationComplete{}
+	params, _ := json.Marshal(map[string]any{
+		"reason": "project overview", "confidence": "high", "result_kind": "resolved",
+	})
+	if _, err := tool.Execute(bus, params); err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+	for _, p := range closure.PendingReads() {
+		if p.Origin == "phase1_unread" {
+			t.Errorf("orientation must skip phase1_unread gate; got %+v", p)
+		}
+	}
+}
+
+// TestMultiPathCoverageParity_ProjectOrientationSkipsGate locks the
+// structural-signal skip: when the analyzer classifies the question
+// as intent=explain + complexity=simple + no PrimaryEntities + no
+// cross-component, the gate must not fire even when coverage looks
+// unbalanced. A project-orientation question ("what does this repo
+// do?") answers from README + manifest + entry-point and never
+// needs cross-component depth parity.
+//
+// The detection is structured-signal-only — see
+// isProjectOrientationQuestion. No keyword matching on RawRequest;
+// the analyzer LLM's own complexity/intent/predicates classification
+// IS the signal.
+func TestMultiPathCoverageParity_ProjectOrientationSkipsGate(t *testing.T) {
+	mut := types.NewMutableState("test")
+	// No PrimaryEntities ranking — orientation questions do not pin
+	// to specific code, so Phase1Ranking is typically empty. We add
+	// two anchor-marked files anyway to prove the gate's pre-checks
+	// don't fire even when they're present.
+	mut.SetPhase1Ranking([]types.Phase1RankedFile{
+		{Path: "README.md", Score: 60, ExactEntityRank: 2},
+		{Path: "main.go", Score: 58, ExactEntityRank: 2},
+	})
+	closure := mut.EvidenceClosure()
+	closure.SetReadSet(map[string]bool{"README.md": true, "main.go": true})
+	closure.SetReadRanges(map[string][]types.LineRange{
+		"README.md": {{Start: 1, End: 50}},
+		"main.go":   {{Start: 1, End: 5}}, // would fail any non-orientation check
+	})
+	closure.SetFileTotalLines(map[string]int{"README.md": 50, "main.go": 1000})
+
+	bus := &types.BusContext{
+		Mutable:  mut,
+		RepoRoot: t.TempDir(),
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				Intent:     types.IntentExplain,
+				Complexity: types.ComplexitySimple,
+				// No PrimaryEntities, all predicates false — this is
+				// what the analyzer emits for "what does this project do".
+				AnalyzerHints: types.AnalyzerHints{
+					Kind: "mechanism", // would normally trigger the gate
+				},
+			},
+		},
+	}
+	tool := &EmitInvestigationComplete{}
+	params, _ := json.Marshal(map[string]any{
+		"reason": "project overview", "confidence": "high", "result_kind": "resolved",
+	})
+	if _, err := tool.Execute(bus, params); err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+	for _, p := range closure.PendingReads() {
+		if p.Origin == "pre_complete.multi_path_coverage" {
+			t.Errorf("project-orientation question must skip multi-path parity gate; got %+v", p)
+		}
+	}
+}
+

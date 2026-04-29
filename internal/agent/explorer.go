@@ -44,6 +44,14 @@ type explorerEvaluator struct {
 	lastPreScannedUnreadCount       int                  // count of unread pre-scanned files at last push
 	grepRedirectedFiles             map[string]bool      // files that already received a large-file grep redirect
 	isEnumerationQuery              bool                 // true if user question asks to list/enumerate all items
+	// isOrientationQuery mirrors types.IsProjectOrientationQuestion
+	// (intent=explain + simple complexity + no entities + clean
+	// predicates). Cached at dispatch entry so observeMidLoop can
+	// emit a "you have enough; finalize" nudge without re-running
+	// the predicate every iteration. Same semantic as the
+	// multi-path coverage parity skip — both stages must agree on
+	// what an orientation question is.
+	isOrientationQuery bool
 	phase0ExtraRound                bool                 // whether we already gave one extra Phase 0 round for quality gate
 	hasPrescanRepoMap               bool                 // keywordSearch (run at BuildInitialInstruction) produced a ranked file list via repo_map; the Phase 0 quality gate treats this as satisfying the structural-discovery half of its requirement, so the LLM isn't penalized for not re-running repo_map at iter=0
 	structuredEvidence              []types.EvidenceItem
@@ -66,6 +74,11 @@ type explorerEvaluator struct {
 	midLoopExactAbsenceContextSent  bool                  // one-shot: exact absence still needs one grounded same-family production anchor before closure
 	midLoopExactAbsenceSent         bool                  // one-shot: exact-resolution absence already looks closure-ready this dispatch
 	midLoopEnumInjected             bool                  // session-22: enumeration-coverage hint already pushed this dispatch (was missing → 68 fires / run observed on goroutine_dump)
+	// midLoopOrientationFinalizeSent latches the once-per-dispatch
+	// orientation finalize nudge. Without this latch the nudge would
+	// re-render every iteration after the threshold fires, drowning
+	// the LLM in repeated "you have enough" reminders.
+	midLoopOrientationFinalizeSent bool
 	midLoopNoEmitPushSent           bool                  // one-shot: current evidence-materialization backlog window already received its read-without-emit nudge
 	midLoopNoEmitEscalated          bool                  // one-shot: stronger "emit evidence now" escalation after the current backlog window's nudge was ignored
 	midLoopExecRedirectSent         bool                  // one-shot: redirected shell-style browsing back to built-in grep/read_file before recording the current backlog window
@@ -236,6 +249,7 @@ func (e *explorerEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk 
 		e.midLoopExternalLogSent = false
 		e.midLoopExactAbsenceSent = false
 		e.midLoopEnumInjected = false
+		e.midLoopOrientationFinalizeSent = false
 		e.midLoopNoEmitPushSent = false
 		e.midLoopNoEmitEscalated = false
 		e.midLoopExecRedirectSent = false
@@ -318,6 +332,14 @@ func (e *explorerEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk 
 	// (mid-loop enumeration hint, soft-stop coverage gate, stage
 	// report tag, synthesis prompt) sees the clean signal.
 	e.isEnumerationQuery = enumerationIntentForContext(ctx)
+	// Cache the orientation predicate alongside the enumeration flag
+	// so mid-loop hints can branch without re-running the predicate.
+	e.isOrientationQuery = false
+	if ctx.Mutable != nil {
+		if rm := ctx.Mutable.RequestModel(); rm != nil {
+			e.isOrientationQuery = types.IsProjectOrientationQuestion(*rm)
+		}
+	}
 	e.structuredEvidence = nil
 	e.flowFindings = nil
 	e.cachedConcreteValues = nil
@@ -335,6 +357,7 @@ func (e *explorerEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk 
 	e.midLoopExactAbsenceContextSent = false
 	e.midLoopExactAbsenceSent = false
 	e.midLoopEnumInjected = false
+	e.midLoopOrientationFinalizeSent = false
 	e.midLoopNoEmitPushSent = false
 	e.midLoopNoEmitEscalated = false
 	e.midLoopExecRedirectSent = false
@@ -5118,6 +5141,35 @@ func (e *explorerEvaluator) observeMidLoop(obs LoopObservation) LoopSignal {
 	// Both numbers encode "list ALL" semantics, not case-specific
 	// tuning — they are tied to the enumeration question class, not
 	// df1.
+	// Project-orientation finalize nudge. When the analyzer
+	// classifies the request as orientation (intent=explain + simple
+	// + no entities + clean predicates) and the LLM has already
+	// gathered ≥ 3 grounded evidence items, push a one-shot hint to
+	// call emit_investigation_complete. Without this, an LLM that's
+	// satisfied with its evidence can still walk one or two extra
+	// rounds reading siblings before emitting completion. The
+	// once-per-dispatch latch keeps the hint from drowning the loop.
+	//
+	// The threshold (3) is intentionally low — orientation answers
+	// rest on README + manifest + entry-point and rarely need more.
+	// budget.Compute already caps MaxFiles=8 for the same reason, so
+	// this hint is the soft companion to that hard ceiling.
+	if e.isOrientationQuery && !e.midLoopOrientationFinalizeSent &&
+		len(e.structuredEvidence) >= 3 && !e.investigationComplete {
+		if b.Len() > 0 {
+			b.WriteString("\n")
+		}
+		fmt.Fprintf(&b,
+			"MID-LOOP CHECK: project-orientation question (\"what does this repo do?\"). You have %d grounded evidence item(s) — enough to answer. README + manifest + top-level entry-point cover this answer shape; reading additional sibling files will not improve the answer.\n"+
+				"NEXT ACTION: call `emit_investigation_complete(reason=\"orientation answer ready: project purpose + key modules grounded from README/manifest/entry-point\", confidence=\"high\", result_kind=\"resolved\")` now. Do NOT call any more `read_file` / `grep` / `repo_map` first.\n",
+			len(e.structuredEvidence),
+		)
+		e.midLoopOrientationFinalizeSent = true
+		if hintKey == "" {
+			hintKey = "explorer.mid-loop.orientation-finalize"
+		}
+	}
+
 	if e.isEnumerationQuery && !e.midLoopEnumInjected {
 		discovered, readSet, _ := extractFileCoverage(allResults, e.repoRoot)
 		scope := e.coverageScopeFiles(discovered, readSet, strings.Join(e.investigationNotes, "\n"))
@@ -6412,17 +6464,20 @@ func (e *explorerEvaluator) ParseOutput(ctx *types.AgentContext, messages []llm.
 	// EvidenceClosure.HasReadLine so a paginated read that covered
 	// only lines 1-200 cannot grant coverage to a chain anchored at
 	// line 500.
-	_, cvReadSet, cvReadRanges := extractFileCoverage(toolResults, e.repoRoot)
+	cvReadSet, cvReadRanges, cvTotals, _ := extractFileCoverageWithTotals(toolResults, e.repoRoot)
 	// CGEC: pass the per-Run EvidenceClosure so the chain promotion
 	// enforcer can demote chains anchored outside ReadSet and queue
 	// the missing files as PendingReads on the closure. Update the
 	// closure's ReadSet snapshot first so any other CGEC consumer
 	// (pre-complete check, stall detector) sees the latest view.
+	// SetFileTotalLines propagates per-file totals from the read_file
+	// banner so HasFullyRead / CoverageRatio have a real denominator.
 	var cvClosure *types.EvidenceClosure
 	if ctx.Mutable != nil {
 		cvClosure = ctx.Mutable.EvidenceClosure()
 		cvClosure.SetReadSet(cvReadSet)
 		cvClosure.SetReadRanges(cvReadRanges)
+		cvClosure.SetFileTotalLines(cvTotals)
 	}
 	// CGEC B1a: Phase 0 broaden attempts exhausted with 0 file
 	// matches → emit RepairExpandSearch so the next retry's prompt
@@ -10860,8 +10915,26 @@ func extractFileCoverage(history []types.ToolResult, repoRoot string) (
 	readSet map[string]bool,
 	readRanges map[string][]types.LineRange,
 ) {
+	readSet, readRanges, _, discovered = extractFileCoverageWithTotals(history, repoRoot)
+	return
+}
+
+// extractFileCoverageWithTotals is the canonical walker that ALSO
+// returns per-file total line counts harvested from the read_file
+// banner. The original extractFileCoverage shape is preserved for
+// every caller that does not need totals; the multi-path coverage
+// parity gate (and any future per-file ratio check) calls this one
+// directly so the FullyRead / CoverageRatio computation has a real
+// denominator.
+func extractFileCoverageWithTotals(history []types.ToolResult, repoRoot string) (
+	readSet map[string]bool,
+	readRanges map[string][]types.LineRange,
+	totals map[string]int,
+	discovered []string,
+) {
 	readSet = make(map[string]bool)
 	readRanges = make(map[string][]types.LineRange)
+	totals = make(map[string]int)
 	discoveredSet := make(map[string]bool)
 	canon := func(p string) string {
 		if p == "" {
@@ -10932,12 +11005,18 @@ func extractFileCoverage(history []types.ToolResult, repoRoot string) (
 			// LLM actually saw. Record the path into readSet (file-
 			// level, backward-compatible) AND the range into
 			// readRanges so CGEC I1 chain promotion can distinguish a
-			// partial paginated read from a full read.
-			if path, rng, _, ok := parseReadFileBanner(r.Summary); ok {
+			// partial paginated read from a full read. The total line
+			// count goes into `totals` so per-file CoverageRatio /
+			// HasFullyRead can compute against the real denominator
+			// instead of comparing absolute lines to max-file lines.
+			if path, rng, total, ok := parseReadFileBanner(r.Summary); ok {
 				path = canon(path)
 				if path != "" {
 					readSet[path] = true
 					readRanges[path] = append(readRanges[path], rng)
+					if total > 0 && total > totals[path] {
+						totals[path] = total
+					}
 				}
 			}
 		case "exec_command":
@@ -10961,7 +11040,7 @@ func extractFileCoverage(history []types.ToolResult, repoRoot string) (
 			}
 		}
 	}
-	return
+	return readSet, readRanges, totals, discovered
 }
 
 // isNoisePath returns true for paths that should be excluded from the

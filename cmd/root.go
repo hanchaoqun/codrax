@@ -1451,6 +1451,9 @@ func initApp(cmd *cobra.Command, _ []string) error {
 		if rs.CGECPhase1UnreadMinUnread != nil {
 			analysisLimits.Phase1UnreadMinUnread = *rs.CGECPhase1UnreadMinUnread
 		}
+		if rs.CGECMultiPathCoverageParityFloor != nil {
+			analysisLimits.MultiPathCoverageParityFloor = *rs.CGECMultiPathCoverageParityFloor
+		}
 		tool.SetAnalysisLimits(analysisLimits)
 
 		// Evidence grounding policy — overridden by codrax.yaml

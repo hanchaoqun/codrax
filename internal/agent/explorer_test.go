@@ -5802,3 +5802,104 @@ func TestObserveMidLoop_ExactAbsenceReadsSameFamilyContextBeforeClose(t *testing
 		}
 	}
 }
+
+// TestObserveMidLoop_OrientationFinalizeHint locks the project-
+// orientation finalize nudge: when the analyzer classified the
+// question as orientation AND the LLM has gathered ≥ 3 grounded
+// evidence items AND emit_investigation_complete has not yet fired,
+// observeMidLoop should emit a once-per-dispatch hint suggesting
+// completion. budget.Compute already caps MaxFiles=8 for the same
+// reason; this hint is the soft companion that tells the LLM "you
+// are done — do not widen further" before the cap forces a stop.
+func TestObserveMidLoop_OrientationFinalizeHint(t *testing.T) {
+	eval := &explorerEvaluator{
+		phase:              1,
+		isOrientationQuery: true,
+		searchResult:       &keywordSearchResult{Graph: &repomap.Graph{}},
+		// 3 emitted evidence items — meets the threshold.
+		structuredEvidence: []types.EvidenceItem{
+			{ID: "ev1", Source: "README.md", LineStart: 1},
+			{ID: "ev2", Source: "go.mod", LineStart: 1},
+			{ID: "ev3", Source: "main.go", LineStart: 1},
+		},
+	}
+	history := []types.ToolResult{
+		{ToolName: "read_file", Success: true, Summary: "[README.md: showing all 50 lines]\n# project"},
+	}
+	sig := eval.observeMidLoop(LoopObservation{
+		Phase:          PhaseMidLoop,
+		Iteration:      3,
+		LastToolResult: &history[0],
+		AllToolResults: history,
+	})
+	if !sig.HintRequested {
+		t.Fatalf("orientation finalize hint should fire when ≥3 evidence collected, got %+v", sig)
+	}
+	if sig.HintKey != "explorer.mid-loop.orientation-finalize" {
+		t.Errorf("HintKey = %q, want explorer.mid-loop.orientation-finalize", sig.HintKey)
+	}
+	if !strings.Contains(sig.Hint, "emit_investigation_complete") {
+		t.Errorf("hint should name the terminal tool, got: %s", sig.Hint)
+	}
+	if !eval.midLoopOrientationFinalizeSent {
+		t.Error("once-per-dispatch latch must flip after firing")
+	}
+}
+
+// TestObserveMidLoop_OrientationFinalize_LatchPreventsRepeat proves
+// the latch — a second observeMidLoop call within the same dispatch
+// must NOT re-emit the orientation hint.
+func TestObserveMidLoop_OrientationFinalize_LatchPreventsRepeat(t *testing.T) {
+	eval := &explorerEvaluator{
+		phase:                          1,
+		isOrientationQuery:             true,
+		midLoopOrientationFinalizeSent: true, // already sent
+		searchResult:                   &keywordSearchResult{Graph: &repomap.Graph{}},
+		structuredEvidence: []types.EvidenceItem{
+			{ID: "ev1", Source: "README.md", LineStart: 1},
+			{ID: "ev2", Source: "go.mod", LineStart: 1},
+			{ID: "ev3", Source: "main.go", LineStart: 1},
+		},
+	}
+	history := []types.ToolResult{
+		{ToolName: "read_file", Success: true, Summary: "[README.md: showing all 50 lines]\n# project"},
+	}
+	sig := eval.observeMidLoop(LoopObservation{
+		Phase:          PhaseMidLoop,
+		Iteration:      4,
+		LastToolResult: &history[0],
+		AllToolResults: history,
+	})
+	if sig.HintKey == "explorer.mid-loop.orientation-finalize" {
+		t.Fatal("latch should suppress repeat orientation finalize hint")
+	}
+}
+
+// TestObserveMidLoop_OrientationFinalize_BelowThreshold proves the
+// threshold — when fewer than 3 evidence items have been collected,
+// the hint must not fire (premature finalize prevention).
+func TestObserveMidLoop_OrientationFinalize_BelowThreshold(t *testing.T) {
+	eval := &explorerEvaluator{
+		phase:              1,
+		isOrientationQuery: true,
+		searchResult:       &keywordSearchResult{Graph: &repomap.Graph{}},
+		structuredEvidence: []types.EvidenceItem{
+			{ID: "ev1", Source: "README.md", LineStart: 1},
+		},
+	}
+	history := []types.ToolResult{
+		{ToolName: "read_file", Success: true, Summary: "[README.md: showing all 50 lines]\n# x"},
+	}
+	sig := eval.observeMidLoop(LoopObservation{
+		Phase:          PhaseMidLoop,
+		Iteration:      2,
+		LastToolResult: &history[0],
+		AllToolResults: history,
+	})
+	if sig.HintKey == "explorer.mid-loop.orientation-finalize" {
+		t.Fatalf("hint should not fire below 3-evidence threshold; got: %s", sig.Hint)
+	}
+	if eval.midLoopOrientationFinalizeSent {
+		t.Error("latch must not flip when threshold not met")
+	}
+}

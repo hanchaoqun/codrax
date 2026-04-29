@@ -76,6 +76,26 @@ type EvidenceClosure struct {
 	// whose anchor falls outside any fetched range.
 	readRanges map[string][]LineRange
 
+	// fileTotalLines records the total line count of each file the
+	// LLM has read, parsed from the read_file banner ("[path:
+	// showing lines X-Y of Z total]" or "[path: showing all N lines
+	// ...]"). The line-merging gate uses this to compute per-file
+	// CoverageRatio = sum(end-start+1) / total, so a 113-line file
+	// fully read shows 1.0 even when a 683-line sibling is at 0.6.
+	// Pre-2026-04-29 the multi-path parity gate compared absolute
+	// line counts against max(read_lines), letting a small file at
+	// 100% coverage fail because it had fewer absolute lines than
+	// a partially-read large sibling — the very pathology this
+	// field exists to fix.
+	//
+	// Zero entry (file in readRanges but absent from this map) means
+	// "total unknown" — typically because the read came from a path
+	// that bypassed the banner (e.g. forced-read injection) or the
+	// banner was malformed. Callers that need a denominator must
+	// treat zero as "unknown" and either skip the ratio check or
+	// fall back to file-level booleans.
+	fileTotalLines map[string]int
+
 	// scannedSet is the broader set of files the deterministic
 	// concrete-value scanner consulted from disk (keyword-scored
 	// files + symbol-definition files mentioned in investigation
@@ -264,6 +284,7 @@ func NewEvidenceClosure(repoRoot string) *EvidenceClosure {
 		repoRoot:       repoRoot,
 		readSet:        make(map[string]bool),
 		readRanges:     make(map[string][]LineRange),
+		fileTotalLines: make(map[string]int),
 		scannedSet:     make(map[string]bool),
 		citedRefs:      make(map[string][]int),
 		subjectMatches: make(map[string]float64),
@@ -394,6 +415,137 @@ func (c *EvidenceClosure) SetReadRanges(ranges map[string][]LineRange) {
 		}
 		c.readRanges[file] = mergeLineRanges(append([]LineRange{}, rngs...))
 	}
+}
+
+// RecordFileTotalLines stores the total line count for a file as
+// observed in a read_file banner. Subsequent observations win when
+// they are larger (defensive against banners that report a partial
+// total mid-pagination — every healthy banner reports the same Z).
+// Zero / negative inputs are dropped silently so callers do not need
+// to validate.
+func (c *EvidenceClosure) RecordFileTotalLines(file string, total int) {
+	if c == nil || total <= 0 {
+		return
+	}
+	file = c.canonicalize(file)
+	if file == "" {
+		return
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.fileTotalLines == nil {
+		c.fileTotalLines = make(map[string]int)
+	}
+	if cur := c.fileTotalLines[file]; cur >= total {
+		return
+	}
+	c.fileTotalLines[file] = total
+}
+
+// SetFileTotalLines atomically replaces the entire totals map.
+// Mirrors SetReadRanges: explorer.ParseOutput refreshes the snapshot
+// per dispatch from the latest extractFileCoverage walk.
+func (c *EvidenceClosure) SetFileTotalLines(totals map[string]int) {
+	if c == nil {
+		return
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.fileTotalLines = make(map[string]int, len(totals))
+	for file, total := range totals {
+		if total <= 0 {
+			continue
+		}
+		file = c.canonicalize(file)
+		if file == "" {
+			continue
+		}
+		// Keep largest value when canonicalisation collapses two keys.
+		if cur := c.fileTotalLines[file]; cur >= total {
+			continue
+		}
+		c.fileTotalLines[file] = total
+	}
+}
+
+// FileTotalLines returns the recorded total line count for a file,
+// or 0 when no banner-derived total has been observed.
+func (c *EvidenceClosure) FileTotalLines(file string) int {
+	if c == nil || file == "" {
+		return 0
+	}
+	file = c.canonicalize(file)
+	if file == "" {
+		return 0
+	}
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.fileTotalLines[file]
+}
+
+// MergedReadLines returns the sum of (end - start + 1) over the
+// merged read ranges for a file. Zero when the file is unread or
+// has no recorded ranges.
+func (c *EvidenceClosure) MergedReadLines(file string) int {
+	if c == nil || file == "" {
+		return 0
+	}
+	file = c.canonicalize(file)
+	if file == "" {
+		return 0
+	}
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	sum := 0
+	for _, r := range c.readRanges[file] {
+		if r.End >= r.Start {
+			sum += r.End - r.Start + 1
+		}
+	}
+	return sum
+}
+
+// CoverageRatio returns merged_read_lines / total_lines for a file,
+// in [0, 1]. Returns -1 when the total is unknown so callers can
+// distinguish "ratio too low" from "ratio cannot be computed". A
+// ratio >= 1 (e.g. ranges merged to cover all lines) is clamped to
+// 1.0 — the gate semantics are "fully covered or not", not "over
+// covered".
+func (c *EvidenceClosure) CoverageRatio(file string) float64 {
+	total := c.FileTotalLines(file)
+	if total <= 0 {
+		return -1
+	}
+	read := c.MergedReadLines(file)
+	if read <= 0 {
+		return 0
+	}
+	r := float64(read) / float64(total)
+	if r > 1.0 {
+		return 1.0
+	}
+	return r
+}
+
+// HasFullyRead reports whether merged ranges cover the entire file.
+// Two-armed contract:
+//
+//  1. total known (FileTotalLines > 0): true iff merged_read_lines
+//     >= total_lines (the banner's own ranges already merge to that).
+//  2. total unknown: false. Without a denominator we cannot prove
+//     "fully read"; conservative answer prevents the parity gate from
+//     short-circuiting on an undersampled file.
+//
+// Used by raiseMultiPathCoverageParity (and any future per-file
+// coverage gate) to bypass the comparison entirely when a file is
+// already fully covered — the central fix for the 113-line file
+// being asked to cover 205 lines bug.
+func (c *EvidenceClosure) HasFullyRead(file string) bool {
+	total := c.FileTotalLines(file)
+	if total <= 0 {
+		return false
+	}
+	return c.MergedReadLines(file) >= total
 }
 
 // ReadRanges returns a defensive copy of the merged ranges recorded

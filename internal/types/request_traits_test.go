@@ -37,3 +37,45 @@ func TestIsSingleTopicStructuralTrace(t *testing.T) {
 		}
 	})
 }
+
+// TestIsProjectOrientationQuestion locks the structured-signal
+// classifier behaviour. Each axis (intent / complexity / predicates
+// / entities) must independently disqualify the orientation
+// shortcut so a misclassification anywhere falls through to the
+// safer (more thorough) full-coverage path. No keyword matching on
+// RawRequest — the analyzer LLM's own classification IS the signal.
+func TestIsProjectOrientationQuestion(t *testing.T) {
+	base := RequestModel{
+		Intent:     IntentExplain,
+		Complexity: ComplexitySimple,
+	}
+	if !IsProjectOrientationQuestion(base) {
+		t.Fatalf("baseline (explain + simple + clean predicates + no entities) must qualify")
+	}
+
+	cases := []struct {
+		name string
+		mod  func(*RequestModel)
+		want bool
+	}{
+		{"root_cause intent disqualifies", func(r *RequestModel) { r.Intent = IntentRootCause }, false},
+		{"trace intent disqualifies", func(r *RequestModel) { r.Intent = IntentTrace }, false},
+		{"moderate complexity disqualifies", func(r *RequestModel) { r.Complexity = ComplexityModerate }, false},
+		{"complex complexity disqualifies", func(r *RequestModel) { r.Complexity = ComplexityComplex }, false},
+		{"is_cross_component disqualifies", func(r *RequestModel) { r.Predicates.IsCrossComponent = true }, false},
+		{"is_count_question disqualifies", func(r *RequestModel) { r.Predicates.IsCountQuestion = true }, false},
+		{"is_history_lookup disqualifies", func(r *RequestModel) { r.Predicates.IsHistoryLookup = true }, false},
+		{"is_scalar_answer disqualifies", func(r *RequestModel) { r.Predicates.IsScalarAnswer = true }, false},
+		{"PrimaryEntities disqualifies", func(r *RequestModel) { r.AnalyzerHints.PrimaryEntities = []string{"explorer"} }, false},
+		{"any Entities disqualifies", func(r *RequestModel) { r.AnalyzerHints.Entities = []string{"foo"} }, false},
+		{"unknown intent qualifies", func(r *RequestModel) { r.Intent = IntentUnknown }, true},
+	}
+	for _, tc := range cases {
+		rm := base
+		tc.mod(&rm)
+		got := IsProjectOrientationQuestion(rm)
+		if got != tc.want {
+			t.Errorf("%s: got %v, want %v", tc.name, got, tc.want)
+		}
+	}
+}

@@ -2501,6 +2501,12 @@ func (o *Orchestrator) runReadSchedulerLoop(stepBudget int) int {
 		}
 
 		if res.Passed {
+			// Observability: log how many evidence items the answer
+			// actually cited vs how many the explorer collected. Used
+			// to spot over-investigation patterns ("explorer collected
+			// 70 evidence; finalizer cited 5") that motivate budget /
+			// gate tuning. One INFO line, no behaviour change.
+			logEvidenceUtilization(o, lastFinalize)
 			state.markDone(fin.ID)
 			o.emitNodeEnd(fin.ID, true, "")
 			break

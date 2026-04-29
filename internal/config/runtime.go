@@ -479,6 +479,23 @@ type RuntimeSettings struct {
 	CGECPhase1UnreadTopK      *int `yaml:"cgec_phase1_unread_top_k"`
 	CGECPhase1UnreadMinUnread *int `yaml:"cgec_phase1_unread_min_unread"`
 
+	// Multi-path coverage parity floor. Per-file ratio
+	// (read_lines / total_lines) each primary anchor must reach for
+	// emit_investigation_complete to honour completion when ≥2
+	// primary anchors are present. Default 0.3. Set to 0 to disable
+	// the gate entirely. The gate already short-circuits on
+	// HasFullyRead so a small file fully covered never trips against
+	// a partially-read large sibling — this knob caps the partial-
+	// read parity demand.
+	//
+	// Pre-2026-04-29 the floor was a hard-coded constant 0.3 in
+	// internal/tool/emit_investigation_complete.go and applied as
+	// max(read_lines)*0.3 — a 113-line file fully read failed to
+	// keep up with a 683-line file partially read, so the LLM read
+	// the same short file 31 times trying to fix the gap. Now per-
+	// file with FullyRead bypass + yaml-tunable.
+	CGECMultiPathCoverageParityFloor *float64 `yaml:"cgec_multi_path_coverage_parity_floor"`
+
 	// Log-triage knobs. `log_triage_*` prefix groups the log-ingestion
 	// feature settings. When log_triage_enabled=false the log_triage
 	// pre-stage Guard short-circuits and every downstream consumer

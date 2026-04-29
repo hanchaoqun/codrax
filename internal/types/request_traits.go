@@ -65,6 +65,61 @@ func IsScalarRoleLocateLookup(rm RequestModel) bool {
 	return rm.PredicateAxis == AxisReturn
 }
 
+// IsProjectOrientationQuestion reports whether the request is a
+// project-orientation ask ("what does this repo do?", "summarise the
+// project", "give me a tour"). Detection is structured-signal-only:
+// no substring matching on RawRequest, language-neutral, driven
+// entirely by the analyzer LLM's existing classification.
+//
+// Conditions (all must hold):
+//
+//   - intent: explain or unknown (root_cause / trace / etc. always
+//     fall through to deep investigation)
+//   - complexity: simple — the analyzer's own assessment that scope
+//     is single-entity / 1-2 files
+//   - predicates: is_cross_component / is_count_question /
+//     is_history_lookup / is_scalar_answer ALL false
+//   - len(PrimaryEntities) == 0 — the user didn't pin to specific code
+//   - len(Entities) == 0 — no identifier-shaped tokens in the request
+//
+// Shared by:
+//
+//   - internal/tool/emit_investigation_complete.go: the multi-path
+//     coverage parity gate skips orientation questions because they
+//     don't need cross-component depth.
+//   - internal/analysis/budget/budget.go: tightens the EvidenceBudget
+//     base so the explorer's existing MaxFiles / MaxReactIters caps
+//     enforce a smaller ceiling — README + manifest + entry-point
+//     answer needs ~5 files, not the moderate-default 30.
+//
+// Returns false on a zero-value RequestModel — callers default to
+// "fire the gate / use full budget" which preserves pre-2026-04-29
+// behaviour for any path that didn't run the analyzer.
+func IsProjectOrientationQuestion(rm RequestModel) bool {
+	switch rm.Intent {
+	case IntentExplain, IntentUnknown:
+		// continue
+	default:
+		return false
+	}
+	if rm.Complexity != ComplexitySimple {
+		return false
+	}
+	if rm.Predicates.IsCrossComponent ||
+		rm.Predicates.IsCountQuestion ||
+		rm.Predicates.IsHistoryLookup ||
+		rm.Predicates.IsScalarAnswer {
+		return false
+	}
+	if len(rm.AnalyzerHints.PrimaryEntities) > 0 {
+		return false
+	}
+	if len(rm.AnalyzerHints.Entities) > 0 {
+		return false
+	}
+	return true
+}
+
 // IsSingleTopicStructuralTrace reports whether the request is a
 // single-topic structural walkthrough (call-chain / flow / dispatch)
 // that benefits from a lighter trace-oriented DAG rather than the

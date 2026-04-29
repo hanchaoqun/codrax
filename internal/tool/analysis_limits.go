@@ -189,6 +189,22 @@ type AnalysisLimits struct {
 	// Set Phase1UnreadTopK to 0 to disable the gate entirely.
 	Phase1UnreadTopK      int
 	Phase1UnreadMinUnread int
+
+	// MultiPathCoverageParityFloor is the minimum per-file coverage
+	// ratio (read_lines / total_lines) each primary anchor must
+	// reach when ≥2 primary anchors are present, before
+	// emit_investigation_complete will honour the call. Range
+	// [0.0, 1.0]. Zero disables the gate entirely. The gate already
+	// short-circuits on HasFullyRead so any file with merged ranges
+	// covering its full line count bypasses unconditionally — this
+	// floor only constrains the partial-read parity demand.
+	//
+	// Pre-2026-04-29 this was a hard-coded constant 0.3 in
+	// emit_investigation_complete.go and was applied as
+	// max(read_lines)*ratio across files. The bug + remediation are
+	// detailed in the field comment on
+	// runtime.RuntimeSettings.CGECMultiPathCoverageParityFloor.
+	MultiPathCoverageParityFloor float64
 }
 
 // AnalysisQualityProbe captures runtime hit statistics from the
@@ -332,6 +348,7 @@ func DefaultAnalysisLimits() AnalysisLimits {
 		GhostAnchorExpandSearchThreshold:    3,
 		Phase1UnreadTopK:                    5,
 		Phase1UnreadMinUnread:               2,
+		MultiPathCoverageParityFloor:        0.3,
 		GenericEntityBlocklist: []string{
 			"agent", "agents",
 			"class", "classes",
