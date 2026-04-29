@@ -445,6 +445,131 @@ func TestEmitInvestigationComplete_SynthesizesAbsenceForRelatedContextOnlyExactC
 	}
 }
 
+func TestEmitInvestigationComplete_AbsenceAllowsProductionNegativeSummaryMentions(t *testing.T) {
+	missingKey := "explore_mid_loop_hint_budget"
+	mut := types.NewMutableState("q")
+	mut.SetExactContextRequiredFiles([]string{"internal/types/config.go"})
+	mut.AppendEvidence([]types.EvidenceItem{
+		{
+			Kind:            types.EvidenceDirect,
+			Source:          "internal/types/config.go",
+			LineStart:       839,
+			Subject:         "DefaultExploreHeuristics",
+			AnchorKind:      types.AnchorDefinition,
+			AnchorSymbol:    "DefaultExploreHeuristics",
+			Summary:         "DefaultExploreHeuristics defines the surviving defaults, and there is no explore_mid_loop_hint_budget field here.",
+			ContextRole:     types.EvidenceContextRoleRelatedContext,
+			DiagramRole:     types.EvidenceDiagramRoleDefault,
+			GroundingStatus: types.GroundingGrounded,
+			GroundingTier:   types.TierLineText,
+		},
+	})
+	bus := &types.BusContext{
+		Mutable: mut,
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				RawRequest: missingKey + " 的最终有效值是怎么计算出来的？",
+				Scenario:   types.ScenarioConfigTrace,
+				AnalyzerHints: types.AnalyzerHints{
+					Kind:              "config_mapping",
+					PrimaryEntities:   []string{missingKey},
+					Entities:          []string{missingKey},
+					MentionedEntities: []string{missingKey},
+					ExactTargets:      []string{missingKey},
+				},
+				AnswerSubject: types.AnswerSubject{Kind: types.SubjectConfigKey},
+			},
+			AnswerContract: types.AnswerContract{
+				ExactResolution: &types.ExactResolutionContract{
+					TargetKind:           types.SubjectConfigKey,
+					TargetLabel:          "config key",
+					Targets:              []string{missingKey},
+					AllowAbsence:         true,
+					RelatedContextPolicy: types.ExactContextSameFamilyGrounded,
+					RelatedContextTerms:  []string{"explore"},
+				},
+			},
+		},
+	}
+	tool := &EmitInvestigationComplete{}
+	params := json.RawMessage(`{"reason":"searched the repo and found no exact config key explore_mid_loop_hint_budget in any layer","confidence":"high","result_kind":"absence","absence_justification":"the exact config key explore_mid_loop_hint_budget is absent from the repo"}`)
+	res, err := tool.Execute(bus, params)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("negative summary mentions should not be upgraded into defining exact proof, got: %s", res.Summary)
+	}
+	if got := mut.StableInvestigationResultKind(); got != "absence" {
+		t.Fatalf("StableInvestigationResultKind = %q, want absence", got)
+	}
+}
+
+func TestEmitInvestigationComplete_PreservesPriorAbsenceOverResolvedRetryWithoutNewProof(t *testing.T) {
+	missingKey := "explore_mid_loop_hint_budget"
+	mut := types.NewMutableState("q")
+	mut.SetAbsenceJustification("the exact config key explore_mid_loop_hint_budget is absent from the repo")
+	mut.SetInvestigationResultKind("absence")
+	mut.SetExactContextRequiredFiles([]string{"internal/types/config.go"})
+	mut.AppendEvidence([]types.EvidenceItem{
+		{
+			Kind:            types.EvidenceDirect,
+			Source:          "internal/types/config.go",
+			LineStart:       839,
+			Subject:         "DefaultExploreHeuristics",
+			AnchorKind:      types.AnchorDefinition,
+			AnchorSymbol:    "DefaultExploreHeuristics",
+			Summary:         "DefaultExploreHeuristics defines the surviving defaults, and there is no explore_mid_loop_hint_budget field here.",
+			ContextRole:     types.EvidenceContextRoleRelatedContext,
+			DiagramRole:     types.EvidenceDiagramRoleDefault,
+			GroundingStatus: types.GroundingGrounded,
+			GroundingTier:   types.TierLineText,
+		},
+	})
+	bus := &types.BusContext{
+		Mutable: mut,
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				RawRequest: missingKey + " 的最终有效值是怎么计算出来的？",
+				Scenario:   types.ScenarioConfigTrace,
+				AnalyzerHints: types.AnalyzerHints{
+					Kind:              "config_mapping",
+					PrimaryEntities:   []string{missingKey},
+					Entities:          []string{missingKey},
+					MentionedEntities: []string{missingKey},
+					ExactTargets:      []string{missingKey},
+				},
+				AnswerSubject: types.AnswerSubject{Kind: types.SubjectConfigKey},
+			},
+			AnswerContract: types.AnswerContract{
+				ExactResolution: &types.ExactResolutionContract{
+					TargetKind:           types.SubjectConfigKey,
+					TargetLabel:          "config key",
+					Targets:              []string{missingKey},
+					AllowAbsence:         true,
+					RelatedContextPolicy: types.ExactContextSameFamilyGrounded,
+					RelatedContextTerms:  []string{"explore"},
+				},
+			},
+		},
+	}
+	tool := &EmitInvestigationComplete{}
+	params := json.RawMessage(`{"reason":"the three-layer precedence chain is understood and the key is still absent","confidence":"high","result_kind":"resolved"}`)
+	res, err := tool.Execute(bus, params)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("resolved retry without new exact proof should preserve prior absence closure, got: %s", res.Summary)
+	}
+	if got := mut.StableInvestigationResultKind(); got != "absence" {
+		t.Fatalf("StableInvestigationResultKind = %q, want absence", got)
+	}
+	if !strings.Contains(res.Summary, "result_kind=absence") {
+		t.Fatalf("summary should reflect preserved absence result, got: %s", res.Summary)
+	}
+}
+
 // TestEmitInvestigationComplete_Tier1FloorRejectsPureRecovery pins the
 // session-8 upstream-intercept: when every item is Recovered (the LLM
 // never read_file'd any of the cited sources), the Tier-1 floor fires

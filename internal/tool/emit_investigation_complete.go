@@ -1784,6 +1784,14 @@ func normalizeExactAbsenceCompletion(ctx *types.BusContext, resultKind, reason, 
 	}
 	requiredFiles := exactAbsenceRequiredContextFiles(ctx, contract)
 	evidence := ctx.Mutable.EmittedEvidence()
+	if resultKind == "resolved" &&
+		justification == "" &&
+		strings.EqualFold(ctx.Mutable.StableInvestigationResultKind(), "absence") &&
+		strings.TrimSpace(ctx.Mutable.StableAbsenceJustification()) != "" &&
+		!evidenceHasAnyDefiningExactTargetProof(contract, evidence, contract.Targets) {
+		logging.Info("[emit_investigation_complete] preserving prior exact-absence closure over resolved retry without new defining proof (targets=%v)", contract.Targets)
+		return "absence", ctx.Mutable.StableAbsenceJustification()
+	}
 	if !types.ExactResolutionAbsenceClosureReady(contract, scenario, contract.Targets, evidence, requiredFiles) {
 		return resultKind, justification
 	}
@@ -1837,9 +1845,6 @@ func evidenceMentionsAnyListedExactTarget(contract *types.ExactResolutionContrac
 		item.Predicate,
 		item.Object,
 		item.AnchorSymbol,
-		item.Condition,
-		item.Snippet,
-		item.Summary,
 	}, "\n")
 	for _, target := range targets {
 		if types.ExactResolutionTextMentionsTarget(contract, text, target) {
