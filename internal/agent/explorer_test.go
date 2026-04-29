@@ -3211,6 +3211,65 @@ func TestMidLoopCheck_PostPrimaryReadPrefersAnchorLocalGrounding(t *testing.T) {
 	}
 }
 
+func TestMidLoopCheck_PostPrimaryReadPrefersScalarRoleLocateMaterialization(t *testing.T) {
+	graph := &repomap.Graph{
+		SymbolDefs: map[string][]*repomap.Symbol{
+			"buildAnalysisIR": {{
+				Name:    "buildAnalysisIR",
+				Kind:    "function",
+				File:    "internal/agent/analyzer.go",
+				Line:    860,
+				EndLine: 1309,
+			}},
+		},
+	}
+	eval := &explorerEvaluator{
+		phase:        1,
+		userQuestion: "负责解析用户请求并产出结构化 AnalysisIR 的入口函数叫什么？",
+		searchResult: &keywordSearchResult{Graph: graph},
+		ermRequirements: []EvidenceRequirement{
+			{Kind: types.ReqMechanism, Entities: []string{"buildAnalysisIR"}, Status: "unsatisfied"},
+		},
+		analysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				PredicateAxis: types.AxisReturn,
+				AnswerSubject: types.AnswerSubject{Kind: types.SubjectFunctionName},
+				Predicates:    types.SemanticPredicates{IsScalarAnswer: true},
+			},
+			AnswerContract: types.AnswerContract{
+				RequiredAnswerShape: types.ShapeValue,
+			},
+		},
+	}
+	history := []types.ToolResult{{
+		ToolName: "read_file",
+		Success:  true,
+		Summary:  "[internal/agent/analyzer.go: showing lines 855-885 of 1400 total]\nfunc buildAnalysisIR(ctx *types.AgentContext) (*types.AnalysisIR, error) {",
+	}}
+
+	sig := eval.observeMidLoop(LoopObservation{
+		Phase:          PhaseMidLoop,
+		Iteration:      0,
+		LastToolResult: &history[0],
+		AllToolResults: history,
+	})
+	if !sig.HintRequested {
+		t.Fatalf("post-primary-read scalar role-locate hint should fire, got %+v", sig)
+	}
+	if sig.HintKey != "explorer.mid-loop.post-primary-read" {
+		t.Fatalf("HintKey = %q, want explorer.mid-loop.post-primary-read", sig.HintKey)
+	}
+	if !strings.Contains(sig.Hint, "scalar source-literal lookup") {
+		t.Fatalf("hint should explain the scalar source-literal mode, got: %s", sig.Hint)
+	}
+	if !strings.Contains(sig.Hint, "emit grounded evidence") {
+		t.Fatalf("hint should steer to evidence materialization before more reading, got: %s", sig.Hint)
+	}
+	if strings.Contains(sig.Hint, "call read_file") {
+		t.Fatalf("scalar role-locate post-primary hint should not default back to partial-read expansion, got: %s", sig.Hint)
+	}
+}
+
 func TestMidLoopCheck_EmitEvidenceRepairBypassesIterationFloor(t *testing.T) {
 	eval := &explorerEvaluator{
 		phase:            1,
@@ -4287,6 +4346,57 @@ func TestFilterPartialReadsForCurrentContext_DropsAlreadyGroundedSymbol(t *testi
 	}
 }
 
+func TestFilterPartialReadsForPostPrimary_DropsUnrelatedScalarHints(t *testing.T) {
+	eval := &explorerEvaluator{
+		userQuestion: "负责解析用户请求并产出结构化 AnalysisIR 的入口函数叫什么？",
+		analysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				PredicateAxis: types.AxisReturn,
+				AnswerSubject: types.AnswerSubject{Kind: types.SubjectFunctionName},
+				Predicates:    types.SemanticPredicates{IsScalarAnswer: true},
+			},
+			AnswerContract: types.AnswerContract{
+				RequiredAnswerShape: types.ShapeValue,
+			},
+		},
+		structuredEvidence: []types.EvidenceItem{
+			{
+				Kind:            types.EvidenceDirect,
+				Source:          "internal/agent/analyzer.go",
+				Subject:         "buildAnalysisIR",
+				AnchorSymbol:    "buildAnalysisIR",
+				GroundingStatus: types.GroundingGrounded,
+			},
+		},
+	}
+	hints := []partialReadHint{
+		{
+			file:       "internal/agent/analyzer.go",
+			symbolName: "analyzerEvaluator.BuildInitialInstruction",
+			symStart:   61,
+			symEnd:     140,
+			readEnd:    80,
+			coverage:   0.25,
+		},
+		{
+			file:       "internal/agent/analyzer.go",
+			symbolName: "buildAnalysisIR",
+			symStart:   860,
+			symEnd:     1365,
+			readEnd:    955,
+			coverage:   0.19,
+		},
+	}
+
+	filtered := eval.filterPartialReadsForPostPrimary(hints)
+	if len(filtered) != 1 {
+		t.Fatalf("filtered partial hints = %d, want 1", len(filtered))
+	}
+	if filtered[0].symbolName != "buildAnalysisIR" {
+		t.Fatalf("remaining hint = %q, want buildAnalysisIR", filtered[0].symbolName)
+	}
+}
+
 func TestObserveMidLoop_ReadWithoutEmitHint_AddsAuthoritativeLogDriftReminder(t *testing.T) {
 	newReadResult := func(path string) types.ToolResult {
 		return types.ToolResult{
@@ -5323,6 +5433,72 @@ func TestObserveMidLoop_CompletionReadyHint_UsesRequirementBackedCarrierForMecha
 	}
 	if sig.HintKey != "explorer.mid-loop.completion-ready" {
 		t.Fatalf("HintKey = %q, want explorer.mid-loop.completion-ready", sig.HintKey)
+	}
+}
+
+func TestObserveMidLoop_CompletionReadyFiresForMinimalScalarRoleLocate(t *testing.T) {
+	newReadResult := func(path string) types.ToolResult {
+		return types.ToolResult{
+			ToolName: "read_file",
+			Success:  true,
+			Summary:  "[" + path + ": showing lines 1-40 of 120 total]\n",
+		}
+	}
+	eval := &explorerEvaluator{
+		phase: 1,
+		analysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				PredicateAxis: types.AxisReturn,
+				AnswerSubject: types.AnswerSubject{Kind: types.SubjectFunctionName},
+				Predicates:    types.SemanticPredicates{IsScalarAnswer: true},
+			},
+			AnswerContract: types.AnswerContract{
+				RequiredAnswerShape: types.ShapeValue,
+			},
+		},
+		heuristics: types.ExploreHeuristics{MidLoopMinIteration: 2},
+		structuredEvidence: []types.EvidenceItem{
+			{
+				Kind:            types.EvidenceDirect,
+				Source:          "internal/agent/analyzer.go",
+				LineStart:       860,
+				AnchorKind:      types.AnchorDefinition,
+				AnchorSymbol:    "buildAnalysisIR",
+				GroundingStatus: types.GroundingGrounded,
+			},
+			{
+				Kind:            types.EvidenceRelationship,
+				Subject:         "ParseOutput",
+				Predicate:       "calls",
+				Object:          "buildAnalysisIR",
+				Source:          "internal/agent/analyzer.go",
+				LineStart:       651,
+				AnchorKind:      types.AnchorCall,
+				AnchorSymbol:    "buildAnalysisIR",
+				GroundingStatus: types.GroundingGrounded,
+			},
+		},
+	}
+	results := []types.ToolResult{
+		{ToolName: "grep", Success: true, Summary: "internal/agent/analyzer.go"},
+		newReadResult("internal/agent/analyzer.go"),
+		{ToolName: "emit_evidence", Success: true, Summary: "emit_evidence accepted 2 items"},
+	}
+
+	sig := eval.observeMidLoop(LoopObservation{
+		Phase:          PhaseMidLoop,
+		Iteration:      3,
+		LastToolResult: &results[len(results)-1],
+		AllToolResults: results,
+	})
+	if !sig.HintRequested {
+		t.Fatalf("completion-ready hint should fire for minimal scalar role-locate evidence, got %+v", sig)
+	}
+	if sig.HintKey != "explorer.mid-loop.completion-ready" {
+		t.Fatalf("HintKey = %q, want explorer.mid-loop.completion-ready", sig.HintKey)
+	}
+	if !strings.Contains(sig.Hint, "grounded owner / definition anchor already identifies the requested literal") {
+		t.Fatalf("completion-ready hint should explain the scalar closure basis, got: %s", sig.Hint)
 	}
 }
 

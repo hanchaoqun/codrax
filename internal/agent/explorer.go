@@ -4227,10 +4227,12 @@ func (e *explorerEvaluator) postCompletionReadySignal(obs LoopObservation) LoopS
 	if !readiness.HasEnough {
 		return LoopSignal{}
 	}
+	scalarLocateReady := e.scalarRoleLocateClosureReady()
 	if !hasTerminalEvidence(e.structuredEvidence) &&
 		len(e.flowFindings) == 0 &&
 		!hasGroundedRequirementCarrier(e.structuredEvidence, e.ermRequirements) &&
-		!readiness.AuthoritativeClosure {
+		!readiness.AuthoritativeClosure &&
+		!scalarLocateReady {
 		return LoopSignal{}
 	}
 	e.midLoopCompletionReadySent = true
@@ -4252,6 +4254,9 @@ func (e *explorerEvaluator) postCompletionReadySignal(obs LoopObservation) LoopS
 	if readiness.AuthoritativeClosure {
 		b.WriteString("- authoritative log frames already carry grounded call/mechanism anchors on the current branch\n")
 	}
+	if scalarLocateReady {
+		b.WriteString("- a grounded owner / definition anchor already identifies the requested literal and its source location\n")
+	}
 	if e.driftBoundedCompletionReadyMode() && readiness.AuthoritativeClosure {
 		b.WriteString("- the current checkout already bounds the answer surface; do not reopen older-build-only or upstream-provenance branches unless a new contradiction appears on this same grounded path\n")
 		if reason := e.driftBoundedCompletionReason(); reason != "" {
@@ -4271,6 +4276,51 @@ func (e *explorerEvaluator) postCompletionReadySignal(obs LoopObservation) LoopS
 		BypassThrottle: true,
 		BypassBudget:   true,
 	}
+}
+
+func (e *explorerEvaluator) scalarRoleLocateClosureReady() bool {
+	if e == nil || e.analysisIR == nil {
+		return false
+	}
+	plan := e.answerSurfacePlan()
+	if (plan == nil || plan.SummarySurfaceMode != types.AnswerSummarySurfaceMinimalScalarRoleLocate) &&
+		!types.IsScalarSourceLiteralLookup(e.analysisIR.RequestModel) {
+		return false
+	}
+	for _, ev := range e.structuredEvidence {
+		switch ev.GroundingStatus {
+		case types.GroundingGrounded, types.GroundingRecovered:
+		default:
+			continue
+		}
+		switch ev.ContextRole {
+		case types.EvidenceContextRoleIllustrativeOnly, types.EvidenceContextRoleAbsenceSupport:
+			continue
+		}
+		if scalarRoleLocateEvidenceReady(ev) {
+			return true
+		}
+	}
+	return false
+}
+
+func scalarRoleLocateEvidenceReady(ev types.EvidenceItem) bool {
+	if strings.TrimSpace(ev.Source) == "" || ev.LineStart <= 0 {
+		return false
+	}
+	if ev.Kind == types.EvidenceRegistration || isRegistrationShape(ev) {
+		return true
+	}
+	if ev.Kind == types.EvidenceConcrete {
+		switch ev.Predicate {
+		case "returns", "maps":
+			return true
+		}
+	}
+	if ev.Kind == types.EvidenceDirect && ev.AnchorKind == types.AnchorDefinition {
+		return true
+	}
+	return false
 }
 
 type authoritativeFrameRef struct {
@@ -4647,8 +4697,19 @@ func (e *explorerEvaluator) postPrimaryReadMidLoopSignal(obs LoopObservation) Lo
 			Progress:      true,
 		}
 	}
+	if e.scalarSourceLiteralPrimaryReadMode() {
+		e.midLoopPostPrimaryInjected = true
+		return LoopSignal{
+			HintRequested: true,
+			HintKey:       "explorer.mid-loop.post-primary-read",
+			Hint: "MID-LOOP CHECK: this is a scalar source-literal lookup and you just reached the primary anchor file. " +
+				"Do NOT switch into full function walkthrough mode by default. First emit grounded evidence for the owner / definition line that identifies the requested literal and its source location. " +
+				"Only keep reading if that line still does not determine the answer after the evidence batch.",
+			Progress: true,
+		}
+	}
 	if partials := detectPartiallyReadSymbols(obs.AllToolResults, e.searchResult.Graph); len(partials) > 0 {
-		partials = e.filterPartialReadsByAuthoritativeFrames(partials)
+		partials = e.filterPartialReadsForPostPrimary(partials)
 		if len(partials) == 0 {
 			return LoopSignal{}
 		}
@@ -4723,6 +4784,17 @@ func (e *explorerEvaluator) postPrimaryReadMidLoopSignal(obs LoopObservation) Lo
 	}
 }
 
+func (e *explorerEvaluator) scalarSourceLiteralPrimaryReadMode() bool {
+	if e == nil || e.analysisIR == nil {
+		return false
+	}
+	if types.IsScalarSourceLiteralLookup(e.analysisIR.RequestModel) {
+		return true
+	}
+	plan := e.answerSurfacePlan()
+	return plan != nil && plan.SummarySurfaceMode == types.AnswerSummarySurfaceMinimalScalarRoleLocate
+}
+
 func (e *explorerEvaluator) filterPartialReadsByAuthoritativeFrames(hints []partialReadHint) []partialReadHint {
 	if len(hints) == 0 {
 		return nil
@@ -4741,14 +4813,82 @@ func (e *explorerEvaluator) filterPartialReadsByAuthoritativeFrames(hints []part
 	return out
 }
 
+func (e *explorerEvaluator) filterPartialReadsForPostPrimary(hints []partialReadHint) []partialReadHint {
+	if len(hints) == 0 {
+		return nil
+	}
+	hints = e.filterPartialReadsByAuthoritativeFrames(hints)
+	hints = e.filterPartialReadsBySurfaceIntent(hints)
+	hints = filterPartialReadsByRelevance(hints, e.userQuestion)
+	return hints
+}
+
 func (e *explorerEvaluator) filterPartialReadsForCurrentContext(hints []partialReadHint) []partialReadHint {
 	if len(hints) == 0 {
 		return nil
 	}
 	hints = e.filterPartialReadsByAuthoritativeFrames(hints)
+	hints = e.filterPartialReadsBySurfaceIntent(hints)
 	hints = filterPartialReadsByRelevance(hints, e.userQuestion)
 	hints = e.filterPartialReadsByGroundedEvidence(hints)
 	return hints
+}
+
+func (e *explorerEvaluator) filterPartialReadsBySurfaceIntent(hints []partialReadHint) []partialReadHint {
+	if len(hints) == 0 || e == nil || e.analysisIR == nil || !e.scalarSourceLiteralPrimaryReadMode() {
+		return hints
+	}
+	allowed := e.scalarSourceLiteralPartialReadTails()
+	if len(allowed) == 0 {
+		return hints
+	}
+	out := make([]partialReadHint, 0, len(hints))
+	for _, hint := range hints {
+		tail := types.NormalizedSurfaceSymbolTail(hint.symbolName)
+		if tail == "" || allowed[tail] {
+			out = append(out, hint)
+		}
+	}
+	if len(out) == 0 {
+		return hints
+	}
+	return out
+}
+
+func (e *explorerEvaluator) scalarSourceLiteralPartialReadTails() map[string]bool {
+	if e == nil || e.analysisIR == nil || !e.scalarSourceLiteralPrimaryReadMode() {
+		return nil
+	}
+	allowed := make(map[string]bool)
+	add := func(raw string) {
+		tail := types.NormalizedSurfaceSymbolTail(raw)
+		if tail != "" {
+			allowed[tail] = true
+		}
+	}
+	if plan := e.answerSurfacePlan(); plan != nil && plan.ExactResolution != nil {
+		for _, target := range plan.ExactResolution.Targets {
+			add(target)
+		}
+	}
+	for _, item := range e.structuredEvidence {
+		switch item.GroundingStatus {
+		case types.GroundingGrounded, types.GroundingRecovered:
+		default:
+			continue
+		}
+		switch item.ContextRole {
+		case types.EvidenceContextRoleIllustrativeOnly, types.EvidenceContextRoleAbsenceSupport:
+			continue
+		}
+		add(item.AnchorSymbol)
+		add(item.Subject)
+		add(item.Object)
+	}
+	if len(allowed) == 0 {
+		return nil
+	}
+	return allowed
 }
 
 func (e *explorerEvaluator) filterPartialReadsByGroundedEvidence(hints []partialReadHint) []partialReadHint {
