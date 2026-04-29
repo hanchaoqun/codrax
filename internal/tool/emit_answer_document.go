@@ -148,6 +148,83 @@ func renderAnswerDocRejectSummary(code, msg string) string {
 	return fmt.Sprintf("[answer_doc_reject:%s] %s", code, msg)
 }
 
+// computeAnswerDocAttemptShape captures the size profile of an
+// emit_answer_document payload so the catastrophic-regression
+// detector can compare it against the prior emit. Counts the
+// non-empty footprint of every grounded field; flags presence (not
+// content) of optional structured payloads.
+func computeAnswerDocAttemptShape(p *emitAnswerDocumentParams) types.AnswerDocAttemptShape {
+	if p == nil {
+		return types.AnswerDocAttemptShape{}
+	}
+	return types.AnswerDocAttemptShape{
+		CitationsCount:     len(p.Citations),
+		StepsCount:         len(p.Steps),
+		SymbolsCount:       len(p.Symbols),
+		SummaryRunes:       utf8.RuneCountInString(p.Summary),
+		HasValue:           p.Value != nil && (strings.TrimSpace(p.Value.Literal) != "" || strings.TrimSpace(p.Value.Key) != ""),
+		HasBoolean:         p.Boolean != nil && strings.TrimSpace(p.Boolean.Decision) != "",
+		HasExactResolution: p.ExactResolution != nil && strings.TrimSpace(string(p.ExactResolution.Status)) != "",
+	}
+}
+
+// detectAnswerDocRegression returns (true, summary) when the new
+// emit collapsed multiple fields vs the prior emit. Threshold heuristic:
+//
+//   - Prior had non-trivial content AND new is < 25% of prior in TWO
+//     OR MORE of: citations, steps, symbols, summaryRunes
+//
+// Empty prior (first emit) returns false. The summary is a short,
+// LLM-readable bullet list of the regressed fields used by the
+// retry-hint composer.
+func detectAnswerDocRegression(prior *types.AnswerDocAttemptShape, current *types.AnswerDocAttemptShape) (bool, string) {
+	if prior == nil || current == nil {
+		return false, ""
+	}
+	// Refuse to flag when prior was itself essentially empty —
+	// otherwise a first-attempt empty emit followed by a still-
+	// empty retry would falsely trigger.
+	if prior.CitationsCount+prior.StepsCount+prior.SymbolsCount+prior.SummaryRunes < 16 {
+		return false, ""
+	}
+	type drop struct {
+		name      string
+		prior     int
+		current   int
+	}
+	candidates := []drop{
+		{"citations", prior.CitationsCount, current.CitationsCount},
+		{"steps", prior.StepsCount, current.StepsCount},
+		{"symbols", prior.SymbolsCount, current.SymbolsCount},
+		{"summary runes", prior.SummaryRunes, current.SummaryRunes},
+	}
+	var dropped []string
+	const collapseRatioPct = 25
+	for _, c := range candidates {
+		if c.prior < 4 {
+			continue
+		}
+		if c.current*100 < c.prior*collapseRatioPct {
+			dropped = append(dropped, fmt.Sprintf("%s %d→%d", c.name, c.prior, c.current))
+		}
+	}
+	// Optional-structured presence flips: prior had it, current
+	// dropped it. Each counts as one dropped field.
+	if prior.HasValue && !current.HasValue {
+		dropped = append(dropped, "value object dropped")
+	}
+	if prior.HasBoolean && !current.HasBoolean {
+		dropped = append(dropped, "boolean object dropped")
+	}
+	if prior.HasExactResolution && !current.HasExactResolution {
+		dropped = append(dropped, "exact_resolution dropped")
+	}
+	if len(dropped) < 2 {
+		return false, ""
+	}
+	return true, strings.Join(dropped, "; ")
+}
+
 // EmitAnswerDocumentProducer is the producer string stamped into
 // result summaries so downstream logs can identify the channel
 // without grepping for a literal.
@@ -373,6 +450,17 @@ func (t *EmitAnswerDocument) Execute(ctx *types.BusContext, params json.RawMessa
 		return failEmit(t.Name(), now, "invalid params: %v", err)
 	}
 
+	// Capture the prior emit attempt's size profile BEFORE we run
+	// any validation; the catastrophic-regression detector compares
+	// this current emit against the prior one to flag "you dropped
+	// most fields" failures (the iter=2 → iter=3 collapse trace at
+	// /home/chatpp/pytest 2026-04-29 23:11). The new shape is
+	// computed alongside so the persistence step at every exit point
+	// has a value ready.
+	priorShape := ctx.Mutable.LastAnswerDocAttemptShape()
+	newShape := computeAnswerDocAttemptShape(&p)
+	ctx.Mutable.SetLastAnswerDocAttemptShape(&newShape)
+
 	shape, ok := parseEmitAnswerDocumentShape(p.Shape)
 	if !ok {
 		return failEmit(t.Name(), now,
@@ -562,11 +650,42 @@ func (t *EmitAnswerDocument) Execute(ctx *types.BusContext, params json.RawMessa
 		p.Boolean = nil
 	}
 	failValidation := func(err error) (types.ToolResult, error) {
+		repair := answerDocValidationRepair(err)
+		// Catastrophic-regression upgrade: if the LLM's retry
+		// emit dropped multiple grounded fields vs the prior
+		// attempt, prepend a payload-restoration directive to the
+		// existing field-specific Repair. The downstream
+		// answer_document_evaluator's Observe path inspects
+		// Repair.Code == "payload_regression" and surfaces
+		// answerDocPayloadRegressionHint instead of the normal
+		// field-correction hint, putting payload restoration
+		// FIRST and field correction SECOND.
+		if regression, summary := detectAnswerDocRegression(priorShape, &newShape); regression {
+			if repair == nil {
+				repair = &types.ToolRepair{}
+			}
+			// Preserve the original code as a sub-reason so
+			// debugging logs still record what the underlying
+			// rejection was; the new Code drives the hint.
+			if repair.Code != "" && repair.Code != "payload_regression" {
+				repair.Code = "payload_regression:" + repair.Code
+			} else {
+				repair.Code = "payload_regression"
+			}
+			// Preserve original Hint (field-specific) but tag the
+			// repair with a regression-summary metadata so the
+			// evaluator can surface the dropped-field summary in
+			// its hint without re-deriving it.
+			if repair.Metadata == nil {
+				repair.Metadata = map[string]string{}
+			}
+			repair.Metadata["payload_regression_summary"] = summary
+		}
 		return types.ToolResult{
 			ToolName:  t.Name(),
 			Success:   false,
 			Summary:   renderAnswerDocRejectSummary(answerDocValidationCode(err), err.Error()),
-			Repair:    answerDocValidationRepair(err),
+			Repair:    repair,
 			Timestamp: now,
 		}, nil
 	}

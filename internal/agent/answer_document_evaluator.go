@@ -335,8 +335,12 @@ func renderAnswerDocSubmissionChecklist(ctx *types.AgentContext, shape string, d
 	}
 	if diagramRequired {
 		items = append(items,
-			"`summary` must include at least one grounded triple-backtick diagram for this dispatch.",
-			"When a `Diagram Seeds` section is present, treat it as the grounded template for first-pass repair-resistant output: prefer copying its node labels verbatim instead of renaming them into abstract aliases or numbered layers. Put any uncited conceptual layer names in prose outside the fenced diagram.",
+			// PREFERRED form must be Mermaid — duplicate the
+			// preference here so this checklist agrees with the
+			// Diagram Contract section. ASCII art is a fallback
+			// only when the Mermaid subset cannot express the shape.
+			"`summary` must include at least one grounded fenced diagram for this dispatch. PREFERRED: a ` ```mermaid ` fenced block using `flowchart` (LR / TD / RL / BT) or `sequenceDiagram` (the renderer applies a deterministic-alignment pass). ASCII art is the fallback only.",
+			"When a `Diagram Seeds` / `First-Pass Diagram Reference` section is present, treat its grounded labels as a FLOOR you can extend, not a verbatim ceiling. You SHOULD add additional grounded nodes / branches / fan-out when your investigation supports a richer mechanism. The hard rule: every file/path label inside the fenced block stays grounded in citations[] or Log Triage frames.",
 			"Every file/path node you keep inside a fenced diagram must also be grounded by `citations[]` or by attached Log Triage frames in this dispatch. If a relationship lacks a grounded node label, explain it in prose instead of inventing a diagram node.",
 		)
 		if ctx != nil && ctx.AnalysisIR != nil && ctx.AnalysisIR.RequestModel.Scenario == types.ScenarioConfigTrace {
@@ -716,24 +720,20 @@ func renderAnswerDocDiagramLogSeed(bundle *types.LogBundle) string {
 	if len(resolved) < 2 {
 		return ""
 	}
-	var b strings.Builder
-	b.WriteString("When you draw a call-chain / sequence diagram, start from these resolved frames:\n\n```\n")
-	for i, frame := range resolved {
-		name := strings.TrimSpace(frame.Func)
-		if name == "" {
-			name = "(no symbol)"
-		}
-		switch {
-		case i == 0:
-			fmt.Fprintf(&b, "innermost failure: %s:%d in %s\n", frame.File, frame.Line, name)
-		case i == len(resolved)-1:
-			fmt.Fprintf(&b, "  -> caller (outermost): %s:%d in %s\n", frame.File, frame.Line, name)
-		default:
-			fmt.Fprintf(&b, "  -> caller:            %s:%d in %s\n", frame.File, frame.Line, name)
-		}
+	// Use the canonical Mermaid renderer so the seed shape agrees
+	// with the skill's Mermaid-preferred contract. Pre-2026-04-30
+	// this renderer hand-built a bare ``` fence with `innermost
+	// failure: …` / `  -> caller:` ASCII prose, which trained the
+	// model to copy ASCII verbatim despite the prompt-level Mermaid
+	// preference.
+	bundleSubset := &types.LogBundle{
+		Errors: []types.LogError{{Frames: resolved}},
 	}
-	b.WriteString("```")
-	return b.String()
+	fence := types.RenderLogDiagramFence(bundleSubset)
+	if fence == "" {
+		return ""
+	}
+	return "When you draw a call-chain / sequence diagram, start from these resolved frames (extend with additional grounded callers if your investigation supports a richer chain):\n\n" + fence
 }
 
 func renderRequiredLogTriageTypes(bundle *types.LogBundle) string {
@@ -834,20 +834,18 @@ func renderAnswerDocDiagramConfigTraceSeed(ctx *types.AgentContext) string {
 		rolesPresent[anchor.Role] = true
 	}
 	var b strings.Builder
-	b.WriteString("For config-precedence questions, use grounded source labels instead of numbered layers. This fenced chain is already ordered from highest precedence at the top to lowest precedence at the bottom using validated `diagram_role_hint` evidence; reuse it verbatim when it matches the evidence, and do NOT rename or reorder its nodes into abstract numbered placeholders:\n\n```\n")
-	for i, anchor := range anchors {
-		b.WriteString(anchor.Label)
-		b.WriteByte('\n')
-		if i < len(anchors)-1 {
-			b.WriteString("  ->\n")
-		}
-	}
-	b.WriteString("```\n")
+	// Render the precedence chain as a Mermaid flowchart via the
+	// canonical renderer so the seed shape agrees with the skill's
+	// Mermaid-preferred contract. Pre-2026-04-30 this hand-built a
+	// bare ``` fence with `node\n  ->\n` ASCII shape that taught
+	// the model to copy ASCII whenever a config-trace question fired.
+	b.WriteString("For config-precedence questions, use grounded source labels instead of numbered layers. The fenced chain below is ordered from highest precedence at the top to lowest precedence at the bottom using validated `diagram_role_hint` evidence. Treat it as a grounded FLOOR — keep every label, but you MAY add additional grounded precedence layers when your investigation supports a richer chain (still subject to the citation-grade rules below).\n\n")
+	b.WriteString(types.RenderConfigTraceDiagramFence(anchors))
+	b.WriteByte('\n')
 	b.WriteString("Precedence semantics live in prose, not in invented node names: `override` = highest-precedence operator / CLI layer, `config` = grounded repo/user config-file layer (YAML/JSON/TOML/INI/etc.), `default` = code-default fallback. `runtime` is the binding / merge code path between those layers, not a standalone user-config tier.\n")
 	if missing := missingConfigTraceDiagramRoles(rolesPresent); len(missing) > 0 {
 		fmt.Fprintf(&b, "Current grounded evidence does NOT include anchor(s) for these precedence role(s): %s. Do not add fenced-diagram nodes for missing roles unless you first cite a real repo anchor for them; if you need to explain those semantics, keep them in prose as general precedence rules rather than grounded nodes in this dispatch.\n", strings.Join(missing, ", "))
 	}
-	b.WriteString("The safest valid fenced diagram for this dispatch is an exact copy of that chain, or a strict subsequence made only by deleting unused nodes. Do not invent new node names, aliases, buckets, or tier markers.\n")
 	b.WriteString("Every node you keep in this diagram must also have a matching citation in `citations[]`. If you cannot cite a node, delete it from the chain instead of renaming it to an abstract bucket name (for example a generic step number, the literal `CLI`, or a tier label). Keep each node label as a plain grounded file/path label; do not prepend ordinal-tier wrappers.\n")
 	b.WriteString("If you only need part of the chain, delete unused nodes rather than inventing new abstract labels. Conceptual layer names requested by the user belong in prose headings or bullets unless those exact file/path labels are themselves cited. If you want to explain semantics such as defaults, config-file load, runtime binding, or operator override, keep that explanation in prose outside the fenced diagram and cite it there. If you introduce a different file / symbol / path label, ground it first.")
 	return strings.TrimSpace(b.String())
@@ -1832,20 +1830,20 @@ func (e *answerDocumentEvaluator) emitAnswerDocumentRejectSignal(ctx *types.Agen
 		return LoopSignal{}
 	}
 
-	hint := "Your last `emit_answer_document` call was rejected by the tool. Re-emit `emit_answer_document` now after fixing ONLY the field(s) named in the tool error. Keep the grounded evidence, citations, and answer shape unchanged unless the tool explicitly says to change them. Do not reopen files or call read/search tools. Do not write free-form prose outside the tool call."
+	hint := answerDocPreserveHintIntro + " Re-emit `emit_answer_document` now: paste the FULL previous payload byte-identical, then change ONLY the field(s) named in the tool error. Every other field — citations[], steps[] (every index except those named), symbols[], summary, value, boolean, exact_resolution — must reproduce the prior emit byte-identical. Do not reopen files or call read/search tools. Do not write free-form prose outside the tool call."
 	reasonKey := "tool-reject"
 	if repair != nil && strings.TrimSpace(repair.Hint) != "" {
 		hint = strings.TrimSpace(repair.Hint)
 		reasonKey = firstNonEmptyString(rejectCode, "tool-reject")
 		if len(repair.Fields) > 0 && !repairHintMentionsFields(hint, repair.Fields) {
-			hint = "Fix ONLY these field(s): `" + strings.Join(repair.Fields, "`, `") + "`. " + hint
+			hint = answerDocFixOnlyDirective(repair.Fields) + " " + hint
 		}
 		if !strings.Contains(hint, "Do not write free-form prose outside the tool call.") {
 			hint += " Do not write free-form prose outside the tool call."
 		}
 	}
 	if detail := compactToolRejectSummary(summary); detail != "" && (repair == nil || strings.TrimSpace(repair.Hint) == "") {
-		hint = "Your last `emit_answer_document` call was rejected by the tool. Re-emit `emit_answer_document` now after fixing this exact tool error: " + detail + ". Only change the named field(s); keep grounded citations/evidence and do not reopen files. Do not write free-form prose outside the tool call."
+		hint = answerDocPreserveHintIntro + " Re-emit `emit_answer_document` now: paste the FULL previous payload byte-identical, then change ONLY the field(s) named in this exact tool error: " + detail + ". Every other field must stay byte-identical to the prior emit; do not reopen files. Do not write free-form prose outside the tool call."
 	}
 
 	var summaryLen, cap int
@@ -1861,9 +1859,9 @@ func (e *answerDocumentEvaluator) emitAnswerDocumentRejectSignal(ctx *types.Agen
 
 	if rejectCode == answerDocRejectCodeMissingDiagram || strings.Contains(summary, "diagram required for this dispatch") {
 		reasonKey = "missing-diagram"
-		hint = "Your last `emit_answer_document` call was rejected because this dispatch REQUIRES a grounded diagram in `summary`. Re-emit `emit_answer_document` now with the same answer shape and payload fields, but add at least one grounded triple-backtick diagram to `summary`. This obligation is independent of answer shape. Keep every filename inside the diagram grounded by citations[] or the Log Triage frames; do not write free-form prose outside the tool call."
+		hint = "Your last `emit_answer_document` call was rejected because this dispatch REQUIRES a grounded diagram in `summary`. Re-emit `emit_answer_document` now with the same answer shape and payload fields, but add at least one grounded ` ```mermaid ` fenced block using `flowchart` (LR / TD / RL / BT) or `sequenceDiagram` to `summary`. ASCII art is the fallback only when the Mermaid subset cannot express the shape. This obligation is independent of answer shape. Keep every filename inside the diagram grounded by citations[] or the Log Triage frames; do not write free-form prose outside the tool call."
 		if e.configTraceDiagram {
-			hint += " For config-precedence diagrams, do not invent a new box chart or layer aliases on retry; prefer copying the seeded grounded precedence chain verbatim."
+			hint += " For config-precedence diagrams, do not invent a new box chart or layer aliases on retry; the seeded grounded precedence chain is the FLOOR — keep every node, but you MAY add additional grounded layers if your evidence supports a richer chain. Stay in ` ```mermaid ` form."
 		}
 		hint = appendRetryDiagramSeedHint(hint, ctx, repair)
 	}
@@ -2033,7 +2031,30 @@ func (e *answerDocumentEvaluator) emitAnswerDocumentRejectSignal(ctx *types.Agen
 		}
 	}
 	if repair != nil && len(repair.Fields) > 0 && !repairHintMentionsFields(hint, repair.Fields) {
-		hint = "Fix ONLY these field(s): `" + strings.Join(repair.Fields, "`, `") + "`. " + hint
+		hint = answerDocFixOnlyDirective(repair.Fields) + " " + hint
+	}
+	// Catastrophic-regression override: when the tool flagged
+	// payload_regression in the Repair code, the existing hint is
+	// secondary — payload restoration must come FIRST. The metadata
+	// summary names which fields collapsed (e.g. "citations 18→0;
+	// steps 16→0; summary runes 4250→0") and the override hint
+	// instructs the LLM to paste back the prior payload before
+	// applying any field-specific fix. Without this, the trace at
+	// /home/chatpp/pytest 2026-04-29 23:11 keeps repeating: each
+	// reject hint targets one field, model interprets it as "emit
+	// only that field", payload shrinks further, next reject fires
+	// on a now-different missing field, retry budget exhausts.
+	if repair != nil && answerDocRepairIsRegression(repair) {
+		fields := repair.Fields
+		if len(fields) == 0 {
+			fields = []string{"the field(s) named in the tool error"}
+		}
+		regressionSummary := ""
+		if repair.Metadata != nil {
+			regressionSummary = repair.Metadata["payload_regression_summary"]
+		}
+		hint = answerDocPayloadRegressionHint(regressionSummary, fields)
+		reasonKey = "payload-regression"
 	}
 	if !strings.Contains(hint, "Do not write free-form prose outside the tool call.") {
 		hint += " Do not write free-form prose outside the tool call."
@@ -2048,6 +2069,20 @@ func (e *answerDocumentEvaluator) emitAnswerDocumentRejectSignal(ctx *types.Agen
 		BypassThrottle: true,
 		BypassBudget:   true,
 	}
+}
+
+// answerDocRepairIsRegression reports whether the repair's Code
+// indicates the catastrophic-regression detector fired in the tool.
+// The tool stamps Code as either "payload_regression" (no underlying
+// reject) or "payload_regression:<original>" (regression layered on
+// top of an existing reject — the prefix preserves the original
+// reject reason for log forensics).
+func answerDocRepairIsRegression(repair *types.ToolRepair) bool {
+	if repair == nil {
+		return false
+	}
+	code := strings.TrimSpace(repair.Code)
+	return code == "payload_regression" || strings.HasPrefix(code, "payload_regression:")
 }
 
 func compactToolRejectSummary(summary string) string {
@@ -2075,6 +2110,51 @@ func repairHintMentionsFields(hint string, fields []string) bool {
 		}
 	}
 	return true
+}
+
+// answerDocPreserveHintIntro is the standard "preserve everything,
+// change only X" preamble shared by every retry hint that asks the
+// LLM to fix a small subset of fields. Pre-2026-04-30 the wording
+// was "Fix ONLY these field(s)" — that intent ("change only X")
+// was misread by some models as "emit only those fields", and the
+// next iteration's payload dropped citations[], steps[], summary,
+// etc. The trace at /home/chatpp/pytest 2026-04-29 23:11 shows the
+// exact failure: iter=2 reject named two fields → iter=3 emit had
+// summary="", steps missing, citations missing → exact_resolution
+// guard surfaced because the rest of the payload was gone too.
+//
+// New wording is explicit and positive: paste the full prior emit
+// verbatim, then change ONLY the named field(s). The byte-identical
+// language nails down what "preserve" means without ambiguity.
+const answerDocPreserveHintIntro = "Your last `emit_answer_document` call was rejected by the tool."
+
+// answerDocFixOnlyDirective renders the "preserve everything except
+// these fields" directive in the new positive-preserve wording.
+// Replaces the bare "Fix ONLY these field(s): `X`. " prefix used
+// pre-2026-04-30, which empirically caused models to drop the rest
+// of the payload on the retry round.
+func answerDocFixOnlyDirective(fields []string) string {
+	if len(fields) == 0 {
+		return ""
+	}
+	return "Re-emit `emit_answer_document` with the FULL previous payload byte-identical, then change ONLY these field(s): `" + strings.Join(fields, "`, `") + "`. Every other field — citations[], steps[] (each index except those named), symbols[], summary, value, boolean, exact_resolution — must reproduce the prior emit byte-identical. Do not drop, blank, or shrink any other field."
+}
+
+// answerDocPayloadRegressionHint surfaces the "you dropped fields"
+// override that takes precedence over a normal field-specific
+// rejection hint when the latest emit is catastrophically smaller
+// than the previous emit. The orchestrator-level catastrophic-
+// regression detector (registered as Repair on the tool result)
+// flags this; the evaluator surfaces a hint that focuses on
+// payload restoration FIRST, then field correction.
+func answerDocPayloadRegressionHint(droppedSummary string, fieldsToFix []string) string {
+	var b strings.Builder
+	b.WriteString("Your last `emit_answer_document` call REGRESSED — multiple grounded fields were dropped or blanked compared to the previous emit (")
+	b.WriteString(droppedSummary)
+	b.WriteString("). Re-emit `emit_answer_document` now: PASTE THE FULL PRIOR PAYLOAD BACK byte-identical (citations[], steps[], symbols[], summary, value, boolean, exact_resolution — every field that was present last round), then change ONLY: `")
+	b.WriteString(strings.Join(fieldsToFix, "`, `"))
+	b.WriteString("`. Restoring the payload comes FIRST; field correction is secondary. Do not reopen files or call read/search tools. Do not write free-form prose outside the tool call.")
+	return b.String()
 }
 
 const answerDocRejectPrefix = "[answer_doc_reject:"
@@ -2127,7 +2207,16 @@ func appendRetryDiagramSeedHint(hint string, ctx *types.AgentContext, repair *ty
 	if seed == "" {
 		return hint
 	}
-	return hint + " If you need the safest grounded repair, copy this seeded fenced diagram verbatim (or delete unused nodes without renaming the remaining ones):\n\n" + seed
+	// Reframed alongside the First-Pass Diagram Reference: the
+	// seed is a grounded FLOOR, not a paste-only ceiling. Pre-fix
+	// said "copy this seeded fenced diagram verbatim ... do not
+	// rename"; combined with the seed shape being ASCII art and
+	// the model's default training prior to use ASCII, this drove
+	// the entire "model only emits ASCII" failure mode. Now: keep
+	// every node grounded, add more grounded nodes if richer
+	// mechanism is supported, and the seed shape itself is
+	// Mermaid so an extension stays in the preferred form.
+	return hint + " A grounded reference fence is below — every node is already cited so it is the safest FLOOR for the repair. You MAY extend it with additional grounded nodes / branches when your evidence supports a richer mechanism; the only hard rule is that every label inside the fence stays grounded. ` ```mermaid ` form is preferred:\n\n" + seed
 }
 
 func renderRetryDiagramSeedFence(ctx *types.AgentContext) string {

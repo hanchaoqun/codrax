@@ -130,6 +130,13 @@ type MutableState struct {
 	// multi-task run.
 	answerDocument *AnswerDocument
 
+	// lastAnswerDocAttemptShape caches the size profile of the
+	// PREVIOUS emit_answer_document attempt (success or failure)
+	// for the catastrophic-regression detector. See
+	// AnswerDocAttemptShape doc for the load-bearing failure mode
+	// it guards against.
+	lastAnswerDocAttemptShape *AnswerDocAttemptShape
+
 	// changePlan is the B0 write-mode structured artifact produced
 	// by the planner agent (emit_change_plan tool writes it). Read
 	// by the plan stage hook after dispatchStage returns to render a
@@ -1076,6 +1083,64 @@ func (m *MutableState) ResetEmittedHypothesisVerdicts() {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.emittedHypothesisVerdicts = nil
+}
+
+// AnswerDocAttemptShape is a numeric snapshot of an emit_answer_document
+// payload's "size profile" — captured on EVERY emit attempt (success
+// AND failure), and read by the catastrophic-regression detector to
+// decide whether the next emit dropped substantial grounded content
+// vs the previous attempt.
+//
+// The detector exists because pre-2026-04-30 traces showed retry
+// rounds where the LLM's iter=2 reject named two fields ("Fix ONLY
+// steps[2].description / .citation_ref") and iter=3 emit had
+// summary="", steps missing entirely, citations missing — the
+// model interpreted "Fix ONLY" as "emit only those fields" and
+// dropped everything else. This struct lets the tool flag the
+// regression on the next rejection so the retry hint can prepend a
+// "PASTE THE FULL PRIOR PAYLOAD BACK byte-identical" override
+// before the field-specific correction.
+type AnswerDocAttemptShape struct {
+	CitationsCount      int
+	StepsCount          int
+	SymbolsCount        int
+	SummaryRunes        int
+	HasValue            bool
+	HasBoolean          bool
+	HasExactResolution  bool
+}
+
+// SetLastAnswerDocAttemptShape stores the size profile of the most
+// recent emit ATTEMPT (success or failure) so the next attempt can
+// be compared against it. Nil clears the field.
+func (m *MutableState) SetLastAnswerDocAttemptShape(shape *AnswerDocAttemptShape) {
+	if m == nil {
+		return
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if shape == nil {
+		m.lastAnswerDocAttemptShape = nil
+		return
+	}
+	clone := *shape
+	m.lastAnswerDocAttemptShape = &clone
+}
+
+// LastAnswerDocAttemptShape returns a defensive copy of the most
+// recent emit attempt's size profile, or nil when no attempt has
+// run yet on this MutableState (first emit).
+func (m *MutableState) LastAnswerDocAttemptShape() *AnswerDocAttemptShape {
+	if m == nil {
+		return nil
+	}
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	if m.lastAnswerDocAttemptShape == nil {
+		return nil
+	}
+	clone := *m.lastAnswerDocAttemptShape
+	return &clone
 }
 
 // SetAnswerDocument atomically replaces the P2.2 structured answer

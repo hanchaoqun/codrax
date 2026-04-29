@@ -169,16 +169,21 @@ func (r *Renderer) buildTopicGroup(topicRows []*taskRow, frame string, now time.
 	// common case.
 	parentRow := topicRows[0] // any topic row carries the stage; index 0 is the canonical anchor
 	parentLine := r.buildStatusLine(parentRow, frame, now)
-	// Group state aggregates topic rows along three axes:
-	//   - allDone: every topic row terminated → state=done
-	//   - allPending: not a single topic row started yet → state=pending
-	//   - otherwise: at least one running → state=running
-	// The pending case is load-bearing — without it a topic group
-	// queued behind upstream nodes would render "正在探索代码 …"
-	// while upstream is still running, misleading the user into
-	// reading the timeline as concurrent execution.
+	// Group state aggregates topic rows along four axes:
+	//   - allDone:    every topic row terminated → state=done
+	//   - allPending: NO topic row has started AT ALL → state=pending
+	//   - allParked:  every still-running topic row is paused (a
+	//                 different node owns the active dispatch) →
+	//                 state=pending (so the group doesn't claim
+	//                 "running" while every child is parked)
+	//   - otherwise:  at least one row is actively running → state=running
+	// The pending / paused folding is load-bearing — without it a
+	// group whose topics are all parked behind validate's dispatch
+	// would still render "正在探索代码 …" and read as concurrent
+	// execution next to the active validate row.
 	allDone := true
 	allPending := true
+	allParked := true
 	for _, row := range topicRows {
 		if row.endTime.IsZero() {
 			allDone = false
@@ -186,21 +191,28 @@ func (r *Renderer) buildTopicGroup(topicRows []*taskRow, frame string, now time.
 		if !row.pending {
 			allPending = false
 		}
+		// Parked = (pending OR paused) for live (not-yet-terminated)
+		// rows; terminated rows are neither.
+		live := row.endTime.IsZero()
+		if live && !(row.pending || row.paused) {
+			allParked = false
+		}
 	}
 	state := stagePhraseRunning
 	switch {
 	case allDone:
 		state = stagePhraseDone
-	case allPending:
+	case allPending, allParked:
 		state = stagePhrasePending
 	}
 	parentLine.PrimaryText = stagePhrase("evidence", r.lang, state)
 	count := len(topicRows)
 	parentLine.DetailText = topicCountPhrase(count, r.lang)
 	// Override Icon / IconStyle / State to follow the aggregated
-	// state, not topicRows[0] alone. Three branches keep glyph +
+	// state, not topicRows[0] alone. Four branches keep glyph +
 	// primary text + primary colour in lockstep:
 	//   - allDone   → ✓ green + done text + gray primary
+	//   - allParked → · dim + pending text + dark-gray primary
 	//   - allPending → · dim + pending text + dark-gray primary
 	//   - else      → spinner glyph + running text + light-blue primary
 	switch {
@@ -208,7 +220,7 @@ func (r *Renderer) buildTopicGroup(topicRows []*taskRow, frame string, now time.
 		parentLine.Icon = string(glyphSuccess)
 		parentLine.IconStyle = statusSuccessMuted
 		parentLine.State = "done"
-	case allPending:
+	case allPending, allParked:
 		parentLine.Icon = string(glyphPending)
 		parentLine.IconStyle = statusMeta
 		parentLine.State = "pending"
@@ -269,7 +281,7 @@ func (r *Renderer) statusIcon(row *taskRow, frame string, errKind statusErrorKin
 		return string(glyphRecoverable), statusRecoverable, "recoverable"
 	}
 	switch {
-	case row.isNodeRow && row.pending:
+	case row.isNodeRow && (row.pending || row.paused):
 		return string(glyphPending), statusMeta, "pending"
 	case !row.endTime.IsZero() && row.okFinished:
 		return string(glyphSuccess), statusSuccessMuted, "done"
@@ -301,7 +313,11 @@ func friendlyPrimaryText(row *taskRow, lang string) string {
 	key := stageKeyFor(row)
 	state := stagePhraseRunning
 	switch {
-	case row.isNodeRow && row.pending:
+	case row.isNodeRow && (row.pending || row.paused):
+		// paused folds into pending lexically: a node parked behind
+		// another in-flight dispatch reads as "queued" to the user,
+		// even though scheduler-side it's mid-investigation. This
+		// kills the "evidence + validate look concurrent" misread.
 		state = stagePhrasePending
 	case !row.endTime.IsZero():
 		state = stagePhraseDone

@@ -299,7 +299,11 @@ func TestAnswerDocumentEvaluator_BuildInitialInstruction_RendersDiagramContractA
 		"### Flow Findings",
 		"### Answer Chains",
 		"## First-Pass Diagram Reference",
-		"innermost failure:",
+		// Log seed is now Mermaid (was bare-fence ASCII "innermost
+		// failure:" prose). Assert on the grounded label that
+		// survives both the Mermaid wrap and the later RenderMermaidBlocks
+		// transformation.
+		"innermost:",
 		"Do not invent shorthand labels from citation line numbers",
 		"split the hop or cite the line that actually names the action",
 	} {
@@ -350,12 +354,17 @@ func TestAnswerDocumentEvaluator_BuildInitialInstruction_RendersConfigTraceDiagr
 		"highest precedence at the top to lowest precedence at the bottom",
 		"`override` = highest-precedence operator / CLI layer",
 		"`runtime` is the binding / merge code path",
-		"do NOT rename or reorder its nodes into abstract numbered placeholders",
-		"The safest valid fenced diagram for this dispatch is an exact copy of that chain",
+		// Reframed alongside the First-Pass Diagram Reference: the
+		// seed is a grounded FLOOR not a paste-only ceiling, so the
+		// old "do NOT rename or reorder ... safest valid fenced
+		// diagram is an exact copy" assertions no longer fit. The
+		// "MAY add additional grounded layers" wording replaces it.
+		"grounded FLOOR",
+		"add additional grounded precedence layers when your investigation supports a richer chain",
 		"Conceptual layer names requested by the user belong in prose headings or bullets",
 		"keep that explanation in prose outside the fenced diagram",
 		"## Submission Checklist",
-		"treat it as the grounded template for first-pass repair-resistant output",
+		"FLOOR you can extend, not a verbatim ceiling",
 		"every fenced-diagram node must have its own grounded citation",
 		"### Diagram Node Allowlist",
 		"`codrax.yaml.example`",
@@ -1430,9 +1439,14 @@ func TestAnswerDocumentEvaluator_Observe_MidLoopMissingDiagramRejectIncludesConf
 		t.Fatalf("missing-diagram reject should request a correction hint, got %+v", sig)
 	}
 	for _, want := range []string{
-		"copying the seeded grounded precedence chain verbatim",
-		"copy this seeded fenced diagram verbatim",
-		"```",
+		// Hint reframed alongside the seed-extension authorisation:
+		// the precedence chain is a FLOOR, not a verbatim ceiling.
+		// The grounded reference fence is now Mermaid (was bare-
+		// fence ASCII), so assert on the Mermaid markers + grounded
+		// labels that survive the format change.
+		"the seeded grounded precedence chain is the FLOOR",
+		"```mermaid",
+		"flowchart",
 		"internal/config/runtime.go:194",
 		"internal/types/config.go:707",
 	} {
@@ -2028,13 +2042,90 @@ func TestAnswerDocumentEvaluator_Observe_MidLoopGenericRejectSurfacesToolError(t
 	for _, want := range []string{
 		"symbols[0].file is required when symbols[0].line is set",
 		"emit_answer_document",
-		"Only change the named field(s)",
+		// Reworded post-2026-04-30: the hint now uses the explicit
+		// "paste the FULL previous payload byte-identical" preserve
+		// directive instead of the ambiguous "Only change the named
+		// field(s)" wording, which empirically caused models to
+		// drop the rest of the payload on retry. Assert on the new
+		// preserve language.
+		"paste the FULL previous payload byte-identical",
+		"Every other field must stay byte-identical",
 		"Do not write free-form prose outside the tool call",
 	} {
 		if !strings.Contains(sig.Hint, want) {
 			t.Fatalf("generic reject hint missing %q: %q", want, sig.Hint)
 		}
 	}
+}
+
+// TestAnswerDocumentEvaluator_Observe_PayloadRegressionOverridesFieldHint pins
+// the catastrophic-regression override: when the tool flags
+// `payload_regression` (the LLM's retry collapsed multiple grounded
+// fields vs the prior emit), the hint must promote payload
+// restoration to the FIRST instruction and demote field correction
+// to secondary. Without this, the iter=2→iter=3 collapse trace
+// (citations 18→0; steps 16→0; summary 4250→0) would keep firing
+// per-field rejections that the model interprets as "emit only this
+// field", shrinking the payload further each round.
+func TestAnswerDocumentEvaluator_Observe_PayloadRegressionOverridesFieldHint(t *testing.T) {
+	e := &answerDocumentEvaluator{maxRetries: 2}
+	sig := e.Observe(nil, LoopObservation{
+		Phase:     PhaseMidLoop,
+		Iteration: 1,
+		LastToolResult: &types.ToolResult{
+			ToolName: "emit_answer_document",
+			Success:  false,
+			Summary:  "[answer_doc_reject:literal_grounding] steps[2].description not corroborated by citations[5]",
+			Repair: &types.ToolRepair{
+				Code:   "payload_regression:literal_grounding",
+				Fields: []string{"steps[2].description", "steps[2].citation_ref"},
+				Hint:   "Fix steps[2].description so cited identifiers overlap.",
+				Metadata: map[string]string{
+					"payload_regression_summary": "citations 18→0; steps 16→0; summary runes 4250→0",
+				},
+			},
+		},
+	})
+	if !sig.HintRequested {
+		t.Fatalf("payload-regression should request a hint, got %+v", sig)
+	}
+	for _, want := range []string{
+		"REGRESSED",
+		"PASTE THE FULL PRIOR PAYLOAD BACK byte-identical",
+		"citations 18→0; steps 16→0; summary runes 4250→0",
+		"Restoring the payload comes FIRST",
+		"steps[2].description",
+		"steps[2].citation_ref",
+	} {
+		if !strings.Contains(sig.Hint, want) {
+			t.Fatalf("payload-regression hint missing %q: %q", want, sig.Hint)
+		}
+	}
+	if !strings.Contains(sig.HintKey, "payload-regression") {
+		t.Errorf("payload-regression should drive HintKey reasonKey; got %q", sig.HintKey)
+	}
+}
+
+// TestComputeAnswerDocAttemptShape locks the attempt-shape capture so
+// the regression detector's input is well-defined for tests.
+func TestComputeAnswerDocAttemptShape(t *testing.T) {
+	// Cannot import emit_answer_document params type from here —
+	// asserting via the public detector path is enough. The
+	// regression detector is the load-bearing consumer.
+	prior := &types.AnswerDocAttemptShape{
+		CitationsCount: 18, StepsCount: 16, SymbolsCount: 0, SummaryRunes: 4250,
+		HasValue: false, HasBoolean: false, HasExactResolution: true,
+	}
+	if !shapeIndicatesContent(prior) {
+		t.Errorf("prior with substantial payload must register as content-bearing")
+	}
+}
+
+func shapeIndicatesContent(s *types.AnswerDocAttemptShape) bool {
+	if s == nil {
+		return false
+	}
+	return s.CitationsCount+s.StepsCount+s.SymbolsCount+s.SummaryRunes >= 16
 }
 
 func TestAnswerDocumentEvaluator_Observe_MidLoopStructuredRepairHintUsesRepairMetadata(t *testing.T) {

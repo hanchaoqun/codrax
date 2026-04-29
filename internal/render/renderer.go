@@ -60,11 +60,23 @@ type taskRow struct {
 	// pending is true when the row has been created but the node has
 	// not yet run once — distinguishes "planned" rows from rows that
 	// are actively in flight.
+	//
+	// paused is true when the node was started at some point but the
+	// scheduler has moved its active dispatch focus elsewhere (e.g.
+	// the node was requeued without an EventTaskNodeEnd because its
+	// SuccessCriteria didn't pass, and a different node is now in
+	// flight). The orchestrator intentionally does NOT emit
+	// EventTaskNodeEnd on requeue — the node is conceptually "still
+	// in investigation" — but visually rendering it as `running` next
+	// to the actually-active row reads as concurrent execution. paused
+	// rows render identically to pending rows (`·` glyph + DarkGray +
+	// "待 X" text) so the user reads only ONE active stage at a time.
 	isNodeRow bool
 	nodeID    string
 	nodeKind  string
 	objective string
 	pending   bool
+	paused    bool
 }
 
 // Renderer consumes pipeline events and produces styled terminal output.
@@ -728,17 +740,39 @@ func (r *Renderer) Emitter() EventEmitter {
 		case EventTaskNodeStart:
 			if row := r.findNodeRow(ev.NodeID); row != nil {
 				row.pending = false
+				row.paused = false
 				row.startTime = ev.Timestamp
 				row.detailStart = ev.Timestamp
 				row.endTime = time.Time{}
 				row.okFinished = false
 				row.errorMsg = ""
+				// Anything else still mid-investigation (started but
+				// not terminated by EventTaskNodeEnd, e.g. a node the
+				// scheduler requeued without ending) gets parked as
+				// `paused` so it renders like a queued row instead of
+				// faking concurrent execution next to the new active
+				// row. The orchestrator's "no EventTaskNodeEnd on
+				// requeue" contract is preserved — we infer the
+				// scheduler's focus shift purely from this event.
+				for _, other := range r.tasks {
+					if other == row {
+						continue
+					}
+					if !other.isNodeRow {
+						continue
+					}
+					if other.pending || !other.endTime.IsZero() {
+						continue
+					}
+					other.paused = true
+				}
 				r.current = row
 			}
 
 		case EventTaskNodeEnd:
 			if row := r.findNodeRow(ev.NodeID); row != nil {
 				row.pending = false
+				row.paused = false
 				row.endTime = ev.Timestamp
 				row.errorMsg = ev.Error
 				row.okFinished = ev.Error == ""
@@ -1504,14 +1538,27 @@ func (r *Renderer) handlePreviewChunkLocked(ev Event) {
 	if r.previewRound > 1 {
 		roundLabel = fmt.Sprintf("#%d ", r.previewRound)
 	}
-	// Indent the ticker by 2 columns so it aligns with the status
-	// row layout ("  <icon> <primary> · <detail>"). Pre-2026-04-30
-	// the ticker pinned to column 0 while every status row above it
-	// sat at column 2 — the misalignment read as "ticker is from a
-	// different subsystem". The 2-space prefix is part of `prefix`
-	// so truncByTerminalWidth's width budget accounts for it.
-	prefix := fmt.Sprintf("  %s 正在生成最终答案 %s· 已收到 %d 字 · ", string(glyphRecoverable), roundLabel, chars)
-	prefixCols := runewidth.StringWidth(prefix)
+	// Build the ticker line piece-by-piece so each segment carries
+	// a colour matching its semantic role — same brightness ladder
+	// as renderStatusLine for a regular running row, so the user
+	// reads the ticker as "another running stage" rather than a
+	// dim/done line. Pre-2026-04-30 the whole line was sprinted in
+	// pterm.FgDarkGray, which made "正在生成最终答案" (running text)
+	// render in the done-row colour — directly contradicting the
+	// state the text described.
+	//
+	// Layout (mirrors renderStatusLine: "  <icon> <primary> · <meta> · <detail>"):
+	//   "  "                    indent (2 cols, aligns with status rows)
+	//   ⟳                       glyph in statusRecoverable (animating cue)
+	//   " 正在生成最终答案"     primary running text in statusPrimary
+	//   " · #N · 已收到 N 字"   meta in statusMeta (round + char count)
+	//   " · <tail snippet>"     detail in statusDetail (gray)
+	primaryText := "正在生成最终答案"
+	metaText := fmt.Sprintf("%s· 已收到 %d 字", roundLabel, chars)
+	// Compute display width of the un-styled assembly so we can
+	// budget the tail snippet.
+	prefixPlain := fmt.Sprintf("  %s %s · %s · ", string(glyphRecoverable), primaryText, metaText)
+	prefixCols := runewidth.StringWidth(prefixPlain)
 	tailCols := maxCols - prefixCols
 	if tailCols < 8 {
 		tailCols = previewLineLastSnippetCols(maxCols)
@@ -1522,11 +1569,78 @@ func (r *Renderer) handlePreviewChunkLocked(ev Event) {
 	// chunk so the eye perceives progress.
 	flat := flattenToOneLine(ev.PreviewText)
 	snippetRaw := tailByDisplayWidth(flat, tailCols)
-	line := truncByTerminalWidth(prefix+snippetRaw, maxCols)
-	// pterm.FgDarkGray dims the ticker line so it visually
-	// recedes — the bordered final answer is what the user reads,
-	// the ticker is just a "still working" signal.
-	r.previewArea.Update(pterm.FgDarkGray.Sprint(line))
+	// Truncate the plain assembly first (so the truncation budget
+	// sees real display columns, not ANSI escapes), then re-style.
+	plain := truncByTerminalWidth(prefixPlain+snippetRaw, maxCols)
+	// Re-split the truncated plain text along the known boundaries
+	// so each segment can carry its semantic colour. The boundaries
+	// are unambiguous because the prefix segment uses fixed glyphs
+	// that don't appear in primary/meta/detail bodies.
+	r.previewArea.Update(stylePreviewLine(plain, primaryText, metaText))
+}
+
+// stylePreviewLine applies the per-segment colour scheme to the
+// already-truncated ticker line. The split logic recognises:
+//   - leading "  " indent (uncoloured)
+//   - the ⟳ glyph (statusRecoverable)
+//   - the primary running phrase (statusPrimary)
+//   - the meta segment between the two " · " separators (statusMeta)
+//   - the trailing snippet (statusDetail)
+//
+// Splitting on visible substrings keeps the styling lossless when
+// truncation clips the snippet — the un-clipped prefix segments
+// always survive because truncByTerminalWidth fits the prefix
+// width budget before snipping the tail.
+func stylePreviewLine(plain, primaryText, metaText string) string {
+	const indent = "  "
+	const dotSep = " · "
+	rest := strings.TrimPrefix(plain, indent)
+	// Glyph segment: first non-space rune is the ⟳ glyph.
+	glyph := string(glyphRecoverable)
+	if !strings.HasPrefix(rest, glyph) {
+		// Truncation collapsed the whole line; render plain as a
+		// single statusDetail-coloured run so the row at least
+		// stays legible.
+		return statusDetail.Sprint(plain)
+	}
+	rest = strings.TrimPrefix(rest, glyph)
+	rest = strings.TrimPrefix(rest, " ")
+	// Primary segment.
+	if !strings.HasPrefix(rest, primaryText) {
+		return statusDetail.Sprint(plain)
+	}
+	rest = strings.TrimPrefix(rest, primaryText)
+	// Meta segment between two `dotSep` separators.
+	var metaSegment, tail string
+	if strings.HasPrefix(rest, dotSep) && strings.HasPrefix(rest[len(dotSep):], metaText) {
+		afterMeta := rest[len(dotSep)+len(metaText):]
+		metaSegment = metaText
+		// Tail (snippet) follows the next dotSep, when present.
+		switch {
+		case strings.HasPrefix(afterMeta, dotSep):
+			tail = afterMeta[len(dotSep):]
+		default:
+			tail = strings.TrimPrefix(afterMeta, " ")
+		}
+	}
+	var b strings.Builder
+	b.WriteString(indent)
+	b.WriteString(statusRecoverable.Sprint(glyph))
+	b.WriteString(" ")
+	b.WriteString(statusPrimary.Sprint(primaryText))
+	if metaSegment != "" {
+		b.WriteString(" ")
+		b.WriteString(statusMeta.Sprint("·"))
+		b.WriteString(" ")
+		b.WriteString(statusMeta.Sprint(metaSegment))
+	}
+	if tail != "" {
+		b.WriteString(" ")
+		b.WriteString(statusMeta.Sprint("·"))
+		b.WriteString(" ")
+		b.WriteString(statusDetail.Sprint(tail))
+	}
+	return b.String()
 }
 
 // handlePreviewClearLocked is called with r.mu held. Tears down

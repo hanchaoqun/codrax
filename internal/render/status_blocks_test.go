@@ -583,6 +583,49 @@ func TestStatus_TopicGroupOrderingAfterAnalyze(t *testing.T) {
 	}
 }
 
+// TestStatus_PausedRowRendersAsPending pins the paused-row contract:
+// a node whose endTime is still zero (orchestrator did NOT emit
+// EventTaskNodeEnd because it was requeued without termination) but
+// whose paused flag is true MUST render lexically and visually as
+// pending — "待 X" text, `·` glyph, DarkGray colour. Without this
+// fold, two rows in flight (e.g. validate just dispatched while
+// evidence_tN was requeued) would both render as "正在 X" and read
+// as concurrent execution despite being a hard-sequential chain.
+func TestStatus_PausedRowRendersAsPending(t *testing.T) {
+	now := renderRowsFixedNow
+	rows := []*taskRow{
+		// Active row — the live dispatch focus.
+		{
+			isNodeRow: true, nodeID: "vN", nodeKind: "validate",
+			startTime:   now.Add(-2 * time.Second),
+			detail:      "thinking",
+			detailStart: now.Add(-2 * time.Second),
+			iteration:   3,
+		},
+		// Paused row — was started earlier, requeued without
+		// EventTaskNodeEnd, scheduler's focus moved to validate.
+		{
+			isNodeRow: true, nodeID: "n1_evidence_t0", nodeKind: "evidence",
+			objective: "topic A",
+			startTime: now.Add(-10 * time.Second),
+			paused:    true,
+		},
+	}
+	out := renderRows(t, "zh", rows...)
+	// Active validate row reads as running.
+	if !strings.Contains(out, "正在校核分析结论") {
+		t.Errorf("active validate row must show running phrase; got:\n%s", out)
+	}
+	// Paused evidence reads as pending — same lexical form pending
+	// rows use, so the user sees only ONE active stage at a time.
+	if !strings.Contains(out, "待探索代码并收集证据") {
+		t.Errorf("paused evidence row must show pending phrase; got:\n%s", out)
+	}
+	if strings.Contains(out, "正在探索代码并收集证据") {
+		t.Errorf("paused evidence row must NOT show running phrase; got:\n%s", out)
+	}
+}
+
 // TestStatus_TopicGroupAllDoneIconAndState pins issue 2 — when ALL
 // topic rows have terminated, the parent line MUST flip to ✓ +
 // "已完成证据收集", regardless of topic[0]'s individual state.
