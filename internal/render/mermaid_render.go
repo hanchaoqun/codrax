@@ -96,6 +96,11 @@ func mayContainMermaid(text string) bool {
 	if strings.Contains(text, "```mermaid") {
 		return true
 	}
+	// Also fast-pass when the text contains a fence-as-keyword shape
+	// (e.g. ```flowchart, ```sequenceDiagram). The substring check
+	// is identical; what matters is that the keyword set covers BOTH
+	// "fence-tagged ```mermaid + body-keyword" AND "fence-tagged
+	// ```keyword directly".
 	for _, kw := range mermaidBodyKeywords {
 		if strings.Contains(text, kw) {
 			return true
@@ -155,6 +160,27 @@ var mermaidBodyKeywords = []string{
 	"C4Context",
 }
 
+// infoLineStartsWithMermaidKeyword reports whether the fence's
+// info-string IS a mermaid diagram-type keyword (potentially
+// followed by a direction modifier or arguments). Models that drop
+// the `mermaid` tag often write the keyword directly as the info-
+// string: ```flowchart TD, ```sequenceDiagram, ```graph LR, etc.
+// The body in that case starts WITHOUT the keyword line, so the
+// caller must reassemble the `mermaid`-tagged form by prepending
+// the info-line as the body's first line.
+func infoLineStartsWithMermaidKeyword(info string) bool {
+	info = strings.TrimSpace(info)
+	if info == "" {
+		return false
+	}
+	for _, kw := range mermaidBodyKeywords {
+		if info == kw || strings.HasPrefix(info, kw+" ") || strings.HasPrefix(info, kw+"\t") {
+			return true
+		}
+	}
+	return false
+}
+
 // looksLikeMermaidBody returns true when body's first non-empty
 // trimmed line begins with a known mermaid diagram-type keyword.
 // Used to opt untagged fences into mermaid rendering.
@@ -198,6 +224,19 @@ func maybeReplaceMermaidFence(match string) string {
 	// Case 1: explicit mermaid tag.
 	if strings.HasPrefix(infoLine, "mermaid") {
 		return replaceMermaidFence(match)
+	}
+	// Case 1b: info-string IS a mermaid keyword (e.g. ```flowchart TD,
+	// ```sequenceDiagram, ```graph LR). Some models drop the
+	// `mermaid` tag and put the diagram-type keyword directly as
+	// the info-string. The body starts WITHOUT the keyword line, so
+	// we synthesise a `mermaid`-tagged form that prepends the
+	// info-line as the first body line.
+	if infoLineStartsWithMermaidKeyword(infoLine) {
+		synth := "```mermaid\n" + infoLine + "\n" + body + "\n```"
+		if rendered, ok := renderMermaidFenceBody(synth); ok {
+			return rendered
+		}
+		return match
 	}
 	// Case 2: untagged or `text`-tagged fence whose body shape is
 	// mermaid. We only match the empty-info-string and `text` cases

@@ -123,7 +123,7 @@ func TestStatus_StageLocalization(t *testing.T) {
 	}
 	zhOut := renderRows(t, "zh", rows...)
 	for _, want := range []string{
-		"正在校核分析结论", "正在整理结论", "正在生成最终答案",
+		"正在交叉验证证据", "正在归纳探索结果", "正在撰写最终答案",
 	} {
 		if !strings.Contains(zhOut, want) {
 			t.Errorf("expected %q in zh stage output; got:\n%s", want, zhOut)
@@ -140,7 +140,7 @@ func TestStatus_StageLocalization(t *testing.T) {
 	}
 	enOut := renderRows(t, "en", rows...)
 	for _, want := range []string{
-		"Cross-checking findings", "Reconciling findings", "Generating final answer",
+		"Cross-validating evidence", "Consolidating exploration results", "Composing the final answer",
 	} {
 		if !strings.Contains(enOut, want) {
 			t.Errorf("expected %q in en stage output; got:\n%s", want, enOut)
@@ -216,10 +216,10 @@ func TestStatus_FullFlowOrdering(t *testing.T) {
 	expectedOrder := []string{
 		"已解析日志",
 		"已理解问题",
-		"已校核分析结论",
-		"已整理结论",
-		"已提取关键要点",
-		"正在生成最终答案",
+		"已交叉验证证据",
+		"已归纳探索结果",
+		"已提炼关键发现",
+		"正在撰写最终答案",
 	}
 	pos := 0
 	for _, want := range expectedOrder {
@@ -256,7 +256,7 @@ func TestStatus_WriteModeFlow(t *testing.T) {
 		}
 	}
 	// Verify (write-mode) MUST NOT collapse into validate's
-	// "正在校核分析结论" — different phase, different word.
+	// "正在交叉验证证据" — different phase, different word.
 	if strings.Contains(zhOut, "校核分析结论") {
 		t.Errorf("zh write-mode: NodeVerify must NOT use NodeValidate phrasing; got:\n%s", zhOut)
 	}
@@ -268,7 +268,7 @@ func TestStatus_WriteModeFlow(t *testing.T) {
 			t.Errorf("en write-mode flow: expected %q in:\n%s", want, enOut)
 		}
 	}
-	if strings.Contains(enOut, "Cross-checking findings") {
+	if strings.Contains(enOut, "Cross-validating evidence") {
 		t.Errorf("en write-mode: NodeVerify must NOT use NodeValidate phrasing; got:\n%s", enOut)
 	}
 }
@@ -453,7 +453,7 @@ func TestStatus_ThinkingNTPJumpGuard(t *testing.T) {
 // TestStatus_PendingHasOwnPhrase pins the "待 X" lexical form for
 // pending rows. Pre-fix pending rows reused the running phrase
 // ("正在 X"), distinguishable only by colour — two queued rows
-// rendered as "正在校核分析结论" / "正在整理结论" reading like
+// rendered as "正在交叉验证证据" / "正在归纳探索结果" reading like
 // concurrent execution. The pending phrasing kills the ambiguity
 // at the lexical level.
 func TestStatus_PendingHasOwnPhrase(t *testing.T) {
@@ -463,14 +463,14 @@ func TestStatus_PendingHasOwnPhrase(t *testing.T) {
 		{isNodeRow: true, nodeID: "fN", nodeKind: "finalize", pending: true},
 	}
 	zh := renderRows(t, "zh", pendingRows...)
-	for _, want := range []string{"待校核分析结论", "待整理结论", "待生成最终答案"} {
+	for _, want := range []string{"待交叉验证证据", "待归纳探索结果", "待撰写最终答案"} {
 		if !strings.Contains(zh, want) {
 			t.Errorf("zh: expected pending phrase %q in:\n%s", want, zh)
 		}
 	}
 	// Pending rows MUST NOT use the running form — that would
 	// re-introduce the ambiguity.
-	for _, banned := range []string{"正在校核分析结论", "正在整理结论", "正在生成最终答案"} {
+	for _, banned := range []string{"正在交叉验证证据", "正在归纳探索结果", "正在撰写最终答案"} {
 		if strings.Contains(zh, banned) {
 			t.Errorf("zh: pending row leaked running form %q in:\n%s", banned, zh)
 		}
@@ -480,11 +480,11 @@ func TestStatus_PendingHasOwnPhrase(t *testing.T) {
 		{isNodeRow: true, nodeID: "vN", nodeKind: "validate", pending: true},
 	}
 	en := renderRows(t, "en", enRows...)
-	if !strings.Contains(en, "Awaiting cross-check") {
-		t.Errorf("en: expected pending phrase 'Awaiting cross-check' in:\n%s", en)
+	if !strings.Contains(en, "Awaiting cross-validation") {
+		t.Errorf("en: expected pending phrase 'Awaiting cross-validation' in:\n%s", en)
 	}
-	if strings.Contains(en, "Cross-checking findings") {
-		t.Errorf("en: pending row must not use running form 'Cross-checking findings' in:\n%s", en)
+	if strings.Contains(en, "Cross-validating evidence") {
+		t.Errorf("en: pending row must not use running form 'Cross-validating evidence' in:\n%s", en)
 	}
 }
 
@@ -567,7 +567,7 @@ func TestStatus_TopicGroupOrderingAfterAnalyze(t *testing.T) {
 	// All three primary phrases must appear. Validate is pending in
 	// this fixture (queued behind running evidence) so it carries
 	// the "待校核 …" form, not "正在校核 …".
-	for _, want := range []string{"已理解问题", "正在探索代码并收集证据", "待校核分析结论"} {
+	for _, want := range []string{"已理解问题", "正在探索代码并收集证据", "待交叉验证证据"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("expected %q in output; got:\n%s", want, out)
 		}
@@ -576,7 +576,7 @@ func TestStatus_TopicGroupOrderingAfterAnalyze(t *testing.T) {
 	// must come BEFORE validate.
 	idxAnalyze := strings.Index(out, "已理解问题")
 	idxEvidence := strings.Index(out, "正在探索代码并收集证据")
-	idxValidate := strings.Index(out, "待校核分析结论")
+	idxValidate := strings.Index(out, "待交叉验证证据")
 	if !(idxAnalyze < idxEvidence && idxEvidence < idxValidate) {
 		t.Errorf("expected order analyze < evidence < validate; got idx %d / %d / %d in:\n%s",
 			idxAnalyze, idxEvidence, idxValidate, out)
@@ -688,7 +688,7 @@ func TestStatus_SingleEvidenceCrossWindowValidate(t *testing.T) {
 	if strings.Contains(zhOut, "正在探索代码并收集证据") {
 		t.Errorf("evidence must NOT render as running '正在 …'; got:\n%s", zhOut)
 	}
-	if !strings.Contains(zhOut, "正在校核分析结论") {
+	if !strings.Contains(zhOut, "正在交叉验证证据") {
 		t.Errorf("active validate must render as running; got:\n%s", zhOut)
 	}
 }
@@ -771,7 +771,7 @@ func TestStatus_PausedRowRendersAsPending(t *testing.T) {
 	}
 	out := renderRows(t, "zh", rows...)
 	// Active validate row reads as running.
-	if !strings.Contains(out, "正在校核分析结论") {
+	if !strings.Contains(out, "正在交叉验证证据") {
 		t.Errorf("active validate row must show running phrase; got:\n%s", out)
 	}
 	// Paused evidence reads as pending — same lexical form pending
@@ -886,7 +886,7 @@ func TestStatus_ToolDetailLocalized(t *testing.T) {
 		{"grep renderer.go", "正在搜索 renderer.go", "searching renderer.go"},
 		{"read internal/render/renderer.go", "正在读取 internal/render/renderer.go",
 			"reading internal/render/renderer.go"},
-		{"emit_answer_document", "正在生成最终答案", "generating final answer"},
+		{"emit_answer_document", "正在撰写最终答案", "composing the final answer"},
 		{"emit_analysis", "正在生成分析结果", "generating analysis result"},
 	}
 	for _, c := range cases {

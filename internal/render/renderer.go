@@ -1742,7 +1742,7 @@ func (r *Renderer) renderPreviewLineLocked(previewText string, chars int, roundL
 		return
 	}
 	frame := spinnerFrames[r.animFrame%len(spinnerFrames)]
-	primaryText := "正在生成最终答案"
+	primaryText := "正在撰写最终答案"
 	metaText := fmt.Sprintf("%s· 已收到 %d 字", roundLabel, chars)
 	prefixPlain := fmt.Sprintf("  %s %s · %s · ", frame, primaryText, metaText)
 	prefixCols := runewidth.StringWidth(prefixPlain)
@@ -1909,9 +1909,9 @@ func (r *Renderer) printFinalizeBanner() {
 
 func finalizeDoneText(lang string) string {
 	if isZh(lang) {
-		return "已生成最终答案"
+		return "已撰写最终答案"
 	}
-	return "Final answer ready"
+	return "Final answer composed"
 }
 
 // tailByDisplayWidth returns the suffix of s whose display width

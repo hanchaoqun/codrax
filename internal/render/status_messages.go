@@ -87,6 +87,31 @@ const (
 func stagePhrase(key string, lang string, state stagePhraseState) string {
 	zh := isZh(lang)
 	type triple struct{ run, done, pending string }
+	// Label vocabulary discipline (post-2026-04-30 audit triggered
+	// by user feedback "整理结论 / 校核分析结论 / 生成最终答案
+	// 三个标签都含'结论/答案',读起来像三个收尾步骤"):
+	//
+	// The pipeline runs analyze → evidence → validate → reconcile
+	// → extract → finalize. The user-facing label MUST distinguish
+	// these as DIFFERENT semantic phases without recycling the
+	// "结论 / 答案 / conclusion / answer" vocabulary across them —
+	// otherwise the timeline reads as "wrap-up, wrap-up, wrap-up,
+	// wrap-up". Vocabulary by phase:
+	//
+	//   evidence   → 探索代码并收集证据 / Exploring code, collecting evidence
+	//   validate   → 交叉验证证据      / Cross-validating evidence
+	//                    (was "校核分析结论" — no "结论" exists yet at this point)
+	//   reconcile  → 归纳探索结果      / Consolidating exploration results
+	//                    (was "整理结论" — clarifies this is explore-phase wrap-up,
+	//                     not the final answer)
+	//   extract    → 提炼关键发现      / Distilling key findings
+	//                    (was "提取关键要点" — slightly tighter)
+	//   finalize   → 撰写最终答案      / Composing the final answer
+	//                    (was "生成最终答案" — same surface, just verb refresh)
+	//
+	// Now each phase carries a unique active verb (探索 / 验证 /
+	// 归纳 / 提炼 / 撰写) so the user reads phase progression
+	// without re-encountering "结论"/"答案" three rows in a row.
 	tableZh := map[string]triple{
 		// Pre-stages
 		"log_triage":  {"正在解析日志", "已解析日志", "待解析日志"},
@@ -100,16 +125,12 @@ func stagePhrase(key string, lang string, state stagePhraseState) string {
 		"explore": {"正在深入分析", "已完成深入分析", "待深入分析"},
 		// "evidence" is the NodeEvidence sub-step where the agent
 		// actually reads code (read_file / grep / repo_map) and
-		// emits structured evidence (emit_evidence /
-		// emit_investigation_complete). Distinct label from
-		// "explore" so the user can tell THIS step is where the
-		// substantive code reading happens — collapsing it into
-		// the parent stage label hid the most important phase.
+		// emits structured evidence.
 		"evidence":  {"正在探索代码并收集证据", "已完成证据收集", "待探索代码并收集证据"},
-		"validate":  {"正在校核分析结论", "已校核分析结论", "待校核分析结论"},
-		"reconcile": {"正在整理结论", "已整理结论", "待整理结论"},
-		"extract":   {"正在提取关键要点", "已提取关键要点", "待提取关键要点"},
-		"finalize":  {"正在生成最终答案", "已生成最终答案", "待生成最终答案"},
+		"validate":  {"正在交叉验证证据", "已交叉验证证据", "待交叉验证证据"},
+		"reconcile": {"正在归纳探索结果", "已归纳探索结果", "待归纳探索结果"},
+		"extract":   {"正在提炼关键发现", "已提炼关键发现", "待提炼关键发现"},
+		"finalize":  {"正在撰写最终答案", "已撰写最终答案", "待撰写最终答案"},
 		// Write-mode flow
 		"plan":   {"正在设计改动方案", "已设计改动方案", "待设计改动方案"},
 		"apply":  {"正在应用改动", "已应用改动", "待应用改动"},
@@ -121,10 +142,10 @@ func stagePhrase(key string, lang string, state stagePhraseState) string {
 		"analyze":     {"Understanding the request", "Request understood", "Awaiting request understanding"},
 		"explore":     {"Investigating the problem", "Investigation complete", "Awaiting investigation"},
 		"evidence":    {"Exploring code, collecting evidence", "Evidence collected", "Awaiting code exploration"},
-		"validate":    {"Cross-checking findings", "Findings cross-checked", "Awaiting cross-check"},
-		"reconcile":   {"Reconciling findings", "Findings reconciled", "Awaiting reconciliation"},
-		"extract":     {"Extracting key findings", "Key findings extracted", "Awaiting key-finding extraction"},
-		"finalize":    {"Generating final answer", "Final answer generated", "Awaiting final answer"},
+		"validate":    {"Cross-validating evidence", "Evidence cross-validated", "Awaiting cross-validation"},
+		"reconcile":   {"Consolidating exploration results", "Exploration results consolidated", "Awaiting consolidation"},
+		"extract":     {"Distilling key findings", "Key findings distilled", "Awaiting key-finding distillation"},
+		"finalize":    {"Composing the final answer", "Final answer composed", "Awaiting final-answer composition"},
 		"plan":        {"Drafting change plan", "Change plan ready", "Awaiting change plan"},
 		"apply":       {"Applying changes", "Changes applied", "Awaiting change apply"},
 		"verify":      {"Running tests for verification", "Tests verified", "Awaiting verification"},
@@ -293,7 +314,7 @@ func toolDetailPhrase(detail string, lang string) string {
 		"exec_command":         {"正在执行命令", "running command"},
 		"run_tests":            {"正在运行测试", "running tests"},
 		"emit_analysis":        {"正在生成分析结果", "generating analysis result"},
-		"emit_answer_document": {"正在生成最终答案", "generating final answer"},
+		"emit_answer_document": {"正在撰写最终答案", "composing the final answer"},
 		"emit_change_plan":     {"正在生成改动计划", "generating change plan"},
 		"emit_plan_skeleton":   {"正在生成计划骨架", "drafting plan skeleton"},
 		"emit_plan_change":     {"正在补全计划文件", "filling plan file"},
