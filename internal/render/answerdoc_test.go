@@ -329,8 +329,14 @@ func TestRenderAnswerDocument_LangFallback(t *testing.T) {
 	}
 }
 
-// TestRenderAnswerDocument_Snippets — Snippets section renders as
-// language-tagged fenced code blocks with file:line-line headers.
+// TestRenderAnswerDocument_Snippets — Snippets section renders each
+// snippet as `📄 **<file>:<lines>**` header + blank line + language-
+// tagged fenced code block. The 📄 + bold + blank-line shape is
+// load-bearing: it visually separates the file:line anchor from the
+// adjacent code fence (pre-2026-04-29 the bare `<file>:<lines>`
+// inline code blurred into the fence's own monospace style — the
+// user reported "file:line 后面跟的代码片段和 file:line 融在一起").
+//
 // Single-line snippets render as "file:N" without the range suffix.
 func TestRenderAnswerDocument_Snippets(t *testing.T) {
 	doc := &types.AnswerDocument{
@@ -347,11 +353,12 @@ func TestRenderAnswerDocument_Snippets(t *testing.T) {
 	if !strings.Contains(out, "Key snippets:") {
 		t.Errorf("English header missing: %q", out)
 	}
-	if !strings.Contains(out, "`a.go:10-14`") {
-		t.Errorf("range header missing for multi-line snippet: %q", out)
+	// New header shape: 📄 + bold inline-code + trailing blank line.
+	if !strings.Contains(out, "📄 **`a.go:10-14`**\n\n") {
+		t.Errorf("range snippet header must be `📄 **<file>:<range>**` with blank line; got %q", out)
 	}
-	if !strings.Contains(out, "`b.py:5`\n") {
-		t.Errorf("single-line header must omit range: %q", out)
+	if !strings.Contains(out, "📄 **`b.py:5`**\n\n") {
+		t.Errorf("single-line snippet header must be `📄 **<file>:<line>**` (no range suffix) with blank line; got %q", out)
 	}
 	if !strings.Contains(out, "```go") {
 		t.Errorf("language tag missing for Go snippet: %q", out)
@@ -367,6 +374,11 @@ func TestRenderAnswerDocument_Snippets(t *testing.T) {
 	outZH := RenderAnswerDocument(doc, "zh")
 	if !strings.Contains(outZH, "关键代码") {
 		t.Errorf("Chinese header missing: %q", outZH)
+	}
+	// Per-snippet header shape is identical across locales (only the
+	// section heading differs); check the bold form lands in zh too.
+	if !strings.Contains(outZH, "📄 **`a.go:10-14`**\n\n") {
+		t.Errorf("zh snippet header missing bold/anchor shape; got %q", outZH)
 	}
 }
 

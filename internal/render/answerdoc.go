@@ -345,9 +345,21 @@ func renderAnswerDocCitationPool(b *strings.Builder, doc *types.AnswerDocument, 
 
 // renderAnswerDocSnippets emits a "Key snippets" / "关键代码" block
 // showing the clustered code excerpts doc.Snippets carries. Each
-// snippet is a language-tagged markdown fence header-lined with
-// `file:line-line`. Empty when no snippets — caller already gated
-// on len(doc.Snippets) > 0 before calling.
+// snippet has a header line `📄 **<file>:<lines>**` followed by a
+// blank line and the language-tagged markdown fence body.
+//
+// The 📄 + bold-inline-code header shape is load-bearing for
+// readability in the REPL: pre-2026-04-29 the header was a bare
+// `<file>:<lines>` inline code, which glamour/chroma rendered in
+// the SAME gray-monospace style as the immediately following code
+// fence — both blurred into one wall of code. Bold lifts the
+// header to the rendered theme's emphasis colour; the 📄 anchor +
+// blank line guarantees the fence visually starts on a new block.
+// See feedback log 2026-04-29 — the user reported "file:line 后面
+// 跟的代码片段和 file:line 融在一起 不容易区分".
+//
+// Empty when no snippets — caller already gated on
+// len(doc.Snippets) > 0 before calling.
 func renderAnswerDocSnippets(b *strings.Builder, doc *types.AnswerDocument, lang answerDocLang) {
 	switch lang {
 	case answerDocLangZH:
@@ -356,10 +368,14 @@ func renderAnswerDocSnippets(b *strings.Builder, doc *types.AnswerDocument, lang
 		b.WriteString("\n**Key snippets:**\n\n")
 	}
 	for _, s := range doc.Snippets {
+		// Header: 📄 anchor + bold inline-code + trailing blank
+		// line. The blank line is required so glamour parses the
+		// fence as a separate block; without it some themes would
+		// merge the header into the fence's first code line.
 		if s.StartLine == s.EndLine {
-			fmt.Fprintf(b, "`%s:%d`\n", s.File, s.StartLine)
+			fmt.Fprintf(b, "📄 **`%s:%d`**\n\n", s.File, s.StartLine)
 		} else {
-			fmt.Fprintf(b, "`%s:%d-%d`\n", s.File, s.StartLine, s.EndLine)
+			fmt.Fprintf(b, "📄 **`%s:%d-%d`**\n\n", s.File, s.StartLine, s.EndLine)
 		}
 		if tag := strings.TrimSpace(s.Language); tag != "" {
 			fmt.Fprintf(b, "```%s\n", tag)
