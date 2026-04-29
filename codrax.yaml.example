@@ -351,6 +351,21 @@
 # ignored.
 # cgec_stall_threshold_hard: 3
 
+# Multi-path coverage parity floor. Per-file ratio
+# (read_lines / total_lines) each primary anchor must reach for
+# emit_investigation_complete to honour completion when the question
+# has ≥ 2 primary anchors. Default 0.3.
+#
+# Pre-2026-04-29 this was a hard-coded constant 0.3 applied as
+# max_anchor_lines × 0.30 across files — a 113-line file fully
+# read failed parity against a 683-line sibling at coverage=400
+# (gate demanded 120 lines from the 113-line file → impossible).
+# The fix made the gate per-file (HasFullyRead bypass + per-file
+# CoverageRatio) and yaml-tunable. Lower the floor (0.2) for
+# orientation-style deployments; raise (0.5) for thoroughness audits.
+# Set to 0 to disable the gate entirely.
+# cgec_multi_path_coverage_parity_floor: 0.3
+
 # ---------------------------------------------------------------------------
 # Agent limits (agent_*)
 # ---------------------------------------------------------------------------
