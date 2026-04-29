@@ -5087,6 +5087,83 @@ func TestObserveMidLoop_CompletionReadyHintAddsDriftBoundedGuardrail(t *testing.
 	}
 }
 
+func TestObserveMidLoop_DriftBoundedAuthoritativeClosureBypassesUnsatisfiedERM(t *testing.T) {
+	eval := &explorerEvaluator{
+		phase:                      1,
+		heuristics:                 types.ExploreHeuristics{MidLoopMinIteration: 2},
+		searchResult:               &keywordSearchResult{Graph: &repomap.Graph{}},
+		midLoopPostPrimaryInjected: true,
+		analysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				Scenario: types.ScenarioRootCause,
+				Intent:   types.IntentRootCause,
+			},
+			AnswerContract: types.AnswerContract{
+				RequiredAnswerShape: types.ShapeExplanation,
+			},
+		},
+		logTriage: &types.LogBundle{
+			Meta:          types.LogMeta{Signals: []types.LogSignal{types.SignalPanic}},
+			ResolvedFiles: []string{"internal/agent/analyzer.go"},
+			Errors: []types.LogError{{
+				Frames: []types.LogFrame{
+					{File: "internal/agent/analyzer.go", Line: 250, Func: "buildAnalysisIR"},
+					{File: "internal/agent/analyzer.go", Line: 320, Func: "(*analyzerEvaluator).ParseOutput"},
+				},
+			}},
+		},
+		ermRequirements: []EvidenceRequirement{
+			{Kind: types.ReqMechanism, Entities: []string{"Normalize", "Compile"}, Status: "unsatisfied"},
+		},
+		structuredEvidence: []types.EvidenceItem{
+			{
+				Kind:            types.EvidenceRelationship,
+				Subject:         "ParseOutput",
+				Predicate:       "calls",
+				Object:          "buildAnalysisIR",
+				Source:          "internal/agent/analyzer.go",
+				LineStart:       651,
+				AnchorKind:      types.AnchorCall,
+				AnchorSymbol:    "buildAnalysisIR",
+				GroundingStatus: types.GroundingGrounded,
+			},
+			{
+				Kind:            types.EvidenceConditional,
+				Subject:         "buildAnalysisIR",
+				Predicate:       "returns",
+				Object:          "error",
+				Condition:       "ctx == nil || ctx.Mutable == nil",
+				Source:          "internal/agent/analyzer.go",
+				LineStart:       861,
+				AnchorKind:      types.AnchorCondition,
+				AnchorSymbol:    "buildAnalysisIR",
+				GroundingStatus: types.GroundingGrounded,
+			},
+		},
+	}
+	results := []types.ToolResult{
+		{ToolName: "grep", Success: true, Summary: "internal/agent/analyzer.go"},
+		{ToolName: "read_file", Success: true, Summary: "[internal/agent/analyzer.go: showing lines 645-870 of 2003 total]\n..."},
+		{ToolName: "emit_evidence", Success: true, Summary: "emit_evidence accepted 2 item(s)"},
+	}
+
+	sig := eval.observeMidLoop(LoopObservation{
+		Phase:          PhaseMidLoop,
+		Iteration:      4,
+		LastToolResult: &results[len(results)-1],
+		AllToolResults: results,
+	})
+	if !sig.HintRequested {
+		t.Fatalf("authoritative drift-bounded closure should bypass unsatisfied ERM, got %+v", sig)
+	}
+	if sig.HintKey != "explorer.mid-loop.completion-ready" {
+		t.Fatalf("HintKey = %q, want explorer.mid-loop.completion-ready", sig.HintKey)
+	}
+	if !strings.Contains(sig.Hint, "current checkout already bounds the answer surface") {
+		t.Fatalf("hint should keep the drift-bounded closure guardrail, got: %s", sig.Hint)
+	}
+}
+
 func TestObserveMidLoop_CompletionReadyDoesNotFireForAuthoritativeCallOnlyEvidence(t *testing.T) {
 	eval := &explorerEvaluator{
 		phase:                      1,

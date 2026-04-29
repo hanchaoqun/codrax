@@ -4181,6 +4181,9 @@ func (e *explorerEvaluator) completionReadiness(toolResults []types.ToolResult, 
 			hasEnough = false
 		}
 	}
+	if authoritativeClosure && e.driftBoundedCompletionReadyMode() {
+		hasEnough = true
+	}
 
 	return explorerCompletionReadiness{
 		HasEnough:                hasEnough,
