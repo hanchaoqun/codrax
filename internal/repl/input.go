@@ -259,7 +259,7 @@ var placeholderRE = regexp.MustCompile(`\[Pasted text #(\d+) \+\d+ lines \+\d+ c
 // Runes, not bytes, because the user-facing setting is in characters
 // (pay attention, CJK users: "你好" is 2 chars, 6 bytes). Keeping the
 // internal comparison in runes makes the knob's unit match the UI.
-const DefaultPasteFoldMinChars = 60
+const DefaultPasteFoldMinChars = 120
 
 // maxHistoryItems caps how far Up/Down scrolls. Memory.Store.Recent
 // is already bounded, but this keeps the model honest even if the

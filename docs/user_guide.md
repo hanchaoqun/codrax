@@ -650,7 +650,7 @@ llm:
 
 | 键 | 默认值 | 作用 |
 |---|---|---|
-| `repl_paste_fold_min_chars` | `100` | 单行粘贴超过此字符数才折叠成 `[Pasted text #N]` 占位 |
+| `repl_paste_fold_min_chars` | `120` | 单行粘贴超过此字符数才折叠成 `[Pasted text #N]` 占位（多行粘贴永远折叠，不受此值影响）|
 
 #### 3.3.18 providers.yaml 路径
 
@@ -787,7 +787,7 @@ codrax
 …  两个函数的逻辑差异
 ```
 
-**粘贴多行内容**:多数终端支持 bracketed paste,贴一段 ≥ 100 字符(默认阈值)的文本会自动折叠成 `[Pasted text #0 +N lines +C chars]` 占位符,提交后完整内容依然会送给 LLM。SSH / 老版 tmux 场景 bracketed paste 会被吃掉,这时用 `/paste` 子命令兜底(详见 [5.2](#52-repl-斜杠命令))。
+**粘贴多行内容**:多数终端支持 bracketed paste。多行粘贴会自动折叠成 `[Pasted text #N +L lines +C chars]` 占位符;单行粘贴超过 `repl_paste_fold_min_chars` 字符数(默认 120)也会折叠。提交后完整内容依然会送给 LLM。SSH / 老版 tmux 场景 bracketed paste 会被吃掉,这时用 `/paste` 子命令兜底(详见 [5.2](#52-repl-斜杠命令))。
 
 ### 4.2 单次命令模式(读模式)
 

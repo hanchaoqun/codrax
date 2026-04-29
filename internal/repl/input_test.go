@@ -196,39 +196,39 @@ func TestPasteFolding_ShortSingleLine_Verbatim(t *testing.T) {
 }
 
 func TestPasteFolding_SingleLineAtDefaultThreshold_Folds(t *testing.T) {
-	// Default DefaultPasteFoldMinChars = 60. A 70-rune single-line
-	// ASCII paste must fold; a 59-rune paste must not.
+	// Default DefaultPasteFoldMinChars = 120. A 130-rune single-line
+	// ASCII paste must fold; a 119-rune paste must not.
 	m := newTestModel()
-	long := strings.Repeat("a", 70)
+	long := strings.Repeat("a", 130)
 	m.Update(tea.KeyMsg(tea.Key{Type: tea.KeyRunes, Paste: true, Runes: []rune(long)}))
 	if !placeholderRE.MatchString(m.ti.Value()) {
-		t.Errorf("70-char paste should fold at default threshold, buf=%q", m.ti.Value())
+		t.Errorf("130-char paste should fold at default threshold, buf=%q", m.ti.Value())
 	}
 
 	m2 := newTestModel()
-	short := strings.Repeat("b", 59)
+	short := strings.Repeat("b", 119)
 	m2.Update(tea.KeyMsg(tea.Key{Type: tea.KeyRunes, Paste: true, Runes: []rune(short)}))
 	if placeholderRE.MatchString(m2.ti.Value()) {
-		t.Errorf("59-char paste must not fold, buf=%q", m2.ti.Value())
+		t.Errorf("119-char paste must not fold, buf=%q", m2.ti.Value())
 	}
 }
 
 func TestPasteFolding_CJK_CountsRunesNotBytes(t *testing.T) {
-	// 30 Chinese chars = 30 runes (90 bytes in UTF-8). Under the
-	// 60-char floor, so must NOT fold.
+	// 60 Chinese chars = 60 runes (180 bytes in UTF-8). Under the
+	// 120-char floor, so must NOT fold.
 	m := newTestModel()
-	cjk := strings.Repeat("字", 30)
+	cjk := strings.Repeat("字", 60)
 	m.Update(tea.KeyMsg(tea.Key{Type: tea.KeyRunes, Paste: true, Runes: []rune(cjk)}))
 	if placeholderRE.MatchString(m.ti.Value()) {
-		t.Errorf("30 CJK chars (< 60) must not fold, buf=%q", m.ti.Value())
+		t.Errorf("60 CJK chars (< 120) must not fold, buf=%q", m.ti.Value())
 	}
 
-	// 65 chars → fold.
+	// 125 chars → fold.
 	m2 := newTestModel()
-	big := strings.Repeat("字", 65)
+	big := strings.Repeat("字", 125)
 	m2.Update(tea.KeyMsg(tea.Key{Type: tea.KeyRunes, Paste: true, Runes: []rune(big)}))
 	if !placeholderRE.MatchString(m2.ti.Value()) {
-		t.Errorf("65 CJK chars must fold, buf=%q", m2.ti.Value())
+		t.Errorf("125 CJK chars must fold, buf=%q", m2.ti.Value())
 	}
 }
 
