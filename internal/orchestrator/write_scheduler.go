@@ -164,18 +164,16 @@ func (o *Orchestrator) runWriteSchedulerLoop(stepBudget int) int {
 			//       instead of breaking out of the loop, so the
 			//       configured retry budget actually fires.
 			logging.Error("[orchestrator] %s dispatch: %v", stage, dispatchErr)
-			// Transient-dispatch retry. When the underlying error is one
-			// IsRetryableDispatchError accepts (HTTP 429/5xx, network
-			// timeouts, stream watchdog kills, EOF, etc.), the failure
-			// has nothing to do with plan / apply correctness — the LLM
-			// connection blipped. Requeue the SAME node within a SEPARATE
-			// transientRetryBudget so brief blips don't drain the verify→
-			// plan SC retry budget. Stall plateau detection short-circuits
-			// when two consecutive transient failures produce identical
-			// tool-call signatures with no terminal emit between them —
-			// that means the LLM is structurally stuck (e.g. empty repo
-			// in plan mode), and burning more retries cannot help.
-			if llm.IsRetryableDispatchError(dispatchErr) {
+			// Transient-dispatch retry. Restricted to stream-level
+			// errors (EOF / stream stalled / first-byte timeout /
+			// network blip) because HTTP 429 / 5xx are L1's domain
+			// — by the time we see one here, L1 already exhausted
+			// its 6-attempt × 62-second budget. Retrying at the
+			// scheduler layer on a persistent 429 just multiplies
+			// wait time for no recovery benefit. Stall plateau
+			// detection still short-circuits two-consecutive-
+			// identical-signature stalls.
+			if llm.IsStreamLevelRetryable(dispatchErr) {
 				sig := computeStallSignature(o.busCtx.Mutable.DispatchToolResults(), out, stage)
 				// Maintain the consecutive-no-emit streak alongside
 				// the per-node signature memo. A non-empty sig means

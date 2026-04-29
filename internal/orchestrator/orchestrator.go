@@ -111,6 +111,14 @@ type Orchestrator struct {
 	// SetTransientRetryBudget. Default 1.
 	transientRetryBudget int
 
+	// forceFinalizeAttempts caps the number of dispatch attempts
+	// the force-finalize escape path makes when the previous
+	// attempt errored with a transient LLM stream failure
+	// (unexpected EOF, stream stalled, 429, network blip). Set via
+	// SetForceFinalizeAttempts. Default 3 = 1 initial + 2 retries.
+	// Hard-capped at MaxForceFinalizeAttempts (5) inside the setter.
+	forceFinalizeAttempts int
+
 	// reflector is the optional Reflexion-pattern critic invoked
 	// from clearForReplan between a verify failure and the planner
 	// re-dispatch. Nil = disabled (clearForReplan falls back to the
@@ -488,6 +496,25 @@ func (o *Orchestrator) SetWriteRetryBudget(n int) {
 // WriteRetryBudget returns the currently configured retry cap.
 func (o *Orchestrator) WriteRetryBudget() int {
 	return o.writeRetryBudget
+}
+
+// SetForceFinalizeAttempts installs the cap on force-finalize
+// dispatch attempts. The force-finalize path is the user's last
+// chance to recover ANY answer when the regular DAG path stalls or
+// rejects every draft, so a transient connection drop on its single
+// attempt would terminate the Run without a result. Default 3 (1
+// initial + 2 retries) catches the typical single-blip case while
+// keeping the worst-case pause bounded. Clamped to
+// [1, MaxForceFinalizeAttempts]; zero or negative reverts to the
+// type-default (DefaultForceFinalizeAttempts).
+func (o *Orchestrator) SetForceFinalizeAttempts(n int) {
+	if n <= 0 {
+		n = types.DefaultForceFinalizeAttempts
+	}
+	if n > types.MaxForceFinalizeAttempts {
+		n = types.MaxForceFinalizeAttempts
+	}
+	o.forceFinalizeAttempts = n
 }
 
 // SetTransientRetryBudget installs the cap on transient dispatch
@@ -2765,7 +2792,12 @@ func (o *Orchestrator) runReadSchedulerLoop(stepBudget int) int {
 		// (3 total attempts) with short backoff catches the
 		// overwhelming majority of transient blips while still
 		// bailing out promptly when the upstream is genuinely down.
-		const forceFinalizeMaxAttempts = 3
+		// Operator override via codrax.yaml ::
+		// pipeline_force_finalize_attempts (default 3, capped at 5).
+		forceFinalizeMaxAttempts := o.forceFinalizeAttempts
+		if forceFinalizeMaxAttempts <= 0 {
+			forceFinalizeMaxAttempts = types.DefaultForceFinalizeAttempts
+		}
 		var (
 			out *agent.StageOutput
 			err error
@@ -2776,7 +2808,15 @@ func (o *Orchestrator) runReadSchedulerLoop(stepBudget int) int {
 			if err == nil {
 				break
 			}
-			if !llm.IsRetryableDispatchError(err) {
+			// L5 force-finalize retry is restricted to stream-level
+			// errors. HTTP 429 / 5xx are L1's domain — L1's 6-attempt
+			// × 62-second budget already exhausted by the time we
+			// see them, so additional retry burns wall-clock without
+			// recovery benefit. Stream-level errors (EOF / stalled /
+			// first-byte timeout / network blip) are NOT retried by
+			// L1 (they could duplicate streamed content), so L5's
+			// retries are the only coverage they get.
+			if !llm.IsStreamLevelRetryable(err) {
 				break
 			}
 			if attempt+1 >= forceFinalizeMaxAttempts {
@@ -2792,12 +2832,16 @@ func (o *Orchestrator) runReadSchedulerLoop(stepBudget int) int {
 				Agent:     "orchestrator",
 				Reasoning: softRetryHintMessage(o.busCtx.Language),
 			})
-			// Brief backoff: 500ms × attempt, capped. Keeps the
-			// retry tight enough that the user doesn't feel the
-			// pause but gives the upstream a moment to recover.
-			backoff := time.Duration(500*(attempt+1)) * time.Millisecond
-			if backoff > 2*time.Second {
-				backoff = 2 * time.Second
+			// Reuse the LLM adapter's production-tested backoff
+			// schedule (Retry-After header > quota long-ramp >
+			// standard exponential). Cap at 5s so the worst-case
+			// user-visible pause across the full force-finalize
+			// retry window stays under ~10s — appropriate for the
+			// last-resort path which the user already tolerates as
+			// "the answer is being composed".
+			backoff := llm.NextRetryDelay(err, attempt)
+			if backoff > 5*time.Second {
+				backoff = 5 * time.Second
 			}
 			time.Sleep(backoff)
 		}

@@ -105,8 +105,22 @@ llm:
   # Valid agent keys are `analyzer`, `explorer`, `extractor`,
   # `finalizer`, `log_triager`, `perf_triager`, `planner`, `coder`,
   # `verifier`, plus the optional `memory_summarizer`,
-  # `chitchat_responder`, `chitchat_classifier`. Set only the fields
-  # you want to change; unset fields inherit from default.
+  # `chitchat_responder`, `chitchat_classifier`, `env_recommender`,
+  # `reflector`. Set only the fields you want to change; unset
+  # fields inherit from default.
+  #
+  # Each agent can also declare `<name>_fallback` — a secondary
+  # provider that the FallbackAdapter swaps to when the primary
+  # returns a retryable error (EOF / stream stalled / 429 / 5xx /
+  # network blip). Non-retryable errors (auth / schema / config
+  # bugs) DO NOT trigger fallback — they surface verbatim so the
+  # operator sees the real diagnostic. Useful for:
+  #   - Provider region outage tolerance (premium primary, stable
+  #     secondary)
+  #   - Flaky upstream connection (premium model on shaky link,
+  #     cheap stable model as cushion)
+  # The fallback's config inherits from `default` like any agent;
+  # only declare what differs (api_key / base_url / model).
   #
   # agents:
   #   analyzer:
@@ -119,6 +133,12 @@ llm:
   #     base_url: "http://localhost:11434/v1"
   #     model: "llama3.1:70b"
   #     stream: false                     # per-agent opt-out (default is on)
+  #   finalizer_fallback:                 # auto-swap on EOF / 429 / network blip
+  #     api_key: "sk-cheap-..."
+  #     base_url: "https://other-provider/v1"
+  #     model: "cheap-but-stable-model"
+  #   planner_fallback:                   # any agent name supports _fallback
+  #     model: "smaller-but-stable-model"
 
 # =============================================================================
 # Scenario matrix

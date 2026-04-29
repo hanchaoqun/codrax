@@ -62,6 +62,15 @@ type PipelineSettings struct {
 	// uplift. Default 100. Zero falls back to default.
 	MaxStepsCeil int `yaml:"max_steps_ceil"`
 
+	// ForceFinalizeAttempts caps the number of dispatch attempts the
+	// force-finalize escape path makes when the previous attempt
+	// errored with a transient LLM stream failure (unexpected EOF,
+	// stream stalled, 429, etc.). Default 3 = 1 initial + 2 retries;
+	// 1 disables retry. Hard-capped at 5 by the orchestrator setter
+	// to keep the user-visible pause bounded. Zero falls back to
+	// DefaultForceFinalizeAttempts.
+	ForceFinalizeAttempts int `yaml:"force_finalize_attempts"`
+
 	// BaselineCaptureEnabled toggles the pre-apply test snapshot
 	// that feeds CritNoRegression. When true, the apply stage hook runs
 	// run_tests once BEFORE the coder dispatches (against the fresh
@@ -911,6 +920,20 @@ func ResolvedExploreHeuristics(h ExploreHeuristics) ExploreHeuristics {
 // DefaultMaxStageVisits is the fallback value used when
 // PipelineSettings.MaxStageVisits is zero or negative.
 const DefaultMaxStageVisits = 4
+
+// DefaultForceFinalizeAttempts is the fallback for
+// PipelineSettings.ForceFinalizeAttempts when zero. Sized to ride
+// through the typical single-connection blip (one drop is by far
+// the most common pattern in production traces) while keeping the
+// worst-case pause bounded to ~3.5s of backoff.
+const DefaultForceFinalizeAttempts = 3
+
+// MaxForceFinalizeAttempts is the absolute ceiling enforced by the
+// orchestrator's SetForceFinalizeAttempts setter on operator-
+// supplied values. Higher counts almost always mean misconfiguration
+// that would burn LLM tokens on a genuinely-down upstream rather
+// than recovering from transient blips.
+const MaxForceFinalizeAttempts = 5
 
 // MemorySettings carries tunable limits for the multi-turn REPL memory
 // store. Zero values mean "use code default" — see DefaultMemorySettings().

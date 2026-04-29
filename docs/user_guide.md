@@ -424,6 +424,21 @@ memory_policy_default:     # 默认 {0, 0, -1, 2, 0} (Kind="" 时的 fallback)
 | `pipeline_max_stage_visits` | `4` | 同一阶段最多被调度几次(防死循环) |
 | `pipeline_write_retry_budget` | `3` | 写模式 verify→plan retry 上限 |
 | `pipeline_write_retry_budget_ceil` | `5` | `SetWriteRetryBudget` 内部硬上限,防 yaml 笔误把 retry 拉到极大值 |
+| `pipeline_transient_retry_budget` | `1` | 阶段调度遇到流式/网络瞬时错误(EOF / stream stalled / first-byte timeout / 网络抖动)时,在调度器层重派几次。**仅覆盖 L1 不重试的"流级错误"**;HTTP 429 / 5xx 不在此重试集合内(L1 已经用 6 × ~62s 退避覆盖) |
+| `pipeline_transient_retry_budget_ceil` | `3` | 上述硬顶 |
+| `pipeline_force_finalize_attempts` | `3` | 兜底 force-finalize 派遣最多尝试几次(1 次初始 + 2 次重试)。同样**只在流级瞬时错误上重试**,避免与 L1 的 429/5xx 退避重叠 |
+
+**重试分层快查**:
+
+| 层 | 位置 | 覆盖范围 | 默认次数 | 退避 |
+|---|---|---|---|---|
+| **L1** in-adapter | `providers.yaml :: retry_max_attempts` | HTTP 429 / 5xx | 6 | 2/4/8/16/32s(配额错误 4× 长退避;`Retry-After` 头优先) |
+| **L2** FallbackAdapter | `providers.yaml :: agents.<name>_fallback` | 任意 retryable error,鉴权 / schema 错不切换 | 主 + 副 | 无独立退避(沿用 L1) |
+| **L3** ReAct loop | 内置 | 不重试单次 Chat 错误(状态一致性) | — | — |
+| **L4** scheduler transient | `pipeline_transient_retry_budget` | 流级错误(EOF / stalled / first-byte / 网络) | 1 | 无独立退避 |
+| **L5** force-finalize | `pipeline_force_finalize_attempts` | 流级错误 | 3 | `llm.NextRetryDelay`(封 5s) |
+
+每层只兜底**下层不覆盖的差集**。L1 的 6 次 × 62s 覆盖已经在 429/5xx 上是充足的;L4/L5 不在 429 上额外叠加,避免最坏情况下 ~12 分钟的多重等待。
 
 `pipeline_max_steps` / `pipeline_max_retries_per_stage` / `pipeline_max_stage_visits` 都有同名 CLI flag 可临时覆盖;`*_ceil` 系列仅 yaml。
 
@@ -684,6 +699,36 @@ llm:
 ```
 
 不写就全继承 `default`。
+
+#### 3.3.19a 健壮性兜底:`agents.<name>_fallback`
+
+任何 agent 都可以再声明一个 `<name>_fallback` 兜底 provider,主 adapter 在遇到**可重试错误**(EOF / stream stalled / 429 / 5xx / 网络抖动)时自动切到副 adapter。鉴权 / schema / 配置类的不可恢复错误**不会**触发切换 —— 直接把真错误暴露,避免浪费一次往返。
+
+```yaml
+llm:
+  default:
+    provider: openai
+    api_key: sk-premium...
+    model: premium-model
+
+  agents:
+    finalizer:
+      model: premium-model     # finalize 主路径
+    finalizer_fallback:
+      api_key: sk-cheap...     # 不同 provider / 不同 key 都行
+      base_url: https://other-provider/v1
+      model: cheap-but-stable-model
+
+    planner_fallback:
+      model: smaller-but-stable-model  # planner 同理
+```
+
+适用场景:
+- 主 provider 区域性事故 / 短时不可用 → 副 provider 一接管整个 Run 不中断
+- 主 provider 流式连接不稳(EOF 多发) → 副 provider 用稳定的便宜模型兜成型答案
+- 任意 agent 都可以单独配:`finalizer_fallback` / `planner_fallback` / `analyzer_fallback` / `extractor_fallback` / `coder_fallback` / `verifier_fallback`
+
+兜底配置继承 `llm.default` 的字段,只声明覆盖项即可(`api_key` / `base_url` / `model` 等)。
 
 #### 3.3.20 环境诊断 + 安装推荐(`env_recommend_*`)
 

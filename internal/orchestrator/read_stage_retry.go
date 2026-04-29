@@ -35,7 +35,13 @@ func (o *Orchestrator) retryReadStageDispatchError(
 	if o == nil || state == nil || o.busCtx == nil || err == nil {
 		return false
 	}
-	if o.busCtx.Mode != types.ModeRead || !llm.IsRetryableDispatchError(err) {
+	// L4 only retries on stream-level errors (EOF / stream stalled /
+	// first-byte timeout / network). HTTP 429 / 5xx are L1's domain
+	// — by the time we see one here, L1 already exhausted its
+	// 6-attempt × 62-second budget; retrying at L4 would burn 2×
+	// more wall-clock for the same persistent upstream condition.
+	// The IsStreamLevelRetryable subset filters this.
+	if o.busCtx.Mode != types.ModeRead || !llm.IsStreamLevelRetryable(err) {
 		return false
 	}
 

@@ -129,6 +129,30 @@ func (h *finalizePreviewHook) onToolCallDelta(index int, name string, argsChunk 
 	})
 }
 
+// Partial returns the cumulative decoded `summary` text the hook
+// has accumulated from in-flight emit_answer_document tool-call
+// argument chunks. Returns "" when no chunks streamed (e.g. EOF at
+// iter=0 with the connection closed before any response data).
+//
+// The orchestrator's force-finalize escape path consults this when
+// a Chat error fires before the tool call closes: when partial
+// summary text exists, BaseAgent synthesises an assistant message
+// containing the partial prose and feeds it through the finalizer's
+// existing "missing emit_answer_document" fallback (which surfaces
+// the last assistant content as the answer with a warning banner).
+// Without this, a connection drop mid-summary would discard 5-30 KB
+// of streamed prose and force the user to retry from scratch.
+//
+// Nil-safe (mirrors flush()): non-finalize stages pass nil hooks.
+func (h *finalizePreviewHook) Partial() string {
+	if h == nil {
+		return ""
+	}
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return h.buf.String()
+}
+
 // flush forces a final emit of the cumulative buffer regardless of
 // the throttle window. Called by BaseAgent after Chat returns so
 // the renderer paints the LAST 250ms of summary text the throttle

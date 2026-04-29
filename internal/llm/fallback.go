@@ -6,7 +6,23 @@ import (
 	"time"
 )
 
-// FallbackAdapter tries adapters in order until one succeeds.
+// FallbackAdapter tries adapters in order until one succeeds OR a
+// non-retryable error fires.
+//
+// Pre-2026-04-30 the loop swapped to the next adapter on ANY error,
+// which wasted a full round-trip on errors that no provider rotation
+// could fix:
+//   - Auth / API-key wrong on primary → tried fallback (different
+//     creds may help, but if BOTH have wrong creds the user paid
+//     2× the latency before failing)
+//   - Schema validation rejected on primary → tried fallback
+//     (replays the same bad schema, guaranteed to fail again)
+//
+// Updated rule: only swap when the primary's error is something a
+// fresh upstream attempt could plausibly recover from
+// (IsRetryableDispatchError — 429/5xx/EOF/stream-stalled/network).
+// Non-retryable errors return verbatim from the primary so the
+// caller sees the real diagnostic immediately.
 type FallbackAdapter struct {
 	adapters []Adapter
 }
@@ -17,7 +33,7 @@ func NewFallbackAdapter(adapters ...Adapter) *FallbackAdapter {
 
 func (f *FallbackAdapter) Chat(ctx context.Context, messages []Message, tools []ToolSchema, opts ChatOptions) (Response, error) {
 	var lastErr error
-	for _, a := range f.adapters {
+	for i, a := range f.adapters {
 		// Honour ctx between adapters too — a canceled outer ctx
 		// must NOT keep iterating through fallback list.
 		if cerr := ctx.Err(); cerr != nil {
@@ -28,6 +44,17 @@ func (f *FallbackAdapter) Chat(ctx context.Context, messages []Message, tools []
 			return resp, nil
 		}
 		lastErr = err
+		// Last adapter — nothing left to try.
+		if i+1 >= len(f.adapters) {
+			break
+		}
+		// Skip fallback hop when the error is non-retryable. Auth /
+		// schema / config bugs cascade to the same outcome on every
+		// adapter; trying fallback wastes a round-trip and obscures
+		// the real diagnostic.
+		if !IsRetryableDispatchError(err) {
+			return Response{}, err
+		}
 	}
 	return Response{}, fmt.Errorf("all LLM adapters failed: %w", lastErr)
 }

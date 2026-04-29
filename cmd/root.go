@@ -1493,6 +1493,9 @@ func initApp(cmd *cobra.Command, _ []string) error {
 		if rs.PipelineTransientRetryBudgetCeil != nil {
 			pipelineSettings.TransientRetryBudgetCeil = *rs.PipelineTransientRetryBudgetCeil
 		}
+		if rs.PipelineForceFinalizeAttempts != nil {
+			pipelineSettings.ForceFinalizeAttempts = *rs.PipelineForceFinalizeAttempts
+		}
 		// Baseline capture toggle for CritNoRegression (Item 1).
 		// Pointer-typed yaml so explicit false is distinguishable
 		// from unset; both resolve to false on the orch but the
@@ -1965,6 +1968,26 @@ func initApp(cmd *cobra.Command, _ []string) error {
 			logging.Error("[llm] resolver for agent=%s: %v", name, err)
 			return nil
 		}
+		// Optional fallback adapter. providers.yaml :: agents.<name>_fallback
+		// declares a secondary provider/model that the existing
+		// llm.FallbackAdapter (variadic try-each-on-error wrapper)
+		// rotates through when the primary returns ANY error. The
+		// fallback's config goes through the same ResolveProvider
+		// default-override merge as the primary so an operator can
+		// specify just the model name and inherit api_key /
+		// base_url / etc.
+		fallbackKey := string(name) + "_fallback"
+		if _, hasFallback := providersCfg.LLM.Agents[fallbackKey]; hasFallback {
+			resolvedFb := config.ResolveProvider(providersCfg, fallbackKey)
+			if fbAdapter, fbErr := llm.NewFromConfig(resolvedFb); fbErr != nil {
+				logging.Warning("[llm] %s fallback adapter init failed (continuing without fallback): %v",
+					fallbackKey, fbErr)
+			} else {
+				logging.Info("[llm] agent=%s primary=%s fallback=%s wired",
+					name, adapter.ModelID(), fbAdapter.ModelID())
+				adapter = llm.NewFallbackAdapter(adapter, fbAdapter)
+			}
+		}
 		return adapter
 	}
 
@@ -2055,6 +2078,10 @@ func initApp(cmd *cobra.Command, _ []string) error {
 	// Transient-dispatch retry cap. Decoupled from WriteRetryBudget so
 	// LLM stream stalls / network blips never drain the SC retry budget.
 	orch.SetTransientRetryBudget(pipelineSettings.TransientRetryBudget)
+	// Force-finalize retry cap. Catches transient connection drops on
+	// the last-resort composition call so a single EOF doesn't kill
+	// the Run with no answer at all. Default 3 = 1 + 2 retries.
+	orch.SetForceFinalizeAttempts(pipelineSettings.ForceFinalizeAttempts)
 	// Reflexion-pattern critic. Resolved above; nil-safe inside
 	// orchestrator (clearForReplan falls back to heuristic-only hint
 	// when adapter is missing). Tied to the same retry-budget knob —

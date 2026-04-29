@@ -7,6 +7,7 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -338,8 +339,20 @@ func (o *OpenAIAdapter) Chat(ctx context.Context, messages []Message, tools []To
 		}
 		lastErr = err
 
-		// Only retry on rate limit (429) or server errors (5xx)
-		if !isRetryable(err) {
+		// L1 retry policy:
+		//   - HTTP 429 / 5xx (isRetryable): always — provider may
+		//     clear after backoff (rate limit / deployment rotation)
+		//   - ErrStreamFirstByteTimeout: provably safe — by
+		//     definition no callback fired before this error so a
+		//     fresh attempt cannot duplicate user-visible state
+		//
+		// NOT retried at L1:
+		//   - io.ErrUnexpectedEOF / mid-stream stalled: callbacks
+		//     may have fired with partial content; replaying would
+		//     duplicate. Outer layers (force-finalize) handle these
+		//     after L1 returns, with the streaming partial-salvage
+		//     path picking up whatever was already streamed.
+		if !isRetryable(err) && !errors.Is(err, ErrStreamFirstByteTimeout) {
 			return Response{}, err
 		}
 
@@ -362,7 +375,12 @@ func (o *OpenAIAdapter) Chat(ctx context.Context, messages []Message, tools []To
 		}
 	}
 
-	return Response{}, fmt.Errorf("all retries failed: %w", lastErr)
+	// Wrap the terminal error with ErrAllRetriesExhausted so outer
+	// layers (FallbackAdapter, scheduler transient retry, force-
+	// finalize) detect L1 exhaustion via errors.Is and skip duplicate
+	// retry coverage. The underlying *apiError / network error stays
+	// reachable via errors.As for diagnostics.
+	return Response{}, fmt.Errorf("%w: %w", ErrAllRetriesExhausted, lastErr)
 }
 
 func (o *OpenAIAdapter) doRequest(ctx context.Context, bodyBytes []byte) (Response, error) {
@@ -1084,6 +1102,23 @@ func isRetryable(err error) bool {
 // (8s/16s/32s/64s/128s ≈ 4 minutes) so the retry budget actually has
 // a chance to outlast a true quota stall before failing loud.
 func nextRetryDelay(err error, attempt int) time.Duration {
+	return NextRetryDelay(err, attempt)
+}
+
+// NextRetryDelay is the public accessor that callers outside the
+// llm package use to share the same backoff schedule as the
+// in-adapter retry loop. attempt is 0-indexed (0 = first retry).
+//
+// Schedule (priority order):
+//   - HTTP 429 with Retry-After header → respect the server's value
+//   - quota-shaped 429 (no header) → 8s/16s/32s/64s/128s long ramp
+//   - everything else → 2s/4s/8s/16s/32s standard exponential
+//
+// Used by the orchestrator's force-finalize escape path so a
+// retry-after-bearing 429 on the last-resort dispatch waits exactly
+// the indicated interval; a transient EOF / stream stall falls
+// through to the standard exponential schedule.
+func NextRetryDelay(err error, attempt int) time.Duration {
 	if ae, ok := err.(*apiError); ok {
 		if ae.RetryAfter > 0 {
 			return ae.RetryAfter

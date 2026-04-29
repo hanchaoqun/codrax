@@ -193,6 +193,19 @@ type RuntimeSettings struct {
 	// scaled pipeline step budget. Default 100. Zero falls back.
 	PipelineMaxStepsCeil *int `yaml:"pipeline_max_steps_ceil"`
 
+	// PipelineForceFinalizeAttempts caps how many times the
+	// force-finalize escape path retries when the dispatch fails
+	// with a transient LLM stream error (unexpected EOF, stream
+	// stalled, first-byte timeout, 429, network blip). Default 3
+	// (1 initial + 2 retries) — empirically catches >95% of single-
+	// connection drops while keeping the user-visible pause under
+	// 3.5s in the worst case (500 ms + 1 s + 2 s backoff). Setting
+	// to 1 reverts to the pre-2026-04-30 single-shot behaviour.
+	// Hard-capped at 5 inside the orchestrator; values above 5
+	// almost always mean misconfiguration that would burn LLM
+	// tokens on a genuinely-down upstream.
+	PipelineForceFinalizeAttempts *int `yaml:"pipeline_force_finalize_attempts"`
+
 	// PipelineBaselineCaptureEnabled toggles the pre-apply test
 	// snapshot that feeds CritNoRegression. When true, the apply stage hook
 	// runs run_tests BEFORE the coder dispatches so the subsequent

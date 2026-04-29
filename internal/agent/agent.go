@@ -1042,7 +1042,38 @@ func (b *BaseAgent) Execute(ctx *types.AgentContext, sk *skill.Config) (*StageOu
 			// The returned StageOutput is discarded; the original LLM
 			// error still propagates so the orchestrator treats the
 			// window as failed and the force-finalize path engages.
-			b.salvagePartialDispatch(ctx, messages, allToolResults, allMCPResponses, i, err)
+			//
+			// Streaming partial salvage (finalize stage only): when
+			// the SummaryExtractor decoded ANY summary text from
+			// in-flight emit_answer_document tool-call args before the
+			// stream errored, synthesize an assistant message
+			// containing the partial prose and append to messages.
+			// This routes the partial through the finalizer's
+			// existing "missing emit_answer_document" fallback path
+			// (answer_document_evaluator.go scans messages for the
+			// last assistant content and surfaces it as the answer
+			// with a warning banner). Without this branch, a
+			// connection drop mid-summary would discard 5-30 KB of
+			// already-streamed prose and the user sees "len=0".
+			//
+			// IsRetryableDispatchError gate: only synthesize for
+			// transient errors (EOF, stream stalled, 429, network
+			// blip). A non-retryable error means the stream wasn't
+			// even valid; using its partial output as an "answer"
+			// would surface garbage.
+			salvageMessages := messages
+			if ctx.Stage == types.StageFinalize && llm.IsRetryableDispatchError(err) {
+				if partial := summaryPreview.Partial(); strings.TrimSpace(partial) != "" {
+					synthesized := llm.Message{
+						Role:    "assistant",
+						Content: partial,
+					}
+					salvageMessages = append(append([]llm.Message{}, messages...), synthesized)
+					logging.Warning("[agent/%s] streaming partial salvage: synthesised %d-rune assistant message from in-flight emit_answer_document args (transient error: %v)",
+						b.name, len([]rune(partial)), err)
+				}
+			}
+			b.salvagePartialDispatch(ctx, salvageMessages, allToolResults, allMCPResponses, i, err)
 			return &StageOutput{
 				Error:        fmt.Sprintf("LLM call failed: %v", err),
 				MissingPiece: ctx.MissingPiece,
