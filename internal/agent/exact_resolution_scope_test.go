@@ -3,6 +3,7 @@ package agent
 import (
 	"testing"
 
+	repomap "github.com/hanchaoqun/codrax/internal/tool/repomap/types"
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
@@ -198,10 +199,10 @@ func TestRefreshedExactResolutionContextFiles_PrefersGroundedEvidenceOverPending
 			AnchorSymbol:    "DefaultExploreHeuristics",
 		},
 	}
-	got := refreshedExactResolutionContextFiles(contract, types.ScenarioConfigTrace, evidence, cands, []string{
+	got := refreshedExactResolutionContextFiles(contract, types.ScenarioConfigTrace, nil, evidence, cands, []string{
 		"internal/types/config.go",
 		"internal/types/explore_budget.go",
-	})
+	}, nil)
 	if len(got) != 1 || got[0] != "internal/types/config.go" {
 		t.Fatalf("grounded related-context files should override pending lexical neighbors, got %v", got)
 	}
@@ -266,14 +267,87 @@ func TestRefreshedExactResolutionContextFiles_KeepsCoverageShapingFilesUntilConf
 			LineStart:            1556,
 		},
 	}
-	got := refreshedExactResolutionContextFiles(contract, types.ScenarioConfigTrace, evidence, nil, []string{
+	got := refreshedExactResolutionContextFiles(contract, types.ScenarioConfigTrace, nil, evidence, nil, []string{
 		"internal/types/config.go",
 		"codrax.yaml.example",
-	})
+	}, nil)
 	want := []string{
 		"internal/types/config.go",
 		"codrax.yaml.example",
 		"cmd/root.go",
+	}
+	if len(got) != len(want) {
+		t.Fatalf("context files len = %d, want %d (%v)", len(got), len(want), got)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("context files = %v, want %v", got, want)
+		}
+	}
+}
+
+func TestRefreshedExactResolutionContextFiles_AddsGraphCoverageHopsForMissingRequestedRoles(t *testing.T) {
+	contract := &types.ExactResolutionContract{
+		TargetKind:             types.SubjectConfigKey,
+		TargetLabel:            "config key",
+		Targets:                []string{"explore_mid_loop_hint_budget"},
+		AllowAbsence:           true,
+		RelatedContextPolicy:   types.ExactContextSameFamilyGrounded,
+		RelatedContextTerms:    []string{"explore"},
+		RequestedContextRoles:  []types.EvidenceDiagramRole{types.EvidenceDiagramRoleDefault, types.EvidenceDiagramRoleConfig, types.EvidenceDiagramRoleOverride},
+	}
+	graph := &repomap.Graph{
+		ReverseImports: map[string][]string{
+			"internal/types/config.go": {"cmd/root.go", "internal/agent/explorer.go"},
+			"codrax.yaml.example":      {"cmd/root.go"},
+		},
+		QueryScores: map[string]float64{
+			"cmd/root.go":                0.9,
+			"internal/agent/explorer.go": 0.4,
+		},
+	}
+	evidence := []types.EvidenceItem{
+		{
+			Kind:            types.EvidenceDirect,
+			Subject:         "DefaultExploreHeuristics",
+			Predicate:       "provides_defaults_for",
+			Object:          "explore settings",
+			Source:          "internal/types/config.go",
+			GroundingStatus: types.GroundingGrounded,
+			ContextRole:     types.EvidenceContextRoleRelatedContext,
+			DiagramRole:     types.EvidenceDiagramRoleDefault,
+			AnchorKind:      types.AnchorDefinition,
+			AnchorSymbol:    "DefaultExploreHeuristics",
+			LineStart:       848,
+		},
+		{
+			Kind:                 types.EvidenceDirect,
+			Subject:              "explore",
+			Object:               "config precedence comment",
+			Source:               "codrax.yaml.example",
+			GroundingStatus:      types.GroundingGrounded,
+			ContextRole:          types.EvidenceContextRoleRelatedContext,
+			DiagramRole:          types.EvidenceDiagramRoleConfig,
+			RequestedDiagramRole: types.EvidenceDiagramRoleConfig,
+			AnchorKind:           types.AnchorDefinition,
+			AnchorSymbol:         "explore",
+			LineStart:            20,
+		},
+	}
+	got := refreshedExactResolutionContextFiles(
+		contract,
+		types.ScenarioConfigTrace,
+		graph,
+		evidence,
+		nil,
+		[]string{"internal/types/config.go", "codrax.yaml.example"},
+		nil,
+	)
+	want := []string{
+		"internal/types/config.go",
+		"codrax.yaml.example",
+		"cmd/root.go",
+		"internal/agent/explorer.go",
 	}
 	if len(got) != len(want) {
 		t.Fatalf("context files len = %d, want %d (%v)", len(got), len(want), got)

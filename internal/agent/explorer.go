@@ -2849,13 +2849,19 @@ func (e *explorerEvaluator) buildExactResolutionScopeBanner(ctx *types.AgentCont
 	if ctx.Mutable != nil &&
 		contract.AllowAbsence &&
 		contract.RelatedContextPolicy != types.ExactContextGroundedOnly {
+		var graph *repomap.Graph
+		if e.searchResult != nil {
+			graph = e.searchResult.Graph
+		}
 		evidence := mergeEvidenceItems(e.structuredEvidence, ctx.Mutable.EmittedEvidence())
 		e.exactContextFiles = refreshedExactResolutionContextFiles(
 			contract,
 			ctx.AnalysisIR.RequestModel.Scenario,
+			graph,
 			evidence,
 			cands,
 			e.requiredFiles,
+			e.exactContextFiles,
 		)
 		ctx.Mutable.SetExactContextRequiredFiles(e.exactContextFiles)
 	}
@@ -3755,6 +3761,7 @@ func (e *explorerEvaluator) postExactAbsenceClosureSignal(obs LoopObservation) L
 	_, readSet, _ := extractFileCoverage(obs.AllToolResults, e.repoRoot)
 	if !e.midLoopExactAbsenceContextSent {
 		if hops := e.pendingConfigTraceCoverageHops(readSet); len(hops) > 0 {
+			e.rememberExactContextHopFiles(hops)
 			e.midLoopExactAbsenceContextSent = true
 			var b strings.Builder
 			if roles := types.ConfigTraceMissingRequestedDiagramRoles(e.exactResolution, e.exactContextFiles, e.structuredEvidence); len(roles) > 0 {
@@ -3762,7 +3769,7 @@ func (e *explorerEvaluator) postExactAbsenceClosureSignal(obs LoopObservation) L
 			} else {
 				b.WriteString("MID-LOOP CHECK: the exact target already looks absent, but the current config-trace answer is still missing one or more grounded precedence hops. Before closing, follow the next structural consumer / merge hop from the precedence layer you already grounded.\n")
 			}
-			b.WriteString("Read one or two of these structurally connected files next, then emit evidence and only after that close with `emit_investigation_complete(..., result_kind=\"absence\", absence_justification=...)`:\n")
+			b.WriteString("The next step is file-local grounding, not another repo-wide search. Use `read_file` directly on one or two of these structurally connected files next, then emit evidence and only after that close with `emit_investigation_complete(..., result_kind=\"absence\", absence_justification=...)`:\n")
 			limit := len(hops)
 			if limit > 2 {
 				limit = 2
@@ -3775,7 +3782,7 @@ func (e *explorerEvaluator) postExactAbsenceClosureSignal(obs LoopObservation) L
 					fmt.Fprintf(&b, "- `%s`\n", hop.File)
 				}
 			}
-			b.WriteString("Keep every such item labeled as related context only, never as an equivalent or substitute for the exact missing target.")
+			b.WriteString("Do NOT widen scope with another repo-wide `grep` / `search_repo_map` first unless one of these listed files itself fans out into multiple same-scope anchors. Keep every such item labeled as related context only, never as an equivalent or substitute for the exact missing target.")
 			return LoopSignal{
 				HintRequested:  true,
 				HintKey:        "explorer.mid-loop.exact-absence-precedence-next-hop",
@@ -3842,6 +3849,19 @@ func (e *explorerEvaluator) postExactAbsenceClosureSignal(obs LoopObservation) L
 		BypassThrottle: true,
 		BypassBudget:   true,
 	}
+}
+
+func (e *explorerEvaluator) rememberExactContextHopFiles(hops []configTraceCoverageHop) {
+	if e == nil || len(hops) == 0 {
+		return
+	}
+	files := make([]string, 0, len(hops))
+	for _, hop := range hops {
+		if hop.File != "" {
+			files = append(files, hop.File)
+		}
+	}
+	e.exactContextFiles = mergeContextScopeFiles(e.exactContextFiles, files)
 }
 
 type configTraceCoverageHop struct {
@@ -6957,9 +6977,11 @@ func (e *explorerEvaluator) refreshExactContextFiles(ctx *types.AgentContext) {
 	e.exactContextFiles = refreshedExactResolutionContextFiles(
 		contract,
 		ctx.AnalysisIR.RequestModel.Scenario,
+		e.searchGraph(),
 		e.structuredEvidence,
 		cands,
 		e.requiredFiles,
+		e.exactContextFiles,
 	)
 	ctx.Mutable.SetExactContextRequiredFiles(e.exactContextFiles)
 }

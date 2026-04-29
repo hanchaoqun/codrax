@@ -506,24 +506,130 @@ func scopeShapingDiagramRole(item types.EvidenceItem) types.EvidenceDiagramRole 
 func refreshedExactResolutionContextFiles(
 	contract *types.ExactResolutionContract,
 	scenario types.Scenario,
+	graph *repomap.Graph,
 	evidence []types.EvidenceItem,
 	candidates []exactResolutionSymbolCandidate,
 	preferredFiles []string,
+	previousFiles []string,
 ) []string {
 	groundedFiles := exactResolutionContextFilesFromGroundedEvidence(contract, scenario, evidence, preferredFiles)
 	coverageFiles := exactResolutionContextFilesFromScenarioCoverageEvidence(contract, scenario, evidence, preferredFiles)
+	graphCoverageFiles := exactResolutionContextFilesFromGraphCoverageHops(contract, scenario, graph, evidence, preferredFiles)
 	if len(coverageFiles) > 0 {
-		combined := mergeContextScopeFiles(groundedFiles, coverageFiles)
+		combined := mergeContextScopeFiles(previousFiles, groundedFiles, coverageFiles, graphCoverageFiles)
+		if len(combined) > 0 &&
+			!types.ExactResolutionAbsenceClosureReady(contract, scenario, contract.Targets, evidence, combined) {
+			return combined
+		}
+	}
+	if len(graphCoverageFiles) > 0 {
+		combined := mergeContextScopeFiles(previousFiles, groundedFiles, graphCoverageFiles)
 		if len(combined) > 0 &&
 			!types.ExactResolutionAbsenceClosureReady(contract, scenario, contract.Targets, evidence, combined) {
 			return combined
 		}
 	}
 	if len(groundedFiles) > 0 {
+		if len(previousFiles) > 0 &&
+			scenario == types.ScenarioConfigTrace &&
+			contract != nil &&
+			contract.TargetKind == types.SubjectConfigKey &&
+			!types.ExactResolutionAbsenceClosureReady(contract, scenario, contract.Targets, evidence, groundedFiles) {
+			return mergeContextScopeFiles(previousFiles, groundedFiles)
+		}
 		return groundedFiles
 	}
 	pending := pendingExactResolutionContextCandidates(contract, evidence, candidates)
-	return exactResolutionContextFilesFromCandidates(pending, preferredFiles)
+	return mergeContextScopeFiles(previousFiles, exactResolutionContextFilesFromCandidates(pending, preferredFiles), graphCoverageFiles)
+}
+
+func exactResolutionContextFilesFromGraphCoverageHops(
+	contract *types.ExactResolutionContract,
+	scenario types.Scenario,
+	graph *repomap.Graph,
+	evidence []types.EvidenceItem,
+	preferredFiles []string,
+) []string {
+	if contract == nil || graph == nil || len(evidence) == 0 {
+		return nil
+	}
+	if scenario != types.ScenarioConfigTrace || contract.TargetKind != types.SubjectConfigKey {
+		return nil
+	}
+	if len(types.ConfigTraceMissingRequestedDiagramRoles(contract, preferredFiles, evidence)) == 0 {
+		return nil
+	}
+	preferredRank := make(map[string]int, len(preferredFiles))
+	for i, file := range preferredFiles {
+		file = canonicalExactResolutionPath(file)
+		if file != "" {
+			preferredRank[file] = len(preferredFiles) - i
+		}
+	}
+	type scoredFile struct {
+		File  string
+		Score int
+	}
+	bestByFile := make(map[string]int)
+	add := func(file string, score int) {
+		file = canonicalExactResolutionPath(file)
+		if file == "" || types.LooksLikeAuxiliaryEvidencePath(file) || score <= 0 {
+			return
+		}
+		if bonus := preferredRank[file]; bonus > 0 {
+			score += 8 + bonus
+		}
+		if q := graph.QueryScores[file]; q > 0 {
+			score += int(q * 10)
+		}
+		if cur := bestByFile[file]; cur < score {
+			bestByFile[file] = score
+		}
+	}
+	for _, item := range evidence {
+		role := scopeShapingDiagramRole(item)
+		source := canonicalExactResolutionPath(item.Source)
+		if source == "" || types.LooksLikeAuxiliaryEvidencePath(source) {
+			continue
+		}
+		if role == types.EvidenceDiagramRoleUnknown && item.ContextRole != types.EvidenceContextRoleAbsenceSupport {
+			continue
+		}
+		for _, importer := range graph.FilesImporting(source) {
+			score := 16
+			switch role {
+			case types.EvidenceDiagramRoleRuntime, types.EvidenceDiagramRoleOverride:
+				score = 28
+			case types.EvidenceDiagramRoleConfig:
+				score = 24
+			case types.EvidenceDiagramRoleDefault:
+				score = 18
+			default:
+				if item.ContextRole == types.EvidenceContextRoleAbsenceSupport {
+					score = 14
+				}
+			}
+			add(importer, score)
+		}
+	}
+	if len(bestByFile) == 0 {
+		return nil
+	}
+	scored := make([]scoredFile, 0, len(bestByFile))
+	for file, score := range bestByFile {
+		scored = append(scored, scoredFile{File: file, Score: score})
+	}
+	sort.SliceStable(scored, func(i, j int) bool {
+		if scored[i].Score != scored[j].Score {
+			return scored[i].Score > scored[j].Score
+		}
+		return scored[i].File < scored[j].File
+	})
+	files := make([]string, 0, len(scored))
+	for _, item := range scored {
+		files = append(files, item.File)
+	}
+	return files
 }
 
 func mergeContextScopeFiles(groups ...[]string) []string {

@@ -6089,12 +6089,13 @@ func TestObserve_RefreshesStructuredEvidenceBeforeExactAbsenceCloseSignal(t *tes
 
 func TestPostExactAbsenceClosureSignal_PrefersStructuralPrecedenceNextHop(t *testing.T) {
 	contract := &types.ExactResolutionContract{
-		TargetKind:           types.SubjectConfigKey,
-		TargetLabel:          "config key",
-		Targets:              []string{"explore_mid_loop_hint_budget"},
-		AllowAbsence:         true,
-		RelatedContextPolicy: types.ExactContextSameFamilyGrounded,
-		RelatedContextTerms:  []string{"explore"},
+		TargetKind:             types.SubjectConfigKey,
+		TargetLabel:            "config key",
+		Targets:                []string{"explore_mid_loop_hint_budget"},
+		AllowAbsence:           true,
+		RelatedContextPolicy:   types.ExactContextSameFamilyGrounded,
+		RelatedContextTerms:    []string{"explore"},
+		RequestedContextRoles:  []types.EvidenceDiagramRole{types.EvidenceDiagramRoleDefault, types.EvidenceDiagramRoleConfig, types.EvidenceDiagramRoleOverride},
 	}
 	eval := &explorerEvaluator{
 		scenario:        types.ScenarioConfigTrace,
@@ -6153,6 +6154,19 @@ func TestPostExactAbsenceClosureSignal_PrefersStructuralPrecedenceNextHop(t *tes
 	}
 	if !strings.Contains(sig.Hint, "cmd/root.go") {
 		t.Fatalf("hint should surface the consumer / merge hop, got: %s", sig.Hint)
+	}
+	if !strings.Contains(sig.Hint, "Use `read_file` directly") || !strings.Contains(sig.Hint, "Do NOT widen scope with another repo-wide `grep` / `search_repo_map` first") {
+		t.Fatalf("hint should steer straight to file-local grounding, got: %s", sig.Hint)
+	}
+	found := false
+	for _, file := range eval.exactContextFiles {
+		if file == "cmd/root.go" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("coverage hop files should be remembered for same-scope closure, got %v", eval.exactContextFiles)
 	}
 }
 
