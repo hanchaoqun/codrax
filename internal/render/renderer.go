@@ -111,7 +111,8 @@ type Renderer struct {
 	glamour *glamour.TermRenderer
 
 	mu        sync.Mutex
-	area      *pterm.AreaPrinter
+	area      *pterm.AreaPrinter // legacy, retained only for non-TTY tests; live REPL uses liveBar instead
+	bar       *liveBar           // single-line dispatch ticker (post-2026-04-30 redesign)
 	startTime time.Time
 
 	// Live task list. Append-only within a Start/Stop cycle; rows
@@ -611,10 +612,49 @@ func (r *Renderer) startSpinnerWithHint(hint string) {
 //
 // Caller MUST hold r.mu.
 func (r *Renderer) openSpinnerAreaLocked() {
-	a, _ := pterm.DefaultArea.WithRemoveWhenDone(true).Start()
-	r.area = a
+	// Post-2026-04-30 redesign: the multi-row pterm.Area is gone.
+	// The dispatch ticker is a single line driven by liveBar; all
+	// other status (sub-topic enumeration, stage completions,
+	// reasoning) goes to scrollback via direct fmt.Println so the
+	// terminal never has to track logical-vs-physical row counts.
+	r.bar = newLiveBar(os.Stdout)
+	r.area = nil // legacy field, kept for non-TTY tests but unused in REPL
+	if r.objective != "" {
+		// Print the user-question echo to scrollback ONCE at start.
+		// Subsequent retry rounds / re-dispatches don't reprint
+		// (the question is already in scrollback above).
+		fmt.Fprintf(os.Stdout, "  %s %s\n\n",
+			statusObjective.Sprint("❯"),
+			statusObjective.Sprint(r.objective))
+	}
 	r.redraw()
 
+	r.startAnimGoroutineLocked()
+}
+
+// printStageCompletionThroughBarLocked wipes the live bar so a
+// completion line can land cleanly in scrollback above it, then
+// re-paints the bar so animation continues for the next stage.
+// topicTotal > 1 enables the "关注点 K/M" suffix on multi-topic
+// evidence rows.
+//
+// Caller MUST hold r.mu.
+func (r *Renderer) printStageCompletionThroughBarLocked(row *taskRow, topicTotal int) {
+	if r.bar != nil {
+		r.bar.Stop()
+		printStageCompletionToScrollback(os.Stdout, r.lang, row, topicTotal)
+		r.bar = newLiveBar(os.Stdout)
+		r.redraw()
+	} else {
+		printStageCompletionToScrollback(os.Stdout, r.lang, row, topicTotal)
+	}
+}
+
+// startAnimGoroutineLocked starts the 100ms animation goroutine
+// that ticks animFrame and refreshes the live bar.
+//
+// Caller MUST hold r.mu and ensure no prior goroutine is running.
+func (r *Renderer) startAnimGoroutineLocked() {
 	r.animStop = make(chan struct{})
 	go func() {
 		ticker := time.NewTicker(100 * time.Millisecond)
@@ -625,27 +665,12 @@ func (r *Renderer) openSpinnerAreaLocked() {
 				return
 			case <-ticker.C:
 				r.mu.Lock()
-				// The single animation goroutine drives BOTH the
-				// spinner area (when active) AND the streaming
-				// preview ticker (when active). Pre-2026-04-30 the
-				// goroutine returned the moment r.area became nil
-				// — but handlePreviewChunkLocked nulls r.area so
-				// the preview ticker can own the screen, leaving
-				// the previewArea's leading "⟳" glyph static
-				// between chunks. Continuing to tick lets the
-				// preview line refresh its glyph + frame counter
-				// even when no new chunk arrives.
-				if r.area == nil && r.previewArea == nil {
+				if r.bar == nil {
 					r.mu.Unlock()
 					return
 				}
 				r.animFrame++
-				if r.area != nil {
-					r.redraw()
-				}
-				if r.previewArea != nil {
-					r.refreshPreviewLineLocked()
-				}
+				r.redraw()
 				r.mu.Unlock()
 			}
 		}
@@ -680,35 +705,42 @@ func (r *Renderer) reopenSpinnerAreaLocked() {
 	r.openSpinnerAreaLocked()
 }
 
-// StopSpinner stops the live area and prints the final task list.
+// StopSpinner ends the dispatch ticker. The stage-completion log
+// + sub-topic enumeration + reasoning events have already accrued
+// in scrollback as they happened, so StopSpinner just wipes the
+// live ticker line and resets renderer state. The persistent
+// "✓ 已撰写最终答案" banner is printed by RenderResult, which
+// runs immediately after this on the bordered-answer path.
 func (r *Renderer) StopSpinner() {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	if r.area == nil {
+	if r.bar == nil {
+		// Nothing to stop. Reset state for next Run.
+		r.tasks = nil
+		r.current = nil
+		r.analysisReady = false
+		r.objective = ""
+		r.objectiveDone = false
 		return
 	}
-
-	// Stop animation.
-	close(r.animStop)
-
-	// Stop area (removes its content due to RemoveWhenDone).
-	r.area.Stop()
-	r.area = nil
-
-	// Print final objective — green checkmark, dimmed title.
-	if r.objective != "" {
-		fmt.Println()
-		fmt.Printf("  %s %s\n",
-			pterm.FgGreen.Sprint("✓"),
-			pterm.FgDarkGray.Sprint(r.objective))
-		fmt.Println()
+	// Stop animation goroutine.
+	if r.animStop != nil {
+		select {
+		case <-r.animStop:
+		default:
+			close(r.animStop)
+		}
+		r.animStop = nil
 	}
-
-	r.objective = ""
-	r.objectiveDone = false
+	// Wipe the ticker line.
+	r.bar.Stop()
+	r.bar = nil
+	// Reset state.
 	r.tasks = nil
 	r.current = nil
 	r.analysisReady = false
+	r.objective = ""
+	r.objectiveDone = false
 }
 
 // Emitter returns an EventEmitter callback bound to this renderer.
@@ -717,14 +749,21 @@ func (r *Renderer) Emitter() EventEmitter {
 		r.mu.Lock()
 		defer r.mu.Unlock()
 
-		// Reasoning events are printed regardless of whether the
-		// spinner area is active (REPL) or nil (single-shot). In
-		// single-shot mode this is the user's only window into what
-		// the pipeline is doing during the 30+ second wait.
+		// Reasoning events go straight to scrollback. liveBar
+		// occupies one line at the bottom; printing above it is
+		// just a regular Println — the bar's next Update will
+		// re-paint its line via `\r\x1b[2K` and the reasoning
+		// stays in scrollback.
 		if ev.Kind == EventAgentReasoning && ev.Reasoning != "" {
 			line := formatReasoning(string(ev.Agent), ev.Iteration, ev.Reasoning)
-			if r.area != nil {
-				r.printAboveArea(line)
+			if r.bar != nil {
+				// Bar is active: wipe its line, print reasoning to
+				// scrollback, the next animation tick will repaint
+				// the bar below the new reasoning line.
+				r.bar.Stop() // emits a clearing newline
+				fmt.Fprintln(os.Stdout, line)
+				r.bar = newLiveBar(os.Stdout)
+				r.redraw()
 			} else {
 				fmt.Fprintln(os.Stderr, line)
 			}
@@ -744,20 +783,11 @@ func (r *Renderer) Emitter() EventEmitter {
 			return
 		}
 
-		if r.area == nil {
-			// Spinner area was torn down (typically by
-			// handlePreviewChunkLocked freezing the spinner before
-			// the finalize streaming preview opened its ticker, or
-			// after the ticker closed and the bordered answer
-			// printed). When events that signal "the pipeline is
-			// still active" arrive AFTER teardown — e.g. an
-			// orchestrator retry round re-dispatching a stage —
-			// reopen the spinner area so the user sees state
-			// updates instead of a frozen terminal. Read-only
-			// events (EventTaskNodeEnd / EventStageEnd /
-			// EventToolCallEnd / etc.) trigger a reopen too because
-			// after them the loop typically continues with a fresh
-			// thinking/dispatch cycle.
+		if r.bar == nil {
+			// liveBar was torn down (StopSpinner already ran, or
+			// never ran). Auto-reopen so retry-round events still
+			// surface. Lazy reopen: only for events that signal
+			// "pipeline is doing live work".
 			switch ev.Kind {
 			case EventTaskNodeStart,
 				EventTaskNodeEnd,
@@ -772,9 +802,12 @@ func (r *Renderer) Emitter() EventEmitter {
 				EventSubAgentEnd,
 				EventObjectiveStarted,
 				EventAnalysisReady:
-				r.reopenSpinnerAreaLocked()
+				r.bar = newLiveBar(os.Stdout)
+				if r.animStop == nil {
+					r.startAnimGoroutineLocked()
+				}
 			}
-			if r.area == nil {
+			if r.bar == nil {
 				return
 			}
 		}
@@ -806,11 +839,6 @@ func (r *Renderer) Emitter() EventEmitter {
 			if r.analysisReady && ev.Stage != "" && string(ev.Stage) != "analyze" {
 				break
 			}
-			// Terminate the most recent matching (stage, agent) still-
-			// running row. Matching by (stage, agent) rather than just
-			// stage supports DAG windows dispatching the same stage
-			// multiple times with different agents, and sub-agent
-			// rows are exempt (isSubAgent flag).
 			if row := r.findRunningStageRow(string(ev.Stage), string(ev.Agent)); row != nil {
 				row.endTime = ev.Timestamp
 				row.errorMsg = ev.Error
@@ -818,15 +846,15 @@ func (r *Renderer) Emitter() EventEmitter {
 				if row == r.current {
 					r.current = nil
 				}
+				// Wipe the bar so the completion line lands cleanly
+				// in scrollback, then print + restart the bar.
+				r.printStageCompletionThroughBarLocked(row, 0)
 			}
 
 		case EventAnalysisReady:
 			// Analyze phase complete: mark any still-running analyze
 			// row done and append one "pending" row per TaskNodeInfo.
-			// Rows are keyed by nodeID so subsequent EventTaskNodeStart
-			// / EventTaskNodeEnd can find them without rebuilding the
-			// list. Ordering is preserved from the orchestrator (which
-			// itself preserved TaskGraph.Nodes declaration order).
+			var analyzeDone *taskRow
 			for _, row := range r.tasks {
 				if row.isSubAgent || row.isNodeRow {
 					continue
@@ -837,6 +865,7 @@ func (r *Renderer) Emitter() EventEmitter {
 					if row == r.current {
 						r.current = nil
 					}
+					analyzeDone = row
 				}
 			}
 			for _, n := range ev.TaskNodes {
@@ -849,6 +878,24 @@ func (r *Renderer) Emitter() EventEmitter {
 				})
 			}
 			r.analysisReady = true
+			// Print analyze-done line + sub-topic enumeration
+			// PERMANENTLY to scrollback. Sub-topics print only when
+			// ≥2 evidence_tN nodes were emitted (single-topic
+			// flow has no enumeration).
+			if r.bar != nil {
+				r.bar.Stop()
+				if analyzeDone != nil {
+					printStageCompletionToScrollback(os.Stdout, r.lang, analyzeDone, 0)
+				}
+				printSubTopicsToScrollback(os.Stdout, r.lang, ev.TaskNodes)
+				r.bar = newLiveBar(os.Stdout)
+				r.redraw()
+			} else {
+				if analyzeDone != nil {
+					printStageCompletionToScrollback(os.Stdout, r.lang, analyzeDone, 0)
+				}
+				printSubTopicsToScrollback(os.Stdout, r.lang, ev.TaskNodes)
+			}
 
 		case EventTaskNodeStart:
 			if row := r.findNodeRow(ev.NodeID); row != nil {
@@ -923,6 +970,18 @@ func (r *Renderer) Emitter() EventEmitter {
 				if row == r.current {
 					r.current = nil
 				}
+				// Count topic siblings so the completion line can
+				// surface "关注点 K/M" when this is one of multiple
+				// evidence_tN.
+				topicTotal := 0
+				for _, sibling := range r.tasks {
+					if sibling.isNodeRow && sibling.nodeKind == "evidence" {
+						if _, ok := topicIndexFromNodeID(sibling.nodeID); ok {
+							topicTotal++
+						}
+					}
+				}
+				r.printStageCompletionThroughBarLocked(row, topicTotal)
 			}
 
 		case EventAgentThinking:
@@ -1144,7 +1203,41 @@ func (r *Renderer) findNodeRow(id string) *taskRow {
 // guarantee no line ever wraps, by clamping every emitted line to
 // (terminal_width - small margin) display columns.
 func (r *Renderer) redraw() {
-	r.area.Update(r.composeStatusFrame())
+	if r.bar == nil {
+		return
+	}
+	state := liveBarState{
+		focus:         r.focusRow(),
+		frame:         spinnerFrames[r.animFrame%len(spinnerFrames)],
+		now:           time.Now(),
+		lang:          r.lang,
+		streamMeta:    r.previewStreamMeta(),
+	}
+	if state.focus != nil {
+		state.errorKind = classifyStatusError(state.focus)
+		state.stageProgress = stageProgressFor(state.focus)
+		state.topicProgress = r.topicProgressFor(state.focus, r.lang)
+	}
+	r.bar.Update(composeLiveBar(state))
+}
+
+// previewStreamMeta returns the streamMeta payload for the
+// finalize-streaming line when the previewArea is in flight.
+// Empty when no streaming is happening.
+//
+// Must be called with r.mu held.
+func (r *Renderer) previewStreamMeta() string {
+	if r.previewArea == nil {
+		return ""
+	}
+	chars := utf8.RuneCountInString(r.previewLastChunk)
+	roundLabel := ""
+	if r.previewRound > 1 {
+		roundLabel = fmt.Sprintf("#%d ", r.previewRound)
+	}
+	// Tail snippet budget — keep small so the line fits.
+	tail := tailByDisplayWidth(flattenToOneLine(r.previewLastChunk), 40)
+	return composeStreamMeta(roundLabel, chars, tail, r.lang)
 }
 
 // composeStatusFrame builds the same content redraw() sends to
@@ -1646,12 +1739,13 @@ func previewLineLastSnippetCols(total int) int {
 	return tail
 }
 
-// handlePreviewChunkLocked is called with r.mu held. Renders the
-// streaming-summary progress as a single-line ticker via
-// ttyPreviewArea (`\r` + `\x1b[2K` + content). Single-line is the
-// load-bearing simplification: no multi-line cursor positioning,
-// no row-count tracking, no possibility of leftover wrap rows
-// staining the screen when the final answer prints.
+// handlePreviewChunkLocked is called with r.mu held. With the
+// post-2026-04-30 redesign, finalize streaming is just another
+// state of the SAME liveBar — composeLiveBar's previewStreamMeta
+// path picks up r.previewLastChunk and renders it as the meta
+// segment with the same animated spinner glyph as every other
+// running stage. No separate previewArea, no frozen-frame print,
+// no animation-goroutine swap.
 func (r *Renderer) handlePreviewChunkLocked(ev Event) {
 	if !previewIsTTY() {
 		return
@@ -1660,82 +1754,18 @@ func (r *Renderer) handlePreviewChunkLocked(ev Event) {
 		return
 	}
 	if r.previewArea == nil {
-		// Stop the spinner area BUT preserve its last-rendered
-		// state as static text above the ticker. Without this
-		// freeze, the validate / reconcile / extract status
-		// history disappears the moment the first preview chunk
-		// arrives — and if a retry fires mid-finalize, the user
-		// sees only the ticker with no context.
-		//
-		// Sequence:
-		//   1. Stop the animation goroutine (no more redraws)
-		//   2. Capture the current frame as a string
-		//   3. Stop pterm.Area (WithRemoveWhenDone(true) erases)
-		//   4. Print the captured frame to stdout — terminal
-		//      keeps it as scrollback above the cursor
-		//   5. Ticker writes its single line below the frozen text
-		if r.area != nil {
-			// Note: we deliberately do NOT close r.animStop here.
-			// The single animation goroutine is shared between the
-			// spinner area and the streaming preview ticker; closing
-			// it would freeze the previewArea's `⟳` glyph between
-			// chunks. The goroutine itself notices r.area==nil
-			// below and switches to driving previewArea via
-			// refreshPreviewLineLocked.
-			// Frozen-frame print suppression on retry rounds: only
-			// the FIRST round's frame is printed to scrollback. On
-			// rounds 2+ the prior round already left a frozen frame
-			// + bordered answer (or fail-loud notice) above; printing
-			// another frame would duplicate every "✓ 已 X" row in
-			// the user's terminal, exactly the visual stutter the
-			// user reported in the HiTraceAnalyzer trace where the
-			// whole task list re-printed on every retry round.
-			//
-			// hideRunningFinalize=true: the live ticker below this
-			// snapshot owns the finalize state, so don't print a
-			// stale "⠙ 正在生成最终答案" line in scrollback that
-			// would later contradict the persistent "✓ 已生成最终
-			// 答案" line RenderResult prepends to the bordered
-			// answer.
-			r.area.Stop()
-			r.area = nil
-			if r.previewRound == 0 {
-				frozen := r.composeStatusFrameWithFilter(true)
-				if frozen != "" {
-					// Trim trailing newlines so the spacer below
-					// (added before the ticker line) is the canonical
-					// gap; doubled newlines in pterm output would
-					// stack visually.
-					fmt.Fprintln(os.Stdout, strings.TrimRight(frozen, "\n"))
-				}
-			}
-		}
+		// Sentinel: a non-nil previewArea signals "streaming in
+		// progress" so previewStreamMeta() in redraw() includes
+		// the meta segment. We don't actually use the
+		// ttyPreviewArea instance for screen output anymore — the
+		// liveBar owns the line.
 		r.previewArea = newTTYPreviewArea(os.Stdout)
 		r.previewRound++
 	}
-	chars := utf8.RuneCountInString(ev.PreviewText)
-	maxCols := previewLineMaxCols()
-	roundLabel := ""
-	if r.previewRound > 1 {
-		roundLabel = fmt.Sprintf("#%d ", r.previewRound)
-	}
-	// Build the ticker line piece-by-piece so each segment carries
-	// a colour matching its semantic role — same brightness ladder
-	// as renderStatusLine for a regular running row, so the user
-	// reads the ticker as "another running stage" rather than a
-	// dim/done line. Pre-2026-04-30 the whole line was sprinted in
-	// pterm.FgDarkGray, which made "正在生成最终答案" (running text)
-	// render in the done-row colour — directly contradicting the
-	// state the text described.
-	//
-	// Layout (mirrors renderStatusLine: "  <icon> <primary> · <meta> · <detail>"):
-	//   "  "                    indent (2 cols, aligns with status rows)
-	//   ⟳                       glyph in statusRecoverable (animating cue)
-	//   " 正在生成最终答案"     primary running text in statusPrimary
-	//   " · #N · 已收到 N 字"   meta in statusMeta (round + char count)
-	//   " · <tail snippet>"     detail in statusDetail (gray)
 	r.previewLastChunk = ev.PreviewText
-	r.renderPreviewLineLocked(ev.PreviewText, chars, roundLabel, maxCols)
+	// Force a redraw so the streamMeta segment updates immediately
+	// instead of waiting for the next animation tick.
+	r.redraw()
 }
 
 // renderPreviewLineLocked composes and pushes the streaming-finalize
@@ -1860,37 +1890,30 @@ func stylePreviewLine(plain, primaryText, metaText, glyph string) string {
 	return b.String()
 }
 
-// handlePreviewClearLocked is called with r.mu held. Tears down
-// r.previewArea. PreviewRejected=true briefly flashes a "[已重写]"
-// notice on the same single line so the user knows the just-shown
-// draft was rejected by the AnswerContract / Tier1 floor gates;
-// PreviewRejected=false (success path) just wipes the line so the
-// styled final answer prints on a clean canvas.
+// handlePreviewClearLocked is called with r.mu held. Clears the
+// streaming-mode sentinel so subsequent redraw()s drop the
+// streamMeta segment and the bar returns to "正在撰写最终答案"
+// (without the "已收到 N 字 · 回复中:" suffix). On rejection
+// (PreviewRejected=true), surface a brief "已重写" notice in the
+// liveBar before clearing.
 func (r *Renderer) handlePreviewClearLocked(ev Event) {
 	if r.previewArea == nil {
 		return
 	}
-	if ev.PreviewRejected {
+	if ev.PreviewRejected && r.bar != nil {
 		notice := truncByTerminalWidth("✗ 上一份草稿已被规则丢弃,正在重写", previewLineMaxCols())
-		r.previewArea.Update(pterm.FgYellow.Sprint(notice))
-		// Release the lock during the brief flash so other events
-		// (reasoning, next chunk) can not deadlock waiting on us.
+		r.bar.Update(statusRecoverable.Sprint(notice))
 		r.mu.Unlock()
 		time.Sleep(300 * time.Millisecond)
 		r.mu.Lock()
-		r.previewArea.Stop()
-		r.previewArea = nil
-		r.previewLastChunk = ""
-		return
 	}
-	// Success path: just wipe the ticker row. The persistent
-	// "✓ 已生成最终答案" line is printed by RenderResult so both
-	// streaming-finalize (ticker was open) and non-streaming
-	// (ticker never opened) paths surface the same confirmation
-	// — single source of truth, no duplicate printing.
-	r.previewArea.Stop()
+	// Clear streaming sentinel + last-chunk cache. Next redraw()
+	// drops the streamMeta segment automatically.
 	r.previewArea = nil
 	r.previewLastChunk = ""
+	if r.bar != nil {
+		r.redraw()
+	}
 }
 
 // printFinalizeBanner emits the persistent "✓ 已生成最终答案" /
