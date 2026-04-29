@@ -833,6 +833,21 @@ func (r *Renderer) findNodeRow(id string) *taskRow {
 // guarantee no line ever wraps, by clamping every emitted line to
 // (terminal_width - small margin) display columns.
 func (r *Renderer) redraw() {
+	r.area.Update(r.composeStatusFrame())
+}
+
+// composeStatusFrame builds the same content redraw() sends to
+// pterm.Area but returns it as a string instead of pushing to the
+// area. Used by the preview-handover path: when the first
+// EventLivePreviewChunk fires, we want to FREEZE the spinner area's
+// last-rendered state as static text above the ticker line so the
+// user keeps seeing the validate / reconcile / extract status
+// history during retry rounds. Without freeze the area's
+// WithRemoveWhenDone(true) erases everything, leaving the ticker
+// alone with no context.
+//
+// Must be called with r.mu held (same as redraw).
+func (r *Renderer) composeStatusFrame() string {
 	var b strings.Builder
 	elapsed := time.Since(r.startTime).Truncate(time.Second)
 	frame := spinnerFrames[r.animFrame%len(spinnerFrames)]
@@ -845,9 +860,6 @@ func (r *Renderer) redraw() {
 	}
 
 	// Objective line (single-task wrapper collapsed into one row).
-	// Localized + muted via composeObjectiveLine — the pre-2026-04-30
-	// renderer hardcoded FgGreen / FgCyan here which made the
-	// objective compete visually with the bordered final answer.
 	if r.objective != "" {
 		line := composeObjectiveLine(r.objective, r.objectiveDone)
 		b.WriteString(truncByDisplayWidth(line, maxCols))
@@ -855,13 +867,6 @@ func (r *Renderer) redraw() {
 		b.WriteString("\n")
 	}
 
-	// Task list: rebuilt as statusBlocks so taskRow internals stay
-	// out of redraw(). buildStatusBlocks aggregates topic rows under
-	// the "Understanding the request" parent, classifies each row
-	// into recoverable/fatal/cancelled buckets, and localizes every
-	// surfaced string to r.lang. renderStatusBlock paints the colour
-	// + indent, redraw() owns the per-line truncation + separators
-	// so pterm.Area's row-count tracking stays correct.
 	rows := r.visibleRows()
 	now := time.Now()
 	blocks := r.buildStatusBlocks(rows, frame, now)
@@ -875,17 +880,13 @@ func (r *Renderer) redraw() {
 		}
 	}
 
-	// Footer: total elapsed for the whole pipeline. composeFooter
-	// localizes the "Total elapsed" / "总耗时" label and threads the
-	// caller-supplied cancelHint OR a defaultCancelHint when the
-	// REPL hasn't set one.
 	if len(blocks) > 0 {
 		b.WriteByte('\n')
 		footer := composeFooter(frame, elapsed.String(), r.cancelHint, r.lang)
 		b.WriteString(truncByDisplayWidth(footer, maxCols))
 	}
 
-	r.area.Update(b.String())
+	return b.String()
 }
 
 // visibleRows returns the task rows to draw this frame. Running rows
@@ -1295,8 +1296,20 @@ func (r *Renderer) handlePreviewChunkLocked(ev Event) {
 		return
 	}
 	if r.previewArea == nil {
-		// Stop the spinner area if it is still active so the ticker
-		// owns the bottom row of the terminal cleanly.
+		// Stop the spinner area BUT preserve its last-rendered
+		// state as static text above the ticker. Without this
+		// freeze, the validate / reconcile / extract status
+		// history disappears the moment the first preview chunk
+		// arrives — and if a retry fires mid-finalize, the user
+		// sees only the ticker with no context.
+		//
+		// Sequence:
+		//   1. Stop the animation goroutine (no more redraws)
+		//   2. Capture the current frame as a string
+		//   3. Stop pterm.Area (WithRemoveWhenDone(true) erases)
+		//   4. Print the captured frame to stdout — terminal
+		//      keeps it as scrollback above the cursor
+		//   5. Ticker writes its single line below the frozen text
 		if r.area != nil {
 			if r.animStop != nil {
 				select {
@@ -1306,8 +1319,16 @@ func (r *Renderer) handlePreviewChunkLocked(ev Event) {
 				}
 				r.animStop = nil
 			}
+			frozen := r.composeStatusFrame()
 			r.area.Stop()
 			r.area = nil
+			if frozen != "" {
+				// Trim trailing newlines so the spacer below
+				// (added before the ticker line) is the canonical
+				// gap; doubled newlines in pterm output would
+				// stack visually.
+				fmt.Fprintln(os.Stdout, strings.TrimRight(frozen, "\n"))
+			}
 		}
 		r.previewArea = newTTYPreviewArea(os.Stdout)
 		r.previewRound++

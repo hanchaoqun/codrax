@@ -41,8 +41,9 @@ func TestTTYPreviewArea_SecondUpdateAlsoClearsLine(t *testing.T) {
 }
 
 // TestTTYPreviewArea_StopWipesLineAndResets verifies Stop emits the
-// single-line clear sequence and resets internal state so the
-// subsequent Update behaves as a first-time write again.
+// single-line clear sequence + trailing newline (breathing room
+// before the bordered final answer) and resets internal state so
+// a subsequent Update behaves as a first-time write again.
 func TestTTYPreviewArea_StopWipesLineAndResets(t *testing.T) {
 	var buf bytes.Buffer
 	a := newTTYPreviewArea(&buf)
@@ -50,7 +51,7 @@ func TestTTYPreviewArea_StopWipesLineAndResets(t *testing.T) {
 	buf.Reset()
 	a.Stop()
 	got := buf.String()
-	want := "\r\x1b[2K"
+	want := "\r\x1b[2K\n"
 	if got != want {
 		t.Errorf("Stop: got %q want %q", got, want)
 	}

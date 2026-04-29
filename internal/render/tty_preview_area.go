@@ -78,12 +78,19 @@ func (p *ttyPreviewArea) Update(text string) {
 
 // Stop wipes the ticker line entirely and resets state. After Stop,
 // the next Update behaves as the first.
+//
+// The trailing '\n' adds one row of breathing room between the
+// (now-empty) ticker line and whatever prints next — typically the
+// bordered final answer. Pre-2026-04-30 the bordered answer's top
+// edge butted directly against the wiped ticker row, reading as
+// "the answer is jammed against the spinner". One blank line is
+// enough to visually separate without wasting screen real estate.
 func (p *ttyPreviewArea) Stop() {
 	if p == nil {
 		return
 	}
 	if p.dirty {
-		fmt.Fprint(p.w, "\r\x1b[2K")
+		fmt.Fprint(p.w, "\r\x1b[2K\n")
 		p.dirty = false
 	}
 }
