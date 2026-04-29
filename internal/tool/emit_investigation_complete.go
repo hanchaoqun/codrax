@@ -191,7 +191,7 @@ func (t *EmitInvestigationComplete) Execute(ctx *types.BusContext, params json.R
 				Timestamp: time.Now(),
 			}, nil
 		}
-		if msg, ok := tier1GateReject(ctx, policy.Tier1Floor); !ok {
+		if msg, ok := tier1GateReject(ctx, policy.Tier1Floor, resultKind, justification); !ok {
 			return types.ToolResult{
 				ToolName:  t.Name(),
 				Summary:   msg,
@@ -249,7 +249,7 @@ func (t *EmitInvestigationComplete) Execute(ctx *types.BusContext, params json.R
 	}
 	if resultKind == "absence" && justification != "" {
 		contract := exactResolutionContractForCompletion(ctx)
-		requiredFiles := exactAbsenceRequiredContextFiles(ctx, contract)
+		requiredFiles := types.ExactResolutionRequiredContextFiles(contract, ctx.Mutable)
 		if len(requiredFiles) > 0 {
 			if ctx != nil && ctx.Mutable != nil {
 				closure := ctx.Mutable.EvidenceClosure()
@@ -1326,10 +1326,16 @@ type evidenceTally struct {
 // tallyEvidence classifies each item in the evidence buffer and
 // returns the populated tally. Single source of truth for how the
 // pipeline counts grounding outcomes.
-func tallyEvidence(evidence []types.EvidenceItem) evidenceTally {
+func tallyEvidence(
+	evidence []types.EvidenceItem,
+	contract *types.ExactResolutionContract,
+	scenario types.Scenario,
+	stableAbsent bool,
+	requiredFiles []string,
+) evidenceTally {
 	var t evidenceTally
 	for _, e := range evidence {
-		if !types.EvidenceCountsTowardTier1Floor(e) {
+		if !types.EvidenceCountsTowardTier1FloorInContext(e, contract, scenario, stableAbsent, requiredFiles) {
 			continue
 		}
 		t.total++
@@ -1593,7 +1599,7 @@ func groundingGateReject(ctx *types.BusContext, floor float64) (string, bool) {
 		// for simple list questions). Accept.
 		return "", true
 	}
-	t := tallyEvidence(evidence)
+	t := tallyEvidence(evidence, nil, types.ScenarioGeneric, false, nil)
 	if t.total == 0 {
 		return "", true
 	}
@@ -1642,7 +1648,7 @@ func groundingGateReject(ctx *types.BusContext, floor float64) (string, bool) {
 // complete an investigation it never actually read" — the finalizer
 // grounder's stricter Tier 2 would drop every citation anyway and
 // stall the pipeline.
-func tier1GateReject(ctx *types.BusContext, floor float64) (string, bool) {
+func tier1GateReject(ctx *types.BusContext, floor float64, resultKind, justification string) (string, bool) {
 	if floor <= 0 {
 		return "", true
 	}
@@ -1650,7 +1656,14 @@ func tier1GateReject(ctx *types.BusContext, floor float64) (string, bool) {
 	if len(evidence) == 0 {
 		return "", true
 	}
-	t := tallyEvidence(evidence)
+	contract := exactResolutionContractForCompletion(ctx)
+	scenario := types.ScenarioGeneric
+	if ctx != nil && ctx.AnalysisIR != nil {
+		scenario = ctx.AnalysisIR.RequestModel.Scenario
+	}
+	stableAbsent := resultKind == "absence" && strings.TrimSpace(justification) != ""
+	requiredFiles := types.ExactResolutionRequiredContextFiles(contract, ctx.Mutable)
+	t := tallyEvidence(evidence, contract, scenario, stableAbsent, requiredFiles)
 	if t.total == 0 {
 		return "", true
 	}
@@ -1705,7 +1718,7 @@ func tier1GateReject(ctx *types.BusContext, floor float64) (string, bool) {
 // at least one item whose grounder verdict is grounded or recovered.
 // Drives the absence-vs-grounded contradiction gate in Execute.
 func hasGroundedOrRecovered(items []types.EvidenceItem) bool {
-	return tallyEvidence(items).hasAny()
+	return tallyEvidence(items, nil, types.ScenarioGeneric, false, nil).hasAny()
 }
 
 func allowsContextualEvidenceForAbsence(ctx *types.BusContext, reason, justification string, evidence []types.EvidenceItem) bool {
@@ -1883,7 +1896,7 @@ func normalizeExactAbsenceCompletion(ctx *types.BusContext, resultKind, reason, 
 	if ctx.AnalysisIR != nil {
 		scenario = ctx.AnalysisIR.RequestModel.Scenario
 	}
-	requiredFiles := exactAbsenceRequiredContextFiles(ctx, contract)
+	requiredFiles := types.ExactResolutionRequiredContextFiles(contract, ctx.Mutable)
 	evidence := ctx.Mutable.EmittedEvidence()
 	if resultKind == "resolved" &&
 		justification == "" &&
@@ -1967,18 +1980,6 @@ func evidenceDirectlyAnchorsAnyListedExactTarget(contract *types.ExactResolution
 		}
 	}
 	return false
-}
-
-func exactAbsenceRequiredContextFiles(ctx *types.BusContext, contract *types.ExactResolutionContract) []string {
-	if ctx == nil || ctx.Mutable == nil || contract == nil || !contract.AllowAbsence {
-		return nil
-	}
-	switch contract.RelatedContextPolicy {
-	case types.ExactContextSameFamilyGrounded, types.ExactContextSameDirectoryGrounded:
-	default:
-		return nil
-	}
-	return ctx.Mutable.ExactContextRequiredFiles()
 }
 
 func evidenceHasGroundedRelatedContextProof(contract *types.ExactResolutionContract, scenario types.Scenario, items []types.EvidenceItem, requiredFiles []string) bool {

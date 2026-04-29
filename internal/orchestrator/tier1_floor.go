@@ -44,7 +44,11 @@ func (o *Orchestrator) checkTier1Floor(ir *types.AnalysisIR, state *graphState) 
 		// absence checks will handle.
 		return "", true, false
 	}
-	tier1, total := countTier1Evidence(evidence)
+	contract := types.BuildExactResolutionContract(ir.RequestModel)
+	stableAbsent := strings.EqualFold(strings.TrimSpace(o.busCtx.Mutable.StableInvestigationResultKind()), "absence") &&
+		strings.TrimSpace(o.busCtx.Mutable.StableAbsenceJustification()) != ""
+	requiredFiles := types.ExactResolutionRequiredContextFiles(contract, o.busCtx.Mutable)
+	tier1, total := countTier1Evidence(evidence, contract, ir.RequestModel.Scenario, stableAbsent, requiredFiles)
 	if total == 0 {
 		return "", true, false
 	}
@@ -71,9 +75,15 @@ func (o *Orchestrator) checkTier1Floor(ir *types.AnalysisIR, state *graphState) 
 // GroundingStatus items (deterministic concrete_value scans) count
 // toward tier1 — they are facts extracted from source, not LLM
 // speculation, and should not push the floor down.
-func countTier1Evidence(evidence []types.EvidenceItem) (tier1, total int) {
+func countTier1Evidence(
+	evidence []types.EvidenceItem,
+	contract *types.ExactResolutionContract,
+	scenario types.Scenario,
+	stableAbsent bool,
+	requiredFiles []string,
+) (tier1, total int) {
 	for _, e := range evidence {
-		if !types.EvidenceCountsTowardTier1Floor(e) {
+		if !types.EvidenceCountsTowardTier1FloorInContext(e, contract, scenario, stableAbsent, requiredFiles) {
 			continue
 		}
 		total++

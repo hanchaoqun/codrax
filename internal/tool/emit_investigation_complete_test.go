@@ -1285,6 +1285,81 @@ func TestEmitInvestigationComplete_ConfigAbsenceRejectsRecoveredRequiredContext(
 	}
 }
 
+func TestEmitInvestigationComplete_ConfigAbsenceIgnoresAuxiliaryRecoveredContextInTier1Floor(t *testing.T) {
+	prev := CurrentGroundingPolicy()
+	SetGroundingPolicy(GroundingPolicy{GroundingFloor: 0.5, Tier1Floor: 0.3})
+	t.Cleanup(func() { SetGroundingPolicy(prev) })
+
+	missingKey := "explore_mid_loop_missing_knob"
+	mut := types.NewMutableState("q")
+	mut.SetExactContextRequiredFiles([]string{"internal/types/config.go"})
+	mut.AppendEvidence([]types.EvidenceItem{
+		{
+			Kind:            types.EvidenceDirect,
+			Source:          "internal/config/runtime.go",
+			LineStart:       296,
+			LineEnd:         310,
+			Subject:         missingKey,
+			AnchorKind:      types.AnchorAssignment,
+			AnchorSymbol:    "ExploreMidLoopMinIteration",
+			Summary:         "RuntimeSettings does not define " + missingKey,
+			ContextRole:     types.EvidenceContextRoleAbsenceSupport,
+			GroundingStatus: types.GroundingGrounded,
+			GroundingTier:   types.TierLineText,
+		},
+		{
+			Kind:            types.EvidenceDirect,
+			Source:          "internal/types/config.go",
+			LineStart:       848,
+			LineEnd:         865,
+			Subject:         "DefaultExploreHeuristics",
+			AnchorKind:      types.AnchorDefinition,
+			AnchorSymbol:    "DefaultExploreHeuristics",
+			Summary:         "Grounded same-family defaults context for nearby explore settings.",
+			ContextRole:     types.EvidenceContextRoleRelatedContext,
+			DiagramRole:     types.EvidenceDiagramRoleDefault,
+			GroundingStatus: types.GroundingGrounded,
+			GroundingTier:   types.TierLineText,
+		},
+		{
+			Kind:            types.EvidenceDirect,
+			Source:          "internal/types/config.go",
+			LineStart:       768,
+			LineEnd:         784,
+			Subject:         "ExploreHeuristics",
+			AnchorKind:      types.AnchorDefinition,
+			AnchorSymbol:    "ExploreHeuristics",
+			Summary:         "Nearby same-family struct context.",
+			ContextRole:     types.EvidenceContextRoleRelatedContext,
+			GroundingStatus: types.GroundingRecovered,
+		},
+	})
+	bus := &types.BusContext{
+		Mutable: mut,
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			RawRequest: missingKey + " 的最终有效值是怎么计算出来的？",
+			Scenario:   types.ScenarioConfigTrace,
+			AnalyzerHints: types.AnalyzerHints{
+				Kind:            "config_mapping",
+				PrimaryEntities: []string{missingKey},
+				Entities:        []string{missingKey},
+				ExactTargets:    []string{missingKey},
+			},
+			AnswerSubject: types.AnswerSubject{Kind: types.SubjectConfigKey},
+		}},
+	}
+	tool := &EmitInvestigationComplete{}
+
+	params := json.RawMessage(`{"reason":"searched the repo and found no exact config key ` + missingKey + ` in production code","confidence":"high","result_kind":"absence","absence_justification":"no config key named ` + missingKey + ` exists in the repo"}`)
+	res, err := tool.Execute(bus, params)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("auxiliary recovered nearby-context items should not force a tier1-floor retry once exact-absence closure already has a grounded same-scope anchor: %s", res.Summary)
+	}
+}
+
 func TestEmitInvestigationComplete_ConfigAbsenceBypassesGroundingFloorsForContextOnlyEvidence(t *testing.T) {
 	prev := CurrentGroundingPolicy()
 	SetGroundingPolicy(GroundingPolicy{GroundingFloor: 0.5, Tier1Floor: 0.3})

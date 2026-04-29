@@ -16,7 +16,7 @@ func TestCountTier1Evidence(t *testing.T) {
 		{GroundingStatus: types.GroundingUngrounded},
 		{}, // legacy empty-status → counts as Tier-1
 	}
-	tier1, total := countTier1Evidence(items)
+	tier1, total := countTier1Evidence(items, nil, types.ScenarioGeneric, false, nil)
 	if total != 5 {
 		t.Errorf("total = %d, want 5", total)
 	}
@@ -38,7 +38,7 @@ func TestCountTier1Evidence_AllRecovered(t *testing.T) {
 		{GroundingStatus: types.GroundingRecovered},
 		{GroundingStatus: types.GroundingRecovered},
 	}
-	tier1, total := countTier1Evidence(items)
+	tier1, total := countTier1Evidence(items, nil, types.ScenarioGeneric, false, nil)
 	if tier1 != 0 {
 		t.Errorf("tier1 = %d, want 0", tier1)
 	}
@@ -66,11 +66,46 @@ func TestCountTier1Evidence_SkipsAuxiliaryExactResolutionContext(t *testing.T) {
 			Kind:            types.EvidenceDirect,
 		},
 	}
-	tier1, total := countTier1Evidence(items)
+	tier1, total := countTier1Evidence(items, nil, types.ScenarioGeneric, false, nil)
 	if total != 1 {
 		t.Fatalf("auxiliary illustrative/absence-support items should be excluded from tier1 denominator, got total=%d", total)
 	}
 	if tier1 != 1 {
 		t.Fatalf("remaining grounded related-context item should count, got tier1=%d", tier1)
+	}
+}
+
+func TestCountTier1Evidence_ExactAbsenceSkipsNonClosureRelatedContext(t *testing.T) {
+	contract := &types.ExactResolutionContract{
+		AllowAbsence:         true,
+		TargetKind:           types.SubjectConfigKey,
+		Targets:              []string{"explore_mid_loop_hint_budget"},
+		RelatedContextPolicy: types.ExactContextSameFamilyGrounded,
+	}
+	items := []types.EvidenceItem{
+		{
+			Kind:            types.EvidenceDirect,
+			Source:          "internal/types/config.go",
+			LineStart:       848,
+			AnchorKind:      types.AnchorDefinition,
+			AnchorSymbol:    "DefaultExploreHeuristics",
+			ContextRole:     types.EvidenceContextRoleRelatedContext,
+			DiagramRole:     types.EvidenceDiagramRoleDefault,
+			GroundingStatus: types.GroundingRecovered,
+		},
+		{
+			Kind:            types.EvidenceDirect,
+			Source:          "internal/config/runtime.go",
+			LineStart:       296,
+			AnchorKind:      types.AnchorAssignment,
+			AnchorSymbol:    "ExploreMidLoopMinIteration",
+			ContextRole:     types.EvidenceContextRoleRelatedContext,
+			GroundingStatus: types.GroundingGrounded,
+			GroundingTier:   types.TierLineText,
+		},
+	}
+	tier1, total := countTier1Evidence(items, contract, types.ScenarioConfigTrace, true, []string{"internal/types/config.go"})
+	if total != 0 || tier1 != 0 {
+		t.Fatalf("non-closure related_context items should not count during exact-absence closure, got tier1=%d total=%d", tier1, total)
 	}
 }

@@ -327,6 +327,51 @@ func EvidenceCountsTowardTier1Floor(ev EvidenceItem) bool {
 	}
 }
 
+// ExactResolutionRequiredContextFiles returns the live same-scope file
+// set for exact-absence related-context closure when the contract
+// explicitly asked for grounded same-family/same-directory context.
+// The helper lives in types so explorer completion, emit_* tools, and
+// the orchestrator all consume the same authority instead of
+// re-deriving required files independently.
+func ExactResolutionRequiredContextFiles(contract *ExactResolutionContract, mutable *MutableState) []string {
+	if contract == nil || mutable == nil || !contract.AllowAbsence {
+		return nil
+	}
+	switch contract.RelatedContextPolicy {
+	case ExactContextSameFamilyGrounded, ExactContextSameDirectoryGrounded:
+		return mutable.ExactContextRequiredFiles()
+	default:
+		return nil
+	}
+}
+
+// EvidenceCountsTowardTier1FloorInContext reports whether an evidence
+// item should contribute to the Tier-1 denominator for the current
+// completion context. The base rule excludes unresolved /
+// illustrative-only / absence-support items. Exact-absence closures
+// tighten further: nearby related_context items count only when they
+// are strong enough to participate in closure as real same-scope
+// proof, rather than being prose-only nearby context the answer may
+// mention but need not cite.
+func EvidenceCountsTowardTier1FloorInContext(
+	ev EvidenceItem,
+	contract *ExactResolutionContract,
+	scenario Scenario,
+	stableAbsent bool,
+	requiredFiles []string,
+) bool {
+	if !EvidenceCountsTowardTier1Floor(ev) {
+		return false
+	}
+	if !stableAbsent || contract == nil || len(contract.Targets) == 0 {
+		return true
+	}
+	if ev.ContextRole != EvidenceContextRoleRelatedContext {
+		return true
+	}
+	return ExactResolutionRelatedContextProofAllowedInFiles(contract, scenario, true, ev, requiredFiles)
+}
+
 // FlowFindingDigest is the compact, stage-safe output of the dataflow
 // engine. It intentionally omits the full graph and preserves only the
 // user-facing path plus the evidence IDs needed for replay.
