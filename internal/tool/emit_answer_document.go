@@ -188,9 +188,9 @@ func detectAnswerDocRegression(prior *types.AnswerDocAttemptShape, current *type
 		return false, ""
 	}
 	type drop struct {
-		name      string
-		prior     int
-		current   int
+		name    string
+		prior   int
+		current int
 	}
 	candidates := []drop{
 		{"citations", prior.CitationsCount, current.CitationsCount},
@@ -807,6 +807,8 @@ func (t *EmitAnswerDocument) Execute(ctx *types.BusContext, params json.RawMessa
 	}
 	p.Summary = normalizeRequiredDiagramSummarySurface(p.Summary, citations, groundCtx, ctx)
 	p.Summary = normalizeMinimalRoleLocateSummarySurface(p.Summary, shape, &p, citations, ctx)
+	p.Summary = normalizeConfigTraceAbsentSummarySurface(p.Summary, ctx, resolvedExact)
+	p.Summary = normalizeLogSourceDriftSummarySurface(p.Summary, citations, groundCtx, ctx)
 	// CGEC D1: push the per-citation RepairDirectives onto the
 	// closure so the orchestrator's renderWindowHint can drain them
 	// into the next explore round's Forced Read List. AddRepair is
@@ -896,7 +898,6 @@ func (t *EmitAnswerDocument) Execute(ctx *types.BusContext, params json.RawMessa
 		ExactResolution: resolvedExact,
 		Citations:       citations,
 	}
-	doc.Summary = normalizeLogSourceDriftSummarySurface(doc.Summary, citations, groundCtx, ctx)
 
 	// Mermaid → aligned ASCII. When the model emits a ```mermaid```
 	// fenced block, the pgavlin/mermaid-ascii library re-lays it
@@ -4067,17 +4068,26 @@ func normalizeConfigTraceAbsentSummarySurface(summary string, ctx *types.BusCont
 	if plan == nil {
 		return summary
 	}
-	stripped := strings.TrimSpace(stripSummaryFencedBlocks(summary))
-	dc := answerDiagramContract(ctx)
-	if dc == nil || !dc.Required {
-		if stripped != "" {
-			return stripped
+	if summaryDiagramFenceCount(summary) > 0 {
+		dc := answerDiagramContract(ctx)
+		if dc == nil || !dc.Required {
+			return strings.TrimSpace(summary)
 		}
-		return summary
 	}
+	stripped := strings.TrimSpace(stripSummaryFencedBlocks(summary))
 	fence := strings.TrimSpace(plan.CompiledDiagramFence)
 	if fence == "" || plan.CompiledDiagramKind != types.DiagramFlow {
 		fence = types.RenderConfigTraceDiagramFence(plan.ConfigTraceDiagramAnchors)
+	}
+	dc := answerDiagramContract(ctx)
+	if dc == nil || !dc.Required {
+		if fence == "" {
+			return strings.TrimSpace(summary)
+		}
+		if stripped != "" {
+			return strings.TrimSpace(stripped + "\n\n" + fence)
+		}
+		return fence
 	}
 	if fence == "" {
 		if stripped != "" {

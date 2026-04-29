@@ -407,6 +407,64 @@ func TestBuildAnswerSurfacePlan_LogObservedAnchorsPreferAuthoritativeBindings(t 
 	}
 }
 
+func TestBuildAnswerSurfacePlan_CompilesDiagramFenceFromObservedAnchorsWhenAvailable(t *testing.T) {
+	mut := NewMutableState("")
+	logBundle := &LogBundle{
+		Errors: []LogError{{
+			Frames: []LogFrame{
+				{File: "internal/agent/analyzer.go", Line: 250, Func: "buildAnalysisIR"},
+				{File: "internal/agent/analyzer.go", Line: 320, Func: "ParseOutput"},
+			},
+		}},
+	}
+	ir := &AnalysisIR{
+		RequestModel: RequestModel{
+			Scenario: ScenarioRootCause,
+			Intent:   IntentRootCause,
+		},
+		AnswerContract: AnswerContract{
+			RequiredAnswerShape: ShapeExplanation,
+			Diagram: &DiagramContract{
+				Required:       true,
+				PreferredKinds: []DiagramKind{DiagramCallDAG},
+			},
+		},
+	}
+	evidence := []EvidenceItem{
+		{
+			Kind:            EvidenceDirect,
+			Source:          "internal/agent/analyzer.go",
+			LineStart:       860,
+			AnchorKind:      AnchorDefinition,
+			AnchorSymbol:    "buildAnalysisIR",
+			GroundingStatus: GroundingGrounded,
+		},
+		{
+			Kind:            EvidenceRelationship,
+			Source:          "internal/agent/analyzer.go",
+			LineStart:       651,
+			AnchorKind:      AnchorCall,
+			AnchorSymbol:    "buildAnalysisIR",
+			Subject:         "ParseOutput",
+			Object:          "buildAnalysisIR",
+			GroundingStatus: GroundingGrounded,
+		},
+	}
+
+	plan := BuildAnswerSurfacePlan(ir, mut, logBundle, nil, nil, evidence)
+	if plan == nil {
+		t.Fatal("BuildAnswerSurfacePlan returned nil")
+	}
+	if !strings.Contains(plan.CompiledDiagramFence, "internal/agent/analyzer.go:860") ||
+		!strings.Contains(plan.CompiledDiagramFence, "internal/agent/analyzer.go:651") {
+		t.Fatalf("compiled fence should prefer observed anchored lines over raw log frames, got: %q", plan.CompiledDiagramFence)
+	}
+	if strings.Contains(plan.CompiledDiagramFence, "internal/agent/analyzer.go:250") ||
+		strings.Contains(plan.CompiledDiagramFence, "internal/agent/analyzer.go:320") {
+		t.Fatalf("compiled fence should not fall back to raw drifted frame lines when observed anchors exist, got: %q", plan.CompiledDiagramFence)
+	}
+}
+
 func TestBuildAnswerSurfacePlan_UsesDriftBoundedRootCauseModeForRootCauseLogs(t *testing.T) {
 	mut := NewMutableState("")
 	logBundle := &LogBundle{

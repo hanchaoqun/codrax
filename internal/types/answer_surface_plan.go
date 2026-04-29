@@ -631,8 +631,8 @@ func RenderLinearDiagramFence(nodes []string, limit int) string {
 // characters get a synthetic short id and a quoted label.
 func renderMermaidLinearFence(nodes []string) string {
 	type rendered struct {
-		id    string
-		decl  string // optional `id["label"]` declaration line; empty if id == label
+		id   string
+		decl string // optional `id["label"]` declaration line; empty if id == label
 	}
 	prepared := make([]rendered, 0, len(nodes))
 	for i, raw := range nodes {
@@ -755,6 +755,65 @@ func RenderLogDiagramFence(bundle *LogBundle) string {
 	return b.String()
 }
 
+// RenderLogAnchorDiagramFence emits a grounded Mermaid call chain from
+// already-reconciled log anchors. Unlike RenderLogDiagramFence, which
+// mirrors the observed log frames directly, this helper prefers the
+// current anchored file:line bindings recovered during drift
+// reconciliation so downstream answers can keep their diagrams aligned
+// with the citations they are allowed to show.
+func RenderLogAnchorDiagramFence(anchors []LogSourceDriftAnchor) string {
+	if len(anchors) < 2 {
+		return ""
+	}
+	type prepared struct {
+		id    string
+		label string
+	}
+	rows := make([]prepared, 0, len(anchors))
+	for i, anchor := range anchors {
+		file := strings.TrimSpace(anchor.File)
+		if file == "" {
+			file = strings.TrimSpace(anchor.OriginalFile)
+		}
+		line := anchor.AnchoredLine
+		if line <= 0 {
+			line = anchor.ObservedLine
+		}
+		if file == "" || line <= 0 {
+			return ""
+		}
+		location := fmt.Sprintf("%s:%d", file, line)
+		name := strings.TrimSpace(firstNonEmptySurfaceString(anchor.Func, anchor.OriginalFunc))
+		if name == "" {
+			name = "(no symbol)"
+		}
+		var label string
+		switch {
+		case i == 0:
+			label = fmt.Sprintf("innermost: %s in %s", location, name)
+		case i == len(anchors)-1:
+			label = fmt.Sprintf("outermost caller: %s in %s", location, name)
+		default:
+			label = fmt.Sprintf("caller: %s in %s", location, name)
+		}
+		rows = append(rows, prepared{
+			id:    fmt.Sprintf("frame%d", i),
+			label: label,
+		})
+	}
+	var b strings.Builder
+	b.WriteString("```mermaid\n")
+	b.WriteString("flowchart LR\n")
+	for _, r := range rows {
+		fmt.Fprintf(&b, "    %s[%q]\n", r.id, r.label)
+	}
+	for i := 0; i < len(rows)-1; i++ {
+		fmt.Fprintf(&b, "    %s --> %s\n", rows[i].id, rows[i+1].id)
+	}
+	b.WriteString("```")
+	return b.String()
+}
+
 func RenderFlowFindingDiagramFence(findings []FlowFindingDigest) string {
 	for _, finding := range findings {
 		if fence := RenderLinearDiagramFence(flowFindingDiagramNodes(finding), 6); fence != "" {
@@ -784,6 +843,8 @@ func CompileDiagramSurfaceFence(
 	dc *DiagramContract,
 	scenario Scenario,
 	logBundle *LogBundle,
+	logObserved []LogSourceDriftAnchor,
+	logDrift []LogSourceDriftAnchor,
 	flowFindings []FlowFindingDigest,
 	answerChains []AnswerChain,
 	configAnchors []ConfigTraceDiagramAnchor,
@@ -800,6 +861,12 @@ func CompileDiagramSurfaceFence(
 				return kind, fence
 			}
 		case DiagramSequence, DiagramCallDAG:
+			if fence := RenderLogAnchorDiagramFence(logObserved); fence != "" {
+				return kind, fence
+			}
+			if fence := RenderLogAnchorDiagramFence(logDrift); fence != "" {
+				return kind, fence
+			}
 			if fence := RenderLogDiagramFence(logBundle); fence != "" {
 				return kind, fence
 			}
@@ -869,6 +936,21 @@ func BuildAnswerSurfacePlan(
 	ApplyEvidenceStepBackbone(plan, plan.SurfaceEvidence)
 	applyRequestedEnumerationBoundaryStepBackbone(plan, ir)
 	ApplyEvidenceExplanationAnchorBackbone(plan, ir, plan.SurfaceEvidence)
+	plan.LogObservedAnchors = CollectLogObservedAnchors(
+		ir.RequestModel,
+		logBundle,
+		plan.SurfaceEvidence,
+	)
+	plan.LogSourceDriftAnchors = CollectLogSourceDriftAnchors(
+		ir.RequestModel,
+		logBundle,
+		plan.SurfaceEvidence,
+	)
+	plan.DriftBoundedSurfaceItems = CollectDriftBoundedSurfaceItems(
+		plan.LogObservedAnchors,
+		plan.LogSourceDriftAnchors,
+		plan.SurfaceEvidence,
+	)
 
 	supported := SupportedDiagramKindsForAnswer(
 		ir.RequestModel.Scenario,
@@ -896,24 +978,11 @@ func BuildAnswerSurfacePlan(
 		plan.Diagram,
 		ir.RequestModel.Scenario,
 		logBundle,
+		plan.LogObservedAnchors,
+		plan.LogSourceDriftAnchors,
 		flowFindings,
 		answerChains,
 		plan.ConfigTraceDiagramAnchors,
-	)
-	plan.LogObservedAnchors = CollectLogObservedAnchors(
-		ir.RequestModel,
-		logBundle,
-		plan.SurfaceEvidence,
-	)
-	plan.LogSourceDriftAnchors = CollectLogSourceDriftAnchors(
-		ir.RequestModel,
-		logBundle,
-		plan.SurfaceEvidence,
-	)
-	plan.DriftBoundedSurfaceItems = CollectDriftBoundedSurfaceItems(
-		plan.LogObservedAnchors,
-		plan.LogSourceDriftAnchors,
-		plan.SurfaceEvidence,
 	)
 	plan.PreferredExactResolution = preferredExactResolutionSurface(plan)
 	plan.SummarySurfaceMode = preferredAnswerSummarySurfaceMode(plan, ir.RequestModel)

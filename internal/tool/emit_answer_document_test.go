@@ -2142,9 +2142,16 @@ func TestEmitAnswerDocument_DriftBoundedSummaryFallsBackForMultiBlockReasoning(t
 		t.Fatalf("fallback summary should stay anchored on the grounded failure path: %q", doc.Summary)
 	}
 	// Compiled call-chain fence is Mermaid now (rendered to a
-	// ```text``` ASCII grid). Assert on the grounded labels.
-	if !strings.Contains(doc.Summary, "internal/agent/analyzer.go:250") {
-		t.Fatalf("fallback summary should still append compiled call-chain fence: %q", doc.Summary)
+	// ```text``` ASCII grid). When authoritative observed anchors
+	// exist, the fence should stay on those current anchored lines
+	// instead of falling back to the raw drifted log frame numbers.
+	for _, want := range []string{
+		"internal/agent/analyzer.go:651",
+		"internal/agent/analyzer.go:860",
+	} {
+		if !strings.Contains(doc.Summary, want) {
+			t.Fatalf("fallback summary should append the current observed call-chain fence label %q: %q", want, doc.Summary)
+		}
 	}
 }
 
@@ -4164,6 +4171,90 @@ func TestEmitAnswerDocument_NormalizesConfigTraceAbsentFencesToCompiledDiagram(t
 	}
 	if !strings.Contains(doc.Summary, "internal/config/runtime.go:231") || !strings.Contains(doc.Summary, "internal/types/config.go:707") {
 		t.Fatalf("normalized summary should keep the compiled grounded precedence fence, got: %q", doc.Summary)
+	}
+}
+
+func TestEmitAnswerDocument_ConfigTraceAbsentAppendsOptionalCompiledDiagramForRichness(t *testing.T) {
+	tool := &EmitAnswerDocument{}
+	ctx := newDocBusCtx("")
+	target := "explore_mid_loop_hint_budget"
+	ctx.AnalysisIR = &types.AnalysisIR{
+		RequestModel: types.RequestModel{
+			Scenario: types.ScenarioConfigTrace,
+			AnalyzerHints: types.AnalyzerHints{
+				Kind:         "config_mapping",
+				ExactTargets: []string{target},
+			},
+			AnswerSubject: types.AnswerSubject{Kind: types.SubjectConfigKey},
+		},
+		AnswerContract: types.AnswerContract{
+			RequiredAnswerShape: types.ShapeExplanation,
+			Diagram: &types.DiagramContract{
+				Required:       false,
+				PreferredKinds: []types.DiagramKind{types.DiagramFlow},
+			},
+			ExactResolution: &types.ExactResolutionContract{
+				TargetKind:              types.SubjectConfigKey,
+				TargetLabel:             "config key",
+				Targets:                 []string{target},
+				AllowAbsence:            true,
+				RequireTargetMention:    true,
+				AliasRequiresProof:      true,
+				RelatedContextPolicy:    types.ExactContextSameFamilyGrounded,
+				RelatedContextScopeHint: "same namespace / prefix family",
+			},
+		},
+	}
+	ctx.Mutable.SetAbsenceJustification("repo-wide search found no exact key")
+	ctx.Mutable.SetInvestigationResultKind("absence")
+	ctx.Mutable.SetExactContextRequiredFiles([]string{"internal/types/config.go", "internal/config/runtime.go"})
+	ctx.Mutable.AppendEvidence([]types.EvidenceItem{
+		{
+			Kind:            types.EvidenceDirect,
+			Source:          "internal/types/config.go",
+			LineStart:       707,
+			AnchorKind:      types.AnchorDefinition,
+			AnchorSymbol:    "DefaultExploreHeuristics",
+			ContextRole:     types.EvidenceContextRoleRelatedContext,
+			DiagramRole:     types.EvidenceDiagramRoleDefault,
+			GroundingStatus: types.GroundingGrounded,
+			GroundingTier:   types.TierLineText,
+		},
+		{
+			Kind:            types.EvidenceDirect,
+			Source:          "internal/config/runtime.go",
+			LineStart:       231,
+			AnchorKind:      types.AnchorAssignment,
+			AnchorSymbol:    "ExploreMidLoopMinIteration",
+			ContextRole:     types.EvidenceContextRoleRelatedContext,
+			DiagramRole:     types.EvidenceDiagramRoleRuntime,
+			GroundingStatus: types.GroundingGrounded,
+			GroundingTier:   types.TierLineText,
+		},
+	})
+	params := mustDocJSON(t, map[string]interface{}{
+		"shape": "explanation",
+		"exact_resolution": map[string]interface{}{
+			"status":       "absent",
+			"context_mode": "grounded_context_only",
+		},
+		"summary": "仓库里没有找到名为 `explore_mid_loop_hint_budget` 的生产级配置定义，但当前代码里确实存在同一探索器配置族的默认值与运行时绑定路径。",
+		"citations": []map[string]interface{}{
+			{"file": "internal/config/runtime.go", "line": 231},
+			{"file": "internal/types/config.go", "line": 707},
+		},
+	})
+
+	res, _ := tool.Execute(ctx, params)
+	if !res.Success {
+		t.Fatalf("optional config-trace diagram should still be surfaced when grounded, got %+v", res)
+	}
+	doc := ctx.Mutable.AnswerDocument()
+	if doc == nil {
+		t.Fatal("answer document missing after successful emit")
+	}
+	if !strings.Contains(doc.Summary, "internal/config/runtime.go:231") || !strings.Contains(doc.Summary, "internal/types/config.go:707") {
+		t.Fatalf("optional grounded config-trace fence should be retained for answer richness, got: %q", doc.Summary)
 	}
 }
 
