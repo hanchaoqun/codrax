@@ -312,6 +312,37 @@ func TestStatus_CompletedRowDropsLiveThinking(t *testing.T) {
 	}
 }
 
+// TestStatus_SingleTopicEvidenceUsesExploreCodeLabel pins the
+// "evidence" canonical key — single-topic NodeEvidence rows
+// (no _tN suffix, so no topic-group aggregation) MUST surface as
+// the explicit "正在探索代码并收集证据" / "Exploring code,
+// collecting evidence" label rather than collapsing into the
+// generic "正在深入分析" umbrella. The umbrella loses the most
+// informative substep — this test prevents a regression that
+// re-collapses evidence into explore.
+func TestStatus_SingleTopicEvidenceUsesExploreCodeLabel(t *testing.T) {
+	row := &taskRow{
+		isNodeRow: true,
+		nodeID:    "evN",  // no _tN suffix → single-topic, NOT aggregated
+		nodeKind:  "evidence",
+		objective: "investigate the explorer agent",
+	}
+	zhOut := renderRows(t, "zh", row)
+	if !strings.Contains(zhOut, "正在探索代码并收集证据") {
+		t.Errorf("zh: expected '正在探索代码并收集证据' for single-topic evidence row; got:\n%s", zhOut)
+	}
+	if strings.Contains(zhOut, "正在深入分析") {
+		t.Errorf("zh: single-topic evidence row must NOT collapse into the parent 'explore' umbrella; got:\n%s", zhOut)
+	}
+	enOut := renderRows(t, "en", row)
+	if !strings.Contains(enOut, "Exploring code, collecting evidence") {
+		t.Errorf("en: expected 'Exploring code, collecting evidence'; got:\n%s", enOut)
+	}
+	if strings.Contains(enOut, "Investigating the problem") {
+		t.Errorf("en: single-topic evidence row must NOT collapse to 'Investigating'; got:\n%s", enOut)
+	}
+}
+
 // TestStatus_PreStageLogTriage covers the conditional pre-stages:
 // log_triage / perf_triage are user-visible when an attached log
 // or trace fires, and need their own localized labels rather than

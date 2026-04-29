@@ -75,9 +75,20 @@ func stagePhrase(key string, lang string, running bool) string {
 		"log_triage":  {"正在解析日志", "已解析日志"},
 		"perf_triage": {"正在解析性能数据", "已解析性能数据"},
 		// Read-mode core flow
-		"analyze":   {"正在理解问题", "已理解问题"},
-		"explore":   {"正在深入分析", "已完成深入分析"},
-		"evidence":  {"正在收集证据", "已收集证据"},
+		"analyze": {"正在理解问题", "已理解问题"},
+		// "explore" is the orchestrator-level stage AND the topic-
+		// group parent label when multiple sub-topics fan out. As a
+		// single status line it reads as "正在深入分析" — the broad
+		// umbrella over the per-topic evidence work.
+		"explore": {"正在深入分析", "已完成深入分析"},
+		// "evidence" is the NodeEvidence sub-step where the agent
+		// actually reads code (read_file / grep / repo_map) and
+		// emits structured evidence (emit_evidence /
+		// emit_investigation_complete). Distinct label from
+		// "explore" so the user can tell THIS step is where the
+		// substantive code reading happens — collapsing it into
+		// the parent stage label hid the most important phase.
+		"evidence":  {"正在探索代码并收集证据", "已完成证据收集"},
 		"validate":  {"正在校核分析结论", "已校核分析结论"},
 		"reconcile": {"正在整理结论", "已整理结论"},
 		"extract":   {"正在提取关键要点", "已提取关键要点"},
@@ -92,7 +103,7 @@ func stagePhrase(key string, lang string, running bool) string {
 		"perf_triage": {"Parsing performance trace", "Performance trace parsed"},
 		"analyze":     {"Understanding the request", "Request understood"},
 		"explore":     {"Investigating the problem", "Investigation complete"},
-		"evidence":    {"Collecting evidence", "Evidence collected"},
+		"evidence":    {"Exploring code, collecting evidence", "Evidence collected"},
 		"validate":    {"Cross-checking findings", "Findings cross-checked"},
 		"reconcile":   {"Reconciling findings", "Findings reconciled"},
 		"extract":     {"Extracting key findings", "Key findings extracted"},

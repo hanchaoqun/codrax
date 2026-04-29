@@ -254,14 +254,15 @@ func canonicalStageKey(s string) string {
 		return "explore"
 	case "extractor", "extract":
 		return "extract"
-	// Evidence is a per-topic sub-task within the explore phase;
-	// individual evidence rows that DIDN'T aggregate into a topic
-	// group (single-topic flow) read as "explore" so the user sees
-	// one consistent stage label for the deep-analysis phase. The
-	// actual "evidence" key is only used internally by the topic
-	// group to surface per-row labels.
+	// Evidence is the load-bearing sub-step where the agent reads
+	// code (read_file / grep / repo_map) and emits structured
+	// evidence. Distinct key from "explore" so the row label tells
+	// the user THIS is the code-exploration phase, not the
+	// abstract "investigating" umbrella. The topic-group parent
+	// line still uses "explore" — it's the umbrella over multiple
+	// per-topic evidence rows.
 	case "evidence", "ground", "rank", "dedupe", "collect":
-		return "explore"
+		return "evidence"
 	// NodeValidate cross-checks the explore phase's evidence
 	// findings — distinct from StageVerify (which verifies write-
 	// mode test runs). Different word; do NOT collapse them.
