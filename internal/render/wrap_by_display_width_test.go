@@ -95,3 +95,55 @@ func TestWrapByDisplayWidth_DegenerateMaxCols(t *testing.T) {
 		t.Errorf("negative maxCols must pass through; got %q", got)
 	}
 }
+
+// TestWrapByDisplayWidth_CRLF locks the Windows-line-ending case:
+// a literal "\r\n" in the input must yield exactly one wrap (the
+// '\n') with no extra blank line. '\r' itself is a zero-width
+// control rune in runewidth, so it consumes no column budget; the
+// '\n' resets the column counter normally. The LLM never emits
+// CRLF, but a user-supplied source-quote pasted into the streaming
+// summary could carry it on Windows; defensive coverage keeps the
+// wrap math correct cross-platform.
+func TestWrapByDisplayWidth_CRLF(t *testing.T) {
+	in := "ab\r\ncd"
+	out := wrapByDisplayWidth(in, 80)
+	// Either preserve as-is (carrying the \r through) or strip the
+	// \r — both behaviours are acceptable as long as the resulting
+	// '\n' count matches the visible row count. Pin the visible-row
+	// invariant: 1 '\n' → 2 visible rows.
+	rows := strings.Count(out, "\n") + 1
+	if rows != 2 {
+		t.Errorf("CRLF input must yield 2 visible rows; got %d (out=%q)", rows, out)
+	}
+}
+
+// TestWrapByDisplayWidth_TabRetainedAsZeroWidth keeps tab handling
+// well-defined: runewidth treats '\t' as control (width=-1 →
+// clamped to 0 by our wrap helper) so a tab in input does not
+// trigger a wrap. Cross-platform note: the renderer never asks the
+// terminal to expand tabs — that's the terminal's job; we just
+// must not double-count.
+func TestWrapByDisplayWidth_TabRetainedAsZeroWidth(t *testing.T) {
+	in := "ab\tcd" // 4 visible chars + a tab
+	out := wrapByDisplayWidth(in, 80)
+	if out != in {
+		t.Errorf("tab must pass through with no wrap; got %q want %q", out, in)
+	}
+}
+
+// TestWrapByDisplayWidth_NarrowTerminalSafety models the smallest
+// reasonable terminal width (e.g. 24-col split panes on a phone
+// terminal app or a vertical mobile-emulator pane). The wrap must
+// still behave correctly without infinite loops or produce
+// pathological output. Cross-platform: the same low-width guard
+// applies on Windows/macOS/Linux because runewidth + UTF-8
+// decoding are platform-neutral.
+func TestWrapByDisplayWidth_NarrowTerminalSafety(t *testing.T) {
+	in := "中文字符在窄终端下也能正确换行"
+	out := wrapByDisplayWidth(in, 6) // 3 Han chars per row
+	for _, line := range strings.Split(out, "\n") {
+		if w := runewidth.StringWidth(line); w > 6 {
+			t.Errorf("narrow-terminal wrap exceeded budget: line=%q width=%d", line, w)
+		}
+	}
+}

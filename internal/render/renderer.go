@@ -1016,10 +1016,18 @@ func truncByDisplayWidth(s string, maxCols int) string {
 // our own wraps keeps Area's line count aligned with the terminal's
 // drawn rows so Update / Stop erase exactly what was painted.
 //
+// Cross-platform: pure Go (utf8 + runewidth + regexp). No syscalls,
+// no platform branches. CJK width is computed from the unconditional
+// East Asian Width tables (Han / Hiragana / Katakana / Hangul are
+// always wide on Windows/macOS/Linux). '\r' from CRLF line endings
+// is a zero-width control rune (runewidth returns -1, clamped to 0
+// here), so a "\r\n" sequence wraps as a single line break. Tabs
+// pass through as zero-width — the terminal expands them on draw.
+//
 // Edge cases: maxCols < 1 → return s untouched (caller's problem).
 // A single rune wider than maxCols (rare; combining sequences) is
-// emitted on its own line — better than infinite loop on the wrap
-// boundary.
+// emitted on its own line — better than an infinite loop on the
+// wrap boundary.
 func wrapByDisplayWidth(s string, maxCols int) string {
 	if maxCols < 1 || s == "" {
 		return s
