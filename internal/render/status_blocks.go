@@ -113,12 +113,25 @@ func (r *Renderer) buildStatusLine(row *taskRow, frame string, now time.Time) st
 // the spinner area from overflowing when the analyzer emits a
 // long sub-topic list.
 func (r *Renderer) buildTopicGroup(topicRows []*taskRow, frame string, now time.Time) statusBlock {
+	// The topic group's parent line reads as the EXPLORE stage —
+	// each topic row is a per-sub-topic NodeEvidence (compiler.
+	// expandEvidenceNodes splits explore into N evidence nodes when
+	// multiple sub-topics are present). Pre-2026-04-30 this was
+	// labelled as "analyze" which contradicted the actual flow —
+	// analyze finishes BEFORE topics are dispatched, and the user
+	// understands the request once analyze is done; the topics then
+	// drive the deep investigation.
 	parentRow := topicRows[0] // any topic row carries the stage; index 0 is the canonical anchor
 	parentLine := r.buildStatusLine(parentRow, frame, now)
-	parentLine.PrimaryText = stagePhrase("analyze", r.lang, true) // override: topic group reads as analyze
-	if !parentRow.endTime.IsZero() {
-		parentLine.PrimaryText = stagePhrase("analyze", r.lang, false)
+	// Group is "running" until ALL topic rows have terminated.
+	allDone := true
+	for _, row := range topicRows {
+		if row.endTime.IsZero() {
+			allDone = false
+			break
+		}
 	}
+	parentLine.PrimaryText = stagePhrase("explore", r.lang, !allDone)
 	count := len(topicRows)
 	parentLine.DetailText = topicCountPhrase(count, r.lang)
 
@@ -222,28 +235,49 @@ func stageKeyFor(row *taskRow) string {
 }
 
 // canonicalStageKey collapses orchestrator-internal aliases to the
-// canonical stage label keys that stagePhrase knows about.
+// canonical stage label keys that stagePhrase knows about. Mappings
+// cover both PipelineStage values (StageAnalyze == "analyze",
+// StageLogTriage == "log_triage", etc.), TaskNodeType values
+// (NodeEvidence == "evidence", NodeValidate == "validate", etc.)
+// and AgentName-derived strings (the trailing "agent" suffix is
+// stripped before this function is called).
 func canonicalStageKey(s string) string {
 	s = strings.ToLower(strings.TrimSpace(s))
 	switch s {
+	case "log_triage", "logtriage", "log_triager":
+		return "log_triage"
+	case "perf_triage", "perftriage", "perf_triager":
+		return "perf_triage"
 	case "analyzer", "analyze":
 		return "analyze"
-	case "explorer", "explore", "search", "read":
+	case "explorer", "explore", "search":
 		return "explore"
 	case "extractor", "extract":
 		return "extract"
+	// Evidence is a per-topic sub-task within the explore phase;
+	// individual evidence rows that DIDN'T aggregate into a topic
+	// group (single-topic flow) read as "explore" so the user sees
+	// one consistent stage label for the deep-analysis phase. The
+	// actual "evidence" key is only used internally by the topic
+	// group to surface per-row labels.
 	case "evidence", "ground", "rank", "dedupe", "collect":
-		return "evidence"
-	case "validate", "verify", "validator", "verifier":
+		return "explore"
+	// NodeValidate cross-checks the explore phase's evidence
+	// findings — distinct from StageVerify (which verifies write-
+	// mode test runs). Different word; do NOT collapse them.
+	case "validate", "validator":
 		return "validate"
 	case "reconcile", "summarize", "summary", "summariser":
 		return "reconcile"
 	case "finalize", "finaliser", "finalizer", "render":
 		return "finalize"
+	// Write-mode stages: distinct user surface from validate.
 	case "planner", "plan":
 		return "plan"
 	case "coder", "apply":
 		return "apply"
+	case "verify", "verifier":
+		return "verify"
 	}
 	return s
 }
@@ -265,6 +299,15 @@ func localizeCollapsedMarker(s string, lang string) string {
 //   4. thinking shape    → thinkingPhrase
 //   5. tool-call shape   → toolDetailPhrase
 //   6. anything else     → sanitized raw detail (truncated by caller)
+//
+// Completion rule: when the row has TERMINATED (endTime != 0) AND
+// is not an error case, the live "thinking / round N / current
+// tool" detail is intentionally suppressed. The completed row's
+// meta segment (elapsed + iteration + tool count) carries enough
+// information; surfacing the last in-flight thinking sentence
+// after the row is done would mislead the user into thinking the
+// stage is still working on it. Live (still-running) rows keep
+// their detail as the "what is happening right now" signal.
 func friendlyDetailText(row *taskRow, errKind statusErrorKind, lang string) string {
 	if row == nil {
 		return ""
@@ -284,6 +327,15 @@ func friendlyDetailText(row *taskRow, errKind statusErrorKind, lang string) stri
 		return stripInternalTagPrefix(row.errorMsg)
 	case statusErrorCancelled:
 		return cancelledDetailPhrase(lang)
+	}
+	// Terminated cleanly: drop the stale live-progress detail. Only
+	// the meta trailer (elapsed / round / tool count) survives. The
+	// detail kept ticking up during the row's lifetime so its last
+	// snapshot is whatever happened to be in flight at termination
+	// — usually misleading after the fact ("正在思考" on a row that
+	// finished 30 s ago reads as a bug).
+	if !row.endTime.IsZero() {
+		return ""
 	}
 	d := strings.TrimSpace(row.detail)
 	if d == "" {

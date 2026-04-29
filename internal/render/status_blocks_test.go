@@ -47,7 +47,11 @@ func TestStatus_TopicAggregation_Zh(t *testing.T) {
 	}
 	out := renderRows(t, "zh", rows...)
 	for _, want := range []string{
-		"正在理解问题", "识别到 3 个关注点",
+		// Topic group reads as the deep-analysis (explore) stage
+		// since topic rows are NodeEvidence sub-tasks within the
+		// explore phase — analyze has already finished by the time
+		// topics dispatch.
+		"正在深入分析", "识别到 3 个关注点",
 		"关注点 1：", "关注点 2：", "关注点 3：",
 		"analyzers 包", "trace 分析器",
 		"reporters 包",
@@ -61,6 +65,10 @@ func TestStatus_TopicAggregation_Zh(t *testing.T) {
 		"[topic 1]", "[topic 2]", "[topic 3]",
 		"n1_evidence_t0", "n2_evidence_t1", "n3_evidence_t2",
 		"AnalyzerAgent", "[evidence]",
+		// The topic-group parent is NOT analyze — analyze finished
+		// upstream of these rows. Pin the rule so a regression
+		// doesn't collapse explore into analyze.
+		"正在理解问题",
 	} {
 		if strings.Contains(out, banned) {
 			t.Errorf("banned token %q appeared in zh output:\n%s", banned, out)
@@ -79,7 +87,7 @@ func TestStatus_TopicAggregation_En(t *testing.T) {
 	}
 	out := renderRows(t, "en", rows...)
 	for _, want := range []string{
-		"Understanding the request", "3 focus areas found",
+		"Investigating the problem", "3 focus areas found",
 		"Focus 1:", "Focus 2:", "Focus 3:",
 		"analyzers package trace analyzers",
 	} {
@@ -89,7 +97,7 @@ func TestStatus_TopicAggregation_En(t *testing.T) {
 	}
 	for _, banned := range []string{
 		"[topic 1]", "n1_evidence_t0", "AnalyzerAgent",
-		"关注点", "正在理解问题",
+		"关注点", "正在理解问题", "Understanding the request",
 	} {
 		if strings.Contains(out, banned) {
 			t.Errorf("banned token %q appeared in en output:\n%s", banned, out)
@@ -107,7 +115,7 @@ func TestStatus_StageLocalization(t *testing.T) {
 	}
 	zhOut := renderRows(t, "zh", rows...)
 	for _, want := range []string{
-		"正在验证结论可靠性", "正在整理回答", "正在生成最终答案",
+		"正在校核分析结论", "正在整理结论", "正在生成最终答案",
 	} {
 		if !strings.Contains(zhOut, want) {
 			t.Errorf("expected %q in zh stage output; got:\n%s", want, zhOut)
@@ -124,7 +132,7 @@ func TestStatus_StageLocalization(t *testing.T) {
 	}
 	enOut := renderRows(t, "en", rows...)
 	for _, want := range []string{
-		"Validating conclusion reliability", "Organizing the answer", "Generating final answer",
+		"Cross-checking findings", "Reconciling findings", "Generating final answer",
 	} {
 		if !strings.Contains(enOut, want) {
 			t.Errorf("expected %q in en stage output; got:\n%s", want, enOut)
@@ -159,12 +167,174 @@ func TestStatus_AnalyzerAgentLocalization(t *testing.T) {
 		okFinished: true,
 	}
 	zhDone := renderRows(t, "zh", rowDone)
-	if !strings.Contains(zhDone, "已完成问题分析") {
-		t.Errorf("zh done: expected '已完成问题分析'; got:\n%s", zhDone)
+	if !strings.Contains(zhDone, "已理解问题") {
+		t.Errorf("zh done: expected '已理解问题'; got:\n%s", zhDone)
 	}
 	enDone := renderRows(t, "en", rowDone)
-	if !strings.Contains(enDone, "Analysis complete") {
-		t.Errorf("en done: expected 'Analysis complete'; got:\n%s", enDone)
+	if !strings.Contains(enDone, "Request understood") {
+		t.Errorf("en done: expected 'Request understood'; got:\n%s", enDone)
+	}
+}
+
+// TestStatus_FullFlowOrdering pins the user-visible problem-solving
+// narrative across the read-mode pipeline. The five rows below
+// mirror what the user sees during a typical Run: log_triage (when
+// an attached log fires) → analyze → topic group (explore) →
+// validate → reconcile → extract → finalize. Each stage has its
+// localized phrasing and they appear in the documented order.
+func TestStatus_FullFlowOrdering(t *testing.T) {
+	rows := []*taskRow{
+		{stage: "log_triage", agent: "log_triager",
+			startTime: time.Now().Add(-30 * time.Second),
+			endTime:   time.Now().Add(-25 * time.Second), okFinished: true},
+		{stage: "analyze", agent: "AnalyzerAgent",
+			startTime: time.Now().Add(-25 * time.Second),
+			endTime:   time.Now().Add(-20 * time.Second), okFinished: true},
+		// (topic group rendered via NodeEvidence rows — covered by
+		// TestStatus_TopicAggregation_Zh)
+		{isNodeRow: true, nodeID: "vN", nodeKind: "validate",
+			startTime: time.Now().Add(-15 * time.Second),
+			endTime:   time.Now().Add(-12 * time.Second), okFinished: true},
+		{isNodeRow: true, nodeID: "rN", nodeKind: "reconcile",
+			startTime: time.Now().Add(-12 * time.Second),
+			endTime:   time.Now().Add(-10 * time.Second), okFinished: true},
+		{stage: "extract", agent: "ExtractorAgent",
+			startTime: time.Now().Add(-10 * time.Second),
+			endTime:   time.Now().Add(-5 * time.Second), okFinished: true},
+		{stage: "finalize", agent: "FinalizerAgent",
+			startTime: time.Now().Add(-5 * time.Second)},
+	}
+	zhOut := renderRows(t, "zh", rows...)
+	expectedOrder := []string{
+		"已解析日志",
+		"已理解问题",
+		"已校核分析结论",
+		"已整理结论",
+		"已提取关键要点",
+		"正在生成最终答案",
+	}
+	pos := 0
+	for _, want := range expectedOrder {
+		idx := strings.Index(zhOut[pos:], want)
+		if idx < 0 {
+			t.Errorf("zh full-flow: expected %q at-or-after position %d; full output:\n%s",
+				want, pos, zhOut)
+			break
+		}
+		pos += idx + len(want)
+	}
+}
+
+// TestStatus_WriteModeFlow verifies the plan→apply→verify narrative
+// in write mode uses correct labels distinct from the read-mode
+// validate phrasing.
+func TestStatus_WriteModeFlow(t *testing.T) {
+	rows := []*taskRow{
+		{isNodeRow: true, nodeID: "pN", nodeKind: "plan",
+			startTime: time.Now().Add(-20 * time.Second),
+			endTime:   time.Now().Add(-15 * time.Second), okFinished: true},
+		{isNodeRow: true, nodeID: "aN", nodeKind: "apply",
+			startTime: time.Now().Add(-15 * time.Second),
+			endTime:   time.Now().Add(-10 * time.Second), okFinished: true},
+		{isNodeRow: true, nodeID: "vN", nodeKind: "verify",
+			startTime: time.Now().Add(-10 * time.Second)},
+	}
+	zhOut := renderRows(t, "zh", rows...)
+	for _, want := range []string{
+		"已设计改动方案", "已应用改动", "正在跑测试验证改动",
+	} {
+		if !strings.Contains(zhOut, want) {
+			t.Errorf("zh write-mode flow: expected %q in:\n%s", want, zhOut)
+		}
+	}
+	// Verify (write-mode) MUST NOT collapse into validate's
+	// "正在校核分析结论" — different phase, different word.
+	if strings.Contains(zhOut, "校核分析结论") {
+		t.Errorf("zh write-mode: NodeVerify must NOT use NodeValidate phrasing; got:\n%s", zhOut)
+	}
+	enOut := renderRows(t, "en", rows...)
+	for _, want := range []string{
+		"Change plan ready", "Changes applied", "Running tests for verification",
+	} {
+		if !strings.Contains(enOut, want) {
+			t.Errorf("en write-mode flow: expected %q in:\n%s", want, enOut)
+		}
+	}
+	if strings.Contains(enOut, "Cross-checking findings") {
+		t.Errorf("en write-mode: NodeVerify must NOT use NodeValidate phrasing; got:\n%s", enOut)
+	}
+}
+
+// TestStatus_CompletedRowDropsLiveThinking pins the "completed rows
+// must drop live-progress detail" rule. The detail field on a
+// finished row carries whatever the last thinking / tool ticker
+// snapshot was at the moment the row terminated — surfacing it
+// after the fact reads as "still working on this" when the meta
+// trailer (elapsed + tool count + round) clearly says otherwise.
+func TestStatus_CompletedRowDropsLiveThinking(t *testing.T) {
+	completed := &taskRow{
+		stage: "analyze", agent: "AnalyzerAgent",
+		startTime:   time.Now().Add(-19 * time.Second),
+		endTime:     time.Now(),
+		okFinished:  true,
+		detail:      "thinking (round 13)",
+		detailStart: time.Now().Add(-2 * time.Second),
+		iteration:   13,
+		toolCount:   5,
+	}
+	zhOut := renderRows(t, "zh", completed)
+	if !strings.Contains(zhOut, "已理解问题") {
+		t.Errorf("zh: expected primary done label; got:\n%s", zhOut)
+	}
+	if !strings.Contains(zhOut, "5 次工具调用") || !strings.Contains(zhOut, "第 13 轮") {
+		t.Errorf("zh: completed row must keep meta trailer (elapsed + round + tool count); got:\n%s", zhOut)
+	}
+	// Live-progress phrasing MUST be gone: no "思考中" lingering on
+	// a finished row.
+	if strings.Contains(zhOut, "思考中") {
+		t.Errorf("zh: completed row leaked live thinking detail; got:\n%s", zhOut)
+	}
+
+	// Running row with the same detail SHOULD keep it.
+	running := &taskRow{
+		stage: "analyze", agent: "AnalyzerAgent",
+		startTime:   time.Now().Add(-2 * time.Second),
+		detail:      "thinking (round 13)",
+		detailStart: time.Now().Add(-1 * time.Second),
+		iteration:   13,
+	}
+	zhRun := renderRows(t, "zh", running)
+	if !strings.Contains(zhRun, "思考中") {
+		t.Errorf("zh: running row must keep live thinking detail; got:\n%s", zhRun)
+	}
+	if !strings.Contains(zhRun, "第 13 轮") {
+		t.Errorf("zh: running row must include round number; got:\n%s", zhRun)
+	}
+}
+
+// TestStatus_PreStageLogTriage covers the conditional pre-stages:
+// log_triage / perf_triage are user-visible when an attached log
+// or trace fires, and need their own localized labels rather than
+// falling through to the generic "处理任务" fallback.
+func TestStatus_PreStageLogTriage(t *testing.T) {
+	rows := []*taskRow{
+		{stage: "log_triage", agent: "log_triager"},
+		{stage: "perf_triage", agent: "perf_triager"},
+	}
+	zhOut := renderRows(t, "zh", rows...)
+	for _, want := range []string{"正在解析日志", "正在解析性能数据"} {
+		if !strings.Contains(zhOut, want) {
+			t.Errorf("zh pre-stage: expected %q in:\n%s", want, zhOut)
+		}
+	}
+	if strings.Contains(zhOut, "正在处理任务") {
+		t.Errorf("zh pre-stage: must not fall through to generic phrasing; got:\n%s", zhOut)
+	}
+	enOut := renderRows(t, "en", rows...)
+	for _, want := range []string{"Parsing attached log", "Parsing performance trace"} {
+		if !strings.Contains(enOut, want) {
+			t.Errorf("en pre-stage: expected %q in:\n%s", want, enOut)
+		}
 	}
 }
 

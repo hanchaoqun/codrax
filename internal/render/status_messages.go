@@ -41,6 +41,29 @@ func isZh(lang string) bool {
 // the in-progress phrasing; running == false picks the completion
 // phrasing (used when a row's endTime is non-zero).
 //
+// Phrasing follows the actual problem-solving narrative the user
+// experiences:
+//
+//   1. log_triage / perf_triage (conditional pre-stages) parse the
+//      attached runtime log or HiTrace dump.
+//   2. analyze (StageAnalyze) understands the user's request and
+//      classifies it. After this completes the request is
+//      "understood"; deep analysis happens NEXT.
+//   3. explore (StageExplore) is the deep-analysis phase. The task
+//      graph fans out into per-topic NodeEvidence rows, optionally
+//      followed by a NodeValidate that cross-checks the evidence
+//      and a NodeReconcile that merges findings into a coherent
+//      story.
+//   4. extract (StageExtract) pulls the structured facts the
+//      finalizer needs out of the explore transcript.
+//   5. finalize (StageFinalize) renders the final answer prose.
+//
+// Write mode (when --mode=plan|apply|verify):
+//   1. analyze still runs as a classifier.
+//   2. plan (StagePlan) drafts a ChangePlan.
+//   3. apply (StageApply) applies patches inside a worktree.
+//   4. verify (StageVerify) runs tests to confirm no regression.
+//
 // Unknown keys fall through to a generic "正在处理任务" /
 // "Processing task" so an unmapped stage never surfaces an internal
 // label like "ExtractorAgent(extract)".
@@ -48,28 +71,35 @@ func stagePhrase(key string, lang string, running bool) string {
 	zh := isZh(lang)
 	type pair struct{ run, done string }
 	tableZh := map[string]pair{
-		"analyze":   {"正在理解问题", "已完成问题分析"},
-		"explore":   {"正在查找相关代码", "已完成代码查找"},
-		"extract":   {"正在提取关键信息", "已完成关键信息提取"},
-		"evidence":  {"正在收集关键证据", "已完成证据收集"},
-		"validate":  {"正在验证结论可靠性", "已完成结论验证"},
-		"reconcile": {"正在整理回答", "已完成回答整理"},
+		// Pre-stages
+		"log_triage":  {"正在解析日志", "已解析日志"},
+		"perf_triage": {"正在解析性能数据", "已解析性能数据"},
+		// Read-mode core flow
+		"analyze":   {"正在理解问题", "已理解问题"},
+		"explore":   {"正在深入分析", "已完成深入分析"},
+		"evidence":  {"正在收集证据", "已收集证据"},
+		"validate":  {"正在校核分析结论", "已校核分析结论"},
+		"reconcile": {"正在整理结论", "已整理结论"},
+		"extract":   {"正在提取关键要点", "已提取关键要点"},
 		"finalize":  {"正在生成最终答案", "已生成最终答案"},
-		"plan":      {"正在制定改动计划", "已制定改动计划"},
-		"apply":     {"正在应用改动", "已应用改动"},
-		"verify":    {"正在验证改动", "已验证改动"},
+		// Write-mode flow
+		"plan":   {"正在设计改动方案", "已设计改动方案"},
+		"apply":  {"正在应用改动", "已应用改动"},
+		"verify": {"正在跑测试验证改动", "已通过测试验证改动"},
 	}
 	tableEn := map[string]pair{
-		"analyze":   {"Understanding the request", "Analysis complete"},
-		"explore":   {"Searching relevant code", "Search complete"},
-		"extract":   {"Extracting key information", "Extraction complete"},
-		"evidence":  {"Collecting key evidence", "Evidence collected"},
-		"validate":  {"Validating conclusion reliability", "Validation complete"},
-		"reconcile": {"Organizing the answer", "Answer organized"},
-		"finalize":  {"Generating final answer", "Final answer generated"},
-		"plan":      {"Drafting change plan", "Change plan ready"},
-		"apply":     {"Applying changes", "Changes applied"},
-		"verify":    {"Verifying changes", "Changes verified"},
+		"log_triage":  {"Parsing attached log", "Log parsed"},
+		"perf_triage": {"Parsing performance trace", "Performance trace parsed"},
+		"analyze":     {"Understanding the request", "Request understood"},
+		"explore":     {"Investigating the problem", "Investigation complete"},
+		"evidence":    {"Collecting evidence", "Evidence collected"},
+		"validate":    {"Cross-checking findings", "Findings cross-checked"},
+		"reconcile":   {"Reconciling findings", "Findings reconciled"},
+		"extract":     {"Extracting key findings", "Key findings extracted"},
+		"finalize":    {"Generating final answer", "Final answer generated"},
+		"plan":        {"Drafting change plan", "Change plan ready"},
+		"apply":       {"Applying changes", "Changes applied"},
+		"verify":      {"Running tests for verification", "Tests verified"},
 	}
 	var p pair
 	var ok bool
