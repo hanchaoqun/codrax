@@ -3918,7 +3918,7 @@ func closureRepairDirectives(mutable *types.MutableState) []types.RepairDirectiv
 	hasReadDirective := false
 	for _, repair := range repairs {
 		switch repair.Kind {
-		case types.RepairReadFile, types.RepairExpandSearch, types.RepairRebindSubject, types.RepairForceCompleteDowngrade:
+		case types.RepairReadFile, types.RepairEmitEvidence, types.RepairExpandSearch, types.RepairRebindSubject, types.RepairForceCompleteDowngrade:
 			out = append(out, repair)
 			if repair.Kind == types.RepairReadFile {
 				hasReadDirective = true
@@ -4027,10 +4027,18 @@ func (e *explorerEvaluator) postClosureRepairClosureOnlySignal(obs LoopObservati
 	if successfulToolCountSince(obs.AllToolResults, e.midLoopLastResultsLen, completionProgressToolNames) > 0 {
 		return LoopSignal{}
 	}
+	repairs := closureRepairDirectives(e.mutable)
+	message := "MID-LOOP CHECK: the last completion attempt already queued structured closure repairs, and the current batch still spent effort on generic navigation. Do not keep widening scope yet. Finish the queued repair first, then re-emit grounded evidence or retry `emit_investigation_complete(...)`."
+	for _, repair := range repairs {
+		if repair.Kind == types.RepairEmitEvidence {
+			message = "MID-LOOP CHECK: the last completion attempt already identified an evidence-materialization repair on files you have already read. Do NOT read neighboring files yet. Stay on the queued repair target, emit a corrected grounded evidence batch from that existing anchor, then retry `emit_investigation_complete(...)`."
+			break
+		}
+	}
 	return LoopSignal{
 		HintRequested:  true,
 		HintKey:        fmt.Sprintf("explorer.mid-loop.closure-repair-closure-only.%d", obs.Iteration),
-		Hint:           "MID-LOOP CHECK: the last completion attempt already queued structured closure repairs, and the current batch still spent effort on generic navigation. Do not keep widening scope yet. Finish the queued repair first, then re-emit grounded evidence or retry `emit_investigation_complete(...)`.",
+		Hint:           message,
 		Progress:       true,
 		BypassThrottle: true,
 		BypassBudget:   true,

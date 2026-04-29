@@ -212,6 +212,66 @@ func TestEmitInvestigationComplete_ConfigTraceAbsenceRejectsGroundedSameScopeCon
 	}
 }
 
+func TestEmitInvestigationComplete_ConfigTraceAbsenceAlreadyReadScopeQueuesEmitEvidenceRepair(t *testing.T) {
+	mut := types.NewMutableState("q")
+	mut.SetExactContextRequiredFiles([]string{"internal/types/config.go"})
+	mut.EvidenceClosure().SetReadSet(map[string]bool{"internal/types/config.go": true})
+	mut.AppendEvidence([]types.EvidenceItem{{
+		Kind:            types.EvidenceDirect,
+		Source:          "internal/types/config.go",
+		LineStart:       707,
+		AnchorKind:      types.AnchorDefinition,
+		AnchorSymbol:    "DefaultExploreHeuristics",
+		ContextRole:     types.EvidenceContextRoleRelatedContext,
+		GroundingStatus: types.GroundingGrounded,
+		GroundingTier:   types.TierLineText,
+	}})
+	bus := &types.BusContext{
+		Mutable: mut,
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				Scenario:      types.ScenarioConfigTrace,
+				AnswerSubject: types.AnswerSubject{Kind: types.SubjectConfigKey},
+			},
+			AnswerContract: types.AnswerContract{
+				ExactResolution: &types.ExactResolutionContract{
+					TargetKind:           types.SubjectConfigKey,
+					TargetLabel:          "config key",
+					Targets:              []string{"explore_mid_loop_hint_budget"},
+					AllowAbsence:         true,
+					RelatedContextPolicy: types.ExactContextSameFamilyGrounded,
+				},
+			},
+		},
+	}
+	tool := &EmitInvestigationComplete{}
+
+	params := json.RawMessage(`{"reason":"done","confidence":"high","result_kind":"absence","absence_justification":"no config key named explore_mid_loop_hint_budget exists"}`)
+	res, err := tool.Execute(bus, params)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if res.Success {
+		t.Fatal("config-trace absence closure should still reject until precedence evidence is materialized")
+	}
+	if !strings.Contains(res.Summary, "already in read coverage") || !strings.Contains(res.Summary, "Do NOT widen scope") {
+		t.Fatalf("rejection should explain that already-read scope needs evidence materialization, got %q", res.Summary)
+	}
+	if res.Repair == nil {
+		t.Fatal("missing structured repair on already-read precedence-anchor rejection")
+	}
+	if got := res.Repair.Code; got != "exact_absence_precedence_evidence" {
+		t.Fatalf("repair code = %q, want exact_absence_precedence_evidence", got)
+	}
+	if len(res.Repair.Targets) != 1 || res.Repair.Targets[0].File != "internal/types/config.go" || res.Repair.Targets[0].Action != string(types.RepairEmitEvidence) {
+		t.Fatalf("repair targets = %+v, want emit_evidence on internal/types/config.go", res.Repair.Targets)
+	}
+	repairs := mut.EvidenceClosure().PendingRepairs()
+	if len(repairs) == 0 || repairs[0].Kind != types.RepairEmitEvidence {
+		t.Fatalf("closure repairs = %+v, want queued emit_evidence repair", repairs)
+	}
+}
+
 // TestEmitInvestigationComplete_CompletionWithoutAbsenceOnEvidenceAccepted
 // — the normal happy path: grounded evidence exists, LLM signals
 // completion WITHOUT absence_justification. Must succeed.

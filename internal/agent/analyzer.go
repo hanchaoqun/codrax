@@ -125,7 +125,7 @@ func (e *analyzerEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk 
 		// In REPL mode, strip the conversation prefix so the query
 		// only contains the current question, not prior-turn memory.
 		objective := types.StripConversationPrefix(ctx.Objective)
-		overview, graph := buildAnalyzerRepoOverview(ctx.RepoRoot, objective)
+		overview, graph := buildAnalyzerRepoOverview(ctx, objective)
 		// Publish the graph to Mutable so analyzerGraphForNormalize
 		// (post-LLM, buildAnalysisIR) reuses this handle rather than
 		// calling BuildOrLoadGraph a second time. Safe to set even
@@ -231,8 +231,20 @@ func composeCoherenceRetryHint(report types.GateReport) string {
 // degrade). Returns the *repomap.Graph alongside the rendered string
 // so callers can publish it to Mutable.SearchGraph() and skip a
 // second BuildOrLoadGraph round-trip later in the pipeline.
-func buildAnalyzerRepoOverview(repoRoot, objective string) (string, *repomap.Graph) {
+func buildAnalyzerRepoOverview(ctx *types.AgentContext, objective string) (string, *repomap.Graph) {
 	if types.IsREPLControlInput(objective) {
+		return "", nil
+	}
+	if ctx != nil && ctx.Mutable != nil {
+		if overview := renderAnalyzerAuthoritativeLogOverview(ctx.Mutable.LogTriage()); overview != "" {
+			return overview, nil
+		}
+	}
+	repoRoot := ""
+	if ctx != nil {
+		repoRoot = ctx.RepoRoot
+	}
+	if repoRoot == "" {
 		return "", nil
 	}
 	// Extract code identifiers from the question to use as the graph
@@ -284,6 +296,58 @@ func buildAnalyzerRepoOverview(repoRoot, objective string) (string, *repomap.Gra
 		header += caution + "\n\n"
 	}
 	return header + output, graph
+}
+
+func renderAnalyzerAuthoritativeLogOverview(bundle *types.LogBundle) string {
+	if !logBundleAuthoritativeFrames(bundle) || bundle == nil || len(bundle.Errors) == 0 {
+		return ""
+	}
+	seenFiles := map[string]bool{}
+	seenFrames := map[string]bool{}
+	var files []string
+	var frames []string
+	for _, err := range bundle.Errors {
+		for _, frame := range err.Frames {
+			file := strings.TrimSpace(strings.ReplaceAll(frame.File, `\`, `/`))
+			if file == "" || frame.Line <= 0 {
+				continue
+			}
+			if !seenFiles[file] {
+				seenFiles[file] = true
+				files = append(files, file)
+			}
+			label := strings.TrimSpace(frame.Func)
+			if label == "" {
+				label = file
+			} else {
+				label = fmt.Sprintf("%s :: %s", file, label)
+			}
+			if seenFrames[label] {
+				continue
+			}
+			seenFrames[label] = true
+			frames = append(frames, label)
+		}
+	}
+	if len(files) == 0 {
+		return ""
+	}
+	sort.Strings(files)
+	var b strings.Builder
+	b.WriteString("## Authoritative runtime anchors (pre-computed, no broad repo overview needed)\n\n")
+	b.WriteString("The attached crash / panic log already resolves to current-repo file+function anchors. Treat these as the file-set ceiling for analysis: do NOT promote same-name symbols from other files into candidate owners unless these anchors themselves fail to ground.\n\n")
+	b.WriteString("Resolved files:\n")
+	for _, file := range files {
+		fmt.Fprintf(&b, "- `%s`\n", file)
+	}
+	if len(frames) > 0 {
+		b.WriteString("\nGrounded frame targets:\n")
+		for _, frame := range frames {
+			fmt.Fprintf(&b, "- `%s`\n", frame)
+		}
+	}
+	b.WriteString("\nUse the authoritative file/function anchors above first. If you need more structure after that, read those files directly; do not treat repo-wide same-name matches as equivalent evidence.\n")
+	return b.String()
 }
 
 func renderAnalyzerOverviewPrescanCaution(graph *repomap.Graph, objective string) string {

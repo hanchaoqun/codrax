@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	repomap "github.com/hanchaoqun/codrax/internal/tool/repomap/types"
+	"github.com/hanchaoqun/codrax/internal/types"
 )
 
 func TestExtractAnalyzerOverviewCautionTokens(t *testing.T) {
@@ -57,5 +58,33 @@ func TestRenderAnalyzerOverviewPrescanCaution_FlagsAuxiliaryOnlyAndUnresolved(t 
 		if !strings.Contains(got, want) {
 			t.Fatalf("overview caution missing %q:\n%s", want, got)
 		}
+	}
+}
+
+func TestRenderAnalyzerAuthoritativeLogOverview_SkipsTaskMapNoise(t *testing.T) {
+	bundle := &types.LogBundle{
+		ResolvedFiles: []string{"internal/agent/analyzer.go"},
+		Meta:          types.LogMeta{Signals: []types.LogSignal{types.SignalPanic}},
+		Errors: []types.LogError{{
+			Frames: []types.LogFrame{
+				{File: "internal/agent/analyzer.go", Line: 250, Func: "github.com/hanchaoqun/codrax/internal/agent.buildAnalysisIR"},
+				{File: "internal/agent/analyzer.go", Line: 320, Func: "github.com/hanchaoqun/codrax/internal/agent.(*analyzerEvaluator).ParseOutput"},
+			},
+		}},
+	}
+	got := renderAnalyzerAuthoritativeLogOverview(bundle)
+	for _, want := range []string{
+		"Authoritative runtime anchors",
+		"file-set ceiling",
+		"`internal/agent/analyzer.go`",
+		"buildAnalysisIR",
+		"ParseOutput",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("authoritative overview missing %q:\n%s", want, got)
+		}
+	}
+	if strings.Contains(got, "task_map") {
+		t.Fatalf("authoritative log overview should bypass task_map noise, got:\n%s", got)
 	}
 }

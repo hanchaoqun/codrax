@@ -488,6 +488,24 @@ func TestRenderWindowHint_RendersRepairReadFile(t *testing.T) {
 	}
 }
 
+func TestRenderWindowHint_RendersRepairEmitEvidence(t *testing.T) {
+	repairs := []types.RepairDirective{
+		{
+			Kind:      types.RepairEmitEvidence,
+			Files:     []string{"internal/types/config.go"},
+			Rationale: "already-read same-scope anchor still needs grounded evidence materialized",
+			Origin:    "emit_investigation_complete.exact_absence_precedence",
+		},
+	}
+	hint := renderWindowHint(nil, nil, nil, func(string) string { return "" }, "", repairs)
+	if !strings.Contains(hint, "Evidence Materialization") {
+		t.Errorf("expected Evidence Materialization header, got: %s", hint)
+	}
+	if !strings.Contains(hint, "internal/types/config.go") {
+		t.Errorf("expected materialization file in hint, got: %s", hint)
+	}
+}
+
 // CGEC D2: multiple directive kinds compose into one hint.
 func TestRenderWindowHint_RendersMultipleDirectives(t *testing.T) {
 	repairs := []types.RepairDirective{

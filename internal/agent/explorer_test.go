@@ -4019,6 +4019,47 @@ func TestObserveMidLoop_EmitInvestigationCompleteDowngradeKeepsLoopAlive(t *test
 		}
 	})
 
+	t.Run("evidence-materialization repair tells explorer to stay on already-read anchors", func(t *testing.T) {
+		mut := types.NewMutableState("q")
+		mut.EvidenceClosure().AddRepair(types.RepairDirective{
+			Kind:      types.RepairEmitEvidence,
+			Files:     []string{"internal/types/config.go"},
+			Rationale: "already-read same-scope file still needs grounded precedence evidence materialized before completion.",
+			Origin:    "emit_investigation_complete.exact_absence_precedence",
+		})
+		eval := &explorerEvaluator{
+			phase:                          1,
+			mutable:                        mut,
+			midLoopClosureRepairSent:       true,
+			midLoopClosureRepairResultsLen: 1,
+			midLoopLastResultsLen:          1,
+		}
+		results := []types.ToolResult{
+			{
+				ToolName: "emit_investigation_complete",
+				Success:  false,
+				Summary:  "emit_investigation_complete rejected: already-read same-scope scope still needs grounded precedence evidence materialized.",
+			},
+			{
+				ToolName: "read_file",
+				Success:  true,
+				Summary:  "[codrax.yaml.example: showing lines 1-40 of 100 total]\n",
+			},
+		}
+		sig := eval.observeMidLoop(LoopObservation{
+			Phase:          PhaseMidLoop,
+			Iteration:      7,
+			LastToolResult: &results[len(results)-1],
+			AllToolResults: results,
+		})
+		if !sig.HintRequested {
+			t.Fatalf("expected closure-only repair hint, got %+v", sig)
+		}
+		if !strings.Contains(sig.Hint, "already read") || !strings.Contains(sig.Hint, "Do NOT read neighboring files yet") {
+			t.Fatalf("hint should tell explorer to stay on already-read anchors, got: %s", sig.Hint)
+		}
+	})
+
 	t.Run("closure repair blocks generic navigation until progress", func(t *testing.T) {
 		eval := &explorerEvaluator{
 			phase:                          1,

@@ -166,6 +166,12 @@ func TestAddRepair_NonReadFile_DoesNotMirror(t *testing.T) {
 		Origin:  "emit_answer_document.shape_mismatch",
 	})
 	c.AddRepair(RepairDirective{
+		Kind:      RepairEmitEvidence,
+		Files:     []string{"internal/types/config.go"},
+		Rationale: "already-read file needs grounded evidence materialization",
+		Origin:    "emit_investigation_complete.context_materialize",
+	})
+	c.AddRepair(RepairDirective{
 		Kind:    RepairRebindSubject,
 		Subject: "skill_name",
 		Origin:  "chain_ranker",
@@ -284,9 +290,9 @@ func TestIsScanned_EmptySet_ReturnsTrue(t *testing.T) {
 func TestIsScanned_WithSet_ReportsMembership(t *testing.T) {
 	c := NewEvidenceClosure("")
 	c.SetScannedSet(map[string]bool{
-		"internal/agent/explorer.go":       true,
-		"internal/skill/defaults.go":       true,
-		"internal/agent/subagent.go":       false, // value-false keys must NOT enter
+		"internal/agent/explorer.go": true,
+		"internal/skill/defaults.go": true,
+		"internal/agent/subagent.go": false, // value-false keys must NOT enter
 	})
 	if !c.IsScanned("internal/agent/explorer.go") {
 		t.Error("file present in set must return true")

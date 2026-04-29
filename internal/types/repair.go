@@ -28,6 +28,14 @@ const (
 	// "chain_promotion", "stall_detector").
 	RepairReadFile RepairKind = "read_file"
 
+	// RepairEmitEvidence says the required file scope has already
+	// been read, but the investigation still lacks a properly
+	// grounded / structured evidence batch. Files set; Subject
+	// ignored. The explorer should stay on these already-read
+	// anchors, emit corrected grounded evidence, and retry
+	// completion instead of widening scope with more navigation.
+	RepairEmitEvidence RepairKind = "emit_evidence"
+
 	// RepairExpandSearch says the explorer should broaden its
 	// keyword grep coverage. Keywords set; Files ignored. Used by
 	// the stall detector when ReadSet is full but evidence count
@@ -58,6 +66,7 @@ const (
 func AllRepairKinds() []RepairKind {
 	return []RepairKind{
 		RepairReadFile,
+		RepairEmitEvidence,
 		RepairExpandSearch,
 		RepairSwapShape,
 		RepairRebindSubject,
@@ -68,7 +77,7 @@ func AllRepairKinds() []RepairKind {
 // IsValid returns true when k is one of the declared constants.
 func (k RepairKind) IsValid() bool {
 	switch k {
-	case RepairReadFile, RepairExpandSearch, RepairSwapShape,
+	case RepairReadFile, RepairEmitEvidence, RepairExpandSearch, RepairSwapShape,
 		RepairRebindSubject, RepairForceCompleteDowngrade:
 		return true
 	}
@@ -163,6 +172,23 @@ func (r RepairDirective) Render() string {
 			} else {
 				b.WriteString("- " + f + "\n")
 			}
+		}
+	case RepairEmitEvidence:
+		b.WriteString("## Evidence Materialization\n")
+		if len(r.Files) > 0 {
+			b.WriteString("Re-emit grounded evidence from these already-read files before retrying completion:\n")
+			for _, f := range r.Files {
+				if f == "" {
+					continue
+				}
+				if r.Rationale != "" {
+					b.WriteString("- " + f + " 鈥?" + r.Rationale + "\n")
+				} else {
+					b.WriteString("- " + f + "\n")
+				}
+			}
+		} else if r.Rationale != "" {
+			b.WriteString(r.Rationale + "\n")
 		}
 	case RepairExpandSearch:
 		b.WriteString("## Search Coverage Gap\n")

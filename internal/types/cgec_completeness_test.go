@@ -48,6 +48,7 @@ func TestAllRepairKindsHaveProducer(t *testing.T) {
 	// any mention of the Kind constant name.
 	kindSymbols := map[RepairKind]string{
 		RepairReadFile:               "RepairReadFile",
+		RepairEmitEvidence:           "RepairEmitEvidence",
 		RepairExpandSearch:           "RepairExpandSearch",
 		RepairSwapShape:              "RepairSwapShape",
 		RepairRebindSubject:          "RepairRebindSubject",

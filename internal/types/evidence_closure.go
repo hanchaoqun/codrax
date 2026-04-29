@@ -959,6 +959,11 @@ func (c *EvidenceClosure) AddRepair(r RepairDirective) {
 				Origin:    origin,
 			})
 		}
+	case RepairEmitEvidence:
+		// Already-read evidence materialization repairs intentionally
+		// do NOT mirror into PendingReads: the fix is to emit a
+		// corrected grounded evidence batch from current anchors, not
+		// to widen scope with another framework-forced read.
 	case RepairExpandSearch:
 		c.stats.ExpandSearchRaised++
 	case RepairSwapShape:
