@@ -16,6 +16,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/hanchaoqun/codrax/internal/logging"
+	"github.com/hanchaoqun/codrax/internal/render"
 	"github.com/hanchaoqun/codrax/internal/tool/ground"
 	"github.com/hanchaoqun/codrax/internal/types"
 )
@@ -777,6 +778,16 @@ func (t *EmitAnswerDocument) Execute(ctx *types.BusContext, params json.RawMessa
 		Citations:       citations,
 	}
 	doc.Summary = normalizeLogSourceDriftSummarySurface(doc.Summary, citations, groundCtx, ctx)
+
+	// Mermaid → aligned ASCII. When the model emits a ```mermaid```
+	// fenced block, the pgavlin/mermaid-ascii library re-lays it
+	// out into deterministically-aligned ASCII so terminal readers
+	// see a clean diagram regardless of locale / font / CJK content.
+	// Failure modes (parse error, unsupported feature, panic) all
+	// degrade to "leave block unchanged" — no regression risk. The
+	// model's free ASCII art (no `mermaid` tag) passes through this
+	// step untouched.
+	doc.Summary = render.RenderMermaidBlocks(doc.Summary)
 
 	// Session-22 fix F4.1 — diagram-block literal-grounding gate.
 	//
