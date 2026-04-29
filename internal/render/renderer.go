@@ -112,6 +112,13 @@ type Renderer struct {
 	animFrame     int
 	animStop      chan struct{}
 
+	// lang is the user-facing locale code consumed by the status
+	// localization layer (status_messages.go). Empty defaults to
+	// zh-style output (mirrors the project-wide isZh fallback). Set
+	// via SetLang from the orchestrator/REPL after Renderer
+	// construction so existing callers stay source-compatible.
+	lang string
+
 	// cancelHint is rendered as a dim trailer line under the task
 	// list while the spinner is live. Used by the REPL to surface a
 	// "press Ctrl+C to cancel" affordance — without this the spinner
@@ -163,6 +170,16 @@ type Renderer struct {
 // what's in flight. A collapsed-count indicator is rendered in
 // their place.
 const maxVisibleTasks = 12
+
+// SetLang installs the user-facing locale code. Used by the status
+// localization layer to pick zh / en text for stage labels, thinking
+// summaries, tool-call detail, footer and cancel hint. Safe to call
+// before or after Start; subsequent redraws pick it up immediately.
+func (r *Renderer) SetLang(lang string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.lang = lang
+}
 
 // New creates a Renderer.
 func New(_ /* out */ interface{}, forceColor bool) *Renderer {
@@ -828,57 +845,44 @@ func (r *Renderer) redraw() {
 	}
 
 	// Objective line (single-task wrapper collapsed into one row).
+	// Localized + muted via composeObjectiveLine — the pre-2026-04-30
+	// renderer hardcoded FgGreen / FgCyan here which made the
+	// objective compete visually with the bordered final answer.
 	if r.objective != "" {
-		var icon string
-		var color pterm.Style
-		if r.objectiveDone {
-			icon = "✓"
-			color = *pterm.NewStyle(pterm.FgGreen)
-		} else {
-			icon = "►"
-			color = *pterm.NewStyle(pterm.FgCyan)
-		}
-		line := fmt.Sprintf("  %s %s", color.Sprint(icon), r.objective)
+		line := composeObjectiveLine(r.objective, r.objectiveDone)
 		b.WriteString(truncByDisplayWidth(line, maxCols))
 		b.WriteByte('\n')
 		b.WriteString("\n")
 	}
 
-	// Task list: one line per stage dispatch + sub-agent run, in
-	// event order. Completed rows stay visible with a done-indicator.
-	// When the list grows past maxVisibleTasks we collapse the oldest
-	// completed entries into a summary row — running rows are never
-	// hidden.
+	// Task list: rebuilt as statusBlocks so taskRow internals stay
+	// out of redraw(). buildStatusBlocks aggregates topic rows under
+	// the "Understanding the request" parent, classifies each row
+	// into recoverable/fatal/cancelled buckets, and localizes every
+	// surfaced string to r.lang. renderStatusBlock paints the colour
+	// + indent, redraw() owns the per-line truncation + separators
+	// so pterm.Area's row-count tracking stays correct.
 	rows := r.visibleRows()
-	for i, row := range rows {
-		line := r.formatTaskLine(row, frame)
-		b.WriteString(truncByDisplayWidth(line, maxCols))
-		if i < len(rows)-1 {
-			b.WriteByte('\n')
+	now := time.Now()
+	blocks := r.buildStatusBlocks(rows, frame, now)
+	for bi, blk := range blocks {
+		blockLines := renderStatusBlock(blk, r.lang)
+		for li, line := range blockLines {
+			b.WriteString(truncByDisplayWidth(line, maxCols))
+			if li < len(blockLines)-1 || bi < len(blocks)-1 {
+				b.WriteByte('\n')
+			}
 		}
 	}
 
-	// Footer: total elapsed for the whole pipeline. Rendered only
-	// when at least one row is present so a pre-event "just started"
-	// state shows a bare objective. The leading cyan spinner mirrors
-	// the running-row glyph so the footer visibly animates — makes
-	// it obvious the pipeline is still live even when every task row
-	// has already entered a stable state between dispatches.
-	if len(rows) > 0 {
+	// Footer: total elapsed for the whole pipeline. composeFooter
+	// localizes the "Total elapsed" / "总耗时" label and threads the
+	// caller-supplied cancelHint OR a defaultCancelHint when the
+	// REPL hasn't set one.
+	if len(blocks) > 0 {
 		b.WriteByte('\n')
-		footer := fmt.Sprintf("  %s %s %s",
-			pterm.FgCyan.Sprint(frame),
-			pterm.FgDarkGray.Sprint("Total"),
-			pterm.FgWhite.Sprint(elapsed))
+		footer := composeFooter(frame, elapsed.String(), r.cancelHint, r.lang)
 		b.WriteString(truncByDisplayWidth(footer, maxCols))
-		// Cancel hint — surfaced ONLY while the spinner is live and
-		// only when the REPL set a hint via StartSpinnerWithCancelHint.
-		// Empty cancelHint preserves the historical single-shot CLI
-		// rendering byte-identically.
-		if r.cancelHint != "" {
-			b.WriteString("  ")
-			b.WriteString(pterm.FgDarkGray.Sprint(r.cancelHint))
-		}
 	}
 
 	r.area.Update(b.String())
@@ -931,123 +935,10 @@ func (r *Renderer) visibleRows() []*taskRow {
 	return out
 }
 
-// formatTaskLine renders one task row as a single terminal line with
-// colour codes and the current animation frame. Running rows get the
-// spinner frame; completed rows get ✓ (green) or ✗ (red). Layout:
-//
-//	  ⠋ ExplorerAgent(explore) · ► grep agent.go 2s · 3s
-//	  ✓ AnalyzerAgent(analyze) · finished · 1s
-//	  ⠋ subexplorer [sub-topic A] · ► read_file 1s
-func (r *Renderer) formatTaskLine(row *taskRow, frame string) string {
-	// Leading status icon. Node rows in the "pending" state (plan
-	// published but this node has not run yet) get a dim bullet so
-	// they read as "queued" rather than "in flight".
-	var icon string
-	switch {
-	case row.isNodeRow && row.pending:
-		icon = pterm.FgDarkGray.Sprint("·")
-	case !row.endTime.IsZero() && row.okFinished:
-		icon = pterm.FgGreen.Sprint("✓")
-	case !row.endTime.IsZero() && !row.okFinished:
-		icon = pterm.FgRed.Sprint("✗")
-	default:
-		icon = pterm.FgCyan.Sprint(frame)
-	}
-
-	// Label: distinguishes main-stage rows from sub-agent rows.
-	var label string
-	switch {
-	case row.isNodeRow:
-		// Task-graph node row: show "[kind] objective". The kind tag
-		// is dimmed so the objective — the part the user actually
-		// cares about — dominates. finalize is special-cased to a
-		// friendlier label since the canonical id ("finalize") is
-		// not informative as a summary. Multi-subtopic evidence rows
-		// get "[topic N]" instead of "[evidence]" so a user seeing
-		// three "[evidence]" lines in a row can tell at a glance
-		// which is which — the tag comes from the node ID suffix
-		// (`_tN`) that compiler.expandEvidenceNodes writes when
-		// len(rm.SubTopics) > 1.
-		kindTag := row.nodeKind
-		if kindTag == "" {
-			kindTag = "task"
-		}
-		if row.nodeKind == "evidence" {
-			if idx, ok := topicIndexFromNodeID(row.nodeID); ok {
-				kindTag = fmt.Sprintf("topic %d", idx+1)
-			}
-		}
-		text := row.objective
-		if text == "" {
-			if row.nodeKind == "finalize" {
-				text = "Synthesise final answer"
-			} else {
-				text = row.nodeID
-			}
-		}
-		label = pterm.FgDarkGray.Sprintf("[%s] ", kindTag) + pterm.FgWhite.Sprint(text)
-	case row.agent == "" && row.stage != "":
-		// Collapsed marker row — render just the stage field as the label.
-		label = pterm.FgDarkGray.Sprint(row.stage)
-	case row.isSubAgent:
-		name := row.agent
-		if name == "" {
-			name = "subagent"
-		}
-		// Include the SubTaskCount when the batch has >1 sub-tasks,
-		// so a multi-sub-topic dispatch visibly shows "2 sub-tasks".
-		if row.subCount > 1 {
-			label = pterm.FgMagenta.Sprintf("%s[×%d]", name, row.subCount)
-		} else {
-			label = pterm.FgMagenta.Sprint(name)
-		}
-	default:
-		// Main stage row: "AnalyzerAgent(analyze)" style. Stage name
-		// in parentheses makes it obvious even when the same agent
-		// is dispatched in different stages (rare but possible).
-		agentLabel := formatAgent(types.AgentName(row.agent), 1)
-		// Strip the "(1)" count formatAgent appends — the per-row
-		// view doesn't need a count; the batch size is shown on
-		// sub-agent rows via [×N].
-		if idx := strings.LastIndex(agentLabel, "("); idx > 0 {
-			agentLabel = agentLabel[:idx]
-		}
-		label = pterm.FgWhite.Sprintf("%s(%s)", agentLabel, row.stage)
-	}
-
-	// Detail segment. For running rows with a live detail, show the
-	// per-phase elapsed; for completed rows, show total row elapsed.
-	var detailSeg string
-	switch {
-	case row.endTime.IsZero() && row.detail != "":
-		if row.detailDone {
-			detailSeg = pterm.FgGreen.Sprint("✓") + " " + pterm.FgDarkGray.Sprint(row.detail)
-		} else {
-			phaseElapsed := time.Since(row.detailStart).Truncate(time.Second)
-			detailSeg = pterm.FgCyan.Sprint("►") + " " + pterm.FgGray.Sprint(row.detail) +
-				" " + pterm.FgDarkGray.Sprint(phaseElapsed.String())
-		}
-	case !row.endTime.IsZero():
-		// Completed row: show total elapsed + tool count when > 0.
-		elapsed := row.endTime.Sub(row.startTime).Truncate(time.Second)
-		parts := []string{pterm.FgDarkGray.Sprint(elapsed.String())}
-		if row.toolCount > 0 {
-			parts = append(parts, pterm.FgDarkGray.Sprintf("%d tool%s", row.toolCount, pluralS(row.toolCount)))
-		}
-		if row.errorMsg != "" {
-			parts = append(parts, pterm.FgRed.Sprintf("error: %s", row.errorMsg))
-		}
-		detailSeg = strings.Join(parts, pterm.FgDarkGray.Sprint(" · "))
-	}
-
-	// Skip the trailing separator when the row has no agent (collapsed
-	// marker) or no detail segment.
-	if detailSeg == "" {
-		return fmt.Sprintf("  %s %s", icon, label)
-	}
-	return fmt.Sprintf("  %s %s %s %s",
-		icon, label, pterm.FgDarkGray.Sprint("·"), detailSeg)
-}
+// formatTaskLine: removed in 2026-04-30. The taskRow → screen path
+// now goes through buildStatusBlocks + renderStatusBlock so all
+// localization and styling lives in one place. Pre-removal callers
+// in redraw() were the only consumers.
 
 // pluralS returns "s" when n != 1, "" otherwise. Renderer-local
 // plurality helper used by formatTaskLine's tool-count rendering.

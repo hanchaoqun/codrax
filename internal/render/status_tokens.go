@@ -1,0 +1,64 @@
+package render
+
+import "github.com/pterm/pterm"
+
+// Status-stream style tokens. Centralised so taskRow rendering paths
+// don't sprinkle pterm.FgGreen / FgCyan / FgWhite ad-hoc — the
+// pre-2026-04-30 renderer had a dozen direct calls that drifted in
+// brightness and made the spinner area visually overpower the final
+// answer prose. Each token below maps to a single semantic role; the
+// brightness ladder (most → least intense) is:
+//
+//   final answer prose (rendered by glamour, NOT a token here)
+//     ▶ statusPrimary           — current stage label
+//     ▶ statusTopicLabel        — "关注点 1：" / "Focus 1:"
+//     ▶ statusDetail            — thinking / tool-call detail
+//     ▶ statusTopicText         — focus-area body text
+//     ▶ statusSecondary         — "识别到 N 个关注点" / "N focus areas"
+//     ▶ statusFatal             — fatal error text body
+//     ▶ statusRecoverable       — recoverable error text body
+//     ▶ statusWarningMuted      — minor warnings
+//     ▶ statusMeta              — elapsed / round / Ctrl+C
+//     ▶ statusSpinner           — ⠇ frame, · bullet
+//     ▶ statusSuccessMuted      — ✓ checkmark
+//
+// Every token uses pterm.NewStyle so the same Sprint API works
+// everywhere; passing pterm.Style by value means each call gets an
+// isolated copy and parallel writes don't race on shared state.
+//
+// Colour pick rationale:
+//   - statusPrimary uses xterm slot 75 (#5fafff mid blue) on dark
+//     and slot 25 on light — clear without competing with the
+//     bordered final answer's H1 white.
+//   - statusDetail uses 246 (#949494) so thinking traces read as
+//     "background info" not "current focus".
+//   - statusFatal uses 167 (#d75f5f) NOT 196 (#ff0000) — same red
+//     family but ~30% less luminance so a verify-failure doesn't
+//     blast the whole pane red.
+//   - statusRecoverable uses 215 (#ffaf5f) muted amber — the
+//     "I'm working on it" hue, NOT the "danger" red.
+var (
+	statusPrimary       = pterm.NewStyle(pterm.FgLightBlue)
+	statusDetail        = pterm.NewStyle(pterm.FgGray)
+	statusSecondary     = pterm.NewStyle(pterm.FgGray)
+	statusTopicLabel    = pterm.NewStyle(pterm.FgLightBlue)
+	statusTopicText     = pterm.NewStyle(pterm.FgDefault)
+	statusMeta          = pterm.NewStyle(pterm.FgDarkGray)
+	statusSpinner       = pterm.NewStyle(pterm.FgGray)
+	statusSuccessMuted  = pterm.NewStyle(pterm.FgGreen)
+	statusFatal         = pterm.NewStyle(pterm.FgRed)
+	statusRecoverable   = pterm.NewStyle(pterm.FgYellow)
+	statusWarningMuted  = pterm.NewStyle(pterm.FgYellow)
+)
+
+// Status-line glyphs. Centralised so a future glyph change touches
+// one location and unit tests can pin the exact rune used.
+const (
+	glyphRunning     = '⠇' // animated spinner frame placeholder; real frame comes from spinnerFrames
+	glyphSuccess     = '✓'
+	glyphFatal       = '✗'
+	glyphRecoverable = '⟳'
+	glyphWarning     = '⚠'
+	glyphPending     = '·'
+	glyphTopicBullet = '·'
+)

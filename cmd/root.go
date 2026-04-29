@@ -1907,6 +1907,7 @@ func initApp(cmd *cobra.Command, _ []string) error {
 	logging.Info("registered %d skills", len(skillRegistry.List()))
 
 	renderer := render.New(os.Stdout, false)
+	renderer.SetLang(flagLang)
 	app.renderer = renderer
 
 	toolRegistry := tool.NewRegistry()
