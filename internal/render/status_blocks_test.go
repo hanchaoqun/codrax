@@ -583,6 +583,54 @@ func TestStatus_TopicGroupOrderingAfterAnalyze(t *testing.T) {
 	}
 }
 
+// TestStatus_DispatchGenerationGroupsSiblings pins the
+// dispatch-window grouping: nodes started within
+// dispatchWindowGroupingMs ms of each other share a generation and
+// stay all-active simultaneously. Cross-window starts (separated by
+// the prior window's actual LLM dispatch — typically seconds) bump
+// the generation, which parks every older-gen row.
+func TestStatus_DispatchGenerationGroupsSiblings(t *testing.T) {
+	r := newTestRenderer("zh")
+	emit := r.Emitter()
+	t0 := time.Now()
+	// Window 1: three evidence_tN nodes dispatched as siblings,
+	// timestamps within microseconds of each other.
+	emit(Event{Kind: EventAnalysisReady, Timestamp: t0, TaskNodes: []TaskNodeInfo{
+		{ID: "evN_t0", Type: "evidence", Objective: "topic A"},
+		{ID: "evN_t1", Type: "evidence", Objective: "topic B"},
+		{ID: "evN_t2", Type: "evidence", Objective: "topic C"},
+		{ID: "vN", Type: "validate", Objective: "cross-check"},
+	}})
+	emit(Event{Kind: EventTaskNodeStart, Timestamp: t0.Add(1 * time.Millisecond), NodeID: "evN_t0"})
+	emit(Event{Kind: EventTaskNodeStart, Timestamp: t0.Add(2 * time.Millisecond), NodeID: "evN_t1"})
+	emit(Event{Kind: EventTaskNodeStart, Timestamp: t0.Add(3 * time.Millisecond), NodeID: "evN_t2"})
+	// All three siblings of window 1 must be active (paused=false)
+	// because they were started within the same dispatch window.
+	for _, id := range []string{"evN_t0", "evN_t1", "evN_t2"} {
+		row := r.findNodeRow(id)
+		if row == nil {
+			t.Fatalf("row %s missing", id)
+		}
+		if row.paused {
+			t.Errorf("row %s same-window sibling must NOT be parked; got paused=true", id)
+		}
+	}
+	// Window 2: validate fires 5s later (well past the 750ms
+	// grouping threshold). Should bump dispatchGen and park every
+	// window-1 sibling.
+	emit(Event{Kind: EventTaskNodeStart, Timestamp: t0.Add(5 * time.Second), NodeID: "vN"})
+	for _, id := range []string{"evN_t0", "evN_t1", "evN_t2"} {
+		row := r.findNodeRow(id)
+		if row == nil || !row.paused {
+			t.Errorf("cross-window: row %s must be parked after later window started a different node; got paused=%v",
+				id, row != nil && row.paused)
+		}
+	}
+	if vRow := r.findNodeRow("vN"); vRow == nil || vRow.paused {
+		t.Errorf("active validate row must NOT be parked; got %v", vRow)
+	}
+}
+
 // TestStatus_PausedRowRendersAsPending pins the paused-row contract:
 // a node whose endTime is still zero (orchestrator did NOT emit
 // EventTaskNodeEnd because it was requeued without termination) but

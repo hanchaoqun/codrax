@@ -421,11 +421,20 @@ func TestFormatLogTriageStructured_RendersCallChainForPanic(t *testing.T) {
 	if !strings.Contains(got, "### Call chain (innermost → outer)") {
 		t.Fatalf("panic+crash bundle with 2 resolved frames must render Call chain block; got:\n%s", got)
 	}
-	if !strings.Contains(got, "innermost failure: internal/agent/analyzer.go:250") {
-		t.Errorf("innermost frame label missing; got:\n%s", got)
-	}
-	if !strings.Contains(got, "caller (outermost): internal/agent/analyzer.go:320") {
-		t.Errorf("outermost-caller label missing; got:\n%s", got)
+	// Call-chain block now emits Mermaid (was bare-fence ASCII
+	// "innermost failure: …" / "↑ caller:" prose). Assert on the
+	// Mermaid markers + grounded labels which survive the format
+	// change.
+	for _, want := range []string{
+		"```mermaid",
+		"flowchart",
+		"internal/agent/analyzer.go:250",
+		"internal/agent/analyzer.go:320",
+		"-->",
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("mermaid call-chain block missing %q; got:\n%s", want, got)
+		}
 	}
 	if !strings.Contains(got, "diagram grounding gate") {
 		t.Errorf("block must reference the diagram grounding gate so LLM knows the downstream contract; got:\n%s", got)

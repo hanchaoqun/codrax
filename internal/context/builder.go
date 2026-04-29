@@ -2115,34 +2115,49 @@ func renderLogCallChain(bundle *types.LogBundle) string {
 		return ""
 	}
 
+	// Pre-2026-04-30 this section emitted a bare ``` fence with
+	// `innermost failure: … ↑ caller:` ASCII art AND told the model
+	// "the answer's ASCII diagram should draw [from these frames]
+	// verbatim". That directive was the load-bearing reason the
+	// model kept emitting ASCII art in answers despite every
+	// downstream surface (skill prompt, Diagram Contract,
+	// missing_diagram rejection, retry hints, all five seed
+	// renderers) preferring Mermaid: this section carried the
+	// CONCRETE frame data the model would actually use, and its
+	// directive contradicted the Mermaid preference.
+	//
+	// Now: emit the call-chain reference as a ```mermaid``` flowchart
+	// via the canonical types.RenderLogDiagramFence renderer, and
+	// instruct the model to use Mermaid form. This puts the
+	// concrete-data injection in agreement with every other
+	// Mermaid-preferring surface.
+	bundleSubset := &types.LogBundle{
+		Errors: []types.LogError{{Frames: resolved}},
+	}
+	mermaidFence := types.RenderLogDiagramFence(bundleSubset)
+	if mermaidFence == "" {
+		// types.RenderLogDiagramFence requires ≥2 frames; if the
+		// resolved list is shorter, skip the section entirely
+		// rather than emitting a degenerate stub. The earlier
+		// `len(resolved) < 2` guard at the top of the caller
+		// already handles this, but defend defensively.
+		return ""
+	}
 	var b strings.Builder
 	b.WriteString("### Call chain (innermost → outer)\n\n")
 	b.WriteString("The panic / crash frames above describe the call chain the answer's " +
-		"ASCII diagram should draw. If your summary contains a call-chain / sequence / " +
-		"flow diagram, base it on these frames verbatim — the innermost frame is the " +
-		"failure site, each outer frame is its direct caller, and every file named in " +
-		"the diagram must appear in this list or in citations[] (the diagram grounding " +
-		"gate rejects unknown file names inside fenced code blocks).\n\n")
-	b.WriteString("```\n")
-	for i, f := range resolved {
-		name := f.Func
-		if name == "" {
-			if f.Pkg != "" {
-				name = "(" + f.Pkg + ")"
-			} else {
-				name = "(no symbol)"
-			}
-		}
-		switch {
-		case i == 0:
-			fmt.Fprintf(&b, "innermost failure: %s:%d  in %s\n", f.File, f.Line, name)
-		case i == len(resolved)-1:
-			fmt.Fprintf(&b, "  ↑ caller (outermost): %s:%d  in %s\n", f.File, f.Line, name)
-		default:
-			fmt.Fprintf(&b, "  ↑ caller:             %s:%d  in %s\n", f.File, f.Line, name)
-		}
-	}
-	b.WriteString("```\n\n")
+		"diagram should draw. If your summary contains a call-chain / sequence / flow " +
+		"diagram, use the ` ```mermaid ` flowchart shape below as a grounded FLOOR — " +
+		"every node here is already evidence-grounded so it is the safest starting " +
+		"point. You MAY extend the chain with additional grounded callers or branch " +
+		"into related grounded paths if your investigation supports a richer mechanism. " +
+		"The HARD rule is that every file named in the diagram must appear in this " +
+		"list or in citations[] (the diagram grounding gate rejects unknown file names " +
+		"inside fenced code blocks). PREFERRED form: ` ```mermaid ` flowchart or " +
+		"sequenceDiagram. ASCII art is the fallback only when the Mermaid subset cannot " +
+		"express the shape.\n\n")
+	b.WriteString(mermaidFence)
+	b.WriteString("\n\n")
 	return b.String()
 }
 

@@ -77,6 +77,19 @@ type taskRow struct {
 	objective string
 	pending   bool
 	paused    bool
+
+	// dispatchGen identifies which dispatch window this row's
+	// active phase belongs to. Nodes started within the same
+	// orchestrator window (the for-loop in orchestrator.go::
+	// runReadSchedulerLoop that emitNodeStart's every n in
+	// `window` back-to-back) share a generation; the next window
+	// increments the generation and parks every older-generation
+	// row. Without this distinction, a multi-evidence-topic window
+	// (evidence_t0, evidence_t1, evidence_t2 all dispatched by ONE
+	// LLM call) would have its first two siblings parked the
+	// instant the third fires, even though all three are
+	// simultaneously in flight.
+	dispatchGen int
 }
 
 // Renderer consumes pipeline events and produces styled terminal output.
@@ -123,6 +136,15 @@ type Renderer struct {
 	objectiveDone bool
 	animFrame     int
 	animStop      chan struct{}
+
+	// dispatchGen is the rolling counter for orchestrator dispatch
+	// windows. EventTaskNodeStart bumps it whenever the timestamp
+	// jumps past dispatchWindowGroupingMs ms from the previous start
+	// (signalling a new window). Within-window sibling starts share
+	// the current gen so multi-topic evidence dispatches stay all-
+	// active together.
+	dispatchGen     int
+	lastNodeStartAt time.Time
 
 	// lang is the user-facing locale code consumed by the status
 	// localization layer (status_messages.go). Empty defaults to
@@ -570,12 +592,21 @@ func (r *Renderer) startSpinnerWithHint(hint string) {
 	r.startTime = time.Now()
 	r.animFrame = 0
 	r.cancelHint = hint
+	r.openSpinnerAreaLocked()
+}
 
+// openSpinnerAreaLocked opens a fresh pterm.AreaPrinter and starts
+// the animation ticker WITHOUT touching task / objective / analysis
+// state. Used by both startSpinnerWithHint (full spinner start) and
+// reopenSpinnerAreaLocked (post-finalize-retry recovery), so the
+// area + animation goroutine lifecycle has one canonical owner.
+//
+// Caller MUST hold r.mu.
+func (r *Renderer) openSpinnerAreaLocked() {
 	a, _ := pterm.DefaultArea.WithRemoveWhenDone(true).Start()
 	r.area = a
 	r.redraw()
 
-	// Start animation ticker.
 	r.animStop = make(chan struct{})
 	go func() {
 		ticker := time.NewTicker(100 * time.Millisecond)
@@ -596,6 +627,34 @@ func (r *Renderer) startSpinnerWithHint(hint string) {
 			}
 		}
 	}()
+}
+
+// reopenSpinnerAreaLocked restarts the spinner area + animation
+// goroutine after they were torn down by handlePreviewChunkLocked
+// (the finalize streaming path stops the spinner so the ticker
+// can own the screen). When the orchestrator decides to retry a
+// rejected finalize round, fresh EventTaskNodeStart / EventStageStart /
+// EventAgentThinking events arrive but r.area is nil — without
+// reopening, the renderer silently drops every event and the
+// terminal "freezes" at whatever was last printed.
+//
+// Distinct from startSpinnerWithHint: this MUST preserve r.tasks /
+// r.current / r.objective / r.analysisReady so the redraw shows
+// the full pipeline timeline (with already-done rows visible) the
+// moment the retry round picks up. r.cancelHint and r.startTime
+// also stay so elapsed-time math is continuous.
+//
+// Caller MUST hold r.mu.
+func (r *Renderer) reopenSpinnerAreaLocked() {
+	if r.area != nil {
+		return
+	}
+	if r.previewArea != nil {
+		// Streaming preview is currently rendering — leave the
+		// ticker alone, it owns the screen until handlePreviewClearLocked.
+		return
+	}
+	r.openSpinnerAreaLocked()
 }
 
 // StopSpinner stops the live area and prints the final task list.
@@ -663,7 +722,38 @@ func (r *Renderer) Emitter() EventEmitter {
 		}
 
 		if r.area == nil {
-			return
+			// Spinner area was torn down (typically by
+			// handlePreviewChunkLocked freezing the spinner before
+			// the finalize streaming preview opened its ticker, or
+			// after the ticker closed and the bordered answer
+			// printed). When events that signal "the pipeline is
+			// still active" arrive AFTER teardown — e.g. an
+			// orchestrator retry round re-dispatching a stage —
+			// reopen the spinner area so the user sees state
+			// updates instead of a frozen terminal. Read-only
+			// events (EventTaskNodeEnd / EventStageEnd /
+			// EventToolCallEnd / etc.) trigger a reopen too because
+			// after them the loop typically continues with a fresh
+			// thinking/dispatch cycle.
+			switch ev.Kind {
+			case EventTaskNodeStart,
+				EventTaskNodeEnd,
+				EventStageStart,
+				EventStageEnd,
+				EventAgentThinking,
+				EventAgentContent,
+				EventToolCallStart,
+				EventToolCallEnd,
+				EventTransition,
+				EventSubAgentStart,
+				EventSubAgentEnd,
+				EventObjectiveStarted,
+				EventAnalysisReady:
+				r.reopenSpinnerAreaLocked()
+			}
+			if r.area == nil {
+				return
+			}
 		}
 
 		switch ev.Kind {
@@ -739,6 +829,47 @@ func (r *Renderer) Emitter() EventEmitter {
 
 		case EventTaskNodeStart:
 			if row := r.findNodeRow(ev.NodeID); row != nil {
+				// Dispatch-window detection: orchestrator emits every
+				// node in a window back-to-back inside one for-loop,
+				// so consecutive EventTaskNodeStart timestamps are
+				// microseconds apart for siblings of the SAME dispatch
+				// (e.g. evidence_t0 + evidence_t1 + evidence_t2 all
+				// being dispatched together). Cross-window starts are
+				// separated by the prior window's actual LLM call —
+				// at minimum hundreds of milliseconds, typically
+				// seconds. dispatchWindowGroupingMs threshold groups
+				// rows by dispatch identity so parking only fires on
+				// genuine focus shifts (new window started a
+				// different node), not on same-window siblings.
+				const dispatchWindowGroupingMs = 750
+				sameWindow := !r.lastNodeStartAt.IsZero() &&
+					ev.Timestamp.Sub(r.lastNodeStartAt) <= dispatchWindowGroupingMs*time.Millisecond
+				if !sameWindow {
+					// New dispatch window: park every older-gen row
+					// that's still in flight (started but not ended
+					// by EventTaskNodeEnd — the orchestrator's "no
+					// end on requeue" contract leaves these visible
+					// as running). Pre-2026-04-30 traces showed
+					// validate's window-2 start while window-1's
+					// evidence_tN rows still had endTime=0; without
+					// generation gating they all rendered as "正在
+					// X" simultaneously.
+					r.dispatchGen++
+					for _, other := range r.tasks {
+						if other == row {
+							continue
+						}
+						if !other.isNodeRow {
+							continue
+						}
+						if other.pending || !other.endTime.IsZero() {
+							continue
+						}
+						if other.dispatchGen < r.dispatchGen {
+							other.paused = true
+						}
+					}
+				}
 				row.pending = false
 				row.paused = false
 				row.startTime = ev.Timestamp
@@ -746,26 +877,8 @@ func (r *Renderer) Emitter() EventEmitter {
 				row.endTime = time.Time{}
 				row.okFinished = false
 				row.errorMsg = ""
-				// Anything else still mid-investigation (started but
-				// not terminated by EventTaskNodeEnd, e.g. a node the
-				// scheduler requeued without ending) gets parked as
-				// `paused` so it renders like a queued row instead of
-				// faking concurrent execution next to the new active
-				// row. The orchestrator's "no EventTaskNodeEnd on
-				// requeue" contract is preserved — we infer the
-				// scheduler's focus shift purely from this event.
-				for _, other := range r.tasks {
-					if other == row {
-						continue
-					}
-					if !other.isNodeRow {
-						continue
-					}
-					if other.pending || !other.endTime.IsZero() {
-						continue
-					}
-					other.paused = true
-				}
+				row.dispatchGen = r.dispatchGen
+				r.lastNodeStartAt = ev.Timestamp
 				r.current = row
 			}
 
