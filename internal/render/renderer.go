@@ -189,51 +189,228 @@ func New(_ /* out */ interface{}, forceColor bool) *Renderer {
 }
 
 // codraxStyleConfig returns the glamour style used for rendering the
-// final answer markdown. It starts from glamour's public
-// styles.DarkStyleConfig / LightStyleConfig (picked to match the
-// terminal background, same detection glamour.WithAutoStyle uses
-// internally) and overrides a single colour slot: inline code
-// foreground. glamour's DarkStyleConfig defaults Code.Color to xterm
-// palette slot 203 (#ff5f5f — a saturated red/pink). Codrax answers
-// routinely carry dozens of inline-code references (symbol names,
-// file paths); a saturated red on every one triggers "alert-colour
-// fatigue". Slot 117 (light cyan, #87d7ff) reads as "interesting"
-// rather than "danger". LightStyleConfig uses slot 33 (blue).
+// final answer markdown.
 //
-// Every background-color slot glamour paints is cleared so the
-// answer and every element nested inside it — H1 headers, inline
-// code, fenced code blocks (which carry the "Key snippets" code and
-// any ASCII diagram the LLM authored in Summary), chroma error
-// tokens — fall back to the terminal's own background. Glamour's baked-in greys /
-// purples / reds clash with popular terminal themes; previous
-// iterations ("charcoal card", coloured H1 bar, grey inline pill)
-// have all been rejected as "太丑了". The user ask is: one flat
-// palette that inherits the terminal theme.
+// Design intent (post-2026-04-29 audit):
+//   1. Hue discipline. Each colour family carries ONE semantic so
+//      the eye isn't asked to disambiguate four reds:
+//        red    → diagnostics + diff-deleted (only)
+//        green  → success + diff-inserted + function name
+//        cyan   → inline code + heading family
+//        grey   → structure (HR, table grid, comments, operators,
+//                 dimmed heading levels)
+//        yellow → emphasis / built-ins (NOT errors)
+//        purple → reserved keywords (class / def / func)
+//   2. Heading hierarchy via brightness gradient. H1 = brightest
+//      (white), gradient down through cyan→blue→grey→deep grey at
+//      H6. Pure prefix-count cues ('## ', '### ') are kept by
+//      glamour but no longer the sole signal of level.
+//   3. No background colours. Terminal theme owns the background;
+//      reintroducing pills/bars has been rejected repeatedly as
+//      visually loud across the popular terminal themes.
 func codraxStyleConfig() ansi.StyleConfig {
 	var cfg ansi.StyleConfig
-	var inlineCodeColor string
-	if termenv.HasDarkBackground() {
+	dark := termenv.HasDarkBackground()
+	if dark {
 		cfg = styles.DarkStyleConfig
-		inlineCodeColor = "117" // xterm light cyan, #87d7ff
 	} else {
 		cfg = styles.LightStyleConfig
-		inlineCodeColor = "33" // xterm blue, #0087ff
 	}
-	cfg.Code.Color = &inlineCodeColor
+	applyHeadingHierarchy(&cfg, dark)
+	applyInlineAndStructure(&cfg, dark)
+	applyChromaPalette(&cfg, dark)
+	return cfg
+}
 
-	cfg.Code.BackgroundColor = nil
+// applyHeadingHierarchy installs a brightness-graded set of heading
+// colours so the user perceives heading level by colour AND by '#'
+// prefix. Pre-2026-04-29 every heading inherited Heading.Color (cyan
+// 39 in dark, blue 27 in light) so H2-H6 were visually identical.
+func applyHeadingHierarchy(cfg *ansi.StyleConfig, dark bool) {
 	cfg.H1.BackgroundColor = nil
-	// CodeBlock.Chroma is a *Chroma pointing into the shared global
-	// styles.DarkStyleConfig / LightStyleConfig; mutating it in place
-	// would leak to any other glamour renderer in the process. Shallow-
-	// copy first, then clear the two chroma slots that paint a
-	// background (fence fill + error token).
-	if cfg.CodeBlock.Chroma != nil {
-		chroma := *cfg.CodeBlock.Chroma
-		chroma.Background.BackgroundColor = nil
-		chroma.Error.BackgroundColor = nil
-		cfg.CodeBlock.Chroma = &chroma
+	if dark {
+		// Dark backgrounds: brightest at top, descending to deep grey.
+		cfg.H1.Color = strPtr("15")  // white
+		cfg.H2.Color = strPtr("117") // light cyan #87d7ff (matches inline code family)
+		cfg.H3.Color = strPtr("75")  // mid blue #5fafff
+		cfg.H4.Color = strPtr("67")  // dark blue #5f87af
+		cfg.H5.Color = strPtr("246") // mid grey #949494
+		cfg.H6.Color = strPtr("240") // deep grey #585858
+		// Heading.Color cascades into any H without its own Color;
+		// keep cyan as the family default for unexpected H levels.
+		cfg.Heading.Color = strPtr("117")
+	} else {
+		// Light backgrounds: darkest at top, ascending to medium grey.
+		cfg.H1.Color = strPtr("16")  // black
+		cfg.H2.Color = strPtr("25")  // dark blue #005faf
+		cfg.H3.Color = strPtr("31")  // mid blue #0087af
+		cfg.H4.Color = strPtr("67")  // mid blue-grey
+		cfg.H5.Color = strPtr("242") // dark grey
+		cfg.H6.Color = strPtr("245") // mid grey
+		cfg.Heading.Color = strPtr("25")
 	}
+	cfg.H1.Bold = boolPtr(true)
+	cfg.H2.Bold = boolPtr(true)
+	cfg.H3.Bold = boolPtr(true)
+	cfg.H4.Bold = boolPtr(true)
+	cfg.H5.Bold = boolPtr(true)
+	cfg.H6.Bold = boolPtr(false) // visually retreats — bottom of hierarchy
+}
+
+// applyInlineAndStructure tunes non-heading prose elements: inline
+// code, links, horizontal rule, block quote indent, table grid.
+// Inline code's red→cyan move is the original codrax customisation
+// (red triggered alert fatigue on identifier-heavy answers); other
+// surfaces follow the same hue-discipline philosophy.
+func applyInlineAndStructure(cfg *ansi.StyleConfig, dark bool) {
+	cfg.Code.BackgroundColor = nil
+	if dark {
+		cfg.Code.Color = strPtr("117") // light cyan #87d7ff
+		// HR: 240 was almost invisible on dim themes; 244 reads as a
+		// subtle but clearly-present divider.
+		cfg.HorizontalRule.Color = strPtr("244") // #808080
+		// Link URL was 30 (#008787) — too dim. 67 reads as a calm,
+		// readable blue against dark backgrounds.
+		cfg.Link.Color = strPtr("67") // #5f87af
+		// Link text shares inline-code's cyan so links read as
+		// "interactive code reference". Underline retained as the
+		// universal affordance signal.
+		cfg.LinkText.Color = strPtr("117")
+		cfg.LinkText.Bold = boolPtr(true)
+		// Block quote: colour the `│ ` indent token so quotes are
+		// visually delimited. Use cyan to match the heading family.
+		cfg.BlockQuote.Color = strPtr("117")
+		// Tables: fill in grid characters at glamour's medium-grey
+		// neutral so the structure reads without being noisy. The
+		// runes themselves are the standard ASCII set glamour ships.
+		cfg.Table.CenterSeparator = strPtr("┼")
+		cfg.Table.ColumnSeparator = strPtr("│")
+		cfg.Table.RowSeparator = strPtr("─")
+	} else {
+		cfg.Code.Color = strPtr("33") // xterm blue #0087ff
+		cfg.HorizontalRule.Color = strPtr("245")
+		cfg.Link.Color = strPtr("25")
+		cfg.LinkText.Color = strPtr("25")
+		cfg.LinkText.Bold = boolPtr(true)
+		cfg.BlockQuote.Color = strPtr("25")
+		cfg.Table.CenterSeparator = strPtr("┼")
+		cfg.Table.ColumnSeparator = strPtr("│")
+		cfg.Table.RowSeparator = strPtr("─")
+	}
+}
+
+// applyChromaPalette repaints the syntax-highlighting palette inside
+// fenced code blocks. The default (glamour DarkStyleConfig) packs
+// five different reds/pinks (#FF5FD2 / #FF5F87 / #EF8080 / #FF8EC7 /
+// #FD5B5B) into keywords / namespace / operator / built-in / diff-
+// deleted, all of which read as the same "warm-red alarm" hue.
+// We reserve red for the ONE place it carries semantic load (diff-
+// deleted + error) and pull every other token into a distinct family.
+//
+// CodeBlock.Chroma is a pointer into a shared global StyleConfig, so
+// shallow-copy before mutating to avoid leaking edits across the
+// process.
+func applyChromaPalette(cfg *ansi.StyleConfig, dark bool) {
+	if cfg.CodeBlock.Chroma == nil {
+		return
+	}
+	chroma := *cfg.CodeBlock.Chroma
+	// Backgrounds (fence fill + error highlight) — clear so the
+	// terminal theme shows through.
+	chroma.Background.BackgroundColor = nil
+	chroma.Error.BackgroundColor = nil
+	if dark {
+		// keyword / keyword.reserved / keyword.namespace / keyword.type:
+		// ONE blue family + a distinct purple for "reserved" so the
+		// reader can tell `if` apart from `class`.
+		chroma.Keyword.Color = strPtr("#5fafff")           // mid blue
+		chroma.KeywordReserved.Color = strPtr("#bd93f9")   // dracula purple
+		chroma.KeywordNamespace.Color = strPtr("#87afff")  // pale blue
+		chroma.KeywordType.Color = strPtr("#8be9fd")       // dracula cyan
+		// Operator → neutral grey so high-frequency `=` / `+` / `<`
+		// stop screaming. Pre-fix used #EF8080 light red which
+		// visually merged with diff-deleted lines.
+		chroma.Operator.Color = strPtr("#909090")
+		// Punctuation → no colour (inherits text). Pale yellow
+		// (#E8E8A8) was distracting.
+		chroma.Punctuation.Color = nil
+		// Identifiers
+		chroma.Name.Color = strPtr("#dadada")              // near-white default
+		chroma.NameBuiltin.Color = strPtr("#f1fa8c")       // dracula yellow (was hot pink)
+		chroma.NameTag.Color = strPtr("#bd93f9")           // purple (HTML/XML tags)
+		chroma.NameAttribute.Color = strPtr("#50fa7b")     // green attribute name
+		chroma.NameClass.Color = strPtr("#ffffff")         // white + bold + underline (kept)
+		chroma.NameDecorator.Color = strPtr("#f1fa8c")     // yellow (decorators ~ marker)
+		chroma.NameFunction.Color = strPtr("#50fa7b")      // dracula green
+		chroma.NameException.Color = strPtr("#ff5555")     // red (semantic: errors)
+		// Literals
+		chroma.LiteralString.Color = strPtr("#f1fa8c")     // yellow string (was warm orange — kept warm hue)
+		chroma.LiteralStringEscape.Color = strPtr("#ff79c6") // dracula pink for \n / \t markers
+		chroma.LiteralNumber.Color = strPtr("#ffb86c")     // dracula orange (was green — collided with function)
+		// Comments: keep dim grey but slightly lift for readability.
+		chroma.Comment.Color = strPtr("#6272a4")           // dracula slate
+		chroma.CommentPreproc.Color = strPtr("#ff79c6")    // pink
+		// Diff markers — the ONE place red and green carry meaning.
+		chroma.GenericDeleted.Color = strPtr("#ff5555")
+		chroma.GenericInserted.Color = strPtr("#50fa7b")
+		chroma.GenericSubheading.Color = strPtr("#909090")
+		// Default text inside fenced blocks
+		chroma.Text.Color = strPtr("#dadada")
+	} else {
+		// Light theme mirror — same hue-discipline, inverted brightness.
+		chroma.Keyword.Color = strPtr("#005faf")           // dark blue
+		chroma.KeywordReserved.Color = strPtr("#6f42c1")   // GitHub-light purple
+		chroma.KeywordNamespace.Color = strPtr("#0087af")
+		chroma.KeywordType.Color = strPtr("#0087af")
+		chroma.Operator.Color = strPtr("#6e7781")          // GitHub-light grey
+		chroma.Punctuation.Color = nil
+		chroma.Name.Color = strPtr("#24292f")
+		chroma.NameBuiltin.Color = strPtr("#cf222e")       // dark red but reserved for builtins; light-theme builtins are conventionally red (e.g. GitHub)
+		chroma.NameTag.Color = strPtr("#116329")           // dark green (HTML/XML)
+		chroma.NameAttribute.Color = strPtr("#116329")
+		chroma.NameClass.Color = strPtr("#24292f")
+		chroma.NameDecorator.Color = strPtr("#953800")
+		chroma.NameFunction.Color = strPtr("#8250df")      // GitHub-light purple
+		chroma.NameException.Color = strPtr("#cf222e")
+		chroma.LiteralString.Color = strPtr("#0a3069")     // dark navy string
+		chroma.LiteralStringEscape.Color = strPtr("#cf222e")
+		chroma.LiteralNumber.Color = strPtr("#0550ae")
+		chroma.Comment.Color = strPtr("#6e7781")
+		chroma.CommentPreproc.Color = strPtr("#0550ae")
+		chroma.GenericDeleted.Color = strPtr("#cf222e")
+		chroma.GenericInserted.Color = strPtr("#116329")
+		chroma.GenericSubheading.Color = strPtr("#6e7781")
+		chroma.Text.Color = strPtr("#24292f")
+	}
+	cfg.CodeBlock.Chroma = &chroma
+}
+
+// strPtr / boolPtr are local *string / *bool helpers used by the
+// glamour StylePrimitive overrides. The nil check inside cascadeStyle
+// requires a concrete pointer — building one inline with `&"117"` is
+// not legal Go on string literals, so this trivial helper serves
+// both readability and the language constraint.
+func strPtr(s string) *string { return &s }
+func boolPtr(b bool) *bool    { return &b }
+
+// buildDarkPalette / buildLightPalette are testable entry points
+// into codraxStyleConfig() that bypass termenv detection. Production
+// code reaches these through codraxStyleConfig() which picks the
+// theme via termenv.HasDarkBackground(); tests invoke them directly
+// to assert palette invariants without needing a real terminal.
+func buildDarkPalette() ansi.StyleConfig {
+	cfg := styles.DarkStyleConfig
+	applyHeadingHierarchy(&cfg, true)
+	applyInlineAndStructure(&cfg, true)
+	applyChromaPalette(&cfg, true)
+	return cfg
+}
+
+func buildLightPalette() ansi.StyleConfig {
+	cfg := styles.LightStyleConfig
+	applyHeadingHierarchy(&cfg, false)
+	applyInlineAndStructure(&cfg, false)
+	applyChromaPalette(&cfg, false)
 	return cfg
 }
 
