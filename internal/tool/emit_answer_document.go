@@ -796,17 +796,25 @@ func (t *EmitAnswerDocument) Execute(ctx *types.BusContext, params json.RawMessa
 	// identifier tokens in the claim field, but they do NOT inspect
 	// summary prose; and ShapeExplanation intentionally skips per-cite
 	// corroboration because narrative prose shares identifier tokens
-	// with citations ambiently. That exemption opened a hole: ASCII
-	// call-chain / flow / sequence diagrams rendered inside fenced
-	// code blocks ARE structural claims about specific repo files, and
-	// the LLM can name a file there (e.g. "explorer.go (ParseOutput)
-	// └─▶ buildAnalysisIR") without putting it in citations[].
+	// with citations ambiently. That exemption opened a hole:
+	// diagrams (Mermaid blocks or ASCII call-chain / flow / sequence
+	// art) rendered inside fenced code blocks ARE structural claims
+	// about specific repo files, and the LLM can name a file there
+	// (e.g. an arrow node labeled "explorer.go (ParseOutput)" pointing
+	// at "buildAnalysisIR") without putting it in citations[].
 	//
 	// This gate scans every triple-backtick block in summary for
 	// file-like tokens with known code extensions and rejects tokens
 	// that do not appear in citations[] or the attached-log
 	// ResolvedFiles allowlist. Applies to every shape — an explanation
 	// or step_list answer can carry the same hallucinated diagram.
+	//
+	// The gate runs on p.Summary (the original LLM-emitted text),
+	// BEFORE render.RenderMermaidBlocks would replace mermaid
+	// fences with ASCII grids. That ordering is deliberate: gate the
+	// authoritative source, not the rendered presentation. File
+	// labels inside Mermaid `A["foo.go"]` syntax are caught by the
+	// same diagramFileTokenRe regex used for ASCII art.
 	if err := validateSummaryRequiredDiagram(p.Summary, ctx); err != nil {
 		return failWithContext("%v", err)
 	}
@@ -2731,7 +2739,7 @@ func validateSummaryDiagramGrounding(summary string, citations []types.Citation,
 	return newAnswerDocValidationError(
 		"diagram_grounding",
 		"summary fenced code block references file(s) not present in citations[] or attached-log frames: %s. "+
-			"ASCII diagrams are structural claims — every filename or path-like label named inside a triple-backtick block "+
+			"Diagrams (Mermaid blocks or ASCII art) are structural claims — every filename or path-like label named inside a triple-backtick block "+
 			"must be grounded by a cited repo file, a cited line-text path literal, or an attached-log resolved frame. "+
 			"Either add a citations[] entry for each named file (and reference it from steps / symbols / value as needed), "+
 			"or remove the unsupported file name from the diagram and describe the relationship in prose. Allowed grounded labels for this dispatch: %s.",
