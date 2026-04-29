@@ -139,7 +139,20 @@ type Renderer struct {
 	// leak into the user's piped output and corrupt the file. The
 	// chunk handler short-circuits in that case so non-interactive
 	// outputs are byte-identical pre/post this feature.
-	previewArea  *pterm.AreaPrinter
+	// previewArea is intentionally NOT a pterm.AreaPrinter — pterm /
+	// atomicgo cursor's per-line clear loop (\x1b[2K + \x1b[1A loop)
+	// only wipes the row count it tracked from the previous Update's
+	// '\n' count. When that count under-estimates the true visible
+	// row count (CJK content visually wrapping despite our pre-wrap,
+	// off-by-one at the auto-wrap column boundary, or a multiplexer
+	// that under-reports terminal width), the difference is left as
+	// stale rows ABOVE the cursor that the next Update prints below.
+	// The result is the stacking-header bug. ttyPreviewArea uses
+	// \x1b[J (clear from cursor to end of screen) instead, so even
+	// when our row count is short we still wipe everything below the
+	// rewound cursor — the visible-output is robust against width-
+	// estimation drift.
+	previewArea  *ttyPreviewArea
 	previewRound int
 	previewBuf   strings.Builder
 }
@@ -1187,6 +1200,41 @@ func previewHeader(round int) string {
 // previewArea.Stop() with WithRemoveWhenDone erases the whole thing.
 const previewRejectedSuffix = "\n[已重写]"
 
+// previewWrapMargin is how many columns we reserve as slack between
+// the content's wrap column and the terminal's actual width. The
+// margin protects against:
+//   - A terminal that auto-wraps when cursor advances PAST col=W
+//     (some terminals wrap at col=W+1, others at col=W).
+//   - East-Asian-Width-ambiguous runes whose terminal-displayed
+//     width disagrees with runewidth's table (Greek / Cyrillic /
+//     box-drawing under non-CJK locales).
+//   - A multiplexer (tmux / screen) that reports a wider terminal
+//     to its inner shell than the outer terminal actually renders
+//     at the moment the preview is drawn.
+//
+// 8 cols of slack is more conservative than the renderer's spinner
+// path (4 cols) because the preview path goes through pterm's row
+// math which is less forgiving than the spinner's full redraw.
+const previewWrapMargin = 8
+
+// previewMaxCols computes the wrap budget for the streaming preview.
+// Capped at 200 cols so a very wide terminal (panoramic monitors)
+// still produces moderate-length lines that read naturally; bounded
+// below by 24 cols so degenerate small terminals (split panes) stay
+// usable. Centralised so both the chunk handler and the rejected
+// flash share the exact same width — any drift between the two
+// would break the row-count tracking.
+func previewMaxCols() int {
+	w := pterm.GetTerminalWidth() - previewWrapMargin
+	if w > 200 {
+		w = 200
+	}
+	if w < 24 {
+		w = 24
+	}
+	return w
+}
+
 // handlePreviewChunkLocked is called with r.mu held. Manages the
 // lifecycle of r.previewArea and updates it with the cumulative
 // summary text. First chunk after Clear (or first ever) opens a new
@@ -1217,34 +1265,14 @@ func (r *Renderer) handlePreviewChunkLocked(ev Event) {
 			r.area.Stop()
 			r.area = nil
 		}
-		a, err := pterm.DefaultArea.WithRemoveWhenDone(true).Start()
-		if err != nil {
-			// Failed to start area; degrade silently — preview is
-			// purely cosmetic and must never break the pipeline.
-			return
-		}
-		r.previewArea = a
+		r.previewArea = newTTYPreviewArea(os.Stdout)
 		r.previewRound++
 	}
 	r.previewBuf.Reset()
 	r.previewBuf.WriteString(previewHeader(r.previewRound))
 	r.previewBuf.WriteString("\n")
 	r.previewBuf.WriteString(ev.PreviewText)
-	// pterm.AreaPrinter tracks how many rows it printed by counting
-	// '\n' in the supplied string. When the content visually wraps
-	// (long CJK sentence on a narrow terminal), the displayed row
-	// count exceeds the '\n' count and Area's "cursor up + clear"
-	// math leaves leftover rows behind. Subsequent Update / Stop
-	// then prints fresh content BELOW the leftovers — stacking
-	// headers and preventing the final answer from overlaying the
-	// preview cleanly. Pre-wrap to terminal width so the '\n' count
-	// matches the actual displayed rows. CJK width-aware via
-	// runewidth.RuneWidth (each Han char counts as 2 columns).
-	maxCols := pterm.GetTerminalWidth() - 4
-	if maxCols < 20 {
-		maxCols = 20
-	}
-	r.previewArea.Update(wrapByDisplayWidth(r.previewBuf.String(), maxCols))
+	r.previewArea.Update(wrapByDisplayWidth(r.previewBuf.String(), previewMaxCols()))
 }
 
 // handlePreviewClearLocked is called with r.mu held. Tears down
@@ -1260,15 +1288,9 @@ func (r *Renderer) handlePreviewClearLocked(ev Event) {
 		// Append rejected marker, brief pause so the user can read
 		// it, then erase. The 200ms is long enough to register at
 		// reading speed but short enough not to delay the next
-		// retry round noticeably. Same wrap as handlePreviewChunkLocked
-		// so Stop()'s eventual erase covers every visible row, not
-		// just the '\n'-counted ones.
+		// retry round noticeably.
 		r.previewBuf.WriteString(previewRejectedSuffix)
-		maxCols := pterm.GetTerminalWidth() - 4
-		if maxCols < 20 {
-			maxCols = 20
-		}
-		r.previewArea.Update(wrapByDisplayWidth(r.previewBuf.String(), maxCols))
+		r.previewArea.Update(wrapByDisplayWidth(r.previewBuf.String(), previewMaxCols()))
 		// Release the lock during sleep so other events (reasoning,
 		// next chunk) don't deadlock waiting on us.
 		r.mu.Unlock()
