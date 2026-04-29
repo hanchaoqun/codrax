@@ -593,6 +593,19 @@ func minInt(a, b int) int {
 	return b
 }
 
+// RenderLinearDiagramFence emits a ```mermaid``` flowchart skeleton
+// for a linear chain of nodes. Pre-2026-04-30 this rendered ASCII
+// art (bare ``` + `node\n  ->\n`); the model treated that skeleton
+// as a "copy verbatim" template and never reached for Mermaid even
+// though the skill OutputFormat declared Mermaid the preferred form.
+// Switching the seed itself to Mermaid puts the runtime injection
+// in agreement with the prompt-level preference.
+//
+// Each node string becomes one Mermaid node. If a node label
+// contains special characters (`:` `;` `(` `)` `{` `}` `[` `]` or
+// whitespace), it is wrapped as `id["raw label"]` so the parser
+// accepts it; otherwise the label is used as the bare id directly
+// (single token, parser-safe).
 func RenderLinearDiagramFence(nodes []string, limit int) string {
 	seen := make(map[string]bool)
 	out := make([]string, 0, len(nodes))
@@ -610,17 +623,74 @@ func RenderLinearDiagramFence(nodes []string, limit int) string {
 	if len(out) < 2 {
 		return ""
 	}
+	return renderMermaidLinearFence(out)
+}
+
+// renderMermaidLinearFence builds a flowchart LR with `id1 --> id2`
+// edges chaining the nodes in order. Nodes with non-identifier
+// characters get a synthetic short id and a quoted label.
+func renderMermaidLinearFence(nodes []string) string {
+	type rendered struct {
+		id    string
+		decl  string // optional `id["label"]` declaration line; empty if id == label
+	}
+	prepared := make([]rendered, 0, len(nodes))
+	for i, raw := range nodes {
+		id, decl := mermaidNodeIdentity(raw, i)
+		prepared = append(prepared, rendered{id: id, decl: decl})
+	}
 	var b strings.Builder
-	b.WriteString("```\n")
-	for i, node := range out {
-		b.WriteString(node)
-		b.WriteByte('\n')
-		if i < len(out)-1 {
-			b.WriteString("  ->\n")
+	b.WriteString("```mermaid\n")
+	b.WriteString("flowchart LR\n")
+	for _, p := range prepared {
+		if p.decl != "" {
+			b.WriteString("    ")
+			b.WriteString(p.decl)
+			b.WriteByte('\n')
 		}
+	}
+	for i := 0; i < len(prepared)-1; i++ {
+		fmt.Fprintf(&b, "    %s --> %s\n", prepared[i].id, prepared[i+1].id)
 	}
 	b.WriteString("```")
 	return b.String()
+}
+
+// mermaidNodeIdentity decides how to express a raw label in a
+// Mermaid node. Returns (id, decl) where:
+//   - id is the identifier used in edge expressions
+//   - decl is an optional `id["label"]` declaration line (empty
+//     when the raw label is already a parser-safe single token)
+//
+// The "parser-safe single token" rule: ASCII letters / digits /
+// underscore / dot / slash / hyphen, no whitespace. Anything else
+// gets a synthetic id `n<i>` and a quoted label.
+func mermaidNodeIdentity(raw string, idx int) (id string, decl string) {
+	if mermaidLabelIsBareSafe(raw) {
+		return raw, ""
+	}
+	id = fmt.Sprintf("n%d", idx)
+	decl = fmt.Sprintf("%s[%q]", id, raw)
+	return
+}
+
+func mermaidLabelIsBareSafe(s string) bool {
+	if s == "" {
+		return false
+	}
+	for _, r := range s {
+		switch {
+		case r >= 'a' && r <= 'z',
+			r >= 'A' && r <= 'Z',
+			r >= '0' && r <= '9':
+			continue
+		case r == '_', r == '.', r == '/', r == '-':
+			continue
+		default:
+			return false
+		}
+	}
+	return true
 }
 
 func RenderConfigTraceDiagramFence(anchors []ConfigTraceDiagramAnchor) string {
@@ -634,27 +704,52 @@ func RenderConfigTraceDiagramFence(anchors []ConfigTraceDiagramAnchor) string {
 	return RenderLinearDiagramFence(nodes, 0)
 }
 
+// RenderLogDiagramFence emits a ```mermaid``` flowchart skeleton
+// for a stack-frame call chain (innermost → outer). Same rationale
+// as RenderLinearDiagramFence — a runtime-injected ASCII skeleton
+// trains the model to copy ASCII shape verbatim, contradicting the
+// skill's Mermaid preference.
 func RenderLogDiagramFence(bundle *LogBundle) string {
 	frames := collectDiagramLogFrames(bundle)
 	if len(frames) < 2 {
 		return ""
 	}
-	var b strings.Builder
-	b.WriteString("```\n")
+	type prepared struct {
+		id    string
+		label string
+	}
+	rows := make([]prepared, 0, len(frames))
 	for i, frame := range frames {
 		location := fmt.Sprintf("%s:%d", frame.File, frame.Line)
 		name := strings.TrimSpace(frame.Func)
 		if name == "" {
 			name = "(no symbol)"
 		}
+		// Distinct prefix per role so the model reads the chain
+		// direction in the rendered output even after the bare
+		// id-only edge form.
+		var label string
 		switch {
 		case i == 0:
-			fmt.Fprintf(&b, "innermost failure: %s in %s\n", location, name)
+			label = fmt.Sprintf("innermost: %s in %s", location, name)
 		case i == len(frames)-1:
-			fmt.Fprintf(&b, "  -> caller (outermost): %s in %s\n", location, name)
+			label = fmt.Sprintf("outermost caller: %s in %s", location, name)
 		default:
-			fmt.Fprintf(&b, "  -> caller:            %s in %s\n", location, name)
+			label = fmt.Sprintf("caller: %s in %s", location, name)
 		}
+		rows = append(rows, prepared{
+			id:    fmt.Sprintf("frame%d", i),
+			label: label,
+		})
+	}
+	var b strings.Builder
+	b.WriteString("```mermaid\n")
+	b.WriteString("flowchart LR\n")
+	for _, r := range rows {
+		fmt.Fprintf(&b, "    %s[%q]\n", r.id, r.label)
+	}
+	for i := 0; i < len(rows)-1; i++ {
+		fmt.Fprintf(&b, "    %s --> %s\n", rows[i].id, rows[i+1].id)
 	}
 	b.WriteString("```")
 	return b.String()

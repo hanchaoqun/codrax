@@ -2635,9 +2635,9 @@ func validateSummaryRequiredDiagram(summary string, ctx *types.BusContext) error
 	}
 	return newAnswerDocValidationError(
 		"missing_diagram",
-		"diagram required for this dispatch (preferred kinds: %s); summary must include at least %d grounded triple-backtick diagram block(s). This obligation is independent of answer shape.",
+		"diagram required for this dispatch (preferred kinds: %s); summary must include at least %d grounded fenced diagram block(s). PREFERRED form: a ` ```mermaid ` fenced block using flowchart or sequenceDiagram. ASCII art is the fallback only when the Mermaid subset cannot express the shape. This obligation is independent of answer shape.",
 		strings.Join(kinds, ", "), minimum,
-	).WithFields("summary").WithHint("Re-emit `emit_answer_document` with the same answer shape and payload, but add at least one grounded triple-backtick diagram to `summary`. Reuse grounded labels only; do not reopen files or change unrelated fields.")
+	).WithFields("summary").WithHint("Re-emit `emit_answer_document` with the same answer shape and payload, but add at least one grounded ` ```mermaid ` flowchart block to `summary`. Reuse grounded labels only; do not reopen files or change unrelated fields.")
 }
 
 func summaryDiagramFenceCount(summary string) int {

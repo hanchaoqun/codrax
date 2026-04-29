@@ -306,14 +306,14 @@ func TestStatus_CompletedRowDropsLiveThinking(t *testing.T) {
 		}
 	}
 
-	// Running row with the same detail SHOULD keep it. Bare
-	// "thinking (round N)" maps to "等待响应" when detailStart is
-	// older than sendingThreshold (1.5s). detailStart is anchored
-	// to renderRowsFixedNow so the elapsed comparison is stable.
+	// Running row keeps live progress signal. After 2026-04-30 the
+	// round number lives ONLY in row.iteration (rendered via meta);
+	// detail is bare "thinking" so thinkingPhrase resolves "等待
+	// 响应" once detailStart age crosses the sendingThreshold.
 	running := &taskRow{
 		stage: "analyze", agent: "AnalyzerAgent",
 		startTime:   renderRowsFixedNow.Add(-5 * time.Second),
-		detail:      "thinking (round 13)",
+		detail:      "thinking",
 		detailStart: renderRowsFixedNow.Add(-5 * time.Second),
 		iteration:   13,
 	}
@@ -392,13 +392,14 @@ func TestStatus_ThinkingDetailLocalized(t *testing.T) {
 		enWant []string
 	}{
 		// Bare "thinking" → "等待响应" / "awaiting" (the test row's
-		// detailStart will be set to 5s ago by the test harness so
-		// the >sendingThreshold branch fires). "thinking (round N)"
-		// inherits the same phase. "thinking: ..." carries the
-		// "回复中" / "replying" phrase regardless of timing because
-		// the body presence indicates the server is responding.
+		// detailStart is set to 5s ago by the test harness so the
+		// >sendingThreshold branch fires). "thinking: ..." carries
+		// the "回复中" / "replying" phrase regardless of timing
+		// because the body presence indicates the server is
+		// responding. The round number is no longer encoded in the
+		// detail string post-2026-04-30 — it lives in row.iteration
+		// and renders via meta.
 		{"thinking", []string{"等待响应"}, []string{"awaiting"}},
-		{"thinking (round 13)", []string{"等待响应", "第 13 轮"}, []string{"awaiting", "round 13"}},
 		{"thinking: merging evidence chains", []string{"回复中", "merging"}, []string{"replying", "merging"}},
 	}
 	for _, c := range cases {

@@ -538,7 +538,8 @@ func renderAnswerDocDiagramContract(dc *types.DiagramContract) string {
 	if len(dc.Reasons) > 0 {
 		fmt.Fprintf(&b, "- Reasons: %s\n", strings.Join(dc.Reasons, ", "))
 	}
-	b.WriteString("- This requirement is independent of answer shape: if it says `Required: yes`, `summary` must contain at least one grounded triple-backtick diagram.\n")
+	b.WriteString("- This requirement is independent of answer shape: if it says `Required: yes`, `summary` must contain at least one grounded fenced diagram block.\n")
+	b.WriteString("- PREFERRED form: a ` ```mermaid ` fenced block using `flowchart` (LR / TD / RL / BT) or `sequenceDiagram`. The renderer applies a deterministic-alignment pass to Mermaid bodies so the diagram looks clean across terminals / locales / CJK content. ASCII art (a bare ``` fence with `+ - | > <` connectors) is the FALLBACK ONLY when the supported Mermaid subset cannot express the shape.\n")
 	b.WriteString("- Reuse grounded labels directly inside the fence. Do not rename, normalize, or abstract a cited file / symbol / path literal into a different label unless that alternate label is itself grounded in citations or log frames.\n")
 	b.WriteString("- Avoid invented enumeration labels like `Level 1`, `Round 2`, or `Step 3` unless those exact labels appear in grounded evidence.\n\n")
 	return b.String()
@@ -557,7 +558,15 @@ func renderAnswerDocDiagramSeeds(ctx *types.AgentContext, dc *types.DiagramContr
 		}
 		if !wrote {
 			b.WriteString("## Diagram Seeds\n\n")
-			b.WriteString("Use these grounded structures as the starting skeleton for the required diagram. Filenames inside the fenced block must come from citations[] or the Log Triage frames.\n\n")
+			// Reframed alongside the First-Pass reference: these
+			// sections are GROUNDED FLOORS (everything listed is
+			// already cited) the model can extend, not ceilings the
+			// model must paste verbatim. The hard constraint stays
+			// at the label-grounding level — file/path nodes inside
+			// the fenced block must come from citations[] or Log
+			// Triage frames — but the structure (number of nodes,
+			// direction, branching) is the model's call.
+			b.WriteString("These are grounded reference structures the diagram MAY draw from. Each section lists evidence-grounded nodes / labels you can use; you are encouraged to extend them with additional grounded nodes, change the direction, or introduce branching / fan-out where the mechanism warrants. The only hard rule: file or path nodes inside the fenced block must come from citations[] or the Log Triage frames.\n\n")
 			wrote = true
 		}
 		fmt.Fprintf(&b, "### %s\n\n%s\n\n", title, body)
@@ -583,8 +592,24 @@ func renderAnswerDocFirstPassDiagramSkeleton(ctx *types.AgentContext) string {
 		return ""
 	}
 	var b strings.Builder
-	b.WriteString("## First-Pass Diagram Skeleton\n\n")
-	b.WriteString("If you do not already have a richer grounded diagram, copy this fenced skeleton verbatim for the first pass and explain any extra semantics in prose around it. You may delete unused nodes, but do not rename the remaining ones.\n\n")
+	b.WriteString("## First-Pass Diagram Reference\n\n")
+	// Pre-2026-04-30 this section said "copy this fenced skeleton
+	// verbatim ... you may delete unused nodes, but do not rename
+	// the remaining ones." Combined with "explain any extra
+	// semantics in prose around it", it forced any richer-than-
+	// skeleton mechanism into prose and capped the diagram at the
+	// seed shape. The reframing below presents the skeleton as a
+	// GROUNDED FLOOR (every node here is already evidence-grounded)
+	// rather than a CEILING: the model is explicitly authorised to
+	// add nodes, change `flowchart LR` to `TD`, introduce branches /
+	// fan-out, or switch to `sequenceDiagram` — the only hard rule
+	// being that every label remains grounded in citations[] or
+	// Log Triage frames.
+	b.WriteString("Below is a grounded starting reference — every node listed here is already corroborated by evidence in this dispatch. Use it as a FLOOR, not a ceiling:\n\n")
+	b.WriteString("- You SHOULD extend it with additional grounded nodes when the investigation supports a richer mechanism (e.g. more call-chain hops, branch points, fan-out, error paths).\n")
+	b.WriteString("- You MAY change the direction (`flowchart LR` ↔ `TD` / `RL` / `BT`), introduce subgraph-like clusters as flat nodes, or switch to `sequenceDiagram` if actor-to-actor better fits the mechanism — none of these are forbidden.\n")
+	b.WriteString("- You MAY add branches / fan-out / multi-source / multi-sink shapes; the linear chain in the reference is just the safest default skeleton, not a structural requirement.\n")
+	b.WriteString("- HARD RULE: every node label must remain grounded in citations[] or Log Triage frames. Renaming an existing node, abstracting it, or inventing a node without grounded backing is rejected by the diagram-grounding gate.\n\n")
 	b.WriteString(fence)
 	b.WriteString("\n\n")
 	return b.String()
@@ -2170,6 +2195,15 @@ func retryDiagramKinds(ctx *types.AgentContext) []types.DiagramKind {
 	}
 }
 
+// renderRetryDiagramSeedFenceForKind walks every applicable seed
+// source for the given diagram kind, MERGES the grounded nodes
+// across sources, and emits one unified Mermaid fence. Pre-fix this
+// function returned the FIRST allowed seed and discarded the rest —
+// a 3-node FlowFinding seed could shadow a 6-node AnswerChain seed,
+// so the model saw fewer grounded nodes than the investigation
+// actually surfaced. Merging plus the bumped retryDiagramSeedNodeCap
+// (12 nodes) lets the seed reflect the full grounded mechanism the
+// model can extend from.
 func renderRetryDiagramSeedFenceForKind(ctx *types.AgentContext, kind types.DiagramKind, filter retryDiagramSeedFilter) string {
 	if ctx == nil {
 		return ""
@@ -2182,20 +2216,61 @@ func renderRetryDiagramSeedFenceForKind(ctx *types.AgentContext, kind types.Diag
 			break
 		}
 		seeds = appendRetryDiagramSeed(seeds, buildRetryFlowFindingSeed(ctx.FlowFindings))
+		// Architecture chains often add useful upstream context to
+		// a flow seed (entry-point components → handlers).
+		seeds = appendRetryDiagramSeed(seeds, buildRetryAnswerChainSeed(ctx.AnswerChains))
 	case types.DiagramSequence, types.DiagramCallDAG:
 		seeds = appendRetryDiagramSeed(seeds, buildRetryLogDiagramSeed(ctx.LogTriage))
-		if kind == types.DiagramCallDAG {
-			seeds = appendRetryDiagramSeed(seeds, buildRetryFlowFindingSeed(ctx.FlowFindings))
-		}
+		seeds = appendRetryDiagramSeed(seeds, buildRetryFlowFindingSeed(ctx.FlowFindings))
+		seeds = appendRetryDiagramSeed(seeds, buildRetryAnswerChainSeed(ctx.AnswerChains))
 	case types.DiagramArchitecture:
 		seeds = appendRetryDiagramSeed(seeds, buildRetryAnswerChainSeed(ctx.AnswerChains))
+		seeds = appendRetryDiagramSeed(seeds, buildRetryFlowFindingSeed(ctx.FlowFindings))
 	}
+	// Filter then merge. mergeRetrySeedNodes preserves the order of
+	// the FIRST seed (which is the strongest match) and appends
+	// any additional unique nodes from later seeds, capped by
+	// retryDiagramSeedNodeCap.
+	allowed := seeds[:0]
 	for _, seed := range seeds {
 		if filter.Allows(seed) {
-			return seed.Fence
+			allowed = append(allowed, seed)
 		}
 	}
-	return ""
+	if len(allowed) == 0 {
+		return ""
+	}
+	merged := mergeRetrySeedNodes(allowed)
+	if len(merged) >= 2 {
+		return types.RenderLinearDiagramFence(merged, retryDiagramSeedNodeCap)
+	}
+	// Fallback: at least surface the strongest single seed's fence
+	// when merging didn't yield enough distinct nodes (e.g. one
+	// seed has a fully qualified path the others share by basename).
+	return allowed[0].Fence
+}
+
+// mergeRetrySeedNodes combines node match-keys from multiple seeds,
+// preserving order from the first seed and deduping. The match-keys
+// are already grounded labels, so concatenating and deduping yields
+// a unified grounded node list the model can read.
+func mergeRetrySeedNodes(seeds []retryDiagramSeed) []string {
+	seen := make(map[string]bool)
+	var out []string
+	for _, seed := range seeds {
+		for _, key := range seed.MatchKeys {
+			k := strings.TrimSpace(key)
+			if k == "" || seen[k] {
+				continue
+			}
+			seen[k] = true
+			out = append(out, k)
+			if len(out) >= retryDiagramSeedNodeCap {
+				return out
+			}
+		}
+	}
+	return out
 }
 
 func appendRetryDiagramSeed(seeds []retryDiagramSeed, seed retryDiagramSeed) []retryDiagramSeed {
@@ -2229,28 +2304,18 @@ func buildRetryLogDiagramSeed(bundle *types.LogBundle) retryDiagramSeed {
 	if len(resolved) < 2 {
 		return retryDiagramSeed{}
 	}
-	var b strings.Builder
 	keys := make([]string, 0, len(resolved)*2)
-	b.WriteString("```\n")
-	for i, frame := range resolved {
-		name := strings.TrimSpace(frame.Func)
-		if name == "" {
-			name = "(no symbol)"
-		}
+	for _, frame := range resolved {
 		location := fmt.Sprintf("%s:%d", frame.File, frame.Line)
 		keys = append(keys, retryDiagramSeedMatchKeys(location)...)
-		switch {
-		case i == 0:
-			fmt.Fprintf(&b, "innermost failure: %s in %s\n", location, name)
-		case i == len(resolved)-1:
-			fmt.Fprintf(&b, "  -> caller (outermost): %s in %s\n", location, name)
-		default:
-			fmt.Fprintf(&b, "  -> caller:            %s in %s\n", location, name)
-		}
 	}
-	b.WriteString("```")
+	// Reuse the single canonical Mermaid renderer — types.RenderLogDiagramFence
+	// emits the same ```mermaid``` flowchart shape used by every other
+	// diagram seed. Pre-2026-04-30 this duplicated the bare ASCII art
+	// shape, so even when the contract said "Mermaid preferred", the
+	// model copied an ASCII skeleton verbatim.
 	return retryDiagramSeed{
-		Fence:     b.String(),
+		Fence:     types.RenderLogDiagramFence(bundle),
 		MatchKeys: dedupeRetryDiagramNodes(keys, 0),
 	}
 }
@@ -2301,7 +2366,14 @@ func retryFlowFindingNodes(ff types.FlowFindingDigest) []string {
 		nodes = append(nodes, ff.Sources...)
 		nodes = append(nodes, ff.Sinks...)
 	}
-	return dedupeRetryDiagramNodes(nodes, 6)
+	// Cap at 12 nodes — production stack chains and dispatch DAGs
+	// routinely have 8-10 hops; the previous 6-node cap silently
+	// truncated the seed and the model treated the truncated seed
+	// as the authoritative chain length, omitting the rest from the
+	// final diagram. 12 is empirically large enough for every
+	// observed real-world chain without spilling into pathological
+	// "everything is connected" mega-graphs.
+	return dedupeRetryDiagramNodes(nodes, retryDiagramSeedNodeCap)
 }
 
 func buildRetryAnswerChainSeed(chains []types.AnswerChain) retryDiagramSeed {
@@ -2434,22 +2506,26 @@ func dedupeRetryDiagramNodes(nodes []string, limit int) []string {
 	return out
 }
 
+// retryDiagramSeedNodeCap is the upper bound on nodes the seed
+// renderer surfaces. Pre-2026-04-30 it was hardcoded as 6 at
+// every callsite, which silently truncated real-world chains and
+// trained the model to treat the truncated chain as authoritative
+// — when production logs and dispatch DAGs routinely have 8-12
+// hops. 12 covers every observed chain length without overflowing
+// the LLM's working memory for one diagram block.
+const retryDiagramSeedNodeCap = 12
+
 func buildRetryDiagramFence(nodes []string) string {
-	nodes = dedupeRetryDiagramNodes(nodes, 6)
+	nodes = dedupeRetryDiagramNodes(nodes, retryDiagramSeedNodeCap)
 	if len(nodes) < 2 {
 		return ""
 	}
-	var b strings.Builder
-	b.WriteString("```\n")
-	for i, node := range nodes {
-		b.WriteString(node)
-		b.WriteByte('\n')
-		if i < len(nodes)-1 {
-			b.WriteString("  ->\n")
-		}
-	}
-	b.WriteString("```")
-	return b.String()
+	// Reuse the canonical Mermaid renderer instead of duplicating
+	// the (formerly ASCII-art) builder here. Single source of seed
+	// shape across `agent/` and `types/` keeps the runtime
+	// injection in lockstep with the skill prompt's Mermaid
+	// preference.
+	return types.RenderLinearDiagramFence(nodes, 0)
 }
 
 func buildLiteralGroundingRetryHint(summary string) string {

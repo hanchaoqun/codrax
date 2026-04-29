@@ -199,7 +199,6 @@ func tCommonProcessing(zh bool, state stagePhraseState) string {
 // Phrasing is kept short (3-5 chars zh, ≤ 8 chars en) per the user's
 // "尽量简短，不易太长，又能区分" callout. The distinction is the
 // load-bearing UX, not the verbosity.
-var thinkingRoundRe = regexp.MustCompile(`^(?:►\s*)?thinking\s*\(round\s*(\d+)\)\s*$`)
 var thinkingTextRe = regexp.MustCompile(`^(?:►\s*)?thinking[:：]\s*(.*)$`)
 var thinkingBareRe = regexp.MustCompile(`^(?:►\s*)?thinking\s*$`)
 
@@ -220,15 +219,11 @@ func thinkingPhrase(detail string, lang string, now, detailStart time.Time) stri
 		}
 		return "replying: " + body
 	}
-	// "thinking (round N)" — bare-thinking with iteration counter.
-	if m := thinkingRoundRe.FindStringSubmatch(d); m != nil {
-		phase := bareThinkingPhase(now, detailStart, zh)
-		if zh {
-			return fmt.Sprintf("%s · 第 %s 轮", phase, m[1])
-		}
-		return fmt.Sprintf("%s · round %s", phase, m[1])
-	}
 	// "thinking" — bare; split into "sending" vs "awaiting" by elapsed.
+	// Round number lives ONLY in meta now, not detail — single source
+	// of truth eliminates the "第 2 轮 / 第 1 轮" duplication that
+	// pre-2026-04-30 had detail showing N+1 and meta showing N for
+	// the same logical round.
 	if thinkingBareRe.MatchString(d) {
 		return bareThinkingPhase(now, detailStart, zh)
 	}

@@ -298,7 +298,7 @@ func TestAnswerDocumentEvaluator_BuildInitialInstruction_RendersDiagramContractA
 		"### Log Triage",
 		"### Flow Findings",
 		"### Answer Chains",
-		"## First-Pass Diagram Skeleton",
+		"## First-Pass Diagram Reference",
 		"innermost failure:",
 		"Do not invent shorthand labels from citation line numbers",
 		"split the hop or cite the line that actually names the action",
@@ -337,7 +337,7 @@ func TestAnswerDocumentEvaluator_BuildInitialInstruction_RendersConfigTraceDiagr
 	prompt := (&answerDocumentEvaluator{}).BuildInitialInstruction(ctx, nil)
 	for _, want := range []string{
 		"### Config Trace Precedence",
-		"## First-Pass Diagram Skeleton",
+		"## First-Pass Diagram Reference",
 		"## Precedence Role Coverage",
 		"`default` → `internal/types/config.go:707`",
 		"`config` → `codrax.yaml.example:20`",
@@ -1462,10 +1462,17 @@ func TestRenderRetryDiagramSeedFence_UsesLogSeedForCallDAG(t *testing.T) {
 		},
 	}
 	got := renderRetryDiagramSeedFence(ctx)
+	// Seed is now a ```mermaid``` flowchart (was ASCII art with
+	// "innermost failure:" / "  ->" prose). Assert on the grounded
+	// labels themselves — those survive the format change.
 	for _, want := range []string{
-		"```",
-		"innermost failure: internal/agent/analyzer.go:320 in buildAnalysisIR",
-		"caller (outermost): internal/orchestrator/orchestrator.go:101 in Run",
+		"```mermaid",
+		"flowchart",
+		"internal/agent/analyzer.go:320",
+		"buildAnalysisIR",
+		"internal/orchestrator/orchestrator.go:101",
+		"Run",
+		"-->",
 	} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("call_dag retry seed missing %q:\n%s", want, got)
@@ -1489,11 +1496,12 @@ func TestRenderRetryDiagramSeedFence_UsesFlowFindingSeedForFlow(t *testing.T) {
 	}
 	got := renderRetryDiagramSeedFence(ctx)
 	for _, want := range []string{
-		"```",
+		"```mermaid",
+		"flowchart",
 		"config.handlers.explorer",
 		"NewExplorer",
 		"Register",
-		"  ->",
+		"-->",
 	} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("flow retry seed missing %q:\n%s", want, got)
@@ -1518,10 +1526,11 @@ func TestRenderRetryDiagramSeedFence_UsesAnswerChainSeedForArchitecture(t *testi
 	}
 	got := renderRetryDiagramSeedFence(ctx)
 	for _, want := range []string{
-		"```",
+		"```mermaid",
+		"flowchart",
 		"internal/a.go:10",
 		"internal/b.go:20",
-		"  ->",
+		"-->",
 	} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("architecture retry seed missing %q:\n%s", want, got)

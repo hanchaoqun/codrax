@@ -486,15 +486,13 @@ func renderStatusBlock(b statusBlock, lang string) []string {
 	if b.Kind != "topic_group" {
 		return lines
 	}
-	// Propagate parent done-ness into the bullets so a topic group
-	// that has terminated demotes its "关注点 N：" label to the
-	// gray family — pre-2026-04-30 the label stayed FgLightBlue
-	// regardless of state, so a done parent line (gray "已完成证据
-	// 收集") sat above light-blue topic labels and the colours
-	// disagreed on whether this section was past or live.
-	parentDone := b.Line.State == "done"
+	// Propagate parent state into the bullets so the topic group's
+	// glyph + parent text + bullet labels all agree on past / live /
+	// queued. Pre-fix the bullet labels stayed FgLightBlue regardless
+	// of parent state, contradicting both done (gray) AND pending
+	// (DarkGray) parent lines.
 	for _, t := range b.Topics {
-		lines = append(lines, renderTopic(t, lang, parentDone))
+		lines = append(lines, renderTopic(t, lang, b.Line.State))
 	}
 	return lines
 }
@@ -560,12 +558,13 @@ func renderStatusLine(line statusLine) string {
 // body. Overflow lines (Index==0) skip the label and just surface
 // the "N more focus areas" sentinel as a dim continuation.
 //
-// parentDone flips the "关注点 N：" label from statusTopicLabel
-// (light blue, "live") to statusPrimaryDone (gray, "history") so
-// the bullets stay in lockstep with the parent line's state.
-// Otherwise a done parent + light-blue bullets would read as
-// "section is past but the items are still active".
-func renderTopic(t statusTopic, lang string, parentDone bool) string {
+// parentState ties the bullet's "关注点 N：" label colour to the
+// topic group's aggregated state, so glyph + parent text + bullet
+// label all read the same lifecycle phase:
+//   - "done"    → statusPrimaryDone (gray)   — section is history
+//   - "pending" → statusMeta (DarkGray)      — section is queued
+//   - else      → statusTopicLabel (LightBlue) — section is live
+func renderTopic(t statusTopic, lang string, parentState string) string {
 	var b strings.Builder
 	b.WriteString("    ")
 	b.WriteString(statusMeta.Sprint(string(glyphTopicBullet)))
@@ -575,8 +574,11 @@ func renderTopic(t statusTopic, lang string, parentDone bool) string {
 		return b.String()
 	}
 	labelStyle := statusTopicLabel
-	if parentDone {
+	switch parentState {
+	case "done":
 		labelStyle = statusPrimaryDone
+	case "pending":
+		labelStyle = statusMeta
 	}
 	b.WriteString(labelStyle.Sprint(topicLabelPhrase(t.Index, lang)))
 	b.WriteString(statusTopicText.Sprint(t.Text))

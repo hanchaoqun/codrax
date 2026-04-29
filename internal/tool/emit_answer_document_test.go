@@ -1975,8 +1975,18 @@ func TestEmitAnswerDocument_NormalizesDriftBoundedRootCauseStepListSummarySurfac
 	if !strings.Contains(doc.Summary, "current definition anchor for `buildAnalysisIR` is `internal/agent/analyzer.go:612`") {
 		t.Fatalf("drift-bounded summary should normalize to the compiled bounded current-code surface: %q", doc.Summary)
 	}
-	if !strings.Contains(doc.Summary, "innermost failure: internal/agent/analyzer.go:250 in buildAnalysisIR") {
-		t.Fatalf("summary missing compiled call-chain fence: %q", doc.Summary)
+	// Compiled call-chain fence is now Mermaid (rendered to a
+	// ```text``` ASCII grid by RenderMermaidBlocks at emit time).
+	// Assert on the grounded labels rather than the formerly bare-
+	// ASCII "innermost failure: …" prefix shape — those labels
+	// survive the format change and are what the user reads.
+	for _, want := range []string{
+		"internal/agent/analyzer.go:250",
+		"buildAnalysisIR",
+	} {
+		if !strings.Contains(doc.Summary, want) {
+			t.Fatalf("summary missing compiled call-chain label %q:\n%s", want, doc.Summary)
+		}
 	}
 }
 
@@ -2131,7 +2141,9 @@ func TestEmitAnswerDocument_DriftBoundedSummaryFallsBackForMultiBlockReasoning(t
 	if !strings.Contains(doc.Summary, "buildAnalysisIR") {
 		t.Fatalf("fallback summary should stay anchored on the grounded failure path: %q", doc.Summary)
 	}
-	if !strings.Contains(doc.Summary, "innermost failure: internal/agent/analyzer.go:250 in buildAnalysisIR") {
+	// Compiled call-chain fence is Mermaid now (rendered to a
+	// ```text``` ASCII grid). Assert on the grounded labels.
+	if !strings.Contains(doc.Summary, "internal/agent/analyzer.go:250") {
 		t.Fatalf("fallback summary should still append compiled call-chain fence: %q", doc.Summary)
 	}
 }
@@ -5506,7 +5518,10 @@ func TestEmitAnswerDocument_DiagramRequired_AppendsCompiledLogDiagramWhenMissing
 		t.Fatalf("missing diagram with compiled log skeleton should auto-heal, got %q", res.Summary)
 	}
 	doc := ctx.Mutable.AnswerDocument()
-	if doc == nil || !strings.Contains(doc.Summary, "innermost failure: internal/agent/analyzer.go:10") {
+	// The auto-healed diagram is a Mermaid flowchart rendered to a
+	// ```text``` ASCII grid. Assert on the grounded file label that
+	// survives the format change.
+	if doc == nil || !strings.Contains(doc.Summary, "internal/agent/analyzer.go:10") {
 		t.Fatalf("accepted summary should include appended compiled diagram, got %+v", doc)
 	}
 }

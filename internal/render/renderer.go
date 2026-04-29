@@ -749,12 +749,18 @@ func (r *Renderer) Emitter() EventEmitter {
 
 		case EventAgentThinking:
 			if r.current != nil {
-				r.current.iteration = ev.Iteration
-				if ev.Iteration == 0 {
-					r.current.detail = "thinking"
-				} else {
-					r.current.detail = fmt.Sprintf("thinking (round %d)", ev.Iteration+1)
-				}
+				// Store iteration as a 1-based round number so meta's
+				// metaRoundPhrase renders the same "第 N 轮" / "round N"
+				// the user expects to read elsewhere. Pre-2026-04-30
+				// iteration was 0-based AND detail also carried a
+				// "(round N+1)" suffix — same logical round shown as
+				// two different numbers ("第 2 轮" + "第 1 轮") on the
+				// same row. Single 1-based source eliminates the
+				// off-by-one AND the redundancy.
+				r.current.iteration = ev.Iteration + 1
+				// Detail no longer carries the round; meta is the
+				// single surface for it.
+				r.current.detail = "thinking"
 				r.current.detailDone = false
 				r.current.detailStart = ev.Timestamp
 			}
