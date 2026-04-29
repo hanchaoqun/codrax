@@ -1309,6 +1309,13 @@ func initApp(cmd *cobra.Command, _ []string) error {
 		//     burning tokens on truly broken inputs.
 		WriteRetryBudget:   3,
 		MaxRetriesPerStage: 2,
+		// TransientRetryBudget=1: a single retry rides through brief
+		// network blips. Structurally stuck cases (empty repo + plan
+		// mode, etc.) are caught by the stall plateau detector before
+		// the budget is consumed. Distinct counter from
+		// WriteRetryBudget so transient blips never starve verify→plan
+		// SC retry. Cap 3 in TransientRetryBudgetCeil — see config.go.
+		TransientRetryBudget: 1,
 	}
 	// Default-LLM context window for fraction-form byte budget
 	// resolution. The fallback path in MaxContextTokens guarantees a
@@ -1476,6 +1483,12 @@ func initApp(cmd *cobra.Command, _ []string) error {
 		}
 		if rs.PipelineWriteRetryBudgetCeil != nil {
 			pipelineSettings.WriteRetryBudgetCeil = *rs.PipelineWriteRetryBudgetCeil
+		}
+		if rs.PipelineTransientRetryBudget != nil {
+			pipelineSettings.TransientRetryBudget = *rs.PipelineTransientRetryBudget
+		}
+		if rs.PipelineTransientRetryBudgetCeil != nil {
+			pipelineSettings.TransientRetryBudgetCeil = *rs.PipelineTransientRetryBudgetCeil
 		}
 		// Baseline capture toggle for CritNoRegression (Item 1).
 		// Pointer-typed yaml so explicit false is distinguishable
@@ -2035,6 +2048,9 @@ func initApp(cmd *cobra.Command, _ []string) error {
 	orch.SetBlobSessionDir(blobSessionDir)
 	// B2.3 verify→plan retry cap. Zero keeps B1 fail-loud semantics.
 	orch.SetWriteRetryBudget(pipelineSettings.WriteRetryBudget)
+	// Transient-dispatch retry cap. Decoupled from WriteRetryBudget so
+	// LLM stream stalls / network blips never drain the SC retry budget.
+	orch.SetTransientRetryBudget(pipelineSettings.TransientRetryBudget)
 	// Reflexion-pattern critic. Resolved above; nil-safe inside
 	// orchestrator (clearForReplan falls back to heuristic-only hint
 	// when adapter is missing). Tied to the same retry-budget knob —

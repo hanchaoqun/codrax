@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/hanchaoqun/codrax/internal/agent"
 	"github.com/hanchaoqun/codrax/internal/analysis/criterion"
 	"github.com/hanchaoqun/codrax/internal/llm"
 	"github.com/hanchaoqun/codrax/internal/logging"
@@ -167,21 +168,32 @@ func (o *Orchestrator) runWriteSchedulerLoop(stepBudget int) int {
 			// IsRetryableDispatchError accepts (HTTP 429/5xx, network
 			// timeouts, stream watchdog kills, EOF, etc.), the failure
 			// has nothing to do with plan / apply correctness — the LLM
-			// connection blipped. Requeue the SAME node within the
-			// shared RetryBudget instead of going terminal. This branch
-			// fires for plan + apply + verify uniformly so a stream
-			// stall mid-plan no longer wastes the user's 60-90s wait
-			// for nothing. Verify SC failures still take the plan→
-			// verify retry branch further below, which pays for plan
-			// regeneration after a real test failure.
+			// connection blipped. Requeue the SAME node within a SEPARATE
+			// transientRetryBudget so brief blips don't drain the verify→
+			// plan SC retry budget. Stall plateau detection short-circuits
+			// when two consecutive transient failures produce identical
+			// tool-call signatures with no terminal emit between them —
+			// that means the LLM is structurally stuck (e.g. empty repo
+			// in plan mode), and burning more retries cannot help.
 			if llm.IsRetryableDispatchError(dispatchErr) {
-				if state.retryUsed < g.ExecutionPolicy.RetryBudget {
-					state.recordRetry()
+				sig := computeStallSignature(o.busCtx.Mutable.DispatchToolResults(), out, stage)
+				if state.transientStallPlateau(n.ID, sig) {
+					friendly := stallPlateauMessage(o.busCtx, stage, friendlyDispatchErr(dispatchErr))
+					logging.Warning("[orchestrator] %s transient stall plateau (sig=%q) — suppressing further retry",
+						stage, sig)
+					o.busCtx.TaskState.LastError = friendly
+					state.markFailed(n.ID)
+					o.emitNodeEnd(n.ID, false, friendly)
+					break
+				}
+				if state.transientRetryUsed < o.transientRetryBudget {
+					state.recordTransientRetry()
+					state.rememberTransientSignature(n.ID, sig)
 					state.requeue(n.ID)
 					o.busCtx.TaskState.LastError = ""
 					reason := friendlyDispatchErr(dispatchErr)
-					logging.Warning("[orchestrator] %s transient dispatch error; requeued for retry %d/%d: %v",
-						stage, state.retryUsed, g.ExecutionPolicy.RetryBudget, reason)
+					logging.Warning("[orchestrator] %s transient dispatch error; requeued for retry %d/%d (transient budget): %v",
+						stage, state.transientRetryUsed, o.transientRetryBudget, reason)
 					o.emit(render.Event{
 						Kind:      render.EventAgentReasoning,
 						Timestamp: time.Now(),
@@ -191,8 +203,8 @@ func (o *Orchestrator) runWriteSchedulerLoop(stepBudget int) int {
 					o.emitNodeEnd(n.ID, false, fmt.Sprintf("%s transient: retrying", stage))
 					continue
 				}
-				logging.Warning("[orchestrator] %s transient dispatch error but retry budget exhausted (%d/%d); going terminal",
-					stage, state.retryUsed, g.ExecutionPolicy.RetryBudget)
+				logging.Warning("[orchestrator] %s transient dispatch error but transient retry budget exhausted (%d/%d); going terminal",
+					stage, state.transientRetryUsed, o.transientRetryBudget)
 			}
 			if out == nil {
 				switch stage {
@@ -375,6 +387,81 @@ func (s *graphState) readyWriteWindow(env criterion.Env) (ready []*types.TaskNod
 	return ready, blocked
 }
 
+
+// computeStallSignature derives a stable summary of what the just-
+// failed dispatch attempt did, used by transientStallPlateau to
+// decide whether the next transient retry would be productive.
+//
+// Empty signature ("") encodes "the attempt made meaningful progress"
+// — either it produced a StageOutput with a terminal emit (out != nil
+// AND out.Error == ""), or it landed structured artefacts on Mutable
+// (a ChangePlan for plan stage, a ChangeReport for verify, etc.).
+// In those cases the next retry sees a different starting state, so
+// plateau detection should not fire.
+//
+// Non-empty signature is the "|"-joined ordered list of tool names
+// the agent called this dispatch. When two consecutive transient
+// failures produce identical signatures, the LLM is hitting the same
+// wall and further retry burns wall-time without recovery.
+func computeStallSignature(toolResults []types.ToolResult, out *agent.StageOutput, stage types.PipelineStage) string {
+	// Per-stage progress signal. Any of these means "we got further
+	// than last time" — empty signature short-circuits the plateau
+	// detector and lets the next retry through.
+	if out != nil && out.Error == "" {
+		return ""
+	}
+	if len(toolResults) == 0 {
+		// No tools called at all — e.g. LLM stream stalled before its
+		// first tool_use block. Record an explicit marker so the
+		// plateau detector can compare two consecutive "stalled
+		// before any tool" failures.
+		return "<no-tools>"
+	}
+	names := make([]string, 0, len(toolResults))
+	for _, r := range toolResults {
+		names = append(names, r.ToolName)
+	}
+	return strings.Join(names, "|")
+}
+
+// stallPlateauMessage builds the user-facing terminal message when
+// transient stall plateau fires. Names the stage, the underlying
+// transient cause, and the most likely remediation depending on
+// the pipeline mode and repo state.
+func stallPlateauMessage(busCtx *types.BusContext, stage types.PipelineStage, transientReason string) string {
+	if busCtx == nil {
+		return fmt.Sprintf("%s repeatedly stalled (%s); aborting", stage, transientReason)
+	}
+	mode := busCtx.Mode
+	emptyRepo := false
+	if busCtx.EnvFacts != nil {
+		switch busCtx.EnvFacts.GitRepoState {
+		case "not_initialized", "no_commits":
+			emptyRepo = true
+		}
+	}
+	zh := strings.HasPrefix(strings.ToLower(busCtx.Language), "zh") || busCtx.Language == ""
+	if zh {
+		base := fmt.Sprintf("%s 阶段连续多次以同一形态失败(%s)，已中止重试", stage, transientReason)
+		switch {
+		case mode == types.ModePlan && emptyRepo, mode == types.ModeApply && emptyRepo:
+			return base + "。当前目录是空仓库;创建型请求建议先用 `codrax --auto-init-repo` 让 codrax 初始化空仓,或切到 `/mode read` 让 LLM 直接给代码而不走 plan/apply 通道。"
+		case mode == types.ModePlan, mode == types.ModeApply, mode == types.ModeVerify:
+			return base + "。LLM 似乎卡在同一面墙,连续两次都未能产出 emit_change_plan / emit_test_results。先检查 codrax.yaml 模型路由,或换更强的模型再试。"
+		default:
+			return base + "。两次连续失败的工具调用形态完全一致,继续重试无意义。"
+		}
+	}
+	base := fmt.Sprintf("%s repeatedly stalled with the same shape (%s); aborting retry", stage, transientReason)
+	switch {
+	case mode == types.ModePlan && emptyRepo, mode == types.ModeApply && emptyRepo:
+		return base + ". The target directory is an empty repo; for from-scratch creation use `codrax --auto-init-repo` first or switch to `/mode read` so the LLM emits code directly without the plan/apply path."
+	case mode == types.ModePlan, mode == types.ModeApply, mode == types.ModeVerify:
+		return base + ". The LLM appears stuck on the same wall — neither attempt produced a terminal emit. Check codrax.yaml model routing or try a stronger model."
+	default:
+		return base + ". Two consecutive transient failures share an identical tool-call signature; further retry would not recover."
+	}
+}
 
 // friendlyDispatchErr translates typed transport/streaming errors
 // into a user-readable single-sentence surface for LastError /

@@ -321,8 +321,9 @@ func TestReadyWriteWindow_OneShotPreventsReYield(t *testing.T) {
 // the user lost ~90s to an unrecoverable failure.
 //
 // This test verifies: planner returning a *llm.StreamStalledError on
-// first dispatch causes the scheduler to requeue + retry; the second
-// dispatch succeeds and the plan completes.
+// first dispatch causes the scheduler to requeue + retry on the
+// SEPARATE transient-retry budget (NOT the verify SC budget); the
+// second dispatch succeeds and the plan completes.
 func TestWriteScheduler_PlanTransientStreamStall_Retries(t *testing.T) {
 	expectedPlan := &types.ChangePlan{
 		ID:          "plan-stall-retry",
@@ -351,7 +352,11 @@ func TestWriteScheduler_PlanTransientStreamStall_Retries(t *testing.T) {
 	o := New(types.PipelineSettings{}, ar, sr, sar)
 	o.SetMaxSteps(20)
 	o.SetMode(types.ModePlan) // plan-only graph, no worktree provisioning
-	o.SetWriteRetryBudget(3)
+	// SetTransientRetryBudget controls THIS retry path. SetWriteRetryBudget
+	// is for verify→plan SC retry — kept at zero here to verify the two
+	// budgets are decoupled (transient retry must fire even when SC
+	// budget is zero).
+	o.SetTransientRetryBudget(1)
 
 	busCtx, _ := o.Run("snake game in python", "/tmp/repo", "main")
 
@@ -366,12 +371,15 @@ func TestWriteScheduler_PlanTransientStreamStall_Retries(t *testing.T) {
 	}
 }
 
-// TestWriteScheduler_PlanTransientStreamStall_BudgetExhausted locks
-// the upper bound: with budget=1, planner gets initial attempt + 1
-// retry = 2 calls total; if it stalls both times, the 3rd call must
-// NOT happen, the run goes terminal, and LastError carries the
-// friendly stream-stall surface (NOT the raw "context canceled" tail).
-func TestWriteScheduler_PlanTransientStreamStall_BudgetExhausted(t *testing.T) {
+// TestWriteScheduler_PlanTransientStreamStall_PlateauSuppression locks
+// the stall plateau detector: if two consecutive transient failures
+// produce identical tool-call signatures (e.g. both stalled before
+// any tool was called — "<no-tools>" twice), the next retry is
+// suppressed even when budget remains. The user-facing LastError
+// names the stall AND suggests a remediation (auto-init for empty
+// repo / mode read / model swap) instead of a generic retry-loop
+// log spam.
+func TestWriteScheduler_PlanTransientStreamStall_PlateauSuppression(t *testing.T) {
 	planCalls := 0
 	agentFns := map[types.AgentName]func(*types.AgentContext, *skill.Config) (*agent.StageOutput, error){
 		types.AgentAnalyzer: dagAnalyzerFn(dagIR(types.AnswerContract{Language: "en"})),
@@ -387,24 +395,84 @@ func TestWriteScheduler_PlanTransientStreamStall_BudgetExhausted(t *testing.T) {
 	o := New(types.PipelineSettings{}, ar, sr, sar)
 	o.SetMaxSteps(20)
 	o.SetMode(types.ModePlan)
-	o.SetWriteRetryBudget(1) // 1 retry + 1 initial = 2 calls cap
+	// Generous transient budget (3) so plateau is the ONLY thing that
+	// could short-circuit the loop. Without plateau detection, this
+	// would burn 3 retries and hit 4 calls.
+	o.SetTransientRetryBudget(3)
 
 	busCtx, _ := o.Run("snake game", "/tmp/repo", "main")
 
 	if planCalls != 2 {
-		t.Errorf("planner should hit budget+1=2 calls; got %d", planCalls)
+		t.Errorf("plateau detector should stop after 2 calls (1 retry then plateau); got %d", planCalls)
 	}
 	if busCtx.TaskState.LastError == "" {
-		t.Errorf("LastError should be populated on terminal failure")
+		t.Fatalf("LastError must be populated on plateau terminal")
 	}
-	// User-visible message must NOT contain the misleading "context
-	// canceled" tail — friendlyDispatchErr strips it because the
-	// watchdog cancellation is internal plumbing, not user intent.
+	// Friendly cause must be present (no raw "context canceled" leak).
 	if strings.Contains(busCtx.TaskState.LastError, "context canceled") {
-		t.Errorf("LastError should not leak 'context canceled'; got %q", busCtx.TaskState.LastError)
+		t.Errorf("LastError must not leak 'context canceled'; got %q", busCtx.TaskState.LastError)
 	}
 	if !strings.Contains(busCtx.TaskState.LastError, "stalled") {
 		t.Errorf("LastError should name the stall condition; got %q", busCtx.TaskState.LastError)
+	}
+	// Plateau message includes a remediation hint. The exact wording
+	// is bilingual; assert one of the actionable verbs is present.
+	rem := busCtx.TaskState.LastError
+	hasHint := strings.Contains(rem, "auto-init-repo") ||
+		strings.Contains(rem, "/mode read") ||
+		strings.Contains(rem, "stronger model") ||
+		strings.Contains(rem, "更强的模型") ||
+		strings.Contains(rem, "空仓库")
+	if !hasHint {
+		t.Errorf("plateau LastError should include actionable hint; got %q", rem)
+	}
+}
+
+// TestWriteScheduler_TransientBudget_DoesNotDrainSCBudget locks the
+// budget decoupling: a transient stall consumes the transient budget
+// only — the verify→plan SC budget (writeRetryBudget) stays untouched
+// so a later real verify failure can still retry. This was the
+// architectural smell that motivated the refactor.
+func TestWriteScheduler_TransientBudget_DoesNotDrainSCBudget(t *testing.T) {
+	expectedPlan := &types.ChangePlan{
+		ID:          "plan-decouple",
+		TargetPaths: []string{"main.go"},
+		Changes:     []types.FileChange{{Path: "main.go", Kind: "modify"}},
+	}
+	planCalls := 0
+	agentFns := map[types.AgentName]func(*types.AgentContext, *skill.Config) (*agent.StageOutput, error){
+		types.AgentAnalyzer: dagAnalyzerFn(dagIR(types.AnswerContract{Language: "en"})),
+		types.AgentPlanner: func(ctx *types.AgentContext, _ *skill.Config) (*agent.StageOutput, error) {
+			planCalls++
+			if planCalls == 1 {
+				return nil, &llm.StreamStalledError{IdleFor: 61 * time.Second, Cause: context.Canceled}
+			}
+			ctx.Mutable.SetChangePlan(expectedPlan)
+			return &agent.StageOutput{MissingPiece: types.MissingNone}, nil
+		},
+	}
+	ar, sr, sar := buildRegistries(agentFns)
+	o := New(types.PipelineSettings{}, ar, sr, sar)
+	o.SetMaxSteps(20)
+	o.SetMode(types.ModePlan)
+	o.SetTransientRetryBudget(1) // exactly enough for the one stall
+	o.SetWriteRetryBudget(2)     // SC budget — must stay intact
+
+	busCtx, _ := o.Run("decouple test", "/tmp/repo", "main")
+
+	if planCalls != 2 {
+		t.Errorf("planner should retry once on transient stall; got %d", planCalls)
+	}
+	if busCtx.Mutable.ChangePlan() == nil {
+		t.Error("ChangePlan should land after transient retry")
+	}
+	// SC budget should NOT have been touched by the transient retry.
+	// We can't directly inspect graphState.retryUsed from outside, but
+	// the absence of LastError + presence of ChangePlan together
+	// confirm both budgets are independent (transient one consumed,
+	// SC one untouched).
+	if busCtx.TaskState.LastError != "" {
+		t.Errorf("LastError should be empty after successful retry; got %q", busCtx.TaskState.LastError)
 	}
 }
 

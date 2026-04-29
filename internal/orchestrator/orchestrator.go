@@ -98,6 +98,18 @@ type Orchestrator struct {
 	// budget on an unfixable plan.
 	writeRetryBudget int
 
+	// transientRetryBudget caps how many times a single Run will
+	// retry a stage that failed with a transient dispatch error
+	// (LLM stream stall / first-byte timeout / 429 / 5xx / network
+	// blip). DECOUPLED from writeRetryBudget because the budget
+	// consumer semantics differ: transient retry has no learning
+	// signal (same prompt re-sent, only the network attempt is
+	// fresh) while SC retry has structured feedback. Sharing one
+	// counter let 3 plan stalls drain the verify→plan SC budget so
+	// real verify failures could not retry. Set via
+	// SetTransientRetryBudget. Default 1.
+	transientRetryBudget int
+
 	// reflector is the optional Reflexion-pattern critic invoked
 	// from clearForReplan between a verify failure and the planner
 	// re-dispatch. Nil = disabled (clearForReplan falls back to the
@@ -475,6 +487,32 @@ func (o *Orchestrator) SetWriteRetryBudget(n int) {
 // WriteRetryBudget returns the currently configured retry cap.
 func (o *Orchestrator) WriteRetryBudget() int {
 	return o.writeRetryBudget
+}
+
+// SetTransientRetryBudget installs the cap on transient dispatch
+// retries (stream stalls / first-byte timeouts / 429 / 5xx / network
+// blips). Decoupled from SetWriteRetryBudget so a brief upstream
+// hiccup never starves the verify→plan SC retry budget. Clamped to
+// [0, PipelineSettings.TransientRetryBudgetCeil]; cmd/root.go fills a
+// default ceil of 3 when yaml leaves it blank.
+func (o *Orchestrator) SetTransientRetryBudget(n int) {
+	if n < 0 {
+		n = 0
+	}
+	hardCap := o.settings.TransientRetryBudgetCeil
+	if hardCap <= 0 {
+		hardCap = 3
+	}
+	if n > hardCap {
+		n = hardCap
+	}
+	o.transientRetryBudget = n
+}
+
+// TransientRetryBudget returns the currently configured transient
+// retry cap. Read by the read-mode and write-mode schedulers.
+func (o *Orchestrator) TransientRetryBudget() int {
+	return o.transientRetryBudget
 }
 
 // SetReflector installs the optional Reflexion-pattern critic. Nil

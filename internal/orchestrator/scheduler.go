@@ -48,6 +48,31 @@ type graphState struct {
 	status    map[string]nodeStatus
 	retryUsed int
 
+	// transientRetryUsed counts retries triggered by transient
+	// dispatch errors (stream stall / first-byte timeout / 429 / 5xx
+	// / network blip). Decoupled from retryUsed because the budget
+	// consumer semantics differ — see Orchestrator.transientRetryBudget
+	// for the rationale. Driven by recordTransientRetry; capped by
+	// the orchestrator's transientRetryBudget at the call site (the
+	// graph itself does not carry this cap because read-mode graphs
+	// emitted by the analyzer do not know about it; the orchestrator
+	// owns the policy).
+	transientRetryUsed int
+
+	// transientStallSignatures records the most recent transient-failed
+	// attempt's tool-call signature per node ID. The stall plateau
+	// detector compares the current attempt's signature against this
+	// to decide whether the LLM is making progress between transient
+	// retries — if two consecutive transient failures produce the
+	// SAME signature with no terminal emit in between, the stage is
+	// structurally stuck and further retry is suppressed.
+	//
+	// Signature format: "|"-joined tool names in call order, or "" when
+	// a terminal emit (emit_change_plan / emit_test_results / etc.)
+	// fired, in which case the attempt made meaningful progress and
+	// the next transient retry is allowed regardless of comparison.
+	transientStallSignatures map[string]string
+
 	// visitCount tracks how many times each node has been dispatched
 	// (incremented on markRunning). Used by the write scheduler to
 	// honour TaskNode.SkipOnFirstVisit — when true, the FIRST entry
@@ -192,6 +217,47 @@ func (s *graphState) retryBudgetExhausted() bool {
 }
 
 func (s *graphState) recordRetry() { s.retryUsed++ }
+
+// recordTransientRetry bumps the transient-dispatch retry counter
+// (decoupled from recordRetry to keep SC / content retries isolated
+// from network-blip retries). Caller must check
+// transientRetryBudgetExhausted against the orchestrator's configured
+// budget BEFORE calling — graphState does not know the cap.
+func (s *graphState) recordTransientRetry() { s.transientRetryUsed++ }
+
+// rememberTransientSignature stores the just-failed attempt's tool-
+// call signature for nodeID so the next transient-retry decision can
+// detect plateau (identical signature twice in a row). Empty signature
+// is recorded verbatim — see computeStallSignature for the empty-
+// means-progress contract.
+func (s *graphState) rememberTransientSignature(nodeID, sig string) {
+	if s == nil {
+		return
+	}
+	if s.transientStallSignatures == nil {
+		s.transientStallSignatures = map[string]string{}
+	}
+	s.transientStallSignatures[nodeID] = sig
+}
+
+// transientStallPlateau reports whether the just-failed attempt's
+// signature matches the previous transient-failed attempt's signature
+// for nodeID, i.e. the stage is stuck on the same wall. Empty
+// signatures never count as a plateau (empty means "made progress")
+// so a single emit between two stalls breaks the chain.
+func (s *graphState) transientStallPlateau(nodeID, sig string) bool {
+	if s == nil || s.transientStallSignatures == nil {
+		return false
+	}
+	prev, ok := s.transientStallSignatures[nodeID]
+	if !ok {
+		return false
+	}
+	if prev == "" || sig == "" {
+		return false
+	}
+	return prev == sig
+}
 
 // recordRetryByKind bumps the Session 11 C6 per-kind counter so
 // shouldKillRetryByKind can apply the configured per-kind cap on

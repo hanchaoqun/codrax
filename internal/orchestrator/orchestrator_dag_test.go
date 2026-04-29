@@ -296,6 +296,11 @@ func TestRunTaskGraph_RetryableExploreErrorRequeuesWindow(t *testing.T) {
 		RequiredAnswerShape: types.ShapeExplanation,
 		Language:            "en",
 	})
+	// Disable graph-level content retry so this test isolates the
+	// transient retry path (budget decoupling means transient retry
+	// no longer drains content budget). With RetryBudget=0, any
+	// finalize-stage contract violation goes terminal immediately.
+	ir.TaskGraph.ExecutionPolicy.RetryBudget = 0
 
 	agentFns := map[types.AgentName]func(*types.AgentContext, *skill.Config) (*agent.StageOutput, error){
 		types.AgentAnalyzer: dagAnalyzerFn(ir),
@@ -304,7 +309,14 @@ func TestRunTaskGraph_RetryableExploreErrorRequeuesWindow(t *testing.T) {
 			if explorerCalls == 1 {
 				return nil, context.DeadlineExceeded
 			}
-			return &agent.StageOutput{MissingPiece: types.MissingFacts}, nil
+			// On successful retry, return at least one EvidenceItem so
+			// busCtx.EvidenceItems is non-empty and the structurally-
+			// empty content retry path stays out (decoupled budgets:
+			// the transient retry no longer pays for the content path).
+			return &agent.StageOutput{
+				MissingPiece:  types.MissingFacts,
+				EvidenceItems: []types.EvidenceItem{{ID: "ev-recover", Source: "src.go", LineStart: 1}},
+			}, nil
 		},
 		types.AgentFinalizer: func(ctx *types.AgentContext, sk *skill.Config) (*agent.StageOutput, error) {
 			finalizeCalls++
@@ -318,6 +330,9 @@ func TestRunTaskGraph_RetryableExploreErrorRequeuesWindow(t *testing.T) {
 	ar, sr, sar := buildRegistries(agentFns)
 	o := New(types.PipelineSettings{}, ar, sr, sar)
 	o.SetMaxSteps(20)
+	// Read-mode transient retry now consumes the dedicated transient
+	// budget (decoupled from RetryBudget); enable it here.
+	o.SetTransientRetryBudget(1)
 
 	busCtx, err := o.Run("explain X", "/tmp/repo", "main")
 	if err != nil {
@@ -341,12 +356,21 @@ func TestRunTaskGraph_RetryableFinalizeErrorRequeuesFinalize(t *testing.T) {
 		RequiredAnswerShape: types.ShapeExplanation,
 		Language:            "en",
 	})
+	// Same reason as RetryableExploreErrorRequeuesWindow: keep the test
+	// isolated to transient retry by disabling graph-level content retry.
+	ir.TaskGraph.ExecutionPolicy.RetryBudget = 0
 
 	agentFns := map[types.AgentName]func(*types.AgentContext, *skill.Config) (*agent.StageOutput, error){
 		types.AgentAnalyzer: dagAnalyzerFn(ir),
 		types.AgentExplorer: func(ctx *types.AgentContext, sk *skill.Config) (*agent.StageOutput, error) {
 			explorerCalls++
-			return &agent.StageOutput{MissingPiece: types.MissingFacts}, nil
+			// Populate evidence so handleStructurallyEmptyInvestigation
+			// stays out of the loop (see RetryableExploreErrorRequeuesWindow
+			// for the rationale; same architecture-decoupling concern).
+			return &agent.StageOutput{
+				MissingPiece:  types.MissingFacts,
+				EvidenceItems: []types.EvidenceItem{{ID: "ev-explore", Source: "src.go", LineStart: 1}},
+			}, nil
 		},
 		types.AgentFinalizer: func(ctx *types.AgentContext, sk *skill.Config) (*agent.StageOutput, error) {
 			finalizeCalls++
@@ -363,6 +387,7 @@ func TestRunTaskGraph_RetryableFinalizeErrorRequeuesFinalize(t *testing.T) {
 	ar, sr, sar := buildRegistries(agentFns)
 	o := New(types.PipelineSettings{}, ar, sr, sar)
 	o.SetMaxSteps(20)
+	o.SetTransientRetryBudget(1) // enable read-mode transient retry
 
 	busCtx, err := o.Run("explain X", "/tmp/repo", "main")
 	if err != nil {

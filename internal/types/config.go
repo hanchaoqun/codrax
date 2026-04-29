@@ -33,6 +33,30 @@ type PipelineSettings struct {
 	// LLM tokens on an unfixable plan. Zero falls back to default.
 	WriteRetryBudgetCeil int `yaml:"write_retry_budget_ceil"`
 
+	// TransientRetryBudget caps how many times a single Run will
+	// retry a stage that failed with a transient dispatch error
+	// (LLM stream stall / first-byte timeout / 429 / 5xx / network
+	// blip). Distinct from WriteRetryBudget and the per-kind
+	// content-retry counters because the consumer semantics differ:
+	//   - Transient retry has no learning signal — same prompt is
+	//     re-sent; only the network attempt is fresh.
+	//   - SC / contract retry has structured feedback to learn from.
+	// Sharing a single counter (the pre-fix shape) caused 3 plan
+	// stalls to drain the verify→plan budget so that a real verify
+	// failure could not retry. Default 1: one transient retry is
+	// enough to ride through a brief network blip; structurally
+	// stuck cases are caught by the stall plateau detector before
+	// burning even that. Hard-capped by TransientRetryBudgetCeil.
+	TransientRetryBudget int `yaml:"transient_retry_budget"`
+
+	// TransientRetryBudgetCeil is the absolute ceiling enforced by
+	// SetTransientRetryBudget on TransientRetryBudget. Default 3;
+	// raising this rarely helps because if a stage is structurally
+	// stuck the stall plateau detector already short-circuits, and
+	// if it is transient blip a single retry recovers the vast
+	// majority of cases.
+	TransientRetryBudgetCeil int `yaml:"transient_retry_budget_ceil"`
+
 	// MaxStepsCeil is the absolute ceiling on the multi-topic-scaled
 	// pipeline step budget after SubTopicPipelineStepsExtra adds
 	// uplift. Default 100. Zero falls back to default.

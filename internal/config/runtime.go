@@ -177,6 +177,18 @@ type RuntimeSettings struct {
 	// genuinely improved plans on attempts 6+, which is rare.
 	PipelineWriteRetryBudgetCeil *int `yaml:"pipeline_write_retry_budget_ceil"`
 
+	// PipelineTransientRetryBudget caps how many times a single Run
+	// will retry a stage that failed with a transient dispatch error
+	// (LLM stream stall / first-byte timeout / 429 / 5xx / network
+	// blip). Distinct counter from PipelineWriteRetryBudget so
+	// transient blips never starve the verify→plan SC retry. Default 1.
+	// Hard-capped by PipelineTransientRetryBudgetCeil (default 3).
+	PipelineTransientRetryBudget *int `yaml:"pipeline_transient_retry_budget"`
+
+	// PipelineTransientRetryBudgetCeil overrides the absolute ceiling
+	// on PipelineTransientRetryBudget. Default 3.
+	PipelineTransientRetryBudgetCeil *int `yaml:"pipeline_transient_retry_budget_ceil"`
+
 	// PipelineMaxStepsCeil is the absolute ceiling on the multi-topic
 	// scaled pipeline step budget. Default 100. Zero falls back.
 	PipelineMaxStepsCeil *int `yaml:"pipeline_max_steps_ceil"`
