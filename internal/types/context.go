@@ -67,7 +67,15 @@ type MutableState struct {
 	// result is the finalizer's final answer for the run, written
 	// by recordTaskFinalize after the per-task pipeline completes.
 	// Replaces the old TaskItem.Result field.
-	result          string
+	result string
+	// resultIsPlain marks the current result as plain-text so
+	// Renderer.RenderResult skips glamour markdown rendering.
+	// Stage hooks (planPreHook / planPostHook / applyPreHook / etc.)
+	// set this via SetResultPlain when they surface fail-loud
+	// diagnostics that contain identifier-like tokens chroma would
+	// otherwise split with ANSI codes. See SetResultPlain doc for
+	// the production-trace context.
+	resultIsPlain   bool
 	requestModel    *RequestModel
 	emittedEvidence []EvidenceItem
 	// emittedAnswerSymbols + emittedAnswerSymbolCompleteness are
@@ -816,6 +824,9 @@ func (m *MutableState) Result() string {
 }
 
 // SetResult atomically replaces the recorded final answer.
+// Clears the plain-text flag on the assumption a fresh write is the
+// regular markdown answer; callers that store a plain-text fail-
+// loud message must call SetResultPlain instead.
 func (m *MutableState) SetResult(s string) {
 	if m == nil {
 		return
@@ -823,6 +834,45 @@ func (m *MutableState) SetResult(s string) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.result = s
+	m.resultIsPlain = false
+}
+
+// SetResultPlain stores a result string AND marks it as plain text
+// so the renderer skips glamour markdown rendering. Used by stage
+// hooks (planPreHook / planPostHook / applyPreHook / etc.) when
+// they surface a fail-loud diagnostic message that contains
+// identifier-like tokens (e.g. "emit_change_plan") that chroma
+// would otherwise split into ANSI-colored fragments. The user-
+// visible message must read as a single uncolored line.
+//
+// Pre-2026-04-29 these messages went through SetResult and got
+// glamour'd alongside real LLM answers. Production trace
+// /home/chatpp/pytest 2026-04-29 06:03 showed the broken render:
+// "emit_change_plan" became
+// "[ANSI]emit_[/ANSI][ANSI]change_[/ANSI][ANSI]plan[/ANSI]" —
+// chroma's tokenizer split on underscores. This separator is the
+// fix.
+func (m *MutableState) SetResultPlain(s string) {
+	if m == nil {
+		return
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.result = s
+	m.resultIsPlain = true
+}
+
+// ResultIsPlain reports whether the current result was stored via
+// SetResultPlain (true) or SetResult (false). Renderer.RenderResult
+// consults this to decide whether to glamour-render the result
+// content; plain-text results pass through unchanged.
+func (m *MutableState) ResultIsPlain() bool {
+	if m == nil {
+		return false
+	}
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return m.resultIsPlain
 }
 
 // RequestModel returns a pointer to the analyzer-emitted RequestModel,

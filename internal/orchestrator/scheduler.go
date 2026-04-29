@@ -73,6 +73,21 @@ type graphState struct {
 	// the next transient retry is allowed regardless of comparison.
 	transientStallSignatures map[string]string
 
+	// transientNoEmitStreak counts consecutive transient stalls per
+	// node where the agent did NOT reach a terminal emit
+	// (emit_change_plan / emit_test_results / emit_answer_document /
+	// apply_patch). The signature-equality check above is too
+	// narrow on its own — production trace
+	// /home/chatpp/pytest 2026-04-29 06:03 showed an LLM that
+	// changed tool tactics between rounds (round 1 ran repo_map +
+	// list_files, round 2 ran list_files only) so signatures
+	// differed and the gate let the second stall through. The
+	// streak counter is signature-agnostic: ≥ 2 consecutive
+	// no-emit stalls means the LLM is structurally stuck regardless
+	// of which navigation it tried each round. Reset to 0 whenever
+	// a terminal emit fires (computeStallSignature returns "").
+	transientNoEmitStreak map[string]int
+
 	// visitCount tracks how many times each node has been dispatched
 	// (incremented on markRunning). Used by the write scheduler to
 	// honour TaskNode.SkipOnFirstVisit — when true, the FIRST entry
@@ -257,6 +272,48 @@ func (s *graphState) transientStallPlateau(nodeID, sig string) bool {
 		return false
 	}
 	return prev == sig
+}
+
+// recordTransientNoEmitStall increments the consecutive-no-emit
+// counter for nodeID. Called by the write scheduler whenever a
+// transient retry is about to fire AND the just-finished attempt
+// did not reach a terminal emit (signature is non-empty).
+func (s *graphState) recordTransientNoEmitStall(nodeID string) {
+	if s == nil {
+		return
+	}
+	if s.transientNoEmitStreak == nil {
+		s.transientNoEmitStreak = make(map[string]int)
+	}
+	s.transientNoEmitStreak[nodeID]++
+}
+
+// resetTransientNoEmitStreak clears the consecutive-no-emit counter
+// for nodeID. Called when a stage attempt reaches a terminal emit
+// (signature == "") so a subsequent stall starts the streak fresh.
+func (s *graphState) resetTransientNoEmitStreak(nodeID string) {
+	if s == nil || s.transientNoEmitStreak == nil {
+		return
+	}
+	delete(s.transientNoEmitStreak, nodeID)
+}
+
+// transientNoEmitPlateau is the signature-AGNOSTIC plateau predicate.
+// Returns true when the node has accumulated >= 2 consecutive
+// transient stalls without ever reaching a terminal emit. This
+// catches the production-trace pattern where the LLM rotated
+// navigation tactics between rounds (different tool sequences) but
+// failed to reach emit_change_plan in either — a real "structurally
+// stuck" signal that signature-equality misses.
+//
+// The threshold is fixed at 2 (one initial stall + one retry stall
+// that also fails the same way). Configurable would be over-design
+// for a binary "give up vs keep trying" decision.
+func (s *graphState) transientNoEmitPlateau(nodeID string) bool {
+	if s == nil || s.transientNoEmitStreak == nil {
+		return false
+	}
+	return s.transientNoEmitStreak[nodeID] >= 2
 }
 
 // recordRetryByKind bumps the Session 11 C6 per-kind counter so

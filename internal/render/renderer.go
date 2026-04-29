@@ -1020,8 +1020,19 @@ func (r *Renderer) RenderResult(busCtx *types.BusContext) string {
 		if result := busCtx.Mutable.Result(); result != "" {
 			clean := stripAgentLabels(result)
 			if clean != "" {
-				rendered := r.renderMarkdown(clean)
-				b.WriteString(rendered)
+				// Plain-text fail-loud messages (set via
+				// SetResultPlain by stage hooks) bypass glamour
+				// markdown rendering. chroma's syntax highlighter
+				// splits identifier-like tokens (e.g. emit_change_plan)
+				// into ANSI-coloured fragments which look broken on
+				// hook diagnostic prose. Real LLM answers stay on
+				// the markdown path so styled headings / code
+				// blocks / lists render as expected.
+				if busCtx.Mutable.ResultIsPlain() {
+					b.WriteString(clean)
+				} else {
+					b.WriteString(r.renderMarkdown(clean))
+				}
 				b.WriteString("\n")
 			}
 		}

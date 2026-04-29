@@ -43,7 +43,11 @@ func TestApplyPreHook_BareDirRefusesWithoutAuth(t *testing.T) {
 		t.Fatal("expected applyPreHook to fail without authorization")
 	}
 	msg := err.Error()
-	for _, surface := range []string{"--auto-init-repo", "write_auto_init_repo", "REPL"} {
+	// The message must name all three authorization surfaces. zh
+	// wording uses "命令行" / "配置文件" / "交互模式" instead of
+	// transliterated technical terms. CLI flag + yaml key must
+	// still appear verbatim because the user has to type them.
+	for _, surface := range []string{"--auto-init-repo", "write_auto_init_repo", "交互模式"} {
 		if !strings.Contains(msg, surface) {
 			t.Errorf("error message should name authorization surface %q; got: %s",
 				surface, msg)
@@ -146,5 +150,98 @@ func mustGitTopLevel(t *testing.T, dir string, args ...string) {
 	)
 	if out, err := cmd.CombinedOutput(); err != nil {
 		t.Fatalf("git %v: %v\n%s", args, err, out)
+	}
+}
+
+// TestPlanPreHook_BareDirRefusesWithoutAuth — same shape as
+// TestApplyPreHook_BareDirRefusesWithoutAuth but for the new plan-
+// stage gate. Pre-2026-04-29 this gate did not exist; plan mode
+// against a bare repo dispatched the planner unconditionally and
+// burned watchdog stalls (production trace
+// /home/chatpp/pytest 2026-04-29 06:03 was the symptom). The gate
+// now refuses with the same authorization message applyPreHook uses.
+func TestPlanPreHook_BareDirRefusesWithoutAuth(t *testing.T) {
+	bare := t.TempDir() // no .git
+	o := &Orchestrator{
+		busCtx: &types.BusContext{
+			MainRepoRoot: bare,
+			TraceID:      "trace-plan-bare-noauth",
+			Mutable:      types.NewMutableState("plan"),
+		},
+	}
+	err := planPreHook(o)
+	if err == nil {
+		t.Fatal("expected planPreHook to fail without authorization")
+	}
+	msg := err.Error()
+	// The message must name all three authorization surfaces. zh
+	// wording uses "命令行" / "配置文件" / "交互模式" instead of
+	// transliterated technical terms. CLI flag + yaml key must
+	// still appear verbatim because the user has to type them.
+	for _, surface := range []string{"--auto-init-repo", "write_auto_init_repo", "交互模式"} {
+		if !strings.Contains(msg, surface) {
+			t.Errorf("error message should name authorization surface %q; got: %s",
+				surface, msg)
+		}
+	}
+	// Result is plain-text so the renderer skips glamour. Verify
+	// the flag flipped (defense against accidental SetResult
+	// regression).
+	if !o.busCtx.Mutable.ResultIsPlain() {
+		t.Error("planPreHook fail-loud must mark result as plain text to avoid glamour fragmentation")
+	}
+}
+
+// TestPlanPreHook_BareDirAllowsWithAuth — when autoInitRepo=true,
+// the gate logs but does NOT init the repo (defers that to
+// applyPreHook). plan stage runs against the bare working tree
+// for read-only repo_map / list_files; emit_change_plan validators
+// don't need a git index. Returns nil so the planner dispatches.
+func TestPlanPreHook_BareDirAllowsWithAuth(t *testing.T) {
+	bare := t.TempDir()
+	o := &Orchestrator{
+		autoInitRepo: true,
+		busCtx: &types.BusContext{
+			MainRepoRoot: bare,
+			TraceID:      "trace-plan-bare-auth",
+			Mutable:      types.NewMutableState("plan"),
+		},
+	}
+	if err := planPreHook(o); err != nil {
+		t.Fatalf("planPreHook should pass with autoInitRepo=true; got %v", err)
+	}
+	// Confirm the bare repo was NOT init'd by planPreHook (the
+	// .git directory doesn't appear). applyPreHook will init it
+	// later when apply actually needs the worktree.
+	if _, err := os.Stat(filepath.Join(bare, ".git")); !os.IsNotExist(err) {
+		t.Errorf("planPreHook should NOT init the repo; .git exists: %v", err)
+	}
+}
+
+// TestPlanPreHook_ReadyRepoIsNoop — the gate is silent on a
+// healthy git repo with at least one commit.
+func TestPlanPreHook_ReadyRepoIsNoop(t *testing.T) {
+	repo := t.TempDir()
+	cmd := exec.Command("git", "init")
+	cmd.Dir = repo
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Skipf("git init unavailable: %v\n%s", err, out)
+	}
+	cmd = exec.Command("git", "-c", "user.email=t@t", "-c", "user.name=t",
+		"commit", "--allow-empty", "-m", "init")
+	cmd.Dir = repo
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Skipf("git commit unavailable: %v\n%s", err, out)
+	}
+
+	o := &Orchestrator{
+		busCtx: &types.BusContext{
+			MainRepoRoot: repo,
+			TraceID:      "trace-plan-ready",
+			Mutable:      types.NewMutableState("plan"),
+		},
+	}
+	if err := planPreHook(o); err != nil {
+		t.Errorf("planPreHook on ready repo should be no-op; got %v", err)
 	}
 }

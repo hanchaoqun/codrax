@@ -3,6 +3,7 @@ package orchestrator
 import (
 	"encoding/json"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -50,7 +51,20 @@ func readModeRun(t *testing.T, mode types.PipelineMode) *types.BusContext {
 	if mode != "" {
 		o.SetMode(mode)
 	}
-	busCtx, err := o.Run("explain X", "/tmp/repo", "main")
+	// plan/apply modes hit planPreHook which calls DetectRepoState;
+	// authorize the bare-dir gate so the gate falls through to the
+	// rest of the pipeline.
+	o.SetAutoInitRepo(true)
+	// t.TempDir() is cross-platform (Windows / macOS / Linux); avoid
+	// hardcoding /tmp paths. Drop a sentinel file so the empty-repo
+	// short-circuit (read mode against an effectively-empty dir
+	// returns an intro message instead of dispatching the pipeline)
+	// does NOT fire — these tests want the dispatch path.
+	repoRoot := t.TempDir()
+	if err := os.WriteFile(filepath.Join(repoRoot, "main.go"), []byte("package main\n"), 0o644); err != nil {
+		t.Fatalf("seed sentinel file: %v", err)
+	}
+	busCtx, err := o.Run("explain X", repoRoot, "main")
 	if err != nil {
 		t.Fatalf("Run: %v", err)
 	}
@@ -217,7 +231,8 @@ func TestMode_VerifyReachesStub(t *testing.T) {
 	o := New(types.PipelineSettings{}, ar, sr, sar)
 	o.SetMaxSteps(20)
 	o.SetMode(types.ModeVerify)
-	busCtx, err := o.Run("rerun verify", "/tmp/repo", "main")
+	o.SetAutoInitRepo(true) // verify hits stage hooks; tmp dir is bare
+	busCtx, err := o.Run("rerun verify", t.TempDir(), "main")
 	if err != nil {
 		t.Fatalf("Run: %v", err)
 	}
@@ -257,11 +272,39 @@ func TestMode_UnknownRejected(t *testing.T) {
 // repoRoot, even in read mode (where the field is unused). This
 // lets the worktree-cleanup defer access the canonical repo path
 // regardless of whether the apply stage swapped RepoRoot.
+//
+// Cross-platform note: uses a self-managed temp dir (instead of the
+// shared readModeRun helper) so the assertion can compare against
+// the exact path passed to Run on every OS.
 func TestMode_MainRepoRootPopulated(t *testing.T) {
-	busCtx := readModeRun(t, "")
-	if busCtx.MainRepoRoot != "/tmp/repo" {
-		t.Errorf("MainRepoRoot should equal the Run()'s repoRoot arg; got %q",
-			busCtx.MainRepoRoot)
+	ir := dagIR(types.AnswerContract{RequiredAnswerShape: types.ShapeListOfSymbols, Language: "en"})
+	agentFns := map[types.AgentName]func(*types.AgentContext, *skill.Config) (*agent.StageOutput, error){
+		types.AgentAnalyzer: dagAnalyzerFn(ir),
+		types.AgentExplorer: func(_ *types.AgentContext, _ *skill.Config) (*agent.StageOutput, error) {
+			return &agent.StageOutput{MissingPiece: types.MissingFacts}, nil
+		},
+		types.AgentFinalizer: func(_ *types.AgentContext, _ *skill.Config) (*agent.StageOutput, error) {
+			return &agent.StageOutput{MissingPiece: types.MissingNone, FinalAnswer: "- `Foo` (file.go:1)"}, nil
+		},
+	}
+	ar, sr, sar := buildRegistries(agentFns)
+	o := New(types.PipelineSettings{}, ar, sr, sar)
+	o.SetMaxSteps(20)
+	repoRoot := t.TempDir()
+	// Drop a sentinel file so the read-mode empty-repo short-circuit
+	// does not pre-empt the dispatch — this test asserts the
+	// MainRepoRoot population invariant which requires the pipeline
+	// to actually start.
+	if err := os.WriteFile(filepath.Join(repoRoot, "main.go"), []byte("package main\n"), 0o644); err != nil {
+		t.Fatalf("seed sentinel file: %v", err)
+	}
+	busCtx, err := o.Run("explain X", repoRoot, "main")
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if busCtx.MainRepoRoot != repoRoot {
+		t.Errorf("MainRepoRoot should equal the Run()'s repoRoot arg; got %q want %q",
+			busCtx.MainRepoRoot, repoRoot)
 	}
 	if busCtx.RepoRoot != busCtx.MainRepoRoot {
 		t.Errorf("read-mode RepoRoot and MainRepoRoot should match: %q vs %q",
@@ -312,6 +355,7 @@ func TestMode_ApplyWithPlanPathSkipsPlanPhase(t *testing.T) {
 	o := New(types.PipelineSettings{}, ar, sr, sar)
 	o.SetMaxSteps(20)
 	o.SetMode(types.ModeApply)
+	o.SetAutoInitRepo(true) // plan/apply stage gate; tests run against tmp dirs
 	o.SetPlanPath(planPath)
 	// Intentionally omit SetWorktreeBase — apply phase will fail
 	// with "worktree base not configured" which is the signal we
@@ -320,7 +364,7 @@ func TestMode_ApplyWithPlanPathSkipsPlanPhase(t *testing.T) {
 	// Use the same synthesized phrasing handleApproveCmd produces;
 	// passing the bare slash form would trip the orchestrator's
 	// REPL-control-input fail-loud guard.
-	busCtx, err := o.Run("Apply approved plan plan-skip-test", "/tmp/repo", "main")
+	busCtx, err := o.Run("Apply approved plan plan-skip-test", t.TempDir(), "main")
 	if err != nil {
 		t.Fatalf("Run: %v", err)
 	}
@@ -347,6 +391,7 @@ func TestOrchestrator_ModeGetter(t *testing.T) {
 		t.Errorf("pre-SetMode Mode() should be empty, got %q", o.Mode())
 	}
 	o.SetMode(types.ModePlan)
+	o.SetAutoInitRepo(true) // plan stage's new bare-dir gate; tests run against tmp dirs
 	if o.Mode() != types.ModePlan {
 		t.Errorf("post-SetMode Mode() should be ModePlan, got %q", o.Mode())
 	}

@@ -54,18 +54,17 @@ func TestWriteScheduler_E2E_HappyPath(t *testing.T) {
 	o := New(types.PipelineSettings{}, ar, sr, sar)
 	o.SetMaxSteps(20)
 	o.SetMode(types.ModeApply)
+	o.SetAutoInitRepo(true) // plan/apply stage gate; tests run against tmp dirs
 	// Worktree base required for applyPreHook to provision a worktree.
 	// We point to a tmp dir so worktree.Create can work; if it fails
 	// we'll catch it in the test.
 	o.SetWorktreeBase(t.TempDir())
 
-	// MainRepoRoot needs to be a git repo for worktree.Create to
-	// succeed, but the mock coder bypasses real git operations. The
-	// applyPreHook will fail if /tmp/repo isn't a real git repo —
-	// for this test we accept that failure path because the goal is
-	// to verify the scheduler dispatches plan even when subsequent
-	// stages can't fully execute. We assert plan dispatched at minimum.
-	busCtx, err := o.Run("happy path", "/tmp/nonexistent-repo", "main")
+	// MainRepoRoot points at a fresh tmp dir; auto-init-repo is on so
+	// applyPreHook runs `git init` itself. t.TempDir() is cross-platform
+	// (Windows / macOS / Linux). The mock coder + verifier bypass real
+	// git operations on the worktree contents.
+	busCtx, err := o.Run("happy path", t.TempDir(), "main")
 	if err != nil {
 		t.Fatalf("Run: %v", err)
 	}
@@ -122,10 +121,11 @@ func TestWriteScheduler_VerifyFails_TerminalWhenBudgetZero(t *testing.T) {
 	o := New(types.PipelineSettings{}, ar, sr, sar)
 	o.SetMaxSteps(20)
 	o.SetMode(types.ModeApply)
+	o.SetAutoInitRepo(true) // plan/apply stage gate; tests run against tmp dirs
 	o.SetWorktreeBase(t.TempDir())
 	o.SetWriteRetryBudget(0) // explicit zero — no retry
 
-	busCtx, _ := o.Run("verify fails", "/tmp/nonexistent-repo", "main")
+	busCtx, _ := o.Run("verify fails", t.TempDir(), "main")
 	// With retry budget 0, the planner should fire AT MOST once.
 	if planCalls > 1 {
 		t.Errorf("retry budget 0 should not loop; planner called %d times", planCalls)
@@ -205,17 +205,15 @@ func TestWriteScheduler_VerifyPlanRetry_BudgetEnforced(t *testing.T) {
 	o := New(types.PipelineSettings{}, ar, sr, sar)
 	o.SetMaxSteps(40)
 	o.SetMode(types.ModeApply)
+	o.SetAutoInitRepo(true) // plan/apply stage gate; tests run against tmp dirs
 	o.SetWorktreeBase(t.TempDir())
 	// Budget 2 = up to 3 plan dispatches (initial + 2 retries).
 	o.SetWriteRetryBudget(2)
 
-	busCtx, _ := o.Run("retry test", "/tmp/nonexistent-repo", "main")
+	busCtx, _ := o.Run("retry test", t.TempDir(), "main")
 
-	// Worktree provision will fail because /tmp/nonexistent-repo isn't
-	// a real git repo, so planner runs but apply pre-hook bails. In
-	// that case planCalls == 1 and the verify retry never fires —
-	// which means the test only exercises plan-dispatch reachability,
-	// not the retry semantics.
+	// auto-init-repo is on so applyPreHook runs `git init` itself.
+	// t.TempDir() exists on all platforms (Windows / macOS / Linux).
 	//
 	// We still assert two things:
 	//   - Mode stays ModeApply across the run (no silent fallback)
@@ -253,7 +251,8 @@ func TestWriteScheduler_ModePlan_Terminates(t *testing.T) {
 	o := New(types.PipelineSettings{}, ar, sr, sar)
 	o.SetMaxSteps(20)
 	o.SetMode(types.ModePlan)
-	busCtx, _ := o.Run("plan only", "/tmp/repo", "main")
+	o.SetAutoInitRepo(true) // plan stage's new bare-dir gate; tests run against tmp dirs
+	busCtx, _ := o.Run("plan only", t.TempDir(), "main")
 	if planCalls != 1 {
 		t.Errorf("ModePlan should dispatch planner exactly once; got %d", planCalls)
 	}
@@ -352,13 +351,14 @@ func TestWriteScheduler_PlanTransientStreamStall_Retries(t *testing.T) {
 	o := New(types.PipelineSettings{}, ar, sr, sar)
 	o.SetMaxSteps(20)
 	o.SetMode(types.ModePlan) // plan-only graph, no worktree provisioning
+	o.SetAutoInitRepo(true) // plan stage's new bare-dir gate; tests run against tmp dirs
 	// SetTransientRetryBudget controls THIS retry path. SetWriteRetryBudget
 	// is for verify→plan SC retry — kept at zero here to verify the two
 	// budgets are decoupled (transient retry must fire even when SC
 	// budget is zero).
 	o.SetTransientRetryBudget(1)
 
-	busCtx, _ := o.Run("snake game in python", "/tmp/repo", "main")
+	busCtx, _ := o.Run("snake game in python", t.TempDir(), "main")
 
 	if planCalls != 2 {
 		t.Errorf("planner should retry once after stream stall; got %d calls (want 2)", planCalls)
@@ -395,12 +395,13 @@ func TestWriteScheduler_PlanTransientStreamStall_PlateauSuppression(t *testing.T
 	o := New(types.PipelineSettings{}, ar, sr, sar)
 	o.SetMaxSteps(20)
 	o.SetMode(types.ModePlan)
+	o.SetAutoInitRepo(true) // plan stage's new bare-dir gate; tests run against tmp dirs
 	// Generous transient budget (3) so plateau is the ONLY thing that
 	// could short-circuit the loop. Without plateau detection, this
 	// would burn 3 retries and hit 4 calls.
 	o.SetTransientRetryBudget(3)
 
-	busCtx, _ := o.Run("snake game", "/tmp/repo", "main")
+	busCtx, _ := o.Run("snake game", t.TempDir(), "main")
 
 	if planCalls != 2 {
 		t.Errorf("plateau detector should stop after 2 calls (1 retry then plateau); got %d", planCalls)
@@ -455,10 +456,11 @@ func TestWriteScheduler_TransientBudget_DoesNotDrainSCBudget(t *testing.T) {
 	o := New(types.PipelineSettings{}, ar, sr, sar)
 	o.SetMaxSteps(20)
 	o.SetMode(types.ModePlan)
+	o.SetAutoInitRepo(true) // plan stage's new bare-dir gate; tests run against tmp dirs
 	o.SetTransientRetryBudget(1) // exactly enough for the one stall
 	o.SetWriteRetryBudget(2)     // SC budget — must stay intact
 
-	busCtx, _ := o.Run("decouple test", "/tmp/repo", "main")
+	busCtx, _ := o.Run("decouple test", t.TempDir(), "main")
 
 	if planCalls != 2 {
 		t.Errorf("planner should retry once on transient stall; got %d", planCalls)
@@ -482,4 +484,39 @@ func writeNodeIDs(ns []*types.TaskNode) []string {
 		out = append(out, n.ID)
 	}
 	return out
+}
+
+// TestWriteScheduler_PlanTransient_NoEmitPlateau_SignaturesDiffer
+// locks the signature-AGNOSTIC plateau predicate that catches the
+// LLM rotating tool tactics between retry rounds. Production trace
+// /home/chatpp/pytest 2026-04-29 06:03 was the trigger: round 1
+// streamed `repo_map` + `list_files` then stalled, round 2 streamed
+// `list_files` only then stalled. Pre-fix the signature-equality
+// plateau missed it (different sigs); the new no-emit-streak
+// plateau catches it on the second consecutive no-emit stall
+// regardless of which navigation tools the LLM used.
+//
+// We can't easily simulate different tool sequences via the mock
+// without wiring real tool execution, so this test instead drives
+// the streak primitive directly via graphState helpers and verifies
+// the predicate fires after two no-emit stalls.
+func TestGraphState_TransientNoEmitPlateau(t *testing.T) {
+	g := types.TaskGraph{Nodes: []types.TaskNode{{ID: "plan", Type: types.NodePlan}}}
+	state := newGraphState(g)
+	if state.transientNoEmitPlateau("plan") {
+		t.Fatal("plateau must not fire on a fresh node")
+	}
+	state.recordTransientNoEmitStall("plan")
+	if state.transientNoEmitPlateau("plan") {
+		t.Fatal("one stall is not yet a plateau (threshold is 2)")
+	}
+	state.recordTransientNoEmitStall("plan")
+	if !state.transientNoEmitPlateau("plan") {
+		t.Fatal("two consecutive no-emit stalls MUST fire plateau")
+	}
+	// reset clears the streak (terminal emit observed in between).
+	state.resetTransientNoEmitStreak("plan")
+	if state.transientNoEmitPlateau("plan") {
+		t.Fatal("reset must clear the streak")
+	}
 }

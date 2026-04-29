@@ -177,10 +177,32 @@ func (o *Orchestrator) runWriteSchedulerLoop(stepBudget int) int {
 			// in plan mode), and burning more retries cannot help.
 			if llm.IsRetryableDispatchError(dispatchErr) {
 				sig := computeStallSignature(o.busCtx.Mutable.DispatchToolResults(), out, stage)
-				if state.transientStallPlateau(n.ID, sig) {
+				// Maintain the consecutive-no-emit streak alongside
+				// the per-node signature memo. A non-empty sig means
+				// the agent did not reach a terminal emit in this
+				// dispatch (computeStallSignature returns "" only on
+				// successful emit). The streak is the signature-
+				// AGNOSTIC plateau signal that catches the LLM
+				// changing tool tactics between rounds while still
+				// failing to emit — the trace pattern from
+				// /home/chatpp/pytest 2026-04-29 06:03.
+				if sig == "" {
+					state.resetTransientNoEmitStreak(n.ID)
+				} else {
+					state.recordTransientNoEmitStall(n.ID)
+				}
+				// Plateau via two complementary signals:
+				//   1. Identical tool-call signature twice in a row
+				//      (LLM repeated the EXACT same dead path).
+				//   2. Two consecutive no-emit stalls regardless of
+				//      tool sequence (LLM rotated tactics but never
+				//      reached a terminal emit).
+				if state.transientStallPlateau(n.ID, sig) || state.transientNoEmitPlateau(n.ID) {
 					friendly := stallPlateauMessage(o.busCtx, stage, friendlyDispatchErr(dispatchErr))
-					logging.Warning("[orchestrator] %s transient stall plateau (sig=%q) — suppressing further retry",
-						stage, sig)
+					logging.Warning("[orchestrator] %s transient stall plateau (sig=%q sigPlateau=%v noEmitPlateau=%v) — suppressing further retry",
+						stage, sig,
+						state.transientStallPlateau(n.ID, sig),
+						state.transientNoEmitPlateau(n.ID))
 					o.busCtx.TaskState.LastError = friendly
 					state.markFailed(n.ID)
 					o.emitNodeEnd(n.ID, false, friendly)
@@ -192,6 +214,28 @@ func (o *Orchestrator) runWriteSchedulerLoop(stepBudget int) int {
 					state.requeue(n.ID)
 					o.busCtx.TaskState.LastError = ""
 					reason := friendlyDispatchErr(dispatchErr)
+					// Plan-stage stall recovery: when the planner stalled
+					// before reaching a terminal emit (sig != "") AND we
+					// are about to retry, seed PlanningHint so the next
+					// dispatch's BuildInitialInstruction prepends a
+					// directive to use the streaming-safe multi-round
+					// emission path (emit_plan_skeleton + per-file
+					// emit_plan_change). The skeleton path's payload is
+					// small enough that mid-stream truncation cannot hit
+					// the watchdog; per-file emits stay under any single
+					// LLM response budget. Existing PlanningHint set by a
+					// previous SC-retry's clearForReplan is preserved by
+					// prepending — we add to the front so the stall hint
+					// reads first while the prior failure context still
+					// reaches the LLM.
+					if stage == types.StagePlan && sig != "" && o.busCtx != nil && o.busCtx.Mutable != nil {
+						existing := o.busCtx.Mutable.PlanningHint()
+						stallHint := plannerStallRecoveryHint()
+						if existing != "" {
+							stallHint = stallHint + "\n\n" + existing
+						}
+						o.busCtx.Mutable.SetPlanningHint(stallHint)
+					}
 					logging.Warning("[orchestrator] %s transient dispatch error; requeued for retry %d/%d (transient budget): %v",
 						stage, state.transientRetryUsed, o.transientRetryBudget, reason)
 					o.emit(render.Event{
@@ -279,6 +323,22 @@ func (o *Orchestrator) runWriteSchedulerLoop(stepBudget int) int {
 				// Fall through to terminal failure path below.
 			} else if state.retryUsed < g.ExecutionPolicy.RetryBudget {
 				retryAttempt++
+				// Wipe transient-stall bookkeeping so the new plan
+				// generation cycle starts with a clean slate. Without
+				// this, a stall observed in iteration N (transient
+				// retry path) would still count toward iteration N+1's
+				// plateau detector — leaking a memory across two
+				// distinct retry concepts (one is "blip in the LLM
+				// connection", the other is "the previous plan was
+				// wrong"). The two clears below cover both bookkeeping
+				// maps for every node in the graph; cheap (a few map
+				// deletes) and the only safe thing to do.
+				for _, gn := range g.Nodes {
+					state.resetTransientNoEmitStreak(gn.ID)
+					if state.transientStallSignatures != nil {
+						delete(state.transientStallSignatures, gn.ID)
+					}
+				}
 				clearForReplan(o, retryAttempt)
 				targets := state.requeueValidationTargets(n.ID)
 				if len(targets) > 0 {
@@ -541,4 +601,53 @@ func verifyStallReason(closure *types.WriteClosure) string {
 	}
 	return fmt.Sprintf("two consecutive verify rounds produced identical signal (applied=%d passed=%d failed=%d failureHash=%s) — planner stuck on the same outcome",
 		cur.AppliedCount, cur.VerifyPassed, cur.VerifyFailed, cur.FailureSummaryHash)
+}
+
+// plannerStallRecoveryHint returns the LLM-facing directive the
+// orchestrator prepends to PlanningHint when a plan-stage retry
+// fires after a streaming-truncation stall. The hint nudges the
+// planner toward the multi-round emission path: emit_plan_skeleton
+// (small payload, structurally cannot truncate) followed by
+// per-file emit_plan_change calls (each bounded). The skill
+// prompt already describes both modes; on first-attempt the LLM
+// picks single-shot by default. After a stall we know single-shot
+// didn't fit, so we promote the multi-round path from "available"
+// to "required for this retry".
+//
+// Always English — this string is consumed by the LLM as a
+// system-level directive, not displayed to the user. Localising
+// LLM hints would risk degrading the model's instruction-following
+// for non-English locales while adding a translation maintenance
+// burden. User-facing prose surfaces (Result, error messages) ARE
+// localised; the LLM-facing PlanningHint is not.
+func plannerStallRecoveryHint() string {
+	return "RETRY DIRECTIVE — your previous response was cut off mid-stream because a single emit_change_plan exceeded what the streaming response can carry.\n" +
+		"\n" +
+		"On this retry use the multi-round path:\n" +
+		"  1. Call emit_plan_skeleton ONCE: request, summary, changes[] metadata only (path + kind + rationale; no new_content, no patch).\n" +
+		"  2. Call emit_plan_change once per file with kind ∈ {create, modify, patch}, with that single file's body. Skip kind=delete.\n" +
+		"\n" +
+		"Do NOT call emit_change_plan again on this retry — same wall. The previous response was discarded; start the skeleton fresh."
+}
+
+// plannerScaffoldHint is the proactive PlanningHint seeded by
+// planPreHook when the target is a bare directory the operator
+// has authorized to scaffold (autoInitRepo=true). The planner is
+// about to assemble a brand-new project's plan with no existing
+// source to read — the canonical streaming-truncation trigger.
+// Pre-arming the multi-round directive avoids the wait-for-first-
+// stall recovery cycle.
+//
+// Always English — same rationale as plannerStallRecoveryHint.
+// Distinct lead phrase ("SCAFFOLD DIRECTIVE") so an operator
+// inspecting the LLM's prompt context (debug log) can tell which
+// branch armed the hint.
+func plannerScaffoldHint() string {
+	return "SCAFFOLD DIRECTIVE — the target directory is empty; this run scaffolds a project from scratch. A single emit_change_plan with every file's body inline is likely too large to stream.\n" +
+		"\n" +
+		"Use the multi-round path:\n" +
+		"  1. Call emit_plan_skeleton ONCE with every file's metadata (path + kind + rationale; no new_content, no patch).\n" +
+		"  2. Call emit_plan_change once per non-delete file to send its body.\n" +
+		"\n" +
+		"Begin the changes[] with the language manifest the user's request implies (go.mod for Go, package.json for Node, pyproject.toml for Python, Cargo.toml for Rust, etc.). For files that import other files in this same plan, set depends_on so the manifest and any imported files appear earlier in apply order."
 }

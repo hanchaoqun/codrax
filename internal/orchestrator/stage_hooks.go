@@ -50,6 +50,7 @@ type stageHookPostFunc func(o *Orchestrator, out *agent.StageOutput) error
 // nil pointer; the scheduler skips nil hooks.
 var writeStageHooks = map[types.PipelineStage]stageHooks{
 	types.StagePlan: {
+		Pre:  planPreHook,
 		Post: planPostHook,
 	},
 	types.StageApply: {
@@ -104,8 +105,13 @@ func planPostHook(o *Orchestrator, out *agent.StageOutput) error {
 	plan := o.busCtx.Mutable.ChangePlan()
 	if plan == nil {
 		// Planner ran but no plan emitted — surface a fail-loud message.
+		// SetResultPlain so the renderer skips glamour markdown — the
+		// message contains `emit_change_plan` which chroma's
+		// underscore-aware tokenizer would otherwise split into three
+		// ANSI-colored fragments. See production trace
+		// /home/chatpp/pytest 2026-04-29 06:03 for the broken render.
 		msg := "plan stage completed but no ChangePlan was installed on Mutable (planner did not call emit_change_plan)"
-		o.busCtx.Mutable.SetResult(msg)
+		o.busCtx.Mutable.SetResultPlain(msg)
 		return fmt.Errorf("%s", msg)
 	}
 	wc := o.busCtx.Mutable.WriteClosure()
@@ -121,6 +127,99 @@ func planPostHook(o *Orchestrator, out *agent.StageOutput) error {
 	o.busCtx.Mutable.SetResult(renderChangePlanSummary(plan, o.busCtx.Language))
 	logging.Info("[orchestrator] plan stage: id=%s changes=%d", plan.ID, len(plan.Changes))
 	return nil
+}
+
+// planPreHook is the bare-directory authorization gate for the plan
+// stage. Pre-2026-04-29 the gate only fired inside applyPreHook
+// (StageApply); plan-only runs against an uninit'd / empty repo
+// dispatched the planner unconditionally, which produced the
+// pathological "LLM tries to compose a plan against zero source
+// files, stream stalls" loop documented in
+// /home/chatpp/pytest/.codrax/logs/pytest-53c9f7e6/codrax-20260429-060339-*.log
+// (planner streamed for 60 s twice before the orchestrator gave up).
+//
+// Why plan also needs the gate (not only apply):
+//   - The planner skill workflow says "Read the files and
+//     identifiers named in the user's request" — which assumes
+//     existing source. Empty repo means the LLM has no anchor and
+//     stalls trying to invent a plan from thin air.
+//   - The planner emit_change_plan validators (deps-closure,
+//     wiring-closure, summary-fidelity, dry-build) all assume the
+//     repo has at least a manifest (go.mod, package.json,
+//     pyproject.toml) and a couple of existing files. None of
+//     those validators behave usefully on a 0-file workspace.
+//   - The "scaffold a new project from scratch" workflow is an
+//     intentional gap (no scaffold mode today). Failing fast with
+//     a clear authorization message is strictly better than
+//     letting the LLM waste a finalize budget churning.
+//
+// Behaviour:
+//   - DetectRepoState=ready → no-op, proceed.
+//   - State NeedsInit (not_initialized / no_commits) AND
+//     o.autoInitRepo == false → fail-loud with bareDirAuthorizationMessage.
+//   - State NeedsInit AND o.autoInitRepo == true → no-op here;
+//     applyPreHook will later run worktree.EnsureInitialCommit
+//     when the apply stage actually needs the worktree. Plan stage
+//     itself does not need a git index for its read-only repo_map /
+//     grep / read_file inspection.
+//   - DetectRepoState error → fail-loud with the error.
+//
+// The hook does NOT provision a worktree — plan stage runs against
+// the main repo's working tree (read-only ops). That's the same
+// pre-2026-04-29 behaviour; we only added the authorization gate.
+func planPreHook(o *Orchestrator) error {
+	if o == nil || o.busCtx == nil {
+		return fmt.Errorf("plan pre-hook: nil orchestrator/bus")
+	}
+	root := o.busCtx.MainRepoRoot
+	if root == "" {
+		root = o.busCtx.RepoRoot
+	}
+	state, err := worktree.DetectRepoState(root)
+	if err != nil {
+		msg := fmt.Sprintf("plan stage: repo state probe failed: %v", err)
+		// SetResultPlain — diagnostic prose with no markdown.
+		o.busCtx.Mutable.SetResultPlain(msg)
+		return fmt.Errorf("%s", msg)
+	}
+	if !state.NeedsInit() {
+		return nil
+	}
+	if o.autoInitRepo {
+		// Authorized but defer the actual init to applyPreHook —
+		// plan stage doesn't need a git index. Log so an operator
+		// running with --auto-init-repo sees the gate didn't fire.
+		logging.Info("[orchestrator] plan pre-hook: bare repo at %s; init deferred to apply stage (--auto-init-repo authorized)", root)
+		// Proactive scaffold hint: when we KNOW this is the
+		// scaffold-from-scratch case (NeedsInit + autoInitRepo + plan
+		// mode), seed PlanningHint with the streaming-safe multi-
+		// round emission directive BEFORE the first dispatch. The
+		// planner has no source files to read here, so the LLM is
+		// going to assemble the entire plan from the request text +
+		// general knowledge — exactly the case where a single
+		// emit_change_plan call is most likely to overflow the
+		// stream and trigger the watchdog kill documented in
+		// /home/chatpp/pytest 2026-04-29 06:03. Pre-arming the hint
+		// turns the second-attempt recovery into a first-attempt
+		// preference. Existing PlanningHint (from a prior verify→
+		// plan SC retry) is preserved by prepending so the retry
+		// feedback still reaches the LLM. Idempotent — re-emitting
+		// on a re-dispatch (which the consume-once contract makes
+		// rare) just re-prepends the same line.
+		if o.busCtx != nil && o.busCtx.Mutable != nil &&
+			o.busCtx.Mutable.PlanningHint() == "" {
+			o.busCtx.Mutable.SetPlanningHint(plannerScaffoldHint())
+		}
+		return nil
+	}
+	// Reuse the same authorization message the apply gate uses, but
+	// label it with the stage that actually surfaced the refusal so
+	// the user-visible "stage 拒绝" / "stage:" prefix tracks the gate
+	// that fired. SetResultPlain — the message contains command
+	// tokens that chroma would otherwise fragment with ANSI codes.
+	msg := bareDirAuthorizationMessage(o.busCtx, state, "plan")
+	o.busCtx.Mutable.SetResultPlain(msg)
+	return fmt.Errorf("%s", msg)
 }
 
 // applyPreHook prepares the worktree before the coder dispatches.
@@ -189,8 +288,8 @@ func applyPreHook(o *Orchestrator) error {
 				// (env_recommend_enabled=true). Falls back to the
 				// legacy hardcoded prose when env_recommend is
 				// disabled (R6 byte-identical retention guarantee).
-				msg := bareDirAuthorizationMessage(o.busCtx, state)
-				o.busCtx.Mutable.SetResult(msg)
+				msg := bareDirAuthorizationMessage(o.busCtx, state, "apply")
+				o.busCtx.Mutable.SetResultPlain(msg)
 				return fmt.Errorf("%s", msg)
 			}
 			commitMsg := "codrax: initial commit"

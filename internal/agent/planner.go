@@ -102,8 +102,18 @@ func (e *plannerEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk *
 	// Consume-once: clear the hint so a subsequent sub-dispatch
 	// within the same retry iteration does not double-apply it.
 	ctx.Mutable.ResetPlanningHint()
-	return "\n\n## Retry feedback\n\n" + hint +
-		"\n\nThe previous ChangePlan's verify stage failed. Read the feedback above, diagnose what was wrong with the plan (not the test runner, which is deterministic), and emit a revised ChangePlan that fixes the root cause."
+	// The header is intentionally generic ("Planning context"). The
+	// hint body itself carries the situation tag:
+	//   - verify→plan retry — body opens with "Previous attempt N
+	//     verify failed ..." (buildRetryHint).
+	//   - empty-repo scaffold — body opens with "SCAFFOLD DIRECTIVE
+	//     —" (planPreHook proactive seed).
+	//   - streaming-stall recovery — body opens with "RETRY
+	//     DIRECTIVE —" (write_scheduler transient retry).
+	// Keeping the wrapper neutral avoids hardcoding "verify failed"
+	// under branches where it isn't true.
+	return "\n\n## Planning context\n\n" + hint +
+		"\n\nFollow the directive in the planning context above. It was added because the system observed a condition that affects how this dispatch must emit."
 }
 
 // ShouldStop terminates the ReAct loop as soon as a ChangePlan has

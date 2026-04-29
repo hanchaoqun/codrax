@@ -703,7 +703,7 @@ func (o *Orchestrator) Run(request string, repoRoot string, branch string) (*typ
 		// git repo. Read-mode never auto-scaffolds, but operators see a
 		// clear signal here instead of being puzzled by downstream
 		// stages that quietly degrade. The bare-dir authorization gate
-		// only surfaces in write mode (apply_pre_hook).
+		// only surfaces in write mode (apply_pre_hook / plan_pre_hook).
 		if facts := o.busCtx.EnvFacts; facts != nil {
 			switch facts.GitRepoState {
 			case "not_initialized":
@@ -714,6 +714,34 @@ func (o *Orchestrator) Run(request string, repoRoot string, branch string) (*typ
 				logging.Warning("[orchestrator] git binary not found on PATH; some pipeline features (worktree, repo_map walk, write mode) will be unavailable")
 			}
 		}
+	}
+
+	// Empty-repo read-mode short-circuit. When a user points read mode
+	// at a dir with no analyzable source files (fresh tmp dir, just-
+	// created project skeleton), the analyzer has nothing to pre-scan,
+	// the explorer has nothing to read, and the finalizer falls back
+	// to the weakest hard-fallback Generic answer. The downstream
+	// degraded result reads as confused rather than honest. Surface a
+	// short, actionable message instead so the user immediately sees
+	// what to do (point --repo at real source, or switch modes to
+	// scaffold from scratch). Cross-platform: dirIsEffectivelyEmpty
+	// uses os.ReadDir so Windows / macOS / Linux all walk the same
+	// path. Skipped when Mode != ModeRead — write modes hit
+	// planPreHook / applyPreHook which produce their own
+	// authorization message via bareDirAuthorizationMessage.
+	if o.busCtx.Mode == types.ModeRead && dirIsEffectivelyEmpty(repoRoot) {
+		msg := emptyRepoReadIntro(o.busCtx.Language, repoRoot)
+		logging.Info("[orchestrator] target %s is effectively empty; read-mode short-circuit with intro message", repoRoot)
+		o.busCtx.Mutable.SetResultPlain(msg)
+		o.busCtx.TaskState.IsTerminal = true
+		o.busCtx.TaskState.Stage = types.StageFinalize
+		o.busCtx.PipelineStage = types.StageFinalize
+		o.emit(render.Event{
+			Kind:      render.EventPipelineEnd,
+			Timestamp: time.Now(),
+			TraceID:   o.busCtx.TraceID,
+		})
+		return o.busCtx, nil
 	}
 
 	// Thread repoRoot into MutableState so the lazy-init

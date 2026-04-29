@@ -158,12 +158,14 @@ func reconcileComplexity(
 	return declared, ""
 }
 
-// logComplexityReconcile emits a single warning line when the rule
-// overrode the LLM's pick. Keeps the event visible in eval harness
-// traces without flooding info-level logs on no-op cases.
+// logComplexityReconcile emits a single info line when the rule
+// overrode the LLM's pick. Reconciliation is the analyzer's
+// designed structural-override path, not an exception, so it logs
+// at INFO so real WARN entries stay diagnostic. Suppressed when no
+// override fired (zero noise on no-op cases).
 func logComplexityReconcile(before, after types.Complexity, reason string) {
 	if before == after || reason == "" {
 		return
 	}
-	logging.Warning("[analyzer] complexity reconciled: %s → %s (%s)", before, after, reason)
+	logging.Info("[analyzer] complexity reconciled: %s → %s (%s)", before, after, reason)
 }
