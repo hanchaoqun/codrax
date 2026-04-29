@@ -143,8 +143,9 @@ type Renderer struct {
 	// (signalling a new window). Within-window sibling starts share
 	// the current gen so multi-topic evidence dispatches stay all-
 	// active together.
-	dispatchGen     int
-	lastNodeStartAt time.Time
+	dispatchGen       int
+	lastNodeStartAt   time.Time
+	lastNodeStartKind string
 
 	// lang is the user-facing locale code consumed by the status
 	// localization layer (status_messages.go). Empty defaults to
@@ -856,26 +857,33 @@ func (r *Renderer) Emitter() EventEmitter {
 				// so consecutive EventTaskNodeStart timestamps are
 				// microseconds apart for siblings of the SAME dispatch
 				// (e.g. evidence_t0 + evidence_t1 + evidence_t2 all
-				// being dispatched together). Cross-window starts are
-				// separated by the prior window's actual LLM call —
-				// at minimum hundreds of milliseconds, typically
-				// seconds. dispatchWindowGroupingMs threshold groups
-				// rows by dispatch identity so parking only fires on
-				// genuine focus shifts (new window started a
-				// different node), not on same-window siblings.
+				// being dispatched together).
+				//
+				// Sibling-grouping is type-scoped: only nodes of the
+				// SAME nodeKind get the same dispatch generation
+				// even within the 750 ms window. evidence + validate
+				// emitted in one orchestrator window are DIFFERENT
+				// kinds — one shouldn't render as a sibling of the
+				// other. Pre-2026-04-30 the type-blind grouping kept
+				// evidence + validate both unpaused for the brief
+				// window before EventAgentThinking fired (the trace
+				// at 2026-04-29 17:16+ frame 749/750 shows both with
+				// the same spinner glyph + 0 s elapsed). The fix is
+				// to treat ANY new EventTaskNodeStart for a
+				// different nodeKind as a focus shift that bumps
+				// the generation and parks all older-kind rows.
 				const dispatchWindowGroupingMs = 750
-				sameWindow := !r.lastNodeStartAt.IsZero() &&
+				kindMatch := r.lastNodeStartKind != "" && r.lastNodeStartKind == row.nodeKind
+				sameWindow := kindMatch &&
+					!r.lastNodeStartAt.IsZero() &&
 					ev.Timestamp.Sub(r.lastNodeStartAt) <= dispatchWindowGroupingMs*time.Millisecond
 				if !sameWindow {
-					// New dispatch window: park every older-gen row
+					// New dispatch focus (either >750 ms gap OR
+					// different nodeKind): park every older-gen row
 					// that's still in flight (started but not ended
 					// by EventTaskNodeEnd — the orchestrator's "no
 					// end on requeue" contract leaves these visible
-					// as running). Pre-2026-04-30 traces showed
-					// validate's window-2 start while window-1's
-					// evidence_tN rows still had endTime=0; without
-					// generation gating they all rendered as "正在
-					// X" simultaneously.
+					// as running).
 					r.dispatchGen++
 					for _, other := range r.tasks {
 						if other == row {
@@ -901,6 +909,7 @@ func (r *Renderer) Emitter() EventEmitter {
 				row.errorMsg = ""
 				row.dispatchGen = r.dispatchGen
 				r.lastNodeStartAt = ev.Timestamp
+				r.lastNodeStartKind = row.nodeKind
 				r.current = row
 			}
 

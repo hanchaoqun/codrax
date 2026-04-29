@@ -59,11 +59,6 @@ with open(LOG, "wb") as fout:
                 if "❯❯" in tail:
                     time.sleep(1.0)
                     print(f"[wrap] sending question")
-                    # Bubble Tea's text input is in raw TTY mode; the
-                    # Enter key arrives as `\r` (CR), not `\n`. Send
-                    # the question text then a CR to commit. Using
-                    # `\n` left the form in input-edit mode and the
-                    # prompt repainted forever without dispatching.
                     os.write(fd, QUESTION.encode("utf-8"))
                     time.sleep(0.2)
                     os.write(fd, b"\r")

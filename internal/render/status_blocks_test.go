@@ -693,6 +693,39 @@ func TestStatus_SingleEvidenceCrossWindowValidate(t *testing.T) {
 	}
 }
 
+// TestStatus_CrossKindSameWindowParks pins the type-scoped sibling
+// grouping: when the orchestrator emits EventTaskNodeStart for
+// DIFFERENT nodeKinds within the 750 ms grouping window (e.g. one
+// dispatch carrying evidence + validate together — the trace at
+// 2026-04-29 17:16+ frame 749/750 captured this), the
+// later-arriving start MUST park the prior row even though the
+// timestamp gap is small. Same-kind siblings (evidence_t0 +
+// evidence_t1 + evidence_t2) still group together — only kind
+// MISMATCH triggers parking inside the window.
+func TestStatus_CrossKindSameWindowParks(t *testing.T) {
+	r := newTestRenderer("zh")
+	emit := r.Emitter()
+	t0 := time.Now()
+	emit(Event{Kind: EventAnalysisReady, Timestamp: t0, TaskNodes: []TaskNodeInfo{
+		{ID: "ev_node", Type: "evidence", Objective: "explore"},
+		{ID: "vN", Type: "validate", Objective: "cross-check"},
+	}})
+	// Orchestrator window emits both within microseconds.
+	emit(Event{Kind: EventTaskNodeStart, Timestamp: t0.Add(1 * time.Millisecond), NodeID: "ev_node"})
+	emit(Event{Kind: EventTaskNodeStart, Timestamp: t0.Add(2 * time.Millisecond), NodeID: "vN"})
+
+	evRow := r.findNodeRow("ev_node")
+	if evRow == nil || !evRow.paused {
+		t.Errorf("evidence row must be parked when validate (different kind) started in same window; got paused=%v",
+			evRow != nil && evRow.paused)
+	}
+	vRow := r.findNodeRow("vN")
+	if vRow == nil || vRow.paused {
+		t.Errorf("active validate row must NOT be parked; got paused=%v",
+			vRow != nil && vRow.paused)
+	}
+}
+
 // TestStatus_DispatchGenerationGroupsSiblings pins the
 // dispatch-window grouping: nodes started within
 // dispatchWindowGroupingMs ms of each other share a generation and
