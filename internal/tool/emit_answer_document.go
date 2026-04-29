@@ -4022,8 +4022,16 @@ func normalizeLogSourceDriftSummarySurface(summary string, citations []types.Cit
 	plan := answerSurfacePlan(ctx)
 	if plan != nil && plan.SummarySurfaceMode == types.AnswerSummarySurfaceDriftBoundedRootCause {
 		summary = sanitizeDriftBoundedRootCauseSummary(summary, citations, gc, ctx)
+		primary := driftBoundedSummaryPrimaryBlock(summary)
 		if bounded := strings.TrimSpace(renderDriftBoundedCurrentRootCauseSummary(ctx)); bounded != "" {
-			summary = bounded
+			switch {
+			case primary != "" && primary != bounded:
+				summary = joinDistinctSummaryBlocks(primary, bounded)
+			case summary == "" || driftBoundedSummaryNeedsFallback(summary):
+				summary = bounded
+			default:
+				summary = joinDistinctSummaryBlocks(summary, bounded)
+			}
 		} else if driftBoundedSummaryNeedsFallback(summary) {
 			summary = ""
 		}
@@ -4113,6 +4121,17 @@ func driftBoundedSummaryNeedsFallback(summary string) bool {
 		}
 	}
 	return false
+}
+
+func driftBoundedSummaryPrimaryBlock(summary string) string {
+	for _, block := range strings.Split(strings.TrimSpace(summary), "\n\n") {
+		block = strings.TrimSpace(block)
+		if block == "" || strings.HasPrefix(block, "```") || isDriftBoundedDecorativeSummaryBlock(block) {
+			continue
+		}
+		return block
+	}
+	return ""
 }
 
 func driftBoundedSummaryAllowedLabels(citations []types.Citation, gc *ground.Context, plan *types.AnswerSurfacePlan) map[string]bool {

@@ -2122,6 +2122,9 @@ func TestEmitAnswerDocument_DriftBoundedSummaryFallsBackForMultiBlockReasoning(t
 	if strings.Contains(doc.Summary, "nil receiver theory") {
 		t.Fatalf("multi-block speculative drift summary should fall back to the compiled bounded summary: %q", doc.Summary)
 	}
+	if !strings.Contains(doc.Summary, "The current call path is grounded from `ParseOutput` into `buildAnalysisIR`.") {
+		t.Fatalf("the primary grounded answer block should survive drift-bounded normalization: %q", doc.Summary)
+	}
 	if !strings.Contains(doc.Summary, "`ParseOutput` calls `buildAnalysisIR` at `internal/agent/analyzer.go:651`") {
 		t.Fatalf("fallback summary missing compiled bounded explanation: %q", doc.Summary)
 	}

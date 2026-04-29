@@ -310,6 +310,63 @@ func TestIsJustifiedAbsenceAnswer_ShapeTieredGate(t *testing.T) {
 	}
 }
 
+func TestIsDriftBoundedCitationAnswer(t *testing.T) {
+	mut := types.NewMutableState("panic root cause")
+	mut.SetLogTriage(&types.LogBundle{
+		Meta:          types.LogMeta{Signals: []types.LogSignal{types.SignalPanic}},
+		ResolvedFiles: []string{"internal/agent/analyzer.go"},
+		Errors: []types.LogError{{
+			Frames: []types.LogFrame{
+				{File: "internal/agent/analyzer.go", Line: 250, Func: "github.com/hanchaoqun/codrax/internal/agent.buildAnalysisIR"},
+				{File: "internal/agent/analyzer.go", Line: 320, Func: "github.com/hanchaoqun/codrax/internal/agent.(*analyzerEvaluator).ParseOutput"},
+			},
+		}},
+	})
+	mut.SetAnswerDocument(&types.AnswerDocument{
+		Shape:   types.ShapeExplanation,
+		Summary: "drift-bounded explanation",
+		Citations: []types.Citation{
+			{File: "internal/agent/analyzer.go", Line: 651},
+		},
+	})
+	ir := &types.AnalysisIR{
+		RequestModel: types.RequestModel{
+			Scenario: types.ScenarioRootCause,
+			Intent:   types.IntentRootCause,
+		},
+		AnswerContract: types.AnswerContract{
+			RequiredAnswerShape: types.ShapeExplanation,
+		},
+	}
+	bus := &types.BusContext{
+		AnalysisIR: ir,
+		Mutable:    mut,
+		EvidenceItems: []types.EvidenceItem{
+			{
+				Source:     "internal/agent/analyzer.go",
+				LineStart:  651,
+				AnchorKind: types.AnchorCall,
+				Subject:    "ParseOutput",
+				Predicate:  "calls",
+				Object:     "buildAnalysisIR",
+			},
+		},
+	}
+	out := &agent.StageOutput{FinalAnswer: "explanation"}
+	if !isDriftBoundedCitationAnswer(bus, out) {
+		t.Fatal("expected drift-bounded root-cause surface with one grounded citation to qualify for citation-count waiver")
+	}
+
+	mut.SetAnswerDocument(&types.AnswerDocument{
+		Shape:     types.ShapeExplanation,
+		Summary:   "no citations",
+		Citations: nil,
+	})
+	if isDriftBoundedCitationAnswer(bus, out) {
+		t.Fatal("zero-citation drift-bounded answer must not qualify for citation-count waiver")
+	}
+}
+
 // TestIsJustifiedAbsenceAnswer_ShapeCheck pins shape detection:
 // lower_bound completeness is not an absence claim, non-zero literals
 // are not absence, boolean true is not absence.

@@ -1584,6 +1584,48 @@ func buildOrLoadGraph() {}
 	}
 }
 
+func TestBuildFocusedDepthStartInstruction_SurfacesAuthoritativeLogFunctionAnchors(t *testing.T) {
+	eval := &explorerEvaluator{
+		exactAnchorFiles: []string{"internal/agent/analyzer.go"},
+		requiredFiles:    []string{"internal/agent/analyzer.go", "internal/types/context.go"},
+		searchResult: &keywordSearchResult{Graph: &repomap.Graph{
+			FileIndex: map[string]*repomap.FileInfo{
+				"internal/agent/analyzer.go": {
+					RelPath: "internal/agent/analyzer.go",
+					Symbols: []repomap.Symbol{
+						{Name: "ParseOutput", Kind: "method", File: "internal/agent/analyzer.go", Line: 606, EndLine: 720},
+						{Name: "buildAnalysisIR", Kind: "function", File: "internal/agent/analyzer.go", Line: 860, EndLine: 940},
+					},
+				},
+			},
+		}},
+		logTriage: &types.LogBundle{
+			Meta:          types.LogMeta{Signals: []types.LogSignal{types.SignalPanic}},
+			ResolvedFiles: []string{"internal/agent/analyzer.go"},
+			Errors: []types.LogError{{
+				Frames: []types.LogFrame{
+					{File: "internal/agent/analyzer.go", Func: "github.com/hanchaoqun/codrax/internal/agent.(*analyzerEvaluator).ParseOutput"},
+					{File: "internal/agent/analyzer.go", Func: "github.com/hanchaoqun/codrax/internal/agent.buildAnalysisIR"},
+				},
+			}},
+		},
+	}
+
+	prompt := eval.buildFocusedDepthStartInstruction(&types.AgentContext{}, nil)
+	if !strings.Contains(prompt, "### Current function anchors from the log") {
+		t.Fatalf("focused-depth prompt should surface authoritative function anchors, got: %s", prompt)
+	}
+	if !strings.Contains(prompt, "ParseOutput") || !strings.Contains(prompt, "buildAnalysisIR") {
+		t.Fatalf("focused-depth prompt should name the authoritative functions from the log, got: %s", prompt)
+	}
+	if !strings.Contains(prompt, "line 606") || !strings.Contains(prompt, "line 860") {
+		t.Fatalf("focused-depth prompt should surface the current definition lines for authoritative functions, got: %s", prompt)
+	}
+	if !strings.Contains(prompt, "stale locators") {
+		t.Fatalf("focused-depth prompt should explain stale locators, got: %s", prompt)
+	}
+}
+
 func TestUniqueExactAnchorFile_SuppressedWhenExactTargetPending(t *testing.T) {
 	eval := &explorerEvaluator{
 		exactAnchorFiles: []string{"codrax.yaml.example"},

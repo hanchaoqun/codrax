@@ -675,6 +675,9 @@ func (e *explorerEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk 
 					b.WriteString("- `" + p + "`\n")
 				}
 				b.WriteString("\n")
+				if guidance := e.renderAuthoritativeFrameStartSection(logFiles); guidance != "" {
+					b.WriteString(guidance)
+				}
 			}
 			if len(rankerFiles) > 0 {
 				if len(logFiles) > 0 {
@@ -2038,6 +2041,9 @@ func (e *explorerEvaluator) buildFocusedDepthStartInstruction(ctx *types.AgentCo
 	if banner := e.buildExactResolutionScopeBanner(ctx, analyzerKeywords); banner != "" {
 		b.WriteString(banner)
 	}
+	if guidance := e.renderAuthoritativeFrameStartSection(append([]string{anchor}, e.requiredFiles...)); guidance != "" {
+		b.WriteString(guidance)
+	}
 	requiredForPrompt := e.requiredFiles
 	if len(requiredForPrompt) > 0 {
 		focusedRequired := make([]string, 0, len(requiredForPrompt))
@@ -2155,6 +2161,9 @@ func (e *explorerEvaluator) buildPrimaryEntityDepthStartInstruction(ctx *types.A
 	if banner := e.buildExactResolutionScopeBanner(ctx, analyzerKeywords); banner != "" {
 		b.WriteString(banner)
 	}
+	if guidance := e.renderAuthoritativeFrameStartSection(append([]string{anchor}, e.requiredFiles...)); guidance != "" {
+		b.WriteString(guidance)
+	}
 	requiredForPrompt := e.requiredFiles
 	if len(requiredForPrompt) > 0 {
 		focusedRequired := make([]string, 0, len(requiredForPrompt))
@@ -2267,6 +2276,9 @@ func (e *explorerEvaluator) buildDeclarativeFocusedStartInstruction(ctx *types.A
 	b.WriteString("- Do NOT broaden to the full keyword-search tail until the declarative surfaces and their direct builder references are exhausted.\n\n")
 	if banner := e.buildExactResolutionScopeBanner(ctx, analyzerKeywords); banner != "" {
 		b.WriteString(banner)
+	}
+	if guidance := e.renderAuthoritativeFrameStartSection(append(append([]string(nil), e.declarativeAnchorFiles...), e.requiredFiles...)); guidance != "" {
+		b.WriteString(guidance)
 	}
 	requiredForPrompt := e.requiredFiles
 	if len(requiredForPrompt) > 0 {
@@ -4264,6 +4276,7 @@ func (e *explorerEvaluator) postCompletionReadySignal(obs LoopObservation) LoopS
 type authoritativeFrameRef struct {
 	File string
 	Tail string
+	Func string
 }
 
 func (e *explorerEvaluator) authoritativeLogClosureCarrierReady() bool {
@@ -4877,6 +4890,116 @@ func (e *explorerEvaluator) authoritativeFrameSymbolTailsByFile() map[string]map
 	return out
 }
 
+func (e *explorerEvaluator) renderAuthoritativeFrameStartSection(files []string) string {
+	if e == nil {
+		return ""
+	}
+	byFile := e.authoritativeFrameSymbolTailsByFile()
+	if len(byFile) == 0 {
+		return ""
+	}
+	seen := make(map[string]bool)
+	orderedFiles := make([]string, 0, len(files))
+	for _, file := range files {
+		canon := canonicalExplorerPath(file)
+		if canon == "" || seen[canon] || len(byFile[canon]) == 0 {
+			continue
+		}
+		seen[canon] = true
+		orderedFiles = append(orderedFiles, canon)
+	}
+	if len(orderedFiles) == 0 {
+		return ""
+	}
+	var b strings.Builder
+	b.WriteString("### Current function anchors from the log\n\n")
+	b.WriteString("Before following nearby helpers or historical numeric offsets, grep/read the current definitions of these log-named functions in their resolved files. Use the function name as the next hop and treat raw stack line numbers as stale locators from an older build snapshot:\n\n")
+	for _, file := range orderedFiles {
+		targets := e.authoritativeFrameReadTargetsForFile(file)
+		if len(targets) == 0 {
+			continue
+		}
+		b.WriteString("- `" + file + "`: `")
+		b.WriteString(strings.Join(targets, "`, `"))
+		b.WriteString("`\n")
+	}
+	b.WriteString("\n")
+	return b.String()
+}
+
+func (e *explorerEvaluator) authoritativeFrameReadTargetsForFile(file string) []string {
+	if e == nil {
+		return nil
+	}
+	canon := canonicalExplorerPath(file)
+	if canon == "" {
+		return nil
+	}
+	frames := e.authoritativeResolvedFrames()
+	if len(frames) == 0 {
+		return nil
+	}
+	lineByTail := make(map[string]int)
+	nameByTail := make(map[string]string)
+	if e.searchResult != nil && e.searchResult.Graph != nil {
+		if fi := e.searchResult.Graph.FileIndex[canon]; fi != nil {
+			for _, sym := range fi.Symbols {
+				if sym.Kind != "function" && sym.Kind != "method" {
+					continue
+				}
+				tail := types.NormalizedSurfaceSymbolTail(sym.Name)
+				if tail == "" || lineByTail[tail] != 0 {
+					continue
+				}
+				lineByTail[tail] = sym.Line
+				nameByTail[tail] = strings.TrimSpace(sym.Name)
+			}
+		}
+	}
+	seen := make(map[string]bool)
+	out := make([]string, 0, 4)
+	for _, frame := range frames {
+		if frame.File != canon {
+			continue
+		}
+		name := authoritativeFrameDisplayName(frame.Func)
+		if name == "" {
+			name = frame.Tail
+		}
+		if pretty := strings.TrimSpace(nameByTail[frame.Tail]); pretty != "" {
+			name = pretty
+		}
+		if name == "" || seen[name] {
+			continue
+		}
+		if line := lineByTail[frame.Tail]; line > 0 {
+			name = fmt.Sprintf("%s (line %d)", name, line)
+		}
+		seen[name] = true
+		out = append(out, name)
+	}
+	sort.Strings(out)
+	if len(out) > 4 {
+		out = out[:4]
+	}
+	return out
+}
+
+func authoritativeFrameDisplayName(raw string) string {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return ""
+	}
+	raw = strings.ReplaceAll(raw, `\`, `/`)
+	if idx := strings.LastIndex(raw, "/"); idx >= 0 && idx+1 < len(raw) {
+		raw = raw[idx+1:]
+	}
+	if idx := strings.LastIndex(raw, "."); idx >= 0 && idx+1 < len(raw) {
+		raw = raw[idx+1:]
+	}
+	return strings.TrimSpace(raw)
+}
+
 func (e *explorerEvaluator) authoritativeResolvedFrames() []authoritativeFrameRef {
 	if e == nil || e.logTriage == nil || len(e.logTriage.ResolvedFiles) == 0 || !e.hasAuthoritativeCrashLog() {
 		return nil
@@ -4895,7 +5018,7 @@ func (e *explorerEvaluator) authoritativeResolvedFrames() []authoritativeFrameRe
 				continue
 			}
 			seen[key] = true
-			out = append(out, authoritativeFrameRef{File: file, Tail: tail})
+			out = append(out, authoritativeFrameRef{File: file, Tail: tail, Func: strings.TrimSpace(frame.Func)})
 		}
 	}
 	return out

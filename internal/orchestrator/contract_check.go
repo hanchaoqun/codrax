@@ -333,6 +333,27 @@ func hasInvestigationEvidence(mut *types.MutableState, doc *types.AnswerDocument
 	return false
 }
 
+func isDriftBoundedCitationAnswer(bus *types.BusContext, out *agent.StageOutput) bool {
+	if bus == nil || bus.AnalysisIR == nil || bus.Mutable == nil {
+		return false
+	}
+	doc := bus.Mutable.AnswerDocument()
+	if doc == nil {
+		return false
+	}
+	if doc.Shape != types.ShapeExplanation && doc.Shape != types.ShapeStepList {
+		return false
+	}
+	plan := types.BuildAnswerSurfacePlanForBusContext(bus)
+	if plan == nil || plan.SummarySurfaceMode != types.AnswerSummarySurfaceDriftBoundedRootCause {
+		return false
+	}
+	if len(plan.LogSourceDriftAnchors) == 0 || len(plan.DriftBoundedSurfaceItems) == 0 {
+		return false
+	}
+	return finalizerCitationPoolSize(bus.Mutable, out) >= 1
+}
+
 // citationRegex matches `path/to/file.ext:NNN` style references. The
 // path must contain at least one `/` or end in a typical source
 // extension; the line is a positive integer. Permissive on the path

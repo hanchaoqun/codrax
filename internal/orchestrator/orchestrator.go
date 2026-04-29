@@ -13,10 +13,10 @@ import (
 	"github.com/aymanbagabas/go-udiff"
 	"github.com/hanchaoqun/codrax/internal/agent"
 	"github.com/hanchaoqun/codrax/internal/analysis/contract"
-	"github.com/hanchaoqun/codrax/internal/env"
 	"github.com/hanchaoqun/codrax/internal/analysis/criterion"
 	"github.com/hanchaoqun/codrax/internal/analysis/stopcond"
 	ctxbuilder "github.com/hanchaoqun/codrax/internal/context"
+	"github.com/hanchaoqun/codrax/internal/env"
 	"github.com/hanchaoqun/codrax/internal/logging"
 	"github.com/hanchaoqun/codrax/internal/render"
 	"github.com/hanchaoqun/codrax/internal/skill"
@@ -2548,6 +2548,10 @@ func (o *Orchestrator) runReadSchedulerLoop(stepBudget int) int {
 			for _, f := range scFailed {
 				if absence && string(f.Kind) == string(types.CritCitationCountGE) {
 					logging.Info("[orchestrator] finalize success criteria failed: %s %s — %s (waived: justified absence answer)", f.Kind, f.Expr, f.Detail)
+					continue
+				}
+				if string(f.Kind) == string(types.CritCitationCountGE) && isDriftBoundedCitationAnswer(o.busCtx, out) {
+					logging.Info("[orchestrator] finalize success criteria failed: %s %s – %s (waived: drift-bounded root-cause surface carries the minimum grounded citation set for the current checkout)", f.Kind, f.Expr, f.Detail)
 					continue
 				}
 				logging.Info("[orchestrator] finalize success criteria failed: %s %s — %s", f.Kind, f.Expr, f.Detail)
