@@ -4706,7 +4706,9 @@ func entryCanEstablishAliasPair(contract *types.ExactResolutionContract, entry e
 		return false
 	}
 	switch entry.ContextRole {
-	case types.EvidenceContextRoleIllustrativeOnly, types.EvidenceContextRoleAbsenceSupport:
+	case types.EvidenceContextRoleIllustrativeOnly,
+		types.EvidenceContextRoleAbsenceSupport,
+		types.EvidenceContextRoleRelatedContext:
 		return false
 	}
 	identityTexts := exactResolutionProofIdentityTexts(entry)
@@ -4744,7 +4746,9 @@ func entryCountsAsDefiningTargetProof(contract *types.ExactResolutionContract, e
 		return false
 	}
 	switch entry.ContextRole {
-	case types.EvidenceContextRoleIllustrativeOnly, types.EvidenceContextRoleAbsenceSupport:
+	case types.EvidenceContextRoleIllustrativeOnly,
+		types.EvidenceContextRoleAbsenceSupport,
+		types.EvidenceContextRoleRelatedContext:
 		return false
 	}
 	if entry.FromEvidence && strings.TrimSpace(string(entry.AnchorKind)) == "" {

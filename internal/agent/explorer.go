@@ -3981,6 +3981,7 @@ type explorerCompletionReadiness struct {
 	FileCoverage             bool
 	EvidenceQuality          bool
 	AuthoritativeCoverage    bool
+	AuthoritativeClosure     bool
 	ExplanationAnchorReady   bool
 	ExplanationAnchorCovered int
 	ExplanationAnchorTotal   int
@@ -4059,6 +4060,13 @@ func (e *explorerEvaluator) completionReadiness(toolResults []types.ToolResult, 
 	if !e.isEnumerationQuery && (hasGroundedTerminalEvidence(e.structuredEvidence) || len(e.flowFindings) > 0) {
 		evidenceQuality = true
 	}
+	authoritativeClosure := false
+	if authoritativeCoverage {
+		authoritativeClosure = e.authoritativeLogClosureCarrierReady()
+		if authoritativeClosure {
+			evidenceQuality = true
+		}
+	}
 	if e.isEnumerationQuery {
 		fileCoverage = coverage >= 0.8 || (len(scope) > 0 && scopeReadCount >= len(scope))
 		minDirect := len(scope) / 3
@@ -4124,6 +4132,7 @@ func (e *explorerEvaluator) completionReadiness(toolResults []types.ToolResult, 
 		FileCoverage:             fileCoverage,
 		EvidenceQuality:          evidenceQuality,
 		AuthoritativeCoverage:    authoritativeCoverage,
+		AuthoritativeClosure:     authoritativeClosure,
 		ExplanationAnchorReady:   explanationAnchorReady,
 		ExplanationAnchorCovered: explanationAnchorCovered,
 		ExplanationAnchorTotal:   explanationAnchorTotal,
@@ -4163,7 +4172,8 @@ func (e *explorerEvaluator) postCompletionReadySignal(obs LoopObservation) LoopS
 	}
 	if !hasTerminalEvidence(e.structuredEvidence) &&
 		len(e.flowFindings) == 0 &&
-		!hasGroundedRequirementCarrier(e.structuredEvidence, e.ermRequirements) {
+		!hasGroundedRequirementCarrier(e.structuredEvidence, e.ermRequirements) &&
+		!readiness.AuthoritativeClosure {
 		return LoopSignal{}
 	}
 	e.midLoopCompletionReadySent = true
@@ -4182,6 +4192,9 @@ func (e *explorerEvaluator) postCompletionReadySignal(obs LoopObservation) LoopS
 	if len(e.ermRequirements) > 0 && readiness.ERMSatisfied {
 		b.WriteString("- all current evidence requirements are satisfied\n")
 	}
+	if readiness.AuthoritativeClosure {
+		b.WriteString("- authoritative log frames already carry grounded call/mechanism anchors on the current branch\n")
+	}
 	if readiness.ExplanationAnchorTotal > 0 {
 		fmt.Fprintf(&b, "- topic anchors ready: %d / %d\n",
 			readiness.ExplanationAnchorCovered, readiness.ExplanationAnchorTotal)
@@ -4195,6 +4208,58 @@ func (e *explorerEvaluator) postCompletionReadySignal(obs LoopObservation) LoopS
 		BypassThrottle: true,
 		BypassBudget:   true,
 	}
+}
+
+func (e *explorerEvaluator) authoritativeLogClosureCarrierReady() bool {
+	if e == nil || e.logTriage == nil || len(e.logTriage.ResolvedFiles) == 0 || len(e.structuredEvidence) == 0 {
+		return false
+	}
+	allowed := make(map[string]bool, len(e.logTriage.ResolvedFiles))
+	for _, f := range e.logTriage.ResolvedFiles {
+		canon := canonicalExplorerPath(f)
+		if canon == "" {
+			canon = f
+		}
+		if canon != "" {
+			allowed[canon] = true
+		}
+	}
+	if len(allowed) == 0 {
+		return false
+	}
+	hasCallCarrier := false
+	hasMechanismCarrier := false
+	for _, ev := range e.structuredEvidence {
+		switch ev.GroundingStatus {
+		case types.GroundingGrounded, types.GroundingRecovered:
+		default:
+			continue
+		}
+		switch ev.ContextRole {
+		case types.EvidenceContextRoleIllustrativeOnly, types.EvidenceContextRoleAbsenceSupport:
+			continue
+		}
+		canon := canonicalExplorerPath(ev.Source)
+		if canon == "" {
+			canon = ev.Source
+		}
+		if canon == "" || !allowed[canon] {
+			continue
+		}
+		if types.EvidenceStructurallyMatchesRequirement(ev, types.ReqCallChain) {
+			hasCallCarrier = true
+		}
+		if types.EvidenceStructurallyMatchesRequirement(ev, types.ReqConditional) ||
+			ev.AnchorKind == types.AnchorDefinition ||
+			ev.AnchorKind == types.AnchorReturn ||
+			ev.AnchorKind == types.AnchorAssignment {
+			hasMechanismCarrier = true
+		}
+		if hasCallCarrier && hasMechanismCarrier {
+			return true
+		}
+	}
+	return false
 }
 
 func (e *explorerEvaluator) postExplanationAnchorSignal(obs LoopObservation) LoopSignal {

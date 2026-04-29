@@ -4760,6 +4760,125 @@ func TestObserveMidLoop_CompletionReadyBeatsPartialReadWhenAuthoritativeLogCover
 	}
 }
 
+func TestObserveMidLoop_CompletionReadyUsesStructuralAuthoritativeClosureAfterRepair(t *testing.T) {
+	eval := &explorerEvaluator{
+		phase:                      1,
+		heuristics:                 types.ExploreHeuristics{MidLoopMinIteration: 2},
+		searchResult:               &keywordSearchResult{Graph: &repomap.Graph{}},
+		midLoopPostPrimaryInjected: true,
+		midLoopEvidenceRepairSent:  true,
+		// The previous emit_evidence batch triggered a repair. Once the
+		// follow-up emit_evidence succeeds, the one-shot repair state must
+		// clear and completion-ready should be allowed to win on the same
+		// iteration if the authoritative frame already has grounded
+		// call/mechanism carriers.
+		midLoopEvidenceRepairResultsLen: 3,
+		logTriage: &types.LogBundle{
+			Meta:          types.LogMeta{Signals: []types.LogSignal{types.SignalPanic}},
+			ResolvedFiles: []string{"internal/agent/analyzer.go"},
+		},
+		structuredEvidence: []types.EvidenceItem{
+			{
+				Kind:            types.EvidenceDirect,
+				Subject:         "ParseOutput",
+				Predicate:       "calls",
+				Object:          "buildAnalysisIR",
+				Source:          "internal/agent/analyzer.go",
+				LineStart:       651,
+				AnchorKind:      types.AnchorCall,
+				AnchorSymbol:    "buildAnalysisIR",
+				GroundingStatus: types.GroundingGrounded,
+			},
+			{
+				Kind:            types.EvidenceConditional,
+				Subject:         "buildAnalysisIR",
+				Predicate:       "returns",
+				Object:          "error",
+				Condition:       "ctx == nil || ctx.Mutable == nil",
+				Source:          "internal/agent/analyzer.go",
+				LineStart:       861,
+				AnchorKind:      types.AnchorCondition,
+				AnchorSymbol:    "buildAnalysisIR",
+				GroundingStatus: types.GroundingGrounded,
+			},
+			{
+				Kind:            types.EvidenceDirect,
+				Subject:         "analyzerEvaluator",
+				Predicate:       "defines",
+				Object:          "ParseOutput",
+				Source:          "internal/agent/analyzer.go",
+				LineStart:       606,
+				AnchorKind:      types.AnchorDefinition,
+				AnchorSymbol:    "ParseOutput",
+				GroundingStatus: types.GroundingGrounded,
+			},
+		},
+	}
+	results := []types.ToolResult{
+		{ToolName: "grep", Success: true, Summary: "internal/agent/analyzer.go"},
+		{ToolName: "read_file", Success: true, Summary: "[internal/agent/analyzer.go: showing lines 605-614 of 2003 total]\nfunc (e *analyzerEvaluator) ParseOutput(...)"},
+		{ToolName: "emit_evidence", Success: true, Summary: "emit_evidence accepted 4 item(s)\n  [4] direct ParseOutput @ internal/agent/analyzer.go:606 -> ungrounded"},
+		{ToolName: "emit_evidence", Success: true, Summary: "emit_evidence accepted 1 item(s)"},
+	}
+
+	sig := eval.observeMidLoop(LoopObservation{
+		Phase:          PhaseMidLoop,
+		Iteration:      5,
+		LastToolResult: &results[len(results)-1],
+		AllToolResults: results,
+	})
+	if !sig.HintRequested {
+		t.Fatalf("completion-ready hint should fire after a successful repair when authoritative closure is already structurally grounded, got %+v", sig)
+	}
+	if sig.HintKey != "explorer.mid-loop.completion-ready" {
+		t.Fatalf("HintKey = %q, want explorer.mid-loop.completion-ready", sig.HintKey)
+	}
+	if !strings.Contains(sig.Hint, "authoritative log frames already carry grounded call/mechanism anchors") {
+		t.Fatalf("hint should expose the authoritative closure carrier rationale, got: %s", sig.Hint)
+	}
+}
+
+func TestObserveMidLoop_CompletionReadyDoesNotFireForAuthoritativeCallOnlyEvidence(t *testing.T) {
+	eval := &explorerEvaluator{
+		phase:                      1,
+		heuristics:                 types.ExploreHeuristics{MidLoopMinIteration: 2},
+		searchResult:               &keywordSearchResult{Graph: &repomap.Graph{}},
+		midLoopPostPrimaryInjected: true,
+		logTriage: &types.LogBundle{
+			Meta:          types.LogMeta{Signals: []types.LogSignal{types.SignalPanic}},
+			ResolvedFiles: []string{"internal/agent/analyzer.go"},
+		},
+		structuredEvidence: []types.EvidenceItem{
+			{
+				Kind:            types.EvidenceDirect,
+				Subject:         "ParseOutput",
+				Predicate:       "calls",
+				Object:          "buildAnalysisIR",
+				Source:          "internal/agent/analyzer.go",
+				LineStart:       651,
+				AnchorKind:      types.AnchorCall,
+				AnchorSymbol:    "buildAnalysisIR",
+				GroundingStatus: types.GroundingGrounded,
+			},
+		},
+	}
+	results := []types.ToolResult{
+		{ToolName: "grep", Success: true, Summary: "internal/agent/analyzer.go"},
+		{ToolName: "read_file", Success: true, Summary: "[internal/agent/analyzer.go: showing lines 645-655 of 2003 total]\nir, buildErr := buildAnalysisIR(ctx)"},
+		{ToolName: "emit_evidence", Success: true, Summary: "emit_evidence accepted 1 item(s)"},
+	}
+
+	sig := eval.observeMidLoop(LoopObservation{
+		Phase:          PhaseMidLoop,
+		Iteration:      4,
+		LastToolResult: &results[len(results)-1],
+		AllToolResults: results,
+	})
+	if sig.HintRequested && sig.HintKey == "explorer.mid-loop.completion-ready" {
+		t.Fatalf("completion-ready must not fire on authoritative log coverage with only a call-edge and no grounded mechanism anchor, got %+v", sig)
+	}
+}
+
 func TestObserveMidLoop_PostPrimaryReadRealignsToAuthoritativeLogFunction(t *testing.T) {
 	graph := &repomap.Graph{
 		FileIndex: map[string]*repomap.FileInfo{

@@ -1454,6 +1454,78 @@ func TestEmitAnswerDocument_AllowsAbsenceWithProductionContextOnlyMention(t *tes
 	}
 }
 
+func TestCollectExactResolutionProof_DoesNotContradictAbsenceOnSupportAndNearbyContext(t *testing.T) {
+	target := "explore_mid_loop_hint_budget"
+	ctx := newDocBusCtx("")
+	ctx.AnalysisIR = &types.AnalysisIR{
+		RequestModel: types.RequestModel{
+			Scenario:      types.ScenarioConfigTrace,
+			AnswerSubject: types.AnswerSubject{Kind: types.SubjectConfigKey},
+		},
+		AnswerContract: types.AnswerContract{
+			ExactResolution: &types.ExactResolutionContract{
+				TargetKind:              types.SubjectConfigKey,
+				TargetLabel:             "config key",
+				Targets:                 []string{target},
+				AllowAbsence:            true,
+				RequireTargetMention:    true,
+				AliasRequiresProof:      true,
+				RelatedContextPolicy:    types.ExactContextSameFamilyGrounded,
+				RelatedContextScopeHint: "same namespace / prefix family",
+			},
+		},
+	}
+	ctx.Mutable.SetAbsenceJustification("no config key named `explore_mid_loop_hint_budget` exists in the repo")
+	ctx.Mutable.SetInvestigationResultKind("absence")
+	ctx.Mutable.AppendEvidence([]types.EvidenceItem{
+		{
+			Kind:            types.EvidenceDirect,
+			Source:          "codrax.yaml.example",
+			LineStart:       292,
+			AnchorKind:      types.AnchorCondition,
+			AnchorSymbol:    target,
+			Predicate:       "absent_from",
+			Summary:         "codrax.yaml.example does not contain explore_mid_loop_hint_budget in the heuristics block.",
+			ContextRole:     types.EvidenceContextRoleAbsenceSupport,
+			GroundingStatus: types.GroundingGrounded,
+			Producer:        EmitEvidenceProducer,
+		},
+		{
+			Kind:            types.EvidenceDirect,
+			Subject:         "ExploreSettings",
+			Predicate:       "defines",
+			Object:          "ExploreHeuristics embedded field, no explore_mid_loop_hint_budget",
+			Source:          "internal/types/config.go",
+			LineStart:       726,
+			AnchorKind:      types.AnchorDefinition,
+			AnchorSymbol:    "ExploreSettings",
+			Summary:         "Nearby grounded context only: this same-family settings wrapper does not expose explore_mid_loop_hint_budget.",
+			ContextRole:     types.EvidenceContextRoleRelatedContext,
+			GroundingStatus: types.GroundingGrounded,
+			Producer:        EmitEvidenceProducer,
+		},
+		{
+			Kind:            types.EvidenceDirect,
+			Subject:         "RuntimeSettings",
+			Predicate:       "binds",
+			Object:          "15 explore_* YAML bindings, no hint_budget",
+			Source:          "internal/config/runtime.go",
+			LineStart:       271,
+			AnchorKind:      types.AnchorAssignment,
+			AnchorSymbol:    "ExploreMidLoopMinIteration",
+			Summary:         "Nearby grounded context only: there is no ExploreMidLoopHintBudget binding for explore_mid_loop_hint_budget.",
+			ContextRole:     types.EvidenceContextRoleRelatedContext,
+			GroundingStatus: types.GroundingGrounded,
+			Producer:        EmitEvidenceProducer,
+		},
+	})
+
+	proof := collectExactResolutionProof(ctx.AnalysisIR.AnswerContract.ExactResolution, nil, nil, ctx)
+	if proof.TargetMentionContradictsAbsence {
+		t.Fatalf("absence-support + nearby related-context mentions must not contradict absence, got proof=%+v", proof)
+	}
+}
+
 func TestEmitAnswerDocument_RejectsLeadOnlySurfaceWhenFollowOnGroundedContextIsRequired(t *testing.T) {
 	tool := &EmitAnswerDocument{}
 	ctx := newDocBusCtx("")
