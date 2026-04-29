@@ -1403,6 +1403,10 @@ func evidenceSurfaceSymbolTails(item EvidenceItem) []string {
 	return out
 }
 
+func EvidenceSurfaceSymbolTails(item EvidenceItem) []string {
+	return evidenceSurfaceSymbolTails(item)
+}
+
 func NormalizedSurfaceSymbolTail(raw string) string {
 	raw = strings.TrimSpace(raw)
 	if raw == "" {

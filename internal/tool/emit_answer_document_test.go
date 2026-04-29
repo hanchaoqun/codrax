@@ -1908,6 +1908,80 @@ func TestEmitAnswerDocument_NormalizesDriftBoundedRootCauseStepListSummarySurfac
 	}
 }
 
+func TestEmitAnswerDocument_DriftBoundedSummaryDropsUnsupportedAuxiliaryLabels(t *testing.T) {
+	tool := &EmitAnswerDocument{}
+	ctx := newDocBusCtx("")
+	ctx.Language = "en"
+	ctx.AnalysisIR = &types.AnalysisIR{
+		RequestModel: types.RequestModel{
+			Scenario: types.ScenarioRootCause,
+			Intent:   types.IntentRootCause,
+		},
+		AnswerContract: types.AnswerContract{
+			RequiredAnswerShape: types.ShapeExplanation,
+		},
+	}
+	ctx.Mutable.SetLogTriage(&types.LogBundle{
+		Errors: []types.LogError{{
+			Frames: []types.LogFrame{
+				{File: "internal/agent/analyzer.go", Line: 250, Func: "buildAnalysisIR"},
+				{File: "internal/agent/analyzer.go", Line: 320, Func: "ParseOutput"},
+			},
+		}},
+	})
+	ctx.Mutable.AppendEvidence([]types.EvidenceItem{
+		{
+			Kind:            types.EvidenceDirect,
+			Source:          "internal/agent/analyzer.go",
+			LineStart:       860,
+			AnchorKind:      types.AnchorDefinition,
+			AnchorSymbol:    "buildAnalysisIR",
+			GroundingStatus: types.GroundingGrounded,
+			Producer:        EmitEvidenceProducer,
+		},
+		{
+			Kind:            types.EvidenceDirect,
+			Source:          "internal/agent/analyzer.go",
+			LineStart:       651,
+			AnchorKind:      types.AnchorCall,
+			AnchorSymbol:    "buildAnalysisIR",
+			Subject:         "ParseOutput",
+			GroundingStatus: types.GroundingGrounded,
+			Producer:        EmitEvidenceProducer,
+		},
+	})
+
+	params := mustDocJSON(t, map[string]interface{}{
+		"shape": "explanation",
+		"summary": "**Root cause:**\n\n" +
+			"The panic is confirmed inside `buildAnalyzerRepoOverview`, where `repomap.GenerateView` dereferences a nil graph.\n\n" +
+			"**Conclusion:**\n\n" +
+			"The current grounded path still shows `ParseOutput` calling `buildAnalysisIR` in the current checkout.",
+		"citations": []map[string]interface{}{
+			{"file": "internal/agent/analyzer.go", "line": 651, "quote": "ir, buildErr := buildAnalysisIR(ctx)"},
+			{"file": "internal/agent/analyzer.go", "line": 860, "quote": "func buildAnalysisIR(ctx *types.AgentContext) (*types.AnalysisIR, error) {"},
+		},
+	})
+
+	res, _ := tool.Execute(ctx, params)
+	if !res.Success {
+		t.Fatalf("Execute failed: %q", res.Summary)
+	}
+	doc := ctx.Mutable.AnswerDocument()
+	if doc == nil {
+		t.Fatal("answer document not stored")
+	}
+	if strings.Contains(doc.Summary, "buildAnalyzerRepoOverview") || strings.Contains(doc.Summary, "GenerateView") {
+		t.Fatalf("drift-bounded summary should drop unsupported auxiliary labels: %q", doc.Summary)
+	}
+	if strings.Contains(doc.Summary, "**Root cause:**") || strings.Contains(doc.Summary, "**Conclusion:**") {
+		t.Fatalf("decorative heading shells should be dropped after unsupported prose is pruned: %q", doc.Summary)
+	}
+	if !strings.Contains(doc.Summary, "ParseOutput") || !strings.Contains(doc.Summary, "buildAnalysisIR") {
+		t.Fatalf("drift-bounded summary should preserve or recover the grounded frame-bounded path: %q", doc.Summary)
+	}
+}
+
 func TestEmitAnswerDocument_RejectsUncitedStepInDriftBoundedRootCauseStepList(t *testing.T) {
 	tool := &EmitAnswerDocument{}
 	ctx := newDocBusCtx("")

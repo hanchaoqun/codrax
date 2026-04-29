@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/hanchaoqun/codrax/internal/tool/ground"
 	repomap "github.com/hanchaoqun/codrax/internal/tool/repomap/types"
 	"github.com/hanchaoqun/codrax/internal/types"
 )
@@ -216,6 +217,31 @@ func TestEmitEvidence_QueuesStructuredRepairTargetsForRecoveredEvidence(t *testi
 	}
 	if target.Action != string(types.RepairReadFile) {
 		t.Fatalf("repair target action = %q, want %q", target.Action, types.RepairReadFile)
+	}
+}
+
+func TestEmitEvidenceRepairTargets_DropsRecoveredItemCoveredByGroundedSibling(t *testing.T) {
+	items := []types.EvidenceItem{
+		{
+			Source:          "internal/agent/analyzer.go",
+			LineStart:       860,
+			GroundingStatus: types.GroundingGrounded,
+			AnchorSymbol:    "buildAnalysisIR",
+		},
+		{
+			Source:          "internal/agent/analyzer.go",
+			LineStart:       860,
+			GroundingStatus: types.GroundingRecovered,
+			AnchorSymbol:    "buildAnalysisIR",
+			Subject:         "buildAnalysisIR",
+		},
+	}
+	reports := []ground.Report{
+		{},
+		{AdjustedLine: 860},
+	}
+	if got := emitEvidenceRepairTargets(items, reports); len(got) != 0 {
+		t.Fatalf("recovered item already covered by a grounded sibling should not queue repair targets, got %+v", got)
 	}
 }
 

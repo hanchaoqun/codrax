@@ -1247,12 +1247,35 @@ func buildEmitEvidenceRepair(ctx *types.BusContext, items []types.EvidenceItem, 
 	}
 }
 
+type groundedRepairCarrier struct {
+	line  int
+	tails map[string]bool
+}
+
 func emitEvidenceRepairTargets(items []types.EvidenceItem, reports []ground.Report) []types.ToolRepairTarget {
 	type bucket struct {
 		order []int
 		seen  map[int]bool
 	}
 	byFile := make(map[string]*bucket)
+	groundedByFile := make(map[string][]groundedRepairCarrier)
+	for _, it := range items {
+		if it.Source == "" || it.LineStart <= 0 || it.GroundingStatus != types.GroundingGrounded {
+			continue
+		}
+		file := canonicalEmitPath(it.Source)
+		if file == "" {
+			file = it.Source
+		}
+		tails := make(map[string]bool)
+		for _, tail := range types.EvidenceSurfaceSymbolTails(it) {
+			tails[tail] = true
+		}
+		groundedByFile[file] = append(groundedByFile[file], groundedRepairCarrier{
+			line:  it.LineStart,
+			tails: tails,
+		})
+	}
 	for i, it := range items {
 		if it.Source == "" || it.LineStart <= 0 {
 			continue
@@ -1272,6 +1295,9 @@ func emitEvidenceRepairTargets(items []types.EvidenceItem, reports []ground.Repo
 		line := it.LineStart
 		if i < len(reports) && reports[i].AdjustedLine > 0 {
 			line = reports[i].AdjustedLine
+		}
+		if evidenceRepairCoveredByGroundedSibling(it, file, line, groundedByFile[file]) {
+			continue
 		}
 		b := byFile[file]
 		if b == nil {
@@ -1302,6 +1328,37 @@ func emitEvidenceRepairTargets(items []types.EvidenceItem, reports []ground.Repo
 		})
 	}
 	return out
+}
+
+func evidenceRepairCoveredByGroundedSibling(item types.EvidenceItem, file string, line int, carriers []groundedRepairCarrier) bool {
+	if file == "" || line <= 0 || len(carriers) == 0 {
+		return false
+	}
+	tails := types.EvidenceSurfaceSymbolTails(item)
+	for _, carrier := range carriers {
+		if carrier.line <= 0 || evidenceRepairAbsInt(carrier.line-line) > 2 {
+			continue
+		}
+		if carrier.line == line {
+			return true
+		}
+		if len(tails) == 0 {
+			continue
+		}
+		for _, tail := range tails {
+			if carrier.tails[tail] {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func evidenceRepairAbsInt(v int) int {
+	if v < 0 {
+		return -v
+	}
+	return v
 }
 
 func renderEmitEvidenceRepairToolHint(targets []types.ToolRepairTarget) string {

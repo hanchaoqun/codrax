@@ -776,7 +776,7 @@ func (t *EmitAnswerDocument) Execute(ctx *types.BusContext, params json.RawMessa
 		ExactResolution: resolvedExact,
 		Citations:       citations,
 	}
-	doc.Summary = normalizeLogSourceDriftSummarySurface(doc.Summary, ctx)
+	doc.Summary = normalizeLogSourceDriftSummarySurface(doc.Summary, citations, groundCtx, ctx)
 
 	// Session-22 fix F4.1 — diagram-block literal-grounding gate.
 	//
@@ -3822,10 +3822,16 @@ func normalizeMinimalRoleLocateSummarySurface(summary string, shape types.Answer
 	return renderMinimalRoleLocateSummaryClean(ctx, literal, location)
 }
 
-func normalizeLogSourceDriftSummarySurface(summary string, ctx *types.BusContext) string {
+var backtickedLabelRe = regexp.MustCompile("`([^`\n]+)`")
+
+func normalizeLogSourceDriftSummarySurface(summary string, citations []types.Citation, gc *ground.Context, ctx *types.BusContext) string {
 	summary = strings.TrimSpace(summary)
 	plan := answerSurfacePlan(ctx)
 	if plan != nil && plan.SummarySurfaceMode == types.AnswerSummarySurfaceDriftBoundedRootCause {
+		summary = sanitizeDriftBoundedRootCauseSummary(summary, citations, gc, ctx)
+		if summary == "" {
+			summary = renderDriftBoundedRootCauseFallbackSummary(ctx)
+		}
 		lead := renderLogSourceDriftLeadClean(ctx)
 		fence := ""
 		if plan.CompiledDiagramKind == types.DiagramCallDAG || plan.CompiledDiagramKind == types.DiagramSequence {
@@ -3844,6 +3850,197 @@ func normalizeLogSourceDriftSummarySurface(summary string, ctx *types.BusContext
 		return lead
 	}
 	return strings.TrimSpace(lead + "\n\n" + summary)
+}
+
+func sanitizeDriftBoundedRootCauseSummary(summary string, citations []types.Citation, gc *ground.Context, ctx *types.BusContext) string {
+	plan := answerSurfacePlan(ctx)
+	if plan == nil || plan.SummarySurfaceMode != types.AnswerSummarySurfaceDriftBoundedRootCause {
+		return strings.TrimSpace(summary)
+	}
+	allowed := driftBoundedSummaryAllowedLabels(citations, gc, plan)
+	if len(allowed) == 0 {
+		return strings.TrimSpace(summary)
+	}
+	blocks := strings.Split(strings.TrimSpace(summary), "\n\n")
+	kept := make([]string, 0, len(blocks))
+	proseBlocks := 0
+	for _, block := range blocks {
+		block = strings.TrimSpace(block)
+		if block == "" {
+			continue
+		}
+		if strings.HasPrefix(block, "```") {
+			kept = append(kept, block)
+			continue
+		}
+		if isDriftBoundedDecorativeSummaryBlock(block) {
+			continue
+		}
+		if driftBoundedSummaryBlockMentionsUnsupportedBacktickedLabel(block, allowed) {
+			continue
+		}
+		kept = append(kept, block)
+		proseBlocks++
+	}
+	if proseBlocks == 0 {
+		var fences []string
+		for _, block := range kept {
+			if strings.HasPrefix(block, "```") {
+				fences = append(fences, block)
+			}
+		}
+		if len(fences) == 0 {
+			return ""
+		}
+		return strings.TrimSpace(strings.Join(fences, "\n\n"))
+	}
+	return strings.TrimSpace(strings.Join(kept, "\n\n"))
+}
+
+func driftBoundedSummaryAllowedLabels(citations []types.Citation, gc *ground.Context, plan *types.AnswerSurfacePlan) map[string]bool {
+	allowed := make(map[string]bool)
+	add := func(label string) {
+		label = strings.TrimSpace(strings.ReplaceAll(label, `\`, `/`))
+		if label == "" {
+			return
+		}
+		allowed["exact|"+strings.ToLower(label)] = true
+		if base := strings.TrimSpace(path.Base(label)); base != "" && base != "." {
+			allowed["exact|"+strings.ToLower(base)] = true
+		}
+		if tail := types.NormalizedSurfaceSymbolTail(label); tail != "" {
+			allowed["sym|"+tail] = true
+		}
+	}
+	addTokens := func(text string) {
+		for _, token := range valueLiteralTokenRe.FindAllString(text, -1) {
+			add(token)
+		}
+	}
+	if plan != nil {
+		for _, anchor := range plan.LogObservedAnchors {
+			add(anchor.Func)
+			add(anchor.File)
+			add(anchor.OriginalFunc)
+			add(anchor.OriginalFile)
+		}
+		for _, anchor := range plan.LogSourceDriftAnchors {
+			add(anchor.Func)
+			add(anchor.File)
+			add(anchor.OriginalFunc)
+			add(anchor.OriginalFile)
+		}
+	}
+	for _, cite := range citations {
+		add(cite.File)
+		addTokens(cite.Quote)
+		if gc == nil || cite.Line <= 0 {
+			continue
+		}
+		file := strings.TrimSpace(strings.ReplaceAll(cite.File, `\`, `/`))
+		lines := gc.LineIndex[file]
+		for current := cite.Line - corroborationWindow; current <= cite.Line+corroborationWindow; current++ {
+			if current <= 0 {
+				continue
+			}
+			if text, ok := lines[current]; ok {
+				addTokens(text)
+			}
+		}
+	}
+	return allowed
+}
+
+func driftBoundedSummaryBlockMentionsUnsupportedBacktickedLabel(block string, allowed map[string]bool) bool {
+	if len(allowed) == 0 {
+		return false
+	}
+	for _, match := range backtickedLabelRe.FindAllStringSubmatch(block, -1) {
+		if len(match) < 2 {
+			continue
+		}
+		label := strings.TrimSpace(match[1])
+		if label == "" || driftBoundedSummaryLabelAllowed(label, allowed) {
+			continue
+		}
+		return true
+	}
+	return false
+}
+
+func isDriftBoundedDecorativeSummaryBlock(block string) bool {
+	block = strings.TrimSpace(block)
+	if block == "" || strings.Contains(block, "\n") {
+		return false
+	}
+	if strings.HasPrefix(block, "#") {
+		return true
+	}
+	if strings.HasPrefix(block, "**") && strings.HasSuffix(block, "**") {
+		inner := strings.TrimSpace(strings.Trim(block, "*"))
+		inner = strings.TrimSpace(strings.TrimRight(inner, ":："))
+		return inner != ""
+	}
+	return false
+}
+
+func driftBoundedSummaryLabelAllowed(label string, allowed map[string]bool) bool {
+	label = strings.TrimSpace(strings.ReplaceAll(label, `\`, `/`))
+	if label == "" {
+		return true
+	}
+	lower := strings.ToLower(label)
+	if allowed["exact|"+lower] {
+		return true
+	}
+	if base := strings.TrimSpace(path.Base(label)); base != "" && base != "." && allowed["exact|"+strings.ToLower(base)] {
+		return true
+	}
+	if tail := types.NormalizedSurfaceSymbolTail(label); tail != "" && allowed["sym|"+tail] {
+		return true
+	}
+	return false
+}
+
+func renderDriftBoundedRootCauseFallbackSummary(ctx *types.BusContext) string {
+	plan := answerSurfacePlan(ctx)
+	if plan == nil {
+		return ""
+	}
+	funcs := driftBoundedObservedFunctions(plan)
+	if len(funcs) == 0 {
+		return ""
+	}
+	zh := emitAnswerDocIsZh(ctx)
+	if len(funcs) >= 2 {
+		inner := funcs[0]
+		caller := funcs[1]
+		if zh {
+			return fmt.Sprintf("当前仓库里已经锚定的崩溃路径是 `%s` 调用 `%s`。由于运行日志对应的是旧构建，现有证据只能确认这条当前代码路径以及附近已经引用锚定的机制，不能把旧构建中的更深层历史解引用点断言到未被当前引用锚定的辅助函数上。", caller, inner)
+		}
+		return fmt.Sprintf("The current repo only grounds the verified path where `%s` calls `%s`. Because the runtime log came from an older build, the current evidence can confirm this anchored code path and its nearby cited mechanism, but it cannot pin the older historical dereference onto an auxiliary function that is not itself grounded by the current citations.", caller, inner)
+	}
+	if zh {
+		return fmt.Sprintf("当前仓库里已经锚定的崩溃函数是 `%s`。由于运行日志对应的是旧构建，现有证据只能确认当前代码里这条已锚定路径附近的机制，不能把旧构建中的更深层历史解引用点断言到未被当前引用锚定的辅助函数上。", funcs[0])
+	}
+	return fmt.Sprintf("The current repo only grounds the failure function `%s`. Because the runtime log came from an older build, the current evidence can confirm the nearby anchored mechanism in the repo, but it cannot pin the older historical dereference onto an auxiliary function that is not itself grounded by the current citations.", funcs[0])
+}
+
+func driftBoundedObservedFunctions(plan *types.AnswerSurfacePlan) []string {
+	if plan == nil {
+		return nil
+	}
+	var out []string
+	seen := make(map[string]bool)
+	for _, anchor := range plan.LogObservedAnchors {
+		name := strings.TrimSpace(anchor.Func)
+		if name == "" || seen[name] {
+			continue
+		}
+		seen[name] = true
+		out = append(out, name)
+	}
+	return out
 }
 
 func joinDistinctSummaryBlocks(parts ...string) string {
