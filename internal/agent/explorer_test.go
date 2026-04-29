@@ -4858,6 +4858,83 @@ func TestObserveMidLoop_CompletionReadyUsesStructuralAuthoritativeClosureAfterRe
 	}
 }
 
+func TestObserveMidLoop_CompletionReadyHintAddsDriftBoundedGuardrail(t *testing.T) {
+	eval := &explorerEvaluator{
+		phase:                      1,
+		heuristics:                 types.ExploreHeuristics{MidLoopMinIteration: 2},
+		searchResult:               &keywordSearchResult{Graph: &repomap.Graph{}},
+		midLoopPostPrimaryInjected: true,
+		analysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				Scenario: types.ScenarioRootCause,
+				Intent:   types.IntentRootCause,
+			},
+			AnswerContract: types.AnswerContract{
+				RequiredAnswerShape: types.ShapeExplanation,
+			},
+		},
+		logTriage: &types.LogBundle{
+			Meta:          types.LogMeta{Signals: []types.LogSignal{types.SignalPanic}},
+			ResolvedFiles: []string{"internal/agent/analyzer.go"},
+			Errors: []types.LogError{{
+				Frames: []types.LogFrame{
+					{File: "internal/agent/analyzer.go", Line: 250, Func: "buildAnalysisIR"},
+					{File: "internal/agent/analyzer.go", Line: 320, Func: "(*analyzerEvaluator).ParseOutput"},
+				},
+			}},
+		},
+		structuredEvidence: []types.EvidenceItem{
+			{
+				Kind:            types.EvidenceRelationship,
+				Subject:         "ParseOutput",
+				Predicate:       "calls",
+				Object:          "buildAnalysisIR",
+				Source:          "internal/agent/analyzer.go",
+				LineStart:       651,
+				AnchorKind:      types.AnchorCall,
+				AnchorSymbol:    "buildAnalysisIR",
+				GroundingStatus: types.GroundingGrounded,
+			},
+			{
+				Kind:            types.EvidenceConditional,
+				Subject:         "buildAnalysisIR",
+				Predicate:       "returns",
+				Object:          "error",
+				Condition:       "ctx == nil || ctx.Mutable == nil",
+				Source:          "internal/agent/analyzer.go",
+				LineStart:       861,
+				AnchorKind:      types.AnchorCondition,
+				AnchorSymbol:    "buildAnalysisIR",
+				GroundingStatus: types.GroundingGrounded,
+			},
+		},
+	}
+	results := []types.ToolResult{
+		{ToolName: "grep", Success: true, Summary: "internal/agent/analyzer.go"},
+		{ToolName: "read_file", Success: true, Summary: "[internal/agent/analyzer.go: showing lines 645-870 of 2003 total]\n..."},
+		{ToolName: "emit_evidence", Success: true, Summary: "emit_evidence accepted 2 item(s)"},
+	}
+
+	sig := eval.observeMidLoop(LoopObservation{
+		Phase:          PhaseMidLoop,
+		Iteration:      4,
+		LastToolResult: &results[len(results)-1],
+		AllToolResults: results,
+	})
+	if !sig.HintRequested {
+		t.Fatalf("completion-ready hint should fire for bounded drift closure, got %+v", sig)
+	}
+	if sig.HintKey != "explorer.mid-loop.completion-ready" {
+		t.Fatalf("HintKey = %q, want explorer.mid-loop.completion-ready", sig.HintKey)
+	}
+	if !strings.Contains(sig.Hint, "current checkout already bounds the answer surface") {
+		t.Fatalf("hint should warn against reopening older-build-only branches, got: %s", sig.Hint)
+	}
+	if !strings.Contains(sig.Hint, "keep `reason` no stronger than") {
+		t.Fatalf("hint should provide a bounded completion reason, got: %s", sig.Hint)
+	}
+}
+
 func TestObserveMidLoop_CompletionReadyDoesNotFireForAuthoritativeCallOnlyEvidence(t *testing.T) {
 	eval := &explorerEvaluator{
 		phase:                      1,
@@ -5299,6 +5376,86 @@ func TestObserveMidLoop_CompletionReadyClosureOnlyRedirectRepeatsAfterEscalation
 	}
 	if !strings.Contains(sig.Hint, "emit_investigation_complete") {
 		t.Fatalf("closure-only redirect should steer back to completion, got: %s", sig.Hint)
+	}
+}
+
+func TestObserveMidLoop_DriftBoundedCompletionReadyClosureOnlyFastTracks(t *testing.T) {
+	eval := &explorerEvaluator{
+		phase:                      1,
+		searchResult:               &keywordSearchResult{Graph: &repomap.Graph{}},
+		midLoopCompletionReadySent: true,
+		midLoopCompletionReadyIter: 3,
+		midLoopLastResultsLen:      1,
+		analysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				Scenario: types.ScenarioRootCause,
+				Intent:   types.IntentRootCause,
+			},
+			AnswerContract: types.AnswerContract{
+				RequiredAnswerShape: types.ShapeExplanation,
+			},
+		},
+		logTriage: &types.LogBundle{
+			Meta:          types.LogMeta{Signals: []types.LogSignal{types.SignalPanic}},
+			ResolvedFiles: []string{"internal/agent/analyzer.go"},
+			Errors: []types.LogError{{
+				Frames: []types.LogFrame{
+					{File: "internal/agent/analyzer.go", Line: 250, Func: "buildAnalysisIR"},
+					{File: "internal/agent/analyzer.go", Line: 320, Func: "(*analyzerEvaluator).ParseOutput"},
+				},
+			}},
+		},
+		structuredEvidence: []types.EvidenceItem{
+			{
+				Kind:            types.EvidenceRelationship,
+				Subject:         "ParseOutput",
+				Predicate:       "calls",
+				Object:          "buildAnalysisIR",
+				Source:          "internal/agent/analyzer.go",
+				LineStart:       651,
+				AnchorKind:      types.AnchorCall,
+				AnchorSymbol:    "buildAnalysisIR",
+				GroundingStatus: types.GroundingGrounded,
+			},
+			{
+				Kind:            types.EvidenceConditional,
+				Subject:         "buildAnalysisIR",
+				Predicate:       "returns",
+				Object:          "error",
+				Condition:       "ctx == nil || ctx.Mutable == nil",
+				Source:          "internal/agent/analyzer.go",
+				LineStart:       861,
+				AnchorKind:      types.AnchorCondition,
+				AnchorSymbol:    "buildAnalysisIR",
+				GroundingStatus: types.GroundingGrounded,
+			},
+		},
+	}
+	results := []types.ToolResult{
+		{ToolName: "emit_evidence", Success: true, Summary: "emit_evidence accepted 2 item(s)"},
+		{ToolName: "grep", Success: true, Summary: "internal/agent/agent.go:1374"},
+	}
+
+	sig := eval.observeMidLoop(LoopObservation{
+		Phase:          PhaseMidLoop,
+		Iteration:      4,
+		LastToolResult: &results[1],
+		AllToolResults: results,
+	})
+	if !sig.HintRequested {
+		t.Fatalf("drift-bounded completion-ready should fast-track closure-only after navigation, got %+v", sig)
+	}
+	if !strings.HasPrefix(sig.HintKey, "explorer.mid-loop.completion-ready-closure-only.") {
+		t.Fatalf("HintKey = %q, want completion-ready-closure-only prefix", sig.HintKey)
+	}
+	if !strings.Contains(sig.Hint, "older-build-only branches") {
+		t.Fatalf("fast-track closure-only should explicitly block older-build-only drift, got: %s", sig.Hint)
+	}
+	if !strings.Contains(sig.Hint, "Reuse this bounded `reason` surface") {
+		t.Fatalf("fast-track closure-only should carry the bounded reason surface, got: %s", sig.Hint)
+	}
+	if !eval.midLoopCompletionReadyEscalated {
+		t.Fatal("fast-track closure-only should latch escalation for subsequent batches")
 	}
 }
 

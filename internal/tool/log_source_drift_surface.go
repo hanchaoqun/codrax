@@ -7,12 +7,11 @@ import (
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
-func renderDriftBoundedCurrentRootCauseSummary(ctx *types.BusContext) string {
-	plan := answerSurfacePlan(ctx)
+func RenderDriftBoundedCurrentRootCauseSummary(plan *types.AnswerSurfacePlan, lang string) string {
 	if plan == nil || plan.SummarySurfaceMode != types.AnswerSummarySurfaceDriftBoundedRootCause {
 		return ""
 	}
-	zh := emitAnswerDocIsZh(ctx)
+	zh := answerDocumentRequiresChinese(lang)
 	callText := ""
 	mechanismText := ""
 	for _, item := range plan.DriftBoundedSurfaceItems {
@@ -41,8 +40,16 @@ func renderDriftBoundedCurrentRootCauseSummary(ctx *types.BusContext) string {
 		}
 		return fmt.Sprintf("The nearest grounded current-code mechanism is: %s. Deeper internal dereference details from the older build are still not directly proven by the current citations.", mechanismText)
 	default:
-		return renderDriftBoundedRootCauseFallbackSummary(ctx)
+		return ""
 	}
+}
+
+func renderDriftBoundedCurrentRootCauseSummary(ctx *types.BusContext) string {
+	plan := answerSurfacePlan(ctx)
+	if plan == nil {
+		return ""
+	}
+	return RenderDriftBoundedCurrentRootCauseSummary(plan, requestedAnswerDocumentLanguage(ctx))
 }
 
 func normalizeLogSourceDriftCompletionReason(ctx *types.BusContext, raw string) string {

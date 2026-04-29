@@ -24,26 +24,26 @@ import (
 )
 
 type explorerEvaluator struct {
-	heuristics                      types.ExploreHeuristics
-	tools                           *tool.Registry
-	phase                           int                  // 0 = breadth scan, 1 = depth read
-	broadenAttempts                 int                  // times we pushed for broader grep in Phase 0
-	preScannedFiles                 []string             // top files from keyword search, for coverage tracking
-	allScoredFiles                  []string             // ALL files from keyword search (not just top 8), for supplementary evidence
-	fileSymbols                     map[string][]string  // path → symbol summaries from repo_map
-	searchResult                    *keywordSearchResult // full search result for cross-reference lookups
-	searchFingerprint               string               // T1.2: fingerprint of keyword_search inputs; reuses searchResult across explorer redispatches within one Run when inputs are unchanged
-	analyzerKeywords                []string             // analyzer-provided keywords cached from BuildInitialInstruction for exact-resolution scope hints
-	exactAnchorFiles                []string             // exact-entity anchor files from keyword search, in rank order
-	declarativeAnchorFiles          []string             // declarative registry/defaults/routes anchors for enumeration questions
-	declarativeCandidateFiles       []string             // analyzer-ranked structural candidates when no canonical declarative anchors were derived automatically
-	investigationNotes              []string             // assistant analysis messages from ReAct loop
-	userQuestion                    string               // original user question, for focus alignment
-	repoRoot                        string               // repository root path, cached from BuildInitialInstruction
-	preScannedPushCount             int                  // times we pushed for unread pre-scanned files without progress
-	lastPreScannedUnreadCount       int                  // count of unread pre-scanned files at last push
-	grepRedirectedFiles             map[string]bool      // files that already received a large-file grep redirect
-	isEnumerationQuery              bool                 // true if user question asks to list/enumerate all items
+	heuristics                types.ExploreHeuristics
+	tools                     *tool.Registry
+	phase                     int                  // 0 = breadth scan, 1 = depth read
+	broadenAttempts           int                  // times we pushed for broader grep in Phase 0
+	preScannedFiles           []string             // top files from keyword search, for coverage tracking
+	allScoredFiles            []string             // ALL files from keyword search (not just top 8), for supplementary evidence
+	fileSymbols               map[string][]string  // path → symbol summaries from repo_map
+	searchResult              *keywordSearchResult // full search result for cross-reference lookups
+	searchFingerprint         string               // T1.2: fingerprint of keyword_search inputs; reuses searchResult across explorer redispatches within one Run when inputs are unchanged
+	analyzerKeywords          []string             // analyzer-provided keywords cached from BuildInitialInstruction for exact-resolution scope hints
+	exactAnchorFiles          []string             // exact-entity anchor files from keyword search, in rank order
+	declarativeAnchorFiles    []string             // declarative registry/defaults/routes anchors for enumeration questions
+	declarativeCandidateFiles []string             // analyzer-ranked structural candidates when no canonical declarative anchors were derived automatically
+	investigationNotes        []string             // assistant analysis messages from ReAct loop
+	userQuestion              string               // original user question, for focus alignment
+	repoRoot                  string               // repository root path, cached from BuildInitialInstruction
+	preScannedPushCount       int                  // times we pushed for unread pre-scanned files without progress
+	lastPreScannedUnreadCount int                  // count of unread pre-scanned files at last push
+	grepRedirectedFiles       map[string]bool      // files that already received a large-file grep redirect
+	isEnumerationQuery        bool                 // true if user question asks to list/enumerate all items
 	// isOrientationQuery mirrors types.IsProjectOrientationQuestion
 	// (intent=explain + simple complexity + no entities + clean
 	// predicates). Cached at dispatch entry so observeMidLoop can
@@ -51,9 +51,9 @@ type explorerEvaluator struct {
 	// the predicate every iteration. Same semantic as the
 	// multi-path coverage parity skip — both stages must agree on
 	// what an orientation question is.
-	isOrientationQuery bool
-	phase0ExtraRound                bool                 // whether we already gave one extra Phase 0 round for quality gate
-	hasPrescanRepoMap               bool                 // keywordSearch (run at BuildInitialInstruction) produced a ranked file list via repo_map; the Phase 0 quality gate treats this as satisfying the structural-discovery half of its requirement, so the LLM isn't penalized for not re-running repo_map at iter=0
+	isOrientationQuery              bool
+	phase0ExtraRound                bool // whether we already gave one extra Phase 0 round for quality gate
+	hasPrescanRepoMap               bool // keywordSearch (run at BuildInitialInstruction) produced a ranked file list via repo_map; the Phase 0 quality gate treats this as satisfying the structural-discovery half of its requirement, so the LLM isn't penalized for not re-running repo_map at iter=0
 	structuredEvidence              []types.EvidenceItem
 	flowFindings                    []types.FlowFindingDigest
 	ermRequirements                 []EvidenceRequirement // evidence requirement model
@@ -78,21 +78,21 @@ type explorerEvaluator struct {
 	// orientation finalize nudge. Without this latch the nudge would
 	// re-render every iteration after the threshold fires, drowning
 	// the LLM in repeated "you have enough" reminders.
-	midLoopOrientationFinalizeSent bool
-	midLoopNoEmitPushSent           bool                  // one-shot: current evidence-materialization backlog window already received its read-without-emit nudge
-	midLoopNoEmitEscalated          bool                  // one-shot: stronger "emit evidence now" escalation after the current backlog window's nudge was ignored
-	midLoopExecRedirectSent         bool                  // one-shot: redirected shell-style browsing back to built-in grep/read_file before recording the current backlog window
-	midLoopExplanationAnchorSent    bool                  // one-shot: multi-topic explanation still lacks one grounded anchor per sub-topic
-	midLoopCompletionReadySent      bool                  // one-shot: generic "you already have enough grounded evidence; close now" hint already pushed this dispatch
-	midLoopCompletionReadyEscalated bool                  // one-shot: stronger close-now escalation after the completion-ready hint was ignored
-	midLoopCompletionReadyIter      int                   // iteration where completion-ready first fired
-	midLoopNoEmitPushIter           int                   // iteration where the current backlog window's read-without-emit nudge fired
-	midLoopNoEmitPushResultsLen     int                   // allResults length when the current backlog window's read-without-emit nudge fired
-	midLoopEmitBacklogBaseLen       int                   // allResults length immediately after the last successful emit_evidence that closed the prior backlog window
-	primaryReadSeen                 bool                  // df3-drift: whether any primary-entity file has entered readSet this dispatch
-	primaryReadIter                 int                   // df3-drift: iter at which a primary-entity file first entered readSet
-	notesLenAtPrimaryRead           int                   // df3-drift: snapshot of len(investigationNotes) at primaryReadIter
-	investigationComplete           bool                  // set when emit_investigation_complete tool was observed in MidLoop
+	midLoopOrientationFinalizeSent  bool
+	midLoopNoEmitPushSent           bool // one-shot: current evidence-materialization backlog window already received its read-without-emit nudge
+	midLoopNoEmitEscalated          bool // one-shot: stronger "emit evidence now" escalation after the current backlog window's nudge was ignored
+	midLoopExecRedirectSent         bool // one-shot: redirected shell-style browsing back to built-in grep/read_file before recording the current backlog window
+	midLoopExplanationAnchorSent    bool // one-shot: multi-topic explanation still lacks one grounded anchor per sub-topic
+	midLoopCompletionReadySent      bool // one-shot: generic "you already have enough grounded evidence; close now" hint already pushed this dispatch
+	midLoopCompletionReadyEscalated bool // one-shot: stronger close-now escalation after the completion-ready hint was ignored
+	midLoopCompletionReadyIter      int  // iteration where completion-ready first fired
+	midLoopNoEmitPushIter           int  // iteration where the current backlog window's read-without-emit nudge fired
+	midLoopNoEmitPushResultsLen     int  // allResults length when the current backlog window's read-without-emit nudge fired
+	midLoopEmitBacklogBaseLen       int  // allResults length immediately after the last successful emit_evidence that closed the prior backlog window
+	primaryReadSeen                 bool // df3-drift: whether any primary-entity file has entered readSet this dispatch
+	primaryReadIter                 int  // df3-drift: iter at which a primary-entity file first entered readSet
+	notesLenAtPrimaryRead           int  // df3-drift: snapshot of len(investigationNotes) at primaryReadIter
+	investigationComplete           bool // set when emit_investigation_complete tool was observed in MidLoop
 
 	// answerSubject is the AnswerSubject classification copied from
 	// the analyzer's IR at BuildInitialInstruction time. The chain
@@ -4218,6 +4218,12 @@ func (e *explorerEvaluator) postCompletionReadySignal(obs LoopObservation) LoopS
 	if readiness.AuthoritativeClosure {
 		b.WriteString("- authoritative log frames already carry grounded call/mechanism anchors on the current branch\n")
 	}
+	if e.driftBoundedCompletionReadyMode() && readiness.AuthoritativeClosure {
+		b.WriteString("- the current checkout already bounds the answer surface; do not reopen older-build-only or upstream-provenance branches unless a new contradiction appears on this same grounded path\n")
+		if reason := e.driftBoundedCompletionReason(); reason != "" {
+			fmt.Fprintf(&b, "- if you close now, keep `reason` no stronger than: %s\n", reason)
+		}
+	}
 	if readiness.ExplanationAnchorTotal > 0 {
 		fmt.Fprintf(&b, "- topic anchors ready: %d / %d\n",
 			readiness.ExplanationAnchorCovered, readiness.ExplanationAnchorTotal)
@@ -4428,10 +4434,14 @@ func (e *explorerEvaluator) postCompletionReadyEscalationSignal(obs LoopObservat
 		return LoopSignal{}
 	}
 	e.midLoopCompletionReadyEscalated = true
+	hint := "MID-LOOP CHECK: an earlier hint already established that the current evidence is sufficient. Do NOT reopen adjacent files or widen scope by default. Either call `emit_investigation_complete(reason, confidence, result_kind)` now, or verify exactly one concrete unresolved branch only if that branch could still change the final answer."
+	if e.driftBoundedCompletionReadyMode() {
+		hint = "MID-LOOP CHECK: an earlier hint already established that the current checkout already explains the grounded failure path. Do NOT reopen upstream-caller or older-build-only branches by default. Either call `emit_investigation_complete(reason, confidence, result_kind)` now, or verify exactly one contradiction only if it would change the grounded current-branch answer."
+	}
 	return LoopSignal{
 		HintRequested:  true,
 		HintKey:        "explorer.mid-loop.completion-ready-escalated",
-		Hint:           "MID-LOOP CHECK: an earlier hint already established that the current evidence is sufficient. Do NOT reopen adjacent files or widen scope by default. Either call `emit_investigation_complete(reason, confidence, result_kind)` now, or verify exactly one concrete unresolved branch only if that branch could still change the final answer.",
+		Hint:           hint,
 		Progress:       true,
 		BypassThrottle: true,
 		BypassBudget:   true,
@@ -4439,7 +4449,7 @@ func (e *explorerEvaluator) postCompletionReadyEscalationSignal(obs LoopObservat
 }
 
 func (e *explorerEvaluator) postCompletionReadyClosureOnlySignal(obs LoopObservation) LoopSignal {
-	if !e.midLoopCompletionReadyEscalated || e.investigationComplete {
+	if !e.midLoopCompletionReadySent || e.investigationComplete {
 		return LoopSignal{}
 	}
 	navCount := successfulToolCountSince(obs.AllToolResults, e.midLoopLastResultsLen, navigationToolNames)
@@ -4449,14 +4459,60 @@ func (e *explorerEvaluator) postCompletionReadyClosureOnlySignal(obs LoopObserva
 	if successfulToolCountSince(obs.AllToolResults, e.midLoopLastResultsLen, completionProgressToolNames) > 0 {
 		return LoopSignal{}
 	}
+	fastTrack := !e.midLoopCompletionReadyEscalated && e.driftBoundedCompletionReadyMode()
+	if !e.midLoopCompletionReadyEscalated && !fastTrack {
+		return LoopSignal{}
+	}
+	if fastTrack {
+		e.midLoopCompletionReadyEscalated = true
+	}
+	hint := "MID-LOOP CHECK: completion-ready has already been established and escalated. The current batch still spent effort on navigation tools. Do NOT keep calling `read_file`, `grep`, `repo_map`, `list_files`, or `exec_command` unless this batch surfaced one concrete contradiction that would change the final answer. From here, either emit exactly one repair batch for that contradiction or call `emit_investigation_complete(reason, confidence, result_kind)` now."
+	if fastTrack {
+		hint = "MID-LOOP CHECK: completion-ready is already established for the grounded current branch, and this batch reopened navigation anyway. Do NOT keep tracing upstream-provenance or older-build-only branches from here. Either emit exactly one repair batch for a concrete contradiction from the lines you already opened, or call `emit_investigation_complete(reason, confidence, result_kind)` now."
+		if reason := e.driftBoundedCompletionReason(); reason != "" {
+			hint += " Reuse this bounded `reason` surface (or a weaker one): " + reason
+		}
+	}
 	return LoopSignal{
 		HintRequested:  true,
 		HintKey:        fmt.Sprintf("explorer.mid-loop.completion-ready-closure-only.%d", obs.Iteration),
-		Hint:           "MID-LOOP CHECK: completion-ready has already been established and escalated. The current batch still spent effort on navigation tools. Do NOT keep calling `read_file`, `grep`, `repo_map`, `list_files`, or `exec_command` unless this batch surfaced one concrete contradiction that would change the final answer. From here, either emit exactly one repair batch for that contradiction or call `emit_investigation_complete(reason, confidence, result_kind)` now.",
+		Hint:           hint,
 		Progress:       true,
 		BypassThrottle: true,
 		BypassBudget:   true,
 	}
+}
+
+func (e *explorerEvaluator) driftBoundedCompletionReadyMode() bool {
+	if e == nil {
+		return false
+	}
+	plan := e.answerSurfacePlan()
+	if plan == nil || plan.SummarySurfaceMode != types.AnswerSummarySurfaceDriftBoundedRootCause {
+		return false
+	}
+	if len(plan.DriftBoundedSurfaceItems) == 0 {
+		return false
+	}
+	return e.authoritativeLogClosureCarrierReady()
+}
+
+func (e *explorerEvaluator) driftBoundedCompletionReason() string {
+	if e == nil {
+		return ""
+	}
+	plan := e.answerSurfacePlan()
+	if plan == nil {
+		return ""
+	}
+	lang := ""
+	if e.analysisIR != nil {
+		lang = strings.TrimSpace(e.analysisIR.AnswerContract.Language)
+		if lang == "" {
+			lang = strings.TrimSpace(e.analysisIR.RequestModel.Language)
+		}
+	}
+	return strings.TrimSpace(tool.RenderDriftBoundedCurrentRootCauseSummary(plan, lang))
 }
 
 func (e *explorerEvaluator) updateMidLoopSerialStreak(prevResultsLen, currentResultsLen int) {
