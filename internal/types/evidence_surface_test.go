@@ -43,6 +43,35 @@ func TestExactResolutionSurfaceEvidencePool_IncludesAnswerChainEvidence(t *testi
 	}
 }
 
+func TestExactResolutionSurfaceEvidencePool_PrefersMoreRestrictiveContextRole(t *testing.T) {
+	base := []EvidenceItem{{
+		Kind:            EvidenceDirect,
+		Source:          "internal/types/config.go",
+		LineStart:       870,
+		AnchorKind:      AnchorDefinition,
+		AnchorSymbol:    "ResolvedExploreHeuristics",
+		ContextRole:     EvidenceContextRoleDefining,
+		GroundingStatus: GroundingGrounded,
+	}}
+	refined := []EvidenceItem{{
+		Kind:            EvidenceDirect,
+		Source:          "internal/types/config.go",
+		LineStart:       870,
+		AnchorKind:      AnchorDefinition,
+		AnchorSymbol:    "ResolvedExploreHeuristics",
+		ContextRole:     EvidenceContextRoleRelatedContext,
+		GroundingStatus: GroundingGrounded,
+	}}
+
+	pool := ExactResolutionSurfaceEvidencePool(base, refined, nil)
+	if len(pool) != 1 {
+		t.Fatalf("pool len = %d, want 1", len(pool))
+	}
+	if got := pool[0].ContextRole; got != EvidenceContextRoleRelatedContext {
+		t.Fatalf("merged ContextRole = %q, want related_context", got)
+	}
+}
+
 func TestCollectForbiddenExactContextLabels_SkipsImportSymbols(t *testing.T) {
 	contract := &ExactResolutionContract{
 		TargetKind:           SubjectConfigKey,

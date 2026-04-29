@@ -3752,12 +3752,52 @@ func (e *explorerEvaluator) postExactAbsenceClosureSignal(obs LoopObservation) L
 	if reads < 2 || emits == 0 {
 		return LoopSignal{}
 	}
+	_, readSet, _ := extractFileCoverage(obs.AllToolResults, e.repoRoot)
 	if !e.midLoopExactAbsenceContextSent {
+		if hops := e.pendingConfigTraceCoverageHops(readSet); len(hops) > 0 {
+			e.midLoopExactAbsenceContextSent = true
+			var b strings.Builder
+			if roles := types.ConfigTraceMissingRequestedDiagramRoles(e.exactResolution, e.exactContextFiles, e.structuredEvidence); len(roles) > 0 {
+				fmt.Fprintf(&b, "MID-LOOP CHECK: the exact target already looks absent, but the current config-trace answer is still missing grounded precedence coverage for the user-requested role(s) `%s`. Before closing, follow the next structural consumer / merge hop from the precedence layer you already grounded.\n", types.JoinEvidenceDiagramRoles(roles))
+			} else {
+				b.WriteString("MID-LOOP CHECK: the exact target already looks absent, but the current config-trace answer is still missing one or more grounded precedence hops. Before closing, follow the next structural consumer / merge hop from the precedence layer you already grounded.\n")
+			}
+			b.WriteString("Read one or two of these structurally connected files next, then emit evidence and only after that close with `emit_investigation_complete(..., result_kind=\"absence\", absence_justification=...)`:\n")
+			limit := len(hops)
+			if limit > 2 {
+				limit = 2
+			}
+			for i := 0; i < limit; i++ {
+				hop := hops[i]
+				if hop.Via != "" {
+					fmt.Fprintf(&b, "- `%s` (%s)\n", hop.File, hop.Via)
+				} else {
+					fmt.Fprintf(&b, "- `%s`\n", hop.File)
+				}
+			}
+			b.WriteString("Keep every such item labeled as related context only, never as an equivalent or substitute for the exact missing target.")
+			return LoopSignal{
+				HintRequested:  true,
+				HintKey:        "explorer.mid-loop.exact-absence-precedence-next-hop",
+				Hint:           b.String(),
+				Progress:       true,
+				BypassThrottle: true,
+				BypassBudget:   true,
+			}
+		}
 		cands := e.collectExactResolutionSymbolCandidates(e.exactResolution, e.analyzerKeywords)
 		if pending := pendingExactResolutionContextCandidates(e.exactResolution, e.structuredEvidence, cands); len(pending) > 0 {
 			e.midLoopExactAbsenceContextSent = true
 			var b strings.Builder
-			b.WriteString("MID-LOOP CHECK: the exact target already looks absent, but before closing you still need one grounded production same-family anchor so the related context stays focused.\n")
+			if e.scenario == types.ScenarioConfigTrace && e.exactResolution != nil && e.exactResolution.TargetKind == types.SubjectConfigKey {
+				if roles := types.ConfigTraceMissingRequestedDiagramRoles(e.exactResolution, e.exactContextFiles, e.structuredEvidence); len(roles) > 0 {
+					fmt.Fprintf(&b, "MID-LOOP CHECK: the exact target already looks absent, but before closing this config-trace answer still needs grounded precedence coverage for the user-requested roles `%s`. Keep reading within the current same-scope lineage until each requested role has its own grounded anchor.\n", types.JoinEvidenceDiagramRoles(roles))
+				} else {
+					b.WriteString("MID-LOOP CHECK: the exact target already looks absent, but before closing this config-trace answer still needs enough grounded precedence coverage to explain the nearby lineage honestly. When the same-scope search already spans multiple files, aim for at least two validated precedence roles (for example `default` plus `config` / `runtime` / `override`) before you close.\n")
+				}
+			} else {
+				b.WriteString("MID-LOOP CHECK: the exact target already looks absent, but before closing you still need one grounded production same-family anchor so the related context stays focused.\n")
+			}
 			b.WriteString("Read one or two of these repo_map-ranked symbols next, then emit evidence and only after that close with `emit_investigation_complete(..., result_kind=\"absence\", absence_justification=...)`:\n")
 			limit := len(pending)
 			if limit > 2 {
@@ -3802,6 +3842,86 @@ func (e *explorerEvaluator) postExactAbsenceClosureSignal(obs LoopObservation) L
 		BypassThrottle: true,
 		BypassBudget:   true,
 	}
+}
+
+type configTraceCoverageHop struct {
+	File  string
+	Via   string
+	Score int
+}
+
+func (e *explorerEvaluator) pendingConfigTraceCoverageHops(readSet map[string]bool) []configTraceCoverageHop {
+	if e == nil || e.exactResolution == nil || e.searchResult == nil || e.searchResult.Graph == nil {
+		return nil
+	}
+	if e.scenario != types.ScenarioConfigTrace || e.exactResolution.TargetKind != types.SubjectConfigKey {
+		return nil
+	}
+	bestByFile := make(map[string]configTraceCoverageHop)
+	add := func(file string, score int, via string) {
+		file = canonicalExplorerPath(file)
+		if file == "" || readSet[file] || types.LooksLikeAuxiliaryEvidencePath(file) || !e.activeFocusAllowsFile(file) {
+			return
+		}
+		if score <= 0 {
+			return
+		}
+		for _, required := range e.requiredFiles {
+			if canonicalExplorerPath(required) == file {
+				score += 6
+				break
+			}
+		}
+		if e.searchResult.Graph.QueryScores != nil {
+			if q := e.searchResult.Graph.QueryScores[file]; q > 0 {
+				score += int(q * 10)
+			}
+		}
+		hop := configTraceCoverageHop{File: file, Via: via, Score: score}
+		if cur, ok := bestByFile[file]; !ok || hop.Score > cur.Score {
+			bestByFile[file] = hop
+		}
+	}
+	for _, file := range e.exactContextFiles {
+		add(file, 40, "already in the current same-scope precedence search")
+	}
+	for _, item := range e.structuredEvidence {
+		role := scopeShapingDiagramRole(item)
+		if role == types.EvidenceDiagramRoleUnknown {
+			continue
+		}
+		source := canonicalExplorerPath(item.Source)
+		if source == "" || !readSet[source] {
+			continue
+		}
+		for _, consumer := range e.searchResult.Graph.FilesImporting(source) {
+			via := fmt.Sprintf("imports / consumes the current `%s` precedence layer from `%s`", role, source)
+			score := 18
+			switch role {
+			case types.EvidenceDiagramRoleRuntime, types.EvidenceDiagramRoleOverride:
+				score = 30
+			case types.EvidenceDiagramRoleConfig:
+				score = 22
+			case types.EvidenceDiagramRoleDefault:
+				score = 16
+			}
+			add(consumer, score, via)
+		}
+	}
+	if len(bestByFile) == 0 {
+		return nil
+	}
+	hops := make([]configTraceCoverageHop, 0, len(bestByFile))
+	for _, hop := range bestByFile {
+		hops = append(hops, hop)
+	}
+	sort.SliceStable(hops, func(i, j int) bool {
+		if hops[i].Score != hops[j].Score {
+			return hops[i].Score > hops[j].Score
+		}
+		return hops[i].File < hops[j].File
+	})
+	return hops
 }
 
 func currentBatchHasSuccessfulRead(results []types.ToolResult, prevLen int) bool {

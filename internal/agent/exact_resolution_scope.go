@@ -388,6 +388,121 @@ func exactResolutionContextFilesFromGroundedEvidence(
 	return files
 }
 
+func exactResolutionContextFilesFromScenarioCoverageEvidence(
+	contract *types.ExactResolutionContract,
+	scenario types.Scenario,
+	evidence []types.EvidenceItem,
+	preferredFiles []string,
+) []string {
+	if contract == nil || len(evidence) == 0 {
+		return nil
+	}
+	if scenario != types.ScenarioConfigTrace || contract.TargetKind != types.SubjectConfigKey {
+		return nil
+	}
+	preferredRank := make(map[string]int, len(preferredFiles))
+	for i, file := range preferredFiles {
+		file = canonicalExactResolutionPath(file)
+		if file != "" {
+			preferredRank[file] = len(preferredFiles) - i
+		}
+	}
+	type scoredFile struct {
+		File  string
+		Score int
+	}
+	bestByFile := make(map[string]int)
+	for _, item := range evidence {
+		file := canonicalExactResolutionPath(item.Source)
+		if file == "" || types.LooksLikeAuxiliaryEvidencePath(file) {
+			continue
+		}
+		if item.ContextRole == types.EvidenceContextRoleIllustrativeOnly {
+			continue
+		}
+		coverageRole := scopeShapingDiagramRole(item)
+		if coverageRole == types.EvidenceDiagramRoleUnknown &&
+			item.ContextRole != types.EvidenceContextRoleAbsenceSupport {
+			continue
+		}
+		score := 0
+		if item.DiagramRole != types.EvidenceDiagramRoleUnknown {
+			score += 12
+		} else if coverageRole != types.EvidenceDiagramRoleUnknown {
+			score += 7
+		}
+		if item.ContextRole == types.EvidenceContextRoleAbsenceSupport {
+			score += 4
+		}
+		if types.LooksLikeConfigFilePath(item.Source) {
+			score += 6
+		}
+		switch item.GroundingStatus {
+		case types.GroundingGrounded:
+			score += 3
+		case types.GroundingRecovered:
+			score += 1
+		}
+		if item.LineStart > 0 {
+			score += 1
+		}
+		if bonus := preferredRank[file]; bonus > 0 {
+			score += 8 + bonus
+		}
+		if score < 8 {
+			continue
+		}
+		if cur := bestByFile[file]; cur < score {
+			bestByFile[file] = score
+		}
+	}
+	if len(bestByFile) == 0 {
+		return nil
+	}
+	scored := make([]scoredFile, 0, len(bestByFile))
+	for file, score := range bestByFile {
+		scored = append(scored, scoredFile{File: file, Score: score})
+	}
+	sort.SliceStable(scored, func(i, j int) bool {
+		if scored[i].Score != scored[j].Score {
+			return scored[i].Score > scored[j].Score
+		}
+		return scored[i].File < scored[j].File
+	})
+	files := make([]string, 0, len(scored))
+	for _, item := range scored {
+		files = append(files, item.File)
+	}
+	return files
+}
+
+func scopeShapingDiagramRole(item types.EvidenceItem) types.EvidenceDiagramRole {
+	if item.DiagramRole != types.EvidenceDiagramRoleUnknown {
+		return item.DiagramRole
+	}
+	role := item.RequestedDiagramRole
+	if role == types.EvidenceDiagramRoleUnknown {
+		return types.EvidenceDiagramRoleUnknown
+	}
+	if types.LooksLikeAuxiliaryEvidencePath(item.Source) {
+		return types.EvidenceDiagramRoleUnknown
+	}
+	if !types.ConfigTraceDiagramRoleAnchorCompatible(role, item) {
+		return types.EvidenceDiagramRoleUnknown
+	}
+	switch role {
+	case types.EvidenceDiagramRoleConfig:
+		if types.LooksLikeConfigFilePath(item.Source) {
+			return role
+		}
+	case types.EvidenceDiagramRoleDefault, types.EvidenceDiagramRoleRuntime, types.EvidenceDiagramRoleOverride:
+		if item.Source != "" && !types.LooksLikeConfigFilePath(item.Source) {
+			return role
+		}
+	}
+	return types.EvidenceDiagramRoleUnknown
+}
+
 func refreshedExactResolutionContextFiles(
 	contract *types.ExactResolutionContract,
 	scenario types.Scenario,
@@ -395,11 +510,36 @@ func refreshedExactResolutionContextFiles(
 	candidates []exactResolutionSymbolCandidate,
 	preferredFiles []string,
 ) []string {
-	if files := exactResolutionContextFilesFromGroundedEvidence(contract, scenario, evidence, preferredFiles); len(files) > 0 {
-		return files
+	groundedFiles := exactResolutionContextFilesFromGroundedEvidence(contract, scenario, evidence, preferredFiles)
+	coverageFiles := exactResolutionContextFilesFromScenarioCoverageEvidence(contract, scenario, evidence, preferredFiles)
+	if len(coverageFiles) > 0 {
+		combined := mergeContextScopeFiles(groundedFiles, coverageFiles)
+		if len(combined) > 0 &&
+			!types.ExactResolutionAbsenceClosureReady(contract, scenario, contract.Targets, evidence, combined) {
+			return combined
+		}
+	}
+	if len(groundedFiles) > 0 {
+		return groundedFiles
 	}
 	pending := pendingExactResolutionContextCandidates(contract, evidence, candidates)
 	return exactResolutionContextFilesFromCandidates(pending, preferredFiles)
+}
+
+func mergeContextScopeFiles(groups ...[]string) []string {
+	seen := make(map[string]bool)
+	var out []string
+	for _, files := range groups {
+		for _, file := range files {
+			file = canonicalExactResolutionPath(file)
+			if file == "" || seen[file] {
+				continue
+			}
+			seen[file] = true
+			out = append(out, file)
+		}
+	}
+	return out
 }
 
 func exactResolutionFilterCandidatesToPreferredFiles(candidates []exactResolutionSymbolCandidate, preferredFiles []string) []exactResolutionSymbolCandidate {

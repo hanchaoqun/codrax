@@ -1189,6 +1189,7 @@ func TestCollectExactResolutionSeeds_ConfigTraceRequiresDiagramRoleForNearbyCont
 
 func TestAnswerDocumentEvaluator_BuildInitialInstruction_UsesStableAbsenceStateAfterWindowReset(t *testing.T) {
 	mu := types.NewMutableState("")
+	mu.SetInvestigationComplete("all three nearby precedence layers were already traced before the window reset")
 	mu.SetAbsenceJustification("no config key named `explore_mid_loop_hint_budget` exists in the repo")
 	mu.SetInvestigationResultKind("absence")
 	mu.ResetInvestigationComplete()
@@ -1226,6 +1227,8 @@ func TestAnswerDocumentEvaluator_BuildInitialInstruction_UsesStableAbsenceStateA
 	for _, want := range []string{
 		"Investigation state: the exact target is currently absent in the repo / branch under inspection.",
 		"no config key named `explore_mid_loop_hint_budget` exists in the repo",
+		"## Accepted Closure Rationale",
+		"all three nearby precedence layers were already traced before the window reset",
 		"Emit `exact_resolution.status=\"absent\"`",
 		"do NOT force `shape=config_value` with a synthetic literal",
 		"grounded same-scope anchors may appear in `summary` even when they do not carry a validated diagram role",

@@ -57,6 +57,7 @@ type emitAnalysisParams struct {
 	AnswerSubject     *emitAnswerSubjectParam `json:"answer_subject,omitempty"`
 	ExactTargets      []string                `json:"exact_targets,omitempty"`
 	ExactContextTerms []string                `json:"exact_context_terms,omitempty"`
+	ExactContextRoles []string                `json:"exact_context_roles,omitempty"`
 
 	// Schema v4 — confidence + alternatives + LLM semantic predicates +
 	// LLM-emitted predicate axis. These replace the historical prose-cue
@@ -183,6 +184,14 @@ func buildEmitAnalysisSchema() {
 				"type":        "array",
 				"description": "Optional narrow same-scope terms for exact-resolution questions. Leave this unset by default. Use only alongside exact_targets when nearby context should stay within one identifier family / module subtree, and only when you can copy 1-2 narrow identifier/path stems directly from the exact target lane itself. Do not use layer labels, precedence words, or generic context terms here. The system treats these as LLM suggestions and silently drops any item that is not validated against the request-mentioned exact-target lane.",
 				"items":       map[string]string{"type": "string"},
+			},
+			"exact_context_roles": map[string]any{
+				"type":        "array",
+				"description": "Optional abstract nearby-context roles the user explicitly asked to see for an exact-target precedence / lineage answer. Use only alongside exact_targets when the request names conceptual layers such as code defaults, repo/user config files, runtime state, or override channels. Use enum values default / config / runtime / override; omit when unsure.",
+				"items": map[string]any{
+					"type": "string",
+					"enum": skill.AnalysisExactContextRoleValues(),
+				},
 			},
 			"answer_subject": map[string]any{
 				"type":        "object",
@@ -438,9 +447,19 @@ func (t *EmitAnalysis) Execute(ctx *types.BusContext, params json.RawMessage) (t
 		}, nil
 	}
 	mentionedEntities := types.MentionedEntitiesFromRawRequest(raw, entities)
+	answerSubject := parseAnswerSubject(p.AnswerSubject)
 	exactContextTerms, exactContextWarn := sanitizeExactContextTerms(exactTargets, mentionedEntities, p.ExactContextTerms)
+	exactContextRoles, exactContextRoleWarn := sanitizeExactContextRoles(
+		exactTargets,
+		answerSubject.Kind,
+		scenario,
+		p.ExactContextRoles,
+	)
 	if exactContextWarn != "" {
 		val.Warnings = append(val.Warnings, exactContextWarn)
+	}
+	if exactContextRoleWarn != "" {
+		val.Warnings = append(val.Warnings, exactContextRoleWarn)
 	}
 
 	// Sub-topic summaries sometimes copy chunks of the REPL
@@ -464,10 +483,11 @@ func (t *EmitAnalysis) Execute(ctx *types.BusContext, params json.RawMessage) (t
 			MentionedEntities: mentionedEntities,
 			ExactTargets:      exactTargets,
 			ExactContextTerms: exactContextTerms,
+			ExactContextRoles: exactContextRoles,
 			Kind:              kind,
 			Shape:             shape,
 		},
-		AnswerSubject:        parseAnswerSubject(p.AnswerSubject),
+		AnswerSubject:        answerSubject,
 		IntentConfidence:     p.IntentConfidence,
 		ComplexityConfidence: p.ComplexityConfidence,
 		KindConfidence:       p.KindConfidence,
@@ -752,6 +772,54 @@ func sanitizeExactContextTerms(exactTargets, mentionedEntities, in []string) ([]
 	)
 }
 
+func sanitizeExactContextRoles(exactTargets []string, subjectKind types.AnswerSubjectKind, scenario types.Scenario, in []string) ([]types.EvidenceDiagramRole, string) {
+	if len(in) == 0 {
+		return nil, ""
+	}
+	if len(exactTargets) == 0 {
+		return nil, "dropped exact_context_roles because exact_targets were absent or ambiguous"
+	}
+	if scenario != types.ScenarioConfigTrace {
+		return nil, "dropped exact_context_roles because this request is not a config-trace exact-target question"
+	}
+	if subjectKind != types.SubjectUnknown && subjectKind != types.SubjectConfigKey {
+		return nil, "dropped exact_context_roles because this request does not resolve to a config-key subject"
+	}
+	raw := trimStringSlice(in)
+	if len(raw) == 0 {
+		return nil, ""
+	}
+	seen := make(map[types.EvidenceDiagramRole]bool, len(raw))
+	var out []types.EvidenceDiagramRole
+	var dropped []string
+	for _, item := range raw {
+		role := types.CanonicalEvidenceDiagramRole(item)
+		switch role {
+		case types.EvidenceDiagramRoleDefault,
+			types.EvidenceDiagramRoleConfig,
+			types.EvidenceDiagramRoleRuntime,
+			types.EvidenceDiagramRoleOverride:
+			if !seen[role] {
+				seen[role] = true
+				out = append(out, role)
+			}
+		default:
+			dropped = append(dropped, item)
+		}
+	}
+	if len(out) == 0 {
+		return nil, "dropped exact_context_roles because none mapped to valid abstract precedence roles"
+	}
+	if len(dropped) == 0 {
+		return out, ""
+	}
+	sort.Strings(dropped)
+	return out, fmt.Sprintf(
+		"ignored exact_context_roles outside the validated precedence-role enum: %s",
+		strings.Join(dropped, ", "),
+	)
+}
+
 // validateConfidenceRange enforces the [0, 1] domain on every
 // confidence field. Out-of-range values reject the call so a
 // prompt-injection or schema-misread cannot smuggle a 99.0 confidence
@@ -884,6 +952,9 @@ func buildEmitAnalysisSummary(raw emitAnalysisParams, rm types.RequestModel, val
 	}
 	if len(h.ExactContextTerms) > 0 {
 		fmt.Fprintf(&b, " exact_ctx=%d", len(h.ExactContextTerms))
+	}
+	if len(h.ExactContextRoles) > 0 {
+		fmt.Fprintf(&b, " exact_roles=%d", len(h.ExactContextRoles))
 	}
 	if rm.PredicateAxis != types.AxisUnknown {
 		fmt.Fprintf(&b, " axis=%s", rm.PredicateAxis)

@@ -1624,3 +1624,54 @@ func TestEmitAnalysis_Execute_PersistsExactContextTerms(t *testing.T) {
 		t.Fatalf("summary should mention exact_ctx count, got %q", res.Summary)
 	}
 }
+
+func TestEmitAnalysis_Execute_PersistsExactContextRoles(t *testing.T) {
+	prev := CurrentAnalysisLimits()
+	t.Cleanup(func() { SetAnalysisLimits(prev) })
+	SetAnalysisLimits(AnalysisLimits{WarnBelowKeywords: 0, RejectBelowKeywords: 0})
+	mu := types.NewMutableState("explore_mid_loop_hint_budget 的最终有效值是怎么计算出来的？给我 code default / codrax.yaml / CLI 三层的覆盖优先级。")
+	tool := &EmitAnalysis{}
+	payload := `{
+		"intent": "config_query",
+		"scenario": "config_trace",
+		"complexity": "moderate",
+		"keywords": ["explore_mid_loop_hint_budget", "code default", "codrax.yaml", "CLI"],
+		"entities": ["explore_mid_loop_hint_budget", "codrax.yaml"],
+		"question_kind": "config_mapping",
+		"answer_shape": "explanation",
+		"answer_subject": {"kind": "config_key"},
+		"exact_targets": ["explore_mid_loop_hint_budget"],
+		"exact_context_roles": ["default", "config", "override"],
+		"intent_confidence": 0.9,
+		"complexity_confidence": 0.8,
+		"kind_confidence": 0.9,
+		"shape_confidence": 0.85,
+		"predicates": {
+			"is_scalar_answer": false,
+			"is_count_question": false,
+			"is_cross_component": false,
+			"is_relational_lookup": false,
+			"is_category_enumeration": false,
+			"is_history_lookup": false
+		}
+	}`
+	res, _ := tool.Execute(&types.BusContext{Mutable: mu}, json.RawMessage(payload))
+	if !res.Success {
+		t.Fatalf("Execute should succeed, got %q", res.Summary)
+	}
+	rm := mu.RequestModel()
+	if rm == nil {
+		t.Fatal("RequestModel not persisted")
+	}
+	want := []types.EvidenceDiagramRole{
+		types.EvidenceDiagramRoleDefault,
+		types.EvidenceDiagramRoleConfig,
+		types.EvidenceDiagramRoleOverride,
+	}
+	if !reflect.DeepEqual(rm.AnalyzerHints.ExactContextRoles, want) {
+		t.Fatalf("ExactContextRoles = %v, want %v", rm.AnalyzerHints.ExactContextRoles, want)
+	}
+	if !strings.Contains(res.Summary, "exact_roles=3") {
+		t.Fatalf("summary should mention exact_roles count, got %q", res.Summary)
+	}
+}

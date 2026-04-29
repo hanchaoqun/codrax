@@ -36,6 +36,7 @@ type AnswerSurfacePlan struct {
 
 	StableInvestigationResultKind string
 	StableAbsenceJustification    string
+	StableInvestigationReason     string
 	StableAbsent                  bool
 	ExactContextRequiredFiles     []string
 
@@ -917,6 +918,7 @@ func BuildAnswerSurfacePlan(
 	if mutable != nil {
 		plan.StableInvestigationResultKind = strings.TrimSpace(mutable.StableInvestigationResultKind())
 		plan.StableAbsenceJustification = strings.TrimSpace(mutable.StableAbsenceJustification())
+		plan.StableInvestigationReason = strings.TrimSpace(mutable.StableInvestigationCompleteReason())
 		plan.ExactContextRequiredFiles = mutable.ExactContextRequiredFiles()
 		if syms, claim := mutable.EmittedAnswerSymbols(); len(syms) > 0 {
 			ApplyAnswerSymbolStepBackbone(plan, syms, claim)
@@ -1251,7 +1253,7 @@ func CollectConfigTraceDiagramAnchors(
 		if ev.LineStart > 0 {
 			label = fmt.Sprintf("%s:%d", label, ev.LineStart)
 		}
-		score := configTraceCitationCandidateScore(role)
+		score := configTraceCitationCandidateScore(contractForConfigTraceSurfacePlan(contract, stableAbsent), role)
 		if ev.LineStart > 0 {
 			score += 2
 		}

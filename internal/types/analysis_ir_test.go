@@ -172,14 +172,15 @@ func TestAnalysisIR_JSONRoundtrip(t *testing.T) {
 }
 
 func TestAnalysisIR_VersionConstant(t *testing.T) {
-	// v8 adds analyzer-validated enumeration_boundary so user-declared
-	// bounded sets ("the 7 checks", "top 5 stages") survive downstream
-	// synthesis without promoting adjacent helper facts into the main set.
-	if AnalysisIRVersion != "v8" {
+	// v9 adds analyzer-validated exact_context_roles so exact-target
+	// precedence questions can carry user-requested abstract layers
+	// (default/config/runtime/override) through closure and final-answer
+	// synthesis without relying on repo-specific strings downstream.
+	if AnalysisIRVersion != "v9" {
 		t.Fatalf("unexpected AnalysisIRVersion: %q", AnalysisIRVersion)
 	}
 	ir := AnalysisIR{Version: AnalysisIRVersion}
-	if ir.Version != "v8" {
+	if ir.Version != "v9" {
 		t.Fatalf("version not propagated: %q", ir.Version)
 	}
 }

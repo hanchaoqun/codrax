@@ -6087,6 +6087,75 @@ func TestObserve_RefreshesStructuredEvidenceBeforeExactAbsenceCloseSignal(t *tes
 	}
 }
 
+func TestPostExactAbsenceClosureSignal_PrefersStructuralPrecedenceNextHop(t *testing.T) {
+	contract := &types.ExactResolutionContract{
+		TargetKind:           types.SubjectConfigKey,
+		TargetLabel:          "config key",
+		Targets:              []string{"explore_mid_loop_hint_budget"},
+		AllowAbsence:         true,
+		RelatedContextPolicy: types.ExactContextSameFamilyGrounded,
+		RelatedContextTerms:  []string{"explore"},
+	}
+	eval := &explorerEvaluator{
+		scenario:        types.ScenarioConfigTrace,
+		exactResolution: contract,
+		exactContextFiles: []string{
+			"internal/types/config.go",
+			"internal/config/runtime.go",
+		},
+		searchResult: &keywordSearchResult{
+			Graph: &repomap.Graph{
+				ReverseImports: map[string][]string{
+					"internal/config/runtime.go": {"cmd/root.go"},
+				},
+			},
+		},
+		structuredEvidence: []types.EvidenceItem{
+			{
+				Kind:            types.EvidenceDirect,
+				Subject:         "explore_mid_loop_hint_budget",
+				Predicate:       "absent_from",
+				Object:          "RuntimeSettings",
+				Source:          "internal/types/config.go",
+				GroundingStatus: types.GroundingGrounded,
+				ContextRole:     types.EvidenceContextRoleAbsenceSupport,
+				AnchorKind:      types.AnchorDefinition,
+				AnchorSymbol:    "ExploreSettings",
+			},
+			{
+				Kind:                 types.EvidenceDirect,
+				Subject:              "RuntimeSettings",
+				Predicate:            "maps",
+				Object:               "explore settings",
+				Source:               "internal/config/runtime.go",
+				GroundingStatus:      types.GroundingGrounded,
+				ContextRole:          types.EvidenceContextRoleRelatedContext,
+				RequestedDiagramRole: types.EvidenceDiagramRoleRuntime,
+				AnchorKind:           types.AnchorAssignment,
+				AnchorSymbol:         "ExploreMidLoopMinIteration",
+			},
+		},
+	}
+
+	sig := eval.postExactAbsenceClosureSignal(LoopObservation{
+		Iteration: 6,
+		AllToolResults: []types.ToolResult{
+			{ToolName: "read_file", Success: true, Summary: "[internal/types/config.go: showing lines 1-20 of 20]\n"},
+			{ToolName: "read_file", Success: true, Summary: "[internal/config/runtime.go: showing lines 1-20 of 20]\n"},
+			{ToolName: "emit_evidence", Success: true, Summary: "emit_evidence accepted 1 item(s)"},
+		},
+	})
+	if !sig.HintRequested {
+		t.Fatalf("expected structural precedence next-hop hint, got %+v", sig)
+	}
+	if sig.HintKey != "explorer.mid-loop.exact-absence-precedence-next-hop" {
+		t.Fatalf("HintKey = %q, want explorer.mid-loop.exact-absence-precedence-next-hop", sig.HintKey)
+	}
+	if !strings.Contains(sig.Hint, "cmd/root.go") {
+		t.Fatalf("hint should surface the consumer / merge hop, got: %s", sig.Hint)
+	}
+}
+
 func TestExactAbsenceClosureReady_IgnoresSummaryOnlyScopeLaundry(t *testing.T) {
 	contract := &types.ExactResolutionContract{
 		TargetKind:           types.SubjectConfigKey,

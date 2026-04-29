@@ -243,16 +243,18 @@ type MutableState struct {
 	// from this file set before allowing result_kind=absence. Reset per
 	// explore window together with the other investigation latches.
 	exactContextRequiredFiles []string
-	// retainedAbsenceJustification / retainedInvestigationResultKind
-	// preserve the most recently accepted terminal investigation state
-	// across explore-window retries. ResetInvestigationComplete clears
-	// the per-window latch so a new explorer dispatch starts fresh, but
-	// downstream stages still need the accepted absence / resolved
-	// disposition from the last successful emit_investigation_complete
+	// retainedAbsenceJustification / retainedInvestigationResultKind /
+	// retainedInvestigationCompleteReason preserve the most recently
+	// accepted terminal investigation state across explore-window
+	// retries. ResetInvestigationComplete clears the per-window latch so
+	// a new explorer dispatch starts fresh, but downstream stages still
+	// need the accepted absence / resolved disposition and the closure
+	// rationale from the last successful emit_investigation_complete
 	// call. These retained fields survive window resets until the task
 	// itself ends.
-	retainedAbsenceJustification    string
-	retainedInvestigationResultKind string
+	retainedAbsenceJustification        string
+	retainedInvestigationResultKind     string
+	retainedInvestigationCompleteReason string
 
 	// exploreBudget is the ExploreBudget the orchestrator installs
 	// at the top of runTaskGraph. The explorer's ReAct loop reads
@@ -1101,13 +1103,13 @@ func (m *MutableState) ResetEmittedHypothesisVerdicts() {
 // "PASTE THE FULL PRIOR PAYLOAD BACK byte-identical" override
 // before the field-specific correction.
 type AnswerDocAttemptShape struct {
-	CitationsCount      int
-	StepsCount          int
-	SymbolsCount        int
-	SummaryRunes        int
-	HasValue            bool
-	HasBoolean          bool
-	HasExactResolution  bool
+	CitationsCount     int
+	StepsCount         int
+	SymbolsCount       int
+	SummaryRunes       int
+	HasValue           bool
+	HasBoolean         bool
+	HasExactResolution bool
 }
 
 // SetLastAnswerDocAttemptShape stores the size profile of the most
@@ -1820,8 +1822,12 @@ func (m *MutableState) SetInvestigationComplete(reason string) {
 	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	reason = strings.TrimSpace(reason)
 	m.investigationComplete = true
 	m.investigationCompleteReason = reason
+	if reason != "" {
+		m.retainedInvestigationCompleteReason = reason
+	}
 }
 
 // IsInvestigationComplete reports whether the LLM has called
@@ -1844,6 +1850,20 @@ func (m *MutableState) InvestigationCompleteReason() string {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 	return m.investigationCompleteReason
+}
+
+// StableInvestigationCompleteReason returns the best available
+// accepted completion rationale across explore-window resets.
+func (m *MutableState) StableInvestigationCompleteReason() string {
+	if m == nil {
+		return ""
+	}
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	if reason := strings.TrimSpace(m.investigationCompleteReason); reason != "" {
+		return reason
+	}
+	return strings.TrimSpace(m.retainedInvestigationCompleteReason)
 }
 
 // ResetInvestigationComplete clears the completion flag so a retried

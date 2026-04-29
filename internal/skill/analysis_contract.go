@@ -182,12 +182,21 @@ var analysisDiagramKinds = []AnalysisEnumChoice{
 	{string(types.DiagramArchitecture), "component / layer / subsystem relationship view"},
 }
 
+var analysisExactContextRoles = []AnalysisEnumChoice{
+	{string(types.EvidenceDiagramRoleDefault), "code-default / compiled-in baseline layer"},
+	{string(types.EvidenceDiagramRoleConfig), "repo or user config-file layer (YAML / JSON / TOML / INI / properties / env-like config files)"},
+	{string(types.EvidenceDiagramRoleRuntime), "runtime-resolved struct / in-memory config layer"},
+	{string(types.EvidenceDiagramRoleOverride), "override channel such as CLI / env / explicit runtime override"},
+}
+
 // AnalysisDiagramKindChoices returns the canonical diagram_hint.kind enum table.
 func AnalysisDiagramKindChoices() []AnalysisEnumChoice { return analysisDiagramKinds }
 
 // AnalysisDiagramKindValues returns the diagram_hint.kind enum values
 // in canonical order. The emit_analysis JSON schema reads this slice.
 func AnalysisDiagramKindValues() []string { return enumValues(analysisDiagramKinds) }
+
+func AnalysisExactContextRoleValues() []string { return enumValues(analysisExactContextRoles) }
 
 // analysisPredicateAxes is the canonical predicate_axis enum. Values
 // match types.PredicateAxis constants. The LLM emits this directly in
@@ -341,7 +350,7 @@ func BuildAnalysisSkill() *Config {
 	of.WriteString("- keywords, entities — string arrays (may be empty).\n")
 	of.WriteString("- intent_confidence, complexity_confidence, kind_confidence, shape_confidence — floats in [0.0, 1.0].\n")
 	of.WriteString("- predicates — object with six required booleans (see Semantic predicates below).\n\n")
-	of.WriteString("Optional fields: sub_topics (array), answer_subject (object), predicate_axis (enum), diagram_hint (object), exact_targets (array), exact_context_terms (array), language.\n\n")
+	of.WriteString("Optional fields: sub_topics (array), answer_subject (object), predicate_axis (enum), diagram_hint (object), exact_targets (array), exact_context_terms (array), exact_context_roles (array), language.\n\n")
 	of.WriteString("Everything downstream — the search plan, the evidence plan, the hypothesis set, the quality checks — is derived automatically from your input; do not provide them.\n\n")
 	of.WriteString("Field enums:\n\n")
 	of.WriteString(renderEnumTable("intent", analysisIntents))
@@ -365,6 +374,9 @@ func BuildAnalysisSkill() *Config {
 	of.WriteString("diagram_hint is OPTIONAL. Use it when the question clearly benefits from a structural diagram: `call_dag` for call chains / dispatch / fan-out, `flow` for branches / guards / fallback / retry, `sequence` for actor-to-actor ordering over time, `architecture` for component / layer / subsystem relationships. The deterministic compiler derives the final diagram contract, so omit the field when unsure.\n\n")
 	of.WriteString("exact_targets is OPTIONAL. Use it when the user is asking about a SPECIFIC named target but the request also mentions nearby context items (for example, a config key plus neighboring files / layers / defaults). Put ONLY the exact user-asked target(s) here, copied verbatim from the current request text. Omit the field when unsure. The system validates every item against the current request before turning it into an exact-resolution contract.\n\n")
 	of.WriteString("exact_context_terms is OPTIONAL. Leave it unset by default. Use it only alongside exact_targets when nearby context truly needs one narrow identifier family / module scope, and only when you can copy 1-2 stems directly from the exact target lane itself. Examples: if the exact target is `explore_mid_loop_hint_budget`, a good term is `explore`; if the exact target is a path under `internal/tool/...`, good terms are path segments or identifier stems that come from that exact target lane. Do NOT invent new family names, layer labels, precedence words, or generic context terms. The system validates every term against the request-mentioned exact-target lane and silently drops invalid ones downstream.\n\n")
+	of.WriteString(renderEnumTable("exact_context_roles[]", analysisExactContextRoles))
+	of.WriteString("\n")
+	of.WriteString("exact_context_roles is OPTIONAL. Use it only alongside exact_targets when the user explicitly asks for precedence / lineage layers of a config-like exact target (for example code default vs config file vs CLI/env override). Emit only the abstract roles the user actually asked about, using the enum values above. Do not guess file names or repo-specific layer names here; the system maps grounded evidence onto these abstract roles downstream.\n\n")
 	of.WriteString("## Confidence\n\n")
 	of.WriteString("For intent / complexity / question_kind / answer_shape, also emit a confidence float in [0.0, 1.0]:\n")
 	of.WriteString("- 0.9+ when the user's wording unambiguously dictates the value\n")
@@ -414,7 +426,7 @@ func BuildAnalysisSkill() *Config {
 			"Round 2 is allowed at most once, when Round 1 ended ambiguous on either signal: (a) a key entity came back empty → broaden keyword stems / variants (still files_only=true); or (b) classification remains uncertain AND Round 1 surfaced a declarative file (e.g. a name matching topology / defaults / registry / routes / wire / init / manifest / schema / enum patterns) → a single response MAY include up to 3 grep(files_only=false, max_count=20) calls targeting those declarative files, to peek at the literal forms inside map/struct/enum bodies. Then call emit_analysis regardless of the Round 2 result.",
 			"For count / size / total / measurement-scalar questions: Round 1 confirms the subject exists (the directory / file / symbol the question is asking about), then immediately call emit_analysis with intent=return_value + answer_shape=value + predicates.is_count_question=true. Do NOT attempt to compute the answer literal yourself in pre-scan — the explore stage is the one that runs wc / find / grep -c and reads file content. Trying to retrieve full file content via grep(files_only=false) to count lines yourself will exhaust the pre-scan budget and fail-loud the analyze stage.",
 			"If the request spans multiple independent sub-topics, fill sub_topics (at most 5) and set answer_shape=explanation.",
-			"Call emit_analysis exactly once. Required fields: intent, scenario, complexity, keywords, entities, question_kind, answer_shape, the four confidence floats (intent_confidence, complexity_confidence, kind_confidence, shape_confidence), and the predicates object (six booleans: is_scalar_answer, is_count_question, is_cross_component, is_relational_lookup, is_category_enumeration, is_history_lookup). Optional: sub_topics, answer_subject, predicate_axis, diagram_hint, enumeration_boundary, exact_targets, exact_context_terms, language.",
+			"Call emit_analysis exactly once. Required fields: intent, scenario, complexity, keywords, entities, question_kind, answer_shape, the four confidence floats (intent_confidence, complexity_confidence, kind_confidence, shape_confidence), and the predicates object (six booleans: is_scalar_answer, is_count_question, is_cross_component, is_relational_lookup, is_category_enumeration, is_history_lookup). Optional: sub_topics, answer_subject, predicate_axis, diagram_hint, enumeration_boundary, exact_targets, exact_context_terms, exact_context_roles, language.",
 		},
 		ToolSuggestions: append([]string(nil), AnalysisToolSuggestions...),
 		OutputFormat:    of.String(),

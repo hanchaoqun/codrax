@@ -186,6 +186,13 @@ func configTraceDiagramSupported(
 	if stableAbsent && contract == nil {
 		return false
 	}
+	if !ConfigTraceRequiredRoleCoverageSatisfied(contract, requiredFiles, evidence) {
+		return false
+	}
+	return ConfigTraceValidatedDiagramRoleCount(contract, requiredFiles, evidence) >= 2
+}
+
+func ConfigTraceValidatedDiagramRoleCount(contract *ExactResolutionContract, requiredFiles []string, evidence []EvidenceItem) int {
 	roles := make(map[EvidenceDiagramRole]bool, 4)
 	for _, item := range evidence {
 		role := ConfigTraceValidatedDiagramRoleInFiles(contract, item, requiredFiles)
@@ -193,9 +200,44 @@ func configTraceDiagramSupported(
 			continue
 		}
 		roles[role] = true
-		if len(roles) >= 2 {
-			return true
+	}
+	return len(roles)
+}
+
+func ConfigTraceRequestedDiagramRoles(contract *ExactResolutionContract) []EvidenceDiagramRole {
+	if contract == nil {
+		return nil
+	}
+	return NormalizeEvidenceDiagramRoles(contract.RequestedContextRoles)
+}
+
+func ConfigTraceMissingRequestedDiagramRoles(contract *ExactResolutionContract, requiredFiles []string, evidence []EvidenceItem) []EvidenceDiagramRole {
+	requested := ConfigTraceRequestedDiagramRoles(contract)
+	if len(requested) == 0 {
+		return nil
+	}
+	covered := make(map[EvidenceDiagramRole]bool, len(requested))
+	for _, item := range evidence {
+		role := ConfigTraceValidatedDiagramRoleInFiles(contract, item, requiredFiles)
+		if role != EvidenceDiagramRoleUnknown {
+			covered[role] = true
 		}
 	}
-	return false
+	var missing []EvidenceDiagramRole
+	for _, role := range requested {
+		if !covered[role] {
+			missing = append(missing, role)
+		}
+	}
+	return missing
+}
+
+func ConfigTraceRequiredRoleCoverageSatisfied(contract *ExactResolutionContract, requiredFiles []string, evidence []EvidenceItem) bool {
+	if requested := ConfigTraceRequestedDiagramRoles(contract); len(requested) > 0 {
+		return len(ConfigTraceMissingRequestedDiagramRoles(contract, requiredFiles, evidence)) == 0
+	}
+	if !ConfigTraceNeedsMultiLayerClosure(requiredFiles) {
+		return true
+	}
+	return ConfigTraceValidatedDiagramRoleCount(contract, requiredFiles, evidence) >= 2
 }

@@ -206,3 +206,81 @@ func TestRefreshedExactResolutionContextFiles_PrefersGroundedEvidenceOverPending
 		t.Fatalf("grounded related-context files should override pending lexical neighbors, got %v", got)
 	}
 }
+
+func TestRefreshedExactResolutionContextFiles_KeepsCoverageShapingFilesUntilConfigTraceClosureIsReady(t *testing.T) {
+	contract := &types.ExactResolutionContract{
+		TargetKind:           types.SubjectConfigKey,
+		TargetLabel:          "config key",
+		Targets:              []string{"explore_mid_loop_hint_budget"},
+		AllowAbsence:         true,
+		RelatedContextPolicy: types.ExactContextSameFamilyGrounded,
+		RelatedContextTerms:  []string{"explore"},
+	}
+	evidence := []types.EvidenceItem{
+		{
+			Kind:            types.EvidenceDirect,
+			Subject:         "explore_mid_loop_hint_budget",
+			Predicate:       "absent_from",
+			Object:          "ExploreHeuristics",
+			Source:          "internal/types/config.go",
+			GroundingStatus: types.GroundingGrounded,
+			ContextRole:     types.EvidenceContextRoleAbsenceSupport,
+			AnchorKind:      types.AnchorDefinition,
+			AnchorSymbol:    "ExploreHeuristics",
+			LineStart:       768,
+		},
+		{
+			Kind:            types.EvidenceDirect,
+			Subject:         "DefaultExploreHeuristics",
+			Predicate:       "provides_defaults_for",
+			Object:          "explore settings",
+			Source:          "internal/types/config.go",
+			GroundingStatus: types.GroundingGrounded,
+			ContextRole:     types.EvidenceContextRoleRelatedContext,
+			DiagramRole:     types.EvidenceDiagramRoleDefault,
+			AnchorKind:      types.AnchorDefinition,
+			AnchorSymbol:    "DefaultExploreHeuristics",
+			LineStart:       848,
+		},
+		{
+			Kind:                 types.EvidenceDirect,
+			Subject:              "explore",
+			Object:               "ExploreHeuristics",
+			Source:               "codrax.yaml.example",
+			GroundingStatus:      types.GroundingUngrounded,
+			ContextRole:          types.EvidenceContextRoleRelatedContext,
+			RequestedDiagramRole: types.EvidenceDiagramRoleConfig,
+			AnchorKind:           types.AnchorDefinition,
+			AnchorSymbol:         "explore",
+			LineStart:            309,
+		},
+		{
+			Kind:                 types.EvidenceDirect,
+			Subject:              "pipeline-max-stage-visits",
+			Source:               "cmd/root.go",
+			GroundingStatus:      types.GroundingUngrounded,
+			ContextRole:          types.EvidenceContextRoleRelatedContext,
+			RequestedDiagramRole: types.EvidenceDiagramRoleOverride,
+			AnchorKind:           types.AnchorAssignment,
+			AnchorSymbol:         "h.MidLoopMinIteration",
+			LineStart:            1556,
+		},
+	}
+	got := refreshedExactResolutionContextFiles(contract, types.ScenarioConfigTrace, evidence, nil, []string{
+		"internal/types/config.go",
+		"codrax.yaml.example",
+	})
+	want := []string{
+		"internal/types/config.go",
+		"codrax.yaml.example",
+		"cmd/root.go",
+	}
+	if len(got) != len(want) {
+		t.Fatalf("context files len = %d, want %d (%v)", len(got), len(want), got)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("context files = %v, want %v", got, want)
+		}
+	}
+}

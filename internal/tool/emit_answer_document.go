@@ -3525,15 +3525,15 @@ func validateAnswerDocumentExactResolutionProof(exact *types.AnswerExactResoluti
 				WithHint("Re-emit `emit_answer_document` with `status=\"absent\"` only if you remove the contradictory exact-target proof from the answer surface. If the existing grounded proof truly defines the exact target, switch to `exact_match` instead of keeping `absent`.")
 		}
 	case types.AnswerExactResolutionExactMatch:
-		if !proof.AnyTarget {
-			return newAnswerDocValidationError("exact_resolution", "exact-resolution contract violated: exact_resolution.status=exact_match requires at least one grounded evidence item or cited line that explicitly names the requested exact %s %s", label, exactTargetListForError(contract.Targets)).
+		if !proof.AnyDefiningTargetProof {
+			if proof.RequiresProductionProof && proof.AnyTarget && !proof.AnyProductionTargetAnchor {
+				return newAnswerDocValidationError("exact_resolution", "exact-resolution contract violated: exact_resolution.status=exact_match for the requested exact %s %s requires production-grounded defining proof, not only nearby context, negative probes, test/spec/example mentions, or summary-level target text", label, exactTargetListForError(contract.Targets)).
+					WithFields("exact_resolution.status", "citations", "summary").
+					WithHint("Re-emit `emit_answer_document` with `status=\"exact_match\"` only when the exact target is grounded by a production-defining anchor or cited line. Nearby related context, negative absence-support items, and summary/background mentions of the target do not justify `exact_match`. Otherwise keep the exact target absent or contextual instead of upgrading it.")
+			}
+			return newAnswerDocValidationError("exact_resolution", "exact-resolution contract violated: exact_resolution.status=exact_match requires at least one grounded defining evidence item or cited line that explicitly names the requested exact %s %s", label, exactTargetListForError(contract.Targets)).
 				WithFields("exact_resolution.status", "citations", "summary").
-				WithHint("Re-emit `emit_answer_document` with `status=\"exact_match\"` only when a grounded evidence item's structured anchor fields (`subject` / `object` / `anchor_symbol`) or a cited line explicitly names the requested exact target. Free-form summary/background prose does not count as exact proof. Otherwise use `absent` only if the investigation closed as absence, or `alias_match` only with explicit grounded mapping proof.")
-		}
-		if proof.RequiresProductionProof && !proof.AnyProductionTargetAnchor {
-			return newAnswerDocValidationError("exact_resolution", "exact-resolution contract violated: exact_resolution.status=exact_match for the requested exact %s %s requires production-grounded anchored proof, not only test/spec/example or documentation-style mentions", label, exactTargetListForError(contract.Targets)).
-				WithFields("exact_resolution.status", "citations", "summary").
-				WithHint("Re-emit `emit_answer_document` with `status=\"exact_match\"` only when the exact target is grounded by production code/config proof. Test/spec/example/documentation mentions may stay as background, but they cannot justify `exact_match` on their own, and summary prose alone never upgrades them into exact proof.")
+				WithHint("Re-emit `emit_answer_document` with `status=\"exact_match\"` only when a grounded evidence item's defining anchor fields or a cited line explicitly define the requested exact target. Free-form summary/background prose and nearby context do not count as exact proof. Otherwise use `absent` only if the investigation closed as absence, or `alias_match` only with explicit grounded mapping proof.")
 		}
 	case types.AnswerExactResolutionAliasMatch:
 		if !proof.anyPair(exact.Anchor) {
@@ -3712,20 +3712,174 @@ func normalizeFollowOnGroundedContextSummarySurface(summary string, contract *ty
 		Status:      types.AnswerExactResolutionAbsent,
 		ContextMode: types.AnswerExactResolutionContextGroundedOnly,
 	}, requestedAnswerDocumentLanguage(ctx))
+	summary = trimFollowOnGroundedContextRestatements(summary, contract, plan)
 	body := exactContextSummaryBodyAfterLead(summary, lead)
+	if followOnGroundedContextBodyMentionsAnchors(body, plan) {
+		return summary
+	}
 	if repeatedExactTargetAfterLead(contract, body) != "" {
 		if fallback := renderFollowOnGroundedContextSummarySeed(plan, requestedAnswerDocumentLanguage(ctx)); fallback != "" {
 			return fallback
 		}
 		return summary
 	}
-	if len(mentionedExactContextSurfaceLabelHits(body, plan.AllowedExactContextLabels)) > 0 {
-		return summary
-	}
 	if fallback := renderFollowOnGroundedContextSummarySeed(plan, requestedAnswerDocumentLanguage(ctx)); fallback != "" {
 		return fallback
 	}
 	return summary
+}
+
+func trimFollowOnGroundedContextRestatements(summary string, contract *types.ExactResolutionContract, plan *types.AnswerSurfacePlan) string {
+	summary = strings.TrimSpace(summary)
+	if summary == "" || contract == nil || plan == nil {
+		return summary
+	}
+	paragraphs := splitSummaryParagraphs(summary)
+	if len(paragraphs) == 0 {
+		return summary
+	}
+	var rebuilt []string
+	var pendingHeadings []string
+	changed := false
+	for _, paragraph := range paragraphs {
+		trimmed := strings.TrimSpace(paragraph)
+		if trimmed == "" {
+			continue
+		}
+		if strings.HasPrefix(trimmed, "```") {
+			rebuilt = append(rebuilt, pendingHeadings...)
+			pendingHeadings = nil
+			rebuilt = append(rebuilt, trimmed)
+			continue
+		}
+		if strings.HasPrefix(trimmed, "#") {
+			pendingHeadings = append(pendingHeadings, trimmed)
+			continue
+		}
+		trimmedParagraph, keep := trimFollowOnGroundedContextParagraph(trimmed, contract)
+		if !keep {
+			if len(pendingHeadings) > 0 {
+				changed = true
+				pendingHeadings = nil
+			}
+			changed = true
+			continue
+		}
+		if trimmedParagraph != trimmed {
+			changed = true
+		}
+		rebuilt = append(rebuilt, pendingHeadings...)
+		pendingHeadings = nil
+		rebuilt = append(rebuilt, trimmedParagraph)
+	}
+	if !changed {
+		return summary
+	}
+	joined := strings.TrimSpace(strings.Join(rebuilt, "\n\n"))
+	if joined == "" {
+		return ""
+	}
+	return joined
+}
+
+func trimFollowOnGroundedContextParagraph(paragraph string, contract *types.ExactResolutionContract) (string, bool) {
+	if paragraph == "" || contract == nil {
+		return paragraph, paragraph != ""
+	}
+	sentences := splitSummarySentences(paragraph)
+	if len(sentences) == 0 {
+		if repeatedExactTargetAfterLead(contract, paragraph) != "" {
+			return "", false
+		}
+		return paragraph, true
+	}
+	kept := make([]string, 0, len(sentences))
+	changed := false
+	for _, sentence := range sentences {
+		if repeatedExactTargetAfterLead(contract, sentence) != "" {
+			changed = true
+			continue
+		}
+		kept = append(kept, sentence)
+	}
+	if !changed {
+		return paragraph, true
+	}
+	if len(kept) == 0 {
+		return "", false
+	}
+	return strings.TrimSpace(strings.Join(kept, " ")), true
+}
+
+func followOnGroundedContextBodyMentionsAnchors(body string, plan *types.AnswerSurfacePlan) bool {
+	if plan == nil {
+		return false
+	}
+	if len(mentionedExactContextSurfaceLabelHits(body, plan.AllowedExactContextLabels)) > 0 {
+		return true
+	}
+	items := mergedFollowOnGroundedContextItems(plan)
+	if len(items) == 0 && len(plan.RelatedContextCitationCandidates) == 0 {
+		return false
+	}
+	lower := strings.ToLower(body)
+	for _, item := range items {
+		if summaryMentionsFollowOnGroundedItem(body, lower, item) {
+			return true
+		}
+	}
+	for _, candidate := range plan.RelatedContextCitationCandidates {
+		source := strings.TrimSpace(strings.ReplaceAll(candidate.Source, `\`, `/`))
+		if source == "" {
+			continue
+		}
+		if strings.Contains(lower, strings.ToLower(source)) {
+			return true
+		}
+		if candidate.Line > 0 && strings.Contains(body, fmt.Sprintf("%s:%d", source, candidate.Line)) {
+			return true
+		}
+	}
+	return false
+}
+
+func summaryMentionsFollowOnGroundedItem(body, lower string, item types.EvidenceItem) bool {
+	if symbol := strings.TrimSpace(item.AnchorSymbol); symbol != "" && containsSurfaceToken(lower, strings.ToLower(symbol)) {
+		return true
+	}
+	source := strings.TrimSpace(strings.ReplaceAll(item.Source, `\`, `/`))
+	if source == "" {
+		return false
+	}
+	if strings.Contains(lower, strings.ToLower(source)) {
+		return true
+	}
+	if item.LineStart > 0 && strings.Contains(body, fmt.Sprintf("%s:%d", source, item.LineStart)) {
+		return true
+	}
+	return false
+}
+
+func mergedFollowOnGroundedContextItems(plan *types.AnswerSurfacePlan) []types.EvidenceItem {
+	if plan == nil {
+		return nil
+	}
+	var out []types.EvidenceItem
+	seen := make(map[string]bool)
+	appendUnique := func(items []types.EvidenceItem) {
+		for _, item := range items {
+			key := fmt.Sprintf("%s:%d:%s:%s", strings.TrimSpace(item.Source), item.LineStart, strings.TrimSpace(item.AnchorSymbol), strings.TrimSpace(item.Summary))
+			if key == "" || seen[key] {
+				continue
+			}
+			seen[key] = true
+			out = append(out, item)
+		}
+	}
+	appendUnique(plan.ProseOnlyExactContextItems)
+	appendUnique(plan.CitationGradeExactContextItems)
+	appendUnique(plan.AllowedExactContextItems)
+	return out
 }
 
 func renderFollowOnGroundedContextSummarySeed(plan *types.AnswerSurfacePlan, lang string) string {
@@ -3787,29 +3941,11 @@ func renderFollowOnGroundedContextSummarySeed(plan *types.AnswerSurfacePlan, lan
 			}
 		}
 	}
-	mergedItems := func(plan *types.AnswerSurfacePlan) []types.EvidenceItem {
-		var out []types.EvidenceItem
-		seen := make(map[string]bool)
-		appendUnique := func(items []types.EvidenceItem) {
-			for _, item := range items {
-				key := fmt.Sprintf("%s:%d:%s:%s", strings.TrimSpace(item.Source), item.LineStart, strings.TrimSpace(item.AnchorSymbol), strings.TrimSpace(item.Summary))
-				if key == "" || seen[key] {
-					continue
-				}
-				seen[key] = true
-				out = append(out, item)
-			}
-		}
-		appendUnique(plan.ProseOnlyExactContextItems)
-		appendUnique(plan.CitationGradeExactContextItems)
-		appendUnique(plan.AllowedExactContextItems)
-		return out
-	}
 	// Summary fallback seeds are prose-oriented recovery aids, not
 	// citation selectors. Pick the strongest nearby same-scope anchors
 	// from the unified allowed pool, then fall back to the flattened
 	// label set only when the item-backed pool is empty.
-	appendItemLabels(mergedItems(plan))
+	appendItemLabels(mergedFollowOnGroundedContextItems(plan))
 	if len(labels) < 2 {
 		appendLabels(plan.AllowedExactContextLabels)
 	}
@@ -4157,7 +4293,8 @@ func normalizeMinimalRoleLocateSummarySurface(summary string, shape types.Answer
 var backtickedLabelRe = regexp.MustCompile("`([^`\n]+)`")
 
 func normalizeLogSourceDriftSummarySurface(summary string, citations []types.Citation, gc *ground.Context, ctx *types.BusContext) string {
-	summary = strings.TrimSpace(summary)
+	original := strings.TrimSpace(summary)
+	summary = original
 	plan := answerSurfacePlan(ctx)
 	if plan != nil && plan.SummarySurfaceMode == types.AnswerSummarySurfaceDriftBoundedRootCause {
 		summary = sanitizeDriftBoundedRootCauseSummary(summary, citations, gc, ctx)
@@ -4185,16 +4322,66 @@ func normalizeLogSourceDriftSummarySurface(summary string, citations []types.Cit
 		if fence != "" && summary != "" && strings.Contains(summary, fence) {
 			fence = ""
 		}
-		return joinDistinctSummaryBlocks(lead, summary, fence)
+		return preserveRequiredSummaryCoverageAcrossNormalization(original, joinDistinctSummaryBlocks(lead, summary, fence), ctx)
 	}
 	lead := renderLogSourceDriftLeadClean(ctx)
 	if lead == "" {
-		return summary
+		return preserveRequiredSummaryCoverageAcrossNormalization(original, summary, ctx)
 	}
 	if summary == "" {
-		return lead
+		return preserveRequiredSummaryCoverageAcrossNormalization(original, lead, ctx)
 	}
-	return strings.TrimSpace(lead + "\n\n" + summary)
+	return preserveRequiredSummaryCoverageAcrossNormalization(original, strings.TrimSpace(lead+"\n\n"+summary), ctx)
+}
+
+func preserveRequiredSummaryCoverageAcrossNormalization(original, candidate string, ctx *types.BusContext) string {
+	original = strings.TrimSpace(original)
+	candidate = strings.TrimSpace(candidate)
+	if original == "" || candidate == "" || ctx == nil {
+		return candidate
+	}
+	if !summaryCoverageLostAcrossNormalization(original, candidate, ctx) {
+		return candidate
+	}
+	if block := firstRequiredCoverageSummaryBlock(original, ctx); block != "" {
+		repaired := joinDistinctSummaryBlocks(block, candidate)
+		if !summaryCoverageLostAcrossNormalization(original, repaired, ctx) {
+			return repaired
+		}
+	}
+	if validateSummaryLogTriageCoverage(original, ctx) == nil {
+		return original
+	}
+	return candidate
+}
+
+func summaryCoverageLostAcrossNormalization(original, candidate string, ctx *types.BusContext) bool {
+	if validateSummaryLogTriageCoverage(original, ctx) == nil &&
+		validateSummaryLogTriageCoverage(candidate, ctx) != nil {
+		return true
+	}
+	return false
+}
+
+func firstRequiredCoverageSummaryBlock(summary string, ctx *types.BusContext) string {
+	summary = strings.TrimSpace(summary)
+	if summary == "" || ctx == nil {
+		return ""
+	}
+	blocks := strings.Split(summary, "\n\n")
+	var cumulative []string
+	for _, block := range blocks {
+		block = strings.TrimSpace(block)
+		if block == "" || strings.HasPrefix(block, "```") {
+			continue
+		}
+		cumulative = append(cumulative, block)
+		joined := strings.Join(cumulative, "\n\n")
+		if validateSummaryLogTriageCoverage(joined, ctx) == nil {
+			return joined
+		}
+	}
+	return ""
 }
 
 func sanitizeDriftBoundedRootCauseSummary(summary string, citations []types.Citation, gc *ground.Context, ctx *types.BusContext) string {
@@ -5140,10 +5327,13 @@ func entryCountsAsDefiningTargetProof(contract *types.ExactResolutionContract, e
 	if entry.FromEvidence && strings.TrimSpace(string(entry.AnchorKind)) == "" {
 		return false
 	}
-	if entry.ContextRole == types.EvidenceContextRoleDefining {
+	if entryDirectlyAnchorsAnyTarget(contract, entry) {
 		return true
 	}
-	return entryDirectlyAnchorsAnyTarget(contract, entry)
+	if entry.FromEvidence || entry.ContextRole != types.EvidenceContextRoleDefining {
+		return false
+	}
+	return entry.LineText != "" && types.ExactResolutionTextsMentionAnyTarget(contract, entry.LineText)
 }
 
 func matchingEvidenceForCitation(items []types.EvidenceItem, c types.Citation) types.EvidenceItem {

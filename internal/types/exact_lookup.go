@@ -31,11 +31,39 @@ func BuildExactResolutionContract(rm RequestModel) *ExactResolutionContract {
 		AliasRequiresProof:   true,
 		RelatedContextPolicy: policy,
 		RelatedContextTerms:  exactResolutionValidatedContextTerms(rm.AnswerSubject.Kind, policy, targets, rm.AnalyzerHints.ExactContextTerms, rm.AnalyzerHints.Keywords),
+		RequestedContextRoles: exactResolutionValidatedContextRoles(
+			rm.AnswerSubject.Kind,
+			rm.Scenario,
+			policy,
+			rm.AnalyzerHints.ExactContextRoles,
+		),
 	}
 	if hint := exactResolutionScopeHintForPolicy(policy); hint != "" {
 		contract.RelatedContextScopeHint = hint
 	}
 	return contract
+}
+
+func exactResolutionValidatedContextRoles(
+	subjectKind AnswerSubjectKind,
+	scenario Scenario,
+	policy ExactResolutionContextPolicy,
+	in []EvidenceDiagramRole,
+) []EvidenceDiagramRole {
+	if subjectKind != SubjectConfigKey || scenario != ScenarioConfigTrace || policy != ExactContextSameFamilyGrounded {
+		return nil
+	}
+	var filtered []EvidenceDiagramRole
+	for _, role := range NormalizeEvidenceDiagramRoles(in) {
+		switch role {
+		case EvidenceDiagramRoleDefault,
+			EvidenceDiagramRoleConfig,
+			EvidenceDiagramRoleRuntime,
+			EvidenceDiagramRoleOverride:
+			filtered = append(filtered, role)
+		}
+	}
+	return filtered
 }
 
 // ExactResolutionTargets returns the user-named primary targets for
@@ -367,14 +395,15 @@ func ExactResolutionTextsMentionAnyTarget(c *ExactResolutionContract, texts ...s
 	return false
 }
 
-// ExactResolutionDirectAnchorMatchesAnyTarget reports whether any
-// structured anchor field (subject / anchor symbol / object) explicitly
-// names one of the exact targets. Callers use this to separate genuine
-// defining anchors from free-form summary/snippet mentions.
+// ExactResolutionDirectAnchorMatchesAnyTarget reports whether the
+// structural anchor identity itself explicitly names one of the exact
+// targets. We intentionally restrict this to subject / anchor_symbol:
+// object often carries explanatory payload ("X does not define Y",
+// "defaults -> YAML -> runtime"), which is useful context but not a
+// defining anchor for Y on its own.
 func ExactResolutionDirectAnchorMatchesAnyTarget(c *ExactResolutionContract, subject, anchorSymbol, object string) bool {
 	return ExactResolutionTextsMentionAnyTarget(c, subject) ||
-		ExactResolutionTextsMentionAnyTarget(c, anchorSymbol) ||
-		ExactResolutionTextsMentionAnyTarget(c, object)
+		ExactResolutionTextsMentionAnyTarget(c, anchorSymbol)
 }
 
 // ExactResolutionProofAnchorMatchesAnyTarget is the stricter sibling
@@ -382,12 +411,10 @@ func ExactResolutionDirectAnchorMatchesAnyTarget(c *ExactResolutionContract, sub
 // requested exact target in Subject while AnchorSymbol names the real
 // nearby symbol it actually read. That pattern is useful for related
 // context, but it is NOT proof that the nearby symbol defines the exact
-// target. Proof-grade matching therefore prefers AnchorSymbol/Object
-// when present, and only falls back to Subject when no explicit anchor
-// symbol was supplied.
+// target. Proof-grade matching therefore prefers AnchorSymbol, and only
+// falls back to Subject when no explicit anchor symbol was supplied.
 func ExactResolutionProofAnchorMatchesAnyTarget(c *ExactResolutionContract, subject, anchorSymbol, object string) bool {
-	if ExactResolutionTextsMentionAnyTarget(c, anchorSymbol) ||
-		ExactResolutionTextsMentionAnyTarget(c, object) {
+	if ExactResolutionTextsMentionAnyTarget(c, anchorSymbol) {
 		return true
 	}
 	if !ExactResolutionTextsMentionAnyTarget(c, subject) {
@@ -773,8 +800,8 @@ func ConfigTraceRelatedContextCitationCandidates(contract *ExactResolutionContra
 		})
 	}
 	sort.SliceStable(out, func(i, j int) bool {
-		if configTraceCitationCandidateScore(out[i].Role) != configTraceCitationCandidateScore(out[j].Role) {
-			return configTraceCitationCandidateScore(out[i].Role) > configTraceCitationCandidateScore(out[j].Role)
+		if configTraceCitationCandidateScore(contract, out[i].Role) != configTraceCitationCandidateScore(contract, out[j].Role) {
+			return configTraceCitationCandidateScore(contract, out[i].Role) > configTraceCitationCandidateScore(contract, out[j].Role)
 		}
 		if out[i].Source != out[j].Source {
 			return out[i].Source < out[j].Source
@@ -784,7 +811,14 @@ func ConfigTraceRelatedContextCitationCandidates(contract *ExactResolutionContra
 	return out
 }
 
-func configTraceCitationCandidateScore(role EvidenceDiagramRole) int {
+func configTraceCitationCandidateScore(contract *ExactResolutionContract, role EvidenceDiagramRole) int {
+	if requested := ConfigTraceRequestedDiagramRoles(contract); len(requested) > 0 {
+		for i, requestedRole := range requested {
+			if requestedRole == role {
+				return 100 - i
+			}
+		}
+	}
 	switch role {
 	case EvidenceDiagramRoleOverride:
 		return 40
@@ -1082,12 +1116,38 @@ func ExactResolutionAbsenceClosureReady(c *ExactResolutionContract, scenario Sce
 		}
 	}
 	if hasAbsenceSupport && hasScopedContext {
+		if scenario == ScenarioConfigTrace && c.TargetKind == SubjectConfigKey &&
+			!ConfigTraceRequiredRoleCoverageSatisfied(c, requiredFiles, evidence) {
+			return false
+		}
 		return true
 	}
 	if !hasAllowedRelatedContext {
 		return false
 	}
+	if scenario == ScenarioConfigTrace && c.TargetKind == SubjectConfigKey &&
+		!ConfigTraceRequiredRoleCoverageSatisfied(c, requiredFiles, evidence) {
+		return false
+	}
 	return !ExactResolutionHasDefiningTargetProof(c, evidence)
+}
+
+func ConfigTraceNeedsMultiLayerClosure(requiredFiles []string) bool {
+	if len(requiredFiles) < 2 {
+		return false
+	}
+	seen := make(map[string]bool, len(requiredFiles))
+	for _, file := range requiredFiles {
+		file = exactResolutionCanonicalPath(file)
+		if file == "" || seen[file] {
+			continue
+		}
+		seen[file] = true
+		if len(seen) >= 2 {
+			return true
+		}
+	}
+	return false
 }
 
 // ExactResolutionAutoAbsenceJustification synthesizes a deterministic

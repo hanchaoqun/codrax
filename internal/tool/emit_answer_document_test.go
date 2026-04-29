@@ -1282,13 +1282,15 @@ func TestEmitAnswerDocument_RejectsExactMatchFromTestOnlyConfigProof(t *testing.
 	if res.Success {
 		t.Fatalf("test-only config proof must not satisfy exact_match")
 	}
-	if !strings.Contains(res.Summary, "anchored proof") {
+	if !strings.Contains(res.Summary, "anchored proof") &&
+		!strings.Contains(res.Summary, "defining proof") {
 		t.Fatalf("reject should explain anchored-proof requirement, got: %q", res.Summary)
 	}
 	if res.Repair == nil || res.Repair.Code != "exact_resolution" {
 		t.Fatalf("reject should expose exact_resolution repair metadata, got %+v", res.Repair)
 	}
-	if !strings.Contains(res.Repair.Hint, "production code/config proof") {
+	if !strings.Contains(res.Repair.Hint, "production code/config proof") &&
+		!strings.Contains(res.Repair.Hint, "production-defining anchor") {
 		t.Fatalf("repair hint should explain the production-proof requirement, got %q", res.Repair.Hint)
 	}
 }
@@ -1340,10 +1342,11 @@ func TestEmitAnswerDocument_RejectsExactMatchFromDocOnlyConfigMention(t *testing
 	if res.Success {
 		t.Fatalf("documentation-style mention must not satisfy exact_match")
 	}
-	if !strings.Contains(res.Summary, "explicitly names the requested exact config key") {
+	if !strings.Contains(res.Summary, "explicitly names the requested exact config key") &&
+		!strings.Contains(res.Summary, "requires production-grounded defining proof") {
 		t.Fatalf("reject should explain the missing exact-proof requirement, got: %q", res.Summary)
 	}
-	if res.Repair == nil || !strings.Contains(res.Repair.Hint, "structured anchor fields") {
+	if res.Repair == nil || (!strings.Contains(res.Repair.Hint, "defining anchor fields") && !strings.Contains(res.Repair.Hint, "production-defining anchor")) {
 		t.Fatalf("repair hint should explain the structured proof model, got %+v", res.Repair)
 	}
 }
@@ -1765,6 +1768,87 @@ func TestEmitAnswerDocument_RemapsDriftedObservedCitationsToAnchoredLines(t *tes
 	}
 	if doc.Citations[0].Quote != "" || doc.Citations[1].Quote != "" {
 		t.Fatalf("drift-remapped citations should clear stale quotes, got %+v", doc.Citations)
+	}
+}
+
+func TestEmitAnswerDocument_DriftNormalizationPreservesLogErrorTypeCoverage(t *testing.T) {
+	tool := &EmitAnswerDocument{}
+	ctx := newDocBusCtx("")
+	ctx.AnalysisIR = &types.AnalysisIR{
+		RequestModel: types.RequestModel{
+			Scenario: types.ScenarioRootCause,
+			Intent:   types.IntentRootCause,
+		},
+		AnswerContract: types.AnswerContract{
+			RequiredAnswerShape: types.ShapeExplanation,
+		},
+	}
+	ctx.Mutable.SetLogTriage(&types.LogBundle{
+		Errors: []types.LogError{{
+			Type: "nil pointer dereference",
+			Frames: []types.LogFrame{
+				{File: "internal/agent/analyzer.go", Line: 250, Func: "buildAnalysisIR"},
+				{File: "internal/agent/analyzer.go", Line: 320, Func: "ParseOutput"},
+			},
+		}},
+	})
+	ctx.Mutable.AppendEvidence([]types.EvidenceItem{
+		{
+			Kind:            types.EvidenceDirect,
+			Source:          "internal/agent/analyzer.go",
+			LineStart:       883,
+			AnchorKind:      types.AnchorDefinition,
+			AnchorSymbol:    "buildAnalysisIR",
+			GroundingStatus: types.GroundingGrounded,
+			Producer:        EmitEvidenceProducer,
+		},
+		{
+			Kind:            types.EvidenceConditional,
+			Source:          "internal/agent/analyzer.go",
+			LineStart:       891,
+			AnchorKind:      types.AnchorAssignment,
+			AnchorSymbol:    "raw",
+			Subject:         "raw",
+			Object:          "raw.Type",
+			ContextRole:     types.EvidenceContextRoleDefining,
+			GroundingStatus: types.GroundingGrounded,
+			Producer:        EmitEvidenceProducer,
+		},
+		{
+			Kind:            types.EvidenceDirect,
+			Source:          "internal/agent/analyzer.go",
+			LineStart:       674,
+			AnchorKind:      types.AnchorCall,
+			AnchorSymbol:    "buildAnalysisIR",
+			Subject:         "ParseOutput",
+			Object:          "buildAnalysisIR",
+			GroundingStatus: types.GroundingGrounded,
+			Producer:        EmitEvidenceProducer,
+		},
+	})
+
+	params := mustDocJSON(t, map[string]interface{}{
+		"shape": "explanation",
+		"summary": "这个 panic 是 **nil pointer dereference**（空指针解引用），发生在 `buildAnalysisIR` 函数中。\n\n" +
+			"根本原因在于 `buildAnalysisIR` 的保护机制不完整：它读取 `ctx.Mutable.RequestModel()` 之后，没有在后续对 `raw` 解引用前检查 `raw == nil`。\n\n" +
+			"```mermaid\nflowchart LR\nParseOutput --> buildAnalysisIR --> rawType[raw.Type]\n```\n",
+		"citations": []map[string]interface{}{
+			{"file": "internal/agent/analyzer.go", "line": 883},
+			{"file": "internal/agent/analyzer.go", "line": 891},
+			{"file": "internal/agent/analyzer.go", "line": 674},
+		},
+	})
+
+	res, _ := tool.Execute(ctx, params)
+	if !res.Success {
+		t.Fatalf("drift normalization must not drop required log error type coverage, got: %q", res.Summary)
+	}
+	doc := ctx.Mutable.AnswerDocument()
+	if doc == nil {
+		t.Fatal("answer document not stored")
+	}
+	if !strings.Contains(strings.ToLower(doc.Summary), "nil pointer dereference") {
+		t.Fatalf("summary lost required log error type after normalization: %q", doc.Summary)
 	}
 }
 
@@ -2283,7 +2367,7 @@ func TestEmitAnswerDocument_RejectsExactMatchWhenOnlySubjectRepeatsTargetButAnch
 		t.Fatalf("nearby related-context anchors must not satisfy exact_match just because the subject text repeats the target")
 	}
 	if !strings.Contains(res.Summary, "explicitly names the requested exact config key") &&
-		!strings.Contains(res.Summary, "requires production-grounded anchored proof") {
+		!strings.Contains(res.Summary, "requires production-grounded defining proof") {
 		t.Fatalf("reject should explain the missing exact-proof requirement, got: %q", res.Summary)
 	}
 }
@@ -2395,8 +2479,67 @@ func TestEmitAnswerDocument_RejectsExactMatchFromProductionAbsenceSupportMention
 	if res.Success {
 		t.Fatalf("absence-support production mention must not satisfy exact_match")
 	}
-	if !strings.Contains(res.Summary, "anchored proof") {
+	if !strings.Contains(res.Summary, "anchored proof") &&
+		!strings.Contains(res.Summary, "defining proof") {
 		t.Fatalf("reject should explain production anchored-proof requirement, got: %q", res.Summary)
+	}
+}
+
+func TestEmitAnswerDocument_RejectsExactMatchFromDefiningContextualMentionWithoutDirectAnchor(t *testing.T) {
+	tool := &EmitAnswerDocument{}
+	ctx := newDocBusCtx("")
+	target := "explore_mid_loop_hint_budget"
+	ctx.AnalysisIR = &types.AnalysisIR{
+		RequestModel: types.RequestModel{
+			Scenario: types.ScenarioConfigTrace,
+			AnalyzerHints: types.AnalyzerHints{
+				Kind:         "config_mapping",
+				ExactTargets: []string{target},
+			},
+			AnswerSubject: types.AnswerSubject{Kind: types.SubjectConfigKey},
+		},
+		AnswerContract: types.AnswerContract{
+			ExactResolution: &types.ExactResolutionContract{
+				TargetKind:              types.SubjectConfigKey,
+				TargetLabel:             "config key",
+				Targets:                 []string{target},
+				AllowAbsence:            true,
+				RequireTargetMention:    true,
+				AliasRequiresProof:      true,
+				RelatedContextPolicy:    types.ExactContextSameFamilyGrounded,
+				RelatedContextScopeHint: "same namespace / prefix family",
+			},
+		},
+	}
+	ctx.Mutable.AppendEvidence([]types.EvidenceItem{{
+		Kind:            types.EvidenceDirect,
+		Subject:         "ResolvedExploreHeuristics",
+		Predicate:       "defines",
+		Object:          "code defaults -> YAML overrides -> resolved values; " + target + " is not part of this merge",
+		Summary:         "ResolvedExploreHeuristics explains the merge for surviving fields, but does not define the missing exact key.",
+		Source:          "internal/types/config.go",
+		LineStart:       870,
+		LineEnd:         920,
+		GroundingStatus: types.GroundingGrounded,
+		ContextRole:     types.EvidenceContextRoleDefining,
+		AnchorKind:      types.AnchorDefinition,
+		AnchorSymbol:    "ResolvedExploreHeuristics",
+		Producer:        EmitEvidenceProducer,
+	}})
+
+	params := mustDocJSON(t, map[string]interface{}{
+		"shape": "explanation",
+		"exact_resolution": map[string]interface{}{
+			"status": "exact_match",
+		},
+		"summary": "The repo does not define this config key in the merge path.",
+	})
+	res, _ := tool.Execute(ctx, params)
+	if res.Success {
+		t.Fatalf("contextual target mention inside a nearby defining anchor must not satisfy exact_match")
+	}
+	if !strings.Contains(res.Summary, "defining evidence item") && !strings.Contains(res.Summary, "production-grounded defining proof") {
+		t.Fatalf("reject should explain the missing defining-proof requirement, got: %q", res.Summary)
 	}
 }
 
@@ -2727,6 +2870,215 @@ func TestEmitAnswerDocument_ConfigTraceAbsenceAllowsPrecedenceAnchors(t *testing
 	res, _ := tool.Execute(ctx, params)
 	if !res.Success {
 		t.Fatalf("precedence-capable exact-absence citations should pass, got reject: %q", res.Summary)
+	}
+}
+
+func TestNormalizeFollowOnGroundedContextSummarySurface_PreservesRichGroundedConfigContext(t *testing.T) {
+	ctx := newDocBusCtx("")
+	target := "explore_mid_loop_hint_budget"
+	ctx.AnalysisIR = &types.AnalysisIR{
+		RequestModel: types.RequestModel{
+			Scenario: types.ScenarioConfigTrace,
+			AnalyzerHints: types.AnalyzerHints{
+				Kind:         "config_mapping",
+				ExactTargets: []string{target},
+			},
+			AnswerSubject: types.AnswerSubject{Kind: types.SubjectConfigKey},
+		},
+		AnswerContract: types.AnswerContract{
+			RequiredAnswerShape: types.ShapeExplanation,
+			ExactResolution: &types.ExactResolutionContract{
+				TargetKind:            types.SubjectConfigKey,
+				TargetLabel:           "config key",
+				Targets:               []string{target},
+				AllowAbsence:          true,
+				RequireTargetMention:  true,
+				AliasRequiresProof:    true,
+				RelatedContextPolicy:  types.ExactContextSameFamilyGrounded,
+				RequestedContextRoles: []types.EvidenceDiagramRole{types.EvidenceDiagramRoleDefault, types.EvidenceDiagramRoleConfig, types.EvidenceDiagramRoleOverride},
+			},
+		},
+	}
+	ctx.Mutable.SetAbsenceJustification("searched the repo and found no config key named `explore_mid_loop_hint_budget`")
+	ctx.Mutable.SetInvestigationResultKind("absence")
+	ctx.Mutable.SetExactContextRequiredFiles([]string{"internal/types/config.go", "codrax.yaml.example", "cmd/root.go"})
+	ctx.Mutable.AppendEvidence([]types.EvidenceItem{
+		{
+			Kind:            types.EvidenceDirect,
+			Source:          "internal/config/runtime.go",
+			LineStart:       296,
+			AnchorKind:      types.AnchorDefinition,
+			AnchorSymbol:    "ExploreMidLoopMinIteration",
+			ContextRole:     types.EvidenceContextRoleAbsenceSupport,
+			GroundingStatus: types.GroundingGrounded,
+			GroundingTier:   types.TierLineText,
+		},
+		{
+			Kind:            types.EvidenceDirect,
+			Source:          "internal/types/config.go",
+			LineStart:       848,
+			AnchorKind:      types.AnchorDefinition,
+			AnchorSymbol:    "DefaultExploreHeuristics",
+			ContextRole:     types.EvidenceContextRoleRelatedContext,
+			DiagramRole:     types.EvidenceDiagramRoleDefault,
+			GroundingStatus: types.GroundingGrounded,
+			GroundingTier:   types.TierLineText,
+		},
+		{
+			Kind:            types.EvidenceDirect,
+			Source:          "internal/config/runtime.go",
+			LineStart:       296,
+			AnchorKind:      types.AnchorDefinition,
+			AnchorSymbol:    "explore_midloop_min_iteration",
+			ContextRole:     types.EvidenceContextRoleRelatedContext,
+			DiagramRole:     types.EvidenceDiagramRoleConfig,
+			GroundingStatus: types.GroundingGrounded,
+			GroundingTier:   types.TierLineText,
+		},
+		{
+			Kind:            types.EvidenceDirect,
+			Source:          "cmd/root.go",
+			LineStart:       1628,
+			AnchorKind:      types.AnchorCall,
+			AnchorSymbol:    "bindPipelineMaxRetriesFlag",
+			ContextRole:     types.EvidenceContextRoleRelatedContext,
+			DiagramRole:     types.EvidenceDiagramRoleOverride,
+			GroundingStatus: types.GroundingGrounded,
+			GroundingTier:   types.TierLineText,
+		},
+	})
+	plan := answerSurfacePlan(ctx)
+	if plan == nil || plan.SummarySurfaceMode != types.AnswerSummarySurfaceFollowOnGroundedContext {
+		t.Fatalf("answerSurfacePlan summary mode = %+v, want follow_on_grounded_context", plan)
+	}
+	summary := "### 第一层 — Code Default\n\n在 `internal/types/config.go:848` 的 `DefaultExploreHeuristics()` 中可以看到现存字段的 code default。\n\n### 第二层 — Config\n\n`codrax.yaml.example:315` 展示了现存的 `explore_*` 配置键族。\n\n### 第三层 — Override\n\n`cmd/root.go:1628` 附近的命令行覆盖逻辑说明哪些键真正拥有更高优先级的 override 通道。\n\n### explore_mid_loop_hint_budget 的状态\n\n`explore_mid_loop_hint_budget` 在这些层里都没有被定义，所以它本身没有可计算的最终有效值。"
+	got := normalizeFollowOnGroundedContextSummarySurface(summary, plan.ExactResolution, plan, ctx)
+	if !strings.Contains(got, "DefaultExploreHeuristics") || !strings.Contains(got, "codrax.yaml.example:315") || !strings.Contains(got, "cmd/root.go:1628") {
+		t.Fatalf("rich grounded config context should survive follow-on normalization, got: %q", got)
+	}
+	if strings.HasPrefix(got, "相关的已锚定上下文包括") {
+		t.Fatalf("follow-on normalization should not collapse grounded detail to the generic fallback sentence, got: %q", got)
+	}
+	lead := renderAnswerDocumentExactResolutionLeadClean(plan.ExactResolution, &types.AnswerExactResolution{
+		Status:      types.AnswerExactResolutionAbsent,
+		ContextMode: types.AnswerExactResolutionContextGroundedOnly,
+	}, requestedAnswerDocumentLanguage(ctx))
+	body := exactContextSummaryBodyAfterLead(got, lead)
+	if strings.Contains(body, target) {
+		t.Fatalf("follow-on normalization should trim repeated exact-target sections while preserving the grounded layered explanation, got: %q", got)
+	}
+}
+
+func TestEmitAnswerDocument_ConfigTraceAbsenceKeepsRichStructuredLayeredSummary(t *testing.T) {
+	tool := &EmitAnswerDocument{}
+	ctx := newDocBusCtx("")
+	target := "explore_mid_loop_hint_budget"
+	ctx.AnalysisIR = &types.AnalysisIR{
+		RequestModel: types.RequestModel{
+			Scenario: types.ScenarioConfigTrace,
+			AnalyzerHints: types.AnalyzerHints{
+				Kind:         "config_mapping",
+				ExactTargets: []string{target},
+			},
+			AnswerSubject: types.AnswerSubject{Kind: types.SubjectConfigKey},
+		},
+		AnswerContract: types.AnswerContract{
+			RequiredAnswerShape: types.ShapeExplanation,
+			ExactResolution: &types.ExactResolutionContract{
+				TargetKind:            types.SubjectConfigKey,
+				TargetLabel:           "config key",
+				Targets:               []string{target},
+				AllowAbsence:          true,
+				RequireTargetMention:  true,
+				AliasRequiresProof:    true,
+				RelatedContextPolicy:  types.ExactContextSameFamilyGrounded,
+				RequestedContextRoles: []types.EvidenceDiagramRole{types.EvidenceDiagramRoleDefault, types.EvidenceDiagramRoleConfig, types.EvidenceDiagramRoleOverride},
+			},
+		},
+	}
+	ctx.Mutable.SetAbsenceJustification("searched the repo and found no config key named `explore_mid_loop_hint_budget`")
+	ctx.Mutable.SetInvestigationResultKind("absence")
+	ctx.Mutable.SetExactContextRequiredFiles([]string{"internal/types/config.go", "codrax.yaml.example", "cmd/root.go"})
+	ctx.Mutable.AppendEvidence([]types.EvidenceItem{
+		{
+			Kind:            types.EvidenceDirect,
+			Source:          "internal/config/runtime.go",
+			LineStart:       296,
+			AnchorKind:      types.AnchorDefinition,
+			AnchorSymbol:    "ExploreMidLoopMinIteration",
+			ContextRole:     types.EvidenceContextRoleAbsenceSupport,
+			GroundingStatus: types.GroundingGrounded,
+			GroundingTier:   types.TierLineText,
+		},
+		{
+			Kind:            types.EvidenceDirect,
+			Source:          "internal/types/config.go",
+			LineStart:       848,
+			AnchorKind:      types.AnchorDefinition,
+			AnchorSymbol:    "DefaultExploreHeuristics",
+			ContextRole:     types.EvidenceContextRoleRelatedContext,
+			DiagramRole:     types.EvidenceDiagramRoleDefault,
+			GroundingStatus: types.GroundingGrounded,
+			GroundingTier:   types.TierLineText,
+		},
+		{
+			Kind:            types.EvidenceDirect,
+			Source:          "codrax.yaml.example",
+			LineStart:       315,
+			AnchorKind:      types.AnchorDefinition,
+			AnchorSymbol:    "explore_midloop_min_iteration",
+			ContextRole:     types.EvidenceContextRoleRelatedContext,
+			DiagramRole:     types.EvidenceDiagramRoleConfig,
+			GroundingStatus: types.GroundingGrounded,
+			GroundingTier:   types.TierLineText,
+		},
+		{
+			Kind:            types.EvidenceDirect,
+			Source:          "cmd/root.go",
+			LineStart:       1628,
+			AnchorKind:      types.AnchorCall,
+			AnchorSymbol:    "bindPipelineMaxRetriesFlag",
+			ContextRole:     types.EvidenceContextRoleRelatedContext,
+			DiagramRole:     types.EvidenceDiagramRoleOverride,
+			GroundingStatus: types.GroundingGrounded,
+			GroundingTier:   types.TierLineText,
+		},
+	})
+	params := mustDocJSON(t, map[string]interface{}{
+		"shape": "explanation",
+		"exact_resolution": map[string]interface{}{
+			"status":       "absent",
+			"context_mode": "grounded_context_only",
+		},
+		"summary": "### 第一层 — Code Default\n\n`DefaultExploreHeuristics()` 展示了代码默认值这一层。\n\n### 第二层 — Config\n\n`codrax.yaml.example:315` 对应配置文件层。\n\n### 第三层 — Override\n\n`cmd/root.go:1628` 附近说明哪些键拥有更高优先级的 override 通道。\n\n### explore_mid_loop_hint_budget 的状态\n\n`explore_mid_loop_hint_budget` 在这些层里都没有被定义，所以它本身没有可计算的最终有效值。",
+		"citations": []map[string]interface{}{
+			{"file": "internal/config/runtime.go", "line": 296},
+			{"file": "internal/types/config.go", "line": 848},
+			{"file": "codrax.yaml.example", "line": 315},
+			{"file": "cmd/root.go", "line": 1628},
+		},
+	})
+	res, _ := tool.Execute(ctx, params)
+	if !res.Success {
+		t.Fatalf("rich structured layered summary should be preserved for exact-absence config-trace answers, got reject: %+v", res.Repair)
+	}
+	doc := ctx.Mutable.AnswerDocument()
+	if doc == nil {
+		t.Fatal("answer document missing after successful emit")
+	}
+	if !strings.Contains(doc.Summary, "DefaultExploreHeuristics") || !strings.Contains(doc.Summary, "codrax.yaml.example:315") || !strings.Contains(doc.Summary, "cmd/root.go:1628") {
+		t.Fatalf("final surface lost grounded layered context, got %q", doc.Summary)
+	}
+	if strings.HasPrefix(doc.Summary, "相关的已锚定上下文包括") {
+		t.Fatalf("rich structured summary should not collapse to the generic nearby-context fallback, got %q", doc.Summary)
+	}
+	lead := renderAnswerDocumentExactResolutionLeadClean(ctx.AnalysisIR.AnswerContract.ExactResolution, &types.AnswerExactResolution{
+		Status:      types.AnswerExactResolutionAbsent,
+		ContextMode: types.AnswerExactResolutionContextGroundedOnly,
+	}, requestedAnswerDocumentLanguage(ctx))
+	body := exactContextSummaryBodyAfterLead(doc.Summary, lead)
+	if strings.Contains(body, target) {
+		t.Fatalf("final surface should trim repeated exact-target restatements after the renderer lead, got %q", doc.Summary)
 	}
 }
 

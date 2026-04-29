@@ -211,9 +211,9 @@ func (r EvidenceContextRole) IsValid() bool {
 type EvidenceDiagramRole string
 
 const (
-	EvidenceDiagramRoleUnknown  EvidenceDiagramRole = ""
-	EvidenceDiagramRoleDefault  EvidenceDiagramRole = "default"
-	EvidenceDiagramRoleConfig   EvidenceDiagramRole = "config"
+	EvidenceDiagramRoleUnknown EvidenceDiagramRole = ""
+	EvidenceDiagramRoleDefault EvidenceDiagramRole = "default"
+	EvidenceDiagramRoleConfig  EvidenceDiagramRole = "config"
 	// EvidenceDiagramRoleYAML is a deprecated alias kept so older
 	// tests / saved traces continue to compile; the canonical role is
 	// now `config`, which covers YAML/JSON/TOML/INI/... config-file
@@ -235,6 +235,45 @@ func AllEvidenceDiagramRoles() []EvidenceDiagramRole {
 	out := make([]EvidenceDiagramRole, len(allEvidenceDiagramRoles))
 	copy(out, allEvidenceDiagramRoles)
 	return out
+}
+
+func CanonicalEvidenceDiagramRole(raw string) EvidenceDiagramRole {
+	role := EvidenceDiagramRole(strings.ToLower(strings.TrimSpace(raw)))
+	switch role {
+	case EvidenceDiagramRoleYAML:
+		return EvidenceDiagramRoleConfig
+	default:
+		return role
+	}
+}
+
+func NormalizeEvidenceDiagramRoles(in []EvidenceDiagramRole) []EvidenceDiagramRole {
+	if len(in) == 0 {
+		return nil
+	}
+	seen := make(map[EvidenceDiagramRole]bool, len(in))
+	var out []EvidenceDiagramRole
+	for _, raw := range in {
+		role := CanonicalEvidenceDiagramRole(string(raw))
+		if role == EvidenceDiagramRoleUnknown || !role.IsValid() || seen[role] {
+			continue
+		}
+		seen[role] = true
+		out = append(out, role)
+	}
+	return out
+}
+
+func JoinEvidenceDiagramRoles(roles []EvidenceDiagramRole) string {
+	normalized := NormalizeEvidenceDiagramRoles(roles)
+	if len(normalized) == 0 {
+		return ""
+	}
+	parts := make([]string, 0, len(normalized))
+	for _, role := range normalized {
+		parts = append(parts, string(role))
+	}
+	return strings.Join(parts, ", ")
 }
 
 func (r EvidenceDiagramRole) IsValid() bool {
@@ -288,8 +327,9 @@ type EvidenceItem struct {
 	// Role fields: the system-validated usage lanes for exact-target
 	// and config-trace questions. Populated from optional emit_evidence
 	// hints and/or structural validation after grounding.
-	ContextRole EvidenceContextRole `json:"context_role,omitempty"`
-	DiagramRole EvidenceDiagramRole `json:"diagram_role,omitempty"`
+	ContextRole          EvidenceContextRole `json:"context_role,omitempty"`
+	DiagramRole          EvidenceDiagramRole `json:"diagram_role,omitempty"`
+	RequestedDiagramRole EvidenceDiagramRole `json:"requested_diagram_role,omitempty"`
 
 	// Anchor fields: required for LLM-emitted items, let the grounder
 	// dispatch Tier 2 and the recovery tiers without guessing.
@@ -668,11 +708,14 @@ func mergeExactResolutionSurfaceEvidence(dst, src EvidenceItem) EvidenceItem {
 	if dst.LineEnd <= 0 {
 		dst.LineEnd = src.LineEnd
 	}
-	if dst.ContextRole == EvidenceContextRoleUnknown {
-		dst.ContextRole = src.ContextRole
+	if merged := mergeExactResolutionContextRole(dst.ContextRole, src.ContextRole); merged != EvidenceContextRoleUnknown || dst.ContextRole == EvidenceContextRoleUnknown {
+		dst.ContextRole = merged
 	}
 	if dst.DiagramRole == EvidenceDiagramRoleUnknown {
 		dst.DiagramRole = src.DiagramRole
+	}
+	if dst.RequestedDiagramRole == EvidenceDiagramRoleUnknown {
+		dst.RequestedDiagramRole = src.RequestedDiagramRole
 	}
 	if dst.GroundingStatus == "" || dst.GroundingStatus == GroundingUngrounded {
 		if src.GroundingStatus == GroundingGrounded || src.GroundingStatus == GroundingRecovered {
@@ -691,6 +734,34 @@ func mergeExactResolutionSurfaceEvidence(dst, src EvidenceItem) EvidenceItem {
 		dst.EvidenceRef = src.EvidenceRef
 	}
 	return dst
+}
+
+func mergeExactResolutionContextRole(dst, src EvidenceContextRole) EvidenceContextRole {
+	if dst == EvidenceContextRoleUnknown {
+		return src
+	}
+	if src == EvidenceContextRoleUnknown {
+		return dst
+	}
+	if exactResolutionContextRoleStrictness(src) > exactResolutionContextRoleStrictness(dst) {
+		return src
+	}
+	return dst
+}
+
+func exactResolutionContextRoleStrictness(role EvidenceContextRole) int {
+	switch role {
+	case EvidenceContextRoleIllustrativeOnly:
+		return 4
+	case EvidenceContextRoleAbsenceSupport:
+		return 3
+	case EvidenceContextRoleRelatedContext:
+		return 2
+	case EvidenceContextRoleDefining:
+		return 1
+	default:
+		return 0
+	}
 }
 
 // MergeAnswerChains combines multiple AnswerChain slices into one,

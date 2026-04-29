@@ -163,9 +163,9 @@ func (t *EmitInvestigationComplete) Execute(ctx *types.BusContext, params json.R
 	// below; otherwise absent targets can be rejected for having no
 	// positive evidence to cite.
 	if justification == "" {
-		if targets := exactAbsencePendingTargets(ctx); len(targets) > 0 {
-			evidence := ctx.Mutable.EmittedEvidence()
-			contract := answerExactResolutionContract(ctx)
+		contract := answerExactResolutionContract(ctx)
+		evidence := ctx.Mutable.EmittedEvidence()
+		if targets := completionPendingExactTargets(ctx, contract, evidence); len(targets) > 0 {
 			if !evidenceHasAnyDefiningExactTargetProof(contract, evidence, targets) {
 				label := "target"
 				if contract != nil && strings.TrimSpace(contract.TargetLabel) != "" {
@@ -174,7 +174,7 @@ func (t *EmitInvestigationComplete) Execute(ctx *types.BusContext, params json.R
 				return types.ToolResult{
 					ToolName: t.Name(),
 					Summary: fmt.Sprintf(
-						"emit_investigation_complete rejected: the primary exact %s was marked unverified/not-found, and the emitted evidence only supports nearby or contextual material. Do not complete a positive substitute chain. Either find an explicit grounded defining anchor (or alias/parser mapping) that names the exact %s, or re-call emit_investigation_complete with absence_justification explaining that the exact %s was searched and not found.",
+						"emit_investigation_complete rejected: the primary exact %s still has no grounded defining proof, and the emitted evidence only supports nearby or contextual material. Do not complete a positive substitute chain as result_kind=resolved. Either find an explicit grounded defining anchor (or alias/parser mapping) that names the exact %s, or keep investigating until an honest exact-absence closure is ready and then re-call emit_investigation_complete with result_kind=\"absence\" plus absence_justification for the exact %s.",
 						label, label, label,
 					),
 					Success:   false,
@@ -263,6 +263,14 @@ func (t *EmitInvestigationComplete) Execute(ctx *types.BusContext, params json.R
 			}
 			if !evidenceHasGroundedRelatedContextProof(contract, scenario, evidence, requiredFiles) {
 				repairKind, repairFiles := exactAbsenceContextRepairKind(ctx, contract, scenario, evidence, requiredFiles)
+				configTraceMultiLayer := scenario == types.ScenarioConfigTrace &&
+					contract != nil &&
+					contract.TargetKind == types.SubjectConfigKey &&
+					types.ConfigTraceNeedsMultiLayerClosure(requiredFiles)
+				validatedRoleCount := 0
+				if scenario == types.ScenarioConfigTrace && contract != nil && contract.TargetKind == types.SubjectConfigKey {
+					validatedRoleCount = types.ConfigTraceValidatedDiagramRoleCount(contract, requiredFiles, evidence)
+				}
 				summary := fmt.Sprintf(
 					"emit_investigation_complete rejected: this exact-absence answer still lacks a grounded production related-context anchor from the current same-scope candidate set. Read one of these repo_map-ranked files, emit at least one grounded related_context fact from it, then re-call emit_investigation_complete(..., result_kind=\"absence\", absence_justification=...). Pending same-scope files: %s",
 					strings.Join(repairFiles, ", "),
@@ -272,14 +280,45 @@ func (t *EmitInvestigationComplete) Execute(ctx *types.BusContext, params json.R
 				hint := "Read one of the queued same-scope files, emit at least one grounded `related_context` fact from it, then retry `emit_investigation_complete(..., result_kind=\"absence\", absence_justification=...)`."
 				repairCode := "exact_absence_context_anchor"
 				if scenario == types.ScenarioConfigTrace && contract != nil && contract.TargetKind == types.SubjectConfigKey {
-					summary = fmt.Sprintf(
-						"emit_investigation_complete rejected: this exact-absence config-trace answer still lacks a grounded precedence-capable lineage anchor from the current same-scope candidate set. Read one of these repo_map-ranked files, then re-emit at least one grounded related_context fact that carries an explicit diagram_role_hint (`default`, `config`, `runtime`, or `override`) so downstream answers can cite a real precedence anchor. `config` means a grounded repo/user config-file layer (YAML/JSON/TOML/INI/etc.). Pending same-scope files: %s",
-						strings.Join(repairFiles, ", "),
-					)
-					repairOrigin = "emit_investigation_complete.exact_absence_precedence"
-					rationale = "exact-absence config-trace closure still lacks a grounded precedence-capable same-scope anchor; read one of these files, emit related_context evidence with a validated diagram role, then retry emit_investigation_complete."
-					hint = "Read one of the queued same-scope files, emit at least one grounded `related_context` fact with a validated precedence `diagram_role_hint`, then retry `emit_investigation_complete(..., result_kind=\"absence\", absence_justification=...)`."
-					repairCode = "exact_absence_precedence_anchor"
+					requestedRoles := types.ConfigTraceMissingRequestedDiagramRoles(contract, requiredFiles, evidence)
+					requestedRoleText := types.JoinEvidenceDiagramRoles(requestedRoles)
+					if configTraceMultiLayer && validatedRoleCount > 0 {
+						if requestedRoleText != "" {
+							summary = fmt.Sprintf(
+								"emit_investigation_complete rejected: this exact-absence config-trace answer still lacks grounded precedence coverage for the user-requested role(s) `%s` from the current same-scope candidate set. Read one of these repo_map-ranked files, then re-emit grounded related_context facts that carry explicit diagram_role_hint values so downstream answers can cite a real precedence chain across every requested role. `config` means a grounded repo/user config-file layer (YAML/JSON/TOML/INI/etc.). Pending same-scope files: %s",
+								requestedRoleText,
+								strings.Join(repairFiles, ", "),
+							)
+							hint = fmt.Sprintf("Read one of the queued same-scope files, emit grounded `related_context` facts with validated precedence `diagram_role_hint` values, and keep going until the requested roles `%s` each have a grounded anchor before retrying `emit_investigation_complete(..., result_kind=\"absence\", absence_justification=...)`.", requestedRoleText)
+						} else {
+							summary = fmt.Sprintf(
+								"emit_investigation_complete rejected: this exact-absence config-trace answer still lacks enough grounded precedence coverage from the current same-scope candidate set. Read one of these repo_map-ranked files, then re-emit grounded related_context facts that carry explicit diagram_role_hint values (`default`, `config`, `runtime`, or `override`) so downstream answers can cite a real multi-layer precedence chain. When the same-scope search already spans multiple files, preserve at least two validated precedence roles instead of closing on a single layer. `config` means a grounded repo/user config-file layer (YAML/JSON/TOML/INI/etc.). Pending same-scope files: %s",
+								strings.Join(repairFiles, ", "),
+							)
+							hint = "Read one of the queued same-scope files, emit grounded `related_context` facts with validated precedence `diagram_role_hint` values, and when the current scope already spans multiple files keep going until you have at least two validated precedence roles before retrying `emit_investigation_complete(..., result_kind=\"absence\", absence_justification=...)`."
+						}
+						repairOrigin = "emit_investigation_complete.exact_absence_precedence"
+						rationale = "exact-absence config-trace closure still lacks enough grounded precedence coverage; read one of these files, emit related_context evidence with validated diagram roles, then retry emit_investigation_complete."
+						repairCode = "exact_absence_precedence_anchor"
+					} else {
+						if requestedRoleText != "" {
+							summary = fmt.Sprintf(
+								"emit_investigation_complete rejected: this exact-absence config-trace answer still lacks a grounded precedence anchor for the user-requested role(s) `%s` from the current same-scope candidate set. Read one of these repo_map-ranked files, then re-emit at least one grounded related_context fact with an explicit diagram_role_hint so downstream answers can cite that requested role. `config` means a grounded repo/user config-file layer (YAML/JSON/TOML/INI/etc.). Pending same-scope files: %s",
+								requestedRoleText,
+								strings.Join(repairFiles, ", "),
+							)
+							hint = fmt.Sprintf("Read one of the queued same-scope files, emit at least one grounded `related_context` fact with a validated precedence `diagram_role_hint`, and keep going until the requested roles `%s` have grounded anchors before retrying `emit_investigation_complete(..., result_kind=\"absence\", absence_justification=...)`.", requestedRoleText)
+						} else {
+							summary = fmt.Sprintf(
+								"emit_investigation_complete rejected: this exact-absence config-trace answer still lacks a grounded precedence-capable lineage anchor from the current same-scope candidate set. Read one of these repo_map-ranked files, then re-emit at least one grounded related_context fact that carries an explicit diagram_role_hint (`default`, `config`, `runtime`, or `override`) so downstream answers can cite a real precedence anchor. `config` means a grounded repo/user config-file layer (YAML/JSON/TOML/INI/etc.). Pending same-scope files: %s",
+								strings.Join(repairFiles, ", "),
+							)
+							hint = "Read one of the queued same-scope files, emit at least one grounded `related_context` fact with a validated precedence `diagram_role_hint`, then retry `emit_investigation_complete(..., result_kind=\"absence\", absence_justification=...)`."
+						}
+						repairOrigin = "emit_investigation_complete.exact_absence_precedence"
+						rationale = "exact-absence config-trace closure still lacks a grounded precedence-capable same-scope anchor; read one of these files, emit related_context evidence with a validated diagram role, then retry emit_investigation_complete."
+						repairCode = "exact_absence_precedence_anchor"
+					}
 				}
 				if repairKind == types.RepairEmitEvidence {
 					summary = fmt.Sprintf(
@@ -291,13 +330,47 @@ func (t *EmitInvestigationComplete) Execute(ctx *types.BusContext, params json.R
 					repairCode = "exact_absence_context_evidence"
 				}
 				if repairKind == types.RepairEmitEvidence && scenario == types.ScenarioConfigTrace && contract != nil && contract.TargetKind == types.SubjectConfigKey {
-					summary = fmt.Sprintf(
-						"emit_investigation_complete rejected: this exact-absence config-trace answer still lacks a grounded precedence-capable lineage anchor on the current answer surface, but the queued same-scope file(s) are already in read coverage. Do NOT widen scope with neighboring files yet. Re-emit at least one grounded `related_context` fact from these already-read file(s) with a validated precedence `diagram_role_hint` (`default`, `config`, `runtime`, or `override`), then retry `emit_investigation_complete(..., result_kind=\"absence\", absence_justification=...)`. `config` means a grounded repo/user config-file layer (YAML/JSON/TOML/INI/etc.). Same-scope files: %s",
-						strings.Join(repairFiles, ", "),
-					)
-					rationale = "exact-absence config-trace closure still lacks a grounded precedence-capable same-scope anchor, but the relevant file scope has already been read; stay on those anchors, re-emit related_context evidence with a validated diagram role, then retry emit_investigation_complete."
-					hint = "Do NOT read neighboring files yet. Re-emit at least one grounded `related_context` fact from these already-read same-scope file(s) with a validated precedence `diagram_role_hint`, then retry `emit_investigation_complete(..., result_kind=\"absence\", absence_justification=...)`."
-					repairCode = "exact_absence_precedence_evidence"
+					requestedRoles := types.ConfigTraceMissingRequestedDiagramRoles(contract, requiredFiles, evidence)
+					requestedRoleText := types.JoinEvidenceDiagramRoles(requestedRoles)
+					if configTraceMultiLayer && validatedRoleCount > 0 {
+						if requestedRoleText != "" {
+							summary = fmt.Sprintf(
+								"emit_investigation_complete rejected: this exact-absence config-trace answer still lacks grounded precedence coverage for the user-requested role(s) `%s` on the current answer surface, but the queued same-scope file(s) are already in read coverage. Do NOT widen scope with neighboring files yet. Re-emit grounded `related_context` facts from these already-read file(s) with validated precedence `diagram_role_hint` values until each requested role has a grounded anchor, then retry `emit_investigation_complete(..., result_kind=\"absence\", absence_justification=...)`. `config` means a grounded repo/user config-file layer (YAML/JSON/TOML/INI/etc.). Same-scope files: %s",
+								requestedRoleText,
+								strings.Join(repairFiles, ", "),
+							)
+							hint = fmt.Sprintf("Do NOT read neighboring files yet. Re-emit grounded `related_context` facts from these already-read same-scope file(s) with validated precedence `diagram_role_hint` values until the requested roles `%s` each have grounded anchors before retrying `emit_investigation_complete(..., result_kind=\"absence\", absence_justification=...)`.", requestedRoleText)
+						} else {
+							summary = fmt.Sprintf(
+								"emit_investigation_complete rejected: this exact-absence config-trace answer still lacks enough grounded precedence coverage on the current answer surface, but the queued same-scope file(s) are already in read coverage. Do NOT widen scope with neighboring files yet. Re-emit grounded `related_context` facts from these already-read file(s) with validated precedence `diagram_role_hint` values (`default`, `config`, `runtime`, or `override`), and when the current same-scope span already covers multiple files preserve at least two validated roles before retrying `emit_investigation_complete(..., result_kind=\"absence\", absence_justification=...)`. `config` means a grounded repo/user config-file layer (YAML/JSON/TOML/INI/etc.). Same-scope files: %s",
+								strings.Join(repairFiles, ", "),
+							)
+							hint = "Do NOT read neighboring files yet. Re-emit grounded `related_context` facts from these already-read same-scope file(s) with validated precedence `diagram_role_hint` values, and when the current same-scope span already covers multiple files keep going until you have at least two validated roles before retrying `emit_investigation_complete(..., result_kind=\"absence\", absence_justification=...)`."
+						}
+						rationale = "exact-absence config-trace closure still lacks enough grounded precedence coverage, but the relevant file scope has already been read; stay on those anchors, re-emit related_context evidence with validated diagram roles, then retry emit_investigation_complete."
+						repairCode = "exact_absence_precedence_evidence"
+					} else {
+						if requestedRoleText != "" {
+							summary = fmt.Sprintf(
+								"emit_investigation_complete rejected: this exact-absence config-trace answer still lacks a grounded precedence anchor for the user-requested role(s) `%s` on the current answer surface, but the queued same-scope file(s) are already in read coverage. Do NOT widen scope with neighboring files yet. Re-emit grounded `related_context` facts from these already-read file(s) with validated precedence `diagram_role_hint` values until each requested role has a grounded anchor, then retry `emit_investigation_complete(..., result_kind=\"absence\", absence_justification=...)`. `config` means a grounded repo/user config-file layer (YAML/JSON/TOML/INI/etc.). Same-scope files: %s",
+								requestedRoleText,
+								strings.Join(repairFiles, ", "),
+							)
+							hint = fmt.Sprintf("Do NOT read neighboring files yet. Re-emit grounded `related_context` facts from these already-read same-scope file(s) with validated precedence `diagram_role_hint` values until the requested roles `%s` each have grounded anchors before retrying `emit_investigation_complete(..., result_kind=\"absence\", absence_justification=...)`.", requestedRoleText)
+						} else {
+							summary = fmt.Sprintf(
+								"emit_investigation_complete rejected: this exact-absence config-trace answer still lacks a grounded precedence-capable lineage anchor on the current answer surface, but the queued same-scope file(s) are already in read coverage. Do NOT widen scope with neighboring files yet. Re-emit at least one grounded `related_context` fact from these already-read file(s) with a validated precedence `diagram_role_hint` (`default`, `config`, `runtime`, or `override`), then retry `emit_investigation_complete(..., result_kind=\"absence\", absence_justification=...)`. `config` means a grounded repo/user config-file layer (YAML/JSON/TOML/INI/etc.). Same-scope files: %s",
+								strings.Join(repairFiles, ", "),
+							)
+							hint = "Do NOT read neighboring files yet. Re-emit at least one grounded `related_context` fact from these already-read same-scope file(s) with a validated precedence `diagram_role_hint`, then retry `emit_investigation_complete(..., result_kind=\"absence\", absence_justification=...)`."
+						}
+						rationale = "exact-absence config-trace closure still lacks a grounded precedence-capable same-scope anchor, but the relevant file scope has already been read; stay on those anchors, re-emit related_context evidence with a validated diagram role, then retry emit_investigation_complete."
+						repairCode = "exact_absence_precedence_evidence"
+					}
+				}
+				requiredDiagramRoles := types.JoinEvidenceDiagramRoles(types.ConfigTraceRequestedDiagramRoles(contract))
+				if requiredDiagramRoles == "" {
+					requiredDiagramRoles = "default,config,runtime,override"
 				}
 				repair := completionFileRepair(
 					repairKind,
@@ -307,7 +380,7 @@ func (t *EmitInvestigationComplete) Execute(ctx *types.BusContext, params json.R
 					map[string]string{
 						"result_kind":            "absence",
 						"context_role":           string(types.EvidenceContextRoleRelatedContext),
-						"required_diagram_roles": "default,config,runtime,override",
+						"required_diagram_roles": requiredDiagramRoles,
 						"repair_origin":          repairOrigin,
 					},
 				)
@@ -1787,6 +1860,24 @@ func exactAbsencePendingTargets(ctx *types.BusContext) []string {
 	return types.ExactResolutionPendingTargets(contract, unverified)
 }
 
+func completionPendingExactTargets(ctx *types.BusContext, contract *types.ExactResolutionContract, evidence []types.EvidenceItem) []string {
+	if contract == nil {
+		return nil
+	}
+	if pending := exactAbsencePendingTargets(ctx); len(pending) > 0 {
+		return pending
+	}
+	if ctx != nil && ctx.Mutable != nil &&
+		strings.EqualFold(ctx.Mutable.StableInvestigationResultKind(), "absence") &&
+		strings.TrimSpace(ctx.Mutable.StableAbsenceJustification()) != "" {
+		return nil
+	}
+	if evidenceHasAnyDefiningExactTargetProof(contract, evidence, contract.Targets) {
+		return nil
+	}
+	return append([]string(nil), contract.Targets...)
+}
+
 func unverifiedFindingsForCompletion(ctx *types.BusContext) []types.UnverifiedFinding {
 	var out []types.UnverifiedFinding
 	if ctx == nil {
@@ -1934,10 +2025,15 @@ func evidenceHasAnyDefiningExactTargetProof(contract *types.ExactResolutionContr
 		default:
 			continue
 		}
-		if it.ContextRole == types.EvidenceContextRoleIllustrativeOnly || it.ContextRole == types.EvidenceContextRoleAbsenceSupport {
+		if it.ContextRole == types.EvidenceContextRoleIllustrativeOnly ||
+			it.ContextRole == types.EvidenceContextRoleAbsenceSupport ||
+			it.ContextRole == types.EvidenceContextRoleRelatedContext {
 			continue
 		}
-		if !evidenceMentionsAnyListedExactTarget(contract, it, targets) {
+		if strings.TrimSpace(string(it.AnchorKind)) == "" {
+			continue
+		}
+		if !evidenceProofAnchorsAnyListedExactTarget(contract, it, targets) {
 			continue
 		}
 		if types.IsNegativeEvidencePredicate(it.Predicate) {
@@ -1946,22 +2042,19 @@ func evidenceHasAnyDefiningExactTargetProof(contract *types.ExactResolutionContr
 		if !types.ExactResolutionSourceIsDefiningPrimaryProofLike(contract, it.Source) {
 			continue
 		}
-		if it.ContextRole == types.EvidenceContextRoleDefining || evidenceDirectlyAnchorsAnyListedExactTarget(contract, it, targets) {
-			return true
-		}
+		return true
 	}
 	return false
 }
 
-func evidenceMentionsAnyListedExactTarget(contract *types.ExactResolutionContract, item types.EvidenceItem, targets []string) bool {
-	text := strings.Join([]string{
-		item.Subject,
-		item.Predicate,
-		item.Object,
-		item.AnchorSymbol,
-	}, "\n")
+func evidenceProofAnchorsAnyListedExactTarget(contract *types.ExactResolutionContract, item types.EvidenceItem, targets []string) bool {
 	for _, target := range targets {
-		if types.ExactResolutionTextMentionsTarget(contract, text, target) {
+		if types.ExactResolutionTextMentionsTarget(contract, item.AnchorSymbol, target) ||
+			types.ExactResolutionTextMentionsTarget(contract, item.Object, target) {
+			return true
+		}
+		if strings.TrimSpace(item.AnchorSymbol) == "" &&
+			types.ExactResolutionTextMentionsTarget(contract, item.Subject, target) {
 			return true
 		}
 	}

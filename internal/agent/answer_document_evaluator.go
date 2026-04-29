@@ -171,6 +171,9 @@ func (e *answerDocumentEvaluator) BuildInitialInstruction(ctx *types.AgentContex
 	if exact := renderAnswerDocExactResolutionContract(ctx); exact != "" {
 		b.WriteString(exact)
 	}
+	if closure := renderAnswerDocAcceptedClosure(ctx); closure != "" {
+		b.WriteString(closure)
+	}
 	if drift := renderAnswerDocLogSourceDrift(ctx); drift != "" {
 		b.WriteString(drift)
 	}
@@ -958,6 +961,9 @@ func renderAnswerDocExactResolutionContract(ctx *types.AgentContext) string {
 			b.WriteString("- For config-precedence answers, only create a separate numbered step when that layer has its own grounded repo anchor. If a layer is absent or only inferred from the exact-absence state, keep it in `summary` or set that step's `citation_ref=-1` instead of borrowing a nearby config-file / struct citation.\n")
 			b.WriteString("- In `step_list`, any step with `citation_ref >= 0` must mention at least one identifier that appears on the cited line or its nearby corroboration window. If the step summarizes a whole struct/range/absence conclusion rather than one corroborated line, use `citation_ref=-1` and keep the precise line-backed facts in neighboring steps.\n")
 			b.WriteString("- A repo-wide search result, aggregate absence conclusion, or test-only proof step usually has no single corroborating production line. In `step_list`, default those steps to `citation_ref=-1` unless one cited line literally states the same claim.\n")
+			if roles := types.JoinEvidenceDiagramRoles(contract.RequestedContextRoles); roles != "" {
+				fmt.Fprintf(&b, "- The user explicitly asked to cover these nearby precedence roles when you keep follow-on context: `%s`. Do not collapse the answer to only one surviving layer when grounded anchors for the other requested roles are still available in this dispatch.\n", roles)
+			}
 		}
 	}
 	if plan != nil && plan.PreferredExactResolution != nil {
@@ -1000,6 +1006,26 @@ func renderAnswerDocExactResolutionContract(ctx *types.AgentContext) string {
 	if seeds := renderAnswerDocExactResolutionSeeds(ctx, contract); seeds != "" {
 		b.WriteString(seeds)
 	}
+	return b.String()
+}
+
+func renderAnswerDocAcceptedClosure(ctx *types.AgentContext) string {
+	plan := answerSurfacePlan(ctx)
+	if plan == nil {
+		return ""
+	}
+	reason := strings.TrimSpace(plan.StableInvestigationReason)
+	if reason == "" {
+		return ""
+	}
+	justification := strings.TrimSpace(plan.StableAbsenceJustification)
+	var b strings.Builder
+	b.WriteString("## Accepted Closure Rationale\n\n")
+	fmt.Fprintf(&b, "- Prior accepted exploration closure: %s\n", reason)
+	if justification != "" && justification != reason {
+		fmt.Fprintf(&b, "- Stable absence justification: %s\n", justification)
+	}
+	b.WriteString("- Treat the accepted closure as the authoritative scope/richness floor for this dispatch. Keep its grounded mechanism / precedence / comparison coverage unless the current citations and surface plan explicitly forbid a piece of it.\n\n")
 	return b.String()
 }
 

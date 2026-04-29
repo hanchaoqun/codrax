@@ -37,7 +37,7 @@ type AnalysisIR struct {
 // AnalysisIRVersion is the current schema version string. Bump on any
 // breaking change to the wire format so downstream consumers can refuse
 // to parse IRs they do not understand.
-const AnalysisIRVersion = "v8"
+const AnalysisIRVersion = "v9"
 
 // ── RequestModel ────────────────────────────────────────────────────────
 
@@ -366,8 +366,15 @@ type AnalyzerHints struct {
 	// exact target lane before using it downstream, so this remains an
 	// LLM recommendation rather than a source of truth.
 	ExactContextTerms []string `json:"exact_context_terms,omitempty"`
-	Kind              string   `json:"kind,omitempty"`
-	Shape             string   `json:"shape,omitempty"`
+	// ExactContextRoles is the analyzer's optional shortlist of
+	// abstract nearby-context roles the user explicitly asked to see
+	// when explaining an exact target's precedence / lineage. These
+	// are abstract layers such as default/config/runtime/override, not
+	// repo-specific file names. The system validates and normalizes the
+	// roles before using them for closure and final-answer coverage.
+	ExactContextRoles []EvidenceDiagramRole `json:"exact_context_roles,omitempty"`
+	Kind              string                `json:"kind,omitempty"`
+	Shape             string                `json:"shape,omitempty"`
 }
 
 type Intent string
@@ -847,6 +854,7 @@ type ExactResolutionContract struct {
 	RelatedContextPolicy    ExactResolutionContextPolicy `json:"related_context_policy,omitempty"`
 	RelatedContextScopeHint string                       `json:"related_context_scope_hint,omitempty"`
 	RelatedContextTerms     []string                     `json:"related_context_terms,omitempty"`
+	RequestedContextRoles   []EvidenceDiagramRole        `json:"requested_context_roles,omitempty"`
 }
 
 type AnswerShape string

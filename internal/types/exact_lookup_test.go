@@ -220,6 +220,23 @@ func TestBuildExactResolutionContract_RemainsNilWhenMultipleSubjectCompatibleMen
 	}
 }
 
+func TestExactResolutionProofAnchorMatchesAnyTarget_IgnoresObjectOnlyMentions(t *testing.T) {
+	contract := &ExactResolutionContract{
+		TargetKind:  SubjectConfigKey,
+		TargetLabel: "config key",
+		Targets:     []string{"explore_mid_loop_hint_budget"},
+	}
+	if ExactResolutionDirectAnchorMatchesAnyTarget(contract, "ResolvedExploreHeuristics", "ResolvedExploreHeuristics", "defaults merge excludes explore_mid_loop_hint_budget") {
+		t.Fatal("direct anchor match should ignore object-only target mentions")
+	}
+	if ExactResolutionProofAnchorMatchesAnyTarget(contract, "ResolvedExploreHeuristics", "ResolvedExploreHeuristics", "defaults merge excludes explore_mid_loop_hint_budget") {
+		t.Fatal("proof anchor match should ignore object-only target mentions")
+	}
+	if !ExactResolutionProofAnchorMatchesAnyTarget(contract, "explore_mid_loop_hint_budget", "", "") {
+		t.Fatal("proof anchor match should still allow subject-only target mentions when no anchor symbol is present")
+	}
+}
+
 func TestBuildExactResolutionContract_FunctionNameFiltersOutPathContextMention(t *testing.T) {
 	rm := RequestModel{
 		RawRequest: "buildAnalysisIR 在 internal/agent/analyzer.go 里定义在哪里？",
@@ -644,6 +661,127 @@ func TestExactResolutionAbsenceClosureReady_AllowsRelatedContextOnlyWhenNoDefini
 	}
 	if !ExactResolutionAbsenceClosureReady(contract, ScenarioConfigTrace, contract.Targets, evidence, []string{"internal/types/config.go"}) {
 		t.Fatal("validated same-scope related-context anchor with no exact defining proof should allow exact-absence closure")
+	}
+}
+
+func TestExactResolutionAbsenceClosureReady_ConfigTraceNeedsTwoRolesWhenMultipleScopeFilesRemain(t *testing.T) {
+	contract := &ExactResolutionContract{
+		TargetKind:           SubjectConfigKey,
+		TargetLabel:          "config key",
+		Targets:              []string{"explore_mid_loop_hint_budget"},
+		AllowAbsence:         true,
+		RelatedContextPolicy: ExactContextSameFamilyGrounded,
+		RelatedContextTerms:  []string{"explore"},
+	}
+	evidence := []EvidenceItem{
+		{
+			Kind:            EvidenceDirect,
+			Source:          "internal/types/config.go",
+			LineStart:       815,
+			Subject:         "DefaultExploreHeuristics",
+			AnchorKind:      AnchorDefinition,
+			AnchorSymbol:    "DefaultExploreHeuristics",
+			ContextRole:     EvidenceContextRoleRelatedContext,
+			DiagramRole:     EvidenceDiagramRoleDefault,
+			GroundingStatus: GroundingGrounded,
+			GroundingTier:   TierLineText,
+		},
+	}
+	if ExactResolutionAbsenceClosureReady(contract, ScenarioConfigTrace, contract.Targets, evidence, []string{"internal/types/config.go", "internal/config/runtime.go"}) {
+		t.Fatal("single-role config-trace context should not close exact absence while multi-file precedence scope remains")
+	}
+	evidence = append(evidence, EvidenceItem{
+		Kind:            EvidenceDirect,
+		Source:          "internal/config/runtime.go",
+		LineStart:       231,
+		Subject:         "ExploreMidLoopMinIteration",
+		AnchorKind:      AnchorAssignment,
+		AnchorSymbol:    "ExploreMidLoopMinIteration",
+		ContextRole:     EvidenceContextRoleRelatedContext,
+		DiagramRole:     EvidenceDiagramRoleRuntime,
+		GroundingStatus: GroundingGrounded,
+		GroundingTier:   TierLineText,
+	})
+	if !ExactResolutionAbsenceClosureReady(contract, ScenarioConfigTrace, contract.Targets, evidence, []string{"internal/types/config.go", "internal/config/runtime.go"}) {
+		t.Fatal("two validated precedence roles should allow config-trace exact-absence closure")
+	}
+}
+
+func TestBuildExactResolutionContract_PersistsRequestedContextRoles(t *testing.T) {
+	rm := RequestModel{
+		Scenario:      ScenarioConfigTrace,
+		AnswerSubject: AnswerSubject{Kind: SubjectConfigKey},
+		AnalyzerHints: AnalyzerHints{
+			Kind:              "config_mapping",
+			ExactTargets:      []string{"explore_mid_loop_hint_budget"},
+			ExactContextRoles: []EvidenceDiagramRole{EvidenceDiagramRoleDefault, EvidenceDiagramRoleConfig, EvidenceDiagramRoleOverride},
+		},
+		RawRequest: "explore_mid_loop_hint_budget 的最终有效值是怎么计算出来的？给我 code default / codrax.yaml / CLI 三层的覆盖优先级。",
+	}
+	contract := BuildExactResolutionContract(rm)
+	if contract == nil {
+		t.Fatal("contract = nil, want exact-resolution contract")
+	}
+	want := []EvidenceDiagramRole{EvidenceDiagramRoleDefault, EvidenceDiagramRoleConfig, EvidenceDiagramRoleOverride}
+	if !reflect.DeepEqual(contract.RequestedContextRoles, want) {
+		t.Fatalf("RequestedContextRoles = %v, want %v", contract.RequestedContextRoles, want)
+	}
+}
+
+func TestExactResolutionAbsenceClosureReady_ConfigTraceRequiresRequestedRoles(t *testing.T) {
+	contract := &ExactResolutionContract{
+		TargetKind:            SubjectConfigKey,
+		TargetLabel:           "config key",
+		Targets:               []string{"explore_mid_loop_hint_budget"},
+		AllowAbsence:          true,
+		RelatedContextPolicy:  ExactContextSameFamilyGrounded,
+		RelatedContextTerms:   []string{"explore"},
+		RequestedContextRoles: []EvidenceDiagramRole{EvidenceDiagramRoleDefault, EvidenceDiagramRoleConfig, EvidenceDiagramRoleOverride},
+	}
+	evidence := []EvidenceItem{
+		{
+			Kind:            EvidenceDirect,
+			Source:          "internal/types/config.go",
+			LineStart:       815,
+			Subject:         "DefaultExploreHeuristics",
+			AnchorKind:      AnchorDefinition,
+			AnchorSymbol:    "DefaultExploreHeuristics",
+			ContextRole:     EvidenceContextRoleRelatedContext,
+			DiagramRole:     EvidenceDiagramRoleDefault,
+			GroundingStatus: GroundingGrounded,
+			GroundingTier:   TierLineText,
+		},
+		{
+			Kind:            EvidenceDirect,
+			Source:          "codrax.yaml.example",
+			LineStart:       309,
+			Subject:         "explore_midloop_min_iteration",
+			AnchorKind:      AnchorDefinition,
+			AnchorSymbol:    "explore_midloop_min_iteration",
+			ContextRole:     EvidenceContextRoleRelatedContext,
+			DiagramRole:     EvidenceDiagramRoleConfig,
+			GroundingStatus: GroundingGrounded,
+			GroundingTier:   TierLineText,
+		},
+	}
+	required := []string{"internal/types/config.go", "codrax.yaml.example", "cmd/root.go"}
+	if ExactResolutionAbsenceClosureReady(contract, ScenarioConfigTrace, contract.Targets, evidence, required) {
+		t.Fatal("missing requested override role should block exact-absence closure")
+	}
+	evidence = append(evidence, EvidenceItem{
+		Kind:            EvidenceDirect,
+		Source:          "cmd/root.go",
+		LineStart:       120,
+		Subject:         "ExploreMidLoopMinIteration",
+		AnchorKind:      AnchorAssignment,
+		AnchorSymbol:    "ExploreMidLoopMinIteration",
+		ContextRole:     EvidenceContextRoleRelatedContext,
+		DiagramRole:     EvidenceDiagramRoleOverride,
+		GroundingStatus: GroundingGrounded,
+		GroundingTier:   TierLineText,
+	})
+	if !ExactResolutionAbsenceClosureReady(contract, ScenarioConfigTrace, contract.Targets, evidence, required) {
+		t.Fatal("requested default/config/override coverage should allow exact-absence closure")
 	}
 }
 

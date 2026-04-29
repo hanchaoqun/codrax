@@ -672,22 +672,23 @@ func buildEmitEvidenceItem(in emitEvidenceItem, index int, workDir string) (type
 	}
 
 	item := types.EvidenceItem{
-		Kind:         kind,
-		Subject:      subject,
-		Predicate:    predicate,
-		Object:       object,
-		Summary:      summary,
-		Condition:    condition,
-		Source:       source,
-		LineStart:    lineStart,
-		LineEnd:      lineEnd,
-		Confidence:   0.78, // matches parseEvidenceLine's confidence floor
-		Producer:     EmitEvidenceProducer,
-		ContextRole:  contextRole,
-		DiagramRole:  diagramRole,
-		AnchorKind:   anchorKind,
-		AnchorSymbol: anchorSymbol,
-		Snippet:      snippet,
+		Kind:                 kind,
+		Subject:              subject,
+		Predicate:            predicate,
+		Object:               object,
+		Summary:              summary,
+		Condition:            condition,
+		Source:               source,
+		LineStart:            lineStart,
+		LineEnd:              lineEnd,
+		Confidence:           0.78, // matches parseEvidenceLine's confidence floor
+		Producer:             EmitEvidenceProducer,
+		ContextRole:          contextRole,
+		DiagramRole:          diagramRole,
+		RequestedDiagramRole: diagramRole,
+		AnchorKind:           anchorKind,
+		AnchorSymbol:         anchorSymbol,
+		Snippet:              snippet,
 	}
 	item.ID = types.StableEvidenceID(item.Kind, item.Subject, item.Predicate, item.Object, item.Condition, item.Source, item.LineStart, item.LineEnd)
 	return item, nil
@@ -1244,7 +1245,7 @@ func buildEmitEvidenceRepair(ctx *types.BusContext, items []types.EvidenceItem, 
 		return nil
 	}
 	repair := &types.ToolRepair{
-		Code:    "evidence_line_text_repair",
+		Code: "evidence_line_text_repair",
 		Metadata: map[string]string{
 			"repair_scope": "line_text_grounding",
 			"repair_stage": "explorer",

@@ -630,6 +630,79 @@ func TestEmitInvestigationComplete_PreservesPriorAbsenceOverResolvedRetryWithout
 	}
 }
 
+func TestEmitInvestigationComplete_RejectsResolvedExactClosureWithoutDefiningProof(t *testing.T) {
+	missingKey := "explore_mid_loop_hint_budget"
+	mut := types.NewMutableState("q")
+	mut.SetExactContextRequiredFiles([]string{"internal/types/config.go", "cmd/root.go"})
+	mut.AppendEvidence([]types.EvidenceItem{
+		{
+			Kind:            types.EvidenceDirect,
+			Source:          "internal/types/config.go",
+			LineStart:       848,
+			Subject:         "DefaultExploreHeuristics",
+			Object:          "16 hard-coded defaults; " + missingKey + " is not one of them",
+			AnchorKind:      types.AnchorDefinition,
+			AnchorSymbol:    "DefaultExploreHeuristics",
+			ContextRole:     types.EvidenceContextRoleRelatedContext,
+			DiagramRole:     types.EvidenceDiagramRoleDefault,
+			GroundingStatus: types.GroundingGrounded,
+			GroundingTier:   types.TierLineText,
+		},
+		{
+			Kind:            types.EvidenceDirect,
+			Source:          "internal/types/config.go",
+			LineStart:       768,
+			Subject:         "ExploreHeuristics",
+			Object:          missingKey,
+			Predicate:       "absent_from",
+			AnchorKind:      types.AnchorDefinition,
+			AnchorSymbol:    "ExploreHeuristics",
+			ContextRole:     types.EvidenceContextRoleAbsenceSupport,
+			GroundingStatus: types.GroundingGrounded,
+			GroundingTier:   types.TierLineText,
+		},
+	})
+	bus := &types.BusContext{
+		Mutable: mut,
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				RawRequest: missingKey + " 的最终有效值是怎么计算出来的？",
+				Scenario:   types.ScenarioConfigTrace,
+				AnalyzerHints: types.AnalyzerHints{
+					Kind:              "config_mapping",
+					PrimaryEntities:   []string{missingKey},
+					Entities:          []string{missingKey},
+					MentionedEntities: []string{missingKey},
+					ExactTargets:      []string{missingKey},
+				},
+				AnswerSubject: types.AnswerSubject{Kind: types.SubjectConfigKey},
+			},
+			AnswerContract: types.AnswerContract{
+				ExactResolution: &types.ExactResolutionContract{
+					TargetKind:           types.SubjectConfigKey,
+					TargetLabel:          "config key",
+					Targets:              []string{missingKey},
+					AllowAbsence:         true,
+					RelatedContextPolicy: types.ExactContextSameFamilyGrounded,
+					RelatedContextTerms:  []string{"explore"},
+				},
+			},
+		},
+	}
+	tool := &EmitInvestigationComplete{}
+	params := json.RawMessage(`{"reason":"the general precedence mechanism is understood and the key still does not exist","confidence":"high","result_kind":"resolved"}`)
+	res, err := tool.Execute(bus, params)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if res.Success {
+		t.Fatalf("resolved completion without defining proof or stable absence closure should be rejected, got: %s", res.Summary)
+	}
+	if !strings.Contains(res.Summary, "still has no grounded defining proof") || !strings.Contains(res.Summary, "result_kind=\"absence\"") {
+		t.Fatalf("reject should steer either toward real defining proof or exact absence closure, got: %s", res.Summary)
+	}
+}
+
 // TestEmitInvestigationComplete_Tier1FloorRejectsPureRecovery pins the
 // session-8 upstream-intercept: when every item is Recovered (the LLM
 // never read_file'd any of the cited sources), the Tier-1 floor fires
@@ -1160,6 +1233,78 @@ func TestEmitInvestigationComplete_ConfigAbsenceAllowsGroundedRequiredContext(t 
 	}
 	if !res.Success {
 		t.Fatalf("grounded required related-context anchor should allow absence closure: %s", res.Summary)
+	}
+}
+
+func TestEmitInvestigationComplete_ConfigAbsenceAllowsNearbyGroundedContextThatMentionsMissingKeyInObject(t *testing.T) {
+	missingKey := "explore_mid_loop_hint_budget"
+	mut := types.NewMutableState("q")
+	mut.SetExactContextRequiredFiles([]string{"internal/types/config.go", "codrax.yaml.example", "cmd/root.go"})
+	mut.AppendEvidence([]types.EvidenceItem{
+		{
+			Kind:            types.EvidenceDirect,
+			Source:          "internal/config/runtime.go",
+			LineStart:       296,
+			Subject:         "RuntimeSettings",
+			Object:          missingKey,
+			AnchorKind:      types.AnchorAssignment,
+			AnchorSymbol:    "ExploreMidLoopMinIteration",
+			Summary:         "RuntimeSettings does not define " + missingKey,
+			ContextRole:     types.EvidenceContextRoleAbsenceSupport,
+			GroundingStatus: types.GroundingGrounded,
+			GroundingTier:   types.TierLineText,
+		},
+		{
+			Kind:            types.EvidenceDirect,
+			Source:          "internal/types/config.go",
+			LineStart:       848,
+			Subject:         "DefaultExploreHeuristics",
+			Object:          missingKey,
+			AnchorKind:      types.AnchorDefinition,
+			AnchorSymbol:    "DefaultExploreHeuristics",
+			Summary:         "DefaultExploreHeuristics defines nearby explore defaults but not " + missingKey,
+			ContextRole:     types.EvidenceContextRoleRelatedContext,
+			DiagramRole:     types.EvidenceDiagramRoleDefault,
+			GroundingStatus: types.GroundingGrounded,
+			GroundingTier:   types.TierLineText,
+		},
+		{
+			Kind:            types.EvidenceDirect,
+			Source:          "internal/config/runtime.go",
+			LineStart:       296,
+			Subject:         "ExploreMidLoopMinIteration",
+			AnchorKind:      types.AnchorAssignment,
+			AnchorSymbol:    "ExploreMidLoopMinIteration",
+			Summary:         "Runtime binding for nearby explore defaults.",
+			ContextRole:     types.EvidenceContextRoleRelatedContext,
+			DiagramRole:     types.EvidenceDiagramRoleRuntime,
+			GroundingStatus: types.GroundingGrounded,
+			GroundingTier:   types.TierLineText,
+		},
+	})
+	bus := &types.BusContext{
+		Mutable: mut,
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			RawRequest: missingKey + " 的最终有效值是怎么计算出来的？",
+			Scenario:   types.ScenarioConfigTrace,
+			AnalyzerHints: types.AnalyzerHints{
+				Kind:            "config_mapping",
+				PrimaryEntities: []string{missingKey},
+				Entities:        []string{missingKey},
+				ExactTargets:    []string{missingKey},
+			},
+			AnswerSubject: types.AnswerSubject{Kind: types.SubjectConfigKey},
+		}},
+	}
+	tool := &EmitInvestigationComplete{}
+
+	params := json.RawMessage(`{"reason":"searched the repo and found no exact config key ` + missingKey + ` in production code","confidence":"high","result_kind":"absence","absence_justification":"no config key named ` + missingKey + ` exists in the repo"}`)
+	res, err := tool.Execute(bus, params)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("nearby grounded context that names the missing key only in explanatory object text should still allow absence closure: %s", res.Summary)
 	}
 }
 
