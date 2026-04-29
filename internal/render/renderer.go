@@ -196,6 +196,13 @@ type Renderer struct {
 	previewArea  *ttyPreviewArea
 	previewRound int
 	previewBuf   strings.Builder
+
+	// previewLastChunk is the raw preview text from the most recent
+	// EventLivePreviewChunk. The shared animation goroutine uses
+	// this to refresh the ticker line on every animation tick (so
+	// the leading glyph + frame counter animate even when no new
+	// chunk arrives). Cleared when previewArea is closed.
+	previewLastChunk string
 }
 
 // maxVisibleTasks caps how many rows the live area shows at once.
@@ -617,12 +624,27 @@ func (r *Renderer) openSpinnerAreaLocked() {
 				return
 			case <-ticker.C:
 				r.mu.Lock()
-				if r.area == nil {
+				// The single animation goroutine drives BOTH the
+				// spinner area (when active) AND the streaming
+				// preview ticker (when active). Pre-2026-04-30 the
+				// goroutine returned the moment r.area became nil
+				// — but handlePreviewChunkLocked nulls r.area so
+				// the preview ticker can own the screen, leaving
+				// the previewArea's leading "⟳" glyph static
+				// between chunks. Continuing to tick lets the
+				// preview line refresh its glyph + frame counter
+				// even when no new chunk arrives.
+				if r.area == nil && r.previewArea == nil {
 					r.mu.Unlock()
 					return
 				}
 				r.animFrame++
-				r.redraw()
+				if r.area != nil {
+					r.redraw()
+				}
+				if r.previewArea != nil {
+					r.refreshPreviewLineLocked()
+				}
 				r.mu.Unlock()
 			}
 		}
@@ -910,6 +932,33 @@ func (r *Renderer) Emitter() EventEmitter {
 				r.current.detail = "thinking"
 				r.current.detailDone = false
 				r.current.detailStart = ev.Timestamp
+				// Defense-in-depth parking: EventAgentThinking ONLY
+				// fires for the actively-dispatched agent (BaseAgent
+				// emits it from inside one Chat call), so any OTHER
+				// in-flight NodeRow is by definition not the current
+				// dispatch's focus and must be parked. This catches
+				// scheduler-level edge cases where the dispatch-window
+				// timestamp grouping mis-classifies sibling vs cross-
+				// window starts (e.g. two nodes started <750 ms apart
+				// but only one is actually dispatched, the other was
+				// in scheduler "running" state from a prior window).
+				// Parking is independent of gen/timestamp because
+				// EventAgentThinking is a strict signal: this row
+				// owns the current LLM call.
+				if r.current.isNodeRow {
+					for _, other := range r.tasks {
+						if other == r.current {
+							continue
+						}
+						if !other.isNodeRow {
+							continue
+						}
+						if other.pending || !other.endTime.IsZero() {
+							continue
+						}
+						other.paused = true
+					}
+				}
 			}
 
 		case EventAgentContent:
@@ -1617,29 +1666,39 @@ func (r *Renderer) handlePreviewChunkLocked(ev Event) {
 		//      keeps it as scrollback above the cursor
 		//   5. Ticker writes its single line below the frozen text
 		if r.area != nil {
-			if r.animStop != nil {
-				select {
-				case <-r.animStop:
-				default:
-					close(r.animStop)
-				}
-				r.animStop = nil
-			}
+			// Note: we deliberately do NOT close r.animStop here.
+			// The single animation goroutine is shared between the
+			// spinner area and the streaming preview ticker; closing
+			// it would freeze the previewArea's `⟳` glyph between
+			// chunks. The goroutine itself notices r.area==nil
+			// below and switches to driving previewArea via
+			// refreshPreviewLineLocked.
+			// Frozen-frame print suppression on retry rounds: only
+			// the FIRST round's frame is printed to scrollback. On
+			// rounds 2+ the prior round already left a frozen frame
+			// + bordered answer (or fail-loud notice) above; printing
+			// another frame would duplicate every "✓ 已 X" row in
+			// the user's terminal, exactly the visual stutter the
+			// user reported in the HiTraceAnalyzer trace where the
+			// whole task list re-printed on every retry round.
+			//
 			// hideRunningFinalize=true: the live ticker below this
 			// snapshot owns the finalize state, so don't print a
 			// stale "⠙ 正在生成最终答案" line in scrollback that
 			// would later contradict the persistent "✓ 已生成最终
 			// 答案" line RenderResult prepends to the bordered
 			// answer.
-			frozen := r.composeStatusFrameWithFilter(true)
 			r.area.Stop()
 			r.area = nil
-			if frozen != "" {
-				// Trim trailing newlines so the spacer below
-				// (added before the ticker line) is the canonical
-				// gap; doubled newlines in pterm output would
-				// stack visually.
-				fmt.Fprintln(os.Stdout, strings.TrimRight(frozen, "\n"))
+			if r.previewRound == 0 {
+				frozen := r.composeStatusFrameWithFilter(true)
+				if frozen != "" {
+					// Trim trailing newlines so the spacer below
+					// (added before the ticker line) is the canonical
+					// gap; doubled newlines in pterm output would
+					// stack visually.
+					fmt.Fprintln(os.Stdout, strings.TrimRight(frozen, "\n"))
+				}
 			}
 		}
 		r.previewArea = newTTYPreviewArea(os.Stdout)
@@ -1666,30 +1725,54 @@ func (r *Renderer) handlePreviewChunkLocked(ev Event) {
 	//   " 正在生成最终答案"     primary running text in statusPrimary
 	//   " · #N · 已收到 N 字"   meta in statusMeta (round + char count)
 	//   " · <tail snippet>"     detail in statusDetail (gray)
+	r.previewLastChunk = ev.PreviewText
+	r.renderPreviewLineLocked(ev.PreviewText, chars, roundLabel, maxCols)
+}
+
+// renderPreviewLineLocked composes and pushes the streaming-finalize
+// ticker line. Called both from handlePreviewChunkLocked (per-chunk
+// arrival) and refreshPreviewLineLocked (per-animation-tick when no
+// new chunk has fired). The leading glyph cycles through
+// spinnerFrames so the ticker visibly animates between chunks
+// instead of staring at a static `⟳`.
+//
+// Caller MUST hold r.mu.
+func (r *Renderer) renderPreviewLineLocked(previewText string, chars int, roundLabel string, maxCols int) {
+	if r.previewArea == nil {
+		return
+	}
+	frame := spinnerFrames[r.animFrame%len(spinnerFrames)]
 	primaryText := "正在生成最终答案"
 	metaText := fmt.Sprintf("%s· 已收到 %d 字", roundLabel, chars)
-	// Compute display width of the un-styled assembly so we can
-	// budget the tail snippet.
-	prefixPlain := fmt.Sprintf("  %s %s · %s · ", string(glyphRecoverable), primaryText, metaText)
+	prefixPlain := fmt.Sprintf("  %s %s · %s · ", frame, primaryText, metaText)
 	prefixCols := runewidth.StringWidth(prefixPlain)
 	tailCols := maxCols - prefixCols
 	if tailCols < 8 {
 		tailCols = previewLineLastSnippetCols(maxCols)
 	}
-	// Show the most-recent slice of streamed content, not the head:
-	// the user's interest is "what is the model writing now". A
-	// rolling tail-window also makes the line visibly change every
-	// chunk so the eye perceives progress.
-	flat := flattenToOneLine(ev.PreviewText)
+	flat := flattenToOneLine(previewText)
 	snippetRaw := tailByDisplayWidth(flat, tailCols)
-	// Truncate the plain assembly first (so the truncation budget
-	// sees real display columns, not ANSI escapes), then re-style.
 	plain := truncByTerminalWidth(prefixPlain+snippetRaw, maxCols)
-	// Re-split the truncated plain text along the known boundaries
-	// so each segment can carry its semantic colour. The boundaries
-	// are unambiguous because the prefix segment uses fixed glyphs
-	// that don't appear in primary/meta/detail bodies.
-	r.previewArea.Update(stylePreviewLine(plain, primaryText, metaText))
+	r.previewArea.Update(stylePreviewLine(plain, primaryText, metaText, frame))
+}
+
+// refreshPreviewLineLocked re-renders the ticker line with the
+// CURRENT spinner frame using the cached previewLastChunk text. The
+// shared animation goroutine calls this every 100 ms so the leading
+// glyph animates between chunk arrivals.
+//
+// Caller MUST hold r.mu.
+func (r *Renderer) refreshPreviewLineLocked() {
+	if r.previewArea == nil {
+		return
+	}
+	chars := utf8.RuneCountInString(r.previewLastChunk)
+	maxCols := previewLineMaxCols()
+	roundLabel := ""
+	if r.previewRound > 1 {
+		roundLabel = fmt.Sprintf("#%d ", r.previewRound)
+	}
+	r.renderPreviewLineLocked(r.previewLastChunk, chars, roundLabel, maxCols)
 }
 
 // stylePreviewLine applies the per-segment colour scheme to the
@@ -1704,12 +1787,17 @@ func (r *Renderer) handlePreviewChunkLocked(ev Event) {
 // truncation clips the snippet — the un-clipped prefix segments
 // always survive because truncByTerminalWidth fits the prefix
 // width budget before snipping the tail.
-func stylePreviewLine(plain, primaryText, metaText string) string {
+func stylePreviewLine(plain, primaryText, metaText, glyph string) string {
 	const indent = "  "
 	const dotSep = " · "
 	rest := strings.TrimPrefix(plain, indent)
-	// Glyph segment: first non-space rune is the ⟳ glyph.
-	glyph := string(glyphRecoverable)
+	// Glyph segment: caller-supplied (animated spinner frame in
+	// production; whatever was put in the plain assembly). Falls
+	// through to the glyphRecoverable static character when the
+	// caller passes empty for backward compatibility.
+	if glyph == "" {
+		glyph = string(glyphRecoverable)
+	}
 	if !strings.HasPrefix(rest, glyph) {
 		// Truncation collapsed the whole line; render plain as a
 		// single statusDetail-coloured run so the row at least
@@ -1738,7 +1826,14 @@ func stylePreviewLine(plain, primaryText, metaText string) string {
 	}
 	var b strings.Builder
 	b.WriteString(indent)
-	b.WriteString(statusRecoverable.Sprint(glyph))
+	// Spinner frame uses statusSpinner (the same dim-grey style the
+	// regular spinner-area row uses) so the animated glyph reads
+	// as a "live ticker" cue without competing with the
+	// statusPrimary primary text. statusRecoverable was used pre-
+	// 2026-04-30 when the glyph was a static `⟳`; the animated
+	// braille frames need a calmer hue so the eye locks on the
+	// text body, not the cycling glyph.
+	b.WriteString(statusSpinner.Sprint(glyph))
 	b.WriteString(" ")
 	b.WriteString(statusPrimary.Sprint(primaryText))
 	if metaSegment != "" {
@@ -1776,6 +1871,7 @@ func (r *Renderer) handlePreviewClearLocked(ev Event) {
 		r.mu.Lock()
 		r.previewArea.Stop()
 		r.previewArea = nil
+		r.previewLastChunk = ""
 		return
 	}
 	// Success path: just wipe the ticker row. The persistent
@@ -1785,6 +1881,7 @@ func (r *Renderer) handlePreviewClearLocked(ev Event) {
 	// — single source of truth, no duplicate printing.
 	r.previewArea.Stop()
 	r.previewArea = nil
+	r.previewLastChunk = ""
 }
 
 // printFinalizeBanner emits the persistent "✓ 已生成最终答案" /

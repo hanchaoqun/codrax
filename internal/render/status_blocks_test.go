@@ -583,6 +583,116 @@ func TestStatus_TopicGroupOrderingAfterAnalyze(t *testing.T) {
 	}
 }
 
+// TestStatus_AgentThinkingParksOtherRows pins the defense-in-depth
+// EventAgentThinking parking: even if the dispatch-window timestamp
+// grouping mis-classifies sibling vs cross-window starts (e.g.
+// scheduler dispatches two nodes within 750 ms but only one is the
+// active LLM agent), EventAgentThinking is a strict signal that
+// r.current owns the in-flight LLM call, so every OTHER NodeRow
+// must be parked. This is the safety net for the production trace
+// where evidence + validate kept rendering as concurrent despite
+// the dispatch-gen logic.
+func TestStatus_AgentThinkingParksOtherRows(t *testing.T) {
+	r := newTestRenderer("zh")
+	emit := r.Emitter()
+	t0 := time.Now()
+	emit(Event{Kind: EventAnalysisReady, Timestamp: t0, TaskNodes: []TaskNodeInfo{
+		{ID: "ev_node", Type: "evidence", Objective: "topic"},
+		{ID: "vN", Type: "validate", Objective: "cross-check"},
+	}})
+	// Both rows started within the 750 ms grouping window — would
+	// both be considered same-window siblings under the dispatchGen
+	// logic alone.
+	emit(Event{Kind: EventTaskNodeStart, Timestamp: t0.Add(1 * time.Millisecond), NodeID: "ev_node"})
+	emit(Event{Kind: EventTaskNodeStart, Timestamp: t0.Add(100 * time.Millisecond), NodeID: "vN"})
+	// Defense-in-depth: validate's agent emits a thinking event.
+	// EventAgentThinking only fires for the agent currently in a
+	// Chat call → validate is the active row → evidence (the only
+	// other in-flight NodeRow) MUST be parked even though it shares
+	// a dispatch generation.
+	emit(Event{Kind: EventAgentThinking, Timestamp: t0.Add(2 * time.Second), Iteration: 0})
+
+	evRow := r.findNodeRow("ev_node")
+	if evRow == nil || !evRow.paused {
+		t.Errorf("evidence must be parked after EventAgentThinking signalled validate is active; got paused=%v",
+			evRow != nil && evRow.paused)
+	}
+	vRow := r.findNodeRow("vN")
+	if vRow == nil || vRow.paused {
+		t.Errorf("active validate row must NOT be parked; got paused=%v",
+			vRow != nil && vRow.paused)
+	}
+}
+
+// TestStatus_SingleEvidenceCrossWindowValidate reproduces the user-
+// reported "evidence + validate look concurrent" scenario from the
+// production trace at 2026-04-29 23:30+ for the HiTraceAnalyzer
+// question:
+//
+//   - Single-topic evidence (NO _tN suffix → renders as a regular
+//     row, not a topic group)
+//   - Evidence dispatched in window 1 at T=0
+//   - Validate dispatched 38 s later in window 2
+//
+// Expected behaviour: validate's EventTaskNodeStart MUST be detected
+// as cross-window (gap >> dispatchWindowGroupingMs), bump
+// r.dispatchGen, and park the older-gen evidence row. Evidence then
+// reads lexically as pending ("待探索代码并收集证据") and visually
+// dim, while only validate carries the active spinner + LightBlue.
+//
+// If this test PASSES but the user still sees concurrent rows, the
+// REPL is running a stale binary (process pre-dates the fix and
+// `make` is not enough — the running REPL must exit and restart).
+func TestStatus_SingleEvidenceCrossWindowValidate(t *testing.T) {
+	r := newTestRenderer("zh")
+	emit := r.Emitter()
+	t0 := time.Now()
+	// Analyzer ready: evidence (no _tN — single topic) + validate
+	// + reconcile + finalize.
+	emit(Event{Kind: EventAnalysisReady, Timestamp: t0, TaskNodes: []TaskNodeInfo{
+		{ID: "ev_node", Type: "evidence", Objective: "HiTraceAnalyzer flow"},
+		{ID: "vN", Type: "validate", Objective: "cross-check"},
+		{ID: "rN", Type: "reconcile", Objective: "merge"},
+		{ID: "fN", Type: "finalize", Objective: "render"},
+	}})
+	// Window 1: evidence alone.
+	emit(Event{Kind: EventTaskNodeStart, Timestamp: t0.Add(1 * time.Millisecond), NodeID: "ev_node"})
+	// Window 2: validate fires 38 s later (gap >> 750 ms grouping
+	// threshold). Evidence has NOT received another EventTaskNodeStart.
+	emit(Event{Kind: EventTaskNodeStart, Timestamp: t0.Add(38 * time.Second), NodeID: "vN"})
+
+	evRow := r.findNodeRow("ev_node")
+	if evRow == nil {
+		t.Fatal("evidence row missing")
+	}
+	if !evRow.paused {
+		t.Errorf("cross-window evidence row MUST be parked when validate started in a later window; got paused=false (dispatchGen=%d, lastNodeStartAt=%v)",
+			evRow.dispatchGen, r.lastNodeStartAt)
+	}
+	vRow := r.findNodeRow("vN")
+	if vRow == nil {
+		t.Fatal("validate row missing")
+	}
+	if vRow.paused {
+		t.Errorf("active validate row must NOT be parked; got paused=true")
+	}
+	// Render check: evidence's primary text must read as pending
+	// ("待 X"), validate as running ("正在 X").
+	r.mu.Lock()
+	rows := []*taskRow{evRow, vRow}
+	r.mu.Unlock()
+	zhOut := stripAnsiEscapes(renderRows(t, "zh", rows...))
+	if !strings.Contains(zhOut, "待探索代码并收集证据") {
+		t.Errorf("evidence must render lexically as pending '待 …'; got:\n%s", zhOut)
+	}
+	if strings.Contains(zhOut, "正在探索代码并收集证据") {
+		t.Errorf("evidence must NOT render as running '正在 …'; got:\n%s", zhOut)
+	}
+	if !strings.Contains(zhOut, "正在校核分析结论") {
+		t.Errorf("active validate must render as running; got:\n%s", zhOut)
+	}
+}
+
 // TestStatus_DispatchGenerationGroupsSiblings pins the
 // dispatch-window grouping: nodes started within
 // dispatchWindowGroupingMs ms of each other share a generation and
