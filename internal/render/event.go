@@ -69,6 +69,24 @@ const (
 	// above the area — so the user sees the reply being typed out
 	// without the reasoning feed ballooning.
 	EventAgentContent
+
+	// Live preview of the finalizer's `summary` field as the
+	// emit_answer_document tool-call arguments stream in. PreviewText
+	// carries the cumulative decoded summary so far; PreviewRound
+	// labels the draft round (1 for first attempt, 2+ for retries
+	// after a contract reject so the user knows the visible text is
+	// tentative). Renderer manages a pterm.AreaPrinter dedicated to
+	// this preview — first chunk stops the spinner and opens the
+	// area, subsequent chunks update it in place.
+	//
+	// EventLivePreviewClear ends the preview: PreviewRejected
+	// indicates whether the round was rejected (true → flash a
+	// "已重写" marker briefly, then erase) or accepted/finalised
+	// (false → erase). Either way the area is gone before the
+	// orchestrator's final RenderAnswerDocument-derived bordered
+	// answer prints.
+	EventLivePreviewChunk
+	EventLivePreviewClear
 )
 
 // TaskNodeInfo is the renderable summary of a TaskGraph node carried
@@ -140,6 +158,19 @@ type Event struct {
 	NodeID        string
 	NodeKind      string
 	NodeObjective string
+
+	// EventLivePreviewChunk / EventLivePreviewClear payload.
+	//   PreviewText     — cumulative decoded summary text so far
+	//   PreviewRound    — 1-based round counter (1 = first finalize
+	//                     attempt; ≥2 means earlier rounds were
+	//                     rejected by AnswerContract / Tier1 floor)
+	//   PreviewRejected — only meaningful on EventLivePreviewClear.
+	//                     true → contract rejected this round, area
+	//                     gets a "已重写" marker before erase. false
+	//                     → final clean erase before bordered answer.
+	PreviewText     string
+	PreviewRound    int
+	PreviewRejected bool
 }
 
 // EventEmitter is the callback signature for pipeline event delivery.

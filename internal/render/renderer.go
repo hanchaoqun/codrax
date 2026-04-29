@@ -120,6 +120,28 @@ type Renderer struct {
 	// single-shot CLI / non-REPL callers keep their historical
 	// byte-identical rendering.
 	cancelHint string
+
+	// previewArea / previewRound / previewBuf manage the finalizer's
+	// streaming summary preview. previewArea is a separate
+	// pterm.AreaPrinter from the spinner area — the first
+	// EventLivePreviewChunk after a Clear (or first ever) increments
+	// previewRound, stops the spinner, and opens this area. Subsequent
+	// chunks call previewArea.Update with the cumulative buffer
+	// (header line + Event.PreviewText). EventLivePreviewClear stops
+	// the area; PreviewRejected briefly flashes a "已重写" marker
+	// before erase so the user knows the just-shown draft was thrown
+	// away by the AnswerContract / Tier1 floor gates. Rejected=false
+	// is the success-path cleanup before the bordered styled answer
+	// prints.
+	//
+	// Non-TTY short-circuit: when stdout is not a terminal (pipe / >
+	// file), Area would print but cannot erase — preview text would
+	// leak into the user's piped output and corrupt the file. The
+	// chunk handler short-circuits in that case so non-interactive
+	// outputs are byte-identical pre/post this feature.
+	previewArea  *pterm.AreaPrinter
+	previewRound int
+	previewBuf   strings.Builder
 }
 
 // maxVisibleTasks caps how many rows the live area shows at once.
@@ -305,6 +327,19 @@ func (r *Renderer) Emitter() EventEmitter {
 			} else {
 				fmt.Fprintln(os.Stderr, line)
 			}
+			return
+		}
+
+		// Live preview events are independent of the spinner Area
+		// state — they manage their OWN previewArea so the chunk
+		// arrival can stop the spinner and open the preview without
+		// requiring an active spinner.
+		switch ev.Kind {
+		case EventLivePreviewChunk:
+			r.handlePreviewChunkLocked(ev)
+			return
+		case EventLivePreviewClear:
+			r.handlePreviewClearLocked(ev)
 			return
 		}
 
@@ -1042,3 +1077,104 @@ func formatAgent(name types.AgentName, count int) string {
 	return fmt.Sprintf("%s(%d)", s, count)
 }
 
+
+// previewIsTTY reports whether stdout is a terminal. The renderer
+// short-circuits live preview events on non-TTY outputs (pipes / >
+// file / CI) so the preview never leaks into the user's piped
+// stream. isTTY is the same predicate the diff colorizer uses, so
+// the preview / diff color paths agree on what counts as
+// interactive.
+func previewIsTTY() bool {
+	return isTTY(os.Stdout)
+}
+
+// previewHeader builds the pretty header line above the streaming
+// summary. Round number tells the user "this is draft N of the
+// finalize step" so a reader who walks in mid-Run knows the visible
+// text might still be reshaped by the contract gate.
+func previewHeader(round int) string {
+	if round <= 1 {
+		return "─── 草稿渲染中 (流式预览) ───"
+	}
+	return fmt.Sprintf("─── 草稿渲染中 #%d (流式预览, 此前轮次已重写) ───", round)
+}
+
+// previewRejectedSuffix is the brief flash appended when a draft is
+// torn down on AnswerContract / Tier1 floor reject. The renderer
+// updates the area once with this suffix, sleeps 200ms, then
+// previewArea.Stop() with WithRemoveWhenDone erases the whole thing.
+const previewRejectedSuffix = "\n[已重写]"
+
+// handlePreviewChunkLocked is called with r.mu held. Manages the
+// lifecycle of r.previewArea and updates it with the cumulative
+// summary text. First chunk after Clear (or first ever) opens a new
+// area + increments the round counter. The spinner area is stopped
+// IF active so the preview owns the bottom of the terminal.
+func (r *Renderer) handlePreviewChunkLocked(ev Event) {
+	if !previewIsTTY() {
+		return
+	}
+	if ev.PreviewText == "" {
+		return
+	}
+	if r.previewArea == nil {
+		// Stop the spinner area if it is still active. Restarting
+		// it later (on retry) is intentionally not done — the user
+		// accepted "杂乱中间态" and the rolling reasoning events
+		// keep them oriented during the retry investigation.
+		if r.area != nil {
+			if r.animStop != nil {
+				select {
+				case <-r.animStop:
+					// already closed
+				default:
+					close(r.animStop)
+				}
+				r.animStop = nil
+			}
+			r.area.Stop()
+			r.area = nil
+		}
+		a, err := pterm.DefaultArea.WithRemoveWhenDone(true).Start()
+		if err != nil {
+			// Failed to start area; degrade silently — preview is
+			// purely cosmetic and must never break the pipeline.
+			return
+		}
+		r.previewArea = a
+		r.previewRound++
+	}
+	r.previewBuf.Reset()
+	r.previewBuf.WriteString(previewHeader(r.previewRound))
+	r.previewBuf.WriteString("\n")
+	r.previewBuf.WriteString(ev.PreviewText)
+	r.previewArea.Update(r.previewBuf.String())
+}
+
+// handlePreviewClearLocked is called with r.mu held. Tears down
+// r.previewArea. PreviewRejected=true flashes a "[已重写]" marker
+// briefly so the user knows the just-shown text was thrown away by
+// the AnswerContract / Tier1 floor gates; PreviewRejected=false
+// (success path) just erases.
+func (r *Renderer) handlePreviewClearLocked(ev Event) {
+	if r.previewArea == nil {
+		return
+	}
+	if ev.PreviewRejected {
+		// Append rejected marker, brief pause so the user can read
+		// it, then erase. The 200ms is long enough to register at
+		// reading speed but short enough not to delay the next
+		// retry round noticeably.
+		r.previewBuf.WriteString(previewRejectedSuffix)
+		r.previewArea.Update(r.previewBuf.String())
+		// Release the lock during sleep so other events (reasoning,
+		// next chunk) don't deadlock waiting on us.
+		r.mu.Unlock()
+		time.Sleep(200 * time.Millisecond)
+		r.mu.Lock()
+	}
+	if r.previewArea != nil {
+		r.previewArea.Stop()
+		r.previewArea = nil
+	}
+}

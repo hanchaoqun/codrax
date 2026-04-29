@@ -315,7 +315,7 @@ func (o *OpenAIAdapter) Chat(ctx context.Context, messages []Message, tools []To
 			return Response{}, cerr
 		}
 		if o.stream {
-			resp, err = o.doStreamRequest(ctx, bodyBytes, opts.OnContentDelta)
+			resp, err = o.doStreamRequest(ctx, bodyBytes, opts.OnContentDelta, opts.OnToolCallDelta)
 		} else {
 			resp, err = o.doRequest(ctx, bodyBytes)
 		}
@@ -396,10 +396,12 @@ func (o *OpenAIAdapter) doRequest(ctx context.Context, bodyBytes []byte) (Respon
 // the incremental SSE chunks into a single Response. Content deltas
 // fire the optional onDelta callback as they arrive so the agent
 // layer can surface a live preview. Tool-call argument deltas are
-// accumulated silently — they arrive as partial JSON that cannot be
-// parsed until the stream closes, and mid-stream surfacing would
-// leak broken JSON into logs / UI.
-func (o *OpenAIAdapter) doStreamRequest(ctx context.Context, bodyBytes []byte, onDelta func(string)) (Response, error) {
+// accumulated AND optionally fired through onToolCallDelta as they
+// arrive. The accumulator's behaviour is unchanged when
+// onToolCallDelta is nil — adding the callback is purely a passive
+// read-side tap so the renderer can show a streaming preview of the
+// summary field without disturbing the canonical Args parse.
+func (o *OpenAIAdapter) doStreamRequest(ctx context.Context, bodyBytes []byte, onDelta func(string), onToolCallDelta func(int, string, string)) (Response, error) {
 	// Stall-detection scaffold: a request-scoped context lets a
 	// watchdog goroutine cancel the in-flight HTTP body read when
 	// the upstream stops sending bytes for too long. The HTTP
@@ -519,7 +521,7 @@ func (o *OpenAIAdapter) doStreamRequest(ctx context.Context, bodyBytes []byte, o
 		}
 	}()
 
-	resp, err := parseSSEStream(httpResp.Body, onDelta, &lastReadNano, &firstByteReceived)
+	resp, err := parseSSEStream(httpResp.Body, onDelta, onToolCallDelta, &lastReadNano, &firstByteReceived)
 	cancel()
 	<-watchDone
 	if err != nil {
@@ -597,7 +599,7 @@ const (
 //   - finish_reason appears in the last non-DONE chunk
 //   - usage typically ships in a dedicated last chunk (stream_options),
 //     but providers vary; we read it when present
-func parseSSEStream(r io.Reader, onDelta func(string), progress *atomic.Int64, firstByte *atomic.Bool) (Response, error) {
+func parseSSEStream(r io.Reader, onDelta func(string), onToolCallDelta func(int, string, string), progress *atomic.Int64, firstByte *atomic.Bool) (Response, error) {
 	br := bufio.NewScanner(r)
 	// Single SSE frames can exceed bufio's default 64 KB line cap when
 	// a provider batches many deltas into one frame; raise to 1 MB to
@@ -697,6 +699,20 @@ func parseSSEStream(r io.Reader, onDelta func(string), progress *atomic.Int64, f
 				}
 				if tc.Function.Arguments != "" {
 					agg.Function.Arguments += tc.Function.Arguments
+					// Passive read-side tap: fire the optional
+					// onToolCallDelta callback with the NEW chunk only
+					// (not the cumulative buffer). The accumulator
+					// state above is unaffected — adding this hook
+					// does not alter what the caller eventually parses
+					// from agg.Function.Arguments. Used by the
+					// finalizer-preview path to live-stream the
+					// `summary` field decoded from partial JSON;
+					// callbacks that panic are isolated by the caller
+					// (BaseAgent wraps them) so a buggy consumer
+					// cannot kill the stream consumer goroutine.
+					if onToolCallDelta != nil {
+						onToolCallDelta(idx, agg.Function.Name, tc.Function.Arguments)
+					}
 				}
 			}
 			if ch.FinishReason != "" {
@@ -886,7 +902,7 @@ func (o *OpenAIAdapter) parseResponse(body []byte) (Response, error) {
 	// because the body is already fully buffered by doRequest.
 	if looksLikeSSEResponse(body) {
 		logging.Debug("[llm] non-streaming request returned SSE; parsing as stream")
-		return parseSSEStream(bytes.NewReader(body), nil, nil, nil)
+		return parseSSEStream(bytes.NewReader(body), nil, nil, nil, nil)
 	}
 
 	var oResp openaiResponse

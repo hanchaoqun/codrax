@@ -627,6 +627,30 @@ func (o *Orchestrator) Run(request string, repoRoot string, branch string) (*typ
 	o.cancelToken = NewCancelToken()
 	defer func() { o.cancelToken = nil }()
 
+	// Defensive live-preview cleanup. The finalizer streaming preview
+	// area opens on EventLivePreviewChunk and the orchestrator emits
+	// the matching EventLivePreviewClear at three known finalize
+	// outcomes (contract pass / contract fail / dispatch error). Any
+	// OTHER early-exit path — step budget exhaustion, Ctrl+C / ctx
+	// cancel before contract check, an analyzer fail-loud that never
+	// reaches finalize, a panic — would otherwise leave the preview
+	// area drawn on the user's terminal, ghosting under whatever the
+	// REPL prints next. Emit a redundant Clear here so the renderer's
+	// handlePreviewClearLocked tears the area down on EVERY Run exit
+	// path. The handler is a no-op when no area is open, so the
+	// happy-path emission is harmless. Marked PreviewRejected=true so
+	// the area gets the "[已重写]" flash on stranded-cleanup paths
+	// where the in-flight draft was implicitly thrown away by an
+	// abnormal exit.
+	defer func() {
+		o.emit(render.Event{
+			Kind:            render.EventLivePreviewClear,
+			Timestamp:       time.Now(),
+			Stage:           types.StageFinalize,
+			PreviewRejected: true,
+		})
+	}()
+
 	// Initialize BusContext
 	o.busCtx = &types.BusContext{
 		PipelineStage: types.StageAnalyze,
@@ -2439,6 +2463,16 @@ func (o *Orchestrator) runReadSchedulerLoop(stepBudget int) int {
 		out, err := o.dispatchStage(types.StageFinalize)
 		if err != nil {
 			logging.Error("[orchestrator] DAG finalize failed: %v", err)
+			// Live preview cleanup: dispatch error path treats the
+			// just-streamed draft as rejected. The renderer flashes
+			// "已重写" briefly then erases the area before the retry
+			// (or terminal failure) text prints.
+			o.emit(render.Event{
+				Kind:            render.EventLivePreviewClear,
+				Timestamp:       time.Now(),
+				Stage:           types.StageFinalize,
+				PreviewRejected: true,
+			})
 			if o.retryReadStageDispatchError(state, types.StageFinalize, nil, fin, err) {
 				continue
 			}
@@ -2501,6 +2535,17 @@ func (o *Orchestrator) runReadSchedulerLoop(stepBudget int) int {
 		}
 
 		if res.Passed {
+			// Live preview cleanup: contract pass means the draft
+			// just streamed IS the final answer (modulo the
+			// deterministic re-render). Erase the preview area
+			// cleanly with no rejected marker — the bordered styled
+			// answer prints next.
+			o.emit(render.Event{
+				Kind:            render.EventLivePreviewClear,
+				Timestamp:       time.Now(),
+				Stage:           types.StageFinalize,
+				PreviewRejected: false,
+			})
 			// Observability: log how many evidence items the answer
 			// actually cited vs how many the explorer collected. Used
 			// to spot over-investigation patterns ("explorer collected
@@ -2511,6 +2556,18 @@ func (o *Orchestrator) runReadSchedulerLoop(stepBudget int) int {
 			o.emitNodeEnd(fin.ID, true, "")
 			break
 		}
+		// Contract failed (or SC failed). The just-streamed draft
+		// is rejected — emit Clear with rejected=true so the
+		// renderer flashes "已重写" briefly before erasing. Whether
+		// the orchestrator now retries (next finalize round will
+		// open a new preview area) or surfaces fail-loud, the
+		// previous preview must be torn down here.
+		o.emit(render.Event{
+			Kind:            render.EventLivePreviewClear,
+			Timestamp:       time.Now(),
+			Stage:           types.StageFinalize,
+			PreviewRejected: true,
+		})
 
 		logging.Info("[orchestrator] contract check failed (%d violation(s)); retryUsed=%d/%d",
 			len(res.Violations), state.retryUsed, ir.TaskGraph.ExecutionPolicy.RetryBudget)

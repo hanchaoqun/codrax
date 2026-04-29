@@ -1002,11 +1002,30 @@ func (b *BaseAgent) Execute(ctx *types.AgentContext, sk *skill.Config) (*StageOu
 		// detail updates live without flooding the renderer with
 		// per-token events. Non-streaming adapters never call onDelta.
 		streamBuf := newStreamPreviewBuffer(b.deps.Emit, b.name, ctx.Stage, i)
+		// Finalizer-only live summary preview. When this dispatch is
+		// the finalize stage's emit_answer_document call, install a
+		// SummaryExtractor on the tool-call argument stream so the
+		// renderer can show the `summary` field as it arrives. This is
+		// a PASSIVE read-side tap — onToolCallDelta does not influence
+		// the resp.ToolCalls accumulator, so the orchestrator's
+		// downstream parse of the same call yields byte-identical
+		// AnswerDocument with vs without preview.
+		var summaryPreview *finalizePreviewHook
+		var onToolCallDelta func(int, string, string)
+		if ctx.Stage == types.StageFinalize {
+			summaryPreview = newFinalizePreviewHook(b.deps.Emit)
+			onToolCallDelta = summaryPreview.onToolCallDelta
+		}
 		resp, err := b.deps.LLM.Chat(ctx.Context(), messages, toolSchemas, llm.ChatOptions{
-			ToolChoice:     resolveToolChoice(ctx),
-			OnContentDelta: streamBuf.onDelta,
+			ToolChoice:      resolveToolChoice(ctx),
+			OnContentDelta:  streamBuf.onDelta,
+			OnToolCallDelta: onToolCallDelta,
 		})
 		streamBuf.flush()
+		// Flush any throttled-out summary preview chunks before the
+		// orchestrator emits its EventLivePreviewClear. Nil-safe so
+		// non-finalize stages don't pay any cost.
+		summaryPreview.flush()
 		if err != nil {
 			// Salvage accumulated side-effects before bubbling the LLM
 			// error. Without this, an upstream 429 / 5xx / context-length

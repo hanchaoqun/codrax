@@ -64,10 +64,33 @@ type ChatOptions struct {
 	// is the NEW text only (not the accumulated buffer). The final
 	// accumulated content is still returned on the Response. Non-
 	// streaming adapters never invoke this callback, even when
-	// non-nil. Tool-call argument deltas are NOT surfaced — they
-	// arrive as partial JSON that makes no sense until the stream
-	// finishes.
+	// non-nil.
 	OnContentDelta func(delta string)
+
+	// OnToolCallDelta is an optional PASSIVE-READ callback fired by
+	// a streaming adapter every time a chunk of a tool-call's
+	// `arguments` field arrives over the wire. argsChunk is the NEW
+	// raw JSON fragment (not the accumulated buffer); index is the
+	// position of the tool call within the response (0 for the first
+	// tool call, etc.); name is the tool name once it has been
+	// observed (may be empty for the first few chunks if the name
+	// has not yet streamed in).
+	//
+	// The callback is PASSIVE: it observes deltas without disturbing
+	// the adapter's internal accumulation buffer. The complete tool
+	// call (with full Arguments) is still returned on the Response
+	// after the stream closes — byte-identical with vs without this
+	// callback installed. This is the load-bearing invariant that
+	// lets the finalizer-preview path (internal/render preview area
+	// + summary field extractor) tap the stream for live UI without
+	// affecting the parsed AnswerDocument the orchestrator builds
+	// from the same stream.
+	//
+	// Tool-call arguments are PARTIAL JSON mid-stream — callers that
+	// need a parseable value must wait for stream end. Live consumers
+	// (like the summary preview extractor) are responsible for any
+	// best-effort partial-parse logic on their side.
+	OnToolCallDelta func(index int, name string, argsChunk string)
 }
 
 // Adapter defines the interface for LLM backends.
