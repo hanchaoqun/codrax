@@ -990,6 +990,46 @@ func TestComposeEffectiveRequest(t *testing.T) {
 	}
 }
 
+// TestRenderRichResponse_MermaidBlocksGetTransformed is the
+// regression guard for the user-reported "图表/markdown 未渲染"
+// bug: local + chitchat dispatch used to call renderBordered
+// directly on the LLM's raw markdown source, so a ```mermaid```
+// fence printed as literal source. renderRichResponse now runs
+// RenderMermaidBlocks on the way through. The transformation
+// rewrites the fence info-string from "mermaid" to "text" — that
+// rename is the contract this test pins (the output may be the
+// same plain mermaid source when the library bails on the body,
+// but the fence MUST have been processed; a "mermaid" → "text"
+// info-string flip is the unambiguous "we tried" signal).
+func TestRenderRichResponse_MermaidBlocksGetTransformed(t *testing.T) {
+	r := &REPL{} // nil renderer is OK — RenderMermaidBlocks is package-level
+	in := "前缀文字\n\n```mermaid\nflowchart LR\n  A --> B\n  B --> C\n```\n\n后缀文字"
+	got := r.renderRichResponse(in)
+	if strings.Contains(got, "```mermaid") {
+		t.Errorf("renderRichResponse must rewrite ```mermaid``` fence; got %q", got)
+	}
+	if !strings.Contains(got, "前缀文字") || !strings.Contains(got, "后缀文字") {
+		t.Errorf("renderRichResponse must preserve surrounding prose; got %q", got)
+	}
+}
+
+// TestRenderRichResponse_NilRendererKeepsMarkdown verifies the
+// fallback contract for tests / scripts that pass Renderer=nil:
+// the function still runs RenderMermaidBlocks (self-contained),
+// but skips glamour and returns the markdown source verbatim.
+// Without this the existing test fixtures that asserted on raw
+// markdown content (e.g. "[local] reply built from") would break.
+func TestRenderRichResponse_NilRendererKeepsMarkdown(t *testing.T) {
+	r := &REPL{} // renderer == nil
+	in := "## 标题\n**bold** plain\n- item 1\n- item 2"
+	got := r.renderRichResponse(in)
+	// No glamour → input passes through (modulo the optional
+	// RenderMermaidBlocks pass which is a no-op without a fence).
+	if got != in {
+		t.Errorf("nil renderer must preserve markdown source; got %q want %q", got, in)
+	}
+}
+
 // TestLastAnswerText_SkipsErrorPlaceholder verifies the dispatcher
 // does not hand a sanitised error string to the local responder as
 // "the previous answer". recordTurn writes that placeholder when

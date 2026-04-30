@@ -790,7 +790,13 @@ func (r *REPL) localDispatch(line, display string, policy TurnPolicy, lastAnswer
 	logging.Info("[repl/turn_policy] local reply (len=%d):\n%s", len(reply), reply)
 
 	fmt.Fprintln(r.out, localReplyHeader(r.language))
-	r.renderBordered(reply)
+	// Run mermaid → ASCII + glamour markdown styling before
+	// rendering. The pipeline path gets this via RenderResult; the
+	// local path used to bypass it, so the user saw raw ```mermaid```
+	// blocks and literal ## / **bold** / | table | source in the
+	// REPL output. renderRichResponse is the single source of
+	// rendering for both off-pipeline answer surfaces.
+	r.renderBordered(r.renderRichResponse(reply))
 	// Persist as KindPipeline. A local-route turn is structurally a
 	// derivative of a previous pipeline answer (transform /
 	// summarize / translate / elaborate of last_answer), so its
@@ -1664,6 +1670,34 @@ func (r *REPL) dispatch(line, display string) {
 
 	r.renderBordered(response)
 	r.recordTurn(display, line, memResponse, memory.KindPipeline)
+}
+
+// renderRichResponse runs `text` through the full presentation
+// pipeline the pipeline-dispatch path already gets via
+// render.Renderer.RenderResult: first
+// render.RenderMermaidBlocks (turns ```mermaid``` fences into
+// aligned ASCII grids), then the glamour-backed
+// Renderer.RenderMarkdown (styles headings / bold / lists /
+// tables / fenced code).
+//
+// Pre-2026-04-30 the local + chitchat dispatch paths called
+// renderBordered directly on the LLM's raw markdown source, so
+// users saw `## Heading` / `**bold**` / `| col |` literals AND
+// raw ```mermaid``` source instead of styled output — the bug
+// reported as "图表/markdown 未渲染". Pipeline path was
+// unaffected because RenderResult already wires both passes.
+//
+// Nil-renderer safe: when Config.Renderer is unset (tests, scripts
+// that bypass cmd/), the function still runs RenderMermaidBlocks
+// (which is a self-contained package function) and skips the
+// glamour pass — preserves byte-identical behaviour for every
+// existing test fixture that asserted on the raw response shape.
+func (r *REPL) renderRichResponse(text string) string {
+	text = render.RenderMermaidBlocks(text)
+	if r.renderer != nil {
+		text = r.renderer.RenderMarkdown(text)
+	}
+	return text
 }
 
 // renderBordered prints model output with a continuous left border.

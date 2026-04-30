@@ -743,7 +743,14 @@ func (r *REPL) chitchatDispatch(line, display string) {
 	// invisible at the terminal — so a misrouted code question got
 	// a generic answer with no recovery hint.
 	fmt.Fprintln(r.out, chitchatReplyHeader(r.language))
-	r.renderBordered(response)
+	// Same rendering pipeline as the local route: mermaid →
+	// ASCII grids + glamour markdown styling. Pre-2026-04-30 the
+	// chitchat path called renderBordered on raw markdown source,
+	// so a chitchat reply that surfaced a fenced code block /
+	// mermaid diagram / markdown table printed as literal source
+	// text. recordTurn persists the raw `response` (NOT the
+	// styled output) so memory transcripts stay plain.
+	r.renderBordered(r.renderRichResponse(response))
 	r.recordTurn(display, line, response, memory.KindChitchat)
 }
 

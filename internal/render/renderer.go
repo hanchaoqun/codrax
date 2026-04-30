@@ -1346,6 +1346,29 @@ func stripAgentLabels(s string) string {
 }
 
 func (r *Renderer) renderMarkdown(text string) string {
+	return r.RenderMarkdown(text)
+}
+
+// RenderMarkdown is the public entry point so callers outside this
+// package (e.g. internal/repl's local + chitchat dispatch paths,
+// which used to print raw text bypassing glamour) can reuse the
+// glamour-backed markdown pipeline without re-wiring it. Nil
+// receiver returns input unchanged so test fixtures that pass
+// Renderer=nil keep working byte-identically. Glamour failure
+// (rare) also falls back to the original text — no regression
+// risk for any caller.
+//
+// Pre-2026-04-30 the lowercase renderMarkdown was the only entry,
+// which forced internal/repl/repl.go's renderBordered consumers
+// to choose between (a) calling RenderResult against a synthetic
+// BusContext (heavy) or (b) printing raw markdown (the bug
+// users reported as "图表/表格未渲染"). Exposing a thin public
+// wrapper is the minimal generalisation: same input, same
+// output, callable without a BusContext.
+func (r *Renderer) RenderMarkdown(text string) string {
+	if r == nil {
+		return text
+	}
 	if r.glamour != nil {
 		rendered, err := r.glamour.Render(text)
 		if err == nil {
