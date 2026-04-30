@@ -86,27 +86,22 @@ func detectStageToolCapabilityQuery(rm types.RequestModel) *stageToolCapabilityQ
 	if q := capabilityQueryFromHint(rm.AnalyzerHints.CapabilitySurface); q != nil {
 		return q
 	}
-	if types.IsScalarSourceLiteralLookup(rm) {
-		return nil
-	}
-	if strings.EqualFold(strings.TrimSpace(rm.AnalyzerHints.Kind), "return_value") &&
-		rm.AnswerSubject.Kind != types.SubjectReturnValue {
-		return nil
-	}
-	if rm.PredicateAxis == types.AxisReturn &&
-		rm.AnswerSubject.Kind != types.SubjectReturnValue {
-		return nil
-	}
 	raw := strings.TrimSpace(rm.RawRequest)
 	if raw == "" {
 		return nil
 	}
 	toolMentions := capabilityToolMentions(raw)
 	if len(toolMentions) != 1 {
+		if types.IsScalarSourceLiteralLookup(rm) {
+			return nil
+		}
 		return nil
 	}
 	stageMentions := capabilityStageMentions(raw)
 	if len(stageMentions) == 0 {
+		if types.IsScalarSourceLiteralLookup(rm) {
+			return nil
+		}
 		return nil
 	}
 	tool := toolMentions[0]
@@ -118,6 +113,15 @@ func detectStageToolCapabilityQuery(rm types.RequestModel) *stageToolCapabilityQ
 			best = candidate
 			bestDistance = distance
 		}
+	}
+	if rm.AnswerSubject.Kind == types.SubjectReturnValue {
+		return nil
+	}
+	if !rm.Predicates.IsScalarAnswer &&
+		(strings.EqualFold(strings.TrimSpace(rm.AnalyzerHints.Kind), "return_value") ||
+			rm.PredicateAxis == types.AxisReturn ||
+			rm.Intent == types.IntentReturnValue) {
+		return nil
 	}
 	return &stageToolCapabilityQuery{
 		Binding:        best.binding,

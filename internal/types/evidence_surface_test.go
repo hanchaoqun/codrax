@@ -269,6 +269,9 @@ func TestBuildAnswerSurfacePlan_CompilesCapabilitySurfaceAuthority(t *testing.T)
 	if plan.CapabilitySurface.Tool != "read_file" {
 		t.Fatalf("compiled tool = %q, want read_file", plan.CapabilitySurface.Tool)
 	}
+	if plan.ExactResolution != nil {
+		t.Fatalf("capability-surface plan should not carry exact-resolution contract, got %+v", plan.ExactResolution)
+	}
 	want := []string{
 		"internal/orchestrator/topology.go",
 		"internal/skill/analysis_contract.go",

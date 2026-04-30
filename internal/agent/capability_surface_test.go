@@ -29,6 +29,34 @@ func TestDetectStageToolCapabilityQuery_AnalyzerReadFile(t *testing.T) {
 	}
 }
 
+func TestDetectStageToolCapabilityQuery_PrefersExplicitStageToolAuthorityOverScalarLiteralLane(t *testing.T) {
+	rm := types.RequestModel{
+		RawRequest: "Explorer stage 之前的 analyzer stage 里是否允许调用 read_file？",
+		Complexity: types.ComplexitySimple,
+		Intent:     types.IntentExplain,
+		AnswerSubject: types.AnswerSubject{
+			Kind: types.SubjectStringLiteral,
+		},
+		AnalyzerHints: types.AnalyzerHints{
+			Kind:     "return_value",
+			Entities: []string{"read_file"},
+		},
+		Predicates: types.SemanticPredicates{
+			IsScalarAnswer: true,
+		},
+	}
+	got := detectStageToolCapabilityQuery(rm)
+	if got == nil {
+		t.Fatal("expected explicit stage/tool authority question to stay in capability lane")
+	}
+	if got.Binding.Stage != types.StageAnalyze {
+		t.Fatalf("stage = %s, want %s", got.Binding.Stage, types.StageAnalyze)
+	}
+	if got.Tool != "read_file" {
+		t.Fatalf("tool = %q, want read_file", got.Tool)
+	}
+}
+
 func TestDetectStageToolCapabilityQuery_SkipsScalarRoleLocate(t *testing.T) {
 	rm := types.RequestModel{
 		RawRequest: "负责校验 analyzer stage 不能调用 read_file 的那个函数叫什么？",
@@ -147,6 +175,9 @@ func TestBuildAnalysisIR_CapabilitySurfacePreservesGenericScenario(t *testing.T)
 	}
 	if ir.RequestModel.AnalyzerHints.CapabilitySurface == nil {
 		t.Fatal("expected compiled capability surface hint")
+	}
+	if ir.AnswerContract.ExactResolution != nil {
+		t.Fatalf("exact resolution contract should be disabled for capability-surface questions, got %+v", ir.AnswerContract.ExactResolution)
 	}
 }
 
