@@ -74,6 +74,8 @@ var replCommandAliases = map[string]string{
 	"\\env":      "/env",
 	"/baseline":  "/baseline",
 	"\\baseline": "/baseline",
+	"/phase":     "/phase",
+	"\\phase":    "/phase",
 	"/cancel":    "/cancel",
 	"\\cancel":   "/cancel",
 	"\\q":        "/quit",

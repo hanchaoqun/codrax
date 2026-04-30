@@ -958,6 +958,7 @@ func runREPL(_ *cobra.Command) error {
 		WorktreeKeepTTL:       app.worktreeKeepTTL,
 		WorktreeKeepMaxCount:  app.worktreeKeepMaxCount,
 		PlanStore:             planStore,
+		PlanGroupStore:        planGroupStore,
 		AttachedLogMaxBytes:   maxAttachedLogBytes,
 		AttachedTraceMaxBytes: maxAttachedTraceBytes,
 		WriteEnabled:          app.writeEnabled,

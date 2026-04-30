@@ -219,6 +219,14 @@ type Config struct {
 	// <runtime-anchor>/plans when the REPL starts.
 	PlanStore *PlanStore
 
+	// PlanGroupStore persists stage II multi-phase PlanGroups
+	// for the REPL's /phase slash command family. Nil disables
+	// /phase entirely — single-phase plans remain fully usable
+	// via /plan / /approve as before. cmd/root.go wires a real
+	// store under <runtime-anchor>/plans/groups/ alongside
+	// PlanStore.
+	PlanGroupStore *PlanGroupStore
+
 	// AttachedLogMaxBytes caps every REPL attach surface (`/log
 	// <path>`, `/log` paste mode, splitPastedLog auto-route) so a
 	// runaway paste cannot balloon the REPL process memory. Mirrors
@@ -442,6 +450,12 @@ type REPL struct {
 	// but tests that bypass cmd/ keep it nil.
 	planStore *PlanStore
 
+	// planGroupStore persists multi-phase PlanGroups for the
+	// /phase slash command family (stage II). Nil disables
+	// /phase. cmd/root.go wires a real store alongside
+	// planStore.
+	planGroupStore *PlanGroupStore
+
 	// attachedLogMaxBytes is the per-session cap on every log-channel
 	// attach surface (/log <path>, /log paste, /log append,
 	// splitPastedLog auto-route). Seeded from
@@ -518,6 +532,7 @@ func New(cfg Config) *REPL {
 		sessionID:           fmt.Sprintf("sess-%d-%d", time.Now().UnixNano(), os.Getpid()),
 		currentMode:         types.ModeRead, // B0 sticky mode; /mode rewrites
 		planStore:             cfg.PlanStore,
+		planGroupStore:        cfg.PlanGroupStore,
 		attachedLogMaxBytes:   cfg.AttachedLogMaxBytes,
 		attachedTraceMaxBytes: cfg.AttachedTraceMaxBytes,
 		writeEnabled:          cfg.WriteEnabled,
@@ -1898,6 +1913,9 @@ func (r *REPL) handleSlash(line string) bool {
 		return false
 	case "/baseline":
 		r.handleBaselineCmd(line)
+		return false
+	case "/phase":
+		r.handlePhaseCmd(line)
 		return false
 	case "/cancel":
 		// Slash-command fallback for terminals where Ctrl+C is

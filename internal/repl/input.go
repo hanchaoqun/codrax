@@ -244,12 +244,24 @@ var slashCommands = []slashCommand{
 	},
 	{
 		Name:   "/baseline",
-		HelpEn: "inspect the per-HEAD-SHA baseline test cache (commit 11)",
-		HelpZh: "查看按主仓 HEAD SHA 缓存的 baseline 测试快照",
+		HelpEn: "inspect the cached pre-apply test snapshots (one per main-repo HEAD)",
+		HelpZh: "查看按主仓 HEAD 缓存的应用前测试快照",
 		Subs: []slashSubcommand{
-			{"list", "enumerate cached SHAs (default subcommand)", "枚举已缓存的 SHA(默认子命令)"},
-			{"show <sha>", "print the cached ChangeReport for the named SHA prefix", "查看指定 SHA 的缓存 ChangeReport"},
+			{"list", "enumerate cached entries (default)", "枚举缓存条目(默认)"},
+			{"show <sha>", "print the cached test report for the named SHA prefix", "查看指定 SHA 的缓存测试报告"},
 			{"clear", "wipe every cached entry (regenerable; no confirm)", "清空所有缓存(可再生,不二次确认)"},
+		},
+	},
+	{
+		Name:   "/phase",
+		HelpEn: "inspect / advance / rollback a multi-phase plan when one is in flight",
+		HelpZh: "查看 / 推进 / 回退正在执行的多阶段方案",
+		Subs: []slashSubcommand{
+			{"show", "show the active group + each phase status (default)", "查看当前方案组 + 每个阶段状态(默认)"},
+			{"show <group-id>", "show a specific group by id", "按 id 查看指定方案组"},
+			{"next", "manually advance past the current phase", "手动跳过当前阶段,推进到下一个"},
+			{"rollback", "rewind the worktree to the previous phase's commit", "把 worktree 回退到上一阶段的提交"},
+			{"skip <phase-idx>", "mark a phase as skipped so it is stepped over", "把指定阶段标记为跳过"},
 		},
 	},
 	{Name: "/version", HelpEn: "print build version", HelpZh: "打印构建版本"},
@@ -876,7 +888,7 @@ func (m *inputModel) handleSuggestKey(msg tea.KeyMsg) (tea.Cmd, bool) {
 // command whose handler reads a non-empty remainder.
 func needsArg(cmd string) bool {
 	switch cmd {
-	case "/log", "/htrace", "/chat", "/mode", "/plan", "/reject", "/verify", "/worktree", "/merge", "/branch", "/env", "/baseline", "/approve":
+	case "/log", "/htrace", "/chat", "/mode", "/plan", "/reject", "/verify", "/worktree", "/merge", "/branch", "/env", "/baseline", "/approve", "/phase":
 		return true
 	}
 	return false
