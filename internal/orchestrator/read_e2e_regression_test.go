@@ -66,7 +66,7 @@ func TestE2E_ReadMode_DispatchRoutesToReadLoop(t *testing.T) {
 		},
 	}
 	ar, sr, sar := buildRegistries(agentFns)
-	o := New(types.PipelineSettings{}, ar, sr, sar)
+	o := New(types.PipelineSettings{MaxRetriesPerStage: 2}, ar, sr, sar)
 	o.SetMaxSteps(20)
 
 	busCtx, err := o.Run("explain X", "/tmp/repo", "main")
@@ -128,7 +128,7 @@ func TestE2E_ReadMode_OneShotZeroValueCompatible(t *testing.T) {
 		},
 	}
 	ar, sr, sar := buildRegistries(agentFns)
-	o := New(types.PipelineSettings{}, ar, sr, sar)
+	o := New(types.PipelineSettings{MaxRetriesPerStage: 2}, ar, sr, sar)
 	o.SetMaxSteps(20)
 
 	busCtx, err := o.Run("explain", "/tmp/repo", "main")
@@ -163,7 +163,7 @@ func TestE2E_ReadMode_NoWriteSideEffects(t *testing.T) {
 		},
 	}
 	ar, sr, sar := buildRegistries(agentFns)
-	o := New(types.PipelineSettings{}, ar, sr, sar)
+	o := New(types.PipelineSettings{MaxRetriesPerStage: 2}, ar, sr, sar)
 	o.SetMaxSteps(20)
 
 	busCtx, err := o.Run("explain", "/tmp/repo", "main")
@@ -260,5 +260,69 @@ func TestE2E_ReadMode_ValidateFeedbackRetry(t *testing.T) {
 	}
 	if busCtx.TaskState.LastError != "" {
 		t.Errorf("retry-success should clear LastError; got %q", busCtx.TaskState.LastError)
+	}
+}
+
+// TestE2E_ReadMode_AnalyzeRetrySuccessClearsLastError verifies the
+// phase-1 retry path: when the analyzer fails once, then succeeds on a
+// retry, the stale analyze error must not block the read task phase or
+// leak into the final run surface.
+func TestE2E_ReadMode_AnalyzeRetrySuccessClearsLastError(t *testing.T) {
+	analyzeDispatches := 0
+	explorerCalls := 0
+	finalizeCalls := 0
+	ir := dagIR(types.AnswerContract{Language: "en"})
+
+	agentFns := map[types.AgentName]func(*types.AgentContext, *skill.Config) (*agent.StageOutput, error){
+		types.AgentAnalyzer: func(ctx *types.AgentContext, sk *skill.Config) (*agent.StageOutput, error) {
+			analyzeDispatches++
+			if analyzeDispatches == 1 {
+				return &agent.StageOutput{
+					MissingPiece: types.MissingUnderstanding,
+					Error:        "emit_analysis was not called during the analyze dispatch",
+				}, nil
+			}
+			return &agent.StageOutput{
+				MissingPiece: types.MissingUnderstanding,
+				AnalysisIR:   ir,
+			}, nil
+		},
+		types.AgentExplorer: func(ctx *types.AgentContext, sk *skill.Config) (*agent.StageOutput, error) {
+			explorerCalls++
+			return &agent.StageOutput{MissingPiece: types.MissingFacts}, nil
+		},
+		types.AgentExtractor: func(ctx *types.AgentContext, sk *skill.Config) (*agent.StageOutput, error) {
+			return &agent.StageOutput{MissingPiece: types.MissingNone}, nil
+		},
+		types.AgentFinalizer: func(ctx *types.AgentContext, sk *skill.Config) (*agent.StageOutput, error) {
+			finalizeCalls++
+			return &agent.StageOutput{
+				MissingPiece: types.MissingNone,
+				FinalAnswer:  "- `Recovered` (file.go:1)",
+			}, nil
+		},
+	}
+	ar, sr, sar := buildRegistries(agentFns)
+	o := New(types.PipelineSettings{MaxRetriesPerStage: 2}, ar, sr, sar)
+	o.SetMaxSteps(20)
+
+	busCtx, err := o.Run("trace recovered analyzer path", "/tmp/repo", "main")
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if analyzeDispatches < 2 {
+		t.Fatalf("expected analyzer retry after first failure; got %d dispatch(es)", analyzeDispatches)
+	}
+	if explorerCalls == 0 {
+		t.Fatal("task phase should continue after analyze retry success")
+	}
+	if finalizeCalls != 1 {
+		t.Fatalf("finalizer should still run exactly once; got %d", finalizeCalls)
+	}
+	if busCtx.TaskState.LastError != "" {
+		t.Fatalf("analyze retry success should clear LastError; got %q", busCtx.TaskState.LastError)
+	}
+	if got := busCtx.Mutable.Result(); !strings.Contains(got, "Recovered") {
+		t.Fatalf("final answer missing after analyze retry recovery; got %q", got)
 	}
 }

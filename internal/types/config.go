@@ -104,6 +104,12 @@ type PipelineSettings struct {
 	// Hard-capped at 1800 inside the orchestrator setter.
 	WriteMaxSeconds int `yaml:"write_max_seconds"`
 
+	// PlanCriticEnabled gates the optional pre-apply plan review LLM
+	// call. Default false; when true and a plan_critic adapter is
+	// configured, the orchestrator dispatches a single critique after
+	// planner emit + before apply.
+	PlanCriticEnabled bool `yaml:"plan_critic_enabled"`
+
 	// KeepWorktreeOnSuccess preserves the git worktree after a
 	// successful ModeApply so the user can review the applied bytes
 	// and cherry-pick to main manually. Failure paths always discard
@@ -594,18 +600,18 @@ func DefaultAgentSettings() AgentSettings {
 		ExtractorComplexityBudgetExtra: 1,
 		TargetPathsVerifierBudgetExtra: 1,
 
-		PrescanRoundsCeil:     4,
-		ExplorerScaledIterMax: 35,
-		PlannerScaledIterMax:  20,
+		PrescanRoundsCeil:      4,
+		ExplorerScaledIterMax:  35,
+		PlannerScaledIterMax:   20,
 		ExtractorScaledIterMax: 8,
-		VerifierScaledIterMax: 12,
-		MaxRetryBudgetCeil:    5,
+		VerifierScaledIterMax:  12,
+		MaxRetryBudgetCeil:     5,
 
 		PerfTriagerIterCap: 6,
 		LogTriagerIterCap:  6,
 
 		InvestigationCompletePolicy: ICPolicySoft,
-		PriorConvPolicy:               PriorConvPolicyAnalyzer,
+		PriorConvPolicy:             PriorConvPolicyAnalyzer,
 		// Context-pressure defaults: warn at 70 % of the estimated
 		// byte capacity, force-stop at 90 %. These are empirical —
 		// the watchdog uses a 4 B/token conservative multiplier so

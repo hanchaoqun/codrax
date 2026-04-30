@@ -1560,6 +1560,9 @@ func initApp(cmd *cobra.Command, _ []string) error {
 		if rs.PipelineWriteMaxSeconds != nil {
 			pipelineSettings.WriteMaxSeconds = *rs.PipelineWriteMaxSeconds
 		}
+		if rs.PipelinePlanCriticEnabled != nil {
+			pipelineSettings.PlanCriticEnabled = *rs.PipelinePlanCriticEnabled
+		}
 		// Keep-worktree-on-success toggle (Fix 4 "try before merge").
 		// Same pointer-typed yaml shape so explicit false is
 		// distinguishable from unset.
@@ -2204,10 +2207,7 @@ func initApp(cmd *cobra.Command, _ []string) error {
 	// Commit 4 P1-F: plan_critic. Only install when the operator
 	// explicitly turned the gate on — default off because each
 	// enabled run pays one extra LLM call.
-	planCriticEnabled := false
-	if rs.PipelinePlanCriticEnabled != nil {
-		planCriticEnabled = *rs.PipelinePlanCriticEnabled
-	}
+	planCriticEnabled := pipelineSettings.PlanCriticEnabled
 	if planCriticEnabled && app.planCriticLLM != nil {
 		orch.SetPlanCritic(orchestrator.NewPlanCritic(app.planCriticLLM))
 		// Surface the model so operators see "extra Opus call per

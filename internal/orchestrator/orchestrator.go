@@ -2021,19 +2021,19 @@ func (o *Orchestrator) saveChangeReport(report *types.ChangeReport) {
 // renderVerifyFailure builds the Mutable.Result message for a
 // verify-stage failure. Three blocks, each at most a few lines:
 //
-//   1. Header — plain language ("测试未通过" / "Tests did not pass"),
-//      no internal "Verify" jargon.
-//   2. Reason — exactly ONE source: report.FailureSummary if non-
-//      empty, else the agent-side message with the "verify failed: "
-//      prefix stripped, else a count-only fallback. Capped at
-//      verifyFailureSummaryMaxChars so a multi-megabyte stderr dump
-//      cannot drown the rest of the prompt.
-//   3. Failing test list — only when failing test names add
-//      information beyond the summary. Skipped entirely when every
-//      failing test name already appears verbatim in the summary
-//      (otherwise the user reads the same names twice). Capped at
-//      verifyFailureMaxNamesShown.
-//   4. Next step — one short sentence pointing at the retry path.
+//  1. Header — plain language ("测试未通过" / "Tests did not pass"),
+//     no internal "Verify" jargon.
+//  2. Reason — exactly ONE source: report.FailureSummary if non-
+//     empty, else the agent-side message with the "verify failed: "
+//     prefix stripped, else a count-only fallback. Capped at
+//     verifyFailureSummaryMaxChars so a multi-megabyte stderr dump
+//     cannot drown the rest of the prompt.
+//  3. Failing test list — only when failing test names add
+//     information beyond the summary. Skipped entirely when every
+//     failing test name already appears verbatim in the summary
+//     (otherwise the user reads the same names twice). Capped at
+//     verifyFailureMaxNamesShown.
+//  4. Next step — one short sentence pointing at the retry path.
 //
 // Pre-2026-04-30 this rendered as: "Verify FAILED" header + the full
 // summary + the literal "agentError" (which started with the same
@@ -3709,6 +3709,14 @@ func (o *Orchestrator) dispatchStage(stage types.PipelineStage) (*agent.StageOut
 	}
 
 	o.busCtx.ActiveAgent = agentName
+	// Clear the run-level error surface at the start of each new stage
+	// attempt. Retry loops and advisory pre-stages are allowed to
+	// proceed after a failed dispatch; if a later attempt succeeds, the
+	// stale LastError must not poison phase gating or the final
+	// PipelineEnd surface.
+	if o.busCtx != nil {
+		o.busCtx.TaskState.LastError = ""
+	}
 	agentCtx := ctxbuilder.BuildAgentContext(o.busCtx, agentName, stage)
 	if ta, ok := o.thinkAloudMap[agentName]; ok {
 		agentCtx.ThinkAloud = ta
