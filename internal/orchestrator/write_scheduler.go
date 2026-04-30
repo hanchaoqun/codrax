@@ -242,7 +242,16 @@ func (o *Orchestrator) runWriteSchedulerLoop(stepBudget int) int {
 						Agent:     "orchestrator",
 						Reasoning: softRetryHintForStage(o.busCtx.Language, stage),
 					})
-					o.emitNodeEnd(n.ID, false, fmt.Sprintf("%s transient: retrying", stage))
+					// IMPORTANT: do NOT emit EventTaskNodeEnd here.
+					// The node is going to be re-dispatched, so the
+					// renderer must keep treating it as "running" — an
+					// emit at this point would set row.endTime and the
+					// stage label would flip to the "done" phrase
+					// ("已设计改动方案") even though no plan landed yet.
+					// The next EventTaskNodeStart on the retry will
+					// re-establish the running state cleanly. This
+					// mirrors the read scheduler's verify→plan retry
+					// path (orchestrator.go:2331).
 					continue
 				}
 				logging.Warning("[orchestrator] %s transient dispatch error but transient retry budget exhausted (%d/%d); going terminal",
@@ -358,7 +367,13 @@ func (o *Orchestrator) runWriteSchedulerLoop(stepBudget int) int {
 						Agent:     "orchestrator",
 						Reasoning: softRetryHintForStage(o.busCtx.Language, stage),
 					})
-					o.emitNodeEnd(n.ID, false, "verify failed; retrying")
+					// Same retry-render contract as the transient-retry
+					// branch above: do NOT emit EventTaskNodeEnd because
+					// the node will be re-dispatched (along with its
+					// upstream plan node via EdgeValidationFeedback).
+					// Emitting end here would flip the stage label to
+					// the "done" phrase even though verify is going to
+					// run again.
 					continue
 				}
 				logging.Warning("[orchestrator] verify SC failed but no validation_feedback targets; giving up")
