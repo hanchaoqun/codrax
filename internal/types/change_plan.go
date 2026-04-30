@@ -342,6 +342,21 @@ type ChangePlan struct {
 	// emitted before commit 9 stay JSON-compatible (omitempty
 	// elides the field on disk).
 	WriteAnalysisIR *WriteAnalysisIR `json:"write_analysis_ir,omitempty"`
+
+	// PhaseGroupID, when non-empty, ties this plan to a parent
+	// PlanGroup created by stage II's runPhaseGroup. Empty for
+	// single-phase plans (back-compat — every plan emitted
+	// before commit 18 has this empty). Lets /phase show
+	// cross-link to the per-plan file; lets /merge / /reject
+	// recognise that a plan is part of a multi-phase group and
+	// route differently.
+	PhaseGroupID string `json:"phase_group_id,omitempty"`
+
+	// PhaseIndex is the 0-based position of this plan within
+	// the parent PlanGroup.Phases slice. Meaningless when
+	// PhaseGroupID is empty (zero value matches the absence
+	// signal at PhaseGroupID=="").
+	PhaseIndex int `json:"phase_index,omitempty"`
 }
 
 // FileChange describes one file-level modification the apply stage

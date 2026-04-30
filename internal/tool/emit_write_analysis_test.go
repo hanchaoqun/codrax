@@ -135,6 +135,45 @@ func TestEmitWriteAnalysis_RejectsEmptyRequiredFields(t *testing.T) {
 	}
 }
 
+// TestEmitWriteAnalysis_PhaseProposalOverCapTruncates pins the
+// stage-II MaxPhasesPerGroup cap (commit 18): an emit with more
+// than 5 phases is truncated to 5 rather than rejected, so a
+// near-cap LLM emit doesn't fail the entire dispatch. WARN is
+// logged at truncation time.
+func TestEmitWriteAnalysis_PhaseProposalOverCapTruncates(t *testing.T) {
+	tool := &EmitWriteAnalysis{}
+	bus := newTestBusForWriteAnalysis()
+	// Build a sequential proposal with 8 phases (exceeds the cap of 5).
+	params := json.RawMessage(`{
+		"raw_request": "do many things",
+		"task": {"kind": "feature", "scope": "project", "summary": "many phases"},
+		"risk": {"affects_public_api": false, "changes_persistence": false, "changes_build_system": false, "overall": "low"},
+		"phase_proposal": {
+			"split": "sequential",
+			"phases": [
+				{"goal": "phase1"}, {"goal": "phase2"}, {"goal": "phase3"},
+				{"goal": "phase4"}, {"goal": "phase5"}, {"goal": "phase6"},
+				{"goal": "phase7"}, {"goal": "phase8"}
+			]
+		}
+	}`)
+	res, err := tool.Execute(bus, params)
+	if err != nil || !res.Success {
+		t.Fatalf("Execute failed: err=%v summary=%s", err, res.Summary)
+	}
+	ir := bus.Mutable.WriteAnalysisIR()
+	if ir.PhaseProposal.Split != "sequential" {
+		t.Errorf("Split should remain sequential after cap; got %q", ir.PhaseProposal.Split)
+	}
+	if len(ir.PhaseProposal.Phases) != types.MaxPhasesPerGroup {
+		t.Errorf("Expected truncation to %d phases; got %d", types.MaxPhasesPerGroup, len(ir.PhaseProposal.Phases))
+	}
+	// First N phases should survive verbatim (truncation drops the tail).
+	if ir.PhaseProposal.Phases[0].Goal != "phase1" {
+		t.Errorf("First phase goal drift; got %q", ir.PhaseProposal.Phases[0].Goal)
+	}
+}
+
 // TestEmitWriteAnalysis_PhaseProposalCollapse verifies a sequential
 // proposal with fewer than 2 phases collapses to single — the
 // downstream scheduler treats single as the no-op (zero-regression)
