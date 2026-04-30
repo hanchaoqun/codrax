@@ -588,6 +588,16 @@ func (m *inputModel) handleSubmit() tea.Cmd {
 	}
 	echoLines := strings.Split(echoBody, "\n")
 	cmds := []tea.Cmd{}
+	// Print the divider FIRST (above the echo) so it visually marks
+	// the boundary between the previous turn's chrome and the new
+	// turn's request + output. Pre-2026-04-30 the divider sat
+	// BELOW the echo, which produced the inverted-looking layout
+	// "echo / divider / output" — the user reported this as
+	// breaking visual hierarchy. Skip on continuation: the next
+	// line's prompt already gives separation.
+	if !continues {
+		cmds = append(cmds, tea.Printf("  %s", divStyle.Render("─────────────────────────────────────")))
+	}
 	for i, ln := range echoLines {
 		var rendered string
 		if i == 0 {
@@ -601,9 +611,6 @@ func (m *inputModel) handleSubmit() tea.Cmd {
 			rendered = echoStyle.Render("  " + ln)
 		}
 		cmds = append(cmds, tea.Printf("  %s", rendered))
-	}
-	if !continues {
-		cmds = append(cmds, tea.Printf("  %s", divStyle.Render("─────────────────────────────────────")))
 	}
 	cmds = append(cmds, tea.Quit)
 	return tea.Sequence(cmds...)

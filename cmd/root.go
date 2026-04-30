@@ -1189,6 +1189,22 @@ func initApp(cmd *cobra.Command, _ []string) error {
 		return fmt.Errorf("create runtime anchor %s: %w", runtimeAnchor, err)
 	}
 
+	// If the runtime anchor is `<repo>/.codrax/` AND the surrounding
+	// directory is a git repo, make sure `.gitignore` excludes the
+	// runtime artifacts. Without this, the user's next `git add -A`
+	// sweeps logs / memory / blob caches / worktrees / plans into
+	// version control — observed in the field. Best-effort: any
+	// failure (no git, .gitignore unwritable, parent isn't a repo)
+	// downgrades to a debug log so a non-git workspace doesn't
+	// produce noise. Idempotent: EnsureCodraxGitignore only appends
+	// missing entries.
+	parentDir := filepath.Dir(runtimeAnchor)
+	if state, derr := worktree.DetectRepoState(parentDir); derr == nil && state == worktree.RepoReady {
+		if gerr := worktree.EnsureCodraxGitignore(parentDir); gerr != nil {
+			logging.Debug("[cmd] ensure .gitignore in %s: %v", parentDir, gerr)
+		}
+	}
+
 	// Apply log retention override before constructing the logger so
 	// its startup sweep (pruneOldFiles) honors the configured cap.
 	if rs != nil && rs.LogMaxFiles != nil {

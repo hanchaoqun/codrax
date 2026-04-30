@@ -1,6 +1,10 @@
 package orchestrator
 
-import "strings"
+import (
+	"strings"
+
+	"github.com/hanchaoqun/codrax/internal/types"
+)
 
 // user_messages.go — short localized strings rendered into
 // EventAgentReasoning when the orchestrator needs to update the user
@@ -69,6 +73,37 @@ func softRetryHintMessage(lang string) string {
 		return "⟳ 正在补齐调查证据"
 	}
 	return "⟳ Gathering more evidence"
+}
+
+// softRetryHintForStage is the stage-aware variant. Write-mode
+// stages (plan / apply / verify) do not have "investigation
+// evidence" — that's read-mode language. Picking a generic
+// "filling in evidence" message for a planner stall produces UX
+// drift the user reported as "dock contents don't reflect actual
+// state". Return phrasing that matches what the stage is actually
+// doing on retry. Read-mode stages fall through to the original
+// softRetryHintMessage so existing read-path behaviour is
+// byte-identical.
+func softRetryHintForStage(lang string, stage types.PipelineStage) string {
+	zh := preferZhMessage(lang)
+	switch stage {
+	case types.StagePlan:
+		if zh {
+			return "⟳ 正在补完改动方案"
+		}
+		return "⟳ Refining the change plan"
+	case types.StageApply:
+		if zh {
+			return "⟳ 正在重新应用改动"
+		}
+		return "⟳ Re-applying changes"
+	case types.StageVerify:
+		if zh {
+			return "⟳ 正在重新跑测试"
+		}
+		return "⟳ Re-running verification tests"
+	}
+	return softRetryHintMessage(lang)
 }
 
 // softInvestigationReadyMessage renders the user-visible line for

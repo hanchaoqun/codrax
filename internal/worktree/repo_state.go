@@ -168,6 +168,18 @@ func EnsureInitialCommit(repoRoot, message string) error {
 		logging.Info("[worktree] git init in %s", abs)
 	}
 
+	// Make sure `.gitignore` excludes codrax's runtime artifacts
+	// before the initial commit fires. Without this, the user's
+	// next `git add -A` in the freshly-init repo will sweep
+	// .codrax/logs/ / memory/ / blob/ / worktrees/ / plans/ into
+	// version control — observed and reported by a customer.
+	// Idempotent: appends only the entries that are missing.
+	if err := EnsureCodraxGitignore(abs); err != nil {
+		// Best-effort: a .gitignore write failure should not block
+		// the init flow. Log + continue; the commit still lands.
+		logging.Warning("[worktree] could not write .gitignore in %s: %v", abs, err)
+	}
+
 	// Ensure identity exists locally. `git config user.email` exits
 	// non-zero (1) when the key is missing, which is the signal we
 	// need to set defaults. Don't overwrite an existing identity.
@@ -186,6 +198,113 @@ func EnsureInitialCommit(repoRoot, message string) error {
 		return fmt.Errorf("EnsureInitialCommit: git commit: %w (%s)", err, out)
 	}
 	logging.Info("[worktree] created initial commit in %s (%q)", abs, message)
+	return nil
+}
+
+// codraxRuntimeIgnoreEntries are the paths codrax writes to under
+// the user's repo root. EnsureCodraxGitignore appends these to the
+// repo's .gitignore so a user's `git add -A` cannot accidentally
+// stage runtime artifacts (logs, conversation memory, blob caches,
+// per-plan worktrees, plan JSON files). Each entry is the
+// repo-rooted path; we keep them narrow and explicit rather than
+// using a wildcard so a user can selectively un-ignore.
+var codraxRuntimeIgnoreEntries = []string{
+	".codrax/",
+}
+
+// codraxGitignoreHeader marks the codrax-managed block inside
+// .gitignore. EnsureCodraxGitignore is idempotent: it scans for
+// any of the exact entry strings already present (with or without
+// the header) and only appends the missing ones plus the header.
+const codraxGitignoreHeader = "# codrax runtime artifacts (logs, memory, blob caches, worktrees, plans)"
+
+// EnsureCodraxGitignore makes sure repoRoot/.gitignore contains
+// every entry in codraxRuntimeIgnoreEntries. Creates the file if
+// it does not exist; appends with a labeled header block when it
+// does. Returns nil on success or non-fatal "nothing to do".
+//
+// Design notes:
+//
+//   - Reads the existing file once so we only append truly missing
+//     entries — matters for users who already gitignored .codrax/
+//     manually and don't want a duplicate line.
+//   - Trims line endings on read so a Windows .gitignore (CRLF)
+//     and Unix .gitignore both compare cleanly.
+//   - Uses os.WriteFile semantics (atomic-ish) only when creating
+//     the file; existing files get appended via O_APPEND so we
+//     don't truncate a user's hand-curated rules.
+//
+// Public so callers outside the write-mode flow (e.g. a future
+// "codrax init" subcommand) can invoke it directly.
+func EnsureCodraxGitignore(repoRoot string) error {
+	if strings.TrimSpace(repoRoot) == "" {
+		return errors.New("EnsureCodraxGitignore: empty repoRoot")
+	}
+	abs, err := filepath.Abs(repoRoot)
+	if err != nil {
+		return fmt.Errorf("EnsureCodraxGitignore: abs: %w", err)
+	}
+	gitignorePath := filepath.Join(abs, ".gitignore")
+
+	existing := ""
+	if data, err := os.ReadFile(gitignorePath); err == nil {
+		existing = string(data)
+	} else if !os.IsNotExist(err) {
+		return fmt.Errorf("EnsureCodraxGitignore: read: %w", err)
+	}
+
+	have := make(map[string]bool, len(codraxRuntimeIgnoreEntries))
+	for _, line := range strings.Split(existing, "\n") {
+		line = strings.TrimSpace(line)
+		line = strings.TrimSuffix(line, "\r")
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		have[line] = true
+	}
+
+	var missing []string
+	for _, entry := range codraxRuntimeIgnoreEntries {
+		if !have[entry] {
+			missing = append(missing, entry)
+		}
+	}
+	if len(missing) == 0 {
+		return nil
+	}
+
+	var buf strings.Builder
+	if existing != "" && !strings.HasSuffix(existing, "\n") {
+		buf.WriteString("\n")
+	}
+	if existing != "" {
+		buf.WriteString("\n")
+	}
+	buf.WriteString(codraxGitignoreHeader)
+	buf.WriteString("\n")
+	for _, entry := range missing {
+		buf.WriteString(entry)
+		buf.WriteString("\n")
+	}
+
+	if existing == "" {
+		// Fresh file — write atomically.
+		if err := os.WriteFile(gitignorePath, []byte(buf.String()), 0o644); err != nil {
+			return fmt.Errorf("EnsureCodraxGitignore: write: %w", err)
+		}
+		logging.Info("[worktree] created .gitignore with codrax runtime entries (%d) in %s", len(missing), abs)
+		return nil
+	}
+	// Existing file — append without disturbing prior rules.
+	f, err := os.OpenFile(gitignorePath, os.O_WRONLY|os.O_APPEND, 0o644)
+	if err != nil {
+		return fmt.Errorf("EnsureCodraxGitignore: open append: %w", err)
+	}
+	defer f.Close()
+	if _, err := f.WriteString(buf.String()); err != nil {
+		return fmt.Errorf("EnsureCodraxGitignore: append: %w", err)
+	}
+	logging.Info("[worktree] appended %d codrax runtime entries to %s/.gitignore", len(missing), abs)
 	return nil
 }
 

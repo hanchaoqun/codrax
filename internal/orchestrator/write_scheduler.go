@@ -240,7 +240,7 @@ func (o *Orchestrator) runWriteSchedulerLoop(stepBudget int) int {
 						Kind:      render.EventAgentReasoning,
 						Timestamp: time.Now(),
 						Agent:     "orchestrator",
-						Reasoning: softRetryHintMessage(o.busCtx.Language),
+						Reasoning: softRetryHintForStage(o.busCtx.Language, stage),
 					})
 					o.emitNodeEnd(n.ID, false, fmt.Sprintf("%s transient: retrying", stage))
 					continue
@@ -356,7 +356,7 @@ func (o *Orchestrator) runWriteSchedulerLoop(stepBudget int) int {
 						Kind:      render.EventAgentReasoning,
 						Timestamp: time.Now(),
 						Agent:     "orchestrator",
-						Reasoning: softRetryHintMessage(o.busCtx.Language),
+						Reasoning: softRetryHintForStage(o.busCtx.Language, stage),
 					})
 					o.emitNodeEnd(n.ID, false, "verify failed; retrying")
 					continue

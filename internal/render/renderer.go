@@ -1273,7 +1273,19 @@ func (r *Renderer) RenderResult(busCtx *types.BusContext) string {
 	}
 	var b strings.Builder
 
-	if busCtx.TaskState.LastError != "" {
+	// Suppress the standalone "  error: …" line when the stage hook
+	// has already authored a complete user-facing diagnostic into
+	// Mutable.Result. ResultIsPlain is the structural signal that
+	// the bare-dir authorization gate / forced-finalize / similar
+	// hook has surfaced an error explanation that ALSO got mirrored
+	// onto LastError for telemetry. Pre-2026-04-30 both surfaces
+	// emitted, so the bordered output printed the same paragraph
+	// twice (#1 reported by user). The plain result IS the answer
+	// surface; LastError is internal state.
+	suppressErrorLine := busCtx.Mutable != nil &&
+		busCtx.Mutable.ResultIsPlain() &&
+		strings.TrimSpace(busCtx.Mutable.Result()) != ""
+	if busCtx.TaskState.LastError != "" && !suppressErrorLine {
 		b.WriteString(fmt.Sprintf("\n  error: %s\n", busCtx.TaskState.LastError))
 	}
 
@@ -1293,7 +1305,11 @@ func (r *Renderer) RenderResult(busCtx *types.BusContext) string {
 					// Plain (fail-loud) path: NO success banner.
 					// The result is an error / diagnostic message —
 					// printing "✓ 已生成最终答案" above an error
-					// would be self-contradicting.
+					// would be self-contradicting. Skip glamour
+					// because chroma's underscore-aware tokenizer
+					// fragments identifier tokens (e.g.
+					// `emit_change_plan`, `--auto-init-repo`)
+					// inside the body, breaking the visual line.
 					b.WriteString(clean)
 				} else {
 					// Real LLM answer path: print the persistent

@@ -1562,13 +1562,27 @@ func (r *REPL) dispatch(line, display string) {
 	}
 
 	if r.renderer != nil {
-		// Mode-aware K/N denominator: write modes are 3 stages
-		// (plan→apply→verify), read mode is 6 (analyze→finalize).
-		// Default 6 already set by the renderer; override only on
-		// write modes so existing read-mode callers stay unchanged.
+		// Mode-aware K/N denominator. Write modes always run the
+		// analyzer first as a classifier (per CLAUDE.md), then
+		// BuildWriteTaskGraph slices to the per-mode subset:
+		//
+		//   ModePlan:   analyze + plan                    = 2
+		//   ModeApply:  analyze + plan + apply + verify   = 4
+		//   ModeVerify: analyze + verify                  = 2
+		//
+		// Pre-fix this was hardcoded to 3 across all write modes,
+		// which produced misleading K/N counts on plan-only and
+		// verify-only flows (the user reported "1/3 已理解问题"
+		// stuck in plan mode where the second slot would never
+		// fire). Read mode default 6 (log_triage + perf_triage +
+		// analyze + explore + extract + finalize) stays unchanged.
 		switch r.currentMode {
-		case types.ModePlan, types.ModeApply, types.ModeVerify:
-			r.renderer.SetTotalStages(3)
+		case types.ModePlan:
+			r.renderer.SetTotalStages(2)
+		case types.ModeApply:
+			r.renderer.SetTotalStages(4)
+		case types.ModeVerify:
+			r.renderer.SetTotalStages(2)
 		default:
 			r.renderer.SetTotalStages(6)
 		}
@@ -2636,8 +2650,11 @@ func (r *REPL) handleApproveCmd(line string) {
 	logging.Info("[repl] dispatching approve: plan=%s path=%s", plan.ID, r.pendingPlanPath)
 
 	if r.renderer != nil {
-		// /approve always runs apply-mode → 3-stage K/N denominator.
-		r.renderer.SetTotalStages(3)
+		// /approve always runs apply-mode → 4-stage K/N denominator
+		// (analyze + plan + apply + verify). Pre-fix this was 3,
+		// which left the dock K/N count one short for the entire
+		// approve flow.
+		r.renderer.SetTotalStages(4)
 		r.renderer.StartSpinnerWithCancelHint(spinnerCancelHint(r.language))
 	}
 	busCtx, runErr := r.runInFlightWrap(func() (*types.BusContext, error) {
