@@ -19,10 +19,10 @@ import (
 	"github.com/hanchaoqun/codrax/internal/analysis/gate"
 	"github.com/hanchaoqun/codrax/internal/analysis/logtriage"
 	"github.com/hanchaoqun/codrax/internal/config"
+	"github.com/hanchaoqun/codrax/internal/env"
 	"github.com/hanchaoqun/codrax/internal/llm"
 	"github.com/hanchaoqun/codrax/internal/logging"
 	"github.com/hanchaoqun/codrax/internal/mcp"
-	"github.com/hanchaoqun/codrax/internal/env"
 	"github.com/hanchaoqun/codrax/internal/memory"
 	"github.com/hanchaoqun/codrax/internal/orchestrator"
 	"github.com/hanchaoqun/codrax/internal/render"
@@ -780,6 +780,7 @@ func resolveWriteMode(in writeModeInputs) (types.PipelineMode, error) {
 // its own RenderResult callback.
 func runSingleShot(_ *cobra.Command, request string) error {
 	logging.Info("starting pipeline for request: %s", request)
+	app.renderer.SetOutput(os.Stderr)
 	// Single-shot CLI: ship mermaid source as-is so users piping
 	// output to file / markdown viewers / mermaid-cli get the
 	// authoritative source, not a pre-baked ASCII transformation.
@@ -876,6 +877,7 @@ func writePlanFile(plan *types.ChangePlan) (string, error) {
 
 // runREPL starts the interactive multi-turn session.
 func runREPL(_ *cobra.Command) error {
+	app.renderer.SetOutput(os.Stdout)
 	summarizer := newLLMSummarizer(app.memorySummarizerLLM)
 	store, err := memory.NewStore(flagMemoryDir, summarizer, app.memorySettings)
 	if err != nil {
@@ -906,30 +908,30 @@ func runREPL(_ *cobra.Command) error {
 	}
 	planStore := repl.NewPlanStore(filepath.Join(runtimeAnchor, "plans"))
 	r := repl.New(repl.Config{
-		Runner:              app.orch,
-		Store:               store,
-		Render:              renderFn,
-		Renderer:            app.renderer,
-		RepoRoot:            flagRepo,
-		Branch:              flagBranch,
-		Out:                 os.Stdout,
-		PasteFoldMinChars:   app.replPasteFoldMinChars,
-		Version:             version,
-		BuildTime:           buildTime,
-		Language:            flagLang,
-		ChitchatResponder:   app.chitchatResponder,
-		ChitchatClassifier:  app.chitchatClassifier,
+		Runner:             app.orch,
+		Store:              store,
+		Render:             renderFn,
+		Renderer:           app.renderer,
+		RepoRoot:           flagRepo,
+		Branch:             flagBranch,
+		Out:                os.Stdout,
+		PasteFoldMinChars:  app.replPasteFoldMinChars,
+		Version:            version,
+		BuildTime:          buildTime,
+		Language:           flagLang,
+		ChitchatResponder:  app.chitchatResponder,
+		ChitchatClassifier: app.chitchatClassifier,
 		// Hand the memory adapter to REPL so the chitchat tool-use
 		// loop can call recall_memory without a separate wiring step.
 		// The same adapter is also wired into the orchestrator above,
 		// so pipeline and chitchat see one source of truth.
-		Memory:              memory.NewAdapter(store),
-		EnvSettings:         app.envRecommendSettings,
-		ColorMode:           render.ParseColorMode(flagColor),
-		RuntimeAnchor:       runtimeAnchor,
-		WorktreeKeepTTL:     app.worktreeKeepTTL,
-		WorktreeKeepMaxCount: app.worktreeKeepMaxCount,
-		PlanStore:           planStore,
+		Memory:                memory.NewAdapter(store),
+		EnvSettings:           app.envRecommendSettings,
+		ColorMode:             render.ParseColorMode(flagColor),
+		RuntimeAnchor:         runtimeAnchor,
+		WorktreeKeepTTL:       app.worktreeKeepTTL,
+		WorktreeKeepMaxCount:  app.worktreeKeepMaxCount,
+		PlanStore:             planStore,
 		AttachedLogMaxBytes:   maxAttachedLogBytes,
 		AttachedTraceMaxBytes: maxAttachedTraceBytes,
 		WriteEnabled:          app.writeEnabled,
@@ -2428,11 +2430,11 @@ func (p *placeholderAdapter) Chat(_ context.Context, messages []llm.Message, too
 	}, nil
 }
 
-func (p *placeholderAdapter) ModelID() string                  { return "placeholder-v1" }
-func (p *placeholderAdapter) MaxContextTokens() int            { return 200000 }
-func (p *placeholderAdapter) MaxOutputTokens() int             { return 0 }
-func (p *placeholderAdapter) RequestTimeout() time.Duration    { return 120 * time.Second }
-func (p *placeholderAdapter) RetryMaxAttempts() int            { return 6 }
+func (p *placeholderAdapter) ModelID() string               { return "placeholder-v1" }
+func (p *placeholderAdapter) MaxContextTokens() int         { return 200000 }
+func (p *placeholderAdapter) MaxOutputTokens() int          { return 0 }
+func (p *placeholderAdapter) RequestTimeout() time.Duration { return 120 * time.Second }
+func (p *placeholderAdapter) RetryMaxAttempts() int         { return 6 }
 
 // formatOutputCap renders the resolved max_output_tokens for the
 // startup log. Zero means "no client-side cap, server uses model

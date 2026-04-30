@@ -3,7 +3,6 @@ package render
 import (
 	"fmt"
 	"io"
-	"os"
 	"regexp"
 	"strings"
 	"time"
@@ -62,6 +61,10 @@ func (r *Renderer) handleEvent(ev Event) {
 			return
 		}
 		line := formatReasoning(string(ev.Agent), ev.Iteration, ev.Reasoning)
+		if !r.dockEnabled && r.dock == nil {
+			fmt.Fprintln(r.outputWriter(), line)
+			return
+		}
 		r.commitLineLocked(line)
 		return
 	}
@@ -356,14 +359,14 @@ func (r *Renderer) handleEvent(ev Event) {
 // streamChars, repaints. previewArea field reused as a sentinel
 // "streaming in flight" until LivePreviewClear flips it back.
 func (r *Renderer) dockHandlePreviewChunk(ev Event) {
-	if !previewIsTTY() {
+	if !r.previewIsTTY() {
 		return
 	}
 	if ev.PreviewText == "" {
 		return
 	}
 	if r.previewArea == nil {
-		r.previewArea = newTTYPreviewArea(os.Stdout)
+		r.previewArea = newTTYPreviewArea(r.outputWriter())
 		r.previewRound++
 	}
 	r.previewLastChunk = ev.PreviewText
@@ -753,38 +756,37 @@ func (r *Renderer) countTopicSiblings() int {
 func (r *Renderer) handleEventNonTTY(ev Event) {
 	switch ev.Kind {
 	case EventObjectiveStarted:
-		if ev.Objective != "" && r.objective == "" {
-			r.objective = ev.Objective
-			emitNonTTYLine(fmt.Sprintf("❯ %s", ev.Objective))
+		if ev.Objective != "" {
+			r.emitNonTTYLine(fmt.Sprintf("❯ %s", ev.Objective))
 		}
 	case EventStageStart:
-		emitNonTTYLine(fmt.Sprintf("→ %s", string(ev.Stage)))
+		r.emitNonTTYLine(fmt.Sprintf("→ %s", string(ev.Stage)))
 	case EventStageEnd:
 		if ev.Error != "" {
-			emitNonTTYLine(fmt.Sprintf("✗ %s · %s", string(ev.Stage), ev.Error))
+			r.emitNonTTYLine(fmt.Sprintf("✗ %s · %s", string(ev.Stage), ev.Error))
 		} else {
-			emitNonTTYLine(fmt.Sprintf("✓ %s", string(ev.Stage)))
+			r.emitNonTTYLine(fmt.Sprintf("✓ %s", string(ev.Stage)))
 		}
 	case EventTaskNodeStart:
-		emitNonTTYLine(fmt.Sprintf("→ %s · %s", ev.NodeKind, ev.NodeObjective))
+		r.emitNonTTYLine(fmt.Sprintf("→ %s · %s", ev.NodeKind, ev.NodeObjective))
 	case EventTaskNodeEnd:
 		if ev.Error != "" {
-			emitNonTTYLine(fmt.Sprintf("✗ %s · %s", ev.NodeKind, ev.Error))
+			r.emitNonTTYLine(fmt.Sprintf("✗ %s · %s", ev.NodeKind, ev.Error))
 		} else {
-			emitNonTTYLine(fmt.Sprintf("✓ %s", ev.NodeKind))
+			r.emitNonTTYLine(fmt.Sprintf("✓ %s", ev.NodeKind))
 		}
 	case EventAnalysisReady:
 		if block := formatSubTopicsBlock(r.lang, ev.TaskNodes); block != "" {
-			fmt.Fprint(os.Stdout, block)
+			fmt.Fprint(r.outputWriter(), block)
 			mirrorDockBlockToLog(block)
 		}
 	case EventAgentReasoning:
-		emitNonTTYLine(formatReasoning(string(ev.Agent), ev.Iteration, ev.Reasoning))
+		r.emitNonTTYLine(formatReasoning(string(ev.Agent), ev.Iteration, ev.Reasoning))
 	case EventAdapterRetry:
-		emitNonTTYLine(fmt.Sprintf("⟳ retry #%d in %v · %s",
+		r.emitNonTTYLine(fmt.Sprintf("⟳ retry #%d in %v · %s",
 			ev.RetryAttempt, ev.RetryDelay, ev.RetryReason))
 	case EventAdapterFallback:
-		emitNonTTYLine(fmt.Sprintf("⟳ fallback %s → %s · %s",
+		r.emitNonTTYLine(fmt.Sprintf("⟳ fallback %s → %s · %s",
 			ev.FallbackFrom, ev.FallbackTo, ev.RetryReason))
 	}
 }
@@ -792,11 +794,11 @@ func (r *Renderer) handleEventNonTTY(ev Event) {
 // emitNonTTYLine writes a single line to stdout AND mirrors it to
 // the INFO log so non-TTY runs still produce a complete audit
 // trail without the operator having to scrape stdout.
-func emitNonTTYLine(line string) {
+func (r *Renderer) emitNonTTYLine(line string) {
 	if line == "" {
 		return
 	}
-	fmt.Fprintln(os.Stdout, line)
+	fmt.Fprintln(r.outputWriter(), line)
 	mirrorDockLineToLog(line)
 }
 
@@ -870,12 +872,6 @@ func (r *Renderer) commitDockShutdownLocked() {
 	})
 	r.commitLineLocked(line)
 	r.dock.clearDock()
-}
-
-// detectStdoutTTY is a thin wrapper used at StartSpinner time so
-// the renderer doesn't have to import term inside hot paths.
-func detectStdoutTTY() bool {
-	return isTTY(os.Stdout)
 }
 
 // dockEventEmitter returns the dock-driven emitter callback. Used

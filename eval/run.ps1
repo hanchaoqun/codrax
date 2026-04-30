@@ -16,6 +16,10 @@ if ($PSVersionTable.PSVersion.Major -lt 7) {
     throw "eval/run.ps1 requires PowerShell 7+; invoke it via `pwsh` or eval\\run.cmd."
 }
 $PSNativeCommandUseErrorActionPreference = $false
+$utf8NoBom = [System.Text.UTF8Encoding]::new($false)
+[Console]::InputEncoding = $utf8NoBom
+[Console]::OutputEncoding = $utf8NoBom
+$OutputEncoding = $utf8NoBom
 
 function Resolve-PathRelativeToRepo {
     param(
@@ -257,6 +261,71 @@ function Extract-AnswerBodyV3 {
     return $result
 }
 
+function Normalize-AnswerCandidateV4 {
+    param([string]$Text)
+    $cleaned = (Remove-Ansi $Text) -replace "`r", ""
+    $lines = New-Object System.Collections.Generic.List[string]
+    foreach ($rawLine in ($cleaned -split "`n")) {
+        $line = [string]$rawLine
+        $trimmed = $line.Trim()
+        if ([string]::IsNullOrWhiteSpace($trimmed)) {
+            $lines.Add("")
+            continue
+        }
+        if ($trimmed -eq "(no result)") {
+            continue
+        }
+        if ($trimmed -match '<think>') {
+            continue
+        }
+        if ($trimmed -match '^\s*(馃挱\s+)?\[[A-Za-z0-9_-]+-\d+\]') {
+            continue
+        }
+        if ($trimmed -match '^\s*[^\p{L}\p{Nd}``''""\[\]()/_.:-]{1,6}\s*\d+/\d+.*$') {
+            continue
+        }
+        $lines.Add($line)
+    }
+    $result = (($lines.ToArray()) -join "`n").Trim()
+    if ($result -eq "(no result)") {
+        return ""
+    }
+    return $result
+}
+
+function Extract-AnswerBodyV4 {
+    param([string]$Text)
+    $cleaned = (Remove-Ansi $Text) -replace "`r", ""
+    $separatorRegex = [regex]'(?:\u2501){3,}'
+    $segments = $separatorRegex.Split($cleaned)
+    $candidates = New-Object System.Collections.Generic.List[string]
+    foreach ($segment in $segments) {
+        $candidate = Normalize-AnswerCandidateV4 $segment
+        if (-not [string]::IsNullOrWhiteSpace($candidate)) {
+            $candidates.Add($candidate)
+        }
+    }
+    if ($candidates.Count -gt 0) {
+        for ($i = $candidates.Count - 1; $i -ge 0; $i--) {
+            $candidate = $candidates[$i]
+            if ((($candidate -replace '\s+', '')).Length -ge 20) {
+                return $candidate
+            }
+        }
+        return $candidates[$candidates.Count - 1]
+    }
+
+    $result = Normalize-AnswerCandidateV4 $cleaned
+    $looksLikePipelineNoise = $cleaned -match '<think>' -or
+        $cleaned -match '\[[a-z_]+-\d+\]' -or
+        $cleaned -match '\d+/\d+' -or
+        $cleaned -match '\(no result\)'
+    if ($looksLikePipelineNoise) {
+        return ""
+    }
+    return $result
+}
+
 function Count-RegexMatchesInFile {
     param(
         [string]$Path,
@@ -374,16 +443,41 @@ for ($run = 1; $run -le $Runs; $run++) {
         $stdoutPath = Join-Path $runLogDir "native.stdout.txt"
         $stderrPath = Join-Path $runLogDir "native.stderr.txt"
         $combinedPath = Join-Path $runLogDir "native.combined.txt"
-        $nativeOutput = @(& $binaryPath @cmdArgs 2>&1 | Tee-Object -FilePath $combinedPath)
-        $exitCode = $LASTEXITCODE
-        $output = (($nativeOutput | ForEach-Object { $_.ToString() }) -join "`n")
-        Set-Content -LiteralPath $stdoutPath -Value $output -Encoding UTF8
-        Set-Content -LiteralPath $stderrPath -Value "" -Encoding UTF8
+        $psi = [System.Diagnostics.ProcessStartInfo]::new()
+        $psi.FileName = $binaryPath
+        $psi.WorkingDirectory = $repoRoot
+        $psi.UseShellExecute = $false
+        $psi.RedirectStandardOutput = $true
+        $psi.RedirectStandardError = $true
+        $psi.StandardOutputEncoding = $utf8NoBom
+        $psi.StandardErrorEncoding = $utf8NoBom
+        foreach ($arg in $cmdArgs) {
+            [void]$psi.ArgumentList.Add($arg)
+        }
+        $proc = [System.Diagnostics.Process]::Start($psi)
+        $stdoutTask = $proc.StandardOutput.ReadToEndAsync()
+        $stderrTask = $proc.StandardError.ReadToEndAsync()
+        $proc.WaitForExit()
+        [System.Threading.Tasks.Task]::WaitAll(@($stdoutTask, $stderrTask))
+        $stdout = $stdoutTask.Result
+        $stderr = $stderrTask.Result
+        $exitCode = $proc.ExitCode
+        $combinedOutput = if ([string]::IsNullOrEmpty($stderr)) {
+            $stdout
+        } elseif ([string]::IsNullOrEmpty($stdout)) {
+            $stderr
+        } else {
+            ($stderr.TrimEnd("`r", "`n") + "`n" + $stdout.TrimStart("`r", "`n"))
+        }
+        Set-Content -LiteralPath $stdoutPath -Value $stdout -Encoding UTF8
+        Set-Content -LiteralPath $stderrPath -Value $stderr -Encoding UTF8
+        Set-Content -LiteralPath $combinedPath -Value $combinedOutput -Encoding UTF8
     } finally {
         $stopwatch.Stop()
         Pop-Location
     }
-    Set-Content -LiteralPath $runOut -Value $output -Encoding UTF8
+    $answerBody = Extract-AnswerBodyV4 $stdout
+    Set-Content -LiteralPath $runOut -Value $answerBody -Encoding UTF8
 
     $logFile = Get-ChildItem -LiteralPath $runLogDir -Filter "codrax-*.log" -ErrorAction SilentlyContinue |
         Sort-Object LastWriteTime -Descending |
@@ -399,7 +493,6 @@ for ($run = 1; $run -le $Runs; $run++) {
     ) + $metricLines
     Set-Content -LiteralPath $runMetrics -Value ($metricLines -join "`n") -Encoding UTF8
 
-    $answerBody = Extract-AnswerBodyV3 $output
     $stripped = ($answerBody -replace '\s+', "")
     $passed = $true
     $reasons = New-Object System.Collections.Generic.List[string]

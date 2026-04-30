@@ -2,6 +2,7 @@ package render
 
 import (
 	"fmt"
+	"io"
 	"os"
 	"regexp"
 	"strings"
@@ -68,10 +69,10 @@ type taskRow struct {
 	// EventTaskNodeEnd so a stale tail from the previous stage doesn't
 	// leak into the next one.
 	streamTail string
-	isSubAgent  bool      // true for rows created by EventSubAgentStart
-	subAgentID  string    // identifier for matching EventSubAgentEnd
-	subTitle    string    // SubTaskTitle from the event
-	subCount    int       // SubTaskCount from the event (batch size)
+	isSubAgent bool   // true for rows created by EventSubAgentStart
+	subAgentID string // identifier for matching EventSubAgentEnd
+	subTitle   string // SubTaskTitle from the event
+	subCount   int    // SubTaskCount from the event (batch size)
 
 	// Task-graph node rows (post-EventAnalysisReady). nodeID is the
 	// TaskGraph node identifier; nodeKind is the TaskNode.Type string
@@ -129,6 +130,7 @@ type taskRow struct {
 // user sees on screen.
 type Renderer struct {
 	glamour *glamour.TermRenderer
+	out     io.Writer
 
 	mu        sync.Mutex
 	dock      *dock // 3-row anchored bottom region (post-2026-04-30 dock redesign)
@@ -302,14 +304,35 @@ func (r *Renderer) SetLang(lang string) {
 	r.lang = lang
 }
 
+// SetOutput retargets all live renderer output. nil restores stdout.
+func (r *Renderer) SetOutput(w io.Writer) {
+	if r == nil {
+		return
+	}
+	if w == nil {
+		w = os.Stdout
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.out = w
+}
+
+func (r *Renderer) outputWriter() io.Writer {
+	if r != nil && r.out != nil {
+		return r.out
+	}
+	return os.Stdout
+}
+
 // New creates a Renderer.
-func New(_ /* out */ interface{}, forceColor bool) *Renderer {
+func New(out interface{}, forceColor bool) *Renderer {
+	writer, _ := out.(io.Writer)
+	if writer == nil {
+		writer = os.Stdout
+	}
 	color := forceColor
 	if !color {
-		info, err := os.Stdout.Stat()
-		if err == nil {
-			color = (info.Mode() & os.ModeCharDevice) != 0
-		}
+		color = isTTY(writer)
 	}
 	if !color {
 		pterm.DisableColor()
@@ -323,29 +346,29 @@ func New(_ /* out */ interface{}, forceColor bool) *Renderer {
 		glamour.WithWordWrap(0),
 	)
 
-	return &Renderer{glamour: gr}
+	return &Renderer{glamour: gr, out: writer}
 }
 
 // codraxStyleConfig returns the glamour style used for rendering the
 // final answer markdown.
 //
 // Design intent (post-2026-04-29 audit):
-//   1. Hue discipline. Each colour family carries ONE semantic so
-//      the eye isn't asked to disambiguate four reds:
-//        red    → diagnostics + diff-deleted (only)
-//        green  → success + diff-inserted + function name
-//        cyan   → inline code + heading family
-//        grey   → structure (HR, table grid, comments, operators,
-//                 dimmed heading levels)
-//        yellow → emphasis / built-ins (NOT errors)
-//        purple → reserved keywords (class / def / func)
-//   2. Heading hierarchy via brightness gradient. H1 = brightest
-//      (white), gradient down through cyan→blue→grey→deep grey at
-//      H6. Pure prefix-count cues ('## ', '### ') are kept by
-//      glamour but no longer the sole signal of level.
-//   3. No background colours. Terminal theme owns the background;
-//      reintroducing pills/bars has been rejected repeatedly as
-//      visually loud across the popular terminal themes.
+//  1. Hue discipline. Each colour family carries ONE semantic so
+//     the eye isn't asked to disambiguate four reds:
+//     red    → diagnostics + diff-deleted (only)
+//     green  → success + diff-inserted + function name
+//     cyan   → inline code + heading family
+//     grey   → structure (HR, table grid, comments, operators,
+//     dimmed heading levels)
+//     yellow → emphasis / built-ins (NOT errors)
+//     purple → reserved keywords (class / def / func)
+//  2. Heading hierarchy via brightness gradient. H1 = brightest
+//     (white), gradient down through cyan→blue→grey→deep grey at
+//     H6. Pure prefix-count cues ('## ', '### ') are kept by
+//     glamour but no longer the sole signal of level.
+//  3. No background colours. Terminal theme owns the background;
+//     reintroducing pills/bars has been rejected repeatedly as
+//     visually loud across the popular terminal themes.
 func codraxStyleConfig() ansi.StyleConfig {
 	var cfg ansi.StyleConfig
 	dark := termenv.HasDarkBackground()
@@ -373,13 +396,13 @@ func codraxStyleConfig() ansi.StyleConfig {
 //
 // Hue identity:
 //
-//   H1 — pure white / black: the "title" tier, neutral. Bold.
-//   H2 — bright cyan: dominant section heading. Bold.
-//   H3 — light cyan: subsection. Bold; matches the inline-code hue
-//        so heading + code references read as the same family.
-//   H4 — mid blue: minor heading. Bold.
-//   H5 — light grey: italic, not bold; visibly retreated.
-//   H6 — deep grey: italic, not bold; bottommost.
+//	H1 — pure white / black: the "title" tier, neutral. Bold.
+//	H2 — bright cyan: dominant section heading. Bold.
+//	H3 — light cyan: subsection. Bold; matches the inline-code hue
+//	     so heading + code references read as the same family.
+//	H4 — mid blue: minor heading. Bold.
+//	H5 — light grey: italic, not bold; visibly retreated.
+//	H6 — deep grey: italic, not bold; bottommost.
 //
 // All four active levels (H1-H4) now sit at clearly readable
 // luminance on dark backgrounds; the gradient discriminator is
@@ -569,9 +592,9 @@ func applyInlineAndStructure(cfg *ansi.StyleConfig, dark bool) {
 		// hues against light backgrounds. Same semantic mapping:
 		// blue interactive, amber code/quote, gray structure,
 		// black for max-contrast peaks.
-		cfg.Code.Color = strPtr("130") // dark amber #af5f00
+		cfg.Code.Color = strPtr("130")           // dark amber #af5f00
 		cfg.HorizontalRule.Color = strPtr("250") // light gray (dim divider on white)
-		cfg.Link.Color = strPtr("21") // pure blue
+		cfg.Link.Color = strPtr("21")            // pure blue
 		cfg.Link.Underline = boolPtr(true)
 		cfg.LinkText.Color = strPtr("21")
 		cfg.LinkText.Underline = boolPtr(true)
@@ -603,21 +626,21 @@ func applyInlineAndStructure(cfg *ansi.StyleConfig, dark bool) {
 //
 // Hue assignments (dark mode reference):
 //
-//   blue   #5fafff — control-flow keywords (if / for / return ...)
-//   purple #bd93f9 — declaration keywords (class / def / func) + decorators
-//   cyan   #87d7ff — types + classes + namespace (the "shape" family,
-//                    same hue as inline `code` in prose so types read
-//                    consistently across prose and fenced blocks)
-//   green  #87d7af — functions + attributes + diff-inserted (the
-//                    "definition / new content" family)
-//   yellow #d7d787 — literal strings + builtins (the "data + lib"
-//                    family; warm but desaturated so it doesn't
-//                    fight the cyan headings above)
-//   orange #ffaf87 — literal numbers (sole hue, distinct from strings)
-//   slate  #6272a4 — comments + preproc (low-contrast, calm)
-//   grey   #909090 — operators + subheading (structural neutral)
-//   red    #ff5555 — diff-deleted + exceptions (the ONE place red
-//                    carries semantic load)
+//	blue   #5fafff — control-flow keywords (if / for / return ...)
+//	purple #bd93f9 — declaration keywords (class / def / func) + decorators
+//	cyan   #87d7ff — types + classes + namespace (the "shape" family,
+//	                 same hue as inline `code` in prose so types read
+//	                 consistently across prose and fenced blocks)
+//	green  #87d7af — functions + attributes + diff-inserted (the
+//	                 "definition / new content" family)
+//	yellow #d7d787 — literal strings + builtins (the "data + lib"
+//	                 family; warm but desaturated so it doesn't
+//	                 fight the cyan headings above)
+//	orange #ffaf87 — literal numbers (sole hue, distinct from strings)
+//	slate  #6272a4 — comments + preproc (low-contrast, calm)
+//	grey   #909090 — operators + subheading (structural neutral)
+//	red    #ff5555 — diff-deleted + exceptions (the ONE place red
+//	                 carries semantic load)
 //
 // Punctuation stays uncoloured so it inherits prose default. Pink /
 // orange-pink / extra blue shades the dracula palette previously
@@ -640,10 +663,10 @@ func applyChromaPalette(cfg *ansi.StyleConfig, dark bool) {
 		// "shape" cyan. KeywordNamespace folds into KeywordType
 		// because both denote "where this thing lives" in the type
 		// graph; one hue keeps the eye scanning naturally.
-		chroma.Keyword.Color = strPtr("#5fafff")           // mid blue
-		chroma.KeywordReserved.Color = strPtr("#bd93f9")   // soft purple
-		chroma.KeywordNamespace.Color = strPtr("#87d7ff")  // light cyan (was its own pale blue)
-		chroma.KeywordType.Color = strPtr("#87d7ff")       // light cyan (matches namespace + inline-code)
+		chroma.Keyword.Color = strPtr("#5fafff")          // mid blue
+		chroma.KeywordReserved.Color = strPtr("#bd93f9")  // soft purple
+		chroma.KeywordNamespace.Color = strPtr("#87d7ff") // light cyan (was its own pale blue)
+		chroma.KeywordType.Color = strPtr("#87d7ff")      // light cyan (matches namespace + inline-code)
 		// Operator + Punctuation: structural neutral. Operator stays
 		// grey so high-frequency `=` / `+` / `<` don't blend with
 		// diff markers. Punctuation inherits text colour.
@@ -652,25 +675,25 @@ func applyChromaPalette(cfg *ansi.StyleConfig, dark bool) {
 		// Names — the "definition" family in green, "type-shape"
 		// in cyan. Tag (HTML/XML) folds into the cyan family because
 		// it's a structural shape marker, not a keyword.
-		chroma.Name.Color = strPtr("#dadada")              // near-white default
-		chroma.NameBuiltin.Color = strPtr("#d7d787")       // soft yellow (matches strings)
-		chroma.NameTag.Color = strPtr("#87d7ff")           // cyan (was purple — pulled into shape family)
-		chroma.NameAttribute.Color = strPtr("#87d7af")     // soft green
-		chroma.NameClass.Color = strPtr("#87d7ff")         // cyan + bold + underline (kept; was pure white)
-		chroma.NameDecorator.Color = strPtr("#bd93f9")     // purple (matches reserved)
-		chroma.NameFunction.Color = strPtr("#87d7af")      // soft green
-		chroma.NameException.Color = strPtr("#ff5555")     // red — exception is the ONE alert hue
+		chroma.Name.Color = strPtr("#dadada")          // near-white default
+		chroma.NameBuiltin.Color = strPtr("#d7d787")   // soft yellow (matches strings)
+		chroma.NameTag.Color = strPtr("#87d7ff")       // cyan (was purple — pulled into shape family)
+		chroma.NameAttribute.Color = strPtr("#87d7af") // soft green
+		chroma.NameClass.Color = strPtr("#87d7ff")     // cyan + bold + underline (kept; was pure white)
+		chroma.NameDecorator.Color = strPtr("#bd93f9") // purple (matches reserved)
+		chroma.NameFunction.Color = strPtr("#87d7af")  // soft green
+		chroma.NameException.Color = strPtr("#ff5555") // red — exception is the ONE alert hue
 		// Literals — string vs number unambiguously distinct.
-		chroma.LiteralString.Color = strPtr("#d7d787")          // soft yellow
-		chroma.LiteralStringEscape.Color = strPtr("#ffaf87")    // orange (was pink) — escapes share orange with numbers
-		chroma.LiteralNumber.Color = strPtr("#ffaf87")          // soft orange
+		chroma.LiteralString.Color = strPtr("#d7d787")       // soft yellow
+		chroma.LiteralStringEscape.Color = strPtr("#ffaf87") // orange (was pink) — escapes share orange with numbers
+		chroma.LiteralNumber.Color = strPtr("#ffaf87")       // soft orange
 		// Comments — slate is calm, low-contrast. Preproc folds in
 		// because both are "side-channel" context the reader skims.
-		chroma.Comment.Color = strPtr("#6272a4")           // dracula slate
-		chroma.CommentPreproc.Color = strPtr("#6272a4")    // (was pink — folded into comment family)
+		chroma.Comment.Color = strPtr("#6272a4")        // dracula slate
+		chroma.CommentPreproc.Color = strPtr("#6272a4") // (was pink — folded into comment family)
 		// Diff markers — the load-bearing red + green semantics.
 		chroma.GenericDeleted.Color = strPtr("#ff5555")
-		chroma.GenericInserted.Color = strPtr("#87d7af")   // matches function-green so "added" reads as "definition"
+		chroma.GenericInserted.Color = strPtr("#87d7af") // matches function-green so "added" reads as "definition"
 		chroma.GenericSubheading.Color = strPtr("#909090")
 		// Default text inside fenced blocks
 		chroma.Text.Color = strPtr("#dadada")
@@ -679,25 +702,25 @@ func applyChromaPalette(cfg *ansi.StyleConfig, dark bool) {
 		// luminance. Strings + builtins share dark-amber, classes +
 		// types + namespace share dark-cyan, functions + attributes
 		// share dark-green. Comments retreat to a calm slate-grey.
-		chroma.Keyword.Color = strPtr("#005faf")           // dark blue
-		chroma.KeywordReserved.Color = strPtr("#6f42c1")   // dark purple
-		chroma.KeywordNamespace.Color = strPtr("#0087af")  // dark cyan (matches type)
+		chroma.Keyword.Color = strPtr("#005faf")          // dark blue
+		chroma.KeywordReserved.Color = strPtr("#6f42c1")  // dark purple
+		chroma.KeywordNamespace.Color = strPtr("#0087af") // dark cyan (matches type)
 		chroma.KeywordType.Color = strPtr("#0087af")
 		chroma.Operator.Color = strPtr("#6e7781")
 		chroma.Punctuation.Color = nil
 		chroma.Name.Color = strPtr("#24292f")
-		chroma.NameBuiltin.Color = strPtr("#9a6700")       // dark amber (matches strings; was warm red)
-		chroma.NameTag.Color = strPtr("#0087af")           // dark cyan (was dark green)
-		chroma.NameAttribute.Color = strPtr("#116329")     // dark green
-		chroma.NameClass.Color = strPtr("#0087af")         // dark cyan
-		chroma.NameDecorator.Color = strPtr("#6f42c1")     // dark purple (was orange)
-		chroma.NameFunction.Color = strPtr("#116329")      // dark green (was purple)
+		chroma.NameBuiltin.Color = strPtr("#9a6700")   // dark amber (matches strings; was warm red)
+		chroma.NameTag.Color = strPtr("#0087af")       // dark cyan (was dark green)
+		chroma.NameAttribute.Color = strPtr("#116329") // dark green
+		chroma.NameClass.Color = strPtr("#0087af")     // dark cyan
+		chroma.NameDecorator.Color = strPtr("#6f42c1") // dark purple (was orange)
+		chroma.NameFunction.Color = strPtr("#116329")  // dark green (was purple)
 		chroma.NameException.Color = strPtr("#cf222e")
-		chroma.LiteralString.Color = strPtr("#9a6700")     // dark amber
+		chroma.LiteralString.Color = strPtr("#9a6700")       // dark amber
 		chroma.LiteralStringEscape.Color = strPtr("#953800") // dark orange (matches numbers)
 		chroma.LiteralNumber.Color = strPtr("#953800")
 		chroma.Comment.Color = strPtr("#6e7781")
-		chroma.CommentPreproc.Color = strPtr("#6e7781")    // (was blue — folded into comment family)
+		chroma.CommentPreproc.Color = strPtr("#6e7781") // (was blue — folded into comment family)
 		chroma.GenericDeleted.Color = strPtr("#cf222e")
 		chroma.GenericInserted.Color = strPtr("#116329")
 		chroma.GenericSubheading.Color = strPtr("#6e7781")
@@ -768,9 +791,9 @@ func (r *Renderer) startSpinnerWithHint(hint string) {
 	if r.totalStages == 0 {
 		r.totalStages = 6
 	}
-	r.dockEnabled = detectStdoutTTY() && !r.dockSuppressed
+	r.dockEnabled = isTTY(r.outputWriter()) && !r.dockSuppressed
 	if r.dockEnabled {
-		r.dock = newDock(os.Stdout)
+		r.dock = newDock(r.outputWriter())
 		r.paintDockLocked()
 		r.startAnimGoroutineLocked()
 	}
@@ -781,14 +804,6 @@ func (r *Renderer) startSpinnerWithHint(hint string) {
 // state. Used by both startSpinnerWithHint (full spinner start) and
 // reopenSpinnerAreaLocked (post-finalize-retry recovery), so the
 // area + animation goroutine lifecycle has one canonical owner.
-//
-// Caller MUST hold r.mu.
-
-// printStageCompletionThroughBarLocked wipes the live bar so a
-// completion line can land cleanly in scrollback above it, then
-// re-paints the bar so animation continues for the next stage.
-// topicTotal > 1 enables the "关注点 K/M" suffix on multi-topic
-// evidence rows.
 //
 // Caller MUST hold r.mu.
 
@@ -916,7 +931,6 @@ func (r *Renderer) StopSpinner() {
 func (r *Renderer) Emitter() EventEmitter {
 	return r.dockEventEmitter()
 }
-
 
 // findRunningStageRow returns the most recent main-pipeline row
 // matching (stage, agent) that has not yet ended, or nil. Used by
@@ -1353,15 +1367,14 @@ func formatAgent(name types.AgentName, count int) string {
 	return fmt.Sprintf("%s(%d)", s, count)
 }
 
-
 // previewIsTTY reports whether stdout is a terminal. The renderer
 // short-circuits live preview events on non-TTY outputs (pipes / >
 // file / CI) so the preview never leaks into the user's piped
 // stream. isTTY is the same predicate the diff colorizer uses, so
 // the preview / diff color paths agree on what counts as
 // interactive.
-func previewIsTTY() bool {
-	return isTTY(os.Stdout)
+func (r *Renderer) previewIsTTY() bool {
+	return isTTY(r.outputWriter())
 }
 
 // previewLineMaxCols caps the ticker line width. Single-line ticker
@@ -1445,10 +1458,10 @@ func previewLineLastSnippetCols(total int) int {
 // glyph (statusSuccessMuted), same gray text (statusPrimaryDone) —
 // so the user reads the timeline as one continuous family:
 //
-//   ✓ 已校核分析结论 · 5s · 1 次工具调用
-//   ✓ 已整理结论 · 5s
-//   ✓ 已生成最终答案
-//   ┌─ Final answer ─┐
+//	✓ 已校核分析结论 · 5s · 1 次工具调用
+//	✓ 已整理结论 · 5s
+//	✓ 已生成最终答案
+//	┌─ Final answer ─┐
 //
 // Pre-2026-04-30 the line was sprinted with statusSuccessMuted
 // across the WHOLE string (icon + text both green), and the user
@@ -1458,7 +1471,7 @@ func previewLineLastSnippetCols(total int) int {
 func (r *Renderer) printFinalizeBanner() {
 	icon := statusSuccessMuted.Sprint(string(glyphSuccess))
 	text := statusPrimaryDone.Sprint(finalizeDoneText(r.lang))
-	fmt.Fprintf(os.Stdout, "  %s %s\n\n", icon, text)
+	fmt.Fprintf(r.outputWriter(), "  %s %s\n\n", icon, text)
 }
 
 func finalizeDoneText(lang string) string {
