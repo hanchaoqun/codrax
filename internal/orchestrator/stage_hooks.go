@@ -132,6 +132,22 @@ func planPostHook(o *Orchestrator, out *agent.StageOutput) error {
 	}
 	o.busCtx.Mutable.SetResult(renderChangePlanSummary(plan, o.busCtx.Language))
 	logging.Info("[orchestrator] plan stage: id=%s changes=%d", plan.ID, len(plan.Changes))
+
+	// Optional pre-apply review (commit 4 P1-F). When the operator
+	// has wired plan_critic and the yaml gate is on, dispatch a
+	// single-Chat review of the plan. Output is informational only —
+	// stored on Mutable.PlanCritique for /plan show to render.
+	// Failures degrade silently to "no critique"; apply is never
+	// blocked by review plumbing.
+	if o.planCritic != nil {
+		ctx := o.CancelContext()
+		critique, err := o.planCritic.Review(ctx, buildPlanCriticInput(o.busCtx))
+		if err != nil {
+			logging.Warning("[orchestrator] plan_critic degraded: %v (plan continues without critique)", err)
+		} else if critique != "" {
+			o.busCtx.Mutable.SetPlanCritique(critique)
+		}
+	}
 	return nil
 }
 

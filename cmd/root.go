@@ -231,6 +231,7 @@ type appContext struct {
 	defaultLLM            llm.Adapter
 	memorySummarizerLLM   llm.Adapter // providers.yaml :: agents.memory_summarizer, else defaultLLM
 	reflectorLLM          llm.Adapter // providers.yaml :: agents.reflector, else defaultLLM
+	planCriticLLM         llm.Adapter // providers.yaml :: agents.plan_critic, else defaultLLM
 	logger                *logging.Logger
 	memorySettings        types.MemorySettings
 	envRecommendSettings  types.EnvRecommendSettings
@@ -1984,6 +1985,24 @@ func initApp(cmd *cobra.Command, _ []string) error {
 		}
 	}
 
+	// Plan critic adapter routing. Mirrors reflector — opt-in side
+	// channel that gets a clamped timeout so a slow LLM cannot
+	// stall the apply path. Gated by pipeline_plan_critic_enabled
+	// downstream; the adapter is resolved unconditionally so
+	// flipping the yaml gate doesn't require a config restart.
+	app.planCriticLLM = app.defaultLLM
+	{
+		_, hasExplicit := providersCfg.LLM.Agents["plan_critic"]
+		resolved := config.ResolveProvider(providersCfg, "plan_critic")
+		resolved.RequestTimeoutSeconds = clampReflectorTimeout(resolved.RequestTimeoutSeconds, hasExplicit)
+		if adapter, err := llm.NewFromConfig(resolved); err != nil {
+			logging.Warning("[plan_critic] adapter init failed; falling back to default LLM (will inherit %ds timeout): %v",
+				int(app.defaultLLM.RequestTimeout().Seconds()), err)
+		} else {
+			app.planCriticLLM = adapter
+		}
+	}
+
 	// Initialize registries.
 	mcpRegistry := mcp.NewRegistry()
 	logging.Info("registered %d MCP servers", len(mcpRegistry.List()))
@@ -2181,6 +2200,17 @@ func initApp(cmd *cobra.Command, _ []string) error {
 	// reflector only fires when the budget allows another iteration.
 	if app.reflectorLLM != nil {
 		orch.SetReflector(orchestrator.NewReflector(app.reflectorLLM))
+	}
+	// Commit 4 P1-F: plan_critic. Only install when the operator
+	// explicitly turned the gate on — default off because each
+	// enabled run pays one extra LLM call.
+	planCriticEnabled := false
+	if rs.PipelinePlanCriticEnabled != nil {
+		planCriticEnabled = *rs.PipelinePlanCriticEnabled
+	}
+	if planCriticEnabled && app.planCriticLLM != nil {
+		orch.SetPlanCritic(orchestrator.NewPlanCritic(app.planCriticLLM))
+		logging.Info("[orchestrator] plan_critic enabled (extra LLM call per plan emit)")
 	}
 	// Item 1: baseline capture for CritNoRegression. Default false
 	// (test-suite wall time doubles when enabled).

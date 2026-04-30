@@ -128,6 +128,14 @@ type Orchestrator struct {
 	// the pattern (mirrors chitchat_classifier / memory_summarizer).
 	reflector Reflector
 
+	// planCritic is the optional pre-apply review LLM. Mirrors
+	// reflector but fires earlier in the pipeline (after planner
+	// emit, before apply). Nil when the operator left
+	// pipeline_plan_critic_enabled false (default) — apply runs
+	// straight without critique. See plan_critic.go for the
+	// pattern.
+	planCritic PlanCritic
+
 	// baselineCaptureEnabled gates the pre-apply test snapshot
 	// that feeds CritNoRegression. Default false (test doubling
 	// is opt-in). When true, the apply stage hook dispatches run_tests
@@ -589,6 +597,15 @@ func (o *Orchestrator) TransientRetryBudget() int {
 // providers.yaml :: agents.reflector or the default LLM.
 func (o *Orchestrator) SetReflector(r Reflector) {
 	o.reflector = r
+}
+
+// SetPlanCritic installs the optional pre-apply plan-review LLM.
+// Nil disables — planPostHook then runs without invoking the
+// critic. yaml-gated by pipeline_plan_critic_enabled in
+// cmd/root.go: when the gate is off, this stays nil regardless of
+// providers.yaml routing.
+func (o *Orchestrator) SetPlanCritic(c PlanCritic) {
+	o.planCritic = c
 }
 
 // SetBaselineCaptureEnabled toggles the pre-apply test snapshot.

@@ -396,6 +396,14 @@ type MutableState struct {
 	// task-shape facts (kind / scope / risk / constraints / outcomes)
 	// the write agents read directly. Readers MUST nil-check.
 	writeAnalysisIR *WriteAnalysisIR
+
+	// planCritique is the optional pre-apply review text produced by
+	// the plan_critic agent (commit 4 P1-F). Empty when the critic
+	// is disabled (default), or when the critic ran but found no
+	// risks. The critique is INFORMATIONAL only — it never
+	// auto-rejects a plan; downstream surfaces (/plan show) render
+	// it for the operator's eyes.
+	planCritique string
 }
 
 // ReconcileObservation is one decision the analyzer pipeline made
@@ -730,6 +738,30 @@ func (m *MutableState) SetWriteAnalysisIR(ir *WriteAnalysisIR) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.writeAnalysisIR = ir
+}
+
+// PlanCritique returns the pre-apply review text produced by the
+// plan_critic agent. Empty when the critic was disabled or
+// produced no risks. /plan show renders this verbatim.
+func (m *MutableState) PlanCritique() string {
+	if m == nil {
+		return ""
+	}
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return m.planCritique
+}
+
+// SetPlanCritique stores the critique text. Called at most once per
+// Run from the plan stage hook after a successful plan_critic
+// dispatch. Empty string is legal (the critic emitted zero risks).
+func (m *MutableState) SetPlanCritique(text string) {
+	if m == nil {
+		return
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.planCritique = text
 }
 
 // SetLogSegments stores the opaque JSON-marshalled segment payload

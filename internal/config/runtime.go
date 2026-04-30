@@ -239,6 +239,18 @@ type RuntimeSettings struct {
 	// cannot starve a Run that is genuinely making progress.
 	PipelineWriteMaxSeconds *int `yaml:"pipeline_write_max_seconds"`
 
+	// PipelinePlanCriticEnabled gates the optional pre-apply plan
+	// review LLM call (commit 4 P1-F). When true and a plan_critic
+	// adapter is configured (providers.yaml :: agents.plan_critic
+	// or fallback to default), the orchestrator dispatches a single
+	// Chat call after planner emit + before apply to surface
+	// shape-level concerns the deterministic 11-stage validator
+	// cannot catch (alignment with user goal, suspect dependencies,
+	// inconsistencies). Critique text is INFORMATIONAL only;
+	// apply runs regardless. Default false (opt-in: each enabled
+	// run pays one extra LLM call).
+	PipelinePlanCriticEnabled *bool `yaml:"pipeline_plan_critic_enabled"`
+
 	// PipelineKeepWorktreeOnSuccess, when true, preserves the git
 	// worktree after a successful ModeApply so the user can review
 	// the applied bytes and cherry-pick to main manually. Failure
