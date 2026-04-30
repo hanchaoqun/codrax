@@ -22,12 +22,30 @@ type writeAnalyzerEvaluator struct {
 	emitSeen bool
 }
 
-// BuildInitialInstruction: skill owns the structural prompt; no
-// per-dispatch supplement needed beyond the user's request and the
-// repo facts the AgentContext carries.
-func (e *writeAnalyzerEvaluator) BuildInitialInstruction(_ *types.AgentContext, _ *skill.Config) string {
+// BuildInitialInstruction: skill owns the structural prompt; the
+// only per-dispatch supplement is the prior-attempt-failed hint
+// from Mutable.AnalyzerRetryHint, set by runWriteAnalyzePhase
+// when an earlier attempt was rejected. Mirrors the read
+// analyzer's hint-consumption pattern (analyzer.go:184): consume-
+// once via Reset so a stale hint can't leak into a future Run.
+//
+// Without this, runWriteAnalyzePhase's SetAnalyzerRetryHint call
+// in the retry path would be dead code — the hint would be set
+// but never surfaced to the LLM, and the second attempt would
+// repeat the first's mistake. (Commit 10's #11 plumbing was
+// half-wired; commit 13 closes the loop.)
+func (e *writeAnalyzerEvaluator) BuildInitialInstruction(ctx *types.AgentContext, _ *skill.Config) string {
 	e.emitSeen = false
-	return ""
+	if ctx == nil || ctx.Mutable == nil {
+		return ""
+	}
+	hint := ctx.Mutable.AnalyzerRetryHint()
+	if hint == "" {
+		return ""
+	}
+	ctx.Mutable.ResetAnalyzerRetryHint()
+	return "## Previous attempt rejected\n\n" + hint + "\n\n" +
+		"Re-emit emit_write_analysis with the issue above resolved. The skill prompt below describes the schema; this section names what went wrong on the previous attempt so you can correct it directly.\n\n"
 }
 
 // ShouldStop — primary gate is the emit observation; this hook is
