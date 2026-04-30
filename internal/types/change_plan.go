@@ -327,6 +327,21 @@ type ChangePlan struct {
 	// passed" which would have an empty list. nil/empty means
 	// every applicable stage ran.
 	UnvalidatedReasons []string `json:"unvalidated_reasons,omitempty"`
+
+	// WriteAnalysisIR is the pinned snapshot of the write-mode
+	// analyzer's output that drove this plan (commit 9 #3).
+	// Persisted on the plan so a subsequent Run (e.g. /approve
+	// invoking apply-mode against this plan, or /approve --retry
+	// after a partial apply) reuses the SAME IR instead of
+	// re-dispatching write_analyzer and producing a (possibly
+	// drifted) second classification. The orchestrator seeds
+	// Mutable.WriteAnalysisIR from this slot at apply-stage entry
+	// when present, falling through to a fresh write_analyzer
+	// dispatch only when the slot is empty (legacy plans / pure
+	// /mode plan flow). Pointer rather than embed so plans
+	// emitted before commit 9 stay JSON-compatible (omitempty
+	// elides the field on disk).
+	WriteAnalysisIR *WriteAnalysisIR `json:"write_analysis_ir,omitempty"`
 }
 
 // FileChange describes one file-level modification the apply stage

@@ -2596,7 +2596,7 @@ func (r *REPL) handleApproveCmd(line string) {
 	//   `/approve --skip-verify` — apply only, skip the verify stage
 	//      (use when local box can't run integration tests; review
 	//      the diff carefully — no test-pass guarantee)
-	planArg, mergeTo, skipVerify := parseApproveArgs(line)
+	planArg, mergeTo, skipVerify, retry := parseApproveArgsAll(line)
 	if r.planStore == nil {
 		r.info(commandDisabled(r.language, "/approve", noPlanStoreReason(r.language)))
 		return
@@ -2674,6 +2674,18 @@ func (r *REPL) handleApproveCmd(line string) {
 	switch plan.Status {
 	case types.PlanStatusPending, types.PlanStatusVerifyFailed, "":
 		// re-approvable; "" is legacy unset, treated as pending
+	case types.PlanStatusPartiallyApplied, types.PlanStatusUnverified:
+		// Only re-approvable with --retry (commit 9 #1). Without
+		// --retry, surface a hint that names the flag rather than
+		// the generic refused-status message — the user is
+		// already mid-flow with a partial / unverified plan and
+		// needs the actionable command, not just "no".
+		if !retry {
+			r.warn("plan %s is in status %q; use `/approve --retry` to continue from current AppliedSet, or `/reject` to discard the partial state\n",
+				plan.ID, plan.Status)
+			r.pendingPlanPath = ""
+			return
+		}
 	default:
 		r.warn("%s", approveRefusedStatusMsg(r.language,
 			plan.ID, plan.Status,
@@ -2683,6 +2695,10 @@ func (r *REPL) handleApproveCmd(line string) {
 	}
 	if plan.Status == types.PlanStatusVerifyFailed {
 		r.info(fmt.Sprintf("re-approving plan %s (status was verify_failed; assuming env-fix retry)", plan.ID))
+	}
+	if retry && (plan.Status == types.PlanStatusPartiallyApplied || plan.Status == types.PlanStatusUnverified) {
+		r.info(fmt.Sprintf("retrying plan %s (status was %s; coder skips already-applied units and continues from where apply stopped)",
+			plan.ID, plan.Status))
 	}
 
 	// Multi-pending hint. When PlanStore carries more than one
@@ -2936,15 +2952,28 @@ func (r *REPL) handleApproveCmd(line string) {
 // — handleApproveCmd handles unknown shapes by falling through to
 // the "load most recent pending plan" path.
 func parseApproveArgs(line string) (planID, mergeTo string, skipVerify bool) {
+	planID, mergeTo, skipVerify, _ = parseApproveArgsAll(line)
+	return planID, mergeTo, skipVerify
+}
+
+// parseApproveArgsAll mirrors parseApproveArgs but additionally
+// returns the --retry flag. Kept separate so existing call sites
+// that don't care about retry don't need updating.
+func parseApproveArgsAll(line string) (planID, mergeTo string, skipVerify, retry bool) {
 	rest := strings.TrimSpace(strings.TrimPrefix(line, "/approve"))
 	if rest == "" {
-		return "", "", false
+		return "", "", false, false
 	}
 	tokens := strings.Fields(rest)
 	for i, tok := range tokens {
 		switch {
 		case tok == "--skip-verify":
 			skipVerify = true
+		case tok == "--retry":
+			// Accept partially_applied / unverified plans for re-
+			// dispatch. Without this flag, those statuses are
+			// rejected at the status gate below.
+			retry = true
 		case strings.HasPrefix(tok, "--merge-to="):
 			mergeTo = strings.TrimSpace(strings.TrimPrefix(tok, "--merge-to="))
 		case strings.HasPrefix(tok, "--plan-id="):
@@ -2960,7 +2989,7 @@ func parseApproveArgs(line string) (planID, mergeTo string, skipVerify bool) {
 			planID = tok
 		}
 	}
-	return planID, mergeTo, skipVerify
+	return planID, mergeTo, skipVerify, retry
 }
 
 // parseMergeToArg is the legacy single-purpose helper kept as a

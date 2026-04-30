@@ -1343,6 +1343,15 @@ func (o *Orchestrator) runWriteAnalyzePhase() (int, error) {
 		logging.Info("[orchestrator] write_analyze skipped: %s mode with --plan-file / /approve", string(o.busCtx.Mode))
 		return 0, nil
 	}
+	// Cost optimisation (commit 9 #3): if the active plan was emitted
+	// with a pinned WriteAnalysisIR, applyPreHook will restore it
+	// onto Mutable. If we're already past plan-load and Mutable
+	// carries an IR, dispatching write_analyzer again is wasted LLM
+	// work — skip and let downstream consumers read the pinned IR.
+	if o.busCtx != nil && o.busCtx.Mutable != nil && o.busCtx.Mutable.WriteAnalysisIR() != nil {
+		logging.Info("[orchestrator] write_analyze skipped: pinned IR already present on Mutable (reused from plan snapshot)")
+		return 0, nil
+	}
 	o.busCtx.PipelineStage = types.StageWriteAnalyze
 	o.busCtx.TaskState.Stage = types.StageWriteAnalyze
 

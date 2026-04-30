@@ -130,6 +130,17 @@ func planPostHook(o *Orchestrator, out *agent.StageOutput) error {
 			})
 		}
 	}
+	// Pin the WriteAnalysisIR snapshot to the plan struct so that
+	// a subsequent /approve or /approve --retry against this plan
+	// reuses the same IR instead of re-dispatching write_analyzer
+	// (commit 9 #3). Without this, plan_critic on apply-time
+	// might reason about a slightly different IR than the one
+	// the planner used to generate the plan; cost-wise it also
+	// avoids a second LLM call.
+	if ir := o.busCtx.Mutable.WriteAnalysisIR(); ir != nil {
+		plan.WriteAnalysisIR = ir
+	}
+
 	o.busCtx.Mutable.SetResult(renderChangePlanSummary(plan, o.busCtx.Language))
 	logging.Info("[orchestrator] plan stage: id=%s changes=%d", plan.ID, len(plan.Changes))
 
@@ -296,6 +307,18 @@ func applyPreHook(o *Orchestrator) error {
 				Rationale: c.Rationale,
 				Origin:    "load_from_file",
 			})
+		}
+		// Restore the pinned WriteAnalysisIR snapshot when the plan
+		// carries one (commit 9 #3). Lets plan_critic and any
+		// downstream IR consumer in this Run see the SAME task-shape
+		// classification the planner used at emit time, instead of
+		// a fresh (potentially drifted) IR from a re-run write_analyzer.
+		// Falls through to nil when the plan was emitted before commit
+		// 9 — runWriteAnalyzePhase will then dispatch fresh.
+		if plan.WriteAnalysisIR != nil {
+			o.busCtx.Mutable.SetWriteAnalysisIR(plan.WriteAnalysisIR)
+			logging.Info("[orchestrator] apply pre-hook: restored pinned WriteAnalysisIR from plan (kind=%s scope=%s)",
+				plan.WriteAnalysisIR.Request.Task.Kind, plan.WriteAnalysisIR.Request.Task.Scope)
 		}
 		logging.Info("[orchestrator] apply pre-hook: loaded plan %s from %s (%d changes)",
 			plan.ID, o.busCtx.PlanPath, len(plan.Changes))
