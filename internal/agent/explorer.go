@@ -4986,12 +4986,14 @@ func (e *explorerEvaluator) postPrimaryReadMidLoopSignal(obs LoopObservation) Lo
 			chosen = partials[0]
 		}
 		e.midLoopPostPrimaryInjected = true
+		traceSupplement := e.orderedSameFileTracePartialReadHint()
 		return LoopSignal{
 			HintRequested: true,
 			HintKey:       "explorer.mid-loop.post-primary-read",
 			Hint: "MID-LOOP CHECK: you just reached the primary anchor file. Do NOT stop with a prose summary yet. " +
 				"Keep using tools and finish the most relevant unread code first.\n" +
-				renderPartialReadHint(chosen, e.heuristics.PartialReadLineThreshold),
+				renderPartialReadHint(chosen, e.heuristics.PartialReadLineThreshold) +
+				traceSupplement,
 			Progress: true,
 		}
 	}
@@ -5051,6 +5053,20 @@ func (e *explorerEvaluator) scalarSourceLiteralPrimaryReadMode() bool {
 	}
 	plan := e.answerSurfacePlan()
 	return plan != nil && plan.SummarySurfaceMode == types.AnswerSummarySurfaceMinimalScalarRoleLocate
+}
+
+func (e *explorerEvaluator) orderedSameFileTracePartialReadHint() string {
+	if e == nil || e.analysisIR == nil {
+		return ""
+	}
+	rm := e.analysisIR.RequestModel
+	if !types.IsSingleTopicStructuralTrace(rm) {
+		plan := e.answerSurfacePlan()
+		if plan == nil || plan.RequiredShape != types.ShapeStepList {
+			return ""
+		}
+	}
+	return "Because this dispatch wants an ordered in-file trace, first materialize the call / assignment / guard anchors that are ALREADY visible in the current read span in source order. Then keep paging this same function until the requested source-to-sink interval is covered before widening to sibling helpers or nearby files.\n"
 }
 
 func (e *explorerEvaluator) filterPartialReadsByAuthoritativeFrames(hints []partialReadHint) []partialReadHint {

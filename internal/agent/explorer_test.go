@@ -3272,6 +3272,27 @@ func TestMidLoopCheck_PostPrimaryReadPrefersAnchorLocalGrounding(t *testing.T) {
 	}
 }
 
+func TestOrderedSameFileTracePartialReadHint(t *testing.T) {
+	eval := &explorerEvaluator{
+		analysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				Intent:        types.IntentTrace,
+				PredicateAxis: types.AxisCall,
+			},
+			AnswerContract: types.AnswerContract{
+				RequiredAnswerShape: types.ShapeStepList,
+			},
+		},
+	}
+	hint := eval.orderedSameFileTracePartialReadHint()
+	if !strings.Contains(hint, "ordered in-file trace") {
+		t.Fatalf("hint should explain ordered in-file trace coverage, got: %s", hint)
+	}
+	if !strings.Contains(hint, "source order") {
+		t.Fatalf("hint should require source-order materialization before widening, got: %s", hint)
+	}
+}
+
 func TestMidLoopCheck_PostPrimaryReadPrefersScalarRoleLocateMaterialization(t *testing.T) {
 	graph := &repomap.Graph{
 		SymbolDefs: map[string][]*repomap.Symbol{
