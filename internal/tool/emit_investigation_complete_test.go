@@ -943,6 +943,62 @@ func TestEmitInvestigationComplete_Tier1FloorIgnoresAuxiliaryContextOnlyItems(t 
 	}
 }
 
+func TestEmitInvestigationComplete_Tier1FloorIgnoresRelatedContextForScalarRoleLocate(t *testing.T) {
+	prev := CurrentGroundingPolicy()
+	SetGroundingPolicy(GroundingPolicy{GroundingFloor: 0.5, Tier1Floor: 0.6})
+	t.Cleanup(func() { SetGroundingPolicy(prev) })
+
+	mut := types.NewMutableState("q")
+	mut.AppendEvidence([]types.EvidenceItem{
+		{
+			Kind:            types.EvidenceDirect,
+			Source:          "internal/agent/analyzer.go",
+			LineStart:       883,
+			AnchorKind:      types.AnchorDefinition,
+			AnchorSymbol:    "buildAnalysisIR",
+			ContextRole:     types.EvidenceContextRoleDefining,
+			GroundingStatus: types.GroundingGrounded,
+			GroundingTier:   types.TierLineText,
+		},
+		{
+			Kind:            types.EvidenceDirect,
+			Source:          "internal/types/analysis_ir.go",
+			LineStart:       25,
+			AnchorKind:      types.AnchorDefinition,
+			AnchorSymbol:    "AnalysisIR",
+			ContextRole:     types.EvidenceContextRoleRelatedContext,
+			GroundingStatus: types.GroundingRecovered,
+			GroundingTier:   types.TierFQNameSameFile,
+		},
+	})
+	bus := &types.BusContext{
+		Mutable: mut,
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				Intent:        types.IntentExplain,
+				Complexity:    types.ComplexitySimple,
+				AnswerSubject: types.AnswerSubject{Kind: types.SubjectFunctionName},
+				Predicates: types.SemanticPredicates{
+					IsScalarAnswer:     true,
+					IsRoleLocateLookup: true,
+				},
+				AnalyzerHints: types.AnalyzerHints{
+					Kind:            "mechanism",
+					PrimaryEntities: []string{"AnalysisIR"},
+					Entities:        []string{"AnalysisIR"},
+				},
+			},
+		},
+	}
+	tool := &EmitInvestigationComplete{}
+
+	params := json.RawMessage(`{"reason":"the defining function line is grounded and the nearby type name is only explanatory context","confidence":"high","result_kind":"resolved"}`)
+	res, _ := tool.Execute(bus, params)
+	if !res.Success {
+		t.Fatalf("scalar role-locate related_context should not dilute the tier1 floor, got rejection: %s", res.Summary)
+	}
+}
+
 func TestEmitInvestigationComplete_ConfigAbsenceAllowsContextualEvidence(t *testing.T) {
 	missingKey := "zz_absent_config_" + "knob"
 	mut := types.NewMutableState("q")

@@ -4633,9 +4633,13 @@ func (e *explorerEvaluator) authoritativeTier1Readiness() explorerTier1Readiness
 		}
 		stableAbsent = exactAbsenceClosureReady(e.exactResolution, e.scenario, targets, e.structuredEvidence, requiredFiles)
 	}
+	rm := types.RequestModel{}
+	if e.analysisIR != nil {
+		rm = e.analysisIR.RequestModel
+	}
 	var repairItems []types.EvidenceItem
 	for _, ev := range e.structuredEvidence {
-		if !types.EvidenceCountsTowardTier1FloorInContext(ev, e.exactResolution, e.scenario, stableAbsent, requiredFiles) {
+		if !types.EvidenceCountsTowardTier1FloorInContext(ev, e.exactResolution, e.scenario, stableAbsent, requiredFiles, rm) {
 			continue
 		}
 		status.Total++

@@ -399,8 +399,16 @@ func EvidenceCountsTowardTier1FloorInContext(
 	scenario Scenario,
 	stableAbsent bool,
 	requiredFiles []string,
+	rm RequestModel,
 ) bool {
 	if !EvidenceCountsTowardTier1Floor(ev) {
+		return false
+	}
+	if ev.ContextRole == EvidenceContextRoleRelatedContext && IsScalarSourceLiteralLookup(rm) {
+		// Scalar source-literal lookups already have a single answer-grade
+		// anchor lane. Nearby related_context can still enrich summary
+		// prose, but it should not bloat the Tier-1 denominator or block
+		// closure after the defining literal is grounded.
 		return false
 	}
 	if !stableAbsent || contract == nil || len(contract.Targets) == 0 {

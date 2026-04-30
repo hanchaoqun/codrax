@@ -16,7 +16,7 @@ func TestCountTier1Evidence(t *testing.T) {
 		{GroundingStatus: types.GroundingUngrounded},
 		{}, // legacy empty-status → counts as Tier-1
 	}
-	tier1, total := countTier1Evidence(items, nil, types.ScenarioGeneric, false, nil)
+	tier1, total := countTier1Evidence(items, nil, types.ScenarioGeneric, false, nil, types.RequestModel{})
 	if total != 5 {
 		t.Errorf("total = %d, want 5", total)
 	}
@@ -38,7 +38,7 @@ func TestCountTier1Evidence_AllRecovered(t *testing.T) {
 		{GroundingStatus: types.GroundingRecovered},
 		{GroundingStatus: types.GroundingRecovered},
 	}
-	tier1, total := countTier1Evidence(items, nil, types.ScenarioGeneric, false, nil)
+	tier1, total := countTier1Evidence(items, nil, types.ScenarioGeneric, false, nil, types.RequestModel{})
 	if tier1 != 0 {
 		t.Errorf("tier1 = %d, want 0", tier1)
 	}
@@ -66,7 +66,7 @@ func TestCountTier1Evidence_SkipsAuxiliaryExactResolutionContext(t *testing.T) {
 			Kind:            types.EvidenceDirect,
 		},
 	}
-	tier1, total := countTier1Evidence(items, nil, types.ScenarioGeneric, false, nil)
+	tier1, total := countTier1Evidence(items, nil, types.ScenarioGeneric, false, nil, types.RequestModel{})
 	if total != 1 {
 		t.Fatalf("auxiliary illustrative/absence-support items should be excluded from tier1 denominator, got total=%d", total)
 	}
@@ -104,7 +104,7 @@ func TestCountTier1Evidence_ExactAbsenceSkipsNonClosureRelatedContext(t *testing
 			GroundingTier:   types.TierLineText,
 		},
 	}
-	tier1, total := countTier1Evidence(items, contract, types.ScenarioConfigTrace, true, []string{"internal/types/config.go"})
+	tier1, total := countTier1Evidence(items, contract, types.ScenarioConfigTrace, true, []string{"internal/types/config.go"}, types.RequestModel{})
 	if total != 0 || tier1 != 0 {
 		t.Fatalf("non-closure related_context items should not count during exact-absence closure, got tier1=%d total=%d", tier1, total)
 	}

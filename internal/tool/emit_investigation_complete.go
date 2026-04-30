@@ -1458,10 +1458,11 @@ func tallyEvidence(
 	scenario types.Scenario,
 	stableAbsent bool,
 	requiredFiles []string,
+	rm types.RequestModel,
 ) evidenceTally {
 	var t evidenceTally
 	for _, e := range evidence {
-		if !types.EvidenceCountsTowardTier1FloorInContext(e, contract, scenario, stableAbsent, requiredFiles) {
+		if !types.EvidenceCountsTowardTier1FloorInContext(e, contract, scenario, stableAbsent, requiredFiles, rm) {
 			continue
 		}
 		t.total++
@@ -1741,7 +1742,7 @@ func groundingGateReject(ctx *types.BusContext, floor float64) (string, bool) {
 		// for simple list questions). Accept.
 		return "", true
 	}
-	t := tallyEvidence(evidence, nil, types.ScenarioGeneric, false, nil)
+	t := tallyEvidence(evidence, nil, types.ScenarioGeneric, false, nil, types.RequestModel{})
 	if t.total == 0 {
 		return "", true
 	}
@@ -1805,7 +1806,11 @@ func tier1GateReject(ctx *types.BusContext, floor float64, resultKind, justifica
 	}
 	stableAbsent := resultKind == "absence" && strings.TrimSpace(justification) != ""
 	requiredFiles := types.ExactResolutionRequiredContextFiles(contract, ctx.Mutable)
-	t := tallyEvidence(evidence, contract, scenario, stableAbsent, requiredFiles)
+	rm := types.RequestModel{}
+	if ctx != nil && ctx.AnalysisIR != nil {
+		rm = ctx.AnalysisIR.RequestModel
+	}
+	t := tallyEvidence(evidence, contract, scenario, stableAbsent, requiredFiles, rm)
 	if t.total == 0 {
 		return "", true
 	}
@@ -1860,7 +1865,7 @@ func tier1GateReject(ctx *types.BusContext, floor float64, resultKind, justifica
 // at least one item whose grounder verdict is grounded or recovered.
 // Drives the absence-vs-grounded contradiction gate in Execute.
 func hasGroundedOrRecovered(items []types.EvidenceItem) bool {
-	return tallyEvidence(items, nil, types.ScenarioGeneric, false, nil).hasAny()
+	return tallyEvidence(items, nil, types.ScenarioGeneric, false, nil, types.RequestModel{}).hasAny()
 }
 
 func allowsContextualEvidenceForAbsence(ctx *types.BusContext, reason, justification string, evidence []types.EvidenceItem) bool {

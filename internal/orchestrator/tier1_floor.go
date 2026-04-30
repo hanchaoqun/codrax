@@ -48,7 +48,7 @@ func (o *Orchestrator) checkTier1Floor(ir *types.AnalysisIR, state *graphState) 
 	stableAbsent := strings.EqualFold(strings.TrimSpace(o.busCtx.Mutable.StableInvestigationResultKind()), "absence") &&
 		strings.TrimSpace(o.busCtx.Mutable.StableAbsenceJustification()) != ""
 	requiredFiles := types.ExactResolutionRequiredContextFiles(contract, o.busCtx.Mutable)
-	tier1, total := countTier1Evidence(evidence, contract, ir.RequestModel.Scenario, stableAbsent, requiredFiles)
+	tier1, total := countTier1Evidence(evidence, contract, ir.RequestModel.Scenario, stableAbsent, requiredFiles, ir.RequestModel)
 	if total == 0 {
 		return "", true, false
 	}
@@ -81,9 +81,10 @@ func countTier1Evidence(
 	scenario types.Scenario,
 	stableAbsent bool,
 	requiredFiles []string,
+	rm types.RequestModel,
 ) (tier1, total int) {
 	for _, e := range evidence {
-		if !types.EvidenceCountsTowardTier1FloorInContext(e, contract, scenario, stableAbsent, requiredFiles) {
+		if !types.EvidenceCountsTowardTier1FloorInContext(e, contract, scenario, stableAbsent, requiredFiles, rm) {
 			continue
 		}
 		total++
