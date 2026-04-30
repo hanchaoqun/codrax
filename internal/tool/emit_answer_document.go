@@ -4410,6 +4410,9 @@ func sanitizeDriftBoundedRootCauseSummary(summary string, citations []types.Cita
 			continue
 		}
 		if strings.HasPrefix(block, "```") {
+			if summaryDiagramFenceCount(block) > 0 {
+				kept = append(kept, block)
+			}
 			continue
 		}
 		if isDriftBoundedDecorativeSummaryBlock(block) {

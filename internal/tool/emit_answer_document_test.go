@@ -1850,6 +1850,9 @@ func TestEmitAnswerDocument_DriftNormalizationPreservesLogErrorTypeCoverage(t *t
 	if !strings.Contains(strings.ToLower(doc.Summary), "nil pointer dereference") {
 		t.Fatalf("summary lost required log error type after normalization: %q", doc.Summary)
 	}
+	if !strings.Contains(doc.Summary, "```") {
+		t.Fatalf("drift normalization should preserve grounded diagram fences when present: %q", doc.Summary)
+	}
 }
 
 func TestEmitAnswerDocument_DedupesCitationPoolAfterRemap(t *testing.T) {
