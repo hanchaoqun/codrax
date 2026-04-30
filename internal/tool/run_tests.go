@@ -383,10 +383,13 @@ func (t *RunTests) Execute(ctx *types.BusContext, params json.RawMessage) (types
 			}, nil
 		case SupervisedExitOOM:
 			_, ref := StoreBlob(ctx, t.Name()+"-oom", strings.Join(combinedOutputs, "\n\n"))
+			// Neutral structural label — no prescribed-cause list.
+			// The model reads ChangeReport.FailureDetail (raw stderr)
+			// and decides the fix. Pre-2026-04-30 this string carried
+			// a "Either ... or ... or ..." prescription which is
+			// system-side classification masquerading as context.
 			report := makeResourceExhaustionReport("oom", fmt.Sprintf(
-				"command killed by memory cap (limit=%d MiB) — the test code allocated more than the configured ceiling. "+
-					"Either the test fixture has an unbounded allocation (most common cause), the test data is genuinely too large "+
-					"(raise verify_mem_limit_mb in codrax.yaml), or the test harness leaks memory across cases.",
+				"command killed by memory cap (limit=%d MiB).",
 				caps.MemoryLimitBytes/(1024*1024)))
 			ctx.Mutable.SetChangeReport(qualifyChangeReport(report, plan, ctx.RepoRoot))
 			return types.ToolResult{
@@ -398,10 +401,10 @@ func (t *RunTests) Execute(ctx *types.BusContext, params json.RawMessage) (types
 			}, nil
 		case SupervisedExitCPULimit:
 			_, ref := StoreBlob(ctx, t.Name()+"-cpu", strings.Join(combinedOutputs, "\n\n"))
+			// Neutral structural label — see OOM branch above for
+			// the rationale. Raw stderr is in FailureDetail.
 			report := makeResourceExhaustionReport("cpu_limit", fmt.Sprintf(
-				"command killed by CPU-time cap (limit=%ds) — the test code burned more CPU than the configured ceiling. "+
-					"Most common cause is an infinite loop without a sleep or yield; less commonly a quadratic-or-worse algorithm "+
-					"running on a large fixture.", caps.CPULimitSeconds))
+				"command killed by CPU-time cap (limit=%ds).", caps.CPULimitSeconds))
 			ctx.Mutable.SetChangeReport(qualifyChangeReport(report, plan, ctx.RepoRoot))
 			return types.ToolResult{
 				ToolName:  t.Name(),

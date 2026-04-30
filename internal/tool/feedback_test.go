@@ -162,11 +162,21 @@ func TestComposePatchRejection_WithSnippet_IncludesGroundTruth(t *testing.T) {
 		"▶",
 		"public class Main",       // within ±5 of line 3
 		"return \"hi\";",          // within ±5 of line 3
-		"stale context",           // coaching hint about root cause
+		"regenerate the unified diff", // generic next-action
 	}
+	// Forbidden — pre-2026-04-30 the rejection embedded a "Common
+	// causes: stale context / wrong @@ start / indentation drift"
+	// enumeration that pre-classified the failure for the model.
+	// The red-line refactor removed it; the model now reads the
+	// side-by-side comparison and decides what changed itself.
 	for _, w := range wants {
 		if !strings.Contains(msg, w) {
 			t.Errorf("rejection missing %q; full message:\n%s", w, msg)
+		}
+	}
+	for _, banned := range []string{"Common causes:", "stale context"} {
+		if strings.Contains(msg, banned) {
+			t.Errorf("rejection must not contain prescribed-cause prose %q; got:\n%s", banned, msg)
 		}
 	}
 }
@@ -188,11 +198,14 @@ func TestComposePatchRejection_NoSnippet_FallsBackToGenericHint(t *testing.T) {
 		"emit_change_plan rejected",
 		"foo.go",
 		"corrupt patch at line 11",
-		"common causes",
+		"regenerate the unified diff",
 	} {
 		if !strings.Contains(msg, w) {
 			t.Errorf("rejection missing %q; full message:\n%s", w, msg)
 		}
+	}
+	if strings.Contains(msg, "common causes") {
+		t.Errorf("rejection must not contain prescribed-cause prose; got:\n%s", msg)
 	}
 }
 

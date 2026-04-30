@@ -51,19 +51,23 @@ func composePatchRejection(repoRoot, path, gitErr, patchPayload string) string {
 		path, gitErr,
 	)
 	subsHint := detectSubstitutionInContextMistake(patchPayload)
+	// Side-by-side comparison shows the actual file bytes vs the
+	// rejected hunk. The model reads both and decides what changed —
+	// pre-2026-04-30 we appended a "Common causes: stale context /
+	// wrong @@ start / indentation drift" enumeration here, which
+	// pre-classified the failure for the model. Now we just give it
+	// the data and ask it to regenerate. detectSubstitutionInContextMistake
+	// stays as-is — that one is a structural diff-shape check, not
+	// stderr substring matching.
 	if snippet != "" {
 		out := base + "\n\n" + snippet +
-			"\nCompare your hunk's context lines (prefixed with ' ') to the actual file bytes above. " +
-			"Common causes: stale context (a line in your hunk doesn't exist at the claimed position), " +
-			"wrong @@ start line (off by a few lines from the truth), or indentation drift (spaces vs tabs). " +
-			"Regenerate the unified diff using the actual file content, not a remembered version."
+			"\nCompare your hunk's context lines (prefixed with ' ') to the actual file bytes above and regenerate the unified diff against the real file content."
 		if subsHint != "" {
 			out += "\n\n" + subsHint
 		}
 		return out
 	}
-	out := base +
-		" — regenerate the unified diff (common causes: wrong @@ hunk line counts, missing trailing newline, stale context lines that no longer match the file)."
+	out := base + " — regenerate the unified diff against the real file content."
 	if subsHint != "" {
 		out += "\n\n" + subsHint
 	}

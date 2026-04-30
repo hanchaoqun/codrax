@@ -1383,85 +1383,6 @@ func (o *Orchestrator) persistPlanStatus(status string, appliedAt *time.Time) {
 // Generalisation: only uses fields present on every runner's
 // TestResult (AssertionID, Suite, FailureDetail) and on every
 // ChangePlan (TargetPaths). No language-specific parsing.
-// missingDependencyMarkers is the language-agnostic pattern table
-// for "test runner reports the code references a package that's not
-// in the project's manifest". Each entry is a substring scanned
-// against the ChangeReport.FailureSummary; a match seeds a
-// retry-hint section telling the planner to add the dep to the
-// manifest on next round (instead of re-deriving from buried stderr
-// what test code to add).
-//
-// Markers are runner / language stderr output — machine-generated
-// output is fair game for substring detection; this is NOT user
-// intent classification. Patterns are stable across versions because
-// they're emitted by language tooling (compiler / interpreter /
-// import system) which is conservative by design.
-var missingDependencyMarkers = []string{
-	// Python (pip / poetry / pdm / virtualenv / system)
-	"ModuleNotFoundError: No module named",
-	"ImportError: No module named",
-	"ImportError: cannot import name",
-	// Node (npm / pnpm / yarn / bun)
-	"Cannot find module",
-	"Error [ERR_MODULE_NOT_FOUND]",
-	// Go (modules)
-	"no required module provides package",
-	"cannot find package",
-	"missing go.sum entry",
-	// Rust (cargo)
-	"unresolved import",
-	"failed to resolve: use of unresolved",
-	"can't find crate for",
-	// Java (maven / gradle / javac). The "package does not exist"
-	// shape is `error: package com.foo does not exist` — the
-	// package name sits between the two halves, so we anchor on the
-	// stable "error: package " prefix instead of a single phrase.
-	"error: package ",
-	"error: cannot find symbol",
-	// Ruby (bundler)
-	"cannot load such file",
-	"LoadError:",
-	// C / C++ (gcc / clang)
-	"fatal error:",   // followed by `'header.h' file not found`
-	"file not found", // catches both gcc and clang shapes
-	// Swift
-	"no such module",
-}
-
-// detectMissingDependencyHint returns a retry-hint section when the
-// failure summary contains a known missing-import marker, or empty
-// when no such marker is present (caller falls through to the
-// existing failure-kind switch). The section names the universal
-// per-language manifest update path so the planner has zero ambiguity
-// about the corrective direction on retry.
-func detectMissingDependencyHint(failureSummary string) string {
-	if strings.TrimSpace(failureSummary) == "" {
-		return ""
-	}
-	hit := false
-	for _, m := range missingDependencyMarkers {
-		if strings.Contains(failureSummary, m) {
-			hit = true
-			break
-		}
-	}
-	if !hit {
-		return ""
-	}
-	return "## Failure mode: missing dependency\n" +
-		"The runner output contains a 'module/package not found' style error — the previous plan referenced a third-party package that isn't declared in the project's manifest, OR isn't installed in the environment.\n\n" +
-		"On THIS retry, your plan MUST also include a manifest update for whichever language the project uses. Pick the manifest that matches the project layout you observed (use list_files / read_file to verify which manifest is present):\n" +
-		"  - Python: add to `requirements.txt`, `pyproject.toml` `[project.dependencies]` / `[tool.poetry.dependencies]`, or `setup.py` `install_requires`.\n" +
-		"  - Node: add to `package.json` `dependencies` (or `devDependencies` for test-only).\n" +
-		"  - Go: add a `require` line to `go.mod` (and a `go.sum` entry if the project tracks it).\n" +
-		"  - Rust: add to `Cargo.toml` `[dependencies]`.\n" +
-		"  - Java/Maven: add a `<dependency>` to `pom.xml`.\n" +
-		"  - Java/Gradle: add to `build.gradle` `dependencies { ... }`.\n" +
-		"  - Ruby: add a `gem '...'` line to `Gemfile`.\n" +
-		"  - C/C++: add the system package install command to the plan summary's user-side install hint (apt / brew / dnf / pacman) AND verify the include path lookup if the header is local.\n\n" +
-		"If the project HAS the manifest already, your plan must include a 'modify' entry for it adding the missing entry. If the project does NOT have a manifest yet, your plan must include a 'create' entry for the manifest with the right shape for the language. Do NOT just retry with new test code — the failure is structural (missing dep), not a test-logic bug.\n"
-}
-
 func buildRetryHint(report *types.ChangeReport, plan *types.ChangePlan, prevAttempt int) string {
 	var b strings.Builder
 	if report == nil {
@@ -1475,35 +1396,31 @@ func buildRetryHint(report *types.ChangeReport, plan *types.ChangePlan, prevAtte
 		// Without this surfacing the planner re-derives the same
 		// wrong corrective direction from buried stderr — the OOM
 		// event that motivated this code is the textbook instance.
-		// Missing-dependency detection runs FIRST so it overrides the
-		// generic "tests failed" path when the actual cause is a
-		// missing import / module. Without this, a ModuleNotFoundError
-		// (Python) / Cannot find module (Node) / no required module
-		// provides package (Go) / unresolved import (Rust) gets
-		// dumped into the summary unmarked, and the planner re-derives
-		// "what test logic to add" from buried runner output instead
-		// of reading "you forgot to add this package to the project
-		// manifest". Detection is on runner stderr (machine output),
-		// NOT on the user's request — universal markers across N
-		// languages, no per-user keyword table.
-		if depHint := detectMissingDependencyHint(report.FailureSummary); depHint != "" {
-			b.WriteString("\n\n")
-			b.WriteString(depHint)
-		}
+		// Failure-mode classifications stay as neutral one-line tags
+		// — the model reads the raw FailureSummary below and decides
+		// the fix. Pre-2026-04-30 these branches injected paragraphs
+		// of system-prescribed corrective directions ("Most common
+		// causes: ... Revise the plan to: ... DO NOT raise the cap")
+		// — that violated the "feed error to model, let model decide"
+		// red line. The structural label is enough: the model sees
+		// the kind plus the stderr and chooses how to respond.
 		switch report.FailureKind {
 		case types.FailureKindOOM:
-			b.WriteString("\n\n## Failure mode: out-of-memory\nThe previous plan's tests were killed by the kernel OOM killer (Linux/macOS) or the JobObject memory limit (Windows). The verify-stage memory cap fired because the test code allocated more than the configured ceiling.\n\nMost common causes:\n  1. Unbounded allocation in test fixture (loop appending to a list without exit condition; recursion without depth limit).\n  2. Test data structure sized from input without bounds-check (e.g. `[0]*N` where N comes from an unvalidated argument).\n  3. Memory leak across test cases (objects retained between cases that should be released).\n\nRevise the plan so the test code:\n  - Bounds every allocation to a small constant or a validated input ceiling.\n  - Releases per-case state before the next case begins.\n  - Avoids list/dict comprehensions over unbounded ranges.\nDO NOT raise the memory cap as the fix — that masks the bug. ")
+			b.WriteString("\n\n## Failure mode: out-of-memory (memory limit fired). ")
 		case types.FailureKindCPULimit:
-			b.WriteString("\n\n## Failure mode: CPU-time limit exceeded\nThe previous plan's tests were killed by the CPU-time limit (`ulimit -t` on Unix, PerJobUserTimeLimit on Windows) — the test process burned more CPU seconds than the configured ceiling.\n\nMost common causes:\n  1. Infinite loop without a sleep / yield / break condition.\n  2. Quadratic-or-worse algorithm running on a fixture that is large enough to trigger the cap but small enough to LOOK reasonable.\n  3. Recursive call without a base case (would also trip OOM eventually; CPU usually fires first).\n\nRevise the plan to:\n  - Audit every loop and recursion in the new code for an explicit termination condition.\n  - If an algorithm is O(n²) or worse, add a complexity cap or rewrite to lower complexity.\nDO NOT raise the CPU cap as the fix — bounded execution time IS the contract. ")
+			b.WriteString("\n\n## Failure mode: CPU-time limit exceeded. ")
 		case types.FailureKindTimeout:
-			b.WriteString("\n\n## Failure mode: wall-clock timeout\nThe previous plan's tests were SIGKILLed by the wall-clock timeout — the run did not complete in the allotted seconds. Distinct from CPU-limit: the test wasn't necessarily burning CPU; it may have been blocked on I/O or sleeping.\n\nCommon causes:\n  1. Test waiting on an external resource that never arrives (network call, lock, semaphore).\n  2. Synchronisation deadlock between threads / goroutines.\n  3. CPU-bound algorithm that's slower than expected.\n\nRevise the plan to:\n  - Audit every blocking call (sleep / wait / lock acquire / network / file open) for a finite timeout.\n  - Replace external dependencies in tests with mocks or local fixtures so no test depends on something the supervisor can't bound. ")
+			b.WriteString("\n\n## Failure mode: wall-clock timeout. ")
 		}
 		if report.FailureSummary != "" {
-			summary := report.FailureSummary
-			if len(summary) > 300 {
-				summary = summary[:300] + "…"
-			}
-			fmt.Fprintf(&b, "Summary: %s ", summary)
+			// Pass the full FailureSummary verbatim — the model needs
+			// complete unambiguous error context to decide the fix.
+			// Pre-2026-04-30 truncation at 300 chars dropped the line
+			// that named the actual error (pytest's `E ` line is
+			// ~10-15 lines into a fixture trace), forcing the model
+			// to guess from header noise. Operator-facing log lines
+			// keep their own caps; THIS path is LLM-facing context.
+			fmt.Fprintf(&b, "Summary: %s ", report.FailureSummary)
 		}
 		const (
 			maxFailingTests = 3

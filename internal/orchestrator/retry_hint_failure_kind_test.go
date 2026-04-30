@@ -7,17 +7,16 @@ import (
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
-// TestBuildRetryHint_OOMNarrative verifies the OOM-classified
-// FailureKind produces a planner-readable narrative that names the
-// failure mode + suggests corrective directions, not the generic
-// "tests failed" string. Without this surfacing the retry loop
-// repeats the OOM forever (the planner re-derives the same wrong
-// fix from the same buried stderr).
-//
-// Provenance: 2026-04-26 OOM event — the supervisor caps now
-// catch the kill in seconds; this test pins the planner-facing
-// half of the closed-loop fix.
-func TestBuildRetryHint_OOMNarrative(t *testing.T) {
+// TestBuildRetryHint_OOMTagPropagated locks the post-2026-04-30
+// red-line refactor: the OOM-classified FailureKind surfaces ONE
+// neutral structural tag ("out-of-memory") in the LLM-facing hint
+// and the FailureSummary verbatim — NO prescribed-cause list, no
+// "DO NOT raise the cap" anti-pattern paragraph. The model reads
+// the raw stderr below and decides the fix; pre-classified prose
+// telling it "Unbounded allocation is the most common cause" is the
+// red-line violation we removed (system pre-classifies → LLM gets
+// pushed toward a specific fix instead of reasoning from data).
+func TestBuildRetryHint_OOMTagPropagated(t *testing.T) {
 	report := &types.ChangeReport{
 		Passed:         false,
 		FailureKind:    types.FailureKindOOM,
@@ -29,22 +28,33 @@ func TestBuildRetryHint_OOMNarrative(t *testing.T) {
 	plan := &types.ChangePlan{ID: "plan-x", TargetPaths: []string{"src/runaway.py"}}
 	hint := buildRetryHint(report, plan, 1)
 
-	musts := []string{
-		"out-of-memory",          // failure-mode header
-		"Unbounded allocation",   // corrective direction
-		"DO NOT raise the memory cap", // anti-anti-pattern
+	if !strings.Contains(hint, "out-of-memory") {
+		t.Errorf("OOM hint must surface the structural tag; got: %s", hint)
 	}
-	for _, m := range musts {
-		if !strings.Contains(hint, m) {
-			t.Errorf("OOM hint missing required text %q\nhint=%s", m, hint)
+	// Raw failure summary must propagate verbatim so the model sees
+	// the actual error without truncation.
+	if !strings.Contains(hint, report.FailureSummary) {
+		t.Errorf("OOM hint must carry the raw FailureSummary verbatim; got: %s", hint)
+	}
+	// Forbidden: any prescribed-cause / corrective-direction prose.
+	// These were the system-side keyword-classification leaks the
+	// red-line refactor removed.
+	forbidden := []string{
+		"Unbounded allocation",
+		"Most common cause",
+		"DO NOT raise",
+		"Revise the plan to:",
+	}
+	for _, f := range forbidden {
+		if strings.Contains(hint, f) {
+			t.Errorf("OOM hint must not contain prescribed-cause prose %q; got: %s", f, hint)
 		}
 	}
 }
 
-// TestBuildRetryHint_CPULimitNarrative pins the CPU-limit narrative
-// is distinct from OOM and timeout — the corrective direction
-// (audit loops, audit recursion bases) is different.
-func TestBuildRetryHint_CPULimitNarrative(t *testing.T) {
+// TestBuildRetryHint_CPULimitTagPropagated mirrors the OOM test for
+// CPU-limit failures — neutral tag + raw summary, no prescription.
+func TestBuildRetryHint_CPULimitTagPropagated(t *testing.T) {
 	report := &types.ChangeReport{
 		Passed:         false,
 		FailureKind:    types.FailureKindCPULimit,
@@ -55,27 +65,27 @@ func TestBuildRetryHint_CPULimitNarrative(t *testing.T) {
 	}
 	plan := &types.ChangePlan{ID: "plan-x", TargetPaths: []string{"src/spin.py"}}
 	hint := buildRetryHint(report, plan, 1)
-	musts := []string{
-		"CPU-time limit exceeded",
-		"Infinite loop",
-		"Recursive call without a base case",
+	if !strings.Contains(hint, "CPU-time limit exceeded") {
+		t.Errorf("CPU-limit hint must surface the structural tag; got: %s", hint)
 	}
-	for _, m := range musts {
-		if !strings.Contains(hint, m) {
-			t.Errorf("CPU-limit hint missing %q\nhint=%s", m, hint)
+	if !strings.Contains(hint, report.FailureSummary) {
+		t.Errorf("CPU-limit hint must carry raw FailureSummary; got: %s", hint)
+	}
+	forbidden := []string{"Infinite loop", "Recursive call without a base case", "DO NOT raise"}
+	for _, f := range forbidden {
+		if strings.Contains(hint, f) {
+			t.Errorf("CPU-limit hint must not contain prescribed-cause prose %q; got: %s", f, hint)
 		}
 	}
-	// Must NOT confuse the planner by including the OOM narrative.
+	// Must not bleed OOM tag into a CPU-limit hint.
 	if strings.Contains(hint, "out-of-memory") {
-		t.Errorf("CPU-limit hint must not include OOM section\nhint=%s", hint)
+		t.Errorf("CPU-limit hint must not include OOM tag; got: %s", hint)
 	}
 }
 
-// TestBuildRetryHint_TimeoutNarrative pins the timeout narrative.
-// The OOM event was an OOM, not a timeout, but timeout is the third
-// resource-exhaustion kind and deserves its own corrective direction
-// (audit blocking calls, not allocations).
-func TestBuildRetryHint_TimeoutNarrative(t *testing.T) {
+// TestBuildRetryHint_TimeoutTagPropagated mirrors the above for
+// wall-clock timeouts.
+func TestBuildRetryHint_TimeoutTagPropagated(t *testing.T) {
 	report := &types.ChangeReport{
 		Passed:         false,
 		FailureKind:    types.FailureKindTimeout,
@@ -86,14 +96,16 @@ func TestBuildRetryHint_TimeoutNarrative(t *testing.T) {
 	}
 	plan := &types.ChangePlan{ID: "plan-x", TargetPaths: []string{"src/wait.py"}}
 	hint := buildRetryHint(report, plan, 1)
-	musts := []string{
-		"wall-clock timeout",
-		"blocking call",
-		"finite timeout",
+	if !strings.Contains(hint, "wall-clock timeout") {
+		t.Errorf("timeout hint must surface the structural tag; got: %s", hint)
 	}
-	for _, m := range musts {
-		if !strings.Contains(hint, m) {
-			t.Errorf("timeout hint missing %q\nhint=%s", m, hint)
+	if !strings.Contains(hint, report.FailureSummary) {
+		t.Errorf("timeout hint must carry raw FailureSummary; got: %s", hint)
+	}
+	forbidden := []string{"blocking call", "finite timeout", "deadlock", "Revise the plan to:"}
+	for _, f := range forbidden {
+		if strings.Contains(hint, f) {
+			t.Errorf("timeout hint must not contain prescribed-cause prose %q; got: %s", f, hint)
 		}
 	}
 }

@@ -131,19 +131,26 @@ func TestBuildRetryHint_PlanWithoutReport(t *testing.T) {
 	}
 }
 
-// TestBuildRetryHint_LongSummaryTruncated verifies the 300-char
-// clamp on FailureSummary so one verbose verifier doesn't blow up
-// the planner prompt.
-func TestBuildRetryHint_LongSummaryTruncated(t *testing.T) {
+// TestBuildRetryHint_PassesFullSummary locks the post-2026-04-30
+// red-line refactor: FailureSummary is propagated VERBATIM to the
+// LLM-facing retry hint, no truncation. Truncating the summary
+// drops the actual error-bearing line (often 10-15 lines deep into
+// pytest fixture noise) and forces the model to guess the cause
+// from header preamble — the principle "feed the complete error to
+// the model, no system-side editing" requires the full payload.
+// Operator-facing log lines have their own caps; this path is
+// LLM-facing context.
+func TestBuildRetryHint_PassesFullSummary(t *testing.T) {
 	long := strings.Repeat("x", 500)
 	report := &types.ChangeReport{FailureSummary: long}
 	got := buildRetryHint(report, nil, 1)
-	if !strings.Contains(got, "…") {
-		t.Errorf("oversized summary should be truncated with ellipsis; got %q", got)
+	if !strings.Contains(got, long) {
+		t.Errorf("retry hint must propagate the full FailureSummary verbatim; got %q", got)
 	}
-	// Total hint stays bounded (new enriched cap: 1500 chars).
-	if len(got) > 1500 {
-		t.Errorf("hint length %d exceeds safety cap; got %q", len(got), got)
+	// Ellipsis truncation marker must NOT appear — the model needs
+	// the complete error to reason about.
+	if strings.Contains(got, "x…") || strings.Contains(strings.TrimSpace(got), long+"…") {
+		t.Errorf("retry hint must not truncate the FailureSummary; got %q", got)
 	}
 }
 
