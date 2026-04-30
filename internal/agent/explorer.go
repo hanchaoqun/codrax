@@ -127,10 +127,23 @@ type explorerEvaluator struct {
 	// time. Nil when no log was attached or the pre-stage degraded.
 	// Session-22 fix F2.1: Check 6 (ranker-coverage) reads
 	// bundle.Meta.Signals + bundle.ResolvedFiles to skip the nudge when
-	// the log is an authoritative panic/crash AND the LLM has already
-	// covered every resolved frame's file — in that state the ranker's
-	// remaining top-K are noise siblings sharing method names.
+	// the attached failure trace has resolved frames AND the LLM has
+	// already covered every resolved frame's file — in that state the
+	// ranker's remaining top-K are noise siblings sharing method names.
 	logTriage *types.LogBundle
+
+	// perfTrace is a cached pointer to the perf-triage bundle from
+	// BusContext.Mutable.PerfTrace(), captured at BuildInitialInstruction
+	// time. Nil when no HiTrace/atrace/systrace/perfetto payload was
+	// attached or perf_triage degraded. Treated as a peer to logTriage
+	// by the authoritative-frame plumbing: perf bundle stalls with
+	// File+Line are equally authoritative locators, and the
+	// backbone-first emit principle ("record one anchor on the failure
+	// site before expanding context") applies to jank / main-thread
+	// stall / cold-start-slow questions just like it applies to
+	// panic / crash. Decoupling the gate from the panic/crash signal
+	// whitelist is what makes that work.
+	perfTrace *types.PerfBundle
 
 	// mutable caches the current dispatch's MutableState so mid-loop
 	// readiness checks can consume the same compiled AnswerSurfacePlan
@@ -272,6 +285,7 @@ func (e *explorerEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk 
 		e.exactContextFiles = nil
 		e.analysisIR = nil
 		e.logTriage = nil
+		e.perfTrace = nil
 		e.mutable = nil
 		// Loop-policy counters (idleStreakInDepth, lastToolResultCount,
 		// midLoopLastInjectIter) are no longer fields on this struct —
@@ -300,8 +314,10 @@ func (e *explorerEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk 
 	// without re-reading ctx (observeMidLoop takes only a
 	// LoopObservation, which does not carry the bus context).
 	e.logTriage = nil
+	e.perfTrace = nil
 	if ctx.Mutable != nil {
 		e.logTriage = ctx.Mutable.LogTriage()
+		e.perfTrace = ctx.Mutable.PerfTrace()
 	}
 	if ctx.AnalysisIR != nil {
 		e.exactResolution = ctx.AnalysisIR.AnswerContract.ExactResolution
@@ -1484,31 +1500,31 @@ func (e *explorerEvaluator) partitionRequiredFilesByLogTriage(files []string) (l
 	return
 }
 
-// logTriageAuthoritativeAndCovered reports whether the cached
-// log-triage bundle is an authoritative panic/crash AND every one of
-// its ResolvedFiles has entered readSet. When both hold, the Check 6
-// ranker-coverage pushback is skipped: the authoritative file set is
-// already covered, so pushing for more top-K reads would only drag
-// the LLM into ranker-noise siblings (method names like ParseOutput
-// that match many unrelated files). Mirrors the logBundleAuthoritative
-// check in analyzerRequiredFiles so both sites speak the same
-// contract.
-func (e *explorerEvaluator) logTriageAuthoritativeAndCovered(allResults []types.ToolResult) bool {
-	if e.logTriage == nil || len(e.logTriage.ResolvedFiles) == 0 {
+// authoritativeFailureCovered reports whether the attached failure
+// trace (log_triage and/or perf_triage) carries authoritative frames
+// AND every one of the union of its ResolvedFiles has entered readSet.
+// "Authoritative" here means frame resolution succeeded — File+Line are
+// repo-grounded locators — independent of which signal name the LLM
+// labelled the trace with. A panic, an OOM, a timeout, a main-thread
+// stall, a jank span, or an assertion violation all carry the same
+// kind of authoritative locator once their frames pass validation.
+//
+// When this returns true the Check 6 ranker-coverage pushback is
+// skipped: the authoritative file set is already covered, so pushing
+// for more top-K reads would only drag the LLM into ranker-noise
+// siblings (method names like ParseOutput that match many unrelated
+// files). Mirrors the bundle-authoritative check in
+// analyzerRequiredFiles so both sites speak the same contract.
+func (e *explorerEvaluator) authoritativeFailureCovered(allResults []types.ToolResult) bool {
+	files := e.authoritativeFailureResolvedFiles()
+	if len(files) == 0 {
 		return false
 	}
-	hasCrash := false
-	for _, s := range e.logTriage.Meta.Signals {
-		if s == types.SignalPanic || s == types.SignalCrash {
-			hasCrash = true
-			break
-		}
-	}
-	if !hasCrash {
+	if !e.hasAuthoritativeFailureFrames() {
 		return false
 	}
 	_, readSet, _ := extractFileCoverage(allResults, e.repoRoot)
-	for _, f := range e.logTriage.ResolvedFiles {
+	for _, f := range files {
 		canon := canonicalExplorerPath(f)
 		if canon == "" {
 			canon = f
@@ -1518,6 +1534,40 @@ func (e *explorerEvaluator) logTriageAuthoritativeAndCovered(allResults []types.
 		}
 	}
 	return true
+}
+
+// authoritativeFailureResolvedFiles returns the union of LogBundle and
+// PerfBundle ResolvedFiles. Both pre-stages run their own validators
+// so each ResolvedFiles list is already repo-grounded. Order is
+// log-first then perf-only additions, deduplicated by canonical path.
+func (e *explorerEvaluator) authoritativeFailureResolvedFiles() []string {
+	if e == nil {
+		return nil
+	}
+	seen := make(map[string]bool)
+	out := make([]string, 0, 8)
+	add := func(raw string) {
+		canon := canonicalExplorerPath(raw)
+		if canon == "" {
+			canon = raw
+		}
+		if canon == "" || seen[canon] {
+			return
+		}
+		seen[canon] = true
+		out = append(out, canon)
+	}
+	if e.logTriage != nil {
+		for _, f := range e.logTriage.ResolvedFiles {
+			add(f)
+		}
+	}
+	if e.perfTrace != nil {
+		for _, f := range e.perfTrace.ResolvedFiles {
+			add(f)
+		}
+	}
+	return out
 }
 
 func (e *explorerEvaluator) filterRequiredFiles(files []string) []string {
@@ -3721,17 +3771,18 @@ func (e *explorerEvaluator) postReadWithoutEmitClosureOnlySignal(obs LoopObserva
 }
 
 func (e *explorerEvaluator) authoritativeLogDriftReminder(allResults []types.ToolResult) string {
-	if !e.logTriageAuthoritativeAndCovered(allResults) {
+	if !e.authoritativeFailureCovered(allResults) {
 		return ""
 	}
 	if len(e.authoritativeFrameSymbolTailsByFile()) == 0 {
 		return ""
 	}
-	return " For attached crash/panic logs, treat raw stack line numbers as stale locators once the named file/function has been grounded. Emit evidence from the current grounded functions/calls you already read instead of chasing historical numeric offsets."
+	noun := e.failureTraceNounPhrase()
+	return " For " + noun + ", treat raw stack/sample line numbers as stale locators once the named file/function has been grounded. Emit evidence from the current grounded functions/calls you already read instead of chasing historical numeric offsets."
 }
 
 func (e *explorerEvaluator) authoritativeLogBackboneFirstEmitReminder(allResults []types.ToolResult) string {
-	if !e.logTriageAuthoritativeAndCovered(allResults) {
+	if !e.authoritativeFailureCovered(allResults) {
 		return ""
 	}
 	if hasSuccessfulTool(allResults, "emit_evidence") {
@@ -3740,7 +3791,84 @@ func (e *explorerEvaluator) authoritativeLogBackboneFirstEmitReminder(allResults
 	if len(e.authoritativeResolvedFrames()) == 0 {
 		return ""
 	}
-	return " For authoritative panic/crash traces, keep the FIRST `emit_evidence` batch on the failure backbone itself: record one caller→callee edge from the grounded log frames plus one mechanism/guard/definition anchor from those same frame files. Defer related_context, setup helpers, and broader same-file background until that backbone batch succeeds."
+	noun := e.failureTraceNounPhrase()
+	return " For " + noun + ", keep the FIRST `emit_evidence` batch on the failure backbone itself: record one caller→callee edge from the grounded frames plus one mechanism/guard/definition anchor from those same frame files. Defer related_context, setup helpers, and broader same-file background until that backbone batch succeeds."
+}
+
+// failureTraceNounPhrase renders the LLM-facing noun phrase for the
+// attached failure trace, prioritised by the user's question framing
+// over the bundle's signal labels:
+//
+//  1. RequestModel.Intent (LLM-classified): IntentPerformance →
+//     "the attached performance trace"; IntentRootCause /
+//     IntentTrace → defer to signals (the user did ask about a
+//     failure, but the bundle's signals say what kind).
+//  2. LogBundle.Meta.Signals + PerfBundle.Meta.Signals union:
+//     deduplicate, cap at 3, render as "panic/oom/timeout traces" or
+//     "jank/main-thread-stall traces".
+//  3. Empty union: fall back to "the attached failure trace".
+//
+// All inputs are typed enums emitted by the LLM through validated
+// schemas — no substring matching against RawRequest. Decoupling the
+// text from the panic/crash whitelist is what lets the same reminder
+// fire for OOM, timeout, jank, and assertion-violation questions.
+func (e *explorerEvaluator) failureTraceNounPhrase() string {
+	if e == nil {
+		return "the attached failure trace"
+	}
+	intent := e.requestIntent()
+	hasLog := e.logTriage != nil && len(e.logTriage.Meta.Signals) > 0
+	hasPerf := e.perfTrace != nil && len(e.perfTrace.Meta.Signals) > 0
+	// Performance framing: prefer the user's intent or the perf
+	// bundle's mere presence over enumerating signals.
+	if e.perfTrace != nil && (intent == "performance" || !hasLog) {
+		labels := uniqLowerLabels(e.perfTrace.Meta.Signals, 3)
+		if len(labels) == 0 {
+			return "the attached performance trace"
+		}
+		return strings.Join(labels, "/") + " traces"
+	}
+	signals := make([]string, 0, 6)
+	if hasLog {
+		for _, s := range e.logTriage.Meta.Signals {
+			signals = append(signals, string(s))
+		}
+	}
+	if hasPerf {
+		signals = append(signals, e.perfTrace.Meta.Signals...)
+	}
+	labels := uniqLowerLabels(signals, 3)
+	if len(labels) == 0 {
+		return "the attached failure trace"
+	}
+	return strings.Join(labels, "/") + " traces"
+}
+
+func (e *explorerEvaluator) requestIntent() string {
+	if e == nil || e.analysisIR == nil {
+		return ""
+	}
+	return string(e.analysisIR.RequestModel.Intent)
+}
+
+func uniqLowerLabels[S ~string](in []S, cap int) []string {
+	if len(in) == 0 {
+		return nil
+	}
+	seen := make(map[string]bool, len(in))
+	out := make([]string, 0, len(in))
+	for _, s := range in {
+		v := strings.ToLower(strings.TrimSpace(string(s)))
+		if v == "" || seen[v] {
+			continue
+		}
+		seen[v] = true
+		out = append(out, v)
+		if cap > 0 && len(out) >= cap {
+			break
+		}
+	}
+	return out
 }
 
 func (e *explorerEvaluator) closureReadyLatched() bool {
@@ -4314,7 +4442,7 @@ func (e *explorerEvaluator) completionReadiness(toolResults []types.ToolResult, 
 
 	toolDiversity := sourceCount >= 2
 	fileCoverage := coverage >= 0.5 || len(readSet) >= 3
-	authoritativeCoverage := e.logTriageAuthoritativeAndCovered(toolResults)
+	authoritativeCoverage := e.authoritativeFailureCovered(toolResults)
 	if authoritativeCoverage {
 		fileCoverage = true
 	}
@@ -5541,40 +5669,62 @@ func authoritativeFrameDisplayName(raw string) string {
 	return strings.TrimSpace(raw)
 }
 
+// authoritativeResolvedFrames unions LogBundle.Errors[].Frames and
+// PerfBundle.Stalls into a single (file, function-tail) anchor list.
+// A frame counts as authoritative when its File resolves to a
+// repo-relative path AND its symbol name has a normalisable tail.
+// The validator on each pre-stage already enforces Confidence and
+// repo-stat checks before promoting to ResolvedFiles, so we trust the
+// frames whose file/func survived that filter.
+//
+// Decoupled from the panic/crash signal whitelist: an OOM trace, a
+// timeout deadline-exceeded stack, a main-thread stall, and a jank
+// span all carry the same kind of grounded locator once frames pass
+// validation. The "authority" comes from frame resolution, not from
+// the signal label.
 func (e *explorerEvaluator) authoritativeResolvedFrames() []authoritativeFrameRef {
-	if e == nil || e.logTriage == nil || len(e.logTriage.ResolvedFiles) == 0 || !e.hasAuthoritativeCrashLog() {
+	if e == nil {
 		return nil
 	}
 	out := make([]authoritativeFrameRef, 0, 8)
 	seen := make(map[string]bool)
-	for _, err := range e.logTriage.Errors {
-		for _, frame := range err.Frames {
-			file := canonicalExplorerPath(frame.File)
-			tail := types.NormalizedSurfaceSymbolTail(frame.Func)
-			if file == "" || tail == "" {
+	add := func(rawFile, rawFunc string) {
+		file := canonicalExplorerPath(rawFile)
+		tail := types.NormalizedSurfaceSymbolTail(rawFunc)
+		if file == "" || tail == "" {
+			return
+		}
+		key := file + "\x00" + tail
+		if seen[key] {
+			return
+		}
+		seen[key] = true
+		out = append(out, authoritativeFrameRef{File: file, Tail: tail, Func: strings.TrimSpace(rawFunc)})
+	}
+	if e.logTriage != nil {
+		for _, err := range e.logTriage.Errors {
+			for _, frame := range err.Frames {
+				add(frame.File, frame.Func)
+			}
+		}
+	}
+	if e.perfTrace != nil {
+		for _, stall := range e.perfTrace.Stalls {
+			if stall.File == "" || stall.Line == 0 {
 				continue
 			}
-			key := file + "\x00" + tail
-			if seen[key] {
-				continue
-			}
-			seen[key] = true
-			out = append(out, authoritativeFrameRef{File: file, Tail: tail, Func: strings.TrimSpace(frame.Func)})
+			add(stall.File, stall.Symbol)
 		}
 	}
 	return out
 }
 
-func (e *explorerEvaluator) hasAuthoritativeCrashLog() bool {
-	if e == nil || e.logTriage == nil {
-		return false
-	}
-	for _, s := range e.logTriage.Meta.Signals {
-		if s == types.SignalPanic || s == types.SignalCrash {
-			return true
-		}
-	}
-	return false
+// hasAuthoritativeFailureFrames reports whether at least one
+// authoritative locator (resolved log frame OR resolved perf stall
+// with file+line) is present. This is the signal-neutral replacement
+// for the historical hasAuthoritativeCrashLog whitelist.
+func (e *explorerEvaluator) hasAuthoritativeFailureFrames() bool {
+	return len(e.authoritativeResolvedFrames()) > 0
 }
 
 func symbolReadProgress(sym repomap.Symbol, intervals []readInterval) (startedFromTop bool, maxEnd int) {
@@ -6064,12 +6214,15 @@ func (e *explorerEvaluator) observeMidLoop(obs LoopObservation) LoopSignal {
 	//      the nudge — legitimate "only these files matter" cases).
 	//   3. Of the top-5 ranked files, at least 3 are NOT in readSet
 	//      (the LLM is demonstrably skipping the most relevant work).
-	//   4. Session-22 F2.1: when the attached log is an authoritative
-	//      panic / crash AND the LLM has read every ResolvedFiles
-	//      entry, SKIP the nudge — the panic frames define the
+	//   4. Session-22 F2.1 (generalised): when the attached failure
+	//      trace (log_triage and/or perf_triage) has resolved frames
+	//      AND the LLM has read every ResolvedFiles entry from the
+	//      union, SKIP the nudge — the grounded frames define the
 	//      file-set ceiling; the ranker's remaining top-K are noise
 	//      siblings sharing common method names. Pushing to read more
-	//      of them caused the logtri_go hallucination chain.
+	//      of them caused the logtri_go hallucination chain. Holds for
+	//      panic/crash, OOM, timeout, jank, and main-thread-stall traces
+	//      alike — the gate is frame-resolution, not a signal whitelist.
 	//
 	// One-shot per dispatch so the hint does not re-fire every round.
 	// Complements Check 5: Check 5 catches a single narrow-window call;
@@ -6077,7 +6230,7 @@ func (e *explorerEvaluator) observeMidLoop(obs LoopObservation) LoopSignal {
 	if b.Len() == 0 && !e.midLoopRankerCoverageSent &&
 		iteration >= e.heuristics.MidLoopMinIteration*2 &&
 		len(e.allScoredFiles) >= 6 &&
-		!e.logTriageAuthoritativeAndCovered(allResults) {
+		!e.authoritativeFailureCovered(allResults) {
 		_, readSet, _ := extractFileCoverage(allResults, e.repoRoot)
 		rankedFiles := e.rankerCoverageFilesForReadSet(readSet)
 		if len(rankedFiles) >= 6 {

@@ -479,7 +479,10 @@ func TestMidLoopCheck_RankerCoverage_SkipsOnAuthoritativeLogTriage(t *testing.T)
 		searchResult: &keywordSearchResult{Graph: &repomap.Graph{}},
 		heuristics:   types.DefaultExploreHeuristics(),
 		logTriage: &types.LogBundle{
-			Meta:          types.LogMeta{Signals: []types.LogSignal{types.SignalPanic, types.SignalCrash}},
+			Meta: types.LogMeta{Signals: []types.LogSignal{types.SignalPanic, types.SignalCrash}},
+			Errors: []types.LogError{{
+				Frames: []types.LogFrame{{File: "internal/agent/analyzer.go", Line: 42, Func: "analyzeRequest", Confidence: 0.9}},
+			}},
 			ResolvedFiles: []string{"internal/agent/analyzer.go"},
 		},
 		// Ranker flagged 6 files — top-5 has only 1 covered (the log
@@ -523,7 +526,10 @@ func TestMidLoopCheck_RankerCoverage_FiresWhenLogFrameUnread(t *testing.T) {
 		searchResult: &keywordSearchResult{Graph: &repomap.Graph{}},
 		heuristics:   types.DefaultExploreHeuristics(),
 		logTriage: &types.LogBundle{
-			Meta:          types.LogMeta{Signals: []types.LogSignal{types.SignalPanic}},
+			Meta: types.LogMeta{Signals: []types.LogSignal{types.SignalPanic}},
+			Errors: []types.LogError{{
+				Frames: []types.LogFrame{{File: "internal/agent/analyzer.go", Line: 42, Func: "analyzeRequest", Confidence: 0.9}},
+			}},
 			ResolvedFiles: []string{"internal/agent/analyzer.go"},
 		},
 		allScoredFiles: []string{
