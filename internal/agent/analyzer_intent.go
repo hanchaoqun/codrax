@@ -299,7 +299,27 @@ func reconcileShape(rm types.RequestModel, declared types.AnswerShape, subject t
 			"multi-axis structural explanation prefers prose explanation over ordered step_list"
 	}
 
-	// Rule 0c: single exact config-trace question.
+	// Rule 0c: capability-surface authority lookup.
+	//
+	// Questions about whether a stage/agent/skill exposes a tool are
+	// answered by an authority surface (binding + allowlist + gate),
+	// not by a symbol set or config carrier. Scalar asks ("can it call
+	// X?") belong to boolean; non-scalar asks belong to explanation so
+	// the finalizer can preserve the authority chain and any grounded
+	// diagram/prose context.
+	if types.HasCapabilitySurfaceHint(rm) {
+		want := types.ShapeExplanation
+		if preds.IsScalarAnswer || declared == types.ShapeBoolean {
+			want = types.ShapeBoolean
+		}
+		switch declared {
+		case types.ShapeListOfSymbols, types.ShapeConfigValue, types.ShapeStepList:
+			return want,
+				"capability-surface authority lookup resolves through an authority chain, not a symbol/config carrier"
+		}
+	}
+
+	// Rule 0d: single exact config-trace question.
 	//
 	// When the request names one exact config key and asks for lineage /
 	// precedence, a symbol set is the wrong carrier. Scalar asks belong

@@ -521,6 +521,44 @@ func TestReconcileShape(t *testing.T) {
 				EntityAxes: []string{"Criterion → fields"},
 			},
 			types.SemanticPredicates{}, types.ShapeStepList, false},
+		{"capability surface scalar question prefers boolean",
+			types.RequestModel{
+				Intent: types.IntentExplain,
+				AnalyzerHints: types.AnalyzerHints{
+					CapabilitySurface: &types.CapabilitySurfaceHint{
+						Binding: types.StageBinding{
+							Stage: types.StageAnalyze,
+							Agent: types.AgentAnalyzer,
+							Skill: "analysis-skill",
+						},
+						Tool:           "read_file",
+						AuthorityFiles: []string{"internal/orchestrator/topology.go"},
+					},
+				},
+			},
+			types.ShapeConfigValue,
+			types.AnswerSubject{Kind: types.SubjectGeneric},
+			types.SemanticPredicates{IsScalarAnswer: true},
+			types.ShapeBoolean, true},
+		{"capability surface narrative question prefers explanation",
+			types.RequestModel{
+				Intent: types.IntentExplain,
+				AnalyzerHints: types.AnalyzerHints{
+					CapabilitySurface: &types.CapabilitySurfaceHint{
+						Binding: types.StageBinding{
+							Stage: types.StageAnalyze,
+							Agent: types.AgentAnalyzer,
+							Skill: "analysis-skill",
+						},
+						Tool:           "read_file",
+						AuthorityFiles: []string{"internal/orchestrator/topology.go"},
+					},
+				},
+			},
+			types.ShapeStepList,
+			types.AnswerSubject{Kind: types.SubjectGeneric},
+			types.SemanticPredicates{},
+			types.ShapeExplanation, true},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {

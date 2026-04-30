@@ -60,7 +60,32 @@ func capabilityKnownTools() []string {
 	return out
 }
 
+func capabilitySurfaceHintFromQuery(q *stageToolCapabilityQuery) *types.CapabilitySurfaceHint {
+	if q == nil {
+		return nil
+	}
+	return types.NormalizeCapabilitySurfaceHint(&types.CapabilitySurfaceHint{
+		Binding:        q.Binding,
+		Tool:           q.Tool,
+		AuthorityFiles: capabilityAuthorityFiles(q),
+	})
+}
+
+func capabilityQueryFromHint(hint *types.CapabilitySurfaceHint) *stageToolCapabilityQuery {
+	hint = types.NormalizeCapabilitySurfaceHint(hint)
+	if hint == nil {
+		return nil
+	}
+	return &stageToolCapabilityQuery{
+		Binding: hint.Binding,
+		Tool:    hint.Tool,
+	}
+}
+
 func detectStageToolCapabilityQuery(rm types.RequestModel) *stageToolCapabilityQuery {
+	if q := capabilityQueryFromHint(rm.AnalyzerHints.CapabilitySurface); q != nil {
+		return q
+	}
 	if types.IsScalarSourceLiteralLookup(rm) {
 		return nil
 	}
@@ -164,6 +189,8 @@ func reconcileStageToolCapabilitySurface(rm types.RequestModel) (types.RequestMo
 	if q == nil {
 		return rm, nil, ""
 	}
+	rm.Intent = types.IntentExplain
+	rm.PredicateAxis = types.AxisDefine
 	rm.AnswerSubject = types.AnswerSubject{
 		Kind: types.SubjectGeneric,
 		EntityAxes: []string{
@@ -173,9 +200,11 @@ func reconcileStageToolCapabilitySurface(rm types.RequestModel) (types.RequestMo
 		Confidence: 0.85,
 	}
 	rm.Scenario = types.ScenarioGeneric
+	rm.AnalyzerHints.Kind = string(types.ReqMechanism)
 	rm.AnalyzerHints.ExactTargets = nil
 	rm.AnalyzerHints.ExactContextTerms = nil
 	rm.AnalyzerHints.ExactContextRoles = nil
+	rm.AnalyzerHints.CapabilitySurface = capabilitySurfaceHintFromQuery(q)
 	rm.AnalyzerHints.Entities = prependUniqueStrings(
 		rm.AnalyzerHints.Entities,
 		capabilityAuthorityKeywords(q)...,

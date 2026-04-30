@@ -49,12 +49,15 @@ func TestDetectStageToolCapabilityQuery_SkipsScalarRoleLocate(t *testing.T) {
 
 func TestReconcileStageToolCapabilitySurface_ForcesGenericSubjectAndClearsExactTargets(t *testing.T) {
 	rm := types.RequestModel{
-		RawRequest: "Explorer stage 之前的 analyzer stage 里是否允许调用 read_file？",
-		Scenario:   types.ScenarioArchitectureExplain,
+		RawRequest:    "Explorer stage 之前的 analyzer stage 里是否允许调用 read_file？",
+		Intent:        types.IntentConfigQuery,
+		Scenario:      types.ScenarioArchitectureExplain,
+		PredicateAxis: types.AxisConfigure,
 		AnswerSubject: types.AnswerSubject{
 			Kind: types.SubjectConfigKey,
 		},
 		AnalyzerHints: types.AnalyzerHints{
+			Kind:              "config_mapping",
 			Entities:          []string{"read_file", "Explorer stage", "analyzer stage"},
 			ExactTargets:      []string{"read_file"},
 			ExactContextTerms: []string{"helper"},
@@ -71,8 +74,23 @@ func TestReconcileStageToolCapabilitySurface_ForcesGenericSubjectAndClearsExactT
 	if resolved.Scenario != types.ScenarioGeneric {
 		t.Fatalf("scenario = %s, want generic", resolved.Scenario)
 	}
+	if resolved.Intent != types.IntentExplain {
+		t.Fatalf("intent = %s, want explain", resolved.Intent)
+	}
+	if resolved.PredicateAxis != types.AxisDefine {
+		t.Fatalf("predicate axis = %s, want define", resolved.PredicateAxis)
+	}
+	if resolved.AnalyzerHints.Kind != string(types.ReqMechanism) {
+		t.Fatalf("question kind = %q, want %q", resolved.AnalyzerHints.Kind, types.ReqMechanism)
+	}
 	if len(resolved.AnalyzerHints.ExactTargets) != 0 || len(resolved.AnalyzerHints.ExactContextTerms) != 0 {
 		t.Fatalf("exact-resolution hints should be cleared, got %+v", resolved.AnalyzerHints)
+	}
+	if resolved.AnalyzerHints.CapabilitySurface == nil {
+		t.Fatal("capability surface hint should be compiled onto the request model")
+	}
+	if resolved.AnalyzerHints.CapabilitySurface.Tool != "read_file" {
+		t.Fatalf("compiled capability tool = %q, want read_file", resolved.AnalyzerHints.CapabilitySurface.Tool)
 	}
 	for _, want := range []string{"read_file", "analysis-skill", "ToolSuggestions", "buildToolSchemas"} {
 		if !strings.Contains(strings.Join(resolved.AnalyzerHints.Keywords, " "), want) {
@@ -81,6 +99,54 @@ func TestReconcileStageToolCapabilitySurface_ForcesGenericSubjectAndClearsExactT
 	}
 	if !strings.Contains(reason, "ToolSuggestions") {
 		t.Fatalf("reason missing authority surface, got %q", reason)
+	}
+}
+
+func TestBuildAnalysisIR_CapabilitySurfacePreservesGenericScenario(t *testing.T) {
+	raw := "analyzer stage 能调用 read_file 吗？"
+	mut := types.NewMutableState(raw)
+	mut.SetRequestModel(types.RequestModel{
+		RawRequest:    raw,
+		Intent:        types.IntentConfigQuery,
+		Scenario:      types.ScenarioArchitectureExplain,
+		PredicateAxis: types.AxisConfigure,
+		Complexity:    types.ComplexityModerate,
+		AnalyzerHints: types.AnalyzerHints{
+			Kind:     "config_mapping",
+			Shape:    "config_value",
+			Entities: []string{"read_file", "analyzer stage"},
+			Keywords: []string{"read_file"},
+		},
+		Predicates: types.SemanticPredicates{IsScalarAnswer: true},
+	})
+	ir, err := buildAnalysisIR(&types.AgentContext{
+		Stage:     types.StageAnalyze,
+		Objective: raw,
+		Mutable:   mut,
+	})
+	if err != nil {
+		t.Fatalf("buildAnalysisIR returned error: %v", err)
+	}
+	if ir == nil {
+		t.Fatal("expected non-nil AnalysisIR")
+	}
+	if ir.RequestModel.Scenario != types.ScenarioGeneric {
+		t.Fatalf("scenario = %s, want generic", ir.RequestModel.Scenario)
+	}
+	if ir.RequestModel.Intent != types.IntentExplain {
+		t.Fatalf("intent = %s, want explain", ir.RequestModel.Intent)
+	}
+	if ir.RequestModel.PredicateAxis != types.AxisDefine {
+		t.Fatalf("predicate axis = %s, want define", ir.RequestModel.PredicateAxis)
+	}
+	if ir.RequestModel.AnalyzerHints.Kind != string(types.ReqMechanism) {
+		t.Fatalf("question kind = %q, want %q", ir.RequestModel.AnalyzerHints.Kind, types.ReqMechanism)
+	}
+	if ir.AnswerContract.RequiredAnswerShape != types.ShapeBoolean {
+		t.Fatalf("answer shape = %s, want boolean", ir.AnswerContract.RequiredAnswerShape)
+	}
+	if ir.RequestModel.AnalyzerHints.CapabilitySurface == nil {
+		t.Fatal("expected compiled capability surface hint")
 	}
 }
 

@@ -13,6 +13,9 @@ import (
 // conservative: broad enumeration questions return nil so downstream
 // target-mention / absence constraints do not over-trigger.
 func BuildExactResolutionContract(rm RequestModel) *ExactResolutionContract {
+	if HasCapabilitySurfaceHint(rm) {
+		return nil
+	}
 	targets := ExactResolutionTargets(rm)
 	if len(targets) == 0 {
 		return nil
@@ -478,6 +481,9 @@ func exactResolutionScopeHintForPolicy(policy ExactResolutionContextPolicy) stri
 }
 
 func exactResolutionEnabled(rm RequestModel) bool {
+	if HasCapabilitySurfaceHint(rm) {
+		return false
+	}
 	switch rm.AnswerSubject.Kind {
 	case SubjectConfigKey, SubjectFilePath:
 		return true

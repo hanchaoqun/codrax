@@ -39,6 +39,8 @@ type AnswerSurfacePlan struct {
 	StableInvestigationReason     string
 	StableAbsent                  bool
 	ExactContextRequiredFiles     []string
+	CapabilitySurface             *CapabilitySurfaceHint
+	CapabilityAuthorityFiles      []string
 
 	SurfaceEvidence []EvidenceItem
 
@@ -958,6 +960,10 @@ func BuildAnswerSurfacePlan(
 	}
 	plan.StableAbsent = strings.EqualFold(plan.StableInvestigationResultKind, "absence") &&
 		plan.StableAbsenceJustification != ""
+	plan.CapabilitySurface = NormalizeCapabilitySurfaceHint(ir.RequestModel.AnalyzerHints.CapabilitySurface)
+	if plan.CapabilitySurface != nil {
+		plan.CapabilityAuthorityFiles = append([]string(nil), plan.CapabilitySurface.AuthorityFiles...)
+	}
 
 	emitted := []EvidenceItem(nil)
 	if mutable != nil {

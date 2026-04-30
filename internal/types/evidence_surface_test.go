@@ -239,6 +239,45 @@ func TestBuildAnswerSurfacePlan_SplitsCitationGradeAndProseOnlyContext(t *testin
 	}
 }
 
+func TestBuildAnswerSurfacePlan_CompilesCapabilitySurfaceAuthority(t *testing.T) {
+	ir := &AnalysisIR{
+		RequestModel: RequestModel{
+			AnalyzerHints: AnalyzerHints{
+				CapabilitySurface: &CapabilitySurfaceHint{
+					Binding: StageBinding{
+						Stage: StageAnalyze,
+						Agent: AgentAnalyzer,
+						Skill: "analysis-skill",
+					},
+					Tool: "read_file",
+					AuthorityFiles: []string{
+						"./internal/orchestrator/topology.go",
+						"internal/skill/analysis_contract.go",
+						"internal/orchestrator/topology.go",
+					},
+				},
+			},
+		},
+	}
+	plan := BuildAnswerSurfacePlan(ir, NewMutableState(""), nil, nil, nil, nil)
+	if plan == nil {
+		t.Fatal("BuildAnswerSurfacePlan returned nil")
+	}
+	if plan.CapabilitySurface == nil {
+		t.Fatal("expected capability surface hint on answer surface plan")
+	}
+	if plan.CapabilitySurface.Tool != "read_file" {
+		t.Fatalf("compiled tool = %q, want read_file", plan.CapabilitySurface.Tool)
+	}
+	want := []string{
+		"internal/orchestrator/topology.go",
+		"internal/skill/analysis_contract.go",
+	}
+	if strings.Join(plan.CapabilityAuthorityFiles, ",") != strings.Join(want, ",") {
+		t.Fatalf("authority files = %v, want %v", plan.CapabilityAuthorityFiles, want)
+	}
+}
+
 func TestBuildAnswerSurfacePlan_CompilesLogDiagramFence(t *testing.T) {
 	mut := NewMutableState("")
 	logBundle := &LogBundle{

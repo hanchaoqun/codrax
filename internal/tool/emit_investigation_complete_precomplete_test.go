@@ -682,6 +682,164 @@ func TestEmitInvestigationComplete_PreCompleteCheck_PrimaryAnchorUnreadBlocks(t 
 	}
 }
 
+func TestPrimaryAnchorPendingRead_CapabilitySurfaceSkipsToolImplementationAnchor(t *testing.T) {
+	mut := types.NewMutableState("test")
+	mut.SetPhase1Ranking([]types.Phase1RankedFile{
+		{Path: "internal/analysis/dataflow/engine.go", Score: 60, ExactEntityRank: 2},
+	})
+	closure := mut.EvidenceClosure()
+	bus := &types.BusContext{
+		Mutable:  mut,
+		RepoRoot: t.TempDir(),
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				AnalyzerHints: types.AnalyzerHints{
+					Kind: "mechanism",
+					CapabilitySurface: &types.CapabilitySurfaceHint{
+						Binding: types.StageBinding{
+							Stage: types.StageAnalyze,
+							Agent: types.AgentAnalyzer,
+							Skill: "analysis-skill",
+						},
+						Tool: "read_file",
+						AuthorityFiles: []string{
+							"internal/orchestrator/topology.go",
+							"internal/skill/analysis_contract.go",
+							"internal/agent/agent.go",
+							"internal/agent/analyzer.go",
+						},
+					},
+				},
+			},
+		},
+	}
+	raisePrimaryAnchorPendingRead(bus, closure)
+	for _, p := range closure.PendingReads() {
+		if p.Origin == "pre_complete.primary_anchor" {
+			t.Fatalf("capability surface should skip tool implementation anchor forcing, got %+v", p)
+		}
+	}
+}
+
+func TestPhase1UnreadPendingReads_CapabilitySurfaceQueuesAuthorityFilesOnly(t *testing.T) {
+	prev := CurrentAnalysisLimits()
+	t.Cleanup(func() { SetAnalysisLimits(prev) })
+	limits := prev
+	limits.Phase1UnreadTopK = 4
+	limits.Phase1UnreadMinUnread = 1
+	SetAnalysisLimits(limits)
+
+	mut := types.NewMutableState("test")
+	mut.SetPhase1Ranking([]types.Phase1RankedFile{
+		{Path: "internal/analysis/dataflow/engine.go", Score: 70, ExactEntityRank: 2},
+		{Path: "internal/orchestrator/topology.go", Score: 68, ExactEntityRank: 2},
+		{Path: "internal/skill/analysis_contract.go", Score: 66, ExactEntityRank: 2},
+	})
+	closure := mut.EvidenceClosure()
+	closure.SetReadSet(map[string]bool{
+		"internal/orchestrator/topology.go": true,
+	})
+	bus := &types.BusContext{
+		Mutable:  mut,
+		RepoRoot: t.TempDir(),
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				AnalyzerHints: types.AnalyzerHints{
+					Kind: "mechanism",
+					CapabilitySurface: &types.CapabilitySurfaceHint{
+						Binding: types.StageBinding{
+							Stage: types.StageAnalyze,
+							Agent: types.AgentAnalyzer,
+							Skill: "analysis-skill",
+						},
+						Tool: "read_file",
+						AuthorityFiles: []string{
+							"internal/orchestrator/topology.go",
+							"internal/skill/analysis_contract.go",
+							"internal/agent/agent.go",
+							"internal/agent/analyzer.go",
+						},
+					},
+				},
+			},
+		},
+	}
+	raisePhase1UnreadPendingReads(bus, closure)
+	got := closure.PendingReads()
+	if len(got) == 0 {
+		t.Fatal("expected unread capability authority files to be queued")
+	}
+	want := map[string]bool{
+		"internal/skill/analysis_contract.go": true,
+		"internal/agent/agent.go":             true,
+		"internal/agent/analyzer.go":          true,
+	}
+	for _, p := range got {
+		if p.File == "internal/analysis/dataflow/engine.go" {
+			t.Fatalf("tool implementation file should not be queued for capability closure: %+v", got)
+		}
+		if !want[p.File] {
+			t.Fatalf("unexpected pending capability file %q in %+v", p.File, got)
+		}
+		delete(want, p.File)
+	}
+	if len(want) != 0 {
+		t.Fatalf("missing capability authority files from pending queue: %v", want)
+	}
+}
+
+func TestMultiPathCoverageParity_CapabilitySurfaceSkipsGate(t *testing.T) {
+	mut := types.NewMutableState("test")
+	mut.SetPhase1Ranking([]types.Phase1RankedFile{
+		{Path: "internal/agent/agent.go", Score: 60, ExactEntityRank: 2},
+		{Path: "internal/agent/analyzer.go", Score: 58, ExactEntityRank: 2},
+	})
+	closure := mut.EvidenceClosure()
+	closure.SetReadSet(map[string]bool{
+		"internal/agent/agent.go":    true,
+		"internal/agent/analyzer.go": true,
+	})
+	closure.SetReadRanges(map[string][]types.LineRange{
+		"internal/agent/agent.go":    {{Start: 1, End: 200}},
+		"internal/agent/analyzer.go": {{Start: 1, End: 5}},
+	})
+	closure.SetFileTotalLines(map[string]int{
+		"internal/agent/agent.go":    400,
+		"internal/agent/analyzer.go": 1200,
+	})
+	bus := &types.BusContext{
+		Mutable:  mut,
+		RepoRoot: t.TempDir(),
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				AnalyzerHints: types.AnalyzerHints{
+					Kind: "mechanism",
+					CapabilitySurface: &types.CapabilitySurfaceHint{
+						Binding: types.StageBinding{
+							Stage: types.StageAnalyze,
+							Agent: types.AgentAnalyzer,
+							Skill: "analysis-skill",
+						},
+						Tool: "read_file",
+						AuthorityFiles: []string{
+							"internal/orchestrator/topology.go",
+							"internal/skill/analysis_contract.go",
+							"internal/agent/agent.go",
+							"internal/agent/analyzer.go",
+						},
+					},
+				},
+			},
+		},
+	}
+	raiseMultiPathCoverageParity(bus, closure)
+	for _, p := range closure.PendingReads() {
+		if p.Origin == "pre_complete.multi_path_coverage" {
+			t.Fatalf("capability surface should not demand cross-file coverage parity, got %+v", p)
+		}
+	}
+}
+
 func TestEmitInvestigationComplete_PreCompleteCheck_PrimaryAnchorHonorsDispatchReadHistory(t *testing.T) {
 	mut := types.NewMutableState("test")
 	mut.SetPhase1Ranking([]types.Phase1RankedFile{
@@ -1451,4 +1609,3 @@ func TestMultiPathCoverageParity_ProjectOrientationSkipsGate(t *testing.T) {
 		}
 	}
 }
-

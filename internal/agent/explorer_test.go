@@ -6699,3 +6699,33 @@ func TestObserveMidLoop_OrientationFinalize_BelowThreshold(t *testing.T) {
 		t.Error("latch must not flip when threshold not met")
 	}
 }
+
+func TestShouldSeedTurnAStrictEvidenceFromRanked_CapabilitySurface(t *testing.T) {
+	if !shouldSeedTurnAStrictEvidenceFromRanked(nil, "mechanism") {
+		t.Fatal("mechanism kind should seed strict evidence fallback")
+	}
+
+	ctx := &types.AgentContext{
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				AnalyzerHints: types.AnalyzerHints{
+					CapabilitySurface: &types.CapabilitySurfaceHint{
+						Binding: types.StageBinding{
+							Stage: types.StageAnalyze,
+							Agent: types.AgentAnalyzer,
+							Skill: "analysis-skill",
+						},
+						Tool:           "read_file",
+						AuthorityFiles: []string{"internal/orchestrator/topology.go"},
+					},
+				},
+			},
+		},
+	}
+	if !shouldSeedTurnAStrictEvidenceFromRanked(ctx, "config_mapping") {
+		t.Fatal("capability-surface questions should seed strict evidence fallback even when question kind drifted")
+	}
+	if shouldSeedTurnAStrictEvidenceFromRanked(&types.AgentContext{}, "config_mapping") {
+		t.Fatal("ordinary non-mechanism questions should not seed strict evidence fallback")
+	}
+}

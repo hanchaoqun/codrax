@@ -373,8 +373,13 @@ type AnalyzerHints struct {
 	// repo-specific file names. The system validates and normalizes the
 	// roles before using them for closure and final-answer coverage.
 	ExactContextRoles []EvidenceDiagramRole `json:"exact_context_roles,omitempty"`
-	Kind              string                `json:"kind,omitempty"`
-	Shape             string                `json:"shape,omitempty"`
+	// CapabilitySurface is the compiled authority lane for stage/tool
+	// capability questions. It tells downstream stages which stage ->
+	// skill -> tool exposure surface answers the question, and which
+	// source files are the canonical authority set for closure.
+	CapabilitySurface *CapabilitySurfaceHint `json:"capability_surface,omitempty"`
+	Kind              string                 `json:"kind,omitempty"`
+	Shape             string                 `json:"shape,omitempty"`
 }
 
 type Intent string

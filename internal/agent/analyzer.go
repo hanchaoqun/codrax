@@ -1203,7 +1203,9 @@ func buildAnalysisIR(ctx *types.AgentContext) (*types.AnalysisIR, error) {
 	}
 
 	// Scenario default.
-	if rm.Scenario == "" || (rm.Scenario == types.ScenarioGeneric && !isScalarSourceLiteralLookup(rm)) {
+	if rm.Scenario == "" || (rm.Scenario == types.ScenarioGeneric &&
+		!isScalarSourceLiteralLookup(rm) &&
+		!types.HasCapabilitySurfaceHint(rm)) {
 		rm.Scenario = compiler.InferScenario(rm)
 	}
 

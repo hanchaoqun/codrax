@@ -850,6 +850,31 @@ func explanationAnchorBackboneDowngrade(ctx *types.BusContext) string {
 	return b.String()
 }
 
+func capabilitySurfacePlan(ctx *types.BusContext) *types.AnswerSurfacePlan {
+	plan := types.BuildAnswerSurfacePlanForBusContext(ctx)
+	if plan == nil || plan.CapabilitySurface == nil {
+		return nil
+	}
+	return plan
+}
+
+func capabilitySurfaceUnreadAuthorityFiles(plan *types.AnswerSurfacePlan, closure *types.EvidenceClosure, repoRoot string) []string {
+	if plan == nil || closure == nil || len(plan.CapabilityAuthorityFiles) == 0 {
+		return nil
+	}
+	seen := make(map[string]bool, len(plan.CapabilityAuthorityFiles))
+	var unread []string
+	for _, raw := range plan.CapabilityAuthorityFiles {
+		canon := phase1UnreadCanonPath(raw, repoRoot)
+		if canon == "" || seen[canon] || closure.HasRead(canon) {
+			continue
+		}
+		seen[canon] = true
+		unread = append(unread, canon)
+	}
+	return unread
+}
+
 func refreshClosureReadSnapshot(ctx *types.BusContext, closure *types.EvidenceClosure) {
 	if ctx == nil || ctx.Mutable == nil || closure == nil {
 		return
@@ -877,6 +902,9 @@ func refreshClosureReadSnapshot(ctx *types.BusContext, closure *types.EvidenceCl
 
 func raisePrimaryAnchorPendingRead(ctx *types.BusContext, closure *types.EvidenceClosure) {
 	if ctx == nil || ctx.Mutable == nil || closure == nil || ctx.AnalysisIR == nil {
+		return
+	}
+	if capabilitySurfacePlan(ctx) != nil {
 		return
 	}
 	// Orientation skip — a "what does this project do?" question
@@ -977,6 +1005,9 @@ func resolveMultiPathCoverageParityFloor() float64 {
 // types.InvestigationLevelProjectOverview.
 func raiseMultiPathCoverageParity(ctx *types.BusContext, closure *types.EvidenceClosure) {
 	if ctx == nil || ctx.Mutable == nil || closure == nil || ctx.AnalysisIR == nil {
+		return
+	}
+	if capabilitySurfacePlan(ctx) != nil {
 		return
 	}
 	rm := ctx.AnalysisIR.RequestModel
@@ -1181,6 +1212,28 @@ func raisePhase1UnreadPendingReads(ctx *types.BusContext, closure *types.Evidenc
 	// catches the "LLM keeps declaring complete without progress"
 	// case via fingerprint convergence.
 	if closure.Phase1UnreadFired() {
+		return
+	}
+	if plan := capabilitySurfacePlan(ctx); plan != nil {
+		unread := capabilitySurfaceUnreadAuthorityFiles(plan, closure, ctx.RepoRoot)
+		if len(unread) == 0 {
+			return
+		}
+		for _, file := range unread {
+			closure.AddPendingRead(types.PendingRead{
+				File:      file,
+				Rationale: "Capability-surface authority file remains unread 鈥?inspect the canonical stage binding / skill contract / tool exposure source before declaring completion",
+				Origin:    "phase1_unread",
+			})
+			logging.Info("[CGEC] phase1_unread: queued capability-authority file=%s", file)
+		}
+		closure.AddRepair(types.RepairDirective{
+			Kind:      types.RepairExpandSearch,
+			Files:     unread,
+			Rationale: fmt.Sprintf("%d capability-surface authority file(s) remain unread; inspect them before re-calling emit_investigation_complete", len(unread)),
+			Origin:    "pre_complete.phase1_unread",
+		})
+		closure.MarkPhase1UnreadFired()
 		return
 	}
 	limits := CurrentAnalysisLimits()

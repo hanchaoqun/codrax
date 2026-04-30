@@ -27,3 +27,6 @@
 # Claude Code runtime state — session-specific scheduling lock + local
 # settings overlay; both regenerate per machine and must not ship.
 /.claude/
+
+# codrax runtime artifacts (logs, memory, blob caches, worktrees, plans)
+.codrax/

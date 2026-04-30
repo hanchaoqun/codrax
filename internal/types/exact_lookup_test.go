@@ -330,6 +330,33 @@ func TestBuildExactResolutionContract_DoesNotTriggerOnEnumeration(t *testing.T) 
 	}
 }
 
+func TestBuildExactResolutionContract_DisabledForCapabilitySurfaceQuestions(t *testing.T) {
+	rm := RequestModel{
+		RawRequest: "analyzer stage 能调用 read_file 吗？",
+		AnalyzerHints: AnalyzerHints{
+			Kind: "mechanism",
+			CapabilitySurface: &CapabilitySurfaceHint{
+				Binding: StageBinding{
+					Stage: StageAnalyze,
+					Agent: AgentAnalyzer,
+					Skill: "analysis-skill",
+				},
+				Tool: "read_file",
+				AuthorityFiles: []string{
+					"internal/orchestrator/topology.go",
+					"internal/skill/analysis_contract.go",
+					"internal/agent/agent.go",
+				},
+			},
+			PrimaryEntities: []string{"read_file", "analyzer stage"},
+		},
+		AnswerSubject: AnswerSubject{Kind: SubjectGeneric},
+	}
+	if got := BuildExactResolutionContract(rm); got != nil {
+		t.Fatalf("contract = %+v, want nil for capability-surface question", got)
+	}
+}
+
 func TestBuildExactResolutionContract_DoesNotPromoteSecondaryMentionOverPrimaryRoleEntity(t *testing.T) {
 	rm := RequestModel{
 		RawRequest: "仓库里负责解析用户请求并产出结构化 AnalysisIR 的那个入口函数叫什么？",

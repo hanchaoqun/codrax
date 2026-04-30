@@ -7366,7 +7366,7 @@ func (e *explorerEvaluator) ParseOutput(ctx *types.AgentContext, messages []llm.
 				strictEvidence = append(strictEvidence, c.Item)
 			}
 		}
-		if len(strictEvidence) == 0 && questionKind == "mechanism" && len(rankedEvidence) > 0 {
+		if len(strictEvidence) == 0 && shouldSeedTurnAStrictEvidenceFromRanked(ctx, questionKind) && len(rankedEvidence) > 0 {
 			// Mechanism answers intentionally drop answer chains above:
 			// step-list finalization should read the grounded mechanism
 			// evidence directly, not a terminal-symbol slate. Preserve
@@ -7425,6 +7425,16 @@ func (e *explorerEvaluator) ParseOutput(ctx *types.AgentContext, messages []llm.
 	}
 
 	return out, nil
+}
+
+func shouldSeedTurnAStrictEvidenceFromRanked(ctx *types.AgentContext, questionKind string) bool {
+	if strings.EqualFold(strings.TrimSpace(questionKind), string(types.ReqMechanism)) {
+		return true
+	}
+	if ctx == nil || ctx.AnalysisIR == nil {
+		return false
+	}
+	return types.HasCapabilitySurfaceHint(ctx.AnalysisIR.RequestModel)
 }
 
 func (e *explorerEvaluator) DetermineMissingPiece(ctx *types.AgentContext, output *StageOutput) types.MissingPiece {
