@@ -224,8 +224,20 @@ func renderPlanCriticUserMessage(in PlanCriticInput) string {
 
 // assemblePlanCritique formats the LLM's structured output for
 // downstream rendering / logging.
+//
+// Low-confidence suppression (commit 10 #7): when the LLM flagged
+// itself as confidence=low, the risks are signal-noise; surfacing
+// them in /plan show would crowd out high-confidence critiques on
+// other plans (the "cried wolf" effect). Drop them. The decision
+// is the LLM's — it self-reports "I'm not sure" — and we honor
+// that by hiding rather than over-asserting. The Info log line
+// in Review still records the call so operators can grep for
+// suppressed cases.
 func assemblePlanCritique(risks []string, confidence string) string {
 	if len(risks) == 0 {
+		return ""
+	}
+	if strings.EqualFold(strings.TrimSpace(confidence), "low") {
 		return ""
 	}
 	var b strings.Builder

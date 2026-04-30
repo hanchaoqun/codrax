@@ -1362,13 +1362,21 @@ func (o *Orchestrator) runWriteAnalyzePhase() (int, error) {
 	// enrichment stage; if the second attempt still fails, the
 	// downstream agents simply read AnalysisIR-only context, which
 	// is the historical pre-commit-1 behaviour.
+	//
+	// Commit 10 #11: retry attempts past the first carry the prior
+	// failure narrative on Mutable.AnalyzerRetryHint so the
+	// write_analyzer's prompt can render "previous attempt failed
+	// because: <reason>". Without this, retry was effectively a
+	// blind redo and could repeat the same emit error.
 	const maxAttempts = 2
 	var lastErr error
 	used := 0
 	for attempt := 0; attempt < maxAttempts; attempt++ {
 		used++
 		o.emitStageRetryAttempt = attempt
+		started := time.Now()
 		out, err := o.dispatchStage(types.StageWriteAnalyze)
+		elapsed := time.Since(started)
 		if err == nil && (out == nil || out.Error == "") {
 			if o.busCtx.Mutable.WriteAnalysisIR() != nil {
 				return used, nil
@@ -1381,8 +1389,19 @@ func (o *Orchestrator) runWriteAnalyzePhase() (int, error) {
 			lastErr = err
 		}
 		if attempt+1 < maxAttempts {
-			logging.Warning("[orchestrator] write_analyze attempt %d/%d failed: %v (retrying)",
-				attempt+1, maxAttempts, lastErr)
+			logging.Warning("[orchestrator] write_analyze attempt %d/%d failed in %v: %v (retrying with prior-failure hint)",
+				attempt+1, maxAttempts, elapsed, lastErr)
+			// Seed AnalyzerRetryHint so the next dispatch's
+			// prompt sees "## Previous attempt rejected" with
+			// the rejection reason. The same channel the read
+			// analyzer uses for its quality-gate retry hints —
+			// reusing it keeps the agent prompt-rendering layer
+			// uniform across read/write analyzers.
+			if o.busCtx != nil && o.busCtx.Mutable != nil && lastErr != nil {
+				o.busCtx.Mutable.SetAnalyzerRetryHint(
+					fmt.Sprintf("Previous emit_write_analysis attempt was rejected: %v. Re-emit with all required fields filled (raw_request, task.kind, task.scope, task.summary, risk.affects_public_api, risk.changes_persistence, risk.changes_build_system, risk.overall).",
+						lastErr))
+			}
 		}
 	}
 	if lastErr == nil {

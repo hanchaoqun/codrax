@@ -2187,9 +2187,14 @@ func (r *REPL) handlePlanCmd(line string) {
 		}
 		// Plan critic review (commit 7 P1-F gap-fix). Persisted on
 		// the plan struct so REPL restart preserves the critique.
-		// Empty when the critic was disabled or produced no risks.
+		// Empty when the critic was disabled or produced no risks
+		// (or commit 10 #7 suppressed a low-confidence critique).
+		// Render with a leading ⚠️ so it stands out against the
+		// rest of the plan summary — operators have repeatedly
+		// rubber-stamped /approve when the critique was rendered
+		// as just another markdown paragraph.
 		if strings.TrimSpace(plan.PlanCritique) != "" {
-			fmt.Fprintln(r.out, "\n  ## review feedback:")
+			fmt.Fprintln(r.out, "\n  ⚠️ review feedback:")
 			for _, line := range strings.Split(strings.TrimSpace(plan.PlanCritique), "\n") {
 				fmt.Fprintf(r.out, "    %s\n", line)
 			}
@@ -2267,8 +2272,19 @@ func (r *REPL) handlePlanCmd(line string) {
 			if status == "" {
 				status = "unknown"
 			}
-			fmt.Fprintf(r.out, "    - [%s] %s  status=%s  (%d bytes)\n",
-				ts, inf.ID, status, inf.SizeB)
+			// Plan health flags (commit 10 #6) shown alongside
+			// status so the operator can spot at a glance which
+			// plans have skipped static checks or carry an
+			// unread critic review.
+			flags := ""
+			if inf.UnvalidatedCount > 0 {
+				flags += fmt.Sprintf(" ⚠ unvalidated:%d", inf.UnvalidatedCount)
+			}
+			if inf.HasCritique {
+				flags += " ⚠ review"
+			}
+			fmt.Fprintf(r.out, "    - [%s] %s  status=%s  (%d bytes)%s\n",
+				ts, inf.ID, status, inf.SizeB, flags)
 		}
 	default:
 		r.warn("%s", unknownPlanSubcommand(r.language, rest))
@@ -3323,6 +3339,31 @@ func (r *REPL) handleMergeCmd(line string) {
 		}
 	}
 	if wt == "" && recoveryRef == "" {
+		// Commit 10 #4: when the no-eligible-plan path fires, scan
+		// once more for partially_applied / unverified plans so we
+		// can name the actionable next step. Without this, the user
+		// sees a generic "no preserved worktree" message and can't
+		// tell whether they have nothing in flight, or have a
+		// partial state that /merge specifically refuses to touch.
+		var partialID, unverifiedID string
+		for _, inf := range infos {
+			if partialID == "" && inf.Status == types.PlanStatusPartiallyApplied {
+				partialID = inf.ID
+			}
+			if unverifiedID == "" && inf.Status == types.PlanStatusUnverified && !includeFailed {
+				unverifiedID = inf.ID
+			}
+		}
+		if partialID != "" {
+			r.warn("/merge skipped: plan %s is partially_applied (some files landed before apply hit a rejection). half-applying to main would land incoherent code; use `/approve --retry` to finish, or `/reject` to discard the partial state.\n",
+				partialID)
+			return
+		}
+		if unverifiedID != "" {
+			r.info(fmt.Sprintf("/merge skipped: plan %s is unverified (apply landed but no tests verified the change). use `/merge --include-failed` if you accept landing without local test proof.\n",
+				unverifiedID))
+			return
+		}
 		for _, line := range mergeNoApplyYet(r.language) {
 			r.info(line)
 		}

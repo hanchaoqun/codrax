@@ -311,6 +311,8 @@ type PlanInfo struct {
 	Status  string // PlanStatus* from types/change_plan.go; empty when JSON
 	// was unreadable (List logs + continues so one corrupt file
 	// doesn't break enumeration).
+	UnvalidatedCount int      // number of static-check stages skipped
+	HasCritique      bool     // plan_critic produced a non-empty review
 }
 
 // List enumerates every <id>.json file under planDir and returns
@@ -356,25 +358,35 @@ func (s *PlanStore) List() ([]PlanInfo, error) {
 			continue
 		}
 		id := strings.TrimSuffix(name, ".json")
-		// Peek into the plan JSON for Status. List already walks
-		// the whole dir so one extra read per plan is cheap; the
-		// alternative (holding an in-memory cache) adds complexity
-		// without speed benefit at typical plan counts (<100).
+		// Peek into the plan JSON for Status + the two health
+		// signals /plan list / /history surface in their compact
+		// row (commit 10 #6): unvalidated stage count + plan_critic
+		// review presence. Single read per plan; cheap at <100
+		// plans. JSON-unreadable plans get zero values (Status =
+		// "" already drives the "unknown" rendering).
 		status := ""
+		unvalidated := 0
+		hasCritique := false
 		if data, rerr := os.ReadFile(filepath.Join(s.planDir, name)); rerr == nil {
 			var probe struct {
-				Status string `json:"status"`
+				Status             string   `json:"status"`
+				UnvalidatedReasons []string `json:"unvalidated_reasons,omitempty"`
+				PlanCritique       string   `json:"plan_critique,omitempty"`
 			}
 			if jerr := json.Unmarshal(data, &probe); jerr == nil {
 				status = probe.Status
+				unvalidated = len(probe.UnvalidatedReasons)
+				hasCritique = strings.TrimSpace(probe.PlanCritique) != ""
 			}
 		}
 		out = append(out, PlanInfo{
-			ID:      id,
-			Path:    filepath.Join(s.planDir, name),
-			SizeB:   info.Size(),
-			ModTime: info.ModTime().UnixNano(),
-			Status:  status,
+			ID:               id,
+			Path:             filepath.Join(s.planDir, name),
+			SizeB:            info.Size(),
+			ModTime:          info.ModTime().UnixNano(),
+			Status:           status,
+			UnvalidatedCount: unvalidated,
+			HasCritique:      hasCritique,
 		})
 	}
 	// Newest-first so the user's recent plans appear at the top of
