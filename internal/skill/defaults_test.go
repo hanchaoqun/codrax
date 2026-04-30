@@ -62,3 +62,64 @@ func TestFinalizerSkillKeepsInternalJargonOutOfUserProse(t *testing.T) {
 		}
 	}
 }
+
+// TestChangePlanSkill_PhaseAInvestigateWorkflow verifies Module A's
+// "investigate before emit" guidance is in the planner's skill
+// workflow. Pure description-of-method (PHASE A — INVESTIGATE), no
+// if-then prescriptions.
+func TestChangePlanSkill_PhaseAInvestigateWorkflow(t *testing.T) {
+	r := NewRegistry()
+	RegisterDefaults(r)
+
+	sk, err := r.Get("change-plan-skill")
+	if err != nil {
+		t.Fatalf("Get(change-plan-skill): %v", err)
+	}
+	wf := strings.Join(sk.Workflow, "\n")
+	if !strings.Contains(wf, "PHASE A") || !strings.Contains(wf, "INVESTIGATE") {
+		t.Fatalf("change-plan-skill workflow must mention 'PHASE A — INVESTIGATE'; got:\n%s", wf)
+	}
+	// Tool names the planner is expected to chain — proxies for "the
+	// model is told to use the read-only investigation toolbox".
+	for _, want := range []string{"repo_map", "grep", "read_file"} {
+		if !strings.Contains(wf, want) {
+			t.Errorf("PHASE A workflow should reference tool %q; got:\n%s", want, wf)
+		}
+	}
+}
+
+// TestChangePlanSkill_DebugWorkflowOnRetry verifies Module F's
+// description of how to read failure data on retry — not as
+// prescription ("if X then Y") but as method ("read X, decide which
+// side is wrong").
+func TestChangePlanSkill_DebugWorkflowOnRetry(t *testing.T) {
+	r := NewRegistry()
+	RegisterDefaults(r)
+
+	sk, err := r.Get("change-plan-skill")
+	if err != nil {
+		t.Fatalf("Get(change-plan-skill): %v", err)
+	}
+	wf := strings.Join(sk.Workflow, "\n")
+	if !strings.Contains(wf, "DEBUG WORKFLOW") {
+		t.Fatalf("workflow must include DEBUG WORKFLOW guidance; got:\n%s", wf)
+	}
+	// The three-tactic decision frame is the load-bearing part of
+	// this guidance — every word matters because the model uses it
+	// to classify the failure on its own.
+	for _, want := range []string{
+		"the failing test",
+		"the production code",
+	} {
+		if !strings.Contains(wf, want) {
+			t.Errorf("DEBUG WORKFLOW should mention %q; got:\n%s", want, wf)
+		}
+	}
+	// Forbidden — must NOT contain prescribed-cause prose like
+	// "Most common causes" or "do X don't do Y".
+	for _, banned := range []string{"Most common cause", "DO NOT raise the cap"} {
+		if strings.Contains(wf, banned) {
+			t.Errorf("DEBUG WORKFLOW must not contain prescriptive prose %q", banned)
+		}
+	}
+}
