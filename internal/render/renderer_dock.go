@@ -32,6 +32,21 @@ const streamTailDisplayCols = 25
 //
 // Lifecycle: Renderer.Emitter() returns a closure that locks r.mu
 // and dispatches here.
+
+// isWriteTrioNodeKind reports whether a node row's nodeKind is one
+// of the write-mode plan/apply/verify trio. Used by the retry-aware
+// reclassification in EventTaskNodeStart to scope the "flip prior
+// success to failed" pass — read-mode evidence/validate/reconcile/
+// extract/finalize nodes have different kinds and must be left
+// alone when a write retry fires.
+func isWriteTrioNodeKind(kind string) bool {
+	switch kind {
+	case "plan", "apply", "verify":
+		return true
+	}
+	return false
+}
+
 func (r *Renderer) handleEvent(ev Event) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -214,33 +229,34 @@ func (r *Renderer) handleEvent(ev Event) {
 			isRetry := !row.endTime.IsZero()
 			row.pending = false
 			row.paused = false
-			if isRetry {
-				stageStr := row.stage
-				nodeKind := row.nodeKind
+			if isRetry && isWriteTrioNodeKind(row.nodeKind) {
+				// Retry of a write-mode node (plan / apply / verify):
+				// the scheduler is rolling the whole plan→apply→verify
+				// cycle, so other write-trio rows that completed in
+				// the prior iteration are now stale — their "已 X"
+				// rendering misleads the user about state that the
+				// pipeline has decided to redo. Flip those siblings'
+				// okFinished=false so their phrase resolves to the
+				// failed branch ("应用改动失败") for the gap between
+				// this start and the sibling's own next start.
+				//
+				// Read-mode evidence rows have non-trio nodeKinds
+				// (evidence / validate / reconcile / extract / finalize)
+				// and are NOT affected. The isWriteTrioNodeKind guard
+				// is the load-bearing scope restrictor; the previous
+				// `row.stage` check that lived here was dead code (node
+				// rows never set the stage field) and has been removed.
 				for _, sib := range r.tasks {
 					if sib == nil || sib == row || !sib.isNodeRow {
 						continue
 					}
-					// Only siblings that share the SAME stage
-					// (analyze / plan / apply / verify), so a
-					// transient retry on plan does not retroactively
-					// fail unrelated explore-stage node rows.
-					if stageStr != "" && sib.stage != stageStr {
-						// fall through — write-mode nodes share the
-						// same write-graph stage axis (Plan/Apply/
-						// Verify); the stage field carries the type
-						// label
+					if !isWriteTrioNodeKind(sib.nodeKind) {
+						continue
 					}
-					// Restrict scope: only flip rows whose nodeKind
-					// is one of the write-mode trio. Read-mode
-					// evidence rows are independent of this retry.
-					if nodeKind != "" && (sib.nodeKind == "plan" || sib.nodeKind == "apply" || sib.nodeKind == "verify") &&
-						(nodeKind == "plan" || nodeKind == "apply" || nodeKind == "verify") {
-						if !sib.endTime.IsZero() && sib.okFinished {
-							sib.okFinished = false
-							if sib.errorMsg == "" {
-								sib.errorMsg = "retried"
-							}
+					if !sib.endTime.IsZero() && sib.okFinished {
+						sib.okFinished = false
+						if sib.errorMsg == "" {
+							sib.errorMsg = "retried"
 						}
 					}
 				}
@@ -328,7 +344,14 @@ func (r *Renderer) handleEvent(ev Event) {
 		}
 
 	case EventToolCallStart:
-		if r.current != nil {
+		// Skip detail mutation when the active row has already
+		// terminated (endTime != 0). A late tool-call event on a
+		// finished row would otherwise reactivate its detail line
+		// mid-failure rendering — visually jarring even though the
+		// row's okFinished/errorMsg state stays correct. In normal
+		// flow this branch is unreachable; the guard hardens against
+		// pathological event ordering.
+		if r.current != nil && r.current.endTime.IsZero() {
 			detail := ev.ToolName
 			if ev.ToolDetail != "" {
 				detail += " " + ev.ToolDetail
@@ -340,7 +363,7 @@ func (r *Renderer) handleEvent(ev Event) {
 		}
 
 	case EventToolCallEnd:
-		if r.current != nil {
+		if r.current != nil && r.current.endTime.IsZero() {
 			detail := ev.ToolName
 			if ev.ToolDetail != "" {
 				detail += " " + ev.ToolDetail

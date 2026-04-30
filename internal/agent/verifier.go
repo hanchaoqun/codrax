@@ -107,10 +107,10 @@ func (e *verifierEvaluator) BuildInitialInstruction(ctx *types.AgentContext, _ *
 	// prompt alone.
 	var s strings.Builder
 	s.WriteString("## Verify phase\n\n")
-	s.WriteString("The plan on Mutable.ChangePlan has been applied to the worktree. " +
+	s.WriteString("The plan has been applied to the worktree. " +
 		"Your job is mechanical: call run_tests EXACTLY ONCE with the runner that matches the " +
-		"plan-touched language, then stop. The evaluator's ShouldStop fires on ChangeReport " +
-		"presence and the stage completes.\n\n" +
+		"plan-touched language, then stop. The system completes the stage as soon as run_tests " +
+		"installs the test results.\n\n" +
 		"Workflow:\n" +
 		"  1. Briefly inspect the worktree (list_files / grep on test-file patterns) so you can pick the runner whose language matches the plan-touched files. Skip lengthy probes — one or two list_files calls is enough.\n" +
 		"  2. Call run_tests EXACTLY ONCE with `runner=<choice>` and (optionally) `working_dir=<repo-relative dir>`. Supported runners: go / node / python / rust / java / ruby / swift / cmake / meson / make / hvigor / cjpm.\n" +
@@ -118,7 +118,7 @@ func (e *verifierEvaluator) BuildInitialInstruction(ctx *types.AgentContext, _ *
 		"     - verdict=PASSED → done; the verify stage will succeed. If the result also lists `NoTestsRunners=[...]`, that means the runner ran cleanly but found zero test cases (e.g. a plan that creates a Python script in a repo without a pytest suite). That is NOT a failure — it is a clean run with no test work to do. Do not invent additional checks.\n" +
 		"     - verdict=FAILED → optionally call emit_test_results once with a 1-4 sentence failure_summary narrative + classification arrays. Do not re-run tests; the verify→plan retry loop owns recovery.\n\n" +
 		"Hard rules:\n" +
-		"  - Do NOT call exec_command for ad-hoc syntax checks (py_compile, node --check, gofmt, etc.) AFTER run_tests has populated a ChangeReport — the parser-derived Passed verdict is authoritative and your exec_command output cannot override it. The previous-session transcript shows running py_compile + run_tests overwrites a syntax-pass with a runner zero-tests false-failure; that pattern is now banned.\n" +
+		"  - Do NOT call exec_command for ad-hoc syntax checks (py_compile, node --check, gofmt, etc.) AFTER run_tests has produced its results — the parser-derived Passed verdict is authoritative and your exec_command output cannot override it.\n" +
 		"  - Do NOT emit_change_plan (that was the plan stage).\n" +
 		"  - Do NOT read files or shell out to construct a diff — the plan is already applied.\n" +
 		"  - Do NOT re-run tests to chase flakiness — verify is fail-loud.\n")
@@ -167,7 +167,7 @@ func (e *verifierEvaluator) BuildInitialInstruction(ctx *types.AgentContext, _ *
 		for _, a := range plan.AcceptanceTests {
 			s.WriteString("- " + a + "\n")
 		}
-		s.WriteString("\nAfter the run_tests tool has populated Mutable.ChangeReport, " +
+		s.WriteString("\nAfter run_tests has produced its results, " +
 			"you may OPTIONALLY call emit_test_results to add a short FailureSummary " +
 			"narrative explaining how the actual test outcome relates to these criteria. " +
 			"If all tests passed, no narrative is needed — return without calling emit_test_results.")
@@ -188,7 +188,7 @@ func (e *verifierEvaluator) BuildInitialInstruction(ctx *types.AgentContext, _ *
 			"  - fixed_assertions: tests in baseline-fail BUT PASSING now (a bonus side-effect)\n\n" +
 			"Empty arrays are valid; the field is required-required (the schema rejects missing keys). " +
 			"Do not narrate the classification in failure_summary — use the structured fields. " +
-			"The Passed verdict on Mutable.ChangeReport is authoritative (parser-driven) — do not try " +
+			"The Passed verdict from run_tests is authoritative (parser-driven) — do not try " +
 			"to override it.")
 	}
 	// Build failures (this run) — surfaced when run_tests synthesised

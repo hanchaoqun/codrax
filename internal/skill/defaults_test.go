@@ -123,3 +123,61 @@ func TestChangePlanSkill_DebugWorkflowOnRetry(t *testing.T) {
 		}
 	}
 }
+
+// TestSkills_NoInternalGoNamesInPrompts pins the audit-2026-04-30
+// red line: LLM-facing skill prompts (Workflow / Goal / OutputFormat
+// / Prohibitions) must NOT contain Go-internal identifiers like
+// `Mutable.ChangePlan` / `ctx.RepoRoot` / `WriteClosure.AppliedSet`
+// or system error codes (W1, W1b, V1-V4) that the LLM has no way to
+// interpret. Tool names (emit_change_plan, apply_patch, run_tests,
+// emit_test_results, emit_plan_skeleton, emit_plan_change) ARE the
+// LLM's interface and are explicitly allowed.
+func TestSkills_NoInternalGoNamesInPrompts(t *testing.T) {
+	r := NewRegistry()
+	RegisterDefaults(r)
+
+	bannedTokens := []string{
+		"Mutable.ChangePlan",
+		"Mutable.ChangeReport",
+		"ctx.RepoRoot",
+		"ctx.Mutable",
+		"WriteClosure",
+		"AppliedSet",
+		"DisallowUnknownFields",
+		"ChangeUnit", // Go type name
+		"answerDocumentEvaluator",
+		"plannerEvaluator",
+		"explorerEvaluator",
+		"verifierEvaluator",
+	}
+	// V1/V2/V3/V4 + W1/W1b internal validator codes — checked as
+	// whole tokens to avoid catching legitimate text like "v1.0"
+	// or "Windows Vista 1".
+	bannedCodeTokens := []string{
+		"V1) ", "V2) ", "V3) ", "V4) ",
+		" W1 ", " W1b ", "(W1)", "(W1b)",
+	}
+	for _, name := range []string{
+		"explore-skill",
+		"change-plan-skill",
+		"code-write-skill",
+		"test-execute-skill",
+		"answer-document-skill",
+	} {
+		sk, err := r.Get(name)
+		if err != nil {
+			continue // skill not always registered
+		}
+		blob := strings.Join(append(append(append(append([]string{sk.Goal, sk.OutputFormat}, sk.Workflow...), sk.Prohibitions...), sk.ToolSuggestions...), ""), "\n")
+		for _, banned := range bannedTokens {
+			if strings.Contains(blob, banned) {
+				t.Errorf("skill %q must not leak Go-internal identifier %q in LLM-facing prompts", name, banned)
+			}
+		}
+		for _, banned := range bannedCodeTokens {
+			if strings.Contains(blob, banned) {
+				t.Errorf("skill %q must not leak system error code %q in LLM-facing prompts (use neutral phrasing like \"the validator\")", name, banned)
+			}
+		}
+	}
+}
