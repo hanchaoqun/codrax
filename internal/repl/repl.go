@@ -2094,6 +2094,20 @@ func (r *REPL) handlePlanCmd(line string) {
 	if rest == "" {
 		rest = "show"
 	}
+	// `/plan show --summary` strips the diff preview and renders a
+	// path | kind | one-line rationale table instead. Useful for
+	// big plans where the unified diff would scroll past the
+	// terminal. Detect + strip the flag before the existing
+	// "show <id>" path so they compose: `/plan show --summary` and
+	// `/plan show <id> --summary` both work.
+	summaryOnly := false
+	if trimmed := strings.TrimSpace(strings.TrimSuffix(rest, "--summary")); trimmed != rest {
+		summaryOnly = true
+		rest = strings.TrimSpace(trimmed)
+		if rest == "" {
+			rest = "show"
+		}
+	}
 	// /plan show <plan-id> — explicit target. Falls through to the
 	// existing show path with the loaded plan's ID; r.pendingPlanPath
 	// is rebound to the named plan so subsequent /approve targets the
@@ -2160,15 +2174,34 @@ func (r *REPL) handlePlanCmd(line string) {
 		if plan.Summary != "" {
 			fmt.Fprintf(r.out, "    summary: %s\n", oneLine(plan.Summary))
 		}
-		// Per-change diff preview so the user /approves with full
-		// knowledge. Caps: 16 KB total / 4 KB per change — enough to
-		// inspect a small surgical plan, bounded so a monster plan
-		// doesn't flood the terminal; the cap message tells the user
-		// to read the plan JSON for full detail.
-		fmt.Fprintln(r.out, "\n  diff preview:")
-		fmt.Fprint(r.out, render.ColorizeUnifiedDiff(
-			renderPlanDiff(plan, r.repoRoot, 16*1024, 4*1024),
-			r.colorMode, r.out))
+		// Summary view skips the diff and prints only a per-change
+		// path / kind / rationale table. Big plans (50+ files) would
+		// otherwise scroll the diff off-screen; --summary is the
+		// quick "what's in this plan" inspection.
+		if summaryOnly {
+			fmt.Fprintln(r.out, "\n  changes (summary):")
+			for _, c := range plan.Changes {
+				dest := ""
+				if c.NewPath != "" {
+					dest = " → " + c.NewPath
+				}
+				rationale := oneLine(c.Rationale)
+				if len(rationale) > 80 {
+					rationale = rationale[:77] + "..."
+				}
+				fmt.Fprintf(r.out, "    [%s] %s%s — %s\n", c.Kind, c.Path, dest, rationale)
+			}
+		} else {
+			// Per-change diff preview so the user /approves with full
+			// knowledge. Caps: 16 KB total / 4 KB per change — enough to
+			// inspect a small surgical plan, bounded so a monster plan
+			// doesn't flood the terminal; the cap message tells the user
+			// to read the plan JSON for full detail.
+			fmt.Fprintln(r.out, "\n  diff preview:")
+			fmt.Fprint(r.out, render.ColorizeUnifiedDiff(
+				renderPlanDiff(plan, r.repoRoot, 16*1024, 4*1024),
+				r.colorMode, r.out))
+		}
 		// Footer: name the next slash commands so the user does not
 		// have to remember them after reading the diff. Only printed
 		// when the plan is still actionable (pending_approval); a plan

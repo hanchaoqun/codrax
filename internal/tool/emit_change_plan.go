@@ -87,6 +87,7 @@ type emitChangePlanChange struct {
 	Kind       string   `json:"kind"`
 	NewContent string   `json:"new_content,omitempty"`
 	Patch      string   `json:"patch,omitempty"`
+	NewPath    string   `json:"new_path,omitempty"`
 	Rationale  string   `json:"rationale"`
 	DependsOn  []string `json:"depends_on,omitempty"`
 }
@@ -348,7 +349,7 @@ func (t *EmitChangePlan) Execute(ctx *types.BusContext, params json.RawMessage) 
 // corner cases).
 func isLegalChangeKind(k string) bool {
 	switch k {
-	case "create", "modify", "delete", "patch":
+	case "create", "modify", "delete", "patch", "rename":
 		return true
 	}
 	return false

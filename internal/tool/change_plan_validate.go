@@ -39,6 +39,7 @@ func emitChangesToFileChanges(changes []emitChangePlanChange) []types.FileChange
 			Kind:       strings.TrimSpace(c.Kind),
 			NewContent: c.NewContent,
 			Patch:      c.Patch,
+			NewPath:    strings.TrimSpace(c.NewPath),
 			Rationale:  strings.TrimSpace(c.Rationale),
 			DependsOn:  deps,
 		})
@@ -66,12 +67,36 @@ func validatePlanGraphIntegrity(changes []types.FileChange) string {
 			return "one of the changes has an empty path"
 		}
 		if !isLegalChangeKind(strings.TrimSpace(c.Kind)) {
-			return fmt.Sprintf("change %q has illegal kind %q (must be create|modify|delete|patch)", path, c.Kind)
+			return fmt.Sprintf("change %q has illegal kind %q (must be create|modify|delete|patch|rename)", path, c.Kind)
 		}
 		if _, dup := seenPaths[path]; dup {
 			return fmt.Sprintf("duplicate change for path %q (one-change-per-file constraint; combine into a single FileChange)", path)
 		}
 		seenPaths[path] = i
+	}
+	// Per-kind shape checks. rename requires NewPath; non-rename
+	// kinds must NOT carry NewPath (catches LLM emits that confuse
+	// rename with modify+ move).
+	for _, c := range changes {
+		path := strings.TrimSpace(c.Path)
+		kind := strings.TrimSpace(c.Kind)
+		newPath := strings.TrimSpace(c.NewPath)
+		switch kind {
+		case "rename":
+			if newPath == "" {
+				return fmt.Sprintf("change %q has kind=rename but new_path is empty", path)
+			}
+			if newPath == path {
+				return fmt.Sprintf("change %q has kind=rename with new_path equal to path; remove the rename or pick a different destination", path)
+			}
+			if _, collision := seenPaths[newPath]; collision {
+				return fmt.Sprintf("change %q rename destination %q collides with another change in this plan (one path per plan, even across rename)", path, newPath)
+			}
+		default:
+			if newPath != "" {
+				return fmt.Sprintf("change %q has kind=%s but new_path is set (only kind=rename uses new_path)", path, kind)
+			}
+		}
 	}
 	for _, c := range changes {
 		path := strings.TrimSpace(c.Path)

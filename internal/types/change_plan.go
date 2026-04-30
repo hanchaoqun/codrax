@@ -310,16 +310,30 @@ type FileChange struct {
 	//   - "create": new file; NewContent is the full file body
 	//   - "modify": overwrite file; NewContent is the full file body
 	//   - "delete": remove the file; NewContent is ignored
-	//   - "patch":  B2 addition — apply unified diff in Patch field
+	//   - "patch":  apply unified diff in Patch field
+	//   - "rename": move file from Path to NewPath; NewContent ignored
+	//               (a follow-on modify entry can edit the file at its
+	//                new location). Git auto-detects the rename based
+	//                on content similarity, preserving blame / history.
 	Kind string `json:"kind"`
 
 	// NewContent is the full file body for create/modify. Empty for
-	// delete. Unset for patch (B2).
+	// delete / rename. Unset for patch.
 	NewContent string `json:"new_content,omitempty"`
 
-	// Patch is the unified-diff payload for kind="patch". B2
-	// addition; empty in B0 skeleton.
+	// Patch is the unified-diff payload for kind="patch".
 	Patch string `json:"patch,omitempty"`
+
+	// NewPath is the destination path for kind="rename". Repo-
+	// relative, must not collide with any existing file in the
+	// worktree or with another change's Path / NewPath. Empty for
+	// every other kind. Validation (emit_change_plan):
+	//  - rename requires NewPath non-empty
+	//  - the old Path must exist in the repo
+	//  - the new NewPath must not yet exist
+	//  - cross-change collision: NewPath cannot equal another
+	//    entry's Path OR NewPath
+	NewPath string `json:"new_path,omitempty"`
 
 	// Rationale is the planner's prose explanation for WHY this
 	// specific file needs this specific change. Rendered in the

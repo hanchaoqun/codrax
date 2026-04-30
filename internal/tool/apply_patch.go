@@ -117,7 +117,7 @@ func (t *ApplyPatch) Execute(ctx *types.BusContext, params json.RawMessage) (typ
 	kind := strings.TrimSpace(p.Kind)
 	if !isLegalChangeKind(kind) {
 		return errResult(t.Name(),
-			fmt.Sprintf("apply_patch rejected: illegal kind %q (must be create|modify|delete|patch)", kind)), nil
+			fmt.Sprintf("apply_patch rejected: illegal kind %q (must be create|modify|delete|patch|rename)", kind)), nil
 	}
 
 	// Plan must be installed on Mutable before apply stage runs.
@@ -305,6 +305,60 @@ func (t *ApplyPatch) Execute(ctx *types.BusContext, params json.RawMessage) (typ
 		} else if err := os.Remove(absPathCanonical); err != nil {
 			return errResult(t.Name(), fmt.Sprintf("apply_patch: remove %s: %v", path, err)), err
 		}
+	case "rename":
+		// rename: move Path → NewPath. Old path must exist; new path
+		// must not. Both are validated by emit_change_plan at plan
+		// time, but we re-check here in case the worktree drifted
+		// between plan emit and apply (warm-rewind retry can reset
+		// disk state).
+		newPathRaw := strings.TrimSpace(unit.NewPath)
+		if newPathRaw == "" {
+			return errResult(t.Name(),
+				fmt.Sprintf("apply_patch rejected: rename %q failed — new_path is empty", path)), nil
+		}
+		newPath := filepath.ToSlash(newPathRaw)
+		newPath = strings.TrimPrefix(newPath, "./")
+		newAbs := filepath.Join(ctx.RepoRoot, filepath.FromSlash(newPath))
+		newAbsCanonical, err := filepath.Abs(newAbs)
+		if err != nil {
+			return errResult(t.Name(),
+				fmt.Sprintf("apply_patch: resolve new_path %s: %v", newPath, err)), err
+		}
+		if rel, err := filepath.Rel(absRoot, newAbsCanonical); err != nil || strings.HasPrefix(rel, "..") {
+			return errResult(t.Name(),
+				fmt.Sprintf("apply_patch rejected: new_path %q escapes RepoRoot via traversal", newPath)), nil
+		}
+		if _, err := os.Stat(absPathCanonical); err != nil {
+			if os.IsNotExist(err) {
+				return errResult(t.Name(),
+					fmt.Sprintf("apply_patch rejected: rename %q failed — source file does not exist. "+
+						"Use kind=create to add a new file.", path)), nil
+			}
+			return errResult(t.Name(), fmt.Sprintf("apply_patch: stat %s: %v", path, err)), err
+		}
+		if _, err := os.Stat(newAbsCanonical); err == nil {
+			return errResult(t.Name(),
+				fmt.Sprintf("apply_patch rejected: rename %q → %q failed — destination already exists in worktree. "+
+					"Use kind=delete on the destination first if you mean to overwrite.", path, newPath)), nil
+		} else if !os.IsNotExist(err) {
+			return errResult(t.Name(), fmt.Sprintf("apply_patch: stat %s: %v", newPath, err)), err
+		}
+		if err := os.MkdirAll(filepath.Dir(newAbsCanonical), 0o755); err != nil {
+			return errResult(t.Name(), fmt.Sprintf("apply_patch: mkdir parent of %s: %v", newPath, err)), err
+		}
+		if err := os.Rename(absPathCanonical, newAbsCanonical); err != nil {
+			return errResult(t.Name(), fmt.Sprintf("apply_patch: rename %s → %s: %v", path, newPath, err)), err
+		}
+		// Mark BOTH paths applied so downstream W1b checks see
+		// dependents on either name as satisfied: a follow-on
+		// modify(NewPath) sees AppliedSet[NewPath]=true; an early
+		// downstream entry that named the old path also short-
+		// circuits the W1b check.
+		ctx.Mutable.WriteClosure().MarkApplied(path)
+		ctx.Mutable.WriteClosure().MarkApplied(newPath)
+		logging.Info("[apply_patch] rename %s → %s (worktree=%s)", path, newPath, ctx.RepoRoot)
+		return okResult(t.Name(),
+			fmt.Sprintf("apply_patch: rename %q → %q applied to worktree", path, newPath)), nil
 	default:
 		// Unreachable: isLegalChangeKind + patch branch above cover
 		// every enum value.
