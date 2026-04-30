@@ -108,30 +108,31 @@ cd /path/to/your/repo    # 任何 git 仓
 codrax
 ```
 
-看到这个就是启动成功了:
+看到这个就是启动成功了(每一行都是真实输出,版本号和路径会按你的环境替换):
 
 ```
    CODRAX  v0.1.x  git:main  /help · /exit
-   modes: read (write_enabled=false — /mode plan / apply / verify disabled) · /home/you/tools/codrax/codrax.yaml
+   modes: read (write_enabled=false — /mode plan / apply / verify 已禁用) · /home/you/tools/codrax/codrax.yaml
 
-❯❯
+[git:main]❯❯
 ```
 
-直接打你的问题、回车:
+提示符前会带 sticky 标签 `[git:<branch>]`,显示当前所在 git 分支(没在 git 仓里就不显示这一段)。
+
+直接打你的问题、回车。提交后,你打的内容会以 `> ...` 形式回显在分隔线下方,然后下方开始打印进度:
 
 ```
-❯❯ HiTraceAnalyzer 处理鸿蒙 trace 的流程是怎样的？
-```
+─────────────────────────────────────
+> 这个项目的入口函数在哪里?
+✓ 1/6 已理解问题 · 第 N 轮 · X 次工具调用 · 本 Ys · 总 Zs
+...
+✓ 已撰写最终答案
 
-codrax 会显示分析阶段的进度(spinner + 任务行),最后给出带引用的答案:
-
-```
-  ✓ 已生成最终答案
   │
-  │  HiTraceAnalyzer 通过三步处理 trace:
-  │  1. 解析(internal/perf/hitrace_parser.go:42)
-  │  2. 聚合(internal/perf/aggregator.go:88)
-  │  3. 渲染(internal/render/dock.go:144)
+  │  入口函数 main 定义在 cmd/<repo>/main.go;
+  │  它调用 cmd.Execute() 启动 cobra 命令树。
+  │  - cmd/<repo>/main.go:8
+  │  - cmd/root.go:42
   ...
 ```
 
@@ -140,7 +141,7 @@ codrax 会显示分析阶段的进度(spinner + 任务行),最后给出带引用
 ## 1.6 退出
 
 ```
-❯❯ /exit
+[git:main]❯❯ /exit
 ```
 
 或按两次 `Ctrl+C`。
@@ -157,47 +158,62 @@ codrax 会显示分析阶段的进度(spinner + 任务行),最后给出带引用
 | 一次性 / 脚本 | 单次 CLI | `codrax --request "你的问题"` 或 `codrax "你的问题"` |
 | 重定向到文件 | 单次 + 重定向 | `codrax -r "..." > answer.md` |
 
-REPL 可以多轮对话、附加日志、记住上下文;单次模式适合 CI 脚本、跑批、或你只问一次。两种模式答案输出格式一致,REPL 有进度动画 + 颜色,单次模式默认输出干净的纯文本(适合 pipe 到 markdown viewer)。
+REPL 可以多轮对话、附加日志、记住上下文;单次模式适合 CI 脚本、跑批、或你只问一次。两种模式答案内容一致,REPL 有进度动画 + 颜色,单次模式默认输出干净的纯文本(适合 pipe 到文件 / markdown viewer)。
 
-**示例**:
+**虚构示例**(任何项目都能套用,把 `Foo` / `bar.go` 替换成你的实际名字):
 
 ```bash
-# REPL
+# 启动 REPL
 codrax
 
-# 单次
-codrax --request "internal/repl/repl.go 里 dispatch 怎么决定走哪个 handler?"
+# 一次性问问题
+codrax --request "main 函数定义在哪个文件?"
+codrax -r "Foo 这个函数被哪些地方调用?"
+codrax -r "config.yaml 里 timeout 字段的默认值是多少?"
 
-# 单次 + 中文 / 英文切换
-codrax -r "what does dispatch do?" --lang en
+# 切英文
+codrax -r "what does Foo do?" --lang en
 
-# 默认仓和默认分支
-codrax --repo /path/to/repo --branch main
+# 把答案重定向到文件
+codrax -r "项目目录布局是怎样的?" > overview.md
+
+# 操作非当前目录的仓库
+codrax --repo /path/to/repo --branch dev -r "..."
 ```
+
+**REPL 里几种典型问法**(也是虚构例子):
+
+```
+[git:main]❯❯ Foo 在哪里定义?有多少个调用点?
+[git:main]❯❯ pkg/auth 这个包做什么?
+[git:main]❯❯ 帮我画一下 ParseRequest 的调用链
+[git:main]❯❯ config.yaml 里 timeout 有默认值吗?在代码里哪儿读?
+[git:main]❯❯ 这个仓库有哪些可执行入口?
+```
+
+每个问题答案都会带 `file:line` 引用,可以点击或复制去验证。
 
 ## 2.2 看懂界面
 
-启动后的屏幕大概长这样:
+启动后的屏幕(运行中的写模式 + git 仓库 + 几轮对话场景):
 
 ```
    CODRAX  v0.1.x  git:main  /help · /exit
-   modes: read (write_enabled=false — ...) · /home/you/.../codrax.yaml
-   memory · 5 turns / 12 索引
+   modes: read · plan · apply · verify (write_enabled=true) · /home/you/.../codrax.yaml
 
-[git:main] ❯❯ 你的问题
-→ analyze
+─────────────────────────────────────
+> 这个项目的入口函数在哪里?
+✓ 1/6 已理解问题 · 第 4 轮 · 2 次工具调用 · 本 7s · 总 8s
   💭 [analyzer-1] <think> ...                           ← LLM 实时推理摘要
-  ⠏ 调用工具中 ▸ grep "HiTraceAnalyzer"                ← 当前在跑哪个工具
-✓ analyze (5s, 3 次工具调用)
-→ probe · ...
-→ evidence · ...
-→ explore
-  💭 [explorer-1] <think> ...
-✓ 已生成最终答案
+  ⠏ 调用工具中 ▸ grep "func main"                       ← 当前在跑哪个工具
+…
+✓ 已撰写最终答案
 
   │
-  │  HiTraceAnalyzer 通过 3 步处理 trace:
-  │  1. 解析(internal/perf/hitrace_parser.go:42)
+  │  入口函数 main 定义在 cmd/<repo>/main.go;
+  │  它调用 cmd.Execute() 启动 cobra 命令树。
+  │  - cmd/<repo>/main.go:8
+  │  - cmd/root.go:42
   ...
 ```
 
@@ -205,38 +221,36 @@ codrax --repo /path/to/repo --branch main
 
 | 元素 | 含义 |
 |---|---|
-| `CODRAX  v0.1.x  git:main` | 版本 + 当前 git 分支 |
-| `modes:` 行 | 当前模式 + 配置文件路径(写模式开没开一目了然) |
-| `memory · …` | 多轮对话累计了多少回合 / 索引条目 |
-| `[git:main]` 前缀 | sticky 标签;还可能出现 `[mode:plan]`、`[log]`、`[trace]`、`[plan]`、`[mem!]`,提醒当前粘滞状态 |
-| `→ stage_name` | 进入某个流水线阶段 |
-| `💭 [agent-N]` | LLM 单次推理的简短摘要(默认开) |
-| `⠏ 调用工具中 ▸ ...` | 当前在执行哪个工具调用 |
-| `✓ stage (Xs, N 次工具调用)` | 阶段完成的成本汇总 |
+| `CODRAX  v0.1.x  git:main` | 版本 + 当前 git 分支(非 git 目录不显示 git:) |
+| `modes:` 行 | 当前可用模式 + 配置文件路径(`write_enabled` 开/关一目了然) |
+| `─────…` 分隔线 | 每轮请求开始前的视觉断点(在你的回显之上) |
+| `>` 开头(青色) | 你刚提交的请求的回显(保留多行 paste 内容) |
+| `[git:main]`、`[mode:plan]`、`[log]`、`[trace]`、`[plan]`、`[mem!]` | sticky 标签,提示当前粘滞状态(写模式 / 附加日志 / 待处理 plan / 记忆压力) |
+| `K/N <stage 中文标签>` | dock 顶部的"K/N 进度 + 当前阶段"。读模式 N=6,plan-only N=2,apply N=4,verify N=2 |
+| `💭 [agent-N]` | LLM 单次推理的一两句摘要(默认开) |
+| `⠏ ▸ ...` 调用工具中 | 当前在执行哪个工具调用 |
+| `· 第 N 轮 · M 次工具调用 · 本 Xs · 总 Ys` | 该阶段汇总:轮数 / 工具调用次数 / 当轮 / 总耗时 |
 | `│` 边框 | 围出最终答案,和过程性输出做视觉分割 |
-| `[chat]` / `[local]` / `[clarify]` 前缀 | 这一轮**没有**走完整的代码分析流水线(详见 3.3) |
+| `chat ·` / `local ·` / `clarify ·`(灰色) | 这一轮没走完整流水线;后跟简短说明(详见 3.3) |
 
 ## 2.3 多轮对话与"接着上轮换格式"
 
 REPL 自动记住最近若干轮的对话。多轮典型用法:
 
 ```
-❯❯ HiTraceAnalyzer 怎么处理 trace？
-[完整分析,~30s]
-✓ 已生成最终答案
+[git:main]❯❯ ParseConfig 怎么解析配置文件?
+✓ 已撰写最终答案
   │ 1. 解析 ... 2. 聚合 ... 3. 渲染 ...
 
-❯❯ 把上面换成 mermaid 流程图
-[local responder,~9s,不重读仓库]
-[local] reply built from the previous answer (no repo read).
+[git:main]❯❯ 把上面换成 mermaid 流程图
+  local · derived from previous answer, no repo read     ← 灰色单行徽标
   │ ```mermaid
   │ flowchart LR
   │   parse --> aggregate --> render
   │ ```
 
-❯❯ 重新读一下仓库,确认有没有 IO 分析这一步
-[完整分析,会再次读相关文件]
-✓ 已生成最终答案
+[git:main]❯❯ 重新读一下仓库,确认有没有 IO 分析这一步
+✓ 已撰写最终答案
   │ ...
 ```
 
@@ -295,9 +309,9 @@ codrax --log-text "$(cat panic.txt)" -r "..."
 REPL 里的等价做法:
 
 ```
-❯❯ /log /tmp/panic.txt
+[git:main]❯❯ /log /tmp/panic.txt
   ✓ 已附加日志:1234 字节
-[git:main][log] ❯❯ 这个 panic 哪来的
+[git:main][log]❯❯ 这个 panic 哪来的
 ```
 
 `[log]` sticky 标签会一直在,直到你主动 `/log clear`。
@@ -344,9 +358,9 @@ cat /tmp/atrace.txt | codrax --htrace - -r "..."
 REPL 里 `/htrace` 和 `/atrace` 是同义命令,子命令同 `/log`:
 
 ```
-❯❯ /htrace /tmp/htrace.txt
+[git:main]❯❯ /htrace /tmp/htrace.txt
   ✓ 已附加 trace
-[git:main][trace] ❯❯ 首页冷启动哪里耗时最长?
+[git:main][trace]❯❯ 首页冷启动哪里耗时最长?
 ```
 
 trace 的 size 上限独立于 log:`trace_attach_max_bytes`(默认 50 MiB)。
@@ -360,29 +374,24 @@ REPL 默认开了 `chitchat_classifier_enabled`,所以不需要手动 `/chat`,�
 显式 `/chat` 在以下场景有用:
 
 ```
-❯❯ /chat 你能干什么?
-[chat] chitchat reply (no repo analysis, no plan).
+[git:main]❯❯ /chat 你能干什么?
+  chat · 闲聊回复,未读仓库,未生成 plan         ← 灰色单行徽标
   │ 我是 CODRAX,...
-
-❯❯ /chat 还记得之前讨论过 OAuth 吗?
-[chat] ...
-[recall_memory tool 自动检索旧对话]
 ```
 
 `/chat` 路径**不读仓库、不调工具**,只复用对话记忆 + LLM 直接生成。
 
-**本地转换头 `[local]`**:当你说"换成 mermaid""换成表格""总结一下"时,codrax 走 local 路径,屏幕顶部会出现:
+**本地转换徽标 `local ·`**:当你说"换成 mermaid""换成表格""总结一下"时,屏幕顶部会出现一条灰色单行徽标。徽标有两种文案,根据回答的来源切换:
+
+| `policy.Source` | 徽标文案(zh) | 徽标文案(en) |
+|---|---|---|
+| `last_answer` | `local · 复用上一轮答案,未读仓库` | `local · derived from previous answer, no repo read` |
+| 其他(包括 `current_message`) | `local · 未读仓库,纯模型生成` | `local · no repo read, pure model output` |
+
+**澄清徽标 `clarify ·`**:第一轮就说"换成 mermaid"(没有上一轮答案可换),不会编造,而是打:
 
 ```
-  [local] reply built from the previous answer (no repo read). For fresh repo evidence, re-ask without the 'transform of the previous answer' framing.
-```
-
-这一行是给你的提示:这条回答**复用了上一轮答案**,如果你需要新证据,请去掉"换成 / 把上面"措辞重新提问。
-
-**澄清头 `[clarify]`**:第一轮就说"换成 mermaid"(没有上一轮答案可换),codrax 不会编造,而是打:
-
-```
-  [clarify] Your request looks like a follow-up to a previous answer ('换成 mermaid', 'turn the above into a table'), but this session has no prior answer to transform. Re-state the question directly...
+  clarify · 没有上一轮答案可复用 — 请直接描述你想问什么
 ```
 
 ## 3.4 记忆与会话
@@ -430,29 +439,37 @@ write_enabled: true
 
 ## 4.2 完整流程
 
-写模式分三步:**plan(产出改动方案)**、**apply(在 worktree 里执行)**、**verify(跑测试)**。REPL 友好流程:
+写模式分三步:**plan(产出改动方案)**、**apply(在 worktree 里执行)**、**verify(跑测试)**。REPL 实际流程:
 
 ### 第 1 步:`/mode plan`,描述要做的事
 
 ```
-❯❯ /mode plan
+[git:main]❯❯ /mode plan
   ✓ 已切换到 plan 模式
+  •   下一条请求会产生改动方案,不直接回答。
+  •   之后:/plan show 看 diff · /approve 落地 · /reject 丢弃 · /mode read 回读模式
 
-[git:main][mode:plan] ❯❯ 把 internal/foo/bar.go 里 ParseConfig 拆成两个函数,逻辑保持等价
-[plan agent 生成 ChangePlan,~1-3 分钟]
-✓ Plan 已就绪: plan-abc123 (3 处改动)。下一步:
-    /plan show         — 查看 diff
-    /plan list         — 列出所有 plan
-    /approve           — 在 worktree 内 apply + 跑测试
-    /approve --skip-verify — 仅 apply,跳过测试
-    /reject            — 丢弃本 plan
+[git:main][mode:plan]❯❯ 把 internal/foo/bar.go 里 ParseConfig 拆成两个函数,逻辑保持等价
+[planner 生成改动方案,~1-3 分钟]
+✓ 改动方案已就绪: plan-abc123 (3 处改动)。
+  /plan show · /approve · /approve --skip-verify · /reject · /mode read
 ```
+
+更多虚构的 plan 请求示例(任何项目都能套用):
+
+| 你想做的 | 一行写法 |
+|---|---|
+| 把一个长函数拆成两个 | `把 X 里 LongFn 拆成两个函数,逻辑保持等价` |
+| 给现有函数加参数 + 改调用点 | `给 Foo() 加一个可选 timeout 参数,所有调用点默认传 5s` |
+| 重命名一个对外符号 | `把 OldName 重命名为 NewName,同步改导出路径和文档` |
+| 加一个新文件 + 接入注册表 | `新增 internal/mcp/sftp.go,在 cmd/root.go 的 mcp 注册表里挂上` |
+| 改 yaml 默认值 | `把 codrax.yaml.example 里 pipeline_max_steps 默认值从 50 改成 80,加注释` |
 
 ### 第 2 步:`/plan show` 审 diff
 
 ```
-[git:main][mode:plan][plan] ❯❯ /plan show
-[per-file unified diff,带语法高亮 + 颜色]
+[git:main][mode:plan][plan]❯❯ /plan show
+[per-file unified diff,带颜色;每个文件独立段落]
 - Summary: 拆分 ParseConfig...
 - 文件 1/3: internal/foo/bar.go (modify, +24/-12)
 [diff body...]
@@ -461,7 +478,7 @@ write_enabled: true
 不满意:
 
 ```
-❯❯ /reject 拆得不够小
+[git:main][mode:plan][plan]❯❯ /reject 拆得不够小
   ✓ 已拒绝 plan plan-abc123 — 原因: 拆得不够小
 ```
 
@@ -470,25 +487,23 @@ write_enabled: true
 ### 第 3 步:`/approve` 落地
 
 ```
-❯❯ /approve
-  Approve plan plan-abc123 (3 changes)? Apply inside a git worktree + run verify.
+[git:main][mode:plan][plan]❯❯ /approve
+  是否批准 plan plan-abc123 (3 处改动)?将在 git worktree 中 apply + 跑 verify。
   > y
-[在 .codrax/worktrees/<plan-id>/ 里 git apply + run_tests]
-✓ apply 完成。验证测试...
-✓ verify 通过(go test ./...,5s)
-  apply complete. Next:
-    /mode read   — 切回读模式
-    /mode plan   — 再来一个改动
+[在 .codrax/worktrees/<plan-id>/ 里 git apply + 跑测试]
+✓ apply 完成,已自动切回 read 模式。继续改代码用 /mode plan。
 ```
+
+注意:批准成功后会**自动切回 read 模式**,你的下一句话默认是问代码,不是再开 plan。要继续改代码再 `/mode plan` 即可。
 
 `/approve` 自动:
 
 1. 创建临时 worktree(基于当前 branch)
-2. 在 worktree 里 `git apply` 每个 FileChange
-3. 自动检测 runner 跑测试(go / pytest / cargo / npm test / mvn / cmake / ...)
-4. 测试通过 → `ChangePlan.Status = applied`,失败 → `verify_failed`(可重试)
+2. 在 worktree 里 `git apply` 每个文件改动
+3. 自动检测 runner 跑测试(go / pytest / cargo / npm test / mvn / cmake / hvigor / cjpm / rspec / 等 12 种)
+4. 测试通过 → 标记 `applied`;失败 → 标记 `verify_failed`(可重试)
 
-> 测试失败时,`pipeline_write_retry_budget`(默认 3)允许 codrax 自动重新规划:把失败摘要喂回 plan agent,重 plan 再 apply 再 verify。**这一步不需要你手动操作**,直到重试预算耗尽或 verify 通过。
+> 测试失败时,`pipeline_write_retry_budget`(默认 3)允许自动重新规划:把失败摘要喂回 planner,重 plan 再 apply 再 verify。**这一步不用你手动操作**,直到重试预算耗尽或 verify 通过。
 
 特殊场景:
 
@@ -504,29 +519,53 @@ write_enabled: true
 `/approve` 通过后改动**只**在 worktree 里。要让它进主仓:
 
 ```
-❯❯ /merge --branch=feature/refactor-bar
-  Create branch feature/refactor-bar on main repo and cherry-pick 3 commit(s) onto it?
+[git:main]❯❯ /merge --branch=feature/refactor-bar
+  在主仓上拉新分支 feature/refactor-bar 并 cherry-pick 3 个 commit?
   > y
-  ✓ Branch feature/refactor-bar created on main repo with 3 cherry-picked commit(s).
-  Next: cd <main repo> && git push -u origin feature/refactor-bar, then open a PR.
+  ✓ 已在主仓创建分支 feature/refactor-bar,cherry-pick 3 个 commit。
+  下一步:cd <主仓> && git push -u origin feature/refactor-bar,然后开 PR。
+  已自动切回 read 模式 — 直接提问就行。再 /mode plan 进入 plan 模式即可继续改代码。
 ```
 
 | `/merge` 选项 | 行为 |
 |---|---|
 | (默认) | fast-forward 当前 branch 到 worktree 头 |
 | `--branch=<name>` | 在主仓拉新分支 + cherry-pick(标准 PR 流) |
-| `--include-failed` 或 `--force` | 把 verify_failed 的 plan 也纳入候选(适合环境/CI 类失败,你 review 后决定强合) |
+| `--include-failed` 或 `--force` | 把验证失败的 plan 也纳入候选(适合环境/CI 类失败,你 review 后决定强合) |
 
 > `/merge` 需要 yaml 里 `pipeline_keep_worktree_on_success: true`,否则 worktree 在 apply 完就清掉了。
 
+`/merge` 还会在主仓**只有 `.codrax/` 自身写入的文件**显示为 dirty 时,自动 `git rm --cached -r .codrax/` + 写入 `.gitignore` + 一次性 commit,然后再 merge。这意味着第一次 `git init && git add -A` 把 `.codrax/` 误纳入 git 的人不会被 /merge 拒绝。
+
 ## 4.4 失败排错
 
-apply 失败 → REPL 打印 `applied_failed`,worktree 保留以便 `/worktree list` 看冲突文件。可以:
-- `/mode plan` + 重新描述需求 + 提一下哪些步骤失败,plan agent 会通过 /history 看到本轮失败的摘要
-- `/reject` 弃掉重新规划
-- 把 worktree 路径打开手动调
+**apply 失败**(代码 patch 没打进去 / 写入冲突):
+- 屏幕会打印失败原因 + worktree 保留(`/worktree list` 可看)
+- 推荐做法:`/mode plan` + 把目标说更具体一点重发,planner 通过 `/history` 看到本轮失败摘要;或 `/reject` 弃掉这版重新规划
+- 也可以直接 `cd` 进 worktree 路径手工调,然后 `/worktree discard <plan-id>` 清掉
 
-verify 失败但 plan 自动重 plan 仍未通过(超出 `pipeline_write_retry_budget`)→ Plan 状态 `verify_failed`,下次 `/approve <plan-id>` 仍可重试(常见于环境/CI 抖动)。
+**verify 失败**(测试不过):
+- `pipeline_write_retry_budget`(默认 3)允许 planner 自动重新规划再 apply 再 verify;失败摘要会作为补丁提示喂回 planner
+- 重试用尽仍不过 → plan 标记为"验证失败"。下次 `/approve <plan-id>` 仍可重试(常见于环境/CI 类抖动)
+- 本地测试根本起不了(缺依赖、缺数据库等)→ `/approve --skip-verify` 跳过 verify,只 apply
+
+**plan 阶段返回文字回答而不是改动方案**(planner 觉得这是咨询性问题):
+- 屏幕打印一段二选一引导(咨询走 `/mode read`;真改代码就把目标说具体再发)
+- 直接选你需要的路径继续
+
+**目录还不是 git 仓库**(plan / apply 都需要 git 仓):
+- 屏幕打印**两种(plan 阶段)或三种(apply 阶段)授权方式**任选一种:
+  - 配置文件:在 `codrax.yaml` 设 `write_auto_init_repo: true`
+  - 命令行:启动加 `--auto-init-repo`
+  - apply 阶段额外:再次 `/approve` 时回 `y`(plan 阶段没有 y/N 提示,所以这个选项不在 plan 阶段列出)
+
+**模型反复卡住**(连续两次产不出可用方案):
+- 屏幕打印"模型重复给不出可用的方案。在 codrax.yaml 换路由,或换更强的模型再试"
+- 在 `providers.yaml` 把对应 agent(`planner` / `coder` / `verifier`)路由到更强的模型重试
+
+**新生成的代码缺第三方依赖**(运行时 `ModuleNotFoundError` / `npm ERR! missing` 等):
+- planner 已被要求在 `summary` 里显式列出新引入的第三方依赖 + 安装命令,**优先按那段提示装**
+- 如果 planner 漏了,直接把报错信息原样贴进 codrax(它会用 LLM 推断该装哪个包),或 `/mode read` 后问 "这个 ModuleNotFoundError 怎么修?"
 
 `/worktree list` / `/worktree discard <plan-id>` 管理保留的 worktree。
 
