@@ -700,14 +700,38 @@ func hybridRequestPrefix(directive, request string) string {
 
 // localReplyHeader marks a local-route reply so the user can tell
 // at a glance the answer came from the side LLM (no repo analysis,
-// no plan, no pipeline) — distinct from the chitchat header
-// because local replies are NOT casual chat: they're transformations
-// of a real prior answer.
-func localReplyHeader(lang string) string {
-	if isZh(lang) {
-		return "  [local] 复用上一轮答案的回复(未读仓库)。如需仓库新证据,请去掉 “换成/把上面的” 类措辞重新提问。"
+// no plan, no pipeline). Wording is chosen by the structural fact
+// `policy.Source` — claiming "复用上一轮答案" when the answer was
+// NOT actually derived from a previous turn was misleading
+// (customer-reported on a fresh "用 python 写一个俄罗斯方块"
+// request that the classifier mis-routed to local; the header
+// said "reuse previous answer" but the body was 500 lines of
+// freshly generated code).
+//
+// Two structural cases:
+//
+//	policy.Source == "last_answer"  → answer is genuinely derived
+//	                                  from the previous turn, the
+//	                                  "reuse" phrasing is true.
+//	otherwise                       → honest minimal banner that
+//	                                  states the route + caveat
+//	                                  without falsely claiming a
+//	                                  prior answer was used.
+//
+// The branch is on a single LLM-emitted field — no keyword table,
+// no operation-list enumeration.
+func localReplyHeader(lang string, policy TurnPolicy) string {
+	zh := isZh(lang)
+	if policy.Source == "last_answer" {
+		if zh {
+			return "  [local] 复用上一轮答案的回复(未读仓库)。如需仓库新证据,请去掉 “换成/把上面的” 类措辞重新提问。"
+		}
+		return "  [local] reply built from the previous answer (no repo read). For fresh repo evidence, re-ask without the 'transform of the previous answer' framing."
 	}
-	return "  [local] reply built from the previous answer (no repo read). For fresh repo evidence, re-ask without the 'transform of the previous answer' framing."
+	if zh {
+		return "  [local] 本地回复(未读仓库,纯模型生成)。如需读仓库取证,请明确提到具体文件 / 函数 / 行号重新提问。"
+	}
+	return "  [local] local reply (no repo read; pure model output). For repo-grounded evidence, re-ask naming a specific file / function / line."
 }
 
 // turnPolicyClarifyMessage is what the dispatcher prints when route

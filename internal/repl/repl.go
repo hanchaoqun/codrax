@@ -789,7 +789,7 @@ func (r *REPL) localDispatch(line, display string, policy TurnPolicy, lastAnswer
 
 	logging.Info("[repl/turn_policy] local reply (len=%d):\n%s", len(reply), reply)
 
-	fmt.Fprintln(r.out, localReplyHeader(r.language))
+	fmt.Fprintln(r.out, localReplyHeader(r.language, policy))
 	// Run mermaid → ASCII + glamour markdown styling before
 	// rendering. The pipeline path gets this via RenderResult; the
 	// local path used to bypass it, so the user saw raw ```mermaid```
