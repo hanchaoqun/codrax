@@ -1169,6 +1169,23 @@ func (o *Orchestrator) Run(request string, repoRoot string, branch string) (*typ
 		// retry-loop state that is per-task; clear it so a previous
 		// task's high-water mark cannot leak into this Run.
 		o.busCtx.Mutable.ResetBestPlanReport()
+		// Crash recovery (commit 6 P3 I2): if a prior Run on the
+		// same plan persisted a best (plan, report) pair to disk
+		// and the current Run is targeting that plan, seed the
+		// in-memory latch from the disk copy. Without this a
+		// process killed between iteration N's best-update and
+		// iteration N+1's apply would lose the high-water mark
+		// and surface iteration N+1's worse plan as the final
+		// answer. Failure to load is non-fatal — we just start
+		// with no latch, equivalent to pre-recovery behaviour.
+		if o.planPath != "" {
+			if bp, br, err := types.LoadBestPlanReportPair(o.planPath); err != nil {
+				logging.Warning("[orchestrator] best-plan disk recovery failed: %v (continuing without latch)", err)
+			} else if bp != nil && br != nil {
+				o.busCtx.Mutable.SetBestPlanReport(bp, br)
+				logging.Info("[orchestrator] best-plan restored from disk (plan=%s) — retry resumes from prior high-water mark", bp.ID)
+			}
+		}
 		// Now that the write graph is installed, emit
 		// EventAnalysisReady so the dock populates plan/apply/verify
 		// node rows. The corresponding read-mode emission was

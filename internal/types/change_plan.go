@@ -707,6 +707,93 @@ func WriteChangeReportToFile(report *ChangeReport, path string) error {
 	return nil
 }
 
+// bestPlanReportPair is the on-disk companion shape for the
+// best-known-good (plan, report) latch. Stored as a single JSON
+// object beside the plan file so a process crash mid-retry doesn't
+// drop the iteration history that drove the latch.
+type bestPlanReportPair struct {
+	Plan   *ChangePlan   `json:"plan"`
+	Report *ChangeReport `json:"report"`
+}
+
+// WriteBestPlanReportPair serialises the (plan, report) pair to
+// <plan-dir>/<plan-id>.best.json. Used by clearForReplan after the
+// best-known-good latch updates so that a process restart mid-
+// retry can recover the high-water mark via LoadBestPlanReportPair.
+//
+// Failure is non-fatal — the caller logs and continues; the
+// in-memory latch is still authoritative for the rest of the Run.
+// Persistence is "nice to have on crash recovery", not a hard
+// invariant.
+func WriteBestPlanReportPair(plan *ChangePlan, report *ChangeReport, planFilePath string) error {
+	planFilePath = strings.TrimSpace(planFilePath)
+	if planFilePath == "" {
+		return fmt.Errorf("WriteBestPlanReportPair: empty planFilePath")
+	}
+	if plan == nil || report == nil {
+		return fmt.Errorf("WriteBestPlanReportPair: nil plan or report")
+	}
+	planID := strings.TrimSpace(plan.ID)
+	if planID == "" {
+		return fmt.Errorf("WriteBestPlanReportPair: plan.ID empty")
+	}
+	dir := filepath.Dir(planFilePath)
+	bestPath := filepath.Join(dir, planID+".best.json")
+	pair := bestPlanReportPair{Plan: plan, Report: report}
+	data, err := json.MarshalIndent(pair, "", "  ")
+	if err != nil {
+		return fmt.Errorf("WriteBestPlanReportPair: marshal: %w", err)
+	}
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return fmt.Errorf("WriteBestPlanReportPair: mkdir %s: %w", dir, err)
+	}
+	tmp := bestPath + ".tmp"
+	if err := os.WriteFile(tmp, data, 0o644); err != nil {
+		return fmt.Errorf("WriteBestPlanReportPair: write %s: %w", tmp, err)
+	}
+	if err := os.Rename(tmp, bestPath); err != nil {
+		_ = os.Remove(tmp)
+		return fmt.Errorf("WriteBestPlanReportPair: rename %s: %w", tmp, err)
+	}
+	return nil
+}
+
+// LoadBestPlanReportPair reads the (plan, report) pair from
+// <plan-dir>/<plan-id>.best.json, returning (nil, nil, nil) when
+// the file does not exist (the typical case — no prior best
+// recorded). Returns a non-nil error only when the file exists
+// but cannot be parsed.
+//
+// Used at Run entry to seed Mutable.SetBestPlanReport on a
+// resumed retry cycle: a process killed between iteration N's
+// best-update and iteration N+1's apply would otherwise lose the
+// high-water mark and surface iteration N+1's worse plan as the
+// final answer (the eval Batch K forth-py regression that
+// motivated the latch in the first place).
+func LoadBestPlanReportPair(planFilePath string) (*ChangePlan, *ChangeReport, error) {
+	planFilePath = strings.TrimSpace(planFilePath)
+	if planFilePath == "" {
+		return nil, nil, nil
+	}
+	planID := strings.TrimSuffix(filepath.Base(planFilePath), ".json")
+	if planID == "" {
+		return nil, nil, nil
+	}
+	bestPath := filepath.Join(filepath.Dir(planFilePath), planID+".best.json")
+	data, err := os.ReadFile(bestPath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, nil, nil
+		}
+		return nil, nil, fmt.Errorf("LoadBestPlanReportPair: read %s: %w", bestPath, err)
+	}
+	var pair bestPlanReportPair
+	if err := json.Unmarshal(data, &pair); err != nil {
+		return nil, nil, fmt.Errorf("LoadBestPlanReportPair: unmarshal %s: %w", bestPath, err)
+	}
+	return pair.Plan, pair.Report, nil
+}
+
 // UpdatePlanStatusOnDisk reads the plan JSON at path, replaces
 // its Status (and optionally AppliedAt + WorktreePath), and
 // rewrites the file. Used by the apply stage hook / the verify stage hook to

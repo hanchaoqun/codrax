@@ -826,6 +826,16 @@ func clearForReplan(o *Orchestrator, attempt int) {
 		if o.currentIterCommitSHA != "" {
 			o.bestAppliedCommitSHA = o.currentIterCommitSHA
 		}
+		// Persist the new best to disk so a process crash mid-retry
+		// does not lose the high-water mark. <plan-dir>/<plan-id>.best.json.
+		// Failure is non-fatal — the in-memory latch is still
+		// authoritative for the rest of the Run; the disk copy is
+		// strictly for crash recovery on the next Run.
+		if o.busCtx.PlanPath != "" && bestPlan != nil && bestReport != nil {
+			if err := types.WriteBestPlanReportPair(bestPlan, bestReport, o.busCtx.PlanPath); err != nil {
+				logging.Warning("[orchestrator] best-plan disk persist failed: %v", err)
+			}
+		}
 	}
 
 	heuristicHint := buildRetryHintWithBest(prevReport, prevPlan, bestReport, bestPlan, attempt)
