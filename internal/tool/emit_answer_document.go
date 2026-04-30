@@ -1523,6 +1523,7 @@ func citationCorroborationStatus(claim, citeFile string, citeLine int, gc *groun
 	for _, tok := range tokens {
 		wanted[tok] = true
 	}
+	sawWindowLine := false
 	for line := citeLine - corroborationWindow; line <= citeLine+corroborationWindow; line++ {
 		if line <= 0 {
 			continue
@@ -1531,11 +1532,15 @@ func citationCorroborationStatus(claim, citeFile string, citeLine int, gc *groun
 		if !ok {
 			continue
 		}
+		sawWindowLine = true
 		for _, tok := range valueLiteralTokenRe.FindAllString(text, -1) {
 			if wanted[tok] {
 				return citationCorroborationCorroborated
 			}
 		}
+	}
+	if !sawWindowLine {
+		return citationCorroborationUnavailable
 	}
 	// Token-set route did not corroborate. For mixed-language claims
 	// — e.g. `value.literal "用户已存在 ProcessRequest"` cited at a line

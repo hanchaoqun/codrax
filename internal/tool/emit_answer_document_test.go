@@ -6778,6 +6778,34 @@ func TestEmitAnswerDocument_CodenameGate_StepDescriptionIsChecked(t *testing.T) 
 	}
 }
 
+func TestEmitAnswerDocument_StepLiteralGrounding_SkipsSparseUnreadCitationWindow(t *testing.T) {
+	tool := &EmitAnswerDocument{}
+	ctx := newDocBusCtx("")
+	// Seed the file into LineIndex, but only for a distant line. The
+	// cited window around 1119 is unread, so literal-grounding must
+	// degrade gracefully instead of treating the sparse index as a
+	// negative corroboration proof.
+	seedCitedLineWindow(ctx, "internal/agent/analyzer.go", 883, "func buildAnalysisIR(ctx *types.AgentContext) (*types.AnalysisIR, error) {")
+	params := mustDocJSON(t, map[string]interface{}{
+		"shape":   "step_list",
+		"summary": "deterministic chain",
+		"steps": []map[string]interface{}{
+			{
+				"index":        1,
+				"description": "`isMeasurementScalarRequest` 判断请求是否为计数型标量问题。",
+				"citation_ref": 0,
+			},
+		},
+		"citations": []map[string]interface{}{
+			{"file": "internal/agent/analyzer.go", "line": 1119},
+		},
+	})
+	res, _ := tool.Execute(ctx, params)
+	if !res.Success {
+		t.Fatalf("sparse unread citation windows must not falsely trigger literal grounding, got Success=false Summary=%q", res.Summary)
+	}
+}
+
 // TestEmitEvidence_CodenameGate_RejectsUngroundedLabel covers the
 // upstream hook: explorer-side emit_evidence items get the same check
 // against their own Source:[LineStart..LineEnd] window.
