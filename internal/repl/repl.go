@@ -1427,7 +1427,26 @@ func (r *REPL) dispatch(line, display string) {
 	}
 
 	response := strings.TrimSpace(r.render(busCtx))
-	logging.Info("[repl] final answer:\n%s", response)
+	// Log fidelity: INFO captures the agent's raw markdown so a
+	// later audit reads cleanly without ANSI escapes (the rendered
+	// `response` carries dozens of \x1b[...m sequences from glamour
+	// that turn the log into noise). The rendered version is still
+	// available at DEBUG for users who want to see what landed on
+	// the user's terminal verbatim.
+	rawMarkdown := ""
+	if busCtx != nil && busCtx.Mutable != nil {
+		rawMarkdown = strings.TrimSpace(busCtx.Mutable.Result())
+	}
+	if rawMarkdown != "" {
+		logging.Info("[repl] final answer (len=%d):\n%s", len(rawMarkdown), rawMarkdown)
+	} else {
+		// Pipeline returned without a Mutable.Result (error path or
+		// empty). Fall back to the rendered string so the log line
+		// at INFO level is never silent — users still see SOMETHING
+		// at the default level.
+		logging.Info("[repl] final answer (rendered, no raw available):\n%s", response)
+	}
+	logging.Debug("[repl] final answer (rendered for terminal):\n%s", response)
 
 	// Decide what to persist in memory. When the pipeline ended with
 	// a TaskState.LastError, the rendered response includes an

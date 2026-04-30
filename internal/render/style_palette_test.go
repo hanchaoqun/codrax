@@ -5,20 +5,20 @@ import (
 	"testing"
 )
 
-// TestStylePalette_DarkHeadingHierarchy locks the H1-H6 brightness
-// gradient so a regression doesn't collapse the hierarchy back to
-// "every level the same color". H1 = pure white, H2-H4 = bright/
-// light/mid cyan-blue, H5/H6 = readable greys. The 2026-04-30
-// brightening fixed user feedback that H3/H4 was too dim.
+// TestStylePalette_DarkHeadingHierarchy locks the H1-H6 ladder
+// after the 2026-04-30 redesign: blue at H1/H2, then pure gray-
+// scale gradient. The "color → gray" shift is what gives the eye
+// an immediate sense of hierarchy without four similar shades of
+// blue/cyan competing.
 func TestStylePalette_DarkHeadingHierarchy(t *testing.T) {
 	cfg := buildDarkPalette()
 	want := map[string]string{
 		"H1": "15",
-		"H2": "51",
-		"H3": "117",
-		"H4": "75",
-		"H5": "250",
-		"H6": "245",
+		"H2": "39",
+		"H3": "252",
+		"H4": "245",
+		"H5": "240",
+		"H6": "238",
 	}
 	got := map[string]*string{
 		"H1": cfg.H1.Color,
@@ -33,7 +33,12 @@ func TestStylePalette_DarkHeadingHierarchy(t *testing.T) {
 			t.Errorf("%s color = %v, want %s", level, deref(got[level]), expected)
 		}
 	}
-	// H1-H4 bold; H5 + H6 italic, not bold (visually retreated).
+	// Heading family fallback aligns with H4 (mid gray) so unexpected
+	// H7+ degrades into the gray ladder rather than jumping back to a
+	// saturated color.
+	if cfg.Heading.Color == nil || *cfg.Heading.Color != "245" {
+		t.Errorf("Heading.Color = %v, want 245 (mid gray fallback)", deref(cfg.Heading.Color))
+	}
 	for _, level := range []struct {
 		name string
 		bold *bool
@@ -53,8 +58,6 @@ func TestStylePalette_DarkHeadingHierarchy(t *testing.T) {
 	if cfg.H6.Bold == nil || *cfg.H6.Bold {
 		t.Errorf("H6 must be non-bold; got %v", cfg.H6.Bold)
 	}
-	// Italics intentionally disabled per user feedback — heading
-	// hierarchy expressed via colour alone, not weight or slant.
 	if cfg.H5.Italic == nil || *cfg.H5.Italic {
 		t.Errorf("H5 must NOT be italic (color-only hierarchy); got %v", cfg.H5.Italic)
 	}
@@ -87,21 +90,16 @@ func TestStylePalette_NoBackgroundColors(t *testing.T) {
 	}
 }
 
-// TestStylePalette_DarkHueDiscipline pins the hue-discipline rules:
-// red is reserved for diagnostics + diff-deleted; operators are
-// neutral grey; built-ins are yellow (not pink/red). Each rule
-// closes a specific failure mode in the pre-2026-04-29 palette.
-func TestStylePalette_DarkHueDiscipline(t *testing.T) {
+// TestStylePalette_DarkChromaHueDiscipline pins the chroma fenced-
+// code rules: red is reserved for diagnostics + diff-deleted;
+// operators are neutral grey; built-ins are yellow (not pink/red).
+// Each rule closes a specific failure mode in the pre-2026-04-29
+// palette.
+func TestStylePalette_DarkChromaHueDiscipline(t *testing.T) {
 	cfg := buildDarkPalette()
 	chroma := cfg.CodeBlock.Chroma
 	if chroma == nil {
 		t.Fatal("Chroma must be non-nil")
-	}
-	// Operator must NOT be in the warm-red family (the pre-fix
-	// #EF8080 made every `=` look like a diff removal). #909090 grey
-	// is the canonical neutral.
-	if chroma.Operator.Color == nil {
-		t.Fatal("operator must have an explicit color")
 	}
 	op := *chroma.Operator.Color
 	for _, banned := range []string{"#FF", "#EF", "#FD"} {
@@ -109,33 +107,187 @@ func TestStylePalette_DarkHueDiscipline(t *testing.T) {
 			t.Errorf("operator color %s is in the warm-red family — must be neutral grey", op)
 		}
 	}
-	// NameBuiltin must NOT be pink/red; yellow is the rule.
-	if chroma.NameBuiltin.Color == nil {
-		t.Fatal("name.builtin must have an explicit color")
-	}
 	nb := strings.ToLower(*chroma.NameBuiltin.Color)
 	if strings.HasPrefix(nb, "#ff5") || strings.HasPrefix(nb, "#ff8") || strings.HasPrefix(nb, "#ef") {
 		t.Errorf("name.builtin %s is in the warm-red family", nb)
-	}
-	// generic.deleted must remain red — diff semantics depend on it.
-	if chroma.GenericDeleted.Color == nil {
-		t.Fatal("generic.deleted must have an explicit color")
 	}
 	gd := strings.ToLower(*chroma.GenericDeleted.Color)
 	if !strings.HasPrefix(gd, "#ff") && !strings.HasPrefix(gd, "#fd") &&
 		!strings.HasPrefix(gd, "#cf") {
 		t.Errorf("generic.deleted %s — diff red is load-bearing, must be red family", gd)
 	}
-	// generic.inserted must remain green — diff semantics ditto.
-	// Accept any hex colour where the green channel dominates (or at
-	// least matches) red and blue, so a soft mint like #87d7af passes
-	// the same family check as a pure green like #50fa7b.
-	if chroma.GenericInserted.Color == nil {
-		t.Fatal("generic.inserted must have an explicit color")
-	}
 	gi := strings.ToLower(*chroma.GenericInserted.Color)
 	if !isGreenFamily(gi) {
 		t.Errorf("generic.inserted %s — diff green is load-bearing, must be green family", gi)
+	}
+}
+
+// TestStylePalette_DarkInlineFamilies locks the four family
+// assignments after the 2026-04-30 redesign:
+//   blue    39  — Link, LinkText, Item, Enumeration   (interactive)
+//   amber  215  — Code (inline), BlockQuote           (literal/quoted)
+//   gray   238/240/252  — HR, Strikethrough, Emph     (structure)
+//   white   15  — Strong, H1                          (max contrast)
+//
+// Each element is asserted against its expected family color so a
+// regression that flips one back into the old "everything is cyan"
+// world is caught at test time.
+func TestStylePalette_DarkInlineFamilies(t *testing.T) {
+	cfg := buildDarkPalette()
+	tests := []struct {
+		name string
+		got  *string
+		want string
+	}{
+		{"Code (inline)", cfg.Code.Color, "215"},
+		{"BlockQuote", cfg.BlockQuote.Color, "222"},
+		{"Link", cfg.Link.Color, "39"},
+		{"LinkText", cfg.LinkText.Color, "39"},
+		{"Item", cfg.Item.Color, "39"},
+		{"Enumeration", cfg.Enumeration.Color, "39"},
+		{"Strong", cfg.Strong.Color, "15"},
+		{"Emph", cfg.Emph.Color, "252"},
+		{"Strikethrough", cfg.Strikethrough.Color, "240"},
+		{"HorizontalRule", cfg.HorizontalRule.Color, "238"},
+		{"Table grid", cfg.Table.StyleBlock.StylePrimitive.Color, "238"},
+	}
+	for _, tt := range tests {
+		if tt.got == nil {
+			t.Errorf("%s: missing explicit color, want %s", tt.name, tt.want)
+			continue
+		}
+		if *tt.got != tt.want {
+			t.Errorf("%s color = %s, want %s", tt.name, *tt.got, tt.want)
+		}
+	}
+	// Strong must be bold (the "carry the signal via attribute, not
+	// color" contract); explicit color 15 + bold = pure white bold.
+	if cfg.Strong.Bold == nil || !*cfg.Strong.Bold {
+		t.Errorf("Strong must be bold; got %v", cfg.Strong.Bold)
+	}
+	// Emph must be italic (italic IS the signal).
+	if cfg.Emph.Italic == nil || !*cfg.Emph.Italic {
+		t.Errorf("Emph must be italic; got %v", cfg.Emph.Italic)
+	}
+	// Strikethrough must have CrossedOut attribute — color alone
+	// would not communicate the deletion intent.
+	if cfg.Strikethrough.CrossedOut == nil || !*cfg.Strikethrough.CrossedOut {
+		t.Errorf("Strikethrough must have CrossedOut=true; got %v", cfg.Strikethrough.CrossedOut)
+	}
+	// Link / LinkText must underline (Web/IDE contract: blue +
+	// underline = clickable). Without underline the blue alone
+	// would visually merge with list bullets and lose the link
+	// affordance.
+	if cfg.Link.Underline == nil || !*cfg.Link.Underline {
+		t.Errorf("Link must underline; got %v", cfg.Link.Underline)
+	}
+	if cfg.LinkText.Underline == nil || !*cfg.LinkText.Underline {
+		t.Errorf("LinkText must underline; got %v", cfg.LinkText.Underline)
+	}
+}
+
+// TestStylePalette_DarkTaskGlyphs verifies the task list checkbox
+// glyphs render as styled UTF-8 brackets. The pre-redesign palette
+// did not set Task at all so glamour's default `[X] / [ ]` literal
+// leaked through; the redesign sets explicit `[✓] / [ ]` so checked
+// vs unchecked reads at a glance.
+func TestStylePalette_DarkTaskGlyphs(t *testing.T) {
+	cfg := buildDarkPalette()
+	if cfg.Task.Ticked != "[✓]" {
+		t.Errorf("Task.Ticked = %q, want %q", cfg.Task.Ticked, "[✓]")
+	}
+	if cfg.Task.Unticked != "[ ]" {
+		t.Errorf("Task.Unticked = %q, want %q", cfg.Task.Unticked, "[ ]")
+	}
+}
+
+// TestStylePalette_DarkTextFallbackUnset locks the "terminal owns
+// the foreground" red line: cfg.Text.Color MUST stay nil so the
+// user's terminal theme dictates default prose color. Pinning
+// Text.Color would override solarized / one-dark / custom themes.
+func TestStylePalette_DarkTextFallbackUnset(t *testing.T) {
+	cfg := buildDarkPalette()
+	if cfg.Text.Color != nil {
+		t.Errorf("Text.Color must remain nil so terminal theme owns the foreground; got %s", *cfg.Text.Color)
+	}
+}
+
+// TestStylePalette_NoColorCollisions guards the load-bearing
+// invariant after the redesign: Strong vs H3, inline Code vs any
+// heading, BlockQuote vs Code (different family), Item vs Emph
+// (different family) — none of these may share a color or the eye
+// loses the ability to distinguish them.
+func TestStylePalette_NoColorCollisions(t *testing.T) {
+	cfg := buildDarkPalette()
+	pairs := []struct {
+		a, b   string
+		ac, bc *string
+	}{
+		{"Strong", "H3", cfg.Strong.Color, cfg.H3.Color},
+		{"Strong", "H4", cfg.Strong.Color, cfg.H4.Color},
+		{"Code", "H2", cfg.Code.Color, cfg.H2.Color},
+		{"Code", "H3", cfg.Code.Color, cfg.H3.Color},
+		{"Code", "Item", cfg.Code.Color, cfg.Item.Color},
+		{"BlockQuote", "Code", cfg.BlockQuote.Color, cfg.Code.Color},
+		{"BlockQuote", "H2", cfg.BlockQuote.Color, cfg.H2.Color},
+		{"Item", "Emph", cfg.Item.Color, cfg.Emph.Color},
+		// HorizontalRule (238) intentionally MAY share its dim-gray
+		// with H6 (238): HR is a line of dashes and H6 is text, so
+		// the color collision does not produce visual ambiguity. Keep
+		// them in the same "deepest structural" cohort.
+	}
+	for _, p := range pairs {
+		if p.ac == nil || p.bc == nil {
+			continue
+		}
+		if *p.ac == *p.bc {
+			t.Errorf("color collision: %s and %s both = %s — must differ for visual hierarchy",
+				p.a, p.b, *p.ac)
+		}
+	}
+}
+
+// TestStylePalette_LightMirrorsDarkStructure verifies the light
+// palette is a deliberate mirror — every override the dark palette
+// performs has a light counterpart, so a user toggling background
+// detection doesn't lose curation.
+func TestStylePalette_LightMirrorsDarkStructure(t *testing.T) {
+	cfg := buildLightPalette()
+	for _, level := range []struct {
+		name string
+		c    *string
+	}{
+		{"H1", cfg.H1.Color},
+		{"H2", cfg.H2.Color},
+		{"H3", cfg.H3.Color},
+		{"H4", cfg.H4.Color},
+		{"H5", cfg.H5.Color},
+		{"H6", cfg.H6.Color},
+		{"Heading fallback", cfg.Heading.Color},
+		{"Code", cfg.Code.Color},
+		{"HR", cfg.HorizontalRule.Color},
+		{"Link", cfg.Link.Color},
+		{"LinkText", cfg.LinkText.Color},
+		{"BlockQuote", cfg.BlockQuote.Color},
+		{"Strong", cfg.Strong.Color},
+		{"Emph", cfg.Emph.Color},
+		{"Strikethrough", cfg.Strikethrough.Color},
+		{"Item", cfg.Item.Color},
+		{"Enumeration", cfg.Enumeration.Color},
+		{"Table grid", cfg.Table.StyleBlock.StylePrimitive.Color},
+	} {
+		if level.c == nil {
+			t.Errorf("light palette: %s missing explicit colour (mirror with dark)", level.name)
+		}
+	}
+	if cfg.Strikethrough.CrossedOut == nil || !*cfg.Strikethrough.CrossedOut {
+		t.Errorf("light palette: Strikethrough must have CrossedOut=true")
+	}
+	if cfg.Link.Underline == nil || !*cfg.Link.Underline {
+		t.Errorf("light palette: Link must underline")
+	}
+	if cfg.Text.Color != nil {
+		t.Errorf("light palette: Text.Color must remain nil; got %s", *cfg.Text.Color)
 	}
 }
 
@@ -174,54 +326,6 @@ func parseHexByte(s string) (int, bool) {
 		}
 	}
 	return v, true
-}
-
-// TestStylePalette_DarkInlineCodeAndLinksMatch confirms the cohort
-// rule: link text uses the same hue family as inline code so a link
-// reads as "interactive code reference" rather than a different kind
-// of element.
-func TestStylePalette_DarkInlineCodeAndLinksMatch(t *testing.T) {
-	cfg := buildDarkPalette()
-	if cfg.Code.Color == nil || cfg.LinkText.Color == nil {
-		t.Fatal("inline code and link text must both have explicit colors")
-	}
-	if *cfg.Code.Color != *cfg.LinkText.Color {
-		t.Errorf("link text (%s) and inline code (%s) should share a colour for cohort cohesion",
-			*cfg.LinkText.Color, *cfg.Code.Color)
-	}
-}
-
-// TestStylePalette_LightMirrorsDarkStructure verifies the light
-// palette is a deliberate mirror — every override the dark palette
-// performs has a light counterpart, so a user toggling background
-// detection doesn't lose curation.
-func TestStylePalette_LightMirrorsDarkStructure(t *testing.T) {
-	cfg := buildLightPalette()
-	for _, level := range []struct {
-		name string
-		c    *string
-	}{
-		{"H1", cfg.H1.Color},
-		{"H2", cfg.H2.Color},
-		{"H3", cfg.H3.Color},
-		{"H4", cfg.H4.Color},
-		{"H5", cfg.H5.Color},
-		{"H6", cfg.H6.Color},
-		{"Code", cfg.Code.Color},
-		{"HR", cfg.HorizontalRule.Color},
-		{"Link", cfg.Link.Color},
-		{"LinkText", cfg.LinkText.Color},
-		{"BlockQuote", cfg.BlockQuote.Color},
-	} {
-		if level.c == nil {
-			t.Errorf("light palette: %s missing explicit colour (mirror with dark)", level.name)
-		}
-	}
-	if cfg.CodeBlock.Chroma == nil ||
-		cfg.CodeBlock.Chroma.Operator.Color == nil ||
-		cfg.CodeBlock.Chroma.NameBuiltin.Color == nil {
-		t.Errorf("light palette: chroma operator + name.builtin must have explicit colours")
-	}
 }
 
 // deref pulls a *string into its value or "<nil>" for cleaner

@@ -3200,7 +3200,15 @@ func (o *Orchestrator) recordTaskFinalize(out *agent.StageOutput) {
 		answer = out.FinalAnswer
 	}
 	o.busCtx.Mutable.SetResult(answer)
-	logging.Debug("[orchestrator] final answer (len=%d):\n%s\n---", len(answer), answer)
+	// INFO (post-2026-04-30): default log level captures the agent-
+	// emitted raw markdown so post-run audit can find the answer
+	// without enabling DEBUG. Pre-fix this was DEBUG, which meant
+	// the only INFO-level record of the final answer was the REPL/
+	// single-shot dispatch's own log line; if those changed shape
+	// or got truncated, the orchestrator-level record was silently
+	// invisible. Promotion is cheap (final answer is one log entry
+	// per Run, ≤ 30 KB typical, no rotation impact).
+	logging.Info("[orchestrator] final answer (len=%d):\n%s\n---", len(answer), answer)
 
 	o.emit(render.Event{
 		Kind:      render.EventObjectiveDone,

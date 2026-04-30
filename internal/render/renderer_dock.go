@@ -8,6 +8,8 @@ import (
 	"strings"
 	"time"
 	"unicode/utf8"
+
+	"github.com/hanchaoqun/codrax/internal/logging"
 )
 
 // dockTickInterval is the animation refresh cadence. 100 ms is the
@@ -400,11 +402,17 @@ func (r *Renderer) dockHandlePreviewClear(ev Event) {
 // commitLineLocked commits a single fully-styled scrollback line.
 // Nil-safe: when no dock is attached (test fixtures, non-TTY runs)
 // the call is a silent no-op so state-mutation paths can call it
-// unconditionally.
+// unconditionally. Mirrors the line (ANSI-stripped) to logging.Info
+// so a post-run audit of the log file reads back the same screen
+// timeline the user saw.
 //
 // Caller MUST hold r.mu.
 func (r *Renderer) commitLineLocked(line string) {
-	if line == "" || r.dock == nil {
+	if line == "" {
+		return
+	}
+	mirrorDockLineToLog(line)
+	if r.dock == nil {
 		return
 	}
 	rows := r.composeCurrentDockRows()
@@ -413,15 +421,57 @@ func (r *Renderer) commitLineLocked(line string) {
 
 // commitMultilineLocked commits a multi-line scrollback batch in
 // one paintDock cycle. body MAY contain its own '\n' separators.
-// Nil-safe (see commitLineLocked).
+// Nil-safe (see commitLineLocked). Each line is independently
+// mirrored to logging.Info with ANSI stripped so the log carries
+// the structured block (sub-topic enumeration, multi-line notices)
+// in readable form.
 //
 // Caller MUST hold r.mu.
 func (r *Renderer) commitMultilineLocked(body string) {
-	if body == "" || r.dock == nil {
+	if body == "" {
+		return
+	}
+	mirrorDockBlockToLog(body)
+	if r.dock == nil {
 		return
 	}
 	rows := r.composeCurrentDockRows()
 	r.dock.commitToScrollback(body, rows)
+}
+
+// mirrorDockLineToLog writes one ANSI-stripped scrollback line to
+// the INFO log. Empty / whitespace-only lines are skipped so the
+// log doesn't accumulate blank rows from layout padding.
+func mirrorDockLineToLog(line string) {
+	plain := strings.TrimRight(stripDockAnsi(line), "\n")
+	plain = strings.TrimRight(plain, " ")
+	if strings.TrimSpace(plain) == "" {
+		return
+	}
+	logging.Info("[render] %s", plain)
+}
+
+// mirrorDockBlockToLog writes a multi-line block by splitting on
+// '\n' and mirroring each non-empty row. Used by sub-topic
+// enumeration + analyze-done batch commits where one
+// commitToScrollback call carries N lines.
+func mirrorDockBlockToLog(body string) {
+	for _, raw := range strings.Split(body, "\n") {
+		mirrorDockLineToLog(raw)
+	}
+}
+
+// dockAnsiPattern matches ANSI CSI sequences for the strip-to-log
+// helper. Distinct from reAnsi because we want a tighter regex
+// scoped to the dock log path; reAnsi is shared with the truncator
+// and might evolve independently.
+var dockAnsiPattern = regexp.MustCompile(`\x1b\[[0-9;?]*[A-Za-z]`)
+
+// stripDockAnsi removes ANSI CSI sequences so the mirrored log
+// line reads as plain text. Operates on the rune-level so multi-
+// byte CJK content (sub-topic objectives, stage labels) survives.
+func stripDockAnsi(s string) string {
+	return dockAnsiPattern.ReplaceAllString(s, "")
 }
 
 // commitStageDoneLocked formats and commits the durable stage-done
@@ -691,47 +741,63 @@ func (r *Renderer) countTopicSiblings() int {
 }
 
 // handleEventNonTTY handles events when the dock is disabled (non-
-// TTY stdout, --log-stdout in TTY mode, etc.). Each event maps to at
-// most one Println-style line so CI logs and piped output remain
-// readable. Cuts down to the load-bearing lines: stage start/end +
-// task-node start/end + reasoning + sub-topic enumeration + retry +
-// fallback + final summary.
+// TTY stdout, --log-stdout in TTY mode, etc.). Each event maps to
+// at most one Println-style line so CI logs and piped output remain
+// readable, and each line is mirrored to logging.Info so a post-run
+// audit can replay the event timeline from the log file alone.
+//
+// emitNonTTYLine is the central writer: it prints to stdout AND
+// mirrors to INFO log. Both writes carry the same plain-text body
+// (no ANSI escapes either side, since the non-TTY path never
+// styles).
 func (r *Renderer) handleEventNonTTY(ev Event) {
-	w := os.Stdout
 	switch ev.Kind {
 	case EventObjectiveStarted:
 		if ev.Objective != "" && r.objective == "" {
 			r.objective = ev.Objective
-			fmt.Fprintf(w, "❯ %s\n", ev.Objective)
+			emitNonTTYLine(fmt.Sprintf("❯ %s", ev.Objective))
 		}
 	case EventStageStart:
-		fmt.Fprintf(w, "→ %s\n", string(ev.Stage))
+		emitNonTTYLine(fmt.Sprintf("→ %s", string(ev.Stage)))
 	case EventStageEnd:
 		if ev.Error != "" {
-			fmt.Fprintf(w, "✗ %s · %s\n", string(ev.Stage), ev.Error)
+			emitNonTTYLine(fmt.Sprintf("✗ %s · %s", string(ev.Stage), ev.Error))
 		} else {
-			fmt.Fprintf(w, "✓ %s\n", string(ev.Stage))
+			emitNonTTYLine(fmt.Sprintf("✓ %s", string(ev.Stage)))
 		}
 	case EventTaskNodeStart:
-		fmt.Fprintf(w, "→ %s · %s\n", ev.NodeKind, ev.NodeObjective)
+		emitNonTTYLine(fmt.Sprintf("→ %s · %s", ev.NodeKind, ev.NodeObjective))
 	case EventTaskNodeEnd:
 		if ev.Error != "" {
-			fmt.Fprintf(w, "✗ %s · %s\n", ev.NodeKind, ev.Error)
+			emitNonTTYLine(fmt.Sprintf("✗ %s · %s", ev.NodeKind, ev.Error))
 		} else {
-			fmt.Fprintf(w, "✓ %s\n", ev.NodeKind)
+			emitNonTTYLine(fmt.Sprintf("✓ %s", ev.NodeKind))
 		}
 	case EventAnalysisReady:
-		// Use the same formatter as TTY mode so logs read identically.
 		if block := formatSubTopicsBlock(r.lang, ev.TaskNodes); block != "" {
-			fmt.Fprint(w, block)
+			fmt.Fprint(os.Stdout, block)
+			mirrorDockBlockToLog(block)
 		}
 	case EventAgentReasoning:
-		fmt.Fprintln(w, formatReasoning(string(ev.Agent), ev.Iteration, ev.Reasoning))
+		emitNonTTYLine(formatReasoning(string(ev.Agent), ev.Iteration, ev.Reasoning))
 	case EventAdapterRetry:
-		fmt.Fprintf(w, "⟳ retry #%d in %v · %s\n", ev.RetryAttempt, ev.RetryDelay, ev.RetryReason)
+		emitNonTTYLine(fmt.Sprintf("⟳ retry #%d in %v · %s",
+			ev.RetryAttempt, ev.RetryDelay, ev.RetryReason))
 	case EventAdapterFallback:
-		fmt.Fprintf(w, "⟳ fallback %s → %s · %s\n", ev.FallbackFrom, ev.FallbackTo, ev.RetryReason)
+		emitNonTTYLine(fmt.Sprintf("⟳ fallback %s → %s · %s",
+			ev.FallbackFrom, ev.FallbackTo, ev.RetryReason))
 	}
+}
+
+// emitNonTTYLine writes a single line to stdout AND mirrors it to
+// the INFO log so non-TTY runs still produce a complete audit
+// trail without the operator having to scrape stdout.
+func emitNonTTYLine(line string) {
+	if line == "" {
+		return
+	}
+	fmt.Fprintln(os.Stdout, line)
+	mirrorDockLineToLog(line)
 }
 
 // commitDockShutdownLocked prints the closing run-summary line and

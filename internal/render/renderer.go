@@ -387,37 +387,55 @@ func codraxStyleConfig() ansi.StyleConfig {
 func applyHeadingHierarchy(cfg *ansi.StyleConfig, dark bool) {
 	cfg.H1.BackgroundColor = nil
 	if dark {
+		// New ladder (post-2026-04-30 redesign): two saturated blues
+		// at the top, then pure gray-scale gradient for H3-H6. The
+		// "color → gray" shift is what gives the eye an immediate
+		// sense of hierarchy without using six different hues. Same
+		// principle glow / GitHub-web / Solarized all converged on:
+		// brightness, not hue saturation, signals heading depth.
+		//
+		// 15  — pure white #ffffff       (H1: title, neutral)
+		// 39  — DodgerBlue #00afff        (H2: dominant section)
+		// 252 — light gray #d0d0d0        (H3: subsection, "step down")
+		// 245 — mid gray #8a8a8a          (H4: minor heading)
+		// 240 — darker gray #585858       (H5: support structure)
+		// 238 — deep gray #444444         (H6: bottommost)
+		//
+		// H1 stays white — it's the only "title" tier and benefits
+		// from neutral max contrast. H2 is the only saturated
+		// non-white in the ladder; once past H2 we transition fully
+		// to gray so eye does not have to discriminate among four
+		// blue/cyan shades the way the pre-2026-04-30 ladder forced.
 		cfg.H1.Color = strPtr("15")  // pure white
-		cfg.H2.Color = strPtr("51")  // bright cyan #00ffff
-		cfg.H3.Color = strPtr("117") // light cyan #87d7ff (matches inline code)
-		cfg.H4.Color = strPtr("75")  // mid blue #5fafff
-		cfg.H5.Color = strPtr("250") // light grey #bcbcbc — readable, not loud
-		cfg.H6.Color = strPtr("245") // mid grey #8a8a8a
-		// Heading.Color cascades into any H without its own Color;
-		// keep light cyan as the family default for unexpected H levels.
-		cfg.Heading.Color = strPtr("117")
+		cfg.H2.Color = strPtr("39")  // DodgerBlue #00afff
+		cfg.H3.Color = strPtr("252") // light gray #d0d0d0
+		cfg.H4.Color = strPtr("245") // mid gray #8a8a8a
+		cfg.H5.Color = strPtr("240") // darker gray #585858
+		cfg.H6.Color = strPtr("238") // deep gray #444444
+		// Heading.Color is the cascade fallback for any H level
+		// without its own Color; align with H4 (mid gray) so an
+		// unexpected H7+ reads as "deep structural" rather than
+		// suddenly jumping back into the cyan family.
+		cfg.Heading.Color = strPtr("245")
 	} else {
-		// Light backgrounds: invert the brightness ladder. Darker hues
-		// at the top because dark text on light reads bolder; lift the
-		// lower levels into mid-grey territory so they remain visible
-		// without becoming heavier than the structural prose.
+		// Light-background mirror: deep blue at top, gray gradient
+		// down. Inverted luminance so dark text on light reads
+		// bolder up top and fades toward structural mid-gray.
 		cfg.H1.Color = strPtr("16")  // black
 		cfg.H2.Color = strPtr("21")  // pure blue #0000ff
-		cfg.H3.Color = strPtr("25")  // dark blue #005faf
-		cfg.H4.Color = strPtr("31")  // mid blue #0087af
-		cfg.H5.Color = strPtr("241") // dark grey
-		cfg.H6.Color = strPtr("244") // mid grey
-		cfg.Heading.Color = strPtr("25")
+		cfg.H3.Color = strPtr("240") // dark gray
+		cfg.H4.Color = strPtr("244") // mid gray
+		cfg.H5.Color = strPtr("247") // mid-light gray
+		cfg.H6.Color = strPtr("250") // light gray
+		cfg.Heading.Color = strPtr("244")
 	}
 	cfg.H1.Bold = boolPtr(true)
 	cfg.H2.Bold = boolPtr(true)
 	cfg.H3.Bold = boolPtr(true)
 	cfg.H4.Bold = boolPtr(true)
-	// H5 + H6 stay non-bold; the user's session-37+1 follow-up
-	// asked to keep heading hierarchy expressed via colour alone
-	// ("标题什么的,最好避免用斜体字，主要通过颜色来统一美感"),
-	// so italics are explicitly disabled here. The brightness drop
-	// from 75 (H4) → 250 (H5) → 245 (H6) carries the level signal.
+	// H5 + H6 stay non-bold so the brightness drop carries the
+	// level signal alone. Italics also off (user explicitly asked
+	// "avoid italic on headings — express hierarchy via colour").
 	cfg.H5.Bold = boolPtr(false)
 	cfg.H5.Italic = boolPtr(false)
 	cfg.H6.Bold = boolPtr(false)
@@ -428,86 +446,151 @@ func applyHeadingHierarchy(cfg *ansi.StyleConfig, dark bool) {
 // code, links, horizontal rule, block quote indent, table grid,
 // bold/emphasis runs, and list-item bullets.
 //
-// Hue discipline ladder used here (dark-mode reference, light mode
-// is the symmetric inverted-luminance counterpart):
+// Hue discipline (post-2026-04-30 redesign):
 //
-//   115 (#87d7af) — soft mint, used for emphasis (italic prose)
-//   117 (#87d7ff) — light cyan, anchor / inline-code / heading family
-//   151 (#afd7af) — pale green, list bullet markers
-//   244 (#808080) — neutral grey, structural dividers
+//   Two saturated families + gray-scale neutral + one warm accent.
+//   Every prose element belongs to exactly ONE family so the eye
+//   reads "kind of thing" by hue without learning a six-color
+//   vocabulary:
 //
-// Pre-2026-04-30 Strong / Emphasis inherited bare bold/italic from
-// glamour DarkStyleConfig — no explicit Color — which on dark
-// terminals rendered as the terminal-default foreground (often a
-// dim "off-white"). Inline-bold tokens like "**关键锚点**：" or
-// "**Key anchors:**" therefore read as visually quieter than the
-// surrounding prose, which is exactly the user's "字体颜色就很暗，
-// 看着很不协调" complaint applied to the Strong run. Pinning
-// Strong + Emphasis + Item to explicit colours keeps every prose
-// surface in the heading-family hue space without re-introducing
-// the rainbow per token.
+//     blue   39 (#00afff)   — interactive: links, list bullets
+//                              (lists + links share "navigable"
+//                              semantic; both come from "follow
+//                              this elsewhere")
+//     amber  215 (#ffaf5f)  — code: inline `code`, BlockQuote
+//                              (cross-family warm color; reads
+//                              as "literal payload from elsewhere")
+//     gray   238/240/245/252 — structure: HR, table grid, headings
+//                              H3-H6, Emph, dim notes
+//     white  15             — Strong + H1 (max contrast peaks)
+//
+// Strong = pure white + bold (no color override) is the GitHub-web
+// contract: bold text is its OWN signal, no need to add color on
+// top. Emph = gray italic for the same reason on the muted side.
+// Strikethrough, Enumeration, Task are new (post-2026-04-30) so
+// the palette covers every glamour element a real answer can carry.
+//
+// CLI single-shot path is byte-identical because runSingleShot
+// emits busCtx.Mutable.Result() directly, never invoking glamour.
+// A byte-identity test in renderer_test.go locks the contract.
 func applyInlineAndStructure(cfg *ansi.StyleConfig, dark bool) {
 	cfg.Code.BackgroundColor = nil
 	if dark {
-		cfg.Code.Color = strPtr("117") // light cyan #87d7ff
-		// HR: 240 was almost invisible on dim themes; 244 reads as a
-		// subtle but clearly-present divider.
-		cfg.HorizontalRule.Color = strPtr("244") // #808080
-		// Link URL was 30 (#008787) — too dim. 67 reads as a calm,
-		// readable blue against dark backgrounds.
-		cfg.Link.Color = strPtr("67") // #5f87af
-		// Link text shares inline-code's cyan so links read as
-		// "interactive code reference". Underline retained as the
-		// universal affordance signal.
-		cfg.LinkText.Color = strPtr("117")
-		cfg.LinkText.Bold = boolPtr(true)
-		// Block quote: colour the `│ ` indent token so quotes are
-		// visually delimited. Use cyan to match the heading family.
-		cfg.BlockQuote.Color = strPtr("117")
-		// Strong (`**bold**`) — used by all the answer-doc section
-		// labels ("**Key anchors:**", "**关键锚点**：") and by the
-		// snippet headers ("📄 **`file:line`**"). Pale cyan + bold
-		// keeps Strong in the heading-cyan cohort (so the label
-		// reads as "structural marker") while staying distinct from
-		// H1 (pure white) AND from inline code (light cyan 117).
-		// The brightness ladder is H1=15 > Strong=159 > Code=117 so
-		// the eye reads Section ⊃ Label ⊃ identifier without any
-		// hue switch.
-		cfg.Strong.Color = strPtr("159") // #afffff very pale cyan
+		// Inline code — cross-family warm peach so identifiers in
+		// prose ("`cmd/root.go`") read as "this is a literal,
+		// distinct from the surrounding heading-blue or gray prose".
+		cfg.Code.Color = strPtr("215") // peach #ffaf5f
+
+		// Horizontal rule — deepest gray. Dividers should be
+		// visible without competing for attention.
+		cfg.HorizontalRule.Color = strPtr("238") // very dim gray
+
+		// Link / LinkText — DodgerBlue + underline. Web/IDE
+		// universal contract: blue + underline = clickable. Both
+		// the URL part (`Link`) and the visible text (`LinkText`)
+		// share the same color so the rendered link reads as one
+		// styled unit; the URL receives extra underline.
+		cfg.Link.Color = strPtr("39")
+		cfg.Link.Underline = boolPtr(true)
+		cfg.LinkText.Color = strPtr("39")
+		cfg.LinkText.Underline = boolPtr(true)
+
+		// BlockQuote — pale yellow. rich/glow/gh convention:
+		// quotes break out of the prose stream into a soft warm
+		// hue so the eye registers "this is borrowed text".
+		// Cross-family yellow is loud enough to be noticed without
+		// stealing focus from headings.
+		cfg.BlockQuote.Color = strPtr("222") // pale yellow #ffd787
+
+		// Strong (`**bold**`) — pure white + bold. The bold
+		// attribute itself is the dominant signal; layering color
+		// on top would create a third heading-like tier and
+		// collide with the H1=15 ladder. Pre-redesign this was
+		// "pale cyan 159" which was visually indistinguishable
+		// from H3 light-cyan 117.
+		cfg.Strong.Color = strPtr("15")
 		cfg.Strong.Bold = boolPtr(true)
-		// Emphasis (`*italic*`) — pale green-cyan so italics read
-		// as a distinct accent without leaning into the heading-
-		// cyan family or competing with inline code.
-		cfg.Emph.Color = strPtr("115") // #87d7af pale green-cyan
+
+		// Emphasis (`*italic*`) — light gray + italic. Italic is
+		// the dominant signal; gray keeps it muted so emphasised
+		// prose reads as "softly highlighted" rather than
+		// "alternative-color highlighted".
+		cfg.Emph.Color = strPtr("252") // light gray
 		cfg.Emph.Italic = boolPtr(true)
-		// List items — bullet markers in pale green so structured
-		// lists (steps, key anchors, citations) read as clearly
-		// itemised. Body text inherits the prose default.
-		cfg.Item.Color = strPtr("151") // #afd7af
-		// Tables: fill in grid characters at glamour's medium-grey
-		// neutral so the structure reads without being noisy. The
-		// runes themselves are the standard ASCII set glamour ships.
+
+		// Strikethrough (`~~text~~`) — mid-dim gray + crossed
+		// out. Stuck-through text should "fade out" visually so
+		// readers see the deletion intent immediately. Color
+		// alone is not enough (bat / sublime convention adds the
+		// crossed-out attribute).
+		cfg.Strikethrough.Color = strPtr("240")
+		cfg.Strikethrough.CrossedOut = boolPtr(true)
+
+		// List bullets (`-` / `*`) — DodgerBlue, sharing the
+		// link family so all "structured navigation" markers read
+		// as one cohort. NOT bold — bullets are markers, not
+		// content; Item body inherits the prose default.
+		cfg.Item.Color = strPtr("39")
+
+		// Numbered-list markers (`1.` / `2.`) — same blue as
+		// bullets so ordered + unordered lists read as siblings.
+		// Pre-redesign this was unset and inherited the terminal
+		// default, which made ordered lists visually weaker than
+		// unordered (the bullet had color but the digit did not).
+		cfg.Enumeration.Color = strPtr("39")
+
+		// Task list checkboxes (`[x]` / `[ ]`) — completed in
+		// green, pending in mid-gray. The ticked task is "done"
+		// and reads positive; the unticked is "todo" and reads
+		// neutral. Glamour exposes the two as separate slots
+		// inside StyleTask; we set both.
+		cfg.Task.Ticked = "[✓]"
+		cfg.Task.Unticked = "[ ]"
+
+		// Table grid — same dim gray as HR. Tables are
+		// structure; the data inside is the focus. Setting
+		// StyleBlock.StylePrimitive.Color colors the grid runes
+		// (the ┼ / │ / ─ characters supplied below) without
+		// touching cell content.
+		cfg.Table.StyleBlock.StylePrimitive.Color = strPtr("238")
 		cfg.Table.CenterSeparator = strPtr("┼")
 		cfg.Table.ColumnSeparator = strPtr("│")
 		cfg.Table.RowSeparator = strPtr("─")
+
+		// Text (StylePrimitive fallback) — INTENTIONALLY left
+		// nil. The user's terminal foreground colour adapts to
+		// their theme (dark vs light vs solarized vs custom);
+		// pinning Text.Color here would override that and reduce
+		// readability on themes we did not anticipate. glow / bat
+		// follow the same convention.
+		_ = cfg.Text
 	} else {
-		cfg.Code.Color = strPtr("33") // xterm blue #0087ff
-		cfg.HorizontalRule.Color = strPtr("245")
-		cfg.Link.Color = strPtr("25")
-		cfg.LinkText.Color = strPtr("25")
-		cfg.LinkText.Bold = boolPtr(true)
-		cfg.BlockQuote.Color = strPtr("25")
-		// Light-mode Strong / Emphasis / Item — symmetric to the
-		// dark palette but anchored at a darker luminance so prose
-		// stays readable on white-ish terminal backgrounds.
-		cfg.Strong.Color = strPtr("16") // black
+		// Light-mode mirror — same families inverted to dark
+		// hues against light backgrounds. Same semantic mapping:
+		// blue interactive, amber code/quote, gray structure,
+		// black for max-contrast peaks.
+		cfg.Code.Color = strPtr("130") // dark amber #af5f00
+		cfg.HorizontalRule.Color = strPtr("250") // light gray (dim divider on white)
+		cfg.Link.Color = strPtr("21") // pure blue
+		cfg.Link.Underline = boolPtr(true)
+		cfg.LinkText.Color = strPtr("21")
+		cfg.LinkText.Underline = boolPtr(true)
+		cfg.BlockQuote.Color = strPtr("130") // dark amber (matches code family)
+		cfg.Strong.Color = strPtr("16")
 		cfg.Strong.Bold = boolPtr(true)
-		cfg.Emph.Color = strPtr("28") // dark green
+		cfg.Emph.Color = strPtr("244") // mid gray italic
 		cfg.Emph.Italic = boolPtr(true)
-		cfg.Item.Color = strPtr("28")
+		cfg.Strikethrough.Color = strPtr("244")
+		cfg.Strikethrough.CrossedOut = boolPtr(true)
+		cfg.Item.Color = strPtr("21")
+		cfg.Enumeration.Color = strPtr("21")
+		cfg.Task.Ticked = "[✓]"
+		cfg.Task.Unticked = "[ ]"
+		cfg.Table.StyleBlock.StylePrimitive.Color = strPtr("250")
 		cfg.Table.CenterSeparator = strPtr("┼")
 		cfg.Table.ColumnSeparator = strPtr("│")
 		cfg.Table.RowSeparator = strPtr("─")
+		_ = cfg.Text
 	}
 }
 
