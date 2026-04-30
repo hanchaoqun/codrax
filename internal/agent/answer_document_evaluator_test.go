@@ -299,6 +299,7 @@ func TestAnswerDocumentEvaluator_BuildInitialInstruction_RendersDiagramContractA
 		"### Flow Findings",
 		"### Answer Chains",
 		"## First-Pass Diagram Reference",
+		"Supporting anchor locations belong OUTSIDE the fence",
 		// Log seed is now Mermaid (was bare-fence ASCII "innermost
 		// failure:" prose). Assert on the grounded label that
 		// survives both the Mermaid wrap and the later RenderMermaidBlocks
@@ -365,6 +366,7 @@ func TestAnswerDocumentEvaluator_BuildInitialInstruction_RendersConfigTraceDiagr
 		"`runtime` is the binding / merge code path",
 		"grounded FLOOR",
 		"add additional grounded precedence layers when your investigation supports a richer chain",
+		"The support locations listed above stay outside the fence",
 		// New two-channel rule replaces the old "rename to a bare
 		// `CLI` or tier label" prohibition. The validator works
 		// off these structural channels (data-driven from the
@@ -1670,11 +1672,17 @@ func TestRenderRetryDiagramSeedFenceForRepair_ConfigTraceRejectKeepsValidatedPre
 	for _, want := range []string{
 		"runtime binding",
 		"code default",
-		"internal/config/runtime.go:231",
-		"internal/types/config.go:707",
 	} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("config-trace repair seed missing %q:\n%s", want, got)
+		}
+	}
+	for _, banned := range []string{
+		"internal/config/runtime.go:231",
+		"internal/types/config.go:707",
+	} {
+		if strings.Contains(got, banned) {
+			t.Fatalf("config-trace repair seed should keep support locations outside the fence, but found %q:\n%s", banned, got)
 		}
 	}
 	for _, banned := range []string{

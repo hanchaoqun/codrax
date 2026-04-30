@@ -2532,21 +2532,21 @@ var mermaidEdgeSplitRe = regexp.MustCompile(`-->|<-->|-\.->|==>|---|<---`)
 // `package` / `import` / `func` keywords). Adding a new entry only
 // happens when Mermaid's spec gains new syntax.
 var mermaidReservedWords = map[string]bool{
-	"flowchart":   true,
-	"graph":       true,
-	"subgraph":    true,
-	"end":         true,
-	"classDef":    true,
-	"class":       true,
-	"click":       true,
-	"linkStyle":   true,
-	"style":       true,
-	"direction":   true,
-	"LR":          true,
-	"RL":          true,
-	"TD":          true,
-	"TB":          true,
-	"BT":          true,
+	"flowchart": true,
+	"graph":     true,
+	"subgraph":  true,
+	"end":       true,
+	"classDef":  true,
+	"class":     true,
+	"click":     true,
+	"linkStyle": true,
+	"style":     true,
+	"direction": true,
+	"LR":        true,
+	"RL":        true,
+	"TD":        true,
+	"TB":        true,
+	"BT":        true,
 	// sequenceDiagram / classDiagram families — header tokens that
 	// appear on a body line by themselves when the LLM emits a
 	// non-flowchart shape inside the same fence type.
@@ -3283,7 +3283,7 @@ func validateSummaryConfigTraceFenceLabels(summary string, citations []types.Cit
 	).WithFields("summary").
 		WithMetadata("invalid_labels", strings.Join(violations, ", ")).
 		WithMetadata("allowed_role_labels", strings.Join(rolesList, ", ")).
-		WithHint("Re-emit emit_answer_document. Inside ```mermaid``` fences keep node labels to (a) the four role labels supplied above, (b) a compound `<content> (<role-marker>)` form where role-marker is override / config / runtime / default, OR (c) file/path tokens already present in citations[]. Anything else (one-word concepts like CLI/RPC/UI without a role marker, numbered tiers, architectural archetypes) belongs in prose, not as a node label.")
+		WithHint("Re-emit emit_answer_document. Inside ```mermaid``` fences keep node labels to (a) the four role labels supplied above, (b) a compound `<content> (<role-marker>)` form where role-marker is override / config / runtime / default, OR (c) file/path tokens already present in citations[]. Supporting file:line anchors belong outside the fence: do not append `(<file>:<line>)`, `<br/>(<file>)`, or similar support suffixes to the node label unless that exact combined label is itself grounded. Anything else (one-word concepts like CLI/RPC/UI without a role marker, numbered tiers, architectural archetypes) belongs in prose, not as a node label.")
 }
 
 type summaryDiagramAllowlist struct {

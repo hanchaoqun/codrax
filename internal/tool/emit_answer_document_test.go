@@ -6792,7 +6792,7 @@ func TestEmitAnswerDocument_StepLiteralGrounding_SkipsSparseUnreadCitationWindow
 		"steps": []map[string]interface{}{
 			{
 				"index":        1,
-				"description": "`isMeasurementScalarRequest` 判断请求是否为计数型标量问题。",
+				"description":  "`isMeasurementScalarRequest` 判断请求是否为计数型标量问题。",
 				"citation_ref": 0,
 			},
 		},
@@ -7302,6 +7302,27 @@ func TestEmitAnswerDocument_ConfigTraceFenceLabels_RejectsBareRPC(t *testing.T) 
 	}
 	if !strings.Contains(res.Summary, "RPC") {
 		t.Errorf("rejection should name the offending label %q; got %q", "RPC", res.Summary)
+	}
+}
+
+func TestEmitAnswerDocument_ConfigTraceFenceLabels_RejectsSupportSuffixInNodeLabel(t *testing.T) {
+	tool := &EmitAnswerDocument{}
+	ctx := newConfigTraceFenceCtx(t)
+	summary := "Precedence chain.\n\n" +
+		"```mermaid\n" +
+		"flowchart LR\n" +
+		"  A[\"code default<br/>(internal/types/config.go:707)\"] --> B[\"runtime binding\"]\n" +
+		"  B --> C[\"config file\"]\n" +
+		"```\n"
+	res, _ := tool.Execute(ctx, configTraceFenceParams(t, summary))
+	if res.Success {
+		t.Fatalf("support-location suffix inside config-trace node label must be rejected; got Success=true")
+	}
+	if !strings.Contains(res.Summary, "config_trace_fence_labels") {
+		t.Fatalf("expected config_trace_fence_labels rejection, got %q", res.Summary)
+	}
+	if !strings.Contains(res.Summary, "internal/types/config.go:707") {
+		t.Fatalf("rejection should name the support-suffixed label, got %q", res.Summary)
 	}
 }
 

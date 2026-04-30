@@ -635,6 +635,7 @@ func renderAnswerDocDiagramLabelSeed() string {
 			"- If the evidence names one spelling, keep that spelling in the diagram instead of renaming it to a nearby alias.\n" +
 			"- If you need an alternate label, only use it when that exact label appears in citations or log frames.\n" +
 			"- Do not synthesize bare line-number aliases such as `L877`, `Line 42`, or similar citation-derived shorthand unless the cited text itself contains that exact token.\n" +
+			"- Supporting anchor locations belong OUTSIDE the fence. Do not append `(<file>:<line>)`, `<br/>(<file>)`, or similar support-location suffixes to a node label unless that exact combined label is itself grounded.\n" +
 			"- Prefer direct grounded names over abstract buckets such as `Level 1` / `Round 2` / `Step 3`.\n" +
 			"- Inside a fenced diagram, keep file/path node labels to the prompt's `Diagram Node Allowlist` unless the same exact label is also grounded by citations[] or Log Triage frames in this tool call.",
 	)
@@ -856,6 +857,7 @@ func renderAnswerDocDiagramConfigTraceSeed(ctx *types.AgentContext) string {
 		fmt.Fprintf(&b, "- `%s` [%s] → `%s`\n", anchor.Label, anchor.Role, support)
 	}
 	b.WriteByte('\n')
+	b.WriteString("The support locations listed above stay outside the fence. Keep the node labels themselves bare role labels / compound role labels / grounded file-path labels; do not append `:line`, `(<file>:<line>)`, or `<br/>` support text to the label body unless that exact combined label is itself grounded.\n")
 	b.WriteString("Precedence semantics live in prose, not in invented node names: `override` = highest-precedence operator-supplied layer (CLI flag / env override / SDK setter / RPC override — all the same tier), `config` = grounded repo/user config-file layer (YAML/JSON/TOML/INI/etc.), `default` = code-default fallback. `runtime` is the binding / merge code path between those layers, not a standalone user-config tier.\n")
 	if missing := missingConfigTraceDiagramRoles(rolesPresent); len(missing) > 0 {
 		fmt.Fprintf(&b, "Current grounded evidence does NOT include anchor(s) for these precedence role(s): %s. Do not add fenced-diagram nodes for missing roles unless you first cite a real repo anchor for them; if you need to explain those semantics, keep them in prose as general precedence rules rather than grounded nodes in this dispatch.\n", strings.Join(missing, ", "))
@@ -1933,7 +1935,7 @@ func (e *answerDocumentEvaluator) emitAnswerDocumentRejectSignal(ctx *types.Agen
 	}
 	if rejectCode == answerDocRejectCodeDiagramGrounding || strings.Contains(summary, "references file(s) not present in citations[] or attached-log frames") {
 		reasonKey = "diagram-grounding"
-		hint = "Your last `emit_answer_document` call was rejected by the DIAGRAM-GROUNDING gate: the fenced diagram renamed or introduced file/path labels that are not grounded. Re-emit `emit_answer_document` now with the same answer, but inside the diagram reuse the exact grounded file / symbol / path labels from citations, cited line text, or Log Triage frames. Prefer copying directly from the prompt's `Diagram Node Allowlist` section or from the tool error's allowed-label list. Do NOT normalize one grounded label into a different spelling unless that alternate label is itself grounded. Prefer direct grounded node names over abstract aliases. Keep `citations[]` byte-identical while repairing this gate unless a later tool error explicitly names `citations[]` as invalid. Do NOT call `read_file`, `grep`, or any other tool to repair this — use the existing citations / seeds only. Do not write free-form prose outside the tool call."
+		hint = "Your last `emit_answer_document` call was rejected by the DIAGRAM-GROUNDING gate: the fenced diagram renamed or introduced file/path labels that are not grounded. Re-emit `emit_answer_document` now with the same answer, but inside the diagram reuse the exact grounded file / symbol / path labels from citations, cited line text, or Log Triage frames. Prefer copying directly from the prompt's `Diagram Node Allowlist` section or from the tool error's allowed-label list. Do NOT normalize one grounded label into a different spelling unless that alternate label is itself grounded. Keep support locations outside the fence: do not append `(<file>:<line>)`, `<br/>(<file>)`, or similar support suffixes to a node label unless that exact combined label is itself grounded. Prefer direct grounded node names over abstract aliases. Keep `citations[]` byte-identical while repairing this gate unless a later tool error explicitly names `citations[]` as invalid. Do NOT call `read_file`, `grep`, or any other tool to repair this — use the existing citations / seeds only. Do not write free-form prose outside the tool call."
 		if repair != nil && repair.Metadata != nil {
 			if allowed := strings.TrimSpace(repair.Metadata["allowed_labels"]); allowed != "" {
 				hint += " Allowed grounded labels for this dispatch: `" + strings.ReplaceAll(allowed, ", ", "`, `") + "`."
@@ -2450,22 +2452,19 @@ func buildRetryConfigTraceDiagramSeed(ctx *types.AgentContext) retryDiagramSeed 
 		return retryDiagramSeed{}
 	}
 	keys := make([]string, 0, len(anchors)*2)
-	var b strings.Builder
 	fence := types.RenderConfigTraceDiagramFence(anchors)
 	if strings.TrimSpace(fence) == "" {
 		return retryDiagramSeed{}
 	}
-	b.WriteString(fence)
 	for _, anchor := range anchors {
 		support := types.ConfigTraceDiagramAnchorSupportLabel(anchor)
 		if support == "" {
 			continue
 		}
 		keys = append(keys, retryDiagramSeedMatchKeys(support)...)
-		fmt.Fprintf(&b, "\n- `%s` [%s] → `%s`", anchor.Label, anchor.Role, support)
 	}
 	return retryDiagramSeed{
-		Fence:         strings.TrimSpace(b.String()),
+		Fence:         strings.TrimSpace(fence),
 		MatchKeys:     dedupeRetryDiagramNodes(keys, 0),
 		PreserveFence: true,
 	}
