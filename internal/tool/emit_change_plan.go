@@ -961,6 +961,18 @@ func validatePlanDryBuild(ctx *types.BusContext, changes []types.FileChange) str
 	if rej := dryBuildRuby(ctx, changes); rej != "" {
 		return rej
 	}
+	if rej := dryBuildRust(ctx, changes); rej != "" {
+		return rej
+	}
+	if rej := dryBuildSwift(ctx, changes); rej != "" {
+		return rej
+	}
+	if rej := dryBuildJava(ctx, changes); rej != "" {
+		return rej
+	}
+	if rej := dryBuildKotlin(ctx, changes); rej != "" {
+		return rej
+	}
 	return ""
 }
 
@@ -1337,6 +1349,277 @@ func dryBuildRuby(ctx *types.BusContext, changes []types.FileChange) string {
 	}
 	logging.Debug("[emit_change_plan] V2 Ruby dry-build PASS for files: %v", rbChanges)
 	return ""
+}
+
+// dryBuildRust runs `cargo check --frozen --offline` on an overlayed
+// scratch dir. cargo check parses + typechecks the entire crate
+// without code generation, so it catches every compile-level error
+// (undeclared symbols, type mismatches, lifetime issues, missing
+// trait bounds) at plan-emit time without a multi-second build.
+//
+// Skipped silently when the repo has no Cargo.toml, the cargo
+// binary is missing, or no .rs change is in the plan. --frozen
+// blocks the dependency resolver from updating Cargo.lock; --offline
+// blocks any network fetch — both keep the dry-build fast and
+// hermetic on a CI box.
+func dryBuildRust(ctx *types.BusContext, changes []types.FileChange) string {
+	repoRoot := ctx.RepoRoot
+	if _, err := os.Stat(filepath.Join(repoRoot, "Cargo.toml")); err != nil {
+		return ""
+	}
+	if _, err := exec.LookPath("cargo"); err != nil {
+		logging.Warning("[emit_change_plan] V2 Rust dry-build skipped: cargo binary not on PATH (plan unvalidated for Rust)")
+		return ""
+	}
+	hasChange := false
+	for _, c := range changes {
+		path := filepath.ToSlash(strings.TrimSpace(c.Path))
+		if !strings.HasSuffix(path, ".rs") {
+			continue
+		}
+		if c.Kind == "patch" || c.Kind == "delete" {
+			continue
+		}
+		hasChange = true
+		break
+	}
+	if !hasChange {
+		return ""
+	}
+	scratch, cleanup, ok := stageOverlay(ctx, changes, "rust")
+	if !ok {
+		return ""
+	}
+	defer cleanup()
+
+	cmd := exec.Command("cargo", "check", "--frozen", "--offline", "--message-format=short")
+	cmd.Dir = scratch
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		return formatDryBuildRejection("Rust", "cargo check --frozen --offline", out, len(out))
+	}
+	logging.Debug("[emit_change_plan] V2 Rust dry-build PASS")
+	return ""
+}
+
+// dryBuildSwift runs `swift build --skip-build` on an overlayed
+// scratch dir. The flag instructs swiftpm to fully resolve and
+// type-check the package without invoking the linker / code
+// generator — fast and sufficient to catch every compile-level
+// error at plan time.
+//
+// Skipped silently when the repo has no Package.swift, the swift
+// binary is missing, or no .swift change is in the plan.
+func dryBuildSwift(ctx *types.BusContext, changes []types.FileChange) string {
+	repoRoot := ctx.RepoRoot
+	if _, err := os.Stat(filepath.Join(repoRoot, "Package.swift")); err != nil {
+		return ""
+	}
+	if _, err := exec.LookPath("swift"); err != nil {
+		logging.Warning("[emit_change_plan] V2 Swift dry-build skipped: swift binary not on PATH (plan unvalidated for Swift)")
+		return ""
+	}
+	hasChange := false
+	for _, c := range changes {
+		path := filepath.ToSlash(strings.TrimSpace(c.Path))
+		if !strings.HasSuffix(path, ".swift") {
+			continue
+		}
+		if c.Kind == "patch" || c.Kind == "delete" {
+			continue
+		}
+		hasChange = true
+		break
+	}
+	if !hasChange {
+		return ""
+	}
+	scratch, cleanup, ok := stageOverlay(ctx, changes, "swift")
+	if !ok {
+		return ""
+	}
+	defer cleanup()
+
+	cmd := exec.Command("swift", "build", "--skip-build")
+	cmd.Dir = scratch
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		return formatDryBuildRejection("Swift", "swift build --skip-build", out, len(out))
+	}
+	logging.Debug("[emit_change_plan] V2 Swift dry-build PASS")
+	return ""
+}
+
+// dryBuildJava runs the Maven or Gradle compile target (skipping
+// tests) on an overlayed scratch dir. Detects the build system from
+// the manifest layout: pom.xml → mvn; build.gradle / build.gradle.kts
+// → ./gradlew if a wrapper script is present, else `gradle`.
+//
+// Skipped silently when neither manifest is present, no build tool
+// binary is on PATH, or the plan touches zero .java files. Compile-
+// only mode (-DskipTests=true / -x test) keeps the dry-build fast
+// — full test runs belong to the verifier stage.
+func dryBuildJava(ctx *types.BusContext, changes []types.FileChange) string {
+	repoRoot := ctx.RepoRoot
+	hasChange := false
+	for _, c := range changes {
+		path := filepath.ToSlash(strings.TrimSpace(c.Path))
+		if !strings.HasSuffix(path, ".java") {
+			continue
+		}
+		if c.Kind == "patch" || c.Kind == "delete" {
+			continue
+		}
+		hasChange = true
+		break
+	}
+	if !hasChange {
+		return ""
+	}
+
+	pomPath := filepath.Join(repoRoot, "pom.xml")
+	gradleKts := filepath.Join(repoRoot, "build.gradle.kts")
+	gradleGroovy := filepath.Join(repoRoot, "build.gradle")
+
+	var (
+		cmdName string
+		cmdArgs []string
+		cmdLabel string
+	)
+	switch {
+	case fileExists(pomPath):
+		if _, err := exec.LookPath("mvn"); err != nil {
+			logging.Warning("[emit_change_plan] V2 Java dry-build skipped: mvn binary not on PATH (plan unvalidated for Java/Maven)")
+			return ""
+		}
+		cmdName = "mvn"
+		cmdArgs = []string{"-B", "-q", "compile", "-DskipTests=true", "-o"}
+		cmdLabel = "mvn -B -q compile -DskipTests=true -o"
+	case fileExists(gradleKts) || fileExists(gradleGroovy):
+		// Prefer the wrapper if it exists — it pins the Gradle
+		// version the project expects; only fall back to a system
+		// `gradle` binary when the wrapper is missing.
+		wrapper := filepath.Join(repoRoot, "gradlew")
+		switch {
+		case fileExists(wrapper):
+			cmdName = wrapper
+			cmdArgs = []string{"compileJava", "--offline", "-q", "-x", "test"}
+			cmdLabel = "./gradlew compileJava --offline -x test"
+		default:
+			if _, err := exec.LookPath("gradle"); err != nil {
+				logging.Warning("[emit_change_plan] V2 Java dry-build skipped: neither ./gradlew nor system gradle available (plan unvalidated for Java/Gradle)")
+				return ""
+			}
+			cmdName = "gradle"
+			cmdArgs = []string{"compileJava", "--offline", "-q", "-x", "test"}
+			cmdLabel = "gradle compileJava --offline -x test"
+		}
+	default:
+		// .java change but no Maven / Gradle manifest detected —
+		// likely a vanilla javac project. Skip silently rather than
+		// trying to invoke javac with hand-rolled classpath.
+		return ""
+	}
+
+	scratch, cleanup, ok := stageOverlay(ctx, changes, "java")
+	if !ok {
+		return ""
+	}
+	defer cleanup()
+
+	cmd := exec.Command(cmdName, cmdArgs...)
+	cmd.Dir = scratch
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		return formatDryBuildRejection("Java", cmdLabel, out, len(out))
+	}
+	logging.Debug("[emit_change_plan] V2 Java dry-build PASS via %s", cmdLabel)
+	return ""
+}
+
+// dryBuildKotlin runs `kotlinc -nowarn` on each changed .kt file in
+// the overlayed scratch dir. The compiler typechecks each source
+// against its own imports and signatures; without classpath
+// resolution it can't catch cross-file reference errors, but it
+// reliably catches per-file syntax / type-shape errors which is
+// the bulk of LLM-emit defects.
+//
+// Skipped silently when no kotlinc is available or no .kt change
+// is in the plan. Per-file invocation mirrors the Ruby path —
+// keeps each error attributable to a specific source.
+func dryBuildKotlin(ctx *types.BusContext, changes []types.FileChange) string {
+	if _, err := exec.LookPath("kotlinc"); err != nil {
+		// Even when no kotlinc is on PATH, only WARN when the plan
+		// actually touches Kotlin files; otherwise the noise floor
+		// from a Go-only repo would be unacceptable.
+		for _, c := range changes {
+			path := filepath.ToSlash(strings.TrimSpace(c.Path))
+			if !strings.HasSuffix(path, ".kt") {
+				continue
+			}
+			if c.Kind == "patch" || c.Kind == "delete" {
+				continue
+			}
+			logging.Warning("[emit_change_plan] V2 Kotlin dry-build skipped: kotlinc binary not on PATH (plan unvalidated for Kotlin)")
+			break
+		}
+		return ""
+	}
+	var ktChanges []string
+	for _, c := range changes {
+		path := filepath.ToSlash(strings.TrimSpace(c.Path))
+		if !strings.HasSuffix(path, ".kt") {
+			continue
+		}
+		if c.Kind == "patch" || c.Kind == "delete" {
+			continue
+		}
+		ktChanges = append(ktChanges, path)
+	}
+	if len(ktChanges) == 0 {
+		return ""
+	}
+	scratch, cleanup, ok := stageOverlay(ctx, changes, "kotlin")
+	if !ok {
+		return ""
+	}
+	defer cleanup()
+
+	// Output dir captured to a sub-folder of scratch so cleanup
+	// removes generated .class files together with the staging.
+	outDir := filepath.Join(scratch, ".codrax-kotlinc-out")
+	if err := os.MkdirAll(outDir, 0o755); err != nil {
+		logging.Warning("[emit_change_plan] V2 Kotlin dry-build skipped: mkdir outDir: %v", err)
+		return ""
+	}
+	failed := false
+	var combinedOut []byte
+	for _, p := range ktChanges {
+		cmd := exec.Command("kotlinc", "-d", outDir, "-nowarn", filepath.Join(scratch, filepath.FromSlash(p)))
+		cmd.Dir = scratch
+		out, err := cmd.CombinedOutput()
+		if err != nil {
+			failed = true
+			combinedOut = append(combinedOut, []byte("--- "+p+" ---\n")...)
+			combinedOut = append(combinedOut, out...)
+			combinedOut = append(combinedOut, '\n')
+		}
+	}
+	if failed {
+		return formatDryBuildRejection("Kotlin", "kotlinc -d <tmp> -nowarn <files>", combinedOut, len(combinedOut))
+	}
+	logging.Debug("[emit_change_plan] V2 Kotlin dry-build PASS for files: %v", ktChanges)
+	return ""
+}
+
+// fileExists is a tiny os.Stat wrapper used by the Java dry-build
+// to detect manifest variants. Silent on every error path — a
+// missing manifest is the common case.
+func fileExists(path string) bool {
+	if _, err := os.Stat(path); err != nil {
+		return false
+	}
+	return true
 }
 
 // stageOverlay creates a hardlinked scratch dir of the repo and
