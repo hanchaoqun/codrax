@@ -242,6 +242,16 @@ var slashCommands = []slashCommand{
 			{"stats reset", "zero the pipeline counters", "清零计数器,重新累计窗口"},
 		},
 	},
+	{
+		Name:   "/baseline",
+		HelpEn: "inspect the per-HEAD-SHA baseline test cache (commit 11)",
+		HelpZh: "查看按主仓 HEAD SHA 缓存的 baseline 测试快照",
+		Subs: []slashSubcommand{
+			{"list", "enumerate cached SHAs (default subcommand)", "枚举已缓存的 SHA(默认子命令)"},
+			{"show <sha>", "print the cached ChangeReport for the named SHA prefix", "查看指定 SHA 的缓存 ChangeReport"},
+			{"clear", "wipe every cached entry (regenerable; no confirm)", "清空所有缓存(可再生,不二次确认)"},
+		},
+	},
 	{Name: "/version", HelpEn: "print build version", HelpZh: "打印构建版本"},
 	{Name: "/exit", HelpEn: "leave the REPL", HelpZh: "退出 REPL"},
 	{Name: "/quit", HelpEn: "leave the REPL", HelpZh: "退出 REPL"},
@@ -866,7 +876,7 @@ func (m *inputModel) handleSuggestKey(msg tea.KeyMsg) (tea.Cmd, bool) {
 // command whose handler reads a non-empty remainder.
 func needsArg(cmd string) bool {
 	switch cmd {
-	case "/log", "/htrace", "/chat", "/mode", "/plan", "/reject", "/verify", "/worktree", "/merge", "/branch":
+	case "/log", "/htrace", "/chat", "/mode", "/plan", "/reject", "/verify", "/worktree", "/merge", "/branch", "/env", "/baseline", "/approve":
 		return true
 	}
 	return false

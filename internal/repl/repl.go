@@ -1896,6 +1896,9 @@ func (r *REPL) handleSlash(line string) bool {
 	case "/env":
 		r.handleEnvCmd(line)
 		return false
+	case "/baseline":
+		r.handleBaselineCmd(line)
+		return false
 	case "/cancel":
 		// Slash-command fallback for terminals where Ctrl+C is
 		// swallowed by tmux, screen, or a terminal multiplexer the
@@ -2206,13 +2209,22 @@ func (r *REPL) handlePlanCmd(line string) {
 		if summaryOnly {
 			fmt.Fprintln(r.out, "\n  changes (summary):")
 			for _, c := range plan.Changes {
-				dest := ""
-				if c.NewPath != "" {
-					dest = " → " + c.NewPath
-				}
 				rationale := oneLine(c.Rationale)
 				if len(rationale) > 80 {
 					rationale = rationale[:77] + "..."
+				}
+				// Render rename rows with a leading ⇄ so they
+				// stand out (commit 12 #9). Rename is a git-history-
+				// preserving operation that's easy to overlook in a
+				// big plan; the marker draws the operator's eye.
+				if c.Kind == "rename" {
+					fmt.Fprintf(r.out, "    ⇄ [rename] %s → %s — %s\n",
+						c.Path, c.NewPath, rationale)
+					continue
+				}
+				dest := ""
+				if c.NewPath != "" {
+					dest = " → " + c.NewPath
 				}
 				fmt.Fprintf(r.out, "    [%s] %s%s — %s\n", c.Kind, c.Path, dest, rationale)
 			}
