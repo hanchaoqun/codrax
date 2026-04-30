@@ -413,7 +413,11 @@ func TestWriteScheduler_PlanTransientStreamStall_PlateauSuppression(t *testing.T
 	if strings.Contains(busCtx.TaskState.LastError, "context canceled") {
 		t.Errorf("LastError must not leak 'context canceled'; got %q", busCtx.TaskState.LastError)
 	}
-	if !strings.Contains(busCtx.TaskState.LastError, "stalled") {
+	// Wording was simplified post-2026-04-30; the message must
+	// still convey the stall in some form (en "stalled" / zh
+	// "卡住"). Both qualify.
+	if !strings.Contains(busCtx.TaskState.LastError, "stalled") &&
+		!strings.Contains(busCtx.TaskState.LastError, "卡住") {
 		t.Errorf("LastError should name the stall condition; got %q", busCtx.TaskState.LastError)
 	}
 	// Plateau message includes a remediation hint. The exact wording

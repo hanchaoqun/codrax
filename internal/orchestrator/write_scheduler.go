@@ -500,24 +500,24 @@ func stallPlateauMessage(busCtx *types.BusContext, stage types.PipelineStage, tr
 	}
 	zh := strings.HasPrefix(strings.ToLower(busCtx.Language), "zh") || busCtx.Language == ""
 	if zh {
-		base := fmt.Sprintf("%s 阶段连续多次以同一形态失败(%s)，已中止重试", stage, transientReason)
+		base := fmt.Sprintf("%s 阶段连续多次同样卡住,已中止重试", stage)
 		switch {
 		case mode == types.ModePlan && emptyRepo, mode == types.ModeApply && emptyRepo:
-			return base + "。当前目录是空仓库;创建型请求建议先用 `codrax --auto-init-repo` 让 codrax 初始化空仓,或切到 `/mode read` 让 LLM 直接给代码而不走 plan/apply 通道。"
+			return base + "。目录是空仓;从零创建建议加 --auto-init-repo,或先 /mode read。"
 		case mode == types.ModePlan, mode == types.ModeApply, mode == types.ModeVerify:
-			return base + "。LLM 似乎卡在同一面墙,连续两次都未能产出 emit_change_plan / emit_test_results。先检查 codrax.yaml 模型路由,或换更强的模型再试。"
+			return base + "。模型重复给不出可用的方案。在 codrax.yaml 换路由,或换更强的模型再试。"
 		default:
-			return base + "。两次连续失败的工具调用形态完全一致,继续重试无意义。"
+			return base + "。两次失败完全相同,再重试无意义。"
 		}
 	}
-	base := fmt.Sprintf("%s repeatedly stalled with the same shape (%s); aborting retry", stage, transientReason)
+	base := fmt.Sprintf("%s repeatedly stalled, aborting retry", stage)
 	switch {
 	case mode == types.ModePlan && emptyRepo, mode == types.ModeApply && emptyRepo:
-		return base + ". The target directory is an empty repo; for from-scratch creation use `codrax --auto-init-repo` first or switch to `/mode read` so the LLM emits code directly without the plan/apply path."
+		return base + ". Target directory is empty; from-scratch creation needs --auto-init-repo, or switch to /mode read."
 	case mode == types.ModePlan, mode == types.ModeApply, mode == types.ModeVerify:
-		return base + ". The LLM appears stuck on the same wall — neither attempt produced a terminal emit. Check codrax.yaml model routing or try a stronger model."
+		return base + ". The model keeps producing nothing usable. Switch model routing in codrax.yaml or pick a stronger model."
 	default:
-		return base + ". Two consecutive transient failures share an identical tool-call signature; further retry would not recover."
+		return base + ". Two failures share the same shape; further retry will not recover."
 	}
 }
 

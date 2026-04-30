@@ -173,7 +173,9 @@ func TestMode_PlanReachesDispatch(t *testing.T) {
 	// With no planner stub wiring a ChangePlan, runPlanPhase
 	// surfaces an error message to Result + LastError.
 	result := busCtx.Mutable.Result()
-	if !strings.Contains(result, "ChangePlan") && !strings.Contains(result, "emit_change_plan") {
+	// Wording was simplified post-2026-04-30 to drop internal
+	// terminology. Match either locale of the new message.
+	if !strings.Contains(result, "change plan") && !strings.Contains(result, "改动方案") {
 		t.Errorf("plan mode Result should describe why no plan was produced; got %q", result)
 	}
 	if busCtx.TaskState.LastError == "" {

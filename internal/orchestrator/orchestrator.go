@@ -965,6 +965,17 @@ func (o *Orchestrator) Run(request string, repoRoot string, branch string) (*typ
 	// On success, emit EventAnalysisReady so the renderer can switch
 	// from stage-dispatch rows to the analyzer's actual task / sub-
 	// task breakdown.
+	//
+	// IMPORTANT — write modes defer EventAnalysisReady. The analyzer
+	// runs in write mode purely as a classifier; the TaskGraph it
+	// produces is irrelevant because BuildWriteTaskGraph replaces it
+	// in the next block (line ~1011). Firing EventAnalysisReady here
+	// would tell the dock to populate evidence/validate/finalize rows
+	// from the read graph, then write_scheduler would emit
+	// EventTaskNodeStart for plan/apply/verify nodes that the dock
+	// never created — findNodeRow returns nil and the dock sits on
+	// "等待派发" forever (customer-reported on a fresh
+	// "用 python 写一个俄罗斯方块" plan-mode request).
 	if used, err := o.runAnalyzePhase(); err != nil {
 		logging.Error("[orchestrator] analyze phase failed: %v", err)
 		o.busCtx.TaskState.LastError = fmt.Sprintf("analyze: %v", err)
@@ -979,7 +990,9 @@ func (o *Orchestrator) Run(request string, repoRoot string, branch string) (*typ
 		return o.busCtx, nil
 	} else {
 		stepsUsed += used
-		o.emitAnalysisReady()
+		if o.busCtx.Mode == types.ModeRead {
+			o.emitAnalysisReady()
+		}
 	}
 
 	// Phase 2: unified scheduler. Read mode walks the analyzer's
@@ -1014,6 +1027,11 @@ func (o *Orchestrator) Run(request string, repoRoot string, branch string) (*typ
 		// retry-loop state that is per-task; clear it so a previous
 		// task's high-water mark cannot leak into this Run.
 		o.busCtx.Mutable.ResetBestPlanReport()
+		// Now that the write graph is installed, emit
+		// EventAnalysisReady so the dock populates plan/apply/verify
+		// node rows. The corresponding read-mode emission was
+		// deliberately suppressed in phase 1 above.
+		o.emitAnalysisReady()
 	default:
 		logging.Error("[orchestrator] unknown pipeline mode %q", o.busCtx.Mode)
 		o.busCtx.TaskState.LastError = fmt.Sprintf("unknown pipeline mode %q", o.busCtx.Mode)
@@ -1758,9 +1776,9 @@ func renderVerifyFailure(report *types.ChangeReport, agentError, lang string) st
 		b.WriteString("\n")
 	}
 	if zh {
-		b.WriteString("*用 `--mode=plan` 或 REPL `/mode plan` 把这次失败上下文带进去重新规划。*\n")
+		b.WriteString("*重新规划:`/mode plan` 后再发请求,失败上下文会自动带进去。*\n")
 	} else {
-		b.WriteString("*Re-plan with `--mode=plan` or REPL `/mode plan` incorporating this failure context.*\n")
+		b.WriteString("*Re-plan: run `/mode plan` and re-send the request; the failure context is carried in automatically.*\n")
 	}
 	return b.String()
 }
@@ -1823,8 +1841,6 @@ func renderChangePlanSummary(plan *types.ChangePlan, lang string) string {
 			}
 			b.WriteString("\n")
 		}
-		fmt.Fprintf(&b, "状态:%s。批准方式:`--mode=apply --plan-file=<已保存路径>` 或在 REPL 内 `/approve`。\n",
-			plan.Status)
 		return b.String()
 	}
 	fmt.Fprintf(&b, "## Proposed change plan: %s\n\n", plan.ID)
@@ -1852,8 +1868,6 @@ func renderChangePlanSummary(plan *types.ChangePlan, lang string) string {
 		}
 		b.WriteString("\n")
 	}
-	fmt.Fprintf(&b, "Status: %s. Approve with `--mode=apply --plan-file=<saved path>` or REPL `/approve`.\n",
-		plan.Status)
 	return b.String()
 }
 

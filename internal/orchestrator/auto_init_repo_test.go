@@ -43,11 +43,10 @@ func TestApplyPreHook_BareDirRefusesWithoutAuth(t *testing.T) {
 		t.Fatal("expected applyPreHook to fail without authorization")
 	}
 	msg := err.Error()
-	// The message must name all three authorization surfaces. zh
-	// wording uses "命令行" / "配置文件" / "交互模式" instead of
-	// transliterated technical terms. CLI flag + yaml key must
-	// still appear verbatim because the user has to type them.
-	for _, surface := range []string{"--auto-init-repo", "write_auto_init_repo", "交互模式"} {
+	// In apply stage all three authorization surfaces apply: CLI
+	// flag, yaml key, AND the interactive y/N path (because
+	// /approve prompts y/N). Each must surface in the message.
+	for _, surface := range []string{"--auto-init-repo", "write_auto_init_repo", "/approve"} {
 		if !strings.Contains(msg, surface) {
 			t.Errorf("error message should name authorization surface %q; got: %s",
 				surface, msg)
@@ -174,19 +173,20 @@ func TestPlanPreHook_BareDirRefusesWithoutAuth(t *testing.T) {
 		t.Fatal("expected planPreHook to fail without authorization")
 	}
 	msg := err.Error()
-	// The message must name all three authorization surfaces. zh
-	// wording uses "命令行" / "配置文件" / "交互模式" instead of
-	// transliterated technical terms. CLI flag + yaml key must
-	// still appear verbatim because the user has to type them.
-	for _, surface := range []string{"--auto-init-repo", "write_auto_init_repo", "交互模式"} {
+	// In PLAN stage the y/N interactive path is NOT available (the
+	// user is blocked at plan generation, can never reach /approve
+	// to see the y/N prompt) — listing it would deadlock the
+	// instructions. Only the two structurally-applicable surfaces
+	// must appear. The interactive option must NOT.
+	for _, surface := range []string{"--auto-init-repo", "write_auto_init_repo"} {
 		if !strings.Contains(msg, surface) {
 			t.Errorf("error message should name authorization surface %q; got: %s",
 				surface, msg)
 		}
 	}
-	// Result is plain-text so the renderer skips glamour. Verify
-	// the flag flipped (defense against accidental SetResult
-	// regression).
+	if strings.Contains(msg, "/approve") {
+		t.Errorf("plan-stage message must NOT mention /approve y/N (deadlock — plan never reaches /approve); got: %s", msg)
+	}
 	if !o.busCtx.Mutable.ResultIsPlain() {
 		t.Error("planPreHook fail-loud must mark result as plain text to avoid glamour fragmentation")
 	}

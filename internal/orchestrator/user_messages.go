@@ -99,19 +99,13 @@ func plannerProseFallbackMessage(ctx *types.BusContext) string {
 		zh = preferZhMessage(ctx.Language)
 	}
 	if zh {
-		return "本轮 planner 给出的是文字回答而不是 ChangePlan(改动方案)。常见原因有两种,请按场景选择下一步:\n\n" +
-			"  1) 如果你的问题是「怎么修复 / 怎么安装 / 是什么原因」类的咨询,而不是要做代码改动,\n" +
-			"     这种问题更适合 read 模式。先 /mode read,再把问题原样问一遍。\n" +
-			"  2) 如果你确实想做代码改动,但 planner 这一轮没生成方案,\n" +
-			"     直接再发一遍同样的请求,或者把目标说得更具体(改哪个文件 / 加哪个功能 / 怎样的接口)。\n" +
-			"  3) 如果你想终止这次写模式,/mode read 切回读模式继续提问。"
+		return "本轮没产出可执行的改动方案。下一步两选一:\n\n" +
+			"  • 咨询类问题(怎么修复 / 怎么安装 / 是什么原因):/mode read 后原样再问\n" +
+			"  • 确实要改代码:把目标说具体(改哪个文件 / 加什么 / 接口长什么样)再发一遍"
 	}
-	return "the planner returned prose this turn instead of a ChangePlan. Two common causes — pick the path that matches your intent:\n\n" +
-		"  1) If your question is advisory (\"how do I install X\", \"why did Y fail\", \"what does Z do\") rather than a request to modify code,\n" +
-		"     read mode is the right place. Run /mode read and re-state the question.\n" +
-		"  2) If you genuinely want a code change but the planner did not produce one,\n" +
-		"     re-send the same request, or be more specific (which file / what to add / what interface).\n" +
-		"  3) If you want to leave write mode, /mode read returns to the default question-answering surface."
+	return "no executable change plan was produced this turn. Pick one:\n\n" +
+		"  • advisory question (how to install, why this failed): /mode read then re-ask\n" +
+		"  • genuine code change: re-send the request with a concrete target (which file, what to add, what interface)"
 }
 
 // softRetryHintForStage is the stage-aware variant. Write-mode
