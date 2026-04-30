@@ -2318,17 +2318,11 @@ func TestEmitAnswerDocument_DriftBoundedSummaryFallsBackForMultiBlockReasoning(t
 	if doc == nil {
 		t.Fatal("answer document not stored")
 	}
-	if strings.Contains(doc.Summary, "nil receiver theory") {
-		t.Fatalf("multi-block speculative drift summary should fall back to the compiled bounded summary: %q", doc.Summary)
-	}
-	if strings.Contains(doc.Summary, "The current call path is grounded from `ParseOutput` into `buildAnalysisIR`.") {
-		t.Fatalf("drift-bounded normalization should no longer preserve raw user prose as the primary answer block: %q", doc.Summary)
-	}
-	if !strings.Contains(doc.Summary, "`ParseOutput` calls `buildAnalysisIR` at `internal/agent/analyzer.go:651`") {
-		t.Fatalf("fallback summary missing compiled bounded explanation: %q", doc.Summary)
+	if !strings.Contains(doc.Summary, "The current call path is grounded from `ParseOutput` into `buildAnalysisIR`.") {
+		t.Fatalf("drift-bounded normalization should preserve bounded primary prose when it stays on authoritative anchors: %q", doc.Summary)
 	}
 	if !strings.Contains(doc.Summary, "buildAnalysisIR") {
-		t.Fatalf("fallback summary should stay anchored on the grounded failure path: %q", doc.Summary)
+		t.Fatalf("summary should stay anchored on the grounded failure path: %q", doc.Summary)
 	}
 	// Compiled call-chain fence is Mermaid now (rendered to a
 	// ```text``` ASCII grid). When authoritative observed anchors
@@ -2341,6 +2335,99 @@ func TestEmitAnswerDocument_DriftBoundedSummaryFallsBackForMultiBlockReasoning(t
 		if !strings.Contains(doc.Summary, want) {
 			t.Fatalf("fallback summary should append the current observed call-chain fence label %q: %q", want, doc.Summary)
 		}
+	}
+}
+
+func TestEmitAnswerDocument_DriftBoundedSummaryPreservesAuthoritativeRichProse(t *testing.T) {
+	tool := &EmitAnswerDocument{}
+	ctx := newDocBusCtx("")
+	ctx.Language = "zh"
+	ctx.AnalysisIR = &types.AnalysisIR{
+		RequestModel: types.RequestModel{
+			Scenario: types.ScenarioRootCause,
+			Intent:   types.IntentRootCause,
+		},
+		AnswerContract: types.AnswerContract{
+			RequiredAnswerShape: types.ShapeExplanation,
+			Diagram: &types.DiagramContract{
+				Required:       true,
+				PreferredKinds: []types.DiagramKind{types.DiagramCallDAG},
+			},
+		},
+	}
+	ctx.Mutable.SetLogTriage(&types.LogBundle{
+		Errors: []types.LogError{{
+			Type: "runtime.errorString",
+			Frames: []types.LogFrame{
+				{File: "internal/agent/analyzer.go", Line: 250, Func: "buildAnalysisIR"},
+				{File: "internal/agent/analyzer.go", Line: 674, Func: "(*analyzerEvaluator).ParseOutput"},
+			},
+		}},
+	})
+	ctx.Mutable.AppendEvidence([]types.EvidenceItem{
+		{
+			Kind:            types.EvidenceRelationship,
+			Source:          "internal/agent/analyzer.go",
+			LineStart:       674,
+			AnchorKind:      types.AnchorCall,
+			AnchorSymbol:    "buildAnalysisIR",
+			Subject:         "analyzerEvaluator.ParseOutput",
+			Object:          "buildAnalysisIR",
+			Predicate:       "calls",
+			GroundingStatus: types.GroundingGrounded,
+			Producer:        EmitEvidenceProducer,
+		},
+		{
+			Kind:            types.EvidenceConditional,
+			Source:          "internal/agent/analyzer.go",
+			LineStart:       884,
+			AnchorKind:      types.AnchorCondition,
+			AnchorSymbol:    "buildAnalysisIR",
+			Condition:       "ctx == nil || ctx.Mutable == nil",
+			GroundingStatus: types.GroundingGrounded,
+			Producer:        EmitEvidenceProducer,
+		},
+		{
+			Kind:            types.EvidenceDirect,
+			Source:          "internal/agent/analyzer.go",
+			LineStart:       887,
+			AnchorKind:      types.AnchorAssignment,
+			AnchorSymbol:    "buildAnalysisIR",
+			Subject:         "raw",
+			Object:          "ctx.Mutable.RequestModel()",
+			GroundingStatus: types.GroundingGrounded,
+			Producer:        EmitEvidenceProducer,
+		},
+	})
+
+	params := mustDocJSON(t, map[string]interface{}{
+		"shape": "explanation",
+		"summary": "这个 panic 的 `runtime.errorString` 来自 `buildAnalysisIR` 函数内部的空指针解引用。堆栈自下而上展开：`(*analyzerEvaluator).ParseOutput` 在第 674 行调用 `buildAnalysisIR(ctx)`，随后 `buildAnalysisIR` 在内部某处对 nil receiver 进行了字段或方法访问，触发了 SIGSEGV。\n\n" +
+			"当前代码中 `buildAnalysisIR` 的入口确实包含 nil 守卫（第 884 行检查 `ctx == nil || ctx.Mutable == nil`，若失败则返回 `error` 而非 panic），但日志记录的 panic 发生在第 250 行，这表明旧版 `buildAnalysisIR` 在入口处缺少该守卫，或者守卫位置在解引用操作之后。\n\n" +
+			"```mermaid\nflowchart LR\n    ParseOutput[\"(*analyzerEvaluator).ParseOutput\\n:674\"] --> buildAnalysisIR[\"buildAnalysisIR(ctx)\\n:674\"]\n    buildAnalysisIR --> guard_check{\"ctx == nil\\n|| ctx.Mutable == nil ?\"}\n    guard_check --\"yes (新版本)\"--> safe_return[\"return error\\npanic 避免\"]\n    guard_check --\"旧版本缺失守卫\"--> deref_nil[\"nil 解引用\\nPANIC at :250\"]\n```\n",
+		"citations": []map[string]interface{}{
+			{"file": "internal/agent/analyzer.go", "line": 884, "quote": "if ctx == nil || ctx.Mutable == nil {"},
+			{"file": "internal/agent/analyzer.go", "line": 674, "quote": "ir, err := buildAnalysisIR(ctx)"},
+			{"file": "internal/agent/analyzer.go", "line": 887, "quote": "raw := ctx.Mutable.RequestModel()"},
+		},
+	})
+
+	res, _ := tool.Execute(ctx, params)
+	if !res.Success {
+		t.Fatalf("Execute failed: %q", res.Summary)
+	}
+	doc := ctx.Mutable.AnswerDocument()
+	if doc == nil {
+		t.Fatal("answer document not stored")
+	}
+	if !strings.Contains(doc.Summary, "这个 panic 的 `runtime.errorString` 来自 `buildAnalysisIR` 函数内部的空指针解引用") {
+		t.Fatalf("rich authoritative drift summary prose should be preserved: %q", doc.Summary)
+	}
+	if strings.Contains(doc.Summary, "当前代码还能直接锚定到：direct") {
+		t.Fatalf("low-information structured detail should not overwrite preserved rich drift prose: %q", doc.Summary)
+	}
+	if !strings.Contains(doc.Summary, "```") {
+		t.Fatalf("grounded diagram fence should remain available in the preserved drift summary: %q", doc.Summary)
 	}
 }
 

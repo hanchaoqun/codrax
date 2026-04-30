@@ -4848,11 +4848,13 @@ func normalizeLogSourceDriftSummarySurface(summary string, citations []types.Cit
 	summary = original
 	plan := answerSurfacePlan(ctx)
 	if plan != nil && plan.SummarySurfaceMode == types.AnswerSummarySurfaceDriftBoundedRootCause {
+		allowed := driftBoundedSummaryAllowedLabels(citations, gc, plan)
+		authoritative := driftBoundedSummaryAuthoritativeLabels(plan)
 		sanitized := sanitizeDriftBoundedRootCauseSummary(summary, citations, gc, ctx)
 		userFences := summaryDiagramFenceBlocks(sanitized)
-		summary = renderStructuredDriftBoundedSummary(ctx)
+		summary = driftBoundedSummaryPreservedProse(sanitized, citations, allowed, authoritative)
 		if summary == "" {
-			summary = driftBoundedSummaryPrimaryBlock(sanitized)
+			summary = renderStructuredDriftBoundedSummary(ctx)
 		}
 		if summary == "" {
 			summary = renderDriftBoundedRootCauseFallbackSummary(ctx)
@@ -5029,17 +5031,6 @@ func driftBoundedSummaryNeedsFallback(summary string) bool {
 	return false
 }
 
-func driftBoundedSummaryPrimaryBlock(summary string) string {
-	for _, block := range strings.Split(strings.TrimSpace(summary), "\n\n") {
-		block = strings.TrimSpace(block)
-		if block == "" || strings.HasPrefix(block, "```") || isDriftBoundedDecorativeSummaryBlock(block) {
-			continue
-		}
-		return block
-	}
-	return ""
-}
-
 func summaryDiagramFenceBlocks(summary string) []string {
 	var out []string
 	for _, block := range strings.Split(strings.TrimSpace(summary), "\n\n") {
@@ -5053,6 +5044,36 @@ func summaryDiagramFenceBlocks(summary string) []string {
 		out = append(out, block)
 	}
 	return out
+}
+
+func driftBoundedSummaryPreservedProse(summary string, citations []types.Citation, allowed map[string]bool, authoritative map[string]bool) string {
+	summary = strings.TrimSpace(summary)
+	if summary == "" || len(allowed) == 0 || len(authoritative) == 0 {
+		return ""
+	}
+	hasUserFence := len(summaryDiagramFenceBlocks(summary)) > 0
+	var kept []string
+	for _, block := range strings.Split(summary, "\n\n") {
+		block = strings.TrimSpace(block)
+		if block == "" || strings.HasPrefix(block, "```") || isDriftBoundedDecorativeSummaryBlock(block) {
+			continue
+		}
+		preserve := driftBoundedSummaryBlockHasPreservableAuthority(block, citations, authoritative)
+		if hasUserFence && !preserve && driftBoundedSummaryBlockMentionsCitationLine(block, citations) && driftBoundedSummaryBlockSupportedLabelHits(block, allowed) > 0 {
+			preserve = true
+		}
+		if !preserve {
+			continue
+		}
+		kept = append(kept, block)
+	}
+	if len(kept) == 0 {
+		return ""
+	}
+	if hasUserFence {
+		return strings.TrimSpace(strings.Join(kept, "\n\n"))
+	}
+	return strings.TrimSpace(kept[0])
 }
 
 func renderStructuredDriftBoundedSummary(ctx *types.BusContext) string {
@@ -5105,6 +5126,12 @@ func driftBoundedSummaryAllowedLabels(citations []types.Citation, gc *ground.Con
 			add(anchor.OriginalFunc)
 			add(anchor.OriginalFile)
 		}
+		for _, seed := range plan.ExternalObservationSeeds {
+			add(seed.Raw)
+			add(seed.Func)
+			add(seed.File)
+			add(seed.AnchoredFile)
+		}
 	}
 	for _, cite := range citations {
 		add(cite.File)
@@ -5126,6 +5153,101 @@ func driftBoundedSummaryAllowedLabels(citations []types.Citation, gc *ground.Con
 	return allowed
 }
 
+func driftBoundedSummaryAuthoritativeLabels(plan *types.AnswerSurfacePlan) map[string]bool {
+	allowed := make(map[string]bool)
+	if plan == nil {
+		return allowed
+	}
+	add := func(label string) {
+		label = strings.TrimSpace(strings.ReplaceAll(label, `\`, `/`))
+		if label == "" {
+			return
+		}
+		allowed["exact|"+strings.ToLower(label)] = true
+		if base := strings.TrimSpace(path.Base(label)); base != "" && base != "." {
+			allowed["exact|"+strings.ToLower(base)] = true
+		}
+		if tail := types.NormalizedSurfaceSymbolTail(label); tail != "" {
+			allowed["sym|"+tail] = true
+		}
+	}
+	for _, anchor := range plan.LogObservedAnchors {
+		add(anchor.Func)
+		add(anchor.File)
+		add(anchor.OriginalFunc)
+		add(anchor.OriginalFile)
+	}
+	for _, anchor := range plan.LogSourceDriftAnchors {
+		add(anchor.Func)
+		add(anchor.File)
+		add(anchor.OriginalFunc)
+		add(anchor.OriginalFile)
+	}
+	return allowed
+}
+
+func driftBoundedSummaryBlockHasPreservableAuthority(block string, citations []types.Citation, allowed map[string]bool) bool {
+	hits := driftBoundedSummaryBlockSupportedLabelHits(block, allowed)
+	if hits >= 2 {
+		return true
+	}
+	return hits >= 1 && driftBoundedSummaryBlockMentionsCitationLine(block, citations)
+}
+
+func driftBoundedSummaryBlockSupportedLabelHits(block string, allowed map[string]bool) int {
+	if len(allowed) == 0 {
+		return 0
+	}
+	seen := make(map[string]bool)
+	hits := 0
+	for _, match := range backtickedLabelRe.FindAllStringSubmatch(block, -1) {
+		if len(match) < 2 {
+			continue
+		}
+		label := strings.TrimSpace(match[1])
+		if label == "" {
+			continue
+		}
+		if driftBoundedSummaryLabelAllowed(label, allowed) {
+			key := strings.ToLower(label)
+			if seen[key] {
+				continue
+			}
+			seen[key] = true
+			hits++
+			continue
+		}
+		if !driftBoundedSummaryLabelLooksLikeCodeExpression(label) {
+			continue
+		}
+		for _, token := range valueLiteralTokenRe.FindAllString(label, -1) {
+			if token == "" || !driftBoundedSummaryLabelAllowed(token, allowed) {
+				continue
+			}
+			key := strings.ToLower(token)
+			if seen[key] {
+				continue
+			}
+			seen[key] = true
+			hits++
+		}
+	}
+	return hits
+}
+
+func driftBoundedSummaryBlockMentionsCitationLine(block string, citations []types.Citation) bool {
+	for _, cite := range citations {
+		if cite.Line <= 0 {
+			continue
+		}
+		pattern := regexp.MustCompile(fmt.Sprintf(`(^|[^0-9])%d([^0-9]|$)`, cite.Line))
+		if pattern.MatchString(block) {
+			return true
+		}
+	}
+	return false
+}
+
 func driftBoundedSummaryBlockMentionsUnsupportedBacktickedLabel(block string, allowed map[string]bool) bool {
 	if len(allowed) == 0 {
 		return false
@@ -5135,7 +5257,7 @@ func driftBoundedSummaryBlockMentionsUnsupportedBacktickedLabel(block string, al
 			continue
 		}
 		label := strings.TrimSpace(match[1])
-		if label == "" || driftBoundedSummaryLabelAllowed(label, allowed) {
+		if label == "" || driftBoundedSummaryLabelAllowed(label, allowed) || driftBoundedSummaryLabelLooksLikeCodeExpression(label) || !driftBoundedSummaryLabelLooksLikeSurfaceAnchor(label) {
 			continue
 		}
 		return true
@@ -5173,6 +5295,33 @@ func driftBoundedSummaryLabelAllowed(label string, allowed map[string]bool) bool
 	}
 	if tail := types.NormalizedSurfaceSymbolTail(label); tail != "" && allowed["sym|"+tail] {
 		return true
+	}
+	return false
+}
+
+func driftBoundedSummaryLabelLooksLikeCodeExpression(label string) bool {
+	label = strings.TrimSpace(label)
+	if label == "" {
+		return false
+	}
+	return strings.ContainsAny(label, "()[]=<>!|&+-*/{},;")
+}
+
+func driftBoundedSummaryLabelLooksLikeSurfaceAnchor(label string) bool {
+	label = strings.TrimSpace(label)
+	if label == "" {
+		return false
+	}
+	if strings.Contains(label, "/") || strings.Contains(label, `\`) || strings.Contains(label, "::") {
+		return true
+	}
+	if strings.Contains(label, ".") || strings.Contains(label, "_") {
+		return true
+	}
+	for _, r := range label {
+		if unicode.IsUpper(r) {
+			return true
+		}
 	}
 	return false
 }
