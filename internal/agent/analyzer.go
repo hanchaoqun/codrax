@@ -1104,6 +1104,19 @@ func buildAnalysisIR(ctx *types.AgentContext) (*types.AnalysisIR, error) {
 			))
 			rm.Scenario = scenarioResolved
 		}
+		if resolved, capabilityQuery, reason := reconcileStageToolCapabilitySurface(rm); capabilityQuery != nil {
+			recordReconcileObservation(ctxMutable(ctx), reconcileEvent(
+				"capability_surface",
+				fmt.Sprintf("subject=%s scenario=%s keywords=%d", rm.AnswerSubject.Kind, rm.Scenario, len(rm.AnalyzerHints.Keywords)),
+				fmt.Sprintf("subject=%s scenario=%s keywords=%d", resolved.AnswerSubject.Kind, resolved.Scenario, len(resolved.AnalyzerHints.Keywords)),
+				resolved.AnswerSubject.Confidence,
+				reason,
+				resolved.Predicates,
+			))
+			logging.Debug("[analyzer] capability-surface reconcile: stage=%s agent=%s skill=%s tool=%s",
+				capabilityQuery.Binding.Stage, capabilityQuery.Binding.Agent, capabilityQuery.Binding.Skill, capabilityQuery.Tool)
+			rm = resolved
+		}
 		// Measurement-scalar signal — captures the reconciled-Intent
 		// case (LLM picked enumerate, reconcileIntent downgraded to
 		// return_value via IsCountQuestion), the LLM-direct case
@@ -1467,6 +1480,9 @@ func analyzerRequiredFiles(ctx *types.AgentContext, rm types.RequestModel) []str
 	}
 	if types.IsREPLControlInput(types.StripConversationPrefix(rm.RawRequest)) {
 		return nil
+	}
+	if capabilityQuery := detectStageToolCapabilityQuery(rm); capabilityQuery != nil {
+		return capabilityAuthorityFiles(capabilityQuery)
 	}
 	entities := rm.AnalyzerHints.Entities
 	if len(entities) == 0 {

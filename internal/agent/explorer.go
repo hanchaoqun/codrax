@@ -905,6 +905,11 @@ func (e *explorerEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk 
 			if banner := e.buildExactResolutionScopeBanner(ctx, analyzerKeywords); banner != "" {
 				b.WriteString(banner)
 			}
+			if capabilityQuery := detectStageToolCapabilityQueryFromContext(ctx); capabilityQuery != nil {
+				e.phase = 1
+				e.requiredFiles = capabilityFocusedFiles(capabilityQuery, e.requiredFiles)
+				return e.buildCapabilityFocusedStartInstruction(ctx, analyzerKeywords, capabilityQuery)
+			}
 			if e.shouldStartFocusedDepth(analyzerKind) {
 				e.phase = 1
 				e.tightenFocusedFrontier()
@@ -2018,6 +2023,53 @@ func (e *explorerEvaluator) tightenDeclarativeCandidateFrontier() {
 	if len(narrowed) > 0 {
 		e.preScannedFiles = narrowed
 	}
+}
+
+func (e *explorerEvaluator) buildCapabilityFocusedStartInstruction(ctx *types.AgentContext, analyzerKeywords []string, q *stageToolCapabilityQuery) string {
+	if q == nil {
+		return ""
+	}
+	files := capabilityFocusedFiles(q, e.requiredFiles)
+	if len(files) == 0 {
+		return ""
+	}
+	e.requiredFiles = files
+	var b strings.Builder
+	b.WriteString("## Capability Surface Start\n\n")
+	b.WriteString("This question is about the stage/tool capability surface. Skip broad repo discovery and inspect the canonical authority files first.\n\n")
+	b.WriteString(renderCapabilityAuthoritySection(q, "Capability Authority"))
+	b.WriteString("Read these files first, in order:\n")
+	for _, file := range files {
+		b.WriteString("- `" + file + "`\n")
+	}
+	b.WriteString("\nWorkflow:\n")
+	b.WriteString("- Establish the stage -> agent -> skill binding first.\n")
+	b.WriteString("- Confirm whether the named skill's `ToolSuggestions` includes the named tool.\n")
+	b.WriteString("- Confirm that `buildToolSchemas` exposes only the skill allowlist to the LLM.\n")
+	b.WriteString("- Treat helper subsets and validator functions as supporting detail only after the capability surface is settled.\n")
+	b.WriteString("- If implementation detail matters, expand only to the specific helper file already named in these authority files.\n\n")
+	if ctx != nil && ctx.RepoRoot != "" {
+		if preReadInjected := preReadRequiredFiles(ctx.RepoRoot, files, 3, 220); preReadInjected != "" {
+			b.WriteString("### Pre-read File Content (saves you a read_file call)\n\n")
+			b.WriteString(preReadInjected)
+		}
+	}
+	if len(analyzerKeywords) > 0 {
+		display := analyzerKeywords
+		if len(display) > 12 {
+			display = display[:12]
+		}
+		b.WriteString("### Search Terms\n\n")
+		b.WriteString("Use these only within the authority files or the helper they directly cite before widening scope:\n`")
+		b.WriteString(strings.Join(display, "`, `"))
+		b.WriteString("`\n\n")
+	}
+	b.WriteString("Evidence format:\n")
+	b.WriteString("- `[DIRECT] symbol line N: <what this authority file establishes>`\n")
+	b.WriteString("- `[CONDITIONAL] symbol line N: <what narrower helper subset or validator does>`\n")
+	b.WriteString("- `[ABSENT] <what is not exposed on the stage capability surface>`\n\n")
+	b.WriteString("Read the authority files now and emit evidence before widening.\n")
+	return b.String()
 }
 
 func (e *explorerEvaluator) buildFocusedDepthStartInstruction(ctx *types.AgentContext, analyzerKeywords []string) string {

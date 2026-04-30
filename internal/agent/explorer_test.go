@@ -1626,6 +1626,67 @@ func TestBuildFocusedDepthStartInstruction_SurfacesAuthoritativeLogFunctionAncho
 	}
 }
 
+func TestBuildInitialInstruction_CapabilityQueryStartsFocusedAuthorityDepth(t *testing.T) {
+	repo := t.TempDir()
+	files := map[string]string{
+		"internal/orchestrator/topology.go":   "package orchestrator\n",
+		"internal/skill/analysis_contract.go": "package skill\nvar AnalysisToolSuggestions = []string{\"emit_analysis\", \"repo_map\", \"grep\", \"list_files\"}\n",
+		"internal/agent/agent.go":             "package agent\nfunc buildToolSchemas() {}\n",
+		"internal/agent/analyzer.go":          "package agent\nfunc validateAnalyzerPrescanToolCall() {}\n",
+	}
+	for rel, body := range files {
+		path := filepath.Join(repo, filepath.FromSlash(rel))
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatalf("mkdir %s: %v", rel, err)
+		}
+		if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
+			t.Fatalf("write %s: %v", rel, err)
+		}
+	}
+	question := "Explorer stage 之前的 analyzer stage 里是否允许调用 read_file？"
+	ctx := &types.AgentContext{
+		Objective: question,
+		RepoRoot:  repo,
+		Mutable:   types.NewMutableState(question),
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				RawRequest: question,
+				Complexity: types.ComplexityModerate,
+				AnalyzerHints: types.AnalyzerHints{
+					Keywords: []string{"read_file", "analyzer", "ToolSuggestions"},
+					Kind:     "mechanism",
+				},
+			},
+			EvidencePlan: types.EvidencePlan{
+				RequiredFiles: []string{"internal/orchestrator/topology.go", "internal/skill/analysis_contract.go"},
+			},
+		},
+	}
+
+	eval := &explorerEvaluator{}
+	prompt := eval.BuildInitialInstruction(ctx, nil)
+	if eval.phase != 1 {
+		t.Fatalf("capability query should start in depth phase, got phase=%d", eval.phase)
+	}
+	for _, want := range []string{
+		"Capability Surface Start",
+		"## Capability Authority",
+		"stage -> agent -> skill binding first",
+		"`ToolSuggestions`",
+		"`buildToolSchemas`",
+		"internal/orchestrator/topology.go",
+		"internal/skill/analysis_contract.go",
+		"internal/agent/agent.go",
+	} {
+		if !strings.Contains(prompt, want) {
+			t.Fatalf("capability-focused prompt missing %q:\n%s", want, prompt)
+		}
+	}
+	if strings.Contains(prompt, "Breadth Scan") {
+		t.Fatalf("capability-focused start should bypass breadth prompt, got: %s", prompt)
+	}
+}
+
 func TestUniqueExactAnchorFile_SuppressedWhenExactTargetPending(t *testing.T) {
 	eval := &explorerEvaluator{
 		exactAnchorFiles: []string{"codrax.yaml.example"},
@@ -6089,13 +6150,13 @@ func TestObserve_RefreshesStructuredEvidenceBeforeExactAbsenceCloseSignal(t *tes
 
 func TestPostExactAbsenceClosureSignal_PrefersStructuralPrecedenceNextHop(t *testing.T) {
 	contract := &types.ExactResolutionContract{
-		TargetKind:             types.SubjectConfigKey,
-		TargetLabel:            "config key",
-		Targets:                []string{"explore_mid_loop_hint_budget"},
-		AllowAbsence:           true,
-		RelatedContextPolicy:   types.ExactContextSameFamilyGrounded,
-		RelatedContextTerms:    []string{"explore"},
-		RequestedContextRoles:  []types.EvidenceDiagramRole{types.EvidenceDiagramRoleDefault, types.EvidenceDiagramRoleConfig, types.EvidenceDiagramRoleOverride},
+		TargetKind:            types.SubjectConfigKey,
+		TargetLabel:           "config key",
+		Targets:               []string{"explore_mid_loop_hint_budget"},
+		AllowAbsence:          true,
+		RelatedContextPolicy:  types.ExactContextSameFamilyGrounded,
+		RelatedContextTerms:   []string{"explore"},
+		RequestedContextRoles: []types.EvidenceDiagramRole{types.EvidenceDiagramRoleDefault, types.EvidenceDiagramRoleConfig, types.EvidenceDiagramRoleOverride},
 	}
 	eval := &explorerEvaluator{
 		scenario:        types.ScenarioConfigTrace,

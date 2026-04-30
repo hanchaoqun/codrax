@@ -245,6 +245,26 @@ func TestAnalyzerRequiredFiles_ExternalSourceLogSkipsRepoSeeds(t *testing.T) {
 	}
 }
 
+func TestAnalyzerRequiredFiles_CapabilityQueryUsesAuthorityFiles(t *testing.T) {
+	ctx := &types.AgentContext{
+		RepoRoot: t.TempDir(),
+		Mutable:  types.NewMutableState("test"),
+	}
+	rm := types.RequestModel{
+		RawRequest: "Explorer stage 之前的 analyzer stage 里是否允许调用 read_file？",
+	}
+	got := analyzerRequiredFiles(ctx, rm)
+	want := []string{
+		"internal/orchestrator/topology.go",
+		"internal/skill/analysis_contract.go",
+		"internal/agent/agent.go",
+		"internal/agent/analyzer.go",
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("capability query required files = %v, want %v", got, want)
+	}
+}
+
 func TestShouldMergeLogTriageEntities_SkipsExternalSource(t *testing.T) {
 	if shouldMergeLogTriageEntities(&types.LogBundle{
 		Errors: []types.LogError{{Type: "panic"}},

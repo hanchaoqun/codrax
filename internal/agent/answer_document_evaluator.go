@@ -168,6 +168,9 @@ func (e *answerDocumentEvaluator) BuildInitialInstruction(ctx *types.AgentContex
 	if coverage := renderAnswerDocConfigTraceRoleCoverage(ctx, nil); coverage != "" {
 		b.WriteString(coverage)
 	}
+	if capability := renderAnswerDocCapabilitySurface(ctx); capability != "" {
+		b.WriteString(capability)
+	}
 	if exact := renderAnswerDocExactResolutionContract(ctx); exact != "" {
 		b.WriteString(exact)
 	}
@@ -515,6 +518,10 @@ func answerDocExactResolutionContract(ctx *types.AgentContext) *types.ExactResol
 		return plan.ExactResolution
 	}
 	return nil
+}
+
+func renderAnswerDocCapabilitySurface(ctx *types.AgentContext) string {
+	return renderCapabilityAuthoritySection(detectStageToolCapabilityQueryFromContext(ctx), "Capability Surface Authority")
 }
 
 func renderAnswerDocDiagramContract(dc *types.DiagramContract) string {

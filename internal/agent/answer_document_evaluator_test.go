@@ -725,6 +725,34 @@ func TestAnswerDocumentEvaluator_BuildInitialInstruction_RendersExactResolutionC
 	}
 }
 
+func TestAnswerDocumentEvaluator_BuildInitialInstruction_RendersCapabilitySurfaceAuthority(t *testing.T) {
+	question := "Explorer stage 之前的 analyzer stage 里是否允许调用 read_file？"
+	ctx := &types.AgentContext{
+		Mutable: types.NewMutableState(question),
+		AnalysisIR: &types.AnalysisIR{
+			AnswerContract: types.AnswerContract{
+				RequiredAnswerShape: types.ShapeExplanation,
+			},
+			RequestModel: types.RequestModel{
+				RawRequest: question,
+				Scenario:   types.ScenarioGeneric,
+			},
+		},
+	}
+	prompt := (&answerDocumentEvaluator{}).BuildInitialInstruction(ctx, nil)
+	for _, want := range []string{
+		"## Capability Surface Authority",
+		"`read_file`",
+		"`analysis-skill` skill",
+		"`ToolSuggestions`",
+		"`buildToolSchemas`",
+	} {
+		if !strings.Contains(prompt, want) {
+			t.Fatalf("prompt missing %q:\n%s", want, prompt)
+		}
+	}
+}
+
 func TestAnswerDocumentEvaluator_BuildInitialInstruction_NeutralizesExactResolutionChainSeed(t *testing.T) {
 	ctx := &types.AgentContext{
 		AnalysisIR: &types.AnalysisIR{

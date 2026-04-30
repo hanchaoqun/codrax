@@ -21,28 +21,29 @@ import (
 // the orchestrator logs a warning and the main pipeline continues
 // with the relevant BusContext side-effect (e.g. bus.Mutable.LogTriage()
 // or bus.Mutable.PerfTrace()) staying at its zero value.
-var pipelineTopology = map[types.PipelineStage]struct {
+var pipelineTopology = func() map[types.PipelineStage]struct {
 	Agent    types.AgentName
 	Skill    string
 	Terminal bool
-}{
-	types.StageLogTriage:  {Agent: types.AgentLogTriager, Skill: "log-triage-skill"},
-	types.StagePerfTriage: {Agent: types.AgentPerfTriager, Skill: "perf-triage-skill"},
-	types.StageAnalyze:    {Agent: types.AgentAnalyzer, Skill: "analysis-skill"},
-	types.StageExplore:   {Agent: types.AgentExplorer, Skill: "explore-skill"},
-	types.StageExtract:   {Agent: types.AgentExtractor, Skill: "extract-skill"},
-	types.StageFinalize:  {Agent: types.AgentFinalizer, Skill: "answer-document-skill", Terminal: true},
-
-	// Write-mode stages. T4 fold-in: write nodes (NodePlan / NodeApply
-	// / NodeVerify) live in the same TaskGraph as read nodes and the
-	// scheduler dispatches them via stageMapping the same way it
-	// dispatches read explore nodes. Pre/post hooks (worktree
-	// provisioning, baseline capture, plan-status persistence) live in
-	// stage_hooks.go and fire around dispatchStage calls.
-	types.StagePlan:   {Agent: types.AgentPlanner, Skill: "change-plan-skill"},
-	types.StageApply:  {Agent: types.AgentCoder, Skill: "code-write-skill"},
-	types.StageVerify: {Agent: types.AgentVerifier, Skill: "test-execute-skill"},
-}
+} {
+	out := make(map[types.PipelineStage]struct {
+		Agent    types.AgentName
+		Skill    string
+		Terminal bool
+	}, len(types.AllStageBindings()))
+	for _, binding := range types.AllStageBindings() {
+		out[binding.Stage] = struct {
+			Agent    types.AgentName
+			Skill    string
+			Terminal bool
+		}{
+			Agent:    binding.Agent,
+			Skill:    binding.Skill,
+			Terminal: binding.Terminal,
+		}
+	}
+	return out
+}()
 
 // preStageEntry describes one conditional pre-stage. Guard is called
 // exactly once per Run; a false return skips the stage entirely. The
