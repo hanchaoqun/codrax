@@ -1,0 +1,181 @@
+package tool
+
+import (
+	"encoding/json"
+	"strings"
+	"testing"
+
+	"github.com/hanchaoqun/codrax/internal/types"
+)
+
+func newTestBusForWriteAnalysis() *types.BusContext {
+	return &types.BusContext{
+		Mutable: types.NewMutableState("test objective"),
+		Mode:    types.ModePlan,
+	}
+}
+
+// TestEmitWriteAnalysis_HappyPath verifies a fully-populated emit
+// stores a normalised IR with all enums canonicalised.
+func TestEmitWriteAnalysis_HappyPath(t *testing.T) {
+	tool := &EmitWriteAnalysis{}
+	bus := newTestBusForWriteAnalysis()
+	params := json.RawMessage(`{
+		"raw_request": "add a --quiet flag to suppress non-error output",
+		"task": {
+			"kind": "feature",
+			"scope": "micro",
+			"summary": "wire a --quiet flag through cmd/root.go"
+		},
+		"risk": {
+			"affects_public_api": true,
+			"changes_persistence": false,
+			"changes_build_system": false,
+			"overall": "low"
+		},
+		"scope_anchors": ["cmd/root.go", "internal/render"],
+		"expected_outcomes": [
+			"the --quiet flag suppresses INFO-level log output",
+			"existing tests in cmd/ still pass"
+		]
+	}`)
+	res, err := tool.Execute(bus, params)
+	if err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("Execute success=false: %s", res.Summary)
+	}
+	ir := bus.Mutable.WriteAnalysisIR()
+	if ir == nil {
+		t.Fatal("WriteAnalysisIR not stored")
+	}
+	if ir.Request.Task.Kind != types.WriteTaskFeature {
+		t.Errorf("kind = %q; want feature", ir.Request.Task.Kind)
+	}
+	if ir.Request.Task.Scope != types.ScopeMicro {
+		t.Errorf("scope = %q; want micro", ir.Request.Task.Scope)
+	}
+	if ir.Request.Risk.Overall != types.RiskBandLow {
+		t.Errorf("overall = %q; want low", ir.Request.Risk.Overall)
+	}
+	if !ir.Request.Risk.AffectsPublicAPI {
+		t.Error("AffectsPublicAPI lost in round-trip")
+	}
+	if len(ir.Request.ScopeAnchors) != 2 {
+		t.Errorf("ScopeAnchors len = %d; want 2", len(ir.Request.ScopeAnchors))
+	}
+	if len(ir.Request.ExpectedOutcomes) != 2 {
+		t.Errorf("ExpectedOutcomes len = %d; want 2", len(ir.Request.ExpectedOutcomes))
+	}
+}
+
+// TestEmitWriteAnalysis_EnumFallback verifies unknown enum values
+// fall back to the safest option rather than rejecting the emit.
+func TestEmitWriteAnalysis_EnumFallback(t *testing.T) {
+	tool := &EmitWriteAnalysis{}
+	bus := newTestBusForWriteAnalysis()
+	params := json.RawMessage(`{
+		"raw_request": "do something",
+		"task": {"kind": "creative_invention", "scope": "global", "summary": "do something"},
+		"risk": {"affects_public_api": false, "changes_persistence": false, "changes_build_system": false, "overall": "catastrophic"}
+	}`)
+	res, err := tool.Execute(bus, params)
+	if err != nil || !res.Success {
+		t.Fatalf("Execute failed: err=%v summary=%s", err, res.Summary)
+	}
+	ir := bus.Mutable.WriteAnalysisIR()
+	if ir.Request.Task.Kind != types.WriteTaskMisc {
+		t.Errorf("unknown kind should fall back to misc; got %q", ir.Request.Task.Kind)
+	}
+	if ir.Request.Task.Scope != types.ScopeMicro {
+		t.Errorf("unknown scope should fall back to micro; got %q", ir.Request.Task.Scope)
+	}
+	if ir.Request.Risk.Overall != types.RiskBandLow {
+		t.Errorf("unknown overall should fall back to low; got %q", ir.Request.Risk.Overall)
+	}
+}
+
+// TestEmitWriteAnalysis_RejectsEmptyRequiredFields verifies the
+// minimum-information guard.
+func TestEmitWriteAnalysis_RejectsEmptyRequiredFields(t *testing.T) {
+	tool := &EmitWriteAnalysis{}
+	bus := newTestBusForWriteAnalysis()
+	cases := []struct {
+		name   string
+		params string
+		want   string
+	}{
+		{
+			name: "empty raw_request",
+			params: `{"raw_request": "", "task": {"kind": "feature", "scope": "micro", "summary": "x"},
+				"risk": {"affects_public_api": false, "changes_persistence": false, "changes_build_system": false, "overall": "low"}}`,
+			want: "raw_request is empty",
+		},
+		{
+			name: "empty task.summary",
+			params: `{"raw_request": "x", "task": {"kind": "feature", "scope": "micro", "summary": ""},
+				"risk": {"affects_public_api": false, "changes_persistence": false, "changes_build_system": false, "overall": "low"}}`,
+			want: "task.summary is empty",
+		},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			res, err := tool.Execute(bus, json.RawMessage(c.params))
+			if err != nil {
+				t.Fatalf("Execute returned err: %v", err)
+			}
+			if res.Success {
+				t.Fatalf("expected reject; got success summary=%s", res.Summary)
+			}
+			if !strings.Contains(res.Summary, c.want) {
+				t.Errorf("rejection summary = %q; want substring %q", res.Summary, c.want)
+			}
+		})
+	}
+}
+
+// TestEmitWriteAnalysis_PhaseProposalCollapse verifies a sequential
+// proposal with fewer than 2 phases collapses to single — the
+// downstream scheduler treats single as the no-op (zero-regression)
+// path so the contradiction has to be resolved here.
+func TestEmitWriteAnalysis_PhaseProposalCollapse(t *testing.T) {
+	tool := &EmitWriteAnalysis{}
+	bus := newTestBusForWriteAnalysis()
+	params := json.RawMessage(`{
+		"raw_request": "x",
+		"task": {"kind": "feature", "scope": "micro", "summary": "y"},
+		"risk": {"affects_public_api": false, "changes_persistence": false, "changes_build_system": false, "overall": "low"},
+		"phase_proposal": {
+			"split": "sequential",
+			"phases": [{"goal": "only one"}]
+		}
+	}`)
+	res, err := tool.Execute(bus, params)
+	if err != nil || !res.Success {
+		t.Fatalf("Execute failed: %v %s", err, res.Summary)
+	}
+	ir := bus.Mutable.WriteAnalysisIR()
+	if ir.PhaseProposal.Split != "single" {
+		t.Errorf("single-phase sequential should collapse to single; got %q", ir.PhaseProposal.Split)
+	}
+	if len(ir.PhaseProposal.Phases) != 0 {
+		t.Errorf("expected phases dropped on collapse; got %d", len(ir.PhaseProposal.Phases))
+	}
+}
+
+// TestEmitWriteAnalysis_RequiresMutable verifies the structural
+// no-op safeguard against a misconfigured BusContext.
+func TestEmitWriteAnalysis_RequiresMutable(t *testing.T) {
+	tool := &EmitWriteAnalysis{}
+	res, err := tool.Execute(&types.BusContext{}, json.RawMessage(`{}`))
+	if err != nil {
+		t.Fatalf("Execute returned err: %v", err)
+	}
+	if res.Success {
+		t.Error("expected failure when Mutable is nil")
+	}
+	if !strings.Contains(res.Summary, "Mutable") {
+		t.Errorf("rejection summary = %q; expected 'Mutable' mention", res.Summary)
+	}
+}

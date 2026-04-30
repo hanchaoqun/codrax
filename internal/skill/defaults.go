@@ -453,6 +453,56 @@ Do NOT emit any other tool call. Do NOT write prose.`,
 	// build time).
 
 	r.Register(&Config{
+		Name: "write-analysis-skill",
+		Goal: "Characterise the user's code-change request as a structured task description (kind / scope / risk / constraints / outcomes) so the planner has clear, framing-correct context. Read the request and inspect the repository enough to ground your judgement, then call emit_write_analysis exactly once.",
+		Workflow: []string{
+			"Read the user's request from the active context. The request describes a code change, not a question — your job is to characterise the work, not investigate code in depth.",
+			"Inspect the repository lightly to ground your classification: call repo_map for an overview, then read_file or list_files on directories the request mentions. Cap pre-scan at 1-2 rounds — deep investigation belongs to the planner stage that runs after you.",
+			"Decide the task category (feature / bugfix / refactor / test / docs / config / misc) based on what the change actually does. A new function added to fix wrong behaviour is bugfix; a new function added to extend capability is feature; renaming or restructuring without behaviour change is refactor.",
+			"Decide the scope (micro / package / cross / project) by inspecting how widely the change ripples. A one-function change in one file is micro. Multi-file work in one Go package is package. Touching unrelated subsystems is cross. Build-system or repo-wide refactor is project.",
+			"Decide the risk axes from what the change touches: affects_public_api when the change adds / removes / renames any exported identifier; changes_persistence when schemas, on-disk file formats, configuration shapes, or migration files are involved; changes_build_system when go.mod / package.json / Cargo.toml / build scripts / CI configuration are touched. Pick an overall band (low / medium / high) reflecting blast radius if the change is misapplied.",
+			"Extract constraints the user explicitly stated (e.g. 'do not break existing API', 'keep the same file layout'). Skip when the user did not state any.",
+			"Write 2-4 expected_outcomes — short concrete signals that the change is correctly done (e.g. 'a new --dry-run flag is wired through cmd/root.go and accepted by the existing flag parser', 'tests in internal/config still pass'). These are the goal-checks the reflector will use to judge whether retries are moving toward what the user wanted.",
+			"If the change naturally splits into stages where each stage can be applied and verified before moving on (for example a schema migration before code that depends on it), propose those stages via phase_proposal with split=sequential. Otherwise omit phase_proposal or set split=single.",
+			"Call emit_write_analysis exactly once with all required fields filled in.",
+		},
+		ToolSuggestions: []string{
+			"read_file",
+			"list_files",
+			"repo_map",
+			"grep",
+			"emit_write_analysis",
+		},
+		OutputFormat: `Emit ONE emit_write_analysis call.
+
+Required fields:
+- raw_request          (string) — echo the user's request verbatim
+- task.kind            (enum)   — feature / bugfix / refactor / test / docs / config / misc
+- task.scope           (enum)   — micro / package / cross / project
+- task.summary         (string, ≤100 chars) — your one-line restatement
+- risk.affects_public_api    (bool)
+- risk.changes_persistence   (bool)
+- risk.changes_build_system  (bool)
+- risk.overall         (enum)  — low / medium / high
+
+Optional fields:
+- scope_anchors[]      — repo-relative paths the change centres on
+- constraints[]        — { kind, target?, note? }
+- expected_outcomes[]  — 2-4 short success signals
+- phase_proposal       — when the change splits into ordered stages
+- applicable_pitfalls[] — known-pitfall IDs that clearly apply (when a pitfall list was provided in the prompt)
+
+Prose written outside the tool call is captured in the trace but does not drive any agent — the structured fields are what matter.`,
+		Prohibitions: []string{
+			"do NOT modify files — analysis does not change state. exec_command is not in your allowlist for that reason.",
+			"do NOT plan the actual code changes — that is the planner's job in the next stage. Your output is a task description, not a change list.",
+			"do NOT invent constraints the user did not state. An empty constraints[] is normal and correct when the user said nothing about restrictions.",
+			"do NOT split into phases unless each phase can independently be applied and verified before the next — speculative subdivision burns retry budget without the LLM having any way to test phase 1's effect before writing phase 2.",
+			"do NOT call emit_write_analysis more than once — a second call replaces the first.",
+		},
+	})
+
+	r.Register(&Config{
 		Name: "change-plan-skill",
 		Goal: "Produce a concrete ChangePlan for the user's requested code change by reading the relevant source and emitting it via either single-shot (emit_change_plan) or structural multi-round (emit_plan_skeleton + emit_plan_change-per-file).",
 		Workflow: []string{

@@ -28,6 +28,15 @@ const (
 	StageExtract  PipelineStage = "extract"
 	StageFinalize PipelineStage = "finalize"
 
+	// StageWriteAnalyze is the write-mode peer to StageAnalyze. Runs
+	// once per write-mode Run after the read analyzer (which still
+	// fires as a classifier for keyword ranking). Dispatches the
+	// write_analyzer agent to produce a validated WriteAnalysisIR on
+	// MutableState — task-shape facts (kind / scope / risk /
+	// constraints / outcomes) the write agents read directly.
+	// Read-mode Runs never reach this stage.
+	StageWriteAnalyze PipelineStage = "write_analyze"
+
 	// Write-mode stages. Only fire when BusContext.Mode is
 	// ModePlan / ModeApply / ModeVerify; Run()'s Mode switch
 	// dispatches to the plan stage hook / the apply stage hook / the verify stage hook
@@ -46,23 +55,28 @@ func (s PipelineStage) IsTerminal() bool {
 }
 
 // IsWrite reports whether the stage belongs to the write-mode
-// pipeline (plan / apply / verify). Load-bearing: the single source
-// of truth used by BuildAgentContext to gate propagation of
-// read-mode stage artifacts (PriorReports / EvidenceItems /
-// AnswerChains / AnswerSymbols / FlowFindings / UnverifiedAnalyzer-
-// Findings) into planner/coder/verifier prompts. When those bled
-// through untyped (session-35 audit), the analyzer's narrative
-// (including <think> preamble like "Let me emit the analysis…")
-// caused the planner LLM to pattern-match and skip
-// emit_change_plan. Keep this method the only discriminator so
+// pipeline (write_analyze / plan / apply / verify). Load-bearing:
+// the single source of truth used by BuildAgentContext to gate
+// propagation of read-mode stage artifacts (PriorReports /
+// EvidenceItems / AnswerChains / AnswerSymbols / FlowFindings /
+// UnverifiedAnalyzerFindings) into planner/coder/verifier prompts.
+// When those bled through untyped (session-35 audit), the
+// analyzer's narrative (including <think> preamble like "Let me
+// emit the analysis…") caused the planner LLM to pattern-match and
+// skip emit_change_plan. Keep this method the only discriminator so
 // future drift lights up one test, not a dozen render sites.
 //
 // StageAnalyze is NOT a write stage even though it runs inside the
 // write pipeline as a classifier — its read-mode inputs (AnalysisIR
 // assembly, repo_map, etc.) are required for correct classification
 // regardless of the outer mode.
+//
+// StageWriteAnalyze IS a write stage — it produces WriteAnalysisIR
+// which is only meaningful for plan/apply/verify, and the prior
+// read-mode artifacts gating applies (we don't want the read
+// analyzer's narrative bleeding into write_analyzer prompts).
 func (s PipelineStage) IsWrite() bool {
-	return s == StagePlan || s == StageApply || s == StageVerify
+	return s == StageWriteAnalyze || s == StagePlan || s == StageApply || s == StageVerify
 }
 
 // String returns the string representation of the PipelineStage.
@@ -106,6 +120,12 @@ const (
 	AgentLogTriager  AgentName = "log_triager"
 	AgentPerfTriager AgentName = "perf_triager"
 
+	// AgentWriteAnalyzer is the write-mode peer to AgentAnalyzer.
+	// Runs once per write-mode Run after the read analyzer to
+	// produce WriteAnalysisIR (task-shape facts the write agents
+	// read directly). Never fires in read mode.
+	AgentWriteAnalyzer AgentName = "write_analyzer"
+
 	// Write-mode agents. Each pairs with the matching Stage
 	// (StagePlan / StageApply / StageVerify) via pipelineTopology.
 	// All three are real LLM-backed agents as of B2: planner emits
@@ -130,6 +150,8 @@ func AllAgentNames() []AgentName {
 		AgentExtractor,
 		AgentFinalizer,
 		AgentLogTriager,
+		AgentPerfTriager,
+		AgentWriteAnalyzer,
 		AgentPlanner,
 		AgentCoder,
 		AgentVerifier,

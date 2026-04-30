@@ -18,6 +18,7 @@ var builtinStageBindings = []StageBinding{
 	{Stage: StageExplore, Agent: AgentExplorer, Skill: "explore-skill"},
 	{Stage: StageExtract, Agent: AgentExtractor, Skill: "extract-skill"},
 	{Stage: StageFinalize, Agent: AgentFinalizer, Skill: "answer-document-skill", Terminal: true},
+	{Stage: StageWriteAnalyze, Agent: AgentWriteAnalyzer, Skill: "write-analysis-skill"},
 	{Stage: StagePlan, Agent: AgentPlanner, Skill: "change-plan-skill"},
 	{Stage: StageApply, Agent: AgentCoder, Skill: "code-write-skill"},
 	{Stage: StageVerify, Agent: AgentVerifier, Skill: "test-execute-skill"},

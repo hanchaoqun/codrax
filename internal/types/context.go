@@ -386,6 +386,16 @@ type MutableState struct {
 	// The two-step controller unmarshals on read. Nil means either
 	// two-step was not invoked or the segmenter failed.
 	perfSegments []byte
+
+	// writeAnalysisIR is the write-mode analyzer's structured output,
+	// produced by the write_analyzer agent via emit_write_analysis.
+	// Nil in read-mode Runs (the read analyzer populates AnalysisIR
+	// instead). Coexists with AnalysisIR in write mode because the
+	// existing read analyzer still runs as a classifier providing
+	// keywords for ranking, while WriteAnalysisIR carries the
+	// task-shape facts (kind / scope / risk / constraints / outcomes)
+	// the write agents read directly. Readers MUST nil-check.
+	writeAnalysisIR *WriteAnalysisIR
 }
 
 // ReconcileObservation is one decision the analyzer pipeline made
@@ -693,6 +703,33 @@ func (m *MutableState) SetPerfTrace(b *PerfBundle) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.perfTrace = b
+}
+
+// WriteAnalysisIR returns the validated WriteAnalysisIR produced by
+// the write_analyzer pre-stage in write mode. Returns nil for
+// read-mode Runs (the stage never fires) or when the LLM failed to
+// emit and the validator could not synthesize a fallback. Readers
+// MUST nil-check.
+func (m *MutableState) WriteAnalysisIR() *WriteAnalysisIR {
+	if m == nil {
+		return nil
+	}
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return m.writeAnalysisIR
+}
+
+// SetWriteAnalysisIR stores the validated WriteAnalysisIR. Called at
+// most once per write-mode Run from the write_analyze stage. The
+// orchestrator clears it via SetWriteAnalysisIR(nil) at Run start so
+// stale state from a prior task does not leak in.
+func (m *MutableState) SetWriteAnalysisIR(ir *WriteAnalysisIR) {
+	if m == nil {
+		return
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.writeAnalysisIR = ir
 }
 
 // SetLogSegments stores the opaque JSON-marshalled segment payload

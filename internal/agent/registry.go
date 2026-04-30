@@ -75,29 +75,34 @@ func RegisterDefaults(r *Registry, deps *Dependencies, resolver LLMResolver,
 		types.AgentFinalizer,
 		types.AgentLogTriager,
 		types.AgentPerfTriager,
-		// Write-mode agents. All three are real LLM-backed agents:
-		// planner emits a structured ChangePlan via emit_change_plan;
-		// coder walks plan.Changes via per-unit apply_patch calls
-		// inside the orchestrator-provisioned worktree; verifier
-		// drives run_tests (deterministic 4-language parser) and
-		// persists a ChangeReport. All three stay inert for
-		// read-mode Runs because those stages only fire when
-		// BusContext.Mode is Plan / Apply / Verify.
+		// Write-mode agents. All four are real LLM-backed agents.
+		// write_analyzer characterises the user's code-change request
+		// into a structured WriteAnalysisIR (kind / scope / risk /
+		// constraints / outcomes) the downstream write agents read
+		// directly. planner emits a structured ChangePlan via
+		// emit_change_plan; coder walks plan.Changes via per-unit
+		// apply_patch calls inside the orchestrator-provisioned
+		// worktree; verifier drives run_tests (deterministic
+		// multi-language parser) and persists a ChangeReport. All
+		// four stay inert for read-mode Runs because those stages
+		// only fire when BusContext.Mode is Plan / Apply / Verify.
+		types.AgentWriteAnalyzer,
 		types.AgentPlanner,
 		types.AgentCoder,
 		types.AgentVerifier,
 	}
 
 	constructors := map[types.AgentName]func(*Dependencies) Agent{
-		types.AgentAnalyzer:   func(d *Dependencies) Agent { return NewAnalyzerAgent(d) },
-		types.AgentExplorer:   func(d *Dependencies) Agent { return NewExplorerAgent(d) },
-		types.AgentExtractor:  func(d *Dependencies) Agent { return NewExtractorAgent(d) },
-		types.AgentFinalizer:  func(d *Dependencies) Agent { return NewFinalizerAgent(d) },
-		types.AgentLogTriager:  func(d *Dependencies) Agent { return NewLogTriagerAgent(d, triageSettings) },
-		types.AgentPerfTriager: func(d *Dependencies) Agent { return NewPerfTriagerAgent(d, perfSettings) },
-		types.AgentPlanner:    func(d *Dependencies) Agent { return NewPlannerAgent(d) },
-		types.AgentCoder:      func(d *Dependencies) Agent { return NewCoderAgent(d) },
-		types.AgentVerifier:   func(d *Dependencies) Agent { return NewVerifierAgent(d) },
+		types.AgentAnalyzer:       func(d *Dependencies) Agent { return NewAnalyzerAgent(d) },
+		types.AgentExplorer:       func(d *Dependencies) Agent { return NewExplorerAgent(d) },
+		types.AgentExtractor:      func(d *Dependencies) Agent { return NewExtractorAgent(d) },
+		types.AgentFinalizer:      func(d *Dependencies) Agent { return NewFinalizerAgent(d) },
+		types.AgentLogTriager:     func(d *Dependencies) Agent { return NewLogTriagerAgent(d, triageSettings) },
+		types.AgentPerfTriager:    func(d *Dependencies) Agent { return NewPerfTriagerAgent(d, perfSettings) },
+		types.AgentWriteAnalyzer:  func(d *Dependencies) Agent { return NewWriteAnalyzerAgent(d) },
+		types.AgentPlanner:        func(d *Dependencies) Agent { return NewPlannerAgent(d) },
+		types.AgentCoder:          func(d *Dependencies) Agent { return NewCoderAgent(d) },
+		types.AgentVerifier:       func(d *Dependencies) Agent { return NewVerifierAgent(d) },
 	}
 
 	for _, name := range agents {

@@ -55,6 +55,7 @@ func buildRegistries(agentFns map[types.AgentName]func(*types.AgentContext, *ski
 		// agentFns entry to drive the mock or rely on the default
 		// zero-value StageOutput (which runPlanPhase then interprets
 		// as "no ChangePlan produced" and surfaces fail-loud).
+		types.AgentWriteAnalyzer,
 		types.AgentPlanner,
 		types.AgentCoder,
 		types.AgentVerifier,
@@ -76,6 +77,7 @@ func buildRegistries(agentFns map[types.AgentName]func(*types.AgentContext, *ski
 		"extract-skill",
 		"answer-document-skill",
 		// B0 write-mode skills (mirror topology.go entries).
+		"write-analysis-skill",
 		"change-plan-skill",
 		"code-write-skill",
 		"test-execute-skill",

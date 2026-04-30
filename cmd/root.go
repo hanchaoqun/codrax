@@ -2015,6 +2015,7 @@ func initApp(cmd *cobra.Command, _ []string) error {
 	toolRegistry.Register(&tool.EmitLogSegmentation{})
 	toolRegistry.Register(&tool.EmitPerfTrace{})
 	toolRegistry.Register(&tool.EmitPerfSegmentation{})
+	toolRegistry.Register(&tool.EmitWriteAnalysis{})
 
 	subAgentRegistry := agent.NewSubAgentRegistry()
 

@@ -751,6 +751,9 @@ func contextPressureFixAndAllowed(name types.AgentName) (string, []hint.Allowed)
 	case types.AgentPerfTriager:
 		return "Call `emit_perf_trace` with whatever meta, frames, janks, stalls and startup you have parsed so far. An empty frames/janks/stalls set with a meta.summary explaining why is acceptable when the trace genuinely has no perf signal.",
 			[]hint.Allowed{{Kind: AllowedTerminalTool, Value: "emit_perf_trace", Hint: "emit best-effort perf bundle"}}
+	case types.AgentWriteAnalyzer:
+		return "Call `emit_write_analysis` with the task classification you have. `task.kind=misc` and a one-line summary are acceptable defaults when scope or risk are uncertain — the schema prefers a coarse-but-emitted answer over a perfectly-tuned one that never lands.",
+			[]hint.Allowed{{Kind: AllowedTerminalTool, Value: "emit_write_analysis", Hint: "emit best-effort task description"}}
 	case types.AgentPlanner:
 		return "Call `emit_change_plan` with the changes already drafted. If kind=patch units need regeneration, narrow the plan to kind=modify (full bodies) — the pre-flight gate still protects kind=patch units but kind=modify skips it.",
 			[]hint.Allowed{{Kind: AllowedTerminalTool, Value: "emit_change_plan", Hint: "close the plan stage with best-effort ChangePlan"}}

@@ -1067,6 +1067,17 @@ func (o *Orchestrator) Run(request string, repoRoot string, branch string) (*typ
 			o.busCtx.TaskState.LastError = "write mode: analyzer returned no AnalysisIR — cannot build write TaskGraph"
 			break
 		}
+		// Phase 1.5: write_analyzer dispatch. Produces WriteAnalysisIR
+		// on Mutable so planner / verifier / reflector can read
+		// task-shape facts (kind / scope / risk / constraints /
+		// outcomes) directly. Failure is non-fatal — when the LLM
+		// can't emit, downstream agents see Mutable.WriteAnalysisIR()
+		// == nil and degrade to the existing AnalysisIR-only path.
+		if used, err := o.runWriteAnalyzePhase(); err != nil {
+			logging.Warning("[orchestrator] write_analyze degraded: %v (planner falls back to AnalysisIR-only context)", err)
+		} else {
+			stepsUsed += used
+		}
 		writeGraph := BuildWriteTaskGraph(o.busCtx.Mode, o.planPath, o.writeRetryBudget)
 		o.busCtx.AnalysisIR.TaskGraph = writeGraph
 		// Per-Run reset: best-known-good plan/report slot tracks
@@ -1208,6 +1219,40 @@ func (o *Orchestrator) runAnalyzePhase() (int, error) {
 		logging.Warning("[orchestrator] analyze attempt %d/%d failed: %s", attempt+1, max, lastErr)
 	}
 	return used, fmt.Errorf("analyze stage exhausted after %d attempt(s): %s", max, lastErr)
+}
+
+// runWriteAnalyzePhase dispatches the write_analyze stage in
+// write-mode Runs. Produces a WriteAnalysisIR on Mutable for the
+// downstream write agents (planner / verifier / reflector) to read
+// directly. Failure is non-fatal — a missing IR means downstream
+// agents fall back to their existing AnalysisIR-only context, which
+// is the historical behaviour. Returns the steps consumed and any
+// dispatch error (the caller logs and continues, since this is a
+// degradable enrichment stage rather than a hard pre-requisite).
+//
+// Approved-plan fast path: when --plan-file / /approve has supplied
+// a vetted plan, the planner is going to be skipped on its first
+// visit anyway (BuildWriteTaskGraph sets SkipOnFirstVisit=true) so
+// running write_analyze burns LLM time for no consumer. Skip in
+// that case for the same reason runAnalyzePhase installs a stub IR
+// for the same path.
+func (o *Orchestrator) runWriteAnalyzePhase() (int, error) {
+	if (o.busCtx.Mode == types.ModeApply || o.busCtx.Mode == types.ModeVerify) && o.planPath != "" {
+		logging.Info("[orchestrator] write_analyze skipped: %s mode with --plan-file / /approve", string(o.busCtx.Mode))
+		return 0, nil
+	}
+	o.busCtx.PipelineStage = types.StageWriteAnalyze
+	o.busCtx.TaskState.Stage = types.StageWriteAnalyze
+
+	used := 1
+	out, err := o.dispatchStage(types.StageWriteAnalyze)
+	if err != nil {
+		return used, err
+	}
+	if out != nil && out.Error != "" {
+		return used, fmt.Errorf("%s", out.Error)
+	}
+	return used, nil
 }
 
 // runTaskPhase dispatches the single task graph for the run. After
