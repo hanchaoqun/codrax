@@ -558,6 +558,85 @@ func TestBuildAnswerSurfacePlan_LogObservedAnchorsPreferAuthoritativeBindings(t 
 	}
 }
 
+func TestBuildAnswerSurfacePlan_CollectsExternalObservationSeeds(t *testing.T) {
+	mut := NewMutableState("")
+	logBundle := &LogBundle{
+		Errors: []LogError{{
+			Type: "runtime error: invalid memory address or nil pointer dereference",
+			Frames: []LogFrame{
+				{
+					File: "internal/agent/analyzer.go",
+					Line: 320,
+					Func: "github.com/hanchaoqun/codrax/internal/agent.(*analyzerEvaluator).ParseOutput",
+					Raw:  "github.com/hanchaoqun/codrax/internal/agent.(*analyzerEvaluator).ParseOutput(0x0, 0x0, 0x0)",
+				},
+				{
+					File: "internal/agent/analyzer.go",
+					Line: 250,
+					Func: "github.com/hanchaoqun/codrax/internal/agent.buildAnalysisIR",
+					Raw:  "github.com/hanchaoqun/codrax/internal/agent.buildAnalysisIR(0x0)",
+				},
+			},
+		}},
+	}
+	ir := &AnalysisIR{
+		RequestModel: RequestModel{
+			Scenario: ScenarioRootCause,
+			Intent:   IntentRootCause,
+		},
+		AnswerContract: AnswerContract{
+			RequiredAnswerShape: ShapeStepList,
+		},
+	}
+	evidence := []EvidenceItem{
+		{
+			Kind:            EvidenceRelationship,
+			Source:          "internal/agent/analyzer.go",
+			LineStart:       651,
+			AnchorKind:      AnchorCall,
+			AnchorSymbol:    "buildAnalysisIR",
+			Subject:         "ParseOutput",
+			Object:          "buildAnalysisIR",
+			GroundingStatus: GroundingGrounded,
+		},
+		{
+			Kind:            EvidenceDirect,
+			Source:          "internal/agent/analyzer.go",
+			LineStart:       860,
+			AnchorKind:      AnchorDefinition,
+			AnchorSymbol:    "buildAnalysisIR",
+			GroundingStatus: GroundingGrounded,
+		},
+	}
+
+	plan := BuildAnswerSurfacePlan(ir, mut, logBundle, nil, nil, evidence)
+	if plan == nil {
+		t.Fatal("BuildAnswerSurfacePlan returned nil")
+	}
+	if len(plan.ExternalObservationSeeds) < 2 {
+		t.Fatalf("external observation seeds = %d, want at least 2", len(plan.ExternalObservationSeeds))
+	}
+	var sawErrorType bool
+	var sawFrame bool
+	for _, seed := range plan.ExternalObservationSeeds {
+		if seed.Kind == "error_type" && strings.Contains(seed.Raw, "nil pointer dereference") {
+			sawErrorType = true
+		}
+		if seed.Kind == "log_frame" && strings.Contains(seed.Raw, "ParseOutput(0x0, 0x0, 0x0)") {
+			sawFrame = true
+			if seed.AnchoredFile != "internal/agent/analyzer.go" || seed.AnchoredLine != 651 {
+				t.Fatalf("frame seed anchor = %s:%d, want analyzer.go:651", seed.AnchoredFile, seed.AnchoredLine)
+			}
+		}
+	}
+	if !sawErrorType {
+		t.Fatalf("expected structured error type seed, got %+v", plan.ExternalObservationSeeds)
+	}
+	if !sawFrame {
+		t.Fatalf("expected runtime frame seed, got %+v", plan.ExternalObservationSeeds)
+	}
+}
+
 func TestBuildAnswerSurfacePlan_CompilesDiagramFenceFromObservedAnchorsWhenAvailable(t *testing.T) {
 	mut := NewMutableState("")
 	logBundle := &LogBundle{

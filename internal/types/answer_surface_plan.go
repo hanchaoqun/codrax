@@ -26,6 +26,7 @@ type AnswerSurfacePlan struct {
 	ExplanationAnchorBackbone      []StepSurfaceAnchor
 	ExplanationAnchorCompleteness  CompletenessClaim
 	ExplanationAnchorMissingTopics []string
+	ExternalObservationSeeds       []ExternalObservationSeed
 	LogSourceDriftAnchors          []LogSourceDriftAnchor
 	LogObservedAnchors             []LogSourceDriftAnchor
 	DriftBoundedSurfaceItems       []EvidenceItem
@@ -110,6 +111,22 @@ type LogSourceDriftAnchor struct {
 	// Empty / "" treated as line_drift for backward compat
 	// with anchors emitted before this field existed.
 	Reason DriftReason
+}
+
+// ExternalObservationSeed captures an answer-grade fact whose source
+// of truth is an attached runtime / external observation stream rather
+// than current repo code. Finalizers may surface these facts in
+// summary / steps / scalar rationale, but should default the
+// corresponding citation_ref to -1 unless a repo citation literally
+// corroborates the claim.
+type ExternalObservationSeed struct {
+	Kind         string
+	Raw          string
+	File         string
+	Line         int
+	Func         string
+	AnchoredFile string
+	AnchoredLine int
 }
 
 // DriftReason classifies log-source drift for renderer
@@ -978,6 +995,10 @@ func BuildAnswerSurfacePlan(
 		logBundle,
 		plan.SurfaceEvidence,
 	)
+	plan.ExternalObservationSeeds = CollectExternalObservationSeeds(
+		logBundle,
+		plan.LogObservedAnchors,
+	)
 	plan.LogSourceDriftAnchors = CollectLogSourceDriftAnchors(
 		ir.RequestModel,
 		logBundle,
@@ -1358,6 +1379,76 @@ func CollectLogObservedAnchors(rm RequestModel, bundle *LogBundle, items []Evide
 
 func CollectLogSourceDriftAnchors(rm RequestModel, bundle *LogBundle, items []EvidenceItem) []LogSourceDriftAnchor {
 	return collectLogSourceAnchors(rm, bundle, items, logSourceDriftLineGap)
+}
+
+func CollectExternalObservationSeeds(bundle *LogBundle, observed []LogSourceDriftAnchor) []ExternalObservationSeed {
+	if bundle == nil {
+		return nil
+	}
+	anchorByObserved := make(map[string]LogSourceDriftAnchor, len(observed))
+	anchorByFunc := make(map[string]LogSourceDriftAnchor, len(observed))
+	for _, anchor := range observed {
+		file := strings.TrimSpace(strings.ReplaceAll(anchor.File, `\`, `/`))
+		if file != "" && anchor.ObservedLine > 0 {
+			anchorByObserved[fmt.Sprintf("%s:%d", file, anchor.ObservedLine)] = anchor
+		}
+		if tail := normalizedSurfaceSymbolTail(anchor.Func); tail != "" {
+			anchorByFunc[tail] = anchor
+		}
+	}
+	var out []ExternalObservationSeed
+	seen := make(map[string]bool)
+	record := func(seed ExternalObservationSeed) {
+		key := strings.TrimSpace(seed.Kind) + "|" +
+			strings.TrimSpace(seed.Raw) + "|" +
+			strings.TrimSpace(strings.ReplaceAll(seed.File, `\`, `/`)) + "|" +
+			strings.TrimSpace(seed.Func)
+		if key == "|||" || seen[key] {
+			return
+		}
+		seen[key] = true
+		out = append(out, seed)
+	}
+	for _, typ := range LogBundleErrorTypes(bundle) {
+		record(ExternalObservationSeed{
+			Kind: "error_type",
+			Raw:  strings.TrimSpace(typ),
+		})
+		if len(out) >= 6 {
+			return out
+		}
+	}
+	for _, err := range bundle.Errors {
+		for _, frame := range err.Frames {
+			if strings.TrimSpace(frame.Raw) == "" && strings.TrimSpace(frame.Func) == "" {
+				continue
+			}
+			seed := ExternalObservationSeed{
+				Kind: "log_frame",
+				Raw:  strings.TrimSpace(frame.Raw),
+				File: strings.TrimSpace(strings.ReplaceAll(frame.File, `\`, `/`)),
+				Line: frame.Line,
+				Func: strings.TrimSpace(frame.Func),
+			}
+			if seed.File != "" && seed.Line > 0 {
+				if anchor, ok := anchorByObserved[fmt.Sprintf("%s:%d", seed.File, seed.Line)]; ok {
+					seed.AnchoredFile = strings.TrimSpace(strings.ReplaceAll(anchor.File, `\`, `/`))
+					seed.AnchoredLine = anchor.AnchoredLine
+				}
+			}
+			if (seed.AnchoredFile == "" || seed.AnchoredLine <= 0) && seed.Func != "" {
+				if anchor, ok := anchorByFunc[normalizedSurfaceSymbolTail(seed.Func)]; ok {
+					seed.AnchoredFile = strings.TrimSpace(strings.ReplaceAll(anchor.File, `\`, `/`))
+					seed.AnchoredLine = anchor.AnchoredLine
+				}
+			}
+			record(seed)
+			if len(out) >= 6 {
+				return out
+			}
+		}
+	}
+	return out
 }
 
 func CollectDriftBoundedSurfaceItems(observed, drift []LogSourceDriftAnchor, items []EvidenceItem) []EvidenceItem {

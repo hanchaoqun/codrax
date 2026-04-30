@@ -1325,6 +1325,58 @@ func TestAnswerDocumentEvaluator_BuildInitialInstruction_UsesStableAbsenceStateA
 	}
 }
 
+func TestAnswerDocumentEvaluator_BuildInitialInstruction_RendersExternalObservationSeeds(t *testing.T) {
+	ctx := &types.AgentContext{
+		LogTriage: &types.LogBundle{
+			Errors: []types.LogError{{
+				Type: "runtime error: invalid memory address or nil pointer dereference",
+				Frames: []types.LogFrame{
+					{
+						File: "internal/agent/analyzer.go",
+						Line: 320,
+						Func: "github.com/hanchaoqun/codrax/internal/agent.(*analyzerEvaluator).ParseOutput",
+						Raw:  "github.com/hanchaoqun/codrax/internal/agent.(*analyzerEvaluator).ParseOutput(0x0, 0x0, 0x0)",
+					},
+				},
+			}},
+		},
+		EvidenceItems: []types.EvidenceItem{
+			{
+				Kind:            types.EvidenceRelationship,
+				Source:          "internal/agent/analyzer.go",
+				LineStart:       651,
+				AnchorKind:      types.AnchorCall,
+				AnchorSymbol:    "buildAnalysisIR",
+				Subject:         "ParseOutput",
+				Object:          "buildAnalysisIR",
+				GroundingStatus: types.GroundingGrounded,
+			},
+		},
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				Scenario: types.ScenarioRootCause,
+				Intent:   types.IntentRootCause,
+			},
+			AnswerContract: types.AnswerContract{
+				RequiredAnswerShape: types.ShapeStepList,
+			},
+		},
+	}
+
+	prompt := (&answerDocumentEvaluator{}).BuildInitialInstruction(ctx, nil)
+	for _, want := range []string{
+		"## External Observation Seeds",
+		"citation_ref` to `-1`",
+		"Structured log error type",
+		"ParseOutput(0x0, 0x0, 0x0)",
+		"current code anchor `internal/agent/analyzer.go:651`",
+	} {
+		if !strings.Contains(prompt, want) {
+			t.Fatalf("prompt missing %q:\n%s", want, prompt)
+		}
+	}
+}
+
 // TestAnswerDocumentEvaluator_LanguageCapture reads language from
 // AgentContext.Language (set by BuildAgentContext from -lang flag).
 func TestAnswerDocumentEvaluator_LanguageCapture(t *testing.T) {
