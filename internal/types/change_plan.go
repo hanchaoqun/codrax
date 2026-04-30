@@ -40,6 +40,17 @@ const (
 	// test-only change that produces zero tests is benign and stays
 	// applied).
 	PlanStatusUnverified = "unverified"
+	// PlanStatusPartiallyApplied means the apply stage hit a
+	// rejection partway through plan.Changes — some files made it
+	// to the worktree, some did not. Distinct from applied_failed
+	// (apply produced zero successful units; the worktree is
+	// untouched) and from applied (every TargetPath landed). The
+	// state is unsettled: the operator decides whether to /reject
+	// (discard the partial state along with the worktree) or
+	// /approve --retry (re-plan from current AppliedSet to
+	// finish the work). /merge is blocked on this status because
+	// half-merging would land an incoherent diff onto main.
+	PlanStatusPartiallyApplied = "partially_applied"
 	// PlanStatusRejected is set by /reject — user reviewed the
 	// plan and decided not to approve it.
 	PlanStatusRejected = "rejected"
@@ -63,17 +74,20 @@ const (
 //   - REPL /mode plan switch (UX layer rejection)
 //   - REPL banner (cold-start awareness)
 //
-// pending_approval / applied / verify_failed / unverified are
-// unsettled. merged / rejected / applied_failed are settled
-// (terminal). applied_failed is terminal because apply itself
-// crashed — nothing landed, the user moves on; treating it as
-// unsettled would block forever on a dead plan. Unverified is
-// unsettled because the user still needs to decide whether to add
-// tests (verify the plan retroactively) or accept the work as-is
-// (which transitions to merged via /merge).
+// pending_approval / applied / verify_failed / unverified /
+// partially_applied are unsettled. merged / rejected /
+// applied_failed are settled (terminal). applied_failed is
+// terminal because apply itself crashed — nothing landed, the
+// user moves on; treating it as unsettled would block forever on a
+// dead plan. Unverified is unsettled because the user still needs
+// to decide whether to add tests (verify the plan retroactively)
+// or accept the work as-is (which transitions to merged via
+// /merge). PartiallyApplied is unsettled because the worktree
+// holds a partial diff — the operator must /reject to discard it
+// or /approve --retry to finish the work.
 func IsUnsettledStatus(s string) bool {
 	switch s {
-	case PlanStatusPending, PlanStatusApplied, PlanStatusVerifyFailed, PlanStatusUnverified:
+	case PlanStatusPending, PlanStatusApplied, PlanStatusVerifyFailed, PlanStatusUnverified, PlanStatusPartiallyApplied:
 		return true
 	}
 	return false

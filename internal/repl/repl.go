@@ -3253,8 +3253,16 @@ func (r *REPL) handleMergeCmd(line string) {
 		recoveryRef  string
 	)
 	for _, inf := range infos {
+		// unverified plans (apply succeeded; runner discovered no
+		// tests) are a valid /merge candidate alongside verify_failed
+		// when --include-failed is supplied — the bytes are on disk,
+		// the operator just couldn't verify locally and is choosing
+		// to land them anyway. partially_applied stays excluded from
+		// /merge entirely: a partial diff would land an incoherent
+		// state on main, which /merge can never be the right tool for.
 		eligible := inf.Status == types.PlanStatusApplied ||
-			(includeFailed && inf.Status == types.PlanStatusVerifyFailed)
+			(includeFailed && (inf.Status == types.PlanStatusVerifyFailed ||
+				inf.Status == types.PlanStatusUnverified))
 		if !eligible {
 			continue
 		}

@@ -429,8 +429,51 @@ func (o *Orchestrator) tryBaselineFromCacheThenCapture() {
 	}
 }
 
+// classifyApplyFailureStatus picks the right status enum value for
+// an apply-stage failure. Differentiates two recovery shapes:
+//
+//   - applied_failed: apply produced ZERO successful units; the
+//     worktree is structurally untouched. The operator can /reject
+//     and start over without needing to clean anything up.
+//   - partially_applied: apply succeeded on some units before
+//     hitting a rejection on a later one. The worktree carries a
+//     partial diff. /merge would land incoherent code; /reject
+//     discards everything; /approve --retry can re-plan from the
+//     current AppliedSet.
+//
+// Differentiator: WriteClosure.AppliedSet has at least one entry
+// that's also in plan.TargetPaths, AND AppliedSet ∩ TargetPaths is
+// a strict subset of TargetPaths. When AppliedSet covers EVERY
+// TargetPath but err is set, the failure happened post-apply (e.g.
+// commit-checkpoint failure) and applied_failed is the conservative
+// fallback — the bytes are on disk in the worktree but the
+// operator should investigate before /merge.
+func classifyApplyFailureStatus(busCtx *types.BusContext) string {
+	if busCtx == nil || busCtx.Mutable == nil {
+		return types.PlanStatusApplyFailed
+	}
+	plan := busCtx.Mutable.ChangePlan()
+	if plan == nil || len(plan.TargetPaths) == 0 {
+		return types.PlanStatusApplyFailed
+	}
+	applied := busCtx.Mutable.WriteClosure().AppliedSet()
+	appliedTargets := 0
+	for _, p := range plan.TargetPaths {
+		if applied[p] {
+			appliedTargets++
+		}
+	}
+	if appliedTargets > 0 && appliedTargets < len(plan.TargetPaths) {
+		logging.Info("[orchestrator] apply post-hook: partial state — %d of %d target paths landed before failure",
+			appliedTargets, len(plan.TargetPaths))
+		return types.PlanStatusPartiallyApplied
+	}
+	return types.PlanStatusApplyFailed
+}
+
 // applyPostHook runs after the coder returns. On dispatch error,
-// persists PlanStatusApplyFailed and surfaces the error so the
+// persists PlanStatusApplyFailed (or PlanStatusPartiallyApplied
+// when some units succeeded) and surfaces the error so the
 // scheduler stops the cycle. On success, renders an apply-summary
 // Result. Status persistence on success is deferred to verify's
 // post-hook (verify_failed vs applied) so the disk file isn't
@@ -440,8 +483,9 @@ func applyPostHook(o *Orchestrator, out *agent.StageOutput) error {
 		return nil
 	}
 	if out != nil && out.Error != "" {
+		status := classifyApplyFailureStatus(o.busCtx)
 		o.busCtx.Mutable.SetResult(out.Error)
-		o.persistPlanStatus(types.PlanStatusApplyFailed, nil)
+		o.persistPlanStatus(status, nil)
 		return nil
 	}
 	plan := o.busCtx.Mutable.ChangePlan()
