@@ -1529,6 +1529,9 @@ func bestDriftBoundedCompanionItem(items []EvidenceItem, anchorFiles map[string]
 		if !driftBoundedMentionsFunc(item, target) {
 			continue
 		}
+		if driftBoundedIsCallItem(item) && item.Kind != EvidenceMechanism && item.Kind != EvidenceDirect {
+			continue
+		}
 		score := 0
 		switch item.AnchorKind {
 		case AnchorAssignment:
