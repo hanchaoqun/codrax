@@ -184,9 +184,12 @@ func (r *Renderer) buildTopicGroup(topicRows []*taskRow, frame string, now time.
 	allDone := true
 	allPending := true
 	allParked := true
+	anyFailed := false
 	for _, row := range topicRows {
 		if row.endTime.IsZero() {
 			allDone = false
+		} else if !row.okFinished {
+			anyFailed = true
 		}
 		if !row.pending {
 			allPending = false
@@ -200,6 +203,13 @@ func (r *Renderer) buildTopicGroup(topicRows []*taskRow, frame string, now time.
 	}
 	state := stagePhraseRunning
 	switch {
+	case allDone && anyFailed:
+		// Whole group terminated, at least one topic failed → group
+		// reads as failed. Without this, a group of N evidence
+		// topics where one stalled and the rest succeeded would
+		// render the "已完成深入分析" success label alongside a
+		// glyph that disagrees.
+		state = stagePhraseFailed
 	case allDone:
 		state = stagePhraseDone
 	case allPending, allParked:
@@ -209,13 +219,18 @@ func (r *Renderer) buildTopicGroup(topicRows []*taskRow, frame string, now time.
 	count := len(topicRows)
 	parentLine.DetailText = topicCountPhrase(count, r.lang)
 	// Override Icon / IconStyle / State to follow the aggregated
-	// state, not topicRows[0] alone. Four branches keep glyph +
+	// state, not topicRows[0] alone. Five branches keep glyph +
 	// primary text + primary colour in lockstep:
-	//   - allDone   → ✓ green + done text + gray primary
+	//   - allDone + anyFailed → ✗ red + failed text + red primary
+	//   - allDone (no fail)   → ✓ green + done text + gray primary
 	//   - allParked → · dim + pending text + dark-gray primary
 	//   - allPending → · dim + pending text + dark-gray primary
 	//   - else      → spinner glyph + running text + light-blue primary
 	switch {
+	case allDone && anyFailed:
+		parentLine.Icon = string(glyphFatal)
+		parentLine.IconStyle = statusFatal
+		parentLine.State = "failed"
 	case allDone:
 		parentLine.Icon = string(glyphSuccess)
 		parentLine.IconStyle = statusSuccessMuted
@@ -319,6 +334,14 @@ func friendlyPrimaryText(row *taskRow, lang string) string {
 		// even though scheduler-side it's mid-investigation. This
 		// kills the "evidence + validate look concurrent" misread.
 		state = stagePhrasePending
+	case !row.endTime.IsZero() && !row.okFinished:
+		// Terminal failure — distinct phrase (e.g. "测试未通过" /
+		// "Tests did not pass") instead of the success "已 X" form.
+		// The icon path already distinguishes ✗ vs ✓ via okFinished;
+		// the label must agree, otherwise the row contradicts itself
+		// (the bug that prompted this state: ✗ glyph + "已通过测试
+		// 验证改动" label sat side-by-side).
+		state = stagePhraseFailed
 	case !row.endTime.IsZero():
 		state = stagePhraseDone
 	}

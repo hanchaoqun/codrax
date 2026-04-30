@@ -2813,9 +2813,14 @@ func (r *REPL) handleApproveCmd(line string) {
 	// I reviewed lands"), so the recovery path is explicit user
 	// action — re-run plan-mode incorporating the failure.
 	if busCtx != nil && busCtx.TaskState.LastError != "" {
-		for _, line := range approveFailedNudge(r.language) {
-			r.info(line)
-		}
+		// No out-of-frame nudge on failure: renderVerifyFailure
+		// already carries one short "下一步: /mode plan ..." line
+		// as its last block. A second nudge here duplicated that
+		// guidance, and the past wording "approve 失败" mis-read
+		// as "your /approve action was rejected" — when /approve
+		// dispatched cleanly and the failure actually came from
+		// the verify step. The bordered Result is the single
+		// source of truth for the failure surface.
 	} else {
 		// Success path nudge + auto-switch to read mode. After a
 		// clean /approve the next user question is almost always

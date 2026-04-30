@@ -70,6 +70,14 @@ func TestApplyPreHook_BareDirSucceedsWithAuth(t *testing.T) {
 			MainRepoRoot: bare,
 			TraceID:      "trace-bare-auth",
 			Mutable:      types.NewMutableState("apply"),
+			// Stale EnvFacts to mirror production: the env probe at
+			// orchestrator.Run() entry sees a bare dir and records
+			// "not_initialized". Downstream surfaces that read this
+			// field (stallPlateauMessage, env_recommend
+			// detectGitState) would surface "git not initialized"
+			// advice forever after init unless applyPreHook refreshes
+			// the cached state.
+			EnvFacts: &types.EnvFacts{GitRepoState: "not_initialized"},
 		},
 	}
 	o.busCtx.Mutable.SetChangePlan(&types.ChangePlan{
@@ -92,6 +100,13 @@ func TestApplyPreHook_BareDirSucceedsWithAuth(t *testing.T) {
 	// the parent's .git but lives under wtBase).
 	if _, err := os.Stat(filepath.Join(bare, ".git")); err != nil {
 		t.Errorf("main repo .git should exist after auto-init: %v", err)
+	}
+	// EnvFacts.GitRepoState must have been refreshed to "ready" so
+	// downstream consumers no longer surface stale "git not
+	// initialized" advice. Locks the post-2026-04-30 fix that
+	// closes the staleness window.
+	if got := o.busCtx.EnvFacts.GitRepoState; got != "ready" {
+		t.Errorf("EnvFacts.GitRepoState should be refreshed to 'ready' after auto-init; got %q", got)
 	}
 	t.Cleanup(func() {
 		// Clean up the worktree we provisioned so the temp dir

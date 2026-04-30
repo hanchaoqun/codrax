@@ -64,17 +64,23 @@ func (s *systemRecommender) gitNotInstalled(d types.Diagnosis, env *types.EnvFac
 }
 
 func (s *systemRecommender) gitNotInitialized(d types.Diagnosis, _ *types.EnvFacts) []types.Recommendation {
+	// Why text avoids brand names ("codrax") and internal-product
+	// jargon ("三层授权门"); the user only needs to know what to do
+	// and why. The second recommendation surfaces the in-tool
+	// authorization path without referring to it as a "built-in" —
+	// the user already opened the tool, so calling its own flag a
+	// "built-in" reads as redundant marketing copy.
 	return []types.Recommendation{
 		{
 			Strategy: types.StrategyProjectInstall,
 			Command:  "!git init && git add -A && git commit -m \"initial commit\"",
-			Why:      "在当前仓初始化 git;codrax 写模式需要 git 仓",
+			Why:      "写模式需要 git 仓库,先初始化",
 			EstimatedSec: 2, Priority: 1, DiagRef: d,
 		},
 		{
 			Strategy: types.StrategyDocsLink,
-			Command:  "use codrax built-in: --auto-init-repo (CLI) / write_auto_init_repo: true (yaml) / REPL prompt on /approve",
-			Why:      "codrax 自带三层授权门(单次/持久化/交互),自动 scaffold + 初始化 commit",
+			Command:  "--auto-init-repo (CLI) 或 write_auto_init_repo: true (配置文件)",
+			Why:      "授权写模式自动跑 git init + 空 initial commit",
 			Priority: 5, DiagRef: d,
 		},
 	}

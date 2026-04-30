@@ -49,27 +49,6 @@ func isZh(lang string) bool {
 	return !strings.EqualFold(strings.TrimSpace(lang), "en")
 }
 
-// approveFailedNudge — multi-line nudge surfaced after /approve
-// terminates with TaskState.LastError != "". Tells the user that
-// /approve does NOT auto-replan (intentional, preserves review
-// intent) and walks through the explicit recovery path.
-func approveFailedNudge(lang string) []string {
-	if isZh(lang) {
-		return []string{
-			"approve 失败。/approve 不会自动 replan(这是为了保持你的审批意图)。",
-			"如需基于本次失败重新规划:",
-			"    1. /mode plan",
-			"    2. 重新描述需求,提一下哪些测试或诊断失败 — planner 会通过 /history 看到本轮结果。",
-		}
-	}
-	return []string{
-		"approve failed. /approve does not auto-replan (preserves your review intent).",
-		"To try again with a revised plan:",
-		"    1. /mode plan",
-		"    2. re-state your request, mentioning what failed — the planner sees this turn's outcome via /history.",
-	}
-}
-
 // approveDispatchRequest builds the synthetic request string the
 // REPL hands to runner.Run for /approve. It must NOT trip
 // types.IsREPLControlInput (i.e. its first token cannot be a known
@@ -678,7 +657,7 @@ func planReadyNudge(lang string, planID string, changeCount int) []string {
 // applyDoneNudge prints next-step actions after /approve completed.
 // When apply succeeded, point at /mode read for further questions and
 // /mode plan for a new change. When apply failed, the
-// approveFailedNudge already covers recovery — applyDoneNudge skips
+// renderVerifyFailure already carries the failure-path next-step inline — applyDoneNudge skips
 // the failure path so we don't double-print.
 func applyDoneNudge(lang string) []string {
 	if isZh(lang) {

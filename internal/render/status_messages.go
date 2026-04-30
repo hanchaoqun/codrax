@@ -37,20 +37,30 @@ func isZh(lang string) bool {
 }
 
 // stagePhraseState is the lifecycle slot stagePhrase resolves
-// against. Three values: running ("正在 ..."), done ("已 ..."),
-// and pending ("待 ..." — queued, has NOT started yet). The third
-// value is load-bearing because two rows reading "正在 X" and
-// "正在 Y" side by side mislead the user into thinking both are
-// executing concurrently — but the TaskGraph wires upstream stages
-// as hard dependencies, so a row's pending state needs an
-// unambiguous lexical form (not just a colour cue) the user reads
-// as "this hasn't started yet".
+// against. Four values: running ("正在 ..."), done ("已 ..."),
+// pending ("待 ..." — queued, has NOT started yet), and failed
+// ("X 失败" — terminal error). Pending is load-bearing because two
+// rows reading "正在 X" and "正在 Y" side by side mislead the user
+// into thinking both are executing concurrently — but the TaskGraph
+// wires upstream stages as hard dependencies, so a row's pending
+// state needs an unambiguous lexical form (not just a colour cue)
+// the user reads as "this hasn't started yet".
+//
+// stagePhraseFailed distinguishes terminal failure from terminal
+// success. Pre-2026-04-30 the renderer collapsed both
+// (endTime != 0) into stagePhraseDone, which meant a failed plan
+// rendered as "已设计改动方案" alongside the ✗ failure glyph —
+// icon and label contradicting each other. The stage-row contract
+// is "icon and label must agree on lifecycle"; failed stages now
+// carry their own dedicated phrasing so the contradiction is
+// structurally impossible.
 type stagePhraseState int
 
 const (
 	stagePhraseRunning stagePhraseState = iota
 	stagePhraseDone
 	stagePhrasePending
+	stagePhraseFailed
 )
 
 // stagePhrase returns the localized "primary" label for a normalized
@@ -86,7 +96,7 @@ const (
 // label like "ExtractorAgent(extract)".
 func stagePhrase(key string, lang string, state stagePhraseState) string {
 	zh := isZh(lang)
-	type triple struct{ run, done, pending string }
+	type quad struct{ run, done, pending, failed string }
 	// Label vocabulary discipline (post-2026-04-30 audit triggered
 	// by user feedback "整理结论 / 校核分析结论 / 生成最终答案
 	// 三个标签都含'结论/答案',读起来像三个收尾步骤"):
@@ -112,45 +122,60 @@ func stagePhrase(key string, lang string, state stagePhraseState) string {
 	// Now each phase carries a unique active verb (探索 / 验证 /
 	// 归纳 / 提炼 / 撰写) so the user reads phase progression
 	// without re-encountering "结论"/"答案" three rows in a row.
-	tableZh := map[string]triple{
+	//
+	// The fourth "failed" column distinguishes terminal failure from
+	// terminal success so a failed run never lies as "已 X". The
+	// failure phrase parallels the success phrase one verb at a
+	// time (解析→解析失败 / 设计→未生成 / 通过测试验证→未通过测试)
+	// so reading down a column tells the user whether the stage
+	// reached its goal without scanning glyphs.
+	tableZh := map[string]quad{
 		// Pre-stages
-		"log_triage":  {"正在解析日志", "已解析日志", "待解析日志"},
-		"perf_triage": {"正在解析性能数据", "已解析性能数据", "待解析性能数据"},
+		"log_triage":  {"正在解析日志", "已解析日志", "待解析日志", "解析日志失败"},
+		"perf_triage": {"正在解析性能数据", "已解析性能数据", "待解析性能数据", "解析性能数据失败"},
 		// Read-mode core flow
-		"analyze": {"正在理解问题", "已理解问题", "待理解问题"},
+		"analyze": {"正在理解问题", "已理解问题", "待理解问题", "理解问题失败"},
 		// "explore" is the orchestrator-level stage AND the topic-
 		// group parent label when multiple sub-topics fan out. As a
 		// single status line it reads as "正在深入分析" — the broad
 		// umbrella over the per-topic evidence work.
-		"explore": {"正在深入分析", "已完成深入分析", "待深入分析"},
+		"explore": {"正在深入分析", "已完成深入分析", "待深入分析", "深入分析失败"},
 		// "evidence" is the NodeEvidence sub-step where the agent
 		// actually reads code (read_file / grep / repo_map) and
 		// emits structured evidence.
-		"evidence":  {"正在探索代码并收集证据", "已完成证据收集", "待探索代码并收集证据"},
-		"validate":  {"正在交叉验证证据", "已交叉验证证据", "待交叉验证证据"},
-		"reconcile": {"正在归纳探索结果", "已归纳探索结果", "待归纳探索结果"},
-		"extract":   {"正在提炼关键发现", "已提炼关键发现", "待提炼关键发现"},
-		"finalize":  {"正在撰写最终答案", "已撰写最终答案", "待撰写最终答案"},
-		// Write-mode flow
-		"plan":   {"正在设计改动方案", "已设计改动方案", "待设计改动方案"},
-		"apply":  {"正在应用改动", "已应用改动", "待应用改动"},
-		"verify": {"正在跑测试验证改动", "已通过测试验证改动", "待跑测试验证改动"},
+		"evidence":  {"正在探索代码并收集证据", "已完成证据收集", "待探索代码并收集证据", "证据收集失败"},
+		"validate":  {"正在交叉验证证据", "已交叉验证证据", "待交叉验证证据", "证据交叉验证失败"},
+		"reconcile": {"正在归纳探索结果", "已归纳探索结果", "待归纳探索结果", "归纳探索结果失败"},
+		"extract":   {"正在提炼关键发现", "已提炼关键发现", "待提炼关键发现", "提炼关键发现失败"},
+		"finalize":  {"正在撰写最终答案", "已撰写最终答案", "待撰写最终答案", "撰写最终答案失败"},
+		// Write-mode flow.
+		// plan failure: "未生成改动方案" — the model didn't produce a
+		//   usable plan this round; reads as "no plan" not "plan
+		//   failed", which is closer to the truth (the LLM may have
+		//   produced prose / partial output / nothing at all).
+		// apply failure: "应用改动失败" — patches did not all land.
+		// verify failure: "测试未通过" — tests ran but failed; never
+		//   "已通过测试验证改动" which previously rendered alongside
+		//   the ✗ glyph (the bug that prompted this fix).
+		"plan":   {"正在设计改动方案", "已设计改动方案", "待设计改动方案", "未生成改动方案"},
+		"apply":  {"正在应用改动", "已应用改动", "待应用改动", "应用改动失败"},
+		"verify": {"正在跑测试验证改动", "已通过测试验证改动", "待跑测试验证改动", "测试未通过"},
 	}
-	tableEn := map[string]triple{
-		"log_triage":  {"Parsing attached log", "Log parsed", "Awaiting log parse"},
-		"perf_triage": {"Parsing performance trace", "Performance trace parsed", "Awaiting trace parse"},
-		"analyze":     {"Understanding the request", "Request understood", "Awaiting request understanding"},
-		"explore":     {"Investigating the problem", "Investigation complete", "Awaiting investigation"},
-		"evidence":    {"Exploring code, collecting evidence", "Evidence collected", "Awaiting code exploration"},
-		"validate":    {"Cross-validating evidence", "Evidence cross-validated", "Awaiting cross-validation"},
-		"reconcile":   {"Consolidating exploration results", "Exploration results consolidated", "Awaiting consolidation"},
-		"extract":     {"Distilling key findings", "Key findings distilled", "Awaiting key-finding distillation"},
-		"finalize":    {"Composing the final answer", "Final answer composed", "Awaiting final-answer composition"},
-		"plan":        {"Drafting change plan", "Change plan ready", "Awaiting change plan"},
-		"apply":       {"Applying changes", "Changes applied", "Awaiting change apply"},
-		"verify":      {"Running tests for verification", "Tests verified", "Awaiting verification"},
+	tableEn := map[string]quad{
+		"log_triage":  {"Parsing attached log", "Log parsed", "Awaiting log parse", "Log parse failed"},
+		"perf_triage": {"Parsing performance trace", "Performance trace parsed", "Awaiting trace parse", "Trace parse failed"},
+		"analyze":     {"Understanding the request", "Request understood", "Awaiting request understanding", "Request understanding failed"},
+		"explore":     {"Investigating the problem", "Investigation complete", "Awaiting investigation", "Investigation failed"},
+		"evidence":    {"Exploring code, collecting evidence", "Evidence collected", "Awaiting code exploration", "Evidence collection failed"},
+		"validate":    {"Cross-validating evidence", "Evidence cross-validated", "Awaiting cross-validation", "Cross-validation failed"},
+		"reconcile":   {"Consolidating exploration results", "Exploration results consolidated", "Awaiting consolidation", "Consolidation failed"},
+		"extract":     {"Distilling key findings", "Key findings distilled", "Awaiting key-finding distillation", "Key-finding distillation failed"},
+		"finalize":    {"Composing the final answer", "Final answer composed", "Awaiting final-answer composition", "Final-answer composition failed"},
+		"plan":        {"Drafting change plan", "Change plan ready", "Awaiting change plan", "No change plan produced"},
+		"apply":       {"Applying changes", "Changes applied", "Awaiting change apply", "Apply failed"},
+		"verify":      {"Running tests for verification", "Tests verified", "Awaiting verification", "Tests did not pass"},
 	}
-	var t triple
+	var t quad
 	var ok bool
 	if zh {
 		t, ok = tableZh[key]
@@ -165,6 +190,8 @@ func stagePhrase(key string, lang string, state stagePhraseState) string {
 		return t.done
 	case stagePhrasePending:
 		return t.pending
+	case stagePhraseFailed:
+		return t.failed
 	default:
 		return t.run
 	}
@@ -177,6 +204,8 @@ func tCommonProcessing(zh bool, state stagePhraseState) string {
 			return "已完成任务"
 		case stagePhrasePending:
 			return "待处理任务"
+		case stagePhraseFailed:
+			return "任务未完成"
 		default:
 			return "正在处理任务"
 		}
@@ -186,6 +215,8 @@ func tCommonProcessing(zh bool, state stagePhraseState) string {
 		return "Task complete"
 	case stagePhrasePending:
 		return "Awaiting task"
+	case stagePhraseFailed:
+		return "Task did not complete"
 	default:
 		return "Processing task"
 	}

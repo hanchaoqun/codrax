@@ -63,7 +63,7 @@ func renderZh(d types.Diagnosis, recs []types.Recommendation) string {
 			fmt.Fprintf(&b, "     ⚠ %s\n", c)
 		}
 	}
-	b.WriteString("\n复制以 ! 开头的命令到 codrax 提示符回车执行;或在主仓终端直接跑(去掉 !)。\n")
+	b.WriteString("\n复制以 ! 开头的命令直接在提示符回车执行;或在主仓终端直接跑(去掉 !)。\n")
 	return b.String()
 }
 
@@ -110,7 +110,7 @@ func renderEn(d types.Diagnosis, recs []types.Recommendation) string {
 			fmt.Fprintf(&b, "     ⚠ %s\n", c)
 		}
 	}
-	b.WriteString("\nCopy commands starting with ! into the codrax prompt and press enter; or run them in your main repo terminal (drop the !).\n")
+	b.WriteString("\nCopy commands starting with ! at the prompt and press enter; or run them in your main repo terminal (drop the !).\n")
 	return b.String()
 }
 

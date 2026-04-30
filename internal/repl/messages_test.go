@@ -306,28 +306,6 @@ func TestApproveCancelled_BothLangs(t *testing.T) {
 	}
 }
 
-func TestApproveFailedNudge_BothLangs(t *testing.T) {
-	zh := approveFailedNudge("zh")
-	en := approveFailedNudge("en")
-	if len(zh) != len(en) {
-		t.Errorf("zh and en should have same line count; got %d vs %d", len(zh), len(en))
-	}
-	for _, line := range zh {
-		if line == "" {
-			t.Error("zh has an empty line")
-		}
-	}
-	// Both languages must mention /mode plan as the recovery path.
-	zhAll := strings.Join(zh, "\n")
-	enAll := strings.Join(en, "\n")
-	if !strings.Contains(zhAll, "/mode plan") {
-		t.Errorf("zh nudge missing /mode plan recovery hint; got %q", zhAll)
-	}
-	if !strings.Contains(enAll, "/mode plan") {
-		t.Errorf("en nudge missing /mode plan recovery hint; got %q", enAll)
-	}
-}
-
 func TestRejectConfirmed_BothLangs(t *testing.T) {
 	zhWith := rejectConfirmedWithReason("zh", "plan-X", "broken patch")
 	enWith := rejectConfirmedWithReason("en", "plan-X", "broken patch")

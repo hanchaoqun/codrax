@@ -12,6 +12,7 @@ import (
 	"github.com/hanchaoqun/codrax/internal/logging"
 	"github.com/hanchaoqun/codrax/internal/render"
 	"github.com/hanchaoqun/codrax/internal/types"
+	"github.com/hanchaoqun/codrax/internal/worktree"
 )
 
 // runWriteSchedulerLoop walks the linear plan→apply→verify TaskGraph
@@ -514,8 +515,27 @@ func stallPlateauMessage(busCtx *types.BusContext, stage types.PipelineStage, tr
 		return fmt.Sprintf("%s repeatedly stalled (%s); aborting", stage, transientReason)
 	}
 	mode := busCtx.Mode
+	// Ground-truth probe: re-detect git state at message-render time
+	// rather than trusting the cached EnvFacts snapshot. EnvFacts is
+	// captured ONCE at orchestrator.Run() entry; if applyPreHook
+	// later ran `git init` to satisfy autoInitRepo authorization, the
+	// cached "not_initialized" is stale — surfacing "目录是空仓"
+	// advice for a dir that IS now a real repo. The DetectRepoState
+	// call is read-only (a couple of stat / git rev-parse invocations)
+	// and only fires on the terminal-failure rendering path, so its
+	// cost is negligible. Falls back to the cached EnvFacts only if
+	// the probe itself errored (e.g. repo path moved out from under us).
 	emptyRepo := false
-	if busCtx.EnvFacts != nil {
+	if busCtx.MainRepoRoot != "" {
+		if state, err := worktree.DetectRepoState(busCtx.MainRepoRoot); err == nil {
+			emptyRepo = state.NeedsInit()
+		} else if busCtx.EnvFacts != nil {
+			switch busCtx.EnvFacts.GitRepoState {
+			case "not_initialized", "no_commits":
+				emptyRepo = true
+			}
+		}
+	} else if busCtx.EnvFacts != nil {
 		switch busCtx.EnvFacts.GitRepoState {
 		case "not_initialized", "no_commits":
 			emptyRepo = true

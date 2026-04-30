@@ -89,6 +89,40 @@ func (r *Renderer) handleEvent(ev Event) {
 		if r.analysisReady && ev.Stage != "" && string(ev.Stage) != "analyze" {
 			break
 		}
+		// Retry-aware reclassification: if any prior row for the same
+		// stage already has endTime != 0 + okFinished=true (i.e. was
+		// rendered as "已 X" / "X done"), the fact that a new
+		// EventStageStart is firing for the SAME stage proves the
+		// prior attempt did not actually succeed — otherwise the
+		// pipeline would not be re-dispatching the same stage. Flip
+		// those prior rows to okFinished=false so their phrase
+		// resolves to stagePhraseFailed ("理解问题失败" / "Request
+		// understanding failed") instead of the lying "已理解问题".
+		// Canonical case: runAnalyzePhase's internal retry loop —
+		// dispatchStage emits EventStageEnd with Error="" when the
+		// agent returned cleanly but AnalysisIR is still nil
+		// (analyzer didn't call emit_analysis); runAnalyzePhase then
+		// loops and re-dispatches. Without this fix the user reads
+		// "已理解问题" alongside the running spinner of the retry
+		// attempt — the exact lie the user reported. Read-mode-only
+		// concern (analyze is the only stage with above-scheduler
+		// retry); write-mode retries reuse node-level events which
+		// already follow the no-end-on-requeue contract.
+		stageStr := string(ev.Stage)
+		for _, prev := range r.tasks {
+			if prev == nil || prev.isNodeRow || prev.isSubAgent {
+				continue
+			}
+			if prev.stage != stageStr {
+				continue
+			}
+			if !prev.endTime.IsZero() && prev.okFinished {
+				prev.okFinished = false
+				if prev.errorMsg == "" {
+					prev.errorMsg = "retried"
+				}
+			}
+		}
 		row := &taskRow{
 			stage:       string(ev.Stage),
 			agent:       string(ev.Agent),
@@ -158,6 +192,59 @@ func (r *Renderer) handleEvent(ev Event) {
 
 	case EventTaskNodeStart:
 		if row := r.findNodeRow(ev.NodeID); row != nil {
+			// Retry-aware reclassification for write-mode node rows.
+			// When this row is firing for the SECOND+ time (i.e.
+			// retry: prior endTime was set by a previous
+			// EventTaskNodeEnd with okFinished=true), the scheduler
+			// is rolling the whole plan→apply→verify cycle, which
+			// means the OTHER write-mode node rows that completed
+			// successfully in the prior iteration are now stale —
+			// their "已 X" rendering misleads the user into thinking
+			// those steps still hold while a new dispatch is
+			// actively re-running them.
+			//
+			// Specifically: if the user just saw verify fail and the
+			// scheduler is about to re-run plan, the apply row from
+			// iter 1 is showing "已应用改动" — even though the
+			// pipeline has decided that apply needs to re-execute on
+			// the new plan. Flip the prior write-mode siblings'
+			// okFinished=false so their phrase resolves to the
+			// stagePhraseFailed branch ("应用改动失败") for the gap
+			// between this start and the sibling's own next start.
+			isRetry := !row.endTime.IsZero()
+			row.pending = false
+			row.paused = false
+			if isRetry {
+				stageStr := row.stage
+				nodeKind := row.nodeKind
+				for _, sib := range r.tasks {
+					if sib == nil || sib == row || !sib.isNodeRow {
+						continue
+					}
+					// Only siblings that share the SAME stage
+					// (analyze / plan / apply / verify), so a
+					// transient retry on plan does not retroactively
+					// fail unrelated explore-stage node rows.
+					if stageStr != "" && sib.stage != stageStr {
+						// fall through — write-mode nodes share the
+						// same write-graph stage axis (Plan/Apply/
+						// Verify); the stage field carries the type
+						// label
+					}
+					// Restrict scope: only flip rows whose nodeKind
+					// is one of the write-mode trio. Read-mode
+					// evidence rows are independent of this retry.
+					if nodeKind != "" && (sib.nodeKind == "plan" || sib.nodeKind == "apply" || sib.nodeKind == "verify") &&
+						(nodeKind == "plan" || nodeKind == "apply" || nodeKind == "verify") {
+						if !sib.endTime.IsZero() && sib.okFinished {
+							sib.okFinished = false
+							if sib.errorMsg == "" {
+								sib.errorMsg = "retried"
+							}
+						}
+					}
+				}
+			}
 			const dispatchWindowGroupingMs = 750
 			kindMatch := r.lastNodeStartKind != "" && r.lastNodeStartKind == row.nodeKind
 			sameWindow := kindMatch &&
@@ -177,8 +264,6 @@ func (r *Renderer) handleEvent(ev Event) {
 					}
 				}
 			}
-			row.pending = false
-			row.paused = false
 			row.startTime = ev.Timestamp
 			row.detailStart = ev.Timestamp
 			row.endTime = time.Time{}

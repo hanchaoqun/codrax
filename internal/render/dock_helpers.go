@@ -46,7 +46,12 @@ func (r *Renderer) focusRow() *taskRow {
 		if !row.isNodeRow {
 			continue
 		}
-		if row.pending || !row.endTime.IsZero() {
+		// paused folds into pending — a paused row is "behind another
+		// in-flight dispatch", not the focus. Without this, focusRow
+		// could return a paused row, liveBarPrimaryText would render
+		// it as "running" (because it's not endTime-set), and the
+		// live bar would lie about which row is actually executing.
+		if row.pending || row.paused || !row.endTime.IsZero() {
 			continue
 		}
 		if isDownstream(row.nodeKind) && upstreamEvidenceInFlight {
@@ -88,7 +93,16 @@ func (r *Renderer) topicProgressFor(focus *taskRow, lang string) string {
 }
 
 // liveBarPrimaryText resolves the focus's stage label via the
-// existing stagePhrase localisation helper.
+// existing stagePhrase localisation helper. Mirrors
+// friendlyPrimaryText's full lifecycle split (pending / paused /
+// failed / done / running) so the live bar agrees with the dock row
+// regardless of which lifecycle slot the row currently sits in.
+//
+// paused folds into pending lexically — same rule the spinner area
+// uses (status_blocks.go::friendlyPrimaryText) so a node parked
+// behind another in-flight dispatch reads as "queued" in BOTH the
+// dock and the live bar instead of one-sided "running" / "queued"
+// disagreement.
 func liveBarPrimaryText(row *taskRow, lang string) string {
 	if row == nil {
 		return ""
@@ -96,8 +110,10 @@ func liveBarPrimaryText(row *taskRow, lang string) string {
 	key := stageKeyFor(row)
 	state := stagePhraseRunning
 	switch {
-	case row.isNodeRow && row.pending:
+	case row.isNodeRow && (row.pending || row.paused):
 		state = stagePhrasePending
+	case !row.endTime.IsZero() && !row.okFinished:
+		state = stagePhraseFailed
 	case !row.endTime.IsZero():
 		state = stagePhraseDone
 	}

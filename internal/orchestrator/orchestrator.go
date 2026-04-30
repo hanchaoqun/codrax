@@ -1271,13 +1271,13 @@ func renderApplySummary(plan *types.ChangePlan, applied map[string]bool, worktre
 			b.WriteString("\n")
 		}
 		if willPreserve {
-			fmt.Fprintf(&b, "worktree 已保留。落地:在 codrax 内输入 `/merge`,或直接复制 `!git cherry-pick %s` 粘到 codrax 提示符回车(`!` 前缀执行系统命令)。\n",
+			fmt.Fprintf(&b, "worktree 已保留。落地:在提示符里输入 `/merge`,或直接粘贴 `!git cherry-pick %s` 回车执行(`!` 前缀执行系统命令)。\n",
 				recoveryRef)
 		} else {
 			fmt.Fprintf(&b, "worktree 进程退出时销毁,但 apply commit 已 pin 到主仓 ref `%s`,bytes 可恢复:\n\n"+
-				"- 在 codrax 内: `/merge`(主仓有未提交跟踪改动时先 commit 或 stash;未跟踪文件不影响)\n"+
-				"- 复制粘贴执行: `!git cherry-pick %s`(`!` 前缀让 codrax 直接跑系统命令)\n\n"+
-				"想保留 worktree 直接审阅,在 `codrax.yaml` 设置 `pipeline_keep_worktree_on_success: true`。\n",
+				"- 在提示符里: `/merge`(主仓有未提交跟踪改动时先 commit 或 stash;未跟踪文件不影响)\n"+
+				"- 复制粘贴执行: `!git cherry-pick %s`(`!` 前缀执行系统命令)\n\n"+
+				"想保留 worktree 直接审阅,在配置文件里设 `pipeline_keep_worktree_on_success: true`。\n",
 				recoveryRef, recoveryRef)
 		}
 		return b.String()
@@ -1296,13 +1296,13 @@ func renderApplySummary(plan *types.ChangePlan, applied map[string]bool, worktre
 		b.WriteString("\n")
 	}
 	if willPreserve {
-		fmt.Fprintf(&b, "Worktree preserved. Land via `/merge` (in codrax), or paste `!git cherry-pick %s` at the codrax prompt — the `!` prefix runs system commands inline.\n",
+		fmt.Fprintf(&b, "Worktree preserved. Land via `/merge` at the prompt, or paste `!git cherry-pick %s` and press enter — the `!` prefix runs system commands inline.\n",
 			recoveryRef)
 	} else {
 		fmt.Fprintf(&b, "The worktree dir is discarded on Run exit, but the apply commit is pinned in the main repo at ref `%s` so the bytes are recoverable:\n\n"+
-			"- inside codrax: `/merge` (commit or stash any modified tracked files in main first; untracked files do not block)\n"+
-			"- copy-paste: `!git cherry-pick %s` (`!` prefix runs the command directly from the codrax prompt)\n\n"+
-			"To keep the worktree for direct inspection, set `pipeline_keep_worktree_on_success: true` in `codrax.yaml`.\n",
+			"- at the prompt: `/merge` (commit or stash any modified tracked files in main first; untracked files do not block)\n"+
+			"- copy-paste: `!git cherry-pick %s` (`!` prefix runs the command inline)\n\n"+
+			"To keep the worktree for direct inspection, set `pipeline_keep_worktree_on_success: true` in your config file.\n",
 			recoveryRef, recoveryRef)
 	}
 	return b.String()
@@ -1383,6 +1383,85 @@ func (o *Orchestrator) persistPlanStatus(status string, appliedAt *time.Time) {
 // Generalisation: only uses fields present on every runner's
 // TestResult (AssertionID, Suite, FailureDetail) and on every
 // ChangePlan (TargetPaths). No language-specific parsing.
+// missingDependencyMarkers is the language-agnostic pattern table
+// for "test runner reports the code references a package that's not
+// in the project's manifest". Each entry is a substring scanned
+// against the ChangeReport.FailureSummary; a match seeds a
+// retry-hint section telling the planner to add the dep to the
+// manifest on next round (instead of re-deriving from buried stderr
+// what test code to add).
+//
+// Markers are runner / language stderr output — machine-generated
+// output is fair game for substring detection; this is NOT user
+// intent classification. Patterns are stable across versions because
+// they're emitted by language tooling (compiler / interpreter /
+// import system) which is conservative by design.
+var missingDependencyMarkers = []string{
+	// Python (pip / poetry / pdm / virtualenv / system)
+	"ModuleNotFoundError: No module named",
+	"ImportError: No module named",
+	"ImportError: cannot import name",
+	// Node (npm / pnpm / yarn / bun)
+	"Cannot find module",
+	"Error [ERR_MODULE_NOT_FOUND]",
+	// Go (modules)
+	"no required module provides package",
+	"cannot find package",
+	"missing go.sum entry",
+	// Rust (cargo)
+	"unresolved import",
+	"failed to resolve: use of unresolved",
+	"can't find crate for",
+	// Java (maven / gradle / javac). The "package does not exist"
+	// shape is `error: package com.foo does not exist` — the
+	// package name sits between the two halves, so we anchor on the
+	// stable "error: package " prefix instead of a single phrase.
+	"error: package ",
+	"error: cannot find symbol",
+	// Ruby (bundler)
+	"cannot load such file",
+	"LoadError:",
+	// C / C++ (gcc / clang)
+	"fatal error:",   // followed by `'header.h' file not found`
+	"file not found", // catches both gcc and clang shapes
+	// Swift
+	"no such module",
+}
+
+// detectMissingDependencyHint returns a retry-hint section when the
+// failure summary contains a known missing-import marker, or empty
+// when no such marker is present (caller falls through to the
+// existing failure-kind switch). The section names the universal
+// per-language manifest update path so the planner has zero ambiguity
+// about the corrective direction on retry.
+func detectMissingDependencyHint(failureSummary string) string {
+	if strings.TrimSpace(failureSummary) == "" {
+		return ""
+	}
+	hit := false
+	for _, m := range missingDependencyMarkers {
+		if strings.Contains(failureSummary, m) {
+			hit = true
+			break
+		}
+	}
+	if !hit {
+		return ""
+	}
+	return "## Failure mode: missing dependency\n" +
+		"The runner output contains a 'module/package not found' style error — the previous plan referenced a third-party package that isn't declared in the project's manifest, OR isn't installed in the environment.\n\n" +
+		"On THIS retry, your plan MUST also include a manifest update for whichever language the project uses. Pick the manifest that matches the project layout you observed (use list_files / read_file to verify which manifest is present):\n" +
+		"  - Python: add to `requirements.txt`, `pyproject.toml` `[project.dependencies]` / `[tool.poetry.dependencies]`, or `setup.py` `install_requires`.\n" +
+		"  - Node: add to `package.json` `dependencies` (or `devDependencies` for test-only).\n" +
+		"  - Go: add a `require` line to `go.mod` (and a `go.sum` entry if the project tracks it).\n" +
+		"  - Rust: add to `Cargo.toml` `[dependencies]`.\n" +
+		"  - Java/Maven: add a `<dependency>` to `pom.xml`.\n" +
+		"  - Java/Gradle: add to `build.gradle` `dependencies { ... }`.\n" +
+		"  - Ruby: add a `gem '...'` line to `Gemfile`.\n" +
+		"  - C/C++: add the system package install command to the plan summary's user-side install hint (apt / brew / dnf / pacman) AND verify the include path lookup if the header is local.\n\n" +
+		"If the project HAS the manifest already, your plan must include a 'modify' entry for it adding the missing entry. If the project does NOT have a manifest yet, your plan must include a 'create' entry for the manifest with the right shape for the language. Do NOT just retry with new test code — the failure is structural (missing dep), not a test-logic bug.\n"
+}
+
 func buildRetryHint(report *types.ChangeReport, plan *types.ChangePlan, prevAttempt int) string {
 	var b strings.Builder
 	if report == nil {
@@ -1396,6 +1475,21 @@ func buildRetryHint(report *types.ChangeReport, plan *types.ChangePlan, prevAtte
 		// Without this surfacing the planner re-derives the same
 		// wrong corrective direction from buried stderr — the OOM
 		// event that motivated this code is the textbook instance.
+		// Missing-dependency detection runs FIRST so it overrides the
+		// generic "tests failed" path when the actual cause is a
+		// missing import / module. Without this, a ModuleNotFoundError
+		// (Python) / Cannot find module (Node) / no required module
+		// provides package (Go) / unresolved import (Rust) gets
+		// dumped into the summary unmarked, and the planner re-derives
+		// "what test logic to add" from buried runner output instead
+		// of reading "you forgot to add this package to the project
+		// manifest". Detection is on runner stderr (machine output),
+		// NOT on the user's request — universal markers across N
+		// languages, no per-user keyword table.
+		if depHint := detectMissingDependencyHint(report.FailureSummary); depHint != "" {
+			b.WriteString("\n\n")
+			b.WriteString(depHint)
+		}
 		switch report.FailureKind {
 		case types.FailureKindOOM:
 			b.WriteString("\n\n## Failure mode: out-of-memory\nThe previous plan's tests were killed by the kernel OOM killer (Linux/macOS) or the JobObject memory limit (Windows). The verify-stage memory cap fired because the test code allocated more than the configured ceiling.\n\nMost common causes:\n  1. Unbounded allocation in test fixture (loop appending to a list without exit condition; recursion without depth limit).\n  2. Test data structure sized from input without bounds-check (e.g. `[0]*N` where N comes from an unvalidated argument).\n  3. Memory leak across test cases (objects retained between cases that should be released).\n\nRevise the plan so the test code:\n  - Bounds every allocation to a small constant or a validated input ceiling.\n  - Releases per-case state before the next case begins.\n  - Avoids list/dict comprehensions over unbounded ranges.\nDO NOT raise the memory cap as the fix — that masks the bug. ")
@@ -1761,81 +1855,194 @@ func (o *Orchestrator) saveChangeReport(report *types.ChangeReport) {
 }
 
 // renderVerifyFailure builds the Mutable.Result message for a
-// verify-stage failure. Includes the failure summary + a short
-// list of failing test names so the user has actionable context
-// without opening the report JSON. Bilingual.
+// verify-stage failure. Three blocks, each at most a few lines:
+//
+//   1. Header — plain language ("测试未通过" / "Tests did not pass"),
+//      no internal "Verify" jargon.
+//   2. Reason — exactly ONE source: report.FailureSummary if non-
+//      empty, else the agent-side message with the "verify failed: "
+//      prefix stripped, else a count-only fallback. Capped at
+//      verifyFailureSummaryMaxChars so a multi-megabyte stderr dump
+//      cannot drown the rest of the prompt.
+//   3. Failing test list — only when failing test names add
+//      information beyond the summary. Skipped entirely when every
+//      failing test name already appears verbatim in the summary
+//      (otherwise the user reads the same names twice). Capped at
+//      verifyFailureMaxNamesShown.
+//   4. Next step — one short sentence pointing at the retry path.
+//
+// Pre-2026-04-30 this rendered as: "Verify FAILED" header + the full
+// summary + the literal "agentError" (which started with the same
+// summary again as a "verify failed: ..." prefix, so users saw the
+// reason printed twice) + a 10-name list (which usually duplicated
+// names already in the summary) + a tip. Three sources of the same
+// reason in one block.
 func renderVerifyFailure(report *types.ChangeReport, agentError, lang string) string {
 	zh := isLangZh(lang)
 	var b strings.Builder
+
+	// Header — uses the same "did not pass" wording as the stage
+	// row's failed phrase so the inline message and the dock label
+	// agree.
 	if zh {
-		b.WriteString("## Verify 失败\n\n")
+		b.WriteString("## 测试未通过\n\n")
 	} else {
-		b.WriteString("## Verify FAILED\n\n")
+		b.WriteString("## Tests did not pass\n\n")
 	}
-	if report == nil {
-		b.WriteString(agentError + "\n")
-		return b.String()
-	}
-	if report.FailureSummary != "" {
-		fmt.Fprintf(&b, "%s\n\n", report.FailureSummary)
-	} else {
-		fmt.Fprintf(&b, "%s\n\n", agentError)
-	}
-	failed := 0
-	for _, r := range report.TestResults {
-		if !r.Passed {
-			failed++
+
+	// Reason — single source, capped.
+	reason := strings.TrimSpace(verifyFailureReason(report, agentError))
+	if reason != "" {
+		if len([]rune(reason)) > verifyFailureSummaryMaxChars {
+			rs := []rune(reason)
+			reason = string(rs[:verifyFailureSummaryMaxChars]) + "…"
 		}
+		b.WriteString(reason)
+		b.WriteString("\n\n")
 	}
-	if failed > 0 {
-		if zh {
-			fmt.Fprintf(&b, "**失败测试**(%d 个):\n\n", failed)
-		} else {
-			fmt.Fprintf(&b, "**Failing tests** (%d):\n\n", failed)
-		}
-		shown := 0
-		for _, r := range report.TestResults {
-			if r.Passed {
-				continue
+
+	// Failing test list — skipped when redundant with the reason.
+	if report != nil {
+		failedNames := failingAssertionNames(report.TestResults)
+		if len(failedNames) > 0 && !reasonNamesEveryFailure(reason, failedNames) {
+			shown := failedNames
+			if len(shown) > verifyFailureMaxNamesShown {
+				shown = shown[:verifyFailureMaxNamesShown]
 			}
-			shown++
-			if shown > 10 {
-				if zh {
-					fmt.Fprintf(&b, "- …(还有 %d 个)\n", failed-10)
-				} else {
-					fmt.Fprintf(&b, "- …(+%d more)\n", failed-10)
+			if zh {
+				fmt.Fprintf(&b, "失败测试: %s", strings.Join(shown, ", "))
+				if len(failedNames) > len(shown) {
+					fmt.Fprintf(&b, " (还有 %d 个)", len(failedNames)-len(shown))
 				}
-				break
+				b.WriteString("\n\n")
+			} else {
+				fmt.Fprintf(&b, "Failing tests: %s", strings.Join(shown, ", "))
+				if len(failedNames) > len(shown) {
+					fmt.Fprintf(&b, " (+%d more)", len(failedNames)-len(shown))
+				}
+				b.WriteString("\n\n")
 			}
-			fmt.Fprintf(&b, "- `%s` (`%s`)\n", r.AssertionID, r.Suite)
 		}
-		b.WriteString("\n")
 	}
+
+	// Next step — one short line.
 	if zh {
-		b.WriteString("*重新规划:`/mode plan` 后再发请求,失败上下文会自动带进去。*\n")
+		b.WriteString("下一步:`/mode plan` 后再发请求,失败上下文会自动带进去。")
 	} else {
-		b.WriteString("*Re-plan: run `/mode plan` and re-send the request; the failure context is carried in automatically.*\n")
+		b.WriteString("Next: `/mode plan` and re-send the request; failure context is carried in automatically.")
 	}
 	return b.String()
+}
+
+// verifyFailureSummaryMaxChars caps the runner stderr / failure
+// summary the user sees inline. Anything past this is truncated with
+// "…" — the full content stays in .codrax/plans/<id>.report.json.
+// 800 runes is roughly 12-15 visual lines at typical widths, enough
+// for a panic + 5 stack frames or 3 assertion explanations.
+const verifyFailureSummaryMaxChars = 800
+
+// verifyFailureMaxNamesShown caps the "Failing tests: a, b, c" list.
+// 5 is enough to disambiguate without overwhelming when the runner
+// emitted dozens of test names.
+const verifyFailureMaxNamesShown = 5
+
+// verifyFailureReason picks ONE source for the inline failure
+// reason. Priority:
+//
+//  1. report.FailureSummary — already curated by the runner parser.
+//  2. agentError minus the "verify failed: " prefix (which is the
+//     verifier's structural wrapper around (1); when (1) is empty
+//     this fallback at least carries the count line).
+//  3. Count fallback — N test(s) failed.
+//  4. Empty.
+//
+// Splitting these three sources into a helper makes the dedup
+// rule above ("don't append a redundant test list") readable and
+// individually unit-testable.
+func verifyFailureReason(report *types.ChangeReport, agentError string) string {
+	if report != nil && strings.TrimSpace(report.FailureSummary) != "" {
+		return report.FailureSummary
+	}
+	clean := strings.TrimSpace(agentError)
+	clean = strings.TrimPrefix(clean, "verify failed: ")
+	if clean != "" {
+		return clean
+	}
+	if report != nil {
+		failed := 0
+		for _, r := range report.TestResults {
+			if !r.Passed {
+				failed++
+			}
+		}
+		if failed > 0 {
+			return fmt.Sprintf("%d test(s) failed", failed)
+		}
+	}
+	return ""
+}
+
+// failingAssertionNames returns the AssertionIDs of failing tests
+// in the order they appear in the report. Empty slice when nothing
+// failed. Helper so the dedup check below operates on a clean list
+// without re-walking TestResults at every comparison.
+func failingAssertionNames(results []types.TestResult) []string {
+	var names []string
+	for _, r := range results {
+		if r.Passed {
+			continue
+		}
+		if r.AssertionID != "" {
+			names = append(names, r.AssertionID)
+		}
+	}
+	return names
+}
+
+// reasonNamesEveryFailure reports whether every failing assertion
+// name already appears verbatim in the reason text. When true, the
+// caller should skip the explicit "Failing tests: ..." list because
+// it would repeat names the user just read in the summary.
+//
+// Conservative: requires every name to be present (any one missing
+// → the list adds information and should be shown). Substring
+// match because some runner summaries embed names in larger
+// context like "FAIL: TestX (0.02s)".
+func reasonNamesEveryFailure(reason string, names []string) bool {
+	if reason == "" || len(names) == 0 {
+		return false
+	}
+	for _, n := range names {
+		if !strings.Contains(reason, n) {
+			return false
+		}
+	}
+	return true
 }
 
 // renderVerifySuccess renders a short "all good" note appended to
 // the apply summary. Kept compact so it pairs visually with the
 // apply-phase output already in Mutable.Result. Bilingual.
+//
+// Header wording mirrors renderVerifyFailure's "测试未通过" /
+// "Tests did not pass" so the success and failure surfaces use the
+// SAME vocabulary axis ("测试通过" ↔ "测试未通过"); previously this
+// function used "Verify PASSED" / "Verify 通过" which leaked the
+// internal stage name.
 func renderVerifySuccess(report *types.ChangeReport, lang string) string {
 	zh := isLangZh(lang)
 	if report == nil {
 		if zh {
-			return "\n## Verify 通过\n\n未产出 ChangeReport,verify 阶段已完成但无显式输出。\n"
+			return "\n## 测试通过\n\n本次未产出测试报告,验证阶段已完成但没有可显示的细节。\n"
 		}
-		return "\n## Verify PASSED\n\nNo ChangeReport produced; verify stage completed without explicit output.\n"
+		return "\n## Tests verified\n\nNo report produced; the verify step completed but emitted no details.\n"
 	}
 	total := len(report.TestResults)
 	if zh {
-		return fmt.Sprintf("\n## Verify 通过\n\n%d 个测试通过。报告已存到 .codrax/plans/%s.report.json。\n",
+		return fmt.Sprintf("\n## 测试通过\n\n%d 个测试通过。报告已存到 .codrax/plans/%s.report.json。\n",
 			total, report.PlanID)
 	}
-	return fmt.Sprintf("\n## Verify PASSED\n\n%d test(s) passed. Report saved to .codrax/plans/%s.report.json.\n",
+	return fmt.Sprintf("\n## Tests verified\n\n%d test(s) passed. Report saved to .codrax/plans/%s.report.json.\n",
 		total, report.PlanID)
 }
 

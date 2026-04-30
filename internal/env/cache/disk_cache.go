@@ -19,9 +19,22 @@ import (
 	"time"
 )
 
-// SchemaVersion is bumped when Entry layout changes. Loaders that
-// see a different version drop the file and rebuild.
-const SchemaVersion = 1
+// SchemaVersion is bumped when Entry layout changes OR when
+// recommendation content rendering changes in a user-visible way
+// (new label, removed jargon, restructured prose). Loaders that see
+// a different version drop the file and rebuild — this is the only
+// way to invalidate stale cached recommendations whose payload text
+// is keyed by diagnosis (not by content hash), so a wording change
+// in env/recommend/recommend_system.go would otherwise persist on
+// disk for the cache TTL (default 90 days). Bump every release that
+// changes recommendation prose.
+//
+// History:
+//   1 — initial layout
+//   2 — 2026-04-30: gitNotInitialized prose stripped of brand /
+//       internal-jargon ("codrax built-in" / "三层授权门"); existing
+//       caches must invalidate so old jargon prose stops surfacing.
+const SchemaVersion = 2
 
 // Cache is the in-memory + disk hybrid store. One per process
 // (load on first access, persist on each Set).

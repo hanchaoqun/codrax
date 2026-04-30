@@ -682,7 +682,10 @@ func TestRestoreBestIfRegressed_PersistsAfterPlanPathCleared(t *testing.T) {
 	// Match either localised heading; the verify failure renderer
 	// follows BusContext.Language (zh default, en flips on
 	// --lang=en).
-	if !strings.Contains(result, "Verify FAILED") && !strings.Contains(result, "Verify 失败") {
+	// Header wording was de-jargonised post-2026-04-30 (no "Verify"
+	// internal stage name; see renderVerifyFailure docblock). Match
+	// the new user-language headers in either locale.
+	if !strings.Contains(result, "Tests did not pass") && !strings.Contains(result, "测试未通过") {
 		t.Errorf("Mutable.Result should be re-rendered for restored report; got %q", result)
 	}
 }

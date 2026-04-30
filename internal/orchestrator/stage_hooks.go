@@ -322,6 +322,16 @@ func applyPreHook(o *Orchestrator) error {
 				return fmt.Errorf("%s", msg)
 			}
 			logging.Info("[orchestrator] apply pre-hook: auto-initialized bare repo at %s", o.busCtx.MainRepoRoot)
+			// Refresh EnvFacts.GitRepoState in place so downstream
+			// surfaces (stallPlateauMessage, env_recommend
+			// detectGitState, REPL /env show) read the new ground
+			// truth — without this, a Run that init'd the repo
+			// post-probe leaves "not_initialized" cached, and any
+			// later failure rendering recommends `git init` /
+			// `--auto-init-repo` for a dir that IS now a real repo.
+			if o.busCtx.EnvFacts != nil {
+				o.busCtx.EnvFacts.GitRepoState = "ready"
+			}
 		} else if err != nil {
 			msg := fmt.Sprintf("apply stage: repo state probe failed: %v", err)
 			o.busCtx.Mutable.SetResult(msg)
