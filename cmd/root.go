@@ -1764,6 +1764,33 @@ func initApp(cmd *cobra.Command, _ []string) error {
 		if rs.AgentContextPressureHardRatio != nil {
 			a.ContextPressureHardRatio = *rs.AgentContextPressureHardRatio
 		}
+		// Per-evaluator iteration caps. ResolvedAgentSettings (called
+		// just below) clamps invalid soft/hard pairs back to defaults,
+		// so a typo here can't crash startup.
+		if rs.AgentPlannerSoftIterCap != nil {
+			a.PlannerSoftIterCap = *rs.AgentPlannerSoftIterCap
+		}
+		if rs.AgentPlannerHardIterCap != nil {
+			a.PlannerHardIterCap = *rs.AgentPlannerHardIterCap
+		}
+		if rs.AgentExtractorSoftIterCap != nil {
+			a.ExtractorSoftIterCap = *rs.AgentExtractorSoftIterCap
+		}
+		if rs.AgentExtractorHardIterCap != nil {
+			a.ExtractorHardIterCap = *rs.AgentExtractorHardIterCap
+		}
+		if rs.AgentVerifierSoftIterCap != nil {
+			a.VerifierSoftIterCap = *rs.AgentVerifierSoftIterCap
+		}
+		if rs.AgentVerifierHardIterCap != nil {
+			a.VerifierHardIterCap = *rs.AgentVerifierHardIterCap
+		}
+		if rs.AgentCoderSoftIterSlack != nil {
+			a.CoderSoftIterSlack = *rs.AgentCoderSoftIterSlack
+		}
+		if rs.AgentCoderHardIterRecovery != nil {
+			a.CoderHardIterRecovery = *rs.AgentCoderHardIterRecovery
+		}
 	}
 	pipelineSettings.Agent = types.ResolvedAgentSettings(pipelineSettings.Agent)
 	// Mirror the resolved investigation_complete_policy into the

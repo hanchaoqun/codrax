@@ -243,6 +243,80 @@
 # cmd/root.go.
 # write_plan_dir: ""
 
+# Yaml-level pre-authorization for the bare-directory scaffolding flow.
+# When the target dir is not a git repo (or has no commits), worktree
+# provisioning normally fail-louds with an explanation prompting the
+# user. With this true, the orchestrator runs `git init` (if needed)
+# plus an empty initial commit before `git worktree add`, so codrax
+# can bootstrap a brand-new project from a single --mode=plan run.
+# Equivalent to the --auto-init-repo CLI flag but applied to every
+# Run from this deploy. CLI flag wins when both are set. REPL retains
+# an interactive y/N prompt as the third-tier fallback when neither
+# is set. Default false (require explicit per-run opt-in).
+# write_auto_init_repo: false
+
+# ---------------------------------------------------------------------------
+# Worktree retention (worktree_keep_*)
+# ---------------------------------------------------------------------------
+# Bounds on the preserved worktrees produced by
+# pipeline_keep_worktree_on_success: true. At codrax startup the runtime
+# age-reaps then quota-evicts dirs under <runtime-anchor>/worktrees/
+# so a long-running operator's disk doesn't fill silently. Failure-path
+# worktrees are always discarded immediately and never appear here.
+
+# TTL (in hours). Worktree dirs whose mtime is older than this are
+# removed at codrax launch. 0 disables age-reaping entirely (quota
+# still applies). Default 168 (7 days).
+# worktree_keep_ttl_hours: 168
+
+# Maximum number of preserved worktrees that may exist after age-
+# reaping. When the survivor count exceeds this, the oldest (by mtime)
+# are LRU-evicted until count <= cap. 0 disables the quota (only TTL
+# applies). Default 20.
+# worktree_keep_max_count: 20
+
+# ---------------------------------------------------------------------------
+# Verify resource caps (verify_mem_limit_mb / verify_cpu_limit_seconds)
+# ---------------------------------------------------------------------------
+# Hard caps on every supervised exec — applied to run_tests and
+# exec_command invocations both in read mode (when used by the LLM
+# directly) and in write-mode verify. Without these caps a runaway
+# LLM-generated test (e.g. an unbounded allocator loop) can OOM the
+# entire host. Provenance: 2026-04-26 OOM event where pytest hit
+# RSS 2.47 GiB on a 3.7 GiB host and the system-wide OOM killer took
+# down the supervising claude-code process.
+#
+# Unix: enforced via `ulimit -v` / `-t` shell prefix.
+# Windows: enforced via JobObject JobMemoryLimit / PerJobUserTimeLimit.
+
+# Memory cap in MiB. Default 2048 (2 GiB) — large enough for most real
+# test suites (Java gradle, big Go monorepos), tight enough that a
+# 4 GiB host keeps codrax + the test process alive together.
+# Operators on dev hosts with abundant RAM can raise this; CI runners
+# often want lower (e.g. 512). 0 falls back to the default.
+# verify_mem_limit_mb: 2048
+
+# Total CPU seconds across every process in the supervised tree.
+# Distinct from the wall-clock timeout (300 s default) so a CPU-burner
+# on a multi-core host can't keep all cores at 100 % for the full wall
+# budget. Fires SIGXCPU on Unix, terminates the JobObject on Windows.
+# Default 600. 0 falls back to the default.
+# verify_cpu_limit_seconds: 600
+
+# ---------------------------------------------------------------------------
+# Static-check master switch (pipeline_lint_enabled)
+# ---------------------------------------------------------------------------
+# Gates the V5 lint validator family that runs at emit_change_plan
+# time on every kind=create entry. Covers Go (gofmt -l), Python
+# (ruff -E,F), Node (node --check), Ruby (ruby -wc), C (gcc -Werror),
+# C++ (g++ -Werror), TypeScript (tsc --noEmit), Rust (rustc
+# --emit=metadata), Java (javac -Xlint), Swift (swift -frontend
+# -typecheck), plus project-aware ArkTS / Cangjie checks. Each check
+# silently skips when its toolchain binary is missing. Set to false
+# when your codebase carries existing lint debt and the new-files-only
+# filter still feels too noisy. Default true.
+# pipeline_lint_enabled: true
+
 # ---------------------------------------------------------------------------
 # Analyzer quality gate (gate_*)
 # ---------------------------------------------------------------------------
@@ -308,6 +382,17 @@
 # Default 0.5 — high enough to block a mostly-speculative investigation,
 # low enough that a handful of leads do not deadlock the pipeline.
 # evidence_grounding_floor: 0.5
+
+# Minimum (Tier-1 proven grounded / total) ratio required by
+# emit_investigation_complete. A Tier-1 evidence item is one whose
+# anchor was matched against a file the LLM actually read_file'd —
+# i.e. the line-text gutter check passed. Range [0, 1]. 0 disables
+# (session-7 backward-compat); a positive value blocks "pure recovery"
+# investigations where the LLM never read any cited source — the
+# finalizer grounder's stricter Tier-2 check would otherwise drop
+# every such citation at cite time, leaving the pipeline stuck. The
+# Tier-1 floor moves the intercept point upstream. Default 0.3.
+# evidence_tier1_floor: 0.3
 
 # ---------------------------------------------------------------------------
 # Explorer heuristics (explore_*)
@@ -378,6 +463,17 @@
 # ignored.
 # cgec_stall_threshold_hard: 3
 
+# Phase1-unread pre-complete gate. When the LLM calls
+# emit_investigation_complete and the explorer's keyword-search top-K
+# ranked files still have >= min_unread entries missing from ReadSet
+# AND the declared RequirementKind is a breadth-intent question, the
+# gate downgrades the call and forces a follow-up read round. The
+# downgrade message names every unread top-K file by path so the LLM
+# knows exactly what to read next. Set top_k to 0 to disable the gate
+# entirely (the LLM is on its own). Default top_k=5, min_unread=2.
+# cgec_phase1_unread_top_k: 5
+# cgec_phase1_unread_min_unread: 2
+
 # Multi-path coverage parity floor. Per-file ratio
 # (read_lines / total_lines) each primary anchor must reach for
 # emit_investigation_complete to honour completion when the question
@@ -445,7 +541,7 @@
 # agent_loop_idle_stop_threshold: 2
 
 # Finalizer: max correction retries when emit_answer_document is missing.
-# agent_finalizer_max_correction_retries: 2
+# agent_finalizer_max_correction_retries: 3
 
 # Finalizer shrinkage salvage: when the model first writes a rich prose
 # answer outside the tool call, then on the correction retry emits a
@@ -567,6 +663,26 @@
 #                RepairRebindSubject from pre-complete all suppressed.
 #   "strict"   — ignore the signal, enforce template thresholds
 # agent_investigation_complete_policy: soft
+
+# How the REPL-assembled "Prior conversation" block is surfaced to the
+# 4 pipeline stages. The REPL always stores and retrieves prior turns;
+# this knob gates VISIBILITY, not persistence, so flipping the policy
+# takes effect on the next dispatch without any data migration.
+#   "always"   — every stage sees Prior. Historical behaviour;
+#                preserved as the opt-out for continuity-sensitive
+#                debugging sessions.
+#   "analyzer" — (default) only the analyzer sees Prior, where it is
+#                useful for entity disambiguation ("它 = last turn's
+#                subject"). Explorer / extractor / finalizer stay blind
+#                so they cannot copy a prior-turn wrong answer verbatim.
+#                AnalysisIR.RequestModel.Entities carries any
+#                disambiguated identifiers downstream.
+#   "continue" — analyzer always; explorer / extractor / finalizer see
+#                Prior only when the current request is a continuation
+#                (leading "再/继续/more on/..." or bare-pronoun head).
+#   "never"    — no stage sees Prior. Extreme isolation, not
+#                recommended outside stress tests.
+# agent_prior_conversation_policy: analyzer
 
 # ---------------------------------------------------------------------------
 # Summary length caps (summary_cap_*)
@@ -1052,6 +1168,41 @@
 #   trace_attach_max_bytes: 209715200   # 200 MiB
 # Same 1 GiB hard ceiling applies.
 # trace_attach_max_bytes: 52428800
+
+# ---------------------------------------------------------------------------
+# REPL interactive (repl_*)
+# ---------------------------------------------------------------------------
+# Runtime tweaks for the interactive prompt. Single knob today.
+
+# Pastes with >= this many runes (Unicode characters, not bytes) fold
+# to a `[Pasted text #N …]` placeholder visible in the input area;
+# the original body is expanded back at submit time so the LLM sees
+# the full text. Multi-line pastes fold unconditionally regardless
+# of length. Default 120 (~2 visual lines on typical widths). Set
+# 0 (or omit) to inherit the default.
+# repl_paste_fold_min_chars: 120
+
+# ---------------------------------------------------------------------------
+# Repomap tier reporting (repomap_*)
+# ---------------------------------------------------------------------------
+# Per-language fall-through ratios that gate the parse-tier degradation
+# banners emitted by the repomap scanner. The scanner logs every
+# downgrade individually at WARN level; these knobs gate the aggregate
+# per-language summary so operators see emerging extractor maintenance
+# needs without scrolling through individual file lines.
+
+# Soft floor — per-language Tier-2+ ratio at which the scanner emits
+# an INFO line ("trending toward extractor maintenance"). Picked
+# below the alert ratio so operators see emerging degradation BEFORE
+# it breaches. 0 inherits the code default (0.30).
+# repomap_tier_warn_ratio: 0.30
+
+# Alert ratio — per-language Tier-2+ ratio at which a WARN-level
+# "consider extractor / grammar update" banner fires. ArkTS keeps a
+# stricter 0.40 and Cangjie a stricter 0.50 internally; this knob
+# only changes the threshold for languages without a hardcoded
+# override. 0 inherits the code default (0.50).
+# repomap_tier_alert_ratio: 0.50
 
 # ---------------------------------------------------------------------------
 # Path to providers config

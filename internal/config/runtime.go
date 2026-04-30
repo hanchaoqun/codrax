@@ -164,8 +164,10 @@ type RuntimeSettings struct {
 	// ModeApply, expressed as the number of retry rounds AFTER the
 	// initial attempt (so 2 = up to 3 total attempts). T4 renamed
 	// from PipelineMaxVerifyRetries when write modes folded into the
-	// scheduler. Default 0 preserves fail-loud semantics (one
-	// attempt, surface failure). Hard-capped by
+	// scheduler. Default 3 (seeded in cmd/root.go) — Reflexion /
+	// Self-Refine / AutoCodeRover empirical sweet spot. Set yaml
+	// `pipeline_write_retry_budget: 0` to opt into fail-loud
+	// behaviour (one attempt, surface failure). Hard-capped by
 	// PipelineWriteRetryBudgetCeil (default 5) inside
 	// orchestrator.SetWriteRetryBudget so operator typos can't burn
 	// an unbounded LLM budget on an unfixable plan.
@@ -358,6 +360,27 @@ type RuntimeSettings struct {
 	AgentLogTriagerIterCap             *int     `yaml:"agent_log_triager_iter_cap"`
 	AgentInvestigationCompletePolicy   *string  `yaml:"agent_investigation_complete_policy"`
 	AgentPriorConvPolicy               *string  `yaml:"agent_prior_conversation_policy"`
+
+	// Per-evaluator iteration caps (soft / hard pair) — gates the
+	// two-stage stop machinery in iterationCapShouldStop. Each pair
+	// must satisfy hard > soft; ResolvedAgentSettings clamps invalid
+	// pairs back to defaults. nil → code default in
+	// types.DefaultAgentSettings.
+	//
+	// agent_planner_*    — emit_change_plan loop (default 6 / 9)
+	// agent_extractor_*  — emit_answer_symbol loop (default 3 / 5)
+	// agent_verifier_*   — emit_test_results loop  (default 5 / 8)
+	// agent_coder_*      — apply_patch loop. soft = len(plan.TargetPaths)
+	//                      + slack; hard = soft + recovery. Defaults:
+	//                      slack=3, recovery=3.
+	AgentPlannerSoftIterCap     *int `yaml:"agent_planner_soft_iter_cap"`
+	AgentPlannerHardIterCap     *int `yaml:"agent_planner_hard_iter_cap"`
+	AgentExtractorSoftIterCap   *int `yaml:"agent_extractor_soft_iter_cap"`
+	AgentExtractorHardIterCap   *int `yaml:"agent_extractor_hard_iter_cap"`
+	AgentVerifierSoftIterCap    *int `yaml:"agent_verifier_soft_iter_cap"`
+	AgentVerifierHardIterCap    *int `yaml:"agent_verifier_hard_iter_cap"`
+	AgentCoderSoftIterSlack     *int `yaml:"agent_coder_soft_iter_slack"`
+	AgentCoderHardIterRecovery  *int `yaml:"agent_coder_hard_iter_recovery"`
 
 	// Memory store limits. All optional; nil → code default in
 	// types.DefaultMemorySettings().
@@ -641,8 +664,9 @@ type RuntimeSettings struct {
 	//   ReplPasteFoldMinChars — pastes with >= this many runes fold
 	//                           to a `[Pasted text #N …]` placeholder.
 	//                           Multi-line pastes fold unconditionally
-	//                           regardless of length. Default 60 (≈2
-	//                           visual lines at typical widths).
+	//                           regardless of length. Default 120
+	//                           (~2 visual lines at typical widths;
+	//                           see repl.DefaultPasteFoldMinChars).
 	//                           Unit is Unicode characters, not bytes.
 	ReplPasteFoldMinChars *int `yaml:"repl_paste_fold_min_chars"`
 

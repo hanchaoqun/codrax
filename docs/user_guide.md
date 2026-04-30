@@ -755,11 +755,18 @@ agents:
 |---|---|---|
 | `write_enabled` | `false` | **写模式总闸**;不设 true 任何写命令都拒绝 |
 | `write_default_mode` | `read` | 启动默认模式 |
-| `write_auto_init_repo` | `false` | 允许 codrax 在裸目录运行 `git init` + 空 commit |
+| `write_auto_init_repo` | `false` | 允许 codrax 在裸目录运行 `git init` + 空 commit(等价 `--auto-init-repo`,持久版) |
+| `write_auto_approval` | `false` | 预留:批量工作流 / REPL `/approve` 默认开关 |
 | `write_plan_dir` | `<runtime>/plans` | ChangePlan JSON 落盘目录 |
 | `pipeline_write_retry_budget` | 3 | verify 失败后自动重 plan 的最大次数 |
+| `pipeline_write_retry_budget_ceil` | 5 | 上面那个 budget 的硬上限 |
 | `pipeline_baseline_capture_enabled` | `false` | 写模式开启前先跑一次基准测试,用于回归判定(双倍测试时间) |
 | `pipeline_keep_worktree_on_success` | `false` | apply 通过后保留 worktree(`/merge` 必需) |
+| `pipeline_lint_enabled` | `true` | emit_change_plan 时对新建文件跑 V5 静态检查(gofmt / ruff / node --check 等;工具链缺失会静默跳过) |
+| `worktree_keep_ttl_hours` | 168 | 保留下来的 worktree 在启动时按 mtime 老化清理(0 关闭) |
+| `worktree_keep_max_count` | 20 | 老化后还要按 LRU 配额裁剪(0 关闭) |
+| `verify_mem_limit_mb` | 2048 | 每次 `run_tests` / `exec_command` 的内存硬上限(MiB);0 用 package 默认 |
+| `verify_cpu_limit_seconds` | 600 | 同上,CPU 时间(秒);跟 wall 超时(默认 300)是两回事 |
 
 ### 闲聊 / 本地转换
 
@@ -793,13 +800,21 @@ agents:
 | `env_cache_ttl_days` | 90 | 环境探测结果缓存天数 |
 | `recommend_global_install` | `false` | 是否允许 LLM 推荐 sudo / 全局安装 |
 
+### REPL / repomap
+
+| 键 | 默认 | 作用 |
+|---|---|---|
+| `repl_paste_fold_min_chars` | 120 | 粘贴长度 ≥ 这个字符数(Unicode rune 数,不是字节)折叠成 `[Pasted text #N …]` 占位符;多行粘贴无视长度直接折叠 |
+| `repomap_tier_warn_ratio` | 0.30 | 单语言 Tier-2+ 降级率 ≥ 这个值时打 INFO("trending toward extractor maintenance") |
+| `repomap_tier_alert_ratio` | 0.50 | 同上,但更高,触发 WARN("consider extractor / grammar update");ArkTS 内部用 0.40 / Cangjie 用 0.50,不受这个旋钮影响 |
+
 ### 颜色
 
 `--color={auto,always,never}` 命令行覆盖所有 yaml;`NO_COLOR=1` 环境变量永远强制关闭(no-color.org 标准)。
 
 ### 还有更多
 
-`gate_*` / `analysis_*` / `explore_*` / `agent_*` / `cgec_*` / `summary_cap_*` / `memory_*` / `memory_policy_*` 等几十个调参旋钮 — 它们影响 LLM 的 internal heuristic 阈值,**新手通常不需要改**。完整字段见 `codrax.yaml.example`,每个都有行内注释说明。
+`gate_*` / `analysis_*` / `explore_*` / `agent_*` / `cgec_*` / `evidence_*` / `summary_cap_*` / `memory_*` / `memory_policy_*` / `citation_quote_max_chars` / `agent_prior_conversation_policy` / `agent_investigation_complete_policy` / `agent_planner_soft_iter_cap` 等几十个调参旋钮 — 它们影响 LLM 的 internal heuristic 阈值,**新手通常不需要改**。完整字段见 `codrax.yaml.example`,每个都有行内注释说明。
 
 ## 5.3 配置查找顺序
 

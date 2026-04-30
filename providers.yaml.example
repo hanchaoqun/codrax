@@ -42,6 +42,19 @@ llm:
     # latency win, or for CI where byte-stable captures matter).
     # stream: false
 
+    # --- Think Aloud directive -------------------------------------------
+    # When true, codrax appends a "Think Aloud" system section that asks
+    # the model to narrate its reasoning step-by-step BEFORE issuing the
+    # next tool call. Adds a few hundred extra tokens per turn but tends
+    # to surface obvious wrong-direction starts so the operator can
+    # interrupt sooner. Useful with reasoning models that don't expose
+    # an internal scratchpad, or when comparing two models head-to-head
+    # in dev. Per-agent override: nil inherits from default; explicit
+    # true/false wins.
+    # Default: nil (treated as false in the assembler — no Think Aloud
+    # section emitted).
+    # think_aloud: false
+
     # --- TLS (HTTPS endpoints only) --------------------------------------
     # These fields have no effect when base_url uses `http://`.
     # Set tls_ca_file only when the endpoint uses a corporate /
