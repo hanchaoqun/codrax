@@ -91,6 +91,26 @@ type ChatOptions struct {
 	// (like the summary preview extractor) are responsible for any
 	// best-effort partial-parse logic on their side.
 	OnToolCallDelta func(index int, name string, argsChunk string)
+
+	// OnRetry fires from the in-adapter retry loop just before the
+	// adapter sleeps on a transient error (HTTP 429 / 5xx / first-byte
+	// timeout). attempt is the 1-based index of the attempt that just
+	// failed (so attempt=1 means "first try failed, about to retry"),
+	// delay is the next sleep duration, and reason is a short human
+	// phrase describing why we're retrying (e.g. "rate limit", "stream
+	// stalled"). The callback exists so the renderer's dock can flip
+	// to the "重试中" status word — without it the dock keeps showing
+	// "请求模型中" for the entire retry window, lying to the user.
+	// Non-fatal: a panic inside the callback is recovered so the
+	// retry loop keeps running.
+	OnRetry func(attempt int, delay time.Duration, reason string)
+
+	// OnFallback fires from the FallbackAdapter just before swapping
+	// to the next adapter in the chain. from / to are the model IDs
+	// of the outgoing / incoming adapters; reason is a short phrase.
+	// Renderer dock uses this to flip the row-1 status word to
+	// "切换 provider 中". Same panic-recovery contract as OnRetry.
+	OnFallback func(from, to, reason string)
 }
 
 // Adapter defines the interface for LLM backends.

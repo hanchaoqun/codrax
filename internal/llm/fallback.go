@@ -55,6 +55,16 @@ func (f *FallbackAdapter) Chat(ctx context.Context, messages []Message, tools []
 		if !IsRetryableDispatchError(err) {
 			return Response{}, err
 		}
+		// Notify the renderer (or any other observer) that we're
+		// about to swap providers so the dock status row can flip
+		// to "切换 provider 中". Panic-recovered.
+		if cb := opts.OnFallback; cb != nil {
+			next := f.adapters[i+1]
+			func() {
+				defer func() { _ = recover() }()
+				cb(a.ModelID(), next.ModelID(), "primary failed")
+			}()
+		}
 	}
 	return Response{}, fmt.Errorf("all LLM adapters failed: %w", lastErr)
 }

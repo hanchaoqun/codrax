@@ -1016,10 +1016,48 @@ func (b *BaseAgent) Execute(ctx *types.AgentContext, sk *skill.Config) (*StageOu
 			summaryPreview = newFinalizePreviewHook(b.deps.Emit)
 			onToolCallDelta = summaryPreview.onToolCallDelta
 		}
+		// Forward L1 retry / L2 fallback signals as renderer events so
+		// the dock status row can flip to "重试中 / 切换 provider 中"
+		// during the backoff window. Without this the dock keeps
+		// showing "请求模型中" during a 60-second retry window — the
+		// user has no idea the adapter is sleeping.
+		emit := b.deps.Emit
+		stage := ctx.Stage
+		agentName := b.name
+		onRetry := func(attempt int, delay time.Duration, reason string) {
+			if emit == nil {
+				return
+			}
+			emit(render.Event{
+				Kind:         render.EventAdapterRetry,
+				Timestamp:    time.Now(),
+				Stage:        stage,
+				Agent:        agentName,
+				RetryAttempt: attempt,
+				RetryDelay:   delay,
+				RetryReason:  reason,
+			})
+		}
+		onFallback := func(from, to, reason string) {
+			if emit == nil {
+				return
+			}
+			emit(render.Event{
+				Kind:         render.EventAdapterFallback,
+				Timestamp:    time.Now(),
+				Stage:        stage,
+				Agent:        agentName,
+				FallbackFrom: from,
+				FallbackTo:   to,
+				RetryReason:  reason,
+			})
+		}
 		resp, err := b.deps.LLM.Chat(ctx.Context(), messages, toolSchemas, llm.ChatOptions{
 			ToolChoice:      resolveToolChoice(ctx),
 			OnContentDelta:  streamBuf.onDelta,
 			OnToolCallDelta: onToolCallDelta,
+			OnRetry:         onRetry,
+			OnFallback:      onFallback,
 		})
 		streamBuf.flush()
 		// Flush any throttled-out summary preview chunks before the

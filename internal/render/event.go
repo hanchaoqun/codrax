@@ -87,6 +87,19 @@ const (
 	// answer prints.
 	EventLivePreviewChunk
 	EventLivePreviewClear
+
+	// Adapter-level retry / fallback signals. Emitted from inside
+	// the LLM adapter retry loop (openai.go) and the FallbackAdapter
+	// (fallback.go) just before sleeping / swapping. Without these
+	// the renderer dock would keep showing "请求模型中" during the
+	// retry window even though the request has already failed and
+	// the adapter is sleeping in backoff. RetryAttempt is 1-based
+	// (1 = "first try failed, about to retry"); RetryDelaySec is
+	// the next sleep duration in seconds; ToolName is overloaded
+	// here to carry the new provider's model id when this is a
+	// fallback event.
+	EventAdapterRetry
+	EventAdapterFallback
 )
 
 // TaskNodeInfo is the renderable summary of a TaskGraph node carried
@@ -171,6 +184,17 @@ type Event struct {
 	PreviewText     string
 	PreviewRound    int
 	PreviewRejected bool
+
+	// EventAdapterRetry / EventAdapterFallback payload.
+	//   RetryAttempt — 1-based index of the failed attempt
+	//   RetryDelay   — backoff duration before next attempt
+	//   RetryReason  — short human phrase ("rate limit" / "stream stalled")
+	//   FallbackFrom / FallbackTo — provider model ids on swap
+	RetryAttempt int
+	RetryDelay   time.Duration
+	RetryReason  string
+	FallbackFrom string
+	FallbackTo   string
 }
 
 // EventEmitter is the callback signature for pipeline event delivery.

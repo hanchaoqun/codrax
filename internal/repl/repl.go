@@ -1367,6 +1367,16 @@ func (r *REPL) dispatch(line, display string) {
 	}
 
 	if r.renderer != nil {
+		// Mode-aware K/N denominator: write modes are 3 stages
+		// (plan→apply→verify), read mode is 6 (analyze→finalize).
+		// Default 6 already set by the renderer; override only on
+		// write modes so existing read-mode callers stay unchanged.
+		switch r.currentMode {
+		case types.ModePlan, types.ModeApply, types.ModeVerify:
+			r.renderer.SetTotalStages(3)
+		default:
+			r.renderer.SetTotalStages(6)
+		}
 		r.renderer.StartSpinnerWithCancelHint(spinnerCancelHint(r.language))
 	}
 
@@ -1375,7 +1385,9 @@ func (r *REPL) dispatch(line, display string) {
 	})
 
 	if r.renderer != nil {
-		// Stop spinner BEFORE printing response so task list comes first.
+		// Red line: StopSpinner BEFORE printing response so the dock
+		// is gone before RenderResult runs. paintDock + answer
+		// markdown writes can't share the same stdout stream.
 		r.renderer.StopSpinner()
 	}
 
@@ -2382,6 +2394,8 @@ func (r *REPL) handleApproveCmd(line string) {
 	logging.Info("[repl] dispatching approve: plan=%s path=%s", plan.ID, r.pendingPlanPath)
 
 	if r.renderer != nil {
+		// /approve always runs apply-mode → 3-stage K/N denominator.
+		r.renderer.SetTotalStages(3)
 		r.renderer.StartSpinnerWithCancelHint(spinnerCancelHint(r.language))
 	}
 	busCtx, runErr := r.runInFlightWrap(func() (*types.BusContext, error) {

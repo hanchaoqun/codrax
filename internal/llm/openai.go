@@ -278,6 +278,32 @@ func (o *OpenAIAdapter) RequestTimeout() time.Duration { return o.requestTimeout
 // transient-error retry loop (429 / 5xx).
 func (o *OpenAIAdapter) RetryMaxAttempts() int { return o.retryMaxAttempts }
 
+// retryReasonForError produces a short human phrase classifying why
+// the adapter is about to retry. Consumed by the OnRetry callback so
+// the renderer dock can render "重试中（rate limit）" / "stream
+// stalled" instead of an opaque "重试中". Order matters: more
+// specific classifications first.
+func retryReasonForError(err error) string {
+	if err == nil {
+		return "transient"
+	}
+	if errors.Is(err, ErrStreamFirstByteTimeout) {
+		return "stream first-byte timeout"
+	}
+	if ae, ok := err.(*apiError); ok {
+		if ae.QuotaError {
+			return "quota"
+		}
+		if ae.StatusCode == 429 {
+			return "rate limit"
+		}
+		if ae.StatusCode >= 500 {
+			return fmt.Sprintf("server %d", ae.StatusCode)
+		}
+	}
+	return "transient"
+}
+
 func (o *OpenAIAdapter) Chat(ctx context.Context, messages []Message, tools []ToolSchema, opts ChatOptions) (Response, error) {
 	if ctx == nil {
 		// Reject nil ctx fail-loud: callers MUST pass either a real
@@ -370,6 +396,17 @@ func (o *OpenAIAdapter) Chat(ctx context.Context, messages []Message, tools []To
 			if ae, ok := err.(*apiError); ok && (ae.RetryAfter > 0 || ae.QuotaError) {
 				logging.Info("[llm] retry %d/%d after %v (status=%d quota=%v retry_after=%v)",
 					attempt+1, maxAttempts-1, delay, ae.StatusCode, ae.QuotaError, ae.RetryAfter)
+			}
+			// Notify the renderer (or any other observer) so the dock
+			// status row can flip to "重试中" while we sleep — without
+			// this the user sees a stale "请求模型中" for the entire
+			// backoff window. Panic-recovered so a buggy callback can
+			// never wedge the retry loop.
+			if cb := opts.OnRetry; cb != nil {
+				func() {
+					defer func() { _ = recover() }()
+					cb(attempt+1, delay, retryReasonForError(err))
+				}()
 			}
 			time.Sleep(delay)
 		}

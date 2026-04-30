@@ -1917,6 +1917,15 @@ func initApp(cmd *cobra.Command, _ []string) error {
 
 	renderer := render.New(os.Stdout, false)
 	renderer.SetLang(flagLang)
+	// log_stdout + TTY conflict: when logger is mirrored to stdout
+	// AND stdout is a terminal, the dock's 3-row anchor would tear
+	// every time the logger writes. Force dock-disabled so events
+	// degrade to the non-TTY commit path; the user keeps full log
+	// visibility at the cost of the live dock.
+	if flagLogStdout {
+		renderer.SetDockEnabled(false)
+		logging.Info("[render] dock disabled because --log-stdout writes to the same stream")
+	}
 	app.renderer = renderer
 
 	toolRegistry := tool.NewRegistry()

@@ -48,6 +48,26 @@ type taskRow struct {
 	detailStart time.Time // for the "current detail elapsed" display
 	toolCount   int       // cumulative EventToolCallEnd successes for this row
 	iteration   int       // latest ReAct iteration seen on this row
+
+	// activityKind / activityDetail / activityDurMs surface the LLM-
+	// interaction sub-state inside the running stage's live bar so
+	// the user reads "what's happening RIGHT NOW" (request dispatched
+	// / receiving stream) without having to interpret the raw event
+	// log. activityPhrase consumes these to build the localized
+	// segment.
+	activityKind   activityKind
+	activityDetail string
+	activityDurMs  int
+
+	// streamTail is the rolling 20-30 char tail of the most recent
+	// streamed assistant content. Updated on every EventAgentContent
+	// (~4 Hz throttle from BaseAgent). Rendered as the final segment
+	// of the live bar in a distinct dim style so the user can SEE
+	// bytes flowing in even when the activity label is the static
+	// "请求模型中". Cleared on EventTransition / EventTaskNodeStart /
+	// EventTaskNodeEnd so a stale tail from the previous stage doesn't
+	// leak into the next one.
+	streamTail string
 	isSubAgent  bool      // true for rows created by EventSubAgentStart
 	subAgentID  string    // identifier for matching EventSubAgentEnd
 	subTitle    string    // SubTaskTitle from the event
@@ -111,9 +131,40 @@ type Renderer struct {
 	glamour *glamour.TermRenderer
 
 	mu        sync.Mutex
-	area      *pterm.AreaPrinter // legacy, retained only for non-TTY tests; live REPL uses liveBar instead
-	bar       *liveBar           // single-line dispatch ticker (post-2026-04-30 redesign)
+	dock      *dock // 3-row anchored bottom region (post-2026-04-30 dock redesign)
 	startTime time.Time
+
+	// dockEnabled is true when stdout is a TTY AND log_stdout is not
+	// requested. When false, every event goes through the
+	// handleEventNonTTY path: durable Println-style lines, no live
+	// region. Set at StartSpinner time and stays for the lifetime of
+	// the spinner.
+	dockEnabled bool
+
+	// totalStages controls the K/N denominator on the dock + commit
+	// rows. read mode = 6, write mode = 3, chitchat = 0 (renders "—").
+	// SetTotalStages installs the value before StartSpinner.
+	totalStages int
+
+	// activity is the current row-1 status for the focused row.
+	// Updated by handleEvent on every event the dock cares about;
+	// read by composeCurrentDockRows. The state machine is "most
+	// recent meaningful event wins".
+	activity activityState
+
+	// streamTail / streamChars carry the live stream preview state.
+	// streamTail is the rolling 25-col tail; streamChars is the
+	// finalize-only character counter. Both reset on stage / node
+	// boundaries so a stale tail can't leak.
+	streamTail  string
+	streamChars int
+
+	// dockSuppressed forces the dock off even on TTY stdout. Set by
+	// SetDockEnabled(false) when --log-stdout is in effect — logger
+	// writes to stdout would interleave with paintDock and break the
+	// 3-row anchor invariant. Without this, every log line would
+	// shift the dock down by 1 row permanently.
+	dockSuppressed bool
 
 	// Live task list. Append-only within a Start/Stop cycle; rows
 	// are not removed — completed rows stay visible with a
@@ -213,6 +264,33 @@ type Renderer struct {
 // what's in flight. A collapsed-count indicator is rendered in
 // their place.
 const maxVisibleTasks = 12
+
+// SetTotalStages installs the K/N denominator for the dock's stage
+// row. read mode passes 6 (analyze→finalize); write mode passes 3
+// (plan→apply→verify); chitchat passes 0 (renders "—" until the
+// renderer has stage info). Safe to call any time; subsequent dock
+// paints pick the new value up. Default is 6.
+func (r *Renderer) SetTotalStages(total int) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if total < 0 {
+		total = 0
+	}
+	r.totalStages = total
+}
+
+// SetDockEnabled controls whether the live 3-row dock is drawn. Set
+// to false when --log-stdout is active so logger output to stdout
+// can't tear the dock's anchor. When false, every event still
+// produces durable scrollback via the non-TTY path; only the live
+// region is suppressed. Safe to call any time before StartSpinner;
+// changing it mid-run has no effect (dock state is captured at
+// StartSpinner time).
+func (r *Renderer) SetDockEnabled(enabled bool) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.dockSuppressed = !enabled
+}
 
 // SetLang installs the user-facing locale code. Used by the status
 // localization layer to pick zh / en text for stage labels, thinking
@@ -590,7 +668,7 @@ func (r *Renderer) StartSpinnerWithCancelHint(hint string) {
 func (r *Renderer) startSpinnerWithHint(hint string) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	if r.area != nil {
+	if r.dock != nil {
 		return
 	}
 	r.objective = ""
@@ -601,7 +679,18 @@ func (r *Renderer) startSpinnerWithHint(hint string) {
 	r.startTime = time.Now()
 	r.animFrame = 0
 	r.cancelHint = hint
-	r.openSpinnerAreaLocked()
+	r.activity = activityState{kind: activityWaitingPipeline}
+	r.streamTail = ""
+	r.streamChars = 0
+	if r.totalStages == 0 {
+		r.totalStages = 6
+	}
+	r.dockEnabled = detectStdoutTTY() && !r.dockSuppressed
+	if r.dockEnabled {
+		r.dock = newDock(os.Stdout)
+		r.paintDockLocked()
+		r.startAnimGoroutineLocked()
+	}
 }
 
 // openSpinnerAreaLocked opens a fresh pterm.AreaPrinter and starts
@@ -611,26 +700,6 @@ func (r *Renderer) startSpinnerWithHint(hint string) {
 // area + animation goroutine lifecycle has one canonical owner.
 //
 // Caller MUST hold r.mu.
-func (r *Renderer) openSpinnerAreaLocked() {
-	// Post-2026-04-30 redesign: the multi-row pterm.Area is gone.
-	// The dispatch ticker is a single line driven by liveBar; all
-	// other status (sub-topic enumeration, stage completions,
-	// reasoning) goes to scrollback via direct fmt.Println so the
-	// terminal never has to track logical-vs-physical row counts.
-	r.bar = newLiveBar(os.Stdout)
-	r.area = nil // legacy field, kept for non-TTY tests but unused in REPL
-	if r.objective != "" {
-		// Print the user-question echo to scrollback ONCE at start.
-		// Subsequent retry rounds / re-dispatches don't reprint
-		// (the question is already in scrollback above).
-		fmt.Fprintf(os.Stdout, "  %s %s\n\n",
-			statusObjective.Sprint("❯"),
-			statusObjective.Sprint(r.objective))
-	}
-	r.redraw()
-
-	r.startAnimGoroutineLocked()
-}
 
 // printStageCompletionThroughBarLocked wipes the live bar so a
 // completion line can land cleanly in scrollback above it, then
@@ -639,25 +708,30 @@ func (r *Renderer) openSpinnerAreaLocked() {
 // evidence rows.
 //
 // Caller MUST hold r.mu.
-func (r *Renderer) printStageCompletionThroughBarLocked(row *taskRow, topicTotal int) {
-	if r.bar != nil {
-		r.bar.Stop()
-		printStageCompletionToScrollback(os.Stdout, r.lang, row, topicTotal)
-		r.bar = newLiveBar(os.Stdout)
-		r.redraw()
-	} else {
-		printStageCompletionToScrollback(os.Stdout, r.lang, row, topicTotal)
+
+// totalElapsedString returns the cumulative pipeline wall clock as a
+// truncated-second string ("45s"). Empty when the renderer has not
+// been started yet. Caller MUST hold r.mu.
+func (r *Renderer) totalElapsedString() string {
+	if r.startTime.IsZero() {
+		return ""
 	}
+	d := time.Since(r.startTime)
+	if d < 0 {
+		return ""
+	}
+	return d.Truncate(time.Second).String()
 }
 
 // startAnimGoroutineLocked starts the 100ms animation goroutine
-// that ticks animFrame and refreshes the live bar.
+// that ticks animFrame and repaints the dock so the spinner glyph
+// rotates between events.
 //
 // Caller MUST hold r.mu and ensure no prior goroutine is running.
 func (r *Renderer) startAnimGoroutineLocked() {
 	r.animStop = make(chan struct{})
 	go func() {
-		ticker := time.NewTicker(100 * time.Millisecond)
+		ticker := time.NewTicker(dockTickInterval)
 		defer ticker.Stop()
 		for {
 			select {
@@ -665,12 +739,12 @@ func (r *Renderer) startAnimGoroutineLocked() {
 				return
 			case <-ticker.C:
 				r.mu.Lock()
-				if r.bar == nil {
+				if r.dock == nil {
 					r.mu.Unlock()
 					return
 				}
 				r.animFrame++
-				r.redraw()
+				r.paintDockLocked()
 				r.mu.Unlock()
 			}
 		}
@@ -693,37 +767,31 @@ func (r *Renderer) startAnimGoroutineLocked() {
 // also stay so elapsed-time math is continuous.
 //
 // Caller MUST hold r.mu.
-func (r *Renderer) reopenSpinnerAreaLocked() {
-	if r.area != nil {
-		return
-	}
-	if r.previewArea != nil {
-		// Streaming preview is currently rendering — leave the
-		// ticker alone, it owns the screen until handlePreviewClearLocked.
-		return
-	}
-	r.openSpinnerAreaLocked()
-}
 
-// StopSpinner ends the dispatch ticker. The stage-completion log
-// + sub-topic enumeration + reasoning events have already accrued
-// in scrollback as they happened, so StopSpinner just wipes the
-// live ticker line and resets renderer state. The persistent
-// "✓ 已撰写最终答案" banner is printed by RenderResult, which
-// runs immediately after this on the bordered-answer path.
+// StopSpinner ends the dispatch ticker. Stage-completion lines have
+// already accrued in scrollback as they happened, so StopSpinner
+// adds one closing summary line capturing the run's totals before
+// wiping the live ticker — without this the user reports "info gone
+// after completion". The persistent "✓ 已撰写最终答案" banner is
+// printed by RenderResult, which runs immediately after this on the
+// bordered-answer path.
 func (r *Renderer) StopSpinner() {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	if r.bar == nil {
+	if r.dock == nil {
 		// Nothing to stop. Reset state for next Run.
 		r.tasks = nil
 		r.current = nil
 		r.analysisReady = false
 		r.objective = ""
 		r.objectiveDone = false
+		r.activity = activityState{}
+		r.streamTail = ""
+		r.streamChars = 0
 		return
 	}
-	// Stop animation goroutine.
+	// Stop animation goroutine first so it can't race the shutdown
+	// commit with a stale paintDock.
 	if r.animStop != nil {
 		select {
 		case <-r.animStop:
@@ -732,388 +800,40 @@ func (r *Renderer) StopSpinner() {
 		}
 		r.animStop = nil
 	}
-	// Wipe the ticker line.
-	r.bar.Stop()
-	r.bar = nil
-	// Reset state.
+	// Commit closing summary line + clear dock so the next stdout
+	// write (RenderResult / REPL prompt) lands cleanly.
+	r.commitDockShutdownLocked()
+	r.dock = nil
 	r.tasks = nil
 	r.current = nil
 	r.analysisReady = false
 	r.objective = ""
 	r.objectiveDone = false
+	r.activity = activityState{}
+	r.streamTail = ""
+	r.streamChars = 0
 }
+
+// printRunSummaryLocked prints a closing single-line summary of the
+// run as a permanent scrollback record. Must be called with r.mu
+// held and BEFORE the bar is wiped — the bar.Stop() call in the
+// caller emits a clearing newline so the summary lands cleanly above
+// it.
+//
+// Format:
+//   ◆ 已结束 · 6 阶段 · 总耗时 45s · 共 N 工具 · M 轮 LLM 对话
+//
+// Stage count is the number of completed (endTime non-zero) stage /
+// node rows; tool count is the cumulative toolCount across all rows;
+// iteration total is the sum of all rows' final iteration counters.
+// Empty rows yields a minimal "◆ 已结束 · 总耗时 0s" line so the
+// user always sees the boundary between this Run and the next prompt.
 
 // Emitter returns an EventEmitter callback bound to this renderer.
 func (r *Renderer) Emitter() EventEmitter {
-	return func(ev Event) {
-		r.mu.Lock()
-		defer r.mu.Unlock()
-
-		// Reasoning events go straight to scrollback. liveBar
-		// occupies one line at the bottom; printing above it is
-		// just a regular Println — the bar's next Update will
-		// re-paint its line via `\r\x1b[2K` and the reasoning
-		// stays in scrollback.
-		if ev.Kind == EventAgentReasoning && ev.Reasoning != "" {
-			line := formatReasoning(string(ev.Agent), ev.Iteration, ev.Reasoning)
-			if r.bar != nil {
-				// Bar is active: wipe its line, print reasoning to
-				// scrollback, the next animation tick will repaint
-				// the bar below the new reasoning line.
-				r.bar.Stop() // emits a clearing newline
-				fmt.Fprintln(os.Stdout, line)
-				r.bar = newLiveBar(os.Stdout)
-				r.redraw()
-			} else {
-				fmt.Fprintln(os.Stderr, line)
-			}
-			return
-		}
-
-		// Live preview events are independent of the spinner Area
-		// state — they manage their OWN previewArea so the chunk
-		// arrival can stop the spinner and open the preview without
-		// requiring an active spinner.
-		switch ev.Kind {
-		case EventLivePreviewChunk:
-			r.handlePreviewChunkLocked(ev)
-			return
-		case EventLivePreviewClear:
-			r.handlePreviewClearLocked(ev)
-			return
-		}
-
-		if r.bar == nil {
-			// liveBar was torn down (StopSpinner already ran, or
-			// never ran). Auto-reopen so retry-round events still
-			// surface. Lazy reopen: only for events that signal
-			// "pipeline is doing live work".
-			switch ev.Kind {
-			case EventTaskNodeStart,
-				EventTaskNodeEnd,
-				EventStageStart,
-				EventStageEnd,
-				EventAgentThinking,
-				EventAgentContent,
-				EventToolCallStart,
-				EventToolCallEnd,
-				EventTransition,
-				EventSubAgentStart,
-				EventSubAgentEnd,
-				EventObjectiveStarted,
-				EventAnalysisReady:
-				r.bar = newLiveBar(os.Stdout)
-				if r.animStop == nil {
-					r.startAnimGoroutineLocked()
-				}
-			}
-			if r.bar == nil {
-				return
-			}
-		}
-
-		switch ev.Kind {
-		case EventStageStart:
-			// Post-analysisReady the task graph's node rows own the
-			// display; suppress stage-dispatch row creation for the
-			// downstream stages (explore / extract / finalize) so the
-			// user does not see an extra "ExplorerAgent(explore)" line
-			// below the actual task list. The analyze stage starts
-			// BEFORE the task graph exists, so its stage row is
-			// always accepted.
-			if r.analysisReady && ev.Stage != "" && string(ev.Stage) != "analyze" {
-				break
-			}
-			row := &taskRow{
-				stage:       string(ev.Stage),
-				agent:       string(ev.Agent),
-				startTime:   ev.Timestamp,
-				detailStart: ev.Timestamp,
-			}
-			r.tasks = append(r.tasks, row)
-			r.current = row
-
-		case EventStageEnd:
-			// Same gating as EventStageStart: ignore downstream stage
-			// ends once the task graph is driving the display.
-			if r.analysisReady && ev.Stage != "" && string(ev.Stage) != "analyze" {
-				break
-			}
-			if row := r.findRunningStageRow(string(ev.Stage), string(ev.Agent)); row != nil {
-				row.endTime = ev.Timestamp
-				row.errorMsg = ev.Error
-				row.okFinished = ev.Error == ""
-				if row == r.current {
-					r.current = nil
-				}
-				// Wipe the bar so the completion line lands cleanly
-				// in scrollback, then print + restart the bar.
-				r.printStageCompletionThroughBarLocked(row, 0)
-			}
-
-		case EventAnalysisReady:
-			// Analyze phase complete: mark any still-running analyze
-			// row done and append one "pending" row per TaskNodeInfo.
-			var analyzeDone *taskRow
-			for _, row := range r.tasks {
-				if row.isSubAgent || row.isNodeRow {
-					continue
-				}
-				if row.stage == "analyze" && row.endTime.IsZero() {
-					row.endTime = ev.Timestamp
-					row.okFinished = true
-					if row == r.current {
-						r.current = nil
-					}
-					analyzeDone = row
-				}
-			}
-			for _, n := range ev.TaskNodes {
-				r.tasks = append(r.tasks, &taskRow{
-					isNodeRow: true,
-					nodeID:    n.ID,
-					nodeKind:  n.Type,
-					objective: n.Objective,
-					pending:   true,
-				})
-			}
-			r.analysisReady = true
-			// Print analyze-done line + sub-topic enumeration
-			// PERMANENTLY to scrollback. Sub-topics print only when
-			// ≥2 evidence_tN nodes were emitted (single-topic
-			// flow has no enumeration).
-			if r.bar != nil {
-				r.bar.Stop()
-				if analyzeDone != nil {
-					printStageCompletionToScrollback(os.Stdout, r.lang, analyzeDone, 0)
-				}
-				printSubTopicsToScrollback(os.Stdout, r.lang, ev.TaskNodes)
-				r.bar = newLiveBar(os.Stdout)
-				r.redraw()
-			} else {
-				if analyzeDone != nil {
-					printStageCompletionToScrollback(os.Stdout, r.lang, analyzeDone, 0)
-				}
-				printSubTopicsToScrollback(os.Stdout, r.lang, ev.TaskNodes)
-			}
-
-		case EventTaskNodeStart:
-			if row := r.findNodeRow(ev.NodeID); row != nil {
-				// Dispatch-window detection: orchestrator emits every
-				// node in a window back-to-back inside one for-loop,
-				// so consecutive EventTaskNodeStart timestamps are
-				// microseconds apart for siblings of the SAME dispatch
-				// (e.g. evidence_t0 + evidence_t1 + evidence_t2 all
-				// being dispatched together).
-				//
-				// Sibling-grouping is type-scoped: only nodes of the
-				// SAME nodeKind get the same dispatch generation
-				// even within the 750 ms window. evidence + validate
-				// emitted in one orchestrator window are DIFFERENT
-				// kinds — one shouldn't render as a sibling of the
-				// other. Pre-2026-04-30 the type-blind grouping kept
-				// evidence + validate both unpaused for the brief
-				// window before EventAgentThinking fired (the trace
-				// at 2026-04-29 17:16+ frame 749/750 shows both with
-				// the same spinner glyph + 0 s elapsed). The fix is
-				// to treat ANY new EventTaskNodeStart for a
-				// different nodeKind as a focus shift that bumps
-				// the generation and parks all older-kind rows.
-				const dispatchWindowGroupingMs = 750
-				kindMatch := r.lastNodeStartKind != "" && r.lastNodeStartKind == row.nodeKind
-				sameWindow := kindMatch &&
-					!r.lastNodeStartAt.IsZero() &&
-					ev.Timestamp.Sub(r.lastNodeStartAt) <= dispatchWindowGroupingMs*time.Millisecond
-				if !sameWindow {
-					// New dispatch focus (either >750 ms gap OR
-					// different nodeKind): park every older-gen row
-					// that's still in flight (started but not ended
-					// by EventTaskNodeEnd — the orchestrator's "no
-					// end on requeue" contract leaves these visible
-					// as running).
-					r.dispatchGen++
-					for _, other := range r.tasks {
-						if other == row {
-							continue
-						}
-						if !other.isNodeRow {
-							continue
-						}
-						if other.pending || !other.endTime.IsZero() {
-							continue
-						}
-						if other.dispatchGen < r.dispatchGen {
-							other.paused = true
-						}
-					}
-				}
-				row.pending = false
-				row.paused = false
-				row.startTime = ev.Timestamp
-				row.detailStart = ev.Timestamp
-				row.endTime = time.Time{}
-				row.okFinished = false
-				row.errorMsg = ""
-				row.dispatchGen = r.dispatchGen
-				r.lastNodeStartAt = ev.Timestamp
-				r.lastNodeStartKind = row.nodeKind
-				r.current = row
-			}
-
-		case EventTaskNodeEnd:
-			if row := r.findNodeRow(ev.NodeID); row != nil {
-				row.pending = false
-				row.paused = false
-				row.endTime = ev.Timestamp
-				row.errorMsg = ev.Error
-				row.okFinished = ev.Error == ""
-				if row == r.current {
-					r.current = nil
-				}
-				// Count topic siblings so the completion line can
-				// surface "关注点 K/M" when this is one of multiple
-				// evidence_tN.
-				topicTotal := 0
-				for _, sibling := range r.tasks {
-					if sibling.isNodeRow && sibling.nodeKind == "evidence" {
-						if _, ok := topicIndexFromNodeID(sibling.nodeID); ok {
-							topicTotal++
-						}
-					}
-				}
-				r.printStageCompletionThroughBarLocked(row, topicTotal)
-			}
-
-		case EventAgentThinking:
-			if r.current != nil {
-				// Store iteration as a 1-based round number so meta's
-				// metaRoundPhrase renders the same "第 N 轮" / "round N"
-				// the user expects to read elsewhere. Pre-2026-04-30
-				// iteration was 0-based AND detail also carried a
-				// "(round N+1)" suffix — same logical round shown as
-				// two different numbers ("第 2 轮" + "第 1 轮") on the
-				// same row. Single 1-based source eliminates the
-				// off-by-one AND the redundancy.
-				r.current.iteration = ev.Iteration + 1
-				// Detail no longer carries the round; meta is the
-				// single surface for it.
-				r.current.detail = "thinking"
-				r.current.detailDone = false
-				r.current.detailStart = ev.Timestamp
-				// Defense-in-depth parking: EventAgentThinking ONLY
-				// fires for the actively-dispatched agent (BaseAgent
-				// emits it from inside one Chat call), so any OTHER
-				// in-flight NodeRow is by definition not the current
-				// dispatch's focus and must be parked. This catches
-				// scheduler-level edge cases where the dispatch-window
-				// timestamp grouping mis-classifies sibling vs cross-
-				// window starts (e.g. two nodes started <750 ms apart
-				// but only one is actually dispatched, the other was
-				// in scheduler "running" state from a prior window).
-				// Parking is independent of gen/timestamp because
-				// EventAgentThinking is a strict signal: this row
-				// owns the current LLM call.
-				if r.current.isNodeRow {
-					for _, other := range r.tasks {
-						if other == r.current {
-							continue
-						}
-						if !other.isNodeRow {
-							continue
-						}
-						if other.pending || !other.endTime.IsZero() {
-							continue
-						}
-						other.paused = true
-					}
-				}
-			}
-
-		case EventAgentContent:
-			// Streaming content preview: update the row's detail line
-			// in place with the latest sliver of assistant text so the
-			// user sees the reply being typed while the LLM is still
-			// responding. Never prints a new line above the area —
-			// that would stack dozens of deltas per second.
-			if r.current != nil && ev.Reasoning != "" {
-				preview := stripMarkdown(ev.Reasoning)
-				// Take the tail: users want the most recent thought,
-				// not the whole message.
-				const previewMax = 80
-				if len(preview) > previewMax {
-					preview = "…" + preview[len(preview)-previewMax:]
-				}
-				// Collapse newlines / repeated spaces so the row stays
-				// on one visual line even if the delta contains `\n`.
-				preview = strings.Join(strings.Fields(preview), " ")
-				r.current.detail = "thinking: " + preview
-				r.current.detailDone = false
-				r.current.detailStart = ev.Timestamp
-			}
-
-		case EventToolCallStart:
-			if r.current != nil {
-				r.current.detail = ev.ToolName
-				if ev.ToolDetail != "" {
-					r.current.detail += " " + ev.ToolDetail
-				}
-				r.current.detailDone = false
-				r.current.detailStart = ev.Timestamp
-			}
-
-		case EventToolCallEnd:
-			if r.current != nil {
-				r.current.detail = ev.ToolName
-				if ev.ToolDetail != "" {
-					r.current.detail += " " + ev.ToolDetail
-				}
-				r.current.detailDone = true
-				if ev.ToolOK {
-					r.current.toolCount++
-				}
-			}
-
-		case EventTransition:
-			if r.current != nil {
-				r.current.detail = ""
-				r.current.detailDone = false
-				r.current.detailStart = ev.Timestamp
-			}
-
-		case EventSubAgentStart:
-			row := &taskRow{
-				stage:       string(ev.Stage),
-				agent:       ev.SubAgentName,
-				startTime:   ev.Timestamp,
-				detailStart: ev.Timestamp,
-				isSubAgent:  true,
-				subAgentID:  ev.SubAgentID,
-				subTitle:    ev.SubTaskTitle,
-				subCount:    ev.SubTaskCount,
-				detail:      ev.SubTaskTitle,
-			}
-			r.tasks = append(r.tasks, row)
-
-		case EventSubAgentEnd:
-			if row := r.findSubAgentRow(ev.SubAgentID); row != nil {
-				row.endTime = ev.Timestamp
-				row.errorMsg = ev.Error
-				row.okFinished = ev.Error == ""
-			}
-
-		case EventObjectiveStarted:
-			if ev.Objective != "" {
-				r.objective = ev.Objective
-				r.objectiveDone = false
-			}
-
-		case EventObjectiveDone:
-			r.objectiveDone = true
-		}
-
-		r.redraw()
-	}
+	return r.dockEventEmitter()
 }
+
 
 // findRunningStageRow returns the most recent main-pipeline row
 // matching (stage, agent) that has not yet ended, or nil. Used by
@@ -1202,43 +922,12 @@ func (r *Renderer) findNodeRow(id string) *taskRow {
 // spinner "刷屏" / scrolling forever down the screen. The fix is to
 // guarantee no line ever wraps, by clamping every emitted line to
 // (terminal_width - small margin) display columns.
-func (r *Renderer) redraw() {
-	if r.bar == nil {
-		return
-	}
-	state := liveBarState{
-		focus:         r.focusRow(),
-		frame:         spinnerFrames[r.animFrame%len(spinnerFrames)],
-		now:           time.Now(),
-		lang:          r.lang,
-		streamMeta:    r.previewStreamMeta(),
-	}
-	if state.focus != nil {
-		state.errorKind = classifyStatusError(state.focus)
-		state.stageProgress = stageProgressFor(state.focus)
-		state.topicProgress = r.topicProgressFor(state.focus, r.lang)
-	}
-	r.bar.Update(composeLiveBar(state))
-}
 
 // previewStreamMeta returns the streamMeta payload for the
 // finalize-streaming line when the previewArea is in flight.
 // Empty when no streaming is happening.
 //
 // Must be called with r.mu held.
-func (r *Renderer) previewStreamMeta() string {
-	if r.previewArea == nil {
-		return ""
-	}
-	chars := utf8.RuneCountInString(r.previewLastChunk)
-	roundLabel := ""
-	if r.previewRound > 1 {
-		roundLabel = fmt.Sprintf("#%d ", r.previewRound)
-	}
-	// Tail snippet budget — keep small so the line fits.
-	tail := tailByDisplayWidth(flattenToOneLine(r.previewLastChunk), 40)
-	return composeStreamMeta(roundLabel, chars, tail, r.lang)
-}
 
 // composeStatusFrame builds the same content redraw() sends to
 // pterm.Area but returns it as a string instead of pushing to the
@@ -1251,9 +940,6 @@ func (r *Renderer) previewStreamMeta() string {
 // alone with no context.
 //
 // Must be called with r.mu held (same as redraw).
-func (r *Renderer) composeStatusFrame() string {
-	return r.composeStatusFrameWithFilter(false)
-}
 
 // composeStatusFrameWithFilter renders the status frame with an
 // optional "drop the still-running finalize row" filter. The freeze-
@@ -1265,115 +951,11 @@ func (r *Renderer) composeStatusFrame() string {
 // two contradictory live indicators for one row, then later a third
 // "✓ 已生成最终答案" persists below both. Filtering eliminates the
 // duplicate so the screen reads as one timeline.
-func (r *Renderer) composeStatusFrameWithFilter(hideRunningFinalize bool) string {
-	var b strings.Builder
-	elapsed := time.Since(r.startTime).Truncate(time.Second)
-	frame := spinnerFrames[r.animFrame%len(spinnerFrames)]
-
-	// 4 = 2-col left margin + 2-col safety pad. Below 20 we just give
-	// up on truncation; the user has bigger problems.
-	maxCols := pterm.GetTerminalWidth() - 4
-	if maxCols < 20 {
-		maxCols = 20
-	}
-
-	// Objective line (single-task wrapper collapsed into one row).
-	if r.objective != "" {
-		line := composeObjectiveLine(r.objective, r.objectiveDone)
-		b.WriteString(truncByDisplayWidth(line, maxCols))
-		b.WriteByte('\n')
-		b.WriteString("\n")
-	}
-
-	rows := r.visibleRows()
-	if hideRunningFinalize {
-		filtered := make([]*taskRow, 0, len(rows))
-		for _, row := range rows {
-			if !row.endTime.IsZero() {
-				filtered = append(filtered, row)
-				continue
-			}
-			// Running row — drop iff it's finalize. Use the same
-			// stage-key resolver renderStatusLine uses so we don't
-			// drift on alias names ("finalizer", "finaliser").
-			if stageKeyFor(row) == "finalize" {
-				continue
-			}
-			filtered = append(filtered, row)
-		}
-		rows = filtered
-	}
-	now := time.Now()
-	blocks := r.buildStatusBlocks(rows, frame, now)
-	for bi, blk := range blocks {
-		blockLines := renderStatusBlock(blk, r.lang)
-		for li, line := range blockLines {
-			b.WriteString(truncByDisplayWidth(line, maxCols))
-			if li < len(blockLines)-1 || bi < len(blocks)-1 {
-				b.WriteByte('\n')
-			}
-		}
-	}
-
-	// Footer line (frame + elapsed + cancel hint) is suppressed in
-	// the freeze snapshot — the live ticker below carries that info,
-	// duplicating it stains the static printout with a stale spinner
-	// that never updates.
-	if len(blocks) > 0 && !hideRunningFinalize {
-		b.WriteByte('\n')
-		footer := composeFooter(frame, elapsed.String(), r.cancelHint, r.lang)
-		b.WriteString(truncByDisplayWidth(footer, maxCols))
-	}
-
-	return b.String()
-}
 
 // visibleRows returns the task rows to draw this frame. Running rows
 // are always retained; when the running + recent-done count exceeds
 // maxVisibleTasks the oldest DONE rows are collapsed into a single
 // "(+N earlier done)" marker row inserted at the top.
-func (r *Renderer) visibleRows() []*taskRow {
-	if len(r.tasks) <= maxVisibleTasks {
-		return r.tasks
-	}
-	// Split into done vs running. Running is rare (usually 1-3 rows);
-	// done is everything else.
-	var done, running []*taskRow
-	for _, row := range r.tasks {
-		if row.endTime.IsZero() {
-			running = append(running, row)
-		} else {
-			done = append(done, row)
-		}
-	}
-	// Keep at most (maxVisibleTasks - 1 - len(running)) recent done
-	// rows so we have room for the collapsed marker and every running
-	// row. If running alone exceeds the cap, drop the collapsed
-	// marker and show all running rows.
-	budget := maxVisibleTasks - len(running)
-	if budget < 1 {
-		return running
-	}
-	budget-- // reserve one slot for the marker
-	keepDone := done
-	hidden := 0
-	if len(done) > budget {
-		hidden = len(done) - budget
-		keepDone = done[len(done)-budget:]
-	}
-	out := make([]*taskRow, 0, len(keepDone)+len(running)+1)
-	if hidden > 0 {
-		marker := &taskRow{
-			stage:      fmt.Sprintf("+%d earlier done", hidden),
-			okFinished: true,
-			endTime:    time.Now(), // treat marker as completed for rendering
-		}
-		out = append(out, marker)
-	}
-	out = append(out, keepDone...)
-	out = append(out, running...)
-	return out
-}
 
 // formatTaskLine: removed in 2026-04-30. The taskRow → screen path
 // now goes through buildStatusBlocks + renderStatusBlock so all
@@ -1393,16 +975,6 @@ func pluralS(n int) string {
 // stdout, then redraws the area beneath it. The printed text scrolls
 // up and stays visible; the spinner continues below. Must be called
 // with r.mu held.
-func (r *Renderer) printAboveArea(text string) {
-	if r.area == nil || text == "" {
-		return
-	}
-	// Clear the area's current content so the new text doesn't
-	// interleave with the spinner line.
-	r.area.Update("")
-	fmt.Println(text)
-	r.redraw()
-}
 
 // reasoningMaxChars caps the reasoning summary shown to the user.
 const reasoningMaxChars = 200
@@ -1746,27 +1318,6 @@ func previewLineLastSnippetCols(total int) int {
 // segment with the same animated spinner glyph as every other
 // running stage. No separate previewArea, no frozen-frame print,
 // no animation-goroutine swap.
-func (r *Renderer) handlePreviewChunkLocked(ev Event) {
-	if !previewIsTTY() {
-		return
-	}
-	if ev.PreviewText == "" {
-		return
-	}
-	if r.previewArea == nil {
-		// Sentinel: a non-nil previewArea signals "streaming in
-		// progress" so previewStreamMeta() in redraw() includes
-		// the meta segment. We don't actually use the
-		// ttyPreviewArea instance for screen output anymore — the
-		// liveBar owns the line.
-		r.previewArea = newTTYPreviewArea(os.Stdout)
-		r.previewRound++
-	}
-	r.previewLastChunk = ev.PreviewText
-	// Force a redraw so the streamMeta segment updates immediately
-	// instead of waiting for the next animation tick.
-	r.redraw()
-}
 
 // renderPreviewLineLocked composes and pushes the streaming-finalize
 // ticker line. Called both from handlePreviewChunkLocked (per-chunk
@@ -1776,24 +1327,6 @@ func (r *Renderer) handlePreviewChunkLocked(ev Event) {
 // instead of staring at a static `⟳`.
 //
 // Caller MUST hold r.mu.
-func (r *Renderer) renderPreviewLineLocked(previewText string, chars int, roundLabel string, maxCols int) {
-	if r.previewArea == nil {
-		return
-	}
-	frame := spinnerFrames[r.animFrame%len(spinnerFrames)]
-	primaryText := "正在撰写最终答案"
-	metaText := fmt.Sprintf("%s· 已收到 %d 字", roundLabel, chars)
-	prefixPlain := fmt.Sprintf("  %s %s · %s · ", frame, primaryText, metaText)
-	prefixCols := runewidth.StringWidth(prefixPlain)
-	tailCols := maxCols - prefixCols
-	if tailCols < 8 {
-		tailCols = previewLineLastSnippetCols(maxCols)
-	}
-	flat := flattenToOneLine(previewText)
-	snippetRaw := tailByDisplayWidth(flat, tailCols)
-	plain := truncByTerminalWidth(prefixPlain+snippetRaw, maxCols)
-	r.previewArea.Update(stylePreviewLine(plain, primaryText, metaText, frame))
-}
 
 // refreshPreviewLineLocked re-renders the ticker line with the
 // CURRENT spinner frame using the cached previewLastChunk text. The
@@ -1801,18 +1334,6 @@ func (r *Renderer) renderPreviewLineLocked(previewText string, chars int, roundL
 // glyph animates between chunk arrivals.
 //
 // Caller MUST hold r.mu.
-func (r *Renderer) refreshPreviewLineLocked() {
-	if r.previewArea == nil {
-		return
-	}
-	chars := utf8.RuneCountInString(r.previewLastChunk)
-	maxCols := previewLineMaxCols()
-	roundLabel := ""
-	if r.previewRound > 1 {
-		roundLabel = fmt.Sprintf("#%d ", r.previewRound)
-	}
-	r.renderPreviewLineLocked(r.previewLastChunk, chars, roundLabel, maxCols)
-}
 
 // stylePreviewLine applies the per-segment colour scheme to the
 // already-truncated ticker line. The split logic recognises:
@@ -1826,95 +1347,13 @@ func (r *Renderer) refreshPreviewLineLocked() {
 // truncation clips the snippet — the un-clipped prefix segments
 // always survive because truncByTerminalWidth fits the prefix
 // width budget before snipping the tail.
-func stylePreviewLine(plain, primaryText, metaText, glyph string) string {
-	const indent = "  "
-	const dotSep = " · "
-	rest := strings.TrimPrefix(plain, indent)
-	// Glyph segment: caller-supplied (animated spinner frame in
-	// production; whatever was put in the plain assembly). Falls
-	// through to the glyphRecoverable static character when the
-	// caller passes empty for backward compatibility.
-	if glyph == "" {
-		glyph = string(glyphRecoverable)
-	}
-	if !strings.HasPrefix(rest, glyph) {
-		// Truncation collapsed the whole line; render plain as a
-		// single statusDetail-coloured run so the row at least
-		// stays legible.
-		return statusDetail.Sprint(plain)
-	}
-	rest = strings.TrimPrefix(rest, glyph)
-	rest = strings.TrimPrefix(rest, " ")
-	// Primary segment.
-	if !strings.HasPrefix(rest, primaryText) {
-		return statusDetail.Sprint(plain)
-	}
-	rest = strings.TrimPrefix(rest, primaryText)
-	// Meta segment between two `dotSep` separators.
-	var metaSegment, tail string
-	if strings.HasPrefix(rest, dotSep) && strings.HasPrefix(rest[len(dotSep):], metaText) {
-		afterMeta := rest[len(dotSep)+len(metaText):]
-		metaSegment = metaText
-		// Tail (snippet) follows the next dotSep, when present.
-		switch {
-		case strings.HasPrefix(afterMeta, dotSep):
-			tail = afterMeta[len(dotSep):]
-		default:
-			tail = strings.TrimPrefix(afterMeta, " ")
-		}
-	}
-	var b strings.Builder
-	b.WriteString(indent)
-	// Spinner frame uses statusSpinner (the same dim-grey style the
-	// regular spinner-area row uses) so the animated glyph reads
-	// as a "live ticker" cue without competing with the
-	// statusPrimary primary text. statusRecoverable was used pre-
-	// 2026-04-30 when the glyph was a static `⟳`; the animated
-	// braille frames need a calmer hue so the eye locks on the
-	// text body, not the cycling glyph.
-	b.WriteString(statusSpinner.Sprint(glyph))
-	b.WriteString(" ")
-	b.WriteString(statusPrimary.Sprint(primaryText))
-	if metaSegment != "" {
-		b.WriteString(" ")
-		b.WriteString(statusMeta.Sprint("·"))
-		b.WriteString(" ")
-		b.WriteString(statusMeta.Sprint(metaSegment))
-	}
-	if tail != "" {
-		b.WriteString(" ")
-		b.WriteString(statusMeta.Sprint("·"))
-		b.WriteString(" ")
-		b.WriteString(statusDetail.Sprint(tail))
-	}
-	return b.String()
-}
 
 // handlePreviewClearLocked is called with r.mu held. Clears the
 // streaming-mode sentinel so subsequent redraw()s drop the
 // streamMeta segment and the bar returns to "正在撰写最终答案"
 // (without the "已收到 N 字 · 回复中:" suffix). On rejection
-// (PreviewRejected=true), surface a brief "已重写" notice in the
-// liveBar before clearing.
-func (r *Renderer) handlePreviewClearLocked(ev Event) {
-	if r.previewArea == nil {
-		return
-	}
-	if ev.PreviewRejected && r.bar != nil {
-		notice := truncByTerminalWidth("✗ 上一份草稿已被规则丢弃,正在重写", previewLineMaxCols())
-		r.bar.Update(statusRecoverable.Sprint(notice))
-		r.mu.Unlock()
-		time.Sleep(300 * time.Millisecond)
-		r.mu.Lock()
-	}
-	// Clear streaming sentinel + last-chunk cache. Next redraw()
-	// drops the streamMeta segment automatically.
-	r.previewArea = nil
-	r.previewLastChunk = ""
-	if r.bar != nil {
-		r.redraw()
-	}
-}
+// (PreviewRejected=true), print a "草稿被规则丢弃" line to
+// scrollback as a permanent record of the rewrite.
 
 // printFinalizeBanner emits the persistent "✓ 已生成最终答案" /
 // "✓ Final answer ready" line directly to stdout. The line MUST

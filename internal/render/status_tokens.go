@@ -70,6 +70,12 @@ var (
 	statusTopicText    = pterm.NewStyle(pterm.FgGray)
 	statusMeta         = pterm.NewStyle(pterm.FgDarkGray)
 	statusSpinner      = pterm.NewStyle(pterm.FgGray)
+	// statusStream paints the rolling 20-30 char streaming tail at
+	// the END of the live bar. Light magenta breaks visually from the
+	// gray-family meta segments above so the user reads "this part is
+	// the live data flow" without having to compare positions. NOT
+	// used for any other surface — anchored to streaming data only.
+	statusStream       = pterm.NewStyle(pterm.FgLightMagenta)
 	statusSuccessMuted = pterm.NewStyle(pterm.FgGreen)
 	statusFatal        = pterm.NewStyle(pterm.FgRed)
 	statusRecoverable  = pterm.NewStyle(pterm.FgYellow)
