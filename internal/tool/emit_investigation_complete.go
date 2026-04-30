@@ -1871,10 +1871,21 @@ func allowsContextualEvidenceForAbsence(ctx *types.BusContext, reason, justifica
 	if contract == nil || !contract.AllowAbsence {
 		return false
 	}
+	scenario := types.ScenarioGeneric
+	if ctx != nil && ctx.AnalysisIR != nil {
+		scenario = ctx.AnalysisIR.RequestModel.Scenario
+	}
+	var requiredFiles []string
+	if ctx != nil && ctx.Mutable != nil {
+		requiredFiles = types.ExactResolutionRequiredContextFiles(contract, ctx.Mutable)
+	}
 	text := reason + "\n" + justification
 	targets := exactAbsencePendingTargets(ctx)
 	if len(targets) == 0 {
 		targets = append(targets, contract.Targets...)
+	}
+	if types.ExactResolutionAbsenceClosureReady(contract, scenario, targets, evidence, requiredFiles) {
+		return true
 	}
 	mentioned := false
 	for _, target := range targets {

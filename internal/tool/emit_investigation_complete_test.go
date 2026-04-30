@@ -1186,6 +1186,86 @@ func TestEmitInvestigationComplete_ConfigAbsenceAllowsRelatedContextThatKeepsTar
 	}
 }
 
+func TestEmitInvestigationComplete_ConfigAbsenceAllowsClosureReadyMixedContextRoles(t *testing.T) {
+	missingKey := "zz_absent_config_mixed_roles"
+	mut := types.NewMutableState("q")
+	mut.SetExactContextRequiredFiles([]string{
+		"internal/types/config.go",
+		"codrax.yaml.example",
+		"cmd/root.go",
+	})
+	mut.AppendEvidence([]types.EvidenceItem{
+		{
+			Kind:            types.EvidenceDirect,
+			Source:          "internal/types/config.go",
+			LineStart:       848,
+			LineEnd:         866,
+			Subject:         "DefaultExploreHeuristics",
+			Predicate:       "does not provide",
+			Object:          missingKey,
+			AnchorKind:      types.AnchorDefinition,
+			AnchorSymbol:    "DefaultExploreHeuristics",
+			Summary:         "DefaultExploreHeuristics does not provide the missing exact config key.",
+			ContextRole:     types.EvidenceContextRoleDefining,
+			DiagramRole:     types.EvidenceDiagramRoleDefault,
+			GroundingStatus: types.GroundingGrounded,
+			GroundingTier:   types.TierLineText,
+		},
+		{
+			Kind:            types.EvidenceDirect,
+			Source:          "codrax.yaml.example",
+			LineStart:       410,
+			LineEnd:         410,
+			Subject:         "explore_midloop_min_iteration",
+			AnchorKind:      types.AnchorAssignment,
+			AnchorSymbol:    "explore_midloop_min_iteration",
+			Summary:         "Config file layer lists supported explore_* keys, but not the missing exact key.",
+			ContextRole:     types.EvidenceContextRoleRelatedContext,
+			DiagramRole:     types.EvidenceDiagramRoleConfig,
+			GroundingStatus: types.GroundingGrounded,
+			GroundingTier:   types.TierLineText,
+		},
+		{
+			Kind:            types.EvidenceDirect,
+			Source:          "cmd/root.go",
+			LineStart:       1618,
+			LineEnd:         1620,
+			Subject:         "ExploreMidLoopMinIteration",
+			AnchorKind:      types.AnchorAssignment,
+			AnchorSymbol:    "ExploreMidLoopMinIteration",
+			Summary:         "Operator override layer only merges supported Explore_* fields, not the missing exact key.",
+			ContextRole:     types.EvidenceContextRoleRelatedContext,
+			DiagramRole:     types.EvidenceDiagramRoleOverride,
+			GroundingStatus: types.GroundingGrounded,
+			GroundingTier:   types.TierLineText,
+		},
+	})
+	bus := &types.BusContext{
+		Mutable: mut,
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			RawRequest: missingKey + " 的最终有效值怎么计算？",
+			Scenario:   types.ScenarioConfigTrace,
+			AnalyzerHints: types.AnalyzerHints{
+				Kind:            "config_mapping",
+				PrimaryEntities: []string{missingKey},
+				Entities:        []string{missingKey},
+				ExactTargets:    []string{missingKey},
+			},
+			AnswerSubject: types.AnswerSubject{Kind: types.SubjectConfigKey},
+		}},
+	}
+	tool := &EmitInvestigationComplete{}
+
+	params := json.RawMessage(`{"reason":"searched the repo and found no exact config key ` + missingKey + ` in any supported precedence layer","confidence":"high","result_kind":"absence","absence_justification":"no config key named ` + missingKey + ` exists in the repo"}`)
+	res, err := tool.Execute(bus, params)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("closure-ready mixed context roles should still allow exact absence closure: %s", res.Summary)
+	}
+}
+
 func TestEmitInvestigationComplete_ConfigAbsenceRejectsUngroundedRequiredContext(t *testing.T) {
 	missingKey := "explore_mid_loop_missing_knob"
 	mut := types.NewMutableState("q")

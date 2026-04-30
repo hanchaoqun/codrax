@@ -807,7 +807,7 @@ func (t *EmitAnswerDocument) Execute(ctx *types.BusContext, params json.RawMessa
 	}
 	p.Summary = normalizeRequiredDiagramSummarySurface(p.Summary, citations, groundCtx, ctx)
 	p.Summary = normalizeMinimalRoleLocateSummarySurface(p.Summary, shape, &p, citations, ctx)
-	p.Summary = normalizeConfigTraceAbsentSummarySurface(p.Summary, ctx, resolvedExact)
+	p.Summary = normalizeConfigTraceAbsentSummarySurface(p.Summary, citations, groundCtx, ctx, resolvedExact)
 	p.Summary = normalizeLogSourceDriftSummarySurface(p.Summary, citations, groundCtx, ctx)
 	// CGEC D1: push the per-citation RepairDirectives onto the
 	// closure so the orchestrator's renderWindowHint can drain them
@@ -3901,7 +3901,7 @@ func resolveAnswerDocumentExactResolution(summary string, declared *types.Answer
 		summary = trimLeadingExactAbsenceRestatement(summary, contract, plan)
 		summary = sanitizeExactContextSummarySurface(summary, contract, plan)
 		summary = normalizeFollowOnGroundedContextSummarySurface(summary, contract, plan, ctx)
-		summary = normalizeConfigTraceAbsentSummarySurface(summary, ctx, resolved)
+		summary = normalizeConfigTraceAbsentSummarySurface(summary, nil, nil, ctx, resolved)
 	}
 	if declared.ContextMode == "" &&
 		resolved.Status == types.AnswerExactResolutionAbsent &&
@@ -4704,7 +4704,7 @@ func followOnGroundedContextSeedScore(plan *types.AnswerSurfacePlan, item types.
 	return score
 }
 
-func normalizeConfigTraceAbsentSummarySurface(summary string, ctx *types.BusContext, exact *types.AnswerExactResolution) string {
+func normalizeConfigTraceAbsentSummarySurface(summary string, citations []types.Citation, gc *ground.Context, ctx *types.BusContext, exact *types.AnswerExactResolution) string {
 	if ctx == nil || exact == nil || exact.Status != types.AnswerExactResolutionAbsent || exact.ContextMode != types.AnswerExactResolutionContextGroundedOnly {
 		return summary
 	}
@@ -4717,6 +4717,7 @@ func normalizeConfigTraceAbsentSummarySurface(summary string, ctx *types.BusCont
 	if plan == nil {
 		return summary
 	}
+	summary = normalizeInvalidSummaryDiagramFenceToCompiledSurface(summary, citations, gc, ctx, plan)
 	if summaryContainsExplicitMermaidFence(summary) {
 		return strings.TrimSpace(summary)
 	}
@@ -4777,6 +4778,36 @@ func normalizeRequiredDiagramSummarySurface(summary string, citations []types.Ci
 		return summary
 	}
 	return strings.TrimSpace(summary + "\n\n" + fence)
+}
+
+func normalizeInvalidSummaryDiagramFenceToCompiledSurface(summary string, citations []types.Citation, gc *ground.Context, ctx *types.BusContext, plan *types.AnswerSurfacePlan) string {
+	summary = strings.TrimSpace(summary)
+	if summary == "" || plan == nil || strings.TrimSpace(plan.CompiledDiagramFence) == "" || !summaryContainsExplicitMermaidFence(summary) {
+		return summary
+	}
+	if len(citations) == 0 || gc == nil {
+		return summary
+	}
+	diagramErr := validateSummaryDiagramGrounding(summary, citations, gc, ctx)
+	configErr := validateSummaryConfigTraceFenceLabels(summary, citations, gc, ctx)
+	if diagramErr == nil && configErr == nil {
+		return summary
+	}
+	compiled := strings.TrimSpace(plan.CompiledDiagramFence)
+	if compiled == "" {
+		return summary
+	}
+	if err := validateSummaryDiagramGrounding(compiled, citations, gc, ctx); err != nil {
+		return summary
+	}
+	if err := validateSummaryConfigTraceFenceLabels(compiled, citations, gc, ctx); err != nil {
+		return summary
+	}
+	body := strings.TrimSpace(stripSummaryMermaidFences(summary))
+	if body == "" {
+		return compiled
+	}
+	return strings.TrimSpace(body + "\n\n" + compiled)
 }
 
 func normalizeMinimalRoleLocateSummarySurface(summary string, shape types.AnswerShape, p *emitAnswerDocumentParams, citations []types.Citation, ctx *types.BusContext) string {
@@ -5423,6 +5454,29 @@ func stripSummaryFencedBlocks(summary string) string {
 		return ""
 	}
 	out := fencedCodeBlockRe.ReplaceAllString(summary, "")
+	out = strings.TrimSpace(out)
+	for strings.Contains(out, "\n\n\n") {
+		out = strings.ReplaceAll(out, "\n\n\n", "\n\n")
+	}
+	return out
+}
+
+func stripSummaryMermaidFences(summary string) string {
+	summary = strings.TrimSpace(summary)
+	if summary == "" {
+		return ""
+	}
+	out := fencedCodeBlockWithInfoRe.ReplaceAllStringFunc(summary, func(block string) string {
+		m := fencedCodeBlockWithInfoRe.FindStringSubmatch(block)
+		if len(m) < 3 {
+			return block
+		}
+		info := strings.TrimSpace(m[1])
+		if strings.EqualFold(info, "mermaid") || strings.HasPrefix(strings.ToLower(info), "mermaid ") {
+			return ""
+		}
+		return block
+	})
 	out = strings.TrimSpace(out)
 	for strings.Contains(out, "\n\n\n") {
 		out = strings.ReplaceAll(out, "\n\n\n", "\n\n")
