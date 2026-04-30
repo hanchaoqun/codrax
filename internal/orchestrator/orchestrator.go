@@ -136,6 +136,15 @@ type Orchestrator struct {
 	// pattern.
 	planCritic PlanCritic
 
+	// acceptanceChecker is the per-phase verdict surface used by
+	// stage II's runPhaseGroup (commit 18+). After a phase's
+	// verify passes, this LLM judges whether the phase
+	// satisfied its stated goal. Always installed (cheap
+	// fallback to default LLM); fires only inside multi-phase
+	// runs, so single-phase Runs pay nothing. See
+	// acceptance_checker.go for the pattern.
+	acceptanceChecker AcceptanceChecker
+
 	// baselineCaptureEnabled gates the pre-apply test snapshot
 	// that feeds CritNoRegression. Default false (test doubling
 	// is opt-in). When true, the apply stage hook dispatches run_tests
@@ -606,6 +615,18 @@ func (o *Orchestrator) SetReflector(r Reflector) {
 // providers.yaml routing.
 func (o *Orchestrator) SetPlanCritic(c PlanCritic) {
 	o.planCritic = c
+}
+
+// SetAcceptanceChecker installs the per-phase verdict LLM used
+// by stage II's runPhaseGroup. Nil is legal and disables
+// per-phase acceptance gating (every phase auto-advances after
+// verify passes). cmd/root.go wires this from providers.yaml ::
+// agents.acceptance_checker or the default LLM. The cost is
+// only paid inside multi-phase Runs (single-phase work never
+// invokes runPhaseGroup), so installing unconditionally is
+// safe.
+func (o *Orchestrator) SetAcceptanceChecker(c AcceptanceChecker) {
+	o.acceptanceChecker = c
 }
 
 // SetBaselineCaptureEnabled toggles the pre-apply test snapshot.

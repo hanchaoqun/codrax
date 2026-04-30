@@ -232,6 +232,7 @@ type appContext struct {
 	memorySummarizerLLM   llm.Adapter // providers.yaml :: agents.memory_summarizer, else defaultLLM
 	reflectorLLM          llm.Adapter // providers.yaml :: agents.reflector, else defaultLLM
 	planCriticLLM         llm.Adapter // providers.yaml :: agents.plan_critic, else defaultLLM
+	acceptanceCheckerLLM  llm.Adapter // providers.yaml :: agents.acceptance_checker, else defaultLLM
 	logger                *logging.Logger
 	memorySettings        types.MemorySettings
 	envRecommendSettings  types.EnvRecommendSettings
@@ -2006,6 +2007,25 @@ func initApp(cmd *cobra.Command, _ []string) error {
 		}
 	}
 
+	// Acceptance checker adapter routing (commit 19, stage II).
+	// Mirrors plan_critic — opt-in side channel that runs once
+	// per multi-phase phase to judge "did this phase satisfy
+	// its goal". Always resolved (cheap fallback to default LLM)
+	// because the cost is paid only inside multi-phase Runs;
+	// installing unconditionally is safe.
+	app.acceptanceCheckerLLM = app.defaultLLM
+	{
+		_, hasExplicit := providersCfg.LLM.Agents["acceptance_checker"]
+		resolved := config.ResolveProvider(providersCfg, "acceptance_checker")
+		resolved.RequestTimeoutSeconds = clampReflectorTimeout(resolved.RequestTimeoutSeconds, hasExplicit)
+		if adapter, err := llm.NewFromConfig(resolved); err != nil {
+			logging.Warning("[acceptance_checker] adapter init failed; falling back to default LLM (will inherit %ds timeout): %v",
+				int(app.defaultLLM.RequestTimeout().Seconds()), err)
+		} else {
+			app.acceptanceCheckerLLM = adapter
+		}
+	}
+
 	// Initialize registries.
 	mcpRegistry := mcp.NewRegistry()
 	logging.Info("registered %d MCP servers", len(mcpRegistry.List()))
@@ -2208,6 +2228,13 @@ func initApp(cmd *cobra.Command, _ []string) error {
 	// explicitly turned the gate on — default off because each
 	// enabled run pays one extra LLM call.
 	planCriticEnabled := pipelineSettings.PlanCriticEnabled
+	// Acceptance checker: install unconditionally. Only fires
+	// inside multi-phase runs (stage II runPhaseGroup); single-
+	// phase Runs pay nothing.
+	if app.acceptanceCheckerLLM != nil {
+		orch.SetAcceptanceChecker(orchestrator.NewAcceptanceChecker(app.acceptanceCheckerLLM))
+	}
+
 	if planCriticEnabled && app.planCriticLLM != nil {
 		orch.SetPlanCritic(orchestrator.NewPlanCritic(app.planCriticLLM))
 		// Surface the model so operators see "extra Opus call per
