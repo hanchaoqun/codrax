@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/hanchaoqun/codrax/internal/llm"
+	"github.com/hanchaoqun/codrax/internal/types"
 )
 
 // reflectorStubAdapter is a minimal llm.Adapter for unit tests. Only
@@ -16,11 +17,23 @@ import (
 // the type satisfies the interface without dragging real provider
 // state in.
 type reflectorStubAdapter struct {
-	resp llm.Response
-	err  error
+	resp        llm.Response
+	err         error
+	lastSystem  string
+	lastUser    string
+	lastTools   []llm.ToolSchema
 }
 
-func (s *reflectorStubAdapter) Chat(_ context.Context, _ []llm.Message, _ []llm.ToolSchema, _ llm.ChatOptions) (llm.Response, error) {
+func (s *reflectorStubAdapter) Chat(_ context.Context, msgs []llm.Message, tools []llm.ToolSchema, _ llm.ChatOptions) (llm.Response, error) {
+	for _, m := range msgs {
+		switch m.Role {
+		case "system":
+			s.lastSystem = m.Content
+		case "user":
+			s.lastUser = m.Content
+		}
+	}
+	s.lastTools = tools
 	return s.resp, s.err
 }
 func (s *reflectorStubAdapter) ModelID() string                { return "stub" }
@@ -43,18 +56,17 @@ func TestReflector_Disabled(t *testing.T) {
 	}
 }
 
-// TestReflector_HappyPath covers the canonical structured response:
-// adapter returns one tool_call with both required fields populated;
-// Reflect assembles them into the "Root cause: ... Next attempt: ..."
-// critique string.
+// TestReflector_HappyPath covers the canonical structured response
+// after the Module G upgrade: adapter returns one
+// emit_failure_observation tool call; Reflect assembles the
+// observation into "Reviewer observation: ..." text.
 func TestReflector_HappyPath(t *testing.T) {
 	stub := &reflectorStubAdapter{
 		resp: llm.Response{
 			ToolCalls: []llm.ToolCall{{
-				Name: "emit_failure_critique",
+				Name: "emit_failure_observation",
 				Params: json.RawMessage(`{
-					"root_cause": "off-by-one in overflow check",
-					"corrective_direction": "remove the per-iteration overflow guard; only check after multiplication"
+					"observation": "the plan modified parser.go but the failing test test_overflow exercises the multiplication path which the plan left unchanged"
 				}`),
 			}},
 		},
@@ -73,8 +85,11 @@ func TestReflector_HappyPath(t *testing.T) {
 	if err != nil {
 		t.Fatalf("happy path Reflect err: %v", err)
 	}
-	if !strings.Contains(got, "Root cause:") || !strings.Contains(got, "Next attempt:") {
-		t.Errorf("critique should contain both Root cause + Next attempt sections; got %q", got)
+	if !strings.Contains(got, "Reviewer observation:") {
+		t.Errorf("output should carry observation label; got %q", got)
+	}
+	if !strings.Contains(got, "the plan modified parser.go") {
+		t.Errorf("output should carry observation text verbatim; got %q", got)
 	}
 }
 
@@ -105,18 +120,16 @@ func TestReflector_NoToolCallDegrades(t *testing.T) {
 	}
 }
 
-// TestReflector_PreserveWhatWorked covers the optional third field:
-// when the LLM emits preserve_what_worked, the assembled critique
-// includes a "Preserve:" suffix so the next planner knows what NOT
-// to throw away.
-func TestReflector_PreserveWhatWorked(t *testing.T) {
+// TestReflector_UncertaintySurfaces covers the optional uncertainty
+// field. When the reviewer says it's not sure about something, the
+// planner should see that uncertainty alongside the observation.
+func TestReflector_UncertaintySurfaces(t *testing.T) {
 	stub := &reflectorStubAdapter{
 		resp: llm.Response{ToolCalls: []llm.ToolCall{{
-			Name: "emit_failure_critique",
+			Name: "emit_failure_observation",
 			Params: json.RawMessage(`{
-				"root_cause": "missing edge case for empty string",
-				"corrective_direction": "add a guard at the top of the function",
-				"preserve_what_worked": "the file targeting (modify on stub.py) was correct"
+				"observation": "test_x failed with AssertionError on stub.py:42",
+				"uncertainty": "I cannot tell from the input whether stub.py was previously passing or has always failed in this fixture"
 			}`),
 		}}},
 	}
@@ -125,7 +138,70 @@ func TestReflector_PreserveWhatWorked(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Reflect err: %v", err)
 	}
-	if !strings.Contains(got, "Preserve:") {
-		t.Errorf("critique should include Preserve section when LLM provided preserve_what_worked; got %q", got)
+	if !strings.Contains(got, "Reviewer uncertainty:") {
+		t.Errorf("output should include uncertainty section; got %q", got)
+	}
+}
+
+// TestReflector_FullLedgerPropagatesToUserPrompt verifies Module G's
+// load-bearing wiring: the iteration ledger is rendered into the
+// reviewer's user message verbatim, so the reviewer can observe
+// patterns across attempts. The system never pre-classifies the
+// patterns; the reviewer reads the data.
+func TestReflector_FullLedgerPropagatesToUserPrompt(t *testing.T) {
+	stub := &reflectorStubAdapter{
+		resp: llm.Response{ToolCalls: []llm.ToolCall{{
+			Name:   "emit_failure_observation",
+			Params: json.RawMessage(`{"observation": "ok"}`),
+		}}},
+	}
+	r := NewReflector(stub)
+	_, err := r.Reflect(context.Background(), ReflectorInput{
+		Attempt: 3,
+		IterationLedger: []types.IterationRecord{
+			{Attempt: 1, PlanSummary: "first attempt summary", FailureSummary: "first failure stderr"},
+			{Attempt: 2, PlanSummary: "second attempt summary", FailureSummary: "second failure stderr"},
+		},
+		FailingTests: []ReflectorFailedTest{{Suite: "x", AssertionID: "y", Detail: "raw stderr line"}},
+	})
+	if err != nil {
+		t.Fatalf("Reflect err: %v", err)
+	}
+	// Ledger content propagates verbatim.
+	for _, want := range []string{
+		"first attempt summary", "first failure stderr",
+		"second attempt summary", "second failure stderr",
+		"## Iteration history",
+	} {
+		if !strings.Contains(stub.lastUser, want) {
+			t.Errorf("user prompt should include %q; got:\n%s", want, stub.lastUser)
+		}
+	}
+}
+
+// TestReflector_SystemPromptHasNoPrescriptiveGuards locks the
+// Module G discipline: the system prompt must NOT contain
+// "DO NOT classify X as Y" rule lists. The reviewer is a model and
+// is asked to OBSERVE; rule lists pre-encode the system's view of
+// what's defensible, which is exactly the anti-pattern this batch
+// removes.
+func TestReflector_SystemPromptHasNoPrescriptiveGuards(t *testing.T) {
+	stub := &reflectorStubAdapter{
+		resp: llm.Response{ToolCalls: []llm.ToolCall{{
+			Name:   "emit_failure_observation",
+			Params: json.RawMessage(`{"observation": "ok"}`),
+		}}},
+	}
+	r := NewReflector(stub)
+	_, _ = r.Reflect(context.Background(), ReflectorInput{Attempt: 1, FailingTests: []ReflectorFailedTest{{Suite: "x", AssertionID: "y"}}})
+	for _, banned := range []string{
+		"DO NOT classify",
+		"DO NOT speculate",
+		"DO NOT blame",
+		"Tests are authoritative", // pre-encodes a stance the reviewer should reach itself
+	} {
+		if strings.Contains(stub.lastSystem, banned) {
+			t.Errorf("system prompt must not contain prescriptive guard %q; got:\n%s", banned, stub.lastSystem)
+		}
 	}
 }

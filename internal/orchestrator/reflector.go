@@ -8,25 +8,25 @@ import (
 
 	"github.com/hanchaoqun/codrax/internal/llm"
 	"github.com/hanchaoqun/codrax/internal/logging"
+	"github.com/hanchaoqun/codrax/internal/types"
 )
 
-// Reflector is the actor/critic split inspired by Reflexion (Shinn
-// et al., NeurIPS 2023): when the verify stage fails and the retry
-// budget allows another iteration, a SEPARATE LLM call produces a
-// natural-language critique of the failure ("the previous patch
-// fixed X but broke Y because Z"). The critique replaces (or
-// supplements) the heuristic PlanningHint built by buildRetryHint
-// before the planner re-dispatches.
+// Reflector is the independent-review split inspired by Reflexion
+// (Shinn et al., NeurIPS 2023): when verify fails and retry budget
+// remains, a SEPARATE LLM call READS THE FULL DATA — the iteration
+// ledger, the verbatim failure summaries, the plan diff — and emits
+// ONE observation paragraph describing what it sees.
 //
-// Why this is the load-bearing piece (per Self-Debug + Reflexion):
-// the actor (planner) re-deriving the right fix from raw stderr
-// keeps falling into the same misinterpretation. A short,
-// LLM-curated paragraph that names the root cause AND the corrective
-// direction empirically beats both raw-trace dumps and silence.
+// Crucially this is a SECOND LLM (model-to-model review), NOT a
+// system rule. The actor (planner) is one model; the reviewer is
+// another model with a different prompt and (often) different
+// routing. The system supplies data; both models reason. There is
+// NO substring matching, NO failure-kind classification injected
+// into the reviewer's input, NO "if X then say Y" prompt language.
 //
 // Pattern mirrors internal/repl/chitchat.go::ChitchatClassifier:
 //   - one direct adapter.Chat call (no agent ReAct loop)
-//   - structured emit_* tool with a tiny enum-narrowed schema
+//   - structured emit_* tool with a small JSON schema
 //   - tool_choice=required so the model cannot return free text
 //   - failure paths fall back to the heuristic hint (never block retry)
 //
@@ -49,24 +49,35 @@ type Reflector interface {
 	Reflect(ctx context.Context, input ReflectorInput) (string, error)
 }
 
-// ReflectorInput bundles every signal the critic needs to write a
-// useful paragraph. All fields are optional (zero-value handled);
-// callers populate from Mutable.ChangePlan + Mutable.ChangeReport.
+// ReflectorInput bundles every signal the reviewer needs to make
+// observations from raw data. All fields are optional (zero-value
+// handled); callers populate from Mutable.ChangePlan +
+// Mutable.ChangeReport + Mutable.IterationLedger.
+//
+// Module G upgrade: the reviewer now sees the FULL IterationLedger
+// (all prior attempts in this Run, verbatim) so it can comment on
+// patterns the system has no business pre-classifying — repeated
+// approaches, regressions, plateau detection. The system never
+// labels these for the reviewer; the reviewer reads the ledger and
+// observes what's true.
 type ReflectorInput struct {
-	Attempt           int                   // 1-indexed retry attempt number
-	OriginalRequest   string                // user's original ask, restated
-	PlanSummary       string                // failed plan's summary text
-	TargetPaths       []string              // files the failed plan touched
-	FailureSummary    string                // ChangeReport.FailureSummary
-	FailingTests      []ReflectorFailedTest // top failing-test details
-	BuildFailed       bool                  // true if compile/build before tests
-	AcceptanceTests   []string              // plan.AcceptanceTests
+	Attempt         int                    // 1-indexed retry attempt number
+	OriginalRequest string                 // user's original ask, restated
+	PlanSummary     string                 // failed plan's summary text
+	TargetPaths     []string               // files the failed plan touched
+	FailureSummary  string                 // ChangeReport.FailureSummary verbatim
+	FailingTests    []ReflectorFailedTest  // failing-test details (verbatim from runner)
+	BuildFailed     bool                   // true if compile/build before tests
+	AcceptanceTests []string               // plan.AcceptanceTests
+	// IterationLedger is the per-Run history of completed attempts
+	// (from Mutable.IterationLedger()). Empty on the first retry
+	// (no prior attempts yet). The reviewer reads it verbatim.
+	IterationLedger []types.IterationRecord
 	// BaselineAvailable is true when a pre-apply baseline test snapshot
-	// was captured, false otherwise. When false, the critic must NOT
-	// classify any failing test as "pre-existing" or "unrelated" — there
-	// is no authoritative source to support such a claim, and a
-	// confident-sounding hallucination here causes the planner to
-	// preserve a regressed plan. Surfaced in the system prompt below.
+	// was captured, false otherwise. The reviewer is never told what
+	// to conclude FROM this fact (no "you must NOT say pre-existing"
+	// guards) — only that the fact is true. The reviewer is a model;
+	// it can reason from the fact.
 	BaselineAvailable bool
 }
 
@@ -83,53 +94,50 @@ type ReflectorFailedTest struct {
 // reflectorTool is the structured-output schema. Local to this file
 // because it bypasses the agent framework — same pattern as
 // chitchatClassifierTool.
+//
+// Module G upgrade: the schema asks for OBSERVATIONS, not
+// prescriptions. The reviewer is an independent reader of the data,
+// not an agent telling the planner what to do. The two fields ask
+// "what did you see?" — the planner reads that observation
+// alongside the raw data and decides the fix on its own. This is
+// the model-vs-model review pattern Devin uses (Coder + Critic),
+// stripped of the prescriptive scaffolding that creeps in when the
+// system pre-encodes "best-practice fixes".
 var reflectorTool = llm.ToolSchema{
-	Name:        "emit_failure_critique",
-	Description: "Produce a 2-4 sentence diagnostic critique of the failed iteration that the planner will use as guidance for its next attempt.",
+	Name:        "emit_failure_observation",
+	Description: "Produce one short paragraph of OBSERVATIONS about the failed iteration — what you see in the data. Do not prescribe a fix; the planner reads your observation alongside the raw data and decides for itself.",
 	Parameters: json.RawMessage(`{
   "type": "object",
   "properties": {
-    "root_cause": {
+    "observation": {
       "type": "string",
-      "description": "1-2 sentences naming the most likely root cause of the failures: which assumption in the previous plan was wrong, or which edge case was overlooked. Do NOT speculate about the test runner / framework — assume tests are correct."
+      "description": "2-4 sentences describing what you observe in the data. Cite specific files / functions / lines / test names from the input. Stick to factual statements you can ground in the input (\"the plan modified handler.py at lines X-Y; the failing test test_a calls handler.foo which now returns Z instead of W\"). No prescriptions, no advice phrased as instruction to the planner."
     },
-    "corrective_direction": {
+    "uncertainty": {
       "type": "string",
-      "description": "1-2 sentences telling the next planner WHAT TO DO DIFFERENTLY: a specific file, function, or behaviour to revise. Avoid vague encouragement (\"try harder\"); name the concrete change."
-    },
-    "preserve_what_worked": {
-      "type": "string",
-      "description": "Optional. 1 sentence acknowledging any aspect of the previous plan that should be KEPT (e.g. correct file targeting, test structure recognised correctly). Empty when nothing salvageable."
+      "description": "Optional. 1 sentence naming what you are NOT sure about — a place where the input data is insufficient to draw a confident observation. Empty when the data is clear."
     }
   },
-  "required": ["root_cause", "corrective_direction"]
+  "required": ["observation"]
 }`),
 }
 
-const reflectorSystemPrompt = `You are the critic in a verify→re-plan cycle for a code-modification agent.
+// reflectorSystemPrompt frames the reviewer as an INDEPENDENT
+// reader, not a fix-prescriber. There are no "DO NOT" lists for
+// specific failure classifications — the reviewer is a model and
+// can reason about what's defensible from the data. The only
+// behavioural ask is "describe what you observe", which is what an
+// honest reviewer does anyway.
+const reflectorSystemPrompt = `You are an independent reviewer reading the data from a failed verify→re-plan cycle for a code-modification agent.
 
-The planner emitted a ChangePlan, the apply phase applied it to a git worktree, and the verify phase ran tests. Verify failed. Your job: produce a CONCISE diagnostic critique that helps the planner write a better revision on the next attempt.
+The planner emitted a ChangePlan, the apply phase applied it to a git worktree, and the verify phase ran tests. Verify failed. You are NOT the planner — your job is to OBSERVE what the data shows. The planner will read your observation alongside the same data and decide the fix.
 
-Hard rules:
-- One emit_failure_critique call. No prose, no other tools.
-- 2-4 sentences total across root_cause + corrective_direction. Be specific (name files, functions, edge cases). Be brief.
-- DO NOT dump raw stderr or copy test output — the planner already sees a structured failure list. Your value is INTERPRETATION, not transcription.
-- DO NOT blame the test runner, the framework, or the user. Tests are authoritative; the plan was wrong.
-- If a build failed before tests ran, root_cause names the syntax / type / import issue and corrective_direction tells the planner to fix that first.
+How to write a good observation:
+- Cite the data. Name specific files, function names, line numbers, test names, and assertion messages from the input. Vague observations ("the test failed because of an issue") are useless.
+- Stick to what's defensible from the input. If the data does not let you draw a confident observation, say so in the uncertainty field rather than guessing.
+- One paragraph. 2-4 sentences in observation, optionally 1 sentence in uncertainty.
+- Do not prescribe a fix. Do not write "the planner should…" or "next attempt must…". Describe what is true; the planner decides what to do.
 - Use the same language as the original user request.`
-
-// reflectorNoBaselineGuard is appended to the system prompt when the
-// caller did not capture a pre-apply baseline. Without a baseline,
-// "pre-existing" / "unrelated" claims are unfalsifiable speculation
-// that, when wrong, lock in a regressed plan (the planner trusts the
-// critic and preserves the bad changes). The guard forces the critic
-// to reason from plan diff ↔ failing-test code-path overlap instead
-// of failure-name surface features.
-const reflectorNoBaselineGuard = `
-
-Additional rule for THIS run (no baseline captured):
-- DO NOT classify any failing test as "pre-existing", "unrelated to this plan", or "infrastructure issue". You have no authoritative pre-apply snapshot to support such a claim; saying so when wrong causes the planner to preserve a broken plan.
-- Reason ONLY from the structural overlap between (a) the files this plan touched and (b) the source files referenced by each failing test. If the overlap is empty AND no behavioural pathway plausibly connects them, name that fact concretely ("the plan only touched FOO.py; the failing tests in BAR/ reference no symbol from FOO") rather than asserting "pre-existing".`
 
 // llmReflector is the default Reflector implementation. One Chat
 // call per Reflect, opt-in via providers.yaml :: agents.reflector or
@@ -150,6 +158,11 @@ func NewReflector(adapter llm.Adapter) Reflector {
 // (nil adapter, no tool call, malformed JSON) return ("", err) so
 // the caller falls back to the heuristic hint. The retry itself is
 // never blocked by reflection failure.
+//
+// Module G: the reviewer's input is the raw ledger + verbatim
+// failure data. There is no per-baseline-state prompt mutation —
+// the reviewer is a model and reads BaselineAvailable as a fact in
+// its input, no system rule layered on top.
 func (r *llmReflector) Reflect(ctx context.Context, in ReflectorInput) (string, error) {
 	if r == nil || r.adapter == nil {
 		return "", nil
@@ -158,12 +171,8 @@ func (r *llmReflector) Reflect(ctx context.Context, in ReflectorInput) (string, 
 	if strings.TrimSpace(user) == "" {
 		return "", fmt.Errorf("reflector: empty input")
 	}
-	systemPrompt := reflectorSystemPrompt
-	if !in.BaselineAvailable {
-		systemPrompt += reflectorNoBaselineGuard
-	}
 	messages := []llm.Message{
-		{Role: "system", Content: systemPrompt},
+		{Role: "system", Content: reflectorSystemPrompt},
 		{Role: "user", Content: user},
 	}
 	tools := []llm.ToolSchema{reflectorTool}
@@ -182,28 +191,37 @@ func (r *llmReflector) Reflect(ctx context.Context, in ReflectorInput) (string, 
 		return "", fmt.Errorf("reflector: unexpected tool %q", call.Name)
 	}
 	var parsed struct {
-		RootCause           string `json:"root_cause"`
-		CorrectiveDirection string `json:"corrective_direction"`
-		PreserveWhatWorked  string `json:"preserve_what_worked"`
+		Observation string `json:"observation"`
+		Uncertainty string `json:"uncertainty"`
 	}
 	if err := json.Unmarshal(call.Params, &parsed); err != nil {
 		return "", fmt.Errorf("reflector: unmarshal tool params: %w", err)
 	}
-	out := assembleCritique(parsed.RootCause, parsed.CorrectiveDirection, parsed.PreserveWhatWorked)
-	logging.Info("[reflector] attempt=%d critique=%q", in.Attempt, oneLineClamp(out, 200))
+	out := assembleObservation(parsed.Observation, parsed.Uncertainty)
+	logging.Info("[reflector] attempt=%d observation=%q", in.Attempt, oneLineClamp(out, 200))
 	return out, nil
 }
 
-// renderReflectorUserMessage assembles the structured input as a
-// short Markdown blob. Caller-side caps + trimming live here so the
-// schema's `description` fields stay accurate (we promise the model
-// 2-4 sentences; we owe it a small input).
+// renderReflectorUserMessage assembles the reviewer's input as a
+// Markdown blob. Verbatim throughout — the reviewer needs the full
+// data to make grounded observations. Pre-Module-G this function
+// truncated FailingTests detail to 600 chars and called
+// ExtractFailureSignal to "isolate the error-bearing line"; both
+// were system-side editorialising that hid context the reviewer
+// needed. Now we pass the data as-is and let the reviewer (a model)
+// decide what's relevant.
 func renderReflectorUserMessage(in ReflectorInput) string {
 	var b strings.Builder
 	if strings.TrimSpace(in.OriginalRequest) != "" {
 		fmt.Fprintf(&b, "## Original user request\n%s\n\n", strings.TrimSpace(in.OriginalRequest))
 	}
-	fmt.Fprintf(&b, "## Failed iteration %d\n", in.Attempt)
+	if len(in.IterationLedger) > 0 {
+		// Full prior-attempt history. Verbatim — RenderIterationLedger
+		// already keeps PlanSummary + FailureSummary intact.
+		b.WriteString(types.RenderIterationLedger(in.IterationLedger))
+		b.WriteString("\n\n")
+	}
+	fmt.Fprintf(&b, "## Current failed iteration %d\n", in.Attempt)
 	if strings.TrimSpace(in.PlanSummary) != "" {
 		fmt.Fprintf(&b, "Plan summary: %s\n\n", strings.TrimSpace(in.PlanSummary))
 	}
@@ -214,17 +232,15 @@ func renderReflectorUserMessage(in ReflectorInput) string {
 		b.WriteString("Build failed BEFORE tests ran (compile / type / import error).\n\n")
 	}
 	if strings.TrimSpace(in.FailureSummary) != "" {
-		fmt.Fprintf(&b, "Failure summary: %s\n\n", strings.TrimSpace(in.FailureSummary))
+		fmt.Fprintf(&b, "Failure summary (verbatim runner output):\n%s\n\n", in.FailureSummary)
 	}
 	if len(in.FailingTests) > 0 {
-		b.WriteString("Failing tests (top entries; runner stderr extract):\n")
+		b.WriteString("Failing tests (verbatim runner output):\n")
 		for _, t := range in.FailingTests {
 			fmt.Fprintf(&b, "- %s::%s\n", t.Suite, t.AssertionID)
 			if strings.TrimSpace(t.Detail) != "" {
-				// Multi-line detail rendered as an indented block so
-				// the model sees the assertion + expected/actual rows
-				// together. The signal extractor already stripped
-				// fixture noise — what arrives here is high-density.
+				// Detail rendered as indented block — indentation is
+				// purely visual, no editing of content.
 				for _, line := range strings.Split(t.Detail, "\n") {
 					fmt.Fprintf(&b, "    %s\n", strings.TrimRight(line, " \t"))
 				}
@@ -237,20 +253,27 @@ func renderReflectorUserMessage(in ReflectorInput) string {
 		for _, a := range in.AcceptanceTests {
 			fmt.Fprintf(&b, "- %s\n", strings.TrimSpace(a))
 		}
+		b.WriteString("\n")
+	}
+	if !in.BaselineAvailable {
+		// State the FACT, no prescription. The reviewer reasons from it.
+		b.WriteString("Note: no pre-apply baseline test snapshot was captured for this run.\n")
 	}
 	return b.String()
 }
 
-func assembleCritique(rootCause, correctiveDirection, preserveWhatWorked string) string {
+// assembleObservation joins the reviewer's observation + optional
+// uncertainty into a single paragraph the planner consumes via
+// PlanningHint. No prescriptive framing — the labels stay neutral
+// ("Observation:" / "Uncertainty:") so the planner reads facts, not
+// instructions.
+func assembleObservation(observation, uncertainty string) string {
 	parts := []string{}
-	if s := strings.TrimSpace(rootCause); s != "" {
-		parts = append(parts, "Root cause: "+s)
+	if s := strings.TrimSpace(observation); s != "" {
+		parts = append(parts, "Reviewer observation: "+s)
 	}
-	if s := strings.TrimSpace(correctiveDirection); s != "" {
-		parts = append(parts, "Next attempt: "+s)
-	}
-	if s := strings.TrimSpace(preserveWhatWorked); s != "" {
-		parts = append(parts, "Preserve: "+s)
+	if s := strings.TrimSpace(uncertainty); s != "" {
+		parts = append(parts, "Reviewer uncertainty: "+s)
 	}
 	return strings.Join(parts, " ")
 }

@@ -798,24 +798,18 @@ func restoreBestIfRegressed(o *Orchestrator) {
 }
 
 // buildReflectorInput translates the failed iteration's structured
-// state into a ReflectorInput. Mirrors buildRetryHint's data
-// gathering so the heuristic and the critic see the same facts;
-// reflector formats them as natural-language prompt while
-// buildRetryHint formats them as terse "Failing tests:" bullet list.
-//
-// Caps: top 3 failing tests; ExtractFailureSignal isolates the
-// error-bearing lines (cap 600 chars per test). Earlier we took the
-// first line only — pytest's first line is `self = <Test fixture>`,
-// hiding the actual `E AssertionError: ...` line that comes 5-15
-// lines later. The Batch E robot-name failure (3 retries, all
-// reflector critiques wrong) was caused by this. Self-Debug 2023
-// argues for "concise summary, not raw trace" — the signal extractor
-// keeps that bound while ensuring the part we keep is informative.
+// state into a ReflectorInput. Module G: every failing test's
+// FailureDetail is passed VERBATIM (no ExtractFailureSignal call,
+// no 600-char cap) — the reviewer is a model and reads what the
+// runner emitted. The IterationLedger is also threaded through so
+// the reviewer can observe patterns across attempts; the system
+// never pre-classifies the patterns.
 func buildReflectorInput(busCtx *types.BusContext, report *types.ChangeReport, plan *types.ChangePlan, attempt int) ReflectorInput {
 	in := ReflectorInput{Attempt: attempt}
 	if busCtx != nil && busCtx.Mutable != nil {
 		in.OriginalRequest = strings.TrimSpace(busCtx.Mutable.Objective())
 		in.BaselineAvailable = busCtx.Mutable.BaselineReport() != nil
+		in.IterationLedger = busCtx.Mutable.IterationLedger()
 	}
 	if plan != nil {
 		in.PlanSummary = plan.Summary
@@ -825,25 +819,15 @@ func buildReflectorInput(busCtx *types.BusContext, report *types.ChangeReport, p
 	if report != nil {
 		in.FailureSummary = report.FailureSummary
 		in.BuildFailed = report.BuildFailed
-		const (
-			maxFailing       = 3
-			maxDetailPerTest = 600
-		)
-		shown := 0
 		for _, tr := range report.TestResults {
 			if tr.Passed {
 				continue
 			}
-			detail := ExtractFailureSignal(tr.FailureDetail, maxDetailPerTest)
 			in.FailingTests = append(in.FailingTests, ReflectorFailedTest{
 				Suite:       tr.Suite,
 				AssertionID: tr.AssertionID,
-				Detail:      detail,
+				Detail:      tr.FailureDetail, // verbatim
 			})
-			shown++
-			if shown >= maxFailing {
-				break
-			}
 		}
 	}
 	return in
