@@ -15,21 +15,39 @@ import (
 )
 
 // cacheBaseDir is the root directory for repo map caches. When empty
-// (the default), CacheDir falls back to os.UserCacheDir()/codrax/repomap.
+// (the default), CacheDir falls back to ~/.codrax/cache/repomap.
 // main.go can override it at startup via SetCacheDir so the operator
-// can point all caches at a single tree (e.g. alongside logs/memory).
+// can point all caches at a single tree.
 var cacheBaseDir string
 
 // SetCacheDir overrides the base directory for repo map caches.
-// An empty value restores the default (os.UserCacheDir). Called once
+// An empty value restores the default (~/.codrax/cache). Called once
 // from main.go before any tool runs.
 func SetCacheDir(dir string) {
 	cacheBaseDir = dir
 }
 
 // CacheDir returns the cache directory for a given repo root.
-// Default: ~/.cache/codrax/repomap/<repo-slug>/
+// Default: ~/.codrax/cache/repomap/<repo-slug>/
 // Configured: <cache_dir>/repomap/<repo-slug>/
+//
+// All cross-project per-user codrax storage lives under
+// ~/.codrax/ — the repomap cache, env_recommend cache, future
+// per-user state. Pre-2026-04-30 the repomap cache used
+// os.UserCacheDir() ("~/.cache/codrax" on Linux), splitting
+// per-user storage across two roots; that drifted from the
+// env-cache helper which already used ~/.codrax/cache/. Unified
+// here so a fresh user sees one well-known location for all
+// cross-project codrax state.
+//
+// Per-platform default lookup is via os.UserHomeDir():
+//   - Linux:   ~/.codrax/cache/repomap/
+//   - macOS:   ~/.codrax/cache/repomap/
+//   - Windows: %USERPROFILE%\.codrax\cache\repomap\
+//
+// When os.UserHomeDir fails (rare; broken env), falls back to
+// os.TempDir()/codrax-cache so the rest of the binary keeps
+// running with a non-persistent cache.
 func CacheDir(repoRoot string) string {
 	abs, err := filepath.Abs(repoRoot)
 	if err != nil {
@@ -45,11 +63,12 @@ func CacheDir(repoRoot string) string {
 
 	base := cacheBaseDir
 	if base == "" {
-		base, err = os.UserCacheDir()
-		if err != nil {
+		home, herr := os.UserHomeDir()
+		if herr != nil {
 			base = filepath.Join(os.TempDir(), "codrax-cache")
+		} else {
+			base = filepath.Join(home, ".codrax", "cache")
 		}
-		base = filepath.Join(base, "codrax")
 	}
 	return filepath.Join(base, "repomap", slug)
 }

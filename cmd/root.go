@@ -289,7 +289,7 @@ func init() {
 	f.StringVar(&flagLogLevel, "log-level", defaultLogLevel, "log level: error|warning|info|debug")
 	f.BoolVar(&flagLogStdout, "log-stdout", false, "also mirror logs to stdout")
 	f.StringVar(&flagMemoryDir, "memory-dir", "", "directory for conversation memory")
-	f.StringVar(&flagCacheDir, "cache-dir", "", "base directory for repo map caches (empty = ~/.cache/codrax)")
+	f.StringVar(&flagCacheDir, "cache-dir", "", "base directory for repo map caches (empty = ~/.codrax/cache; %USERPROFILE%\\.codrax\\cache on Windows)")
 	f.StringVar(&flagLang, "lang", defaultLang, "default response language (zh/en/...); 'off' to disable")
 	f.StringVar(&flagColor, "color", "auto", "color mode for diff rendering: auto (TTY-detect, default) | always | never. NO_COLOR env always forces never.")
 	f.IntVar(&flagMaxRetries, "pipeline-max-retries", 0, "override max consecutive failures per stage; 0 = inherit from codrax.yaml")

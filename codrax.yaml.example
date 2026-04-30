@@ -69,8 +69,12 @@
 
 # Base directory for repo map caches (symbol index, relations, etc.).
 # Each target repo gets its own subdirectory under <cache_dir>/repomap/.
-# Default (when omitted): platform cache dir — ~/.cache/codrax (Linux),
-# ~/Library/Caches/codrax (macOS), %LocalAppData%\codrax (Windows).
+# Default (when omitted): ~/.codrax/cache/ (the same parent directory the
+# env_recommend disk cache lives under, so all cross-project per-user
+# codrax state is in one well-known place).
+# Per-platform via os.UserHomeDir():
+#   Linux / macOS: ~/.codrax/cache/
+#   Windows:       %USERPROFILE%\.codrax\cache\
 # Relative values anchor to <CWD>/.codrax/ (opts in to per-workspace caches).
 # cache_dir:
 

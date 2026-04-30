@@ -419,13 +419,49 @@ memory 是**按仓库**隔离的:同一个 codrax 进程切到另一个仓库,�
 ~/repoB/.codrax/memory/codrax-def67890/
 ```
 
-binary cache(repomap 索引)走平台默认 cache 目录:Linux `~/.cache/codrax/`、macOS `~/Library/Caches/codrax/`、Windows `%LocalAppData%\codrax\`。每个仓在 cache 下有独立子目录。
+所有跨项目的个人级状态(repomap 索引缓存、env-cache.json、未来的其它持久化)都放在 `~/.codrax/cache/`(Windows:`%USERPROFILE%\.codrax\cache\`)。每个仓在 cache 下有独立子目录,与各仓的 `.codrax/`(项目级状态)互不干扰。备份 / 清理只需关注这两个位置。
 
 ---
 
 # 4. 写模式 — plan → apply → verify
 
 写模式让 codrax **生成代码改动**(增删改文件),在沙箱 git worktree 里跑测试,只有你显式批准后才合回主仓。**默认关闭**。
+
+### 工作区单一不变量(写模式的核心规则)
+
+> **同一个项目同时只能有一个未结算的改动方案。**
+
+未结算 = `pending_approval`(待批)/ `applied`(已批未合)/ `verify_failed`(验证失败)。结算 = `merged`(已合并)/ `rejected`(显式丢弃)/ `applied_failed`(apply 阶段崩了,自动终止)。
+
+**为什么这条规则重要**:每个 plan 都是基于"当前主仓状态"生成的。如果一个 plan 已经在 worktree 里改了文件但没合回主仓,这时再生成第二个 plan,新的 plan 看不到第一个 plan 的改动 — 两个 plan 可能对同一文件给出冲突的修改,合并顺序也乱套。
+
+实际行为:`/mode plan` 切换时如果存在未结算的 plan,直接拒绝并列出三选一菜单(merge / reject / clear);REPL 启动时也会在 banner 提醒未结算 plan;数据层(PlanStore)同样硬约束,任何写入路径都过不去。
+
+```
+[git:master]❯❯ /mode plan
+  ✗ 切换被拒:已存在未结算的改动方案 plan-XXXX(状态:applied)。
+    新方案要基于当前仓状态生成,先把上一个收尾再来:
+      /merge         合并到主仓
+      /reject        丢弃改动(保留事后审查记录)
+      /plan clear    彻底删除(无审查记录)
+    收尾后再敲 /mode plan。
+```
+
+三个结算命令:
+
+| 命令 | 适用状态 | 文件 | 工作区 |
+|---|---|---|---|
+| `/merge` | applied / verify_failed(后者需 `--include-failed`) | 状态改 `merged`,保留供审查 | 自动 discard |
+| `/reject [reason]` | 任何未结算状态 | 状态改 `rejected`,reason 写进文件,保留供审查 | 自动 discard |
+| `/plan clear` | 任何未结算状态 | **直接删除** plan 文件 + report,无审查记录 | 自动 discard |
+
+启动 banner 提示长这样(灰色单行):
+
+```
+   plan-XXXX 已 apply 但未合并 — /merge · /reject · /plan clear
+```
+
+按当前 plan 的 status 不同,提示文案也不同 — `pending_approval` 显示 `/plan show · /approve · /reject · /plan clear`,`verify_failed` 显示 `/approve <id> · /merge --include-failed · /reject · /plan clear`。
 
 ## 4.1 启用
 
@@ -482,7 +518,7 @@ write_enabled: true
   ✓ 已拒绝 plan plan-abc123 — 原因: 拆得不够小
 ```
 
-或直接 `/plan clear` 不留拒绝记录。
+`/reject` 把 plan 状态改成 `rejected` 但**保留文件**供事后 `/plan show <id>` 查看。如果不想留记录,用 `/plan clear` 直接删掉。两种命令都会自动 discard 对应的 worktree。
 
 ### 第 3 步:`/approve` 落地
 
@@ -494,7 +530,7 @@ write_enabled: true
 ✓ apply 完成,已自动切回 read 模式。继续改代码用 /mode plan。
 ```
 
-注意:批准成功后会**自动切回 read 模式**,你的下一句话默认是问代码,不是再开 plan。要继续改代码再 `/mode plan` 即可。
+注意:批准成功后会**自动切回 read 模式**,你的下一句话默认是问代码,不是再开 plan。要继续改代码:**先把这个 applied 的 plan 收尾**(`/merge` 合到主仓 / `/reject` 丢弃 / `/plan clear` 删除),再 `/mode plan` 才能生成下一个 plan(写模式工作区单一不变量,见上文)。
 
 `/approve` 自动:
 
@@ -533,9 +569,14 @@ write_enabled: true
 | `--branch=<name>` | 在主仓拉新分支 + cherry-pick(标准 PR 流) |
 | `--include-failed` 或 `--force` | 把验证失败的 plan 也纳入候选(适合环境/CI 类失败,你 review 后决定强合) |
 
+`/merge` 成功后:
+- plan 状态从 `applied` 改成 `merged`(终态,可以下一个 plan 了)
+- worktree 自动 discard
+- REPL 自动切回 read 模式
+
 > `/merge` 需要 yaml 里 `pipeline_keep_worktree_on_success: true`,否则 worktree 在 apply 完就清掉了。
 
-`/merge` 还会在主仓**只有 `.codrax/` 自身写入的文件**显示为 dirty 时,自动 `git rm --cached -r .codrax/` + 写入 `.gitignore` + 一次性 commit,然后再 merge。这意味着第一次 `git init && git add -A` 把 `.codrax/` 误纳入 git 的人不会被 /merge 拒绝。
+如果主仓只有 `.codrax/` 自己写入的文件(日志、记忆、blob 缓存)显示为 dirty,`/merge` 会自动把它们 `git rm --cached` 并补一条 `.gitignore` 提交,再继续合。也就是说第一次 `git init && git add -A` 误把 `.codrax/` 纳入 git 的人,不会被 `/merge` 拒绝。
 
 ## 4.4 失败排错
 
