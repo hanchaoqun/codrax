@@ -499,6 +499,9 @@ func TestEmitEvidence_AcceptsLegacyYAMLDiagramRoleAliasForConfigFiles(t *testing
 	if got[0].DiagramRole != types.EvidenceDiagramRoleConfig {
 		t.Fatalf("diagram role = %q, want canonical config role", got[0].DiagramRole)
 	}
+	if got[0].ContextRole != types.EvidenceContextRoleRelatedContext {
+		t.Fatalf("config precedence comment should stay related_context, got %q", got[0].ContextRole)
+	}
 }
 
 func TestEmitEvidence_DropsConfigTraceDiagramRoleForOutOfScopeHelper(t *testing.T) {
@@ -678,17 +681,74 @@ func TestEmitEvidence_ConfigCommentLineBecomesIllustrativeOnly(t *testing.T) {
 	if len(got) != 1 {
 		t.Fatalf("want 1 item in buffer, got %d", len(got))
 	}
-	if got[0].ContextRole != types.EvidenceContextRoleIllustrativeOnly {
-		t.Fatalf("context role = %q, want illustrative_only for comment-only config line", got[0].ContextRole)
+	if got[0].ContextRole != types.EvidenceContextRoleRelatedContext {
+		t.Fatalf("context role = %q, want related_context for config-file precedence comment", got[0].ContextRole)
 	}
-	if got[0].DiagramRole != types.EvidenceDiagramRoleUnknown {
-		t.Fatalf("diagram role = %q, want unknown for comment-only config line", got[0].DiagramRole)
+	if got[0].DiagramRole != types.EvidenceDiagramRoleConfig {
+		t.Fatalf("diagram role = %q, want config for config-file precedence comment", got[0].DiagramRole)
 	}
-	if !strings.Contains(strings.ToLower(got[0].GroundingNote), "do not repair this item") {
-		t.Fatalf("illustrative config comment should be marked non-repairable, got: %q", got[0].GroundingNote)
+	if strings.Contains(strings.ToLower(got[0].GroundingNote), "do not repair this item") {
+		t.Fatalf("config-file precedence comment should remain usable context, got: %q", got[0].GroundingNote)
 	}
-	if !strings.Contains(strings.ToLower(res.Summary), "do not spend read_file budget") {
-		t.Fatalf("tool summary should tell the model to drop illustrative config comments, got: %s", res.Summary)
+	if strings.Contains(strings.ToLower(res.Summary), "do not spend read_file budget") {
+		t.Fatalf("tool summary should not tell the model to drop config-file precedence comments, got: %s", res.Summary)
+	}
+}
+
+func TestEmitEvidence_ConfigPrecedenceCommentCanGroundWithoutExactAnchorSymbol(t *testing.T) {
+	tool := &EmitEvidence{}
+	ctx := newEmitCtx()
+	ctx.Mutable.SetTurnAArtifacts(types.TurnAArtifacts{
+		ToolResults: []types.ToolResult{
+			{
+				ToolName: "read_file",
+				Success:  true,
+				Summary: "[codrax.yaml.example: showing lines 20-22 of 801]\n" +
+					"  20│ # Precedence (lowest wins last):\n" +
+					"  21│ #\n" +
+					"  22│ #   code defaults  <  <exeDir>/codrax.yaml  <  command-line flags\n",
+			},
+		},
+	})
+	params := json.RawMessage(`{
+		"items": [
+			{
+				"kind": "direct",
+				"subject": "codrax.yaml",
+				"object": "command-line flags",
+				"predicate": "precedes",
+				"source": "codrax.yaml.example",
+				"line_start": 22,
+				"summary": "code defaults < codrax.yaml < command-line flags",
+				"anchor_kind": "definition",
+				"anchor_symbol": "exeDir",
+				"context_role_hint": "related_context",
+				"diagram_role_hint": "config"
+			}
+		]
+	}`)
+	res, err := tool.Execute(ctx, params)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("expected success, got: %s", res.Summary)
+	}
+	got := ctx.Mutable.EmittedEvidence()
+	if len(got) != 1 {
+		t.Fatalf("want 1 item in buffer, got %d", len(got))
+	}
+	if got[0].GroundingStatus != types.GroundingGrounded {
+		t.Fatalf("grounding status = %q, want grounded", got[0].GroundingStatus)
+	}
+	if got[0].GroundingTier != types.TierLineText {
+		t.Fatalf("grounding tier = %q, want line_text", got[0].GroundingTier)
+	}
+	if got[0].DiagramRole != types.EvidenceDiagramRoleConfig {
+		t.Fatalf("diagram role = %q, want config", got[0].DiagramRole)
+	}
+	if res.Repair != nil && len(res.Repair.Targets) > 0 {
+		t.Fatalf("grounded config precedence comment must not queue repair targets, got %+v", res.Repair.Targets)
 	}
 }
 
@@ -823,6 +883,78 @@ func TestEmitEvidence_PromotesAbsenceSupportWhenAnchoredWindowNamesExactTarget(t
 	}
 	if !strings.Contains(strings.ToLower(res.Summary), "absence support") {
 		t.Fatalf("tool summary should still surface absence-support guidance, got: %q", res.Summary)
+	}
+}
+
+func TestEmitEvidence_NegativeAbsenceProbeDoesNotQueueLineRepair(t *testing.T) {
+	tool := &EmitEvidence{}
+	ctx := newEmitCtx()
+	ctx.Mutable.SetTurnAArtifacts(types.TurnAArtifacts{
+		ToolResults: []types.ToolResult{
+			{
+				ToolName: "read_file",
+				Success:  true,
+				Summary: "[internal/types/config.go: showing lines 768-770 of 1188]\n" +
+					"  768│ type ExploreHeuristics struct {\n" +
+					"  769│ \t// --- Mid-loop thresholds ---\n" +
+					"  770│ \n",
+			},
+		},
+	})
+	ctx.AnalysisIR = &types.AnalysisIR{
+		RequestModel: types.RequestModel{
+			RawRequest: "explore_mid_loop_hint_budget 的最终有效值是怎么计算出来的？",
+			Scenario:   types.ScenarioConfigTrace,
+			AnalyzerHints: types.AnalyzerHints{
+				Kind:         "config_mapping",
+				ExactTargets: []string{"explore_mid_loop_hint_budget"},
+			},
+			AnswerSubject: types.AnswerSubject{Kind: types.SubjectConfigKey},
+		},
+		AnswerContract: types.AnswerContract{
+			ExactResolution: &types.ExactResolutionContract{
+				TargetKind:   types.SubjectConfigKey,
+				TargetLabel:  "config key",
+				Targets:      []string{"explore_mid_loop_hint_budget"},
+				AllowAbsence: true,
+			},
+		},
+	}
+	params := json.RawMessage(`{
+		"items": [
+			{
+				"kind": "direct",
+				"subject": "explore_mid_loop_hint_budget",
+				"object": "ExploreHeuristics",
+				"predicate": "absent_from",
+				"source": "internal/types/config.go",
+				"line_start": 768,
+				"summary": "explore_mid_loop_hint_budget 不存在于 ExploreHeuristics 中",
+				"anchor_kind": "definition",
+				"anchor_symbol": "explore_mid_loop_hint_budget",
+				"context_role_hint": "absence_support"
+			}
+		]
+	}`)
+	res, err := tool.Execute(ctx, params)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("expected success, got: %s", res.Summary)
+	}
+	got := ctx.Mutable.EmittedEvidence()
+	if len(got) != 1 {
+		t.Fatalf("want 1 item in buffer, got %d", len(got))
+	}
+	if got[0].ContextRole != types.EvidenceContextRoleAbsenceSupport {
+		t.Fatalf("context role = %q, want absence_support", got[0].ContextRole)
+	}
+	if !strings.Contains(strings.ToLower(got[0].GroundingNote), "do not repair this item") {
+		t.Fatalf("negative exact-absence probe should be marked non-repairable, got: %q", got[0].GroundingNote)
+	}
+	if res.Repair != nil && len(res.Repair.Targets) > 0 {
+		t.Fatalf("negative exact-absence probe must not queue repair targets, got %+v", res.Repair.Targets)
 	}
 }
 

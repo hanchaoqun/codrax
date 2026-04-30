@@ -171,7 +171,7 @@ func exactResolutionAnchoredFiles(contract *types.ExactResolutionContract, evide
 		if item.ContextRole == types.EvidenceContextRoleIllustrativeOnly {
 			continue
 		}
-		if !exactResolutionSourceIsProductionLike(contract, item.Source) {
+		if !exactResolutionSourceSupportsContextScope(contract, item) {
 			continue
 		}
 		path := canonicalExactResolutionPath(item.Source)
@@ -195,7 +195,7 @@ func exactResolutionRoleAnchoredFiles(contract *types.ExactResolutionContract, e
 		}
 		if item.ContextRole == types.EvidenceContextRoleIllustrativeOnly ||
 			item.DiagramRole == types.EvidenceDiagramRoleUnknown ||
-			!exactResolutionSourceIsProductionLike(contract, item.Source) {
+			!exactResolutionSourceSupportsContextScope(contract, item) {
 			continue
 		}
 		path := canonicalExactResolutionPath(item.Source)
@@ -414,7 +414,7 @@ func exactResolutionContextFilesFromScenarioCoverageEvidence(
 	bestByFile := make(map[string]int)
 	for _, item := range evidence {
 		file := canonicalExactResolutionPath(item.Source)
-		if file == "" || types.LooksLikeAuxiliaryEvidencePath(file) {
+		if file == "" || (types.LooksLikeAuxiliaryEvidencePath(file) && !exactResolutionSourceSupportsContextScope(contract, item)) {
 			continue
 		}
 		if item.ContextRole == types.EvidenceContextRoleIllustrativeOnly {
@@ -484,7 +484,7 @@ func scopeShapingDiagramRole(item types.EvidenceItem) types.EvidenceDiagramRole 
 	if role == types.EvidenceDiagramRoleUnknown {
 		return types.EvidenceDiagramRoleUnknown
 	}
-	if types.LooksLikeAuxiliaryEvidencePath(item.Source) {
+	if types.LooksLikeAuxiliaryEvidencePath(item.Source) && !exactResolutionSourceSupportsContextScope(nil, item) {
 		return types.EvidenceDiagramRoleUnknown
 	}
 	if !types.ConfigTraceDiagramRoleAnchorCompatible(role, item) {
@@ -736,4 +736,17 @@ func canonicalExactResolutionPath(path string) string {
 
 func exactResolutionSourceIsProductionLike(contract *types.ExactResolutionContract, source string) bool {
 	return types.ExactResolutionSourceIsDefiningPrimaryProofLike(contract, source)
+}
+
+func exactResolutionSourceSupportsContextScope(contract *types.ExactResolutionContract, item types.EvidenceItem) bool {
+	if exactResolutionSourceIsProductionLike(contract, item.Source) {
+		return true
+	}
+	role := item.DiagramRole
+	if role == types.EvidenceDiagramRoleUnknown {
+		role = item.RequestedDiagramRole
+	}
+	return (contract == nil || contract.TargetKind == types.SubjectConfigKey) &&
+		role == types.EvidenceDiagramRoleConfig &&
+		types.LooksLikeConfigFilePath(item.Source)
 }

@@ -1876,6 +1876,21 @@ func normalizeFollowOnGroundedContextCitations(citations []types.Citation, exact
 			}
 		}
 	}
+	if summaryDiagramFenceCount(summary) > 0 && len(plan.ConfigTraceDiagramAnchors) > 0 {
+		existing := make(map[string]bool, len(out))
+		for _, cite := range out {
+			existing[explanationCitationLookupKey(cite.File, cite.Line)] = true
+		}
+		for _, anchor := range plan.ConfigTraceDiagramAnchors {
+			key := explanationCitationLookupKey(anchor.Source, anchor.Line)
+			if key == "" || existing[key] {
+				continue
+			}
+			out = append(out, types.Citation{File: anchor.Source, Line: anchor.Line})
+			existing[key] = true
+			changed = true
+		}
+	}
 	if !changed {
 		return citations
 	}
@@ -1972,7 +1987,7 @@ func formatConfigTraceRoleCoverage(plan *types.AnswerSurfacePlan) string {
 	parts := make([]string, 0, len(plan.ConfigTraceDiagramAnchors))
 	for _, anchor := range plan.ConfigTraceDiagramAnchors {
 		role := strings.TrimSpace(anchor.Role)
-		label := strings.TrimSpace(anchor.Label)
+		label := types.ConfigTraceDiagramAnchorSupportLabel(anchor)
 		if role == "" || label == "" {
 			continue
 		}
@@ -2919,8 +2934,15 @@ func buildSummaryDiagramAllowlist(citations []types.Citation, gc *ground.Context
 		baseOwners:   make(map[string]string, len(citations)*2),
 		baseConflict: make(map[string]bool, len(citations)),
 	}
+	var evidencePool []types.EvidenceItem
+	if ctx != nil {
+		evidencePool = answerDocSurfaceEvidencePool(ctx)
+	}
 	for _, c := range citations {
 		addDiagramAllowToken(&allow, c.File)
+		if len(evidencePool) > 0 {
+			addDiagramAllowFromMatchedEvidence(&allow, matchingEvidenceForCitation(evidencePool, c))
+		}
 	}
 	if gc != nil && len(gc.LineIndex) > 0 {
 		for _, c := range citations {
@@ -2999,6 +3021,40 @@ func addDiagramAllowToken(allow *summaryDiagramAllowlist, token string) {
 		} else if owner != token {
 			allow.baseConflict[base] = true
 		}
+	}
+}
+
+func addDiagramAllowFromMatchedEvidence(allow *summaryDiagramAllowlist, item types.EvidenceItem) {
+	if allow == nil || item.Source == "" {
+		return
+	}
+	switch item.GroundingStatus {
+	case types.GroundingGrounded, types.GroundingRecovered:
+	default:
+		return
+	}
+	addDiagramAllowPathLiterals(allow, item.AnchorSymbol)
+	addDiagramAllowPathLiterals(allow, item.Subject)
+	addDiagramAllowPathLiterals(allow, item.Object)
+	addDiagramAllowPathLiterals(allow, item.Summary)
+	addDiagramAllowPathLiterals(allow, item.Condition)
+	addDiagramAllowPathLiterals(allow, item.Snippet)
+}
+
+func addDiagramAllowPathLiterals(allow *summaryDiagramAllowlist, text string) {
+	if allow == nil {
+		return
+	}
+	for _, tok := range diagramFileTokenRe.FindAllString(text, -1) {
+		bare := tok
+		if idx := strings.LastIndex(bare, ":"); idx >= 0 {
+			bare = bare[:idx]
+		}
+		ext := strings.ToLower(path.Ext(bare))
+		if !diagramFileExtensions[ext] {
+			continue
+		}
+		addDiagramAllowToken(allow, bare)
 	}
 }
 
@@ -4043,18 +4099,28 @@ func configTraceRoleSeedLabels(plan *types.AnswerSurfacePlan) []string {
 	}
 	bestByRole := make(map[types.EvidenceDiagramRole]types.EvidenceItem)
 	bestScore := make(map[types.EvidenceDiagramRole]int)
+	softByRole := make(map[types.EvidenceDiagramRole]types.EvidenceItem)
+	softScore := make(map[types.EvidenceDiagramRole]int)
 	appendRoleItems := func(items []types.EvidenceItem) {
 		for _, item := range items {
 			role := types.ConfigTraceValidatedDiagramRoleInFiles(plan.ExactResolution, item, plan.ExactContextRequiredFiles)
-			if role == types.EvidenceDiagramRoleUnknown {
-				continue
-			}
 			score := followOnGroundedContextSeedScore(plan, item)
-			if cur, ok := bestScore[role]; ok && cur >= score {
+			if role != types.EvidenceDiagramRoleUnknown {
+				if cur, ok := bestScore[role]; ok && cur >= score {
+					continue
+				}
+				bestScore[role] = score
+				bestByRole[role] = item
+			}
+			softRole := configTraceFollowOnSeedRole(plan, item)
+			if softRole == types.EvidenceDiagramRoleUnknown {
 				continue
 			}
-			bestScore[role] = score
-			bestByRole[role] = item
+			if cur, ok := softScore[softRole]; ok && cur >= score {
+				continue
+			}
+			softScore[softRole] = score
+			softByRole[softRole] = item
 		}
 	}
 	appendRoleItems(plan.CitationGradeExactContextItems)
@@ -4070,14 +4136,19 @@ func configTraceRoleSeedLabels(plan *types.AnswerSurfacePlan) []string {
 	var labels []string
 	seen := make(map[string]bool)
 	for _, role := range roleOrder {
-		if item, ok := bestByRole[role]; ok {
-			label := configTraceRoleSeedLabel(role, item)
-			if label == "" || seen[label] {
-				continue
-			}
-			seen[label] = true
-			labels = append(labels, label)
+		item, ok := bestByRole[role]
+		if !ok {
+			item, ok = softByRole[role]
 		}
+		if !ok {
+			continue
+		}
+		label := configTraceRoleSeedLabel(role, item)
+		if label == "" || seen[label] {
+			continue
+		}
+		seen[label] = true
+		labels = append(labels, label)
 	}
 	if len(labels) >= 2 {
 		return labels
@@ -4128,6 +4199,47 @@ func configTraceRoleSeedLabels(plan *types.AnswerSurfacePlan) []string {
 		}
 	}
 	return labels
+}
+
+func configTraceFollowOnSeedRole(plan *types.AnswerSurfacePlan, item types.EvidenceItem) types.EvidenceDiagramRole {
+	if plan == nil {
+		return types.EvidenceDiagramRoleUnknown
+	}
+	switch item.GroundingStatus {
+	case types.GroundingGrounded, types.GroundingRecovered:
+	default:
+		return types.EvidenceDiagramRoleUnknown
+	}
+	if item.Kind == types.EvidenceUnresolved || item.Kind == types.EvidenceTruncated {
+		return types.EvidenceDiagramRoleUnknown
+	}
+	if item.ContextRole == types.EvidenceContextRoleAbsenceSupport || item.ContextRole == types.EvidenceContextRoleIllustrativeOnly {
+		return types.EvidenceDiagramRoleUnknown
+	}
+	role := item.DiagramRole
+	if role == types.EvidenceDiagramRoleUnknown {
+		role = item.RequestedDiagramRole
+	}
+	switch role {
+	case types.EvidenceDiagramRoleConfig:
+		if types.LooksLikeConfigFilePath(item.Source) {
+			return role
+		}
+	case types.EvidenceDiagramRoleDefault, types.EvidenceDiagramRoleRuntime, types.EvidenceDiagramRoleOverride:
+		source := strings.TrimSpace(strings.ReplaceAll(item.Source, `\`, `/`))
+		if source == "" || types.LooksLikeConfigFilePath(source) || types.LooksLikeAuxiliaryEvidencePath(source) {
+			return types.EvidenceDiagramRoleUnknown
+		}
+		if len(plan.ExactContextRequiredFiles) == 0 {
+			return role
+		}
+		for _, required := range plan.ExactContextRequiredFiles {
+			if strings.EqualFold(strings.TrimSpace(strings.ReplaceAll(required, `\`, `/`)), source) {
+				return role
+			}
+		}
+	}
+	return types.EvidenceDiagramRoleUnknown
 }
 
 func configTraceRoleSeedLabel(role types.EvidenceDiagramRole, item types.EvidenceItem) string {
@@ -4212,6 +4324,9 @@ func normalizeConfigTraceAbsentSummarySurface(summary string, ctx *types.BusCont
 	if plan == nil {
 		return summary
 	}
+	if summaryContainsExplicitMermaidFence(summary) {
+		return strings.TrimSpace(summary)
+	}
 	if summaryDiagramFenceCount(summary) > 0 {
 		dc := answerDiagramContract(ctx)
 		if dc == nil || !dc.Required {
@@ -4243,6 +4358,10 @@ func normalizeConfigTraceAbsentSummarySurface(summary string, ctx *types.BusCont
 		return fence
 	}
 	return strings.TrimSpace(stripped + "\n\n" + fence)
+}
+
+func summaryContainsExplicitMermaidFence(summary string) bool {
+	return strings.Contains(strings.ToLower(summary), "```mermaid")
 }
 
 func normalizeRequiredDiagramSummarySurface(summary string, citations []types.Citation, gc *ground.Context, ctx *types.BusContext) string {

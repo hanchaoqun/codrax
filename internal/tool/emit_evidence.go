@@ -726,7 +726,7 @@ func parseEvidenceDiagramRoleHint(index int, raw string) (types.EvidenceDiagramR
 }
 
 func validatedEvidenceContextRole(ev types.EvidenceItem, gc *ground.Context, contract *types.ExactResolutionContract) types.EvidenceContextRole {
-	if evidenceLooksIllustrative(ev, gc) {
+	if evidenceLooksIllustrative(ev, gc) && !configFileSurfaceCanCarryDiagramRole(ev) {
 		return types.EvidenceContextRoleIllustrativeOnly
 	}
 	switch ev.ContextRole {
@@ -751,7 +751,7 @@ func validatedEvidenceContextRole(ev types.EvidenceItem, gc *ground.Context, con
 }
 
 func validatedEvidenceDiagramRole(ev types.EvidenceItem, gc *ground.Context, contract *types.ExactResolutionContract, requiredFiles []string) types.EvidenceDiagramRole {
-	if evidenceLooksIllustrative(ev, gc) {
+	if evidenceLooksIllustrative(ev, gc) && !configFileSurfaceCanCarryDiagramRole(ev) {
 		return types.EvidenceDiagramRoleUnknown
 	}
 	switch ev.DiagramRole {
@@ -780,6 +780,11 @@ func validatedEvidenceDiagramRole(ev types.EvidenceItem, gc *ground.Context, con
 	return types.EvidenceDiagramRoleUnknown
 }
 
+func configFileSurfaceCanCarryDiagramRole(ev types.EvidenceItem) bool {
+	return ev.DiagramRole == types.EvidenceDiagramRoleConfig &&
+		types.LooksLikeConfigFilePath(ev.Source)
+}
+
 func appendDiagramRoleValidationNote(ev *types.EvidenceItem, requested types.EvidenceDiagramRole, contract *types.ExactResolutionContract, requiredFiles []string) bool {
 	if ev == nil || requested == types.EvidenceDiagramRoleUnknown || requested == ev.DiagramRole {
 		return false
@@ -787,8 +792,8 @@ func appendDiagramRoleValidationNote(ev *types.EvidenceItem, requested types.Evi
 	note := ""
 	switch requested {
 	case types.EvidenceDiagramRoleConfig:
-		if types.LooksLikeAuxiliaryEvidencePath(ev.Source) {
-			note = "diagram_role_hint=config was ignored because doc/test/example anchors are never precedence-grade config-file evidence. Keep this item as context only."
+		if types.LooksLikeAuxiliaryEvidencePath(ev.Source) && !types.LooksLikeConfigFilePath(ev.Source) {
+			note = "diagram_role_hint=config was ignored because non-config doc/test/example anchors are never precedence-grade config-file evidence. Keep this item as context only."
 		} else if !types.LooksLikeConfigFilePath(ev.Source) {
 			note = "diagram_role_hint=config was ignored because `config` is only for grounded config-file anchors (YAML/JSON/TOML/INI/etc.). This code anchor may stay prose-only context, or be re-emitted with `default` / `runtime` / `override` only if the anchored line itself proves that code-layer role."
 		}
@@ -1475,28 +1480,28 @@ func stabilizeExactResolutionEvidence(ev *types.EvidenceItem, gc *ground.Context
 		return true
 	}
 	if len(pendingTargets) > 0 &&
-		types.IsNegativeEvidencePredicate(ev.Predicate) &&
-		(ev.ContextRole == types.EvidenceContextRoleUnknown || ev.ContextRole == types.EvidenceContextRoleDefining) {
+		types.IsNegativeEvidencePredicate(ev.Predicate) {
 		surface := strings.Join([]string{
 			ev.Subject, ev.AnchorSymbol, ev.Object, ev.Source,
 		}, "\n")
 		sameFamily := types.ExactResolutionSameFamilyMatchScore(contract, surface) > 0 ||
 			types.ExactResolutionEvidenceCanSatisfyRelatedContext(contract, *ev, nil)
 		targetMention := exactResolutionEvidenceMentionsAnyTarget(contract, *ev) ||
+			exactResolutionEvidenceDirectlyAnchorsAnyTarget(contract, *ev) ||
 			evidenceGroundedWindowMentionsAnyTarget(*ev, gc, contract)
 		if targetMention || sameFamily {
 			if targetMention {
 				ev.ContextRole = types.EvidenceContextRoleAbsenceSupport
-			} else {
+			} else if ev.ContextRole == types.EvidenceContextRoleUnknown || ev.ContextRole == types.EvidenceContextRoleDefining {
 				ev.ContextRole = types.EvidenceContextRoleRelatedContext
 			}
 			note := fmt.Sprintf(
-				"this item is a grounded negative probe about the unresolved exact %s and cannot count as defining proof. Treat it as context only; do NOT repair this item.",
+				"this item is a negative probe about the unresolved exact %s and cannot count as defining proof. Treat it as context only; do NOT repair this item.",
 				exactResolutionTargetLabel(contract),
 			)
 			if targetMention {
 				note = fmt.Sprintf(
-					"this item is a grounded negative probe for the unresolved exact %s and supports the absence conclusion, but it does not define the target. Treat it as absence support only; do NOT repair this item.",
+					"this item is a negative probe for the unresolved exact %s and supports the absence conclusion, but it does not define the target. Treat it as absence support only; do NOT repair this item.",
 					exactResolutionTargetLabel(contract),
 				)
 			}

@@ -4524,8 +4524,8 @@ func TestEmitAnswerDocument_NormalizesConfigTraceAbsentFencesToCompiledDiagram(t
 	if strings.Contains(doc.Summary, "<exeDir>/codrax.yaml") {
 		t.Fatalf("normalized summary should drop arbitrary precedence snippets, got: %q", doc.Summary)
 	}
-	if !strings.Contains(doc.Summary, "internal/config/runtime.go:231") || !strings.Contains(doc.Summary, "internal/types/config.go:707") {
-		t.Fatalf("normalized summary should keep the compiled grounded precedence fence, got: %q", doc.Summary)
+	if !strings.Contains(doc.Summary, "runtime binding") || !strings.Contains(doc.Summary, "code default") {
+		t.Fatalf("normalized summary should keep the compiled role-labeled precedence fence, got: %q", doc.Summary)
 	}
 }
 
@@ -4608,8 +4608,110 @@ func TestEmitAnswerDocument_ConfigTraceAbsentAppendsOptionalCompiledDiagramForRi
 	if doc == nil {
 		t.Fatal("answer document missing after successful emit")
 	}
-	if !strings.Contains(doc.Summary, "internal/config/runtime.go:231") || !strings.Contains(doc.Summary, "internal/types/config.go:707") {
+	if !strings.Contains(doc.Summary, "runtime binding") || !strings.Contains(doc.Summary, "code default") {
 		t.Fatalf("optional grounded config-trace fence should be retained for answer richness, got: %q", doc.Summary)
+	}
+}
+
+func TestEmitAnswerDocument_ConfigTraceAbsentPreservesExistingMermaidDiagramRichness(t *testing.T) {
+	tool := &EmitAnswerDocument{}
+	ctx := newDocBusCtx("")
+	target := "explore_mid_loop_hint_budget"
+	ctx.AnalysisIR = &types.AnalysisIR{
+		RequestModel: types.RequestModel{
+			Scenario: types.ScenarioConfigTrace,
+			AnalyzerHints: types.AnalyzerHints{
+				Kind:         "config_mapping",
+				ExactTargets: []string{target},
+			},
+			AnswerSubject: types.AnswerSubject{Kind: types.SubjectConfigKey},
+		},
+		AnswerContract: types.AnswerContract{
+			RequiredAnswerShape: types.ShapeExplanation,
+			Diagram: &types.DiagramContract{
+				Required:       true,
+				PreferredKinds: []types.DiagramKind{types.DiagramFlow},
+			},
+			ExactResolution: &types.ExactResolutionContract{
+				TargetKind:              types.SubjectConfigKey,
+				TargetLabel:             "config key",
+				Targets:                 []string{target},
+				AllowAbsence:            true,
+				RequireTargetMention:    true,
+				AliasRequiresProof:      true,
+				RelatedContextPolicy:    types.ExactContextSameFamilyGrounded,
+				RelatedContextScopeHint: "same namespace / prefix family",
+			},
+		},
+	}
+	ctx.Mutable.SetAbsenceJustification("repo-wide search found no exact key")
+	ctx.Mutable.SetInvestigationResultKind("absence")
+	ctx.Mutable.SetExactContextRequiredFiles([]string{"internal/types/config.go", "cmd/root.go", "codrax.yaml.example"})
+	ctx.Mutable.AppendEvidence([]types.EvidenceItem{
+		{
+			Kind:            types.EvidenceDirect,
+			Source:          "internal/types/config.go",
+			LineStart:       848,
+			AnchorKind:      types.AnchorDefinition,
+			AnchorSymbol:    "DefaultExploreHeuristics",
+			ContextRole:     types.EvidenceContextRoleRelatedContext,
+			DiagramRole:     types.EvidenceDiagramRoleDefault,
+			GroundingStatus: types.GroundingGrounded,
+		},
+		{
+			Kind:            types.EvidenceDirect,
+			Source:          "codrax.yaml.example",
+			LineStart:       22,
+			AnchorKind:      types.AnchorDefinition,
+			AnchorSymbol:    "exeDir",
+			Subject:         "codrax.yaml",
+			Object:          "command-line flags",
+			Summary:         "code defaults < codrax.yaml < command-line flags",
+			ContextRole:     types.EvidenceContextRoleRelatedContext,
+			DiagramRole:     types.EvidenceDiagramRoleConfig,
+			GroundingStatus: types.GroundingGrounded,
+		},
+		{
+			Kind:            types.EvidenceDirect,
+			Source:          "cmd/root.go",
+			LineStart:       1583,
+			AnchorKind:      types.AnchorCall,
+			AnchorSymbol:    "ExploreMidLoopMinIteration",
+			ContextRole:     types.EvidenceContextRoleRelatedContext,
+			DiagramRole:     types.EvidenceDiagramRoleOverride,
+			GroundingStatus: types.GroundingGrounded,
+		},
+	})
+	params := mustDocJSON(t, map[string]interface{}{
+		"shape": "explanation",
+		"exact_resolution": map[string]interface{}{
+			"status":       "absent",
+			"context_mode": "grounded_context_only",
+		},
+		"summary": "```mermaid\nflowchart LR\n    CLI[\"CLI flag (override)\"] --> YAML[\"codrax.yaml (config)\"] --> Code[\"DefaultExploreHeuristics (code default)\"]\n```\n\n优先级从高到低为 CLI → YAML → code default。",
+		"citations": []map[string]interface{}{
+			{"file": "cmd/root.go", "line": 1583},
+			{"file": "internal/types/config.go", "line": 848},
+			{"file": "codrax.yaml.example", "line": 22},
+		},
+	})
+
+	res, _ := tool.Execute(ctx, params)
+	if !res.Success {
+		t.Fatalf("expected success preserving richer mermaid diagram, got %+v", res)
+	}
+	doc := ctx.Mutable.AnswerDocument()
+	if doc == nil {
+		t.Fatal("answer document missing after successful emit")
+	}
+	if !strings.Contains(doc.Summary, "CLI flag (override)") || !strings.Contains(doc.Summary, "codrax.yaml (config)") {
+		t.Fatalf("existing richer mermaid diagram should be preserved, got: %q", doc.Summary)
+	}
+	if !strings.Contains(doc.Summary, "DefaultExploreHeuristics (code default)") {
+		t.Fatalf("expected richer three-layer precedence diagram to survive normalization, got: %q", doc.Summary)
+	}
+	if !strings.Contains(doc.Summary, "```") {
+		t.Fatalf("expected a fenced diagram to survive normalization, got: %q", doc.Summary)
 	}
 }
 

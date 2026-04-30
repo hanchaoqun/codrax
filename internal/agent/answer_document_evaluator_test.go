@@ -343,14 +343,15 @@ func TestAnswerDocumentEvaluator_BuildInitialInstruction_RendersConfigTraceDiagr
 		"### Config Trace Precedence",
 		"## First-Pass Diagram Reference",
 		"## Precedence Role Coverage",
-		"`default` → `internal/types/config.go:707`",
-		"`config` → `codrax.yaml.example:20`",
-		"`runtime` → `internal/config/runtime.go:194`",
+		"`code default` [default] → `internal/types/config.go:707`",
+		"`config file` [config] → `codrax.yaml.example:20`",
+		"`runtime binding` [runtime] → `internal/config/runtime.go:194`",
+		"`operator override` [override] → `cmd/root.go:1381`",
 		"codrax.yaml.example:20",
 		"internal/types/config.go:707",
 		"cmd/root.go:1381",
-		"use grounded source labels instead of numbered layers",
-		"validated `diagram_role_hint` evidence",
+		"prefer the validated role-labeled precedence chain below",
+		"compiled role abstraction backed by grounded evidence",
 		"highest precedence at the top to lowest precedence at the bottom",
 		"`override` = highest-precedence operator / CLI layer",
 		"`runtime` is the binding / merge code path",
@@ -361,8 +362,8 @@ func TestAnswerDocumentEvaluator_BuildInitialInstruction_RendersConfigTraceDiagr
 		// "MAY add additional grounded layers" wording replaces it.
 		"grounded FLOOR",
 		"add additional grounded precedence layers when your investigation supports a richer chain",
-		"Conceptual layer names requested by the user belong in prose headings or bullets",
-		"keep that explanation in prose outside the fenced diagram",
+		"Every node you keep in this diagram must also have a matching citation in `citations[]` THROUGH its supporting anchor above",
+		"supporting anchors are listed elsewhere in the prompt",
 		"## Submission Checklist",
 		"FLOOR you can extend, not a verbatim ceiling",
 		"every fenced-diagram node must have its own grounded citation",
@@ -1585,6 +1586,8 @@ func TestRenderRetryDiagramSeedFenceForRepair_ConfigTraceRejectKeepsValidatedPre
 	}
 	got := renderRetryDiagramSeedFenceForRepair(ctx, repair)
 	for _, want := range []string{
+		"runtime binding",
+		"code default",
 		"internal/config/runtime.go:231",
 		"internal/types/config.go:707",
 	} {

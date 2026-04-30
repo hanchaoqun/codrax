@@ -71,6 +71,36 @@ func TestGroundItem_Tier1LineText(t *testing.T) {
 	}
 }
 
+func TestGroundItem_ConfigSurfaceCommentAllowsLooseCorroboration(t *testing.T) {
+	history := []types.ToolResult{
+		buildGutterReadResult("codrax.yaml.example", 20, []string{
+			"# Precedence (lowest wins last):",
+			"#",
+			"#   code defaults  <  <exeDir>/codrax.yaml  <  command-line flags",
+		}, 24),
+	}
+	gc := &Context{LineIndex: buildLineIndex(history, "")}
+	it := &types.EvidenceItem{
+		Kind:                 types.EvidenceDirect,
+		Source:               "codrax.yaml.example",
+		LineStart:            22,
+		AnchorKind:           types.AnchorDefinition,
+		AnchorSymbol:         "exeDir",
+		Subject:              "codrax.yaml",
+		Object:               "command-line flags",
+		Summary:              "code defaults < codrax.yaml < command-line flags",
+		DiagramRole:          types.EvidenceDiagramRoleConfig,
+		RequestedDiagramRole: types.EvidenceDiagramRoleConfig,
+	}
+	GroundItem(it, gc)
+	if it.GroundingStatus != types.GroundingGrounded {
+		t.Fatalf("status: %q, want grounded", it.GroundingStatus)
+	}
+	if it.GroundingTier != types.TierLineText {
+		t.Fatalf("tier: %q, want line_text", it.GroundingTier)
+	}
+}
+
 // TestGroundItem_Tier2SymbolTable_Definition covers the symbol-table
 // grounding path: read_file history is empty but the graph has a
 // matching Symbol at the cited line. Tier 2 accepts.

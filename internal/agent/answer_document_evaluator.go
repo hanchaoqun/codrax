@@ -612,7 +612,7 @@ func renderAnswerDocFirstPassDiagramSkeleton(ctx *types.AgentContext) string {
 	// fan-out, or switch to `sequenceDiagram` — the only hard rule
 	// being that every label remains grounded in citations[] or
 	// Log Triage frames.
-	b.WriteString("Below is a grounded starting reference — every node listed here is already corroborated by evidence in this dispatch. Use it as a FLOOR, not a ceiling:\n\n")
+	b.WriteString("Below is a grounded starting reference — every node listed here is already corroborated by evidence in this dispatch, and some scenarios may supply prevalidated role labels whose supporting anchors are listed elsewhere in the prompt. Use it as a FLOOR, not a ceiling:\n\n")
 	b.WriteString("- You SHOULD extend it with additional grounded nodes when the investigation supports a richer mechanism (e.g. more call-chain hops, branch points, fan-out, error paths).\n")
 	b.WriteString("- You MAY change the direction (`flowchart LR` ↔ `TD` / `RL` / `BT`), introduce subgraph-like clusters as flat nodes, or switch to `sequenceDiagram` if actor-to-actor better fits the mechanism — none of these are forbidden.\n")
 	b.WriteString("- You MAY add branches / fan-out / multi-source / multi-sink shapes; the linear chain in the reference is just the safest default skeleton, not a structural requirement.\n")
@@ -672,11 +672,7 @@ func collectAnswerDocDiagramFileLabels(ctx *types.AgentContext) []string {
 		}
 	}
 	for _, anchor := range collectConfigTraceDiagramAnchors(ctx) {
-		label := strings.TrimSpace(anchor.Label)
-		if idx := strings.LastIndex(label, ":"); idx > 0 {
-			label = label[:idx]
-		}
-		appendLabel(label)
+		appendLabel(anchor.Source)
 	}
 	for _, chain := range ctx.AnswerChains {
 		if types.DiagramEvidenceEligible(chain.Item) {
@@ -842,15 +838,23 @@ func renderAnswerDocDiagramConfigTraceSeed(ctx *types.AgentContext) string {
 	// Mermaid-preferred contract. Pre-2026-04-30 this hand-built a
 	// bare ``` fence with `node\n  ->\n` ASCII shape that taught
 	// the model to copy ASCII whenever a config-trace question fired.
-	b.WriteString("For config-precedence questions, use grounded source labels instead of numbered layers. The fenced chain below is ordered from highest precedence at the top to lowest precedence at the bottom using validated `diagram_role_hint` evidence. Treat it as a grounded FLOOR — keep every label, but you MAY add additional grounded precedence layers when your investigation supports a richer chain (still subject to the citation-grade rules below).\n\n")
+	b.WriteString("For config-precedence questions, prefer the validated role-labeled precedence chain below. The chain is ordered from highest precedence at the top to lowest precedence at the bottom. Each node label is a compiled role abstraction backed by grounded evidence in this dispatch; the supporting file:line anchors are listed immediately after the fence. Treat it as a grounded FLOOR — keep any role label you retain verbatim, but you MAY add additional grounded precedence layers when your investigation supports a richer chain (still subject to the citation-grade rules below).\n\n")
 	b.WriteString(types.RenderConfigTraceDiagramFence(anchors))
+	b.WriteByte('\n')
+	for _, anchor := range anchors {
+		support := types.ConfigTraceDiagramAnchorSupportLabel(anchor)
+		if support == "" {
+			continue
+		}
+		fmt.Fprintf(&b, "- `%s` [%s] → `%s`\n", anchor.Label, anchor.Role, support)
+	}
 	b.WriteByte('\n')
 	b.WriteString("Precedence semantics live in prose, not in invented node names: `override` = highest-precedence operator / CLI layer, `config` = grounded repo/user config-file layer (YAML/JSON/TOML/INI/etc.), `default` = code-default fallback. `runtime` is the binding / merge code path between those layers, not a standalone user-config tier.\n")
 	if missing := missingConfigTraceDiagramRoles(rolesPresent); len(missing) > 0 {
 		fmt.Fprintf(&b, "Current grounded evidence does NOT include anchor(s) for these precedence role(s): %s. Do not add fenced-diagram nodes for missing roles unless you first cite a real repo anchor for them; if you need to explain those semantics, keep them in prose as general precedence rules rather than grounded nodes in this dispatch.\n", strings.Join(missing, ", "))
 	}
-	b.WriteString("Every node you keep in this diagram must also have a matching citation in `citations[]`. If you cannot cite a node, delete it from the chain instead of renaming it to an abstract bucket name (for example a generic step number, the literal `CLI`, or a tier label). Keep each node label as a plain grounded file/path label; do not prepend ordinal-tier wrappers.\n")
-	b.WriteString("If you only need part of the chain, delete unused nodes rather than inventing new abstract labels. Conceptual layer names requested by the user belong in prose headings or bullets unless those exact file/path labels are themselves cited. If you want to explain semantics such as defaults, config-file load, runtime binding, or operator override, keep that explanation in prose outside the fenced diagram and cite it there. If you introduce a different file / symbol / path label, ground it first.")
+	b.WriteString("Every node you keep in this diagram must also have a matching citation in `citations[]` THROUGH its supporting anchor above. If you cannot cite a node's supporting anchor, delete that node from the chain instead of renaming it to a different bucket name (for example a generic step number, a bare `CLI`, or a tier label).\n")
+	b.WriteString("If you only need part of the chain, delete unused nodes rather than inventing new role labels. Conceptual layer names requested by the user belong in prose headings or bullets unless the prompt already supplied that role label in the precedence chain. If you introduce a different file / symbol / path label inside the fenced diagram, ground it first.")
 	return strings.TrimSpace(b.String())
 }
 
@@ -883,7 +887,22 @@ func collectConfigTraceDiagramAnchors(ctx *types.AgentContext) []configTraceDiag
 		}
 		return out
 	}
-	return nil
+	if ctx == nil || ctx.AnalysisIR == nil {
+		return nil
+	}
+	stableAbsent := ctx.Mutable != nil && strings.EqualFold(strings.TrimSpace(ctx.Mutable.InvestigationResultKind()), "absence")
+	anchors := types.CollectConfigTraceDiagramAnchors(
+		ctx.AnalysisIR.RequestModel.Scenario,
+		stableAbsent,
+		ctx.AnalysisIR.AnswerContract.ExactResolution,
+		answerDocExactContextRequiredFiles(ctx),
+		ctx.EvidenceItems,
+	)
+	out := make([]configTraceDiagramAnchor, 0, len(anchors))
+	for _, anchor := range anchors {
+		out = append(out, configTraceDiagramAnchor(anchor))
+	}
+	return out
 }
 
 func answerDocExactContextRequiredFiles(ctx *types.AgentContext) []string {
@@ -1191,7 +1210,7 @@ func renderAnswerDocConfigTraceRoleCoverage(ctx *types.AgentContext, contract *t
 	b.WriteString("## Precedence Role Coverage\n\n")
 	b.WriteString("If you keep multi-layer precedence / lineage context on the user-visible surface, avoid collapsing it to a single mechanism anchor. Prefer keeping at least one validated anchor for each available precedence role below.\n\n")
 	for _, anchor := range anchors {
-		fmt.Fprintf(&b, "- `%s` → `%s`\n", anchor.Role, anchor.Label)
+		fmt.Fprintf(&b, "- `%s` → `%s`\n", anchor.Role, types.ConfigTraceDiagramAnchorSupportLabel(anchor))
 	}
 	b.WriteString("\n")
 	return b.String()
@@ -2242,7 +2261,7 @@ func appendRetryDiagramSeedHint(hint string, ctx *types.AgentContext, repair *ty
 	// every node grounded, add more grounded nodes if richer
 	// mechanism is supported, and the seed shape itself is
 	// Mermaid so an extension stays in the preferred form.
-	return hint + " A grounded reference fence is below — every node is already cited so it is the safest FLOOR for the repair. You MAY extend it with additional grounded nodes / branches when your evidence supports a richer mechanism; the only hard rule is that every label inside the fence stays grounded. ` ```mermaid ` form is preferred:\n\n" + seed
+	return hint + " A grounded reference fence is below — every node is already corroborated by the current dispatch, and some scenarios may use prevalidated role labels whose supporting anchors are listed elsewhere in the prompt. It is the safest FLOOR for the repair. You MAY extend it with additional grounded nodes / branches when your evidence supports a richer mechanism; the only hard rule is that every label inside the fence stays grounded or is an unchanged role label supplied by the prompt's diagram seed. ` ```mermaid ` form is preferred:\n\n" + seed
 }
 
 func renderRetryDiagramSeedFence(ctx *types.AgentContext) string {
@@ -2250,8 +2269,9 @@ func renderRetryDiagramSeedFence(ctx *types.AgentContext) string {
 }
 
 type retryDiagramSeed struct {
-	Fence     string
-	MatchKeys []string
+	Fence         string
+	MatchKeys     []string
+	PreserveFence bool
 }
 
 type retryDiagramSeedFilter struct {
@@ -2265,6 +2285,11 @@ func renderRetryDiagramSeedFenceForRepair(ctx *types.AgentContext, repair *types
 	}
 	filter := buildRetryDiagramSeedFilter(repair)
 	if repair == nil && !filter.Strict {
+		if ctx.AnalysisIR != nil && ctx.AnalysisIR.RequestModel.Scenario == types.ScenarioConfigTrace {
+			if seed := buildRetryConfigTraceDiagramSeed(ctx); strings.TrimSpace(seed.Fence) != "" {
+				return seed.Fence
+			}
+		}
 		if plan := answerSurfacePlan(ctx); plan != nil {
 			if fence := strings.TrimSpace(plan.CompiledDiagramFence); fence != "" {
 				return fence
@@ -2355,6 +2380,9 @@ func renderRetryDiagramSeedFenceForKind(ctx *types.AgentContext, kind types.Diag
 	if len(allowed) == 0 {
 		return ""
 	}
+	if allowed[0].PreserveFence {
+		return allowed[0].Fence
+	}
 	merged := mergeRetrySeedNodes(allowed)
 	if len(merged) >= 2 {
 		return types.RenderLinearDiagramFence(merged, retryDiagramSeedNodeCap)
@@ -2401,16 +2429,24 @@ func buildRetryConfigTraceDiagramSeed(ctx *types.AgentContext) retryDiagramSeed 
 		return retryDiagramSeed{}
 	}
 	keys := make([]string, 0, len(anchors)*2)
+	var b strings.Builder
+	fence := types.RenderConfigTraceDiagramFence(anchors)
+	if strings.TrimSpace(fence) == "" {
+		return retryDiagramSeed{}
+	}
+	b.WriteString(fence)
 	for _, anchor := range anchors {
-		label := strings.TrimSpace(anchor.Label)
-		if label == "" {
+		support := types.ConfigTraceDiagramAnchorSupportLabel(anchor)
+		if support == "" {
 			continue
 		}
-		keys = append(keys, retryDiagramSeedMatchKeys(label)...)
+		keys = append(keys, retryDiagramSeedMatchKeys(support)...)
+		fmt.Fprintf(&b, "\n- `%s` [%s] → `%s`", anchor.Label, anchor.Role, support)
 	}
 	return retryDiagramSeed{
-		Fence:     types.RenderConfigTraceDiagramFence(anchors),
-		MatchKeys: dedupeRetryDiagramNodes(keys, 0),
+		Fence:         strings.TrimSpace(b.String()),
+		MatchKeys:     dedupeRetryDiagramNodes(keys, 0),
+		PreserveFence: true,
 	}
 }
 

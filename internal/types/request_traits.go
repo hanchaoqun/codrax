@@ -25,14 +25,50 @@ func IsScalarSourceLiteralLookup(rm RequestModel) bool {
 	if len(rm.SubTopics) > 1 {
 		return false
 	}
-	if !rm.Predicates.IsScalarAnswer ||
-		rm.Predicates.IsCountQuestion ||
+	if rm.Predicates.IsCountQuestion ||
 		rm.Predicates.IsCategoryEnumeration ||
 		rm.Predicates.IsCrossComponent ||
-		rm.Predicates.IsRelationalLookup {
+		rm.Predicates.IsRelationalLookup ||
+		rm.Predicates.IsHistoryLookup {
 		return false
 	}
-	switch rm.AnswerSubject.Kind {
+	if !isScalarSourceLiteralSubjectKind(rm.AnswerSubject.Kind) {
+		return false
+	}
+	if rm.Predicates.IsScalarAnswer {
+		return true
+	}
+	// Fallback for role-locate lookups: the analyzer sometimes
+	// correctly identifies the subject kind (function / type / route /
+	// file path) but still emits a prose/list carrier. For a single,
+	// simple, non-relational request over one source literal, keep the
+	// answer in the scalar lane even when is_scalar_answer=false.
+	if rm.Complexity != ComplexitySimple {
+		return false
+	}
+	// Only activate this fallback when the user did NOT already name
+	// a concrete source literal in the request. If there are
+	// analyzer-detected entities / primary entities, the question is
+	// more likely "explain Foo" than "locate the thing that plays this
+	// role", and the strict scalar_answer=true path should decide.
+	if len(rm.AnalyzerHints.PrimaryEntities) > 0 || len(rm.AnalyzerHints.Entities) > 0 {
+		return false
+	}
+	switch rm.Intent {
+	case IntentExplain, IntentUnknown, IntentReturnValue:
+	default:
+		return false
+	}
+	switch NormalizeRequirementKind(rm.AnalyzerHints.Kind) {
+	case ReqMechanism, ReqRegistration, ReqUnknown:
+		return true
+	default:
+		return false
+	}
+}
+
+func isScalarSourceLiteralSubjectKind(kind AnswerSubjectKind) bool {
+	switch kind {
 	case SubjectFunctionName,
 		SubjectTypeName,
 		SubjectInterface,
@@ -58,6 +94,9 @@ func IsScalarRoleLocateLookup(rm RequestModel) bool {
 	}
 	if rm.AnswerSubject.Kind == SubjectReturnValue {
 		return false
+	}
+	if !rm.Predicates.IsScalarAnswer {
+		return true
 	}
 	if strings.EqualFold(strings.TrimSpace(rm.AnalyzerHints.Kind), "return_value") {
 		return true

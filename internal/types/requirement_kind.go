@@ -240,6 +240,9 @@ func IsNegativeEvidencePredicate(predicate string) bool {
 	if p == "" {
 		return false
 	}
+	p = strings.ReplaceAll(p, "_", " ")
+	p = strings.ReplaceAll(p, "-", " ")
+	p = strings.Join(strings.Fields(p), " ")
 	if strings.HasPrefix(p, "does not ") || strings.HasPrefix(p, "did not ") || strings.HasPrefix(p, "is not ") {
 		return true
 	}

@@ -856,16 +856,37 @@ func tier1LineText(it *types.EvidenceItem, gc *Context) bool {
 	if !ok {
 		return false
 	}
+	configSurface := configSurfaceAllowsLooseLineGrounding(it)
 	// Anchor-first check: when the LLM supplied AnchorSymbol, pick the
 	// specific line in ±2 that actually contains the token, then comment-
 	// check that line. Per-line resolution is needed because the
 	// comment-exclusion gate is line-level, not window-level.
 	if it.AnchorSymbol != "" {
 		matchedLine, ok := findAnchorLine(fileLines, it.LineStart, 2, it.AnchorSymbol)
-		if !ok {
+		if ok {
+			if isLineComment(fileLines, matchedLine, it.Source) && !configSurface {
+				return false
+			}
+			return true
+		}
+		if !configSurface {
 			return false
 		}
-		if isLineComment(fileLines, matchedLine, it.Source) {
+		// Config-file surfaces (YAML / JSON / TOML / INI / etc.) often
+		// carry precedence or binding facts on comment / key lines whose
+		// decisive anchor is the line itself rather than a durable code
+		// identifier. When the LLM guessed an anchor_symbol poorly, fall
+		// back to corroborating the actual line text against the emitted
+		// semantic fields instead of forcing a symbol-token repair loop.
+		text, exists := lookupLineWithNeighbours(fileLines, it.LineStart, 2)
+		if !exists {
+			return false
+		}
+		if !configSurfaceLineCorroborates(text, it, gc.Graph) {
+			return false
+		}
+		matchedLine, ok = findConfigSurfaceCorroboratingLine(fileLines, it.LineStart, 2, it, gc.Graph)
+		if !ok {
 			return false
 		}
 		return true
@@ -886,10 +907,68 @@ func tier1LineText(it *types.EvidenceItem, gc *Context) bool {
 		// individual line (unusual but possible). Be conservative: reject.
 		return false
 	}
-	if isLineComment(fileLines, matchedLine, it.Source) {
+	if isLineComment(fileLines, matchedLine, it.Source) && !configSurface {
 		return false
 	}
 	return true
+}
+
+func configSurfaceAllowsLooseLineGrounding(it *types.EvidenceItem) bool {
+	if it == nil || it.Source == "" {
+		return false
+	}
+	role := it.DiagramRole
+	if role == types.EvidenceDiagramRoleUnknown {
+		role = it.RequestedDiagramRole
+	}
+	return role == types.EvidenceDiagramRoleConfig &&
+		types.LooksLikeConfigFilePath(it.Source)
+}
+
+func configSurfaceLineCorroborates(lineText string, it *types.EvidenceItem, graph *repomap.Graph) bool {
+	if strings.TrimSpace(lineText) == "" || it == nil {
+		return false
+	}
+	return lineCorroborates(
+		lineText,
+		strings.Join([]string{it.Subject, it.Object, it.Condition, it.Summary}, "\n"),
+		"",
+		"",
+		graph,
+	)
+}
+
+func findConfigSurfaceCorroboratingLine(fileLines map[int]string, center, radius int, it *types.EvidenceItem, graph *repomap.Graph) (int, bool) {
+	if text, ok := fileLines[center]; ok {
+		if configSurfaceLineCorroborates(text, it, graph) {
+			return center, true
+		}
+	}
+	bestLine, bestDist := 0, radius+1
+	for i := center - radius; i <= center+radius; i++ {
+		if i == center || i <= 0 {
+			continue
+		}
+		text, ok := fileLines[i]
+		if !ok {
+			continue
+		}
+		if !configSurfaceLineCorroborates(text, it, graph) {
+			continue
+		}
+		d := i - center
+		if d < 0 {
+			d = -d
+		}
+		if d < bestDist {
+			bestDist = d
+			bestLine = i
+		}
+	}
+	if bestLine > 0 {
+		return bestLine, true
+	}
+	return 0, false
 }
 
 // findAnchorLine locates the specific line within [center-radius,

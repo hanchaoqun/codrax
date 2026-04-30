@@ -613,7 +613,7 @@ func exactResolutionEvidenceCanSatisfyRelatedContextWithStatuses(c *ExactResolut
 	default:
 		return false
 	}
-	if !ExactResolutionSourceIsDefiningPrimaryProofLike(c, item.Source) {
+	if !exactResolutionSourceAllowedForRelatedContext(c, item) {
 		return false
 	}
 	switch item.ContextRole {
@@ -720,8 +720,14 @@ func ConfigTraceValidatedDiagramRoleInFiles(contract *ExactResolutionContract, i
 		return EvidenceDiagramRoleUnknown
 	}
 	switch item.ContextRole {
-	case EvidenceContextRoleIllustrativeOnly, EvidenceContextRoleAbsenceSupport:
-		return EvidenceDiagramRoleUnknown
+	case EvidenceContextRoleAbsenceSupport:
+		if !configTraceAbsenceSupportCanCarryDiagramRole(item) {
+			return EvidenceDiagramRoleUnknown
+		}
+	case EvidenceContextRoleIllustrativeOnly:
+		if item.DiagramRole != EvidenceDiagramRoleConfig || !LooksLikeConfigFilePath(item.Source) {
+			return EvidenceDiagramRoleUnknown
+		}
 	}
 	switch item.DiagramRole {
 	case EvidenceDiagramRoleConfig:
@@ -737,6 +743,13 @@ func ConfigTraceValidatedDiagramRoleInFiles(contract *ExactResolutionContract, i
 		}
 	}
 	return EvidenceDiagramRoleUnknown
+}
+
+func configTraceAbsenceSupportCanCarryDiagramRole(item EvidenceItem) bool {
+	return item.ContextRole == EvidenceContextRoleAbsenceSupport &&
+		item.DiagramRole == EvidenceDiagramRoleConfig &&
+		LooksLikeConfigFilePath(item.Source) &&
+		IsNegativeEvidencePredicate(item.Predicate)
 }
 
 // ConfigTraceDiagramRoleAnchorCompatible applies role-specific
@@ -834,11 +847,14 @@ func configTraceCitationCandidateScore(contract *ExactResolutionContract, role E
 }
 
 func configTraceDiagramEvidenceWithinScope(contract *ExactResolutionContract, item EvidenceItem, requiredFiles []string) bool {
+	if len(requiredFiles) > 0 && exactResolutionRequiredFilesContain(requiredFiles, item.Source) {
+		return true
+	}
+	if item.DiagramRole == EvidenceDiagramRoleConfig && LooksLikeConfigFilePath(item.Source) {
+		return true
+	}
 	if contract == nil {
-		if len(requiredFiles) == 0 {
-			return true
-		}
-		return exactResolutionRequiredFilesContain(requiredFiles, item.Source)
+		return len(requiredFiles) == 0
 	}
 	return configTraceDiagramEvidenceMatchesContext(contract, item)
 }
@@ -866,6 +882,16 @@ func LooksLikeConfigFilePath(source string) bool {
 		}
 	}
 	return false
+}
+
+func exactResolutionSourceAllowedForRelatedContext(c *ExactResolutionContract, item EvidenceItem) bool {
+	if ExactResolutionSourceIsDefiningPrimaryProofLike(c, item.Source) {
+		return true
+	}
+	return c != nil &&
+		c.TargetKind == SubjectConfigKey &&
+		LooksLikeConfigFilePath(item.Source) &&
+		(item.DiagramRole == EvidenceDiagramRoleConfig || item.RequestedDiagramRole == EvidenceDiagramRoleConfig)
 }
 
 func LooksLikeWrappedConfigFilePath(source string) bool {
@@ -900,6 +926,9 @@ func isConfigLikeExtension(part string) bool {
 
 func configTraceDiagramEvidenceMatchesContext(contract *ExactResolutionContract, item EvidenceItem) bool {
 	if contract == nil {
+		return true
+	}
+	if configTraceAbsenceSupportCanCarryDiagramRole(item) {
 		return true
 	}
 	if ExactResolutionDirectAnchorMatchesAnyTarget(contract, item.Subject, item.AnchorSymbol, item.Object) {

@@ -303,6 +303,86 @@ func TestBuildAnswerSurfacePlan_UsesMinimalSummaryModeForRoleLocateScalar(t *tes
 	}
 }
 
+func TestBuildAnswerSurfacePlan_UsesMinimalSummaryModeForUnnamedRoleLocateFallback(t *testing.T) {
+	ir := &AnalysisIR{
+		RequestModel: RequestModel{
+			Intent:        IntentExplain,
+			Complexity:    ComplexitySimple,
+			Scenario:      ScenarioGeneric,
+			AnswerSubject: AnswerSubject{Kind: SubjectFunctionName},
+			AnalyzerHints: AnalyzerHints{
+				Kind: "mechanism",
+			},
+		},
+		AnswerContract: AnswerContract{
+			RequiredAnswerShape: ShapeValue,
+		},
+	}
+
+	plan := BuildAnswerSurfacePlan(ir, NewMutableState(""), nil, nil, nil, nil)
+	if plan == nil {
+		t.Fatalf("BuildAnswerSurfacePlan returned nil")
+	}
+	if plan.SummarySurfaceMode != AnswerSummarySurfaceMinimalScalarRoleLocate {
+		t.Fatalf("summary surface mode = %s, want %s", plan.SummarySurfaceMode, AnswerSummarySurfaceMinimalScalarRoleLocate)
+	}
+}
+
+func TestBuildAnswerSurfacePlan_ConfigTraceCompiledFenceUsesRoleLabels(t *testing.T) {
+	mut := NewMutableState("")
+	ir := &AnalysisIR{
+		RequestModel: RequestModel{
+			Scenario: ScenarioConfigTrace,
+		},
+		AnswerContract: AnswerContract{
+			RequiredAnswerShape: ShapeExplanation,
+			Diagram: &DiagramContract{
+				Required:       true,
+				PreferredKinds: []DiagramKind{DiagramFlow},
+			},
+		},
+	}
+	evidence := []EvidenceItem{
+		{
+			Kind:            EvidenceDirect,
+			Source:          "internal/types/config.go",
+			LineStart:       707,
+			AnchorKind:      AnchorDefinition,
+			AnchorSymbol:    "DefaultExploreHeuristics",
+			ContextRole:     EvidenceContextRoleRelatedContext,
+			DiagramRole:     EvidenceDiagramRoleDefault,
+			GroundingStatus: GroundingGrounded,
+		},
+		{
+			Kind:            EvidenceDirect,
+			Source:          "internal/config/runtime.go",
+			LineStart:       231,
+			AnchorKind:      AnchorAssignment,
+			AnchorSymbol:    "ExploreMidLoopMinIteration",
+			ContextRole:     EvidenceContextRoleRelatedContext,
+			DiagramRole:     EvidenceDiagramRoleRuntime,
+			GroundingStatus: GroundingGrounded,
+		},
+	}
+
+	plan := BuildAnswerSurfacePlan(ir, mut, nil, nil, nil, evidence)
+	if plan == nil {
+		t.Fatal("BuildAnswerSurfacePlan returned nil")
+	}
+	if got := plan.CompiledDiagramFence; !strings.Contains(got, "runtime binding") || !strings.Contains(got, "code default") {
+		t.Fatalf("compiled config-trace fence should use role labels, got: %q", got)
+	}
+	if strings.Contains(plan.CompiledDiagramFence, "internal/config/runtime.go:231") || strings.Contains(plan.CompiledDiagramFence, "internal/types/config.go:707") {
+		t.Fatalf("compiled config-trace fence should keep source anchors outside node labels, got: %q", plan.CompiledDiagramFence)
+	}
+	if len(plan.ConfigTraceDiagramAnchors) != 2 {
+		t.Fatalf("config-trace anchors = %d, want 2", len(plan.ConfigTraceDiagramAnchors))
+	}
+	if got := ConfigTraceDiagramAnchorSupportLabel(plan.ConfigTraceDiagramAnchors[0]); got == "" {
+		t.Fatal("expected config-trace anchor to preserve support location")
+	}
+}
+
 func TestBuildAnswerSurfacePlan_CollectsLogSourceDriftAnchors(t *testing.T) {
 	mut := NewMutableState("")
 	logBundle := &LogBundle{

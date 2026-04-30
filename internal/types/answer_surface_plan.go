@@ -73,9 +73,11 @@ type ExactContextSurfaceLabel struct {
 }
 
 type ConfigTraceDiagramAnchor struct {
-	Role  string
-	Label string
-	Score int
+	Role   string
+	Label  string
+	Source string
+	Line   int
+	Score  int
 }
 
 type LogSourceDriftAnchor struct {
@@ -705,6 +707,33 @@ func RenderConfigTraceDiagramFence(anchors []ConfigTraceDiagramAnchor) string {
 	return RenderLinearDiagramFence(nodes, 0)
 }
 
+func ConfigTraceDiagramRoleNodeLabel(role EvidenceDiagramRole) string {
+	switch CanonicalEvidenceDiagramRole(string(role)) {
+	case EvidenceDiagramRoleOverride:
+		return "operator override"
+	case EvidenceDiagramRoleConfig:
+		return "config file"
+	case EvidenceDiagramRoleRuntime:
+		return "runtime binding"
+	case EvidenceDiagramRoleDefault:
+		return "code default"
+	default:
+		return ""
+	}
+}
+
+func ConfigTraceDiagramAnchorSupportLabel(anchor ConfigTraceDiagramAnchor) string {
+	source := strings.TrimSpace(anchor.Source)
+	switch {
+	case source == "":
+		return ""
+	case anchor.Line > 0:
+		return fmt.Sprintf("%s:%d", source, anchor.Line)
+	default:
+		return source
+	}
+}
+
 // RenderLogDiagramFence emits a ```mermaid``` flowchart skeleton
 // for a stack-frame call chain (innermost → outer). Same rationale
 // as RenderLinearDiagramFence — a runtime-injected ASCII skeleton
@@ -1246,12 +1275,9 @@ func CollectConfigTraceDiagramAnchors(
 		if role == EvidenceDiagramRoleUnknown {
 			continue
 		}
-		label := strings.TrimSpace(ev.Source)
-		if label == "" {
+		source := strings.TrimSpace(ev.Source)
+		if source == "" {
 			continue
-		}
-		if ev.LineStart > 0 {
-			label = fmt.Sprintf("%s:%d", label, ev.LineStart)
 		}
 		score := configTraceCitationCandidateScore(contractForConfigTraceSurfacePlan(contract, stableAbsent), role)
 		if ev.LineStart > 0 {
@@ -1262,9 +1288,11 @@ func CollectConfigTraceDiagramAnchors(
 			continue
 		}
 		best[key] = ConfigTraceDiagramAnchor{
-			Role:  key,
-			Label: label,
-			Score: score,
+			Role:   key,
+			Label:  ConfigTraceDiagramRoleNodeLabel(role),
+			Source: source,
+			Line:   ev.LineStart,
+			Score:  score,
 		}
 	}
 	var out []ConfigTraceDiagramAnchor
@@ -2013,10 +2041,13 @@ func configTraceSeedDiagramRoleInFiles(contract *ExactResolutionContract, item E
 		return EvidenceDiagramRoleUnknown
 	}
 	if item.ContextRole == EvidenceContextRoleIllustrativeOnly ||
-		item.ContextRole == EvidenceContextRoleAbsenceSupport ||
 		item.Kind == EvidenceUnresolved ||
 		item.Kind == EvidenceTruncated ||
 		item.GroundingStatus == GroundingUngrounded {
+		return EvidenceDiagramRoleUnknown
+	}
+	if item.ContextRole == EvidenceContextRoleAbsenceSupport &&
+		!configTraceAbsenceSupportCanCarryDiagramRole(item) {
 		return EvidenceDiagramRoleUnknown
 	}
 	switch item.DiagramRole {
