@@ -31,11 +31,13 @@ func TestReconcileSemanticPredicates(t *testing.T) {
 		}
 	})
 
-	t.Run("trace intent keeps cross component", func(t *testing.T) {
+	t.Run("single-topic structural trace clears cross component", func(t *testing.T) {
 		rm := types.RequestModel{
 			RawRequest: "X 是怎么一路调用到 Y 的？",
 			Intent:     types.IntentTrace,
+			PredicateAxis: types.AxisCall,
 			AnalyzerHints: types.AnalyzerHints{
+				Kind:              "call_chain",
 				Entities:          []string{"X", "Y"},
 				PrimaryEntities:   []string{"X", "Y"},
 				MentionedEntities: []string{"X", "Y"},
@@ -46,11 +48,11 @@ func TestReconcileSemanticPredicates(t *testing.T) {
 			},
 		}
 		got, reason := reconcileSemanticPredicates(rm)
-		if !got.IsCrossComponent {
-			t.Fatalf("IsCrossComponent = false, want true")
+		if got.IsCrossComponent {
+			t.Fatalf("IsCrossComponent = true, want false")
 		}
-		if reason != "" {
-			t.Fatalf("reason = %q, want empty", reason)
+		if reason == "" {
+			t.Fatal("reason = empty, want reconcile reason")
 		}
 	})
 
@@ -68,6 +70,24 @@ func TestReconcileSemanticPredicates(t *testing.T) {
 				IsCrossComponent:   true,
 				IsRelationalLookup: true,
 			},
+		}
+		got, reason := reconcileSemanticPredicates(rm)
+		if !got.IsCrossComponent {
+			t.Fatalf("IsCrossComponent = false, want true")
+		}
+		if reason != "" {
+			t.Fatalf("reason = %q, want empty", reason)
+		}
+	})
+
+	t.Run("multi-topic trace keeps cross component", func(t *testing.T) {
+		rm := types.RequestModel{
+			RawRequest:     "X 是怎么一路调用到 Y 的？同时 Z 又是怎么接进去的？",
+			Intent:         types.IntentTrace,
+			PredicateAxis:  types.AxisCall,
+			SubTopics:      []types.SubTopic{{Summary: "X -> Y"}, {Summary: "Z -> Y"}},
+			AnalyzerHints:  types.AnalyzerHints{Kind: "call_chain"},
+			Predicates:     types.SemanticPredicates{IsCrossComponent: true},
 		}
 		got, reason := reconcileSemanticPredicates(rm)
 		if !got.IsCrossComponent {

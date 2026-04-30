@@ -157,11 +157,24 @@ func TestCompile_StructuralTraceUsesTraceWalkthroughTemplate(t *testing.T) {
 	}
 }
 
-func TestCompile_CrossComponentTraceKeepsArchitectureTemplate(t *testing.T) {
+func TestCompile_SingleTopicCrossComponentTraceStillUsesTraceWalkthroughTemplate(t *testing.T) {
 	rm := sampleRM(types.ScenarioArchitectureExplain, types.IntentTrace, types.ComplexityModerate)
 	rm.PredicateAxis = types.AxisCall
 	rm.AnalyzerHints.Kind = "call_chain"
 	rm.Predicates.IsCrossComponent = true
+
+	out := compileT(rm)
+	if countNodeType(out.TaskGraph, types.NodeReconcile) != 0 {
+		t.Fatalf("single-topic cross-component trace should still avoid reconcile node")
+	}
+}
+
+func TestCompile_MultiTopicCrossComponentTraceKeepsArchitectureTemplate(t *testing.T) {
+	rm := sampleRM(types.ScenarioArchitectureExplain, types.IntentTrace, types.ComplexityModerate)
+	rm.PredicateAxis = types.AxisCall
+	rm.AnalyzerHints.Kind = "call_chain"
+	rm.Predicates.IsCrossComponent = true
+	rm.SubTopics = []types.SubTopic{{Summary: "path A"}, {Summary: "path B"}}
 
 	out := compileT(rm)
 	if countNodeType(out.TaskGraph, types.NodeReconcile) != 1 {

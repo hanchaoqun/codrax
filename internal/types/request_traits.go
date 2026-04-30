@@ -163,15 +163,30 @@ func IsProjectOrientationQuestion(rm RequestModel) bool {
 // single-topic structural walkthrough (call-chain / flow / dispatch)
 // that benefits from a lighter trace-oriented DAG rather than the
 // heavier architecture-explain template with a dedicated reconcile
-// window. The signals are typed and language-neutral: trace intent +
+// window.
+//
+// Important distinction: a single ordered trace may legitimately cross
+// files / packages / components without becoming a multi-topic
+// architecture survey. What disqualifies the lighter lane is not
+// "crossing modules" by itself, but structurally independent topics
+// (multiple sub-topics), ambiguity that still needs reconciliation, or
+// set-style / relational asks that are not one source-to-sink chain.
+//
+// The signals stay typed and language-neutral: trace intent +
 // structural axis / question kind, while explicitly excluding
-// multi-topic, cross-component, and ambiguity-bearing questions that
-// genuinely need reconciliation.
+// multi-topic, ambiguity-bearing, relational, enumerative, and
+// history-style questions that genuinely need broader orchestration.
 func IsSingleTopicStructuralTrace(rm RequestModel) bool {
 	if rm.Intent != IntentTrace {
 		return false
 	}
-	if len(rm.SubTopics) > 1 || rm.Predicates.IsCrossComponent || HasNonEmptyAmbiguity(rm) {
+	if len(rm.SubTopics) > 1 || HasNonEmptyAmbiguity(rm) {
+		return false
+	}
+	if rm.Predicates.IsRelationalLookup ||
+		rm.Predicates.IsCategoryEnumeration ||
+		rm.Predicates.IsCountQuestion ||
+		rm.Predicates.IsHistoryLookup {
 		return false
 	}
 	switch rm.PredicateAxis {

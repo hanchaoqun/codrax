@@ -610,13 +610,34 @@ func TestReconcileScenario(t *testing.T) {
 		}
 	})
 
-	t.Run("cross-component trace keeps architecture scenario", func(t *testing.T) {
+	t.Run("single-topic cross-component trace still downgrades to generic", func(t *testing.T) {
 		rm := types.RequestModel{
 			Scenario:      types.ScenarioArchitectureExplain,
 			Intent:        types.IntentTrace,
 			PredicateAxis: types.AxisCall,
 			AnalyzerHints: types.AnalyzerHints{Kind: "call_chain"},
 			Predicates:    types.SemanticPredicates{IsCrossComponent: true},
+		}
+		got, reason := reconcileScenario(rm)
+		if got != types.ScenarioGeneric {
+			t.Fatalf("scenario = %q, want %q", got, types.ScenarioGeneric)
+		}
+		if reason == "" {
+			t.Fatal("reason = empty, want non-empty reconcile reason")
+		}
+	})
+
+	t.Run("multi-topic cross-component trace keeps architecture scenario", func(t *testing.T) {
+		rm := types.RequestModel{
+			Scenario:      types.ScenarioArchitectureExplain,
+			Intent:        types.IntentTrace,
+			PredicateAxis: types.AxisCall,
+			AnalyzerHints: types.AnalyzerHints{Kind: "call_chain"},
+			SubTopics: []types.SubTopic{
+				{Summary: "path A"},
+				{Summary: "path B"},
+			},
+			Predicates: types.SemanticPredicates{IsCrossComponent: true},
 		}
 		got, reason := reconcileScenario(rm)
 		if got != types.ScenarioArchitectureExplain {

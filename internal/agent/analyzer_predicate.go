@@ -42,6 +42,11 @@ func reconcilePredicateAxis(declared types.PredicateAxis) (types.PredicateAxis, 
 // question. Leaving is_cross_component=true in that population
 // cascades into complexity inflation and subtopic_coherence retries.
 //
+// Likewise, a single ordered trace can cross files / packages while
+// still remaining one answer topic. That population wants richer trace
+// output (steps + diagrams), not a forced multi-topic architecture
+// reconcile loop.
+//
 // The rule stays language-neutral and repository-agnostic:
 //   - exactly one exact-resolution target survives the request-grounded lane
 //   - no emitted sub-topics
@@ -64,6 +69,16 @@ func reconcileSemanticPredicates(rm types.RequestModel) (types.SemanticPredicate
 		resolved.IsCrossComponent = false
 		return resolved,
 			"single exact-target lookup keeps one answer topic; nearby layers/anchors are context, not independent cross-component sub-topics"
+	}
+	// Single ordered trace rule: a source-to-sink walkthrough may span
+	// multiple files/packages, but it is still one topic when the
+	// request does not split into independent sub-topics or set-style
+	// relationships. Keep the richer trace/diagram lane while avoiding
+	// the multi-topic coherence gate.
+	if types.IsSingleTopicStructuralTrace(rm) {
+		resolved.IsCrossComponent = false
+		return resolved,
+			"single ordered structural trace keeps one answer topic even when the chain crosses files/packages; preserve the trace lane without promoting to multi-topic cross-component reasoning"
 	}
 	// New rule (R1.2 auto-fix): when the LLM emits IsCrossComponent=true
 	// but provides ZERO sub-topics, that's an internal contradiction
