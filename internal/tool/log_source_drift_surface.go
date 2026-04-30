@@ -101,14 +101,31 @@ func RenderDriftBoundedLogBundleSurfaceSummary(bundle *types.LogBundle, lang str
 		return ""
 	}
 	zh := answerDocumentRequiresChinese(lang)
+	canonicalSignals := make(map[string]bool)
+	for _, signal := range types.AllLogSignals() {
+		name := strings.TrimSpace(string(signal))
+		if name != "" {
+			canonicalSignals[strings.ToLower(name)] = true
+		}
+	}
 	signals := make([]string, 0, len(bundle.Meta.Signals))
 	seenSignal := make(map[string]bool)
 	for _, signal := range bundle.Meta.Signals {
 		name := strings.TrimSpace(string(signal))
-		if name == "" || seenSignal[name] {
+		key := strings.ToLower(name)
+		if name == "" || seenSignal[key] {
 			continue
 		}
-		seenSignal[name] = true
+		seenSignal[key] = true
+		signals = append(signals, "`"+name+"`")
+	}
+	for _, entity := range bundle.Entities {
+		name := strings.TrimSpace(entity)
+		key := strings.ToLower(name)
+		if name == "" || !canonicalSignals[key] || seenSignal[key] {
+			continue
+		}
+		seenSignal[key] = true
 		signals = append(signals, "`"+name+"`")
 	}
 	errorTypes := types.LogBundleErrorTypes(bundle)
