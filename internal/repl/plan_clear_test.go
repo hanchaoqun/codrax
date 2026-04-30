@@ -14,14 +14,14 @@ import (
 // sibling .report.json, while leaving other plans untouched.
 func TestPlanClear_ByIDDeletesPlanAndReport(t *testing.T) {
 	store := NewPlanStore(t.TempDir())
-	target, err := store.Save(&types.ChangePlan{
+	target, err := store.SaveForTest(&types.ChangePlan{
 		ID: "plan-target", Status: types.PlanStatusVerifyFailed,
 		Changes: []types.FileChange{{Path: "x.go", Kind: "modify"}},
 	})
 	if err != nil {
 		t.Fatalf("save: %v", err)
 	}
-	other, err := store.Save(&types.ChangePlan{
+	other, err := store.SaveForTest(&types.ChangePlan{
 		ID: "plan-other", Status: types.PlanStatusApplied,
 		Changes: []types.FileChange{{Path: "y.go", Kind: "modify"}},
 	})
@@ -56,7 +56,7 @@ func TestPlanClear_ByIDDeletesPlanAndReport(t *testing.T) {
 // /approve / /plan show resurrect a phantom path.
 func TestPlanClear_ByIDClearsPendingPointerWhenItMatches(t *testing.T) {
 	store := NewPlanStore(t.TempDir())
-	target, _ := store.Save(&types.ChangePlan{
+	target, _ := store.SaveForTest(&types.ChangePlan{
 		ID: "plan-pending", Status: types.PlanStatusPending,
 		Changes: []types.FileChange{{Path: "x.go", Kind: "modify"}},
 	})
@@ -77,11 +77,11 @@ func TestPlanClear_ByIDClearsPendingPointerWhenItMatches(t *testing.T) {
 // would silently drop the user's current /mode plan output.
 func TestPlanClear_ByIDPreservesPointerWhenIDDiffers(t *testing.T) {
 	store := NewPlanStore(t.TempDir())
-	pendingPath, _ := store.Save(&types.ChangePlan{
+	pendingPath, _ := store.SaveForTest(&types.ChangePlan{
 		ID: "plan-keep", Status: types.PlanStatusPending,
 		Changes: []types.FileChange{{Path: "x.go", Kind: "modify"}},
 	})
-	_, _ = store.Save(&types.ChangePlan{
+	_, _ = store.SaveForTest(&types.ChangePlan{
 		ID: "plan-trash", Status: types.PlanStatusRejected,
 		Changes: []types.FileChange{{Path: "y.go", Kind: "modify"}},
 	})
@@ -101,7 +101,7 @@ func TestPlanClear_ByIDPreservesPointerWhenIDDiffers(t *testing.T) {
 // anything.
 func TestPlanClear_ByID_NotFound(t *testing.T) {
 	store := NewPlanStore(t.TempDir())
-	_, _ = store.Save(&types.ChangePlan{
+	_, _ = store.SaveForTest(&types.ChangePlan{
 		ID: "plan-real", Status: types.PlanStatusApplied,
 		Changes: []types.FileChange{{Path: "x.go", Kind: "modify"}},
 	})
@@ -128,7 +128,7 @@ func TestPlanClear_StatusFilterScripted(t *testing.T) {
 		{ID: "plan-b", Status: types.PlanStatusRejected, Changes: []types.FileChange{{Path: "y.go", Kind: "modify"}}},
 		{ID: "plan-c", Status: types.PlanStatusApplied, Changes: []types.FileChange{{Path: "z.go", Kind: "modify"}}},
 	} {
-		if _, err := store.Save(p); err != nil {
+		if _, err := store.SaveForTest(p); err != nil {
 			t.Fatalf("save %s: %v", p.ID, err)
 		}
 	}
@@ -153,7 +153,7 @@ func TestPlanClear_StatusFilterScripted(t *testing.T) {
 func TestPlanClear_AllScripted(t *testing.T) {
 	store := NewPlanStore(t.TempDir())
 	for _, id := range []string{"p1", "p2", "p3"} {
-		_, _ = store.Save(&types.ChangePlan{
+		_, _ = store.SaveForTest(&types.ChangePlan{
 			ID: id, Status: types.PlanStatusApplied,
 			Changes: []types.FileChange{{Path: id + ".go", Kind: "modify"}},
 		})
@@ -173,7 +173,7 @@ func TestPlanClear_AllScripted(t *testing.T) {
 // a message instead of erroring.
 func TestPlanClear_StatusFilter_NoMatch(t *testing.T) {
 	store := NewPlanStore(t.TempDir())
-	_, _ = store.Save(&types.ChangePlan{
+	_, _ = store.SaveForTest(&types.ChangePlan{
 		ID: "p1", Status: types.PlanStatusApplied,
 		Changes: []types.FileChange{{Path: "x.go", Kind: "modify"}},
 	})
@@ -195,7 +195,7 @@ func TestPlanClear_StatusFilter_NoMatch(t *testing.T) {
 // pointer + deletes the file pointed at.
 func TestPlanClear_BareStillWorks(t *testing.T) {
 	store := NewPlanStore(t.TempDir())
-	pendingPath, _ := store.Save(&types.ChangePlan{
+	pendingPath, _ := store.SaveForTest(&types.ChangePlan{
 		ID: "pending-only", Status: types.PlanStatusPending,
 		Changes: []types.FileChange{{Path: "x.go", Kind: "modify"}},
 	})

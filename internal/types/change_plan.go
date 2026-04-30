@@ -31,7 +31,38 @@ const (
 	// PlanStatusRejected is set by /reject — user reviewed the
 	// plan and decided not to approve it.
 	PlanStatusRejected = "rejected"
+	// PlanStatusMerged is set by /merge — the applied plan's
+	// commit(s) have been folded back into the main repo. Together
+	// with PlanStatusRejected this completes the lifecycle: a plan
+	// in either of these terminal states is "settled" and a new
+	// plan can be created in the same project. Pre-2026-04-30 the
+	// merged transition only flipped MergedAt timestamp without
+	// changing Status; that left applied plans hanging as
+	// "unsettled" forever from the lifecycle's point of view.
+	PlanStatusMerged = "merged"
 )
+
+// IsUnsettledStatus reports whether a plan in `s` is still in the
+// active lifecycle and would block creation of a NEW plan in the
+// same project. The single-pending-plan invariant relies on this
+// predicate at three layers:
+//
+//   - PlanStore.Save (data layer hard constraint)
+//   - REPL /mode plan switch (UX layer rejection)
+//   - REPL banner (cold-start awareness)
+//
+// pending_approval / applied / verify_failed are unsettled.
+// merged / rejected / applied_failed are settled (terminal).
+// applied_failed is terminal because apply itself crashed —
+// nothing landed, the user moves on; treating it as unsettled
+// would block forever on a dead plan.
+func IsUnsettledStatus(s string) bool {
+	switch s {
+	case PlanStatusPending, PlanStatusApplied, PlanStatusVerifyFailed:
+		return true
+	}
+	return false
+}
 
 // ChangePlan is the Plan stage's on-disk artifact — a structured
 // description of the code change the planner intends to apply. Stored
@@ -126,6 +157,22 @@ type ChangePlan struct {
 	// AppliedAt is set when the apply stage commits successfully.
 	// Empty while Status != "applied".
 	AppliedAt *time.Time `json:"applied_at,omitempty"`
+
+	// MergedAt is set when /merge folds the worktree commit(s)
+	// back into the main repo. Empty while Status != "merged".
+	// Stamped together with Status = PlanStatusMerged in
+	// PlanStore.Settle so the lifecycle stays explicit.
+	MergedAt *time.Time `json:"merged_at,omitempty"`
+
+	// RejectedAt is set when /reject (or PlanStore.Settle with
+	// PlanStatusRejected) closes the plan as discarded. Empty
+	// while Status != "rejected".
+	RejectedAt *time.Time `json:"rejected_at,omitempty"`
+
+	// RejectionReason carries the user's free-form note from
+	// /reject [reason]. Empty when no reason was supplied or
+	// Status != "rejected".
+	RejectionReason string `json:"rejection_reason,omitempty"`
 }
 
 // FileChange describes one file-level modification the apply stage

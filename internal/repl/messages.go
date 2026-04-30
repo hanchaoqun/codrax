@@ -368,6 +368,122 @@ func mergeConfirmTitle(lang, strategy, target string, count int) string {
 	}
 }
 
+// unsettledModePlanReject is the message /mode plan prints when an
+// unsettled plan blocks switching into plan mode. Three-way menu
+// is tailored to the offending plan's status: only commands that
+// move THIS status forward to a terminal state (merged / rejected)
+// are listed. Pre-2026-04-30 the 用户 had to know the relationship
+// between pending / applied / verify_failed and which command
+// applies; surfacing the right menu directly removes the friction.
+//
+// Returns a slice for the caller to emit one r.info() per line so
+// the FgDarkGray styling applies consistently.
+func unsettledModePlanReject(lang, planID, status string) []string {
+	zh := isZh(lang)
+	var menu []string
+	switch status {
+	case "pending_approval":
+		if zh {
+			menu = []string{
+				"  /plan show     看 diff",
+				"  /approve       批准并落地",
+				"  /reject        丢弃改动(保留事后审查记录)",
+				"  /plan clear    彻底删除(无审查记录)",
+			}
+		} else {
+			menu = []string{
+				"  /plan show     inspect diff",
+				"  /approve       apply it",
+				"  /reject        discard (keep audit record)",
+				"  /plan clear    delete outright (no audit)",
+			}
+		}
+	case "applied":
+		if zh {
+			menu = []string{
+				"  /merge         合并到主仓",
+				"  /reject        丢弃改动(保留事后审查记录)",
+				"  /plan clear    彻底删除(无审查记录)",
+			}
+		} else {
+			menu = []string{
+				"  /merge         fold back into the main repo",
+				"  /reject        discard (keep audit record)",
+				"  /plan clear    delete outright (no audit)",
+			}
+		}
+	case "verify_failed":
+		if zh {
+			menu = []string{
+				"  /approve <id>              重新跑 apply + verify",
+				"  /merge --include-failed    review 后强行合并",
+				"  /reject                    丢弃改动(保留事后审查记录)",
+				"  /plan clear                彻底删除(无审查记录)",
+			}
+		} else {
+			menu = []string{
+				"  /approve <id>              re-run apply + verify",
+				"  /merge --include-failed    force-merge after review",
+				"  /reject                    discard (keep audit record)",
+				"  /plan clear                delete outright (no audit)",
+			}
+		}
+	default:
+		// Should never happen — IsUnsettledStatus only matches the
+		// three above. Defensive fallback.
+		if zh {
+			menu = []string{"  /plan list  看现有方案的状态,然后用 /reject 或 /plan clear 收尾"}
+		} else {
+			menu = []string{"  /plan list  to inspect, then /reject or /plan clear to settle"}
+		}
+	}
+	if zh {
+		header := []string{
+			formatN(lang, "✗ 切换被拒:已存在未结算的改动方案 %s(状态:%s)。", planID, status),
+			"  新方案要基于当前仓状态生成,先把上一个收尾再来:",
+		}
+		out := append(header, menu...)
+		out = append(out, "  收尾后再敲 /mode plan。")
+		return out
+	}
+	header := []string{
+		formatN(lang, "✗ /mode plan refused: an unsettled plan exists (%s, status=%s).", planID, status),
+		"  Settle it first so the next plan can be drafted against the current repo state:",
+	}
+	out := append(header, menu...)
+	out = append(out, "  Then re-run /mode plan.")
+	return out
+}
+
+// unsettledBanner is the dim FgDarkGray one-liner printed in the
+// REPL startup banner when PlanStore has an unsettled plan from a
+// prior session. Wording is status-specific so the user immediately
+// knows which command moves it forward.
+func unsettledBanner(lang, planID, status string) string {
+	zh := isZh(lang)
+	switch status {
+	case "pending_approval":
+		if zh {
+			return formatN(lang, "%s 待批准 — /plan show · /approve · /reject · /plan clear", planID)
+		}
+		return formatN(lang, "%s pending approval — /plan show · /approve · /reject · /plan clear", planID)
+	case "applied":
+		if zh {
+			return formatN(lang, "%s 已 apply 但未合并 — /merge · /reject · /plan clear", planID)
+		}
+		return formatN(lang, "%s applied, not merged — /merge · /reject · /plan clear", planID)
+	case "verify_failed":
+		if zh {
+			return formatN(lang, "%s 验证失败 — /approve <id> · /merge --include-failed · /reject · /plan clear", planID)
+		}
+		return formatN(lang, "%s verify failed — /approve <id> · /merge --include-failed · /reject · /plan clear", planID)
+	}
+	if zh {
+		return formatN(lang, "%s 状态未结算 — /plan list 查看 · /reject · /plan clear", planID)
+	}
+	return formatN(lang, "%s unsettled — /plan list · /reject · /plan clear", planID)
+}
+
 // autoModeReadAfterMergeNudge is the one-line confirmation printed
 // right after /merge auto-switches back to read mode. Pre-fix the
 // REPL stayed sticky in plan mode after a successful merge; the

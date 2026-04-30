@@ -76,6 +76,21 @@ func (s *PlanStore) PlanDir() string {
 // the REPL's /plan clear workflow sometimes regenerates to the
 // same ID; a stricter "no-overwrite" rule would force the caller
 // to double-bookkeep.
+// ErrUnsettledPlanExists is returned by PlanStore.Save when the
+// project already has an unsettled plan and the caller is trying
+// to create a new one. The single-pending-plan invariant says only
+// merged / rejected / applied_failed are terminal; anything else
+// blocks new plan creation. The error carries the offending plan's
+// PlanInfo so the caller can render a user-actionable message.
+type ErrUnsettledPlanExists struct {
+	Existing PlanInfo
+}
+
+func (e *ErrUnsettledPlanExists) Error() string {
+	return fmt.Sprintf("PlanStore.Save: an unsettled plan already exists (id=%s status=%s); settle it first via /merge, /reject, or /plan clear",
+		e.Existing.ID, e.Existing.Status)
+}
+
 func (s *PlanStore) Save(plan *types.ChangePlan) (string, error) {
 	if s == nil {
 		return "", fmt.Errorf("PlanStore.Save: nil store")
@@ -93,6 +108,21 @@ func (s *PlanStore) Save(plan *types.ChangePlan) (string, error) {
 	if err := os.MkdirAll(s.planDir, 0o755); err != nil {
 		return "", fmt.Errorf("PlanStore.Save: mkdir %s: %w", s.planDir, err)
 	}
+
+	// Single-pending-plan invariant. Reject the new save if any
+	// OTHER plan in this PlanStore is still unsettled. The user
+	// must explicitly /merge, /reject, or /plan clear it before
+	// creating the next one. This is the data-layer hard
+	// constraint that no caller (REPL plan-mode dispatch, CLI
+	// single-shot, future MCP plan emit) can bypass.
+	//
+	// Same-id re-saves are allowed (overwrite) because a plan can
+	// be regenerated mid-session with the same ID for retry
+	// loops; only DIFFERENT-id collisions trip the invariant.
+	if existing, ok := s.findUnsettledExceptLocked(plan.ID); ok {
+		return "", &ErrUnsettledPlanExists{Existing: existing}
+	}
+
 	path := filepath.Join(s.planDir, plan.ID+".json")
 	data, err := json.MarshalIndent(plan, "", "  ")
 	if err != nil {
@@ -102,6 +132,145 @@ func (s *PlanStore) Save(plan *types.ChangePlan) (string, error) {
 		return "", fmt.Errorf("PlanStore.Save: write %s: %w", path, err)
 	}
 	return path, nil
+}
+
+// SaveForTest writes a plan JSON to disk WITHOUT enforcing the
+// single-pending-plan invariant. Tests use this to construct
+// multi-plan fixtures (multiple statuses, recovery scenarios) that
+// would otherwise be impossible to reach through normal user flows
+// — at runtime, Save's invariant guarantees no two unsettled plans
+// can coexist, but tests legitimately need to seed those states.
+//
+// Production code MUST use Save. This helper has no callers outside
+// _test.go files.
+func (s *PlanStore) SaveForTest(plan *types.ChangePlan) (string, error) {
+	if s == nil || plan == nil || strings.TrimSpace(plan.ID) == "" {
+		return "", fmt.Errorf("PlanStore.SaveForTest: nil store / plan / empty id")
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if err := os.MkdirAll(s.planDir, 0o755); err != nil {
+		return "", err
+	}
+	path := filepath.Join(s.planDir, plan.ID+".json")
+	data, err := json.MarshalIndent(plan, "", "  ")
+	if err != nil {
+		return "", err
+	}
+	if err := os.WriteFile(path, data, 0o644); err != nil {
+		return "", err
+	}
+	return path, nil
+}
+
+// findUnsettledExceptLocked walks planDir for the first plan whose
+// status is unsettled and id != excludeID. Caller MUST hold s.mu.
+// Returns (PlanInfo{}, false) when no qualifying entry exists.
+//
+// Probes Status via a tiny JSON struct rather than fully decoding
+// the ChangePlan — faster and tolerant to schema additions.
+func (s *PlanStore) findUnsettledExceptLocked(excludeID string) (PlanInfo, bool) {
+	entries, err := os.ReadDir(s.planDir)
+	if err != nil {
+		return PlanInfo{}, false
+	}
+	for _, ent := range entries {
+		if ent.IsDir() {
+			continue
+		}
+		name := ent.Name()
+		if !strings.HasSuffix(name, ".json") || strings.HasSuffix(name, ".report.json") {
+			continue
+		}
+		id := strings.TrimSuffix(name, ".json")
+		if id == excludeID {
+			continue
+		}
+		full := filepath.Join(s.planDir, name)
+		data, rerr := os.ReadFile(full)
+		if rerr != nil {
+			continue
+		}
+		var probe struct {
+			Status string `json:"status"`
+		}
+		if err := json.Unmarshal(data, &probe); err != nil {
+			continue
+		}
+		if !types.IsUnsettledStatus(probe.Status) {
+			continue
+		}
+		fi, _ := ent.Info()
+		var modUnix int64
+		var size int64
+		if fi != nil {
+			modUnix = fi.ModTime().UnixNano()
+			size = fi.Size()
+		}
+		return PlanInfo{
+			ID:      id,
+			Path:    full,
+			Status:  probe.Status,
+			ModTime: modUnix,
+			SizeB:   size,
+		}, true
+	}
+	return PlanInfo{}, false
+}
+
+// Settle is the public funnel for transitioning a plan to a terminal
+// status. /merge → PlanStatusMerged. /reject → PlanStatusRejected.
+// /plan clear deletes the file outright and does NOT call Settle.
+//
+// Reason is recorded as RejectionReason on the plan when newStatus
+// is PlanStatusRejected; ignored otherwise. The MergedAt / RejectedAt
+// timestamps are stamped here so callers don't have to.
+//
+// Returns os.ErrNotExist when the plan file is missing; the caller
+// surfaces a clear "plan not found" message.
+func (s *PlanStore) Settle(planID, newStatus, reason string) error {
+	if s == nil {
+		return fmt.Errorf("PlanStore.Settle: nil store")
+	}
+	if !(newStatus == types.PlanStatusMerged || newStatus == types.PlanStatusRejected) {
+		return fmt.Errorf("PlanStore.Settle: %q is not a terminal status (only merged / rejected accepted)",
+			newStatus)
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	path := filepath.Join(s.planDir, planID+".json")
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return err
+	}
+	var plan types.ChangePlan
+	if err := json.Unmarshal(data, &plan); err != nil {
+		return fmt.Errorf("PlanStore.Settle: decode %s: %w", path, err)
+	}
+	now := time.Now()
+	plan.Status = newStatus
+	switch newStatus {
+	case types.PlanStatusMerged:
+		plan.MergedAt = &now
+		// Worktree is folded back after merge; clear the pointer so
+		// /worktree list stops surfacing this plan as a candidate.
+		// The actual directory is discarded by the caller via
+		// worktree.DiscardByPath.
+		plan.WorktreePath = ""
+	case types.PlanStatusRejected:
+		plan.RejectedAt = &now
+		plan.RejectionReason = strings.TrimSpace(reason)
+	}
+	out, err := json.MarshalIndent(&plan, "", "  ")
+	if err != nil {
+		return fmt.Errorf("PlanStore.Settle: marshal %s: %w", planID, err)
+	}
+	if err := os.WriteFile(path, out, 0o644); err != nil {
+		return fmt.Errorf("PlanStore.Settle: write %s: %w", path, err)
+	}
+	return nil
 }
 
 // Load reads <planDir>/<id>.json and decodes the ChangePlan. Returns

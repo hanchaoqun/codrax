@@ -1107,6 +1107,16 @@ func (r *REPL) banner() {
 	if cap := bannerCapabilityLine(r.language, r.writeEnabled, r.settingsPath); cap != "" {
 		fmt.Fprintf(r.out, "  %s\n", pterm.FgDarkGray.Sprint(cap))
 	}
+	// Single-pending-plan invariant — user-perception layer. When
+	// the project carries an unsettled plan from a prior session
+	// (REPL was closed before /merge / /reject), surface ONE dim
+	// line in the startup banner so the user immediately knows
+	// what's still in flight and which command moves it forward.
+	// Status-specific wording so the right action is one glance away.
+	if blocker, ok := r.detectUnsettledPlan(); ok {
+		fmt.Fprintf(r.out, "  %s\n",
+			pterm.FgDarkGray.Sprint(unsettledBanner(r.language, blocker.ID, blocker.Status)))
+	}
 	if summary := r.memorySummaryLine(); summary != "" {
 		fmt.Fprintf(r.out, "  %s\n", summary)
 	}
@@ -2011,6 +2021,21 @@ func (r *REPL) handleModeCmd(line string) {
 		}
 		return
 	}
+	// Single-pending-plan invariant — UX layer rejection. Switching
+	// to /mode plan WHILE an unsettled plan exists in PlanStore is
+	// refused: the new plan would be drafted against the current
+	// repo state, which the unsettled plan may already be modifying
+	// (in worktree). Keep the user at their current mode and surface
+	// a status-tailored 3-way menu (merge / reject / clear) so they
+	// can pick the right resolution for that specific status.
+	if target == types.ModePlan && r.planStore != nil {
+		if blocker, ok := r.detectUnsettledPlan(); ok {
+			for _, line := range unsettledModePlanReject(r.language, blocker.ID, blocker.Status) {
+				r.info(line)
+			}
+			return
+		}
+	}
 	// Apply / verify modes normally require a --plan-file; in REPL
 	// the user is expected to first /mode plan → generate plan →
 	// then /mode apply. B0 does not prevent the transition at
@@ -2144,6 +2169,12 @@ func (r *REPL) handlePlanCmd(line string) {
 			r.errorf("plan clear: %v\n", err)
 			return
 		}
+		// Discard the worktree along with the plan file. Workspace
+		// and plan are tied (single-pending invariant); /plan clear
+		// is the no-audit settle path so the worktree should not
+		// linger. Best-effort: discard failures log but don't fail
+		// the clear.
+		r.discardWorktreeForRejected(id)
 		r.success(fmt.Sprintf("pending plan cleared: %s", r.pendingPlanPath))
 		r.pendingPlanPath = ""
 	case "list":
@@ -2299,6 +2330,39 @@ func (r *REPL) handlePlanClearBulk(statusFilter, label string) {
 //
 // PlanStore.List is already newest-first sorted, so the first match
 // is the right one.
+// detectUnsettledPlan returns the single unsettled plan blocking
+// new-plan creation, or (zero, false) when there is none.
+//
+// "Unsettled" = types.IsUnsettledStatus(s) — pending_approval /
+// applied / verify_failed. The single-pending-plan invariant
+// (enforced at PlanStore.Save) means there is at most ONE such
+// plan in the project at any moment; we still walk newest-first
+// for defensive robustness against legacy data.
+//
+// Three layers consume this:
+//   - banner() prints a one-line dim status when REPL starts up
+//     and an unsettled plan is on disk
+//   - handleModeCmd("/mode plan") refuses to switch and surfaces
+//     a 3-way menu (merge / reject / clear)
+//   - handleApprove / handleRejectCmd cold-start recovery rebinds
+//     pendingPlanPath for the in-session pointer
+func (r *REPL) detectUnsettledPlan() (PlanInfo, bool) {
+	if r.planStore == nil {
+		return PlanInfo{}, false
+	}
+	infos, err := r.planStore.List()
+	if err != nil {
+		logging.Warning("[repl] detect unsettled: list failed: %v", err)
+		return PlanInfo{}, false
+	}
+	for _, inf := range infos {
+		if types.IsUnsettledStatus(inf.Status) {
+			return inf, true
+		}
+	}
+	return PlanInfo{}, false
+}
+
 func (r *REPL) recoverPendingPlanFromStore() (PlanInfo, bool) {
 	if r.planStore == nil {
 		return PlanInfo{}, false
@@ -2315,6 +2379,7 @@ func (r *REPL) recoverPendingPlanFromStore() (PlanInfo, bool) {
 	}
 	return PlanInfo{}, false
 }
+
 
 // countOtherPendingPlans enumerates PlanStore for re-approvable
 // plans (Status=pending_approval OR verify_failed) and returns
@@ -2492,6 +2557,19 @@ func (r *REPL) handleApproveCmd(line string) {
 			return
 		}
 		r.pendingPlanPath = filepath.Join(r.planStore.PlanDir(), planArg+".json")
+	}
+	// Cold-start recovery: when the REPL just started in a directory
+	// whose PlanStore already has a pending_approval plan from a
+	// prior session, r.pendingPlanPath is empty. The single-pending
+	// invariant (enforced at PlanStore.Save) means there should be
+	// at most one such plan; we auto-rebind to it. If somehow
+	// multiple pending plans exist (legacy data), pick the newest
+	// — PlanStore.List is newest-first.
+	if r.pendingPlanPath == "" {
+		if recovered, ok := r.recoverPendingPlanFromStore(); ok {
+			r.pendingPlanPath = recovered.Path
+			r.info(recoveredPendingPlan(r.language, recovered.ID))
+		}
 	}
 	if r.pendingPlanPath == "" {
 		r.info(noPendingPlan(r.language))
@@ -2863,16 +2941,19 @@ func (r *REPL) runMerge(worktreePath, targetBranch string) {
 	}
 	r.info(autoModeReadAfterMergeNudge(r.language))
 	// Worktree successfully folded back — discard it so /worktree
-	// list stays honest. This is opt-in via the merge step; users
-	// who don't run /merge keep the preserved worktree as before.
+	// list stays honest.
 	if err := worktree.DiscardByPath(worktreePath, mainRoot); err != nil {
 		logging.Warning("[repl] post-merge worktree discard failed: %v", err)
 	}
-	// Clear the WorktreePath field on disk so /worktree list and
-	// /merge no longer show this entry as a candidate. Status stays
-	// `applied` — the plan history is permanent.
-	if err := r.clearWorktreePathOnAppliedPlan(worktreePath); err != nil {
-		logging.Warning("[repl] post-merge plan WorktreePath clear failed: %v", err)
+	// Settle the plan as merged so the single-pending-plan invariant
+	// recognises it as terminal and the next /mode plan can proceed.
+	// Pre-2026-04-30 only WorktreePath was cleared while Status
+	// stayed `applied`, leaving the plan permanently "unsettled" from
+	// the lifecycle's point of view.
+	if id := r.lookupPlanIDByWorktreePath(worktreePath); id != "" {
+		if err := r.planStore.Settle(id, types.PlanStatusMerged, ""); err != nil {
+			logging.Warning("[repl] post-merge settle failed: %v", err)
+		}
 	}
 }
 
@@ -2921,8 +3002,63 @@ func (r *REPL) runMergeFromRef(planID, ref, targetBranch string) {
 		r.info(line)
 	}
 	r.info(autoModeReadAfterMergeNudge(r.language))
+	// Same Settle-to-merged as the worktree path: lifecycle reaches
+	// terminal state so the next /mode plan can proceed.
+	if r.planStore != nil && planID != "" {
+		if err := r.planStore.Settle(planID, types.PlanStatusMerged, ""); err != nil {
+			logging.Warning("[repl] post-merge-from-ref settle failed: %v", err)
+		}
+	}
 	logging.Info("[repl] post-merge: plan %s landed via recovery ref %s (worktree was already discarded)",
 		planID, ref)
+}
+
+// lookupPlanIDByWorktreePath walks PlanStore for the entry whose
+// WorktreePath equals `path`. Empty string when no plan matches
+// (worktree was already discarded, or the plan was never tracked).
+// Used by /merge success path to call PlanStore.Settle on the
+// matched plan, transitioning Status applied → merged.
+func (r *REPL) lookupPlanIDByWorktreePath(path string) string {
+	if r.planStore == nil || strings.TrimSpace(path) == "" {
+		return ""
+	}
+	infos, err := r.planStore.List()
+	if err != nil {
+		return ""
+	}
+	for _, inf := range infos {
+		full, lerr := r.planStore.Load(inf.ID)
+		if lerr != nil || full == nil {
+			continue
+		}
+		if full.WorktreePath == path {
+			return inf.ID
+		}
+	}
+	return ""
+}
+
+// discardWorktreeForRejected best-effort discards the worktree of
+// the given plan when /reject or /plan clear settles it. Workspace
+// and plan are tied; settling the plan should reclaim the disk
+// space too. Failure logs but does not block the settle decision.
+//
+// Loads the plan to find WorktreePath; nothing to do when:
+//   - PlanStore is nil
+//   - plan has no WorktreePath (apply never ran with
+//     pipeline_keep_worktree_on_success)
+//   - the worktree directory was already discarded out-of-band
+func (r *REPL) discardWorktreeForRejected(planID string) {
+	if r.planStore == nil || planID == "" {
+		return
+	}
+	plan, err := r.planStore.Load(planID)
+	if err != nil || plan == nil || strings.TrimSpace(plan.WorktreePath) == "" {
+		return
+	}
+	if err := worktree.DiscardByPath(plan.WorktreePath, r.repoRoot); err != nil {
+		logging.Warning("[repl] discard worktree on settle (%s): %v", planID, err)
+	}
 }
 
 // clearWorktreePathOnAppliedPlan walks PlanStore.List for the entry
@@ -3301,16 +3437,34 @@ func (r *REPL) handleRejectCmd(line string) {
 		r.info(commandDisabled(r.language, "/reject", noPlanStoreReason(r.language)))
 		return
 	}
+	// Same cold-start recovery /approve uses. Single-pending
+	// invariant means at most one match.
+	if r.pendingPlanPath == "" {
+		if recovered, ok := r.recoverPendingPlanFromStore(); ok {
+			r.pendingPlanPath = recovered.Path
+			r.info(recoveredPendingPlan(r.language, recovered.ID))
+		}
+	}
 	if r.pendingPlanPath == "" {
 		r.info(noPendingPlanReject(r.language))
 		return
 	}
 	reason := strings.TrimSpace(strings.TrimPrefix(line, "/reject"))
 	id := strings.TrimSuffix(filepath.Base(r.pendingPlanPath), ".json")
-	if err := r.planStore.Clear(id); err != nil {
+	// Settle (keep the file with Status=rejected + RejectionReason
+	// for audit trail) instead of Clear (delete file). The user
+	// can still recover the rejected plan via /plan show <id> or
+	// /plan list. /plan clear is the "no-audit" alternative for
+	// experimental / mistaken plans.
+	if err := r.planStore.Settle(id, types.PlanStatusRejected, reason); err != nil {
 		r.errorf("reject: %v\n", err)
 		return
 	}
+	// Discard the worktree (if any was preserved by a successful
+	// apply). Workspace and plan are tied: settling the plan also
+	// reclaims the disk space. Best-effort: a discard failure logs
+	// but doesn't block the reject decision.
+	r.discardWorktreeForRejected(id)
 	r.pendingPlanPath = ""
 
 	var msg string

@@ -51,7 +51,7 @@ func newApprovalREPL(t *testing.T, confirmInput string, runner Runner) (*REPL, *
 		},
 		TargetPaths: []string{"main.go"},
 	}
-	path, err := store.Save(plan)
+	path, err := store.SaveForTest(plan)
 	if err != nil {
 		t.Fatalf("PlanStore.Save: %v", err)
 	}
@@ -124,7 +124,7 @@ func TestApprove_StubRunnerWarns(t *testing.T) {
 		ID: "plan-stub-1", Summary: "x", Status: "pending_approval",
 		Changes: []types.FileChange{{Path: "a.go", Kind: "modify"}},
 	}
-	path, err := store.Save(plan)
+	path, err := store.SaveForTest(plan)
 	if err != nil {
 		t.Fatalf("Save: %v", err)
 	}
@@ -243,7 +243,7 @@ func TestApprove_RefusesTerminalStatus(t *testing.T) {
 				Status:  tc.status,
 				Changes: []types.FileChange{{Path: "a.go", Kind: "modify"}},
 			}
-			path, err := store.Save(plan)
+			path, err := store.SaveForTest(plan)
 			if err != nil {
 				t.Fatalf("Save: %v", err)
 			}
@@ -302,7 +302,7 @@ func TestApprove_AcceptsVerifyFailedForRetry(t *testing.T) {
 		Status:  types.PlanStatusVerifyFailed,
 		Changes: []types.FileChange{{Path: "a.go", Kind: "modify"}},
 	}
-	path, err := store.Save(plan)
+	path, err := store.SaveForTest(plan)
 	if err != nil {
 		t.Fatalf("Save: %v", err)
 	}
@@ -496,16 +496,19 @@ func newMemREPL(t *testing.T, planStore *PlanStore) (*REPL, *bytes.Buffer) {
 	return r, out
 }
 
-// TestReject_ClearsPlanAndPath verifies /reject removes the JSON
-// file AND resets pendingPlanPath. Same shape as /plan clear but
-// with memory-turn recording.
-func TestReject_ClearsPlanAndPath(t *testing.T) {
+// TestReject_SettlesPlanWithoutDeletingFile verifies the post-2026-04-30
+// /reject contract: the plan file is KEPT on disk with
+// Status=rejected (so /plan list / /plan show <id> can still
+// surface it for audit), and the in-session pendingPlanPath is
+// cleared. /plan clear is the no-audit alternative that deletes
+// the file outright.
+func TestReject_SettlesPlanWithoutDeletingFile(t *testing.T) {
 	store := NewPlanStore(t.TempDir())
 	plan := &types.ChangePlan{
 		ID: "plan-reject-1", Summary: "reject test", Status: "pending_approval",
 		Changes: []types.FileChange{{Path: "x.go", Kind: "modify"}},
 	}
-	path, err := store.Save(plan)
+	path, err := store.SaveForTest(plan)
 	if err != nil {
 		t.Fatalf("Save: %v", err)
 	}
@@ -517,8 +520,12 @@ func TestReject_ClearsPlanAndPath(t *testing.T) {
 	if r.pendingPlanPath != "" {
 		t.Errorf("pendingPlanPath should be cleared; got %q", r.pendingPlanPath)
 	}
-	if _, err := store.Load("plan-reject-1"); err == nil {
-		t.Errorf("plan file should be removed after /reject")
+	settled, lerr := store.Load("plan-reject-1")
+	if lerr != nil || settled == nil {
+		t.Fatalf("plan file must remain on disk for audit (Settle, not Clear); load err=%v", lerr)
+	}
+	if settled.Status != types.PlanStatusRejected {
+		t.Errorf("settled plan Status should be %q; got %q", types.PlanStatusRejected, settled.Status)
 	}
 	if !strings.Contains(out.String(), "rejected plan ") {
 		t.Errorf("expected 'plan rejected' message, got: %q", out.String())
@@ -532,7 +539,7 @@ func TestReject_WithReason(t *testing.T) {
 	plan := &types.ChangePlan{
 		ID: "plan-reject-2", Summary: "x", Status: "pending_approval",
 	}
-	path, err := store.Save(plan)
+	path, err := store.SaveForTest(plan)
 	if err != nil {
 		t.Fatalf("Save: %v", err)
 	}

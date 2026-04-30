@@ -77,7 +77,7 @@ func setupMergeReplFixture(t *testing.T) (r *REPL, planID, wt, main string) {
 		Changes:      []types.FileChange{{Path: "feature.txt", Kind: "create"}},
 		TargetPaths:  []string{"feature.txt"},
 	}
-	if _, err := store.Save(plan); err != nil {
+	if _, err := store.SaveForTest(plan); err != nil {
 		t.Fatalf("PlanStore.Save: %v", err)
 	}
 

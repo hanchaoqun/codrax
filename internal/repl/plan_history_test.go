@@ -50,7 +50,7 @@ func TestCollectPlanHistory_PlanWithoutReport(t *testing.T) {
 	plan := &types.ChangePlan{
 		ID: "plan-pending-1", Summary: "x", Status: types.PlanStatusPending,
 	}
-	if _, err := store.Save(plan); err != nil {
+	if _, err := store.SaveForTest(plan); err != nil {
 		t.Fatalf("save: %v", err)
 	}
 
@@ -78,7 +78,7 @@ func TestCollectPlanHistory_PlanWithPassingReport(t *testing.T) {
 	plan := &types.ChangePlan{
 		ID: "plan-ok-1", Summary: "x", Status: types.PlanStatusApplied,
 	}
-	path, err := store.Save(plan)
+	path, err := store.SaveForTest(plan)
 	if err != nil {
 		t.Fatalf("save: %v", err)
 	}
@@ -113,7 +113,7 @@ func TestCollectPlanHistory_FailingReport(t *testing.T) {
 	plan := &types.ChangePlan{
 		ID: "plan-fail-1", Summary: "x", Status: types.PlanStatusVerifyFailed,
 	}
-	path, err := store.Save(plan)
+	path, err := store.SaveForTest(plan)
 	if err != nil {
 		t.Fatalf("save: %v", err)
 	}
@@ -157,7 +157,7 @@ func TestCollectPlanHistory_UnreadableReport(t *testing.T) {
 	plan := &types.ChangePlan{
 		ID: "plan-corrupt-1", Summary: "x", Status: types.PlanStatusApplyFailed,
 	}
-	path, err := store.Save(plan)
+	path, err := store.SaveForTest(plan)
 	if err != nil {
 		t.Fatalf("save: %v", err)
 	}
@@ -183,7 +183,7 @@ func TestCollectPlanHistory_UnreadableReport(t *testing.T) {
 func TestHistoryCommand_IncludesPlanSection(t *testing.T) {
 	store := NewPlanStore(t.TempDir())
 	plan := &types.ChangePlan{ID: "plan-hist-1", Summary: "x", Status: types.PlanStatusApplied}
-	if _, err := store.Save(plan); err != nil {
+	if _, err := store.SaveForTest(plan); err != nil {
 		t.Fatalf("save: %v", err)
 	}
 	// Need a real memory store because /history reads it, and it's

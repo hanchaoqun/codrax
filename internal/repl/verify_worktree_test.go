@@ -70,7 +70,7 @@ func TestVerify_WrongStatusRefused(t *testing.T) {
 				Status:  tc.status,
 				Changes: []types.FileChange{{Path: "a.go", Kind: "modify"}},
 			}
-			path, err := store.Save(plan)
+			path, err := store.SaveForTest(plan)
 			if err != nil {
 				t.Fatalf("Save: %v", err)
 			}
@@ -96,7 +96,7 @@ func TestVerify_NoWorktreePathRefused(t *testing.T) {
 		// WorktreePath deliberately empty — Fix 4 wasn't enabled
 		// when this plan was applied.
 	}
-	path, err := store.Save(plan)
+	path, err := store.SaveForTest(plan)
 	if err != nil {
 		t.Fatalf("Save: %v", err)
 	}
@@ -119,7 +119,7 @@ func TestVerify_HappyPathDispatches(t *testing.T) {
 		WorktreePath: "/tmp/preserved/abc-1",
 		Changes:      []types.FileChange{{Path: "a.go", Kind: "modify"}},
 	}
-	path, err := store.Save(plan)
+	path, err := store.SaveForTest(plan)
 	if err != nil {
 		t.Fatalf("Save: %v", err)
 	}
@@ -145,7 +145,7 @@ func TestVerify_ExplicitPlanIDArg(t *testing.T) {
 		WorktreePath: "/tmp/wt/explicit",
 		Changes:      []types.FileChange{{Path: "a.go", Kind: "modify"}},
 	}
-	if _, err := store.Save(plan); err != nil {
+	if _, err := store.SaveForTest(plan); err != nil {
 		t.Fatalf("Save: %v", err)
 	}
 	// Note: pendingPlanPath is empty — /verify must accept the arg.
@@ -192,7 +192,7 @@ func TestWorktreeList_OnlyAppliedWithPathRender(t *testing.T) {
 		},
 	}
 	for _, p := range plans {
-		if _, err := store.Save(p); err != nil {
+		if _, err := store.SaveForTest(p); err != nil {
 			t.Fatalf("Save %s: %v", p.ID, err)
 		}
 	}
@@ -236,7 +236,7 @@ func TestWorktreeDiscard_ClearsPathOnDisk(t *testing.T) {
 		WorktreePath: wtPath,
 		Changes:      []types.FileChange{{Path: "a.go", Kind: "modify"}},
 	}
-	if _, err := store.Save(plan); err != nil {
+	if _, err := store.SaveForTest(plan); err != nil {
 		t.Fatalf("Save: %v", err)
 	}
 	r.handleWorktreeCmd("/worktree discard plan-discard-me")

@@ -211,7 +211,7 @@ func TestHandlePlan_ShowWithPending(t *testing.T) {
 		},
 		TargetPaths: []string{"main.go"},
 	}
-	path, err := store.Save(plan)
+	path, err := store.SaveForTest(plan)
 	if err != nil {
 		t.Fatalf("Save: %v", err)
 	}
@@ -241,7 +241,7 @@ func TestHandlePlan_Clear(t *testing.T) {
 		Summary: "to be cleared",
 		Status:  "pending_approval",
 	}
-	path, err := store.Save(plan)
+	path, err := store.SaveForTest(plan)
 	if err != nil {
 		t.Fatalf("Save: %v", err)
 	}
@@ -278,10 +278,10 @@ func TestHandlePlan_List(t *testing.T) {
 	store := NewPlanStore(t.TempDir())
 	p1 := &types.ChangePlan{ID: "plan-a", Summary: "first", Status: types.PlanStatusPending}
 	p2 := &types.ChangePlan{ID: "plan-b", Summary: "second", Status: types.PlanStatusApplied}
-	if _, err := store.Save(p1); err != nil {
+	if _, err := store.SaveForTest(p1); err != nil {
 		t.Fatalf("Save p1: %v", err)
 	}
-	if _, err := store.Save(p2); err != nil {
+	if _, err := store.SaveForTest(p2); err != nil {
 		t.Fatalf("Save p2: %v", err)
 	}
 
@@ -312,7 +312,7 @@ func TestHandlePlan_List(t *testing.T) {
 func TestPlanStore_ListCarriesStatus(t *testing.T) {
 	store := NewPlanStore(t.TempDir())
 	plan := &types.ChangePlan{ID: "plan-probe", Summary: "x", Status: types.PlanStatusVerifyFailed}
-	if _, err := store.Save(plan); err != nil {
+	if _, err := store.SaveForTest(plan); err != nil {
 		t.Fatalf("Save: %v", err)
 	}
 	infos, err := store.List()
@@ -332,7 +332,7 @@ func TestPlanStore_ListCarriesStatus(t *testing.T) {
 func TestPlanStore_UpdateStatus_PersistsToDisk(t *testing.T) {
 	store := NewPlanStore(t.TempDir())
 	plan := &types.ChangePlan{ID: "plan-upd", Summary: "x", Status: types.PlanStatusPending}
-	if _, err := store.Save(plan); err != nil {
+	if _, err := store.SaveForTest(plan); err != nil {
 		t.Fatalf("Save: %v", err)
 	}
 	if err := store.UpdateStatus("plan-upd", types.PlanStatusRejected, nil); err != nil {
@@ -372,7 +372,7 @@ func TestPlanStore_RoundTrip(t *testing.T) {
 		},
 		TargetPaths: []string{"foo.go"},
 	}
-	path, err := store.Save(original)
+	path, err := store.SaveForTest(original)
 	if err != nil {
 		t.Fatalf("Save: %v", err)
 	}
