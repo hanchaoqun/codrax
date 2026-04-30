@@ -776,3 +776,61 @@ func TestBaselineReportRoundTrip(t *testing.T) {
 		t.Errorf("reset should clear baseline; got %v", got)
 	}
 }
+
+// TestClearForReplan_AppendsIterationLedger pins Module C's
+// load-bearing wiring: clearForReplan must capture verbatim plan +
+// report into Mutable.iterationLedger BEFORE the resets fire, so the
+// next planner dispatch reads the FULL prior attempt as raw data
+// (not pre-classified into "regression" or "plateau" labels).
+func TestClearForReplan_AppendsIterationLedger(t *testing.T) {
+	o := New(types.PipelineSettings{}, nil, nil, nil)
+	o.busCtx = &types.BusContext{
+		MainRepoRoot: "/tmp/main",
+		RepoRoot:     "/tmp/main",
+		Mutable:      types.NewMutableState("probe"),
+	}
+	o.busCtx.Mutable.SetChangePlan(&types.ChangePlan{
+		ID:          "plan-iter1",
+		TargetPaths: []string{"a.go", "b.go"},
+		Summary:     "Add foo, refactor bar.",
+	})
+	o.busCtx.Mutable.SetChangeReport(&types.ChangeReport{
+		PlanID:                "plan-iter1",
+		Passed:                false,
+		FailureSummary:        "TestFoo failed: expected 5 got 4",
+		FailureSummaryBlobRef: "/tmp/codrax/blob/run_tests-xyz.txt",
+		TestResults: []types.TestResult{
+			{AssertionID: "TestFoo", Passed: false},
+			{AssertionID: "TestBar", Passed: true},
+		},
+	})
+
+	clearForReplan(o, 1)
+
+	ledger := o.busCtx.Mutable.IterationLedger()
+	if len(ledger) != 1 {
+		t.Fatalf("ledger should have 1 entry after clearForReplan; got %d", len(ledger))
+	}
+	got := ledger[0]
+	if got.Attempt != 1 {
+		t.Errorf("Attempt = %d; want 1", got.Attempt)
+	}
+	if got.PlanID != "plan-iter1" {
+		t.Errorf("PlanID = %q; want plan-iter1", got.PlanID)
+	}
+	if got.PlanSummary != "Add foo, refactor bar." {
+		t.Errorf("PlanSummary should be verbatim; got %q", got.PlanSummary)
+	}
+	if got.PassedCount != 1 || got.FailedCount != 1 {
+		t.Errorf("counts wrong: passed=%d failed=%d", got.PassedCount, got.FailedCount)
+	}
+	if got.FailureSummary != "TestFoo failed: expected 5 got 4" {
+		t.Errorf("FailureSummary should be verbatim; got %q", got.FailureSummary)
+	}
+	if got.FailureSummaryBlobRef != "/tmp/codrax/blob/run_tests-xyz.txt" {
+		t.Errorf("FailureSummaryBlobRef should propagate; got %q", got.FailureSummaryBlobRef)
+	}
+	if len(got.ChangedFiles) != 2 || got.ChangedFiles[0] != "a.go" || got.ChangedFiles[1] != "b.go" {
+		t.Errorf("ChangedFiles wrong; got %v", got.ChangedFiles)
+	}
+}

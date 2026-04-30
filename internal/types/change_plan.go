@@ -64,6 +64,110 @@ func IsUnsettledStatus(s string) bool {
 	return false
 }
 
+// RenderIterationLedger builds the "## Iteration history" prompt
+// section for the planner from the per-Run ledger. Each record is
+// rendered verbatim (no truncation, no system pre-classification);
+// when a FailureSummary is too large to inline cleanly, the section
+// surfaces the inline text PLUS a blob ref pointer so the planner
+// can call read_file with offset/limit to page through the rest.
+//
+// Empty result when the ledger is empty (FIRST plan attempt has no
+// prior history) so the planner falls through to its workflow.
+//
+// This is a pure rendering function — exported so both the planner
+// (internal/agent) and any future test harness can call it without
+// cross-package dependencies.
+func RenderIterationLedger(ledger []IterationRecord) string {
+	if len(ledger) == 0 {
+		return ""
+	}
+	var b strings.Builder
+	b.WriteString("## Iteration history\n\n")
+	b.WriteString("Each entry below is a completed verify→plan attempt within THIS Run, in append order. Read the entries fully — including raw failure summaries — to decide what to try next. The data is verbatim; no system pre-classification.\n\n")
+	for _, rec := range ledger {
+		fmt.Fprintf(&b, "### Attempt %d", rec.Attempt)
+		if rec.PlanID != "" {
+			fmt.Fprintf(&b, " (plan %s)", rec.PlanID)
+		}
+		b.WriteString("\n\n")
+		if rec.PassedCount+rec.FailedCount > 0 {
+			fmt.Fprintf(&b, "Tests: %d passed, %d failed.\n\n", rec.PassedCount, rec.FailedCount)
+		}
+		if rec.PlanSummary != "" {
+			b.WriteString("Plan summary (verbatim):\n")
+			b.WriteString(rec.PlanSummary)
+			b.WriteString("\n\n")
+		}
+		if len(rec.ChangedFiles) > 0 {
+			b.WriteString("Files this attempt's plan changed:\n")
+			for _, p := range rec.ChangedFiles {
+				fmt.Fprintf(&b, "  - %s\n", p)
+			}
+			b.WriteString("\n")
+		}
+		if rec.FailureSummary != "" {
+			b.WriteString("Failure summary (verbatim runner output):\n")
+			b.WriteString(rec.FailureSummary)
+			b.WriteString("\n")
+			if rec.FailureSummaryBlobRef != "" {
+				fmt.Fprintf(&b, "(Full stderr available at %s — call read_file with offset/limit to page through.)\n", rec.FailureSummaryBlobRef)
+			}
+			b.WriteString("\n")
+		}
+	}
+	return strings.TrimRight(b.String(), "\n")
+}
+
+// IterationRecord is one row of the per-Run iteration ledger
+// (Module C). The orchestrator's clearForReplan appends one record
+// per completed verify→plan retry attempt BEFORE resetting Mutable
+// state, so the planner on the next retry reads the FULL history.
+//
+// Every field is raw data (no system pre-classification): the
+// planner reads the actual failure summary, the actual changed
+// files, the actual pass/fail counts. When the failure summary is
+// too large to embed inline, FailureSummaryBlobRef points at the
+// blob path so the planner can read_file the full content.
+//
+// This is the Reflexion (Shinn et al. 2023) episodic-memory shape
+// adapted for write mode: each retry is a memory entry; the planner
+// is the actor that reads them and decides what to try next.
+type IterationRecord struct {
+	// Attempt is 1-indexed (first retry produces Attempt=1, second
+	// produces Attempt=2, …).
+	Attempt int `json:"attempt"`
+
+	// PlanID identifies which plan this attempt's apply tried to
+	// land. Empty when the attempt failed before a plan was emitted.
+	PlanID string `json:"plan_id,omitempty"`
+
+	// PlanSummary is the verbatim summary text the planner wrote
+	// for this attempt's plan. Not truncated.
+	PlanSummary string `json:"plan_summary,omitempty"`
+
+	// ChangedFiles lists the repo-relative paths the plan declared
+	// in TargetPaths.
+	ChangedFiles []string `json:"changed_files,omitempty"`
+
+	// PassedCount + FailedCount are the verify-stage test counts.
+	PassedCount int `json:"passed_count"`
+	FailedCount int `json:"failed_count"`
+
+	// FailureSummary is the runner's verbatim summary. NOT truncated.
+	// When too large it gets blobbed and the ref goes into
+	// FailureSummaryBlobRef below.
+	FailureSummary string `json:"failure_summary,omitempty"`
+
+	// FailureSummaryBlobRef is the blob path produced by run_tests
+	// (or qualify) when the full stderr exceeds the inline cap.
+	// Empty when the summary fit inline. The planner can call
+	// read_file on this path with offset/limit to page through.
+	FailureSummaryBlobRef string `json:"failure_summary_blob_ref,omitempty"`
+
+	// Timestamp records when this attempt's verify finished.
+	Timestamp time.Time `json:"timestamp"`
+}
+
 // ChangePlan is the Plan stage's on-disk artifact — a structured
 // description of the code change the planner intends to apply. Stored
 // as .codrax/plans/<id>.json by emit_change_plan.Execute, consumed by
@@ -270,6 +374,17 @@ type ChangeReport struct {
 	// Passed=false. Rendered in the user-visible AnswerDocument.
 	// Empty when Passed=true.
 	FailureSummary string `json:"failure_summary,omitempty"`
+
+	// FailureSummaryBlobRef is the blob path produced by run_tests
+	// when the runner's full stderr exceeds the inline cap and got
+	// offloaded via tool.StoreBlob. Empty when the summary fit
+	// inline OR when no blob was created. The planner can call
+	// read_file with this path to page the complete content via
+	// offset/limit — Module D's "feed complete error to model"
+	// guarantee. Never used as the FailureSummary itself; the
+	// inline FailureSummary stays the readable preview, the blob
+	// ref is the full original.
+	FailureSummaryBlobRef string `json:"failure_summary_blob_ref,omitempty"`
 
 	// RegressionAssertions lists test AssertionIDs the verifier LLM
 	// classified as "passed in baseline, fails now — caused by this

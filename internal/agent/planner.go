@@ -132,6 +132,9 @@ func (e *plannerEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk *
 	if surface := e.buildTestSurfaceSection(ctx); surface != "" {
 		sections = append(sections, surface)
 	}
+	if history := e.buildIterationHistorySection(ctx); history != "" {
+		sections = append(sections, history)
+	}
 	if planning := e.buildPlanningContextSection(ctx); planning != "" {
 		sections = append(sections, planning)
 	}
@@ -263,6 +266,20 @@ func (e *plannerEvaluator) buildTestSurfaceSection(ctx *types.AgentContext) stri
 		b.WriteString("\n")
 	}
 	return b.String()
+}
+
+// buildIterationHistorySection renders Module C's iteration ledger
+// into the planner's initial prompt. Empty on the first plan attempt
+// (ledger is empty until clearForReplan appends after attempt 1's
+// verify failure). The section gives the planner the FULL history
+// of prior attempts in this Run — every PlanSummary verbatim, every
+// FailureSummary verbatim, every changed-files list. The planner
+// reads them and decides; the system attaches no commentary.
+func (e *plannerEvaluator) buildIterationHistorySection(ctx *types.AgentContext) string {
+	if ctx == nil || ctx.Mutable == nil {
+		return ""
+	}
+	return types.RenderIterationLedger(ctx.Mutable.IterationLedger())
 }
 
 // buildPlanningContextSection renders the existing PlanningHint —

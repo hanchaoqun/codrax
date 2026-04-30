@@ -373,6 +373,9 @@ func (t *RunTests) Execute(ctx *types.BusContext, params json.RawMessage) (types
 			_, ref := StoreBlob(ctx, t.Name()+"-timeout", strings.Join(combinedOutputs, "\n\n"))
 			report := makeResourceExhaustionReport("timeout", fmt.Sprintf(
 				"command timed out after %v (set timeout_seconds to bump)", timeout))
+			if ref != "" {
+				report.FailureSummaryBlobRef = ref
+			}
 			ctx.Mutable.SetChangeReport(qualifyChangeReport(report, plan, ctx.RepoRoot))
 			return types.ToolResult{
 				ToolName:  t.Name(),
@@ -391,6 +394,9 @@ func (t *RunTests) Execute(ctx *types.BusContext, params json.RawMessage) (types
 			report := makeResourceExhaustionReport("oom", fmt.Sprintf(
 				"command killed by memory cap (limit=%d MiB).",
 				caps.MemoryLimitBytes/(1024*1024)))
+			if ref != "" {
+				report.FailureSummaryBlobRef = ref
+			}
 			ctx.Mutable.SetChangeReport(qualifyChangeReport(report, plan, ctx.RepoRoot))
 			return types.ToolResult{
 				ToolName:  t.Name(),
@@ -405,6 +411,9 @@ func (t *RunTests) Execute(ctx *types.BusContext, params json.RawMessage) (types
 			// the rationale. Raw stderr is in FailureDetail.
 			report := makeResourceExhaustionReport("cpu_limit", fmt.Sprintf(
 				"command killed by CPU-time cap (limit=%ds).", caps.CPULimitSeconds))
+			if ref != "" {
+				report.FailureSummaryBlobRef = ref
+			}
 			ctx.Mutable.SetChangeReport(qualifyChangeReport(report, plan, ctx.RepoRoot))
 			return types.ToolResult{
 				ToolName:  t.Name(),
@@ -530,10 +539,17 @@ func (t *RunTests) Execute(ctx *types.BusContext, params json.RawMessage) (types
 		report.PlanID = plan.ID
 	}
 	report.GeneratedAt = time.Now()
-	ctx.Mutable.SetChangeReport(report)
 
 	summary := renderAggregateTestSummary(ctx.RepoRoot, plans, projectReports, report)
 	_, ref := StoreBlob(ctx, t.Name(), strings.Join(combinedOutputs, "\n\n"))
+	// Module D: propagate the blob ref onto the report so the
+	// planner's iteration-history section + retry hint can point
+	// the next attempt at the FULL stderr (paged via read_file
+	// offset/limit) when the summary alone isn't enough to decide.
+	if ref != "" {
+		report.FailureSummaryBlobRef = ref
+	}
+	ctx.Mutable.SetChangeReport(report)
 
 	success := report.Passed
 	logging.Info("[run_tests] projects=%d passed=%v total=%d failed=%d",

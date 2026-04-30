@@ -215,6 +215,20 @@ type MutableState struct {
 	// prepends a "Previous attempt failed — revise" section.
 	planningHint string
 
+	// iterationLedger accumulates one IterationRecord per completed
+	// verify→plan retry attempt. The orchestrator's clearForReplan
+	// appends to it BEFORE resetting ChangePlan / ChangeReport, so
+	// the planner on the next retry sees the FULL history (not just
+	// the most recent attempt or the best one) and can recognise
+	// patterns the system has no business pre-classifying — which
+	// approach was tried 3 times in a row, what the regression
+	// trajectory looks like, etc.
+	//
+	// Append-only inside a Run; cleared by ResetIterationLedger
+	// when a fresh write Run begins. Reflexion-style episodic
+	// memory pattern (Shinn et al. 2023).
+	iterationLedger []IterationRecord
+
 	// investigationComplete is set by the emit_investigation_complete
 	// tool when the LLM explicitly declares that it has collected
 	// enough evidence to answer the user's question. The explorer's
@@ -1475,6 +1489,60 @@ func (m *MutableState) ResetPlanningHint() {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.planningHint = ""
+}
+
+// AppendIteration records one row in the per-Run iteration ledger
+// (Module C). Called by the orchestrator's clearForReplan after a
+// verify→plan retry decision is made and BEFORE Mutable.ChangePlan /
+// Mutable.ChangeReport are reset, so every record carries the verbatim
+// data from a completed attempt — no system pre-classification.
+//
+// Defensive copy of ChangedFiles so a later mutation on the caller
+// side cannot rewrite history. The slice is short (target paths,
+// usually < 20 entries) so the copy is negligible.
+func (m *MutableState) AppendIteration(rec IterationRecord) {
+	if m == nil {
+		return
+	}
+	if len(rec.ChangedFiles) > 0 {
+		copied := make([]string, len(rec.ChangedFiles))
+		copy(copied, rec.ChangedFiles)
+		rec.ChangedFiles = copied
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.iterationLedger = append(m.iterationLedger, rec)
+}
+
+// IterationLedger returns a copy of the per-Run iteration ledger
+// in append order (oldest attempt first). The copy guarantees the
+// caller cannot mutate the orchestrator's stored state by mutating
+// the returned slice. Empty slice when no retry has fired yet.
+func (m *MutableState) IterationLedger() []IterationRecord {
+	if m == nil {
+		return nil
+	}
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	if len(m.iterationLedger) == 0 {
+		return nil
+	}
+	out := make([]IterationRecord, len(m.iterationLedger))
+	copy(out, m.iterationLedger)
+	return out
+}
+
+// ResetIterationLedger clears the ledger. Called at the start of a
+// fresh write Run so prior-Run history doesn't leak. NOT called by
+// clearForReplan — that path APPENDS to the ledger between attempts;
+// only a Run boundary resets it.
+func (m *MutableState) ResetIterationLedger() {
+	if m == nil {
+		return
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.iterationLedger = nil
 }
 
 // SetTurnAArtifacts stores the P2.1 handoff snapshot from the

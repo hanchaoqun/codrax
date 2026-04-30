@@ -852,6 +852,13 @@ func (o *Orchestrator) Run(request string, repoRoot string, branch string) (*typ
 	o.currentIterCommitSHA = ""
 	o.bestAppliedCommitSHA = ""
 
+	// Module C: a fresh Run starts with an empty iteration ledger.
+	// The ledger only accumulates between verify→plan retries within
+	// THIS Run; a new Run's planner must not see prior-Run history
+	// (lessons-library is the place for cross-Run memory, and
+	// Voyager-pattern is intentionally out of scope per the redesign).
+	o.busCtx.Mutable.ResetIterationLedger()
+
 	o.busCtx.Language = o.language
 	o.busCtx.AttachedLog = o.attachedLog
 	o.busCtx.AttachedHitrace = o.attachedHitrace
@@ -1383,6 +1390,43 @@ func (o *Orchestrator) persistPlanStatus(status string, appliedAt *time.Time) {
 // Generalisation: only uses fields present on every runner's
 // TestResult (AssertionID, Suite, FailureDetail) and on every
 // ChangePlan (TargetPaths). No language-specific parsing.
+// buildIterationRecord composes one ledger row from the previous
+// attempt's plan + report. Verbatim summary text (no truncation —
+// the planner needs the COMPLETE error, blob ref handles oversize
+// inline rendering downstream). Empty fields when prev state is nil
+// (apply-or-earlier failure with no plan / no report) — the planner
+// reads a partial row as evidence that an attempt happened but
+// didn't reach verify.
+func buildIterationRecord(attempt int, plan *types.ChangePlan, report *types.ChangeReport) types.IterationRecord {
+	rec := types.IterationRecord{
+		Attempt:   attempt,
+		Timestamp: time.Now(),
+	}
+	if plan != nil {
+		rec.PlanID = plan.ID
+		rec.PlanSummary = plan.Summary
+		if len(plan.TargetPaths) > 0 {
+			rec.ChangedFiles = append(rec.ChangedFiles, plan.TargetPaths...)
+		}
+	}
+	if report != nil {
+		for _, tr := range report.TestResults {
+			if tr.Passed {
+				rec.PassedCount++
+			} else {
+				rec.FailedCount++
+			}
+		}
+		rec.FailureSummary = report.FailureSummary
+		// Module D: when the runner blobbed the full stderr (large
+		// output path in run_tests.go), thread the ref through so
+		// the planner can call read_file with offset/limit to read
+		// past the inline summary.
+		rec.FailureSummaryBlobRef = report.FailureSummaryBlobRef
+	}
+	return rec
+}
+
 func buildRetryHint(report *types.ChangeReport, plan *types.ChangePlan, prevAttempt int) string {
 	var b strings.Builder
 	if report == nil {

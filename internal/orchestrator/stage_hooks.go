@@ -578,6 +578,17 @@ func clearForReplan(o *Orchestrator, attempt int) {
 	prevReport := o.busCtx.Mutable.ChangeReport()
 	prevPlan := o.busCtx.Mutable.ChangePlan()
 
+	// Module C: append a row to the iteration ledger BEFORE any of
+	// the resets below clear our source data. The planner's next
+	// dispatch reads the full ledger via Mutable.IterationLedger()
+	// and decides what to try based on the running history — no
+	// system pre-classification. Verbatim PlanSummary +
+	// FailureSummary (no truncation); blob ref propagated when the
+	// runner blobbed the full stderr.
+	if o.busCtx.Mutable != nil {
+		o.busCtx.Mutable.AppendIteration(buildIterationRecord(attempt, prevPlan, prevReport))
+	}
+
 	// Best-known-good latch: track the highest-passing (plan, report)
 	// pair across retry iterations so a regression in iteration N+1
 	// (LLM "fixed" the code but introduced a new failure) does not
