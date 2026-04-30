@@ -353,17 +353,29 @@ func TestAnswerDocumentEvaluator_BuildInitialInstruction_RendersConfigTraceDiagr
 		"prefer the validated role-labeled precedence chain below",
 		"compiled role abstraction backed by grounded evidence",
 		"highest precedence at the top to lowest precedence at the bottom",
-		"`override` = highest-precedence operator / CLI layer",
+		// Pre-2026-04-30 the prompt named the literal `CLI` as the
+		// concrete `override` example, which over-fit the s3a eval
+		// case (eval/cases/s3a.case literally asks about "code
+		// default / codrax.yaml / CLI"). Generalised to "operator-
+		// supplied layer (CLI flag / env override / SDK setter /
+		// RPC override — all the same tier)" so the binding rule
+		// is structural, not vocabulary-specific.
+		"highest-precedence operator-supplied layer",
+		"all the same tier",
 		"`runtime` is the binding / merge code path",
-		// Reframed alongside the First-Pass Diagram Reference: the
-		// seed is a grounded FLOOR not a paste-only ceiling, so the
-		// old "do NOT rename or reorder ... safest valid fenced
-		// diagram is an exact copy" assertions no longer fit. The
-		// "MAY add additional grounded layers" wording replaces it.
 		"grounded FLOOR",
 		"add additional grounded precedence layers when your investigation supports a richer chain",
-		"Every node you keep in this diagram must also have a matching citation in `citations[]` THROUGH its supporting anchor above",
-		"supporting anchors are listed elsewhere in the prompt",
+		// New two-channel rule replaces the old "rename to a bare
+		// `CLI` or tier label" prohibition. The validator works
+		// off these structural channels (data-driven from the
+		// EvidenceDiagramRole enum), not from prompt-side keyword
+		// examples.
+		"three structural grounding channels",
+		"role label EXACTLY as listed",
+		"<content> (<role-marker>)",
+		"override` / `config` / `runtime` / `default",
+		"concrete file path or symbol that appears in `citations[]`",
+		"Drop those nodes from the fence and explain the concept in prose",
 		"## Submission Checklist",
 		"FLOOR you can extend, not a verbatim ceiling",
 		"every fenced-diagram node must have its own grounded citation",
@@ -373,6 +385,48 @@ func TestAnswerDocumentEvaluator_BuildInitialInstruction_RendersConfigTraceDiagr
 	} {
 		if !strings.Contains(prompt, want) {
 			t.Fatalf("prompt missing %q:\n%s", want, prompt)
+		}
+	}
+}
+
+// TestAnswerDocumentEvaluator_BuildInitialInstruction_NoLiteralCLIBlacklist
+// is the dedicated guard against re-introducing the s3a over-fit:
+// the prompt MUST NOT carry phrases that name `CLI` (or other
+// vocabulary tokens from the s3a question) as a forbidden bucket
+// label. The structural three-channel rule replaces the old literal
+// blacklist, so neither the rejected old phrase nor a new
+// equivalent should slip back in.
+func TestAnswerDocumentEvaluator_BuildInitialInstruction_NoLiteralCLIBlacklist(t *testing.T) {
+	ctx := &types.AgentContext{
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{Scenario: types.ScenarioConfigTrace},
+			AnswerContract: types.AnswerContract{
+				RequiredAnswerShape: types.ShapeExplanation,
+				Diagram: &types.DiagramContract{
+					Required:       true,
+					Minimum:        1,
+					PreferredKinds: []types.DiagramKind{types.DiagramFlow},
+				},
+			},
+		},
+		EvidenceItems: []types.EvidenceItem{
+			{Source: "internal/types/config.go", LineStart: 707, GroundingStatus: types.GroundingGrounded, AnchorKind: types.AnchorDefinition, AnchorSymbol: "DefaultExploreHeuristics", DiagramRole: types.EvidenceDiagramRoleDefault},
+			{Source: "codrax.yaml.example", LineStart: 20, GroundingStatus: types.GroundingGrounded, AnchorKind: types.AnchorDefinition, AnchorSymbol: "ExploreHeuristics", DiagramRole: types.EvidenceDiagramRoleConfig},
+			{Source: "internal/config/runtime.go", LineStart: 194, GroundingStatus: types.GroundingGrounded, AnchorKind: types.AnchorAssignment, AnchorSymbol: "ExploreMidLoopMinIteration", DiagramRole: types.EvidenceDiagramRoleRuntime},
+			{Source: "cmd/root.go", LineStart: 1381, GroundingStatus: types.GroundingGrounded, AnchorKind: types.AnchorAssignment, AnchorSymbol: "OverrideLayer", DiagramRole: types.EvidenceDiagramRoleOverride},
+		},
+	}
+	prompt := (&answerDocumentEvaluator{}).BuildInitialInstruction(ctx, nil)
+	// Specific over-fitted phrases that MUST NOT reappear.
+	forbidden := []string{
+		"a bare `CLI`",
+		"the literal `CLI`",
+		"renaming it to `Layer N`",
+		"abstract bucket name (for example a generic step number, a bare `CLI`",
+	}
+	for _, ff := range forbidden {
+		if strings.Contains(prompt, ff) {
+			t.Errorf("prompt regressed to s3a-overfit phrase %q. Use the structural three-channel rule instead.", ff)
 		}
 	}
 }

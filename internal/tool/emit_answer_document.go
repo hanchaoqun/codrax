@@ -941,6 +941,14 @@ func (t *EmitAnswerDocument) Execute(ctx *types.BusContext, params json.RawMessa
 	if err := validateSummaryDiagramGrounding(p.Summary, citations, groundCtx, ctx); err != nil {
 		return failWithContext("%v", err)
 	}
+	// Config-trace fence-label structural gate. Replaces the prompt-
+	// side literal-CLI prohibition with a two-channel grounding rule
+	// (role label OR cited file path). Scopes itself to config-trace
+	// questions via the AnswerSurfacePlan; non-config-trace turns are
+	// no-ops.
+	if err := validateSummaryConfigTraceFenceLabels(p.Summary, citations, groundCtx, ctx); err != nil {
+		return failWithContext("%v", err)
+	}
 
 	// Log-triage coverage gate.
 	//
@@ -2486,6 +2494,210 @@ var diagramGroundingBodyReplacer = strings.NewReplacer(
 // the opening fence skips the optional language tag.
 var fencedCodeBlockRe = regexp.MustCompile("(?s)```[^\n]*\n(.*?)```")
 
+// fencedCodeBlockWithInfoRe is the same fence-finder but exposes the
+// info-string (the language tag immediately after the opening
+// triple-backticks). info-string lives in submatch[1]; body in
+// submatch[2]. Used by the config-trace fence-label validator to
+// scope its checks to ```mermaid``` blocks only.
+var fencedCodeBlockWithInfoRe = regexp.MustCompile("(?s)```([^\n]*)\n(.*?)```")
+
+// mermaidNodeLabelRe captures the contents of a Mermaid node-label
+// bracket: the quoted form `id["raw label with spaces"]` or the bare
+// form `id[raw_id]`. Two alternatives so a single regex covers both.
+//
+// Group 1: contents of the quoted-bracket form (no surrounding quotes).
+// Group 2: contents of the bare-bracket form.
+//
+// Used by extractMermaidNodeLabels to pull every node label from a
+// Mermaid fence body in O(n) — without writing a real Mermaid parser.
+// We deliberately do not try to associate the label with its node id;
+// the validator only cares about the LABEL text (what the user reads).
+var mermaidNodeLabelRe = regexp.MustCompile(`\[\s*(?:"([^"]+)"|([^\]\n]+))\s*\]`)
+
+// mermaidEdgeSplitRe splits a Mermaid line on edge operators so the
+// extractor can also recover bare-id labels (a Mermaid node referenced
+// without a bracket declaration uses its id as the visible label).
+// Covers solid `-->`, dashed `-.->`, thick `==>`, plain `---`, and
+// `<-->`.
+var mermaidEdgeSplitRe = regexp.MustCompile(`-->|<-->|-\.->|==>|---|<---`)
+
+// mermaidReservedWords are the Mermaid language reserved words that
+// MUST never be treated as user-supplied node labels. These are
+// language keywords (compiler-style: `subgraph` / `end` is the
+// scoping construct, `flowchart` / `graph` is the diagram-type
+// declaration, `LR` / `TD` / `RL` / `BT` are direction modifiers).
+//
+// This is NOT a "filter dictionary" of arbitrary disallowed words —
+// it's the closed set of Mermaid grammar tokens (similar to Go's
+// `package` / `import` / `func` keywords). Adding a new entry only
+// happens when Mermaid's spec gains new syntax.
+var mermaidReservedWords = map[string]bool{
+	"flowchart":   true,
+	"graph":       true,
+	"subgraph":    true,
+	"end":         true,
+	"classDef":    true,
+	"class":       true,
+	"click":       true,
+	"linkStyle":   true,
+	"style":       true,
+	"direction":   true,
+	"LR":          true,
+	"RL":          true,
+	"TD":          true,
+	"TB":          true,
+	"BT":          true,
+	// sequenceDiagram / classDiagram families — header tokens that
+	// appear on a body line by themselves when the LLM emits a
+	// non-flowchart shape inside the same fence type.
+	"sequenceDiagram": true,
+	"classDiagram":    true,
+	"stateDiagram":    true,
+	"stateDiagram-v2": true,
+	"erDiagram":       true,
+}
+
+// idTokenLeftOf returns the longest run of id-token characters
+// (alnum / `_` / `-` / `.`) that ends at offset `end` in `s`. Used
+// to recover the structural id-token glued to the left of a
+// Mermaid `[...]` declaration so the validator can suppress those
+// invisible-glue ids from the user-visible label set.
+func idTokenLeftOf(s string, end int) string {
+	start := end
+	for start > 0 {
+		b := s[start-1]
+		if (b >= 'a' && b <= 'z') ||
+			(b >= 'A' && b <= 'Z') ||
+			(b >= '0' && b <= '9') ||
+			b == '_' || b == '-' || b == '.' {
+			start--
+			continue
+		}
+		break
+	}
+	return s[start:end]
+}
+
+// extractMermaidNodeLabels walks a normalised Mermaid fence body and
+// returns every distinct user-visible node label (in source order).
+//
+// Two-pass design:
+//
+//	pass 1 — collect every `id["label"]` / `id[label]` declaration's
+//	         (id, label) pair. The id is structural glue (invisible
+//	         to the reader); the label is what the user sees.
+//	pass 2 — re-walk lines: emit bracketed labels (skipping their
+//	         glued-id), then split bare segments on Mermaid edge
+//	         operators. Bare segments that match a previously-
+//	         declared id are SKIPPED (they are back-references to
+//	         the labeled node, not new labels). Bare segments that
+//	         have NEVER been declared are emitted as their own
+//	         labels — Mermaid renders an unsubscripted id by
+//	         showing the id text.
+//
+// Reserved words (mermaidReservedWords) and whitespace-bearing
+// segments are dropped. Duplicate labels are deduped while
+// preserving first-seen order so the validator's violation message
+// is stable.
+//
+// The function is intentionally tolerant: malformed lines (parser
+// error, partial label) are skipped silently rather than panicking,
+// matching the rest of the validator's "fail open by leaving block
+// untouched" contract.
+func extractMermaidNodeLabels(body string) []string {
+	out := make([]string, 0, 8)
+	seen := make(map[string]bool, 8)
+	emit := func(lbl string) {
+		lbl = strings.TrimSpace(lbl)
+		if lbl == "" {
+			return
+		}
+		if seen[lbl] {
+			return
+		}
+		seen[lbl] = true
+		out = append(out, lbl)
+	}
+	// Pass 1: collect declared ids. We deliberately scan the whole
+	// body once instead of accumulating per-line so a forward
+	// reference (`A --> B; A["alpha"]`) still suppresses `A` from
+	// the label set on the first line — Mermaid's parser is order-
+	// independent for label attachment.
+	declaredIds := make(map[string]bool, 8)
+	for _, m := range mermaidNodeLabelRe.FindAllStringSubmatchIndex(body, -1) {
+		if id := strings.TrimSpace(idTokenLeftOf(body, m[0])); id != "" {
+			declaredIds[id] = true
+		}
+	}
+	for _, line := range strings.Split(body, "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		// Reserved-only header lines: skip entirely.
+		first := strings.Fields(line)
+		if len(first) > 0 && mermaidReservedWords[first[0]] {
+			continue
+		}
+		// Bracketed labels (preferred channel — what
+		// renderMermaidLinearFence emits). Emit every label, then
+		// blank the `[id]…[/id]` spans + structural id glue so the
+		// bare-id pass does not re-recover invisible ids.
+		residual := line
+		if matches := mermaidNodeLabelRe.FindAllStringSubmatchIndex(line, -1); len(matches) > 0 {
+			for _, m := range matches {
+				if m[2] >= 0 {
+					emit(line[m[2]:m[3]])
+				} else if m[4] >= 0 {
+					emit(line[m[4]:m[5]])
+				}
+			}
+			rb := []byte(line)
+			for i := len(matches) - 1; i >= 0; i-- {
+				m := matches[i]
+				start := m[0]
+				// Blank id-token glued to left of `[`.
+				for start > 0 {
+					b := rb[start-1]
+					if (b >= 'a' && b <= 'z') ||
+						(b >= 'A' && b <= 'Z') ||
+						(b >= '0' && b <= '9') ||
+						b == '_' || b == '-' || b == '.' {
+						start--
+						continue
+					}
+					break
+				}
+				for j := start; j < m[1]; j++ {
+					rb[j] = ' '
+				}
+			}
+			residual = string(rb)
+		}
+		// Bare-id channel: split on edge operators, pick segments
+		// that are SHAPE-OK as a Mermaid node id (single token, no
+		// whitespace inside, not a reserved word, not a previously
+		// declared structural id).
+		for _, seg := range mermaidEdgeSplitRe.Split(residual, -1) {
+			seg = strings.TrimSpace(seg)
+			if seg == "" {
+				continue
+			}
+			if strings.ContainsAny(seg, " \t") {
+				continue
+			}
+			if mermaidReservedWords[seg] {
+				continue
+			}
+			if declaredIds[seg] {
+				continue
+			}
+			emit(seg)
+		}
+	}
+	return out
+}
+
 // diagramCueTokens is the lightweight structural heuristic for the
 // missing-diagram gate. We intentionally keep the gate generic: any
 // fenced block with at least two non-empty lines plus one of these
@@ -2896,6 +3108,182 @@ func validateSummaryDiagramGrounding(summary string, citations []types.Citation,
 		WithMetadata("invalid_labels", strings.Join(violations, ", ")).
 		WithMetadata("allowed_labels", strings.Join(allow.labels, ", ")).
 		WithHint("Re-emit `emit_answer_document` with the same grounded answer, but inside fenced diagrams keep file/path node labels to the exact grounded allowlist for this dispatch. If a node has no grounded label, remove it from the fence and explain that relationship in prose instead.")
+}
+
+// configTraceFenceRoleLabels returns the canonical 4-element role
+// label set the config-trace fence validator accepts as channel-1
+// grounded labels (the long-form, e.g. "operator override").
+// Sourced via types.ConfigTraceDiagramRoleNodeLabel so adding a new
+// EvidenceDiagramRole constant automatically extends the allowed
+// label set without further wiring.
+func configTraceFenceRoleLabels() map[string]bool {
+	out := make(map[string]bool, 4)
+	for _, role := range []types.EvidenceDiagramRole{
+		types.EvidenceDiagramRoleOverride,
+		types.EvidenceDiagramRoleConfig,
+		types.EvidenceDiagramRoleRuntime,
+		types.EvidenceDiagramRoleDefault,
+	} {
+		if lbl := strings.TrimSpace(types.ConfigTraceDiagramRoleNodeLabel(role)); lbl != "" {
+			out[lbl] = true
+		}
+	}
+	return out
+}
+
+// configTraceFenceRoleMarkers extends the bare role labels with the
+// short-form role enum names (`override` / `config` / `runtime` /
+// `default`). Used to validate the COMPOUND form
+// `<content> (<role-marker>)` that 022f245's prompt allows as a
+// "compiled role abstraction backed by grounded evidence". A label
+// like `CLI flag (override)` is grounded because the parenthetical
+// is one of the canonical role markers — the role marker carries
+// the role binding, the content phrase is the human-readable label.
+//
+// Both long and short markers are accepted because the LLM tends
+// to write either form interchangeably; sourcing the canonical
+// strings from EvidenceDiagramRole keeps the registry data-driven.
+func configTraceFenceRoleMarkers() map[string]bool {
+	out := configTraceFenceRoleLabels()
+	for _, role := range []types.EvidenceDiagramRole{
+		types.EvidenceDiagramRoleOverride,
+		types.EvidenceDiagramRoleConfig,
+		types.EvidenceDiagramRoleRuntime,
+		types.EvidenceDiagramRoleDefault,
+	} {
+		s := strings.ToLower(strings.TrimSpace(string(role)))
+		if s != "" {
+			out[s] = true
+		}
+	}
+	return out
+}
+
+// roleMarkerSuffixRe captures a trailing `(role-marker)` parenthesis
+// at the end of a label. Group 1 is the marker text. Whitespace
+// between the content and the parenthesis is allowed but not
+// trailing whitespace inside the parens (we Trim before matching).
+var roleMarkerSuffixRe = regexp.MustCompile(`\s*\(([^()]+)\)\s*$`)
+
+// labelHasParentheticalRoleMarker reports whether `label` ends with
+// `... (<marker>)` where marker is a known role marker (long or
+// short form). Returns true for the 022f245-style compound shape.
+func labelHasParentheticalRoleMarker(label string, markers map[string]bool) bool {
+	m := roleMarkerSuffixRe.FindStringSubmatch(strings.TrimSpace(label))
+	if m == nil {
+		return false
+	}
+	return markers[strings.ToLower(strings.TrimSpace(m[1]))]
+}
+
+// validateSummaryConfigTraceFenceLabels enforces the structural
+// "two-channel grounding" rule for fenced ```mermaid``` blocks on
+// config-trace questions:
+//
+//	S1 — the label is one of the four role-abstract labels emitted
+//	     by ConfigTraceDiagramRoleNodeLabel ("operator override" /
+//	     "config file" / "runtime binding" / "code default"). These
+//	     labels carry their own anchor binding via the supporting-
+//	     anchor block the prompt renders ABOVE the fence.
+//	S2 — the label is path-shape (matches diagramFileTokenRe with a
+//	     diagramFileExtensions extension) AND that path is in the
+//	     existing summaryDiagramAllowlist (citations[] + per-cite
+//	     evidence pool + log-triage ResolvedFiles).
+//	S3 — anything else: reject, naming the offending labels.
+//
+// Scope gates (cheapest-first so non-config-trace turns pay zero
+// cost):
+//
+//   - plan == nil OR plan.ConfigTraceDiagramAnchors empty → not a
+//     config-trace question; skip.
+//   - summary contains no fenced blocks → skip.
+//   - per-block: info-string does NOT name `mermaid` → skip (this
+//     validator deliberately does NOT inspect ```bash``` / ```json```
+//     fences; their labels can mention `CLI` / `RPC` legitimately).
+//
+// Replaces the pre-fix prompt-side literal-CLI prohibition. The
+// rule is now structural (any unknown label gets caught, not just
+// the few words listed in a prompt example), so the prompt's
+// example phrases (CLI / RPC / UI) become teaching aids rather
+// than the actual decision dictionary.
+func validateSummaryConfigTraceFenceLabels(summary string, citations []types.Citation, gc *ground.Context, ctx *types.BusContext) error {
+	plan := answerSurfacePlan(ctx)
+	if plan == nil || len(plan.ConfigTraceDiagramAnchors) == 0 {
+		return nil
+	}
+	matches := fencedCodeBlockWithInfoRe.FindAllStringSubmatch(summary, -1)
+	if len(matches) == 0 {
+		return nil
+	}
+	roleLabels := configTraceFenceRoleLabels()
+	roleMarkers := configTraceFenceRoleMarkers()
+	allow := buildSummaryDiagramAllowlist(citations, gc, ctx)
+
+	var violations []string
+	seen := make(map[string]bool)
+	for _, m := range matches {
+		info := strings.TrimSpace(m[1])
+		if !strings.EqualFold(info, "mermaid") &&
+			!strings.HasPrefix(strings.ToLower(info), "mermaid ") {
+			continue
+		}
+		body := diagramGroundingBodyReplacer.Replace(m[2])
+		for _, label := range extractMermaidNodeLabels(body) {
+			// S1a — exact role-abstract label.
+			if roleLabels[label] {
+				continue
+			}
+			// S1b — compound form `<content> (<role-marker>)`.
+			// Allowed by 022f245's "compiled role abstraction
+			// backed by grounded evidence" design: the role
+			// marker is what binds the label to a precedence
+			// tier, the content phrase is the human-readable
+			// surface (typically the corresponding file or
+			// concept already named in evidence). Marker set is
+			// data-driven from the EvidenceDiagramRole enum.
+			if labelHasParentheticalRoleMarker(label, roleMarkers) {
+				continue
+			}
+			// S2 — label is already in citations[] /
+			// per-cite evidence pool / log-triage ResolvedFiles.
+			// We do NOT pre-gate by diagramFileExtensions because
+			// the legitimate config-trace anchor set includes
+			// non-code paths like `codrax.yaml.example` whose
+			// extension is `.example`. allow.matches is itself
+			// citation-grounded so a bare label like `CLI` cannot
+			// accidentally satisfy it (no citation file is named
+			// `CLI`).
+			if allow.matches(label) {
+				continue
+			}
+			if seen[label] {
+				continue
+			}
+			seen[label] = true
+			violations = append(violations, label)
+		}
+	}
+	if len(violations) == 0 {
+		return nil
+	}
+	rolesList := make([]string, 0, len(roleLabels))
+	for r := range roleLabels {
+		rolesList = append(rolesList, r)
+	}
+	sort.Strings(rolesList)
+	return newAnswerDocValidationError(
+		"config_trace_fence_labels",
+		"summary mermaid fence carries node label(s) that are neither a role-abstract label (`%s`), a `<content> (<role>)` compound form, nor a citation-grounded file path: %s. "+
+			"For config-trace precedence diagrams, every node label must satisfy one of three structural channels: "+
+			"(1) use a role label EXACTLY as listed in the supporting-anchor block above, "+
+			"(2) write a compound `<content> (<role>)` label whose parenthetical is one of the canonical role markers (override / config / runtime / default, or their long forms), OR "+
+			"(3) use a concrete file path / symbol that appears in citations[]. "+
+			"Drop labels that do not fit any channel; describe their concept in prose outside the fence.",
+		strings.Join(rolesList, "`, `"), strings.Join(violations, ", "),
+	).WithFields("summary").
+		WithMetadata("invalid_labels", strings.Join(violations, ", ")).
+		WithMetadata("allowed_role_labels", strings.Join(rolesList, ", ")).
+		WithHint("Re-emit emit_answer_document. Inside ```mermaid``` fences keep node labels to (a) the four role labels supplied above, (b) a compound `<content> (<role-marker>)` form where role-marker is override / config / runtime / default, OR (c) file/path tokens already present in citations[]. Anything else (one-word concepts like CLI/RPC/UI without a role marker, numbered tiers, architectural archetypes) belongs in prose, not as a node label.")
 }
 
 type summaryDiagramAllowlist struct {

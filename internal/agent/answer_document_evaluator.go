@@ -849,12 +849,26 @@ func renderAnswerDocDiagramConfigTraceSeed(ctx *types.AgentContext) string {
 		fmt.Fprintf(&b, "- `%s` [%s] → `%s`\n", anchor.Label, anchor.Role, support)
 	}
 	b.WriteByte('\n')
-	b.WriteString("Precedence semantics live in prose, not in invented node names: `override` = highest-precedence operator / CLI layer, `config` = grounded repo/user config-file layer (YAML/JSON/TOML/INI/etc.), `default` = code-default fallback. `runtime` is the binding / merge code path between those layers, not a standalone user-config tier.\n")
+	b.WriteString("Precedence semantics live in prose, not in invented node names: `override` = highest-precedence operator-supplied layer (CLI flag / env override / SDK setter / RPC override — all the same tier), `config` = grounded repo/user config-file layer (YAML/JSON/TOML/INI/etc.), `default` = code-default fallback. `runtime` is the binding / merge code path between those layers, not a standalone user-config tier.\n")
 	if missing := missingConfigTraceDiagramRoles(rolesPresent); len(missing) > 0 {
 		fmt.Fprintf(&b, "Current grounded evidence does NOT include anchor(s) for these precedence role(s): %s. Do not add fenced-diagram nodes for missing roles unless you first cite a real repo anchor for them; if you need to explain those semantics, keep them in prose as general precedence rules rather than grounded nodes in this dispatch.\n", strings.Join(missing, ", "))
 	}
-	b.WriteString("Every node you keep in this diagram must also have a matching citation in `citations[]` THROUGH its supporting anchor above. If you cannot cite a node's supporting anchor, delete that node from the chain instead of renaming it to a different bucket name (for example a generic step number, a bare `CLI`, or a tier label).\n")
-	b.WriteString("If you only need part of the chain, delete unused nodes rather than inventing new role labels. Conceptual layer names requested by the user belong in prose headings or bullets unless the prompt already supplied that role label in the precedence chain. If you introduce a different file / symbol / path label inside the fenced diagram, ground it first.")
+	// Two-channel structural rule. The downstream validator
+	// (validateSummaryConfigTraceFenceLabels) accepts ANY label that
+	// fits one of the channels below, regardless of the specific
+	// word the LLM picks. Examples like `CLI` / `RPC` / `UI` are
+	// teaching aids — the validator does NOT keyword-match on them;
+	// it runs the structural channel checks. So the rule
+	// generalises to any vocabulary the user happens to reach for.
+	fmt.Fprintf(&b, "Every node label inside this fenced diagram must satisfy ONE of three structural grounding channels (the validator runs them in order and accepts the first match):\n")
+	fmt.Fprintf(&b, "  1. Use a role label EXACTLY as listed in the supporting-anchor block above: `%s`, `%s`, `%s`, or `%s`. The role marker is the binding.\n",
+		types.ConfigTraceDiagramRoleNodeLabel(types.EvidenceDiagramRoleOverride),
+		types.ConfigTraceDiagramRoleNodeLabel(types.EvidenceDiagramRoleConfig),
+		types.ConfigTraceDiagramRoleNodeLabel(types.EvidenceDiagramRoleRuntime),
+		types.ConfigTraceDiagramRoleNodeLabel(types.EvidenceDiagramRoleDefault))
+	fmt.Fprintf(&b, "  2. Write a compound `<content> (<role-marker>)` label whose parenthetical is one of `override` / `config` / `runtime` / `default` (or their long forms). The role-marker carries the binding; the content phrase is the human-readable surface.\n")
+	fmt.Fprintf(&b, "  3. Use a concrete file path or symbol that appears in `citations[]`.\n")
+	fmt.Fprintf(&b, "Any label that fits NONE of the three channels (a one-word concept like `CLI` / `RPC` / `UI` without a role marker, a numbered tier such as `Layer 1`, an architectural archetype) is rejected. Drop those nodes from the fence and explain the concept in prose instead — do not invent a new bucket name.\n")
 	return strings.TrimSpace(b.String())
 }
 

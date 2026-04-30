@@ -7162,3 +7162,325 @@ func TestEmitAnswerDocument_KeptZero_EmitsEscapePathBlock(t *testing.T) {
 		}
 	}
 }
+
+// newConfigTraceFenceCtx assembles the minimum BusContext shape that
+// makes answerSurfacePlan(ctx) emit non-empty ConfigTraceDiagramAnchors,
+// which is the scope gate for validateSummaryConfigTraceFenceLabels.
+//
+// Mirrors the fixture used in
+// internal/agent/answer_document_evaluator_test.go for the
+// RendersConfigTraceDiagramSeed test — same ScenarioConfigTrace +
+// 4-evidence shape — but built into a BusContext rather than an
+// AgentContext. The 4 evidence items cover all four
+// EvidenceDiagramRole values so each role-label channel (S1) can
+// be exercised independently of the others.
+func newConfigTraceFenceCtx(t *testing.T) *types.BusContext {
+	t.Helper()
+	ctx := newDocBusCtx("")
+	ctx.AnalysisIR = &types.AnalysisIR{
+		RequestModel: types.RequestModel{Scenario: types.ScenarioConfigTrace},
+		AnswerContract: types.AnswerContract{
+			RequiredAnswerShape: types.ShapeExplanation,
+			Diagram: &types.DiagramContract{
+				Required:       true,
+				Minimum:        1,
+				PreferredKinds: []types.DiagramKind{types.DiagramFlow},
+				ScopeHint:      types.DiagramScopeOverall,
+			},
+		},
+	}
+	ctx.EvidenceItems = []types.EvidenceItem{
+		{Source: "internal/types/config.go", LineStart: 707, Subject: "DefaultExploreHeuristics", Summary: "code defaults", Kind: types.EvidenceDirect, GroundingStatus: types.GroundingGrounded, AnchorKind: types.AnchorDefinition, AnchorSymbol: "DefaultExploreHeuristics", DiagramRole: types.EvidenceDiagramRoleDefault},
+		{Source: "codrax.yaml.example", LineStart: 20, Subject: "ExploreHeuristics", Summary: "yaml precedence comment", Kind: types.EvidenceDirect, GroundingStatus: types.GroundingGrounded, AnchorKind: types.AnchorDefinition, AnchorSymbol: "ExploreHeuristics", DiagramRole: types.EvidenceDiagramRoleConfig},
+		{Source: "internal/config/runtime.go", LineStart: 194, Subject: "ExploreMidLoopMinIteration", Summary: "runtime yaml binding", Kind: types.EvidenceDirect, GroundingStatus: types.GroundingGrounded, AnchorKind: types.AnchorAssignment, AnchorSymbol: "ExploreMidLoopMinIteration", DiagramRole: types.EvidenceDiagramRoleRuntime},
+		{Source: "cmd/root.go", LineStart: 1381, Summary: "operator override applies when non-nil", Kind: types.EvidenceDirect, GroundingStatus: types.GroundingGrounded, AnchorKind: types.AnchorAssignment, AnchorSymbol: "OverrideLayer", DiagramRole: types.EvidenceDiagramRoleOverride},
+	}
+	return ctx
+}
+
+// configTraceFenceParams renders the JSON params that drive
+// emit_answer_document.Execute for a config-trace explanation
+// answer with the supplied summary body. Citations point at
+// concrete files so the path-shape allowlist (S2) can corroborate
+// path tokens in the fence.
+func configTraceFenceParams(t *testing.T, summary string) json.RawMessage {
+	t.Helper()
+	return mustDocJSON(t, map[string]interface{}{
+		"shape":   "explanation",
+		"summary": summary,
+		"citations": []map[string]interface{}{
+			{"file": "internal/types/config.go", "line": 707},
+			{"file": "codrax.yaml.example", "line": 20},
+			{"file": "internal/config/runtime.go", "line": 194},
+			{"file": "cmd/root.go", "line": 1381},
+		},
+	})
+}
+
+// TestEmitAnswerDocument_ConfigTraceFenceLabels_AcceptsRoleLabel —
+// S1 channel: every node label is one of the 4 role-abstract labels.
+// Validator MUST accept; Execute returns Success=true.
+func TestEmitAnswerDocument_ConfigTraceFenceLabels_AcceptsRoleLabel(t *testing.T) {
+	tool := &EmitAnswerDocument{}
+	ctx := newConfigTraceFenceCtx(t)
+	summary := "Precedence chain follows the four-layer model.\n\n" +
+		"```mermaid\n" +
+		"flowchart TD\n" +
+		"  A[\"operator override\"] --> B[\"config file\"]\n" +
+		"  B --> C[\"runtime binding\"]\n" +
+		"  C --> D[\"code default\"]\n" +
+		"```\n"
+	res, _ := tool.Execute(ctx, configTraceFenceParams(t, summary))
+	if !res.Success {
+		t.Fatalf("S1 role-only fence must pass; got Success=false Summary=%q", res.Summary)
+	}
+}
+
+// TestEmitAnswerDocument_ConfigTraceFenceLabels_AcceptsCitedPath —
+// S2 channel: every node label is a path-shape token already in
+// citations[]. Validator MUST accept; Execute returns Success=true.
+func TestEmitAnswerDocument_ConfigTraceFenceLabels_AcceptsCitedPath(t *testing.T) {
+	tool := &EmitAnswerDocument{}
+	ctx := newConfigTraceFenceCtx(t)
+	summary := "Concrete file chain.\n\n" +
+		"```mermaid\n" +
+		"flowchart LR\n" +
+		"  A[\"internal/types/config.go\"] --> B[\"codrax.yaml.example\"]\n" +
+		"  B --> C[\"cmd/root.go\"]\n" +
+		"```\n"
+	res, _ := tool.Execute(ctx, configTraceFenceParams(t, summary))
+	if !res.Success {
+		t.Fatalf("S2 cited-path fence must pass; got Success=false Summary=%q", res.Summary)
+	}
+}
+
+// TestEmitAnswerDocument_ConfigTraceFenceLabels_RejectsBareCLI is
+// the headline regression case: the LLM emits a one-word concept
+// `CLI` as a fence node label — neither a role label (S1) nor a
+// cited path (S2). Validator MUST reject with code
+// "config_trace_fence_labels".
+func TestEmitAnswerDocument_ConfigTraceFenceLabels_RejectsBareCLI(t *testing.T) {
+	tool := &EmitAnswerDocument{}
+	ctx := newConfigTraceFenceCtx(t)
+	summary := "Precedence chain.\n\n" +
+		"```mermaid\n" +
+		"flowchart TD\n" +
+		"  A[\"CLI\"] --> B[\"operator override\"]\n" +
+		"  B --> C[\"config file\"]\n" +
+		"  C --> D[\"code default\"]\n" +
+		"```\n"
+	res, _ := tool.Execute(ctx, configTraceFenceParams(t, summary))
+	if res.Success {
+		t.Fatalf("bare `CLI` label must be rejected; got Success=true Summary=%q", res.Summary)
+	}
+	if !strings.Contains(res.Summary, "config_trace_fence_labels") {
+		t.Errorf("rejection should carry validator code; got %q", res.Summary)
+	}
+	if !strings.Contains(res.Summary, "CLI") {
+		t.Errorf("rejection should name the offending label %q; got %q", "CLI", res.Summary)
+	}
+}
+
+// TestEmitAnswerDocument_ConfigTraceFenceLabels_RejectsBareRPC —
+// generalisation evidence: same code path catches a DIFFERENT
+// one-word concept (`RPC` instead of `CLI`) without any keyword
+// dictionary. The validator does not look at the literal `RPC`
+// anywhere — it just runs through S1/S2/S3 and lands the unknown
+// label in S3.
+func TestEmitAnswerDocument_ConfigTraceFenceLabels_RejectsBareRPC(t *testing.T) {
+	tool := &EmitAnswerDocument{}
+	ctx := newConfigTraceFenceCtx(t)
+	summary := "Precedence chain.\n\n" +
+		"```mermaid\n" +
+		"flowchart TD\n" +
+		"  A[\"RPC\"] --> B[\"operator override\"]\n" +
+		"  B --> C[\"config file\"]\n" +
+		"```\n"
+	res, _ := tool.Execute(ctx, configTraceFenceParams(t, summary))
+	if res.Success {
+		t.Fatalf("bare `RPC` label must be rejected (proves the rule is structural, not CLI-specific); got Success=true")
+	}
+	if !strings.Contains(res.Summary, "RPC") {
+		t.Errorf("rejection should name the offending label %q; got %q", "RPC", res.Summary)
+	}
+}
+
+// TestEmitAnswerDocument_ConfigTraceFenceLabels_NotConfigTraceQuestion_NoOp —
+// scope gate: a plan without ConfigTraceDiagramAnchors does NOT
+// invoke the validator. The summary's mermaid fence carries an
+// unknown label that would normally be rejected; it is allowed
+// here because the scenario is not config-trace.
+func TestEmitAnswerDocument_ConfigTraceFenceLabels_NotConfigTraceQuestion_NoOp(t *testing.T) {
+	tool := &EmitAnswerDocument{}
+	// Build a non-config-trace ctx: no AnalysisIR.RequestModel.Scenario,
+	// so plan.ConfigTraceDiagramAnchors stays empty and the validator
+	// returns nil before running any extraction.
+	ctx := newDocBusCtx("")
+	params := mustDocJSON(t, map[string]interface{}{
+		"shape": "explanation",
+		"summary": "Some flow explanation.\n\n" +
+			"```mermaid\nflowchart LR\n  CLI --> internal/foo.go\n```\n",
+		"citations": []map[string]interface{}{
+			{"file": "internal/foo.go", "line": 1},
+		},
+	})
+	// Even though `CLI` is unknown, this test asserts the validator
+	// does NOT fire — but other validators may. We only assert the
+	// validator-specific code is absent from the rejection summary
+	// (Success=true is not guaranteed because other validators
+	// might still trigger; this test is scope-gated to OUR rule).
+	res, _ := tool.Execute(ctx, params)
+	if strings.Contains(res.Summary, "config_trace_fence_labels") {
+		t.Errorf("config-trace validator must not fire when scenario is not config_trace; got %q", res.Summary)
+	}
+}
+
+// TestEmitAnswerDocument_ConfigTraceFenceLabels_AcceptsCompoundForm —
+// S1b channel: the 022f245-style compound label
+// `<content> (<role-marker>)` is grounded by its parenthetical
+// role marker. Both long-form (`(operator override)`) and short-
+// form (`(override)`) markers are accepted because the LLM tends
+// to interleave both. Source phrase ("CLI flag" / "argv override"
+// / "命令行参数") is irrelevant to S1b — the binding lives in the
+// parenthetical, sourced from the EvidenceDiagramRole enum.
+//
+// Content phrases are kept identifier-shaped (no path-shape file
+// extensions) so the older path-grounding validator
+// (validateSummaryDiagramGrounding) does not also fire. The
+// existing TestEmitAnswerDocument_ConfigTraceAbsentPreservesExisting…
+// test already covers the path-shape interaction; this test focuses
+// on locking S1b in isolation.
+func TestEmitAnswerDocument_ConfigTraceFenceLabels_AcceptsCompoundForm(t *testing.T) {
+	tool := &EmitAnswerDocument{}
+	ctx := newConfigTraceFenceCtx(t)
+	summary := "Precedence chain.\n\n" +
+		"```mermaid\n" +
+		"flowchart LR\n" +
+		"  A[\"argv-flag (override)\"] --> B[\"yaml-config (config)\"]\n" +
+		"  B --> C[\"runtime-binder (runtime binding)\"]\n" +
+		"  C --> D[\"default-struct (code default)\"]\n" +
+		"```\n"
+	res, _ := tool.Execute(ctx, configTraceFenceParams(t, summary))
+	if !res.Success {
+		t.Fatalf("compound `<content> (<role-marker>)` form must pass S1b; got Success=false Summary=%q", res.Summary)
+	}
+}
+
+// TestEmitAnswerDocument_ConfigTraceFenceLabels_RejectsCompoundWithBogusMarker —
+// generalisation guard: the compound form is only S1b-grounded
+// when the parenthetical is a CANONICAL role marker. A label like
+// `argv (sneaky)` is rejected because `sneaky` is not in the
+// EvidenceDiagramRole-derived marker set.
+func TestEmitAnswerDocument_ConfigTraceFenceLabels_RejectsCompoundWithBogusMarker(t *testing.T) {
+	tool := &EmitAnswerDocument{}
+	ctx := newConfigTraceFenceCtx(t)
+	summary := "Chain.\n\n" +
+		"```mermaid\n" +
+		"flowchart LR\n" +
+		"  A[\"argv (sneaky)\"] --> B[\"operator override\"]\n" +
+		"```\n"
+	res, _ := tool.Execute(ctx, configTraceFenceParams(t, summary))
+	if res.Success {
+		t.Fatalf("compound with non-canonical marker `(sneaky)` must be rejected; got Success=true")
+	}
+	if !strings.Contains(res.Summary, "argv (sneaky)") {
+		t.Errorf("rejection should name the offending compound label; got %q", res.Summary)
+	}
+}
+
+// TestEmitAnswerDocument_ConfigTraceFenceLabels_NonMermaidFenceUntouched —
+// scope gate (per-block): even on a config-trace question, a
+// fence whose info-string is `bash` / `json` / `text` is NOT
+// inspected. Users legitimately need to mention CLI / RPC inside
+// shell-like blocks.
+func TestEmitAnswerDocument_ConfigTraceFenceLabels_NonMermaidFenceUntouched(t *testing.T) {
+	tool := &EmitAnswerDocument{}
+	ctx := newConfigTraceFenceCtx(t)
+	summary := "Run from shell:\n\n" +
+		"```bash\n" +
+		"CLI --override foo\n" +
+		"```\n\n" +
+		"Precedence chain.\n\n" +
+		"```mermaid\n" +
+		"flowchart TD\n" +
+		"  A[\"operator override\"] --> B[\"config file\"]\n" +
+		"```\n"
+	res, _ := tool.Execute(ctx, configTraceFenceParams(t, summary))
+	if !res.Success {
+		t.Fatalf("non-mermaid fence carrying `CLI` must pass; got Success=false Summary=%q", res.Summary)
+	}
+}
+
+// TestExtractMermaidNodeLabels covers each documented extraction
+// channel:
+//
+//	bracketed quoted    — `id["label"]`     → "label"
+//	bracketed bare      — `id[label_id]`    → "label_id"
+//	bare-id             — `A --> B`         → "A", "B"
+//	reserved-word skip  — `flowchart LR`    → (nothing)
+//	subgraph header     — `subgraph cluster`→ (nothing)
+//	dedup               — repeated labels   → first occurrence kept
+//
+// Locked as a pure-function test so the validator above can rely on
+// the contract without re-deriving extraction rules in a downstream
+// integration test. If a future Mermaid-syntax addition changes the
+// extraction shape, this is the single place to update the table.
+func TestExtractMermaidNodeLabels(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		body string
+		want []string
+	}{
+		{
+			name: "bracketed quoted role labels",
+			body: `flowchart LR
+  id1["operator override"] --> id2["config file"]
+  id2 --> id3["runtime binding"]
+  id3 --> id4["code default"]`,
+			want: []string{"operator override", "config file", "runtime binding", "code default"},
+		},
+		{
+			name: "bracketed bare path labels",
+			body: `flowchart TD
+  A[internal/foo.go] --> B[internal/bar.go]`,
+			want: []string{"internal/foo.go", "internal/bar.go"},
+		},
+		{
+			name: "bare-id chain (no brackets)",
+			body: `flowchart LR
+  CLI --> override
+  override --> default`,
+			want: []string{"CLI", "override", "default"},
+		},
+		{
+			name: "reserved words and direction modifiers skipped",
+			body: `flowchart LR
+  subgraph cluster
+    A --> B
+  end`,
+			want: []string{"A", "B"},
+		},
+		{
+			name: "mixed quoted + bare on the same line",
+			body: `A["with spaces"] --> B`,
+			want: []string{"with spaces", "B"},
+		},
+		{
+			name: "empty body",
+			body: ``,
+			want: nil,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got := extractMermaidNodeLabels(tc.body)
+			if len(got) != len(tc.want) {
+				t.Fatalf("got %d labels %v, want %d %v", len(got), got, len(tc.want), tc.want)
+			}
+			for i := range got {
+				if got[i] != tc.want[i] {
+					t.Errorf("labels[%d]: got %q, want %q (full got=%v want=%v)", i, got[i], tc.want[i], got, tc.want)
+				}
+			}
+		})
+	}
+}
