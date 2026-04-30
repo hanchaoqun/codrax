@@ -2,8 +2,6 @@ package repl
 
 import (
 	"bytes"
-	"os"
-	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -13,43 +11,27 @@ import (
 )
 
 // TestApproveRetry_PartiallyAppliedRendersGuidance pins the
-// commit 9 #1 + commit 13 #3 surface end-to-end: the REPL
-// receives a /approve --retry against a partially_applied plan,
-// loads from PlanStore, runs through the status-gate's
-// "partially_applied + retry" branch, and prints the progress
-// guidance message. We don't dispatch the orchestrator — the
-// test bypasses runner dispatch — but we DO exercise:
-//
-//  - parseApproveArgsAll's --retry parsing
-//  - status-gate routing for partially_applied
-//  - approveRetryProgress helper using the worktree state
-//  - the full message format the operator sees
-//
-// This is an integration-shape test (REPL → planStore disk →
-// status gate → message render) that catches drift across the
-// commit-9-and-13 chain in one shot.
+// commit 17 #1 honest message: /approve --retry against a
+// partially_applied plan tells the operator that apply re-runs
+// from scratch in a fresh worktree (because /approve always
+// dispatches a new Run with a clean worktree), NOT that "the
+// coder skips already-applied units" (which was the original
+// commit-13 misleading wording — the new Run has no AppliedSet
+// to skip). The status-gate routing is exercised and the
+// orchestrator dispatch is stubbed out.
 func TestApproveRetry_PartiallyAppliedRendersGuidance(t *testing.T) {
 	planDir := t.TempDir()
-	worktree := t.TempDir()
 
-	// Seed the worktree to simulate a partial apply state:
-	// 2 of 4 target paths already on disk, 2 remaining.
-	for _, p := range []string{"a.go", "b.go"} {
-		full := filepath.Join(worktree, p)
-		if err := os.WriteFile(full, []byte("package x\n"), 0o644); err != nil {
-			t.Fatalf("seed worktree file: %v", err)
-		}
-	}
-
-	// Persist the partially_applied plan to PlanStore.
+	// Persist the partially_applied plan to PlanStore. WorktreePath
+	// is empty (the typical case for partially_applied — the
+	// failing Run's worktree was discarded by the cleanup defer).
 	store := NewPlanStore(planDir)
 	plan := &types.ChangePlan{
-		ID:           "plan-partial-retry-test",
-		Status:       types.PlanStatusPartiallyApplied,
-		CreatedAt:    time.Now(),
-		Summary:      "partial-state retry test",
-		WorktreePath: worktree,
-		TargetPaths:  []string{"a.go", "b.go", "c.go", "d.go"},
+		ID:          "plan-partial-retry-test",
+		Status:      types.PlanStatusPartiallyApplied,
+		CreatedAt:   time.Now(),
+		Summary:     "partial-state retry test",
+		TargetPaths: []string{"a.go", "b.go", "c.go", "d.go"},
 		Changes: []types.FileChange{
 			{Path: "a.go", Kind: "create", NewContent: "package x\n"},
 			{Path: "b.go", Kind: "create", NewContent: "package x\n"},
@@ -62,37 +44,78 @@ func TestApproveRetry_PartiallyAppliedRendersGuidance(t *testing.T) {
 		t.Fatalf("Save: %v", err)
 	}
 
-	// Construct a minimal REPL pointed at the PlanStore. interactive=false
-	// so info / warn write to r.out for capture.
 	out := &bytes.Buffer{}
 	r := &REPL{
-		runner:           stubRunner{}, // no-op runner; the test stops at the message-print stage before dispatch
-		planStore:        store,
-		runtimeAnchor:    t.TempDir(),
-		out:              out,
-		in:               strings.NewReader(""),
-		colorMode:        render.ColorNever,
-		language:         "en",
-		writeEnabled:     true,
-		pendingPlanPath:  planPath,
+		runner:          stubRunner{},
+		planStore:       store,
+		runtimeAnchor:   t.TempDir(),
+		out:             out,
+		in:              strings.NewReader(""),
+		colorMode:       render.ColorNever,
+		language:        "en",
+		writeEnabled:    true,
+		pendingPlanPath: planPath,
 	}
 
-	// Drive /approve --retry. The status gate should route to the
-	// partially_applied branch and print the progress message.
 	r.handleApproveCmd("/approve --retry")
 
 	got := out.String()
 	if !strings.Contains(got, "retrying plan plan-partial-retry-test") {
 		t.Errorf("expected retry message; got %q", got)
 	}
-	if !strings.Contains(got, "2 of 4 target paths already applied") {
-		t.Errorf("expected progress count '2 of 4'; got %q", got)
+	// The honest message names the count + the fresh-worktree
+	// reality and warns about no-op repeat without source change.
+	if !strings.Contains(got, "all 4 target paths in a fresh worktree") {
+		t.Errorf("expected 'all 4 target paths in a fresh worktree'; got %q", got)
 	}
-	if !strings.Contains(got, "remaining:") {
-		t.Errorf("expected remaining-paths line; got %q", got)
+	if !strings.Contains(got, "idempotent") {
+		t.Errorf("expected idempotency note; got %q", got)
 	}
-	if !strings.Contains(got, "c.go") || !strings.Contains(got, "d.go") {
-		t.Errorf("expected pending paths c.go and d.go listed; got %q", got)
+	// The pre-commit-17 misleading wording must NOT appear.
+	if strings.Contains(got, "skips already-applied units") {
+		t.Errorf("misleading 'skips already-applied units' wording leaked back; got %q", got)
+	}
+}
+
+// TestApproveRetry_UnverifiedSuggestsVerify pins commit 17 #1
+// /verify-recommendation: /approve --retry on unverified prints
+// a guidance line pointing at /verify <plan-id> as the better
+// command (the bytes already landed; the operator wants to
+// re-run tests, not re-apply).
+func TestApproveRetry_UnverifiedSuggestsVerify(t *testing.T) {
+	planDir := t.TempDir()
+	store := NewPlanStore(planDir)
+	plan := &types.ChangePlan{
+		ID:          "plan-unverified-test",
+		Status:      types.PlanStatusUnverified,
+		CreatedAt:   time.Now(),
+		Summary:     "unverified retry test",
+		TargetPaths: []string{"a.go"},
+		Changes:     []types.FileChange{{Path: "a.go", Kind: "create"}},
+	}
+	planPath, err := store.Save(plan)
+	if err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+	out := &bytes.Buffer{}
+	r := &REPL{
+		runner:          stubRunner{},
+		planStore:       store,
+		runtimeAnchor:   t.TempDir(),
+		out:             out,
+		in:              strings.NewReader(""),
+		colorMode:       render.ColorNever,
+		language:        "en",
+		writeEnabled:    true,
+		pendingPlanPath: planPath,
+	}
+	r.handleApproveCmd("/approve --retry")
+	got := out.String()
+	if !strings.Contains(got, "/verify plan-unverified-test") {
+		t.Errorf("expected /verify suggestion; got %q", got)
+	}
+	if !strings.Contains(got, "apply already landed") {
+		t.Errorf("expected 'apply already landed' explanation; got %q", got)
 	}
 }
 

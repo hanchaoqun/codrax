@@ -8,10 +8,32 @@ import (
 	"os/exec"
 	"strconv"
 	"strings"
+	"sync"
 	"syscall"
 	"testing"
 	"time"
 )
+
+// safeBuffer is a strings.Builder wrapped in a mutex so the test
+// can read snapshot bytes (Snapshot()) concurrently with os/exec's
+// stdout-copy goroutine writing to it. Without this the test
+// races on strings.Builder, which is not safe for concurrent use.
+type safeBuffer struct {
+	mu sync.Mutex
+	b  strings.Builder
+}
+
+func (s *safeBuffer) Write(p []byte) (int, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.b.Write(p)
+}
+
+func (s *safeBuffer) Snapshot() string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.b.String()
+}
 
 // TestSupervisedRun_KillsGrandchildrenOnCancel is the regression test
 // for the 2026-04-26 OOM event: pytest grandchild outliving the
@@ -36,7 +58,7 @@ func TestSupervisedRun_KillsGrandchildrenOnCancel(t *testing.T) {
 	defer cancel()
 
 	cmd := exec.Command("sh", "-c", "sleep 100 & echo $!; wait")
-	stdout := &strings.Builder{}
+	stdout := &safeBuffer{}
 	cmd.Stdout = stdout
 	cmd.Stderr = stdout
 
@@ -50,7 +72,7 @@ func TestSupervisedRun_KillsGrandchildrenOnCancel(t *testing.T) {
 	deadline := time.Now().Add(5 * time.Second)
 	var sleepPid int
 	for time.Now().Before(deadline) {
-		out := strings.TrimSpace(stdout.String())
+		out := strings.TrimSpace(stdout.Snapshot())
 		if out != "" {
 			pid, err := strconv.Atoi(strings.Fields(out)[0])
 			if err == nil && pid > 0 {
@@ -61,7 +83,7 @@ func TestSupervisedRun_KillsGrandchildrenOnCancel(t *testing.T) {
 		time.Sleep(20 * time.Millisecond)
 	}
 	if sleepPid == 0 {
-		t.Fatalf("grandchild sleep never reported its PID; stdout=%q", stdout.String())
+		t.Fatalf("grandchild sleep never reported its PID; stdout=%q", stdout.Snapshot())
 	}
 
 	// Cancel: supervisor should fire syscall.Kill(-pgid, SIGKILL) and

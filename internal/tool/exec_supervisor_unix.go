@@ -39,7 +39,12 @@ func supervisedRunPlatform(ctx context.Context, cmd *exec.Cmd, opts SupervisedRu
 	select {
 	case <-ctx.Done():
 		_ = syscall.Kill(-pgid, syscall.SIGKILL)
-		err := waitWithKillTimeout(cmd)
+		// Wait on the SAME goroutine that already runs
+		// cmd.Wait. Spawning a second cmd.Wait() raced (Go's
+		// "Wait may not be called concurrently" rule); the fix
+		// is to share the existing waitErr channel through
+		// waitForExistingWait.
+		err := waitForExistingWait(waitErr)
 		kind := SupervisedExitTimeout
 		if errors.Is(ctx.Err(), context.Canceled) {
 			// Caller cancelled (not a deadline) — preserve as Normal

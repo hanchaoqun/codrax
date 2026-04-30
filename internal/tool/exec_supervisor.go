@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"os/exec"
-	"sync"
 	"time"
 )
 
@@ -104,20 +103,28 @@ func SupervisedRun(ctx context.Context, cmd *exec.Cmd, opts SupervisedRunOptions
 // kernel states (uninterruptible D-state on a hung NFS mount, etc.).
 const killWaitTimeout = 10 * time.Second
 
-// waitWithKillTimeout drains cmd.Wait but bounds the wait so a
-// stuck D-state child doesn't deadlock the supervisor. Returns the
-// Wait error if the process exited within killWaitTimeout, else
-// nil (and the cmd's resources may leak — accepted because we've
-// already SIGKILLed the tree and cgroup cleanup will handle it).
-func waitWithKillTimeout(cmd *exec.Cmd) error {
-	done := make(chan error, 1)
-	var once sync.Once
-	go func() {
-		err := cmd.Wait()
-		once.Do(func() { done <- err })
-	}()
+// waitForExistingWait reads from an existing channel that the
+// supervisor already wired around the (single) cmd.Wait
+// goroutine, with a bounded timeout so a stuck D-state child
+// doesn't deadlock the supervisor.
+//
+// Pre-commit-17 there was a separate `waitWithKillTimeout` helper
+// that spawned its OWN cmd.Wait goroutine — but
+// supervisedRunPlatform also runs cmd.Wait in a goroutine, and
+// exec.Cmd.Wait is documented "Wait may not be called concurrently
+// with itself". The race detector flagged this in
+// TestSupervisedRun_KillsGrandchildrenOnCancel /
+// TestSupervisedRun_NormalExitClassified. The fix routes the
+// existing wait channel through this helper so a single cmd.Wait
+// is in flight at a time.
+//
+// Returns the Wait error if the process exited within
+// killWaitTimeout, else nil (and the cmd's resources may leak —
+// accepted because we've already SIGKILLed the tree and cgroup
+// cleanup will handle it).
+func waitForExistingWait(waitCh <-chan error) error {
 	select {
-	case err := <-done:
+	case err := <-waitCh:
 		return err
 	case <-time.After(killWaitTimeout):
 		return nil

@@ -116,7 +116,11 @@ func supervisedRunPlatform(ctx context.Context, cmd *exec.Cmd, opts SupervisedRu
 		// outlive us in this case but we explicitly logged the
 		// failure upstream.
 		_ = cmd.Process.Kill()
-		_ = waitWithKillTimeout(cmd)
+		// Inline single-goroutine wait for the assignment-failure
+		// branch (no shared waitErr exists yet here).
+		failedWait := make(chan error, 1)
+		go func() { failedWait <- cmd.Wait() }()
+		_ = waitForExistingWait(failedWait)
 		return SupervisedResult{ExitKind: SupervisedExitNormal, Err: err}
 	}
 
@@ -126,7 +130,7 @@ func supervisedRunPlatform(ctx context.Context, cmd *exec.Cmd, opts SupervisedRu
 	select {
 	case <-ctx.Done():
 		_, _, _ = procTerminateJobObject.Call(uintptr(jobHandle), uintptr(1))
-		err := waitWithKillTimeout(cmd)
+		err := waitForExistingWait(waitErr)
 		kind := SupervisedExitTimeout
 		if errors.Is(ctx.Err(), context.Canceled) {
 			kind = SupervisedExitNormal
@@ -261,7 +265,7 @@ func runUnsupervisedFallback(ctx context.Context, cmd *exec.Cmd) SupervisedResul
 	select {
 	case <-ctx.Done():
 		_ = cmd.Process.Kill()
-		err := waitWithKillTimeout(cmd)
+		err := waitForExistingWait(waitErr)
 		kind := SupervisedExitTimeout
 		if errors.Is(ctx.Err(), context.Canceled) {
 			kind = SupervisedExitNormal

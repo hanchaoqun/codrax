@@ -2741,21 +2741,31 @@ func (r *REPL) handleApproveCmd(line string) {
 	if plan.Status == types.PlanStatusVerifyFailed {
 		r.info(fmt.Sprintf("re-approving plan %s (status was verify_failed; assuming env-fix retry)", plan.ID))
 	}
-	if retry && (plan.Status == types.PlanStatusPartiallyApplied || plan.Status == types.PlanStatusUnverified) {
-		// Commit 13 #3: surface progress so the operator knows
-		// what's already in the worktree and what's still
-		// outstanding. Without this, --retry was an opaque "try
-		// again" with no feedback on whether progress is
-		// happening across iterations.
-		applied, remaining := approveRetryProgress(plan)
-		r.info(fmt.Sprintf("retrying plan %s (status was %s; %d of %d target paths already applied)",
-			plan.ID, plan.Status, applied, applied+remaining))
-		if remaining > 0 {
-			pending := approveRetryPendingPaths(plan)
-			if len(pending) > 0 {
-				r.info(fmt.Sprintf("  remaining: %s", strings.Join(pending, ", ")))
-			}
-		}
+	if retry && plan.Status == types.PlanStatusPartiallyApplied {
+		// Commit 17 #1: honest message. /approve --retry
+		// dispatches a fresh ModeApply Run; applyPreHook
+		// provisions a NEW worktree, so the prior partial-
+		// apply state is gone. Coder re-applies every target
+		// path from scratch. apply_patch is idempotent for
+		// existing-file create/modify (the unit lands again
+		// without harm) so the only practical effect is
+		// re-running through the failure point — useful only
+		// if the operator changed something in the source repo
+		// or environment between attempts. Pre-commit-17 the
+		// message claimed "coder skips already-applied units"
+		// which was wrong: the new Run's worktree is empty.
+		r.info(fmt.Sprintf("retrying plan %s — apply re-runs all %d target paths in a fresh worktree (apply_patch is idempotent for create/modify; the failure point that produced partially_applied will be retried).",
+			plan.ID, len(plan.TargetPaths)))
+		r.info("  if the previous failure was caused by repo / environment state, fix that first; otherwise expect the same outcome.")
+	}
+	if retry && plan.Status == types.PlanStatusUnverified {
+		// Commit 17 #1: --retry on unverified is dubious — the
+		// bytes already landed; the operator wants to test, not
+		// re-apply. /verify <plan-id> is the right command.
+		// Don't refuse outright (the operator may have a reason)
+		// but surface the better tool.
+		r.info(fmt.Sprintf("retrying plan %s — note: status was unverified, meaning apply already landed but no tests verified the change. /verify %s re-runs the test suite without re-applying; if you want to re-apply (different worktree state, etc.), --retry continues here.",
+			plan.ID, plan.ID))
 	}
 
 	// Multi-pending hint. When PlanStore carries more than one
@@ -3057,68 +3067,14 @@ func parseMergeToArg(line string) string {
 	return mergeTo
 }
 
-// approveRetryProgress counts how many of the plan's TargetPaths
-// are already-applied (i.e. exist in the worktree from a prior
-// partial apply). Used by /approve --retry to render progress so
-// the operator can tell whether retry iterations are advancing.
-//
-// Heuristic: walk plan.Changes and check whether the target file
-// actually exists at the worktree path. The plan struct doesn't
-// carry runtime AppliedSet (that lives on Mutable, which is
-// per-Run); a fresh /approve --retry Run hasn't loaded the
-// worktree state yet. Stat-based check is a close enough proxy:
-// a partial apply leaves the successful units' files on disk in
-// the worktree directory.
-func approveRetryProgress(plan *types.ChangePlan) (applied, remaining int) {
-	if plan == nil {
-		return 0, 0
-	}
-	wt := strings.TrimSpace(plan.WorktreePath)
-	if wt == "" {
-		// No worktree path persisted — fall back to "all
-		// remaining" so the operator gets a coherent count.
-		return 0, len(plan.TargetPaths)
-	}
-	for _, p := range plan.TargetPaths {
-		if _, err := os.Stat(filepath.Join(wt, p)); err == nil {
-			applied++
-		} else {
-			remaining++
-		}
-	}
-	return applied, remaining
-}
-
-// approveRetryPendingPaths returns the (capped) list of plan
-// target paths that aren't yet on disk in the worktree. Used by
-// /approve --retry's progress message — capped at 5 entries to
-// keep the line readable; remainder rendered as "(+N more)".
-func approveRetryPendingPaths(plan *types.ChangePlan) []string {
-	if plan == nil {
-		return nil
-	}
-	wt := strings.TrimSpace(plan.WorktreePath)
-	if wt == "" {
-		return nil
-	}
-	const cap = 5
-	pending := make([]string, 0, cap+1)
-	overflow := 0
-	for _, p := range plan.TargetPaths {
-		if _, err := os.Stat(filepath.Join(wt, p)); err == nil {
-			continue
-		}
-		if len(pending) < cap {
-			pending = append(pending, p)
-		} else {
-			overflow++
-		}
-	}
-	if overflow > 0 {
-		pending = append(pending, fmt.Sprintf("(+%d more)", overflow))
-	}
-	return pending
-}
+// (commit 13's approveRetryProgress + approveRetryPendingPaths
+// were removed in commit 17 #1. Their purpose — showing "X of Y
+// already applied" on /approve --retry — was based on a wrong
+// model: /approve dispatches a fresh ModeApply Run with a NEW
+// worktree, so the prior partial-apply state never survives into
+// the next Run. The helpers walked plan.WorktreePath which is a
+// stale field by the time --retry fires. The honest message
+// printed in handleApproveCmd's --retry branch replaces them.)
 
 // runMerge is the shared body for the auto-merge tail of /approve
 // and the explicit /merge handler. worktreePath must be the

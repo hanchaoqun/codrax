@@ -204,12 +204,11 @@ test-v:
 # default because most contributor-iteration cycles don't need
 # it. CI should run this on every PR.
 #
-# Known pre-existing races (NOT introduced by the write-mode
-# sweep): TestSupervisedRun_KillsGrandchildrenOnCancel and
-# TestSupervisedRun_NormalExitClassified in internal/tool race
-# on cmd.Wait()'s goroutine outliving the supervisor return.
-# Tracked as a separate fix; the rest of the codebase passes
-# clean, which is what test-race is designed to surface.
+# Pre-existing races in exec_supervisor.waitWithKillTimeout
+# (cmd.Wait called concurrently in two goroutines) and the
+# grandchild-kill test (strings.Builder shared with os/exec
+# stdout-copy goroutine) were fixed in commit 17 — entire
+# codebase is now race-clean.
 test-race:
 	CGO_ENABLED=1 $(GO) test -race ./...
 endif
