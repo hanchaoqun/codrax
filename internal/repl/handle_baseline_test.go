@@ -134,6 +134,27 @@ func TestHandleBaselineCmd_DefaultIsList(t *testing.T) {
 	}
 }
 
+// TestHandleBaselineCmd_ShowAmbiguousPrefix pins commit 15 #6:
+// when more than one cached entry matches the supplied prefix,
+// the handler refuses with a list of candidates instead of
+// silently picking one.
+func TestHandleBaselineCmd_ShowAmbiguousPrefix(t *testing.T) {
+	r, anchor, out := newBaselineTestREPL(t)
+	seedBaselineEntry(t, anchor, "abcdef0001000000aaaa", &types.ChangeReport{PlanID: "p1"})
+	seedBaselineEntry(t, anchor, "abcdef0002000000bbbb", &types.ChangeReport{PlanID: "p2"})
+	r.handleBaselineCmd("/baseline show abcdef")
+	got := out.String()
+	if !strings.Contains(got, "matches 2 entries") {
+		t.Errorf("expected 'matches 2 entries' warning; got %q", got)
+	}
+	if !strings.Contains(got, "abcdef0001") || !strings.Contains(got, "abcdef0002") {
+		t.Errorf("expected both candidate SHAs in output; got %q", got)
+	}
+	if !strings.Contains(got, "longer prefix") {
+		t.Errorf("expected 'longer prefix' guidance; got %q", got)
+	}
+}
+
 func TestHandleBaselineCmd_UnknownSubcommand(t *testing.T) {
 	r, _, out := newBaselineTestREPL(t)
 	r.handleBaselineCmd("/baseline blarg")

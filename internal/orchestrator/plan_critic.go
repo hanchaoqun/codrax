@@ -4,7 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"hash/fnv"
 	"strings"
+	"sync"
 
 	"github.com/hanchaoqun/codrax/internal/llm"
 	"github.com/hanchaoqun/codrax/internal/logging"
@@ -125,8 +127,22 @@ How to write a good risk list:
 // call per Review, opt-in via providers.yaml :: agents.plan_critic
 // or inheriting the default adapter. Nil adapter yields a critic
 // whose Review always returns ("", nil) — effectively disabled.
+//
+// Per-Run dedup cache (commit 15 #5): on verify→plan retry the
+// planner can re-emit a structurally similar plan; running the
+// critic on each retry pays an LLM call per iteration. The cache
+// is keyed by an FNV hash of the rendered user-message bytes —
+// when the same content reappears within the same Run, the
+// previous critique is returned without a Chat call. Cache lives
+// on the llmPlanCritic instance (one per orchestrator), cleared
+// implicitly when the orchestrator constructs a fresh critic.
+// Hash collisions are tolerable: at worst the operator sees a
+// stale-but-still-relevant critique on a different plan, which
+// is still better than the no-critique fallback.
 type llmPlanCritic struct {
 	adapter llm.Adapter
+	mu      sync.Mutex
+	cache   map[uint32]string // input-hash → critique text (empty = "ran but no risks")
 }
 
 // NewPlanCritic builds the default PlanCritic. Nil adapter yields a
@@ -147,6 +163,22 @@ func (c *llmPlanCritic) Review(ctx context.Context, in PlanCriticInput) (string,
 	if strings.TrimSpace(user) == "" {
 		return "", fmt.Errorf("plan_critic: empty input")
 	}
+	// Per-Run dedup (commit 15 #5): skip the LLM call when we've
+	// already reviewed identical input within the lifetime of
+	// this critic instance. Spares a Chat call per verify→plan
+	// retry iteration when the planner re-emits a similar plan.
+	hasher := fnv.New32a()
+	_, _ = hasher.Write([]byte(user))
+	key := hasher.Sum32()
+	c.mu.Lock()
+	if c.cache != nil {
+		if cached, ok := c.cache[key]; ok {
+			c.mu.Unlock()
+			logging.Info("[plan_critic] cache hit (input hash=%x); reusing prior critique", key)
+			return cached, nil
+		}
+	}
+	c.mu.Unlock()
 	messages := []llm.Message{
 		{Role: "system", Content: planCriticSystemPrompt},
 		{Role: "user", Content: user},
@@ -175,6 +207,12 @@ func (c *llmPlanCritic) Review(ctx context.Context, in PlanCriticInput) (string,
 	}
 	out := assemblePlanCritique(parsed.Risks, parsed.Confidence)
 	logging.Info("[plan_critic] risks=%d confidence=%q", len(parsed.Risks), parsed.Confidence)
+	c.mu.Lock()
+	if c.cache == nil {
+		c.cache = make(map[uint32]string)
+	}
+	c.cache[key] = out
+	c.mu.Unlock()
 	return out, nil
 }
 

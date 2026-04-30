@@ -111,18 +111,29 @@ func (r *REPL) baselineShow(dir, sha string) {
 		r.errorf("/baseline show: read %s: %v\n", dir, err)
 		return
 	}
-	var match string
+	var matches []string
 	for _, e := range entries {
 		name := strings.TrimSuffix(e.Name(), ".json")
 		if strings.HasPrefix(name, sha) || strings.HasPrefix(sha, name) {
-			match = e.Name()
-			break
+			matches = append(matches, e.Name())
 		}
 	}
-	if match == "" {
+	if len(matches) == 0 {
 		r.info(fmt.Sprintf("/baseline show: no cached entry matches sha=%s\n", sha))
 		return
 	}
+	// Commit 15 #6: when more than one cached entry matches the
+	// supplied prefix, surface the ambiguity so the operator picks
+	// a longer prefix instead of silently getting the first hit.
+	if len(matches) > 1 {
+		r.warn("/baseline show: prefix %q matches %d entries:\n", sha, len(matches))
+		for _, m := range matches {
+			r.warn("  - %s\n", strings.TrimSuffix(m, ".json"))
+		}
+		r.warn("use a longer prefix to disambiguate.\n")
+		return
+	}
+	match := matches[0]
 	data, err := os.ReadFile(filepath.Join(dir, match))
 	if err != nil {
 		r.errorf("/baseline show: read %s: %v\n", match, err)
