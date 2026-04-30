@@ -158,6 +158,15 @@ var (
 	// equivalent: write_auto_init_repo. REPL falls back to an
 	// interactive y/N prompt when neither flag nor yaml is set.
 	flagAutoInitRepo bool
+
+	// flagScaffold authorizes the planner to operate on a target
+	// directory that contains NO existing source files (from-scratch
+	// project creation). Distinct from flagAutoInitRepo: that flag
+	// only authorizes `git init`; this one authorizes the planner
+	// to invent files. Both are required for empty-dir scaffold
+	// runs; non-empty bare dirs only need flagAutoInitRepo.
+	// Default false. yaml equivalent: write_scaffold_enabled.
+	flagScaffold bool
 )
 
 // defaultAttachedLogMaxBytes is the out-of-the-box cap on attached-
@@ -241,6 +250,13 @@ type appContext struct {
 	// failing. REPL also reads this to decide whether to skip the
 	// interactive y/N consent prompt (pre-authorized → silent init).
 	writeAutoInitRepo bool
+	// writeScaffoldEnabled mirrors the resolved scaffold authorization
+	// (yaml `write_scaffold_enabled` OR CLI `--allow-scaffold`). When
+	// true, the orchestrator's plan pre-hook tolerates an empty
+	// target dir (otherwise it fail-louds with a hint at the two
+	// authorization surfaces). Forwarded to REPL Config so the same
+	// authorization carries into interactive sessions.
+	writeScaffoldEnabled bool
 	// settingsPath is the resolved codrax.yaml path (or "" if none
 	// found). Surfaced verbatim in the REPL's L2 gate error message
 	// so the user knows WHICH file to edit. Set during initApp's
@@ -315,6 +331,7 @@ func init() {
 	f.StringVar(&flagPlanOut, "plan-out", "", "plan-mode: path to write the generated ChangePlan JSON (default: .codrax/plans/<id>.json)")
 	f.StringVar(&flagPlanFile, "plan-file", "", "apply/verify-mode: path to an existing ChangePlan JSON to consume (required with --mode=apply|verify)")
 	f.BoolVar(&flagAutoInitRepo, "auto-init-repo", false, "authorize codrax to run `git init` + empty initial commit when the target dir is bare (yaml: write_auto_init_repo)")
+	f.BoolVar(&flagScaffold, "allow-scaffold", false, "authorize the planner to invent files for a 0-source-file target dir (from-scratch project creation; yaml: write_scaffold_enabled). Required IN ADDITION TO --auto-init-repo for empty-dir runs.")
 
 	rootCmd.AddCommand(versionCmd)
 
@@ -376,6 +393,7 @@ var compatLongFlagNames = map[string]struct{}{
 	"plan-out":                  {},
 	"plan-file":                 {},
 	"auto-init-repo":            {},
+	"allow-scaffold":            {},
 }
 
 // normalizeCompatArgs rewrites known codrax long flags from the
@@ -936,6 +954,7 @@ func runREPL(_ *cobra.Command) error {
 		AttachedTraceMaxBytes: maxAttachedTraceBytes,
 		WriteEnabled:          app.writeEnabled,
 		WriteAutoInitRepo:     app.writeAutoInitRepo,
+		WriteScaffoldEnabled:  app.writeScaffoldEnabled,
 		SettingsPath:          app.settingsPath,
 	})
 	if err := r.Loop(); err != nil {
@@ -2238,6 +2257,14 @@ func initApp(cmd *cobra.Command, _ []string) error {
 	} else if rs != nil && rs.WriteAutoInitRepo != nil {
 		app.writeAutoInitRepo = *rs.WriteAutoInitRepo
 	}
+	// Resolve scaffold authorization. CLI overrides yaml when set
+	// explicitly. Default false → empty-dir plan/apply runs fail-loud
+	// on the planPreHook scaffold gate with a clear hint.
+	if cmd.Flags().Changed("allow-scaffold") {
+		app.writeScaffoldEnabled = flagScaffold
+	} else if rs != nil && rs.WriteScaffoldEnabled != nil {
+		app.writeScaffoldEnabled = *rs.WriteScaffoldEnabled
+	}
 	// Cache the resolved yaml path for the REPL's L2 gate so the user
 	// gets pointed at an exact file rather than a generic "codrax.yaml".
 	if _, err := os.Stat(settingsPath); err == nil {
@@ -2279,6 +2306,7 @@ func initApp(cmd *cobra.Command, _ []string) error {
 	// y/N prompt before lifting the gate, so single-shot CLI calls
 	// without the flag see a clean error and a hint.
 	orch.SetAutoInitRepo(app.writeAutoInitRepo)
+	orch.SetScaffoldEnabled(app.writeScaffoldEnabled)
 
 	// Chit-chat responder. Follows the llmSummarizer pattern: one
 	// direct adapter.Chat call, no agent framework. Default ON — the

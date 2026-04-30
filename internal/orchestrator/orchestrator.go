@@ -169,7 +169,28 @@ type Orchestrator struct {
 	// authorization surfaces (CLI --auto-init-repo, yaml
 	// write_auto_init_repo, REPL interactive consent). Set via
 	// SetAutoInitRepo from cmd/root.go's flag/yaml resolver.
+	//
+	// SEMANTIC: this flag authorizes git initialization ONLY. It does
+	// NOT authorize codrax to invent files for an empty target dir —
+	// that is the separate scaffoldEnabled flag below. The two are
+	// orthogonal: a non-empty bare dir (existing source, no .git)
+	// only needs autoInitRepo; an empty dir from-scratch scaffold
+	// needs BOTH.
 	autoInitRepo bool
+
+	// scaffoldEnabled, when true, authorizes the planner to produce a
+	// ChangePlan for a target directory that contains NO existing
+	// source files. Default false — without explicit authorization,
+	// planPreHook fails fast on empty target dirs even when
+	// autoInitRepo is set, because "make my empty dir into a project"
+	// is a more aggressive operation than "git init my dir" and
+	// users routinely conflated the two before this gate existed.
+	//
+	// Yaml: write_scaffold_enabled. CLI: --allow-scaffold. The flag
+	// is checked ONLY when planPreHook detects an effectively-empty
+	// dir (no source files outside .git/.codrax); non-empty targets
+	// bypass it because the planner has real code to read.
+	scaffoldEnabled bool
 
 	// reuseWorktreePath, when set, tells the verify pre-hook to swap
 	// busCtx.RepoRoot to this existing path INSTEAD of creating a
@@ -580,6 +601,21 @@ func (o *Orchestrator) SetAutoInitRepo(on bool) {
 // it needs to know whether to skip the y/N consent prompt).
 func (o *Orchestrator) AutoInitRepo() bool {
 	return o.autoInitRepo
+}
+
+// SetScaffoldEnabled authorizes the planner to operate on an empty
+// target directory (from-scratch project creation). Distinct from
+// SetAutoInitRepo: that one only authorizes `git init`, this one
+// authorizes inventing files. Default false. Wired from cmd/root.go
+// (CLI --allow-scaffold or yaml write_scaffold_enabled).
+func (o *Orchestrator) SetScaffoldEnabled(on bool) {
+	o.scaffoldEnabled = on
+}
+
+// ScaffoldEnabled returns the current setting (consumed by REPL +
+// stallPlateauMessage to decide which authorization tier to surface).
+func (o *Orchestrator) ScaffoldEnabled() bool {
+	return o.scaffoldEnabled
 }
 
 // SetKeepWorktreeOnSuccess toggles the post-Run worktree preservation

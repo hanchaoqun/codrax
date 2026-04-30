@@ -260,6 +260,16 @@ type Config struct {
 	// for consent if the target needs init.
 	WriteAutoInitRepo bool
 
+	// WriteScaffoldEnabled mirrors the resolved scaffold authorization
+	// (yaml `write_scaffold_enabled` OR CLI `--allow-scaffold`). When
+	// true, the orchestrator's plan pre-hook tolerates an empty target
+	// directory; without it, empty-dir plan/apply dispatches fail-loud
+	// with a hint at the two authorization surfaces. Forwarded into
+	// the orchestrator on REPL boot so REPL sessions inherit the
+	// startup-time authorization without the user having to repeat
+	// the flag.
+	WriteScaffoldEnabled bool
+
 	// RuntimeAnchor is <CWD>/.codrax/ — used by /worktree gc to
 	// locate the worktree base under <RuntimeAnchor>/worktrees/.
 	// Empty disables the gc subcommand (the slash dispatcher
@@ -408,6 +418,15 @@ type REPL struct {
 	// the user is prompted before any state mutation.
 	writeAutoInitRepo bool
 
+	// writeScaffoldEnabled mirrors Config.WriteScaffoldEnabled.
+	// Forwarded once into the orchestrator at REPL boot so plan/apply
+	// dispatches against an empty target directory honour the
+	// startup-time scaffold authorization. The REPL itself does NOT
+	// consult this field — the orchestrator's planPreHook owns the
+	// gate; storing it on the REPL only keeps the value reachable
+	// for diagnostics if the gate fails.
+	writeScaffoldEnabled bool
+
 	// pendingPlanPath is the filesystem path of the last plan
 	// auto-saved by this REPL (via planStore.Save after a
 	// successful plan-mode dispatch). Used by /plan show to
@@ -503,6 +522,7 @@ func New(cfg Config) *REPL {
 		attachedTraceMaxBytes: cfg.AttachedTraceMaxBytes,
 		writeEnabled:          cfg.WriteEnabled,
 		writeAutoInitRepo:     cfg.WriteAutoInitRepo,
+		writeScaffoldEnabled:  cfg.WriteScaffoldEnabled,
 		settingsPath:          cfg.SettingsPath,
 	}
 	if r.version == "" {

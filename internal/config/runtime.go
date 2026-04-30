@@ -651,11 +651,25 @@ type RuntimeSettings struct {
 	//                        deploy. REPL retains an interactive y/N
 	//                        prompt as the third tier when neither
 	//                        flag nor yaml is set.
-	WriteEnabled      *bool   `yaml:"write_enabled"`
-	WriteDefaultMode  *string `yaml:"write_default_mode"`
-	WriteAutoApproval *bool   `yaml:"write_auto_approval"`
-	WritePlanDir      *string `yaml:"write_plan_dir"`
-	WriteAutoInitRepo *bool   `yaml:"write_auto_init_repo"`
+	//   WriteScaffoldEnabled — yaml-level pre-authorization for the
+	//                        empty-directory scaffold flow. When the
+	//                        target dir contains NO source files (only
+	//                        .git or .codrax may be present), the
+	//                        planner refuses to dispatch unless THIS
+	//                        flag is true — even when WriteAutoInitRepo
+	//                        is set. The two flags are orthogonal:
+	//                        WriteAutoInitRepo authorizes `git init`,
+	//                        WriteScaffoldEnabled authorizes inventing
+	//                        files for a 0-source-file target. CLI
+	//                        equivalent: --allow-scaffold. Default
+	//                        false (fail-loud on empty + no scaffold
+	//                        authorization, with a clear hint).
+	WriteEnabled         *bool   `yaml:"write_enabled"`
+	WriteDefaultMode     *string `yaml:"write_default_mode"`
+	WriteAutoApproval    *bool   `yaml:"write_auto_approval"`
+	WritePlanDir         *string `yaml:"write_plan_dir"`
+	WriteAutoInitRepo    *bool   `yaml:"write_auto_init_repo"`
+	WriteScaffoldEnabled *bool   `yaml:"write_scaffold_enabled"`
 
 	// REPL interactive knobs. `repl_*` prefix groups runtime tweaks
 	// to the interactive prompt. Today only the paste-fold threshold

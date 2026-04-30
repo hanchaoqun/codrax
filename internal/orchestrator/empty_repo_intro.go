@@ -93,7 +93,7 @@ func emptyRepoReadIntro(language, repoRoot string) string {
 			"这个目录(%s)里没有可以分析的源代码文件。\n\n"+
 				"接下来你可以:\n"+
 				"  - 想看已有代码:把目录换成放着源代码的那个目录\n"+
-				"  - 想从零搭一个新项目:加上 --auto-init-repo \"<你的需求>\",我会先把目录准备好再开始\n"+
+				"  - 想从零搭一个新项目:同时加上 --auto-init-repo 和 --allow-scaffold,然后用 /mode plan 提需求 (前者允许把目录变成 git 仓库,后者允许凭空生成文件)\n"+
 				"  - 只是想随便聊聊:用 /chat <消息>",
 			repoRoot)
 	}
@@ -101,7 +101,7 @@ func emptyRepoReadIntro(language, repoRoot string) string {
 		"this directory (%s) has no source files to look at.\n\n"+
 			"Next you can:\n"+
 			"  - look at existing code: point the tool at the directory that actually holds the source\n"+
-			"  - start a new project from scratch: add --auto-init-repo \"<your request>\" and the directory will be set up before any work begins\n"+
+			"  - start a new project from scratch: pass BOTH --auto-init-repo and --allow-scaffold, then use /mode plan with your request (the first allows turning the directory into a git repo, the second allows generating files from nothing)\n"+
 			"  - just chat: use /chat <message>",
 		repoRoot)
 }

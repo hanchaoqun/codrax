@@ -2,6 +2,7 @@ package agent
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/hanchaoqun/codrax/internal/llm"
 	"github.com/hanchaoqun/codrax/internal/logging"
@@ -117,11 +118,26 @@ func (e *plannerEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk *
 }
 
 // ShouldStop terminates the ReAct loop as soon as a ChangePlan has
-// been installed on Mutable (emit_change_plan's happy path) or when
-// the loop has burned through its iteration cap. The cap is the
-// per-dispatch value captured in BuildInitialInstruction; when no
-// per-dispatch override is present (zero value), the agent-settings
-// default takes over.
+// been installed on Mutable (any of the three emit paths' happy
+// path) or when the loop has burned through its iteration cap.
+//
+// Three emit paths land a finished plan on Mutable.ChangePlan:
+//
+//  1. emit_change_plan single-shot — LLM emits the whole plan in one
+//     tool call. Smallest LLM round count when the plan fits.
+//
+//  2. emit_plan_skeleton + emit_plan_change multi-round — skeleton
+//     first (metadata only, payload-bounded), then per-file body
+//     emits. The LAST emit_plan_change call promotes
+//     PartialChangePlan → ChangePlan once every body slot is filled.
+//
+// All three names belong to the recovery list because every one of
+// them is a structured emit whose function.arguments string can be
+// truncated by a streaming gateway; the LLM's clean retry of any of
+// them at the soft cap must be allowed to execute before the hard
+// cap forces termination. The cap is the per-dispatch value captured
+// in BuildInitialInstruction; when no per-dispatch override is
+// present (zero value), the agent-settings default takes over.
 func (e *plannerEvaluator) ShouldStop(resp llm.Response, iteration int) bool {
 	if e.mu != nil && e.mu.ChangePlan() != nil {
 		return true
@@ -132,18 +148,24 @@ func (e *plannerEvaluator) ShouldStop(resp llm.Response, iteration int) bool {
 	}
 	// Two-stage cap: soft cap is the normal stop; the soft→hard window
 	// spares one extra iteration whenever the LLM is actively calling
-	// emit_change_plan. Streaming gateways occasionally truncate the
-	// function.arguments of a large emit_change_plan payload (~5 KB
-	// JSON), the tool rejects with `unexpected EOF`, and the LLM's
+	// any of the planner's structured-emit tools. Streaming gateways
+	// occasionally truncate the function.arguments of a large emit
+	// payload, the tool rejects with `unexpected EOF`, and the LLM's
 	// next iteration is a clean retry. ShouldStop runs BEFORE tool
 	// execution, so a flat soft-cap break would discard that recovery
 	// before it ever runs.
 	return iterationCapShouldStop(resp, iteration,
 		soft, hard,
-		emitChangePlanToolName)
+		emitChangePlanToolName,
+		emitPlanSkeletonToolName,
+		emitPlanChangeToolName)
 }
 
-const emitChangePlanToolName = "emit_change_plan"
+const (
+	emitChangePlanToolName   = "emit_change_plan"
+	emitPlanSkeletonToolName = "emit_plan_skeleton"
+	emitPlanChangeToolName   = "emit_plan_change"
+)
 
 // ParseOutput reads the installed ChangePlan, or reports a clean
 // failure if emit_change_plan was never called successfully. The
@@ -165,17 +187,69 @@ func (e *plannerEvaluator) ParseOutput(
 	}
 
 	if plan == nil {
-		// Scan the tool results for the most recent failed
-		// emit_change_plan to surface a useful error to upstream.
-		reason := "planner did not call emit_change_plan"
-		for i := len(toolResults) - 1; i >= 0; i-- {
-			tr := toolResults[i]
-			if tr.ToolName == emitChangePlanToolName && !tr.Success {
-				reason = "planner's emit_change_plan call was rejected: " + tr.Summary
-				break
+		// Three failure shapes to distinguish so the caller's retry
+		// hint and the user-visible LastError both carry actionable
+		// information instead of "did not emit":
+		//
+		//  (a) Partial plan installed but file contents still missing
+		//      — the outline landed, the model was midway through
+		//      per-file content emits when the loop bound hit. List
+		//      the missing paths so the next round knows what to do.
+		//  (b) Most recent structured emit was rejected — surface the
+		//      validator's reason verbatim.
+		//  (c) Nothing emitted at all — generic message.
+		//
+		// User-facing wording deliberately avoids tool names
+		// (emit_change_plan / emit_plan_skeleton / emit_plan_change)
+		// and structural slot names (PartialChangePlan / ChangePlan)
+		// because this string ends up on TaskState.LastError and is
+		// surfaced verbatim to the user; internal tool names confuse
+		// without adding actionable signal. Operator log lines below
+		// keep enough breadcrumbs for ops debugging.
+		var partial *types.ChangePlan
+		if ctx != nil && ctx.Mutable != nil {
+			partial = ctx.Mutable.PartialChangePlan()
+		}
+		var reason string
+		if partial != nil {
+			missing := plannerMissingBodies(partial)
+			total := plannerNonDeleteSlotCount(partial)
+			if len(missing) == 0 {
+				// Outline + every body present yet ChangePlan slot
+				// stayed empty. Internal mismatch — log details, give
+				// the user a short non-jargon line.
+				logging.Warning("[planner] partial plan id=%s has every body filled but promotion to ChangePlan never fired (internal state mismatch)", partial.ID)
+				reason = "the change plan was outlined and every file body provided, but the plan was never finalized (please retry)"
+			} else {
+				preview := missing
+				if len(preview) > 5 {
+					preview = preview[:5]
+				}
+				logging.Warning("[planner] partial plan id=%s has %d/%d file bodies missing: %v", partial.ID, len(missing), total, missing)
+				reason = fmt.Sprintf(
+					"the change plan listed %d files but %d still need their contents written. Pending files: %s",
+					total, len(missing),
+					strings.Join(preview, ", "))
+				if len(missing) > len(preview) {
+					reason += fmt.Sprintf(" (and %d more)", len(missing)-len(preview))
+				}
+			}
+		} else {
+			// Default message stays neutral; operator log captures
+			// the failed-tool diagnostics for ops investigation.
+			reason = "no change plan was produced this round"
+			for i := len(toolResults) - 1; i >= 0; i-- {
+				tr := toolResults[i]
+				if !tr.Success && (tr.ToolName == emitChangePlanToolName ||
+					tr.ToolName == emitPlanSkeletonToolName ||
+					tr.ToolName == emitPlanChangeToolName) {
+					logging.Warning("[planner] structured emit rejected: tool=%s summary=%s", tr.ToolName, tr.Summary)
+					reason = "the proposed change plan was rejected: " + tr.Summary
+					break
+				}
 			}
 		}
-		logging.Warning("[planner] %s", reason)
+		logging.Warning("[planner] no plan installed: %s", reason)
 		out.MissingPiece = types.MissingFacts
 		out.Error = reason
 		return out, fmt.Errorf("%s", reason)
@@ -195,6 +269,51 @@ func (e *plannerEvaluator) DetermineMissingPiece(_ *types.AgentContext, output *
 		return types.MissingFacts
 	}
 	return output.MissingPiece
+}
+
+// plannerMissingBodies returns the repo-relative paths of partial
+// plan changes that still need their content written (kind in
+// {create, modify} with empty NewContent, or kind=patch with empty
+// Patch). delete kinds are body-trivial and excluded.
+//
+// Used by ParseOutput to surface the precise gap when the loop
+// terminates with a partial plan installed but no completed plan.
+// Pure read of partial.Changes — no mutation.
+func plannerMissingBodies(partial *types.ChangePlan) []string {
+	if partial == nil {
+		return nil
+	}
+	var missing []string
+	for _, c := range partial.Changes {
+		switch strings.TrimSpace(c.Kind) {
+		case "create", "modify":
+			if strings.TrimSpace(c.NewContent) == "" {
+				missing = append(missing, c.Path)
+			}
+		case "patch":
+			if strings.TrimSpace(c.Patch) == "" {
+				missing = append(missing, c.Path)
+			}
+		}
+	}
+	return missing
+}
+
+// plannerNonDeleteSlotCount returns the number of changes that
+// require a body fill (kinds: create / modify / patch). Used as the
+// denominator in ParseOutput's "X/Y files still need contents"
+// message so the user sees a concrete progress fraction.
+func plannerNonDeleteSlotCount(partial *types.ChangePlan) int {
+	if partial == nil {
+		return 0
+	}
+	n := 0
+	for _, c := range partial.Changes {
+		if strings.TrimSpace(c.Kind) != "delete" {
+			n++
+		}
+	}
+	return n
 }
 
 // NewPlannerAgent constructs the B0 plan-stage agent. Wiring

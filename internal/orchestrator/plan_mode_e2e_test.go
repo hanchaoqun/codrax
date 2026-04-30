@@ -55,6 +55,7 @@ func TestPlanMode_E2E_StubPlannerProducesChangePlan(t *testing.T) {
 	o.SetMaxSteps(20)
 	o.SetMode(types.ModePlan)
 	o.SetAutoInitRepo(true) // plan stage's new bare-dir gate; tests run against tmp dirs
+	o.SetScaffoldEnabled(true)
 
 	busCtx, err := o.Run("add a comment to main.go", t.TempDir(), "main")
 	if err != nil {
@@ -134,6 +135,7 @@ func TestPlanMode_E2E_FailsCleanlyWhenPlannerSkipsEmit(t *testing.T) {
 	o.SetMaxSteps(20)
 	o.SetMode(types.ModePlan)
 	o.SetAutoInitRepo(true) // plan stage's new bare-dir gate; tests run against tmp dirs
+	o.SetScaffoldEnabled(true)
 
 	busCtx, err := o.Run("doomed request", t.TempDir(), "main")
 	if err != nil {
@@ -170,6 +172,7 @@ func TestPlanMode_E2E_PlannerErrorSurfaces(t *testing.T) {
 	o.SetMaxSteps(20)
 	o.SetMode(types.ModePlan)
 	o.SetAutoInitRepo(true) // plan stage's new bare-dir gate; tests run against tmp dirs
+	o.SetScaffoldEnabled(true)
 
 	busCtx, err := o.Run("doomed request", t.TempDir(), "main")
 	if err != nil {

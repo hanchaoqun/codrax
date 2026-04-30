@@ -135,44 +135,46 @@ func planPostHook(o *Orchestrator, out *agent.StageOutput) error {
 	return nil
 }
 
-// planPreHook is the bare-directory authorization gate for the plan
-// stage. Pre-2026-04-29 the gate only fired inside applyPreHook
-// (StageApply); plan-only runs against an uninit'd / empty repo
-// dispatched the planner unconditionally, which produced the
-// pathological "LLM tries to compose a plan against zero source
-// files, stream stalls" loop documented in
-// /home/chatpp/pytest/.codrax/logs/pytest-53c9f7e6/codrax-20260429-060339-*.log
-// (planner streamed for 60 s twice before the orchestrator gave up).
+// planPreHook is the structural authorization gate for the plan
+// stage. Three independent decision points, evaluated in order so
+// each tier surfaces its own actionable error before the next is
+// considered:
 //
-// Why plan also needs the gate (not only apply):
-//   - The planner skill workflow says "Read the files and
-//     identifiers named in the user's request" — which assumes
-//     existing source. Empty repo means the LLM has no anchor and
-//     stalls trying to invent a plan from thin air.
-//   - The planner emit_change_plan validators (deps-closure,
-//     wiring-closure, summary-fidelity, dry-build) all assume the
-//     repo has at least a manifest (go.mod, package.json,
-//     pyproject.toml) and a couple of existing files. None of
-//     those validators behave usefully on a 0-file workspace.
-//   - The "scaffold a new project from scratch" workflow is an
-//     intentional gap (no scaffold mode today). Failing fast with
-//     a clear authorization message is strictly better than
-//     letting the LLM waste a finalize budget churning.
+//  1. Repo state probe (worktree.DetectRepoState). Ready repos pass
+//     unconditionally — that is the byte-identical pre-2026-04-29
+//     happy path.
+//  2. Init authorization. State NeedsInit + !autoInitRepo →
+//     fail-fast with bareDirAuthorizationMessage. The user must
+//     explicitly opt into git-init mutation of their target dir.
+//  3. Scaffold authorization. State NeedsInit + autoInitRepo + the
+//     dir is structurally empty (no source files outside .git /
+//     .codrax) + !scaffoldEnabled → fail-fast with
+//     scaffoldAuthorizationMessage. Init authorization is NOT a
+//     proxy for "may invent files for an empty dir" — those are
+//     two distinct user-granted permissions, gated separately so
+//     the user is not surprised by codrax fabricating an entire
+//     project from a single --auto-init-repo flag.
 //
-// Behaviour:
-//   - DetectRepoState=ready → no-op, proceed.
-//   - State NeedsInit (not_initialized / no_commits) AND
-//     o.autoInitRepo == false → fail-loud with bareDirAuthorizationMessage.
-//   - State NeedsInit AND o.autoInitRepo == true → no-op here;
-//     applyPreHook will later run worktree.EnsureInitialCommit
-//     when the apply stage actually needs the worktree. Plan stage
-//     itself does not need a git index for its read-only repo_map /
-//     grep / read_file inspection.
-//   - DetectRepoState error → fail-loud with the error.
+// All three checks are STRUCTURAL — they read git state and
+// directory contents, they DO NOT classify the user's request text.
+// The same call that fails fast for "请用 python 写一个游戏" against
+// an empty dir would equally fail fast for any other request,
+// because the gate's job is to refuse a setup the planner cannot
+// run productively, not to interpret intent.
+//
+// On the scaffold-authorized path we seed PlanningHint with the
+// SCAFFOLD DIRECTIVE so the planner uses the streaming-safe
+// multi-round emission path on its first dispatch. The planner has
+// no source files to read on a from-scratch run, so the LLM is
+// going to assemble the entire plan from the request text + general
+// knowledge — exactly the case where a single emit_change_plan
+// call is most likely to overflow the stream. Pre-arming the hint
+// turns the second-attempt recovery into a first-attempt preference.
 //
 // The hook does NOT provision a worktree — plan stage runs against
-// the main repo's working tree (read-only ops). That's the same
-// pre-2026-04-29 behaviour; we only added the authorization gate.
+// the main repo's working tree (read-only ops). applyPreHook owns
+// the git init + worktree path when the apply stage actually needs
+// it.
 func planPreHook(o *Orchestrator) error {
 	if o == nil || o.busCtx == nil {
 		return fmt.Errorf("plan pre-hook: nil orchestrator/bus")
@@ -184,48 +186,48 @@ func planPreHook(o *Orchestrator) error {
 	state, err := worktree.DetectRepoState(root)
 	if err != nil {
 		msg := fmt.Sprintf("plan stage: repo state probe failed: %v", err)
-		// SetResultPlain — diagnostic prose with no markdown.
 		o.busCtx.Mutable.SetResultPlain(msg)
 		return fmt.Errorf("%s", msg)
 	}
 	if !state.NeedsInit() {
 		return nil
 	}
-	if o.autoInitRepo {
-		// Authorized but defer the actual init to applyPreHook —
-		// plan stage doesn't need a git index. Log so an operator
-		// running with --auto-init-repo sees the gate didn't fire.
-		logging.Info("[orchestrator] plan pre-hook: bare repo at %s; init deferred to apply stage (--auto-init-repo authorized)", root)
-		// Proactive scaffold hint: when we KNOW this is the
-		// scaffold-from-scratch case (NeedsInit + autoInitRepo + plan
-		// mode), seed PlanningHint with the streaming-safe multi-
-		// round emission directive BEFORE the first dispatch. The
-		// planner has no source files to read here, so the LLM is
-		// going to assemble the entire plan from the request text +
-		// general knowledge — exactly the case where a single
-		// emit_change_plan call is most likely to overflow the
-		// stream and trigger the watchdog kill documented in
-		// /home/chatpp/pytest 2026-04-29 06:03. Pre-arming the hint
-		// turns the second-attempt recovery into a first-attempt
-		// preference. Existing PlanningHint (from a prior verify→
-		// plan SC retry) is preserved by prepending so the retry
-		// feedback still reaches the LLM. Idempotent — re-emitting
-		// on a re-dispatch (which the consume-once contract makes
-		// rare) just re-prepends the same line.
-		if o.busCtx != nil && o.busCtx.Mutable != nil &&
-			o.busCtx.Mutable.PlanningHint() == "" {
+
+	// Tier 1: init authorization.
+	if !o.autoInitRepo {
+		msg := bareDirAuthorizationMessage(o.busCtx, state, "plan")
+		o.busCtx.Mutable.SetResultPlain(msg)
+		return fmt.Errorf("%s", msg)
+	}
+
+	// Tier 2: scaffold authorization, gated on dir emptiness.
+	// Non-empty bare dirs (existing source, no git) bypass this
+	// check — the planner has real code to read and only needs
+	// the upstream init authorization. dirIsEffectivelyEmpty walks
+	// the dir capped at 256 entries so a deeply nested non-empty
+	// tree returns false quickly.
+	empty := dirIsEffectivelyEmpty(root)
+	if empty && !o.scaffoldEnabled {
+		msg := scaffoldAuthorizationMessage(o.busCtx)
+		o.busCtx.Mutable.SetResultPlain(msg)
+		return fmt.Errorf("%s", msg)
+	}
+
+	// Authorized. Defer git init to applyPreHook (plan stage does
+	// not need a git index). On the empty-dir path additionally
+	// seed PlanningHint with the SCAFFOLD DIRECTIVE so the planner
+	// picks the streaming-safe multi-round emission path on its
+	// first dispatch. Existing PlanningHint (from a prior verify→
+	// plan SC retry) is preserved.
+	if empty {
+		logging.Info("[orchestrator] plan pre-hook: empty bare repo at %s; scaffold authorized (init deferred to apply stage)", root)
+		if o.busCtx.Mutable != nil && o.busCtx.Mutable.PlanningHint() == "" {
 			o.busCtx.Mutable.SetPlanningHint(plannerScaffoldHint())
 		}
-		return nil
+	} else {
+		logging.Info("[orchestrator] plan pre-hook: non-empty bare repo at %s; init deferred to apply stage (existing source detected)", root)
 	}
-	// Reuse the same authorization message the apply gate uses, but
-	// label it with the stage that actually surfaced the refusal so
-	// the user-visible "stage 拒绝" / "stage:" prefix tracks the gate
-	// that fired. SetResultPlain — the message contains command
-	// tokens that chroma would otherwise fragment with ANSI codes.
-	msg := bareDirAuthorizationMessage(o.busCtx, state, "plan")
-	o.busCtx.Mutable.SetResultPlain(msg)
-	return fmt.Errorf("%s", msg)
+	return nil
 }
 
 // applyPreHook prepares the worktree before the coder dispatches.
@@ -295,6 +297,18 @@ func applyPreHook(o *Orchestrator) error {
 				// legacy hardcoded prose when env_recommend is
 				// disabled (R6 byte-identical retention guarantee).
 				msg := bareDirAuthorizationMessage(o.busCtx, state, "apply")
+				o.busCtx.Mutable.SetResultPlain(msg)
+				return fmt.Errorf("%s", msg)
+			}
+			// Apply-tier scaffold gate. Single-shot `--mode=apply
+			// --plan-file=X` against an empty bare dir must NOT
+			// silently scaffold just because init was authorized;
+			// the same two-permission split planPreHook enforces
+			// applies here so a CLI user who skipped the plan
+			// stage cannot get scaffold behaviour with only
+			// --auto-init-repo. Non-empty bare dirs bypass.
+			if dirIsEffectivelyEmpty(o.busCtx.MainRepoRoot) && !o.scaffoldEnabled {
+				msg := scaffoldAuthorizationMessage(o.busCtx)
 				o.busCtx.Mutable.SetResultPlain(msg)
 				return fmt.Errorf("%s", msg)
 			}

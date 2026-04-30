@@ -600,6 +600,14 @@ write_enabled: true
   - 命令行:启动加 `--auto-init-repo`
   - apply 阶段额外:再次 `/approve` 时回 `y`(plan 阶段没有 y/N 提示,所以这个选项不在 plan 阶段列出)
 
+**目录是空的,想从零创建新项目**(目录里没有任何源代码文件):
+- `--auto-init-repo` 只授权"把目录变成 git 仓库",**不**授权 codrax 凭空生成文件 — 这是两件不同的事
+- 想从零搭新项目需要再加 scaffold 授权,任选一种:
+  - 配置文件:在 `codrax.yaml` 设 `write_scaffold_enabled: true`
+  - 命令行:启动加 `--allow-scaffold`(和 `--auto-init-repo` 一起加)
+- 默认关闭是为了避免在你没明确同意时擅自创建文件
+- 如果目录已经有源代码、只是没 `git init`,**不需要** scaffold 授权 — `--auto-init-repo` 一项就够了
+
 **模型反复卡住**(连续两次产不出可用方案):
 - 屏幕打印"模型重复给不出可用的方案。在 codrax.yaml 换路由,或换更强的模型再试"
 - 在 `providers.yaml` 把对应 agent(`planner` / `coder` / `verifier`)路由到更强的模型重试
@@ -755,7 +763,8 @@ agents:
 |---|---|---|
 | `write_enabled` | `false` | **写模式总闸**;不设 true 任何写命令都拒绝 |
 | `write_default_mode` | `read` | 启动默认模式 |
-| `write_auto_init_repo` | `false` | 允许 codrax 在裸目录运行 `git init` + 空 commit(等价 `--auto-init-repo`,持久版) |
+| `write_auto_init_repo` | `false` | 允许把目标目录初始化为 git 仓库(`git init` + 空 commit;等价 `--auto-init-repo`,持久版) |
+| `write_scaffold_enabled` | `false` | 允许在空目录里凭空生成新文件(从零创建项目;等价 `--allow-scaffold`,持久版)。空目录场景需要和 `write_auto_init_repo` 同时开启 |
 | `write_auto_approval` | `false` | 预留:批量工作流 / REPL `/approve` 默认开关 |
 | `write_plan_dir` | `<runtime>/plans` | ChangePlan JSON 落盘目录 |
 | `pipeline_write_retry_budget` | 3 | verify 失败后自动重 plan 的最大次数 |
@@ -833,7 +842,7 @@ agents:
 代码默认值 < codrax.yaml < 命令行 flag
 ```
 
-只有这些 flag 会覆盖 yaml:`--repo` / `--branch` / `--lang` / `--log-level` / `--log-dir` / `--log-stdout` / `--memory-dir` / `--cache-dir` / `--pipeline-max-steps` / `--pipeline-max-retries` / `--pipeline-max-stage-visits` / `--log` / `--log-text` / `--log-source-prefix` / `--htrace` / `--htrace-text` / `--atrace` / `--atrace-text` / `--chitchat-classifier` / `--mode` / `--auto-apply` / `--plan-out` / `--plan-file` / `--auto-init-repo` / `--color`。
+只有这些 flag 会覆盖 yaml:`--repo` / `--branch` / `--lang` / `--log-level` / `--log-dir` / `--log-stdout` / `--memory-dir` / `--cache-dir` / `--pipeline-max-steps` / `--pipeline-max-retries` / `--pipeline-max-stage-visits` / `--log` / `--log-text` / `--log-source-prefix` / `--htrace` / `--htrace-text` / `--atrace` / `--atrace-text` / `--chitchat-classifier` / `--mode` / `--auto-apply` / `--plan-out` / `--plan-file` / `--auto-init-repo` / `--allow-scaffold` / `--color`。
 
 ---
 
@@ -931,7 +940,8 @@ codrax [flags] [request...]
 | `--auto-apply` | `false` | 单次 `--mode=apply` 必须搭配,跳过交互确认 |
 | `--plan-out <path>` | `.codrax/plans/<id>.json` | plan-mode 落盘路径 |
 | `--plan-file <path>` | — | apply / verify 模式必填:已有 ChangePlan JSON 路径 |
-| `--auto-init-repo` | `false` | 在裸目录授权 codrax 跑 `git init` |
+| `--auto-init-repo` | `false` | 授权把目标目录初始化为 git 仓库(`git init` + 空 commit) |
+| `--allow-scaffold` | `false` | 授权在空目录里凭空生成新文件(从零创建项目)。空目录场景需要和 `--auto-init-repo` 同时使用 |
 
 **典型 CLI 示例**:
 
@@ -1019,6 +1029,9 @@ CLI 单次模式输出:
 
 **`/approve` 报 `target ... is needs_init`**
 → 目标目录不是 git 仓。`/approve --auto-init-repo` 一次,或 yaml 里 `write_auto_init_repo: true` 长期允许。
+
+**plan 模式在空目录卡住或报 "scaffold 授权"**
+→ 空目录从零创建项目需要单独授权。在 yaml 里同时设 `write_auto_init_repo: true` + `write_scaffold_enabled: true`,或启动时同时加 `--auto-init-repo --allow-scaffold`。两者职责不同 — 前者授权初始化 git,后者授权凭空生成文件。
 
 **runner 检测错了 / runner 不存在**
 → codrax 会显示推荐安装命令(`env_recommend`)。也可以在 ChangePlan 里手动指定 runner,但通常自动检测 12 种 runner(go / pytest / jest / cargo / mvn / gradle / cmake / meson / make / cjpm / hvigor / rspec)足够覆盖。

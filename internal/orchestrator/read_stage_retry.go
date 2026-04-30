@@ -76,7 +76,7 @@ func (o *Orchestrator) retryReadStageDispatchError(
 	}
 	sig := computeStallSignature(o.busCtx.Mutable.DispatchToolResults(), nil, stage)
 	if state.transientStallPlateau(keyID, sig) {
-		friendly := stallPlateauMessage(o.busCtx, stage, friendlyDispatchErr(err))
+		friendly := stallPlateauMessage(o.busCtx, stage, friendlyDispatchErr(err), o.autoInitRepo, o.scaffoldEnabled)
 		logging.Warning("[orchestrator] %s read-mode transient stall plateau (sig=%q) — suppressing retry: %s",
 			stage, sig, friendly)
 		o.busCtx.TaskState.LastError = friendly

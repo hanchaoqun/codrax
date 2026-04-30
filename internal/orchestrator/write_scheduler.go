@@ -196,7 +196,7 @@ func (o *Orchestrator) runWriteSchedulerLoop(stepBudget int) int {
 				//      tool sequence (LLM rotated tactics but never
 				//      reached a terminal emit).
 				if state.transientStallPlateau(n.ID, sig) || state.transientNoEmitPlateau(n.ID) {
-					friendly := stallPlateauMessage(o.busCtx, stage, friendlyDispatchErr(dispatchErr))
+					friendly := stallPlateauMessage(o.busCtx, stage, friendlyDispatchErr(dispatchErr), o.autoInitRepo, o.scaffoldEnabled)
 					logging.Warning("[orchestrator] %s transient stall plateau (sig=%q sigPlateau=%v noEmitPlateau=%v) — suppressing further retry",
 						stage, sig,
 						state.transientStallPlateau(n.ID, sig),
@@ -485,8 +485,16 @@ func computeStallSignature(toolResults []types.ToolResult, out *agent.StageOutpu
 // stallPlateauMessage builds the user-facing terminal message when
 // transient stall plateau fires. Names the stage, the underlying
 // transient cause, and the most likely remediation depending on
-// the pipeline mode and repo state.
-func stallPlateauMessage(busCtx *types.BusContext, stage types.PipelineStage, transientReason string) string {
+// the pipeline mode, repo state, and which authorization tiers the
+// operator has already granted.
+//
+// On the empty-repo path the remediation hint is auth-tier specific
+// (the planPreHook gate already refused un-authorized cases, so by
+// the time we reach plateau the auth tiers tell us WHICH layer to
+// blame): if scaffolding is missing, point at --allow-scaffold; if
+// init is missing point at --auto-init-repo; if both are present
+// the stall is a model-routing issue, not an authorization issue.
+func stallPlateauMessage(busCtx *types.BusContext, stage types.PipelineStage, transientReason string, autoInitRepo, scaffoldEnabled bool) string {
 	if busCtx == nil {
 		return fmt.Sprintf("%s repeatedly stalled (%s); aborting", stage, transientReason)
 	}
@@ -499,26 +507,65 @@ func stallPlateauMessage(busCtx *types.BusContext, stage types.PipelineStage, tr
 		}
 	}
 	zh := strings.HasPrefix(strings.ToLower(busCtx.Language), "zh") || busCtx.Language == ""
+	writeMode := mode == types.ModePlan || mode == types.ModeApply || mode == types.ModeVerify
 	if zh {
-		base := fmt.Sprintf("%s 阶段连续多次同样卡住,已中止重试", stage)
+		stageLabel := writeStageZhLabel(stage)
+		base := fmt.Sprintf("%s连续多次没产出可用结果,已中止重试", stageLabel)
 		switch {
-		case mode == types.ModePlan && emptyRepo, mode == types.ModeApply && emptyRepo:
-			return base + "。目录是空仓;从零创建建议加 --auto-init-repo,或先 /mode read。"
-		case mode == types.ModePlan, mode == types.ModeApply, mode == types.ModeVerify:
-			return base + "。模型重复给不出可用的方案。在 codrax.yaml 换路由,或换更强的模型再试。"
+		case writeMode && emptyRepo && !autoInitRepo:
+			return base + "。当前目录还不是 git 仓库;先加 --auto-init-repo 授权初始化,再决定是否需要 --allow-scaffold。"
+		case writeMode && emptyRepo && !scaffoldEnabled:
+			return base + "。目录是空的,模型没有源代码可以参考;从零创建新项目需要加 --allow-scaffold (或在配置里设 write_scaffold_enabled: true)。"
+		case writeMode && emptyRepo:
+			return base + "。空目录已开启 scaffold,但模型仍然给不出可用的方案。在配置文件里换更强的模型再试。"
+		case writeMode:
+			return base + "。模型重复给不出可用的方案。在配置文件里换更强的模型再试。"
 		default:
-			return base + "。两次失败完全相同,再重试无意义。"
+			return base + "。两次结果完全相同,继续重试也不会有变化。"
 		}
 	}
-	base := fmt.Sprintf("%s repeatedly stalled, aborting retry", stage)
+	stageLabel := writeStageEnLabel(stage)
+	base := fmt.Sprintf("%s repeatedly produced no usable result; retry aborted", stageLabel)
 	switch {
-	case mode == types.ModePlan && emptyRepo, mode == types.ModeApply && emptyRepo:
-		return base + ". Target directory is empty; from-scratch creation needs --auto-init-repo, or switch to /mode read."
-	case mode == types.ModePlan, mode == types.ModeApply, mode == types.ModeVerify:
-		return base + ". The model keeps producing nothing usable. Switch model routing in codrax.yaml or pick a stronger model."
+	case writeMode && emptyRepo && !autoInitRepo:
+		return base + ". The target directory is not yet a git repo; first authorize initialization via --auto-init-repo, then decide whether --allow-scaffold is also needed."
+	case writeMode && emptyRepo && !scaffoldEnabled:
+		return base + ". The directory is empty so the model has no existing source to read; creating a new project from scratch needs --allow-scaffold (or write_scaffold_enabled: true in the config file)."
+	case writeMode && emptyRepo:
+		return base + ". The empty directory has scaffold authorized, but the model keeps producing nothing usable. Switch to a stronger model in the config file and retry."
+	case writeMode:
+		return base + ". The model keeps producing nothing usable. Switch to a stronger model in the config file and retry."
 	default:
-		return base + ". Two failures share the same shape; further retry will not recover."
+		return base + ". Two outcomes were identical; continued retry will not change anything."
 	}
+}
+
+// writeStageZhLabel translates an internal pipeline stage id into a
+// user-facing Chinese label (no internal jargon). Falls back to the
+// raw stage string when the mapping is missing — better to surface a
+// short tag than crash the message.
+func writeStageZhLabel(stage types.PipelineStage) string {
+	switch stage {
+	case types.StagePlan:
+		return "生成改动方案"
+	case types.StageApply:
+		return "应用改动"
+	case types.StageVerify:
+		return "运行验证测试"
+	}
+	return string(stage)
+}
+
+func writeStageEnLabel(stage types.PipelineStage) string {
+	switch stage {
+	case types.StagePlan:
+		return "Drafting the change plan"
+	case types.StageApply:
+		return "Applying changes"
+	case types.StageVerify:
+		return "Running verification tests"
+	}
+	return string(stage)
 }
 
 // friendlyDispatchErr translates typed transport/streaming errors

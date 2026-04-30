@@ -63,8 +63,9 @@ func TestApplyPreHook_BareDirSucceedsWithAuth(t *testing.T) {
 	wtBase := t.TempDir()
 
 	o := &Orchestrator{
-		worktreeBase: wtBase,
-		autoInitRepo: true,
+		worktreeBase:    wtBase,
+		autoInitRepo:    true,
+		scaffoldEnabled: true, // empty tmp dir; apply-tier gate now mirrors planPreHook's
 		busCtx: &types.BusContext{
 			MainRepoRoot: bare,
 			TraceID:      "trace-bare-auth",
@@ -192,15 +193,17 @@ func TestPlanPreHook_BareDirRefusesWithoutAuth(t *testing.T) {
 	}
 }
 
-// TestPlanPreHook_BareDirAllowsWithAuth — when autoInitRepo=true,
-// the gate logs but does NOT init the repo (defers that to
-// applyPreHook). plan stage runs against the bare working tree
-// for read-only repo_map / list_files; emit_change_plan validators
-// don't need a git index. Returns nil so the planner dispatches.
+// TestPlanPreHook_BareDirAllowsWithAuth — when autoInitRepo=true and
+// scaffoldEnabled=true (empty bare dir), the gate logs but does NOT
+// init the repo (defers that to applyPreHook). plan stage runs
+// against the bare working tree for read-only repo_map / list_files;
+// emit_change_plan validators don't need a git index. Returns nil
+// so the planner dispatches.
 func TestPlanPreHook_BareDirAllowsWithAuth(t *testing.T) {
 	bare := t.TempDir()
 	o := &Orchestrator{
-		autoInitRepo: true,
+		autoInitRepo:    true,
+		scaffoldEnabled: true,
 		busCtx: &types.BusContext{
 			MainRepoRoot: bare,
 			TraceID:      "trace-plan-bare-auth",
@@ -208,7 +211,7 @@ func TestPlanPreHook_BareDirAllowsWithAuth(t *testing.T) {
 		},
 	}
 	if err := planPreHook(o); err != nil {
-		t.Fatalf("planPreHook should pass with autoInitRepo=true; got %v", err)
+		t.Fatalf("planPreHook should pass with both authorizations: %v", err)
 	}
 	// Confirm the bare repo was NOT init'd by planPreHook (the
 	// .git directory doesn't appear). applyPreHook will init it

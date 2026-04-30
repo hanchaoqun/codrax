@@ -243,17 +243,23 @@
 # cmd/root.go.
 # write_plan_dir: ""
 
-# Yaml-level pre-authorization for the bare-directory scaffolding flow.
-# When the target dir is not a git repo (or has no commits), worktree
-# provisioning normally fail-louds with an explanation prompting the
-# user. With this true, the orchestrator runs `git init` (if needed)
-# plus an empty initial commit before `git worktree add`, so codrax
-# can bootstrap a brand-new project from a single --mode=plan run.
-# Equivalent to the --auto-init-repo CLI flag but applied to every
-# Run from this deploy. CLI flag wins when both are set. REPL retains
-# an interactive y/N prompt as the third-tier fallback when neither
-# is set. Default false (require explicit per-run opt-in).
+# Authorize turning a non-git target directory into a git repo
+# (`git init` + empty initial commit) at the start of a write-mode Run.
+# CLI equivalent: --auto-init-repo. Default false. This authorizes the
+# git-init step ONLY; if the directory is also empty and you want a
+# brand-new project created from scratch, you ALSO need
+# write_scaffold_enabled below. CLI flag wins when both are set. The
+# REPL keeps an interactive y/N prompt as the third-tier fallback for
+# init when neither yaml nor CLI is set.
 # write_auto_init_repo: false
+
+# Authorize the planner to invent files for a target directory that
+# contains NO existing source (from-scratch project creation). CLI
+# equivalent: --allow-scaffold. Default false. Required IN ADDITION TO
+# write_auto_init_repo for empty-dir runs; non-empty bare directories
+# bypass this gate (the planner has real source to read). Off by default
+# so files are never fabricated without explicit consent.
+# write_scaffold_enabled: false
 
 # ---------------------------------------------------------------------------
 # Worktree retention (worktree_keep_*)

@@ -55,6 +55,7 @@ func readModeRun(t *testing.T, mode types.PipelineMode) *types.BusContext {
 	// authorize the bare-dir gate so the gate falls through to the
 	// rest of the pipeline.
 	o.SetAutoInitRepo(true)
+	o.SetScaffoldEnabled(true)
 	// t.TempDir() is cross-platform (Windows / macOS / Linux); avoid
 	// hardcoding /tmp paths. Drop a sentinel file so the empty-repo
 	// short-circuit (read mode against an effectively-empty dir
@@ -234,6 +235,7 @@ func TestMode_VerifyReachesStub(t *testing.T) {
 	o.SetMaxSteps(20)
 	o.SetMode(types.ModeVerify)
 	o.SetAutoInitRepo(true) // verify hits stage hooks; tmp dir is bare
+	o.SetScaffoldEnabled(true)
 	busCtx, err := o.Run("rerun verify", t.TempDir(), "main")
 	if err != nil {
 		t.Fatalf("Run: %v", err)
@@ -358,6 +360,7 @@ func TestMode_ApplyWithPlanPathSkipsPlanPhase(t *testing.T) {
 	o.SetMaxSteps(20)
 	o.SetMode(types.ModeApply)
 	o.SetAutoInitRepo(true) // plan/apply stage gate; tests run against tmp dirs
+	o.SetScaffoldEnabled(true)
 	o.SetPlanPath(planPath)
 	// Intentionally omit SetWorktreeBase — apply phase will fail
 	// with "worktree base not configured" which is the signal we
@@ -394,6 +397,7 @@ func TestOrchestrator_ModeGetter(t *testing.T) {
 	}
 	o.SetMode(types.ModePlan)
 	o.SetAutoInitRepo(true) // plan stage's new bare-dir gate; tests run against tmp dirs
+	o.SetScaffoldEnabled(true)
 	if o.Mode() != types.ModePlan {
 		t.Errorf("post-SetMode Mode() should be ModePlan, got %q", o.Mode())
 	}

@@ -121,10 +121,15 @@ func softRetryHintForStage(lang string, stage types.PipelineStage) string {
 	zh := preferZhMessage(lang)
 	switch stage {
 	case types.StagePlan:
+		// "正在补完" / "Refining" implied a plan was already drafted
+		// and we were just polishing it. On real plan-stage retries
+		// (transient-stall path or verify→plan SC failure) NO plan
+		// has landed yet — saying "refining" is a lie. Use neutral
+		// wording that matches reality on every retry occasion.
 		if zh {
-			return "⟳ 正在补完改动方案"
+			return "⟳ 正在重新生成改动方案"
 		}
-		return "⟳ Refining the change plan"
+		return "⟳ Regenerating the change plan"
 	case types.StageApply:
 		if zh {
 			return "⟳ 正在重新应用改动"

@@ -55,6 +55,7 @@ func TestWriteScheduler_E2E_HappyPath(t *testing.T) {
 	o.SetMaxSteps(20)
 	o.SetMode(types.ModeApply)
 	o.SetAutoInitRepo(true) // plan/apply stage gate; tests run against tmp dirs
+	o.SetScaffoldEnabled(true)
 	// Worktree base required for applyPreHook to provision a worktree.
 	// We point to a tmp dir so worktree.Create can work; if it fails
 	// we'll catch it in the test.
@@ -122,6 +123,7 @@ func TestWriteScheduler_VerifyFails_TerminalWhenBudgetZero(t *testing.T) {
 	o.SetMaxSteps(20)
 	o.SetMode(types.ModeApply)
 	o.SetAutoInitRepo(true) // plan/apply stage gate; tests run against tmp dirs
+	o.SetScaffoldEnabled(true)
 	o.SetWorktreeBase(t.TempDir())
 	o.SetWriteRetryBudget(0) // explicit zero — no retry
 
@@ -206,6 +208,7 @@ func TestWriteScheduler_VerifyPlanRetry_BudgetEnforced(t *testing.T) {
 	o.SetMaxSteps(40)
 	o.SetMode(types.ModeApply)
 	o.SetAutoInitRepo(true) // plan/apply stage gate; tests run against tmp dirs
+	o.SetScaffoldEnabled(true)
 	o.SetWorktreeBase(t.TempDir())
 	// Budget 2 = up to 3 plan dispatches (initial + 2 retries).
 	o.SetWriteRetryBudget(2)
@@ -252,6 +255,7 @@ func TestWriteScheduler_ModePlan_Terminates(t *testing.T) {
 	o.SetMaxSteps(20)
 	o.SetMode(types.ModePlan)
 	o.SetAutoInitRepo(true) // plan stage's new bare-dir gate; tests run against tmp dirs
+	o.SetScaffoldEnabled(true)
 	busCtx, _ := o.Run("plan only", t.TempDir(), "main")
 	if planCalls != 1 {
 		t.Errorf("ModePlan should dispatch planner exactly once; got %d", planCalls)
@@ -352,6 +356,7 @@ func TestWriteScheduler_PlanTransientStreamStall_Retries(t *testing.T) {
 	o.SetMaxSteps(20)
 	o.SetMode(types.ModePlan) // plan-only graph, no worktree provisioning
 	o.SetAutoInitRepo(true) // plan stage's new bare-dir gate; tests run against tmp dirs
+	o.SetScaffoldEnabled(true)
 	// SetTransientRetryBudget controls THIS retry path. SetWriteRetryBudget
 	// is for verify→plan SC retry — kept at zero here to verify the two
 	// budgets are decoupled (transient retry must fire even when SC
@@ -396,6 +401,7 @@ func TestWriteScheduler_PlanTransientStreamStall_PlateauSuppression(t *testing.T
 	o.SetMaxSteps(20)
 	o.SetMode(types.ModePlan)
 	o.SetAutoInitRepo(true) // plan stage's new bare-dir gate; tests run against tmp dirs
+	o.SetScaffoldEnabled(true)
 	// Generous transient budget (3) so plateau is the ONLY thing that
 	// could short-circuit the loop. Without plateau detection, this
 	// would burn 3 retries and hit 4 calls.
@@ -413,11 +419,12 @@ func TestWriteScheduler_PlanTransientStreamStall_PlateauSuppression(t *testing.T
 	if strings.Contains(busCtx.TaskState.LastError, "context canceled") {
 		t.Errorf("LastError must not leak 'context canceled'; got %q", busCtx.TaskState.LastError)
 	}
-	// Wording was simplified post-2026-04-30; the message must
-	// still convey the stall in some form (en "stalled" / zh
-	// "卡住"). Both qualify.
-	if !strings.Contains(busCtx.TaskState.LastError, "stalled") &&
-		!strings.Contains(busCtx.TaskState.LastError, "卡住") {
+	// Wording was simplified post-2026-04-30 (no internal jargon /
+	// "codrax" / "planner" — see writeStageZhLabel / writeStageEnLabel).
+	// The plateau message must still convey "stage stopped retrying" in
+	// either locale.
+	if !strings.Contains(busCtx.TaskState.LastError, "retry aborted") &&
+		!strings.Contains(busCtx.TaskState.LastError, "中止重试") {
 		t.Errorf("LastError should name the stall condition; got %q", busCtx.TaskState.LastError)
 	}
 	// Plateau message includes a remediation hint. The exact wording
@@ -461,6 +468,7 @@ func TestWriteScheduler_TransientBudget_DoesNotDrainSCBudget(t *testing.T) {
 	o.SetMaxSteps(20)
 	o.SetMode(types.ModePlan)
 	o.SetAutoInitRepo(true) // plan stage's new bare-dir gate; tests run against tmp dirs
+	o.SetScaffoldEnabled(true)
 	o.SetTransientRetryBudget(1) // exactly enough for the one stall
 	o.SetWriteRetryBudget(2)     // SC budget — must stay intact
 
