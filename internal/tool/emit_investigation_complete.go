@@ -1580,11 +1580,16 @@ func exactAbsenceContextRepairKind(ctx *types.BusContext, contract *types.ExactR
 			materialize = append(materialize, file)
 		}
 	}
+	if len(materialize) > 0 {
+		// Prefer staying on already-read same-scope anchors before
+		// widening to unread siblings. This keeps exact-absence
+		// closure repairs focused on the current grounded branch and
+		// avoids repo_map-ranked detours when the missing proof can
+		// still be materialized from files already in read coverage.
+		return types.RepairEmitEvidence, materialize
+	}
 	if len(unread) > 0 {
 		return types.RepairReadFile, unread
-	}
-	if len(materialize) > 0 {
-		return types.RepairEmitEvidence, materialize
 	}
 	return types.RepairReadFile, files
 }

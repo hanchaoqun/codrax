@@ -437,6 +437,57 @@ func ExactResolutionContextTerms(c *ExactResolutionContract) []string {
 	return append([]string(nil), c.RelatedContextTerms...)
 }
 
+// ExactResolutionFocusTerms returns a richer, user-visible follow-up
+// term set for exploration prompts. It keeps the validated
+// same-scope roots from ExactResolutionContextTerms, then augments
+// config-key exact targets with a small number of more specific
+// compounds / segments so the LLM does not over-focus on a single
+// broad family root (for example `explore`) when choosing the next
+// file to inspect.
+//
+// This helper is intentionally prompt-facing only: it does not change
+// the core same-family contract or the structural validators.
+func ExactResolutionFocusTerms(c *ExactResolutionContract) []string {
+	base := ExactResolutionContextTerms(c)
+	if c == nil || (c.TargetKind != SubjectConfigKey && !strings.EqualFold(strings.TrimSpace(c.TargetLabel), "config key")) {
+		return base
+	}
+	var out []string
+	seen := make(map[string]bool)
+	add := func(items ...string) {
+		for _, item := range items {
+			item = strings.TrimSpace(strings.ToLower(item))
+			if len(item) < 3 || seen[item] {
+				continue
+			}
+			seen[item] = true
+			out = append(out, item)
+		}
+	}
+	add(base...)
+	for _, target := range c.Targets {
+		segments := exactResolutionConfigSegments(target)
+		if len(segments) == 0 {
+			continue
+		}
+		for i := 1; i < len(segments); i++ {
+			if len(segments[i]) >= 4 {
+				add(segments[i])
+			}
+		}
+		for i := 1; i+1 < len(segments); i++ {
+			compound := strings.Join(segments[i:i+2], "")
+			if len(compound) >= 7 {
+				add(compound)
+			}
+		}
+	}
+	if len(out) > 6 {
+		out = out[:6]
+	}
+	return out
+}
+
 func exactResolutionSubjectLabel(rm RequestModel) string {
 	switch rm.AnswerSubject.Kind {
 	case SubjectConfigKey:

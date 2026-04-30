@@ -423,6 +423,30 @@ func TestExactResolutionContextTerms(t *testing.T) {
 	}
 }
 
+func TestExactResolutionFocusTerms_ConfigKeyAddsSpecificCompounds(t *testing.T) {
+	contract := &ExactResolutionContract{
+		TargetKind:           SubjectConfigKey,
+		TargetLabel:          "config key",
+		Targets:              []string{"explore_mid_loop_hint_budget"},
+		RelatedContextPolicy: ExactContextSameFamilyGrounded,
+		RelatedContextTerms:  []string{"explore"},
+	}
+	got := ExactResolutionFocusTerms(contract)
+	wantPrefix := []string{"explore", "hint", "midloop"}
+	for _, needle := range wantPrefix {
+		found := false
+		for _, term := range got {
+			if term == needle {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Fatalf("focus terms = %v, want to contain %q", got, needle)
+		}
+	}
+}
+
 func TestExactResolutionSameFamilyMatchScore_ConfigKey(t *testing.T) {
 	contract := &ExactResolutionContract{
 		TargetKind:           SubjectConfigKey,

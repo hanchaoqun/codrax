@@ -2933,6 +2933,11 @@ func (e *explorerEvaluator) buildExactResolutionScopeBanner(ctx *types.AgentCont
 		}
 		fmt.Fprintf(&b, "- `%s` in `%s`\n", cand.Symbol, cand.File)
 	}
+	if contract != nil &&
+		contract.TargetKind == types.SubjectConfigKey &&
+		contract.RelatedContextPolicy == types.ExactContextSameFamilyGrounded {
+		b.WriteString("\nFor exact config-key traces, do not let a single broad family root decide the next hop by itself. Prefer config-file layers, config structs/tags, binding/merge code, and override surfaces before generic implementation files that merely mention the same root.\n")
+	}
 	b.WriteString("\nTreat any result here as related context unless you find explicit alias / parser-mapping proof for the exact target.\n\n")
 	return b.String()
 }

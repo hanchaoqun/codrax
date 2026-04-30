@@ -275,6 +275,63 @@ func TestEmitInvestigationComplete_ConfigTraceAbsenceAlreadyReadScopeQueuesEmitE
 // TestEmitInvestigationComplete_CompletionWithoutAbsenceOnEvidenceAccepted
 // — the normal happy path: grounded evidence exists, LLM signals
 // completion WITHOUT absence_justification. Must succeed.
+func TestEmitInvestigationComplete_ConfigTraceAbsencePrefersMaterializeOverUnreadSibling(t *testing.T) {
+	mut := types.NewMutableState("q")
+	mut.SetExactContextRequiredFiles([]string{"internal/types/config.go", "internal/types/context.go"})
+	mut.EvidenceClosure().SetReadSet(map[string]bool{"internal/types/config.go": true})
+	mut.AppendEvidence([]types.EvidenceItem{{
+		Kind:            types.EvidenceDirect,
+		Source:          "internal/types/config.go",
+		LineStart:       707,
+		AnchorKind:      types.AnchorDefinition,
+		AnchorSymbol:    "DefaultExploreHeuristics",
+		ContextRole:     types.EvidenceContextRoleRelatedContext,
+		GroundingStatus: types.GroundingGrounded,
+		GroundingTier:   types.TierLineText,
+	}})
+	bus := &types.BusContext{
+		Mutable: mut,
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				Scenario:      types.ScenarioConfigTrace,
+				AnswerSubject: types.AnswerSubject{Kind: types.SubjectConfigKey},
+			},
+			AnswerContract: types.AnswerContract{
+				ExactResolution: &types.ExactResolutionContract{
+					TargetKind:           types.SubjectConfigKey,
+					TargetLabel:          "config key",
+					Targets:              []string{"explore_mid_loop_hint_budget"},
+					AllowAbsence:         true,
+					RelatedContextPolicy: types.ExactContextSameFamilyGrounded,
+				},
+			},
+		},
+	}
+	tool := &EmitInvestigationComplete{}
+
+	params := json.RawMessage(`{"reason":"done","confidence":"high","result_kind":"absence","absence_justification":"no config key named explore_mid_loop_hint_budget exists"}`)
+	res, err := tool.Execute(bus, params)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if res.Success {
+		t.Fatal("config-trace absence closure should still reject until precedence evidence is materialized")
+	}
+	if !strings.Contains(res.Summary, "already in read coverage") || !strings.Contains(res.Summary, "Do NOT widen scope") {
+		t.Fatalf("rejection should keep the repair on already-read scope before unread siblings, got %q", res.Summary)
+	}
+	if res.Repair == nil || res.Repair.Code != "exact_absence_precedence_evidence" {
+		t.Fatalf("repair = %+v, want exact_absence_precedence_evidence", res.Repair)
+	}
+	if len(res.Repair.Targets) != 1 || res.Repair.Targets[0].File != "internal/types/config.go" || res.Repair.Targets[0].Action != string(types.RepairEmitEvidence) {
+		t.Fatalf("repair targets = %+v, want emit_evidence on internal/types/config.go", res.Repair.Targets)
+	}
+	repairs := mut.EvidenceClosure().PendingRepairs()
+	if len(repairs) == 0 || repairs[0].Kind != types.RepairEmitEvidence || len(repairs[0].Files) != 1 || repairs[0].Files[0] != "internal/types/config.go" {
+		t.Fatalf("closure repairs = %+v, want queued emit_evidence on internal/types/config.go", repairs)
+	}
+}
+
 func TestEmitInvestigationComplete_ConfigTraceContextOnlyEvidenceRequiresValidatedPrecedenceRole(t *testing.T) {
 	missingKey := "explore_mid_loop_hint_budget"
 	mut := types.NewMutableState("q")

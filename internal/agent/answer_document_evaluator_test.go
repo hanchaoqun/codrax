@@ -1529,14 +1529,15 @@ func TestAnswerDocumentEvaluator_Observe_MidLoopMissingDiagramRejectIncludesConf
 	for _, want := range []string{
 		// Hint reframed alongside the seed-extension authorisation:
 		// the precedence chain is a FLOOR, not a verbatim ceiling.
-		// The grounded reference fence is now Mermaid (was bare-
-		// fence ASCII), so assert on the Mermaid markers + grounded
-		// labels that survive the format change.
+		// The grounded reference fence is Mermaid and keeps only the
+		// role labels inside the fence; supporting file:line anchors
+		// stay elsewhere in the prompt so retries do not copy them
+		// into node labels.
 		"the seeded grounded precedence chain is the FLOOR",
 		"```mermaid",
 		"flowchart",
-		"internal/config/runtime.go:194",
-		"internal/types/config.go:707",
+		"runtime binding",
+		"code default",
 	} {
 		if !strings.Contains(sig.Hint, want) {
 			t.Fatalf("missing-diagram config-trace hint missing %q: %q", want, sig.Hint)
