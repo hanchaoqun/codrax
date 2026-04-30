@@ -123,6 +123,32 @@ func TestBaselineCache_Persistence(t *testing.T) {
 	}
 }
 
+// TestBaselineCache_PeerStoreSkipsRecentMtime pins the cross-
+// process race-skip (commit 11 #2): when a sibling cache file
+// already exists with mtime in the last 60s, Store treats it as
+// "peer just wrote, don't clobber" and bails. Older cache files
+// (mtime > 60s ago) still get overwritten — that's the "this is
+// the same SHA, but the peer's write is so old we'd rather
+// refresh" semantics.
+func TestBaselineCache_PeerStoreSkipsRecentMtime(t *testing.T) {
+	dir := t.TempDir()
+	c := NewBaselineCache(dir, 5)
+	sha := "race0000000000000race0000000000000race00"
+	// First store succeeds.
+	c.Store(sha, &types.ChangeReport{PlanID: "first", Passed: true})
+	first := c.Lookup(sha)
+	if first == nil || first.PlanID != "first" {
+		t.Fatalf("first store failed: %+v", first)
+	}
+	// Second immediate store from "another process" should skip
+	// because the file's mtime is fresh (<60s old).
+	c.Store(sha, &types.ChangeReport{PlanID: "second", Passed: false})
+	got := c.Lookup(sha)
+	if got == nil || got.PlanID != "first" {
+		t.Errorf("second store should have been skipped; got PlanID=%q (want 'first')", got.PlanID)
+	}
+}
+
 // TestBaselineCache_EmptyShaSkips covers the empty-sha guard.
 func TestBaselineCache_EmptyShaSkips(t *testing.T) {
 	dir := t.TempDir()

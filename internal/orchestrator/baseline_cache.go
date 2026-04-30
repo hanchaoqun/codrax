@@ -104,6 +104,23 @@ func (c *BaselineCache) Lookup(sha string) *types.ChangeReport {
 // Store writes the report to the cache for sha. Failure is logged
 // and swallowed — the in-memory baseline still works for the rest
 // of the Run.
+//
+// Cross-process concurrency (commit 11 #2): Store re-checks the
+// cache file just before writing, so when proc A and proc B both
+// captured baselines for the same SHA in parallel, the second
+// writer skips the rename instead of clobbering. Doesn't avoid
+// the duplicate test-suite cost (both procs already paid), but
+// avoids the ABBA failure where two stores interleave a partial
+// .tmp file. atomic rename + idempotent os.Remove handle the
+// remaining races (eviction concurrency is self-correcting:
+// double-delete returns ENOENT, no corruption).
+//
+// We deliberately don't take a full flock around the cache dir.
+// The hot path is "Lookup misses, runs tests for ~minutes, then
+// Stores" — holding a lock for that duration would serialise
+// otherwise-independent Runs across multiple terminals. The
+// mtime guard below covers the realistic collision (rare,
+// minutes-scale) without that cost.
 func (c *BaselineCache) Store(sha string, report *types.ChangeReport) {
 	if !c.Enabled() || report == nil {
 		return
@@ -111,6 +128,20 @@ func (c *BaselineCache) Store(sha string, report *types.ChangeReport) {
 	sha = strings.TrimSpace(sha)
 	if sha == "" {
 		return
+	}
+	path := c.path(sha)
+	// Skip the write when another process just stored (mtime
+	// within the last 60 s). 60 s is a fudge that covers test
+	// suites of ~that length running in parallel; smaller
+	// windows risk false-positives on systems with imprecise
+	// fs mtime, larger windows risk holding stale data when
+	// tests change quickly.
+	if existing, err := os.Stat(path); err == nil {
+		if time.Since(existing.ModTime()) < 60*time.Second {
+			logging.Info("[baseline-cache] skipping store for sha=%s (peer wrote %.0fs ago)",
+				sha[:8], time.Since(existing.ModTime()).Seconds())
+			return
+		}
 	}
 	if err := os.MkdirAll(c.dir, 0o755); err != nil {
 		logging.Warning("[baseline-cache] mkdir %s: %v", c.dir, err)
@@ -121,7 +152,6 @@ func (c *BaselineCache) Store(sha string, report *types.ChangeReport) {
 		logging.Warning("[baseline-cache] marshal: %v", err)
 		return
 	}
-	path := c.path(sha)
 	tmp := path + ".tmp"
 	if err := os.WriteFile(tmp, data, 0o644); err != nil {
 		logging.Warning("[baseline-cache] write %s: %v", tmp, err)
