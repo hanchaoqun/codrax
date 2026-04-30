@@ -681,6 +681,145 @@ func (r *REPL) buildPriorTurnHint() string {
 	return hint
 }
 
+// lastAnswerText returns the most recent non-empty assistant
+// response from the memory store's recent-buffer slice. Used by the
+// TurnPolicy dispatcher (a) to decide hasPriorAnswer and (b) to
+// hand the local responder the actual prior text to transform /
+// summarize. Skips memory-sanitised error placeholders so the local
+// responder is never asked to "render the previous answer" when the
+// previous answer was a pipeline error.
+//
+// Returns "" when no usable prior answer exists — first turn, nil
+// store, recent buffer fully cleared, or every recent turn carried
+// only the error sentinel.
+func (r *REPL) lastAnswerText() string {
+	if r.store == nil {
+		return ""
+	}
+	recent := r.store.Recent()
+	for i := len(recent) - 1; i >= 0; i-- {
+		resp := strings.TrimSpace(recent[i].Response)
+		if resp == "" {
+			continue
+		}
+		// dispatch() persists this exact placeholder when the
+		// previous pipeline turn ended with TaskState.LastError.
+		// Using the text instead of a flag is intentional — error
+		// pollution is the load-bearing trigger for skipping, not a
+		// separate boolean we'd have to re-derive here.
+		if strings.HasPrefix(resp, "(previous attempt ended in error") {
+			continue
+		}
+		return resp
+	}
+	return ""
+}
+
+// localDispatch handles route=local. The local responder reuses the
+// previous answer + conversation context + current message; it
+// MUST NOT read the repository or invent code-level evidence
+// (constraint enforced by localResponderSystemPrompt). When the
+// wired ChitchatResponder satisfies LocalResponder we use it; when
+// it doesn't (e.g. a test stub that only implements Respond), we
+// fall back to a single Respond call with an enriched priorContext
+// so the local-route guarantees still hold (no runner.Run call).
+func (r *REPL) localDispatch(line, display string, policy TurnPolicy, lastAnswer string) {
+	if r.chitchatResponder == nil {
+		r.warn("local-route fallback: chit-chat responder not configured\n")
+		return
+	}
+
+	ctx := r.startTurn()
+	defer r.endTurn()
+
+	prior := ""
+	if r.store != nil {
+		prior = r.store.BuildContext(line, memory.BuildOpts{
+			Kind:      memory.KindChitchat,
+			SessionID: r.sessionID,
+		})
+	}
+
+	if r.renderer != nil {
+		r.renderer.StartSpinner()
+	}
+	var (
+		reply string
+		err   error
+	)
+	if local, ok := r.chitchatResponder.(LocalResponder); ok {
+		reply, err = local.RespondLocal(ctx, line, prior, lastAnswer, policy.PresentationDirective)
+	} else {
+		// Fallback: bake the structured channels into the
+		// priorContext blob a vanilla Respond consumer expects.
+		// The constraint surface is weaker here (the local system
+		// prompt isn't applied) but the dispatch still bypasses
+		// the runner — so the user does not pay the pipeline cost
+		// even when the responder is a thin Respond-only stub.
+		var b strings.Builder
+		if d := strings.TrimSpace(policy.PresentationDirective); d != "" {
+			b.WriteString("## Presentation directive\n")
+			b.WriteString(d)
+			b.WriteString("\n\n")
+		}
+		if last := strings.TrimSpace(lastAnswer); last != "" {
+			b.WriteString("## Previous answer (full text — reuse, do not invent new repo facts)\n")
+			b.WriteString(last)
+			b.WriteString("\n\n")
+		}
+		if pc := strings.TrimSpace(prior); pc != "" {
+			b.WriteString("## Prior conversation\n")
+			b.WriteString(pc)
+		}
+		reply, err = r.chitchatResponder.Respond(ctx, line, b.String())
+	}
+	if r.renderer != nil {
+		r.renderer.StopSpinner()
+	}
+
+	if err != nil {
+		logging.Warning("[repl/turn_policy] local responder failed: %v", err)
+		r.errorf("local: %s\n", friendlyRunError(r.language, err))
+		return
+	}
+	if strings.TrimSpace(reply) == "" {
+		fmt.Fprintln(r.out, emptyResponseHint(r.language))
+		return
+	}
+
+	logging.Info("[repl/turn_policy] local reply (len=%d):\n%s", len(reply), reply)
+
+	fmt.Fprintln(r.out, localReplyHeader(r.language))
+	r.renderBordered(reply)
+	// Persist as KindPipeline. A local-route turn is structurally a
+	// derivative of a previous pipeline answer (transform /
+	// summarize / translate / elaborate of last_answer), so its
+	// retrieval semantics match pipeline-side retention: full body
+	// preservation in the recent buffer + entity-weighted scoring
+	// in compacted recall. Persisting as KindChitchat (the pre-fix
+	// shape) capped recent_body_chars at 800 — when the local
+	// reply was a multi-row markdown table or a sizeable diagram,
+	// the next turn's lastAnswerText would only see the prefix and
+	// any "transform of THIS transform" turn would read truncated
+	// context. KindPipeline is the existing channel that already
+	// preserves long-form derived content; reusing it keeps the
+	// memory schema unchanged (no new Kind constant needed).
+	r.recordTurn(display, line, reply, memory.KindPipeline)
+}
+
+// clarifyDispatch handles route=clarify. No LLM call, no pipeline,
+// no memory write — the user's request was structurally
+// unanswerable in this session (e.g. "换成 mermaid" with no prior
+// answer) and asking again with a fresh framing is the correct
+// recovery path. Persisting a stub turn would just inflate
+// BuildContext on the next dispatch with no useful content.
+func (r *REPL) clarifyDispatch(line, display string, policy TurnPolicy) {
+	logging.Info("[repl/turn_policy] clarify route — line=%q reason=%q",
+		oneLine(line), oneLineClamp(policy.Reason, 120))
+	_ = display // intentional: we don't echo or persist
+	fmt.Fprintln(r.out, turnPolicyClarifyMessage(r.language))
+}
+
 // currentStickyTag returns the per-turn sticky-state marker
 // promptStickyTag would compose for the REPL's current state. Single
 // call site so every prompt-rendering surface (main input, paste/log
@@ -1300,6 +1439,19 @@ func (r *REPL) dispatch(line, display string) {
 	// pure memory-meta question that happens to follow a sticky
 	// attached log correctly routes to chitchat (chitchat doesn't
 	// consume the attachment).
+	// presentationDirective carries the route=hybrid directive into
+	// the runner-bound effective request below. Critical invariant:
+	// `line` is the USER's authoritative phrasing — it must NOT be
+	// overwritten with system-generated headers, because recordTurn
+	// at the end of dispatch persists `line` into memory verbatim.
+	// Mutating line for hybrid would inject "## Presentation
+	// directive ..." headers into BuildContext on every subsequent
+	// turn (#6). The directive instead rides on the separate
+	// effective-request channel.
+	presentationDirective := ""
+	hasAttach := r.attachedLog != "" || r.attachedHitrace != "" ||
+		r.attachedLogAutoRouted
+
 	if r.currentMode == types.ModeRead &&
 		r.chitchatClassifier != nil && r.chitchatResponder != nil {
 		// Build a compact 1-line hint from the most recent turn so
@@ -1312,26 +1464,63 @@ func (r *REPL) dispatch(line, display string) {
 		// based on whether the user is referencing the attachment.
 		// Format mirrors the priorTurn shape: space-separated
 		// key=value pairs the prompt teaches as load-bearing.
-		if hasAttach := r.attachedLog != "" || r.attachedHitrace != "" ||
-			r.attachedLogAutoRouted; hasAttach {
+		if hasAttach {
 			if hint != "" {
 				hint += " attachment=true"
 			} else {
 				hint = "attachment=true"
 			}
 		}
-		// Per-turn ctx so a Ctrl+C during the classifier LLM call
-		// closes the HTTP socket immediately. Cleared after dispatch
-		// completes so the chitchat path can install its own ctx.
-		classifierCtx := r.startTurn()
-		isChat, err := r.chitchatClassifier.Classify(classifierCtx, line, hint)
-		r.endTurn()
-		if err != nil {
-			logging.Warning("[repl/chitchat] classifier error: %v — falling back to pipeline", err)
-		} else if isChat {
-			logging.Info("[repl/chitchat] classifier routed turn to chit-chat: %s", oneLine(line))
-			r.chitchatDispatch(line, display)
-			return
+
+		// Prefer the structured-policy classifier when the wired
+		// implementation supports it. Production cmd/root.go's
+		// *llmChitchatClassifier satisfies BOTH ChitchatClassifier
+		// and TurnPolicyClassifier; tests that wire a stub-only-
+		// Classify implementation transparently fall through to the
+		// legacy binary path below.
+		if tpc, ok := r.chitchatClassifier.(TurnPolicyClassifier); ok {
+			lastAnswer := r.lastAnswerText()
+			classifierCtx := r.startTurn()
+			policy, err := tpc.ClassifyPolicy(classifierCtx, line, hint, lastAnswer != "")
+			r.endTurn()
+			if err != nil {
+				logging.Warning("[repl/turn_policy] classifier error: %v — falling back to pipeline", err)
+			} else {
+				policy = ApplyTurnPolicyGuards(policy, lastAnswer != "", hasAttach)
+				debugLogTurnPolicy(policy)
+				switch policy.Route {
+				case RouteLocal:
+					r.localDispatch(line, display, policy, lastAnswer)
+					return
+				case RouteClarify:
+					r.clarifyDispatch(line, display, policy)
+					return
+				case RouteHybrid:
+					// Carry the directive into the effective
+					// request below — NEVER mutate `line`
+					// (memory invariant; see top-of-block
+					// comment).
+					presentationDirective = policy.PresentationDirective
+					logging.Info("[repl/turn_policy] hybrid → pipeline with directive=%q",
+						oneLineClamp(presentationDirective, 80))
+				case RouteRepo:
+					logging.Info("[repl/turn_policy] repo → pipeline (confidence=%.2f)", policy.Confidence)
+				}
+			}
+		} else {
+			// Legacy binary path. Preserved verbatim so test stubs
+			// implementing ChitchatClassifier-only continue to work
+			// byte-for-byte.
+			classifierCtx := r.startTurn()
+			isChat, err := r.chitchatClassifier.Classify(classifierCtx, line, hint)
+			r.endTurn()
+			if err != nil {
+				logging.Warning("[repl/chitchat] classifier error: %v — falling back to pipeline", err)
+			} else if isChat {
+				logging.Info("[repl/chitchat] classifier routed turn to chit-chat: %s", oneLine(line))
+				r.chitchatDispatch(line, display)
+				return
+			}
 		}
 	}
 
@@ -1339,10 +1528,10 @@ func (r *REPL) dispatch(line, display string) {
 		Kind:      memory.KindPipeline,
 		SessionID: r.sessionID,
 	})
-	effective := line
-	if prior != "" {
-		effective = "## Prior conversation\n" + prior + "\n\n## Current request\n" + line
-	}
+	// Effective request = optional directive header + optional
+	// prior-conversation block + ORIGINAL line. `line` itself is
+	// untouched so recordTurn below stores user-authentic text.
+	effective := composeEffectiveRequest(presentationDirective, prior, line)
 
 	logging.Info("[repl] dispatching request: %s", oneLine(line))
 
