@@ -6,40 +6,39 @@ import (
 	"time"
 )
 
-// WriteClosure is the per-Run cross-stage tracker for the four
-// CGEC-W (Citation-Grounded Write Closure) invariants — the
-// write-phase mirror of EvidenceClosure's I1-I4. Lives on
+// WriteClosure is the per-Run cross-stage tracker for write-phase
+// invariants — the write-mode peer to EvidenceClosure. Lives on
 // MutableState, reset per-task alongside EvidenceClosure so
 // plan/apply/verify share a single view without cross-task
 // contamination.
 //
 //   W1: every file:line in an applied patch must be declared up-front
-//       in the ChangePlan's target_paths (apply-stage pre-flight
-//       compares patch scope to plan.target_paths and refuses to run
-//       when the patch reaches outside).
+//       in the ChangePlan's target_paths. Enforced at apply_patch.Execute
+//       — patches reaching outside TargetPaths are rejected.
 //
-//   W2: the verify stage's executed test set must cover (be a
-//       superset of) the plan's AcceptanceTests; scheduler keeps
-//       requeuing until the superset relation holds.
+//   W1b: every ChangeUnit.DependsOn entry must already be in
+//        appliedSet before that unit is applied. Enforced at
+//        apply_patch.Execute alongside W1.
 //
 //   W3: apply and verify run inside a git worktree; BusContext.RepoRoot
 //       swaps to WorktreePath during those stages, swaps back to
-//       MainRepoRoot at finalize. Main repo HEAD bytes never change
-//       inside B0.
+//       MainRepoRoot at finalize. Main repo HEAD bytes never change.
+//       Enforced via stage_hooks.go provisioning.
 //
-//   W4: between two verify retries at least one of (appliedSet,
-//       verifySet, failedAssertions) must change — otherwise apply
-//       is in a repairable failure loop and the scheduler force-
-//       finalizes via the the verify stage hook retry budget (mirror of I4
-//       stall detection).
+//   W4: between two verify retries at least one fingerprint field
+//       (AppliedCount / VerifyPassed / VerifyFailed / FailureSummaryHash)
+//       must change — otherwise the planner is structurally unable to
+//       fix from the signal it has and further retry just burns LLM
+//       budget. Enforced via Fingerprints() comparison in
+//       write_scheduler.go.
 //
-// B0 scope: WriteClosure carries the shape (fields, mutex, getters)
-// so the evaluator functions in internal/analysis/criterion/eval.go
-// can consult it, but the enforcer functions that actually populate
-// the fields live in B2 (apply tool) and B3 (verify tool). In B0 all
-// fields default to zero-value and the four criteria evaluators
-// return Satisfied=true unconditionally — the structural wiring is
-// in place for B2/B3 to fill without a data-model migration.
+// (The original B0 design also tracked W2 — verify-set coverage of
+// AcceptanceTests — via a verifySet map and a stats counter struct
+// the B2/B3 enforcers were going to populate. Those enforcers never
+// landed; verify outcome flows through ChangeReport.TestResults and
+// the criterion evaluators at internal/analysis/criterion/eval.go
+// read that directly. The map and stats struct were removed once
+// they had no producers.)
 //
 // Concurrency: own mutex (mirror of EvidenceClosure pattern) so the
 // write stages do not serialize through MutableState.mu when the
@@ -60,31 +59,10 @@ type WriteClosure struct {
 	// unit lands.
 	pendingApplies []PendingApply
 
-	// writeRepairs is the queue of structured WriteRepairDirective
-	// values that the apply / verify enforcers emit when a contract
-	// violation needs to be surfaced to the next apply or verify
-	// round. Mirror of EvidenceClosure.repairs. Drained by the
-	// scheduler's retry-hint builder so each directive fires exactly
-	// once.
-	writeRepairs []WriteRepairDirective
-
-	// verifySet records the test assertions the verify stage
-	// successfully evaluated (pass OR fail — both count as "the
-	// verifier ran this test"). Keyed by assertion-id from the
-	// plan's AcceptanceTests or discovered test-suite output. Used
-	// by CritTestsPass and CritNoRegression evaluators and by the
-	// W2 coverage-superset check.
-	verifySet map[string]VerifyResult
-
 	// fingerprints is the rolling history of ApplyVerifyFingerprint
 	// values, one entry per apply-verify round. The W4 convergence
 	// detector compares the latest two entries to spot stalls.
 	fingerprints []ApplyVerifyFingerprint
-
-	// stats accumulates WriteClosure enforcer fire counters across
-	// the current task. Populated by the B2/B3 enforcers; read by
-	// the orchestrator at task-end for the one-line summary.
-	stats WriteClosureStats
 
 	// rejectionCounts tracks how many CONSECUTIVE times apply_patch
 	// rejected a given path on W1 (path not in TargetPaths) or W1b
@@ -105,14 +83,13 @@ type WriteClosure struct {
 func NewWriteClosure() *WriteClosure {
 	return &WriteClosure{
 		appliedSet: make(map[string]bool),
-		verifySet:  make(map[string]VerifyResult),
 	}
 }
 
 // Reset clears every field back to zero-value. Called by
 // MutableState.ResetWriteClosure at the start of each task so the
-// previous task's applied patches / verify results cannot leak into
-// a fresh plan→apply→verify cycle.
+// previous task's applied patches cannot leak into a fresh
+// plan→apply→verify cycle.
 func (c *WriteClosure) Reset() {
 	if c == nil {
 		return
@@ -121,20 +98,17 @@ func (c *WriteClosure) Reset() {
 	defer c.mu.Unlock()
 	c.appliedSet = make(map[string]bool)
 	c.pendingApplies = nil
-	c.writeRepairs = nil
-	c.verifySet = make(map[string]VerifyResult)
 	c.fingerprints = nil
-	c.stats = WriteClosureStats{}
 	c.rejectionCounts = nil
 }
 
 // ResetExceptApplied clears every per-cycle queue (pendingApplies,
-// writeRepairs, verifySet, fingerprints, stats) BUT preserves
-// appliedSet. Used by clearForReplan when the verify→plan retry path
-// warm-rewinds the worktree to the previous apply's commit SHA: the
-// worktree disk state still carries the applied files, so AppliedSet
-// must stay aligned with disk reality. Resetting the whole closure on
-// warm rewind would leave apply_patch's idempotency check (which reads
+// fingerprints, rejectionCounts) BUT preserves appliedSet. Used by
+// clearForReplan when the verify→plan retry path warm-rewinds the
+// worktree to the previous apply's commit SHA: the worktree disk
+// state still carries the applied files, so AppliedSet must stay
+// aligned with disk reality. Resetting the whole closure on warm
+// rewind would leave apply_patch's idempotency check (which reads
 // AppliedSet) blind to files that physically exist, so the next plan
 // retry would re-emit kind=create for an existing file and apply_patch
 // would reject "file already exists in worktree".
@@ -145,10 +119,7 @@ func (c *WriteClosure) ResetExceptApplied() {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.pendingApplies = nil
-	c.writeRepairs = nil
-	c.verifySet = make(map[string]VerifyResult)
 	c.fingerprints = nil
-	c.stats = WriteClosureStats{}
 	c.rejectionCounts = nil
 }
 
@@ -208,7 +179,8 @@ func (c *WriteClosure) RecordRejection(path string) int {
 
 // RejectionCount returns the current consecutive-rejection count for
 // path. Zero when MarkApplied has cleared it or the path was never
-// rejected.
+// rejected. Used by tests to verify the counter state directly;
+// production code reads SaturatedRejectionPath instead.
 func (c *WriteClosure) RejectionCount(path string) int {
 	if c == nil {
 		return 0
@@ -281,72 +253,6 @@ func (c *WriteClosure) EnqueuePendingApply(p PendingApply) {
 	c.pendingApplies = append(c.pendingApplies, p)
 }
 
-// VerifyResults returns a shallow copy of the verify-set map.
-func (c *WriteClosure) VerifyResults() map[string]VerifyResult {
-	if c == nil {
-		return nil
-	}
-	c.mu.RLock()
-	defer c.mu.RUnlock()
-	out := make(map[string]VerifyResult, len(c.verifySet))
-	for k, v := range c.verifySet {
-		out[k] = v
-	}
-	return out
-}
-
-// RecordVerify stores one assertion-id → result mapping. Called by
-// emit_test_results (B3). Overwrites prior result for the same
-// assertion (verify-stage retry semantics).
-func (c *WriteClosure) RecordVerify(assertionID string, r VerifyResult) {
-	if c == nil || assertionID == "" {
-		return
-	}
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	if c.verifySet == nil {
-		c.verifySet = make(map[string]VerifyResult)
-	}
-	c.verifySet[assertionID] = r
-}
-
-// ConsumeRepairs atomically drains the current repair queue,
-// returning the slice and resetting the internal slice to nil.
-// Mirror of EvidenceClosure.ConsumeRepairs — each directive fires
-// exactly once when the retry-hint renderer picks it up.
-func (c *WriteClosure) ConsumeRepairs() []WriteRepairDirective {
-	if c == nil {
-		return nil
-	}
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	out := c.writeRepairs
-	c.writeRepairs = nil
-	return out
-}
-
-// RaiseRepair appends a directive to the repair queue. Called by
-// apply / verify enforcers when they detect a violation that needs
-// LLM-visible remediation.
-func (c *WriteClosure) RaiseRepair(d WriteRepairDirective) {
-	if c == nil {
-		return
-	}
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	c.writeRepairs = append(c.writeRepairs, d)
-}
-
-// Stats returns a copy of the current counter snapshot.
-func (c *WriteClosure) Stats() WriteClosureStats {
-	if c == nil {
-		return WriteClosureStats{}
-	}
-	c.mu.RLock()
-	defer c.mu.RUnlock()
-	return c.stats
-}
-
 // AppendFingerprint records a new convergence-detection snapshot.
 // The W4 enforcer compares the last two entries to detect apply-
 // verify stall.
@@ -385,26 +291,6 @@ type PendingApply struct {
 	Origin    string
 }
 
-// WriteRepairDirective is one entry in WriteClosure.writeRepairs.
-// Mirror of EvidenceClosure.RepairDirective. Kind names the
-// repair class ("rollback_file", "retry_apply",
-// "reconsider_plan"); Path is the affected file when applicable;
-// Detail is the prose payload.
-type WriteRepairDirective struct {
-	Kind   string
-	Path   string
-	Detail string
-}
-
-// VerifyResult is the pass/fail verdict the verify stage records
-// against a single AcceptanceTest or observed test-suite assertion.
-// Stored in WriteClosure.verifySet keyed by assertion-id.
-type VerifyResult struct {
-	Passed   bool
-	Reason   string        // human-readable failure detail; empty on pass
-	Duration time.Duration // observed execution time
-}
-
 // ApplyVerifyFingerprint is one snapshot used by the W4 convergence
 // detector. Apply and verify enforcers append a fingerprint per
 // round; the stall detector compares adjacent entries to decide
@@ -436,28 +322,6 @@ func (a ApplyVerifyFingerprint) SameSignal(b ApplyVerifyFingerprint) bool {
 		a.VerifyPassed == b.VerifyPassed &&
 		a.VerifyFailed == b.VerifyFailed &&
 		a.FailureSummaryHash == b.FailureSummaryHash
-}
-
-// WriteClosureStats accumulates the enforcer fire counters for one
-// task. Mirror of ClosureStats. Every field defaults to zero and is
-// incremented by the B2/B3 enforcers via dedicated Bump methods
-// (added when enforcers land).
-type WriteClosureStats struct {
-	PlansGenerated     int // plan stage: ChangePlan artifacts emitted
-	AppliesCommitted   int // apply stage: ChangeUnits successfully applied
-	VerifiesPassed     int // verify stage: assertions that passed
-	VerifiesFailed     int // verify stage: assertions that failed
-	RollbacksTriggered int // apply stage: per-unit rollbacks
-	WriteRepairsRaised int // any enforcer: repairs written to queue
-}
-
-// HasActivity returns true when at least one write-phase enforcer
-// fired this task. Mirror of ClosureStats.HasActivity; gates the
-// one-line orchestrator summary emission.
-func (s WriteClosureStats) HasActivity() bool {
-	return s.PlansGenerated+s.AppliesCommitted+
-		s.VerifiesPassed+s.VerifiesFailed+
-		s.RollbacksTriggered+s.WriteRepairsRaised > 0
 }
 
 // MutableState accessors below — co-located with the rest of

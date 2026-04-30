@@ -559,18 +559,37 @@ func appendVerifyFingerprint(busCtx *types.BusContext, report *types.ChangeRepor
 // retry rationale.
 //
 // Called by the write scheduler when verify SuccessCriteria fails
-// AND retry budget remains. Six jobs:
+// AND retry budget remains. The flow:
 //
-//  1. Build a PlanningHint from the previous ChangeReport + plan.
-//     Read BEFORE the resets below clear them.
-//  2. Discard the worktree (if one was provisioned) and restore
-//     RepoRoot to MainRepoRoot. The next applyPreHook will create
-//     a fresh worktree.
-//  3. Reset ChangePlan + ChangeReport + WriteClosure.
-//  4. Clear o.planPath so a user-supplied --plan-file doesn't
-//     override the regenerated plan.
-//  5. Install the PlanningHint on Mutable so plannerEvaluator
-//     picks it up via consume-once.
+//  1. Capture prevReport + prevPlan BEFORE any reset wipes them —
+//     they're needed to build the planning hint and to drive the
+//     best-known-good latch decision.
+//  2. Append a verbatim row to Mutable.IterationLedger so the
+//     planner's next dispatch sees the full retry history.
+//  3. Update the best-known-good (plan, report) latch when this
+//     iteration improved the score — bestAppliedCommitSHA is also
+//     pinned to the running-best commit so a subsequent regression
+//     can warm-rewind back to it instead of starting from stub.
+//  4. Build the heuristic hint from the failure summary + suspect
+//     paths + best-vs-current delta. Optionally enrich with a
+//     reflector-LLM critique paragraph (silent fall-back to
+//     heuristic-only when the reflector is absent or errors).
+//  5. Worktree handling — preferred: warm rewind via
+//     `git reset --hard <bestSHA>` so the LLM iterates on top of
+//     the running best. Fall back: cold discard + restore RepoRoot
+//     to MainRepoRoot when no best SHA is available.
+//  6. Reset ChangePlan + ChangeReport. WriteClosure reset has two
+//     flavours: warm rewind keeps appliedSet aligned with disk via
+//     ResetExceptApplied + reseed from bestPlan.TargetPaths; cold
+//     discard wipes the closure entirely.
+//  7. Clear o.planPath / busCtx.PlanPath so a user-supplied
+//     --plan-file no longer short-circuits the next plan dispatch.
+//  8. Install the assembled hint on Mutable.PlanningHint so the
+//     planner's BuildInitialInstruction picks it up via consume-once.
+//
+// Note: the per-node transient-stall bookkeeping (transientStallSignatures
+// + transientNoEmitStreak) is wiped by the caller in
+// write_scheduler.go just before invoking this function, not here.
 func clearForReplan(o *Orchestrator, attempt int) {
 	if o == nil || o.busCtx == nil {
 		return

@@ -552,10 +552,12 @@ const (
 	NodeReconcile TaskNodeType = "reconcile"
 	NodeFinalize  TaskNodeType = "finalize"
 
-	// Write-mode node types (B0). Each maps to a dedicated
-	// PipelineStage via orchestrator/scheduler.go::stageMapping.
-	// Plan/Apply/Verify run sequentially in ScenarioWriteProposal
-	// and never fire in read-only scenarios.
+	// Write-mode node types. Each maps to a dedicated PipelineStage
+	// via orchestrator/scheduler.go::stageMapping. Plan/Apply/Verify
+	// run sequentially in the linear graph that
+	// orchestrator/write_graph.go::BuildWriteTaskGraph emits when
+	// BusContext.Mode is ModePlan / ModeApply / ModeVerify, and never
+	// fire in read-only scenarios.
 	NodePlan   TaskNodeType = "plan"   // planner emits ChangePlan artifact
 	NodeApply  TaskNodeType = "apply"  // coder applies ChangeUnits inside worktree
 	NodeVerify TaskNodeType = "verify" // verifier runs tests + asserts no regression
