@@ -927,6 +927,12 @@ func runREPL(_ *cobra.Command) error {
 		runtimeAnchor = abs
 	}
 	planStore := repl.NewPlanStore(filepath.Join(runtimeAnchor, "plans"))
+	// Stage II: PlanGroupStore is the on-disk persister for
+	// multi-phase PlanGroups. Same plan dir; lives under
+	// /groups/ subdir. Wired into the orchestrator below so
+	// runPhaseGroup can persist transitions.
+	planGroupStore := repl.NewPlanGroupStore(filepath.Join(runtimeAnchor, "plans"))
+	app.orch.SetPlanGroupStore(planGroupStore)
 	r := repl.New(repl.Config{
 		Runner:             app.orch,
 		Store:              store,

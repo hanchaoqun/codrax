@@ -145,6 +145,21 @@ type Orchestrator struct {
 	// acceptance_checker.go for the pattern.
 	acceptanceChecker AcceptanceChecker
 
+	// planGroupStore persists multi-phase PlanGroups to disk
+	// (stage II). Wired from cmd/root.go. Nil disables stage II
+	// entirely — runPhaseGroup short-circuits when the store is
+	// absent, falling back to the single-phase TaskGraph path
+	// even if the LLM emitted a sequential proposal. Tests bypass
+	// the wiring via SetPlanGroupStore(nil) for back-compat
+	// fixtures.
+	planGroupStore PlanGroupSaver
+
+	// nextPhaseHint is the consume-once carry-over from the
+	// previous phase's acceptance check (NextHint field). The
+	// next phase's seedPlanningHintFromPhase reads this slot
+	// and wipes it.
+	nextPhaseHint string
+
 	// baselineCaptureEnabled gates the pre-apply test snapshot
 	// that feeds CritNoRegression. Default false (test doubling
 	// is opt-in). When true, the apply stage hook dispatches run_tests
@@ -627,6 +642,26 @@ func (o *Orchestrator) SetPlanCritic(c PlanCritic) {
 // safe.
 func (o *Orchestrator) SetAcceptanceChecker(c AcceptanceChecker) {
 	o.acceptanceChecker = c
+}
+
+// SetPlanGroupStore installs the on-disk PlanGroup persister
+// (stage II). Nil disables multi-phase execution entirely —
+// runPhaseGroup short-circuits when the store is absent and
+// falls back to the single-phase TaskGraph path. Wired from
+// cmd/root.go's PlanStore construction site so the same plan
+// directory hosts both single-phase plans and multi-phase
+// groups.
+func (o *Orchestrator) SetPlanGroupStore(s PlanGroupSaver) {
+	o.planGroupStore = s
+}
+
+// PlanGroupSaver is the orchestrator-side interface for the
+// on-disk PlanGroup store. Defined here (not in repl/) to
+// avoid an orchestrator → repl import cycle. The concrete impl
+// in internal/repl/plan_group_store.go satisfies this
+// interface; tests may inject a mock.
+type PlanGroupSaver interface {
+	Save(g *types.PlanGroup) (string, error)
 }
 
 // SetBaselineCaptureEnabled toggles the pre-apply test snapshot.
@@ -1218,7 +1253,25 @@ func (o *Orchestrator) Run(request string, repoRoot string, branch string) (*typ
 	}
 
 	if o.busCtx.TaskState.LastError == "" {
-		if err := o.runTaskPhase(&stepsUsed); err != nil {
+		// Multi-phase fork (commit 20, stage II). When the
+		// LLM emitted a sequential proposal AND we have a
+		// PlanGroupStore wired AND we're in ModeApply, drive
+		// runPhaseGroup instead of single runTaskPhase. The
+		// gate's preconditions are all OR'd to false in the
+		// single-phase / ModePlan / ModeVerify / no-store
+		// case, so existing flows are byte-identical.
+		if o.isMultiPhaseRun() {
+			ir := o.busCtx.Mutable.WriteAnalysisIR()
+			group := o.buildPlanGroupFromProposal(ir)
+			logging.Info("[orchestrator] multi-phase run: group=%s phases=%d",
+				group.ID, len(group.Phases))
+			if err := o.runPhaseGroup(group, &stepsUsed); err != nil {
+				logging.Error("[orchestrator] phase group %s: %v", group.ID, err)
+				if o.busCtx.TaskState.LastError == "" {
+					o.busCtx.TaskState.LastError = err.Error()
+				}
+			}
+		} else if err := o.runTaskPhase(&stepsUsed); err != nil {
 			logging.Error("[orchestrator] task phase error: %v", err)
 			if o.busCtx.TaskState.LastError == "" {
 				o.busCtx.TaskState.LastError = err.Error()

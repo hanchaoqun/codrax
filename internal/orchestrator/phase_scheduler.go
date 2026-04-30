@@ -1,0 +1,335 @@
+package orchestrator
+
+import (
+	"fmt"
+	"os"
+	"strings"
+	"time"
+
+	"github.com/hanchaoqun/codrax/internal/logging"
+	"github.com/hanchaoqun/codrax/internal/types"
+)
+
+// runPhaseGroup is stage II's multi-phase outer loop. Replaces
+// the single call to runTaskPhase when WriteAnalysisIR carries
+// a sequential phase proposal AND the orchestrator has a
+// PlanGroupStore wired. Single-phase / no-IR cases skip this
+// and use the existing single-phase path (back-compat — that
+// codepath is byte-identical to pre-stage-II).
+//
+// Per-phase iteration:
+//
+//  1. Pick the next non-terminal phase (group.ActiveIdx). Skip
+//     phases already at terminal status (Accepted / RolledBack /
+//     Skipped) — operator-driven /phase skip lets you step over
+//     a phase without rerunning it.
+//
+//  2. Reset per-phase Mutable slots so prior-phase state doesn't
+//     leak (ChangePlan, ChangeReport, BestPlanReport).
+//     AppliedSet stays — phases ACCUMULATE on the same worktree.
+//     WriteAnalysisIR stays — single task framing across all
+//     phases.
+//
+//  3. Seed Mutable.PlanningHint with phase-specific context
+//     (goal + rough_target_paths). The planner reads this via
+//     consume-once.
+//
+//  4. Build a fresh single-phase TaskGraph (3 nodes:
+//     plan→apply→verify) and run the existing scheduler. Each
+//     phase gets the full retryBudget (per-phase, not shared
+//     across phases — failing phase 1 doesn't drain phase 2's
+//     retry slots).
+//
+//  5. After verify passes, dispatch acceptance_check (one LLM
+//     call). On accept → mark Phase as Accepted, advance.
+//     On reject → mark PhaseRolledBack + group failed.
+//
+//  6. Persist group at every state transition.
+//
+// Failure handling: any phase's verify→plan retry budget is
+// independent. When a phase exhausts retries, group transitions
+// to PlanGroupFailed and the loop exits without entering
+// subsequent phases.
+//
+// Worktree handling: a single worktree carries through all
+// phases (cumulative effect — phase 2's planner sees the files
+// phase 1 created). The cleanup defer in Run() honours
+// keep_worktree_on_success only after group reaches Completed
+// status.
+func (o *Orchestrator) runPhaseGroup(group *types.PlanGroup, stepsUsed *int) error {
+	if group == nil {
+		return fmt.Errorf("runPhaseGroup: nil group")
+	}
+	if len(group.Phases) == 0 {
+		return fmt.Errorf("runPhaseGroup: group has zero phases")
+	}
+
+	// Persist initial state so a process crash mid-group can
+	// be inspected via /phase show even before any phase has
+	// dispatched.
+	o.persistGroup(group)
+
+	for group.ActiveIdx < len(group.Phases) {
+		phase := &group.Phases[group.ActiveIdx]
+
+		// Skip phases already at terminal status (operator
+		// /phase skip / earlier rolled-back state).
+		if types.IsTerminalPhaseStatus(phase.Status) {
+			group.ActiveIdx++
+			o.persistGroup(group)
+			continue
+		}
+
+		now := time.Now()
+		phase.Status = types.PhaseInProgress
+		phase.StartedAt = &now
+		o.persistGroup(group)
+
+		// Seed planning context for THIS phase. Each phase has
+		// its own goal + rough target paths from the LLM's
+		// PhaseProposal. The hint is consume-once.
+		o.seedPlanningHintFromPhase(phase, group)
+
+		// Reset per-phase Mutable so prior phase's plan/report
+		// don't leak into this one's planner prompt.
+		o.resetForNextPhase()
+
+		// Build a single-phase 3-node TaskGraph for this phase.
+		// retryBudget per-phase: each phase gets the full budget
+		// independently (failing phase 1 doesn't drain phase 2's
+		// retries).
+		phaseGraph := BuildWriteTaskGraph(o.busCtx.Mode, "", o.writeRetryBudget)
+		o.busCtx.AnalysisIR.TaskGraph = phaseGraph
+		o.busCtx.Mutable.ResetBestPlanReport()
+
+		// Drive the existing single-phase scheduler. Same code
+		// path single-phase mode uses; the only difference is
+		// this is invoked PER PHASE inside a loop.
+		taskErr := o.runTaskPhase(stepsUsed)
+
+		// Inspect outcome. The plan emitted by THIS phase, the
+		// commit SHA reached, the verify report.
+		plan := o.busCtx.Mutable.ChangePlan()
+		report := o.busCtx.Mutable.ChangeReport()
+		if plan != nil {
+			phase.PlanID = plan.ID
+			plan.PhaseGroupID = group.ID
+			plan.PhaseIndex = phase.Index
+			// Persist the cross-link if the plan has a path on
+			// disk. The PlanStore.Save in the REPL post-Run path
+			// would otherwise overwrite without these fields.
+			if o.busCtx.PlanPath != "" {
+				if werr := types.WritePlanToFile(plan, o.busCtx.PlanPath); werr != nil {
+					logging.Warning("[orchestrator] phase %d plan persist (with phase link) failed: %v",
+						phase.Index, werr)
+				}
+			}
+		}
+		if o.currentIterCommitSHA != "" {
+			phase.AppliedSHA = o.currentIterCommitSHA
+		}
+
+		if taskErr != nil {
+			// Phase failed (retries exhausted or apply rejected).
+			finished := time.Now()
+			phase.Status = types.PhaseRolledBack
+			phase.FinishedAt = &finished
+			group.Status = types.PlanGroupFailed
+			o.persistGroup(group)
+			return fmt.Errorf("phase %d failed: %w", phase.Index, taskErr)
+		}
+
+		phase.Status = types.PhaseVerified
+		o.persistGroup(group)
+
+		// Acceptance check (commit 19). Independent LLM verdict
+		// on whether the phase satisfied its goal.
+		if o.acceptanceChecker != nil {
+			ac, err := o.acceptanceChecker.Check(o.CancelContext(), AcceptanceCheckInput{
+				PhaseGoal:   phase.Goal,
+				PlanSummary: planSummaryForAcceptance(plan),
+				TestReport:  report,
+				Outcomes:    expectedOutcomesForAcceptance(o.busCtx),
+				Attempt:     1, // per-phase retry counter is internal to runTaskPhase
+			})
+			if err != nil {
+				// Degraded path: log + treat as auto-accept.
+				// Phase advancement should not be blocked by
+				// check plumbing failures.
+				logging.Warning("[orchestrator] phase %d acceptance_check errored: %v (auto-accepting)",
+					phase.Index, err)
+			} else if ac != nil {
+				phase.AcceptanceCheck = ac
+				if !ac.Passed {
+					finished := time.Now()
+					phase.Status = types.PhaseRolledBack
+					phase.FinishedAt = &finished
+					group.Status = types.PlanGroupFailed
+					o.persistGroup(group)
+					return fmt.Errorf("phase %d acceptance rejected: %s",
+						phase.Index, ac.Reasoning)
+				}
+				// Carry the next-phase hint forward. The next
+				// iteration's seedPlanningHintFromPhase reads
+				// group's nextPhaseHint slot if non-empty.
+				if strings.TrimSpace(ac.NextHint) != "" {
+					o.nextPhaseHint = ac.NextHint
+				}
+			}
+		}
+
+		finished := time.Now()
+		phase.Status = types.PhaseAccepted
+		phase.FinishedAt = &finished
+		group.Status = types.PlanGroupInFlight
+		group.ActiveIdx++
+		o.persistGroup(group)
+	}
+
+	group.Status = types.PlanGroupCompleted
+	o.persistGroup(group)
+	return nil
+}
+
+// resetForNextPhase clears per-phase Mutable slots so the next
+// phase starts fresh. AppliedSet stays — phases accumulate
+// changes in the same worktree. WriteAnalysisIR stays — same
+// task framing through all phases.
+func (o *Orchestrator) resetForNextPhase() {
+	mu := o.busCtx.Mutable
+	if mu == nil {
+		return
+	}
+	mu.ResetChangePlan()
+	mu.ResetChangeReport()
+	// AppliedSet preserved (cumulative across phases).
+	// WriteAnalysisIR preserved (single task, multiple phases).
+	// PlanCritique preserved on the previous phase's plan
+	// struct; the next phase will produce its own when its
+	// planner emits.
+}
+
+// seedPlanningHintFromPhase renders the phase-specific context
+// onto Mutable.PlanningHint so the planner's
+// BuildInitialInstruction picks it up. Includes:
+//   - Phase number + goal (so the planner knows which subtask
+//     it's on)
+//   - Rough target paths the LLM suggested upfront
+//   - Optional NextHint from the previous phase's acceptance
+//     check (e.g. "users.email column was added; ORM still
+//     references old name")
+func (o *Orchestrator) seedPlanningHintFromPhase(phase *types.PhaseRecord, group *types.PlanGroup) {
+	var b strings.Builder
+	fmt.Fprintf(&b, "## Phase %d of %d: %s\n\n", phase.Index+1, len(group.Phases), phase.Goal)
+	if len(phase.RoughTargetPaths) > 0 {
+		b.WriteString("Rough target paths the analysis suggested for this phase:\n")
+		for _, p := range phase.RoughTargetPaths {
+			fmt.Fprintf(&b, "- %s\n", p)
+		}
+		b.WriteString("\n")
+	}
+	if o.nextPhaseHint != "" {
+		fmt.Fprintf(&b, "Carry-over from previous phase: %s\n\n", o.nextPhaseHint)
+		o.nextPhaseHint = "" // consume-once
+	}
+	if o.busCtx.Mutable != nil {
+		o.busCtx.Mutable.SetPlanningHint(b.String())
+	}
+}
+
+// persistGroup writes the group's current state to disk via
+// the configured PlanGroupStore. Failure is non-fatal —
+// in-memory group is authoritative for the rest of the Run;
+// disk copy is for crash recovery + REPL inspection.
+func (o *Orchestrator) persistGroup(g *types.PlanGroup) {
+	if o.planGroupStore == nil || g == nil {
+		return
+	}
+	if _, err := o.planGroupStore.Save(g); err != nil {
+		logging.Warning("[orchestrator] persist group %s: %v", g.ID, err)
+	}
+}
+
+// buildPlanGroupFromProposal constructs a fresh PlanGroup from
+// the WriteAnalysisIR's sequential PhaseProposal. Called once
+// at Run() entry when isMultiPhaseRun returns true.
+func (o *Orchestrator) buildPlanGroupFromProposal(ir *types.WriteAnalysisIR) *types.PlanGroup {
+	now := time.Now()
+	id := fmt.Sprintf("group-%d-%d", now.UnixNano(), os.Getpid())
+	g := &types.PlanGroup{
+		ID:        id,
+		Goal:      ir.Request.RawRequest,
+		CreatedAt: now,
+		Status:    types.PlanGroupPlanning,
+		Decision:  "linear",
+		Phases:    make([]types.PhaseRecord, len(ir.PhaseProposal.Phases)),
+	}
+	for i, seed := range ir.PhaseProposal.Phases {
+		g.Phases[i] = types.PhaseRecord{
+			Index:            i,
+			Goal:             strings.TrimSpace(seed.Goal),
+			RoughTargetPaths: append([]string(nil), seed.RoughTargetPaths...),
+			Status:           types.PhasePending,
+		}
+	}
+	return g
+}
+
+// isMultiPhaseRun decides whether the current Run should drive
+// runPhaseGroup or fall through to the existing single-phase
+// path. Three preconditions:
+//   1. WriteAnalysisIR is on Mutable (write_analyzer ran)
+//   2. PhaseProposal.Split == "sequential" with ≥2 phases
+//   3. PlanGroupStore wired (cmd/root.go's stage II flag)
+//
+// All three must hold. If any is false, falls through to single-
+// phase byte-identical path.
+func (o *Orchestrator) isMultiPhaseRun() bool {
+	if o.planGroupStore == nil {
+		return false
+	}
+	if o.busCtx == nil || o.busCtx.Mutable == nil {
+		return false
+	}
+	ir := o.busCtx.Mutable.WriteAnalysisIR()
+	if ir == nil {
+		return false
+	}
+	if ir.PhaseProposal.Split != "sequential" {
+		return false
+	}
+	if len(ir.PhaseProposal.Phases) < 2 {
+		return false
+	}
+	// ModePlan only emits the plan; multi-phase requires the
+	// full plan→apply→verify per phase, so only ModeApply
+	// drives multi-phase execution. ModeVerify against an
+	// existing multi-phase group is a future stage's concern.
+	if o.busCtx.Mode != types.ModeApply {
+		return false
+	}
+	return true
+}
+
+// planSummaryForAcceptance extracts the plan's summary for the
+// acceptance checker's input. Empty when plan is nil (defensive).
+func planSummaryForAcceptance(plan *types.ChangePlan) string {
+	if plan == nil {
+		return ""
+	}
+	return plan.Summary
+}
+
+// expectedOutcomesForAcceptance pulls WriteAnalysisIR's expected
+// outcomes onto the acceptance checker's input. Empty slice
+// when no IR or no outcomes set.
+func expectedOutcomesForAcceptance(busCtx *types.BusContext) []string {
+	if busCtx == nil || busCtx.Mutable == nil {
+		return nil
+	}
+	ir := busCtx.Mutable.WriteAnalysisIR()
+	if ir == nil {
+		return nil
+	}
+	return append([]string(nil), ir.Request.ExpectedOutcomes...)
+}
