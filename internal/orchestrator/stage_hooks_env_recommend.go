@@ -79,5 +79,5 @@ func bareDirAuthorizationMessage(ctx *types.BusContext, state worktree.RepoState
 	if zh {
 		return fmt.Sprintf("目录还不是 git 仓库,且没有授权我自动准备它,所以无法开始改代码。\n\n%s\n\n要让我自动准备(三种任选其一):\n  - 命令行:加 --auto-init-repo\n  - 配置文件:在 codrax.yaml 里设 write_auto_init_repo: true\n  - 交互模式:批准计划前回 y", rendered)
 	}
-	return fmt.Sprintf("the target directory is not a git repo yet, and I haven't been told it's OK to prepare it, so the work cannot start.\n\n%s\n\nTo let me prepare it (any one of):\n  - command line: add --auto-init-repo\n  - config file: set write_auto_init_repo: true in codrax.yaml\n  - interactive mode: answer y before approving the plan", rendered)
+	return fmt.Sprintf("the target directory is not a git repo yet, and I haven't been told it's OK to prepare it, so the work cannot start.\n\n%s\n\nTo let me prepare it (any one of):\n  - command line: add the --auto-init-repo flag\n  - config file: set write_auto_init_repo: true in codrax.yaml\n  - interactive mode: answer y before approving the plan", rendered)
 }

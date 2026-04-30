@@ -527,8 +527,11 @@ func TestTurnPolicyDispatch_LocalTransformReusesAnswer(t *testing.T) {
 	if !strings.Contains(got.lastAnswer, "HiTraceAnalyzer") {
 		t.Errorf("local lastAnswer must include the seeded prior answer; got %q", got.lastAnswer)
 	}
-	if !strings.Contains(out.String(), "[local]") {
-		t.Errorf("local reply header missing in stdout; got %q", out.String())
+	// Banner format: dim "local · …" line. Check the route
+	// marker word survives; styling is FgDarkGray-only so the
+	// substring still matches against the rendered output.
+	if !strings.Contains(out.String(), "local · ") {
+		t.Errorf("local reply banner missing in stdout; got %q", out.String())
 	}
 	if !strings.Contains(out.String(), "mermaid") {
 		t.Errorf("local reply body missing; got %q", out.String())
@@ -823,8 +826,11 @@ func TestTurnPolicyDispatch_FirstTurnTransformDemotedToClarify(t *testing.T) {
 	if len(responder.calls) != 0 {
 		t.Errorf("clarify must NOT call legacy responder.Respond either; calls=%d", len(responder.calls))
 	}
-	if !strings.Contains(out.String(), "[clarify]") {
-		t.Errorf("clarify message missing in stdout; got %q", out.String())
+	// Banner format: dim "clarify · …" line. Check the route
+	// marker word survives; styling is colour-only (FgDarkGray) so
+	// the substring still matches.
+	if !strings.Contains(out.String(), "clarify") {
+		t.Errorf("clarify banner missing in stdout; got %q", out.String())
 	}
 	// Memory must not be polluted by the unanswered turn.
 	if n := len(store.Recent()); n != 0 {

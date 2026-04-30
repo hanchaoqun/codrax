@@ -38,6 +38,8 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/pterm/pterm"
+
 	"github.com/hanchaoqun/codrax/internal/llm"
 	"github.com/hanchaoqun/codrax/internal/logging"
 )
@@ -700,49 +702,62 @@ func hybridRequestPrefix(directive, request string) string {
 
 // localReplyHeader marks a local-route reply so the user can tell
 // at a glance the answer came from the side LLM (no repo analysis,
-// no plan, no pipeline). Wording is chosen by the structural fact
-// `policy.Source` — claiming "复用上一轮答案" when the answer was
-// NOT actually derived from a previous turn was misleading
-// (customer-reported on a fresh "用 python 写一个俄罗斯方块"
-// request that the classifier mis-routed to local; the header
-// said "reuse previous answer" but the body was 500 lines of
-// freshly generated code).
+// no plan, no pipeline).
 //
-// Two structural cases:
+// Pre-2026-04-30 the header was a long, unstyled paragraph that
+// dominated the visual real estate above the bordered answer
+// — "[local] 复用上一轮答案的回复(未读仓库)。如需仓库新证据,请
+// 去掉 …" — customer reported it was eye-grabbing and misleading
+// (claimed "reuse" even when the answer was fresh model output).
 //
-//	policy.Source == "last_answer"  → answer is genuinely derived
-//	                                  from the previous turn, the
-//	                                  "reuse" phrasing is true.
-//	otherwise                       → honest minimal banner that
-//	                                  states the route + caveat
-//	                                  without falsely claiming a
-//	                                  prior answer was used.
+// New shape: a single dim line that matches the bordered output's
+// 2-space indent and uses the same FgDarkGray family already used
+// for the banner / capability summary / git branch markers. It is
+// MEANT to recede; users who need detail can read the bordered
+// answer below.
 //
-// The branch is on a single LLM-emitted field — no keyword table,
-// no operation-list enumeration.
+// The wording is still policy.Source-aware so the badge is truthful:
+//
+//	Source == "last_answer" → "复用上一轮答案" — true, derived from prior
+//	otherwise               → "未读仓库,纯模型生成" — honest, no false reuse claim
+//
+// Single LLM-emitted field, structural branch, no keyword table.
 func localReplyHeader(lang string, policy TurnPolicy) string {
 	zh := isZh(lang)
-	if policy.Source == "last_answer" {
+	var detail string
+	switch {
+	case policy.Source == "last_answer":
 		if zh {
-			return "  [local] 复用上一轮答案的回复(未读仓库)。如需仓库新证据,请去掉 “换成/把上面的” 类措辞重新提问。"
+			detail = "local · 复用上一轮答案,未读仓库"
+		} else {
+			detail = "local · derived from previous answer, no repo read"
 		}
-		return "  [local] reply built from the previous answer (no repo read). For fresh repo evidence, re-ask without the 'transform of the previous answer' framing."
+	default:
+		if zh {
+			detail = "local · 未读仓库,纯模型生成"
+		} else {
+			detail = "local · no repo read, pure model output"
+		}
 	}
-	if zh {
-		return "  [local] 本地回复(未读仓库,纯模型生成)。如需读仓库取证,请明确提到具体文件 / 函数 / 行号重新提问。"
-	}
-	return "  [local] local reply (no repo read; pure model output). For repo-grounded evidence, re-ask naming a specific file / function / line."
+	return "  " + pterm.FgDarkGray.Sprint(detail)
 }
 
 // turnPolicyClarifyMessage is what the dispatcher prints when route
 // resolves to clarify. Bilingual; specific to the missing-prior-
-// answer case (the only clarify trigger today). If a future guard
-// adds a different clarify reason we'll branch on it.
+// answer case (the only clarify trigger today).
+//
+// Style matches localReplyHeader: dim, single line, two-space
+// indent. Customer feedback was that long unstyled banners
+// "抢眼" — clarify is a hint, not the answer, so it stays subdued.
 func turnPolicyClarifyMessage(lang string) string {
-	if isZh(lang) {
-		return "  [clarify] 你的请求像是要复用上一条回答(例如 “换成 mermaid”、“把上面的换成表格”),但当前会话还没有可复用的回答。请直接描述你想问什么 —— codrax 会去仓库里读相关代码再回答。"
+	zh := isZh(lang)
+	var detail string
+	if zh {
+		detail = "clarify · 没有上一轮答案可复用 — 请直接描述你想问什么"
+	} else {
+		detail = "clarify · no prior answer to reuse — re-state the question directly"
 	}
-	return "  [clarify] Your request looks like a follow-up to a previous answer ('换成 mermaid', 'turn the above into a table'), but this session has no prior answer to transform. Re-state the question directly — codrax will read the repository and answer it from scratch."
+	return "  " + pterm.FgDarkGray.Sprint(detail)
 }
 
 // debugLogTurnPolicy is a small wrapper so callers don't have to

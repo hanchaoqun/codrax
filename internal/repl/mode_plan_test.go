@@ -70,9 +70,12 @@ func TestHandleMode_PrintsWorkflowHint(t *testing.T) {
 		mode     string
 		mustHave []string
 	}{
-		{"plan", []string{"ChangePlan", "/approve", "/reject", "/mode read"}},
-		{"apply", []string{"approved plan", "/approve"}},
-		{"verify", []string{"reruns tests"}},
+		// Updated to match the customer-feedback rewrite:
+		// concise hints, no internal terms (was "ChangePlan"
+		// which leaked the schema name; now "change proposal").
+		{"plan", []string{"change proposal", "/approve", "/reject", "/mode read"}},
+		{"apply", []string{"/approve"}},
+		{"verify", []string{"already-applied plan"}},
 	}
 	for _, tc := range cases {
 		t.Run(tc.mode, func(t *testing.T) {

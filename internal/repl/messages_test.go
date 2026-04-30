@@ -193,16 +193,17 @@ func TestEmptyResponseHint_BothLangs(t *testing.T) {
 }
 
 // TestChitchatReplyHeader_BothLangs locks that the chitchat marker
-// is visible (not just an INFO log line) and explains the recovery
-// path for misrouted code questions.
+// is visible (not just an INFO log line). Banner format:
+// dim FgDarkGray "chat · …" line. Check the route marker word
+// survives in both locales.
 func TestChitchatReplyHeader_BothLangs(t *testing.T) {
 	en := chitchatReplyHeader("en")
-	if !strings.Contains(en, "[chat]") {
-		t.Errorf("en marker must include [chat] tag; got: %q", en)
+	if !strings.Contains(en, "chat · ") {
+		t.Errorf("en marker must carry the 'chat · ' route badge; got: %q", en)
 	}
 	zh := chitchatReplyHeader("zh")
-	if !strings.Contains(zh, "[chat]") || !strings.Contains(zh, "闲聊") {
-		t.Errorf("zh marker must include [chat] tag and 闲聊; got: %q", zh)
+	if !strings.Contains(zh, "chat · ") || !strings.Contains(zh, "闲聊") {
+		t.Errorf("zh marker must carry 'chat · ' and 闲聊; got: %q", zh)
 	}
 }
 

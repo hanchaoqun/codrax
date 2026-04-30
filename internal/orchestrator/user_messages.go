@@ -100,9 +100,9 @@ func plannerProseFallbackMessage(ctx *types.BusContext) string {
 	}
 	if zh {
 		return "本轮 planner 给出的是文字回答而不是 ChangePlan(改动方案)。常见原因有两种,请按场景选择下一步:\n\n" +
-			"  1) 如果你的问题是「怎么修复 / 怎么安装 / 是什么原因」类的咨询,而不是要 codrax 改代码,\n" +
+			"  1) 如果你的问题是「怎么修复 / 怎么安装 / 是什么原因」类的咨询,而不是要做代码改动,\n" +
 			"     这种问题更适合 read 模式。先 /mode read,再把问题原样问一遍。\n" +
-			"  2) 如果你确实想要 codrax 改代码,但 planner 这一轮没生成方案,\n" +
+			"  2) 如果你确实想做代码改动,但 planner 这一轮没生成方案,\n" +
 			"     直接再发一遍同样的请求,或者把目标说得更具体(改哪个文件 / 加哪个功能 / 怎样的接口)。\n" +
 			"  3) 如果你想终止这次写模式,/mode read 切回读模式继续提问。"
 	}

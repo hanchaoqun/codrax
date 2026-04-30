@@ -97,7 +97,7 @@ func TestPlanShow_RecoversFromStoreWhenPointerEmpty(t *testing.T) {
 	r.handlePlanCmd("/plan show")
 
 	got := out.String()
-	if !strings.Contains(got, "recovered pending plan from PlanStore") {
+	if !strings.Contains(got, "recovered pending plan") {
 		t.Errorf("expected recovery banner; got: %q", got)
 	}
 	if !strings.Contains(got, "plan-recovery-target") {

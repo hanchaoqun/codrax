@@ -552,30 +552,43 @@ func (r *REPL) interactive() bool { return r.in == nil }
 //     (less visual noise, same intent legibility)
 //   - leave the message body in the terminal's default text style
 //     so the user's chrome / theme stays in control
+// All four printers carry a coloured glyph (so the user can scan
+// for the meaning at a glance) and a FgDarkGray message body —
+// the body is informational chrome, not the answer, and should
+// recede visually. Customer feedback was that the prior shape
+// (default-coloured body text) "抢眼" / dominated attention next
+// to the bordered final answer.
 var (
 	subduedInfoPrinter = pterm.PrefixPrinter{
 		Prefix: pterm.Prefix{
 			Style: pterm.NewStyle(pterm.FgCyan),
 			Text:  "•",
 		},
+		MessageStyle: pterm.NewStyle(pterm.FgDarkGray),
 	}
 	subduedSuccessPrinter = pterm.PrefixPrinter{
 		Prefix: pterm.Prefix{
 			Style: pterm.NewStyle(pterm.FgGreen),
 			Text:  "✓",
 		},
+		MessageStyle: pterm.NewStyle(pterm.FgDarkGray),
 	}
 	subduedWarnPrinter = pterm.PrefixPrinter{
 		Prefix: pterm.Prefix{
 			Style: pterm.NewStyle(pterm.FgYellow),
 			Text:  "⚠",
 		},
+		MessageStyle: pterm.NewStyle(pterm.FgDarkGray),
 	}
 	subduedErrorPrinter = pterm.PrefixPrinter{
 		Prefix: pterm.Prefix{
 			Style: pterm.NewStyle(pterm.FgRed),
 			Text:  "✗",
 		},
+		// Errors keep the default text colour — when the REPL
+		// surfaces an error it's a real failure the user must
+		// notice. Info / success / warn are cosmetic chrome and
+		// stay dim; errors do not.
 	}
 )
 

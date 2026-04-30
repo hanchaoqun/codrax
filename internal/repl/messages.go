@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/pterm/pterm"
+
 	"github.com/hanchaoqun/codrax/internal/llm"
 	"github.com/hanchaoqun/codrax/internal/types"
 )
@@ -174,8 +176,8 @@ func writeModeDisabled(lang, mode, settingsPath string) []string {
 	}
 	if isZh(lang) {
 		out := []string{
-			formatN(lang, "%s 已被拒绝: codrax.yaml :: write_enabled 为 false (或未设置)", mode),
-			formatN(lang, "  在 %s 中设置 `write_enabled: true` 并重启 codrax 即可启用 plan / apply / verify 模式。", target),
+			formatN(lang, "%s 已被拒绝: write_enabled 为 false (或未设置)", mode),
+			formatN(lang, "  在 %s 中设置 `write_enabled: true` 并重启即可启用 plan / apply / verify 模式。", target),
 			"  read 模式(默认)无需额外配置。",
 		}
 		if created != "" {
@@ -184,8 +186,8 @@ func writeModeDisabled(lang, mode, settingsPath string) []string {
 		return out
 	}
 	out := []string{
-		formatN(lang, "%s rejected: codrax.yaml :: write_enabled is false (or unset)", mode),
-		formatN(lang, "  Set `write_enabled: true` in %s and restart codrax to enable plan / apply / verify modes.", target),
+		formatN(lang, "%s rejected: write_enabled is false (or unset)", mode),
+		formatN(lang, "  Set `write_enabled: true` in %s and restart to enable plan / apply / verify modes.", target),
 		"  Read mode (default) needs no extra configuration.",
 	}
 	if created != "" {
@@ -237,15 +239,20 @@ func emptyResponseHint(lang string) string {
 
 // chitchatReplyHeader marks a chitchat-routed reply so the user can
 // tell at a glance the answer came from the side LLM (no repo
-// analysis, no plan), not from the main pipeline. Pre-fix: the only
-// difference between a chitchat reply and a pipeline reply was logged
-// at INFO level — invisible at the terminal — so a misrouted code
-// question got a generic answer with no recovery hint.
+// analysis, no plan), not from the main pipeline.
+//
+// Style matches localReplyHeader / turnPolicyClarifyMessage: dim
+// FgDarkGray, single line, two-space indent — recedes visually
+// so the bordered answer below dominates. Customer feedback on
+// the prior shape was that it "抢眼" / dominated attention.
 func chitchatReplyHeader(lang string) string {
+	var detail string
 	if isZh(lang) {
-		return "  [chat] 这是闲聊回复(未走代码分析流水线 / 未生成 plan)。如需仓库分析,显式提到具体文件 / 函数 / 行,或先 /chat off 再问。"
+		detail = "chat · 闲聊回复,未读仓库,未生成 plan"
+	} else {
+		detail = "chat · chitchat reply, no repo read, no plan"
 	}
-	return "  [chat] chitchat reply (no repo analysis, no plan). For repo analysis, mention a specific file / function / line, or invoke the question explicitly without /chat."
+	return "  " + pterm.FgDarkGray.Sprint(detail)
 }
 
 // noPendingPlan — user typed /approve or /reject without a pending
@@ -266,12 +273,12 @@ func noPendingPlanWriteDisabled(lang string) []string {
 	if isZh(lang) {
 		return []string{
 			"没有待处理的 plan,且 write 模式被禁用。",
-			"  在 codrax.yaml 中设置 `write_enabled: true` 并重启 codrax,然后 /mode plan 生成 plan。",
+			"  在 codrax.yaml 中设置 `write_enabled: true` 并重启,然后 /mode plan 生成 plan。",
 		}
 	}
 	return []string{
 		"no pending plan, and write mode is disabled.",
-		"  Set `write_enabled: true` in codrax.yaml and restart codrax, then /mode plan to generate one.",
+		"  Set `write_enabled: true` in codrax.yaml and restart, then /mode plan to generate one.",
 	}
 }
 
@@ -284,11 +291,11 @@ func noPendingPlanWriteDisabled(lang string) []string {
 func autoInitConsentTitle(lang, repoRoot, stateLabel string) string {
 	if isZh(lang) {
 		return formatN(lang,
-			"目标目录 %s 状态:%s。codrax 可以自动 `git init` + 空 initial commit,然后在沙箱 worktree 里 apply。是否同意?",
+			"目标目录 %s 状态:%s。可以自动 `git init` + 空 initial commit,然后在沙箱 worktree 里 apply。是否同意?",
 			repoRoot, stateLabel)
 	}
 	return formatN(lang,
-		"target %s is %s. codrax can run `git init` + an empty initial commit, then apply inside a sandbox worktree. Proceed?",
+		"target %s is %s. I can run `git init` + an empty initial commit, then apply inside a sandbox worktree. Proceed?",
 		repoRoot, stateLabel)
 }
 
@@ -298,13 +305,13 @@ func autoInitConsentTitle(lang, repoRoot, stateLabel string) string {
 func autoInitDeclined(lang string) []string {
 	if isZh(lang) {
 		return []string{
-			"已取消。Plan 仍保留在 PlanStore (/plan show 可看)。",
-			"  下次想直接同意:codrax.yaml :: write_auto_init_repo: true,或单次跑 codrax --auto-init-repo --mode=apply ...",
+			"已取消。改动方案仍保留 (/plan show 可看)。",
+			"  下次想直接同意:在 codrax.yaml 设 write_auto_init_repo: true,或运行时加 --auto-init-repo。",
 		}
 	}
 	return []string{
-		"cancelled. The plan is still saved (run /plan show to inspect).",
-		"  To skip this prompt next time: set `write_auto_init_repo: true` in codrax.yaml, or pass --auto-init-repo to one-shot CLI runs.",
+		"cancelled. The plan is still saved (/plan show to inspect).",
+		"  To skip this prompt next time: set `write_auto_init_repo: true` in codrax.yaml, or pass --auto-init-repo at run time.",
 	}
 }
 
@@ -414,11 +421,11 @@ func mergeSuccess(lang, strategy, finalBranch string, count int) []string {
 func otherPendingPlansHint(lang, planID string, others int) string {
 	if isZh(lang) {
 		return formatN(lang,
-			"  注意:还有 %d 个其它可批准的 plan(pending_approval / verify_failed)。当前要批的是 %s;指定其它用 `/approve <plan-id>`(/plan list 看 ID)",
+			"  注意:还有 %d 个其它待批准 / 验证失败的方案。当前要批的是 %s;批别的用 /approve <plan-id>(/plan list 看 ID)。",
 			others, planID)
 	}
 	return formatN(lang,
-		"  note: %d other approvable plan(s) exist (pending_approval / verify_failed). about to approve %s; target a different one with `/approve <plan-id>` (see /plan list)",
+		"  note: %d other pending or verify-failed plan(s) exist. About to approve %s; target a different one via /approve <plan-id> (/plan list shows ids).",
 		others, planID)
 }
 
@@ -473,9 +480,9 @@ func mergeFailure(lang, gitDiag string) []string {
 // /approve doesn't make the plan invisible.
 func recoveredPendingPlan(lang, planID string) string {
 	if isZh(lang) {
-		return formatN(lang, "  从 PlanStore 恢复待审批 plan: %s", planID)
+		return formatN(lang, "  恢复待审批改动方案: %s", planID)
 	}
-	return formatN(lang, "  recovered pending plan from PlanStore: %s", planID)
+	return formatN(lang, "  recovered pending plan: %s", planID)
 }
 
 // noPendingPlanReject — same as noPendingPlan but for /reject.
@@ -494,45 +501,41 @@ func modeSwitched(lang, mode string) string {
 	return formatN(lang, "switched to %s mode", mode)
 }
 
-// modeWorkflowHint returns a 1-3 line hint explaining what the newly-
-// entered mode actually does, returned as a slice the caller emits via
-// r.info one line at a time. Surfaced ONCE per /mode transition so a
-// user new to write mode knows the plan→approve→read loop without
-// having to read the docs. Empty slice for ModeRead (no special
-// workflow to explain).
+// modeWorkflowHint returns a 1-2 line nudge for a newly-entered
+// mode. Concise, no internal terminology, only the slash commands
+// the user actually needs next. Caller wraps with r.info so the
+// pterm style is FgDarkGray (subdued).
 func modeWorkflowHint(lang, mode string) []string {
 	zh := isZh(lang)
 	switch mode {
 	case "plan":
 		if zh {
 			return []string{
-				"  接下来你的下一条请求会产生 ChangePlan(改动提议),不是直接回答。",
-				"  生成后用 /plan show 审阅当前 plan、/plan list 看 PlanStore 里所有 plan、/approve 落地、/reject 丢弃、/mode read 回读模式继续提问。",
+				"  下一条请求会产生改动方案,不直接回答。",
+				"  之后:/plan show 看 diff · /approve 落地 · /reject 丢弃 · /mode read 回读模式",
 			}
 		}
 		return []string{
-			"  Your next request will produce a ChangePlan instead of an answer.",
-			"  After that: /plan show to review the pending plan, /plan list to enumerate every saved plan, /approve to apply, /reject to discard, /mode read to keep questioning.",
+			"  Your next request produces a change proposal instead of an answer.",
+			"  Then: /plan show · /approve · /reject · /mode read",
 		}
 	case "apply":
 		if zh {
 			return []string{
-				"  apply 模式直接执行已批准的 plan。一般通过 /approve 进入,而不是手动 /mode apply。",
-				"  如果你只想审 plan 再决定,先 /mode plan 生成,再 /approve。",
+				"  通常用 /approve 进入 apply,而不是 /mode apply。",
 			}
 		}
 		return []string{
-			"  Apply mode runs an approved plan. Most users reach this via /approve, not /mode apply directly.",
-			"  To review before applying: /mode plan first, then /approve.",
+			"  Reach apply via /approve; /mode apply directly is rarely what you want.",
 		}
 	case "verify":
 		if zh {
 			return []string{
-				"  verify 模式只重跑测试,不再生成或 apply。需要已 apply 的 plan(/history 找)。",
+				"  仅重跑已 apply plan 的测试。/history 查 plan id。",
 			}
 		}
 		return []string{
-			"  Verify mode reruns tests against an already-applied plan (find one in /history).",
+			"  Reruns tests against an already-applied plan. /history lists plan ids.",
 		}
 	}
 	return nil
@@ -546,23 +549,13 @@ func modeWorkflowHint(lang, mode string) []string {
 func planReadyNudge(lang string, planID string, changeCount int) []string {
 	if isZh(lang) {
 		return []string{
-			formatN(lang, "Plan 已就绪: %s (%d 处改动)。下一步:", planID, changeCount),
-			"    /plan show         — 查看本 plan 每个文件的改动 diff",
-			"    /plan list         — 列出 PlanStore 里所有已保存 plan(状态 + ID)",
-			"    /approve           — 在 worktree 内 apply + 跑 verify",
-			"    /approve --skip-verify  — 仅 apply,跳过测试(本地起不了集成测试时用)",
-			"    /reject            — 丢弃本 plan",
-			"    /mode read         — 切回读模式继续问代码问题(plan 仍保留可后续 /approve)",
+			formatN(lang, "改动方案已就绪: %s (%d 处改动)。", planID, changeCount),
+			"  /plan show · /approve · /approve --skip-verify · /reject · /mode read",
 		}
 	}
 	return []string{
-		formatN(lang, "Plan ready: %s (%d change(s)). Next:", planID, changeCount),
-		"    /plan show              — inspect this plan's per-file diff",
-		"    /plan list              — enumerate every plan in PlanStore (status + ID)",
-		"    /approve                — apply inside a worktree + run verify",
-		"    /approve --skip-verify  — apply only, skip tests (when local can't run them)",
-		"    /reject                 — discard this plan",
-		"    /mode read              — return to read mode (plan stays saved for later /approve)",
+		formatN(lang, "Change proposal ready: %s (%d change(s)).", planID, changeCount),
+		"  /plan show · /approve · /approve --skip-verify · /reject · /mode read",
 	}
 }
 
@@ -574,13 +567,11 @@ func planReadyNudge(lang string, planID string, changeCount int) []string {
 func applyDoneNudge(lang string) []string {
 	if isZh(lang) {
 		return []string{
-			"  apply 完成。已自动切回 read 模式 — 直接提问就行(例如「这个项目怎么跑」「依赖装齐了吗」)。",
-			"  如果想继续改代码,/mode plan 再次进入 plan 模式即可。",
+			"  apply 完成,已自动切回 read 模式。继续改代码用 /mode plan。",
 		}
 	}
 	return []string{
-		"  apply complete. Auto-switched back to read mode — ask your next question directly (e.g. \"how do I run this\", \"are all dependencies installed\").",
-		"  To make another code change, /mode plan switches back into plan mode.",
+		"  apply complete; auto-switched to read mode. /mode plan to make another change.",
 	}
 }
 
@@ -790,9 +781,9 @@ func helpLines(lang string) []string {
 		}
 	}
 	if isZh(lang) {
-		out = append(out, "提示:行尾加 \\ 进入多行输入;以 ! 开头执行系统 shell 命令(例如 !ls / !cat foo / !grep -rn ...,工作目录是仓根)。")
+		out = append(out, "提示:行尾加 \\ 进入多行输入;以 ! 开头执行系统 shell 命令,工作目录是仓根。")
 	} else {
-		out = append(out, "tip: end a line with \\ for multi-line input; prefix a line with ! to run a system shell command (e.g. !ls / !cat foo / !grep -rn ..., cwd = repo root).")
+		out = append(out, "tip: end a line with \\ for multi-line input; prefix a line with ! to run a system shell command, cwd = repo root.")
 	}
 	return out
 }
@@ -860,13 +851,13 @@ func shellBangCdNonPersistent(lang, builtin string) string {
 	if isZh(lang) {
 		return formatN(lang,
 			"`%s` 在 `!` 内不会持久 —— 每个 `!` 调用都新起一个 shell。"+
-				"用 --repo /new/path 启动 codrax,或链式写 `!cd /tmp && cat foo.txt` "+
+				"用 --repo /new/path 重启,或链式写 `!cd /tmp && cat foo.txt` "+
 				"(同一个 shell 内执行)。\n",
 			builtin)
 	}
 	return formatN(lang,
 		"`%s` inside `!` doesn't persist — every `!` invocation spawns a fresh shell. "+
-			"Restart codrax with --repo /new/path, or chain in one command: "+
+			"Restart with --repo /new/path, or chain in one command: "+
 			"`!cd /tmp && cat foo.txt`.\n",
 		builtin)
 }
@@ -900,9 +891,9 @@ func commandDisabled(lang, cmd, reason string) string {
 // noPlanStoreReason — common reason embedded in commandDisabled.
 func noPlanStoreReason(lang string) string {
 	if isZh(lang) {
-		return "未配置 PlanStore"
+		return "改动方案存储未配置"
 	}
-	return "no PlanStore configured"
+	return "plan store unavailable"
 }
 
 // unknownSlashCommand — printed when handleSlash falls through.
