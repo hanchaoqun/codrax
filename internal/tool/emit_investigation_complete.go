@@ -1494,7 +1494,7 @@ func (t evidenceTally) acceptedTotal() int { return t.tier1 + t.tier2Grounded + 
 // Powers the absence-vs-grounded contradiction gate.
 func (t evidenceTally) hasAny() bool { return t.acceptedTotal() > 0 }
 
-type tier1RepairTarget struct {
+type Tier1RepairTarget struct {
 	File  string
 	Lines []int
 }
@@ -1639,13 +1639,13 @@ func dedupeCanonicalFiles(files []string) []string {
 	return out
 }
 
-func buildTier1RepairTargets(ctx *types.BusContext, items []types.EvidenceItem) []tier1RepairTarget {
-	if ctx == nil || len(items) == 0 {
+func BuildTier1RepairTargets(repoRoot string, items []types.EvidenceItem) []Tier1RepairTarget {
+	if len(items) == 0 {
 		return nil
 	}
 	byFile := make(map[string]map[int]bool)
 	for _, it := range items {
-		file := ground.CanonicalRepoRelative(it.Source, ctx.RepoRoot)
+		file := ground.CanonicalRepoRelative(it.Source, repoRoot)
 		if file == "" {
 			continue
 		}
@@ -1664,9 +1664,9 @@ func buildTier1RepairTargets(ctx *types.BusContext, items []types.EvidenceItem) 
 		files = append(files, file)
 	}
 	sort.Strings(files)
-	out := make([]tier1RepairTarget, 0, len(files))
+	out := make([]Tier1RepairTarget, 0, len(files))
 	for _, file := range files {
-		target := tier1RepairTarget{File: file}
+		target := Tier1RepairTarget{File: file}
 		for line := range byFile[file] {
 			target.Lines = append(target.Lines, line)
 		}
@@ -1676,7 +1676,14 @@ func buildTier1RepairTargets(ctx *types.BusContext, items []types.EvidenceItem) 
 	return out
 }
 
-func tier1LineList(lines []int, max int) string {
+func buildTier1RepairTargets(ctx *types.BusContext, items []types.EvidenceItem) []Tier1RepairTarget {
+	if ctx == nil {
+		return nil
+	}
+	return BuildTier1RepairTargets(ctx.RepoRoot, items)
+}
+
+func Tier1LineList(lines []int, max int) string {
 	if len(lines) == 0 {
 		return ""
 	}
@@ -1693,7 +1700,11 @@ func tier1LineList(lines []int, max int) string {
 	return strings.Join(parts, ", ")
 }
 
-func queueTier1ReadRepairs(ctx *types.BusContext, targets []tier1RepairTarget) {
+func tier1LineList(lines []int, max int) string {
+	return Tier1LineList(lines, max)
+}
+
+func queueTier1ReadRepairs(ctx *types.BusContext, targets []Tier1RepairTarget) {
 	if ctx == nil || ctx.Mutable == nil || len(targets) == 0 {
 		return
 	}

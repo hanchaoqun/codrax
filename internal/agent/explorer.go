@@ -73,6 +73,7 @@ type explorerEvaluator struct {
 	midLoopExternalLogSent          bool                  // one-shot: external-source log runtime frames redirected this dispatch
 	midLoopExactAbsenceContextSent  bool                  // one-shot: exact absence still needs one grounded same-family production anchor before closure
 	midLoopExactAbsenceSent         bool                  // one-shot: exact-resolution absence already looks closure-ready this dispatch
+	midLoopAuthoritativeTier1Sent   bool                  // one-shot: authoritative log path is semantically enough but would fail Tier-1 floor before completion
 	midLoopEnumInjected             bool                  // session-22: enumeration-coverage hint already pushed this dispatch (was missing → 68 fires / run observed on goroutine_dump)
 	// midLoopOrientationFinalizeSent latches the once-per-dispatch
 	// orientation finalize nudge. Without this latch the nudge would
@@ -3625,8 +3626,8 @@ func (e *explorerEvaluator) postReadWithoutEmitSignal(obs LoopObservation) LoopS
 			"MID-LOOP CHECK: you have read %d file(s) %s but %s. "+
 				"Facts left only in your prose notes are NOT recorded — downstream stages cannot see any concrete value, definition, call-site, or condition that is not passed through `emit_evidence(items=[...])`. "+
 				"Pick the strongest anchors you have identified in the files you just read and emit them in ONE batch now. Line numbers MUST come verbatim from the `read_file` gutter (copy the leading `N| ` prefix). "+
-				"After the batch succeeds, continue investigating or call `emit_investigation_complete(reason, confidence, result_kind)`.%s",
-			reads, scope, recording, e.authoritativeLogDriftReminder(obs.AllToolResults)),
+				"After the batch succeeds, continue investigating or call `emit_investigation_complete(reason, confidence, result_kind)`.%s%s",
+			reads, scope, recording, e.authoritativeLogDriftReminder(obs.AllToolResults), e.authoritativeLogBackboneFirstEmitReminder(obs.AllToolResults)),
 		Progress:       true,
 		BypassThrottle: true,
 		BypassBudget:   true,
@@ -3690,7 +3691,8 @@ func (e *explorerEvaluator) postReadWithoutEmitEscalationSignal(obs LoopObservat
 		Hint: "MID-LOOP CHECK: the earlier `emit_evidence` nudge was ignored and you still have an unrecorded evidence backlog " + backlogScope + ". " +
 			"Stop expanding with more navigation for the moment. Use the grounded lines you have already read to emit ONE batch of `emit_evidence(items=[...])` now. " +
 			"After that batch succeeds, either continue on any truly unresolved branch or call `emit_investigation_complete(reason, confidence, result_kind)` if the evidence already answers the question." +
-			e.authoritativeLogDriftReminder(obs.AllToolResults),
+			e.authoritativeLogDriftReminder(obs.AllToolResults) +
+			e.authoritativeLogBackboneFirstEmitReminder(obs.AllToolResults),
 		Progress:       true,
 		BypassThrottle: true,
 		BypassBudget:   true,
@@ -3726,6 +3728,19 @@ func (e *explorerEvaluator) authoritativeLogDriftReminder(allResults []types.Too
 		return ""
 	}
 	return " For attached crash/panic logs, treat raw stack line numbers as stale locators once the named file/function has been grounded. Emit evidence from the current grounded functions/calls you already read instead of chasing historical numeric offsets."
+}
+
+func (e *explorerEvaluator) authoritativeLogBackboneFirstEmitReminder(allResults []types.ToolResult) string {
+	if !e.logTriageAuthoritativeAndCovered(allResults) {
+		return ""
+	}
+	if hasSuccessfulTool(allResults, "emit_evidence") {
+		return ""
+	}
+	if len(e.authoritativeResolvedFrames()) == 0 {
+		return ""
+	}
+	return " For authoritative panic/crash traces, keep the FIRST `emit_evidence` batch on the failure backbone itself: record one caller→callee edge from the grounded log frames plus one mechanism/guard/definition anchor from those same frame files. Defer related_context, setup helpers, and broader same-file background until that backbone batch succeeds."
 }
 
 func (e *explorerEvaluator) closureReadyLatched() bool {
@@ -4471,6 +4486,105 @@ func (e *explorerEvaluator) postCompletionReadySignal(obs LoopObservation) LoopS
 	}
 }
 
+func (e *explorerEvaluator) authoritativeTier1Readiness() explorerTier1Readiness {
+	status := explorerTier1Readiness{Ready: true}
+	if e == nil || len(e.structuredEvidence) == 0 {
+		return status
+	}
+	policy := tool.CurrentGroundingPolicy()
+	status.Floor = policy.Tier1Floor
+	if policy.Tier1Floor <= 0 {
+		return status
+	}
+	stableAbsent := false
+	requiredFiles := e.exactContextFiles
+	if e.exactResolution != nil && e.exactResolution.AllowAbsence {
+		targets := e.exactPendingTargets
+		if len(targets) == 0 {
+			targets = e.exactResolution.Targets
+		}
+		stableAbsent = exactAbsenceClosureReady(e.exactResolution, e.scenario, targets, e.structuredEvidence, requiredFiles)
+	}
+	var repairItems []types.EvidenceItem
+	for _, ev := range e.structuredEvidence {
+		if !types.EvidenceCountsTowardTier1FloorInContext(ev, e.exactResolution, e.scenario, stableAbsent, requiredFiles) {
+			continue
+		}
+		status.Total++
+		switch ev.GroundingStatus {
+		case types.GroundingGrounded:
+			if ev.GroundingTier == types.TierLineText || ev.GroundingTier == "" {
+				status.Tier1++
+			} else {
+				repairItems = append(repairItems, ev)
+			}
+		case types.GroundingRecovered:
+			repairItems = append(repairItems, ev)
+		case "":
+			status.Tier1++
+		}
+	}
+	if status.Total == 0 {
+		return status
+	}
+	status.Ready = float64(status.Tier1)/float64(status.Total) >= policy.Tier1Floor
+	status.Targets = tool.BuildTier1RepairTargets(e.repoRoot, repairItems)
+	return status
+}
+
+func (e *explorerEvaluator) postAuthoritativeTier1CompletionSignal(obs LoopObservation) LoopSignal {
+	if e == nil || e.phase != 1 || e.investigationComplete || e.midLoopAuthoritativeTier1Sent {
+		return LoopSignal{}
+	}
+	if obs.Iteration < e.heuristics.MidLoopMinIteration {
+		return LoopSignal{}
+	}
+	if !hasSuccessfulTool(obs.AllToolResults, "emit_evidence") {
+		return LoopSignal{}
+	}
+	readiness := e.completionReadiness(obs.AllToolResults, -1, false, false)
+	if !readiness.HasEnough || !readiness.AuthoritativeCoverage {
+		return LoopSignal{}
+	}
+	tier1 := e.authoritativeTier1Readiness()
+	if tier1.Ready || tier1.Total == 0 {
+		return LoopSignal{}
+	}
+	e.midLoopAuthoritativeTier1Sent = true
+	var b strings.Builder
+	fmt.Fprintf(&b,
+		"MID-LOOP CHECK: the current authoritative log path is already semantically enough to answer, but `emit_investigation_complete` would still be rejected by the Tier-1 grounding floor (currently %d/%d = %.0f%%, need ≥ %.0f%%). Before closing, convert the load-bearing failure anchors to `read_file`-grounded line_text evidence on the CURRENT branch.\n",
+		tier1.Tier1, tier1.Total, float64(tier1.Tier1)*100/float64(tier1.Total), tier1.Floor*100)
+	b.WriteString("Do NOT widen into more neighboring files yet. Re-read the current authoritative sources near the cited lines, then re-emit ONE tighter `emit_evidence(items=[...])` batch that keeps the failure backbone grounded first. Related context and setup/background anchors can wait until after the backbone is Tier-1-safe.\n")
+	if len(tier1.Targets) > 0 {
+		maxList := 4
+		if maxList > len(tier1.Targets) {
+			maxList = len(tier1.Targets)
+		}
+		b.WriteString("Suggested repair targets:\n")
+		for i := 0; i < maxList; i++ {
+			target := tier1.Targets[i]
+			lines := tool.Tier1LineList(target.Lines, 4)
+			if lines == "" {
+				fmt.Fprintf(&b, "  - `%s`\n", target.File)
+				continue
+			}
+			fmt.Fprintf(&b, "  - `%s` near lines %s\n", target.File, lines)
+		}
+		if len(tier1.Targets) > maxList {
+			fmt.Fprintf(&b, "  - ... and %d more current-branch source(s)\n", len(tier1.Targets)-maxList)
+		}
+	}
+	return LoopSignal{
+		HintRequested:  true,
+		HintKey:        "explorer.mid-loop.authoritative-tier1-before-complete",
+		Hint:           b.String(),
+		Progress:       true,
+		BypassThrottle: true,
+		BypassBudget:   true,
+	}
+}
+
 func (e *explorerEvaluator) scalarRoleLocateClosureReady() bool {
 	if e == nil || e.analysisIR == nil {
 		return false
@@ -4520,6 +4634,14 @@ type authoritativeFrameRef struct {
 	File string
 	Tail string
 	Func string
+}
+
+type explorerTier1Readiness struct {
+	Ready   bool
+	Floor   float64
+	Tier1   int
+	Total   int
+	Targets []tool.Tier1RepairTarget
 }
 
 func (e *explorerEvaluator) authoritativeLogClosureCarrierReady() bool {
@@ -5669,6 +5791,9 @@ func (e *explorerEvaluator) observeMidLoop(obs LoopObservation) LoopSignal {
 		return sig
 	}
 	if sig := e.postExplanationAnchorSignal(obs); sig.HintRequested {
+		return sig
+	}
+	if sig := e.postAuthoritativeTier1CompletionSignal(obs); sig.HintRequested {
 		return sig
 	}
 	if sig := e.postCompletionReadySignal(obs); sig.HintRequested {

@@ -4632,6 +4632,48 @@ func TestObserveMidLoop_ReadWithoutEmitHint_AddsAuthoritativeLogDriftReminder(t 
 	}
 }
 
+func TestObserveMidLoop_ReadWithoutEmitHint_AddsAuthoritativeBackboneReminder(t *testing.T) {
+	newReadResult := func(path string) types.ToolResult {
+		return types.ToolResult{
+			ToolName: "read_file",
+			Success:  true,
+			Summary:  "[" + path + ": showing lines 1-40 of 400]\npackage fixture\n",
+		}
+	}
+
+	eval := &explorerEvaluator{
+		phase:        1,
+		searchResult: &keywordSearchResult{Graph: &repomap.Graph{}},
+		logTriage: &types.LogBundle{
+			Meta:          types.LogMeta{Signals: []types.LogSignal{types.SignalPanic}},
+			ResolvedFiles: []string{"internal/agent/analyzer.go"},
+			Errors: []types.LogError{{
+				Frames: []types.LogFrame{
+					{File: "internal/agent/analyzer.go", Line: 674, Func: "buildAnalysisIR"},
+					{File: "internal/agent/analyzer.go", Line: 629, Func: "ParseOutput"},
+				},
+			}},
+		},
+	}
+	results := []types.ToolResult{
+		newReadResult("internal/agent/analyzer.go"),
+		newReadResult("internal/agent/analyzer.go"),
+	}
+
+	sig := eval.observeMidLoop(LoopObservation{
+		Phase:          PhaseMidLoop,
+		Iteration:      2,
+		LastToolResult: &results[len(results)-1],
+		AllToolResults: results,
+	})
+	if !sig.HintRequested || sig.HintKey != "explorer.mid-loop.read-without-emit" {
+		t.Fatalf("expected read-without-emit nudge, got %+v", sig)
+	}
+	if !strings.Contains(sig.Hint, "FIRST `emit_evidence` batch") {
+		t.Fatalf("authoritative backbone reminder missing, got: %s", sig.Hint)
+	}
+}
+
 func TestObserveMidLoop_ReadWithoutEmitRefiresForNewBacklogAfterSuccessfulEmit(t *testing.T) {
 	eval := &explorerEvaluator{
 		phase:        1,
@@ -5039,6 +5081,103 @@ func TestObserveMidLoop_CompletionReadyHint_UsesAuthoritativeLogCoverage(t *test
 	}
 	if sig.HintKey != "explorer.mid-loop.completion-ready" {
 		t.Fatalf("HintKey = %q, want explorer.mid-loop.completion-ready", sig.HintKey)
+	}
+}
+
+func TestObserveMidLoop_AuthoritativeTier1HintBeatsCompletionReady(t *testing.T) {
+	newReadResult := func(path string) types.ToolResult {
+		return types.ToolResult{
+			ToolName: "read_file",
+			Success:  true,
+			Summary:  "[" + path + ": showing lines 1-40 of 400]\npackage fixture\n",
+		}
+	}
+
+	eval := &explorerEvaluator{
+		phase:                      1,
+		heuristics:                 types.ExploreHeuristics{MidLoopMinIteration: 2},
+		searchResult:               &keywordSearchResult{Graph: &repomap.Graph{}},
+		midLoopPostPrimaryInjected: true,
+		repoRoot:                   "C:/repo",
+		logTriage: &types.LogBundle{
+			Meta:          types.LogMeta{Signals: []types.LogSignal{types.SignalPanic}},
+			ResolvedFiles: []string{"internal/agent/analyzer.go"},
+			Errors: []types.LogError{{
+				Frames: []types.LogFrame{
+					{File: "internal/agent/analyzer.go", Line: 884, Func: "buildAnalysisIR"},
+					{File: "internal/agent/analyzer.go", Line: 674, Func: "ParseOutput"},
+				},
+			}},
+		},
+		structuredEvidence: []types.EvidenceItem{
+			{
+				Kind:            types.EvidenceRelationship,
+				Subject:         "ParseOutput",
+				Predicate:       "calls",
+				Object:          "buildAnalysisIR",
+				Source:          "internal/agent/analyzer.go",
+				LineStart:       674,
+				GroundingStatus: types.GroundingGrounded,
+				GroundingTier:   types.TierLineText,
+			},
+			{
+				Kind:            types.EvidenceConditional,
+				Subject:         "buildAnalysisIR",
+				Predicate:       "guards",
+				Object:          "ctx == nil || ctx.Mutable == nil",
+				Source:          "internal/agent/analyzer.go",
+				LineStart:       884,
+				AnchorKind:      types.AnchorCondition,
+				AnchorSymbol:    "buildAnalysisIR",
+				GroundingStatus: types.GroundingRecovered,
+			},
+			{
+				Kind:            types.EvidenceDirect,
+				Subject:         "analyzerGraphForNormalize",
+				Predicate:       "calls",
+				Object:          "SearchGraph",
+				Source:          "internal/agent/analyzer.go",
+				LineStart:       1456,
+				AnchorKind:      types.AnchorCall,
+				AnchorSymbol:    "SearchGraph",
+				GroundingStatus: types.GroundingRecovered,
+			},
+			{
+				Kind:            types.EvidenceDirect,
+				Subject:         "ParseOutput",
+				Predicate:       "defined_in",
+				Object:          "internal/agent/analyzer.go",
+				Source:          "internal/agent/analyzer.go",
+				LineStart:       629,
+				AnchorKind:      types.AnchorDefinition,
+				AnchorSymbol:    "ParseOutput",
+				GroundingStatus: types.GroundingRecovered,
+			},
+		},
+	}
+	results := []types.ToolResult{
+		{ToolName: "grep", Success: true, Summary: "internal/agent/analyzer.go"},
+		newReadResult("internal/agent/analyzer.go"),
+		{ToolName: "emit_evidence", Success: true, Summary: "emit_evidence accepted 4 item(s)"},
+	}
+
+	sig := eval.observeMidLoop(LoopObservation{
+		Phase:          PhaseMidLoop,
+		Iteration:      3,
+		LastToolResult: &results[len(results)-1],
+		AllToolResults: results,
+	})
+	if !sig.HintRequested {
+		t.Fatalf("authoritative Tier-1 hint should fire, got %+v", sig)
+	}
+	if sig.HintKey != "explorer.mid-loop.authoritative-tier1-before-complete" {
+		t.Fatalf("HintKey = %q, want explorer.mid-loop.authoritative-tier1-before-complete", sig.HintKey)
+	}
+	if !strings.Contains(sig.Hint, "Tier-1") {
+		t.Fatalf("hint should explain Tier-1 precondition, got: %s", sig.Hint)
+	}
+	if !strings.Contains(sig.Hint, "internal/agent/analyzer.go") {
+		t.Fatalf("hint should name the current authoritative repair file, got: %s", sig.Hint)
 	}
 }
 
