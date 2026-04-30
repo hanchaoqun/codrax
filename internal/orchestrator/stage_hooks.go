@@ -104,13 +104,19 @@ func planPostHook(o *Orchestrator, out *agent.StageOutput) error {
 	}
 	plan := o.busCtx.Mutable.ChangePlan()
 	if plan == nil {
-		// Planner ran but no plan emitted — surface a fail-loud message.
-		// SetResultPlain so the renderer skips glamour markdown — the
-		// message contains `emit_change_plan` which chroma's
-		// underscore-aware tokenizer would otherwise split into three
-		// ANSI-colored fragments. See production trace
-		// /home/chatpp/pytest 2026-04-29 06:03 for the broken render.
-		msg := "plan stage completed but no ChangePlan was installed on Mutable (planner did not call emit_change_plan)"
+		// Planner ran but no plan emitted — translate the internal
+		// "did not call emit_change_plan" diagnostic into a
+		// user-actionable explanation. The historical message
+		// leaked the tool name and stage internals into the answer
+		// surface; users who asked a "how do I install pygame"
+		// question while sticky in plan mode received the literal
+		// "planner did not call emit_change_plan" — confusing and
+		// unprofessional.
+		//
+		// SetResultPlain still bypasses glamour because the message
+		// contains identifier-shaped tokens (`/mode read` etc.)
+		// that chroma's tokenizer would otherwise fragment.
+		msg := plannerProseFallbackMessage(o.busCtx)
 		o.busCtx.Mutable.SetResultPlain(msg)
 		return fmt.Errorf("%s", msg)
 	}

@@ -204,6 +204,14 @@ func MergeIntoBranch(opts MergeOptions) (*MergeResult, error) {
 		// Refuse to fast-forward if the working tree is dirty —
 		// the user hasn't committed something else they care about
 		// and an ff would silently move HEAD past it.
+		// Special case: when the only dirty paths are codrax's own
+		// runtime artifacts under `.codrax/`, transparently untrack
+		// them + write .gitignore + auto-commit, then re-check.
+		// Without this, a user who ran `git add -A` once gets
+		// permanently locked out of /merge by codrax's own writes.
+		if _, err := ensureNoCodraxDirtyState(opts.MainRepoRoot); err != nil {
+			return nil, fmt.Errorf("merge: untrack .codrax/: %w", err)
+		}
 		if dirty, _ := isWorkingTreeDirty(opts.MainRepoRoot); dirty {
 			return nil, fmt.Errorf("merge: working tree at %s has uncommitted changes — commit or stash before /merge",
 				opts.MainRepoRoot)
@@ -227,6 +235,10 @@ func MergeIntoBranch(opts MergeOptions) (*MergeResult, error) {
 	case MergeNewBranch:
 		if branchExists(opts.MainRepoRoot, opts.TargetBranch) {
 			return nil, ErrTargetBranchExists
+		}
+		// Same .codrax/-only auto-fix as the fast-forward arm.
+		if _, err := ensureNoCodraxDirtyState(opts.MainRepoRoot); err != nil {
+			return nil, fmt.Errorf("merge: untrack .codrax/: %w", err)
 		}
 		if dirty, _ := isWorkingTreeDirty(opts.MainRepoRoot); dirty {
 			return nil, fmt.Errorf("merge: working tree at %s has uncommitted changes — commit or stash before /merge",
@@ -329,6 +341,128 @@ func isWorkingTreeDirty(dir string) (bool, error) {
 	return strings.TrimSpace(out) != "", nil
 }
 
+// dirtyPaths returns the set of dirty paths (tracked-only) that
+// `git status --porcelain` lists. Each entry is the file path
+// without the leading XY status code. Empty slice when the tree
+// is clean. Used by ensureNoCodraxDirtyState to detect the
+// "only codrax runtime artifacts are dirty" case and silently
+// untrack them so /merge can proceed.
+func dirtyPaths(dir string) ([]string, error) {
+	out, err := runGitCapture(dir, "status", "--porcelain", "--untracked-files=no")
+	if err != nil {
+		return nil, err
+	}
+	out = strings.TrimSpace(out)
+	if out == "" {
+		return nil, nil
+	}
+	var paths []string
+	for _, line := range strings.Split(out, "\n") {
+		// porcelain format: "XY <path>" — first 3 chars are
+		// status code + space, the rest is the path. Renames
+		// emit "<old> -> <new>" but we only care about prefixes
+		// for the .codrax/ test, so taking the suffix as-is is
+		// safe.
+		if len(line) < 4 {
+			continue
+		}
+		paths = append(paths, strings.TrimSpace(line[3:]))
+	}
+	return paths, nil
+}
+
+// allPathsAreCodraxRuntime reports whether every path in `paths`
+// lives under `.codrax/`. Used as the "is the only dirt our own"
+// predicate; when true, ensureNoCodraxDirtyState transparently
+// untracks them and rewrites .gitignore so /merge isn't blocked
+// on codrax's own runtime writes.
+func allPathsAreCodraxRuntime(paths []string) bool {
+	if len(paths) == 0 {
+		return false
+	}
+	for _, p := range paths {
+		// Rename arrow form "<old> -> <new>": check both sides.
+		if idx := strings.Index(p, " -> "); idx >= 0 {
+			if !isUnderCodraxRuntime(p[:idx]) || !isUnderCodraxRuntime(p[idx+4:]) {
+				return false
+			}
+			continue
+		}
+		if !isUnderCodraxRuntime(p) {
+			return false
+		}
+	}
+	return true
+}
+
+// isUnderCodraxRuntime tests one path. Strips surrounding quotes
+// (porcelain quotes paths with special characters) and compares
+// against the .codrax/ prefix on a slash-normalised form.
+func isUnderCodraxRuntime(p string) bool {
+	p = strings.TrimSpace(p)
+	p = strings.TrimPrefix(p, `"`)
+	p = strings.TrimSuffix(p, `"`)
+	p = strings.ReplaceAll(p, `\`, `/`)
+	return p == ".codrax" || strings.HasPrefix(p, ".codrax/")
+}
+
+// ensureNoCodraxDirtyState transparently resolves the case where
+// the only "dirty" paths in the working tree are codrax's own
+// runtime artifacts under `.codrax/`. The customer trigger:
+//
+//	user runs `!git init && git add -A && git commit -m "..."`
+//	→ commits all the .codrax/logs/, memory/, blob/ files into
+//	  the initial commit. Subsequent codrax runs write new bytes
+//	  into those tracked files, so `git status --porcelain` lists
+//	  them as modified. /merge's preflight refuses with
+//	  "uncommitted changes" — but the dirt isn't user content, it
+//	  is codrax itself, and refusing to proceed feels broken.
+//
+// This helper:
+//  1. Asks for the dirty path list.
+//  2. Returns clean (no action) if there's no dirt.
+//  3. Returns "user-content-dirty" (no action; caller refuses
+//     the merge) if any non-`.codrax/` path is dirty.
+//  4. Untracks `.codrax/` (`git rm -r --cached -- .codrax`),
+//     ensures `.gitignore` excludes it, and stages the
+//     `.gitignore` change so the working tree comes out clean
+//     after one auto-commit. The caller does the auto-commit.
+//
+// Idempotent: re-running on a clean tree is a no-op success.
+// Returns (rewroteCodraxState bool, err error).
+func ensureNoCodraxDirtyState(dir string) (bool, error) {
+	paths, err := dirtyPaths(dir)
+	if err != nil {
+		return false, err
+	}
+	if len(paths) == 0 {
+		return false, nil
+	}
+	if !allPathsAreCodraxRuntime(paths) {
+		// Genuine user dirt — caller's preflight refuses.
+		return false, nil
+	}
+	logging.Info("[worktree] /merge preflight: %d tracked .codrax/ path(s) are dirty; untracking + adding to .gitignore so the merge can proceed",
+		len(paths))
+	// `git rm -r --cached -- .codrax` removes from index, keeps
+	// files on disk. Quiet flag silences the "rm '.codrax/...'"
+	// per-file output that would clutter the operator's screen.
+	if out, err := runGitCapture(dir, "rm", "-r", "--cached", "--quiet", "--", ".codrax"); err != nil {
+		return false, fmt.Errorf("untrack .codrax: %w (%s)", err, out)
+	}
+	if err := EnsureCodraxGitignore(dir); err != nil {
+		return false, fmt.Errorf("write .gitignore: %w", err)
+	}
+	if out, err := runGitCapture(dir, "add", "--", ".gitignore"); err != nil {
+		return false, fmt.Errorf("stage .gitignore: %w (%s)", err, out)
+	}
+	if out, err := runGitCapture(dir, "commit", "-m", "codrax: untrack .codrax/ runtime artifacts (auto-fix for /merge)"); err != nil {
+		return false, fmt.Errorf("commit untrack: %w (%s)", err, out)
+	}
+	logging.Info("[worktree] /merge preflight: untracked .codrax/ + committed .gitignore; tree should be clean now")
+	return true, nil
+}
+
 // checkoutBranch is a thin wrapper. Errors include the branch name
 // for diagnosis.
 func checkoutBranch(dir, branch string) error {
@@ -423,6 +557,12 @@ func MergeFromRef(opts MergeFromRefOptions) (*MergeResult, error) {
 		}
 	}
 
+	// Same .codrax/-only auto-fix as the strategy-specific paths.
+	// This top-level check fires for the auto-mode path before the
+	// strategy switch picks ff vs branch.
+	if _, err := ensureNoCodraxDirtyState(opts.MainRepoRoot); err != nil {
+		return nil, fmt.Errorf("merge: untrack .codrax/: %w", err)
+	}
 	if dirty, _ := isWorkingTreeDirty(opts.MainRepoRoot); dirty {
 		return nil, fmt.Errorf("merge: working tree at %s has uncommitted changes — commit or stash before /merge",
 			opts.MainRepoRoot)

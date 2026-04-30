@@ -75,6 +75,45 @@ func softRetryHintMessage(lang string) string {
 	return "⟳ Gathering more evidence"
 }
 
+// plannerProseFallbackMessage is the user-visible explanation when
+// the planner returns a prose answer without calling
+// emit_change_plan. The pre-fix message leaked the internal tool
+// name ("planner did not call emit_change_plan") into the answer
+// surface. Two real triggers:
+//
+//   - Sticky /mode plan + the user asks a "how do I X" question
+//     that is fundamentally a read-mode question (no code change
+//     needed). The planner LLM understood the question but had no
+//     legitimate change to plan.
+//   - Planner streamed a partial reply that was killed by the
+//     stream watchdog before the tool call landed. Rare with the
+//     2026-04-30 stream-first-byte timeout fix; still possible.
+//
+// The message walks the user through both possibilities with a
+// concrete next-action menu (`/mode read` for advice questions,
+// "再问一次" for transient stalls). Stays in `SetResultPlain`
+// territory because it embeds slash commands.
+func plannerProseFallbackMessage(ctx *types.BusContext) string {
+	zh := true
+	if ctx != nil {
+		zh = preferZhMessage(ctx.Language)
+	}
+	if zh {
+		return "本轮 planner 给出的是文字回答而不是 ChangePlan(改动方案)。常见原因有两种,请按场景选择下一步:\n\n" +
+			"  1) 如果你的问题是「怎么修复 / 怎么安装 / 是什么原因」类的咨询,而不是要 codrax 改代码,\n" +
+			"     这种问题更适合 read 模式。先 /mode read,再把问题原样问一遍。\n" +
+			"  2) 如果你确实想要 codrax 改代码,但 planner 这一轮没生成方案,\n" +
+			"     直接再发一遍同样的请求,或者把目标说得更具体(改哪个文件 / 加哪个功能 / 怎样的接口)。\n" +
+			"  3) 如果你想终止这次写模式,/mode read 切回读模式继续提问。"
+	}
+	return "the planner returned prose this turn instead of a ChangePlan. Two common causes — pick the path that matches your intent:\n\n" +
+		"  1) If your question is advisory (\"how do I install X\", \"why did Y fail\", \"what does Z do\") rather than a request to modify code,\n" +
+		"     read mode is the right place. Run /mode read and re-state the question.\n" +
+		"  2) If you genuinely want a code change but the planner did not produce one,\n" +
+		"     re-send the same request, or be more specific (which file / what to add / what interface).\n" +
+		"  3) If you want to leave write mode, /mode read returns to the default question-answering surface."
+}
+
 // softRetryHintForStage is the stage-aware variant. Write-mode
 // stages (plan / apply / verify) do not have "investigation
 // evidence" — that's read-mode language. Picking a generic

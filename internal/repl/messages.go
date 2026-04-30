@@ -361,6 +361,21 @@ func mergeConfirmTitle(lang, strategy, target string, count int) string {
 	}
 }
 
+// autoModeReadAfterMergeNudge is the one-line confirmation printed
+// right after /merge auto-switches back to read mode. Pre-fix the
+// REPL stayed sticky in plan mode after a successful merge; the
+// user's next "how do I X" question routed back to the planner
+// (which then either generated an unwanted plan, or returned prose
+// and surfaced the "did not call emit_change_plan" error). Auto-
+// switching avoids both failure modes; this message tells the user
+// the mode flipped so they don't get surprised.
+func autoModeReadAfterMergeNudge(lang string) string {
+	if isZh(lang) {
+		return "  已自动切回 read 模式 — 直接提问就行。再 /mode plan 进入 plan 模式即可继续改代码。"
+	}
+	return "  Auto-switched back to read mode — ask your next question directly. /mode plan to make another change."
+}
+
 // mergeSuccess — printed after a clean MergeIntoBranch return.
 func mergeSuccess(lang, strategy, finalBranch string, count int) []string {
 	if isZh(lang) {
@@ -559,15 +574,13 @@ func planReadyNudge(lang string, planID string, changeCount int) []string {
 func applyDoneNudge(lang string) []string {
 	if isZh(lang) {
 		return []string{
-			"  apply 完成。下一步:",
-			"    /mode read   — 切回读模式问代码问题",
-			"    /mode plan   — 生成下一个改动的 plan",
+			"  apply 完成。已自动切回 read 模式 — 直接提问就行(例如「这个项目怎么跑」「依赖装齐了吗」)。",
+			"  如果想继续改代码,/mode plan 再次进入 plan 模式即可。",
 		}
 	}
 	return []string{
-		"  apply complete. Next:",
-		"    /mode read   — return to read mode for questions",
-		"    /mode plan   — generate another change",
+		"  apply complete. Auto-switched back to read mode — ask your next question directly (e.g. \"how do I run this\", \"are all dependencies installed\").",
+		"  To make another code change, /mode plan switches back into plan mode.",
 	}
 }
 

@@ -2706,12 +2706,19 @@ func (r *REPL) handleApproveCmd(line string) {
 			r.info(line)
 		}
 	} else {
-		// Success path nudge: after /approve completed, currentMode is
-		// restored to whatever it was before (typically ModePlan since
-		// the user just emitted a plan). Without this hint the user's
-		// next prompt would generate ANOTHER plan — usually not what
-		// they want right after a successful apply. Point at /mode read
-		// for further questions and /mode plan for another change.
+		// Success path nudge + auto-switch to read mode. After a
+		// clean /approve the next user question is almost always
+		// "what does this do" / "how do I run it" / "did it
+		// install everything" — read-mode questions, NOT another
+		// plan. Pre-fix the REPL stayed sticky in plan mode and
+		// the user's follow-up "ModuleNotFoundError 怎么修复" got
+		// dispatched to the planner, which correctly returned
+		// prose (no code change needed) but the orchestrator
+		// surfaced the internal "planner did not call
+		// emit_change_plan" error. Switching to read mode here
+		// breaks that loop without taking away the user's ability
+		// to /mode plan again on demand.
+		r.currentMode = types.ModeRead
 		for _, line := range applyDoneNudge(r.language) {
 			r.info(line)
 		}
@@ -2832,9 +2839,16 @@ func (r *REPL) runMerge(worktreePath, targetBranch string) {
 		}
 		return
 	}
+	// Auto-switch back to read mode after a clean merge for the
+	// same reason /approve does: the user's next question is
+	// almost always a read-mode follow-up ("does it work" / "how
+	// do I push it"). Sticky plan mode after /merge would route
+	// the next question to the planner.
+	r.currentMode = types.ModeRead
 	for _, line := range mergeSuccess(r.language, res.Strategy, res.FinalBranch, len(res.CommitsLanded)) {
 		r.info(line)
 	}
+	r.info(autoModeReadAfterMergeNudge(r.language))
 	// Worktree successfully folded back — discard it so /worktree
 	// list stays honest. This is opt-in via the merge step; users
 	// who don't run /merge keep the preserved worktree as before.
@@ -2888,9 +2902,12 @@ func (r *REPL) runMergeFromRef(planID, ref, targetBranch string) {
 		}
 		return
 	}
+	// Same auto-switch-to-read on success as the worktree path.
+	r.currentMode = types.ModeRead
 	for _, line := range mergeSuccess(r.language, res.Strategy, res.FinalBranch, len(res.CommitsLanded)) {
 		r.info(line)
 	}
+	r.info(autoModeReadAfterMergeNudge(r.language))
 	logging.Info("[repl] post-merge: plan %s landed via recovery ref %s (worktree was already discarded)",
 		planID, ref)
 }
