@@ -4817,32 +4817,28 @@ func normalizeLogSourceDriftSummarySurface(summary string, citations []types.Cit
 	summary = original
 	plan := answerSurfacePlan(ctx)
 	if plan != nil && plan.SummarySurfaceMode == types.AnswerSummarySurfaceDriftBoundedRootCause {
-		summary = sanitizeDriftBoundedRootCauseSummary(summary, citations, gc, ctx)
-		primary := driftBoundedSummaryPrimaryBlock(summary)
-		if bounded := strings.TrimSpace(renderDriftBoundedCurrentRootCauseSummary(ctx)); bounded != "" {
-			switch {
-			case primary != "" && primary != bounded:
-				summary = joinDistinctSummaryBlocks(primary, bounded)
-			case summary == "" || driftBoundedSummaryNeedsFallback(summary):
-				summary = bounded
-			default:
-				summary = joinDistinctSummaryBlocks(summary, bounded)
-			}
-		} else if driftBoundedSummaryNeedsFallback(summary) {
-			summary = ""
+		sanitized := sanitizeDriftBoundedRootCauseSummary(summary, citations, gc, ctx)
+		userFences := summaryDiagramFenceBlocks(sanitized)
+		summary = renderStructuredDriftBoundedSummary(ctx)
+		if summary == "" {
+			summary = driftBoundedSummaryPrimaryBlock(sanitized)
 		}
 		if summary == "" {
 			summary = renderDriftBoundedRootCauseFallbackSummary(ctx)
 		}
 		lead := renderLogSourceDriftLeadClean(ctx)
-		fence := ""
-		if plan.CompiledDiagramKind == types.DiagramCallDAG || plan.CompiledDiagramKind == types.DiagramSequence {
-			fence = strings.TrimSpace(plan.CompiledDiagramFence)
+		blocks := []string{lead, summary}
+		for _, fence := range userFences {
+			if fence != "" {
+				blocks = append(blocks, fence)
+			}
 		}
-		if fence != "" && summary != "" && strings.Contains(summary, fence) {
-			fence = ""
+		if len(userFences) == 0 && (plan.CompiledDiagramKind == types.DiagramCallDAG || plan.CompiledDiagramKind == types.DiagramSequence) {
+			if fence := strings.TrimSpace(plan.CompiledDiagramFence); fence != "" {
+				blocks = append(blocks, fence)
+			}
 		}
-		return preserveRequiredSummaryCoverageAcrossNormalization(original, joinDistinctSummaryBlocks(lead, summary, fence), ctx)
+		return preserveRequiredSummaryCoverageAcrossNormalization(original, joinDistinctSummaryBlocks(blocks...), ctx)
 	}
 	lead := renderLogSourceDriftLeadClean(ctx)
 	if lead == "" {
@@ -4860,6 +4856,10 @@ func preserveRequiredSummaryCoverageAcrossNormalization(original, candidate stri
 	if original == "" || candidate == "" || ctx == nil {
 		return candidate
 	}
+	if original == candidate {
+		return candidate
+	}
+	candidate = augmentSummaryLogTriageCoverage(candidate, ctx)
 	if !summaryCoverageLostAcrossNormalization(original, candidate, ctx) {
 		return candidate
 	}
@@ -4873,6 +4873,32 @@ func preserveRequiredSummaryCoverageAcrossNormalization(original, candidate stri
 		return original
 	}
 	return candidate
+}
+
+func augmentSummaryLogTriageCoverage(summary string, ctx *types.BusContext) string {
+	summary = strings.TrimSpace(summary)
+	if ctx == nil || ctx.Mutable == nil {
+		return summary
+	}
+	errorTypes := types.LogBundleErrorTypes(ctx.Mutable.LogTriage())
+	if len(errorTypes) == 0 {
+		return summary
+	}
+	lowerSummary := strings.ToLower(summary)
+	var missing []string
+	for _, errType := range errorTypes {
+		if !logTriageTypeCovered(errType, lowerSummary) {
+			missing = append(missing, errType)
+		}
+	}
+	if len(missing) == 0 {
+		return summary
+	}
+	coverage := strings.TrimSpace(RenderDriftBoundedErrorTypeCoverageSummary(missing, requestedAnswerDocumentLanguage(ctx)))
+	if coverage == "" {
+		return summary
+	}
+	return joinDistinctSummaryBlocks(summary, coverage)
 }
 
 func summaryCoverageLostAcrossNormalization(original, candidate string, ctx *types.BusContext) bool {
@@ -4981,6 +5007,38 @@ func driftBoundedSummaryPrimaryBlock(summary string) string {
 		return block
 	}
 	return ""
+}
+
+func summaryDiagramFenceBlocks(summary string) []string {
+	var out []string
+	for _, block := range strings.Split(strings.TrimSpace(summary), "\n\n") {
+		block = strings.TrimSpace(block)
+		if block == "" || !strings.HasPrefix(block, "```") {
+			continue
+		}
+		if summaryDiagramFenceCount(block) == 0 {
+			continue
+		}
+		out = append(out, block)
+	}
+	return out
+}
+
+func renderStructuredDriftBoundedSummary(ctx *types.BusContext) string {
+	if ctx == nil || ctx.Mutable == nil {
+		return ""
+	}
+	plan := answerSurfacePlan(ctx)
+	if plan == nil || plan.SummarySurfaceMode != types.AnswerSummarySurfaceDriftBoundedRootCause {
+		return ""
+	}
+	primary := strings.TrimSpace(normalizeLogSourceDriftCompletionReason(ctx, plan.StableInvestigationReason))
+	if primary == "" {
+		primary = strings.TrimSpace(renderDriftBoundedCurrentRootCauseSummary(ctx))
+	}
+	detail := strings.TrimSpace(renderDriftBoundedCurrentCodeDetailSummary(ctx))
+	coverage := strings.TrimSpace(RenderDriftBoundedLogBundleSurfaceSummary(ctx.Mutable.LogTriage(), requestedAnswerDocumentLanguage(ctx)))
+	return joinDistinctSummaryBlocks(coverage, primary, detail)
 }
 
 func driftBoundedSummaryAllowedLabels(citations []types.Citation, gc *ground.Context, plan *types.AnswerSurfacePlan) map[string]bool {

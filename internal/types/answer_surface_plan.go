@@ -1419,6 +1419,9 @@ func CollectDriftBoundedSurfaceItems(observed, drift []LogSourceDriftAnchor, ite
 	if ev, ok := bestDriftBoundedFunctionItem(items, anchorFiles, innerFunc, out); ok {
 		out = append(out, ev)
 	}
+	if ev, ok := bestDriftBoundedCompanionItem(items, anchorFiles, innerFunc, out); ok {
+		out = append(out, ev)
+	}
 	if ev, ok := bestDriftBoundedFunctionItem(items, anchorFiles, outerFunc, out); ok {
 		out = append(out, ev)
 	}
@@ -1495,6 +1498,56 @@ func bestDriftBoundedFunctionItem(items []EvidenceItem, anchorFiles map[string]b
 		case EvidenceConditional:
 			score += 40
 		case EvidenceDirect:
+			score += 30
+		case EvidenceMechanism:
+			score += 20
+		case EvidenceRelationship:
+			score += 10
+		}
+		if item.LineStart > 0 {
+			score += 10000 - item.LineStart
+		}
+		if score > bestScore {
+			bestScore = score
+			best = item
+		}
+	}
+	return best, bestScore >= 0
+}
+
+func bestDriftBoundedCompanionItem(items []EvidenceItem, anchorFiles map[string]bool, fn string, existing []EvidenceItem) (EvidenceItem, bool) {
+	target := normalizedSurfaceSymbolTail(fn)
+	if target == "" {
+		return EvidenceItem{}, false
+	}
+	bestScore := -1
+	var best EvidenceItem
+	for _, item := range items {
+		if !driftBoundedSurfaceItemAllowed(item, anchorFiles) || driftBoundedItemSeen(existing, item) {
+			continue
+		}
+		if !driftBoundedMentionsFunc(item, target) {
+			continue
+		}
+		score := 0
+		switch item.AnchorKind {
+		case AnchorAssignment:
+			score += 500
+		case AnchorReturn:
+			score += 450
+		case AnchorCall:
+			score += 420
+		case AnchorCondition:
+			score += 350
+		case AnchorDefinition:
+			score += 300
+		default:
+			score += 100
+		}
+		switch item.Kind {
+		case EvidenceDirect:
+			score += 40
+		case EvidenceConditional:
 			score += 30
 		case EvidenceMechanism:
 			score += 20

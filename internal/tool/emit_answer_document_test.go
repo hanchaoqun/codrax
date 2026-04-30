@@ -1850,8 +1850,110 @@ func TestEmitAnswerDocument_DriftNormalizationPreservesLogErrorTypeCoverage(t *t
 	if !strings.Contains(strings.ToLower(doc.Summary), "nil pointer dereference") {
 		t.Fatalf("summary lost required log error type after normalization: %q", doc.Summary)
 	}
+	if strings.Contains(doc.Summary, "raw == nil") {
+		t.Fatalf("drift normalization should not resurrect speculative raw==nil prose just to preserve error-type coverage: %q", doc.Summary)
+	}
 	if !strings.Contains(doc.Summary, "```") {
 		t.Fatalf("drift normalization should preserve grounded diagram fences when present: %q", doc.Summary)
+	}
+}
+
+func TestEmitAnswerDocument_DriftBoundedSummaryUsesStructuredSurfaceInsteadOfSpeculativeProse(t *testing.T) {
+	tool := &EmitAnswerDocument{}
+	ctx := newDocBusCtx("")
+	ctx.Language = "en"
+	ctx.AnalysisIR = &types.AnalysisIR{
+		RequestModel: types.RequestModel{
+			Scenario: types.ScenarioRootCause,
+			Intent:   types.IntentRootCause,
+		},
+		AnswerContract: types.AnswerContract{
+			RequiredAnswerShape: types.ShapeExplanation,
+			Diagram: &types.DiagramContract{
+				Required:       true,
+				PreferredKinds: []types.DiagramKind{types.DiagramCallDAG},
+			},
+		},
+	}
+	ctx.Mutable.SetLogTriage(&types.LogBundle{
+		Errors: []types.LogError{{
+			Type: "panic",
+			Frames: []types.LogFrame{
+				{File: "internal/agent/analyzer.go", Line: 250, Func: "buildAnalysisIR"},
+				{File: "internal/agent/analyzer.go", Line: 629, Func: "ParseOutput"},
+			},
+		}},
+	})
+	ctx.Mutable.AppendEvidence([]types.EvidenceItem{
+		{
+			Kind:            types.EvidenceRelationship,
+			Source:          "internal/agent/analyzer.go",
+			LineStart:       674,
+			AnchorKind:      types.AnchorCall,
+			AnchorSymbol:    "buildAnalysisIR",
+			Subject:         "ParseOutput",
+			Object:          "buildAnalysisIR",
+			Predicate:       "calls",
+			GroundingStatus: types.GroundingGrounded,
+			Producer:        EmitEvidenceProducer,
+		},
+		{
+			Kind:            types.EvidenceConditional,
+			Source:          "internal/agent/analyzer.go",
+			LineStart:       884,
+			AnchorKind:      types.AnchorCondition,
+			AnchorSymbol:    "buildAnalysisIR",
+			Condition:       "ctx == nil || ctx.Mutable == nil",
+			GroundingStatus: types.GroundingGrounded,
+			Producer:        EmitEvidenceProducer,
+		},
+		{
+			Kind:            types.EvidenceDirect,
+			Source:          "internal/agent/analyzer.go",
+			LineStart:       887,
+			AnchorKind:      types.AnchorAssignment,
+			AnchorSymbol:    "buildAnalysisIR",
+			Subject:         "raw",
+			Object:          "ctx.Mutable.RequestModel()",
+			GroundingStatus: types.GroundingGrounded,
+			Producer:        EmitEvidenceProducer,
+		},
+	})
+
+	params := mustDocJSON(t, map[string]interface{}{
+		"shape": "explanation",
+		"summary": "The panic definitely happened because the old build dereferenced `ctx.Mutable` after skipping the guard entirely.\n\n" +
+			"This proves the historical root cause was a nil `Mutable` field rather than a bounded current-code mechanism.\n\n" +
+			"```mermaid\nflowchart LR\nParseOutput --> buildAnalysisIR --> deref[ctx.Mutable.RequestModel()]\n```",
+		"citations": []map[string]interface{}{
+			{"file": "internal/agent/analyzer.go", "line": 674},
+			{"file": "internal/agent/analyzer.go", "line": 884},
+			{"file": "internal/agent/analyzer.go", "line": 887},
+		},
+	})
+
+	res, _ := tool.Execute(ctx, params)
+	if !res.Success {
+		t.Fatalf("Execute failed: %q", res.Summary)
+	}
+	doc := ctx.Mutable.AnswerDocument()
+	if doc == nil {
+		t.Fatal("answer document not stored")
+	}
+	if !strings.Contains(doc.Summary, "The attached log's structured error type is `panic`.") {
+		t.Fatalf("structured drift summary should carry deterministic log coverage: %q", doc.Summary)
+	}
+	if !strings.Contains(doc.Summary, "`ParseOutput` calls `buildAnalysisIR` at `internal/agent/analyzer.go:674`") {
+		t.Fatalf("structured drift summary should keep the grounded bounded path: %q", doc.Summary)
+	}
+	if !strings.Contains(doc.Summary, "ctx.Mutable.RequestModel()") {
+		t.Fatalf("structured drift summary should keep grounded current-code detail anchors: %q", doc.Summary)
+	}
+	if strings.Contains(doc.Summary, "definitely happened because") || strings.Contains(doc.Summary, "historical root cause was") {
+		t.Fatalf("speculative stronger-than-grounded prose should be removed from drift-bounded summary: %q", doc.Summary)
+	}
+	if !strings.Contains(doc.Summary, "```") {
+		t.Fatalf("grounded diagram fences should remain available in the normalized drift summary: %q", doc.Summary)
 	}
 }
 
@@ -2219,8 +2321,8 @@ func TestEmitAnswerDocument_DriftBoundedSummaryFallsBackForMultiBlockReasoning(t
 	if strings.Contains(doc.Summary, "nil receiver theory") {
 		t.Fatalf("multi-block speculative drift summary should fall back to the compiled bounded summary: %q", doc.Summary)
 	}
-	if !strings.Contains(doc.Summary, "The current call path is grounded from `ParseOutput` into `buildAnalysisIR`.") {
-		t.Fatalf("the primary grounded answer block should survive drift-bounded normalization: %q", doc.Summary)
+	if strings.Contains(doc.Summary, "The current call path is grounded from `ParseOutput` into `buildAnalysisIR`.") {
+		t.Fatalf("drift-bounded normalization should no longer preserve raw user prose as the primary answer block: %q", doc.Summary)
 	}
 	if !strings.Contains(doc.Summary, "`ParseOutput` calls `buildAnalysisIR` at `internal/agent/analyzer.go:651`") {
 		t.Fatalf("fallback summary missing compiled bounded explanation: %q", doc.Summary)
