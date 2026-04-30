@@ -83,6 +83,7 @@ type emitAnalysisParams struct {
 // to false silently which would mask a classification miss.
 type emitPredicatesParam struct {
 	IsScalarAnswer        *bool `json:"is_scalar_answer"`
+	IsRoleLocateLookup    *bool `json:"is_role_locate_lookup"`
 	IsCountQuestion       *bool `json:"is_count_question"`
 	IsCrossComponent      *bool `json:"is_cross_component"`
 	IsRelationalLookup    *bool `json:"is_relational_lookup"`
@@ -211,13 +212,14 @@ func buildEmitAnalysisSchema() {
 				"description": "Cross-language semantic self-assessment of the question. Every field is required; emit true OR false explicitly. A missing field is fail-loud rejection, not a silent default.",
 				"properties": map[string]any{
 					"is_scalar_answer":        map[string]any{"type": "boolean", "description": "True if the answer is a single scalar (a number, a literal, a path) rather than a set or sequence."},
+					"is_role_locate_lookup":   map[string]any{"type": "boolean", "description": "True when the request names a clue / output / context entity, but the answer is a DIFFERENT single literal that plays a role relative to that clue (entry function, defining file, config key, route, owner symbol, etc.). Implies is_scalar_answer=true and requires answer_subject.kind."},
 					"is_count_question":       map[string]any{"type": "boolean", "description": "True when the answer is a single number that must be computed by aggregating values across multiple source units — e.g. counting items, summing lines of code, summing file sizes, totalling bytes across a directory tree. Implies is_scalar_answer. Set false when the answer is a number that already exists as a single source-code literal (a const declaration, a default value, an enum ordinal) — that case is is_scalar_answer=true without is_count_question."},
 					"is_cross_component":      map[string]any{"type": "boolean", "description": "True if the question genuinely spans multiple distinct components / subsystems / independently-answerable code regions. Leave false for a single named target that merely needs nearby context, precedence layers, or override stages, and also leave false for one ordered source-to-sink call/flow trace even when that chain crosses files or packages."},
 					"is_relational_lookup":    map[string]any{"type": "boolean", "description": "True if filtering set X by a relationship to Y ('functions that return Z', 'agents that use skill Y')."},
 					"is_category_enumeration": map[string]any{"type": "boolean", "description": "True if asking 'what kinds / types / categories of X exist'."},
 					"is_history_lookup":       map[string]any{"type": "boolean", "description": "True when the literal answer should come from repository history / authorship metadata (git log / blame / commit history), not from a repo file:line."},
 				},
-				"required": []string{"is_scalar_answer", "is_count_question", "is_cross_component", "is_relational_lookup", "is_category_enumeration", "is_history_lookup"},
+				"required": []string{"is_scalar_answer", "is_role_locate_lookup", "is_count_question", "is_cross_component", "is_relational_lookup", "is_category_enumeration", "is_history_lookup"},
 			},
 			"predicate_axis": map[string]any{
 				"type":        "string",
@@ -395,21 +397,6 @@ func (t *EmitAnalysis) Execute(ctx *types.BusContext, params json.RawMessage) (t
 			Timestamp: time.Now(),
 		}, nil
 	}
-	// Self-consistency: when the LLM's chosen intent / shape contradicts
-	// its own predicates, that is a sign the LLM did not actually
-	// inspect the question carefully (the predicates flagged "this is a
-	// scalar count" but it still picked a list-shaped answer). Reject
-	// here so the retry hint forces it to reconcile its own classification
-	// instead of a Go reconcile rule papering over the inconsistency.
-	if reason := validateSelfConsistency(intent, kind, shape, predicates); reason != "" {
-		return types.ToolResult{
-			ToolName:  t.Name(),
-			Success:   false,
-			Summary:   "emit_analysis rejected: " + reason,
-			Timestamp: time.Now(),
-		}, nil
-	}
-
 	// Raw objective — the analyzer gets it from Mutable seeded by
 	// the REPL/orchestrator before dispatch. Normalizer builds the
 	// TermGraph from this in analyzer.ParseOutput, so we strip the
@@ -448,6 +435,20 @@ func (t *EmitAnalysis) Execute(ctx *types.BusContext, params json.RawMessage) (t
 	}
 	mentionedEntities := types.MentionedEntitiesFromRawRequest(raw, entities)
 	answerSubject := parseAnswerSubject(p.AnswerSubject)
+	// Self-consistency: when the LLM's chosen intent / shape contradicts
+	// its own predicates, or when a define-axis single-target question
+	// failed to disambiguate whether it is a role-locate scalar lookup
+	// versus an explanation of the named entity itself, reject here so
+	// the retry hint forces the LLM to reconcile its own classification
+	// instead of a Go reconcile rule papering over the inconsistency.
+	if reason := validateSelfConsistency(intent, kind, shape, predicates, axis, entities, p.SubTopics, answerSubject); reason != "" {
+		return types.ToolResult{
+			ToolName:  t.Name(),
+			Success:   false,
+			Summary:   "emit_analysis rejected: " + reason,
+			Timestamp: time.Now(),
+		}, nil
+	}
 	exactContextTerms, exactContextWarn := sanitizeExactContextTerms(exactTargets, mentionedEntities, p.ExactContextTerms)
 	exactContextRoles, exactContextRoleWarn := sanitizeExactContextRoles(
 		exactTargets,
@@ -605,7 +606,23 @@ func validateSelfConsistency(
 	kind string,
 	shape string,
 	preds types.SemanticPredicates,
+	axis types.PredicateAxis,
+	entities []string,
+	subTopics []types.SubTopic,
+	answerSubject types.AnswerSubject,
 ) string {
+	if preds.IsRoleLocateLookup {
+		if !preds.IsScalarAnswer {
+			return "is_role_locate_lookup=true requires is_scalar_answer=true — a role-locate question still resolves to one literal answer"
+		}
+		shapeLower := strings.ToLower(strings.TrimSpace(shape))
+		if shapeLower != string(types.ShapeValue) {
+			return "is_role_locate_lookup=true requires answer_shape=value — the answer is one located literal, not a prose/list carrier"
+		}
+		if !roleLocateSubjectKindAllowed(answerSubject.Kind) {
+			return "is_role_locate_lookup=true requires answer_subject.kind to name the located literal kind (function_name / type_name / file_path / handler_route / config_key / interface_name / struct_field / enum_value)"
+		}
+	}
 	// Count question must resolve to a scalar answer, not a list. If
 	// the LLM marked is_count_question but picked an enumerate intent
 	// or a list_of_symbols shape, it has answered the question wrong
@@ -643,7 +660,63 @@ func validateSelfConsistency(
 			return "is_history_lookup=true requires is_scalar_answer=true — history / authorship lookups yield a single scalar / literal"
 		}
 	}
+	if needsRoleLocateDisambiguation(axis, intent, shape, preds, entities, subTopics) &&
+		answerSubject.Kind == types.SubjectUnknown {
+		return "single-target define-axis lookup is under-specified: set answer_subject.kind explicitly so the system can tell whether this is a role-locate scalar lookup (function / type / file / route / config key) or an explanation of the named entity itself; also set predicates.is_role_locate_lookup to true or false explicitly"
+	}
 	return ""
+}
+
+func roleLocateSubjectKindAllowed(kind types.AnswerSubjectKind) bool {
+	switch kind {
+	case types.SubjectFunctionName,
+		types.SubjectTypeName,
+		types.SubjectInterface,
+		types.SubjectHandlerRoute,
+		types.SubjectConfigKey,
+		types.SubjectFilePath,
+		types.SubjectStructField,
+		types.SubjectEnumValue,
+		types.SubjectStringLiteral:
+		return true
+	}
+	return false
+}
+
+func needsRoleLocateDisambiguation(
+	axis types.PredicateAxis,
+	intent types.Intent,
+	shape string,
+	preds types.SemanticPredicates,
+	entities []string,
+	subTopics []types.SubTopic,
+) bool {
+	if axis != types.AxisDefine {
+		return false
+	}
+	if len(subTopics) > 1 {
+		return false
+	}
+	if preds.IsCountQuestion ||
+		preds.IsCategoryEnumeration ||
+		preds.IsCrossComponent ||
+		preds.IsRelationalLookup ||
+		preds.IsHistoryLookup {
+		return false
+	}
+	if len(trimStringSlice(entities)) > 1 {
+		return false
+	}
+	switch intent {
+	case types.IntentExplain, types.IntentUnknown, types.IntentReturnValue:
+	default:
+		return false
+	}
+	switch strings.ToLower(strings.TrimSpace(shape)) {
+	case "", string(types.ShapeNone), string(types.ShapeBoolean), string(types.ShapeListOfSymbols):
+		return false
+	}
+	return true
 }
 
 // parsePredicates enforces the schema-v4 fail-loud contract for the
@@ -659,11 +732,14 @@ func validateSelfConsistency(
 func parsePredicates(p *emitPredicatesParam) (types.SemanticPredicates, string) {
 	if p == nil {
 		return types.SemanticPredicates{},
-			"predicates object missing — emit `predicates` with is_scalar_answer / is_count_question / is_cross_component / is_relational_lookup / is_category_enumeration / is_history_lookup each set to true or false"
+			"predicates object missing — emit `predicates` with is_scalar_answer / is_role_locate_lookup / is_count_question / is_cross_component / is_relational_lookup / is_category_enumeration / is_history_lookup each set to true or false"
 	}
 	missing := []string{}
 	if p.IsScalarAnswer == nil {
 		missing = append(missing, "is_scalar_answer")
+	}
+	if p.IsRoleLocateLookup == nil {
+		missing = append(missing, "is_role_locate_lookup")
 	}
 	if p.IsCountQuestion == nil {
 		missing = append(missing, "is_count_question")
@@ -688,6 +764,7 @@ func parsePredicates(p *emitPredicatesParam) (types.SemanticPredicates, string) 
 	}
 	return types.SemanticPredicates{
 		IsScalarAnswer:        *p.IsScalarAnswer,
+		IsRoleLocateLookup:    *p.IsRoleLocateLookup,
 		IsCountQuestion:       *p.IsCountQuestion,
 		IsCrossComponent:      *p.IsCrossComponent,
 		IsRelationalLookup:    *p.IsRelationalLookup,
@@ -967,6 +1044,9 @@ func buildEmitAnalysisSummary(raw emitAnalysisParams, rm types.RequestModel, val
 	}
 	if rm.Predicates.IsHistoryLookup {
 		b.WriteString(" history_lookup=true")
+	}
+	if rm.Predicates.IsRoleLocateLookup {
+		b.WriteString(" role_locate=true")
 	}
 
 	// Normalization delta — only fields where raw ≠ canonical get

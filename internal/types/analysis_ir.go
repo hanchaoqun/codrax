@@ -293,6 +293,15 @@ type SemanticPredicates struct {
 	// measurement-scalar carve-out that strips the citation gate.
 	IsScalarAnswer bool `json:"is_scalar_answer"`
 
+	// IsRoleLocateLookup: the request names a clue / output / context
+	// entity, but the answer is a DIFFERENT single literal that plays a
+	// role relative to that clue — e.g. the entry function that
+	// produces a type, the file that defines a route, or the config key
+	// that controls a behaviour. This lets the analyzer keep the answer
+	// in the scalar-literal lane even when the request text itself names
+	// a neighboring entity, avoiding architecture/mechanism drift.
+	IsRoleLocateLookup bool `json:"is_role_locate_lookup"`
+
 	// IsCountQuestion: the answer is a single number that must be
 	// computed by aggregating values across multiple source units —
 	// counting items, summing lines of code, totalling bytes across a

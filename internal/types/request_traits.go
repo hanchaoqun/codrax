@@ -33,7 +33,12 @@ func IsScalarSourceLiteralLookup(rm RequestModel) bool {
 		return false
 	}
 	if !isScalarSourceLiteralSubjectKind(rm.AnswerSubject.Kind) {
-		return false
+		if !(rm.Predicates.IsRoleLocateLookup && rm.AnswerSubject.Kind == SubjectConfigKey) {
+			return false
+		}
+	}
+	if rm.Predicates.IsRoleLocateLookup {
+		return true
 	}
 	if rm.Predicates.IsScalarAnswer {
 		return true
@@ -91,6 +96,9 @@ func isScalarSourceLiteralSubjectKind(kind AnswerSubjectKind) bool {
 func IsScalarRoleLocateLookup(rm RequestModel) bool {
 	if !IsScalarSourceLiteralLookup(rm) {
 		return false
+	}
+	if rm.Predicates.IsRoleLocateLookup {
+		return true
 	}
 	if rm.AnswerSubject.Kind == SubjectReturnValue {
 		return false

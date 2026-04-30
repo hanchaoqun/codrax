@@ -26,6 +26,7 @@ const v4DefaultsJSON = `,
 	"shape_confidence": 0.7,
 	"predicates": {
 		"is_scalar_answer": false,
+		"is_role_locate_lookup": false,
 		"is_count_question": false,
 		"is_cross_component": false,
 		"is_relational_lookup": false,
@@ -66,6 +67,71 @@ func TestValidateAnalysisInput_HappyPath(t *testing.T) {
 	}
 	if len(res.FilteredEntities) != 2 {
 		t.Errorf("FilteredEntities should pass through clean entities, got %v", res.FilteredEntities)
+	}
+}
+
+func TestValidateSelfConsistency_RoleLocateRequiresScalarValueAndSubject(t *testing.T) {
+	preds := types.SemanticPredicates{
+		IsScalarAnswer:     false,
+		IsRoleLocateLookup: true,
+	}
+	reason := validateSelfConsistency(
+		types.IntentExplain,
+		"mechanism",
+		"explanation",
+		preds,
+		types.AxisDefine,
+		[]string{"AnalysisIR"},
+		nil,
+		types.AnswerSubject{},
+	)
+	if reason == "" || !strings.Contains(reason, "is_role_locate_lookup=true requires is_scalar_answer=true") {
+		t.Fatalf("expected scalar role-locate contradiction, got %q", reason)
+	}
+}
+
+func TestValidateSelfConsistency_DefineAxisSingleTargetRequiresSubjectDisambiguation(t *testing.T) {
+	preds := types.SemanticPredicates{
+		IsScalarAnswer:        false,
+		IsRoleLocateLookup:    false,
+		IsCountQuestion:       false,
+		IsCrossComponent:      false,
+		IsRelationalLookup:    false,
+		IsCategoryEnumeration: false,
+		IsHistoryLookup:       false,
+	}
+	reason := validateSelfConsistency(
+		types.IntentExplain,
+		"mechanism",
+		"explanation",
+		preds,
+		types.AxisDefine,
+		[]string{"AnalysisIR"},
+		nil,
+		types.AnswerSubject{},
+	)
+	if reason == "" || !strings.Contains(reason, "single-target define-axis lookup is under-specified") {
+		t.Fatalf("expected define-axis disambiguation reject, got %q", reason)
+	}
+}
+
+func TestValidateSelfConsistency_DefineAxisSingleTargetAcceptsExplicitRoleLocate(t *testing.T) {
+	preds := types.SemanticPredicates{
+		IsScalarAnswer:     true,
+		IsRoleLocateLookup: true,
+	}
+	reason := validateSelfConsistency(
+		types.IntentExplain,
+		"mechanism",
+		"value",
+		preds,
+		types.AxisDefine,
+		[]string{"AnalysisIR"},
+		nil,
+		types.AnswerSubject{Kind: types.SubjectFunctionName},
+	)
+	if reason != "" {
+		t.Fatalf("explicit role-locate classification should pass, got %q", reason)
 	}
 }
 
@@ -1196,6 +1262,7 @@ func TestEmitAnalysis_Execute_RejectsMissingPredicateField(t *testing.T) {
 		"shape_confidence": 0.7,
 		"predicates": {
 			"is_scalar_answer": false,
+			"is_role_locate_lookup": false,
 			"is_cross_component": false,
 			"is_relational_lookup": false,
 			"is_category_enumeration": false,
@@ -1283,6 +1350,7 @@ func TestEmitAnalysis_Execute_RejectsInconsistentCountIntent(t *testing.T) {
 		"kind_confidence": 0.7, "shape_confidence": 0.7,
 		"predicates": {
 			"is_scalar_answer": true,
+			"is_role_locate_lookup": false,
 			"is_count_question": true,
 			"is_cross_component": false,
 			"is_relational_lookup": false,
@@ -1319,6 +1387,7 @@ func TestEmitAnalysis_Execute_RejectsInconsistentCountShape(t *testing.T) {
 		"kind_confidence": 0.7, "shape_confidence": 0.7,
 		"predicates": {
 			"is_scalar_answer": true,
+			"is_role_locate_lookup": false,
 			"is_count_question": true,
 			"is_cross_component": false,
 			"is_relational_lookup": false,
@@ -1354,6 +1423,7 @@ func TestEmitAnalysis_Execute_RejectsCountWithoutScalar(t *testing.T) {
 		"kind_confidence": 0.7, "shape_confidence": 0.7,
 		"predicates": {
 			"is_scalar_answer": false,
+			"is_role_locate_lookup": false,
 			"is_count_question": true,
 			"is_cross_component": false,
 			"is_relational_lookup": false,
@@ -1388,6 +1458,7 @@ func TestEmitAnalysis_Execute_RejectsCategoryEnumerationWithScalar(t *testing.T)
 		"kind_confidence": 0.7, "shape_confidence": 0.7,
 		"predicates": {
 			"is_scalar_answer": true,
+			"is_role_locate_lookup": false,
 			"is_count_question": false,
 			"is_cross_component": false,
 			"is_relational_lookup": false,
@@ -1425,6 +1496,7 @@ func TestEmitAnalysis_Execute_PersistsV4FieldsOntoRequestModel(t *testing.T) {
 		"predicate_axis": "register",
 		"predicates": {
 			"is_scalar_answer": true,
+			"is_role_locate_lookup": false,
 			"is_count_question": true,
 			"is_cross_component": false,
 			"is_relational_lookup": false,
@@ -1475,6 +1547,7 @@ func TestEmitAnalysis_Execute_RejectsInvalidExactTargets(t *testing.T) {
 		"shape_confidence": 0.8,
 		"predicates": {
 			"is_scalar_answer": true,
+			"is_role_locate_lookup": false,
 			"is_count_question": false,
 			"is_cross_component": false,
 			"is_relational_lookup": false,
@@ -1513,6 +1586,7 @@ func TestEmitAnalysis_Execute_DropsInvalidExactContextTermsWithWarning(t *testin
 		"shape_confidence": 0.8,
 		"predicates": {
 			"is_scalar_answer": true,
+			"is_role_locate_lookup": false,
 			"is_count_question": false,
 			"is_cross_component": false,
 			"is_relational_lookup": false,
@@ -1557,6 +1631,7 @@ func TestEmitAnalysis_Execute_PersistsExactTargetsAndHistoryPredicate(t *testing
 		"shape_confidence": 0.88,
 		"predicates": {
 			"is_scalar_answer": true,
+			"is_role_locate_lookup": false,
 			"is_count_question": false,
 			"is_cross_component": false,
 			"is_relational_lookup": false,
@@ -1602,6 +1677,7 @@ func TestEmitAnalysis_Execute_PersistsExactContextTerms(t *testing.T) {
 		"shape_confidence": 0.8,
 		"predicates": {
 			"is_scalar_answer": true,
+			"is_role_locate_lookup": false,
 			"is_count_question": false,
 			"is_cross_component": false,
 			"is_relational_lookup": false,
@@ -1648,6 +1724,7 @@ func TestEmitAnalysis_Execute_PersistsExactContextRoles(t *testing.T) {
 		"shape_confidence": 0.85,
 		"predicates": {
 			"is_scalar_answer": false,
+			"is_role_locate_lookup": false,
 			"is_count_question": false,
 			"is_cross_component": false,
 			"is_relational_lookup": false,

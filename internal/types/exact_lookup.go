@@ -121,6 +121,9 @@ func exactResolutionImplicitTargetsDisabled(rm RequestModel) bool {
 	default:
 		return false
 	}
+	if rm.Predicates.IsRoleLocateLookup {
+		return true
+	}
 	// Role-locate questions often mention the OUTPUT / context entity
 	// ("which function produces AnalysisIR?") rather than an exact
 	// answer target the user wants resolved. For these latent-answer
