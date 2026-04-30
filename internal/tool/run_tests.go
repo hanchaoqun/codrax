@@ -100,6 +100,22 @@ type runTestsParams struct {
 	// RepoRoot (no escapes via ".." or absolute paths) before any
 	// command runs.
 	WorkingDir string `json:"working_dir,omitempty"`
+
+	// DryRun is the Module E plan-stage probe flag. When true AND
+	// BusContext.Mode == ModePlan, the tool runs against the user's
+	// main repo (no worktree required) and stores the resulting
+	// ChangeReport on Mutable.PlanStageProbeReports rather than
+	// Mutable.ChangeReport. Lets the planner test the existing
+	// suite for a baseline understanding before emitting a plan,
+	// without polluting the verify-stage's authoritative outcome
+	// channel.
+	//
+	// Outside plan stage the flag is ignored (the verify stage
+	// always wants the result on the main ChangeReport channel).
+	// run_tests is a read-only operation by nature — it never
+	// writes files — so dry_run is a CHANNEL choice, not a safety
+	// gate.
+	DryRun bool `json:"dry_run,omitempty"`
 }
 
 // allowedRunners is the whitelist of runner identifiers the LLM may
@@ -166,6 +182,10 @@ func (t *RunTests) Parameters() json.RawMessage {
     "working_dir": {
       "type": "string",
       "description": "Test root, repo-relative path. Empty or \".\" = repo root. Use to scope the run to a sub-project / module dir. Must be inside the worktree."
+    },
+    "dry_run": {
+      "type": "boolean",
+      "description": "Plan-stage probe mode. When true AND you are in plan stage, the tool runs against the user's main repo without requiring a worktree, and the result goes into a separate plan-stage probe channel — it does NOT become the verify-stage outcome. Use this to learn what the existing test suite reports BEFORE emitting your plan so you can write a plan that responds to observed behaviour. Outside plan stage the flag is ignored."
     }
   }
 }`)
@@ -179,15 +199,33 @@ func (t *RunTests) Execute(ctx *types.BusContext, params json.RawMessage) (types
 	if ctx == nil || ctx.Mutable == nil {
 		return errResult(t.Name(), "run_tests requires BusContext.Mutable"), nil
 	}
-	if ctx.RepoRoot == "" {
-		return errResult(t.Name(),
-			"run_tests requires ctx.RepoRoot — orchestrator must have swapped to a worktree before verify"), nil
-	}
 
 	var p runTestsParams
 	if len(params) > 0 {
 		if err := json.Unmarshal(params, &p); err != nil {
 			return errResult(t.Name(), fmt.Sprintf("invalid params: %v", err)), err
+		}
+	}
+
+	// Module E: plan-stage dry-run probe runs against MainRepoRoot
+	// (no worktree provisioned in plan stage); reports flow to a
+	// separate probe channel so the verify stage's authoritative
+	// outcome is never polluted. The flag is ONLY honored when
+	// Mode==ModePlan — outside plan stage we keep the original
+	// strict worktree contract.
+	dryRunProbe := p.DryRun && ctx.Mode == types.ModePlan
+
+	if ctx.RepoRoot == "" {
+		// In dry-run probe mode the planner has no worktree to swap
+		// to; fall back to MainRepoRoot if available so the probe
+		// can still execute. Outside dry-run we keep the strict
+		// requirement so a misconfigured Run can't quietly run
+		// tests against the wrong directory.
+		if dryRunProbe && ctx.MainRepoRoot != "" {
+			ctx.RepoRoot = ctx.MainRepoRoot
+		} else {
+			return errResult(t.Name(),
+				"run_tests requires ctx.RepoRoot — orchestrator must have swapped to a worktree before verify"), nil
 		}
 	}
 
@@ -376,7 +414,7 @@ func (t *RunTests) Execute(ctx *types.BusContext, params json.RawMessage) (types
 			if ref != "" {
 				report.FailureSummaryBlobRef = ref
 			}
-			ctx.Mutable.SetChangeReport(qualifyChangeReport(report, plan, ctx.RepoRoot))
+			installRunTestsReport(ctx, qualifyChangeReport(report, plan, ctx.RepoRoot), dryRunProbe)
 			return types.ToolResult{
 				ToolName:  t.Name(),
 				Success:   false,
@@ -397,7 +435,7 @@ func (t *RunTests) Execute(ctx *types.BusContext, params json.RawMessage) (types
 			if ref != "" {
 				report.FailureSummaryBlobRef = ref
 			}
-			ctx.Mutable.SetChangeReport(qualifyChangeReport(report, plan, ctx.RepoRoot))
+			installRunTestsReport(ctx, qualifyChangeReport(report, plan, ctx.RepoRoot), dryRunProbe)
 			return types.ToolResult{
 				ToolName:  t.Name(),
 				Success:   false,
@@ -414,7 +452,7 @@ func (t *RunTests) Execute(ctx *types.BusContext, params json.RawMessage) (types
 			if ref != "" {
 				report.FailureSummaryBlobRef = ref
 			}
-			ctx.Mutable.SetChangeReport(qualifyChangeReport(report, plan, ctx.RepoRoot))
+			installRunTestsReport(ctx, qualifyChangeReport(report, plan, ctx.RepoRoot), dryRunProbe)
 			return types.ToolResult{
 				ToolName:  t.Name(),
 				Success:   false,
@@ -472,7 +510,7 @@ func (t *RunTests) Execute(ctx *types.BusContext, params json.RawMessage) (types
 				hint = envRec
 			}
 			report.FailureSummary = updateFailureSummaryWithHint(report.FailureSummary, hint)
-			ctx.Mutable.SetChangeReport(qualifyChangeReport(report, plan, ctx.RepoRoot))
+			installRunTestsReport(ctx, qualifyChangeReport(report, plan, ctx.RepoRoot), dryRunProbe)
 			summary := runnerMissingToolResultSummary(
 				ctx.Language, label,
 				missingBinary, hint,
@@ -549,7 +587,7 @@ func (t *RunTests) Execute(ctx *types.BusContext, params json.RawMessage) (types
 	if ref != "" {
 		report.FailureSummaryBlobRef = ref
 	}
-	ctx.Mutable.SetChangeReport(report)
+	installRunTestsReport(ctx, report, dryRunProbe)
 
 	success := report.Passed
 	logging.Info("[run_tests] projects=%d passed=%v total=%d failed=%d",
@@ -793,6 +831,23 @@ func isMoreSevereFailureKind(candidate, current types.FailureKind) bool {
 		return 0
 	}
 	return severity(candidate) > severity(current)
+}
+
+// installRunTestsReport routes a finished ChangeReport to the right
+// Mutable channel based on whether this is a plan-stage dry-run
+// probe (Module E) or a real verify-stage run. Probe reports go to
+// PlanStageProbeReports so the verify-stage's authoritative
+// outcome is never polluted; verify reports go to ChangeReport as
+// always. Single seam keeps the dry_run plumbing localised.
+func installRunTestsReport(ctx *types.BusContext, report *types.ChangeReport, dryRunProbe bool) {
+	if ctx == nil || ctx.Mutable == nil || report == nil {
+		return
+	}
+	if dryRunProbe {
+		ctx.Mutable.AppendPlanStageProbeReport(report)
+		return
+	}
+	ctx.Mutable.SetChangeReport(report)
 }
 
 func qualifyChangeReport(report *types.ChangeReport, plan runnerPlan, repoRoot string) *types.ChangeReport {

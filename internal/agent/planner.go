@@ -132,6 +132,9 @@ func (e *plannerEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk *
 	if surface := e.buildTestSurfaceSection(ctx); surface != "" {
 		sections = append(sections, surface)
 	}
+	if probes := e.buildProbeHistorySection(ctx); probes != "" {
+		sections = append(sections, probes)
+	}
 	if history := e.buildIterationHistorySection(ctx); history != "" {
 		sections = append(sections, history)
 	}
@@ -266,6 +269,55 @@ func (e *plannerEvaluator) buildTestSurfaceSection(ctx *types.AgentContext) stri
 		b.WriteString("\n")
 	}
 	return b.String()
+}
+
+// buildProbeHistorySection renders Module E's plan-stage probe
+// results into the planner's initial prompt. Each probe is one
+// run_tests(dry_run=true) call the planner made earlier in this
+// dispatch (or in a prior dispatch within the same Run, before a
+// retry). The section enumerates probes in order with verbatim
+// pass/fail counts + failure summary so the planner can compare
+// "what the existing suite reports today" against the changes it's
+// about to propose.
+//
+// Empty when no probe has fired this Run.
+func (e *plannerEvaluator) buildProbeHistorySection(ctx *types.AgentContext) string {
+	if ctx == nil || ctx.Mutable == nil {
+		return ""
+	}
+	probes := ctx.Mutable.PlanStageProbeReports()
+	if len(probes) == 0 {
+		return ""
+	}
+	var b strings.Builder
+	b.WriteString("## Plan-stage probe results\n\n")
+	b.WriteString("Each entry is a run_tests(dry_run=true) probe you fired earlier in this Run. The probes ran the EXISTING test suite (before any plan was applied) so you can see what passes / fails today.\n\n")
+	for i, r := range probes {
+		if r == nil {
+			continue
+		}
+		passed := 0
+		failed := 0
+		for _, tr := range r.TestResults {
+			if tr.Passed {
+				passed++
+			} else {
+				failed++
+			}
+		}
+		fmt.Fprintf(&b, "### Probe %d\n\n", i+1)
+		fmt.Fprintf(&b, "Tests: %d passed, %d failed.\n\n", passed, failed)
+		if r.FailureSummary != "" {
+			b.WriteString("Failure summary (verbatim):\n")
+			b.WriteString(r.FailureSummary)
+			b.WriteString("\n")
+			if r.FailureSummaryBlobRef != "" {
+				fmt.Fprintf(&b, "(Full stderr at %s — call read_file with offset/limit to page through.)\n", r.FailureSummaryBlobRef)
+			}
+			b.WriteString("\n")
+		}
+	}
+	return strings.TrimRight(b.String(), "\n")
 }
 
 // buildIterationHistorySection renders Module C's iteration ledger

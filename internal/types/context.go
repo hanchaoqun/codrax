@@ -229,6 +229,15 @@ type MutableState struct {
 	// memory pattern (Shinn et al. 2023).
 	iterationLedger []IterationRecord
 
+	// planStageProbeReports records every dry-run probe the planner
+	// fires during plan stage via run_tests(dry_run=true). Distinct
+	// from ChangeReport (which is the verify stage's authoritative
+	// outcome) so a plan-stage probe NEVER pollutes the verify
+	// channel and the verify→plan retry loop continues to read only
+	// real verify results. Append-only inside a Run; reset at Run
+	// boundary alongside the iteration ledger.
+	planStageProbeReports []*ChangeReport
+
 	// investigationComplete is set by the emit_investigation_complete
 	// tool when the LLM explicitly declares that it has collected
 	// enough evidence to answer the user's question. The explorer's
@@ -1543,6 +1552,49 @@ func (m *MutableState) ResetIterationLedger() {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.iterationLedger = nil
+}
+
+// AppendPlanStageProbeReport records one plan-stage dry-run probe
+// (Module E). Called by run_tests when invoked with dry_run=true in
+// plan stage. Stored separately from Mutable.changeReport so the
+// verify→plan retry channel sees ONLY authoritative verify outcomes
+// (preventing a plan-stage probe from being mistaken for a verify
+// result that drives a retry decision).
+func (m *MutableState) AppendPlanStageProbeReport(r *ChangeReport) {
+	if m == nil || r == nil {
+		return
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.planStageProbeReports = append(m.planStageProbeReports, r)
+}
+
+// PlanStageProbeReports returns a copy of the per-Run probe slice
+// (oldest-first). Empty when no probe has fired. The planner can
+// read these from its dispatch context to inform its plan emission.
+func (m *MutableState) PlanStageProbeReports() []*ChangeReport {
+	if m == nil {
+		return nil
+	}
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	if len(m.planStageProbeReports) == 0 {
+		return nil
+	}
+	out := make([]*ChangeReport, len(m.planStageProbeReports))
+	copy(out, m.planStageProbeReports)
+	return out
+}
+
+// ResetPlanStageProbeReports clears the probe slice. Called at Run
+// boundary alongside ResetIterationLedger.
+func (m *MutableState) ResetPlanStageProbeReports() {
+	if m == nil {
+		return
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.planStageProbeReports = nil
 }
 
 // SetTurnAArtifacts stores the P2.1 handoff snapshot from the

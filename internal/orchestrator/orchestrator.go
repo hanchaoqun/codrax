@@ -858,6 +858,9 @@ func (o *Orchestrator) Run(request string, repoRoot string, branch string) (*typ
 	// (lessons-library is the place for cross-Run memory, and
 	// Voyager-pattern is intentionally out of scope per the redesign).
 	o.busCtx.Mutable.ResetIterationLedger()
+	// Module E: same shape for plan-stage probe reports — fresh Run
+	// starts with no probe history.
+	o.busCtx.Mutable.ResetPlanStageProbeReports()
 
 	o.busCtx.Language = o.language
 	o.busCtx.AttachedLog = o.attachedLog
