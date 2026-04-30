@@ -136,6 +136,25 @@ type Orchestrator struct {
 	// the post-apply ChangeReport.
 	baselineCaptureEnabled bool
 
+	// baselineCache reuses cached baseline reports across Runs that
+	// observe the same main-repo HEAD SHA. Cache hits bypass the
+	// test-suite re-run entirely, regardless of
+	// baselineCaptureEnabled — once a baseline exists, it costs
+	// nothing to use. Nil when commit 2 P0 A1 wiring is absent or
+	// the operator set baseline_cache_max=0. Per-runtime-anchor
+	// directory layout — see baseline_cache.go.
+	baselineCache *BaselineCache
+
+	// writeMaxSeconds is the wall-clock ceiling for write-mode
+	// Runs. When > 0, Run() arms a deadline timer at write-mode
+	// entry that cancels the in-flight Run when the timer fires
+	// (LastError surfaces "write mode wall-time exceeded"). Read-
+	// mode Runs are unaffected — the timer is only armed when Mode
+	// is plan / apply / verify. Hard-capped at 1800 seconds inside
+	// SetWriteMaxSeconds. Default 0 (no cap, legacy behaviour);
+	// cmd/root.go sets 600 from yaml.
+	writeMaxSeconds int
+
 	// keepWorktreeOnSuccess, when true, skips the post-Run worktree
 	// discard if the Run finished a successful ModeApply (apply +
 	// verify both passed). Default false preserves historical "Run
@@ -585,6 +604,40 @@ func (o *Orchestrator) BaselineCaptureEnabled() bool {
 	return o.baselineCaptureEnabled
 }
 
+// SetBaselineCache installs (or clears) the per-anchor baseline
+// disk cache. Pass nil to disable. Wired from cmd/root.go using the
+// resolved baseline_cache_max + runtimeAnchor.
+func (o *Orchestrator) SetBaselineCache(c *BaselineCache) {
+	o.baselineCache = c
+}
+
+// BaselineCache returns the current cache (nil when disabled).
+func (o *Orchestrator) BaselineCache() *BaselineCache {
+	return o.baselineCache
+}
+
+// SetWriteMaxSeconds bounds the wall-clock duration of a write-mode
+// Run. 0 disables the cap (legacy behaviour). Negative values are
+// coerced to 0. Values above 1800 are clamped to 1800 to defend
+// against operator typos that would let a Run grind for hours
+// before the deadline fired.
+func (o *Orchestrator) SetWriteMaxSeconds(n int) {
+	if n < 0 {
+		n = 0
+	}
+	const hardCap = 1800
+	if n > hardCap {
+		logging.Warning("[orchestrator] write_max_seconds %d clamped to %d (operator hard cap)", n, hardCap)
+		n = hardCap
+	}
+	o.writeMaxSeconds = n
+}
+
+// WriteMaxSeconds returns the current cap (0 = disabled).
+func (o *Orchestrator) WriteMaxSeconds() int {
+	return o.writeMaxSeconds
+}
+
 // SetAutoInitRepo authorizes the apply pre-hook to run `git init`
 // + an empty initial commit on a bare or commitless main repo
 // before provisioning the worktree. False (default) preserves the
@@ -690,6 +743,21 @@ func (o *Orchestrator) Run(request string, repoRoot string, branch string) (*typ
 	// leak a stale "canceled" state into the next Run.
 	o.cancelToken = NewCancelToken()
 	defer func() { o.cancelToken = nil }()
+
+	// Wall-clock deadline for write-mode Runs. The timer fires at
+	// most once per Run; the AfterFunc closure cancels the token
+	// with a typed reason so the caller's "✗ canceled" rendering
+	// distinguishes user-cancelled from time-cancelled. Read-mode
+	// Runs are explicitly unaffected — the timer is only armed when
+	// the operator-set Mode is plan / apply / verify. Stop() is
+	// best-effort: a fired timer is a no-op.
+	if o.writeMaxSeconds > 0 && o.mode != types.ModeRead && o.mode != "" {
+		deadline := time.Duration(o.writeMaxSeconds) * time.Second
+		timer := time.AfterFunc(deadline, func() {
+			o.Cancel(fmt.Sprintf("write mode wall-time exceeded (%ds)", o.writeMaxSeconds))
+		})
+		defer timer.Stop()
+	}
 
 	// Defensive live-preview cleanup. The finalizer streaming preview
 	// area opens on EventLivePreviewChunk and the orchestrator emits
@@ -2053,6 +2121,43 @@ func renderVerifySuccess(report *types.ChangeReport, lang string) string {
 	}
 	return fmt.Sprintf("\n## Tests verified\n\n%d test(s) passed. Report saved to .codrax/plans/%s.report.json.\n",
 		total, report.PlanID)
+}
+
+// renderVerifyUnverified is the "verify ran cleanly but no tests
+// were discovered for the changed code" message. The plan's bytes
+// are on disk in the worktree, but no assertion proved they work.
+// Deliberately worded so the operator immediately understands this
+// is NOT a failure (the change applied) and NOT a success (the
+// change is unverified) — it's an explicit middle state requiring
+// either /merge (accept as-is) or adding tests (verify
+// retroactively).
+func renderVerifyUnverified(report *types.ChangeReport, lang string) string {
+	zh := isLangZh(lang)
+	runners := ""
+	planID := ""
+	if report != nil {
+		runners = strings.Join(report.NoTestsRunners, ", ")
+		planID = report.PlanID
+	}
+	if zh {
+		return fmt.Sprintf("\n## 未验证 (unverified)\n\n"+
+			"代码改动已落到 worktree,但测试运行器 (%s) 没有发现任何测试,所以没有断言验证过这次改动。\n\n"+
+			"建议:\n"+
+			"- 添加测试覆盖再 /verify,或\n"+
+			"- 直接 /merge 接受这次改动,或\n"+
+			"- /reject 退回到 plan。\n\n"+
+			"报告已存到 .codrax/plans/%s.report.json。\n",
+			runners, planID)
+	}
+	return fmt.Sprintf("\n## Unverified\n\n"+
+		"The change applied to the worktree, but the test runner (%s) discovered zero tests "+
+		"for the changed code, so no assertion verified the change.\n\n"+
+		"Next steps:\n"+
+		"- add test coverage and /verify, or\n"+
+		"- /merge to accept the change as-is, or\n"+
+		"- /reject to roll back.\n\n"+
+		"Report saved to .codrax/plans/%s.report.json.\n",
+		runners, planID)
 }
 
 // renderChangePlanSummary formats a ChangePlan as a human-readable

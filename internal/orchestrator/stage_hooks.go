@@ -348,11 +348,57 @@ func applyPreHook(o *Orchestrator) error {
 		o.busCtx.Mutable.SetRepoRoot(sess.Path())
 		logging.Info("[orchestrator] apply pre-hook: worktree at %s", sess.Path())
 	}
-	// 3. Baseline capture (opt-in).
-	if o.baselineCaptureEnabled && o.busCtx.Mutable.BaselineReport() == nil {
-		o.captureBaseline()
+	// 3. Baseline capture. The cache always tries first when it is
+	// enabled — a hit gives us a free baseline regardless of the
+	// per-Run capture flag, because re-running the test suite for
+	// the same main-repo HEAD would produce identical results. On
+	// miss, fall through to the captureBaseline path when the
+	// per-Run capture flag is set.
+	if o.busCtx.Mutable.BaselineReport() == nil {
+		o.tryBaselineFromCacheThenCapture()
 	}
 	return nil
+}
+
+// tryBaselineFromCacheThenCapture is the cache-first wrapper around
+// captureBaseline. Order:
+//   1. Cache lookup keyed by the main-repo HEAD SHA. Hit → install
+//      the cached report on Mutable, skip the test re-run.
+//   2. Cache miss + baselineCaptureEnabled=true → captureBaseline()
+//      runs the test suite, installs Mutable.BaselineReport, and
+//      writes the result to the cache for future Runs.
+//   3. Cache miss + baselineCaptureEnabled=false → no-op (legacy
+//      behaviour preserved).
+//
+// Errors at every stage are logged and swallowed; baseline data is
+// advisory for CritNoRegression and never blocks apply.
+func (o *Orchestrator) tryBaselineFromCacheThenCapture() {
+	cache := o.baselineCache
+	sha := ""
+	if cache.Enabled() && o.busCtx.MainRepoRoot != "" {
+		if got, err := gitHeadSHA(o.busCtx.MainRepoRoot); err == nil {
+			sha = got
+		}
+	}
+	if sha != "" {
+		if cached := cache.Lookup(sha); cached != nil {
+			o.busCtx.Mutable.SetBaselineReport(cached)
+			logging.Info("[orchestrator] baseline reused from cache (sha=%s tests=%d)",
+				sha[:8], len(cached.TestResults))
+			return
+		}
+	}
+	if !o.baselineCaptureEnabled {
+		return
+	}
+	o.captureBaseline()
+	// After capture, write to the cache for future Runs. captureBaseline
+	// already populated Mutable.BaselineReport — read back and store.
+	if sha != "" && cache.Enabled() {
+		if report := o.busCtx.Mutable.BaselineReport(); report != nil {
+			cache.Store(sha, report)
+		}
+	}
 }
 
 // applyPostHook runs after the coder returns. On dispatch error,
@@ -512,11 +558,134 @@ func verifyPostHook(o *Orchestrator, out *agent.StageOutput) error {
 		o.persistPlanStatus(types.PlanStatusVerifyFailed, nil)
 		return nil
 	}
+	// Verify ran cleanly. Decide between PlanStatusApplied (tests
+	// actually verified the change) and PlanStatusUnverified (runner
+	// reported zero tests for the changed code AND the plan
+	// modified non-test files). The decision reads typed structured
+	// signals only:
+	//   - report.NoTestsRunners — set by the run_tests parser when
+	//     a runner exited successfully but discovered zero tests.
+	//   - WriteAnalysisIR.Request.Task.Kind — set by write_analyzer
+	//     to characterise the user's intent. WriteTaskTest /
+	//     WriteTaskDocs / WriteTaskConfig are benign no-test
+	//     scenarios (the user wanted to add docs / tests / config —
+	//     "0 tests for that" is not a problem); fall back to
+	//     plan.Changes inspection when WriteAnalysisIR is absent.
 	existing := o.busCtx.Mutable.Result()
+	if report != nil && len(report.NoTestsRunners) > 0 && planTouchesNonTestCode(o.busCtx) {
+		o.busCtx.Mutable.SetResult(existing + renderVerifyUnverified(report, o.busCtx.Language))
+		now := time.Now()
+		o.persistPlanStatus(types.PlanStatusUnverified, &now)
+		return nil
+	}
 	o.busCtx.Mutable.SetResult(existing + renderVerifySuccess(report, o.busCtx.Language))
 	now := time.Now()
 	o.persistPlanStatus(types.PlanStatusApplied, &now)
 	return nil
+}
+
+// planTouchesNonTestCode reports whether the active ChangePlan
+// modifies at least one file that is not a test or test-only asset.
+// Drives the unverified decision in verifyPostHook: a doc / config /
+// test-only plan that produces zero tests is benign (nothing was
+// supposed to be tested), but a feature / bugfix that produces zero
+// tests means the change shipped without verification.
+//
+// Decision precedence:
+//
+//  1. If WriteAnalysisIR is on Mutable and Task.Kind is one of the
+//     "no tests expected" categories (test / docs / config), return
+//     false — the plan itself was about non-runtime code.
+//  2. Otherwise scan plan.Changes for paths that look like
+//     production source. Test-file recognition uses well-known
+//     ESTABLISHED testing conventions across languages — these are
+//     not keyword heuristics, they are the canonical filename
+//     patterns the test runners themselves use to discover tests.
+func planTouchesNonTestCode(busCtx *types.BusContext) bool {
+	if busCtx == nil || busCtx.Mutable == nil {
+		return false
+	}
+	if ir := busCtx.Mutable.WriteAnalysisIR(); ir != nil {
+		switch ir.Request.Task.Kind {
+		case types.WriteTaskTest, types.WriteTaskDocs, types.WriteTaskConfig:
+			return false
+		}
+	}
+	plan := busCtx.Mutable.ChangePlan()
+	if plan == nil {
+		// No plan visible — defensive default: treat as production.
+		// verifyPostHook is only called in write mode where a plan
+		// would normally exist; this branch only fires under bizarre
+		// test fixtures.
+		return true
+	}
+	for _, c := range plan.Changes {
+		if c.Kind == "delete" {
+			continue
+		}
+		if !isTestPath(c.Path) {
+			return true
+		}
+	}
+	return false
+}
+
+// isTestPath returns true when path matches one of the canonical
+// test-file conventions test runners themselves use for discovery.
+// Sourced from the run_tests.go runner manifest commands —
+// each runner's discovery pattern is reflected here exactly:
+//
+//   - Go: *_test.go (go test)
+//   - Python: test_*.py, *_test.py, *_tests.py (pytest)
+//   - Java/Kotlin: *Test.java / *Tests.java / *Test.kt / *Spec.kt
+//   - Ruby: *_spec.rb (rspec)
+//   - JS/TS: *.test.{js,ts,jsx,tsx,mjs} / *.spec.{js,ts,...}
+//   - Rust: tests/*.rs (cargo test integration tests)
+//   - Swift: *Tests.swift, *Test.swift
+//   - C/C++: tests/*, test/* (CMake/Meson convention)
+//
+// Files inside top-level "tests/", "test/", "spec/", "__tests__/"
+// directories are also test-shaped regardless of extension.
+func isTestPath(path string) bool {
+	p := strings.ToLower(strings.ReplaceAll(path, "\\", "/"))
+	if p == "" {
+		return false
+	}
+	for _, dir := range []string{"tests/", "test/", "spec/", "__tests__/"} {
+		if strings.HasPrefix(p, dir) || strings.Contains(p, "/"+dir) {
+			return true
+		}
+	}
+	base := p
+	if i := strings.LastIndex(p, "/"); i >= 0 {
+		base = p[i+1:]
+	}
+	switch {
+	case strings.HasSuffix(base, "_test.go"),
+		strings.HasPrefix(base, "test_") && strings.HasSuffix(base, ".py"),
+		strings.HasSuffix(base, "_test.py"),
+		strings.HasSuffix(base, "_tests.py"),
+		strings.HasSuffix(base, "test.java"),
+		strings.HasSuffix(base, "tests.java"),
+		strings.HasSuffix(base, "test.kt"),
+		strings.HasSuffix(base, "tests.kt"),
+		strings.HasSuffix(base, "spec.kt"),
+		strings.HasSuffix(base, "_spec.rb"),
+		strings.HasSuffix(base, ".test.js"),
+		strings.HasSuffix(base, ".test.ts"),
+		strings.HasSuffix(base, ".test.jsx"),
+		strings.HasSuffix(base, ".test.tsx"),
+		strings.HasSuffix(base, ".test.mjs"),
+		strings.HasSuffix(base, ".spec.js"),
+		strings.HasSuffix(base, ".spec.ts"),
+		strings.HasSuffix(base, ".spec.jsx"),
+		strings.HasSuffix(base, ".spec.tsx"),
+		strings.HasSuffix(base, ".spec.mjs"),
+		strings.HasSuffix(base, "tests.swift"),
+		strings.HasSuffix(base, "test.swift"):
+		return true
+	}
+	return false
 }
 
 // appendVerifyFingerprint snapshots the current verify-round signal

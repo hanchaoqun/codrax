@@ -80,7 +80,29 @@ type PipelineSettings struct {
 	// usual — evalNoRegression then diffs the two. Default false
 	// because baseline runs double the test-suite wall time; only
 	// enable when the repo has test regressions to worry about.
+	// Cache hits via BaselineCacheMax bypass the wall-time concern
+	// (cached baselines reuse across Runs that touch the same HEAD
+	// SHA), so the cache stays active regardless of this flag.
 	BaselineCaptureEnabled bool `yaml:"baseline_capture_enabled"`
+
+	// BaselineCacheMax sets the maximum number of cached baseline
+	// reports stored under <runtimeAnchor>/baselines/<sha8>.json.
+	// Each entry is keyed by the main repo's HEAD SHA at apply-stage
+	// entry; reused across Runs that observe the same SHA so the
+	// test suite does not re-run for an unchanged repo. Default 16
+	// (set in cmd/root.go). 0 disables caching entirely; the
+	// Capture-Enabled flag above then controls every Run from
+	// scratch as before.
+	BaselineCacheMax int `yaml:"baseline_cache_max"`
+
+	// WriteMaxSeconds is the wall-clock ceiling for write-mode Runs
+	// (plan / apply / verify). The orchestrator starts a deadline
+	// timer at write-mode entry and cancels the in-flight Run when
+	// the timer fires; LastError surfaces a "write mode wall-time
+	// exceeded" message. Read-mode Runs are unaffected. Default 600
+	// (set in cmd/root.go); 0 disables the cap (legacy behaviour).
+	// Hard-capped at 1800 inside the orchestrator setter.
+	WriteMaxSeconds int `yaml:"write_max_seconds"`
 
 	// KeepWorktreeOnSuccess preserves the git worktree after a
 	// successful ModeApply so the user can review the applied bytes

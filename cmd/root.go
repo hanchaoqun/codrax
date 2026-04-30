@@ -1546,6 +1546,19 @@ func initApp(cmd *cobra.Command, _ []string) error {
 		if rs.PipelineBaselineCaptureEnabled != nil {
 			pipelineSettings.BaselineCaptureEnabled = *rs.PipelineBaselineCaptureEnabled
 		}
+		// Baseline disk-cache cap (commit 2 P0 A1). Default 16; 0
+		// disables caching entirely.
+		pipelineSettings.BaselineCacheMax = 16
+		if rs.PipelineBaselineCacheMax != nil {
+			pipelineSettings.BaselineCacheMax = *rs.PipelineBaselineCacheMax
+		}
+		// Write-mode wall-time cap (commit 2 P0 C). Default 600 s;
+		// 0 disables the cap; hard-capped at 1800 inside the orch
+		// setter.
+		pipelineSettings.WriteMaxSeconds = 600
+		if rs.PipelineWriteMaxSeconds != nil {
+			pipelineSettings.WriteMaxSeconds = *rs.PipelineWriteMaxSeconds
+		}
 		// Keep-worktree-on-success toggle (Fix 4 "try before merge").
 		// Same pointer-typed yaml shape so explicit false is
 		// distinguishable from unset.
@@ -2172,6 +2185,13 @@ func initApp(cmd *cobra.Command, _ []string) error {
 	// Item 1: baseline capture for CritNoRegression. Default false
 	// (test-suite wall time doubles when enabled).
 	orch.SetBaselineCaptureEnabled(pipelineSettings.BaselineCaptureEnabled)
+	// Commit 2 P0 A1: baseline disk cache keyed by main-repo HEAD
+	// SHA. Cache hits give a free baseline on subsequent Runs that
+	// observe the same SHA, regardless of the capture-enabled flag.
+	orch.SetBaselineCache(orchestrator.NewBaselineCache(runtimeAnchor, pipelineSettings.BaselineCacheMax))
+	// Commit 2 P0 C: write-mode wall-clock deadline. 0 disables;
+	// the orch setter clamps positive values at 1800.
+	orch.SetWriteMaxSeconds(pipelineSettings.WriteMaxSeconds)
 	// Fix 4: preserve worktree after successful ModeApply. Default
 	// false; enable to keep the "try before merge" workflow.
 	orch.SetKeepWorktreeOnSuccess(pipelineSettings.KeepWorktreeOnSuccess)

@@ -212,8 +212,32 @@ type RuntimeSettings struct {
 	// snapshot that feeds CritNoRegression. When true, the apply stage hook
 	// runs run_tests BEFORE the coder dispatches so the subsequent
 	// verify stage has a Baseline vs Current diff to compare.
-	// Default false — the extra test run doubles wall time.
+	// Default false — the extra test run doubles wall time. Cache
+	// hits via PipelineBaselineCacheMax bypass the wall-time concern
+	// (cached baselines are reused across Runs that touch the same
+	// HEAD SHA), so the cache stays active regardless of this flag.
 	PipelineBaselineCaptureEnabled *bool `yaml:"pipeline_baseline_capture_enabled"`
+
+	// PipelineBaselineCacheMax sets the maximum number of cached
+	// baseline reports the orchestrator stores under
+	// <runtimeAnchor>/baselines/<sha8>.json. Each cache entry is
+	// keyed by the main repo's HEAD SHA at apply-stage entry; when
+	// the same SHA is observed in a future Run (the user did not
+	// commit between Runs), the cached baseline is reused without
+	// re-running the test suite. The cache itself is always active —
+	// this knob bounds disk usage. Default 16. 0 disables caching
+	// entirely (every Run captures fresh when enabled).
+	PipelineBaselineCacheMax *int `yaml:"pipeline_baseline_cache_max"`
+
+	// PipelineWriteMaxSeconds is the wall-clock ceiling for write-
+	// mode Runs (plan / apply / verify). When the deadline expires,
+	// the orchestrator cancels the in-flight stage and surfaces a
+	// "write mode wall-time exceeded" error. Read-mode Runs are NOT
+	// subject to this cap (read-mode latency expectations differ).
+	// Default 600 seconds. 0 = no cap (legacy behaviour). Hard-
+	// capped at 1800 inside the orchestrator setter so a typo
+	// cannot starve a Run that is genuinely making progress.
+	PipelineWriteMaxSeconds *int `yaml:"pipeline_write_max_seconds"`
 
 	// PipelineKeepWorktreeOnSuccess, when true, preserves the git
 	// worktree after a successful ModeApply so the user can review

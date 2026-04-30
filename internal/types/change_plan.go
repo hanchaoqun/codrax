@@ -28,6 +28,18 @@ const (
 	// failed. Distinct from applied_failed so operators can tell
 	// "plan was broken" from "plan applied but surface regressed".
 	PlanStatusVerifyFailed = "verify_failed"
+	// PlanStatusUnverified means apply landed and verify ran cleanly
+	// (no crash, no failures) BUT the test runner reported zero tests
+	// discovered for the changed code. The plan's bytes are on disk in
+	// the worktree, but no assertion proved they work. Distinct from
+	// applied so operators see the difference between "tests passed"
+	// and "no tests existed to test"; distinct from verify_failed
+	// because nothing failed — there was just nothing to fail.
+	// Surfaced when ChangeReport.NoTestsRunners is non-empty AND the
+	// plan actually changed non-test source files (a docs-only or
+	// test-only change that produces zero tests is benign and stays
+	// applied).
+	PlanStatusUnverified = "unverified"
 	// PlanStatusRejected is set by /reject — user reviewed the
 	// plan and decided not to approve it.
 	PlanStatusRejected = "rejected"
@@ -51,14 +63,17 @@ const (
 //   - REPL /mode plan switch (UX layer rejection)
 //   - REPL banner (cold-start awareness)
 //
-// pending_approval / applied / verify_failed are unsettled.
-// merged / rejected / applied_failed are settled (terminal).
-// applied_failed is terminal because apply itself crashed —
-// nothing landed, the user moves on; treating it as unsettled
-// would block forever on a dead plan.
+// pending_approval / applied / verify_failed / unverified are
+// unsettled. merged / rejected / applied_failed are settled
+// (terminal). applied_failed is terminal because apply itself
+// crashed — nothing landed, the user moves on; treating it as
+// unsettled would block forever on a dead plan. Unverified is
+// unsettled because the user still needs to decide whether to add
+// tests (verify the plan retroactively) or accept the work as-is
+// (which transitions to merged via /merge).
 func IsUnsettledStatus(s string) bool {
 	switch s {
-	case PlanStatusPending, PlanStatusApplied, PlanStatusVerifyFailed:
+	case PlanStatusPending, PlanStatusApplied, PlanStatusVerifyFailed, PlanStatusUnverified:
 		return true
 	}
 	return false
