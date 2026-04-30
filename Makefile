@@ -176,7 +176,7 @@ endif
 # ---------------------------------------------------------------------------
 # Tests
 # ---------------------------------------------------------------------------
-.PHONY: test test-v
+.PHONY: test test-v test-race
 
 ifeq ($(HOST_OS),windows)
 test:
@@ -184,12 +184,34 @@ test:
 
 test-v:
 	$$env:CGO_ENABLED='1'; & $(GO) test -v ./...
+
+test-race:
+	$$env:CGO_ENABLED='1'; & $(GO) test -race ./...
 else
 test:
 	CGO_ENABLED=1 $(GO) test ./...
 
 test-v:
 	CGO_ENABLED=1 $(GO) test -v ./...
+
+# test-race surfaces concurrent-access bugs the regular test pass
+# misses (file-lock races, mutex misuse, shared-map writes
+# without proper sync). The write-mode hardening sweep added
+# several concurrency-sensitive surfaces (BaselineCache mtime
+# guard, plan_critic dedup mutex, MutableState.* slot updates
+# under load) that should be exercised under the race detector
+# at least pre-PR. Run cost: ~4× slower than `make test`; not
+# default because most contributor-iteration cycles don't need
+# it. CI should run this on every PR.
+#
+# Known pre-existing races (NOT introduced by the write-mode
+# sweep): TestSupervisedRun_KillsGrandchildrenOnCancel and
+# TestSupervisedRun_NormalExitClassified in internal/tool race
+# on cmd.Wait()'s goroutine outliving the supervisor return.
+# Tracked as a separate fix; the rest of the codebase passes
+# clean, which is what test-race is designed to surface.
+test-race:
+	CGO_ENABLED=1 $(GO) test -race ./...
 endif
 
 # ---------------------------------------------------------------------------
@@ -326,6 +348,7 @@ help:
 	@echo "  static             Fully static Linux binary"
 	@echo "  test               Run all tests"
 	@echo "  test-v             Run all tests (verbose)"
+	@echo "  test-race          Run all tests with the Go race detector (slower; required pre-PR for concurrency-sensitive changes)"
 	@echo "  cross-linux        Cross-compile for Linux amd64"
 	@echo "  cross-linux-arm64  Cross-compile for Linux arm64"
 	@echo "  cross-darwin       Cross-compile for macOS amd64"
