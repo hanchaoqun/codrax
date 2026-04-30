@@ -136,16 +136,28 @@ func planPostHook(o *Orchestrator, out *agent.StageOutput) error {
 	// Optional pre-apply review (commit 4 P1-F). When the operator
 	// has wired plan_critic and the yaml gate is on, dispatch a
 	// single-Chat review of the plan. Output is informational only —
-	// stored on Mutable.PlanCritique for /plan show to render.
-	// Failures degrade silently to "no critique"; apply is never
-	// blocked by review plumbing.
+	// stored on Mutable.PlanCritique for the same Run AND folded
+	// into the persisted ChangePlan.PlanCritique so /plan show
+	// surfaces the critique across REPL sessions. Failures degrade
+	// silently to "no critique"; apply is never blocked by review
+	// plumbing.
 	if o.planCritic != nil {
-		ctx := o.CancelContext()
-		critique, err := o.planCritic.Review(ctx, buildPlanCriticInput(o.busCtx))
+		reviewCtx := o.CancelContext()
+		critique, err := o.planCritic.Review(reviewCtx, buildPlanCriticInput(o.busCtx))
 		if err != nil {
 			logging.Warning("[orchestrator] plan_critic degraded: %v (plan continues without critique)", err)
 		} else if critique != "" {
 			o.busCtx.Mutable.SetPlanCritique(critique)
+			plan.PlanCritique = critique
+			// Persist back to the plan file so REPL restart still
+			// shows the critique. PlanStore-resident plans also
+			// flow through this path because plan_post_hook re-
+			// renders against the live Mutable plan.
+			if o.busCtx.PlanPath != "" {
+				if writeErr := types.WritePlanToFile(plan, o.busCtx.PlanPath); writeErr != nil {
+					logging.Warning("[orchestrator] plan persist (with critique) failed: %v", writeErr)
+				}
+			}
 		}
 	}
 	return nil
@@ -1024,6 +1036,13 @@ func buildReflectorInput(busCtx *types.BusContext, report *types.ChangeReport, p
 		in.OriginalRequest = strings.TrimSpace(busCtx.Mutable.Objective())
 		in.BaselineAvailable = busCtx.Mutable.BaselineReport() != nil
 		in.IterationLedger = busCtx.Mutable.IterationLedger()
+		// Commit 7 P1-F gap-fix: feed the reviewer the user's
+		// task-shape framing so observations can call out
+		// outcome-vs-test alignment instead of just stderr-vs-plan.
+		if ir := busCtx.Mutable.WriteAnalysisIR(); ir != nil {
+			in.TaskSummary = ir.Request.Task.Summary
+			in.ExpectedOutcomes = append(in.ExpectedOutcomes, ir.Request.ExpectedOutcomes...)
+		}
 	}
 	if plan != nil {
 		in.PlanSummary = plan.Summary

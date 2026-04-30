@@ -292,6 +292,27 @@ type ChangePlan struct {
 	// /reject [reason]. Empty when no reason was supplied or
 	// Status != "rejected".
 	RejectionReason string `json:"rejection_reason,omitempty"`
+
+	// PlanCritique is the optional pre-apply review text produced
+	// by the plan_critic agent (commit 4 P1-F). Persisted onto
+	// the plan so /plan show can render the critique even after a
+	// REPL restart (the in-memory Mutable.PlanCritique slot is
+	// per-Run; without persistence /plan show would lose the
+	// review on every new session). Empty when the critic was
+	// disabled or produced no risks.
+	PlanCritique string `json:"plan_critique,omitempty"`
+
+	// UnvalidatedReasons lists pre-apply static-check stages that
+	// were skipped because their toolchain was unavailable (e.g.
+	// "rust:cargo not in PATH", "java/maven:mvn not in PATH").
+	// Populated by emit_change_plan's dry-build helpers when a
+	// language-specific helper bails out on toolchain absence.
+	// /plan show renders these as a "⚠️ unvalidated stages" warning
+	// so the operator knows the plan reached apply with one or
+	// more languages skipped — distinct from "validated and
+	// passed" which would have an empty list. nil/empty means
+	// every applicable stage ran.
+	UnvalidatedReasons []string `json:"unvalidated_reasons,omitempty"`
 }
 
 // FileChange describes one file-level modification the apply stage
@@ -703,6 +724,44 @@ func WriteChangeReportToFile(report *ChangeReport, path string) error {
 	}
 	if err := os.WriteFile(path, data, 0o644); err != nil {
 		return fmt.Errorf("WriteChangeReportToFile: write %s: %w", path, err)
+	}
+	return nil
+}
+
+// WritePlanToFile serialises a ChangePlan as indented JSON and
+// writes it to path atomically (tmp + rename). Used by the
+// orchestrator after planPostHook fills late-bound fields like
+// PlanCritique that the planner did not have at emit time. Plan
+// files written by the REPL's PlanStore.Save go through their
+// own atomic write — this helper is the fallback path the
+// orchestrator uses to persist updates.
+//
+// Failure is non-fatal at the call site: callers log a warning
+// and continue with the in-memory plan. Empty path returns an
+// error so the caller can detect "this plan was never persisted"
+// (typical for ModePlan dispatches before /approve).
+func WritePlanToFile(plan *ChangePlan, path string) error {
+	path = strings.TrimSpace(path)
+	if path == "" {
+		return fmt.Errorf("WritePlanToFile: empty path")
+	}
+	if plan == nil {
+		return fmt.Errorf("WritePlanToFile: nil plan")
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return fmt.Errorf("WritePlanToFile: mkdir %s: %w", filepath.Dir(path), err)
+	}
+	data, err := json.MarshalIndent(plan, "", "  ")
+	if err != nil {
+		return fmt.Errorf("WritePlanToFile: marshal: %w", err)
+	}
+	tmp := path + ".tmp"
+	if err := os.WriteFile(tmp, data, 0o644); err != nil {
+		return fmt.Errorf("WritePlanToFile: write %s: %w", tmp, err)
+	}
+	if err := os.Rename(tmp, path); err != nil {
+		_ = os.Remove(tmp)
+		return fmt.Errorf("WritePlanToFile: rename %s: %w", tmp, err)
 	}
 	return nil
 }

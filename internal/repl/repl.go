@@ -2174,6 +2174,26 @@ func (r *REPL) handlePlanCmd(line string) {
 		if plan.Summary != "" {
 			fmt.Fprintf(r.out, "    summary: %s\n", oneLine(plan.Summary))
 		}
+		// Static-check unvalidated reasons (commit 7 P1-E gap-fix).
+		// Surfaces languages whose dry-build was skipped because the
+		// toolchain was missing. Distinct from "validated and passed":
+		// a non-empty list means one or more languages reached apply
+		// without their static gate firing — operator should know.
+		if len(plan.UnvalidatedReasons) > 0 {
+			fmt.Fprintln(r.out, "\n  ⚠️ unvalidated stages:")
+			for _, reason := range plan.UnvalidatedReasons {
+				fmt.Fprintf(r.out, "    - %s\n", reason)
+			}
+		}
+		// Plan critic review (commit 7 P1-F gap-fix). Persisted on
+		// the plan struct so REPL restart preserves the critique.
+		// Empty when the critic was disabled or produced no risks.
+		if strings.TrimSpace(plan.PlanCritique) != "" {
+			fmt.Fprintln(r.out, "\n  ## review feedback:")
+			for _, line := range strings.Split(strings.TrimSpace(plan.PlanCritique), "\n") {
+				fmt.Fprintf(r.out, "    %s\n", line)
+			}
+		}
 		// Summary view skips the diff and prints only a per-change
 		// path / kind / rationale table. Big plans (50+ files) would
 		// otherwise scroll the diff off-screen; --summary is the

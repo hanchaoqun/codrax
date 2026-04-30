@@ -79,6 +79,20 @@ type ReflectorInput struct {
 	// guards) — only that the fact is true. The reviewer is a model;
 	// it can reason from the fact.
 	BaselineAvailable bool
+
+	// TaskSummary is the WriteAnalysisIR.Request.Task.Summary
+	// (commit 7 P1-F gap-fix). Lets the reviewer compare the
+	// failure observation against what the user actually asked for,
+	// not just the plan's claimed work. Empty when the
+	// write_analyzer was disabled or did not produce an IR.
+	TaskSummary string
+
+	// ExpectedOutcomes carries the LLM-emitted goal-checks from
+	// WriteAnalysisIR.Request.ExpectedOutcomes (commit 7 P1-F
+	// gap-fix). The reviewer can spot "the failing test addresses
+	// outcome X but not outcome Y" patterns. Empty when the IR is
+	// absent.
+	ExpectedOutcomes []string
 }
 
 // ReflectorFailedTest is the per-test slice handed to the critic.
@@ -220,6 +234,19 @@ func renderReflectorUserMessage(in ReflectorInput) string {
 		// already keeps PlanSummary + FailureSummary intact.
 		b.WriteString(types.RenderIterationLedger(in.IterationLedger))
 		b.WriteString("\n\n")
+	}
+	if strings.TrimSpace(in.TaskSummary) != "" || len(in.ExpectedOutcomes) > 0 {
+		b.WriteString("## Task framing\n\n")
+		if s := strings.TrimSpace(in.TaskSummary); s != "" {
+			fmt.Fprintf(&b, "Task summary: %s\n", s)
+		}
+		if len(in.ExpectedOutcomes) > 0 {
+			b.WriteString("Expected outcomes:\n")
+			for _, o := range in.ExpectedOutcomes {
+				fmt.Fprintf(&b, "- %s\n", strings.TrimSpace(o))
+			}
+		}
+		b.WriteString("\n")
 	}
 	fmt.Fprintf(&b, "## Current failed iteration %d\n", in.Attempt)
 	if strings.TrimSpace(in.PlanSummary) != "" {

@@ -1346,15 +1346,40 @@ func (o *Orchestrator) runWriteAnalyzePhase() (int, error) {
 	o.busCtx.PipelineStage = types.StageWriteAnalyze
 	o.busCtx.TaskState.Stage = types.StageWriteAnalyze
 
-	used := 1
-	out, err := o.dispatchStage(types.StageWriteAnalyze)
-	if err != nil {
-		return used, err
+	// Modest retry budget for emit_write_analysis. The schema is
+	// shallow (one tool call, ~10 fields), so two attempts cover
+	// the common "LLM dropped a required field on first emit" case.
+	// More retries are not justified — write_analyze is an
+	// enrichment stage; if the second attempt still fails, the
+	// downstream agents simply read AnalysisIR-only context, which
+	// is the historical pre-commit-1 behaviour.
+	const maxAttempts = 2
+	var lastErr error
+	used := 0
+	for attempt := 0; attempt < maxAttempts; attempt++ {
+		used++
+		o.emitStageRetryAttempt = attempt
+		out, err := o.dispatchStage(types.StageWriteAnalyze)
+		if err == nil && (out == nil || out.Error == "") {
+			if o.busCtx.Mutable.WriteAnalysisIR() != nil {
+				return used, nil
+			}
+		}
+		if out != nil && out.Error != "" {
+			lastErr = fmt.Errorf("%s", out.Error)
+		}
+		if err != nil {
+			lastErr = err
+		}
+		if attempt+1 < maxAttempts {
+			logging.Warning("[orchestrator] write_analyze attempt %d/%d failed: %v (retrying)",
+				attempt+1, maxAttempts, lastErr)
+		}
 	}
-	if out != nil && out.Error != "" {
-		return used, fmt.Errorf("%s", out.Error)
+	if lastErr == nil {
+		lastErr = fmt.Errorf("write_analyze produced no IR after %d attempts", maxAttempts)
 	}
-	return used, nil
+	return used, lastErr
 }
 
 // runTaskPhase dispatches the single task graph for the run. After

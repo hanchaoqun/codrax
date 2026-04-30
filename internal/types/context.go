@@ -404,6 +404,16 @@ type MutableState struct {
 	// auto-rejects a plan; downstream surfaces (/plan show) render
 	// it for the operator's eyes.
 	planCritique string
+
+	// unvalidatedReasons collects per-language static-check stages
+	// that were skipped because their toolchain was unavailable
+	// (e.g. "rust:cargo not in PATH"). emit_change_plan's dry-
+	// build helpers append entries when they bail out on toolchain
+	// absence; emit_change_plan.Execute drains these into the
+	// finalised ChangePlan.UnvalidatedReasons so /plan show can
+	// render them. Cleared when SetChangePlan installs a fresh
+	// plan so retries don't accumulate stale reasons.
+	unvalidatedReasons []string
 }
 
 // ReconcileObservation is one decision the analyzer pipeline made
@@ -738,6 +748,35 @@ func (m *MutableState) SetWriteAnalysisIR(ir *WriteAnalysisIR) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.writeAnalysisIR = ir
+}
+
+// RecordUnvalidatedReason appends a reason describing a
+// per-language static-check stage that was skipped because its
+// toolchain was unavailable. Called by emit_change_plan dry-build
+// helpers (Rust / Swift / Java / Kotlin etc.) when the relevant
+// binary is missing. Drained into ChangePlan.UnvalidatedReasons by
+// emit_change_plan.Execute after successful validation.
+func (m *MutableState) RecordUnvalidatedReason(reason string) {
+	if m == nil {
+		return
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.unvalidatedReasons = append(m.unvalidatedReasons, reason)
+}
+
+// DrainUnvalidatedReasons returns and clears the collected reasons.
+// emit_change_plan.Execute calls this after validation succeeds
+// and pipes the result into the finalised ChangePlan struct.
+func (m *MutableState) DrainUnvalidatedReasons() []string {
+	if m == nil {
+		return nil
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	out := append([]string(nil), m.unvalidatedReasons...)
+	m.unvalidatedReasons = nil
+	return out
 }
 
 // PlanCritique returns the pre-apply review text produced by the

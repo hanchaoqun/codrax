@@ -2210,7 +2210,12 @@ func initApp(cmd *cobra.Command, _ []string) error {
 	}
 	if planCriticEnabled && app.planCriticLLM != nil {
 		orch.SetPlanCritic(orchestrator.NewPlanCritic(app.planCriticLLM))
-		logging.Info("[orchestrator] plan_critic enabled (extra LLM call per plan emit)")
+		// Surface the model so operators see "extra Opus call per
+		// plan" upfront rather than discovering it on the bill.
+		// Recommend routing to a cheap model (Haiku-class) via
+		// providers.yaml :: agents.plan_critic.
+		logging.Info("[plan_critic] enabled — model=%s (one Chat per plan emit; route to a cheap model via providers.yaml :: agents.plan_critic for low cost)",
+			app.planCriticLLM.ModelID())
 	}
 	// Item 1: baseline capture for CritNoRegression. Default false
 	// (test-suite wall time doubles when enabled).

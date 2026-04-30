@@ -120,12 +120,15 @@ func (e *plannerEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk *
 		return ""
 	}
 
-	// Compose three sections in this order so the planner reads its
-	// orientation BEFORE the situational directive: top-ranked files
-	// (Module A) → test infrastructure facts (Module B) → planning
-	// context / retry hint (existing). All three are pure data — no
-	// "you should do X" prescriptions.
+	// Compose sections in this order so the planner reads its
+	// orientation BEFORE the situational directive: task framing
+	// (Module 0) → top-ranked files (Module A) → test infrastructure
+	// facts (Module B) → planning context / retry hint (existing).
+	// All sections are pure data — no "you should do X" prescriptions.
 	var sections []string
+	if framing := e.buildTaskFramingSection(ctx); framing != "" {
+		sections = append(sections, framing)
+	}
 	if seed := e.buildInvestigationSeed(ctx); seed != "" {
 		sections = append(sections, seed)
 	}
@@ -145,6 +148,76 @@ func (e *plannerEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk *
 		return ""
 	}
 	return "\n\n" + strings.Join(sections, "\n\n")
+}
+
+// buildTaskFramingSection renders the WriteAnalysisIR's task-shape
+// fields as a "## Task framing" prompt section so the planner sees
+// the user's classified intent BEFORE it reasons about
+// keyword-ranked files. Returns "" when no WriteAnalysisIR is
+// available (commit 1's write_analyzer either degraded or wasn't
+// dispatched — read mode never gets here because read mode never
+// invokes the planner). Pure data: kind, scope, summary, risk
+// flags, scope anchors, constraints, expected outcomes — no
+// "you should do X" framing.
+func (e *plannerEvaluator) buildTaskFramingSection(ctx *types.AgentContext) string {
+	if ctx == nil || ctx.Mutable == nil {
+		return ""
+	}
+	ir := ctx.Mutable.WriteAnalysisIR()
+	if ir == nil {
+		return ""
+	}
+	var b strings.Builder
+	b.WriteString("## Task framing\n\n")
+	if ir.Request.Task.Summary != "" {
+		fmt.Fprintf(&b, "- summary: %s\n", ir.Request.Task.Summary)
+	}
+	if ir.Request.Task.Kind != "" {
+		fmt.Fprintf(&b, "- kind: %s\n", ir.Request.Task.Kind)
+	}
+	if ir.Request.Task.Scope != "" {
+		fmt.Fprintf(&b, "- scope: %s\n", ir.Request.Task.Scope)
+	}
+	risks := []string{}
+	if ir.Request.Risk.AffectsPublicAPI {
+		risks = append(risks, "affects-public-api")
+	}
+	if ir.Request.Risk.ChangesPersistence {
+		risks = append(risks, "changes-persistence")
+	}
+	if ir.Request.Risk.ChangesBuildSystem {
+		risks = append(risks, "changes-build-system")
+	}
+	if len(risks) > 0 || ir.Request.Risk.Overall != "" {
+		fmt.Fprintf(&b, "- risk: %s", ir.Request.Risk.Overall)
+		if len(risks) > 0 {
+			fmt.Fprintf(&b, " (%s)", strings.Join(risks, ", "))
+		}
+		b.WriteString("\n")
+	}
+	if len(ir.Request.ScopeAnchors) > 0 {
+		fmt.Fprintf(&b, "- scope anchors: %s\n", strings.Join(ir.Request.ScopeAnchors, ", "))
+	}
+	if len(ir.Request.Constraints) > 0 {
+		b.WriteString("- constraints:\n")
+		for _, c := range ir.Request.Constraints {
+			line := c.Kind
+			if c.Target != "" {
+				line += " on " + c.Target
+			}
+			if c.Note != "" {
+				line += " — " + c.Note
+			}
+			fmt.Fprintf(&b, "  - %s\n", line)
+		}
+	}
+	if len(ir.Request.ExpectedOutcomes) > 0 {
+		b.WriteString("- expected outcomes:\n")
+		for _, o := range ir.Request.ExpectedOutcomes {
+			fmt.Fprintf(&b, "  - %s\n", o)
+		}
+	}
+	return b.String()
 }
 
 // buildInvestigationSeed implements Module A's pre-emit investigation

@@ -313,6 +313,14 @@ func (t *EmitChangePlan) Execute(ctx *types.BusContext, params json.RawMessage) 
 	// the (already converted + already validated) changes slice.
 	plan := newChangePlanFromChanges(strings.TrimSpace(p.Request), strings.TrimSpace(p.Summary), fcs, p.AcceptanceTests)
 
+	// Drain any per-language "unvalidated" reasons collected by the
+	// dry-build helpers (commit 7 P1-E gap-fix) into the finalised
+	// plan. /plan show renders these so the operator knows the
+	// plan reached apply with one or more languages skipped due to
+	// missing toolchains, instead of seeing "validated and passed"
+	// when half the static gate didn't fire.
+	plan.UnvalidatedReasons = ctx.Mutable.DrainUnvalidatedReasons()
+
 	// Record a pending apply entry per file so downstream evaluators
 	// (CritPlanReady) can observe the plan size without needing to
 	// deep-inspect the ChangePlan itself.
@@ -1370,6 +1378,7 @@ func dryBuildRust(ctx *types.BusContext, changes []types.FileChange) string {
 	}
 	if _, err := exec.LookPath("cargo"); err != nil {
 		logging.Warning("[emit_change_plan] V2 Rust dry-build skipped: cargo binary not on PATH (plan unvalidated for Rust)")
+		recordUnvalidated(ctx, "rust: cargo not in PATH")
 		return ""
 	}
 	hasChange := false
@@ -1418,6 +1427,7 @@ func dryBuildSwift(ctx *types.BusContext, changes []types.FileChange) string {
 	}
 	if _, err := exec.LookPath("swift"); err != nil {
 		logging.Warning("[emit_change_plan] V2 Swift dry-build skipped: swift binary not on PATH (plan unvalidated for Swift)")
+		recordUnvalidated(ctx, "swift: swift binary not in PATH")
 		return ""
 	}
 	hasChange := false
@@ -1491,6 +1501,7 @@ func dryBuildJava(ctx *types.BusContext, changes []types.FileChange) string {
 	case fileExists(pomPath):
 		if _, err := exec.LookPath("mvn"); err != nil {
 			logging.Warning("[emit_change_plan] V2 Java dry-build skipped: mvn binary not on PATH (plan unvalidated for Java/Maven)")
+			recordUnvalidated(ctx, "java/maven: mvn not in PATH")
 			return ""
 		}
 		cmdName = "mvn"
@@ -1509,6 +1520,7 @@ func dryBuildJava(ctx *types.BusContext, changes []types.FileChange) string {
 		default:
 			if _, err := exec.LookPath("gradle"); err != nil {
 				logging.Warning("[emit_change_plan] V2 Java dry-build skipped: neither ./gradlew nor system gradle available (plan unvalidated for Java/Gradle)")
+				recordUnvalidated(ctx, "java/gradle: neither ./gradlew nor system gradle available")
 				return ""
 			}
 			cmdName = "gradle"
@@ -1562,6 +1574,7 @@ func dryBuildKotlin(ctx *types.BusContext, changes []types.FileChange) string {
 				continue
 			}
 			logging.Warning("[emit_change_plan] V2 Kotlin dry-build skipped: kotlinc binary not on PATH (plan unvalidated for Kotlin)")
+			recordUnvalidated(ctx, "kotlin: kotlinc not in PATH")
 			break
 		}
 		return ""
@@ -1611,6 +1624,18 @@ func dryBuildKotlin(ctx *types.BusContext, changes []types.FileChange) string {
 	}
 	logging.Debug("[emit_change_plan] V2 Kotlin dry-build PASS for files: %v", ktChanges)
 	return ""
+}
+
+// recordUnvalidated appends a per-language unvalidated reason to
+// MutableState's collector when the BusContext carries one. The
+// collector is drained into ChangePlan.UnvalidatedReasons by
+// emit_change_plan.Execute after validation succeeds. No-op when
+// ctx or Mutable is nil (test fixtures, defensive).
+func recordUnvalidated(ctx *types.BusContext, reason string) {
+	if ctx == nil || ctx.Mutable == nil {
+		return
+	}
+	ctx.Mutable.RecordUnvalidatedReason(reason)
 }
 
 // fileExists is a tiny os.Stat wrapper used by the Java dry-build
