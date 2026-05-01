@@ -1,36 +1,59 @@
 # Grid A — S1 Explain / Mechanism enumeration (gate.Run)
 #
 # Targets: architecture_explain scenario + ReqMechanism + ShapeStepList.
-# Question asks for the 7 gate checks in order. Correct answers must
+# Question asks for the 9 gate checks in order. Correct answers must
 # enumerate the check names; hand-wavy "validates many things" answers
 # fail both positive and negative.
 #
-# Ground truth (internal/analysis/gate/gate.go): the 7 checks in
-# registration order are coverage, dag_closure, budget_sanity,
-# contract_complete, hypothesis_coverage, criterion_resolvable,
-# pending_fields_wellformed. Each check has two equally-valid
-# references: the registered GateCheck.Name string (snake_case) and
-# the Go function identifier (CamelCase, check<Name>). LLM answers
-# routinely pick one or the other depending on prose voice; both
-# forms are grounded in gate.go, so the gate accepts either via
-# EXPECT_MATCHES_REGEX alternation. The retry-continuation detail is a
-# subtle follow-up that distinguishes a grounded answer from generic
-# prose.
+# Ground truth (internal/analysis/gate/gate.go, as of commit 24+):
+# the 9 checks in registration order are:
 #
-# EXPECT_NOT_CONTAINS also rejects names of contract.Check's five
-# sub-functions (checkShape / checkCitations / checkMustInclude /
-# checkMustExclude / checkAcceptance, plus a never-defined
-# checkSymbolsSanity that LLMs have invented). The 2026-04-22
-# s1a-115146 run-1 trace showed an answer that silently blended
-# gate.Run's checks with contract.Check's checks because a sub-topic
-# entity leak anchored Explorer onto contract/checker.go. The fix
-# (A': sub-topic entity narrowing + B: PendingReads drain) closes the
-# routing hole; this negative gate is a tripwire in case the hole
-# reopens in any future form.
+#   - Always (read + write):
+#     1. coverage           (gate.go:127)
+#     2. dag_closure        (gate.go:128)
+#     3. budget_sanity      (gate.go:129)
+#
+#   - Read-mode only:
+#     4. contract_complete       (gate.go:135)
+#     5. hypothesis_coverage     (gate.go:136)
+#     6. subtopic_coherence      (gate.go:144)  [commit 24+ coherence pair]
+#     7. shape_subject_coherence (gate.go:145)  [commit 24+ coherence pair]
+#
+#   - Always (post):
+#     8. criterion_resolvable    (gate.go:147)
+#     9. pending_fields_wellformed (gate.go:148; SOFT — only soft check)
+#
+# Each check has two equally-valid references: the registered
+# GateCheck.Name string (snake_case) and the Go function identifier
+# (CamelCase, check<Name>). LLM answers routinely pick one or the
+# other depending on prose voice; both forms are grounded in gate.go,
+# so the gate accepts either via EXPECT_MATCHES_REGEX alternation.
+# The retry-continuation detail is a subtle follow-up that
+# distinguishes a grounded answer from generic prose.
+#
+# EXPECT_NOT_CONTAINS catches contract.Check's sub-functions
+# (checkCitations / checkMustInclude / checkMustExclude /
+# checkAcceptance, plus a never-defined checkSymbolsSanity that LLMs
+# have invented). Note: `checkShape` is INTENTIONALLY OMITTED from
+# the blacklist after 2026-05-01 — the gate has its own legitimate
+# `checkShapeSubjectCoherence` function, and a substring matcher
+# would false-positive on it (s1a-20260501-082338 trace). The 4
+# remaining contract.Check sub-function names + checkSymbolsSanity
+# still catch the "blended gate.Run with contract.Check" failure
+# mode the original docstring described; only `checkShape` had the
+# substring conflict.
+#
+# The 2026-04-22 s1a-115146 run-1 trace showed an answer that
+# silently blended gate.Run's checks with contract.Check's checks
+# because a sub-topic entity leak anchored Explorer onto
+# contract/checker.go. The fix (A': sub-topic entity narrowing + B:
+# PendingReads drain) closes the routing hole; this negative gate is
+# a tripwire in case the hole reopens.
 ID="s1a"
 NAME="mechanism enumeration — gate.Run ordered checks"
-QUESTION="gate.Run 的 7 项检查是按什么顺序跑的？遇到 retryable reject 时后续检查是否继续执行？"
+QUESTION="gate.Run 的 9 项检查是按什么顺序跑的？遇到 retryable reject 时后续检查是否继续执行？"
 EXPECT_CONTAINS="gate.Run coverage"
 EXPECT_MATCHES_REGEX='(dag_closure|DAGClosure)
-(contract_complete|ContractComplete)'
-EXPECT_NOT_CONTAINS=".java .py BaseAgent.java checkSymbolsSanity checkShape checkCitations checkMustInclude checkMustExclude checkAcceptance"
+(contract_complete|ContractComplete)
+(criterion_resolvable|CriterionResolvable)'
+EXPECT_NOT_CONTAINS=".java .py BaseAgent.java checkSymbolsSanity checkCitations checkMustInclude checkMustExclude checkAcceptance"
