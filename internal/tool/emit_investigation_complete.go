@@ -881,6 +881,12 @@ func refreshClosureReadSnapshot(ctx *types.BusContext, closure *types.EvidenceCl
 	}
 	gc := ground.BuildContext(ctx)
 	if gc == nil || len(gc.LineIndex) == 0 {
+		// Even with no ground LineIndex we still want to refresh the
+		// per-file ranges in case the dispatch buffer carries reads
+		// whose banners weren't ingested by ground (e.g. malformed
+		// path canonicalisation). The coverage refresh below is its
+		// own canonical walker; nil-safe on empty history.
+		ground.RefreshClosureCoverage(ctx, closure)
 		return
 	}
 	readSet := closure.ReadSet()
@@ -898,6 +904,16 @@ func refreshClosureReadSnapshot(ctx *types.BusContext, closure *types.EvidenceCl
 	if changed {
 		closure.SetReadSet(readSet)
 	}
+	// Sync per-file ranges + totals from the same live history. Without
+	// this the multi-path coverage parity gate (and any other consumer
+	// of MergedReadLines / CoverageRatio / HasFullyRead) reads a
+	// snapshot frozen at the END of the previous dispatch's
+	// ParseOutput, so a mid-dispatch read_file is invisible to the
+	// next emit_investigation_complete attempt — the failure mode
+	// that produced the "covered 645 / 4368 lines (15%)" hint
+	// repeating across four iterations while the LLM had read past
+	// the suggested range three times.
+	ground.RefreshClosureCoverage(ctx, closure)
 }
 
 func raisePrimaryAnchorPendingRead(ctx *types.BusContext, closure *types.EvidenceClosure) {

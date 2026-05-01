@@ -11763,67 +11763,15 @@ func isValidFilePath(p string) bool {
 	return false
 }
 
-// parseReadFileBanner is the single parser for the banner the
-// read_file tool prepends to every Summary. Two canonical shapes
-// need to be recognised (see internal/tool/builtin.go):
-//
-//	[path: showing lines X-Y of Z total]
-//	[path: showing all N lines (B bytes); limit=M expanded to full file (...)]
-//
-// Returns the repo-relative path and the [startLine, endLine] range
-// the banner describes (1-based inclusive). totalLines is Z (or N for
-// the "all" shape) when parseable, 0 otherwise. ok is false for any
-// malformed banner so callers can skip the entry without defensive
-// string checks at the call site. Extracted from three duplicated
-// inline parsers (extractFileCoverage, detectTruncatedUngrepped,
-// detectPartiallyReadSymbols) so all three share the same "showing
-// all" coverage; without that, inline-expanded reads were invisible
-// to coverage accounting even though the LLM saw the whole file.
+// parseReadFileBanner is the agent-package alias for the canonical
+// parser in ground.ParseReadFileBanner. Lifted into the ground package
+// so per-tool gates that fire mid-dispatch from internal/tool/ can
+// share it without reaching into the agent layer; this thin wrapper
+// stays so the existing in-agent callers (extractFileCoverage,
+// detectTruncatedUngrepped, detectPartiallyReadSymbols, extractor) do
+// not need to churn at every call site.
 func parseReadFileBanner(summary string) (path string, rng types.LineRange, totalLines int, ok bool) {
-	first := strings.SplitN(summary, "\n", 2)[0]
-	if !strings.HasPrefix(first, "[") {
-		return "", types.LineRange{}, 0, false
-	}
-	// "showing all" shape (inline-expanded full-file read).
-	if idx := strings.Index(first, ": showing all "); idx > 1 {
-		path = first[1:idx]
-		if path == "" {
-			return "", types.LineRange{}, 0, false
-		}
-		rest := first[idx+len(": showing all "):]
-		spaceIdx := strings.Index(rest, " ")
-		if spaceIdx < 1 {
-			return "", types.LineRange{}, 0, false
-		}
-		n, err := strconv.Atoi(rest[:spaceIdx])
-		if err != nil || n <= 0 {
-			return "", types.LineRange{}, 0, false
-		}
-		return path, types.LineRange{Start: 1, End: n}, n, true
-	}
-	// "showing lines X-Y of Z total" shape.
-	colonIdx := strings.Index(first, ": showing lines ")
-	if colonIdx <= 1 {
-		return "", types.LineRange{}, 0, false
-	}
-	path = first[1:colonIdx]
-	rest := first[colonIdx+len(": showing lines "):]
-	dashIdx := strings.Index(rest, "-")
-	ofIdx := strings.Index(rest, " of ")
-	if dashIdx < 0 || ofIdx < 0 || dashIdx > ofIdx {
-		return "", types.LineRange{}, 0, false
-	}
-	startLine, err1 := strconv.Atoi(strings.TrimSpace(rest[:dashIdx]))
-	endLine, err2 := strconv.Atoi(strings.TrimSpace(rest[dashIdx+1 : ofIdx]))
-	if err1 != nil || err2 != nil {
-		return "", types.LineRange{}, 0, false
-	}
-	totalStr := strings.TrimSuffix(strings.TrimSuffix(rest[ofIdx+4:], "]"), " total")
-	total, _ := strconv.Atoi(strings.TrimSpace(totalStr)) // total optional
-	if startLine <= 0 || endLine < startLine {
-		return "", types.LineRange{}, 0, false
-	}
-	return path, types.LineRange{Start: startLine, End: endLine}, total, true
+	return ground.ParseReadFileBanner(summary)
 }
 
 // extractFileCoverage walks a tool-result history and extracts the
