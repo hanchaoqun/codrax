@@ -93,6 +93,26 @@ func TestHandlePitfallsCmd_ClearWorksInWriteMode(t *testing.T) {
 	}
 }
 
+// TestFailureTaxonomyBannerLine pins commit 41 UX#4 — the
+// boot banner surfaces the count + /pitfalls list path so
+// the feature is discoverable without reading /help.
+func TestFailureTaxonomyBannerLine(t *testing.T) {
+	en := failureTaxonomyBannerLine("en", 3)
+	if !strings.Contains(en, "3 learned pitfall") {
+		t.Errorf("EN line missing count; got %q", en)
+	}
+	if !strings.Contains(en, "/pitfalls list") {
+		t.Errorf("EN line missing /pitfalls list path; got %q", en)
+	}
+	zh := failureTaxonomyBannerLine("zh", 3)
+	if !strings.Contains(zh, "3") {
+		t.Errorf("ZH line missing count; got %q", zh)
+	}
+	if !strings.Contains(zh, "/pitfalls list") {
+		t.Errorf("ZH line missing /pitfalls list path; got %q", zh)
+	}
+}
+
 // TestHandlePitfallsCmd_DisabledWhenStoreNil pins the
 // feature-disabled branch: nil store → friendly message,
 // no panic.

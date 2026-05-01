@@ -172,6 +172,15 @@ func (r *REPL) phaseShow(groupID string) {
 		if p.Status == types.PhaseAcceptanceUnverified {
 			fmt.Fprintln(r.out, "         → run /phase next to keep advancing without re-judging, or /phase rollback to reset and re-attempt")
 		}
+		// Recovery hint for orphaned in_progress phases
+		// (commit 41 UX#2): pre-commit-41 the ORPHANED tag
+		// rendered without a next-step hint, leaving the
+		// operator to figure out the recovery path. Now we
+		// explicitly point at /phase rollback + /mode apply.
+		phaseCopy2 := p
+		if types.IsOrphanedActivePhase(&phaseCopy2, phaseLivenessProbe) {
+			fmt.Fprintln(r.out, "         → owner orchestrator process is dead. Run /phase rollback to reset this phase to pending, then /mode apply to replay.")
+		}
 	}
 }
 

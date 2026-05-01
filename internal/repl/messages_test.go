@@ -412,6 +412,75 @@ func TestHelpLines_CoversEveryCommand(t *testing.T) {
 	}
 }
 
+// TestHelpLines_WriteModeGroupingHeader pins commit 41 UX#3:
+// /help renders a grouping header before the first write-
+// mode command so first-time users see the workflow as a
+// coherent block instead of scattered through read commands.
+func TestHelpLines_WriteModeGroupingHeader(t *testing.T) {
+	for _, lang := range []string{"zh", "en"} {
+		t.Run(lang, func(t *testing.T) {
+			lines := helpLines(lang)
+			joined := strings.Join(lines, "\n")
+			wantSubstr := "Write-mode commands"
+			if isZh(lang) {
+				wantSubstr = "写模式命令"
+			}
+			if !strings.Contains(joined, wantSubstr) {
+				t.Errorf("/help (%s) missing write-mode group header %q; got:\n%s",
+					lang, wantSubstr, joined)
+			}
+			// Header must precede /mode (first write command).
+			modeIdx := strings.Index(joined, "/mode")
+			headerIdx := strings.Index(joined, wantSubstr)
+			if headerIdx < 0 || modeIdx < 0 || headerIdx >= modeIdx {
+				t.Errorf("write-mode header should appear BEFORE /mode; got header=%d mode=%d", headerIdx, modeIdx)
+			}
+		})
+	}
+}
+
+// TestPlanShowFooter_StatusAware pins commit 41 UX#5: the
+// footer surfaces status-specific recovery commands rather
+// than always showing the same generic line.
+func TestPlanShowFooter_StatusAware(t *testing.T) {
+	for _, c := range []struct {
+		status   string
+		mustHave string
+	}{
+		{"pending_approval", "/approve to apply"},
+		{"verify_failed", "--retry"},
+		{"partially_applied", "--retry"},
+		{"unverified", "--retry"},
+		{"applied", "/merge to fold"},
+	} {
+		lines := planShowFooter("en", c.status)
+		joined := strings.Join(lines, " ")
+		if !strings.Contains(joined, c.mustHave) {
+			t.Errorf("status=%s footer missing %q; got %q", c.status, c.mustHave, joined)
+		}
+	}
+}
+
+// TestPlanReadyMultiPhaseNudge_NamesPhaseCount pins commit 41
+// UX#1: the multi-phase nudge tells the operator how many
+// phases queued + names /phase show as the inspection tool.
+func TestPlanReadyMultiPhaseNudge_NamesPhaseCount(t *testing.T) {
+	for _, lang := range []string{"zh", "en"} {
+		lines := planReadyMultiPhaseNudge(lang, 3)
+		if len(lines) == 0 {
+			t.Errorf("%s: expected at least one line", lang)
+			continue
+		}
+		joined := strings.Join(lines, " ")
+		if !strings.Contains(joined, "3") {
+			t.Errorf("%s: nudge should name phase count; got %q", lang, joined)
+		}
+		if !strings.Contains(joined, "/phase show") {
+			t.Errorf("%s: nudge should point at /phase show; got %q", lang, joined)
+		}
+	}
+}
+
 // /help renders bilingual: zh by default, en only with explicit lang.
 func TestHelpLines_BothLangs(t *testing.T) {
 	zhLines := helpLines("zh")

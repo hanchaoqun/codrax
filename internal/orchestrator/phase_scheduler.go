@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/hanchaoqun/codrax/internal/logging"
+	"github.com/hanchaoqun/codrax/internal/render"
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
@@ -101,6 +102,24 @@ func (o *Orchestrator) runPhaseGroup(group *types.PlanGroup, stepsUsed *int) err
 		// trigger reaper noise.
 		phase.OwnerPID = os.Getpid()
 		o.persistGroup(group)
+
+		// UX#1 (commit 41): emit a Reasoning event when each
+		// phase starts so the dock surfaces "Phase X of Y:
+		// <goal>" instead of looking like one long opaque Run.
+		// Pre-commit-41 the operator had to know /phase show
+		// existed to see progression.
+		// Guard against nil emit when tests construct an
+		// Orchestrator directly (bypassing New() which seeds
+		// render.NopEmitter).
+		if o.emit != nil {
+			o.emit(render.Event{
+				Kind:      render.EventAgentReasoning,
+				Timestamp: time.Now(),
+				Agent:     "orchestrator",
+				Reasoning: fmt.Sprintf("▶ Phase %d of %d starting: %s",
+					phase.Index+1, len(group.Phases), oneLineClampPhase(phase.Goal, 80)),
+			})
+		}
 
 		// Seed planning context for THIS phase. Each phase has
 		// its own goal + rough target paths from the LLM's
@@ -302,6 +321,24 @@ func (o *Orchestrator) applyAcceptanceVerdict(phase *types.PhaseRecord, group *t
 	phase.Status = types.PhaseAccepted
 	phase.FinishedAt = &finished
 	return false, nil
+}
+
+// oneLineClampPhase trims newlines + caps the phase goal to N
+// runes for the progress event. The dock renderer wraps long
+// reasoning strings; this just keeps single-line shape so the
+// phase header doesn't visually outweigh the actual stage
+// progression beneath.
+func oneLineClampPhase(s string, n int) string {
+	s = strings.ReplaceAll(s, "\n", " ")
+	s = strings.ReplaceAll(s, "\r", " ")
+	s = strings.TrimSpace(s)
+	if n > 0 {
+		runes := []rune(s)
+		if len(runes) > n {
+			return string(runes[:n]) + "…"
+		}
+	}
+	return s
 }
 
 // extractPhaseGoalFromPrefix peels the "## Phase X of Y: " header

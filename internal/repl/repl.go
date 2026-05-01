@@ -1154,6 +1154,17 @@ func (r *REPL) banner() {
 	if cap := bannerCapabilityLine(r.language, r.writeEnabled, r.settingsPath); cap != "" {
 		fmt.Fprintf(r.out, "  %s\n", pterm.FgDarkGray.Sprint(cap))
 	}
+	// UX#4 (commit 41): when the per-repo Failure Taxonomy is
+	// non-empty, surface the count at startup so /pitfalls
+	// becomes discoverable for users who never read the full
+	// /help output. Disabled-store + zero-pitfall states stay
+	// silent.
+	if r.failureTaxonomy != nil {
+		if pitfalls := r.failureTaxonomy.All(); len(pitfalls) > 0 {
+			fmt.Fprintf(r.out, "  %s\n",
+				pterm.FgDarkGray.Sprint(failureTaxonomyBannerLine(r.language, len(pitfalls))))
+		}
+	}
 	// Single-pending-plan invariant — user-perception layer. When
 	// the project carries an unsettled plan from a prior session
 	// (REPL was closed before /merge / /reject), surface ONE dim
@@ -1700,6 +1711,19 @@ func (r *REPL) dispatch(line, display string) {
 				// after seeing the bordered plan summary above.
 				for _, line := range planReadyNudge(r.language, plan.ID, len(plan.Changes)) {
 					r.info(line)
+				}
+				// Multi-phase signal (commit 41 UX#1): when the
+				// LLM emitted a sequential PhaseProposal with
+				// >=2 phases, surface that fact at plan-emit
+				// time so the operator knows /approve will
+				// drive N phases + /phase show is the
+				// inspection tool. Single-phase plans skip.
+				if ir := busCtx.Mutable.WriteAnalysisIR(); ir != nil &&
+					ir.PhaseProposal.Split == "sequential" &&
+					len(ir.PhaseProposal.Phases) >= 2 {
+					for _, line := range planReadyMultiPhaseNudge(r.language, len(ir.PhaseProposal.Phases)) {
+						r.info(line)
+					}
 				}
 			}
 		}
@@ -2312,12 +2336,20 @@ func (r *REPL) handlePlanCmd(line string) {
 				r.colorMode, r.out))
 		}
 		// Footer: name the next slash commands so the user does not
-		// have to remember them after reading the diff. Only printed
-		// when the plan is still actionable (pending_approval); a plan
-		// already consumed by apply / verify shows status above and
-		// the action menu would be misleading.
-		if plan.Status == types.PlanStatusPending {
-			for _, line := range planShowFooter(r.language) {
+		// have to remember them after reading the diff. Status-aware
+		// (commit 41 UX#5): each lifecycle state has its own
+		// recovery vocabulary — verify_failed wants --retry,
+		// partially_applied wants --retry without /merge, applied
+		// wants /merge etc. Footer is suppressed for terminal
+		// states (rejected / merged / applied_failed) where there
+		// are no actionable next steps.
+		switch plan.Status {
+		case types.PlanStatusPending,
+			types.PlanStatusApplied,
+			types.PlanStatusVerifyFailed,
+			types.PlanStatusUnverified,
+			types.PlanStatusPartiallyApplied:
+			for _, line := range planShowFooter(r.language, plan.Status) {
 				fmt.Fprintln(r.out, line)
 			}
 		}

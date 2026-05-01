@@ -573,6 +573,39 @@ func TestHandlePhaseCmd_ShowFlagsOrphanedPhase(t *testing.T) {
 	}
 }
 
+// TestHandlePhaseCmd_ShowOrphanRecoveryHint pins commit 41
+// UX#2: when /phase show flags an ORPHANED phase, it ALSO
+// surfaces an explicit recovery-action hint pointing at
+// /phase rollback + /mode apply. Pre-commit-41 the tag
+// rendered without next steps, leaving the operator to
+// guess.
+func TestHandlePhaseCmd_ShowOrphanRecoveryHint(t *testing.T) {
+	r, store, _, out := newPhaseTestREPL(t)
+	g := threePhaseTestGroup("group-orphan-hint")
+	now := time.Now()
+	g.Phases[1].Status = types.PhaseInProgress
+	g.Phases[1].OwnerPID = 999999
+	g.Phases[1].StartedAt = &now
+	if _, err := store.Save(g); err != nil {
+		t.Fatal(err)
+	}
+	saved := phaseLivenessProbe
+	phaseLivenessProbe = func(pid int) bool { return false }
+	defer func() { phaseLivenessProbe = saved }()
+
+	r.handlePhaseCmd("/phase show")
+	got := out.String()
+	if !strings.Contains(got, "ORPHANED") {
+		t.Errorf("expected ORPHANED tag; got %q", got)
+	}
+	if !strings.Contains(got, "/phase rollback") {
+		t.Errorf("expected /phase rollback recovery hint; got %q", got)
+	}
+	if !strings.Contains(got, "/mode apply") {
+		t.Errorf("expected /mode apply recovery hint; got %q", got)
+	}
+}
+
 // TestHandlePhaseCmd_ShowDoesNotFlagLivePhase pins the
 // negative case — when the liveness probe says the pid IS
 // alive, no orphan tag is emitted.

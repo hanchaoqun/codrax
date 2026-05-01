@@ -181,6 +181,18 @@ func writeModeDisabled(lang, mode, settingsPath string) []string {
 // rather than discovering it via a /mode plan reject 30 turns in.
 // Empty string when there's nothing useful to display (no yaml AND
 // write_enabled defaulted to false).
+// failureTaxonomyBannerLine surfaces the count of learned
+// pitfalls + the inspection command at REPL startup so users
+// who never read the full /help discover the feature exists.
+// Empty count is filtered at the call site (no banner row);
+// non-zero shows count + /pitfalls list path.
+func failureTaxonomyBannerLine(lang string, count int) string {
+	if isZh(lang) {
+		return formatN(lang, "📌 本仓库已积累 %d 条 pitfall (planner 未来 plan 时会读取);用 /pitfalls list 查看", count)
+	}
+	return formatN(lang, "📌 %d learned pitfall(s) recorded for this repo (planner reads on future plans); use /pitfalls list to inspect", count)
+}
+
 func bannerCapabilityLine(lang string, writeEnabled bool, settingsPath string) string {
 	zh := isZh(lang)
 	cap := ""
@@ -654,6 +666,24 @@ func planReadyNudge(lang string, planID string, changeCount int) []string {
 	}
 }
 
+// planReadyMultiPhaseNudge is the multi-phase variant printed
+// AFTER planReadyNudge when the just-emitted proposal carries a
+// PhaseProposal with N >= 2 sequential phases. Pre-commit-41 the
+// operator only saw the single-plan nudge and had no signal that
+// /approve was about to drive N phases — `/phase show` was
+// undiscoverable until they ran it. This second line surfaces
+// the multi-phase nature + points at the inspection tool.
+func planReadyMultiPhaseNudge(lang string, phaseCount int) []string {
+	if isZh(lang) {
+		return []string{
+			formatN(lang, "  ⚠ 多阶段方案 (%d 个 phase): /approve 后用 `/phase show` 追踪进度,`/phase rollback` 回退当前 phase。", phaseCount),
+		}
+	}
+	return []string{
+		formatN(lang, "  ⚠ Multi-phase proposal (%d phases): after /approve, use `/phase show` to track progress and `/phase rollback` to reset the active phase.", phaseCount),
+	}
+}
+
 // applyDoneNudge prints next-step actions after /approve completed.
 // When apply succeeded, point at /mode read for further questions and
 // /mode plan for a new change. When apply failed, the
@@ -673,8 +703,54 @@ func applyDoneNudge(lang string) []string {
 // planShowFooter prints the next-step actions at the bottom of /plan
 // show output so the user does not have to remember the slash command
 // vocabulary after reviewing the diff.
-func planShowFooter(lang string) []string {
-	if isZh(lang) {
+//
+// Status-aware (UX#5, commit 41): pre-commit-41 the footer always
+// printed the same generic line — but a plan in verify_failed /
+// partially_applied / unverified state has DIFFERENT recovery
+// commands, and surfacing them only at /approve-time meant operators
+// who paused to inspect lost the cue. Now the footer adapts.
+func planShowFooter(lang string, planStatus string) []string {
+	zh := isZh(lang)
+	switch planStatus {
+	case "verify_failed":
+		if zh {
+			return []string{
+				"  下一步: /approve --retry 重试 · /merge --include-failed 接受失败强合 · /reject 丢弃",
+			}
+		}
+		return []string{
+			"  next: /approve --retry to retry · /merge --include-failed to merge anyway · /reject to discard",
+		}
+	case "partially_applied":
+		if zh {
+			return []string{
+				"  下一步: /approve --retry 续 apply 剩余 paths · /reject 丢弃 (注意:/merge 拒收 partially_applied)",
+			}
+		}
+		return []string{
+			"  next: /approve --retry to apply remaining paths · /reject to discard (note: /merge refuses partially_applied)",
+		}
+	case "unverified":
+		if zh {
+			return []string{
+				"  下一步: /approve --retry 重跑 (加 tests 后) · /merge --include-failed 接受未验证强合 · /reject 丢弃",
+			}
+		}
+		return []string{
+			"  next: /approve --retry to re-run (after adding tests) · /merge --include-failed to land without verification · /reject to discard",
+		}
+	case "applied":
+		if zh {
+			return []string{
+				"  下一步: /merge 合回主仓 · /verify 重跑测试 · /worktree list 查看保留的 worktree",
+			}
+		}
+		return []string{
+			"  next: /merge to fold into main · /verify to re-run tests · /worktree list to see preserved worktrees",
+		}
+	}
+	// Default (pending_approval / unknown): the original footer.
+	if zh {
 		return []string{
 			"  下一步: /approve 落地 · /reject 丢弃 · /plan clear 仅删本地副本",
 		}
@@ -859,13 +935,34 @@ func helpLines(lang string) []string {
 		}
 		return s + strings.Repeat(" ", maxName-len(s))
 	}
-	out := make([]string, 0, len(slashCommands)+2)
+	out := make([]string, 0, len(slashCommands)+4)
 	if isZh(lang) {
 		out = append(out, "可用命令(共 "+itoa(len(slashCommands))+" 条;子命令缩进显示):")
 	} else {
 		out = append(out, "available commands ("+itoa(len(slashCommands))+"; subcommands shown indented):")
 	}
+	// UX#3 (commit 41): group write-mode commands under a
+	// single header so first-time users see them as a coherent
+	// workflow instead of scattered through the read-mode
+	// commands. The split point is the first "isWriteCommand"
+	// entry; we emit the header once just before it. Other
+	// commands stay in their original order.
+	writeHeaderEmitted := false
+	emitWriteHeader := func() {
+		if writeHeaderEmitted {
+			return
+		}
+		if isZh(lang) {
+			out = append(out, "  ── 写模式命令(需 codrax.yaml :: write_enabled: true) ──")
+		} else {
+			out = append(out, "  ── Write-mode commands (require codrax.yaml :: write_enabled: true) ──")
+		}
+		writeHeaderEmitted = true
+	}
 	for _, c := range slashCommands {
+		if isWriteModeCommand(c.Name) {
+			emitWriteHeader()
+		}
 		out = append(out, "  "+pad(c.Name)+"  "+c.Help(lang))
 		// Render subs as `<parent> <sub>` so the user sees the
 		// exact shape they would type. Indented by 4 spaces so
@@ -881,6 +978,30 @@ func helpLines(lang string) []string {
 		out = append(out, "tip: end a line with \\ for multi-line input; prefix a line with ! to run a system shell command, cwd = repo root.")
 	}
 	return out
+}
+
+// isWriteModeCommand classifies a slashCommand name as
+// belonging to the write-mode workflow. Used by helpLines
+// (UX#3) to insert a single grouping header before the
+// first write command. Centralised here so adding a new
+// write command — or moving one — only needs an update in
+// this list rather than re-flowing the help renderer.
+func isWriteModeCommand(name string) bool {
+	switch name {
+	case "/mode",
+		"/plan",
+		"/approve",
+		"/reject",
+		"/verify",
+		"/worktree",
+		"/merge",
+		"/branch",
+		"/baseline",
+		"/phase",
+		"/pitfalls":
+		return true
+	}
+	return false
 }
 
 // itoa is a tiny stdlib-free int-to-string helper; messages.go
