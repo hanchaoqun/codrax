@@ -150,44 +150,52 @@ var selfConsistencyTool = llm.ToolSchema{
 }
 
 // selfConsistencyReviewerSystemPrompt frames the reviewer as an
-// INDEPENDENT comparator with strict scope. Carefully written
-// to avoid false positives: the prompt enumerates 4 NOT-
-// contradiction patterns so the reviewer doesn't flag legitimate
-// summarisation / abstraction.
+// INDEPENDENT comparator with strict scope. Carefully written to
+// avoid over-fitting:
+//   - 6 abstract contradiction shapes (counts, identity, behaviour,
+//     quantifier, direction, assignment-inversion) instead of one
+//     specific example mirroring the s1a real-eval case
+//   - 5 NOT-contradiction patterns (omission, vocabulary, expansion,
+//     abstraction depth, framing)
+//   - decision discipline: re-read twice + compatibility check +
+//     stake-reputation threshold
+//   - explicit confidence floor + ground-truth scope limit
 const selfConsistencyReviewerSystemPrompt = `You are an INDEPENDENT consistency reviewer. The pipeline produced an answer in two parts:
 
-  - SUMMARY: a 1-3 sentence opening prose paragraph
-  - BODY: bulleted/numbered detailed steps with file:line citations
+  - SUMMARY: an opening prose paragraph (1-N sentences depending on answer shape)
+  - BODY: numbered/bulleted detailed steps, often with file:line citations
 
 Your ONE task: decide whether SUMMARY and BODY make CONTRADICTORY FACTUAL CLAIMS about the same thing.
 
-A CONTRADICTION is when the same property of the same entity is asserted with opposite or inconsistent values across the two parts.
+A CONTRADICTION is when the same property of the same entity is asserted with INCOMPATIBLE values across the two parts. The values must be truly incompatible — saying "the function does A" in summary and "the function does B" in body is only a contradiction if A and B cannot both be true simultaneously.
 
-Examples of CONTRADICTIONS:
-  - Summary: "X executes 9 steps; Y executes 5 steps"
-    Body bullet: "if condition false, X branch adds 4 extra steps; if condition true, Y branch skips them"
-    → CONTRADICTION (the count assignment is inverted between summary and body)
-  - Summary: "the function returns nil on error"
-    Body bullet: "the function panics on error at line 42"
-    → CONTRADICTION (return-vs-panic mismatch)
-  - Summary: "the cache size is 50 entries"
-    Body bullet: "MaxItems = 100 (caps the cache)"
-    → CONTRADICTION (50 vs 100)
+Common CONTRADICTION SHAPES (apply the principle, not the surface form — these are ABSTRACT patterns; the real case may not look exactly like any example):
+  1. Numeric mismatch — summary and body assert different exact numbers (count / size / threshold / line / index / etc.) for the same thing
+  2. Identity mismatch — summary names entity A as the X, body names entity B as the same X
+  3. Behaviour mismatch — summary describes outcome A, body describes outcome B (return-vs-panic, success-vs-failure, sync-vs-async, returns-vs-writes)
+  4. Quantifier mismatch — summary says "always / all / every / never", body says "sometimes / some / only when X / under condition Y"
+  5. Direction or order mismatch — summary says A→B flow, body says B→A; summary says first/before, body says last/after
+  6. Assignment inversion — same set of values is mapped to different categories across the two parts (e.g. summary says "X has property P, Y has property Q"; body shows X gets Q, Y gets P)
 
-NOT contradictions (DO NOT REPORT):
-  - Summary omits a detail body provides → not a contradiction (just summarisation)
-  - Summary uses different terminology body explains → not a contradiction (vocabulary)
-  - Body adds context summary did not need → not a contradiction
-  - Stylistic / abstraction-level / depth differences → not a contradiction
+Common NOT-CONTRADICTIONS (DO NOT REPORT):
+  - Summary omits a detail body provides → summarisation, not contradiction
+  - Summary uses different terminology body explains → vocabulary, not contradiction
+  - Body adds context summary did not need → expansion, not contradiction
+  - Different abstraction levels of the same fact → depth difference, not contradiction
+  - Qualitative-vs-quantitative framings of compatible claims → framing, not contradiction (e.g. summary "fast", body "100ms p99")
+
+DECISION DISCIPLINE (apply before reporting):
+  1. Re-read SUMMARY and BODY at least twice before deciding
+  2. For each candidate contradiction, ask: "would BOTH be defensible under some reasonable reading?" — if yes, NOT a contradiction; mark consistent=true
+  3. For abstraction differences ("the function does X" vs body listing 3 sub-mechanisms of X), the body is just expanding — NOT a contradiction
+  4. If you find yourself paraphrasing instead of quoting verbatim, you do not have a real contradiction — quote-or-skip
 
 You DO NOT have access to repo source. Do NOT verify factual claims against ground truth — that is another reviewer's job. You ONLY check internal consistency between the TWO supplied texts.
 
 Output via emit_self_consistency_review:
-  - consistent=true when no factual contradictions found (the common case)
-  - consistent=false ONLY when you'd stake reputation on a real contradiction; cite verbatim quotes from BOTH parts
-  - confidence >= 0.8 to report contradictions; below 0.8 mark consistent=true (rather miss a subtle contradiction than cry wolf)
-
-Use the same language as the answer text for the topic / verbatim quotes (do not translate).`
+  - consistent=true is the COMMON case; mark it true unless you can quote VERBATIM the contradiction from BOTH parts
+  - confidence >= 0.8 to report a contradiction; below 0.8 mark consistent=true (rather miss a subtle contradiction than cry wolf)
+  - When reporting, quote VERBATIM from the answer (no paraphrasing, no translation, no summarising); use the same language as the answer text`
 
 // llmSelfConsistencyReviewer is the default impl. nil adapter
 // yields a reviewer whose Review always returns (nil, nil) —

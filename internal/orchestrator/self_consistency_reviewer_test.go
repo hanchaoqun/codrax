@@ -25,6 +25,74 @@ func (s *stubSelfConsistencyAdapter) MaxOutputTokens() int          { return 0 }
 func (s *stubSelfConsistencyAdapter) RequestTimeout() time.Duration { return 0 }
 func (s *stubSelfConsistencyAdapter) RetryMaxAttempts() int         { return 1 }
 
+// TestSelfConsistencyReviewerPrompt_NotOverFittedToS1aCase pins
+// the commit-62-followup contract: the system prompt MUST NOT
+// carry repo-specific or s1a-test-specific examples that would
+// over-fit the reviewer to the very case that motivated the
+// feature. The prompt enumerates 6 abstract contradiction shapes
+// + 5 NOT-contradiction patterns + decision discipline; no "9 /
+// 5" specific numeric example, no gate.Run / read-mode mention.
+func TestSelfConsistencyReviewerPrompt_NotOverFittedToS1aCase(t *testing.T) {
+	p := selfConsistencyReviewerSystemPrompt
+
+	// Forbidden surface signals (would mean the prompt parrots
+	// the s1a case it was inspired by):
+	for _, banned := range []string{
+		"gate.Run", "read mode", "read-mode", "isWrite",
+		"checkCoverage", "checkDAGClosure",
+	} {
+		if strings.Contains(p, banned) {
+			t.Errorf("prompt over-fitted: contains s1a-specific surface %q", banned)
+		}
+	}
+
+	// Forbidden specific number that mirrored s1a's 9 / 5 split.
+	// We allow generic numbers (1-N, item counts) but not the
+	// specific 9-vs-5 pair.
+	if strings.Contains(p, "9 steps") && strings.Contains(p, "5 steps") {
+		t.Error("prompt over-fitted: still contains the s1a-mirroring '9 steps / 5 steps' example")
+	}
+
+	// Required shape signals: 6 abstract contradiction patterns +
+	// 5 NOT-contradiction patterns + decision discipline.
+	for _, want := range []string{
+		"Numeric mismatch",
+		"Identity mismatch",
+		"Behaviour mismatch",
+		"Quantifier mismatch",
+		"Direction or order mismatch",
+		"Assignment inversion",
+	} {
+		if !strings.Contains(p, want) {
+			t.Errorf("prompt missing abstract contradiction shape: %q", want)
+		}
+	}
+	for _, want := range []string{
+		"NOT-CONTRADICTIONS",
+		"summarisation, not contradiction",
+		"vocabulary, not contradiction",
+		"expansion, not contradiction",
+		"depth difference",
+		"framing, not contradiction",
+	} {
+		if !strings.Contains(p, want) {
+			t.Errorf("prompt missing NOT-contradiction class: %q", want)
+		}
+	}
+	if !strings.Contains(p, "DECISION DISCIPLINE") {
+		t.Error("prompt missing decision discipline section")
+	}
+	if !strings.Contains(p, "Re-read SUMMARY and BODY at least twice") {
+		t.Error("prompt missing 're-read twice' rule")
+	}
+	if !strings.Contains(p, "rather miss a subtle contradiction than cry wolf") {
+		t.Error("prompt missing conservative-floor rule")
+	}
+	if !strings.Contains(p, "VERBATIM") {
+		t.Error("prompt missing verbatim-quote rule")
+	}
+}
+
 func TestSelfConsistencyReviewer_NilAdapterIsNoOp(t *testing.T) {
 	r := NewSelfConsistencyReviewer(nil)
 	got, err := r.Review(context.Background(), SelfConsistencyInput{
