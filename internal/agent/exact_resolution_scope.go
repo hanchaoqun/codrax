@@ -171,6 +171,16 @@ func exactResolutionAnchoredFiles(contract *types.ExactResolutionContract, evide
 		if item.ContextRole == types.EvidenceContextRoleIllustrativeOnly {
 			continue
 		}
+		// 2026-05+ scope axis: this function is for line-anchored
+		// "exact target's file" extraction (per-line role validation
+		// downstream). Schema-level scopes (File / Crossfile /
+		// Negative) describe layer identity / cross-file contracts /
+		// absences — they don't anchor a per-line target. Schema-
+		// level evidence enters the answer surface via the separate
+		// validateConfigTraceAbsenceCitationFocus schema-level branch.
+		if !item.Scope.IsLineShaped() {
+			continue
+		}
 		if !exactResolutionSourceSupportsContextScope(contract, item) {
 			continue
 		}
@@ -196,6 +206,11 @@ func exactResolutionRoleAnchoredFiles(contract *types.ExactResolutionContract, e
 		if item.ContextRole == types.EvidenceContextRoleIllustrativeOnly ||
 			item.DiagramRole == types.EvidenceDiagramRoleUnknown ||
 			!exactResolutionSourceSupportsContextScope(contract, item) {
+			continue
+		}
+		// Same scope discipline as exactResolutionAnchoredFiles —
+		// per-line role weighting only.
+		if !item.Scope.IsLineShaped() {
 			continue
 		}
 		path := canonicalExactResolutionPath(item.Source)

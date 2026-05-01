@@ -641,6 +641,15 @@ func extractorDeclarativeLiteralFallback(ctx *types.AgentContext) []types.Answer
 	}
 
 	for _, ev := range pool {
+		// Schema-level scopes (File / Crossfile / Negative) anchor
+		// layer identity / cross-file contracts / absences — they
+		// have no per-line literal to extract. Only line-shaped
+		// scopes (Line / LineRange / Section) feed symbol synthesis
+		// candidates. Skipping them here prevents spurious file:line
+		// literals from getting attributed to schema-level evidence.
+		if !ev.Scope.IsLineShaped() {
+			continue
+		}
 		if ev.Kind == types.EvidenceDataflowPath && ev.Predicate == "resolution_chain" {
 			add(subject.ChainTerminalToken(ev.Summary), false, ev.Source, ev.LineStart, ev.Summary, "terminal literal inferred from resolution chain")
 		}
