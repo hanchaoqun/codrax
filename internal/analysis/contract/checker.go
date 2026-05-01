@@ -117,14 +117,40 @@ const (
 // Check validates draft against c. It is safe to call with an empty
 // contract — every field is treated as "not required" so a
 // zero-value contract never rejects an answer.
+//
+// Back-compat: this signature preserves the pre-commit-55 shape.
+// New code that has a SymbolOracle handy should use CheckWithOracle
+// for the stricter must_include / must_exclude / acceptance
+// substring path.
 func Check(draft Answer, c types.AnswerContract) Result {
+	return CheckWithOracle(draft, c, nil)
+}
+
+// CheckWithOracle is the commit-55 Batch C oracle-aware variant.
+// When `oracle` is non-nil, must_include / must_exclude /
+// acceptance(contains_symbol) substring matches are
+// SUPPLEMENTARY-validated: a substring hit is accepted only when
+// the term ALSO resolves to a real Tier 1-2 symbol. This closes
+// the audit MEDIUM #2 gap — pre-fix, an LLM-emitted must_include
+// like "FooHandler" could pass via prose containing "FooHandlerStub"
+// even when no real FooHandler symbol exists in the repo.
+//
+// nil oracle = legacy substring-only behaviour. The default Check
+// signature wires nil so pre-commit-55 callers see no change.
+//
+// Permissive substring intent ("TaskList → TaskListSize") is
+// preserved when the substring's TERM (TaskList) IS itself a real
+// symbol; the oracle-strict path only rejects when the term is
+// NOT a known symbol. So legitimate prefix-style includes still
+// pass; only hallucinated includes fail.
+func CheckWithOracle(draft Answer, c types.AnswerContract, oracle types.SymbolOracle) Result {
 	var vs []Violation
 
 	vs = append(vs, checkShape(draft, c)...)
 	vs = append(vs, checkCitations(draft, c)...)
-	vs = append(vs, checkMustInclude(draft, c)...)
-	vs = append(vs, checkMustExclude(draft, c)...)
-	vs = append(vs, checkAcceptance(draft, c)...)
+	vs = append(vs, checkMustIncludeOracle(draft, c, oracle)...)
+	vs = append(vs, checkMustExcludeOracle(draft, c, oracle)...)
+	vs = append(vs, checkAcceptanceOracle(draft, c, oracle)...)
 
 	return Result{Passed: len(vs) == 0, Violations: vs}
 }
@@ -266,12 +292,32 @@ func checkCitations(draft Answer, c types.AnswerContract) []Violation {
 }
 
 func checkMustInclude(draft Answer, c types.AnswerContract) []Violation {
+	return checkMustIncludeOracle(draft, c, nil)
+}
+
+// checkMustIncludeOracle is the commit-55 Batch C oracle-aware
+// variant of checkMustInclude. When oracle is nil, behaviour is
+// byte-identical to the pre-commit-55 substring-only path. With an
+// oracle, a substring hit on a term that is NOT a real Tier 1-2
+// symbol gets treated as a miss (the LLM hallucinated the include).
+// Non-symbol-shaped terms (multi-word phrases, terms shorter than
+// 4 chars) bypass the oracle gate so they keep substring-only
+// semantics — only identifier-shaped tokens get the strict path.
+func checkMustIncludeOracle(draft Answer, c types.AnswerContract, oracle types.SymbolOracle) []Violation {
 	var out []Violation
 	for _, sym := range c.MustInclude {
 		if sym == "" {
 			continue
 		}
-		if !containsSymbol(draft.Text, sym) {
+		hit := containsSymbol(draft.Text, sym)
+		if hit && oracle != nil && shouldOracleGateInclude(sym) {
+			if found, tier := oracle.SymbolExists(sym); !found || tier >= 3 {
+				// Substring matches but the term isn't a real symbol —
+				// treat as miss (LLM hallucinated the include).
+				hit = false
+			}
+		}
+		if !hit {
 			out = append(out, Violation{
 				Kind:   ViolMustInclude,
 				Detail: fmt.Sprintf("required term %q missing from answer", sym),
@@ -282,13 +328,57 @@ func checkMustInclude(draft Answer, c types.AnswerContract) []Violation {
 	return out
 }
 
+// shouldOracleGateInclude reports whether a must_include term is
+// shaped like a code identifier (CamelCase / camelCase /
+// snake_case ≥ 4 chars). Multi-word phrases, common English
+// words, and short tokens bypass oracle gating to preserve the
+// substring permissiveness for prose content. Mirrors the
+// commit-54 P4 diagram-validator regex shape but is independently
+// scoped because the contract layer doesn't depend on
+// emit_answer_document.
+func shouldOracleGateInclude(sym string) bool {
+	if len(sym) < 4 {
+		return false
+	}
+	for i := 0; i < len(sym); i++ {
+		c := sym[i]
+		switch {
+		case c >= 'a' && c <= 'z',
+			c >= 'A' && c <= 'Z',
+			c >= '0' && c <= '9',
+			c == '_':
+			continue
+		default:
+			// Whitespace / punctuation = phrase, not identifier.
+			return false
+		}
+	}
+	return true
+}
+
 func checkMustExclude(draft Answer, c types.AnswerContract) []Violation {
+	return checkMustExcludeOracle(draft, c, nil)
+}
+
+// checkMustExcludeOracle: with oracle, substring hits on terms
+// that are NOT real Tier 1-2 symbols are NOT counted as forbidden
+// presences (the term is gibberish, not the prohibited concept).
+// Without oracle, behaviour is byte-identical to pre-commit-55.
+// Tightens the gate's precision: hallucinated forbidden terms
+// don't raise spurious violations.
+func checkMustExcludeOracle(draft Answer, c types.AnswerContract, oracle types.SymbolOracle) []Violation {
 	var out []Violation
 	for _, sym := range c.MustExclude {
 		if sym == "" {
 			continue
 		}
-		if containsSymbol(draft.Text, sym) {
+		hit := containsSymbol(draft.Text, sym)
+		if hit && oracle != nil && shouldOracleGateInclude(sym) {
+			if found, tier := oracle.SymbolExists(sym); !found || tier >= 3 {
+				hit = false
+			}
+		}
+		if hit {
 			out = append(out, Violation{
 				Kind:   ViolMustExclude,
 				Detail: fmt.Sprintf("forbidden term %q present in answer", sym),
@@ -299,6 +389,13 @@ func checkMustExclude(draft Answer, c types.AnswerContract) []Violation {
 }
 
 func checkAcceptance(draft Answer, c types.AnswerContract) []Violation {
+	return checkAcceptanceOracle(draft, c, nil)
+}
+
+// checkAcceptanceOracle: oracle gates the contains_symbol
+// acceptance check identically to must_include — a substring hit
+// on a hallucinated term doesn't satisfy the acceptance.
+func checkAcceptanceOracle(draft Answer, c types.AnswerContract, oracle types.SymbolOracle) []Violation {
 	var out []Violation
 	// acceptanceRoot covers contains_symbol / regex_match / invalid
 	// regex / unknown kind paths. SuspectedRoot points at
@@ -313,7 +410,13 @@ func checkAcceptance(draft Answer, c types.AnswerContract) []Violation {
 	for _, a := range c.AcceptanceTests {
 		switch a.Kind {
 		case types.CritContainsSymbol:
-			if !containsSymbol(draft.Text, a.Expr) {
+			hit := containsSymbol(draft.Text, a.Expr)
+			if hit && oracle != nil && shouldOracleGateInclude(a.Expr) {
+				if found, tier := oracle.SymbolExists(a.Expr); !found || tier >= 3 {
+					hit = false
+				}
+			}
+			if !hit {
 				out = append(out, Violation{Kind: ViolAcceptance,
 					Detail:        fmt.Sprintf("acceptance contains_symbol %q failed", a.Expr),
 					SuspectedRoot: acceptanceRoot})

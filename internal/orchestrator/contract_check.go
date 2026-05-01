@@ -10,6 +10,8 @@ import (
 	"github.com/hanchaoqun/codrax/internal/agent"
 	"github.com/hanchaoqun/codrax/internal/analysis/contract"
 	"github.com/hanchaoqun/codrax/internal/analysis/hint"
+	"github.com/hanchaoqun/codrax/internal/tool/repomap"
+	repotypes "github.com/hanchaoqun/codrax/internal/tool/repomap/types"
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
@@ -70,7 +72,17 @@ func runContractCheck(out *agent.StageOutput, c types.AnswerContract, mut *types
 			}
 		}
 	}
-	result := contract.Check(draft, c)
+	// Commit 55 Batch C — wire SymbolOracle through to the contract
+	// checker so must_include / must_exclude / acceptance(contains_symbol)
+	// substring matches get supplementary oracle validation. nil
+	// oracle (no graph) preserves pre-commit-55 behaviour.
+	var oracle types.SymbolOracle
+	if mut != nil {
+		if g, ok := mut.SearchGraph().(*repotypes.Graph); ok && g != nil {
+			oracle = repomap.NewSymbolOracle(g)
+		}
+	}
+	result := contract.CheckWithOracle(draft, c, oracle)
 
 	// Commit 53 P2 — Answer Shape Oracle. After the contract.Check
 	// suite, run additional read-mode-only coherence checks that need
