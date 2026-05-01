@@ -541,7 +541,10 @@ func (t *EmitEvidence) Execute(ctx *types.BusContext, params json.RawMessage) (t
 	diagramRequiredFiles := exactResolutionDiagramRequiredFiles(ctx, exactResolutionContract)
 	reports := make([]ground.Report, len(built))
 	for i := range built {
-		r := ground.GroundItem(&built[i], gc)
+		// Per-scope dispatch: ScopeLine routes to the existing tier
+		// cascade; schema-level scopes (File / Crossfile / Negative)
+		// route to their own grounders.
+		r := ground.GroundItemScoped(&built[i], gc)
 		normalizeCallEvidenceDirection(&built[i], gc)
 		if stampEvidenceOwnerSymbol(&built[i], gc) {
 			r.Status = built[i].GroundingStatus
