@@ -959,23 +959,34 @@ func (r *REPL) currentStickyTag() string {
 // ownership of SIGINT for its lifetime and is responsible for
 // invoking worktree.CleanActiveSessions on its own exit paths.
 //
+// Unified double-tap semantic across BOTH states (in-Run AND idle
+// prompt): a SINGLE Ctrl+C never quits the process. The dock
+// message has always advertised "Ctrl+C 取消(连按 2 次强制退出)";
+// pre-2026-05-02 the idle-prompt path silently exited on the first
+// signal, contradicting the message and trapping operators who hit
+// Ctrl+C at the prompt expecting "cancel any in-flight thinking and
+// stay at the prompt".
+//
 // Behaviour by state:
 //
-//   - !runInFlight (idle prompt): operator hit Ctrl+C with no Run
-//     active. Drive cleanup ourselves and exit cleanly. Bubbletea's
-//     bracketed-paste / readline modes don't handle SIGINT
-//     gracefully on every shell, so an explicit cleanup-and-exit
-//     mirrors the historical worktree-handler behaviour without the
-//     race.
-//   - runInFlight + first signal within doubleSigCancelWindow: call
-//     runner.Cancel("Ctrl+C") and stamp lastCancelSig. The pipeline
-//     unwinds at its next checkpoint; the user sees the standard
-//     "✗ canceled" rendering when Run returns.
-//   - runInFlight + second signal within doubleSigCancelWindow:
-//     escalate — operator explicitly asked twice. Drive worktree
-//     cleanup + os.Exit. We do NOT just re-raise: signal.Reset would
-//     unsubscribe BOTH our channel and worktree's, leaving Go's
-//     default disposition which exits without cleanup.
+//   - First signal anywhere within doubleSigCancelWindow:
+//     - runInFlight: call runner.Cancel("Ctrl+C") + cancelTurn() so
+//       the pipeline / chitchat unwinds at the next checkpoint;
+//       operator sees "✗ canceled" rendering when Run returns.
+//     - idle prompt: print "再按一次 Ctrl+C 退出 codrax" warning;
+//       operator can press once more to confirm OR keep using REPL.
+//
+//   - Second signal within the window: escalate to clean exit
+//     regardless of state. Drive worktree cleanup ourselves since
+//     the package handler is suppressed; print "Goodbye!" and
+//     os.Exit(130). Two consecutive Ctrl+C presses (within 2 s) are
+//     the universal "I really want out" signal.
+//
+//   - Window expiry: stamp goes stale automatically via the
+//     time.Duration(now-prev) < doubleSigCancelWindow comparison —
+//     no separate timer needed. After 2 s with no follow-up, the
+//     next single tap is treated as fresh, returning to the
+//     "warn / cancel only" first-tap behaviour.
 //
 // The handler runs in its own goroutine; signal channel is buffered
 // to drop replays we cannot service in real time.
@@ -995,33 +1006,36 @@ func (r *REPL) installCancelSignalHandler() {
 		signal.Notify(ch, syscall.SIGINT)
 		go func() {
 			for range ch {
-				if !r.runInFlight.Load() {
-					// Idle prompt: clean worktrees and exit. Mirrors
-					// the historical behaviour but routes through us
-					// instead of the suppressed package handler.
-					worktree.CleanActiveSessions()
-					fmt.Fprintln(r.out, "  Goodbye!")
-					os.Exit(130)
-				}
 				now := time.Now().UnixNano()
 				prev := r.lastCancelSig.Swap(now)
-				if prev > 0 && time.Duration(now-prev) < doubleSigCancelWindow {
+				doubleTap := prev > 0 && time.Duration(now-prev) < doubleSigCancelWindow
+				if doubleTap {
 					// Second signal within the window — escalate to
-					// exit. Drive cleanup ourselves since the package
+					// clean exit, regardless of in-Run / idle state.
+					// Drive cleanup ourselves since the package
 					// handler is suppressed.
 					worktree.CleanActiveSessions()
 					fmt.Fprintln(r.out, "  Goodbye!")
 					os.Exit(130)
 				}
-				canceller.Cancel("Ctrl+C")
-				// Also cancel any in-flight chitchat turn ctx — chitchat
-				// runs on the REPL goroutine outside runInFlightWrap, so
-				// orchestrator's Cancel doesn't reach it. The per-turn
-				// cancel func (set by chitchatDispatch / classifier
-				// dispatch) is the surface that closes the chitchat
-				// HTTP socket immediately.
-				r.cancelTurn()
-				r.warn("%s\n", cancelInProgressMsg(r.language))
+				if r.runInFlight.Load() {
+					// First signal during Run: cancel pipeline.
+					canceller.Cancel("Ctrl+C")
+					// Also cancel any in-flight chitchat turn ctx —
+					// chitchat runs on the REPL goroutine outside
+					// runInFlightWrap, so orchestrator's Cancel
+					// doesn't reach it. The per-turn cancel func
+					// (set by chitchatDispatch / classifier dispatch)
+					// is the surface that closes the chitchat HTTP
+					// socket immediately.
+					r.cancelTurn()
+					r.warn("%s\n", cancelInProgressMsg(r.language))
+					continue
+				}
+				// First signal at idle prompt: warn + ask for
+				// confirmation. Operator presses Ctrl+C again within
+				// 2 s to exit, or carries on using the REPL.
+				r.warn("%s\n", idleConfirmExitMsg(r.language))
 			}
 		}()
 	})
@@ -2022,18 +2036,21 @@ func (r *REPL) handleSlash(line string) bool {
 		if perr != nil {
 			logging.Warning("[repl] live peer count failed: %v", perr)
 		}
-		msg := "/clear wipes this conversation memory (MEMORY.md + turns/)."
-		if peers == 1 {
-			msg += " 1 other live codrax instance shares this directory."
-		} else if peers > 1 {
-			msg += fmt.Sprintf(" %d other live codrax instances share this directory.", peers)
-		}
+		msg := memoryClearConfirmTitle(r.language, peers)
 		confirmed := false
 		if r.interactive() {
+			// Affirmative / Negative labels EMBED the hotkey hint so
+			// the operator sees the y/n keyboard shortcut without
+			// consulting docs. huh.NewConfirm binds the first
+			// alphanumeric character of each label as the hotkey by
+			// default — putting "[Y]" first preserves that contract
+			// while making the shortcut visible. Bilingual via
+			// memoryClearConfirmAffirmative / Negative so both label
+			// + title respect r.language.
 			err := huh.NewConfirm().
 				Title(msg).
-				Affirmative("Yes").
-				Negative("No").
+				Affirmative(memoryClearConfirmAffirmative(r.language)).
+				Negative(memoryClearConfirmNegative(r.language)).
 				Value(&confirmed).
 				Run()
 			if err != nil {
@@ -2042,6 +2059,7 @@ func (r *REPL) handleSlash(line string) bool {
 		} else {
 			// Line-oriented mode: print message and read y/n.
 			fmt.Fprintln(r.out, msg)
+			fmt.Fprintln(r.out, memoryClearConfirmLineHint(r.language))
 			line, err := r.readInputLines("")
 			if err == nil {
 				confirmed = strings.TrimSpace(strings.ToLower(line)) == "y"

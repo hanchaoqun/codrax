@@ -1435,6 +1435,83 @@ func cancelInProgressMsg(lang string) string {
 	return "✗ cancel requested; takes effect when the current LLM call returns (up to ~30s). Press Ctrl+C again to force exit."
 }
 
+// idleConfirmExitMsg — first Ctrl+C at the idle prompt (no Run in
+// flight). Pre-2026-05-02 the idle path immediately os.Exit'd on
+// the first signal, contradicting the dock's "连按 2 次强制退出"
+// promise and trapping operators who hit Ctrl+C expecting the
+// readline-conventional "abandon current input line, stay at
+// prompt" semantic. Now the idle path matches the in-Run path:
+// first tap warns + asks for confirmation, second tap within 2 s
+// exits. Operators can press once more to leave OR continue using
+// the REPL — Ctrl+C at the prompt is no longer a one-way trap.
+func idleConfirmExitMsg(lang string) string {
+	if isZh(lang) {
+		return "✗ 再按一次 Ctrl+C 退出 codrax(2 秒内),或继续使用 REPL。"
+	}
+	return "✗ Press Ctrl+C again within 2s to exit codrax, or keep using the REPL."
+}
+
+// memoryClearConfirmTitle renders the /clear confirmation prompt
+// (the huh.Confirm Title or the line-mode print line). Bilingual +
+// peer-count aware so a multi-instance operator is warned that the
+// wipe affects sibling REPLs sharing the same memory dir.
+//
+// Pre-2026-05-02 the title was a hardcoded English string and the
+// peer-count addendum was English-only — operators running in zh
+// locale saw mixed-language UI.
+func memoryClearConfirmTitle(lang string, peers int) string {
+	if isZh(lang) {
+		base := "/clear 将清空当前会话记忆(MEMORY.md + turns/)。"
+		switch {
+		case peers == 1:
+			return base + " 当前另有 1 个 codrax 实例共享此目录。"
+		case peers > 1:
+			return base + fmt.Sprintf(" 当前另有 %d 个 codrax 实例共享此目录。", peers)
+		}
+		return base
+	}
+	base := "/clear wipes this conversation memory (MEMORY.md + turns/)."
+	switch {
+	case peers == 1:
+		return base + " 1 other live codrax instance shares this directory."
+	case peers > 1:
+		return base + fmt.Sprintf(" %d other live codrax instances share this directory.", peers)
+	}
+	return base
+}
+
+// memoryClearConfirmAffirmative renders the affirmative button label
+// for the /clear confirm widget. The leading "[Y]" / "[是]" exposes
+// the keyboard hotkey huh binds by default (first alphanumeric
+// character of the label), so operators see the shortcut without
+// reading docs.
+func memoryClearConfirmAffirmative(lang string) string {
+	if isZh(lang) {
+		return "Y - 是,清空"
+	}
+	return "Y - Yes, wipe"
+}
+
+// memoryClearConfirmNegative — same as Affirmative but for the No
+// option. Hotkey is "n" via the leading character.
+func memoryClearConfirmNegative(lang string) string {
+	if isZh(lang) {
+		return "N - 否,取消"
+	}
+	return "N - No, keep"
+}
+
+// memoryClearConfirmLineHint renders the y/n hint for the
+// non-interactive (scripted / piped stdin) line-oriented mode. The
+// huh.Confirm widget is replaced by a plain readline so operators
+// need an explicit "type y or n" hint.
+func memoryClearConfirmLineHint(lang string) string {
+	if isZh(lang) {
+		return "  输入 y 确认清空,其它任意输入取消:"
+	}
+	return "  Type 'y' to confirm wipe, anything else to cancel:"
+}
+
 // cancelNothingRunningMsg — `/cancel` typed at the idle prompt or
 // when the runner doesn't expose a cancel surface (test stub). One
 // line, no exit — operators can still /exit themselves.

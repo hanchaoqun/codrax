@@ -593,6 +593,90 @@ func TestApproveDispatchRequest_NotREPLControlInput(t *testing.T) {
 	}
 }
 
+// TestMemoryClearConfirm_BilingualWithHotkey pins the bilingual
+// + hotkey-visible contract for the /clear confirmation prompt.
+// Both labels MUST start with the hotkey character (Y / N) so
+// huh.Confirm's default "first-alphanumeric-as-binding" semantic
+// produces y/n keyboard shortcuts AND the operator sees the
+// shortcut without reading docs.
+func TestMemoryClearConfirm_BilingualWithHotkey(t *testing.T) {
+	for _, lang := range []string{"zh", "en"} {
+		aff := memoryClearConfirmAffirmative(lang)
+		neg := memoryClearConfirmNegative(lang)
+		if !strings.HasPrefix(aff, "Y") {
+			t.Errorf("%s affirmative MUST start with 'Y' for huh hotkey binding; got %q", lang, aff)
+		}
+		if !strings.HasPrefix(neg, "N") {
+			t.Errorf("%s negative MUST start with 'N' for huh hotkey binding; got %q", lang, neg)
+		}
+	}
+	// zh title respects locale (no English wipe verb).
+	zhTitle := memoryClearConfirmTitle("zh", 0)
+	if !strings.Contains(zhTitle, "清空") {
+		t.Errorf("zh title MUST contain '清空'; got %q", zhTitle)
+	}
+	if strings.Contains(zhTitle, "wipes") {
+		t.Errorf("zh title MUST NOT mix English 'wipes'; got %q", zhTitle)
+	}
+	// Peer-count addendum follows locale too.
+	zhPeer := memoryClearConfirmTitle("zh", 2)
+	if !strings.Contains(zhPeer, "2 个") {
+		t.Errorf("zh peer addendum MUST contain '2 个'; got %q", zhPeer)
+	}
+	if strings.Contains(zhPeer, "instances") {
+		t.Errorf("zh peer addendum MUST NOT contain English 'instances'; got %q", zhPeer)
+	}
+	// Line hint also bilingual.
+	zhHint := memoryClearConfirmLineHint("zh")
+	if !strings.Contains(zhHint, "y") {
+		t.Errorf("zh line hint MUST mention y; got %q", zhHint)
+	}
+	if strings.Contains(zhHint, "Type") {
+		t.Errorf("zh line hint MUST NOT mix English 'Type'; got %q", zhHint)
+	}
+	enHint := memoryClearConfirmLineHint("en")
+	if !strings.Contains(enHint, "y") {
+		t.Errorf("en line hint MUST mention y; got %q", enHint)
+	}
+}
+
+// TestIdleConfirmExitMsg pins the bilingual content of the idle-
+// prompt confirmation message. The Chinese variant must explicitly
+// name "Ctrl+C" + the 2-second window so operators understand the
+// double-tap semantic without consulting docs; the English variant
+// mirrors the same. Both must contain "REPL" so the message is
+// distinguishable from in-Run cancel messages.
+func TestIdleConfirmExitMsg(t *testing.T) {
+	zh := idleConfirmExitMsg("zh")
+	if !strings.Contains(zh, "Ctrl+C") {
+		t.Errorf("zh msg must name Ctrl+C; got %q", zh)
+	}
+	if !strings.Contains(zh, "2") {
+		t.Errorf("zh msg must mention the 2-second window; got %q", zh)
+	}
+	if !strings.Contains(zh, "REPL") {
+		t.Errorf("zh msg must distinguish from in-Run cancel; got %q", zh)
+	}
+	en := idleConfirmExitMsg("en")
+	if !strings.Contains(en, "Ctrl+C") {
+		t.Errorf("en msg must name Ctrl+C; got %q", en)
+	}
+	if !strings.Contains(en, "2s") {
+		t.Errorf("en msg must mention the 2-second window; got %q", en)
+	}
+	if !strings.Contains(en, "REPL") {
+		t.Errorf("en msg must distinguish from in-Run cancel; got %q", en)
+	}
+	// Distinct from cancelInProgressMsg so the dock area can render
+	// either without ambiguity.
+	if zh == cancelInProgressMsg("zh") {
+		t.Errorf("idleConfirmExit must NOT collide with in-Run cancel msg (zh)")
+	}
+	if en == cancelInProgressMsg("en") {
+		t.Errorf("idleConfirmExit must NOT collide with in-Run cancel msg (en)")
+	}
+}
+
 func TestVerifyDispatchRequest_NotREPLControlInput(t *testing.T) {
 	cases := []*types.ChangePlan{
 		{ID: "plan-3", Summary: "add tests for X"},
