@@ -154,7 +154,17 @@ func (o *Orchestrator) runPhaseGroup(group *types.PlanGroup, stepsUsed *int) err
 		o.persistGroup(group)
 
 		// Acceptance check (commit 19). Independent LLM verdict
-		// on whether the phase satisfied its goal.
+		// on whether the phase satisfied its goal. Three outcomes:
+		//   1. err != nil  — record as PhaseAcceptanceUnverified
+		//      (commit 26: replaces fail-open auto-accept).
+		//      Operator sees the gap in /phase show; scheduler
+		//      still advances so infra failures don't deadlock
+		//      the whole multi-phase Run.
+		//   2. ac.Passed=false — phase RolledBack, group Failed.
+		//   3. ac.Passed=true (or no checker wired) — phase
+		//      Accepted, advance.
+		acceptanceUnverified := false
+		var acceptanceErr error
 		if o.acceptanceChecker != nil {
 			ac, err := o.acceptanceChecker.Check(o.CancelContext(), AcceptanceCheckInput{
 				PhaseGoal:   phase.Goal,
@@ -166,11 +176,14 @@ func (o *Orchestrator) runPhaseGroup(group *types.PlanGroup, stepsUsed *int) err
 				PhaseTotal:  len(group.Phases),
 			})
 			if err != nil {
-				// Degraded path: log + treat as auto-accept.
-				// Phase advancement should not be blocked by
-				// check plumbing failures.
-				logging.Warning("[orchestrator] phase %d acceptance_check errored: %v (auto-accepting)",
+				// Degraded but visible. Phase advances so the
+				// group doesn't deadlock on infra failure, but
+				// the status is distinct from "accepted" so
+				// /phase show surfaces the gap.
+				logging.Warning("[orchestrator] phase %d acceptance_check errored: %v (marking acceptance_unverified)",
 					phase.Index, err)
+				acceptanceUnverified = true
+				acceptanceErr = err
 			} else if ac != nil {
 				phase.AcceptanceCheck = ac
 				if !ac.Passed {
@@ -192,7 +205,18 @@ func (o *Orchestrator) runPhaseGroup(group *types.PlanGroup, stepsUsed *int) err
 		}
 
 		finished := time.Now()
-		phase.Status = types.PhaseAccepted
+		if acceptanceUnverified {
+			phase.Status = types.PhaseAcceptanceUnverified
+			// Stash the LLM error on AcceptanceCheck.Reasoning so
+			// /phase show renders something operator-actionable
+			// instead of just the bare status string.
+			phase.AcceptanceCheck = &types.AcceptanceCheck{
+				Passed:    false,
+				Reasoning: fmt.Sprintf("acceptance_check infra failure: %v", acceptanceErr),
+			}
+		} else {
+			phase.Status = types.PhaseAccepted
+		}
 		phase.FinishedAt = &finished
 		group.Status = types.PlanGroupInFlight
 		group.ActiveIdx++

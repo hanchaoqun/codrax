@@ -185,6 +185,7 @@ func TestPhaseStatus_TerminalDetection(t *testing.T) {
 		{PhaseAccepted, true},
 		{PhaseRolledBack, true},
 		{PhaseSkipped, true},
+		{PhaseAcceptanceUnverified, true},
 	}
 	for _, c := range cases {
 		if got := IsTerminalPhaseStatus(c.s); got != c.terminal {

@@ -541,6 +541,33 @@ func TestHandlePhaseCmd_ResumeOnTerminalGroupRefuses(t *testing.T) {
 	}
 }
 
+// TestHandlePhaseCmd_ShowRendersAcceptanceUnverified pins
+// commit 26: when a phase carries the new
+// PhaseAcceptanceUnverified status (LLM acceptance check
+// errored), /phase show surfaces the status string + the
+// recorded reasoning so the operator sees the gap rather
+// than mistaking it for a clean Accepted.
+func TestHandlePhaseCmd_ShowRendersAcceptanceUnverified(t *testing.T) {
+	r, store, _, out := newPhaseTestREPL(t)
+	g := threePhaseTestGroup("group-unverified")
+	g.Phases[0].Status = types.PhaseAcceptanceUnverified
+	g.Phases[0].AcceptanceCheck = &types.AcceptanceCheck{
+		Passed:    false,
+		Reasoning: "acceptance_check infra failure: timeout after 5s",
+	}
+	if _, err := store.Save(g); err != nil {
+		t.Fatal(err)
+	}
+	r.handlePhaseCmd("/phase show")
+	got := out.String()
+	if !strings.Contains(got, "acceptance_unverified") {
+		t.Errorf("expected acceptance_unverified status; got %q", got)
+	}
+	if !strings.Contains(got, "infra failure") {
+		t.Errorf("expected reasoning text; got %q", got)
+	}
+}
+
 // TestPhaseTotalForGroup pins the helper used by /plan show
 // + /plan list to render "phase X of Y" cross-links. Existing
 // group → returns total phase count; missing group → 0.

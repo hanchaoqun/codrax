@@ -217,6 +217,20 @@ const (
 	// /phase skip — the work isn't needed for whatever
 	// reason. Terminal; scheduler advances past it.
 	PhaseSkipped PhaseStatus = "skipped"
+
+	// PhaseAcceptanceUnverified: tests passed and verify ran
+	// cleanly, but the acceptance-check LLM call errored (no
+	// adapter configured, network blip, timeout, malformed
+	// emit). Distinct from PhaseAccepted so the operator sees
+	// the gap in /phase show — fail-open auto-accept would
+	// silently mask infra failures and let the group complete
+	// while a phase was effectively un-judged. Treated as
+	// terminal so the scheduler advances rather than
+	// deadlocking on infrastructure outside the phase's own
+	// correctness; the group still reaches Completed status,
+	// but /phase show prints "acceptance: unverified" alongside
+	// the recorded error message so operators can intervene.
+	PhaseAcceptanceUnverified PhaseStatus = "acceptance_unverified"
 )
 
 // IsTerminalPhaseStatus reports terminal phase states (won't
@@ -224,7 +238,7 @@ const (
 // terminal phases when iterating ActiveIdx forward.
 func IsTerminalPhaseStatus(s PhaseStatus) bool {
 	switch s {
-	case PhaseAccepted, PhaseRolledBack, PhaseSkipped:
+	case PhaseAccepted, PhaseRolledBack, PhaseSkipped, PhaseAcceptanceUnverified:
 		return true
 	}
 	return false
