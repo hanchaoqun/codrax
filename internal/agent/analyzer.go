@@ -1744,7 +1744,17 @@ func prescanHitRatio(ctx *types.AgentContext, hints types.AnalyzerHints) float64
 // classifyGateFailure inspects a GateReport and returns whether any
 // failure is HARD. pending_fields_wellformed is the only SOFT check;
 // every other failing check is a hard error.
+//
+// Commit 55 Batch B (MEDIUM #3 audit fix): when MULTIPLE checks
+// fail in the same dispatch, the detail string lists ALL of them
+// rather than just the first one. Pre-fix the single-check return
+// caused multi-round retry waste — the LLM fixed coverage on round
+// N then got rejected on dag_closure on round N+1, when both were
+// surfaceable in one round. The format is "name1: detail1; name2:
+// detail2; …" with newlines suppressed inside individual details
+// so the analyzer's prepended-directive rendering stays compact.
 func classifyGateFailure(report types.GateReport) (hard bool, detail string) {
+	var parts []string
 	for _, c := range report.Checks {
 		if c.Passed {
 			continue
@@ -1752,9 +1762,15 @@ func classifyGateFailure(report types.GateReport) (hard bool, detail string) {
 		if c.Name == "pending_fields_wellformed" {
 			continue
 		}
-		return true, fmt.Sprintf("%s: %s", c.Name, c.Detail)
+		// Single-line each failure detail so the joined string stays
+		// readable when the analyzer renders it into a retry hint.
+		safe := strings.ReplaceAll(strings.ReplaceAll(c.Detail, "\n", " "), "\r", " ")
+		parts = append(parts, fmt.Sprintf("%s: %s", c.Name, safe))
 	}
-	return false, ""
+	if len(parts) == 0 {
+		return false, ""
+	}
+	return true, strings.Join(parts, "; ")
 }
 
 // mapLegacyAnswerShape coerces a free-form answer_shape string into
