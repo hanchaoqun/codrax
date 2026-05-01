@@ -246,6 +246,12 @@ func IsNegativeEvidencePredicate(predicate string) bool {
 	if strings.HasPrefix(p, "does not ") || strings.HasPrefix(p, "did not ") || strings.HasPrefix(p, "is not ") {
 		return true
 	}
+	if strings.HasPrefix(p, "is absent from ") || strings.HasPrefix(p, "absent from ") ||
+		strings.HasPrefix(p, "confirms absent from ") ||
+		strings.HasPrefix(p, "is missing from ") || strings.HasPrefix(p, "missing from ") ||
+		strings.HasPrefix(p, "is omitted from ") || strings.HasPrefix(p, "omitted from ") {
+		return true
+	}
 	switch p {
 	case "absent from", "confirms absent from", "lacks", "missing", "omits":
 		return true

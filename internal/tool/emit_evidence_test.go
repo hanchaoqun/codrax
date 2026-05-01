@@ -2,6 +2,7 @@ package tool
 
 import (
 	"encoding/json"
+	"fmt"
 	"reflect"
 	"strings"
 	"testing"
@@ -13,6 +14,25 @@ import (
 
 func newEmitCtx() *types.BusContext {
 	return &types.BusContext{Mutable: types.NewMutableState("")}
+}
+
+func seedReadFileHistory(ctx *types.BusContext, file string, startLine int, lines ...string) {
+	if ctx == nil || ctx.Mutable == nil || len(lines) == 0 {
+		return
+	}
+	endLine := startLine + len(lines) - 1
+	var b strings.Builder
+	fmt.Fprintf(&b, "[%s: showing lines %d-%d of 9999]\n", file, startLine, endLine)
+	for i, line := range lines {
+		fmt.Fprintf(&b, "  %d│ %s\n", startLine+i, line)
+	}
+	ctx.Mutable.SetTurnAArtifacts(types.TurnAArtifacts{
+		ToolResults: []types.ToolResult{{
+			ToolName: "read_file",
+			Success:  true,
+			Summary:  b.String(),
+		}},
+	})
 }
 
 func TestEmitEvidence_AcceptsValidBatch(t *testing.T) {
@@ -283,17 +303,21 @@ func TestBuildEmitEvidenceRepair_EmitsStructuredNoopEnvelopeForCoveredRecoveredI
 func TestEmitEvidence_PreservesValidatedDiagramRoleHint(t *testing.T) {
 	tool := &EmitEvidence{}
 	ctx := newEmitCtx()
+	seedReadFileHistory(ctx, "cmd/root.go", 1635,
+		"if rs.ExploreMidLoopMinIteration != nil {",
+		"	h.MidLoopMinIteration = *rs.ExploreMidLoopMinIteration",
+	)
 	params := json.RawMessage(`{
 		"items": [
 			{
 				"kind": "direct",
-				"subject": "rootFlags",
-				"predicate": "config",
+				"subject": "CLI override binding",
+				"predicate": "overrides",
 				"source": "cmd/root.go",
-				"line_start": 1381,
+				"line_start": 1635,
 				"summary": "CLI override applies when non-nil.",
-				"anchor_kind": "assignment",
-				"anchor_symbol": "opts",
+				"anchor_kind": "condition",
+				"anchor_symbol": "ExploreMidLoopMinIteration",
 				"diagram_role_hint": "override"
 			}
 		]
@@ -318,6 +342,9 @@ func TestEmitEvidence_PrefersMutableExactContextFilesForDiagramRoleHint(t *testi
 	tool := &EmitEvidence{}
 	ctx := newEmitCtx()
 	ctx.RepoRoot = `C:\Users\ssccv\codrax`
+	seedReadFileHistory(ctx, "internal/types/config.go", 876,
+		"func DefaultExploreHeuristics() ExploreHeuristics {",
+	)
 	ctx.AnalysisIR = &types.AnalysisIR{
 		RequestModel: types.RequestModel{
 			RawRequest: "explore_mid_loop_hint_budget 的最终有效值是怎么计算出来的？",
@@ -350,7 +377,7 @@ func TestEmitEvidence_PrefersMutableExactContextFilesForDiagramRoleHint(t *testi
 				"subject": "DefaultExploreHeuristics",
 				"predicate": "defines",
 				"source": "C:\\Users\\ssccv\\codrax\\internal\\types\\config.go",
-				"line_start": 707,
+				"line_start": 876,
 				"summary": "code-default lineage anchor",
 				"anchor_kind": "definition",
 				"anchor_symbol": "DefaultExploreHeuristics",
@@ -385,6 +412,10 @@ func TestEmitEvidence_PreservesRequestedDiagramRoleWhenScopeRejectsValidation(t 
 	tool := &EmitEvidence{}
 	ctx := newEmitCtx()
 	ctx.RepoRoot = `C:\Users\ssccv\codrax`
+	seedReadFileHistory(ctx, "cmd/root.go", 1635,
+		"if rs.ExploreMidLoopMinIteration != nil {",
+		"	h.MidLoopMinIteration = *rs.ExploreMidLoopMinIteration",
+	)
 	ctx.AnalysisIR = &types.AnalysisIR{
 		RequestModel: types.RequestModel{
 			RawRequest: "explore_mid_loop_hint_budget 的最终有效值是怎么计算出来的？",
@@ -411,15 +442,15 @@ func TestEmitEvidence_PreservesRequestedDiagramRoleWhenScopeRejectsValidation(t 
 		"items": [
 			{
 				"kind": "direct",
-				"subject": "RuntimeSettings",
+				"subject": "CLI override binding",
 				"predicate": "maps",
-				"source": "C:\\Users\\ssccv\\codrax\\internal\\config\\runtime.go",
-				"line_start": 296,
-				"summary": "runtime binding layer",
-				"anchor_kind": "assignment",
+				"source": "C:\\Users\\ssccv\\codrax\\cmd\\root.go",
+				"line_start": 1635,
+				"summary": "CLI override binding layer",
+				"anchor_kind": "condition",
 				"anchor_symbol": "ExploreMidLoopMinIteration",
 				"context_role_hint": "related_context",
-				"diagram_role_hint": "runtime"
+				"diagram_role_hint": "override"
 			}
 		]
 	}`)
@@ -434,20 +465,23 @@ func TestEmitEvidence_PreservesRequestedDiagramRoleWhenScopeRejectsValidation(t 
 	if len(got) != 1 {
 		t.Fatalf("want 1 item in buffer, got %d", len(got))
 	}
-	if got[0].DiagramRole != types.EvidenceDiagramRoleUnknown {
-		t.Fatalf("diagram role = %q, want unknown when current scope rejects validation", got[0].DiagramRole)
+	if got[0].DiagramRole != types.EvidenceDiagramRoleOverride {
+		t.Fatalf("diagram role = %q, want override when structurally-valid precedence evidence stays within grounded config context", got[0].DiagramRole)
 	}
-	if got[0].RequestedDiagramRole != types.EvidenceDiagramRoleRuntime {
-		t.Fatalf("requested diagram role = %q, want runtime", got[0].RequestedDiagramRole)
+	if got[0].RequestedDiagramRole != types.EvidenceDiagramRoleOverride {
+		t.Fatalf("requested diagram role = %q, want override", got[0].RequestedDiagramRole)
 	}
-	if !strings.Contains(got[0].GroundingNote, "outside the current same-scope required files") {
-		t.Fatalf("grounding note should explain the temporary scope rejection, got: %q", got[0].GroundingNote)
+	if strings.Contains(got[0].GroundingNote, "outside the current same-scope required files") {
+		t.Fatalf("grounding note should no longer reject structurally-valid requested precedence evidence only because it lives outside the narrow same-scope file set, got: %q", got[0].GroundingNote)
 	}
 }
 
 func TestEmitEvidence_AcceptsLegacyYAMLDiagramRoleAliasForConfigFiles(t *testing.T) {
 	tool := &EmitEvidence{}
 	ctx := newEmitCtx()
+	seedReadFileHistory(ctx, "codrax.yaml.example", 22,
+		"#   code defaults  <  <exeDir>/codrax.yaml  <  command-line flags",
+	)
 	ctx.AnalysisIR = &types.AnalysisIR{
 		RequestModel: types.RequestModel{
 			RawRequest: "explore_mid_loop_hint_budget 怎么生效？",
@@ -473,13 +507,14 @@ func TestEmitEvidence_AcceptsLegacyYAMLDiagramRoleAliasForConfigFiles(t *testing
 		"items": [
 			{
 				"kind": "direct",
-				"subject": "ExploreHeuristics",
-				"predicate": "documents",
-				"source": "codrax.json.example",
-				"line_start": 20,
-				"summary": "config precedence comment",
+				"subject": "codrax.yaml",
+				"object": "command-line flags",
+				"predicate": "precedes",
+				"source": "codrax.yaml.example",
+				"line_start": 22,
+				"summary": "code defaults < codrax.yaml < command-line flags",
 				"anchor_kind": "definition",
-				"anchor_symbol": "ExploreHeuristics",
+				"anchor_symbol": "exeDir",
 				"context_role_hint": "related_context",
 				"diagram_role_hint": "yaml"
 			}
@@ -660,11 +695,14 @@ func TestEmitEvidence_ConfigCommentLineBecomesIllustrativeOnly(t *testing.T) {
 		"items": [
 			{
 				"kind": "direct",
+				"subject": "codrax.yaml",
+				"object": "command-line flags",
+				"predicate": "precedes",
 				"source": "codrax.yaml.example",
 				"line_start": 22,
-				"summary": "documents precedence comment",
+				"summary": "code defaults < codrax.yaml < command-line flags",
 				"anchor_kind": "definition",
-				"anchor_symbol": "Precedence",
+				"anchor_symbol": "exeDir",
 				"context_role_hint": "related_context",
 				"diagram_role_hint": "config"
 			}
@@ -1075,6 +1113,65 @@ func TestEmitEvidence_DowngradesNegativeExactProbeDefiningHintToAbsenceSupport(t
 	}
 	if !strings.Contains(strings.ToLower(got[0].GroundingNote), "negative probe") {
 		t.Fatalf("grounding note should explain negative exact-probe downgrade, got: %q", got[0].GroundingNote)
+	}
+}
+
+func TestEmitEvidence_DowngradesSubjectOnlyTargetDefiningHintToAbsenceSupport(t *testing.T) {
+	tool := &EmitEvidence{}
+	ctx := newEmitCtx()
+	ctx.AnalysisIR = &types.AnalysisIR{
+		RequestModel: types.RequestModel{
+			RawRequest: "explore_mid_loop_hint_budget 的最终有效值是怎么计算出来的？",
+			Scenario:   types.ScenarioConfigTrace,
+			AnalyzerHints: types.AnalyzerHints{
+				Kind:         "config_mapping",
+				ExactTargets: []string{"explore_mid_loop_hint_budget"},
+			},
+			AnswerSubject: types.AnswerSubject{Kind: types.SubjectConfigKey},
+		},
+		AnswerContract: types.AnswerContract{
+			ExactResolution: &types.ExactResolutionContract{
+				TargetKind:           types.SubjectConfigKey,
+				TargetLabel:          "config key",
+				Targets:              []string{"explore_mid_loop_hint_budget"},
+				AllowAbsence:         true,
+				RelatedContextPolicy: types.ExactContextSameFamilyGrounded,
+				RelatedContextTerms:  []string{"explore"},
+			},
+		},
+	}
+	params := json.RawMessage(`{
+		"items": [
+			{
+				"kind": "direct",
+				"subject": "explore_mid_loop_hint_budget",
+				"predicate": "is absent from YAML struct",
+				"object": "explore_mid_loop_hint_budget",
+				"source": "internal/config/runtime.go",
+				"line_start": 334,
+				"summary": "RuntimeSettings does not expose the missing exact key",
+				"anchor_kind": "definition",
+				"anchor_symbol": "RuntimeSettings",
+				"context_role_hint": "defining"
+			}
+		]
+	}`)
+	res, err := tool.Execute(ctx, params)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("expected success, got: %s", res.Summary)
+	}
+	got := ctx.Mutable.EmittedEvidence()
+	if len(got) != 1 {
+		t.Fatalf("want 1 item in buffer, got %d", len(got))
+	}
+	if got[0].ContextRole != types.EvidenceContextRoleAbsenceSupport {
+		t.Fatalf("context role = %q, want absence_support", got[0].ContextRole)
+	}
+	if !strings.Contains(strings.ToLower(got[0].GroundingNote), "absence support") && !strings.Contains(strings.ToLower(got[0].GroundingNote), "negative probe") {
+		t.Fatalf("grounding note should explain subject-only exact-target downgrade, got: %q", got[0].GroundingNote)
 	}
 }
 

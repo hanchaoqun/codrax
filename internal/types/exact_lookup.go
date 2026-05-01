@@ -25,17 +25,18 @@ func BuildExactResolutionContract(rm RequestModel) *ExactResolutionContract {
 		label = "target"
 	}
 	policy := exactResolutionContextPolicyForRM(rm)
+	targetKind := exactResolutionTargetKind(rm)
 	contract := &ExactResolutionContract{
-		TargetKind:           rm.AnswerSubject.Kind,
+		TargetKind:           targetKind,
 		TargetLabel:          label,
 		Targets:              targets,
 		AllowAbsence:         true,
 		RequireTargetMention: true,
 		AliasRequiresProof:   true,
 		RelatedContextPolicy: policy,
-		RelatedContextTerms:  exactResolutionValidatedContextTerms(rm.AnswerSubject.Kind, policy, targets, rm.AnalyzerHints.ExactContextTerms, rm.AnalyzerHints.Keywords),
+		RelatedContextTerms:  exactResolutionValidatedContextTerms(targetKind, policy, targets, rm.AnalyzerHints.ExactContextTerms, rm.AnalyzerHints.Keywords),
 		RequestedContextRoles: exactResolutionValidatedContextRoles(
-			rm.AnswerSubject.Kind,
+			targetKind,
 			rm.Scenario,
 			policy,
 			rm.AnalyzerHints.ExactContextRoles,
@@ -510,6 +511,21 @@ func exactResolutionSubjectLabel(rm RequestModel) string {
 	return "target"
 }
 
+func exactResolutionTargetKind(rm RequestModel) AnswerSubjectKind {
+	switch exactResolutionSubjectLabel(rm) {
+	case "config key":
+		return SubjectConfigKey
+	case "file path":
+		return SubjectFilePath
+	case "route":
+		return SubjectHandlerRoute
+	case "literal":
+		return SubjectStringLiteral
+	default:
+		return rm.AnswerSubject.Kind
+	}
+}
+
 func exactResolutionContextPolicyForRM(rm RequestModel) ExactResolutionContextPolicy {
 	switch exactResolutionSubjectLabel(rm) {
 	case "config key":
@@ -632,13 +648,7 @@ func ExactResolutionHasDefiningTargetProof(c *ExactResolutionContract, items []E
 			continue
 		}
 		if exactResolutionEvidenceHasProofGradeAnchor(item) &&
-			ExactResolutionDirectAnchorMatchesAnyTarget(c, item.Subject, item.AnchorSymbol, item.Object) {
-			return true
-		}
-		if item.ContextRole == EvidenceContextRoleDefining &&
-			exactResolutionEvidenceHasProofGradeAnchor(item) &&
-			ExactResolutionTextsMentionAnyTarget(c,
-				item.Subject, item.Predicate, item.Object, item.AnchorSymbol, item.Condition, item.Snippet, item.Summary) {
+			ExactResolutionProofAnchorMatchesAnyTarget(c, item.Subject, item.AnchorSymbol, item.Object) {
 			return true
 		}
 	}
@@ -759,7 +769,7 @@ func ConfigTraceGroundedContextAnchorAllowedInFiles(contract *ExactResolutionCon
 	case EvidenceContextRoleAbsenceSupport:
 		return contract != nil && ExactResolutionSourceIsDefiningPrimaryProofLike(contract, item.Source)
 	default:
-		return ConfigTraceValidatedDiagramRoleInFiles(contract, item, requiredFiles) != EvidenceDiagramRoleUnknown
+		return ConfigTraceSurfaceDiagramRoleInFiles(contract, item, requiredFiles) != EvidenceDiagramRoleUnknown
 	}
 }
 
@@ -767,12 +777,25 @@ func ConfigTraceValidatedDiagramRole(contract *ExactResolutionContract, item Evi
 	return ConfigTraceValidatedDiagramRoleInFiles(contract, item, nil)
 }
 
+func ConfigTraceSurfaceDiagramRoleInFiles(contract *ExactResolutionContract, item EvidenceItem, requiredFiles []string) EvidenceDiagramRole {
+	if role := ConfigTraceValidatedDiagramRoleInFiles(contract, item, requiredFiles); role != EvidenceDiagramRoleUnknown {
+		return role
+	}
+	if role := configTraceRequestedDiagramRoleFallback(contract, item); role != EvidenceDiagramRoleUnknown {
+		return role
+	}
+	if role := configTraceImplicitRequestedDefaultRole(contract, item); role != EvidenceDiagramRoleUnknown {
+		return role
+	}
+	return EvidenceDiagramRoleUnknown
+}
+
 func ConfigTraceValidatedDiagramRoleInFiles(contract *ExactResolutionContract, item EvidenceItem, requiredFiles []string) EvidenceDiagramRole {
 	if item.Source == "" {
 		return EvidenceDiagramRoleUnknown
 	}
 	switch item.GroundingStatus {
-	case GroundingGrounded, GroundingRecovered:
+	case GroundingGrounded, GroundingRecovered, "":
 	default:
 		return EvidenceDiagramRoleUnknown
 	}
@@ -803,6 +826,69 @@ func ConfigTraceValidatedDiagramRoleInFiles(contract *ExactResolutionContract, i
 		}
 	}
 	return EvidenceDiagramRoleUnknown
+}
+
+func configTraceRequestedDiagramRoleFallback(contract *ExactResolutionContract, item EvidenceItem) EvidenceDiagramRole {
+	requested := CanonicalEvidenceDiagramRole(string(item.RequestedDiagramRole))
+	if requested == EvidenceDiagramRoleUnknown || !requested.IsValid() {
+		return EvidenceDiagramRoleUnknown
+	}
+	switch item.GroundingStatus {
+	case GroundingGrounded, GroundingRecovered, "":
+	default:
+		return EvidenceDiagramRoleUnknown
+	}
+	if !ConfigTraceDiagramRoleAnchorCompatible(requested, item) {
+		return EvidenceDiagramRoleUnknown
+	}
+	switch requested {
+	case EvidenceDiagramRoleConfig:
+		if LooksLikeConfigFilePath(item.Source) && configTraceDiagramEvidenceWithinScope(contract, item, nil) {
+			return requested
+		}
+	case EvidenceDiagramRoleDefault, EvidenceDiagramRoleRuntime, EvidenceDiagramRoleOverride:
+		if item.ContextRole == EvidenceContextRoleIllustrativeOnly || item.ContextRole == EvidenceContextRoleAbsenceSupport {
+			return EvidenceDiagramRoleUnknown
+		}
+		if configTraceDiagramCodeLayerAllowed(contract, item, nil) {
+			return requested
+		}
+	}
+	return EvidenceDiagramRoleUnknown
+}
+
+func configTraceImplicitRequestedDefaultRole(contract *ExactResolutionContract, item EvidenceItem) EvidenceDiagramRole {
+	if contract == nil {
+		return EvidenceDiagramRoleUnknown
+	}
+	switch item.GroundingStatus {
+	case GroundingGrounded, GroundingRecovered, "":
+	default:
+		return EvidenceDiagramRoleUnknown
+	}
+	requested := ConfigTraceRequestedDiagramRoles(contract)
+	hasDefault := false
+	for _, role := range requested {
+		if role == EvidenceDiagramRoleDefault {
+			hasDefault = true
+			break
+		}
+	}
+	if !hasDefault || item.DiagramRole != EvidenceDiagramRoleUnknown || item.RequestedDiagramRole != EvidenceDiagramRoleUnknown {
+		return EvidenceDiagramRoleUnknown
+	}
+	if item.ContextRole == EvidenceContextRoleIllustrativeOnly || item.ContextRole == EvidenceContextRoleAbsenceSupport {
+		return EvidenceDiagramRoleUnknown
+	}
+	switch item.AnchorKind {
+	case AnchorDefinition, AnchorReturn:
+	default:
+		return EvidenceDiagramRoleUnknown
+	}
+	if !configTraceDiagramCodeLayerAllowed(contract, item, nil) {
+		return EvidenceDiagramRoleUnknown
+	}
+	return EvidenceDiagramRoleDefault
 }
 
 func configTraceAbsenceSupportCanCarryDiagramRole(item EvidenceItem) bool {
@@ -857,7 +943,7 @@ func ConfigTraceRelatedContextCitationCandidates(contract *ExactResolutionContra
 	seen := make(map[string]bool)
 	var out []ConfigTraceRelatedContextCitationCandidate
 	for _, item := range items {
-		role := ConfigTraceValidatedDiagramRoleInFiles(contract, item, requiredFiles)
+		role := ConfigTraceSurfaceDiagramRoleInFiles(contract, item, requiredFiles)
 		if role == EvidenceDiagramRoleUnknown || item.Source == "" || item.LineStart <= 0 {
 			continue
 		}
@@ -910,7 +996,11 @@ func configTraceDiagramEvidenceWithinScope(contract *ExactResolutionContract, it
 	if len(requiredFiles) > 0 && exactResolutionRequiredFilesContain(requiredFiles, item.Source) {
 		return true
 	}
-	if item.DiagramRole == EvidenceDiagramRoleConfig && LooksLikeConfigFilePath(item.Source) {
+	role := item.DiagramRole
+	if role == EvidenceDiagramRoleUnknown {
+		role = CanonicalEvidenceDiagramRole(string(item.RequestedDiagramRole))
+	}
+	if role == EvidenceDiagramRoleConfig && LooksLikeConfigFilePath(item.Source) {
 		return true
 	}
 	if contract == nil {
@@ -1004,6 +1094,18 @@ func configTraceDiagramEvidenceMatchesContext(contract *ExactResolutionContract,
 	}, "\n")
 	if ExactResolutionSameFamilyMatchScore(contract, surface) > 0 {
 		return true
+	}
+	role := item.DiagramRole
+	if role == EvidenceDiagramRoleUnknown {
+		role = CanonicalEvidenceDiagramRole(string(item.RequestedDiagramRole))
+	}
+	if contract.TargetKind == SubjectConfigKey &&
+		contract.RelatedContextPolicy == ExactContextSameFamilyGrounded {
+		if (role == EvidenceDiagramRoleRuntime || role == EvidenceDiagramRoleOverride) &&
+			ExactResolutionSpecificStructureMatchScore(contract, surface) > 0 {
+			return true
+		}
+		return false
 	}
 	return EvidenceItemStructurallyMentionsAnyTerm(item, ExactResolutionContextTerms(contract))
 }
@@ -1512,6 +1614,44 @@ func exactResolutionSameFamilySignals(c *ExactResolutionContract) exactResolutio
 		roots:     roots,
 		compounds: compounds,
 	}
+}
+
+func ExactResolutionSpecificStructureMatchScore(c *ExactResolutionContract, surface string) int {
+	if c == nil || c.TargetKind != SubjectConfigKey || c.RelatedContextPolicy != ExactContextSameFamilyGrounded {
+		return 0
+	}
+	tokens := ExactResolutionIdentifierTerms(surface)
+	if len(tokens) == 0 {
+		return 0
+	}
+	compounds := make(map[string]bool)
+	for i := 0; i < len(tokens); i++ {
+		for n := 2; n <= 3 && i+n <= len(tokens); n++ {
+			compound := strings.Join(tokens[i:i+n], "")
+			if len(compound) >= 7 {
+				compounds[compound] = true
+			}
+		}
+	}
+	if len(compounds) == 0 {
+		return 0
+	}
+	score := 0
+	for _, target := range c.Targets {
+		segments := exactResolutionConfigSegments(target)
+		if len(segments) < 3 {
+			continue
+		}
+		for i := 1; i < len(segments); i++ {
+			for n := 2; n <= 3 && i+n <= len(segments); n++ {
+				compound := strings.Join(segments[i:i+n], "")
+				if len(compound) >= 7 && compounds[compound] {
+					score += 5
+				}
+			}
+		}
+	}
+	return score
 }
 
 func exactResolutionSameFamilyRootWeight(root string) int {

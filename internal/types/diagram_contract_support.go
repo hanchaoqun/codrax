@@ -195,7 +195,7 @@ func configTraceDiagramSupported(
 func ConfigTraceValidatedDiagramRoleCount(contract *ExactResolutionContract, requiredFiles []string, evidence []EvidenceItem) int {
 	roles := make(map[EvidenceDiagramRole]bool, 4)
 	for _, item := range evidence {
-		role := ConfigTraceValidatedDiagramRoleInFiles(contract, item, requiredFiles)
+		role := ConfigTraceSurfaceDiagramRoleInFiles(contract, item, requiredFiles)
 		if role == EvidenceDiagramRoleUnknown {
 			continue
 		}
@@ -218,7 +218,7 @@ func ConfigTraceMissingRequestedDiagramRoles(contract *ExactResolutionContract, 
 	}
 	covered := make(map[EvidenceDiagramRole]bool, len(requested))
 	for _, item := range evidence {
-		role := ConfigTraceValidatedDiagramRoleInFiles(contract, item, requiredFiles)
+		role := ConfigTraceSurfaceDiagramRoleInFiles(contract, item, requiredFiles)
 		if role != EvidenceDiagramRoleUnknown {
 			covered[role] = true
 		}

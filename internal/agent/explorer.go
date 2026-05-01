@@ -4106,7 +4106,7 @@ func (e *explorerEvaluator) pendingConfigTraceCoverageHops(readSet map[string]bo
 		add(file, 40, "already in the current same-scope precedence search")
 	}
 	for _, item := range e.structuredEvidence {
-		role := scopeShapingDiagramRole(item)
+		role := scopeShapingDiagramRole(e.exactResolution, item, e.exactContextFiles)
 		if role == types.EvidenceDiagramRoleUnknown {
 			continue
 		}

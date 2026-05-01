@@ -4119,6 +4119,23 @@ func sanitizeExactContextSummarySurface(summary string, contract *types.ExactRes
 		}
 		keptSentences := make([]string, 0, len(sentences))
 		for _, sentence := range sentences {
+			if rebuilt, keep, clauseChanged := trimSummarySentenceClauses(sentence, func(clause string) bool {
+				if repeatedExactTargetAfterLead(contract, clause) != "" {
+					return true
+				}
+				mentionedAllowed := mentionedExactContextSurfaceLabelHits(clause, plan.AllowedExactContextLabels)
+				mentionedForbidden := filterShadowedForbiddenExactContextSurfaceLabels(
+					mentionedAllowed,
+					mentionedExactContextSurfaceLabelHits(clause, plan.ForbiddenExactContextLabels),
+				)
+				return len(mentionedForbidden) > 0 && len(mentionedAllowed) == 0
+			}); clauseChanged {
+				changed = true
+				if keep {
+					keptSentences = append(keptSentences, rebuilt)
+				}
+				continue
+			}
 			if repeatedExactTargetAfterLead(contract, sentence) != "" {
 				changed = true
 				continue
@@ -4213,8 +4230,16 @@ func trimFollowOnGroundedContextRestatements(summary string, contract *types.Exa
 			pendingHeadings = append(pendingHeadings, trimmed)
 			continue
 		}
-		trimmedParagraph, keep := trimFollowOnGroundedContextParagraph(trimmed, contract)
+		trimmedParagraph, keep := trimFollowOnGroundedContextParagraph(trimmed, contract, plan)
 		if !keep {
+			if len(pendingHeadings) > 0 {
+				changed = true
+				pendingHeadings = nil
+			}
+			changed = true
+			continue
+		}
+		if headingsRepeatExactTarget(pendingHeadings, contract) && !followOnGroundedContextBodyMentionsAnchors(trimmedParagraph, plan) {
 			if len(pendingHeadings) > 0 {
 				changed = true
 				pendingHeadings = nil
@@ -4239,7 +4264,7 @@ func trimFollowOnGroundedContextRestatements(summary string, contract *types.Exa
 	return joined
 }
 
-func trimFollowOnGroundedContextParagraph(paragraph string, contract *types.ExactResolutionContract) (string, bool) {
+func trimFollowOnGroundedContextParagraph(paragraph string, contract *types.ExactResolutionContract, plan *types.AnswerSurfacePlan) (string, bool) {
 	if paragraph == "" || contract == nil {
 		return paragraph, paragraph != ""
 	}
@@ -4254,6 +4279,15 @@ func trimFollowOnGroundedContextParagraph(paragraph string, contract *types.Exac
 	changed := false
 	for _, sentence := range sentences {
 		if repeatedExactTargetAfterLead(contract, sentence) != "" {
+			if rebuilt, keep, clauseChanged := trimSummarySentenceClauses(sentence, func(clause string) bool {
+				return repeatedExactTargetAfterLead(contract, clause) != ""
+			}); clauseChanged {
+				changed = true
+				if keep {
+					kept = append(kept, rebuilt)
+				}
+				continue
+			}
 			changed = true
 			continue
 		}
@@ -4266,6 +4300,18 @@ func trimFollowOnGroundedContextParagraph(paragraph string, contract *types.Exac
 		return "", false
 	}
 	return strings.TrimSpace(strings.Join(kept, " ")), true
+}
+
+func headingsRepeatExactTarget(headings []string, contract *types.ExactResolutionContract) bool {
+	if contract == nil || len(headings) == 0 {
+		return false
+	}
+	for _, heading := range headings {
+		if repeatedExactTargetAfterLead(contract, heading) != "" {
+			return true
+		}
+	}
+	return false
 }
 
 func followOnGroundedContextBodyMentionsAnchors(body string, plan *types.AnswerSurfacePlan) bool {
@@ -4315,6 +4361,101 @@ func summaryMentionsFollowOnGroundedItem(body, lower string, item types.Evidence
 		return true
 	}
 	return false
+}
+
+func trimSummarySentenceClauses(sentence string, shouldDrop func(string) bool) (rebuilt string, keep bool, changed bool) {
+	clauses, joiner, suffix := splitSummaryClauses(sentence)
+	if len(clauses) < 2 {
+		return strings.TrimSpace(sentence), strings.TrimSpace(sentence) != "", false
+	}
+	kept := make([]string, 0, len(clauses))
+	for _, clause := range clauses {
+		trimmed := strings.TrimSpace(clause)
+		if trimmed == "" {
+			continue
+		}
+		if shouldDrop(trimmed) {
+			changed = true
+			continue
+		}
+		kept = append(kept, trimmed)
+	}
+	if !changed {
+		return strings.TrimSpace(sentence), strings.TrimSpace(sentence) != "", false
+	}
+	if len(kept) == 0 {
+		return "", false, true
+	}
+	rebuilt = strings.TrimSpace(strings.Join(kept, joiner))
+	if suffix != "" && !strings.HasSuffix(rebuilt, suffix) {
+		rebuilt += suffix
+	}
+	return rebuilt, true, true
+}
+
+func splitSummaryClauses(sentence string) (clauses []string, joiner, suffix string) {
+	sentence = strings.TrimSpace(sentence)
+	if sentence == "" {
+		return nil, ", ", ""
+	}
+	suffix = summarySentenceTerminalPunctuation(sentence)
+	body := strings.TrimSpace(strings.TrimSuffix(sentence, suffix))
+	if body == "" {
+		return nil, ", ", suffix
+	}
+	switch {
+	case strings.Contains(body, "；"):
+		joiner = "；"
+	case strings.Contains(body, ";"):
+		joiner = "; "
+	case strings.Contains(body, "，"):
+		joiner = "，"
+	case strings.Contains(body, ","):
+		joiner = ", "
+	default:
+		return []string{body}, ", ", suffix
+	}
+	var current strings.Builder
+	flush := func() {
+		part := strings.TrimSpace(current.String())
+		if part != "" {
+			clauses = append(clauses, part)
+		}
+		current.Reset()
+	}
+	for _, r := range body {
+		switch r {
+		case ',', '，', ';', '；':
+			flush()
+		default:
+			current.WriteRune(r)
+		}
+	}
+	flush()
+	return clauses, joiner, suffix
+}
+
+func summarySentenceTerminalPunctuation(sentence string) string {
+	sentence = strings.TrimSpace(sentence)
+	if sentence == "" {
+		return ""
+	}
+	switch {
+	case strings.HasSuffix(sentence, "。"):
+		return "。"
+	case strings.HasSuffix(sentence, "！"):
+		return "！"
+	case strings.HasSuffix(sentence, "？"):
+		return "？"
+	case strings.HasSuffix(sentence, "."):
+		return "."
+	case strings.HasSuffix(sentence, "!"):
+		return "!"
+	case strings.HasSuffix(sentence, "?"):
+		return "?"
+	default:
+		return ""
+	}
 }
 
 func mergedFollowOnGroundedContextItems(plan *types.AnswerSurfacePlan) []types.EvidenceItem {

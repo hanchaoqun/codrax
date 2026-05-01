@@ -454,6 +454,7 @@ func (t *EmitAnalysis) Execute(ctx *types.BusContext, params json.RawMessage) (t
 		exactTargets,
 		answerSubject.Kind,
 		scenario,
+		kind,
 		p.ExactContextRoles,
 	)
 	if exactContextWarn != "" {
@@ -849,7 +850,7 @@ func sanitizeExactContextTerms(exactTargets, mentionedEntities, in []string) ([]
 	)
 }
 
-func sanitizeExactContextRoles(exactTargets []string, subjectKind types.AnswerSubjectKind, scenario types.Scenario, in []string) ([]types.EvidenceDiagramRole, string) {
+func sanitizeExactContextRoles(exactTargets []string, subjectKind types.AnswerSubjectKind, scenario types.Scenario, analyzerKind string, in []string) ([]types.EvidenceDiagramRole, string) {
 	if len(in) == 0 {
 		return nil, ""
 	}
@@ -859,7 +860,9 @@ func sanitizeExactContextRoles(exactTargets []string, subjectKind types.AnswerSu
 	if scenario != types.ScenarioConfigTrace {
 		return nil, "dropped exact_context_roles because this request is not a config-trace exact-target question"
 	}
-	if subjectKind != types.SubjectUnknown && subjectKind != types.SubjectConfigKey {
+	if subjectKind != types.SubjectUnknown &&
+		subjectKind != types.SubjectConfigKey &&
+		!strings.EqualFold(strings.TrimSpace(analyzerKind), "config_mapping") {
 		return nil, "dropped exact_context_roles because this request does not resolve to a config-key subject"
 	}
 	raw := trimStringSlice(in)

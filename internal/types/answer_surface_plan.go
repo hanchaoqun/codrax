@@ -2190,36 +2190,7 @@ func firstNonEmptySurfaceString(items ...string) string {
 }
 
 func configTraceSeedDiagramRoleInFiles(contract *ExactResolutionContract, item EvidenceItem, requiredFiles []string) EvidenceDiagramRole {
-	if item.Source == "" {
-		return EvidenceDiagramRoleUnknown
-	}
-	if item.ContextRole == EvidenceContextRoleIllustrativeOnly ||
-		item.Kind == EvidenceUnresolved ||
-		item.Kind == EvidenceTruncated ||
-		item.GroundingStatus == GroundingUngrounded {
-		return EvidenceDiagramRoleUnknown
-	}
-	if item.ContextRole == EvidenceContextRoleAbsenceSupport &&
-		!configTraceAbsenceSupportCanCarryDiagramRole(item) {
-		return EvidenceDiagramRoleUnknown
-	}
-	switch item.DiagramRole {
-	case EvidenceDiagramRoleConfig:
-		if ConfigTraceDiagramRoleAnchorCompatible(item.DiagramRole, item) &&
-			LooksLikeConfigFilePath(item.Source) &&
-			configTraceDiagramEvidenceWithinScope(contract, item, requiredFiles) {
-			return item.DiagramRole
-		}
-	case EvidenceDiagramRoleDefault, EvidenceDiagramRoleRuntime, EvidenceDiagramRoleOverride:
-		if ConfigTraceDiagramRoleAnchorCompatible(item.DiagramRole, item) &&
-			item.Source != "" &&
-			!LooksLikeConfigFilePath(item.Source) &&
-			!LooksLikeAuxiliaryEvidencePath(item.Source) &&
-			configTraceDiagramEvidenceWithinScope(contract, item, requiredFiles) {
-			return item.DiagramRole
-		}
-	}
-	return EvidenceDiagramRoleUnknown
+	return ConfigTraceSurfaceDiagramRoleInFiles(contract, item, requiredFiles)
 }
 
 func collectAllowedExactContextItems(

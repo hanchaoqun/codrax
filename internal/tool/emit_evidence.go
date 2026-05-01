@@ -754,27 +754,18 @@ func validatedEvidenceDiagramRole(ev types.EvidenceItem, gc *ground.Context, con
 	if evidenceLooksIllustrative(ev, gc) && !configFileSurfaceCanCarryDiagramRole(ev) {
 		return types.EvidenceDiagramRoleUnknown
 	}
-	switch ev.DiagramRole {
-	case types.EvidenceDiagramRoleConfig:
-		if types.ConfigTraceDiagramRoleAnchorCompatible(ev.DiagramRole, ev) &&
-			types.LooksLikeConfigFilePath(ev.Source) {
-			return ev.DiagramRole
-		}
-	case types.EvidenceDiagramRoleOverride:
-		if types.ConfigTraceDiagramRoleAnchorCompatible(ev.DiagramRole, ev) &&
-			evidenceCanBeDiagramCodeLayer(ev, contract, requiredFiles) {
-			return ev.DiagramRole
-		}
-	case types.EvidenceDiagramRoleRuntime:
-		if types.ConfigTraceDiagramRoleAnchorCompatible(ev.DiagramRole, ev) &&
-			evidenceCanBeDiagramCodeLayer(ev, contract, requiredFiles) {
-			return ev.DiagramRole
-		}
-	case types.EvidenceDiagramRoleDefault:
-		if types.ConfigTraceDiagramRoleAnchorCompatible(ev.DiagramRole, ev) &&
-			evidenceCanBeDiagramCodeLayer(ev, contract, requiredFiles) &&
-			!types.LooksLikeConfigFilePath(ev.Source) {
-			return ev.DiagramRole
+	if role := types.ConfigTraceSurfaceDiagramRoleInFiles(contract, ev, requiredFiles); role != types.EvidenceDiagramRoleUnknown {
+		switch ev.ContextRole {
+		case types.EvidenceContextRoleIllustrativeOnly:
+			if role == types.EvidenceDiagramRoleConfig && configFileSurfaceCanCarryDiagramRole(ev) {
+				return role
+			}
+		case types.EvidenceContextRoleAbsenceSupport:
+			if role == types.EvidenceDiagramRoleConfig && types.LooksLikeConfigFilePath(ev.Source) {
+				return role
+			}
+		default:
+			return role
 		}
 	}
 	return types.EvidenceDiagramRoleUnknown

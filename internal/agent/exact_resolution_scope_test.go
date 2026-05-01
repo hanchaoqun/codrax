@@ -288,13 +288,13 @@ func TestRefreshedExactResolutionContextFiles_KeepsCoverageShapingFilesUntilConf
 
 func TestRefreshedExactResolutionContextFiles_AddsGraphCoverageHopsForMissingRequestedRoles(t *testing.T) {
 	contract := &types.ExactResolutionContract{
-		TargetKind:             types.SubjectConfigKey,
-		TargetLabel:            "config key",
-		Targets:                []string{"explore_mid_loop_hint_budget"},
-		AllowAbsence:           true,
-		RelatedContextPolicy:   types.ExactContextSameFamilyGrounded,
-		RelatedContextTerms:    []string{"explore"},
-		RequestedContextRoles:  []types.EvidenceDiagramRole{types.EvidenceDiagramRoleDefault, types.EvidenceDiagramRoleConfig, types.EvidenceDiagramRoleOverride},
+		TargetKind:            types.SubjectConfigKey,
+		TargetLabel:           "config key",
+		Targets:               []string{"explore_mid_loop_hint_budget"},
+		AllowAbsence:          true,
+		RelatedContextPolicy:  types.ExactContextSameFamilyGrounded,
+		RelatedContextTerms:   []string{"explore"},
+		RequestedContextRoles: []types.EvidenceDiagramRole{types.EvidenceDiagramRoleDefault, types.EvidenceDiagramRoleConfig, types.EvidenceDiagramRoleOverride},
 	}
 	graph := &repomap.Graph{
 		ReverseImports: map[string][]string{
@@ -355,6 +355,54 @@ func TestRefreshedExactResolutionContextFiles_AddsGraphCoverageHopsForMissingReq
 	for i := range want {
 		if got[i] != want[i] {
 			t.Fatalf("context files = %v, want %v", got, want)
+		}
+	}
+}
+
+func TestExactResolutionContextFilesFromScenarioCoverageEvidence_IgnoresUnrelatedRequestedDefaultFile(t *testing.T) {
+	contract := &types.ExactResolutionContract{
+		TargetKind:            types.SubjectConfigKey,
+		TargetLabel:           "config key",
+		Targets:               []string{"explore_mid_loop_hint_budget"},
+		AllowAbsence:          true,
+		RelatedContextPolicy:  types.ExactContextSameFamilyGrounded,
+		RelatedContextTerms:   []string{"config"},
+		RequestedContextRoles: []types.EvidenceDiagramRole{types.EvidenceDiagramRoleDefault, types.EvidenceDiagramRoleConfig, types.EvidenceDiagramRoleOverride},
+	}
+	evidence := []types.EvidenceItem{
+		{
+			Kind:            types.EvidenceDirect,
+			Subject:         "DefaultExploreHeuristics",
+			Source:          "internal/types/config.go",
+			GroundingStatus: types.GroundingGrounded,
+			ContextRole:     types.EvidenceContextRoleRelatedContext,
+			DiagramRole:     types.EvidenceDiagramRoleDefault,
+			AnchorKind:      types.AnchorDefinition,
+			AnchorSymbol:    "DefaultExploreHeuristics",
+			LineStart:       876,
+		},
+		{
+			Kind:                 types.EvidenceDirect,
+			Subject:              "Composer",
+			Source:               "internal/analysis/hint/composer.go",
+			GroundingStatus:      types.GroundingGrounded,
+			ContextRole:          types.EvidenceContextRoleRelatedContext,
+			RequestedDiagramRole: types.EvidenceDiagramRoleDefault,
+			AnchorKind:           types.AnchorDefinition,
+			AnchorSymbol:         "Composer",
+			Snippet:              "type Composer struct { cfg Config }",
+			LineStart:            129,
+		},
+	}
+	got := exactResolutionContextFilesFromScenarioCoverageEvidence(
+		contract,
+		types.ScenarioConfigTrace,
+		evidence,
+		[]string{"internal/types/config.go", "codrax.yaml.example"},
+	)
+	for _, file := range got {
+		if file == "internal/analysis/hint/composer.go" {
+			t.Fatalf("unrelated requested-role file leaked into coverage scope: %v", got)
 		}
 	}
 }

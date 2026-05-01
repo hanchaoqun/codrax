@@ -469,6 +469,19 @@ func TestExactResolutionSameFamilyMatchScore_ConfigKey(t *testing.T) {
 	}
 }
 
+func TestExactResolutionSpecificStructureMatchScore_ConfigKeyMatchesSecondaryCompound(t *testing.T) {
+	contract := &ExactResolutionContract{
+		TargetKind:           SubjectConfigKey,
+		TargetLabel:          "config key",
+		Targets:              []string{"explore_mid_loop_hint_budget"},
+		RelatedContextPolicy: ExactContextSameFamilyGrounded,
+		RelatedContextTerms:  []string{"explore"},
+	}
+	if got := ExactResolutionSpecificStructureMatchScore(contract, "h.MidLoopMinIteration cmd/root.go"); got <= 0 {
+		t.Fatalf("specific structure match score for MidLoopMinIteration = %d, want > 0 via secondary target compound", got)
+	}
+}
+
 func TestConfigTraceGroundedContextAnchorAllowed_RejectsAuxiliaryAbsenceSupport(t *testing.T) {
 	contract := &ExactResolutionContract{
 		TargetKind:   SubjectConfigKey,
@@ -512,6 +525,29 @@ func TestExactResolutionHasDefiningTargetProof_RequiresProofGradeAnchor(t *testi
 	proof.ContextRole = EvidenceContextRoleDefining
 	if !ExactResolutionHasDefiningTargetProof(contract, []EvidenceItem{proof}) {
 		t.Fatal("structured anchored proof should satisfy defining target proof")
+	}
+}
+
+func TestExactResolutionHasDefiningTargetProof_IgnoresSubjectOnlyTargetMentionsOnNearbyAnchors(t *testing.T) {
+	contract := &ExactResolutionContract{
+		TargetKind:   SubjectConfigKey,
+		TargetLabel:  "config key",
+		Targets:      []string{"explore_mid_loop_hint_budget"},
+		AllowAbsence: true,
+	}
+	item := EvidenceItem{
+		Source:          "internal/config/runtime.go",
+		LineStart:       334,
+		Subject:         "explore_mid_loop_hint_budget",
+		Predicate:       "is absent from YAML struct",
+		Object:          "explore_mid_loop_hint_budget",
+		AnchorKind:      AnchorDefinition,
+		AnchorSymbol:    "RuntimeSettings",
+		ContextRole:     EvidenceContextRoleDefining,
+		GroundingStatus: GroundingGrounded,
+	}
+	if ExactResolutionHasDefiningTargetProof(contract, []EvidenceItem{item}) {
+		t.Fatal("subject-only target mentions on a nearby anchor must not satisfy defining target proof")
 	}
 }
 
@@ -779,6 +815,30 @@ func TestBuildExactResolutionContract_PersistsRequestedContextRoles(t *testing.T
 	}
 }
 
+func TestBuildExactResolutionContract_ConfigTraceUsesConfigKeyTargetKindWhenAnswerSubjectDriftsNumeric(t *testing.T) {
+	rm := RequestModel{
+		Scenario:      ScenarioConfigTrace,
+		AnswerSubject: AnswerSubject{Kind: SubjectNumeric},
+		AnalyzerHints: AnalyzerHints{
+			Kind:              "config_mapping",
+			ExactTargets:      []string{"explore_mid_loop_hint_budget"},
+			ExactContextRoles: []EvidenceDiagramRole{EvidenceDiagramRoleDefault, EvidenceDiagramRoleConfig, EvidenceDiagramRoleOverride},
+		},
+		RawRequest: "explore_mid_loop_hint_budget 的最终有效值是怎么计算出来的？给我 code default / codrax.yaml / CLI 三层的覆盖优先级。",
+	}
+	contract := BuildExactResolutionContract(rm)
+	if contract == nil {
+		t.Fatal("contract = nil, want exact-resolution contract")
+	}
+	if contract.TargetKind != SubjectConfigKey {
+		t.Fatalf("TargetKind = %v, want %v", contract.TargetKind, SubjectConfigKey)
+	}
+	want := []EvidenceDiagramRole{EvidenceDiagramRoleDefault, EvidenceDiagramRoleConfig, EvidenceDiagramRoleOverride}
+	if !reflect.DeepEqual(contract.RequestedContextRoles, want) {
+		t.Fatalf("RequestedContextRoles = %v, want %v", contract.RequestedContextRoles, want)
+	}
+}
+
 func TestExactResolutionAbsenceClosureReady_ConfigTraceRequiresRequestedRoles(t *testing.T) {
 	contract := &ExactResolutionContract{
 		TargetKind:            SubjectConfigKey,
@@ -926,5 +986,83 @@ func TestConfigTraceValidatedDiagramRoleInFiles_RejectsRuntimeOnStaticDefinition
 	}
 	if got := ConfigTraceValidatedDiagramRoleInFiles(contract, item, []string{"internal/types/config.go"}); got != EvidenceDiagramRoleUnknown {
 		t.Fatalf("runtime role on static definition = %s, want unknown", got)
+	}
+}
+
+func TestConfigTraceSurfaceDiagramRoleInFiles_AllowsRequestedOverrideOutsideRequiredFiles(t *testing.T) {
+	contract := &ExactResolutionContract{
+		TargetKind:            SubjectConfigKey,
+		TargetLabel:           "config key",
+		Targets:               []string{"explore_mid_loop_hint_budget"},
+		AllowAbsence:          true,
+		RelatedContextPolicy:  ExactContextSameFamilyGrounded,
+		RelatedContextTerms:   []string{"explore"},
+		RequestedContextRoles: []EvidenceDiagramRole{EvidenceDiagramRoleDefault, EvidenceDiagramRoleConfig, EvidenceDiagramRoleOverride},
+	}
+	item := EvidenceItem{
+		Source:               "cmd/root.go",
+		LineStart:            1635,
+		AnchorKind:           AnchorCondition,
+		AnchorSymbol:         "ExploreMidLoopMinIteration",
+		Subject:              "CLI override binding",
+		Snippet:              "if rs.ExploreMidLoopMinIteration != nil { h.MidLoopMinIteration = *rs.ExploreMidLoopMinIteration }",
+		ContextRole:          EvidenceContextRoleRelatedContext,
+		RequestedDiagramRole: EvidenceDiagramRoleOverride,
+		GroundingStatus:      GroundingGrounded,
+	}
+	got := ConfigTraceSurfaceDiagramRoleInFiles(contract, item, []string{"internal/types/config.go"})
+	if got != EvidenceDiagramRoleOverride {
+		t.Fatalf("surface role = %s, want override", got)
+	}
+}
+
+func TestConfigTraceSurfaceDiagramRoleInFiles_InfersRequestedDefaultWithoutHint(t *testing.T) {
+	contract := &ExactResolutionContract{
+		TargetKind:            SubjectConfigKey,
+		TargetLabel:           "config key",
+		Targets:               []string{"explore_mid_loop_hint_budget"},
+		AllowAbsence:          true,
+		RelatedContextPolicy:  ExactContextSameFamilyGrounded,
+		RelatedContextTerms:   []string{"explore"},
+		RequestedContextRoles: []EvidenceDiagramRole{EvidenceDiagramRoleDefault, EvidenceDiagramRoleConfig, EvidenceDiagramRoleOverride},
+	}
+	item := EvidenceItem{
+		Source:          "internal/types/config.go",
+		LineStart:       876,
+		AnchorKind:      AnchorDefinition,
+		AnchorSymbol:    "DefaultExploreHeuristics",
+		Subject:         "DefaultExploreHeuristics",
+		ContextRole:     EvidenceContextRoleRelatedContext,
+		GroundingStatus: GroundingGrounded,
+	}
+	got := ConfigTraceSurfaceDiagramRoleInFiles(contract, item, []string{"codrax.yaml.example"})
+	if got != EvidenceDiagramRoleDefault {
+		t.Fatalf("surface role = %s, want default", got)
+	}
+}
+
+func TestConfigTraceSurfaceDiagramRoleInFiles_RejectsRequestedDefaultWithoutSameFamilySignal(t *testing.T) {
+	contract := &ExactResolutionContract{
+		TargetKind:            SubjectConfigKey,
+		TargetLabel:           "config key",
+		Targets:               []string{"explore_mid_loop_hint_budget"},
+		AllowAbsence:          true,
+		RelatedContextPolicy:  ExactContextSameFamilyGrounded,
+		RelatedContextTerms:   []string{"config"},
+		RequestedContextRoles: []EvidenceDiagramRole{EvidenceDiagramRoleDefault, EvidenceDiagramRoleConfig, EvidenceDiagramRoleOverride},
+	}
+	item := EvidenceItem{
+		Source:               "internal/analysis/hint/composer.go",
+		LineStart:            129,
+		AnchorKind:           AnchorDefinition,
+		AnchorSymbol:         "Composer",
+		Subject:              "Composer",
+		Snippet:              "type Composer struct { cfg Config }",
+		ContextRole:          EvidenceContextRoleRelatedContext,
+		RequestedDiagramRole: EvidenceDiagramRoleDefault,
+		GroundingStatus:      GroundingGrounded,
+	}
+	if got := ConfigTraceSurfaceDiagramRoleInFiles(contract, item, []string{"internal/types/config.go", "codrax.yaml.example"}); got != EvidenceDiagramRoleUnknown {
+		t.Fatalf("surface role = %s, want unknown for unrelated requested default anchor", got)
 	}
 }

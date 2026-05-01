@@ -475,6 +475,81 @@ func TestBuildAnswerSurfacePlan_CollectsLogSourceDriftAnchors(t *testing.T) {
 	}
 }
 
+func TestBuildAnswerSurfacePlan_ConfigTraceCompilesRequestedRolesFromSurfaceFallbacks(t *testing.T) {
+	mut := NewMutableState("")
+	ir := &AnalysisIR{
+		RequestModel: RequestModel{
+			Scenario: ScenarioConfigTrace,
+		},
+		AnswerContract: AnswerContract{
+			RequiredAnswerShape: ShapeExplanation,
+			ExactResolution: &ExactResolutionContract{
+				TargetKind:            SubjectConfigKey,
+				TargetLabel:           "config key",
+				Targets:               []string{"explore_mid_loop_hint_budget"},
+				AllowAbsence:          true,
+				RelatedContextPolicy:  ExactContextSameFamilyGrounded,
+				RelatedContextTerms:   []string{"explore"},
+				RequestedContextRoles: []EvidenceDiagramRole{EvidenceDiagramRoleDefault, EvidenceDiagramRoleConfig, EvidenceDiagramRoleOverride},
+			},
+			Diagram: &DiagramContract{
+				Required:       true,
+				PreferredKinds: []DiagramKind{DiagramFlow},
+			},
+		},
+	}
+	mut.SetInvestigationComplete("three-layer precedence already grounded")
+	mut.SetInvestigationResultKind("absence")
+	mut.SetAbsenceJustification("all requested precedence roles were read")
+	evidence := []EvidenceItem{
+		{
+			Kind:            EvidenceDirect,
+			Source:          "internal/types/config.go",
+			LineStart:       876,
+			AnchorKind:      AnchorDefinition,
+			AnchorSymbol:    "DefaultExploreHeuristics",
+			Subject:         "DefaultExploreHeuristics",
+			ContextRole:     EvidenceContextRoleRelatedContext,
+			GroundingStatus: GroundingGrounded,
+		},
+		{
+			Kind:            EvidenceDirect,
+			Source:          "codrax.yaml.example",
+			LineStart:       22,
+			AnchorKind:      AnchorDefinition,
+			AnchorSymbol:    "Precedence",
+			ContextRole:     EvidenceContextRoleRelatedContext,
+			DiagramRole:     EvidenceDiagramRoleConfig,
+			GroundingStatus: GroundingGrounded,
+		},
+		{
+			Kind:                 EvidenceMechanism,
+			Source:               "cmd/root.go",
+			LineStart:            1635,
+			AnchorKind:           AnchorCondition,
+			AnchorSymbol:         "ExploreMidLoopMinIteration",
+			Subject:              "CLI override binding",
+			Snippet:              "if rs.ExploreMidLoopMinIteration != nil { h.MidLoopMinIteration = *rs.ExploreMidLoopMinIteration }",
+			ContextRole:          EvidenceContextRoleRelatedContext,
+			RequestedDiagramRole: EvidenceDiagramRoleOverride,
+			GroundingStatus:      GroundingGrounded,
+		},
+	}
+
+	plan := BuildAnswerSurfacePlan(ir, mut, nil, nil, nil, evidence)
+	if plan == nil {
+		t.Fatal("BuildAnswerSurfacePlan returned nil")
+	}
+	if len(plan.ConfigTraceDiagramAnchors) != 3 {
+		t.Fatalf("config-trace anchors = %d, want 3: %+v", len(plan.ConfigTraceDiagramAnchors), plan.ConfigTraceDiagramAnchors)
+	}
+	for _, want := range []string{"code default", "config file", "operator override"} {
+		if !strings.Contains(plan.CompiledDiagramFence, want) {
+			t.Fatalf("compiled config-trace fence missing %q: %q", want, plan.CompiledDiagramFence)
+		}
+	}
+}
+
 func TestBuildAnswerSurfacePlan_LogObservedAnchorsPreferAuthoritativeBindings(t *testing.T) {
 	mut := NewMutableState("")
 	logBundle := &LogBundle{
