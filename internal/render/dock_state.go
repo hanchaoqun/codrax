@@ -31,6 +31,7 @@ const (
 	activitySwitchingProvider               // EventAdapterFallback
 	activityPreparingWorktree               // applyPreHook (write mode)
 	activityCapturingBaseline               // captureBaseline (write mode)
+	activityAcceptanceReview                // multi-phase acceptance check (commit 44)
 	activityErrorRecoverable                // EventTaskNodeEnd with recoverable error, before requeue
 	activityErrorFatal                      // terminal error before StopSpinner
 	activityCancelled                       // Ctrl+C path before StopSpinner
@@ -111,6 +112,11 @@ func activityPhrase(s activityState, lang string) string {
 			return "抓取基准"
 		}
 		return "capturing baseline"
+	case activityAcceptanceReview:
+		if zh {
+			return "验收审查中"
+		}
+		return "acceptance review"
 	case activityErrorRecoverable:
 		if zh {
 			return "错误恢复中"

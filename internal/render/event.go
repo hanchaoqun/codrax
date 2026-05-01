@@ -122,6 +122,27 @@ const (
 	// / statusDetail color scheme.
 	EventPhaseGroupStart
 	EventPhaseProgress
+
+	// Acceptance-review lifecycle (commit 44). Pre-commit-44
+	// the orchestrator's acceptance-check call (a synchronous
+	// 5-30s LLM dispatch in phase_scheduler.go) emitted ZERO
+	// events while running — dock row 1 froze at the prior
+	// stage's "请求模型中" / "调用工具中" activity for the entire
+	// review window, indistinguishable from a stalled request.
+	//
+	// EventAcceptanceReviewStart fires just before the Check
+	// dispatch with PhaseIndex/PhaseTotal populated. Dock
+	// flips activity to activityAcceptanceReview ("验收审查中" /
+	// "acceptance review") so row 1 honestly reflects what the
+	// orchestrator is doing.
+	//
+	// EventAcceptanceReviewEnd fires after the dispatch
+	// returns (success OR failure) so the dock can revert to
+	// the inter-phase pause state cleanly. Carries no payload
+	// beyond the Kind tag — the per-phase verdict is surfaced
+	// separately via EventPhaseProgress (commit 43).
+	EventAcceptanceReviewStart
+	EventAcceptanceReviewEnd
 )
 
 // PhaseInfo is the renderable per-phase projection carried on

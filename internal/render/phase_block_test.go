@@ -82,6 +82,22 @@ func TestFormatPhaseProgressLine_IconByKind(t *testing.T) {
 	}
 }
 
+// TestActivityPhrase_AcceptanceReview pins commit 44: the
+// new activityAcceptanceReview state renders the dedicated
+// "验收审查中" / "acceptance review" word so dock row 1 stops
+// lying with "请求模型中" during the synchronous LLM Check
+// dispatch.
+func TestActivityPhrase_AcceptanceReview(t *testing.T) {
+	zh := activityPhrase(activityState{kind: activityAcceptanceReview}, "zh")
+	en := activityPhrase(activityState{kind: activityAcceptanceReview}, "en")
+	if zh != "验收审查中" {
+		t.Errorf("zh phrase drift; got %q", zh)
+	}
+	if en != "acceptance review" {
+		t.Errorf("en phrase drift; got %q", en)
+	}
+}
+
 // TestFormatPhaseProgressLine_DetailOptional pins that the
 // terse accepted-confirmation path produces a clean line
 // without the dangling colon-detail when detail is empty.

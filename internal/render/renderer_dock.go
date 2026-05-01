@@ -462,6 +462,31 @@ func (r *Renderer) handleEvent(ev Event) {
 		})
 		r.commitLineLocked(line)
 
+	case EventAcceptanceReviewStart:
+		// Commit 44: flip dock row 1 to "验收审查中" /
+		// "acceptance review" while the orchestrator's
+		// synchronous LLM Check call runs. Pre-commit-44 row 1
+		// stayed at the prior verify's "请求模型中" for 5-30s,
+		// indistinguishable from a stalled tool call.
+		// PhaseIndex/PhaseTotal carry into detail so a 3-phase
+		// run shows "审查中 ▸ phase 2/3".
+		detail := ""
+		if ev.PhaseTotal > 0 {
+			detail = fmt.Sprintf("phase %d/%d", ev.PhaseIndex+1, ev.PhaseTotal)
+		}
+		r.activity = activityState{
+			kind:   activityAcceptanceReview,
+			detail: detail,
+		}
+
+	case EventAcceptanceReviewEnd:
+		// Commit 44: revert to inter-phase pause state. The
+		// per-phase verdict (accepted / rejected) lands as a
+		// separate EventPhaseProgress (commit 43); this just
+		// clears the review activity so the spinner doesn't
+		// claim "审查中" while orchestration moves on.
+		r.activity = activityState{kind: activityWaitingDispatch}
+
 	case EventAdapterFallback:
 		r.activity = activityState{
 			kind:   activitySwitchingProvider,

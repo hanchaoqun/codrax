@@ -243,6 +243,22 @@ func (o *Orchestrator) runPhaseGroup(group *types.PlanGroup, stepsUsed *int) err
 		// for the three-state translation (rejected / unverified /
 		// accepted).
 		if o.acceptanceChecker != nil {
+			// UX (commit 44): emit start/end events around the
+			// synchronous Check dispatch so dock row 1 flips to
+			// "验收审查中" / "acceptance review" instead of
+			// freezing at the prior verify's "请求模型中" for
+			// the 5-30s the LLM call takes. Without these the
+			// status row was indistinguishable from a stalled
+			// tool call.
+			if o.emit != nil {
+				o.emit(render.Event{
+					Kind:       render.EventAcceptanceReviewStart,
+					Timestamp:  time.Now(),
+					Agent:      "orchestrator",
+					PhaseIndex: phase.Index,
+					PhaseTotal: len(group.Phases),
+				})
+			}
 			ac, err := o.acceptanceChecker.Check(o.CancelContext(), AcceptanceCheckInput{
 				PhaseGoal:   phase.Goal,
 				PlanSummary: planSummaryForAcceptance(plan),
@@ -252,6 +268,13 @@ func (o *Orchestrator) runPhaseGroup(group *types.PlanGroup, stepsUsed *int) err
 				PhaseIndex:  phase.Index + 1,
 				PhaseTotal:  len(group.Phases),
 			})
+			if o.emit != nil {
+				o.emit(render.Event{
+					Kind:      render.EventAcceptanceReviewEnd,
+					Timestamp: time.Now(),
+					Agent:     "orchestrator",
+				})
+			}
 			if rejected, rejErr := o.applyAcceptanceVerdict(phase, group, ac, err); rejected {
 				return rejErr
 			}

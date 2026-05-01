@@ -862,6 +862,69 @@ func TestApplyAcceptanceVerdict_AcceptedEmitsReasoningEvent(t *testing.T) {
 	}
 }
 
+// TestRunPhaseGroup_AcceptanceReviewEventsBracketCheck pins
+// commit 44: the orchestrator emits EventAcceptanceReviewStart
+// before the synchronous Check dispatch and EventAcceptanceReviewEnd
+// after it returns, regardless of whether the verdict was
+// accepted or rejected. Without these events dock row 1 froze
+// at the prior verify's "请求模型中" for 5-30s, lying about
+// what the orchestrator was doing.
+func TestRunPhaseGroup_AcceptanceReviewEventsBracketCheck(t *testing.T) {
+	store := &fakeGroupStore{}
+	mu := types.NewMutableState("review-test")
+	mu.SetWriteAnalysisIR(&types.WriteAnalysisIR{Request: types.WriteRequestModel{}})
+	bus := &types.BusContext{
+		Mutable: mu, Mode: types.ModeApply, AnalysisIR: &types.AnalysisIR{},
+	}
+	var captured []render.Event
+	o := &Orchestrator{
+		busCtx:            bus,
+		planGroupStore:    store,
+		cancelToken:       NewCancelToken(),
+		acceptanceChecker: &stubAcceptanceChecker{verdict: &types.AcceptanceCheck{Passed: true, Reasoning: "ok"}},
+		emit: func(ev render.Event) {
+			captured = append(captured, ev)
+		},
+	}
+	o.runTaskPhaseFn = func(stepsUsed *int) error {
+		mu.SetChangePlan(&types.ChangePlan{ID: "plan-x", TargetPaths: []string{"x.go"}})
+		mu.SetChangeReport(&types.ChangeReport{Passed: true})
+		o.currentIterCommitSHA = "sha000"
+		return nil
+	}
+	g := &types.PlanGroup{
+		ID: "group-review-events", Decision: "linear", Status: types.PlanGroupPlanning,
+		Phases: []types.PhaseRecord{{Index: 0, Goal: "p0", Status: types.PhasePending}},
+	}
+	stepsUsed := 0
+	if err := o.runPhaseGroup(g, &stepsUsed); err != nil {
+		t.Fatalf("runPhaseGroup: %v", err)
+	}
+	// Find Start + End events; Start MUST come before End.
+	startIdx, endIdx := -1, -1
+	for i, ev := range captured {
+		if ev.Kind == render.EventAcceptanceReviewStart && startIdx < 0 {
+			startIdx = i
+			if ev.PhaseIndex != 0 || ev.PhaseTotal != 1 {
+				t.Errorf("Start event PhaseIndex/Total drift; got idx=%d total=%d",
+					ev.PhaseIndex, ev.PhaseTotal)
+			}
+		}
+		if ev.Kind == render.EventAcceptanceReviewEnd {
+			endIdx = i
+		}
+	}
+	if startIdx < 0 {
+		t.Fatalf("missing EventAcceptanceReviewStart; captured: %+v", captured)
+	}
+	if endIdx < 0 {
+		t.Fatalf("missing EventAcceptanceReviewEnd; captured: %+v", captured)
+	}
+	if endIdx <= startIdx {
+		t.Errorf("End event must come after Start; got start=%d end=%d", startIdx, endIdx)
+	}
+}
+
 // TestApplyAcceptanceVerdict_RejectedRollsBack pins the
 // rejection path: passed=false → phase RolledBack, group
 // Failed, helper returns (rejected=true, error). Caller exits
