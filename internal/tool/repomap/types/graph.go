@@ -79,6 +79,49 @@ func (g *Graph) SymbolsInFile(file string) []Symbol {
 	return fi.Symbols
 }
 
+// SymbolExists reports whether `name` resolves to at least one
+// definition in the graph; minTier is the LOWEST (=most reliable)
+// parse tier across matches. Lower tier = more reliable parse
+// (Tier 1 = primary grammar; Tier 4 = path-only).
+//
+// Backs the types.SymbolOracle contract (commit 52); the wrapper
+// in repomap/oracle.go just adapts this method to the interface
+// shape.
+//
+// nil receiver tolerated: returns (false, 0) so callers can pass
+// nil to disable validation without nil-checking each site.
+func (g *Graph) SymbolExists(name string) (bool, int) {
+	if g == nil {
+		return false, 0
+	}
+	defs, ok := g.SymbolDefs[name]
+	if !ok || len(defs) == 0 {
+		return false, 0
+	}
+	minTier := 0
+	for _, sym := range defs {
+		if sym == nil {
+			continue
+		}
+		fi, ok := g.FileIndex[sym.File]
+		if !ok || fi == nil {
+			continue
+		}
+		tier := fi.ParseTier
+		if tier <= 0 {
+			tier = 1
+		}
+		if minTier == 0 || tier < minTier {
+			minTier = tier
+		}
+	}
+	if minTier == 0 {
+		// Defs entry exists but no FileInfo — stale index. Conservative fallback.
+		return true, 4
+	}
+	return true, minTier
+}
+
 // CallersOf returns files that call the given symbol name.
 //
 // Legacy name-only resolver: when two methods in different files

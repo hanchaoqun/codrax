@@ -18,6 +18,7 @@ import (
 	"github.com/hanchaoqun/codrax/internal/logging"
 	"github.com/hanchaoqun/codrax/internal/render"
 	"github.com/hanchaoqun/codrax/internal/tool/ground"
+	repomap "github.com/hanchaoqun/codrax/internal/tool/repomap/types"
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
@@ -949,6 +950,18 @@ func (t *EmitAnswerDocument) Execute(ctx *types.BusContext, params json.RawMessa
 	if err := validateSummaryConfigTraceFenceLabels(p.Summary, citations, groundCtx, ctx); err != nil {
 		return failWithContext("%v", err)
 	}
+
+	// Commit 53 P4 — Mermaid bare-identifier oracle check. Walks
+	// every ```mermaid``` fence in p.Summary, extracts CamelCase /
+	// snake_case identifiers from node labels, and looks each up
+	// against the SymbolOracle (Mutable.SearchGraph). Identifiers
+	// the LLM made up land as ViolDiagramIdentifier — soft by
+	// default (yaml gate_contract_strict_kinds promotes to hard).
+	// Returns *no error* even on findings: the violations flow
+	// through ctx.Mutable.EvidenceClosure().AppendViolation so the
+	// retry-hint path picks them up. Skipped when oracle / graph
+	// is nil (single-shot CLI without scan).
+	maybeRunDiagramIdentifierOracle(p.Summary, ctx)
 
 	// Log-triage coverage gate.
 	//
@@ -2705,6 +2718,101 @@ func extractMermaidNodeLabels(body string) []string {
 var diagramCueTokens = []string{
 	"->", "<-", "=>", "<=", "──", "│", "├", "└", "┌", "┐", "┘", "┤",
 	"┬", "┴", "◀", "▶", "▲", "▼",
+}
+
+// diagramBareIdentifierRe matches CamelCase / snake_case
+// identifiers that look like code symbols (multi-word). Bare
+// English words (User, Action, Service, click, login) MUST NOT
+// match — they're legitimate diagram labels. Three structural
+// shapes:
+//
+//   - PascalCase ≥ 2 words: HandleRequest, GetUserToken, IRPatchEngine
+//   - camelCase ≥ 2 words: handleRequest, completelyMadeUpFunc
+//   - snake_case ≥ 2 segments: parse_json, my_func, my_var_name
+//
+// Examples that match: handleRequest, GetUserToken, my_func,
+//                       parse_json, IRPatchEngine, k8sClient.
+// Examples that don't match: User, Action, Service, click, login.
+var diagramBareIdentifierRe = regexp.MustCompile(`\b(?:[A-Za-z][a-z0-9]+(?:[A-Z][a-z0-9]+)+|[a-z]+(?:_[a-z0-9]+)+)\b`)
+
+// diagramIdentifierWhitelist (commit 53 P4) protects domain words
+// that look identifier-shaped but aren't repo symbols: HTTP / SQL
+// verbs, common architectural terms etc. Empty by default (the
+// CamelCase regex already filters single-word labels). Operators
+// can extend via codrax.yaml :: diagram_identifier_whitelist.
+var diagramIdentifierWhitelist = map[string]bool{}
+
+// SetDiagramIdentifierWhitelist replaces the active whitelist.
+// Called from cmd/root.go at startup. Empty arg restores empty.
+func SetDiagramIdentifierWhitelist(words []string) {
+	out := map[string]bool{}
+	for _, w := range words {
+		w = strings.TrimSpace(w)
+		if w != "" {
+			out[w] = true
+		}
+	}
+	diagramIdentifierWhitelist = out
+}
+
+// maybeRunDiagramIdentifierOracle is the commit 53 P4 entry point:
+// extract bare identifiers from every Mermaid fence in summary,
+// look them up against the SymbolOracle (Mutable.SearchGraph),
+// and append a ViolDiagramIdentifier per unverified hit to the
+// EvidenceClosure ledger. Soft-by-default at the gate layer
+// (commit 53 P3 default-soft set covers ViolDiagramIdentifier).
+//
+// Skipped when ctx, ctx.Mutable, or the underlying graph is nil
+// (single-shot CLI without scan; oracle returns false-by-default
+// would cause every identifier to look invalid). Returns nothing
+// — violations flow through the closure ledger.
+func maybeRunDiagramIdentifierOracle(summary string, ctx *types.BusContext) {
+	if ctx == nil || ctx.Mutable == nil {
+		return
+	}
+	graph, _ := ctx.Mutable.SearchGraph().(*repomap.Graph)
+	if graph == nil {
+		return
+	}
+	matches := fencedCodeBlockWithInfoRe.FindAllStringSubmatch(summary, -1)
+	if len(matches) == 0 {
+		return
+	}
+	closure := ctx.Mutable.EvidenceClosure()
+	seen := map[string]bool{}
+	for _, m := range matches {
+		info := strings.TrimSpace(m[1])
+		if !strings.EqualFold(info, "mermaid") &&
+			!strings.HasPrefix(strings.ToLower(info), "mermaid ") {
+			continue
+		}
+		body := diagramGroundingBodyReplacer.Replace(m[2])
+		for _, label := range extractMermaidNodeLabels(body) {
+			for _, ident := range diagramBareIdentifierRe.FindAllString(label, -1) {
+				if seen[ident] {
+					continue
+				}
+				seen[ident] = true
+				if diagramIdentifierWhitelist[ident] {
+					continue
+				}
+				if found, tier := graph.SymbolExists(ident); found && tier <= 2 {
+					continue
+				}
+				closure.AppendViolation(types.Violation{
+					Kind: types.ViolDiagramIdentifier,
+					Detail: fmt.Sprintf("identifier %q in mermaid block does not resolve to a Tier 1-2 repo symbol",
+						ident),
+					Stage: string(types.StageFinalize),
+					SuspectedRoot: types.SuspectedRoot{
+						IRField:    "diagram",
+						Reason:     "diagram bare identifier not in repomap symbol set",
+						Confidence: 0.5,
+					},
+				})
+			}
+		}
+	}
 }
 
 func answerDiagramContract(ctx *types.BusContext) *types.DiagramContract {

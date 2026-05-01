@@ -242,6 +242,25 @@ type RuntimeSettings struct {
 	PipelineContractSoftKinds   []string `yaml:"pipeline_contract_soft_kinds"`
 	PipelineContractStrictKinds []string `yaml:"pipeline_contract_strict_kinds"`
 
+	// DiagramIdentifierWhitelist (commit 53 P4) lists English /
+	// domain words that the Mermaid bare-identifier oracle should
+	// NOT flag even when they fail the SymbolOracle lookup. The
+	// CamelCase regex already filters single-word labels (User /
+	// Action / Service); this list catches multi-token cases like
+	// "HttpRequest" the operator wants to allow as a generic term
+	// rather than tying to a specific repo symbol. Empty default.
+	DiagramIdentifierWhitelist []string `yaml:"diagram_identifier_whitelist"`
+
+	// RepomapMinParseTier (commit 53 P5) hard-gates files whose
+	// repomap parse tier exceeds the floor (Tier 1=primary
+	// grammar, 2=secondary salvage, 3=regex-only, 4=path-only).
+	// 0 (default) = gate disabled (only the soft tier discount
+	// applies, pre-commit-53 byte-identical). 1 = only Tier-1
+	// files are ranked, 2 = Tier 1-2, etc. Useful when a repo
+	// with mixed-language tree-sitter coverage produces too many
+	// regex-only fallbacks that pollute the rank head.
+	RepomapMinParseTier *int `yaml:"repomap_min_parse_tier"`
+
 	// PipelineTransientRetryBudget caps how many times a single Run
 	// will retry a stage that failed with a transient dispatch error
 	// (LLM stream stall / first-byte timeout / 429 / 5xx / network

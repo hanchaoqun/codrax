@@ -31,6 +31,7 @@ import (
 	"github.com/hanchaoqun/codrax/internal/tool"
 	"github.com/hanchaoqun/codrax/internal/tool/repomap"
 	repomapindex "github.com/hanchaoqun/codrax/internal/tool/repomap/index"
+	"github.com/hanchaoqun/codrax/internal/tool/repomap/retrieve"
 	"github.com/hanchaoqun/codrax/internal/types"
 	"github.com/hanchaoqun/codrax/internal/worktree"
 )
@@ -1607,6 +1608,12 @@ func initApp(cmd *cobra.Command, _ []string) error {
 			rs.PipelineContractSoftKinds,
 			rs.PipelineContractStrictKinds,
 		)
+		// Commit 53 P4: diagram bare-identifier whitelist.
+		tool.SetDiagramIdentifierWhitelist(rs.DiagramIdentifierWhitelist)
+		// Commit 53 P5: repomap parse-tier hard gate.
+		if rs.RepomapMinParseTier != nil {
+			retrieve.SetMinParseTierFloor(*rs.RepomapMinParseTier)
+		}
 		if rs.PipelineTransientRetryBudget != nil {
 			pipelineSettings.TransientRetryBudget = *rs.PipelineTransientRetryBudget
 		}

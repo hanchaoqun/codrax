@@ -208,8 +208,53 @@ func RankGraph(g *types.Graph, query string) {
 			score *= parseTierDiscount(fi.ParseTier)
 		}
 
+		// Commit 53 P5: parse-tier hard gate. When yaml
+		// repomap_min_parse_tier > 0, files whose ParseTier exceeds
+		// the floor are dropped to score=0 (effective rank-out)
+		// instead of merely discounted. Default 0 = behaviour
+		// byte-identical with pre-commit-53.
+		score = applyParseTierFloor(score, fi.ParseTier)
+
 		g.Scores[fi.RelPath] = score
 	}
+}
+
+// applyParseTierFloor zeroes the score when fi.ParseTier exceeds
+// the active minParseTierFloor (commit 53 P5). Pure function for
+// unit-testability — the floor toggle is verified at the gate
+// boundary rather than via a full RankGraph fixture.
+//
+// Floor of 0 = disabled (score returned unchanged). Tier 0 in
+// the input is treated as Tier 1 (primary parse) so an unset
+// field doesn't trigger the gate.
+func applyParseTierFloor(score float64, tier int) float64 {
+	if minParseTierFloor <= 0 {
+		return score
+	}
+	effectiveTier := tier
+	if effectiveTier <= 0 {
+		effectiveTier = 1
+	}
+	if effectiveTier > minParseTierFloor {
+		return 0
+	}
+	return score
+}
+
+// minParseTierFloor is the active hard-gate floor (commit 53 P5).
+// Mutated by SetMinParseTierFloor at startup. Default 0 disables
+// the gate (only the soft TierDiscount applies).
+var minParseTierFloor int
+
+// SetMinParseTierFloor sets the active hard floor. Called from
+// cmd/root.go when reading yaml repomap_min_parse_tier. Negative
+// values clamp to 0 (disabled). Values 5+ behave as "drop
+// nothing" (Tier never exceeds 4).
+func SetMinParseTierFloor(tier int) {
+	if tier < 0 {
+		tier = 0
+	}
+	minParseTierFloor = tier
 }
 
 // parseTierDiscount returns the rank multiplier for a fallback
