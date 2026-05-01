@@ -129,6 +129,27 @@ type RequestModel struct {
 	// use it, so this remains an LLM recommendation rather than an
 	// authority lane.
 	EnumerationBoundary *RequestedEnumerationBoundary `json:"enumeration_boundary,omitempty"`
+
+	// LogTriage / PerfTrace are NOT emitted by the analyzer LLM. They
+	// are bundle pointers that buildAnalysisIR attaches AFTER
+	// log/perf-triage validation, exposed here so downstream
+	// sub-packages (compiler / hdp / gate / criterion / request_traits)
+	// can read multi-frame artifact evidence without re-threading
+	// bundle pointers through every signature.
+	//
+	// The fields are excluded from JSON serialisation (`json:"-"`) to
+	// preserve the LLM-emit contract on the wire — these are
+	// system-derived attachments, not part of what emit_analysis
+	// returned. nil when the user did not attach --log / --htrace /
+	// --atrace.
+	//
+	// Read by: IsScalarSourceLiteralLookup (multi-frame artifact
+	// evidence reverses the role-locate scalar short-circuit), and
+	// any future cross-package decider that needs to disambiguate
+	// "single literal answer" from "multi-step mechanism" using the
+	// objective artifact context the user supplied.
+	LogTriage *LogBundle  `json:"-"`
+	PerfTrace *PerfBundle `json:"-"`
 }
 
 // AnswerSubjectKind enumerates the distinct kinds of source-code

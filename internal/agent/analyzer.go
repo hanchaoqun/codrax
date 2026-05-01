@@ -1030,6 +1030,17 @@ func buildAnalysisIR(ctx *types.AgentContext) (*types.AnalysisIR, error) {
 			perfBundle.IntentHint)
 	}
 
+	// 2026-05-02 — attach the validated bundles onto the
+	// RequestModel so cross-package deciders (compiler / hdp / gate /
+	// criterion / request_traits) can read multi-frame artifact
+	// evidence without re-threading the bundle pointers through every
+	// signature. nil when the user did not attach --log / --htrace /
+	// --atrace. See the LogTriage / PerfTrace fields in
+	// types.RequestModel for the contract — these are excluded from
+	// JSON serialisation so the LLM-emit wire shape stays unchanged.
+	rm.LogTriage = logBundle
+	rm.PerfTrace = perfBundle
+
 	// Sub-topics post-processing: when the LLM detected multiple
 	// independent sub-topics, force explanation shape and merge entities.
 	if len(rm.SubTopics) > 5 {

@@ -37,7 +37,18 @@ func IsScalarSourceLiteralLookup(rm RequestModel) bool {
 			return false
 		}
 	}
-	if rm.Predicates.IsRoleLocateLookup {
+	// 2026-05-02 — the LLM's role-locate signal is a "where is the
+	// thing that plays this role" judgment, locally plausible for any
+	// "X 来自哪里" wording. But when the user attached a multi-frame
+	// log/perf artifact, that artifact is OBJECTIVE evidence the
+	// answer surface is a multi-step mechanism, not a single source
+	// literal. In that case the role-locate short-circuit is
+	// contradicted by user-supplied artifact data and must yield to
+	// the regular IsScalarAnswer / structural-fallback path below.
+	// Pre-fix the short-circuit fired unconditionally and routed
+	// panic / OOM / perf-trace root-cause requests into the scalar
+	// lane, breaking the answer contract downstream.
+	if rm.Predicates.IsRoleLocateLookup && !hasMultiFrameArtifactEvidence(rm) {
 		return true
 	}
 	if rm.Predicates.IsScalarAnswer {
@@ -48,6 +59,14 @@ func IsScalarSourceLiteralLookup(rm RequestModel) bool {
 	// file path) but still emits a prose/list carrier. For a single,
 	// simple, non-relational request over one source literal, keep the
 	// answer in the scalar lane even when is_scalar_answer=false.
+	//
+	// 2026-05-02 — same multi-frame artifact guard as the explicit
+	// short-circuit above: when an attached log/perf bundle resolves
+	// 2+ frames, the request is by definition NOT "over one source
+	// literal" and must not enter the unnamed-fallback scalar lane.
+	if hasMultiFrameArtifactEvidence(rm) {
+		return false
+	}
 	if rm.Complexity != ComplexitySimple {
 		return false
 	}
@@ -70,6 +89,40 @@ func IsScalarSourceLiteralLookup(rm RequestModel) bool {
 	default:
 		return false
 	}
+}
+
+// hasMultiFrameArtifactEvidence reports whether the request arrived
+// bundled with an external artifact (attached log / htrace / atrace)
+// that resolved 2+ frames or stalls. Such artifacts are objective
+// proof that the answer surface is a multi-step mechanism rather
+// than a single source literal, and therefore should temper the
+// IsRoleLocateLookup scalar short-circuit in
+// IsScalarSourceLiteralLookup. Returns false when no bundle is
+// attached (preserving pre-2026-05-02 behaviour for plain text-only
+// questions).
+//
+// Threshold rationale: 2 frames / janks / stalls is the same lower
+// bound logBundleAuthoritativeFrames + renderLogCallChain already
+// use to distinguish "real call chain" from "single sample" — keeps
+// the multi-frame definition consistent across the codebase.
+//
+// Read-only on RequestModel; safe to call with a zero-value rm.
+func hasMultiFrameArtifactEvidence(rm RequestModel) bool {
+	if rm.LogTriage != nil {
+		for _, e := range rm.LogTriage.Errors {
+			if len(e.Frames) >= 2 {
+				return true
+			}
+		}
+	}
+	if rm.PerfTrace != nil {
+		if len(rm.PerfTrace.Frames) >= 2 ||
+			len(rm.PerfTrace.Janks) >= 2 ||
+			len(rm.PerfTrace.Stalls) >= 2 {
+			return true
+		}
+	}
+	return false
 }
 
 func isScalarSourceLiteralSubjectKind(kind AnswerSubjectKind) bool {
