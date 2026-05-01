@@ -181,6 +181,70 @@ func TestStore_DecaySweep_DropsOldOneOffs(t *testing.T) {
 	}
 }
 
+// TestRelevantToWithKeywords_BoostShiftsRanking pins commit
+// 40 P2: when two patterns score identically on kind +
+// paths + recency, the one whose text matches the supplied
+// keywords ranks higher. Used by the multi-phase
+// orchestrator to bias toward the active phase's pitfalls.
+func TestRelevantToWithKeywords_BoostShiftsRanking(t *testing.T) {
+	dir := t.TempDir()
+	s := NewFailureTaxonomyStore(dir, "demo-keywords", 50, 90)
+	// Two patterns with same kind/path scope, distinct text.
+	a := newValidPattern("schema migration backfill misorder")
+	a.Description = "When applying a schema migration before the ORM update, the new column has no default and existing rows fail validation."
+	a.Trigger = "running schema migration ahead of ORM update"
+	a.AppliesToKinds = []string{"feature"}
+	if _, err := s.Append(a); err != nil {
+		t.Fatalf("Append a: %v", err)
+	}
+	b := newValidPattern("orm refactor stale fixture mock")
+	b.Description = "ORM refactor that adds a method downstream tests stub will leave the new method unstubbed; tests pass with zero values."
+	b.Trigger = "ORM refactor that widens an interface"
+	b.AppliesToKinds = []string{"feature"}
+	if _, err := s.Append(b); err != nil {
+		t.Fatalf("Append b: %v", err)
+	}
+
+	// Without keyword boost, both score equally — recency
+	// tie-break determines order.
+	noBoost := s.RelevantTo("feature", nil, 5)
+	if len(noBoost) != 2 {
+		t.Fatalf("expected 2 patterns; got %d", len(noBoost))
+	}
+
+	// With keyword "ORM refactor", pattern b should rank
+	// first.
+	withBoost := s.RelevantToWithKeywords("feature", nil, []string{"ORM refactor"}, 5)
+	if len(withBoost) != 2 {
+		t.Fatalf("expected 2 patterns; got %d", len(withBoost))
+	}
+	if !strings.Contains(withBoost[0].Name, "orm") {
+		t.Errorf("ORM-keyword query should rank ORM pattern first; got %s", withBoost[0].Name)
+	}
+
+	// Inverse: keyword "schema migration" should rank a first.
+	withSchemaBoost := s.RelevantToWithKeywords("feature", nil, []string{"schema migration"}, 5)
+	if !strings.Contains(withSchemaBoost[0].Name, "schema") {
+		t.Errorf("schema-keyword query should rank schema pattern first; got %s", withSchemaBoost[0].Name)
+	}
+}
+
+// TestRelevantToWithKeywords_EmptyKeywordsMatchesRelevantTo
+// pins back-compat: nil keywords reduces RelevantToWithKeywords
+// to RelevantTo (zero boost contribution).
+func TestRelevantToWithKeywords_EmptyKeywordsMatchesRelevantTo(t *testing.T) {
+	dir := t.TempDir()
+	s := NewFailureTaxonomyStore(dir, "demo-empty-kw", 50, 90)
+	if _, err := s.Append(newValidPattern("any pattern long enough to validate")); err != nil {
+		t.Fatalf("Append: %v", err)
+	}
+	a := s.RelevantTo("feature", nil, 5)
+	b := s.RelevantToWithKeywords("feature", nil, nil, 5)
+	if len(a) != len(b) {
+		t.Errorf("nil-keyword RelevantToWithKeywords should match RelevantTo; got %d vs %d", len(a), len(b))
+	}
+}
+
 func TestScorePatternRelevance_KindMismatchZeroes(t *testing.T) {
 	now := time.Now()
 	p := &types.FailurePattern{

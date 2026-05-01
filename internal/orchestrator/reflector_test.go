@@ -349,13 +349,44 @@ func TestIsASCII(t *testing.T) {
 	}
 }
 
-// TestReflectFull_BothToolsInSchema pins the dispatch tool
-// list: the Chat call must offer BOTH emit_failure_observation
-// AND emit_failure_pattern so the LLM has the option to emit
-// a pattern. Pre-stage-3 only the observation tool was
-// offered; regressing to that would silently disable stage 3
-// without surfacing a fail.
-func TestReflectFull_BothToolsInSchema(t *testing.T) {
+// TestSetFailureTaxonomyStore_TogglesReflectorPatternTool
+// pins commit 40 P1's wiring: when the orchestrator's
+// SetFailureTaxonomyStore is called with a non-nil store,
+// it must propagate the "you have a destination for the
+// pattern" signal to the reflector via the patternToolToggler
+// interface. Calling with nil propagates "off".
+func TestSetFailureTaxonomyStore_TogglesReflectorPatternTool(t *testing.T) {
+	stub := &reflectorStubAdapter{}
+	r := NewReflector(stub).(*llmReflector)
+	o := New(types.PipelineSettings{}, nil, nil, nil)
+	o.reflector = r
+
+	// Default: off.
+	if r.patternToolOn {
+		t.Errorf("default state should be off; got on")
+	}
+
+	// Wire a non-nil store → toggle on.
+	dir := t.TempDir()
+	store := NewFailureTaxonomyStore(dir, "test-repo", 50, 90)
+	o.SetFailureTaxonomyStore(store)
+	if !r.patternToolOn {
+		t.Errorf("after SetFailureTaxonomyStore(non-nil) reflector should be on; got off")
+	}
+
+	// Wire nil → toggle off.
+	o.SetFailureTaxonomyStore(nil)
+	if r.patternToolOn {
+		t.Errorf("after SetFailureTaxonomyStore(nil) reflector should be off; got on")
+	}
+}
+
+// TestReflectFull_PatternToolGatedByStore pins commit 40 P1:
+// the dispatch tool list includes emit_failure_pattern ONLY
+// when the orchestrator wired a FailureTaxonomyStore (signalled
+// via SetPatternToolEnabled(true)). Without a destination, the
+// schema is omitted to save LLM tokens.
+func TestReflectFull_PatternToolGatedByStore(t *testing.T) {
 	stub := &reflectorStubAdapter{
 		resp: llm.Response{
 			ToolCalls: []llm.ToolCall{{Name: "emit_failure_observation",
@@ -363,11 +394,25 @@ func TestReflectFull_BothToolsInSchema(t *testing.T) {
 		},
 	}
 	r := NewReflector(stub).(*llmReflector)
+	// Default (store-less): only observation tool offered.
+	if _, err := r.ReflectFull(context.Background(), ReflectorInput{Attempt: 1, FailingTests: []ReflectorFailedTest{{Suite: "x", AssertionID: "y"}}}); err != nil {
+		t.Fatalf("ReflectFull: %v", err)
+	}
+	if len(stub.lastTools) != 1 {
+		t.Fatalf("disabled state: expected 1 tool; got %d (%+v)", len(stub.lastTools), stub.lastTools)
+	}
+	if stub.lastTools[0].Name != "emit_failure_observation" {
+		t.Errorf("disabled state: expected only observation tool; got %q", stub.lastTools[0].Name)
+	}
+
+	// After SetPatternToolEnabled(true): both tools.
+	r.SetPatternToolEnabled(true)
+	stub.lastTools = nil
 	if _, err := r.ReflectFull(context.Background(), ReflectorInput{Attempt: 1, FailingTests: []ReflectorFailedTest{{Suite: "x", AssertionID: "y"}}}); err != nil {
 		t.Fatalf("ReflectFull: %v", err)
 	}
 	if len(stub.lastTools) != 2 {
-		t.Fatalf("expected 2 tools in dispatch; got %d", len(stub.lastTools))
+		t.Fatalf("enabled state: expected 2 tools; got %d", len(stub.lastTools))
 	}
 	hasObs, hasPat := false, false
 	for _, tool := range stub.lastTools {
@@ -379,6 +424,6 @@ func TestReflectFull_BothToolsInSchema(t *testing.T) {
 		}
 	}
 	if !hasObs || !hasPat {
-		t.Errorf("both tools required; got obs=%v pat=%v", hasObs, hasPat)
+		t.Errorf("enabled state: both tools required; got obs=%v pat=%v", hasObs, hasPat)
 	}
 }

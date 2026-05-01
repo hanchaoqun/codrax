@@ -726,11 +726,27 @@ func (o *Orchestrator) SetPlanSaver(s PlanSaver) {
 // SetFailureTaxonomyStore installs the stage-3 per-repo
 // failure-pattern cache. Wired from cmd/root.go using the
 // derived repo slug + user cache dir. Nil = feature disabled
-// (the reflector still runs; emit_failure_pattern emits are
-// dropped at the persist hop, planner injection skips its
-// pitfall section).
+// (the reflector still runs but its dispatch omits
+// failurePatternTool entirely so no LLM tokens are wasted on
+// a schema with no persist destination; planner injection
+// skips its pitfall section).
+//
+// Side effect: also toggles the reflector's pattern-tool
+// inclusion (commit 40). Reflector implementations that
+// satisfy patternToolToggler get notified; others are no-ops.
 func (o *Orchestrator) SetFailureTaxonomyStore(s *FailureTaxonomyStore) {
 	o.failureTaxonomyStore = s
+	if toggler, ok := o.reflector.(patternToolToggler); ok {
+		toggler.SetPatternToolEnabled(s != nil)
+	}
+}
+
+// patternToolToggler is the optional interface a Reflector
+// can satisfy to receive the "you have a destination for
+// emit_failure_pattern" signal. The default llmReflector
+// satisfies it; tests with a stub Reflector can opt out.
+type patternToolToggler interface {
+	SetPatternToolEnabled(on bool)
 }
 
 // FailureTaxonomyStore returns the wired store (or nil when
@@ -4008,6 +4024,14 @@ func (o *Orchestrator) dispatchStage(stage types.PipelineStage) (*agent.StageOut
 			// overlap + recency; we read RelevantTo with the
 			// current task's kind + WriteAnalysisIR scope
 			// anchors as the path hint set.
+			//
+			// Multi-phase carve-out (commit 40 P2): when the
+			// orchestrator is mid-phase, also pass the phase
+			// goal as a keyword-boost hint so phase 2's planner
+			// sees phase 2's relevant pitfalls higher than
+			// phase 1's. Without this, every phase in a group
+			// shares the same task kind + scope anchors and
+			// pitfalls land identically ranked.
 			if o.failureTaxonomyStore != nil {
 				kind := ""
 				var paths []string
@@ -4019,7 +4043,16 @@ func (o *Orchestrator) dispatchStage(stage types.PipelineStage) (*agent.StageOut
 						}
 					}
 				}
-				if pitfalls := o.failureTaxonomyStore.RelevantTo(kind, paths, 5); len(pitfalls) > 0 {
+				var keywords []string
+				if o.phaseContextPrefix != "" {
+					// Strip the "## Phase X of Y: " prefix; the
+					// remainder is the phase goal text we want
+					// for keyword overlap.
+					if goal := extractPhaseGoalFromPrefix(o.phaseContextPrefix); goal != "" {
+						keywords = []string{goal}
+					}
+				}
+				if pitfalls := o.failureTaxonomyStore.RelevantToWithKeywords(kind, paths, keywords, 5); len(pitfalls) > 0 {
 					agentCtx.ActivePitfalls = pitfalls
 					logging.Debug("[orchestrator] failure_taxonomy: %d active pitfalls injected", len(pitfalls))
 				}

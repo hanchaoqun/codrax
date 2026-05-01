@@ -953,25 +953,8 @@ func runREPL(_ *cobra.Command) error {
 	// ModePlan-only auto-save and the CLI's writePlanFile path,
 	// so phase plans need their own hook into PlanStore.
 	app.orch.SetPlanSaver(planStore)
-	// Stage 3: per-repo Failure Taxonomy. Cache lives at
-	// <flagCacheDir>/<repo-slug>/failure_taxonomy.json so
-	// multi-repo workflows don't cross-contaminate. Disabled
-	// when flagCacheDir or the repo slug is empty (single-shot
-	// CLI flows that don't accumulate cross-Run learning). The
-	// store is opt-out: the planner reads RelevantTo
-	// regardless of yaml flags, so absent operator
-	// configuration just yields an empty pitfall set.
-	if slug := repoSlug(flagRepo); slug != "" && flagCacheDir != "" && failureTaxonomyEnabled {
-		// yaml-merged knobs: failureTaxonomyMaxItems / DecayDays
-		// (zero falls back to store defaults 50 items / 90
-		// days). pipeline_failure_taxonomy_enabled=false short-
-		// circuits the wiring so the orchestrator's nil-store
-		// check disables both reflector persist (commit 36)
-		// AND planner injection (commit 37).
-		store := orchestrator.NewFailureTaxonomyStore(flagCacheDir, slug,
-			failureTaxonomyMaxItems, failureTaxonomyDecayDays)
-		app.orch.SetFailureTaxonomyStore(store)
-	}
+	// FailureTaxonomyStore is now wired in initApp (commit 40)
+	// so single-shot CLI flows also get cross-Run learning.
 	r := repl.New(repl.Config{
 		Runner:             app.orch,
 		Store:              store,
@@ -2345,6 +2328,24 @@ func initApp(cmd *cobra.Command, _ []string) error {
 	}
 	orch.SetThinkAloudMap(taMap)
 	app.orch = orch
+
+	// Stage 3 (commit 40): per-repo Failure Taxonomy wiring.
+	// Lifted out of runREPL into initApp so the single-shot CLI
+	// path (`--mode=apply --plan-file=...`) ALSO gets cross-Run
+	// learning when --cache-dir is set. Pre-commit-40 the
+	// wiring lived inside runREPL only; runSingleShot bypassed
+	// it entirely + every CLI run paid the LLM emit-tokens cost
+	// for emit_failure_pattern with zero persistence. Disabled
+	// (no-op) when flagCacheDir or repoSlug is empty, OR yaml
+	// pipeline_failure_taxonomy_enabled=false. The store
+	// itself is opt-in: every dispatch path (reflector,
+	// planner, REPL /pitfalls) reads o.failureTaxonomyStore!=nil
+	// before doing anything, so a nil here is a clean disable.
+	if slug := repoSlug(flagRepo); slug != "" && flagCacheDir != "" && failureTaxonomyEnabled {
+		store := orchestrator.NewFailureTaxonomyStore(flagCacheDir, slug,
+			failureTaxonomyMaxItems, failureTaxonomyDecayDays)
+		app.orch.SetFailureTaxonomyStore(store)
+	}
 
 	// B0 write-mode resolution. Assemble inputs from yaml + CLI,
 	// validate via the pure resolveWriteMode, and install the result

@@ -304,6 +304,36 @@ func (o *Orchestrator) applyAcceptanceVerdict(phase *types.PhaseRecord, group *t
 	return false, nil
 }
 
+// extractPhaseGoalFromPrefix peels the "## Phase X of Y: " header
+// off seedPlanningHintFromPhase's output and returns the phase
+// goal text. Used by dispatchStage(StagePlan) to bias the
+// stage-3 pitfall ranking toward this phase's specific work
+// (commit 40 P2). Empty input or non-matching shape returns
+// empty so the caller can degrade silently.
+func extractPhaseGoalFromPrefix(prefix string) string {
+	if prefix == "" {
+		return ""
+	}
+	const marker = "## Phase "
+	idx := strings.Index(prefix, marker)
+	if idx < 0 {
+		return ""
+	}
+	tail := prefix[idx+len(marker):]
+	// Skip past the "X of Y: " run by finding the first colon.
+	colon := strings.Index(tail, ":")
+	if colon < 0 {
+		return ""
+	}
+	goal := strings.TrimSpace(tail[colon+1:])
+	// Drop trailing newlines/whitespace; the seeded prefix
+	// includes "\n\n" but the goal itself is the first line.
+	if nl := strings.IndexByte(goal, '\n'); nl >= 0 {
+		goal = strings.TrimSpace(goal[:nl])
+	}
+	return goal
+}
+
 // resetForNextPhase clears per-phase Mutable slots so the next
 // phase starts fresh. AppliedSet stays — phases accumulate
 // changes in the same worktree. WriteAnalysisIR stays — same

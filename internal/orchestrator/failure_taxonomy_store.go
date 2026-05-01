@@ -237,7 +237,28 @@ func (s *FailureTaxonomyStore) persistLocked() error {
 //
 // Patterns scoring 0 are filtered out — the operator's
 // pitfalls list isn't useful if every emit shows.
+//
+// Thin wrapper around RelevantToWithKeywords with no keyword
+// boost; callers that want phase-aware ranking go through
+// the With variant.
 func (s *FailureTaxonomyStore) RelevantTo(taskKind string, targetPaths []string, k int) []types.FailurePattern {
+	return s.RelevantToWithKeywords(taskKind, targetPaths, nil, k)
+}
+
+// RelevantToWithKeywords adds an optional keyword-boost to
+// the relevance scoring (commit 40 P2): tokens that appear
+// in any pattern's Name / Description / Trigger lift its
+// score by 0.4 per match (cap 1.6). Used by the multi-phase
+// orchestrator to bias toward pitfalls whose text overlaps
+// the current phase's goal — Task.Kind is group-level, so
+// without this signal phase 2 (ORM refactor) sees phase 1's
+// schema-migration pitfall ranked equally with its own.
+//
+// Empty keywords reduces to RelevantTo (zero boost). Token
+// matching is whitespace-split + lowercase + ASCII; CJK
+// keywords are accepted but contribute nothing because the
+// pattern text is forced English (commit 39 P4).
+func (s *FailureTaxonomyStore) RelevantToWithKeywords(taskKind string, targetPaths []string, keywords []string, k int) []types.FailurePattern {
 	if !s.Enabled() {
 		return nil
 	}
@@ -249,6 +270,7 @@ func (s *FailureTaxonomyStore) RelevantTo(taskKind string, targetPaths []string,
 		k = 5
 	}
 	now := time.Now()
+	loweredKW := loweredKeywordSet(keywords)
 	type scored struct {
 		p     types.FailurePattern
 		score float64
@@ -259,13 +281,13 @@ func (s *FailureTaxonomyStore) RelevantTo(taskKind string, targetPaths []string,
 		if score <= 0 {
 			continue
 		}
+		score += keywordBoost(&p, loweredKW)
 		out = append(out, scored{p: p, score: score})
 	}
 	sort.Slice(out, func(i, j int) bool {
 		if out[i].score != out[j].score {
 			return out[i].score > out[j].score
 		}
-		// Tie-break: more recent wins.
 		return out[i].p.LastSeen.After(out[j].p.LastSeen)
 	})
 	if len(out) > k {
@@ -276,6 +298,51 @@ func (s *FailureTaxonomyStore) RelevantTo(taskKind string, targetPaths []string,
 		result = append(result, e.p)
 	}
 	return result
+}
+
+// loweredKeywordSet trims, lowercases, drops short tokens
+// (<3 runes), and dedups. ASCII-only contribution: non-ASCII
+// keywords pass through but contribute nothing because the
+// pattern text is forced English at emit time.
+func loweredKeywordSet(keywords []string) map[string]struct{} {
+	if len(keywords) == 0 {
+		return nil
+	}
+	out := make(map[string]struct{}, len(keywords))
+	for _, raw := range keywords {
+		for _, tok := range strings.Fields(strings.ToLower(strings.TrimSpace(raw))) {
+			if len(tok) < 3 {
+				continue
+			}
+			out[tok] = struct{}{}
+		}
+	}
+	return out
+}
+
+// keywordBoost contributes 0.4 per matched keyword (cap 1.6,
+// 4 hits) by case-insensitive substring match against the
+// pattern's name + description + trigger blob. Substring
+// rather than tokens because the pattern's text uses hyphens
+// (lock-scope drift) while phase Goal text typically has
+// spaces. Bounded so a many-keyword query can't dominate
+// confidence + hits + recency.
+func keywordBoost(p *types.FailurePattern, kw map[string]struct{}) float64 {
+	if p == nil || len(kw) == 0 {
+		return 0
+	}
+	blob := strings.ToLower(p.Name + " " + p.Description + " " + p.Trigger)
+	hits := 0
+	for tok := range kw {
+		if strings.Contains(blob, tok) {
+			hits++
+		}
+	}
+	add := float64(hits) * 0.4
+	if add > 1.6 {
+		add = 1.6
+	}
+	return add
 }
 
 // All returns a snapshot copy of every pattern in the

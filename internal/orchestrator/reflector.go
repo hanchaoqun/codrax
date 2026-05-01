@@ -262,7 +262,8 @@ Skip emit_failure_pattern when the failure is one-off, too specific, or too uncl
 // call per Reflect, opt-in via providers.yaml :: agents.reflector or
 // inheriting the default adapter.
 type llmReflector struct {
-	adapter llm.Adapter
+	adapter        llm.Adapter
+	patternToolOn  bool // commit 40: include emit_failure_pattern in tools list
 }
 
 // NewReflector builds the default Reflector. Nil adapter yields a
@@ -271,6 +272,19 @@ type llmReflector struct {
 // heuristic hint when reflection produced nothing.
 func NewReflector(adapter llm.Adapter) Reflector {
 	return &llmReflector{adapter: adapter}
+}
+
+// SetPatternToolEnabled toggles whether failurePatternTool is
+// included in the Chat dispatch tools list. Called by the
+// orchestrator after wiring the FailureTaxonomyStore — when
+// store==nil there's no destination to persist a pattern, so
+// shipping the schema is wasted LLM tokens (the LLM might
+// emit a pattern that we'd silently drop). Pre-commit-40 the
+// pattern tool was always included; commit 40 gates it.
+func (r *llmReflector) SetPatternToolEnabled(on bool) {
+	if r != nil {
+		r.patternToolOn = on
+	}
 }
 
 // Reflect dispatches one structured-emit Chat call. Failure paths
@@ -314,12 +328,20 @@ func (r *llmReflector) ReflectFull(ctx context.Context, in ReflectorInput) (*Ref
 		{Role: "system", Content: reflectorSystemPrompt},
 		{Role: "user", Content: user},
 	}
-	// Both tools available; tool_choice=auto so the LLM
-	// decides whether to emit the pattern. Pre-stage-3 the
-	// schema offered only emit_failure_observation with
-	// tool_choice=required; that contract still holds (the
-	// LLM almost always emits at least the observation).
-	tools := []llm.ToolSchema{reflectorTool, failurePatternTool}
+	// Tool list shape:
+	//   - Always include reflectorTool (per-iteration
+	//     observation; pre-stage-3 contract).
+	//   - Include failurePatternTool ONLY when the store is
+	//     wired (patternToolOn=true). Without a destination
+	//     for the pattern, shipping the ~1KB schema wastes
+	//     tokens on a tool the system would silently drop.
+	//   - tool_choice=auto so the LLM picks; with one tool
+	//     it'll emit just the observation, matching the
+	//     pre-stage-3 dispatch shape byte-identically.
+	tools := []llm.ToolSchema{reflectorTool}
+	if r.patternToolOn {
+		tools = append(tools, failurePatternTool)
+	}
 	if ctx == nil {
 		ctx = context.Background()
 	}

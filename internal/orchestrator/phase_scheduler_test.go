@@ -276,6 +276,31 @@ func TestExpectedOutcomesForAcceptance_NilSafe(t *testing.T) {
 	}
 }
 
+// TestExtractPhaseGoalFromPrefix pins commit 40's helper used
+// by the dispatch-time keyword-boost wiring: parses the
+// "## Phase X of Y: <goal>" header back into just the goal.
+// Empty / non-matching prefixes return empty so callers can
+// degrade silently.
+func TestExtractPhaseGoalFromPrefix(t *testing.T) {
+	for _, c := range []struct {
+		in   string
+		want string
+	}{
+		{"", ""},
+		{"## Phase 2 of 3: update ORM\n\n", "update ORM"},
+		{"## Phase 1 of 5: add migration to schema\n\nRough target paths:\n- a.sql\n", "add migration to schema"},
+		{"## Phase 1 of 1: solo phase\n", "solo phase"},
+		{"## Not a phase header", ""},
+		{"## Phase no colon here", ""},
+		// Trailing whitespace / newlines stripped:
+		{"## Phase 1 of 1: x  \n", "x"},
+	} {
+		if got := extractPhaseGoalFromPrefix(c.in); got != c.want {
+			t.Errorf("extractPhaseGoalFromPrefix(%q) = %q; want %q", c.in, got, c.want)
+		}
+	}
+}
+
 // TestRunPhaseGroup_HappyPathThreePhases is the commit 30 e2e
 // pin: drive the multi-phase scheduler through three
 // non-terminal phases with a stub runTaskPhase that pre-seeds
