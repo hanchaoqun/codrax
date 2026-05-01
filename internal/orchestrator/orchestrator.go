@@ -181,6 +181,26 @@ type Orchestrator struct {
 	// flows that don't want cross-Run learning).
 	failureTaxonomyStore *FailureTaxonomyStore
 
+	// continuationClassifier is the LLM-driven decision for
+	// "is the current REPL turn a continuation of the prior
+	// conversation?" (commit 48 read-mode Gap 1). Pre-commit-48
+	// the decision lived in types.IsContinuation's hardcoded
+	// continuationPrefixes keyword list — exactly the pattern
+	// feedback_no_custom_keyword_matching.md flags as anti-
+	// pattern. Now resolved once per Run via this classifier;
+	// the result is cached on continuationClassification so
+	// per-stage priorConvVisibleForStage can read without
+	// re-dispatching the LLM. Nil = fall back to the keyword
+	// heuristic (graceful degradation; tests bypass the LLM).
+	continuationClassifier ContinuationClassifier
+
+	// continuationClassification caches the per-Run decision.
+	// Tri-state via pointer: nil = not yet computed (the
+	// keyword fallback applies), &true / &false = LLM
+	// decided. Reset at Run() entry so a stale cross-Run
+	// value never leaks.
+	continuationClassification *bool
+
 	// phaseContextPrefix is the sticky "## Phase X of Y: <goal>"
 	// header set by seedPlanningHintFromPhase at every phase
 	// entry. Distinct from PlanningHint (which is consume-once,
@@ -723,6 +743,15 @@ func (o *Orchestrator) SetPlanSaver(s PlanSaver) {
 	o.planSaver = s
 }
 
+// SetContinuationClassifier installs the LLM-driven
+// continuation classifier (commit 48 Gap 1). Wired from
+// cmd/root.go via providers.yaml :: agents.continuation_classifier.
+// Nil leaves the orchestrator on the keyword-heuristic
+// fallback path in types.IsContinuation.
+func (o *Orchestrator) SetContinuationClassifier(c ContinuationClassifier) {
+	o.continuationClassifier = c
+}
+
 // SetFailureTaxonomyStore installs the stage-3 per-repo
 // failure-pattern cache. Wired from cmd/root.go using the
 // derived repo slug + user cache dir. Nil = feature disabled
@@ -923,6 +952,7 @@ func (o *Orchestrator) Run(request string, repoRoot string, branch string) (*typ
 	// the read-mode path.
 	o.phaseContextPrefix = ""
 	o.nextPhaseHint = ""
+	o.continuationClassification = nil
 
 	// Wall-clock deadline for write-mode Runs. The timer fires at
 	// most once per Run; the AfterFunc closure cancels the token
@@ -3970,7 +4000,7 @@ func (o *Orchestrator) dispatchStage(stage types.PipelineStage) (*agent.StageOut
 	// SplitConversation keep working; this flag gates whether the
 	// prompt builder renders the user-facing Prior Conversation
 	// section. See types.AgentSettings.PriorConvPolicy for rationale.
-	priorVisible := priorConvVisibleForStage(
+	priorVisible := o.orchestratorPriorConvVisibleForStage(
 		o.settings.Agent.PriorConvPolicy, stage, agentCtx.Objective)
 	agentCtx.PriorConvHidden = !priorVisible
 	// Only log when a prior block actually exists — otherwise the

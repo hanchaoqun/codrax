@@ -1,32 +1,22 @@
 package orchestrator
 
 import (
+	"github.com/hanchaoqun/codrax/internal/logging"
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
-// priorConvVisibleForStage resolves AgentSettings.PriorConvPolicy into
-// a per-stage yes/no visibility decision. Called once per dispatch by
-// dispatchAgent after BuildAgentContext and before ag.Execute; the
-// resulting boolean is written to AgentContext.PriorConvHidden (with
-// the inverted sense, see the type doc).
-//
-// The policy values and their per-stage semantics:
-//
-//	always    — every stage sees Prior. Historical behaviour.
-//	analyzer  — only StageAnalyze sees Prior. Downstream stages work
-//	            off the AnalysisIR that the analyzer populated (which
-//	            carries any Prior-derived entity disambiguation) and
-//	            off the current-repo code, not the prior transcript.
-//	continue  — StageAnalyze always; downstream stages see Prior only
-//	            when types.IsContinuation reports the current request
-//	            is a continuation of the prior conversation.
-//	never     — no stage sees Prior. Extreme isolation.
-//
-// Unknown / empty policies fall back to "always" — the same
-// behaviour the validator in ResolvedAgentSettings would normally
-// produce, but we degrade safely here too so this helper can be
-// invoked on a partially-initialised config without panicking.
-func priorConvVisibleForStage(policy string, stage types.PipelineStage, objective string) bool {
+// orchestratorPriorConvVisibleForStage is the orchestrator-aware
+// variant of priorConvVisibleForStage (commit 48 Gap 1). It
+// consults the LLM continuation classifier (cached per-Run); when
+// the classifier is unavailable or errors, defaults to "fresh"
+// (false) — the safe direction. Pre-commit-48 there was a keyword-
+// list fallback (types.IsContinuation), but operator feedback
+// (2026-05-01) flagged that as dead code AND a red-line violation
+// (feedback_no_custom_keyword_matching.md). cmd/root.go always
+// wires the classifier from providers.yaml :: agents.continuation_classifier
+// (defaulting to default LLM), so the no-classifier path is
+// effectively unreachable in production.
+func (o *Orchestrator) orchestratorPriorConvVisibleForStage(policy string, stage types.PipelineStage, objective string) bool {
 	_, current := types.SplitConversation(objective)
 	if types.IsREPLControlInput(current) {
 		return false
@@ -41,10 +31,44 @@ func priorConvVisibleForStage(policy string, stage types.PipelineStage, objectiv
 			return true
 		}
 		prior, current := types.SplitConversation(objective)
-		return types.IsContinuation(current, prior)
+		return o.classifyContinuationCached(prior, current)
 	case types.PriorConvPolicyAlways, "":
 		fallthrough
 	default:
 		return true
 	}
+}
+
+// classifyContinuationCached resolves the LLM continuation
+// classification once per Run. Cached on o.continuationClassification;
+// the first PolicyContinue invocation under a non-analyze stage
+// computes the call, subsequent stages read the cached pointer
+// (pointer-tri-state: nil pre-decision, &true / &false post-).
+// All failure paths (no classifier, chat error, no tool call,
+// unparseable JSON) default to false — pre-commit-48 they fell
+// back to the keyword heuristic, which has been removed.
+func (o *Orchestrator) classifyContinuationCached(prior, current string) bool {
+	if o == nil {
+		return false
+	}
+	if o.continuationClassification != nil {
+		return *o.continuationClassification
+	}
+	if o.continuationClassifier == nil {
+		// No classifier wired (test fixture / placeholder
+		// adapter). Default to fresh — safest direction.
+		f := false
+		o.continuationClassification = &f
+		return false
+	}
+	ctx := o.CancelContext()
+	got, err := o.continuationClassifier.Classify(ctx, current, prior)
+	if err != nil {
+		logging.Debug("[continuation_classifier] errored, defaulting to fresh: %v", err)
+		f := false
+		o.continuationClassification = &f
+		return false
+	}
+	o.continuationClassification = &got
+	return got
 }

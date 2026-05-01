@@ -2285,6 +2285,23 @@ func initApp(cmd *cobra.Command, _ []string) error {
 		orch.SetAcceptanceChecker(orchestrator.NewAcceptanceChecker(app.acceptanceCheckerLLM))
 	}
 
+	// Continuation classifier (commit 48 read-mode Gap 1).
+	// Replaces the keyword-table heuristic in
+	// types.IsContinuation when configured. Routed via
+	// providers.yaml :: agents.continuation_classifier;
+	// recommended cheap-model routing (the call is bounded —
+	// one prior + one current line; sub-100-token LLM round-
+	// trip per Run). Falls back to keyword heuristic when the
+	// adapter is missing.
+	{
+		resolved := config.ResolveProvider(providersCfg, "continuation_classifier")
+		if adapter, err := llm.NewFromConfig(resolved); err == nil {
+			orch.SetContinuationClassifier(orchestrator.NewContinuationClassifier(adapter))
+		} else {
+			logging.Debug("[continuation_classifier] adapter init failed; staying on keyword heuristic: %v", err)
+		}
+	}
+
 	if planCriticEnabled && app.planCriticLLM != nil {
 		orch.SetPlanCritic(orchestrator.NewPlanCritic(app.planCriticLLM))
 		// Surface the model so operators see "extra Opus call per
