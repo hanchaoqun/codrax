@@ -1876,6 +1876,227 @@ func TestEmitEvidence_ResetEmittedEvidence(t *testing.T) {
 	}
 }
 
+// TestEmitEvidence_AcceptsExplicitLineScope pins the 2026-05+ scope
+// migration: when the LLM explicitly sets scope=line on a line-shaped
+// emit, the tool accepts it without redirect. The transitional
+// default-to-ScopeLine fallback covers tests that omit the field;
+// this test confirms the explicit path works the same.
+func TestEmitEvidence_AcceptsExplicitLineScope(t *testing.T) {
+	tool := &EmitEvidence{}
+	ctx := newEmitCtx()
+	params := json.RawMessage(`{
+        "items": [
+          {"scope": "line", "kind": "direct", "subject": "isOK", "source": "internal/agent/foo.go", "line_start": 30, "summary": "isOK returns true", "anchor_kind": "definition", "anchor_symbol": "isOK"}
+        ]
+    }`)
+	res, err := tool.Execute(ctx, params)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("expected success, got: %s", res.Summary)
+	}
+	emitted := ctx.Mutable.EmittedEvidence()
+	if len(emitted) != 1 {
+		t.Fatalf("expected 1 emitted item, got %d", len(emitted))
+	}
+	if emitted[0].Scope != types.ScopeLine {
+		t.Errorf("Scope = %q, want %q", emitted[0].Scope, types.ScopeLine)
+	}
+}
+
+// TestEmitEvidence_RejectsInvalidScopeValue confirms the schema
+// validator rejects unknown scope values with a useful error.
+func TestEmitEvidence_RejectsInvalidScopeValue(t *testing.T) {
+	tool := &EmitEvidence{}
+	ctx := newEmitCtx()
+	params := json.RawMessage(`{
+        "items": [
+          {"scope": "wrong_scope", "kind": "direct", "source": "a.go", "line_start": 1, "anchor_kind": "definition", "anchor_symbol": "X"}
+        ]
+    }`)
+	res, _ := tool.Execute(ctx, params)
+	if res.Success {
+		t.Fatal("expected rejection on invalid scope value")
+	}
+	if !strings.Contains(res.Summary, "scope") {
+		t.Errorf("rejection should mention scope; got: %s", res.Summary)
+	}
+}
+
+// TestEmitEvidence_AcceptsScopeFile pins File-scope emission. No
+// line_start required; FileRoleLabel mandatory.
+func TestEmitEvidence_AcceptsScopeFile(t *testing.T) {
+	tool := &EmitEvidence{}
+	ctx := newEmitCtx()
+	params := json.RawMessage(`{
+        "items": [
+          {"scope": "file", "kind": "direct", "source": "codrax.yaml", "file_role_label": "config_canonical", "summary": "codrax.yaml is the canonical config layer"}
+        ]
+    }`)
+	res, err := tool.Execute(ctx, params)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("expected success, got: %s", res.Summary)
+	}
+	emitted := ctx.Mutable.EmittedEvidence()
+	if len(emitted) != 1 || emitted[0].Scope != types.ScopeFile {
+		t.Fatalf("expected 1 ScopeFile item; got %+v", emitted)
+	}
+	if emitted[0].FileRoleLabel != types.FileRoleConfigCanonical {
+		t.Errorf("FileRoleLabel = %q, want %q", emitted[0].FileRoleLabel, types.FileRoleConfigCanonical)
+	}
+	if emitted[0].LineStart != 0 {
+		t.Errorf("ScopeFile must keep LineStart=0; got %d", emitted[0].LineStart)
+	}
+}
+
+// TestEmitEvidence_AcceptsScopeNegative pins Negative-scope emission.
+// Requires kind=absent + NegativeQuery + NegativeScope.
+func TestEmitEvidence_AcceptsScopeNegative(t *testing.T) {
+	tool := &EmitEvidence{}
+	ctx := newEmitCtx()
+	params := json.RawMessage(`{
+        "items": [
+          {"scope": "negative", "kind": "absent", "source": "codrax.yaml", "negative_query": {"file": "codrax.yaml", "pattern": "explore_mid_loop_hint_budget"}, "negative_scope": "file", "summary": "key not in codrax.yaml"}
+        ]
+    }`)
+	res, err := tool.Execute(ctx, params)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("expected success, got: %s", res.Summary)
+	}
+	emitted := ctx.Mutable.EmittedEvidence()
+	if len(emitted) != 1 || emitted[0].Scope != types.ScopeNegative {
+		t.Fatalf("expected 1 ScopeNegative item; got %+v", emitted)
+	}
+	if emitted[0].Kind != types.EvidenceAbsent {
+		t.Errorf("Kind = %q, want %q", emitted[0].Kind, types.EvidenceAbsent)
+	}
+	if emitted[0].NegativeQuery == nil || emitted[0].NegativeQuery.Pattern != "explore_mid_loop_hint_budget" {
+		t.Errorf("NegativeQuery missing or wrong pattern: %+v", emitted[0].NegativeQuery)
+	}
+}
+
+// TestEmitEvidence_AcceptsScopeCrossfile pins Crossfile-scope.
+// Requires CrossfileQuery (files+pattern) and CrossfileAssertion.
+func TestEmitEvidence_AcceptsScopeCrossfile(t *testing.T) {
+	tool := &EmitEvidence{}
+	ctx := newEmitCtx()
+	params := json.RawMessage(`{
+        "items": [
+          {"scope": "crossfile", "kind": "direct",
+           "crossfile_query": {"files": ["cmd/root.go"], "pattern": "flag\\..*Explore"},
+           "crossfile_assertion": {"kind": "forbidden"},
+           "summary": "no CLI flag for explore_*"}
+        ]
+    }`)
+	res, err := tool.Execute(ctx, params)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("expected success, got: %s", res.Summary)
+	}
+	emitted := ctx.Mutable.EmittedEvidence()
+	if len(emitted) != 1 || emitted[0].Scope != types.ScopeCrossfile {
+		t.Fatalf("expected 1 ScopeCrossfile item; got %+v", emitted)
+	}
+	if emitted[0].CrossfileQuery == nil || emitted[0].CrossfileAssertion == nil {
+		t.Errorf("CrossfileQuery / Assertion missing on emitted item")
+	}
+}
+
+// TestEmitEvidence_AcceptsScopeSection pins Section-scope. Requires
+// SectionPath; LineStart/End optional.
+func TestEmitEvidence_AcceptsScopeSection(t *testing.T) {
+	tool := &EmitEvidence{}
+	ctx := newEmitCtx()
+	params := json.RawMessage(`{
+        "items": [
+          {"scope": "section", "kind": "direct", "source": "codrax.yaml", "section_path": "explore_*", "summary": "explore_* group"}
+        ]
+    }`)
+	res, err := tool.Execute(ctx, params)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("expected success, got: %s", res.Summary)
+	}
+	emitted := ctx.Mutable.EmittedEvidence()
+	if len(emitted) != 1 || emitted[0].Scope != types.ScopeSection {
+		t.Fatalf("expected 1 ScopeSection item; got %+v", emitted)
+	}
+	if emitted[0].SectionPath != "explore_*" {
+		t.Errorf("SectionPath = %q, want %q", emitted[0].SectionPath, "explore_*")
+	}
+}
+
+// TestEmitEvidence_AcceptsScopeLineRange pins LineRange. Requires
+// line_end > line_start.
+func TestEmitEvidence_AcceptsScopeLineRange(t *testing.T) {
+	tool := &EmitEvidence{}
+	ctx := newEmitCtx()
+	params := json.RawMessage(`{
+        "items": [
+          {"scope": "line_range", "kind": "direct", "source": "a.go", "line_start": 10, "line_end": 50, "summary": "struct definition block"}
+        ]
+    }`)
+	res, err := tool.Execute(ctx, params)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("expected success, got: %s", res.Summary)
+	}
+	emitted := ctx.Mutable.EmittedEvidence()
+	if len(emitted) != 1 || emitted[0].Scope != types.ScopeLineRange {
+		t.Fatalf("expected 1 ScopeLineRange item; got %+v", emitted)
+	}
+	if emitted[0].LineEnd != 50 {
+		t.Errorf("LineEnd = %d, want 50", emitted[0].LineEnd)
+	}
+}
+
+// TestEmitEvidence_RejectsScopeMissingRequiredField confirms per-scope
+// required fields are enforced.
+func TestEmitEvidence_RejectsScopeMissingRequiredField(t *testing.T) {
+	tool := &EmitEvidence{}
+	cases := []struct {
+		name   string
+		json   string
+		hint   string
+	}{
+		{"file scope missing role label", `{"items": [{"scope": "file", "kind": "direct", "source": "a.yaml"}]}`, "file_role_label"},
+		{"section scope missing path", `{"items": [{"scope": "section", "kind": "direct", "source": "a.go"}]}`, "section_path"},
+		{"crossfile missing query", `{"items": [{"scope": "crossfile", "kind": "direct"}]}`, "crossfile_query"},
+		{"negative missing query", `{"items": [{"scope": "negative", "kind": "absent", "source": "a.yaml", "negative_scope": "file"}]}`, "negative_query"},
+		// LineRange with line_end == line_start is degenerate (single
+		// line, should use ScopeLine). The auto-swap heuristic fixes
+		// `5,10` → `5,10`. This case uses identical values to confirm
+		// strict line_range > line_start invariant rejects degenerate.
+		{"line_range needs line_end > line_start", `{"items": [{"scope": "line_range", "kind": "direct", "source": "a.go", "line_start": 10, "line_end": 10, "anchor_kind": "definition", "anchor_symbol": "X"}]}`, "line_end"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			ctx := newEmitCtx()
+			res, _ := tool.Execute(ctx, json.RawMessage(c.json))
+			if res.Success {
+				t.Errorf("expected rejection for case %q; res.Summary=%q", c.name, res.Summary)
+				return
+			}
+			if !strings.Contains(strings.ToLower(res.Summary), c.hint) {
+				t.Errorf("rejection should mention %q; got: %s", c.hint, res.Summary)
+			}
+		})
+	}
+}
+
 func TestEmitEvidence_ToolSurface(t *testing.T) {
 	tool := &EmitEvidence{}
 	if tool.Name() != "emit_evidence" {

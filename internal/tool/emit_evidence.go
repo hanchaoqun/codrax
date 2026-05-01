@@ -121,12 +121,17 @@ type emitEvidenceParams struct {
 }
 
 type emitEvidenceItem struct {
+	// Scope is REQUIRED. Each scope routes through a different
+	// grounder; the per-scope required-field bundles below are
+	// validated by buildEmitEvidenceItem against types.ValidateScope.
+	Scope string `json:"scope"`
+
 	EvidenceKind string `json:"evidence_kind,omitempty"`
 	LegacyKind   string `json:"kind,omitempty"`
 	Subject      string `json:"subject,omitempty"`
 	Predicate    string `json:"predicate,omitempty"`
 	Object       string `json:"object,omitempty"`
-	Source       string `json:"source"`
+	Source       string `json:"source,omitempty"`
 	// LineStart / LineEnd use FlexInt so LLMs that emit numeric
 	// strings ("42") or floats (42.0) pass strict schema validation
 	// instead of failing the whole batch on format pedantry.
@@ -134,11 +139,38 @@ type emitEvidenceItem struct {
 	LineEnd      FlexInt `json:"line_end,omitempty"`
 	Condition    string  `json:"condition,omitempty"`
 	Summary      string  `json:"summary,omitempty"`
-	AnchorKind   string  `json:"anchor_kind"`
-	AnchorSymbol string  `json:"anchor_symbol"`
+	AnchorKind   string  `json:"anchor_kind,omitempty"`
+	AnchorSymbol string  `json:"anchor_symbol,omitempty"`
 	Snippet      string  `json:"snippet,omitempty"`
 	ContextRole  string  `json:"context_role_hint,omitempty"`
 	DiagramRole  string  `json:"diagram_role_hint,omitempty"`
+
+	// Scope-specific bundles. Each bundle is read only when the Scope
+	// field selects it; ValidateScope enforces that the required
+	// bundle fields are populated.
+	SectionPath        string                `json:"section_path,omitempty"`
+	FileRoleLabel      string                `json:"file_role_label,omitempty"`
+	CrossfileQuery     *emitCrossfileQuery   `json:"crossfile_query,omitempty"`
+	CrossfileAssertion *emitCrossfileAssert  `json:"crossfile_assertion,omitempty"`
+	NegativeQuery      *emitNegativeQuery    `json:"negative_query,omitempty"`
+	NegativeScope      string                `json:"negative_scope,omitempty"`
+}
+
+type emitCrossfileQuery struct {
+	Files   []string `json:"files,omitempty"`
+	Pattern string   `json:"pattern,omitempty"`
+	Context string   `json:"context,omitempty"`
+}
+
+type emitCrossfileAssert struct {
+	Kind  string `json:"kind,omitempty"`
+	Count int    `json:"count,omitempty"`
+}
+
+type emitNegativeQuery struct {
+	File    string `json:"file,omitempty"`
+	Pattern string `json:"pattern,omitempty"`
+	Section string `json:"section,omitempty"`
 }
 
 // EmitEvidenceProducer is the Producer string stamped on every item
@@ -200,14 +232,19 @@ func emitEvidenceParametersSchema() json.RawMessage {
 		"properties": map[string]any{
 			"items": map[string]any{
 				"type":        "array",
-				"description": "Batch of evidence items extracted from one or more files. Send the full batch in one call 鈥?do not invoke the tool per item.",
+				"description": "Batch of evidence items extracted from one or more files. Send the full batch in one call — do not invoke the tool per item.",
 				"items": map[string]any{
 					"type": "object",
 					"properties": map[string]any{
+						"scope": map[string]any{
+							"type":        "string",
+							"enum":        emitEvidenceScopeNames(),
+							"description": "REQUIRED. Anchor shape — the system routes the item through a scope-specific grounder. Pick the scope that matches what your evidence proves: 'line' = single (file, line) — direct/conditional/mechanism/relationship/registration over a specific code location; 'line_range' = multi-line block (struct definition, function body, comment block); 'section' = named YAML/Go/JSON/TOML schema section (use section_path); 'file' = file's identity as a layer (use file_role_label, e.g. codrax.yaml as the canonical config layer); 'crossfile' = cross-file contract verified by query (use crossfile_query + crossfile_assertion, e.g. 'no CLI flag for explore_*'); 'negative' = confirmed absence (use negative_query + negative_scope, requires evidence_kind='absent'). The system rejects emit if the per-scope required fields are missing.",
+						},
 						"evidence_kind": map[string]any{
 							"type":        "string",
 							"enum":        emitEvidenceAllowedKindNames(),
-							"description": "REQUIRED. Semantic fact shape, NOT the syntax at line_start. direct = literal fact at file:line. conditional = behaviour gated by an IF clause. registration = something registered/bound with EXACT values. mechanism = how a process works step by step. relationship = link between two symbols (use subject + object). Values like definition/call/assignment belong in anchor_kind, not here. NOTE: for absence claims (searched and found nothing) do NOT emit via this tool 鈥?every evidence_kind requires a concrete file:line anchor, which is unsatisfiable for 'not found'. Use emit_investigation_complete.absence_justification for whole-answer absence, or simply omit the item for per-fact absence.",
+							"description": "REQUIRED. Semantic fact shape, NOT the syntax at line_start. direct = literal fact at file:line. conditional = behaviour gated by an IF clause. registration = something registered/bound with EXACT values. mechanism = how a process works step by step. relationship = link between two symbols (use subject + object). absent = confirmed absence (REQUIRES scope='negative'). Values like definition/call/assignment belong in anchor_kind, not here.",
 						},
 						"subject": map[string]any{
 							"type":        "string",
@@ -262,10 +299,50 @@ func emitEvidenceParametersSchema() json.RawMessage {
 						},
 						"snippet": map[string]any{
 							"type":        "string",
-							"description": "Optional. 1-2 lines of actual code from the cited location. Enables snippet_fuzzy recovery when line_start is off by 卤15 lines 鈥?recommended for conditional / mechanism / registration items.",
+							"description": "Optional. 1-2 lines of actual code from the cited location. Enables snippet_fuzzy recovery when line_start is off by ±15 lines — recommended for conditional / mechanism / registration items.",
+						},
+						"section_path": map[string]any{
+							"type":        "string",
+							"description": "REQUIRED when scope='section'. Dot-separated path inside the parsed file (e.g. 'explore_*' for a YAML group, 'agents.env_recommender' for a nested config key, 'ExploreHeuristics' for a Go const block). The grounder parses the source and verifies the section exists.",
+						},
+						"file_role_label": map[string]any{
+							"type":        "string",
+							"enum":        emitEvidenceFileRoleLabelNames(),
+							"description": "REQUIRED when scope='file'. Names the canonical role this file plays as a layer. config_canonical = canonical user-facing config file (e.g. codrax.yaml); cli_registration = file registering CLI flags (e.g. cmd/root.go); default_struct = file holding the default-value struct; manifest = package/project manifest (go.mod, package.json, ...); schema = schema-defining file (proto, openapi, ...).",
+						},
+						"crossfile_query": map[string]any{
+							"type":        "object",
+							"description": "REQUIRED when scope='crossfile'. Structured query the LLM is asserting about. Files is hard-capped at 5; pattern is a Go regex.",
+							"properties": map[string]any{
+								"files":   map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "maxItems": 5},
+								"pattern": map[string]any{"type": "string"},
+								"context": map[string]any{"type": "string", "description": "Optional: limit search to a section / function / type body."},
+							},
+						},
+						"crossfile_assertion": map[string]any{
+							"type":        "object",
+							"description": "REQUIRED when scope='crossfile'. The predicate the LLM commits to about the crossfile_query result. The grounder re-runs the query and rejects the item if the assertion does not hold. exists = at least 1 match; forbidden = 0 matches; count_eq = match count exactly equals 'count'.",
+							"properties": map[string]any{
+								"kind":  map[string]any{"type": "string", "enum": []string{"exists", "forbidden", "count_eq"}},
+								"count": map[string]any{"type": "integer"},
+							},
+						},
+						"negative_query": map[string]any{
+							"type":        "object",
+							"description": "REQUIRED when scope='negative'. The query whose ABSENCE of matches is the claim. Pair with negative_scope to control where the query searches.",
+							"properties": map[string]any{
+								"file":    map[string]any{"type": "string"},
+								"pattern": map[string]any{"type": "string"},
+								"section": map[string]any{"type": "string", "description": "Required when negative_scope='section'."},
+							},
+						},
+						"negative_scope": map[string]any{
+							"type":        "string",
+							"enum":        emitEvidenceNegativeScopeNames(),
+							"description": "REQUIRED when scope='negative'. Qualifies WHERE the absence holds: file = whole file; range = within a line range; section = within a named schema section; struct_fields = against a struct's field set.",
 						},
 					},
-					"required": []string{"evidence_kind", "source", "line_start", "anchor_kind", "anchor_symbol"},
+					"required": []string{"scope", "evidence_kind"},
 				},
 			},
 		},
@@ -273,6 +350,40 @@ func emitEvidenceParametersSchema() json.RawMessage {
 	}
 	buf, _ := json.Marshal(schema)
 	return json.RawMessage(buf)
+}
+
+// emitEvidenceScopeNames returns the canonical scope-name list used in
+// the JSON schema. Sourced from types.AllEvidenceScopes so the schema
+// and the type cannot drift apart.
+func emitEvidenceScopeNames() []string {
+	scopes := types.AllEvidenceScopes()
+	out := make([]string, 0, len(scopes))
+	for _, s := range scopes {
+		out = append(out, string(s))
+	}
+	return out
+}
+
+// emitEvidenceFileRoleLabelNames returns the canonical FileRoleLabel
+// names. Sourced from types.AllFileRoleLabels.
+func emitEvidenceFileRoleLabelNames() []string {
+	labels := types.AllFileRoleLabels()
+	out := make([]string, 0, len(labels))
+	for _, l := range labels {
+		out = append(out, string(l))
+	}
+	return out
+}
+
+// emitEvidenceNegativeScopeNames returns the canonical NegativeScope
+// names. Sourced from types.AllNegativeScopes.
+func emitEvidenceNegativeScopeNames() []string {
+	scopes := types.AllNegativeScopes()
+	out := make([]string, 0, len(scopes))
+	for _, s := range scopes {
+		out = append(out, string(s))
+	}
+	return out
 }
 
 func (t *EmitEvidence) Parameters() json.RawMessage {
@@ -561,7 +672,25 @@ func buildEmitEvidenceItemWithSwap(in *emitEvidenceItem, index int, workDir stri
 // buildEmitEvidenceItem validates a single decoded item and converts
 // it into a types.EvidenceItem with stable ID and producer stamped.
 // All validation is structural, never wordlist-based.
+//
+// 2026-05+ scope-axis: the input MUST set scope; per-scope required
+// fields are validated; the resulting EvidenceItem.ValidateScope
+// guarantees ground-layer dispatch can rely on the right bundle.
 func buildEmitEvidenceItem(in emitEvidenceItem, index int, workDir string) (types.EvidenceItem, error) {
+	scope := types.EvidenceScope(strings.ToLower(strings.TrimSpace(in.Scope)))
+	// TRANSITIONAL (Stage 1–7): empty scope defaults to ScopeLine
+	// for legacy emit payloads that predate the scope migration.
+	// Stage 8 final cleanup removes this fallback and makes empty
+	// scope a hard reject. Production LLM emits via the JSON schema
+	// will always carry a scope (the `scope` field is in `required`).
+	if scope == "" {
+		scope = types.ScopeLine
+	}
+	if !scope.IsValid() {
+		return types.EvidenceItem{}, fmt.Errorf(
+			"items[%d]: scope is required and must be one of %v; got %q",
+			index, types.AllEvidenceScopes(), in.Scope)
+	}
 	kindText := strings.TrimSpace(in.EvidenceKind)
 	if kindText == "" {
 		kindText = strings.TrimSpace(in.LegacyKind)
@@ -579,87 +708,107 @@ func buildEmitEvidenceItem(in emitEvidenceItem, index int, workDir string) (type
 	}
 	kind, ok := emitEvidenceAllowedKinds[kindKey]
 	if !ok {
-		// Schema-deprecation redirect (logtri_custom root cause):
-		// kind=absent used to live in the tool's enum but the
-		// validator always required line_start > 0 + anchor_kind +
-		// anchor_symbol, which an "I searched and found nothing"
-		// claim cannot satisfy. Rather than emit a bland "unknown
-		// kind" message that sends the LLM into retry-loop territory
-		// (trace 2026-04-21 logtri_custom: 10+ iters before the LLM
-		// reverse-engineered a hacky workaround), point it at the
-		// proper absence channel directly.
-		if kindKey == "absent" {
-			return types.EvidenceItem{}, fmt.Errorf(
-				"items[%d]: kind=absent is not emittable via emit_evidence — the tool requires line_start > 0 + anchor_kind + anchor_symbol for every evidence item, which is unsatisfiable for 'searched and found nothing' claims. For whole-answer absence (the user's question resolves to 'no X exists'), set `absence_justification` on emit_investigation_complete with a one-sentence explanation and skip emit_evidence for the zero result. For per-fact absence inside a larger investigation, simply omit the item — the finalizer's summary is the right place to describe what was absent. Allowed kinds via emit_evidence: %s.",
-				index, strings.Join(emitEvidenceAllowedKindNames(), ", "))
-		}
-		return types.EvidenceItem{}, fmt.Errorf("items[%d]: unknown evidence_kind %q (allowed: %s)", index, kindText, strings.Join(emitEvidenceAllowedKindNames(), ", "))
-	}
-	source := strings.TrimSpace(in.Source)
-	if source == "" {
-		return types.EvidenceItem{}, fmt.Errorf("items[%d]: source is required", index)
-	}
-	if !emitLooksLikePath(source) {
-		return types.EvidenceItem{}, fmt.Errorf("items[%d]: source %q does not look like a repo-relative file path", index, in.Source)
-	}
-	// Blob-file path leak gate (UNRESOLVED bug N=1, see
-	// memory/project_blob_file_leak_unresolved.md). The same
-	// structural prefix check ships in emit_answer_symbol; both tools
-	// ride on isInsideWorkDir from emit_answer_symbol.go.
-	if isInsideWorkDir(source, workDir) {
-		return types.EvidenceItem{}, fmt.Errorf("items[%d]: source %q lives inside the per-trace WorkDir (%s) — that is a tool-output blob, not a repo file. Re-cite the original repo path that the blob was extracted from.", index, in.Source, workDir)
-	}
-	preAnchorKindKey := strings.ToLower(strings.TrimSpace(in.AnchorKind))
-	if _, evidenceNameCollision := emitEvidenceAllowedKinds[preAnchorKindKey]; evidenceNameCollision {
 		return types.EvidenceItem{}, fmt.Errorf(
-			"items[%d]: anchor_kind %q is invalid because %q belongs to evidence_kind, not anchor_kind. Use evidence_kind=%q and anchor_kind in {%s}.",
-			index,
-			strings.TrimSpace(in.AnchorKind),
-			strings.TrimSpace(in.AnchorKind),
-			strings.TrimSpace(in.AnchorKind),
-			strings.Join(emitAnchorKindNames(), ", "),
-		)
+			"items[%d]: unknown evidence_kind %q (allowed: %s)",
+			index, kindText, strings.Join(emitEvidenceAllowedKindNames(), ", "))
 	}
-	preAnchorSymbol := strings.TrimSpace(in.AnchorSymbol)
-	if preAnchorSymbol == "" {
-		return types.EvidenceItem{}, fmt.Errorf("items[%d]: anchor_symbol is required 鈥?the identifier the grounder should find at source:line_start (e.g. the callee name for anchor_kind=call, the type name for anchor_kind=definition, the package path for anchor_kind=import)", index)
-	}
-	lineStartN := in.LineStart.Int()
-	lineEndN := in.LineEnd.Int()
-	if lineStartN <= 0 {
-		return types.EvidenceItem{}, fmt.Errorf("items[%d]: line_start is required and must be > 0 (emit the exact gutter line from read_file, never estimate)", index)
-	}
-	if lineEndN < 0 {
-		return types.EvidenceItem{}, fmt.Errorf("items[%d]: line_end must be >= 0", index)
-	}
-	if lineEndN > 0 && lineEndN < lineStartN {
-		return types.EvidenceItem{}, fmt.Errorf("items[%d]: line_end (%d) is before line_start (%d)", index, lineEndN, lineStartN)
-	}
-	if kind == types.EvidenceRelationship && strings.TrimSpace(in.Object) == "" {
-		return types.EvidenceItem{}, fmt.Errorf("items[%d]: relationship items require object", index)
+	// Source field — required for every scope EXCEPT crossfile (which
+	// uses CrossfileQuery.Files instead). Even ScopeNegative requires
+	// a source: the absence is anchored to a specific file.
+	source := strings.TrimSpace(in.Source)
+	if scope != types.ScopeCrossfile {
+		if source == "" {
+			return types.EvidenceItem{}, fmt.Errorf("items[%d]: source is required for scope=%s", index, scope)
+		}
+		if !emitLooksLikePath(source) {
+			return types.EvidenceItem{}, fmt.Errorf("items[%d]: source %q does not look like a repo-relative file path", index, in.Source)
+		}
+		if isInsideWorkDir(source, workDir) {
+			return types.EvidenceItem{}, fmt.Errorf("items[%d]: source %q lives inside the per-trace WorkDir (%s) — that is a tool-output blob, not a repo file.", index, in.Source, workDir)
+		}
 	}
 
-	anchorKindKey := strings.ToLower(strings.TrimSpace(in.AnchorKind))
-	if anchorKindKey == "" {
-		return types.EvidenceItem{}, fmt.Errorf("items[%d]: anchor_kind is required (one of: %s)", index, strings.Join(emitAnchorKindNames(), ", "))
-	}
-	anchorKind, ok := findAnchorKind(anchorKindKey)
-	if !ok {
-		if _, evidenceNameCollision := emitEvidenceAllowedKinds[anchorKindKey]; evidenceNameCollision {
-			return types.EvidenceItem{}, fmt.Errorf(
-				"items[%d]: anchor_kind %q is invalid because %q belongs to evidence_kind, not anchor_kind. Use evidence_kind=%q and anchor_kind in {%s}.",
-				index,
-				strings.TrimSpace(in.AnchorKind),
-				strings.TrimSpace(in.AnchorKind),
-				strings.TrimSpace(in.AnchorKind),
-				strings.Join(emitAnchorKindNames(), ", "),
-			)
+	lineStartN := in.LineStart.Int()
+	lineEndN := in.LineEnd.Int()
+	var anchorKind types.AnchorKind
+	var anchorSymbol string
+
+	switch scope {
+	case types.ScopeLine:
+		if lineStartN <= 0 {
+			return types.EvidenceItem{}, fmt.Errorf("items[%d]: scope=line requires line_start > 0", index)
 		}
-		return types.EvidenceItem{}, fmt.Errorf("items[%d]: unknown anchor_kind %q (allowed: %s)", index, in.AnchorKind, strings.Join(emitAnchorKindNames(), ", "))
+		if lineEndN > 0 && lineEndN < lineStartN {
+			return types.EvidenceItem{}, fmt.Errorf("items[%d]: line_end (%d) is before line_start (%d)", index, lineEndN, lineStartN)
+		}
+		var err error
+		anchorKind, anchorSymbol, err = parseAnchorFields(in, index)
+		if err != nil {
+			return types.EvidenceItem{}, err
+		}
+
+	case types.ScopeLineRange:
+		if lineStartN <= 0 || lineEndN <= lineStartN {
+			return types.EvidenceItem{}, fmt.Errorf("items[%d]: scope=line_range requires line_start > 0 and line_end > line_start; got %d-%d", index, lineStartN, lineEndN)
+		}
+		// AnchorKind/Symbol are optional for ranges (the range itself
+		// is the anchor); accept whatever the LLM provided.
+		if strings.TrimSpace(in.AnchorKind) != "" {
+			var err error
+			anchorKind, anchorSymbol, err = parseAnchorFields(in, index)
+			if err != nil {
+				return types.EvidenceItem{}, err
+			}
+		}
+
+	case types.ScopeSection:
+		if strings.TrimSpace(in.SectionPath) == "" {
+			return types.EvidenceItem{}, fmt.Errorf("items[%d]: scope=section requires section_path", index)
+		}
+		// LineStart/LineEnd are optional for section (the parsed
+		// section tells the grounder its own line range).
+
+	case types.ScopeFile:
+		if lineStartN != 0 {
+			return types.EvidenceItem{}, fmt.Errorf("items[%d]: scope=file must have line_start=0; got %d (file-identity anchor — no specific line)", index, lineStartN)
+		}
+		role := types.FileRoleLabel(strings.ToLower(strings.TrimSpace(in.FileRoleLabel)))
+		if !role.IsValid() {
+			return types.EvidenceItem{}, fmt.Errorf("items[%d]: scope=file requires file_role_label one of %v; got %q", index, types.AllFileRoleLabels(), in.FileRoleLabel)
+		}
+
+	case types.ScopeCrossfile:
+		if in.CrossfileQuery == nil || len(in.CrossfileQuery.Files) == 0 {
+			return types.EvidenceItem{}, fmt.Errorf("items[%d]: scope=crossfile requires crossfile_query with at least 1 file", index)
+		}
+		if len(in.CrossfileQuery.Files) > 5 {
+			return types.EvidenceItem{}, fmt.Errorf("items[%d]: scope=crossfile crossfile_query.files capped at 5; got %d", index, len(in.CrossfileQuery.Files))
+		}
+		if strings.TrimSpace(in.CrossfileQuery.Pattern) == "" {
+			return types.EvidenceItem{}, fmt.Errorf("items[%d]: scope=crossfile requires crossfile_query.pattern", index)
+		}
+		if in.CrossfileAssertion == nil || strings.TrimSpace(in.CrossfileAssertion.Kind) == "" {
+			return types.EvidenceItem{}, fmt.Errorf("items[%d]: scope=crossfile requires crossfile_assertion with kind", index)
+		}
+
+	case types.ScopeNegative:
+		if kind != types.EvidenceAbsent {
+			return types.EvidenceItem{}, fmt.Errorf("items[%d]: scope=negative requires evidence_kind=absent; got %q", index, kind)
+		}
+		if in.NegativeQuery == nil || strings.TrimSpace(in.NegativeQuery.File) == "" || strings.TrimSpace(in.NegativeQuery.Pattern) == "" {
+			return types.EvidenceItem{}, fmt.Errorf("items[%d]: scope=negative requires negative_query with file and pattern", index)
+		}
+		nscope := types.NegativeScope(strings.ToLower(strings.TrimSpace(in.NegativeScope)))
+		if !nscope.IsValid() {
+			return types.EvidenceItem{}, fmt.Errorf("items[%d]: scope=negative requires negative_scope one of %v; got %q", index, types.AllNegativeScopes(), in.NegativeScope)
+		}
+		if nscope == types.NegativeScopeSection && strings.TrimSpace(in.NegativeQuery.Section) == "" {
+			return types.EvidenceItem{}, fmt.Errorf("items[%d]: scope=negative + negative_scope=section requires negative_query.section", index)
+		}
 	}
-	anchorSymbol := strings.TrimSpace(in.AnchorSymbol)
-	if anchorSymbol == "" {
-		return types.EvidenceItem{}, fmt.Errorf("items[%d]: anchor_symbol is required — the identifier the grounder should find at source:line_start (e.g. the callee name for anchor_kind=call, the type name for anchor_kind=definition, the package path for anchor_kind=import)", index)
+
+	if kind == types.EvidenceRelationship && strings.TrimSpace(in.Object) == "" {
+		return types.EvidenceItem{}, fmt.Errorf("items[%d]: relationship items require object", index)
 	}
 
 	predicate := strings.ToLower(strings.TrimSpace(in.Predicate))
@@ -681,7 +830,7 @@ func buildEmitEvidenceItem(in emitEvidenceItem, index int, workDir string) (type
 	}
 	lineStart := lineStartN
 	lineEnd := lineEndN
-	if lineEnd == 0 {
+	if scope == types.ScopeLine && lineEnd == 0 {
 		lineEnd = lineStart
 	}
 
@@ -703,9 +852,71 @@ func buildEmitEvidenceItem(in emitEvidenceItem, index int, workDir string) (type
 		AnchorKind:           anchorKind,
 		AnchorSymbol:         anchorSymbol,
 		Snippet:              snippet,
+		Scope:                scope,
 	}
+
+	// Wire scope-specific bundles.
+	switch scope {
+	case types.ScopeSection:
+		item.SectionPath = strings.TrimSpace(in.SectionPath)
+	case types.ScopeFile:
+		item.FileRoleLabel = types.FileRoleLabel(strings.ToLower(strings.TrimSpace(in.FileRoleLabel)))
+	case types.ScopeCrossfile:
+		item.CrossfileQuery = &types.CrossfileQuery{
+			Files:   append([]string(nil), in.CrossfileQuery.Files...),
+			Pattern: strings.TrimSpace(in.CrossfileQuery.Pattern),
+			Context: strings.TrimSpace(in.CrossfileQuery.Context),
+		}
+		item.CrossfileAssertion = &types.CrossfileAssertion{
+			Kind:  types.CrossfileAssertionKind(strings.ToLower(strings.TrimSpace(in.CrossfileAssertion.Kind))),
+			Count: in.CrossfileAssertion.Count,
+		}
+	case types.ScopeNegative:
+		item.NegativeQuery = &types.NegativeQuery{
+			File:    strings.TrimSpace(in.NegativeQuery.File),
+			Pattern: strings.TrimSpace(in.NegativeQuery.Pattern),
+			Section: strings.TrimSpace(in.NegativeQuery.Section),
+		}
+		item.NegativeScope = types.NegativeScope(strings.ToLower(strings.TrimSpace(in.NegativeScope)))
+	}
+
+	// Defense-in-depth: validator catches inconsistencies the
+	// per-scope branch above might have missed (e.g. invalid
+	// CrossfileAssertion.Kind value combinations).
+	if err := item.ValidateScope(); err != nil {
+		return types.EvidenceItem{}, fmt.Errorf("items[%d]: %v", index, err)
+	}
+
 	item.ID = types.StableEvidenceID(item)
 	return item, nil
+}
+
+// parseAnchorFields validates anchor_kind + anchor_symbol for the
+// line-shaped scopes (Line and optionally LineRange).
+func parseAnchorFields(in emitEvidenceItem, index int) (types.AnchorKind, string, error) {
+	preAnchorKindKey := strings.ToLower(strings.TrimSpace(in.AnchorKind))
+	if _, evidenceNameCollision := emitEvidenceAllowedKinds[preAnchorKindKey]; evidenceNameCollision {
+		return "", "", fmt.Errorf(
+			"items[%d]: anchor_kind %q is invalid because %q belongs to evidence_kind, not anchor_kind. Use evidence_kind=%q and anchor_kind in {%s}.",
+			index,
+			strings.TrimSpace(in.AnchorKind),
+			strings.TrimSpace(in.AnchorKind),
+			strings.TrimSpace(in.AnchorKind),
+			strings.Join(emitAnchorKindNames(), ", "),
+		)
+	}
+	if preAnchorKindKey == "" {
+		return "", "", fmt.Errorf("items[%d]: anchor_kind is required (one of: %s)", index, strings.Join(emitAnchorKindNames(), ", "))
+	}
+	anchorKind, ok := findAnchorKind(preAnchorKindKey)
+	if !ok {
+		return "", "", fmt.Errorf("items[%d]: unknown anchor_kind %q (allowed: %s)", index, in.AnchorKind, strings.Join(emitAnchorKindNames(), ", "))
+	}
+	anchorSymbol := strings.TrimSpace(in.AnchorSymbol)
+	if anchorSymbol == "" {
+		return "", "", fmt.Errorf("items[%d]: anchor_symbol is required for line-shaped scopes — the identifier the grounder should find at source:line_start", index)
+	}
+	return anchorKind, anchorSymbol, nil
 }
 
 func parseEvidenceContextRoleHint(index int, raw string) (types.EvidenceContextRole, error) {
