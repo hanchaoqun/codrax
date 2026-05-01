@@ -2404,6 +2404,22 @@ func initApp(cmd *cobra.Command, _ []string) error {
 	if slug := repoSlug(flagRepo); slug != "" && flagCacheDir != "" && answerTaxonomyEnabled {
 		store := orchestrator.NewAnswerTaxonomyStore(flagCacheDir, slug,
 			answerTaxonomyMaxItems, answerTaxonomyDecayDays)
+		// Commit 60 Batch E.2 (audit MEDIUM #11): wire stale-
+		// pattern eviction. The closure resolves repo-relative
+		// paths against the absolute --repo arg + os.Stat for
+		// existence. Patterns whose ExampleFile no longer exists
+		// in this repo are skipped at RelevantTo time so the
+		// analyzer doesn't get nudged by stale-pitfall hints from
+		// code that's been refactored away.
+		repoAbs := flagRepo
+		store.SetExampleFileValidator(func(relPath string) bool {
+			if relPath == "" || repoAbs == "" {
+				return true
+			}
+			abs := filepath.Join(repoAbs, relPath)
+			info, err := os.Stat(abs)
+			return err == nil && !info.IsDir()
+		})
 		app.orch.SetAnswerTaxonomyStore(store)
 		resolved := config.ResolveProvider(providersCfg, "answer_reviewer")
 		if adapter, err := llm.NewFromConfig(resolved); err == nil {

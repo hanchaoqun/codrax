@@ -149,6 +149,7 @@ func (t *EmitPerfTrace) Execute(ctx *types.BusContext, params json.RawMessage) (
 	}
 
 	bundle := toPerfBundle(&p)
+
 	derivePerfLayer4(bundle)
 	ctx.Mutable.SetPerfTrace(bundle)
 
@@ -381,3 +382,4 @@ func buildEmitPerfTraceSchema() map[string]any {
 		},
 	}
 }
+

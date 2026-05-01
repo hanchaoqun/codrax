@@ -32,6 +32,11 @@ type AnswerTaxonomyStore struct {
 	taxonomy  *types.AnswerTaxonomy
 	maxItems  int
 	decayDays int
+	// exampleFileExists (commit 60 Batch E.2, audit MEDIUM #11)
+	// validates whether a pattern's ExampleFile still exists in
+	// the repo. Nil = no validity check (back-compat). Set via
+	// SetExampleFileValidator at startup.
+	exampleFileExists func(relPath string) bool
 }
 
 // NewAnswerTaxonomyStore constructs a store rooted at
@@ -191,6 +196,13 @@ func (s *AnswerTaxonomyStore) persistLocked() error {
 //   - Confidence                                             — 1.0 base
 //   - HitCount log-scaled                                    — log(1+HitCount)
 //   - Recency (decay 0..1 over decayDays)                    — 0.5 weight
+//
+// Commit 60 Batch E.2 (audit MEDIUM #11): patterns whose
+// ExampleFile no longer exists in the repo are skipped (the
+// codebase moved on, the historic pitfall no longer applies).
+// Caller can supply repoRoot via SetExampleFileValidator at
+// startup; nil validator = no validity check (pre-commit-60
+// behaviour).
 func (s *AnswerTaxonomyStore) RelevantTo(scenario, shape string, k int) []types.AnswerPattern {
 	if !s.Enabled() {
 		return nil
@@ -209,6 +221,14 @@ func (s *AnswerTaxonomyStore) RelevantTo(scenario, shape string, k int) []types.
 	}
 	out := make([]scored, 0, len(t.Patterns))
 	for _, p := range t.Patterns {
+		// Stale-pattern guard: when ExampleFile is named AND the
+		// validator says it no longer exists, skip the pattern.
+		// The pattern still lives on disk (operators can /answer-
+		// pitfalls show <id> to inspect history); just not injected
+		// into the analyzer's prompt.
+		if !s.exampleFileValid(&p) {
+			continue
+		}
 		score := scoreAnswerPatternRelevance(&p, scenario, shape, s.decayDays, now)
 		if score <= 0 {
 			continue
@@ -229,6 +249,40 @@ func (s *AnswerTaxonomyStore) RelevantTo(scenario, shape string, k int) []types.
 		result = append(result, e.p)
 	}
 	return result
+}
+
+// SetExampleFileValidator installs a validator that the store
+// uses to spot-check whether a pattern's ExampleFile still
+// exists. Called from cmd/root.go at startup with a closure that
+// resolves repo-relative paths against the current --repo arg.
+// Empty validator = no stale-pattern eviction (pre-commit-60
+// behaviour preserved when the orchestrator doesn't know the
+// repo root).
+func (s *AnswerTaxonomyStore) SetExampleFileValidator(fn func(relPath string) bool) {
+	if s == nil {
+		return
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.exampleFileExists = fn
+}
+
+// exampleFileValid runs the validator (if installed) against the
+// pattern's ExampleFile. Returns true when the pattern's
+// ExampleFile is empty (caller didn't pin a concrete file) OR
+// when the validator says the file exists. Returns false ONLY
+// when validator is installed AND the file is gone.
+func (s *AnswerTaxonomyStore) exampleFileValid(p *types.AnswerPattern) bool {
+	if p == nil || strings.TrimSpace(p.ExampleFile) == "" {
+		return true
+	}
+	s.mu.Lock()
+	fn := s.exampleFileExists
+	s.mu.Unlock()
+	if fn == nil {
+		return true
+	}
+	return fn(p.ExampleFile)
 }
 
 // All returns a snapshot copy of every pattern, sorted by recency
