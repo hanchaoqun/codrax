@@ -806,18 +806,20 @@ func TestApplyAcceptanceVerdict_RejectedEmitsReasoningEvent(t *testing.T) {
 	if !rejected {
 		t.Fatal("expected rejection")
 	}
-	// Find the reasoning event.
+	// Commit 43: rejection now uses typed EventPhaseProgress
+	// (not EventAgentReasoning) so the dock renders ✗ icon
+	// instead of the 💭 thought bubble.
 	found := false
 	for _, ev := range captured {
-		if ev.Kind == render.EventAgentReasoning &&
-			strings.Contains(ev.Reasoning, "rejected") &&
-			strings.Contains(ev.Reasoning, "wrong direction") {
+		if ev.Kind == render.EventPhaseProgress &&
+			ev.PhaseProgressKind == render.PhaseProgressRejected &&
+			strings.Contains(ev.PhaseDetail, "wrong direction") {
 			found = true
 			break
 		}
 	}
 	if !found {
-		t.Errorf("expected EventAgentReasoning with rejection reasoning; got %+v", captured)
+		t.Errorf("expected EventPhaseProgress(rejected) with reasoning; got %+v", captured)
 	}
 }
 
@@ -844,15 +846,19 @@ func TestApplyAcceptanceVerdict_AcceptedEmitsReasoningEvent(t *testing.T) {
 	if rejected {
 		t.Fatal("should not reject")
 	}
+	// Commit 43: typed EventPhaseProgress(accepted) carries
+	// PhaseIndex=1 PhaseTotal=3 (the test's phase position).
 	found := false
 	for _, ev := range captured {
-		if ev.Kind == render.EventAgentReasoning && strings.Contains(ev.Reasoning, "Phase 2 of 3 accepted") {
+		if ev.Kind == render.EventPhaseProgress &&
+			ev.PhaseProgressKind == render.PhaseProgressAccepted &&
+			ev.PhaseIndex == 1 && ev.PhaseTotal == 3 {
 			found = true
 			break
 		}
 	}
 	if !found {
-		t.Errorf("expected accepted event; got %+v", captured)
+		t.Errorf("expected EventPhaseProgress(accepted) with index=1 total=3; got %+v", captured)
 	}
 }
 

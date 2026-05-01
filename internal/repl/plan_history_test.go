@@ -33,6 +33,78 @@ func TestCollectPlanHistory_NoStore(t *testing.T) {
 	}
 }
 
+// TestCollectPlanHistory_GroupsMultiPhasePlans pins commit
+// 43 task 1: when several plans share a PhaseGroupID, the
+// /history rendering aggregates them under one group header
+// + circle-marked child rows. Singleton plans without a
+// group render flat alongside.
+func TestCollectPlanHistory_GroupsMultiPhasePlans(t *testing.T) {
+	dir := t.TempDir()
+	store := NewPlanStore(dir)
+	r, _ := newScriptedREPL(t, store)
+
+	// Mix of: 2-phase group + 1 singleton.
+	plans := []*types.ChangePlan{
+		{
+			ID: "plan-singleton", Status: "applied",
+			TargetPaths: []string{"a"},
+			Changes:     []types.FileChange{{Path: "a", Kind: "create"}},
+		},
+		{
+			ID: "plan-phase-1", Status: "applied",
+			PhaseGroupID: "group-multi", PhaseIndex: 1,
+			TargetPaths: []string{"b"},
+			Changes:     []types.FileChange{{Path: "b", Kind: "create"}},
+		},
+		{
+			ID: "plan-phase-0", Status: "applied",
+			PhaseGroupID: "group-multi", PhaseIndex: 0,
+			TargetPaths: []string{"c"},
+			Changes:     []types.FileChange{{Path: "c", Kind: "create"}},
+		},
+	}
+	for _, p := range plans {
+		if _, err := store.SaveForTest(p); err != nil {
+			t.Fatalf("SaveForTest %s: %v", p.ID, err)
+		}
+	}
+
+	rows := r.collectPlanHistory()
+	if len(rows) == 0 {
+		t.Fatal("expected non-empty history rows")
+	}
+	joined := strings.Join(rows, "\n")
+	if !strings.Contains(joined, "group-multi (2 phases):") {
+		t.Errorf("expected group header line; got:\n%s", joined)
+	}
+	if !strings.Contains(joined, "①") || !strings.Contains(joined, "②") {
+		t.Errorf("expected circle markers ① ②; got:\n%s", joined)
+	}
+	// Singleton plan must still render flat (without circle marker
+	// or group header).
+	hasSingleton := false
+	for _, row := range rows {
+		if strings.Contains(row, "plan-singleton") &&
+			!strings.Contains(row, "①") &&
+			!strings.Contains(row, "②") &&
+			!strings.HasPrefix(strings.TrimSpace(row), "①") {
+			hasSingleton = true
+			break
+		}
+	}
+	if !hasSingleton {
+		t.Errorf("singleton plan should render flat; got:\n%s", joined)
+	}
+	// Phase ordering: phase-0 should come BEFORE phase-1 inside the
+	// group despite being saved in 1, 0 order.
+	idx0 := strings.Index(joined, "plan-phase-0")
+	idx1 := strings.Index(joined, "plan-phase-1")
+	if idx0 < 0 || idx1 < 0 || idx0 > idx1 {
+		t.Errorf("phase 0 should appear before phase 1; got idx0=%d idx1=%d in:\n%s",
+			idx0, idx1, joined)
+	}
+}
+
 // TestCollectPlanHistory_EmptyDir verifies a store with no plans
 // yields nil (caller suppresses the "plans applied" header).
 func TestCollectPlanHistory_EmptyDir(t *testing.T) {

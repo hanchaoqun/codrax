@@ -2696,56 +2696,118 @@ func (r *REPL) collectPlanHistory() []string {
 	if len(infos) == 0 {
 		return nil
 	}
+	// Group aggregation (commit 43): walk plans newest-first and
+	// collect same-PhaseGroupID plans into one visual block. The
+	// PlanStore.List output is sorted by ModTime descending so
+	// later phases of the same group appear first; we sort the
+	// child rows by PhaseIndex ascending within each block so the
+	// reader sees the natural lifecycle order. Singleton plans
+	// (PhaseGroupID == "") render as flat rows alongside groups
+	// in the order their newest member appeared.
+	type childInfo struct{ info PlanInfo; row string }
+	type bucket struct {
+		groupID  string             // empty for singletons
+		children []childInfo        // group members sorted by PhaseIndex ascending
+		single   *childInfo         // populated when groupID == ""; children empty
+		firstSeenIdx int            // index in original infos for stable ordering
+	}
+	bucketByGroup := map[string]*bucket{}
+	var ordered []*bucket
+	for i, inf := range infos {
+		row := r.formatPlanHistoryRow(inf)
+		ci := childInfo{info: inf, row: row}
+		if inf.PhaseGroupID == "" {
+			b := &bucket{single: &ci, firstSeenIdx: i}
+			ordered = append(ordered, b)
+			continue
+		}
+		if existing, ok := bucketByGroup[inf.PhaseGroupID]; ok {
+			existing.children = append(existing.children, ci)
+			continue
+		}
+		b := &bucket{groupID: inf.PhaseGroupID, children: []childInfo{ci}, firstSeenIdx: i}
+		bucketByGroup[inf.PhaseGroupID] = b
+		ordered = append(ordered, b)
+	}
+	circles := []string{"①", "②", "③", "④", "⑤", "⑥", "⑦", "⑧", "⑨", "⑩", "⑪", "⑫"}
 	var rows []string
-	for _, inf := range infos {
-		status := inf.Status
-		if status == "" {
-			status = "unknown"
+	for _, b := range ordered {
+		if b.single != nil {
+			rows = append(rows, b.single.row)
+			continue
 		}
-		reportPath := strings.TrimSuffix(inf.Path, ".json") + ".report.json"
-		row := fmt.Sprintf("%s  status=%s", inf.ID, status)
-		if data, rerr := os.ReadFile(reportPath); rerr == nil {
-			// Minimal JSON probe so we don't pull the full
-			// types.ChangeReport shape into this package beyond
-			// what /history needs to render.
-			var probe struct {
-				Passed      bool `json:"passed"`
-				TestResults []struct {
-					AssertionID string `json:"assertion_id"`
-					Passed      bool   `json:"passed"`
-				} `json:"test_results"`
-			}
-			if jerr := json.Unmarshal(data, &probe); jerr == nil {
-				total := len(probe.TestResults)
-				passed := 0
-				var failed []string
-				for _, tr := range probe.TestResults {
-					if tr.Passed {
-						passed++
-					} else {
-						failed = append(failed, tr.AssertionID)
-					}
+		// Sort children by PhaseIndex ascending so phase 1 appears
+		// before phase 2 inside the group block.
+		for i := 0; i < len(b.children); i++ {
+			for j := i + 1; j < len(b.children); j++ {
+				if b.children[j].info.PhaseIndex < b.children[i].info.PhaseIndex {
+					b.children[i], b.children[j] = b.children[j], b.children[i]
 				}
-				row += fmt.Sprintf("  tests=%d/%d passed", passed, total)
-				if len(failed) > 0 {
-					const maxFailingShown = 3
-					shown := failed
-					suffix := ""
-					if len(shown) > maxFailingShown {
-						shown = shown[:maxFailingShown]
-						suffix = fmt.Sprintf(" (+%d more)", len(failed)-maxFailingShown)
-					}
-					row += ": " + strings.Join(shown, ", ") + suffix
-				}
-			} else {
-				row += "  (report unreadable)"
 			}
-		} else {
-			row += "  (no report)"
 		}
-		rows = append(rows, row)
+		// Group header line + indented child rows with circle
+		// markers. Mirrors formatSubTopicsBlock's enumeration
+		// pattern from the read-mode dock so multi-phase
+		// groups feel coherent visually.
+		rows = append(rows, fmt.Sprintf("%s (%d phases):", b.groupID, len(b.children)))
+		for i, c := range b.children {
+			mark := fmt.Sprintf("%d.", i+1)
+			if i < len(circles) {
+				mark = circles[i]
+			}
+			rows = append(rows, fmt.Sprintf("  %s %s", mark, c.row))
+		}
 	}
 	return rows
+}
+
+// formatPlanHistoryRow extracts the per-plan row formatting used
+// by collectPlanHistory so the group-aggregation loop can call
+// it for every member. Behaviour byte-identical to the
+// pre-commit-43 inline implementation.
+func (r *REPL) formatPlanHistoryRow(inf PlanInfo) string {
+	status := inf.Status
+	if status == "" {
+		status = "unknown"
+	}
+	reportPath := strings.TrimSuffix(inf.Path, ".json") + ".report.json"
+	row := fmt.Sprintf("%s  status=%s", inf.ID, status)
+	data, rerr := os.ReadFile(reportPath)
+	if rerr != nil {
+		return row + "  (no report)"
+	}
+	var probe struct {
+		Passed      bool `json:"passed"`
+		TestResults []struct {
+			AssertionID string `json:"assertion_id"`
+			Passed      bool   `json:"passed"`
+		} `json:"test_results"`
+	}
+	if jerr := json.Unmarshal(data, &probe); jerr != nil {
+		return row + "  (report unreadable)"
+	}
+	total := len(probe.TestResults)
+	passed := 0
+	var failed []string
+	for _, tr := range probe.TestResults {
+		if tr.Passed {
+			passed++
+		} else {
+			failed = append(failed, tr.AssertionID)
+		}
+	}
+	row += fmt.Sprintf("  tests=%d/%d passed", passed, total)
+	if len(failed) > 0 {
+		const maxFailingShown = 3
+		shown := failed
+		suffix := ""
+		if len(shown) > maxFailingShown {
+			shown = shown[:maxFailingShown]
+			suffix = fmt.Sprintf(" (+%d more)", len(failed)-maxFailingShown)
+		}
+		row += ": " + strings.Join(shown, ", ") + suffix
+	}
+	return row
 }
 
 // handleApproveCmd consumes the REPL's pending ChangePlan by triggering

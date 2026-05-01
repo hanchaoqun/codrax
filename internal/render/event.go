@@ -100,6 +100,48 @@ const (
 	// fallback event.
 	EventAdapterRetry
 	EventAdapterFallback
+
+	// Multi-phase plan-group lifecycle (commit 43, stage II UX
+	// fix). Pre-commit-43 the orchestrator surfaced phase
+	// progression via generic EventAgentReasoning entries
+	// rendered as "💭 [orchestrator-1] ▶ Phase 1 of 3 ..." —
+	// the 💭 thought-bubble icon was wrong (it implies LLM
+	// reasoning, not a structural progression marker) and the
+	// inline-line shape didn't reuse the read-mode sub-topic
+	// block style operators were already trained on.
+	//
+	// EventPhaseGroupStart fires once at runPhaseGroup entry
+	// with PhaseList populated — the dock renders a structured
+	// enumeration block ("多阶段方案识别到 N 个 phase: ①... ②...")
+	// mirroring formatSubTopicsBlock so the visual feels like
+	// a sibling of analyzer sub-topic enumeration.
+	//
+	// EventPhaseProgress fires per-phase at start / accept /
+	// reject — the dock renders a short status row using
+	// "▶ / ✓ / ✗" icons (NOT 💭) and the same statusObjective
+	// / statusDetail color scheme.
+	EventPhaseGroupStart
+	EventPhaseProgress
+)
+
+// PhaseInfo is the renderable per-phase projection carried on
+// EventPhaseGroupStart. Mirrors TaskNodeInfo's shape — the
+// dock formats the slice into a circle-marker enumeration
+// block visually parallel to the analyzer sub-topic block.
+type PhaseInfo struct {
+	Index int    // 0-based; circle marker derived as index+1
+	Goal  string // single-line phase goal text
+}
+
+// PhaseProgressKind classifies an EventPhaseProgress as
+// starting / accepted / rejected so the dock picks the right
+// icon and color without inspecting the message text.
+type PhaseProgressKind int
+
+const (
+	PhaseProgressStart PhaseProgressKind = iota
+	PhaseProgressAccepted
+	PhaseProgressRejected
 )
 
 // TaskNodeInfo is the renderable summary of a TaskGraph node carried
@@ -184,6 +226,23 @@ type Event struct {
 	PreviewText     string
 	PreviewRound    int
 	PreviewRejected bool
+
+	// Multi-phase plan-group fields (commit 43).
+	//   PhaseList         — populated on EventPhaseGroupStart;
+	//                       full N-phase enumeration the dock
+	//                       renders into a sub-topic-style block.
+	//   PhaseIndex        — 0-based phase index for an
+	//                       EventPhaseProgress event.
+	//   PhaseTotal        — total phase count, ditto.
+	//   PhaseProgressKind — start / accepted / rejected.
+	//   PhaseDetail       — phase goal (start) or rejection
+	//                       reasoning (rejected); empty for
+	//                       accepted (terse confirmation).
+	PhaseList         []PhaseInfo
+	PhaseIndex        int
+	PhaseTotal        int
+	PhaseProgressKind PhaseProgressKind
+	PhaseDetail       string
 
 	// EventAdapterRetry / EventAdapterFallback payload.
 	//   RetryAttempt — 1-based index of the failed attempt

@@ -82,6 +82,30 @@ func (r *Renderer) handleEvent(ev Event) {
 		}
 		r.commitLineLocked(line)
 		return
+	case EventPhaseGroupStart:
+		// Commit 43: TTY-mode phase block render. Mirror of
+		// the EventAnalysisReady sub-topic-block path so the
+		// dock area frame stays correct.
+		block := formatPhaseGroupBlock(r.lang, ev.PhaseList)
+		if block == "" {
+			return
+		}
+		if !r.dockEnabled && r.dock == nil {
+			fmt.Fprint(r.outputWriter(), block)
+			return
+		}
+		r.commitMultilineLocked(block)
+		return
+	case EventPhaseProgress:
+		// Commit 43: TTY-mode phase-status row.
+		line := formatPhaseProgressLine(r.lang, ev.PhaseIndex, ev.PhaseTotal,
+			ev.PhaseProgressKind, ev.PhaseDetail)
+		if !r.dockEnabled && r.dock == nil {
+			fmt.Fprintln(r.outputWriter(), line)
+			return
+		}
+		r.commitLineLocked(line)
+		return
 	}
 
 	switch ev.Kind {
@@ -834,6 +858,96 @@ func formatSubTopicsBlock(lang string, taskNodes []TaskNodeInfo) string {
 	return b.String()
 }
 
+// formatPhaseGroupBlock returns the multi-phase enumeration block
+// the dock prints once at runPhaseGroup entry. Visually parallel to
+// formatSubTopicsBlock — header line + N indented rows with circle
+// markers — so multi-phase write-mode runs feel like the read-mode
+// analyzer's sub-topic enumeration. Empty PhaseList returns "" so
+// the caller can degrade silently.
+//
+// Layout:
+//
+//	  多阶段方案识别到 3 个 phase：
+//	    ① 添加迁移
+//	    ② 更新 ORM
+//	    ③ 弃用旧字段
+func formatPhaseGroupBlock(lang string, phases []PhaseInfo) string {
+	if len(phases) == 0 {
+		return ""
+	}
+	header := fmt.Sprintf("多阶段方案识别到 %d 个 phase：", len(phases))
+	if !isZh(lang) {
+		header = fmt.Sprintf("Multi-phase plan with %d phases:", len(phases))
+	}
+	circles := []string{"①", "②", "③", "④", "⑤", "⑥", "⑦", "⑧", "⑨", "⑩", "⑪", "⑫"}
+	var b strings.Builder
+	b.WriteString("\n  ")
+	b.WriteString(statusObjective.Sprint(header))
+	b.WriteString("\n")
+	for _, p := range phases {
+		mark := fmt.Sprintf("%d.", p.Index+1)
+		if p.Index >= 0 && p.Index < len(circles) {
+			mark = circles[p.Index]
+		}
+		goal := strings.TrimSpace(p.Goal)
+		if goal == "" {
+			continue
+		}
+		b.WriteString("    ")
+		b.WriteString(statusObjective.Sprint(mark))
+		b.WriteString(" ")
+		b.WriteString(statusDetail.Sprint(goal))
+		b.WriteString("\n")
+	}
+	b.WriteString("\n")
+	return b.String()
+}
+
+// formatPhaseProgressLine returns the single-line dock entry for
+// an EventPhaseProgress. Pre-commit-43 these entries went through
+// the generic EventAgentReasoning path and rendered with the
+// "💭 [orchestrator-1] ..." LLM-thinking icon — semantically wrong
+// for what is structural progression, not LLM reasoning. Now they
+// render with status-typed icons (▶ start / ✓ accepted / ✗ rejected)
+// + same color palette as the sub-topic block.
+func formatPhaseProgressLine(lang string, idx, total int, kind PhaseProgressKind, detail string) string {
+	zh := isZh(lang)
+	icon := "▶"
+	switch kind {
+	case PhaseProgressAccepted:
+		icon = "✓"
+	case PhaseProgressRejected:
+		icon = "✗"
+	}
+	header := fmt.Sprintf("%s Phase %d/%d", icon, idx+1, total)
+	suffix := ""
+	switch kind {
+	case PhaseProgressStart:
+		if zh {
+			suffix = " 启动"
+		} else {
+			suffix = " starting"
+		}
+	case PhaseProgressAccepted:
+		if zh {
+			suffix = " 已接受"
+		} else {
+			suffix = " accepted"
+		}
+	case PhaseProgressRejected:
+		if zh {
+			suffix = " 被拒绝"
+		} else {
+			suffix = " rejected"
+		}
+	}
+	out := "  " + statusObjective.Sprint(header+suffix)
+	if d := strings.TrimSpace(detail); d != "" {
+		out += statusDetail.Sprint(": " + d)
+	}
+	return out
+}
+
 // countTopicSiblings returns how many evidence_tN nodes are present
 // in r.tasks. Used by commit to decide whether the "关注点 K/M"
 // suffix should appear on the completion line.
@@ -896,6 +1010,22 @@ func (r *Renderer) handleEventNonTTY(ev Event) {
 	case EventAdapterFallback:
 		r.emitNonTTYLine(fmt.Sprintf("⟳ fallback %s → %s · %s",
 			ev.FallbackFrom, ev.FallbackTo, ev.RetryReason))
+	case EventPhaseGroupStart:
+		// Commit 43: render the full phase enumeration once
+		// at group entry so operators see the workflow shape
+		// before stages start. Mirror of EventAnalysisReady's
+		// sub-topic block.
+		if block := formatPhaseGroupBlock(r.lang, ev.PhaseList); block != "" {
+			fmt.Fprint(r.outputWriter(), block)
+			mirrorDockBlockToLog(block)
+		}
+	case EventPhaseProgress:
+		// Commit 43: per-phase status row with structured
+		// icon ▶/✓/✗ instead of the 💭 thought-bubble used
+		// by EventAgentReasoning. Detail surfaces phase goal
+		// (start) or rejection reasoning (rejected).
+		r.emitNonTTYLine(formatPhaseProgressLine(r.lang, ev.PhaseIndex, ev.PhaseTotal,
+			ev.PhaseProgressKind, ev.PhaseDetail))
 	}
 }
 

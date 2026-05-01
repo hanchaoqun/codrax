@@ -70,6 +70,28 @@ func (o *Orchestrator) runPhaseGroup(group *types.PlanGroup, stepsUsed *int) err
 	// dispatched.
 	o.persistGroup(group)
 
+	// UX (commit 43): emit a structured block once at group
+	// entry so the dock renders the full phase enumeration
+	// — visually parallel to the analyzer's sub-topic block.
+	// Pre-commit-43 the operator only saw per-phase Reasoning
+	// events with the 💭 thought-bubble icon; now they see
+	// the workflow shape upfront.
+	if o.emit != nil {
+		phaseList := make([]render.PhaseInfo, 0, len(group.Phases))
+		for _, p := range group.Phases {
+			phaseList = append(phaseList, render.PhaseInfo{
+				Index: p.Index,
+				Goal:  oneLineClampPhase(p.Goal, 100),
+			})
+		}
+		o.emit(render.Event{
+			Kind:      render.EventPhaseGroupStart,
+			Timestamp: time.Now(),
+			Agent:     "orchestrator",
+			PhaseList: phaseList,
+		})
+	}
+
 	for group.ActiveIdx < len(group.Phases) {
 		// Cancel check at every iteration boundary (commit 32).
 		// Before this, /cancel + Ctrl+C only landed when the
@@ -103,21 +125,21 @@ func (o *Orchestrator) runPhaseGroup(group *types.PlanGroup, stepsUsed *int) err
 		phase.OwnerPID = os.Getpid()
 		o.persistGroup(group)
 
-		// UX#1 (commit 41): emit a Reasoning event when each
-		// phase starts so the dock surfaces "Phase X of Y:
-		// <goal>" instead of looking like one long opaque Run.
-		// Pre-commit-41 the operator had to know /phase show
-		// existed to see progression.
-		// Guard against nil emit when tests construct an
-		// Orchestrator directly (bypassing New() which seeds
-		// render.NopEmitter).
+		// Per-phase progress event (commit 43). Replaces the
+		// pre-commit-43 EventAgentReasoning shape (which used
+		// the 💭 thought-bubble icon — semantically wrong for
+		// structural progression). Dock now renders this with
+		// ▶ icon + statusObjective color, parallel to the
+		// sub-topic block style.
 		if o.emit != nil {
 			o.emit(render.Event{
-				Kind:      render.EventAgentReasoning,
-				Timestamp: time.Now(),
-				Agent:     "orchestrator",
-				Reasoning: fmt.Sprintf("▶ Phase %d of %d starting: %s",
-					phase.Index+1, len(group.Phases), oneLineClampPhase(phase.Goal, 80)),
+				Kind:              render.EventPhaseProgress,
+				Timestamp:         time.Now(),
+				Agent:             "orchestrator",
+				PhaseIndex:        phase.Index,
+				PhaseTotal:        len(group.Phases),
+				PhaseProgressKind: render.PhaseProgressStart,
+				PhaseDetail:       oneLineClampPhase(phase.Goal, 80),
 			})
 		}
 
@@ -308,23 +330,19 @@ func (o *Orchestrator) applyAcceptanceVerdict(phase *types.PhaseRecord, group *t
 		phase.FinishedAt = &finished
 		group.Status = types.PlanGroupFailed
 		o.persistGroup(group)
-		// UX P0 (commit 42): emit the rejection REASONING as
-		// a Reasoning event so the dock surfaces "✗ Phase X
-		// rejected: <why>" mid-Run instead of the vague
-		// "phase X failed" buried in the EventPipelineEnd
-		// error message. Pre-commit-42 the reasoning was
-		// stored on phase.AcceptanceCheck.Reasoning and only
-		// visible post-Run via /phase show — operators saw
-		// the dock claim apply ✓ + verify ✓ then "phase
-		// failed" with no on-screen explanation.
+		// UX (commit 43): emit a typed PhaseProgress event so
+		// the dock renders ✗ + statusObjective color (not the
+		// 💭 thought-bubble used by the legacy Reasoning path).
+		// Detail carries the reviewer's reasoning verbatim.
 		if o.emit != nil {
 			o.emit(render.Event{
-				Kind:      render.EventAgentReasoning,
-				Timestamp: time.Now(),
-				Agent:     "orchestrator",
-				Reasoning: fmt.Sprintf("✗ Phase %d of %d rejected by acceptance review: %s",
-					phase.Index+1, len(group.Phases),
-					oneLineClampPhase(ac.Reasoning, 200)),
+				Kind:              render.EventPhaseProgress,
+				Timestamp:         time.Now(),
+				Agent:             "orchestrator",
+				PhaseIndex:        phase.Index,
+				PhaseTotal:        len(group.Phases),
+				PhaseProgressKind: render.PhaseProgressRejected,
+				PhaseDetail:       oneLineClampPhase(ac.Reasoning, 200),
 			})
 		}
 		return true, fmt.Errorf("phase %d acceptance rejected: %s",
@@ -339,18 +357,17 @@ func (o *Orchestrator) applyAcceptanceVerdict(phase *types.PhaseRecord, group *t
 	finished := time.Now()
 	phase.Status = types.PhaseAccepted
 	phase.FinishedAt = &finished
-	// UX P0 sibling (commit 42): also surface the success
-	// verdict mid-Run so the dock shows the acceptance step
-	// happening, not just plan→apply→verify. Reasoning is
-	// shorter on accept — the operator wants confirmation,
-	// not analysis.
+	// UX (commit 43): typed accept event — dock renders ✓ icon
+	// + statusObjective color, parallel to the sub-topic
+	// block style.
 	if o.emit != nil {
 		o.emit(render.Event{
-			Kind:      render.EventAgentReasoning,
-			Timestamp: time.Now(),
-			Agent:     "orchestrator",
-			Reasoning: fmt.Sprintf("✓ Phase %d of %d accepted",
-				phase.Index+1, len(group.Phases)),
+			Kind:              render.EventPhaseProgress,
+			Timestamp:         time.Now(),
+			Agent:             "orchestrator",
+			PhaseIndex:        phase.Index,
+			PhaseTotal:        len(group.Phases),
+			PhaseProgressKind: render.PhaseProgressAccepted,
 		})
 	}
 	return false, nil
