@@ -1,0 +1,34 @@
+# Grid A — S3D Config trace, schema-level absence (no sibling fallback)
+#
+# Targets: config_trace scenario + ReqConfigMapping + ShapeExplanation
+# under conditions where the LLM CANNOT find a useful sibling key. Pins
+# the 2026-05+ scope-axis migration: when no per-line sibling cite is
+# available, the answer surface depends on the LLM emitting schema-
+# level evidence (scope=file for layer-canonical files, scope=negative
+# for the absence proof, scope=crossfile for "no CLI flag for this
+# group" attestation).
+#
+# The phantom key `explore_xyz_phantom_unique_budget` is intentionally
+# distinctive enough that no real key will sibling-match it: there is
+# no `explore_xyz_*` family in either codrax.yaml or RuntimeSettings,
+# so the LLM can't escape into a sibling-line cite. It MUST either
+# (a) emit schema-level evidence to anchor the absence + the layers
+# structurally, or (b) leave the answer surface thin (one-layer prose
+# only — fails the multi-anchor expectation).
+#
+# Ground truth: explore_* group is yaml-only (no CLI override flag),
+# the canonical config layer is codrax.yaml, the default-struct layer
+# is internal/types/config.go (DefaultExploreHeuristics), and the
+# phantom key does not exist in any layer.
+#
+# Eval gate: EXPECT_CONTAINS / EXPECT_NOT_CONTAINS / EXPECT_SECTIONS
+# verify the answer surfaces all three layers AND mentions the
+# absence explicitly. The answer doesn't need to LITERALLY say
+# "scope=file" — it needs to ground each layer with a citable anchor
+# (which is what schema-level scopes structurally enable).
+ID="s3d"
+NAME="config trace — phantom-key precedence with schema-level absence"
+QUESTION="explore_xyz_phantom_unique_budget 在三层覆盖（默认值 / codrax.yaml / CLI flag）里各自的有效值是什么？给我每一层的来源锚点。"
+EXPECT_CONTAINS="codrax.yaml DefaultExploreHeuristics"
+EXPECT_NOT_CONTAINS="explore_xyz_phantom_unique_budget = 5 默认值是 5 默认值是 6"
+EXPECT_SECTIONS="codrax.yaml DefaultExploreHeuristics"

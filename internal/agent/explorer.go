@@ -74,6 +74,7 @@ type explorerEvaluator struct {
 	midLoopExternalLogSent          bool                  // one-shot: external-source log runtime frames redirected this dispatch
 	midLoopExactAbsenceContextSent  bool                  // one-shot: exact absence still needs one grounded same-family production anchor before closure
 	midLoopExactAbsenceSent         bool                  // one-shot: exact-resolution absence already looks closure-ready this dispatch
+	midLoopSchemaLevelHintSent      bool                  // one-shot: schema-level evidence nudge already pushed this Run (config-trace + exact-absent only)
 	midLoopAuthoritativeTier1Sent   bool                  // one-shot: authoritative log path is semantically enough but would fail Tier-1 floor before completion
 	midLoopEnumInjected             bool                  // session-22: enumeration-coverage hint already pushed this dispatch (was missing → 68 fires / run observed on goroutine_dump)
 	// midLoopOrientationFinalizeSent latches the once-per-dispatch
@@ -263,6 +264,7 @@ func (e *explorerEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk 
 		e.midLoopAbsentRedirectSent = false
 		e.midLoopExternalLogSent = false
 		e.midLoopExactAbsenceSent = false
+		e.midLoopSchemaLevelHintSent = false
 		e.midLoopEnumInjected = false
 		e.midLoopOrientationFinalizeSent = false
 		e.midLoopNoEmitPushSent = false
@@ -374,6 +376,7 @@ func (e *explorerEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk 
 	e.midLoopExternalLogSent = false
 	e.midLoopExactAbsenceContextSent = false
 	e.midLoopExactAbsenceSent = false
+	e.midLoopSchemaLevelHintSent = false
 	e.midLoopEnumInjected = false
 	e.midLoopOrientationFinalizeSent = false
 	e.midLoopNoEmitPushSent = false
@@ -3933,6 +3936,68 @@ func (e *explorerEvaluator) postExternalLogRedirectSignal(obs LoopObservation) L
 	return LoopSignal{}
 }
 
+// postSchemaLevelEvidenceSignal nudges the LLM to emit schema-level
+// evidence (scope=file / crossfile / negative) on config-trace
+// scenarios where the exact target is absent. The LLM's instinct is
+// to find sibling-key line cites; that sometimes works but leaves
+// gaps when the target is genuinely absent across a layer or a layer
+// is structurally absent (e.g. a yaml-only group has no CLI flag).
+//
+// This hint fires once per Run, after the LLM has had a chance to
+// emit line-shaped evidence (≥1 emit_evidence call) but BEFORE the
+// completion phase. It is a teaching nudge — the LLM remains the
+// decider; the system only points out the underused tools.
+func (e *explorerEvaluator) postSchemaLevelEvidenceSignal(obs LoopObservation) LoopSignal {
+	if e.midLoopSchemaLevelHintSent {
+		return LoopSignal{}
+	}
+	if e.exactResolution == nil || !e.exactResolution.AllowAbsence {
+		return LoopSignal{}
+	}
+	if obs.Iteration < e.heuristics.MidLoopMinIteration {
+		return LoopSignal{}
+	}
+	// Only meaningful when the LLM has already produced at least one
+	// line-shaped emit AND has NOT yet emitted any schema-level item.
+	hasLine := false
+	hasSchemaLevel := false
+	for _, ev := range e.structuredEvidence {
+		switch ev.Scope {
+		case types.ScopeFile, types.ScopeCrossfile, types.ScopeNegative:
+			hasSchemaLevel = true
+		default:
+			hasLine = true
+		}
+	}
+	if !hasLine || hasSchemaLevel {
+		return LoopSignal{}
+	}
+	// Only fire on config-trace + ConfigKey subject (where layer
+	// identity / cross-file contracts / absences typically apply).
+	if e.analysisIR == nil {
+		return LoopSignal{}
+	}
+	rm := e.analysisIR.RequestModel
+	if rm.Scenario != types.ScenarioConfigTrace ||
+		rm.AnswerSubject.Kind != types.SubjectConfigKey {
+		return LoopSignal{}
+	}
+
+	hint := "MID-LOOP CHECK: the exact target is absent and the layers you grounded so far all use scope=`line`. The answer surface for this question is stronger when at least one item per layer-canonical file is emitted with a schema-level scope, because a layer-canonical file's identity as a layer is a fact independent of whether the missing key appears at any specific line in it.\n\n" +
+		"Consider emitting ONE OR MORE of the following alongside your line cites:\n" +
+		"  • scope=`file` for each layer-canonical file you've identified (set source to the file path and file_role_label to `config_canonical` / `cli_registration` / `default_struct` / `manifest` / `schema` as appropriate).\n" +
+		"  • scope=`negative` for the missing target's absence (kind=`absent`, negative_query={file, pattern: <target>}, negative_scope=`file`).\n" +
+		"  • scope=`crossfile` if a layer is STRUCTURALLY absent: crossfile_query={files, pattern} + crossfile_assertion={kind: `forbidden`}.\n\n" +
+		"Each schema-level scope is verified by re-running its query — so emit only claims you have evidence to back. Continue line-shaped emits as needed; schema-level scopes complement them, not replace them."
+
+	e.midLoopSchemaLevelHintSent = true
+	return LoopSignal{
+		HintRequested: true,
+		Hint:          hint,
+		HintKey:       "schema_level_evidence",
+	}
+}
+
 func (e *explorerEvaluator) postExactAbsenceClosureSignal(obs LoopObservation) LoopSignal {
 	if e.midLoopExactAbsenceSent || e.exactResolution == nil || !e.exactResolution.AllowAbsence {
 		return LoopSignal{}
@@ -6039,6 +6104,9 @@ func (e *explorerEvaluator) observeMidLoop(obs LoopObservation) LoopSignal {
 		return sig
 	}
 	if sig := e.postExactAbsenceClosureSignal(obs); sig.HintRequested {
+		return sig
+	}
+	if sig := e.postSchemaLevelEvidenceSignal(obs); sig.HintRequested {
 		return sig
 	}
 	if sig := e.postClosureReadyBacklogSignal(obs); sig.HintRequested {
