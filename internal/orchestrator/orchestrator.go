@@ -3884,6 +3884,12 @@ func (o *Orchestrator) emitNodeEnd(id string, ok bool, errMsg string) {
 		if ev.Error == "" {
 			ev.Error = "criteria not met"
 		}
+	} else if strings.HasPrefix(errMsg, "skipped") {
+		// Success-path "skipped" signal: SkipOnFirstVisit (plan
+		// loaded from disk) or --skip-verify short-circuit. The
+		// renderer picks a "已加载" / "已跳过" phrase variant so the
+		// dock's done line doesn't claim the LLM did work it didn't.
+		ev.NodeSkipped = true
 	}
 	o.emit(ev)
 }

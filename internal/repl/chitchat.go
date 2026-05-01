@@ -712,6 +712,12 @@ func (r *REPL) chitchatDispatch(line, display string) {
 	// below is a separate concern.
 	chatLabel, chatSegs := chitchatRouteSummary(r.language)
 	if r.renderer != nil {
+		// Same lightweight-route discipline as the local route: no
+		// pipeline stages, so totalStages=0 disables the K/N counter.
+		// SetRouteSummary carries the label/segments into both the
+		// shutdown summary and (via composeCurrentDockRows) row 2's
+		// stage-label slot during dispatch.
+		r.renderer.SetTotalStages(0)
 		r.renderer.SetRouteSummary(chatLabel, chatSegs)
 	}
 

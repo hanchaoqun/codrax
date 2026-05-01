@@ -343,6 +343,7 @@ func (r *Renderer) handleEvent(ev Event) {
 			row.endTime = ev.Timestamp
 			row.errorMsg = ev.Error
 			row.okFinished = ev.Error == ""
+			row.skipped = ev.NodeSkipped
 			topicTotal := r.countTopicSiblings()
 			if row == r.current {
 				r.current = nil
@@ -741,6 +742,15 @@ func (r *Renderer) composeCurrentDockRows() [dockRowCount]string {
 		state.stageProgress = r.stageProgressForFocus(fallback)
 		state.stageLabel = liveBarPrimaryText(fallback, r.lang)
 		state.topicProgress = r.topicProgressFor(fallback, r.lang)
+	} else if r.routeSummary != nil {
+		// Light routes (local / chitchat) have no taskRows — the
+		// pipeline never ran. Without this branch row 2 sits on a
+		// bare "▪ —" with no label for the entire dispatch. Borrow
+		// the routeSummary label (already armed by SetRouteSummary
+		// for the shutdown line) so row 2 reads as "▪ — 闲聊回复" /
+		// "▪ — local reply". Reuses statusPrimary styling via the
+		// stageLabel field — no new vocabulary or palette.
+		state.stageLabel = r.routeSummary.label
 	}
 	if r.activity.kind == activityFinalizing {
 		state.streamChars = r.streamChars
@@ -865,7 +875,20 @@ func (r *Renderer) formatStageDoneLine(row *taskRow, topicTotal int) string {
 			return ""
 		}
 		glyph = string(glyphSuccess)
-		label = stagePhraseDoneFor(stageKeyFor(row), r.lang)
+		// SkipOnFirstVisit / --skip-verify short-circuit: the LLM
+		// didn't run, so the regular "已 X" phrase would lie. Phrase
+		// table carries dedicated skipped variants ("已加载预审方案"
+		// / "已跳过测试验证") for the two stages that can be skipped
+		// in production (plan, verify); other keys fall through to
+		// the regular done phrase so this branch is no-op for them.
+		if row.skipped {
+			label = stagePhraseSkippedFor(stageKeyFor(row), r.lang)
+			if label == "" {
+				label = stagePhraseDoneFor(stageKeyFor(row), r.lang)
+			}
+		} else {
+			label = stagePhraseDoneFor(stageKeyFor(row), r.lang)
+		}
 	}
 	progress := r.stageProgressForFocus(row)
 	stageElapsed := ""

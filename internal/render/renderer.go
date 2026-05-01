@@ -99,6 +99,13 @@ type taskRow struct {
 	pending   bool
 	paused    bool
 
+	// skipped marks a node that completed without dispatching its
+	// agent — SkipOnFirstVisit (plan loaded from disk) or
+	// --skip-verify short-circuit. The completion line uses a
+	// dedicated "已加载" / "已跳过" phrase instead of the regular
+	// "已 X" so the user reads honest provenance.
+	skipped bool
+
 	// dispatchGen identifies which dispatch window this row's
 	// active phase belongs to. Nodes started within the same
 	// orchestrator window (the for-loop in orchestrator.go::

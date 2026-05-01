@@ -110,6 +110,13 @@ func (r *REPL) handleVerifyCmd(line string) {
 	logging.Info("[repl] dispatching verify: plan=%s path=%s", plan.ID, planPath)
 	r.info(verifyDispatching(r.language, plan.ID))
 	if r.renderer != nil {
+		// /verify replays verify-only against an existing plan: K/N
+		// denominator must be 2 (analyze classifier + verify) so the
+		// dock renders analyze=1/2 → verify=2/2. Pre-fix this site
+		// inherited whatever totalStages the prior /mode command had
+		// installed (typically 4 from ModeApply or 6 default), which
+		// produced misaligned K labels for the entire verify dispatch.
+		r.renderer.SetTotalStages(2)
 		r.renderer.StartSpinner()
 	}
 	busCtx, runErr := r.runner.Run(request, r.repoRoot, r.branch)

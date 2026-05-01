@@ -178,6 +178,34 @@ func stagePhraseDoneFor(stageKey, lang string) string {
 	return stagePhrase(stageKey, lang, stagePhraseDone)
 }
 
+// stagePhraseSkippedFor returns the localized phrase for a stage that
+// completed via a short-circuit path (SkipOnFirstVisit plan loaded
+// from disk; --skip-verify verify bypassed). Returns "" for stage
+// keys that don't have a defined skipped phrase, signalling the
+// caller to fall through to the regular done phrase.
+//
+// Only plan and verify can legitimately be skipped in production —
+// /approve --plan-file skips plan, /approve --skip-verify skips
+// verify. Other stages use the regular done phrase even if a future
+// short-circuit fires (the fallthrough is a safety net, not a
+// vocabulary expansion).
+func stagePhraseSkippedFor(stageKey, lang string) string {
+	zh := isZh(lang)
+	switch stageKey {
+	case "plan":
+		if zh {
+			return "已加载预审方案"
+		}
+		return "Pre-reviewed plan loaded"
+	case "verify":
+		if zh {
+			return "已跳过测试验证"
+		}
+		return "Verify skipped"
+	}
+	return ""
+}
+
 // commitRowKind enumerates the shape of a permanent scrollback line
 // the dock writes via commitToScrollback. Each shape has a glyph +
 // fixed style and a free-form text body. The shape catalog is the

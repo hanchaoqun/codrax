@@ -819,6 +819,13 @@ func (r *REPL) localDispatch(line, display string, policy TurnPolicy, lastAnswer
 	// concern from the route badge.
 	label, segs := localRouteSummary(r.language, policy)
 	if r.renderer != nil {
+		// Light route has no pipeline stages; SetTotalStages(0) tells
+		// the dock to skip the K/N counter (renders blank instead of
+		// inheriting the prior /mode's denominator). Route identity is
+		// already carried by SetRouteSummary which folds into the
+		// shutdown line, AND surfaces in row 2's stage-label slot via
+		// composeCurrentDockRows when no focus/fallback row exists.
+		r.renderer.SetTotalStages(0)
 		r.renderer.SetRouteSummary(label, segs)
 		r.renderer.StartSpinner()
 	}
