@@ -1,6 +1,7 @@
 package types
 
 import (
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -161,5 +162,93 @@ func TestLoadFailureTaxonomy_FiltersInvalidEntries(t *testing.T) {
 	}
 	if loaded.Patterns[0].ID != "fp-good" {
 		t.Errorf("kept the wrong pattern; got %s", loaded.Patterns[0].ID)
+	}
+}
+
+// TestLoadFailureTaxonomy_WarnLogOnFilterDrop pins commit 39's
+// P3 fix: when LoadFailureTaxonomyFromFile silently drops
+// invalid entries, a warn is emitted to stderr so an
+// operator running with cache rot doesn't see "0 patterns"
+// without any signal of why. We capture stderr to confirm
+// the warn fires and names the count.
+func TestLoadFailureTaxonomy_WarnLogOnFilterDrop(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "rotted.json")
+	now := time.Now()
+	tax := &FailureTaxonomy{
+		RepoSlug:      "demo",
+		SchemaVersion: CurrentSchemaVersion,
+		Patterns: []FailurePattern{
+			// Two invalid (empty trigger), one valid.
+			{ID: "fp-bad-1", Name: "bad", Description: strings.Repeat("a", 50), Confidence: 0.5},
+			{ID: "fp-bad-2", Name: "also bad", Description: strings.Repeat("a", 50), Confidence: 0.5},
+			{ID: "fp-good", Name: "good", Description: strings.Repeat("a", 50),
+				Trigger: strings.Repeat("b", 20), Confidence: 0.7, LastSeen: now},
+		},
+	}
+	if err := WriteFailureTaxonomyToFile(tax, path); err != nil {
+		t.Fatalf("Write: %v", err)
+	}
+	// Redirect stderr.
+	origStderr := os.Stderr
+	rPipe, wPipe, err := os.Pipe()
+	if err != nil {
+		t.Fatalf("os.Pipe: %v", err)
+	}
+	os.Stderr = wPipe
+	defer func() {
+		os.Stderr = origStderr
+	}()
+
+	if _, err := LoadFailureTaxonomyFromFile(path); err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	wPipe.Close()
+	captured := make([]byte, 4096)
+	n, _ := rPipe.Read(captured)
+	stderrStr := string(captured[:n])
+
+	if !strings.Contains(stderrStr, "dropped 2 invalid") {
+		t.Errorf("expected warn naming the dropped count; got %q", stderrStr)
+	}
+	if !strings.Contains(stderrStr, "[failure_taxonomy]") {
+		t.Errorf("expected category prefix; got %q", stderrStr)
+	}
+}
+
+// TestLoadFailureTaxonomy_NoWarnOnAllValid pins the negative
+// case: when nothing is dropped, no warn fires. Avoids
+// spurious noise on the happy path.
+func TestLoadFailureTaxonomy_NoWarnOnAllValid(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "clean.json")
+	now := time.Now()
+	tax := &FailureTaxonomy{
+		RepoSlug:      "demo",
+		SchemaVersion: CurrentSchemaVersion,
+		Patterns: []FailurePattern{
+			{ID: "fp-1", Name: "ok", Description: strings.Repeat("a", 50),
+				Trigger: strings.Repeat("b", 20), Confidence: 0.7, LastSeen: now},
+		},
+	}
+	if err := WriteFailureTaxonomyToFile(tax, path); err != nil {
+		t.Fatalf("Write: %v", err)
+	}
+	origStderr := os.Stderr
+	rPipe, wPipe, err := os.Pipe()
+	if err != nil {
+		t.Fatalf("os.Pipe: %v", err)
+	}
+	os.Stderr = wPipe
+	defer func() { os.Stderr = origStderr }()
+
+	if _, err := LoadFailureTaxonomyFromFile(path); err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	wPipe.Close()
+	captured := make([]byte, 4096)
+	n, _ := rPipe.Read(captured)
+	if n > 0 {
+		t.Errorf("expected NO stderr output on clean load; got %q", string(captured[:n]))
 	}
 }

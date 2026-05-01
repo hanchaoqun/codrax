@@ -193,7 +193,7 @@ var failurePatternTool = llm.ToolSchema{
   "properties": {
     "name": {
       "type": "string",
-      "description": "Short label (max 60 chars) the planner sees when scoring relevance. Abstract — describe the KIND of mistake, not the specific instance. Bad: \"TestUserAuth fails at line 42\". Good: \"lock-scope drift on new public method\"."
+      "description": "Short label (max 60 chars) the planner sees when scoring relevance. Abstract — describe the KIND of mistake, not the specific instance. ALWAYS in English regardless of the user's request language: the dedup logic uses whitespace-token overlap, so a Chinese name like 共享结构方法添加 would never deduplicate against a future English-named sibling. Bad: \"TestUserAuth fails at line 42\" / \"测试失败\". Good: \"lock-scope drift on new public method\"."
     },
     "description": {
       "type": "string",
@@ -398,7 +398,33 @@ func unmarshalFailurePattern(raw json.RawMessage) (*types.FailurePattern, error)
 		return nil, fmt.Errorf("emit_failure_pattern confidence %.2f < 0.5 floor; dropping",
 			pattern.Confidence)
 	}
+	// Defense in depth for the dedup contract: the name must
+	// be ASCII (English) so SimilarTo's whitespace-token
+	// tokenizer can compute meaningful overlap. The schema
+	// description tells the LLM, but a non-compliant emit
+	// would silently break dedup and inflate the cache. Drop
+	// the pattern instead. Description / Trigger / etc may
+	// stay in the user's language — only Name participates
+	// in dedup.
+	if !isASCII(pattern.Name) {
+		return nil, fmt.Errorf("emit_failure_pattern name %q contains non-ASCII characters; SimilarTo dedup requires English-language names regardless of user request language",
+			pattern.Name)
+	}
 	return pattern, nil
+}
+
+// isASCII reports whether s contains only 7-bit ASCII bytes.
+// Used by unmarshalFailurePattern to enforce the English-name
+// contract on emit_failure_pattern (the SimilarTo dedup
+// heuristic uses whitespace-token overlap, which only works
+// on whitespace-separated languages).
+func isASCII(s string) bool {
+	for i := 0; i < len(s); i++ {
+		if s[i] >= 0x80 {
+			return false
+		}
+	}
+	return true
 }
 
 // renderReflectorUserMessage assembles the reviewer's input as a

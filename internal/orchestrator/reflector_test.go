@@ -294,6 +294,61 @@ func TestReflectFull_LowConfidencePatternDropped(t *testing.T) {
 	}
 }
 
+// TestReflectFull_RejectsNonASCIIName pins commit 39's P4
+// fix: a Chinese-named emit_failure_pattern is dropped at
+// the unmarshal validator because SimilarTo's whitespace-
+// token dedup heuristic can't compute meaningful overlap on
+// CJK names. Description may be in any language; only Name
+// is gated.
+func TestReflectFull_RejectsNonASCIIName(t *testing.T) {
+	stub := &reflectorStubAdapter{
+		resp: llm.Response{
+			ToolCalls: []llm.ToolCall{
+				{Name: "emit_failure_observation",
+					Params: json.RawMessage(`{"observation": "obs text long enough to land here for the test"}`)},
+				{Name: "emit_failure_pattern",
+					Params: json.RawMessage(`{
+						"name": "对共享结构添加方法时遗漏锁",
+						"description": "在 goroutine 共享的结构体上添加新方法时,常忘记扩展互斥锁的覆盖范围,导致并发访问时数据竞争问题。",
+						"trigger": "向共享结构添加方法的时候",
+						"confidence": 0.8
+					}`)},
+			},
+		},
+	}
+	r := NewReflector(stub).(*llmReflector)
+	out, err := r.ReflectFull(context.Background(), ReflectorInput{Attempt: 1, FailingTests: []ReflectorFailedTest{{Suite: "x", AssertionID: "y"}}})
+	if err != nil {
+		t.Fatalf("ReflectFull: %v", err)
+	}
+	if out.Pattern != nil {
+		t.Errorf("non-ASCII name should be rejected; got %+v", out.Pattern)
+	}
+	if !strings.Contains(out.Observation, "obs text") {
+		t.Errorf("observation should still flow; got %q", out.Observation)
+	}
+}
+
+// TestIsASCII pins the helper used by the non-ASCII name
+// guard.
+func TestIsASCII(t *testing.T) {
+	for _, c := range []struct {
+		in   string
+		want bool
+	}{
+		{"plain english name", true},
+		{"name-with-dashes_and_underscores", true},
+		{"", true},
+		{"含中文", false},
+		{"mixed eng 中", false},
+		{"emoji 🚀", false},
+	} {
+		if got := isASCII(c.in); got != c.want {
+			t.Errorf("isASCII(%q) = %v; want %v", c.in, got, c.want)
+		}
+	}
+}
+
 // TestReflectFull_BothToolsInSchema pins the dispatch tool
 // list: the Chat call must offer BOTH emit_failure_observation
 // AND emit_failure_pattern so the LLM has the option to emit

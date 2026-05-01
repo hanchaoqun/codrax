@@ -110,11 +110,22 @@ func (r *REPL) pitfallsShow(id string) {
 	r.warn("/pitfalls show: no pattern with id %q\n", id)
 }
 
-// pitfallsClear wipes the cache. The destructive verb the
-// operator typed is itself the confirmation; no extra prompt
-// to keep the call site terse (mirrors /baseline clear which
-// also wipes without re-prompt).
+// pitfallsClear wipes the cache. Destructive — gated on
+// writeEnabled so a read-mode REPL session cannot blow away
+// the per-repo learned-pitfall cache that took weeks to
+// accumulate. The destructive verb the operator typed in
+// write mode is itself the confirmation; no extra prompt to
+// keep the call site terse (mirrors /baseline clear).
+//
+// list and show stay read-only and skip this gate so a
+// read-mode user can still inspect the cache.
 func (r *REPL) pitfallsClear() {
+	if !r.writeEnabled {
+		for _, line := range writeModeDisabled(r.language, "/pitfalls clear", r.settingsPath) {
+			r.warn("%s\n", line)
+		}
+		return
+	}
 	if err := r.failureTaxonomy.Clear(); err != nil {
 		r.errorf("/pitfalls clear: %v\n", err)
 		return

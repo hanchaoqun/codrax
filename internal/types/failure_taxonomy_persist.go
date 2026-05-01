@@ -84,8 +84,16 @@ func LoadFailureTaxonomyFromFile(path string) (*FailureTaxonomy, error) {
 	if t.SchemaVersion == 0 {
 		t.SchemaVersion = CurrentSchemaVersion
 	}
-	// Filter invalid entries out; preserve the rest.
+	// Filter invalid entries out; preserve the rest. Warn on
+	// disk when the filter actually dropped anything so a
+	// silent cache-rot bug (schema drift in a previous build's
+	// emit) doesn't leave the operator wondering why the
+	// pitfall set shrank. Logging via fmt.Fprintf to stderr
+	// because this package can't import internal/logging
+	// (would create an import cycle on packages logging
+	// imports for level filtering).
 	if len(t.Patterns) > 0 {
+		before := len(t.Patterns)
 		filtered := t.Patterns[:0]
 		for i := range t.Patterns {
 			if t.Patterns[i].IsLoadValid() {
@@ -93,6 +101,11 @@ func LoadFailureTaxonomyFromFile(path string) (*FailureTaxonomy, error) {
 			}
 		}
 		t.Patterns = filtered
+		if dropped := before - len(filtered); dropped > 0 {
+			fmt.Fprintf(os.Stderr,
+				"[failure_taxonomy] WARN: %s dropped %d invalid pattern(s) at load time (schema drift or truncated emit?)\n",
+				path, dropped)
+		}
 	}
 	return &t, nil
 }
