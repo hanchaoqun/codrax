@@ -471,13 +471,21 @@ func (r *Renderer) handleEvent(ev Event) {
 		}
 		// Also commit a permanent record so the run log shows the
 		// retry happened — useful when the user comes back later
-		// and wonders why their run took 60s.
-		body := fmt.Sprintf("L1 重试 #%d · 等 %ds", ev.RetryAttempt, delaySec)
-		if !isZh(r.lang) {
-			body = fmt.Sprintf("L1 retry #%d · in %ds", ev.RetryAttempt, delaySec)
+		// and wonders why their run took 60s. User-facing language:
+		// SPELL OUT what is being retried (LLM model request) so the
+		// operator does not have to guess; drop internal "L1" layer-
+		// name and "#N" issue-tracker syntax (those are for the
+		// [llm] log lines). RetryReason is localised through
+		// localizeRetryReason so a zh user does not see English
+		// "rate limit" mixed into Chinese prose.
+		var body string
+		if isZh(r.lang) {
+			body = fmt.Sprintf("已重新请求模型 (第 %d 次,等 %ds)", ev.RetryAttempt, delaySec)
+		} else {
+			body = fmt.Sprintf("retried model request (attempt %d, after %ds)", ev.RetryAttempt, delaySec)
 		}
 		if ev.RetryReason != "" {
-			body += " · " + ev.RetryReason
+			body += " · " + localizeRetryReason(ev.RetryReason, r.lang)
 		}
 		line := formatCommitRow(commitRow{
 			kind: commitRowRetry,
@@ -1148,11 +1156,27 @@ func (r *Renderer) handleEventNonTTY(ev Event) {
 	case EventAgentReasoning:
 		r.emitNonTTYLine(formatReasoning(string(ev.Agent), ev.Iteration, ev.Reasoning))
 	case EventAdapterRetry:
-		r.emitNonTTYLine(fmt.Sprintf("⟳ retry #%d in %v · %s",
-			ev.RetryAttempt, ev.RetryDelay, ev.RetryReason))
+		// Non-TTY mode (CI / piped stdout) — same user-facing
+		// language as the dock activity row + permanent commit so
+		// log scrapers and operators see consistent phrasing.
+		// "重新请求模型" / "retrying model request" makes the
+		// retry SUBJECT explicit (the LLM call, not a tool retry
+		// or stage retry).
+		if isZh(r.lang) {
+			r.emitNonTTYLine(fmt.Sprintf("⟳ 正在重新请求模型 (第 %d 次,等 %v) · %s",
+				ev.RetryAttempt, ev.RetryDelay, localizeRetryReason(ev.RetryReason, r.lang)))
+		} else {
+			r.emitNonTTYLine(fmt.Sprintf("⟳ retrying model request (attempt %d, in %v) · %s",
+				ev.RetryAttempt, ev.RetryDelay, localizeRetryReason(ev.RetryReason, r.lang)))
+		}
 	case EventAdapterFallback:
-		r.emitNonTTYLine(fmt.Sprintf("⟳ fallback %s → %s · %s",
-			ev.FallbackFrom, ev.FallbackTo, ev.RetryReason))
+		if isZh(r.lang) {
+			r.emitNonTTYLine(fmt.Sprintf("⟳ 切换 LLM 服务 %s → %s · %s",
+				ev.FallbackFrom, ev.FallbackTo, localizeRetryReason(ev.RetryReason, r.lang)))
+		} else {
+			r.emitNonTTYLine(fmt.Sprintf("⟳ switching LLM provider %s → %s · %s",
+				ev.FallbackFrom, ev.FallbackTo, localizeRetryReason(ev.RetryReason, r.lang)))
+		}
 	case EventPhaseGroupStart:
 		// Commit 43: render the full phase enumeration once
 		// at group entry so operators see the workflow shape

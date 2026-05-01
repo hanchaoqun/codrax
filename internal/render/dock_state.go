@@ -93,15 +93,21 @@ func activityPhrase(s activityState, lang string) string {
 		}
 		return "writing answer"
 	case activityRetrying:
+		// User-facing language: spell out WHAT is being retried (the
+		// LLM model request — operators reading old "重试中（#N）"
+		// could not tell whether it was a tool retry, a stage retry,
+		// or an LLM-call retry). Drop internal "#N" / "L1" jargon —
+		// those are layer-of-the-retry-stack identifiers in the
+		// system log, not end-user terms.
 		if zh {
-			return fmt.Sprintf("重试中（第 %d 次，等 %ds）", s.retryAttempt, s.retryDelaySec)
+			return fmt.Sprintf("正在重新请求模型 (第 %d 次,等 %ds)", s.retryAttempt, s.retryDelaySec)
 		}
-		return fmt.Sprintf("retrying (#%d, in %ds)", s.retryAttempt, s.retryDelaySec)
+		return fmt.Sprintf("retrying model request (attempt %d, in %ds)", s.retryAttempt, s.retryDelaySec)
 	case activitySwitchingProvider:
 		if zh {
-			return "切换 provider 中"
+			return "正在切换 LLM 服务"
 		}
-		return "switching provider"
+		return "switching LLM provider"
 	case activityPreparingWorktree:
 		if zh {
 			return "准备 worktree 中"

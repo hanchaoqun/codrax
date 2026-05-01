@@ -36,6 +36,37 @@ func isZh(lang string) bool {
 	return strings.HasPrefix(l, "zh")
 }
 
+// localizeRetryReason maps the short-phrase reason
+// retryReasonForError emits inside the LLM adapter to the user's
+// configured language. retryReasonForError lives in internal/llm
+// (no render dep) and only knows English; mixing English jargon
+// like "rate limit" or "stream first-byte timeout" into Chinese
+// dock prose was the operator-reported gap. Unknown phrases fall
+// through verbatim — better to surface an unrecognised label than
+// silently drop the cause classification.
+func localizeRetryReason(reason, lang string) string {
+	if reason == "" {
+		return ""
+	}
+	if !isZh(lang) {
+		return reason
+	}
+	switch reason {
+	case "transient":
+		return "临时网络抖动"
+	case "stream first-byte timeout":
+		return "首字节超时"
+	case "quota":
+		return "配额已用尽"
+	case "rate limit":
+		return "限流(请求过频)"
+	}
+	if strings.HasPrefix(reason, "server ") {
+		return "服务端错误 (" + strings.TrimPrefix(reason, "server ") + ")"
+	}
+	return reason
+}
+
 // stagePhraseState is the lifecycle slot stagePhrase resolves
 // against. Four values: running ("正在 ..."), done ("已 ..."),
 // pending ("待 ..." — queued, has NOT started yet), and failed

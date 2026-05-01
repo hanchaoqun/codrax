@@ -139,9 +139,20 @@ func TestLogFidelity_AdapterRetryMirrorsToInfo(t *testing.T) {
 	})
 
 	logs := getLogs()
-	for _, want := range []string{"[render]", "L1 重试", "rate limit"} {
+	// Post-2026-05-02 user-facing language: spell out "重新请求模型"
+	// (the LLM call being retried) instead of internal "L1" layer
+	// jargon, and localize "rate limit" → "限流(请求过频)" so a zh
+	// operator does not see English mixed into Chinese prose.
+	for _, want := range []string{"[render]", "重新请求模型", "限流"} {
 		if !strings.Contains(logs, want) {
 			t.Errorf("adapter retry mirror missing %q; log:\n%s", want, logs)
+		}
+	}
+	// Negative assertions: the old internal-jargon shape MUST NOT
+	// appear (regression guard).
+	for _, banned := range []string{"L1 重试", "L1 retry", "#2"} {
+		if strings.Contains(logs, banned) {
+			t.Errorf("adapter retry mirror leaked internal jargon %q; log:\n%s", banned, logs)
 		}
 	}
 	if strings.Contains(logs, "\x1b[") {
