@@ -63,6 +63,75 @@ func TestEmitAnswerSymbol_AcceptsValidBatch(t *testing.T) {
 	}
 }
 
+// TestEmitAnswerSymbol_CountFieldMatch pins commit 49 read-
+// mode Gap 2: when LLM emits a self-declared count, the
+// validator rejects on len(items) mismatch with hint to
+// either trim or recount. Closes the gap where prose
+// summary said "found 47" while items[] held 12.
+func TestEmitAnswerSymbol_CountFieldMatch(t *testing.T) {
+	tool := &EmitAnswerSymbol{}
+	ctx := newAnswerSymbolCtx()
+	// Match: count=2, items=2 → success.
+	params := json.RawMessage(`{
+        "items": [
+          {"name": "A", "file": "a.go", "line": 1, "kind": "function"},
+          {"name": "B", "file": "b.go", "line": 1, "kind": "function"}
+        ],
+        "completeness": "complete",
+        "count": 2
+    }`)
+	res, err := tool.Execute(ctx, params)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !res.Success {
+		t.Errorf("count=2 items=2 should succeed; got: %s", res.Summary)
+	}
+}
+
+// TestEmitAnswerSymbol_CountFieldMismatch rejects mismatch
+// loudly with an actionable hint.
+func TestEmitAnswerSymbol_CountFieldMismatch(t *testing.T) {
+	tool := &EmitAnswerSymbol{}
+	ctx := newAnswerSymbolCtx()
+	// Mismatch: count=47, items=2 → reject.
+	params := json.RawMessage(`{
+        "items": [
+          {"name": "A", "file": "a.go", "line": 1, "kind": "function"},
+          {"name": "B", "file": "b.go", "line": 1, "kind": "function"}
+        ],
+        "completeness": "lower_bound",
+        "count": 47
+    }`)
+	res, _ := tool.Execute(ctx, params)
+	if res.Success {
+		t.Fatal("count=47 vs items=2 should reject")
+	}
+	if !strings.Contains(res.Summary, "47") || !strings.Contains(res.Summary, "2") {
+		t.Errorf("rejection should name both numbers; got: %s", res.Summary)
+	}
+	if !strings.Contains(res.Summary, "revise") {
+		t.Errorf("rejection should hint at fix; got: %s", res.Summary)
+	}
+}
+
+// TestEmitAnswerSymbol_NoCountIsBackcompat pins back-compat:
+// pre-commit-49 calls without count field still work.
+func TestEmitAnswerSymbol_NoCountIsBackcompat(t *testing.T) {
+	tool := &EmitAnswerSymbol{}
+	ctx := newAnswerSymbolCtx()
+	params := json.RawMessage(`{
+        "items": [
+          {"name": "A", "file": "a.go", "line": 1, "kind": "function"}
+        ],
+        "completeness": "complete"
+    }`)
+	res, _ := tool.Execute(ctx, params)
+	if !res.Success {
+		t.Errorf("no count = no validation = should succeed; got: %s", res.Summary)
+	}
+}
+
 func TestEmitAnswerSymbol_RejectsLineZero(t *testing.T) {
 	tool := &EmitAnswerSymbol{}
 	ctx := newAnswerSymbolCtx()

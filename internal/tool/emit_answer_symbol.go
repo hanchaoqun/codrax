@@ -57,6 +57,17 @@ type EmitAnswerSymbol struct {
 type emitAnswerSymbolParams struct {
 	Items        []emitAnswerSymbolItem `json:"items"`
 	Completeness string                 `json:"completeness"`
+	// DeclaredCount is the LLM's self-declared item count.
+	// Optional; when set must equal len(Items). Pre-commit-49
+	// the description carried prose hints about expected
+	// counts but no machine-checkable assertion — the LLM
+	// could say "found 47 callers" and emit a 12-item slate
+	// with no fail. Now: when the LLM provides a count, the
+	// validator cross-checks; mismatch rejects with hint to
+	// either revise items or revise count. Zero / absent =
+	// no claim (back-compat: pre-commit-49 calls have no
+	// field, so JSON decode leaves it at 0).
+	DeclaredCount int `json:"count,omitempty"`
 }
 
 // emitAnswerSymbolAllowedCompleteness is the closed set of valid
@@ -137,6 +148,11 @@ func (t *EmitAnswerSymbol) Parameters() json.RawMessage {
       "type": "string",
       "enum": ["complete", "lower_bound", "unknown"],
       "description": "Set-level authority claim for the slate. REQUIRED. 'complete' = these are ALL the answers (cross-checked against the expected answer count — the larger of: how many items the investigation found, and how many the classification declared required; downgraded to lower_bound on mismatch). 'lower_bound' = these are confirmed present but more may exist (honest default when a partial slate is the best available). 'unknown' = investigated but no definitive verdict (downstream rendering drops the section entirely)."
+    },
+    "count": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Optional self-declared item count. When set, the tool validator REQUIRES len(items) == count and rejects on mismatch (with a hint to either trim/extend items or revise the count). Use this when your prose summary says 'found 47 callers' to make the count machine-checkable; omit (or set 0) to skip the cross-check. The check defends against quantitative claims drifting from the actual emitted slate."
     }
   },
   "required": ["items", "completeness"]
@@ -196,6 +212,19 @@ func (t *EmitAnswerSymbol) Execute(ctx *types.BusContext, params json.RawMessage
 				"the user explicitly requested a bounded principal set %q (%d item(s)), so emit_answer_symbol must keep items[] within that boundary; got %d item(s)",
 				boundary.SourceQuote, boundary.DeclaredCount, len(p.Items))
 		}
+	}
+	// Self-declared count check (commit 49 read-mode Gap 2).
+	// When the LLM emits a count, len(items) must match. This
+	// closes the gap where prose summary said "found 47 callers"
+	// while items[] held 12 entries — pre-commit-49 the system
+	// had no machine-checkable structural assertion on the
+	// quantity (only a description-level hint). Mismatch ejects
+	// with a hint nudging either trim or recount. Zero / absent
+	// = no claim (back-compat).
+	if p.DeclaredCount > 0 && p.DeclaredCount != len(p.Items) {
+		return failEmit(t.Name(), now,
+			"declared count=%d does not match items length=%d. Either revise the count to match the slate (if the slate is right) OR add/remove items to match the count (if the count is right). Quantitative claims in the answer must agree with the structured slate.",
+			p.DeclaredCount, len(p.Items))
 	}
 
 	workDir := strings.TrimSpace(ctx.WorkDir)
