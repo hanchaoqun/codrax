@@ -927,24 +927,41 @@ func clearForReplan(o *Orchestrator, attempt int) {
 	hint := heuristicHint
 	if o.reflector != nil {
 		input := buildReflectorInput(o.busCtx, prevReport, prevPlan, attempt)
-		critique, err := o.reflector.Reflect(o.busCtx.Context(), input)
+		out, err := o.reflector.ReflectFull(o.busCtx.Context(), input)
 		if err != nil {
 			logging.Warning("[orchestrator] reflector failed (degrading to heuristic hint): %v", err)
-		} else if strings.TrimSpace(critique) != "" {
-			// When the critic emitted a "Preserve:" clause naming aspects
-			// of the previous plan that should be kept, the heuristic's
-			// "the regression is in the edits to these files" framing
-			// directly contradicts it. Soften the heuristic suspect list
-			// to a neutral "files modified" so the planner does not
-			// receive contradictory orders in the same prompt.
-			heuristic := heuristicHint
-			if strings.Contains(critique, "Preserve:") {
-				heuristic = strings.ReplaceAll(heuristic,
-					"Files modified by the previous plan (suspect list — the regression is in the edits to these files):",
-					"Files modified by the previous plan (review for compatibility; the critic above identified what to preserve):",
-				)
+		} else if out != nil {
+			critique := out.Observation
+			if strings.TrimSpace(critique) != "" {
+				// When the critic emitted a "Preserve:" clause naming aspects
+				// of the previous plan that should be kept, the heuristic's
+				// "the regression is in the edits to these files" framing
+				// directly contradicts it. Soften the heuristic suspect list
+				// to a neutral "files modified" so the planner does not
+				// receive contradictory orders in the same prompt.
+				heuristic := heuristicHint
+				if strings.Contains(critique, "Preserve:") {
+					heuristic = strings.ReplaceAll(heuristic,
+						"Files modified by the previous plan (suspect list — the regression is in the edits to these files):",
+						"Files modified by the previous plan (review for compatibility; the critic above identified what to preserve):",
+					)
+				}
+				hint = critique + "\n\n" + heuristic
 			}
-			hint = critique + "\n\n" + heuristic
+			// Stage 3: persist the reusable abstract pitfall
+			// when the reviewer distilled one. Append handles
+			// dedup + decay + sweep; failure of the persist is
+			// non-fatal (the in-memory critique still drives
+			// THIS retry, only the cross-Run learning is
+			// affected).
+			if out.Pattern != nil && o.failureTaxonomyStore != nil {
+				if saved, perr := o.failureTaxonomyStore.Append(out.Pattern); perr != nil {
+					logging.Warning("[orchestrator] failure_taxonomy persist failed: %v", perr)
+				} else if saved != nil {
+					logging.Info("[orchestrator] failure_taxonomy: persisted pattern %s (hits=%d)",
+						saved.ID, saved.HitCount)
+				}
+			}
 		}
 	}
 	// Worktree handling — two paths:

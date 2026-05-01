@@ -172,6 +172,15 @@ type Orchestrator struct {
 	// and wipes it.
 	nextPhaseHint string
 
+	// failureTaxonomyStore is the per-repo learned-pitfall
+	// cache (stage 3). The reflector emits patterns alongside
+	// observations; stage_hooks.clearForReplan persists them
+	// here. The planner's BuildInitialInstruction reads
+	// RelevantTo to inject active pitfalls into the planning
+	// context. Nil disables the feature (single-shot CLI
+	// flows that don't want cross-Run learning).
+	failureTaxonomyStore *FailureTaxonomyStore
+
 	// phaseContextPrefix is the sticky "## Phase X of Y: <goal>"
 	// header set by seedPlanningHintFromPhase at every phase
 	// entry. Distinct from PlanningHint (which is consume-once,
@@ -712,6 +721,27 @@ type PlanSaver interface {
 // directly via cmd/root.go's writePlanFile).
 func (o *Orchestrator) SetPlanSaver(s PlanSaver) {
 	o.planSaver = s
+}
+
+// SetFailureTaxonomyStore installs the stage-3 per-repo
+// failure-pattern cache. Wired from cmd/root.go using the
+// derived repo slug + user cache dir. Nil = feature disabled
+// (the reflector still runs; emit_failure_pattern emits are
+// dropped at the persist hop, planner injection skips its
+// pitfall section).
+func (o *Orchestrator) SetFailureTaxonomyStore(s *FailureTaxonomyStore) {
+	o.failureTaxonomyStore = s
+}
+
+// FailureTaxonomyStore returns the wired store (or nil when
+// disabled). Exposed for the planner agent's
+// BuildInitialInstruction to read RelevantTo without coupling
+// to the orchestrator's full surface.
+func (o *Orchestrator) FailureTaxonomyStore() *FailureTaxonomyStore {
+	if o == nil {
+		return nil
+	}
+	return o.failureTaxonomyStore
 }
 
 // SetBaselineCaptureEnabled toggles the pre-apply test snapshot.

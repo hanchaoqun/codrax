@@ -47,6 +47,35 @@ type Reflector interface {
 	// failures and retry-plan dispatch unwinds without the reflector
 	// burning the cooperative checkpoint window.
 	Reflect(ctx context.Context, input ReflectorInput) (string, error)
+
+	// ReflectFull is the stage 3 superset: one Chat dispatch that
+	// can emit BOTH the per-iteration observation AND a reusable
+	// FailurePattern (the abstract pitfall to persist into the
+	// repo's Failure Taxonomy). Returns a nil pattern when the
+	// LLM declined to emit one (the failure was too specific or
+	// too unclear to abstract). Stage 3 callers route through
+	// here; commit-32-and-earlier callers stay on Reflect for
+	// back-compat.
+	ReflectFull(ctx context.Context, input ReflectorInput) (*ReflectorOutput, error)
+}
+
+// ReflectorOutput bundles both products of one reflector
+// dispatch: the per-iteration Observation paragraph (consumed
+// via PlanningHint) and an optional reusable Pattern (persisted
+// into the per-repo FailureTaxonomy). One Chat call produces
+// both via tool_choice=auto + two tools in the schema list.
+type ReflectorOutput struct {
+	// Observation is the same per-iteration critique Reflect
+	// returns. May be empty when the LLM emitted only a Pattern.
+	Observation string
+
+	// Pattern is the abstract pitfall the reviewer distilled
+	// from the failure (stage 3, Failure Taxonomy). Nil when
+	// the failure was too specific / too unclear to abstract,
+	// or when the LLM only emitted observation. The store's
+	// Append handles dedup + decay; callers persist by passing
+	// the pattern to FailureTaxonomyStore.Append.
+	Pattern *types.FailurePattern
 }
 
 // ReflectorInput bundles every signal the reviewer needs to make
@@ -136,6 +165,75 @@ var reflectorTool = llm.ToolSchema{
 }`),
 }
 
+// failurePatternTool is the stage 3 second-tool schema: in
+// addition to the per-iteration observation, the reviewer can
+// distill the failure into a reusable abstract pitfall that
+// the planner will see on FUTURE plans in this repo. Optional
+// — the LLM emits this only when the failure is generalisable
+// (a pattern, not a specific test name).
+//
+// Hard constraints encoded in field descriptions:
+//   - name: ≤ 60 chars, abstract not specific (no test names,
+//     no file:line)
+//   - description: 50-300 chars, declarative + actionable
+//   - trigger: 30-200 chars, "when does this fire" precondition
+//   - confidence: 0-1, ≥ 0.5 to be persisted (low-confidence
+//     drops at the Append validator)
+//
+// applies_to_kinds + applies_to_paths let the LLM scope the
+// pattern when applicable — a "stage II rollback semantics"
+// pitfall only makes sense for refactor tasks, not for doc
+// edits. Empty = applies to everything (the planner sees it
+// regardless of task kind).
+var failurePatternTool = llm.ToolSchema{
+	Name:        "emit_failure_pattern",
+	Description: "Distill the failure into a reusable abstract pitfall the planner should remember on FUTURE plans in this repo. Emit ONLY when the underlying mistake generalises (a pattern, not a specific test name). Skip this tool when the failure is too specific or too unclear to abstract.",
+	Parameters: json.RawMessage(`{
+  "type": "object",
+  "properties": {
+    "name": {
+      "type": "string",
+      "description": "Short label (max 60 chars) the planner sees when scoring relevance. Abstract — describe the KIND of mistake, not the specific instance. Bad: \"TestUserAuth fails at line 42\". Good: \"lock-scope drift on new public method\"."
+    },
+    "description": {
+      "type": "string",
+      "description": "2-4 sentences (50-300 chars total) describing the pattern: what shape of mistake produces this failure, how to recognise it, why it matters. Optimised for the planner's reading — terse, declarative, actionable."
+    },
+    "trigger": {
+      "type": "string",
+      "description": "1-2 sentences (30-200 chars) naming the precondition: when does this pitfall fire? Used as a relevance filter on future plans. Examples: \"when adding a method to a goroutine-shared struct\", \"when widening an interface that downstream tests stub\"."
+    },
+    "consequence": {
+      "type": "string",
+      "description": "Optional. 1 sentence naming the failure category (race / panic / assertion drift / build break) that follows when the pitfall is hit. Helps the planner predict downstream cost."
+    },
+    "example_file": {
+      "type": "string",
+      "description": "Optional. The repo-relative file path where this instance was observed. Lets operators trace the abstract pattern back to the concrete code."
+    },
+    "example_line": {
+      "type": "integer",
+      "description": "Optional. The line number in example_file where the issue was located. Zero/missing when not applicable."
+    },
+    "confidence": {
+      "type": "number",
+      "description": "0.0-1.0. How sure are you that this is a real reusable pattern vs a one-off coincidence. Below 0.5 the pattern is dropped at the store; emit only when you'd stake reputation on it being a real trap."
+    },
+    "applies_to_kinds": {
+      "type": "array",
+      "items": {"type": "string"},
+      "description": "Optional. Restrict relevance to specific WriteTask kinds: feature / bug_fix / refactor / misc. Empty = applies to all kinds. Use when the pitfall is structurally only meaningful for one task kind."
+    },
+    "applies_to_paths": {
+      "type": "array",
+      "items": {"type": "string"},
+      "description": "Optional. Repo-relative path PREFIXES the pattern applies to (e.g. \"internal/auth/\"). Empty = applies regardless of which files the next plan touches."
+    }
+  },
+  "required": ["name", "description", "trigger", "confidence"]
+}`),
+}
+
 // reflectorSystemPrompt frames the reviewer as an INDEPENDENT
 // reader, not a fix-prescriber. There are no "DO NOT" lists for
 // specific failure classifications — the reviewer is a model and
@@ -151,7 +249,14 @@ How to write a good observation:
 - Stick to what's defensible from the input. If the data does not let you draw a confident observation, say so in the uncertainty field rather than guessing.
 - One paragraph. 2-4 sentences in observation, optionally 1 sentence in uncertainty.
 - Do not prescribe a fix. Do not write "the planner should…" or "next attempt must…". Describe what is true; the planner decides what to do.
-- Use the same language as the original user request.`
+- Use the same language as the original user request.
+
+Optionally, you may ALSO emit a second tool call: emit_failure_pattern. Use this to distill the failure into an abstract reusable pitfall — the KIND of mistake, not the specific instance. The planner will see this on FUTURE plans in this repo and try to avoid it. Emit a pattern only when:
+- The underlying mistake generalises (other plans in this repo could repeat it).
+- You can name it abstractly (no specific test names, no file:line in the name).
+- You'd stake reputation on it being a real trap (confidence ≥ 0.5).
+
+Skip emit_failure_pattern when the failure is one-off, too specific, or too unclear to abstract. The default is to skip; only emit when the abstraction is solid.`
 
 // llmReflector is the default Reflector implementation. One Chat
 // call per Reflect, opt-in via providers.yaml :: agents.reflector or
@@ -178,42 +283,122 @@ func NewReflector(adapter llm.Adapter) Reflector {
 // the reviewer is a model and reads BaselineAvailable as a fact in
 // its input, no system rule layered on top.
 func (r *llmReflector) Reflect(ctx context.Context, in ReflectorInput) (string, error) {
+	out, err := r.ReflectFull(ctx, in)
+	if out == nil {
+		return "", err
+	}
+	return out.Observation, err
+}
+
+// ReflectFull is the stage 3 superset: one Chat dispatch with
+// BOTH the per-iteration emit_failure_observation tool AND the
+// reusable emit_failure_pattern tool. tool_choice=auto so the
+// LLM can emit either, both, or neither — the observation is
+// effectively required (no observation = empty Observation
+// field), but the pattern is encouraged-only (skip when the
+// failure doesn't generalise).
+//
+// Failure handling: any unmarshal error on a single tool call
+// downgrades that field to zero rather than failing the whole
+// dispatch. A useful observation with a malformed pattern emit
+// is still better than no reflection at all.
+func (r *llmReflector) ReflectFull(ctx context.Context, in ReflectorInput) (*ReflectorOutput, error) {
 	if r == nil || r.adapter == nil {
-		return "", nil
+		return nil, nil
 	}
 	user := renderReflectorUserMessage(in)
 	if strings.TrimSpace(user) == "" {
-		return "", fmt.Errorf("reflector: empty input")
+		return nil, fmt.Errorf("reflector: empty input")
 	}
 	messages := []llm.Message{
 		{Role: "system", Content: reflectorSystemPrompt},
 		{Role: "user", Content: user},
 	}
-	tools := []llm.ToolSchema{reflectorTool}
+	// Both tools available; tool_choice=auto so the LLM
+	// decides whether to emit the pattern. Pre-stage-3 the
+	// schema offered only emit_failure_observation with
+	// tool_choice=required; that contract still holds (the
+	// LLM almost always emits at least the observation).
+	tools := []llm.ToolSchema{reflectorTool, failurePatternTool}
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	resp, err := r.adapter.Chat(ctx, messages, tools, llm.ChatOptions{ToolChoice: "required"})
+	resp, err := r.adapter.Chat(ctx, messages, tools, llm.ChatOptions{ToolChoice: "auto"})
 	if err != nil {
-		return "", fmt.Errorf("reflector llm call: %w", err)
+		return nil, fmt.Errorf("reflector llm call: %w", err)
 	}
 	if len(resp.ToolCalls) == 0 {
-		return "", fmt.Errorf("reflector: LLM returned no tool_call")
+		return nil, fmt.Errorf("reflector: LLM returned no tool_call")
 	}
-	call := resp.ToolCalls[0]
-	if call.Name != reflectorTool.Name {
-		return "", fmt.Errorf("reflector: unexpected tool %q", call.Name)
+	out := &ReflectorOutput{}
+	for _, call := range resp.ToolCalls {
+		switch call.Name {
+		case reflectorTool.Name:
+			var parsed struct {
+				Observation string `json:"observation"`
+				Uncertainty string `json:"uncertainty"`
+			}
+			if err := json.Unmarshal(call.Params, &parsed); err != nil {
+				logging.Warning("[reflector] observation unmarshal failed (skipping): %v", err)
+				continue
+			}
+			out.Observation = assembleObservation(parsed.Observation, parsed.Uncertainty)
+		case failurePatternTool.Name:
+			pattern, perr := unmarshalFailurePattern(call.Params)
+			if perr != nil {
+				logging.Warning("[reflector] failure_pattern unmarshal failed (skipping): %v", perr)
+				continue
+			}
+			out.Pattern = pattern
+		default:
+			logging.Warning("[reflector] unexpected tool %q in response (skipping)", call.Name)
+		}
 	}
-	var parsed struct {
-		Observation string `json:"observation"`
-		Uncertainty string `json:"uncertainty"`
-	}
-	if err := json.Unmarshal(call.Params, &parsed); err != nil {
-		return "", fmt.Errorf("reflector: unmarshal tool params: %w", err)
-	}
-	out := assembleObservation(parsed.Observation, parsed.Uncertainty)
-	logging.Info("[reflector] attempt=%d observation=%q", in.Attempt, oneLineClamp(out, 200))
+	logging.Info("[reflector] attempt=%d observation=%q pattern=%v",
+		in.Attempt, oneLineClamp(out.Observation, 200), out.Pattern != nil)
 	return out, nil
+}
+
+// unmarshalFailurePattern decodes the LLM's emit_failure_pattern
+// arguments + applies emit-time validation. Returns nil pattern
+// + non-nil err when the schema is too lax (low confidence,
+// missing required fields). Successful parses populate
+// FirstSeen/LastSeen/HitCount via the store's Append.
+func unmarshalFailurePattern(raw json.RawMessage) (*types.FailurePattern, error) {
+	var parsed struct {
+		Name           string   `json:"name"`
+		Description    string   `json:"description"`
+		Trigger        string   `json:"trigger"`
+		Consequence    string   `json:"consequence"`
+		ExampleFile    string   `json:"example_file"`
+		ExampleLine    int      `json:"example_line"`
+		Confidence     float64  `json:"confidence"`
+		AppliesToKinds []string `json:"applies_to_kinds"`
+		AppliesToPaths []string `json:"applies_to_paths"`
+	}
+	if err := json.Unmarshal(raw, &parsed); err != nil {
+		return nil, fmt.Errorf("decode emit_failure_pattern: %w", err)
+	}
+	pattern := &types.FailurePattern{
+		Name:           strings.TrimSpace(parsed.Name),
+		Description:    strings.TrimSpace(parsed.Description),
+		Trigger:        strings.TrimSpace(parsed.Trigger),
+		Consequence:    strings.TrimSpace(parsed.Consequence),
+		ExampleFile:    strings.TrimSpace(parsed.ExampleFile),
+		ExampleLine:    parsed.ExampleLine,
+		Confidence:     parsed.Confidence,
+		AppliesToKinds: parsed.AppliesToKinds,
+		AppliesToPaths: parsed.AppliesToPaths,
+	}
+	if !pattern.IsValid() {
+		return nil, fmt.Errorf("emit_failure_pattern fails validation: name=%q desc-len=%d trig-len=%d conf=%.2f",
+			pattern.Name, len(pattern.Description), len(pattern.Trigger), pattern.Confidence)
+	}
+	if pattern.Confidence < 0.5 {
+		return nil, fmt.Errorf("emit_failure_pattern confidence %.2f < 0.5 floor; dropping",
+			pattern.Confidence)
+	}
+	return pattern, nil
 }
 
 // renderReflectorUserMessage assembles the reviewer's input as a

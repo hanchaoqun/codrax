@@ -938,6 +938,18 @@ func runREPL(_ *cobra.Command) error {
 	// ModePlan-only auto-save and the CLI's writePlanFile path,
 	// so phase plans need their own hook into PlanStore.
 	app.orch.SetPlanSaver(planStore)
+	// Stage 3: per-repo Failure Taxonomy. Cache lives at
+	// <flagCacheDir>/<repo-slug>/failure_taxonomy.json so
+	// multi-repo workflows don't cross-contaminate. Disabled
+	// when flagCacheDir or the repo slug is empty (single-shot
+	// CLI flows that don't accumulate cross-Run learning). The
+	// store is opt-out: the planner reads RelevantTo
+	// regardless of yaml flags, so absent operator
+	// configuration just yields an empty pitfall set.
+	if slug := repoSlug(flagRepo); slug != "" && flagCacheDir != "" {
+		store := orchestrator.NewFailureTaxonomyStore(flagCacheDir, slug, 0, 0)
+		app.orch.SetFailureTaxonomyStore(store)
+	}
 	r := repl.New(repl.Config{
 		Runner:             app.orch,
 		Store:              store,

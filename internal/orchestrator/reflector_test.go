@@ -205,3 +205,125 @@ func TestReflector_SystemPromptHasNoPrescriptiveGuards(t *testing.T) {
 		}
 	}
 }
+
+// TestReflectFull_BothToolsEmittedReturnObservationAndPattern
+// pins commit 35-36's stage 3 path: when the LLM emits BOTH
+// emit_failure_observation AND emit_failure_pattern in one
+// dispatch, ReflectFull returns both products. The Pattern is
+// extracted via unmarshalFailurePattern + validation passes.
+func TestReflectFull_BothToolsEmittedReturnObservationAndPattern(t *testing.T) {
+	stub := &reflectorStubAdapter{
+		resp: llm.Response{
+			ToolCalls: []llm.ToolCall{
+				{
+					Name:   "emit_failure_observation",
+					Params: json.RawMessage(`{"observation": "the plan modified handler.py but the failing test exercises a path the plan left unchanged"}`),
+				},
+				{
+					Name: "emit_failure_pattern",
+					Params: json.RawMessage(`{
+						"name": "stale-fixture-on-interface-widen",
+						"description": "When an interface is widened with a new method, the test fixtures stubbing it tend to lag — the new method's stub default falls back to zero/empty values that pass the obvious assertions but break code paths exercising the new method.",
+						"trigger": "widening an interface that downstream tests stub",
+						"consequence": "test passes but production hits zero-value fallback path",
+						"confidence": 0.8,
+						"applies_to_kinds": ["feature", "refactor"]
+					}`),
+				},
+			},
+		},
+	}
+	r := NewReflector(stub).(*llmReflector)
+	out, err := r.ReflectFull(context.Background(), ReflectorInput{
+		Attempt: 1, OriginalRequest: "widen Authenticator interface",
+		FailingTests: []ReflectorFailedTest{{Suite: "auth", AssertionID: "TestSession"}},
+	})
+	if err != nil {
+		t.Fatalf("ReflectFull: %v", err)
+	}
+	if out == nil {
+		t.Fatal("expected non-nil output")
+	}
+	if !strings.Contains(out.Observation, "the plan modified handler.py") {
+		t.Errorf("observation drift; got %q", out.Observation)
+	}
+	if out.Pattern == nil {
+		t.Fatal("expected non-nil pattern")
+	}
+	if out.Pattern.Name != "stale-fixture-on-interface-widen" {
+		t.Errorf("pattern name drift; got %q", out.Pattern.Name)
+	}
+	if out.Pattern.Confidence != 0.8 {
+		t.Errorf("confidence drift; got %f", out.Pattern.Confidence)
+	}
+	if len(out.Pattern.AppliesToKinds) != 2 {
+		t.Errorf("applies_to_kinds drift; got %v", out.Pattern.AppliesToKinds)
+	}
+}
+
+// TestReflectFull_LowConfidencePatternDropped pins the floor:
+// emit_failure_pattern with confidence < 0.5 is dropped at the
+// unmarshal validator (cried-wolf noise reduction). The
+// observation still flows through; only Pattern is nil.
+func TestReflectFull_LowConfidencePatternDropped(t *testing.T) {
+	stub := &reflectorStubAdapter{
+		resp: llm.Response{
+			ToolCalls: []llm.ToolCall{
+				{Name: "emit_failure_observation",
+					Params: json.RawMessage(`{"observation": "obs text long enough to land here"}`)},
+				{Name: "emit_failure_pattern",
+					Params: json.RawMessage(`{
+						"name": "uncertain low-confidence pattern emit",
+						"description": "Some failure that the reviewer was not really sure about but emitted anyway just in case it might be a thing",
+						"trigger": "some uncertain trigger condition",
+						"confidence": 0.3
+					}`)},
+			},
+		},
+	}
+	r := NewReflector(stub).(*llmReflector)
+	out, err := r.ReflectFull(context.Background(), ReflectorInput{Attempt: 1, FailingTests: []ReflectorFailedTest{{Suite: "x", AssertionID: "y"}}})
+	if err != nil {
+		t.Fatalf("ReflectFull: %v", err)
+	}
+	if out.Pattern != nil {
+		t.Errorf("low-confidence pattern should be dropped; got %+v", out.Pattern)
+	}
+	if !strings.Contains(out.Observation, "obs text") {
+		t.Errorf("observation should still flow; got %q", out.Observation)
+	}
+}
+
+// TestReflectFull_BothToolsInSchema pins the dispatch tool
+// list: the Chat call must offer BOTH emit_failure_observation
+// AND emit_failure_pattern so the LLM has the option to emit
+// a pattern. Pre-stage-3 only the observation tool was
+// offered; regressing to that would silently disable stage 3
+// without surfacing a fail.
+func TestReflectFull_BothToolsInSchema(t *testing.T) {
+	stub := &reflectorStubAdapter{
+		resp: llm.Response{
+			ToolCalls: []llm.ToolCall{{Name: "emit_failure_observation",
+				Params: json.RawMessage(`{"observation": "ok"}`)}},
+		},
+	}
+	r := NewReflector(stub).(*llmReflector)
+	if _, err := r.ReflectFull(context.Background(), ReflectorInput{Attempt: 1, FailingTests: []ReflectorFailedTest{{Suite: "x", AssertionID: "y"}}}); err != nil {
+		t.Fatalf("ReflectFull: %v", err)
+	}
+	if len(stub.lastTools) != 2 {
+		t.Fatalf("expected 2 tools in dispatch; got %d", len(stub.lastTools))
+	}
+	hasObs, hasPat := false, false
+	for _, tool := range stub.lastTools {
+		if tool.Name == "emit_failure_observation" {
+			hasObs = true
+		}
+		if tool.Name == "emit_failure_pattern" {
+			hasPat = true
+		}
+	}
+	if !hasObs || !hasPat {
+		t.Errorf("both tools required; got obs=%v pat=%v", hasObs, hasPat)
+	}
+}
