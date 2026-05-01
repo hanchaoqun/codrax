@@ -1739,6 +1739,20 @@ func validateConfigTraceAbsenceCitationFocus(ctx *types.BusContext, exact *types
 	relatedContextCitations := 0
 	for idx, cite := range citations {
 		matched := matchingEvidenceForCitation(pool, cite)
+		// 2026-05+ scope axis: schema-level scopes (File / Crossfile /
+		// Negative) are first-class config-trace absence anchors —
+		// they're not "grounded code at file:line" but they ARE
+		// validated layer-identity / cross-file-contract / absence
+		// proofs. Accept any grounded schema-level anchor without
+		// running the per-line role validation that's meant for
+		// line-shaped evidence.
+		if matched.GroundingStatus == types.GroundingGrounded &&
+			(matched.Scope == types.ScopeFile ||
+				matched.Scope == types.ScopeCrossfile ||
+				matched.Scope == types.ScopeNegative) {
+			relatedContextCitations++
+			continue
+		}
 		if configTraceAbsenceCitationAllowed(ctx, contract, matched) {
 			if matched.ContextRole != types.EvidenceContextRoleAbsenceSupport &&
 				types.ConfigTraceGroundedContextAnchorAllowedInFiles(contract, matched, requiredFiles) {
@@ -3770,6 +3784,30 @@ func buildSummaryDiagramAllowlist(citations []types.Citation, gc *ground.Context
 		if bundle := ctx.Mutable.LogTriage(); bundle != nil {
 			for _, f := range bundle.ResolvedFiles {
 				addDiagramAllowToken(&allow, f)
+			}
+		}
+	}
+	// 2026-05+ scope axis: schema-level scopes (File / Crossfile /
+	// Negative) carry layer/contract/absence anchors that should be
+	// citable in diagrams. Add their associated file paths to the
+	// allowlist so a diagram node `codrax.yaml` is grounded by a
+	// ScopeFile + FileRoleConfigCanonical evidence item.
+	for _, ev := range evidencePool {
+		if ev.GroundingStatus != types.GroundingGrounded {
+			continue
+		}
+		switch ev.Scope {
+		case types.ScopeFile:
+			addDiagramAllowToken(&allow, ev.Source)
+		case types.ScopeCrossfile:
+			if ev.CrossfileQuery != nil {
+				for _, f := range ev.CrossfileQuery.Files {
+					addDiagramAllowToken(&allow, f)
+				}
+			}
+		case types.ScopeNegative:
+			if ev.NegativeQuery != nil {
+				addDiagramAllowToken(&allow, ev.NegativeQuery.File)
 			}
 		}
 	}
