@@ -8,19 +8,21 @@ import (
 )
 
 // TestDock_FirstPaintNoRewind locks the load-bearing first-paint
-// invariant: the very first paintDock MUST NOT issue \x1b[3A. There
-// is no prior dock to rewind over; doing so would scroll terminal
-// content above the cursor up off-screen and corrupt the user's
-// scrollback before the dock has even appeared.
+// invariant: the very first paintDock MUST NOT issue any cursor-up
+// sequence. There is no prior dock to rewind over; doing so would
+// scroll terminal content above the cursor up off-screen and corrupt
+// the user's scrollback before the dock has even appeared. The first
+// paint also emits the dock's leading blank line so the visual gap
+// appears immediately on activation.
 func TestDock_FirstPaintNoRewind(t *testing.T) {
 	var buf bytes.Buffer
 	d := newDock(&buf)
 	d.paintDock([dockRowCount]string{"row1", "row2", "row3"})
 	out := buf.String()
-	if strings.Contains(out, "\x1b[3A") {
-		t.Errorf("first paintDock must NOT emit \\x1b[3A; got: %q", out)
+	if strings.Contains(out, "\x1b[") {
+		t.Errorf("first paintDock must NOT emit any ANSI cursor escape; got: %q", out)
 	}
-	if want := "row1\nrow2\nrow3\n"; out != want {
+	if want := "\nrow1\nrow2\nrow3\n"; out != want {
 		t.Errorf("first paintDock output = %q, want %q", out, want)
 	}
 	if !d.dirty {
@@ -32,10 +34,11 @@ func TestDock_FirstPaintNoRewind(t *testing.T) {
 }
 
 // TestDock_SubsequentPaintRewinds verifies that paintDock #2+
-// emits the \x1b[3A\x1b[J rewind+clear sequence so the previous
-// dock visual is wiped before the new rows are drawn. Without this
-// every paint would stack a fresh 3 rows below the previous, which
-// is the exact "drift" symptom the dock redesign aimed to eliminate.
+// emits the \x1b[4A\x1b[J rewind+clear sequence (4 = leading blank
+// + 3 content rows) so the previous dock visual is wiped before the
+// new blank + rows are drawn. Without this every paint would stack
+// a fresh 4 lines below the previous, which is the exact "drift"
+// symptom the dock redesign aimed to eliminate.
 func TestDock_SubsequentPaintRewinds(t *testing.T) {
 	var buf bytes.Buffer
 	d := newDock(&buf)
@@ -43,19 +46,22 @@ func TestDock_SubsequentPaintRewinds(t *testing.T) {
 	buf.Reset()
 	d.paintDock([dockRowCount]string{"d", "e", "f"})
 	out := buf.String()
-	if !strings.HasPrefix(out, "\x1b[3A\x1b[J") {
-		t.Errorf("subsequent paintDock must start with \\x1b[3A\\x1b[J; got: %q", out)
+	if !strings.HasPrefix(out, "\x1b[4A\x1b[J") {
+		t.Errorf("subsequent paintDock must start with \\x1b[4A\\x1b[J; got: %q", out)
 	}
-	if want := "\x1b[3A\x1b[Jd\ne\nf\n"; out != want {
+	if want := "\x1b[4A\x1b[J\nd\ne\nf\n"; out != want {
 		t.Errorf("subsequent paint output = %q, want %q", out, want)
 	}
 }
 
 // TestDock_CommitToScrollbackOrder pins the byte sequence of a
-// commit while the dock is dirty: rewind → body → '\n' → 3 rows →
-// '\n' each. Order matters because the body lands ABOVE the
-// re-painted dock, which is what gives the user the illusion of
-// "scrollback grows under a fixed dock".
+// commit while the dock is dirty: rewind 4 → body → '\n' → leading
+// blank → 3 rows → '\n' each. Order matters because the body lands
+// ABOVE the re-painted dock, which is what gives the user the
+// illusion of "scrollback grows under a fixed dock". The blank
+// line is emitted INSIDE the dock region (between body and rows)
+// so it gets wiped + rewritten on every commit and never escapes
+// into permanent scrollback.
 func TestDock_CommitToScrollbackOrder(t *testing.T) {
 	var buf bytes.Buffer
 	d := newDock(&buf)
@@ -63,7 +69,7 @@ func TestDock_CommitToScrollbackOrder(t *testing.T) {
 	buf.Reset()
 	d.commitToScrollback("✓ stage done\n", [dockRowCount]string{"r1b", "r2b", "r3b"})
 	out := buf.String()
-	want := "\x1b[3A\x1b[J✓ stage done\nr1b\nr2b\nr3b\n"
+	want := "\x1b[4A\x1b[J✓ stage done\n\nr1b\nr2b\nr3b\n"
 	if out != want {
 		t.Errorf("commit byte sequence = %q, want %q", out, want)
 	}
@@ -72,18 +78,19 @@ func TestDock_CommitToScrollbackOrder(t *testing.T) {
 // TestDock_CommitWhenInactiveSkipsRewind verifies that when the
 // dock has not been painted yet (first commit before first paint),
 // commitToScrollback writes the body directly + paints fresh —
-// without an erroneous \x1b[3A that would scroll real terminal
-// content off-screen.
+// without an erroneous cursor-up that would scroll real terminal
+// content off-screen. The first paintDock then supplies the
+// dock's leading blank line as part of the dock region.
 func TestDock_CommitWhenInactiveSkipsRewind(t *testing.T) {
 	var buf bytes.Buffer
 	d := newDock(&buf)
 	d.commitToScrollback("first line\n", [dockRowCount]string{"a", "b", "c"})
 	out := buf.String()
-	if strings.Contains(out, "\x1b[3A") {
+	if strings.Contains(out, "\x1b[") {
 		t.Errorf("commit when dock inactive must NOT rewind; got: %q", out)
 	}
-	if !strings.HasPrefix(out, "first line\n") {
-		t.Errorf("commit body must come first; got: %q", out)
+	if want := "first line\n\na\nb\nc\n"; out != want {
+		t.Errorf("commit-then-firstPaint sequence = %q, want %q", out, want)
 	}
 }
 
@@ -96,8 +103,8 @@ func TestDock_ClearDockIdempotent(t *testing.T) {
 	d.paintDock([dockRowCount]string{"a", "b", "c"})
 	buf.Reset()
 	d.clearDock()
-	if !strings.HasPrefix(buf.String(), "\x1b[3A\x1b[J") {
-		t.Errorf("clearDock must emit \\x1b[3A\\x1b[J; got: %q", buf.String())
+	if !strings.HasPrefix(buf.String(), "\x1b[4A\x1b[J") {
+		t.Errorf("clearDock must emit \\x1b[4A\\x1b[J; got: %q", buf.String())
 	}
 	buf.Reset()
 	d.clearDock()

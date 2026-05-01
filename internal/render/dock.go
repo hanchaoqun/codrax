@@ -7,44 +7,56 @@ import (
 	"time"
 )
 
-// dockRowCount is the fixed height of the dock. Three rows is the
-// kubectl/docker-pull layout: row 1 high-speed (status + stream
+// dockRowCount is the fixed CONTENT height of the dock. Three rows is
+// the kubectl/docker-pull layout: row 1 high-speed (status + stream
 // tail), row 2 mid-speed (stage + counters), row 3 low-speed (time +
 // cancel hint). Hardcoded because every paintDock / clearDock
 // arithmetic depends on it; a 2-row or 4-row variant is a separate
 // dock primitive.
+//
+// On screen the dock occupies dockRowCount+1 lines: ONE leading blank
+// line (visual gap separating the dock from the permanent scrollback
+// above) + dockRowCount content lines. Every rewind / clear sequence
+// uses dockRowCount+1 so the blank line is wiped + repainted in lock
+// step with the content rows — it lives inside the dock region and
+// never escapes into the permanent scrollback.
 const dockRowCount = 3
 
-// dock owns the bottom-anchored 3-row status region. Single
-// instance per Renderer, lifecycle bound to StartSpinner /
-// StopSpinner.
+// dock owns the bottom-anchored status region — 1 leading blank line
+// + 3 content rows = 4 on-screen lines total. Single instance per
+// Renderer, lifecycle bound to StartSpinner / StopSpinner.
 //
 // Design contract (load-bearing):
 //
-//   1. dock paints in place. Cursor parks at "row 3 + 1, column 0"
-//      after every paintDock — this is the only stable anchor.
+//   1. dock paints in place. Cursor parks at "blank + 3 content rows
+//      + 1, column 0" after every paintDock — this is the only
+//      stable anchor.
 //   2. commitToScrollback is the ONLY way to write durable text
-//      while the dock is alive. It does: cursor up 3 → \x1b[J →
+//      while the dock is alive. It does: cursor up 4 → \x1b[J →
 //      writes the durable body (one or many lines) → re-paints the
-//      3-row dock → cursor parks back. The dock visually ends up
-//      below the new scrollback content with zero flicker.
-//   3. paintDock + clearDock + commitToScrollback all use \x1b[3A
-//      (ANSI cursor up by 3) followed by \x1b[J (clear from cursor
-//      to end of screen). That sequence is universal back to VT100.
+//      blank + 3-row dock → cursor parks back. The dock visually
+//      ends up below the new scrollback content with zero flicker.
+//   3. paintDock + clearDock + commitToScrollback all use \x1b[4A
+//      (ANSI cursor up by dockRowCount+1) followed by \x1b[J
+//      (clear from cursor to end of screen). That sequence wipes
+//      the dock's leading blank line + 3 content rows together so
+//      the blank stays inside the dock region and never escapes
+//      into permanent scrollback. Universal back to VT100.
 //   4. dirty tracks "is the dock currently on screen". paintDock
 //      flips it true; clearDock + the !dirty branch in
 //      commitToScrollback flip it false. The first paint MUST
-//      happen via paintDock (no \x1b[3A) — see firstPaint flag.
+//      happen via paintDock (no \x1b[4A) — see firstPaint flag.
 //   5. Concurrency: dock is NOT goroutine-safe; the Renderer's
 //      r.mu serializes all dock methods.
 type dock struct {
 	w     io.Writer
 	dirty bool // true when the 3 rows are currently visible
 
-	// firstPaint is true until the first paintDock writes the 3
-	// rows. The first paint must NOT issue \x1b[3A because there
-	// is no prior dock to rewind over — doing so would scroll
-	// terminal content above the cursor up off-screen.
+	// firstPaint is true until the first paintDock writes the
+	// blank-line gap + 3 rows. The first paint must NOT issue
+	// \x1b[4A because there is no prior dock to rewind over —
+	// doing so would scroll terminal content above the cursor up
+	// off-screen.
 	firstPaint bool
 
 	// lastRows holds the three styled lines from the most recent
@@ -76,8 +88,11 @@ func (d *dock) paintDock(rows [dockRowCount]string) {
 	d.lastRows = rows
 	if d.firstPaint {
 		// First-ever paint: don't rewind (nothing to rewind over).
-		// Just write the 3 rows + park cursor on the line below.
+		// Write blank-line gap + 3 rows + park cursor on the line
+		// below. The leading blank is part of the dock region so
+		// subsequent rewinds wipe it together with the rows.
 		var b strings.Builder
+		b.WriteString("\n")
 		for i := 0; i < dockRowCount; i++ {
 			b.WriteString(rows[i])
 			b.WriteString("\n")
@@ -87,14 +102,15 @@ func (d *dock) paintDock(rows [dockRowCount]string) {
 		d.dirty = true
 		return
 	}
-	// Subsequent paint: rewind 3 lines, clear screen below cursor,
-	// rewrite 3 rows, park cursor. The clear sequence wipes the
-	// previous dock content AND any half-finished animation
-	// remnants below.
+	// Subsequent paint: rewind 4 lines (blank + 3 rows), clear
+	// screen below cursor, rewrite blank + 3 rows, park cursor. The
+	// clear sequence wipes the previous dock content AND any
+	// half-finished animation remnants below.
 	var b strings.Builder
 	b.WriteString("\x1b[")
-	b.WriteString(dockItoa(dockRowCount))
+	b.WriteString(dockItoa(dockRowCount + 1))
 	b.WriteString("A\x1b[J")
+	b.WriteString("\n")
 	for i := 0; i < dockRowCount; i++ {
 		b.WriteString(rows[i])
 		b.WriteString("\n")
@@ -105,27 +121,34 @@ func (d *dock) paintDock(rows [dockRowCount]string) {
 
 // commitToScrollback writes durable text ABOVE the dock. The dock
 // stays visible at the bottom; the new scrollback content lands
-// between any prior scrollback and the dock.
+// between any prior scrollback and the dock's leading blank line.
 //
 // body MAY contain multiple lines (separated by '\n'). The function
 // adds a single trailing newline so the dock prints on a fresh
 // line after the body. Empty body is a no-op.
 //
 // Mechanism:
-//   1. Rewind 3 + clear-to-end (wipes the current dock visual)
+//   1. Rewind 4 + clear-to-end (wipes the current dock visual:
+//      blank line + 3 content rows)
 //   2. Write body + '\n'
-//   3. Repaint the 3 dock rows
+//   3. Repaint blank-line gap + 3 dock rows
 //   4. Cursor parks at "below row 3"
+//
+// The blank-line gap belongs to the dock region (gets wiped + rewritten
+// every cycle), so the visual separation between permanent scrollback
+// and the dock is preserved on every commit and never leaks into
+// permanent scrollback.
 //
 // Pre-condition: dock has been painted at least once (dirty=true).
 // When dirty=false, body is written as-is and the next paintDock
-// will run as firstPaint.
+// will run as firstPaint (which itself emits the leading blank).
 func (d *dock) commitToScrollback(body string, rows [dockRowCount]string) {
 	if d == nil || body == "" {
 		return
 	}
 	if !d.dirty {
 		// No dock on screen; just write body + paintDock fresh.
+		// paintDock(firstPaint) supplies the leading blank itself.
 		fmt.Fprint(d.w, body)
 		if !strings.HasSuffix(body, "\n") {
 			fmt.Fprint(d.w, "\n")
@@ -135,12 +158,13 @@ func (d *dock) commitToScrollback(body string, rows [dockRowCount]string) {
 	}
 	var b strings.Builder
 	b.WriteString("\x1b[")
-	b.WriteString(dockItoa(dockRowCount))
+	b.WriteString(dockItoa(dockRowCount + 1))
 	b.WriteString("A\x1b[J")
 	b.WriteString(body)
 	if !strings.HasSuffix(body, "\n") {
 		b.WriteString("\n")
 	}
+	b.WriteString("\n")
 	for i := 0; i < dockRowCount; i++ {
 		b.WriteString(rows[i])
 		b.WriteString("\n")
@@ -149,9 +173,10 @@ func (d *dock) commitToScrollback(body string, rows [dockRowCount]string) {
 	d.lastRows = rows
 }
 
-// clearDock erases the 3 dock rows and resets state. The cursor
-// parks at the original dock-top line so subsequent writes land
-// where the dock used to be.
+// clearDock erases the dock (leading blank + 3 content rows) and
+// resets state. The cursor parks at the original dock-top line (the
+// blank's position) so subsequent writes land where the dock used to
+// be — and the visual gap is gone with the rest of the dock.
 //
 // Idempotent: clearDock on an already-cleared dock is a no-op.
 func (d *dock) clearDock() {
@@ -160,7 +185,7 @@ func (d *dock) clearDock() {
 	}
 	var b strings.Builder
 	b.WriteString("\x1b[")
-	b.WriteString(dockItoa(dockRowCount))
+	b.WriteString(dockItoa(dockRowCount + 1))
 	b.WriteString("A\x1b[J")
 	fmt.Fprint(d.w, b.String())
 	d.dirty = false
