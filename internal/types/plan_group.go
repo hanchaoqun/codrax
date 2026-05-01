@@ -109,6 +109,18 @@ type PhaseRecord struct {
 	// distinguishable states.
 	StartedAt  *time.Time `json:"started_at,omitempty"`
 	FinishedAt *time.Time `json:"finished_at,omitempty"`
+
+	// OwnerPID is the orchestrator process id that set this
+	// phase to in_progress. Used by FindActiveGroup's orphan
+	// reaper: when a process crashes mid-phase (SIGKILL / panic
+	// / OOM) the phase stays at in_progress on disk forever, so
+	// the next REPL session needs a way to detect "the
+	// orchestrator that owned this phase is dead" and surface
+	// a recoverable state to the operator instead of silently
+	// resuming a half-finished group. Zero on phases set by
+	// the operator (`/phase next` / `/phase skip`) — those
+	// don't belong to a running orchestrator.
+	OwnerPID int `json:"owner_pid,omitempty"`
 }
 
 // AcceptanceCheck is the per-phase "did this phase actually
@@ -180,6 +192,34 @@ func IsTerminalGroupStatus(s PlanGroupStatus) bool {
 		return true
 	}
 	return false
+}
+
+// PhaseLivenessChecker abstracts the OS pid-liveness probe so
+// callers can stub it in tests. Production wiring uses
+// internal/logging.IsPidAlive (cross-platform); tests inject
+// a deterministic answer. Zero-pid inputs MUST return true so
+// operator-driven phase transitions (no OwnerPID stamp) don't
+// trip the orphan reaper.
+type PhaseLivenessChecker func(pid int) bool
+
+// IsOrphanedActivePhase reports whether the named phase has a
+// stale OwnerPID — set to in_progress by a process that is no
+// longer alive. Callers route through PhaseLivenessChecker so
+// tests can deterministically answer "pid alive / dead". When
+// OwnerPID is zero the phase didn't claim ownership (operator
+// /phase next / /phase skip set the status) and the function
+// returns false unconditionally.
+func IsOrphanedActivePhase(phase *PhaseRecord, alive PhaseLivenessChecker) bool {
+	if phase == nil || alive == nil {
+		return false
+	}
+	if phase.Status != PhaseInProgress {
+		return false
+	}
+	if phase.OwnerPID == 0 {
+		return false
+	}
+	return !alive(phase.OwnerPID)
 }
 
 // PhaseStatus is the closed set of per-phase lifecycle

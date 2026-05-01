@@ -132,8 +132,8 @@ var slashCommands = []slashCommand{
 	},
 	{
 		Name:   "/mode",
-		HelpEn: "show or set the sticky pipeline mode",
-		HelpZh: "显示 / 设置粘滞模式",
+		HelpEn: "show or set the sticky pipeline mode (write-mode subcommands require write_enabled: true)",
+		HelpZh: "显示 / 设置粘滞模式(写模式子命令需要 codrax.yaml 设置 write_enabled: true)",
 		Subs: []slashSubcommand{
 			{"read", "switch to read mode (default; analyze→explore→extract→finalize)",
 				"切换到读模式(默认;analyze→explore→extract→finalize)"},
@@ -168,8 +168,8 @@ var slashCommands = []slashCommand{
 	},
 	{
 		Name:   "/approve",
-		HelpEn: "consume the pending plan — apply + verify inside a git worktree",
-		HelpZh: "批准待审 plan — 在 git worktree 内 apply + verify",
+		HelpEn: "consume the pending plan — apply + verify inside a git worktree (write mode only)",
+		HelpZh: "批准待审 plan — 在 git worktree 内 apply + verify(写模式专属)",
 		Subs: []slashSubcommand{
 			{"<plan-id>", "target a specific plan by ID instead of the most-recent pending one (positional)",
 				"按 ID 指定 plan 而不是默认的最新 pending(位置参数)"},
@@ -181,12 +181,12 @@ var slashCommands = []slashCommand{
 				"只 apply,完全跳过 verify(不跑 run_tests,plan 直接标 applied)— 本地起不了集成测试时用"},
 		},
 	},
-	{Name: "/reject", HelpEn: "discard the pending plan (free-form reason recorded in memory)",
-		HelpZh: "拒绝待审 plan(可选附理由,记入 memory)"},
+	{Name: "/reject", HelpEn: "discard the pending plan (free-form reason recorded in memory; write mode only)",
+		HelpZh: "拒绝待审 plan(可选附理由,记入 memory;写模式专属)"},
 	{
 		Name:   "/verify",
-		HelpEn: "re-run verify against an applied plan without re-applying",
-		HelpZh: "对已 apply 的 plan 重跑 verify(不再重跑 apply)",
+		HelpEn: "re-run verify against an applied plan without re-applying (write mode only)",
+		HelpZh: "对已 apply 的 plan 重跑 verify(不再重跑 apply;写模式专属)",
 		Subs: []slashSubcommand{
 			{"<plan-id>", "target a specific applied plan by ID instead of the pending pointer",
 				"按 ID 指定要重跑 verify 的 applied plan(默认用 pending 指针)"},
@@ -194,8 +194,8 @@ var slashCommands = []slashCommand{
 	},
 	{
 		Name:   "/worktree",
-		HelpEn: "manage preserved worktrees from successful applies",
-		HelpZh: "管理成功 apply 时保留的 worktree",
+		HelpEn: "manage preserved worktrees from successful applies (write mode only)",
+		HelpZh: "管理成功 apply 时保留的 worktree(写模式专属)",
 		Subs: []slashSubcommand{
 			{"list", "show every applied plan with a live preserved worktree",
 				"列出所有 applied + worktree 仍存活的 plan"},
@@ -205,8 +205,8 @@ var slashCommands = []slashCommand{
 	},
 	{
 		Name:   "/merge",
-		HelpEn: "fold an applied plan back into the main repo",
-		HelpZh: "把已 apply 的 plan 合回主仓",
+		HelpEn: "fold an applied plan back into the main repo (write mode only)",
+		HelpZh: "把已 apply 的 plan 合回主仓(写模式专属)",
 		Subs: []slashSubcommand{
 			{"--branch=<name>", "create a new branch on main repo + cherry-pick onto it (PR workflow); without this flag, fast-forward into r.branch",
 				"在主仓上拉新分支并 cherry-pick(PR 流);不传时 fast-forward 到 r.branch"},
@@ -254,8 +254,8 @@ var slashCommands = []slashCommand{
 	},
 	{
 		Name:   "/phase",
-		HelpEn: "inspect / advance / rollback / resume a multi-phase plan when one is in flight",
-		HelpZh: "查看 / 推进 / 回退 / 续跑正在执行的多阶段方案",
+		HelpEn: "inspect / advance / rollback / resume a multi-phase plan when one is in flight (write mode only)",
+		HelpZh: "查看 / 推进 / 回退 / 续跑正在执行的多阶段方案(写模式专属)",
 		Subs: []slashSubcommand{
 			{"show", "show the active group + each phase status (default)", "查看当前方案组 + 每个阶段状态(默认)"},
 			{"show <group-id>", "show a specific group by id", "按 id 查看指定方案组"},

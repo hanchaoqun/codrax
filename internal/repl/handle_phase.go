@@ -6,9 +6,16 @@ import (
 	"strings"
 	"time"
 
+	"github.com/hanchaoqun/codrax/internal/logging"
 	"github.com/hanchaoqun/codrax/internal/types"
 	"github.com/hanchaoqun/codrax/internal/worktree"
 )
+
+// phaseLivenessProbe is the production PhaseLivenessChecker —
+// routes through internal/logging.IsPidAlive so the same
+// cross-platform probe used by log retention serves the
+// orphan-reaper. Tests can swap a stub via REPL.phaseAlive.
+var phaseLivenessProbe types.PhaseLivenessChecker = logging.IsPidAlive
 
 // handlePhaseCmd services the /phase subcommand family. Operator
 // surface for stage II's multi-phase PlanGroups (commit 18+).
@@ -117,8 +124,23 @@ func (r *REPL) phaseShow(groupID string) {
 		if p.Index == g.ActiveIdx && !types.IsTerminalGroupStatus(g.Status) {
 			marker = "→ "
 		}
+		statusLabel := "(" + string(p.Status) + ")"
+		// Orphan reaper surface (commit 29): an in_progress
+		// phase whose OwnerPID is no longer alive means the
+		// orchestrator that was running it died (SIGKILL /
+		// panic / OOM / kill -9). Tag the status so the
+		// operator sees a recoverable state instead of a phase
+		// that looks live but isn't. We do NOT auto-mutate the
+		// on-disk record — operators run /phase rollback to
+		// reset; auto-rewriting state behind their back would
+		// race with a slow but recovering process.
+		phaseCopy := p
+		if types.IsOrphanedActivePhase(&phaseCopy, phaseLivenessProbe) {
+			statusLabel = "(in_progress — ORPHANED, owner pid " +
+				strconv.Itoa(p.OwnerPID) + " not alive)"
+		}
 		fmt.Fprintf(r.out, "    %s[%d] %-13s %s\n",
-			marker, p.Index+1, "("+string(p.Status)+")", oneLine(p.Goal))
+			marker, p.Index+1, statusLabel, oneLine(p.Goal))
 		if p.PlanID != "" {
 			fmt.Fprintf(r.out, "         plan: %s", p.PlanID)
 			if p.AppliedSHA != "" {

@@ -225,3 +225,33 @@ func TestMaxPhasesPerGroup(t *testing.T) {
 }
 
 func ptrTime(t time.Time) *time.Time { return &t }
+
+// TestIsOrphanedActivePhase pins the orphan-reaper helper:
+// only fires when the phase is in_progress AND OwnerPID is
+// non-zero AND the liveness probe says the pid is dead.
+// Operator-driven phase transitions (OwnerPID=0) are exempt
+// because they didn't claim a process; nil checker is a no-op.
+func TestIsOrphanedActivePhase(t *testing.T) {
+	dead := func(pid int) bool { return false }
+	alive := func(pid int) bool { return true }
+
+	cases := []struct {
+		name    string
+		phase   *PhaseRecord
+		checker PhaseLivenessChecker
+		want    bool
+	}{
+		{"nil phase", nil, dead, false},
+		{"nil checker", &PhaseRecord{Status: PhaseInProgress, OwnerPID: 1234}, nil, false},
+		{"in_progress dead pid", &PhaseRecord{Status: PhaseInProgress, OwnerPID: 1234}, dead, true},
+		{"in_progress live pid", &PhaseRecord{Status: PhaseInProgress, OwnerPID: 1234}, alive, false},
+		{"in_progress no owner pid", &PhaseRecord{Status: PhaseInProgress, OwnerPID: 0}, dead, false},
+		{"pending dead pid (impossible)", &PhaseRecord{Status: PhasePending, OwnerPID: 1234}, dead, false},
+		{"accepted dead pid", &PhaseRecord{Status: PhaseAccepted, OwnerPID: 1234}, dead, false},
+	}
+	for _, c := range cases {
+		if got := IsOrphanedActivePhase(c.phase, c.checker); got != c.want {
+			t.Errorf("%s: IsOrphanedActivePhase = %v; want %v", c.name, got, c.want)
+		}
+	}
+}

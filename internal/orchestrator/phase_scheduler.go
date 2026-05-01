@@ -83,6 +83,12 @@ func (o *Orchestrator) runPhaseGroup(group *types.PlanGroup, stepsUsed *int) err
 		now := time.Now()
 		phase.Status = types.PhaseInProgress
 		phase.StartedAt = &now
+		// Stamp the owning process so FindActiveGroup's orphan
+		// reaper can detect a stale in_progress phase if this
+		// process crashes mid-phase. Cleared at acceptance time
+		// (FinishedAt is non-nil) so completed phases don't
+		// trigger reaper noise.
+		phase.OwnerPID = os.Getpid()
 		o.persistGroup(group)
 
 		// Seed planning context for THIS phase. Each phase has

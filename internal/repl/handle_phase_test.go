@@ -541,6 +541,62 @@ func TestHandlePhaseCmd_ResumeOnTerminalGroupRefuses(t *testing.T) {
 	}
 }
 
+// TestHandlePhaseCmd_ShowFlagsOrphanedPhase pins commit 29:
+// when a phase is in_progress with an OwnerPID that the
+// liveness probe says is dead, /phase show tags it as
+// "ORPHANED" so the operator sees a recoverable state and
+// knows to run /phase rollback.
+func TestHandlePhaseCmd_ShowFlagsOrphanedPhase(t *testing.T) {
+	r, store, _, out := newPhaseTestREPL(t)
+	g := threePhaseTestGroup("group-orphan-test")
+	now := time.Now()
+	g.Phases[1].Status = types.PhaseInProgress
+	g.Phases[1].OwnerPID = 999999
+	g.Phases[1].StartedAt = &now
+	if _, err := store.Save(g); err != nil {
+		t.Fatal(err)
+	}
+	// Stub liveness probe to "always dead" so the orphan tag
+	// fires deterministically. Restore the production probe
+	// after the test so other cases see the real probe.
+	saved := phaseLivenessProbe
+	phaseLivenessProbe = func(pid int) bool { return false }
+	defer func() { phaseLivenessProbe = saved }()
+
+	r.handlePhaseCmd("/phase show")
+	got := out.String()
+	if !strings.Contains(got, "ORPHANED") {
+		t.Errorf("expected ORPHANED tag on stale in_progress phase; got %q", got)
+	}
+	if !strings.Contains(got, "999999") {
+		t.Errorf("expected the orphaned pid to be echoed; got %q", got)
+	}
+}
+
+// TestHandlePhaseCmd_ShowDoesNotFlagLivePhase pins the
+// negative case — when the liveness probe says the pid IS
+// alive, no orphan tag is emitted.
+func TestHandlePhaseCmd_ShowDoesNotFlagLivePhase(t *testing.T) {
+	r, store, _, out := newPhaseTestREPL(t)
+	g := threePhaseTestGroup("group-alive-test")
+	now := time.Now()
+	g.Phases[1].Status = types.PhaseInProgress
+	g.Phases[1].OwnerPID = 12345
+	g.Phases[1].StartedAt = &now
+	if _, err := store.Save(g); err != nil {
+		t.Fatal(err)
+	}
+	saved := phaseLivenessProbe
+	phaseLivenessProbe = func(pid int) bool { return true }
+	defer func() { phaseLivenessProbe = saved }()
+
+	r.handlePhaseCmd("/phase show")
+	got := out.String()
+	if strings.Contains(got, "ORPHANED") {
+		t.Errorf("live phase should not be tagged ORPHANED; got %q", got)
+	}
+}
+
 // TestHandlePhaseCmd_ShowRendersAcceptanceUnverified pins
 // commit 26: when a phase carries the new
 // PhaseAcceptanceUnverified status (LLM acceptance check
