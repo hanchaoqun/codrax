@@ -38,10 +38,13 @@ func TestEnsureStructuredEvidence_MergesEmittedAndParsed(t *testing.T) {
 			"- [DIRECT] `Shared`",
 	}
 
-	overlapID := types.StableEvidenceID(
-		types.EvidenceDirect, "Shared", "direct", "", "",
-		"internal/agent/foo.go", 0, 0,
-	)
+	overlapID := types.StableEvidenceID(types.EvidenceItem{
+		Kind:    types.EvidenceDirect,
+		Subject: "Shared",
+		Predicate: "direct",
+		Source:  "internal/agent/foo.go",
+		Scope:   types.ScopeLine,
+	})
 
 	toolOnly := types.EvidenceItem{
 		Kind:       types.EvidenceDirect,
@@ -52,11 +55,9 @@ func TestEnsureStructuredEvidence_MergesEmittedAndParsed(t *testing.T) {
 		LineEnd:    0,
 		Confidence: 0.78,
 		Producer:   "explorer.emit_evidence",
+		Scope:      types.ScopeLine,
 	}
-	toolOnly.ID = types.StableEvidenceID(
-		toolOnly.Kind, toolOnly.Subject, toolOnly.Predicate, toolOnly.Object, toolOnly.Condition,
-		toolOnly.Source, toolOnly.LineStart, toolOnly.LineEnd,
-	)
+	toolOnly.ID = types.StableEvidenceID(toolOnly)
 	overlapping := types.EvidenceItem{
 		Kind:       types.EvidenceDirect,
 		Subject:    "Shared",
@@ -66,11 +67,9 @@ func TestEnsureStructuredEvidence_MergesEmittedAndParsed(t *testing.T) {
 		LineEnd:    0,
 		Confidence: 0.78,
 		Producer:   "explorer.emit_evidence",
+		Scope:      types.ScopeLine,
 	}
-	overlapping.ID = types.StableEvidenceID(
-		overlapping.Kind, overlapping.Subject, overlapping.Predicate, overlapping.Object, overlapping.Condition,
-		overlapping.Source, overlapping.LineStart, overlapping.LineEnd,
-	)
+	overlapping.ID = types.StableEvidenceID(overlapping)
 	if overlapping.ID != overlapID {
 		t.Fatalf("test setup wrong: overlap IDs do not match — %q vs %q", overlapping.ID, overlapID)
 	}

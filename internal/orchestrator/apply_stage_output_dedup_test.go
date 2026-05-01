@@ -133,15 +133,17 @@ func TestApplyStageOutput_DedupsEvidenceItemsByID(t *testing.T) {
 		Kind: types.EvidenceConcrete, Predicate: "binds ONLY",
 		Subject: "RegisterDefaultSubAgents", Object: "NewSubExplorer(deps)",
 		Source: "internal/agent/subagent.go", LineStart: 63,
+		Scope: types.ScopeLine,
 	}
 	ev2 := types.EvidenceItem{
 		Kind: types.EvidenceConcrete, Predicate: "returns",
 		Subject: "SubExplorer.Name", Object: "\"explorer\"",
 		Source: "internal/agent/sub_explorer.go", LineStart: 32,
+		Scope: types.ScopeLine,
 	}
 	// Stamp IDs as ensureStructuredEvidence would.
-	ev1.ID = types.StableEvidenceID(ev1.Kind, ev1.Subject, ev1.Predicate, ev1.Object, ev1.Condition, ev1.Source, ev1.LineStart, ev1.LineEnd)
-	ev2.ID = types.StableEvidenceID(ev2.Kind, ev2.Subject, ev2.Predicate, ev2.Object, ev2.Condition, ev2.Source, ev2.LineStart, ev2.LineEnd)
+	ev1.ID = types.StableEvidenceID(ev1)
+	ev2.ID = types.StableEvidenceID(ev2)
 
 	o.applyStageOutput(&agent.StageOutput{EvidenceItems: []types.EvidenceItem{ev1, ev2}})
 
@@ -150,8 +152,9 @@ func TestApplyStageOutput_DedupsEvidenceItemsByID(t *testing.T) {
 		Kind: types.EvidenceRelationship, Predicate: "calls",
 		Subject: "Orchestrator", Object: "SubAgentRuntime",
 		Source: "internal/orchestrator/orchestrator.go", LineStart: 100,
+		Scope: types.ScopeLine,
 	}
-	ev3.ID = types.StableEvidenceID(ev3.Kind, ev3.Subject, ev3.Predicate, ev3.Object, ev3.Condition, ev3.Source, ev3.LineStart, ev3.LineEnd)
+	ev3.ID = types.StableEvidenceID(ev3)
 
 	o.applyStageOutput(&agent.StageOutput{EvidenceItems: []types.EvidenceItem{ev1, ev2, ev3}})
 

@@ -2,24 +2,34 @@ package types
 
 import "testing"
 
-// TestEvidenceItem_IsCitable locks the session-8 citation-visibility
-// policy: Grounded items (and legacy empty-status concrete_value
-// items) are citable as-is; Recovered and Ungrounded are NOT citable
-// without re-grounding.
+// TestEvidenceItem_IsCitable locks the session-8 + scope-axis 2026-05+
+// citation-visibility policy: Grounded items (any scope) are citable;
+// legacy empty-status line-shaped items (concrete_value emitter) are
+// citable; Recovered / Ungrounded are NOT citable; legacy empty-status
+// schema-level scopes (File / Crossfile / Negative) are NOT citable —
+// those scopes are LLM-emit-only and require grounder validation.
 func TestEvidenceItem_IsCitable(t *testing.T) {
 	cases := []struct {
 		name   string
 		status GroundingStatus
+		scope  EvidenceScope
 		want   bool
 	}{
-		{"grounded is citable", GroundingGrounded, true},
-		{"recovered is NOT citable", GroundingRecovered, false},
-		{"ungrounded is NOT citable", GroundingUngrounded, false},
-		{"legacy empty-status counts as citable", "", true},
+		{"grounded line is citable", GroundingGrounded, ScopeLine, true},
+		{"grounded file is citable", GroundingGrounded, ScopeFile, true},
+		{"grounded negative is citable", GroundingGrounded, ScopeNegative, true},
+		{"recovered is NOT citable", GroundingRecovered, ScopeLine, false},
+		{"ungrounded is NOT citable", GroundingUngrounded, ScopeLine, false},
+		{"legacy empty-status line counts as citable", "", ScopeLine, true},
+		{"legacy empty-status range counts as citable", "", ScopeLineRange, true},
+		{"legacy empty-status section counts as citable", "", ScopeSection, true},
+		{"legacy empty-status file is NOT citable", "", ScopeFile, false},
+		{"legacy empty-status crossfile is NOT citable", "", ScopeCrossfile, false},
+		{"legacy empty-status negative is NOT citable", "", ScopeNegative, false},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			e := EvidenceItem{GroundingStatus: c.status}
+			e := EvidenceItem{GroundingStatus: c.status, Scope: c.scope}
 			if got := e.IsCitable(); got != c.want {
 				t.Errorf("IsCitable() = %v, want %v", got, c.want)
 			}

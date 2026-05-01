@@ -685,7 +685,11 @@ func newEvidenceItem(kind types.EvidenceKind, subject, predicate, object, condit
 		Summary:      summary,
 		AnchorKind:   anchorKind,
 		AnchorSymbol: anchorSymbol,
+		// Deterministic dataflow producer always emits line-shaped
+		// anchors. Schema-level scopes (File / Crossfile / Negative)
+		// are LLM-emit-only.
+		Scope: types.ScopeLine,
 	}
-	item.ID = types.StableEvidenceID(kind, item.Subject, item.Predicate, item.Object, item.Condition, item.Source, item.LineStart, item.LineEnd)
+	item.ID = types.StableEvidenceID(item)
 	return item
 }

@@ -467,11 +467,7 @@ func (t *EmitEvidence) Execute(ctx *types.BusContext, params json.RawMessage) (t
 		}
 		// Recovery can rewrite LineStart/Source; keep the stable ID
 		// in sync so merge-by-ID downstream coalesces correctly.
-		built[i].ID = types.StableEvidenceID(
-			built[i].Kind, built[i].Subject, built[i].Predicate,
-			built[i].Object, built[i].Condition, built[i].Source,
-			built[i].LineStart, built[i].LineEnd,
-		)
+		built[i].ID = types.StableEvidenceID(built[i])
 		r.ItemID = built[i].ID
 		reports[i] = r
 	}
@@ -708,7 +704,7 @@ func buildEmitEvidenceItem(in emitEvidenceItem, index int, workDir string) (type
 		AnchorSymbol:         anchorSymbol,
 		Snippet:              snippet,
 	}
-	item.ID = types.StableEvidenceID(item.Kind, item.Subject, item.Predicate, item.Object, item.Condition, item.Source, item.LineStart, item.LineEnd)
+	item.ID = types.StableEvidenceID(item)
 	return item, nil
 }
 

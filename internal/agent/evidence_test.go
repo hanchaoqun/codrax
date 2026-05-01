@@ -80,8 +80,9 @@ func TestMergeEvidenceItemsDedupesByStableID(t *testing.T) {
 		LineStart:  12,
 		LineEnd:    12,
 		Confidence: 0.7,
+		Scope:      types.ScopeLine,
 	}
-	a.ID = types.StableEvidenceID(a.Kind, a.Subject, a.Predicate, a.Object, a.Condition, a.Source, a.LineStart, a.LineEnd)
+	a.ID = types.StableEvidenceID(a)
 	b := a
 	b.Confidence = 0.9
 	b.EvidenceRef = "blob://trace/result.txt"
@@ -231,7 +232,15 @@ func TestMergeEvidenceItems_WithinRankKeepsPathSort(t *testing.T) {
 // promotion the merged item would keep whichever Producer arrived
 // first and potentially downrank itself.
 func TestMergeEvidenceItems_CollidingIDPromotesRank(t *testing.T) {
-	id := types.StableEvidenceID(types.EvidenceDirect, "Run", "calls", "checkCoverage", "", "internal/analysis/gate/gate.go", 106, 0)
+	id := types.StableEvidenceID(types.EvidenceItem{
+		Kind:      types.EvidenceDirect,
+		Subject:   "Run",
+		Predicate: "calls",
+		Object:    "checkCoverage",
+		Source:    "internal/analysis/gate/gate.go",
+		LineStart: 106,
+		Scope:     types.ScopeLine,
+	})
 	llm := types.EvidenceItem{
 		ID:        id,
 		Kind:      types.EvidenceDirect,
@@ -241,6 +250,7 @@ func TestMergeEvidenceItems_CollidingIDPromotesRank(t *testing.T) {
 		Source:    "internal/analysis/gate/gate.go",
 		LineStart: 106,
 		Producer:  "explorer.emit_evidence",
+		Scope:     types.ScopeLine,
 	}
 	df := llm
 	df.Producer = "dataflow.engine"

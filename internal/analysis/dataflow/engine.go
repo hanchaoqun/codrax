@@ -487,7 +487,7 @@ func mergeEvidenceItems(items []types.EvidenceItem) []types.EvidenceItem {
 	merged := make(map[string]types.EvidenceItem, len(items))
 	for _, item := range items {
 		if item.ID == "" {
-			item.ID = types.StableEvidenceID(item.Kind, item.Subject, item.Predicate, item.Object, item.Condition, item.Source, item.LineStart, item.LineEnd)
+			item.ID = types.StableEvidenceID(item)
 		}
 		if existing, ok := merged[item.ID]; ok {
 			if existing.Summary == "" && item.Summary != "" {

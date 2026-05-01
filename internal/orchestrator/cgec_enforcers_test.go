@@ -70,13 +70,18 @@ func TestDetectStallAndAct_ProgressBetweenRounds_NoStall(t *testing.T) {
 	o := newTestOrch(t)
 	o.detectStallAndAct()
 	// Simulate progress: emit one new evidence item.
-	o.busCtx.Mutable.AppendEvidence([]types.EvidenceItem{
-		{
-			ID:        types.StableEvidenceID(types.EvidenceConcrete, "foo", "p", "v", "", "f", 1, 1),
-			Source:    "f",
-			LineStart: 1,
-		},
-	})
+	progressItem := types.EvidenceItem{
+		Kind:      types.EvidenceConcrete,
+		Subject:   "foo",
+		Predicate: "p",
+		Object:    "v",
+		Source:    "f",
+		LineStart: 1,
+		LineEnd:   1,
+		Scope:     types.ScopeLine,
+	}
+	progressItem.ID = types.StableEvidenceID(progressItem)
+	o.busCtx.Mutable.AppendEvidence([]types.EvidenceItem{progressItem})
 	if o.detectStallAndAct() {
 		t.Errorf("progress between rounds must not be a stall")
 	}

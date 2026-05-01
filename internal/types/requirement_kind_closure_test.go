@@ -70,13 +70,13 @@ func TestRequirementToEvidenceKinds_Closure(t *testing.T) {
 }
 
 // TestEvidenceKind_IsLLMEmittable_Partition asserts that exactly the
-// six "investigation-shape" kinds declared in the evidence.go doc
-// comment are LLM-emittable, and the five deterministic-only kinds
-// are not. This is the source of truth the emit_evidence tool schema
-// is derived from; a regression here would silently let the LLM
-// emit concrete_value / dataflow_path / etc., which would launder
-// unverified claims through a channel whose semantics say "I did the
-// deterministic check".
+// six "investigation-shape" kinds (including EvidenceAbsent re-enabled
+// 2026-05+ for ScopeNegative) are LLM-emittable, and the five
+// deterministic-only kinds are not. This is the source of truth the
+// emit_evidence tool schema is derived from; a regression here would
+// silently let the LLM emit concrete_value / dataflow_path / etc.,
+// which would launder unverified claims through a channel whose
+// semantics say "I did the deterministic check".
 func TestEvidenceKind_IsLLMEmittable_Partition(t *testing.T) {
 	want := map[EvidenceKind]bool{
 		EvidenceDirect:       true,
@@ -84,13 +84,12 @@ func TestEvidenceKind_IsLLMEmittable_Partition(t *testing.T) {
 		EvidenceRegistration: true,
 		EvidenceMechanism:    true,
 		EvidenceRelationship: true,
-		// EvidenceAbsent: Schema-deprecated from the emit_evidence
-		// channel because the tool's validator requires line_start >
-		// 0 + anchor anchor_symbol for every kind, which is
-		// unsatisfiable for "searched and found nothing" claims. The
-		// type constant remains for the legacy <think>-block prose
-		// parser; the emit_evidence schema enum excludes it.
-		EvidenceAbsent:       false,
+		// EvidenceAbsent re-enabled 2026-05+: ScopeNegative gives the
+		// kind a typed home (NegativeQuery + NegativeScope replace
+		// line_start as the verification target). Pairing rule
+		// enforced by EvidenceItem.ValidateScope: kind=absent REQUIRES
+		// scope=negative.
+		EvidenceAbsent:       true,
 		EvidenceConcrete:     false,
 		EvidenceDataflowPath: false,
 		EvidenceConflict:     false,

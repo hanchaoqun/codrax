@@ -54,34 +54,29 @@ func AllEvidenceKinds() []EvidenceKind {
 }
 
 // IsLLMEmittable reports whether this EvidenceKind is one the LLM is
-// allowed to produce through the emit_evidence tool. The five
-// "investigation-shape" kinds (direct / conditional / registration /
-// mechanism / relationship) are emittable; the six remaining kinds
-// are not — they fall into two families:
+// allowed to produce through the emit_evidence tool. The kinds split
+// into three families:
 //
-//  1. Deterministic-only: concrete_value / dataflow_path / conflict /
+//  1. Investigation-shape (always emittable): direct / conditional /
+//     registration / mechanism / relationship — the standard
+//     evidence kinds for ScopeLine / ScopeLineRange / ScopeSection.
+//
+//  2. Negative-anchor (re-enabled 2026-05+): absent. ScopeNegative
+//     gave EvidenceAbsent a typed home — the semantic contradiction
+//     that motivated the original deprecation (no concrete file
+//     anchor) is resolved by NegativeQuery + NegativeScope replacing
+//     line_start as the verification target. Pairing rule enforced
+//     by EvidenceItem.ValidateScope: kind=absent REQUIRES
+//     scope=negative; emitting absent with any other scope is
+//     rejected.
+//
+//  3. Deterministic-only: concrete_value / dataflow_path / conflict /
 //     unresolved / analysis_truncated are written exclusively by Go
-//     code that has already done the structural work, so allowing
-//     the LLM to emit them would let it launder unverified claims
-//     through a channel whose semantic contract is "I ran a
-//     deterministic check".
-//
-//  2. Schema-deprecated: absent. An absent item has no concrete file
-//     anchor (the whole point is "I searched and found nothing"),
-//     but the tool's validator requires line_start > 0 + anchor_kind +
-//     anchor_symbol uniformly across all kinds. The semantic
-//     contradiction produced the logtri_custom rejection loop
-//     (LLM retries kind=absent with line_start=0, gets uniformly
-//     rejected, eventually hacks around it by picking an arbitrary
-//     "related" file line). The proper absence channel is
-//     emit_investigation_complete.absence_justification, which is
-//     whole-answer scoped, has dedicated validation, and waives the
-//     citation floor by contract. Keeping EvidenceAbsent as a type
-//     constant for the legacy prose-tag parser (agent/evidence.go
-//     parseEvidenceLine reads `[ABSENT]` bracketed-tag notes from
-//     the LLM's <think> blocks, an independent pre-tool channel
-//     that never had the validator problem), while removing it from
-//     the emit_evidence tool schema.
+//     code (mechanism_scan, dataflow/lower, concrete-values
+//     extractor, analysis-truncation reporter). Allowing the LLM to
+//     emit them would let it launder unverified claims through a
+//     channel whose semantic contract is "I ran a deterministic
+//     check".
 //
 // The emit_evidence tool derives its schema enum and its accept-list
 // from this predicate so the canonical list and the tool contract
@@ -89,7 +84,7 @@ func AllEvidenceKinds() []EvidenceKind {
 func (k EvidenceKind) IsLLMEmittable() bool {
 	switch k {
 	case EvidenceDirect, EvidenceConditional, EvidenceRegistration,
-		EvidenceMechanism, EvidenceRelationship:
+		EvidenceMechanism, EvidenceRelationship, EvidenceAbsent:
 		return true
 	}
 	return false
@@ -301,13 +296,221 @@ const (
 	TierNearestCondition GroundingTier = "nearest_condition"
 )
 
+// EvidenceScope is the anchor-shape dimension. Required on every
+// EvidenceItem; zero-value is invalid. Each scope maps to its own
+// grounder path in internal/tool/ground; see scoped_evidence_anchors.md
+// for the full design rationale.
+type EvidenceScope string
+
+const (
+	// ScopeLine — anchors at one specific (file, line). The dominant
+	// case for code-citing evidence.
+	ScopeLine EvidenceScope = "line"
+	// ScopeLineRange — anchors at a multi-line block (struct definition,
+	// function body, comment block). Requires LineEnd > LineStart.
+	ScopeLineRange EvidenceScope = "line_range"
+	// ScopeSection — anchors at a named structural section (YAML
+	// top-level group, Go const block). Requires SectionPath.
+	ScopeSection EvidenceScope = "section"
+	// ScopeFile — anchors a file's identity as a layer (e.g. codrax.yaml
+	// as the canonical config layer). Requires FileRoleLabel; LineStart
+	// must be 0.
+	ScopeFile EvidenceScope = "file"
+	// ScopeCrossfile — asserts a cross-file contract verified by query
+	// (e.g. "no CLI flag for explore_* group"). Requires CrossfileQuery
+	// AND CrossfileAssertion. The grounder re-runs the query.
+	ScopeCrossfile EvidenceScope = "crossfile"
+	// ScopeNegative — confirms an absence (e.g. "X is not in
+	// codrax.yaml"). Requires NegativeQuery AND NegativeScope. Goes
+	// hand-in-hand with EvidenceAbsent kind.
+	ScopeNegative EvidenceScope = "negative"
+)
+
+var allEvidenceScopes = []EvidenceScope{
+	ScopeLine, ScopeLineRange, ScopeSection,
+	ScopeFile, ScopeCrossfile, ScopeNegative,
+}
+
+// AllEvidenceScopes returns the canonical list of every EvidenceScope
+// value in stable declaration order. Used by the emit_evidence schema
+// to drive the required-enum list.
+func AllEvidenceScopes() []EvidenceScope {
+	out := make([]EvidenceScope, len(allEvidenceScopes))
+	copy(out, allEvidenceScopes)
+	return out
+}
+
+// IsValid reports whether the scope is one of the six canonical
+// values. The empty string is intentionally invalid — every
+// EvidenceItem must carry an explicit scope.
+func (s EvidenceScope) IsValid() bool {
+	for _, declared := range allEvidenceScopes {
+		if s == declared {
+			return true
+		}
+	}
+	return false
+}
+
+// IsLineShaped reports whether this scope produces a line-shaped
+// anchor (i.e. has a meaningful LineStart and optional LineEnd).
+// Used by Tier-1 floor computations and CGEC closure tracking.
+//
+// Schema-level scopes (File, Crossfile, Negative) are not line-shaped:
+// they describe layer identity, cross-file contracts, or absences,
+// not specific code locations.
+//
+// TRANSITIONAL (Stage 0–7): the empty zero-value scope is treated as
+// line-shaped to preserve compatibility with EvidenceItem literals
+// constructed before the scope migration completes. Stage 8 removes
+// this fallback and makes empty-scope an error.
+func (s EvidenceScope) IsLineShaped() bool {
+	switch s {
+	case ScopeLine, ScopeLineRange, ScopeSection:
+		return true
+	case "":
+		// Transitional only — see doc comment above.
+		return true
+	}
+	return false
+}
+
+// FileRoleLabel classifies the role a file plays as a "layer" in the
+// answer. Required when EvidenceScope is ScopeFile. Open enum kept
+// intentionally small in v1; new labels need explicit registry entry.
+type FileRoleLabel string
+
+const (
+	// FileRoleConfigCanonical — the canonical user-facing config file
+	// (e.g. codrax.yaml). Required path-shape: matches
+	// LooksLikeConfigFilePath.
+	FileRoleConfigCanonical FileRoleLabel = "config_canonical"
+	// FileRoleCLIRegistration — the file where CLI flags are registered
+	// (e.g. cmd/root.go). Required path-shape: must contain flag.*Var
+	// or cobra.*Flag-like calls (validated heuristically).
+	FileRoleCLIRegistration FileRoleLabel = "cli_registration"
+	// FileRoleDefaultStruct — the file holding the default-value struct
+	// (e.g. internal/types/config.go's DefaultExploreHeuristics).
+	FileRoleDefaultStruct FileRoleLabel = "default_struct"
+	// FileRoleManifest — package / project manifest file (go.mod,
+	// package.json, Cargo.toml, etc.).
+	FileRoleManifest FileRoleLabel = "manifest"
+	// FileRoleSchema — schema-defining file (proto, openapi, etc.)
+	FileRoleSchema FileRoleLabel = "schema"
+)
+
+var allFileRoleLabels = []FileRoleLabel{
+	FileRoleConfigCanonical, FileRoleCLIRegistration,
+	FileRoleDefaultStruct, FileRoleManifest, FileRoleSchema,
+}
+
+// AllFileRoleLabels returns the canonical list of every label.
+func AllFileRoleLabels() []FileRoleLabel {
+	out := make([]FileRoleLabel, len(allFileRoleLabels))
+	copy(out, allFileRoleLabels)
+	return out
+}
+
+// IsValid reports whether the label is one of the canonical 5 values.
+func (l FileRoleLabel) IsValid() bool {
+	for _, declared := range allFileRoleLabels {
+		if l == declared {
+			return true
+		}
+	}
+	return false
+}
+
+// CrossfileAssertionKind enumerates how the grounder verifies a
+// CrossfileQuery's result against the LLM's claim.
+type CrossfileAssertionKind string
+
+const (
+	// CrossfileExists — assertion passes when at least 1 match across
+	// query.Files.
+	CrossfileExists CrossfileAssertionKind = "exists"
+	// CrossfileForbidden — assertion passes when 0 matches across
+	// query.Files. Used to ground "X never registered / referenced".
+	CrossfileForbidden CrossfileAssertionKind = "forbidden"
+	// CrossfileCountEq — assertion passes when match count exactly
+	// equals CrossfileAssertion.Count.
+	CrossfileCountEq CrossfileAssertionKind = "count_eq"
+)
+
+// CrossfileQuery captures the structured query the LLM is asserting
+// about. Files is hard-capped at 5 entries by emit_evidence schema
+// validation. Pattern is interpreted as a Go regex.
+type CrossfileQuery struct {
+	Files   []string `json:"files"`
+	Pattern string   `json:"pattern"`
+	Context string   `json:"context,omitempty"` // optional: limit to a section / function / type body
+}
+
+// CrossfileAssertion is the predicate the LLM commits to about the
+// CrossfileQuery's result. The grounder re-runs the query and rejects
+// the EvidenceItem if the assertion does not hold — preventing the
+// LLM from making cross-file claims it cannot back up.
+type CrossfileAssertion struct {
+	Kind  CrossfileAssertionKind `json:"kind"`
+	Count int                    `json:"count,omitempty"` // only used when Kind == CrossfileCountEq
+}
+
+// NegativeScope further qualifies WHERE the absence holds: across the
+// whole file, within a line range, within a named section, or against
+// a struct's field set.
+type NegativeScope string
+
+const (
+	NegativeScopeFile         NegativeScope = "file"
+	NegativeScopeRange        NegativeScope = "range"
+	NegativeScopeSection      NegativeScope = "section"
+	NegativeScopeStructFields NegativeScope = "struct_fields"
+)
+
+var allNegativeScopes = []NegativeScope{
+	NegativeScopeFile, NegativeScopeRange,
+	NegativeScopeSection, NegativeScopeStructFields,
+}
+
+// AllNegativeScopes returns the canonical list of every NegativeScope.
+func AllNegativeScopes() []NegativeScope {
+	out := make([]NegativeScope, len(allNegativeScopes))
+	copy(out, allNegativeScopes)
+	return out
+}
+
+// IsValid reports whether the scope is one of the canonical 4 values.
+func (n NegativeScope) IsValid() bool {
+	for _, declared := range allNegativeScopes {
+		if n == declared {
+			return true
+		}
+	}
+	return false
+}
+
+// NegativeQuery captures the query whose ABSENCE of matches is the
+// claim. The grounder runs the query and rejects the EvidenceItem if
+// any match is found. Pair with NegativeScope to control where the
+// query searches.
+type NegativeQuery struct {
+	File    string `json:"file"`
+	Pattern string `json:"pattern"`
+	Section string `json:"section,omitempty"` // when NegativeScope == NegativeScopeSection
+}
+
 // EvidenceItem is the normalized, structured representation of a
 // single evidence statement that can be carried across agents/stages.
 //
-// Anchor* fields are new (2026-04-17 redesign) and required on any
-// LLM-produced item. Snippet is optional but improves Tier R2
-// (snippet_fuzzy) recovery accuracy. Grounding* fields are filled by
-// internal/tool/ground.GroundItem at emit_evidence.Execute time.
+// Scope (REQUIRED) selects the anchor model: Line / LineRange /
+// Section / File / Crossfile / Negative. Each scope routes through
+// its own grounder path and renders differently in citations[].
+// Anchor* fields apply to ScopeLine / ScopeLineRange (and partially
+// Section). The five scope-specific field bundles
+// (LineEnd / SectionPath / FileRoleLabel / Crossfile* / Negative*)
+// are mutually exclusive — each scope reads exactly one bundle and
+// ignores the rest. emit_evidence enforces this at schema-validation
+// time; downstream consumers may panic if a mismatch sneaks through.
 type EvidenceItem struct {
 	ID          string       `json:"id"`
 	Kind        EvidenceKind `json:"kind"`
@@ -331,8 +534,8 @@ type EvidenceItem struct {
 	DiagramRole          EvidenceDiagramRole `json:"diagram_role,omitempty"`
 	RequestedDiagramRole EvidenceDiagramRole `json:"requested_diagram_role,omitempty"`
 
-	// Anchor fields: required for LLM-emitted items, let the grounder
-	// dispatch Tier 2 and the recovery tiers without guessing.
+	// Anchor fields: required for ScopeLine / ScopeLineRange; let the
+	// grounder dispatch Tier 2 and the recovery tiers without guessing.
 	AnchorKind   AnchorKind `json:"anchor_kind,omitempty"`
 	AnchorSymbol string     `json:"anchor_symbol,omitempty"`
 	OwnerSymbol  string     `json:"owner_symbol,omitempty"`
@@ -343,6 +546,94 @@ type EvidenceItem struct {
 	GroundingStatus GroundingStatus `json:"grounding_status,omitempty"`
 	GroundingTier   GroundingTier   `json:"grounding_tier,omitempty"`
 	GroundingNote   string          `json:"grounding_note,omitempty"`
+
+	// ====== Scope dimension (2026-05+) ======
+
+	// Scope is REQUIRED on every EvidenceItem. Zero-value is invalid
+	// and rejected by emit_evidence schema validation; downstream
+	// consumers may panic if a mismatch sneaks through.
+	Scope EvidenceScope `json:"scope"`
+
+	// SectionPath — required when Scope == ScopeSection. Dot-separated
+	// path inside the parsed file (e.g. "explore_*" for a YAML group,
+	// "agents.env_recommender" for a nested config key,
+	// "ExploreHeuristics" for a Go const block).
+	SectionPath string `json:"section_path,omitempty"`
+
+	// FileRoleLabel — required when Scope == ScopeFile. Names the
+	// canonical role this file plays as a layer.
+	FileRoleLabel FileRoleLabel `json:"file_role_label,omitempty"`
+
+	// CrossfileQuery / CrossfileAssertion — required when
+	// Scope == ScopeCrossfile. The grounder re-runs the query and
+	// validates the assertion before accepting the item.
+	CrossfileQuery     *CrossfileQuery     `json:"crossfile_query,omitempty"`
+	CrossfileAssertion *CrossfileAssertion `json:"crossfile_assertion,omitempty"`
+
+	// NegativeQuery / NegativeScope — required when
+	// Scope == ScopeNegative. The grounder runs the query and rejects
+	// the item if any match is found.
+	NegativeQuery *NegativeQuery `json:"negative_query,omitempty"`
+	NegativeScope NegativeScope  `json:"negative_scope,omitempty"`
+}
+
+// ValidateScope enforces the per-scope required-field invariants on
+// an EvidenceItem. Returns nil when every required field for the
+// item's Scope is set; returns a descriptive error otherwise.
+//
+// emit_evidence calls this at schema-validation time; downstream
+// consumers (CGEC closure, citation builder, grounder dispatch) may
+// also call it as a defense-in-depth check before processing.
+func (e EvidenceItem) ValidateScope() error {
+	if !e.Scope.IsValid() {
+		return fmt.Errorf("evidence: scope is required and must be one of %v; got %q",
+			AllEvidenceScopes(), e.Scope)
+	}
+	switch e.Scope {
+	case ScopeLine:
+		if e.Source == "" || e.LineStart <= 0 || e.AnchorKind == "" {
+			return fmt.Errorf("evidence: scope=line requires source, line_start>0, anchor_kind")
+		}
+	case ScopeLineRange:
+		if e.Source == "" || e.LineStart <= 0 || e.LineEnd <= e.LineStart {
+			return fmt.Errorf("evidence: scope=line_range requires source, line_start>0, line_end>line_start")
+		}
+	case ScopeSection:
+		if e.Source == "" || strings.TrimSpace(e.SectionPath) == "" {
+			return fmt.Errorf("evidence: scope=section requires source and non-empty section_path")
+		}
+	case ScopeFile:
+		if e.Source == "" || !e.FileRoleLabel.IsValid() {
+			return fmt.Errorf("evidence: scope=file requires source and a valid file_role_label")
+		}
+		if e.LineStart != 0 {
+			return fmt.Errorf("evidence: scope=file must have line_start=0 (file-identity anchor); got %d", e.LineStart)
+		}
+	case ScopeCrossfile:
+		if e.CrossfileQuery == nil || e.CrossfileAssertion == nil {
+			return fmt.Errorf("evidence: scope=crossfile requires crossfile_query and crossfile_assertion")
+		}
+		if len(e.CrossfileQuery.Files) == 0 || len(e.CrossfileQuery.Files) > 5 {
+			return fmt.Errorf("evidence: scope=crossfile requires 1<=len(files)<=5; got %d", len(e.CrossfileQuery.Files))
+		}
+		if strings.TrimSpace(e.CrossfileQuery.Pattern) == "" {
+			return fmt.Errorf("evidence: scope=crossfile requires non-empty pattern")
+		}
+	case ScopeNegative:
+		if e.NegativeQuery == nil || !e.NegativeScope.IsValid() {
+			return fmt.Errorf("evidence: scope=negative requires negative_query and a valid negative_scope")
+		}
+		if e.NegativeQuery.File == "" || strings.TrimSpace(e.NegativeQuery.Pattern) == "" {
+			return fmt.Errorf("evidence: scope=negative requires negative_query.file and pattern")
+		}
+		if e.Kind != EvidenceAbsent {
+			return fmt.Errorf("evidence: scope=negative requires kind=absent; got kind=%q", e.Kind)
+		}
+		if e.NegativeScope == NegativeScopeSection && strings.TrimSpace(e.NegativeQuery.Section) == "" {
+			return fmt.Errorf("evidence: scope=negative with negative_scope=section requires negative_query.section")
+		}
+	}
+	return nil
 }
 
 // EvidenceCountsTowardTier1Floor reports whether an evidence item
@@ -356,6 +647,14 @@ type EvidenceItem struct {
 // mentions) should not bloat the denominator and force an otherwise
 // sufficient investigation to reopen just to repair evidence the
 // pipeline itself says must remain context only.
+//
+// 2026-05+ scope axis: schema-level scopes (File / Crossfile /
+// Negative) describe layer identity, cross-file contracts, or
+// confirmed absences — none of these are line-anchored facts that
+// read_file can verify per-line. They are real evidence for answer
+// surface but should not bloat the Tier-1 denominator. ScopeLine /
+// ScopeLineRange / ScopeSection remain line-shaped (per
+// EvidenceScope.IsLineShaped) and continue to count.
 func EvidenceCountsTowardTier1Floor(ev EvidenceItem) bool {
 	if ev.Kind == EvidenceUnresolved {
 		return false
@@ -363,9 +662,11 @@ func EvidenceCountsTowardTier1Floor(ev EvidenceItem) bool {
 	switch ev.ContextRole {
 	case EvidenceContextRoleIllustrativeOnly, EvidenceContextRoleAbsenceSupport:
 		return false
-	default:
-		return true
 	}
+	if !ev.Scope.IsLineShaped() {
+		return false
+	}
+	return true
 }
 
 // ExactResolutionRequiredContextFiles returns the live same-scope file
@@ -438,45 +739,86 @@ type FlowFindingDigest struct {
 
 // StableEvidenceID returns a deterministic ID derived from the
 // semantically relevant evidence fields. Callers should use this for
-// dedupe/merge so that the same evidence coming from main/sub explorers
-// or deterministic passes coalesces cleanly.
-func StableEvidenceID(kind EvidenceKind, subject, predicate, object, condition, source string, lineStart, lineEnd int) string {
+// dedupe/merge so that the same evidence coming from main/sub
+// explorers or deterministic passes coalesces cleanly.
+//
+// 2026-05+ — signature takes the full EvidenceItem so scope-specific
+// fields (SectionPath / FileRoleLabel / CrossfileQuery / NegativeQuery)
+// participate in the hash. Without this, two distinct schema-level
+// items (e.g. codrax.yaml as ConfigCanonical vs codrax.yaml as
+// Schema) would collide on the old (kind, subject, source, ...)
+// tuple and one would silently overwrite the other during dedupe.
+func StableEvidenceID(item EvidenceItem) string {
 	h := fnv.New64a()
-	_, _ = h.Write([]byte(strings.Join([]string{
-		string(kind),
-		subject,
-		predicate,
-		object,
-		condition,
-		source,
-		fmt.Sprintf("%d", lineStart),
-		fmt.Sprintf("%d", lineEnd),
-	}, "\x1f")))
+	parts := []string{
+		string(item.Kind),
+		string(item.Scope),
+		item.Subject,
+		item.Predicate,
+		item.Object,
+		item.Condition,
+		item.Source,
+		fmt.Sprintf("%d:%d", item.LineStart, item.LineEnd),
+	}
+	switch item.Scope {
+	case ScopeSection:
+		parts = append(parts, "section="+item.SectionPath)
+	case ScopeFile:
+		parts = append(parts, "file_role="+string(item.FileRoleLabel))
+	case ScopeCrossfile:
+		if item.CrossfileQuery != nil {
+			parts = append(parts,
+				"xfiles="+strings.Join(item.CrossfileQuery.Files, ","),
+				"xpat="+item.CrossfileQuery.Pattern,
+				"xctx="+item.CrossfileQuery.Context)
+		}
+		if item.CrossfileAssertion != nil {
+			parts = append(parts,
+				"xassert="+string(item.CrossfileAssertion.Kind),
+				fmt.Sprintf("xcount=%d", item.CrossfileAssertion.Count))
+		}
+	case ScopeNegative:
+		if item.NegativeQuery != nil {
+			parts = append(parts,
+				"nfile="+item.NegativeQuery.File,
+				"npat="+item.NegativeQuery.Pattern,
+				"nsec="+item.NegativeQuery.Section)
+		}
+		parts = append(parts, "nscope="+string(item.NegativeScope))
+	}
+	_, _ = h.Write([]byte(strings.Join(parts, "\x1f")))
 	return fmt.Sprintf("ev-%x", h.Sum64())
 }
 
-// IsCitable reports whether this evidence item carries a file:line
-// anchor that downstream stages (extractor, finalizer) can trust as
-// a citation target without re-grounding. The positive set is
-// deliberately narrow: Tier-1-proven (the LLM actually read the
-// file) OR Tier-2-proven (the LLM's claim matched the repomap
-// graph structurally). Recovered and Ungrounded items have a line
-// number that the finalizer's strict Tier-2 check may reject at
-// citation time, so prompt-layer renderers strip LineStart for
-// those to prevent downstream LLMs from citing them.
+// IsCitable reports whether this evidence item carries an anchor
+// downstream stages (extractor, finalizer) can trust as a citation
+// target without re-grounding.
 //
-// Legacy items with empty GroundingStatus (pre-session-5
-// deterministic concrete_value) count as citable — they are
-// deterministic facts, not LLM claims.
+// 2026-05+ — semantics widened beyond line-only. The positive set:
+//
+//   - GroundingGrounded items of any scope (including schema-level
+//     File / Crossfile / Negative scopes — their grounders verified
+//     the layer / contract / absence claim end-to-end before stamping
+//     Grounded).
+//   - Legacy items with empty GroundingStatus (pre-session-5
+//     deterministic concrete_value emitters) count as citable for
+//     ScopeLine / ScopeLineRange / ScopeSection — they are
+//     deterministic facts. Schema-level scopes with empty
+//     GroundingStatus are NOT citable: those scopes are LLM-emit-only
+//     and require the grounder to confirm.
+//
+// Recovered and Ungrounded items in any scope are NOT citable: the
+// finalizer's strict gate may reject them.
 func (e EvidenceItem) IsCitable() bool {
 	switch e.GroundingStatus {
 	case GroundingGrounded:
 		return true
 	case GroundingRecovered, GroundingUngrounded:
 		return false
-	default:
-		return true
 	}
+	// Empty status — only line-shaped scopes get the legacy
+	// deterministic-emitter pass.
+	return e.Scope.IsLineShaped()
 }
 
 // DisplayLocation renders the "file:line" marker appropriate for a
@@ -659,7 +1001,7 @@ func ExactResolutionSurfaceEvidencePool(emitted, evidence []EvidenceItem, chains
 	order := make([]string, 0, len(emitted)+len(evidence)+len(chains))
 	appendItem := func(item EvidenceItem) {
 		if item.ID == "" {
-			item.ID = StableEvidenceID(item.Kind, item.Subject, item.Predicate, item.Object, item.Condition, item.Source, item.LineStart, item.LineEnd)
+			item.ID = StableEvidenceID(item)
 		}
 		if existing, ok := merged[item.ID]; ok {
 			merged[item.ID] = mergeExactResolutionSurfaceEvidence(existing, item)

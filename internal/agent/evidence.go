@@ -165,7 +165,27 @@ func parseEvidenceLine(line, source, producer string) (types.EvidenceItem, bool)
 		Confidence: 0.78,
 		Producer:   producer,
 	}
-	item.ID = types.StableEvidenceID(item.Kind, item.Subject, item.Predicate, item.Object, item.Condition, item.Source, item.LineStart, item.LineEnd)
+
+	// Q7 (2026-05+ scope migration): tag=ABSENT → ScopeNegative
+	// + simple NegativeQuery anchored at the source file. Other tags
+	// → ScopeLine (the parsed lineStart provides the anchor; line
+	// shape is the dominant case for [DIRECT] / [CONDITIONAL] etc.).
+	if tag == "ABSENT" {
+		pattern := strings.TrimSpace(item.Subject)
+		if pattern == "" {
+			pattern = summary
+		}
+		item.Scope = types.ScopeNegative
+		item.NegativeScope = types.NegativeScopeFile
+		item.NegativeQuery = &types.NegativeQuery{
+			File:    source,
+			Pattern: pattern,
+		}
+	} else {
+		item.Scope = types.ScopeLine
+	}
+
+	item.ID = types.StableEvidenceID(item)
 	return item, true
 }
 
@@ -259,7 +279,7 @@ func mergeEvidenceItems(groups ...[]types.EvidenceItem) []types.EvidenceItem {
 	for _, group := range groups {
 		for _, item := range group {
 			if item.ID == "" {
-				item.ID = types.StableEvidenceID(item.Kind, item.Subject, item.Predicate, item.Object, item.Condition, item.Source, item.LineStart, item.LineEnd)
+				item.ID = types.StableEvidenceID(item)
 			}
 			if existing, ok := merged[item.ID]; ok {
 				if existing.Summary == "" && item.Summary != "" {

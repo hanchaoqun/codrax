@@ -9547,8 +9547,7 @@ func (e *explorerEvaluator) buildConcreteValuesSection(repoRoot string, readSet 
 		}
 		kind := types.EvidenceConcrete
 		predicate := v.kind
-		cvEvidence = append(cvEvidence, types.EvidenceItem{
-			ID:         types.StableEvidenceID(kind, v.method, predicate, v.value, "", v.file, v.line, v.line),
+		cvItem := types.EvidenceItem{
 			Kind:       kind,
 			Subject:    v.method,
 			Predicate:  predicate,
@@ -9559,18 +9558,28 @@ func (e *explorerEvaluator) buildConcreteValuesSection(repoRoot string, readSet 
 			Confidence: 0.95,
 			Producer:   "concrete_values",
 			Summary:    fmt.Sprintf("`%s()` %s %s", v.method, predicate, v.value),
-		})
+			Scope:      types.ScopeLine,
+		}
+		cvItem.ID = types.StableEvidenceID(cvItem)
+		cvEvidence = append(cvEvidence, cvItem)
 	}
 	for _, c := range allChainsForEvidence {
-		cvEvidence = append(cvEvidence, types.EvidenceItem{
-			ID:         types.StableEvidenceID(types.EvidenceDataflowPath, c, "resolution_chain", "", "", "", 0, 0),
+		// Dataflow chains have no source/line — they describe a
+		// resolution chain across the repo. Treat as ScopeLine with
+		// empty source so the line-shaped invariant still holds for
+		// downstream consumers (the chain producer fills LineStart=0
+		// intentionally; existing logic accepts that).
+		chainItem := types.EvidenceItem{
 			Kind:       types.EvidenceDataflowPath,
 			Subject:    c,
 			Predicate:  "resolution_chain",
 			Confidence: 0.9,
 			Producer:   "concrete_values",
 			Summary:    c,
-		})
+			Scope:      types.ScopeLine,
+		}
+		chainItem.ID = types.StableEvidenceID(chainItem)
+		cvEvidence = append(cvEvidence, chainItem)
 	}
 	logging.Debug("[explorer] concrete values: %d chain evidence items (from %d uncapped chains)", len(allChainsForEvidence), len(allChainsForEvidence))
 
@@ -10521,10 +10530,7 @@ func extractBridgeLiteralChains(graph *repomap.Graph, repoRoot string, consumerV
 						continue
 					}
 					seen[summary] = true
-					items = append(items, types.EvidenceItem{
-						ID: types.StableEvidenceID(
-							types.EvidenceDataflowPath, summary, "resolution_chain",
-							"", "", b.file, b.line, b.line),
+					bridgeItem := types.EvidenceItem{
 						Kind:       types.EvidenceDataflowPath,
 						Subject:    summary,
 						Predicate:  "resolution_chain",
@@ -10534,7 +10540,10 @@ func extractBridgeLiteralChains(graph *repomap.Graph, repoRoot string, consumerV
 						LineEnd:    b.line,
 						Confidence: 0.9,
 						Producer:   "bridge_literal",
-					})
+						Scope:      types.ScopeLine,
+					}
+					bridgeItem.ID = types.StableEvidenceID(bridgeItem)
+					items = append(items, bridgeItem)
 				}
 				continue
 			}
@@ -10546,10 +10555,7 @@ func extractBridgeLiteralChains(graph *repomap.Graph, repoRoot string, consumerV
 					continue
 				}
 				seen[summary] = true
-				items = append(items, types.EvidenceItem{
-					ID: types.StableEvidenceID(
-						types.EvidenceDataflowPath, summary, "resolution_chain",
-						"", "", b.file, b.line, b.line),
+				bridgeFactoryItem := types.EvidenceItem{
 					Kind:       types.EvidenceDataflowPath,
 					Subject:    summary,
 					Predicate:  "resolution_chain",
@@ -10559,7 +10565,10 @@ func extractBridgeLiteralChains(graph *repomap.Graph, repoRoot string, consumerV
 					LineEnd:    b.line,
 					Confidence: 0.88,
 					Producer:   "bridge_literal",
-				})
+					Scope:      types.ScopeLine,
+				}
+				bridgeFactoryItem.ID = types.StableEvidenceID(bridgeFactoryItem)
+				items = append(items, bridgeFactoryItem)
 			}
 		}
 	}
@@ -10610,10 +10619,7 @@ func extractBridgeLiteralChains(graph *repomap.Graph, repoRoot string, consumerV
 					continue
 				}
 				seen[summary] = true
-				items = append(items, types.EvidenceItem{
-					ID: types.StableEvidenceID(
-						types.EvidenceDataflowPath, summary, "resolution_chain",
-						"", "", cv.file, cv.line, cv.line),
+				consumerItem := types.EvidenceItem{
 					Kind:       types.EvidenceDataflowPath,
 					Subject:    summary,
 					Predicate:  "resolution_chain",
@@ -10623,7 +10629,10 @@ func extractBridgeLiteralChains(graph *repomap.Graph, repoRoot string, consumerV
 					LineEnd:    cv.line,
 					Confidence: 0.85,
 					Producer:   "consumer_gate",
-				})
+					Scope:      types.ScopeLine,
+				}
+				consumerItem.ID = types.StableEvidenceID(consumerItem)
+				items = append(items, consumerItem)
 			}
 		}
 	}

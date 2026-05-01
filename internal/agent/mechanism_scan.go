@@ -164,6 +164,9 @@ func scanMechanismEvidence(reqs []EvidenceRequirement, graph *repomap.Graph, rep
 					LineStart: b.startLine,
 					LineEnd:   b.endLine,
 					Confidence: 0.85,
+					// Deterministic mechanism scan emits line-shaped
+					// evidence (step blocks at known line ranges).
+					Scope: types.ScopeLineRange,
 				})
 			}
 		}

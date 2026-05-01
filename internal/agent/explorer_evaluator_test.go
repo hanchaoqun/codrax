@@ -142,8 +142,7 @@ func parseOutputCtx(kind, shape string) *types.AgentContext {
 // looks "real enough" for downstream ranking and answer-chain
 // extraction without invoking the full extraction pipeline.
 func pinnedEvidenceItem(file, subject string, line int) types.EvidenceItem {
-	return types.EvidenceItem{
-		ID:         types.StableEvidenceID(types.EvidenceDirect, subject, "returns", "true", "", file, line, line),
+	item := types.EvidenceItem{
 		Kind:       types.EvidenceDirect,
 		Subject:    subject,
 		Predicate:  "returns",
@@ -152,8 +151,11 @@ func pinnedEvidenceItem(file, subject string, line int) types.EvidenceItem {
 		LineStart:  line,
 		LineEnd:    line,
 		Producer:   "test.fixture",
+		Scope:      types.ScopeLine,
 		Confidence: 0.9,
 	}
+	item.ID = types.StableEvidenceID(item)
+	return item
 }
 
 func TestParseOutput_SingleSourceBypass(t *testing.T) {
@@ -477,7 +479,6 @@ func TestDetermineMissingPiece_NotEnoughReturnsMissingFacts(t *testing.T) {
 // strictAnswerItems is non-empty and terminalEvidenceCount > 0.
 func phase11Eval(question string) *explorerEvaluator {
 	regItem := types.EvidenceItem{
-		ID:         types.StableEvidenceID(types.EvidenceRegistration, "Register", "binds", "NewFoo", "", "reg.go", 10, 10),
 		Kind:       types.EvidenceRegistration,
 		Subject:    "Register",
 		Predicate:  "binds",
@@ -487,7 +488,9 @@ func phase11Eval(question string) *explorerEvaluator {
 		LineEnd:    10,
 		Producer:   "test.fixture",
 		Confidence: 0.9,
+		Scope:      types.ScopeLine,
 	}
+	regItem.ID = types.StableEvidenceID(regItem)
 	directItem := pinnedEvidenceItem("a.go", "Foo", 1)
 	return &explorerEvaluator{
 		userQuestion:       question,
