@@ -4671,16 +4671,6 @@ func renderFollowOnGroundedContextSummarySeed(plan *types.AnswerSurfacePlan, lan
 		return ""
 	}
 	return renderNearbyContextSummarySentence(labels, lang)
-	if answerDocumentRequiresChinese(lang) {
-		if len(labels) == 1 {
-			return fmt.Sprintf("相关的已锚定上下文是 `%s`。", labels[0])
-		}
-		return fmt.Sprintf("相关的已锚定上下文包括 `%s` 和 `%s`。", labels[0], labels[1])
-	}
-	if len(labels) == 1 {
-		return fmt.Sprintf("The grounded nearby context is `%s`.", labels[0])
-	}
-	return fmt.Sprintf("The grounded nearby context includes `%s` and `%s`.", labels[0], labels[1])
 }
 
 func renderConfigTraceFollowOnGroundedContextSummarySeed(plan *types.AnswerSurfacePlan, lang string) string {
