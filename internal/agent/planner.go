@@ -141,6 +141,9 @@ func (e *plannerEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk *
 	if history := e.buildIterationHistorySection(ctx); history != "" {
 		sections = append(sections, history)
 	}
+	if pitfalls := e.buildActivePitfallsSection(ctx); pitfalls != "" {
+		sections = append(sections, pitfalls)
+	}
 	if planning := e.buildPlanningContextSection(ctx); planning != "" {
 		sections = append(sections, planning)
 	}
@@ -405,6 +408,38 @@ func (e *plannerEvaluator) buildIterationHistorySection(ctx *types.AgentContext)
 		return ""
 	}
 	return types.RenderIterationLedger(ctx.Mutable.IterationLedger())
+}
+
+// buildActivePitfallsSection renders the stage-3 Failure
+// Taxonomy entries the orchestrator deemed relevant to this
+// plan dispatch. Each pitfall shows up as a single bullet
+// (name + 1-line description + trigger) so the planner sees
+// the WHAT + WHY without losing context budget. Empty when
+// no pitfalls apply (typical for first plan in a fresh repo,
+// for tasks whose kind doesn't match any pattern, or when
+// the failure-taxonomy feature is disabled).
+//
+// The framing is descriptive (these patterns happened
+// before), not prescriptive (you must do X). The LLM reads
+// the pattern + decides for itself whether THIS plan
+// triggers it.
+func (e *plannerEvaluator) buildActivePitfallsSection(ctx *types.AgentContext) string {
+	if ctx == nil || len(ctx.ActivePitfalls) == 0 {
+		return ""
+	}
+	var b strings.Builder
+	b.WriteString("## Known active pitfalls in this repo\n\n")
+	b.WriteString("Past plans in this repo failed due to the patterns below. Each one is annotated with what triggers it. When emitting your plan, check whether THIS task could trip any of them; if so, structure the plan to avoid the trigger. The planner is the decider — these are observations, not instructions.\n\n")
+	for _, p := range ctx.ActivePitfalls {
+		fmt.Fprintf(&b, "- **%s** — %s\n", strings.TrimSpace(p.Name), strings.TrimSpace(p.Description))
+		if t := strings.TrimSpace(p.Trigger); t != "" {
+			fmt.Fprintf(&b, "  - Trigger: %s\n", t)
+		}
+		if c := strings.TrimSpace(p.Consequence); c != "" {
+			fmt.Fprintf(&b, "  - Typical consequence: %s\n", c)
+		}
+	}
+	return strings.TrimRight(b.String(), "\n")
 }
 
 // buildPlanningContextSection renders the existing PlanningHint —

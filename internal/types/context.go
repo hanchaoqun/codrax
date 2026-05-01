@@ -2756,6 +2756,18 @@ type AgentContext struct {
 	// AgentSettings.VerifierSoftIterCap in effect.
 	VerifierSoftIterCapOverride int `json:"-"`
 
+	// ActivePitfalls carries the stage-3 Failure Taxonomy
+	// entries the orchestrator deemed relevant to THIS plan
+	// dispatch. Populated by stage_hooks.planPreHook (or
+	// equivalently the multi-phase scheduler) BEFORE the
+	// planner dispatches; consumed by the planner's
+	// BuildInitialInstruction via buildActivePitfallsSection.
+	// Empty slice = no relevant pitfalls (or the feature is
+	// disabled). The planner renders this under a "## Known
+	// active pitfalls in this repo" heading so the LLM has
+	// see prior failure modes before emitting.
+	ActivePitfalls []FailurePattern `json:"-"`
+
 	// EmitStageRetryAttempt is the 0-based retry-attempt counter for
 	// stages whose terminal action is a structured `emit_*` tool call
 	// (analyze / extract / finalize / log_triage / perf_triage). The

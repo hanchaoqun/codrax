@@ -4002,6 +4002,28 @@ func (o *Orchestrator) dispatchStage(stage types.PipelineStage) (*agent.StageOut
 				logging.Debug("[orchestrator] planner scaling: complexity=%s sub-topics=%d, soft cap %d → %d",
 					complexity, nSub, base, adjusted)
 			}
+			// Stage 3: inject relevant Failure Taxonomy entries
+			// the planner should regard before emitting. The
+			// relevance score combines task kind + target-paths
+			// overlap + recency; we read RelevantTo with the
+			// current task's kind + WriteAnalysisIR scope
+			// anchors as the path hint set.
+			if o.failureTaxonomyStore != nil {
+				kind := ""
+				var paths []string
+				if ir := o.busCtx.Mutable.WriteAnalysisIR(); ir != nil {
+					kind = string(ir.Request.Task.Kind)
+					for _, p := range ir.Request.ScopeAnchors {
+						if t := strings.TrimSpace(p); t != "" {
+							paths = append(paths, t)
+						}
+					}
+				}
+				if pitfalls := o.failureTaxonomyStore.RelevantTo(kind, paths, 5); len(pitfalls) > 0 {
+					agentCtx.ActivePitfalls = pitfalls
+					logging.Debug("[orchestrator] failure_taxonomy: %d active pitfalls injected", len(pitfalls))
+				}
+			}
 		case types.StageExtract:
 			// Extractor soft-cap scaling. The default soft cap (3) is
 			// calibrated for single-topic answers where one or two
