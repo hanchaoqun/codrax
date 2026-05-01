@@ -38,6 +38,21 @@ import (
 // Why mutable vars and not constants: same reason BlobLimits and
 // AnalysisLimits are mutable — operators tune them per deployment
 // without recompiling.
+// surgicalReadChunkLines bounds each individual surgical read_file
+// call inside runForcedReads so the rendered banner content never
+// trips read_file's inline MaxInlineBytes (32 KB default) blob
+// truncation. With ~80-100 bytes per line plus a 12-byte gutter, a
+// 200-line chunk renders ~22 KB — comfortably under the budget for
+// typical source code, with headroom for files with longer-than-
+// average lines. Demand ranges larger than this are split into
+// consecutive chunk reads within the same runForcedReads pass so
+// the closure records the full demanded range in one stall round
+// (without chunking, a truncated banner would leave the upper
+// portion of the demand uncovered, the gate would re-raise the
+// same demand, and the fingerprint would stay stable until the I4
+// hard-stall fired three rounds later).
+const surgicalReadChunkLines = 200
+
 var (
 	// cgecForcedReadsPerRound is the per-explore-round cap on Lazy
 	// Auto-Read invocations. Three is enough to compensate for one
@@ -167,20 +182,44 @@ func (o *Orchestrator) runForcedReads() int {
 				if r.End < r.Start || r.Start <= 0 {
 					continue
 				}
-				offset := r.Start - 1 // banner: showing lines (offset+1)..(offset+limit)
-				limit := r.End - r.Start + 1
-				rangeResult, rangeErr := executeSurgicalReadFile(o.busCtx, rf, p.File, offset, limit)
-				if rangeErr != nil || !rangeResult.Success {
-					if firstErr == nil {
-						firstErr = rangeErr
+				// Chunk the demand to stay under read_file's inline
+				// MaxInlineBytes budget. Without chunking, a long-line
+				// file or a wide L4 SmallFileFull demand would trip
+				// read_file's blob-truncation path (banner reports a
+				// shorter range than requested), the closure would
+				// record only the truncated range, the gate would
+				// re-raise the same demand on the next pass, and
+				// runForcedReads would issue the same truncated read
+				// again — fingerprint stable, I4 force-complete after
+				// 3 wasted rounds. Chunking guarantees each individual
+				// read fits inline so the closure records the full
+				// demanded range across one stall round.
+				chunkBudget := surgicalReadChunkLines
+				cur := r
+				for cur.End >= cur.Start {
+					end := cur.End
+					if end-cur.Start+1 > chunkBudget {
+						end = cur.Start + chunkBudget - 1
 					}
-					lastSummary = rangeResult.Summary
-					logging.Warning("[CGEC] E2 surgical forced-read range failed: file=%s offset=%d limit=%d err=%v summary=%s",
-						p.File, offset, limit, rangeErr, rangeResult.Summary)
-					continue
+					offset := cur.Start - 1
+					limit := end - cur.Start + 1
+					rangeResult, rangeErr := executeSurgicalReadFile(o.busCtx, rf, p.File, offset, limit)
+					if rangeErr != nil || !rangeResult.Success {
+						if firstErr == nil {
+							firstErr = rangeErr
+						}
+						lastSummary = rangeResult.Summary
+						logging.Warning("[CGEC] E2 surgical forced-read chunk failed: file=%s offset=%d limit=%d err=%v summary=%s",
+							p.File, offset, limit, rangeErr, rangeResult.Summary)
+						break
+					}
+					rangeResult.Summary = "[forced_read surgical] " + rangeResult.Summary
+					perRangeResults = append(perRangeResults, rangeResult)
+					if end >= cur.End {
+						break
+					}
+					cur = types.LineRange{Start: end + 1, End: cur.End}
 				}
-				rangeResult.Summary = "[forced_read surgical] " + rangeResult.Summary
-				perRangeResults = append(perRangeResults, rangeResult)
 			}
 			if len(perRangeResults) == 0 {
 				if cause, abandoned := abandonUnrecoverableForcedRead(o.busCtx, closure, p.File, p.Origin, firstErr, lastSummary, "surgical"); abandoned {

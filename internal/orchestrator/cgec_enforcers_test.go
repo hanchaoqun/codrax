@@ -119,6 +119,65 @@ func TestRunForcedReads_BudgetCap(t *testing.T) {
 	}
 }
 
+// TestRunForcedReads_SurgicalChunksLargeRange pins the chunking
+// contract: a demand range larger than surgicalReadChunkLines must
+// be split into consecutive sub-reads within the same
+// runForcedReads pass so the closure ends up with the FULL
+// demanded range covered in one stall round. Without chunking, a
+// long-line file or wide L4 SmallFileFull demand would trip
+// read_file's inline truncation, the closure would record only a
+// truncated head range, the gate would re-raise the same demand,
+// and runForcedReads would issue the same truncated read again —
+// stalling for 3 rounds before I4 force-completes.
+func TestRunForcedReads_SurgicalChunksLargeRange(t *testing.T) {
+	o := newTestOrch(t)
+	repoRoot := o.busCtx.RepoRoot
+	relPath := "wide_demand.go"
+	abs := filepath.Join(repoRoot, relPath)
+	if err := os.MkdirAll(filepath.Dir(abs), 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	// 600-line file so the demand spans 3 × surgicalReadChunkLines
+	// (200) chunks.
+	var content strings.Builder
+	for i := 1; i <= 600; i++ {
+		content.WriteString("L")
+		content.WriteString(testIntToString(i))
+		content.WriteString("\n")
+	}
+	if err := os.WriteFile(abs, []byte(content.String()), 0o644); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+
+	closure := o.busCtx.Mutable.EvidenceClosure()
+	closure.AddPendingRead(types.PendingRead{
+		File:       relPath,
+		Rationale:  "wide surgical demand spanning multiple chunk budgets",
+		Origin:     "pre_complete.multi_path_anchor",
+		LineRanges: []types.LineRange{{Start: 1, End: 600}}, // 600 lines = 3 × 200
+	})
+
+	got := o.runForcedReads()
+	if got != 1 {
+		t.Fatalf("expected 1 successful PendingRead drain; got %d", got)
+	}
+	results := o.busCtx.Mutable.DispatchToolResults()
+	if len(results) != 3 {
+		t.Fatalf("expected 3 chunked surgical ToolResults (600 lines / 200 per chunk); got %d", len(results))
+	}
+	expectedRanges := []string{
+		"showing lines 1-200",
+		"showing lines 201-400",
+		"showing lines 401-600",
+	}
+	for i, want := range expectedRanges {
+		if !strings.Contains(results[i].Summary, want) {
+			t.Errorf("result[%d] banner does not match expected chunk; want substring %q; got: %s",
+				i, want, firstLineOf(results[i].Summary))
+		}
+	}
+}
+
 // TestRunForcedReads_HonorsLineRanges_Surgical pins the load-bearing
 // surgical-recovery contract: when a PendingRead carries non-empty
 // LineRanges (populated by multipath.EvaluateAnchor's
