@@ -1601,6 +1601,12 @@ func initApp(cmd *cobra.Command, _ []string) error {
 		if rs.PipelineAnswerTaxonomyDecayDays != nil {
 			answerTaxonomyDecayDays = *rs.PipelineAnswerTaxonomyDecayDays
 		}
+		// Commit 53 P3: contract gate soft/strict classification.
+		// Always apply so explicit empty yaml restores defaults.
+		orchestrator.SetSoftViolationKinds(
+			rs.PipelineContractSoftKinds,
+			rs.PipelineContractStrictKinds,
+		)
 		if rs.PipelineTransientRetryBudget != nil {
 			pipelineSettings.TransientRetryBudget = *rs.PipelineTransientRetryBudget
 		}

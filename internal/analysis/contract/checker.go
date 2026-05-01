@@ -105,6 +105,11 @@ const (
 	ViolPreCompleteDowngrade = types.ViolPreCompleteDowngrade
 	ViolLiteralFormFailed    = types.ViolLiteralFormFailed
 	ViolShapeSwap            = types.ViolShapeSwap
+
+	// Commit 53 P2/P4 — read-mode answer-coherence violations.
+	ViolShapeIntentMismatch   = types.ViolShapeIntentMismatch
+	ViolSubTopicCountMismatch = types.ViolSubTopicCountMismatch
+	ViolDiagramIdentifier     = types.ViolDiagramIdentifier
 )
 
 // Check validates draft against c. It is safe to call with an empty

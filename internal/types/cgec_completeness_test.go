@@ -197,6 +197,10 @@ func TestAllViolationKindsHaveProducer(t *testing.T) {
 		ViolSelfRefLiteral:       true, // tool/emit_evidence.go R4 self-ref filter (G6)
 		ViolLiteralFormFailed:    true, // tool/emit_answer_document.go C5 literal form check (G7)
 		ViolChainDemoted:         true, // agent/explorer_erm.go R3 self-ref chain demote (G7)
+		// Commit 53 P2/P4 — read-mode answer-coherence violations.
+		ViolShapeIntentMismatch:   true, // orchestrator/contract_check.go runAnswerShapeOracle
+		ViolSubTopicCountMismatch: true, // orchestrator/contract_check.go runAnswerShapeOracle
+		ViolDiagramIdentifier:     true, // tool/emit_answer_document.go diagram bare-identifier check (commit 53 P4)
 	}
 	// All Session 11 violation kinds now have producers. The
 	// pending map remains empty but is kept so future additions

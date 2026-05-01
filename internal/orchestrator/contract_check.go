@@ -70,15 +70,31 @@ func runContractCheck(out *agent.StageOutput, c types.AnswerContract, mut *types
 		}
 	}
 	result := contract.Check(draft, c)
-	// Session 11 F1 ViolationLedger — mirror every contract.Check
-	// violation into the per-Run EvidenceClosure so the F2 aggregator
-	// and F4 HintComposer can consume them the same way they consume
-	// enforcer-emitted violations. The checker already filled
-	// SuspectedRoot on each Violation (see internal/analysis/contract/
-	// checker.go), so this is a straight batch append — no per-kind
-	// translation needed. Reset Stage/DispatchID here because the
-	// checker is decoupled from pipeline plumbing.
-	if mut != nil && !result.Passed {
+
+	// Commit 53 P2 — Answer Shape Oracle. After the contract.Check
+	// suite, run additional read-mode-only coherence checks that need
+	// the full IR (not just the contract). These produce new
+	// ViolationKind values (shape_intent_mismatch / sub_topic_count_
+	// mismatch) that downstream sees as ordinary violations. Soft by
+	// default at the gate-layer (see softViolationKinds below); the
+	// Append-to-closure path is unchanged.
+	if mut != nil {
+		ir := mut.RequestModel()
+		if doc := mut.AnswerDocument(); doc != nil && ir != nil {
+			result.Violations = append(result.Violations,
+				runAnswerShapeOracle(doc, ir)...)
+		}
+	}
+
+	// Session 11 F1 ViolationLedger — mirror every violation into the
+	// per-Run EvidenceClosure so the F2 aggregator and F4 HintComposer
+	// can consume them the same way they consume enforcer-emitted
+	// violations. The checker already filled SuspectedRoot on each
+	// Violation (see internal/analysis/contract/checker.go), so this
+	// is a straight batch append — no per-kind translation needed.
+	// Reset Stage/DispatchID here because the checker is decoupled
+	// from pipeline plumbing.
+	if mut != nil && len(result.Violations) > 0 {
 		closure := mut.EvidenceClosure()
 		for i := range result.Violations {
 			v := result.Violations[i]
@@ -88,7 +104,193 @@ func runContractCheck(out *agent.StageOutput, c types.AnswerContract, mut *types
 			closure.AppendViolation(v)
 		}
 	}
+
+	// Commit 53 P3 — soft/strict gate. Recompute Passed against the
+	// configured strict-kinds set: if every violation is "soft" per
+	// yaml, Passed flips back to true so the scheduler doesn't trigger
+	// a hard finalize retry. Mirrored telemetry stays intact (the
+	// Append above already happened). Default strict-kinds covers
+	// every legacy kind so pre-commit-53 behaviour is byte-identical;
+	// only the 3 new kinds (P2/P4) default to soft.
+	result.Passed = !hasAnyStrictViolation(result.Violations)
+
 	return result
+}
+
+// runAnswerShapeOracle applies the read-mode Answer Shape Oracle
+// (commit 53 P2): structural cross-checks between the finalized
+// AnswerDocument and the analyzer's RequestModel that the contract
+// schema cannot express. Returns a (possibly empty) violations slice.
+//
+// Two checks fire:
+//
+//   - Shape ↔ Intent coherence: a ShapeValue answer for an
+//     IntentExplain / IntentRootCause request is suspicious — the
+//     analyzer asked for prose, the finalizer produced a scalar.
+//     Vice versa: ShapeExplanation for IntentCount is suspicious.
+//
+//   - SubTopic count mismatch: when the analyzer declared N
+//     sub-topics, the doc.AnswerSymbols (when present) should cover
+//     close to N distinct buckets. A 3-sub-topic request answered
+//     with 1 symbol or 10 symbols is a coverage mismatch the
+//     analyzer should re-examine.
+//
+// Both checks are SOFT by default (added to ViolDiagramIdentifier-
+// /ViolSubTopicCountMismatch families that gate-soft-list excludes
+// from Passed=false hard-fail). Operators promote to strict via
+// gate_contract_strict_kinds yaml.
+func runAnswerShapeOracle(doc *types.AnswerDocument, rm *types.RequestModel) []types.Violation {
+	if doc == nil || rm == nil {
+		return nil
+	}
+	var out []types.Violation
+
+	// Shape ↔ Intent coherence.
+	switch rm.Intent {
+	case types.IntentExplain, types.IntentRootCause:
+		// Explanation requests should produce explanation-class
+		// shapes (Explanation / List). A pure value/boolean
+		// answer is structurally inconsistent.
+		switch doc.Shape {
+		case types.ShapeValue, types.ShapeBoolean, types.ShapeConfigValue:
+			out = append(out, types.Violation{
+				Kind: types.ViolShapeIntentMismatch,
+				Detail: fmt.Sprintf("intent=%s expects explanation-class shape; finalizer emitted shape=%s",
+					rm.Intent, doc.Shape),
+				SuspectedRoot: types.SuspectedRoot{
+					IRField:    "answer_shape",
+					Reason:     "intent declares explanation; shape declares scalar",
+					Confidence: 0.6,
+				},
+				Stage: string(types.StageFinalize),
+			})
+		}
+	case types.IntentReturnValue, types.IntentConfigQuery:
+		// Value-return / config-query requests want a scalar
+		// answer. An explanation shape is structurally
+		// inconsistent — the user asked "what's the value" not
+		// "explain why".
+		if doc.Shape == types.ShapeExplanation {
+			out = append(out, types.Violation{
+				Kind: types.ViolShapeIntentMismatch,
+				Detail: fmt.Sprintf("intent=%s expects value-class shape; finalizer emitted shape=explanation",
+					rm.Intent),
+				SuspectedRoot: types.SuspectedRoot{
+					IRField:    "answer_shape",
+					Reason:     "intent declares scalar; shape declares explanation",
+					Confidence: 0.6,
+				},
+				Stage: string(types.StageFinalize),
+			})
+		}
+	}
+
+	// SubTopic count check. Only meaningful when the analyzer
+	// emitted >= 2 sub-topics AND the doc has emit_answer_symbol
+	// rows; otherwise the check is moot.
+	if len(rm.SubTopics) >= 2 && len(doc.Symbols) > 0 {
+		distinctBuckets := countDistinctAnswerSymbolBuckets(doc.Symbols)
+		expected := len(rm.SubTopics)
+		// Tolerance: ±1 sub-topic absorbed (analyzer over/under
+		// segmentation is common). A 3-topic request with 2 or 4
+		// distinct buckets is fine; with 1 or 5+ it's a mismatch.
+		if abs(distinctBuckets-expected) > 1 {
+			out = append(out, types.Violation{
+				Kind: types.ViolSubTopicCountMismatch,
+				Detail: fmt.Sprintf("analyzer declared %d sub-topics; answer covers %d distinct buckets",
+					expected, distinctBuckets),
+				SuspectedRoot: types.SuspectedRoot{
+					IRField:    "sub_topics",
+					Reason:     "answer-symbol bucket count diverges from analyzer's sub-topic count",
+					Confidence: 0.5,
+				},
+				Stage: string(types.StageFinalize),
+			})
+		}
+	}
+
+	return out
+}
+
+// countDistinctAnswerSymbolBuckets reports how many distinct
+// "buckets" (sub-topic-like grouping) the answer-symbols span.
+// Bucket key is `File` when present (different files = different
+// sub-topics in a multi-topic answer), else `Name` (different
+// symbols = different topics within one file). Conservative: when
+// both are blank (anomalous), each row counts as its own bucket
+// so the divergence check leans toward over-counting.
+func countDistinctAnswerSymbolBuckets(symbols []types.AnswerSymbol) int {
+	seen := map[string]struct{}{}
+	for i, s := range symbols {
+		key := strings.TrimSpace(s.File)
+		if key == "" {
+			key = strings.TrimSpace(s.Name)
+		}
+		if key == "" {
+			key = fmt.Sprintf("__row_%d", i)
+		}
+		seen[key] = struct{}{}
+	}
+	return len(seen)
+}
+
+func abs(x int) int {
+	if x < 0 {
+		return -x
+	}
+	return x
+}
+
+// defaultSoftKinds is the set of ViolationKinds that, by default,
+// do NOT hard-fail the contract gate (they are mirrored to closure
+// for telemetry / future learning but don't trigger finalize retry).
+// The pre-commit-53 violation kinds (ViolShape / ViolCitation / ...)
+// are NOT in this set; their hard-gate behaviour is preserved
+// byte-identically. Only the 3 commit-53 newcomers default to soft.
+//
+// Operators promote a kind to strict (or demote one to soft) via
+// yaml pipeline_contract_strict_kinds + pipeline_contract_soft_kinds;
+// see SetSoftViolationKinds below.
+func defaultSoftKinds() map[types.ViolationKind]bool {
+	return map[types.ViolationKind]bool{
+		types.ViolShapeIntentMismatch:   true,
+		types.ViolSubTopicCountMismatch: true,
+		types.ViolDiagramIdentifier:     true,
+	}
+}
+
+// softViolationKinds is the active set; mutated by
+// SetSoftViolationKinds at startup.
+var softViolationKinds = defaultSoftKinds()
+
+// SetSoftViolationKinds replaces the active soft-kind set. Empty
+// args restore defaults. Called from cmd/root.go after reading
+// runtime config. Order: start from defaults, add `extraSoft`,
+// remove `extraStrict`.
+func SetSoftViolationKinds(extraSoft []string, extraStrict []string) {
+	out := defaultSoftKinds()
+	for _, name := range extraSoft {
+		k := strings.TrimSpace(name)
+		if k != "" {
+			out[types.ViolationKind(k)] = true
+		}
+	}
+	for _, name := range extraStrict {
+		delete(out, types.ViolationKind(strings.TrimSpace(name)))
+	}
+	softViolationKinds = out
+}
+
+// hasAnyStrictViolation reports whether the slice contains at least
+// one violation whose Kind is NOT in softViolationKinds. The gate
+// flips Passed=false only when this returns true.
+func hasAnyStrictViolation(vs []types.Violation) bool {
+	for _, v := range vs {
+		if !softViolationKinds[v.Kind] {
+			return true
+		}
+	}
+	return false
 }
 
 func shapeTextForContractCheck(doc *types.AnswerDocument) string {

@@ -60,6 +60,30 @@ const (
 	// operators still want to observe how often the LLM picks the
 	// wrong shape.
 	ViolShapeSwap ViolationKind = "shape_swap"
+
+	// Commit 53 P2 — read-mode answer Shape Oracle violations.
+	// Defaults are SOFT (advisory only, mirrored to closure but
+	// don't trigger finalize retry) so the new gates can ship
+	// without breaking edge-case answers; operators can promote
+	// to strict via gate_contract_strict_kinds yaml.
+
+	// ViolShapeIntentMismatch: answer Shape contradicts Intent /
+	// Scenario from RequestModel (e.g. ShapeValue answer for a
+	// "explain how X works" intent). Caught by
+	// runAnswerShapeOracle. SuspectedRoot: answer_shape.
+	ViolShapeIntentMismatch ViolationKind = "shape_intent_mismatch"
+
+	// ViolSubTopicCountMismatch: doc.AnswerSymbols' distinct
+	// SubTopic-bucket count diverges from len(IR.SubTopics).
+	// Catches multi-topic answers that under-cover or over-cover.
+	// Caught by runAnswerShapeOracle. SuspectedRoot: sub_topics.
+	ViolSubTopicCountMismatch ViolationKind = "sub_topic_count_mismatch"
+
+	// ViolDiagramIdentifier: a bare CamelCase / snake_case
+	// identifier inside a mermaid block does not resolve to a
+	// real symbol via the SymbolOracle. Caught by P4 diagram
+	// validator. SuspectedRoot: diagram.
+	ViolDiagramIdentifier ViolationKind = "diagram_identifier_unverified"
 )
 
 // AllViolationKinds returns every declared ViolationKind in a stable
@@ -83,6 +107,9 @@ func AllViolationKinds() []ViolationKind {
 		ViolPreCompleteDowngrade,
 		ViolLiteralFormFailed,
 		ViolShapeSwap,
+		ViolShapeIntentMismatch,
+		ViolSubTopicCountMismatch,
+		ViolDiagramIdentifier,
 	}
 }
 

@@ -228,6 +228,20 @@ type RuntimeSettings struct {
 	// patterns. Default 90, mirrors the failure taxonomy.
 	PipelineAnswerTaxonomyDecayDays *int `yaml:"pipeline_answer_taxonomy_decay_days"`
 
+	// PipelineContractSoftKinds + PipelineContractStrictKinds
+	// (commit 53 P3) override the default soft/strict gate
+	// classification per ViolationKind. Soft kinds are mirrored
+	// to EvidenceClosure for telemetry but do NOT flip
+	// contract.Result.Passed=false (no finalize retry). Strict
+	// kinds DO flip Passed=false. Default soft set covers the 3
+	// commit-53 P2/P4 newcomers (shape_intent_mismatch,
+	// sub_topic_count_mismatch, diagram_identifier_unverified);
+	// every legacy kind defaults to strict for byte-identical
+	// pre-commit-53 behaviour. Operators add to soft / strict
+	// here to relax / tighten without code changes.
+	PipelineContractSoftKinds   []string `yaml:"pipeline_contract_soft_kinds"`
+	PipelineContractStrictKinds []string `yaml:"pipeline_contract_strict_kinds"`
+
 	// PipelineTransientRetryBudget caps how many times a single Run
 	// will retry a stage that failed with a transient dispatch error
 	// (LLM stream stall / first-byte timeout / 429 / 5xx / network
