@@ -1690,6 +1690,144 @@ func TestEmitEvidence_ConfigAbsentPrimaryMarksSubstituteEvidenceContextOnly(t *t
 	}
 }
 
+func TestEmitEvidence_DemotesCrossCallableLineLocalOwnerMismatch(t *testing.T) {
+	tool := &EmitEvidence{}
+	ctx := newEmitCtx()
+	seedReadFileHistory(ctx, "internal/agent/analyzer.go", 883,
+		"func buildAnalysisIR(ctx *types.AgentContext) (*types.AnalysisIR, error) {",
+		"if ctx == nil || ctx.Mutable == nil {",
+		`	return nil, errors.New("analyzer: missing AgentContext.Mutable")`,
+	)
+	ctx.Mutable.SetSearchGraph(&repomap.Graph{
+		FileIndex: map[string]*repomap.FileInfo{
+			"internal/agent/analyzer.go": {
+				RelPath: "internal/agent/analyzer.go",
+				Symbols: []repomap.Symbol{
+					{
+						Name:     "ParseOutput",
+						Receiver: "(*analyzerEvaluator)",
+						Kind:     "method",
+						Line:     629,
+						EndLine:  879,
+					},
+					{
+						Name:    "buildAnalysisIR",
+						Kind:    "function",
+						Line:    883,
+						EndLine: 1100,
+					},
+				},
+			},
+		},
+	})
+	params := json.RawMessage(`{
+		"items": [
+			{
+				"evidence_kind": "conditional",
+				"subject": "ParseOutput",
+				"predicate": "checks",
+				"source": "internal/agent/analyzer.go",
+				"line_start": 884,
+				"condition": "ctx == nil || ctx.Mutable == nil",
+				"summary": "ParseOutput checks ctx before the panic path continues.",
+				"anchor_kind": "condition",
+				"anchor_symbol": "buildAnalysisIR"
+			}
+		]
+	}`)
+
+	res, err := tool.Execute(ctx, params)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("expected success with owner-mismatch demotion, got: %s", res.Summary)
+	}
+	got := ctx.Mutable.EmittedEvidence()
+	if len(got) != 1 {
+		t.Fatalf("want 1 item in buffer, got %d", len(got))
+	}
+	if got[0].OwnerSymbol != "buildAnalysisIR" {
+		t.Fatalf("owner symbol = %q, want buildAnalysisIR", got[0].OwnerSymbol)
+	}
+	if got[0].Kind != types.EvidenceUnresolved {
+		t.Fatalf("kind = %q, want unresolved", got[0].Kind)
+	}
+	if got[0].GroundingStatus != types.GroundingUngrounded {
+		t.Fatalf("grounding status = %q, want ungrounded", got[0].GroundingStatus)
+	}
+	if !strings.Contains(strings.ToLower(got[0].GroundingNote), "line-local statement") {
+		t.Fatalf("grounding note should explain the owner mismatch, got: %q", got[0].GroundingNote)
+	}
+	if !strings.Contains(strings.ToLower(res.Summary), "drop the item") {
+		t.Fatalf("summary should steer away from repairing the cross-owner claim, got: %q", res.Summary)
+	}
+}
+
+func TestEmitEvidence_DemotesConditionClaimThatDoesNotMatchGroundedLine(t *testing.T) {
+	tool := &EmitEvidence{}
+	ctx := newEmitCtx()
+	seedReadFileHistory(ctx, "internal/agent/analyzer.go", 884,
+		"if ctx == nil || ctx.Mutable == nil {",
+		`	return nil, errors.New("analyzer: missing AgentContext.Mutable")`,
+		"}",
+		"raw := ctx.Mutable.RequestModel()",
+		"if raw == nil {",
+	)
+	ctx.Mutable.SetSearchGraph(&repomap.Graph{
+		FileIndex: map[string]*repomap.FileInfo{
+			"internal/agent/analyzer.go": {
+				RelPath: "internal/agent/analyzer.go",
+				Symbols: []repomap.Symbol{
+					{
+						Name:    "buildAnalysisIR",
+						Kind:    "function",
+						Line:    883,
+						EndLine: 930,
+					},
+				},
+			},
+		},
+	})
+	params := json.RawMessage(`{
+		"items": [
+			{
+				"evidence_kind": "conditional",
+				"source": "internal/agent/analyzer.go",
+				"line_start": 887,
+				"condition": "ctx != nil && ctx.Mutable == nil",
+				"summary": "guard only checks ctx != nil and misses nil Mutable",
+				"anchor_kind": "condition",
+				"anchor_symbol": "RequestModel"
+			}
+		]
+	}`)
+
+	res, err := tool.Execute(ctx, params)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("expected success with unsupported-condition demotion, got: %s", res.Summary)
+	}
+	got := ctx.Mutable.EmittedEvidence()
+	if len(got) != 1 {
+		t.Fatalf("want 1 item in buffer, got %d", len(got))
+	}
+	if got[0].Kind != types.EvidenceUnresolved {
+		t.Fatalf("kind = %q, want unresolved", got[0].Kind)
+	}
+	if got[0].GroundingStatus != types.GroundingUngrounded {
+		t.Fatalf("grounding status = %q, want ungrounded", got[0].GroundingStatus)
+	}
+	if !strings.Contains(strings.ToLower(got[0].GroundingNote), "condition anchor is not supported") {
+		t.Fatalf("grounding note should explain unsupported condition claim, got: %q", got[0].GroundingNote)
+	}
+	if !strings.Contains(strings.ToLower(res.Summary), "do not repair") {
+		t.Fatalf("summary should steer away from repairing the speculative condition claim, got: %q", res.Summary)
+	}
+}
+
 func TestEmitEvidence_RejectsEmptyItems(t *testing.T) {
 	tool := &EmitEvidence{}
 	ctx := newEmitCtx()

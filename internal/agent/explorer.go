@@ -4268,18 +4268,85 @@ func closureRepairDirectives(mutable *types.MutableState) []types.RepairDirectiv
 	return types.MergeRepairs(out)
 }
 
+func renderCompactClosureRepairSection(repair types.RepairDirective) string {
+	var b strings.Builder
+	switch repair.Kind {
+	case types.RepairReadFile:
+		files := repair.Files
+		if len(files) == 0 {
+			return ""
+		}
+		limit := len(files)
+		if limit > 2 {
+			limit = 2
+		}
+		b.WriteString("## Forced Read List\n")
+		b.WriteString("Read these blocking source file(s) before retrying completion:\n")
+		for _, file := range files[:limit] {
+			if strings.TrimSpace(file) == "" {
+				continue
+			}
+			fmt.Fprintf(&b, "- `%s`\n", file)
+		}
+		if len(files) > limit {
+			fmt.Fprintf(&b, "- ... and %d more blocking source(s)\n", len(files)-limit)
+		}
+	case types.RepairEmitEvidence:
+		b.WriteString("## Evidence Materialization\n")
+		if len(repair.Files) > 0 {
+			limit := len(repair.Files)
+			if limit > 2 {
+				limit = 2
+			}
+			b.WriteString("Stay on these already-read anchor file(s) and re-emit grounded evidence:\n")
+			for _, file := range repair.Files[:limit] {
+				if strings.TrimSpace(file) == "" {
+					continue
+				}
+				fmt.Fprintf(&b, "- `%s`\n", file)
+			}
+			if len(repair.Files) > limit {
+				fmt.Fprintf(&b, "- ... and %d more already-read anchor file(s)\n", len(repair.Files)-limit)
+			}
+		} else {
+			b.WriteString("Re-emit grounded evidence from the already-read anchor lines before retrying completion.\n")
+		}
+	case types.RepairExpandSearch:
+		b.WriteString("## Search Coverage Gap\n")
+		if len(repair.Keywords) > 0 {
+			b.WriteString("Broaden the search with these keyword stems: ")
+			b.WriteString(strings.Join(repair.Keywords, ", "))
+			b.WriteString("\n")
+		}
+	case types.RepairSwapShape:
+		b.WriteString("## Shape Reconcile\n")
+		if strings.TrimSpace(repair.Subject) != "" {
+			fmt.Fprintf(&b, "Use the corrected answer shape: %s.\n", repair.Subject)
+		}
+	case types.RepairRebindSubject:
+		b.WriteString("## Subject Constraint\n")
+		if strings.TrimSpace(repair.Subject) != "" {
+			fmt.Fprintf(&b, "Keep the answer on `%s`-kind terminals only.\n", repair.Subject)
+		}
+	case types.RepairForceCompleteDowngrade:
+		b.WriteString("## Force-Complete Downgrade\n")
+		b.WriteString("No new navigation branch is changing the answer; close out with the current grounded evidence.\n")
+	}
+	return strings.TrimSpace(b.String())
+}
+
 func renderClosureRepairHint(repairs []types.RepairDirective) string {
 	if len(repairs) == 0 {
 		return ""
 	}
 	var b strings.Builder
-	b.WriteString("MID-LOOP CHECK: the last completion attempt already produced structured closure repairs. Finish these exact repairs before returning to generic navigation.\n\n")
+	b.WriteString("MID-LOOP CHECK: the last completion attempt already queued structured closure repairs. Finish the blocking repair first instead of returning to generic navigation.\n\n")
 	limit := len(repairs)
-	if limit > 3 {
-		limit = 3
+	if limit > 2 {
+		limit = 2
 	}
 	for i := 0; i < limit; i++ {
-		rendered := strings.TrimSpace(repairs[i].Render())
+		rendered := renderCompactClosureRepairSection(repairs[i])
 		if rendered == "" {
 			continue
 		}
@@ -4289,7 +4356,7 @@ func renderClosureRepairHint(repairs []types.RepairDirective) string {
 	if len(repairs) > limit {
 		fmt.Fprintf(&b, "... and %d more queued repair(s).\n\n", len(repairs)-limit)
 	}
-	b.WriteString("After one repair batch succeeds, either re-emit grounded evidence or retry `emit_investigation_complete(reason, confidence, result_kind)`.")
+	b.WriteString("After one repair succeeds, re-emit grounded evidence if needed, then retry `emit_investigation_complete(reason, confidence, result_kind)`.")
 	return strings.TrimSpace(b.String())
 }
 
@@ -4315,13 +4382,14 @@ func (e *explorerEvaluator) postClosureRepairSignal(obs LoopObservation) LoopSig
 	if e.midLoopClosureRepairSent || obs.LastToolResult == nil || obs.LastToolResult.ToolName != "emit_investigation_complete" {
 		return LoopSignal{}
 	}
-	triggeredByDowngrade := obs.LastToolResult.Success && strings.HasPrefix(obs.LastToolResult.Summary, tool.EmitInvestigationCompleteDowngradePrefix)
-	triggeredByRepair := !obs.LastToolResult.Success && obs.LastToolResult.Repair != nil
-	if !triggeredByDowngrade && !triggeredByRepair {
-		return LoopSignal{}
-	}
 	repairs := closureRepairDirectives(e.mutable)
 	if len(repairs) == 0 {
+		return LoopSignal{}
+	}
+	triggeredByDowngrade := obs.LastToolResult.Success && strings.HasPrefix(obs.LastToolResult.Summary, tool.EmitInvestigationCompleteDowngradePrefix)
+	triggeredByRepair := !obs.LastToolResult.Success && obs.LastToolResult.Repair != nil
+	triggeredByQueuedRepairs := !obs.LastToolResult.Success
+	if !triggeredByDowngrade && !triggeredByRepair && !triggeredByQueuedRepairs {
 		return LoopSignal{}
 	}
 	e.midLoopClosureRepairSent = true
@@ -4578,27 +4646,28 @@ func (e *explorerEvaluator) postCompletionReadySignal(obs LoopObservation) LoopS
 	b.WriteString("MID-LOOP CHECK: you already have enough evidence to answer this question on the current branch. ")
 	b.WriteString("Stop widening scope and close the investigation now with `emit_investigation_complete(reason, confidence, result_kind)` instead of reading more neighboring files. ")
 	b.WriteString("Use `result_kind=\"resolved\"` unless this is a genuine honest-zero / not-found answer.\n")
-	fmt.Fprintf(&b, "- evidence-bearing tool sources: %d\n", readiness.ToolSources)
-	fmt.Fprintf(&b, "- direct/registration evidence items: %d\n", readiness.DirectCount)
-	if readiness.ScopeTotalCount > 0 {
-		fmt.Fprintf(&b, "- scoped file coverage: %d / %d\n", readiness.ScopeReadCount, readiness.ScopeTotalCount)
-	} else {
-		fmt.Fprintf(&b, "- files read: %d\n", readiness.ReadCount)
-	}
 	if len(e.ermRequirements) > 0 && readiness.ERMSatisfied {
 		b.WriteString("- all current evidence requirements are satisfied\n")
 	}
 	if readiness.AuthoritativeClosure {
 		b.WriteString("- authoritative log frames already carry grounded call/mechanism anchors on the current branch\n")
-	}
-	if scalarLocateReady {
-		b.WriteString("- a grounded owner / definition anchor already identifies the requested literal and its source location\n")
+	} else {
+		fmt.Fprintf(&b, "- evidence-bearing tool sources: %d\n", readiness.ToolSources)
+		fmt.Fprintf(&b, "- direct/registration evidence items: %d\n", readiness.DirectCount)
+		if readiness.ScopeTotalCount > 0 {
+			fmt.Fprintf(&b, "- scoped file coverage: %d / %d\n", readiness.ScopeReadCount, readiness.ScopeTotalCount)
+		} else {
+			fmt.Fprintf(&b, "- files read: %d\n", readiness.ReadCount)
+		}
 	}
 	if e.driftBoundedCompletionReadyMode() && readiness.AuthoritativeClosure {
 		b.WriteString("- the current checkout already bounds the answer surface; do not reopen older-build-only or upstream-provenance branches unless a new contradiction appears on this same grounded path\n")
-		if reason := e.driftBoundedCompletionReason(); reason != "" {
+		if reason := e.driftBoundedCompletionHintReason(); reason != "" {
 			fmt.Fprintf(&b, "- if you close now, keep `reason` no stronger than: %s\n", reason)
 		}
+	}
+	if scalarLocateReady {
+		b.WriteString("- a grounded owner / definition anchor already identifies the requested literal and its source location\n")
 	}
 	if readiness.ExplanationAnchorTotal > 0 {
 		fmt.Fprintf(&b, "- topic anchors ready: %d / %d\n",
@@ -5002,7 +5071,7 @@ func (e *explorerEvaluator) postCompletionReadyClosureOnlySignal(obs LoopObserva
 	hint := "MID-LOOP CHECK: completion-ready has already been established and escalated. The current batch still spent effort on navigation tools. Do NOT keep calling `read_file`, `grep`, `repo_map`, `list_files`, or `exec_command` unless this batch surfaced one concrete contradiction that would change the final answer. From here, either emit exactly one repair batch for that contradiction or call `emit_investigation_complete(reason, confidence, result_kind)` now."
 	if fastTrack {
 		hint = "MID-LOOP CHECK: completion-ready is already established for the grounded current branch, and this batch reopened navigation anyway. Do NOT keep tracing upstream-provenance or older-build-only branches from here. Either emit exactly one repair batch for a concrete contradiction from the lines you already opened, or call `emit_investigation_complete(reason, confidence, result_kind)` now."
-		if reason := e.driftBoundedCompletionReason(); reason != "" {
+		if reason := e.driftBoundedCompletionHintReason(); reason != "" {
 			hint += " Reuse this bounded `reason` surface (or a weaker one): " + reason
 		}
 	}
@@ -5070,6 +5139,36 @@ func (e *explorerEvaluator) driftBoundedCompletionReason() string {
 		return reason
 	}
 	return renderFallbackDriftBoundedCompletionReason(plan)
+}
+
+func (e *explorerEvaluator) driftBoundedCompletionHintReason() string {
+	if e == nil {
+		return ""
+	}
+	plan := e.answerSurfacePlan()
+	if plan == nil || len(plan.DriftBoundedSurfaceItems) == 0 {
+		observed, drift, items := e.currentDriftBoundedSurface()
+		if len(items) == 0 {
+			return ""
+		}
+		shape := types.ShapeExplanation
+		if e.analysisIR != nil {
+			if resolved := types.EffectiveRequiredAnswerShape(e.analysisIR, nil); resolved != "" {
+				shape = resolved
+			}
+		}
+		plan = &types.AnswerSurfacePlan{
+			RequiredShape:            shape,
+			SummarySurfaceMode:       types.AnswerSummarySurfaceDriftBoundedRootCause,
+			LogObservedAnchors:       observed,
+			LogSourceDriftAnchors:    drift,
+			DriftBoundedSurfaceItems: items,
+		}
+	}
+	if reason := renderFallbackDriftBoundedCompletionReason(plan); reason != "" {
+		return reason
+	}
+	return e.driftBoundedCompletionReason()
 }
 
 func (e *explorerEvaluator) currentDriftBoundedSurface() ([]types.LogSourceDriftAnchor, []types.LogSourceDriftAnchor, []types.EvidenceItem) {

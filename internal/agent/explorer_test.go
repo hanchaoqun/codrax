@@ -4133,6 +4133,35 @@ func TestObserveMidLoop_EmitInvestigationCompleteDowngradeKeepsLoopAlive(t *test
 		}
 	})
 
+	t.Run("hard rejection with queued pending read prioritizes closure repair even without ToolRepair payload", func(t *testing.T) {
+		mut := types.NewMutableState("q")
+		mut.EvidenceClosure().AddPendingRead(types.PendingRead{
+			File:      "internal/agent/analyzer.go",
+			Rationale: "Tier-1 floor: read_file the current anchor file and re-emit grounded evidence.",
+			Origin:    "emit_investigation_complete.tier1_floor",
+		})
+		eval := &explorerEvaluator{phase: 1, mutable: mut}
+		rejectedResult := types.ToolResult{
+			ToolName: "emit_investigation_complete",
+			Success:  false,
+			Summary:  "emit_investigation_complete rejected: Tier-1 proven ratio 0% (0 grounded-via-line_text / 1 total) < floor 30%.",
+		}
+		results := []types.ToolResult{rejectedResult}
+
+		sig := eval.observeMidLoop(LoopObservation{
+			Phase:          PhaseMidLoop,
+			Iteration:      6,
+			LastToolResult: &results[0],
+			AllToolResults: results,
+		})
+		if !sig.HintRequested || sig.HintKey != "explorer.mid-loop.closure-repair" {
+			t.Fatalf("hard completion rejection with queued pending reads should surface closure repair first, got %+v", sig)
+		}
+		if !strings.Contains(sig.Hint, "Forced Read List") || !strings.Contains(sig.Hint, "internal/agent/analyzer.go") {
+			t.Fatalf("closure repair hint should expose the pending read target, got: %s", sig.Hint)
+		}
+	})
+
 	t.Run("closure repair follows current pending read, not stale historical read directive", func(t *testing.T) {
 		mut := types.NewMutableState("q")
 		mut.EvidenceClosure().AddRepair(types.RepairDirective{
@@ -5425,6 +5454,9 @@ func TestObserveMidLoop_CompletionReadyHintAddsDriftBoundedGuardrail(t *testing.
 	}
 	if !strings.Contains(sig.Hint, "keep `reason` no stronger than") {
 		t.Fatalf("hint should provide a bounded completion reason, got: %s", sig.Hint)
+	}
+	if !strings.Contains(sig.Hint, "Stay within the grounded current-branch anchor") {
+		t.Fatalf("hint should reuse the concise bounded reason surface, got: %s", sig.Hint)
 	}
 }
 

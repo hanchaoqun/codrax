@@ -888,6 +888,102 @@ func RenderAnswerChainDiagramFence(chains []AnswerChain) string {
 	return RenderLinearDiagramFence(nodes, 5)
 }
 
+func RenderDriftBoundedSurfaceDiagramFence(items []EvidenceItem) string {
+	items = DriftBoundedRenderableSurfaceItems(items)
+	if len(items) == 0 {
+		return ""
+	}
+	nodes := make([]string, 0, len(items))
+	seen := make(map[string]bool, len(items))
+	for _, item := range items {
+		label := strings.TrimSpace(driftBoundedDiagramNodeLabel(item))
+		if label == "" || seen[label] {
+			continue
+		}
+		seen[label] = true
+		nodes = append(nodes, label)
+	}
+	return RenderLinearDiagramFence(nodes, 0)
+}
+
+func DriftBoundedRenderableSurfaceItems(items []EvidenceItem) []EvidenceItem {
+	if len(items) == 0 {
+		return nil
+	}
+	focusTail := ""
+	for _, item := range items {
+		if !driftBoundedIsCallItem(item) {
+			continue
+		}
+		focusTail = normalizedSurfaceSymbolTail(firstNonEmptySurfaceString(item.Object, item.AnchorSymbol))
+		if focusTail != "" {
+			break
+		}
+	}
+	if focusTail == "" {
+		return append([]EvidenceItem(nil), items...)
+	}
+	filtered := make([]EvidenceItem, 0, len(items))
+	for _, item := range items {
+		if driftBoundedIsCallItem(item) {
+			filtered = append(filtered, item)
+			continue
+		}
+		for _, raw := range []string{item.AnchorSymbol, item.OwnerSymbol, item.Subject, item.Object} {
+			if normalizedSurfaceSymbolTail(raw) == focusTail {
+				filtered = append(filtered, item)
+				break
+			}
+		}
+	}
+	if len(filtered) == 0 {
+		return append([]EvidenceItem(nil), items...)
+	}
+	return filtered
+}
+
+func driftBoundedDiagramNodeLabel(item EvidenceItem) string {
+	file := strings.TrimSpace(strings.ReplaceAll(item.Source, `\`, `/`))
+	if file == "" || item.LineStart <= 0 {
+		return ""
+	}
+	location := fmt.Sprintf("%s:%d", file, item.LineStart)
+	switch {
+	case driftBoundedIsCallItem(item):
+		subject := strings.TrimSpace(item.Subject)
+		object := strings.TrimSpace(firstNonEmptySurfaceString(item.Object, item.AnchorSymbol))
+		if subject == "" || object == "" {
+			return ""
+		}
+		return fmt.Sprintf("%s calls %s @ %s", subject, object, location)
+	case item.AnchorKind == AnchorCondition:
+		condition := strings.TrimSpace(item.Condition)
+		if condition == "" {
+			return ""
+		}
+		return fmt.Sprintf("if %s @ %s", condition, location)
+	case item.AnchorKind == AnchorAssignment:
+		expr := strings.TrimSpace(firstNonEmptySurfaceString(item.Object, item.Snippet, item.AnchorSymbol, item.Subject))
+		if expr == "" {
+			return ""
+		}
+		return fmt.Sprintf("%s @ %s", expr, location)
+	case item.AnchorKind == AnchorReturn:
+		expr := strings.TrimSpace(firstNonEmptySurfaceString(item.Object, item.Snippet, item.AnchorSymbol, item.Subject))
+		if expr == "" {
+			return ""
+		}
+		return fmt.Sprintf("return %s @ %s", expr, location)
+	case item.AnchorKind == AnchorDefinition:
+		name := strings.TrimSpace(firstNonEmptySurfaceString(item.AnchorSymbol, item.OwnerSymbol, item.Subject, item.Object))
+		if name == "" {
+			return ""
+		}
+		return fmt.Sprintf("%s @ %s", name, location)
+	}
+	return ""
+}
+
 func CompileDiagramSurfaceFence(
 	dc *DiagramContract,
 	scenario Scenario,
@@ -1504,8 +1600,10 @@ func CollectDriftBoundedSurfaceItems(observed, drift []LogSourceDriftAnchor, ite
 		}(),
 	))
 	var out []EvidenceItem
+	haveCallEdge := false
 	if ev, ok := bestDriftBoundedCallEdge(items, anchorFiles, outerFunc, innerFunc); ok {
 		out = append(out, ev)
+		haveCallEdge = true
 	}
 	if ev, ok := bestDriftBoundedFunctionItem(items, anchorFiles, innerFunc, out); ok {
 		out = append(out, ev)
@@ -1513,8 +1611,15 @@ func CollectDriftBoundedSurfaceItems(observed, drift []LogSourceDriftAnchor, ite
 	if ev, ok := bestDriftBoundedCompanionItem(items, anchorFiles, innerFunc, out); ok {
 		out = append(out, ev)
 	}
-	if ev, ok := bestDriftBoundedFunctionItem(items, anchorFiles, outerFunc, out); ok {
-		out = append(out, ev)
+	if !haveCallEdge {
+		if ev, ok := bestDriftBoundedFunctionItem(items, anchorFiles, outerFunc, out); ok {
+			out = append(out, ev)
+		}
+	}
+	if len(out) == 0 {
+		if ev, ok := bestDriftBoundedFunctionItem(items, anchorFiles, outerFunc, out); ok {
+			out = append(out, ev)
+		}
 	}
 	if len(out) == 0 {
 		if ev, ok := bestDriftBoundedFallbackItem(items, anchorFiles); ok {
@@ -1728,7 +1833,7 @@ func driftBoundedIsCallItem(item EvidenceItem) bool {
 }
 
 func driftBoundedMentionsFunc(item EvidenceItem, target string) bool {
-	for _, raw := range []string{item.AnchorSymbol, item.Subject, item.Object} {
+	for _, raw := range []string{item.AnchorSymbol, item.OwnerSymbol, item.Subject, item.Object} {
 		if normalizedSurfaceSymbolTail(raw) == target {
 			return true
 		}
@@ -2091,7 +2196,7 @@ func logSourceDriftCandidateTails(item EvidenceItem, definitionOnly bool) []stri
 		// Keeping all three aligned with EvidenceSurfaceSymbolTails lets the
 		// log-drift surface reuse the same structural symbol binding the rest
 		// of the answer pipeline already trusts.
-		raws = append(raws, item.AnchorSymbol, item.Subject, item.Object)
+		raws = append(raws, item.AnchorSymbol, item.OwnerSymbol, item.Subject, item.Object)
 	}
 	var out []string
 	seen := make(map[string]bool)
@@ -2109,7 +2214,7 @@ func logSourceDriftCandidateTails(item EvidenceItem, definitionOnly bool) []stri
 func evidenceSurfaceSymbolTails(item EvidenceItem) []string {
 	var out []string
 	seen := make(map[string]bool)
-	for _, raw := range []string{item.AnchorSymbol, item.Subject, item.Object} {
+	for _, raw := range []string{item.AnchorSymbol, item.OwnerSymbol, item.Subject, item.Object} {
 		tail := normalizedSurfaceSymbolTail(raw)
 		if tail == "" || seen[tail] {
 			continue

@@ -335,6 +335,7 @@ type EvidenceItem struct {
 	// dispatch Tier 2 and the recovery tiers without guessing.
 	AnchorKind   AnchorKind `json:"anchor_kind,omitempty"`
 	AnchorSymbol string     `json:"anchor_symbol,omitempty"`
+	OwnerSymbol  string     `json:"owner_symbol,omitempty"`
 	Snippet      string     `json:"snippet,omitempty"`
 
 	// Grounding output: filled by the grounder. Downstream renderers
@@ -697,6 +698,9 @@ func mergeExactResolutionSurfaceEvidence(dst, src EvidenceItem) EvidenceItem {
 	}
 	if dst.AnchorSymbol == "" {
 		dst.AnchorSymbol = src.AnchorSymbol
+	}
+	if dst.OwnerSymbol == "" {
+		dst.OwnerSymbol = src.OwnerSymbol
 	}
 	if dst.AnchorKind == "" {
 		dst.AnchorKind = src.AnchorKind

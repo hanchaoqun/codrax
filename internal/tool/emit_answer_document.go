@@ -5103,23 +5103,22 @@ func normalizeLogSourceDriftSummarySurface(summary string, citations []types.Cit
 		authoritative := driftBoundedSummaryAuthoritativeLabels(plan)
 		sanitized := sanitizeDriftBoundedRootCauseSummary(summary, citations, gc, ctx)
 		userFences := summaryDiagramFenceBlocks(sanitized)
-		summary = driftBoundedSummaryPreservedProse(sanitized, citations, allowed, authoritative)
+		summary = renderStructuredDriftBoundedSummary(ctx)
 		if summary == "" {
-			summary = renderStructuredDriftBoundedSummary(ctx)
+			summary = driftBoundedSummaryPreservedProse(sanitized, citations, allowed, authoritative)
 		}
 		if summary == "" {
 			summary = renderDriftBoundedRootCauseFallbackSummary(ctx)
 		}
 		lead := renderLogSourceDriftLeadClean(ctx)
 		blocks := []string{lead, summary}
-		for _, fence := range userFences {
-			if fence != "" {
-				blocks = append(blocks, fence)
-			}
-		}
-		if len(userFences) == 0 && (plan.CompiledDiagramKind == types.DiagramCallDAG || plan.CompiledDiagramKind == types.DiagramSequence) {
-			if fence := strings.TrimSpace(plan.CompiledDiagramFence); fence != "" {
-				blocks = append(blocks, fence)
+		if fence := renderPreferredDriftBoundedSummaryFence(ctx); fence != "" {
+			blocks = append(blocks, fence)
+		} else {
+			for _, fence := range userFences {
+				if fence != "" {
+					blocks = append(blocks, fence)
+				}
 			}
 		}
 		return preserveRequiredSummaryCoverageAcrossNormalization(original, joinDistinctSummaryBlocks(blocks...), ctx)
@@ -5132,6 +5131,17 @@ func normalizeLogSourceDriftSummarySurface(summary string, citations []types.Cit
 		return preserveRequiredSummaryCoverageAcrossNormalization(original, lead, ctx)
 	}
 	return preserveRequiredSummaryCoverageAcrossNormalization(original, strings.TrimSpace(lead+"\n\n"+summary), ctx)
+}
+
+func renderPreferredDriftBoundedSummaryFence(ctx *types.BusContext) string {
+	plan := answerSurfacePlan(ctx)
+	if plan == nil || plan.SummarySurfaceMode != types.AnswerSummarySurfaceDriftBoundedRootCause {
+		return ""
+	}
+	if fence := strings.TrimSpace(types.RenderDriftBoundedSurfaceDiagramFence(plan.DriftBoundedSurfaceItems)); fence != "" {
+		return fence
+	}
+	return strings.TrimSpace(plan.CompiledDiagramFence)
 }
 
 func preserveRequiredSummaryCoverageAcrossNormalization(original, candidate string, ctx *types.BusContext) string {

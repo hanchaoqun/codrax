@@ -1957,6 +1957,99 @@ func TestEmitAnswerDocument_DriftBoundedSummaryUsesStructuredSurfaceInsteadOfSpe
 	}
 }
 
+func TestEmitAnswerDocument_DriftBoundedSummaryReplacesFreeformFenceWithStructuredCurrentAnchors(t *testing.T) {
+	tool := &EmitAnswerDocument{}
+	ctx := newDocBusCtx("")
+	ctx.Language = "zh"
+	ctx.AnalysisIR = &types.AnalysisIR{
+		RequestModel: types.RequestModel{
+			Scenario: types.ScenarioRootCause,
+			Intent:   types.IntentRootCause,
+		},
+		AnswerContract: types.AnswerContract{
+			RequiredAnswerShape: types.ShapeExplanation,
+			Diagram: &types.DiagramContract{
+				Required:       true,
+				PreferredKinds: []types.DiagramKind{types.DiagramCallDAG},
+			},
+		},
+	}
+	ctx.Mutable.SetLogTriage(&types.LogBundle{
+		Errors: []types.LogError{{
+			Type: "panic",
+			Frames: []types.LogFrame{
+				{File: "internal/agent/analyzer.go", Line: 250, Func: "buildAnalysisIR"},
+				{File: "internal/agent/analyzer.go", Line: 320, Func: "ParseOutput"},
+			},
+		}},
+	})
+	ctx.Mutable.AppendEvidence([]types.EvidenceItem{
+		{
+			Kind:            types.EvidenceRelationship,
+			Source:          "internal/agent/analyzer.go",
+			LineStart:       674,
+			AnchorKind:      types.AnchorCall,
+			AnchorSymbol:    "buildAnalysisIR",
+			Subject:         "analyzerEvaluator.ParseOutput",
+			Object:          "buildAnalysisIR",
+			Predicate:       "calls",
+			GroundingStatus: types.GroundingGrounded,
+			Producer:        EmitEvidenceProducer,
+		},
+		{
+			Kind:            types.EvidenceConditional,
+			Source:          "internal/agent/analyzer.go",
+			LineStart:       884,
+			AnchorKind:      types.AnchorCondition,
+			AnchorSymbol:    "buildAnalysisIR",
+			Condition:       "ctx == nil || ctx.Mutable == nil",
+			GroundingStatus: types.GroundingGrounded,
+			Producer:        EmitEvidenceProducer,
+		},
+		{
+			Kind:            types.EvidenceMechanism,
+			Source:          "internal/agent/analyzer.go",
+			LineStart:       891,
+			AnchorKind:      types.AnchorAssignment,
+			AnchorSymbol:    "raw",
+			Object:          "ctx.Mutable.RequestModel()",
+			GroundingStatus: types.GroundingGrounded,
+			Producer:        EmitEvidenceProducer,
+		},
+	})
+
+	params := mustDocJSON(t, map[string]interface{}{
+		"shape": "explanation",
+		"summary": "旧构建里的 panic 需要结合当前锚点来理解。\n\n" +
+			"```mermaid\nflowchart LR\ncaller[\"ParseOutput<br/>internal/agent/analyzer.go:629\"]\ncalle[\"buildAnalysisIR<br/>internal/agent/analyzer.go:883\"]\nderef[\"nil dereference<br/>ctx.Mutable or nil receiver\"]\ncaller -->|\"ctx 参数为 nil|直接调用\"| calle\ncalle -->|\"无 nil 检查 → 解引用\"| deref\n```",
+		"citations": []map[string]interface{}{
+			{"file": "internal/agent/analyzer.go", "line": 674},
+			{"file": "internal/agent/analyzer.go", "line": 884},
+			{"file": "internal/agent/analyzer.go", "line": 891},
+		},
+	})
+
+	res, _ := tool.Execute(ctx, params)
+	if !res.Success {
+		t.Fatalf("Execute failed: %q", res.Summary)
+	}
+	doc := ctx.Mutable.AnswerDocument()
+	if doc == nil {
+		t.Fatal("answer document not stored")
+	}
+	if strings.Contains(doc.Summary, "无 nil 检查") || strings.Contains(doc.Summary, "nil dereference<br/>ctx.Mutable or nil receiver") {
+		t.Fatalf("drift-bounded normalization should not preserve freeform historical mechanism fence: %q", doc.Summary)
+	}
+	for _, want := range []string{
+		"analyzerEvaluator.ParseOutput calls buildAnalysisIR @ internal/agent/analyzer.go:674",
+		"if ctx == nil || ctx.Mutable == nil @ internal/agent/analyzer.go:884",
+	} {
+		if !strings.Contains(doc.Summary, want) {
+			t.Fatalf("structured drift-bounded fence missing %q:\n%s", want, doc.Summary)
+		}
+	}
+}
+
 func TestEmitAnswerDocument_DedupesCitationPoolAfterRemap(t *testing.T) {
 	tool := &EmitAnswerDocument{}
 	ctx := newDocBusCtx("")
@@ -2318,11 +2411,11 @@ func TestEmitAnswerDocument_DriftBoundedSummaryFallsBackForMultiBlockReasoning(t
 	if doc == nil {
 		t.Fatal("answer document not stored")
 	}
-	if !strings.Contains(doc.Summary, "The current call path is grounded from `ParseOutput` into `buildAnalysisIR`.") {
-		t.Fatalf("drift-bounded normalization should preserve bounded primary prose when it stays on authoritative anchors: %q", doc.Summary)
+	if !strings.Contains(doc.Summary, "`ParseOutput` calls `buildAnalysisIR`") {
+		t.Fatalf("drift-bounded normalization should preserve the grounded primary call path: %q", doc.Summary)
 	}
-	if !strings.Contains(doc.Summary, "buildAnalysisIR") {
-		t.Fatalf("summary should stay anchored on the grounded failure path: %q", doc.Summary)
+	if !strings.Contains(doc.Summary, "the current definition anchor for `buildAnalysisIR` is `internal/agent/analyzer.go:860`") {
+		t.Fatalf("summary should stay anchored on the grounded current-code mechanism: %q", doc.Summary)
 	}
 	// Compiled call-chain fence is Mermaid now (rendered to a
 	// ```text``` ASCII grid). When authoritative observed anchors
@@ -2420,14 +2513,20 @@ func TestEmitAnswerDocument_DriftBoundedSummaryPreservesAuthoritativeRichProse(t
 	if doc == nil {
 		t.Fatal("answer document not stored")
 	}
-	if !strings.Contains(doc.Summary, "这个 panic 的 `runtime.errorString` 来自 `buildAnalysisIR` 函数内部的空指针解引用") {
-		t.Fatalf("rich authoritative drift summary prose should be preserved: %q", doc.Summary)
+	if !strings.Contains(doc.Summary, "附带日志的结构化错误类型是`runtime.errorString`。") {
+		t.Fatalf("drift-bounded summary should keep deterministic log-type coverage: %q", doc.Summary)
+	}
+	if !strings.Contains(doc.Summary, "当前仓库当前能确认的最近机制是") {
+		t.Fatalf("drift-bounded summary should normalize to the compiled current-code mechanism summary: %q", doc.Summary)
+	}
+	if strings.Contains(doc.Summary, "这个 panic 的 `runtime.errorString` 来自 `buildAnalysisIR` 函数内部的空指针解引用") {
+		t.Fatalf("free-form drift prose should not override the compiled bounded summary surface: %q", doc.Summary)
 	}
 	if strings.Contains(doc.Summary, "当前代码还能直接锚定到：direct") {
-		t.Fatalf("low-information structured detail should not overwrite preserved rich drift prose: %q", doc.Summary)
+		t.Fatalf("low-information structured detail should not leak into the compiled drift summary: %q", doc.Summary)
 	}
 	if !strings.Contains(doc.Summary, "```") {
-		t.Fatalf("grounded diagram fence should remain available in the preserved drift summary: %q", doc.Summary)
+		t.Fatalf("grounded diagram fence should remain available in the normalized drift summary: %q", doc.Summary)
 	}
 }
 

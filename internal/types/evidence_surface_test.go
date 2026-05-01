@@ -975,6 +975,209 @@ func TestBuildAnswerSurfacePlan_CollectsDriftBoundedSurfaceItems(t *testing.T) {
 	}
 }
 
+func TestBuildAnswerSurfacePlan_DriftBoundedSurfaceSkipsOuterFunctionNoiseWhenCallEdgeExists(t *testing.T) {
+	mut := NewMutableState("")
+	logBundle := &LogBundle{
+		Errors: []LogError{{
+			Frames: []LogFrame{
+				{File: "internal/agent/analyzer.go", Line: 250, Func: "buildAnalysisIR"},
+				{File: "internal/agent/analyzer.go", Line: 320, Func: "(*analyzerEvaluator).ParseOutput"},
+			},
+		}},
+	}
+	ir := &AnalysisIR{
+		RequestModel: RequestModel{
+			Scenario: ScenarioRootCause,
+			Intent:   IntentRootCause,
+		},
+		AnswerContract: AnswerContract{
+			RequiredAnswerShape: ShapeExplanation,
+		},
+	}
+	evidence := []EvidenceItem{
+		{
+			Kind:            EvidenceRelationship,
+			Source:          "internal/agent/analyzer.go",
+			LineStart:       674,
+			AnchorKind:      AnchorCall,
+			AnchorSymbol:    "buildAnalysisIR",
+			Subject:         "ParseOutput",
+			Object:          "buildAnalysisIR",
+			GroundingStatus: GroundingGrounded,
+		},
+		{
+			Kind:            EvidenceConditional,
+			Source:          "internal/agent/analyzer.go",
+			LineStart:       884,
+			AnchorKind:      AnchorCondition,
+			AnchorSymbol:    "buildAnalysisIR",
+			OwnerSymbol:     "buildAnalysisIR",
+			Condition:       "ctx == nil || ctx.Mutable == nil",
+			GroundingStatus: GroundingGrounded,
+		},
+		{
+			Kind:            EvidenceConditional,
+			Source:          "internal/agent/analyzer.go",
+			LineStart:       653,
+			AnchorKind:      AnchorCondition,
+			AnchorSymbol:    "emitCalls",
+			OwnerSymbol:     "ParseOutput",
+			Condition:       "emitCalls == 0",
+			GroundingStatus: GroundingGrounded,
+		},
+	}
+
+	plan := BuildAnswerSurfacePlan(ir, mut, logBundle, nil, nil, evidence)
+	if plan == nil {
+		t.Fatal("BuildAnswerSurfacePlan returned nil")
+	}
+	for _, item := range plan.DriftBoundedSurfaceItems {
+		if item.LineStart == 653 {
+			t.Fatalf("outer-function noise should stay out once the call edge is grounded, got %+v", plan.DriftBoundedSurfaceItems)
+		}
+	}
+}
+
+func TestDriftBoundedRenderableSurfaceItems_FocusesOnCalleeAnchorsWhenCallEdgeExists(t *testing.T) {
+	items := []EvidenceItem{
+		{
+			Kind:         EvidenceRelationship,
+			Source:       "internal/agent/analyzer.go",
+			LineStart:    674,
+			AnchorKind:   AnchorCall,
+			AnchorSymbol: "buildAnalysisIR",
+			Subject:      "ParseOutput",
+			Object:       "buildAnalysisIR",
+			Predicate:    "calls",
+		},
+		{
+			Kind:         EvidenceConditional,
+			Source:       "internal/agent/analyzer.go",
+			LineStart:    884,
+			AnchorKind:   AnchorCondition,
+			AnchorSymbol: "buildAnalysisIR",
+			OwnerSymbol:  "buildAnalysisIR",
+			Condition:    "ctx == nil || ctx.Mutable == nil",
+		},
+		{
+			Kind:         EvidenceConditional,
+			Source:       "internal/agent/analyzer.go",
+			LineStart:    653,
+			AnchorKind:   AnchorCondition,
+			AnchorSymbol: "ParseOutput",
+			OwnerSymbol:  "ParseOutput",
+			Condition:    "emitCalls == 0",
+		},
+	}
+
+	filtered := DriftBoundedRenderableSurfaceItems(items)
+	if len(filtered) != 2 {
+		t.Fatalf("filtered len = %d, want 2 items focused on call edge + callee anchors", len(filtered))
+	}
+	for _, item := range filtered {
+		if item.LineStart == 653 {
+			t.Fatalf("outer caller guard should be dropped from renderable drift surface: %+v", filtered)
+		}
+	}
+}
+
+func TestBuildAnswerSurfacePlan_DriftBoundedSurfaceUsesOwnerSymbolForLineLocalCompanion(t *testing.T) {
+	mut := NewMutableState("")
+	logBundle := &LogBundle{
+		Errors: []LogError{{
+			Frames: []LogFrame{
+				{File: "internal/agent/analyzer.go", Line: 250, Func: "buildAnalysisIR"},
+				{File: "internal/agent/analyzer.go", Line: 320, Func: "(*analyzerEvaluator).ParseOutput"},
+			},
+		}},
+	}
+	ir := &AnalysisIR{
+		RequestModel: RequestModel{
+			Scenario: ScenarioRootCause,
+			Intent:   IntentRootCause,
+		},
+		AnswerContract: AnswerContract{
+			RequiredAnswerShape: ShapeExplanation,
+		},
+	}
+	evidence := []EvidenceItem{
+		{
+			Kind:            EvidenceRelationship,
+			Source:          "internal/agent/analyzer.go",
+			LineStart:       651,
+			AnchorKind:      AnchorCall,
+			AnchorSymbol:    "buildAnalysisIR",
+			Subject:         "ParseOutput",
+			Object:          "buildAnalysisIR",
+			GroundingStatus: GroundingGrounded,
+		},
+		{
+			Kind:            EvidenceConditional,
+			Source:          "internal/agent/analyzer.go",
+			LineStart:       884,
+			AnchorKind:      AnchorCondition,
+			AnchorSymbol:    "ctx",
+			OwnerSymbol:     "buildAnalysisIR",
+			Condition:       "ctx == nil || ctx.Mutable == nil",
+			GroundingStatus: GroundingGrounded,
+		},
+	}
+
+	plan := BuildAnswerSurfacePlan(ir, mut, logBundle, nil, nil, evidence)
+	if plan == nil {
+		t.Fatal("BuildAnswerSurfacePlan returned nil")
+	}
+	if len(plan.DriftBoundedSurfaceItems) < 2 {
+		t.Fatalf("drift-bounded surface items = %d, want at least 2", len(plan.DriftBoundedSurfaceItems))
+	}
+	if got := plan.DriftBoundedSurfaceItems[1].LineStart; got != 884 {
+		t.Fatalf("second drift-bounded surface item line = %d, want owner-backed guard at 884", got)
+	}
+}
+
+func TestRenderDriftBoundedSurfaceDiagramFence_UsesStatementLevelAnchors(t *testing.T) {
+	items := []EvidenceItem{
+		{
+			Kind:         EvidenceRelationship,
+			Source:       "internal/agent/analyzer.go",
+			LineStart:    674,
+			AnchorKind:   AnchorCall,
+			AnchorSymbol: "buildAnalysisIR",
+			Subject:      "analyzerEvaluator.ParseOutput",
+			Object:       "buildAnalysisIR",
+			Predicate:    "calls",
+		},
+		{
+			Kind:       EvidenceConditional,
+			Source:     "internal/agent/analyzer.go",
+			LineStart:  884,
+			AnchorKind: AnchorCondition,
+			Condition:  "ctx == nil || ctx.Mutable == nil",
+		},
+		{
+			Kind:       EvidenceMechanism,
+			Source:     "internal/agent/analyzer.go",
+			LineStart:  891,
+			AnchorKind: AnchorAssignment,
+			Object:     "ctx.Mutable.RequestModel()",
+		},
+	}
+
+	fence := RenderDriftBoundedSurfaceDiagramFence(items)
+	if fence == "" {
+		t.Fatal("expected deterministic drift-bounded fence")
+	}
+	for _, want := range []string{
+		"analyzerEvaluator.ParseOutput calls buildAnalysisIR @ internal/agent/analyzer.go:674",
+		"if ctx == nil || ctx.Mutable == nil @ internal/agent/analyzer.go:884",
+		"ctx.Mutable.RequestModel() @ internal/agent/analyzer.go:891",
+	} {
+		if !strings.Contains(fence, want) {
+			t.Fatalf("fence missing %q:\n%s", want, fence)
+		}
+	}
+}
+
 func TestBuildAnswerSurfacePlan_CompilesStepBackboneFromAnswerSymbols(t *testing.T) {
 	mut := NewMutableState("")
 	mut.SetEmittedAnswerSymbols([]AnswerSymbol{

@@ -48,7 +48,7 @@ func RenderDriftBoundedCurrentCodeDetailSummary(plan *types.AnswerSurfacePlan, l
 		seen[mechanismText] = true
 	}
 	var clauses []string
-	for _, item := range plan.DriftBoundedSurfaceItems {
+	for _, item := range types.DriftBoundedRenderableSurfaceItems(plan.DriftBoundedSurfaceItems) {
 		clause := strings.TrimSpace(renderDriftBoundedSurfaceItemClause(item, zh))
 		if clause == "" || seen[clause] {
 			continue
@@ -181,7 +181,10 @@ func renderDriftBoundedSurfaceItemClause(item types.EvidenceItem, zh bool) strin
 	subject := strings.TrimSpace(item.Subject)
 	object := strings.TrimSpace(firstNonEmpty(item.Object, item.AnchorSymbol))
 	name := strings.TrimSpace(firstNonEmpty(item.AnchorSymbol, item.Subject, item.Object))
-	actorName := strings.TrimSpace(firstNonEmpty(item.Subject, item.AnchorSymbol, item.Object))
+	actorName := strings.TrimSpace(firstNonEmpty(item.Subject, item.OwnerSymbol, item.AnchorSymbol, item.Object))
+	if item.AnchorKind == types.AnchorCondition || item.AnchorKind == types.AnchorReturn || item.AnchorKind == types.AnchorAssignment {
+		actorName = strings.TrimSpace(firstNonEmpty(item.OwnerSymbol, item.Subject, item.AnchorSymbol, item.Object))
+	}
 	switch {
 	case driftBoundedSurfaceItemIsCallLike(item) && subject != "" && object != "" && location != "":
 		if zh {
@@ -228,7 +231,7 @@ func driftBoundedPrimaryClauses(plan *types.AnswerSurfacePlan, zh bool) (string,
 	}
 	callText := ""
 	mechanismText := ""
-	for _, item := range plan.DriftBoundedSurfaceItems {
+	for _, item := range types.DriftBoundedRenderableSurfaceItems(plan.DriftBoundedSurfaceItems) {
 		clause := renderDriftBoundedSurfaceItemClause(item, zh)
 		if clause == "" {
 			continue

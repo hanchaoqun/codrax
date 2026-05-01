@@ -432,6 +432,21 @@ func (t *EmitEvidence) Execute(ctx *types.BusContext, params json.RawMessage) (t
 	for i := range built {
 		r := ground.GroundItem(&built[i], gc)
 		normalizeCallEvidenceDirection(&built[i], gc)
+		if stampEvidenceOwnerSymbol(&built[i], gc) {
+			r.Status = built[i].GroundingStatus
+			r.Tier = built[i].GroundingTier
+			r.Note = built[i].GroundingNote
+		}
+		if stabilizeLineLocalCallableOwner(&built[i], gc) {
+			r.Status = built[i].GroundingStatus
+			r.Tier = built[i].GroundingTier
+			r.Note = built[i].GroundingNote
+		}
+		if stabilizeStatementLocalAnchorClaim(&built[i], gc) {
+			r.Status = built[i].GroundingStatus
+			r.Tier = built[i].GroundingTier
+			r.Note = built[i].GroundingNote
+		}
 		requestedDiagramRole := built[i].DiagramRole
 		built[i].ContextRole = validatedEvidenceContextRole(built[i], gc, exactResolutionContract)
 		built[i].DiagramRole = validatedEvidenceDiagramRole(built[i], gc, exactResolutionContract, diagramRequiredFiles)
@@ -932,6 +947,220 @@ func normalizeCallEvidenceDirection(it *types.EvidenceItem, gc *ground.Context) 
 			it.Source, it.LineStart, it.Subject, it.Predicate, it.Object)
 	}
 	return changed
+}
+
+func stampEvidenceOwnerSymbol(it *types.EvidenceItem, gc *ground.Context) bool {
+	owner := enclosingEvidenceCallableOwner(it, gc)
+	if owner == "" || strings.TrimSpace(it.OwnerSymbol) == owner {
+		return false
+	}
+	it.OwnerSymbol = owner
+	return true
+}
+
+func stabilizeLineLocalCallableOwner(it *types.EvidenceItem, gc *ground.Context) bool {
+	if it == nil {
+		return false
+	}
+	switch it.AnchorKind {
+	case types.AnchorCondition, types.AnchorReturn, types.AnchorAssignment:
+	default:
+		return false
+	}
+	if gc == nil || gc.Graph == nil {
+		return false
+	}
+	fi, ok := gc.Graph.FileIndex[it.Source]
+	if !ok || fi == nil {
+		return false
+	}
+	owner := enclosingEvidenceCallableOwner(it, gc)
+	if owner == "" {
+		return false
+	}
+	changed := false
+	if strings.TrimSpace(it.OwnerSymbol) != owner {
+		it.OwnerSymbol = owner
+		changed = true
+	}
+	if conflict := conflictingLineLocalCallableClaim(*it, fi, owner); conflict != "" {
+		it.Kind = types.EvidenceUnresolved
+		it.Confidence = 0
+		it.GroundingStatus = types.GroundingUngrounded
+		it.GroundingTier = ""
+		if appendGroundingNoteOnce(it, fmt.Sprintf(
+			"this %s anchor lives inside `%s`, but the item attributes it to `%s`. Use the enclosing callable as the owner for this line-local statement, or drop the speculative cross-function claim. Do NOT repair this item.",
+			it.AnchorKind,
+			owner,
+			conflict,
+		)) {
+			changed = true
+		}
+		changed = true
+	}
+	return changed
+}
+
+func stabilizeStatementLocalAnchorClaim(it *types.EvidenceItem, gc *ground.Context) bool {
+	if it == nil || gc == nil {
+		return false
+	}
+	switch it.AnchorKind {
+	case types.AnchorCondition:
+		return stabilizeConditionAnchorClaim(it, gc)
+	default:
+		return false
+	}
+}
+
+func stabilizeConditionAnchorClaim(it *types.EvidenceItem, gc *ground.Context) bool {
+	if it == nil || gc == nil || it.Source == "" || it.LineStart <= 0 {
+		return false
+	}
+	claim := normalizeStatementLocalAnchorClaim(it.Condition)
+	if claim == "" {
+		return false
+	}
+	window := normalizeStatementLocalAnchorClaim(statementLocalAnchorWindowText(gc, it.Source, it.LineStart, 2))
+	if window == "" {
+		return false
+	}
+	if strings.Contains(window, claim) || strings.Contains(claim, window) {
+		return false
+	}
+	it.Kind = types.EvidenceUnresolved
+	it.Confidence = 0
+	it.GroundingStatus = types.GroundingUngrounded
+	it.GroundingTier = ""
+	appendGroundingNoteOnce(it,
+		"this condition anchor is not supported by the grounded source lines at the cited location. Keep condition anchors tied to the actual current-code guard text shown by the read_file gutter or drop the speculative conditional claim. Do NOT repair this item.",
+	)
+	return true
+}
+
+func statementLocalAnchorWindowText(gc *ground.Context, source string, line, span int) string {
+	if gc == nil || line <= 0 {
+		return ""
+	}
+	file := strings.TrimSpace(strings.ReplaceAll(source, `\`, `/`))
+	if file == "" {
+		return ""
+	}
+	lines := gc.LineIndex[file]
+	if len(lines) == 0 {
+		return ""
+	}
+	if span < 0 {
+		span = 0
+	}
+	parts := make([]string, 0, span+1)
+	for current := line; current <= line+span; current++ {
+		text := strings.TrimSpace(lines[current])
+		if text == "" {
+			continue
+		}
+		parts = append(parts, text)
+	}
+	return strings.Join(parts, " ")
+}
+
+func normalizeStatementLocalAnchorClaim(s string) string {
+	s = strings.ToLower(strings.TrimSpace(s))
+	if s == "" {
+		return ""
+	}
+	replacer := strings.NewReplacer(
+		"`", "",
+		"'", "",
+		"\"", "",
+		"(", "",
+		")", "",
+		"{", "",
+		"}", "",
+		"[", "",
+		"]", "",
+		",", "",
+		":", "",
+		";", "",
+		"\t", "",
+		"\r", "",
+		"\n", "",
+		" ", "",
+	)
+	return replacer.Replace(s)
+}
+
+func enclosingEvidenceCallableOwner(it *types.EvidenceItem, gc *ground.Context) string {
+	if it == nil || gc == nil || gc.Graph == nil || it.Source == "" || it.LineStart <= 0 {
+		return ""
+	}
+	switch it.AnchorKind {
+	case types.AnchorCall, types.AnchorCondition, types.AnchorReturn, types.AnchorAssignment:
+	default:
+		return ""
+	}
+	fi, ok := gc.Graph.FileIndex[it.Source]
+	if !ok || fi == nil {
+		return ""
+	}
+	return enclosingCallableSymbolName(fi, it.LineStart)
+}
+
+func conflictingLineLocalCallableClaim(it types.EvidenceItem, fi *repomap.FileInfo, owner string) string {
+	if fi == nil {
+		return ""
+	}
+	ownerTail := types.NormalizedSurfaceSymbolTail(owner)
+	if ownerTail == "" {
+		return ""
+	}
+	callableTails := fileCallableTailSet(fi)
+	if len(callableTails) == 0 {
+		return ""
+	}
+	if tail := callableTailForOwnerCheck(strings.TrimSpace(it.Subject), ownerTail, callableTails); tail != "" && tail != ownerTail {
+		return strings.TrimSpace(it.Subject)
+	}
+	if tail := callableTailForOwnerCheck(strings.TrimSpace(it.AnchorSymbol), ownerTail, callableTails); tail != "" && tail != ownerTail {
+		return strings.TrimSpace(it.AnchorSymbol)
+	}
+	return ""
+}
+
+func callableTailForOwnerCheck(raw, ownerTail string, callableTails map[string]bool) string {
+	tail := types.NormalizedSurfaceSymbolTail(raw)
+	if tail == "" {
+		return ""
+	}
+	if tail == ownerTail {
+		return tail
+	}
+	if callableTails[tail] {
+		return tail
+	}
+	return ""
+}
+
+func fileCallableTailSet(fi *repomap.FileInfo) map[string]bool {
+	if fi == nil {
+		return nil
+	}
+	out := make(map[string]bool)
+	for i := range fi.Symbols {
+		sym := &fi.Symbols[i]
+		switch sym.Kind {
+		case "function", "method":
+		default:
+			continue
+		}
+		for _, raw := range []string{qualifiedEvidenceSymbolName(sym), strings.TrimSpace(sym.Name)} {
+			tail := types.NormalizedSurfaceSymbolTail(raw)
+			if tail != "" {
+				out[tail] = true
+			}
+		}
+	}
+	return out
 }
 
 func findCallRelationAtLine(fi *repomap.FileInfo, line int, anchorSymbol string) (*repomap.Relation, bool) {
