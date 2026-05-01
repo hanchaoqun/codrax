@@ -131,9 +131,10 @@ func IsScalarRoleLocateLookup(rm RequestModel) bool {
 //
 // Shared by:
 //
-//   - internal/tool/emit_investigation_complete.go: the multi-path
-//     coverage parity gate skips orientation questions because they
-//     don't need cross-component depth.
+//   - internal/tool/emit_investigation_complete.go:
+//     applyMultiPathAnchorChecks (the multi-path symbol-anchored
+//     gate) skips orientation questions because they don't need
+//     cross-component depth.
 //   - internal/analysis/budget/budget.go: tightens the EvidenceBudget
 //     base so the explorer's existing MaxFiles / MaxReactIters caps
 //     enforce a smaller ceiling — README + manifest + entry-point

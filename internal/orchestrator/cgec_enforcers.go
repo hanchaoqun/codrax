@@ -146,34 +146,73 @@ func (o *Orchestrator) runForcedReads() int {
 	rf := &tool.ReadFile{}
 	success := 0
 	for _, p := range toRead {
-		// Try the path verbatim first; fall back to RepoRoot-joined
-		// if the verbatim read fails. Most repos run codrax from the
-		// repo root so the relative path resolves; the join is the
-		// belt-and-suspenders.
-		params, _ := json.Marshal(map[string]any{"path": p.File})
-		result, err := rf.Execute(o.busCtx, params)
-		if err != nil || !result.Success {
-			if o.busCtx.RepoRoot != "" {
-				params, _ = json.Marshal(map[string]any{"path": filepath.Join(o.busCtx.RepoRoot, p.File)})
-				result, err = rf.Execute(o.busCtx, params)
+		// Surgical multi-range path. When the demanding gate populated
+		// PendingRead.LineRanges (e.g. multi-path symbol-anchored
+		// gate's ActionDemandSurgicalRead), issue ONE read_file call
+		// per [Start, End] range so the LLM only sees the slivers
+		// the gate identified. Without this, recovery on a 4 000-line
+		// file with three 30-line missing slivers would pull in the
+		// whole file (defeating the whole "surgical, no noise"
+		// rewrite from 2026-05-01). Empty LineRanges falls back to
+		// the historical full-file read so older PendingRead emitters
+		// (chain promotion, grounder reject, phase1_unread,
+		// primary_anchor) keep working byte-identically.
+		var perRangeResults []types.ToolResult
+		var firstErr error
+		if len(p.LineRanges) > 0 {
+			for _, r := range p.LineRanges {
+				if r.End < r.Start || r.Start <= 0 {
+					continue
+				}
+				offset := r.Start - 1 // banner: showing lines (offset+1)..(offset+limit)
+				limit := r.End - r.Start + 1
+				rangeResult, rangeErr := executeSurgicalReadFile(o.busCtx, rf, p.File, offset, limit)
+				if rangeErr != nil || !rangeResult.Success {
+					if firstErr == nil {
+						firstErr = rangeErr
+					}
+					logging.Warning("[CGEC] E2 surgical forced-read range failed: file=%s offset=%d limit=%d err=%v summary=%s",
+						p.File, offset, limit, rangeErr, rangeResult.Summary)
+					continue
+				}
+				rangeResult.Summary = "[forced_read surgical] " + rangeResult.Summary
+				perRangeResults = append(perRangeResults, rangeResult)
 			}
+			if len(perRangeResults) == 0 {
+				if firstErr != nil {
+					logging.Warning("[CGEC] E2 surgical forced-read failed for every range on file=%s (no successful read); err=%v", p.File, firstErr)
+				}
+				continue
+			}
+		} else {
+			// Historical full-file fallback for PendingRead emitters
+			// that did not populate LineRanges. Try the path verbatim
+			// first; fall back to RepoRoot-joined if the verbatim
+			// read fails (most repos run codrax from the repo root so
+			// the relative path resolves; the join is the
+			// belt-and-suspenders).
+			params, _ := json.Marshal(map[string]any{"path": p.File})
+			result, err := rf.Execute(o.busCtx, params)
+			if err != nil || !result.Success {
+				if o.busCtx.RepoRoot != "" {
+					params, _ = json.Marshal(map[string]any{"path": filepath.Join(o.busCtx.RepoRoot, p.File)})
+					result, err = rf.Execute(o.busCtx, params)
+				}
+			}
+			if err != nil || !result.Success {
+				logging.Warning("[CGEC] E2 forced-read failed: file=%s err=%v summary=%s", p.File, err, result.Summary)
+				continue
+			}
+			result.Summary = "[forced_read] " + result.Summary
+			perRangeResults = []types.ToolResult{result}
 		}
-		if err != nil || !result.Success {
-			logging.Warning("[CGEC] E2 forced-read failed: file=%s err=%v summary=%s", p.File, err, result.Summary)
-			continue
-		}
-		// Tag the synthesized result so trace consumers can tell it
-		// from a real LLM-driven read.
-		result.Summary = "[forced_read] " + result.Summary
-		// Hook into the same channels real reads flow through:
-		//   - DispatchToolResults: the per-dispatch buffer the
-		//     extractFileCoverage helper consults
-		//   - TurnAArtifacts.ReadFiles + ToolResults: the canonical
-		//     channel the finalizer's grounder uses to whitelist
-		//     citations
-		//   - BusContext.ToolResults: the cumulative history
-		o.busCtx.Mutable.AppendDispatchToolResult(result)
-		o.busCtx.ToolResults = append(o.busCtx.ToolResults, result)
+
+		// Hook every produced ToolResult into the same channels real
+		// reads flow through. For surgical multi-range we append one
+		// ToolResult per range so extractFileCoverage's banner walker
+		// records each range independently — the closure's
+		// MissingContextRegions then sees the union and the next gate
+		// pass clears.
 		artifacts := o.busCtx.Mutable.TurnAArtifacts()
 		if artifacts == nil {
 			artifacts = &types.TurnAArtifacts{
@@ -184,13 +223,22 @@ func (o *Orchestrator) runForcedReads() int {
 			artifacts.UserQuestion = o.busCtx.Mutable.Objective()
 		}
 		artifacts.ReadFiles = appendUniqueString(artifacts.ReadFiles, p.File)
-		artifacts.ToolResults = append(artifacts.ToolResults, result)
+		for _, result := range perRangeResults {
+			o.busCtx.Mutable.AppendDispatchToolResult(result)
+			o.busCtx.ToolResults = append(o.busCtx.ToolResults, result)
+			artifacts.ToolResults = append(artifacts.ToolResults, result)
+		}
 		o.busCtx.Mutable.SetTurnAArtifacts(*artifacts)
 
 		readSet[p.File] = true
 		closure.ClearPendingReadFor(p.File)
 		success++
-		logging.Info("[CGEC] E2 forced-read: file=%s origin=%s rationale=%s", p.File, p.Origin, p.Rationale)
+		if len(p.LineRanges) > 0 {
+			logging.Info("[CGEC] E2 surgical forced-read: file=%s origin=%s ranges=%d successful_reads=%d",
+				p.File, p.Origin, len(p.LineRanges), len(perRangeResults))
+		} else {
+			logging.Info("[CGEC] E2 forced-read: file=%s origin=%s rationale=%s", p.File, p.Origin, p.Rationale)
+		}
 	}
 	if success > 0 {
 		closure.SetReadSet(readSet)
@@ -203,6 +251,32 @@ func (o *Orchestrator) runForcedReads() int {
 		})
 	}
 	return success
+}
+
+// executeSurgicalReadFile runs the read_file tool with explicit
+// offset/limit, mirroring the verbatim → repoRoot-joined fallback
+// the full-file path uses. Centralised so the surgical multi-range
+// loop stays compact and the failure-mode handling matches the
+// historical behaviour.
+func executeSurgicalReadFile(busCtx *types.BusContext, rf *tool.ReadFile, file string, offset, limit int) (types.ToolResult, error) {
+	params, _ := json.Marshal(map[string]any{
+		"path":   file,
+		"offset": offset,
+		"limit":  limit,
+	})
+	result, err := rf.Execute(busCtx, params)
+	if err == nil && result.Success {
+		return result, nil
+	}
+	if busCtx == nil || busCtx.RepoRoot == "" {
+		return result, err
+	}
+	joinedParams, _ := json.Marshal(map[string]any{
+		"path":   filepath.Join(busCtx.RepoRoot, file),
+		"offset": offset,
+		"limit":  limit,
+	})
+	return rf.Execute(busCtx, joinedParams)
 }
 
 // detectStallAndAct is the CGEC I4 convergence detector. Computes a

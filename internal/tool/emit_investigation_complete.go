@@ -3,13 +3,13 @@ package tool
 import (
 	"encoding/json"
 	"fmt"
-	"math"
 	"sort"
 	"strings"
 	"time"
 
 	"github.com/hanchaoqun/codrax/internal/logging"
 	"github.com/hanchaoqun/codrax/internal/tool/ground"
+	"github.com/hanchaoqun/codrax/internal/tool/multipath"
 	repotypes "github.com/hanchaoqun/codrax/internal/tool/repomap/types"
 	"github.com/hanchaoqun/codrax/internal/types"
 )
@@ -561,7 +561,7 @@ func preCompleteContractCheck(ctx *types.BusContext, justification string) strin
 	if justification == "" {
 		raisePrimaryAnchorPendingRead(ctx, closure)
 		raisePhase1UnreadPendingReads(ctx, closure)
-		raiseMultiPathCoverageParity(ctx, closure)
+		applyMultiPathAnchorChecks(ctx, closure)
 	}
 	if downgrade := explanationAnchorBackboneDowngrade(ctx); downgrade != "" {
 		return downgrade
@@ -904,15 +904,18 @@ func refreshClosureReadSnapshot(ctx *types.BusContext, closure *types.EvidenceCl
 	if changed {
 		closure.SetReadSet(readSet)
 	}
-	// Sync per-file ranges + totals from the same live history. Without
-	// this the multi-path coverage parity gate (and any other consumer
-	// of MergedReadLines / CoverageRatio / HasFullyRead) reads a
-	// snapshot frozen at the END of the previous dispatch's
-	// ParseOutput, so a mid-dispatch read_file is invisible to the
-	// next emit_investigation_complete attempt — the failure mode
-	// that produced the "covered 645 / 4368 lines (15%)" hint
-	// repeating across four iterations while the LLM had read past
-	// the suggested range three times.
+	// Sync per-file ranges + totals from the same live history. Every
+	// downstream consumer of MergedReadLines / CoverageRatio /
+	// HasFullyRead — including the multi-path symbol-anchored gate
+	// (applyMultiPathAnchorChecks → multipath.EvaluateAnchor's
+	// HasFullyRead bypass) and any other per-file coverage check —
+	// would otherwise read a snapshot frozen at the END of the
+	// previous dispatch's ParseOutput, so a mid-dispatch read_file
+	// is invisible to the next emit_investigation_complete attempt.
+	// Historical failure mode this fix targets: pre-2026-05-01 the
+	// "covered 645 / 4368 lines (15%)" hint repeated across four
+	// iterations while the LLM had read past the suggested range
+	// three times.
 	ground.RefreshClosureCoverage(ctx, closure)
 }
 
@@ -928,7 +931,7 @@ func raisePrimaryAnchorPendingRead(ctx *types.BusContext, closure *types.Evidenc
 	// concept of a primary anchor implies a specific code subject
 	// the user pinned to, which orientation questions explicitly
 	// lack (Predicates clean + len(PrimaryEntities)==0). Mirrors
-	// the same predicate the multi-path coverage parity gate uses.
+	// the same predicate applyMultiPathAnchorChecks uses.
 	if types.IsProjectOrientationQuestion(ctx.AnalysisIR.RequestModel) {
 		return
 	}
@@ -962,64 +965,31 @@ func raisePrimaryAnchorPendingRead(ctx *types.BusContext, closure *types.Evidenc
 	}
 }
 
-// resolveMultiPathCoverageParityFloor returns the per-file coverage
-// ratio floor (read_lines / total_lines) the multi-path parity gate
-// uses. Pulled from analysisLimits which threads the
-// codrax.yaml :: cgec_multi_path_coverage_parity_floor knob via
-// cmd/root.go. Zero / negative falls through to the historical
-// default 0.3 so an unconfigured deployment keeps working.
+// applyMultiPathAnchorChecks is the symbol-anchored verification the
+// 2026-05-01 rewrite installed in place of raiseMultiPathCoverageParity.
+// For each primary-anchor file (Phase1Ranking entry with
+// ExactEntityRank > 0) it runs internal/tool/multipath.EvaluateAnchor
+// and translates the resulting Decision into closure mutations:
 //
-// PRE-FIX (2026-04-29): the floor was a hard-coded const + applied
-// as max_primary_lines * 0.30, comparing absolute line counts. A
-// 113-line file fully read produced coverage=113 while a 683-line
-// sibling at coverage=400 made the gate demand 400*0.30 = 120
-// lines from the 113-line file — impossible to satisfy. Production
-// trace at /home/chatpp/pytest 2026-04-29 burned 31 explorer
-// rounds on this loop.
+//   - ActionSkip — no-op.
+//   - ActionDemandSurgicalRead — AddPendingRead + AddRepair, both
+//     carrying the engine's surgical Rationale that names the
+//     uncovered symbol slivers and includes a copy-pasteable
+//     read_file invocation.
+//   - ActionAdvisoryHint — AddRepair with kind RepairExpandSearch,
+//     intentionally NO PendingRead so emit_investigation_complete is
+//     not blocked. The LLM may complete if it judges the file
+//     unrelated.
 //
-// POST-FIX: the floor is per-file. A FullyRead anchor short-
-// circuits the check; otherwise CoverageRatio (= MergedReadLines /
-// TotalLines) must reach the floor. Yaml-tunable so the floor can
-// be loosened (0.2 for orientation-style deployments) or tightened
-// (0.5 for thoroughness audits) without recompiling.
-func resolveMultiPathCoverageParityFloor() float64 {
-	limits := CurrentAnalysisLimits()
-	if limits.MultiPathCoverageParityFloor > 0 {
-		return limits.MultiPathCoverageParityFloor
-	}
-	return 0.3
-}
-
-// raiseMultiPathCoverageParity queues PendingReads for primary-anchor
-// files whose per-file coverage ratio is below
-// multiPathCoverageParityFloor. Applies only when ≥ 2 primary anchors
-// exist and at least one of them is NOT FullyRead — single-subject
-// questions have no balance target, and an all-FullyRead set has
-// nothing left to read.
-//
-// "Primary anchor" is Phase1RankedFile.ExactEntityRank > 0: files the
-// keyword_search layer resolved as exact hits for a user-named entity
-// (file name, symbol name, qualified symbol). This is the same signal
-// ce02655's phase1UnreadFilter uses to decide which unread files are
-// mandatory-read.
-//
-// Per-file gate (replaces the pre-fix max-anchor parity comparison):
-//
-//  1. FullyRead → never queue PendingRead. The file has no more
-//     lines; demanding parity against a larger sibling makes the
-//     LLM read past EOF.
-//  2. CoverageRatio known and < floor → queue PendingRead. Compares
-//     against THIS file's own total, so a 113-line file at 100%
-//     never trips against a 683-line file at 60%.
-//  3. CoverageRatio unknown (no banner total recorded) → fall back
-//     to the legacy max-anchor comparison so callers that bypass
-//     the banner still see the historical safety net.
-//
-// project_overview / project_orientation level questions skip the
-// gate entirely — the question is not about cross-component depth,
-// it's about identifying what the project does. See
-// types.InvestigationLevelProjectOverview.
-func raiseMultiPathCoverageParity(ctx *types.BusContext, closure *types.EvidenceClosure) {
+// Cross-gate skips mirror the predecessor:
+//   - capabilitySurfacePlan present → skip (capability surface owns
+//     its own anchor set).
+//   - IsProjectOrientationQuestion(RequestModel) → skip ("what does
+//     this project do?" has no cross-component depth obligation).
+//   - requiresCrossFileCoverage(kind, anchorCount) false → skip.
+//   - Fewer than 2 primary anchors → skip (single-subject questions
+//     have no parity target).
+func applyMultiPathAnchorChecks(ctx *types.BusContext, closure *types.EvidenceClosure) {
 	if ctx == nil || ctx.Mutable == nil || closure == nil || ctx.AnalysisIR == nil {
 		return
 	}
@@ -1027,13 +997,6 @@ func raiseMultiPathCoverageParity(ctx *types.BusContext, closure *types.Evidence
 		return
 	}
 	rm := ctx.AnalysisIR.RequestModel
-	// Project-orientation skip. A "what does this project do?"
-	// question reaches us with intent=explain, complexity=simple,
-	// no PrimaryEntities, predicates clean. Forcing cross-file
-	// depth parity here demands the explorer balance reads across
-	// random sibling modules that the question does not require —
-	// the production trace at /home/chatpp/pytest 2026-04-29 looped
-	// 31 explorer rounds because of this exact mismatch.
 	if types.IsProjectOrientationQuestion(rm) {
 		return
 	}
@@ -1042,115 +1005,193 @@ func raiseMultiPathCoverageParity(ctx *types.BusContext, closure *types.Evidence
 	if len(ranked) == 0 {
 		return
 	}
-	type primaryAnchor struct {
-		file     string
-		coverage int
-		ratio    float64 // -1 when total unknown
-		fully    bool
-	}
-	anchors := make([]primaryAnchor, 0, len(ranked))
-	maxCoverage := 0
+
+	// Collect canonical anchor file list (dedup by canonical path).
+	// Use ground.CanonicalRepoRelative for multi-platform safety
+	// (POSIX absolute → repo-relative, Windows backslash → POSIX
+	// slash, macOS HFS+/APFS case tolerance) so the anchor key
+	// matches the keywordAnchorMap key downstream — which is also
+	// canonicalised against the same repoRoot. Path mismatch here
+	// would silently cause every keyword anchor lookup to miss.
+	repoRoot := ctx.RepoRoot
+	anchors := make([]string, 0, len(ranked))
+	seen := make(map[string]bool, len(ranked))
 	for _, rf := range ranked {
 		if rf.ExactEntityRank <= 0 {
 			continue
 		}
-		canon := strings.TrimPrefix(strings.TrimSpace(rf.Path), "./")
-		if canon == "" {
+		canon := canonicaliseAnchorPath(rf.Path, repoRoot)
+		if canon == "" || seen[canon] {
 			continue
 		}
-		cov := closure.MergedReadLines(canon)
-		anchors = append(anchors, primaryAnchor{
-			file:     canon,
-			coverage: cov,
-			ratio:    closure.CoverageRatio(canon),
-			fully:    closure.HasFullyRead(canon),
-		})
-		if cov > maxCoverage {
-			maxCoverage = cov
-		}
+		seen[canon] = true
+		anchors = append(anchors, canon)
 	}
 	if !requiresCrossFileCoverage(kind, len(anchors)) {
 		return
 	}
-	if len(anchors) < 2 || maxCoverage == 0 {
+	if len(anchors) < 2 {
 		return
 	}
-	floorRatio := resolveMultiPathCoverageParityFloor()
-	for _, a := range anchors {
-		// FullyRead bypass: there are no more lines to read in this
-		// file. Demanding parity here is the bug this fix targets.
-		if a.fully {
-			continue
+
+	// Resolve config + symbol oracle + keyword anchors once per check.
+	limits := CurrentAnalysisLimits()
+	cfg := multipath.Config{
+		MinGroundedPerAnchor: limits.MultiPathMinGroundedPerAnchor,
+		SymbolContextLines:   limits.MultiPathSymbolContextLines,
+		KeywordContextLines:  limits.MultiPathKeywordContextLines,
+		SmallFileThreshold:   limits.MultiPathSmallFileThreshold,
+		RepoRoot:             repoRoot,
+	}
+	oracle := repomapSymbolOracle(ctx)
+	entities := unionPrimaryAndDerivedEntities(rm.AnalyzerHints)
+	evidence := ctx.Mutable.EmittedEvidence()
+	keywordAnchorMap := multipath.ExtractKeywordAnchors(multiPathToolHistory(ctx), entities, repoRoot)
+
+	for _, file := range anchors {
+		dec := multipath.EvaluateAnchor(file, closure, evidence, oracle, entities, keywordAnchorMap[file], cfg)
+		switch dec.Action {
+		case multipath.ActionSkip:
+			logging.Debug("[CGEC] multi_path_anchor: file=%s signal=%s action=skip reason=%q",
+				file, dec.Signal, dec.Reason)
+		case multipath.ActionDemandSurgicalRead:
+			// Surgical Demand from the engine flows into the
+			// PendingRead's LineRanges. runForcedReads (the Lazy
+			// Auto-Read recovery in cgec_enforcers.go) honours these
+			// to issue surgical read_file calls instead of pulling
+			// the whole file when the LLM stalls — so the demand
+			// stays bounded both in the primary path (LLM reads the
+			// rationale-named ranges) and the recovery path
+			// (orchestrator forced-reads the same ranges).
+			closure.AddPendingRead(types.PendingRead{
+				File:       file,
+				Rationale:  dec.Rationale,
+				Origin:     "pre_complete.multi_path_anchor",
+				LineRanges: append([]types.LineRange(nil), dec.Demand...),
+			})
+			logging.Info("[CGEC] multi_path_anchor: file=%s signal=%s action=demand_surgical_read symbols=%v missing_ranges=%d",
+				file, dec.Signal, dec.Symbols, len(dec.Demand))
+		case multipath.ActionAdvisoryHint:
+			closure.AddRepair(types.RepairDirective{
+				Kind:      types.RepairExpandSearch,
+				Files:     []string{file},
+				Rationale: dec.Rationale,
+				Origin:    "pre_complete.multi_path_anchor",
+			})
+			logging.Info("[CGEC] multi_path_anchor: file=%s signal=%s action=advisory_hint (non-blocking)",
+				file, dec.Signal)
 		}
-		// Per-file ratio path (preferred when total is known).
-		if a.ratio >= 0 {
-			if a.ratio >= floorRatio {
+	}
+}
+
+// canonicaliseAnchorPath collapses an anchor path to repo-relative
+// POSIX form via ground.CanonicalRepoRelative when repoRoot is set,
+// degrading to a slash-form cleanup when not. Mirrors the canonicaliser
+// inside multipath / inside ground.coverage so every gate-related
+// path key converges on the same shape across Linux / Windows / macOS.
+func canonicaliseAnchorPath(p, repoRoot string) string {
+	if p == "" {
+		return ""
+	}
+	p = strings.TrimSpace(p)
+	if repoRoot != "" {
+		return ground.CanonicalRepoRelative(p, repoRoot)
+	}
+	cleaned := strings.ReplaceAll(p, "\\", "/")
+	return strings.TrimPrefix(cleaned, "./")
+}
+
+// repomapSymbolOracle wraps the per-Run repomap Graph (when one is
+// attached) into the multipath.SymbolOracle interface. Returns nil
+// when no graph is available — the engine then disables Signal 1 and
+// drops to Signal 2 / 3 cleanly.
+func repomapSymbolOracle(ctx *types.BusContext) multipath.SymbolOracle {
+	if ctx == nil || ctx.Mutable == nil {
+		return nil
+	}
+	g, ok := ctx.Mutable.SearchGraph().(*repotypes.Graph)
+	if !ok || g == nil {
+		return nil
+	}
+	return repomapOracleAdapter{graph: g}
+}
+
+type repomapOracleAdapter struct {
+	graph *repotypes.Graph
+}
+
+func (a repomapOracleAdapter) SymbolsInFile(file string) []multipath.SymbolDef {
+	if a.graph == nil {
+		return nil
+	}
+	syms := a.graph.SymbolsInFile(file)
+	if len(syms) == 0 {
+		return nil
+	}
+	out := make([]multipath.SymbolDef, 0, len(syms))
+	for _, s := range syms {
+		out = append(out, multipath.SymbolDef{
+			Name:    s.Name,
+			Line:    s.Line,
+			EndLine: s.EndLine,
+		})
+	}
+	return out
+}
+
+// multiPathToolHistory aggregates the same three-source tool history
+// ground.BuildContext consumes (TurnA artefacts → ctx.ToolResults →
+// in-dispatch buffer). multipath.ExtractKeywordAnchors walks this
+// to find grep matches the LLM produced earlier in the Run; passing
+// the same composite history that everything else reads keeps the
+// gate consistent with what the LLM was actually shown.
+//
+// nil-tolerant on every input branch.
+func multiPathToolHistory(ctx *types.BusContext) []types.ToolResult {
+	if ctx == nil {
+		return nil
+	}
+	var history []types.ToolResult
+	if ctx.Mutable != nil {
+		if ta := ctx.Mutable.TurnAArtifacts(); ta != nil && len(ta.ToolResults) > 0 {
+			history = append(history, ta.ToolResults...)
+		}
+	}
+	if len(ctx.ToolResults) > 0 {
+		history = append(history, ctx.ToolResults...)
+	}
+	if ctx.Mutable != nil {
+		if disp := ctx.Mutable.DispatchToolResults(); len(disp) > 0 {
+			history = append(history, disp...)
+		}
+	}
+	return history
+}
+
+// unionPrimaryAndDerivedEntities merges the analyzer's PrimaryEntities
+// + Entities + MentionedEntities + DerivedEntities into a single
+// dedup'd lower-cased slice. The engine matches case-insensitively
+// against this set when picking question-related symbols, so passing
+// the union (rather than just PrimaryEntities) lets sub-topic
+// derivations and log-augmented entities also count.
+func unionPrimaryAndDerivedEntities(h types.AnalyzerHints) []string {
+	seen := make(map[string]bool)
+	out := make([]string, 0)
+	push := func(list []string) {
+		for _, e := range list {
+			key := strings.ToLower(strings.TrimSpace(e))
+			if key == "" || seen[key] {
 				continue
 			}
-			total := closure.FileTotalLines(a.file)
-			targetLines := int(math.Ceil(float64(total) * floorRatio))
-			needMore := targetLines - a.coverage
-			if needMore < 1 {
-				needMore = 1
-			}
-			nextOffset := nextReadOffset(closure.ReadRanges(a.file))
-			closure.AddPendingRead(types.PendingRead{
-				File: a.file,
-				Rationale: fmt.Sprintf(
-					"multi-path balance: covered %d / %d lines (%.0f%%, below %.0f%% per-file floor). Need ≥ %d lines covered to clear the gate (%d more). Use `read_file(path=%q, offset=%d, limit=%d)` to continue without re-reading what you already have.",
-					a.coverage, total, a.ratio*100, floorRatio*100,
-					targetLines, needMore, a.file, nextOffset, needMore,
-				),
-				Origin: "pre_complete.multi_path_coverage",
-			})
-			closure.AddRepair(types.RepairDirective{
-				Kind:  types.RepairExpandSearch,
-				Files: []string{a.file},
-				Rationale: fmt.Sprintf(
-					"Balance coverage: %s is at %d/%d lines (%.0f%%); read with offset=%d limit=%d to reach the %.0f%% floor",
-					a.file, a.coverage, total, a.ratio*100, nextOffset, needMore, floorRatio*100,
-				),
-				Origin: "pre_complete.multi_path_coverage",
-			})
-			logging.Info("[CGEC] multi_path_coverage: queued forced-read file=%s coverage=%d/%d ratio=%.2f floor=%.2f next_offset=%d need=%d",
-				a.file, a.coverage, total, a.ratio, floorRatio, nextOffset, needMore)
-			continue
+			seen[key] = true
+			out = append(out, e)
 		}
-		// Fallback: total unknown (banner missing). Use the
-		// historical max-anchor comparison so we don't regress
-		// callers that bypass the banner. Subject to the same
-		// FullyRead bypass above so this branch only fires when we
-		// genuinely cannot prove "no more to read".
-		floorAbs := float64(maxCoverage) * floorRatio
-		if float64(a.coverage) >= floorAbs {
-			continue
-		}
-		needMore := int(math.Ceil(floorAbs)) - a.coverage
-		if needMore < 1 {
-			needMore = 1
-		}
-		nextOffset := nextReadOffset(closure.ReadRanges(a.file))
-		closure.AddPendingRead(types.PendingRead{
-			File: a.file,
-			Rationale: fmt.Sprintf(
-				"multi-path balance (file total unknown — banner missing): covered %d lines; the most-covered primary anchor in this run covers %d lines. Need ≥ %.0f lines covered (%.0f%% of max) to clear the gate (%d more). Use `read_file(path=%q, offset=%d, limit=%d)` and the banner total will populate so subsequent retries can compute exact ratio.",
-				a.coverage, maxCoverage, floorAbs, floorRatio*100,
-				needMore, a.file, nextOffset, needMore,
-			),
-			Origin: "pre_complete.multi_path_coverage",
-		})
-		closure.AddRepair(types.RepairDirective{
-			Kind:  types.RepairExpandSearch,
-			Files: []string{a.file},
-			Rationale: fmt.Sprintf(
-				"Balance coverage (no per-file total): %s covered %d vs max %d; read with offset=%d limit=%d",
-				a.file, a.coverage, maxCoverage, nextOffset, needMore,
-			),
-			Origin: "pre_complete.multi_path_coverage",
-		})
-		logging.Info("[CGEC] multi_path_coverage: queued forced-read file=%s coverage=%d max=%d next_offset=%d need=%d (fallback, total unknown)",
-			a.file, a.coverage, maxCoverage, nextOffset, needMore)
 	}
+	push(h.PrimaryEntities)
+	push(h.MentionedEntities)
+	push(h.Entities)
+	push(h.DerivedEntities)
+	return out
 }
 
 // nextReadOffset suggests the file offset (1-based line number) the
@@ -1215,7 +1256,7 @@ func raisePhase1UnreadPendingReads(ctx *types.BusContext, closure *types.Evidenc
 	// Orientation skip — orientation questions don't carry a
 	// breadth-intent obligation to read the keyword-search top-K.
 	// Same predicate as raisePrimaryAnchorPendingRead +
-	// raiseMultiPathCoverageParity for cross-gate consistency.
+	// applyMultiPathAnchorChecks for cross-gate consistency.
 	if types.IsProjectOrientationQuestion(ctx.AnalysisIR.RequestModel) {
 		return
 	}

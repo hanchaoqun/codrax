@@ -678,22 +678,52 @@ type RuntimeSettings struct {
 	CGECPhase1UnreadTopK      *int `yaml:"cgec_phase1_unread_top_k"`
 	CGECPhase1UnreadMinUnread *int `yaml:"cgec_phase1_unread_min_unread"`
 
-	// Multi-path coverage parity floor. Per-file ratio
-	// (read_lines / total_lines) each primary anchor must reach for
-	// emit_investigation_complete to honour completion when ≥2
-	// primary anchors are present. Default 0.3. Set to 0 to disable
-	// the gate entirely. The gate already short-circuits on
-	// HasFullyRead so a small file fully covered never trips against
-	// a partially-read large sibling — this knob caps the partial-
-	// read parity demand.
+	// Multi-path anchor-driven verification (replaces the retired
+	// 2026-05-01 cgec_multi_path_coverage_parity_floor). The pre-
+	// complete gate now decides per primary-anchor file via FIVE
+	// layered signals, evaluated in internal/tool/multipath/:
 	//
-	// Pre-2026-04-29 the floor was a hard-coded constant 0.3 in
-	// internal/tool/emit_investigation_complete.go and applied as
-	// max(read_lines)*0.3 — a 113-line file fully read failed to
-	// keep up with a 683-line file partially read, so the LLM read
-	// the same short file 31 times trying to fix the gap. Now per-
-	// file with FullyRead bypass + yaml-tunable.
-	CGECMultiPathCoverageParityFloor *float64 `yaml:"cgec_multi_path_coverage_parity_floor"`
+	//   L1. Symbol-anchored — every question-related symbol defined
+	//       in the file has [def_line ± SymbolContextLines] covered
+	//       → bypass. (Code files with repomap symbols.)
+	//   L2. Grounded-evidence — ≥ MinGroundedPerAnchor grounded
+	//       (Tier 1 / Tier 2) evidence items have been emitted from
+	//       the file → bypass.
+	//   L3. Keyword-anchored — non-symbolic files (no repomap
+	//       symbols) where prior grep matched a question entity:
+	//       each match line becomes a [L ± KeywordContextLines]
+	//       anchor → demand the missing slivers (surgical).
+	//   L4. Small-file full-read — non-symbolic files whose
+	//       FileTotalLines <= SmallFileThreshold demand the unread
+	//       slivers of the WHOLE file (bounded by file size; covers
+	//       typical configs / READMEs / Dockerfiles where the answer
+	//       might be on any line and there is no other anchor).
+	//   L5. Opaque advisory — large non-symbolic files with no other
+	//       signal raise a NON-BLOCKING advisory hint (does NOT
+	//       enqueue a PendingRead).
+	//
+	// Why the rewrite: the predecessor gate demanded `total_lines *
+	// 0.3` for every primary-anchor file, which on a 4 368-line
+	// repl.go meant 1 311 lines of pagination even when the answer
+	// lived in four ~30-line symbol regions totalling ~120 lines.
+	// Reading thousands of irrelevant lines wasted budget AND
+	// poisoned the LLM context with noise. The replacement targets
+	// answer-bearing regions instead of file size, and handles
+	// non-code files (config / docs / manifests) via L3-L5 instead
+	// of leaving them silently uncovered.
+	//
+	// Defaults:
+	//   MinGroundedPerAnchor=2, SymbolContextLines=15,
+	//   KeywordContextLines=15, SmallFileThreshold=300.
+	//
+	// Disable knobs:
+	//   MinGroundedPerAnchor=0  → disables L2.
+	//   SmallFileThreshold=0    → disables L4 (small files fall to L5
+	//                             advisory unless L3 fires).
+	CGECMultiPathMinGroundedPerAnchor *int `yaml:"cgec_multi_path_min_grounded_per_anchor"`
+	CGECMultiPathSymbolContextLines   *int `yaml:"cgec_multi_path_symbol_context_lines"`
+	CGECMultiPathKeywordContextLines  *int `yaml:"cgec_multi_path_keyword_context_lines"`
+	CGECMultiPathSmallFileThreshold   *int `yaml:"cgec_multi_path_small_file_threshold"`
 
 	// Log-triage knobs. `log_triage_*` prefix groups the log-ingestion
 	// feature settings. When log_triage_enabled=false the log_triage

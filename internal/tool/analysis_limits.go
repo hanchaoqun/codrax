@@ -190,21 +190,34 @@ type AnalysisLimits struct {
 	Phase1UnreadTopK      int
 	Phase1UnreadMinUnread int
 
-	// MultiPathCoverageParityFloor is the minimum per-file coverage
-	// ratio (read_lines / total_lines) each primary anchor must
-	// reach when ≥2 primary anchors are present, before
-	// emit_investigation_complete will honour the call. Range
-	// [0.0, 1.0]. Zero disables the gate entirely. The gate already
-	// short-circuits on HasFullyRead so any file with merged ranges
-	// covering its full line count bypasses unconditionally — this
-	// floor only constrains the partial-read parity demand.
+	// Multi-path anchor-driven verification tunables. Replace the
+	// retired-2026-05-01 MultiPathCoverageParityFloor (per-file %
+	// floor) with five layered signals computed by
+	// internal/tool/multipath:
 	//
-	// Pre-2026-04-29 this was a hard-coded constant 0.3 in
-	// emit_investigation_complete.go and was applied as
-	// max(read_lines)*ratio across files. The bug + remediation are
-	// detailed in the field comment on
-	// runtime.RuntimeSettings.CGECMultiPathCoverageParityFloor.
-	MultiPathCoverageParityFloor float64
+	//   L1. Symbol-anchored — every question-related symbol's
+	//       [def_line - SymbolContextLines, def_end +
+	//       SymbolContextLines] region must be covered. (Code files
+	//       with repomap symbols.)
+	//   L2. Grounded-evidence — a file with at least
+	//       MinGroundedPerAnchor Tier-1/Tier-2 grounded evidence items
+	//       emitted from it bypasses the gate.
+	//   L3. Keyword-anchored — for non-symbolic files (no repomap
+	//       symbols), each line where prior grep matched a question
+	//       entity becomes an anchor with KeywordContextLines padding.
+	//   L4. Small-file full-read — non-symbolic files with
+	//       FileTotalLines <= SmallFileThreshold demand the unread
+	//       slivers in full (bounded by file size).
+	//   L5. Opaque advisory — large non-symbolic files with no other
+	//       signal raise a non-blocking advisory hint.
+	//
+	// Defaults below are the production values. See
+	// internal/tool/multipath/decision.go for the engine; runtime
+	// overrides flow via runtime.RuntimeSettings.CGECMultiPath*.
+	MultiPathMinGroundedPerAnchor int
+	MultiPathSymbolContextLines   int
+	MultiPathKeywordContextLines  int
+	MultiPathSmallFileThreshold   int
 }
 
 // AnalysisQualityProbe captures runtime hit statistics from the
@@ -348,7 +361,10 @@ func DefaultAnalysisLimits() AnalysisLimits {
 		GhostAnchorExpandSearchThreshold:    3,
 		Phase1UnreadTopK:                    5,
 		Phase1UnreadMinUnread:               2,
-		MultiPathCoverageParityFloor:        0.3,
+		MultiPathMinGroundedPerAnchor:       2,
+		MultiPathSymbolContextLines:         15,
+		MultiPathKeywordContextLines:        15,
+		MultiPathSmallFileThreshold:         300,
 		GenericEntityBlocklist: []string{
 			"agent", "agents",
 			"class", "classes",

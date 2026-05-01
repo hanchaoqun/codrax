@@ -49,8 +49,9 @@ type explorerEvaluator struct {
 	// predicates). Cached at dispatch entry so observeMidLoop can
 	// emit a "you have enough; finalize" nudge without re-running
 	// the predicate every iteration. Same semantic as the
-	// multi-path coverage parity skip — both stages must agree on
-	// what an orientation question is.
+	// multi-path symbol-anchored skip (applyMultiPathAnchorChecks
+	// → multipath.EvaluateAnchor) — both stages must agree on what
+	// an orientation question is.
 	isOrientationQuery              bool
 	phase0ExtraRound                bool // whether we already gave one extra Phase 0 round for quality gate
 	hasPrescanRepoMap               bool // keywordSearch (run at BuildInitialInstruction) produced a ranked file list via repo_map; the Phase 0 quality gate treats this as satisfying the structural-discovery half of its requirement, so the LLM isn't penalized for not re-running repo_map at iter=0
@@ -11808,10 +11809,11 @@ func extractFileCoverage(history []types.ToolResult, repoRoot string) (
 // extractFileCoverageWithTotals is the canonical walker that ALSO
 // returns per-file total line counts harvested from the read_file
 // banner. The original extractFileCoverage shape is preserved for
-// every caller that does not need totals; the multi-path coverage
-// parity gate (and any future per-file ratio check) calls this one
-// directly so the FullyRead / CoverageRatio computation has a real
-// denominator.
+// every caller that does not need totals; the multi-path symbol-
+// anchored gate (applyMultiPathAnchorChecks → multipath.EvaluateAnchor)
+// reads HasFullyRead and per-file totals via the closure that this
+// walker populates, so the FullyRead bypass and the surgical
+// MissingContextRegions calculation both have a real denominator.
 func extractFileCoverageWithTotals(history []types.ToolResult, repoRoot string) (
 	readSet map[string]bool,
 	readRanges map[string][]types.LineRange,

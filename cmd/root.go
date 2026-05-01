@@ -1548,8 +1548,17 @@ func initApp(cmd *cobra.Command, _ []string) error {
 		if rs.CGECPhase1UnreadMinUnread != nil {
 			analysisLimits.Phase1UnreadMinUnread = *rs.CGECPhase1UnreadMinUnread
 		}
-		if rs.CGECMultiPathCoverageParityFloor != nil {
-			analysisLimits.MultiPathCoverageParityFloor = *rs.CGECMultiPathCoverageParityFloor
+		if rs.CGECMultiPathMinGroundedPerAnchor != nil {
+			analysisLimits.MultiPathMinGroundedPerAnchor = *rs.CGECMultiPathMinGroundedPerAnchor
+		}
+		if rs.CGECMultiPathSymbolContextLines != nil {
+			analysisLimits.MultiPathSymbolContextLines = *rs.CGECMultiPathSymbolContextLines
+		}
+		if rs.CGECMultiPathKeywordContextLines != nil {
+			analysisLimits.MultiPathKeywordContextLines = *rs.CGECMultiPathKeywordContextLines
+		}
+		if rs.CGECMultiPathSmallFileThreshold != nil {
+			analysisLimits.MultiPathSmallFileThreshold = *rs.CGECMultiPathSmallFileThreshold
 		}
 		tool.SetAnalysisLimits(analysisLimits)
 

@@ -31,9 +31,9 @@ import (
 // All fields are pulled from already-populated BusContext / IR /
 // AnswerDocument data — no new schema, no new yaml. The
 // orientation flag uses the same types.IsProjectOrientationQuestion
-// predicate the budget carve-out and the multi-path coverage parity
-// gate consult, so cross-stage operators can correlate the three
-// signals.
+// predicate the budget carve-out and the multi-path symbol-anchored
+// gate (applyMultiPathAnchorChecks) consult, so cross-stage operators
+// can correlate the three signals.
 //
 // nil-safe: any missing piece (no AnalysisIR, no AnswerDocument, no
 // final StageOutput) skips the line silently. The log is observability,

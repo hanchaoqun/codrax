@@ -788,7 +788,7 @@ func TestPhase1UnreadPendingReads_CapabilitySurfaceQueuesAuthorityFilesOnly(t *t
 	}
 }
 
-func TestMultiPathCoverageParity_CapabilitySurfaceSkipsGate(t *testing.T) {
+func TestMultiPathAnchorChecks_CapabilitySurfaceSkipsGate(t *testing.T) {
 	mut := types.NewMutableState("test")
 	mut.SetPhase1Ranking([]types.Phase1RankedFile{
 		{Path: "internal/agent/agent.go", Score: 60, ExactEntityRank: 2},
@@ -832,9 +832,9 @@ func TestMultiPathCoverageParity_CapabilitySurfaceSkipsGate(t *testing.T) {
 			},
 		},
 	}
-	raiseMultiPathCoverageParity(bus, closure)
+	applyMultiPathAnchorChecks(bus, closure)
 	for _, p := range closure.PendingReads() {
-		if p.Origin == "pre_complete.multi_path_coverage" {
+		if p.Origin == "pre_complete.multi_path_anchor" {
 			t.Fatalf("capability surface should not demand cross-file coverage parity, got %+v", p)
 		}
 	}
@@ -1047,272 +1047,6 @@ func TestEmitInvestigationComplete_PreCompleteCheck_Phase1UnreadLatchResetOnTask
 	}
 }
 
-// TestEmitInvestigationComplete_PreCompleteCheck_MultiPathCoverageParity_Blocks
-// pins the session-28 hard-gate: when ≥ 2 primary anchors exist and
-// one has < 30% of the max-covered anchor's line coverage, the tool
-// must downgrade and queue the under-covered file in PendingReads so
-// the LLM has to balance before the next completion attempt.
-func TestEmitInvestigationComplete_PreCompleteCheck_MultiPathCoverageParity_Blocks(t *testing.T) {
-	mut := types.NewMutableState("test")
-	mut.SetPhase1Ranking([]types.Phase1RankedFile{
-		{Path: "internal/agent/explorer.go", Score: 60, ExactEntityRank: 2},
-		{Path: "internal/agent/extractor.go", Score: 58, ExactEntityRank: 2},
-	})
-	closure := mut.EvidenceClosure()
-	// Both files are in ReadSet so the primary_anchor gate doesn't
-	// pre-empt this test. The coverage imbalance is what matters.
-	closure.SetReadSet(map[string]bool{
-		"internal/agent/explorer.go":  true,
-		"internal/agent/extractor.go": true,
-	})
-	closure.SetReadRanges(map[string][]types.LineRange{
-		// explorer.go covered 200 lines; extractor.go only 20 — 10%
-		// ratio, well under the 30% parity floor.
-		"internal/agent/explorer.go":  {{Start: 1, End: 200}},
-		"internal/agent/extractor.go": {{Start: 1, End: 20}},
-	})
-
-	bus := &types.BusContext{
-		Mutable:  mut,
-		RepoRoot: t.TempDir(),
-		AnalysisIR: &types.AnalysisIR{
-			RequestModel: types.RequestModel{
-				AnalyzerHints: types.AnalyzerHints{
-					Kind:            "mechanism",
-					PrimaryEntities: []string{"explorer.go", "extractor.go"},
-				},
-			},
-		},
-	}
-
-	tool := &EmitInvestigationComplete{}
-	params, _ := json.Marshal(map[string]any{
-		"reason":      "compared both paths",
-		"confidence":  "high",
-		"result_kind": "resolved",
-	})
-	res, err := tool.Execute(bus, params)
-	if err != nil {
-		t.Fatalf("Execute returned error: %v", err)
-	}
-	if !strings.Contains(res.Summary, "DOWNGRADED") {
-		t.Fatalf("expected DOWNGRADED on multi-path coverage imbalance, got: %s", res.Summary)
-	}
-	if !strings.Contains(res.Summary, "internal/agent/extractor.go") {
-		t.Fatalf("expected the under-covered file in downgrade message, got: %s", res.Summary)
-	}
-	if mut.IsInvestigationComplete() {
-		t.Errorf("InvestigationComplete must stay false on coverage imbalance")
-	}
-
-	// The under-covered file must be queued for re-read with
-	// multi_path_coverage origin so retry hints can cite it.
-	var foundOrigin bool
-	for _, p := range closure.PendingReads() {
-		if p.Origin == "pre_complete.multi_path_coverage" && strings.Contains(p.File, "extractor.go") {
-			foundOrigin = true
-			break
-		}
-	}
-	if !foundOrigin {
-		t.Errorf("expected PendingRead with origin=pre_complete.multi_path_coverage for extractor.go; got %+v", closure.PendingReads())
-	}
-}
-
-// TestEmitInvestigationComplete_PreCompleteCheck_MultiPathCoverageParity_BalancedPasses
-// locks the complementary contract: when coverage is within the 30%
-// floor the gate does NOT fire, so balanced investigations proceed.
-func TestEmitInvestigationComplete_PreCompleteCheck_MultiPathCoverageParity_BalancedPasses(t *testing.T) {
-	mut := types.NewMutableState("test")
-	mut.SetPhase1Ranking([]types.Phase1RankedFile{
-		{Path: "internal/agent/explorer.go", Score: 60, ExactEntityRank: 2},
-		{Path: "internal/agent/extractor.go", Score: 58, ExactEntityRank: 2},
-	})
-	closure := mut.EvidenceClosure()
-	closure.SetReadSet(map[string]bool{
-		"internal/agent/explorer.go":  true,
-		"internal/agent/extractor.go": true,
-	})
-	closure.SetReadRanges(map[string][]types.LineRange{
-		// 200 vs 100 lines → 50% ratio, well above the 30% floor.
-		"internal/agent/explorer.go":  {{Start: 1, End: 200}},
-		"internal/agent/extractor.go": {{Start: 1, End: 100}},
-	})
-
-	bus := &types.BusContext{
-		Mutable:  mut,
-		RepoRoot: t.TempDir(),
-		AnalysisIR: &types.AnalysisIR{
-			RequestModel: types.RequestModel{
-				AnalyzerHints: types.AnalyzerHints{
-					Kind:            "mechanism",
-					PrimaryEntities: []string{"explorer.go", "extractor.go"},
-				},
-			},
-		},
-	}
-
-	tool := &EmitInvestigationComplete{}
-	params, _ := json.Marshal(map[string]any{
-		"reason":      "compared both paths",
-		"confidence":  "high",
-		"result_kind": "resolved",
-	})
-	res, err := tool.Execute(bus, params)
-	if err != nil {
-		t.Fatalf("Execute returned error: %v", err)
-	}
-	// Match ONLY the multi-path-coverage-specific downgrade text. A
-	// different gate downstream (e.g. citation floor) might still
-	// DOWNGRADE for its own reason, but the balance gate itself must
-	// not fire.
-	if strings.Contains(res.Summary, "multi-path balance") {
-		t.Fatalf("balanced coverage should not trigger multi-path gate, got: %s", res.Summary)
-	}
-	for _, p := range closure.PendingReads() {
-		if p.Origin == "pre_complete.multi_path_coverage" {
-			t.Fatalf("balanced coverage should not queue multi_path_coverage PendingRead, got %+v", p)
-		}
-	}
-}
-
-// TestEmitInvestigationComplete_PreCompleteCheck_MultiPathCoverageParity_NonBreadthIntent_NoOp
-// proves the non-multi-path filter: enumeration (and registration /
-// return_value) are single-lookup intents where unequal coverage
-// across anchors is expected and the gate must not fire, otherwise
-// "list all agents"-style questions would be blocked by
-// incidentally-named sibling files.
-func TestEmitInvestigationComplete_PreCompleteCheck_MultiPathCoverageParity_NonBreadthIntent_NoOp(t *testing.T) {
-	mut := types.NewMutableState("test")
-	mut.SetPhase1Ranking([]types.Phase1RankedFile{
-		{Path: "internal/agent/explorer.go", Score: 60, ExactEntityRank: 2},
-		{Path: "internal/agent/extractor.go", Score: 58, ExactEntityRank: 2},
-	})
-	closure := mut.EvidenceClosure()
-	closure.SetReadSet(map[string]bool{
-		"internal/agent/explorer.go":  true,
-		"internal/agent/extractor.go": true,
-	})
-	closure.SetReadRanges(map[string][]types.LineRange{
-		"internal/agent/explorer.go":  {{Start: 1, End: 200}},
-		"internal/agent/extractor.go": {{Start: 1, End: 5}}, // 2.5%
-	})
-
-	bus := &types.BusContext{
-		Mutable:  mut,
-		RepoRoot: t.TempDir(),
-		AnalysisIR: &types.AnalysisIR{
-			RequestModel: types.RequestModel{
-				AnalyzerHints: types.AnalyzerHints{
-					Kind: "enumeration",
-				},
-			},
-		},
-	}
-	tool := &EmitInvestigationComplete{}
-	params, _ := json.Marshal(map[string]any{"reason": "listed all", "confidence": "high", "result_kind": "resolved"})
-	_, err := tool.Execute(bus, params)
-	if err != nil {
-		t.Fatalf("Execute returned error: %v", err)
-	}
-	for _, p := range closure.PendingReads() {
-		if p.Origin == "pre_complete.multi_path_coverage" {
-			t.Fatalf("enumeration intent must skip multi-path gate, got %+v", p)
-		}
-	}
-}
-
-func TestEmitInvestigationComplete_PreCompleteCheck_MultiPathCoverageParity_ConfigMappingMultiAnchorBlocks(t *testing.T) {
-	mut := types.NewMutableState("test")
-	mut.SetPhase1Ranking([]types.Phase1RankedFile{
-		{Path: "cmd/root.go", Score: 60, ExactEntityRank: 2},
-		{Path: "internal/types/config.go", Score: 58, ExactEntityRank: 2},
-	})
-	closure := mut.EvidenceClosure()
-	closure.SetReadSet(map[string]bool{
-		"cmd/root.go":              true,
-		"internal/types/config.go": true,
-	})
-	closure.SetReadRanges(map[string][]types.LineRange{
-		"cmd/root.go":              {{Start: 1, End: 200}},
-		"internal/types/config.go": {{Start: 1, End: 20}},
-	})
-
-	bus := &types.BusContext{
-		Mutable:  mut,
-		RepoRoot: t.TempDir(),
-		AnalysisIR: &types.AnalysisIR{
-			RequestModel: types.RequestModel{
-				AnalyzerHints: types.AnalyzerHints{Kind: "config_mapping"},
-			},
-		},
-	}
-
-	tool := &EmitInvestigationComplete{}
-	params, _ := json.Marshal(map[string]any{
-		"reason":      "checked code default and config overlay",
-		"confidence":  "high",
-		"result_kind": "resolved",
-	})
-	res, err := tool.Execute(bus, params)
-	if err != nil {
-		t.Fatalf("Execute returned error: %v", err)
-	}
-	if !strings.Contains(res.Summary, "DOWNGRADED") {
-		t.Fatalf("multi-anchor config_mapping should trigger multi-path coverage gate, got: %s", res.Summary)
-	}
-	var found bool
-	for _, p := range closure.PendingReads() {
-		if p.Origin == "pre_complete.multi_path_coverage" && p.File == "internal/types/config.go" {
-			found = true
-			break
-		}
-	}
-	if !found {
-		t.Fatalf("expected multi_path_coverage PendingRead for config anchor, got %+v", closure.PendingReads())
-	}
-}
-
-// TestEmitInvestigationComplete_PreCompleteCheck_MultiPathCoverageParity_SingleAnchor_NoOp
-// guards against false-fire on single-subject questions — one primary
-// anchor has nothing to balance against.
-func TestEmitInvestigationComplete_PreCompleteCheck_MultiPathCoverageParity_SingleAnchor_NoOp(t *testing.T) {
-	mut := types.NewMutableState("test")
-	mut.SetPhase1Ranking([]types.Phase1RankedFile{
-		{Path: "internal/agent/explorer.go", Score: 60, ExactEntityRank: 2},
-	})
-	closure := mut.EvidenceClosure()
-	closure.SetReadSet(map[string]bool{"internal/agent/explorer.go": true})
-	closure.SetReadRanges(map[string][]types.LineRange{
-		"internal/agent/explorer.go": {{Start: 1, End: 5}},
-	})
-
-	bus := &types.BusContext{
-		Mutable:  mut,
-		RepoRoot: t.TempDir(),
-		AnalysisIR: &types.AnalysisIR{
-			RequestModel: types.RequestModel{
-				AnalyzerHints: types.AnalyzerHints{Kind: "mechanism"},
-			},
-		},
-	}
-
-	tool := &EmitInvestigationComplete{}
-	params, _ := json.Marshal(map[string]any{
-		"reason":      "single-subject mechanism",
-		"confidence":  "high",
-		"result_kind": "resolved",
-	})
-	_, err := tool.Execute(bus, params)
-	if err != nil {
-		t.Fatalf("Execute returned error: %v", err)
-	}
-	for _, p := range closure.PendingReads() {
-		if p.Origin == "pre_complete.multi_path_coverage" {
-			t.Fatalf("single anchor should not trigger multi-path gate, got %+v", p)
-		}
-	}
-}
 
 // TestEmitInvestigationComplete_PreCompleteCheck_AbsenceWaivesCitationFloor:
 // absence_justification skips check (b) by contract.
@@ -1346,123 +1080,6 @@ func TestEmitInvestigationComplete_PreCompleteCheck_AbsenceWaivesFloor(t *testin
 	}
 }
 
-// TestMultiPathCoverageParity_FullyReadShortFile_DoesNotBlock locks
-// the central 2026-04-29 fix: a 113-line file fully read via the
-// banner ("[file: showing all 113 lines ...]") must NOT be queued
-// as a PendingRead even when a 683-line sibling has 400 absolute
-// lines covered. Pre-fix behaviour: floor = 400 * 0.30 = 120, so
-// 113 < 120 → the 113-line file got demanded for re-read, the LLM
-// re-read the whole file, total stayed at 113, the gate fired
-// again — production trace at /home/chatpp/pytest 2026-04-29
-// looped 31 times before the user Ctrl+C'd.
-func TestMultiPathCoverageParity_FullyReadShortFile_DoesNotBlock(t *testing.T) {
-	mut := types.NewMutableState("test")
-	mut.SetPhase1Ranking([]types.Phase1RankedFile{
-		{Path: "perfetto_analyzer.py", Score: 60, ExactEntityRank: 2},
-		{Path: "hitrace_analyzer.py", Score: 58, ExactEntityRank: 2},
-	})
-	closure := mut.EvidenceClosure()
-	closure.SetReadSet(map[string]bool{
-		"perfetto_analyzer.py": true,
-		"hitrace_analyzer.py":  true,
-	})
-	closure.SetReadRanges(map[string][]types.LineRange{
-		// Short file fully read.
-		"perfetto_analyzer.py": {{Start: 1, End: 113}},
-		// Long file partially read (400/683 = 58%).
-		"hitrace_analyzer.py": {{Start: 1, End: 400}},
-	})
-	closure.SetFileTotalLines(map[string]int{
-		"perfetto_analyzer.py": 113,
-		"hitrace_analyzer.py":  683,
-	})
-
-	bus := &types.BusContext{
-		Mutable:  mut,
-		RepoRoot: t.TempDir(),
-		AnalysisIR: &types.AnalysisIR{
-			RequestModel: types.RequestModel{
-				AnalyzerHints: types.AnalyzerHints{
-					Kind:            "mechanism",
-					PrimaryEntities: []string{"perfetto_analyzer", "hitrace_analyzer"},
-				},
-			},
-		},
-	}
-	tool := &EmitInvestigationComplete{}
-	params, _ := json.Marshal(map[string]any{
-		"reason": "compared analyzers", "confidence": "high", "result_kind": "resolved",
-	})
-	if _, err := tool.Execute(bus, params); err != nil {
-		t.Fatalf("Execute returned error: %v", err)
-	}
-	for _, p := range closure.PendingReads() {
-		if p.Origin == "pre_complete.multi_path_coverage" && p.File == "perfetto_analyzer.py" {
-			t.Fatalf("FullyRead 113-line file MUST NOT be queued by multi-path parity; got %+v", p)
-		}
-	}
-	// Sanity check: the 683-line file is still under-covered (58% vs
-	// 30% floor → above floor, so also not queued — both files OK).
-	for _, p := range closure.PendingReads() {
-		if p.Origin == "pre_complete.multi_path_coverage" {
-			t.Errorf("no parity PendingRead expected when both files clear the per-file floor; got %+v", p)
-		}
-	}
-}
-
-// TestMultiPathCoverageParity_PerFileRatioBelowFloor_Queues locks
-// the OTHER half: a file at < 30% of its OWN total still gets
-// queued. The fix only relaxes the gate for full reads; partial
-// reads of large files are still flagged.
-func TestMultiPathCoverageParity_PerFileRatioBelowFloor_Queues(t *testing.T) {
-	mut := types.NewMutableState("test")
-	mut.SetPhase1Ranking([]types.Phase1RankedFile{
-		{Path: "alpha.go", Score: 60, ExactEntityRank: 2},
-		{Path: "beta.go", Score: 58, ExactEntityRank: 2},
-	})
-	closure := mut.EvidenceClosure()
-	closure.SetReadSet(map[string]bool{
-		"alpha.go": true,
-		"beta.go":  true,
-	})
-	closure.SetReadRanges(map[string][]types.LineRange{
-		"alpha.go": {{Start: 1, End: 800}}, // 80% of 1000
-		"beta.go":  {{Start: 1, End: 100}}, // 10% of 1000 — below floor
-	})
-	closure.SetFileTotalLines(map[string]int{
-		"alpha.go": 1000,
-		"beta.go":  1000,
-	})
-
-	bus := &types.BusContext{
-		Mutable:  mut,
-		RepoRoot: t.TempDir(),
-		AnalysisIR: &types.AnalysisIR{
-			RequestModel: types.RequestModel{
-				AnalyzerHints: types.AnalyzerHints{
-					Kind:            "mechanism",
-					PrimaryEntities: []string{"alpha", "beta"},
-				},
-			},
-		},
-	}
-	tool := &EmitInvestigationComplete{}
-	params, _ := json.Marshal(map[string]any{
-		"reason": "compared", "confidence": "high", "result_kind": "resolved",
-	})
-	if _, err := tool.Execute(bus, params); err != nil {
-		t.Fatalf("Execute returned error: %v", err)
-	}
-	betaQueued := false
-	for _, p := range closure.PendingReads() {
-		if p.Origin == "pre_complete.multi_path_coverage" && p.File == "beta.go" {
-			betaQueued = true
-		}
-	}
-	if !betaQueued {
-		t.Errorf("partial-read beta.go (10%% of own file, < 30%% floor) must be queued; got %+v", closure.PendingReads())
-	}
-}
 
 // TestPrimaryAnchorPendingRead_ProjectOrientationSkipsGate proves
 // that the "primary anchor unread" gate also short-circuits on
@@ -1551,7 +1168,7 @@ func TestPhase1UnreadPendingReads_ProjectOrientationSkipsGate(t *testing.T) {
 	}
 }
 
-// TestMultiPathCoverageParity_ProjectOrientationSkipsGate locks the
+// TestMultiPathAnchorChecks_ProjectOrientationSkipsGate locks the
 // structural-signal skip: when the analyzer classifies the question
 // as intent=explain + complexity=simple + no PrimaryEntities + no
 // cross-component, the gate must not fire even when coverage looks
@@ -1560,15 +1177,16 @@ func TestPhase1UnreadPendingReads_ProjectOrientationSkipsGate(t *testing.T) {
 // needs cross-component depth parity.
 //
 // The detection is structured-signal-only — see
-// isProjectOrientationQuestion. No keyword matching on RawRequest;
+// IsProjectOrientationQuestion. No keyword matching on RawRequest;
 // the analyzer LLM's own complexity/intent/predicates classification
 // IS the signal.
-func TestMultiPathCoverageParity_ProjectOrientationSkipsGate(t *testing.T) {
+//
+// Cross-gate consistency: this test guards the orientation skip on
+// the multi-path symbol-anchored gate (origin
+// "pre_complete.multi_path_anchor"); a separate test in this file
+// guards the same skip on primary_anchor + phase1_unread.
+func TestMultiPathAnchorChecks_ProjectOrientationSkipsGate(t *testing.T) {
 	mut := types.NewMutableState("test")
-	// No PrimaryEntities ranking — orientation questions do not pin
-	// to specific code, so Phase1Ranking is typically empty. We add
-	// two anchor-marked files anyway to prove the gate's pre-checks
-	// don't fire even when they're present.
 	mut.SetPhase1Ranking([]types.Phase1RankedFile{
 		{Path: "README.md", Score: 60, ExactEntityRank: 2},
 		{Path: "main.go", Score: 58, ExactEntityRank: 2},
@@ -1577,7 +1195,7 @@ func TestMultiPathCoverageParity_ProjectOrientationSkipsGate(t *testing.T) {
 	closure.SetReadSet(map[string]bool{"README.md": true, "main.go": true})
 	closure.SetReadRanges(map[string][]types.LineRange{
 		"README.md": {{Start: 1, End: 50}},
-		"main.go":   {{Start: 1, End: 5}}, // would fail any non-orientation check
+		"main.go":   {{Start: 1, End: 5}},
 	})
 	closure.SetFileTotalLines(map[string]int{"README.md": 50, "main.go": 1000})
 
@@ -1588,10 +1206,8 @@ func TestMultiPathCoverageParity_ProjectOrientationSkipsGate(t *testing.T) {
 			RequestModel: types.RequestModel{
 				Intent:     types.IntentExplain,
 				Complexity: types.ComplexitySimple,
-				// No PrimaryEntities, all predicates false — this is
-				// what the analyzer emits for "what does this project do".
 				AnalyzerHints: types.AnalyzerHints{
-					Kind: "mechanism", // would normally trigger the gate
+					Kind: "mechanism",
 				},
 			},
 		},
@@ -1604,8 +1220,86 @@ func TestMultiPathCoverageParity_ProjectOrientationSkipsGate(t *testing.T) {
 		t.Fatalf("Execute returned error: %v", err)
 	}
 	for _, p := range closure.PendingReads() {
-		if p.Origin == "pre_complete.multi_path_coverage" {
-			t.Errorf("project-orientation question must skip multi-path parity gate; got %+v", p)
+		if p.Origin == "pre_complete.multi_path_anchor" {
+			t.Errorf("project-orientation question must skip multi-path symbol-anchored gate; got %+v", p)
 		}
+	}
+}
+
+// TestApplyMultiPathAnchorChecks_SingleAnchorSkips guards against
+// false-fire when only one primary anchor exists — single-subject
+// questions have no parity target.
+func TestApplyMultiPathAnchorChecks_SingleAnchorSkips(t *testing.T) {
+	mut := types.NewMutableState("test")
+	mut.SetPhase1Ranking([]types.Phase1RankedFile{
+		{Path: "internal/agent/explorer.go", Score: 60, ExactEntityRank: 2},
+	})
+	closure := mut.EvidenceClosure()
+	closure.SetReadSet(map[string]bool{"internal/agent/explorer.go": true})
+	closure.SetReadRanges(map[string][]types.LineRange{
+		"internal/agent/explorer.go": {{Start: 1, End: 5}},
+	})
+	bus := &types.BusContext{
+		Mutable:  mut,
+		RepoRoot: t.TempDir(),
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				AnalyzerHints: types.AnalyzerHints{Kind: "mechanism"},
+			},
+		},
+	}
+	applyMultiPathAnchorChecks(bus, closure)
+	for _, p := range closure.PendingReads() {
+		if p.Origin == "pre_complete.multi_path_anchor" {
+			t.Fatalf("single anchor must not trigger multi-path symbol-anchored gate, got %+v", p)
+		}
+	}
+}
+
+// TestApplyMultiPathAnchorChecks_AdvisoryHintNonBlocking pins the
+// load-bearing UX rule: when both Signal 1 and Signal 2 fail (no
+// question-related symbol identifiable AND no grounded evidence
+// emitted), the gate emits a NON-BLOCKING advisory directive only —
+// it MUST NOT enqueue a PendingRead, otherwise emit_investigation_complete
+// would still be blocked and we are back to the pre-2026-05-01
+// pathology of stalling completion on signals we cannot defend.
+func TestApplyMultiPathAnchorChecks_AdvisoryHintNonBlocking(t *testing.T) {
+	mut := types.NewMutableState("test")
+	mut.SetPhase1Ranking([]types.Phase1RankedFile{
+		{Path: "anchor_a.go", Score: 60, ExactEntityRank: 2},
+		{Path: "anchor_b.go", Score: 58, ExactEntityRank: 2},
+	})
+	closure := mut.EvidenceClosure()
+	// No reads, no evidence — both signals fail; no symbol oracle
+	// (Mutable.SearchGraph returns nil) so Signal 1 cannot identify
+	// any symbol either. Engine should pick SignalOpaqueAdvisory.
+	bus := &types.BusContext{
+		Mutable:  mut,
+		RepoRoot: t.TempDir(),
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				AnalyzerHints: types.AnalyzerHints{
+					Kind:            "mechanism",
+					PrimaryEntities: []string{"someEntity"},
+				},
+			},
+		},
+	}
+	applyMultiPathAnchorChecks(bus, closure)
+	for _, p := range closure.PendingReads() {
+		if p.Origin == "pre_complete.multi_path_anchor" {
+			t.Fatalf("opaque-advisory case MUST NOT enqueue PendingRead (would block completion), got %+v", p)
+		}
+	}
+	// At least one RepairExpandSearch advisory directive must have
+	// been emitted so the LLM is informed without being blocked.
+	advisoryCount := 0
+	for _, r := range closure.ActiveRepairs() {
+		if r.Origin == "pre_complete.multi_path_anchor" && r.Kind == types.RepairExpandSearch {
+			advisoryCount++
+		}
+	}
+	if advisoryCount == 0 {
+		t.Fatalf("opaque-advisory case must emit at least one RepairExpandSearch advisory; got %+v", closure.ActiveRepairs())
 	}
 }

@@ -82,11 +82,15 @@ type EvidenceClosure struct {
 	// ...]"). The line-merging gate uses this to compute per-file
 	// CoverageRatio = sum(end-start+1) / total, so a 113-line file
 	// fully read shows 1.0 even when a 683-line sibling is at 0.6.
-	// Pre-2026-04-29 the multi-path parity gate compared absolute
-	// line counts against max(read_lines), letting a small file at
-	// 100% coverage fail because it had fewer absolute lines than
-	// a partially-read large sibling — the very pathology this
-	// field exists to fix.
+	// Pre-2026-04-29 the predecessor multi-path parity gate
+	// compared absolute line counts against max(read_lines), letting
+	// a small file at 100% coverage fail because it had fewer
+	// absolute lines than a partially-read large sibling — the very
+	// pathology this field originally exists to fix. The ratio gate
+	// itself was later retired in favour of symbol-region verification
+	// (see internal/tool/multipath/), but per-file totals remain the
+	// authoritative denominator for HasFullyRead and any other future
+	// per-file coverage signal.
 	//
 	// Zero entry (file in readRanges but absent from this map) means
 	// "total unknown" — typically because the read came from a path
@@ -229,10 +233,25 @@ func (s ClosureStats) HasActivity() bool {
 // anchors here but file unread"); Origin is a short tag of which
 // enforcer raised it ("chain_promotion", "grounder_reject",
 // "subject_constraint") so we can attribute / debug.
+//
+// LineRanges (optional) carries surgical 1-based [Start, End] line
+// ranges the demanding gate computed. When non-empty, runForcedReads
+// (CGEC E2 / Lazy Auto-Read) issues one read_file PER range with
+// surgical offset/limit instead of paginating the whole file. When
+// empty / nil, the historical full-file fallback is preserved so
+// older PendingRead emitters (chain promotion, grounder reject,
+// phase1_unread, primary_anchor) keep working byte-identically.
+//
+// Set by the multi-path symbol-anchored gate (multipath.EvaluateAnchor
+// → applyMultiPathAnchorChecks) to translate Decision.Demand into
+// surgical recovery: when stall detection forces a Lazy Auto-Read,
+// only the named slivers are pulled into context, never the entire
+// 4 000-line file the predecessor 30%-floor gate would have demanded.
 type PendingRead struct {
-	File      string
-	Rationale string
-	Origin    string
+	File       string
+	Rationale  string
+	Origin     string
+	LineRanges []LineRange
 }
 
 // UnverifiedFinding is one entry in EvidenceClosure.unverifiedFinds.
@@ -536,10 +555,12 @@ func (c *EvidenceClosure) CoverageRatio(file string) float64 {
 //     "fully read"; conservative answer prevents the parity gate from
 //     short-circuiting on an undersampled file.
 //
-// Used by raiseMultiPathCoverageParity (and any future per-file
-// coverage gate) to bypass the comparison entirely when a file is
-// already fully covered — the central fix for the 113-line file
-// being asked to cover 205 lines bug.
+// Used by the multi-path symbol-anchored verification check (and any
+// future per-file coverage gate) to bypass the comparison entirely
+// when a file is already fully covered — historically also the fix
+// for the 113-line file being asked to cover 205 lines bug, before
+// the per-file-ratio floor itself was retired in favour of symbol-
+// region verification.
 func (c *EvidenceClosure) HasFullyRead(file string) bool {
 	total := c.FileTotalLines(file)
 	if total <= 0 {
@@ -561,6 +582,144 @@ func (c *EvidenceClosure) ReadRanges(file string) []LineRange {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 	return cloneLineRanges(c.readRanges[file])
+}
+
+// HasContextAroundRegion reports whether every line in the closed
+// interval [start-window, end+window] is covered by some merged read
+// range for `file`. Returns false when start <= 0 or end < start
+// (malformed input). Window<0 is treated as 0.
+//
+// Used by the multi-path symbol-anchored verification check so a
+// "primary anchor symbol Y is in this file at lines L..M" hypothesis
+// can be cleared by reading L-window..M+window — without demanding
+// that the file as a whole be paginated.
+func (c *EvidenceClosure) HasContextAroundRegion(file string, start, end, window int) bool {
+	if c == nil || file == "" || start <= 0 || end < start {
+		return false
+	}
+	if window < 0 {
+		window = 0
+	}
+	file = c.canonicalize(file)
+	if file == "" {
+		return false
+	}
+	want := LineRange{Start: start - window, End: end + window}
+	if want.Start < 1 {
+		want.Start = 1
+	}
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	ranges := c.readRanges[file]
+	if len(ranges) == 0 {
+		return false
+	}
+	covered := want.Start
+	for _, r := range ranges {
+		if r.End < want.Start {
+			continue
+		}
+		if r.Start > covered {
+			return false
+		}
+		if r.End >= covered {
+			covered = r.End + 1
+		}
+		if covered > want.End {
+			return true
+		}
+	}
+	return covered > want.End
+}
+
+// MissingContextRegions returns the minimum set of LineRange entries
+// covering, for every (regionStart, regionEnd) in `regions`, the
+// intersection [regionStart-window, regionEnd+window] that is NOT yet
+// covered by `file`'s merged read ranges. Adjacent / overlapping
+// uncovered slivers are merged so the returned slice is the smallest
+// surgical-read demand that would clear HasContextAroundRegion for
+// every input region.
+//
+// Each region is a pair of consecutive ints in `regions` —
+// regions[2i]=start, regions[2i+1]=end. Malformed pairs (start<=0,
+// end<start) are skipped silently. Returns an empty slice when every
+// region's expanded window is already covered (caller can use this
+// to detect "no demand needed").
+//
+// Window<0 is treated as 0. The minimum start is clamped to line 1.
+//
+// Used by the multi-path symbol-anchored check to build a precise
+// PendingRead Rationale that names the missing slivers instead of a
+// blanket "read N% of the file" demand.
+func (c *EvidenceClosure) MissingContextRegions(file string, regions []int, window int) []LineRange {
+	if c == nil || file == "" || len(regions) < 2 {
+		return nil
+	}
+	if window < 0 {
+		window = 0
+	}
+	file = c.canonicalize(file)
+	if file == "" {
+		return nil
+	}
+	c.mu.RLock()
+	covered := cloneLineRanges(c.readRanges[file])
+	c.mu.RUnlock()
+
+	demand := make([]LineRange, 0)
+	for i := 0; i+1 < len(regions); i += 2 {
+		start := regions[i]
+		end := regions[i+1]
+		if start <= 0 || end < start {
+			continue
+		}
+		want := LineRange{Start: start - window, End: end + window}
+		if want.Start < 1 {
+			want.Start = 1
+		}
+		demand = append(demand, subtractCoveredRanges(want, covered)...)
+	}
+	if len(demand) == 0 {
+		return nil
+	}
+	return mergeLineRanges(demand)
+}
+
+// subtractCoveredRanges returns the slivers of `want` not covered by
+// any range in `covered`. Pure function; assumes `covered` is sorted
+// and merged (which it is when read out of EvidenceClosure under the
+// mu lock since SetReadRanges runs mergeLineRanges on insert).
+func subtractCoveredRanges(want LineRange, covered []LineRange) []LineRange {
+	if want.End < want.Start {
+		return nil
+	}
+	cursor := want.Start
+	out := make([]LineRange, 0)
+	for _, r := range covered {
+		if r.End < cursor {
+			continue
+		}
+		if r.Start > want.End {
+			break
+		}
+		if r.Start > cursor {
+			gapEnd := r.Start - 1
+			if gapEnd > want.End {
+				gapEnd = want.End
+			}
+			out = append(out, LineRange{Start: cursor, End: gapEnd})
+		}
+		if r.End+1 > cursor {
+			cursor = r.End + 1
+		}
+		if cursor > want.End {
+			return out
+		}
+	}
+	if cursor <= want.End {
+		out = append(out, LineRange{Start: cursor, End: want.End})
+	}
+	return out
 }
 
 // HasReadLine is the row-level complement to HasRead. Semantics:

@@ -65,8 +65,9 @@ func baseFor(rm types.RequestModel, c types.Complexity) baseNums {
 	// because the answer shape (README + manifest + entry point) is
 	// fundamentally smaller than even a "simple" code-investigation
 	// answer. types.IsProjectOrientationQuestion uses the same
-	// structured-signal predicate the multi-path coverage parity gate
-	// uses, so both stages agree on what "orientation question" means.
+	// structured-signal predicate the multi-path symbol-anchored gate
+	// (applyMultiPathAnchorChecks) uses, so both stages agree on what
+	// "orientation question" means.
 	if types.IsProjectOrientationQuestion(rm) {
 		return baseNums{files: 8, iters: 6}
 	}
