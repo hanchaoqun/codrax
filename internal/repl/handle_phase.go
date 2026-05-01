@@ -6,6 +6,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/charmbracelet/huh"
+
 	"github.com/hanchaoqun/codrax/internal/logging"
 	"github.com/hanchaoqun/codrax/internal/types"
 	"github.com/hanchaoqun/codrax/internal/worktree"
@@ -432,6 +434,176 @@ func (r *REPL) findGroupWorktree(g *types.PlanGroup) string {
 		}
 	}
 	return ""
+}
+
+// handleMergeGroupCmd is the group-level /merge (commit 31):
+// fold the group's cumulative worktree once + settle every
+// phase plan as merged in a single call. Replaces the
+// cross-command hint that commit 25 punted on.
+//
+// rest carries the full /merge args (with the group id
+// included) so flag parsing (--branch=, --include-failed)
+// stays aligned with the per-plan /merge path.
+//
+// Behaviour:
+//  1. Resolve the group; refuse on missing.
+//  2. Group must be Completed (or Failed with --include-failed).
+//     Planning / InFlight = "not done yet, /phase show first".
+//  3. Collect every phase plan + the cumulative worktree path
+//     (last phase's WorktreePath; phases share one worktree).
+//  4. Run the existing single-plan merge engine (runMerge) on
+//     the worktree once — it folds the cumulative diff back
+//     into main.
+//  5. Settle every phase plan as PlanStatusMerged. Failure of
+//     a single Settle is a warning, not a hard stop — the merge
+//     itself already landed.
+//
+// Locked behind writeEnabled (handler entry already gates).
+// Operator confirmation reuses the same y/N prompt as per-plan
+// /merge to keep the muscle memory.
+func (r *REPL) handleMergeGroupCmd(groupID, rawArgs string) {
+	if r.planGroupStore == nil || r.planStore == nil {
+		r.info("/merge group: plan-group store or plan store not configured\n")
+		return
+	}
+	includeFailed := false
+	target := defaultMergeTarget(r.repoRoot, r.branch)
+	for _, tok := range strings.Fields(rawArgs) {
+		switch {
+		case strings.HasPrefix(tok, "--branch="):
+			target = strings.TrimSpace(strings.TrimPrefix(tok, "--branch="))
+		case tok == "--include-failed", tok == "--force":
+			includeFailed = true
+		}
+	}
+	if target == "" {
+		target = r.branch
+	}
+	g, err := r.planGroupStore.Load(groupID)
+	if err != nil || g == nil {
+		r.errorf("/merge group: cannot load %s: %v\n", groupID, err)
+		return
+	}
+	if g.Status == types.PlanGroupCompleted {
+		// happy path
+	} else if (g.Status == types.PlanGroupFailed || g.Status == types.PlanGroupInFlight) && includeFailed {
+		// operator override
+	} else {
+		r.warn("/merge group: group %s is %s; only Completed groups merge by default. Use --include-failed to override for in_flight / failed groups, or /phase show %s to inspect.\n",
+			groupID, g.Status, groupID)
+		return
+	}
+	wt := r.findGroupWorktree(g)
+	if wt == "" {
+		r.warn("/merge group: no preserved worktree found for group %s; nothing to fold back.\n", groupID)
+		return
+	}
+	if r.interactive() {
+		strategy := "cherry_pick_branch"
+		if target == r.branch {
+			strategy = "fast_forward"
+		}
+		title := mergeConfirmTitle(r.language, strategy, target, len(g.Phases))
+		confirmed := false
+		if err := huh.NewConfirm().
+			Title(title + " (group " + groupID + ", " + strconv.Itoa(len(g.Phases)) + " phases)").
+			Affirmative("Yes").
+			Negative("No").
+			Value(&confirmed).
+			Run(); err != nil {
+			confirmed = false
+		}
+		if !confirmed {
+			r.info(approveCancelled(r.language))
+			return
+		}
+	}
+	logging.Info("[repl] /merge group=%s target=%s worktree=%s phases=%d", groupID, target, wt, len(g.Phases))
+	r.runMerge(wt, target)
+
+	// After merge: settle every phase plan + record the group
+	// outcome. Settle failures are non-fatal — the bytes are on
+	// main now, the on-disk plan status drift is recoverable
+	// via /plan show.
+	settledCount := 0
+	for _, p := range g.Phases {
+		if p.PlanID == "" {
+			continue
+		}
+		if err := r.planStore.Settle(p.PlanID, types.PlanStatusMerged, ""); err != nil {
+			r.warn("/merge group: settle plan %s failed: %v\n", p.PlanID, err)
+			continue
+		}
+		settledCount++
+	}
+	r.success(fmt.Sprintf("/merge group: %d/%d phase plans settled as merged\n",
+		settledCount, len(g.Phases)))
+}
+
+// handleRejectGroupCmd is the group-level /reject (commit 31):
+// settle every phase plan in the group as rejected + discard
+// the cumulative worktree in a single call. Replaces the
+// cross-command hint that commit 25 punted on.
+//
+// Reason becomes the per-plan rejection reason recorded on
+// each settled plan. Empty reason is acceptable (matches the
+// per-plan /reject behaviour).
+//
+// Behaviour:
+//  1. Resolve the group; refuse on missing.
+//  2. Refuse if the group is Completed (those should be
+//     /merge'd, not rejected — operator error).
+//  3. Settle every phase plan as PlanStatusRejected with the
+//     supplied reason. Per-plan settle failure is a warning,
+//     not a stop — discard the worktree regardless.
+//  4. Discard the worktree if findGroupWorktree resolves one.
+//  5. Mark the group as PlanGroupRolledBack so /phase show no
+//     longer surfaces it as in-flight.
+//
+// Locked behind writeEnabled (handler entry already gates).
+func (r *REPL) handleRejectGroupCmd(groupID, reason string) {
+	if r.planGroupStore == nil || r.planStore == nil {
+		r.info("/reject group: plan-group store or plan store not configured\n")
+		return
+	}
+	g, err := r.planGroupStore.Load(groupID)
+	if err != nil || g == nil {
+		r.errorf("/reject group: cannot load %s: %v\n", groupID, err)
+		return
+	}
+	if g.Status == types.PlanGroupCompleted {
+		r.warn("/reject group: group %s is already Completed; rejecting after completion is not meaningful — use /merge to land it, or settle individual phase plans via /reject <plan-id>.\n", groupID)
+		return
+	}
+
+	// Settle every phase plan first; collect non-empty PlanIDs
+	// so we can also discard the worktree even when no plan
+	// was emitted on a phase (e.g. group failed before phase 0
+	// finished).
+	settledCount := 0
+	for _, p := range g.Phases {
+		if p.PlanID == "" {
+			continue
+		}
+		if err := r.planStore.Settle(p.PlanID, types.PlanStatusRejected, reason); err != nil {
+			r.warn("/reject group: settle plan %s failed: %v\n", p.PlanID, err)
+			continue
+		}
+		settledCount++
+	}
+
+	if wt := r.findGroupWorktree(g); wt != "" {
+		if err := worktree.DiscardByPath(wt, r.repoRoot); err != nil {
+			r.warn("/reject group: worktree discard failed: %v\n", err)
+		}
+	}
+
+	g.Status = types.PlanGroupRolledBack
+	if _, err := r.planGroupStore.Save(g); err != nil {
+		r.warn("/reject group: persist rolled_back state failed: %v\n", err)
+	}
+	r.success(fmt.Sprintf("/reject group: %d/%d phase plans settled as rejected; group %s marked rolled_back\n",
+		settledCount, len(g.Phases), groupID))
 }
 
 // shortSHA returns the first 8 chars of a git SHA for compact

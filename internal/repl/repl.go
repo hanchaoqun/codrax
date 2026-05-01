@@ -3357,16 +3357,14 @@ func (r *REPL) handleMergeCmd(line string) {
 	target := defaultMergeTarget(r.repoRoot, r.branch)
 	includeFailed := false
 	rest := strings.TrimSpace(strings.TrimPrefix(line, "/merge"))
-	// Cross-command nudge: when the user passed a group id as a
-	// positional, surface a clear "use /phase show first" hint
-	// rather than silently ignoring the token (current /merge
-	// has no per-id positional — it always operates on the most-
-	// recent eligible plan from PlanStore). Group-level merge
-	// semantics are not implemented yet; pointing at /phase show
-	// keeps the user oriented.
+	// Group-level merge (commit 31): when the user passes
+	// `/merge group-<id> [flags]`, fold the group's cumulative
+	// worktree once + settle every phase plan as merged in a
+	// single call. Detected by positional token starting with
+	// "group-"; flags after it (e.g. --branch=<x>) still apply.
 	for _, tok := range strings.Fields(rest) {
 		if strings.HasPrefix(tok, "group-") {
-			r.info(fmt.Sprintf("/merge: %q is a plan-group id. /merge does not yet operate on groups directly — use `/phase show %s` to inspect group state, then bring each phase plan to merge-ready and re-run /merge for the worktree fold-back.\n", tok, tok))
+			r.handleMergeGroupCmd(tok, rest)
 			return
 		}
 	}
@@ -3725,13 +3723,15 @@ func (r *REPL) handleRejectCmd(line string) {
 		return
 	}
 	reason := strings.TrimSpace(strings.TrimPrefix(line, "/reject"))
-	// Cross-command nudge: when the reason text starts with a
-	// group id, the user almost certainly wants to discard the
-	// whole multi-phase group, not record "group-X..." as the
-	// rejection reason for a single plan. Surface a hint and
-	// refuse — group-level reject is not yet implemented.
+	// Group-level reject (commit 31): when the first token of
+	// the reason is a group id, settle every phase plan in the
+	// group + discard the cumulative worktree in one call.
+	// Remaining text (after the group id) becomes the per-plan
+	// rejection reason recorded on each settled plan.
 	if firstTok := strings.Fields(reason); len(firstTok) > 0 && strings.HasPrefix(firstTok[0], "group-") {
-		r.info(fmt.Sprintf("/reject: %q looks like a plan-group id, not a rejection reason. /reject does not yet operate on groups directly — use `/phase show %s` to inspect group state and reject each phase plan individually with /reject after picking it via /plan show <id>.\n", firstTok[0], firstTok[0]))
+		groupID := firstTok[0]
+		groupReason := strings.TrimSpace(strings.TrimPrefix(reason, firstTok[0]))
+		r.handleRejectGroupCmd(groupID, groupReason)
 		return
 	}
 	id := strings.TrimSuffix(filepath.Base(r.pendingPlanPath), ".json")
