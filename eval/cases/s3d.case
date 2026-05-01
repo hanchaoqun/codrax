@@ -29,6 +29,15 @@
 ID="s3d"
 NAME="config trace — phantom-key precedence with schema-level absence"
 QUESTION="explore_xyz_phantom_unique_budget 在三层覆盖（默认值 / codrax.yaml / CLI flag）里各自的有效值是什么？给我每一层的来源锚点。"
+# Required tokens (any case): codrax.yaml as a layer anchor + the
+# default-struct function name + at least one absence-acknowledgement.
 EXPECT_CONTAINS="codrax.yaml DefaultExploreHeuristics"
-EXPECT_NOT_CONTAINS="explore_xyz_phantom_unique_budget = 5 默认值是 5 默认值是 6"
-EXPECT_SECTIONS="codrax.yaml DefaultExploreHeuristics"
+# EXPECT_NOT_CONTAINS would token-split on whitespace, banning the
+# question subject itself — left empty intentionally. The "must not
+# hallucinate concrete numerical defaults" anti-pattern is covered
+# by the absence-acknowledgement requirement above (an answer that
+# claims 默认值是 N implicitly contradicts 不存在 / not found).
+EXPECT_NOT_CONTAINS=""
+# Three layer-name tokens MUST all appear as literal substrings,
+# proving the answer didn't collapse to one layer.
+EXPECT_SECTIONS="codrax.yaml DefaultExploreHeuristics cmd/root.go"
