@@ -748,10 +748,29 @@ func (r *Renderer) composeCurrentDockRows() [dockRowCount]string {
 	return composeDockRows(state)
 }
 
-// stageProgressForFocus is the totalStages-aware variant of
-// stageProgressFor. write-mode (totalStages=3) renders 1/3, 2/3, 3/3
-// with planner / coder / verifier; read-mode renders 1/6 .. 6/6 over
-// the analyze→finalize chain.
+// stageProgressForFocus returns the K/N progress string for the dock
+// row 2 stage column. The value of K depends on totalStages — which
+// the REPL sets per mode (read=6, ModeApply=4, ModePlan=2,
+// ModeVerify=2, write trio=3) — because the same stage key maps to
+// a different sequence position depending on which stages actually
+// run in this Run.
+//
+// Examples:
+//
+//	totalStages=6 (read) — analyze=1/6, evidence=2/6, ..., finalize=6/6
+//	totalStages=4 (apply) — analyze=1/4, plan=2/4, apply=3/4, verify=4/4
+//	totalStages=3 (write trio, no analyze) — plan=1/3, apply=2/3, verify=3/3
+//	totalStages=2 (plan-only) — analyze=1/2, plan=2/2
+//	totalStages=2 (verify-only) — analyze=1/2, verify=2/2
+//
+// Pre-fix the switch hard-coded plan=1/N, apply=2/N, verify=3/N which
+// (a) collided with analyze=1/N in ModeApply / ModePlan, (b) overflowed
+// the denominator in ModeVerify (verify=3/2 rendered as a literal
+// "3/2" string), and (c) never reached 4/N in ModeApply.
+//
+// log_triage / perf_triage / write_analyze are pre-stages — visible
+// in row 2 as labels but rendered with "—" in the K/N slot so the
+// counter only advances over the user-relevant stages of this mode.
 //
 // Caller MUST hold r.mu.
 func (r *Renderer) stageProgressForFocus(row *taskRow) string {
@@ -762,27 +781,54 @@ func (r *Renderer) stageProgressForFocus(row *taskRow) string {
 	if total <= 0 {
 		total = 6
 	}
-	switch stageKeyFor(row) {
-	case "analyze":
-		return fmt.Sprintf("1/%d", total)
-	case "explore", "evidence":
-		return fmt.Sprintf("2/%d", total)
-	case "validate":
-		return fmt.Sprintf("3/%d", total)
-	case "reconcile":
-		return fmt.Sprintf("4/%d", total)
-	case "extract":
-		return fmt.Sprintf("5/%d", total)
-	case "finalize":
-		return fmt.Sprintf("6/%d", total)
-	case "plan", "planner":
-		return fmt.Sprintf("1/%d", total)
-	case "apply", "coder":
-		return fmt.Sprintf("2/%d", total)
-	case "verify", "verifier":
-		return fmt.Sprintf("3/%d", total)
-	case "log_triage", "perf_triage":
+	key := stageKeyFor(row)
+	switch key {
+	case "log_triage", "perf_triage", "write_analyze":
 		return "—"
+	}
+	switch total {
+	case 6: // read mode
+		switch key {
+		case "analyze":
+			return "1/6"
+		case "explore", "evidence":
+			return "2/6"
+		case "validate":
+			return "3/6"
+		case "reconcile":
+			return "4/6"
+		case "extract":
+			return "5/6"
+		case "finalize":
+			return "6/6"
+		}
+	case 4: // ModeApply: analyze + plan + apply + verify
+		switch key {
+		case "analyze":
+			return "1/4"
+		case "plan", "planner":
+			return "2/4"
+		case "apply", "coder":
+			return "3/4"
+		case "verify", "verifier":
+			return "4/4"
+		}
+	case 3: // write trio (no analyze counted)
+		switch key {
+		case "plan", "planner":
+			return "1/3"
+		case "apply", "coder":
+			return "2/3"
+		case "verify", "verifier":
+			return "3/3"
+		}
+	case 2: // ModePlan or ModeVerify (analyze + one write stage)
+		switch key {
+		case "analyze":
+			return "1/2"
+		case "plan", "planner", "verify", "verifier":
+			return "2/2"
+		}
 	}
 	return ""
 }

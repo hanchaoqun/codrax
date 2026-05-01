@@ -384,6 +384,8 @@ func canonicalStageKey(s string) string {
 		return "perf_triage"
 	case "analyzer", "analyze":
 		return "analyze"
+	case "write_analyze", "write_analyzer", "writeanalyze", "writeanalyzer":
+		return "write_analyze"
 	case "explorer", "explore", "search":
 		return "explore"
 	case "extractor", "extract":

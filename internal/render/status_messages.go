@@ -157,9 +157,16 @@ func stagePhrase(key string, lang string, state stagePhraseState) string {
 		// verify failure: "测试未通过" — tests ran but failed; never
 		//   "已通过测试验证改动" which previously rendered alongside
 		//   the ✗ glyph (the bug that prompted this fix).
-		"plan":   {"正在设计改动方案", "已设计改动方案", "待设计改动方案", "未生成改动方案"},
-		"apply":  {"正在应用改动", "已应用改动", "待应用改动", "应用改动失败"},
-		"verify": {"正在跑测试验证改动", "已通过测试验证改动", "待跑测试验证改动", "测试未通过"},
+		// write_analyze is the write-mode pre-stage that classifies the
+		// task into kind/scope/risk/constraints/outcomes (~3-10s LLM
+		// dispatch). Falls between read-mode analyze and the plan node.
+		// Pre-2026-05-01 it had no entry and rendered as the generic
+		// "正在处理任务" / "Processing task" — visually invisible during
+		// a real LLM call.
+		"write_analyze": {"正在分析任务上下文", "已分析任务上下文", "待分析任务上下文", "任务上下文分析失败"},
+		"plan":          {"正在设计改动方案", "已设计改动方案", "待设计改动方案", "未生成改动方案"},
+		"apply":         {"正在应用改动", "已应用改动", "待应用改动", "应用改动失败"},
+		"verify":        {"正在跑测试验证改动", "已通过测试验证改动", "待跑测试验证改动", "测试未通过"},
 	}
 	tableEn := map[string]quad{
 		"log_triage":  {"Parsing attached log", "Log parsed", "Awaiting log parse", "Log parse failed"},
@@ -171,9 +178,10 @@ func stagePhrase(key string, lang string, state stagePhraseState) string {
 		"reconcile":   {"Consolidating exploration results", "Exploration results consolidated", "Awaiting consolidation", "Consolidation failed"},
 		"extract":     {"Distilling key findings", "Key findings distilled", "Awaiting key-finding distillation", "Key-finding distillation failed"},
 		"finalize":    {"Composing the final answer", "Final answer composed", "Awaiting final-answer composition", "Final-answer composition failed"},
-		"plan":        {"Drafting change plan", "Change plan ready", "Awaiting change plan", "No change plan produced"},
-		"apply":       {"Applying changes", "Changes applied", "Awaiting change apply", "Apply failed"},
-		"verify":      {"Running tests for verification", "Tests verified", "Awaiting verification", "Tests did not pass"},
+		"write_analyze": {"Analyzing task context", "Task context analyzed", "Awaiting task-context analysis", "Task-context analysis failed"},
+		"plan":          {"Drafting change plan", "Change plan ready", "Awaiting change plan", "No change plan produced"},
+		"apply":         {"Applying changes", "Changes applied", "Awaiting change apply", "Apply failed"},
+		"verify":        {"Running tests for verification", "Tests verified", "Awaiting verification", "Tests did not pass"},
 	}
 	var t quad
 	var ok bool
