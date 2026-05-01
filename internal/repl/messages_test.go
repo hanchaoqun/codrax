@@ -439,6 +439,47 @@ func TestHelpLines_WriteModeGroupingHeader(t *testing.T) {
 	}
 }
 
+// TestClampToTermWidth pins commit 42 P1: long banner lines
+// get truncated with a centered ellipsis so terminals don't
+// wrap them onto a second visual line.
+func TestClampToTermWidth(t *testing.T) {
+	for _, c := range []struct {
+		in       string
+		maxWidth int
+		want     string
+	}{
+		{"short", 20, "short"},
+		{"exactly twenty chars", 20, "exactly twenty chars"},
+		// Long input: 19 chars budget = 11 head + 8 tail with "…" between.
+		{"this is a very long banner line with many words", 20, "this is a v…ny words"},
+		{"trailing spaces here    ", 50, "trailing spaces here"},
+		{"a", 0, "a"}, // zero width falls back to default 120; short input stays.
+	} {
+		got := clampToTermWidth(c.in, c.maxWidth)
+		if got != c.want {
+			t.Errorf("clampToTermWidth(%q, %d) = %q; want %q", c.in, c.maxWidth, got, c.want)
+		}
+	}
+}
+
+// TestUnsettledBanner_WorktreeMissingTag pins commit 42 P1:
+// when the underlying worktree was deleted out-of-band, the
+// banner appends an "(orphaned worktree)" tag so the operator
+// doesn't fall into a runtime error from /merge / /verify.
+func TestUnsettledBanner_WorktreeMissingTag(t *testing.T) {
+	for _, lang := range []string{"zh", "en"} {
+		got := unsettledBanner(lang, "plan-x", "applied", true)
+		if !strings.Contains(got, "worktree") {
+			t.Errorf("%s: expected 'worktree' tag on missing worktree; got %q", lang, got)
+		}
+		// Without missing flag, no tag.
+		got = unsettledBanner(lang, "plan-x", "applied", false)
+		if strings.Contains(got, "worktree gone") || strings.Contains(got, "worktree 已不在") {
+			t.Errorf("%s: clean worktree should NOT carry orphan tag; got %q", lang, got)
+		}
+	}
+}
+
 // TestPlanShowFooter_StatusAware pins commit 41 UX#5: the
 // footer surfaces status-specific recovery commands rather
 // than always showing the same generic line.

@@ -358,6 +358,13 @@ type PlanInfo struct {
 	HasCritique      bool   // plan_critic produced a non-empty review
 	PhaseGroupID     string // non-empty when this plan is one phase of a multi-phase group
 	PhaseIndex       int    // 0-based phase index within the group; meaningful only when PhaseGroupID != ""
+	// WorktreeMissing fires when the plan's persisted
+	// WorktreePath has been deleted out-of-band (e.g., user
+	// rm -rf'd .codrax/worktrees/...). Populated by the
+	// banner-detection path so unsettledBanner can tag the
+	// plan as "(orphaned worktree)" instead of pretending it's
+	// still fully actionable. Commit 42 P1.
+	WorktreeMissing bool
 }
 
 // List enumerates every <id>.json file under planDir and returns

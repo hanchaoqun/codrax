@@ -1718,6 +1718,60 @@ func isLangZh(lang string) bool {
 // Skips silently when PlanPath is empty (Mutable-only plan mode
 // without an on-disk sibling, typical of pure-memory tests) or
 // when Mutable has no plan at all.
+// persistPlanStatusWithApplied is the commit-42 variant of
+// persistPlanStatus that ALSO records the AppliedPaths subset
+// when the apply landed bytes for some-but-not-all targets.
+// /plan show reads this slot to render which files landed on
+// partially_applied plans (P0 P0 #2 fix). Nil appliedPaths
+// leaves the on-disk slot untouched (back-compat with
+// callers that don't know).
+func (o *Orchestrator) persistPlanStatusWithApplied(status string, appliedAt *time.Time, appliedPaths []string) {
+	if o.busCtx == nil {
+		return
+	}
+	path := o.busCtx.PlanPath
+	if path == "" {
+		return
+	}
+	wt := ""
+	if status == types.PlanStatusApplied &&
+		(o.keepWorktreeOnSuccess || o.skipVerify) &&
+		o.busCtx.WorktreePath != "" {
+		wt = o.busCtx.WorktreePath
+	}
+	if err := types.UpdatePlanStatusOnDiskWithApplied(path, status, appliedAt, wt, appliedPaths); err != nil {
+		logging.Warning("[orchestrator] plan status update failed: %v", err)
+		return
+	}
+	logging.Info("[orchestrator] plan status persisted: %s applied_paths=%d", status, len(appliedPaths))
+}
+
+// collectAppliedTargetPaths returns the subset of plan.TargetPaths
+// that successfully landed in the worktree per WriteClosure.
+// Used by applyPostHook to populate ChangePlan.AppliedPaths on
+// partially_applied transitions. Returns nil when no plan or
+// no applied set.
+func (o *Orchestrator) collectAppliedTargetPaths() []string {
+	if o == nil || o.busCtx == nil || o.busCtx.Mutable == nil {
+		return nil
+	}
+	plan := o.busCtx.Mutable.ChangePlan()
+	if plan == nil || len(plan.TargetPaths) == 0 {
+		return nil
+	}
+	applied := o.busCtx.Mutable.WriteClosure().AppliedSet()
+	if len(applied) == 0 {
+		return nil
+	}
+	out := make([]string, 0, len(plan.TargetPaths))
+	for _, p := range plan.TargetPaths {
+		if applied[p] {
+			out = append(out, p)
+		}
+	}
+	return out
+}
+
 func (o *Orchestrator) persistPlanStatus(status string, appliedAt *time.Time) {
 	if o.busCtx == nil {
 		return

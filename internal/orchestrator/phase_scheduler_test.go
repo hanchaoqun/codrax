@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/hanchaoqun/codrax/internal/render"
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
@@ -771,6 +772,87 @@ func TestApplyAcceptanceVerdict_ErrorMarksUnverified(t *testing.T) {
 	}
 	if group.Status != types.PlanGroupInFlight {
 		t.Errorf("group should remain InFlight on infra failure; got %q", group.Status)
+	}
+}
+
+// TestApplyAcceptanceVerdict_RejectedEmitsReasoningEvent pins
+// commit 42 P0 #1: when applyAcceptanceVerdict rejects a
+// phase, it MUST emit an EventAgentReasoning carrying the
+// reviewer's reasoning so the dock surfaces "✗ Phase X
+// rejected: <why>" mid-Run. Pre-commit-42 the reasoning was
+// stored on phase.AcceptanceCheck.Reasoning and only visible
+// post-Run via /phase show.
+func TestApplyAcceptanceVerdict_RejectedEmitsReasoningEvent(t *testing.T) {
+	store := &fakeGroupStore{}
+	var captured []render.Event
+	o := &Orchestrator{
+		busCtx:         &types.BusContext{Mutable: types.NewMutableState("probe")},
+		planGroupStore: store,
+		emit: func(ev render.Event) {
+			captured = append(captured, ev)
+		},
+	}
+	phase := &types.PhaseRecord{Index: 0, Goal: "add migration", Status: types.PhaseVerified}
+	group := &types.PlanGroup{
+		ID: "group-rej-emit", Status: types.PlanGroupInFlight, ActiveIdx: 0,
+		Phases: []types.PhaseRecord{*phase, {}, {}},
+	}
+	verdict := &types.AcceptanceCheck{
+		Passed:    false,
+		Reasoning: "wrong direction — modified path is unrelated to phase goal",
+	}
+
+	rejected, _ := o.applyAcceptanceVerdict(phase, group, verdict, nil)
+	if !rejected {
+		t.Fatal("expected rejection")
+	}
+	// Find the reasoning event.
+	found := false
+	for _, ev := range captured {
+		if ev.Kind == render.EventAgentReasoning &&
+			strings.Contains(ev.Reasoning, "rejected") &&
+			strings.Contains(ev.Reasoning, "wrong direction") {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Errorf("expected EventAgentReasoning with rejection reasoning; got %+v", captured)
+	}
+}
+
+// TestApplyAcceptanceVerdict_AcceptedEmitsReasoningEvent pins
+// the accept-path mirror: a successful acceptance also emits a
+// "✓ Phase X accepted" event so the dock shows the acceptance
+// step happening rather than silently advancing.
+func TestApplyAcceptanceVerdict_AcceptedEmitsReasoningEvent(t *testing.T) {
+	var captured []render.Event
+	o := &Orchestrator{
+		busCtx: &types.BusContext{Mutable: types.NewMutableState("probe")},
+		emit: func(ev render.Event) {
+			captured = append(captured, ev)
+		},
+	}
+	phase := &types.PhaseRecord{Index: 1, Goal: "ok", Status: types.PhaseVerified}
+	group := &types.PlanGroup{
+		ID: "group-accept-emit", Status: types.PlanGroupInFlight, ActiveIdx: 1,
+		Phases: []types.PhaseRecord{{}, *phase, {}},
+	}
+	verdict := &types.AcceptanceCheck{Passed: true, Reasoning: "ok"}
+
+	rejected, _ := o.applyAcceptanceVerdict(phase, group, verdict, nil)
+	if rejected {
+		t.Fatal("should not reject")
+	}
+	found := false
+	for _, ev := range captured {
+		if ev.Kind == render.EventAgentReasoning && strings.Contains(ev.Reasoning, "Phase 2 of 3 accepted") {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Errorf("expected accepted event; got %+v", captured)
 	}
 }
 

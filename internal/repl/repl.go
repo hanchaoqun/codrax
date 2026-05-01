@@ -1151,8 +1151,16 @@ func (r *REPL) banner() {
 	// modes are available and which yaml file backs the config. With
 	// write_enabled=false the line names the gate explicitly so the
 	// user does not have to wait until /mode plan to discover it.
+	// Banner-row width budget (commit 42 P1): banners are
+	// dim FgDarkGray status lines aligned at column 2; long
+	// settings paths or long pitfall counts could push them
+	// past 120 columns and wrap onto a second visual line,
+	// breaking vertical alignment with other rows. Clamp at
+	// emit time so wraps are explicit ellipses rather than
+	// terminal wrap chaos.
+	const bannerMaxWidth = 120
 	if cap := bannerCapabilityLine(r.language, r.writeEnabled, r.settingsPath); cap != "" {
-		fmt.Fprintf(r.out, "  %s\n", pterm.FgDarkGray.Sprint(cap))
+		fmt.Fprintf(r.out, "  %s\n", pterm.FgDarkGray.Sprint(clampToTermWidth(cap, bannerMaxWidth)))
 	}
 	// UX#4 (commit 41): when the per-repo Failure Taxonomy is
 	// non-empty, surface the count at startup so /pitfalls
@@ -1162,7 +1170,8 @@ func (r *REPL) banner() {
 	if r.failureTaxonomy != nil {
 		if pitfalls := r.failureTaxonomy.All(); len(pitfalls) > 0 {
 			fmt.Fprintf(r.out, "  %s\n",
-				pterm.FgDarkGray.Sprint(failureTaxonomyBannerLine(r.language, len(pitfalls))))
+				pterm.FgDarkGray.Sprint(clampToTermWidth(
+					failureTaxonomyBannerLine(r.language, len(pitfalls)), bannerMaxWidth)))
 		}
 	}
 	// Single-pending-plan invariant — user-perception layer. When
@@ -1173,7 +1182,9 @@ func (r *REPL) banner() {
 	// Status-specific wording so the right action is one glance away.
 	if blocker, ok := r.detectUnsettledPlan(); ok {
 		fmt.Fprintf(r.out, "  %s\n",
-			pterm.FgDarkGray.Sprint(unsettledBanner(r.language, blocker.ID, blocker.Status)))
+			pterm.FgDarkGray.Sprint(clampToTermWidth(
+				unsettledBanner(r.language, blocker.ID, blocker.Status, blocker.WorktreeMissing),
+				bannerMaxWidth)))
 	}
 	if summary := r.memorySummaryLine(); summary != "" {
 		fmt.Fprintf(r.out, "  %s\n", summary)
@@ -2253,6 +2264,29 @@ func (r *REPL) handlePlanCmd(line string) {
 		if len(plan.TargetPaths) > 0 {
 			fmt.Fprintf(r.out, "    targets: %s\n", strings.Join(plan.TargetPaths, ", "))
 		}
+		// Apply-progress visibility (commit 42 P0): for
+		// partially_applied plans, surface WHICH files actually
+		// landed vs which still pending so /approve --retry's
+		// scope is glanceable. AppliedPaths is the subset of
+		// TargetPaths the apply post-hook persisted.
+		if plan.Status == types.PlanStatusPartiallyApplied && len(plan.AppliedPaths) > 0 {
+			pending := make([]string, 0, len(plan.TargetPaths))
+			appliedSet := make(map[string]struct{}, len(plan.AppliedPaths))
+			for _, p := range plan.AppliedPaths {
+				appliedSet[p] = struct{}{}
+			}
+			for _, t := range plan.TargetPaths {
+				if _, ok := appliedSet[t]; !ok {
+					pending = append(pending, t)
+				}
+			}
+			fmt.Fprintf(r.out, "    applied: %d/%d (%s)\n",
+				len(plan.AppliedPaths), len(plan.TargetPaths),
+				strings.Join(plan.AppliedPaths, ", "))
+			if len(pending) > 0 {
+				fmt.Fprintf(r.out, "    pending: %s\n", strings.Join(pending, ", "))
+			}
+		}
 		if plan.Summary != "" {
 			fmt.Fprintf(r.out, "    summary: %s\n", oneLine(plan.Summary))
 		}
@@ -2568,6 +2602,23 @@ func (r *REPL) detectUnsettledPlan() (PlanInfo, bool) {
 	}
 	for _, inf := range infos {
 		if types.IsUnsettledStatus(inf.Status) {
+			// Commit 42 P1: validate the worktree path still
+			// exists on disk for statuses that depend on it
+			// (applied / verify_failed / unverified /
+			// partially_applied — all four record a worktree
+			// the user might still need). If the worktree was
+			// deleted out-of-band, mark inf.WorktreeMissing
+			// so the banner can render an "(orphaned worktree)"
+			// tag instead of pretending the plan is still
+			// fully actionable.
+			if inf.Status != types.PlanStatusPending {
+				if full, lerr := r.planStore.Load(inf.ID); lerr == nil && full != nil &&
+					full.WorktreePath != "" {
+					if _, statErr := os.Stat(full.WorktreePath); os.IsNotExist(statErr) {
+						inf.WorktreeMissing = true
+					}
+				}
+			}
 			return inf, true
 		}
 	}

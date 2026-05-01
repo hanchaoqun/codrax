@@ -181,6 +181,40 @@ func writeModeDisabled(lang, mode, settingsPath string) []string {
 // rather than discovering it via a /mode plan reject 30 turns in.
 // Empty string when there's nothing useful to display (no yaml AND
 // write_enabled defaulted to false).
+// clampToTermWidth caps a banner line to fit comfortably on
+// the operator's terminal. Pre-commit-42 long settings paths
+// or long pitfall counts could push a banner row past 80
+// columns and wrap onto a second visual line, breaking the
+// vertical alignment with the other banner rows.
+//
+// Strategy: trim trailing whitespace, then if the rune count
+// exceeds maxWidth, drop the middle and replace with "…".
+// Keeps the start (most informative) and the end (action /
+// command names) visible. maxWidth ≤ 0 falls back to 120 — a
+// sensible upper bound for every reasonable terminal that
+// still keeps tail commands visible.
+func clampToTermWidth(s string, maxWidth int) string {
+	s = strings.TrimRight(s, " \t")
+	if maxWidth <= 0 {
+		maxWidth = 120
+	}
+	runes := []rune(s)
+	if len(runes) <= maxWidth {
+		return s
+	}
+	// Reserve 1 rune for the ellipsis. Split the budget so
+	// the start gets ~60% and the end gets ~40% — head usually
+	// carries the noun (plan id, count); tail carries the
+	// commands.
+	keep := maxWidth - 1
+	headLen := keep * 6 / 10
+	tailLen := keep - headLen
+	if headLen <= 0 || tailLen <= 0 {
+		return string(runes[:maxWidth])
+	}
+	return string(runes[:headLen]) + "…" + string(runes[len(runes)-tailLen:])
+}
+
 // failureTaxonomyBannerLine surfaces the count of learned
 // pitfalls + the inspection command at REPL startup so users
 // who never read the full /help discover the feature exists.
@@ -450,29 +484,42 @@ func unsettledModePlanReject(lang, planID, status string) []string {
 // REPL startup banner when PlanStore has an unsettled plan from a
 // prior session. Wording is status-specific so the user immediately
 // knows which command moves it forward.
-func unsettledBanner(lang, planID, status string) string {
+//
+// worktreeMissing (commit 42 P1): when the plan's persisted
+// WorktreePath was deleted out-of-band (e.g., rm -rf), the
+// banner appends "(worktree gone — use /reject)" so the user
+// doesn't try /merge / /verify and hit a runtime error.
+func unsettledBanner(lang, planID, status string, worktreeMissing bool) string {
 	zh := isZh(lang)
+	suffix := ""
+	if worktreeMissing {
+		if zh {
+			suffix = "  ⚠ worktree 已不在 — /reject 清理"
+		} else {
+			suffix = "  ⚠ worktree gone — /reject to clear"
+		}
+	}
 	switch status {
 	case "pending_approval":
 		if zh {
-			return formatN(lang, "%s 待批准 — /plan show · /approve · /reject · /plan clear", planID)
+			return formatN(lang, "%s 待批准 — /plan show · /approve · /reject · /plan clear%s", planID, suffix)
 		}
-		return formatN(lang, "%s pending approval — /plan show · /approve · /reject · /plan clear", planID)
+		return formatN(lang, "%s pending approval — /plan show · /approve · /reject · /plan clear%s", planID, suffix)
 	case "applied":
 		if zh {
-			return formatN(lang, "%s 已 apply 但未合并 — /merge · /reject · /plan clear", planID)
+			return formatN(lang, "%s 已 apply 但未合并 — /merge · /reject · /plan clear%s", planID, suffix)
 		}
-		return formatN(lang, "%s applied, not merged — /merge · /reject · /plan clear", planID)
+		return formatN(lang, "%s applied, not merged — /merge · /reject · /plan clear%s", planID, suffix)
 	case "verify_failed":
 		if zh {
-			return formatN(lang, "%s 验证失败 — /approve <id> · /merge --include-failed · /reject · /plan clear", planID)
+			return formatN(lang, "%s 验证失败 — /approve <id> · /merge --include-failed · /reject · /plan clear%s", planID, suffix)
 		}
-		return formatN(lang, "%s verify failed — /approve <id> · /merge --include-failed · /reject · /plan clear", planID)
+		return formatN(lang, "%s verify failed — /approve <id> · /merge --include-failed · /reject · /plan clear%s", planID, suffix)
 	}
 	if zh {
-		return formatN(lang, "%s 状态未结算 — /plan list 查看 · /reject · /plan clear", planID)
+		return formatN(lang, "%s 状态未结算 — /plan list 查看 · /reject · /plan clear%s", planID, suffix)
 	}
-	return formatN(lang, "%s unsettled — /plan list · /reject · /plan clear", planID)
+	return formatN(lang, "%s unsettled — /plan list · /reject · /plan clear%s", planID, suffix)
 }
 
 // autoModeReadAfterMergeNudge is the one-line confirmation printed

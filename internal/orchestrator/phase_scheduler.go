@@ -308,6 +308,25 @@ func (o *Orchestrator) applyAcceptanceVerdict(phase *types.PhaseRecord, group *t
 		phase.FinishedAt = &finished
 		group.Status = types.PlanGroupFailed
 		o.persistGroup(group)
+		// UX P0 (commit 42): emit the rejection REASONING as
+		// a Reasoning event so the dock surfaces "✗ Phase X
+		// rejected: <why>" mid-Run instead of the vague
+		// "phase X failed" buried in the EventPipelineEnd
+		// error message. Pre-commit-42 the reasoning was
+		// stored on phase.AcceptanceCheck.Reasoning and only
+		// visible post-Run via /phase show — operators saw
+		// the dock claim apply ✓ + verify ✓ then "phase
+		// failed" with no on-screen explanation.
+		if o.emit != nil {
+			o.emit(render.Event{
+				Kind:      render.EventAgentReasoning,
+				Timestamp: time.Now(),
+				Agent:     "orchestrator",
+				Reasoning: fmt.Sprintf("✗ Phase %d of %d rejected by acceptance review: %s",
+					phase.Index+1, len(group.Phases),
+					oneLineClampPhase(ac.Reasoning, 200)),
+			})
+		}
 		return true, fmt.Errorf("phase %d acceptance rejected: %s",
 			phase.Index, ac.Reasoning)
 	}
@@ -320,6 +339,20 @@ func (o *Orchestrator) applyAcceptanceVerdict(phase *types.PhaseRecord, group *t
 	finished := time.Now()
 	phase.Status = types.PhaseAccepted
 	phase.FinishedAt = &finished
+	// UX P0 sibling (commit 42): also surface the success
+	// verdict mid-Run so the dock shows the acceptance step
+	// happening, not just plan→apply→verify. Reasoning is
+	// shorter on accept — the operator wants confirmation,
+	// not analysis.
+	if o.emit != nil {
+		o.emit(render.Event{
+			Kind:      render.EventAgentReasoning,
+			Timestamp: time.Now(),
+			Agent:     "orchestrator",
+			Reasoning: fmt.Sprintf("✓ Phase %d of %d accepted",
+				phase.Index+1, len(group.Phases)),
+		})
+	}
 	return false, nil
 }
 

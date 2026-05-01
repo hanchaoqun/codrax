@@ -263,6 +263,18 @@ type ChangePlan struct {
 	// reaches outside this list.
 	TargetPaths []string `json:"target_paths"`
 
+	// AppliedPaths is the subset of TargetPaths that the coder
+	// actually landed in the worktree (commit 42 P0). Persisted
+	// at apply-post-hook time so /plan show on a partially_applied
+	// plan can render WHICH files landed and which didn't —
+	// pre-commit-42 only Status=partially_applied was visible
+	// and the operator had no way to tell the work distribution
+	// from a glance. AppliedPaths == TargetPaths on a fully-
+	// applied plan; AppliedPaths is a proper subset on
+	// partially_applied; empty on applied_failed (zero units
+	// landed).
+	AppliedPaths []string `json:"applied_paths,omitempty"`
+
 	// Status transitions — see the PlanStatus* constants below.
 	// Legal values: pending_approval, approved, applied,
 	// applied_failed (apply tool failed), verify_failed (tests
@@ -926,6 +938,17 @@ func LoadBestPlanReportPair(planFilePath string) (*ChangePlan, *ChangeReport, er
 // an error that the caller typically logs and swallows (failing
 // to persist status must not break apply/verify itself).
 func UpdatePlanStatusOnDisk(path, status string, appliedAt *time.Time, worktreePath string) error {
+	return UpdatePlanStatusOnDiskWithApplied(path, status, appliedAt, worktreePath, nil)
+}
+
+// UpdatePlanStatusOnDiskWithApplied is the commit-42 variant
+// that ALSO persists the AppliedPaths subset. Callers that
+// know the apply outcome (apply post-hook for partially_applied)
+// pass a non-nil slice so /plan show on the persisted plan
+// can render WHICH files landed. Callers that don't (verify
+// post-hook for applied / verify_failed) pass nil to leave
+// the slot untouched.
+func UpdatePlanStatusOnDiskWithApplied(path, status string, appliedAt *time.Time, worktreePath string, appliedPaths []string) error {
 	path = strings.TrimSpace(path)
 	if path == "" {
 		return fmt.Errorf("UpdatePlanStatusOnDisk: empty path")
@@ -940,6 +963,9 @@ func UpdatePlanStatusOnDisk(path, status string, appliedAt *time.Time, worktreeP
 	}
 	if worktreePath != "" {
 		plan.WorktreePath = worktreePath
+	}
+	if appliedPaths != nil {
+		plan.AppliedPaths = appliedPaths
 	}
 	data, err := json.MarshalIndent(plan, "", "  ")
 	if err != nil {

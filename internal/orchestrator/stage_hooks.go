@@ -508,7 +508,15 @@ func applyPostHook(o *Orchestrator, out *agent.StageOutput) error {
 	if out != nil && out.Error != "" {
 		status := classifyApplyFailureStatus(o.busCtx)
 		o.busCtx.Mutable.SetResult(out.Error)
-		o.persistPlanStatus(status, nil)
+		// Commit 42 P0: persist AppliedPaths subset on
+		// partially_applied so /plan show can render which
+		// files landed vs which didn't. Empty / fully-failed
+		// applies leave the field untouched.
+		var appliedPaths []string
+		if status == types.PlanStatusPartiallyApplied {
+			appliedPaths = o.collectAppliedTargetPaths()
+		}
+		o.persistPlanStatusWithApplied(status, nil, appliedPaths)
 		return nil
 	}
 	plan := o.busCtx.Mutable.ChangePlan()
