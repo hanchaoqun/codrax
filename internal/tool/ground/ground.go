@@ -1373,6 +1373,16 @@ func buildLineIndex(history []types.ToolResult, repoRoot string) map[string]map[
 }
 
 func parseBannerPath(banner string) string {
+	// Strip forced-read trace prefixes (`[forced_read] `,
+	// `[forced_read surgical] `) before parsing. runForcedReads
+	// prepends these so operators can grep the trace, but the
+	// prefix's own `[` collides with the banner's `[path: ...]`
+	// shape — without this strip the parser would split on the
+	// FIRST `: ` it found inside the prefix, producing a malformed
+	// path key that misses every LineIndex lookup. The grounder
+	// then reports "ungrounded" for citations to the surgical-read
+	// content even though the LLM did receive it.
+	banner = StripForcedReadPrefix(banner)
 	if !strings.HasPrefix(banner, "[") {
 		return ""
 	}

@@ -14,6 +14,14 @@ import (
 //	[path: showing lines X-Y of Z total]
 //	[path: showing all N lines (B bytes); limit=M expanded to full file (...)]
 //
+// Forced-read trace prefixes (`[forced_read] ` and
+// `[forced_read surgical] `, applied by orchestrator/cgec_enforcers
+// runForcedReads to mark synthesised reads) are stripped before
+// parsing so the prefix does not collide with the banner's
+// `[path: ...]` shape. Without this strip, the parser would split on
+// the FIRST `: ` it found inside the prefix, producing a malformed
+// path key that misses every downstream coverage / line-index lookup.
+//
 // Returns the repo-relative path verbatim from the banner and the
 // [startLine, endLine] line range (1-based inclusive). totalLines is
 // Z (or N for the "all" shape) when parseable, 0 otherwise. ok is
@@ -26,6 +34,7 @@ import (
 // instead of reaching into the agent layer.
 func ParseReadFileBanner(summary string) (path string, rng types.LineRange, totalLines int, ok bool) {
 	first := strings.SplitN(summary, "\n", 2)[0]
+	first = stripForcedReadPrefix(first)
 	if !strings.HasPrefix(first, "[") {
 		return "", types.LineRange{}, 0, false
 	}
@@ -204,4 +213,37 @@ func canonicalCoveragePath(path, repoRoot string) string {
 	}
 	cleaned := strings.ReplaceAll(strings.TrimSpace(path), "\\", "/")
 	return strings.TrimPrefix(cleaned, "./")
+}
+
+// forcedReadPrefixes lists every trace prefix runForcedReads
+// (orchestrator/cgec_enforcers.go) prepends to a synthesised
+// read_file Summary so operators can grep the trace. Order matters:
+// the more specific prefix MUST come first so we strip
+// `[forced_read surgical]` before matching the shorter
+// `[forced_read]`.
+var forcedReadPrefixes = []string{
+	"[forced_read surgical] ",
+	"[forced_read] ",
+}
+
+// stripForcedReadPrefix removes any forced-read trace prefix from
+// the start of `s`. Returns the suffix verbatim when no prefix
+// matches. Centralised so every banner parser (ParseReadFileBanner +
+// ground.parseBannerPath) strips the same set of prefixes — drift
+// between the two would silently lose surgical-read content from
+// the LineIndex while it shows up in coverage, or vice versa.
+func stripForcedReadPrefix(s string) string {
+	for _, p := range forcedReadPrefixes {
+		if strings.HasPrefix(s, p) {
+			return s[len(p):]
+		}
+	}
+	return s
+}
+
+// StripForcedReadPrefix is the package-public wrapper used by
+// ground/ground.go's parseBannerPath so the LineIndex builder
+// observes the same prefix-stripping policy as the coverage walker.
+func StripForcedReadPrefix(s string) string {
+	return stripForcedReadPrefix(s)
 }

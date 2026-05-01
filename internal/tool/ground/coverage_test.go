@@ -179,3 +179,86 @@ func TestRefreshClosureCoverage_NilSafe(t *testing.T) {
 	RefreshClosureCoverage(&types.BusContext{}, nil) // nil closure
 	RefreshClosureCoverage(&types.BusContext{}, closure) // empty ctx → no-op
 }
+
+// TestParseReadFileBanner_StripsForcedReadPrefix pins the load-bearing
+// fix for the finalizer-grounder × forced-read death corner: when
+// runForcedReads (orchestrator/cgec_enforcers.go) prepends a trace
+// prefix like `[forced_read surgical] ` or `[forced_read] ` to the
+// read_file Summary, the banner parser must strip the prefix BEFORE
+// looking for the path. Without the strip, the parser splits on the
+// FIRST `: ` it finds — which lives inside the actual banner's
+// `path: showing lines ...` — producing a malformed path key like
+// `forced_read surgical] [internal/repl/repl.go` that misses every
+// LineIndex / readRanges lookup. The result is that surgical
+// recovery reads land in the closure under the wrong key and
+// finalizer citations against those lines fail grounding.
+func TestParseReadFileBanner_StripsForcedReadPrefix(t *testing.T) {
+	cases := []struct {
+		name      string
+		summary   string
+		wantPath  string
+		wantStart int
+		wantEnd   int
+	}{
+		{
+			name:      "surgical prefix",
+			summary:   "[forced_read surgical] [internal/repl/repl.go: showing lines 100-130 of 4368 total]\n   100│ ...\n",
+			wantPath:  "internal/repl/repl.go",
+			wantStart: 100,
+			wantEnd:   130,
+		},
+		{
+			name:      "legacy prefix",
+			summary:   "[forced_read] [internal/repl/repl.go: showing lines 1-645 of 4368 total]\n   1│ ...\n",
+			wantPath:  "internal/repl/repl.go",
+			wantStart: 1,
+			wantEnd:   645,
+		},
+		{
+			name:      "no prefix unchanged",
+			summary:   "[a.go: showing lines 5-10 of 50 total]\n",
+			wantPath:  "a.go",
+			wantStart: 5,
+			wantEnd:   10,
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			path, rng, _, ok := ParseReadFileBanner(tc.summary)
+			if !ok {
+				t.Fatalf("expected ok=true on %s; got summary=%q", tc.name, tc.summary)
+			}
+			if path != tc.wantPath {
+				t.Errorf("path = %q, want %q (prefix-strip failed)", path, tc.wantPath)
+			}
+			if rng.Start != tc.wantStart || rng.End != tc.wantEnd {
+				t.Errorf("range = %d-%d, want %d-%d", rng.Start, rng.End, tc.wantStart, tc.wantEnd)
+			}
+		})
+	}
+}
+
+// TestExtractReadCoverage_ForcedReadResultsLandInClosure pins the
+// integration: a synthesised forced-read ToolResult (with trace
+// prefix) flowing through ExtractReadCoverage produces the SAME
+// closure entries as a clean LLM-issued read. Without the prefix
+// strip, the closure's readRanges would not register the surgical
+// recovery, so the next gate pass would re-demand the same lines
+// (infinite loop, bounded only by stall detection at 3 wasted
+// iterations).
+func TestExtractReadCoverage_ForcedReadResultsLandInClosure(t *testing.T) {
+	history := []types.ToolResult{
+		{ToolName: "read_file", Success: true, Summary: "[forced_read surgical] [internal/repl/repl.go: showing lines 100-130 of 4368 total]\n   100│ x\n"},
+		{ToolName: "read_file", Success: true, Summary: "[forced_read] [internal/repl/repl.go: showing lines 200-230 of 4368 total]\n   200│ y\n"},
+	}
+	readSet, ranges, totals := ExtractReadCoverage(history, "")
+	if !readSet["internal/repl/repl.go"] {
+		t.Fatalf("forced-read with prefix MUST register in readSet; got %+v", readSet)
+	}
+	if got := len(ranges["internal/repl/repl.go"]); got != 2 {
+		t.Errorf("expected 2 forced-read ranges in closure; got %d: %+v", got, ranges)
+	}
+	if totals["internal/repl/repl.go"] != 4368 {
+		t.Errorf("totalLines = %d, want 4368 (banner total survives prefix)", totals["internal/repl/repl.go"])
+	}
+}

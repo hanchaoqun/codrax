@@ -451,6 +451,47 @@ func TestBuildContext_PicksUpDispatchToolResults(t *testing.T) {
 	}
 }
 
+// TestBuildContext_ForcedReadPrefixedSummaryStillGrounds pins the
+// load-bearing fix for the finalizer-grounder × forced-read death
+// corner. runForcedReads (orchestrator/cgec_enforcers.go) tags
+// synthesised reads with `[forced_read] ` or `[forced_read surgical] `
+// for trace inspection; without StripForcedReadPrefix, the LineIndex
+// builder split on the FIRST `: ` of the prefix, indexing the
+// gutter lines under a malformed key. The grounder then reported
+// "ungrounded" for any citation pointing into surgical-read content
+// even though the LLM had received it.
+//
+// Test: append a forced-read-tagged ToolResult into the dispatch
+// buffer, build LineIndex, and ground a citation against the
+// surgical-read content. Must succeed.
+func TestBuildContext_ForcedReadPrefixedSummaryStillGrounds(t *testing.T) {
+	clean := buildGutterReadResult("internal/repl/repl.go", 100, []string{
+		"func Foo() {",
+		"    bar()",
+		"}",
+	}, 4368)
+	tagged := clean
+	tagged.Summary = "[forced_read surgical] " + clean.Summary
+
+	mut := types.NewMutableState("irrelevant")
+	mut.AppendDispatchToolResult(tagged)
+	bus := &types.BusContext{Mutable: mut}
+
+	gc := BuildContext(bus)
+	if _, ok := gc.LineIndex["internal/repl/repl.go"]; !ok {
+		t.Fatalf("forced-read-tagged Summary must still register in LineIndex; got %+v", gc.LineIndex)
+	}
+	it := &types.EvidenceItem{
+		Kind: types.EvidenceDirect, Source: "internal/repl/repl.go", LineStart: 100,
+		AnchorKind: types.AnchorDefinition, AnchorSymbol: "Foo",
+	}
+	GroundItem(it, gc)
+	if it.GroundingStatus != types.GroundingGrounded {
+		t.Errorf("forced-read content must ground at the cited line; status=%q note=%q",
+			it.GroundingStatus, it.GroundingNote)
+	}
+}
+
 // TestRecoveryR3_PackageSymbolGatedByAnchorKind pins the bug fix
 // where an AnchorKind=condition item citing an if-statement call site
 // (agent.go:900 "if _, err := b.deps.SubAgents.Get(...) {") was being
