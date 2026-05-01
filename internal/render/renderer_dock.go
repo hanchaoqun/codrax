@@ -125,7 +125,16 @@ func (r *Renderer) handleEvent(ev Event) {
 		r.objectiveDone = true
 
 	case EventStageStart:
-		if r.analysisReady && ev.Stage != "" && string(ev.Stage) != "analyze" {
+		// Read-mode post-analysisReady: most stages are owned by
+		// the per-node lifecycle (EventTaskNodeStart / End). Two
+		// exceptions: analyze still pre-dates the node graph (its
+		// row was created before EventAnalysisReady, retry-aware
+		// reclassification still applies); extract is a stage-only
+		// step with no NodeType counterpart, so its row MUST come
+		// from EventStageStart or row 2 sits on a bare "▪ —" for
+		// the entire extract dispatch (5-30s).
+		if r.analysisReady && ev.Stage != "" &&
+			string(ev.Stage) != "analyze" && string(ev.Stage) != "extract" {
 			break
 		}
 		// Retry-aware reclassification: if any prior row for the same
@@ -175,7 +184,8 @@ func (r *Renderer) handleEvent(ev Event) {
 		r.streamChars = 0
 
 	case EventStageEnd:
-		if r.analysisReady && ev.Stage != "" && string(ev.Stage) != "analyze" {
+		if r.analysisReady && ev.Stage != "" &&
+			string(ev.Stage) != "analyze" && string(ev.Stage) != "extract" {
 			break
 		}
 		if row := r.findRunningStageRow(string(ev.Stage), string(ev.Agent)); row != nil {
@@ -184,7 +194,15 @@ func (r *Renderer) handleEvent(ev Event) {
 			row.okFinished = ev.Error == ""
 			if row == r.current {
 				r.current = nil
-				r.activity = activityState{kind: activityWaitingDispatch}
+				// Errored stage: hold the recoverable shape on row 1
+				// so the user sees the failure before the next
+				// dispatch overwrites it. Successful stage falls
+				// through to the calmer waitingDispatch hue.
+				if ev.Error != "" {
+					r.activity = activityState{kind: activityErrorRecoverable, detail: ev.Error}
+				} else {
+					r.activity = activityState{kind: activityWaitingDispatch}
+				}
 				r.streamTail = ""
 			}
 			r.commitStageDoneLocked(row, 0)
@@ -328,7 +346,11 @@ func (r *Renderer) handleEvent(ev Event) {
 			topicTotal := r.countTopicSiblings()
 			if row == r.current {
 				r.current = nil
-				r.activity = activityState{kind: activityWaitingDispatch}
+				if ev.Error != "" {
+					r.activity = activityState{kind: activityErrorRecoverable, detail: ev.Error}
+				} else {
+					r.activity = activityState{kind: activityWaitingDispatch}
+				}
 				r.streamTail = ""
 			}
 			r.commitStageDoneLocked(row, topicTotal)
@@ -485,6 +507,18 @@ func (r *Renderer) handleEvent(ev Event) {
 		// separate EventPhaseProgress (commit 43); this just
 		// clears the review activity so the spinner doesn't
 		// claim "审查中" while orchestration moves on.
+		r.activity = activityState{kind: activityWaitingDispatch}
+
+	case EventWorktreePreparingStart:
+		r.activity = activityState{kind: activityPreparingWorktree}
+
+	case EventWorktreePreparingEnd:
+		r.activity = activityState{kind: activityWaitingDispatch}
+
+	case EventBaselineCapturingStart:
+		r.activity = activityState{kind: activityCapturingBaseline}
+
+	case EventBaselineCapturingEnd:
 		r.activity = activityState{kind: activityWaitingDispatch}
 
 	case EventAdapterFallback:
@@ -692,6 +726,21 @@ func (r *Renderer) composeCurrentDockRows() [dockRowCount]string {
 			}
 			state.stageElapsed = truncDurationToString(now.Sub(start))
 		}
+	} else if fallback := r.fallbackRow(); fallback != nil {
+		// focus=nil time windows: post-EventTaskNodeEnd before next
+		// EventTaskNodeStart, post-EventAnalysisReady before first
+		// node, multi-topic dispatch gaps, mid-extract on rare
+		// stage-only paths. Without a fallback row 2 collapses to
+		// "▪ —" with no stage word at all. Pick the most recently
+		// finished row when one exists, otherwise the first pending
+		// row, and render it through the existing label/progress
+		// helpers — same vocabulary, same K/N denominator, just
+		// resolved to a done/pending lifecycle slot instead of
+		// running.
+		state.stageKey = stageKeyFor(fallback)
+		state.stageProgress = r.stageProgressForFocus(fallback)
+		state.stageLabel = liveBarPrimaryText(fallback, r.lang)
+		state.topicProgress = r.topicProgressFor(fallback, r.lang)
 	}
 	if r.activity.kind == activityFinalizing {
 		state.streamChars = r.streamChars
@@ -1073,7 +1122,71 @@ func (r *Renderer) commitDockShutdownLocked() {
 	if r.dock == nil {
 		return
 	}
+	// Light-route override: when the REPL (local / chat) armed a
+	// route summary before StopSpinner, swap the default
+	// "◆ 已结束 · 4 阶段 · 总耗时 7s · …" line for the route-specific
+	// "◇ <label> · <segments> · 总耗时 Xs" shape. The pipeline path
+	// has nothing to count (0 stages, 0 tools, 0 iterations) so the
+	// default shape would render misleading zeros; the override
+	// names what actually happened. Single-shot consumption — clear
+	// the cached summary so a later Run on the same Renderer falls
+	// back to the default.
 	zh := isZh(r.lang)
+	// Terminal-state override (must precede the routeSummary path
+	// so a cancelled / failed light route shows the ✗ summary
+	// instead of the cheerful "◇ 本地回复 · …" — the user's last
+	// signal was Ctrl+C / an error, the dock should agree).
+	// MarkRunFatal / MarkRunCancelled arm the kind before
+	// StopSpinner; we swap the regular "◆ 已结束 · …" summary for
+	// "✗ 已失败 · 总耗时 Xs" / "✗ 已取消 · 总耗时 Xs" using the
+	// existing commitRowFailure / commitRowCancelled shapes (red
+	// ✗ glyph + statusFatal palette — no new style introduced).
+	if r.activity.kind == activityErrorFatal || r.activity.kind == activityCancelled {
+		totalElapsed := r.totalElapsedString()
+		if totalElapsed == "" {
+			totalElapsed = "0s"
+		}
+		var head string
+		var rowKind commitRowKind
+		switch {
+		case r.activity.kind == activityCancelled:
+			rowKind = commitRowCancelled
+			if zh {
+				head = "已取消"
+			} else {
+				head = "cancelled"
+			}
+		default:
+			rowKind = commitRowFailure
+			if zh {
+				head = "已失败"
+			} else {
+				head = "failed"
+			}
+		}
+		var body strings.Builder
+		body.WriteString(head)
+		body.WriteString(" ")
+		body.WriteString(statusMeta.Sprint("·"))
+		body.WriteString(" ")
+		body.WriteString(statusMeta.Sprint(totalElapsedPhrase(totalElapsed, r.lang)))
+		line := formatCommitRow(commitRow{
+			kind: rowKind,
+			body: statusFatal.Sprint(body.String()),
+		})
+		r.commitLineLocked(line)
+		r.dock.clearDock()
+		r.routeSummary = nil
+		return
+	}
+	if r.routeSummary != nil {
+		elapsed := r.totalElapsedString()
+		line := FormatLightRouteSummary(r.routeSummary.label, r.routeSummary.segments, elapsed, r.lang)
+		r.commitLineLocked(line)
+		r.dock.clearDock()
+		r.routeSummary = nil
+		return
+	}
 	completed := 0
 	totalTools := 0
 	totalIters := 0

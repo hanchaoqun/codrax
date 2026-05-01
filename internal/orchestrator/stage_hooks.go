@@ -9,6 +9,7 @@ import (
 
 	"github.com/hanchaoqun/codrax/internal/agent"
 	"github.com/hanchaoqun/codrax/internal/logging"
+	"github.com/hanchaoqun/codrax/internal/render"
 	"github.com/hanchaoqun/codrax/internal/types"
 	"github.com/hanchaoqun/codrax/internal/worktree"
 )
@@ -388,7 +389,21 @@ func applyPreHook(o *Orchestrator) error {
 			o.busCtx.Mutable.SetResult(msg)
 			return fmt.Errorf("%s", msg)
 		}
+		if o.emit != nil {
+			o.emit(render.Event{
+				Kind:      render.EventWorktreePreparingStart,
+				Timestamp: time.Now(),
+				Agent:     "orchestrator",
+			})
+		}
 		sess, err := worktree.Create(o.worktreeBase, o.busCtx.MainRepoRoot, o.busCtx.TraceID)
+		if o.emit != nil {
+			o.emit(render.Event{
+				Kind:      render.EventWorktreePreparingEnd,
+				Timestamp: time.Now(),
+				Agent:     "orchestrator",
+			})
+		}
 		if err != nil {
 			msg := fmt.Sprintf("apply stage: worktree provisioning failed: %v", err)
 			o.busCtx.Mutable.SetResult(msg)
@@ -442,7 +457,25 @@ func (o *Orchestrator) tryBaselineFromCacheThenCapture() {
 	if !o.baselineCaptureEnabled {
 		return
 	}
+	// Cache miss + capture enabled: signal the dock so row 1
+	// reads "抓取基准" / "capturing baseline" while the
+	// (potentially 30s+) test suite runs. Cache hits skip this
+	// pair — the lookup-only path returns above before the emit.
+	if o.emit != nil {
+		o.emit(render.Event{
+			Kind:      render.EventBaselineCapturingStart,
+			Timestamp: time.Now(),
+			Agent:     "orchestrator",
+		})
+	}
 	o.captureBaseline()
+	if o.emit != nil {
+		o.emit(render.Event{
+			Kind:      render.EventBaselineCapturingEnd,
+			Timestamp: time.Now(),
+			Agent:     "orchestrator",
+		})
+	}
 	// After capture, write to the cache for future Runs. captureBaseline
 	// already populated Mutable.BaselineReport — read back and store.
 	if sha != "" && cache.Enabled() {

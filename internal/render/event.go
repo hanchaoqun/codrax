@@ -143,6 +143,26 @@ const (
 	// separately via EventPhaseProgress (commit 43).
 	EventAcceptanceReviewStart
 	EventAcceptanceReviewEnd
+
+	// Worktree-provisioning lifecycle. Emitted by applyPreHook
+	// around the worktree.Create call so the dock can flip row 1
+	// to "准备 worktree 中" / "preparing worktree" while the
+	// (fast but visible) git worktree add runs. Without this
+	// event pair the dock sat on whatever activity the prior
+	// stage left, then jumped straight to "调用工具中" once apply
+	// dispatched — the worktree provisioning step itself was
+	// invisible.
+	EventWorktreePreparingStart
+	EventWorktreePreparingEnd
+
+	// Baseline-capturing lifecycle. Emitted by
+	// tryBaselineFromCacheThenCapture around the captureBaseline
+	// run_tests dispatch so the dock can flip row 1 to "抓取基准" /
+	// "capturing baseline" during the (slow, can be tens of seconds)
+	// baseline test run. Cache hits are fast and emit no events;
+	// only the cache-miss + capture path fires the pair.
+	EventBaselineCapturingStart
+	EventBaselineCapturingEnd
 )
 
 // PhaseInfo is the renderable per-phase projection carried on

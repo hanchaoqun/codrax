@@ -258,6 +258,24 @@ type Renderer struct {
 	// the leading glyph + frame counter animate even when no new
 	// chunk arrives). Cleared when previewArea is closed.
 	previewLastChunk string
+
+	// routeSummary, when non-nil, overrides the next dock-shutdown
+	// summary line. Used by light routes (local / chat) that bypass
+	// the full pipeline — the "已结束 · 4 阶段 · 总耗时 7s · …" shape
+	// is meaningless for them (no stages / tools / iterations to
+	// count) so the dock emits "◇ <label> · <segments> · 总耗时 Xs"
+	// instead. Cleared at the end of commitDockShutdownLocked so a
+	// subsequent pipeline Run sees the default shape unless the
+	// caller re-arms it.
+	routeSummary *routeSummary
+}
+
+// routeSummary carries the light-route label + detail segments that
+// override the next dock shutdown's "已结束 · …" summary line. See
+// Renderer.SetRouteSummary / EmitLightRouteSummary.
+type routeSummary struct {
+	label    string
+	segments []string
 }
 
 // maxVisibleTasks caps how many rows the live area shows at once.
@@ -302,6 +320,99 @@ func (r *Renderer) SetLang(lang string) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.lang = lang
+}
+
+// SetRouteSummary records a light-route label + detail segments that
+// will replace the next dock-shutdown summary line. Used by the local
+// and chat routes — both run a normal StartSpinner / StopSpinner cycle
+// (so wall-clock can be measured) but produce no stages / tool calls /
+// iterations to count, leaving the default "已结束 · 0 阶段 · 总耗时 Xs"
+// shape misleading. The override emits "◇ <label> · <segments> · 总耗时 Xs"
+// instead — same color family as the pipeline summary, hollow diamond
+// signalling the lighter-weight path.
+//
+// Caller is the REPL: invoke BEFORE StopSpinner so commitDockShutdownLocked
+// reads the cached value. Cleared automatically after one shutdown so a
+// later pipeline Run on the same Renderer sees the default shape.
+//
+// Nil-safe: SetRouteSummary on a nil receiver is a no-op so the REPL
+// caller doesn't have to guard.
+// MarkRunFatal flips the dock activity to "已失败" / "failed"
+// just before the StopSpinner shutdown. Single repaint so the
+// user sees the red ✗ glyph + label for at least one frame, and
+// commitDockShutdownLocked picks up the activity to swap the
+// "◆ 已结束 · …" success summary for a "✗ 已失败 · 总耗时 Xs"
+// failure summary. Reuses the existing fatal palette + glyph;
+// no new style is introduced.
+//
+// Nil-safe; safe to call even when the dock is not active (no-op).
+// Callers should invoke this BEFORE StopSpinner so the failure
+// state is in place when the shutdown summary commits.
+func (r *Renderer) MarkRunFatal() {
+	if r == nil {
+		return
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.dock == nil {
+		return
+	}
+	r.activity = activityState{kind: activityErrorFatal}
+	r.streamTail = ""
+	r.paintDockLocked()
+}
+
+// MarkRunCancelled flips the dock activity to "已取消" /
+// "cancelled" before StopSpinner. Mirror of MarkRunFatal — same
+// fatal-glyph cluster, distinct label so a Ctrl+C / /cancel run
+// never displays as a generic failure.
+//
+// Nil-safe.
+func (r *Renderer) MarkRunCancelled() {
+	if r == nil {
+		return
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.dock == nil {
+		return
+	}
+	r.activity = activityState{kind: activityCancelled}
+	r.streamTail = ""
+	r.paintDockLocked()
+}
+
+func (r *Renderer) SetRouteSummary(label string, segments []string) {
+	if r == nil {
+		return
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.routeSummary = &routeSummary{label: label, segments: segments}
+}
+
+// EmitLightRouteSummary prints a "◇ <label> · …" scrollback line
+// directly, without requiring an active dock cycle. Used by the
+// clarify route which never calls StartSpinner (no LLM dispatch).
+// When the dock IS live (defensive — clarify shouldn't normally
+// hit this path), routes through commitLineLocked so the line lands
+// in scrollback without tearing the dock anchor; otherwise writes
+// straight to outputWriter and mirrors to the INFO log.
+//
+// Nil-safe.
+func (r *Renderer) EmitLightRouteSummary(label string, segments []string) {
+	if r == nil {
+		return
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	line := FormatLightRouteSummary(label, segments, "", r.lang)
+	if r.dock != nil {
+		r.commitLineLocked(line)
+		return
+	}
+	fmt.Fprintln(r.outputWriter(), line)
+	mirrorDockLineToLog(line)
 }
 
 // SetOutput retargets all live renderer output. nil restores stdout.

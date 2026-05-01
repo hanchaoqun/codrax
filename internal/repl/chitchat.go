@@ -13,6 +13,7 @@ import (
 	"github.com/hanchaoqun/codrax/internal/llm"
 	"github.com/hanchaoqun/codrax/internal/logging"
 	"github.com/hanchaoqun/codrax/internal/memory"
+	"github.com/hanchaoqun/codrax/internal/render"
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
@@ -661,6 +662,7 @@ func (r *REPL) runToolableChitchat(ctx context.Context, line, prior string) (str
 		// Stream never opened — the responder either never streamed
 		// or the round-1 path returned content directly. Stop the
 		// spinner manually so the user sees a clean state.
+		armDockTerminalState(r.renderer, err)
 		r.renderer.StopSpinner()
 	}
 	areaMu.Unlock()
@@ -700,6 +702,19 @@ func (r *REPL) chitchatDispatch(line, display string) {
 
 	logging.Info("[repl/chitchat] dispatching: %s", oneLine(line))
 
+	// Arm the dock shutdown override BEFORE any branch starts a
+	// spinner — runToolableChitchat / runStreamingChitchat both
+	// call StopSpinner internally before returning, so the override
+	// must be cached on the renderer at that moment. Same shape as
+	// the local route: "◇ 闲聊回复 · 未读仓库 · 未生成 plan · 总耗时 Xs"
+	// replaces the default "◆ 已结束 · …" line. Armed unconditionally
+	// — the badge describes WHICH route ran; the error surface
+	// below is a separate concern.
+	chatLabel, chatSegs := chitchatRouteSummary(r.language)
+	if r.renderer != nil {
+		r.renderer.SetRouteSummary(chatLabel, chatSegs)
+	}
+
 	// Dispatch path selection, in priority order:
 	//   1. toolableChitchatResponder + memory wired → tool-use loop.
 	//      Streaming is wired only into the FINAL Chat call inside
@@ -721,6 +736,7 @@ func (r *REPL) chitchatDispatch(line, display string) {
 		}
 		response, err = r.chitchatResponder.Respond(ctx, line, prior)
 		if r.renderer != nil {
+			armDockTerminalState(r.renderer, err)
 			r.renderer.StopSpinner()
 		}
 	}
@@ -737,12 +753,13 @@ func (r *REPL) chitchatDispatch(line, display string) {
 		fmt.Fprintln(r.out, emptyResponseHint(r.language))
 		return
 	}
-	// One-line marker so the user can tell at a glance the answer
-	// came from chitchat (no repo analysis, no plan) vs the main
-	// pipeline. Pre-fix: only difference was an INFO log line —
-	// invisible at the terminal — so a misrouted code question got
-	// a generic answer with no recovery hint.
-	fmt.Fprintln(r.out, chitchatReplyHeader(r.language))
+	// Renderer-nil fallback: tests / scripted mode without a TTY
+	// renderer never run StartSpinner / StopSpinner, so the dock
+	// shutdown override never fires. Emit the same line directly
+	// using the shared formatter so the route badge still shows.
+	if r.renderer == nil {
+		fmt.Fprintln(r.out, render.FormatLightRouteSummary(chatLabel, chatSegs, "", r.language))
+	}
 	// Same rendering pipeline as the local route: mermaid →
 	// ASCII grids + glamour markdown styling. Pre-2026-04-30 the
 	// chitchat path called renderBordered on raw markdown source,

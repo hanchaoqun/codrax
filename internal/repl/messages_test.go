@@ -192,18 +192,24 @@ func TestEmptyResponseHint_BothLangs(t *testing.T) {
 	}
 }
 
-// TestChitchatReplyHeader_BothLangs locks that the chitchat marker
-// is visible (not just an INFO log line). Banner format:
-// dim FgDarkGray "chat · …" line. Check the route marker word
-// survives in both locales.
-func TestChitchatReplyHeader_BothLangs(t *testing.T) {
-	en := chitchatReplyHeader("en")
-	if !strings.Contains(en, "chat · ") {
-		t.Errorf("en marker must carry the 'chat · ' route badge; got: %q", en)
+// TestChitchatRouteSummary_BothLangs locks that the chitchat label /
+// segments — folded into the dock shutdown line as
+// "◇ <label> · <seg> · <seg>" via Renderer.SetRouteSummary — carry
+// the route's identifying words in both locales.
+func TestChitchatRouteSummary_BothLangs(t *testing.T) {
+	enLabel, enSegs := chitchatRouteSummary("en")
+	if enLabel != "chat reply" {
+		t.Errorf("en label: got %q, want %q", enLabel, "chat reply")
 	}
-	zh := chitchatReplyHeader("zh")
-	if !strings.Contains(zh, "chat · ") || !strings.Contains(zh, "闲聊") {
-		t.Errorf("zh marker must carry 'chat · ' and 闲聊; got: %q", zh)
+	if len(enSegs) == 0 || !strings.Contains(strings.Join(enSegs, " · "), "no plan") {
+		t.Errorf("en segments must include 'no plan'; got: %v", enSegs)
+	}
+	zhLabel, zhSegs := chitchatRouteSummary("zh")
+	if zhLabel != "闲聊回复" {
+		t.Errorf("zh label: got %q, want %q", zhLabel, "闲聊回复")
+	}
+	if len(zhSegs) == 0 || !strings.Contains(strings.Join(zhSegs, " · "), "未生成 plan") {
+		t.Errorf("zh segments must include '未生成 plan'; got: %v", zhSegs)
 	}
 }
 

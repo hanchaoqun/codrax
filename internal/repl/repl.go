@@ -807,7 +807,19 @@ func (r *REPL) localDispatch(line, display string, policy TurnPolicy, lastAnswer
 		})
 	}
 
+	// Arm the dock shutdown override BEFORE StartSpinner so the
+	// commitDockShutdownLocked call inside StopSpinner swaps the
+	// default "◆ 已结束 · 0 阶段 · 总耗时 Xs" — which would render
+	// misleading zeros for a route that never traverses the
+	// pipeline — for "◇ 本地回复 · 未读仓库 · 纯模型生成 · 总耗时 Xs".
+	// Same color family, hollow diamond signalling the lighter
+	// path. Armed unconditionally: the route classification is a
+	// statement about WHICH path ran, independent of whether the
+	// responder errored — the error surface below is a separate
+	// concern from the route badge.
+	label, segs := localRouteSummary(r.language, policy)
 	if r.renderer != nil {
+		r.renderer.SetRouteSummary(label, segs)
 		r.renderer.StartSpinner()
 	}
 	var (
@@ -841,6 +853,7 @@ func (r *REPL) localDispatch(line, display string, policy TurnPolicy, lastAnswer
 		reply, err = r.chitchatResponder.Respond(ctx, line, b.String())
 	}
 	if r.renderer != nil {
+		armDockTerminalState(r.renderer, err)
 		r.renderer.StopSpinner()
 	}
 
@@ -856,7 +869,13 @@ func (r *REPL) localDispatch(line, display string, policy TurnPolicy, lastAnswer
 
 	logging.Info("[repl/turn_policy] local reply (len=%d):\n%s", len(reply), reply)
 
-	fmt.Fprintln(r.out, localReplyHeader(r.language, policy))
+	// Renderer-nil fallback: tests / scripted mode without a TTY
+	// renderer never run StartSpinner / StopSpinner, so the dock
+	// shutdown override never fires. Emit the same line directly
+	// using the shared formatter so the route badge still shows.
+	if r.renderer == nil {
+		fmt.Fprintln(r.out, render.FormatLightRouteSummary(label, segs, "", r.language))
+	}
 	// Run mermaid → ASCII + glamour markdown styling before
 	// rendering. The pipeline path gets this via RenderResult; the
 	// local path used to bypass it, so the user saw raw ```mermaid```
@@ -890,7 +909,12 @@ func (r *REPL) clarifyDispatch(line, display string, policy TurnPolicy) {
 	logging.Info("[repl/turn_policy] clarify route — line=%q reason=%q",
 		oneLine(line), oneLineClamp(policy.Reason, 120))
 	_ = display // intentional: we don't echo or persist
-	fmt.Fprintln(r.out, turnPolicyClarifyMessage(r.language))
+	label, segs := clarifyRouteSummary(r.language)
+	if r.renderer != nil {
+		r.renderer.EmitLightRouteSummary(label, segs)
+		return
+	}
+	fmt.Fprintln(r.out, render.FormatLightRouteSummary(label, segs, "", r.language))
 }
 
 // currentStickyTag returns the per-turn sticky-state marker
@@ -1696,6 +1720,7 @@ func (r *REPL) dispatch(line, display string) {
 		// Red line: StopSpinner BEFORE printing response so the dock
 		// is gone before RenderResult runs. paintDock + answer
 		// markdown writes can't share the same stdout stream.
+		armDockTerminalState(r.renderer, err)
 		r.renderer.StopSpinner()
 	}
 
@@ -3121,6 +3146,7 @@ func (r *REPL) handleApproveCmd(line string) {
 		return r.runner.Run(request, r.repoRoot, r.branch)
 	})
 	if r.renderer != nil {
+		armDockTerminalState(r.renderer, runErr)
 		r.renderer.StopSpinner()
 	}
 	if runErr != nil {

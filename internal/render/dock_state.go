@@ -193,6 +193,7 @@ const (
 	commitRowReasoning                    // 💭 dark gray
 	commitRowQuestion                     // ❯ cyan
 	commitRowFinal                        // ◆ green muted (run summary)
+	commitRowFinalLight                   // ◇ green muted (light-route summary — local / chat / clarify)
 	commitRowNotice                       // ✗ yellow (e.g. "草稿被丢弃")
 	commitRowSubTopicHeader               // (no glyph; the sub-topic enumeration block is multiline)
 )
@@ -236,6 +237,8 @@ func formatCommitRow(row commitRow) string {
 		b.WriteString(statusObjective.Sprint("❯"))
 	case commitRowFinal:
 		b.WriteString(statusSuccessMuted.Sprint("◆"))
+	case commitRowFinalLight:
+		b.WriteString(statusSuccessMuted.Sprint("◇"))
 	case commitRowSubTopicHeader:
 		// The block has its own header line + per-topic prefixes; the
 		// commitRow body is the entire block. No per-line glyph.
@@ -246,4 +249,44 @@ func formatCommitRow(row commitRow) string {
 	b.WriteString(" ")
 	b.WriteString(row.body)
 	return b.String()
+}
+
+// FormatLightRouteSummary returns the styled scrollback line for a
+// light-route reply (local / chat / clarify). Shape:
+//
+//	◇ <label> · <seg1> · <seg2> [· 总耗时 Xs]
+//
+// Glyph follows the project's "◆ vs ◇" convention — pipeline runs
+// emit the filled diamond via commitRowFinal; light routes that
+// bypass the full pipeline emit the hollow diamond. Same color
+// family (statusSuccessMuted), same separator (statusMeta · ),
+// same body color (statusPrimaryDone) so the line reads as a
+// peer of "◆ 已结束 · …" rather than a foreign banner.
+//
+// elapsed may be empty — callers without an active wall-clock
+// (clarify, which never starts a spinner) pass "" and the trailer
+// segment is skipped. lang is the same locale code consumed by
+// totalElapsedPhrase.
+func FormatLightRouteSummary(label string, segments []string, elapsed, lang string) string {
+	var body strings.Builder
+	body.WriteString(label)
+	for _, seg := range segments {
+		if strings.TrimSpace(seg) == "" {
+			continue
+		}
+		body.WriteString(" ")
+		body.WriteString(statusMeta.Sprint("·"))
+		body.WriteString(" ")
+		body.WriteString(statusMeta.Sprint(seg))
+	}
+	if elapsed != "" {
+		body.WriteString(" ")
+		body.WriteString(statusMeta.Sprint("·"))
+		body.WriteString(" ")
+		body.WriteString(statusMeta.Sprint(totalElapsedPhrase(elapsed, lang)))
+	}
+	return formatCommitRow(commitRow{
+		kind: commitRowFinalLight,
+		body: statusPrimaryDone.Sprint(body.String()),
+	})
 }

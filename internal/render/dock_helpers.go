@@ -72,6 +72,54 @@ func (r *Renderer) focusRow() *taskRow {
 	return nil
 }
 
+// fallbackRow picks a row to render row 2 against when focusRow
+// returned nil. Used to keep the stage row honest during the
+// brief windows where the live focus has just ended and the next
+// dispatch has not yet started — pre-fix row 2 collapsed to a
+// bare "▪ —" with no stage label.
+//
+// Selection rules (in priority order):
+//
+//  1. The first NodeRow that's pending=true — "what's about to run"
+//     reads cleaner than "what just ended" when the next dispatch
+//     is imminent (e.g. between evidence_t0 end and evidence_t1
+//     start, fallback returns evidence_t1 so row 2 shows
+//     "正在探索代码并收集证据" continuously instead of flickering
+//     to "已 X" between siblings).
+//  2. Otherwise, the most recently finished row (max endTime) so
+//     the user reads "已 X" of the just-completed step instead of
+//     the previous step's stale label.
+//  3. nil otherwise — composeCurrentDockRows leaves row 2 blank.
+//
+// liveBarPrimaryText already resolves pending rows to "待 X" and
+// finished rows to "已 X" / "X 失败"; we never need to invent a
+// new lifecycle slot here.
+//
+// Caller MUST hold r.mu.
+func (r *Renderer) fallbackRow() *taskRow {
+	for _, row := range r.tasks {
+		if row == nil || row.isSubAgent {
+			continue
+		}
+		if row.isNodeRow && row.pending {
+			return row
+		}
+	}
+	var newest *taskRow
+	for _, row := range r.tasks {
+		if row == nil || row.isSubAgent {
+			continue
+		}
+		if row.endTime.IsZero() {
+			continue
+		}
+		if newest == nil || row.endTime.After(newest.endTime) {
+			newest = row
+		}
+	}
+	return newest
+}
+
 // topicProgressFor returns "关注点 K/M" / "focus K/M" when the focus
 // is one of multiple evidence_tN siblings. Empty otherwise.
 func (r *Renderer) topicProgressFor(focus *taskRow, lang string) string {

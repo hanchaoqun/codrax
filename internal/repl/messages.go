@@ -1,11 +1,10 @@
 package repl
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"strings"
-
-	"github.com/pterm/pterm"
 
 	"github.com/hanchaoqun/codrax/internal/llm"
 	"github.com/hanchaoqun/codrax/internal/types"
@@ -262,22 +261,21 @@ func emptyResponseHint(lang string) string {
 	return "  (no content rendered — likely the analyzer rejected the request or the upstream LLM returned empty). See codrax-*.log for details; rephrase or /clear and retry."
 }
 
-// chitchatReplyHeader marks a chitchat-routed reply so the user can
-// tell at a glance the answer came from the side LLM (no repo
-// analysis, no plan), not from the main pipeline.
+// chitchatRouteSummary returns the (label, segments) pair the
+// renderer folds into the dock shutdown line for a chitchat reply.
+// Mirror of localRouteSummary — same shape, same rendering path
+// (Renderer.SetRouteSummary → ◇ <label> · <segments> · 总耗时 Xs).
 //
-// Style matches localReplyHeader / turnPolicyClarifyMessage: dim
-// FgDarkGray, single line, two-space indent — recedes visually
-// so the bordered answer below dominates. Customer feedback on
-// the prior shape was that it "抢眼" / dominated attention.
-func chitchatReplyHeader(lang string) string {
-	var detail string
+// Sibling-safe: callers that go through StartSpinner / StopSpinner
+// arm the Renderer; callers that bypass the dock cycle use the
+// returned tuple with FormatLightRouteSummary directly. No pterm
+// styling here — the renderer applies the project's status palette
+// so the line reads as a peer of "◆ 已结束 · …".
+func chitchatRouteSummary(lang string) (string, []string) {
 	if isZh(lang) {
-		detail = "chat · 闲聊回复,未读仓库,未生成 plan"
-	} else {
-		detail = "chat · chitchat reply, no repo read, no plan"
+		return "闲聊回复", []string{"未读仓库", "未生成 plan"}
 	}
-	return "  " + pterm.FgDarkGray.Sprint(detail)
+	return "chat reply", []string{"no repo read", "no plan"}
 }
 
 // noPendingPlan — user typed /approve or /reject without a pending
@@ -876,6 +874,56 @@ func friendlyRunError(lang string, err error) string {
 type cancelErrorCarrier interface {
 	error
 	Stage() string
+}
+
+// armDockTerminalState flips the renderer's dock activity to the
+// fatal / cancelled terminal kind based on err's shape so the
+// commitDockShutdownLocked path renders "✗ 已失败" / "✗ 已取消"
+// instead of the misleading "◆ 已结束 · …" success summary. err==nil
+// is a no-op so the caller can call this unconditionally before
+// StopSpinner.
+//
+// Classification mirrors friendlyRunError:
+//   - cancelErrorCarrier (orchestrator.CanceledError, raised by
+//     Ctrl+C / /cancel) → MarkRunCancelled
+//   - context.Canceled (raw context.Canceled or wrapped, e.g. via
+//     "context canceled" embedded in upstream HTTP error) →
+//     MarkRunCancelled
+//   - everything else (HTTP 5xx after retries, stream stalls,
+//     auth failures, schema rejects) → MarkRunFatal
+//
+// nil renderer is tolerated for parity with surrounding StopSpinner
+// call patterns.
+func armDockTerminalState(renderer dockTerminalArmer, err error) {
+	if renderer == nil || err == nil {
+		return
+	}
+	var ce cancelErrorCarrier
+	if errors.As(err, &ce) {
+		renderer.MarkRunCancelled()
+		return
+	}
+	if errors.Is(err, context.Canceled) {
+		renderer.MarkRunCancelled()
+		return
+	}
+	low := strings.ToLower(err.Error())
+	if strings.Contains(low, "context canceled") || strings.Contains(low, "context cancelled") {
+		renderer.MarkRunCancelled()
+		return
+	}
+	renderer.MarkRunFatal()
+}
+
+// dockTerminalArmer is the narrow surface armDockTerminalState needs
+// from the renderer. Defined as an interface so the helper can be
+// tested without a real Renderer (the test file passes a stub),
+// AND so a nil *render.Renderer never panics — typed-nil interface
+// values flow through cleanly because both methods are nil-safe on
+// the concrete type.
+type dockTerminalArmer interface {
+	MarkRunFatal()
+	MarkRunCancelled()
 }
 
 // verifyDispatching — short status line printed by /verify before

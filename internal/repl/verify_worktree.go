@@ -114,6 +114,7 @@ func (r *REPL) handleVerifyCmd(line string) {
 	}
 	busCtx, runErr := r.runner.Run(request, r.repoRoot, r.branch)
 	if r.renderer != nil {
+		armDockTerminalState(r.renderer, runErr)
 		r.renderer.StopSpinner()
 	}
 	if runErr != nil {

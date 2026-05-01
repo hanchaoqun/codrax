@@ -38,8 +38,6 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/pterm/pterm"
-
 	"github.com/hanchaoqun/codrax/internal/llm"
 	"github.com/hanchaoqun/codrax/internal/logging"
 )
@@ -700,64 +698,45 @@ func hybridRequestPrefix(directive, request string) string {
 	return composeEffectiveRequest(directive, "", request)
 }
 
-// localReplyHeader marks a local-route reply so the user can tell
-// at a glance the answer came from the side LLM (no repo analysis,
-// no plan, no pipeline).
+// localRouteSummary returns the (label, segments) pair the renderer
+// folds into the dock shutdown line for a local-route reply. The
+// pipeline default ("◆ 已结束 · 4 阶段 · 总耗时 7s · …") would render
+// misleading zeros for local routes (no stages / tools / iterations),
+// so the dock swaps in "◇ <label> · <segments> · 总耗时 Xs" — same
+// color family, hollow diamond signalling the lighter path, segments
+// describing what actually happened.
 //
-// Pre-2026-04-30 the header was a long, unstyled paragraph that
-// dominated the visual real estate above the bordered answer
-// — "[local] 复用上一轮答案的回复(未读仓库)。如需仓库新证据,请
-// 去掉 …" — customer reported it was eye-grabbing and misleading
-// (claimed "reuse" even when the answer was fresh model output).
+// Wording is policy.Source-aware so the badge is truthful:
 //
-// New shape: a single dim line that matches the bordered output's
-// 2-space indent and uses the same FgDarkGray family already used
-// for the banner / capability summary / git branch markers. It is
-// MEANT to recede; users who need detail can read the bordered
-// answer below.
-//
-// The wording is still policy.Source-aware so the badge is truthful:
-//
-//	Source == "last_answer" → "复用上一轮答案" — true, derived from prior
-//	otherwise               → "未读仓库,纯模型生成" — honest, no false reuse claim
+//	Source == "last_answer" → "复用上一轮答案 · 未读仓库" (derived from prior)
+//	otherwise               → "未读仓库 · 纯模型生成" (no false reuse claim)
 //
 // Single LLM-emitted field, structural branch, no keyword table.
-func localReplyHeader(lang string, policy TurnPolicy) string {
+func localRouteSummary(lang string, policy TurnPolicy) (string, []string) {
 	zh := isZh(lang)
-	var detail string
-	switch {
-	case policy.Source == "last_answer":
-		if zh {
-			detail = "local · 复用上一轮答案,未读仓库"
-		} else {
-			detail = "local · derived from previous answer, no repo read"
+	if zh {
+		if policy.Source == "last_answer" {
+			return "本地回复", []string{"复用上一轮答案", "未读仓库"}
 		}
-	default:
-		if zh {
-			detail = "local · 未读仓库,纯模型生成"
-		} else {
-			detail = "local · no repo read, pure model output"
-		}
+		return "本地回复", []string{"未读仓库", "纯模型生成"}
 	}
-	return "  " + pterm.FgDarkGray.Sprint(detail)
+	if policy.Source == "last_answer" {
+		return "local reply", []string{"reused previous answer", "no repo read"}
+	}
+	return "local reply", []string{"no repo read", "pure model output"}
 }
 
-// turnPolicyClarifyMessage is what the dispatcher prints when route
-// resolves to clarify. Bilingual; specific to the missing-prior-
-// answer case (the only clarify trigger today).
-//
-// Style matches localReplyHeader: dim, single line, two-space
-// indent. Customer feedback was that long unstyled banners
-// "抢眼" — clarify is a hint, not the answer, so it stays subdued.
-func turnPolicyClarifyMessage(lang string) string {
-	zh := isZh(lang)
-	var detail string
-	if zh {
-		detail = "clarify · 没有上一轮答案可复用 — 请直接描述你想问什么"
-	} else {
-		detail = "clarify · no prior answer to reuse — re-state the question directly"
+// clarifyRouteSummary returns the (label, segments) pair for the
+// clarify route — emitted when the LLM proposed a transform/summarize
+// but no prior answer exists to operate on. Same shape as
+// localRouteSummary; rendered via Renderer.EmitLightRouteSummary
+// (clarify never starts a spinner so the value is printed directly,
+// not folded into a dock shutdown).
+func clarifyRouteSummary(lang string) (string, []string) {
+	if isZh(lang) {
+		return "需要澄清", []string{"没有上一轮答案可复用,请直接描述你想问什么"}
 	}
-	return "  " + pterm.FgDarkGray.Sprint(detail)
+	return "clarify", []string{"no prior answer to reuse — re-state the question directly"}
 }
 
 // debugLogTurnPolicy is a small wrapper so callers don't have to
