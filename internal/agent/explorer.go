@@ -11997,30 +11997,20 @@ func detectTruncatedUngrepped(history []types.ToolResult) ([]truncatedFileInfo, 
 		}
 		switch r.ToolName {
 		case "read_file":
-			first := strings.SplitN(r.Summary, "\n", 2)[0]
-			// Parse "[path: showing lines X-Y of Z total]"
-			if !strings.HasPrefix(first, "[") {
-				continue
-			}
-			colonIdx := strings.Index(first, ": showing lines ")
-			if colonIdx < 1 {
-				continue
-			}
-			path := first[1:colonIdx]
-			rest := first[colonIdx+len(": showing lines "):]
-			dashIdx := strings.Index(rest, "-")
-			ofIdx := strings.Index(rest, " of ")
-			if dashIdx < 0 || ofIdx < 0 {
-				continue
-			}
-			endLine, err1 := strconv.Atoi(rest[dashIdx+1 : ofIdx])
-			totalStr := strings.TrimSuffix(strings.TrimSuffix(rest[ofIdx+4:], "]"), " total")
-			total, err2 := strconv.Atoi(strings.TrimSpace(totalStr))
-			if err1 != nil || err2 != nil {
-				continue
-			}
-			fr, ok := reads[path]
+			// Use the shared canonical parser (which already strips
+			// `[forced_read]` / `[forced_read surgical]` trace prefixes
+			// before parsing the banner). Inline parsing here would
+			// silently skip every forced-read result because the
+			// trace prefix's own `[` collides with the banner's
+			// `[path: ...]` shape — same pre-existing bug the
+			// finalizer's grounder hit before commit 3238f9c.
+			path, rng, total, ok := ground.ParseReadFileBanner(r.Summary)
 			if !ok {
+				continue
+			}
+			endLine := rng.End
+			fr, fok := reads[path]
+			if !fok {
 				fr = &fileRead{}
 				reads[path] = fr
 			}
@@ -12549,27 +12539,20 @@ func readFileIntervalsFromHistory(history []types.ToolResult) map[string][]readI
 		if !r.Success || r.ToolName != "read_file" {
 			continue
 		}
-		first := strings.SplitN(r.Summary, "\n", 2)[0]
-		if !strings.HasPrefix(first, "[") {
+		// Use the shared canonical parser so this inline reader
+		// participates in the same forced-read-prefix-strip the
+		// finalizer's grounder + closure coverage walker already
+		// share. Without delegation, every `[forced_read surgical] `
+		// or `[forced_read] ` prefixed read would be silently skipped
+		// here — partial-read mid-loop hints would then under-count
+		// what the LLM has been shown via Lazy Auto-Read recovery
+		// and emit redundant "you read up to line N" hints for
+		// ranges already covered.
+		path, rng, _, ok := ground.ParseReadFileBanner(r.Summary)
+		if !ok {
 			continue
 		}
-		colonIdx := strings.Index(first, ": showing lines ")
-		if colonIdx < 1 {
-			continue
-		}
-		path := first[1:colonIdx]
-		rest := first[colonIdx+len(": showing lines "):]
-		dashIdx := strings.Index(rest, "-")
-		ofIdx := strings.Index(rest, " of ")
-		if dashIdx < 0 || ofIdx < 0 {
-			continue
-		}
-		startLine, err1 := strconv.Atoi(rest[:dashIdx])
-		endLine, err2 := strconv.Atoi(rest[dashIdx+1 : ofIdx])
-		if err1 != nil || err2 != nil {
-			continue
-		}
-		fileReads[path] = append(fileReads[path], readInterval{start: startLine, end: endLine})
+		fileReads[path] = append(fileReads[path], readInterval{start: rng.Start, end: rng.End})
 	}
 	return fileReads
 }

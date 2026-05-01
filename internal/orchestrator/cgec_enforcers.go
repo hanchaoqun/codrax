@@ -182,6 +182,15 @@ func (o *Orchestrator) runForcedReads() int {
 				if r.End < r.Start || r.Start <= 0 {
 					continue
 				}
+				// Cancellation checkpoint: a wide demand can produce
+				// dozens of chunked reads, each ~5-10ms. Without this
+				// check, /cancel during runForcedReads waits for the
+				// whole loop to drain (~1s worst case for 90 reads).
+				// Bail out promptly so the dock returns control to
+				// the operator instead of stalling on synthesised IO.
+				if forcedReadCancelled(o.busCtx) {
+					return success
+				}
 				// Chunk the demand to stay under read_file's inline
 				// MaxInlineBytes budget. Without chunking, a long-line
 				// file or a wide L4 SmallFileFull demand would trip
@@ -565,6 +574,25 @@ func summarizeReadFailure(statErr error, isDir bool, ioErr error, summary string
 		return s
 	}
 	return "framework read failed for an unknown reason"
+}
+
+// forcedReadCancelled reports whether the orchestrator's cancel
+// token has fired so the surgical multi-range loop bails out
+// promptly. Nil-safe on test fixtures that omit ctx.
+func forcedReadCancelled(busCtx *types.BusContext) bool {
+	if busCtx == nil {
+		return false
+	}
+	ctx := busCtx.Context()
+	if ctx == nil {
+		return false
+	}
+	select {
+	case <-ctx.Done():
+		return true
+	default:
+		return false
+	}
 }
 
 // executeSurgicalReadFile runs the read_file tool with explicit

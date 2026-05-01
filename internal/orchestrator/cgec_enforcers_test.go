@@ -1,6 +1,7 @@
 package orchestrator
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -116,6 +117,52 @@ func TestRunForcedReads_BudgetCap(t *testing.T) {
 	if len(remaining) < 5 {
 		t.Errorf("over-cap entries should remain unread; got %d remaining (started with %d)",
 			len(remaining), cgecForcedReadsPerRound+5)
+	}
+}
+
+// TestRunForcedReads_CancellationStopsSurgicalLoop pins the
+// /cancel responsiveness contract: when the orchestrator's
+// cancellation context fires while runForcedReads is iterating
+// surgical chunks, the loop must bail out immediately at the next
+// chunk boundary rather than completing every demanded range.
+// Without this, a wide L4 SmallFileFull demand or a surgical
+// PendingRead with many ranges would hold /cancel for up to ~1s
+// of synthesised IO before responding.
+func TestRunForcedReads_CancellationStopsSurgicalLoop(t *testing.T) {
+	o := newTestOrch(t)
+	repoRoot := o.busCtx.RepoRoot
+	relPath := "cancel_target.go"
+	abs := filepath.Join(repoRoot, relPath)
+	var content strings.Builder
+	for i := 1; i <= 600; i++ {
+		content.WriteString("L")
+		content.WriteString(testIntToString(i))
+		content.WriteString("\n")
+	}
+	if err := os.WriteFile(abs, []byte(content.String()), 0o644); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	// Plug in a cancelled context so the very first chunk-boundary
+	// check fires.
+	cancelled, cancel := context.WithCancel(context.Background())
+	cancel()
+	o.busCtx.Ctx = cancelled
+
+	closure := o.busCtx.Mutable.EvidenceClosure()
+	closure.AddPendingRead(types.PendingRead{
+		File:       relPath,
+		Origin:     "test.cancel",
+		Rationale:  "wide demand cancelled mid-flight",
+		LineRanges: []types.LineRange{{Start: 1, End: 600}},
+	})
+
+	got := o.runForcedReads()
+	if got != 0 {
+		t.Errorf("cancelled context must abort runForcedReads with 0 successful drains; got %d", got)
+	}
+	results := o.busCtx.Mutable.DispatchToolResults()
+	if len(results) != 0 {
+		t.Errorf("no surgical reads should have completed under cancellation; got %d results", len(results))
 	}
 }
 
