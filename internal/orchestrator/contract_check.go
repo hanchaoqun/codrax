@@ -441,13 +441,14 @@ func (o *Orchestrator) runSelfConsistencyReview(doc *types.AnswerDocument, mut *
 	})
 
 	out := make([]types.Violation, 0, len(verdict.Contradictions))
-	for _, c := range verdict.Contradictions {
+	totalN := len(verdict.Contradictions)
+	reasoning := clampReasoningForRepair(verdict.Reasoning)
+	for i, c := range verdict.Contradictions {
 		out = append(out, types.Violation{
 			Kind: types.ViolSelfContradiction,
-			Detail: fmt.Sprintf("self_consistency contradiction (%s) — SUMMARY claims %q vs BODY claims %q",
+			Detail: fmt.Sprintf("self_contradiction[%s] — SUMMARY: %q ⇄ BODY: %q",
 				c.Topic, c.SummaryClaim, c.BodyClaim),
-			Repair: fmt.Sprintf("re-emit emit_answer_document with summary and body aligned: pick the version supported by evidence and rewrite the OTHER to match. The summary's %q and the body's %q cannot both be true; reconcile.",
-				c.SummaryClaim, c.BodyClaim),
+			Repair: buildSelfContradictionRepair(c, reasoning, i+1, totalN),
 			SuspectedRoot: types.SuspectedRoot{
 				IRField:    "answer_summary_body_consistency",
 				Reason:     "reviewer detected inter-paragraph contradiction",
@@ -459,6 +460,52 @@ func (o *Orchestrator) runSelfConsistencyReview(doc *types.AnswerDocument, mut *
 	logging.Info("[self_consistency_reviewer] emitted %d contradiction(s) at confidence=%.2f rewrite_on=%v reasoning=%q",
 		len(verdict.Contradictions), verdict.Confidence, o.selfConsistencyRewriteOnContradiction, verdict.Reasoning)
 	return out
+}
+
+// clampReasoningForRepair returns a single-line, ≤ 200-rune
+// rendering of the reviewer's reasoning, suitable for embedding
+// in a Violation.Repair string. Newlines flatten to spaces so
+// the joined retry-hint format stays compact.
+func clampReasoningForRepair(s string) string {
+	s = strings.ReplaceAll(strings.ReplaceAll(s, "\n", " "), "\r", " ")
+	s = strings.TrimSpace(s)
+	const cap = 200
+	r := []rune(s)
+	if len(r) > cap {
+		return string(r[:cap]) + "…"
+	}
+	return s
+}
+
+// buildSelfContradictionRepair generates the comprehensive
+// rewrite guidance per contradiction (commit 62 follow-up: pre-
+// fix the Repair was a generic "pick version supported by
+// evidence and rewrite the other to match" — but reviewer
+// reasoning was discarded; preference between SUMMARY and BODY
+// was unclear; the LLM had no fallback for evidence-undecided
+// cases; multi-contradiction batches lacked a "reconcile all
+// before emitting" framing). Now covers 5 model-fix-able error
+// classes: pure prose mistake, post-revision summary stale,
+// genuine ambiguity needing hedge, partial-fix introducing new
+// error, missed contradictions in batch.
+func buildSelfContradictionRepair(c SelfConsistencyContradiction, reasoning string, idx, total int) string {
+	var b strings.Builder
+	if total > 1 {
+		fmt.Fprintf(&b, "[%d of %d contradictions] ", idx, total)
+	}
+	fmt.Fprintf(&b, "TOPIC: %s. ", c.Topic)
+	fmt.Fprintf(&b, "SUMMARY says: %q. BODY says: %q. ",
+		c.SummaryClaim, c.BodyClaim)
+	if reasoning != "" {
+		fmt.Fprintf(&b, "Reviewer reasoning: %s. ", reasoning)
+	}
+	b.WriteString("ACTION: rewrite the SUMMARY to align with the BODY — the body's bullets are the load-bearing claims, each anchored to file:line citations the grounder has already validated, so the body is the authoritative version when summary and body disagree. ")
+	b.WriteString("FALLBACK: if the evidence does not actually support EITHER claim with certainty (i.e. the reviewer caught a contradiction that neither side has grounded support for), replace the summary's specific assertion with an honest hedge naming exactly what WAS verified — do not pick an unsupported version. ")
+	b.WriteString("Do NOT introduce new factual claims; do NOT keep the contradicting summary phrase verbatim and 'add a clarification' — fully rewrite it. ")
+	if total > 1 {
+		b.WriteString("Reconcile ALL listed contradictions in this round before emitting emit_answer_document; a partial fix that leaves any of them or introduces new ones will trigger another retry. ")
+	}
+	return strings.TrimSpace(b.String())
 }
 
 func defaultSoftKinds() map[types.ViolationKind]bool {
