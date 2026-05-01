@@ -2,6 +2,7 @@ package repl
 
 import (
 	"errors"
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -141,6 +142,63 @@ func TestPlanStore_DifferentGroupSiblingsBlocked(t *testing.T) {
 	var unsettled *ErrUnsettledPlanExists
 	if !errors.As(err, &unsettled) {
 		t.Errorf("expected ErrUnsettledPlanExists; got %v", err)
+	}
+}
+
+// TestPlanStore_SaveLeavesNoTmpAfterSuccess pins commit 45
+// P0: PlanStore.Save now routes through types.WritePlanToFile
+// which uses the .tmp + atomic-rename pattern. After a clean
+// save no .tmp residue should remain — its presence would
+// indicate the rename hop was skipped (which is exactly the
+// pre-commit-45 bug for cross-process races).
+func TestPlanStore_SaveLeavesNoTmpAfterSuccess(t *testing.T) {
+	dir := t.TempDir()
+	store := NewPlanStore(dir)
+	plan := &types.ChangePlan{
+		ID:        "plan-atomic-test",
+		Status:    types.PlanStatusPending,
+		CreatedAt: time.Now(),
+		Changes:   []types.FileChange{{Path: "a", Kind: "create"}},
+	}
+	path, err := store.Save(plan)
+	if err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+	if _, statErr := os.Stat(path); statErr != nil {
+		t.Errorf("plan json should exist; got %v", statErr)
+	}
+	if _, statErr := os.Stat(path + ".tmp"); !os.IsNotExist(statErr) {
+		t.Errorf(".tmp should be cleaned up after rename; got stat err = %v", statErr)
+	}
+}
+
+// TestPlanStore_SettleLeavesNoTmpAfterSuccess pins the same
+// atomic-write contract for the lifecycle-transition path.
+func TestPlanStore_SettleLeavesNoTmpAfterSuccess(t *testing.T) {
+	dir := t.TempDir()
+	store := NewPlanStore(dir)
+	plan := &types.ChangePlan{
+		ID:        "plan-settle-atomic",
+		Status:    types.PlanStatusApplied,
+		CreatedAt: time.Now(),
+		Changes:   []types.FileChange{{Path: "a", Kind: "create"}},
+	}
+	path, err := store.SaveForTest(plan)
+	if err != nil {
+		t.Fatalf("SaveForTest: %v", err)
+	}
+	if err := store.Settle("plan-settle-atomic", types.PlanStatusMerged, ""); err != nil {
+		t.Fatalf("Settle: %v", err)
+	}
+	if _, statErr := os.Stat(path + ".tmp"); !os.IsNotExist(statErr) {
+		t.Errorf("Settle .tmp should be cleaned up; got stat err = %v", statErr)
+	}
+	loaded, err := store.Load("plan-settle-atomic")
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if loaded.Status != types.PlanStatusMerged {
+		t.Errorf("status drift; got %q", loaded.Status)
 	}
 }
 

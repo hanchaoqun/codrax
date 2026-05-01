@@ -148,11 +148,16 @@ func (s *PlanStore) Save(plan *types.ChangePlan) (string, error) {
 	}
 
 	path := filepath.Join(s.planDir, plan.ID+".json")
-	data, err := json.MarshalIndent(plan, "", "  ")
-	if err != nil {
-		return "", fmt.Errorf("PlanStore.Save: marshal plan %s: %w", plan.ID, err)
-	}
-	if err := os.WriteFile(path, data, 0o644); err != nil {
+	// Commit 45 P0: route through types.WritePlanToFile so the
+	// disk write uses the .tmp + atomic-rename pattern. Pre-
+	// commit-45 PlanStore.Save called os.WriteFile directly,
+	// which is non-atomic — two parallel codrax processes
+	// against the same project could corrupt the JSON
+	// half-way through (LoadChangePlanFromFile then fails).
+	// types.WritePlanToFile is what PlanGroupStore.Save and the
+	// orchestrator's persistPlanStatus already use for the same
+	// reason; PlanStore was the lone holdout.
+	if err := types.WritePlanToFile(plan, path); err != nil {
 		return "", fmt.Errorf("PlanStore.Save: write %s: %w", path, err)
 	}
 	return path, nil
@@ -177,11 +182,11 @@ func (s *PlanStore) SaveForTest(plan *types.ChangePlan) (string, error) {
 		return "", err
 	}
 	path := filepath.Join(s.planDir, plan.ID+".json")
-	data, err := json.MarshalIndent(plan, "", "  ")
-	if err != nil {
-		return "", err
-	}
-	if err := os.WriteFile(path, data, 0o644); err != nil {
+	// Commit 45: same atomic-write contract as Save (test
+	// helpers should write the same way prod does so test
+	// fixtures don't accidentally exercise the non-atomic
+	// path).
+	if err := types.WritePlanToFile(plan, path); err != nil {
 		return "", err
 	}
 	return path, nil
@@ -302,11 +307,11 @@ func (s *PlanStore) Settle(planID, newStatus, reason string) error {
 		plan.RejectedAt = &now
 		plan.RejectionReason = strings.TrimSpace(reason)
 	}
-	out, err := json.MarshalIndent(&plan, "", "  ")
-	if err != nil {
-		return fmt.Errorf("PlanStore.Settle: marshal %s: %w", planID, err)
-	}
-	if err := os.WriteFile(path, out, 0o644); err != nil {
+	// Commit 45: atomic write — same .tmp + rename pattern as
+	// Save / SaveForTest. Pre-commit-45 Settle used os.WriteFile
+	// directly; a /merge or /reject racing with another process's
+	// /plan show would tear the file mid-write.
+	if err := types.WritePlanToFile(&plan, path); err != nil {
 		return fmt.Errorf("PlanStore.Settle: write %s: %w", path, err)
 	}
 	return nil
