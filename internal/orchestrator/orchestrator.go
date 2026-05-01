@@ -3718,6 +3718,25 @@ func (o *Orchestrator) runReadSchedulerLoop(stepBudget int) int {
 			if backoff > 5*time.Second {
 				backoff = 5 * time.Second
 			}
+			// Cancellation-aware wait: a /cancel during the
+			// force-finalize retry window must not be stranded
+			// waiting up to 15s (5s × 3 attempts). select on
+			// busCtx.Ctx.Done so the loop bails immediately. nil
+			// ctx (test fixtures) falls through to a regular timer.
+			if o.busCtx != nil {
+				if c := o.busCtx.Context(); c != nil {
+					timer := time.NewTimer(backoff)
+					select {
+					case <-c.Done():
+						timer.Stop()
+						o.busCtx.Mutable.SetResult("")
+						o.busCtx.TaskState.LastError = forcedFinalizeFailureMessage(c.Err(), o.busCtx.Language)
+						return stepsUsed
+					case <-timer.C:
+					}
+					continue
+				}
+			}
 			time.Sleep(backoff)
 		}
 		if err != nil {

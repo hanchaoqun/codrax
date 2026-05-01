@@ -408,7 +408,20 @@ func (o *OpenAIAdapter) Chat(ctx context.Context, messages []Message, tools []To
 					cb(attempt+1, delay, retryReasonForError(err))
 				}()
 			}
-			time.Sleep(delay)
+			// Cancellation-aware sleep: a quota error can request a
+			// 128s backoff, during which a user /cancel must NOT be
+			// stranded waiting. select on ctx.Done so the retry loop
+			// bails immediately when the orchestrator pulls the
+			// cancellation token. Falls through to time.NewTimer on a
+			// nil ctx (test fixtures pass context.Background which has
+			// a non-nil Done channel that never fires).
+			timer := time.NewTimer(delay)
+			select {
+			case <-ctx.Done():
+				timer.Stop()
+				return Response{}, ctx.Err()
+			case <-timer.C:
+			}
 		}
 	}
 
