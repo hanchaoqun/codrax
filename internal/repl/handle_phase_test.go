@@ -603,6 +603,10 @@ func TestHandlePhaseCmd_ShowDoesNotFlagLivePhase(t *testing.T) {
 // errored), /phase show surfaces the status string + the
 // recorded reasoning so the operator sees the gap rather
 // than mistaking it for a clean Accepted.
+//
+// Commit 33 extension: the rendering also surfaces a
+// "→ /phase next or /phase rollback" recovery-action hint
+// so the operator isn't left wondering what to do next.
 func TestHandlePhaseCmd_ShowRendersAcceptanceUnverified(t *testing.T) {
 	r, store, _, out := newPhaseTestREPL(t)
 	g := threePhaseTestGroup("group-unverified")
@@ -621,6 +625,14 @@ func TestHandlePhaseCmd_ShowRendersAcceptanceUnverified(t *testing.T) {
 	}
 	if !strings.Contains(got, "infra failure") {
 		t.Errorf("expected reasoning text; got %q", got)
+	}
+	// Commit 33: action hint pointing at the two recovery
+	// levers so the operator knows what to do.
+	if !strings.Contains(got, "/phase next") {
+		t.Errorf("expected /phase next recovery hint; got %q", got)
+	}
+	if !strings.Contains(got, "/phase rollback") {
+		t.Errorf("expected /phase rollback recovery hint; got %q", got)
 	}
 }
 

@@ -164,6 +164,14 @@ func (r *REPL) phaseShow(groupID string) {
 				fmt.Fprintf(r.out, "         next-hint: %s\n", oneLine(p.AcceptanceCheck.NextHint))
 			}
 		}
+		// Recommended-action hint for PhaseAcceptanceUnverified
+		// (commit 33): the LLM check failed for infra reasons
+		// and the phase advanced as fail-safer (commit 26),
+		// but the operator has no built-in cue on what to do.
+		// Surface the two recovery levers explicitly.
+		if p.Status == types.PhaseAcceptanceUnverified {
+			fmt.Fprintln(r.out, "         → run /phase next to keep advancing without re-judging, or /phase rollback to reset and re-attempt")
+		}
 	}
 }
 
@@ -484,7 +492,17 @@ func (r *REPL) handleMergeGroupCmd(groupID, rawArgs string) {
 	}
 	g, err := r.planGroupStore.Load(groupID)
 	if err != nil || g == nil {
-		r.errorf("/merge group: cannot load %s: %v\n", groupID, err)
+		// Helpful "did you mean" suggestion (commit 33): when
+		// the group id doesn't resolve, enumerate existing
+		// groups + surface the closest match by simple shared-
+		// prefix length so a typo'd id doesn't leave the
+		// operator guessing the right form.
+		suggestion := r.suggestGroupID(groupID)
+		if suggestion != "" {
+			r.errorf("/merge group: cannot load %s: %v (did you mean %s?)\n", groupID, err, suggestion)
+		} else {
+			r.errorf("/merge group: cannot load %s: %v\n", groupID, err)
+		}
 		return
 	}
 	if g.Status == types.PlanGroupCompleted {
@@ -571,7 +589,12 @@ func (r *REPL) handleRejectGroupCmd(groupID, reason string) {
 	}
 	g, err := r.planGroupStore.Load(groupID)
 	if err != nil || g == nil {
-		r.errorf("/reject group: cannot load %s: %v\n", groupID, err)
+		suggestion := r.suggestGroupID(groupID)
+		if suggestion != "" {
+			r.errorf("/reject group: cannot load %s: %v (did you mean %s?)\n", groupID, err, suggestion)
+		} else {
+			r.errorf("/reject group: cannot load %s: %v\n", groupID, err)
+		}
 		return
 	}
 	if g.Status == types.PlanGroupCompleted {
@@ -607,6 +630,57 @@ func (r *REPL) handleRejectGroupCmd(groupID, reason string) {
 	}
 	r.success(fmt.Sprintf("/reject group: %d/%d phase plans settled as rejected; group %s marked rolled_back\n",
 		settledCount, len(g.Phases), groupID))
+}
+
+// suggestGroupID returns the closest existing group id to the
+// supplied (probably typo'd) id, or "" when no plausible
+// match exists. Closeness is measured by longest common
+// prefix; ties broken by length (prefer shorter ids since
+// they're closer to the typo'd shape). 0-prefix ties don't
+// suggest anything (every existing group differs at byte 0
+// → no useful nudge).
+//
+// Production uses: PlanGroupStore.List() enumerates the
+// directory; the helper picks the best candidate. Cheap at
+// dozens of groups (the realistic ceiling); scaling beyond
+// that would justify a dedicated index, not a smarter algo.
+func (r *REPL) suggestGroupID(typoed string) string {
+	if r == nil || r.planGroupStore == nil || strings.TrimSpace(typoed) == "" {
+		return ""
+	}
+	infos, err := r.planGroupStore.List()
+	if err != nil || len(infos) == 0 {
+		return ""
+	}
+	best := ""
+	bestPrefix := 0
+	for _, inf := range infos {
+		p := commonPrefixLen(typoed, inf.ID)
+		if p > bestPrefix || (p == bestPrefix && best != "" && len(inf.ID) < len(best)) {
+			best = inf.ID
+			bestPrefix = p
+		}
+	}
+	if bestPrefix == 0 {
+		return ""
+	}
+	return best
+}
+
+// commonPrefixLen counts the byte-length of the shared prefix
+// of a and b. ASCII-byte comparison is fine because group ids
+// are constrained to [a-zA-Z0-9_-] by validStoreIDPattern.
+func commonPrefixLen(a, b string) int {
+	n := len(a)
+	if len(b) < n {
+		n = len(b)
+	}
+	for i := 0; i < n; i++ {
+		if a[i] != b[i] {
+			return i
+		}
+	}
+	return n
 }
 
 // shortSHA returns the first 8 chars of a git SHA for compact

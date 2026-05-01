@@ -227,6 +227,98 @@ func TestHandleMergeGroupCmd_RefusesNonCompletedGroup(t *testing.T) {
 	}
 }
 
+// TestHandleMergeGroupCmd_DidYouMeanOnTypo pins commit 33:
+// when /merge group-X resolves to nothing AND a similar
+// group exists, the error includes "did you mean <closest>?"
+// suggested by longest-shared-prefix matching.
+func TestHandleMergeGroupCmd_DidYouMeanOnTypo(t *testing.T) {
+	dir := t.TempDir()
+	planStore := NewPlanStore(dir)
+	groupStore := NewPlanGroupStore(dir)
+	r, out := newScriptedREPL(t, planStore)
+	r.planGroupStore = groupStore
+	r.writeEnabled = true
+
+	// Seed an existing group so the suggester has something
+	// to match against.
+	g := &types.PlanGroup{
+		ID:       "group-1234567890",
+		Status:   types.PlanGroupCompleted,
+		Decision: "linear",
+		Phases:   []types.PhaseRecord{{Index: 0, Goal: "p0", Status: types.PhaseAccepted}},
+	}
+	if _, err := groupStore.Save(g); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+
+	// Type a typo'd id sharing a long prefix with the existing
+	// group.
+	r.handleMergeGroupCmd("group-12345BAD", "/merge group-12345BAD")
+	got := out.String()
+	if !strings.Contains(got, "did you mean group-1234567890") {
+		t.Errorf("expected did-you-mean suggestion; got %q", got)
+	}
+}
+
+// TestHandleRejectGroupCmd_DidYouMeanOnTypo mirrors the
+// /merge case for /reject.
+func TestHandleRejectGroupCmd_DidYouMeanOnTypo(t *testing.T) {
+	dir := t.TempDir()
+	planStore := NewPlanStore(dir)
+	groupStore := NewPlanGroupStore(dir)
+	r, out := newScriptedREPL(t, planStore)
+	r.planGroupStore = groupStore
+	r.writeEnabled = true
+
+	g := &types.PlanGroup{
+		ID:       "group-abcdefgh",
+		Status:   types.PlanGroupInFlight,
+		Decision: "linear",
+		Phases:   []types.PhaseRecord{{Index: 0, Goal: "p0", Status: types.PhasePending}},
+	}
+	if _, err := groupStore.Save(g); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+
+	r.handleRejectGroupCmd("group-abcdeXXX", "")
+	got := out.String()
+	if !strings.Contains(got, "did you mean group-abcdefgh") {
+		t.Errorf("expected did-you-mean suggestion; got %q", got)
+	}
+}
+
+// TestSuggestGroupID_NoMatchReturnsEmpty pins the negative
+// case: when zero existing groups share even a one-byte
+// prefix, the suggester returns "" rather than a misleading
+// "did you mean <unrelated>?".
+func TestSuggestGroupID_NoMatchReturnsEmpty(t *testing.T) {
+	dir := t.TempDir()
+	planStore := NewPlanStore(dir)
+	groupStore := NewPlanGroupStore(dir)
+	r, _ := newScriptedREPL(t, planStore)
+	r.planGroupStore = groupStore
+
+	// No groups stored — empty list.
+	if got := r.suggestGroupID("group-anything"); got != "" {
+		t.Errorf("empty store should yield no suggestion; got %q", got)
+	}
+
+	// Group exists but shares nothing with the typo'd id
+	// (different first byte).
+	g := &types.PlanGroup{
+		ID:       "alphabeta",
+		Status:   types.PlanGroupInFlight,
+		Decision: "linear",
+		Phases:   []types.PhaseRecord{{Index: 0, Goal: "p0", Status: types.PhasePending}},
+	}
+	if _, err := groupStore.Save(g); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+	if got := r.suggestGroupID("zeta"); got != "" {
+		t.Errorf("zero shared prefix should yield no suggestion; got %q", got)
+	}
+}
+
 // TestPlanInfoSurfacesPhaseGroup pins commit 25's PlanStore
 // list probe: PhaseGroupID + PhaseIndex are extracted from
 // the on-disk JSON so /plan list rendering can show the
