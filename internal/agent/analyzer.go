@@ -134,10 +134,42 @@ func (e *analyzerEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk 
 			ctx.Mutable.SetSearchGraph(graph)
 		}
 		if overview != "" {
-			return prependEmitRetryDirective(ctx, overview)
+			return prependEmitRetryDirective(ctx, prependAnswerPitfalls(ctx, overview))
 		}
 	}
-	return prependEmitRetryDirective(ctx, "")
+	return prependEmitRetryDirective(ctx, prependAnswerPitfalls(ctx, ""))
+}
+
+// prependAnswerPitfalls renders the read-mode Answer Taxonomy
+// injection (commit 51 Gap 3, mirror of buildActivePitfallsSection
+// on the planner). Empty when ctx.ActiveAnswerPitfalls is nil/empty.
+//
+// Same descriptive framing as the planner's pitfalls section: the
+// LLM reads observations from prior Runs, NOT instructions. The
+// analyzer is the decider. Past Runs in this repo had to retry
+// when classifying these patterns; the new analyze call should be
+// alert to whether THIS request might trip the same trap, but it
+// is free to classify differently if the data warrants.
+func prependAnswerPitfalls(ctx *types.AgentContext, base string) string {
+	if ctx == nil || len(ctx.ActiveAnswerPitfalls) == 0 {
+		return base
+	}
+	var b strings.Builder
+	b.WriteString("## Known answer pitfalls in this repo\n\n")
+	b.WriteString("Past Runs on this repo had to retry classification on requests that matched the patterns below. Each one is annotated with what triggers it. When classifying THIS request, check whether it could match any of these patterns; if so, adjust your classification to avoid the trap. The analyzer is the decider — these are observations from prior Runs, not instructions.\n\n")
+	for _, p := range ctx.ActiveAnswerPitfalls {
+		fmt.Fprintf(&b, "- **%s** — %s\n", strings.TrimSpace(p.Name), strings.TrimSpace(p.Description))
+		if t := strings.TrimSpace(p.Trigger); t != "" {
+			fmt.Fprintf(&b, "  - Trigger: %s\n", t)
+		}
+		if c := strings.TrimSpace(p.Consequence); c != "" {
+			fmt.Fprintf(&b, "  - Typical consequence: %s\n", c)
+		}
+	}
+	if base == "" {
+		return strings.TrimRight(b.String(), "\n")
+	}
+	return strings.TrimRight(b.String(), "\n") + "\n\n" + base
 }
 
 // prependEmitRetryDirective prepends a terminal-forcing directive to

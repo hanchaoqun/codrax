@@ -215,6 +215,15 @@ type MutableState struct {
 	// prepends a "Previous attempt failed — revise" section.
 	planningHint string
 
+	// answerRetryEvents accumulates one AnswerRetryEvent per
+	// per-stage retry that fired during a read-mode Run. Append-
+	// only inside a Run; cleared by ResetAnswerRetryEvents when a
+	// fresh Run begins (orchestrator.Run defensive reset). Read at
+	// end-of-Run by the answer_reviewer dispatch (commit 51 Gap 3)
+	// to decide whether to emit a per-repo answer pitfall pattern.
+	// Empty = the Run was trivial (no retries); the reviewer skips.
+	answerRetryEvents []AnswerRetryEvent
+
 	// iterationLedger accumulates one IterationRecord per completed
 	// verify→plan retry attempt. The orchestrator's clearForReplan
 	// appends to it BEFORE resetting ChangePlan / ChangeReport, so
@@ -1662,6 +1671,66 @@ func (m *MutableState) ResetIterationLedger() {
 	m.iterationLedger = nil
 }
 
+// AnswerRetryEvent is one entry in the per-Run read-mode retry log.
+// Stage names the pipeline stage that fired the retry ("analyze" /
+// "explore" / "extract" / "finalize"); Reason is a verbatim short
+// note (the retry hint or contract-rejection summary). Read by the
+// answer_reviewer at end-of-Run to optionally distill an answer
+// pitfall.
+type AnswerRetryEvent struct {
+	Stage  string `json:"stage"`
+	Reason string `json:"reason"`
+}
+
+// AppendAnswerRetryEvent records one read-mode retry event. Called
+// by the orchestrator's per-stage retry sites (runAnalyzePhase,
+// runReadSchedulerLoop on contract failure, etc) so the end-of-Run
+// answer_reviewer dispatch sees the full pattern of what the
+// pipeline had to work through. Reason is trimmed; an empty Reason
+// is recorded as "" so the count of events is preserved as a
+// "this Run had retries" signal even when the reason text is
+// missing.
+func (m *MutableState) AppendAnswerRetryEvent(stage, reason string) {
+	if m == nil {
+		return
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.answerRetryEvents = append(m.answerRetryEvents, AnswerRetryEvent{
+		Stage:  strings.TrimSpace(stage),
+		Reason: strings.TrimSpace(reason),
+	})
+}
+
+// AnswerRetryEvents returns a copy of the per-Run read-mode retry
+// log (oldest first). Empty slice when no retries fired.
+func (m *MutableState) AnswerRetryEvents() []AnswerRetryEvent {
+	if m == nil {
+		return nil
+	}
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	if len(m.answerRetryEvents) == 0 {
+		return nil
+	}
+	out := make([]AnswerRetryEvent, len(m.answerRetryEvents))
+	copy(out, m.answerRetryEvents)
+	return out
+}
+
+// ResetAnswerRetryEvents clears the read-mode retry log. Called at
+// the start of a fresh Run (orchestrator defensive reset) so prior-
+// Run history doesn't leak. Not called between retries within the
+// same Run.
+func (m *MutableState) ResetAnswerRetryEvents() {
+	if m == nil {
+		return
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.answerRetryEvents = nil
+}
+
 // AppendPlanStageProbeReport records one plan-stage dry-run probe
 // (Module E). Called by run_tests when invoked with dry_run=true in
 // plan stage. Stored separately from Mutable.changeReport so the
@@ -2767,6 +2836,16 @@ type AgentContext struct {
 	// active pitfalls in this repo" heading so the LLM has
 	// see prior failure modes before emitting.
 	ActivePitfalls []FailurePattern `json:"-"`
+
+	// ActiveAnswerPitfalls carries the read-mode Answer Taxonomy
+	// entries (commit 51, mirror of ActivePitfalls but for the
+	// read pipeline). Populated by orchestrator.dispatchStage
+	// BEFORE the analyzer dispatches, consumed by the analyzer's
+	// BuildInitialInstruction via buildActiveAnswerPitfallsSection.
+	// Empty = no relevant patterns OR the feature is disabled.
+	// Same descriptive framing as ActivePitfalls — the analyzer
+	// reads observations, not instructions.
+	ActiveAnswerPitfalls []AnswerPattern `json:"-"`
 
 	// EmitStageRetryAttempt is the 0-based retry-attempt counter for
 	// stages whose terminal action is a structured `emit_*` tool call

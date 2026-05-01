@@ -213,6 +213,21 @@ type RuntimeSettings struct {
 	// 0 to disable decay (patterns persist forever).
 	PipelineFailureTaxonomyDecayDays *int `yaml:"pipeline_failure_taxonomy_decay_days"`
 
+	// PipelineAnswerTaxonomyEnabled gates the read-mode mirror
+	// (commit 51 Gap 3): when false, the end-of-Run answer
+	// reviewer is not dispatched and analyzer-injection is
+	// omitted. Default true.
+	PipelineAnswerTaxonomyEnabled *bool `yaml:"pipeline_answer_taxonomy_enabled"`
+
+	// PipelineAnswerTaxonomyMaxItems caps the per-repo answer
+	// taxonomy size. Default 50, mirrors the failure taxonomy
+	// cap.
+	PipelineAnswerTaxonomyMaxItems *int `yaml:"pipeline_answer_taxonomy_max_items"`
+
+	// PipelineAnswerTaxonomyDecayDays expires one-off answer
+	// patterns. Default 90, mirrors the failure taxonomy.
+	PipelineAnswerTaxonomyDecayDays *int `yaml:"pipeline_answer_taxonomy_decay_days"`
+
 	// PipelineTransientRetryBudget caps how many times a single Run
 	// will retry a stage that failed with a transient dispatch error
 	// (LLM stream stall / first-byte timeout / 429 / 5xx / network

@@ -181,6 +181,22 @@ type Orchestrator struct {
 	// flows that don't want cross-Run learning).
 	failureTaxonomyStore *FailureTaxonomyStore
 
+	// answerTaxonomyStore is the read-mode mirror (commit 51
+	// Gap 3): per-repo cache of distilled answer pitfalls.
+	// answer_reviewer emits patterns at end-of-Run;
+	// dispatchStage reads RelevantTo at analyze entry to
+	// populate AgentContext.ActiveAnswerPitfalls. Nil disables
+	// the feature.
+	answerTaxonomyStore *AnswerTaxonomyStore
+
+	// answerReviewer is the optional end-of-Run independent-
+	// review LLM (commit 51 Gap 3). Mirror of reflector but for
+	// read-mode: at successful Run end with retry events, it
+	// reads the final answer + retry history and may distill an
+	// answer pitfall to persist into answerTaxonomyStore. Nil =
+	// feature disabled (no LLM dispatch, no taxonomy growth).
+	answerReviewer AnswerReviewer
+
 	// continuationClassifier is the LLM-driven decision for
 	// "is the current REPL turn a continuation of the prior
 	// conversation?" (commit 48 read-mode Gap 1). Pre-commit-48
@@ -789,6 +805,37 @@ func (o *Orchestrator) FailureTaxonomyStore() *FailureTaxonomyStore {
 	return o.failureTaxonomyStore
 }
 
+// SetAnswerTaxonomyStore wires the per-repo answer-pitfall cache
+// (commit 51 Gap 3, read-mode mirror of failureTaxonomyStore).
+// Nil disables the feature (no end-of-Run reviewer dispatch, no
+// per-Run injection into the analyzer's planning context).
+func (o *Orchestrator) SetAnswerTaxonomyStore(s *AnswerTaxonomyStore) {
+	if o == nil {
+		return
+	}
+	o.answerTaxonomyStore = s
+}
+
+// AnswerTaxonomyStore returns the wired store (or nil). Exposed
+// for the REPL's /answer-pitfalls handler.
+func (o *Orchestrator) AnswerTaxonomyStore() *AnswerTaxonomyStore {
+	if o == nil {
+		return nil
+	}
+	return o.answerTaxonomyStore
+}
+
+// SetAnswerReviewer wires the optional end-of-Run answer reviewer
+// (commit 51 Gap 3). Nil disables the dispatch — the per-repo
+// taxonomy can still be pre-populated by another build, but no
+// new patterns will be emitted from this process.
+func (o *Orchestrator) SetAnswerReviewer(r AnswerReviewer) {
+	if o == nil {
+		return
+	}
+	o.answerReviewer = r
+}
+
 // SetBaselineCaptureEnabled toggles the pre-apply test snapshot.
 // Pointer-typed parameter so callers can distinguish "explicit
 // false" from "yaml absent"; absent falls through to code default
@@ -1139,6 +1186,11 @@ func (o *Orchestrator) Run(request string, repoRoot string, branch string) (*typ
 	// Module E: same shape for plan-stage probe reports — fresh Run
 	// starts with no probe history.
 	o.busCtx.Mutable.ResetPlanStageProbeReports()
+	// Commit 51 Gap 3: read-mode answer-retry log resets per Run.
+	// Events accumulate across retries within a Run; the end-of-Run
+	// answer_reviewer dispatch (orchestrator.runAnswerReviewerOnSuccess)
+	// reads them.
+	o.busCtx.Mutable.ResetAnswerRetryEvents()
 
 	o.busCtx.Language = o.language
 	o.busCtx.AttachedLog = o.attachedLog
@@ -1416,6 +1468,13 @@ func (o *Orchestrator) Run(request string, repoRoot string, branch string) (*typ
 		}
 	}
 
+	// Commit 51 Gap 3: end-of-Run answer-taxonomy reviewer dispatch.
+	// Fires only on a clean read-mode Run that had at least one
+	// retry event. Failure modes are intentionally swallowed — a
+	// reviewer error must NEVER mask the answer the user is about
+	// to receive. See runAnswerReviewerOnSuccess for the gates.
+	o.runAnswerReviewerOnSuccess()
+
 	o.busCtx.TaskState.IsTerminal = true
 
 	errMsg := ""
@@ -1530,6 +1589,14 @@ func (o *Orchestrator) runAnalyzePhase() (int, error) {
 			lastErr = err.Error()
 		}
 		logging.Warning("[orchestrator] analyze attempt %d/%d failed: %s", attempt+1, max, lastErr)
+		// Read-mode answer-taxonomy signal: every retry within
+		// runAnalyzePhase records an event so the end-of-Run
+		// answer_reviewer sees how hard the analyze stage worked
+		// (commit 51 Gap 3). Recorded here, not at re-dispatch
+		// time, so a successful re-attempt ALSO leaves a trace.
+		if o.busCtx != nil && o.busCtx.Mutable != nil {
+			o.busCtx.Mutable.AppendAnswerRetryEvent(string(types.StageAnalyze), lastErr)
+		}
 	}
 	return used, fmt.Errorf("analyze stage exhausted after %d attempt(s): %s", max, lastErr)
 }
@@ -4032,6 +4099,29 @@ func (o *Orchestrator) dispatchStage(stage types.PipelineStage) (*agent.StageOut
 	// inputs (AnalysisIR + AgentSettings + stage). Hardcoded inner
 	// caps that ignore the analyzer's complexity signal are the
 	// anti-pattern this block exists to prevent.
+	// Commit 51 Gap 3: read-mode Answer Taxonomy injection. The
+	// analyzer runs BEFORE AnalysisIR is set, so we cannot filter
+	// by Scenario/Shape on the first dispatch. RelevantTo("","",5)
+	// returns only unconstrained patterns (patterns whose author
+	// declared no AppliesToScenarios / AppliesToShapes), which is
+	// exactly the "broadly applicable in this repo" set we want
+	// for analyze entry. On post-analyze stages the IR-aware
+	// switch below has the Scenario/Shape and could re-inject
+	// with proper filters; we keep it analyze-only for now to
+	// match the "guide classification" purpose.
+	if o.answerTaxonomyStore != nil && stage == types.StageAnalyze {
+		scenario := ""
+		shape := ""
+		if o.busCtx.AnalysisIR != nil {
+			scenario = string(o.busCtx.AnalysisIR.RequestModel.Scenario)
+			shape = string(o.busCtx.AnalysisIR.AnswerContract.RequiredAnswerShape)
+		}
+		if pitfalls := o.answerTaxonomyStore.RelevantTo(scenario, shape, 5); len(pitfalls) > 0 {
+			agentCtx.ActiveAnswerPitfalls = pitfalls
+			logging.Debug("[orchestrator] answer_taxonomy: %d active pitfalls injected at analyze entry", len(pitfalls))
+		}
+	}
+
 	if o.busCtx.AnalysisIR != nil {
 		nSub := len(o.busCtx.AnalysisIR.RequestModel.SubTopics)
 		complexity := o.busCtx.AnalysisIR.RequestModel.Complexity
@@ -4562,4 +4652,78 @@ func formatViolationFieldTally(tally map[string]int) string {
 	}
 	b.WriteString("}")
 	return b.String()
+}
+
+// runAnswerReviewerOnSuccess dispatches the end-of-Run
+// answer-taxonomy reviewer when (a) it's a successful read-mode
+// Run, (b) the reviewer is wired, (c) the store is wired, (d)
+// the Run accumulated at least one retry event. Distilled
+// patterns are persisted via store.Append (which dedups + decays).
+//
+// All failure modes are non-fatal and intentionally swallowed —
+// the user's answer has already been computed, and a reviewer
+// error must never mask it. The only side effect on a happy path
+// is one additional Chat call + one disk write of the updated
+// taxonomy.
+func (o *Orchestrator) runAnswerReviewerOnSuccess() {
+	if o == nil || o.busCtx == nil {
+		return
+	}
+	if o.busCtx.TaskState.LastError != "" {
+		return // failed Run; reviewer doesn't get a useful answer to read
+	}
+	// Read-mode only — write modes have their own reflector path.
+	if o.busCtx.Mode != types.ModeRead && o.busCtx.Mode != "" {
+		return
+	}
+	if o.answerReviewer == nil || o.answerTaxonomyStore == nil {
+		return
+	}
+	if !o.answerTaxonomyStore.Enabled() {
+		return
+	}
+	mu := o.busCtx.Mutable
+	if mu == nil {
+		return
+	}
+	events := mu.AnswerRetryEvents()
+	if len(events) == 0 {
+		// Trivial Run (no retries) — there's nothing
+		// distinctive to abstract from. Skip silently.
+		return
+	}
+
+	in := AnswerReviewerInput{
+		OriginalRequest: mu.Objective(),
+		IterationLedger: mu.IterationLedger(),
+	}
+	if doc := mu.AnswerDocument(); doc != nil {
+		in.FinalAnswer = doc.Summary
+	}
+	if o.busCtx.AnalysisIR != nil {
+		in.Scenario = string(o.busCtx.AnalysisIR.RequestModel.Scenario)
+		in.Shape = string(o.busCtx.AnalysisIR.AnswerContract.RequiredAnswerShape)
+	}
+	for _, e := range events {
+		in.RetryEvents = append(in.RetryEvents, AnswerRetryEvent{Stage: e.Stage, Reason: e.Reason})
+	}
+
+	ctx := o.busCtx.Ctx
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	pattern, err := o.answerReviewer.ReviewAnswer(ctx, in)
+	if err != nil {
+		logging.Warning("[answer_reviewer] dispatch failed (non-fatal): %v", err)
+		return
+	}
+	if pattern == nil {
+		// Reviewer judged the difficulty too specific to abstract.
+		return
+	}
+	if _, err := o.answerTaxonomyStore.Append(pattern); err != nil {
+		logging.Warning("[answer_taxonomy] append failed (non-fatal): %v", err)
+		return
+	}
+	logging.Info("[answer_taxonomy] persisted pattern name=%q from end-of-Run reviewer", pattern.Name)
 }

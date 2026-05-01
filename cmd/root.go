@@ -226,6 +226,15 @@ var (
 	failureTaxonomyDecayDays = 0
 )
 
+// answerTaxonomyEnabled / MaxItems / DecayDays carry the
+// pipeline_answer_taxonomy_* family (commit 51 Gap 3, mirror
+// of failureTaxonomy). Same merge→wiring bridge.
+var (
+	answerTaxonomyEnabled   = true
+	answerTaxonomyMaxItems  = 0
+	answerTaxonomyDecayDays = 0
+)
+
 // maxAttachedTraceBytes is the live cap for the perf-channel
 // attachments (--htrace / --atrace / --htrace-text / --atrace-text /
 // REPL /htrace / /atrace). Mirrors maxAttachedLogBytes for the log
@@ -1582,6 +1591,16 @@ func initApp(cmd *cobra.Command, _ []string) error {
 		if rs.PipelineFailureTaxonomyDecayDays != nil {
 			failureTaxonomyDecayDays = *rs.PipelineFailureTaxonomyDecayDays
 		}
+		// Read-mode Answer Taxonomy yaml knobs (commit 51 Gap 3).
+		if rs.PipelineAnswerTaxonomyEnabled != nil {
+			answerTaxonomyEnabled = *rs.PipelineAnswerTaxonomyEnabled
+		}
+		if rs.PipelineAnswerTaxonomyMaxItems != nil {
+			answerTaxonomyMaxItems = *rs.PipelineAnswerTaxonomyMaxItems
+		}
+		if rs.PipelineAnswerTaxonomyDecayDays != nil {
+			answerTaxonomyDecayDays = *rs.PipelineAnswerTaxonomyDecayDays
+		}
 		if rs.PipelineTransientRetryBudget != nil {
 			pipelineSettings.TransientRetryBudget = *rs.PipelineTransientRetryBudget
 		}
@@ -2362,6 +2381,21 @@ func initApp(cmd *cobra.Command, _ []string) error {
 		store := orchestrator.NewFailureTaxonomyStore(flagCacheDir, slug,
 			failureTaxonomyMaxItems, failureTaxonomyDecayDays)
 		app.orch.SetFailureTaxonomyStore(store)
+	}
+
+	// Read-mode Answer Taxonomy wiring (commit 51 Gap 3, mirror).
+	// Same gates as failure taxonomy: needs slug + cacheDir +
+	// yaml-enabled. The reviewer adapter routes through
+	// providers.yaml :: agents.answer_reviewer (cheap-model
+	// recommended); falls back to the default LLM when absent.
+	if slug := repoSlug(flagRepo); slug != "" && flagCacheDir != "" && answerTaxonomyEnabled {
+		store := orchestrator.NewAnswerTaxonomyStore(flagCacheDir, slug,
+			answerTaxonomyMaxItems, answerTaxonomyDecayDays)
+		app.orch.SetAnswerTaxonomyStore(store)
+		resolved := config.ResolveProvider(providersCfg, "answer_reviewer")
+		if adapter, err := llm.NewFromConfig(resolved); err == nil {
+			app.orch.SetAnswerReviewer(orchestrator.NewAnswerReviewer(adapter))
+		}
 	}
 
 	// B0 write-mode resolution. Assemble inputs from yaml + CLI,
