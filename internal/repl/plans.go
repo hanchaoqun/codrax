@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strings"
 	"sync"
@@ -12,6 +13,17 @@ import (
 
 	"github.com/hanchaoqun/codrax/internal/types"
 )
+
+// validPlanIDPattern restricts plan IDs to ASCII alphanumerics,
+// underscore, and hyphen. Plans are addressed by ID in
+// filesystem operations (PlanStore.Load / Clear / Settle), so
+// any traversal-shaped ID ("../" / absolute path) would let a
+// caller escape planDir. Plan IDs in production are
+// "plan-<unix-nano>-<pid>", which fits this pattern by
+// construction; this regex catches the case where an attacker
+// (REPL operator, CLI flag, future MCP tool call) supplies a
+// crafted ID.
+var validPlanIDPattern = regexp.MustCompile(`^[a-zA-Z0-9_-]+$`)
 
 // PlanStore is the REPL's persistent index of ChangePlans. Single-
 // shot mode writes plan JSONs via cmd/root.go's writePlanFile and
@@ -119,7 +131,16 @@ func (s *PlanStore) Save(plan *types.ChangePlan) (string, error) {
 	// Same-id re-saves are allowed (overwrite) because a plan can
 	// be regenerated mid-session with the same ID for retry
 	// loops; only DIFFERENT-id collisions trip the invariant.
-	if existing, ok := s.findUnsettledExceptLocked(plan.ID); ok {
+	//
+	// Stage II carve-out: when this plan carries a PhaseGroupID,
+	// sibling plans in the same group are exempted. Multi-phase
+	// runs intentionally produce multiple coexisting unsettled
+	// plans (one per phase) that the operator reviews
+	// collectively via /phase show, not individually via
+	// /approve. Plans WITHOUT a PhaseGroupID still see every
+	// other plan as a blocker, so single-phase callers retain
+	// the original invariant.
+	if existing, ok := s.findUnsettledExceptLocked(plan.ID, plan.PhaseGroupID); ok {
 		return "", &ErrUnsettledPlanExists{Existing: existing}
 	}
 
@@ -167,9 +188,15 @@ func (s *PlanStore) SaveForTest(plan *types.ChangePlan) (string, error) {
 // status is unsettled and id != excludeID. Caller MUST hold s.mu.
 // Returns (PlanInfo{}, false) when no qualifying entry exists.
 //
+// sameGroupID, when non-empty, additionally exempts plans whose
+// PhaseGroupID matches — multi-phase runs (stage II) save
+// several coexisting unsettled plans within a single group, and
+// the single-pending invariant only meaningfully applies across
+// groups (or to single-phase plans).
+//
 // Probes Status via a tiny JSON struct rather than fully decoding
 // the ChangePlan — faster and tolerant to schema additions.
-func (s *PlanStore) findUnsettledExceptLocked(excludeID string) (PlanInfo, bool) {
+func (s *PlanStore) findUnsettledExceptLocked(excludeID, sameGroupID string) (PlanInfo, bool) {
 	entries, err := os.ReadDir(s.planDir)
 	if err != nil {
 		return PlanInfo{}, false
@@ -192,12 +219,17 @@ func (s *PlanStore) findUnsettledExceptLocked(excludeID string) (PlanInfo, bool)
 			continue
 		}
 		var probe struct {
-			Status string `json:"status"`
+			Status       string `json:"status"`
+			PhaseGroupID string `json:"phase_group_id,omitempty"`
 		}
 		if err := json.Unmarshal(data, &probe); err != nil {
 			continue
 		}
 		if !types.IsUnsettledStatus(probe.Status) {
+			continue
+		}
+		// Stage II exemption: same-group siblings don't block.
+		if sameGroupID != "" && probe.PhaseGroupID == sameGroupID {
 			continue
 		}
 		fi, _ := ent.Info()
@@ -235,6 +267,10 @@ func (s *PlanStore) Settle(planID, newStatus, reason string) error {
 	if !(newStatus == types.PlanStatusMerged || newStatus == types.PlanStatusRejected) {
 		return fmt.Errorf("PlanStore.Settle: %q is not a terminal status (only merged / rejected accepted)",
 			newStatus)
+	}
+	planID = strings.TrimSpace(planID)
+	if !validPlanIDPattern.MatchString(planID) {
+		return fmt.Errorf("PlanStore.Settle: invalid plan id %q", planID)
 	}
 
 	s.mu.Lock()
@@ -282,8 +318,12 @@ func (s *PlanStore) Load(id string) (*types.ChangePlan, error) {
 	if s == nil {
 		return nil, fmt.Errorf("PlanStore.Load: nil store")
 	}
-	if strings.TrimSpace(id) == "" {
+	id = strings.TrimSpace(id)
+	if id == "" {
 		return nil, fmt.Errorf("PlanStore.Load: empty id")
+	}
+	if !validPlanIDPattern.MatchString(id) {
+		return nil, fmt.Errorf("PlanStore.Load: invalid plan id %q (must match [a-zA-Z0-9_-]+)", id)
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -443,8 +483,12 @@ func (s *PlanStore) Clear(id string) error {
 	if s == nil {
 		return nil
 	}
-	if strings.TrimSpace(id) == "" {
+	id = strings.TrimSpace(id)
+	if id == "" {
 		return fmt.Errorf("PlanStore.Clear: empty id")
+	}
+	if !validPlanIDPattern.MatchString(id) {
+		return fmt.Errorf("PlanStore.Clear: invalid plan id %q", id)
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()

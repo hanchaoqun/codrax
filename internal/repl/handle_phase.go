@@ -31,6 +31,15 @@ import (
 // /phase commands surface a "no active group" info message and
 // return.
 func (r *REPL) handlePhaseCmd(line string) {
+	// /phase manipulates write-mode multi-phase state; refuse
+	// when write is gated off by codrax.yaml — same posture as
+	// /approve, /reject, /merge.
+	if !r.writeEnabled {
+		for _, line := range writeModeDisabled(r.language, "/phase", r.settingsPath) {
+			r.warn("%s\n", line)
+		}
+		return
+	}
 	if r.planGroupStore == nil {
 		r.warn("/phase disabled: no plan group store configured\n")
 		return
@@ -41,6 +50,13 @@ func (r *REPL) handlePhaseCmd(line string) {
 	}
 	// /phase show <group-id> — explicit target.
 	if showID := strings.TrimSpace(strings.TrimPrefix(rest, "show ")); showID != rest && showID != "" {
+		// Cross-command nudge: a "plan-" prefix is a ChangePlan
+		// id, not a group id. Point the operator at /plan show
+		// before the resolve fails with a generic "not found".
+		if strings.HasPrefix(showID, "plan-") {
+			r.info(fmt.Sprintf("/phase show: %q is a plan id; use `/plan show %s` instead\n", showID, showID))
+			return
+		}
 		r.phaseShow(showID)
 		return
 	}
@@ -78,6 +94,13 @@ func (r *REPL) phaseShow(groupID string) {
 	fmt.Fprintf(r.out, "  status: %s\n", g.Status)
 	if g.Goal != "" {
 		fmt.Fprintf(r.out, "  goal: %s\n", oneLine(g.Goal))
+	}
+	// Worktree path resolved from any phase plan with a
+	// non-empty WorktreePath. Useful when the operator wants to
+	// inspect the cumulative state on disk between phases or
+	// before /phase rollback.
+	if wt := r.findGroupWorktree(g); wt != "" {
+		fmt.Fprintf(r.out, "  worktree: %s\n", wt)
 	}
 	// 1-indexed for the operator-facing "active phase" line.
 	// Beyond-last (group complete) renders as "all done".
@@ -164,9 +187,12 @@ func (r *REPL) phaseNext() {
 }
 
 // phaseRollback walks the worktree back to the previous phase's
-// AppliedSHA (or removes the worktree's current commits when
-// rolling back the very first phase). Marks the current phase
-// rolled_back and transitions the group to failed.
+// AppliedSHA, then resets the active phase to Pending and the
+// group to InFlight so a subsequent /mode apply re-enters that
+// phase fresh. Resumability — not termination — is the contract
+// the operator expects from /phase rollback; marking the phase
+// or group terminal would deadlock the scheduler against its
+// own non-terminal entry condition.
 //
 // Worktree resolution: read the active phase's PlanID, load
 // that plan from PlanStore for WorktreePath. Single-phase
@@ -224,17 +250,24 @@ func (r *REPL) phaseRollback() {
 		return
 	}
 
-	// Mark the active phase rolled back.
-	now := time.Now()
+	// Reset the active phase + group so the scheduler can replay
+	// this phase. PhaseRolledBack / PlanGroupFailed are terminal
+	// statuses — using them here would lock the scheduler out of
+	// its own non-terminal entry condition and the operator would
+	// have to /reject the entire group to recover.
 	phase := &g.Phases[g.ActiveIdx]
-	phase.Status = types.PhaseRolledBack
-	phase.FinishedAt = &now
-	g.Status = types.PlanGroupFailed
+	phase.Status = types.PhasePending
+	phase.StartedAt = nil
+	phase.FinishedAt = nil
+	phase.PlanID = ""
+	phase.AppliedSHA = ""
+	phase.AcceptanceCheck = nil
+	g.Status = types.PlanGroupInFlight
 	if _, err := r.planGroupStore.Save(g); err != nil {
 		r.errorf("/phase rollback: persist failed: %v\n", err)
 		return
 	}
-	r.success(fmt.Sprintf("/phase rollback: rewound to phase %d's SHA %s; phase %d marked rolled_back, group %s\n",
+	r.success(fmt.Sprintf("/phase rollback: rewound to phase %d's SHA %s; phase %d reset to pending, group %s — replay with /mode apply\n",
 		prev.Index+1, shortSHA(prev.AppliedSHA), phase.Index+1, g.Status))
 }
 

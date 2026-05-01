@@ -154,6 +154,18 @@ type Orchestrator struct {
 	// fixtures.
 	planGroupStore PlanGroupSaver
 
+	// planSaver persists per-phase ChangePlans to the same
+	// PlanStore the REPL uses for single-phase plans. Without
+	// this, multi-phase Runs (Mode==ModeApply, no PlanPath set)
+	// emit phases whose plan files never reach disk, so /plan
+	// show / /history / /approve <id> can't see them.
+	// Single-phase Runs do not use this — they go through the
+	// REPL's post-Run auto-save path (ModePlan only) or
+	// cmd/root.go's writePlanFile (CLI). Stage II's ModeApply
+	// path bypasses both, so this exists. Nil = best-effort
+	// skip (back-compat with tests + CLI single-shot).
+	planSaver PlanSaver
+
 	// nextPhaseHint is the consume-once carry-over from the
 	// previous phase's acceptance check (NextHint field). The
 	// next phase's seedPlanningHintFromPhase reads this slot
@@ -662,6 +674,23 @@ func (o *Orchestrator) SetPlanGroupStore(s PlanGroupSaver) {
 // interface; tests may inject a mock.
 type PlanGroupSaver interface {
 	Save(g *types.PlanGroup) (string, error)
+}
+
+// PlanSaver is the orchestrator-side interface to the
+// individual-plan store. Used by runPhaseGroup to persist each
+// phase's ChangePlan so the REPL's /plan show / /history /
+// /approve <id> can resolve them. internal/repl/PlanStore
+// satisfies this interface.
+type PlanSaver interface {
+	Save(plan *types.ChangePlan) (string, error)
+}
+
+// SetPlanSaver installs the per-plan persister. Wired from
+// cmd/root.go alongside SetPlanGroupStore. Nil = no-op (single-
+// phase paths persist plans elsewhere; CLI single-shot writes
+// directly via cmd/root.go's writePlanFile).
+func (o *Orchestrator) SetPlanSaver(s PlanSaver) {
+	o.planSaver = s
 }
 
 // SetBaselineCaptureEnabled toggles the pre-apply test snapshot.

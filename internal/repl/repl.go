@@ -2134,6 +2134,13 @@ func (r *REPL) handlePlanCmd(line string) {
 	// is rebound to the named plan so subsequent /approve targets the
 	// same plan without retyping the ID.
 	if showID := strings.TrimSpace(strings.TrimPrefix(rest, "show ")); showID != rest && showID != "" {
+		// Cross-command nudge: a "group-" prefix is a PlanGroup
+		// id, not a ChangePlan id. Point the operator at /phase
+		// show before the load fails with a generic "not found".
+		if strings.HasPrefix(showID, "group-") {
+			r.info(fmt.Sprintf("plan show: %q is a plan-group id; use `/phase show %s` instead\n", showID, showID))
+			return
+		}
 		full, err := r.planStore.Load(showID)
 		if err != nil || full == nil {
 			r.errorf("plan show: %s", planNotFound(r.language, showID))

@@ -2,6 +2,9 @@ package repl
 
 import (
 	"bytes"
+	"os"
+	"os/exec"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -9,6 +12,58 @@ import (
 	"github.com/hanchaoqun/codrax/internal/render"
 	"github.com/hanchaoqun/codrax/internal/types"
 )
+
+// testWorktree is a minimal git fixture for /phase rollback
+// tests: a fresh git repo with two commits at known SHAs.
+type testWorktree struct {
+	path     string
+	firstSHA string
+}
+
+// initTestWorktree creates a git repo with two commits and
+// returns the path + first commit's SHA. Callers wire firstSHA
+// onto the previous phase's AppliedSHA so worktree.ResetHard
+// has a real target. Skips the test when git is unavailable.
+func initTestWorktree(t *testing.T) testWorktree {
+	t.Helper()
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not available")
+	}
+	dir := t.TempDir()
+	run := func(args ...string) {
+		t.Helper()
+		c := exec.Command("git", args...)
+		c.Dir = dir
+		c.Env = append(os.Environ(),
+			"GIT_AUTHOR_NAME=test", "GIT_AUTHOR_EMAIL=t@t",
+			"GIT_COMMITTER_NAME=test", "GIT_COMMITTER_EMAIL=t@t",
+		)
+		if out, err := c.CombinedOutput(); err != nil {
+			t.Fatalf("git %s failed: %v: %s", strings.Join(args, " "), err, out)
+		}
+	}
+	run("init", "-b", "main")
+	run("config", "user.email", "t@t")
+	run("config", "user.name", "test")
+	if err := os.WriteFile(filepath.Join(dir, "x.go"), []byte("package x\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	run("add", ".")
+	run("commit", "-m", "first")
+	first, err := exec.Command("git", "-C", dir, "rev-parse", "HEAD").Output()
+	if err != nil {
+		t.Fatalf("rev-parse: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "x.go"), []byte("package x\nvar V = 1\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	run("add", ".")
+	run("commit", "-m", "second")
+	return testWorktree{
+		path:     dir,
+		firstSHA: strings.TrimSpace(string(first)),
+	}
+}
 
 // newPhaseTestREPL builds a minimal REPL fixture wired to a
 // real PlanGroupStore + PlanStore so /phase commands can read
@@ -28,6 +83,7 @@ func newPhaseTestREPL(t *testing.T) (*REPL, *PlanGroupStore, *PlanStore, *bytes.
 		language:       "en",
 		planStore:      planStore,
 		planGroupStore: groupStore,
+		writeEnabled:   true,
 	}
 	return r, groupStore, planStore, out
 }
@@ -70,18 +126,43 @@ func threePhaseTestGroup(id string) *types.PlanGroup {
 
 // TestHandlePhaseCmd_NoStoreDisables pins the no-store path:
 // /phase commands surface a clear "disabled" warn rather than
-// crashing.
+// crashing. writeEnabled=true so the upstream write-gate
+// passes and the no-store branch fires.
 func TestHandlePhaseCmd_NoStoreDisables(t *testing.T) {
 	out := &bytes.Buffer{}
 	r := &REPL{
-		out:       out,
-		in:        strings.NewReader(""),
-		colorMode: render.ColorNever,
-		language:  "en",
+		out:          out,
+		in:           strings.NewReader(""),
+		colorMode:    render.ColorNever,
+		language:     "en",
+		writeEnabled: true,
 	}
 	r.handlePhaseCmd("/phase show")
 	if !strings.Contains(out.String(), "disabled") {
 		t.Errorf("expected 'disabled' warn; got %q", out.String())
+	}
+}
+
+// TestHandlePhaseCmd_WriteDisabled pins the write-gated path:
+// when codrax.yaml has write_enabled=false, /phase refuses
+// before touching state. Mirrors the gate /approve and /merge
+// already enforce.
+func TestHandlePhaseCmd_WriteDisabled(t *testing.T) {
+	out := &bytes.Buffer{}
+	r := &REPL{
+		out:          out,
+		in:           strings.NewReader(""),
+		colorMode:    render.ColorNever,
+		language:     "en",
+		writeEnabled: false,
+	}
+	r.handlePhaseCmd("/phase show")
+	got := out.String()
+	if !strings.Contains(got, "/phase") {
+		t.Errorf("expected /phase mentioned in disabled message; got %q", got)
+	}
+	if !strings.Contains(got, "write") {
+		t.Errorf("expected 'write' mentioned in disabled message; got %q", got)
 	}
 }
 
@@ -298,6 +379,127 @@ func TestHandlePhaseCmd_UnknownSubcommand(t *testing.T) {
 	r.handlePhaseCmd("/phase blarg")
 	if !strings.Contains(out.String(), "unknown") {
 		t.Errorf("expected 'unknown' warn; got %q", out.String())
+	}
+}
+
+// TestHandlePhaseCmd_RollbackResetsPhaseToPending pins the
+// resumability contract: after rollback succeeds the active
+// phase is PhasePending and the group is PlanGroupInFlight, so
+// the scheduler can re-enter that phase on the next /mode apply
+// instead of the previous deadlock where both became terminal.
+func TestHandlePhaseCmd_RollbackResetsPhaseToPending(t *testing.T) {
+	r, store, planStore, out := newPhaseTestREPL(t)
+	g := threePhaseTestGroup("group-rollback-resume")
+	// Active phase = 1 (index 1, "update ORM"). Phase 0 has
+	// AppliedSHA=abc1234567890def from the fixture so rollback
+	// has a target.
+	g.Phases[1].Status = types.PhaseInProgress
+	g.Phases[1].PlanID = "plan-phase1"
+	g.Phases[1].AppliedSHA = "deadbeef00000000"
+	now := time.Now()
+	g.Phases[1].StartedAt = &now
+	g.Phases[1].AcceptanceCheck = &types.AcceptanceCheck{Passed: false, Reasoning: "stale"}
+	if _, err := store.Save(g); err != nil {
+		t.Fatal(err)
+	}
+	// Seed a real git worktree so worktree.ResetHard succeeds —
+	// init the dir, seed a file, two commits at SHAs we know.
+	wt := initTestWorktree(t)
+	plan := &types.ChangePlan{
+		ID:           "plan-phase1",
+		Status:       types.PlanStatusApplied,
+		CreatedAt:    time.Now(),
+		WorktreePath: wt.path,
+		TargetPaths:  []string{"x.go"},
+		Changes:      []types.FileChange{{Path: "x.go", Kind: "create"}},
+	}
+	if _, err := planStore.Save(plan); err != nil {
+		t.Fatal(err)
+	}
+	// The fixture's prev.AppliedSHA (phase 0) is the literal
+	// "abc1234567890def" string, which is not a real git SHA in
+	// the seeded worktree. To actually exercise the success path
+	// we patch it to the worktree's real first-commit SHA.
+	g.Phases[0].AppliedSHA = wt.firstSHA
+	if _, err := store.Save(g); err != nil {
+		t.Fatal(err)
+	}
+
+	r.handlePhaseCmd("/phase rollback")
+	got := out.String()
+	if !strings.Contains(got, "reset to pending") {
+		t.Errorf("expected 'reset to pending' wording; got %q", got)
+	}
+	if !strings.Contains(got, "replay with /mode apply") {
+		t.Errorf("expected replay hint; got %q", got)
+	}
+	loaded, err := store.Load("group-rollback-resume")
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if loaded.Phases[1].Status != types.PhasePending {
+		t.Errorf("phase 2 should be Pending; got %q", loaded.Phases[1].Status)
+	}
+	if loaded.Status != types.PlanGroupInFlight {
+		t.Errorf("group should be InFlight; got %q", loaded.Status)
+	}
+	if loaded.Phases[1].PlanID != "" {
+		t.Errorf("PlanID should be cleared on rollback; got %q", loaded.Phases[1].PlanID)
+	}
+	if loaded.Phases[1].AppliedSHA != "" {
+		t.Errorf("AppliedSHA should be cleared on rollback; got %q", loaded.Phases[1].AppliedSHA)
+	}
+	if loaded.Phases[1].AcceptanceCheck != nil {
+		t.Errorf("AcceptanceCheck should be cleared on rollback")
+	}
+	if loaded.Phases[1].StartedAt != nil || loaded.Phases[1].FinishedAt != nil {
+		t.Errorf("phase timestamps should be cleared")
+	}
+}
+
+// TestHandlePhaseCmd_ShowRendersWorktreePath pins P2 #3 — the
+// worktree path appears in /phase show output when any phase
+// plan has a non-empty WorktreePath.
+func TestHandlePhaseCmd_ShowRendersWorktreePath(t *testing.T) {
+	r, store, planStore, out := newPhaseTestREPL(t)
+	g := threePhaseTestGroup("group-show-wt")
+	if _, err := store.Save(g); err != nil {
+		t.Fatal(err)
+	}
+	wtPath := t.TempDir()
+	plan := &types.ChangePlan{
+		ID:           "plan-phase0",
+		Status:       types.PlanStatusApplied,
+		CreatedAt:    time.Now(),
+		WorktreePath: wtPath,
+		TargetPaths:  []string{"x.go"},
+		Changes:      []types.FileChange{{Path: "x.go", Kind: "create"}},
+	}
+	if _, err := planStore.Save(plan); err != nil {
+		t.Fatal(err)
+	}
+	r.handlePhaseCmd("/phase show")
+	got := out.String()
+	if !strings.Contains(got, "worktree:") {
+		t.Errorf("expected 'worktree:' header; got %q", got)
+	}
+	if !strings.Contains(got, wtPath) {
+		t.Errorf("expected worktree path %q in output; got %q", wtPath, got)
+	}
+}
+
+// TestHandlePhaseCmd_ShowWithPlanIDHints pins P2 #5 — passing a
+// "plan-" prefixed id to /phase show points the operator at
+// /plan show instead of failing with a generic "not found".
+func TestHandlePhaseCmd_ShowWithPlanIDHints(t *testing.T) {
+	r, _, _, out := newPhaseTestREPL(t)
+	r.handlePhaseCmd("/phase show plan-1234567")
+	got := out.String()
+	if !strings.Contains(got, "/plan show") {
+		t.Errorf("expected hint pointing at /plan show; got %q", got)
+	}
+	if !strings.Contains(got, "plan-1234567") {
+		t.Errorf("expected the supplied id to be echoed; got %q", got)
 	}
 }
 

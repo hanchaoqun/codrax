@@ -933,6 +933,11 @@ func runREPL(_ *cobra.Command) error {
 	// runPhaseGroup can persist transitions.
 	planGroupStore := repl.NewPlanGroupStore(filepath.Join(runtimeAnchor, "plans"))
 	app.orch.SetPlanGroupStore(planGroupStore)
+	// Stage II: per-phase ChangePlan persistence. Multi-phase
+	// runs go through ModeApply, which bypasses the REPL's
+	// ModePlan-only auto-save and the CLI's writePlanFile path,
+	// so phase plans need their own hook into PlanStore.
+	app.orch.SetPlanSaver(planStore)
 	r := repl.New(repl.Config{
 		Runner:             app.orch,
 		Store:              store,

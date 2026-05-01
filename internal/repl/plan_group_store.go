@@ -5,12 +5,21 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strings"
 	"sync"
 
 	"github.com/hanchaoqun/codrax/internal/types"
 )
+
+// validGroupIDPattern matches the same shape PlanStore enforces
+// on plan IDs. Group IDs in production are
+// "group-<unix-nano>-<pid>" and never contain path separators;
+// this regex catches an arbitrary attacker-supplied ID before
+// the JSON path is constructed so a "../" can't escape
+// groupDir.
+var validGroupIDPattern = regexp.MustCompile(`^[a-zA-Z0-9_-]+$`)
 
 // PlanGroupStore manages on-disk PlanGroup files (stage II
 // multi-phase write-mode containers). Mirrors PlanStore's
@@ -88,6 +97,9 @@ func (s *PlanGroupStore) Load(id string) (*types.PlanGroup, error) {
 	if id == "" {
 		return nil, fmt.Errorf("PlanGroupStore.Load: empty id")
 	}
+	if !validGroupIDPattern.MatchString(id) {
+		return nil, fmt.Errorf("PlanGroupStore.Load: invalid group id %q (must match [a-zA-Z0-9_-]+)", id)
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	path := filepath.Join(s.groupDir, id+".json")
@@ -104,6 +116,9 @@ func (s *PlanGroupStore) Clear(id string) error {
 	id = strings.TrimSpace(id)
 	if id == "" {
 		return fmt.Errorf("PlanGroupStore.Clear: empty id")
+	}
+	if !validGroupIDPattern.MatchString(id) {
+		return fmt.Errorf("PlanGroupStore.Clear: invalid group id %q", id)
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()

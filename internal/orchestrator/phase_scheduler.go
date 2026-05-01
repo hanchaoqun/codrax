@@ -124,6 +124,17 @@ func (o *Orchestrator) runPhaseGroup(group *types.PlanGroup, stepsUsed *int) err
 						phase.Index, werr)
 				}
 			}
+			// Persist into PlanStore so /plan show / /history /
+			// /approve <id> can find this phase's plan. The
+			// REPL's post-Run auto-save fires only on ModePlan;
+			// stage II runs in ModeApply, so without this hop
+			// phase plans never reach disk.
+			if o.planSaver != nil {
+				if _, werr := o.planSaver.Save(plan); werr != nil {
+					logging.Warning("[orchestrator] phase %d PlanStore.Save failed: %v",
+						phase.Index, werr)
+				}
+			}
 		}
 		if o.currentIterCommitSHA != "" {
 			phase.AppliedSHA = o.currentIterCommitSHA
