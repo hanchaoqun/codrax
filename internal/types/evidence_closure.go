@@ -944,14 +944,30 @@ func (c *EvidenceClosure) ClearPendingReadFor(file string) {
 	c.pendingReads = kept
 }
 
-// DrainSatisfiedPendingReads removes every PendingRead whose File is
-// already in the current ReadSet. Returns the count of drained
-// entries. Used by preCompleteContractCheck after syncing ReadSet
-// from ground-context LineIndex: without this drain, a PendingRead
-// enqueued once by an enforcer (primary_anchor_unread, phase1_unread,
-// chain promotion, grounder reject) lingers across every iteration
-// of a single dispatch even after the LLM reads the file on its own,
-// because the only other drain site (runForcedReads) runs at window
+// DrainSatisfiedPendingReads removes every PendingRead the closure
+// can prove is now satisfied. Two semantics, decided per entry:
+//
+//   - Empty LineRanges (legacy file-level demand): drained when the
+//     File is in readSet — the historical "the LLM touched this file
+//     at all" behaviour, used by chain promotion / grounder reject /
+//     phase1_unread / primary_anchor.
+//
+//   - Non-empty LineRanges (surgical demand from the multi-path
+//     anchor gate): drained ONLY when EVERY demanded [Start, End]
+//     range is covered by merged read ranges (HasContextAroundRegion
+//     with window=0). A surgical demand for lines 100-130 must NOT
+//     be drained just because the LLM read lines 1-50 of the file —
+//     that would let a stale, larger-than-necessary demand re-raise
+//     on the next gate pass when addPendingReadLocked's
+//     (File, Origin) dedup silently drops the smaller demand.
+//
+// Returns the count of drained entries. Used by
+// preCompleteContractCheck after syncing the read snapshot from
+// ground-context LineIndex (and by the multi-path anchor gate via
+// the same call site): without this drain, a PendingRead enqueued
+// once by an enforcer lingers across every iteration of a single
+// dispatch even after the LLM reads the file on its own, because
+// the only other drain site (runForcedReads) runs at window
 // boundaries, not within a ReAct loop.
 func (c *EvidenceClosure) DrainSatisfiedPendingReads() int {
 	if c == nil {
@@ -965,7 +981,21 @@ func (c *EvidenceClosure) DrainSatisfiedPendingReads() int {
 	kept := c.pendingReads[:0]
 	drained := 0
 	for _, p := range c.pendingReads {
-		if c.readSet[c.canonicalize(p.File)] {
+		canon := c.canonicalize(p.File)
+		if !c.readSet[canon] {
+			kept = append(kept, p)
+			continue
+		}
+		// File is in readSet. Decide per surgical / legacy semantic.
+		if len(p.LineRanges) == 0 {
+			drained++
+			continue
+		}
+		// Surgical: every demanded range must be fully covered. Run
+		// the same range-walk logic HasContextAroundRegion exposes,
+		// inline here so we hold the closure mutex once for the whole
+		// drain pass instead of re-acquiring per check.
+		if c.everyRangeCoveredLocked(canon, p.LineRanges) {
 			drained++
 			continue
 		}
@@ -973,6 +1003,45 @@ func (c *EvidenceClosure) DrainSatisfiedPendingReads() int {
 	}
 	c.pendingReads = kept
 	return drained
+}
+
+// everyRangeCoveredLocked reports whether every entry in `ranges` is
+// fully inside the merged read ranges for `canon` (already-canonical
+// path key). Caller MUST hold c.mu (read or write).
+func (c *EvidenceClosure) everyRangeCoveredLocked(canon string, ranges []LineRange) bool {
+	merged := c.readRanges[canon]
+	if len(merged) == 0 {
+		return false
+	}
+	for _, r := range ranges {
+		if r.End < r.Start || r.Start <= 0 {
+			// Malformed entry — defensively treat as "not yet covered"
+			// so the PendingRead survives and re-raises with corrected
+			// data on the next gate pass.
+			return false
+		}
+		covered := r.Start
+		ok := false
+		for _, m := range merged {
+			if m.End < covered {
+				continue
+			}
+			if m.Start > covered {
+				return false
+			}
+			if m.End >= covered {
+				covered = m.End + 1
+			}
+			if covered > r.End {
+				ok = true
+				break
+			}
+		}
+		if !ok && covered <= r.End {
+			return false
+		}
+	}
+	return true
 }
 
 // AppendUnverifiedFinding records one analyzer hallucination probe
@@ -1184,10 +1253,17 @@ func (c *EvidenceClosure) AddRepair(r RepairDirective) {
 			origin = "auto_bridge." + r.Origin
 		}
 		for _, f := range r.Files {
+			// Propagate the directive's LineRanges (if any) into the
+			// bridged PendingRead so the surgical-demand semantic
+			// survives the AddRepair → addPendingReadLocked hop.
+			// Without this, any caller wiring up surgical demand via
+			// AddRepair instead of AddPendingRead would silently
+			// fall back to a full-file read in runForcedReads.
 			c.addPendingReadLocked(PendingRead{
-				File:      f,
-				Rationale: r.Rationale,
-				Origin:    origin,
+				File:       f,
+				Rationale:  r.Rationale,
+				Origin:     origin,
+				LineRanges: append([]LineRange(nil), r.LineRanges...),
 			})
 		}
 	case RepairEmitEvidence:

@@ -182,3 +182,154 @@ func TestMissingContextRegions_OddLengthIgnoresTrailing(t *testing.T) {
 		t.Errorf("odd trailing must be ignored, got %+v want %+v", got, want)
 	}
 }
+
+// TestDrainSatisfiedPendingReads_LegacyFileLevelStillWorks pins the
+// backward-compat half: a PendingRead with NO LineRanges (legacy
+// file-level demand from chain promotion / phase1_unread / etc.) is
+// drained as soon as the file enters readSet, byte-identical to the
+// pre-2026-05-01 behaviour.
+func TestDrainSatisfiedPendingReads_LegacyFileLevelStillWorks(t *testing.T) {
+	c := NewEvidenceClosure("")
+	c.AddPendingRead(PendingRead{File: "a.go", Origin: "phase1_unread", Rationale: "legacy demand"})
+	c.SetReadSet(map[string]bool{"a.go": true})
+
+	if got := c.DrainSatisfiedPendingReads(); got != 1 {
+		t.Fatalf("legacy file-level PendingRead should drain when file enters readSet; got %d drained", got)
+	}
+	if got := c.PendingReads(); len(got) != 0 {
+		t.Errorf("PendingReads should be empty after legacy drain; got %+v", got)
+	}
+}
+
+// TestDrainSatisfiedPendingReads_SurgicalDemandSurvivesIncomplete pins
+// the load-bearing surgical-aware drain contract. A PendingRead
+// carrying LineRanges=[100,130] must NOT be drained when the LLM
+// has only read [1,50] of the file — even though readSet[file]=true,
+// the actual demand (lines 100-130) remains unmet. Without this the
+// gate's surgical demand was silently lost on every refresh-then-
+// drain cycle.
+func TestDrainSatisfiedPendingReads_SurgicalDemandSurvivesIncomplete(t *testing.T) {
+	c := NewEvidenceClosure("")
+	c.AddPendingRead(PendingRead{
+		File:       "a.go",
+		Origin:     "pre_complete.multi_path_anchor",
+		Rationale:  "symbol fnX region [100, 130] unread",
+		LineRanges: []LineRange{{Start: 100, End: 130}},
+	})
+	// LLM read a different range entirely.
+	c.SetReadSet(map[string]bool{"a.go": true})
+	c.SetReadRanges(map[string][]LineRange{"a.go": {{Start: 1, End: 50}}})
+
+	if got := c.DrainSatisfiedPendingReads(); got != 0 {
+		t.Fatalf("surgical PendingRead with uncovered LineRanges must NOT drain; got %d drained", got)
+	}
+	if got := c.PendingReads(); len(got) != 1 {
+		t.Fatalf("surgical PendingRead should survive; got %+v", got)
+	}
+	if got := c.PendingReads()[0].LineRanges; len(got) != 1 || got[0].Start != 100 || got[0].End != 130 {
+		t.Errorf("LineRanges must survive the drain pass intact; got %+v", got)
+	}
+}
+
+// TestDrainSatisfiedPendingReads_SurgicalDrainsWhenFullyCovered: the
+// other half of the surgical contract — once the LLM has read every
+// demanded range (with merge across multiple reads), the surgical
+// PendingRead drains.
+func TestDrainSatisfiedPendingReads_SurgicalDrainsWhenFullyCovered(t *testing.T) {
+	c := NewEvidenceClosure("")
+	c.AddPendingRead(PendingRead{
+		File:       "a.go",
+		Origin:     "pre_complete.multi_path_anchor",
+		Rationale:  "two regions",
+		LineRanges: []LineRange{{Start: 100, End: 130}, {Start: 200, End: 230}},
+	})
+	c.SetReadSet(map[string]bool{"a.go": true})
+	// Both ranges are covered (with extra slack on each side).
+	c.SetReadRanges(map[string][]LineRange{
+		"a.go": {{Start: 90, End: 140}, {Start: 195, End: 240}},
+	})
+
+	if got := c.DrainSatisfiedPendingReads(); got != 1 {
+		t.Fatalf("surgical PendingRead should drain when every LineRange is fully covered; got %d drained", got)
+	}
+}
+
+// TestDrainSatisfiedPendingReads_SurgicalDrainsOnPartialAcrossReads
+// confirms the merge-across-reads case: two separate read calls
+// cover two separate demanded regions; both ranges qualify.
+func TestDrainSatisfiedPendingReads_SurgicalDrainsOnPartialAcrossReads(t *testing.T) {
+	c := NewEvidenceClosure("")
+	c.AddPendingRead(PendingRead{
+		File:       "a.go",
+		Origin:     "pre_complete.multi_path_anchor",
+		Rationale:  "two regions",
+		LineRanges: []LineRange{{Start: 100, End: 130}, {Start: 200, End: 230}},
+	})
+	c.SetReadSet(map[string]bool{"a.go": true})
+	// Only one range covered; the second is missing.
+	c.SetReadRanges(map[string][]LineRange{
+		"a.go": {{Start: 90, End: 140}},
+	})
+
+	if got := c.DrainSatisfiedPendingReads(); got != 0 {
+		t.Fatalf("partial coverage of surgical demand must NOT drain; got %d drained", got)
+	}
+}
+
+// TestRepairDirectiveBridge_PropagatesLineRanges: future-proofing.
+// AddRepair with Kind=RepairReadFile + LineRanges populated must
+// propagate the LineRanges into the auto-bridged PendingRead so any
+// future enforcer wiring surgical demand through AddRepair (instead
+// of the direct AddPendingRead path multipath uses) gets the same
+// surgical recovery in runForcedReads. Without this propagation the
+// bridge silently downgrades surgical demand to full-file reads.
+func TestRepairDirectiveBridge_PropagatesLineRanges(t *testing.T) {
+	c := NewEvidenceClosure("")
+	c.AddRepair(RepairDirective{
+		Kind:       RepairReadFile,
+		Files:      []string{"a.go"},
+		Rationale:  "surgical via bridge",
+		Origin:     "future_enforcer",
+		LineRanges: []LineRange{{Start: 50, End: 80}, {Start: 100, End: 120}},
+	})
+	got := c.PendingReads()
+	if len(got) != 1 {
+		t.Fatalf("AddRepair(RepairReadFile) bridge must produce exactly one PendingRead; got %d", len(got))
+	}
+	if got[0].File != "a.go" {
+		t.Errorf("File = %q, want %q", got[0].File, "a.go")
+	}
+	if got[0].Origin != "auto_bridge.future_enforcer" {
+		t.Errorf("Origin = %q, want auto_bridge.future_enforcer", got[0].Origin)
+	}
+	if len(got[0].LineRanges) != 2 {
+		t.Fatalf("bridge must propagate LineRanges (length); got %+v", got[0].LineRanges)
+	}
+	if got[0].LineRanges[0] != (LineRange{Start: 50, End: 80}) {
+		t.Errorf("LineRanges[0] = %+v, want {50, 80}", got[0].LineRanges[0])
+	}
+	if got[0].LineRanges[1] != (LineRange{Start: 100, End: 120}) {
+		t.Errorf("LineRanges[1] = %+v, want {100, 120}", got[0].LineRanges[1])
+	}
+}
+
+// TestRepairDirectiveBridge_NilLineRangesNoOp: bridging a
+// RepairReadFile without LineRanges must produce a PendingRead with
+// nil LineRanges so runForcedReads still picks the legacy full-file
+// fallback for the historical chain-promotion / grounder-reject path.
+func TestRepairDirectiveBridge_NilLineRangesNoOp(t *testing.T) {
+	c := NewEvidenceClosure("")
+	c.AddRepair(RepairDirective{
+		Kind:      RepairReadFile,
+		Files:     []string{"legacy.go"},
+		Rationale: "no surgical info",
+		Origin:    "chain_promotion",
+	})
+	got := c.PendingReads()
+	if len(got) != 1 {
+		t.Fatalf("expected 1 PendingRead; got %d", len(got))
+	}
+	if len(got[0].LineRanges) != 0 {
+		t.Errorf("nil LineRanges must propagate as nil/empty (legacy fallback); got %+v", got[0].LineRanges)
+	}
+}

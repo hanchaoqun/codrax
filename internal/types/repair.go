@@ -102,6 +102,21 @@ type RepairDirective struct {
 	Subject   string
 	Rationale string
 	Origin    string
+
+	// LineRanges (Kind == RepairReadFile only) carries surgical
+	// 1-based [Start, End] line ranges. When non-empty AND propagated
+	// through the AddRepair → addPendingReadLocked auto-bridge, the
+	// resulting PendingRead carries the surgical demand into
+	// runForcedReads (CGEC E2 Lazy Auto-Read) for per-range read_file
+	// recovery. Without this field, any future enforcer that wants to
+	// emit surgical demand via AddRepair would silently fall back to
+	// the historical full-file read, defeating the multipath gate's
+	// "surgical, no noise" rewrite.
+	//
+	// nil / empty preserves the historical full-file fallback so old
+	// callers (chain promotion / grounder reject) keep working
+	// byte-identically.
+	LineRanges []LineRange
 }
 
 // MergeRepairs deduplicates a slice of RepairDirective by Kind +
