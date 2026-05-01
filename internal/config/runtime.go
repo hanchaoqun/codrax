@@ -189,6 +189,30 @@ type RuntimeSettings struct {
 	// so a yaml typo can't unleash a 30-phase fan-out.
 	PipelineMaxPhasesPerRun *int `yaml:"pipeline_max_phases_per_run"`
 
+	// PipelineFailureTaxonomyEnabled gates stage 3's per-repo
+	// Failure Taxonomy: when false, the reflector still runs
+	// but the LLM's emit_failure_pattern emits are dropped
+	// (not persisted) and the planner's pitfalls section
+	// is omitted. Useful for short-lived sandbox runs where
+	// learned-pitfall accumulation is more noise than signal.
+	// Default true (enable cross-Run learning by default).
+	PipelineFailureTaxonomyEnabled *bool `yaml:"pipeline_failure_taxonomy_enabled"`
+
+	// PipelineFailureTaxonomyMaxItems caps the per-repo
+	// taxonomy size. Append-overflow drops the lowest-value
+	// entries (Confidence × HitCount × recency). Default 50,
+	// which fits an LLM context budget of ~3 KB when all are
+	// injected as a worst case. Higher = larger prompt cost
+	// when injecting; lower = faster forgetting.
+	PipelineFailureTaxonomyMaxItems *int `yaml:"pipeline_failure_taxonomy_max_items"`
+
+	// PipelineFailureTaxonomyDecayDays expires one-off (HitCount
+	// < 2) patterns older than N days at next Append. Default
+	// 90 — matches the heuristic that an unrepeated pattern
+	// after 3 months was probably a one-off coincidence. Set
+	// 0 to disable decay (patterns persist forever).
+	PipelineFailureTaxonomyDecayDays *int `yaml:"pipeline_failure_taxonomy_decay_days"`
+
 	// PipelineTransientRetryBudget caps how many times a single Run
 	// will retry a stage that failed with a transient dispatch error
 	// (LLM stream stall / first-byte timeout / 429 / 5xx / network

@@ -211,6 +211,21 @@ const maxAttachedLogHardCeiling = 1 << 30 // 1 GiB
 // after merging codrax.yaml.
 var maxAttachedLogBytes = defaultAttachedLogMaxBytes
 
+// failureTaxonomyEnabled / MaxItems / DecayDays carry the
+// yaml-merged knob values from the
+// pipeline_failure_taxonomy_* family across the
+// merge-block→wiring-block boundary in cmd. The store is
+// constructed in the wiring block (which has flagRepo +
+// flagCacheDir in scope but not the yaml struct); the merge
+// block has the yaml struct but not the store. Package-level
+// vars bridge the two, mirroring the same pattern
+// maxAttachedTraceBytes uses for the trace-channel cap.
+var (
+	failureTaxonomyEnabled   = true
+	failureTaxonomyMaxItems  = 0
+	failureTaxonomyDecayDays = 0
+)
+
 // maxAttachedTraceBytes is the live cap for the perf-channel
 // attachments (--htrace / --atrace / --htrace-text / --atrace-text /
 // REPL /htrace / /atrace). Mirrors maxAttachedLogBytes for the log
@@ -946,8 +961,15 @@ func runREPL(_ *cobra.Command) error {
 	// store is opt-out: the planner reads RelevantTo
 	// regardless of yaml flags, so absent operator
 	// configuration just yields an empty pitfall set.
-	if slug := repoSlug(flagRepo); slug != "" && flagCacheDir != "" {
-		store := orchestrator.NewFailureTaxonomyStore(flagCacheDir, slug, 0, 0)
+	if slug := repoSlug(flagRepo); slug != "" && flagCacheDir != "" && failureTaxonomyEnabled {
+		// yaml-merged knobs: failureTaxonomyMaxItems / DecayDays
+		// (zero falls back to store defaults 50 items / 90
+		// days). pipeline_failure_taxonomy_enabled=false short-
+		// circuits the wiring so the orchestrator's nil-store
+		// check disables both reflector persist (commit 36)
+		// AND planner injection (commit 37).
+		store := orchestrator.NewFailureTaxonomyStore(flagCacheDir, slug,
+			failureTaxonomyMaxItems, failureTaxonomyDecayDays)
 		app.orch.SetFailureTaxonomyStore(store)
 	}
 	r := repl.New(repl.Config{
@@ -976,6 +998,7 @@ func runREPL(_ *cobra.Command) error {
 		WorktreeKeepMaxCount:  app.worktreeKeepMaxCount,
 		PlanStore:             planStore,
 		PlanGroupStore:        planGroupStore,
+		FailureTaxonomy:       app.orch.FailureTaxonomyStore(),
 		AttachedLogMaxBytes:   maxAttachedLogBytes,
 		AttachedTraceMaxBytes: maxAttachedTraceBytes,
 		WriteEnabled:          app.writeEnabled,
@@ -1563,6 +1586,18 @@ func initApp(cmd *cobra.Command, _ []string) error {
 			// types.SetMaxPhases clamps to MaxPhasesPerGroupCeil
 			// internally; non-positive resets to default.
 			types.SetMaxPhases(*rs.PipelineMaxPhasesPerRun)
+		}
+		// Stage 3 yaml knobs. Pinned into package vars so the
+		// downstream FTX wiring block (which has flagRepo +
+		// flagCacheDir but no rs) can read them.
+		if rs.PipelineFailureTaxonomyEnabled != nil {
+			failureTaxonomyEnabled = *rs.PipelineFailureTaxonomyEnabled
+		}
+		if rs.PipelineFailureTaxonomyMaxItems != nil {
+			failureTaxonomyMaxItems = *rs.PipelineFailureTaxonomyMaxItems
+		}
+		if rs.PipelineFailureTaxonomyDecayDays != nil {
+			failureTaxonomyDecayDays = *rs.PipelineFailureTaxonomyDecayDays
 		}
 		if rs.PipelineTransientRetryBudget != nil {
 			pipelineSettings.TransientRetryBudget = *rs.PipelineTransientRetryBudget

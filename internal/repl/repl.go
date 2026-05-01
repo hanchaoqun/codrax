@@ -227,6 +227,12 @@ type Config struct {
 	// PlanStore.
 	PlanGroupStore *PlanGroupStore
 
+	// FailureTaxonomy is the stage-3 reader interface for
+	// /pitfalls inspection. The REPL only reads (list / clear);
+	// the orchestrator owns Append. Nil = /pitfalls reports
+	// "feature disabled."
+	FailureTaxonomy FailureTaxonomyReader
+
 	// AttachedLogMaxBytes caps every REPL attach surface (`/log
 	// <path>`, `/log` paste mode, splitPastedLog auto-route) so a
 	// runaway paste cannot balloon the REPL process memory. Mirrors
@@ -456,6 +462,11 @@ type REPL struct {
 	// planStore.
 	planGroupStore *PlanGroupStore
 
+	// failureTaxonomy is the read-side handle for /pitfalls.
+	// Same interface the orchestrator's FailureTaxonomyStore
+	// satisfies; REPL only reads (list / clear).
+	failureTaxonomy FailureTaxonomyReader
+
 	// attachedLogMaxBytes is the per-session cap on every log-channel
 	// attach surface (/log <path>, /log paste, /log append,
 	// splitPastedLog auto-route). Seeded from
@@ -533,6 +544,7 @@ func New(cfg Config) *REPL {
 		currentMode:         types.ModeRead, // B0 sticky mode; /mode rewrites
 		planStore:             cfg.PlanStore,
 		planGroupStore:        cfg.PlanGroupStore,
+		failureTaxonomy:       cfg.FailureTaxonomy,
 		attachedLogMaxBytes:   cfg.AttachedLogMaxBytes,
 		attachedTraceMaxBytes: cfg.AttachedTraceMaxBytes,
 		writeEnabled:          cfg.WriteEnabled,
@@ -1916,6 +1928,9 @@ func (r *REPL) handleSlash(line string) bool {
 		return false
 	case "/phase":
 		r.handlePhaseCmd(line)
+		return false
+	case "/pitfalls":
+		r.handlePitfallsCmd(line)
 		return false
 	case "/cancel":
 		// Slash-command fallback for terminals where Ctrl+C is

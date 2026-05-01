@@ -265,6 +265,16 @@ var slashCommands = []slashCommand{
 			{"skip <phase-idx>", "mark a phase as skipped so it is stepped over", "把指定阶段标记为跳过"},
 		},
 	},
+	{
+		Name:   "/pitfalls",
+		HelpEn: "inspect the per-repo Failure Taxonomy (learned-pitfall cache the planner reads on future plans)",
+		HelpZh: "查看本仓库累计的 Failure Taxonomy(planner 在后续 plan 时会读取这些避坑模式)",
+		Subs: []slashSubcommand{
+			{"list", "enumerate cached patterns (newest first; default subcommand)", "列出已记录的模式(最新在前;默认子命令)"},
+			{"show <id>", "show full description + trigger + consequence + scope", "查看指定模式的完整描述 / 触发条件 / 后果 / 适用范围"},
+			{"clear", "wipe the cache file (regenerable from future failures)", "清空本地缓存(后续失败时会重新积累)"},
+		},
+	},
 	{Name: "/version", HelpEn: "print build version", HelpZh: "打印构建版本"},
 	{Name: "/exit", HelpEn: "leave the REPL", HelpZh: "退出 REPL"},
 	{Name: "/quit", HelpEn: "leave the REPL", HelpZh: "退出 REPL"},
