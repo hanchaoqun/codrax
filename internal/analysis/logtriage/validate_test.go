@@ -349,13 +349,95 @@ func TestMergeBundles_SignalUnion_ErrorsConcat(t *testing.T) {
 }
 
 // TestMergeEntities_CapAndDedup verifies union semantics + cap.
+// nil oracle = pre-commit-52 byte-identical behaviour (no validation).
 func TestMergeEntities_CapAndDedup(t *testing.T) {
 	existing := []string{"a", "b"}
 	fromBundle := []string{"b", "c", "d"}
-	got := MergeEntities(existing, fromBundle)
+	got := MergeEntities(existing, fromBundle, nil)
 	want := []string{"a", "b", "c", "d"}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("got %v, want %v", got, want)
+	}
+}
+
+// stubOracle is the minimal types.SymbolOracle for the merge tests.
+// Any name in `valid` reports tier=1; everything else absent.
+type stubOracle struct {
+	valid map[string]bool
+}
+
+func (s *stubOracle) SymbolExists(name string) (bool, int) {
+	if s == nil || s.valid == nil {
+		return false, 0
+	}
+	if s.valid[name] {
+		return true, 1
+	}
+	return false, 0
+}
+
+// TestMergeEntities_OracleDropsHallucinated pins the commit-52 P1
+// contract: bundle-extracted entities the LLM made up (no matching
+// symbol in the repomap) get dropped before merge. Entities already
+// in `existing` (not from this bundle) are preserved unconditionally —
+// the oracle gate applies only to bundle additions, so a previously
+// validated entity is never retroactively invalidated.
+func TestMergeEntities_OracleDropsHallucinated(t *testing.T) {
+	oracle := &stubOracle{valid: map[string]bool{"RealHandler": true, "AlsoReal": true}}
+	existing := []string{"PreservedEntity"}
+	fromBundle := []string{"RealHandler", "HallucinatedFunc", "AlsoReal", "AnotherFake"}
+	got := MergeEntities(existing, fromBundle, oracle)
+	want := []string{"PreservedEntity", "RealHandler", "AlsoReal"}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("oracle-gated merge: got %v, want %v", got, want)
+	}
+}
+
+// TestMergeEntities_OracleNilIsPassThrough pins the back-compat
+// contract: passing nil oracle reproduces the pre-commit-52 merge
+// (no validation, every dedup-survivor merged).
+func TestMergeEntities_OracleNilIsPassThrough(t *testing.T) {
+	existing := []string{"x"}
+	fromBundle := []string{"AnyName1", "AnyName2"}
+	got := MergeEntities(existing, fromBundle, nil)
+	want := []string{"x", "AnyName1", "AnyName2"}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("nil oracle should pass through: got %v, want %v", got, want)
+	}
+}
+
+// stubTierOracle reports a configurable tier for each valid name so
+// the tier-floor gate (Tier 3+ rejected) can be exercised.
+type stubTierOracle struct {
+	tiers map[string]int
+}
+
+func (s *stubTierOracle) SymbolExists(name string) (bool, int) {
+	if s == nil || s.tiers == nil {
+		return false, 0
+	}
+	if t, ok := s.tiers[name]; ok {
+		return true, t
+	}
+	return false, 0
+}
+
+// TestMergeEntities_OracleRejectsTier3Plus pins that low-tier
+// matches don't count as validation: a Tier 4 (path-only) symbol
+// hit is dropped just like an absent symbol.
+func TestMergeEntities_OracleRejectsTier3Plus(t *testing.T) {
+	oracle := &stubTierOracle{tiers: map[string]int{
+		"Tier1Real": 1,
+		"Tier2Real": 2,
+		"Tier3Weak": 3,
+		"Tier4Weak": 4,
+	}}
+	got := MergeEntities(nil,
+		[]string{"Tier1Real", "Tier2Real", "Tier3Weak", "Tier4Weak"},
+		oracle)
+	want := []string{"Tier1Real", "Tier2Real"}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("tier-3+ rejection: got %v, want %v", got, want)
 	}
 }
 

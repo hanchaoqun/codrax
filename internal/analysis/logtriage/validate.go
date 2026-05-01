@@ -189,7 +189,20 @@ func MergeBundles(parts []*types.LogBundle, rawLogBytes int) *types.LogBundle {
 // entity list with the log_triage bundle's Entities slice. First-seen
 // order is preserved; duplicates dropped by equality; caller does not
 // need to pre-dedup either slice.
-func MergeEntities(existing, fromBundle []string) []string {
+//
+// oracle (commit 52 P1) is the optional repo-symbol validator: when
+// non-nil, bundle-extracted entities whose name does not resolve to
+// a real symbol in the repo are dropped before merge. nil oracle =
+// pre-commit-52 behaviour byte-identical (every bundle entity that
+// dedups into the existing list is kept). The check is single-pass
+// O(n) lookups against an in-memory hash; cost is negligible.
+//
+// Tier filter: an entity that resolves only at parse_tier >= 3
+// (path-only / regex-only fallback) is also dropped — those tiers
+// don't carry enough signal to call the symbol "validated", and a
+// triage LLM that hallucinates a name might land on a Tier 4 stub
+// by coincidence. Tier 1-2 hits are kept.
+func MergeEntities(existing, fromBundle []string, oracle types.SymbolOracle) []string {
 	if len(fromBundle) == 0 {
 		return existing
 	}
@@ -206,6 +219,14 @@ func MergeEntities(existing, fromBundle []string) []string {
 		}
 		if len(out) >= cap {
 			break
+		}
+		// Oracle gate: drop entities the LLM extracted that do not
+		// name a real Tier 1-2 symbol in this repo. Tier 3+ matches
+		// are too low-signal to count as validation.
+		if oracle != nil {
+			if found, tier := oracle.SymbolExists(e); !found || tier >= 3 {
+				continue
+			}
 		}
 		seen[e] = true
 		out = append(out, e)

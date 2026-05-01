@@ -979,8 +979,12 @@ func buildAnalysisIR(ctx *types.AgentContext) (*types.AnalysisIR, error) {
 	if logBundle != nil {
 		before := len(rm.AnalyzerHints.Entities)
 		if shouldMergeLogTriageEntities(logBundle) {
+			// Commit 52 P1: oracle gates entity merge against repomap
+			// symbol set. nil graph (single-shot CLI without scan) =
+			// nil oracle = pre-commit-52 byte-identical behaviour.
+			oracle := repomap.NewSymbolOracle(graph)
 			rm.AnalyzerHints.Entities = logtriage.MergeEntities(
-				rm.AnalyzerHints.Entities, logBundle.Entities)
+				rm.AnalyzerHints.Entities, logBundle.Entities, oracle)
 		}
 		logging.Info("[analyzer] log-triage: lang=%s errors=%d resolved=%d entities +%d intent=%q",
 			logBundle.Meta.Lang, len(logBundle.Errors),
@@ -1002,8 +1006,10 @@ func buildAnalysisIR(ctx *types.AgentContext) (*types.AnalysisIR, error) {
 	}
 	if perfBundle != nil && len(perfBundle.Entities) > 0 {
 		before := len(rm.AnalyzerHints.Entities)
+		// Commit 52 P1: same oracle gate for perf-triage entities.
+		oracle := repomap.NewSymbolOracle(graph)
 		rm.AnalyzerHints.Entities = logtriage.MergeEntities(
-			rm.AnalyzerHints.Entities, perfBundle.Entities)
+			rm.AnalyzerHints.Entities, perfBundle.Entities, oracle)
 		logging.Info("[analyzer] perf-triage: source=%s frames=%d janks=%d stalls=%d entities +%d intent=%q",
 			perfBundle.Meta.Source, len(perfBundle.Frames), len(perfBundle.Janks),
 			len(perfBundle.Stalls),
