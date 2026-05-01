@@ -333,3 +333,84 @@ func TestRepairDirectiveBridge_NilLineRangesNoOp(t *testing.T) {
 		t.Errorf("nil LineRanges must propagate as nil/empty (legacy fallback); got %+v", got[0].LineRanges)
 	}
 }
+
+// TestHasContextAroundRegion_EOFClampGrantsCoverage: when
+// FileTotalLines is known, a context window padded past EOF (e.g.
+// symbol at line 8 + window 15 in a 10-line file → asks [1, 23])
+// must NOT block coverage just because lines [11, 23] are
+// unreadable. The clamp treats want.End as min(want.End,
+// totalLines), so reading [1, 10] of a 10-line file fully satisfies
+// the demand. Without this clamp the demand is uncoverable forever
+// and the gate's drain → re-raise loop never converges.
+func TestHasContextAroundRegion_EOFClampGrantsCoverage(t *testing.T) {
+	c := NewEvidenceClosure("")
+	c.SetReadRanges(map[string][]LineRange{
+		"tiny.go": {{Start: 1, End: 10}},
+	})
+	c.SetFileTotalLines(map[string]int{"tiny.go": 10})
+	// Symbol at line 8, window 15 → asks [-7, 23] → clamped to
+	// [1, 10]. File covers [1, 10]. Should be covered.
+	if !c.HasContextAroundRegion("tiny.go", 8, 8, 15) {
+		t.Errorf("EOF-clamped region must be considered covered when the in-file portion is read")
+	}
+}
+
+// TestHasContextAroundRegion_EOFClampNoTotal preserves the legacy
+// semantic: when FileTotalLines is unknown (banner missing /
+// total == 0), no clamp applies and an over-EOF window genuinely
+// fails coverage. This is the "we cannot prove it's covered"
+// degraded mode.
+func TestHasContextAroundRegion_EOFClampNoTotal(t *testing.T) {
+	c := NewEvidenceClosure("")
+	c.SetReadRanges(map[string][]LineRange{
+		"unknown.go": {{Start: 1, End: 10}},
+	})
+	// No SetFileTotalLines call.
+	if c.HasContextAroundRegion("unknown.go", 8, 8, 15) {
+		t.Errorf("without total, over-EOF window should NOT be coverable (legacy fallback)")
+	}
+}
+
+// TestMissingContextRegions_EOFClampShrinksDemand: the demanded
+// LineRange returned to the multipath gate must be clamped to
+// FileTotalLines so the surgical demand never names lines past EOF.
+// Without this, the gate would request unreadable lines and the
+// closure could never drain the demand even after an honest
+// forced-read consumed every available line.
+func TestMissingContextRegions_EOFClampShrinksDemand(t *testing.T) {
+	c := NewEvidenceClosure("")
+	c.SetFileTotalLines(map[string]int{"tiny.go": 10})
+	// Symbol [8, 8] with window 15 against an empty closure.
+	got := c.MissingContextRegions("tiny.go", []int{8, 8}, 15)
+	if len(got) != 1 {
+		t.Fatalf("expected one demand range, got %+v", got)
+	}
+	if got[0].Start != 1 || got[0].End != 10 {
+		t.Errorf("EOF-clamped demand = [%d, %d], want [1, 10]", got[0].Start, got[0].End)
+	}
+}
+
+// TestDrainSatisfiedPendingReads_EOFClampDrainsSurgical pins the
+// drain-side EOF clamp: a PendingRead whose LineRanges include the
+// over-EOF tail of a previously-clamped demand must drain once the
+// in-file portion is covered. This is the round-trip integration:
+// gate produces clamped demand → forced-read covers what exists →
+// drain succeeds → no infinite re-raise.
+func TestDrainSatisfiedPendingReads_EOFClampDrainsSurgical(t *testing.T) {
+	c := NewEvidenceClosure("")
+	c.AddPendingRead(PendingRead{
+		File:       "tiny.go",
+		Origin:     "pre_complete.multi_path_anchor",
+		Rationale:  "symbol fnX at line 8, window padded past EOF",
+		LineRanges: []LineRange{{Start: 1, End: 23}}, // raw demand including over-EOF tail
+	})
+	c.SetReadSet(map[string]bool{"tiny.go": true})
+	c.SetReadRanges(map[string][]LineRange{
+		"tiny.go": {{Start: 1, End: 10}}, // every readable line covered
+	})
+	c.SetFileTotalLines(map[string]int{"tiny.go": 10})
+
+	if got := c.DrainSatisfiedPendingReads(); got != 1 {
+		t.Fatalf("EOF-clamped surgical PendingRead must drain when in-file portion is covered; got %d drained", got)
+	}
+}

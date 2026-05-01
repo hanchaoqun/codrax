@@ -3,8 +3,10 @@ package orchestrator
 import (
 	"encoding/json"
 	"fmt"
+	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/hanchaoqun/codrax/internal/logging"
@@ -159,6 +161,7 @@ func (o *Orchestrator) runForcedReads() int {
 		// primary_anchor) keep working byte-identically.
 		var perRangeResults []types.ToolResult
 		var firstErr error
+		var lastSummary string
 		if len(p.LineRanges) > 0 {
 			for _, r := range p.LineRanges {
 				if r.End < r.Start || r.Start <= 0 {
@@ -171,6 +174,7 @@ func (o *Orchestrator) runForcedReads() int {
 					if firstErr == nil {
 						firstErr = rangeErr
 					}
+					lastSummary = rangeResult.Summary
 					logging.Warning("[CGEC] E2 surgical forced-read range failed: file=%s offset=%d limit=%d err=%v summary=%s",
 						p.File, offset, limit, rangeErr, rangeResult.Summary)
 					continue
@@ -179,9 +183,7 @@ func (o *Orchestrator) runForcedReads() int {
 				perRangeResults = append(perRangeResults, rangeResult)
 			}
 			if len(perRangeResults) == 0 {
-				if firstErr != nil {
-					logging.Warning("[CGEC] E2 surgical forced-read failed for every range on file=%s (no successful read); err=%v", p.File, firstErr)
-				}
+				abandonUnrecoverableForcedRead(o.busCtx, closure, p.File, p.Origin, firstErr, lastSummary, "surgical")
 				continue
 			}
 		} else {
@@ -201,6 +203,7 @@ func (o *Orchestrator) runForcedReads() int {
 			}
 			if err != nil || !result.Success {
 				logging.Warning("[CGEC] E2 forced-read failed: file=%s err=%v summary=%s", p.File, err, result.Summary)
+				abandonUnrecoverableForcedRead(o.busCtx, closure, p.File, p.Origin, err, result.Summary, "full")
 				continue
 			}
 			result.Summary = "[forced_read] " + result.Summary
@@ -251,6 +254,251 @@ func (o *Orchestrator) runForcedReads() int {
 		})
 	}
 	return success
+}
+
+// abandonUnrecoverableForcedRead drops a PendingRead the framework
+// cannot read (typically because the path does not exist, the
+// process lacks permission, the path is a directory / broken
+// symlink, etc.) and replaces it with a non-blocking
+// RepairExpandSearch advisory so the LLM is told the framework gave
+// up but the gate still sees the demand absorbed (no infinite drain
+// → re-raise loop burning the stall budget).
+//
+// Detection runs an os.Stat probe on both the verbatim path AND the
+// RepoRoot-joined path so the diagnosis is independent of how the
+// read_file tool wrapped the underlying OS error (it returns
+// Success=false + a string-ified Summary with err nil-ed out, so
+// the original *os.PathError is not available to classify on).
+// Transient errors (the file genuinely exists + is readable but the
+// read raced) deliberately fall through to the legacy "leave the
+// PendingRead in place; let the I4 stall detector force-complete
+// after K identical fingerprints" path so flaky filesystems don't
+// lose unique demands on the first failure.
+//
+// Cross-platform: os.IsNotExist / os.IsPermission classify both
+// POSIX errnos (ENOENT / EACCES on Linux + macOS) AND Windows
+// errors (ERROR_FILE_NOT_FOUND / ERROR_PATH_NOT_FOUND /
+// ERROR_ACCESS_DENIED) via the runtime's per-OS adapter — no
+// build-tag branching needed in this code. IsDir() detects "path
+// is a directory" uniformly on every OS.
+func abandonUnrecoverableForcedRead(busCtx *types.BusContext, closure *types.EvidenceClosure, file, origin string, ioErr error, summary, mode string) {
+	verdict, statErr, isDir := classifyForcedReadFailure(busCtx, file, ioErr)
+	if !verdict {
+		// Transient failure — keep the PendingRead, the next
+		// runForcedReads invocation will retry.
+		return
+	}
+	cause := summarizeReadFailure(statErr, isDir, ioErr, summary)
+	closure.ClearPendingReadFor(file)
+	closure.AddRepair(types.RepairDirective{
+		Kind:      types.RepairExpandSearch,
+		Files:     []string{file},
+		Rationale: fmt.Sprintf("framework cannot read primary anchor `%s` (%s mode): %s. Either grep for the question entities elsewhere if this anchor is essential, or judge it unrelated to the question and proceed with completion.", file, mode, cause),
+		Origin:    "forced_read.unrecoverable." + origin,
+	})
+	logging.Error("[CGEC] E2 forced-read abandoned (unrecoverable) file=%s mode=%s origin=%s cause=%s ioErr=%v", file, mode, origin, cause, ioErr)
+}
+
+// classifyForcedReadFailure runs cross-platform readability probes
+// and returns (unrecoverable, probeErr, isDir) so the caller can
+// both decide WHETHER to abandon and produce a concrete cause for
+// the LLM-facing rationale.
+//
+// Probe shape per path: Stat first (cheap, returns IsDir + the
+// inode-level errors ENOENT / EACCES on dir lookup), then Open
+// (catches "file exists in inode table but process lacks read
+// permission" — the chmod 000 case where Stat succeeds because
+// the parent dir is readable but the file itself is unreadable).
+// File descriptors from Open are closed immediately.
+//
+// Path resolution mirrors read_file's own chain: try verbatim
+// first, then RepoRoot-joined. Both probes must agree the path is
+// structurally bad before we abandon — a single transient probe
+// failure does not lose the PendingRead.
+//
+// Cross-platform notes:
+//   - Linux:   os.IsNotExist matches ENOENT, os.IsPermission matches
+//              EACCES / EPERM
+//   - macOS:   POSIX-equivalent errnos; behaves identically
+//   - Windows: ERROR_FILE_NOT_FOUND / ERROR_PATH_NOT_FOUND map to
+//              IsNotExist; ERROR_ACCESS_DENIED maps to IsPermission;
+//              os.FileInfo.IsDir works on NTFS / ReFS uniformly
+//
+// Returns the FIRST informative probe error for rationale
+// (typically the verbatim probe's; falls back to the joined probe
+// if verbatim succeeded but the joined didn't).
+func classifyForcedReadFailure(busCtx *types.BusContext, file string, ioErr error) (unrecoverable bool, probeErr error, isDir bool) {
+	if file == "" {
+		return true, fmt.Errorf("empty file path"), false
+	}
+	verbatimVerdict, verbatimProbeErr, verbatimIsDir := probeReadability(file)
+	if verbatimIsDir {
+		return true, verbatimProbeErr, true
+	}
+	if verbatimVerdict == probeReadable {
+		// Verbatim path is genuinely readable. ioErr was transient
+		// (read raced with delete-then-restore, NFS hiccup). Keep
+		// the PendingRead.
+		return false, nil, false
+	}
+	// Verbatim probe says unreadable for one reason or another.
+	// Cross-check the joined fallback before abandoning so a
+	// misconfigured RepoRoot+repo-relative-path combo doesn't lose
+	// PendingReads when the joined path actually resolves.
+	if busCtx != nil && busCtx.RepoRoot != "" {
+		joined := filepath.Join(busCtx.RepoRoot, file)
+		joinedVerdict, joinedProbeErr, joinedIsDir := probeReadability(joined)
+		if joinedIsDir {
+			return true, joinedProbeErr, true
+		}
+		if joinedVerdict == probeReadable {
+			// Joined fallback works. The tool's own resolution chain
+			// would have succeeded — ioErr is transient.
+			return false, nil, false
+		}
+		// Both unreadable. Pick the most informative error:
+		// EACCES > IsDir-on-the-other-probe > ENOENT > generic.
+		// Permission-denied is more diagnostic than not-found
+		// because the LLM learns "file exists but unreadable" vs
+		// "file does not exist" — actionable distinction.
+		chosen := pickMostInformativeError(verbatimProbeErr, joinedProbeErr)
+		if verbatimVerdict == probeStructurallyBad || joinedVerdict == probeStructurallyBad {
+			return true, chosen, false
+		}
+		// Both probes returned an unclassified error (could be NFS
+		// blip on both). Be conservative — don't abandon.
+		return false, chosen, false
+	}
+	// No RepoRoot fallback available. Verbatim verdict is final.
+	if verbatimVerdict == probeStructurallyBad {
+		return true, verbatimProbeErr, false
+	}
+	return false, verbatimProbeErr, false
+}
+
+// probeVerdict labels the outcome of a readability probe.
+type probeVerdict int
+
+const (
+	probeReadable        probeVerdict = iota // file exists, regular file, opens for read
+	probeStructurallyBad                     // ENOENT / EACCES / EISDIR (handled separately) — won't recover on retry
+	probeUnclassified                        // transient or unknown error — caller should not abandon
+)
+
+// pickMostInformativeError ranks two probe errors by diagnostic
+// value for the LLM-facing rationale. Permission-denied beats
+// not-found beats anything else, because "file exists but
+// unreadable" is more actionable than "file does not exist" — the
+// LLM learns to grep elsewhere or judge the anchor unrelated.
+//
+// Each input may be nil (one probe succeeded structurally but the
+// outer classifier still picked a "both unreadable" branch via
+// other state); nil ranks lowest.
+func pickMostInformativeError(a, b error) error {
+	score := func(e error) int {
+		if e == nil {
+			return 0
+		}
+		if os.IsPermission(e) {
+			return 3
+		}
+		if os.IsNotExist(e) {
+			return 2
+		}
+		return 1
+	}
+	if score(a) >= score(b) {
+		return a
+	}
+	return b
+}
+
+// probeReadability runs the cross-platform Stat + Open probe pair
+// for a single path. Returns the verdict, the most informative
+// error for diagnosis, and an isDir flag.
+//
+// Open is needed in addition to Stat because chmod 000 (Linux/macOS)
+// or NTFS ACL deny-read (Windows) leaves Stat able to read the
+// inode metadata via a readable parent directory while os.ReadFile
+// fails with permission denied. Stat alone would falsely classify
+// such a file as "readable" and runForcedReads would loop.
+func probeReadability(path string) (probeVerdict, error, bool) {
+	info, statErr := os.Stat(path)
+	if info != nil && info.IsDir() {
+		return probeStructurallyBad, statErr, true
+	}
+	if statErr != nil {
+		if os.IsNotExist(statErr) || os.IsPermission(statErr) {
+			return probeStructurallyBad, statErr, false
+		}
+		return probeUnclassified, statErr, false
+	}
+	// Stat says regular file exists. Confirm read access via Open.
+	f, openErr := os.Open(path)
+	if openErr == nil {
+		_ = f.Close()
+		return probeReadable, nil, false
+	}
+	if os.IsNotExist(openErr) || os.IsPermission(openErr) {
+		return probeStructurallyBad, openErr, false
+	}
+	return probeUnclassified, openErr, false
+}
+
+// isStructurallyUnrecoverableReadFailure is the boolean wrapper
+// kept for the existing test surface that calls it directly.
+// Internally delegates to classifyForcedReadFailure.
+func isStructurallyUnrecoverableReadFailure(busCtx *types.BusContext, file string, ioErr error) bool {
+	verdict, _, _ := classifyForcedReadFailure(busCtx, file, ioErr)
+	return verdict
+}
+
+// summarizeReadFailure renders a one-line LLM-facing description of
+// the failure for the advisory rationale. Prefers the stat-probe
+// error (statErr) over the read_file tool's wrapped err (ioErr),
+// because read_file converts every os.ReadFile failure into a
+// string-ified Summary with err nil-ed out, losing the *os.PathError
+// the os.IsNotExist / os.IsPermission classifiers operate on.
+//
+// Cross-platform classification uses os.IsNotExist /
+// os.IsPermission which the Go runtime adapts per-OS:
+//   - Linux:   ENOENT / EACCES / EPERM
+//   - macOS:   ENOENT / EACCES / EPERM (POSIX-equivalent)
+//   - Windows: ERROR_FILE_NOT_FOUND / ERROR_PATH_NOT_FOUND /
+//              ERROR_ACCESS_DENIED
+//
+// Falls back to a generic message + the tool's wrapped summary
+// (with the "read failed: " prefix stripped) when we can't classify.
+func summarizeReadFailure(statErr error, isDir bool, ioErr error, summary string) string {
+	if isDir {
+		return "path is a directory, not a file"
+	}
+	for _, candidate := range []error{statErr, ioErr} {
+		if candidate == nil {
+			continue
+		}
+		switch {
+		case os.IsNotExist(candidate):
+			return "file not found"
+		case os.IsPermission(candidate):
+			return "permission denied"
+		}
+	}
+	if ioErr != nil {
+		return strings.TrimSpace(ioErr.Error())
+	}
+	if statErr != nil {
+		return strings.TrimSpace(statErr.Error())
+	}
+	if s := strings.TrimSpace(summary); s != "" {
+		// Tool error summaries already start with "read failed: ..."
+		// — surface just the cause portion for the LLM.
+		if idx := strings.Index(s, ": "); idx > 0 && idx < len(s)-2 {
+			return s[idx+2:]
+		}
+		return s
+	}
+	return "framework read failed for an unknown reason"
 }
 
 // executeSurgicalReadFile runs the read_file tool with explicit

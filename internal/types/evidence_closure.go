@@ -610,6 +610,24 @@ func (c *EvidenceClosure) HasContextAroundRegion(file string, start, end, window
 	}
 	c.mu.RLock()
 	defer c.mu.RUnlock()
+	// EOF clamp: when the file's banner-derived total line count is
+	// known, clamp want.End to the total. Without this, a window that
+	// padded past EOF (e.g. symbol at line 8 + window 15 in a 10-line
+	// file → want.End = 23) is uncoverable by any read because the
+	// banner stops at line 10, leaving the [11, 23] tail permanently
+	// uncovered. The next drain → re-raise cycle would loop until the
+	// stall detector force-completes. Unknown total (== 0) preserves
+	// the legacy "no clamp" behaviour so callers without banner totals
+	// keep working byte-identically.
+	if total := c.fileTotalLines[file]; total > 0 && want.End > total {
+		want.End = total
+	}
+	if want.End < want.Start {
+		// Region is entirely past EOF after clamp — defensively treat
+		// as not coverable so the caller does not silently grant
+		// satisfaction.
+		return false
+	}
 	ranges := c.readRanges[file]
 	if len(ranges) == 0 {
 		return false
@@ -664,6 +682,7 @@ func (c *EvidenceClosure) MissingContextRegions(file string, regions []int, wind
 	}
 	c.mu.RLock()
 	covered := cloneLineRanges(c.readRanges[file])
+	totalLines := c.fileTotalLines[file]
 	c.mu.RUnlock()
 
 	demand := make([]LineRange, 0)
@@ -676,6 +695,21 @@ func (c *EvidenceClosure) MissingContextRegions(file string, regions []int, wind
 		want := LineRange{Start: start - window, End: end + window}
 		if want.Start < 1 {
 			want.Start = 1
+		}
+		// EOF clamp: when the file's banner-derived total line count
+		// is known, clamp want.End to the total so the demand never
+		// names lines past EOF. Without this, a window like [80, 115]
+		// against a 100-line file would never be satisfied — read_file
+		// returns lines 80-100 only, the [101, 115] tail stays
+		// uncovered, and the next drain → re-raise cycle loops until
+		// the stall detector force-completes. Unknown total (== 0)
+		// preserves the legacy "no clamp" behaviour for callers
+		// without banner totals.
+		if totalLines > 0 && want.End > totalLines {
+			want.End = totalLines
+		}
+		if want.End < want.Start {
+			continue
 		}
 		demand = append(demand, subtractCoveredRanges(want, covered)...)
 	}
@@ -1008,17 +1042,35 @@ func (c *EvidenceClosure) DrainSatisfiedPendingReads() int {
 // everyRangeCoveredLocked reports whether every entry in `ranges` is
 // fully inside the merged read ranges for `canon` (already-canonical
 // path key). Caller MUST hold c.mu (read or write).
+//
+// EOF clamp: when fileTotalLines[canon] is known, each demand range's
+// End is treated as min(r.End, total) before checking — a demand
+// that overflows EOF (e.g. ±15 ctx around a symbol near end-of-file)
+// is satisfied as soon as the in-file portion is covered, never
+// stuck waiting for unreadable lines past EOF. Mirrors the same
+// clamp in HasContextAroundRegion + MissingContextRegions for
+// cross-method consistency.
 func (c *EvidenceClosure) everyRangeCoveredLocked(canon string, ranges []LineRange) bool {
 	merged := c.readRanges[canon]
 	if len(merged) == 0 {
 		return false
 	}
+	totalLines := c.fileTotalLines[canon]
 	for _, r := range ranges {
 		if r.End < r.Start || r.Start <= 0 {
 			// Malformed entry — defensively treat as "not yet covered"
 			// so the PendingRead survives and re-raises with corrected
 			// data on the next gate pass.
 			return false
+		}
+		end := r.End
+		if totalLines > 0 && end > totalLines {
+			end = totalLines
+		}
+		if end < r.Start {
+			// Entire range past EOF after clamp — vacuously covered
+			// (nothing to read). Skip without failing.
+			continue
 		}
 		covered := r.Start
 		ok := false
@@ -1032,12 +1084,12 @@ func (c *EvidenceClosure) everyRangeCoveredLocked(canon string, ranges []LineRan
 			if m.End >= covered {
 				covered = m.End + 1
 			}
-			if covered > r.End {
+			if covered > end {
 				ok = true
 				break
 			}
 		}
-		if !ok && covered <= r.End {
+		if !ok && covered <= end {
 			return false
 		}
 	}

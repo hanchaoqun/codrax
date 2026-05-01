@@ -3,6 +3,7 @@ package orchestrator
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -256,6 +257,134 @@ func testMin(a, b int) int {
 	return b
 }
 
+// TestRunForcedReads_EmptyFile_LegacyPath_ConvergesViaFullyRead
+// pins the empty-file integration: a 0-byte file demanded via the
+// legacy full-file path is read once, the closure records the
+// read_file banner's "showing all 1 lines (0 bytes)" or "showing
+// lines 1-1 of 1 total" shape with totalLines=1, and HasFullyRead
+// short-circuits any subsequent gate pass. No infinite loop.
+func TestRunForcedReads_EmptyFile_LegacyPath_ConvergesViaFullyRead(t *testing.T) {
+	o := newTestOrch(t)
+	repoRoot := o.busCtx.RepoRoot
+	relPath := "empty.txt"
+	if err := os.WriteFile(filepath.Join(repoRoot, relPath), nil, 0o644); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	closure := o.busCtx.Mutable.EvidenceClosure()
+	closure.AddPendingRead(types.PendingRead{
+		File:      relPath,
+		Origin:    "test.empty",
+		Rationale: "demand triggered against empty file",
+	})
+
+	if got := o.runForcedReads(); got != 1 {
+		t.Fatalf("empty-file forced-read should still report success (read_file does not fail on 0 bytes); got %d", got)
+	}
+	results := o.busCtx.Mutable.DispatchToolResults()
+	if len(results) != 1 {
+		t.Fatalf("expected exactly 1 forced-read result for the empty file, got %d", len(results))
+	}
+	// PendingRead is cleared (verified by ClearPendingReadFor in
+	// runForcedReads) so subsequent gate passes see no demand.
+	if got := closure.PendingReads(); len(got) != 0 {
+		t.Errorf("PendingReads must be empty after successful empty-file forced-read; got %+v", got)
+	}
+}
+
+// TestRunForcedReads_NotExist_AbandonsAndAdvises pins the
+// permission/missing-file abandonment contract: a forced-read on a
+// path that does not exist must NOT loop forever (legacy bounded
+// behaviour was 3 stall iterations). The new abandon path detects
+// os.IsNotExist via os.Stat probe and clears the PendingRead +
+// emits a RepairExpandSearch advisory so the LLM is informed and
+// the gate budget is freed for productive work.
+func TestRunForcedReads_NotExist_AbandonsAndAdvises(t *testing.T) {
+	o := newTestOrch(t)
+	closure := o.busCtx.Mutable.EvidenceClosure()
+	const relPath = "definitely/does/not/exist.go"
+	closure.AddPendingRead(types.PendingRead{
+		File:       relPath,
+		Origin:     "test.missing",
+		Rationale:  "demand against ENOENT path",
+		LineRanges: []types.LineRange{{Start: 100, End: 130}}, // surgical demand
+	})
+
+	got := o.runForcedReads()
+	if got != 0 {
+		t.Errorf("ENOENT forced-read must NOT count as success; got %d", got)
+	}
+	if pending := closure.PendingReads(); len(pending) != 0 {
+		t.Errorf("ENOENT path's PendingRead must be cleared by abandon path; got %+v", pending)
+	}
+	advisoryFound := false
+	for _, r := range closure.ActiveRepairs() {
+		if r.Origin == "forced_read.unrecoverable.test.missing" && r.Kind == types.RepairExpandSearch {
+			advisoryFound = true
+			if !strings.Contains(r.Rationale, "framework cannot read") {
+				t.Errorf("advisory rationale should explain 'framework cannot read'; got: %s", r.Rationale)
+			}
+			if !strings.Contains(r.Rationale, "file not found") {
+				t.Errorf("advisory rationale should classify the failure (file not found); got: %s", r.Rationale)
+			}
+		}
+	}
+	if !advisoryFound {
+		t.Fatalf("expected RepairExpandSearch advisory with origin forced_read.unrecoverable.test.missing; got %+v", closure.ActiveRepairs())
+	}
+}
+
+// TestRunForcedReads_PermissionDenied_AbandonsWithCorrectRationale
+// pins the EACCES branch of the abandon contract: a real file the
+// process has no read permission for is abandoned with the failure
+// classified as "permission denied" in the LLM-facing advisory.
+//
+// Skipped on Windows / when the test runs as root because chmod 0
+// semantics differ.
+func TestRunForcedReads_PermissionDenied_AbandonsWithCorrectRationale(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("permission-denied semantics differ on Windows")
+	}
+	if os.Geteuid() == 0 {
+		t.Skip("test runs as root; chmod 0 does not deny read")
+	}
+	o := newTestOrch(t)
+	repoRoot := o.busCtx.RepoRoot
+	relPath := "no_perms.go"
+	abs := filepath.Join(repoRoot, relPath)
+	if err := os.WriteFile(abs, []byte("hello\n"), 0o644); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	if err := os.Chmod(abs, 0o000); err != nil {
+		t.Fatalf("chmod 000: %v", err)
+	}
+	defer os.Chmod(abs, 0o644) // restore so t.TempDir cleanup works
+
+	closure := o.busCtx.Mutable.EvidenceClosure()
+	closure.AddPendingRead(types.PendingRead{
+		File:      relPath,
+		Origin:    "test.eacces",
+		Rationale: "demand against unreadable file",
+	})
+
+	o.runForcedReads()
+	if pending := closure.PendingReads(); len(pending) != 0 {
+		t.Errorf("EACCES path PendingRead must be cleared; got %+v", pending)
+	}
+	advisoryFound := false
+	for _, r := range closure.ActiveRepairs() {
+		if r.Origin != "forced_read.unrecoverable.test.eacces" {
+			continue
+		}
+		advisoryFound = true
+		if !strings.Contains(r.Rationale, "permission denied") {
+			t.Errorf("permission-denied rationale should classify the failure; got: %s", r.Rationale)
+		}
+	}
+	if !advisoryFound {
+		t.Fatalf("expected advisory with origin forced_read.unrecoverable.test.eacces; got %+v", closure.ActiveRepairs())
+	}
+}
+
 // newTestOrch builds a minimal Orchestrator instance with a freshly-
 // initialized BusContext + MutableState. Sufficient for the CGEC
 // enforcer unit tests; does NOT wire the full pipeline.
@@ -267,4 +396,122 @@ func newTestOrch(t *testing.T) *Orchestrator {
 		RepoRoot: t.TempDir(),
 	}
 	return &Orchestrator{busCtx: bus, emit: render.NopEmitter}
+}
+
+// TestRunForcedReads_PathIsDirectory_AbandonsAcrossPlatforms pins
+// the IsDir cross-platform branch: a PendingRead pointing at a
+// directory (broken classification, race, manifest-included path
+// that's actually a folder) is abandoned uniformly on Linux /
+// macOS / Windows because os.FileInfo.IsDir() is OS-agnostic.
+func TestRunForcedReads_PathIsDirectory_AbandonsAcrossPlatforms(t *testing.T) {
+	o := newTestOrch(t)
+	repoRoot := o.busCtx.RepoRoot
+	relPath := "actually_a_dir"
+	if err := os.MkdirAll(filepath.Join(repoRoot, relPath), 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	closure := o.busCtx.Mutable.EvidenceClosure()
+	closure.AddPendingRead(types.PendingRead{
+		File:      relPath,
+		Origin:    "test.isdir",
+		Rationale: "demand against directory",
+	})
+
+	o.runForcedReads()
+	if pending := closure.PendingReads(); len(pending) != 0 {
+		t.Errorf("directory PendingRead must be cleared on every OS; got %+v", pending)
+	}
+	advisoryFound := false
+	for _, r := range closure.ActiveRepairs() {
+		if r.Origin == "forced_read.unrecoverable.test.isdir" {
+			advisoryFound = true
+			if !strings.Contains(r.Rationale, "directory") {
+				t.Errorf("directory advisory should classify the failure as 'directory'; got: %s", r.Rationale)
+			}
+		}
+	}
+	if !advisoryFound {
+		t.Fatalf("expected directory advisory; got %+v", closure.ActiveRepairs())
+	}
+}
+
+// TestSummarizeReadFailure_CrossPlatformClassification verifies the
+// classifier handles the ergonomic branches each platform actually
+// produces. We construct the standard error wrappers Go uses for
+// IsNotExist / IsPermission so this test runs on every host OS
+// (no syscall.Errno construction needed — fs.ErrNotExist /
+// fs.ErrPermission are platform-neutral and IsNotExist /
+// IsPermission accept them by design).
+func TestSummarizeReadFailure_CrossPlatformClassification(t *testing.T) {
+	cases := []struct {
+		name    string
+		statErr error
+		isDir   bool
+		ioErr   error
+		summary string
+		want    string
+	}{
+		{name: "isDir wins", isDir: true, statErr: nil, want: "path is a directory, not a file"},
+		{name: "stat ENOENT", statErr: os.ErrNotExist, want: "file not found"},
+		{name: "stat EACCES", statErr: os.ErrPermission, want: "permission denied"},
+		{name: "io ENOENT fallback", ioErr: os.ErrNotExist, want: "file not found"},
+		{name: "io EACCES fallback", ioErr: os.ErrPermission, want: "permission denied"},
+		{name: "summary parse", summary: "read failed: open /tmp/x: no such file or directory", want: "open /tmp/x: no such file or directory"},
+		{name: "all empty", want: "framework read failed for an unknown reason"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := summarizeReadFailure(tc.statErr, tc.isDir, tc.ioErr, tc.summary)
+			if got != tc.want {
+				t.Errorf("summarize = %q, want %q", got, tc.want)
+			}
+		})
+	}
+}
+
+// TestClassifyForcedReadFailure_VerbatimWinsWhenJoinedFails: when
+// the verbatim path resolves to a real file and the joined path
+// does not, the classifier must NOT abandon — the tool would have
+// succeeded on the verbatim path. This guards against a regression
+// that would lose PendingReads any time RepoRoot was misconfigured
+// while the verbatim path was correct.
+func TestClassifyForcedReadFailure_VerbatimWinsWhenJoinedFails(t *testing.T) {
+	dir := t.TempDir()
+	verbatim := filepath.Join(dir, "real.go")
+	if err := os.WriteFile(verbatim, []byte("ok"), 0o644); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	bus := &types.BusContext{RepoRoot: filepath.Join(dir, "wrong_root")}
+
+	verdict, _, _ := classifyForcedReadFailure(bus, verbatim, os.ErrNotExist)
+	if verdict {
+		t.Errorf("verbatim path resolves cleanly; classifier must NOT abandon even when ioErr is misleading")
+	}
+}
+
+// TestRunForcedReads_TransientFailure_KeepsPendingForRetry: when the
+// forced-read fails but the file actually exists and is readable
+// (transient failure — read raced with delete then restore, NFS
+// blip), the abandon path must NOT fire. The PendingRead stays so
+// the next runForcedReads call can retry; the existing I4 stall
+// detection bounds the worst case at 3 retries before force-complete.
+//
+// We simulate this by: (a) creating a real readable file, (b)
+// constructing a synthetic ToolResult{Success:false} that mimics the
+// "transient" pattern, and (c) checking the abandon decision.
+// Direct-call style: tests the helper, not the runForcedReads loop,
+// so we don't have to fake a transient os.ReadFile failure.
+func TestRunForcedReads_TransientFailure_KeepsPendingForRetry(t *testing.T) {
+	o := newTestOrch(t)
+	repoRoot := o.busCtx.RepoRoot
+	relPath := "exists.go"
+	if err := os.WriteFile(filepath.Join(repoRoot, relPath), []byte("ok\n"), 0o644); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	// File exists + is readable. isStructurallyUnrecoverableReadFailure
+	// must return false even when the caller passes a transient err.
+	transientErr := os.ErrInvalid
+	if isStructurallyUnrecoverableReadFailure(o.busCtx, relPath, transientErr) {
+		t.Errorf("transient failure on a readable file must NOT be treated as unrecoverable")
+	}
 }
