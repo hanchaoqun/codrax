@@ -1191,6 +1191,10 @@ func (o *Orchestrator) Run(request string, repoRoot string, branch string) (*typ
 	// answer_reviewer dispatch (orchestrator.runAnswerReviewerOnSuccess)
 	// reads them.
 	o.busCtx.Mutable.ResetAnswerRetryEvents()
+	// Commit 59 Batch E.1 (audit HIGH #12): learning-failure log
+	// resets per Run. Surface counted at Run end so operators see
+	// when reflector / answer_reviewer / taxonomy persistence broke.
+	o.busCtx.Mutable.ResetLearningFailures()
 
 	o.busCtx.Language = o.language
 	o.busCtx.AttachedLog = o.attachedLog
@@ -1353,17 +1357,23 @@ func (o *Orchestrator) Run(request string, repoRoot string, branch string) (*typ
 	// "等待派发" forever (customer-reported on a fresh
 	// "用 python 写一个俄罗斯方块" plan-mode request).
 	if used, err := o.runAnalyzePhase(); err != nil {
-		logging.Error("[orchestrator] analyze phase failed: %v", err)
+		// Commit 59 Batch E.1 (audit HIGH #9): when analyze exhausts
+		// retries, install a minimal degraded-mode IR instead of
+		// hard-killing the Run. Single finalize node + explanation
+		// shape lets the finalizer produce an honest "I cannot
+		// classify this question — please rephrase / break it down /
+		// add more context" answer with the original request quoted,
+		// instead of returning an empty result. The user still sees a
+		// reply; the Error field carries the diagnostic for operators.
+		logging.Error("[orchestrator] analyze phase failed (degrading to minimal IR): %v", err)
 		o.busCtx.TaskState.LastError = fmt.Sprintf("analyze: %v", err)
-		o.busCtx.TaskState.IsTerminal = true
-		o.busCtx.Mutable.SetResult("")
-		o.emit(render.Event{
-			Kind:      render.EventPipelineEnd,
-			Timestamp: time.Now(),
-			TraceID:   o.busCtx.TraceID,
-			Error:     o.busCtx.TaskState.LastError,
-		})
-		return o.busCtx, nil
+		o.busCtx.AnalysisIR = buildDegradedFallbackIR(o.busCtx.Mutable.Objective(), err)
+		// Continue execution with the fallback IR instead of returning.
+		// Phase 2 (explore/extract/finalize) will see a single finalize
+		// node + ShapeExplanation contract; explore is skipped, finalizer
+		// produces degraded answer text. The original error is preserved
+		// in TaskState.LastError so a wrapping CLI can still surface it.
+		_ = used
 	} else {
 		stepsUsed += used
 		if o.busCtx.Mode == types.ModeRead {
@@ -1474,6 +1484,24 @@ func (o *Orchestrator) Run(request string, repoRoot string, branch string) (*typ
 	// reviewer error must NEVER mask the answer the user is about
 	// to receive. See runAnswerReviewerOnSuccess for the gates.
 	o.runAnswerReviewerOnSuccess()
+
+	// Commit 59 Batch E.1 (audit HIGH #12): surface learning-chain
+	// failures at Run end. Pre-fix these were silently logged at
+	// WARN level and lost; an operator running a long REPL session
+	// could not tell that 80% of Runs had broken learning. The
+	// summary line is at INFO level so it lands in the standard
+	// log view alongside other end-of-Run events.
+	if mu := o.busCtx.Mutable; mu != nil {
+		failures := mu.LearningFailures()
+		if len(failures) > 0 {
+			stages := make([]string, 0, len(failures))
+			for _, f := range failures {
+				stages = append(stages, f.Stage)
+			}
+			logging.Info("[orchestrator] learning-chain failures this Run: %d (stages: %s) — cross-Run pitfall accumulation skipped for this Run",
+				len(failures), strings.Join(stages, ", "))
+		}
+	}
 
 	o.busCtx.TaskState.IsTerminal = true
 
@@ -4654,6 +4682,61 @@ func formatViolationFieldTally(tally map[string]int) string {
 	return b.String()
 }
 
+// buildDegradedFallbackIR (commit 59 Batch E.1, audit HIGH #9)
+// returns the minimal AnalysisIR the orchestrator falls back to
+// when runAnalyzePhase exhausts retries with no usable IR. The
+// IR carries:
+//
+//   - A single finalize node so the scheduler has SOMETHING to
+//     dispatch (empty TaskGraph would loop or fail another gate).
+//   - ShapeExplanation so the finalizer's prose render path is
+//     active (no shape-specific scaffolding to satisfy).
+//   - CitationReq.Required=false so the Run isn't blocked by
+//     citation floors that explore never had a chance to fill.
+//   - An AnalyzerHints carrying the original objective text so
+//     the finalizer can quote what the user asked.
+//
+// Result: the user gets a degraded but honest reply ("I couldn't
+// classify this question after N retries — please rephrase or
+// break it down") instead of a hard failure with empty result.
+// The TaskState.LastError still carries the diagnostic so wrapping
+// CLI / REPL layers can surface it to the operator.
+func buildDegradedFallbackIR(objective string, analyzerErr error) *types.AnalysisIR {
+	finalizeNode := types.TaskNode{
+		ID:   "finalize",
+		Type: types.NodeFinalize,
+	}
+	rm := types.RequestModel{
+		RawRequest: objective,
+		Intent:     types.IntentExplain,
+		Scenario:   types.ScenarioGeneric,
+		Complexity: types.ComplexitySimple,
+		AnalyzerHints: types.AnalyzerHints{
+			Shape: string(types.ShapeExplanation),
+		},
+	}
+	return &types.AnalysisIR{
+		RequestModel: rm,
+		TaskGraph: types.TaskGraph{
+			Nodes: []types.TaskNode{finalizeNode},
+		},
+		AnswerContract: types.AnswerContract{
+			RequiredAnswerShape: types.ShapeExplanation,
+			CitationReq:         types.CitationReq{Required: false},
+		},
+		QualityGate: types.GateReport{
+			Rejected: false,
+			Checks: []types.GateCheck{
+				{
+					Name:    "degraded_fallback",
+					Passed:  true,
+					Detail:  fmt.Sprintf("analyzer exhausted: %v — degraded to minimal IR", analyzerErr),
+				},
+			},
+		},
+	}
+}
+
 // runAnswerReviewerOnSuccess dispatches the end-of-Run
 // answer-taxonomy reviewer when (a) it's a successful read-mode
 // Run, (b) the reviewer is wired, (c) the store is wired, (d)
@@ -4739,6 +4822,10 @@ func (o *Orchestrator) runAnswerReviewerOnSuccess() {
 	}
 	pattern, err := o.answerReviewer.ReviewAnswer(ctx, in)
 	if err != nil {
+		// Commit 59 Batch E.1 (audit HIGH #12): record + log; the
+		// Run-end summary surfaces these counts so operators see
+		// learning chain health.
+		mu.AppendLearningFailure("answer_reviewer", err.Error())
 		logging.Warning("[answer_reviewer] dispatch failed (non-fatal): %v", err)
 		return
 	}
@@ -4747,6 +4834,7 @@ func (o *Orchestrator) runAnswerReviewerOnSuccess() {
 		return
 	}
 	if _, err := o.answerTaxonomyStore.Append(pattern); err != nil {
+		mu.AppendLearningFailure("answer_taxonomy_append", err.Error())
 		logging.Warning("[answer_taxonomy] append failed (non-fatal): %v", err)
 		return
 	}

@@ -937,6 +937,11 @@ func clearForReplan(o *Orchestrator, attempt int) {
 		input := buildReflectorInput(o.busCtx, prevReport, prevPlan, attempt)
 		out, err := o.reflector.ReflectFull(o.busCtx.Context(), input)
 		if err != nil {
+			// Commit 59 Batch E.1 (audit HIGH #12): record + log so
+			// the Run-end summary surfaces broken learning.
+			if mu := o.busCtx.Mutable; mu != nil {
+				mu.AppendLearningFailure("reflector", err.Error())
+			}
 			logging.Warning("[orchestrator] reflector failed (degrading to heuristic hint): %v", err)
 		} else if out != nil {
 			critique := out.Observation

@@ -232,6 +232,15 @@ type MutableState struct {
 	// Empty = the Run was trivial (no retries); the reviewer skips.
 	answerRetryEvents []AnswerRetryEvent
 
+	// learningFailures accumulates one entry per
+	// reflector / answer_reviewer / taxonomy-store failure during
+	// the Run (commit 59 Batch E.1, audit HIGH #12). Pre-fix these
+	// were silently logging.Warning'd and discarded; users had no
+	// way to know cross-Run learning was broken. Now tallied and
+	// surfaced at Run end so an operator running a long REPL session
+	// notices "10 Runs, 8 learning failures" and investigates.
+	learningFailures []LearningFailure
+
 	// iterationLedger accumulates one IterationRecord per completed
 	// verify→plan retry attempt. The orchestrator's clearForReplan
 	// appends to it BEFORE resetting ChangePlan / ChangeReport, so
@@ -1768,6 +1777,59 @@ func (m *MutableState) ResetAnswerRetryEvents() {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.answerRetryEvents = nil
+}
+
+// LearningFailure records a single non-fatal failure in the cross-
+// Run learning chain (reflector / answer_reviewer / taxonomy
+// append). Stage names the LLM role; Reason is the err.Error()
+// text. Read at Run end by the orchestrator to log a summary so
+// operators notice if 80% of Runs have broken learning.
+type LearningFailure struct {
+	Stage  string `json:"stage"`
+	Reason string `json:"reason"`
+}
+
+// AppendLearningFailure records one failure. Called from
+// runAnswerReviewerOnSuccess and clearForReplan reflector dispatch
+// when the LLM call errors / no tool call returned / append fails.
+// Concurrency-safe; the per-Run slice grows append-only.
+func (m *MutableState) AppendLearningFailure(stage, reason string) {
+	if m == nil {
+		return
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.learningFailures = append(m.learningFailures, LearningFailure{
+		Stage:  strings.TrimSpace(stage),
+		Reason: strings.TrimSpace(reason),
+	})
+}
+
+// LearningFailures returns a snapshot of the per-Run failures.
+// Empty = clean Run.
+func (m *MutableState) LearningFailures() []LearningFailure {
+	if m == nil {
+		return nil
+	}
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	if len(m.learningFailures) == 0 {
+		return nil
+	}
+	out := make([]LearningFailure, len(m.learningFailures))
+	copy(out, m.learningFailures)
+	return out
+}
+
+// ResetLearningFailures clears the slice at Run start (defensive
+// cross-Run reset).
+func (m *MutableState) ResetLearningFailures() {
+	if m == nil {
+		return
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.learningFailures = nil
 }
 
 // AppendPlanStageProbeReport records one plan-stage dry-run probe
