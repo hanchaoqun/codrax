@@ -182,6 +182,122 @@ func TestSeedFidelity_NoBundleSkipsValidation(t *testing.T) {
 	}
 }
 
+// driftBoundedSeedFidelityCtx assembles a BusContext whose
+// AnswerSurfacePlan resolves to AnswerSummarySurfaceDriftBoundedRootCause
+// — Scenario=RootCause + LogBundle multi-frame + Shape=Explanation
+// + LogSourceDriftAnchors non-empty (achieved by including frames
+// whose lines do not match the evidence items' current-source
+// positions). Used to test arm-routing in drift-bounded mode
+// directly, bypassing the normalize pipeline that would otherwise
+// rewrite p.Summary before our gate sees it.
+func driftBoundedSeedFidelityCtx() *types.BusContext {
+	ctx := newDocBusCtx("")
+	ctx.Language = "en"
+	ctx.AnalysisIR = &types.AnalysisIR{
+		RequestModel: types.RequestModel{
+			Scenario: types.ScenarioRootCause,
+			Intent:   types.IntentRootCause,
+		},
+		AnswerContract: types.AnswerContract{
+			RequiredAnswerShape: types.ShapeExplanation,
+		},
+	}
+	ctx.Mutable.SetLogTriage(&types.LogBundle{
+		Errors: []types.LogError{{
+			Frames: []types.LogFrame{
+				{File: "internal/agent/foo.go", Line: 250, Func: "callee"},
+				{File: "internal/agent/foo.go", Line: 320, Func: "caller"},
+			},
+		}},
+	})
+	ctx.Mutable.AppendEvidence([]types.EvidenceItem{
+		{
+			Kind:            types.EvidenceDirect,
+			Source:          "internal/agent/foo.go",
+			LineStart:       612,
+			AnchorKind:      types.AnchorDefinition,
+			AnchorSymbol:    "callee",
+			GroundingStatus: types.GroundingGrounded,
+			Producer:        EmitEvidenceProducer,
+		},
+		{
+			Kind:            types.EvidenceDirect,
+			Source:          "internal/agent/foo.go",
+			LineStart:       367,
+			AnchorKind:      types.AnchorDefinition,
+			AnchorSymbol:    "caller",
+			GroundingStatus: types.GroundingGrounded,
+			Producer:        EmitEvidenceProducer,
+		},
+	})
+	return ctx
+}
+
+// TestSeedFidelity_DriftBoundedRejectsCollapse pins the 2026-05-02
+// audit follow-up: in drift-bounded mode, the seed-fidelity gate
+// must NOT skip arm 2 (no-collapse). When the system-rendered fence
+// in normalizeLogSourceDriftSummarySurface falls back empty (surface
+// items extraction failed AND CompiledDiagramFence empty), the LLM's
+// user fence is appended as-is. If that user fence reused one
+// observed line across multiple seed frames (the indexical-collapse
+// failure observed in the logtri_go investigation), the gate must
+// still reject — that error is wrong in every mode.
+//
+// Calls validateSummaryDiagramSeedFidelity directly to bypass the
+// normalize pipeline that would otherwise rewrite the LLM's user
+// fence with system-rendered content. The intent is to exercise
+// the validator's drift-bounded arm-routing semantics.
+func TestSeedFidelity_DriftBoundedRejectsCollapse(t *testing.T) {
+	ctx := driftBoundedSeedFidelityCtx()
+	if plan := answerSurfacePlan(ctx); plan == nil ||
+		plan.SummarySurfaceMode != types.AnswerSummarySurfaceDriftBoundedRootCause {
+		t.Fatalf("test setup must trigger drift-bounded mode; got mode=%v",
+			plan.SummarySurfaceMode)
+	}
+	collapsedSummary := "The failure originates in callee.\n\n" +
+		"```mermaid\n" +
+		"flowchart LR\n" +
+		"    n0[\"innermost: internal/agent/foo.go:612 in callee\"]\n" +
+		"    n1[\"caller: internal/agent/foo.go:612 in caller\"]\n" +
+		"    n0 --> n1\n" +
+		"```"
+	err := validateSummaryDiagramSeedFidelity(collapsedSummary, ctx)
+	if err == nil {
+		t.Fatal("drift-bounded + collapsed-frames diagram should be rejected by arm 2")
+	}
+	msg := err.Error()
+	if !strings.Contains(msg, "Collapsed distinct frames") {
+		t.Fatalf("drift-bounded rejection should name arm 2 'Collapsed distinct frames'; got: %s", msg)
+	}
+	if strings.Contains(msg, "Missing seed anchors") {
+		t.Fatalf("arm 1 (missing seed pairs) must be waived in drift-bounded mode; got: %s", msg)
+	}
+}
+
+// TestSeedFidelity_DriftBoundedAllowsRewrittenLines confirms the
+// inverse direction: in drift-bounded mode the LLM is allowed to
+// use current-source line numbers (the system-designed behaviour)
+// without arm 1 falsely rejecting. As long as each seed frame maps
+// to a DISTINCT current-source line, the gate passes.
+func TestSeedFidelity_DriftBoundedAllowsRewrittenLines(t *testing.T) {
+	ctx := driftBoundedSeedFidelityCtx()
+	if plan := answerSurfacePlan(ctx); plan == nil ||
+		plan.SummarySurfaceMode != types.AnswerSummarySurfaceDriftBoundedRootCause {
+		t.Fatalf("test setup must trigger drift-bounded mode; got mode=%v",
+			plan.SummarySurfaceMode)
+	}
+	rewrittenSummary := "The failure originates in callee, called from caller.\n\n" +
+		"```mermaid\n" +
+		"flowchart LR\n" +
+		"    n0[\"innermost: internal/agent/foo.go:612 in callee\"]\n" +
+		"    n1[\"caller: internal/agent/foo.go:367 in caller\"]\n" +
+		"    n0 --> n1\n" +
+		"```"
+	if err := validateSummaryDiagramSeedFidelity(rewrittenSummary, ctx); err != nil {
+		t.Fatalf("drift-bounded + distinct rewritten lines should not trigger seed-fidelity; got: %v", err)
+	}
+}
+
 // TestSeedFidelity_NoMermaidFenceSkipsValidation confirms the gate
 // is a no-op when the LLM emitted a summary without any mermaid
 // fence — the system's auto-injection path handles that case

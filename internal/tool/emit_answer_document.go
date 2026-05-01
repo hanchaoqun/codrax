@@ -3279,36 +3279,53 @@ func validateSummaryDiagramSeedFidelity(summary string, ctx *types.BusContext) e
 	if !summaryHasMermaidFence(summary) {
 		return nil
 	}
-	// Respect the pre-existing drift-bounded-root-cause surface mode:
-	// when the system itself rebuilt the diagram with current-source
-	// line positions (and prefixed a "log lines do not fully align"
-	// prose lead), seed-fidelity is intentionally inverted by design
-	// — the diagram is anchored to the current checkout, not the
-	// historical log. The seed-fidelity rule must not fight that
-	// pre-existing system behavior. Skip the gate in this mode.
+	// 2026-05-02 audit follow-up — do NOT skip the entire gate in
+	// drift-bounded mode. The pre-existing
+	// AnswerSummarySurfaceDriftBoundedRootCause path rebuilds the
+	// diagram with current-source line positions when its own surface
+	// fence renderer succeeds. But that renderer can return empty
+	// (DriftBoundedSurfaceItems extraction failed for this Run, AND
+	// CompiledDiagramFence is empty), in which case
+	// normalizeLogSourceDriftSummarySurface falls back to the LLM's
+	// user fences as-is. Skipping the entire gate would let
+	// indexical-collapse errors (N distinct frames collapsed to one
+	// line) ship under that fallback. We split the two arms instead:
+	//
+	//   - Arm 1 (verbatim seed pairs present): SKIPPED in drift-bounded
+	//     mode, because that mode by-design replaces seed lines with
+	//     current-source ones — requiring verbatim seed would falsely
+	//     reject every drift-bounded answer.
+	//
+	//   - Arm 2 (no-collapse): runs in BOTH modes. Indexical-collapse
+	//     is a structural error regardless of whether the lines are
+	//     historical or current.
+	driftBounded := false
 	if plan := answerSurfacePlan(ctx); plan != nil &&
 		plan.SummarySurfaceMode == types.AnswerSummarySurfaceDriftBoundedRootCause {
-		return nil
+		driftBounded = true
 	}
 	outputPairs := collectMermaidFileLines(summary)
 
 	// Arm 1: every seed (file, line) must appear at least once in
-	// the output's diagram tokens.
+	// the output's diagram tokens. SKIPPED in drift-bounded mode.
 	missing := make([]string, 0)
-	seenInOutput := make(map[string]bool, len(outputPairs))
-	for _, p := range outputPairs {
-		seenInOutput[p] = true
-	}
-	for _, p := range seedPairs {
-		if !seenInOutput[p] {
-			missing = append(missing, p)
+	if !driftBounded {
+		seenInOutput := make(map[string]bool, len(outputPairs))
+		for _, p := range outputPairs {
+			seenInOutput[p] = true
+		}
+		for _, p := range seedPairs {
+			if !seenInOutput[p] {
+				missing = append(missing, p)
+			}
 		}
 	}
 
 	// Arm 2: distinct-line-count per file. For each file the seed
 	// pins, count the distinct lines in the seed and in the output.
 	// If output's distinct count < seed's, the LLM collapsed two
-	// distinct frames to a single line.
+	// distinct frames to a single line. Runs in BOTH modes —
+	// indexical-collapse is wrong everywhere.
 	seedFileLines := bucketByFile(seedPairs)
 	outputFileLines := bucketByFile(outputPairs)
 	collapsed := make([]string, 0)
@@ -3328,15 +3345,41 @@ func validateSummaryDiagramSeedFidelity(summary string, ctx *types.BusContext) e
 	}
 
 	seedFence := renderSeedFenceForRetry(ctx)
-	detail := "summary mermaid fence modified file:line tokens that the seed had pinned. "
+	var detail string
+	switch {
+	case len(missing) > 0 && len(collapsed) > 0:
+		detail = fmt.Sprintf(
+			"summary mermaid fence is missing seed anchors AND collapsed distinct frames. "+
+				"Missing seed anchors: %s. Collapsed distinct frames: %s. "+
+				"The seed pairs are AUTHORITATIVE FACTS about the failure event (which file at which line at runtime); "+
+				"copy them verbatim into your diagram and ensure each distinct frame keeps its own distinct line number.",
+			strings.Join(missing, ", "), strings.Join(collapsed, "; "))
+	case len(missing) > 0:
+		detail = fmt.Sprintf(
+			"summary mermaid fence modified file:line tokens that the seed had pinned. Missing seed anchors: %s. "+
+				"These pairs are AUTHORITATIVE FACTS about the failure event (which file at which line at runtime), not current-source positions. "+
+				"Copy the seed below verbatim into your final diagram.",
+			strings.Join(missing, ", "))
+	default:
+		detail = fmt.Sprintf(
+			"summary mermaid fence collapsed distinct frames to a single line. Collapsed distinct frames: %s. "+
+				"Each frame in the seed has its own distinct line; re-emit with each node carrying the distinct line that "+
+				"corresponds to its specific frame, never reusing one observed line across multiple nodes.",
+			strings.Join(collapsed, "; "))
+	}
+	var hint string
 	if len(missing) > 0 {
-		detail += fmt.Sprintf("Missing seed anchors: %s. ", strings.Join(missing, ", "))
+		// Verbatim seed-copy hint when arm 1 fired — applies only in
+		// non-drift-bounded mode (arm 1 is skipped in drift-bounded).
+		hint = "Re-emit emit_answer_document with the same prose answer, but copy this seed mermaid fence VERBATIM into the diagram block of your summary. Do not alter line numbers; do not collapse multiple frames to a single line. You MAY add caller/callee nodes (each with its own grounded file:line from citations[]), rename role labels, or change form (flowchart ↔ sequenceDiagram), but every file:line that appears in the seed below must appear unchanged in your final diagram.\n\nSeed:\n" + seedFence
+	} else {
+		// Arm-2-only failure: most likely an indexical-collapse error
+		// (one observed line reused across multiple distinct frames).
+		// Drift-bounded mode permits using current-source lines, but
+		// each distinct seed frame must still get its OWN distinct
+		// current-source line.
+		hint = "Re-emit emit_answer_document with the same prose answer, but ensure each distinct frame in your diagram carries its OWN distinct line. The seed has multiple distinct frames; your diagram must too. Do not reuse a single observed line across multiple nodes."
 	}
-	if len(collapsed) > 0 {
-		detail += fmt.Sprintf("Collapsed distinct frames: %s. ", strings.Join(collapsed, "; "))
-	}
-	detail += "These pairs are AUTHORITATIVE FACTS about the failure event (which file at which line at runtime), not current-source positions. Copy the seed below verbatim into your final diagram."
-	hint := "Re-emit emit_answer_document with the same prose answer, but copy this seed mermaid fence VERBATIM into the diagram block of your summary. Do not alter line numbers; do not collapse multiple frames to a single line. You MAY add caller/callee nodes (each with its own grounded file:line from citations[]), rename role labels, or change form (flowchart ↔ sequenceDiagram), but every file:line that appears in the seed below must appear unchanged in your final diagram.\n\nSeed:\n" + seedFence
 	return newAnswerDocValidationError(
 		"diagram_seed_fidelity",
 		"%s",
