@@ -103,6 +103,31 @@ const (
 	// the kind moves to soft (telemetry-only). SuspectedRoot:
 	// answer_summary_body_consistency.
 	ViolSelfContradiction ViolationKind = "self_contradiction"
+
+	// ViolExternalArtifactUnderdecoded fires when the user attached
+	// an external artifact (runtime log via --log / --log-text /
+	// REPL /log; perf trace via --htrace / --atrace; future
+	// attached config dumps), the system successfully triaged it
+	// into a structured bundle (LogBundle / PerfBundle on
+	// MutableState), but the final answer references too few of
+	// the bundle-extracted fields. The triage layer's job is to
+	// turn opaque text into a typed payload (Errors[].Type, Frame
+	// .Symbol, Signal name, Stall.symbol, Jank.trigger_span,
+	// Startup.mode, etc.); the answer's job is to DECODE / EXPLAIN
+	// these fields for the operator. Without this gate, the
+	// finalizer can ship an answer that names a file:line from
+	// repo code while completely ignoring the panic signal address,
+	// the goroutine context, or the parameter values literally
+	// printed in the trace — i.e. all the per-incident
+	// diagnostic content the user pasted in.
+	//
+	// Trigger: structural (Mutable.LogTriage() != nil OR
+	// Mutable.PerfTrace() != nil), NOT keyword/intent. Generalises
+	// to any future "extract structured payload from user-attached
+	// artifact" surface; new triage kinds plug in by appending to
+	// the bundle-token-collection helper, not by editing skill
+	// prompts. SuspectedRoot: external_artifact_decoded.
+	ViolExternalArtifactUnderdecoded ViolationKind = "external_artifact_underdecoded"
 )
 
 // AllViolationKinds returns every declared ViolationKind in a stable
@@ -131,6 +156,7 @@ func AllViolationKinds() []ViolationKind {
 		ViolDiagramIdentifier,
 		ViolDeclaredCountDrift,
 		ViolSelfContradiction,
+		ViolExternalArtifactUnderdecoded,
 	}
 }
 

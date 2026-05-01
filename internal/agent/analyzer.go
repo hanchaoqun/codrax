@@ -1464,6 +1464,28 @@ func buildAnalysisIR(ctx *types.AgentContext) (*types.AnalysisIR, error) {
 	// threading) rather than ambiguous silence.
 	EmitReconcileSummary(ctxMutable(ctx))
 
+	// CritExternalArtifactDecoded (2026-05-02): structural trigger.
+	// When a runtime log / perf trace was attached at Run entry AND
+	// the triage pre-stage produced a usable bundle, append the
+	// criterion to AnswerContract.AcceptanceTests so contract.Check
+	// at finalize asserts the answer references at least
+	// cgec_external_artifact_decoded_floor (default 0.4) of the
+	// bundle-extracted non-path tokens. No keyword classification —
+	// the trigger is purely "did the system extract a decodable
+	// payload?". Generalises to any future structured artifact
+	// (config dump, error message paste, etc.) by appending to the
+	// criterion package's collectExternalArtifactTokens helper.
+	if ctx != nil && ctx.Mutable != nil {
+		hasLog := ctx.Mutable.LogTriage() != nil
+		hasPerf := ctx.Mutable.PerfTrace() != nil
+		if (hasLog || hasPerf) && ir != nil {
+			ir.AnswerContract.AcceptanceTests = append(
+				ir.AnswerContract.AcceptanceTests,
+				types.Criterion{Kind: types.CritExternalArtifactDecoded},
+			)
+		}
+	}
+
 	return ir, nil
 }
 

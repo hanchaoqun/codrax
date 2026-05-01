@@ -636,6 +636,24 @@ const (
 	CritCounterfactualBranchesDecided = "counterfactual_branches_decided"
 	CritRelationAbsent                = "relation_absent"
 
+	// CritExternalArtifactDecoded fires when an external artifact
+	// (LogBundle / PerfBundle on MutableState) was successfully
+	// triaged AND the final answer's summary + body references at
+	// least cgec_external_artifact_decoded_floor (default 0.4) of
+	// the bundle-extracted non-path tokens. Used in
+	// AnswerContract.AcceptanceTests so the contract gate enforces
+	// that user-pasted diagnostic content actually appears in the
+	// answer rather than being silently dropped in favour of repo
+	// citations alone.
+	//
+	// Trigger discipline: STRUCTURAL only — analyzer adds the
+	// criterion when bus.Mutable.LogTriage() != nil OR
+	// PerfTrace() != nil. No keyword classification, no intent
+	// matching. Generalises to any future "structured artifact"
+	// surface by appending the new bundle to
+	// criterion.collectExternalArtifactTokens.
+	CritExternalArtifactDecoded = "external_artifact_decoded"
+
 	// Write-mode criteria (B0). Evaluators live in
 	// internal/analysis/criterion/eval.go and read
 	// MutableState.WriteClosure for their ground truth. B0 ships

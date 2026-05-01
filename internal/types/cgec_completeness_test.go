@@ -205,6 +205,8 @@ func TestAllViolationKindsHaveProducer(t *testing.T) {
 		ViolDeclaredCountDrift: true, // orchestrator/contract_check.go runAnswerShapeOracle
 		// Commit 62 — answer-prose self-contradiction.
 		ViolSelfContradiction: true, // orchestrator/contract_check.go runSelfConsistencyReview
+		// 2026-05-02 — external-artifact decode shortfall.
+		ViolExternalArtifactUnderdecoded: true, // orchestrator/contract_check.go runExternalArtifactDecodedCheck
 	}
 	// All Session 11 violation kinds now have producers. The
 	// pending map remains empty but is kept so future additions

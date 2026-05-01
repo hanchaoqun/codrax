@@ -726,6 +726,26 @@ type RuntimeSettings struct {
 	CGECMultiPathSmallFileThreshold     *int `yaml:"cgec_multi_path_small_file_threshold"`
 	CGECMultiPathMaxKeywordAnchorsPerFile *int `yaml:"cgec_multi_path_max_keyword_anchors_per_file"`
 
+	// CGECExternalArtifactDecodedFloor is the minimum fraction of
+	// triaged-bundle non-path tokens (LogBundle Errors[].Type +
+	// Frame.Symbol + Signal name + Cause-chain; PerfBundle
+	// trigger_span + stall.symbol + jank.reason + startup.mode)
+	// that the finalizer's draft answer text must reference.
+	// Default 0.4 (~40%); set to 0 to disable the gate (read-mode
+	// runs without --log / --htrace are unaffected either way
+	// because the criterion is structurally vacuous when no bundle
+	// is attached).
+	//
+	// The gate's purpose: when the user pastes a runtime log /
+	// perf trace and the system extracts a typed payload from it
+	// (Errors / Frames / Stalls / etc.), the answer must DECODE /
+	// EXPLAIN that payload — not just cite repo file:line and
+	// silently drop the diagnostic specifics the user actually
+	// pasted. Pre-2026-05-02 the contract checker had no awareness
+	// of the bundle, so the LLM could ship an answer that ignored
+	// SIGSEGV / addr=0x0 / parameter-value evidence in a panic.
+	CGECExternalArtifactDecodedFloor *float64 `yaml:"cgec_external_artifact_decoded_floor"`
+
 	// Log-triage knobs. `log_triage_*` prefix groups the log-ingestion
 	// feature settings. When log_triage_enabled=false the log_triage
 	// pre-stage Guard short-circuits and every downstream consumer

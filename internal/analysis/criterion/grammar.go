@@ -55,6 +55,17 @@ const (
 	KindPatchApplies                  Kind = Kind(types.CritPatchApplies)
 	KindTestsPass                     Kind = Kind(types.CritTestsPass)
 	KindNoRegression                  Kind = Kind(types.CritNoRegression)
+
+	// KindExternalArtifactDecoded is the read-mode contract gate
+	// added 2026-05-02 — fires when a triaged external artifact
+	// (LogBundle / PerfBundle on MutableState) is non-nil and the
+	// answer's summary + body must reference at least
+	// cgec_external_artifact_decoded_floor (default 0.4) of the
+	// bundle-extracted non-path tokens. Evaluator body lives in
+	// eval.go::evalExternalArtifactDecoded; analyzer adds it to
+	// AnswerContract.AcceptanceTests when the structural trigger
+	// fires (analyzer.go::buildAnalysisIR).
+	KindExternalArtifactDecoded       Kind = Kind(types.CritExternalArtifactDecoded)
 )
 
 // registered is the source of truth for legal Kind values. Gate's
@@ -85,6 +96,7 @@ var registered = map[Kind]bool{
 	KindPatchApplies:                  true,
 	KindTestsPass:                     true,
 	KindNoRegression:                  true,
+	KindExternalArtifactDecoded:       true,
 }
 
 // IsRegistered reports whether k is in the closed namespace.
@@ -154,6 +166,21 @@ type Env struct {
 	// fail post-apply. Nil when baseline capture was skipped or
 	// the feature is disabled.
 	BaselineReport *types.ChangeReport
+
+	// LogTriage is the structured LogBundle the log_triager pre-stage
+	// produced when an attached runtime log was present at Run entry.
+	// Nil when no log was attached or triage failed (advisory). Read
+	// by evalExternalArtifactDecoded to enumerate the bundle-extracted
+	// non-path tokens (Errors[].Type, Frame.Symbol, Signal name,
+	// Residue tokens) that the answer body must reference.
+	LogTriage *types.LogBundle
+
+	// PerfTrace is the structured PerfBundle the perf_triager
+	// pre-stage produced when an attached HiTrace / atrace / systrace
+	// was present. Nil when no trace was attached or triage failed.
+	// Same role as LogTriage but for performance-trace tokens
+	// (trigger_span, stall.symbol, jank.reason, startup.mode).
+	PerfTrace *types.PerfBundle
 }
 
 // Result is the outcome of evaluating a single Criterion.

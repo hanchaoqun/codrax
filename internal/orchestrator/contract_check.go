@@ -11,6 +11,7 @@ import (
 
 	"github.com/hanchaoqun/codrax/internal/agent"
 	"github.com/hanchaoqun/codrax/internal/analysis/contract"
+	"github.com/hanchaoqun/codrax/internal/analysis/criterion"
 	"github.com/hanchaoqun/codrax/internal/analysis/hint"
 	"github.com/hanchaoqun/codrax/internal/logging"
 	"github.com/hanchaoqun/codrax/internal/render"
@@ -103,6 +104,20 @@ func runContractCheck(out *agent.StageOutput, c types.AnswerContract, mut *types
 		}
 	}
 
+	// 2026-05-02 — CritExternalArtifactDecoded oracle. Triggers
+	// structurally on (Mutable.LogTriage() != nil OR PerfTrace() !=
+	// nil); fails when draft.Text references fewer than the
+	// configured floor of bundle-extracted non-path tokens. The
+	// rationale lists the missing tokens verbatim so the finalizer
+	// retry can directly pick them up and decode them in summary /
+	// body. Soft by default (see softViolationKinds in cmd/root.go);
+	// operators flip to strict via
+	// pipeline_contract_strict_kinds: [external_artifact_underdecoded].
+	if mut != nil {
+		result.Violations = append(result.Violations,
+			runExternalArtifactDecodedCheck(mut, draft.Text)...)
+	}
+
 	// Commit 62 — self-consistency reviewer (read-mode mirror of
 	// reflector model-vs-model review pattern). Independent LLM
 	// reads doc.Summary + body bullets and detects FACTUAL
@@ -171,6 +186,51 @@ func runContractCheck(out *agent.StageOutput, c types.AnswerContract, mut *types
 // /ViolSubTopicCountMismatch families that gate-soft-list excludes
 // from Passed=false hard-fail). Operators promote to strict via
 // gate_contract_strict_kinds yaml.
+// runExternalArtifactDecodedCheck is the orchestrator-side oracle
+// for CritExternalArtifactDecoded. Triggers structurally on
+// (mut.LogTriage() != nil OR mut.PerfTrace() != nil); fails when
+// draft text references fewer than the configured floor of
+// bundle-extracted non-path tokens.
+//
+// Returns at most one Violation per call. Vacuously satisfied when
+// no bundle is attached or both bundles produced zero decodable
+// tokens — read-mode runs without --log / --htrace pay no cost.
+//
+// Wraps the criterion-package evaluator (which holds the canonical
+// token-collection + threshold logic) so this oracle and the
+// scheduler's other criterion.Eval call sites cannot drift on the
+// definition of "decoded".
+func runExternalArtifactDecodedCheck(mut *types.MutableState, draftText string) []types.Violation {
+	if mut == nil {
+		return nil
+	}
+	logBundle := mut.LogTriage()
+	perfBundle := mut.PerfTrace()
+	if logBundle == nil && perfBundle == nil {
+		return nil
+	}
+	env := criterion.Env{
+		DraftAnswer: draftText,
+		LogTriage:   logBundle,
+		PerfTrace:   perfBundle,
+	}
+	res := criterion.Eval(types.Criterion{Kind: types.CritExternalArtifactDecoded}, env)
+	if res.Satisfied {
+		return nil
+	}
+	return []types.Violation{{
+		Kind:   types.ViolExternalArtifactUnderdecoded,
+		Detail: res.Detail,
+		Repair: res.Detail,
+		SuspectedRoot: types.SuspectedRoot{
+			IRField:    "external_artifact_decoded",
+			Reason:     "answer underdecodes triaged log / perf trace",
+			Confidence: 0.7,
+		},
+		Stage: string(types.StageFinalize),
+	}}
+}
+
 func runAnswerShapeOracle(doc *types.AnswerDocument, rm *types.RequestModel, mut *types.MutableState) []types.Violation {
 	if doc == nil || rm == nil {
 		return nil
@@ -510,10 +570,11 @@ func buildSelfContradictionRepair(c SelfConsistencyContradiction, reasoning stri
 
 func defaultSoftKinds() map[types.ViolationKind]bool {
 	return map[types.ViolationKind]bool{
-		types.ViolShapeIntentMismatch:   true,
-		types.ViolSubTopicCountMismatch: true,
-		types.ViolDiagramIdentifier:     true,
-		types.ViolDeclaredCountDrift:    true,
+		types.ViolShapeIntentMismatch:        true,
+		types.ViolSubTopicCountMismatch:      true,
+		types.ViolDiagramIdentifier:          true,
+		types.ViolDeclaredCountDrift:         true,
+		types.ViolExternalArtifactUnderdecoded: true,
 	}
 }
 

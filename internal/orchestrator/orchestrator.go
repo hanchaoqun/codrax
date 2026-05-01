@@ -2997,6 +2997,14 @@ func (o *Orchestrator) runReadSchedulerLoop(stepBudget int) int {
 			// state (empty AppliedSet / empty VerifyResults) because
 			// a closure in read-mode is alive but unused.
 			env.WriteClosure = o.busCtx.Mutable.WriteClosure()
+			// Triaged-artifact fields for CritExternalArtifactDecoded.
+			// Nil when the user did not attach a runtime log / perf
+			// trace at Run entry (the typical read-mode case);
+			// evalExternalArtifactDecoded short-circuits to
+			// Satisfied=true on nil bundles so existing eval cases
+			// without --log / --htrace stay byte-identical.
+			env.LogTriage = o.busCtx.Mutable.LogTriage()
+			env.PerfTrace = o.busCtx.Mutable.PerfTrace()
 		}
 		return env
 	}

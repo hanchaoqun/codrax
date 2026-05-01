@@ -1,6 +1,7 @@
 package criterion
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/hanchaoqun/codrax/internal/types"
@@ -162,5 +163,106 @@ func TestEval_RelationAbsent_CaseInsensitive(t *testing.T) {
 	r := Eval(types.Criterion{Kind: string(KindRelationAbsent), Expr: "blob,log"}, env)
 	if r.Satisfied {
 		t.Errorf("case-insensitive match should detect BOTH; got detail=%q", r.Detail)
+	}
+}
+
+// TestEval_ExternalArtifactDecoded_VacuousWithoutBundle pins the
+// "no bundle attached → vacuously satisfied" contract so existing
+// read-mode runs without --log / --htrace stay byte-identical.
+func TestEval_ExternalArtifactDecoded_VacuousWithoutBundle(t *testing.T) {
+	env := Env{DraftAnswer: "any text without bundle reference"}
+	r := Eval(types.Criterion{Kind: string(KindExternalArtifactDecoded)}, env)
+	if !r.Satisfied {
+		t.Fatalf("nil-bundle env must be vacuously satisfied; got %q", r.Detail)
+	}
+}
+
+// TestEval_ExternalArtifactDecoded_LogBundleHit verifies the
+// positive path: a LogBundle with extracted Errors[].Type +
+// Frames[].Func tokens, and a draft answer that mentions enough of
+// them, satisfies the criterion.
+func TestEval_ExternalArtifactDecoded_LogBundleHit(t *testing.T) {
+	bundle := &types.LogBundle{
+		Meta: types.LogMeta{Signals: []types.LogSignal{types.SignalPanic, types.SignalCrash}},
+		Errors: []types.LogError{{
+			Type: "SIGSEGV",
+			Frames: []types.LogFrame{
+				{Func: "buildAnalysisIR", Pkg: "agent"},
+				{Func: "ParseOutput", Pkg: "agent"},
+			},
+		}},
+	}
+	draft := "Stack shows panic + crash + SIGSEGV in buildAnalysisIR called from ParseOutput in package agent."
+	env := Env{DraftAnswer: draft, LogTriage: bundle}
+	r := Eval(types.Criterion{Kind: string(KindExternalArtifactDecoded)}, env)
+	if !r.Satisfied {
+		t.Fatalf("majority of bundle tokens referenced should satisfy; got %q", r.Detail)
+	}
+}
+
+// TestEval_ExternalArtifactDecoded_LogBundleMiss verifies the
+// failure path: a draft that ignores almost every bundle token
+// fails the criterion AND the rationale lists the missing tokens
+// so the finalizer's retry hint can name them verbatim.
+func TestEval_ExternalArtifactDecoded_LogBundleMiss(t *testing.T) {
+	bundle := &types.LogBundle{
+		Meta: types.LogMeta{Signals: []types.LogSignal{types.SignalPanic}},
+		Errors: []types.LogError{{
+			Type: "SIGSEGV",
+			Frames: []types.LogFrame{
+				{Func: "buildAnalysisIR", Pkg: "agent"},
+				{Func: "ParseOutput", Pkg: "agent"},
+				{Func: "OtherSym", Pkg: "different"},
+			},
+		}},
+	}
+	draft := "the file analyzer.go has a problem"
+	env := Env{DraftAnswer: draft, LogTriage: bundle}
+	r := Eval(types.Criterion{Kind: string(KindExternalArtifactDecoded)}, env)
+	if r.Satisfied {
+		t.Fatalf("draft missing every bundle token must fail; got %q", r.Detail)
+	}
+	if !strings.Contains(r.Detail, "SIGSEGV") {
+		t.Errorf("rationale must enumerate at least one missing token (SIGSEGV); got %q", r.Detail)
+	}
+}
+
+// TestEval_ExternalArtifactDecoded_PerfBundleHit covers the
+// PerfBundle branch — same logic, different bundle shape (jank
+// trigger spans + stall symbols + startup mode).
+func TestEval_ExternalArtifactDecoded_PerfBundleHit(t *testing.T) {
+	bundle := &types.PerfBundle{
+		Meta:  types.PerfMeta{Signals: []string{"jank", "main-thread-stall"}},
+		Janks: []types.PerfJank{{TriggerSpan: "RecyclerView.Bind", Reason: "io"}},
+		Stalls: []types.PerfStall{
+			{Symbol: "DiskCache.read", Kind: "io"},
+		},
+		Startup: &types.PerfStartup{Mode: "cold"},
+	}
+	draft := "Cold-start jank: main-thread-stall in RecyclerView.Bind triggered by io waiting for DiskCache.read."
+	env := Env{DraftAnswer: draft, PerfTrace: bundle}
+	r := Eval(types.Criterion{Kind: string(KindExternalArtifactDecoded)}, env)
+	if !r.Satisfied {
+		t.Fatalf("majority of perf-bundle tokens referenced should satisfy; got %q", r.Detail)
+	}
+}
+
+// TestEval_ExternalArtifactDecoded_ExprOverridesFloor pins the
+// per-criterion threshold override path: callers can pass
+// Expr="0.5" to enforce a custom floor for a specific test
+// without mutating package state.
+func TestEval_ExternalArtifactDecoded_ExprOverridesFloor(t *testing.T) {
+	bundle := &types.LogBundle{
+		Errors: []types.LogError{{Type: "SIGSEGV"}},
+	}
+	rPass := Eval(types.Criterion{Kind: string(KindExternalArtifactDecoded), Expr: "0.5"},
+		Env{DraftAnswer: "SIGSEGV crash happened", LogTriage: bundle})
+	if !rPass.Satisfied {
+		t.Errorf("0.5 floor with 1/1 token referenced must satisfy; got %q", rPass.Detail)
+	}
+	rFail := Eval(types.Criterion{Kind: string(KindExternalArtifactDecoded), Expr: "0.5"},
+		Env{DraftAnswer: "no signal mentioned at all", LogTriage: bundle})
+	if rFail.Satisfied {
+		t.Errorf("draft missing the only token must fail at 0.5 floor; got %q", rFail.Detail)
 	}
 }

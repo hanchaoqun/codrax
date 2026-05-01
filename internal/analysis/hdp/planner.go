@@ -58,6 +58,17 @@ func Plan(rm types.RequestModel) []types.Hypothesis {
 				out = append(out, rootCauseHypothesis(nextID(), sym))
 			}
 		}
+		// 2026-05-02 — root_cause depth floor: Moderate / Complex
+		// requests deserve at least 2 hypotheses so the explorer +
+		// extractor explore alternative causes rather than locking
+		// onto the first plausible one. Single-symbol root_cause
+		// would otherwise emit just one hypothesis (the symbol's
+		// rootCauseHypothesis), letting downstream verdict pinning
+        // converge prematurely. Pure structural trigger
+        // (Intent + Complexity), no keyword classification.
+		if len(out) < 2 && (rm.Complexity == types.ComplexityModerate || rm.Complexity == types.ComplexityComplex) {
+			out = append(out, alternativeRootCauseHypothesis(nextID()))
+		}
 	case types.IntentConfigQuery:
 		if len(syms) <= 1 {
 			out = append(out, configQueryHypothesis(nextID(), orDefault(firstOf(syms), "")))
@@ -225,6 +236,34 @@ func rootCauseHypothesis(id, sym string) types.Hypothesis {
 			{Kind: types.CritEvidenceCount, Expr: ">=2"},
 		},
 		FalsificationCondition: types.Criterion{Kind: types.CritNoCallSites, Expr: sym},
+		Status:                 types.HypUnknown,
+	}
+}
+
+// alternativeRootCauseHypothesis is the depth-floor hypothesis the
+// planner injects for Moderate / Complex root_cause requests when
+// the topSymbols pass produced fewer than 2 candidates. Forces the
+// explorer + extractor to consider that the user-supplied symptom
+// might trace to a CALLER of the prime suspect (state setup,
+// caller-side argument validation, initialisation order) rather
+// than the symbol itself — root_cause investigations that lock onto
+// the first symbol miss this 50% of the time empirically.
+//
+// Statement is intentionally language-neutral and symbol-free so
+// the same constructor works whether topSymbols returned 0 or 1
+// concrete tokens. Falsification: symbol-presence floor over the
+// hypothesis-evidence count — an answer with zero alternative-
+// causation evidence is unfalsified-by-default and the verdict
+// ladders to "inconclusive" rather than silently confirming the
+// first hypothesis.
+func alternativeRootCauseHypothesis(id string) types.Hypothesis {
+	return types.Hypothesis{
+		ID: id,
+		Statement: "An alternative root cause exists upstream of the prime suspect — caller-side argument construction, initialisation order, or shared mutable state may have produced the observed failure.",
+		RequiredEvidence: []types.Criterion{
+			{Kind: types.CritEvidenceCount, Expr: ">=1"},
+		},
+		FalsificationCondition: types.Criterion{Kind: types.CritNoRelevantEvidence},
 		Status:                 types.HypUnknown,
 	}
 }

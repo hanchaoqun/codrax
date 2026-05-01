@@ -326,3 +326,62 @@ func TestPlan_MultiSubjectExplain_NamesAllSubjects(t *testing.T) {
 		t.Fatalf("set hypothesis must name every subject; got %q", h.Statement)
 	}
 }
+
+// TestPlan_RootCause_SingleSymbolModerate_AddsAlternativeHypothesis
+// pins the depth-floor injection: a Moderate-complexity root_cause
+// with exactly one top symbol must end up with at least 2 hypotheses
+// (the prime suspect + an alternative-cause stub) so the
+// extractor's verdict pinning ladder cannot lock onto the first
+// hypothesis as the only candidate.
+func TestPlan_RootCause_SingleSymbolModerate_AddsAlternativeHypothesis(t *testing.T) {
+	input := rm(types.IntentRootCause, "Foo")
+	input.Complexity = types.ComplexityModerate
+	hs := Plan(input)
+	if len(hs) < 2 {
+		t.Fatalf("Moderate root_cause with 1 symbol must produce ≥2 hypotheses; got %d (%+v)", len(hs), hs)
+	}
+	if findByStatement(hs, "alternative root cause") == nil {
+		t.Fatalf("expected alternative-root-cause stub; got %+v", hs)
+	}
+}
+
+// TestPlan_RootCause_SingleSymbolComplex_AddsAlternativeHypothesis:
+// same contract for ComplexityComplex.
+func TestPlan_RootCause_SingleSymbolComplex_AddsAlternativeHypothesis(t *testing.T) {
+	input := rm(types.IntentRootCause, "Foo")
+	input.Complexity = types.ComplexityComplex
+	hs := Plan(input)
+	if len(hs) < 2 {
+		t.Fatalf("Complex root_cause with 1 symbol must produce ≥2 hypotheses; got %d", len(hs))
+	}
+	if findByStatement(hs, "alternative root cause") == nil {
+		t.Fatalf("expected alternative-root-cause stub; got %+v", hs)
+	}
+}
+
+// TestPlan_RootCause_SingleSymbolSimple_NoFloor preserves the
+// minimal-cost path for Simple root_cause: don't add a second
+// hypothesis if the analyzer judged the question simple. Pre-fix
+// behaviour is byte-identical here so simple-question runs do not
+// pay an extra exploration round.
+func TestPlan_RootCause_SingleSymbolSimple_NoFloor(t *testing.T) {
+	input := rm(types.IntentRootCause, "Foo")
+	input.Complexity = types.ComplexitySimple
+	hs := Plan(input)
+	if findByStatement(hs, "alternative root cause") != nil {
+		t.Fatalf("Simple root_cause must NOT trigger the depth floor; got %+v", hs)
+	}
+}
+
+// TestPlan_RootCause_MultiSymbolModerate_NoExtraHypothesis: when
+// topSymbols already returns ≥2 candidates, the depth floor is
+// already met by the per-symbol hypothesis fan-out — no extra stub
+// is appended.
+func TestPlan_RootCause_MultiSymbolModerate_NoExtraHypothesis(t *testing.T) {
+	input := rm(types.IntentRootCause, "Foo", "Bar")
+	input.Complexity = types.ComplexityModerate
+	hs := Plan(input)
+	if findByStatement(hs, "alternative root cause") != nil {
+		t.Fatalf("multi-symbol root_cause already meets the floor; alt stub must NOT be added; got %+v", hs)
+	}
+}

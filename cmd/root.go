@@ -16,6 +16,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/hanchaoqun/codrax/internal/agent"
+	"github.com/hanchaoqun/codrax/internal/analysis/criterion"
 	"github.com/hanchaoqun/codrax/internal/analysis/gate"
 	"github.com/hanchaoqun/codrax/internal/analysis/logtriage"
 	"github.com/hanchaoqun/codrax/internal/config"
@@ -1562,6 +1563,9 @@ func initApp(cmd *cobra.Command, _ []string) error {
 		}
 		if rs.CGECMultiPathMaxKeywordAnchorsPerFile != nil {
 			analysisLimits.MultiPathMaxKeywordAnchorsPerFile = *rs.CGECMultiPathMaxKeywordAnchorsPerFile
+		}
+		if rs.CGECExternalArtifactDecodedFloor != nil {
+			criterion.SetExternalArtifactFloor(*rs.CGECExternalArtifactDecodedFloor)
 		}
 		tool.SetAnalysisLimits(analysisLimits)
 
