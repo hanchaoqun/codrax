@@ -173,6 +173,8 @@ func runAnswerShapeOracle(doc *types.AnswerDocument, rm *types.RequestModel, mut
 				Kind: types.ViolDeclaredCountDrift,
 				Detail: fmt.Sprintf("emit_answer_symbol declared count=%d but finalizer rendered %d doc.Symbols (post-emit drift)",
 					declared, len(doc.Symbols)),
+				Repair: fmt.Sprintf("re-emit emit_answer_symbol with count=%d to match the surviving slate after grounder strip, OR re-investigate to recover the dropped %d items if they are load-bearing",
+					len(doc.Symbols), declared-len(doc.Symbols)),
 				SuspectedRoot: types.SuspectedRoot{
 					IRField:    "answer_symbol",
 					Reason:     "declared item count diverges from rendered slate",
@@ -195,6 +197,8 @@ func runAnswerShapeOracle(doc *types.AnswerDocument, rm *types.RequestModel, mut
 				Kind: types.ViolShapeIntentMismatch,
 				Detail: fmt.Sprintf("intent=%s expects explanation-class shape; finalizer emitted shape=%s",
 					rm.Intent, doc.Shape),
+				Repair: fmt.Sprintf("re-emit emit_answer_document with shape=explanation (or list_of_symbols when the answer enumerates) — the user asked %q which expects prose, not a scalar",
+					rm.Intent),
 				SuspectedRoot: types.SuspectedRoot{
 					IRField:    "answer_shape",
 					Reason:     "intent declares explanation; shape declares scalar",
@@ -212,6 +216,8 @@ func runAnswerShapeOracle(doc *types.AnswerDocument, rm *types.RequestModel, mut
 			out = append(out, types.Violation{
 				Kind: types.ViolShapeIntentMismatch,
 				Detail: fmt.Sprintf("intent=%s expects value-class shape; finalizer emitted shape=explanation",
+					rm.Intent),
+				Repair: fmt.Sprintf("re-emit emit_answer_document with shape=value or shape=config_value (whichever matches the question's literal type) — the user asked %q which expects a scalar/key-value, not prose",
 					rm.Intent),
 				SuspectedRoot: types.SuspectedRoot{
 					IRField:    "answer_shape",
@@ -233,10 +239,15 @@ func runAnswerShapeOracle(doc *types.AnswerDocument, rm *types.RequestModel, mut
 		// segmentation is common). A 3-topic request with 2 or 4
 		// distinct buckets is fine; with 1 or 5+ it's a mismatch.
 		if abs(distinctBuckets-expected) > 1 {
+			repair := fmt.Sprintf("widen the answer to cover all %d sub-topics: emit one or more emit_answer_symbol items per sub-topic so doc.Symbols spans %d distinct files/symbols", expected, expected)
+			if distinctBuckets > expected+1 {
+				repair = fmt.Sprintf("the answer over-decomposed (%d buckets vs %d declared sub-topics) — collapse near-duplicate items into one bucket, or re-classify in the analyzer to recognise the additional sub-topics", distinctBuckets, expected)
+			}
 			out = append(out, types.Violation{
 				Kind: types.ViolSubTopicCountMismatch,
 				Detail: fmt.Sprintf("analyzer declared %d sub-topics; answer covers %d distinct buckets",
 					expected, distinctBuckets),
+				Repair: repair,
 				SuspectedRoot: types.SuspectedRoot{
 					IRField:    "sub_topics",
 					Reason:     "answer-symbol bucket count diverges from analyzer's sub-topic count",

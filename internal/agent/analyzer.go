@@ -804,11 +804,24 @@ func (e *analyzerEvaluator) ParseOutput(ctx *types.AgentContext, messages []llm.
 			// Coherence-specific feedback: when the failing checks
 			// are the cross-signal coherence gates, render an IR-
 			// field-level retry hint so the next dispatch's directive
-			// shows the LLM what specific contradiction to fix. Falls
-			// back to the generic "rejected" path for non-coherence
-			// hard failures.
-			if hint := composeCoherenceRetryHint(ir.QualityGate); hint != "" && ctx != nil && ctx.Mutable != nil {
-				ctx.Mutable.SetAnalyzerRetryHint(hint)
+			// shows the LLM what specific contradiction to fix.
+			//
+			// Commit 58 Batch D fix (audit #2): for NON-coherence hard
+			// failures (coverage / dag_closure / budget_sanity /
+			// contract_complete / hypothesis_coverage / etc), thread
+			// the full joined gate-failure detail (commit 56's union)
+			// into AnalyzerRetryHint so the next dispatch's LLM sees
+			// the specific check + Detail strings instead of a generic
+			// "rejected" message. Pre-commit-58 these landed only in
+			// `out.Error` (log + final exhaustion message) and never
+			// reached the prompt — wasted retries until the LLM
+			// happened to guess the right axis to widen.
+			if ctx != nil && ctx.Mutable != nil {
+				if hint := composeCoherenceRetryHint(ir.QualityGate); hint != "" {
+					ctx.Mutable.SetAnalyzerRetryHint(hint)
+				} else {
+					ctx.Mutable.SetAnalyzerRetryHint(buildGenericGateRetryHint(detail))
+				}
 			}
 			return out, nil
 		}
@@ -1739,6 +1752,28 @@ func prescanHitRatio(ctx *types.AgentContext, hints types.AnalyzerHints) float64
 		return 1.0
 	}
 	return probe.KeywordHitRatio()
+}
+
+// buildGenericGateRetryHint converts the joined gate-failure
+// detail string (produced by classifyGateFailure for non-coherence
+// hard failures) into an IR-field-level retry hint the next
+// analyzer dispatch's prependEmitRetryDirective consumes.
+//
+// The hint is descriptive ("the previous attempt's emit_analysis
+// failed these checks: …") not prescriptive — the analyzer LLM
+// reads each check's Detail and decides which IR field to widen /
+// narrow / re-classify. Without this hint the LLM saw only the
+// generic terminal-forcing directive on retry, so a coverage =
+// 0.4/0.7 failure would re-emit with the same coverage, then a
+// dag_closure miss → another retry, etc.
+func buildGenericGateRetryHint(joinedDetail string) string {
+	if strings.TrimSpace(joinedDetail) == "" {
+		return ""
+	}
+	return "## Quality gate rejected the previous emit_analysis\n\n" +
+		"The structural quality gate found these failing checks (one or more lines):\n\n" +
+		"- " + strings.ReplaceAll(joinedDetail, "; ", "\n- ") + "\n\n" +
+		"Re-emit emit_analysis with the IR fields the failing check names point at — coverage / dag_closure / hypothesis_coverage / contract_complete / budget_sanity / criterion_resolvable etc. — adjusted to satisfy each. Do NOT just resubmit the same shape; the gate is structural and will reject identical emits."
 }
 
 // classifyGateFailure inspects a GateReport and returns whether any

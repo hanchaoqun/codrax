@@ -2803,6 +2803,8 @@ func maybeRunDiagramIdentifierOracle(summary string, ctx *types.BusContext) {
 					Kind: types.ViolDiagramIdentifier,
 					Detail: fmt.Sprintf("identifier %q in mermaid block does not resolve to a Tier 1-2 repo symbol",
 						ident),
+					Repair: fmt.Sprintf("re-emit the diagram with %q replaced by a real repo symbol the answer cites, OR drop the box if it represented a generic concept (use a non-identifier-shaped label like \"User Action\" instead)",
+						ident),
 					Stage: string(types.StageFinalize),
 					SuspectedRoot: types.SuspectedRoot{
 						IRField:    "diagram",

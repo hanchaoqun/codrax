@@ -378,16 +378,27 @@ func (a *logTriager) runTwoStep(ctx *types.AgentContext, sk *skill.Config, reaso
 	// emit_log_segmentation which writes to Mutable.LogSegments().
 	segOut, err := a.base.Execute(ctx, segSkill)
 	if err != nil || segOut == nil {
+		// Commit 58 Batch D fix (audit #1): include the underlying
+		// emit_log_segmentation rejection reason in StageReport so
+		// downstream operators / diagnostic logs see *why* the
+		// segmentation step refused. Pre-commit-58 the err was logged
+		// once at WARN and then swallowed.
+		errMsg := "no error returned"
+		if err != nil {
+			errMsg = err.Error()
+		}
 		logging.Warning("[log_triage] two-step: segmentation failed: %v", err)
 		return &StageOutput{
-			StageReport: fmt.Sprintf("two-step segmentation failed — degraded via reason=%s", reason),
+			StageReport: fmt.Sprintf("two-step segmentation failed — degraded via reason=%s; underlying: %s",
+				reason, errMsg),
 		}, nil
 	}
 	segBytes := ctx.Mutable.LogSegments()
 	if len(segBytes) == 0 {
 		logging.Warning("[log_triage] two-step: no segments emitted; degrading")
 		return &StageOutput{
-			StageReport: fmt.Sprintf("two-step segmentation produced no segments — degraded via reason=%s", reason),
+			StageReport: fmt.Sprintf("two-step segmentation produced no segments — degraded via reason=%s (segmenter ran but its emit_log_segmentation tool yielded zero structured segments; check if the input is unstructured noise that the segmenter cannot decompose)",
+				reason),
 		}, nil
 	}
 	var segments []tool.LogSegment
