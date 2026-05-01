@@ -14,16 +14,19 @@ import (
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
-// validPlanIDPattern restricts plan IDs to ASCII alphanumerics,
-// underscore, and hyphen. Plans are addressed by ID in
-// filesystem operations (PlanStore.Load / Clear / Settle), so
-// any traversal-shaped ID ("../" / absolute path) would let a
-// caller escape planDir. Plan IDs in production are
-// "plan-<unix-nano>-<pid>", which fits this pattern by
-// construction; this regex catches the case where an attacker
-// (REPL operator, CLI flag, future MCP tool call) supplies a
-// crafted ID.
-var validPlanIDPattern = regexp.MustCompile(`^[a-zA-Z0-9_-]+$`)
+// validStoreIDPattern restricts disk-store ids (PlanStore plan
+// ids + PlanGroupStore group ids) to ASCII alphanumerics,
+// underscore, and hyphen. Both stores address files by id in
+// filesystem operations (Load / Clear / Settle / Save), so any
+// traversal-shaped id ("../" / absolute path) would let a
+// caller escape the store directory. Production ids are
+// "plan-<unix-nano>-<pid>" / "group-<unix-nano>-<pid>", which
+// fit this pattern by construction; this regex catches the
+// case where an attacker (REPL operator, CLI flag, future MCP
+// tool call) supplies a crafted id. Single source of truth so
+// PlanStore + PlanGroupStore can't drift in their definitions
+// of "safe id".
+var validStoreIDPattern = regexp.MustCompile(`^[a-zA-Z0-9_-]+$`)
 
 // PlanStore is the REPL's persistent index of ChangePlans. Single-
 // shot mode writes plan JSONs via cmd/root.go's writePlanFile and
@@ -269,7 +272,7 @@ func (s *PlanStore) Settle(planID, newStatus, reason string) error {
 			newStatus)
 	}
 	planID = strings.TrimSpace(planID)
-	if !validPlanIDPattern.MatchString(planID) {
+	if !validStoreIDPattern.MatchString(planID) {
 		return fmt.Errorf("PlanStore.Settle: invalid plan id %q", planID)
 	}
 
@@ -322,7 +325,7 @@ func (s *PlanStore) Load(id string) (*types.ChangePlan, error) {
 	if id == "" {
 		return nil, fmt.Errorf("PlanStore.Load: empty id")
 	}
-	if !validPlanIDPattern.MatchString(id) {
+	if !validStoreIDPattern.MatchString(id) {
 		return nil, fmt.Errorf("PlanStore.Load: invalid plan id %q (must match [a-zA-Z0-9_-]+)", id)
 	}
 	s.mu.Lock()
@@ -487,7 +490,7 @@ func (s *PlanStore) Clear(id string) error {
 	if id == "" {
 		return fmt.Errorf("PlanStore.Clear: empty id")
 	}
-	if !validPlanIDPattern.MatchString(id) {
+	if !validStoreIDPattern.MatchString(id) {
 		return fmt.Errorf("PlanStore.Clear: invalid plan id %q", id)
 	}
 	s.mu.Lock()
