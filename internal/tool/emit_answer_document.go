@@ -942,6 +942,25 @@ func (t *EmitAnswerDocument) Execute(ctx *types.BusContext, params json.RawMessa
 	if err := validateSummaryDiagramGrounding(p.Summary, citations, groundCtx, ctx); err != nil {
 		return failWithContext("%v", err)
 	}
+	// 2026-05-02 — seed-fidelity gate. When the prompt injected a
+	// "Call chain (innermost → outer)" mermaid seed via
+	// types.RenderLogDiagramFence, the file:line tokens in that seed
+	// are authoritative facts about the failure event (the runtime
+	// binary at that line layout). The LLM was observed rewriting
+	// those lines to whatever it read in current source via read_file,
+	// AND reusing a single line number across multiple distinct seed
+	// frames (indirect indication of indexical-resolution error). Both
+	// are factually wrong: the seed lines describe a HISTORICAL
+	// runtime event, not a current-source location.
+	//
+	// The grounder's diagram-grounding gate is intentionally
+	// line-agnostic (it strips ":line" before checking the allowlist),
+	// so seed lines copied verbatim are pre-allowed. This separate gate
+	// closes the inverse loop — DETECT when the LLM modified them and
+	// retry with the seed verbatim in the hint.
+	if err := validateSummaryDiagramSeedFidelity(p.Summary, ctx); err != nil {
+		return failWithContext("%v", err)
+	}
 	// Config-trace fence-label structural gate. Replaces the prompt-
 	// side literal-CLI prohibition with a two-channel grounding rule
 	// (role label OR cited file path). Scopes itself to config-trace
@@ -3218,6 +3237,258 @@ func validateSummaryDiagramGrounding(summary string, citations []types.Citation,
 		WithMetadata("invalid_labels", strings.Join(violations, ", ")).
 		WithMetadata("allowed_labels", strings.Join(allow.labels, ", ")).
 		WithHint("Re-emit `emit_answer_document` with the same grounded answer, but inside fenced diagrams keep file/path node labels to the exact grounded allowlist for this dispatch. If a node has no grounded label, remove it from the fence and explain that relationship in prose instead.")
+}
+
+// validateSummaryDiagramSeedFidelity rejects answers whose mermaid
+// fence modified the file:line tokens that the prompt's
+// "Call chain (innermost → outer)" seed had pinned. Seed lines come
+// from LogBundle.Errors[*].Frames via types.RenderLogDiagramFence
+// and describe the runtime event's authoritative line layout —
+// rewriting them to current-source positions silently replaces the
+// failure-time fact with a build-time fact, and the LLM was
+// observed conflating the two when read_file revealed a different
+// layout.
+//
+// The check has two arms:
+//
+//   1. Seed-line preservation: every (file, line) pair the seed
+//      contains must appear at least once in some output mermaid
+//      fence. Missing pairs name a frame whose line was rewritten.
+//
+//   2. No-collapse: the count of distinct lines per file in the
+//      output for files that the seed pins must be ≥ count in
+//      the seed. Catches the indexical-collapse error where the
+//      LLM reuses a single line number across multiple seed frames.
+//
+// Both arms gate only files the seed actually pins; output may add
+// additional file:line nodes outside the seed (consistent with the
+// "You MAY extend" allowance from skill prompt). Vacuously
+// satisfied when no seed is attached (Mutable.LogTriage()==nil or
+// fewer than 2 frames). Refusal recurses into a finalizer retry
+// with the seed verbatim in the hint, so the LLM's next emit can
+// copy it byte-for-byte.
+func validateSummaryDiagramSeedFidelity(summary string, ctx *types.BusContext) error {
+	seedPairs := collectLogSeedFileLines(ctx)
+	if len(seedPairs) == 0 {
+		return nil
+	}
+	// If the LLM didn't emit any mermaid fence at all, there's
+	// nothing to validate — the renderer will auto-inject the seed
+	// downstream. The seed-fidelity rule only kicks in when the LLM
+	// emitted its OWN diagram (and might have rewritten seed lines).
+	if !summaryHasMermaidFence(summary) {
+		return nil
+	}
+	// Respect the pre-existing drift-bounded-root-cause surface mode:
+	// when the system itself rebuilt the diagram with current-source
+	// line positions (and prefixed a "log lines do not fully align"
+	// prose lead), seed-fidelity is intentionally inverted by design
+	// — the diagram is anchored to the current checkout, not the
+	// historical log. The seed-fidelity rule must not fight that
+	// pre-existing system behavior. Skip the gate in this mode.
+	if plan := answerSurfacePlan(ctx); plan != nil &&
+		plan.SummarySurfaceMode == types.AnswerSummarySurfaceDriftBoundedRootCause {
+		return nil
+	}
+	outputPairs := collectMermaidFileLines(summary)
+
+	// Arm 1: every seed (file, line) must appear at least once in
+	// the output's diagram tokens.
+	missing := make([]string, 0)
+	seenInOutput := make(map[string]bool, len(outputPairs))
+	for _, p := range outputPairs {
+		seenInOutput[p] = true
+	}
+	for _, p := range seedPairs {
+		if !seenInOutput[p] {
+			missing = append(missing, p)
+		}
+	}
+
+	// Arm 2: distinct-line-count per file. For each file the seed
+	// pins, count the distinct lines in the seed and in the output.
+	// If output's distinct count < seed's, the LLM collapsed two
+	// distinct frames to a single line.
+	seedFileLines := bucketByFile(seedPairs)
+	outputFileLines := bucketByFile(outputPairs)
+	collapsed := make([]string, 0)
+	for file, seedLines := range seedFileLines {
+		if len(seedLines) < 2 {
+			continue
+		}
+		if len(outputFileLines[file]) < len(seedLines) {
+			collapsed = append(collapsed,
+				fmt.Sprintf("%s (seed has %d distinct lines, output has %d)",
+					file, len(seedLines), len(outputFileLines[file])))
+		}
+	}
+
+	if len(missing) == 0 && len(collapsed) == 0 {
+		return nil
+	}
+
+	seedFence := renderSeedFenceForRetry(ctx)
+	detail := "summary mermaid fence modified file:line tokens that the seed had pinned. "
+	if len(missing) > 0 {
+		detail += fmt.Sprintf("Missing seed anchors: %s. ", strings.Join(missing, ", "))
+	}
+	if len(collapsed) > 0 {
+		detail += fmt.Sprintf("Collapsed distinct frames: %s. ", strings.Join(collapsed, "; "))
+	}
+	detail += "These pairs are AUTHORITATIVE FACTS about the failure event (which file at which line at runtime), not current-source positions. Copy the seed below verbatim into your final diagram."
+	hint := "Re-emit emit_answer_document with the same prose answer, but copy this seed mermaid fence VERBATIM into the diagram block of your summary. Do not alter line numbers; do not collapse multiple frames to a single line. You MAY add caller/callee nodes (each with its own grounded file:line from citations[]), rename role labels, or change form (flowchart ↔ sequenceDiagram), but every file:line that appears in the seed below must appear unchanged in your final diagram.\n\nSeed:\n" + seedFence
+	return newAnswerDocValidationError(
+		"diagram_seed_fidelity",
+		"%s",
+		detail,
+	).WithFields("summary").
+		WithMetadata("missing_seed_pairs", strings.Join(missing, ", ")).
+		WithMetadata("collapsed_files", strings.Join(collapsed, "; ")).
+		WithHint(hint)
+}
+
+// summaryHasMermaidFence reports whether summary contains at least
+// one ```mermaid``` fenced code block. Used by the seed-fidelity
+// gate to short-circuit when the LLM emitted no diagram.
+func summaryHasMermaidFence(summary string) bool {
+	for _, block := range fencedCodeBlockRe.FindAllStringSubmatch(summary, -1) {
+		header := strings.SplitN(block[0], "\n", 2)[0]
+		if strings.Contains(strings.ToLower(header), "mermaid") {
+			return true
+		}
+	}
+	return false
+}
+
+// collectLogSeedFileLines returns the (file, line) pairs the prompt
+// would have injected via RenderLogDiagramFence, formatted as
+// "file:line" strings. Uses the same LogBundle source the seed
+// renderer reads, so seed and validation cannot drift.
+func collectLogSeedFileLines(ctx *types.BusContext) []string {
+	if ctx == nil || ctx.Mutable == nil {
+		return nil
+	}
+	bundle := ctx.Mutable.LogTriage()
+	if bundle == nil {
+		return nil
+	}
+	out := make([]string, 0)
+	seen := make(map[string]bool)
+	for _, e := range bundle.Errors {
+		for _, f := range e.Frames {
+			file := strings.TrimSpace(f.File)
+			if file == "" || f.Line <= 0 {
+				continue
+			}
+			tok := fmt.Sprintf("%s:%d", file, f.Line)
+			if seen[tok] {
+				continue
+			}
+			seen[tok] = true
+			out = append(out, tok)
+		}
+	}
+	// Mirror the renderer's >=2-frames threshold: a single-frame
+	// bundle has no "chain" and the seed renderer would skip it.
+	if len(out) < 2 {
+		return nil
+	}
+	return out
+}
+
+// collectMermaidFileLines extracts every "file:line" token that
+// appears inside a mermaid fenced code block in summary. file:line
+// tokens elsewhere (prose, ASCII art) are ignored — the seed-fidelity
+// rule applies only to mermaid diagrams (the seed itself is mermaid).
+func collectMermaidFileLines(summary string) []string {
+	out := make([]string, 0)
+	seen := make(map[string]bool)
+	for _, block := range fencedCodeBlockRe.FindAllStringSubmatch(summary, -1) {
+		// block[0] is the full fence with info-string; ensure the
+		// info-string is "mermaid" before scanning.
+		header := strings.SplitN(block[0], "\n", 2)[0]
+		if !strings.Contains(strings.ToLower(header), "mermaid") {
+			continue
+		}
+		body := diagramGroundingBodyReplacer.Replace(block[1])
+		for _, tok := range diagramFileTokenRe.FindAllString(body, -1) {
+			// Only file:line forms (must contain ":number" suffix).
+			idx := strings.LastIndex(tok, ":")
+			if idx < 0 || idx == len(tok)-1 {
+				continue
+			}
+			lineStr := tok[idx+1:]
+			isNumeric := true
+			for _, r := range lineStr {
+				if r < '0' || r > '9' {
+					isNumeric = false
+					break
+				}
+			}
+			if !isNumeric {
+				continue
+			}
+			if seen[tok] {
+				continue
+			}
+			seen[tok] = true
+			out = append(out, tok)
+		}
+	}
+	return out
+}
+
+// bucketByFile groups "file:line" tokens by file part, returning a
+// map of file → set-of-distinct-lines. Used by the no-collapse arm
+// to compare seed vs output cardinality per file.
+func bucketByFile(pairs []string) map[string]map[string]bool {
+	out := make(map[string]map[string]bool)
+	for _, p := range pairs {
+		idx := strings.LastIndex(p, ":")
+		if idx < 0 {
+			continue
+		}
+		file := p[:idx]
+		line := p[idx+1:]
+		if _, ok := out[file]; !ok {
+			out[file] = make(map[string]bool)
+		}
+		out[file][line] = true
+	}
+	return out
+}
+
+// renderSeedFenceForRetry rebuilds the seed mermaid fence the prompt
+// would have injected. Used in the seed-fidelity rejection's hint
+// so the LLM's retry attempt can see the exact fence to copy.
+func renderSeedFenceForRetry(ctx *types.BusContext) string {
+	if ctx == nil || ctx.Mutable == nil {
+		return ""
+	}
+	bundle := ctx.Mutable.LogTriage()
+	if bundle == nil {
+		return ""
+	}
+	// Use only resolved frames (file != "" && line > 0) so the
+	// rendered fence matches what RenderLogDiagramFence emits in
+	// the prompt path. The renderer itself filters internally too,
+	// but we re-filter here to keep the test surface tight.
+	resolved := make([]types.LogFrame, 0)
+	for _, e := range bundle.Errors {
+		for _, f := range e.Frames {
+			if strings.TrimSpace(f.File) == "" || f.Line <= 0 {
+				continue
+			}
+			resolved = append(resolved, f)
+		}
+	}
+	if len(resolved) < 2 {
+		return ""
+	}
+	subset := &types.LogBundle{
+		Errors: []types.LogError{{Frames: resolved}},
+	}
+	return types.RenderLogDiagramFence(subset)
 }
 
 // configTraceFenceRoleLabels returns the canonical 4-element role
