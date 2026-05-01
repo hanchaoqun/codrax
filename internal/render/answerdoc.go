@@ -322,6 +322,9 @@ func renderAnswerDocBoolean(b *strings.Builder, doc *types.AnswerDocument, lang 
 // specific renderers do NOT call this — they resolve citations
 // inline via lookupCitation — so there is exactly one source of
 // citation rendering per shape.
+//
+// 2026-05+ scope-axis: dispatches per Citation.Scope. Empty Scope
+// falls back to the historical "file:line when both set" rendering.
 func renderAnswerDocCitationPool(b *strings.Builder, doc *types.AnswerDocument, lang answerDocLang) {
 	if len(doc.Citations) == 0 {
 		return
@@ -333,12 +336,60 @@ func renderAnswerDocCitationPool(b *strings.Builder, doc *types.AnswerDocument, 
 		b.WriteString("\n**Citations:**\n\n")
 	}
 	for _, c := range doc.Citations {
-		if q := strings.TrimSpace(c.Quote); q != "" {
-			fmt.Fprintf(b, "- `%s:%d` — %s\n", c.File, c.Line, q)
+		fmt.Fprintf(b, "- %s\n", renderCitationDisplay(c))
+	}
+}
+
+// renderCitationDisplay produces the per-scope display string for a
+// single Citation, including optional Quote suffix. Centralised so
+// the bullet-list pool, inline shape renderers, and any future
+// rendering surface (markdown table, dock summary) share one
+// definition.
+func renderCitationDisplay(c types.Citation) string {
+	var head string
+	switch c.Scope {
+	case types.ScopeLineRange:
+		if c.LineEnd > c.Line {
+			head = fmt.Sprintf("`%s:%d-%d`", c.File, c.Line, c.LineEnd)
 		} else {
-			fmt.Fprintf(b, "- `%s:%d`\n", c.File, c.Line)
+			head = fmt.Sprintf("`%s:%d`", c.File, c.Line)
+		}
+	case types.ScopeSection:
+		if c.Line > 0 {
+			head = fmt.Sprintf("`%s:%d` [section: `%s`]", c.File, c.Line, c.SectionPath)
+		} else {
+			head = fmt.Sprintf("`%s` [section: `%s`]", c.File, c.SectionPath)
+		}
+	case types.ScopeFile:
+		head = fmt.Sprintf("`%s` [layer: %s]", c.File, c.FileRoleLabel)
+	case types.ScopeCrossfile:
+		summary := strings.TrimSpace(c.CrossfileSummary)
+		if summary == "" {
+			summary = "cross-file contract"
+		}
+		head = fmt.Sprintf("cross-file contract: %s", summary)
+		if c.File != "" {
+			head = fmt.Sprintf("%s (in `%s`)", head, c.File)
+		}
+	case types.ScopeNegative:
+		pattern := strings.TrimSpace(c.NegativePattern)
+		if pattern != "" {
+			head = fmt.Sprintf("`%s` [absence: `%s`]", c.File, pattern)
+		} else {
+			head = fmt.Sprintf("`%s` [absence]", c.File)
+		}
+	default:
+		// ScopeLine or empty (transitional).
+		if c.Line > 0 {
+			head = fmt.Sprintf("`%s:%d`", c.File, c.Line)
+		} else {
+			head = fmt.Sprintf("`%s`", c.File)
 		}
 	}
+	if q := strings.TrimSpace(c.Quote); q != "" {
+		return head + " — " + q
+	}
+	return head
 }
 
 // -------- Code snippets (render-only, added session 8) --------

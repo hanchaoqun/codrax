@@ -436,3 +436,69 @@ func TestRenderAnswerDocument_NoSnippetsNoRenderBlock(t *testing.T) {
 		t.Errorf("empty Snippets must not render header: %q", out)
 	}
 }
+
+// TestRenderCitationDisplay_PerScope pins the per-scope citation
+// rendering: each scope gets its own visual format so the answer
+// surface clearly distinguishes a per-line cite from a layer cite or
+// an absence cite.
+func TestRenderCitationDisplay_PerScope(t *testing.T) {
+	cases := []struct {
+		name string
+		c    types.Citation
+		want string
+	}{
+		{
+			name: "line scope (default)",
+			c:    types.Citation{File: "a.go", Line: 42, Scope: types.ScopeLine},
+			want: "`a.go:42`",
+		},
+		{
+			name: "line legacy empty scope",
+			c:    types.Citation{File: "a.go", Line: 42},
+			want: "`a.go:42`",
+		},
+		{
+			name: "line_range with end",
+			c:    types.Citation{File: "config.go", Line: 100, LineEnd: 150, Scope: types.ScopeLineRange},
+			want: "`config.go:100-150`",
+		},
+		{
+			name: "section",
+			c:    types.Citation{File: "codrax.yaml", Line: 50, Scope: types.ScopeSection, SectionPath: "explore_*"},
+			want: "`codrax.yaml:50` [section: `explore_*`]",
+		},
+		{
+			name: "section without line",
+			c:    types.Citation{File: "codrax.yaml", Scope: types.ScopeSection, SectionPath: "explore_*"},
+			want: "`codrax.yaml` [section: `explore_*`]",
+		},
+		{
+			name: "file",
+			c:    types.Citation{File: "codrax.yaml", Scope: types.ScopeFile, FileRoleLabel: types.FileRoleConfigCanonical},
+			want: "`codrax.yaml` [layer: config_canonical]",
+		},
+		{
+			name: "crossfile with summary",
+			c:    types.Citation{Scope: types.ScopeCrossfile, CrossfileSummary: "explore_* has no CLI flag"},
+			want: "cross-file contract: explore_* has no CLI flag",
+		},
+		{
+			name: "negative",
+			c:    types.Citation{File: "codrax.yaml", Scope: types.ScopeNegative, NegativePattern: "explore_mid_loop_hint_budget"},
+			want: "`codrax.yaml` [absence: `explore_mid_loop_hint_budget`]",
+		},
+		{
+			name: "line with quote",
+			c:    types.Citation{File: "a.go", Line: 42, Quote: "func Foo() {", Scope: types.ScopeLine},
+			want: "`a.go:42` — func Foo() {",
+		},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			got := renderCitationDisplay(c.c)
+			if got != c.want {
+				t.Errorf("renderCitationDisplay() = %q, want %q", got, c.want)
+			}
+		})
+	}
+}

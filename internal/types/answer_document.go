@@ -294,6 +294,20 @@ type Citation struct {
 	File  string `json:"file"`
 	Line  int    `json:"line"`
 	Quote string `json:"quote,omitempty"`
+
+	// 2026-05+ scope-axis. A Citation may anchor at one of six
+	// shapes (line / line_range / section / file / crossfile /
+	// negative); the renderer dispatches on Scope to format
+	// `file:line` vs `file:start-end` vs `file [section: x]` vs
+	// `file [layer: ...]` vs cross-file contract summary vs
+	// `file [absence: ...]`. Empty Scope falls back to the
+	// historical "file:line when both set, else file" rendering.
+	Scope            EvidenceScope `json:"scope,omitempty"`
+	LineEnd          int           `json:"line_end,omitempty"`
+	SectionPath      string        `json:"section_path,omitempty"`
+	FileRoleLabel    FileRoleLabel `json:"file_role_label,omitempty"`
+	CrossfileSummary string        `json:"crossfile_summary,omitempty"`
+	NegativePattern  string        `json:"negative_pattern,omitempty"`
 }
 
 // DefaultCitationMaxQuoteChars is the baseline preview ceiling used
