@@ -1464,27 +1464,21 @@ func buildAnalysisIR(ctx *types.AgentContext) (*types.AnalysisIR, error) {
 	// threading) rather than ambiguous silence.
 	EmitReconcileSummary(ctxMutable(ctx))
 
-	// CritExternalArtifactDecoded (2026-05-02): structural trigger.
-	// When a runtime log / perf trace was attached at Run entry AND
-	// the triage pre-stage produced a usable bundle, append the
-	// criterion to AnswerContract.AcceptanceTests so contract.Check
-	// at finalize asserts the answer references at least
-	// cgec_external_artifact_decoded_floor (default 0.4) of the
-	// bundle-extracted non-path tokens. No keyword classification —
-	// the trigger is purely "did the system extract a decodable
-	// payload?". Generalises to any future structured artifact
-	// (config dump, error message paste, etc.) by appending to the
-	// criterion package's collectExternalArtifactTokens helper.
-	if ctx != nil && ctx.Mutable != nil {
-		hasLog := ctx.Mutable.LogTriage() != nil
-		hasPerf := ctx.Mutable.PerfTrace() != nil
-		if (hasLog || hasPerf) && ir != nil {
-			ir.AnswerContract.AcceptanceTests = append(
-				ir.AnswerContract.AcceptanceTests,
-				types.Criterion{Kind: types.CritExternalArtifactDecoded},
-			)
-		}
-	}
+	// CritExternalArtifactDecoded (2026-05-02) is a STRUCTURAL gate
+	// that fires post-finalize from orchestrator/contract_check.go's
+	// runExternalArtifactDecodedCheck — it reads bus.Mutable.LogTriage()
+	// / PerfTrace() directly, so there is no need (and no benefit) to
+	// register it as an AcceptanceTest. Pre-2026-05-02 the analyzer
+	// did append it to AcceptanceTests, but contract.checkAcceptance
+	// has a closed switch over Criterion Kinds and treated the new
+	// kind as "unknown acceptance test kind" — emitting ViolAcceptance
+	// (strict by default) on every emit_answer_document call. The
+	// LLM cannot resolve a configuration error like that, so the
+	// finalizer entered a multi-minute retry storm (logtri_go eval
+	// went from 3-min to 12-min wall-clock with 9× more reads, all
+	// chasing the unsolvable "unknown kind" error). Keep the
+	// structural trigger in the orchestrator only; AnswerContract
+	// stays untouched.
 
 	return ir, nil
 }
