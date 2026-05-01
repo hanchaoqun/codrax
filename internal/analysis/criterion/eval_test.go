@@ -247,6 +247,70 @@ func TestEval_ExternalArtifactDecoded_PerfBundleHit(t *testing.T) {
 	}
 }
 
+// TestLooksLikeFilePath_TokenClassification pins the
+// answer-bearing-vs-file distinction collectExternalArtifactTokens
+// uses. Pre-2026-05-02 the filter was "contains /\\" which dropped
+// legitimate Go package paths and Java FQCNs alongside file paths,
+// silently shrinking the answer-bearing token set on every panic
+// trace whose Frame.Pkg looked like "github.com/...".
+func TestLooksLikeFilePath_TokenClassification(t *testing.T) {
+	cases := []struct {
+		name string
+		tok  string
+		want bool
+	}{
+		// File paths — drop.
+		{name: "go file", tok: "internal/agent/analyzer.go", want: true},
+		{name: "py file", tok: "src/foo.py", want: true},
+		{name: "java file with package dir", tok: "com/example/Foo.java", want: true},
+		{name: "ets file", tok: "Index.ets", want: true},
+		{name: "json5 file", tok: "oh-package.json5", want: true},
+		// Code-namespace tokens — keep.
+		{name: "Go package path", tok: "github.com/hanchaoqun/codrax/internal/agent", want: false},
+		{name: "Java FQCN", tok: "java.lang.NullPointerException", want: false},
+		{name: "Python FQN", tok: "django.db.models.Model", want: false},
+		{name: "plain symbol", tok: "buildAnalysisIR", want: false},
+		{name: "dotted simple ident", tok: "foo.bar", want: false},
+		{name: "trailing dot", tok: "foo.", want: false},
+		{name: "no dot", tok: "panic", want: false},
+		{name: "extension uppercase", tok: "Index.ETS", want: true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := looksLikeFilePath(tc.tok)
+			if got != tc.want {
+				t.Errorf("looksLikeFilePath(%q) = %v, want %v", tc.tok, got, tc.want)
+			}
+		})
+	}
+}
+
+// TestCollectExternalArtifactTokens_KeepsGoPackagePath: regression
+// guard that the Pkg field of a Go LogFrame survives token
+// collection — pre-fix the path-only filter dropped it because it
+// contained `/`.
+func TestCollectExternalArtifactTokens_KeepsGoPackagePath(t *testing.T) {
+	bundle := &types.LogBundle{
+		Errors: []types.LogError{{
+			Type: "SIGSEGV",
+			Frames: []types.LogFrame{
+				{Func: "buildAnalysisIR", Pkg: "github.com/hanchaoqun/codrax/internal/agent"},
+			},
+		}},
+	}
+	toks := collectExternalArtifactTokens(bundle, nil)
+	hasPkg := false
+	for _, tok := range toks {
+		if tok == "github.com/hanchaoqun/codrax/internal/agent" {
+			hasPkg = true
+			break
+		}
+	}
+	if !hasPkg {
+		t.Errorf("Go package path Pkg must survive token collection (was dropped pre-2026-05-02); got %+v", toks)
+	}
+}
+
 // TestEval_ExternalArtifactDecoded_ExprOverridesFloor pins the
 // per-criterion threshold override path: callers can pass
 // Expr="0.5" to enforce a custom floor for a specific test

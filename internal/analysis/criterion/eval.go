@@ -887,10 +887,10 @@ func evalExternalArtifactDecoded(expr string, env Env) Result {
 	return Result{Satisfied: false, Detail: rationale}
 }
 
-// collectExternalArtifactTokens enumerates the non-path "answer-bearing"
-// tokens from any attached triage bundle. Returns a deduplicated slice
-// (lower-cased keys, original-case display) suitable for substring
-// matching against the DraftAnswer.
+// collectExternalArtifactTokens enumerates the non-file-path
+// "answer-bearing" tokens from any attached triage bundle. Returns a
+// deduplicated slice (lower-cased keys, original-case display)
+// suitable for substring matching against the DraftAnswer.
 //
 // Token sources:
 //   - LogBundle: Meta.Signals (panic / crash / oom / timeout / ...),
@@ -901,11 +901,18 @@ func evalExternalArtifactDecoded(expr string, env Env) Result {
 //     ...), Janks[].TriggerSpan + Reason, Stalls[].Symbol + Kind,
 //     Startup.Mode (cold / warm / hot).
 //
-// Path-like tokens are excluded (file paths participate in citation
-// grounding via a separate channel; the ResolvedFiles list already
-// flows into Phase1Ranking). Tokens shorter than 2 characters are
-// dropped to avoid noise like "go" / "rb" matching every Go function
-// name. Cause depth is capped at 5 to mirror LogBundle.MaxCauseDepth.
+// Filtering:
+//   - File-path tokens are excluded (file paths participate in
+//     citation grounding via a separate channel; the ResolvedFiles
+//     list already flows into Phase1Ranking). Detection: looksLikeFilePath
+//     uses a trailing-extension probe (`.go` / `.py` / `.java` / ...),
+//     NOT a naive "contains /" check — Go package paths
+//     (`github.com/hanchaoqun/...`) and Java FQCNs
+//     (`java.lang.NullPointerException`) ARE legitimate answer-bearing
+//     tokens that earlier path-only filters incorrectly dropped.
+//   - Tokens shorter than 2 characters are dropped (avoid noise like
+//     "go" / "rb" matching every Go function name).
+//   - Cause depth is capped at 5 (mirrors LogBundle.MaxCauseDepth).
 func collectExternalArtifactTokens(log *types.LogBundle, perf *types.PerfBundle) []string {
 	seen := make(map[string]bool)
 	out := make([]string, 0, 16)
@@ -914,7 +921,7 @@ func collectExternalArtifactTokens(log *types.LogBundle, perf *types.PerfBundle)
 		if len(t) < 2 {
 			return
 		}
-		if strings.ContainsAny(t, "/\\") {
+		if looksLikeFilePath(t) {
 			return
 		}
 		key := strings.ToLower(t)
@@ -961,4 +968,40 @@ func collectExternalArtifactTokens(log *types.LogBundle, perf *types.PerfBundle)
 		}
 	}
 	return out
+}
+
+// fileExtensionTokenSuffixes is the closed list of file-extension
+// suffixes collectExternalArtifactTokens uses to distinguish a file
+// path from a code-namespace token. The set covers the languages
+// codrax's repomap supports plus the canonical config / docs
+// extensions an attached log might mention.
+//
+// Pattern: token ends with `.<ext>` AND the part after the last `.`
+// is in this set → treat as file path → drop. Anything else
+// (Go package paths like `github.com/foo/bar`, Java FQCNs like
+// `java.lang.NullPointerException`, plain symbol names) falls
+// through and stays in the answer-bearing token set.
+var fileExtensionTokenSuffixes = map[string]bool{
+	"go": true, "py": true, "pyi": true, "java": true, "kt": true, "kts": true,
+	"js": true, "jsx": true, "mjs": true, "ts": true, "tsx": true, "ets": true,
+	"rs": true, "c": true, "h": true, "cc": true, "cpp": true, "cxx": true,
+	"hpp": true, "hh": true, "rb": true, "swift": true, "cj": true,
+	"json": true, "json5": true, "yaml": true, "yml": true, "toml": true,
+	"md": true, "txt": true, "ini": true, "xml": true, "html": true, "css": true,
+	"sh": true, "bash": true, "zsh": true, "make": true, "mk": true,
+	"sql": true, "proto": true, "lua": true, "log": true,
+}
+
+// looksLikeFilePath reports whether tok ends with a known
+// file-extension suffix (case-insensitive). Used by
+// collectExternalArtifactTokens to drop file paths without
+// false-dropping Go package paths / Java FQCNs that contain `/`
+// or `.` but are NOT files.
+func looksLikeFilePath(tok string) bool {
+	dot := strings.LastIndex(tok, ".")
+	if dot < 0 || dot == len(tok)-1 {
+		return false
+	}
+	ext := strings.ToLower(tok[dot+1:])
+	return fileExtensionTokenSuffixes[ext]
 }

@@ -682,7 +682,17 @@ func deriveEntities(b *types.LogBundle) []string {
 
 // deriveIntentHint returns IntentRootCause when the bundle contains at
 // least one frame with File+Line>0 OR when Meta.Signals intersects
-// {panic, crash, oom}. Otherwise returns the zero Intent.
+// {panic, crash, oom, performance}. Otherwise returns the zero Intent.
+//
+// 2026-05-02: SignalPerformance joins the IntentRootCause trigger
+// list. A pure-performance log (no panic / crash / OOM) is still a
+// "why is this happening" question — same diagnostic axis as
+// the error-class signals. Without this, a log mentioning only
+// "slow API call took 5s" / "Choreographer dropped 5 frames"
+// would leave the LLM-emitted Intent (typically IntentExplain)
+// untouched, missing the analyzer's hdp ≥2 hypothesis floor +
+// CritExternalArtifactDecoded contract pressure that target
+// IntentRootCause runs.
 func deriveIntentHint(b *types.LogBundle) types.Intent {
 	if b == nil {
 		return ""
@@ -704,7 +714,7 @@ func deriveIntentHint(b *types.LogBundle) types.Intent {
 	}
 	for _, s := range b.Meta.Signals {
 		switch s {
-		case types.SignalPanic, types.SignalCrash, types.SignalOOM:
+		case types.SignalPanic, types.SignalCrash, types.SignalOOM, types.SignalPerformance:
 			return types.IntentRootCause
 		}
 	}
