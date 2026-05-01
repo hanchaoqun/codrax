@@ -110,8 +110,17 @@ func (o *Orchestrator) runPhaseGroup(group *types.PlanGroup, stepsUsed *int) err
 
 		// Drive the existing single-phase scheduler. Same code
 		// path single-phase mode uses; the only difference is
-		// this is invoked PER PHASE inside a loop.
-		taskErr := o.runTaskPhase(stepsUsed)
+		// this is invoked PER PHASE inside a loop. Tests can
+		// override o.runTaskPhaseFn to substitute a stub that
+		// pre-seeds Mutable.ChangePlan + ChangeReport without
+		// dispatching real agents — the runPhaseGroup outer
+		// loop is otherwise unreachable from a unit test
+		// because runTaskPhase requires the full ReAct stack.
+		runner := o.runTaskPhaseFn
+		if runner == nil {
+			runner = o.runTaskPhase
+		}
+		taskErr := runner(stepsUsed)
 
 		// Inspect outcome. The plan emitted by THIS phase, the
 		// commit SHA reached, the verify report.

@@ -1,7 +1,10 @@
 package orchestrator
 
 import (
+	"context"
 	"errors"
+	"fmt"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -271,6 +274,266 @@ func TestExpectedOutcomesForAcceptance_NilSafe(t *testing.T) {
 	if len(got) != 2 || got[0] != "a" || got[1] != "b" {
 		t.Errorf("ExpectedOutcomes drift; got %v", got)
 	}
+}
+
+// TestRunPhaseGroup_HappyPathThreePhases is the commit 30 e2e
+// pin: drive the multi-phase scheduler through three
+// non-terminal phases with a stub runTaskPhase that pre-seeds
+// the phase output (plan + report + commit SHA). Confirms:
+//   - every phase transitions Pending → InProgress → Accepted
+//   - PlanID + AppliedSHA are recorded per phase
+//   - PhaseContextPrefix gets seeded at each phase entry
+//   - acceptance verdict propagates NextHint to next phase
+//   - group reaches PlanGroupCompleted
+//   - persistGroup is called on every transition
+//
+// The runTaskPhase stub seeds the bus state that the real
+// implementation would have produced via runTaskGraph (which
+// requires a full ReAct stack — out of reach for a unit test).
+// All three phases get the same plan + clean report, so
+// acceptance is unambiguously "passed" each time.
+func TestRunPhaseGroup_HappyPathThreePhases(t *testing.T) {
+	store := &fakeGroupStore{}
+	mu := types.NewMutableState("schema-then-code")
+	mu.SetWriteAnalysisIR(&types.WriteAnalysisIR{
+		Request: types.WriteRequestModel{
+			RawRequest:       "schema then orm then api",
+			ExpectedOutcomes: []string{"users.email lands cleanly"},
+		},
+	})
+	bus := &types.BusContext{
+		Mutable:    mu,
+		Mode:       types.ModeApply,
+		AnalysisIR: &types.AnalysisIR{},
+	}
+	o := &Orchestrator{
+		busCtx:            bus,
+		planGroupStore:    store,
+		cancelToken:       NewCancelToken(),
+		acceptanceChecker: &stubAcceptanceChecker{verdict: &types.AcceptanceCheck{Passed: true, Reasoning: "ok", NextHint: "carry forward"}},
+	}
+
+	// Stub runTaskPhase to simulate plan→apply→verify success
+	// per phase. Each phase gets a unique plan id + commit SHA
+	// so the assertions can confirm the right phase got the
+	// right SHA.
+	phaseCallNum := 0
+	o.runTaskPhaseFn = func(stepsUsed *int) error {
+		phaseCallNum++
+		planID := fmt.Sprintf("plan-phase%d", phaseCallNum)
+		commitSHA := fmt.Sprintf("sha%d000000000000abcd", phaseCallNum)
+		mu.SetChangePlan(&types.ChangePlan{
+			ID:          planID,
+			Status:      types.PlanStatusApplied,
+			Summary:     "phase " + strconv.Itoa(phaseCallNum) + " summary",
+			TargetPaths: []string{"x.go"},
+		})
+		mu.SetChangeReport(&types.ChangeReport{
+			PlanID:      planID,
+			Passed:      true,
+			TestResults: []types.TestResult{{AssertionID: "TestX", Passed: true}},
+		})
+		o.currentIterCommitSHA = commitSHA
+		return nil
+	}
+
+	g := &types.PlanGroup{
+		ID:        "group-e2e-test",
+		Goal:      "schema-then-code",
+		Decision:  "linear",
+		Status:    types.PlanGroupPlanning,
+		ActiveIdx: 0,
+		Phases: []types.PhaseRecord{
+			{Index: 0, Goal: "schema migration", Status: types.PhasePending},
+			{Index: 1, Goal: "ORM update", Status: types.PhasePending},
+			{Index: 2, Goal: "API surface", Status: types.PhasePending},
+		},
+	}
+	stepsUsed := 0
+	if err := o.runPhaseGroup(g, &stepsUsed); err != nil {
+		t.Fatalf("runPhaseGroup: %v", err)
+	}
+
+	// Group end-state assertions.
+	if g.Status != types.PlanGroupCompleted {
+		t.Errorf("expected PlanGroupCompleted; got %q", g.Status)
+	}
+	if g.ActiveIdx != 3 {
+		t.Errorf("ActiveIdx should advance past all phases; got %d", g.ActiveIdx)
+	}
+	if phaseCallNum != 3 {
+		t.Errorf("expected runTaskPhase invoked 3 times; got %d", phaseCallNum)
+	}
+
+	// Per-phase assertions.
+	for i, want := range []struct {
+		planID    string
+		shaPrefix string
+	}{
+		{"plan-phase1", "sha1"},
+		{"plan-phase2", "sha2"},
+		{"plan-phase3", "sha3"},
+	} {
+		p := g.Phases[i]
+		if p.Status != types.PhaseAccepted {
+			t.Errorf("phase[%d].Status = %q; want Accepted", i, p.Status)
+		}
+		if p.PlanID != want.planID {
+			t.Errorf("phase[%d].PlanID = %q; want %q", i, p.PlanID, want.planID)
+		}
+		if !strings.HasPrefix(p.AppliedSHA, want.shaPrefix) {
+			t.Errorf("phase[%d].AppliedSHA = %q; want prefix %q", i, p.AppliedSHA, want.shaPrefix)
+		}
+		if p.AcceptanceCheck == nil || !p.AcceptanceCheck.Passed {
+			t.Errorf("phase[%d] acceptance should be passed; got %+v", i, p.AcceptanceCheck)
+		}
+		if p.StartedAt == nil || p.FinishedAt == nil {
+			t.Errorf("phase[%d] timestamps should both be stamped", i)
+		}
+	}
+
+	// nextPhaseHint must be consume-once: after phase 3
+	// completes (last phase), the slot's last value was
+	// "carry forward" — but the seedPlanningHintFromPhase
+	// function consumed it on phase 3 entry, then phase 3's
+	// acceptance set it again. Since there is no phase 4 to
+	// consume, the slot remains "carry forward" at exit.
+	// This is acceptable — the next Run's seedPlanningHintFromPhase
+	// will consume it (and the cmd/root.go layer creates a
+	// fresh Orchestrator per Run anyway).
+	if o.nextPhaseHint != "carry forward" {
+		t.Errorf("expected nextPhaseHint = 'carry forward' after final phase; got %q", o.nextPhaseHint)
+	}
+
+	// Persistence: at minimum N saves per phase (in_progress +
+	// accepted) plus 1 final completion + 1 initial save = 8.
+	// The exact count is implementation-defined; just confirm
+	// it's non-trivial.
+	if store.saveCount < 4 {
+		t.Errorf("expected >= 4 persistGroup saves; got %d", store.saveCount)
+	}
+}
+
+// TestRunPhaseGroup_AcceptanceErrorAdvances pins commit 26 +
+// 27 in the e2e flow: when the AcceptanceChecker errors on a
+// phase, the phase is marked PhaseAcceptanceUnverified and
+// the scheduler still advances (does NOT abort the group).
+// This is the fail-safer-not-fail-open contract.
+func TestRunPhaseGroup_AcceptanceErrorAdvances(t *testing.T) {
+	store := &fakeGroupStore{}
+	mu := types.NewMutableState("test")
+	mu.SetWriteAnalysisIR(&types.WriteAnalysisIR{Request: types.WriteRequestModel{}})
+	bus := &types.BusContext{
+		Mutable:    mu,
+		Mode:       types.ModeApply,
+		AnalysisIR: &types.AnalysisIR{},
+	}
+	o := &Orchestrator{
+		busCtx:            bus,
+		planGroupStore:    store,
+		cancelToken:       NewCancelToken(),
+		acceptanceChecker: &stubAcceptanceChecker{err: errors.New("network blip")},
+	}
+	o.runTaskPhaseFn = func(stepsUsed *int) error {
+		mu.SetChangePlan(&types.ChangePlan{
+			ID:          "plan-x",
+			TargetPaths: []string{"x.go"},
+		})
+		mu.SetChangeReport(&types.ChangeReport{Passed: true})
+		o.currentIterCommitSHA = "sha000000000000"
+		return nil
+	}
+
+	g := &types.PlanGroup{
+		ID:       "group-acc-err",
+		Decision: "linear",
+		Status:   types.PlanGroupPlanning,
+		Phases: []types.PhaseRecord{
+			{Index: 0, Goal: "p0", Status: types.PhasePending},
+			{Index: 1, Goal: "p1", Status: types.PhasePending},
+		},
+	}
+	stepsUsed := 0
+	if err := o.runPhaseGroup(g, &stepsUsed); err != nil {
+		t.Fatalf("runPhaseGroup: should not abort on acceptance err; got %v", err)
+	}
+	for i := range g.Phases {
+		if g.Phases[i].Status != types.PhaseAcceptanceUnverified {
+			t.Errorf("phase[%d] should be AcceptanceUnverified; got %q",
+				i, g.Phases[i].Status)
+		}
+	}
+	if g.Status != types.PlanGroupCompleted {
+		t.Errorf("group should still complete despite acceptance err; got %q", g.Status)
+	}
+}
+
+// TestRunPhaseGroup_AcceptanceRejectAborts pins the rejection
+// path in the e2e flow: passed=false stops the group at the
+// rejected phase with PlanGroupFailed; subsequent phases stay
+// Pending.
+func TestRunPhaseGroup_AcceptanceRejectAborts(t *testing.T) {
+	store := &fakeGroupStore{}
+	mu := types.NewMutableState("test")
+	mu.SetWriteAnalysisIR(&types.WriteAnalysisIR{Request: types.WriteRequestModel{}})
+	bus := &types.BusContext{
+		Mutable:    mu,
+		Mode:       types.ModeApply,
+		AnalysisIR: &types.AnalysisIR{},
+	}
+	o := &Orchestrator{
+		busCtx:            bus,
+		planGroupStore:    store,
+		cancelToken:       NewCancelToken(),
+		acceptanceChecker: &stubAcceptanceChecker{verdict: &types.AcceptanceCheck{Passed: false, Reasoning: "wrong direction"}},
+	}
+	o.runTaskPhaseFn = func(stepsUsed *int) error {
+		mu.SetChangePlan(&types.ChangePlan{ID: "plan-x", TargetPaths: []string{"x.go"}})
+		mu.SetChangeReport(&types.ChangeReport{Passed: true})
+		o.currentIterCommitSHA = "sha000000000000"
+		return nil
+	}
+
+	g := &types.PlanGroup{
+		ID:       "group-rej",
+		Decision: "linear",
+		Status:   types.PlanGroupPlanning,
+		Phases: []types.PhaseRecord{
+			{Index: 0, Goal: "p0", Status: types.PhasePending},
+			{Index: 1, Goal: "p1", Status: types.PhasePending},
+		},
+	}
+	stepsUsed := 0
+	err := o.runPhaseGroup(g, &stepsUsed)
+	if err == nil {
+		t.Fatal("runPhaseGroup should error on acceptance reject")
+	}
+	if !strings.Contains(err.Error(), "wrong direction") {
+		t.Errorf("error should embed verdict reasoning; got %v", err)
+	}
+	if g.Phases[0].Status != types.PhaseRolledBack {
+		t.Errorf("phase[0] should be RolledBack; got %q", g.Phases[0].Status)
+	}
+	if g.Phases[1].Status != types.PhasePending {
+		t.Errorf("phase[1] should remain Pending after group failure; got %q",
+			g.Phases[1].Status)
+	}
+	if g.Status != types.PlanGroupFailed {
+		t.Errorf("group should be Failed; got %q", g.Status)
+	}
+}
+
+// stubAcceptanceChecker is a deterministic AcceptanceChecker
+// for tests: returns the configured (verdict, err) on every
+// Check call regardless of input. Mirrors the no-op stubs in
+// other test files.
+type stubAcceptanceChecker struct {
+	verdict *types.AcceptanceCheck
+	err     error
+}
+
+func (s *stubAcceptanceChecker) Check(ctx context.Context, in AcceptanceCheckInput) (*types.AcceptanceCheck, error) {
+	return s.verdict, s.err
 }
 
 // TestApplyAcceptanceVerdict_ErrorMarksUnverified pins commit

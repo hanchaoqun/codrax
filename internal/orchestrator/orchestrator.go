@@ -184,6 +184,15 @@ type Orchestrator struct {
 	// boundary. Cleared at the next phase entry.
 	phaseContextPrefix string
 
+	// runTaskPhaseFn is a test seam: production runs use the
+	// real method (o.runTaskPhase) which requires the full
+	// agent stack; tests substitute a stub that pre-seeds
+	// Mutable.ChangePlan + Mutable.ChangeReport so the
+	// runPhaseGroup outer loop becomes unit-testable without
+	// stand-up of fake agent fleets. Nil = use the real
+	// method (production path).
+	runTaskPhaseFn func(*int) error
+
 	// baselineCaptureEnabled gates the pre-apply test snapshot
 	// that feeds CritNoRegression. Default false (test doubling
 	// is opt-in). When true, the apply stage hook dispatches run_tests
