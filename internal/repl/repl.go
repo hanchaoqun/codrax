@@ -2196,6 +2196,21 @@ func (r *REPL) handlePlanCmd(line string) {
 		fmt.Fprintf(r.out, "    id:      %s\n", plan.ID)
 		fmt.Fprintf(r.out, "    status:  %s\n", plan.Status)
 		fmt.Fprintf(r.out, "    changes: %d file(s)\n", len(plan.Changes))
+		// Phase membership when this plan is one of N in a multi-
+		// phase group. Lets the operator follow the cross-link to
+		// /phase show <group-id> for the broader group state.
+		// Single-phase plans leave PhaseGroupID empty so this
+		// section stays absent.
+		if plan.PhaseGroupID != "" {
+			phaseTotal := r.phaseTotalForGroup(plan.PhaseGroupID)
+			if phaseTotal > 0 {
+				fmt.Fprintf(r.out, "    phase:   %d of %d in group %s (use `/phase show %s`)\n",
+					plan.PhaseIndex+1, phaseTotal, plan.PhaseGroupID, plan.PhaseGroupID)
+			} else {
+				fmt.Fprintf(r.out, "    phase:   %d in group %s (use `/phase show %s`)\n",
+					plan.PhaseIndex+1, plan.PhaseGroupID, plan.PhaseGroupID)
+			}
+		}
 		if len(plan.TargetPaths) > 0 {
 			fmt.Fprintf(r.out, "    targets: %s\n", strings.Join(plan.TargetPaths, ", "))
 		}
@@ -2336,6 +2351,12 @@ func (r *REPL) handlePlanCmd(line string) {
 			}
 			if inf.HasCritique {
 				flags += " ⚠ review"
+			}
+			// Phase membership (commit 25): when a plan is one
+			// of N in a multi-phase group, surface the link so
+			// /plan list groups visibly cluster together.
+			if inf.PhaseGroupID != "" {
+				flags += fmt.Sprintf(" group=%s phase=%d", inf.PhaseGroupID, inf.PhaseIndex+1)
 			}
 			fmt.Fprintf(r.out, "    - [%s] %s  status=%s  (%d bytes)%s\n",
 				ts, inf.ID, status, inf.SizeB, flags)
@@ -3336,6 +3357,19 @@ func (r *REPL) handleMergeCmd(line string) {
 	target := defaultMergeTarget(r.repoRoot, r.branch)
 	includeFailed := false
 	rest := strings.TrimSpace(strings.TrimPrefix(line, "/merge"))
+	// Cross-command nudge: when the user passed a group id as a
+	// positional, surface a clear "use /phase show first" hint
+	// rather than silently ignoring the token (current /merge
+	// has no per-id positional — it always operates on the most-
+	// recent eligible plan from PlanStore). Group-level merge
+	// semantics are not implemented yet; pointing at /phase show
+	// keeps the user oriented.
+	for _, tok := range strings.Fields(rest) {
+		if strings.HasPrefix(tok, "group-") {
+			r.info(fmt.Sprintf("/merge: %q is a plan-group id. /merge does not yet operate on groups directly — use `/phase show %s` to inspect group state, then bring each phase plan to merge-ready and re-run /merge for the worktree fold-back.\n", tok, tok))
+			return
+		}
+	}
 	for _, tok := range strings.Fields(rest) {
 		switch {
 		case strings.HasPrefix(tok, "--branch="):
@@ -3691,6 +3725,15 @@ func (r *REPL) handleRejectCmd(line string) {
 		return
 	}
 	reason := strings.TrimSpace(strings.TrimPrefix(line, "/reject"))
+	// Cross-command nudge: when the reason text starts with a
+	// group id, the user almost certainly wants to discard the
+	// whole multi-phase group, not record "group-X..." as the
+	// rejection reason for a single plan. Surface a hint and
+	// refuse — group-level reject is not yet implemented.
+	if firstTok := strings.Fields(reason); len(firstTok) > 0 && strings.HasPrefix(firstTok[0], "group-") {
+		r.info(fmt.Sprintf("/reject: %q looks like a plan-group id, not a rejection reason. /reject does not yet operate on groups directly — use `/phase show %s` to inspect group state and reject each phase plan individually with /reject after picking it via /plan show <id>.\n", firstTok[0], firstTok[0]))
+		return
+	}
 	id := strings.TrimSuffix(filepath.Base(r.pendingPlanPath), ".json")
 	// Settle (keep the file with Status=rejected + RejectionReason
 	// for audit trail) instead of Clear (delete file). The user

@@ -503,6 +503,64 @@ func TestHandlePhaseCmd_ShowWithPlanIDHints(t *testing.T) {
 	}
 }
 
+// TestHandlePhaseCmd_ResumeOnPendingPhase pins commit 25's
+// /phase resume info-only hint: when the active phase is
+// Pending (typically just after /phase rollback), surface the
+// "type /mode apply to drive plan→apply→verify" guidance.
+func TestHandlePhaseCmd_ResumeOnPendingPhase(t *testing.T) {
+	r, store, _, out := newPhaseTestREPL(t)
+	g := threePhaseTestGroup("group-resume-pending")
+	g.Phases[1].Status = types.PhasePending
+	if _, err := store.Save(g); err != nil {
+		t.Fatal(err)
+	}
+	r.handlePhaseCmd("/phase resume")
+	got := out.String()
+	if !strings.Contains(got, "/mode apply") {
+		t.Errorf("expected /mode apply hint; got %q", got)
+	}
+	if !strings.Contains(got, "phase 2") {
+		t.Errorf("expected phase 2 mentioned; got %q", got)
+	}
+}
+
+// TestHandlePhaseCmd_ResumeOnTerminalGroupRefuses pins the
+// guard: completed / failed / rolled-back groups cannot be
+// resumed; the operator gets a clear "nothing to resume" warn.
+func TestHandlePhaseCmd_ResumeOnTerminalGroupRefuses(t *testing.T) {
+	r, store, _, out := newPhaseTestREPL(t)
+	g := threePhaseTestGroup("group-resume-done")
+	g.Status = types.PlanGroupCompleted
+	if _, err := store.Save(g); err != nil {
+		t.Fatal(err)
+	}
+	r.handlePhaseCmd("/phase resume")
+	got := out.String()
+	if !strings.Contains(got, "no active plan group") && !strings.Contains(got, "nothing to resume") {
+		t.Errorf("expected refusal; got %q", got)
+	}
+}
+
+// TestPhaseTotalForGroup pins the helper used by /plan show
+// + /plan list to render "phase X of Y" cross-links. Existing
+// group → returns total phase count; missing group → 0.
+func TestPhaseTotalForGroup(t *testing.T) {
+	r, store, _, _ := newPhaseTestREPL(t)
+	g := threePhaseTestGroup("group-total-test")
+	if _, err := store.Save(g); err != nil {
+		t.Fatal(err)
+	}
+	if got := r.phaseTotalForGroup("group-total-test"); got != 3 {
+		t.Errorf("expected 3 phases; got %d", got)
+	}
+	if got := r.phaseTotalForGroup("group-missing"); got != 0 {
+		t.Errorf("missing group should return 0; got %d", got)
+	}
+	if got := r.phaseTotalForGroup(""); got != 0 {
+		t.Errorf("empty id should return 0; got %d", got)
+	}
+}
+
 // TestShortSHA pins the small util.
 func TestShortSHA(t *testing.T) {
 	cases := map[string]string{

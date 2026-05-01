@@ -72,8 +72,10 @@ func (r *REPL) handlePhaseCmd(line string) {
 		r.phaseNext()
 	case "rollback":
 		r.phaseRollback()
+	case "resume":
+		r.phaseResume()
 	default:
-		r.warn("unknown /phase subcommand %q. expected: show / show <id> / next / rollback / skip <idx>\n", rest)
+		r.warn("unknown /phase subcommand %q. expected: show / show <id> / next / rollback / resume / skip <idx>\n", rest)
 	}
 }
 
@@ -271,6 +273,48 @@ func (r *REPL) phaseRollback() {
 		prev.Index+1, shortSHA(prev.AppliedSHA), phase.Index+1, g.Status))
 }
 
+// phaseResume is an info-only navigator: after `/phase rollback`
+// reset the active phase to Pending the user needs to know the
+// next step is `/mode apply <new request>` to drive a fresh Run
+// against the same group. Surfacing this explicitly avoids the
+// "I rolled back, now what?" pause.
+//
+// No state mutation — pure orientation. Refuses when no group
+// is in flight or when the active phase is not Pending (e.g. a
+// successful in_progress phase doesn't need resuming).
+func (r *REPL) phaseResume() {
+	g, err := r.resolvePhaseGroup("")
+	if err != nil {
+		r.errorf("/phase resume: %v\n", err)
+		return
+	}
+	if g == nil {
+		r.info("/phase resume: no active plan group\n")
+		return
+	}
+	if types.IsTerminalGroupStatus(g.Status) {
+		r.warn("/phase resume: group %s is %s; nothing to resume\n", g.ID, g.Status)
+		return
+	}
+	if g.ActiveIdx >= len(g.Phases) {
+		r.info(fmt.Sprintf("/phase resume: group %s already past last phase (%d/%d); use /merge to land it\n",
+			g.ID, g.ActiveIdx, len(g.Phases)))
+		return
+	}
+	phase := g.Phases[g.ActiveIdx]
+	switch phase.Status {
+	case types.PhasePending:
+		r.info(fmt.Sprintf("/phase resume: group %s phase %d (%q) is pending. Type `/mode apply` then describe your goal again to drive plan→apply→verify on this phase.\n",
+			g.ID, phase.Index+1, oneLine(phase.Goal)))
+	case types.PhaseInProgress:
+		r.info(fmt.Sprintf("/phase resume: group %s phase %d is already in_progress; another Run is driving it (or a previous Run was interrupted). Wait, or use /cancel + /phase rollback to reset.\n",
+			g.ID, phase.Index+1))
+	default:
+		r.info(fmt.Sprintf("/phase resume: group %s phase %d status is %s; resume is only meaningful for pending phases. Use /phase next to advance, /phase rollback to reset, or /phase skip %d to step over.\n",
+			g.ID, phase.Index+1, phase.Status, phase.Index+1))
+	}
+}
+
 // phaseSkip marks a named phase as skipped so the scheduler
 // steps over it without running it. Argument is the 1-indexed
 // phase number from /phase show output. Refuses to skip
@@ -322,6 +366,24 @@ func (r *REPL) resolvePhaseGroup(groupID string) (*types.PlanGroup, error) {
 		return r.planGroupStore.Load(groupID)
 	}
 	return r.planGroupStore.FindActiveGroup()
+}
+
+// phaseTotalForGroup returns len(group.Phases) when the named
+// group exists in the store, or 0 when it doesn't (or the
+// store isn't wired). Used by /plan show + /plan list to
+// render "phase X of Y in group <id>" without forcing every
+// caller to load and unmarshal the full PlanGroup. Failure
+// modes degrade silently — render falls back to "phase X in
+// group <id>" when total is unknown.
+func (r *REPL) phaseTotalForGroup(groupID string) int {
+	if r == nil || r.planGroupStore == nil || strings.TrimSpace(groupID) == "" {
+		return 0
+	}
+	g, err := r.planGroupStore.Load(groupID)
+	if err != nil || g == nil {
+		return 0
+	}
+	return len(g.Phases)
 }
 
 // findGroupWorktree walks the group's phase plans newest-first,

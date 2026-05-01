@@ -354,8 +354,10 @@ type PlanInfo struct {
 	Status  string // PlanStatus* from types/change_plan.go; empty when JSON
 	// was unreadable (List logs + continues so one corrupt file
 	// doesn't break enumeration).
-	UnvalidatedCount int      // number of static-check stages skipped
-	HasCritique      bool     // plan_critic produced a non-empty review
+	UnvalidatedCount int    // number of static-check stages skipped
+	HasCritique      bool   // plan_critic produced a non-empty review
+	PhaseGroupID     string // non-empty when this plan is one phase of a multi-phase group
+	PhaseIndex       int    // 0-based phase index within the group; meaningful only when PhaseGroupID != ""
 }
 
 // List enumerates every <id>.json file under planDir and returns
@@ -410,16 +412,22 @@ func (s *PlanStore) List() ([]PlanInfo, error) {
 		status := ""
 		unvalidated := 0
 		hasCritique := false
+		phaseGroupID := ""
+		phaseIndex := 0
 		if data, rerr := os.ReadFile(filepath.Join(s.planDir, name)); rerr == nil {
 			var probe struct {
 				Status             string   `json:"status"`
 				UnvalidatedReasons []string `json:"unvalidated_reasons,omitempty"`
 				PlanCritique       string   `json:"plan_critique,omitempty"`
+				PhaseGroupID       string   `json:"phase_group_id,omitempty"`
+				PhaseIndex         int      `json:"phase_index,omitempty"`
 			}
 			if jerr := json.Unmarshal(data, &probe); jerr == nil {
 				status = probe.Status
 				unvalidated = len(probe.UnvalidatedReasons)
 				hasCritique = strings.TrimSpace(probe.PlanCritique) != ""
+				phaseGroupID = probe.PhaseGroupID
+				phaseIndex = probe.PhaseIndex
 			}
 		}
 		out = append(out, PlanInfo{
@@ -430,6 +438,8 @@ func (s *PlanStore) List() ([]PlanInfo, error) {
 			Status:           status,
 			UnvalidatedCount: unvalidated,
 			HasCritique:      hasCritique,
+			PhaseGroupID:     phaseGroupID,
+			PhaseIndex:       phaseIndex,
 		})
 	}
 	// Newest-first so the user's recent plans appear at the top of
