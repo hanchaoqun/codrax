@@ -214,6 +214,50 @@
 # pipeline_keep_worktree_on_success: false
 
 # ---------------------------------------------------------------------------
+# Stage II: multi-phase plan groups (commits 18-33)
+# ---------------------------------------------------------------------------
+# When the LLM's PhaseProposal carries split=sequential with N >= 2 phases
+# AND Mode=ModeApply, the orchestrator drives plan→apply→verify per
+# phase via runPhaseGroup. /phase show inspects state; /phase rollback
+# resets the active phase to Pending; /phase resume hints next steps.
+
+# Cap on LLM-emitted PhaseProposal phase count. Default 5 (empirical:
+# real-world multi-phase tasks are 2-3 phases; 5 covers the long tail;
+# >5 almost always means the LLM mis-classified what should be a single
+# phase). Hard-capped by types.MaxPhasesPerGroupCeil = 12 inside
+# types.SetMaxPhases so a yaml typo can't unleash a 30-phase fan-out.
+# pipeline_max_phases_per_run: 5
+
+# ---------------------------------------------------------------------------
+# Stage 3: per-repo Failure Taxonomy (commits 34-40)
+# ---------------------------------------------------------------------------
+# Cross-Run learning: every verify→plan retry asks the reflector LLM to
+# distill the failure into an abstract reusable pitfall (name + trigger +
+# description + confidence). Persisted at <cache-dir>/<repo-slug>/
+# failure_taxonomy.json. Future plans in the same repo see the relevant
+# pitfalls injected into the planner's "## Known active pitfalls" prompt
+# section so the LLM can avoid them. /pitfalls list / show / clear at
+# the REPL inspects the cache.
+
+# Master switch. Default true. Set false to disable the entire learning
+# loop — reflector still runs but emit_failure_pattern is omitted from
+# its tools list (no LLM-token cost) and planner injection skips its
+# pitfall section.
+# pipeline_failure_taxonomy_enabled: true
+
+# Cap on the per-repo cache size. Append-overflow drops the lowest-
+# value entries (Confidence × HitCount × recency). Default 50, sized
+# to fit ~3 KB worst-case prompt budget when all are injected.
+# pipeline_failure_taxonomy_max_items: 50
+
+# Decay window for one-off (HitCount<2) patterns. Patterns older than
+# N days AND not seen since are dropped at next Append. Default 90 —
+# matches the heuristic that a pattern unrepeated for 3 months was
+# probably a one-off coincidence. Set 0 to disable decay (patterns
+# persist forever).
+# pipeline_failure_taxonomy_decay_days: 90
+
+# ---------------------------------------------------------------------------
 # Write mode (write_*)
 # ---------------------------------------------------------------------------
 # Write-mode is the plan → apply → verify pipeline that proposes and
