@@ -146,8 +146,8 @@ func (t *ApplyPatch) Execute(ctx *types.BusContext, params json.RawMessage) (typ
 		ctx.Mutable.WriteClosure().RecordRejection(path)
 		return errResult(t.Name(),
 			fmt.Sprintf("apply_patch rejected: path %q is not in plan.TargetPaths (W1 violation). "+
-				"Valid target paths for this plan: [%s]. The planner must emit a ChangeUnit for a path before the coder may apply it; pick one of the listed paths or abandon this target.",
-				path, valid)), nil
+				"Valid target paths for this plan: [%s]. Retry apply_patch with one of the listed paths. Do not retry the same %q — the planner did not include it; if a path you need is missing, stop calling apply_patch and let the verify→plan retry surface widen TargetPaths.",
+				path, valid, path)), nil
 	}
 
 	// Find the matching ChangeUnit for the path. Constant lookup

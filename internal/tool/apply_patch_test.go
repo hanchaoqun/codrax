@@ -470,7 +470,10 @@ func TestApplyPatch_W1_RejectionEnumeratesValidTargetPaths(t *testing.T) {
 	if res.Success {
 		t.Fatal("unauthorized path must be rejected")
 	}
-	for _, w := range []string{"W1", "unauthorized.go", "allowed_a.go", "allowed_b.go", "pick one"} {
+	// commit 24: W1 message tightened to "Retry apply_patch with one
+	// of the listed paths" — explicit next-step matching W1b's
+	// shape. Old "pick one" wording was the prior phrasing.
+	for _, w := range []string{"W1", "unauthorized.go", "allowed_a.go", "allowed_b.go", "Retry apply_patch with one of the listed paths"} {
 		if !strings.Contains(res.Summary, w) {
 			t.Errorf("W1 rejection missing %q; got %q", w, res.Summary)
 		}

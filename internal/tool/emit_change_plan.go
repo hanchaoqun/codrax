@@ -1704,7 +1704,7 @@ func formatDryBuildRejection(lang, cmdDescr string, stderr []byte, originalLen i
 		out = out[:maxStderrLen] + "\n... (truncated; full output had " + fmt.Sprintf("%d", originalLen) + " bytes)"
 	}
 	return fmt.Sprintf("V2 dry-build failed: `%s` returned non-zero exit (%s). "+
-		"This means the new_content has compile / syntax / type errors. Fix the issues and re-emit. Full output:\n%s",
+		"The new_content for one or more files has compile / syntax / type errors — read the file:line references in the output below to identify which file and which line is broken, then re-emit emit_change_plan (or emit_plan_change for that one file in multi-round mode) with the corrected new_content. Do NOT re-emit unchanged content; the same error will recur. Full output:\n%s",
 		cmdDescr, lang, out)
 }
 
