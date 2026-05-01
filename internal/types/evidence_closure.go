@@ -859,14 +859,37 @@ func (c *EvidenceClosure) AddPendingRead(p PendingRead) {
 
 // addPendingReadLocked is the lock-held helper shared by AddPendingRead
 // and the A1 bridge inside AddRepair. Caller MUST hold c.mu.
+//
+// Dedup-by-(File, Origin) with surgical-aware refresh: when an
+// existing entry matches and EITHER side has non-empty LineRanges,
+// the existing entry's LineRanges and Rationale are REPLACED by
+// the incoming ones. Latest gate computation is by definition the
+// most up-to-date demand — drain semantics handle stale entries
+// elsewhere; the dedup must NOT silently drop a more recent
+// surgical demand just because a stale entry has the same key
+// (the previous bug masked the multi-path gate's iterative refinement
+// of demand ranges across consecutive emit_investigation_complete
+// calls within a single dispatch).
+//
+// When BOTH old and new have nil/empty LineRanges, the legacy
+// "first-write wins" semantic is preserved (same byte-identical
+// behaviour as pre-2026-05-01 callers).
 func (c *EvidenceClosure) addPendingReadLocked(p PendingRead) {
 	if p.File == "" {
 		return
 	}
-	for _, existing := range c.pendingReads {
-		if existing.File == p.File && existing.Origin == p.Origin {
-			return
+	for i, existing := range c.pendingReads {
+		if existing.File != p.File || existing.Origin != p.Origin {
+			continue
 		}
+		// Match: refresh in place when surgical info is involved.
+		if len(p.LineRanges) > 0 || len(existing.LineRanges) > 0 {
+			c.pendingReads[i].LineRanges = append([]LineRange(nil), p.LineRanges...)
+			if p.Rationale != "" {
+				c.pendingReads[i].Rationale = p.Rationale
+			}
+		}
+		return
 	}
 	c.pendingReads = append(c.pendingReads, p)
 }

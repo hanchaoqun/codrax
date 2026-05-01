@@ -2,6 +2,7 @@ package types
 
 import (
 	"reflect"
+	"strings"
 	"testing"
 )
 
@@ -387,6 +388,61 @@ func TestMissingContextRegions_EOFClampShrinksDemand(t *testing.T) {
 	}
 	if got[0].Start != 1 || got[0].End != 10 {
 		t.Errorf("EOF-clamped demand = [%d, %d], want [1, 10]", got[0].Start, got[0].End)
+	}
+}
+
+// TestAddPendingRead_SurgicalRefreshOnMatchingKey pins the
+// surgical-aware dedup: when a NEW PendingRead has the same
+// (File, Origin) as an existing one but DIFFERENT LineRanges, the
+// existing entry's LineRanges and Rationale are REPLACED by the
+// new ones. Without this, two consecutive emit_investigation_complete
+// calls within one dispatch (LLM retries without intervening reads)
+// would silently drop the second gate's refined demand, leaving
+// the closure with a stale LineRanges that no longer matches what
+// the gate just computed.
+func TestAddPendingRead_SurgicalRefreshOnMatchingKey(t *testing.T) {
+	c := NewEvidenceClosure("")
+	c.AddPendingRead(PendingRead{
+		File:       "a.go",
+		Origin:     "pre_complete.multi_path_anchor",
+		Rationale:  "demand v1: lines 100-130",
+		LineRanges: []LineRange{{Start: 100, End: 130}},
+	})
+	// Second emit (same key, refined demand).
+	c.AddPendingRead(PendingRead{
+		File:       "a.go",
+		Origin:     "pre_complete.multi_path_anchor",
+		Rationale:  "demand v2: lines 100-130 + 200-230",
+		LineRanges: []LineRange{{Start: 100, End: 130}, {Start: 200, End: 230}},
+	})
+
+	got := c.PendingReads()
+	if len(got) != 1 {
+		t.Fatalf("dedup-by-(File,Origin) must keep one entry; got %d", len(got))
+	}
+	if !strings.Contains(got[0].Rationale, "v2") {
+		t.Errorf("Rationale must be refreshed to the latest demand; got %q", got[0].Rationale)
+	}
+	if len(got[0].LineRanges) != 2 {
+		t.Errorf("LineRanges must be replaced with the latest (2 entries); got %+v", got[0].LineRanges)
+	}
+}
+
+// TestAddPendingRead_LegacyNoLineRanges_FirstWriteWins preserves
+// the historical "first add wins" behaviour for callers that never
+// populate LineRanges (chain promotion, grounder reject, etc.) so
+// no legacy emitter regresses on the new refresh logic.
+func TestAddPendingRead_LegacyNoLineRanges_FirstWriteWins(t *testing.T) {
+	c := NewEvidenceClosure("")
+	c.AddPendingRead(PendingRead{File: "a.go", Origin: "chain_promotion", Rationale: "first"})
+	c.AddPendingRead(PendingRead{File: "a.go", Origin: "chain_promotion", Rationale: "second (should be dropped)"})
+
+	got := c.PendingReads()
+	if len(got) != 1 {
+		t.Fatalf("expected 1 entry; got %d", len(got))
+	}
+	if got[0].Rationale != "first" {
+		t.Errorf("legacy nil-LineRanges path should preserve first-write-wins; got rationale=%q", got[0].Rationale)
 	}
 }
 

@@ -183,7 +183,9 @@ func (o *Orchestrator) runForcedReads() int {
 				perRangeResults = append(perRangeResults, rangeResult)
 			}
 			if len(perRangeResults) == 0 {
-				abandonUnrecoverableForcedRead(o.busCtx, closure, p.File, p.Origin, firstErr, lastSummary, "surgical")
+				if cause, abandoned := abandonUnrecoverableForcedRead(o.busCtx, closure, p.File, p.Origin, firstErr, lastSummary, "surgical"); abandoned {
+					o.emitAbandonEvent(p.File, cause)
+				}
 				continue
 			}
 		} else {
@@ -203,7 +205,9 @@ func (o *Orchestrator) runForcedReads() int {
 			}
 			if err != nil || !result.Success {
 				logging.Warning("[CGEC] E2 forced-read failed: file=%s err=%v summary=%s", p.File, err, result.Summary)
-				abandonUnrecoverableForcedRead(o.busCtx, closure, p.File, p.Origin, err, result.Summary, "full")
+				if cause, abandoned := abandonUnrecoverableForcedRead(o.busCtx, closure, p.File, p.Origin, err, result.Summary, "full"); abandoned {
+					o.emitAbandonEvent(p.File, cause)
+				}
 				continue
 			}
 			result.Summary = "[forced_read] " + result.Summary
@@ -281,14 +285,14 @@ func (o *Orchestrator) runForcedReads() int {
 // ERROR_ACCESS_DENIED) via the runtime's per-OS adapter — no
 // build-tag branching needed in this code. IsDir() detects "path
 // is a directory" uniformly on every OS.
-func abandonUnrecoverableForcedRead(busCtx *types.BusContext, closure *types.EvidenceClosure, file, origin string, ioErr error, summary, mode string) {
+func abandonUnrecoverableForcedRead(busCtx *types.BusContext, closure *types.EvidenceClosure, file, origin string, ioErr error, summary, mode string) (cause string, abandoned bool) {
 	verdict, statErr, isDir := classifyForcedReadFailure(busCtx, file, ioErr)
 	if !verdict {
 		// Transient failure — keep the PendingRead, the next
 		// runForcedReads invocation will retry.
-		return
+		return "", false
 	}
-	cause := summarizeReadFailure(statErr, isDir, ioErr, summary)
+	cause = summarizeReadFailure(statErr, isDir, ioErr, summary)
 	closure.ClearPendingReadFor(file)
 	closure.AddRepair(types.RepairDirective{
 		Kind:      types.RepairExpandSearch,
@@ -297,6 +301,29 @@ func abandonUnrecoverableForcedRead(busCtx *types.BusContext, closure *types.Evi
 		Origin:    "forced_read.unrecoverable." + origin,
 	})
 	logging.Error("[CGEC] E2 forced-read abandoned (unrecoverable) file=%s mode=%s origin=%s cause=%s ioErr=%v", file, mode, origin, cause, ioErr)
+	return cause, true
+}
+
+// emitAbandonEvent emits the user-visible "skipping unreadable
+// file" line on the orchestrator's render channel. Split out from
+// abandonUnrecoverableForcedRead so the orchestrator-bound emitter
+// can be looked up at the call site (closure-bound abandon helper
+// has no o.* receiver). Caller passes the resolved cause so the
+// operator-visible line and the LLM-facing rationale agree.
+func (o *Orchestrator) emitAbandonEvent(file, cause string) {
+	if o == nil || o.emit == nil {
+		return
+	}
+	lang := ""
+	if o.busCtx != nil {
+		lang = o.busCtx.Language
+	}
+	o.emit(render.Event{
+		Kind:      render.EventAgentReasoning,
+		Timestamp: time.Now(),
+		Agent:     "orchestrator",
+		Reasoning: abandonForcedReadMessage(lang, file, cause),
+	})
 }
 
 // classifyForcedReadFailure runs cross-platform readability probes

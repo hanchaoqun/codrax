@@ -214,10 +214,11 @@ type AnalysisLimits struct {
 	// Defaults below are the production values. See
 	// internal/tool/multipath/decision.go for the engine; runtime
 	// overrides flow via runtime.RuntimeSettings.CGECMultiPath*.
-	MultiPathMinGroundedPerAnchor int
-	MultiPathSymbolContextLines   int
-	MultiPathKeywordContextLines  int
-	MultiPathSmallFileThreshold   int
+	MultiPathMinGroundedPerAnchor   int
+	MultiPathSymbolContextLines     int
+	MultiPathKeywordContextLines    int
+	MultiPathSmallFileThreshold     int
+	MultiPathMaxKeywordAnchorsPerFile int
 }
 
 // AnalysisQualityProbe captures runtime hit statistics from the
@@ -365,6 +366,7 @@ func DefaultAnalysisLimits() AnalysisLimits {
 		MultiPathSymbolContextLines:         15,
 		MultiPathKeywordContextLines:        15,
 		MultiPathSmallFileThreshold:         300,
+		MultiPathMaxKeywordAnchorsPerFile:   30,
 		GenericEntityBlocklist: []string{
 			"agent", "agents",
 			"class", "classes",

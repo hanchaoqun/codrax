@@ -1560,6 +1560,9 @@ func initApp(cmd *cobra.Command, _ []string) error {
 		if rs.CGECMultiPathSmallFileThreshold != nil {
 			analysisLimits.MultiPathSmallFileThreshold = *rs.CGECMultiPathSmallFileThreshold
 		}
+		if rs.CGECMultiPathMaxKeywordAnchorsPerFile != nil {
+			analysisLimits.MultiPathMaxKeywordAnchorsPerFile = *rs.CGECMultiPathMaxKeywordAnchorsPerFile
+		}
 		tool.SetAnalysisLimits(analysisLimits)
 
 		// Evidence grounding policy — overridden by codrax.yaml

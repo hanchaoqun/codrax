@@ -702,7 +702,21 @@ func preCompleteContractCheck(ctx *types.BusContext, justification string) strin
 		if e.Source == "" || e.LineStart <= 0 {
 			continue
 		}
-		if len(readSet) > 0 && !closure.HasRead(e.Source) {
+		// Line-level check (post-2026-05-01 multi-path surgical-read
+		// rewrite): use HasReadLine instead of HasRead so the gate
+		// stays aligned with the finalizer-side grounder. Pre-fix:
+		// HasRead returned true on any partial read, so a citation
+		// pointing at a line OUTSIDE the surgical-read range was
+		// counted as eligible by the gate but rejected by the
+		// grounder downstream — the answer would ship with fewer
+		// real citations than the gate believed it had cleared,
+		// silently degrading shape compliance. HasReadLine has a
+		// load-bearing backward-compat clause: when the file is in
+		// readSet but no range records exist (legacy emitters that
+		// never populated readRanges), it returns true so this
+		// tightening does NOT regress callers that don't track
+		// ranges.
+		if len(readSet) > 0 && !closure.HasReadLine(e.Source, e.LineStart) {
 			continue
 		}
 		eligible++
@@ -1046,7 +1060,10 @@ func applyMultiPathAnchorChecks(ctx *types.BusContext, closure *types.EvidenceCl
 	oracle := repomapSymbolOracle(ctx)
 	entities := unionPrimaryAndDerivedEntities(rm.AnalyzerHints)
 	evidence := ctx.Mutable.EmittedEvidence()
-	keywordAnchorMap := multipath.ExtractKeywordAnchors(multiPathToolHistory(ctx), entities, repoRoot)
+	keywordAnchorMap := multipath.ExtractKeywordAnchorsCapped(
+		multiPathToolHistory(ctx), entities, repoRoot,
+		limits.MultiPathMaxKeywordAnchorsPerFile,
+	)
 
 	for _, file := range anchors {
 		dec := multipath.EvaluateAnchor(file, closure, evidence, oracle, entities, keywordAnchorMap[file], cfg)

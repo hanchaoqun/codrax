@@ -254,6 +254,17 @@ type Config struct {
 	// 0 disables Layer 4 (large + small files alike fall to advisory).
 	SmallFileThreshold int
 
+	// MaxKeywordAnchorsPerFile caps the number of keyword anchors
+	// ExtractKeywordAnchors retains per file. When grep hits a
+	// high-frequency entity (a couple hundred matches in a single
+	// file), the resulting demand would otherwise produce that many
+	// surgical read_file calls in runForcedReads — each ~5-10ms,
+	// totalling 1-2 seconds of synchronous IO per stall round.
+	// Cap defaults to 30; sampled evenly across the matched lines so
+	// the gate retains coverage breadth across the whole file rather
+	// than clustering on the first matches. 0 disables the cap.
+	MaxKeywordAnchorsPerFile int
+
 	// RepoRoot is the absolute repository root used by every path
 	// canonicalisation site inside the engine (ground.CanonicalRepoRelative).
 	// Required for multi-platform safety:
@@ -754,8 +765,10 @@ func renderOpaqueAdvisoryRationale(file string, entities []string) string {
 // ExtractKeywordAnchors walks the supplied tool history for grep
 // results and returns, per file, the 1-based line numbers where any
 // question entity matched. Result map keys are canonicalised
-// repo-relative paths; per-file int slices are sorted ascending and
-// deduplicated.
+// repo-relative paths; per-file int slices are sorted ascending,
+// deduplicated, and bounded by MaxKeywordAnchorsPerFile (when > 0)
+// via even sampling so the surgical-read demand cannot explode on
+// high-frequency entity hits.
 //
 // "Match" is defined as: a grep summary line of the shape
 // `path:lineno:content` (the canonical match-line format ripgrep /
@@ -780,6 +793,16 @@ func renderOpaqueAdvisoryRationale(file string, entities []string) string {
 // nil-tolerant on every input: empty history or empty entities
 // yields an empty map.
 func ExtractKeywordAnchors(history []types.ToolResult, entities []string, repoRoot string) map[string][]int {
+	return ExtractKeywordAnchorsCapped(history, entities, repoRoot, 0)
+}
+
+// ExtractKeywordAnchorsCapped is the cap-aware variant. maxPerFile
+// > 0 limits each file's anchor count via even sampling so the
+// resulting surgical demand cannot produce hundreds of read_file
+// calls when a high-frequency entity matches in many lines of a
+// single file. maxPerFile == 0 preserves the unbounded behaviour
+// for callers that have other reasons to keep every match (tests).
+func ExtractKeywordAnchorsCapped(history []types.ToolResult, entities []string, repoRoot string, maxPerFile int) map[string][]int {
 	if len(history) == 0 || len(entities) == 0 {
 		return nil
 	}
@@ -839,9 +862,46 @@ func ExtractKeywordAnchors(history []types.ToolResult, entities []string, repoRo
 			lines = append(lines, l)
 		}
 		sort.Ints(lines)
+		if maxPerFile > 0 && len(lines) > maxPerFile {
+			lines = sampleEvenly(lines, maxPerFile)
+		}
 		out[path] = lines
 	}
 	return out
+}
+
+// sampleEvenly returns at most n entries from src by taking every
+// k-th element where k = floor(len(src) / n) (rounded so we cover
+// the full range without exceeding n entries). Always preserves
+// the first AND last entries so the boundary anchors stay
+// represented. src MUST be sorted; output preserves order.
+func sampleEvenly(src []int, n int) []int {
+	if n <= 0 || len(src) <= n {
+		return src
+	}
+	if n == 1 {
+		return []int{src[0]}
+	}
+	out := make([]int, 0, n)
+	// Step in float so we hit endpoints exactly. n samples → n-1
+	// intervals between out[0] and out[n-1].
+	step := float64(len(src)-1) / float64(n-1)
+	for i := 0; i < n; i++ {
+		idx := int(float64(i)*step + 0.5)
+		if idx >= len(src) {
+			idx = len(src) - 1
+		}
+		out = append(out, src[idx])
+	}
+	// Dedup in case rounding produced consecutive identical
+	// indices (n very close to len(src) - 1).
+	dedup := out[:0]
+	for i, v := range out {
+		if i == 0 || v != out[i-1] {
+			dedup = append(dedup, v)
+		}
+	}
+	return dedup
 }
 
 // parseGrepMatchLine splits a single grep output line of the

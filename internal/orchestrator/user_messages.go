@@ -55,6 +55,22 @@ func softConvergenceStallMessage(lang string) string {
 	return "– Finalizing with current leads"
 }
 
+// abandonForcedReadMessage renders the user-visible line for the
+// CGEC E2 abandonment path when runForcedReads gives up on a file
+// it cannot read (typically ENOENT / EACCES / IsDir / broken
+// symlink). Without surfacing this to the dock, the user only sees
+// the spinner stalling for 3 stall-detector rounds before the
+// answer ships — they have no way to know the framework had to
+// skip a primary anchor. cause is the LLM-facing summary
+// (summarizeReadFailure output) so the operator-visible line and
+// the LLM-facing rationale agree on the cause.
+func abandonForcedReadMessage(lang, file, cause string) string {
+	if preferZhMessage(lang) {
+		return "⊘ 跳过 `" + file + "`(" + cause + "),继续推进"
+	}
+	return "⊘ Skipping `" + file + "` (" + cause + "), continuing"
+}
+
 // selfConsistencyReviewStartMessage (commit 62): renders the
 // user-visible status line shown in the REPL bottom dock when
 // the self-consistency reviewer LLM dispatches. Emitted BEFORE

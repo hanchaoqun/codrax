@@ -720,10 +720,11 @@ type RuntimeSettings struct {
 	//   MinGroundedPerAnchor=0  → disables L2.
 	//   SmallFileThreshold=0    → disables L4 (small files fall to L5
 	//                             advisory unless L3 fires).
-	CGECMultiPathMinGroundedPerAnchor *int `yaml:"cgec_multi_path_min_grounded_per_anchor"`
-	CGECMultiPathSymbolContextLines   *int `yaml:"cgec_multi_path_symbol_context_lines"`
-	CGECMultiPathKeywordContextLines  *int `yaml:"cgec_multi_path_keyword_context_lines"`
-	CGECMultiPathSmallFileThreshold   *int `yaml:"cgec_multi_path_small_file_threshold"`
+	CGECMultiPathMinGroundedPerAnchor   *int `yaml:"cgec_multi_path_min_grounded_per_anchor"`
+	CGECMultiPathSymbolContextLines     *int `yaml:"cgec_multi_path_symbol_context_lines"`
+	CGECMultiPathKeywordContextLines    *int `yaml:"cgec_multi_path_keyword_context_lines"`
+	CGECMultiPathSmallFileThreshold     *int `yaml:"cgec_multi_path_small_file_threshold"`
+	CGECMultiPathMaxKeywordAnchorsPerFile *int `yaml:"cgec_multi_path_max_keyword_anchors_per_file"`
 
 	// Log-triage knobs. `log_triage_*` prefix groups the log-ingestion
 	// feature settings. When log_triage_enabled=false the log_triage
