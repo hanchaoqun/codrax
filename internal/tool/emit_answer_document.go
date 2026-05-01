@@ -4369,7 +4369,8 @@ func trimSummarySentenceClauses(sentence string, shouldDrop func(string) bool) (
 		return strings.TrimSpace(sentence), strings.TrimSpace(sentence) != "", false
 	}
 	kept := make([]string, 0, len(clauses))
-	for _, clause := range clauses {
+	keptIdx := make([]int, 0, len(clauses))
+	for idx, clause := range clauses {
 		trimmed := strings.TrimSpace(clause)
 		if trimmed == "" {
 			continue
@@ -4379,12 +4380,21 @@ func trimSummarySentenceClauses(sentence string, shouldDrop func(string) bool) (
 			continue
 		}
 		kept = append(kept, trimmed)
+		keptIdx = append(keptIdx, idx)
 	}
 	if !changed {
 		return strings.TrimSpace(sentence), strings.TrimSpace(sentence) != "", false
 	}
 	if len(kept) == 0 {
 		return "", false, true
+	}
+	if len(keptIdx) == 1 && keptIdx[0] > 0 && keptIdx[0] < len(clauses)-1 {
+		return "", false, true
+	}
+	for i := 1; i < len(keptIdx); i++ {
+		if keptIdx[i] != keptIdx[i-1]+1 {
+			return "", false, true
+		}
 	}
 	rebuilt = strings.TrimSpace(strings.Join(kept, joiner))
 	if suffix != "" && !strings.HasSuffix(rebuilt, suffix) {

@@ -3931,7 +3931,7 @@ func TestEmitAnswerDocument_AbsentExactResolutionRequiresGroundedContextModeForN
 	}
 }
 
-func TestEmitAnswerDocument_RejectsBackgroundOnlyExactContextSurface(t *testing.T) {
+func TestEmitAnswerDocument_TrimsBackgroundOnlyExactContextSurfaceWhenAllowedContextRemains(t *testing.T) {
 	tool := &EmitAnswerDocument{}
 	ctx := newDocBusCtx("")
 	target := "explore_mid_loop_hint_budget"
@@ -3994,17 +3994,18 @@ func TestEmitAnswerDocument_RejectsBackgroundOnlyExactContextSurface(t *testing.
 		},
 	})
 	res, _ := tool.Execute(ctx, params)
-	if res.Success {
-		t.Fatalf("background-only same-family anchors should not be allowed into the answer surface")
+	if !res.Success {
+		t.Fatalf("background-only same-family anchors should be trimmed when answer-grade context remains, got %+v", res)
 	}
-	if res.Repair == nil || res.Repair.Code != "exact_context_surface" {
-		t.Fatalf("reject should expose exact_context_surface repair metadata, got %+v", res.Repair)
+	doc := ctx.Mutable.AnswerDocument()
+	if doc == nil {
+		t.Fatal("answer document missing after successful emit")
 	}
-	if !strings.Contains(res.Repair.Metadata["forbidden_anchors"], "internal/types/explore_budget.go") {
-		t.Fatalf("reject should name the background-only anchor, got %+v", res.Repair)
+	if strings.Contains(doc.Summary, "internal/types/explore_budget.go") || strings.Contains(doc.Summary, "ExploreBudget") {
+		t.Fatalf("trimmed summary should drop the broad same-family background anchor, got: %q", doc.Summary)
 	}
-	if !strings.Contains(res.Repair.Metadata["allowed_anchors"], "internal/types/config.go") {
-		t.Fatalf("reject should carry the validated allowed anchor set, got %+v", res.Repair)
+	if !strings.Contains(doc.Summary, "DefaultExploreHeuristics") {
+		t.Fatalf("trimmed summary should preserve the answer-grade nearby context, got: %q", doc.Summary)
 	}
 }
 
@@ -4903,6 +4904,92 @@ func TestEmitAnswerDocument_ConfigTraceAbsentAppendsOptionalCompiledDiagramForRi
 	}
 }
 
+func TestEmitAnswerDocument_ConfigTraceAbsentAppendsCompiledDiagramFromImplicitRoles(t *testing.T) {
+	tool := &EmitAnswerDocument{}
+	ctx := newDocBusCtx("")
+	target := "explore_mid_loop_hint_budget"
+	ctx.AnalysisIR = &types.AnalysisIR{
+		RequestModel: types.RequestModel{
+			Scenario: types.ScenarioConfigTrace,
+			AnalyzerHints: types.AnalyzerHints{
+				Kind:              "config_mapping",
+				ExactTargets:      []string{target},
+				ExactContextRoles: []types.EvidenceDiagramRole{types.EvidenceDiagramRoleDefault, types.EvidenceDiagramRoleConfig, types.EvidenceDiagramRoleOverride},
+			},
+			AnswerSubject: types.AnswerSubject{Kind: types.SubjectConfigKey},
+		},
+		AnswerContract: types.AnswerContract{
+			RequiredAnswerShape: types.ShapeExplanation,
+			Diagram: &types.DiagramContract{
+				Required:       false,
+				PreferredKinds: []types.DiagramKind{types.DiagramFlow},
+			},
+			ExactResolution: &types.ExactResolutionContract{
+				TargetKind:            types.SubjectConfigKey,
+				TargetLabel:           "config key",
+				Targets:               []string{target},
+				AllowAbsence:          true,
+				RequireTargetMention:  true,
+				AliasRequiresProof:    true,
+				RelatedContextPolicy:  types.ExactContextSameFamilyGrounded,
+				RelatedContextTerms:   []string{"explore"},
+				RequestedContextRoles: []types.EvidenceDiagramRole{types.EvidenceDiagramRoleDefault, types.EvidenceDiagramRoleConfig, types.EvidenceDiagramRoleOverride},
+			},
+		},
+	}
+	ctx.Mutable.SetAbsenceJustification("repo-wide search found no exact key")
+	ctx.Mutable.SetInvestigationResultKind("absence")
+	ctx.Mutable.SetExactContextRequiredFiles([]string{"codrax.yaml.example", "internal/config/runtime.go"})
+	ctx.Mutable.AppendEvidence([]types.EvidenceItem{
+		{
+			Kind:            types.EvidenceDirect,
+			Source:          "codrax.yaml.example",
+			LineStart:       403,
+			AnchorKind:      types.AnchorCondition,
+			AnchorSymbol:    "codrax.yaml.example",
+			ContextRole:     types.EvidenceContextRoleAbsenceSupport,
+			GroundingStatus: types.GroundingGrounded,
+			GroundingTier:   types.TierLineText,
+			Summary:         "Explorer heuristics config block lists explore_midloop_* keys but does not include explore_mid_loop_hint_budget",
+		},
+		{
+			Kind:            types.EvidenceDirect,
+			Source:          "internal/config/runtime.go",
+			LineStart:       329,
+			AnchorKind:      types.AnchorDefinition,
+			AnchorSymbol:    "RuntimeSettings",
+			ContextRole:     types.EvidenceContextRoleDefining,
+			GroundingStatus: types.GroundingGrounded,
+			GroundingTier:   types.TierLineText,
+			Summary:         "RuntimeSettings exposes explore_* fields such as ExploreMidLoopMinIteration and related midloop heuristics, but no hint_budget variant",
+		},
+	})
+	params := mustDocJSON(t, map[string]interface{}{
+		"shape": "explanation",
+		"exact_resolution": map[string]interface{}{
+			"status":       "absent",
+			"context_mode": "grounded_context_only",
+		},
+		"summary": "仓库里没有找到名为 `explore_mid_loop_hint_budget` 的生产级配置定义，但当前代码里确实存在同一探索器配置族的默认值与配置层。",
+		"citations": []map[string]interface{}{
+			{"file": "codrax.yaml.example", "line": 403},
+			{"file": "internal/config/runtime.go", "line": 329},
+		},
+	})
+
+	res, _ := tool.Execute(ctx, params)
+	if !res.Success {
+		t.Fatalf("implicit config/default roles should still surface a compiled diagram, got %+v", res)
+	}
+	doc := ctx.Mutable.AnswerDocument()
+	if doc == nil {
+		t.Fatal("answer document missing after successful emit")
+	}
+	if !strings.Contains(doc.Summary, "config file") || !strings.Contains(doc.Summary, "code default") {
+		t.Fatalf("implicit config/default roles should compile a config-trace fence, got: %q", doc.Summary)
+	}
+}
+
 func TestEmitAnswerDocument_ConfigTraceAbsentPreservesExistingMermaidDiagramRichness(t *testing.T) {
 	tool := &EmitAnswerDocument{}
 	ctx := newDocBusCtx("")
@@ -5002,6 +5089,19 @@ func TestEmitAnswerDocument_ConfigTraceAbsentPreservesExistingMermaidDiagramRich
 	}
 	if !strings.Contains(doc.Summary, "```") {
 		t.Fatalf("expected a fenced diagram to survive normalization, got: %q", doc.Summary)
+	}
+}
+
+func TestTrimSummarySentenceClauses_DropsUnsafeInternalGapRewrite(t *testing.T) {
+	sentence := "在实际代码中，`RuntimeSettings` 的各 `*int` 指针字段如果为 nil，就表示用户未在 codrax.yaml 中提供该值，运行时会使用 `types.DefaultExploreHeuristics()` 中的硬编码默认值。"
+	rebuilt, keep, changed := trimSummarySentenceClauses(sentence, func(clause string) bool {
+		return strings.Contains(clause, "RuntimeSettings")
+	})
+	if !changed {
+		t.Fatal("expected clause trim to report a change")
+	}
+	if keep || rebuilt != "" {
+		t.Fatalf("internal-gap clause trimming should drop the whole sentence instead of stitching fragments, got keep=%v rebuilt=%q", keep, rebuilt)
 	}
 }
 

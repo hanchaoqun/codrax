@@ -1066,3 +1066,53 @@ func TestConfigTraceSurfaceDiagramRoleInFiles_RejectsRequestedDefaultWithoutSame
 		t.Fatalf("surface role = %s, want unknown for unrelated requested default anchor", got)
 	}
 }
+
+func TestConfigTraceSurfaceDiagramRoleInFiles_InfersRequestedConfigFromAbsenceSupportConfigFile(t *testing.T) {
+	contract := &ExactResolutionContract{
+		TargetKind:            SubjectConfigKey,
+		TargetLabel:           "config key",
+		Targets:               []string{"explore_mid_loop_hint_budget"},
+		AllowAbsence:          true,
+		RelatedContextPolicy:  ExactContextSameFamilyGrounded,
+		RelatedContextTerms:   []string{"explore"},
+		RequestedContextRoles: []EvidenceDiagramRole{EvidenceDiagramRoleDefault, EvidenceDiagramRoleConfig, EvidenceDiagramRoleOverride},
+	}
+	item := EvidenceItem{
+		Source:          "codrax.yaml.example",
+		LineStart:       403,
+		AnchorKind:      AnchorCondition,
+		AnchorSymbol:    "codrax.yaml.example",
+		ContextRole:     EvidenceContextRoleAbsenceSupport,
+		GroundingStatus: GroundingGrounded,
+		Summary:         "Explorer heuristics config block lists explore_midloop_* keys but does not include explore_mid_loop_hint_budget",
+	}
+	got := ConfigTraceSurfaceDiagramRoleInFiles(contract, item, []string{"codrax.yaml.example", "internal/config/runtime.go"})
+	if got != EvidenceDiagramRoleConfig {
+		t.Fatalf("surface role = %s, want config", got)
+	}
+}
+
+func TestConfigTraceSurfaceDiagramRoleInFiles_UsesGroundedSummaryForSameFamilyDefaultInference(t *testing.T) {
+	contract := &ExactResolutionContract{
+		TargetKind:            SubjectConfigKey,
+		TargetLabel:           "config key",
+		Targets:               []string{"explore_mid_loop_hint_budget"},
+		AllowAbsence:          true,
+		RelatedContextPolicy:  ExactContextSameFamilyGrounded,
+		RelatedContextTerms:   []string{"explore"},
+		RequestedContextRoles: []EvidenceDiagramRole{EvidenceDiagramRoleDefault, EvidenceDiagramRoleConfig, EvidenceDiagramRoleOverride},
+	}
+	item := EvidenceItem{
+		Source:          "internal/config/runtime.go",
+		LineStart:       329,
+		AnchorKind:      AnchorDefinition,
+		AnchorSymbol:    "RuntimeSettings",
+		ContextRole:     EvidenceContextRoleDefining,
+		GroundingStatus: GroundingGrounded,
+		Summary:         "RuntimeSettings exposes explore_* fields such as ExploreMidLoopMinIteration and related midloop heuristics, but no hint_budget variant",
+	}
+	got := ConfigTraceSurfaceDiagramRoleInFiles(contract, item, []string{"internal/config/runtime.go", "codrax.yaml.example"})
+	if got != EvidenceDiagramRoleDefault {
+		t.Fatalf("surface role = %s, want default", got)
+	}
+}

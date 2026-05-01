@@ -784,6 +784,9 @@ func ConfigTraceSurfaceDiagramRoleInFiles(contract *ExactResolutionContract, ite
 	if role := configTraceRequestedDiagramRoleFallback(contract, item); role != EvidenceDiagramRoleUnknown {
 		return role
 	}
+	if role := configTraceImplicitRequestedConfigRole(contract, item, requiredFiles); role != EvidenceDiagramRoleUnknown {
+		return role
+	}
 	if role := configTraceImplicitRequestedDefaultRole(contract, item); role != EvidenceDiagramRoleUnknown {
 		return role
 	}
@@ -889,6 +892,44 @@ func configTraceImplicitRequestedDefaultRole(contract *ExactResolutionContract, 
 		return EvidenceDiagramRoleUnknown
 	}
 	return EvidenceDiagramRoleDefault
+}
+
+func configTraceImplicitRequestedConfigRole(contract *ExactResolutionContract, item EvidenceItem, requiredFiles []string) EvidenceDiagramRole {
+	if contract == nil {
+		return EvidenceDiagramRoleUnknown
+	}
+	switch item.GroundingStatus {
+	case GroundingGrounded, GroundingRecovered, "":
+	default:
+		return EvidenceDiagramRoleUnknown
+	}
+	requested := ConfigTraceRequestedDiagramRoles(contract)
+	hasConfig := false
+	for _, role := range requested {
+		if role == EvidenceDiagramRoleConfig {
+			hasConfig = true
+			break
+		}
+	}
+	if !hasConfig || item.DiagramRole != EvidenceDiagramRoleUnknown || item.RequestedDiagramRole != EvidenceDiagramRoleUnknown {
+		return EvidenceDiagramRoleUnknown
+	}
+	if !LooksLikeConfigFilePath(item.Source) {
+		return EvidenceDiagramRoleUnknown
+	}
+	if item.Kind == EvidenceUnresolved || item.Kind == EvidenceTruncated {
+		return EvidenceDiagramRoleUnknown
+	}
+	if item.ContextRole == EvidenceContextRoleIllustrativeOnly {
+		return EvidenceDiagramRoleUnknown
+	}
+	if !ConfigTraceDiagramRoleAnchorCompatible(EvidenceDiagramRoleConfig, item) {
+		return EvidenceDiagramRoleUnknown
+	}
+	if !configTraceDiagramEvidenceWithinScope(contract, item, requiredFiles) {
+		return EvidenceDiagramRoleUnknown
+	}
+	return EvidenceDiagramRoleConfig
 }
 
 func configTraceAbsenceSupportCanCarryDiagramRole(item EvidenceItem) bool {
@@ -1084,14 +1125,7 @@ func configTraceDiagramEvidenceMatchesContext(contract *ExactResolutionContract,
 	if ExactResolutionDirectAnchorMatchesAnyTarget(contract, item.Subject, item.AnchorSymbol, item.Object) {
 		return false
 	}
-	surface := strings.Join([]string{
-		item.Source,
-		item.Subject,
-		item.Object,
-		item.AnchorSymbol,
-		item.Condition,
-		item.Snippet,
-	}, "\n")
+	surface := exactResolutionEvidenceSurface(item)
 	if ExactResolutionSameFamilyMatchScore(contract, surface) > 0 {
 		return true
 	}

@@ -550,6 +550,75 @@ func TestBuildAnswerSurfacePlan_ConfigTraceCompilesRequestedRolesFromSurfaceFall
 	}
 }
 
+func TestBuildAnswerSurfacePlan_ConfigTraceCompilesFenceFromImplicitConfigAndDefaultRoles(t *testing.T) {
+	mut := NewMutableState("")
+	ir := &AnalysisIR{
+		RequestModel: RequestModel{
+			Scenario: ScenarioConfigTrace,
+			AnalyzerHints: AnalyzerHints{
+				Kind:         "config_mapping",
+				ExactTargets: []string{"explore_mid_loop_hint_budget"},
+			},
+			AnswerSubject: AnswerSubject{Kind: SubjectConfigKey},
+		},
+		AnswerContract: AnswerContract{
+			RequiredAnswerShape: ShapeExplanation,
+			ExactResolution: &ExactResolutionContract{
+				TargetKind:            SubjectConfigKey,
+				TargetLabel:           "config key",
+				Targets:               []string{"explore_mid_loop_hint_budget"},
+				AllowAbsence:          true,
+				RelatedContextPolicy:  ExactContextSameFamilyGrounded,
+				RelatedContextTerms:   []string{"explore"},
+				RequestedContextRoles: []EvidenceDiagramRole{EvidenceDiagramRoleDefault, EvidenceDiagramRoleConfig, EvidenceDiagramRoleOverride},
+			},
+			Diagram: &DiagramContract{
+				Required:       false,
+				PreferredKinds: []DiagramKind{DiagramFlow},
+			},
+		},
+	}
+	mut.SetInvestigationComplete("grounded exact absence with nearby precedence context")
+	mut.SetInvestigationResultKind("absence")
+	mut.SetAbsenceJustification("the exact config key is absent from both the config surface and the runtime struct")
+	mut.SetExactContextRequiredFiles([]string{"codrax.yaml.example", "internal/config/runtime.go"})
+	evidence := []EvidenceItem{
+		{
+			Kind:            EvidenceDirect,
+			Source:          "codrax.yaml.example",
+			LineStart:       403,
+			AnchorKind:      AnchorCondition,
+			AnchorSymbol:    "codrax.yaml.example",
+			ContextRole:     EvidenceContextRoleAbsenceSupport,
+			GroundingStatus: GroundingGrounded,
+			Summary:         "Explorer heuristics config block lists explore_midloop_* keys but does not include explore_mid_loop_hint_budget",
+		},
+		{
+			Kind:            EvidenceDirect,
+			Source:          "internal/config/runtime.go",
+			LineStart:       329,
+			AnchorKind:      AnchorDefinition,
+			AnchorSymbol:    "RuntimeSettings",
+			ContextRole:     EvidenceContextRoleDefining,
+			GroundingStatus: GroundingGrounded,
+			Summary:         "RuntimeSettings exposes explore_* fields such as ExploreMidLoopMinIteration and related midloop heuristics, but no hint_budget variant",
+		},
+	}
+
+	plan := BuildAnswerSurfacePlan(ir, mut, nil, nil, nil, evidence)
+	if plan == nil {
+		t.Fatal("BuildAnswerSurfacePlan returned nil")
+	}
+	if len(plan.ConfigTraceDiagramAnchors) != 2 {
+		t.Fatalf("config-trace anchors = %d, want 2: %+v", len(plan.ConfigTraceDiagramAnchors), plan.ConfigTraceDiagramAnchors)
+	}
+	for _, want := range []string{"config file", "code default"} {
+		if !strings.Contains(plan.CompiledDiagramFence, want) {
+			t.Fatalf("compiled config-trace fence missing %q: %q", want, plan.CompiledDiagramFence)
+		}
+	}
+}
+
 func TestBuildAnswerSurfacePlan_LogObservedAnchorsPreferAuthoritativeBindings(t *testing.T) {
 	mut := NewMutableState("")
 	logBundle := &LogBundle{
