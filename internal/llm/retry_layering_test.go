@@ -135,6 +135,82 @@ func TestFallbackAdapter_DoesSwapOnRetryable(t *testing.T) {
 	}
 }
 
+// TestFallbackAdapter_SwapOnL1Exhausted pins the load-bearing
+// fix for the persistent-rate-limit dead-fallback bug: when primary
+// returns ErrAllRetriesExhausted (its in-adapter L1 retry budget
+// ran out on a 429 / 5xx storm), the FallbackAdapter MUST still
+// route to the secondary because the secondary has its own quota
+// budget unaffected by primary's exhaustion. Without this, the
+// configured fallback was dead code precisely when it was needed.
+func TestFallbackAdapter_SwapOnL1Exhausted(t *testing.T) {
+	primaryAttempts := 0
+	fallbackAttempts := 0
+	primary := &mockAdapter{
+		modelID: "primary",
+		chatFn: func(ctx context.Context, msgs []Message, tools []ToolSchema, opts ChatOptions) (Response, error) {
+			primaryAttempts++
+			// Simulate L1 wrapping a 429 with ErrAllRetriesExhausted.
+			rateErr := &apiError{StatusCode: 429, Body: `{"error":"rate_limit"}`}
+			return Response{}, fmt.Errorf("%w: %w", ErrAllRetriesExhausted, rateErr)
+		},
+	}
+	fb := &mockAdapter{
+		modelID: "fallback",
+		chatFn: func(ctx context.Context, msgs []Message, tools []ToolSchema, opts ChatOptions) (Response, error) {
+			fallbackAttempts++
+			return Response{Content: "fallback response"}, nil
+		},
+	}
+	adapter := NewFallbackAdapter(primary, fb)
+	resp, err := adapter.Chat(context.Background(), nil, nil, ChatOptions{})
+	if err != nil {
+		t.Fatalf("expected fallback success on L1-exhausted primary; got %v", err)
+	}
+	if resp.Content != "fallback response" {
+		t.Errorf("expected fallback's response; got %q", resp.Content)
+	}
+	if primaryAttempts != 1 || fallbackAttempts != 1 {
+		t.Errorf("expected primary=1 fallback=1; got primary=%d fallback=%d",
+			primaryAttempts, fallbackAttempts)
+	}
+}
+
+// TestFallbackAdapter_DoesNotSwapOnCancel locks the cancellation
+// short-circuit: a user /cancel must NOT trigger fallback (cascading
+// the cancel through every configured adapter wastes wall-clock and
+// confuses the dock about "switching provider" while the user
+// already wanted to stop).
+func TestFallbackAdapter_DoesNotSwapOnCancel(t *testing.T) {
+	primaryAttempts := 0
+	fallbackAttempts := 0
+	primary := &mockAdapter{
+		modelID: "primary",
+		chatFn: func(ctx context.Context, msgs []Message, tools []ToolSchema, opts ChatOptions) (Response, error) {
+			primaryAttempts++
+			return Response{}, context.Canceled
+		},
+	}
+	fb := &mockAdapter{
+		modelID: "fallback",
+		chatFn: func(ctx context.Context, msgs []Message, tools []ToolSchema, opts ChatOptions) (Response, error) {
+			fallbackAttempts++
+			return Response{Content: "should not run"}, nil
+		},
+	}
+	adapter := NewFallbackAdapter(primary, fb)
+	_, err := adapter.Chat(context.Background(), nil, nil, ChatOptions{})
+	if err == nil {
+		t.Fatalf("expected error on cancelled primary; got nil")
+	}
+	if !errors.Is(err, context.Canceled) {
+		t.Errorf("expected context.Canceled in error chain; got %v", err)
+	}
+	if fallbackAttempts != 0 {
+		t.Errorf("fallback must NOT run after cancellation; got %d attempts", fallbackAttempts)
+	}
+	_ = primaryAttempts
+}
+
 // mockAdapter is a minimal Adapter for testing FallbackAdapter
 // behaviour without spinning up actual HTTP machinery. The chatFn
 // closure carries the per-test stub.

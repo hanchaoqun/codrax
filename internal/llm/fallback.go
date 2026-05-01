@@ -48,11 +48,18 @@ func (f *FallbackAdapter) Chat(ctx context.Context, messages []Message, tools []
 		if i+1 >= len(f.adapters) {
 			break
 		}
-		// Skip fallback hop when the error is non-retryable. Auth /
-		// schema / config bugs cascade to the same outcome on every
-		// adapter; trying fallback wastes a round-trip and obscures
-		// the real diagnostic.
-		if !IsRetryableDispatchError(err) {
+		// Skip fallback hop only when the error is structurally
+		// non-retryable (auth / schema / config bugs cascade to the
+		// same outcome on every adapter). IsFallbackEligible is a
+		// SUPERSET of IsRetryableDispatchError that also accepts
+		// ErrAllRetriesExhausted: when primary's L1 retry budget
+		// runs out on a 429 / 5xx storm, secondary still gets a
+		// chance because it has its own quota / region / model
+		// budget unaffected by primary's exhaustion. Without this
+		// distinction the configured fallback was effectively dead
+		// code under persistent rate-limit conditions — exactly the
+		// scenario it was added for.
+		if !IsFallbackEligible(err) {
 			return Response{}, err
 		}
 		// Notify the renderer (or any other observer) that we're

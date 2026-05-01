@@ -67,6 +67,53 @@ func IsRetryableDispatchError(err error) bool {
 	return false
 }
 
+// IsFallbackEligible reports whether FallbackAdapter should attempt
+// the NEXT adapter when the current one returned err. SUPERSET of
+// IsRetryableDispatchError that additionally returns true for
+// ErrAllRetriesExhausted-wrapped errors.
+//
+// Rationale: ErrAllRetriesExhausted means "L1 already exhausted its
+// in-adapter retry budget for THIS provider's underlying error". For
+// SAME-provider retry layers (L4 transient retry, L5 force-finalize),
+// this signal correctly suppresses duplicate retry coverage — they
+// would just re-trigger L1's same 6-attempt × 62s schedule on the
+// same backend.
+//
+// FallbackAdapter is fundamentally DIFFERENT: it routes to a
+// SEPARATE provider, region, model, or quota tier. A persistent 429
+// on primary is precisely when fallback should kick in — the
+// secondary has its own quota budget unaffected by primary's
+// exhaustion. Without this distinction, a primary stuck in a
+// rate-limit storm stranded the user on "all retries exhausted"
+// even though a fresh secondary was configured for exactly this
+// case.
+//
+// Non-retryable set still respected: auth failures, schema errors,
+// malformed requests cascade identically on every adapter; trying
+// the next one wastes a round-trip and obscures diagnostics.
+// context.Canceled (user /cancel) is also non-eligible — fallback
+// must not run after a deliberate cancel.
+func IsFallbackEligible(err error) bool {
+	if err == nil {
+		return false
+	}
+	if errors.Is(err, context.Canceled) {
+		return false
+	}
+	if IsRetryableDispatchError(err) {
+		return true
+	}
+	// L1-exhausted retryable error → still try the next adapter.
+	// The presence of ErrAllRetriesExhausted in the chain guarantees
+	// L1 saw a retryable cause underneath (otherwise it wouldn't
+	// have retried in the first place), so a fresh secondary is
+	// worth trying.
+	if errors.Is(err, ErrAllRetriesExhausted) {
+		return true
+	}
+	return false
+}
+
 // IsStreamLevelRetryable is the STRICT SUBSET of retryable errors
 // that L1 (the in-adapter HTTP retry loop) does NOT cover. The
 // orchestrator's transient-retry and force-finalize loops use this
