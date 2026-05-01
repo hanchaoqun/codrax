@@ -1014,6 +1014,17 @@ func clearForReplan(o *Orchestrator, attempt int) {
 	}
 	o.planPath = ""
 	o.busCtx.PlanPath = ""
+	// Multi-phase carry-through: when a phase is in flight, the
+	// orchestrator pinned a "## Phase X of Y: <goal>" header onto
+	// o.phaseContextPrefix at phase entry. PlanningHint itself is
+	// consume-once and was already drained by the first planner
+	// dispatch, so without this prepend the retry's planner would
+	// see only the failure critique and lose the phase boundary
+	// it should still be working within. Single-phase Runs leave
+	// phaseContextPrefix empty, so this is a no-op there.
+	if o.phaseContextPrefix != "" {
+		hint = o.phaseContextPrefix + hint
+	}
 	o.busCtx.Mutable.SetPlanningHint(hint)
 	logging.Info("[orchestrator] verify→plan retry attempt %d: hint=%q", attempt, hint)
 }

@@ -78,6 +78,68 @@ func TestAcceptanceChecker_HappyPath(t *testing.T) {
 	}
 }
 
+// TestAcceptanceChecker_RendersPhaseHeader pins commit 23: when
+// PhaseIndex/PhaseTotal are set, the user message opens with a
+// "Reviewing phase X of Y (attempt N)" line so the reviewer
+// stops conflating "first attempt at phase 2" with
+// "first attempt at phase 1". Single-phase Runs (PhaseIndex=0)
+// stay byte-identical (no header).
+func TestAcceptanceChecker_RendersPhaseHeader(t *testing.T) {
+	stub := &stubLLM{
+		resp: llm.Response{
+			ToolCalls: []llm.ToolCall{{
+				Name:   acceptanceTool.Name,
+				Params: []byte(`{"passed":true,"reasoning":"ok"}`),
+			}},
+		},
+	}
+	c := &llmAcceptanceChecker{adapter: stub}
+	in := AcceptanceCheckInput{
+		PhaseGoal:   "add migration",
+		PlanSummary: "create file",
+		Attempt:     1,
+		PhaseIndex:  2,
+		PhaseTotal:  3,
+	}
+	if _, err := c.Check(context.Background(), in); err != nil {
+		t.Fatalf("Check: %v", err)
+	}
+	if !strings.Contains(stub.lastUser, "Reviewing phase 2 of 3") {
+		t.Errorf("phase header missing; got %q", stub.lastUser)
+	}
+	if !strings.Contains(stub.lastUser, "(attempt 1)") {
+		t.Errorf("attempt count missing; got %q", stub.lastUser)
+	}
+}
+
+// TestAcceptanceChecker_NoPhaseHeaderWithoutIndex pins
+// back-compat: single-phase callers don't set PhaseIndex, so
+// the user message should not start with the multi-phase
+// header.
+func TestAcceptanceChecker_NoPhaseHeaderWithoutIndex(t *testing.T) {
+	stub := &stubLLM{
+		resp: llm.Response{
+			ToolCalls: []llm.ToolCall{{
+				Name:   acceptanceTool.Name,
+				Params: []byte(`{"passed":true,"reasoning":"ok"}`),
+			}},
+		},
+	}
+	c := &llmAcceptanceChecker{adapter: stub}
+	in := AcceptanceCheckInput{
+		PhaseGoal:   "x",
+		PlanSummary: "y",
+		Attempt:     1,
+		// PhaseIndex / PhaseTotal intentionally zero.
+	}
+	if _, err := c.Check(context.Background(), in); err != nil {
+		t.Fatalf("Check: %v", err)
+	}
+	if strings.Contains(stub.lastUser, "Reviewing phase") {
+		t.Errorf("single-phase render should not include phase header; got %q", stub.lastUser)
+	}
+}
+
 // TestAcceptanceChecker_RejectionPath: a passed=false verdict
 // flows through verbatim.
 func TestAcceptanceChecker_RejectionPath(t *testing.T) {

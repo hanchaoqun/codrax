@@ -66,6 +66,19 @@ type AcceptanceCheckInput struct {
 	// phase. Lets the reviewer notice "second attempt at the
 	// same phase" patterns. 1 on the first dispatch.
 	Attempt int
+
+	// PhaseIndex is the 1-indexed phase number within the group
+	// (1, 2, ... PhaseTotal). Distinct from Attempt: Attempt
+	// counts retries of the SAME phase; PhaseIndex says which
+	// phase we are reviewing. Letting the reviewer see both
+	// prevents the "second attempt at the same phase" /
+	// "first attempt at the second phase" conflation.
+	PhaseIndex int
+
+	// PhaseTotal is the total number of phases in the group, so
+	// the reviewer can frame "this is phase 2 of 3, not the
+	// final phase — partial completion is acceptable here".
+	PhaseTotal int
 }
 
 // acceptanceTool is the structured-output schema. Three fields:
@@ -183,11 +196,15 @@ func (a *llmAcceptanceChecker) Check(ctx context.Context, in AcceptanceCheckInpu
 }
 
 // renderAcceptanceUserMessage assembles the reviewer's input as
-// a Markdown blob — phase goal + plan summary + outcomes + test
-// report. Verbatim throughout (no system editorialising) to
-// match the reflector / plan_critic pattern.
+// a Markdown blob — phase header (X of Y) + goal + plan summary
+// + outcomes + test report. Verbatim throughout (no system
+// editorialising) to match the reflector / plan_critic pattern.
 func renderAcceptanceUserMessage(in AcceptanceCheckInput) string {
 	var b strings.Builder
+	if in.PhaseIndex > 0 && in.PhaseTotal > 0 {
+		fmt.Fprintf(&b, "## Reviewing phase %d of %d (attempt %d)\n\n",
+			in.PhaseIndex, in.PhaseTotal, in.Attempt)
+	}
 	if strings.TrimSpace(in.PhaseGoal) != "" {
 		b.WriteString("## Phase goal\n\n")
 		b.WriteString(strings.TrimSpace(in.PhaseGoal))

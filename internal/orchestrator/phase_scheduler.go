@@ -162,6 +162,8 @@ func (o *Orchestrator) runPhaseGroup(group *types.PlanGroup, stepsUsed *int) err
 				TestReport:  report,
 				Outcomes:    expectedOutcomesForAcceptance(o.busCtx),
 				Attempt:     1, // per-phase retry counter is internal to runTaskPhase
+				PhaseIndex:  phase.Index + 1,
+				PhaseTotal:  len(group.Phases),
 			})
 			if err != nil {
 				// Degraded path: log + treat as auto-accept.
@@ -229,9 +231,18 @@ func (o *Orchestrator) resetForNextPhase() {
 //   - Optional NextHint from the previous phase's acceptance
 //     check (e.g. "users.email column was added; ORM still
 //     references old name")
+//
+// Also pins the phase header onto o.phaseContextPrefix so an
+// intra-phase verify→plan retry (clearForReplan) can
+// re-prepend "you are still in phase X of Y" — PlanningHint
+// itself is drained by the first planner dispatch and would
+// otherwise vanish before the retry hint replaces it.
 func (o *Orchestrator) seedPlanningHintFromPhase(phase *types.PhaseRecord, group *types.PlanGroup) {
+	header := fmt.Sprintf("## Phase %d of %d: %s\n\n", phase.Index+1, len(group.Phases), phase.Goal)
+	o.phaseContextPrefix = header
+
 	var b strings.Builder
-	fmt.Fprintf(&b, "## Phase %d of %d: %s\n\n", phase.Index+1, len(group.Phases), phase.Goal)
+	b.WriteString(header)
 	if len(phase.RoughTargetPaths) > 0 {
 		b.WriteString("Rough target paths the analysis suggested for this phase:\n")
 		for _, p := range phase.RoughTargetPaths {

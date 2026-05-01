@@ -262,6 +262,71 @@ func TestClearForReplan_ClearsStateAndSeedsHint(t *testing.T) {
 	}
 }
 
+// TestClearForReplan_PreservesPhaseContext pins commit 23's
+// stage II fix: when an intra-phase verify→plan retry fires
+// inside multi-phase, the orchestrator's phaseContextPrefix
+// header gets re-prepended onto the retry hint so the planner
+// dispatching the retry still sees "## Phase 2 of 3: <goal>".
+// Without this prepend, the consume-once PlanningHint had
+// already been drained by the first dispatch, and the retry
+// hint would replace it without any phase boundary.
+func TestClearForReplan_PreservesPhaseContext(t *testing.T) {
+	o := New(types.PipelineSettings{}, nil, nil, nil)
+	o.busCtx = &types.BusContext{
+		MainRepoRoot: "/tmp/main",
+		RepoRoot:     "/tmp/worktree",
+		Mutable:      types.NewMutableState("probe"),
+		WorktreePath: "/tmp/worktree",
+	}
+	o.busCtx.Mutable.SetChangePlan(&types.ChangePlan{
+		ID:          "plan-phase2",
+		TargetPaths: []string{"x.go"},
+	})
+	o.busCtx.Mutable.SetChangeReport(&types.ChangeReport{
+		PlanID:      "plan-phase2",
+		Passed:      false,
+		TestResults: []types.TestResult{{AssertionID: "TestX", Passed: false}},
+	})
+	o.phaseContextPrefix = "## Phase 2 of 3: update ORM\n\n"
+
+	clearForReplan(o, 1)
+
+	hint := o.busCtx.Mutable.PlanningHint()
+	if !strings.HasPrefix(hint, "## Phase 2 of 3:") {
+		t.Errorf("retry hint should start with the phase header; got %q", hint)
+	}
+	if !strings.Contains(hint, "TestX") {
+		t.Errorf("retry hint should still carry the failure context after the phase prefix; got %q", hint)
+	}
+}
+
+// TestClearForReplan_NoPhasePrefixOnSinglePhase pins the
+// back-compat invariant: single-phase Runs never set
+// phaseContextPrefix, so the retry hint stays byte-identical
+// to its pre-stage-II shape.
+func TestClearForReplan_NoPhasePrefixOnSinglePhase(t *testing.T) {
+	o := New(types.PipelineSettings{}, nil, nil, nil)
+	o.busCtx = &types.BusContext{
+		MainRepoRoot: "/tmp/main",
+		RepoRoot:     "/tmp/worktree",
+		Mutable:      types.NewMutableState("probe"),
+		WorktreePath: "/tmp/worktree",
+	}
+	o.busCtx.Mutable.SetChangePlan(&types.ChangePlan{ID: "plan-1", TargetPaths: []string{"a.go"}})
+	o.busCtx.Mutable.SetChangeReport(&types.ChangeReport{
+		PlanID:      "plan-1",
+		Passed:      false,
+		TestResults: []types.TestResult{{AssertionID: "TestA", Passed: false}},
+	})
+
+	clearForReplan(o, 1)
+
+	hint := o.busCtx.Mutable.PlanningHint()
+	if strings.HasPrefix(hint, "## Phase ") {
+		t.Errorf("single-phase Run should not get a phase prefix; got %q", hint)
+	}
+}
+
 // TestPlanningHintRoundTrip confirms the MutableState getter/setter
 // pair works atomically — a belt-and-suspenders check before we
 // rely on it from the planner's BuildInitialInstruction.

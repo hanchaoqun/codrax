@@ -172,6 +172,18 @@ type Orchestrator struct {
 	// and wipes it.
 	nextPhaseHint string
 
+	// phaseContextPrefix is the sticky "## Phase X of Y: <goal>"
+	// header set by seedPlanningHintFromPhase at every phase
+	// entry. Distinct from PlanningHint (which is consume-once,
+	// drained by planner.BuildInitialInstruction on the FIRST
+	// dispatch of the phase): this slot survives the consume so
+	// clearForReplan can re-prepend the phase header onto the
+	// retry hint. Without this, an intra-phase verify→plan retry
+	// would lose the "you are still in phase 2" context and the
+	// next planner dispatch could drift toward a different phase
+	// boundary. Cleared at the next phase entry.
+	phaseContextPrefix string
+
 	// baselineCaptureEnabled gates the pre-apply test snapshot
 	// that feeds CritNoRegression. Default false (test doubling
 	// is opt-in). When true, the apply stage hook dispatches run_tests
