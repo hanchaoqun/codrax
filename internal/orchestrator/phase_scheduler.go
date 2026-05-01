@@ -70,6 +70,17 @@ func (o *Orchestrator) runPhaseGroup(group *types.PlanGroup, stepsUsed *int) err
 	o.persistGroup(group)
 
 	for group.ActiveIdx < len(group.Phases) {
+		// Cancel check at every iteration boundary (commit 32).
+		// Before this, /cancel + Ctrl+C only landed when the
+		// in-flight LLM Chat hit a cancelled context — phase
+		// 1's verify might unwind cleanly, but the outer loop
+		// would happily march into phase 2 because nothing
+		// re-checked the cancel token. Mirror of the same
+		// gate runWriteSchedulerLoop installs at line 74.
+		if cerr := o.checkCanceled("phase_scheduler", *stepsUsed); cerr != nil {
+			return cerr
+		}
+
 		phase := &group.Phases[group.ActiveIdx]
 
 		// Skip phases already at terminal status (operator
@@ -126,6 +137,23 @@ func (o *Orchestrator) runPhaseGroup(group *types.PlanGroup, stepsUsed *int) err
 		// commit SHA reached, the verify report.
 		plan := o.busCtx.Mutable.ChangePlan()
 		report := o.busCtx.Mutable.ChangeReport()
+		// Record retry count from the per-phase iteration
+		// ledger (commit 32). The ledger was reset at phase
+		// entry by resetForNextPhase; each clearForReplan
+		// invocation appends one row; len(ledger) is the
+		// number of verify→plan retries this phase consumed
+		// before reaching its terminal status.
+		phase.RetryAttempts = len(o.busCtx.Mutable.IterationLedger())
+		// Stamp phase coordinates onto the ChangeReport so
+		// /history can cluster consecutive reports by group
+		// instead of treating them as 5 unrelated tasks
+		// (commit 32 schema gap). report may be nil when
+		// runTaskPhase short-circuited before verify produced
+		// one — leave nil reports alone.
+		if report != nil {
+			report.PhaseGroupID = group.ID
+			report.PhaseIndex = phase.Index
+		}
 		if plan != nil {
 			phase.PlanID = plan.ID
 			plan.PhaseGroupID = group.ID
@@ -287,6 +315,13 @@ func (o *Orchestrator) resetForNextPhase() {
 	}
 	mu.ResetChangePlan()
 	mu.ResetChangeReport()
+	// IterationLedger reset (commit 32) so the per-phase
+	// retry-attempt counter we read at end of phase reflects
+	// THIS phase's retries only — not phase 1 + 2 cumulative.
+	// The ledger is consumed by clearForReplan as the side-LLM
+	// reflector input; resetting between phases gives each
+	// phase a clean slate for its own diagnostic critique.
+	mu.ResetIterationLedger()
 	// AppliedSet preserved (cumulative across phases).
 	// WriteAnalysisIR preserved (single task, multiple phases).
 	// PlanCritique preserved on the previous phase's plan

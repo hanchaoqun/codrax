@@ -439,6 +439,16 @@ type ChangeReport struct {
 	// One-to-one: a single plan produces zero-or-one report.
 	PlanID string `json:"plan_id"`
 
+	// PhaseGroupID + PhaseIndex carry the multi-phase coordinates
+	// when this report belongs to a stage II phase plan (commit
+	// 32 schema gap fix). Both empty/zero on single-phase reports.
+	// /history can group consecutive reports by PhaseGroupID
+	// instead of rendering them as flat unrelated rows; without
+	// these the multi-phase clustering signal lives only on
+	// ChangePlan and reports look like 5 unrelated tasks.
+	PhaseGroupID string `json:"phase_group_id,omitempty"`
+	PhaseIndex   int    `json:"phase_index,omitempty"`
+
 	// TestResults is the verify stage's assertion-level outcomes,
 	// one entry per test case / assertion. Derived from run_tests
 	// output by the language-specific parser (B3 open question #4).

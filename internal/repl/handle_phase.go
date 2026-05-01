@@ -148,6 +148,9 @@ func (r *REPL) phaseShow(groupID string) {
 			if p.AppliedSHA != "" {
 				fmt.Fprintf(r.out, "  sha: %s", shortSHA(p.AppliedSHA))
 			}
+			if p.RetryAttempts > 0 {
+				fmt.Fprintf(r.out, "  retries: %d", p.RetryAttempts)
+			}
 			fmt.Fprintln(r.out)
 		}
 		if p.AcceptanceCheck != nil {

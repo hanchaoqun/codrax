@@ -523,6 +523,169 @@ func TestRunPhaseGroup_AcceptanceRejectAborts(t *testing.T) {
 	}
 }
 
+// TestRunPhaseGroup_CancelBetweenPhases pins commit 32's
+// P0 #1: when the cancel token is set between phases, the
+// runPhaseGroup outer loop unwinds with a CanceledError on
+// the next iteration check rather than silently marching
+// into the next phase. Pre-commit-32 the loop had zero
+// checkCanceled() calls and a /cancel mid-phase only landed
+// when the in-flight Chat call's context was cancelled —
+// the loop would then happily start phase 2 anyway.
+func TestRunPhaseGroup_CancelBetweenPhases(t *testing.T) {
+	store := &fakeGroupStore{}
+	mu := types.NewMutableState("cancel-test")
+	mu.SetWriteAnalysisIR(&types.WriteAnalysisIR{Request: types.WriteRequestModel{}})
+	bus := &types.BusContext{
+		Mutable:    mu,
+		Mode:       types.ModeApply,
+		AnalysisIR: &types.AnalysisIR{},
+	}
+	tok := NewCancelToken()
+	o := &Orchestrator{
+		busCtx:            bus,
+		planGroupStore:    store,
+		cancelToken:       tok,
+		acceptanceChecker: &stubAcceptanceChecker{verdict: &types.AcceptanceCheck{Passed: true, Reasoning: "ok"}},
+	}
+	// Stub runTaskPhase: phase 0 succeeds normally, then
+	// triggers cancel before returning. Phase 1 should NOT
+	// start.
+	phase0Done := false
+	o.runTaskPhaseFn = func(stepsUsed *int) error {
+		mu.SetChangePlan(&types.ChangePlan{ID: "plan-x", TargetPaths: []string{"x.go"}})
+		mu.SetChangeReport(&types.ChangeReport{Passed: true})
+		o.currentIterCommitSHA = "sha000"
+		if !phase0Done {
+			phase0Done = true
+			tok.Cancel("user pressed Ctrl+C")
+		}
+		return nil
+	}
+
+	g := &types.PlanGroup{
+		ID:       "group-cancel-test",
+		Decision: "linear",
+		Status:   types.PlanGroupPlanning,
+		Phases: []types.PhaseRecord{
+			{Index: 0, Goal: "p0", Status: types.PhasePending},
+			{Index: 1, Goal: "p1", Status: types.PhasePending},
+		},
+	}
+	stepsUsed := 0
+	err := o.runPhaseGroup(g, &stepsUsed)
+	if err == nil {
+		t.Fatal("expected CanceledError after cancel")
+	}
+	if _, ok := err.(*CanceledError); !ok {
+		t.Errorf("expected *CanceledError; got %T: %v", err, err)
+	}
+	// Phase 0 ran (advanced); phase 1 must NOT have executed.
+	if g.Phases[0].Status != types.PhaseAccepted {
+		t.Errorf("phase 0 should be Accepted; got %q", g.Phases[0].Status)
+	}
+	if g.Phases[1].Status != types.PhasePending {
+		t.Errorf("phase 1 should be untouched (Pending); got %q", g.Phases[1].Status)
+	}
+}
+
+// TestRunPhaseGroup_StampsPhaseFieldsOnReport pins commit 32's
+// P1 #3: the per-phase verify report gets PhaseGroupID +
+// PhaseIndex stamped so /history can cluster reports by group.
+// Without this stamp, multi-phase reports look like N unrelated
+// single-phase tasks in the history listing.
+func TestRunPhaseGroup_StampsPhaseFieldsOnReport(t *testing.T) {
+	store := &fakeGroupStore{}
+	mu := types.NewMutableState("test")
+	mu.SetWriteAnalysisIR(&types.WriteAnalysisIR{Request: types.WriteRequestModel{}})
+	bus := &types.BusContext{
+		Mutable:    mu,
+		Mode:       types.ModeApply,
+		AnalysisIR: &types.AnalysisIR{},
+	}
+	o := &Orchestrator{
+		busCtx:            bus,
+		planGroupStore:    store,
+		cancelToken:       NewCancelToken(),
+		acceptanceChecker: &stubAcceptanceChecker{verdict: &types.AcceptanceCheck{Passed: true}},
+	}
+	var capturedReport *types.ChangeReport
+	o.runTaskPhaseFn = func(stepsUsed *int) error {
+		report := &types.ChangeReport{PlanID: "plan-x", Passed: true}
+		mu.SetChangeReport(report)
+		mu.SetChangePlan(&types.ChangePlan{ID: "plan-x", TargetPaths: []string{"x.go"}})
+		o.currentIterCommitSHA = "sha000"
+		capturedReport = report
+		return nil
+	}
+
+	g := &types.PlanGroup{
+		ID:       "group-stamp-test",
+		Decision: "linear",
+		Status:   types.PlanGroupPlanning,
+		Phases:   []types.PhaseRecord{{Index: 1, Goal: "p1", Status: types.PhasePending}},
+	}
+	stepsUsed := 0
+	if err := o.runPhaseGroup(g, &stepsUsed); err != nil {
+		t.Fatalf("runPhaseGroup: %v", err)
+	}
+	if capturedReport == nil {
+		t.Fatal("expected report to be captured")
+	}
+	if capturedReport.PhaseGroupID != "group-stamp-test" {
+		t.Errorf("PhaseGroupID = %q; want group-stamp-test", capturedReport.PhaseGroupID)
+	}
+	if capturedReport.PhaseIndex != 1 {
+		t.Errorf("PhaseIndex = %d; want 1", capturedReport.PhaseIndex)
+	}
+}
+
+// TestRunPhaseGroup_RecordsRetryAttemptCount pins commit 32's
+// P1 #4: phase.RetryAttempts reflects how many verify→plan
+// retry cycles the phase consumed (read from the iteration
+// ledger that clearForReplan appends to). Used by /phase show
+// to surface "this phase was hard (3 retries)" vs "first try".
+func TestRunPhaseGroup_RecordsRetryAttemptCount(t *testing.T) {
+	store := &fakeGroupStore{}
+	mu := types.NewMutableState("retry-test")
+	mu.SetWriteAnalysisIR(&types.WriteAnalysisIR{Request: types.WriteRequestModel{}})
+	bus := &types.BusContext{
+		Mutable:    mu,
+		Mode:       types.ModeApply,
+		AnalysisIR: &types.AnalysisIR{},
+	}
+	o := &Orchestrator{
+		busCtx:            bus,
+		planGroupStore:    store,
+		cancelToken:       NewCancelToken(),
+		acceptanceChecker: &stubAcceptanceChecker{verdict: &types.AcceptanceCheck{Passed: true}},
+	}
+	o.runTaskPhaseFn = func(stepsUsed *int) error {
+		mu.SetChangePlan(&types.ChangePlan{ID: "plan-x", TargetPaths: []string{"x.go"}})
+		mu.SetChangeReport(&types.ChangeReport{Passed: true})
+		// Simulate two retries by appending to the ledger
+		// (clearForReplan would normally do this on each
+		// verify SC failure).
+		mu.AppendIteration(types.IterationRecord{Attempt: 1})
+		mu.AppendIteration(types.IterationRecord{Attempt: 2})
+		o.currentIterCommitSHA = "sha000"
+		return nil
+	}
+
+	g := &types.PlanGroup{
+		ID:       "group-retry-test",
+		Decision: "linear",
+		Status:   types.PlanGroupPlanning,
+		Phases:   []types.PhaseRecord{{Index: 0, Goal: "p0", Status: types.PhasePending}},
+	}
+	stepsUsed := 0
+	if err := o.runPhaseGroup(g, &stepsUsed); err != nil {
+		t.Fatalf("runPhaseGroup: %v", err)
+	}
+	if g.Phases[0].RetryAttempts != 2 {
+		t.Errorf("RetryAttempts = %d; want 2", g.Phases[0].RetryAttempts)
+	}
+}
+
 // stubAcceptanceChecker is a deterministic AcceptanceChecker
 // for tests: returns the configured (verdict, err) on every
 // Check call regardless of input. Mirrors the no-op stubs in

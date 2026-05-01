@@ -110,6 +110,16 @@ type PhaseRecord struct {
 	StartedAt  *time.Time `json:"started_at,omitempty"`
 	FinishedAt *time.Time `json:"finished_at,omitempty"`
 
+	// RetryAttempts counts the number of verify→plan retry
+	// cycles this phase consumed before reaching its current
+	// status. Zero means "passed on first try"; 3 means
+	// "needed 3 retries". Useful post-mortem signal when
+	// reading /phase show — distinguishes "this phase was
+	// hard" from "this phase passed cleanly". Mutated by
+	// clearForReplan when a verify SC failure requeues the
+	// plan stage.
+	RetryAttempts int `json:"retry_attempts,omitempty"`
+
 	// OwnerPID is the orchestrator process id that set this
 	// phase to in_progress. Used by FindActiveGroup's orphan
 	// reaper: when a process crashes mid-phase (SIGKILL / panic
