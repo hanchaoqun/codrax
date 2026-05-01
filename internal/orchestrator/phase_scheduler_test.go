@@ -1,6 +1,7 @@
 package orchestrator
 
 import (
+	"errors"
 	"strings"
 	"testing"
 
@@ -269,6 +270,137 @@ func TestExpectedOutcomesForAcceptance_NilSafe(t *testing.T) {
 	got := expectedOutcomesForAcceptance(&types.BusContext{Mutable: mu})
 	if len(got) != 2 || got[0] != "a" || got[1] != "b" {
 		t.Errorf("ExpectedOutcomes drift; got %v", got)
+	}
+}
+
+// TestApplyAcceptanceVerdict_ErrorMarksUnverified pins commit
+// 26 + 27: when the AcceptanceChecker returns a non-nil error,
+// the phase becomes PhaseAcceptanceUnverified (terminal but
+// distinct from Accepted), the AcceptanceCheck slot carries the
+// error in the Reasoning field, and the helper returns
+// (rejected=false, rejErr=nil) so the caller advances the
+// group rather than aborting the Run on infra failure.
+func TestApplyAcceptanceVerdict_ErrorMarksUnverified(t *testing.T) {
+	store := &fakeGroupStore{}
+	o := &Orchestrator{
+		busCtx:         &types.BusContext{Mutable: types.NewMutableState("probe")},
+		planGroupStore: store,
+	}
+	phase := &types.PhaseRecord{Index: 1, Goal: "update ORM", Status: types.PhaseVerified}
+	group := &types.PlanGroup{
+		ID:        "group-unverified-test",
+		Status:    types.PlanGroupInFlight,
+		ActiveIdx: 1,
+		Phases:    []types.PhaseRecord{{}, *phase, {}},
+	}
+
+	rejected, rejErr := o.applyAcceptanceVerdict(phase, group,
+		nil, errors.New("network blip: timeout after 5s"))
+
+	if rejected {
+		t.Errorf("rejected should be false on infra error; group should still advance")
+	}
+	if rejErr != nil {
+		t.Errorf("rejErr should be nil on infra error; got %v", rejErr)
+	}
+	if phase.Status != types.PhaseAcceptanceUnverified {
+		t.Errorf("phase.Status should be PhaseAcceptanceUnverified; got %q", phase.Status)
+	}
+	if phase.AcceptanceCheck == nil {
+		t.Fatal("AcceptanceCheck should be populated with the infra failure")
+	}
+	if !strings.Contains(phase.AcceptanceCheck.Reasoning, "infra failure") {
+		t.Errorf("Reasoning should mention infra failure; got %q", phase.AcceptanceCheck.Reasoning)
+	}
+	if !strings.Contains(phase.AcceptanceCheck.Reasoning, "network blip") {
+		t.Errorf("Reasoning should carry the underlying error; got %q", phase.AcceptanceCheck.Reasoning)
+	}
+	if phase.FinishedAt == nil {
+		t.Errorf("FinishedAt should be stamped")
+	}
+	if group.Status != types.PlanGroupInFlight {
+		t.Errorf("group should remain InFlight on infra failure; got %q", group.Status)
+	}
+}
+
+// TestApplyAcceptanceVerdict_RejectedRollsBack pins the
+// rejection path: passed=false → phase RolledBack, group
+// Failed, helper returns (rejected=true, error). Caller exits
+// runPhaseGroup with this error; the group stops here.
+func TestApplyAcceptanceVerdict_RejectedRollsBack(t *testing.T) {
+	store := &fakeGroupStore{}
+	o := &Orchestrator{
+		busCtx:         &types.BusContext{Mutable: types.NewMutableState("probe")},
+		planGroupStore: store,
+	}
+	phase := &types.PhaseRecord{Index: 0, Goal: "add migration", Status: types.PhaseVerified}
+	group := &types.PlanGroup{
+		ID:        "group-reject-test",
+		Status:    types.PlanGroupInFlight,
+		ActiveIdx: 0,
+		Phases:    []types.PhaseRecord{*phase, {}, {}},
+	}
+	verdict := &types.AcceptanceCheck{
+		Passed:    false,
+		Reasoning: "plan summary unrelated to phase goal",
+	}
+
+	rejected, rejErr := o.applyAcceptanceVerdict(phase, group, verdict, nil)
+
+	if !rejected {
+		t.Errorf("rejected should be true on passed=false")
+	}
+	if rejErr == nil {
+		t.Errorf("rejErr should describe the rejection; got nil")
+	}
+	if !strings.Contains(rejErr.Error(), "unrelated to phase goal") {
+		t.Errorf("rejErr should embed the verdict reasoning; got %v", rejErr)
+	}
+	if phase.Status != types.PhaseRolledBack {
+		t.Errorf("phase.Status should be RolledBack; got %q", phase.Status)
+	}
+	if group.Status != types.PlanGroupFailed {
+		t.Errorf("group.Status should be Failed; got %q", group.Status)
+	}
+	if store.saveCount == 0 {
+		t.Errorf("expected persistGroup to fire on rejection; got %d saves", store.saveCount)
+	}
+}
+
+// TestApplyAcceptanceVerdict_AcceptedAdvances pins the happy
+// path: passed=true → phase Accepted, NextHint propagated to
+// o.nextPhaseHint, helper returns (false, nil) so caller
+// advances.
+func TestApplyAcceptanceVerdict_AcceptedAdvances(t *testing.T) {
+	o := &Orchestrator{
+		busCtx: &types.BusContext{Mutable: types.NewMutableState("probe")},
+	}
+	phase := &types.PhaseRecord{Index: 0, Goal: "add migration", Status: types.PhaseVerified}
+	group := &types.PlanGroup{
+		ID:        "group-accept-test",
+		Status:    types.PlanGroupInFlight,
+		ActiveIdx: 0,
+		Phases:    []types.PhaseRecord{*phase, {}, {}},
+	}
+	verdict := &types.AcceptanceCheck{
+		Passed:    true,
+		Reasoning: "migration applied; schema test passes",
+		NextHint:  "ORM needs to know about users.email",
+	}
+
+	rejected, rejErr := o.applyAcceptanceVerdict(phase, group, verdict, nil)
+
+	if rejected {
+		t.Errorf("rejected should be false on passed=true")
+	}
+	if rejErr != nil {
+		t.Errorf("rejErr should be nil on accepted; got %v", rejErr)
+	}
+	if phase.Status != types.PhaseAccepted {
+		t.Errorf("phase.Status should be Accepted; got %q", phase.Status)
+	}
+	if o.nextPhaseHint != "ORM needs to know about users.email" {
+		t.Errorf("nextPhaseHint should be propagated; got %q", o.nextPhaseHint)
 	}
 }
 

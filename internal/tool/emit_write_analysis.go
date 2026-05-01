@@ -173,16 +173,19 @@ func (t *EmitWriteAnalysis) Execute(ctx *types.BusContext, params json.RawMessag
 			split = "single"
 			seeds = nil
 		}
-		// Hard-cap phase count at MaxPhasesPerGroup (commit 18,
-		// stage II). Real-world multi-phase tasks are 2-3 phases;
-		// >5 almost always means the LLM mis-classified what
-		// should be a single phase as multiple. Truncate rather
-		// than reject so a near-cap emit doesn't fail the entire
-		// dispatch.
-		if len(seeds) > types.MaxPhasesPerGroup {
+		// Hard-cap phase count at the operator-tunable resolved
+		// maximum (default MaxPhasesPerGroup=5; yaml override
+		// `pipeline_max_phases_per_run` clamped to
+		// MaxPhasesPerGroupCeil=12). Real-world multi-phase
+		// tasks are 2-3 phases; >5 almost always means the LLM
+		// mis-classified what should be a single phase as
+		// multiple. Truncate rather than reject so a near-cap
+		// emit doesn't fail the entire dispatch.
+		maxPhases := types.ResolvedMaxPhases()
+		if len(seeds) > maxPhases {
 			logging.Warning("[emit_write_analysis] phase proposal had %d phases; capping at %d",
-				len(seeds), types.MaxPhasesPerGroup)
-			seeds = seeds[:types.MaxPhasesPerGroup]
+				len(seeds), maxPhases)
+			seeds = seeds[:maxPhases]
 		}
 		phase.Split = split
 		phase.Phases = seeds

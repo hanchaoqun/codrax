@@ -244,7 +244,7 @@ func IsTerminalPhaseStatus(s PhaseStatus) bool {
 	return false
 }
 
-// MaxPhasesPerGroup is the absolute hard cap on phase count.
+// MaxPhasesPerGroup is the default cap on phase count.
 // emit_write_analysis schema enforces this at LLM-emit time so
 // a misbehaving LLM cannot create a 50-phase group that would
 // burn LLM budget across pointless micro-divisions. The number
@@ -252,5 +252,47 @@ func IsTerminalPhaseStatus(s PhaseStatus) bool {
 // + code change, library extraction + adoption, deprecate +
 // remove) are usually 2-3 phases; 5 covers the long tail; >5
 // almost always means the LLM mis-classified what should be a
-// single phase as multiple.
+// single phase as multiple. Operators can override via
+// `codrax.yaml :: pipeline_max_phases_per_run` (clamped to
+// MaxPhasesPerGroupCeil) when their task structure genuinely
+// needs more.
 const MaxPhasesPerGroup = 5
+
+// MaxPhasesPerGroupCeil is the absolute ceiling on the
+// pipeline_max_phases_per_run yaml override. Sized so a
+// runaway LLM can't burn through a 30-phase fan-out even when
+// the operator deliberately raised the soft cap. SetMaxPhases
+// enforces this clamp.
+const MaxPhasesPerGroupCeil = 12
+
+// resolvedMaxPhases is the per-Run cap; defaults to
+// MaxPhasesPerGroup but may be raised by SetMaxPhases up to
+// MaxPhasesPerGroupCeil. Read by emit_write_analysis truncation.
+var resolvedMaxPhases = MaxPhasesPerGroup
+
+// ResolvedMaxPhases returns the active cap. Mirror of the
+// other "default with yaml override" patterns in the codebase
+// so emit_write_analysis can read a single source of truth
+// without depending on the orchestrator package.
+func ResolvedMaxPhases() int {
+	if resolvedMaxPhases <= 0 {
+		return MaxPhasesPerGroup
+	}
+	return resolvedMaxPhases
+}
+
+// SetMaxPhases installs the operator's pipeline_max_phases_per_run
+// override. Zero / negative inputs reset to the default.
+// Values above MaxPhasesPerGroupCeil are clamped to the ceiling
+// (defense against a misconfigured yaml that would let a
+// runaway LLM proposal through).
+func SetMaxPhases(n int) {
+	if n <= 0 {
+		resolvedMaxPhases = MaxPhasesPerGroup
+		return
+	}
+	if n > MaxPhasesPerGroupCeil {
+		n = MaxPhasesPerGroupCeil
+	}
+	resolvedMaxPhases = n
+}

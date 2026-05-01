@@ -1544,6 +1544,14 @@ func initApp(cmd *cobra.Command, _ []string) error {
 		if rs.PipelineWriteRetryBudgetCeil != nil {
 			pipelineSettings.WriteRetryBudgetCeil = *rs.PipelineWriteRetryBudgetCeil
 		}
+		if rs.PipelineMaxPhasesPerRun != nil {
+			// Stage II phase cap. Pushes into the types package's
+			// process-global slot read by emit_write_analysis when
+			// truncating an over-eager LLM phase proposal.
+			// types.SetMaxPhases clamps to MaxPhasesPerGroupCeil
+			// internally; non-positive resets to default.
+			types.SetMaxPhases(*rs.PipelineMaxPhasesPerRun)
+		}
 		if rs.PipelineTransientRetryBudget != nil {
 			pipelineSettings.TransientRetryBudget = *rs.PipelineTransientRetryBudget
 		}

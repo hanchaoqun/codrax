@@ -858,6 +858,17 @@ func (o *Orchestrator) Run(request string, repoRoot string, branch string) (*typ
 	o.cancelToken = NewCancelToken()
 	defer func() { o.cancelToken = nil }()
 
+	// Defensive reset of cross-Run sticky slots. The Orchestrator
+	// instance is reused across Runs in the REPL, so any field
+	// that was set during a previous multi-phase Run must be
+	// wiped before the next Run starts — else a stage II run
+	// followed by a single-phase Run would leak the prior phase
+	// header into the new Run's clearForReplan. Single-phase
+	// Runs never write these slots, so the reset is a no-op for
+	// the read-mode path.
+	o.phaseContextPrefix = ""
+	o.nextPhaseHint = ""
+
 	// Wall-clock deadline for write-mode Runs. The timer fires at
 	// most once per Run; the AfterFunc closure cancels the token
 	// with a typed reason so the caller's "✗ canceled" rendering

@@ -179,6 +179,16 @@ type RuntimeSettings struct {
 	// genuinely improved plans on attempts 6+, which is rare.
 	PipelineWriteRetryBudgetCeil *int `yaml:"pipeline_write_retry_budget_ceil"`
 
+	// PipelineMaxPhasesPerRun caps the LLM-emitted PhaseProposal in
+	// stage II multi-phase write Runs. Default
+	// types.MaxPhasesPerGroup (5). Operator override only useful
+	// for genuinely multi-step migrations (schema → ORM → API →
+	// docs); LLMs over-decomposing what should be a single plan
+	// is a real failure mode the cap defends against. Hard-capped
+	// by types.MaxPhasesPerGroupCeil (12) inside types.SetMaxPhases
+	// so a yaml typo can't unleash a 30-phase fan-out.
+	PipelineMaxPhasesPerRun *int `yaml:"pipeline_max_phases_per_run"`
+
 	// PipelineTransientRetryBudget caps how many times a single Run
 	// will retry a stage that failed with a transient dispatch error
 	// (LLM stream stall / first-byte timeout / 429 / 5xx / network

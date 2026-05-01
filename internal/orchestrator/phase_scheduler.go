@@ -154,17 +154,10 @@ func (o *Orchestrator) runPhaseGroup(group *types.PlanGroup, stepsUsed *int) err
 		o.persistGroup(group)
 
 		// Acceptance check (commit 19). Independent LLM verdict
-		// on whether the phase satisfied its goal. Three outcomes:
-		//   1. err != nil  — record as PhaseAcceptanceUnverified
-		//      (commit 26: replaces fail-open auto-accept).
-		//      Operator sees the gap in /phase show; scheduler
-		//      still advances so infra failures don't deadlock
-		//      the whole multi-phase Run.
-		//   2. ac.Passed=false — phase RolledBack, group Failed.
-		//   3. ac.Passed=true (or no checker wired) — phase
-		//      Accepted, advance.
-		acceptanceUnverified := false
-		var acceptanceErr error
+		// on whether the phase satisfied its goal. Outcomes
+		// classified by applyAcceptanceVerdict — see that helper
+		// for the three-state translation (rejected / unverified /
+		// accepted).
 		if o.acceptanceChecker != nil {
 			ac, err := o.acceptanceChecker.Check(o.CancelContext(), AcceptanceCheckInput{
 				PhaseGoal:   phase.Goal,
@@ -175,49 +168,15 @@ func (o *Orchestrator) runPhaseGroup(group *types.PlanGroup, stepsUsed *int) err
 				PhaseIndex:  phase.Index + 1,
 				PhaseTotal:  len(group.Phases),
 			})
-			if err != nil {
-				// Degraded but visible. Phase advances so the
-				// group doesn't deadlock on infra failure, but
-				// the status is distinct from "accepted" so
-				// /phase show surfaces the gap.
-				logging.Warning("[orchestrator] phase %d acceptance_check errored: %v (marking acceptance_unverified)",
-					phase.Index, err)
-				acceptanceUnverified = true
-				acceptanceErr = err
-			} else if ac != nil {
-				phase.AcceptanceCheck = ac
-				if !ac.Passed {
-					finished := time.Now()
-					phase.Status = types.PhaseRolledBack
-					phase.FinishedAt = &finished
-					group.Status = types.PlanGroupFailed
-					o.persistGroup(group)
-					return fmt.Errorf("phase %d acceptance rejected: %s",
-						phase.Index, ac.Reasoning)
-				}
-				// Carry the next-phase hint forward. The next
-				// iteration's seedPlanningHintFromPhase reads
-				// group's nextPhaseHint slot if non-empty.
-				if strings.TrimSpace(ac.NextHint) != "" {
-					o.nextPhaseHint = ac.NextHint
-				}
-			}
-		}
-
-		finished := time.Now()
-		if acceptanceUnverified {
-			phase.Status = types.PhaseAcceptanceUnverified
-			// Stash the LLM error on AcceptanceCheck.Reasoning so
-			// /phase show renders something operator-actionable
-			// instead of just the bare status string.
-			phase.AcceptanceCheck = &types.AcceptanceCheck{
-				Passed:    false,
-				Reasoning: fmt.Sprintf("acceptance_check infra failure: %v", acceptanceErr),
+			if rejected, rejErr := o.applyAcceptanceVerdict(phase, group, ac, err); rejected {
+				return rejErr
 			}
 		} else {
+			// No checker wired: simple advance.
+			finished := time.Now()
 			phase.Status = types.PhaseAccepted
+			phase.FinishedAt = &finished
 		}
-		phase.FinishedAt = &finished
 		group.Status = types.PlanGroupInFlight
 		group.ActiveIdx++
 		o.persistGroup(group)
@@ -226,6 +185,80 @@ func (o *Orchestrator) runPhaseGroup(group *types.PlanGroup, stepsUsed *int) err
 	group.Status = types.PlanGroupCompleted
 	o.persistGroup(group)
 	return nil
+}
+
+// applyAcceptanceVerdict translates an AcceptanceChecker.Check
+// result into the per-phase status mutation. Three outcomes:
+//
+//  1. err != nil — phase marked PhaseAcceptanceUnverified
+//     (commit 26: was fail-open auto-accept; now visibly
+//     unverified so /phase show surfaces the gap). Returns
+//     (false, nil) so the caller advances ActiveIdx — the
+//     scheduler still advances so infra failures don't
+//     deadlock the entire multi-phase Run.
+//
+//  2. ac != nil && !ac.Passed — phase RolledBack, group
+//     Failed. Returns (true, error) so the caller exits
+//     runPhaseGroup with the rejection error; the group
+//     stops here.
+//
+//  3. ac != nil && ac.Passed (the happy path) — phase
+//     Accepted, NextHint propagated to o.nextPhaseHint.
+//     Returns (false, nil); caller advances.
+//
+// Extracted from runPhaseGroup for unit-testability: the
+// scheduler-side outer loop calls runTaskPhase which depends
+// on the full agent stack, so testing only the verdict-
+// translation logic in isolation is the cleanest way to pin
+// the new PhaseAcceptanceUnverified path without standing up a
+// fake agent fleet.
+func (o *Orchestrator) applyAcceptanceVerdict(phase *types.PhaseRecord, group *types.PlanGroup, ac *types.AcceptanceCheck, err error) (rejected bool, rejErr error) {
+	if err != nil {
+		logging.Warning("[orchestrator] phase %d acceptance_check errored: %v (marking acceptance_unverified)",
+			phase.Index, err)
+		finished := time.Now()
+		phase.Status = types.PhaseAcceptanceUnverified
+		phase.FinishedAt = &finished
+		// Stash the LLM error on AcceptanceCheck.Reasoning so
+		// /phase show renders something operator-actionable
+		// instead of just the bare status string.
+		phase.AcceptanceCheck = &types.AcceptanceCheck{
+			Passed:    false,
+			Reasoning: fmt.Sprintf("acceptance_check infra failure: %v", err),
+		}
+		return false, nil
+	}
+	if ac == nil {
+		// Defensive: nil checker output with no error — treat
+		// as accepted since there's nothing actionable to act
+		// on. This branch is unreachable in production
+		// (Check returns either a verdict or an error) but the
+		// guard keeps the helper total.
+		finished := time.Now()
+		phase.Status = types.PhaseAccepted
+		phase.FinishedAt = &finished
+		return false, nil
+	}
+	phase.AcceptanceCheck = ac
+	if !ac.Passed {
+		finished := time.Now()
+		phase.Status = types.PhaseRolledBack
+		phase.FinishedAt = &finished
+		group.Status = types.PlanGroupFailed
+		o.persistGroup(group)
+		return true, fmt.Errorf("phase %d acceptance rejected: %s",
+			phase.Index, ac.Reasoning)
+	}
+	// Carry the next-phase hint forward. The next
+	// iteration's seedPlanningHintFromPhase reads
+	// o.nextPhaseHint and consumes it.
+	if strings.TrimSpace(ac.NextHint) != "" {
+		o.nextPhaseHint = ac.NextHint
+	}
+	finished := time.Now()
+	phase.Status = types.PhaseAccepted
+	phase.FinishedAt = &finished
+	return false, nil
 }
 
 // resetForNextPhase clears per-phase Mutable slots so the next
