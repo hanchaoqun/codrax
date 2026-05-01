@@ -29,9 +29,11 @@ func GroundItemScoped(it *types.EvidenceItem, gc *Context) Report {
 		return Report{}
 	}
 	scope := it.Scope
-	// TRANSITIONAL (Stage 2–7): empty scope routes to the line
-	// grounder so legacy callers that haven't been migrated yet keep
-	// working. Stage 8 cleanup removes this fallback.
+	// Zero-value scope routes to the line grounder. The
+	// emit_evidence schema requires Scope on the wire; the zero-value
+	// fallback applies only to in-process Go-side producers
+	// (mechanism_scan / dataflow/lower / etc.), which always emit
+	// line-anchored items.
 	if scope == "" {
 		scope = types.ScopeLine
 	}

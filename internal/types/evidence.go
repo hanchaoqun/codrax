@@ -360,16 +360,17 @@ func (s EvidenceScope) IsValid() bool {
 // they describe layer identity, cross-file contracts, or absences,
 // not specific code locations.
 //
-// TRANSITIONAL (Stage 0–7): the empty zero-value scope is treated as
-// line-shaped to preserve compatibility with EvidenceItem literals
-// constructed before the scope migration completes. Stage 8 removes
-// this fallback and makes empty-scope an error.
+// Empty zero-value scope is treated as line-shaped: this is the
+// intentional default for in-process Go literals. emit_evidence's
+// JSON schema REQUIRES the field on the wire (see ValidateScope and
+// the schema's `required` list) so the zero-value fallback applies
+// only to deterministic Go-side producers (mechanism_scan,
+// dataflow/lower, ...), all of which produce line-anchored items.
 func (s EvidenceScope) IsLineShaped() bool {
 	switch s {
 	case ScopeLine, ScopeLineRange, ScopeSection:
 		return true
 	case "":
-		// Transitional only — see doc comment above.
 		return true
 	}
 	return false

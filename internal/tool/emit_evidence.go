@@ -681,11 +681,12 @@ func buildEmitEvidenceItemWithSwap(in *emitEvidenceItem, index int, workDir stri
 // guarantees ground-layer dispatch can rely on the right bundle.
 func buildEmitEvidenceItem(in emitEvidenceItem, index int, workDir string) (types.EvidenceItem, error) {
 	scope := types.EvidenceScope(strings.ToLower(strings.TrimSpace(in.Scope)))
-	// TRANSITIONAL (Stage 1–7): empty scope defaults to ScopeLine
-	// for legacy emit payloads that predate the scope migration.
-	// Stage 8 final cleanup removes this fallback and makes empty
-	// scope a hard reject. Production LLM emits via the JSON schema
-	// will always carry a scope (the `scope` field is in `required`).
+	// Empty scope defaults to ScopeLine — covers in-process Go-side
+	// producers that build emitEvidenceItem literals without a wire
+	// payload. emit_evidence's JSON schema marks scope as REQUIRED
+	// for the LLM-facing path, so production LLM emits always carry
+	// scope explicitly; this fallback is for tests and direct Go
+	// callers, not the LLM channel.
 	if scope == "" {
 		scope = types.ScopeLine
 	}
