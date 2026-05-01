@@ -236,6 +236,18 @@ var (
 	answerTaxonomyDecayDays = 0
 )
 
+// selfConsistency* (commit 62) carry the pipeline_self_consistency_*
+// family across the merge-block→wiring-block boundary. This-phase
+// defaults: enabled=true, rewrite=true, min_confidence=0.8. Same
+// rationale as answerTaxonomy package vars — yaml struct lives
+// in the merge block, reviewer construction lives further down
+// where flagRepo / providersCfg are in scope.
+var (
+	selfConsistencyEnabled       = true
+	selfConsistencyRewrite       = true
+	selfConsistencyMinConfidence = 0.8
+)
+
 // maxAttachedTraceBytes is the live cap for the perf-channel
 // attachments (--htrace / --atrace / --htrace-text / --atrace-text /
 // REPL /htrace / /atrace). Mirrors maxAttachedLogBytes for the log
@@ -1604,10 +1616,29 @@ func initApp(cmd *cobra.Command, _ []string) error {
 		}
 		// Commit 53 P3: contract gate soft/strict classification.
 		// Always apply so explicit empty yaml restores defaults.
-		orchestrator.SetSoftViolationKinds(
-			rs.PipelineContractSoftKinds,
-			rs.PipelineContractStrictKinds,
-		)
+		// Commit 62: extend the strict/soft list with self_contradiction
+		// based on pipeline_self_consistency_rewrite_on_contradiction
+		// (default true = strict, triggers retry/rewrite). Computed
+		// here at startup so the runtime check in hasAnyStrictViolation
+		// sees the correct membership for ViolSelfContradiction.
+		if rs.PipelineSelfConsistencyReviewEnabled != nil {
+			selfConsistencyEnabled = *rs.PipelineSelfConsistencyReviewEnabled
+		}
+		if rs.PipelineSelfConsistencyRewriteOnContradiction != nil {
+			selfConsistencyRewrite = *rs.PipelineSelfConsistencyRewriteOnContradiction
+		}
+		if rs.PipelineSelfConsistencyMinConfidence != nil {
+			selfConsistencyMinConfidence = *rs.PipelineSelfConsistencyMinConfidence
+		}
+		extraSoft := append([]string{}, rs.PipelineContractSoftKinds...)
+		extraStrict := append([]string{}, rs.PipelineContractStrictKinds...)
+		if selfConsistencyEnabled && selfConsistencyRewrite {
+			extraStrict = append(extraStrict, "self_contradiction")
+		} else {
+			// reviewer off OR soft mode → ViolSelfContradiction is soft
+			extraSoft = append(extraSoft, "self_contradiction")
+		}
+		orchestrator.SetSoftViolationKinds(extraSoft, extraStrict)
 		// Commit 53 P4: diagram bare-identifier whitelist.
 		tool.SetDiagramIdentifierWhitelist(rs.DiagramIdentifierWhitelist)
 		// Commit 61 Batch F.3: yaml gate for reconcileShape strict mode.
@@ -2442,6 +2473,25 @@ func initApp(cmd *cobra.Command, _ []string) error {
 		resolved := config.ResolveProvider(providersCfg, "answer_reviewer")
 		if adapter, err := llm.NewFromConfig(resolved); err == nil {
 			app.orch.SetAnswerReviewer(orchestrator.NewAnswerReviewer(adapter))
+		}
+	}
+
+	// Commit 62: self-consistency reviewer wiring. Default this-
+	// phase: enabled=true, rewrite_on_contradiction=true,
+	// min_confidence=0.8. Provider routed via providers.yaml ::
+	// agents.self_consistency_reviewer (cheap-model recommended;
+	// task is plain prose↔prose comparison). Falls back to
+	// chitchat_classifier or default LLM when absent.
+	if selfConsistencyEnabled {
+		resolved := config.ResolveProvider(providersCfg, "self_consistency_reviewer")
+		if adapter, err := llm.NewFromConfig(resolved); err == nil {
+			app.orch.SetSelfConsistencyReviewer(orchestrator.NewSelfConsistencyReviewer(adapter))
+			app.orch.SetSelfConsistencyRewriteOnContradiction(selfConsistencyRewrite)
+			app.orch.SetSelfConsistencyMinConfidence(selfConsistencyMinConfidence)
+			logging.Info("[self_consistency] reviewer enabled: model=%s rewrite_on_contradiction=%v min_confidence=%.2f",
+				adapter.ModelID(), selfConsistencyRewrite, selfConsistencyMinConfidence)
+		} else {
+			logging.Warning("[self_consistency] adapter resolve failed (%v); reviewer disabled this Run", err)
 		}
 	}
 

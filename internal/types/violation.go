@@ -92,6 +92,17 @@ const (
 	// grounding etc.), the count claim is no longer accurate.
 	// Soft-by-default. SuspectedRoot: answer_symbol.
 	ViolDeclaredCountDrift ViolationKind = "declared_count_drift"
+
+	// Commit 62 — answer-prose internal self-contradiction.
+	// Independent reviewer LLM compared the answer's summary
+	// section vs its body bullets and detected a factual claim
+	// asserted with opposite values across the two parts. Default
+	// classification is STRICT when
+	// pipeline_self_consistency_rewrite_on_contradiction=true
+	// (operator opts in to retry-on-contradiction); when false,
+	// the kind moves to soft (telemetry-only). SuspectedRoot:
+	// answer_summary_body_consistency.
+	ViolSelfContradiction ViolationKind = "self_contradiction"
 )
 
 // AllViolationKinds returns every declared ViolationKind in a stable
@@ -119,6 +130,7 @@ func AllViolationKinds() []ViolationKind {
 		ViolSubTopicCountMismatch,
 		ViolDiagramIdentifier,
 		ViolDeclaredCountDrift,
+		ViolSelfContradiction,
 	}
 }
 

@@ -1,6 +1,7 @@
 package orchestrator
 
 import (
+	"fmt"
 	"strings"
 
 	"github.com/hanchaoqun/codrax/internal/types"
@@ -52,6 +53,35 @@ func softConvergenceStallMessage(lang string) string {
 		return "– 根据已有线索作答"
 	}
 	return "– Finalizing with current leads"
+}
+
+// selfConsistencyReviewStartMessage (commit 62): renders the
+// user-visible status line shown in the REPL bottom dock when
+// the self-consistency reviewer LLM dispatches. Emitted BEFORE
+// the Chat call so the user sees what the system is doing —
+// not silent background work. Bilingual.
+func selfConsistencyReviewStartMessage(lang string) string {
+	if preferZhMessage(lang) {
+		return "⟳ 审查答案前后一致性"
+	}
+	return "⟳ Reviewing answer self-consistency"
+}
+
+// selfConsistencyContradictionMessage (commit 62): rendered when
+// the reviewer reports >= 1 contradiction at confidence >= floor.
+// Variants: "rewriting" when rewrite-on-contradiction is on (the
+// finalizer will re-dispatch); "logged" when off (advisory only).
+func selfConsistencyContradictionMessage(lang string, rewrite bool, count int) string {
+	if preferZhMessage(lang) {
+		if rewrite {
+			return fmt.Sprintf("⟳ 检测到 %d 处前后矛盾，正在重写答案", count)
+		}
+		return fmt.Sprintf("⚠ 检测到 %d 处前后矛盾（仅记录，未重写）", count)
+	}
+	if rewrite {
+		return fmt.Sprintf("⟳ Found %d self-contradiction(s) — rewriting answer", count)
+	}
+	return fmt.Sprintf("⚠ Found %d self-contradiction(s) (logged, not rewritten)", count)
 }
 
 // softRetryHintMessage renders the user-visible line for the generic

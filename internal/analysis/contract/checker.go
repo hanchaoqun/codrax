@@ -112,6 +112,8 @@ const (
 	ViolDiagramIdentifier     = types.ViolDiagramIdentifier
 	// Commit 55 Batch A.3 — declared-count drift.
 	ViolDeclaredCountDrift = types.ViolDeclaredCountDrift
+	// Commit 62 — answer prose self-contradiction.
+	ViolSelfContradiction = types.ViolSelfContradiction
 )
 
 // Check validates draft against c. It is safe to call with an empty

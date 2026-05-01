@@ -82,7 +82,7 @@ func TestExtractCitations_EmptyText(t *testing.T) {
 
 func TestRunContractCheck_EmptyContractAlwaysPasses(t *testing.T) {
 	out := &agent.StageOutput{FinalAnswer: "anything goes"}
-	res := runContractCheck(out, types.AnswerContract{}, nil)
+	res := runContractCheck(out, types.AnswerContract{}, nil, nil)
 	if !res.Passed {
 		t.Errorf("empty contract should pass; got %+v", res)
 	}
@@ -91,7 +91,7 @@ func TestRunContractCheck_EmptyContractAlwaysPasses(t *testing.T) {
 func TestRunContractCheck_NilOutputPasses(t *testing.T) {
 	res := runContractCheck(nil, types.AnswerContract{
 		RequiredAnswerShape: types.ShapeListOfSymbols,
-	}, nil)
+	}, nil, nil)
 	if !res.Passed {
 		t.Errorf("nil output should pass (caller decides separately); got %+v", res)
 	}
@@ -102,7 +102,7 @@ func TestRunContractCheck_FailingShape(t *testing.T) {
 	c := types.AnswerContract{
 		RequiredAnswerShape: types.ShapeListOfSymbols,
 	}
-	res := runContractCheck(out, c, nil)
+	res := runContractCheck(out, c, nil, nil)
 	if res.Passed {
 		t.Errorf("plain prose should fail list_of_symbols shape")
 	}
@@ -123,7 +123,7 @@ func TestRunContractCheck_UsesAnswerDocumentLiteralForValueShape(t *testing.T) {
 		},
 	})
 	c := types.AnswerContract{RequiredAnswerShape: types.ShapeValue}
-	res := runContractCheck(out, c, mut)
+	res := runContractCheck(out, c, mut, nil)
 	if !res.Passed {
 		t.Fatalf("value shape should validate against AnswerDocument literal, got %+v", res)
 	}
@@ -143,7 +143,7 @@ func TestRunContractCheck_CitationGap_SoftDegrade(t *testing.T) {
 			MinCitations: 3,
 		},
 	}
-	res := runContractCheck(out, c, nil)
+	res := runContractCheck(out, c, nil, nil)
 	if !res.Passed {
 		t.Errorf("1 citation with min=3 should soft-pass; got violations: %+v", res.Violations)
 	}
@@ -162,7 +162,7 @@ func TestRunContractCheck_CitationGap_ZeroRejects(t *testing.T) {
 			MinCitations: 3,
 		},
 	}
-	res := runContractCheck(out, c, nil)
+	res := runContractCheck(out, c, nil, nil)
 	if res.Passed {
 		t.Error("0 citations should hard-reject")
 	}
@@ -181,7 +181,7 @@ func TestRunContractCheck_PassingCase(t *testing.T) {
 			MinCitations: 2,
 		},
 	}
-	res := runContractCheck(out, c, nil)
+	res := runContractCheck(out, c, nil, nil)
 	if !res.Passed {
 		t.Errorf("expected pass, got violations: %+v", res.Violations)
 	}

@@ -203,6 +203,8 @@ func TestAllViolationKindsHaveProducer(t *testing.T) {
 		ViolDiagramIdentifier:     true, // tool/emit_answer_document.go diagram bare-identifier check (commit 53 P4)
 		// Commit 55 Batch A.3 — declared-count drift.
 		ViolDeclaredCountDrift: true, // orchestrator/contract_check.go runAnswerShapeOracle
+		// Commit 62 — answer-prose self-contradiction.
+		ViolSelfContradiction: true, // orchestrator/contract_check.go runSelfConsistencyReview
 	}
 	// All Session 11 violation kinds now have producers. The
 	// pending map remains empty but is kept so future additions

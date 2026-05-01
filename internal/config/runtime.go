@@ -273,6 +273,29 @@ type RuntimeSettings struct {
 	// AnalysisEvidenceTier1Floor mirrors above for the Tier-1 gate.
 	AnalysisEvidenceTier1Floor *float64 `yaml:"analysis_evidence_tier1_floor"`
 
+	// PipelineSelfConsistencyReviewEnabled (commit 62, this-phase
+	// default TRUE) gates the post-finalize self-consistency
+	// reviewer LLM. When true, an independent reviewer reads
+	// doc.Summary + body bullets and reports factual contradictions
+	// between the two paragraphs. Real eval s1a-20260501-083611
+	// motivated this gate. nil = use default (true).
+	PipelineSelfConsistencyReviewEnabled *bool `yaml:"pipeline_self_consistency_review_enabled"`
+
+	// PipelineSelfConsistencyRewriteOnContradiction (commit 62,
+	// this-phase default TRUE) toggles whether ViolSelfContradiction
+	// is treated as STRICT (triggers finalizer retry with reviewer's
+	// contradictions injected as repair hint) or SOFT (telemetry
+	// only; answer ships unchanged). nil = use default (true). Off
+	// = soft, the answer with contradictions still goes to user but
+	// reviewer findings are recorded for cross-Run learning.
+	PipelineSelfConsistencyRewriteOnContradiction *bool `yaml:"pipeline_self_consistency_rewrite_on_contradiction"`
+
+	// PipelineSelfConsistencyMinConfidence (commit 62, default 0.8)
+	// is the reviewer self-rated confidence floor a verdict must
+	// reach to be acted on. Below the floor, the verdict is silently
+	// dropped (avoid cried-wolf noise). 0/nil = default 0.8.
+	PipelineSelfConsistencyMinConfidence *float64 `yaml:"pipeline_self_consistency_min_confidence"`
+
 	// RepomapMinParseTier (commit 53 P5) hard-gates files whose
 	// repomap parse tier exceeds the floor (Tier 1=primary
 	// grammar, 2=secondary salvage, 3=regex-only, 4=path-only).

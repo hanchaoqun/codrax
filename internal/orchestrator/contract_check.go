@@ -1,15 +1,19 @@
 package orchestrator
 
 import (
+	"context"
 	"fmt"
 	"regexp"
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/hanchaoqun/codrax/internal/agent"
 	"github.com/hanchaoqun/codrax/internal/analysis/contract"
 	"github.com/hanchaoqun/codrax/internal/analysis/hint"
+	"github.com/hanchaoqun/codrax/internal/logging"
+	"github.com/hanchaoqun/codrax/internal/render"
 	"github.com/hanchaoqun/codrax/internal/tool/repomap"
 	repotypes "github.com/hanchaoqun/codrax/internal/tool/repomap/types"
 	"github.com/hanchaoqun/codrax/internal/types"
@@ -49,7 +53,7 @@ import (
 //
 // Returns the typed contract.Result so callers can render a
 // per-violation diagnostic for the explorer's retry hint.
-func runContractCheck(out *agent.StageOutput, c types.AnswerContract, mut *types.MutableState) contract.Result {
+func runContractCheck(out *agent.StageOutput, c types.AnswerContract, mut *types.MutableState, o *Orchestrator) contract.Result {
 	if out == nil {
 		return contract.Result{Passed: true}
 	}
@@ -96,6 +100,21 @@ func runContractCheck(out *agent.StageOutput, c types.AnswerContract, mut *types
 		if doc := mut.AnswerDocument(); doc != nil && ir != nil {
 			result.Violations = append(result.Violations,
 				runAnswerShapeOracle(doc, ir, mut)...)
+		}
+	}
+
+	// Commit 62 — self-consistency reviewer (read-mode mirror of
+	// reflector model-vs-model review pattern). Independent LLM
+	// reads doc.Summary + body bullets and detects FACTUAL
+	// contradictions between them. Default this-phase: enabled +
+	// rewrite_on_contradiction=true → contradictions land as
+	// strict violations triggering finalizer retry. Soft mode
+	// preserves the answer for the user with telemetry-only
+	// recording. Skipped silently when reviewer not wired.
+	if o != nil && o.selfConsistencyReviewer != nil && mut != nil {
+		if doc := mut.AnswerDocument(); doc != nil && shouldReviewConsistency(doc) {
+			result.Violations = append(result.Violations,
+				o.runSelfConsistencyReview(doc, mut)...)
 		}
 	}
 
@@ -300,6 +319,148 @@ func abs(x int) int {
 // Operators promote a kind to strict (or demote one to soft) via
 // yaml pipeline_contract_strict_kinds + pipeline_contract_soft_kinds;
 // see SetSoftViolationKinds below.
+// shouldReviewConsistency gates whether the self-consistency
+// reviewer dispatches for a given AnswerDocument. The reviewer
+// only adds value when the answer has BOTH a summary section
+// AND a non-trivial body — single-shape scalars (ShapeValue /
+// ShapeBoolean / ShapeConfigValue) lack the dual-paragraph
+// structure that intra-answer contradictions live in.
+//
+// Floors: summary >= 100 chars, total body bullets >= 3, at
+// least one body section non-empty. Tunable later via yaml when
+// real eval shows the floor needs adjustment.
+func shouldReviewConsistency(doc *types.AnswerDocument) bool {
+	if doc == nil {
+		return false
+	}
+	if len(strings.TrimSpace(doc.Summary)) < 100 {
+		return false
+	}
+	switch doc.Shape {
+	case types.ShapeStepList, types.ShapeListOfSymbols, types.ShapeExplanation:
+		// continue
+	default:
+		return false
+	}
+	bodyItems := len(doc.Steps) + len(doc.Symbols)
+	return bodyItems >= 3
+}
+
+// renderConsistencyReviewBody assembles a markdown body string
+// from doc.Steps + doc.Symbols so the reviewer LLM sees the
+// finalizer's bullet structure verbatim. Citations are stripped
+// to file:line form (no Quote text) since we don't want the
+// reviewer hallucinating about repo content — its job is
+// purely prose↔prose.
+func renderConsistencyReviewBody(doc *types.AnswerDocument) string {
+	var b strings.Builder
+	for i, step := range doc.Steps {
+		fmt.Fprintf(&b, "%d. %s\n", i+1, strings.TrimSpace(step.Description))
+	}
+	for _, s := range doc.Symbols {
+		anchor := strings.TrimSpace(s.Name)
+		if anchor == "" {
+			anchor = "(unnamed)"
+		}
+		loc := strings.TrimSpace(s.File)
+		if loc != "" && s.Line > 0 {
+			loc = fmt.Sprintf(" @ %s:%d", loc, s.Line)
+		}
+		rationale := strings.TrimSpace(s.Rationale)
+		if rationale == "" {
+			fmt.Fprintf(&b, "- %s%s\n", anchor, loc)
+		} else {
+			fmt.Fprintf(&b, "- %s%s — %s\n", anchor, loc, rationale)
+		}
+	}
+	return b.String()
+}
+
+// runSelfConsistencyReview dispatches the reviewer LLM and
+// converts its verdict into types.Violation entries. Method on
+// Orchestrator so it has access to reviewer / yaml flags / emit
+// surface for the REPL bottom-status line.
+//
+// Returns 0..N violations (one per Contradiction emitted at
+// confidence >= floor). Failure modes (LLM error, malformed
+// emit) are non-fatal: AppendLearningFailure records the issue
+// so the Run-end summary surfaces it; no violations returned;
+// answer ships unchanged.
+func (o *Orchestrator) runSelfConsistencyReview(doc *types.AnswerDocument, mut *types.MutableState) []types.Violation {
+	if o == nil || o.selfConsistencyReviewer == nil || doc == nil || mut == nil {
+		return nil
+	}
+	floor := o.selfConsistencyMinConfidence
+	if floor <= 0 {
+		floor = 0.8
+	}
+
+	// User-visible status line (commit 62 dock-fidelity): never
+	// silent background work, especially at the bottom dock area.
+	o.emit(render.Event{
+		Kind:      render.EventAgentReasoning,
+		Timestamp: time.Now(),
+		Agent:     "orchestrator",
+		Reasoning: selfConsistencyReviewStartMessage(o.busCtx.Language),
+	})
+
+	in := SelfConsistencyInput{
+		OriginalRequest: mut.Objective(),
+		AnswerSummary:   doc.Summary,
+		AnswerBody:      renderConsistencyReviewBody(doc),
+	}
+	ctx := o.busCtx.Ctx
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	verdict, err := o.selfConsistencyReviewer.Review(ctx, in)
+	if err != nil {
+		mut.AppendLearningFailure("self_consistency_reviewer", err.Error())
+		logging.Warning("[self_consistency_reviewer] dispatch failed (non-fatal): %v", err)
+		return nil
+	}
+	if verdict == nil || verdict.Consistent || verdict.Confidence < floor {
+		// Either consistent OR low-confidence verdict — silently
+		// drop. Status line above already informed the user we
+		// reviewed.
+		if verdict != nil {
+			logging.Info("[self_consistency_reviewer] verdict consistent=%v confidence=%.2f (floor=%.2f) reasoning=%q",
+				verdict.Consistent, verdict.Confidence, floor, verdict.Reasoning)
+		}
+		return nil
+	}
+
+	// Surface contradiction count + rewrite-mode to the user via
+	// REPL bottom status line. Honesty: explicit count + whether
+	// the system will rewrite.
+	o.emit(render.Event{
+		Kind:      render.EventAgentReasoning,
+		Timestamp: time.Now(),
+		Agent:     "orchestrator",
+		Reasoning: selfConsistencyContradictionMessage(o.busCtx.Language, o.selfConsistencyRewriteOnContradiction, len(verdict.Contradictions)),
+	})
+
+	out := make([]types.Violation, 0, len(verdict.Contradictions))
+	for _, c := range verdict.Contradictions {
+		out = append(out, types.Violation{
+			Kind: types.ViolSelfContradiction,
+			Detail: fmt.Sprintf("self_consistency contradiction (%s) — SUMMARY claims %q vs BODY claims %q",
+				c.Topic, c.SummaryClaim, c.BodyClaim),
+			Repair: fmt.Sprintf("re-emit emit_answer_document with summary and body aligned: pick the version supported by evidence and rewrite the OTHER to match. The summary's %q and the body's %q cannot both be true; reconcile.",
+				c.SummaryClaim, c.BodyClaim),
+			SuspectedRoot: types.SuspectedRoot{
+				IRField:    "answer_summary_body_consistency",
+				Reason:     "reviewer detected inter-paragraph contradiction",
+				Confidence: verdict.Confidence,
+			},
+			Stage: string(types.StageFinalize),
+		})
+	}
+	logging.Info("[self_consistency_reviewer] emitted %d contradiction(s) at confidence=%.2f rewrite_on=%v reasoning=%q",
+		len(verdict.Contradictions), verdict.Confidence, o.selfConsistencyRewriteOnContradiction, verdict.Reasoning)
+	return out
+}
+
 func defaultSoftKinds() map[types.ViolationKind]bool {
 	return map[types.ViolationKind]bool{
 		types.ViolShapeIntentMismatch:   true,

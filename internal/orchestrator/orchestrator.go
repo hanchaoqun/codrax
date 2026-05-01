@@ -197,6 +197,27 @@ type Orchestrator struct {
 	// feature disabled (no LLM dispatch, no taxonomy growth).
 	answerReviewer AnswerReviewer
 
+	// selfConsistencyReviewer is the commit-62 prose-coherence
+	// reviewer dispatched after finalize to detect contradictions
+	// between the answer's summary section and its body bullets
+	// (real eval s1a-20260501-083611 surfaced the gap). Nil =
+	// disabled (no review, no rewrite). Wired from cmd/root.go
+	// when pipeline_self_consistency_review_enabled=true.
+	selfConsistencyReviewer SelfConsistencyReviewer
+
+	// selfConsistencyRewriteOnContradiction (commit 62 yaml gate)
+	// controls whether ViolSelfContradiction is treated as STRICT
+	// (default true this phase: triggers retry / rewrite) or
+	// SOFT (telemetry only). Read by SetSoftViolationKinds at
+	// startup; the runtime check in runContractCheck flips
+	// res.Passed accordingly via the existing strict/soft path.
+	selfConsistencyRewriteOnContradiction bool
+
+	// selfConsistencyMinConfidence (commit 62) is the floor a
+	// reviewer's self-rated confidence must reach for the verdict
+	// to be acted on. Default 0.8.
+	selfConsistencyMinConfidence float64
+
 	// continuationClassifier is the LLM-driven decision for
 	// "is the current REPL turn a continuation of the prior
 	// conversation?" (commit 48 read-mode Gap 1). Pre-commit-48
@@ -834,6 +855,42 @@ func (o *Orchestrator) SetAnswerReviewer(r AnswerReviewer) {
 		return
 	}
 	o.answerReviewer = r
+}
+
+// SetSelfConsistencyReviewer wires the commit-62 prose-coherence
+// reviewer. Nil disables the post-finalize consistency review
+// entirely (no LLM dispatch, no rewrite trigger).
+func (o *Orchestrator) SetSelfConsistencyReviewer(r SelfConsistencyReviewer) {
+	if o == nil {
+		return
+	}
+	o.selfConsistencyReviewer = r
+}
+
+// SetSelfConsistencyRewriteOnContradiction toggles the rewrite
+// trigger for ViolSelfContradiction. true (this-phase default):
+// found contradictions are STRICT, finalizer retries with the
+// reviewer's specific contradictions injected as repair hint.
+// false: SOFT (telemetry only, answer ships unchanged with
+// contradictions logged for cross-Run learning).
+func (o *Orchestrator) SetSelfConsistencyRewriteOnContradiction(on bool) {
+	if o == nil {
+		return
+	}
+	o.selfConsistencyRewriteOnContradiction = on
+}
+
+// SetSelfConsistencyMinConfidence sets the reviewer's self-rated
+// confidence floor below which verdicts are silently dropped.
+// 0 keeps the default (0.8). Negative or > 1 → clamped to default.
+func (o *Orchestrator) SetSelfConsistencyMinConfidence(f float64) {
+	if o == nil {
+		return
+	}
+	if f <= 0 || f > 1 {
+		f = 0.8
+	}
+	o.selfConsistencyMinConfidence = f
 }
 
 // SetBaselineCaptureEnabled toggles the pre-apply test snapshot.
@@ -3383,7 +3440,7 @@ func (o *Orchestrator) runReadSchedulerLoop(stepBudget int) int {
 		// Contract check. runContractCheck consults
 		// Mutable.AnswerDocument to decide IsAbsence and skips
 		// MinCitations when the doc is a justified zero.
-		res := runContractCheck(out, ir.AnswerContract, o.busCtx.Mutable)
+		res := runContractCheck(out, ir.AnswerContract, o.busCtx.Mutable, o)
 
 		if !scOK {
 			// Absence answers legitimately have no file:line to cite;
