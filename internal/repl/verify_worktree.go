@@ -175,6 +175,60 @@ func (r *REPL) handleWorktreeCmd(line string) {
 	}
 }
 
+// maybeNudgeWorktreeGC surfaces a one-line hint every Nth
+// successful /approve when the running session has accumulated
+// enough preserved worktrees that the operator might want to
+// /worktree gc. Pre-commit-46 the only cleanup signal was the
+// startup pruning sweep; long REPL sessions could quietly
+// accumulate dozens of GB of kept worktrees.
+//
+// Threshold: every 10 successes AND the preserved-worktree
+// count exceeds 5 — both conditions because the quota itself
+// (default 30) bounds the worst case, but operators reviewing
+// at a slower pace want awareness sooner.
+//
+// Soft / non-blocking: the hint is one info line, no prompt.
+const worktreeGCNudgeEvery = 10
+const worktreeGCNudgeThreshold = 5
+
+func (r *REPL) maybeNudgeWorktreeGC() {
+	if r == nil || r.planStore == nil {
+		return
+	}
+	r.approveSuccessCount++
+	if r.approveSuccessCount%worktreeGCNudgeEvery != 0 {
+		return
+	}
+	// Probe how many plans currently carry a preserved
+	// worktree path. Lazy: only the count, no per-plan load.
+	infos, err := r.planStore.List()
+	if err != nil {
+		return
+	}
+	preserved := 0
+	for _, inf := range infos {
+		if inf.Status != types.PlanStatusApplied {
+			continue
+		}
+		full, lerr := r.planStore.Load(inf.ID)
+		if lerr != nil || full == nil || full.WorktreePath == "" {
+			continue
+		}
+		preserved++
+		if preserved > worktreeGCNudgeThreshold {
+			break
+		}
+	}
+	if preserved <= worktreeGCNudgeThreshold {
+		return
+	}
+	if isZh(r.language) {
+		r.info(fmt.Sprintf("  💡 已保留 >%d 个 worktree(磁盘可能在累积)— `/worktree list` 查看,`/worktree gc` 清理过期的", worktreeGCNudgeThreshold))
+	} else {
+		r.info(fmt.Sprintf("  💡 >%d preserved worktrees on disk — `/worktree list` to inspect or `/worktree gc` to reap stale ones", worktreeGCNudgeThreshold))
+	}
+}
+
 // worktreeGC manually triggers the TTL + quota reaper that runs
 // at startup. Useful when an operator wants to clean stale kept
 // worktrees mid-session (e.g. just finished a heavy review batch

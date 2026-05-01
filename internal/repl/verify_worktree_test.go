@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/hanchaoqun/codrax/internal/memory"
 	"github.com/hanchaoqun/codrax/internal/types"
@@ -159,6 +160,60 @@ func TestVerify_ExplicitPlanIDArg(t *testing.T) {
 }
 
 // ── /worktree handler tests ───────────────────────────────────────
+
+// TestMaybeNudgeWorktreeGC_FiresOnThreshold pins commit 46:
+// after every Nth (default 10) successful /approve AND when
+// >5 preserved worktrees exist, surfaces the "/worktree gc"
+// hint. Quiet on counts below the threshold.
+func TestMaybeNudgeWorktreeGC_FiresOnThreshold(t *testing.T) {
+	r, _, out := newVerifyREPL(t, &writeCapableRunner{})
+	// Seed 6 applied plans with WorktreePath populated.
+	for i := 0; i < 6; i++ {
+		plan := &types.ChangePlan{
+			ID:           "plan-keep-" + string(rune('a'+i)),
+			Status:       types.PlanStatusApplied,
+			CreatedAt:    time.Now(),
+			WorktreePath: "/tmp/wt-" + string(rune('a'+i)),
+			TargetPaths:  []string{"x.go"},
+			Changes:      []types.FileChange{{Path: "x.go", Kind: "create"}},
+		}
+		if _, err := r.planStore.SaveForTest(plan); err != nil {
+			t.Fatalf("seed plan %d: %v", i, err)
+		}
+	}
+	// Drive the counter to 10 (the trigger threshold).
+	for i := 0; i < 10; i++ {
+		r.maybeNudgeWorktreeGC()
+	}
+	if !strings.Contains(out.String(), "/worktree gc") {
+		t.Errorf("expected gc hint after 10 successes + 6 preserved; got:\n%s", out.String())
+	}
+}
+
+// TestMaybeNudgeWorktreeGC_QuietBelowThreshold pins the
+// negative case: 9 successes shouldn't trigger.
+func TestMaybeNudgeWorktreeGC_QuietBelowThreshold(t *testing.T) {
+	r, _, out := newVerifyREPL(t, &writeCapableRunner{})
+	for i := 0; i < 6; i++ {
+		plan := &types.ChangePlan{
+			ID:           "plan-quiet-" + string(rune('a'+i)),
+			Status:       types.PlanStatusApplied,
+			CreatedAt:    time.Now(),
+			WorktreePath: "/tmp/wt-" + string(rune('a'+i)),
+			TargetPaths:  []string{"x.go"},
+			Changes:      []types.FileChange{{Path: "x.go", Kind: "create"}},
+		}
+		if _, err := r.planStore.SaveForTest(plan); err != nil {
+			t.Fatalf("seed: %v", err)
+		}
+	}
+	for i := 0; i < 9; i++ {
+		r.maybeNudgeWorktreeGC()
+	}
+	if strings.Contains(out.String(), "/worktree gc") {
+		t.Errorf("hint should be quiet at 9 successes; got:\n%s", out.String())
+	}
+}
 
 func TestWorktreeList_EmptyStore(t *testing.T) {
 	r, _, out := newVerifyREPL(t, &writeCapableRunner{})

@@ -201,6 +201,8 @@ var slashCommands = []slashCommand{
 				"列出所有 applied + worktree 仍存活的 plan"},
 			{"discard <plan-id>", "remove the named plan's worktree from disk (status stays applied)",
 				"删除指定 plan 的 worktree(plan 状态仍为 applied)"},
+			{"gc", "manually trigger the ttl + quota reaper (same logic as startup housekeeping)",
+				"手动触发 TTL + 配额清理(与启动时一致的逻辑)"},
 		},
 	},
 	{

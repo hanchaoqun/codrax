@@ -307,6 +307,13 @@ type REPL struct {
 	runtimeAnchor     string
 	worktreeKeepTTL   time.Duration
 	worktreeKeepMaxCount int
+
+	// approveSuccessCount is the per-session tally of clean
+	// /approve completions (apply + verify both green). Used
+	// by maybeNudgeWorktreeGC (commit 46) to surface a soft
+	// hint every Nth success when preserved worktrees might
+	// be accumulating on disk. Reset each REPL boot.
+	approveSuccessCount int
 	branch            string
 	in                io.Reader
 	out               io.Writer
@@ -3180,6 +3187,12 @@ func (r *REPL) handleApproveCmd(line string) {
 		for _, line := range applyDoneNudge(r.language) {
 			r.info(line)
 		}
+		// Commit 46: nudge the operator toward /worktree gc
+		// after every Nth successful apply so disk doesn't fill
+		// silently. Triggered only when keep_on_success is on
+		// (otherwise worktrees are auto-discarded). Threshold
+		// is per-session, soft.
+		r.maybeNudgeWorktreeGC()
 	}
 	// KindPlan classifies this turn distinctly from chitchat /
 	// pipeline so future /history filters + the memory retrieval
