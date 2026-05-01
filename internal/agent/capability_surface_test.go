@@ -170,8 +170,15 @@ func TestBuildAnalysisIR_CapabilitySurfacePreservesGenericScenario(t *testing.T)
 	if ir.RequestModel.AnalyzerHints.Kind != string(types.ReqMechanism) {
 		t.Fatalf("question kind = %q, want %q", ir.RequestModel.AnalyzerHints.Kind, types.ReqMechanism)
 	}
-	if ir.AnswerContract.RequiredAnswerShape != types.ShapeBoolean {
-		t.Fatalf("answer shape = %s, want boolean", ir.AnswerContract.RequiredAnswerShape)
+	// Commit 61 Batch F.3 (red line "no system hard-cap"): pre-fix
+	// reconcileShape's capability-surface rule (0c) forced
+	// config_value → boolean here. Now advisory by default; the
+	// LLM's emit (config_value) is preserved unless operator opts
+	// into yaml analyzer_reconcile_strict_mode. Test pinned to the
+	// new default to flag any regression that re-enables auto-
+	// override.
+	if ir.AnswerContract.RequiredAnswerShape != types.ShapeConfigValue {
+		t.Fatalf("answer shape = %s, want config_value (LLM's original; commit 61 disabled auto-override)", ir.AnswerContract.RequiredAnswerShape)
 	}
 	if ir.RequestModel.AnalyzerHints.CapabilitySurface == nil {
 		t.Fatal("expected compiled capability surface hint")

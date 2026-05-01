@@ -140,10 +140,19 @@ func reconcileIntent(declared types.Intent, preds types.SemanticPredicates, bund
 		return types.IntentReturnValue,
 			"predicates.is_count_question=true overrides intent=enumerate (defense-in-depth; should be caught by self-consistency)"
 	}
-	if bundle != nil && bundle.IntentHint == types.IntentRootCause && declared != types.IntentRootCause {
-		return types.IntentRootCause,
-			"log_triage bundle.intent_hint=root_cause overrides LLM intent (log-triage override)"
-	}
+	// Commit 61 Batch F.3 (audit MEDIUM #3, red line "no system
+	// hard-cap"): pre-fix this branch forced IntentRootCause when
+	// log_triage's IntentHint was RootCause. That overrode the user's
+	// declared intent based on a derived signal (panic in log) — but
+	// "user attached a panic log AND asked 'explain how X works'"
+	// has user-intent=explain, not root_cause. The system was
+	// substituting its judgment for the user's. Removed.
+	//
+	// The LLM's emit_analysis already reads the raw log via the
+	// formatAttachedLog prompt section, so it can independently
+	// classify root_cause when the user genuinely asked for one.
+	// Trust the LLM's intent decision.
+	_ = bundle
 	return declared, ""
 }
 
@@ -169,6 +178,23 @@ func inferSecondaryKinds(preds types.SemanticPredicates) []types.RequirementKind
 	}
 	return out
 }
+
+// reconcileStrictMode controls whether reconcileShape (and any
+// future reconcile* override) applies its chosen value or merely
+// records it as advisory (commit 61 Batch F.3). Default false:
+// log + record but do not override the LLM. Operators flip true
+// via codrax.yaml :: analyzer_reconcile_strict_mode for the
+// pre-commit-61 strict behaviour.
+var reconcileStrictMode bool
+
+// SetReconcileStrictMode flips the global mode. Called from
+// cmd/root.go at startup. Mutex is unnecessary because production
+// only writes once at startup and tests use t.Cleanup; the var is
+// a single bool.
+func SetReconcileStrictMode(on bool) { reconcileStrictMode = on }
+
+// reconcileStrictModeEnabled is the read-side predicate.
+func reconcileStrictModeEnabled() bool { return reconcileStrictMode }
 
 // logIntentReconcile is the twin of logComplexityReconcile — one
 // warning line when the rule overrode the LLM's pick, silent no-op

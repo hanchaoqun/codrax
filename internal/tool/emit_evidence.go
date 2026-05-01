@@ -400,17 +400,20 @@ func (t *EmitEvidence) Execute(ctx *types.BusContext, params json.RawMessage) (t
 		}
 		built = append(built, ev)
 	}
-	// Majority-reject gate: when half or more of the items failed,
-	// return a hard failure with all reasons. Prevents the LLM from
-	// "hiding" a poisoned batch behind one successful item.
-	if len(rejectedItems) > 0 && len(rejectedItems)*2 >= len(p.Items) {
-		return failEmit(t.Name(), now,
-			"batch rejected: %d of %d items failed validation. Fix the following and re-emit:\n%s",
-			len(rejectedItems), len(p.Items), strings.Join(rejectedItems, "\n"))
-	}
-	// Sparse rejects: if a handful failed but the batch is majority
-	// healthy, keep going and stamp the rejections into the per-item
-	// rendered Summary so the LLM sees the reason on the same turn.
+	// Commit 61 Batch F.1 (audit CRITICAL #1, red line "no system
+	// hard-cap"): pre-fix, ≥50% rejected items triggered a hard
+	// rejection of the WHOLE batch — even the valid items were
+	// discarded, forcing the LLM to re-emit everything. The 50%
+	// threshold was a heuristic anti-gaming guard with no objective
+	// truth; per the no-hard-cap principle, surface per-item reject
+	// reasons + keep all valid items.
+	//
+	// The remaining gate is empty-survival: if EVERY item failed
+	// (zero built), the batch can't proceed because there's nothing
+	// to record. Caller's tool-result Summary already lists per-item
+	// reasons via renderEmitSummary so the LLM sees what failed and
+	// can re-emit just the failed ones (mirror of what emit_log_
+	// triage / emit_answer_document do).
 	if len(built) == 0 {
 		return failEmit(t.Name(), now,
 			"no valid items after per-item validation:\n%s",

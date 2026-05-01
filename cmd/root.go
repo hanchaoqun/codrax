@@ -1610,6 +1610,24 @@ func initApp(cmd *cobra.Command, _ []string) error {
 		)
 		// Commit 53 P4: diagram bare-identifier whitelist.
 		tool.SetDiagramIdentifierWhitelist(rs.DiagramIdentifierWhitelist)
+		// Commit 61 Batch F.3: yaml gate for reconcileShape strict mode.
+		if rs.AnalyzerReconcileStrictMode != nil {
+			agent.SetReconcileStrictMode(*rs.AnalyzerReconcileStrictMode)
+		}
+		// Commit 61 Batch F.2: yaml-overridable grounding floors.
+		// Defaults are 0/0 (gates disabled); explicit positive values
+		// restore strict-mode rejection of low-grounded
+		// emit_investigation_complete calls.
+		if rs.AnalysisGroundingFloor != nil || rs.AnalysisEvidenceTier1Floor != nil {
+			policy := tool.CurrentGroundingPolicy()
+			if rs.AnalysisGroundingFloor != nil {
+				policy.GroundingFloor = *rs.AnalysisGroundingFloor
+			}
+			if rs.AnalysisEvidenceTier1Floor != nil {
+				policy.Tier1Floor = *rs.AnalysisEvidenceTier1Floor
+			}
+			tool.SetGroundingPolicy(policy)
+		}
 		// Commit 53 P5: repomap parse-tier hard gate.
 		if rs.RepomapMinParseTier != nil {
 			retrieve.SetMinParseTierFloor(*rs.RepomapMinParseTier)

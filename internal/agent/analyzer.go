@@ -1380,15 +1380,29 @@ func buildAnalysisIR(ctx *types.AgentContext) (*types.AnalysisIR, error) {
 			"shape", string(before), string(reconciledShape),
 			rm.ShapeConfidence, shapeReason, rm.Predicates,
 		))
-		out.AnswerContract.RequiredAnswerShape = reconciledShape
-		// Also align the AnalyzerHints surface so downstream readers
-		// (ir_accessor.irAnswerShape, answer_document_evaluator,
-		// emit_answer_document shape auto-correct) see the
-		// reconciled shape. Cover both the config_value→value and the
-		// new conditional-enumeration→list_of_symbols swap.
-		legacy := mapLegacyAnswerShape(rm.AnalyzerHints.Shape)
-		if legacy == types.ShapeConfigValue || legacy == before {
-			rm.AnalyzerHints.Shape = string(reconciledShape)
+		// Commit 61 Batch F.3 (audit MEDIUM #4, red line "no system
+		// hard-cap"): pre-fix the rule's chosen shape was applied
+		// unconditionally — overriding the LLM's judgment whenever
+		// 5 hard-coded predicate-combination rules said so. Per the
+		// no-hard-cap principle, the LLM's emit_analysis is the
+		// authoritative shape decision; reconcileShape's output is
+		// now treated as ADVISORY (logged + recorded for observers,
+		// not applied) unless the operator explicitly opts into
+		// strict mode via codrax.yaml :: analyzer_reconcile_strict_mode.
+		// The recordReconcileObservation call above keeps the F2
+		// aggregator fed with reconcile signals for telemetry +
+		// cross-Run learning, so the data surface is unchanged.
+		if reconcileStrictModeEnabled() {
+			out.AnswerContract.RequiredAnswerShape = reconciledShape
+			// Also align the AnalyzerHints surface so downstream readers
+			// (ir_accessor.irAnswerShape, answer_document_evaluator,
+			// emit_answer_document shape auto-correct) see the
+			// reconciled shape. Cover both the config_value→value and the
+			// new conditional-enumeration→list_of_symbols swap.
+			legacy := mapLegacyAnswerShape(rm.AnalyzerHints.Shape)
+			if legacy == types.ShapeConfigValue || legacy == before {
+				rm.AnalyzerHints.Shape = string(reconciledShape)
+			}
 		}
 	}
 

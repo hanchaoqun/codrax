@@ -251,6 +251,28 @@ type RuntimeSettings struct {
 	// rather than tying to a specific repo symbol. Empty default.
 	DiagramIdentifierWhitelist []string `yaml:"diagram_identifier_whitelist"`
 
+	// AnalyzerReconcileStrictMode (commit 61 Batch F.3, audit
+	// red line "no system hard-cap") gates whether reconcileShape's
+	// rule-based shape override is APPLIED to the IR or merely
+	// LOGGED as advisory. Default false (advisory only) preserves
+	// the LLM's emit_analysis shape decision unchanged. Operators
+	// flip true to restore the pre-commit-61 hard-override behaviour
+	// (5 hard-coded predicate-combination rules force a specific
+	// shape regardless of LLM judgment).
+	AnalyzerReconcileStrictMode *bool `yaml:"analyzer_reconcile_strict_mode"`
+
+	// AnalysisGroundingFloor / AnalysisEvidenceTier1Floor (commit 61
+	// Batch F.2): the strict-mode opt-in for emit_investigation_complete's
+	// grounding-ratio gates. Default 0/0 (gates DISABLED). Operators
+	// who want the pre-commit-61 strict behaviour set 0.5 / 0.3 (or
+	// stricter) here. The LLM's "investigation complete" claim is
+	// trusted by default; the finalizer's downstream citation
+	// grounding still validates emitted citations against real lines.
+	AnalysisGroundingFloor *float64 `yaml:"analysis_grounding_floor"`
+
+	// AnalysisEvidenceTier1Floor mirrors above for the Tier-1 gate.
+	AnalysisEvidenceTier1Floor *float64 `yaml:"analysis_evidence_tier1_floor"`
+
 	// RepomapMinParseTier (commit 53 P5) hard-gates files whose
 	// repomap parse tier exceeds the floor (Tier 1=primary
 	// grammar, 2=secondary salvage, 3=regex-only, 4=path-only).

@@ -319,10 +319,16 @@ func TestReconcileIntent(t *testing.T) {
 		{"return_value pass-through",
 			types.IntentReturnValue, types.SemanticPredicates{IsCountQuestion: true}, nil,
 			types.IntentReturnValue, false},
-		{"log_triage bundle with root_cause hint forces root_cause",
+		// Commit 61 Batch F.3 (red line "no system hard-cap"):
+		// log_triage's IntentHint NO LONGER overrides LLM's chosen
+		// Intent. The user's explicit intent (e.g. "explain") stays
+		// even when the attached log carries a panic. Trust the LLM
+		// — emit_analysis already saw the raw log via formatAttachedLog
+		// and would have classified root_cause itself if user asked.
+		{"log_triage bundle with root_cause hint NO LONGER forces root_cause (commit 61)",
 			types.IntentExplain, types.SemanticPredicates{}, rootCauseBundle,
-			types.IntentRootCause, true},
-		{"log_triage bundle no-op when already root_cause",
+			types.IntentExplain, false},
+		{"log_triage bundle still no-op when already root_cause",
 			types.IntentRootCause, types.SemanticPredicates{}, rootCauseBundle,
 			types.IntentRootCause, false},
 		{"count-question wins over log_triage bundle (exotic but ordered)",

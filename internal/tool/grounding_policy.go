@@ -32,19 +32,38 @@ type GroundingPolicy struct {
 
 // DefaultGroundingPolicy returns the shipped defaults.
 //
-// GroundingFloor=0.5 (session 5 design): high enough that a mostly-
-// speculative investigation cannot declare complete; low enough that
-// a handful of ungrounded leads in a rich-evidence investigation do
-// not deadlock.
+// Commit 61 Batch F.2 (audit CRITICAL #2, red line "no system
+// hard-cap"): both floors default to 0 (gates DISABLED). Pre-
+// commit-61 the defaults were 0.5 / 0.3 — auto-enabled hard caps
+// that rejected emit_investigation_complete when the LLM judged
+// "investigation done" with low groundedness. Per the no-hard-cap
+// principle, the system cannot reliably distinguish "LLM under-
+// invested" from "the question genuinely doesn't need more than
+// recovery-tier evidence" — both shapes look identical at the
+// gate. Trust the LLM's "complete" decision; the finalizer's
+// citation-grounding layer still validates that emitted citations
+// resolve to real lines, so a hallucinated answer still gets
+// caught downstream by an OBJECTIVE check (does this file:line
+// have this token), not a heuristic threshold.
 //
-// Tier1Floor=0.3 (session 8): requires at least 30% of the emitted
-// evidence to be Tier-1-proven (the LLM actually read the file).
-// Picked to catch the session-7 trace failure mode (explorer
-// satisfied via pure recovery; finalizer can't cite the same
-// anchors) without rejecting legitimate investigations that rely on
-// a mix of read_file and graph-only lookups. Set via
-// analysis_evidence_tier1_floor in codrax.yaml.
+// Operators who want the prior strict behaviour set
+// analysis_grounding_floor / analysis_evidence_tier1_floor in
+// codrax.yaml. The LegacyDefaultGroundingPolicy returns the
+// pre-commit-61 numbers for tests that need to pin the strict
+// behaviour explicitly.
 func DefaultGroundingPolicy() GroundingPolicy {
+	return GroundingPolicy{
+		GroundingFloor: 0,
+		Tier1Floor:     0,
+	}
+}
+
+// LegacyDefaultGroundingPolicy returns the pre-commit-61 defaults
+// (GroundingFloor=0.5, Tier1Floor=0.3) for tests that pin the
+// strict-mode behaviour. Production cmd does NOT call this — the
+// shipped defaults are gate-disabled (commit 61); operators who
+// want strict mode set the yaml fields explicitly.
+func LegacyDefaultGroundingPolicy() GroundingPolicy {
 	return GroundingPolicy{
 		GroundingFloor: 0.5,
 		Tier1Floor:     0.3,

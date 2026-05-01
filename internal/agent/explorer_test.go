@@ -5085,6 +5085,14 @@ func TestObserveMidLoop_CompletionReadyHint_UsesAuthoritativeLogCoverage(t *test
 }
 
 func TestObserveMidLoop_AuthoritativeTier1HintBeatsCompletionReady(t *testing.T) {
+	// Commit 61 Batch F.2 (red line "no system hard-cap"): default
+	// GroundingPolicy now has Tier1Floor=0 (gate disabled). The
+	// authoritative-Tier1 mid-loop hint depends on a positive
+	// Tier1Floor; opt into the legacy strict policy for this test.
+	prev := tool.CurrentGroundingPolicy()
+	tool.SetGroundingPolicy(tool.LegacyDefaultGroundingPolicy())
+	defer tool.SetGroundingPolicy(prev)
+
 	newReadResult := func(path string) types.ToolResult {
 		return types.ToolResult{
 			ToolName: "read_file",

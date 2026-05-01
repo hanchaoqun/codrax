@@ -1593,25 +1593,49 @@ func TestEmitEvidence_PerItemRejectSkipsInsteadOfFailingBatch(t *testing.T) {
 	}
 }
 
-// TestEmitEvidence_MajorityRejectFailsEntireBatch — when ≥ 50% of
-// items fail, the whole call fails with every reason listed in one
-// error envelope. Keeps poisoned batches from slipping through.
-func TestEmitEvidence_MajorityRejectFailsEntireBatch(t *testing.T) {
+// TestEmitEvidence_PartialBatchSurvives pins the commit-61 Batch
+// F.1 contract (red line "no system hard-cap"): pre-fix, ≥ 50%
+// rejected items hard-failed the WHOLE call — even the valid 1
+// item was discarded. Now the 1 valid item survives + per-item
+// reject reasons surface in Summary so the LLM can re-emit just
+// the failed ones. Only zero-survivor batches still fail.
+func TestEmitEvidence_PartialBatchSurvives(t *testing.T) {
 	tool := &EmitEvidence{}
 	ctx := newEmitCtx()
 	// 1 valid + 2 invalid (missing anchor_kind on two items).
-	// 2/3 = 66% → majority reject path.
+	// Pre-commit-61: hard-failed 2/3. Post-fix: 1 valid item kept,
+	// 2 rejections surfaced in Summary.
 	params := json.RawMessage(`{"items":[
 		{"kind":"direct","source":"a.go","line_start":1,"anchor_kind":"definition","anchor_symbol":"A","subject":"A","summary":"x"},
 		{"kind":"direct","source":"b.go","line_start":2,"subject":"B","summary":"x"},
 		{"kind":"direct","source":"c.go","line_start":3,"subject":"C","summary":"x"}
 	]}`)
 	res, _ := tool.Execute(ctx, params)
-	if res.Success {
-		t.Fatalf("majority-reject batch must fail wholesale, got success: %s", res.Summary)
+	if !res.Success {
+		t.Fatalf("partial batch should succeed (1 valid item kept); got failure: %s", res.Summary)
 	}
-	if !strings.Contains(res.Summary, "2 of 3 items") {
-		t.Errorf("summary must report the ratio: %q", res.Summary)
+	// Summary must still surface per-item reject reasons so the LLM
+	// knows to re-emit the failed items.
+	if !strings.Contains(strings.ToLower(res.Summary), "skipped") &&
+		!strings.Contains(strings.ToLower(res.Summary), "reject") &&
+		!strings.Contains(res.Summary, "items[id=") {
+		t.Errorf("partial batch Summary must surface per-item reject reasons: %q", res.Summary)
+	}
+}
+
+// TestEmitEvidence_AllInvalidStillFails pins the empty-survival
+// gate: when ZERO items survived per-item validation, the call
+// can't proceed (no closure entry to write).
+func TestEmitEvidence_AllInvalidStillFails(t *testing.T) {
+	tool := &EmitEvidence{}
+	ctx := newEmitCtx()
+	params := json.RawMessage(`{"items":[
+		{"kind":"direct","source":"a.go","line_start":1,"subject":"A","summary":"x"},
+		{"kind":"direct","source":"b.go","line_start":2,"subject":"B","summary":"x"}
+	]}`)
+	res, _ := tool.Execute(ctx, params)
+	if res.Success {
+		t.Fatalf("zero-survivor batch must fail; got success: %s", res.Summary)
 	}
 }
 
