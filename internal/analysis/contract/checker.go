@@ -110,6 +110,8 @@ const (
 	ViolShapeIntentMismatch   = types.ViolShapeIntentMismatch
 	ViolSubTopicCountMismatch = types.ViolSubTopicCountMismatch
 	ViolDiagramIdentifier     = types.ViolDiagramIdentifier
+	// Commit 55 Batch A.3 — declared-count drift.
+	ViolDeclaredCountDrift = types.ViolDeclaredCountDrift
 )
 
 // Check validates draft against c. It is safe to call with an empty

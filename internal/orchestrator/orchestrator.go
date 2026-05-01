@@ -4687,9 +4687,20 @@ func (o *Orchestrator) runAnswerReviewerOnSuccess() {
 		return
 	}
 	events := mu.AnswerRetryEvents()
-	if len(events) == 0 {
-		// Trivial Run (no retries) — there's nothing
-		// distinctive to abstract from. Skip silently.
+	// Commit 55 Batch A.2 (HIGH #1 fix): trigger condition broadened.
+	// Pre-commit-55 the reviewer fired only on retry events. But a
+	// Run that produced ONLY soft contract violations (commit 53 P3)
+	// has zero retry events by construction (soft never re-queues)
+	// — so the entire learning loop missed exactly the cases where
+	// the analyzer-shape mismatch is most stable. Now: trigger when
+	// EITHER retries happened OR the closure carries enough soft
+	// violations (≥ 2) to suggest a generalisable pattern.
+	closureViolationCount := 0
+	if cl := mu.EvidenceClosure(); cl != nil {
+		closureViolationCount = len(cl.Violations())
+	}
+	const softViolationLearnFloor = 2
+	if len(events) == 0 && closureViolationCount < softViolationLearnFloor {
 		return
 	}
 
@@ -4706,6 +4717,20 @@ func (o *Orchestrator) runAnswerReviewerOnSuccess() {
 	}
 	for _, e := range events {
 		in.RetryEvents = append(in.RetryEvents, AnswerRetryEvent{Stage: e.Stage, Reason: e.Reason})
+	}
+	// Commit 55: synthesise pseudo-events from soft violations so the
+	// reviewer sees the structured shape even when no retries fired.
+	// The Stage tag distinguishes them from real retries; the LLM
+	// reads them as "advisory observations" via the same prompt path.
+	if len(events) == 0 && closureViolationCount > 0 {
+		if cl := mu.EvidenceClosure(); cl != nil {
+			for _, v := range cl.Violations() {
+				in.RetryEvents = append(in.RetryEvents, AnswerRetryEvent{
+					Stage:  fmt.Sprintf("contract.%s", v.Kind),
+					Reason: v.Detail,
+				})
+			}
+		}
 	}
 
 	ctx := o.busCtx.Ctx

@@ -5,6 +5,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"sync"
 
 	"github.com/hanchaoqun/codrax/internal/agent"
 	"github.com/hanchaoqun/codrax/internal/analysis/contract"
@@ -82,7 +83,7 @@ func runContractCheck(out *agent.StageOutput, c types.AnswerContract, mut *types
 		ir := mut.RequestModel()
 		if doc := mut.AnswerDocument(); doc != nil && ir != nil {
 			result.Violations = append(result.Violations,
-				runAnswerShapeOracle(doc, ir)...)
+				runAnswerShapeOracle(doc, ir, mut)...)
 		}
 	}
 
@@ -139,11 +140,36 @@ func runContractCheck(out *agent.StageOutput, c types.AnswerContract, mut *types
 // /ViolSubTopicCountMismatch families that gate-soft-list excludes
 // from Passed=false hard-fail). Operators promote to strict via
 // gate_contract_strict_kinds yaml.
-func runAnswerShapeOracle(doc *types.AnswerDocument, rm *types.RequestModel) []types.Violation {
+func runAnswerShapeOracle(doc *types.AnswerDocument, rm *types.RequestModel, mut *types.MutableState) []types.Violation {
 	if doc == nil || rm == nil {
 		return nil
 	}
 	var out []types.Violation
+
+	// Commit 55 Batch A.3 — declared-count drift. The extractor's
+	// emit_answer_symbol stamps the LLM's self-declared count on
+	// Mutable; if the finalizer's rendered doc.Symbols length
+	// diverges (mid-loop grounding stripped some, the finalizer
+	// re-derived a different shape, etc.), the count claim was
+	// silently invalidated. Soft-by-default — we don't want a
+	// post-emit grounder strip to hard-fail an otherwise good
+	// answer, but we DO want the reviewer to learn about the drift.
+	if mut != nil {
+		declared := mut.EmittedAnswerSymbolDeclaredCount()
+		if declared > 0 && len(doc.Symbols) != declared {
+			out = append(out, types.Violation{
+				Kind: types.ViolDeclaredCountDrift,
+				Detail: fmt.Sprintf("emit_answer_symbol declared count=%d but finalizer rendered %d doc.Symbols (post-emit drift)",
+					declared, len(doc.Symbols)),
+				SuspectedRoot: types.SuspectedRoot{
+					IRField:    "answer_symbol",
+					Reason:     "declared item count diverges from rendered slate",
+					Confidence: 0.7,
+				},
+				Stage: string(types.StageFinalize),
+			})
+		}
+	}
 
 	// Shape ↔ Intent coherence.
 	switch rm.Intent {
@@ -256,12 +282,24 @@ func defaultSoftKinds() map[types.ViolationKind]bool {
 		types.ViolShapeIntentMismatch:   true,
 		types.ViolSubTopicCountMismatch: true,
 		types.ViolDiagramIdentifier:     true,
+		types.ViolDeclaredCountDrift:    true,
 	}
 }
 
 // softViolationKinds is the active set; mutated by
 // SetSoftViolationKinds at startup.
-var softViolationKinds = defaultSoftKinds()
+//
+// Commit 55 (Batch A.1): the map is now guarded by softKindsMu
+// so parallel tests (and any future runtime-reconfig path) cannot
+// observe a half-mutated state. Production cmd calls
+// SetSoftViolationKinds once at startup before any Run, so the
+// mutex contention is effectively zero at runtime; tests with
+// t.Cleanup-restored overrides are race-free regardless of go
+// test -parallel.
+var (
+	softKindsMu        sync.RWMutex
+	softViolationKinds = defaultSoftKinds()
+)
 
 // SetSoftViolationKinds replaces the active soft-kind set. Empty
 // args restore defaults. Called from cmd/root.go after reading
@@ -278,7 +316,17 @@ func SetSoftViolationKinds(extraSoft []string, extraStrict []string) {
 	for _, name := range extraStrict {
 		delete(out, types.ViolationKind(strings.TrimSpace(name)))
 	}
+	softKindsMu.Lock()
 	softViolationKinds = out
+	softKindsMu.Unlock()
+}
+
+// isSoftViolationKind is the read-side predicate. Used by
+// hasAnyStrictViolation + the soft-violation-only renderer.
+func isSoftViolationKind(k types.ViolationKind) bool {
+	softKindsMu.RLock()
+	defer softKindsMu.RUnlock()
+	return softViolationKinds[k]
 }
 
 // hasAnyStrictViolation reports whether the slice contains at least
@@ -286,7 +334,7 @@ func SetSoftViolationKinds(extraSoft []string, extraStrict []string) {
 // flips Passed=false only when this returns true.
 func hasAnyStrictViolation(vs []types.Violation) bool {
 	for _, v := range vs {
-		if !softViolationKinds[v.Kind] {
+		if !isSoftViolationKind(v.Kind) {
 			return true
 		}
 	}

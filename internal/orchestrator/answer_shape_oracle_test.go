@@ -9,13 +9,13 @@ import (
 // TestRunAnswerShapeOracle_NilSafeReturns covers the cheap
 // short-circuit paths.
 func TestRunAnswerShapeOracle_NilSafeReturns(t *testing.T) {
-	if got := runAnswerShapeOracle(nil, nil); got != nil {
+	if got := runAnswerShapeOracle(nil, nil, nil); got != nil {
 		t.Errorf("nil inputs should return nil; got %v", got)
 	}
-	if got := runAnswerShapeOracle(&types.AnswerDocument{}, nil); got != nil {
+	if got := runAnswerShapeOracle(&types.AnswerDocument{}, nil, nil); got != nil {
 		t.Errorf("nil rm should return nil; got %v", got)
 	}
-	if got := runAnswerShapeOracle(nil, &types.RequestModel{}); got != nil {
+	if got := runAnswerShapeOracle(nil, &types.RequestModel{}, nil); got != nil {
 		t.Errorf("nil doc should return nil; got %v", got)
 	}
 }
@@ -40,7 +40,7 @@ func TestRunAnswerShapeOracle_ExplainShouldNotEmitValue(t *testing.T) {
 		t.Run(string(c.intent)+"_"+string(c.shape), func(t *testing.T) {
 			doc := &types.AnswerDocument{Shape: c.shape}
 			rm := &types.RequestModel{Intent: c.intent}
-			vs := runAnswerShapeOracle(doc, rm)
+			vs := runAnswerShapeOracle(doc, rm, nil)
 			fired := false
 			for _, v := range vs {
 				if v.Kind == types.ViolShapeIntentMismatch {
@@ -73,7 +73,7 @@ func TestRunAnswerShapeOracle_ReturnValueIntentRejectsExplanation(t *testing.T) 
 		t.Run(string(c.intent)+"_"+string(c.shape), func(t *testing.T) {
 			doc := &types.AnswerDocument{Shape: c.shape}
 			rm := &types.RequestModel{Intent: c.intent}
-			vs := runAnswerShapeOracle(doc, rm)
+			vs := runAnswerShapeOracle(doc, rm, nil)
 			fired := false
 			for _, v := range vs {
 				if v.Kind == types.ViolShapeIntentMismatch {
@@ -118,7 +118,7 @@ func TestRunAnswerShapeOracle_SubTopicCountMismatch(t *testing.T) {
 			}
 			doc := &types.AnswerDocument{Symbols: symbols, Shape: types.ShapeListOfSymbols}
 			rm := &types.RequestModel{SubTopics: subTopics}
-			vs := runAnswerShapeOracle(doc, rm)
+			vs := runAnswerShapeOracle(doc, rm, nil)
 			fired := false
 			for _, v := range vs {
 				if v.Kind == types.ViolSubTopicCountMismatch {
@@ -187,6 +187,49 @@ func TestSoftViolationKinds_YamlOverride(t *testing.T) {
 	// Other defaults unchanged.
 	if !softViolationKinds[types.ViolShapeIntentMismatch] {
 		t.Error("shape_intent_mismatch should remain soft after override")
+	}
+}
+
+// TestRunAnswerShapeOracle_DeclaredCountDrift pins the commit-55
+// Batch A.3 cross-stage check: extractor's emit_answer_symbol
+// declared count is persisted on Mutable; if the finalizer
+// renders a different number of symbols, ViolDeclaredCountDrift
+// fires.
+func TestRunAnswerShapeOracle_DeclaredCountDrift(t *testing.T) {
+	cases := []struct {
+		name        string
+		declared    int
+		rendered    int
+		expectFired bool
+	}{
+		{"no claim → no fire", 0, 5, false},
+		{"matched → no fire", 5, 5, false},
+		{"declared 10 rendered 7 → fire", 10, 7, true},
+		{"declared 3 rendered 5 → fire", 3, 5, true},
+		{"declared 1 rendered 1 → no fire", 1, 1, false},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			mu := types.NewMutableState("test")
+			mu.SetEmittedAnswerSymbolDeclaredCount(c.declared)
+			symbols := make([]types.AnswerSymbol, c.rendered)
+			for i := range symbols {
+				symbols[i].File = "f" + string(rune('a'+i)) + ".go"
+			}
+			doc := &types.AnswerDocument{Symbols: symbols, Shape: types.ShapeListOfSymbols}
+			rm := &types.RequestModel{}
+			vs := runAnswerShapeOracle(doc, rm, mu)
+			fired := false
+			for _, v := range vs {
+				if v.Kind == types.ViolDeclaredCountDrift {
+					fired = true
+				}
+			}
+			if fired != c.expectFired {
+				t.Errorf("declared=%d rendered=%d: fired=%v, want %v",
+					c.declared, c.rendered, fired, c.expectFired)
+			}
+		})
 	}
 }
 

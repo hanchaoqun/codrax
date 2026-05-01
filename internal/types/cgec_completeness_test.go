@@ -201,6 +201,8 @@ func TestAllViolationKindsHaveProducer(t *testing.T) {
 		ViolShapeIntentMismatch:   true, // orchestrator/contract_check.go runAnswerShapeOracle
 		ViolSubTopicCountMismatch: true, // orchestrator/contract_check.go runAnswerShapeOracle
 		ViolDiagramIdentifier:     true, // tool/emit_answer_document.go diagram bare-identifier check (commit 53 P4)
+		// Commit 55 Batch A.3 — declared-count drift.
+		ViolDeclaredCountDrift: true, // orchestrator/contract_check.go runAnswerShapeOracle
 	}
 	// All Session 11 violation kinds now have producers. The
 	// pending map remains empty but is kept so future additions

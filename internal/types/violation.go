@@ -84,6 +84,14 @@ const (
 	// real symbol via the SymbolOracle. Caught by P4 diagram
 	// validator. SuspectedRoot: diagram.
 	ViolDiagramIdentifier ViolationKind = "diagram_identifier_unverified"
+
+	// Commit 55 Batch A.3 — declared-count drift between extractor
+	// and finalizer. emit_answer_symbol stamps the LLM's self-
+	// declared count on Mutable; if the finalizer's rendered
+	// doc.Symbols length differs (items dropped by mid-loop
+	// grounding etc.), the count claim is no longer accurate.
+	// Soft-by-default. SuspectedRoot: answer_symbol.
+	ViolDeclaredCountDrift ViolationKind = "declared_count_drift"
 )
 
 // AllViolationKinds returns every declared ViolationKind in a stable
@@ -110,6 +118,7 @@ func AllViolationKinds() []ViolationKind {
 		ViolShapeIntentMismatch,
 		ViolSubTopicCountMismatch,
 		ViolDiagramIdentifier,
+		ViolDeclaredCountDrift,
 	}
 }
 

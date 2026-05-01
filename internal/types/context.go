@@ -89,6 +89,14 @@ type MutableState struct {
 	// atomically under the write lock.
 	emittedAnswerSymbols            []AnswerSymbol
 	emittedAnswerSymbolCompleteness CompletenessClaim
+	// emittedAnswerSymbolDeclaredCount mirrors the LLM's
+	// self-declared count from the most recent emit_answer_symbol
+	// call (commit 49 added the field, commit 55 Batch A.3
+	// persists it across stages). Zero = no claim made (back-
+	// compat). The finalizer-side runAnswerShapeOracle compares
+	// this against the rendered doc.Symbols length to catch
+	// "claimed N but rendered only M" drift.
+	emittedAnswerSymbolDeclaredCount int
 	emittedHypothesisVerdicts       []HypothesisVerdict
 	turnAArtifacts                  *TurnAArtifacts
 	// searchGraph is an opaque handle to the repomap.Graph produced by
@@ -1132,6 +1140,37 @@ func (m *MutableState) SetEmittedAnswerSymbols(items []AnswerSymbol, claim Compl
 		claim = CompletenessUnknown
 	}
 	m.emittedAnswerSymbolCompleteness = claim
+}
+
+// SetEmittedAnswerSymbolDeclaredCount stores the LLM's self-
+// declared item count from emit_answer_symbol (commit 49). Zero
+// resets to "no claim". Called immediately after
+// SetEmittedAnswerSymbols on the same emit invocation. Read by
+// runAnswerShapeOracle for the cross-stage drift check (commit 55
+// Batch A.3 — MEDIUM #4 fix).
+func (m *MutableState) SetEmittedAnswerSymbolDeclaredCount(n int) {
+	if m == nil {
+		return
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if n < 0 {
+		n = 0
+	}
+	m.emittedAnswerSymbolDeclaredCount = n
+}
+
+// EmittedAnswerSymbolDeclaredCount returns the buffered claim.
+// Zero = no claim was made on the most recent emit (back-compat
+// with pre-commit-49 callers and with current LLMs that omit
+// the count field).
+func (m *MutableState) EmittedAnswerSymbolDeclaredCount() int {
+	if m == nil {
+		return 0
+	}
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return m.emittedAnswerSymbolDeclaredCount
 }
 
 // EmittedAnswerSymbols returns a snapshot of the LLM-emitted answer

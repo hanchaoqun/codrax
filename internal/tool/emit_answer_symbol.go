@@ -270,6 +270,11 @@ func (t *EmitAnswerSymbol) Execute(ctx *types.BusContext, params json.RawMessage
 	// AgentContext (Turn A baseline + AnalysisIR MustInclude) which
 	// BusContext alone does not expose.
 	ctx.Mutable.SetEmittedAnswerSymbols(built, claim)
+	// Commit 55 Batch A.3 — persist the LLM's self-declared count
+	// so the finalizer-stage Answer Shape Oracle can cross-check
+	// `declared count` vs `rendered len(doc.Symbols)` to catch
+	// post-emit item-drop drift.
+	ctx.Mutable.SetEmittedAnswerSymbolDeclaredCount(p.DeclaredCount)
 
 	return types.ToolResult{
 		ToolName:  t.Name(),
