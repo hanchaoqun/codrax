@@ -188,7 +188,27 @@ const (
 	SignalNetwork    LogSignal = "network"    // connection refused / reset / DNS / TLS
 	SignalValidation LogSignal = "validation" // bad input, parse error, schema failure
 	SignalLogic      LogSignal = "logic"      // invariant violation, assertion, bug
-	SignalOther      LogSignal = "other"      // nothing above fits; fallback
+	// SignalPerformance covers "the system was operational but
+	// noticeably slow / blocked / lost frames" — the diagnostic
+	// shape that does NOT match any error class above. Pre-2026-05-02
+	// such evidence (e.g. log lines like "slow API call took 5s",
+	// "Choreographer: dropped 5 frames", "GC pause 800ms",
+	// "blocked on lock for 2s") was forced into either timeout
+	// (prefix-misuse) or other (information loss). Examples that
+	// belong here:
+	//   - slow request / high latency / SLA breach
+	//   - frame drop / jank from a regular log (PerfBundle handles
+	//     HiTrace / atrace traces; this signal handles ordinary
+	//     application logs that happen to mention frame loss)
+	//   - long-blocked operation / lock contention
+	//   - GC pause / scheduler stall
+	// Distinct from `timeout` because no operation was cancelled —
+	// it just took longer than expected. Distinct from PerfBundle's
+	// `jank` / `cold-start-slow` because those are trace-level
+	// (ts/duration) signals from a perf trace tool; this is a
+	// log-level mention of a perf symptom.
+	SignalPerformance LogSignal = "performance"
+	SignalOther       LogSignal = "other" // nothing above fits; fallback
 )
 
 // AllLogSignals returns every canonical signal in declaration order.
@@ -198,7 +218,8 @@ func AllLogSignals() []LogSignal {
 	return []LogSignal{
 		SignalPanic, SignalCrash, SignalOOM, SignalTimeout,
 		SignalPermission, SignalDB, SignalNetwork,
-		SignalValidation, SignalLogic, SignalOther,
+		SignalValidation, SignalLogic, SignalPerformance,
+		SignalOther,
 	}
 }
 

@@ -181,3 +181,32 @@ func TestSkills_NoInternalGoNamesInPrompts(t *testing.T) {
 		}
 	}
 }
+
+// TestLogTriageSkill_AdvertisesPerformanceSignal pins the
+// 2026-05-02 SignalPerformance enum addition into the log-triage
+// skill prompt. Without explicitly listing 'performance' in the
+// canonical-enum sentence the LLM sees, slow-but-not-cancelled
+// patterns (e.g. "slow API call took 5s", "frame skipped",
+// "GC pause 800ms") would keep landing in 'timeout'
+// (prefix-misuse) or 'other' (information loss) even though the
+// JSON schema offers the new value.
+//
+// Lock both the new value's presence and the original 10 enum
+// values so a future edit cannot silently drop guidance.
+func TestLogTriageSkill_AdvertisesPerformanceSignal(t *testing.T) {
+	r := NewRegistry()
+	RegisterDefaults(r)
+	sk, err := r.Get("log-triage-skill")
+	if err != nil {
+		t.Fatalf("log-triage-skill missing: %v", err)
+	}
+	blob := strings.Join(append([]string{sk.Goal, sk.OutputFormat}, sk.Workflow...), "\n")
+	if !strings.Contains(blob, "performance") {
+		t.Errorf("log-triage-skill must mention 'performance' signal in the canonical-enum sentence")
+	}
+	for _, must := range []string{"panic", "crash", "oom", "timeout", "permission", "db", "network", "validation", "logic", "other"} {
+		if !strings.Contains(blob, must) {
+			t.Errorf("log-triage-skill missing original enum value %q after performance addition", must)
+		}
+	}
+}
