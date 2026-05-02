@@ -701,6 +701,17 @@ func EvidenceCountsTowardTier1Floor(ev EvidenceItem) bool {
 	case EvidenceContextRoleIllustrativeOnly, EvidenceContextRoleAbsenceSupport:
 		return false
 	}
+	// AuthorityCeiling axis (round-3): the projection sets
+	// Authority=Illustrative for any GroundingUngrounded item
+	// regardless of ContextRole. Tier-1 floor must mirror that
+	// classification or downstream gates disagree on which items
+	// constitute "real evidence" — closure thinks the floor is met,
+	// renderer hedges the same items as illustrative, and reviewer
+	// treats them as causal-chain ineligible. Single source of
+	// truth: AuthorityIllustrative excludes from Tier-1 floor.
+	if ev.Authority == AuthorityIllustrative {
+		return false
+	}
 	if !ev.Scope.IsLineShaped() {
 		return false
 	}

@@ -1083,13 +1083,54 @@ func (m *MutableState) SetRequestModel(rm RequestModel) {
 // header that a regex then walks. The two channels are merged in
 // ensureStructuredEvidence so the structured and markdown channels run
 // simultaneously and dedup on StableEvidenceID.
+//
+// AuthorityCeiling axis: items lacking Origin/Authority (the
+// "bypass" paths — concrete_value extractor, mechanism_scan,
+// bridge_literal merge — that build EvidenceItem literals directly
+// instead of going through emit_evidence) are passed through the
+// registered projector so they too participate in drift detection.
+// Without this backfill, bypass items would be Authority="" which
+// HighestAuthorityFor treats as factual-equivalent — letting a
+// drift-bounded answer dodge hedging because a sibling deterministic
+// value happened to be at the same anchor. The projector lives in
+// internal/authority and is registered once at startup.
 func (m *MutableState) AppendEvidence(items []EvidenceItem) {
 	if m == nil || len(items) == 0 {
 		return
 	}
+	if proj := loadEvidenceProjector(); proj != nil {
+		items = proj(items, m)
+	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.emittedEvidence = append(m.emittedEvidence, items...)
+}
+
+// EvidenceProjector adapts an opaque (item-list, mutable-state) pair
+// into a possibly-mutated item-list. Used by the AuthorityCeiling
+// axis to backfill Origin/Authority on items that bypassed
+// emit_evidence's hook.
+type EvidenceProjector func(items []EvidenceItem, m *MutableState) []EvidenceItem
+
+var (
+	evidenceProjectorMu sync.RWMutex
+	evidenceProjector   EvidenceProjector
+)
+
+// RegisterEvidenceProjector installs (or clears with nil) the
+// projector. Callers MUST register before any goroutine calls
+// AppendEvidence; in production cmd/root.go does this in initApp
+// before any Run() dispatch fires.
+func RegisterEvidenceProjector(p EvidenceProjector) {
+	evidenceProjectorMu.Lock()
+	defer evidenceProjectorMu.Unlock()
+	evidenceProjector = p
+}
+
+func loadEvidenceProjector() EvidenceProjector {
+	evidenceProjectorMu.RLock()
+	defer evidenceProjectorMu.RUnlock()
+	return evidenceProjector
 }
 
 // EmittedEvidence returns a snapshot of the LLM-emitted evidence buffer.

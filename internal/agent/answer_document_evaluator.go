@@ -2995,6 +2995,16 @@ func sanitizePriorDraftForSummary(s string) string {
 	s = priorDraftInvokeRe.ReplaceAllString(s, "")
 	s = priorDraftParameterRe.ReplaceAllString(s, "")
 	s = priorDraftJSONFenceRe.ReplaceAllString(s, "")
+	// Strip system-injected hedge markers + Authority caveat from the
+	// prior draft before salvaging into Summary. Without this, the LLM
+	// sees its own prior assistant content carrying [hedged] /
+	// [historical] / [illustrative] tokens it never wrote and the
+	// Authority: caveat line — and on retry may "edit" them as if
+	// they were its own prose, either deleting them (gate fires) or
+	// expanding them into long hedge paragraphs (richness regresses).
+	// The renderer will re-inject the markers on each emit; the LLM
+	// sees a clean draft as its working surface.
+	s = render.StripAuthorityArtifacts(s)
 	paras := priorDraftParaSplitRe.Split(s, -1)
 	kept := make([]string, 0, len(paras))
 	for _, p := range paras {

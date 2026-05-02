@@ -52,6 +52,39 @@ func SetSymbolLocatorProvider(p func(graph any) types.SymbolLocator) {
 	locatorProvider = p
 }
 
+// BackfillEvidenceProjector returns a types.EvidenceProjector that
+// runs ComputeForEvidence on any incoming item lacking Origin /
+// Authority. Used for bypass paths (concrete_value extractor,
+// mechanism_scan, bridge_literal merge) that build EvidenceItem
+// literals directly without going through emit_evidence's hook.
+//
+// cmd/root.go registers this at startup via
+// types.RegisterEvidenceProjector. Items that already have non-
+// zero Origin or Authority pass through untouched (idempotent —
+// emit_evidence's items have already been projected).
+func BackfillEvidenceProjector() types.EvidenceProjector {
+	return func(items []types.EvidenceItem, m *types.MutableState) []types.EvidenceItem {
+		if len(items) == 0 || m == nil {
+			return items
+		}
+		// Synthesise a minimal bus context. ComputeForEvidence reads
+		// only Mutable.LogTriage / PerfTrace / SearchGraph from the
+		// bus, so an otherwise-empty BusContext is sufficient.
+		bus := &types.BusContext{Mutable: m}
+		for i := range items {
+			if items[i].Origin != types.ClaimOriginUnknown ||
+				items[i].Authority != types.AuthorityUnknown {
+				continue
+			}
+			origin, ceiling, reason := ComputeForEvidence(items[i], bus)
+			items[i].Origin = origin
+			items[i].Authority = ceiling
+			items[i].AuthorityReason = reason
+		}
+		return items
+	}
+}
+
 // LocatorFromGraph adapts the opaque graph value via the registered
 // provider. Returns nil when no provider is installed or the provider
 // itself returns nil.
@@ -132,10 +165,24 @@ func ComputeForEvidence(item types.EvidenceItem, bus *types.BusContext) (types.C
 	// (5) Default current_repo path — graded by grounding tier + scope.
 	switch item.GroundingStatus {
 	case types.GroundingRecovered:
-		// Recovery tier rewrote line/source. Anchor IS now valid, but
-		// the LLM's original claim wasn't precise — soften.
-		return types.ClaimOriginCurrentRepo, types.AuthorityConditional,
-			fmt.Sprintf("grounding recovered via %s — original anchor imprecise", item.GroundingTier)
+		// Recovery tier rewrote line/source. Round-3 refinement: only
+		// downgrade to conditional when an attached log/perf bundle is
+		// actually present. Without an attached artifact, "recovered"
+		// is an in-pipeline LLM line-typo correction (the LLM said
+		// line 12, the symbol is at line 14, the system fixed it) —
+		// NOT a drift signal. Hedging that as "drift" misleads the
+		// user with a fake provenance ("based on log") in the caveat.
+		// With an attached artifact, the LLM's imprecise anchor IS a
+		// hint that the artifact and current code may be out of sync,
+		// so the conditional cap is honest.
+		if hasAttachedArtifact(bus) {
+			return types.ClaimOriginCurrentRepo, types.AuthorityConditional,
+				fmt.Sprintf("grounding recovered via %s — original anchor imprecise (log/perf attached)", item.GroundingTier)
+		}
+		// No attached artifact: the recovery is plain LLM self-
+		// correction; treat as factual for the renderer.
+		return types.ClaimOriginCurrentRepo, types.AuthorityFactual,
+			fmt.Sprintf("grounding recovered via %s (no attached log; treated as factual self-correction)", item.GroundingTier)
 	}
 	if item.Scope.IsLineShaped() {
 		return types.ClaimOriginCurrentRepo, types.AuthorityFactual,
@@ -144,6 +191,13 @@ func ComputeForEvidence(item types.EvidenceItem, bus *types.BusContext) (types.C
 	// Empty / unset scope or unrecognised — fail safe to factual to
 	// preserve legacy behaviour for items that pre-date the scope axis.
 	return types.ClaimOriginCurrentRepo, types.AuthorityFactual, ""
+}
+
+func hasAttachedArtifact(bus *types.BusContext) bool {
+	if bus == nil || bus.Mutable == nil {
+		return false
+	}
+	return bus.Mutable.LogTriage() != nil || bus.Mutable.PerfTrace() != nil
 }
 
 func computeFromLogPerfDrift(item types.EvidenceItem, bus *types.BusContext) (types.ClaimOrigin, types.AuthorityCeiling, string, bool) {

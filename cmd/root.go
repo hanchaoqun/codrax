@@ -1670,6 +1670,15 @@ func initApp(cmd *cobra.Command, _ []string) error {
 			}
 			return nil
 		})
+		// Backfill Authority/Origin on bypass-path items
+		// (concrete_value extractor, mechanism_scan, bridge_literal
+		// merge) that build EvidenceItem literals without going
+		// through emit_evidence's hook. Without this, those items
+		// have Authority="" and HighestAuthorityFor treats them as
+		// factual-equivalent — letting drift-bounded answers dodge
+		// hedging when a sibling deterministic value happens to
+		// share the same anchor.
+		types.RegisterEvidenceProjector(authority.BackfillEvidenceProjector())
 		// Commit 53 P4: diagram bare-identifier whitelist.
 		tool.SetDiagramIdentifierWhitelist(rs.DiagramIdentifierWhitelist)
 		// Commit 61 Batch F.3: yaml gate for reconcileShape strict mode.

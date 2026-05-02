@@ -50,6 +50,16 @@ func HighestAuthorityFor(items []types.EvidenceItem, file string, line int) type
 				continue
 			}
 		}
+		// Skip items with Authority="" (no information). Treating
+		// Unknown as factual-equivalent here (the round-1 default)
+		// caused under-hedging: a bypass-path item at the same anchor
+		// as a Conditional LLM-emit would falsely win the "Highest"
+		// vote. The bypass-path backfill (round-3) closes the
+		// bypass-evidence pinning gap, but this guard remains as a
+		// belt for any item that escapes both projection paths.
+		if item.Authority == types.AuthorityUnknown {
+			continue
+		}
 		if !matched {
 			best = item.Authority
 			matched = true
@@ -88,6 +98,14 @@ func LowestAuthorityFor(items []types.EvidenceItem, file string, line int) types
 			if gap > 4 {
 				continue
 			}
+		}
+		// Skip items with Authority="" (no information). Symmetric
+		// with HighestAuthorityFor: an Unknown item should neither
+		// outrank nor down-rank real signals. The bypass-path
+		// backfill (round-3) covers most cases; this guard catches
+		// the rest.
+		if item.Authority == types.AuthorityUnknown {
+			continue
 		}
 		if !matched {
 			weakest = item.Authority

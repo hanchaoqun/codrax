@@ -126,10 +126,12 @@ func TestComputeForEvidence_CurrentRepoLineGrounded(t *testing.T) {
 	}
 }
 
-// TestComputeForEvidence_RecoveredIsConditional asserts recovered-tier
-// items pin to conditional even from the current_repo path; the LLM's
-// original anchor was imprecise so we hedge.
-func TestComputeForEvidence_RecoveredIsConditional(t *testing.T) {
+// TestComputeForEvidence_RecoveredFactualWithoutLog: round-3
+// refinement — without an attached log/perf bundle, GroundingRecovered
+// is plain LLM line-typo correction (not drift). Treat as factual so
+// the user doesn't see a fake "log-derived" caveat for an
+// in-pipeline self-correction.
+func TestComputeForEvidence_RecoveredFactualWithoutLog(t *testing.T) {
 	bus := &types.BusContext{Mutable: types.NewMutableState("test-objective")}
 	item := types.EvidenceItem{
 		Scope:           types.ScopeLine,
@@ -139,8 +141,31 @@ func TestComputeForEvidence_RecoveredIsConditional(t *testing.T) {
 		GroundingTier:   types.TierFQNameSameFile,
 	}
 	_, a, _ := ComputeForEvidence(item, bus)
+	if a != types.AuthorityFactual {
+		t.Errorf("recovered without log: Authority = %q; want factual", a)
+	}
+}
+
+// TestComputeForEvidence_RecoveredConditionalWithLog: same item with
+// an attached log bundle — recovery now signals likely drift between
+// the artifact and current code, so soften to conditional.
+func TestComputeForEvidence_RecoveredConditionalWithLog(t *testing.T) {
+	bus := &types.BusContext{Mutable: types.NewMutableState("test-objective")}
+	bus.Mutable.SetLogTriage(&types.LogBundle{
+		Errors: []types.LogError{{Frames: []types.LogFrame{
+			{File: "other.go", Line: 1, Func: "X", Raw: "other.go:1 X"},
+		}}},
+	})
+	item := types.EvidenceItem{
+		Scope:           types.ScopeLine,
+		Source:          "x.go",
+		LineStart:       12,
+		GroundingStatus: types.GroundingRecovered,
+		GroundingTier:   types.TierFQNameSameFile,
+	}
+	_, a, _ := ComputeForEvidence(item, bus)
 	if a != types.AuthorityConditional {
-		t.Errorf("recovered: Authority = %q; want conditional", a)
+		t.Errorf("recovered with log: Authority = %q; want conditional", a)
 	}
 }
 
