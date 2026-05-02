@@ -81,6 +81,19 @@ func BackfillEvidenceProjector() types.EvidenceProjector {
 			items[i].Authority = proj.Authority
 			items[i].AuthorityReason = proj.Reason
 			items[i].DriftReason = proj.DriftReason
+			// 2026-05-02: alongside the Origin/Authority projection,
+			// also fill the second-axis LogPerfSubKind classification
+			// when the item anchors on a log/perf frame. Cheap (pure
+			// function over typed bundle structures); idempotent (a
+			// pre-set non-empty SubKind passes through). Empty result
+			// = not log/perf evidence OR no specific sub-classification.
+			if items[i].LogPerfSubKind == "" {
+				items[i].LogPerfSubKind = types.LogPerfSubKindOf(
+					items[i],
+					bus.Mutable.LogTriage(),
+					bus.Mutable.PerfTrace(),
+				)
+			}
 		}
 		return items
 	}

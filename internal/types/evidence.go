@@ -625,6 +625,18 @@ type EvidenceItem struct {
 	// values are line_drift / tail_rename / file_moved (matches
 	// DriftReason elsewhere in this package).
 	DriftReason DriftReason `json:"drift_reason,omitempty"`
+
+	// LogPerfSubKind is the second-axis classification for log/perf
+	// evidence (2026-05-02 add). Empty / LogPerfSubKindUnknown for
+	// non-log/perf items and for log/perf items the projection
+	// could not classify with high confidence. Filled by the
+	// BackfillEvidenceProjector alongside Origin when the item
+	// anchors on a log/perf frame. Phase 4 / Phase 5 oracles read
+	// this field to drive sub-kind-specific facets (e.g. a
+	// FacetPanicAnchor template for QFRootCauseTrace + LogPanicFrame
+	// items only). Empty value is "no information"; never treated
+	// as "evidence is bad".
+	LogPerfSubKind LogPerfSubKind `json:"log_perf_sub_kind,omitempty"`
 }
 
 // ValidateScope enforces the per-scope required-field invariants on
