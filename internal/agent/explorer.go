@@ -9631,7 +9631,7 @@ func (e *explorerEvaluator) buildConcreteValuesSection(repoRoot string, readSet 
 			Producer:   "concrete_values",
 			Summary:    fmt.Sprintf("`%s()` %s %s", v.method, predicate, v.value),
 			Scope:      types.ScopeLine,
-			// 2026-05-02: project the syntactic predicate into the
+			// 2026-05-02 L1: project the syntactic predicate into the
 			// typed AnchorKind axis so Phase 0's ClaimFormOf can
 			// classify the evidence (was 100% ClaimUnknown
 			// pre-projection). See concreteValueKindToAnchorKind.
@@ -9641,6 +9641,16 @@ func (e *explorerEvaluator) buildConcreteValuesSection(repoRoot string, readSet 
 			// Origin makes the provenance explicit so downstream
 			// Phase 4 ClaimForm checks have full context.
 			Origin: types.ClaimOriginCurrentRepo,
+			// 2026-05-02 L2/L3: project file-ext + method-prefix
+			// context into DiagramRole so config-layer / runtime-
+			// binding-layer evidence reaches ClaimFormOf Rule 3
+			// (DiagramRole != Default → ClaimPrecedenceRole) instead
+			// of falling through to AnchorKind dispatch alone. Both
+			// signal lists are operator-tunable (codrax.yaml ::
+			// concrete_values_config_layer_extensions /
+			// concrete_values_runtime_method_prefixes /
+			// concrete_values_default_method_prefixes).
+			DiagramRole: concreteValueDiagramRole(v.file, v.method),
 		}
 		cvItem.ID = types.StableEvidenceID(cvItem)
 		cvEvidence = append(cvEvidence, cvItem)

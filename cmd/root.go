@@ -1732,6 +1732,16 @@ func initApp(cmd *cobra.Command, _ []string) error {
 		if rs.AnalyzerMentionCountMaxGrep != nil {
 			agent.SetMentionCountMaxGrep(*rs.AnalyzerMentionCountMaxGrep)
 		}
+		// concrete_values L2/L3 DiagramRole projection knobs.
+		if rs.ConcreteValuesConfigLayerExtensions != nil {
+			agent.SetConcreteValueConfigLayerExtensions(rs.ConcreteValuesConfigLayerExtensions)
+		}
+		if rs.ConcreteValuesRuntimeMethodPrefixes != nil {
+			agent.SetConcreteValueRuntimeMethodPrefixes(rs.ConcreteValuesRuntimeMethodPrefixes)
+		}
+		if rs.ConcreteValuesDefaultMethodPrefixes != nil {
+			agent.SetConcreteValueDefaultMethodPrefixes(rs.ConcreteValuesDefaultMethodPrefixes)
+		}
 		// Phase 4 (Semantic Surface Contract) master switch.
 		if rs.PipelineFacetValidatorsEnabled != nil {
 			orchestrator.SetFacetValidatorsEnabled(*rs.PipelineFacetValidatorsEnabled)

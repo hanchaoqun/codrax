@@ -334,6 +334,32 @@ type RuntimeSettings struct {
 	// equal-footing with ranker QueryScore hits — never blocks).
 	AnalyzerMentionCountMaxGrep *int `yaml:"analyzer_mention_count_max_grep"`
 
+	// ConcreteValuesConfigLayerExtensions overrides the default
+	// list of file extensions that signal "this file IS the config
+	// layer" for concrete_values evidence DiagramRole projection.
+	// Default covers .yaml / .yml / .toml / .json5 / .ini / .cfg /
+	// .properties / .env / .tf / .hcl. Operators add e.g. ".conf"
+	// or ".nix" for project-specific conventions; leading "." is
+	// auto-prepended if missing.
+	ConcreteValuesConfigLayerExtensions []string `yaml:"concrete_values_config_layer_extensions"`
+
+	// ConcreteValuesRuntimeMethodPrefixes overrides the default
+	// list of method-name prefixes that signal "this method
+	// registers / binds something into the runtime layer" for
+	// concrete_values evidence DiagramRole projection. Default
+	// covers Register / Bind / Wire. Operators add e.g. "Provide"
+	// (DI frameworks) or "Inject" (fx-style) for project-specific
+	// naming conventions. Case-sensitive.
+	ConcreteValuesRuntimeMethodPrefixes []string `yaml:"concrete_values_runtime_method_prefixes"`
+
+	// ConcreteValuesDefaultMethodPrefixes overrides the default
+	// list of method-name prefixes that signal "this method
+	// produces values for the default layer" for concrete_values
+	// evidence DiagramRole projection. Default covers Default /
+	// Defaults. Operators add e.g. "Baseline" / "Initial" for
+	// project-specific defaults-feeder naming. Case-sensitive.
+	ConcreteValuesDefaultMethodPrefixes []string `yaml:"concrete_values_default_method_prefixes"`
+
 	// PipelineFacetValidatorsEnabled (Phase 4 of Semantic Surface
 	// Contract, 2026-05-02) is the master switch for the three new
 	// finalizer-side oracles: runFacetCoverageOracle (SOFT) +
