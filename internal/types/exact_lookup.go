@@ -755,6 +755,18 @@ func ConfigTraceGroundedContextAnchorAllowedInFiles(contract *ExactResolutionCon
 	if item.Source == "" {
 		return false
 	}
+	// 2026-05+ explicit scope guard. Pre-fix this function relied on
+	// implicit filtering: schema-level scopes (File / Crossfile /
+	// Negative) had empty AnchorKind/DiagramRole and naturally
+	// dropped at the per-line role validation downstream. The guard
+	// makes the filtering explicit so a future change that no
+	// longer blanks AnchorKind cannot silently let a schema-level
+	// item through this line-anchored allowlist. Schema-level cites
+	// flow through the dedicated stage-6 branch in
+	// validateConfigTraceAbsenceCitationFocus + buildSummaryDiagramAllowlist.
+	if !item.Scope.IsLineShaped() {
+		return false
+	}
 	switch item.GroundingStatus {
 	case GroundingGrounded, GroundingRecovered:
 	default:
@@ -795,6 +807,15 @@ func ConfigTraceSurfaceDiagramRoleInFiles(contract *ExactResolutionContract, ite
 
 func ConfigTraceValidatedDiagramRoleInFiles(contract *ExactResolutionContract, item EvidenceItem, requiredFiles []string) EvidenceDiagramRole {
 	if item.Source == "" {
+		return EvidenceDiagramRoleUnknown
+	}
+	// 2026-05+ explicit scope guard — schema-level scopes have no
+	// per-line DiagramRole semantics. They flow through the
+	// stage-6 schema-level branch instead of the line-anchored
+	// DiagramRole path. Without this guard, future schema changes
+	// that allow schema-level scopes to carry DiagramRole would
+	// silently confuse the line-anchored validator downstream.
+	if !item.Scope.IsLineShaped() {
 		return EvidenceDiagramRoleUnknown
 	}
 	switch item.GroundingStatus {
