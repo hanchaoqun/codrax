@@ -15,6 +15,26 @@ func TestIsPlumbingFailureViolation_ClassifiesAuthorityOverreach(t *testing.T) {
 	}
 }
 
+// TestIsPlumbingFailureViolation_ClassifiesBlock1ReviewerKinds pins the
+// audit-4.7 fix: Block 1 reviewer-side kinds (PlanCritic /
+// ReflectorObservation) are operational reviewer signals, not
+// answer-content lessons. Letting them flow to the answer_taxonomy
+// cross-Run learning pool pollutes future Runs' analyzer with
+// reviewer plumbing noise. AnswerReviewerDistilled deliberately NOT
+// in plumbing — that IS the answer-quality lesson the reviewer
+// distilled.
+func TestIsPlumbingFailureViolation_ClassifiesBlock1ReviewerKinds(t *testing.T) {
+	if !isPlumbingFailureViolation(types.ViolPlanCritic) {
+		t.Errorf("ViolPlanCritic should be plumbing-classified (reviewer informational signal)")
+	}
+	if !isPlumbingFailureViolation(types.ViolReflectorObservation) {
+		t.Errorf("ViolReflectorObservation should be plumbing-classified (reviewer informational signal)")
+	}
+	if isPlumbingFailureViolation(types.ViolAnswerReviewerDistilled) {
+		t.Errorf("ViolAnswerReviewerDistilled must NOT be plumbing — it carries the cross-Run answer-quality lesson")
+	}
+}
+
 // TestIsPlumbingFailureViolation_AnswerQualityKindsPassThrough:
 // content-related violations must be eligible for taxonomy collection.
 func TestIsPlumbingFailureViolation_AnswerQualityKindsPassThrough(t *testing.T) {

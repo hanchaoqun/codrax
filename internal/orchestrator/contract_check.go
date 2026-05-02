@@ -370,6 +370,18 @@ func isPlumbingFailureViolation(k types.ViolationKind) bool {
 		// Fires only when the renderer was bypassed (IsZero raw-
 		// prose fallback) — not an answer-quality issue.
 		return true
+	case types.ViolPlanCritic, types.ViolReflectorObservation:
+		// Block 1 reviewer-side observational signals (commit
+		// 2f76dac). These are operational reviewer outputs the
+		// system uses internally — they describe "the
+		// reviewer LLM had something to say" not "the answer
+		// has a quality bug". Letting them flow to the
+		// answer_taxonomy cross-Run learning pool would distract
+		// future Runs' analyzer with reviewer plumbing noise.
+		// ViolAnswerReviewerDistilled is deliberately NOT here
+		// — it IS an answer-quality lesson (the reviewer's whole
+		// purpose is to surface those for the taxonomy).
+		return true
 	}
 	return false
 }
