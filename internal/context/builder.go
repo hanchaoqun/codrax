@@ -1197,14 +1197,21 @@ func formatEvidenceItemsWithOptions(items []types.EvidenceItem, limit int, opts 
 	// Diagnostic: top-25 producer histogram. Retained because operators
 	// investigating "why didn't my emit show up in Structured Evidence"
 	// benefit from the real producer distribution at the rendering site.
+	//
+	// Phase 0 of the Semantic Surface Contract rollout
+	// (docs/design/semantic_surface_contract_phases.md §0): each trace
+	// row also carries the deterministic ClaimForm projection so
+	// future Phase-4 validators have a documented signal to reason
+	// about. The per-row claim_form value is read-only — Phase 0
+	// does NOT change emission or grounding behaviour.
 	if len(items) > 0 {
 		counts := map[string]int{}
 		for i, it := range items {
 			if i >= 25 {
 				break
 			}
-			logging.Debug("[trace/fev] %d producer=%q src=%s:%d subj=%q kind=%q grounding=%s",
-				i, it.Producer, it.Source, it.LineStart, it.Subject, it.Kind, it.GroundingStatus)
+			logging.Debug("[trace/fev] %d producer=%q src=%s:%d subj=%q kind=%q claim_form=%q grounding=%s",
+				i, it.Producer, it.Source, it.LineStart, it.Subject, it.Kind, types.ClaimFormOf(it), it.GroundingStatus)
 			counts[it.Producer]++
 		}
 		logging.Debug("[trace/fev] total=%d top25 producer histogram: %v", len(items), counts)
