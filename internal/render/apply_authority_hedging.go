@@ -319,6 +319,13 @@ func upsertHedgeMarker(text, marker string) string {
 // leading marker is weaker (or absent). Mirrors upsertHedgeMarker for
 // callers (Summary / Rationale) that want the terse reason in
 // addition to the marker.
+//
+// Round-7 fix: stale-reason stripping is now SYSTEM-MATCH ONLY. Pre-
+// fix, the helper stripped any leading `(...)` after a stale marker,
+// which would corrupt legitimate prose like "(in older Go versions)
+// X happens" on a ceiling-upgrade retry — losing the user's real
+// parenthetical content. Now we only strip when the leading bracket
+// EXACTLY matches one of the system's known terse reasons.
 func upsertHedgePrefix(text, marker, fullPrefix string) string {
 	text = strings.TrimSpace(text)
 	if hasMarker, current := leadingHedgeMarker(text); hasMarker {
@@ -326,21 +333,41 @@ func upsertHedgePrefix(text, marker, fullPrefix string) string {
 			return text
 		}
 		text = strings.TrimSpace(strings.TrimPrefix(text, current))
-		// Drop the leading short-reason that travelled with the older
-		// marker. Byte limits are generous (round-4): Chinese terse
-		// reason is up to ~80 bytes UTF-8; long-form prose seen on
-		// upgrade-from-prior-Caveat paths can be longer.
-		if strings.HasPrefix(text, "(") {
-			if end := strings.Index(text, ")"); end > 0 && end < 200 {
-				text = strings.TrimSpace(text[end+1:])
-			}
-		} else if strings.HasPrefix(text, "（") {
-			if end := strings.Index(text, "）"); end > 0 && end < 400 {
-				text = strings.TrimSpace(text[end+len("）"):])
-			}
-		}
+		text = stripLeadingSystemTerseReason(text)
 	}
 	return strings.TrimSpace(fullPrefix + " " + text)
+}
+
+// stripLeadingSystemTerseReason removes a leading bracketed phrase
+// IFF it matches one of the system's known terse reasons (returned
+// by shortHedgeReasonFor across both ceilings × both languages).
+// Legitimate user prose that happens to begin with a parenthetical
+// is preserved verbatim. Idempotent: no match → text returned as-is.
+func stripLeadingSystemTerseReason(text string) string {
+	for _, reason := range knownSystemTerseReasons() {
+		if strings.HasPrefix(text, reason) {
+			return strings.TrimSpace(text[len(reason):])
+		}
+	}
+	return text
+}
+
+// knownSystemTerseReasons is the canonical set of bracketed reason
+// phrases the system might have prepended next to a hedge marker.
+// Update this when shortHedgeReasonFor adds a new ceiling × language
+// combination — without an update, the new phrase would be retained
+// as stale on ceiling upgrade.
+func knownSystemTerseReasons() []string {
+	return []string{
+		// English
+		"(log-derived; code drifted)",
+		"(historical observation)",
+		"(illustrative only)",
+		// Chinese
+		"（基于日志，当前代码已漂移）",
+		"（旧构建历史观察）",
+		"（示例，未验证）",
+	}
 }
 
 // leadingHedgeMarker reports whether text begins with one of the
@@ -418,9 +445,12 @@ func StripAuthorityArtifacts(text string) string {
 }
 
 // stripInlineMarkerWithReason removes every occurrence of `marker`
-// AND any immediately-following bracketed reason phrase (English `()`
-// or Chinese `（）`). Loop-based replace handles multiple inline
-// occurrences in the same line.
+// AND any immediately-following SYSTEM-GENERATED terse reason. Loop-
+// based replace handles multiple inline occurrences in the same line.
+//
+// Round-7 fix: legitimate parentheticals after a marker are
+// preserved (e.g. "X [hedged] (legacy code path) happens" keeps the
+// "(legacy code path)" while removing only "[hedged]").
 func stripInlineMarkerWithReason(line, marker string) string {
 	for {
 		idx := strings.Index(line, marker)
@@ -429,16 +459,9 @@ func stripInlineMarkerWithReason(line, marker string) string {
 		}
 		head := line[:idx]
 		tail := strings.TrimLeft(line[idx+len(marker):], " \t")
-		// Drop adjacent reason bracket if present.
-		if strings.HasPrefix(tail, "(") {
-			if end := strings.Index(tail, ")"); end > 0 && end < 200 {
-				tail = strings.TrimSpace(tail[end+1:])
-			}
-		} else if strings.HasPrefix(tail, "（") {
-			if end := strings.Index(tail, "）"); end > 0 && end < 400 {
-				tail = strings.TrimSpace(tail[end+len("）"):])
-			}
-		}
+		// Drop adjacent reason ONLY when it matches a system-generated
+		// terse reason exactly. User-authored parentheticals survive.
+		tail = stripLeadingSystemTerseReason(tail)
 		// Stitch with a single space when both sides have content.
 		separator := ""
 		if strings.TrimRight(head, " \t") != "" && tail != "" {
@@ -449,7 +472,14 @@ func stripInlineMarkerWithReason(line, marker string) string {
 }
 
 // stripLeadingMarkerAndReason drops a leading marker AND any
-// immediately-following bracketed reason phrase. Whitespace-tolerant.
+// immediately-following SYSTEM-GENERATED terse reason. Whitespace-
+// tolerant.
+//
+// Round-7 fix: only matches the system's canonical terse reason
+// phrases. Pre-fix, any leading `(...)` after a marker was stripped,
+// corrupting cases like "[hedged] (in older Go) X" where the user
+// followed a marker with a legitimate parenthetical. Now legitimate
+// parentheticals are preserved.
 func stripLeadingMarkerAndReason(line string) string {
 	rest := strings.TrimLeft(line, " \t")
 	leadingSpaces := line[:len(line)-len(rest)]
@@ -458,19 +488,7 @@ func stripLeadingMarkerAndReason(line string) string {
 		return line
 	}
 	rest = strings.TrimSpace(strings.TrimPrefix(rest, marker))
-	// Byte limits raised in round-4: Chinese terse reason is up to ~80
-	// bytes (UTF-8 3 bytes/char); long-form caveat body is even longer
-	// when the markers travel inline (defense in depth — the caveat
-	// itself is dropped via the line-prefix rule above).
-	if strings.HasPrefix(rest, "(") {
-		if end := strings.Index(rest, ")"); end > 0 && end < 200 {
-			rest = strings.TrimSpace(rest[end+1:])
-		}
-	} else if strings.HasPrefix(rest, "（") {
-		if end := strings.Index(rest, "）"); end > 0 && end < 400 {
-			rest = strings.TrimSpace(rest[end+len("）"):])
-		}
-	}
+	rest = stripLeadingSystemTerseReason(rest)
 	return leadingSpaces + rest
 }
 

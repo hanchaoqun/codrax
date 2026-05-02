@@ -119,12 +119,28 @@ func TestStripInlineMarkerWithReason_RemovesMidLineReason(t *testing.T) {
 }
 
 // TestStripInlineMarkerWithReason_HandlesChineseBrackets covers
-// the wide-char path; round-4 raised the byte-length cap so the
-// long-form Chinese reason is also stripped.
+// the wide-char path; round-7 narrowed strip to system-canonical
+// terse reasons only, so the test uses the actual terse reason
+// shortHedgeReasonFor produces (not the long-form caveat body).
 func TestStripInlineMarkerWithReason_HandlesChineseBrackets(t *testing.T) {
-	in := "前文 " + HedgeMarkerHistorical + " （旧构建中的历史观察；当前代码已重构或对应符号已不存在）后文。"
+	terse := shortHedgeReasonFor(types.AuthorityHistorical, answerDocLangZH)
+	in := "前文 " + HedgeMarkerHistorical + " " + terse + "后文。"
 	out := stripInlineMarkerWithReason(in, HedgeMarkerHistorical)
-	if strings.Contains(out, "历史观察") {
-		t.Errorf("zh inline reason not stripped: %q", out)
+	if strings.Contains(out, terse) {
+		t.Errorf("zh terse reason not stripped: %q", out)
+	}
+}
+
+// TestStripInlineMarkerWithReason_PreservesLongFormParenthetical:
+// round-7 guarantee — the long-form caveat body (used only inside
+// doc.Caveats[]) when found inline next to a marker is treated as
+// user prose and PRESERVED. The long form should never travel
+// inline anyway, but if it does, we don't corrupt the prose.
+func TestStripInlineMarkerWithReason_PreservesLongFormParenthetical(t *testing.T) {
+	longForm := "（旧构建中的历史观察；当前代码已重构或对应符号已不存在）"
+	in := "前文 " + HedgeMarkerHistorical + " " + longForm + "后文。"
+	out := stripInlineMarkerWithReason(in, HedgeMarkerHistorical)
+	if !strings.Contains(out, longForm) {
+		t.Errorf("long-form parenthetical (treated as user prose) was stripped: %q", out)
 	}
 }
