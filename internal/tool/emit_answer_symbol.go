@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/hanchaoqun/codrax/internal/authority"
 	"github.com/hanchaoqun/codrax/internal/tool/ground"
 	"github.com/hanchaoqun/codrax/internal/types"
 )
@@ -261,6 +262,25 @@ func (t *EmitAnswerSymbol) Execute(ctx *types.BusContext, params json.RawMessage
 	// the whole ProposeSubAgents list → finalizer answered 0.
 	if len(built) == 0 && len(dropped) > 0 {
 		return failEmit(t.Name(), now, "%s", strings.Join(dropped, "; "))
+	}
+
+	// AuthorityCeiling axis (commit 4 of the drift-bounded rollout).
+	// For each surviving AnswerSymbol, look up the WEAKEST
+	// AuthorityCeiling among any evidence items anchored at (File,
+	// Line ±slack) and pin it on the symbol. The choice of "weakest"
+	// is load-bearing: an answer symbol's claim strength is bounded
+	// by its weakest underlying support — if even one supporting
+	// evidence item is conditional/historical, the symbol's prose
+	// must hedge accordingly. With the gate off (default), Lowest-
+	// AuthorityFor returns AuthorityUnknown across the board and
+	// every symbol's Authority stays at zero value (legacy
+	// passthrough; renderer treats it as factual-equivalent).
+	if authority.Enabled() {
+		evidence := ctx.Mutable.EmittedEvidence()
+		for i := range built {
+			built[i].Authority = authority.LowestAuthorityFor(
+				evidence, built[i].File, built[i].Line)
+		}
 	}
 
 	// Set semantics: this REPLACES any previous slate + claim. On a
