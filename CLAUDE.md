@@ -372,6 +372,45 @@ Pipeline topology (stages/agents/skills) is code-only; no YAML counterpart.
 
 `-lang` (default `zh`) → `orchestrator.SetLanguage` → appended to `BusContext.Preferences` → rendered as a "User Preferences" system section. Always includes a fallback clause so a question in another language is answered in that language. `-lang=off` / `none` reverts.
 
+## Block 1+2+3 architecture overhaul (2026-05-02)
+
+Three structurally-related upgrades shipped in commits `2f76dac` (Block 1) → `dd17621` (Block 2) → `2dae669` (Block 3) turn `EvidenceClosure` into a global stage-aware event bus, add Intent / Subject / PredicateAxis structural oracles to `contract.Check`, and replace the one-shot "any failure requeues every node" finalize-retry path with selective upstream fallback driven by per-`ViolationKind` policy.
+
+**Block 1 — closure as global event bus**:
+- `ClosureStats.PerStage map[string]StageStats` carries per-pipeline-stage `{Retries, Violations, Contradictions, Repairs, PendingReads, ForcedReads}` counters. Stage keys use the `types.PipelineStage` string ("analyze"/"explore"/"extract"/"finalize"/"plan"/"apply"/"verify").
+- `closure.AppendViolation` auto-bumps `PerStage[Stage].Violations` and special-cases `ViolSelfContradiction` into the `Contradictions` sub-counter. Empty-Stage entries skip the bump (clean map).
+- `closure.IncrementStageRetry(stage)` is the public API the orchestrator's retry sites call (read-mode `analyze` retry via `MutableState.AppendAnswerRetryEvent`, finalize retry inside the contract-failure switch, write-mode verify→plan retry inside `write_scheduler.go`).
+- `closure.StageHealthSnapshot()` returns a copy merging `PerStage` scalars + lock-free `PendingRead.Origin → stage` derivation. The single read API for "what happened in stage X" — Block 3 callers MUST use this rather than poking `PerStage` directly.
+- `closure.ViolationStageTally()` / `TopSuspectedStage()` mirror the existing `IRField` versions for Block 3's fallback-target picker.
+- `closure.Reset()` clears `fileTotalLines` (was a pre-Block-1 latent bug) and `PerStage` (free via struct re-assignment).
+- 3 new `ViolationKind` reviewer-side values, all SOFT-by-default: `ViolPlanCritic` (Stage="plan"), `ViolReflectorObservation` (Stage="verify"), `ViolAnswerReviewerDistilled` (Stage="finalize"). Plan critic / reflector / answer reviewer all DUAL-WRITE: their LLM-facing channel (`PlanCritique` text / `PlanningHint` / `failure_taxonomy` cache) stays unchanged; the closure write is the system-facing channel for the new health-snapshot consumers.
+- `PlanCritic.Review()` now returns structured `PlanCriticVerdict{Risks, Confidence}` (instead of pre-rendered prose). `AssemblePlanCritiqueProse` renders the operator-facing `/plan show` blob; `PlanCriticConfidenceFloat` maps `high/medium/low` → `{0.9, 0.6, 0.3}` for `SuspectedRoot.Confidence` — caller (`stage_hooks.planPostHook`) appends one `ViolPlanCritic` per Risk.
+- `emitCGECSummary` adds a second `[CGEC] perStage:` line in canonical pipeline order, only printing non-empty stages. Existing `[CGEC] summary:` line stays byte-identical for legacy log parsers.
+- Hot-path overhead ≈ 2.8 µs/op extra per `AppendViolation` (single map write); `StageHealthSnapshot` ≈ 2.6 µs/op. Negligible vs LLM round-trips.
+
+**Block 2 — Intent / Subject / PredicateAxis oracles**:
+- `internal/types/axis_anchor_map.go`: `PredicateAxisToAnchorKinds(axis)` returns the set of `AnchorKind` values acceptable as proof of the named axis. Multi-value sets: `AxisRegister → {AnchorCall, AnchorAssignment}`, `AxisConfigure → {AnchorAssignment, AnchorDefinition}`. Single-value sets for `AxisCall / AxisDefine / AxisReturn / AxisCondition / AxisImplement`. `AxisUnknown` returns nil. `PredicateAxisHasMatchingAnchor(axis, item)` is the per-evidence helper. Adding a new `PredicateAxis` constant MUST add a row here too — `TestPredicateAxisToAnchorKinds_AllAxesCovered` is the structural gate.
+- 6 new `ViolationKind` values, all SOFT-by-default (`pipeline_contract_strict_kinds` promotes individually): `ViolIntentTraceShallow`, `ViolIntentEnumerateNotList`, `ViolIntentRootCauseNoCause`, `ViolIntentConfigNoTrail`, `ViolSubjectAnchorMissing`, `ViolPredicateAxisMissing`.
+- `runIntentCoverageOracle(doc, rm)` (`internal/orchestrator/contract_check.go`): per-Intent rules — `IntentTrace` requires ≥2 step hops OR a sequenceDiagram fenced block; `IntentEnumerate` requires `list_of_symbols` shape OR `step_list` with ≥2 items; `IntentRootCause` requires ≥1 citation; `IntentConfigQuery` requires `value`/`config_value` shape OR ≥1 citation in a config-shaped path (yaml/json/toml/ini/.env/shell rc — `isConfigShapedPath` is pure extension/basename match).
+- `runSubjectAnchorOracle(doc, rm)`: when `AnswerSubject.Kind` names a concrete identifier (`SubjectFunctionName / SubjectTypeName / SubjectHandlerRoute / SubjectConfigKey / SubjectStructField / SubjectInterface`) at confidence ≥ `subjectAnchorOracleFloor` (0.6), at least one of `AnswerSubject.EntityAxes` MUST appear verbatim in `doc.Symbols[i].Name` OR any inline backtick `code` token in `summary` / step descriptions. `extractInlineCodeTokens` walks single-backtick pairs while skipping fenced ` ``` ` blocks.
+- `runPredicateAxisOracle(doc, rm, mut)`: walks `Mutable.TurnAArtifacts().EvidenceItems` for any `AnchorKind` matching the declared axis's allowed set (per `PredicateAxisToAnchorKinds`). Skips when `PredicateAxis == AxisUnknown` OR no evidence has a non-empty `AnchorKind`.
+- All three oracles run AFTER the existing `runAnswerShapeOracle` in the same `if mut != nil + ir + doc` guard. Violations flow through the same closure ledger + soft/strict gate. Red lines: oracle inputs are LLM-emitted IR fields + closure data only — zero question-text matching, zero system-derived `Scenario` reads.
+
+**Block 3 — selective upstream fallback policy**:
+- `internal/orchestrator/fallback_policy.go`: `FallbackTarget` enum (`FinalizerOnly` / `BackToExtract` / `BackToExplore` / `BackToAnalyze` / `FailLoud`). `DefaultFallbackPolicy` returns the canonical map (26+ kinds). `FallbackTargetForKind(kind)` defaults to `FinalizerOnly` for unmapped kinds. `FallbackTargetForViolations(vs)` picks the deepest target across the set (rank: `FailLoud > BackToAnalyze > BackToExplore > BackToExtract > FinalizerOnly`).
+- Per-kind defaults: `ViolSelfContradiction / ViolCitation / ViolGhostAnchor / ViolAcceptance / ViolSuccessCriterion / ViolChainDemoted / ViolIntentTraceShallow / ViolIntentRootCauseNoCause / ViolIntentConfigNoTrail / ViolPredicateAxisMissing` → `BackToExplore`. `ViolDeclaredCountDrift / ViolSubjectAnchorMissing` → `BackToExtract`. Block-1 reviewer kinds (`ViolPlanCritic` / `ViolReflectorObservation` / `ViolAnswerReviewerDistilled`) → `FailLoud` (informational, never block). Everything else → `FinalizerOnly`.
+- `SetFallbackPolicyOverrides(map[string]string)` consumes the yaml-supplied `pipeline_fallback_policy_overrides` map; unknown kinds/targets silently dropped. Restored to defaults via `nil` argument.
+- `graphState.requeueToStage(stage, writing)` walks every node, computes its scheduler stage via `stageMapping`, and requeues only the matching nodes — plus finalize always requeues. Returns the requeued IDs for logging.
+- `MutableState.ResetForFallback(target)` performs partial reset: `Finalizer` clears `AnswerDocument`; `Extract` adds `EmittedAnswerSymbols`; `Explore` adds `ChangePlan` + `closure.ClearPendingReads` while preserving Evidence/ScannedSet/ReadSet (sunk cost). `Analyze` is no-op (red line: classifier reset is fail-loud).
+- The contract-failure block at `orchestrator.go:3618-3727` switches on `FallbackTargetForViolations(res.Violations)`; `FailLoud` jumps to `contractFailureBreak` (skip retry loop); `BackToExtract` / `BackToExplore` increment `state.upstreamFallbacksUsed` capped by `maxUpstreamFallbacksPerRun` (default 2 via `PipelineSettings.MaxUpstreamFallbacksPerRun`; yaml `pipeline_max_upstream_fallbacks_per_run`). Reaching the cap forces FailLoud regardless of policy mapping.
+- Coordination: existing `retryBudgetExhausted` / `RetryBudgetByKind` / yield-kill gates run BEFORE the new switch (most-strict-wins). The yield-kill axes (`ForcedReads + ScannedSetSize + ViolationsLogged`) naturally encode stage activity — FinalizerOnly retries that produce no new yield drop to the existing kill path.
+
+**Red lines held across all three blocks**:
+- All new oracle inputs are typed enums (`Intent`/`AnswerShape`/`PredicateAxis`/`AnchorKind`) or LLM-emitted IR fields; zero `strings.Contains` on `RawRequest`/`Objective`/question text.
+- All new `ViolationKind` values default SOFT — operators promote to strict via existing `pipeline_contract_strict_kinds` yaml.
+- `BackToAnalyze` is reserved but never the default for any kind — re-classifying the user's request is fail-loud.
+- Reviewer dual-write keeps the original LLM-facing private channels (`PlanCritique` text / `PlanningHint` / `failure_taxonomy` disk cache) intact — closure write is system-facing only.
+
 ## Dependencies
 
 `gopkg.in/yaml.v3` only. Go 1.22.5. No linters, no CI config.

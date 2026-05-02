@@ -343,6 +343,34 @@ LLM 是系统的另一个用户。它读 prompt、看消息历史、emit 工具�
 - [ ] LLM 看到的术语(skill prompt / repair / caveat)是否前后一致?
 - [ ] 同一概念在不同位置是否同名?(如"drift-bounded"vs"drifted"vs"log-derived"是否需要统一)
 
+### 4.13 Reviewer 双轨写入维度(Block 1 后强约束)
+
+- [ ] 任何独立 LLM reviewer(self_consistency / plan_critic / reflector / answer_reviewer / acceptance_checker / future)是否在私有通道之外**也**写 closure?私有通道格式:
+  - self_consistency → 已写 closure(contract_check.go:164,基线)
+  - plan_critic → `ChangePlan.PlanCritique` 文本 + closure `ViolPlanCritic`(Block 1)
+  - reflector → `Mutable.PlanningHint` + closure `ViolReflectorObservation`(Block 1)
+  - answer_reviewer → `failure_taxonomy` 跨 Run 缓存 + closure `ViolAnswerReviewerDistilled`(Block 1)
+- [ ] 每个 reviewer 的 closure 写入是否填充 `Stage`?(空 Stage 不进入 PerStage 聚合)
+- [ ] 每个 reviewer 的 `SuspectedRoot.IRField` 是否唯一,避免与现有 IRField 撞车?
+- [ ] 新加 reviewer 时,`defaultSoftKinds` 是否同步加入 SOFT 默认?(reviewer 信号默认不该阻塞流水线)
+
+### 4.14 Intent / Subject / PredicateAxis 一致性维度(Block 2 后强约束)
+
+- [ ] runIntentCoverageOracle 输入只来自 `rm.Intent` + `doc.Shape/Steps/Citations`,无 `RawRequest` 文本扫描?
+- [ ] runSubjectAnchorOracle 检查 `AnswerSubject.Confidence ≥ 0.6` 并仅在 Kind ∈ 6 个 concrete 之一时启用?
+- [ ] runPredicateAxisOracle 在 `PredicateAxis == AxisUnknown` 时 silent skip,`AnchorKind=""` 的 EvidenceItem 不参与匹配?
+- [ ] `PredicateAxisToAnchorKinds` 表对每个新 `PredicateAxis` 常量都有非空映射?(`TestPredicateAxisToAnchorKinds_AllAxesCovered` 是结构性测试网)
+- [ ] 6 个新 `Viol Intent*/Subject*/PredicateAxis*` ViolationKind 默认 SOFT?
+
+### 4.15 Fallback 路由合理性维度(Block 3 后强约束)
+
+- [ ] `DefaultFallbackPolicy` 对 `AllViolationKinds()` 中每个 kind 都有显式映射?(`TestDefaultFallbackPolicy_CoversEveryViolationKind`)
+- [ ] 路由方向是否符合"reviewer-specific"原则?(纯 shape / 字段 → FinalizerOnly;证据问题 → BackToExplore;slate 问题 → BackToExtract;reviewer 信号 → FailLoud)
+- [ ] `BackToAnalyze` 是否 reserved 但不作为任何 kind 的默认值?(红线:re-classify 是 fail-loud)
+- [ ] `pipeline_max_upstream_fallbacks_per_run`(默认 2)是否兜住 explore→finalize→explore 死循环?
+- [ ] `MutableState.ResetForFallback` 协议是否对每个 target 都有合理清理范围?(Finalizer 只清 doc;Extract 加 slate;Explore 加 plan + pendingReads;Analyze 是 no-op)
+- [ ] 现有 yield-kill 机制(captureYieldSnapshot 4 轴)在 selective fallback 下是否仍能检测 zero-yield retry?
+
 ---
 
 ## 5. 已知红线汇编(Known Red Lines — DO NOT VIOLATE)
