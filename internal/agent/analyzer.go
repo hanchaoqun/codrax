@@ -271,6 +271,8 @@ func plainCoherenceDetail(detail string) string {
 		"R1.1 domain_divergence: ",
 		"R1.2 predicate_contradiction: ",
 		"R1.3 entity_orphan: ",
+		"R1.4 axis_collapse: ",
+		"R1.5 entity_unresolvable: ",
 		"R2.1 scalar_multi_topic: ",
 		"R2.2 explanation_scalar_subject: ",
 	} {
@@ -1222,10 +1224,16 @@ func buildAnalysisIR(ctx *types.AgentContext) (*types.AnalysisIR, error) {
 	// them as entities AND the repo actually defines that identifier.
 	// Graph failures degrade silently to the no-resolver path — a
 	// regression-free fallback with the same signature as before.
+	//
+	// The resolver is hoisted into a local so the same instance flows
+	// to gate.RunWith below, where R1.4 (axis_collapse) and R1.5
+	// (entity_unresolvable) query it to validate sub-topic entity
+	// claims against repo ground truth.
+	resolver := newRepomapSymbolResolver(analyzerGraphForNormalize(ctx, rm))
 	rm.TermGraph = normalizer.Normalize(
 		rm.RawRequest,
 		normalizer.Options{
-			Resolver: newRepomapSymbolResolver(analyzerGraphForNormalize(ctx, rm)),
+			Resolver: resolver,
 			Entities: rm.AnalyzerHints.Entities,
 		},
 	)
@@ -1453,7 +1461,7 @@ func buildAnalysisIR(ctx *types.AgentContext) (*types.AnalysisIR, error) {
 	if ctx != nil && ctx.Mode != "" {
 		mode = string(ctx.Mode)
 	}
-	ir.QualityGate = gate.Run(ir, gate.GlobalThresholds(), mode)
+	ir.QualityGate = gate.RunWith(ir, gate.GlobalThresholds(), mode, gate.RunOptions{Resolver: resolver})
 
 	// Writeback the reconciled RequestModel to Mutable so downstream
 	// agents reading via ctx.Mutable.RequestModel() see the same

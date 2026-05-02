@@ -24,9 +24,21 @@ import (
 
 	"github.com/hanchaoqun/codrax/internal/analysis/criterion"
 	"github.com/hanchaoqun/codrax/internal/analysis/hdp"
+	"github.com/hanchaoqun/codrax/internal/analysis/normalizer"
 	"github.com/hanchaoqun/codrax/internal/analysis/priority"
 	"github.com/hanchaoqun/codrax/internal/types"
 )
+
+// RunOptions carries optional, non-Threshold inputs to the quality
+// gate. Resolver, when non-nil, lets coherence checks query the
+// repomap symbol table directly so sub-topic entity claims can be
+// validated against repo ground truth (R1.4 axis_collapse + R1.5
+// entity_unresolvable). Nil resolver is always safe — checks that
+// require it become no-ops, preserving pre-RunOptions behaviour for
+// tests / write mode / any caller without a graph.
+type RunOptions struct {
+	Resolver normalizer.SymbolResolver
+}
 
 // Thresholds control the numeric gate cutoffs.
 type Thresholds struct {
@@ -114,6 +126,15 @@ func (t Thresholds) withDefaults() Thresholds {
 // that doesn't exist yet. Skipping the read-mode checks lets the
 // analyzer finish classifying intent and hand off to the planner.
 func Run(ir *types.AnalysisIR, th Thresholds, mode string) types.GateReport {
+	return RunWith(ir, th, mode, RunOptions{})
+}
+
+// RunWith is the resolver-aware variant of Run. Existing callers that
+// don't yet have a graph keep using Run (which forwards a zero-value
+// RunOptions); the analyzer agent threads its already-built repomap
+// resolver through opts.Resolver so checkSubtopicCoherence can validate
+// sub-topic entities against repo ground truth.
+func RunWith(ir *types.AnalysisIR, th Thresholds, mode string, opts RunOptions) types.GateReport {
 	th = th.withDefaults()
 	if ir == nil {
 		return types.GateReport{
@@ -140,8 +161,11 @@ func Run(ir *types.AnalysisIR, th Thresholds, mode string) types.GateReport {
 		// layers historically had to clean up after the fact. Both
 		// purely structural (no keyword tables) — they compare LLM-
 		// emitted IR fields against each other and against the
-		// repomap-verified TermGraph domains.
-		checks = append(checks, checkSubtopicCoherence(ir))
+		// repomap-verified TermGraph domains. R1.4 / R1.5 additionally
+		// query the resolver in opts.Resolver to validate sub-topic
+		// entity claims against repo ground truth; nil resolver makes
+		// those sub-rules no-op (test mode / no graph).
+		checks = append(checks, checkSubtopicCoherence(ir, opts.Resolver))
 		checks = append(checks, checkShapeSubjectCoherence(ir))
 	}
 	checks = append(checks, checkCriterionResolvable(ir))

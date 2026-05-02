@@ -5,6 +5,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/hanchaoqun/codrax/internal/analysis/normalizer"
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
@@ -82,7 +83,7 @@ const (
 // any of the underlying triggers — the downstream LLM does not need
 // to know which specific rule fired, only that its sub-topic count
 // is structurally wrong.
-func checkSubtopicCoherence(ir *types.AnalysisIR) types.GateCheck {
+func checkSubtopicCoherence(ir *types.AnalysisIR, resolver normalizer.SymbolResolver) types.GateCheck {
 	rm := ir.RequestModel
 	nSub := len(rm.SubTopics)
 
@@ -125,6 +126,99 @@ func checkSubtopicCoherence(ir *types.AnalysisIR) types.GateCheck {
 		}
 	}
 
+	// R1.5 — Sub-topic entity unresolvable (resolver-backed precision
+	// of R1.3). When nSub >= 2, every sub-topic must declare at least
+	// one entity that the repomap resolver maps to ≥1 hit. A sub-topic
+	// whose entities all return 0 hits is anchored to a token the repo
+	// does not define; the downstream multi-topic anchor backbone will
+	// strict-substring-match against an absent identifier and never
+	// satisfy. Catching it at the analyzer turns a downstream silent
+	// loop into a fail-loud retry. Disabled when resolver is nil (test
+	// mode, missing graph) so legacy callers stay byte-identical.
+	//
+	// R1.5 evaluates BEFORE R1.4 because dropping/renaming an
+	// unresolvable entity often resolves the axis-collapse trigger as
+	// a side-effect — preferring the more specific repair message
+	// saves an LLM round.
+	if resolver != nil && nSub >= 2 {
+		var unresolved []string
+		for i, st := range rm.SubTopics {
+			if len(st.Entities) == 0 {
+				continue
+			}
+			anyHit := false
+			for _, ent := range st.Entities {
+				if hits := resolver.LookupSymbol(strings.TrimSpace(ent)); len(hits) > 0 {
+					anyHit = true
+					break
+				}
+			}
+			if !anyHit {
+				unresolved = append(unresolved, fmt.Sprintf(
+					"sub-topic %d %q (entities=%s)",
+					i+1, summaryShort(st.Summary, 40),
+					formatStringList(st.Entities)))
+			}
+		}
+		if len(unresolved) > 0 {
+			return types.GateCheck{
+				Name:   "subtopic_coherence",
+				Passed: false,
+				Detail: "R1.5 entity_unresolvable: " + strings.Join(unresolved, "; ") +
+					" — every sub-topic must declare at least one entity the repo defines (resolver returns >=1 hit); rename to an existing symbol or drop the sub-topic",
+			}
+		}
+	}
+
+	// R1.4 — Sub-topic axis collapse.
+	// When the LLM emits ≥2 sub-topics whose resolver-validated
+	// entities all settle into ≤1 distinct repomap Domain, AND it
+	// self-judged IsCrossComponent=false, AND the question is
+	// enumeration-shaped (IsCategoryEnumeration OR Intent=enumerate),
+	// the LLM has decomposed a single enumeration axis into per-value
+	// sub-topics — a structural over-decomposition the multi-topic
+	// anchor backbone cannot satisfy.
+	//
+	// Each predicate is load-bearing:
+	//  - nSub >= 2: complementary to R1.1/R1.2 which guard the
+	//    under-count direction; R1.4 guards the over-decompose direction.
+	//  - ≤1 distinct Domain: same Domain semantic R1.1 uses (FileInfo
+	//    .Package + parent-dir fallback from symbol_resolver.go).
+	//  - !IsCrossComponent: an LLM-self-judged cross-component question
+	//    legitimately spans ≥2 subsystems — never collapse, the user
+	//    intent is the source of truth.
+	//  - IsCategoryEnumeration OR Intent=IntentEnumerate: enumeration is
+	//    the structural marker the LLM itself emits; without this guard
+	//    R1.4 would collide with multi-aspect explanations of one
+	//    component.
+	if resolver != nil && nSub >= 2 && !rm.Predicates.IsCrossComponent &&
+		(rm.Predicates.IsCategoryEnumeration || rm.Intent == types.IntentEnumerate) {
+		seen := make(map[string]bool)
+		for _, st := range rm.SubTopics {
+			for _, ent := range st.Entities {
+				for _, hit := range resolver.LookupSymbol(strings.TrimSpace(ent)) {
+					if d := strings.TrimSpace(hit.Domain); d != "" {
+						seen[d] = true
+					}
+				}
+			}
+		}
+		if len(seen) <= 1 {
+			collapsed := make([]string, 0, len(seen))
+			for d := range seen {
+				collapsed = append(collapsed, d)
+			}
+			sort.Strings(collapsed)
+			return types.GateCheck{
+				Name:   "subtopic_coherence",
+				Passed: false,
+				Detail: fmt.Sprintf(
+					"R1.4 axis_collapse: %d sub-topics all resolve to domain set %s (<=1 distinct domain) under enumeration intent — collapse to 1 sub-topic with answer_shape=list_of_symbols (each value as one item), or re-emit so sub-topic entities span >=2 distinct repomap domains",
+					nSub, formatDomainList(collapsed)),
+			}
+		}
+	}
+
 	return types.GateCheck{
 		Name:   "subtopic_coherence",
 		Passed: true,
@@ -132,6 +226,21 @@ func checkSubtopicCoherence(ir *types.AnalysisIR) types.GateCheck {
 		Detail: fmt.Sprintf("sub-topics=%d domains=%d primary_entities=%d",
 			nSub, len(domains), len(rm.AnalyzerHints.PrimaryEntities)),
 	}
+}
+
+// summaryShort truncates a sub-topic summary for inclusion in a gate
+// detail message. Cap at runeMax runes (not bytes) so multi-byte CJK
+// characters truncate cleanly. Trailing ellipsis indicates truncation.
+func summaryShort(s string, runeMax int) string {
+	s = strings.TrimSpace(s)
+	if runeMax <= 0 {
+		return s
+	}
+	r := []rune(s)
+	if len(r) <= runeMax {
+		return s
+	}
+	return string(r[:runeMax]) + "…"
 }
 
 // checkShapeSubjectCoherence enforces two cross-signal invariants on
