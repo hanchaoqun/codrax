@@ -1511,12 +1511,258 @@ func collectDiagramLogFrames(bundle *LogBundle) []LogFrame {
 	return resolved
 }
 
+// CollectLogObservedAnchors returns the FULL set of anchors where a
+// log frame matched (any drift OR no drift). Plan-A unification:
+// derives from EvidenceItem.Origin / DriftReason / Source / LineStart
+// pinned by the AuthorityCeiling axis at evidence emit time. When
+// the new path produces no result (e.g. ctx without evidence
+// projection — older test fixtures, single-shot CLI without bus),
+// falls back to the legacy detector for backward compatibility.
 func CollectLogObservedAnchors(rm RequestModel, bundle *LogBundle, items []EvidenceItem) []LogSourceDriftAnchor {
+	if derived := deriveLogObservedAnchorsFromEvidence(bundle, items); derived != nil {
+		return derived
+	}
 	return collectLogSourceAnchors(rm, bundle, items, 0)
 }
 
+// CollectLogSourceDriftAnchors returns ONLY the drifted subset
+// (line_drift / tail_rename / file_moved). Plan-A unification:
+// derives from items whose Authority is non-factual + Origin in
+// {log, perf}. Same legacy fallback for items without projection.
 func CollectLogSourceDriftAnchors(rm RequestModel, bundle *LogBundle, items []EvidenceItem) []LogSourceDriftAnchor {
+	if derived := deriveLogSourceDriftAnchorsFromEvidence(bundle, items); derived != nil {
+		return derived
+	}
 	return collectLogSourceAnchors(rm, bundle, items, logSourceDriftLineGap)
+}
+
+// deriveLogObservedAnchorsFromEvidence walks emitted evidence items
+// that the AuthorityCeiling axis classified as log/perf-derived OR
+// cross-source-confirmed. For each, locates the matching log frame
+// (by file + tail) to recover ObservedLine, then constructs a
+// LogSourceDriftAnchor. Returns nil when NO items carry projection
+// data (signals: legacy fallback path required).
+func deriveLogObservedAnchorsFromEvidence(bundle *LogBundle, items []EvidenceItem) []LogSourceDriftAnchor {
+	if bundle == nil || len(items) == 0 {
+		return nil
+	}
+	// Probe: does ANY item carry projection data?
+	if !anyEvidenceCarriesProjection(items) {
+		return nil
+	}
+	frames := collectDiagramLogFrames(bundle)
+	if len(frames) == 0 {
+		return nil
+	}
+	out := make([]LogSourceDriftAnchor, 0, len(items))
+	seen := make(map[string]bool)
+	for _, item := range items {
+		if !evidenceItemIsLogOrPerfRelated(item) {
+			continue
+		}
+		anchor, ok := buildAnchorFromEvidence(item, frames)
+		if !ok {
+			continue
+		}
+		key := anchorDedupKey(anchor)
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		out = append(out, anchor)
+	}
+	if len(out) == 0 {
+		// Projection ran but nothing log-related — return empty
+		// non-nil so the public function's nil-fallback is not
+		// triggered (NEW says "no log anchors here").
+		return []LogSourceDriftAnchor{}
+	}
+	sortLogSourceDriftAnchors(out)
+	return out
+}
+
+// deriveLogSourceDriftAnchorsFromEvidence is the drift-only subset:
+// items whose AuthorityCeiling is non-factual (the projection
+// detected drift). Mirrors deriveLogObservedAnchorsFromEvidence but
+// filters down to drifted items.
+func deriveLogSourceDriftAnchorsFromEvidence(bundle *LogBundle, items []EvidenceItem) []LogSourceDriftAnchor {
+	if bundle == nil || len(items) == 0 {
+		return nil
+	}
+	if !anyEvidenceCarriesProjection(items) {
+		return nil
+	}
+	frames := collectDiagramLogFrames(bundle)
+	if len(frames) == 0 {
+		return nil
+	}
+	out := make([]LogSourceDriftAnchor, 0, len(items))
+	seen := make(map[string]bool)
+	for _, item := range items {
+		if !evidenceItemIsLogOrPerfRelated(item) {
+			continue
+		}
+		// Drift subset: only items the projection marked non-factual
+		// (or that carry an explicit DriftReason). Cross-source +
+		// factual items are observed-but-not-drifted.
+		if !evidenceItemIsDrifted(item) {
+			continue
+		}
+		anchor, ok := buildAnchorFromEvidence(item, frames)
+		if !ok {
+			continue
+		}
+		key := anchorDedupKey(anchor)
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		out = append(out, anchor)
+	}
+	if len(out) == 0 {
+		return []LogSourceDriftAnchor{}
+	}
+	sortLogSourceDriftAnchors(out)
+	return out
+}
+
+// anyEvidenceCarriesProjection reports whether at least one item in
+// the slice carries Origin or Authority projection data. Used to
+// decide whether the NEW derivation path can run; nil result lets
+// callers fall back to the legacy detector for un-projected runs
+// (typical in unit tests that synthesise EvidenceItems without
+// going through emit_evidence).
+func anyEvidenceCarriesProjection(items []EvidenceItem) bool {
+	for _, item := range items {
+		if item.Origin != ClaimOriginUnknown || item.Authority != AuthorityUnknown {
+			return true
+		}
+	}
+	return false
+}
+
+// evidenceItemIsLogOrPerfRelated reports whether an item's
+// projection ties it to a log/perf frame (cross-source AND the
+// log-derived/perf-derived families).
+func evidenceItemIsLogOrPerfRelated(item EvidenceItem) bool {
+	switch item.Origin {
+	case ClaimOriginLog, ClaimOriginPerf, ClaimOriginCrossSource:
+		return true
+	}
+	return false
+}
+
+// evidenceItemIsDrifted reports whether an item's projection
+// indicates real drift (non-factual ceiling OR explicit DriftReason).
+func evidenceItemIsDrifted(item EvidenceItem) bool {
+	if item.DriftReason != "" {
+		return true
+	}
+	switch item.Authority {
+	case AuthorityConditional, AuthorityHistorical, AuthorityIllustrative:
+		return true
+	}
+	return false
+}
+
+// buildAnchorFromEvidence constructs a LogSourceDriftAnchor from a
+// projected EvidenceItem and the bundle's log-frame list. Returns
+// (anchor, true) on a usable construction; (zero, false) when the
+// item lacks the minimum data (file + matching frame) to produce a
+// renderable anchor.
+func buildAnchorFromEvidence(item EvidenceItem, frames []LogFrame) (LogSourceDriftAnchor, bool) {
+	itemFile := strings.TrimSpace(strings.ReplaceAll(item.Source, `\`, `/`))
+	if itemFile == "" {
+		return LogSourceDriftAnchor{}, false
+	}
+	itemTail := normalizedSurfaceSymbolTail(item.AnchorSymbol)
+	if itemTail == "" {
+		// Try OwnerSymbol as a fallback tail.
+		itemTail = normalizedSurfaceSymbolTail(item.OwnerSymbol)
+	}
+	// Find a matching frame. Match policy:
+	//   1. Same-file + same-tail line proximity (line_drift / observed)
+	//   2. Cross-file + same-tail (file_moved)
+	//   3. Same-file + any tail (tail_rename / projection-driven)
+	var matched *LogFrame
+	for i := range frames {
+		f := &frames[i]
+		ff := strings.TrimSpace(strings.ReplaceAll(f.File, `\`, `/`))
+		ft := normalizedSurfaceSymbolTail(f.Func)
+		if ff == itemFile && ft == itemTail && itemTail != "" {
+			matched = f
+			break
+		}
+	}
+	if matched == nil && item.DriftReason == DriftReasonFileMoved {
+		// File-moved case: log frame's file differs from item's
+		// current-code file. Match cross-file by tail.
+		for i := range frames {
+			f := &frames[i]
+			ft := normalizedSurfaceSymbolTail(f.Func)
+			if ft == itemTail && itemTail != "" {
+				matched = f
+				break
+			}
+		}
+	}
+	if matched == nil && item.DriftReason == DriftReasonTailRename {
+		// Tail-rename: item's tail differs from log's tail. Match
+		// by file alone, picking the frame whose Func is non-empty.
+		for i := range frames {
+			f := &frames[i]
+			ff := strings.TrimSpace(strings.ReplaceAll(f.File, `\`, `/`))
+			if ff == itemFile && strings.TrimSpace(f.Func) != "" {
+				matched = f
+				break
+			}
+		}
+	}
+	if matched == nil {
+		return LogSourceDriftAnchor{}, false
+	}
+
+	anchor := LogSourceDriftAnchor{
+		File:         itemFile,
+		Func:         strings.TrimSpace(matched.Func),
+		ObservedLine: matched.Line,
+		AnchoredLine: item.LineStart,
+		Reason:       item.DriftReason,
+	}
+	if item.DriftReason == DriftReasonFileMoved {
+		anchor.OriginalFile = strings.TrimSpace(strings.ReplaceAll(matched.File, `\`, `/`))
+		anchor.File = itemFile
+	}
+	if item.DriftReason == DriftReasonTailRename {
+		anchor.OriginalFunc = strings.TrimSpace(matched.Func)
+		// The "current" Func name is the item's anchor symbol.
+		if cur := strings.TrimSpace(item.AnchorSymbol); cur != "" {
+			anchor.Func = cur
+		}
+	}
+	return anchor, true
+}
+
+// anchorDedupKey produces a stable dedup key for a derived anchor.
+func anchorDedupKey(a LogSourceDriftAnchor) string {
+	return fmt.Sprintf("%s|%s|%d|%d|%s|%s|%s",
+		a.File, a.Func, a.ObservedLine, a.AnchoredLine,
+		a.OriginalFile, a.OriginalFunc, a.Reason)
+}
+
+// sortLogSourceDriftAnchors mirrors collectLogSourceAnchors's stable
+// ordering so legacy and derived outputs are byte-identical when
+// they cover the same anchor set.
+func sortLogSourceDriftAnchors(anchors []LogSourceDriftAnchor) {
+	sort.SliceStable(anchors, func(i, j int) bool {
+		if anchors[i].File != anchors[j].File {
+			return anchors[i].File < anchors[j].File
+		}
+		if anchors[i].ObservedLine != anchors[j].ObservedLine {
+			return anchors[i].ObservedLine < anchors[j].ObservedLine
+		}
+		return anchors[i].AnchoredLine < anchors[j].AnchoredLine
+	})
 }
 
 func CollectExternalObservationSeeds(bundle *LogBundle, observed []LogSourceDriftAnchor) []ExternalObservationSeed {
