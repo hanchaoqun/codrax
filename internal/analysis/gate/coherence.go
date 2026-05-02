@@ -111,7 +111,7 @@ func checkSubtopicCoherence(ir *types.AnalysisIR, resolver normalizer.SymbolReso
 			Name:   "subtopic_coherence",
 			Passed: false,
 			Detail: fmt.Sprintf(
-				"R1.2 predicate_contradiction: Predicates.IsCrossComponent=true but only %d sub-topic emitted — re-emit emit_analysis with one sub_topic per component the question compares (each sub_topic.summary names that component, sub_topic.entities lists its load-bearing identifiers); OR if the question is single-topic after all, set IsCrossComponent=false explicitly",
+				"R1.2 predicate_contradiction: Predicates.IsCrossComponent=true but only %d sub-topic emitted — re-emit emit_analysis with at least 2 sub_topics (\"cross-component\" implies >=2 components by definition). Each sub_topic.summary names one component (e.g. \"the explorer stage's retry mechanism\"), and sub_topic.entities lists identifiers visible in the analyzer's pre-scan repo_map view that anchor that component. OR if the question is actually single-topic after all, set IsCrossComponent=false explicitly",
 				nSub),
 		}
 	}
@@ -132,46 +132,76 @@ func checkSubtopicCoherence(ir *types.AnalysisIR, resolver normalizer.SymbolReso
 		}
 	}
 
-	// R1.5 — Sub-topic entity unresolvable (resolver-backed precision
-	// of R1.3). When nSub >= 2, every sub-topic must declare at least
-	// one entity that the repomap resolver maps to ≥1 hit. A sub-topic
-	// whose entities all return 0 hits is anchored to a token the repo
-	// does not define; the downstream multi-topic anchor backbone will
-	// strict-substring-match against an absent identifier and never
-	// satisfy. Catching it at the analyzer turns a downstream silent
-	// loop into a fail-loud retry. Disabled when resolver is nil (test
-	// mode, missing graph) so legacy callers stay byte-identical.
+	// R1.5 — Sub-topic entity asymmetry (resolver-backed precision of
+	// R1.3). The signal we're catching is INTRA-IR asymmetry: the
+	// original 2026-05-02 failure had nSub=3 where two sub-topics had
+	// concrete entities (PipelineMode, analyze, plan) but one had a
+	// hallucinated `mode_dispatch` token the repo never defined. The
+	// downstream multi-topic anchor backbone then strict-substring-
+	// matched against the absent identifier forever.
 	//
-	// R1.5 evaluates BEFORE R1.4 because dropping/renaming an
-	// unresolvable entity often resolves the axis-collapse trigger as
-	// a side-effect — preferring the more specific repair message
-	// saves an LLM round.
+	// Pre-2026-05-02 (initial commit) the rule fired when ANY sub-
+	// topic had zero resolved entities, which is too strict: a
+	// uniformly-conceptual cross-component question ("compare the
+	// explorer stage with the verify stage") legitimately emits
+	// sub-topics with stage/phase names that aren't Tier 1-2 symbols
+	// even though the underlying components are real. Audit run
+	// 2026-05-02 07:06 surfaced exactly this regression.
+	//
+	// Refined rule: fire only when resolved/unresolved is MIXED —
+	// some sub-topics resolve, some don't. A single uniformly-
+	// unresolved IR is treated as "concept-only question, gate not
+	// applicable here" and passes. R1.4 (axis_collapse) and R1.3
+	// still cover their respective failure modes.
+	//
+	// Evaluates BEFORE R1.4 because the unresolvable-entity repair
+	// (drop / rename) is more specific than the axis-collapse repair
+	// (collapse to list_of_symbols). Disabled when resolver is nil.
 	if resolver != nil && nSub >= 2 {
-		var unresolved []string
+		type subTopicState struct {
+			index int
+			topic types.SubTopic
+			hit   bool
+		}
+		states := make([]subTopicState, 0, nSub)
+		anyHit := false
+		anyMiss := false
 		for i, st := range rm.SubTopics {
 			if len(st.Entities) == 0 {
+				// No entities to validate — neutral, neither hit
+				// nor miss. Excluded from the asymmetry calculation.
 				continue
 			}
-			anyHit := false
+			s := subTopicState{index: i, topic: st}
 			for _, ent := range st.Entities {
 				if hits := resolver.LookupSymbol(strings.TrimSpace(ent)); len(hits) > 0 {
-					anyHit = true
+					s.hit = true
 					break
 				}
 			}
-			if !anyHit {
-				unresolved = append(unresolved, fmt.Sprintf(
-					"sub-topic %d %q (entities=%s)",
-					i+1, summaryShort(st.Summary, 40),
-					formatStringList(st.Entities)))
+			states = append(states, s)
+			if s.hit {
+				anyHit = true
+			} else {
+				anyMiss = true
 			}
 		}
-		if len(unresolved) > 0 {
+		if anyHit && anyMiss {
+			var unresolved []string
+			for _, s := range states {
+				if s.hit {
+					continue
+				}
+				unresolved = append(unresolved, fmt.Sprintf(
+					"sub-topic %d %q (entities=%s)",
+					s.index+1, summaryShort(s.topic.Summary, 40),
+					formatStringList(s.topic.Entities)))
+			}
 			return types.GateCheck{
 				Name:   "subtopic_coherence",
 				Passed: false,
 				Detail: "R1.5 entity_unresolvable: " + strings.Join(unresolved, "; ") +
-					" — every sub-topic must declare at least one entity the repo defines (resolver returns >=1 hit); rename to an existing symbol or drop the sub-topic",
+					" — these sub-topics' entities don't resolve to any repo symbol, while sibling sub-topics did; the asymmetry suggests one sub-topic was hallucinated. Rename the entities to identifiers visible in the analyzer pre-scan repo_map, or drop the unresolvable sub-topic and merge its content into a sibling",
 			}
 		}
 	}
@@ -219,7 +249,7 @@ func checkSubtopicCoherence(ir *types.AnalysisIR, resolver normalizer.SymbolReso
 				Name:   "subtopic_coherence",
 				Passed: false,
 				Detail: fmt.Sprintf(
-					"R1.4 axis_collapse: %d sub-topics all resolve to domain set %s (<=1 distinct domain) under enumeration intent — collapse to 1 sub-topic with answer_shape=list_of_symbols (each value as one item), or re-emit so sub-topic entities span >=2 distinct repomap domains",
+					"R1.4 axis_collapse: %d sub-topics all resolve to domain set %s (<=1 distinct domain) under enumeration intent — your sub-topics enumerate values of one axis (e.g. one mode value per sub_topic) rather than independently-answerable questions. Repair by re-emitting emit_analysis ONCE with EITHER (a) sub_topics omitted entirely + answer_shape=list_of_symbols (the downstream finalizer will then emit one symbols[] item per enumerated value, each with file/line/name/kind/rationale — see the answer-document skill for the full schema; this is the natural form for \"what kinds of X exist\" questions), OR (b) sub_topics retained but each sub-topic's entities now span >=2 distinct repomap domains so the question really is multi-axis",
 					nSub, formatDomainList(collapsed)),
 			}
 		}

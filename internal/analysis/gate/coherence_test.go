@@ -254,6 +254,34 @@ func TestSubtopicCoherence_R1_5_NilResolver_NoOp(t *testing.T) {
 	}
 }
 
+func TestSubtopicCoherence_R1_5_AllConceptual_NoOp(t *testing.T) {
+	// Audit run 2026-05-02 07:06 ("对比 read 模式的 explorer 阶段
+	// 和 write 模式的 verify 阶段") emitted 2 sub-topics with
+	// conceptual entities (`explorer` / `retry` / `read`) — none of
+	// which the resolver could match because they are stage / phase
+	// names, not Tier 1-2 symbols. Pre-2026-05-02-2 the rule fired
+	// here and burned the analyzer retry budget. The refined rule
+	// requires ASYMMETRY: only fire when some sub-topics resolve and
+	// others don't. A uniformly-conceptual IR is the legitimate
+	// cross-component case and must pass.
+	resolver := &fakeSymbolResolver{
+		byEntity: map[string][]normalizer.SymbolHit{
+			// no entries — every entity returns 0 hits
+		},
+	}
+	rm := types.RequestModel{
+		Predicates: types.SemanticPredicates{IsCrossComponent: true},
+		SubTopics: []types.SubTopic{
+			{Summary: "explorer 阶段（read 模式）的 retry 机制", Entities: []string{"explorer", "retry", "read"}},
+			{Summary: "verify 阶段（write 模式）的 retry 机制", Entities: []string{"verifier", "retry", "write"}},
+		},
+	}
+	ir := coherenceFixtureIR(rm, types.ShapeExplanation)
+	if check := checkSubtopicCoherence(ir, resolver); !check.Passed {
+		t.Fatalf("R1.5 must pass when all sub-topics are uniformly unresolved (no asymmetry); got %+v", check)
+	}
+}
+
 func TestSubtopicCoherence_R1_5_SingleTopic_NoOp(t *testing.T) {
 	// Single-topic IR doesn't go through the multi-topic anchor
 	// backbone, so R1.5 should not fire even with an unresolvable
