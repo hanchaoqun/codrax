@@ -1143,9 +1143,19 @@ func (t *EmitAnswerDocument) Execute(ctx *types.BusContext, params json.RawMessa
 		}
 		p.Steps = normalizeStepBackboneDescriptions(p.Steps, citations, groundCtx, ctx)
 		p.Steps = normalizeDriftBoundedRootCauseSteps(p.Steps, ctx)
-		if err := validateStepsLiteralGrounding(p.Steps, citations, groundCtx); err != nil {
-			return failWithContext("%v", err)
-		}
+		// 2026-05-02 (Phase 6 stage 1): the old emit-time
+		// validateStepsLiteralGrounding(p.Steps, citations, groundCtx)
+		// hard-reject was retired here. step.description identifier
+		// grounding is now enforced by Phase 4's
+		// runStepIdentifierBackedByEvidenceOracle (orchestrator/
+		// contract_check.go), which reads the typed evidence pool's
+		// Subject / Object / AnchorSymbol / AnswerSymbol.Name fields
+		// instead of token-overlap-against-cited-line-window. The
+		// old check passed answers where a fabricated identifier
+		// shared a generic token (`checks` / `append`) with the
+		// cited window — observed in s1a-class hallucinations. The
+		// new oracle uses typed-pool membership instead, eliminating
+		// the false-negative.
 		// Session-24 codename gate on step descriptions. Each step's
 		// prose is a mini-summary and tends to carry the fabricated
 		// label (u3a-20260422-010419 run-5 had `S2回退...` inside
@@ -1628,7 +1638,7 @@ const corroborationWindow = 3
 //	ShapeValue         → validateValueLiteralGrounding
 //	ShapeConfigValue   → validateValueLiteralGrounding (unions Key)
 //	ShapeListOfSymbols → validateSymbolsLiteralGrounding (per-item)
-//	ShapeStepList      → validateStepsLiteralGrounding  (per-item)
+//	ShapeStepList      → runStepIdentifierBackedByEvidenceOracle (typed-pool, post-finalize; old validateStepsLiteralGrounding retired 2026-05-02)
 //	ShapeBoolean       → validateBooleanLiteralGrounding
 //
 // ShapeExplanation intentionally skipped — summary is freeform prose
@@ -2550,34 +2560,10 @@ func valueCitationTextMatchesLiteral(kind types.AnswerSubjectKind, literalKey, t
 	return strings.Contains(types.ExactResolutionLookupKey("symbol", text), literalKey)
 }
 
-// validateStepsLiteralGrounding is the ShapeStepList wrapper. Each
-// steps[i].CitationRef points into citations[], and the step's
-// Description should contain identifier tokens the cited line also
-// mentions. Purely narrative steps ("the request is processed
-// asynchronously" with no identifiers) bypass via the
-// no-identifier-token skip.
-func validateStepsLiteralGrounding(steps []types.AnswerStep, citations []types.Citation, gc *ground.Context) error {
-	for i, s := range steps {
-		if s.CitationRef < 0 || s.CitationRef >= len(citations) {
-			continue
-		}
-		cite := citations[s.CitationRef]
-		cfg := corroborationCfg{
-			claimLabel: fmt.Sprintf("steps[%d].description %q", i, s.Description),
-			citeLabel:  fmt.Sprintf("citations[%d]", s.CitationRef),
-			escape: "If this step paraphrases an attached log / external source without a repo anchor, " +
-				"set citation_ref=-1 so the renderer drops the suffix. " +
-				"Otherwise cite a real file:line that contains an identifier named in the step's description.",
-			code:   "literal_grounding",
-			fields: []string{fmt.Sprintf("steps[%d].description", i), fmt.Sprintf("steps[%d].citation_ref", i)},
-			hint:   "Re-emit `emit_answer_document` with each cited step grounded to a file:line that overlaps an identifier from that step description; if the step is an aggregate or external-only claim, keep it but set `citation_ref=-1`.",
-		}
-		if err := requireCitationCorroboration(s.Description, cite.File, cite.Line, gc, cfg); err != nil {
-			return err
-		}
-	}
-	return nil
-}
+// validateStepsLiteralGrounding was retired 2026-05-02 (Phase 6
+// stage 1). Step description identifier grounding moved to
+// Phase 4's runStepIdentifierBackedByEvidenceOracle (typed-pool
+// based, no token-overlap-against-cited-line heuristic).
 
 func validateLogSourceDriftStepCitations(steps []types.AnswerStep, ctx *types.BusContext) error {
 	plan := answerSurfacePlan(ctx)

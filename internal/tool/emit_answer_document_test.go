@@ -872,38 +872,17 @@ func TestEmitAnswerDocument_Symbols_RejectsFabricatedCitation(t *testing.T) {
 	}
 }
 
+// (retired 2026-05-02, Phase 6 stage 1)
 // TestEmitAnswerDocument_Steps_RejectsCitationWithoutIdentifierOverlap
-// pins ShapeStepList: a step.Description that names identifiers
-// should cite a line where at least one of those identifiers
-// appears. Otherwise the cite is decorative at best, misleading
-// at worst.
-func TestEmitAnswerDocument_Steps_RejectsCitationWithoutIdentifierOverlap(t *testing.T) {
-	tool := &EmitAnswerDocument{}
-	ctx := newDocBusCtx("")
-	ctx.Mutable.AppendDispatchToolResult(types.ToolResult{
-		ToolName: "read_file",
-		Success:  true,
-		Summary:  "[internal/agent/analyzer.go: showing lines 1-5 of 1500 total]\n     1│ package agent\n     2│ \n",
-	})
-	params := mustDocJSON(t, map[string]interface{}{
-		"shape": "step_list",
-		"steps": []map[string]interface{}{
-			{
-				"index":        1,
-				"description":  "ExplorerAgent dispatches SubAgent via SubAgentRegistry.Register",
-				"citation_ref": 0,
-			},
-		},
-		"citations": []map[string]interface{}{{"file": "internal/agent/analyzer.go", "line": 1}},
-	})
-	res, _ := tool.Execute(ctx, params)
-	if res.Success {
-		t.Fatalf("step citation without identifier overlap must be rejected; got Success=true, Summary=%q", res.Summary)
-	}
-	if !strings.Contains(res.Summary, "steps[0]") {
-		t.Errorf("rejection should name the offending step index, got: %q", res.Summary)
-	}
-}
+// previously pinned validateStepsLiteralGrounding's emit-time
+// hard-reject. The check moved to Phase 4's
+// runStepIdentifierBackedByEvidenceOracle which uses typed-pool
+// membership instead of token-overlap-against-cited-line. The
+// new oracle's regression suite lives in
+// internal/orchestrator/contract_check_facet_oracle_test.go
+// (TestStepIdentifierOracle_* family, 8 cases). The old test
+// pinned a behaviour contract that no longer exists at emit time
+// — the new contract is post-finalize SOFT-only.
 
 // TestEmitAnswerDocument_Steps_AcceptsNarrativeStepWithoutIdentifiers
 // is the graceful-skip path: a step whose description has no
