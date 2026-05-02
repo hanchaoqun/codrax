@@ -229,8 +229,8 @@ func buildHTTPClient(tlsOpts TLSOptions, baseURL string, timeout time.Duration) 
 
 	if tlsOpts.InsecureSkipVerify {
 		tlsCfg.InsecureSkipVerify = true
-		logging.Warning("[llm/tls] ⚠ tls_insecure_skip_verify=true for %s — certificate validation DISABLED, API key is vulnerable to on-path interception", baseURL)
-		fmt.Fprintf(os.Stderr, "  ⚠ TLS verification DISABLED for %s (tls_insecure_skip_verify=true)\n", baseURL)
+		logging.Warning("[llm/tls] ! tls_insecure_skip_verify=true for %s — certificate validation DISABLED, API key is vulnerable to on-path interception", baseURL)
+		fmt.Fprintf(os.Stderr, "  ! TLS verification DISABLED for %s (tls_insecure_skip_verify=true)\n", baseURL)
 	}
 
 	return &http.Client{

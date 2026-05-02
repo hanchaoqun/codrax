@@ -89,7 +89,7 @@ const (
 	glyphSuccess     = '✓'
 	glyphFatal       = '✗'
 	glyphRecoverable = '⟳'
-	glyphWarning     = '⚠'
+	glyphWarning     = '·'
 	glyphPending     = '·'
 	glyphTopicBullet = '·'
 )

@@ -161,7 +161,7 @@ type ViolationBudgetSettings struct {
 	// Setting to 0 disables the yield gate entirely.
 	MinRetryYield int `yaml:"min_retry_yield"`
 
-	// FailLoudEnabled, when true, prepends an "⚠️ pipeline
+	// FailLoudEnabled, when true, prepends an "· pipeline
 	// terminated with unresolved violations" warning to the final
 	// answer when the yield kill fires or any budget is exhausted.
 	// Default true — never silently hide a failure.

@@ -492,9 +492,9 @@ func unsettledBanner(lang, planID, status string, worktreeMissing bool) string {
 	suffix := ""
 	if worktreeMissing {
 		if zh {
-			suffix = "  ⚠ worktree 已不在 — /reject 清理"
+			suffix = "  · worktree 已不在 — /reject 清理"
 		} else {
-			suffix = "  ⚠ worktree gone — /reject to clear"
+			suffix = "  · worktree gone — /reject to clear"
 		}
 	}
 	switch status {
@@ -599,12 +599,12 @@ func skipVerifyAcknowledged(lang string) string {
 func mergeForceFailedWarning(lang, planID string) []string {
 	if isZh(lang) {
 		return []string{
-			formatN(lang, "  ⚠ 强制合入 plan %s — 该 plan 的 verify 阶段曾失败。", planID),
+			formatN(lang, "  · 强制合入 plan %s — 该 plan 的 verify 阶段曾失败。", planID),
 			"  请先确认 /plan show 的 diff 与失败摘要,确保失败是环境/CI 类原因(非代码缺陷)。",
 		}
 	}
 	return []string{
-		formatN(lang, "  ⚠ Force-merging plan %s — its verify stage previously failed.", planID),
+		formatN(lang, "  · Force-merging plan %s — its verify stage previously failed.", planID),
 		"  Confirm /plan show diff + failure summary; only proceed if the failure is environmental (CI/infra), not a code defect.",
 	}
 }
@@ -721,11 +721,11 @@ func planReadyNudge(lang string, planID string, changeCount int) []string {
 func planReadyMultiPhaseNudge(lang string, phaseCount int) []string {
 	if isZh(lang) {
 		return []string{
-			formatN(lang, "  ⚠ 多阶段方案 (%d 个 phase): /approve 后用 `/phase show` 追踪进度,`/phase rollback` 回退当前 phase。", phaseCount),
+			formatN(lang, "  · 多阶段方案 (%d 个 phase): /approve 后用 `/phase show` 追踪进度,`/phase rollback` 回退当前 phase。", phaseCount),
 		}
 	}
 	return []string{
-		formatN(lang, "  ⚠ Multi-phase proposal (%d phases): after /approve, use `/phase show` to track progress and `/phase rollback` to reset the active phase.", phaseCount),
+		formatN(lang, "  · Multi-phase proposal (%d phases): after /approve, use `/phase show` to track progress and `/phase rollback` to reset the active phase.", phaseCount),
 	}
 }
 

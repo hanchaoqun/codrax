@@ -630,7 +630,7 @@ var (
 	subduedWarnPrinter = pterm.PrefixPrinter{
 		Prefix: pterm.Prefix{
 			Style: pterm.NewStyle(pterm.FgYellow),
-			Text:  "⚠",
+			Text:  "·",
 		},
 		MessageStyle: pterm.NewStyle(pterm.FgDarkGray),
 	}
@@ -1281,25 +1281,25 @@ func renderDegradedEnvHints(zh bool, searchBackend string, gitMissing bool) []st
 		// ripgrep missing but GNU/BSD grep still usable — slow-ish,
 		// not catastrophic. Nudge toward ripgrep without crying wolf.
 		if zh {
-			hints = append(hints, warn("⚠ 搜索后端:grep")+dim(" (装 ripgrep 可进一步提速)"))
+			hints = append(hints, warn("· 搜索后端:grep")+dim(" (装 ripgrep 可进一步提速)"))
 		} else {
-			hints = append(hints, warn("⚠ Search backend: grep")+dim(" (install ripgrep for faster scans)"))
+			hints = append(hints, warn("· Search backend: grep")+dim(" (install ripgrep for faster scans)"))
 		}
 	case "native":
 		// Both missing — Go regex walker. Correct but noticeably
 		// slower on large repos.
 		if zh {
-			hints = append(hints, warn("⚠ 搜索后端:Go 内置扫描器")+dim(" (装 ripgrep 可大幅提速)"))
+			hints = append(hints, warn("· 搜索后端:Go 内置扫描器")+dim(" (装 ripgrep 可大幅提速)"))
 		} else {
-			hints = append(hints, warn("⚠ Search backend: native Go scanner")+dim(" (install ripgrep for a 10× speedup)"))
+			hints = append(hints, warn("· Search backend: native Go scanner")+dim(" (install ripgrep for a 10× speedup)"))
 		}
 	}
 	// "rg" → no hint
 	if gitMissing {
 		if zh {
-			hints = append(hints, warn("⚠ 未检测到 git")+dim(" (repomap 走文件遍历;git_diff / git_log 不可用)"))
+			hints = append(hints, warn("· 未检测到 git")+dim(" (repomap 走文件遍历;git_diff / git_log 不可用)"))
 		} else {
-			hints = append(hints, warn("⚠ git not detected")+dim(" (repomap falls back to filesystem walk; git_diff / git_log disabled)"))
+			hints = append(hints, warn("· git not detected")+dim(" (repomap falls back to filesystem walk; git_diff / git_log disabled)"))
 		}
 	}
 	return hints
@@ -2356,7 +2356,7 @@ func (r *REPL) handlePlanCmd(line string) {
 		// a non-empty list means one or more languages reached apply
 		// without their static gate firing — operator should know.
 		if len(plan.UnvalidatedReasons) > 0 {
-			fmt.Fprintln(r.out, "\n  ⚠️ unvalidated stages:")
+			fmt.Fprintln(r.out, "\n  · unvalidated stages:")
 			for _, reason := range plan.UnvalidatedReasons {
 				fmt.Fprintf(r.out, "    - %s\n", reason)
 			}
@@ -2365,12 +2365,12 @@ func (r *REPL) handlePlanCmd(line string) {
 		// the plan struct so REPL restart preserves the critique.
 		// Empty when the critic was disabled or produced no risks
 		// (or commit 10 #7 suppressed a low-confidence critique).
-		// Render with a leading ⚠️ so it stands out against the
+		// Render with a leading · so it stands out against the
 		// rest of the plan summary — operators have repeatedly
 		// rubber-stamped /approve when the critique was rendered
 		// as just another markdown paragraph.
 		if strings.TrimSpace(plan.PlanCritique) != "" {
-			fmt.Fprintln(r.out, "\n  ⚠️ review feedback:")
+			fmt.Fprintln(r.out, "\n  · review feedback:")
 			for _, line := range strings.Split(strings.TrimSpace(plan.PlanCritique), "\n") {
 				fmt.Fprintf(r.out, "    %s\n", line)
 			}
@@ -2407,13 +2407,13 @@ func (r *REPL) handlePlanCmd(line string) {
 			// languages" or "the critic flagged 3 risks" — both of
 			// which are decision-relevant before /approve.
 			if len(plan.UnvalidatedReasons) > 0 {
-				fmt.Fprintln(r.out, "\n  ⚠️ unvalidated stages:")
+				fmt.Fprintln(r.out, "\n  · unvalidated stages:")
 				for _, reason := range plan.UnvalidatedReasons {
 					fmt.Fprintf(r.out, "    - %s\n", reason)
 				}
 			}
 			if strings.TrimSpace(plan.PlanCritique) != "" {
-				fmt.Fprintln(r.out, "\n  ⚠️ review feedback:")
+				fmt.Fprintln(r.out, "\n  · review feedback:")
 				for _, line := range strings.Split(strings.TrimSpace(plan.PlanCritique), "\n") {
 					fmt.Fprintf(r.out, "    %s\n", line)
 				}
@@ -2488,10 +2488,10 @@ func (r *REPL) handlePlanCmd(line string) {
 			// unread critic review.
 			flags := ""
 			if inf.UnvalidatedCount > 0 {
-				flags += fmt.Sprintf(" ⚠ unvalidated:%d", inf.UnvalidatedCount)
+				flags += fmt.Sprintf(" · unvalidated:%d", inf.UnvalidatedCount)
 			}
 			if inf.HasCritique {
-				flags += " ⚠ review"
+				flags += " · review"
 			}
 			// Phase membership (commit 25): when a plan is one
 			// of N in a multi-phase group, surface the link so

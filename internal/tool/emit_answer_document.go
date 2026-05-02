@@ -906,7 +906,7 @@ func (t *EmitAnswerDocument) Execute(ctx *types.BusContext, params json.RawMessa
 	// see a clean diagram regardless of locale / font / CJK content.
 	// Failure modes (library parse error, panic, pool exhaustion) and
 	// unsupported diagram kinds (classDiagram / stateDiagram / ...)
-	// degrade to a ```text``` fallback fence with a "# ⚠ <reason>"
+	// degrade to a ```text``` fallback fence with a "# · <reason>"
 	// leader — never a bare ```mermaid``` tag (chroma would highlight
 	// it as code, deceiving the user that rendering had occurred).
 	//
@@ -3192,7 +3192,7 @@ func GetMermaidGateMode() MermaidGateMode { return mermaidGateMode }
 //     them. Asking the LLM to switch to flowchart for an
 //     inherently-class-shaped diagram would break the "LLM emits
 //     standard Mermaid" principle. The fallback fence already
-//     surfaces a "⚠ kind not supported" leader — operators see it,
+//     surfaces a "· kind not supported" leader — operators see it,
 //     library is honest about its limit.
 //
 //   - OutcomeLibraryRejected → mode-dependent. Strict rejects with

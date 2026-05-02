@@ -2830,7 +2830,7 @@ func createDefaultAdapter(cfg *types.ProvidersConfig) llm.Adapter {
 	adapter, err := llm.NewFromConfig(resolved)
 	if err != nil {
 		logging.Error("[llm] default adapter: %v", err)
-		fmt.Fprintf(os.Stderr, "  ⚠ %v\n", err)
+		fmt.Fprintf(os.Stderr, "  · %v\n", err)
 		return &placeholderAdapter{}
 	}
 	return adapter

@@ -55,7 +55,7 @@ func (r *REPL) mermaidStats() {
 		fmt.Fprintf(&b, "  库拒绝/超限: %d\n", s.LibraryRejected)
 		fmt.Fprintf(&b, "  闸门拦截:    %d\n", s.GateBlocked)
 		if len(s.UnsupportedKind) > 0 {
-			b.WriteString("\n  库不支持的图类（已留源 + 标 ⚠）:\n")
+			b.WriteString("\n  库不支持的图类（已留源 + 标 ·）:\n")
 			for _, k := range s.SortedUnsupportedKinds() {
 				fmt.Fprintf(&b, "    %-22s × %d\n", k, s.UnsupportedKind[k])
 			}
@@ -74,7 +74,7 @@ func (r *REPL) mermaidStats() {
 		fmt.Fprintf(&b, "  library rejected:   %d\n", s.LibraryRejected)
 		fmt.Fprintf(&b, "  gate blocked:       %d\n", s.GateBlocked)
 		if len(s.UnsupportedKind) > 0 {
-			b.WriteString("\n  Unsupported diagram kinds (kept as source + ⚠):\n")
+			b.WriteString("\n  Unsupported diagram kinds (kept as source + ·):\n")
 			for _, k := range s.SortedUnsupportedKinds() {
 				fmt.Fprintf(&b, "    %-22s × %d\n", k, s.UnsupportedKind[k])
 			}

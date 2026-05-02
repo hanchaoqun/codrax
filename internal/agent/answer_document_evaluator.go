@@ -2813,7 +2813,7 @@ func (e *answerDocumentEvaluator) ParseOutput(ctx *types.AgentContext, messages 
 				break
 			}
 		}
-		warning := "⚠️ answer_document emission missing — the finalizer could not produce a " +
+		warning := "· answer_document emission missing — the finalizer could not produce a " +
 			"structured AnswerDocument. The text below is the raw LLM response; no schema-level " +
 			"validation ran on it."
 		safeFallback := sanitizePriorDraftForSummary(lastContent)

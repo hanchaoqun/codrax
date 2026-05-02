@@ -333,7 +333,7 @@ type ChangePlan struct {
 	// "rust:cargo not in PATH", "java/maven:mvn not in PATH").
 	// Populated by emit_change_plan's dry-build helpers when a
 	// language-specific helper bails out on toolchain absence.
-	// /plan show renders these as a "⚠️ unvalidated stages" warning
+	// /plan show renders these as a "· unvalidated stages" warning
 	// so the operator knows the plan reached apply with one or
 	// more languages skipped — distinct from "validated and
 	// passed" which would have an empty list. nil/empty means

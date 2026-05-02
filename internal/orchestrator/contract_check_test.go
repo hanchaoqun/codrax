@@ -219,7 +219,7 @@ func TestAppendViolationsToAnswer_FailLoudPattern(t *testing.T) {
 		{Kind: contract.ViolShape, Detail: "wrong"},
 	}}
 	out := appendViolationsToAnswer(original, res)
-	if !strings.HasPrefix(out, "⚠️ answer-contract validation exhausted") {
+	if !strings.HasPrefix(out, "· answer-contract validation exhausted") {
 		t.Errorf("want fail-loud prefix; got %q", out)
 	}
 	if !strings.Contains(out, original) {

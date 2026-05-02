@@ -127,7 +127,7 @@ func TestPrependFailLoudWarning_EmitsHeaderWithFieldAndYieldKills(t *testing.T) 
 	}
 
 	out := prependFailLoudWarning("real answer body\n", mut, state, "yield kill", settings)
-	if !strings.Contains(out, "⚠️ Pipeline terminated") {
+	if !strings.Contains(out, "· Pipeline terminated") {
 		t.Errorf("missing fail-loud header: %q", out)
 	}
 	if !strings.Contains(out, "yield kill") {

@@ -14,7 +14,7 @@ import (
 //
 // Design contract:
 //
-//   - Soft symbols (⟳, ·, ›, –) only. Bright glyphs (📊 ⚠️ ✅) are
+//   - Soft symbols (⟳, ·, ›, –) only. Bright glyphs (📊 · ✅) are
 //     avoided because they dominate the TUI at the cadence the
 //     orchestrator emits these events.
 //   - User language, not internal jargon. "CGEC E2 / I4", counter
@@ -92,12 +92,12 @@ func selfConsistencyContradictionMessage(lang string, rewrite bool, count int) s
 		if rewrite {
 			return fmt.Sprintf("⟳ 检测到 %d 处前后矛盾，正在重写答案", count)
 		}
-		return fmt.Sprintf("⚠ 检测到 %d 处前后矛盾（仅记录，未重写）", count)
+		return fmt.Sprintf("· 检测到 %d 处前后矛盾（仅记录，未重写）", count)
 	}
 	if rewrite {
 		return fmt.Sprintf("⟳ Found %d self-contradiction(s) — rewriting answer", count)
 	}
-	return fmt.Sprintf("⚠ Found %d self-contradiction(s) (logged, not rewritten)", count)
+	return fmt.Sprintf("· Found %d self-contradiction(s) (logged, not rewritten)", count)
 }
 
 // softRetryHintMessage renders the user-visible line for the generic

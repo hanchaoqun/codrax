@@ -60,7 +60,7 @@ func renderZh(d types.Diagnosis, recs []types.Recommendation) string {
 			fmt.Fprintf(&b, "     原因: %s\n", r.Why)
 		}
 		for _, c := range r.Caveats {
-			fmt.Fprintf(&b, "     ⚠ %s\n", c)
+			fmt.Fprintf(&b, "     · %s\n", c)
 		}
 	}
 	b.WriteString("\n复制以 ! 开头的命令直接在提示符回车执行;或在主仓终端直接跑(去掉 !)。\n")
@@ -107,7 +107,7 @@ func renderEn(d types.Diagnosis, recs []types.Recommendation) string {
 			fmt.Fprintf(&b, "     why: %s\n", r.Why)
 		}
 		for _, c := range r.Caveats {
-			fmt.Fprintf(&b, "     ⚠ %s\n", c)
+			fmt.Fprintf(&b, "     · %s\n", c)
 		}
 	}
 	b.WriteString("\nCopy commands starting with ! at the prompt and press enter; or run them in your main repo terminal (drop the !).\n")

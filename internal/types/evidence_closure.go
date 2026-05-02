@@ -126,7 +126,7 @@ type EvidenceClosure struct {
 	// unverifiedFinds is the list of analyzer-emitted file paths /
 	// symbol identifiers that the findings validator could not match
 	// against the repo. Surfaced to downstream stages as a hygiene
-	// warning (rendered with strikethrough + ⚠️) so the extractor
+	// warning (rendered with strikethrough + ·) so the extractor
 	// and finalizer do not bake hallucinated artefacts into the
 	// answer.
 	unverifiedFinds []UnverifiedFinding

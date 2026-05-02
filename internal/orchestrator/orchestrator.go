@@ -4730,7 +4730,7 @@ func prependFailLoudWarning(answer string, mut *types.MutableState, state *graph
 	if state != nil {
 		yieldKills = state.yieldKillCount
 	}
-	header := fmt.Sprintf("⚠️ Pipeline terminated with unresolved violations (%s)", trigger)
+	header := fmt.Sprintf("· Pipeline terminated with unresolved violations (%s)", trigger)
 	var details []string
 	if yieldKills > 0 {
 		details = append(details, fmt.Sprintf("%d yield kill(s)", yieldKills))

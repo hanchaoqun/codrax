@@ -273,7 +273,7 @@ func TestRenderMermaidBlocks_UnsupportedKindShortCircuits(t *testing.T) {
 			if !strings.Contains(out, "```text\n") {
 				t.Errorf("unsupported kind output must use ```text``` fence (no chroma deception); got:\n%s", out)
 			}
-			if !strings.Contains(out, "# ⚠") {
+			if !strings.Contains(out, "# ·") {
 				t.Errorf("unsupported kind output must inject # ⚠ leader; got:\n%s", out)
 			}
 			if !strings.Contains(out, tc.kind) {

@@ -31,7 +31,7 @@ import (
 // awareness.
 type Result struct {
 	// Annotated is the input text with miss-tokens decorated as
-	// `~~original~~ ⚠️[未验证: …]`. Hits are unchanged.
+	// `~~original~~ ·[未验证: …]`. Hits are unchanged.
 	Annotated string
 	// Unverified records every miss for the closure tracker.
 	Unverified []types.UnverifiedFinding
@@ -61,8 +61,8 @@ var symbolRegex = regexp.MustCompile("`([A-Za-z_][A-Za-z0-9_]*)`")
 //
 // The annotation format is intentionally visible:
 //
-//	~~OriginalText~~ ⚠️[未验证: <reason>]
-//	~~OriginalText~~ ⚠️[unverified: <reason>]
+//	~~OriginalText~~ ·[未验证: <reason>]
+//	~~OriginalText~~ ·[unverified: <reason>]
 //
 // Language is auto-detected: any CJK rune in the input switches the
 // label to Chinese; otherwise English. Single annotation per miss
@@ -137,7 +137,7 @@ func annotateMiss(orig, kind string, useChinese bool) string {
 		default:
 			label = "未验证"
 		}
-		return "~~" + orig + "~~ ⚠️[" + label + "]"
+		return "~~" + orig + "~~ ·[" + label + "]"
 	}
 	var label string
 	switch kind {
@@ -148,7 +148,7 @@ func annotateMiss(orig, kind string, useChinese bool) string {
 	default:
 		label = "unverified"
 	}
-	return "~~" + orig + "~~ ⚠️[" + label + "]"
+	return "~~" + orig + "~~ ·[" + label + "]"
 }
 
 // containsCJK returns true when text contains any rune in the

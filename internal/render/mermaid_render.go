@@ -320,7 +320,7 @@ var mermaidFenceRe = regexp.MustCompile("(?s)```mermaid[^\\n]*\\n(.*?)\\n```")
 //     mermaid tag (which downstream chroma would syntax-highlight,
 //     giving the user the misleading "looks rendered" effect), we
 //     short-circuit at routing time: rewrite the fence to ```text
-//     and inject a "⚠ <kind> not in renderer subset" leader so the
+//     and inject a "· <kind> not in renderer subset" leader so the
 //     user sees an explicit signal. The mermaid SOURCE survives
 //     verbatim — useful for copy-paste into a real Mermaid renderer.
 //
@@ -541,7 +541,7 @@ func looksLikeMermaidBody(body string) bool {
 //     byte-identical.
 //
 // Failure fence shape (step 1, 2, 3 fallback): rewrite to ```text```
-// and inject a single leader line (`# ⚠ <reason>`) above the original
+// and inject a single leader line (`# · <reason>`) above the original
 // mermaid source. This guarantees the user always sees an explicit
 // signal that the diagram did not render, AND chroma never highlights
 // the body as code (because the fence is ```text```), eliminating the
@@ -621,7 +621,7 @@ func maybeReplaceMermaidFence(match string) string {
 
 // mermaidFallbackFence builds the unified failure-and-unsupported
 // fence: rewrite info-string to `text` so chroma does not highlight
-// the body as code, and prepend a single `# ⚠ <reason>` leader line
+// the body as code, and prepend a single `# · <reason>` leader line
 // so the user always sees an explicit signal. The ORIGINAL mermaid
 // source survives verbatim below the leader, useful for copying
 // into a real Mermaid renderer (Mermaid.live / mermaid-cli).
@@ -636,7 +636,7 @@ func mermaidFallbackFence(body, reason string) string {
 	var b strings.Builder
 	b.Grow(len(body) + len(reason) + 32)
 	b.WriteString("```text\n")
-	b.WriteString("# ⚠ ")
+	b.WriteString("# · ")
 	b.WriteString(reason)
 	b.WriteString("\n")
 	b.WriteString(body)

@@ -1161,7 +1161,7 @@ func appendViolationsToAnswer(originalAnswer string, res contract.Result) string
 		return originalAnswer
 	}
 	var b strings.Builder
-	b.WriteString("⚠️ answer-contract validation exhausted: ")
+	b.WriteString("· answer-contract validation exhausted: ")
 	b.WriteString(renderViolations(res))
 	b.WriteString("\n\n")
 	b.WriteString(originalAnswer)
