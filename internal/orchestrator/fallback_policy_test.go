@@ -156,6 +156,29 @@ func TestSetFallbackPolicyOverrides_ApplyAndRestore(t *testing.T) {
 	}
 }
 
+func TestSetFallbackPolicyOverrides_RejectsBackToAnalyze(t *testing.T) {
+	t.Cleanup(func() { SetFallbackPolicyOverrides(nil) })
+	// Operator tries to route ViolShape → BackToAnalyze. The override
+	// is REJECTED per design red line and silently degrades to
+	// FinalizerOnly (with a WARN log).
+	SetFallbackPolicyOverrides(map[string]string{
+		string(types.ViolShape): string(FallbackBackToAnalyze),
+	})
+	got := FallbackTargetForKind(types.ViolShape)
+	if got != FallbackFinalizerOnly {
+		t.Errorf("BackToAnalyze override should be rejected → FinalizerOnly; got %s", got)
+	}
+}
+
+func TestSetFallbackPolicyOverrides_BackToAnalyzeEnumStillValid(t *testing.T) {
+	// The enum value remains valid (no caller deletes it from
+	// FallbackTarget.IsValid). The reject only applies at the
+	// override-application layer.
+	if !FallbackBackToAnalyze.IsValid() {
+		t.Error("FallbackBackToAnalyze must stay enum-valid (operator-facing introspection)")
+	}
+}
+
 func TestSetFallbackPolicyOverrides_DropsUnknownTargets(t *testing.T) {
 	t.Cleanup(func() { SetFallbackPolicyOverrides(nil) })
 	SetFallbackPolicyOverrides(map[string]string{

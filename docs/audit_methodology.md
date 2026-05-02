@@ -330,7 +330,7 @@ LLM 是系统的另一个用户。它读 prompt、看消息历史、emit 工具�
 ### 4.11 Cross-scenario 维度
 
 - [ ] artifact 通道 4 种(log only / perf only / mixed / none)各自是否完整?
-- [ ] artifact 多份(multi-log / multi-trace)是否支持?
+- [ ] artifact 多份(multi-log / multi-trace)分隔头 `# codrax-source:` 是否在 CLI/REPL/skill 三处一致?(2026-05-02 起多源已支持,详 §7.6)
 - [ ] frame 形态 4 种(file+line / file only / symbol only / unresolved)是否都识别?
 - [ ] signal 类 11 种各自是否被自然语言 prose 适配?
 - [ ] 用户意图 7 种(Intent enum 减 Unknown)是否都有合理响应?
@@ -482,11 +482,22 @@ R1 引入 4 值 ClaimOrigin 看似简单,但后续轮要让每个 origin 在 der
 
 **经验**:基础数据结构变更要穷举所有对称维度,不能只验证 happy path。
 
-### 7.6 多 artifact 的待办
+### 7.6 多 artifact 已支持(2026-05-02 audit-followup 收口)
 
-11 轮没有完整解决 multi-log / multi-trace 场景。`MutableState.SetLogTriage(b *LogBundle)` / `SetPerfTrace(b *PerfBundle)` 都是单 setter,后写覆盖前写。Multi-bundle 输入需要 List 化 setter + 全 derive/render/finalizer 链路适配。
+**实现路径**:
+- CLI: `--log a.log --log b.log` 重复参数;`loadMultiPathSlice` (cmd/root.go:654) 把 N 文件 concat 成单字符串,每文件前加 `# codrax-source: <path>\n` 分隔头
+- REPL: `/log <path>` (替换) + `/log append <path>` (累积) — `handleLogAppend` (repl/repl.go:4040) 同样加 `codrax-source` 头
+- perf 通道:`--htrace` / `--atrace` / `--htrace-text` 同等支持(loadAttachedTrace 走 loadMultiPathSlice 同一函数)
+- skill prompt: `log-triage-skill` / `perf-triage-skill` / `perf-segmentation-skill` 都已教 LLM 识别 `# codrax-source:` 边界
+- 数据模型: `LogBundle.Errors []LogError` 天然容纳 N 个 parallel snapshot;`MergeBundles` (logtriage) / `MergePerfBundles` (perftriage) 在两步分段路径下合并 N 个部分 bundle
 
-**留作未来工作**:见 ROADMAP 章节(本文 9.2)。
+**单 setter 仍是设计**: `Mutable.LogTriage()` / `Mutable.PerfTrace()` 一直是单 bundle 入口。这不是限制——多源信号通过 `Errors[]` 数组 + `# codrax-source:` 分隔头统一携带,下游消费方读单 bundle 看完整画面,不需要 N 个独立 bundle 列表。Layer 4 派生(`Entities` / `ResolvedFiles` / `IntentHint`)在合并 bundle 上 union 不丢源。
+
+**测试覆盖**:
+- `cmd/multi_attach_test.go`: CLI concat-with-headers + 顺序保持
+- `internal/analysis/logtriage/multi_source_e2e_test.go`: ValidateBundle 多 Errors 不丢 + MergeBundles 两步合并 + `# codrax-source:` 字面 token 不变
+- `internal/analysis/perftriage/merge_test.go`: 多 PerfBundle 合并(已存在)
+- `internal/skill/defaults_test.go::TestMultiSourceMarker_*`: skill prompt 必含 marker 字面量(防 typo refactor 引入歧义)
 
 ---
 
@@ -591,12 +602,11 @@ R1 引入 4 值 ClaimOrigin 看似简单,但后续轮要让每个 origin 在 der
 
 记录已知但本轮未解决的事项,避免被遗忘:
 
-### 9.1 Multi-Artifact 支持
+### 9.1 Multi-Artifact 支持(2026-05-02 已收口,见 §7.6)
 
-**现状**:`SetLogTriage` / `SetPerfTrace` 单 setter,后写覆盖前写。
-**目标**:支持用户附多个 log + 多个 trace 同 Run。
-**变更面**:Mutable.LogTriageList() / PerfTraceList() / 整个 derive/render/finalizer 改为循环 N 个 bundle / cross-bundle dedup。
-**预计**:~5-8 commits,~1500 LOC。
+**已支持的实现路径**:CLI/REPL 多文件 concat with `# codrax-source:` 分隔头 → log-triager / perf-triager LLM 识别边界 → LogBundle.Errors[] 容纳 N 个 parallel snapshot → 下游 Layer 4 派生 union 多源不丢。`Mutable.LogTriage()` / `PerfTrace()` 仍单 setter 是设计意图——多源信号通过单 bundle + 数组字段携带,无需 N 个独立 bundle list。
+
+**留作未来**(若需求驱动):per-source 的 entity / file dedup 当前以"先到先得"的顺序 union;若多源贡献的 entity 完全独立(零重叠),Layer 4 的 32-entity cap 可能优先保留靠前文件的 entities。这种场景未观察到生产命中,真实出现时再考虑加权策略。
 
 ### 9.2 Frame Cap 自适应
 

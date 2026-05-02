@@ -210,3 +210,41 @@ func TestLogTriageSkill_AdvertisesPerformanceSignal(t *testing.T) {
 		}
 	}
 }
+
+// TestMultiSourceMarker_LogTriageSkillTeachesIt pins the contract:
+// the CLI loadMultiPathSlice + REPL handleLogAppend insert
+// `# codrax-source: <path>` separators between concatenated log
+// files. The log-triage skill MUST teach the LLM to recognize
+// this token so multi-source attribution survives end-to-end.
+// A rename of the marker requires updating BOTH the CLI loader
+// and this skill prompt simultaneously — this test catches drift.
+func TestMultiSourceMarker_LogTriageSkillTeachesIt(t *testing.T) {
+	r := NewRegistry()
+	RegisterDefaults(r)
+	sk, err := r.Get("log-triage-skill")
+	if err != nil {
+		t.Fatalf("log-triage-skill missing: %v", err)
+	}
+	blob := strings.Join(append([]string{sk.Goal, sk.OutputFormat}, sk.Workflow...), "\n")
+	if !strings.Contains(blob, "# codrax-source:") {
+		t.Errorf("log-triage-skill must teach the `# codrax-source:` multi-attach marker (CLI/REPL rely on it)")
+	}
+}
+
+// TestMultiSourceMarker_PerfTriageSkillTeachesIt is the perf-channel
+// companion. Both perf-triage-skill (single-shot) and
+// perf-segmentation-skill (two-step) must teach the marker.
+func TestMultiSourceMarker_PerfTriageSkillTeachesIt(t *testing.T) {
+	r := NewRegistry()
+	RegisterDefaults(r)
+	for _, name := range []string{"perf-triage-skill", "perf-segmentation-skill"} {
+		sk, err := r.Get(name)
+		if err != nil {
+			t.Fatalf("%s missing: %v", name, err)
+		}
+		blob := strings.Join(append([]string{sk.Goal, sk.OutputFormat}, sk.Workflow...), "\n")
+		if !strings.Contains(blob, "# codrax-source:") {
+			t.Errorf("%s must teach the `# codrax-source:` multi-attach marker", name)
+		}
+	}
+}

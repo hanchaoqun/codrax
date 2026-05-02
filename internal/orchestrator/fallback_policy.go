@@ -28,6 +28,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/hanchaoqun/codrax/internal/logging"
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
@@ -208,8 +209,13 @@ var activeFallbackPolicy = DefaultFallbackPolicy()
 // SetFallbackPolicyOverrides applies a yaml-supplied override map to
 // the active policy. Each entry of the form "kind:target" replaces
 // the corresponding default; unknown kinds / targets are silently
-// dropped (with a logged warning at the cmd layer). Restoring
-// defaults: pass nil or an empty map.
+// dropped. Operator-supplied "back_to_analyze" targets are
+// REJECTED (silent-degraded to "finalizer_only" + WARN log) per
+// the audit-methodology red line: re-classification of the user's
+// request is fail-loud at the design level — the system cannot
+// legitimately decide on its own to re-classify, no matter how
+// the operator wires the policy. Restoring defaults: pass nil or
+// an empty map.
 func SetFallbackPolicyOverrides(overrides map[string]string) {
 	policy := DefaultFallbackPolicy()
 	for kindStr, targetStr := range overrides {
@@ -217,6 +223,19 @@ func SetFallbackPolicyOverrides(overrides map[string]string) {
 		target := FallbackTarget(strings.TrimSpace(targetStr))
 		if !target.IsValid() {
 			continue
+		}
+		if target == FallbackBackToAnalyze {
+			// Audit B.2 (2026-05-02): yaml override cannot legitimately
+			// route any kind to BackToAnalyze. ResetForFallback(Analyze)
+			// is a no-op and re-classifying the user's request is a
+			// product red line. Degrade silently to FinalizerOnly so the
+			// retry loop still makes progress, but log loudly so the
+			// operator notices the override was rejected.
+			logging.Warning(
+				"[fallback] yaml override %q→back_to_analyze REJECTED: re-classification is a design red line; degraded to finalizer_only",
+				kind,
+			)
+			target = FallbackFinalizerOnly
 		}
 		policy[kind] = target
 	}
