@@ -55,6 +55,12 @@ type cjkAdapter struct {
 	// against restore() collisions where a real ASCII pair like
 	// "QA" in a label gets unintentionally rewritten to a wide rune.
 	reservedPool map[string]bool
+
+	// degraded tracks every narrow multi-byte rune that was
+	// replaced with an ASCII equivalent during substitute(). Empty
+	// after a "wide-only or ASCII" body; non-empty after the body
+	// carried decoration runes (arrows / dashes / etc.).
+	degraded []degradedRune
 }
 
 // newCJKAdapter constructs a fresh adapter. Each render pass should
@@ -84,18 +90,39 @@ func buildReservedPool(s string) map[string]bool {
 	return reserved
 }
 
-// substitute walks the source and replaces every wide rune with a
-// 2-byte ASCII placeholder. Returns the rewritten source plus a
-// boolean indicating whether substitution was needed at all (false
-// = caller should call the library directly without restore).
+// substitute walks the source and replaces multi-byte runes so the
+// downstream library (which width-counts by byte length) sees a
+// payload whose byte arithmetic matches the terminal's cell
+// arithmetic.
 //
-// Returns an error in the cases the adapter cannot safely handle:
+// Three cases per rune:
+//
+//  1. ASCII (size==1): pass through unchanged.
+//  2. Wide rune (runewidth==2; CJK / Hiragana / Katakana / Hangul /
+//     full-width): allocate a 2-byte ASCII placeholder, remember the
+//     mapping, write the placeholder. restore() puts the wide rune
+//     back at output time.
+//  3. Narrow multi-byte rune (runewidth!=2; common Unicode
+//     decoration: arrows / dashes / ellipsis / check marks / bullets
+//     / accented Latin / emoji). The library cannot count these
+//     correctly. We replace at the SOURCE LAYER with an ASCII
+//     equivalent from narrowRuneFallback (e.g. → -> -, … ...);
+//     unmapped narrow runes degrade to '?'. Each substitution is
+//     reported via DegradedRunes so callers can surface a single
+//     summary WARN / stats event.
+//
+// Display equivalence note: a rune like '→' rendered through this
+// path appears in the diagram as '->' (visually identical role,
+// strictly cell-equivalent). The user sees the SAME diagram the LLM
+// drew — only the decoration character changes shape. This is the
+// "renderer compatibility layer" boundary: we do not change what
+// the diagram MEANS, only the byte form fed to a library whose
+// subset is narrower than Mermaid spec.
+//
+// Returns an error only in the unrecoverable case:
 //   - placeholder pool exhausted (>1296 unique wide runes — vastly
-//     more than any plausible diagram)
-//   - non-wide non-ASCII rune encountered (e.g. accented Latin,
-//     emoji); placeholder cell-count would not match terminal
-//     display width, so we surface an error and the caller falls
-//     back to "leave source as-is"
+//     more than any plausible diagram). Caller falls back to
+//     "leave source as-is" and logs a WARN.
 func (a *cjkAdapter) substitute(s string) (string, bool, error) {
 	var b strings.Builder
 	b.Grow(len(s))
@@ -115,24 +142,107 @@ func (a *cjkAdapter) substitute(s string) (string, bool, error) {
 			i++
 			continue
 		}
-		// Multi-byte rune. Decide whether it's a "wide rune" we
-		// can safely substitute (display width 2) or a "narrow
-		// rune" we cannot (display width 1 — substitution would
-		// over-pad).
 		w := runewidth.RuneWidth(r)
-		if w != 2 {
-			return "", false, errNarrowMultibyteRune(r)
+		if w == 2 {
+			ph, err := a.allocatePlaceholder()
+			if err != nil {
+				return "", false, err
+			}
+			a.placeholderToRune[ph] = r
+			b.WriteString(ph)
+			substituted = true
+			i += size
+			continue
 		}
-		ph, err := a.allocatePlaceholder()
-		if err != nil {
-			return "", false, err
+		// Narrow multi-byte rune. Replace with ASCII equivalent
+		// (preferred) or '?' fallback. We DO NOT register a
+		// restore mapping — the user sees the ASCII form in the
+		// rendered grid by design (cell-equivalent substitute).
+		repl, mapped := narrowRuneFallback[r]
+		if !mapped {
+			repl = "?"
 		}
-		a.placeholderToRune[ph] = r
-		b.WriteString(ph)
-		substituted = true
+		b.WriteString(repl)
+		a.degraded = append(a.degraded, degradedRune{Rune: r, Replacement: repl, Mapped: mapped})
 		i += size
 	}
 	return b.String(), substituted, nil
+}
+
+// DegradedRunes returns the narrow multi-byte runes that were
+// replaced by ASCII equivalents during substitute(). Callers use
+// this for stats / WARN aggregation; presence of entries is NOT a
+// failure — the diagram still rendered.
+func (a *cjkAdapter) DegradedRunes() []degradedRune {
+	return a.degraded
+}
+
+// degradedRune carries one narrow-multibyte → ASCII substitution
+// event. Mapped=false signals the rune was not in narrowRuneFallback
+// and got the '?' fallback (worth surfacing at WARN level so the
+// table can be extended).
+type degradedRune struct {
+	Rune        rune
+	Replacement string
+	Mapped      bool
+}
+
+// narrowRuneFallback maps common Unicode decoration runes whose
+// runewidth is 1 (or "ambiguous") to a cell-equivalent ASCII form.
+// The set covers the characters LLMs routinely sprinkle into
+// flowchart node labels: arrows, dashes, ellipsis, check / cross
+// marks, bullets, full-width brackets. Anything outside this table
+// degrades to '?' (still renders, just visually weakened).
+//
+// Boundary: this is a renderer-compatibility table, not a censor.
+// LLMs may emit the source rune freely; the table only governs what
+// pgavlin/mermaid-ascii sees during the byte-counted parse.
+var narrowRuneFallback = map[rune]string{
+	// Arrows
+	'←': "<-", // ←
+	'↑': "^",  // ↑
+	'→': "->", // →
+	'↓': "v",  // ↓
+	'⇐': "<=", // ⇐
+	'⇒': "=>", // ⇒
+	'↦': "->", // ↦
+	// Dashes / ellipsis
+	'–': "-",   // – en dash
+	'—': "-",   // — em dash
+	'…': "...", // …
+	'⋯': "...", // ⋯
+	// Comparison
+	'≤': "<=", // ≤
+	'≥': ">=", // ≥
+	'≠': "!=", // ≠
+	'≡': "==", // ≡
+	'≈': "~=", // ≈
+	// Check / cross
+	'✓': "v", // ✓
+	'✔': "v", // ✔
+	'✗': "x", // ✗
+	'✘': "x", // ✘
+	// Bullets / shapes
+	'·': "*", // ·
+	'•': "*", // •
+	'▪': "*", // ▪
+	'▫': "*", // ▫
+	'▸': ">", // ▸
+	'◂': "<", // ◂
+	'▾': "v", // ▾
+	'▴': "^", // ▴
+	'◇': "o", // ◇
+	'◆': "*", // ◆
+	'●': "*", // ●
+	'○': "o", // ○
+	// Quotes
+	'‘': "'",  // ‘
+	'’': "'",  // ’
+	'“': "\"", // “
+	'”': "\"", // ”
+	// Full-width brackets that runewidth treats as ambiguous
+	'‹': "<", // ‹
+	'›': ">", // ›
 }
 
 // restore replaces every previously-allocated placeholder back to
@@ -209,14 +319,11 @@ func (a *cjkAdapter) allocatePlaceholder() (string, error) {
 }
 
 // adapterError is the typed error class for the adapter so
-// callers can distinguish "non-substitutable rune" from "pool
-// exhausted" from generic library errors.
+// callers can distinguish "pool exhausted" from generic library
+// errors. Narrow multi-byte runes no longer error — they go through
+// the narrowRuneFallback degrade path inside substitute().
 type adapterError struct{ msg string }
 
 func (e *adapterError) Error() string { return e.msg }
-
-func errNarrowMultibyteRune(r rune) error {
-	return &adapterError{msg: "cjk adapter: rune " + string(r) + " is multi-byte but not wide-display (width != 2); cannot substitute safely"}
-}
 
 var errPlaceholderExhausted = &adapterError{msg: "cjk adapter: placeholder pool exhausted"}

@@ -444,6 +444,25 @@ type RuntimeSettings struct {
 	// new-files-only filter still feels too noisy.
 	PipelineLintEnabled *bool `yaml:"pipeline_lint_enabled"`
 
+	// PipelineMermaidRenderabilityGate controls the renderability
+	// gate inside emit_answer_document.go. Three modes:
+	//
+	//   off    — gate disabled; diagnostics still feed
+	//            /mermaid stats counters but no submission is
+	//            rejected.
+	//   soft   — default. Diagnostics counted; LLM submissions
+	//            never rejected for renderability reasons.
+	//   strict — reject + retry when the terminal Mermaid renderer
+	//            fails to parse a block (Mermaid-spec violation).
+	//            Unsupported diagram kinds (classDiagram /
+	//            stateDiagram / ...) and decoration-rune fallback
+	//            paths NEVER reject regardless of mode — those are
+	//            library-subset gaps absorbed by the
+	//            compatibility shims, not LLM mistakes.
+	//
+	// nil → "soft" (code default).
+	PipelineMermaidRenderabilityGate *string `yaml:"pipeline_mermaid_renderability_gate"`
+
 	// Analyzer quality gate thresholds. Flat-prefixed `gate_*`.
 	// All optional; zero/nil → code default in gate.Thresholds.
 	GateCoverageMin           *float64 `yaml:"gate_coverage_min"`

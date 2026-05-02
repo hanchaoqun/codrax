@@ -155,18 +155,220 @@ func TestRenderMermaidBlocks_CJKLabelsRenderViaAdapter(t *testing.T) {
 	}
 }
 
-// TestRenderMermaidBlocks_NarrowMultibyteLeftAsSource pins the
-// fallback for multi-byte runes the adapter cannot safely
-// substitute (accented Latin / emoji at display-width 1). Library
-// would still byte-count them wrong; adapter refuses to substitute
-// because its 2-byte ASCII placeholder would occupy 2 cells where
-// the original rune occupies only 1, breaking box arithmetic.
-// Keep source as-is so user sees readable mermaid, not garbled output.
-func TestRenderMermaidBlocks_NarrowMultibyteLeftAsSource(t *testing.T) {
+// TestRenderMermaidBlocks_NarrowMultibyteRendersWithFallback pins
+// the post-2026-05-02 contract: narrow multi-byte runes (accented
+// Latin / emoji / arrows / bullets / dashes / ellipsis) no longer
+// abort rendering. Mapped runes (→ → -> etc) substitute via
+// narrowRuneFallback; unmapped runes (café's é, emoji) substitute
+// to '?'. Either way the diagram renders and the user sees an
+// aligned ASCII grid instead of raw mermaid source.
+//
+// Pre-2026-05-02 this case was "leave as source"; it now must
+// render. Reasons: (a) raw source displayed under a ```mermaid```
+// fence got chroma-highlighted and looked like a successful
+// render, deceiving users; (b) common decoration runes (→ … —)
+// now have ASCII equivalents that preserve diagram meaning; (c)
+// the failure path's fallback fence still leaves the original
+// source visible to the user, just under a ```text``` tag with a
+// ⚠ leader.
+func TestRenderMermaidBlocks_NarrowMultibyteRendersWithFallback(t *testing.T) {
 	in := "```mermaid\nflowchart LR\n    A[café] --> B\n```"
 	out := RenderMermaidBlocks(in)
-	if out != in {
-		t.Errorf("narrow multi-byte rune must skip render and stay as source; got:\n%s", out)
+	if out == in {
+		t.Fatalf("narrow multi-byte rune must NOT block render anymore; got unchanged:\n%s", out)
+	}
+	if !strings.Contains(out, "```text\n") {
+		t.Errorf("output must rewrap fence as ```text```; got:\n%s", out)
+	}
+	// Unmapped narrow rune ('é') falls back to '?'; the rest of
+	// the box must still render.
+	if !strings.Contains(out, "caf?") {
+		t.Errorf("expected '?' fallback for unmapped 'é'; got:\n%s", out)
+	}
+}
+
+// TestRenderMermaidBlocks_ArrowAndDashFallback verifies the most
+// common decoration-rune substitutions (→ → "->", … → "...", —
+// → "-"). Trigger from the real failure log 2026-05-02:
+// `clearAndWrite["清除→写入→重绘"]` froze the entire flowchart
+// renderer because '→' was not wide-display.
+func TestRenderMermaidBlocks_ArrowAndDashFallback(t *testing.T) {
+	in := "```mermaid\nflowchart LR\n    A[\"清除→写入→重绘\"] --> B[\"end…\"] --> C[\"x — y\"]\n```"
+	out := RenderMermaidBlocks(in)
+	if out == in {
+		t.Fatalf("arrow/ellipsis/dash labels must render via fallback; got unchanged:\n%s", out)
+	}
+	if !strings.Contains(out, "```text\n") {
+		t.Errorf("output must rewrap fence as ```text```; got:\n%s", out)
+	}
+	// Wide CJK runes restore back through the cjkAdapter restore
+	// path; narrow decoration runes survive as their ASCII
+	// equivalents.
+	for _, want := range []string{"清除", "写入", "重绘", "->", "..."} {
+		if !strings.Contains(out, want) {
+			t.Errorf("expected token %q (CJK preserved or decoration substituted) in:\n%s", want, out)
+		}
+	}
+}
+
+// TestRenderMermaidBlocks_BrTagInLabel verifies the L2 HTML
+// normalisation: `<br/>` inside a label gets folded to a space so
+// pgavlin's flowchart parser accepts it. Mermaid spec allows
+// `<br/>` for multi-line labels; pgavlin's subset does not.
+func TestRenderMermaidBlocks_BrTagInLabel(t *testing.T) {
+	in := "```mermaid\nflowchart LR\n    A[\"line1<br/>line2\"] --> B[\"x<br />y\"]\n```"
+	out := RenderMermaidBlocks(in)
+	if out == in {
+		t.Fatalf("<br/> labels must render via normalisation; got unchanged:\n%s", out)
+	}
+	if !strings.Contains(out, "```text\n") {
+		t.Errorf("output must rewrap fence as ```text```; got:\n%s", out)
+	}
+	// "line1 line2" survives as a single label; "<br" must be gone.
+	if strings.Contains(out, "<br") {
+		t.Errorf("<br/> must be replaced; got raw <br in:\n%s", out)
+	}
+}
+
+// TestRenderMermaidBlocks_HtmlEntitiesInLabel verifies HTML named
+// entities (&amp; &lt; &gt; &nbsp;) collapse to their plain-text
+// form via normalizeMermaidLabels.
+func TestRenderMermaidBlocks_HtmlEntitiesInLabel(t *testing.T) {
+	in := "```mermaid\nflowchart LR\n    A[\"x&amp;y\"] --> B[\"a&lt;b\"]\n```"
+	out := RenderMermaidBlocks(in)
+	if out == in {
+		t.Fatalf("HTML entities must render via normalisation; got unchanged:\n%s", out)
+	}
+	if strings.Contains(out, "&amp;") || strings.Contains(out, "&lt;") {
+		t.Errorf("HTML entities must be expanded; got raw entity in:\n%s", out)
+	}
+}
+
+// TestRenderMermaidBlocks_UnsupportedKindShortCircuits verifies the
+// L2 routing split: classDiagram / stateDiagram / etc are valid
+// Mermaid the LLM is right to emit, but pgavlin's subset cannot
+// draw. The renderer short-circuits BEFORE the library call,
+// rewrites the fence to ```text``` (so chroma never highlights it),
+// and prepends a # ⚠ leader so the user sees an explicit signal.
+// The original source survives verbatim for copy-paste into a real
+// Mermaid renderer.
+func TestRenderMermaidBlocks_UnsupportedKindShortCircuits(t *testing.T) {
+	cases := []struct {
+		name    string
+		kind    string
+		body    string
+	}{
+		{"classDiagram", "classDiagram", "classDiagram\n    Animal <|-- Duck\n    Animal <|-- Fish"},
+		{"stateDiagram", "stateDiagram", "stateDiagram\n    [*] --> Idle\n    Idle --> Running"},
+		{"erDiagram", "erDiagram", "erDiagram\n    CUSTOMER ||--o{ ORDER : places"},
+		{"gantt", "gantt", "gantt\n    title A Gantt Diagram\n    section S1\n    task1 :a, 2024-01-01, 30d"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			in := "```mermaid\n" + tc.body + "\n```"
+			out := RenderMermaidBlocks(in)
+			if out == in {
+				t.Fatalf("unsupported kind %q must short-circuit to fallback fence; got unchanged:\n%s", tc.kind, out)
+			}
+			if !strings.Contains(out, "```text\n") {
+				t.Errorf("unsupported kind output must use ```text``` fence (no chroma deception); got:\n%s", out)
+			}
+			if !strings.Contains(out, "# ⚠") {
+				t.Errorf("unsupported kind output must inject # ⚠ leader; got:\n%s", out)
+			}
+			if !strings.Contains(out, tc.kind) {
+				t.Errorf("unsupported kind output must reference kind %q for the user; got:\n%s", tc.kind, out)
+			}
+			// Original body content must survive for copy-paste.
+			for _, line := range strings.Split(tc.body, "\n") {
+				if strings.TrimSpace(line) == "" {
+					continue
+				}
+				if !strings.Contains(out, strings.TrimSpace(line)) {
+					t.Errorf("original line %q must survive in output; got:\n%s", line, out)
+				}
+			}
+		})
+	}
+}
+
+// TestRenderMermaidBlocks_FailurePathNeverLeavesMermaidFence is the
+// red-line guard: every failure path (parse error, panic,
+// unsupported kind, library reject) must rewrite the fence to
+// ```text``` so chroma never syntax-highlights mermaid source.
+// A bare ```mermaid``` tag escaping past renderer = visual deception
+// (user sees colored output, thinks it rendered).
+func TestRenderMermaidBlocks_FailurePathNeverLeavesMermaidFence(t *testing.T) {
+	cases := []string{
+		// Genuinely broken Mermaid that should fail parser.
+		"```mermaid\nflowchart LR\n    {unclosed bracket\n```",
+		// Unsupported kind.
+		"```mermaid\nclassDiagram\n    Animal <|-- Duck\n```",
+	}
+	for _, in := range cases {
+		out := RenderMermaidBlocks(in)
+		if strings.Contains(out, "```mermaid") {
+			t.Errorf("failure path must NEVER leave ```mermaid fence in output; got:\n%s", out)
+		}
+	}
+}
+
+// TestMermaidStats_CountersIncrementCorrectly verifies the L3
+// stats hooks fire on the expected outcomes.
+func TestMermaidStats_CountersIncrementCorrectly(t *testing.T) {
+	ResetMermaidStats()
+	// One success.
+	RenderMermaidBlocks("```mermaid\nflowchart LR\n    A --> B\n```")
+	// One unsupported kind.
+	RenderMermaidBlocks("```mermaid\nclassDiagram\n    A <|-- B\n```")
+	// One fallback substitution (arrow rune).
+	RenderMermaidBlocks("```mermaid\nflowchart LR\n    A[\"x→y\"] --> B\n```")
+
+	s := GetMermaidStats()
+	if s.Attempts < 2 {
+		t.Errorf("expected ≥2 attempts (success + fallback), got %d", s.Attempts)
+	}
+	if s.Succeeded < 2 {
+		t.Errorf("expected ≥2 successes (the success and the fallback path also succeeded), got %d", s.Succeeded)
+	}
+	if got := s.UnsupportedKind["classDiagram"]; got != 1 {
+		t.Errorf("expected classDiagram count 1, got %d", got)
+	}
+	if s.FallbackSubstituted < 1 {
+		t.Errorf("expected ≥1 fallback-substituted block, got %d", s.FallbackSubstituted)
+	}
+	if s.FallbackRunes < 1 {
+		t.Errorf("expected ≥1 fallback rune total, got %d", s.FallbackRunes)
+	}
+}
+
+// TestTryRenderMermaidBlocks_DiagsForEachOutcome verifies the
+// per-block diagnostics shape used by the L4 gate.
+func TestTryRenderMermaidBlocks_DiagsForEachOutcome(t *testing.T) {
+	ResetMermaidStats()
+	in := strings.Join([]string{
+		"```mermaid",
+		"flowchart LR",
+		"    A --> B",
+		"```",
+		"",
+		"```mermaid",
+		"classDiagram",
+		"    A <|-- B",
+		"```",
+	}, "\n")
+	_, diags := TryRenderMermaidBlocks(in)
+	if len(diags) < 1 {
+		t.Fatalf("expected at least one diagnostic for the unsupported block; got 0")
+	}
+	foundUnsupported := false
+	for _, d := range diags {
+		if d.Outcome == OutcomeUnsupportedKind && d.Keyword == "classDiagram" {
+			foundUnsupported = true
+		}
+	}
+	if !foundUnsupported {
+		t.Errorf("expected OutcomeUnsupportedKind diag for classDiagram; got: %+v", diags)
 	}
 }
 

@@ -904,11 +904,39 @@ func (t *EmitAnswerDocument) Execute(ctx *types.BusContext, params json.RawMessa
 	// fenced block, the pgavlin/mermaid-ascii library re-lays it
 	// out into deterministically-aligned ASCII so terminal readers
 	// see a clean diagram regardless of locale / font / CJK content.
-	// Failure modes (parse error, unsupported feature, panic) all
-	// degrade to "leave block unchanged" — no regression risk. The
-	// model's free ASCII art (no `mermaid` tag) passes through this
-	// step untouched.
-	doc.Summary = render.RenderMermaidBlocks(doc.Summary)
+	// Failure modes (library parse error, panic, pool exhaustion) and
+	// unsupported diagram kinds (classDiagram / stateDiagram / ...)
+	// degrade to a ```text``` fallback fence with a "# ⚠ <reason>"
+	// leader — never a bare ```mermaid``` tag (chroma would highlight
+	// it as code, deceiving the user that rendering had occurred).
+	//
+	// We use TryRenderMermaidBlocks (instead of RenderMermaidBlocks)
+	// so the renderability gate can examine per-block diagnostics
+	// before the rewritten text reaches the user. Both functions are
+	// deterministic on the same input; we keep the rewritten text
+	// from the dry run to avoid double work.
+	rewrittenSummary, mermaidDiags := render.TryRenderMermaidBlocks(doc.Summary)
+
+	// Renderability gate (Mermaid-spec only). Boundary, load-bearing:
+	// this gate flags ONLY Mermaid-spec violations (LLM emitted text
+	// the Mermaid renderer cannot parse — invalid syntax, unmatched
+	// brackets, stray characters in node id position). It does NOT
+	// flag pgavlin-subset limits (classDiagram / <br/> / →) — those
+	// are absorbed by the L1+L2 compatibility shims and surface as
+	// OutcomeFallbackRune / OutcomeUnsupportedKind, neither of which
+	// is the LLM's fault. Re-prompting the LLM about library
+	// limitations would push library subset back into the prompt
+	// surface and break the "LLM emits standard Mermaid, system
+	// renders" principle.
+	//
+	// Mode (yaml pipeline_mermaid_renderability_gate):
+	//   - "off"    → never reject (still records diagnostics)
+	//   - "soft"   → log + count, ship answer (default)
+	//   - "strict" → reject + repair Hint, retry once
+	if err := validateSummaryDiagramRenderable(mermaidDiags); err != nil {
+		return failWithContext("%v", err)
+	}
+	doc.Summary = rewrittenSummary
 
 	// Session-22 fix F4.1 — diagram-block literal-grounding gate.
 	//
@@ -3112,6 +3140,103 @@ func explanationCitationWindowMentionsAnyToken(file string, line int, tokens []s
 		}
 	}
 	return false
+}
+
+// MermaidGateMode controls how validateSummaryDiagramRenderable
+// reacts to per-block diagnostics. Set via cmd/root.go from yaml
+// pipeline_mermaid_renderability_gate at startup.
+type MermaidGateMode int
+
+const (
+	// MermaidGateOff disables the gate entirely. Diagnostics still
+	// flow into the stats counters and the rewritten text is the
+	// same as RenderMermaidBlocks would produce, but no submission
+	// is ever rejected for renderability reasons.
+	MermaidGateOff MermaidGateMode = iota
+	// MermaidGateSoft is the default: diagnostics counted, gate
+	// never rejects. Operators get visibility (`/mermaid stats`)
+	// without retry overhead.
+	MermaidGateSoft
+	// MermaidGateStrict rejects emit_answer_document submissions
+	// when ANY mermaid block has Outcome == OutcomeLibraryRejected.
+	// The LLM gets a Repair hint with the specific reason and
+	// retries. Unsupported-kind / fallback-rune outcomes are NEVER
+	// rejected (they are library-subset gaps, not LLM mistakes).
+	MermaidGateStrict
+)
+
+var mermaidGateMode = MermaidGateSoft
+
+// SetMermaidGateMode is the runtime accessor used by cmd/root.go
+// at startup to apply the yaml override. Defaults to soft.
+func SetMermaidGateMode(mode MermaidGateMode) { mermaidGateMode = mode }
+
+// MermaidGateMode returns the current mode. Used by tests + the
+// /mermaid REPL command.
+func GetMermaidGateMode() MermaidGateMode { return mermaidGateMode }
+
+// validateSummaryDiagramRenderable inspects per-block diagnostics
+// from render.TryRenderMermaidBlocks and decides whether to reject
+// the submission so the finalizer can retry with a corrected
+// emit_answer_document.
+//
+// Boundary (load-bearing):
+//
+//   - OutcomeRendered / OutcomeFallbackRune → no action. The
+//     diagram rendered correctly (with or without ASCII fallback
+//     for decoration runes); these are healthy paths.
+//
+//   - OutcomeUnsupportedKind → no action regardless of mode.
+//     classDiagram / stateDiagram / ... are valid Mermaid that the
+//     LLM is right to emit per spec; pgavlin's subset cannot draw
+//     them. Asking the LLM to switch to flowchart for an
+//     inherently-class-shaped diagram would break the "LLM emits
+//     standard Mermaid" principle. The fallback fence already
+//     surfaces a "⚠ kind not supported" leader — operators see it,
+//     library is honest about its limit.
+//
+//   - OutcomeLibraryRejected → mode-dependent. Strict rejects with
+//     a repair Hint pointing at Mermaid-spec syntax checks (matched
+//     brackets, quoted special-char labels, valid edge syntax).
+//     Soft / off log + count only.
+//
+// We always increment the gate-blocked counter when we reject so
+// /mermaid stats shows the true rate.
+func validateSummaryDiagramRenderable(diags []render.MermaidBlockDiagnostic) error {
+	if len(diags) == 0 || mermaidGateMode != MermaidGateStrict {
+		return nil
+	}
+	var rejected []render.MermaidBlockDiagnostic
+	for _, d := range diags {
+		if d.Outcome == render.OutcomeLibraryRejected {
+			rejected = append(rejected, d)
+		}
+	}
+	if len(rejected) == 0 {
+		return nil
+	}
+	render.RecordMermaidGateBlocked()
+	render.RecordMermaidLastFailure(rejected[0].Reason)
+
+	// Build a single concise repair hint pointing at Mermaid-spec
+	// fixes. We DO NOT mention pgavlin / library subset / "use
+	// flowchart instead" — that would couple the prompt surface
+	// to the rendering library's choice.
+	var b strings.Builder
+	b.WriteString("re-emit emit_answer_document with the same shape and payload, but fix the Mermaid syntax in summary so the renderer can parse it. ")
+	b.WriteString("Common fixes: (a) quote labels containing special characters (`A[\"foo (bar)\"]` not `A[foo (bar)]`); (b) ensure node ids are single tokens (letters/digits/underscore); (c) match every opening bracket; (d) use valid edge syntax (`-->` or `---`).")
+	if len(rejected) > 0 && rejected[0].Keyword != "" {
+		fmt.Fprintf(&b, " First failing block: kind=%s.", rejected[0].Keyword)
+	}
+	if len(rejected) > 0 && rejected[0].BodyExcerpt != "" {
+		fmt.Fprintf(&b, " Body excerpt: %q.", rejected[0].BodyExcerpt)
+	}
+	hint := b.String()
+
+	return newAnswerDocValidationError(
+		"diagram_unrenderable",
+		"Mermaid block(s) in summary failed parser: %d block(s) rejected", len(rejected),
+	).WithFields("summary").WithHint(hint)
 }
 
 func validateSummaryRequiredDiagram(summary string, ctx *types.BusContext) error {

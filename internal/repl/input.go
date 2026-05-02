@@ -277,6 +277,15 @@ var slashCommands = []slashCommand{
 			{"clear", "wipe the cache file (regenerable from future failures)", "清空本地缓存(后续失败时会重新积累)"},
 		},
 	},
+	{
+		Name:   "/mermaid",
+		HelpEn: "show mermaid render counters (succeeded / fallback / library-rejected / unsupported kinds / gate-blocked)",
+		HelpZh: "查看 Mermaid 渲染计数(成功/字符替换/库拒绝/不支持图类/闸门拦截)",
+		Subs: []slashSubcommand{
+			{"stats", "show counters (default subcommand)", "查看计数(默认子命令)"},
+			{"help", "usage line", "显示用法"},
+		},
+	},
 	{Name: "/version", HelpEn: "print build version", HelpZh: "打印构建版本"},
 	{Name: "/exit", HelpEn: "leave the REPL", HelpZh: "退出 REPL"},
 	{Name: "/quit", HelpEn: "leave the REPL", HelpZh: "退出 REPL"},

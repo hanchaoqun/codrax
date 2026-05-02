@@ -2020,6 +2020,9 @@ func (r *REPL) handleSlash(line string) bool {
 	case "/pitfalls":
 		r.handlePitfallsCmd(line)
 		return false
+	case "/mermaid":
+		r.handleMermaidCmd(line)
+		return false
 	case "/cancel":
 		// Slash-command fallback for terminals where Ctrl+C is
 		// swallowed by tmux, screen, or a terminal multiplexer the

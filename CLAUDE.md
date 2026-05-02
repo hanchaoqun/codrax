@@ -170,6 +170,8 @@ Skill awareness: `change-plan-skill` carries a "MULTI-PHASE TASK SCOPING" workfl
 - L3: write tools MUST NOT call `ground.BuildContext` / `ground.GroundItem` (enforced by `internal/tool/write_mode_red_lines_test.go` via go/ast scan).
 - L5: worktree cleanup is unconditional — outer defer in `Run()` calls `worktree.DiscardByPath` on any exit path. Stage hooks may CREATE worktrees but never destroy them.
 - L6: write skills keep `exec_command` in `ToolSuggestions` (Q2 red line — worktree sandbox contains blast radius).
+- L7: `render/mermaid` failure paths MUST rewrite the fence to ` ```text` and inject a `# ⚠ <reason>` leader — NEVER leave the original ` ```mermaid` tag in place. A bare mermaid fence escaping the renderer is downstream chroma-highlighted as code, deceiving the user that rendering occurred. Tests: `TestRenderMermaidBlocks_FailurePathNeverLeavesMermaidFence`, `TestRenderMermaidBlocks_UnsupportedKindShortCircuits`.
+- L8: `render/mermaid` library-subset gaps (unsupported diagram kinds, `<br/>`, decoration-rune fallback) are absorbed by L1+L2 compatibility shims and MUST NOT propagate into LLM-facing prompts. Skill prompts educate the LLM on Mermaid spec only; the renderability gate (`pipeline_mermaid_renderability_gate`) flags only Mermaid-spec violations (parser rejects), never library-subset gaps. Boundary preserves "LLM emits standard Mermaid, system renders" principle.
 
 ### Key Data Structures (`internal/types/`)
 

@@ -1724,6 +1724,23 @@ func initApp(cmd *cobra.Command, _ []string) error {
 		if rs.PipelineLintEnabled != nil {
 			tool.SetLintEnabled(*rs.PipelineLintEnabled)
 		}
+		// Mermaid renderability gate (off / soft / strict; default
+		// soft when unset). Boundary: gate flags ONLY Mermaid-spec
+		// violations, never library-subset gaps — see comment on
+		// PipelineMermaidRenderabilityGate in runtime.go.
+		if rs.PipelineMermaidRenderabilityGate != nil {
+			switch strings.ToLower(strings.TrimSpace(*rs.PipelineMermaidRenderabilityGate)) {
+			case "off":
+				tool.SetMermaidGateMode(tool.MermaidGateOff)
+			case "soft", "":
+				tool.SetMermaidGateMode(tool.MermaidGateSoft)
+			case "strict":
+				tool.SetMermaidGateMode(tool.MermaidGateStrict)
+			default:
+				logging.Warning("unknown pipeline_mermaid_renderability_gate=%q; expected off/soft/strict; defaulting to soft", *rs.PipelineMermaidRenderabilityGate)
+				tool.SetMermaidGateMode(tool.MermaidGateSoft)
+			}
+		}
 		// T3.2 repomap tier-degradation thresholds. Both knobs
 		// inherit the code default when unset / zero. Setting
 		// just one is fine — SetTierThresholds skips the unset

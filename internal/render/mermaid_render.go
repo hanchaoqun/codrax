@@ -57,6 +57,174 @@ func SetMermaidRenderingEnabled(enabled bool) {
 // Cross-platform: pgavlin/mermaid-ascii is pure Go (single import
 // dep, MIT licensed), uses runewidth for width calculations, no
 // syscalls or shell-out. Output is the same on every platform.
+// MermaidBlockDiagnostic describes the outcome of one mermaid block
+// processed by TryRenderMermaidBlocks. Used by the renderability
+// gate (internal/tool/emit_answer_document.go) to decide whether to
+// re-prompt the LLM.
+//
+// Outcome semantics (load-bearing):
+//
+//   - OutcomeRendered      — body went through the library and
+//     produced an aligned ASCII grid. No re-prompt needed.
+//   - OutcomeFallbackRune  — wide rune adapter used narrowRuneFallback
+//     for one or more decoration runes (→ … etc). The diagram still
+//     rendered; this is INFORMATIONAL — no re-prompt.
+//   - OutcomeUnsupportedKind — diagram type is outside pgavlin's
+//     subset (classDiagram, stateDiagram, ...). Source preserved
+//     under a ```text``` fallback fence. NO re-prompt — this is a
+//     library capability gap, not an LLM mistake. The LLM emitted
+//     valid Mermaid; the library can't draw it.
+//   - OutcomeLibraryRejected — body reached the library and the
+//     parse failed. This is the ONLY outcome that re-prompting can
+//     potentially fix: the LLM emitted text that pgavlin can't
+//     parse AND that the L1+L2 shims can't repair. Surface to the
+//     gate so it can ask the LLM to re-emit.
+type MermaidBlockOutcome int
+
+const (
+	OutcomeRendered MermaidBlockOutcome = iota
+	OutcomeFallbackRune
+	OutcomeUnsupportedKind
+	OutcomeLibraryRejected
+)
+
+// MermaidBlockDiagnostic carries per-block result for the
+// renderability gate.
+type MermaidBlockDiagnostic struct {
+	Outcome MermaidBlockOutcome
+	// Keyword is the diagram-type token (flowchart / classDiagram /
+	// ...) when detectable. Empty if the body lacks one.
+	Keyword string
+	// Reason is a one-line user-facing explanation. Used to seed
+	// the gate's repair Hint. Always non-empty when Outcome !=
+	// OutcomeRendered.
+	Reason string
+	// BodyExcerpt is a small (≤ 200 char) excerpt of the original
+	// mermaid body used for repair hints. Truncated to avoid
+	// flooding the next prompt.
+	BodyExcerpt string
+}
+
+// TryRenderMermaidBlocks performs a dry-run render pass and returns
+// per-block diagnostics. Used by the renderability gate. The
+// returned text is the same string RenderMermaidBlocks would return
+// (for the eventual emit) — running both is wasteful, so callers
+// can use this once and cache the rewritten text.
+//
+// Called BEFORE doc.Summary = render.RenderMermaidBlocks(doc.Summary)
+// in emit_answer_document.go so the gate can examine the LLM's
+// original source. Callers that don't need diagnostics should use
+// RenderMermaidBlocks directly.
+func TryRenderMermaidBlocks(text string) (rewritten string, diags []MermaidBlockDiagnostic) {
+	if !mermaidRenderingEnabled {
+		return text, nil
+	}
+	if text == "" || !strings.Contains(text, "```") || !mayContainMermaid(text) {
+		return text, nil
+	}
+	out := fencedBlockRe.ReplaceAllStringFunc(text, func(match string) string {
+		// Snapshot stats before; per-block diff tells us outcome.
+		preAttempts := mermaidAttempts.Load()
+		preSucceeded := mermaidSucceeded.Load()
+		preFallback := mermaidFallbackSubst.Load()
+		preLibRej := mermaidLibraryRejected.Load()
+		preUnsupported := totalUnsupportedKindCount()
+
+		rewritten := maybeReplaceMermaidFence(match)
+
+		postAttempts := mermaidAttempts.Load()
+		postSucceeded := mermaidSucceeded.Load()
+		postFallback := mermaidFallbackSubst.Load()
+		postLibRej := mermaidLibraryRejected.Load()
+		postUnsupported := totalUnsupportedKindCount()
+
+		// Block was non-mermaid (no attempt counted, no unsupported
+		// short-circuit) — skip diagnostic.
+		if postAttempts == preAttempts && postUnsupported == preUnsupported {
+			return rewritten
+		}
+		// Extract keyword from original match for diagnostic
+		// payload (works regardless of outcome).
+		kw := keywordFromFenceMatch(match)
+		body := bodyFromFenceMatch(match)
+		excerpt := body
+		if len(excerpt) > 200 {
+			excerpt = excerpt[:200] + "…"
+		}
+
+		switch {
+		case postUnsupported > preUnsupported:
+			diags = append(diags, MermaidBlockDiagnostic{
+				Outcome:     OutcomeUnsupportedKind,
+				Keyword:     kw,
+				Reason:      "diagram kind [" + kw + "] is not in the terminal renderer's supported subset (flowchart / graph / sequenceDiagram); source preserved as-is",
+				BodyExcerpt: excerpt,
+			})
+		case postLibRej > preLibRej:
+			diags = append(diags, MermaidBlockDiagnostic{
+				Outcome:     OutcomeLibraryRejected,
+				Keyword:     kw,
+				Reason:      "terminal Mermaid renderer rejected the body; check Mermaid-spec syntax (matched brackets, quoted special-char labels, valid edge syntax)",
+				BodyExcerpt: excerpt,
+			})
+		case postFallback > preFallback:
+			diags = append(diags, MermaidBlockDiagnostic{
+				Outcome:     OutcomeFallbackRune,
+				Keyword:     kw,
+				Reason:      "decoration runes substituted with ASCII equivalents",
+				BodyExcerpt: excerpt,
+			})
+		case postSucceeded > preSucceeded:
+			// Pure success — no diagnostic.
+		}
+		return rewritten
+	})
+	return out, diags
+}
+
+// totalUnsupportedKindCount sums every key in mermaidUnsupportedKind
+// — used to detect an unsupported short-circuit increment in
+// TryRenderMermaidBlocks.
+func totalUnsupportedKindCount() int64 {
+	mermaidUnsupportedKindLock.Lock()
+	var total int64
+	for _, v := range mermaidUnsupportedKind {
+		total += v
+	}
+	mermaidUnsupportedKindLock.Unlock()
+	return total
+}
+
+// keywordFromFenceMatch peels the first mermaid keyword out of a
+// fenced-block match. Looks at info-string then body's first
+// non-empty line.
+func keywordFromFenceMatch(match string) string {
+	nl := strings.Index(match, "\n")
+	if nl < 0 {
+		return ""
+	}
+	infoLine := strings.TrimSpace(match[3:nl])
+	if kw := firstMermaidKeywordIn(infoLine); kw != "" {
+		return kw
+	}
+	if strings.HasPrefix(infoLine, "mermaid") {
+		bodyEnd := strings.LastIndex(match, "\n```")
+		if bodyEnd > nl {
+			return firstMermaidKeywordIn(firstNonEmptyTrimmed(match[nl+1 : bodyEnd]))
+		}
+	}
+	return ""
+}
+
+func bodyFromFenceMatch(match string) string {
+	nl := strings.Index(match, "\n")
+	bodyEnd := strings.LastIndex(match, "\n```")
+	if nl < 0 || bodyEnd <= nl {
+		return ""
+	}
+	return strings.TrimSpace(match[nl+1 : bodyEnd])
+}
+
 func RenderMermaidBlocks(text string) string {
 	if !mermaidRenderingEnabled {
 		return text
@@ -133,19 +301,42 @@ var fencedBlockRe = regexp.MustCompile("(?s)```([^\\n]*)\\n(.*?)\\n```")
 // callers downstream remain stable).
 var mermaidFenceRe = regexp.MustCompile("(?s)```mermaid[^\\n]*\\n(.*?)\\n```")
 
-// mermaidBodyKeywords lists the diagram-type tokens that mark a
-// mermaid block. The first non-empty body line of an untagged fence
-// must begin with one of these (case-sensitive — mermaid spec).
-// We deliberately omit shorter / ambiguous tokens like "graph"
-// alone might match (it's the umbrella alias for flowchart in
-// mermaid, but rare in modern diagrams). Including it explicitly
-// here is fine because any false-positive falls through to
-// replaceMermaidFence's library-render error path which leaves the
-// block as source.
-var mermaidBodyKeywords = []string{
+// mermaidBodyKeywords lists every Mermaid-spec diagram-type token
+// we recognise as a "mermaid block" for routing purposes. The first
+// non-empty body line of an untagged fence must begin with one of
+// these (case-sensitive — Mermaid spec).
+//
+// Routing distinction (load-bearing):
+//
+//   - mermaidSupportedKeywords — the subset pgavlin/mermaid-ascii
+//     can actually render (flowchart / graph / sequenceDiagram).
+//     These go through the library.
+//
+//   - mermaidUnsupportedKeywords — everything else in Mermaid spec
+//     (classDiagram, stateDiagram, erDiagram, ...). These are valid
+//     Mermaid that the LLM is right to emit per Mermaid standard,
+//     but pgavlin's subset cannot draw them. Rather than feeding a
+//     doomed body to the library and producing a bare fence + raw
+//     mermaid tag (which downstream chroma would syntax-highlight,
+//     giving the user the misleading "looks rendered" effect), we
+//     short-circuit at routing time: rewrite the fence to ```text
+//     and inject a "⚠ <kind> not in renderer subset" leader so the
+//     user sees an explicit signal. The mermaid SOURCE survives
+//     verbatim — useful for copy-paste into a real Mermaid renderer.
+//
+// mermaidBodyKeywords is the union, used by mayContainMermaid /
+// looksLikeMermaidBody / infoLineStartsWithMermaidKeyword for the
+// detection step. The supported / unsupported split kicks in inside
+// maybeReplaceMermaidFence after detection.
+var mermaidBodyKeywords = append(append([]string(nil), mermaidSupportedKeywords...), mermaidUnsupportedKeywords...)
+
+var mermaidSupportedKeywords = []string{
 	"flowchart",
 	"graph",
 	"sequenceDiagram",
+}
+
+var mermaidUnsupportedKeywords = []string{
 	"classDiagram",
 	"stateDiagram",
 	"stateDiagram-v2",
@@ -158,6 +349,45 @@ var mermaidBodyKeywords = []string{
 	"gitGraph",
 	"requirementDiagram",
 	"C4Context",
+}
+
+// firstMermaidKeywordIn returns the first known mermaid keyword the
+// line begins with (matching word-boundary so "graph" doesn't shadow
+// "graphTD"). Returns "" when no keyword matches. Used by the
+// supported / unsupported routing split.
+func firstMermaidKeywordIn(line string) string {
+	line = strings.TrimSpace(line)
+	if line == "" {
+		return ""
+	}
+	for _, kw := range mermaidBodyKeywords {
+		if line == kw || strings.HasPrefix(line, kw+" ") || strings.HasPrefix(line, kw+"\t") {
+			return kw
+		}
+	}
+	return ""
+}
+
+// firstNonEmptyTrimmed returns the first non-empty trimmed line of a
+// body, used to identify the diagram-type keyword.
+func firstNonEmptyTrimmed(body string) string {
+	for _, line := range strings.Split(body, "\n") {
+		if t := strings.TrimSpace(line); t != "" {
+			return t
+		}
+	}
+	return ""
+}
+
+// isMermaidSupportedKind reports whether the keyword belongs to the
+// pgavlin subset we can actually render.
+func isMermaidSupportedKind(kw string) bool {
+	for _, s := range mermaidSupportedKeywords {
+		if s == kw {
+			return true
+		}
+	}
+	return false
 }
 
 // infoLineStartsWithMermaidKeyword reports whether the fence's
@@ -179,6 +409,65 @@ func infoLineStartsWithMermaidKeyword(info string) bool {
 		}
 	}
 	return false
+}
+
+// preprocessMermaidBody is the single entry point that runs every
+// renderer-compatibility shim before the body is handed to
+// pgavlin/mermaid-ascii. Each shim corresponds to one Mermaid-spec
+// feature the library subset does not support. The boundary
+// (load-bearing): every shim is a SOURCE-LAYER normalisation that
+// preserves what the diagram MEANS — the LLM still emits standard
+// Mermaid, the library still does the rendering, the system fills
+// the capability gap in between.
+func preprocessMermaidBody(body string) string {
+	body = flattenMermaidSubgraphs(body)
+	body = normalizeMermaidLabels(body)
+	return body
+}
+
+// htmlEntityToText maps the HTML named entities Mermaid spec
+// allows inside labels to their plain-text equivalent. We keep the
+// set narrow — only the entities that actually appear in real
+// Mermaid corpus — to avoid acting like a half-baked HTML parser.
+var htmlEntityToText = map[string]string{
+	"&nbsp;": " ",
+	"&amp;":  "&",
+	"&lt;":   "<",
+	"&gt;":   ">",
+	"&quot;": "\"",
+	"&apos;": "'",
+}
+
+// brTagRe matches every <br> / <br/> / <br /> variant
+// case-insensitively. Mermaid spec accepts <br/> in labels for
+// multi-line text; pgavlin's flowchart parser does not. We
+// normalise to a single space so the label still reads as one
+// fluid string and the box arithmetic stays predictable.
+var brTagRe = regexp.MustCompile(`(?i)<br\s*/?>`)
+
+// normalizeMermaidLabels rewrites Mermaid-spec HTML markup that
+// pgavlin/mermaid-ascii's flowchart subset does not handle. Two
+// transforms:
+//
+//  1. <br>, <br/>, <br /> (any case)         → single space
+//  2. &nbsp; / &amp; / &lt; / &gt; / &quot; / &apos; → plain text
+//
+// We deliberately only touch contents inside fenced LABELS would be
+// risky to detect statefully; instead we run on the whole body and
+// rely on the fact that the source-side characters we replace are
+// not load-bearing for Mermaid SYNTAX (parser doesn't use `<br/>`
+// or HTML entities anywhere meaningful outside labels).
+func normalizeMermaidLabels(body string) string {
+	if !strings.Contains(body, "<") && !strings.Contains(body, "&") {
+		return body
+	}
+	body = brTagRe.ReplaceAllString(body, " ")
+	for entity, repl := range htmlEntityToText {
+		if strings.Contains(body, entity) {
+			body = strings.ReplaceAll(body, entity, repl)
+		}
+	}
+	return body
 }
 
 // flattenMermaidSubgraphs removes `subgraph <name> [...]` and the
@@ -232,14 +521,31 @@ func looksLikeMermaidBody(body string) bool {
 	return false
 }
 
-// maybeReplaceMermaidFence dispatches a fenced-block match to either
-// the mermaid renderer or pass-through. Three cases:
+// maybeReplaceMermaidFence dispatches a fenced-block match to one of
+// four outcomes:
 //
-//   1. info-string starts with `mermaid` → render via library
-//   2. info-string is empty / `text` AND body looks like mermaid →
-//      render via library (the model dropped the tag)
-//   3. anything else → leave unchanged (untouched contract for
-//      `go`, `bash`, `json`, `diff`, etc.)
+//  1. Detected as mermaid AND keyword is in the supported subset
+//     (flowchart / graph / sequenceDiagram) → render via library;
+//     success returns the ASCII grid as ```text``` fence; failure
+//     returns the unsupported-kind fallback fence (see step 4).
+//
+//  2. Detected as mermaid AND keyword is in the unsupported subset
+//     (classDiagram / stateDiagram / ...) → short-circuit to the
+//     unsupported-kind fallback fence. We do not attempt to render;
+//     the library cannot draw those shapes.
+//
+//  3. Mermaid tag present but no recognisable keyword in body —
+//     render attempt; failure → fallback fence.
+//
+//  4. Anything else (```go / ```bash / ```json / etc.) → leave
+//     byte-identical.
+//
+// Failure fence shape (step 1, 2, 3 fallback): rewrite to ```text```
+// and inject a single leader line (`# ⚠ <reason>`) above the original
+// mermaid source. This guarantees the user always sees an explicit
+// signal that the diagram did not render, AND chroma never highlights
+// the body as code (because the fence is ```text```), eliminating the
+// "looks rendered" visual deception.
 func maybeReplaceMermaidFence(match string) string {
 	// Find newline that ends the info-string line.
 	nl := strings.Index(match, "\n")
@@ -255,6 +561,12 @@ func maybeReplaceMermaidFence(match string) string {
 
 	// Case 1: explicit mermaid tag.
 	if strings.HasPrefix(infoLine, "mermaid") {
+		// Inspect first non-empty body line for keyword.
+		first := firstNonEmptyTrimmed(body)
+		if kw := firstMermaidKeywordIn(first); kw != "" && !isMermaidSupportedKind(kw) {
+			recordMermaidUnsupportedKind(kw)
+			return mermaidFallbackFence(body, "Mermaid 子集 ["+kw+"] 不在终端渲染器支持范围（仅支持 flowchart/graph/sequenceDiagram），原始源码已保留供复制到完整 Mermaid 渲染器")
+		}
 		return replaceMermaidFence(match)
 	}
 	// Case 1b: info-string IS a mermaid keyword (e.g. ```flowchart TD,
@@ -263,18 +575,30 @@ func maybeReplaceMermaidFence(match string) string {
 	// the info-string. The body starts WITHOUT the keyword line, so
 	// we synthesise a `mermaid`-tagged form that prepends the
 	// info-line as the first body line.
-	if infoLineStartsWithMermaidKeyword(infoLine) {
+	if kw := firstMermaidKeywordIn(infoLine); kw != "" {
+		if !isMermaidSupportedKind(kw) {
+			recordMermaidUnsupportedKind(kw)
+			full := infoLine + "\n" + body
+			return mermaidFallbackFence(full, "Mermaid 子集 ["+kw+"] 不在终端渲染器支持范围（仅支持 flowchart/graph/sequenceDiagram），原始源码已保留供复制到完整 Mermaid 渲染器")
+		}
 		synth := "```mermaid\n" + infoLine + "\n" + body + "\n```"
 		if rendered, ok := renderMermaidFenceBody(synth); ok {
 			return rendered
 		}
-		return match
+		return mermaidFallbackFence(infoLine+"\n"+body, "终端 Mermaid 渲染器解析失败，原始源码已保留")
 	}
 	// Case 2: untagged or `text`-tagged fence whose body shape is
 	// mermaid. We only match the empty-info-string and `text` cases
 	// to keep the contract narrow — a body with `flowchart` keywords
 	// inside a ```bash``` fence is unambiguously not a diagram.
 	if (infoLine == "" || infoLine == "text") && looksLikeMermaidBody(body) {
+		first := firstNonEmptyTrimmed(body)
+		if kw := firstMermaidKeywordIn(first); kw != "" && !isMermaidSupportedKind(kw) {
+			recordMermaidUnsupportedKind(kw)
+			// Untagged input — we already had ```text or bare; preserve
+			// as ```text with the warning leader.
+			return mermaidFallbackFence(body, "Mermaid 子集 ["+kw+"] 不在终端渲染器支持范围（仅支持 flowchart/graph/sequenceDiagram），原始源码已保留")
+		}
 		// Synthesize a `mermaid`-tagged match so the renderer's
 		// body-extraction logic stays load-bearing on a single
 		// shape. We use the explicit (rendered, ok) signal — NOT
@@ -286,9 +610,38 @@ func maybeReplaceMermaidFence(match string) string {
 		if rendered, ok := renderMermaidFenceBody(synth); ok {
 			return rendered
 		}
+		// For untagged input, leave-as-is: there's no ```mermaid
+		// label to mislead chroma. We do NOT inject a warning here
+		// because the fence was already ```text-equivalent and the
+		// body might have been unintentionally mermaid-shaped.
 		return match
 	}
 	return match
+}
+
+// mermaidFallbackFence builds the unified failure-and-unsupported
+// fence: rewrite info-string to `text` so chroma does not highlight
+// the body as code, and prepend a single `# ⚠ <reason>` leader line
+// so the user always sees an explicit signal. The ORIGINAL mermaid
+// source survives verbatim below the leader, useful for copying
+// into a real Mermaid renderer (Mermaid.live / mermaid-cli).
+//
+// This is the primary fix for the "looks rendered but isn't"
+// failure mode: pre-2026-05-02 the failure path returned the
+// original ```mermaid``` fence unchanged, which downstream chroma
+// then syntax-highlighted as code, giving the user the misleading
+// impression rendering had occurred.
+func mermaidFallbackFence(body, reason string) string {
+	body = strings.TrimRight(body, "\n")
+	var b strings.Builder
+	b.Grow(len(body) + len(reason) + 32)
+	b.WriteString("```text\n")
+	b.WriteString("# ⚠ ")
+	b.WriteString(reason)
+	b.WriteString("\n")
+	b.WriteString(body)
+	b.WriteString("\n```")
+	return b.String()
 }
 
 
@@ -311,7 +664,28 @@ func replaceMermaidFence(match string) string {
 	if rendered, ok := renderMermaidFenceBody(match); ok {
 		return rendered
 	}
-	return match
+	// Failure path — extract body for the fallback fence so the
+	// user sees the warning leader plus the original mermaid
+	// source as ```text```. NEVER leave the ```mermaid``` tag in
+	// place: chroma would syntax-highlight the body and create
+	// the "looks rendered but isn't" deception.
+	bodyStart := strings.Index(match, "\n")
+	bodyEnd := strings.LastIndex(match, "\n```")
+	if bodyStart < 0 || bodyEnd <= bodyStart {
+		// Malformed fence — keep input verbatim; nothing useful
+		// we can do, AND there is no ```mermaid``` deception to
+		// guard against if the fence shape was already broken.
+		return match
+	}
+	body := strings.TrimSpace(match[bodyStart+1 : bodyEnd])
+	if body == "" {
+		// Empty body has no information for the user and no
+		// chroma deception risk — leave the original fence
+		// byte-identical (preserves the long-standing "empty
+		// mermaid body passes through" contract).
+		return match
+	}
+	return mermaidFallbackFence(match[bodyStart+1:bodyEnd], "终端 Mermaid 渲染器解析失败，原始源码已保留")
 }
 
 // renderMermaidFenceBody is the explicit (rendered, ok) core of
@@ -324,9 +698,11 @@ func replaceMermaidFence(match string) string {
 // All four failure modes (panic, missing body, library reject,
 // empty render) collapse to ok=false here.
 func renderMermaidFenceBody(match string) (out string, ok bool) {
+	recordMermaidAttempt()
 	defer func() {
 		if r := recover(); r != nil {
-			logging.Warning("[render/mermaid] panic during render (block left unchanged): %v", r)
+			logging.Warning("[render/mermaid] panic during render (fallback fence): %v", r)
+			recordMermaidLibraryRejected()
 			out = ""
 			ok = false
 		}
@@ -348,41 +724,34 @@ func renderMermaidFenceBody(match string) (out string, ok bool) {
 		return "", false
 	}
 
-	// Compatibility shim: pgavlin/mermaid-ascii's flowchart subset
-	// rejects `subgraph ... end` nesting. Models routinely reach
-	// for subgraph on architectural questions ("流水线四阶段" /
-	// "组件分层") even though the skill prompt warns against it.
-	// Pre-2026-04-30 the renderer surrendered and left the raw
-	// mermaid source in the answer (glamour then printed it as a
-	// plain code block, not an aligned diagram). Now: flatten the
-	// subgraph wrappers — keep every node + edge, drop the group
-	// declarations — and retry. The flattened body still expresses
-	// the relationship structure; only the "boxed cluster"
-	// presentation is lost, which is acceptable for terminal output.
-	body = flattenMermaidSubgraphs(body)
+	// Renderer-compatibility layer: every shim run before the
+	// library sees the body normalises one Mermaid-spec feature
+	// pgavlin's subset does not handle. The shims preserve diagram
+	// MEANING (we never change what the LLM intended), only the
+	// byte form fed to a library whose subset is narrower than
+	// Mermaid spec.
+	body = preprocessMermaidBody(body)
 
-	// Library limitation: pgavlin/mermaid-ascii's graph renderer
-	// width-counts node labels by byte length (not runewidth), so
-	// multi-byte UTF-8 characters break the box arithmetic. We
-	// route through a CJK adapter that pre-substitutes every
-	// wide rune (CJK / Hiragana / Katakana / Hangul / full-width)
-	// with a 2-byte ASCII placeholder, calls the library, and
-	// restores the original characters in the rendered output.
-	// Cell arithmetic stays consistent because each wide rune
-	// occupies exactly 2 display cells AND each 2-byte ASCII
-	// placeholder occupies exactly 2 display cells, so the box
-	// widths the library computes match what the terminal draws.
-	//
-	// When the adapter cannot safely substitute (narrow
-	// multi-byte rune like accented Latin or emoji, or the
-	// placeholder pool is exhausted), we fall back to the
-	// original "leave as source" path — the user reads readable
-	// mermaid syntax, never garbled bytes.
+	// CJK + decoration-rune adapter (see cjk_adapter.go). Wide
+	// runes (CJK / Hiragana / Katakana / Hangul) substitute to
+	// 2-byte ASCII placeholders for byte/cell parity; narrow
+	// multi-byte decoration runes (→ … — ✓ ●) substitute to ASCII
+	// equivalents from narrowRuneFallback (cell-equivalent in the
+	// final grid).
 	adapter := newCJKAdapter(body)
 	preparedBody, _, substErr := adapter.substitute(body)
 	if substErr != nil {
-		logging.Info("[render/mermaid] cjk adapter cannot substitute (%v); block left as source", substErr)
+		// Only path that still errors: placeholder pool exhausted
+		// (>1296 unique wide runes — almost never reached). Genuine
+		// "cannot render", flag at WARN.
+		logging.Warning("[render/mermaid] cjk adapter pool exhausted: %v", substErr)
+		recordMermaidLibraryRejected()
 		return "", false
+	}
+	if degraded := adapter.DegradedRunes(); len(degraded) > 0 {
+		recordMermaidFallbackSubstituted(len(degraded))
+		logging.Warning("[render/mermaid] %d narrow-multibyte rune(s) replaced via fallback table; example: %q→%q",
+			len(degraded), string(degraded[0].Rune), degraded[0].Replacement)
 	}
 
 	cfg := diagram.DefaultConfig()
@@ -398,11 +767,13 @@ func renderMermaidFenceBody(match string) (out string, ok bool) {
 
 	rendered, err := render.Render(preparedBody, cfg)
 	if err != nil {
-		logging.Warning("[render/mermaid] render failed (block left unchanged): %v", err)
+		logging.Warning("[render/mermaid] library render failed (fallback fence): %v", err)
+		recordMermaidLibraryRejected()
 		return "", false
 	}
 	rendered = strings.TrimRight(rendered, "\n")
 	if rendered == "" {
+		recordMermaidLibraryRejected()
 		return "", false
 	}
 	// Restore wide runes in the rendered grid. The adapter walks
@@ -420,5 +791,6 @@ func renderMermaidFenceBody(match string) (out string, ok bool) {
 	b.WriteString("```text\n")
 	b.WriteString(rendered)
 	b.WriteString("\n```")
+	recordMermaidSucceeded()
 	return b.String(), true
 }
