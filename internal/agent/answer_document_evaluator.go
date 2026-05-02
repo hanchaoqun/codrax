@@ -469,17 +469,43 @@ func renderAnswerDocStepBackbone(ctx *types.AgentContext, shape string) string {
 }
 
 func renderAnswerDocEnumerationBoundary(ctx *types.AgentContext, shape string) string {
-	if ctx == nil || ctx.AnalysisIR == nil || ctx.AnalysisIR.RequestModel.EnumerationBoundary == nil {
+	if ctx == nil || ctx.AnalysisIR == nil {
 		return ""
 	}
-	boundary := ctx.AnalysisIR.RequestModel.EnumerationBoundary
-	if boundary.DeclaredCount <= 0 || strings.TrimSpace(boundary.SourceQuote) == "" {
+	rm := ctx.AnalysisIR.RequestModel
+	view := rm.QuestionStructure()
+	// Plan E (2026-05-02): when ANY axis is populated, render the
+	// per-axis instructions. Pre-Plan-E behaviour preserved when
+	// only EnumerationBoundary is set (no Completeness, no Buckets).
+	if !view.HasAnyObligation() {
 		return ""
 	}
+	boundary := rm.EnumerationBoundary
+	hasBoundary := boundary != nil && boundary.DeclaredCount > 0 && strings.TrimSpace(boundary.SourceQuote) != ""
+	hasCompleteness := view.CompletenessObligation.IsActive()
+	hasBuckets := len(view.Buckets) >= 2
 	var b strings.Builder
 	b.WriteString("## Requested Set Boundary\n\n")
-	fmt.Fprintf(&b, "The user explicitly asked for a bounded principal set: `%s` (%d item(s)). Preserve that boundary in the main answer body.\n\n",
-		boundary.SourceQuote, boundary.DeclaredCount)
+	if hasBoundary {
+		fmt.Fprintf(&b, "The user explicitly asked for a bounded principal set: `%s` (%d item(s)). Preserve that boundary in the main answer body.\n\n",
+			boundary.SourceQuote, boundary.DeclaredCount)
+	}
+	if hasCompleteness {
+		fmt.Fprintf(&b, "The user demanded an exhaustive answer (`%s` in the question). Every match must be in the rendered answer; partial slates ship dishonestly. Set the answer's completeness claim to `complete` when you have grounded every match; fall back to `unknown` only when the investigation legitimately could not determine the full set.\n\n",
+			view.CompletenessObligation.SourceQuote)
+	}
+	if hasBuckets {
+		labels := make([]string, 0, len(view.Buckets))
+		for _, bk := range view.Buckets {
+			labels = append(labels, fmt.Sprintf("`%s`", bk.Label))
+		}
+		fmt.Fprintf(&b, "The user partitioned the answer into %d named groups: %s. Each label MUST appear verbatim in your rendered answer (summary section heading is the preferred surface; step description / symbol rationale also acceptable). The user's mental partition must survive end-to-end.\n\n",
+			len(view.Buckets), strings.Join(labels, ", "))
+	}
+	if !hasBoundary {
+		// No count axis — skip the per-shape count rules below.
+		return b.String()
+	}
 	switch shape {
 	case string(types.ShapeStepList):
 		// Plan D rollout 2026-05-02: teach the Kind discipline.

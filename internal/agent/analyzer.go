@@ -291,6 +291,8 @@ func stripCoherencePrefix(d string) string {
 		"R1.3 entity_orphan: ",
 		"R1.4 axis_collapse: ",
 		"R1.5 entity_unresolvable: ",
+		"R1.6 completeness_obligation_missing: ",
+		"R1.7 bucket_partition_missing: ",
 		"R2.1 scalar_multi_topic: ",
 		"R2.2 explanation_scalar_subject: ",
 	} {

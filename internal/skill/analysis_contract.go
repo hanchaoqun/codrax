@@ -410,11 +410,24 @@ func BuildAnalysisSkill() *Config {
 	of.WriteString("- When sub_topics is non-empty, answer_shape MUST be explanation\n")
 	of.WriteString("- When unsure, do NOT split (empty array is safe)\n")
 	of.WriteString("- Maximum 5 sub-topics\n\n")
-	of.WriteString("## Explicit set boundary (enumeration_boundary field)\n\n")
+	of.WriteString("## Question structural obligations\n\n")
+	of.WriteString("The user's question may carry one or more structural obligations that downstream stages must enforce. Each axis is independent — emit each one that applies, omit those that don't. The system validates source quotes against the current request, so a fabricated quote is dropped silently.\n\n")
+	of.WriteString("### Count axis (`enumeration_boundary` field)\n\n")
 	of.WriteString("When the user explicitly declares a bounded principal set such as 'the 7 checks', 'the first 3 handlers', or 'top 5 stages', emit `enumeration_boundary` with:\n")
 	of.WriteString("- `declared_count`: the same user-declared count\n")
 	of.WriteString("- `source_quote`: the exact phrase copied verbatim from the current request text\n")
 	of.WriteString("Omit this field when the request does not explicitly declare such a boundary. Do NOT invent a count from the repository; this field is only for preserving a user-stated boundary.\n\n")
+	of.WriteString("### Completeness axis (`completeness_obligation` field)\n\n")
+	of.WriteString("When the user demands an EXHAUSTIVE answer — phrases that signal universal coverage of the answer set (e.g. quantifiers like 'all'/'every'/'all the' in any language, or explicit completeness markers like 'complete list'/'exhaustive'/'full inventory') — emit `completeness_obligation` with:\n")
+	of.WriteString("- `required: true`\n")
+	of.WriteString("- `source_quote`: the verbatim trigger phrase from the current request\n")
+	of.WriteString("Decision rule: if the user would NOT consider the answer complete while one valid item is still missing, set required=true. Distinct from enumeration_boundary which carries a count: completeness demands every item without naming a number. A single question can carry BOTH (e.g. 'all 5 of the X' has both axes). Omit when the user is satisfied with a representative subset / top-N / examples.\n\n")
+	of.WriteString("### Bucket-partition axis (`buckets` array)\n\n")
+	of.WriteString("When the user EXPLICITLY partitions the answer into named groups — phrases that pair multiple labels with parallel asks (e.g. 'X for A, Y for B' / 'A 和 B 分别...' / 'list ... separately for A and B' / 'compare A vs B') — emit `buckets[]` with one entry per named group:\n")
+	of.WriteString("- `label`: the user's verbatim label for this bucket (the section header in the rendered answer will reuse this exact string)\n")
+	of.WriteString("- `anchors`: the entities you resolved as belonging to this bucket\n")
+	of.WriteString("- `index`: 1-based ordinal in the order labels appear in the question\n")
+	of.WriteString("Decision rule: if the answer would naturally split into N sections each titled by a user-named label, emit one bucket per label. Omit for single-topic questions or for multi-topic questions where the user did NOT name the partition (use sub_topics for those — sub_topics is investigator-mental decomposition, buckets is user-stated partition). Buckets requires ≥2 entries (a single bucket is not a partition).\n\n")
 	of.WriteString("After emit_analysis succeeds, you may add a one-paragraph rationale for the trace log. This text is captured but does not drive any agent – the structured fields are what matter.")
 
 	return &Config{
@@ -427,7 +440,7 @@ func BuildAnalysisSkill() *Config {
 			"Round 2 is allowed at most once, when Round 1 ended ambiguous on either signal: (a) a key entity came back empty → broaden keyword stems / variants (still files_only=true); or (b) classification remains uncertain AND Round 1 surfaced a declarative file (e.g. a name matching topology / defaults / registry / routes / wire / init / manifest / schema / enum patterns) → a single response MAY include up to 3 grep(files_only=false, max_count=20) calls targeting those declarative files, to peek at the literal forms inside map/struct/enum bodies. Then call emit_analysis regardless of the Round 2 result.",
 			"For count / size / total / measurement-scalar questions: Round 1 confirms the subject exists (the directory / file / symbol the question is asking about), then immediately call emit_analysis with intent=return_value + answer_shape=value + predicates.is_count_question=true. Do NOT attempt to compute the answer literal yourself in pre-scan — the explore stage is the one that runs wc / find / grep -c and reads file content. Trying to retrieve full file content via grep(files_only=false) to count lines yourself will exhaust the pre-scan budget and fail-loud the analyze stage.",
 			"If the request spans multiple independent sub-topics, fill sub_topics (at most 5) and set answer_shape=explanation.",
-			"Call emit_analysis exactly once. Required fields: intent, scenario, complexity, keywords, entities, question_kind, answer_shape, the four confidence floats (intent_confidence, complexity_confidence, kind_confidence, shape_confidence), and the predicates object (seven booleans: is_scalar_answer, is_role_locate_lookup, is_count_question, is_cross_component, is_relational_lookup, is_category_enumeration, is_history_lookup). Optional: sub_topics, answer_subject, predicate_axis, diagram_hint, enumeration_boundary, exact_targets, exact_context_terms, exact_context_roles, language.",
+			"Call emit_analysis exactly once. Required fields: intent, scenario, complexity, keywords, entities, question_kind, answer_shape, the four confidence floats (intent_confidence, complexity_confidence, kind_confidence, shape_confidence), and the predicates object (seven booleans: is_scalar_answer, is_role_locate_lookup, is_count_question, is_cross_component, is_relational_lookup, is_category_enumeration, is_history_lookup). Optional: sub_topics, answer_subject, predicate_axis, diagram_hint, enumeration_boundary, completeness_obligation, buckets, exact_targets, exact_context_terms, exact_context_roles, language.",
 		},
 		ToolSuggestions: append([]string(nil), AnalysisToolSuggestions...),
 		OutputFormat:    of.String(),

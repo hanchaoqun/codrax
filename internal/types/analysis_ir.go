@@ -130,6 +130,39 @@ type RequestModel struct {
 	// authority lane.
 	EnumerationBoundary *RequestedEnumerationBoundary `json:"enumeration_boundary,omitempty"`
 
+	// CompletenessObligation (Plan E, 2026-05-02) captures the
+	// analyzer's finding that the user asked for an EXHAUSTIVE
+	// answer. Trigger: a verbatim phrase from the question that
+	// signals universal coverage ("all the X" / "every X" / "complete
+	// list" / "exhaustive"). When Required=true, downstream gates
+	// refuse premature emit_investigation_complete (G1) and reject
+	// completeness=lower_bound on the answer slate (G2). Honest
+	// fallback: completeness=unknown when the investigation
+	// legitimately cannot determine the full set. Distinct from
+	// EnumerationBoundary which carries a count; this carries a
+	// completeness demand without a count.
+	CompletenessObligation *CompletenessObligation `json:"completeness_obligation,omitempty"`
+
+	// Buckets (Plan E, 2026-05-02) lists user-named partitions of
+	// the answer. Triggered by questions that explicitly carve the
+	// response into labeled groups ("X for A, Y for B" / "分别列出
+	// A 和 B 的 ..." / "compare A vs B"). Each bucket's Label is
+	// verbatim from RawRequest; downstream rendering reuses the
+	// labels as section headers so the user's mental partition
+	// survives end-to-end. The bucket-alignment gate (G3) verifies
+	// that the rendered answer's per-bucket items are disjoint
+	// across siblings.
+	//
+	// SubTopics is the analyzer's existing "I split this into N
+	// independent topics" surface; Buckets is the stronger claim
+	// "the user PARTITIONED the answer along these N specific named
+	// groups". A multi-topic question can have SubTopics without
+	// Buckets (the LLM split topics for investigation parallelism
+	// but the user didn't impose a partition). A bucket-partitioned
+	// question always has both: each Bucket maps 1:1 to one or more
+	// SubTopics by entity overlap.
+	Buckets []QuestionBucket `json:"buckets,omitempty"`
+
 	// LogTriage / PerfTrace are NOT emitted by the analyzer LLM. They
 	// are bundle pointers that buildAnalysisIR attaches AFTER
 	// log/perf-triage validation, exposed here so downstream

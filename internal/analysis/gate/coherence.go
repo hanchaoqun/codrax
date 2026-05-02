@@ -242,6 +242,43 @@ func checkSubtopicCoherence(ir *types.AnalysisIR, resolver normalizer.SymbolReso
 		}
 	}
 
+	// R1.6 design note (Plan E, 2026-05-02): we considered an
+	// auto-firing rule "IsCategoryEnumeration=true + no
+	// completeness_obligation + no enumeration_boundary → flag" but
+	// the rule false-positives on every enumeration question whose
+	// user did NOT use a universal-quantifier ("what kinds of agents
+	// exist?" — legitimate enumeration without "all" cue). Without a
+	// keyword table (red line) the gate cannot distinguish "user
+	// asked for all" from "user asked for examples". Forcing the LLM
+	// to emit an obligation on every enumeration would spam
+	// false-positive retries on the majority of legit list questions.
+	//
+	// Like R1.7, R1.6 is delegated to the skill prompt (E-7): the
+	// emit_analysis schema description for completeness_obligation
+	// teaches the Decision rule. When the LLM correctly emits, G1/G2
+	// enforce. When the LLM misses, downstream behaves like pre-E.
+
+	// R1.7 design note (Plan E, 2026-05-02): we considered an
+	// auto-firing rule "≥2 sub-topics + 0 buckets → flag" but every
+	// shape-based heuristic to distinguish "user-named partition
+	// labels" from legitimate investigation-only sub-topics
+	// (summary-length, summary-shape, entity-disjointness) had
+	// unacceptable false-positive rates on existing fixtures. Without
+	// a keyword table (red line) the gate cannot reliably classify
+	// "the user named these groups" from prose alone.
+	//
+	// Bucket emission is instead taught entirely at the skill-prompt
+	// level (E-7): the analyzer's emit_analysis schema description
+	// + the analysis-skill workflow rule include the Decision rule
+	// for buckets. When the LLM correctly emits buckets[], G3
+	// (bucket-aligned shape gate) enforces them downstream. When the
+	// LLM misses, G3 simply doesn't fire — which is the same
+	// behaviour as pre-Plan-E.
+	//
+	// Future option: an LLM-driven post-pass could classify whether
+	// the question carried a partition; that's a sub-agent dispatch,
+	// not a structural gate, and is out of scope for this commit.
+
 	if len(details) > 0 {
 		// B.5 multi-rule merge: when ≥2 rules fire, surface every detail
 		// joined by " | " so the LLM sees all diagnostics on one retry.
@@ -258,8 +295,8 @@ func checkSubtopicCoherence(ir *types.AnalysisIR, resolver normalizer.SymbolReso
 		Name:   "subtopic_coherence",
 		Passed: true,
 		Score:  1.0,
-		Detail: fmt.Sprintf("sub-topics=%d domains=%d primary_entities=%d",
-			nSub, len(domains), len(rm.AnalyzerHints.PrimaryEntities)),
+		Detail: fmt.Sprintf("sub-topics=%d domains=%d primary_entities=%d buckets=%d",
+			nSub, len(domains), len(rm.AnalyzerHints.PrimaryEntities), len(rm.Buckets)),
 	}
 }
 

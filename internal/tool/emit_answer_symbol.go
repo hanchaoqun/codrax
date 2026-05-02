@@ -214,6 +214,23 @@ func (t *EmitAnswerSymbol) Execute(ctx *types.BusContext, params json.RawMessage
 				boundary.SourceQuote, boundary.DeclaredCount, len(p.Items))
 		}
 	}
+
+	// G2 (Plan E, 2026-05-02) — completeness floor. When the
+	// analyzer emitted CompletenessObligation.Required=true, the
+	// user demanded an exhaustive answer. Reject completeness=
+	// lower_bound which would silently ship a partial slate —
+	// completeness=unknown is the honest fallback when the
+	// investigation legitimately could not determine the full set.
+	// completeness=complete is the success path.
+	if ctx.AnalysisIR != nil {
+		if obl := ctx.AnalysisIR.RequestModel.CompletenessObligation; obl.IsActive() {
+			if claim == types.CompletenessLowerBound {
+				return failEmit(t.Name(), now,
+					"the user demanded an exhaustive answer (%q in the question), so completeness=lower_bound is not honest — it asserts \"more exist beyond this slate\" while the question requires every match. Set completeness=complete when you have grounded all matches; use completeness=unknown if the investigation could not determine the full set",
+					obl.SourceQuote)
+			}
+		}
+	}
 	// Self-declared count check (commit 49 read-mode Gap 2).
 	// When the LLM emits a count, len(items) must match. This
 	// closes the gap where prose summary said "found 47 callers"

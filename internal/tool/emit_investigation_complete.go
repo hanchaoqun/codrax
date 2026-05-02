@@ -146,6 +146,39 @@ func (t *EmitInvestigationComplete) Execute(ctx *types.BusContext, params json.R
 	justification := strings.TrimSpace(p.AbsenceJustification)
 	resultKind, justification = normalizeExactAbsenceCompletion(ctx, resultKind, reason, justification)
 
+	// G1 (Plan E, 2026-05-02) — pre-complete coverage gate.
+	// When the user's question carries a structural obligation
+	// (CompletenessObligation.Required OR EnumerationBoundary
+	// declared) AND result_kind=resolved, refuse the emit if the
+	// closure's ScannedSet (files surfaced by grep / repo_map /
+	// list_files) contains files NOT in ReadSet. The signal is
+	// "the explorer surfaced N candidate files but only read K<N"
+	// — exactly the s5a pathology where 8 LoopController
+	// implementations were grep-known but only 3 read_file'd.
+	//
+	// Bypass conditions:
+	//   - result_kind=absence: honest zero, scanning without reading
+	//     is fine (you read enough to confirm absence)
+	//   - no obligation declared: pre-Plan-E behaviour preserved
+	//   - ScannedSet ⊆ ReadSet: every candidate covered, full pass
+	//   - Tools failed to populate ScannedSet (test-mode shortcut):
+	//     no candidate signal, gate skips
+	if resultKind == "resolved" && ctx != nil && ctx.Mutable != nil {
+		if rm := ctx.Mutable.RequestModel(); rm != nil {
+			view := rm.QuestionStructure()
+			if view.HasAnyObligation() {
+				if hint := computePreCompleteCoverageGap(ctx, view); hint != "" {
+					return types.ToolResult{
+						ToolName:  t.Name(),
+						Summary:   "emit_investigation_complete rejected: " + hint,
+						Success:   false,
+						Timestamp: time.Now(),
+					}, nil
+				}
+			}
+		}
+	}
+
 	// Grounding gates. Two independent floors evaluated in AND:
 	//
 	//   1. GroundingFloor — (grounded + recovered) / total. Blocks
@@ -2280,4 +2313,81 @@ func containsAnySubstr(text string, needles ...string) bool {
 		}
 	}
 	return false
+}
+
+// computePreCompleteCoverageGap (Plan E G1, 2026-05-02) returns a
+// non-empty hint when the explorer is about to declare investigation
+// complete (result_kind=resolved) BUT the closure shows ScannedSet
+// surfaced files that ReadSet does not contain — i.e. grep / repo_map
+// / list_files turned up candidates the explorer never read_file'd.
+//
+// The s5a pathology this addresses: 8 LoopController implementations
+// were grep-discovered, only 3 read_file'd, and the explorer
+// emitted result_kind=resolved without verifying the other 5.
+//
+// Empty return = gate passes (gap is empty OR the obligation does
+// not apply to this question shape).
+//
+// view is passed in (not re-derived) so the caller's HasAnyObligation
+// gate stays the source of truth for "should this gate evaluate at all".
+func computePreCompleteCoverageGap(ctx *types.BusContext, view types.QuestionStructureView) string {
+	if ctx == nil || ctx.Mutable == nil {
+		return ""
+	}
+	closure := ctx.Mutable.EvidenceClosure()
+	if closure == nil {
+		return ""
+	}
+	scanned := closure.ScannedSet()
+	read := closure.ReadSet()
+	if len(scanned) == 0 {
+		return ""
+	}
+	missing := make([]string, 0, len(scanned))
+	for f := range scanned {
+		if !read[f] {
+			missing = append(missing, f)
+		}
+	}
+	if len(missing) == 0 {
+		return ""
+	}
+	sort.Strings(missing)
+	const previewMax = 8
+	preview := missing
+	overflow := 0
+	if len(preview) > previewMax {
+		overflow = len(preview) - previewMax
+		preview = preview[:previewMax]
+	}
+
+	var reasons []string
+	if view.CompletenessObligation.IsActive() {
+		reasons = append(reasons, fmt.Sprintf("the question carries a completeness obligation (%q) demanding every match be verified", view.CompletenessObligation.SourceQuote))
+	}
+	if view.EnumerationBoundary != nil && view.EnumerationBoundary.DeclaredCount > 0 {
+		reasons = append(reasons, fmt.Sprintf("the question quotes %d items (%q), and ungrounded items cannot be carried in the answer", view.EnumerationBoundary.DeclaredCount, view.EnumerationBoundary.SourceQuote))
+	}
+	if len(view.Buckets) >= 2 {
+		labels := make([]string, 0, len(view.Buckets))
+		for _, b := range view.Buckets {
+			labels = append(labels, b.Label)
+		}
+		reasons = append(reasons, fmt.Sprintf("the question partitions the answer into named groups (%s); each bucket needs verified items", strings.Join(labels, ", ")))
+	}
+
+	reasonClause := ""
+	if len(reasons) > 0 {
+		reasonClause = " — " + strings.Join(reasons, "; ")
+	}
+
+	tail := ""
+	if overflow > 0 {
+		tail = fmt.Sprintf(" (+%d more)", overflow)
+	}
+
+	return fmt.Sprintf(
+		"the investigation surfaced %d candidate file(s) that have NOT been read_file'd: %s%s%s. Either read_file each remaining candidate before retrying with result_kind=\"resolved\", OR set result_kind=\"absence\" with absence_justification when the un-read files are confirmed irrelevant, OR re-run grep with a narrower pattern when the candidates were collateral (cite the narrowing in `reason`).",
+		len(missing), strings.Join(preview, ", "), tail, reasonClause,
+	)
 }

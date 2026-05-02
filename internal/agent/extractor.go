@@ -257,6 +257,26 @@ func (e *extractorEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk
 			} else {
 				b.WriteString("\nNo baseline data — your claim will be trusted as-is.\n")
 			}
+			// Plan E (2026-05-02) — surface CompletenessObligation +
+			// Buckets to the extractor prompt so the LLM knows up
+			// front that lower_bound is forbidden under exhaustive
+			// demands, and that symbols must be distributable across
+			// user-named buckets.
+			if ctx.AnalysisIR != nil {
+				rm := ctx.AnalysisIR.RequestModel
+				if rm.CompletenessObligation.IsActive() {
+					fmt.Fprintf(&b, "- **Exhaustive demand:** the user asked for every match (`%s` in the question). `completeness=lower_bound` is REJECTED — use `complete` when you have grounded all matches, or `unknown` when the investigation could not determine the full set.\n",
+						rm.CompletenessObligation.SourceQuote)
+				}
+				if len(rm.Buckets) >= 2 {
+					labels := make([]string, 0, len(rm.Buckets))
+					for _, bk := range rm.Buckets {
+						labels = append(labels, fmt.Sprintf("`%s`", bk.Label))
+					}
+					fmt.Fprintf(&b, "- **User-named partition:** the user split the answer into %d named groups: %s. Each symbol's `rationale` should name which bucket it belongs to so downstream rendering can section the slate.\n",
+						len(rm.Buckets), strings.Join(labels, ", "))
+				}
+			}
 		}
 		b.WriteString("\n")
 	}

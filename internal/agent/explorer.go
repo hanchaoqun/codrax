@@ -516,6 +516,27 @@ func (e *explorerEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk 
 			b.WriteString("- When the main set is ordered in one owner file, prefer the owner's primary append/registration sequence itself over drifting into sibling helper definitions unless the boundary cannot be grounded otherwise.\n\n")
 		}
 	}
+	// Plan E (2026-05-02) — surface CompletenessObligation + Buckets
+	// to the explorer so the investigation knows it must be exhaustive
+	// (G1 will refuse premature emit_investigation_complete) and which
+	// user-named groups the answer must reproduce.
+	if ctx != nil && ctx.AnalysisIR != nil {
+		rm := ctx.AnalysisIR.RequestModel
+		if rm.CompletenessObligation.IsActive() {
+			b.WriteString("### Exhaustive-coverage Obligation\n\n")
+			fmt.Fprintf(&b, "The user demands every match (`%s` in the question). Every grep / repo_map / list_files candidate file MUST be either read_file'd OR explicitly excluded by a narrower follow-up grep before you call emit_investigation_complete with result_kind='resolved'. The framework refuses premature completion when scanned candidates remain unread under this obligation. The honest fallback when the investigation legitimately cannot enumerate the full set is result_kind='absence' with absence_justification, OR an emit_investigation_complete that explicitly notes the un-read scope.\n\n",
+				rm.CompletenessObligation.SourceQuote)
+		}
+		if len(rm.Buckets) >= 2 {
+			labels := make([]string, 0, len(rm.Buckets))
+			for _, bk := range rm.Buckets {
+				labels = append(labels, fmt.Sprintf("`%s`", bk.Label))
+			}
+			b.WriteString("### User-named Partition\n\n")
+			fmt.Fprintf(&b, "The user split the answer into %d named groups: %s. Investigate each bucket with comparable depth — equal read_file calls per bucket, comparable evidence emission. The downstream answer renderer enforces verbatim use of each label, so investigate to the point you can ground each bucket's items independently.\n\n",
+				len(rm.Buckets), strings.Join(labels, ", "))
+		}
+	}
 
 	// Conditional-enumeration hint: when the question asks "how many X
 	// can Y" / "有几个X可以Y", the answer requires enumerating ALL

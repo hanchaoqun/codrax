@@ -74,6 +74,9 @@ type emitAnalysisParams struct {
 	PredicateAxis        string                        `json:"predicate_axis,omitempty"`
 	DiagramHint          *emitDiagramHintParam         `json:"diagram_hint,omitempty"`
 	EnumerationBoundary  *emitEnumerationBoundaryParam `json:"enumeration_boundary,omitempty"`
+	// Plan E (2026-05-02) — additional structural-obligation axes.
+	CompletenessObligation *emitCompletenessObligationParam `json:"completeness_obligation,omitempty"`
+	Buckets                []emitQuestionBucketParam        `json:"buckets,omitempty"`
 }
 
 // emitPredicatesParam is the wire shape of the required `predicates`
@@ -113,6 +116,28 @@ type emitDiagramHintParam struct {
 type emitEnumerationBoundaryParam struct {
 	DeclaredCount int    `json:"declared_count"`
 	SourceQuote   string `json:"source_quote"`
+}
+
+// emitCompletenessObligationParam is Plan E's completeness-axis wire
+// shape. Required=true means the user asked for an exhaustive answer
+// ("all the X" / "every X"); SourceQuote is the verbatim phrase from
+// the question that triggered the obligation. Validated at parse
+// time via NormalizeCompletenessObligation — fabricated quotes are
+// dropped silently (mirrors EnumerationBoundary's grounding).
+type emitCompletenessObligationParam struct {
+	Required    bool   `json:"required"`
+	SourceQuote string `json:"source_quote,omitempty"`
+}
+
+// emitQuestionBucketParam is Plan E's bucket-partition wire shape.
+// Triggered when the user explicitly partitions the answer into
+// labeled groups. Label is verbatim from RawRequest. Anchors[] are
+// LLM-resolved entities representing this bucket. Index is 1-based
+// in the order the buckets appear in the question.
+type emitQuestionBucketParam struct {
+	Label   string   `json:"label"`
+	Anchors []string `json:"anchors,omitempty"`
+	Index   int      `json:"index,omitempty"`
 }
 
 func (t *EmitAnalysis) Name() string { return "emit_analysis" }
@@ -242,6 +267,28 @@ func buildEmitAnalysisSchema() {
 					"source_quote":   map[string]string{"type": "string"},
 				},
 				"required": []string{"declared_count", "source_quote"},
+			},
+			"completeness_obligation": map[string]any{
+				"type":        "object",
+				"description": "Optional. Use when the user explicitly demands an EXHAUSTIVE answer — phrases that signal universal coverage of the answer set (e.g. quantifiers like 'all'/'every'/'all the' in any language, or explicit completeness markers like 'complete list'/'exhaustive'/'full inventory'). Decision rule: if the question would NOT be considered fully answered while one valid item is still missing, set required=true and copy the verbatim trigger phrase into source_quote. Distinct from enumeration_boundary which carries a count: completeness demands every item without naming a number. Leave omitted when the user is satisfied with a representative subset, a top-N, or any partial answer.",
+				"properties": map[string]any{
+					"required":     map[string]any{"type": "boolean"},
+					"source_quote": map[string]any{"type": "string", "description": "Verbatim phrase from the current request that signals the completeness demand."},
+				},
+				"required": []string{"required", "source_quote"},
+			},
+			"buckets": map[string]any{
+				"type":        "array",
+				"description": "Optional. Emit when the user EXPLICITLY partitions the answer into named groups — phrases that pair multiple labels with parallel asks (e.g. 'X for A, Y for B' / 'A 和 B 分别...' / 'list ... separately for A and B' / 'compare A vs B'). Each bucket's label MUST be verbatim from the question; the analyzer's anchor entities go in anchors[]. Decision rule: if the answer would naturally split into N sections each titled by a user-named label, emit one bucket per label in the order they appear. Leave omitted for single-topic questions or for multi-topic questions where the user did NOT name the partitions.",
+				"items": map[string]any{
+					"type": "object",
+					"properties": map[string]any{
+						"label":   map[string]any{"type": "string", "description": "Verbatim label copied from the user's question (e.g. when the question pairs two named modes / phases / sides, copy each name as the bucket label)."},
+						"anchors": map[string]any{"type": "array", "items": map[string]string{"type": "string"}, "description": "Entities the analyzer resolved as members of this bucket."},
+						"index":   map[string]any{"type": "integer", "minimum": 1, "description": "1-based ordinal in the order labels appear in the question."},
+					},
+					"required": []string{"label"},
+				},
 			},
 		},
 		"required": []string{
@@ -424,6 +471,31 @@ func (t *EmitAnalysis) Execute(ctx *types.BusContext, params json.RawMessage) (t
 			Timestamp: time.Now(),
 		}, nil
 	}
+	// Plan E (2026-05-02) — completeness + buckets parsing. Both
+	// follow the EnumerationBoundary's verbatim-quote contract: a
+	// fabricated quote / bucket label that does not appear in raw is
+	// silently dropped (returns nil), an explicit emit with a quote
+	// that fails validation rejects loudly so the LLM gets corrective
+	// feedback. The single-quote checker requestedEnumerationQuotePresent
+	// is reused implicitly via Normalize* helpers.
+	completenessObligation, completenessErr := parseCompletenessObligation(raw, p.CompletenessObligation)
+	if completenessErr != "" {
+		return types.ToolResult{
+			ToolName:  t.Name(),
+			Success:   false,
+			Summary:   "emit_analysis rejected: " + completenessErr,
+			Timestamp: time.Now(),
+		}, nil
+	}
+	buckets, bucketsErr := parseQuestionBuckets(raw, p.Buckets)
+	if bucketsErr != "" {
+		return types.ToolResult{
+			ToolName:  t.Name(),
+			Success:   false,
+			Summary:   "emit_analysis rejected: " + bucketsErr,
+			Timestamp: time.Now(),
+		}, nil
+	}
 	exactTargets, exactTargetErr := validateExactTargets(raw, p.ExactTargets)
 	if exactTargetErr != "" {
 		return types.ToolResult{
@@ -494,10 +566,12 @@ func (t *EmitAnalysis) Execute(ctx *types.BusContext, params json.RawMessage) (t
 		ComplexityConfidence: p.ComplexityConfidence,
 		KindConfidence:       p.KindConfidence,
 		ShapeConfidence:      p.ShapeConfidence,
-		Predicates:           predicates,
-		PredicateAxis:        axis,
-		DiagramHint:          diagramHint,
-		EnumerationBoundary:  enumerationBoundary,
+		Predicates:             predicates,
+		PredicateAxis:          axis,
+		DiagramHint:            diagramHint,
+		EnumerationBoundary:    enumerationBoundary,
+		CompletenessObligation: completenessObligation,
+		Buckets:                buckets,
 	}
 	ctx.Mutable.SetRequestModel(rm)
 	recordExactTargetPrescanFindings(ctx, rm, seenBlob)
@@ -977,6 +1051,70 @@ func parseEnumerationBoundary(raw string, p *emitEnumerationBoundaryParam) (*typ
 		return nil, "enumeration_boundary.source_quote must appear in the current request text (whitespace-insensitive match allowed)"
 	}
 	return boundary, ""
+}
+
+// parseCompletenessObligation (Plan E, 2026-05-02) validates the
+// LLM-emitted completeness obligation. Mirrors
+// parseEnumerationBoundary's contract:
+//   - nil input → no obligation, no error
+//   - required=true MUST come with a non-empty source_quote that
+//     verbatim-appears in raw; missing or unmatched quote → reject
+//     loudly (not silent) so the LLM gets corrective feedback
+//   - required=false → silently treated as "no obligation"
+func parseCompletenessObligation(raw string, p *emitCompletenessObligationParam) (*types.CompletenessObligation, string) {
+	if p == nil {
+		return nil, ""
+	}
+	if !p.Required {
+		// LLM explicitly said "no completeness demand" — silently
+		// treated as nil. No error.
+		return nil, ""
+	}
+	if strings.TrimSpace(p.SourceQuote) == "" {
+		return nil, "completeness_obligation.source_quote must be copied verbatim from the current request when required=true"
+	}
+	out := types.NormalizeCompletenessObligation(raw, &types.CompletenessObligation{
+		Required:    true,
+		SourceQuote: p.SourceQuote,
+	})
+	if out == nil {
+		return nil, "completeness_obligation.source_quote must appear in the current request text (whitespace-insensitive match allowed)"
+	}
+	return out, ""
+}
+
+// parseQuestionBuckets (Plan E, 2026-05-02) validates the LLM-emitted
+// bucket partition. The system-side normalisation
+// (types.NormalizeBuckets) already drops malformed entries silently;
+// here we additionally surface a loud rejection when the LLM emitted
+// a non-empty buckets array but every entry was dropped — that
+// signals the LLM thought there were buckets but couldn't ground
+// any label, and we want corrective feedback rather than silently
+// degrading to "no buckets".
+//
+// Single-bucket emits also reject loudly: a partition by definition
+// requires ≥2 named groups; one bucket is structurally meaningless
+// (use sub_topics instead).
+func parseQuestionBuckets(raw string, in []emitQuestionBucketParam) ([]types.QuestionBucket, string) {
+	if len(in) == 0 {
+		return nil, ""
+	}
+	prelim := make([]types.QuestionBucket, 0, len(in))
+	for _, b := range in {
+		prelim = append(prelim, types.QuestionBucket{
+			Label:   b.Label,
+			Anchors: b.Anchors,
+			Index:   b.Index,
+		})
+	}
+	out := types.NormalizeBuckets(raw, prelim)
+	if out == nil {
+		return nil, "buckets emitted but no entry survived validation; every label must verbatim-appear in the current request and be non-empty"
+	}
+	if len(out) < 2 {
+		return nil, "buckets must have at least 2 entries — a partition needs ≥2 named groups; for single-topic asks use sub_topics instead, or omit buckets"
+	}
+	return out, ""
 }
 
 // parseAnswerSubject coerces the optional emit_analysis.answer_subject

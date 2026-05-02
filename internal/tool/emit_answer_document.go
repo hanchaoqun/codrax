@@ -1061,6 +1061,9 @@ func (t *EmitAnswerDocument) Execute(ctx *types.BusContext, params json.RawMessa
 	if err := validateRequestedEnumerationBoundary(shape, &p, ctx); err != nil {
 		return failWithContext("%v", err)
 	}
+	if err := validateBucketAlignment(shape, &p, ctx); err != nil {
+		return failWithContext("%v", err)
+	}
 	// Shape-dispatch: each branch validates its own required fields,
 	// rejects fields that do not belong to this shape, and populates
 	// the AnswerDocument slot the renderer will read.
@@ -7560,6 +7563,92 @@ func validateRequestedEnumerationBoundary(shape types.AnswerShape, p *emitAnswer
 // Principal-count helpers live in internal/types (PrincipalStepCount /
 // CountStepsOfKind) so the orchestrator's contract.Check declared-
 // count-drift lower-bound can reuse the exact same definition.
+
+// validateBucketAlignment (Plan E G3, 2026-05-02) enforces that the
+// rendered answer honours user-named buckets when the analyzer
+// emitted Buckets[]. Contract: every bucket Label MUST appear
+// verbatim (case-insensitive) in the answer's summary OR in at
+// least one Step.Description (for step_list shape) OR in at least
+// one Symbol.Rationale (for list_of_symbols shape). The user's
+// mental partition then survives end-to-end: their labels become
+// section anchors in the rendered answer.
+//
+// Skips when:
+//   - Buckets are absent or len < 2 (single-bucket "partition" is a
+//     no-op).
+//   - Shape is value/boolean/config_value/none — singleton answers
+//     can't carry a partition. The analyzer's R1.6/R1.7 layer
+//     should have caught this earlier; fail-safe here.
+//
+// Failure mode: hard reject with a hint listing missing labels and
+// reminding the LLM of the verbatim-copy contract.
+func validateBucketAlignment(shape types.AnswerShape, p *emitAnswerDocumentParams, ctx *types.BusContext) error {
+	if p == nil || ctx == nil || ctx.AnalysisIR == nil {
+		return nil
+	}
+	buckets := ctx.AnalysisIR.RequestModel.Buckets
+	if len(buckets) < 2 {
+		return nil
+	}
+	switch shape {
+	case types.ShapeValue, types.ShapeBoolean, types.ShapeConfigValue, types.ShapeNone:
+		// Singleton shapes — no partition surface. The shape choice
+		// itself is the deeper drift, surfaced by other gates
+		// (shape_intent_mismatch).
+		return nil
+	}
+	// Build the searchable surface: summary + every step description +
+	// every symbol rationale. Lowercase once for case-insensitive
+	// substring matching (mirrors requestedEnumerationQuotePresent
+	// canonicalisation).
+	var corpus strings.Builder
+	corpus.WriteString(strings.ToLower(p.Summary))
+	corpus.WriteByte('\n')
+	for _, s := range p.Steps {
+		corpus.WriteString(strings.ToLower(s.Description))
+		corpus.WriteByte('\n')
+	}
+	for _, s := range p.Symbols {
+		corpus.WriteString(strings.ToLower(s.Rationale))
+		corpus.WriteByte('\n')
+		corpus.WriteString(strings.ToLower(s.Name))
+		corpus.WriteByte('\n')
+	}
+	corpusStr := corpus.String()
+	missing := make([]string, 0, len(buckets))
+	for _, b := range buckets {
+		label := strings.TrimSpace(strings.ToLower(b.Label))
+		if label == "" {
+			continue
+		}
+		if !strings.Contains(corpusStr, label) {
+			missing = append(missing, b.Label)
+		}
+	}
+	if len(missing) == 0 {
+		return nil
+	}
+	return newAnswerDocValidationError(
+		"bucket_alignment",
+		"the user partitioned the answer into %d named groups (%s) but the rendered answer does not mention %d of them: %s. Bucket labels MUST appear verbatim in `summary` (or in step.description / symbol.rationale) so the user's mental partition survives into the rendered answer.",
+		len(buckets),
+		bucketLabelList(buckets),
+		len(missing),
+		strings.Join(missing, ", "),
+	).
+		WithFields("summary", "steps", "symbols").
+		WithHint("Re-emit `emit_answer_document` keeping the same shape and evidence, but ensure each user-named bucket label is referenced verbatim somewhere in the user-facing fields. For shape=explanation, render each bucket as a `### Label` heading in summary; for shape=step_list, group steps under per-bucket prose introducers in summary; for shape=list_of_symbols, distribute symbols across labeled sections in summary and reference each label in the rationale of at least one symbol it covers.")
+}
+
+// bucketLabelList formats bucket labels as a comma-separated string
+// for error messages. Used by validateBucketAlignment's reject hint.
+func bucketLabelList(buckets []types.QuestionBucket) string {
+	out := make([]string, 0, len(buckets))
+	for _, b := range buckets {
+		out = append(out, b.Label)
+	}
+	return strings.Join(out, ", ")
+}
 
 func renderEmitAnswerDocumentSummary(doc *types.AnswerDocument, citationWarnings []string, shapeCorrectionNote string) string {
 	var b strings.Builder
