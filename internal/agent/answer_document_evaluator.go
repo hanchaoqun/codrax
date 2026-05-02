@@ -3017,12 +3017,17 @@ var (
 // stripSystemHedgeArtifactsFromDoc removes hedge markers + Authority
 // caveat tokens from every LLM-authored prose field on the doc
 // BEFORE ApplyAuthorityHedging re-injects them. Idempotent; runs once
-// per ParseOutput. Authority caveat lines in doc.Caveats[] are
-// preserved (the renderer's addAuthorityCaveat owns that channel and
-// the system uses it as the canonical hedge signal); LLM-written
-// caveats that happen to start with "Authority: " ARE stripped from
-// the LLM's text fields but not from doc.Caveats — see Fix B1 in
-// round-4 audit.
+// per ParseOutput.
+//
+// Round-6 refinement: also strips system markers from doc.Caveats[].
+// The LLM-written caveats may carry inline `[hedged]` tokens it
+// copied from prior conversation; without stripping, those LLM-
+// written caveats render verbatim alongside the system caveat,
+// confusing the user with duplicate-looking hedge signals. The
+// strip is targeted at MARKERS only — caveat lines that contain
+// the system-private authorityCaveatTag are preserved (those ARE
+// system caveats in transit during retry) AND non-system caveats
+// keep their LLM-authored prose minus any spurious markers.
 func stripSystemHedgeArtifactsFromDoc(doc *types.AnswerDocument) {
 	if doc == nil {
 		return
@@ -3037,6 +3042,22 @@ func stripSystemHedgeArtifactsFromDoc(doc *types.AnswerDocument) {
 	if doc.Boolean != nil {
 		doc.Boolean.Rationale = render.StripAuthorityArtifacts(doc.Boolean.Rationale)
 	}
+	// Round-6: strip spurious markers from non-system caveats.
+	// System caveats (those carrying authorityCaveatTag) are dropped
+	// whole by StripAuthorityArtifacts, so only LLM-written caveats
+	// remain after the strip; remove any marker tokens LLM may have
+	// copied from prior conversation. ApplyAuthorityHedging's
+	// addAuthorityCaveat will re-attach the system caveat after.
+	cleaned := make([]string, 0, len(doc.Caveats))
+	for _, c := range doc.Caveats {
+		stripped := render.StripAuthorityArtifacts(c)
+		stripped = strings.TrimSpace(stripped)
+		if stripped == "" {
+			continue
+		}
+		cleaned = append(cleaned, stripped)
+	}
+	doc.Caveats = cleaned
 }
 
 func sanitizePriorDraftForSummary(s string) string {

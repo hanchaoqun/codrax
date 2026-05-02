@@ -549,19 +549,25 @@ func isAuthorityCaveat(s string) bool {
 	return strings.Contains(s, authorityCaveatTag)
 }
 
-// Sentinels — chosen to be visible in the rendered output but
-// distinctive enough that the contract checker (commit 6) can grep
-// for them as proof that hedge injection ran. Exported so
-// orchestrator.runAuthorityOverreachCheck can grep without
-// duplicating string literals (single source of truth).
+// Sentinels — visible in the rendered output for the user, but also
+// keyable for in-process strip / dedup paths. The HedgeMarker* values
+// are the inline annotations next to specific anchors in steps /
+// symbols / summary / boolean rationale. Exported so callers across
+// the codebase share one source of truth instead of duplicating
+// string literals.
 //
-// authorityCaveatTag is a private invisible-ish token embedded INSIDE
-// the system-generated caveat string. The dedup path
-// (isAuthorityCaveat) looks for the tag rather than the public
-// "Authority: " prefix, so an LLM-written caveat that happens to
-// start with "Authority: " is not mistaken for the system's caveat.
-// The tag uses zero-width space + ASCII brackets so it's visually
-// invisible in user-facing prose but unambiguously machine-grep-able.
+// authorityCaveatTag is a system-private token embedded INSIDE every
+// system-generated authority caveat. It is the canonical signal the
+// orchestrator's runAuthorityOverreachCheck greps for ("did the
+// renderer attach the drift disclosure to this answer?"). Using a
+// tag rather than the public "Authority: " prefix lets the system
+// distinguish its own caveat from any LLM-written caveat that
+// happens to start with the same prefix. The tag uses zero-width
+// space + ASCII brackets so it's visually invisible in user-facing
+// prose but unambiguously machine-grep-able. NOTE: per-shape hedge
+// markers above are NOT used by the gate — only the caveat tag is.
+// Markers are inline annotations for the user; the tag is the
+// system's contract signal.
 const (
 	HedgeMarkerConditional  = "[hedged]"
 	HedgeMarkerHistorical   = "[historical]"

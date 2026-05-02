@@ -129,20 +129,29 @@ const (
 	// prompts. SuspectedRoot: external_artifact_decoded.
 	ViolExternalArtifactUnderdecoded ViolationKind = "external_artifact_underdecoded"
 
-	// ViolAuthorityOverreach fires when prose content cites an
-	// evidence anchor whose underlying AuthorityCeiling is conditional
-	// / historical / illustrative BUT the prose lacks the system-
-	// injected hedge sentinel for that ceiling. The check is
-	// structural, not keyword-based: it looks for the absence of the
-	// [hedged] / [historical] / [illustrative] sentinel tokens that
-	// render.ApplyAuthorityHedging deterministically injects, so
-	// triggering the violation means the LLM emitted a retry that
-	// stripped a previously-applied hedge OR the doc bypassed the
-	// renderer entirely.
+	// ViolAuthorityOverreach fires when the rendered answer cites
+	// drift-bounded evidence (Authority ∈ {conditional, historical,
+	// illustrative}) but the rendered draft text lacks the system-
+	// private Authority caveat tag that render.ApplyAuthorityHedging
+	// embeds in every system-generated caveat. The check is
+	// structural, not keyword-based: it greps for a single
+	// well-defined token (render.AuthorityCaveatTag()), not for
+	// per-shape hedge markers. Triggering this violation means the
+	// rendered draft did NOT flow through ApplyAuthorityHedging —
+	// the renderer was bypassed entirely (typically the IsZero
+	// raw-prose fallback when emit_answer_document failed) or some
+	// downstream transformation stripped the caveat.
 	//
 	// Strict by classification — wired into extraStrict in
-	// cmd/root.go so the finalizer retries with hedge repair.
-	// SuspectedRoot: answer_authority.
+	// cmd/root.go so the finalizer retries via the structured
+	// emit channel. The repair hint speaks in LLM-actionable terms
+	// (call emit_answer_document with required fields), not
+	// internal plumbing names. SuspectedRoot: answer_authority.
+	//
+	// NOT collected by answer_taxonomy: this is a plumbing failure
+	// signal (renderer bypass), not an answer-quality lesson the
+	// LLM should learn across runs. See orchestrator's
+	// learnFromContractViolations filter.
 	ViolAuthorityOverreach ViolationKind = "authority_overreach"
 )
 

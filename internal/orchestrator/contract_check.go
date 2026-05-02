@@ -318,19 +318,48 @@ func runAuthorityOverreachCheck(mut *types.MutableState, draftText string) []typ
 	// Caveat absent and hedging required: the renderer was bypassed
 	// (doc.IsZero raw-prose fallback) or some post-render mutation
 	// stripped the signal. Strict violation — finalizer must
-	// re-emit through the documented render path.
-	detail := "rendered draft cites drift-bounded evidence (conditional/historical/illustrative) but lacks the system's doc-level Authority caveat. The renderer normally injects this caveat into doc.Caveats[] whenever any evidence is non-factual; its absence means the doc bypassed the renderer (e.g. raw-prose fallback) or a downstream transformation stripped it."
+	// re-emit through the structured channel. Wording uses the
+	// canonical user-facing term "drift-bounded" everywhere
+	// (matches skill prompt + caveat + render docs); avoids
+	// internal plumbing names (ApplyAuthorityHedging, doc.Caveats)
+	// the LLM cannot act on.
+	detail := "answer cites drift-bounded evidence (the underlying observations were derived from the attached log/perf trace and the current code has changed since) but the answer's bottom-of-page Authority disclosure is missing. This usually means the prior emit_answer_document call failed schema validation and the system fell back to raw prose."
 	return []types.Violation{{
 		Kind:   types.ViolAuthorityOverreach,
 		Detail: detail,
-		Repair: "re-emit emit_answer_document so the answer flows through the renderer's ApplyAuthorityHedging pass; do not bypass the structured emit channel even on partial drafts",
+		// Repair speaks in LLM-actionable terms: name the tool, name
+		// the cause class, name the fix. Don't reference internal
+		// component names ("ApplyAuthorityHedging", "render path")
+		// the LLM has no schema for.
+		Repair: "Re-emit emit_answer_document with all required fields populated for the target shape (see the skill's Required-field dispatch table). The system will re-attach the drift disclosure automatically once the structured emit succeeds — do not write the disclosure prose yourself.",
 		SuspectedRoot: types.SuspectedRoot{
 			IRField:    "answer_authority",
-			Reason:     "rendered draft missing system Authority caveat for drift-bounded evidence",
+			Reason:     "drift disclosure missing on rendered answer (likely structured-emit failure)",
 			Confidence: 0.6,
 		},
 		Stage: string(types.StageFinalize),
 	}}
+}
+
+// isPlumbingFailureViolation reports whether a ViolationKind
+// represents a pipeline / plumbing failure (renderer bypass,
+// structured-emit rejection, etc.) rather than an answer-content
+// quality issue. These kinds are excluded from answer_reviewer
+// pattern collection: feeding them to the cross-Run learning loop
+// pollutes the analyzer's "Known answer pitfalls" section with
+// plumbing noise the next Run's LLM has no actionable handle on,
+// distracting from real answer-quality lessons.
+//
+// Update this list when adding ViolationKinds whose Detail/Reason
+// describes pipeline state rather than answer prose state.
+func isPlumbingFailureViolation(k types.ViolationKind) bool {
+	switch k {
+	case types.ViolAuthorityOverreach:
+		// Fires only when the renderer was bypassed (IsZero raw-
+		// prose fallback) — not an answer-quality issue.
+		return true
+	}
+	return false
 }
 
 func runAnswerShapeOracle(doc *types.AnswerDocument, rm *types.RequestModel, mut *types.MutableState) []types.Violation {

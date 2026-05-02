@@ -4895,15 +4895,35 @@ func (o *Orchestrator) runAnswerReviewerOnSuccess() {
 	// reviewer sees the structured shape even when no retries fired.
 	// The Stage tag distinguishes them from real retries; the LLM
 	// reads them as "advisory observations" via the same prompt path.
+	//
+	// Round-6 filter: skip violation kinds that are plumbing-failure
+	// signals rather than answer-quality signals. Feeding these to
+	// answer_reviewer pollutes the persistent answer_taxonomy with
+	// patterns about renderer bypass / structured-emit failure that
+	// the next Run's analyzer will inject as "Known answer pitfalls"
+	// — and the LLM has no actionable handle on those (they're
+	// pipeline issues, not answer-content issues). Result pre-fix:
+	// the analyzer's pitfalls section grows with noise that distracts
+	// LLM attention from real answer-quality lessons. Post-fix:
+	// answer_taxonomy stays focused on answer-quality patterns only.
 	if len(events) == 0 && closureViolationCount > 0 {
 		if cl := mu.EvidenceClosure(); cl != nil {
 			for _, v := range cl.Violations() {
+				if isPlumbingFailureViolation(v.Kind) {
+					continue
+				}
 				in.RetryEvents = append(in.RetryEvents, AnswerRetryEvent{
 					Stage:  fmt.Sprintf("contract.%s", v.Kind),
 					Reason: v.Detail,
 				})
 			}
 		}
+	}
+	// If after filtering plumbing-noise we have nothing left to feed
+	// the reviewer, abort the dispatch — there's no answer-quality
+	// signal worth learning from.
+	if len(in.RetryEvents) == 0 {
+		return
 	}
 
 	ctx := o.busCtx.Ctx

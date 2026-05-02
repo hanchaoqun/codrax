@@ -65,8 +65,9 @@ func TestRunAuthorityOverreachCheck_ConditionalCitedButNoHedgeFires(t *testing.T
 	if viols[0].Kind != types.ViolAuthorityOverreach {
 		t.Errorf("Kind = %q; want authority_overreach", viols[0].Kind)
 	}
-	if !strings.Contains(viols[0].Detail, "conditional") {
-		t.Errorf("Detail missing 'conditional': %q", viols[0].Detail)
+	if !strings.Contains(viols[0].Detail, "drift-bounded evidence") {
+		t.Errorf("Detail missing canonical 'drift-bounded evidence' wording: %q",
+			viols[0].Detail)
 	}
 }
 
@@ -142,7 +143,8 @@ func TestRunAuthorityOverreachCheck_FiresWhenCaveatStripped(t *testing.T) {
 	if len(viols) != 1 {
 		t.Fatalf("got %d violations; want 1", len(viols))
 	}
-	if !strings.Contains(viols[0].Detail, "Authority caveat") {
-		t.Errorf("Detail should reference missing caveat: %q", viols[0].Detail)
+	if !strings.Contains(viols[0].Detail, "Authority disclosure is missing") {
+		t.Errorf("Detail should describe the missing disclosure in user-facing terms: %q",
+			viols[0].Detail)
 	}
 }
