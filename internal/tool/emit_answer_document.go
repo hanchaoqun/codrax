@@ -345,7 +345,8 @@ func (t *EmitAnswerDocument) Parameters() json.RawMessage {
         "properties": {
           "index":         {"type": "integer", "description": "1-based step number. Must be positive."},
           "description":   {"type": "string", "description": "The step body — describe what this step DOES in terms of behavior and outcome, reference load-bearing identifiers with inline `+"`"+`code`+"`"+`, and give the reader enough context to understand why it matters in the overall mechanism. Use as many sentences as accuracy and clarity require; one step is one logical hop, do not collapse two."},
-          "citation_ref":  {"type": "integer", "description": "Index into citations[], or -1 when no citation backs this step."}
+          "citation_ref":  {"type": "integer", "description": "Index into citations[], or -1 when no citation backs this step."},
+          "kind":          {"type": "string", "enum": ["", "principal", "flow", "caveat"], "description": "Step role: 'principal' (default; one of the items the user explicitly asked about — counts toward any declared item count when the question is bounded), 'flow' (transition / branch / scope-narration that helps the reader follow the sequence but is NOT itself one of the user-asked items), 'caveat' (trailing scope-warning / out-of-band note). Empty defaults to 'principal'. Decision rule: ask whether this step is itself one of the items the question's enumeration named, or whether it only frames where in the sequence the next named item appears. Items the question named → principal (a principal step CAN describe its own conditions and inputs — that's still principal). A step whose entire content is the framing (entering a branch, advancing the loop, switching scope, summarizing what comes next) without itself being one of the named items → flow. A step that constrains when the WHOLE answer applies (mode-conditional, version-conditional) rather than belonging inside it → caveat."}
         },
         "required": ["index", "description", "citation_ref"]
       }
@@ -1474,6 +1475,15 @@ func validateStep(s *types.AnswerStep, index int, numCites int) error {
 	if s.Index <= 0 {
 		return fmt.Errorf("steps[%d]: index must be > 0 (got %d)", index, s.Index)
 	}
+	// 2026-05-02 add: Kind defaults to principal when empty so back-
+	// compat (pre-Kind) emits stay byte-identical. Unknown values
+	// are rejected with the closed-enum hint so a typo can't slide
+	// through and silently land as principal.
+	normalized, ok := types.NormalizeAnswerStepKind(string(s.Kind))
+	if !ok {
+		return fmt.Errorf("steps[%d]: kind=%q invalid (allowed: principal, flow, caveat — empty defaults to principal)", index, s.Kind)
+	}
+	s.Kind = normalized
 	return validateCitationRef("steps", index, s.CitationRef, numCites)
 }
 
@@ -7503,17 +7513,36 @@ func validateRequestedEnumerationBoundary(shape types.AnswerShape, p *emitAnswer
 	boundary := plan.RequestedEnumerationBoundary
 	switch shape {
 	case types.ShapeStepList:
-		if len(p.Steps) <= boundary.DeclaredCount {
+		// 2026-05-02 (Plan D rollout): count only Kind==principal
+		// items against DeclaredCount. Pre-Kind emits decode with
+		// Kind="" → NormalizeAnswerStepKind defaulted them to
+		// principal at validateStep time, so back-compat is exact:
+		// every old step counts against the boundary just like
+		// before.
+		//
+		// The s1a 2026-05-02 trace: LLM emit-1 = 9 principal checks
+		// + 1 flow narration step ("进入 read 模式条件分支"). Pre-D
+		// rule = `len(Steps) > 9` rejected the honest emit and
+		// forced the LLM to drop a real check. Post-D rule =
+		// `principalCount > 9` accepts the honest emit because
+		// flow/caveat steps don't count.
+		principal := types.PrincipalStepCount(p.Steps)
+		if principal <= boundary.DeclaredCount {
 			return nil
 		}
 		return newAnswerDocValidationError(
 			"requested_set_boundary",
-			"the user explicitly requested a bounded principal set `%s` (%d item(s)), so shape=step_list must keep steps[] to at most %d principal item(s). Move extra adjacent guards/helpers into summary prose or a short caveat instead of extending the main ordered list to %d item(s).",
-			boundary.SourceQuote, boundary.DeclaredCount, boundary.DeclaredCount, len(p.Steps),
+			"the user explicitly requested a bounded principal set `%s` (%d item(s)), so shape=step_list must keep principal item(s) to at most %d. Got %d principal step(s) (total Steps=%d, of which flow=%d, caveat=%d). Re-emit with the right kind on each step: kind=principal for the user-asked items, kind=flow for branch / transition / scope narration, kind=caveat for trailing scope notes. Flow and caveat steps do NOT count toward the bound.",
+			boundary.SourceQuote, boundary.DeclaredCount, boundary.DeclaredCount,
+			principal, len(p.Steps), types.CountStepsOfKind(p.Steps, types.AnswerStepKindFlow), types.CountStepsOfKind(p.Steps, types.AnswerStepKindCaveat),
 		).
 			WithFields("steps", "summary").
-			WithHint("Re-emit `emit_answer_document` with the same shape and evidence, but keep the main `steps[]` sequence within the user-declared boundary. Do NOT simply truncate to the first N chronological lines when grounded comments or summaries indicate some nearby items are auxiliary guards/coherence/repair checks. Keep the principal ordered set in `steps[]`; move auxiliary adjacent items into `summary` as a caveat if they are still relevant.")
+			WithHint("Re-emit `emit_answer_document` with the same shape. Mark each step's `kind`: `principal` for the items the user's question enumerated, `flow` for steps that only describe how the sequence transitions or under what condition subsequent items run, `caveat` for steps that qualify the answer's scope rather than belonging to it. Do NOT drop principal items just to shrink the principal-step count — convert genuine narration to kind=flow instead. If the principal items genuinely outnumber the user's quoted count (the user's quote was approximate), pick the most representative N items as principal AND name the discrepancy in `summary` (e.g. \"the question quoted N but the repo has M; only the N most central are listed\").")
 	case types.ShapeListOfSymbols:
+		// list_of_symbols already structurally rejects narration
+		// (every Symbol requires File+Line+Kind from the closed
+		// taxonomy — there's no "flow narration" SymbolKind). So
+		// the upper-bound check stays as len(p.Symbols).
 		if len(p.Symbols) <= boundary.DeclaredCount {
 			return nil
 		}
@@ -7527,6 +7556,10 @@ func validateRequestedEnumerationBoundary(shape types.AnswerShape, p *emitAnswer
 	}
 	return nil
 }
+
+// Principal-count helpers live in internal/types (PrincipalStepCount /
+// CountStepsOfKind) so the orchestrator's contract.Check declared-
+// count-drift lower-bound can reuse the exact same definition.
 
 func renderEmitAnswerDocumentSummary(doc *types.AnswerDocument, citationWarnings []string, shapeCorrectionNote string) string {
 	var b strings.Builder

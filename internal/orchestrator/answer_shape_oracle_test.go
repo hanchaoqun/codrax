@@ -233,6 +233,80 @@ func TestRunAnswerShapeOracle_DeclaredCountDrift(t *testing.T) {
 	}
 }
 
+// TestRunAnswerShapeOracle_StepListLowerBoundDeclaredCountDrift
+// pins the Plan D rollout (2026-05-02): when the user's question
+// quotes N items via RequestedEnumerationBoundary AND the rendered
+// step_list has fewer than N kind=principal steps, soft
+// ViolDeclaredCountDrift fires so the reviewer learns the gap.
+// Distinct from the symbol-side check above: this one reads the
+// boundary off RequestModel and counts AnswerStep.Kind==principal.
+func TestRunAnswerShapeOracle_StepListLowerBoundDeclaredCountDrift(t *testing.T) {
+	cases := []struct {
+		name        string
+		declared    int
+		stepKinds   []types.AnswerStepKind
+		expectFired bool
+	}{
+		{
+			name:        "no boundary → no fire",
+			declared:    0,
+			stepKinds:   []types.AnswerStepKind{types.AnswerStepKindPrincipal, types.AnswerStepKindPrincipal},
+			expectFired: false,
+		},
+		{
+			name:        "matched principal count → no fire",
+			declared:    3,
+			stepKinds:   []types.AnswerStepKind{types.AnswerStepKindPrincipal, types.AnswerStepKindPrincipal, types.AnswerStepKindPrincipal},
+			expectFired: false,
+		},
+		{
+			name:        "principal count below declared → fire",
+			declared:    9,
+			stepKinds:   []types.AnswerStepKind{types.AnswerStepKindPrincipal, types.AnswerStepKindPrincipal, types.AnswerStepKindPrincipal, types.AnswerStepKindPrincipal, types.AnswerStepKindPrincipal, types.AnswerStepKindPrincipal, types.AnswerStepKindPrincipal, types.AnswerStepKindPrincipal, types.AnswerStepKindFlow},
+			expectFired: true,
+		},
+		{
+			name:        "back-compat empty kind counted as principal → no fire when count matches",
+			declared:    2,
+			stepKinds:   []types.AnswerStepKind{"", ""},
+			expectFired: false,
+		},
+		{
+			name:        "principal above declared NOT lower-bound — no fire (upper-bound is hard-rejected at emit)",
+			declared:    3,
+			stepKinds:   []types.AnswerStepKind{types.AnswerStepKindPrincipal, types.AnswerStepKindPrincipal, types.AnswerStepKindPrincipal, types.AnswerStepKindPrincipal},
+			expectFired: false,
+		},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			steps := make([]types.AnswerStep, len(c.stepKinds))
+			for i, k := range c.stepKinds {
+				steps[i] = types.AnswerStep{Index: i + 1, Description: "step", CitationRef: -1, Kind: k}
+			}
+			doc := &types.AnswerDocument{Steps: steps, Shape: types.ShapeStepList}
+			rm := &types.RequestModel{}
+			if c.declared > 0 {
+				rm.EnumerationBoundary = &types.RequestedEnumerationBoundary{
+					DeclaredCount: c.declared,
+					SourceQuote:   "test boundary quote",
+				}
+			}
+			vs := runAnswerShapeOracle(doc, rm, types.NewMutableState("test"))
+			fired := false
+			for _, v := range vs {
+				if v.Kind == types.ViolDeclaredCountDrift {
+					fired = true
+				}
+			}
+			if fired != c.expectFired {
+				t.Errorf("declared=%d kinds=%v: fired=%v, want %v",
+					c.declared, c.stepKinds, fired, c.expectFired)
+			}
+		})
+	}
+}
+
 // TestHasAnyStrictViolation pins the gate predicate. A mix with
 // any strict kind returns true; an all-soft mix returns false;
 // empty returns false.

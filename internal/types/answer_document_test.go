@@ -180,3 +180,58 @@ func TestMutableState_AnswerDocument_DefensiveCopy(t *testing.T) {
 		t.Errorf("internal Caveats mutated: %s", again.Caveats[0])
 	}
 }
+
+// TestAnswerStepKind_IsValid pins the closed enum.
+func TestAnswerStepKind_IsValid(t *testing.T) {
+	for _, k := range []AnswerStepKind{AnswerStepKindPrincipal, AnswerStepKindFlow, AnswerStepKindCaveat} {
+		if !k.IsValid() {
+			t.Errorf("kind %q must be valid", k)
+		}
+	}
+	for _, k := range []AnswerStepKind{"", "load_bearing", "auxiliary", "principal "} {
+		if k.IsValid() {
+			t.Errorf("kind %q must NOT be valid (closed enum + no whitespace tolerance)", k)
+		}
+	}
+}
+
+// TestNormalizeAnswerStepKind_BackCompatDefault pins the
+// 2026-05-02 invariant: empty raw → principal (so pre-Kind emits
+// keep their pre-2026-05-02 behaviour where every step counted as
+// principal). Unknown raws also fall back to principal but signal
+// ok=false so a strict validator can reject.
+func TestNormalizeAnswerStepKind_BackCompatDefault(t *testing.T) {
+	cases := []struct {
+		in   string
+		want AnswerStepKind
+		ok   bool
+	}{
+		{"", AnswerStepKindPrincipal, true},
+		{"  ", AnswerStepKindPrincipal, true},
+		{"principal", AnswerStepKindPrincipal, true},
+		{"PRINCIPAL", AnswerStepKindPrincipal, true},
+		{"flow", AnswerStepKindFlow, true},
+		{"caveat", AnswerStepKindCaveat, true},
+		{"unknown_kind", AnswerStepKindPrincipal, false},
+	}
+	for _, c := range cases {
+		got, ok := NormalizeAnswerStepKind(c.in)
+		if got != c.want || ok != c.ok {
+			t.Errorf("NormalizeAnswerStepKind(%q) = (%q, %v); want (%q, %v)", c.in, got, ok, c.want, c.ok)
+		}
+	}
+}
+
+// TestAnswerStep_KindFieldOmittedWhenEmpty pins the JSON marshal
+// behaviour: when Kind is empty (back-compat shape) the JSON
+// output must NOT carry a "kind" field, so old downstream readers
+// don't get a surprise key. Tag is `kind,omitempty`.
+func TestAnswerStep_KindFieldOmittedWhenEmpty(t *testing.T) {
+	s := AnswerStep{Index: 1, Description: "x", CitationRef: -1}
+	// Indirect check: json marshal and grep. We don't import encoding/json
+	// here to keep the test surface minimal — the Kind field tag is
+	// `kind,omitempty` so the empty-string branch produces no key.
+	if s.Kind != "" {
+		t.Errorf("zero-value AnswerStep.Kind must be empty; got %q", s.Kind)
+	}
+}

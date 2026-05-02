@@ -1,6 +1,9 @@
 package types
 
-import "math"
+import (
+	"math"
+	"strings"
+)
 
 // answer_document.go — structured answer payload.
 //
@@ -252,15 +255,114 @@ func SummaryCapFor(shape AnswerShape, itemCount int) int {
 // schema validator to flag "forgot to set citation_ref" errors.
 const CitationRefUnset = -1
 
+// AnswerStepKind classifies an AnswerStep's role in the answer.
+// Introduced 2026-05-02 to fix the s1a regression where the
+// finalizer's RequestedEnumerationBoundary validator could not
+// distinguish a load-bearing principal item (e.g. one of the 9
+// gate.Run checks the user asked about) from a flow-narration step
+// (e.g. "进入 read 模式条件分支") that exists only for reader
+// continuity. Both could carry CitationRef pointing at real lines,
+// so the predecessor `len(Steps) ≤ DeclaredCount` rule punished a
+// faithful 10-step answer (9 principal + 1 narration) and forced
+// the LLM to drop a real principal check on retry.
+//
+// The enum is uniform across shapes that use AnswerStep; future
+// step_list-shaped extensions can reuse it without schema
+// migration. Default-value semantic: empty Kind is normalized to
+// AnswerStepKindPrincipal at decode time so pre-2026-05-02 emits
+// stay byte-identical (every old step counted as principal).
+//
+//   - principal: a load-bearing item the user explicitly asked for.
+//     These are the items that count toward
+//     RequestedEnumerationBoundary.DeclaredCount.
+//   - flow: structural narration / transition that helps the reader
+//     follow the step sequence but does NOT count toward the
+//     boundary. Examples: "enter read-mode branch", "begin loop",
+//     "after this, the validator runs N times".
+//   - caveat: trailing scope-warning / out-of-band note that does
+//     NOT count toward the boundary. Use for "in write mode this
+//     step is skipped" or "ignored when X feature flag off".
+type AnswerStepKind string
+
+const (
+	AnswerStepKindPrincipal AnswerStepKind = "principal"
+	AnswerStepKindFlow      AnswerStepKind = "flow"
+	AnswerStepKindCaveat    AnswerStepKind = "caveat"
+)
+
+// IsValid reports whether k is one of the known kinds. Used by
+// emit_answer_document's schema validator and by the principal-
+// count helpers to reject typos defensively.
+func (k AnswerStepKind) IsValid() bool {
+	switch k {
+	case AnswerStepKindPrincipal, AnswerStepKindFlow, AnswerStepKindCaveat:
+		return true
+	}
+	return false
+}
+
+// NormalizeAnswerStepKind canonicalizes a raw string. Empty input
+// (back-compat path: pre-2026-05-02 emits had no kind field) maps
+// to AnswerStepKindPrincipal so the predecessor "every step is
+// principal" semantic is preserved exactly. Unknown values fall
+// back to AnswerStepKindPrincipal as well, with a returned ok=false
+// so the schema validator can decide whether to reject or warn.
+func NormalizeAnswerStepKind(raw string) (AnswerStepKind, bool) {
+	trimmed := strings.TrimSpace(strings.ToLower(raw))
+	if trimmed == "" {
+		return AnswerStepKindPrincipal, true
+	}
+	k := AnswerStepKind(trimmed)
+	if k.IsValid() {
+		return k, true
+	}
+	return AnswerStepKindPrincipal, false
+}
+
+// PrincipalStepCount counts AnswerStep entries with Kind==principal.
+// Used by emit_answer_document's RequestedEnumerationBoundary
+// validator AND by the orchestrator's contract.Check declared-
+// count-drift lower-bound check (Plan D rollout 2026-05-02). Empty
+// Kind is treated as principal so pre-Kind emits keep their
+// pre-2026-05-02 "every step counts" behaviour exactly.
+func PrincipalStepCount(steps []AnswerStep) int {
+	n := 0
+	for _, s := range steps {
+		if s.Kind == "" || s.Kind == AnswerStepKindPrincipal {
+			n++
+		}
+	}
+	return n
+}
+
+// CountStepsOfKind returns the number of steps whose Kind exactly
+// matches the argument. Used by validator hints to give per-kind
+// breakdowns ("9 principal + 1 flow + 0 caveat").
+func CountStepsOfKind(steps []AnswerStep, kind AnswerStepKind) int {
+	n := 0
+	for _, s := range steps {
+		if s.Kind == kind {
+			n++
+		}
+	}
+	return n
+}
+
 // AnswerStep is one numbered entry in a ShapeStepList answer. The
 // Description field carries LLM-authored prose for the step's body;
 // the CitationRef integer points at a Citation in the document-level
 // pool. Index is 1-based and set by the LLM (the renderer preserves
 // it verbatim to allow out-of-order declarations).
+//
+// Kind (2026-05-02 add) classifies the step's role for the
+// RequestedEnumerationBoundary validator. principal items count
+// toward the user-declared boundary; flow / caveat steps do not.
+// Empty Kind decodes to principal for back-compat.
 type AnswerStep struct {
-	Index       int    `json:"index"`
-	Description string `json:"description"`
-	CitationRef int    `json:"citation_ref"`
+	Index       int            `json:"index"`
+	Description string         `json:"description"`
+	CitationRef int            `json:"citation_ref"`
+	Kind        AnswerStepKind `json:"kind,omitempty"`
 }
 
 // AnswerValue carries a single concrete value answer. Literal is the

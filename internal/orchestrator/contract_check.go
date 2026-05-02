@@ -419,6 +419,42 @@ func runAnswerShapeOracle(doc *types.AnswerDocument, rm *types.RequestModel, mut
 		}
 	}
 
+	// Plan D rollout 2026-05-02 — step_list lower-bound for
+	// RequestedEnumerationBoundary. The validator at emit time
+	// rejects upper-bound overflow (principal_count > DeclaredCount).
+	// The lower bound (principal_count < DeclaredCount) is SOFT here:
+	// we don't hard-reject, because the LLM may have honestly only
+	// found N-1 principal items even though the question quoted N
+	// (e.g. user said "the 9 X's" but only 8 actually exist). The
+	// reviewer learns the gap via this Violation and the final answer
+	// ships with caveat header. Stage=finalize.
+	//
+	// Skips when EnumerationBoundary is absent OR DeclaredCount<=0
+	// OR shape is anything but step_list.
+	if rm.EnumerationBoundary != nil &&
+		rm.EnumerationBoundary.DeclaredCount > 0 &&
+		doc.Shape == types.ShapeStepList {
+		boundary := rm.EnumerationBoundary
+		principal := types.PrincipalStepCount(doc.Steps)
+		if principal < boundary.DeclaredCount {
+			out = append(out, types.Violation{
+				Kind: types.ViolDeclaredCountDrift,
+				Detail: fmt.Sprintf("user asked for %d principal item(s) (`%s`) but your steps[] has %d kind=principal step(s) (total %d steps; flow=%d, caveat=%d)",
+					boundary.DeclaredCount, boundary.SourceQuote, principal, len(doc.Steps),
+					types.CountStepsOfKind(doc.Steps, types.AnswerStepKindFlow),
+					types.CountStepsOfKind(doc.Steps, types.AnswerStepKindCaveat)),
+				Repair: fmt.Sprintf("either (a) re-emit emit_answer_document with %d kind=principal step(s) to match the question's bound, OR (b) when only %d principal items genuinely exist, leave Steps as-is and adjust the summary prose to acknowledge the mismatch (\"the question quoted N but only K independent items exist\")",
+					boundary.DeclaredCount, principal),
+				SuspectedRoot: types.SuspectedRoot{
+					IRField:    "answer_steps",
+					Reason:     "principal step count below declared question boundary",
+					Confidence: 0.7,
+				},
+				Stage: string(types.StageFinalize),
+			})
+		}
+	}
+
 	// Shape ↔ Intent coherence.
 	switch rm.Intent {
 	case types.IntentExplain, types.IntentRootCause:
@@ -593,13 +629,18 @@ func runIntentCoverageOracle(doc *types.AnswerDocument, rm *types.RequestModel) 
 }
 
 // traceAnswerHasDepth reports whether a trace-class answer surface
-// has structural depth — either >=2 step hops or a sequenceDiagram
-// fenced block in summary.
+// has structural depth — either >=2 PRINCIPAL step hops or a
+// sequenceDiagram fenced block in summary.
+//
+// Plan D rollout (2026-05-02): counts only kind=principal steps, so
+// a 1-principal + 1-flow answer no longer falsely satisfies "trace
+// has depth". Flow narration adds reader continuity but is not
+// itself a hop in the trace.
 func traceAnswerHasDepth(doc *types.AnswerDocument) bool {
 	if doc == nil {
 		return false
 	}
-	if len(doc.Steps) >= 2 {
+	if types.PrincipalStepCount(doc.Steps) >= 2 {
 		return true
 	}
 	return hasSequenceDiagram(doc.Summary)
@@ -607,6 +648,8 @@ func traceAnswerHasDepth(doc *types.AnswerDocument) bool {
 
 // enumerateAnswerHasList reports whether an enumeration answer
 // renders as a list surface.
+//
+// Plan D rollout: principal-only count, mirroring traceAnswerHasDepth.
 func enumerateAnswerHasList(doc *types.AnswerDocument) bool {
 	if doc == nil {
 		return false
@@ -614,7 +657,7 @@ func enumerateAnswerHasList(doc *types.AnswerDocument) bool {
 	if doc.Shape == types.ShapeListOfSymbols {
 		return true
 	}
-	if doc.Shape == types.ShapeStepList && len(doc.Steps) >= 2 {
+	if doc.Shape == types.ShapeStepList && types.PrincipalStepCount(doc.Steps) >= 2 {
 		return true
 	}
 	return false
@@ -1029,10 +1072,26 @@ func shouldReviewConsistency(doc *types.AnswerDocument) bool {
 // to file:line form (no Quote text) since we don't want the
 // reviewer hallucinating about repo content — its job is
 // purely prose↔prose.
+//
+// Plan D rollout (2026-05-02): kind=flow / kind=caveat steps render
+// with an inline marker so the reviewer doesn't false-flag a count
+// mismatch when the summary references a principal-count (e.g.
+// summary says "9 X" and body has 10 numbered lines = 9 principal +
+// 1 flow narration). Principal steps render plain (no marker) so
+// pre-Kind reviewers stay byte-identical.
 func renderConsistencyReviewBody(doc *types.AnswerDocument) string {
 	var b strings.Builder
 	for i, step := range doc.Steps {
-		fmt.Fprintf(&b, "%d. %s\n", i+1, strings.TrimSpace(step.Description))
+		desc := strings.TrimSpace(step.Description)
+		switch step.Kind {
+		case types.AnswerStepKindFlow:
+			fmt.Fprintf(&b, "%d. [narration / not principal] %s\n", i+1, desc)
+		case types.AnswerStepKindCaveat:
+			fmt.Fprintf(&b, "%d. [scope caveat / not principal] %s\n", i+1, desc)
+		default:
+			// principal or empty (back-compat): plain numbering.
+			fmt.Fprintf(&b, "%d. %s\n", i+1, desc)
+		}
 	}
 	for _, s := range doc.Symbols {
 		anchor := strings.TrimSpace(s.Name)

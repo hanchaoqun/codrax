@@ -244,6 +244,13 @@ func renderAnswerDocStepList(b *strings.Builder, doc *types.AnswerDocument, lang
 	// the auto-chain misrepresented the structure. The LLM now owns
 	// non-linear diagrams via the answer-document-skill, placing them
 	// in Summary where the full Unicode palette survives.
+	//
+	// Plan D rollout (2026-05-02): flow / caveat steps render with a
+	// subtle leading marker so the reader can distinguish them from
+	// principal items. The user-asked count (e.g. "9 X") matches the
+	// principal subset — interleaved narration that does NOT count
+	// must be visibly marked. Principals render verbatim (no marker)
+	// for byte-identical pre-Kind output.
 	switch lang {
 	case answerDocLangZH:
 		b.WriteString("**详细步骤**：\n\n")
@@ -251,12 +258,34 @@ func renderAnswerDocStepList(b *strings.Builder, doc *types.AnswerDocument, lang
 		b.WriteString("**Detailed steps:**\n\n")
 	}
 	for _, step := range doc.Steps {
-		fmt.Fprintf(b, "%d. %s", step.Index, strings.TrimSpace(step.Description))
+		marker := stepKindMarker(step.Kind, lang)
+		fmt.Fprintf(b, "%d. %s%s", step.Index, marker, strings.TrimSpace(step.Description))
 		if cite := lookupCitation(doc, step.CitationRef); cite != nil {
 			fmt.Fprintf(b, " [`%s:%d`]", cite.File, cite.Line)
 		}
 		b.WriteString("\n")
 	}
+}
+
+// stepKindMarker returns a short bilingual prefix for non-principal
+// steps so the user-facing rendering visually separates narration and
+// caveat steps from the principal items the question enumerated.
+// Principal (and back-compat empty) returns the empty string so the
+// pre-Kind output shape is byte-identical.
+func stepKindMarker(kind types.AnswerStepKind, lang answerDocLang) string {
+	switch kind {
+	case types.AnswerStepKindFlow:
+		if lang == answerDocLangZH {
+			return "*（过渡）* "
+		}
+		return "*(narration)* "
+	case types.AnswerStepKindCaveat:
+		if lang == answerDocLangZH {
+			return "*（适用范围）* "
+		}
+		return "*(scope note)* "
+	}
+	return ""
 }
 
 // -------- Shape: value + config_value --------

@@ -220,10 +220,18 @@ func TestAnswerDocumentEvaluator_BuildInitialInstruction_RendersRequestedEnumera
 		},
 	}
 	prompt := (&answerDocumentEvaluator{}).BuildInitialInstruction(ctx, nil)
+	// Plan D rollout (2026-05-02): the boundary prompt now teaches
+	// the Kind discipline (principal / flow / caveat) instead of the
+	// pre-Kind "keep len(steps)" framing. Pin the new shape AND the
+	// invariants it conveys so a future rewrite cannot silently drop
+	// the discipline.
 	for _, want := range []string{
 		"## Requested Set Boundary",
 		"`7 checks` (7 item(s))",
-		"Keep the main ordered `steps[]` sequence to 7 principal item(s).",
+		"Mark exactly 7 step(s) with `kind: principal`",
+		"`kind: flow`",
+		"`kind: caveat`",
+		"Empty `kind` defaults to `principal`",
 		"do not silently blend them into the principal set",
 	} {
 		if !strings.Contains(prompt, want) {

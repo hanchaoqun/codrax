@@ -131,6 +131,78 @@ func TestRenderAnswerDocument_StepList_ZH(t *testing.T) {
 	}
 }
 
+// TestRenderAnswerDocument_StepList_KindMarkers pins the Plan D
+// rollout (2026-05-02): flow / caveat steps render with a leading
+// (narration) / (scope note) marker so the user can tell them
+// apart from principal items. Principal renders byte-identical to
+// pre-Kind output (no marker).
+func TestRenderAnswerDocument_StepList_KindMarkers_EN(t *testing.T) {
+	doc := &types.AnswerDocument{
+		Shape:   types.ShapeStepList,
+		Summary: "Mixed step kinds.",
+		Steps: []types.AnswerStep{
+			{Index: 1, Description: "principal item one", CitationRef: 0, Kind: types.AnswerStepKindPrincipal},
+			{Index: 2, Description: "transition narration", CitationRef: 0, Kind: types.AnswerStepKindFlow},
+			{Index: 3, Description: "principal item two", CitationRef: 0, Kind: types.AnswerStepKindPrincipal},
+			{Index: 4, Description: "applicable only when X", CitationRef: types.CitationRefUnset, Kind: types.AnswerStepKindCaveat},
+		},
+		Citations: []types.Citation{{File: "a.go", Line: 10}},
+	}
+	out := RenderAnswerDocument(doc, "en")
+	if !strings.Contains(out, "1. principal item one") {
+		t.Errorf("principal step rendered with marker (should be plain): %q", out)
+	}
+	if !strings.Contains(out, "*(narration)*") {
+		t.Errorf("flow step missing (narration) marker: %q", out)
+	}
+	if !strings.Contains(out, "*(scope note)*") {
+		t.Errorf("caveat step missing (scope note) marker: %q", out)
+	}
+}
+
+// TestRenderAnswerDocument_StepList_KindMarkers_ZH pins the
+// bilingual variant of the markers.
+func TestRenderAnswerDocument_StepList_KindMarkers_ZH(t *testing.T) {
+	doc := &types.AnswerDocument{
+		Shape:   types.ShapeStepList,
+		Summary: "混合步骤类型。",
+		Steps: []types.AnswerStep{
+			{Index: 1, Description: "主项目一", CitationRef: 0, Kind: types.AnswerStepKindPrincipal},
+			{Index: 2, Description: "过渡说明", CitationRef: 0, Kind: types.AnswerStepKindFlow},
+			{Index: 3, Description: "适用范围说明", CitationRef: types.CitationRefUnset, Kind: types.AnswerStepKindCaveat},
+		},
+		Citations: []types.Citation{{File: "a.go", Line: 10}},
+	}
+	out := RenderAnswerDocument(doc, "zh")
+	if !strings.Contains(out, "*（过渡）*") {
+		t.Errorf("zh flow step missing （过渡） marker: %q", out)
+	}
+	if !strings.Contains(out, "*（适用范围）*") {
+		t.Errorf("zh caveat step missing （适用范围） marker: %q", out)
+	}
+}
+
+// TestRenderAnswerDocument_StepList_BackCompatNoKind pins back-compat:
+// steps with Kind="" render byte-identical to pre-Kind output (no
+// marker), matching the NormalizeAnswerStepKind back-compat default.
+func TestRenderAnswerDocument_StepList_BackCompatNoKind(t *testing.T) {
+	doc := &types.AnswerDocument{
+		Shape: types.ShapeStepList,
+		Steps: []types.AnswerStep{
+			{Index: 1, Description: "first", CitationRef: 0},
+			{Index: 2, Description: "second", CitationRef: 0},
+		},
+		Citations: []types.Citation{{File: "a.go", Line: 10}},
+	}
+	out := RenderAnswerDocument(doc, "en")
+	if strings.Contains(out, "(narration)") || strings.Contains(out, "(scope note)") {
+		t.Errorf("back-compat empty-kind must NOT render markers: %q", out)
+	}
+	if !strings.Contains(out, "1. first") || !strings.Contains(out, "2. second") {
+		t.Errorf("back-compat step rendering broken: %q", out)
+	}
+}
+
 // -------- value + config_value --------
 
 func TestRenderAnswerDocument_Value_EN(t *testing.T) {

@@ -306,6 +306,156 @@ func TestEmitAnswerDocument_StepList_RejectsBeyondRequestedEnumerationBoundary(t
 	}
 }
 
+// TestEmitAnswerDocument_StepList_FlowKindBypassesBoundary pins the
+// Plan D rollout (2026-05-02): a step with kind=flow does NOT
+// count toward the user-declared boundary, so 7 principal + 1 flow
+// = 7 principal items satisfies a "7 checks" boundary.
+func TestEmitAnswerDocument_StepList_FlowKindBypassesBoundary(t *testing.T) {
+	tool := &EmitAnswerDocument{}
+	ctx := newDocBusCtx("")
+	ctx.AnalysisIR = &types.AnalysisIR{
+		RequestModel: types.RequestModel{
+			RawRequest: "What order do gate.Run's 7 checks execute in?",
+			EnumerationBoundary: &types.RequestedEnumerationBoundary{
+				DeclaredCount: 7,
+				SourceQuote:   "7 checks",
+			},
+		},
+		AnswerContract: types.AnswerContract{RequiredAnswerShape: types.ShapeStepList},
+	}
+	steps := make([]map[string]interface{}, 0, 8)
+	for i := 1; i <= 7; i++ {
+		steps = append(steps, map[string]interface{}{
+			"index":        i,
+			"description":  fmt.Sprintf("principal check %d describes the i-th gate.Run check", i),
+			"citation_ref": 0,
+			"kind":         "principal",
+		})
+	}
+	// 8th step: flow narration. Should NOT count against boundary.
+	steps = append(steps, map[string]interface{}{
+		"index":        8,
+		"description":  "Branch transition narration that explains how the sequence advances between principal items",
+		"citation_ref": 0,
+		"kind":         "flow",
+	})
+	params := mustDocJSON(t, map[string]interface{}{
+		"shape":     "step_list",
+		"summary":   "Seven principal checks plus one flow narration step.",
+		"steps":     steps,
+		"citations": []map[string]interface{}{{"file": "internal/analysis/gate/gate.go", "line": 148}},
+	})
+	res, _ := tool.Execute(ctx, params)
+	if !res.Success {
+		t.Fatalf("flow step must NOT push principal-count over 7; got rejection: %s", res.Summary)
+	}
+}
+
+// TestEmitAnswerDocument_StepList_RejectsBeyondPrincipalBoundary pins
+// the symmetric path: 8 principal steps DO trip the boundary, and
+// the rejection hint mentions kind so the LLM knows to reclassify.
+func TestEmitAnswerDocument_StepList_RejectsBeyondPrincipalBoundary(t *testing.T) {
+	tool := &EmitAnswerDocument{}
+	ctx := newDocBusCtx("")
+	ctx.AnalysisIR = &types.AnalysisIR{
+		RequestModel: types.RequestModel{
+			RawRequest: "What order do gate.Run's 7 checks execute in?",
+			EnumerationBoundary: &types.RequestedEnumerationBoundary{
+				DeclaredCount: 7,
+				SourceQuote:   "7 checks",
+			},
+		},
+		AnswerContract: types.AnswerContract{RequiredAnswerShape: types.ShapeStepList},
+	}
+	steps := make([]map[string]interface{}, 0, 8)
+	for i := 1; i <= 8; i++ {
+		steps = append(steps, map[string]interface{}{
+			"index":        i,
+			"description":  fmt.Sprintf("principal check %d", i),
+			"citation_ref": 0,
+			"kind":         "principal",
+		})
+	}
+	params := mustDocJSON(t, map[string]interface{}{
+		"shape":     "step_list",
+		"summary":   "Eight principal checks (one too many).",
+		"steps":     steps,
+		"citations": []map[string]interface{}{{"file": "internal/analysis/gate/gate.go", "line": 148}},
+	})
+	res, _ := tool.Execute(ctx, params)
+	if res.Success {
+		t.Fatal("8 principal steps under boundary=7: expected requested_set_boundary rejection")
+	}
+	if !strings.Contains(res.Summary, "requested_set_boundary") {
+		t.Errorf("reject summary missing requested_set_boundary code: %q", res.Summary)
+	}
+	if !strings.Contains(res.Summary, "kind") {
+		t.Errorf("reject summary should reference 'kind' (the LLM-actionable repair); got %q", res.Summary)
+	}
+	if !strings.Contains(res.Summary, "principal") {
+		t.Errorf("reject summary should reference 'principal' (the kind to enforce); got %q", res.Summary)
+	}
+}
+
+// TestEmitAnswerDocument_StepList_BackCompatEmptyKindCountsAsPrincipal
+// pins the back-compat invariant (2026-05-02): pre-Kind callers
+// that don't set kind get the same "every step is principal"
+// behaviour they had before. Eight steps with empty kind under
+// boundary=7 must reject identically to 8 explicitly-principal
+// steps.
+func TestEmitAnswerDocument_StepList_BackCompatEmptyKindCountsAsPrincipal(t *testing.T) {
+	tool := &EmitAnswerDocument{}
+	ctx := newDocBusCtx("")
+	ctx.AnalysisIR = &types.AnalysisIR{
+		RequestModel: types.RequestModel{
+			RawRequest: "What order do gate.Run's 7 checks execute in?",
+			EnumerationBoundary: &types.RequestedEnumerationBoundary{
+				DeclaredCount: 7,
+				SourceQuote:   "7 checks",
+			},
+		},
+		AnswerContract: types.AnswerContract{RequiredAnswerShape: types.ShapeStepList},
+	}
+	steps := make([]map[string]interface{}, 0, 8)
+	for i := 1; i <= 8; i++ {
+		// No kind field — back-compat default.
+		steps = append(steps, map[string]interface{}{
+			"index":        i,
+			"description":  fmt.Sprintf("step %d", i),
+			"citation_ref": 0,
+		})
+	}
+	params := mustDocJSON(t, map[string]interface{}{
+		"shape":     "step_list",
+		"summary":   "Eight pre-Kind-field steps.",
+		"steps":     steps,
+		"citations": []map[string]interface{}{{"file": "internal/analysis/gate/gate.go", "line": 148}},
+	})
+	res, _ := tool.Execute(ctx, params)
+	if res.Success {
+		t.Fatal("empty-kind steps must default to principal; expected rejection at 8 > 7")
+	}
+}
+
+// TestEmitAnswerDocument_StepList_RejectsUnknownKind pins the
+// closed-enum guard: typos / fabricated kinds must reject.
+func TestEmitAnswerDocument_StepList_RejectsUnknownKind(t *testing.T) {
+	tool := &EmitAnswerDocument{}
+	params := mustDocJSON(t, map[string]interface{}{
+		"shape":     "step_list",
+		"summary":   "Test for unknown kind rejection.",
+		"steps":     []map[string]interface{}{{"index": 1, "description": "x", "citation_ref": 0, "kind": "load_bearing"}},
+		"citations": []map[string]interface{}{{"file": "a.go", "line": 1}},
+	})
+	res, _ := tool.Execute(newDocBusCtx(""), params)
+	if res.Success {
+		t.Error("kind='load_bearing' (not in enum): expected rejection")
+	}
+	if !strings.Contains(res.Summary, "kind=") {
+		t.Errorf("rejection should name the kind value; got %q", res.Summary)
+	}
+}
+
 func TestEmitAnswerDocument_StepList_RejectsOutOfRangeCitationRef(t *testing.T) {
 	tool := &EmitAnswerDocument{}
 	params := mustDocJSON(t, map[string]interface{}{

@@ -482,15 +482,22 @@ func renderAnswerDocEnumerationBoundary(ctx *types.AgentContext, shape string) s
 		boundary.SourceQuote, boundary.DeclaredCount)
 	switch shape {
 	case string(types.ShapeStepList):
-		fmt.Fprintf(&b, "- Keep the main ordered `steps[]` sequence to %d principal item(s).\n", boundary.DeclaredCount)
+		// Plan D rollout 2026-05-02: teach the Kind discipline.
+		// principal counts toward DeclaredCount; flow / caveat do
+		// not. The validator counts only kind=principal; the
+		// orchestrator's contract.Check fires declared_count_drift
+		// (soft) on principal-count below the bound.
+		fmt.Fprintf(&b, "- Mark exactly %d step(s) with `kind: principal` — these are the items the question enumerated.\n", boundary.DeclaredCount)
+		b.WriteString("- Use `kind: flow` for steps that only describe how the sequence transitions or under what condition the next item runs (branch entries, loop boundaries, scope shifts). flow steps do NOT count toward the declared boundary.\n")
+		b.WriteString("- Use `kind: caveat` for steps that qualify the answer's scope rather than belonging to it (e.g. \"this stage is skipped under flag X\"). caveat steps do NOT count toward the declared boundary.\n")
+		b.WriteString("- Empty `kind` defaults to `principal`. Leave `kind` empty only when every step IS principal.\n")
 	case string(types.ShapeListOfSymbols):
 		fmt.Fprintf(&b, "- Keep the principal `symbols[]` slate to %d item(s) when the grounded evidence supports that boundary.\n", boundary.DeclaredCount)
 	default:
 		fmt.Fprintf(&b, "- Keep the main enumerated set in `summary` to %d principal item(s).\n", boundary.DeclaredCount)
 	}
 	b.WriteString("- If current code also contains adjacent guards, helpers, or later-added side conditions around the same owner, do not silently blend them into the principal set.\n")
-	b.WriteString("- If there are more adjacent sequence items than the user-declared boundary, do not simply take the first N chronological lines. Use the grounded evidence summaries and nearby code comments to keep the principal bounded set in the main answer, and move auxiliary guard/coherence/repair items into a short caveat instead.\n")
-	b.WriteString("- Mention those extras only as a short caveat or follow-on note after the principal set, and only when grounded evidence makes the distinction clear.\n")
+	b.WriteString("- Mention auxiliary items as a short caveat or follow-on note after the principal set, and only when grounded evidence makes the distinction clear.\n")
 	b.WriteString("- Prefer members declared/appended in the same grounded owner file before drifting to helper definitions in sibling files.\n\n")
 	return b.String()
 }
