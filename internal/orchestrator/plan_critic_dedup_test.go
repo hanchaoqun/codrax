@@ -43,8 +43,8 @@ func TestPlanCritic_DedupSameInput(t *testing.T) {
 	if stub.callCount != 1 {
 		t.Errorf("second call with identical input should hit cache; callCount=%d (want 1)", stub.callCount)
 	}
-	if out1 != out2 {
-		t.Errorf("cached critique drift: first=%q second=%q", out1, out2)
+	if len(out1.Risks) != len(out2.Risks) || out1.Confidence != out2.Confidence {
+		t.Errorf("cached verdict drift: first=%+v second=%+v", out1, out2)
 	}
 }
 
@@ -91,8 +91,8 @@ func TestPlanCritic_DedupCachesEmptyOutput(t *testing.T) {
 	in := PlanCriticInput{RawRequest: "x", PlanSummary: "y", Changes: []PlanCriticChangeRef{{Path: "a.go"}}}
 	out1, _ := c.Review(context.Background(), in)
 	out2, _ := c.Review(context.Background(), in)
-	if out1 != "" || out2 != "" {
-		t.Errorf("expected empty critique both calls; got out1=%q out2=%q", out1, out2)
+	if !out1.IsEmpty() || !out2.IsEmpty() {
+		t.Errorf("expected empty verdict both calls; got out1=%+v out2=%+v", out1, out2)
 	}
 	if stub.callCount != 1 {
 		t.Errorf("expected 1 dispatch (cache hit on second); callCount=%d", stub.callCount)

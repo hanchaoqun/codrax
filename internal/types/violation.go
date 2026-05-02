@@ -153,6 +153,41 @@ const (
 	// LLM should learn across runs. See orchestrator's
 	// learnFromContractViolations filter.
 	ViolAuthorityOverreach ViolationKind = "authority_overreach"
+
+	// Block 1 (architecture overhaul 2026-05-02) — reviewer-side
+	// kinds. plan_critic, reflector, and answer_reviewer all run as
+	// independent LLMs and were previously isolated from the
+	// EvidenceClosure ledger (their output flowed into ChangePlan
+	// .PlanCritique, Mutable.PlanningHint, and the cross-Run
+	// failure_taxonomy disk cache respectively). Block 1 wires them
+	// to also append to the ledger so a single read API
+	// (StageHealthSnapshot) sees every reviewer's findings and
+	// Block 3's selective fallback policy can route on the kind.
+	//
+	// All three are SOFT by default — they are observational signals
+	// that should NOT immediately retry-loop the pipeline. Operators
+	// who want strict behaviour add the kind to
+	// pipeline_contract_strict_kinds.
+
+	// ViolPlanCritic carries one risk emitted by plan_critic for the
+	// just-emitted ChangePlan. Stage="plan". Confidence reflects the
+	// reviewer's self-rated overall confidence (passed through to
+	// SuspectedRoot.Confidence).
+	ViolPlanCritic ViolationKind = "plan_critic_risk"
+
+	// ViolReflectorObservation carries one diagnostic observation the
+	// reflector LLM emitted between verify failure and plan re-dispatch.
+	// Stage="verify". Distinct from emit_failure_pattern (cross-Run
+	// taxonomy entry) — Observation is the per-iteration critique that
+	// stays in this Run.
+	ViolReflectorObservation ViolationKind = "reflector_observation"
+
+	// ViolAnswerReviewerDistilled carries one distilled answer-pitfall
+	// the answer_reviewer found in the just-finalized AnswerDocument.
+	// Stage="finalize". Mirrors the pattern persisted to the cross-Run
+	// answer_taxonomy cache (commit 51) so the same signal feeds both
+	// in-Run health snapshots and cross-Run learning.
+	ViolAnswerReviewerDistilled ViolationKind = "answer_reviewer_distilled"
 )
 
 // AllViolationKinds returns every declared ViolationKind in a stable
@@ -183,6 +218,9 @@ func AllViolationKinds() []ViolationKind {
 		ViolSelfContradiction,
 		ViolExternalArtifactUnderdecoded,
 		ViolAuthorityOverreach,
+		ViolPlanCritic,
+		ViolReflectorObservation,
+		ViolAnswerReviewerDistilled,
 	}
 }
 

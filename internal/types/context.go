@@ -1783,12 +1783,25 @@ func (m *MutableState) AppendAnswerRetryEvent(stage, reason string) {
 	if m == nil {
 		return
 	}
+	stage = strings.TrimSpace(stage)
 	m.mu.Lock()
-	defer m.mu.Unlock()
 	m.answerRetryEvents = append(m.answerRetryEvents, AnswerRetryEvent{
-		Stage:  strings.TrimSpace(stage),
+		Stage:  stage,
 		Reason: strings.TrimSpace(reason),
 	})
+	m.mu.Unlock()
+	// Block 1 (architecture overhaul 2026-05-02) — mirror every
+	// retry event into the closure's stage-wise stats so the
+	// StageHealthSnapshot exposes the retry count without callers
+	// having to re-walk answerRetryEvents themselves. Use
+	// EvidenceClosure() (lazy-init aware) instead of reading the
+	// raw field, so a test path that calls AppendAnswerRetryEvent
+	// before any closure access still ticks the per-stage retry.
+	if stage != "" {
+		if closure := m.EvidenceClosure(); closure != nil {
+			closure.IncrementStageRetry(stage)
+		}
+	}
 }
 
 // AnswerRetryEvents returns a copy of the per-Run read-mode retry

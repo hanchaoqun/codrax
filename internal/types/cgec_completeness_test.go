@@ -209,6 +209,13 @@ func TestAllViolationKindsHaveProducer(t *testing.T) {
 		ViolExternalArtifactUnderdecoded: true, // orchestrator/contract_check.go runExternalArtifactDecodedCheck
 		// 2026-05-02 — AuthorityCeiling axis overreach detector.
 		ViolAuthorityOverreach: true, // orchestrator/contract_check.go runAuthorityOverreachCheck
+		// Block 1 architecture overhaul (2026-05-02) — reviewer-side
+		// kinds. plan_critic / reflector / answer_reviewer all run
+		// as independent LLMs and now write their findings into the
+		// closure via dedicated wires.
+		ViolPlanCritic:              true, // orchestrator/stage_hooks.go planPostHook
+		ViolReflectorObservation:    true, // orchestrator/stage_hooks.go appendReflectorObservationToClosure
+		ViolAnswerReviewerDistilled: true, // orchestrator/orchestrator.go runAnswerReview Block 1 hook
 	}
 	// All Session 11 violation kinds now have producers. The
 	// pending map remains empty but is kept so future additions
@@ -236,6 +243,10 @@ func TestAllViolationKindsHaveProducer(t *testing.T) {
 		ViolLiteralFormFailed:    "ViolLiteralFormFailed",
 		ViolShapeSwap:            "ViolShapeSwap",
 		ViolAuthorityOverreach:   "ViolAuthorityOverreach",
+		// Block 1 (2026-05-02) reviewer-side kinds.
+		ViolPlanCritic:              "ViolPlanCritic",
+		ViolReflectorObservation:    "ViolReflectorObservation",
+		ViolAnswerReviewerDistilled: "ViolAnswerReviewerDistilled",
 	}
 
 	// Match only the "Kind: ViolXxx" composite-literal pattern —

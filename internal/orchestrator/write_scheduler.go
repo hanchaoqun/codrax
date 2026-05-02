@@ -351,6 +351,17 @@ func (o *Orchestrator) runWriteSchedulerLoop(stepBudget int) int {
 				targets := state.requeueValidationTargets(n.ID)
 				if len(targets) > 0 {
 					state.recordRetry()
+					// Block 1 (2026-05-02) stage-wise retry signal for
+					// the verify→plan cycle. Verify failed, requeue
+					// flows back to plan via EdgeValidationFeedback —
+					// attribute the retry to the plan stage so
+					// StageHealthSnapshot["plan"].Retries reflects the
+					// verify-driven re-plan cost.
+					if o.busCtx != nil && o.busCtx.Mutable != nil {
+						if cl := o.busCtx.Mutable.EvidenceClosure(); cl != nil {
+							cl.IncrementStageRetry(string(types.StagePlan))
+						}
+					}
 					// Clear LastError before the retry — applyStageOutput
 					// set it from the failed verify's StageOutput.Error
 					// (its hot path) and never resets it on subsequent

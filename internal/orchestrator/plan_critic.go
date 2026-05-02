@@ -33,11 +33,45 @@ import (
 // system second-guessing the planner, exactly the trap Reflexion
 // avoids.
 type PlanCritic interface {
-	// Review produces a critique paragraph for the operator's eyes.
-	// Returns ("", nil) when the critic is disabled (nil adapter);
-	// returns ("", err) on any LLM error so the caller can log and
-	// continue without blocking the apply path.
-	Review(ctx context.Context, input PlanCriticInput) (string, error)
+	// Review produces a structured verdict the caller renders into
+	// operator-facing prose AND writes into the EvidenceClosure
+	// ledger as one ViolPlanCritic per Risk. Returns a zero verdict +
+	// nil error when the critic is disabled (nil adapter); returns
+	// a zero verdict + non-nil error on any LLM error so the caller
+	// logs and continues without blocking the apply path.
+	//
+	// Block 1 (architecture overhaul 2026-05-02): pre-2026-05-02 the
+	// signature was `(string, error)` and the verdict was rendered
+	// inside the critic. The structured shape is needed so each Risk
+	// becomes a closure Violation with its own Stage / IRField /
+	// Confidence — and the prose still renders deterministically via
+	// AssemblePlanCritiqueProse.
+	Review(ctx context.Context, input PlanCriticInput) (PlanCriticVerdict, error)
+}
+
+// PlanCriticVerdict is the structured emit_plan_review output, one
+// per Review call. Consumed by stage_hooks.planPostHook to (a) render
+// the operator-facing critique prose via AssemblePlanCritiqueProse
+// and (b) append one ViolPlanCritic per Risk to the EvidenceClosure
+// ledger so Block 3's fallback policy and Block 1's stage-wise
+// summary see the reviewer's findings the same way they see every
+// other gate's findings.
+type PlanCriticVerdict struct {
+	// Risks is the LLM-emitted list of one-sentence concerns. Cap
+	// at 5 enforced by the schema. Empty list = "plan looks clean".
+	Risks []string
+
+	// Confidence is the reviewer's self-rated confidence label
+	// (high/medium/low). Mapped to a numeric Confidence float by
+	// PlanCriticConfidenceFloat for SuspectedRoot.Confidence.
+	Confidence string
+}
+
+// IsEmpty reports whether the verdict carries no actionable content
+// (no risks regardless of confidence). Convenience for callers that
+// want to skip the closure-write loop on empty verdicts.
+func (v PlanCriticVerdict) IsEmpty() bool {
+	return len(v.Risks) == 0
 }
 
 // PlanCriticInput bundles every signal the critic needs to make
@@ -142,7 +176,7 @@ How to write a good risk list:
 type llmPlanCritic struct {
 	adapter llm.Adapter
 	mu      sync.Mutex
-	cache   map[uint32]string // input-hash → critique text (empty = "ran but no risks")
+	cache   map[uint32]PlanCriticVerdict // input-hash → structured verdict
 }
 
 // NewPlanCritic builds the default PlanCritic. Nil adapter yields a
@@ -153,15 +187,15 @@ func NewPlanCritic(adapter llm.Adapter) PlanCritic {
 }
 
 // Review dispatches one structured-emit Chat call. Failure paths
-// (nil adapter, no tool call, malformed JSON) return ("", err) so
-// the caller logs WARN and continues. Apply is never blocked.
-func (c *llmPlanCritic) Review(ctx context.Context, in PlanCriticInput) (string, error) {
+// (nil adapter, no tool call, malformed JSON) return (zero verdict,
+// err) so the caller logs WARN and continues. Apply is never blocked.
+func (c *llmPlanCritic) Review(ctx context.Context, in PlanCriticInput) (PlanCriticVerdict, error) {
 	if c == nil || c.adapter == nil {
-		return "", nil
+		return PlanCriticVerdict{}, nil
 	}
 	user := renderPlanCriticUserMessage(in)
 	if strings.TrimSpace(user) == "" {
-		return "", fmt.Errorf("plan_critic: empty input")
+		return PlanCriticVerdict{}, fmt.Errorf("plan_critic: empty input")
 	}
 	// Per-Run dedup (commit 15 #5): skip the LLM call when we've
 	// already reviewed identical input within the lifetime of
@@ -174,7 +208,7 @@ func (c *llmPlanCritic) Review(ctx context.Context, in PlanCriticInput) (string,
 	if c.cache != nil {
 		if cached, ok := c.cache[key]; ok {
 			c.mu.Unlock()
-			logging.Info("[plan_critic] cache hit (input hash=%x); reusing prior critique", key)
+			logging.Info("[plan_critic] cache hit (input hash=%x); reusing prior verdict", key)
 			return cached, nil
 		}
 	}
@@ -189,31 +223,60 @@ func (c *llmPlanCritic) Review(ctx context.Context, in PlanCriticInput) (string,
 	}
 	resp, err := c.adapter.Chat(ctx, messages, tools, llm.ChatOptions{ToolChoice: "required"})
 	if err != nil {
-		return "", fmt.Errorf("plan_critic llm call: %w", err)
+		return PlanCriticVerdict{}, fmt.Errorf("plan_critic llm call: %w", err)
 	}
 	if len(resp.ToolCalls) == 0 {
-		return "", fmt.Errorf("plan_critic: LLM returned no tool_call")
+		return PlanCriticVerdict{}, fmt.Errorf("plan_critic: LLM returned no tool_call")
 	}
 	call := resp.ToolCalls[0]
 	if call.Name != planCriticTool.Name {
-		return "", fmt.Errorf("plan_critic: unexpected tool %q", call.Name)
+		return PlanCriticVerdict{}, fmt.Errorf("plan_critic: unexpected tool %q", call.Name)
 	}
 	var parsed struct {
 		Risks      []string `json:"risks"`
 		Confidence string   `json:"confidence"`
 	}
 	if err := json.Unmarshal(call.Params, &parsed); err != nil {
-		return "", fmt.Errorf("plan_critic: unmarshal tool params: %w", err)
+		return PlanCriticVerdict{}, fmt.Errorf("plan_critic: unmarshal tool params: %w", err)
 	}
-	out := assemblePlanCritique(parsed.Risks, parsed.Confidence)
+	verdict := PlanCriticVerdict{
+		Risks:      append([]string(nil), parsed.Risks...),
+		Confidence: parsed.Confidence,
+	}
 	logging.Info("[plan_critic] risks=%d confidence=%q", len(parsed.Risks), parsed.Confidence)
 	c.mu.Lock()
 	if c.cache == nil {
-		c.cache = make(map[uint32]string)
+		c.cache = make(map[uint32]PlanCriticVerdict)
 	}
-	c.cache[key] = out
+	c.cache[key] = verdict
 	c.mu.Unlock()
-	return out, nil
+	return verdict, nil
+}
+
+// AssemblePlanCritiqueProse renders a PlanCriticVerdict into the
+// operator-facing Markdown blob historically returned by Review. The
+// rendering is identical to pre-2026-05-02 assemblePlanCritique
+// output so /plan show / Mutable.PlanCritique consumers stay
+// byte-identical.
+func AssemblePlanCritiqueProse(v PlanCriticVerdict) string {
+	return assemblePlanCritique(v.Risks, v.Confidence)
+}
+
+// PlanCriticConfidenceFloat maps the LLM's confidence label to a
+// numeric value in [0, 1] for SuspectedRoot.Confidence. high=0.9,
+// medium=0.6, low=0.3, anything else=0.5 (sane neutral default).
+// Used by stage_hooks.planPostHook when writing each Risk into the
+// EvidenceClosure ledger as a ViolPlanCritic.
+func PlanCriticConfidenceFloat(label string) float64 {
+	switch strings.ToLower(strings.TrimSpace(label)) {
+	case "high":
+		return 0.9
+	case "medium":
+		return 0.6
+	case "low":
+		return 0.3
+	}
+	return 0.5
 }
 
 // renderPlanCriticUserMessage assembles the critic's input as a

@@ -3606,6 +3606,18 @@ func (o *Orchestrator) runReadSchedulerLoop(stepBudget int) int {
 			}
 		}
 		state.recordRetry()
+		// Block 1 (architecture overhaul 2026-05-02) — also bump the
+		// closure's stage-wise retry counter so StageHealthSnapshot
+		// surfaces "finalize re-dispatched N times during this Run"
+		// without callers re-walking the scheduler state. The retry
+		// happens because a finalize contract violation triggered the
+		// full requeue above, so the StageFinalize bucket is the
+		// authoritative location for the retry signal.
+		if o.busCtx != nil && o.busCtx.Mutable != nil {
+			if cl := o.busCtx.Mutable.EvidenceClosure(); cl != nil {
+				cl.IncrementStageRetry(string(types.StageFinalize))
+			}
+		}
 		// C6: bump the per-kind counter for the dominant violation
 		// so subsequent iterations see the cap getting tighter.
 		if kind := dominantViolationKind(res); kind != "" {
@@ -3805,6 +3817,51 @@ func (o *Orchestrator) emitCGECSummary() {
 		}
 	}
 	logging.Info("%s", line)
+
+	// Block 1 (architecture overhaul 2026-05-02) — stage-wise
+	// breakdown line. Distinct INFO record so existing log parsers
+	// that grep the [CGEC] summary: prefix do not parse the
+	// stage-wise data accidentally. Empty (no stage activity) prints
+	// nothing — the byte-identical pre-2026-05-02 path stays clean
+	// for healthy Runs.
+	if snapshot := closure.StageHealthSnapshot(); len(snapshot) > 0 {
+		stageLine := formatStageHealthSnapshot(snapshot)
+		if stageLine != "" {
+			logging.Info("[CGEC] perStage: %s", stageLine)
+		}
+	}
+}
+
+// formatStageHealthSnapshot renders a closure's StageHealthSnapshot
+// into a stable single-line breakdown. Stages emit in canonical
+// pipeline order (analyze / explore / extract / finalize / plan /
+// apply / verify); empty-stats stages are dropped so the line stays
+// lean. Field order inside each stage record is fixed so the line
+// is grep-friendly across Runs.
+func formatStageHealthSnapshot(snapshot map[string]types.StageStats) string {
+	if len(snapshot) == 0 {
+		return ""
+	}
+	canonicalOrder := []string{
+		string(types.StageAnalyze),
+		string(types.StageExplore),
+		string(types.StageExtract),
+		string(types.StageFinalize),
+		string(types.StagePlan),
+		string(types.StageApply),
+		string(types.StageVerify),
+	}
+	var parts []string
+	for _, stage := range canonicalOrder {
+		st, ok := snapshot[stage]
+		if !ok || st.IsEmpty() {
+			continue
+		}
+		parts = append(parts, fmt.Sprintf(
+			"%s={retries:%d,violations:%d,contradictions:%d,repairs:%d,pending_reads:%d}",
+			stage, st.Retries, st.Violations, st.Contradictions, st.Repairs, st.PendingReads))
+	}
+	return strings.Join(parts, " ")
 }
 
 // applyWindowHint writes the rendered DAG-window hint into the
@@ -4961,4 +5018,28 @@ func (o *Orchestrator) runAnswerReviewerOnSuccess() {
 		return
 	}
 	logging.Info("[answer_taxonomy] persisted pattern name=%q from end-of-Run reviewer", pattern.Name)
+
+	// Block 1 (architecture overhaul 2026-05-02) — also fold the
+	// distilled pattern into the EvidenceClosure ledger of the CURRENT
+	// Run so the stage-wise health snapshot at end-of-Run includes
+	// "answer_reviewer surfaced N abstract pitfalls". Cross-Run
+	// learning still flows through the failure_taxonomy store above
+	// (separate sink, separate consumer); the closure write is
+	// telemetry-only for the current Run. Soft-by-default — never
+	// blocks anything; the answer has already shipped by this point.
+	closure := mu.EvidenceClosure()
+	if closure != nil {
+		closure.AppendViolation(types.Violation{
+			Kind: types.ViolAnswerReviewerDistilled,
+			Detail: fmt.Sprintf("answer_reviewer distilled pitfall %q (%s): %s",
+				pattern.Name, pattern.Trigger, pattern.Description),
+			Repair: "informational telemetry — the pattern has been persisted for cross-Run learning and will surface on similar future questions.",
+			Stage:  string(types.StageFinalize),
+			SuspectedRoot: types.SuspectedRoot{
+				IRField:    "answer_reviewer_distilled",
+				Reason:     "end-of-Run reviewer abstracted a recurring answer-quality pitfall",
+				Confidence: float64(pattern.Confidence),
+			},
+		})
+	}
 }

@@ -214,17 +214,62 @@ type ClosureStats struct {
 	StallSoftHits         int // I4: convergence soft threshold hits
 	StallHardHits         int // I4: convergence hard threshold hits (force-complete)
 	ViolationsLogged      int // Session 11 F1: ledger entries recorded (any kind)
+
+	// PerStage carries stage-wise breakdown of the same activity the
+	// scalar counters above record at Run scope. Block 1 (architecture
+	// overhaul 2026-05-02) introduces this so downstream consumers
+	// (yield delta in selective fallback, end-of-Run summary, audit
+	// methodology §2.x dimensions) have a single place to ask "what
+	// happened in stage X". Keys are types.PipelineStage string values
+	// — "analyze" / "explore" / "extract" / "finalize" / "plan" /
+	// "apply" / "verify". Empty / nil map equals "no per-stage signal
+	// recorded yet"; consumers MUST treat nil == zero StageStats.
+	//
+	// The scalar counters above stay authoritative for whole-Run
+	// aggregates so existing readers (tests pinning HasActivity, log
+	// parsers grepping the legacy summary line) continue to work
+	// byte-identical. PerStage is the additive layer.
+	PerStage map[string]StageStats
+}
+
+// StageStats is the per-stage subset of ClosureStats. Each PipelineStage
+// gets its own copy when reviewers / enforcers fire from that stage.
+// Block 3's selective upstream fallback reads this map to compute
+// stage-targeted yield deltas (so a finalizer-only retry's yield is
+// measured against finalizer-recorded events alone, not the entire
+// Run's accumulated counters).
+type StageStats struct {
+	Retries        int // re-dispatches of this stage during the Run
+	Violations     int // closure.violations entries with Stage == this stage
+	Repairs        int // closure.repairs entries originating from this stage
+	Contradictions int // self-consistency-style contradictions (subset of Violations)
+	PendingReads   int // PendingRead entries raised by this stage
+	ForcedReads    int // forced reads attributed to this stage
+}
+
+// IsEmpty reports whether the StageStats has zero activity. Used by
+// the summary renderer to skip empty rows.
+func (s StageStats) IsEmpty() bool {
+	return s.Retries+s.Violations+s.Repairs+s.Contradictions+s.PendingReads+s.ForcedReads == 0
 }
 
 // HasActivity returns true when at least one enforcer fired this
 // task. Used by the orchestrator's emit gate so a no-op task does
 // not pollute the trace with an empty summary.
 func (s ClosureStats) HasActivity() bool {
-	return s.ChainsDemoted+s.UnverifiedFinds+s.RepairsRaised+
+	if s.ChainsDemoted+s.UnverifiedFinds+s.RepairsRaised+
 		s.ExpandSearchRaised+s.ShapeSwapRaised+
 		s.PreCompleteDowngrades+s.ForcedReads+
 		s.StallSoftHits+s.StallHardHits+
-		s.ViolationsLogged > 0
+		s.ViolationsLogged > 0 {
+		return true
+	}
+	for _, st := range s.PerStage {
+		if !st.IsEmpty() {
+			return true
+		}
+	}
+	return false
 }
 
 // PendingRead is one entry in EvidenceClosure.pendingReads. Anchor is
@@ -1371,6 +1416,23 @@ func (c *EvidenceClosure) AppendViolation(v Violation) {
 	defer c.mu.Unlock()
 	c.violations = append(c.violations, v)
 	c.stats.ViolationsLogged++
+	// Block 1 (2026-05-02) per-stage tally bookkeeping. Every
+	// violation carrying a non-empty Stage updates the stage-wise
+	// view so downstream consumers (StageHealthSnapshot, Block 3
+	// fallback policy, end-of-Run summary) get the breakdown for
+	// free. Empty Stage entries (legacy callers) bypass the bump
+	// so the map stays clean of "" buckets.
+	if v.Stage != "" {
+		if c.stats.PerStage == nil {
+			c.stats.PerStage = make(map[string]StageStats, 4)
+		}
+		s := c.stats.PerStage[v.Stage]
+		s.Violations++
+		if v.Kind == ViolSelfContradiction {
+			s.Contradictions++
+		}
+		c.stats.PerStage[v.Stage] = s
+	}
 }
 
 // Violations returns a defensive copy of the ledger.
@@ -1422,6 +1484,137 @@ func (c *EvidenceClosure) ViolationsByKind(kind ViolationKind) []Violation {
 		}
 	}
 	return out
+}
+
+// ViolationStageTally returns a histogram (stage → event count) over
+// the entire ledger, keyed by Violation.Stage. Empty Stage entries
+// are bucketed under "" so callers can detect "writers that forgot
+// to fill Stage" — Block 3's selective fallback policy uses the
+// non-empty subset to decide which stage's yield delta to measure.
+func (c *EvidenceClosure) ViolationStageTally() map[string]int {
+	if c == nil {
+		return nil
+	}
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	if len(c.violations) == 0 {
+		return nil
+	}
+	tally := make(map[string]int, 4)
+	for _, v := range c.violations {
+		tally[v.Stage]++
+	}
+	return tally
+}
+
+// TopSuspectedStage returns the Stage with the highest violation
+// count plus that count and the max SuspectedRoot.Confidence observed
+// among events at that Stage. Empty-Stage events are skipped so the
+// answer always names a real pipeline stage. Used by Block 1's
+// stage-wise CGEC summary and Block 3's fallback policy when the
+// dominant violation kind itself doesn't pin a stage.
+func (c *EvidenceClosure) TopSuspectedStage() (stage string, count int, maxConf float64) {
+	if c == nil {
+		return "", 0, 0
+	}
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	if len(c.violations) == 0 {
+		return "", 0, 0
+	}
+	perStage := make(map[string]int)
+	perStageConf := make(map[string]float64)
+	for _, v := range c.violations {
+		if v.Stage == "" {
+			continue
+		}
+		perStage[v.Stage]++
+		if v.SuspectedRoot.Confidence > perStageConf[v.Stage] {
+			perStageConf[v.Stage] = v.SuspectedRoot.Confidence
+		}
+	}
+	for s, n := range perStage {
+		if n > count {
+			count = n
+			stage = s
+			maxConf = perStageConf[s]
+		}
+	}
+	return stage, count, maxConf
+}
+
+// StageHealthSnapshot returns a copy of stats.PerStage merged with the
+// stage-wise tallies derived from pendingReads[]. The Violations /
+// Contradictions counters come straight from stats.PerStage (writers
+// bump them inside AppendViolation, see the Block 1 contract on
+// AppendViolation). PendingReads is computed at read time because
+// PendingRead structs do not carry Stage today (Origin → stage
+// derivation is the helper below). Block 3's yield delta calls this
+// before/after every fallback dispatch.
+//
+// IMPORTANT: this method returns a SNAPSHOT, not a live view. Mutations
+// after the call do not propagate to the returned map.
+func (c *EvidenceClosure) StageHealthSnapshot() map[string]StageStats {
+	if c == nil {
+		return nil
+	}
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	out := make(map[string]StageStats, 4)
+	// Trust stats.PerStage as the authoritative source for
+	// Retries / Violations / Contradictions / Repairs. Writers
+	// (AppendViolation / IncrementStageRetry / AddRepair) keep it
+	// in sync with the underlying ledger.
+	for stage, st := range c.stats.PerStage {
+		out[stage] = st
+	}
+	// PendingReads are derived at read time: each PendingRead.Origin
+	// names the enforcer that emitted the read demand, which we map
+	// to a stage via pendingReadDerivedStage. Reviewers wanting a
+	// different stage attribution should issue an AppendViolation
+	// at their preferred stage instead of relying on PendingRead
+	// derivation.
+	for _, p := range c.pendingReads {
+		stage := pendingReadDerivedStage(p)
+		s := out[stage]
+		s.PendingReads++
+		out[stage] = s
+	}
+	return out
+}
+
+// IncrementStageRetry bumps StageStats.Retries for the named stage.
+// Called by the orchestrator's per-stage retry sites so the stage-wise
+// snapshot always reflects "how often did stage X re-dispatch this
+// Run". Empty stage is silently dropped so a typo at the call-site
+// can't pollute the map with "" buckets.
+func (c *EvidenceClosure) IncrementStageRetry(stage string) {
+	if c == nil || stage == "" {
+		return
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.stats.PerStage == nil {
+		c.stats.PerStage = make(map[string]StageStats, 4)
+	}
+	s := c.stats.PerStage[stage]
+	s.Retries++
+	c.stats.PerStage[stage] = s
+}
+
+// pendingReadDerivedStage maps a PendingRead.Origin string to the
+// most likely stage name. Pure helper, no closure access — called
+// inside StageHealthSnapshot under RLock so it must be lock-free.
+// The mapping is a best-effort derivation; a future PendingRead
+// schema upgrade could carry Stage explicitly.
+func pendingReadDerivedStage(p PendingRead) string {
+	switch p.Origin {
+	case "chain_promotion", "subject_constraint", "phase1_unread", "primary_anchor", "multipath":
+		return string(StageExplore)
+	case "grounder_reject", "pre_complete.citation_floor_low", "pre_complete.explanation_anchor_skeleton":
+		return string(StageFinalize)
+	}
+	return string(StageExplore)
 }
 
 // ViolationFieldTally returns a histogram (field → event count)
@@ -1530,6 +1723,17 @@ func (c *EvidenceClosure) ConsumeRepairs() []RepairDirective {
 
 // Reset wipes the closure back to NewEvidenceClosure() state. Called
 // by MutableState.ResetEvidenceClosure at task entry.
+//
+// Block 1 audit (2026-05-02) — Reset hygiene contract:
+//
+//	The struct re-assignment `c.stats = ClosureStats{}` clears every
+//	new ClosureStats field for free, including the PerStage map added
+//	by Block 1. Adding a new top-level closure FIELD (not a sub-field
+//	on stats) is what requires explicit zeroing here — pre-Block-1
+//	the fileTotalLines line was missing (covered now), the readRanges
+//	denominator that the multipath gate relied on. Future contributors
+//	adding a new field MUST add a line here too; the test suite's
+//	TestEvidenceClosureReset_AllFieldsCleared (B1-T1.9) pins the rule.
 func (c *EvidenceClosure) Reset() {
 	if c == nil {
 		return
@@ -1538,6 +1742,7 @@ func (c *EvidenceClosure) Reset() {
 	defer c.mu.Unlock()
 	c.readSet = make(map[string]bool)
 	c.readRanges = make(map[string][]LineRange)
+	c.fileTotalLines = make(map[string]int)
 	c.scannedSet = make(map[string]bool)
 	c.citedRefs = make(map[string][]int)
 	c.pendingReads = nil

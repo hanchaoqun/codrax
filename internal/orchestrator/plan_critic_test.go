@@ -54,8 +54,8 @@ func TestPlanCritic_NilAdapterIsDisabled(t *testing.T) {
 	if err != nil {
 		t.Errorf("nil adapter must not produce err; got %v", err)
 	}
-	if out != "" {
-		t.Errorf("nil adapter must return empty critique; got %q", out)
+	if !out.IsEmpty() {
+		t.Errorf("nil adapter must return empty verdict; got %+v", out)
 	}
 }
 
@@ -89,11 +89,18 @@ func TestPlanCritic_HappyPath(t *testing.T) {
 	if stub.callCount != 1 {
 		t.Errorf("expected 1 Chat call; got %d", stub.callCount)
 	}
-	if !strings.Contains(out, "auth_test.go") {
-		t.Errorf("critique should include first risk verbatim; got %q", out)
+	if len(out.Risks) != 2 {
+		t.Errorf("expected 2 risks; got %d (%+v)", len(out.Risks), out.Risks)
 	}
-	if !strings.Contains(out, "(confidence: high)") {
-		t.Errorf("critique should embed confidence label; got %q", out)
+	if !strings.Contains(out.Risks[0], "auth_test.go") {
+		t.Errorf("first risk should mention auth_test.go; got %q", out.Risks[0])
+	}
+	if out.Confidence != "high" {
+		t.Errorf("expected confidence=high; got %q", out.Confidence)
+	}
+	prose := AssemblePlanCritiqueProse(out)
+	if !strings.Contains(prose, "auth_test.go") || !strings.Contains(prose, "(confidence: high)") {
+		t.Errorf("rendered prose missing risk/confidence; got %q", prose)
 	}
 	// Tools list should carry exactly emit_plan_review.
 	if len(stub.lastTools) != 1 || stub.lastTools[0].Name != "emit_plan_review" {
@@ -130,8 +137,8 @@ func TestPlanCritic_EmptyRisksReturnsEmpty(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Review: %v", err)
 	}
-	if out != "" {
-		t.Errorf("empty risks should yield empty critique; got %q", out)
+	if !out.IsEmpty() {
+		t.Errorf("empty risks should yield empty verdict; got %+v", out)
 	}
 }
 
@@ -147,8 +154,8 @@ func TestPlanCritic_ChatErrorPropagates(t *testing.T) {
 	if err == nil {
 		t.Error("expected error to propagate; got nil")
 	}
-	if out != "" {
-		t.Errorf("error path should return empty critique; got %q", out)
+	if !out.IsEmpty() {
+		t.Errorf("error path should return empty verdict; got %+v", out)
 	}
 }
 

@@ -155,20 +155,53 @@ func planPostHook(o *Orchestrator, out *agent.StageOutput) error {
 	// plumbing.
 	if o.planCritic != nil {
 		reviewCtx := o.CancelContext()
-		critique, err := o.planCritic.Review(reviewCtx, buildPlanCriticInput(o.busCtx))
+		verdict, err := o.planCritic.Review(reviewCtx, buildPlanCriticInput(o.busCtx))
 		if err != nil {
 			logging.Warning("[orchestrator] plan_critic degraded: %v (plan continues without critique)", err)
-		} else if critique != "" {
-			o.busCtx.Mutable.SetPlanCritique(critique)
-			plan.PlanCritique = critique
-			// Persist back to the plan file so REPL restart still
-			// shows the critique. PlanStore-resident plans also
-			// flow through this path because plan_post_hook re-
-			// renders against the live Mutable plan.
-			if o.busCtx.PlanPath != "" {
-				if writeErr := types.WritePlanToFile(plan, o.busCtx.PlanPath); writeErr != nil {
-					logging.Warning("[orchestrator] plan persist (with critique) failed: %v", writeErr)
+		} else if !verdict.IsEmpty() {
+			critique := AssemblePlanCritiqueProse(verdict)
+			if critique != "" {
+				o.busCtx.Mutable.SetPlanCritique(critique)
+				plan.PlanCritique = critique
+				// Persist back to the plan file so REPL restart still
+				// shows the critique. PlanStore-resident plans also
+				// flow through this path because plan_post_hook re-
+				// renders against the live Mutable plan.
+				if o.busCtx.PlanPath != "" {
+					if writeErr := types.WritePlanToFile(plan, o.busCtx.PlanPath); writeErr != nil {
+						logging.Warning("[orchestrator] plan persist (with critique) failed: %v", writeErr)
+					}
 				}
+			}
+			// Block 1 (architecture overhaul 2026-05-02) — also fold
+			// each risk into the EvidenceClosure ledger so the
+			// stage-wise health snapshot, Block 3's fallback policy,
+			// and the end-of-Run summary line see plan_critic's
+			// findings the same way they see every other gate's
+			// findings. Each Risk becomes one ViolPlanCritic at
+			// Stage="plan"; Confidence comes from the verdict's
+			// label via PlanCriticConfidenceFloat. SOFT-by-default
+			// (cmd/root.go default strict-kinds excludes ViolPlanCritic),
+			// preserving the historical "informational only" behaviour
+			// — apply is never blocked even if dozens of risks land.
+			confidence := PlanCriticConfidenceFloat(verdict.Confidence)
+			closure := o.busCtx.Mutable.EvidenceClosure()
+			for i, risk := range verdict.Risks {
+				risk = strings.TrimSpace(risk)
+				if risk == "" {
+					continue
+				}
+				closure.AppendViolation(types.Violation{
+					Kind:   types.ViolPlanCritic,
+					Detail: fmt.Sprintf("plan_critic risk %d/%d: %s", i+1, len(verdict.Risks), risk),
+					Repair: "review the plan against this risk before /approve; the critic is observational, not a hard reject. Address the risk by editing the plan or accept it as a known concern.",
+					Stage:  string(types.StagePlan),
+					SuspectedRoot: types.SuspectedRoot{
+						IRField:    "plan_critic_risk",
+						Reason:     "independent reviewer LLM flagged a concern",
+						Confidence: confidence,
+					},
+				})
 			}
 		}
 	}
@@ -993,6 +1026,18 @@ func clearForReplan(o *Orchestrator, attempt int) {
 					)
 				}
 				hint = critique + "\n\n" + heuristic
+				// Block 1 (architecture overhaul 2026-05-02) — also fold
+				// the per-iteration Observation into the EvidenceClosure
+				// ledger so Block 1's stage-wise summary, Block 3's
+				// fallback policy, and the end-of-Run health snapshot
+				// see reflector findings the same way they see every
+				// other gate's findings. The Observation also flows
+				// into the planner via `hint` (PlanningHint above) —
+				// this is the LLM-facing channel; the closure write is
+				// the system-facing channel. Two-track design preserves
+				// the byte-identical Reflexion behaviour while making
+				// the signal observable to non-LLM consumers.
+				appendReflectorObservationToClosure(o.busCtx.Mutable, critique, attempt)
 			}
 			// Stage 3: persist the reusable abstract pitfall
 			// when the reviewer distilled one. Append handles
@@ -1205,4 +1250,48 @@ func buildReflectorInput(busCtx *types.BusContext, report *types.ChangeReport, p
 		}
 	}
 	return in
+}
+
+// appendReflectorObservationToClosure is the dual-track helper for
+// the reflector LLM. The reflector's per-iteration Observation
+// already flows into Mutable.PlanningHint (the LLM-facing channel)
+// via the caller's `hint` composition; this helper adds the
+// system-facing channel — write the same Observation into the
+// EvidenceClosure ledger as one ViolReflectorObservation at
+// Stage="verify" so:
+//
+//   - Block 1's StageHealthSnapshot sees the verify-stage activity
+//     count grow when reflector fires
+//   - Block 3's selective fallback policy can choose BackToExplore /
+//     FailLoud based on accumulated reflector observations across the
+//     write_retry_budget
+//   - end-of-Run summary surfaces "verify retried N times, reflector
+//     said X" without re-parsing the PlanningHint string
+//
+// Soft-by-default classification (cmd/root.go default strict-kinds
+// excludes ViolReflectorObservation) preserves the existing apply
+// path: even N pessimistic observations cannot block re-plan.
+func appendReflectorObservationToClosure(mut *types.MutableState, observation string, attempt int) {
+	if mut == nil {
+		return
+	}
+	observation = strings.TrimSpace(observation)
+	if observation == "" {
+		return
+	}
+	closure := mut.EvidenceClosure()
+	if closure == nil {
+		return
+	}
+	closure.AppendViolation(types.Violation{
+		Kind:   types.ViolReflectorObservation,
+		Detail: fmt.Sprintf("reflector observation (verify retry attempt %d): %s", attempt, observation),
+		Repair: "reflector is observational; the planner already received this critique on its retry input. No direct action required from downstream consumers.",
+		Stage:  string(types.StageVerify),
+		SuspectedRoot: types.SuspectedRoot{
+			IRField:    "reflector_observation",
+			Reason:     "Reflexion-pattern critic distilled per-iteration verify failure",
+			Confidence: 0.6,
+		},
+	})
 }
