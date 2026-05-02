@@ -1452,6 +1452,97 @@ func (m *MutableState) ChangePlan() *ChangePlan {
 	return m.changePlan
 }
 
+// FallbackResetTarget enumerates the partial-reset depths the
+// Block 3 selective upstream fallback uses. Each value names the
+// shallowest stage state that must be cleared so the next pipeline
+// dispatch from that stage starts clean. Deeper resets imply
+// shallower resets (extract → also reset finalize; explore → also
+// reset extract+finalize; etc).
+//
+// FallbackResetTargetFinalizer  — clear AnswerDocument; keep
+//                                 EmittedAnswerSymbol + Evidence
+// FallbackResetTargetExtract    — clear AnswerDocument +
+//                                 EmittedAnswerSymbol; keep Evidence
+// FallbackResetTargetExplore    — clear AnswerDocument +
+//                                 EmittedAnswerSymbol; keep Evidence
+//                                 + ScannedSet + ReadSet (sunk cost),
+//                                 caller is expected to repopulate
+//                                 PendingReads if it wants the
+//                                 explorer to read more
+// FallbackResetTargetAnalyze    — currently unimplemented (analyzer
+//                                 reset is fail-loud per the red
+//                                 line); reserved for future expansion.
+type FallbackResetTarget string
+
+const (
+	FallbackResetTargetFinalizer FallbackResetTarget = "finalizer"
+	FallbackResetTargetExtract   FallbackResetTarget = "extract"
+	FallbackResetTargetExplore   FallbackResetTarget = "explore"
+	FallbackResetTargetAnalyze   FallbackResetTarget = "analyze"
+)
+
+// ResetForFallback (Block 3 architecture overhaul 2026-05-02)
+// performs a partial Mutable reset for selective upstream fallback.
+// The semantics:
+//
+//   - Finalizer-only fallback: clear AnswerDocument so the next
+//     finalize re-emit starts from a clean slate. EmittedAnswerSymbol
+//     + Evidence preserved (the next finalizer dispatch reads them).
+//
+//   - Extract fallback: also clear EmittedAnswerSymbol so the
+//     extractor can re-build the slate from current evidence. Sub-
+//     state survives.
+//
+//   - Explore fallback: also clear ChangePlan / PartialChangePlan
+//     (write-mode) so the next explorer pass is not anchored to
+//     prior plan state. Evidence + ScannedSet + ReadSet PRESERVE
+//     because they are sunk costs; the LLM's previous reads are
+//     real and re-reading them adds nothing. PendingReads cleared
+//     so the next explorer dispatch is not coupled to prior repair
+//     queue items.
+//
+//   - Analyze fallback: NO-OP. Re-classifying the user's request
+//     is a fail-loud event handled by the orchestrator above this
+//     layer; a partial Mutable reset cannot legitimately
+//     re-derive the IR.
+//
+// Returns the names of fields cleared so the caller can log a
+// human-readable trace of what was sacrificed. Safe with nil
+// receiver.
+func (m *MutableState) ResetForFallback(target FallbackResetTarget) []string {
+	if m == nil {
+		return nil
+	}
+	cleared := []string{}
+	switch target {
+	case FallbackResetTargetFinalizer:
+		m.ResetAnswerDocument()
+		cleared = append(cleared, "AnswerDocument")
+	case FallbackResetTargetExtract:
+		m.ResetAnswerDocument()
+		m.ResetEmittedAnswerSymbols()
+		cleared = append(cleared, "AnswerDocument", "EmittedAnswerSymbols")
+	case FallbackResetTargetExplore:
+		m.ResetAnswerDocument()
+		m.ResetEmittedAnswerSymbols()
+		// ChangePlan only meaningful in write mode; ResetChangePlan
+		// is nil-safe via guards above.
+		m.ResetChangePlan()
+		// PendingReads — clear via closure so the next explorer
+		// dispatch's repair-queue starts empty. Evidence /
+		// ScannedSet / ReadSet preserved (sunk cost).
+		if closure := m.EvidenceClosure(); closure != nil {
+			closure.ClearPendingReads()
+		}
+		cleared = append(cleared, "AnswerDocument", "EmittedAnswerSymbols", "ChangePlan", "PendingReads")
+	case FallbackResetTargetAnalyze:
+		// Deliberate no-op — see red line. Caller is expected to
+		// fail-loud at this depth.
+		return nil
+	}
+	return cleared
+}
+
 // ResetChangePlan clears the plan buffer at the start of a fresh
 // per-task dispatch. Mirror of ResetAnswerDocument so a multi-task
 // Run cannot leak a plan from a prior task into a later one. Safe

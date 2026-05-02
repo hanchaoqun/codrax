@@ -242,6 +242,27 @@ type RuntimeSettings struct {
 	PipelineContractSoftKinds   []string `yaml:"pipeline_contract_soft_kinds"`
 	PipelineContractStrictKinds []string `yaml:"pipeline_contract_strict_kinds"`
 
+	// PipelineFallbackPolicyOverrides (Block 3 architecture overhaul
+	// 2026-05-02) lets operators override the per-ViolationKind
+	// fallback target used by the selective upstream fallback
+	// machinery (orchestrator/fallback_policy.go). Keys are kind
+	// names (e.g. "self_contradiction"), values are target names
+	// (one of "finalizer_only", "back_to_extract", "back_to_explore",
+	// "back_to_analyze", "fail_loud"). Unknown keys / values are
+	// silently dropped at apply time. Default policy lives in
+	// orchestrator.DefaultFallbackPolicy().
+	PipelineFallbackPolicyOverrides map[string]string `yaml:"pipeline_fallback_policy_overrides"`
+
+	// PipelineMaxUpstreamFallbacksPerRun (Block 3 — 2026-05-02) caps
+	// the number of selective upstream fallbacks (BackToExtract /
+	// BackToExplore) any single Run may consume. Each round bumps
+	// the counter; reaching the cap forces FailLoud on the next
+	// violation. Default 2 — enough to give the LLM two
+	// re-investigation passes, tight enough to bound wall-clock.
+	// 0 disables the cap (not recommended); negative values fall
+	// back to the default.
+	PipelineMaxUpstreamFallbacksPerRun *int `yaml:"pipeline_max_upstream_fallbacks_per_run"`
+
 	// DiagramIdentifierWhitelist (commit 53 P4) lists English /
 	// domain words that the Mermaid bare-identifier oracle should
 	// NOT flag even when they fail the SymbolOracle lookup. The

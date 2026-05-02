@@ -1026,6 +1026,25 @@ func (c *EvidenceClosure) ActiveRepairs() []RepairDirective {
 	return MergeRepairs(out)
 }
 
+// ClearPendingReads (Block 3 architecture overhaul 2026-05-02)
+// drops every queued PendingRead. Called by
+// MutableState.ResetForFallback when a selective fallback reaches
+// the explore stage so the next explorer dispatch's repair queue
+// starts empty rather than re-firing prior pending reads.
+//
+// Distinct from ClearPendingReadFor (per-file removal) and from
+// DrainSatisfiedPendingReads (selective removal of items the
+// closure can prove are satisfied). This API is the all-or-
+// nothing reset.
+func (c *EvidenceClosure) ClearPendingReads() {
+	if c == nil {
+		return
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.pendingReads = nil
+}
+
 // ClearPendingReadFor removes every PendingRead whose File equals the
 // argument. Called by the Lazy Auto-Read path after a forced read
 // succeeds and by the explorer once it sees an LLM-driven read_file

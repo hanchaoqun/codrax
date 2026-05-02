@@ -71,6 +71,15 @@ type PipelineSettings struct {
 	// DefaultForceFinalizeAttempts.
 	ForceFinalizeAttempts int `yaml:"force_finalize_attempts"`
 
+	// MaxUpstreamFallbacksPerRun (Block 3 architecture overhaul
+	// 2026-05-02) caps the number of selective upstream fallbacks
+	// (BackToExtract / BackToExplore) any single Run may consume.
+	// Reaching the cap forces the next fallback to FailLoud.
+	// Default 2 — enough for two re-investigation passes, tight
+	// enough to bound wall-clock. 0 disables the cap (not
+	// recommended); negative values fall back to the default.
+	MaxUpstreamFallbacksPerRun int `yaml:"max_upstream_fallbacks_per_run"`
+
 	// BaselineCaptureEnabled toggles the pre-apply test snapshot
 	// that feeds CritNoRegression. When true, the apply stage hook runs
 	// run_tests once BEFORE the coder dispatches (against the fresh

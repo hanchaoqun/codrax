@@ -190,6 +190,19 @@ func TestStopCondFired_RetryAfterFinalizeFailure_UsesExplorer(t *testing.T) {
 	ar, sr, sar := buildRegistries(agentFns)
 	o := New(types.PipelineSettings{}, ar, sr, sar)
 	o.SetMaxSteps(20)
+	// Block 3 (architecture overhaul 2026-05-02): the test exercises
+	// the latch's ability to keep explore running on retry. The
+	// default fallback policy maps ViolMustInclude→FinalizerOnly,
+	// which by design does NOT requeue explore (saves wall-clock
+	// when shape errors don't need new evidence). Override the
+	// policy for THIS test so we can keep verifying the latch's
+	// stopcond-non-refire behaviour with explorer dispatching on
+	// retry. The override is process-global; we restore defaults
+	// at cleanup so other tests run with the production policy.
+	t.Cleanup(func() { SetFallbackPolicyOverrides(nil) })
+	SetFallbackPolicyOverrides(map[string]string{
+		string(types.ViolMustInclude): string(FallbackBackToExplore),
+	})
 
 	done := make(chan struct{})
 	go func() {

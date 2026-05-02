@@ -354,6 +354,20 @@ func TestValidateStuck_NonHypothesisSC_HypProgressDoesNotFalseTrigger(t *testing
 	ar, sr, sar := buildRegistries(agentFns)
 	o := New(types.PipelineSettings{}, ar, sr, sar)
 	o.SetMaxSteps(15)
+	// Block 3 (architecture overhaul 2026-05-02): the test stub
+	// finalizer returns FinalAnswer="ok" without constructing an
+	// AnswerDocument with shape=Explanation, which triggers
+	// ViolShape on every contract.Check. The default fallback
+	// policy maps ViolShape→FinalizerOnly (a shape mismatch is
+	// re-rendered, not re-investigated). For THIS test — which
+	// validates the hypStuck guard's interaction with normal
+	// requeue — we override the policy to BackToExplore so the
+	// pre-Block-3 "explorer re-runs on contract failure"
+	// assumption holds. Restored at cleanup.
+	t.Cleanup(func() { SetFallbackPolicyOverrides(nil) })
+	SetFallbackPolicyOverrides(map[string]string{
+		string(types.ViolShape): string(FallbackBackToExplore),
+	})
 
 	done := make(chan struct{})
 	go func() {

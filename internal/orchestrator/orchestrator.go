@@ -119,6 +119,14 @@ type Orchestrator struct {
 	// Hard-capped at MaxForceFinalizeAttempts (5) inside the setter.
 	forceFinalizeAttempts int
 
+	// maxUpstreamFallbacksPerRun (Block 3 architecture overhaul
+	// 2026-05-02) caps the number of selective upstream fallbacks
+	// (BackToExtract / BackToExplore) any single Run may consume.
+	// Reaching the cap forces the next fallback to FailLoud
+	// regardless of the violation kind's policy mapping. Default 2;
+	// 0 disables the cap entirely (not recommended).
+	maxUpstreamFallbacksPerRun int
+
 	// reflector is the optional Reflexion-pattern critic invoked
 	// from clearForReplan between a verify failure and the planner
 	// re-dispatch. Nil = disabled (clearForReplan falls back to the
@@ -712,6 +720,24 @@ func (o *Orchestrator) SetTransientRetryBudget(n int) {
 // retry cap. Read by the read-mode and write-mode schedulers.
 func (o *Orchestrator) TransientRetryBudget() int {
 	return o.transientRetryBudget
+}
+
+// SetMaxUpstreamFallbacksPerRun (Block 3 architecture overhaul
+// 2026-05-02) installs the cap on selective upstream fallbacks
+// (BackToExtract / BackToExplore) the contract-failure path may
+// consume per Run. Negative values restore the default (2); zero
+// disables the cap (not recommended).
+func (o *Orchestrator) SetMaxUpstreamFallbacksPerRun(n int) {
+	if n < 0 {
+		n = 2
+	}
+	o.maxUpstreamFallbacksPerRun = n
+}
+
+// MaxUpstreamFallbacksPerRun returns the currently configured cap
+// for stats / tests.
+func (o *Orchestrator) MaxUpstreamFallbacksPerRun() int {
+	return o.maxUpstreamFallbacksPerRun
 }
 
 // SetReflector installs the optional Reflexion-pattern critic. Nil
@@ -3589,20 +3615,90 @@ func (o *Orchestrator) runReadSchedulerLoop(stepBudget int) int {
 		}
 		state.lastYieldSnapshot = currentSnapshot
 
-		// Backtrack: requeue the finalize node and every explorer-
-		// window node that sits behind it, so the next round
-		// re-runs the merged investigation with the violation
-		// diagnostic in front. No EventTaskNodeEnd here — the next
-		// scheduler round will fire EventTaskNodeStart for each
-		// requeued node, and the renderer treats that as the row's
-		// transition back to running.
-		state.requeue(fin.ID)
-		for _, n := range ir.TaskGraph.Nodes {
-			if n.Type == types.NodeFinalize {
-				continue
+		// Block 3 (architecture overhaul 2026-05-02) — selective
+		// upstream fallback. Pre-Block-3 this site requeued the
+		// finalize node + every "done" explorer node unconditionally
+		// (one-shot full backtrack), which burned wall-clock on
+		// finalize-only failures (diagram_identifier,
+		// shape_intent_mismatch) by re-investigating evidence that
+		// was already correct.
+		//
+		// Coordination with existing budget gates above (T3.5 / T3.6):
+		//   - retryBudgetExhausted (overall cap) breaks BEFORE this
+		//   - per-kind RetryBudgetByKind exhaustion breaks BEFORE this
+		//     so the most-strict gate wins
+		//   - yield-kill check uses captureYieldSnapshot axes
+		//     (ForcedReads + ScannedSetSize naturally correlate to
+		//     explore activity; ViolationsLogged covers all stages),
+		//     so a FinalizerOnly retry that produces no new yield
+		//     drops to the existing kill path before reaching the
+		//     selective switch below.
+		//
+		// The new flow:
+		//   1. Compute the deepest FallbackTarget across the
+		//      violation set via FallbackTargetForViolations.
+		//   2. If FailLoud, treat like retryBudgetExhausted (ship
+		//      with caveats).
+		//   3. If FinalizerOnly, just requeue the finalize node —
+		//      keep evidence + extractor state intact.
+		//   4. If BackToExtract, also requeue extract nodes (none
+		//      in read mode today; reserved for future surface).
+		//   5. If BackToExplore, requeue explore-stage nodes too.
+		//      Cap: maxUpstreamFallbacksPerRun. Reaching the cap
+		//      forces FailLoud on the next iteration so the LLM
+		//      cannot endlessly re-investigate.
+		//
+		// requeueToStage handles the "always-include-finalize"
+		// invariant centrally; partial Mutable reset keeps the
+		// next dispatch's prompt clean.
+		fallback := FallbackTargetForViolations(res.Violations)
+		// Cap upstream fallbacks per Run. When exceeded, force
+		// FailLoud regardless of policy mapping.
+		if (fallback == FallbackBackToExtract || fallback == FallbackBackToExplore) &&
+			o.maxUpstreamFallbacksPerRun > 0 &&
+			state.upstreamFallbacksUsed >= o.maxUpstreamFallbacksPerRun {
+			logging.Warning("[orchestrator] upstream fallback cap reached (%d/%d); forcing fail-loud despite kind→%s mapping",
+				state.upstreamFallbacksUsed, o.maxUpstreamFallbacksPerRun, fallback)
+			fallback = FallbackFailLoud
+		}
+		switch fallback {
+		case FallbackFailLoud:
+			out.FinalAnswer = appendViolationsToAnswer(out.FinalAnswer, res)
+			out.FinalAnswer = prependFailLoudWarning(out.FinalAnswer, o.busCtx.Mutable, state,
+				"fallback policy resolved to fail-loud", o.settings)
+			lastFinalize = out
+			state.markDone(fin.ID)
+			o.emitNodeEnd(fin.ID, true, "")
+			goto contractFailureBreak
+		case FallbackFinalizerOnly:
+			state.requeue(fin.ID)
+			if o.busCtx != nil && o.busCtx.Mutable != nil {
+				o.busCtx.Mutable.ResetForFallback(types.FallbackResetTargetFinalizer)
 			}
-			if state.status[n.ID] == nodeDone {
-				state.requeue(n.ID)
+		case FallbackBackToExtract:
+			// Read-mode TaskGraph has no NodeExtract today (extract
+			// is implicit in the explore pass); selective requeue
+			// reduces to FinalizerOnly + extractor state reset.
+			state.requeue(fin.ID)
+			if o.busCtx != nil && o.busCtx.Mutable != nil {
+				o.busCtx.Mutable.ResetForFallback(types.FallbackResetTargetExtract)
+			}
+			state.upstreamFallbacksUsed++
+		case FallbackBackToExplore:
+			requeued := state.requeueToStage(types.StageExplore, false)
+			state.requeue(fin.ID)
+			if o.busCtx != nil && o.busCtx.Mutable != nil {
+				cleared := o.busCtx.Mutable.ResetForFallback(types.FallbackResetTargetExplore)
+				logging.Info("[orchestrator] selective fallback explore: requeued=%v cleared=%v",
+					requeued, cleared)
+			}
+			state.upstreamFallbacksUsed++
+		default:
+			// Unrecognised target — degrade to FinalizerOnly so
+			// retries always make progress.
+			state.requeue(fin.ID)
+			if o.busCtx != nil && o.busCtx.Mutable != nil {
+				o.busCtx.Mutable.ResetForFallback(types.FallbackResetTargetFinalizer)
 			}
 		}
 		state.recordRetry()
@@ -3610,8 +3706,8 @@ func (o *Orchestrator) runReadSchedulerLoop(stepBudget int) int {
 		// closure's stage-wise retry counter so StageHealthSnapshot
 		// surfaces "finalize re-dispatched N times during this Run"
 		// without callers re-walking the scheduler state. The retry
-		// happens because a finalize contract violation triggered the
-		// full requeue above, so the StageFinalize bucket is the
+		// happens because a finalize contract violation triggered
+		// requeue above, so the StageFinalize bucket is the
 		// authoritative location for the retry signal.
 		if o.busCtx != nil && o.busCtx.Mutable != nil {
 			if cl := o.busCtx.Mutable.EvidenceClosure(); cl != nil {
@@ -3640,6 +3736,7 @@ func (o *Orchestrator) runReadSchedulerLoop(stepBudget int) int {
 		})
 	}
 
+contractFailureBreak:
 	if lastFinalize == nil {
 		// Force one finalize dispatch so the task always terminates
 		// with a Result.

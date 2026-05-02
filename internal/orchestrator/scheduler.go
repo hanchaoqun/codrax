@@ -108,6 +108,15 @@ type graphState struct {
 	retryUsedByKind   map[types.ViolationKind]int
 	lastYieldSnapshot yieldSnapshot
 	yieldKillCount    int
+
+	// upstreamFallbacksUsed (Block 3 architecture overhaul 2026-05-02)
+	// counts every contract-failure retry that pushed the fallback
+	// target deeper than FallbackFinalizerOnly (i.e. BackToExtract
+	// or BackToExplore). Capped by the orchestrator's
+	// maxUpstreamFallbacksPerRun so a Run cannot endlessly
+	// re-investigate. Reaching the cap forces every subsequent
+	// fallback to FailLoud.
+	upstreamFallbacksUsed int
 }
 
 // yieldSnapshot captures the counters that drive F5's "did this
@@ -463,6 +472,56 @@ func (s *graphState) forceCloseExploreWindow() {
 			s.status[n.ID] = nodeDone
 		}
 	}
+}
+
+// requeueToStage (Block 3 architecture overhaul 2026-05-02) is the
+// selective companion to graphState.requeue + the legacy "requeue
+// every done node" dance the contract-failure path used.
+// requeueToStage walks every node in the graph, computes its
+// scheduler stage via stageMapping, and requeues ONLY the nodes
+// whose stage matches the target.
+//
+// Plus the finalize node always requeues because it sits at the
+// bottom of every contract-failure retry — re-emitting the answer
+// document is the universal output regardless of how deep the
+// fallback rolled back.
+//
+// Returns the IDs of requeued nodes for the caller's logging /
+// retry-hint render. The graph's writing flag is passed through
+// to stageMapping so write-mode and read-mode share the API.
+func (s *graphState) requeueToStage(target types.PipelineStage, writing bool) []string {
+	if s == nil {
+		return nil
+	}
+	var requeued []string
+	for i := range s.graph.Nodes {
+		n := &s.graph.Nodes[i]
+		// Always requeue finalize — every contract-failure retry
+		// re-emits the answer document.
+		if n.Type == types.NodeFinalize {
+			if s.status[n.ID] == nodeDone {
+				s.status[n.ID] = nodeRequeued
+				requeued = append(requeued, n.ID)
+			}
+			continue
+		}
+		stage, err := stageMapping(s.graph, n, writing)
+		if err != nil {
+			continue
+		}
+		// Selective requeue: only the target stage's nodes go back
+		// to nodeRequeued. Everything else preserves its current
+		// status so the next scheduler pass does NOT re-investigate
+		// already-grounded evidence.
+		if stage != target {
+			continue
+		}
+		if s.status[n.ID] == nodeDone {
+			s.status[n.ID] = nodeRequeued
+			requeued = append(requeued, n.ID)
+		}
+	}
+	return requeued
 }
 
 // markSuccessCriteriaFailed evaluates the node's SuccessCriteria

@@ -1429,6 +1429,11 @@ func initApp(cmd *cobra.Command, _ []string) error {
 		// WriteRetryBudget so transient blips never starve verify→plan
 		// SC retry. Cap 3 in TransientRetryBudgetCeil — see config.go.
 		TransientRetryBudget: 1,
+		// Block 3 (architecture overhaul 2026-05-02) — selective
+		// upstream fallback cap. 2 = give the LLM two
+		// re-investigation passes per Run; further attempts force
+		// FailLoud so wall-clock stays bounded.
+		MaxUpstreamFallbacksPerRun: 2,
 	}
 	// Default-LLM context window for fraction-form byte budget
 	// resolution. The fallback path in MaxContextTokens guarantees a
@@ -1677,6 +1682,14 @@ func initApp(cmd *cobra.Command, _ []string) error {
 		// detection without importing repomap directly.
 		extraStrict = append(extraStrict, string(types.ViolAuthorityOverreach))
 		orchestrator.SetSoftViolationKinds(extraSoft, extraStrict)
+		// Block 3 (architecture overhaul 2026-05-02) — apply
+		// per-kind FallbackTarget overrides from yaml. Defaults
+		// in orchestrator.DefaultFallbackPolicy are tuned for the
+		// reviewer-specific repair semantics; operators tweak via
+		// pipeline_fallback_policy_overrides without code changes.
+		if len(rs.PipelineFallbackPolicyOverrides) > 0 {
+			orchestrator.SetFallbackPolicyOverrides(rs.PipelineFallbackPolicyOverrides)
+		}
 		authority.SetSymbolLocatorProvider(func(graph any) types.SymbolLocator {
 			if g, ok := graph.(*rmtypes.Graph); ok {
 				return repomap.NewSymbolLocator(g)
@@ -1724,6 +1737,9 @@ func initApp(cmd *cobra.Command, _ []string) error {
 		}
 		if rs.PipelineForceFinalizeAttempts != nil {
 			pipelineSettings.ForceFinalizeAttempts = *rs.PipelineForceFinalizeAttempts
+		}
+		if rs.PipelineMaxUpstreamFallbacksPerRun != nil {
+			pipelineSettings.MaxUpstreamFallbacksPerRun = *rs.PipelineMaxUpstreamFallbacksPerRun
 		}
 		// Baseline capture toggle for CritNoRegression (Item 1).
 		// Pointer-typed yaml so explicit false is distinguishable
@@ -2418,6 +2434,9 @@ func initApp(cmd *cobra.Command, _ []string) error {
 	// the last-resort composition call so a single EOF doesn't kill
 	// the Run with no answer at all. Default 3 = 1 + 2 retries.
 	orch.SetForceFinalizeAttempts(pipelineSettings.ForceFinalizeAttempts)
+	// Block 3 (architecture overhaul 2026-05-02) — selective
+	// upstream fallback cap. Default 2 read from PipelineSettings.
+	orch.SetMaxUpstreamFallbacksPerRun(pipelineSettings.MaxUpstreamFallbacksPerRun)
 	// Reflexion-pattern critic. Resolved above; nil-safe inside
 	// orchestrator (clearForReplan falls back to heuristic-only hint
 	// when adapter is missing). Tied to the same retry-budget knob —
