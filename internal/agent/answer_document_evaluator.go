@@ -171,6 +171,9 @@ func (e *answerDocumentEvaluator) BuildInitialInstruction(ctx *types.AgentContex
 	if capability := renderAnswerDocCapabilitySurface(ctx); capability != "" {
 		b.WriteString(capability)
 	}
+	if facets := renderAnswerDocFacetCoverage(ctx); facets != "" {
+		b.WriteString(facets)
+	}
 	if exact := renderAnswerDocExactResolutionContract(ctx); exact != "" {
 		b.WriteString(exact)
 	}
@@ -558,6 +561,112 @@ func answerDocExactResolutionContract(ctx *types.AgentContext) *types.ExactResol
 
 func renderAnswerDocCapabilitySurface(ctx *types.AgentContext) string {
 	return renderCapabilityAuthoritySection(detectStageToolCapabilityQueryFromContext(ctx), "Capability Surface Authority")
+}
+
+// answerDocFacetLabels maps each AnswerFacetKind to a single-line,
+// LLM-facing English label. Kept tight so the rendered prompt section
+// stays under one screen even when every facet fires.
+var answerDocFacetLabels = map[types.AnswerFacetKind]string{
+	types.FacetObservedArtifactFact:    "Observed artifact fact (anchor every claim about the attached log/perf trace to a specific frame or marker)",
+	types.FacetCurrentCodePath:         "Current code path (cite the live source file:line that proves what the code does today)",
+	types.FacetNearestMechanism:        "Nearest mechanism (when the exact target is absent, name the closest grounded approximation and explain the gap)",
+	types.FacetUncertaintyBoundary:     "Uncertainty boundary (name what was searched and what remained unverified rather than hedging silently)",
+	types.FacetConfigPrecedenceRole:    "Config precedence role (cover each grounded layer once with the citation that proves the layer)",
+	types.FacetResolvedLiteralOrSymbol: "Resolved literal or symbol (name the specific identifier the question is about with its file:line)",
+	types.FacetEnumerationItem:         "Enumeration item (one principal item per item the user asked to enumerate; flow / caveat steps do not count)",
+	types.FacetBucketLabel:             "Bucket label (each user-named partition appears verbatim somewhere in summary or per-item rationale)",
+	types.FacetPrincipalPathEdge:       "Principal path edge (cite each call edge with the line that names both caller and callee)",
+	types.FacetBranchGuard:             "Branch guard (cite the condition that gates a path; do not blend guard and action into one citation)",
+	types.FacetComponentRelation:       "Component relation (cite the import / dependency edge with the line that names both endpoints)",
+	types.FacetDiagramSpine:            "Diagram spine (the structural backbone of the rendered fence, every node grounded in a citation)",
+}
+
+// answerDocClaimFormLabels names each ClaimForm in evidence-shape
+// vocabulary the LLM already understands. Used to render the
+// AcceptableForms whitelist as a human-readable hint per facet.
+var answerDocClaimFormLabels = map[types.ClaimForm]string{
+	types.ClaimDefinitionFact:      "definition citation",
+	types.ClaimAssignmentFact:      "assignment / config-leaf citation",
+	types.ClaimReturnFact:          "return-value citation",
+	types.ClaimCallEdge:            "call-edge citation",
+	types.ClaimImportEdge:          "import / dependency-edge citation",
+	types.ClaimGuardCondition:      "guard / branch-condition citation",
+	types.ClaimPrecedenceRole:      "precedence-role citation",
+	types.ClaimExternalObservation: "log / perf observation",
+	types.ClaimAbsenceFact:         "grounded absence (negative scope)",
+}
+
+// renderAnswerDocFacetCoverage emits the "Required Answer Facets"
+// section of the finalizer prompt. Source of truth: the compiled
+// FacetCoverageContract on AnswerSurfacePlan (Phase 1). Phase 2 is
+// prompt-only — no hard gate fires from this section; LLM may
+// rebalance the answer based on the facets listed but is not rejected
+// for missing them. Phase 4 will add validators.
+//
+// Returns "" when the contract is empty or nil so existing prompt
+// shapes stay byte-identical.
+func renderAnswerDocFacetCoverage(ctx *types.AgentContext) string {
+	plan := answerSurfacePlan(ctx)
+	if plan == nil || plan.FacetCoverage == nil {
+		return ""
+	}
+	fc := plan.FacetCoverage
+	if len(fc.Required) == 0 && len(fc.Optional) == 0 {
+		return ""
+	}
+
+	var b strings.Builder
+	b.WriteString("## Required Answer Facets\n\n")
+	b.WriteString("The user's question imposes the following coverage requirements on the rendered answer. " +
+		"Each facet names a semantic surface the answer must touch; the parenthesised hint names the evidence shape that supports it. " +
+		"Cover every HARD facet that has grounded evidence; SOFT facets are recommended but not strictly required; OPTIONAL facets add richness when they fit.\n\n")
+
+	emit := func(req types.FacetRequirement) {
+		label, ok := answerDocFacetLabels[req.Kind]
+		if !ok {
+			return
+		}
+		var tag string
+		switch req.Required {
+		case types.FacetHardRequired:
+			tag = "HARD"
+		case types.FacetSoftRequired:
+			tag = "SOFT"
+		default:
+			tag = "OPTIONAL"
+		}
+		fmt.Fprintf(&b, "- **%s**: %s.", tag, label)
+		if len(req.AcceptableForms) > 0 {
+			forms := make([]string, 0, len(req.AcceptableForms))
+			seen := map[string]bool{}
+			for _, f := range req.AcceptableForms {
+				name, ok := answerDocClaimFormLabels[f]
+				if !ok || seen[name] {
+					continue
+				}
+				seen[name] = true
+				forms = append(forms, name)
+			}
+			if len(forms) > 0 {
+				fmt.Fprintf(&b, " Acceptable evidence: %s.", strings.Join(forms, ", "))
+			}
+		}
+		b.WriteString("\n")
+	}
+
+	if len(fc.Required) > 0 {
+		for _, req := range fc.Required {
+			emit(req)
+		}
+	}
+	if len(fc.Optional) > 0 {
+		b.WriteString("\nOptional richness facets:\n")
+		for _, req := range fc.Optional {
+			emit(req)
+		}
+	}
+	b.WriteString("\n")
+	return b.String()
 }
 
 func renderAnswerDocDiagramContract(dc *types.DiagramContract) string {

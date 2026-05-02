@@ -64,6 +64,141 @@ func TestAnswerDocumentEvaluator_BuildInitialInstruction_RendersResolvedShape(t 
 	}
 }
 
+// TestRenderAnswerDocFacetCoverage_NilOrEmptyReturnsEmpty pins
+// byte-identical behaviour for shapes whose AnswerSurfacePlan
+// produces no FacetCoverageContract — Phase 2 must not change pre-P1
+// prompt output for those cases.
+func TestRenderAnswerDocFacetCoverage_NilOrEmptyReturnsEmpty(t *testing.T) {
+	if got := renderAnswerDocFacetCoverage(nil); got != "" {
+		t.Errorf("nil ctx should return empty; got %q", got)
+	}
+	// ctx with no AnalysisIR — answerSurfacePlan returns nil.
+	emptyCtx := &types.AgentContext{}
+	if got := renderAnswerDocFacetCoverage(emptyCtx); got != "" {
+		t.Errorf("ctx without AnalysisIR should return empty; got %q", got)
+	}
+}
+
+// TestRenderAnswerDocFacetCoverage_EmitsHardSoftOptionalLabels pins
+// the rendered surface format. The ConfigPrecedence family fires
+// HARD on FacetConfigPrecedenceRole + FacetResolvedLiteralOrSymbol,
+// SOFT on FacetUncertaintyBoundary, OPTIONAL on FacetDiagramSpine.
+// Phase 1 fallback degrades HARD-without-candidates to SOFT, so we
+// also cover that path by NOT supplying surface evidence.
+func TestRenderAnswerDocFacetCoverage_EmitsHardSoftOptionalLabels(t *testing.T) {
+	ctx := &types.AgentContext{
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				Intent: types.IntentConfigQuery,
+			},
+			AnswerContract: types.AnswerContract{
+				RequiredAnswerShape: types.ShapeExplanation,
+			},
+		},
+	}
+	got := renderAnswerDocFacetCoverage(ctx)
+	for _, want := range []string{
+		"## Required Answer Facets",
+		"**SOFT**", // Phase 1 degrades HARD without evidence
+		"Config precedence role",
+		"Uncertainty boundary",
+		"Optional richness facets:",
+		"Diagram spine",
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("rendered prompt missing %q\n----\n%s", want, got)
+		}
+	}
+}
+
+// TestRenderAnswerDocFacetCoverage_NoGoInternalNamesLeak pins the
+// glossary-lint contract at the function-output level. None of the
+// Phase 1 internal type names may appear in the rendered LLM-facing
+// prompt, no matter what facets fire.
+func TestRenderAnswerDocFacetCoverage_NoGoInternalNamesLeak(t *testing.T) {
+	// Drive every family to maximise facet variety in the rendered
+	// output. Use four distinct ctxs and concatenate.
+	cases := []*types.AgentContext{
+		{AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			Intent: types.IntentRootCause, LogTriage: &types.LogBundle{}}}},
+		{AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			Intent: types.IntentConfigQuery}}},
+		{AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			Intent: types.IntentEnumerate}}},
+		{AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			Intent:        types.IntentExplain,
+			AnswerSubject: types.AnswerSubject{Kind: types.SubjectFunctionName, Confidence: 0.8}}}},
+	}
+	var combined strings.Builder
+	for _, ctx := range cases {
+		combined.WriteString(renderAnswerDocFacetCoverage(ctx))
+	}
+	got := combined.String()
+	for _, banned := range []string{
+		"FacetCoverageContract", "FacetCoverage", "FacetRequirement",
+		"AnswerFacetKind", "QuestionFamily", "ClaimFormOf",
+		"FacetRequiredness", "AcceptableForms", "SourceCandidate",
+		"ClaimDefinitionFact", "ClaimCallEdge", "ClaimExternalObservation",
+		"QFRootCauseTrace", "QFConfigPrecedence",
+	} {
+		if strings.Contains(got, banned) {
+			t.Errorf("rendered prompt leaked Go-internal token %q\n----\n%s", banned, got)
+		}
+	}
+}
+
+// TestRenderAnswerDocFacetCoverage_OptionalSectionOmittedWhenEmpty
+// pins that the "Optional richness facets" sub-heading only renders
+// when there's at least one optional facet — keeps prompt lean.
+// QFCallChain template (Intent=Trace, no obligation, no log) has
+// HARD/SOFT-only entries with zero FacetOptional rows.
+func TestRenderAnswerDocFacetCoverage_OptionalSectionOmittedWhenEmpty(t *testing.T) {
+	ctx := &types.AgentContext{
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				Intent: types.IntentTrace,
+			},
+		},
+	}
+	got := renderAnswerDocFacetCoverage(ctx)
+	if got == "" {
+		t.Fatal("QFCallChain should produce a non-empty contract")
+	}
+	if strings.Contains(got, "Optional richness facets:") {
+		t.Errorf("QFCallChain template has no optional facets; section must be omitted; got:\n%s", got)
+	}
+	if !strings.Contains(got, "Principal path edge") {
+		t.Errorf("QFCallChain principal-path-edge facet missing; got:\n%s", got)
+	}
+}
+
+// TestRenderAnswerDocFacetCoverage_BuildInitialInstructionWiring
+// pins that BuildInitialInstruction picks up the section in its
+// per-dispatch output (covers the orchestration plumb between
+// answerSurfacePlan and the prompt builder).
+func TestRenderAnswerDocFacetCoverage_BuildInitialInstructionWiring(t *testing.T) {
+	ctx := &types.AgentContext{
+		AnalysisIR: &types.AnalysisIR{
+			AnswerContract: types.AnswerContract{
+				RequiredAnswerShape: types.ShapeExplanation,
+			},
+			RequestModel: types.RequestModel{
+				Intent: types.IntentEnumerate,
+				EnumerationBoundary: &types.RequestedEnumerationBoundary{
+					DeclaredCount: 3, SourceQuote: "3 X",
+				},
+			},
+		},
+	}
+	prompt := (&answerDocumentEvaluator{}).BuildInitialInstruction(ctx, nil)
+	if !strings.Contains(prompt, "## Required Answer Facets") {
+		t.Errorf("BuildInitialInstruction did not surface facet section; got:\n%s", prompt)
+	}
+	if !strings.Contains(prompt, "Enumeration item") {
+		t.Errorf("enumeration_item facet expected for IntentEnumerate + EnumerationBoundary; got:\n%s", prompt)
+	}
+}
+
 func TestAnswerDocumentEvaluator_BuildInitialInstruction_SingleTopicExplanationLeavesSymbolsEmpty(t *testing.T) {
 	ctx := &types.AgentContext{
 		AnalysisIR: &types.AnalysisIR{

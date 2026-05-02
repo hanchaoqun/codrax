@@ -1198,6 +1198,14 @@ func BuildAnswerSurfacePlan(
 	)
 	plan.PreferredExactResolution = preferredExactResolutionSurface(plan)
 	plan.SummarySurfaceMode = preferredAnswerSummarySurfaceMode(plan, ir.RequestModel)
+
+	// Phase 1 of Semantic Surface Contract: compile the per-question
+	// facet coverage plan from the resolved family + surface evidence.
+	// Done BEFORE the no-ExactResolution.Targets early return so every
+	// AnswerSurfacePlan carries FacetCoverage regardless of exact-
+	// resolution outcome. Pure deterministic projection — no LLM input.
+	plan.FacetCoverage = CompileFacetCoverage(ir.RequestModel, plan.SurfaceEvidence)
+
 	if plan.ExactResolution == nil || len(plan.ExactResolution.Targets) == 0 {
 		return plan
 	}
@@ -1266,13 +1274,6 @@ func BuildAnswerSurfacePlan(
 	)
 	plan.PreferredExactResolution = preferredExactResolutionSurface(plan)
 	plan.SummarySurfaceMode = preferredAnswerSummarySurfaceMode(plan, ir.RequestModel)
-
-	// Phase 1 of Semantic Surface Contract: compile the per-question
-	// facet coverage plan from the resolved family + surface evidence.
-	// Pure deterministic projection — no LLM input. Phase 1 is
-	// observation-only; downstream consumers (finalizer prompt /
-	// validators) start in Phase 2+.
-	plan.FacetCoverage = CompileFacetCoverage(ir.RequestModel, plan.SurfaceEvidence)
 
 	return plan
 }

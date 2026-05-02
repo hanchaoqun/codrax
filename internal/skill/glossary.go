@@ -43,6 +43,21 @@ var InternalTermsBlocklist = []string{
 	"GroundingStatus",
 	"AnchorKind",
 
+	// Semantic Surface Contract — Phase 1 internal type names.
+	// Phase 2 finalizer prompt MUST refer to these via abstract
+	// human-readable labels (see answer_document_evaluator.go ::
+	// answerDocFacetLabels / answerDocClaimFormLabels). The blocklist
+	// catches accidental drift from a future writer pasting a Go name.
+	"FacetCoverageContract",
+	"FacetCoverage",
+	"FacetRequirement",
+	"AnswerFacetKind",
+	"QuestionFamily",
+	"ClaimFormOf",
+	"FacetRequiredness",
+	"AcceptableForms",
+	"SourceCandidate",
+
 	// Contract-field leakage (Go constant names surfacing as prose).
 	"MustInclude",
 	"must-include floor",
