@@ -294,6 +294,46 @@ type RuntimeSettings struct {
 	// AnalysisEvidenceTier1Floor mirrors above for the Tier-1 gate.
 	AnalysisEvidenceTier1Floor *float64 `yaml:"analysis_evidence_tier1_floor"`
 
+	// AnalyzerMentionedFileSiblingSuffixes overrides the default suffix
+	// list that the file-shaped MentionedEntities seeder probes when
+	// scanning for "variant of base file" siblings (.example /
+	// .sample / .dist / .tmpl / .tpl). Each entry is a filesystem-
+	// convention extension that names a versioned or template form of
+	// a canonical base file (e.g. `codrax.yaml.example` ←→
+	// `codrax.yaml`). Operators add or remove entries when their repo
+	// uses a different convention (`.in` for autoconf,
+	// `.template` for hugo themes). Empty / missing falls back to the
+	// default list. Leading "." is auto-prepended if absent.
+	AnalyzerMentionedFileSiblingSuffixes []string `yaml:"analyzer_mentioned_file_sibling_suffixes"`
+
+	// AnalyzerRequiredFileMentionCountFloor is the minimum repo-wide
+	// reference count for a file-shaped MentionedEntity hit to enter
+	// the high-priority lane of the cap=3 RequiredFiles budget. A
+	// "reference" is any other file in the repo that contains the
+	// hit's basename as a substring (computed once per dispatch via
+	// ripgrep / grep / native walker, ~30-50ms per unique basename).
+	//
+	// Above the floor (default 3): fs-hits take precedence over
+	// generic repomap-ranker output — the repo treats this file as
+	// load-bearing.
+	// Below the floor: fs-hits join the merge tail and compete with
+	// ranker QueryScore hits on equal footing.
+	//
+	// nil / 0 = use default (3). Lower (e.g. 1) trusts every existing
+	// fs-hit; raise (e.g. 5) to be more conservative on noisy
+	// repos with many incidental basename mentions.
+	AnalyzerRequiredFileMentionCountFloor *int `yaml:"analyzer_required_file_mention_count_floor"`
+
+	// AnalyzerMentionCountMaxGrep caps how many ripgrep / grep
+	// invocations the file-shaped MentionedEntities seeder may issue
+	// per analyzer dispatch. Each invocation is one unique basename
+	// (~30-50 ms on a medium repo with ripgrep). Default 3 covers the
+	// typical 1-3 fs-hits per request without grepping the world.
+	// Beyond the cap, remaining fs-hits get MentionCount=0 and
+	// drop into the low-priority lane (gracefully degrades to
+	// equal-footing with ranker QueryScore hits — never blocks).
+	AnalyzerMentionCountMaxGrep *int `yaml:"analyzer_mention_count_max_grep"`
+
 	// PipelineSelfConsistencyReviewEnabled (commit 62, this-phase
 	// default TRUE) gates the post-finalize self-consistency
 	// reviewer LLM. When true, an independent reviewer reads

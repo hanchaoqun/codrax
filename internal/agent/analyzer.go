@@ -1701,12 +1701,73 @@ func analyzerRequiredFiles(ctx *types.AgentContext, rm types.RequestModel) []str
 		}
 	}
 
+	// Tier 1.5 — file-shaped MentionedEntities. Closes the gap where
+	// the user verbatim names a file path the repomap graph cannot
+	// rank (no code symbols → QueryScore=0, e.g. codrax.yaml.example
+	// / Dockerfile / *.proto). Filesystem is the only signal allowed
+	// to decide "this entity names a file" — no extension allowlist,
+	// no canonical basename table. See mentioned_file_entities.go.
+	mentioned := append([]string(nil), rm.AnalyzerHints.MentionedEntities...)
+	fsHits := mentionedFileEntities(ctx.RepoRoot, mentioned, graph)
+
 	ranked := rankAnalyzerRequiredFiles(graph, entities)
-	if len(logFiles) == 0 {
-		return ranked
+	// Tier-split: fs-hits with MentionCount ≥ floor are repo-critical
+	// (referenced by many other files) and take cap-budget priority
+	// over generic ranker QueryScore hits. Below-floor fs-hits
+	// compete with ranker on equal footing — they were verbatim
+	// user-named but the repo doesn't treat them as load-bearing.
+	floor := CurrentRequiredFileMentionCountFloor()
+	var hi, lo []string
+	for _, h := range fsHits {
+		if h.MentionCount >= floor {
+			hi = append(hi, h.Path)
+		} else {
+			lo = append(lo, h.Path)
+		}
 	}
-	return logtriage.MergeResolvedFiles(logFiles, ranked)
+	merged := mergeRequiredFilePathLists(hi, append([]string(nil), append(ranked, lo...)...), maxAnalyzerRequiredFilesCap())
+	if len(logFiles) == 0 {
+		return merged
+	}
+	return logtriage.MergeResolvedFiles(logFiles, merged)
 }
+
+// mergeRequiredFilePathLists unions head + tail, de-dupes by string
+// equality preserving head-first order, and clips to cap. Cap=0
+// returns the full union (no clip).
+func mergeRequiredFilePathLists(head, tail []string, cap int) []string {
+	if len(head) == 0 && len(tail) == 0 {
+		return nil
+	}
+	out := make([]string, 0, len(head)+len(tail))
+	seen := map[string]bool{}
+	for _, p := range head {
+		if p == "" || seen[p] {
+			continue
+		}
+		seen[p] = true
+		out = append(out, p)
+		if cap > 0 && len(out) >= cap {
+			return out
+		}
+	}
+	for _, p := range tail {
+		if p == "" || seen[p] {
+			continue
+		}
+		seen[p] = true
+		out = append(out, p)
+		if cap > 0 && len(out) >= cap {
+			return out
+		}
+	}
+	return out
+}
+
+// maxAnalyzerRequiredFilesCap surfaces the historical cap=3 ceiling
+// on RequiredFiles (Session-22 fix F1.2). Wrapped as a function so
+// future overrides have one site to flip; production stays at 3.
+func maxAnalyzerRequiredFilesCap() int { return 3 }
 
 // logBundleAuthoritativeFrames reports whether a log-triage bundle
 // should be treated as the file-set ceiling: at least one runtime

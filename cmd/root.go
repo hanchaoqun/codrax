@@ -1711,6 +1711,27 @@ func initApp(cmd *cobra.Command, _ []string) error {
 		if rs.AnalyzerReconcileStrictMode != nil {
 			agent.SetReconcileStrictMode(*rs.AnalyzerReconcileStrictMode)
 		}
+		// File-shaped MentionedEntities seeder — operator-tunable
+		// sibling-suffix list. nil leaves the default
+		// (.example / .sample / .dist / .tmpl / .tpl). Empty slice
+		// also restores defaults inside the setter (intentional —
+		// "remove this knob from yaml" must not silently disable
+		// the layer; operators who want a strictly empty suffix list
+		// should disable the seeder by leaving MentionedEntities
+		// empty in the analyzer's emit instead).
+		if rs.AnalyzerMentionedFileSiblingSuffixes != nil {
+			agent.SetMentionedFileSiblingSuffixes(rs.AnalyzerMentionedFileSiblingSuffixes)
+		}
+		// MentionCount floor — operator tuning for the high/low
+		// priority split of file-shaped MentionedEntities. Default 3.
+		if rs.AnalyzerRequiredFileMentionCountFloor != nil {
+			agent.SetRequiredFileMentionCountFloor(*rs.AnalyzerRequiredFileMentionCountFloor)
+		}
+		// MentionCount grep cap — limits how many ripgrep / grep
+		// invocations the seeder issues per analyzer dispatch. Default 3.
+		if rs.AnalyzerMentionCountMaxGrep != nil {
+			agent.SetMentionCountMaxGrep(*rs.AnalyzerMentionCountMaxGrep)
+		}
 		// Commit 61 Batch F.2: yaml-overridable grounding floors.
 		// Defaults are 0/0 (gates disabled); explicit positive values
 		// restore strict-mode rejection of low-grounded
