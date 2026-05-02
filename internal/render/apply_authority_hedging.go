@@ -228,15 +228,29 @@ func addAuthorityCaveat(doc *types.AnswerDocument, evidence []types.EvidenceItem
 	if caveat == "" {
 		return
 	}
-	// Avoid duplicate caveats on retry — when the prior pass already
-	// appended an authority caveat, replacing rather than appending.
-	for i, existing := range doc.Caveats {
+	// Avoid duplicate system caveats on retry. Round-5 refinement:
+	// dedupe ALL tagged entries, not just the first. Defends against
+	// any historical path that might have appended more than one
+	// system caveat (theoretically shouldn't but the dedup contract
+	// must hold across the whole slice). The replacement happens
+	// in-place at the FIRST tagged slot; subsequent tagged entries
+	// are filtered out.
+	cleaned := make([]string, 0, len(doc.Caveats)+1)
+	replaced := false
+	for _, existing := range doc.Caveats {
 		if isAuthorityCaveat(existing) {
-			doc.Caveats[i] = caveat
-			return
+			if !replaced {
+				cleaned = append(cleaned, caveat)
+				replaced = true
+			}
+			continue
 		}
+		cleaned = append(cleaned, existing)
 	}
-	doc.Caveats = append(doc.Caveats, caveat)
+	if !replaced {
+		cleaned = append(cleaned, caveat)
+	}
+	doc.Caveats = cleaned
 }
 
 // hedgeMarkerFor returns the bare sentinel marker for a ceiling, or
@@ -502,6 +516,23 @@ func authorityCaveatText(hist map[types.AuthorityCeiling]int, l answerDocLang) s
 // system-injected caveats from LLM-written ones that happen to share
 // the public "Authority: " prefix.
 func AuthorityCaveatTag() string { return authorityCaveatTag }
+
+// SynthesiseAuthorityCaveatFor returns the canonical system caveat
+// string for the given evidence pool, OR "" when the pool contains no
+// non-factual items. Used by the IsZero / raw-prose fallback path
+// in the finalizer evaluator: when emit_answer_document is bypassed
+// entirely, ApplyAuthorityHedging never runs and the fallback prose
+// would otherwise emit unhedged. Calling this directly lets the
+// fallback inject the canonical hedge signal so the user sees the
+// drift advisory even on the failure path. lang follows
+// normalizeAnswerDocLang's accepted values.
+func SynthesiseAuthorityCaveatFor(evidence []types.EvidenceItem, lang string) string {
+	hist := authority.AuthorityHistogram(evidence)
+	if hist[types.AuthorityConditional]+hist[types.AuthorityHistorical]+hist[types.AuthorityIllustrative] == 0 {
+		return ""
+	}
+	return authorityCaveatText(hist, normalizeAnswerDocLang(lang))
+}
 
 // isAuthorityCaveat reports whether s carries the SYSTEM-injected
 // authority-caveat sentinel. Round-4 refinement: dedup looks for

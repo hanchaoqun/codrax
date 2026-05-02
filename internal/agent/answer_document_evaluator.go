@@ -2821,8 +2821,24 @@ func (e *answerDocumentEvaluator) ParseOutput(ctx *types.AgentContext, messages 
 			safeFallback = strings.TrimSpace(lastContent)
 		}
 		combined := warning
+		// Round-5 fix: when emit_answer_document was bypassed AND the
+		// evidence pool contains drift-bounded items, synthesise a
+		// system Authority caveat directly into the fallback prose.
+		// Pre-fix: this path skipped ApplyAuthorityHedging entirely, so
+		// a log-attached run whose evidence was Conditional/Historical
+		// silently emitted unhedged raw LLM text — the gate
+		// (runAuthorityOverreachCheck) couldn't catch it because
+		// doc.Citations was empty (no doc structure). Now the fallback
+		// itself prepends the canonical system caveat so the user sees
+		// the hedging signal even when the structured channel failed.
+		if ctx != nil && ctx.Mutable != nil {
+			caveat := render.SynthesiseAuthorityCaveatFor(ctx.Mutable.EmittedEvidence(), e.language)
+			if caveat != "" {
+				combined = warning + "\n\n*" + caveat + "*"
+			}
+		}
 		if safeFallback != "" {
-			combined = warning + "\n\n" + safeFallback
+			combined = combined + "\n\n" + safeFallback
 		}
 		logging.Warning("[finalizer/answer_document] emit_answer_document missing after retries; falling back to raw content (len=%d)",
 			len(lastContent))
