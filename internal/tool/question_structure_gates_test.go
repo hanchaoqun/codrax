@@ -8,134 +8,42 @@ import (
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
-// ── G1 pre-complete coverage gate (emit_investigation_complete) ──
-
-// TestG1_PreCompleteCoverageGate_RejectsUnderCoverage pins the s5a
-// fix: when the user's question carries a CompletenessObligation
-// AND the closure shows ScannedSet > ReadSet, refuse
-// emit_investigation_complete with result_kind=resolved.
-func TestG1_PreCompleteCoverageGate_RejectsUnderCoverage(t *testing.T) {
-	ctx := buildG1Ctx(t,
-		&types.RequestModel{
-			RawRequest: "list all the X handlers",
-			CompletenessObligation: &types.CompletenessObligation{
-				Required:    true,
-				SourceQuote: "all the X handlers",
-			},
-		},
-		// Closure: 5 candidates scanned, only 2 read.
-		map[string]bool{"a.go": true, "b.go": true, "c.go": true, "d.go": true, "e.go": true},
-		map[string]bool{"a.go": true, "b.go": true},
-	)
-	tool := &EmitInvestigationComplete{}
-	params, _ := json.Marshal(map[string]interface{}{
-		"reason":      "investigation done",
-		"confidence":  "high",
-		"result_kind": "resolved",
-	})
-	res, _ := tool.Execute(ctx, params)
-	if res.Success {
-		t.Fatal("expected G1 rejection on under-coverage")
-	}
-	if !strings.Contains(res.Summary, "candidate file(s) that have NOT been read_file") {
-		t.Errorf("rejection should mention unread candidates: %q", res.Summary)
-	}
-	if !strings.Contains(res.Summary, "completeness obligation") {
-		t.Errorf("rejection should reference the obligation: %q", res.Summary)
-	}
-}
-
-// TestG1_PreCompleteCoverageGate_PassesOnAbsence pins that the
-// gate skips when result_kind=absence (honest zero — scanning
-// without reading is OK to declare absence).
-func TestG1_PreCompleteCoverageGate_PassesOnAbsence(t *testing.T) {
-	ctx := buildG1Ctx(t,
-		&types.RequestModel{
-			RawRequest: "list all the X handlers",
-			CompletenessObligation: &types.CompletenessObligation{
-				Required: true, SourceQuote: "all the X handlers",
-			},
-		},
-		map[string]bool{"a.go": true, "b.go": true},
-		map[string]bool{},
-	)
-	tool := &EmitInvestigationComplete{}
-	params, _ := json.Marshal(map[string]interface{}{
-		"reason":                "no X handlers found in repo",
-		"confidence":            "high",
-		"result_kind":           "absence",
-		"absence_justification": "grep returned only test fixtures, no production handlers exist for X",
-	})
-	res, _ := tool.Execute(ctx, params)
-	// G1 itself doesn't reject absence; downstream gates may but
-	// the under-coverage signal is intentionally absence-tolerant.
-	if !res.Success && strings.Contains(res.Summary, "candidate file(s) that have NOT been read_file") {
-		t.Fatal("G1 must NOT fire on result_kind=absence")
-	}
-}
-
-// TestG1_PreCompleteCoverageGate_NoObligationSkips pins back-compat:
-// pre-Plan-E callers (no QuestionStructure axes) get byte-identical
-// behaviour to before the gate.
-func TestG1_PreCompleteCoverageGate_NoObligationSkips(t *testing.T) {
-	ctx := buildG1Ctx(t,
-		&types.RequestModel{RawRequest: "what does X do?"},
-		map[string]bool{"a.go": true, "b.go": true},
-		map[string]bool{},
-	)
-	tool := &EmitInvestigationComplete{}
-	params, _ := json.Marshal(map[string]interface{}{
-		"reason":      "found",
-		"confidence":  "high",
-		"result_kind": "resolved",
-	})
-	res, _ := tool.Execute(ctx, params)
-	// G1 must skip — but downstream grounding gates may reject for
-	// other reasons. We only check the G1 signal is absent.
-	if !res.Success && strings.Contains(res.Summary, "candidate file(s) that have NOT been read_file") {
-		t.Fatalf("G1 must skip when no obligation; got G1 reject: %q", res.Summary)
-	}
-}
-
-// TestG1_PreCompleteCoverageGate_FullCoverageSkips pins that when
-// every ScannedSet entry is ALSO in ReadSet, the gate passes.
-func TestG1_PreCompleteCoverageGate_FullCoverageSkips(t *testing.T) {
-	ctx := buildG1Ctx(t,
-		&types.RequestModel{
-			RawRequest: "list all the X handlers",
-			CompletenessObligation: &types.CompletenessObligation{
-				Required: true, SourceQuote: "all the X handlers",
-			},
-		},
-		map[string]bool{"a.go": true, "b.go": true},
-		map[string]bool{"a.go": true, "b.go": true},
-	)
-	tool := &EmitInvestigationComplete{}
-	params, _ := json.Marshal(map[string]interface{}{
-		"reason":      "all candidates verified",
-		"confidence":  "high",
-		"result_kind": "resolved",
-	})
-	res, _ := tool.Execute(ctx, params)
-	if !res.Success && strings.Contains(res.Summary, "candidate file(s) that have NOT been read_file") {
-		t.Fatalf("G1 must pass when ScannedSet ⊆ ReadSet; got %q", res.Summary)
-	}
-}
-
-// buildG1Ctx is a minimal G1 fixture builder.
-func buildG1Ctx(t *testing.T, rm *types.RequestModel, scanned, read map[string]bool) *types.BusContext {
-	t.Helper()
-	mut := types.NewMutableState(rm.RawRequest)
-	mut.SetRequestModel(*rm)
-	closure := types.NewEvidenceClosure("/repo")
-	closure.SetScannedSet(scanned)
-	closure.SetReadSet(read)
-	mut.SetEvidenceClosure(closure)
-	return &types.BusContext{
-		Mutable:    mut,
-		AnalysisIR: &types.AnalysisIR{RequestModel: *rm},
-	}
-}
+// ── G1 pre-complete coverage gate REVERTED (2026-05-02) ──
+//
+// G1 was implemented as a structural enforcement at
+// emit_investigation_complete time: refuse result_kind=resolved when
+// closure.ScannedSet contained files not in ReadSet. The s1a-125430
+// real-LLM trace revealed this enforcement was at the wrong
+// architectural layer:
+//
+//   - ScannedSet is the breadth-scan keyword ranker output, which
+//     surfaces files by import-count and similarity score. For an
+//     EnumerationBoundary-only question like "gate.Run 的 9 项检查",
+//     the ranker returned 12+ files including emit_answer_document.go
+//     and agent.go (popular but unrelated). G1 forced the explorer
+//     to read every one, looping into a 10-minute timeout.
+//
+//   - The investigation-time signal "should this be read" is hard
+//     to extract precisely without per-question candidate tracking
+//     (closure-side bookkeeping that doesn't exist).
+//
+//   - Answer-side enforcement (G2 + G3) is precise: G2 reads the
+//     completeness flag directly, G3 does verbatim label substring
+//     matching. Both have zero false-positive surface.
+//
+// The lesson: enforce coverage at the answer side where signals are
+// precise, not at the investigation side where they are noisy. G1
+// is reverted; coverage discipline now relies on:
+//   - skill prompt soft guidance (E-7 explore-skill COVERAGE BEFORE
+//     COMPLETION rule)
+//   - G2 hard rejection of completeness=lower_bound at emit_answer_symbol
+//   - G3 hard rejection of bucket-label omission at emit_answer_document
+//
+// G1's tests were removed with the implementation. Future option:
+// add precise per-question candidate tracking to the closure (files
+// the LLM grep'd for the analyzer's PrimaryEntities during this
+// run), then a hard structural gate could supersede the soft
+// guidance — out of scope for this commit.
 
 // ── G2 completeness floor (emit_answer_symbol) ──
 

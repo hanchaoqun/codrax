@@ -163,21 +163,35 @@ func (t *EmitInvestigationComplete) Execute(ctx *types.BusContext, params json.R
 	//   - ScannedSet ⊆ ReadSet: every candidate covered, full pass
 	//   - Tools failed to populate ScannedSet (test-mode shortcut):
 	//     no candidate signal, gate skips
-	if resultKind == "resolved" && ctx != nil && ctx.Mutable != nil {
-		if rm := ctx.Mutable.RequestModel(); rm != nil {
-			view := rm.QuestionStructure()
-			if view.HasAnyObligation() {
-				if hint := computePreCompleteCoverageGap(ctx, view); hint != "" {
-					return types.ToolResult{
-						ToolName:  t.Name(),
-						Summary:   "emit_investigation_complete rejected: " + hint,
-						Success:   false,
-						Timestamp: time.Now(),
-					}, nil
-				}
-			}
-		}
-	}
+	// G1 (Plan E rollout 2026-05-02) was REVERTED 2026-05-02 after
+	// the s1a-125430 trace surfaced a systemic over-firing problem.
+	//
+	// Architectural lesson: investigation-time enforcement of
+	// "exhaustive coverage" needs a precise per-question candidate
+	// set (e.g. files that grep matched the user's primary entity
+	// during this dispatch). closure.ScannedSet is the breadth-scan
+	// keyword ranker output, which surfaces files by import-count and
+	// loose similarity — for s1a's "gate.Run 的 9 项检查" question the
+	// ranker offered 12+ files including emit_answer_document.go and
+	// agent.go (popular but unrelated). G1 forced the explorer to
+	// read every one, looping into timeout.
+	//
+	// Replacement: enforce on the ANSWER side, not the investigation
+	// side.
+	//   - G2 (emit_answer_symbol) precisely rejects completeness=
+	//     lower_bound under CompletenessObligation. The signal is
+	//     question-precise (a single boolean flag) instead of
+	//     ranker-noisy.
+	//   - G3 (emit_answer_document) precisely rejects bucket-label
+	//     omission. Single-bucket questions never trigger.
+	//   - The explore-skill carries soft "COVERAGE BEFORE COMPLETION"
+	//     guidance (E-7) — the LLM is encouraged to read every grep
+	//     hit on completeness questions, but not structurally forced.
+	//
+	// Future option: a precise per-question candidate tracker
+	// (closure-side "files with grep-matches against analyzer's
+	// PrimaryEntities") could supersede the soft guidance with a
+	// hard gate. Out of scope for this commit.
 
 	// Grounding gates. Two independent floors evaluated in AND:
 	//
@@ -2315,79 +2329,8 @@ func containsAnySubstr(text string, needles ...string) bool {
 	return false
 }
 
-// computePreCompleteCoverageGap (Plan E G1, 2026-05-02) returns a
-// non-empty hint when the explorer is about to declare investigation
-// complete (result_kind=resolved) BUT the closure shows ScannedSet
-// surfaced files that ReadSet does not contain — i.e. grep / repo_map
-// / list_files turned up candidates the explorer never read_file'd.
-//
-// The s5a pathology this addresses: 8 LoopController implementations
-// were grep-discovered, only 3 read_file'd, and the explorer
-// emitted result_kind=resolved without verifying the other 5.
-//
-// Empty return = gate passes (gap is empty OR the obligation does
-// not apply to this question shape).
-//
-// view is passed in (not re-derived) so the caller's HasAnyObligation
-// gate stays the source of truth for "should this gate evaluate at all".
-func computePreCompleteCoverageGap(ctx *types.BusContext, view types.QuestionStructureView) string {
-	if ctx == nil || ctx.Mutable == nil {
-		return ""
-	}
-	closure := ctx.Mutable.EvidenceClosure()
-	if closure == nil {
-		return ""
-	}
-	scanned := closure.ScannedSet()
-	read := closure.ReadSet()
-	if len(scanned) == 0 {
-		return ""
-	}
-	missing := make([]string, 0, len(scanned))
-	for f := range scanned {
-		if !read[f] {
-			missing = append(missing, f)
-		}
-	}
-	if len(missing) == 0 {
-		return ""
-	}
-	sort.Strings(missing)
-	const previewMax = 8
-	preview := missing
-	overflow := 0
-	if len(preview) > previewMax {
-		overflow = len(preview) - previewMax
-		preview = preview[:previewMax]
-	}
-
-	var reasons []string
-	if view.CompletenessObligation.IsActive() {
-		reasons = append(reasons, fmt.Sprintf("the question carries a completeness obligation (%q) demanding every match be verified", view.CompletenessObligation.SourceQuote))
-	}
-	if view.EnumerationBoundary != nil && view.EnumerationBoundary.DeclaredCount > 0 {
-		reasons = append(reasons, fmt.Sprintf("the question quotes %d items (%q), and ungrounded items cannot be carried in the answer", view.EnumerationBoundary.DeclaredCount, view.EnumerationBoundary.SourceQuote))
-	}
-	if len(view.Buckets) >= 2 {
-		labels := make([]string, 0, len(view.Buckets))
-		for _, b := range view.Buckets {
-			labels = append(labels, b.Label)
-		}
-		reasons = append(reasons, fmt.Sprintf("the question partitions the answer into named groups (%s); each bucket needs verified items", strings.Join(labels, ", ")))
-	}
-
-	reasonClause := ""
-	if len(reasons) > 0 {
-		reasonClause = " — " + strings.Join(reasons, "; ")
-	}
-
-	tail := ""
-	if overflow > 0 {
-		tail = fmt.Sprintf(" (+%d more)", overflow)
-	}
-
-	return fmt.Sprintf(
-		"the investigation surfaced %d candidate file(s) that have NOT been read_file'd: %s%s%s. Either read_file each remaining candidate before retrying with result_kind=\"resolved\", OR set result_kind=\"absence\" with absence_justification when the un-read files are confirmed irrelevant, OR re-run grep with a narrower pattern when the candidates were collateral (cite the narrowing in `reason`).",
-		len(missing), strings.Join(preview, ", "), tail, reasonClause,
-	)
-}
+// G1 (Plan E rollout 2026-05-02) was implemented here as
+// computePreCompleteCoverageGap and reverted the same day after the
+// s1a regression — see the comment block above the resultKind check
+// for the architectural lesson. Function deleted to keep the file
+// honest about what's enforced and what's not.
