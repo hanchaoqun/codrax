@@ -5,58 +5,38 @@
 // internal/tool/* both depend on internal/types, but neither should
 // depend on each other.
 //
-// The package exposes three things:
+// The package exposes two things:
 //
-//  1. Feature gate: Enabled() / Enable(on). cmd/root.go calls Enable
-//     once at startup based on `authority_ceiling_enabled` yaml.
-//     When false, ComputeFor* is a no-op (returns zero values) so
-//     every emit_* tool that opts in degrades to byte-identical
-//     legacy behaviour.
-//
-//  2. ComputeForEvidence: the deterministic projection from
+//  1. ComputeForEvidence: the deterministic projection from
 //     (EvidenceItem, BusContext) → (Origin, Authority, Reason).
 //     Reads grounding tier, scope, log/perf bundles, and (when a
 //     SymbolLocator is wired) drift status. No mutation.
 //
-//  3. SymbolLocatorProvider: cmd/root.go provides an implementation
+//  2. SymbolLocatorProvider: cmd/root.go provides an implementation
 //     that wraps repomap.NewSymbolLocator; emit_evidence consults
 //     this provider to obtain a locator without importing repomap.
 //     Indirection avoids a cycle between authority and tool/repomap.
+//
+// The axis is unconditionally active — there is no feature gate.
+// Single-shot CLI flows that don't build a repomap install a nil
+// SymbolLocatorProvider; the projection function still runs and
+// degrades to "no drift detection" gracefully (Origin=current_repo,
+// Authority graded by grounding tier alone).
 package authority
 
 import (
 	"fmt"
 	"strings"
 	"sync"
-	"sync/atomic"
 
 	"github.com/hanchaoqun/codrax/internal/analysis/logtriage"
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
 var (
-	enabled atomic.Bool
-
 	locatorMu       sync.RWMutex
 	locatorProvider func(graph any) types.SymbolLocator
 )
-
-// Enable toggles the AuthorityCeiling axis on/off. Off (default) means
-// every ComputeFor* returns zero values, preserving byte-identical
-// legacy behaviour for callers that haven't migrated. cmd/root.go
-// calls this once at startup based on the
-// authority_ceiling_enabled yaml knob; tests may flip it inside a
-// per-test SetEnabled-Reset bracket.
-func Enable(on bool) {
-	enabled.Store(on)
-}
-
-// Enabled reports whether the AuthorityCeiling axis is active.
-// emit_evidence and other producers short-circuit their hooks when
-// this returns false.
-func Enabled() bool {
-	return enabled.Load()
-}
 
 // SetSymbolLocatorProvider registers a function that adapts an opaque
 // repomap.Graph (passed as `any` to honour the no-cycle pattern used
@@ -95,8 +75,8 @@ func LocatorFromGraph(graph any) types.SymbolLocator {
 //
 // Algorithm (priority order — first hit wins):
 //
-//  1. Disabled gate / nil bus → returns zero values (legacy
-//     passthrough; caller leaves item.Origin / Authority untouched).
+//  1. Nil bus → returns zero values (defensive nil-guard; caller
+//     leaves item.Origin / Authority untouched).
 //
 //  2. Schema-level scopes (File / Crossfile / Negative) → always
 //     ClaimOriginCurrentRepo + AuthorityFactual. These scopes are
@@ -123,7 +103,7 @@ func LocatorFromGraph(graph any) types.SymbolLocator {
 //     default — they survive grounding but the anchor is less
 //     precise).
 func ComputeForEvidence(item types.EvidenceItem, bus *types.BusContext) (types.ClaimOrigin, types.AuthorityCeiling, string) {
-	if !Enabled() || bus == nil {
+	if bus == nil {
 		return types.ClaimOriginUnknown, types.AuthorityUnknown, ""
 	}
 

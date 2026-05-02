@@ -2837,12 +2837,10 @@ func (e *answerDocumentEvaluator) ParseOutput(ctx *types.AgentContext, messages 
 
 	e.salvagePriorDraftIntoSummary(doc, messages)
 
-	// AuthorityCeiling axis (commit 5 of the drift-bounded rollout).
-	// Project hedge prefixes into Step.Description, Symbol.Rationale,
-	// and a top-level Caveats[] entry whenever the underlying
-	// evidence pool carries non-factual ceilings. ApplyAuthorityHedging
-	// is a pure function: it short-circuits when authority.Enabled()
-	// is false, so deployments that haven't opted in see no change.
+	// AuthorityCeiling axis: project hedge prefixes into
+	// Step.Description, Symbol.Rationale, and a top-level Caveats
+	// entry whenever the underlying evidence pool carries non-factual
+	// ceilings. Pure function; nil-safe.
 	if ctx != nil && ctx.Mutable != nil {
 		render.ApplyAuthorityHedging(doc, ctx.Mutable.EmittedEvidence(), e.language)
 	}

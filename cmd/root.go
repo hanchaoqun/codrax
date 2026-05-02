@@ -1656,28 +1656,14 @@ func initApp(cmd *cobra.Command, _ []string) error {
 			// reviewer off OR soft mode → ViolSelfContradiction is soft
 			extraSoft = append(extraSoft, "self_contradiction")
 		}
-		// AuthorityCeiling axis (commit 6): authority_overreach is
-		// soft by default (telemetry + AnswerTaxonomy learning, no
-		// retry). authority_overreach_strict=true promotes to strict
-		// (forces finalizer retry with hedge repair). Mirrors the
-		// SelfConsistency knob shape so the operator-facing pattern
-		// stays consistent.
-		if rs.AuthorityOverreachStrict != nil && *rs.AuthorityOverreachStrict {
-			extraStrict = append(extraStrict, string(types.ViolAuthorityOverreach))
-		} else {
-			extraSoft = append(extraSoft, string(types.ViolAuthorityOverreach))
-		}
+		// AuthorityCeiling axis: ViolAuthorityOverreach is STRICT —
+		// stripping system-injected hedge sentinels triggers a
+		// finalizer retry with hedge repair. The axis itself is
+		// always-on (no yaml gate); SymbolLocatorProvider wires the
+		// repomap-side adapter so the projection can run drift
+		// detection without importing repomap directly.
+		extraStrict = append(extraStrict, string(types.ViolAuthorityOverreach))
 		orchestrator.SetSoftViolationKinds(extraSoft, extraStrict)
-		// AuthorityCeiling axis: feature gate + locator provider.
-		// authority.Enable flips the master switch read by emit_evidence
-		// (commit 3) and the upcoming render/contract layers (5/6).
-		// SetSymbolLocatorProvider wires the repomap-side adapter so the
-		// projection function can run drift detection without importing
-		// repomap directly. Default OFF — opt-in via codrax.yaml so
-		// existing deployments stay byte-identical.
-		if rs.AuthorityCeilingEnabled != nil {
-			authority.Enable(*rs.AuthorityCeilingEnabled)
-		}
 		authority.SetSymbolLocatorProvider(func(graph any) types.SymbolLocator {
 			if g, ok := graph.(*rmtypes.Graph); ok {
 				return repomap.NewSymbolLocator(g)

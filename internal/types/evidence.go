@@ -606,11 +606,10 @@ type EvidenceItem struct {
 	// system computed this ceiling — useful for /plan show, debug
 	// logs, and ViolAuthorityOverreach diagnostics.
 	//
-	// Zero values (ClaimOriginUnknown / AuthorityUnknown / "") are
-	// equivalent to "anchor came from current repo" + "factual" for
-	// byte-identical legacy behaviour. The authority_ceiling_enabled
-	// yaml knob short-circuits computation when false; with that knob
-	// off the fields stay at zero value end-to-end.
+	// Zero values (ClaimOriginUnknown / AuthorityUnknown / "") only
+	// surface for items that pre-date the axis or for nil-bus paths
+	// in tests; the renderer treats Unknown as factual-equivalent so
+	// such items continue to render without hedge prefixes.
 	Origin          ClaimOrigin      `json:"origin,omitempty"`
 	Authority       AuthorityCeiling `json:"authority,omitempty"`
 	AuthorityReason string           `json:"authority_reason,omitempty"`

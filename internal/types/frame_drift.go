@@ -101,7 +101,7 @@ type FrameDrift struct {
 //	DriftStatusTailRename  → AuthorityConditional
 //	DriftStatusFileMoved   → AuthorityHistorical
 //	DriftStatusUnmappable  → AuthorityHistorical
-//	DriftStatusUnknown     → AuthorityUnknown (legacy passthrough)
+//	DriftStatusUnknown     → AuthorityUnknown (drift not detected; caller may keep zero value)
 func (s FrameDriftStatus) AuthorityCeiling() AuthorityCeiling {
 	switch s {
 	case DriftStatusNone:

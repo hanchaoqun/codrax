@@ -18,11 +18,10 @@ package types
 type ClaimOrigin string
 
 const (
-	// ClaimOriginUnknown is the zero value. It means Origin has not
-	// been computed yet (legacy callers, deterministic emitters that
-	// pre-date the AuthorityCeiling axis). Treat as equivalent to
-	// ClaimOriginCurrentRepo for safety — the legacy assumption was
-	// always "anchor came from reading source".
+	// ClaimOriginUnknown is the zero value. Surfaces only via
+	// nil-bus paths (tests, single-shot CLI flows). Treated as
+	// equivalent to ClaimOriginCurrentRepo so items that bypass the
+	// projection don't get downgraded by accident.
 	ClaimOriginUnknown ClaimOrigin = ""
 
 	// ClaimOriginCurrentRepo means the anchor was extracted from the
@@ -118,10 +117,10 @@ func (o ClaimOrigin) IsLogDerived() bool {
 type AuthorityCeiling string
 
 const (
-	// AuthorityUnknown is the zero value. Same fail-safe semantics as
-	// ClaimOriginUnknown: legacy callers and deterministic emitters
-	// that pre-date the AuthorityCeiling axis treat this as
-	// AuthorityFactual for byte-identical legacy behaviour.
+	// AuthorityUnknown is the zero value. Surfaces only via nil-bus
+	// paths (tests, single-shot CLI flows that didn't build a bus
+	// context); the renderer treats it as factual-equivalent so
+	// such items render without hedge prefixes.
 	AuthorityUnknown AuthorityCeiling = ""
 
 	// AuthorityFactual permits strong direct claims. Computed when

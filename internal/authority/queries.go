@@ -25,7 +25,8 @@ import (
 //     evidence anchor.
 //
 // Returns AuthorityUnknown when no items match (callers may treat
-// Unknown as factual-equivalent for legacy passthrough).
+// Unknown as factual-equivalent — items that pre-date the axis or
+// arrive via nil-bus paths default to that ceiling).
 func HighestAuthorityFor(items []types.EvidenceItem, file string, line int) types.AuthorityCeiling {
 	target := normalizePath(file)
 	if target == "" {
@@ -131,7 +132,8 @@ func rank(a types.AuthorityCeiling) int {
 	case types.AuthorityFactual:
 		return 4
 	}
-	// AuthorityUnknown — fail-safe to factual-equivalent rank to
-	// preserve byte-identical legacy behaviour.
+	// AuthorityUnknown — rank as factual-equivalent so items that
+	// pre-date the axis or arrive via nil-bus paths do not
+	// drag down sibling rankings.
 	return 4
 }

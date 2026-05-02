@@ -264,18 +264,11 @@ func (t *EmitAnswerSymbol) Execute(ctx *types.BusContext, params json.RawMessage
 		return failEmit(t.Name(), now, "%s", strings.Join(dropped, "; "))
 	}
 
-	// AuthorityCeiling axis (commit 4 of the drift-bounded rollout).
-	// For each surviving AnswerSymbol, look up the WEAKEST
-	// AuthorityCeiling among any evidence items anchored at (File,
-	// Line ±slack) and pin it on the symbol. The choice of "weakest"
-	// is load-bearing: an answer symbol's claim strength is bounded
-	// by its weakest underlying support — if even one supporting
-	// evidence item is conditional/historical, the symbol's prose
-	// must hedge accordingly. With the gate off (default), Lowest-
-	// AuthorityFor returns AuthorityUnknown across the board and
-	// every symbol's Authority stays at zero value (legacy
-	// passthrough; renderer treats it as factual-equivalent).
-	if authority.Enabled() {
+	// AuthorityCeiling axis: pin each AnswerSymbol's Authority to the
+	// WEAKEST ceiling among supporting evidence items. The "weakest"
+	// rule is load-bearing — if even one supporting evidence is
+	// conditional/historical, the symbol's prose must hedge.
+	{
 		evidence := ctx.Mutable.EmittedEvidence()
 		for i := range built {
 			built[i].Authority = authority.LowestAuthorityFor(

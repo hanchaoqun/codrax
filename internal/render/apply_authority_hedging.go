@@ -37,16 +37,14 @@ import (
 //     so a multi-shape answer doesn't get a generic "results may
 //     vary" footnote.
 //
-// Gate semantics: when authority.Enabled() returns false, the
-// function returns the doc unchanged. This preserves byte-identical
-// legacy behaviour for deployments that haven't opted into the axis.
-//
 // Locale: the hedge templates have zh / en variants. Pass the same
 // language string the surrounding renderer normalises (typically
 // e.language on the finalizer evaluator). Other values fall back to
 // English templates.
+//
+// nil-doc safe: returns the input unchanged.
 func ApplyAuthorityHedging(doc *types.AnswerDocument, evidence []types.EvidenceItem, lang string) *types.AnswerDocument {
-	if doc == nil || !authority.Enabled() {
+	if doc == nil {
 		return doc
 	}
 	l := normalizeAnswerDocLang(lang)

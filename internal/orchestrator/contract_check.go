@@ -119,14 +119,13 @@ func runContractCheck(out *agent.StageOutput, c types.AnswerContract, mut *types
 			runExternalArtifactDecodedCheck(mut, draft.Text)...)
 	}
 
-	// AuthorityCeiling axis (commit 6 of the drift-bounded rollout).
-	// When the master gate is on, walk the rendered prose looking
-	// for citations whose underlying evidence carries non-factual
-	// AuthorityCeiling AND the prose lacks the system-injected hedge
-	// sentinel for that ceiling. Triggering here means either (a)
-	// the LLM emitted a retry that stripped a previously-applied
-	// hedge, or (b) the doc bypassed the renderer. Soft by default
-	// (yaml authority_overreach_strict promotes to strict).
+	// AuthorityCeiling axis: walk the rendered prose looking for
+	// citations whose underlying evidence carries non-factual
+	// AuthorityCeiling AND the prose lacks the system-injected
+	// hedge sentinel for that ceiling. Triggering here means either
+	// (a) the LLM emitted a retry that stripped a previously-applied
+	// hedge, or (b) the doc bypassed the renderer. Strict by
+	// classification — finalizer retries with hedge repair.
 	if mut != nil {
 		result.Violations = append(result.Violations,
 			runAuthorityOverreachCheck(mut, draft.Text)...)
@@ -260,17 +259,13 @@ func runExternalArtifactDecodedCheck(mut *types.MutableState, draftText string) 
 // emitted a retry that stripped a previously-applied hedge, or (b)
 // the doc bypassed the renderer entirely.
 //
-// Returns nil when:
-//   - authority master gate is off (legacy passthrough);
-//   - the doc has no citations / no evidence (nothing to check);
-//   - every cited anchor's strongest ceiling is factual.
+// Returns nil when the doc has no citations / no evidence (nothing
+// to check), or every cited anchor's strongest ceiling is factual.
 //
-// Default classification is SOFT (yaml authority_overreach_strict
-// promotes to strict). Soft mode mirrors the violation into the
-// AnswerTaxonomy ledger for cross-Run learning without forcing a
-// retry.
+// ViolAuthorityOverreach is classified strict in cmd/root.go
+// (forces finalizer retry with hedge repair).
 func runAuthorityOverreachCheck(mut *types.MutableState, draftText string) []types.Violation {
-	if !authority.Enabled() || mut == nil {
+	if mut == nil {
 		return nil
 	}
 	doc := mut.AnswerDocument()

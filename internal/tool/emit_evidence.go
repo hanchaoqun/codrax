@@ -622,20 +622,14 @@ func (t *EmitEvidence) Execute(ctx *types.BusContext, params json.RawMessage) (t
 			strings.Join(rejectedItems, "\n"))
 	}
 
-	// AuthorityCeiling axis hook (commit 3 of the drift-bounded
-	// rollout). When the yaml gate is on, project each grounded item
-	// to (Origin, Authority, AuthorityReason) before persisting. The
-	// projection is a pure function of the item + bus state so a
-	// later replay would compute the same triple. With the gate off
-	// (default until cmd/root.go opts in), Compute returns zero values
-	// and the items pass through byte-identical to legacy behaviour.
-	if authority.Enabled() {
-		for i := range built {
-			origin, ceiling, reason := authority.ComputeForEvidence(built[i], ctx)
-			built[i].Origin = origin
-			built[i].Authority = ceiling
-			built[i].AuthorityReason = reason
-		}
+	// AuthorityCeiling axis: project each grounded item to (Origin,
+	// Authority, AuthorityReason) before persisting. Pure function of
+	// the item + bus state, so a later replay computes the same triple.
+	for i := range built {
+		origin, ceiling, reason := authority.ComputeForEvidence(built[i], ctx)
+		built[i].Origin = origin
+		built[i].Authority = ceiling
+		built[i].AuthorityReason = reason
 	}
 
 	ctx.Mutable.AppendEvidence(built)
