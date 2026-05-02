@@ -135,6 +135,15 @@ func runContractCheck(out *agent.StageOutput, c types.AnswerContract, mut *types
 				// optional_facets_covered counter. No retry, no fail.
 				result.Violations = append(result.Violations,
 					runRichnessTelemetryOracle(doc, ir, mut)...)
+				// Phase 4 extension (2026-05-02) — step-identifier
+				// backed-by-evidence oracle. Fires when AnswerStep
+				// inline-code identifiers don't appear in the typed
+				// evidence pool (Subject / Object / AnchorSymbol /
+				// AnswerSymbol.Name). Catches s1a-class hallucination
+				// where the LLM remembers a position but invents
+				// names. SOFT-by-default; BackToExplore on retry.
+				result.Violations = append(result.Violations,
+					runStepIdentifierBackedByEvidenceOracle(doc, mut)...)
 			}
 		}
 	}
@@ -1194,6 +1203,208 @@ func runRichnessTelemetryOracle(doc *types.AnswerDocument, rm *types.RequestMode
 // annotation, nothing to validate). Phase 3's emit_answer_document
 // validateClaimUse already rejects unknown enum values; this oracle
 // validates SEMANTIC consistency between annotation and evidence.
+// runStepIdentifierBackedByEvidenceOracle (Phase 4 extension,
+// 2026-05-02) walks each AnswerStep's prose, extracts every
+// backtick-quoted identifier, and verifies that each appears in
+// the typed evidence pool's structural fields (Subject / Object /
+// AnchorSymbol on EvidenceItem, plus AnswerSymbol.Name on the
+// answer-symbol slate). Identifiers that don't appear in any of
+// those typed fields are flagged as unverified — the explorer's
+// emit_evidence never structurally captured them, so the LLM is
+// either hallucinating the name or remembered a position
+// (file:line) without the corresponding identifier.
+//
+// Pure new-world signal: the verified-identifier set is built
+// from typed EvidenceItem fields ONLY. NO file-content reading,
+// NO ±N line windows, NO token-overlap heuristic. Backtick
+// extraction is a closed syntactic regex (single-backtick pairs
+// containing identifier-shaped tokens). Identifiers that the
+// explorer did emit as Subject/Object/AnchorSymbol pass through
+// trivially; identifiers the LLM invented at finalize time
+// (s1a-style "checkBudget" hallucination) fail because the typed
+// pool never observed the name.
+//
+// Default classification: SOFT (defaultSoftKinds). Promotion via
+// pipeline_contract_strict_kinds when operator's pipeline
+// guarantees full-coverage emit_evidence. Fallback target:
+// BackToExplore — re-run the explorer to capture the missing
+// identifier in a typed evidence field.
+//
+// Empty AnswerSymbol slate + empty EmittedEvidence + empty
+// AnalyzerHints all skip silently; the oracle only fires when
+// the typed pool has SOMETHING to compare against, otherwise it
+// would penalise legitimate first-emit cases where the tools
+// haven't run yet.
+func runStepIdentifierBackedByEvidenceOracle(doc *types.AnswerDocument, mut *types.MutableState) []types.Violation {
+	if doc == nil || len(doc.Steps) == 0 {
+		return nil
+	}
+	verified := buildVerifiedIdentifierSet(doc, mut)
+	if len(verified) == 0 {
+		// No typed evidence to compare against — skip rather than
+		// flag every backtick. Test-mode / no-tool-run paths land
+		// here and stay quiet.
+		return nil
+	}
+	var out []types.Violation
+	for i := range doc.Steps {
+		step := &doc.Steps[i]
+		ids := extractBacktickIdentifiers(step.Description)
+		if len(ids) == 0 {
+			continue
+		}
+		var missing []string
+		seen := map[string]bool{}
+		for _, id := range ids {
+			if seen[id] {
+				continue
+			}
+			seen[id] = true
+			if verified[id] {
+				continue
+			}
+			missing = append(missing, id)
+		}
+		if len(missing) == 0 {
+			continue
+		}
+		out = append(out, types.Violation{
+			Kind: types.ViolStepIdentifierUnverified,
+			Detail: fmt.Sprintf(
+				"steps[%d] inline-code identifiers not present in typed evidence pool: %v. The verified-identifier set is built from EvidenceItem.Subject / Object / AnchorSymbol and AnswerSymbol.Name fields the explorer / extractor structurally emitted. Identifiers in the step's description that have no typed-pool support are typically hallucinations — the LLM remembered a file:line position but invented the name at that position.",
+				i, missing),
+			Repair: fmt.Sprintf(
+				"the next investigation pass should call emit_evidence with at least one of %v as Subject / Object / AnchorSymbol, OR the finalizer should rephrase the step.description to use only identifiers the typed evidence pool already observed (cross-check by reading the prior stage's structured evidence section before re-emitting).",
+				missing),
+			SuspectedRoot: types.SuspectedRoot{
+				IRField:    "step_identifier_provenance",
+				Reason:     fmt.Sprintf("steps[%d] uses %d unverified identifier(s)", i, len(missing)),
+				Confidence: 0.65,
+			},
+			Stage: string(types.StageFinalize),
+		})
+	}
+	return out
+}
+
+// extractBacktickIdentifiers walks s and returns every
+// identifier-shaped token enclosed in single backticks. A
+// backtick pair contains an identifier when the entire content
+// matches the closed identifier regex (Go-style:
+// [A-Za-z_][A-Za-z0-9_]+, min 2 chars). Pairs containing
+// non-identifier text (Chinese, punctuation, multi-token prose,
+// etc.) are silently skipped — they're prose / decoration, not
+// load-bearing identifiers.
+func extractBacktickIdentifiers(s string) []string {
+	var out []string
+	const idRe = `[A-Za-z_][A-Za-z0-9_]+`
+	idCheck := identifierRegex
+	for {
+		i := indexBacktick(s)
+		if i < 0 {
+			return out
+		}
+		j := indexBacktick(s[i+1:])
+		if j < 0 {
+			return out
+		}
+		j += i + 1
+		token := s[i+1 : j]
+		s = s[j+1:]
+		_ = idRe
+		// Single-token check: full content must match the
+		// identifier pattern exactly. Multi-word backticks (e.g.
+		// `` `var checks` ``) are NOT identifiers; skip.
+		if idCheck.MatchString(token) && idCheck.FindString(token) == token {
+			out = append(out, token)
+		}
+	}
+}
+
+// indexBacktick returns the index of the first single-backtick
+// character in s, or -1 if none. Triple-backtick fences and
+// double-backticks (used for backtick-containing literals) are
+// treated as their own backticks for purposes of this scanner —
+// stricter handling would require parsing markdown which is out
+// of scope; the false-positive risk is low because triple-fence
+// content is typically multi-line code blocks not inline IDs.
+func indexBacktick(s string) int {
+	return strings.IndexByte(s, '`')
+}
+
+// identifierRegex matches a single Go-style identifier (1+ chars,
+// must start with letter or underscore). Compiled once at package
+// level for the scanner.
+var identifierRegex = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
+
+// buildVerifiedIdentifierSet constructs the typed-evidence-pool
+// identifier set used by runStepIdentifierBackedByEvidenceOracle.
+// Sources (in order, all typed):
+//
+//   - mut.EmittedEvidence(): every EvidenceItem's Subject, Object,
+//     AnchorSymbol fields when identifier-shaped.
+//   - mut.EmittedAnswerSymbols(): every AnswerSymbol.Name.
+//   - doc.Symbols: same as above (for the rendered slate path).
+//   - rm.AnalyzerHints.MentionedEntities: identifier-shaped tokens
+//     the analyzer LLM emitted (already RawRequest-validated).
+//
+// Why these four: each is a typed structural slot the
+// explorer / extractor / analyzer populates with identifiers
+// they observed. Including them gives the LLM a wide enough net
+// that legitimate identifiers always pass; excluding raw file
+// content keeps the oracle precise (no token-overlap noise).
+func buildVerifiedIdentifierSet(doc *types.AnswerDocument, mut *types.MutableState) map[string]bool {
+	out := map[string]bool{}
+	add := func(s string) {
+		s = strings.TrimSpace(s)
+		if s == "" {
+			return
+		}
+		// For multi-word values (Subject="foo bar baz"), tokenize
+		// and add identifier-shaped sub-tokens too. Common pattern
+		// in evidence summaries.
+		for _, tok := range identifierTokenizer.FindAllString(s, -1) {
+			if identifierRegex.MatchString(tok) {
+				out[tok] = true
+			}
+		}
+	}
+	if mut != nil {
+		for _, ev := range mut.EmittedEvidence() {
+			add(ev.Subject)
+			add(ev.Object)
+			add(ev.AnchorSymbol)
+		}
+		if syms, _ := mut.EmittedAnswerSymbols(); syms != nil {
+			for _, s := range syms {
+				add(s.Name)
+			}
+		}
+		if rm := mut.RequestModel(); rm != nil {
+			for _, e := range rm.AnalyzerHints.MentionedEntities {
+				add(e)
+			}
+		}
+	}
+	if doc != nil {
+		for _, s := range doc.Symbols {
+			add(s.Name)
+		}
+	}
+	return out
+}
+
+// identifierTokenizer extracts identifier-shaped tokens from
+// arbitrary text (used to handle multi-word evidence fields like
+// Subject="foo calls bar" → adds {foo, calls, bar}). Min 2 chars
+// to avoid populating verified set with noise tokens (`a`, `i`,
+// `n` from prose). The 2-char floor matches common practice for
+// distinguishing identifier prose from loop-counter prose; 1-char
+// identifiers in step.description's backticks are admitted via
+// the explicit identifier-check path (extractBacktickIdentifiers
+// uses identifierRegex which accepts 1+).
+var identifierTokenizer = regexp.MustCompile(`[A-Za-z_][A-Za-z0-9_]+`)
+
 func runClaimFormSupportOracle(doc *types.AnswerDocument, mut *types.MutableState) []types.Violation {
 	if doc == nil {
 		return nil
@@ -1716,6 +1927,13 @@ func defaultSoftKinds() map[types.ViolationKind]bool {
 		//     downstream consumers act on the absence, must not be
 		//     overstated).
 		types.ViolFacetUncovered: true,
+		// Phase 4 extension (2026-05-02) — step-identifier-backed-by-
+		// evidence oracle. SOFT-by-default: the signal is precise but
+		// the verified-identifier set may be incomplete on some
+		// explorer paths; soft fail + retry hint is the safe default.
+		// Operators promote via pipeline_contract_strict_kinds when
+		// their pipeline guarantees full-coverage emit_evidence.
+		types.ViolStepIdentifierUnverified: true,
 		// Phase 5 — telemetry-only richness regression. SOFT and
 		// explicitly NOT promotable; soft classification is permanent.
 		types.ViolRichnessRegression: true,

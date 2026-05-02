@@ -296,6 +296,31 @@ const (
 	// the bounded scope verbatim.
 	ViolAbsenceScopeExceeded ViolationKind = "absence_scope_exceeded"
 
+	// ViolStepIdentifierUnverified (Phase 4 extension, 2026-05-02)
+	// fires when an AnswerStep's prose contains a backtick-quoted
+	// identifier (a load-bearing inline-code token) that does NOT
+	// appear in the typed evidence pool's Subject / Object /
+	// AnchorSymbol / AnswerSymbol.Name fields.
+	//
+	// Pure new-world signal: the verified-identifier set is built
+	// from typed EvidenceItem fields the explorer / extractor
+	// emitted during the Run, NOT from raw file-content scraping.
+	// A step.description that uses an identifier the typed evidence
+	// pool never structurally observed is by definition introducing
+	// a name without provenance — typically a hallucination where
+	// the LLM remembered a position (file:line) but invented the
+	// name at that position.
+	//
+	// Default classification: SOFT (typical Phase 4 default; the
+	// signal is precise but missing-from-typed-pool COULD reflect
+	// a legitimate identifier the explorer skipped, so soft fail
+	// + retry hint is the right escalation). Operators promote to
+	// STRICT via pipeline_contract_strict_kinds when their
+	// pipeline guarantees full-coverage emit_evidence. Fallback
+	// target: BackToExplore — the missing identifier means the
+	// explorer's emit_evidence missed structurally capturing it.
+	ViolStepIdentifierUnverified ViolationKind = "step_identifier_unverified"
+
 	// ViolRichnessRegression (Phase 5 of Semantic Surface Contract,
 	// 2026-05-02) is a TELEMETRY-ONLY signal — the answer covered
 	// every Hard / Soft facet but skipped one or more
@@ -351,6 +376,7 @@ func AllViolationKinds() []ViolationKind {
 		ViolFacetUncovered,
 		ViolClaimFormUnsupported,
 		ViolAbsenceScopeExceeded,
+		ViolStepIdentifierUnverified,
 		ViolRichnessRegression,
 	}
 }

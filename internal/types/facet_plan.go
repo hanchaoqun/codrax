@@ -221,6 +221,21 @@ type FacetRequirement struct {
 	AcceptableForms []ClaimForm
 	SourceCandidate []string
 	Tier            RichnessTier
+
+	// RequiredSubKind (Phase 4 extension, 2026-05-02): when set,
+	// CompileFacetCoverage's candidate-binding step ALSO requires
+	// the evidence's LogPerfSubKind to equal this value. Used by
+	// QFRootCauseTrace and sibling families to refine the generic
+	// FacetObservedArtifactFact facet into a sub-kind-specific
+	// requirement (panic-only, oom-only, etc.) when the attached
+	// log/perf bundle declares the corresponding severity signal.
+	//
+	// Empty = no sub-kind constraint (the existing AcceptableForms
+	// + ClaimFormOf gate is the only filter). When set, the
+	// binder narrows the SourceCandidate set to evidence whose
+	// LogPerfSubKind == this value, in addition to passing the
+	// AcceptableForms whitelist.
+	RequiredSubKind LogPerfSubKind
 }
 
 // EffectiveTier returns Tier when set, otherwise derives from
@@ -380,10 +395,19 @@ func bindSourceCandidates(req FacetRequirement, surface []EvidenceItem) FacetReq
 	out := req
 	out.SourceCandidate = nil
 	for _, item := range surface {
-		if matches := claimFormMatches(req.AcceptableForms, ClaimFormOf(item)); matches {
-			if id := strings.TrimSpace(item.ID); id != "" {
-				out.SourceCandidate = append(out.SourceCandidate, id)
-			}
+		if matches := claimFormMatches(req.AcceptableForms, ClaimFormOf(item)); !matches {
+			continue
+		}
+		// Sub-kind narrowing (2026-05-02): when RequiredSubKind is
+		// set, the candidate evidence must additionally carry a
+		// matching LogPerfSubKind. Empty RequiredSubKind disables
+		// this filter (existing behaviour preserved for facets that
+		// don't care about sub-kind).
+		if req.RequiredSubKind != "" && item.LogPerfSubKind != req.RequiredSubKind {
+			continue
+		}
+		if id := strings.TrimSpace(item.ID); id != "" {
+			out.SourceCandidate = append(out.SourceCandidate, id)
 		}
 	}
 	return out
@@ -413,9 +437,22 @@ func familyTemplate(family QuestionFamily, rm RequestModel) []FacetRequirement {
 	common := commonFacets(view)
 	switch family {
 	case QFRootCauseTrace:
+		// Sub-kind-aware refinement (Phase 4 extension, 2026-05-02):
+		// the generic FacetObservedArtifactFact is narrowed to a
+		// specific LogPerfSubKind when the attached log/perf bundle
+		// declares a severity signal. A panic-trace question's
+		// answer should anchor on a LogPanicFrame-classed evidence
+		// item, not just any ClaimExternalObservation; without
+		// RequiredSubKind, an answer that only cites LogNoiseFrame
+		// evidence would technically pass the form check but miss
+		// the failure shape entirely.
+		artifactFacet := FacetRequirement{
+			Kind: FacetObservedArtifactFact, Required: FacetHardRequired,
+			AcceptableForms: []ClaimForm{ClaimExternalObservation},
+			RequiredSubKind: rootCauseRequiredSubKind(rm),
+		}
 		return append([]FacetRequirement{
-			{Kind: FacetObservedArtifactFact, Required: FacetHardRequired,
-				AcceptableForms: []ClaimForm{ClaimExternalObservation}},
+			artifactFacet,
 			{Kind: FacetCurrentCodePath, Required: FacetHardRequired,
 				AcceptableForms: []ClaimForm{ClaimDefinitionFact, ClaimCallEdge,
 					ClaimGuardCondition, ClaimAssignmentFact, ClaimReturnFact}},
@@ -508,4 +545,53 @@ func commonFacets(view QuestionStructureView) []FacetRequirement {
 		})
 	}
 	return out
+}
+
+// rootCauseRequiredSubKind picks the LogPerfSubKind a
+// QFRootCauseTrace question's FacetObservedArtifactFact should
+// require, based on the attached bundle's typed signals. When
+// no specific severity / perf signal fires, returns
+// LogPerfSubKindUnknown (no narrowing — generic
+// ClaimExternalObservation acceptance).
+//
+// Priority: perf-side signals win over log-side (a perf-trace
+// question is more specific than a log-trace question). Within
+// log side: panic > crash > oom > timeout. Returns the FIRST
+// matching sub-kind so the facet narrows to the strongest
+// available evidence.
+//
+// Read-only on rm — pure projection.
+func rootCauseRequiredSubKind(rm RequestModel) LogPerfSubKind {
+	// Perf-side: prefer the strongest perf signal available.
+	if rm.PerfTrace != nil {
+		if len(rm.PerfTrace.Stalls) > 0 {
+			return PerfStallFrame
+		}
+		if len(rm.PerfTrace.Janks) > 0 {
+			return PerfJankFrame
+		}
+		if rm.PerfTrace.Startup != nil &&
+			rm.PerfTrace.Startup.AppLaunchMs > PerfStartupSlowColdMs {
+			return PerfStartupFrame
+		}
+	}
+	// Log-side: severity ladder.
+	if rm.LogTriage != nil {
+		for _, s := range rm.LogTriage.Meta.Signals {
+			if s == SignalPanic || s == SignalCrash {
+				return LogPanicFrame
+			}
+		}
+		for _, s := range rm.LogTriage.Meta.Signals {
+			if s == SignalOOM {
+				return LogOOMFrame
+			}
+		}
+		for _, s := range rm.LogTriage.Meta.Signals {
+			if s == SignalTimeout {
+				return LogTimeoutFrame
+			}
+		}
+	}
+	return LogPerfSubKindUnknown
 }

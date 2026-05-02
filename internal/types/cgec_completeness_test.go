@@ -230,6 +230,9 @@ func TestAllViolationKindsHaveProducer(t *testing.T) {
 		ViolFacetUncovered:       true, // tool/emit_answer_document.go validateFacetCoverage
 		ViolClaimFormUnsupported: true, // tool/emit_answer_document.go validateClaimFormSupport
 		ViolAbsenceScopeExceeded: true, // tool/emit_answer_document.go validateAbsenceScopeBound
+		// Phase 4 extension (Semantic Surface Contract) —
+		// step-identifier-backed-by-evidence oracle.
+		ViolStepIdentifierUnverified: true, // orchestrator/contract_check.go runStepIdentifierBackedByEvidenceOracle
 		// Phase 5 (Semantic Surface Contract) — telemetry-only kind.
 		ViolRichnessRegression: true, // orchestrator/contract_check.go runRichnessTelemetryOracle
 	}

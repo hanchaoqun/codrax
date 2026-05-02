@@ -335,6 +335,247 @@ func TestRichnessTelemetryOracle_RichnessTier_Default(t *testing.T) {
 	}
 }
 
+// ── runStepIdentifierBackedByEvidenceOracle (Phase 4 ext) ────────
+
+func TestStepIdentifierOracle_NoStepsReturnsEmpty(t *testing.T) {
+	if vs := runStepIdentifierBackedByEvidenceOracle(&types.AnswerDocument{}, nil); len(vs) != 0 {
+		t.Errorf("no steps → empty; got %+v", vs)
+	}
+}
+
+func TestStepIdentifierOracle_EmptyVerifiedSetSkips(t *testing.T) {
+	// Doc has steps with backtick identifiers, but the typed
+	// evidence pool is empty (no evidence emitted, no symbols).
+	// Oracle should silently skip — don't penalise legitimate
+	// first-emit cases.
+	doc := &types.AnswerDocument{
+		Steps: []types.AnswerStep{{
+			Index: 1, Description: "this calls `Foo` and then `Bar`.",
+		}},
+	}
+	mut := types.NewMutableState("")
+	if vs := runStepIdentifierBackedByEvidenceOracle(doc, mut); len(vs) != 0 {
+		t.Errorf("empty verified set must skip; got %+v", vs)
+	}
+}
+
+func TestStepIdentifierOracle_FiresOnUnverifiedIdentifier(t *testing.T) {
+	mut := types.NewMutableState("")
+	mut.AppendEvidence([]types.EvidenceItem{
+		{ID: "ev-1", Source: "x.go", LineStart: 5,
+			Subject: "RealFunction", AnchorSymbol: "RealFunction"},
+	})
+	doc := &types.AnswerDocument{
+		Steps: []types.AnswerStep{{
+			Index: 1, Description: "the answer cites `FabricatedName` here.",
+		}},
+	}
+	vs := runStepIdentifierBackedByEvidenceOracle(doc, mut)
+	if len(vs) != 1 || vs[0].Kind != types.ViolStepIdentifierUnverified {
+		t.Fatalf("expected ViolStepIdentifierUnverified; got %+v", vs)
+	}
+	if !strings.Contains(vs[0].Detail, "FabricatedName") {
+		t.Errorf("detail should name the unverified id; got %q", vs[0].Detail)
+	}
+}
+
+func TestStepIdentifierOracle_PassesOnVerifiedIdentifier(t *testing.T) {
+	mut := types.NewMutableState("")
+	mut.AppendEvidence([]types.EvidenceItem{
+		{ID: "ev-1", Source: "x.go", LineStart: 5, Subject: "RealFunction", AnchorSymbol: "RealFunction"},
+	})
+	doc := &types.AnswerDocument{
+		Steps: []types.AnswerStep{{
+			Index: 1, Description: "the answer cites `RealFunction` here.",
+		}},
+	}
+	if vs := runStepIdentifierBackedByEvidenceOracle(doc, mut); len(vs) != 0 {
+		t.Errorf("verified id must pass; got %+v", vs)
+	}
+}
+
+func TestStepIdentifierOracle_PassesViaAnswerSymbolName(t *testing.T) {
+	mut := types.NewMutableState("")
+	// Evidence pool empty — verified set must include AnswerSymbol slate.
+	doc := &types.AnswerDocument{
+		Steps: []types.AnswerStep{{
+			Index: 1, Description: "step references `MyHandler`.",
+		}},
+		Symbols: []types.AnswerSymbol{
+			{Name: "MyHandler", File: "h.go", Line: 1, Kind: types.KindFunction},
+		},
+	}
+	if vs := runStepIdentifierBackedByEvidenceOracle(doc, mut); len(vs) != 0 {
+		t.Errorf("AnswerSymbol.Name should populate verified set; got %+v", vs)
+	}
+}
+
+func TestStepIdentifierOracle_PassesViaMentionedEntities(t *testing.T) {
+	mut := types.NewMutableState("")
+	// MentionedEntities are user-verbatim; the oracle credits them
+	// because the user said the name in the question.
+	mut.SetRequestModel(types.RequestModel{
+		AnalyzerHints: types.AnalyzerHints{
+			MentionedEntities: []string{"UserNamedThing"},
+		},
+	})
+	doc := &types.AnswerDocument{
+		Steps: []types.AnswerStep{{
+			Index: 1, Description: "step uses `UserNamedThing`.",
+		}},
+	}
+	if vs := runStepIdentifierBackedByEvidenceOracle(doc, mut); len(vs) != 0 {
+		t.Errorf("MentionedEntities should populate verified set; got %+v", vs)
+	}
+}
+
+func TestStepIdentifierOracle_NonIdentifierBackticksIgnored(t *testing.T) {
+	mut := types.NewMutableState("")
+	mut.AppendEvidence([]types.EvidenceItem{{ID: "x", Source: "x.go", LineStart: 1, Subject: "Real"}})
+	// Backticks containing non-identifier content (Chinese, multi-
+	// word, punctuation) must be silently ignored — they're prose
+	// decoration, not load-bearing identifiers.
+	doc := &types.AnswerDocument{
+		Steps: []types.AnswerStep{{
+			Index: 1, Description: "step has `中文` and `multi word phrase` and `Real`.",
+		}},
+	}
+	if vs := runStepIdentifierBackedByEvidenceOracle(doc, mut); len(vs) != 0 {
+		t.Errorf("non-identifier backticks must be ignored, only `Real` is identifier; got %+v", vs)
+	}
+}
+
+func TestStepIdentifierOracle_DedupsSameMissingId(t *testing.T) {
+	mut := types.NewMutableState("")
+	mut.AppendEvidence([]types.EvidenceItem{{ID: "x", Source: "x.go", LineStart: 1, Subject: "Real"}})
+	doc := &types.AnswerDocument{
+		Steps: []types.AnswerStep{{
+			Index: 1, Description: "uses `Bogus` and again `Bogus` and `Bogus`.",
+		}},
+	}
+	vs := runStepIdentifierBackedByEvidenceOracle(doc, mut)
+	if len(vs) != 1 {
+		t.Fatalf("expected 1 violation; got %d", len(vs))
+	}
+	if !strings.Contains(vs[0].Detail, "Bogus") {
+		t.Errorf("detail should name Bogus; got %q", vs[0].Detail)
+	}
+	if strings.Count(vs[0].Detail, "Bogus") > 2 {
+		t.Errorf("dup-id should be reported once in detail; got %q", vs[0].Detail)
+	}
+}
+
+// ── extractBacktickIdentifiers helper ─────────────────────────────
+
+func TestExtractBacktickIdentifiers_BasicExtraction(t *testing.T) {
+	cases := []struct {
+		in   string
+		want []string
+	}{
+		{"step calls `Foo` then `Bar`.", []string{"Foo", "Bar"}},
+		{"`X` and `Y`", []string{"X", "Y"}},
+		// non-identifier content inside backticks: skipped
+		{"`中文` `multi word`", nil},
+		// no backticks
+		{"plain prose with no backticks", nil},
+		// unmatched backtick: ignored
+		{"unbalanced `Foo without close", nil},
+		// nested / consecutive: each pair handled
+		{"`A``B`", []string{"A", "B"}},
+	}
+	for _, c := range cases {
+		got := extractBacktickIdentifiers(c.in)
+		if !equalStrSliceUnordered(got, c.want) {
+			t.Errorf("input=%q: got %v want %v", c.in, got, c.want)
+		}
+	}
+}
+
+func equalStrSliceUnordered(a, b []string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	seen := map[string]int{}
+	for _, x := range a {
+		seen[x]++
+	}
+	for _, y := range b {
+		if seen[y] == 0 {
+			return false
+		}
+		seen[y]--
+	}
+	return true
+}
+
+// ── sub-kind-aware facet template (Phase 4 extension) ────────────
+
+func TestQFRootCauseTrace_RequiredSubKind_PanicSignal(t *testing.T) {
+	rm := types.RequestModel{
+		Intent: types.IntentRootCause,
+		LogTriage: &types.LogBundle{
+			Meta: types.LogMeta{Signals: []types.LogSignal{types.SignalPanic}},
+		},
+	}
+	contract := types.CompileFacetCoverage(rm, nil)
+	if contract == nil {
+		t.Fatal("expected non-nil contract")
+	}
+	found := false
+	for _, req := range contract.Required {
+		if req.Kind == types.FacetObservedArtifactFact && req.RequiredSubKind == types.LogPanicFrame {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("panic signal must narrow FacetObservedArtifactFact RequiredSubKind to LogPanicFrame; got %+v", contract.Required)
+	}
+}
+
+func TestQFRootCauseTrace_RequiredSubKind_PerfStallWinsOverLog(t *testing.T) {
+	rm := types.RequestModel{
+		Intent: types.IntentRootCause,
+		LogTriage: &types.LogBundle{
+			Meta: types.LogMeta{Signals: []types.LogSignal{types.SignalPanic}},
+		},
+		PerfTrace: &types.PerfBundle{
+			Stalls: []types.PerfStall{{File: "render.go"}},
+		},
+	}
+	contract := types.CompileFacetCoverage(rm, nil)
+	if contract == nil {
+		t.Fatal("expected non-nil contract")
+	}
+	for _, req := range contract.Required {
+		if req.Kind == types.FacetObservedArtifactFact {
+			if req.RequiredSubKind != types.PerfStallFrame {
+				t.Errorf("perf-stall should win over log-panic; got RequiredSubKind=%q", req.RequiredSubKind)
+			}
+			return
+		}
+	}
+	t.Error("FacetObservedArtifactFact not found in contract")
+}
+
+func TestQFRootCauseTrace_NoSignal_NoSubKind(t *testing.T) {
+	rm := types.RequestModel{
+		Intent:    types.IntentRootCause,
+		LogTriage: &types.LogBundle{},
+	}
+	contract := types.CompileFacetCoverage(rm, nil)
+	if contract == nil {
+		t.Fatal("expected non-nil contract")
+	}
+	for _, req := range contract.Required {
+		if req.Kind == types.FacetObservedArtifactFact {
+			if req.RequiredSubKind != "" {
+				t.Errorf("no-signal bundle should leave RequiredSubKind empty; got %q", req.RequiredSubKind)
+			}
+			return
+		}
+	}
+}
+
 // ── master switch ──────────────────────────────────────────────────
 
 func TestFacetValidatorsEnabled_DefaultAndSet(t *testing.T) {

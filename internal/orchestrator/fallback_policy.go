@@ -218,6 +218,12 @@ func DefaultFallbackPolicy() FallbackPolicy {
 		types.ViolFacetUncovered:       FallbackBackToExplore,
 		types.ViolClaimFormUnsupported: FallbackFinalizerOnly,
 		types.ViolAbsenceScopeExceeded: FallbackBackToExtract,
+		// Phase 4 extension — step-identifier-not-in-typed-evidence-
+		// pool. Missing identifiers usually mean explorer skipped
+		// emit_evidence on the load-bearing symbol; the right
+		// remediation is BackToExplore so the next pass captures it
+		// in a typed Subject/Object/AnchorSymbol field.
+		types.ViolStepIdentifierUnverified: FallbackBackToExplore,
 		// Phase 5 telemetry-only kind — never reaches the fallback
 		// switch under default SOFT classification, but mapped to
 		// FailLoud as a safety net so an accidental promotion to
