@@ -207,6 +207,8 @@ func TestAllViolationKindsHaveProducer(t *testing.T) {
 		ViolSelfContradiction: true, // orchestrator/contract_check.go runSelfConsistencyReview
 		// 2026-05-02 — external-artifact decode shortfall.
 		ViolExternalArtifactUnderdecoded: true, // orchestrator/contract_check.go runExternalArtifactDecodedCheck
+		// 2026-05-02 — AuthorityCeiling axis overreach detector.
+		ViolAuthorityOverreach: true, // orchestrator/contract_check.go runAuthorityOverreachCheck
 	}
 	// All Session 11 violation kinds now have producers. The
 	// pending map remains empty but is kept so future additions
@@ -233,6 +235,7 @@ func TestAllViolationKindsHaveProducer(t *testing.T) {
 		ViolPreCompleteDowngrade: "ViolPreCompleteDowngrade",
 		ViolLiteralFormFailed:    "ViolLiteralFormFailed",
 		ViolShapeSwap:            "ViolShapeSwap",
+		ViolAuthorityOverreach:   "ViolAuthorityOverreach",
 	}
 
 	// Match only the "Kind: ViolXxx" composite-literal pattern —

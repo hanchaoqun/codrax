@@ -1656,6 +1656,17 @@ func initApp(cmd *cobra.Command, _ []string) error {
 			// reviewer off OR soft mode → ViolSelfContradiction is soft
 			extraSoft = append(extraSoft, "self_contradiction")
 		}
+		// AuthorityCeiling axis (commit 6): authority_overreach is
+		// soft by default (telemetry + AnswerTaxonomy learning, no
+		// retry). authority_overreach_strict=true promotes to strict
+		// (forces finalizer retry with hedge repair). Mirrors the
+		// SelfConsistency knob shape so the operator-facing pattern
+		// stays consistent.
+		if rs.AuthorityOverreachStrict != nil && *rs.AuthorityOverreachStrict {
+			extraStrict = append(extraStrict, string(types.ViolAuthorityOverreach))
+		} else {
+			extraSoft = append(extraSoft, string(types.ViolAuthorityOverreach))
+		}
 		orchestrator.SetSoftViolationKinds(extraSoft, extraStrict)
 		// AuthorityCeiling axis: feature gate + locator provider.
 		// authority.Enable flips the master switch read by emit_evidence

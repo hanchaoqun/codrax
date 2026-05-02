@@ -128,6 +128,25 @@ const (
 	// the bundle-token-collection helper, not by editing skill
 	// prompts. SuspectedRoot: external_artifact_decoded.
 	ViolExternalArtifactUnderdecoded ViolationKind = "external_artifact_underdecoded"
+
+	// ViolAuthorityOverreach (commit 6 of the AuthorityCeiling axis
+	// rollout) fires when prose content cites an evidence anchor whose
+	// underlying AuthorityCeiling is conditional / historical /
+	// illustrative BUT the prose lacks the system-injected hedge
+	// sentinel for that ceiling. The check is structural, not keyword-
+	// based: it looks for the absence of the [hedged] / [historical]
+	// / [illustrative] sentinel tokens that
+	// render.ApplyAuthorityHedging deterministically injects, so
+	// triggering the violation means the LLM emitted a retry that
+	// stripped a previously-applied hedge OR the doc bypassed the
+	// renderer entirely.
+	//
+	// Soft-by-default: yaml authority_overreach_strict promotes to
+	// strict (forces finalizer retry). Defaulting to soft means most
+	// deployments record the event for AnswerTaxonomy / answer-
+	// reviewer learning without auto-rewriting. SuspectedRoot:
+	// answer_authority.
+	ViolAuthorityOverreach ViolationKind = "authority_overreach"
 )
 
 // AllViolationKinds returns every declared ViolationKind in a stable
@@ -157,6 +176,7 @@ func AllViolationKinds() []ViolationKind {
 		ViolDeclaredCountDrift,
 		ViolSelfContradiction,
 		ViolExternalArtifactUnderdecoded,
+		ViolAuthorityOverreach,
 	}
 }
 

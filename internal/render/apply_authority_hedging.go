@@ -212,15 +212,26 @@ func isAuthorityCaveat(s string) bool {
 	return strings.HasPrefix(strings.TrimSpace(s), authorityCaveatPrefix)
 }
 
-// Sentinels (lower-bidi-mark + glyph) — chosen to be visible in the
-// rendered output but distinctive enough that the contract checker
-// (commit 6) can grep for them as proof that hedge injection ran.
+// Sentinels — chosen to be visible in the rendered output but
+// distinctive enough that the contract checker (commit 6) can grep
+// for them as proof that hedge injection ran. Exported so
+// orchestrator.runAuthorityOverreachCheck can grep without
+// duplicating string literals (single source of truth).
 //
 // The prefix string on caveats is grep-able via isAuthorityCaveat
 // for the dedup-on-retry path.
 const (
-	hedgeMarkerConditional  = "[hedged]"
-	hedgeMarkerHistorical   = "[historical]"
-	hedgeMarkerIllustrative = "[illustrative]"
+	HedgeMarkerConditional  = "[hedged]"
+	HedgeMarkerHistorical   = "[historical]"
+	HedgeMarkerIllustrative = "[illustrative]"
 	authorityCaveatPrefix   = "Authority: "
+)
+
+// Backwards-compatible lowercase aliases used inside this file's
+// hedge-injection branches. Keeping them avoids touching the per-
+// branch string concatenations during the export refactor.
+const (
+	hedgeMarkerConditional  = HedgeMarkerConditional
+	hedgeMarkerHistorical   = HedgeMarkerHistorical
+	hedgeMarkerIllustrative = HedgeMarkerIllustrative
 )

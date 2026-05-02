@@ -13,6 +13,7 @@ import (
 	"github.com/hanchaoqun/codrax/internal/analysis/contract"
 	"github.com/hanchaoqun/codrax/internal/analysis/criterion"
 	"github.com/hanchaoqun/codrax/internal/analysis/hint"
+	"github.com/hanchaoqun/codrax/internal/authority"
 	"github.com/hanchaoqun/codrax/internal/logging"
 	"github.com/hanchaoqun/codrax/internal/render"
 	"github.com/hanchaoqun/codrax/internal/tool/repomap"
@@ -116,6 +117,19 @@ func runContractCheck(out *agent.StageOutput, c types.AnswerContract, mut *types
 	if mut != nil {
 		result.Violations = append(result.Violations,
 			runExternalArtifactDecodedCheck(mut, draft.Text)...)
+	}
+
+	// AuthorityCeiling axis (commit 6 of the drift-bounded rollout).
+	// When the master gate is on, walk the rendered prose looking
+	// for citations whose underlying evidence carries non-factual
+	// AuthorityCeiling AND the prose lacks the system-injected hedge
+	// sentinel for that ceiling. Triggering here means either (a)
+	// the LLM emitted a retry that stripped a previously-applied
+	// hedge, or (b) the doc bypassed the renderer. Soft by default
+	// (yaml authority_overreach_strict promotes to strict).
+	if mut != nil {
+		result.Violations = append(result.Violations,
+			runAuthorityOverreachCheck(mut, draft.Text)...)
 	}
 
 	// Commit 62 — self-consistency reviewer (read-mode mirror of
@@ -226,6 +240,106 @@ func runExternalArtifactDecodedCheck(mut *types.MutableState, draftText string) 
 			IRField:    "external_artifact_decoded",
 			Reason:     "answer underdecodes triaged log / perf trace",
 			Confidence: 0.7,
+		},
+		Stage: string(types.StageFinalize),
+	}}
+}
+
+// runAuthorityOverreachCheck implements the AuthorityCeiling axis
+// contract gate. The check is structural: for every Citation in the
+// rendered AnswerDocument, look up the strongest underlying
+// AuthorityCeiling. When the ceiling is conditional / historical /
+// illustrative AND the rendered prose section that consumes that
+// citation lacks the system-injected hedge sentinel for that
+// ceiling, raise ViolAuthorityOverreach.
+//
+// Critical: the check does NOT use keyword matching on the prose
+// (per the no-custom-keyword-matching red line). It greps for the
+// hedge sentinel tokens render.ApplyAuthorityHedging
+// deterministically injects. Triggering means either (a) the LLM
+// emitted a retry that stripped a previously-applied hedge, or (b)
+// the doc bypassed the renderer entirely.
+//
+// Returns nil when:
+//   - authority master gate is off (legacy passthrough);
+//   - the doc has no citations / no evidence (nothing to check);
+//   - every cited anchor's strongest ceiling is factual.
+//
+// Default classification is SOFT (yaml authority_overreach_strict
+// promotes to strict). Soft mode mirrors the violation into the
+// AnswerTaxonomy ledger for cross-Run learning without forcing a
+// retry.
+func runAuthorityOverreachCheck(mut *types.MutableState, draftText string) []types.Violation {
+	if !authority.Enabled() || mut == nil {
+		return nil
+	}
+	doc := mut.AnswerDocument()
+	if doc == nil || len(doc.Citations) == 0 {
+		return nil
+	}
+	evidence := mut.EmittedEvidence()
+	if len(evidence) == 0 {
+		return nil
+	}
+
+	// Walk citations and collect ceilings that should have been hedged.
+	type overreach struct {
+		file    string
+		line    int
+		ceiling types.AuthorityCeiling
+	}
+	var hits []overreach
+	for _, cit := range doc.Citations {
+		ceiling := authority.HighestAuthorityFor(evidence, cit.File, cit.Line)
+		switch ceiling {
+		case types.AuthorityConditional, types.AuthorityHistorical, types.AuthorityIllustrative:
+			hits = append(hits, overreach{file: cit.File, line: cit.Line, ceiling: ceiling})
+		}
+	}
+	if len(hits) == 0 {
+		return nil
+	}
+
+	// Look for the corresponding hedge sentinels in the rendered prose.
+	// When ANY required sentinel is absent, the doc has overreach.
+	missing := make([]string, 0)
+	wantConditional := false
+	wantHistorical := false
+	wantIllustrative := false
+	for _, h := range hits {
+		switch h.ceiling {
+		case types.AuthorityConditional:
+			wantConditional = true
+		case types.AuthorityHistorical:
+			wantHistorical = true
+		case types.AuthorityIllustrative:
+			wantIllustrative = true
+		}
+	}
+	if wantConditional && !strings.Contains(draftText, render.HedgeMarkerConditional) {
+		missing = append(missing, "conditional")
+	}
+	if wantHistorical && !strings.Contains(draftText, render.HedgeMarkerHistorical) {
+		missing = append(missing, "historical")
+	}
+	if wantIllustrative && !strings.Contains(draftText, render.HedgeMarkerIllustrative) {
+		missing = append(missing, "illustrative")
+	}
+	if len(missing) == 0 {
+		return nil
+	}
+
+	detail := fmt.Sprintf(
+		"answer cites %d anchor(s) whose underlying evidence is non-factual but the rendered prose is missing the hedge sentinel for: %s. The renderer normally injects [hedged] / [historical] / [illustrative] markers when ApplyAuthorityHedging runs; their absence means the LLM stripped them on a retry or the doc bypassed the renderer.",
+		len(hits), strings.Join(missing, ", "))
+	return []types.Violation{{
+		Kind:   types.ViolAuthorityOverreach,
+		Detail: detail,
+		Repair: "regenerate the answer keeping the hedge sentinels around citations whose underlying evidence is hedged (conditional/historical/illustrative); do not rewrite drift-derived claims as direct facts",
+		SuspectedRoot: types.SuspectedRoot{
+			IRField:    "answer_authority",
+			Reason:     "rendered prose dropped hedge markers for non-factual evidence",
+			Confidence: 0.6,
 		},
 		Stage: string(types.StageFinalize),
 	}}
