@@ -4868,9 +4868,21 @@ func (o *Orchestrator) runAnswerReviewerOnSuccess() {
 	// the analyzer-shape mismatch is most stable. Now: trigger when
 	// EITHER retries happened OR the closure carries enough soft
 	// violations (≥ 2) to suggest a generalisable pattern.
+	// Round-10: count NON-PLUMBING violations only for the trigger
+	// threshold. Plumbing kinds (ViolAuthorityOverreach etc.) describe
+	// pipeline state, not answer-content quality; counting them in
+	// the threshold inflates "we have learning surface" perception
+	// and triggers a dispatch that the inner Round-6 filter then
+	// aborts. Counting only content-class violations makes the
+	// threshold semantic match the dispatch semantic.
 	closureViolationCount := 0
 	if cl := mu.EvidenceClosure(); cl != nil {
-		closureViolationCount = len(cl.Violations())
+		for _, v := range cl.Violations() {
+			if isPlumbingFailureViolation(v.Kind) {
+				continue
+			}
+			closureViolationCount++
+		}
 	}
 	const softViolationLearnFloor = 2
 	if len(events) == 0 && closureViolationCount < softViolationLearnFloor {
