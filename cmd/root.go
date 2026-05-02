@@ -1407,8 +1407,21 @@ func initApp(cmd *cobra.Command, _ []string) error {
 		//     hint and a single attempt is the whole pipeline. 2
 		//     attempts catches the LLM compliance flake without
 		//     burning tokens on truly broken inputs.
-		WriteRetryBudget:   3,
-		MaxRetriesPerStage: 2,
+		WriteRetryBudget: 3,
+		// MaxRetriesPerStage=3: a 2-stage coherence-gate retry chain
+		// (R1.2 → R1.5, or any other gated rule pair) needs 3 attempts
+		// to converge cleanly — attempt 1 trips gate A, attempt 2 fixes
+		// A but trips gate B, attempt 3 fixes both. Pre-2026-05-02-3
+		// this was 2, leaving the pipeline 1-attempt short on questions
+		// that are structurally complex enough to fail two distinct
+		// gates in sequence. Empirical: bx246b3qn audit run on the
+		// "对比 read 模式 explorer 和 write 模式 verify 的 retry 机制"
+		// question exhausted at 2 attempts when R1.2 fired then R1.5
+		// fired. base=3 catches that case while costing 0 tokens on the
+		// happy path (the loop exits on first success).
+		// EstimateSubTopicCount-based dynamic uplift still applies on
+		// top, so multi-topic questions get up to ceiling=5.
+		MaxRetriesPerStage: 3,
 		// TransientRetryBudget=1: a single retry rides through brief
 		// network blips. Structurally stuck cases (empty repo + plan
 		// mode, etc.) are caught by the stall plateau detector before
