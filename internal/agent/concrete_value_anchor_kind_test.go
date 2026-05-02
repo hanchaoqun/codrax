@@ -220,12 +220,17 @@ func TestConcreteValueProjection_DiagramRoleReachesPrecedenceRole(t *testing.T) 
 	// (DiagramRole != Default → ClaimPrecedenceRole). This is the
 	// load-bearing change that lifts FacetConfigPrecedenceRole's
 	// inferred-coverage hit rate for QFConfigPrecedence questions.
+	//
+	// Origin is left empty at producer level (BackfillEvidenceProjector
+	// fills it). Rule 3 (DiagramRole) takes precedence over Rule 4
+	// (AnchorKind) regardless of whether Origin is Log/Perf or
+	// CurrentRepo, so this test pins the L2 behaviour without taking
+	// a stance on the backfiller path.
 	ev := types.EvidenceItem{
 		Source:      "codrax.yaml.example",
 		LineStart:   10,
 		Producer:    "concrete_values",
 		AnchorKind:  types.AnchorAssignment,
-		Origin:      types.ClaimOriginCurrentRepo,
 		DiagramRole: concreteValueDiagramRole("codrax.yaml.example", ""),
 	}
 	if ev.DiagramRole != types.EvidenceDiagramRoleConfig {
@@ -233,6 +238,32 @@ func TestConcreteValueProjection_DiagramRoleReachesPrecedenceRole(t *testing.T) 
 	}
 	if got := types.ClaimFormOf(ev); got != types.ClaimPrecedenceRole {
 		t.Errorf("L2-projected config evidence should reach ClaimPrecedenceRole; got %q", got)
+	}
+}
+
+// TestConcreteValueProjection_LogFrameWinsOverProjection pins the
+// L1+L2+L3 priority contract: when a concrete_values item happens
+// to anchor on a file:line that ALSO appears in an attached log
+// frame, the BackfillEvidenceProjector backfills Origin=Log, and
+// ClaimFormOf Rule 1 (Origin=Log → ClaimExternalObservation)
+// MUST take precedence over Rule 3 (DiagramRole) and Rule 4
+// (AnchorKind). The L1 fix preserves this contract by leaving
+// Origin empty at producer level so the backfiller can decide.
+func TestConcreteValueProjection_LogFrameWinsOverProjection(t *testing.T) {
+	// Manually set Origin=Log to simulate post-backfiller state
+	// (we don't run the backfiller in this unit test — the contract
+	// being verified is "ClaimFormOf respects Origin=Log even when
+	// AnchorKind+DiagramRole are also set").
+	ev := types.EvidenceItem{
+		Source:      "src/x.go",
+		LineStart:   10,
+		Producer:    "concrete_values",
+		AnchorKind:  types.AnchorAssignment, // L1 set
+		DiagramRole: types.EvidenceDiagramRoleConfig, // L2 set
+		Origin:      types.ClaimOriginLog, // backfiller set
+	}
+	if got := types.ClaimFormOf(ev); got != types.ClaimExternalObservation {
+		t.Errorf("Origin=Log should win over AnchorKind/DiagramRole projections; got %q (expected external_observation)", got)
 	}
 }
 
@@ -260,16 +291,22 @@ func TestConcreteValueProjection_ClaimFormOfNoLongerUnknown(t *testing.T) {
 		"assigns", "maps", "config", "decorates", "embeds", "implements",
 	} {
 		t.Run(kind, func(t *testing.T) {
+			// Origin intentionally LEFT EMPTY at producer level —
+			// BackfillEvidenceProjector fills it post-construction
+			// based on log/perf frame matching. ClaimFormOf still
+			// reaches Rule 4 (AnchorKind dispatch) because Rule 1
+			// (Origin=Log/Perf) only fires when the backfiller
+			// matched a frame, and Rule 5 (fallback ClaimUnknown)
+			// only fires when Rules 1-4 all miss.
 			ev := types.EvidenceItem{
 				Source:     "src/x.go",
 				LineStart:  10,
 				Producer:   "concrete_values",
 				AnchorKind: concreteValueKindToAnchorKind(kind),
-				Origin:     types.ClaimOriginCurrentRepo,
 			}
 			form := types.ClaimFormOf(ev)
 			if form == types.ClaimUnknown {
-				t.Errorf("kind=%q with projected AnchorKind=%q + Origin=current_repo still projects to ClaimUnknown — projection broken", kind, ev.AnchorKind)
+				t.Errorf("kind=%q with projected AnchorKind=%q still projects to ClaimUnknown — projection broken", kind, ev.AnchorKind)
 			}
 		})
 	}

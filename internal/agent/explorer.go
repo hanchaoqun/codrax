@@ -9636,11 +9636,6 @@ func (e *explorerEvaluator) buildConcreteValuesSection(repoRoot string, readSet 
 			// classify the evidence (was 100% ClaimUnknown
 			// pre-projection). See concreteValueKindToAnchorKind.
 			AnchorKind: concreteValueKindToAnchorKind(predicate),
-			// concrete_values evidence is repo-source-derived (the
-			// extractor scans repo .go / .py / .ts / etc. files);
-			// Origin makes the provenance explicit so downstream
-			// Phase 4 ClaimForm checks have full context.
-			Origin: types.ClaimOriginCurrentRepo,
 			// 2026-05-02 L2/L3: project file-ext + method-prefix
 			// context into DiagramRole so config-layer / runtime-
 			// binding-layer evidence reaches ClaimFormOf Rule 3
@@ -9651,6 +9646,19 @@ func (e *explorerEvaluator) buildConcreteValuesSection(repoRoot string, readSet 
 			// concrete_values_runtime_method_prefixes /
 			// concrete_values_default_method_prefixes).
 			DiagramRole: concreteValueDiagramRole(v.file, v.method),
+			// Origin is intentionally left as ClaimOriginUnknown
+			// here so the BackfillEvidenceProjector
+			// (internal/authority/authority.go) decides:
+			//   - log/perf frame match → ClaimOriginLog / Perf
+			//     (ClaimFormOf Rule 1 → ClaimExternalObservation)
+			//   - schema-level scope (File/Crossfile/Negative) →
+			//     ClaimOriginCurrentRepo + AuthorityFactual
+			//   - fallback (no log/perf match, line-shaped scope,
+			//     grounded) → ClaimOriginCurrentRepo
+			// Hardcoding Origin here would suppress the projector's
+			// idempotent guard (Origin != Unknown skips backfill),
+			// breaking log-frame matching on concrete_values items
+			// that anchor on attached-log file:line locations.
 		}
 		cvItem.ID = types.StableEvidenceID(cvItem)
 		cvEvidence = append(cvEvidence, cvItem)
