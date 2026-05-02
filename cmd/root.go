@@ -19,6 +19,7 @@ import (
 	"github.com/hanchaoqun/codrax/internal/analysis/criterion"
 	"github.com/hanchaoqun/codrax/internal/analysis/gate"
 	"github.com/hanchaoqun/codrax/internal/analysis/logtriage"
+	"github.com/hanchaoqun/codrax/internal/authority"
 	"github.com/hanchaoqun/codrax/internal/config"
 	"github.com/hanchaoqun/codrax/internal/env"
 	"github.com/hanchaoqun/codrax/internal/llm"
@@ -33,6 +34,7 @@ import (
 	"github.com/hanchaoqun/codrax/internal/tool/repomap"
 	repomapindex "github.com/hanchaoqun/codrax/internal/tool/repomap/index"
 	"github.com/hanchaoqun/codrax/internal/tool/repomap/retrieve"
+	rmtypes "github.com/hanchaoqun/codrax/internal/tool/repomap/types"
 	"github.com/hanchaoqun/codrax/internal/types"
 	"github.com/hanchaoqun/codrax/internal/worktree"
 )
@@ -1655,6 +1657,22 @@ func initApp(cmd *cobra.Command, _ []string) error {
 			extraSoft = append(extraSoft, "self_contradiction")
 		}
 		orchestrator.SetSoftViolationKinds(extraSoft, extraStrict)
+		// AuthorityCeiling axis: feature gate + locator provider.
+		// authority.Enable flips the master switch read by emit_evidence
+		// (commit 3) and the upcoming render/contract layers (5/6).
+		// SetSymbolLocatorProvider wires the repomap-side adapter so the
+		// projection function can run drift detection without importing
+		// repomap directly. Default OFF — opt-in via codrax.yaml so
+		// existing deployments stay byte-identical.
+		if rs.AuthorityCeilingEnabled != nil {
+			authority.Enable(*rs.AuthorityCeilingEnabled)
+		}
+		authority.SetSymbolLocatorProvider(func(graph any) types.SymbolLocator {
+			if g, ok := graph.(*rmtypes.Graph); ok {
+				return repomap.NewSymbolLocator(g)
+			}
+			return nil
+		})
 		// Commit 53 P4: diagram bare-identifier whitelist.
 		tool.SetDiagramIdentifierWhitelist(rs.DiagramIdentifierWhitelist)
 		// Commit 61 Batch F.3: yaml gate for reconcileShape strict mode.

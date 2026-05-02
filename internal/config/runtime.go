@@ -296,6 +296,40 @@ type RuntimeSettings struct {
 	// dropped (avoid cried-wolf noise). 0/nil = default 0.8.
 	PipelineSelfConsistencyMinConfidence *float64 `yaml:"pipeline_self_consistency_min_confidence"`
 
+	// AuthorityCeiling axis (drift-bounded answer hardening; rolled
+	// out 2026-05-02). Four knobs gate the projection from
+	// (EvidenceItem, BusContext) → (ClaimOrigin, AuthorityCeiling)
+	// described in CLAUDE.md §AuthorityCeiling. Off (default) keeps
+	// every emit_evidence call byte-identical to legacy behaviour.
+	//
+	//   AuthorityCeilingEnabled — master switch. When false, the
+	//     emit_evidence hook short-circuits and items keep their
+	//     zero-value Origin/Authority. Required to be true for the
+	//     finalizer-side hedge injection (commit 5) and the
+	//     ViolAuthorityOverreach contract check (commit 6) to fire.
+	//
+	//   AuthorityLogDriftDefault — AuthorityCeiling value the system
+	//     pins for line_drift / tail_rename anchors. Must be one of
+	//     "factual" / "conditional" / "historical". Defaults to
+	//     "conditional" — line drift is recoverable but warrants a
+	//     hedge.
+	//
+	//   AuthorityFileMovedDefault — same shape, applied to file_moved
+	//     and unmappable anchors. Defaults to "historical" — the
+	//     anchor's current-code identity is uncertain enough that
+	//     prose should not assert direct causal claims.
+	//
+	//   AuthorityOverreachStrict — toggles the
+	//     ViolAuthorityOverreach contract violation between SOFT
+	//     (telemetry only; default) and STRICT (forces a finalizer
+	//     retry with hedge repair). Most operators should keep this
+	//     off until they have answer-taxonomy evidence the
+	//     overreach is recurring.
+	AuthorityCeilingEnabled    *bool   `yaml:"authority_ceiling_enabled"`
+	AuthorityLogDriftDefault   *string `yaml:"authority_log_drift_default"`
+	AuthorityFileMovedDefault  *string `yaml:"authority_file_moved_default"`
+	AuthorityOverreachStrict   *bool   `yaml:"authority_overreach_strict"`
+
 	// RepomapMinParseTier (commit 53 P5) hard-gates files whose
 	// repomap parse tier exceeds the floor (Tier 1=primary
 	// grammar, 2=secondary salvage, 3=regex-only, 4=path-only).
