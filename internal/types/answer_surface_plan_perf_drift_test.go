@@ -115,7 +115,7 @@ func TestBackfillUnprojectedItems_PerfStallTagsItemAsPerfOrigin(t *testing.T) {
 	items := []EvidenceItem{
 		{Source: "ui.go", LineStart: 200, AnchorSymbol: "Render", AnchorKind: AnchorDefinition, GroundingStatus: GroundingGrounded},
 	}
-	out := backfillUnprojectedItemsForDeriveArtifacts(items, nil, perf)
+	out := backfillUnprojectedItemsForDeriveArtifacts(items, nil, perf, IntentUnknown)
 	if len(out) != 1 {
 		t.Fatalf("len = %d; want 1", len(out))
 	}

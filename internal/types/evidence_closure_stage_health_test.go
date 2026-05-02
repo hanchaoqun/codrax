@@ -190,3 +190,105 @@ func TestClosureStats_HasActivity_TouchesPerStage(t *testing.T) {
 		t.Error("HasActivity must return true when only PerStage is non-zero")
 	}
 }
+
+// TestStageHealthSnapshot_PendingReadExplicitStageBypassesDerivation
+// pins the A.1+E.1 invariant (2026-05-02): when PendingRead.Stage is
+// non-empty, AddPendingRead bumps PerStage[Stage].PendingReads at
+// emit time AND the snapshot DOES NOT re-derive from Origin (no
+// double-count).
+func TestStageHealthSnapshot_PendingReadExplicitStageBypassesDerivation(t *testing.T) {
+	c := NewEvidenceClosure("")
+	// Origin says "explore"; explicit Stage says "finalize". Snapshot
+	// MUST honour explicit Stage and ignore Origin.
+	c.AddPendingRead(PendingRead{
+		File:   "x.go",
+		Origin: "chain_promotion", // would derive to explore
+		Stage:  string(StageFinalize),
+	})
+	snap := c.StageHealthSnapshot()
+	if got := snap[string(StageFinalize)].PendingReads; got != 1 {
+		t.Errorf("explicit Stage=finalize → PendingReads = %d, want 1", got)
+	}
+	if got := snap[string(StageExplore)].PendingReads; got != 0 {
+		t.Errorf("explicit Stage must skip Origin-derivation; explore.PendingReads = %d, want 0", got)
+	}
+}
+
+// TestStageHealthSnapshot_PendingReadEmptyStageStillDerives pins the
+// transitional contract: callers that haven't been migrated still
+// get the legacy Origin → derived stage mapping.
+func TestStageHealthSnapshot_PendingReadEmptyStageStillDerives(t *testing.T) {
+	c := NewEvidenceClosure("")
+	c.AddPendingRead(PendingRead{File: "a.go", Origin: "chain_promotion"})
+	c.AddPendingRead(PendingRead{File: "b.go", Origin: "grounder_reject"})
+	snap := c.StageHealthSnapshot()
+	if got := snap[string(StageExplore)].PendingReads; got != 1 {
+		t.Errorf("legacy chain_promotion → explore.PendingReads = %d, want 1", got)
+	}
+	if got := snap[string(StageFinalize)].PendingReads; got != 1 {
+		t.Errorf("legacy grounder_reject → finalize.PendingReads = %d, want 1", got)
+	}
+}
+
+// TestStageHealthSnapshot_AddRepairWritesPerStageRepairs pins the
+// A.1+E.1 invariant for AddRepair: when RepairDirective.Stage is set,
+// PerStage[Stage].Repairs increments at emit time AND the bridged
+// PendingRead inherits Stage so its PerStage attribution matches.
+func TestStageHealthSnapshot_AddRepairWritesPerStageRepairs(t *testing.T) {
+	c := NewEvidenceClosure("")
+	c.AddRepair(RepairDirective{
+		Kind:   RepairReadFile,
+		Files:  []string{"x.go", "y.go"},
+		Origin: "test",
+		Stage:  string(StageExplore),
+	})
+	snap := c.StageHealthSnapshot()
+	if got := snap[string(StageExplore)].Repairs; got != 1 {
+		t.Errorf("explicit Repair Stage=explore → Repairs = %d, want 1 (one directive, dedup-counted)", got)
+	}
+	// Two files were bridged to PendingReads, both inheriting Stage.
+	if got := snap[string(StageExplore)].PendingReads; got != 2 {
+		t.Errorf("bridged PendingReads must inherit Stage; explore.PendingReads = %d, want 2", got)
+	}
+}
+
+// TestDistinctViolationKindCount pins the A.2 audit-fix API
+// (2026-05-02): the ledger's distinct-kind cardinality, used by the
+// yield-kill gate so "same kind re-firing" no longer trivially beats
+// MinRetryYield=1.
+func TestDistinctViolationKindCount(t *testing.T) {
+	c := NewEvidenceClosure("")
+	if got := c.DistinctViolationKindCount(); got != 0 {
+		t.Errorf("empty closure → DistinctViolationKindCount = %d, want 0", got)
+	}
+	c.AppendViolation(Violation{Kind: ViolShape, Stage: "finalize"})
+	c.AppendViolation(Violation{Kind: ViolShape, Stage: "finalize"})
+	c.AppendViolation(Violation{Kind: ViolShape, Stage: "finalize"})
+	if got := c.DistinctViolationKindCount(); got != 1 {
+		t.Errorf("3× same kind → DistinctViolationKindCount = %d, want 1", got)
+	}
+	c.AppendViolation(Violation{Kind: ViolCitation, Stage: "explore"})
+	if got := c.DistinctViolationKindCount(); got != 2 {
+		t.Errorf("2 distinct kinds → DistinctViolationKindCount = %d, want 2", got)
+	}
+}
+
+// TestBumpForcedReadsForStage_AttributesAndKeepsGlobal pins the
+// stage-aware ForcedReads bumper. Empty stage degrades to global-only
+// (no PerStage row).
+func TestBumpForcedReadsForStage_AttributesAndKeepsGlobal(t *testing.T) {
+	c := NewEvidenceClosure("")
+	c.BumpForcedReadsForStage(string(StageExplore), 3)
+	c.BumpForcedReadsForStage("", 2) // global-only
+	stats := c.Stats()
+	if stats.ForcedReads != 5 {
+		t.Errorf("global ForcedReads = %d, want 5", stats.ForcedReads)
+	}
+	snap := c.StageHealthSnapshot()
+	if got := snap[string(StageExplore)].ForcedReads; got != 3 {
+		t.Errorf("explore.ForcedReads = %d, want 3", got)
+	}
+	if _, ok := snap[""]; ok {
+		t.Errorf("empty-stage bucket leaked into snapshot")
+	}
+}

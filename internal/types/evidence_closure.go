@@ -297,6 +297,14 @@ type PendingRead struct {
 	Rationale  string
 	Origin     string
 	LineRanges []LineRange
+
+	// Stage (A.1+E.1, 2026-05-02) is the explicit stage attribution for
+	// this pending read. When non-empty, AddPendingRead bumps
+	// stats.PerStage[Stage].PendingReads directly so StageHealthSnapshot
+	// no longer needs to derive from Origin. Empty Stage preserves the
+	// legacy pendingReadDerivedStage(Origin) fallback so callers that
+	// haven't been migrated keep working byte-identically.
+	Stage string
 }
 
 // UnverifiedFinding is one entry in EvidenceClosure.unverifiedFinds.
@@ -934,9 +942,35 @@ func (c *EvidenceClosure) addPendingReadLocked(p PendingRead) {
 				c.pendingReads[i].Rationale = p.Rationale
 			}
 		}
+		// A.1+E.1 stage attribution refresh: if the incoming carries
+		// an explicit Stage and the existing entry didn't, fill it in.
+		// Bumping PerStage stays one-shot (no double-count on refresh).
+		if p.Stage != "" && existing.Stage == "" {
+			c.pendingReads[i].Stage = p.Stage
+			c.bumpStagePendingReadsLocked(p.Stage)
+		}
 		return
 	}
 	c.pendingReads = append(c.pendingReads, p)
+	if p.Stage != "" {
+		c.bumpStagePendingReadsLocked(p.Stage)
+	}
+}
+
+// bumpStagePendingReadsLocked is the lock-held PerStage[Stage].PendingReads
+// bumper called from addPendingReadLocked. Kept separate so the
+// dedup-vs-fresh-insert paths share the same accounting and a future
+// reader can grep one place for the write.
+func (c *EvidenceClosure) bumpStagePendingReadsLocked(stage string) {
+	if stage == "" {
+		return
+	}
+	if c.stats.PerStage == nil {
+		c.stats.PerStage = make(map[string]StageStats, 4)
+	}
+	s := c.stats.PerStage[stage]
+	s.PendingReads++
+	c.stats.PerStage[stage] = s
 }
 
 // PendingReads returns a defensive copy of the queue.
@@ -1380,6 +1414,18 @@ func (c *EvidenceClosure) AddRepair(r RepairDirective) {
 	}
 	c.repairs = append(c.repairs, r)
 	c.stats.RepairsRaised++
+	// A.1+E.1 stage attribution: when the directive carries an explicit
+	// Stage, eagerly bump PerStage[Stage].Repairs so StageHealthSnapshot
+	// no longer needs to derive. Empty Stage preserves the legacy
+	// derive-on-read behaviour for un-migrated callers.
+	if r.Stage != "" {
+		if c.stats.PerStage == nil {
+			c.stats.PerStage = make(map[string]StageStats, 4)
+		}
+		s := c.stats.PerStage[r.Stage]
+		s.Repairs++
+		c.stats.PerStage[r.Stage] = s
+	}
 	// Per-kind counter bumps: each RepairKind has its own column in
 	// the CGEC summary line so operators can tell at a glance which
 	// enforcer family is driving retries. New kinds added to
@@ -1397,12 +1443,16 @@ func (c *EvidenceClosure) AddRepair(r RepairDirective) {
 			// survives the AddRepair → addPendingReadLocked hop.
 			// Without this, any caller wiring up surgical demand via
 			// AddRepair instead of AddPendingRead would silently
-			// fall back to a full-file read in runForcedReads.
+			// fall back to a full-file read in runForcedReads. Stage
+			// (A.1+E.1) is similarly propagated so the bridged
+			// PendingRead's PerStage bump matches the originating
+			// directive's stage attribution.
 			c.addPendingReadLocked(PendingRead{
 				File:       f,
 				Rationale:  r.Rationale,
 				Origin:     origin,
 				LineRanges: append([]LineRange(nil), r.LineRanges...),
+				Stage:      r.Stage,
 			})
 		}
 	case RepairEmitEvidence:
@@ -1505,6 +1555,36 @@ func (c *EvidenceClosure) ViolationsByKind(kind ViolationKind) []Violation {
 	return out
 }
 
+// DistinctViolationKindCount (A.2, 2026-05-02) returns the number
+// of unique ViolationKind values in the ledger. Block 1 audit
+// established that the yield-kill gate's ViolationsLogged axis was
+// effectively dead because AppendViolation auto-bumps the global
+// counter once per Append. Distinct-kind cardinality recovers a
+// meaningful axis: the first AppendViolation of a kind raises the
+// count from N→N+1, but the second Append of the SAME kind leaves
+// it at N+1. So a stuck "same kind keeps re-firing" pathology now
+// yields zero on this axis, and the yield-kill gate fires correctly.
+//
+// The cost is one O(distinct-kinds) walk per snapshot — bounded by
+// AllViolationKinds() ≈ 18 entries today. Cheaper than a full
+// O(violations) walk (typical violations slice ≤ 20 entries per Run
+// but can reach 100+ for self-consistency-heavy answers).
+func (c *EvidenceClosure) DistinctViolationKindCount() int {
+	if c == nil {
+		return 0
+	}
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	if len(c.violations) == 0 {
+		return 0
+	}
+	seen := make(map[ViolationKind]struct{}, len(c.violations))
+	for _, v := range c.violations {
+		seen[v.Kind] = struct{}{}
+	}
+	return len(seen)
+}
+
 // ViolationStageTally returns a histogram (stage → event count) over
 // the entire ledger, keyed by Violation.Stage. Empty Stage entries
 // are bucketed under "" so callers can detect "writers that forgot
@@ -1587,13 +1667,20 @@ func (c *EvidenceClosure) StageHealthSnapshot() map[string]StageStats {
 	for stage, st := range c.stats.PerStage {
 		out[stage] = st
 	}
-	// PendingReads are derived at read time: each PendingRead.Origin
-	// names the enforcer that emitted the read demand, which we map
-	// to a stage via pendingReadDerivedStage. Reviewers wanting a
-	// different stage attribution should issue an AppendViolation
-	// at their preferred stage instead of relying on PendingRead
-	// derivation.
+	// PendingReads attribution (A.1+E.1, 2026-05-02 update):
+	//
+	// 1) Entries with explicit p.Stage have already been counted at
+	//    AddPendingRead time via bumpStagePendingReadsLocked, so they
+	//    are present in c.stats.PerStage above. Skip here to avoid
+	//    double-count.
+	// 2) Entries with empty p.Stage (legacy callers not yet migrated)
+	//    fall through to the historical pendingReadDerivedStage
+	//    Origin-string mapping. This branch shrinks as callers adopt
+	//    the explicit Stage field.
 	for _, p := range c.pendingReads {
+		if p.Stage != "" {
+			continue // already accounted in PerStage
+		}
 		stage := pendingReadDerivedStage(p)
 		s := out[stage]
 		s.PendingReads++
@@ -1834,6 +1921,31 @@ func (c *EvidenceClosure) BumpPreCompleteDowngrades(n int) {
 }
 func (c *EvidenceClosure) BumpForcedReads(n int) {
 	c.bumpStat(func(s *ClosureStats) { s.ForcedReads += n })
+}
+
+// BumpForcedReadsForStage (A.1+E.1, 2026-05-02) bumps the global
+// ForcedReads counter AND attributes the bump to a named stage's
+// PerStage[stage].ForcedReads. cgec_enforcers.go's runForcedReads
+// loop calls this with each PendingRead's Stage so the stage breakdown
+// is accurate without snapshot-time derivation. Empty stage degrades
+// to BumpForcedReads — the global counter still moves but the
+// PerStage row is left alone.
+func (c *EvidenceClosure) BumpForcedReadsForStage(stage string, n int) {
+	if c == nil || n == 0 {
+		return
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.stats.ForcedReads += n
+	if stage == "" {
+		return
+	}
+	if c.stats.PerStage == nil {
+		c.stats.PerStage = make(map[string]StageStats, 4)
+	}
+	s := c.stats.PerStage[stage]
+	s.ForcedReads += n
+	c.stats.PerStage[stage] = s
 }
 func (c *EvidenceClosure) BumpStallSoftHits(n int) {
 	c.bumpStat(func(s *ClosureStats) { s.StallSoftHits += n })

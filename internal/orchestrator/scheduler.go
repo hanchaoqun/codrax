@@ -127,9 +127,14 @@ type graphState struct {
 //     the next window sees a materially different ReadSet.
 //   - ScannedSetSize: ranker pulled new files into scope (e.g. R5
 //     ghost-anchor promotion in G7).
-//   - ViolationsLogged: enforcers surfaced new structured
-//     diagnostics (F1 ledger entries). Even without I/O, ledger
-//     drift means the aggregator / patcher has new fuel.
+//   - DistinctViolationKindCount (A.2 audit, 2026-05-02): replaces
+//     the historical ViolationsLogged scalar with a cardinality
+//     measure of unique kinds in the ledger. Reason: ViolationsLogged
+//     auto-bumps on every AppendViolation, so the "same kind keeps
+//     re-firing" pathology trivially beat MinRetryYield=1 and the
+//     kill gate became unreachable. Distinct-kind count grows ONLY
+//     when a NEW kind appears, so re-firing the same kind yields
+//     zero and the kill gate fires correctly.
 //   - PatchesApplied: the F3 IRPatchEngine (G2) reconciled fields.
 //     Any patch by definition resets downstream evaluation.
 //
@@ -137,10 +142,10 @@ type graphState struct {
 // default MinRetryYield=1 threshold; callers can raise the
 // threshold to require multiple independent signals.
 type yieldSnapshot struct {
-	ForcedReads      int
-	ScannedSetSize   int
-	ViolationsLogged int
-	PatchesApplied   int
+	ForcedReads                int
+	ScannedSetSize             int
+	DistinctViolationKindCount int
+	PatchesApplied             int
 }
 
 // nodeBlock carries a node's failed criteria into retry hints.
@@ -358,9 +363,9 @@ func captureYieldSnapshot(closure *types.EvidenceClosure) yieldSnapshot {
 	}
 	stats := closure.Stats()
 	return yieldSnapshot{
-		ForcedReads:      stats.ForcedReads,
-		ScannedSetSize:   len(closure.ScannedSet()),
-		ViolationsLogged: stats.ViolationsLogged,
+		ForcedReads:                stats.ForcedReads,
+		ScannedSetSize:             len(closure.ScannedSet()),
+		DistinctViolationKindCount: closure.DistinctViolationKindCount(),
 		// PatchesApplied is wired via the F3 patcher (G2); for G4
 		// we leave it zero so the delta still returns meaningful
 		// signal from the other three axes.
@@ -374,18 +379,14 @@ func captureYieldSnapshot(closure *types.EvidenceClosure) yieldSnapshot {
 // information on any axis — exactly the condition F5's kill gate
 // watches for.
 //
-// Block 1 audit (2026-05-02): with the closure auto-bumping
-// ViolationsLogged on every AppendViolation, this axis grows ≥1
-// per contract.Check fail — making the kill gate effectively
-// unreachable when MinRetryYield=1 (the default). The real
-// retry-loop bounds in production are RetryBudget (overall),
-// RetryBudgetByKind (per-violation-kind), and
-// MaxUpstreamFallbacksPerRun (selective-fallback ceiling, default
-// 2). Operators wanting yield-kill to catch zero-progress retries
-// should raise MinRetryYield, OR yield can be re-defined in a
-// future commit to count DISTINCT violation kinds rather than
-// total LedgerEntries — that would re-enable kill on "same
-// kind keeps re-firing" pathology.
+// A.2 audit followup (2026-05-02): the historical ViolationsLogged
+// axis was retired in favour of DistinctViolationKindCount.
+// AppendViolation auto-bumped the global counter, so MinRetryYield=1
+// was unreachable for any pathology that re-fired the same kind.
+// Distinct-kind count grows ONLY on a new kind, so the kill gate now
+// fires correctly when the same kind re-fires across windows. Other
+// axes (ForcedReads, ScannedSetSize, PatchesApplied) keep their
+// "any positive delta" semantics.
 func yieldDelta(prev, now yieldSnapshot) int {
 	d := 0
 	if now.ForcedReads > prev.ForcedReads {
@@ -394,8 +395,8 @@ func yieldDelta(prev, now yieldSnapshot) int {
 	if now.ScannedSetSize > prev.ScannedSetSize {
 		d += now.ScannedSetSize - prev.ScannedSetSize
 	}
-	if now.ViolationsLogged > prev.ViolationsLogged {
-		d += now.ViolationsLogged - prev.ViolationsLogged
+	if now.DistinctViolationKindCount > prev.DistinctViolationKindCount {
+		d += now.DistinctViolationKindCount - prev.DistinctViolationKindCount
 	}
 	if now.PatchesApplied > prev.PatchesApplied {
 		d += now.PatchesApplied - prev.PatchesApplied

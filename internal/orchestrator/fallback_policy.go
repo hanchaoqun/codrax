@@ -154,7 +154,14 @@ type FallbackPolicy map[types.ViolationKind]FallbackTarget
 //     emit path.
 //
 //   ViolPlanCritic / Reflector / AnswerReviewer (Block 1 reviewer
-//     kinds) → FailLoud (informational; they should not drive retries)
+//     kinds) → FailLoud — IMPORTANT: this routing only ACTIVATES
+//     when the operator promotes the kind to strict via
+//     pipeline_contract_strict_kinds. Under default SOFT
+//     classification (defaultSoftKinds in contract_check.go) these
+//     violations are recorded for telemetry but do NOT flip
+//     res.Passed=false, so they never reach the fallback switch.
+//     The FailLoud target is the safety net for operators who
+//     specifically want reviewer signals to halt the Run.
 //
 //   Block 2 Intent oracle kinds:
 //     ViolIntentTraceShallow      → BackToExplore

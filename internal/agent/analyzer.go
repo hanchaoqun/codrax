@@ -264,9 +264,27 @@ func composeCoherenceRetryHint(report types.GateReport) string {
 // prose the LLM can act on. Pre-2026-04-30 the raw Detail flowed
 // straight to the LLM hint and the codes confused models that had
 // no internal documentation context.
+//
+// B.5 audit followup (2026-05-02): the gate may now emit multi-rule
+// details joined by " | " when ≥2 rules fire (e.g. R1.4 + R1.5 on
+// the same IR). Strip the prefix from EACH segment independently and
+// rejoin so the LLM sees plain prose for every diagnostic.
 func plainCoherenceDetail(detail string) string {
 	d := strings.TrimSpace(detail)
-	// Strip leading code references like "R1.2 predicate_contradiction:".
+	// B.5 multi-segment path: split on " | ", strip each piece, rejoin.
+	// Single-segment path is byte-identical to the historical loop —
+	// strings.Split on a string without " | " returns a 1-element slice.
+	segments := strings.Split(d, " | ")
+	for i, seg := range segments {
+		segments[i] = stripCoherencePrefix(strings.TrimSpace(seg))
+	}
+	return strings.Join(segments, " | ")
+}
+
+// stripCoherencePrefix is the per-segment helper for plainCoherenceDetail.
+// Kept separate so the multi-segment path doesn't repeat the prefix list
+// and a future rule addition (R1.6 / R2.3 / etc.) lands in one place.
+func stripCoherencePrefix(d string) string {
 	for _, prefix := range []string{
 		"R1.1 domain_divergence: ",
 		"R1.2 predicate_contradiction: ",
@@ -322,6 +340,20 @@ func buildAnalyzerRepoOverview(ctx *types.AgentContext, objective string) (strin
 	if err != nil {
 		logging.Debug("[analyzer] repo overview unavailable: %v", err)
 		return "", nil
+	}
+	// C.1 audit followup (2026-05-02): if strict extraction came up
+	// empty (purely-CJK question, all-lowercase short tokens, or
+	// concept-only prose), fall back to the repomap-existence-gated
+	// tokenizer. This admits any token that resolves to a real
+	// Tier-1/2 symbol via NormalizeCodeKey lookup. Without this,
+	// "what does this repo do" / "解释一下 explorer 模块的工作流程"
+	// degrades to the un-ranked general overview, which forces the
+	// LLM to emit concept-word entities downstream.
+	if len(entities) == 0 {
+		if fallback := extractQuestionEntitiesFallback(objective, graph); len(fallback) > 0 {
+			entities = fallback
+			query = strings.Join(entities, " ")
+		}
 	}
 	caution := renderAnalyzerOverviewPrescanCaution(graph, objective)
 

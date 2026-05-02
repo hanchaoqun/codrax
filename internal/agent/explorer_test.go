@@ -6929,3 +6929,112 @@ func TestShouldSeedTurnAStrictEvidenceFromRanked_CapabilitySurface(t *testing.T)
 		t.Fatal("ordinary non-mechanism questions should not seed strict evidence fallback")
 	}
 }
+
+// TestExtractQuestionEntitiesFallback_RecognisesRepoSymbolViaCJKWrapper pins
+// the C.1 audit followup contract (2026-05-02): a question wrapped in CJK
+// surrounding text that mentions an existing repo symbol must surface that
+// symbol via repomap-existence-gating, even though the strict
+// CamelCase/snake_case shape gate of extractQuestionEntities rejects the
+// surrounding CJK.
+func TestExtractQuestionEntitiesFallback_RecognisesRepoSymbolViaCJKWrapper(t *testing.T) {
+	graph := &repomap.Graph{
+		SymbolDefs: map[string][]*repomap.Symbol{
+			"explorerEvaluator": {{Name: "explorerEvaluator", Kind: "struct", File: "internal/agent/explorer.go", Line: 26}},
+			"BaseAgent":         {{Name: "BaseAgent", Kind: "struct", File: "internal/agent/agent.go", Line: 1}},
+		},
+	}
+	got := extractQuestionEntitiesFallback("解释一下 explorerEvaluator 是怎么工作的", graph)
+	if len(got) == 0 || got[0] != "explorerEvaluator" {
+		t.Fatalf("expected ['explorerEvaluator']; got %v", got)
+	}
+}
+
+// TestExtractQuestionEntitiesFallback_DropsNonExistentTokens pins the
+// repomap-existence gate: tokens that don't resolve to any symbol must
+// be filtered out so concept-only prose (R1.5 entity_unresolvable
+// trigger) doesn't leak through.
+func TestExtractQuestionEntitiesFallback_DropsNonExistentTokens(t *testing.T) {
+	graph := &repomap.Graph{
+		SymbolDefs: map[string][]*repomap.Symbol{
+			"BaseAgent": {{Name: "BaseAgent", File: "internal/agent/agent.go", Line: 1}},
+		},
+	}
+	got := extractQuestionEntitiesFallback("retry plumbing strategy explained", graph)
+	if len(got) != 0 {
+		t.Errorf("non-existent tokens should be dropped; got %v", got)
+	}
+}
+
+// TestExtractQuestionEntitiesFallback_NormalizesCaseAndUnderscores pins the
+// secondary lookup path: a question token that doesn't case-match a real
+// symbol should still resolve when NormalizeCodeKey collapses
+// case/underscore/hyphen differences.
+func TestExtractQuestionEntitiesFallback_NormalizesCaseAndUnderscores(t *testing.T) {
+	graph := &repomap.Graph{
+		SymbolDefs: map[string][]*repomap.Symbol{
+			"buildAnalyzerRepoOverview": {{Name: "buildAnalyzerRepoOverview", File: "internal/agent/analyzer.go", Line: 299}},
+		},
+	}
+	got := extractQuestionEntitiesFallback("how does build_analyzer_repo_overview work?", graph)
+	if len(got) == 0 || got[0] != "buildAnalyzerRepoOverview" {
+		t.Fatalf("snake_case query should resolve to camelCase symbol via NormalizeCodeKey; got %v", got)
+	}
+}
+
+// TestExtractQuestionEntitiesFallback_ShortTokenFloor pins the 3-rune
+// noise floor: 1-2 character tokens (English articles, single Chinese
+// chars) must be dropped even if they happen to match a symbol prefix.
+func TestExtractQuestionEntitiesFallback_ShortTokenFloor(t *testing.T) {
+	graph := &repomap.Graph{
+		SymbolDefs: map[string][]*repomap.Symbol{
+			"a":  {{Name: "a", File: "x.go", Line: 1}},
+			"is": {{Name: "is", File: "y.go", Line: 1}},
+		},
+	}
+	got := extractQuestionEntitiesFallback("a is", graph)
+	if len(got) != 0 {
+		t.Errorf("tokens shorter than 3 runes should be dropped (noise floor); got %v", got)
+	}
+}
+
+// TestExtractQuestionEntitiesFallback_EmptyInputs pins the nil-safe contract:
+// nil graph / empty question / no resolution all return nil so the
+// caller's "no fallback signal → general overview" degradation path is
+// preserved.
+func TestExtractQuestionEntitiesFallback_EmptyInputs(t *testing.T) {
+	if got := extractQuestionEntitiesFallback("anything", nil); got != nil {
+		t.Errorf("nil graph must return nil; got %v", got)
+	}
+	if got := extractQuestionEntitiesFallback("   ", &repomap.Graph{SymbolDefs: map[string][]*repomap.Symbol{}}); got != nil {
+		t.Errorf("empty question must return nil; got %v", got)
+	}
+}
+
+// TestTokenizeQuestionCJKAware_BoundaryRules pins the tokenization
+// contract: CJK characters drop, ASCII whitespace + punctuation split,
+// CamelCase ASCII tokens stay intact, dotted identifiers split on '.'.
+func TestTokenizeQuestionCJKAware_BoundaryRules(t *testing.T) {
+	cases := []struct {
+		in   string
+		want []string
+	}{
+		{"explorerEvaluator", []string{"explorerEvaluator"}},
+		{"a b c", []string{"a", "b", "c"}},
+		{"foo.bar", []string{"foo", "bar"}},
+		{"解释一下 explorerEvaluator", []string{"explorerEvaluator"}},
+		{"foo, bar; baz!", []string{"foo", "bar", "baz"}},
+		{"关于(explorerEvaluator)的问题", []string{"explorerEvaluator"}},
+	}
+	for _, tc := range cases {
+		got := tokenizeQuestionCJKAware(tc.in)
+		if len(got) != len(tc.want) {
+			t.Errorf("tokenize(%q) len=%d want=%d (got=%v)", tc.in, len(got), len(tc.want), got)
+			continue
+		}
+		for i, w := range tc.want {
+			if got[i] != w {
+				t.Errorf("tokenize(%q)[%d]=%q want=%q (full=%v)", tc.in, i, got[i], w, got)
+			}
+		}
+	}
+}

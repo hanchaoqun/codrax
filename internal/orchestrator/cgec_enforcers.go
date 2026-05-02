@@ -162,6 +162,7 @@ func (o *Orchestrator) runForcedReads() int {
 
 	rf := &tool.ReadFile{}
 	success := 0
+	successByStage := map[string]int{}
 	for _, p := range toRead {
 		// Surgical multi-range path. When the demanding gate populated
 		// PendingRead.LineRanges (e.g. multi-path symbol-anchored
@@ -288,6 +289,11 @@ func (o *Orchestrator) runForcedReads() int {
 		readSet[p.File] = true
 		closure.ClearPendingReadFor(p.File)
 		success++
+		// A.1+E.1: per-stage attribution so PerStage[Stage].ForcedReads
+		// is accurate without snapshot-time derivation. Empty p.Stage
+		// (legacy emitters) flows into successByStage[""] and is folded
+		// into the global counter alone via BumpForcedReads below.
+		successByStage[p.Stage]++
 		if len(p.LineRanges) > 0 {
 			logging.Info("[CGEC] E2 surgical forced-read: file=%s origin=%s ranges=%d successful_reads=%d",
 				p.File, p.Origin, len(p.LineRanges), len(perRangeResults))
@@ -297,7 +303,22 @@ func (o *Orchestrator) runForcedReads() int {
 	}
 	if success > 0 {
 		closure.SetReadSet(readSet)
-		closure.BumpForcedReads(success)
+		// A.1+E.1: when any read carried explicit Stage attribution use
+		// the per-stage bumper for those reads; legacy reads (Stage="")
+		// fall back to the un-attributed global bumper. The total stays
+		// consistent: sum of stage-attributed bumps + the empty-stage
+		// global bump = success.
+		legacyCount := 0
+		for stage, n := range successByStage {
+			if stage == "" {
+				legacyCount += n
+				continue
+			}
+			closure.BumpForcedReadsForStage(stage, n)
+		}
+		if legacyCount > 0 {
+			closure.BumpForcedReads(legacyCount)
+		}
 		o.emit(render.Event{
 			Kind:      render.EventAgentReasoning,
 			Timestamp: time.Now(),

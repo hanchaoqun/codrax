@@ -12,6 +12,7 @@ import (
 
 	"github.com/hanchaoqun/codrax/internal/analysis/dataflow"
 	"github.com/hanchaoqun/codrax/internal/analysis/declarative"
+	"github.com/hanchaoqun/codrax/internal/analysis/normalizer"
 	"github.com/hanchaoqun/codrax/internal/analysis/subject"
 	"github.com/hanchaoqun/codrax/internal/llm"
 	"github.com/hanchaoqun/codrax/internal/logging"
@@ -12266,6 +12267,118 @@ func extractQuestionEntities(question string) []string {
 		}
 	})
 	return entities
+}
+
+// extractQuestionEntitiesFallback (C.1 audit followup 2026-05-02) is
+// the fallback path for purely-CJK or all-lowercase-short-word
+// questions where extractQuestionEntities returns empty (the strict
+// CamelCase / dotted shape gates reject them). Without this
+// fallback, buildAnalyzerRepoOverview (analyzer.go:316) degrades to
+// the un-ranked general overview view, which means the analyzer LLM
+// gets no question-relevant symbol candidates and is forced to emit
+// concept-word entities ("explorer", "retry") that then trigger
+// downstream R1.5 entity_unresolvable rejection.
+//
+// Strategy: tokenize the question (whitespace + CJK boundary
+// aware), normalize each token via NormalizeCodeKey
+// (case+underscore+hyphen insensitive), and look up against
+// graph.SymbolDefs. Token-shape gating is REPLACED by
+// repomap-existence-gating: any token that maps to a real Tier-1/2
+// symbol is admitted; anything else is dropped. This is structural
+// (no keyword tables, red line §5.2) — the signal source is the
+// repo's own symbol surface as observed by tree-sitter / extractors.
+//
+// Token noise floor: NormalizeCodeKey result must be ≥3 runes to
+// admit. This drops 1-2-character token noise ("a", "is", "如" etc).
+//
+// Returns nil when graph is nil OR no token resolves to a known
+// symbol. Caller should treat nil as "no fallback signal" and
+// degrade to general overview as before.
+func extractQuestionEntitiesFallback(question string, graph *repomap.Graph) []string {
+	if graph == nil || strings.TrimSpace(question) == "" {
+		return nil
+	}
+	tokens := tokenizeQuestionCJKAware(question)
+	seen := make(map[string]bool, len(tokens))
+	var out []string
+	for _, tok := range tokens {
+		canon := normalizer.NormalizeCodeKey(tok)
+		if len([]rune(canon)) < 3 {
+			continue
+		}
+		// Direct hit on the repo symbol surface (case-sensitive).
+		if defs, ok := graph.SymbolDefs[tok]; ok && len(defs) > 0 {
+			if !seen[tok] {
+				seen[tok] = true
+				out = append(out, tok)
+			}
+			continue
+		}
+		// Case/underscore-insensitive secondary lookup. Walks
+		// SymbolDefs once per miss; bounded by the dedup map so
+		// the same fallback hit doesn't re-walk.
+		for name, defs := range graph.SymbolDefs {
+			if len(defs) == 0 {
+				continue
+			}
+			if normalizer.NormalizeCodeKey(name) == canon {
+				if !seen[name] {
+					seen[name] = true
+					out = append(out, name)
+				}
+				break
+			}
+		}
+	}
+	return out
+}
+
+// tokenizeQuestionCJKAware splits a question string on:
+//   - ASCII whitespace
+//   - ASCII punctuation (`.,;:!?`(){}[]<>"'\\``)
+//   - CJK character boundaries (each CJK rune is its own token —
+//     they are word boundaries in Chinese / Japanese / Korean since
+//     those languages don't separate words by spaces)
+//
+// CJK runes are dropped from the output (they cannot match any
+// repo symbol; they're effectively just word boundaries here).
+// ASCII tokens of any length are emitted; the caller's NormalizeCodeKey
+// length floor handles noise.
+func tokenizeQuestionCJKAware(s string) []string {
+	var out []string
+	var cur strings.Builder
+	flush := func() {
+		if cur.Len() > 0 {
+			out = append(out, cur.String())
+			cur.Reset()
+		}
+	}
+	for _, r := range s {
+		switch {
+		case r == ' ' || r == '\t' || r == '\n' || r == '\r':
+			flush()
+		case r == '.' || r == ',' || r == ';' || r == ':' || r == '!' || r == '?' ||
+			r == '(' || r == ')' || r == '{' || r == '}' || r == '[' || r == ']' ||
+			r == '<' || r == '>' || r == '"' || r == '\'' || r == '`' || r == '\\' ||
+			r == '/':
+			flush()
+		case r >= 0x4E00 && r <= 0x9FFF, // CJK Unified
+			r >= 0x3400 && r <= 0x4DBF,    // CJK Extension A
+			r >= 0x3000 && r <= 0x303F,    // CJK Symbols
+			r >= 0x3040 && r <= 0x309F,    // Hiragana
+			r >= 0x30A0 && r <= 0x30FF,    // Katakana
+			r >= 0xAC00 && r <= 0xD7AF,    // Hangul
+			r == '。' || r == '，' || r == '、' || r == '；' || r == '：' ||
+			r == '！' || r == '？' ||
+			r == '“' || r == '”' || // " "
+			r == '‘' || r == '’': // ' '
+			flush()
+		default:
+			cur.WriteRune(r)
+		}
+	}
+	flush()
+	return out
 }
 
 // detectDetailListingIntent checks if a question asks for an itemized

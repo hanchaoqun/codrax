@@ -15,19 +15,33 @@ import (
 // the bug-replay harness once G2 lands.
 
 func TestYieldDelta_ComputesAcrossFourAxes(t *testing.T) {
-	prev := yieldSnapshot{ForcedReads: 2, ScannedSetSize: 10, ViolationsLogged: 4, PatchesApplied: 0}
-	now := yieldSnapshot{ForcedReads: 3, ScannedSetSize: 12, ViolationsLogged: 7, PatchesApplied: 1}
+	prev := yieldSnapshot{ForcedReads: 2, ScannedSetSize: 10, DistinctViolationKindCount: 4, PatchesApplied: 0}
+	now := yieldSnapshot{ForcedReads: 3, ScannedSetSize: 12, DistinctViolationKindCount: 7, PatchesApplied: 1}
 	d := yieldDelta(prev, now)
-	// 1 (ForcedReads) + 2 (ScannedSet) + 3 (Violations) + 1 (Patches) = 7
+	// 1 (ForcedReads) + 2 (ScannedSet) + 3 (DistinctKinds) + 1 (Patches) = 7
 	if d != 7 {
 		t.Errorf("yieldDelta = %d, want 7 (sum of four axis increments)", d)
 	}
 }
 
 func TestYieldDelta_ZeroWhenNothingChanges(t *testing.T) {
-	snap := yieldSnapshot{ForcedReads: 5, ScannedSetSize: 20, ViolationsLogged: 10}
+	snap := yieldSnapshot{ForcedReads: 5, ScannedSetSize: 20, DistinctViolationKindCount: 10}
 	if d := yieldDelta(snap, snap); d != 0 {
 		t.Errorf("yieldDelta = %d, want 0 (no-op window)", d)
+	}
+}
+
+// TestYieldDelta_SameKindRefireYieldsZero pins the A.2 audit fix
+// (2026-05-02): the yield-kill gate must fire when the same
+// ViolationKind keeps re-firing across windows. Pre-A.2, the
+// ViolationsLogged scalar grew on every Append, so re-firing a single
+// kind defeated MinRetryYield=1. After A.2, DistinctViolationKindCount
+// stays flat and the kill gate sees zero progress.
+func TestYieldDelta_SameKindRefireYieldsZero(t *testing.T) {
+	prev := yieldSnapshot{DistinctViolationKindCount: 1}
+	now := yieldSnapshot{DistinctViolationKindCount: 1} // same kind re-fired N times: still 1 distinct
+	if d := yieldDelta(prev, now); d != 0 {
+		t.Errorf("yieldDelta = %d, want 0 (same kind re-firing must yield zero)", d)
 	}
 }
 

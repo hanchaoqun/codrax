@@ -111,6 +111,105 @@ func TestReconcileSemanticPredicates(t *testing.T) {
 		}
 	})
 
+	t.Run("category enumeration with single exact target keeps cross component (B.4)", func(t *testing.T) {
+		// Pre-B.4 the rule 1 auto-demote would flip IsCrossComponent=false
+		// because exact-target=1 + SubTopics=[] + !IsRelationalLookup +
+		// Intent != Trace. But IsCategoryEnumeration is an explicit
+		// multi-axis signal — "what kinds of X" iterates across all
+		// subtypes / categorisations of X and the answer spans multiple
+		// component implementations. Reconcile must now preserve
+		// IsCrossComponent=true so the rest of the pipeline (complexity,
+		// shape selection, ranker boosts) sees the multi-axis signal.
+		rm := types.RequestModel{
+			RawRequest: "what kinds of agents extend BaseAgent?",
+			Intent:     types.IntentEnumerate,
+			AnalyzerHints: types.AnalyzerHints{
+				Kind:         "list_of_symbols",
+				ExactTargets: []string{"BaseAgent"},
+			},
+			Predicates: types.SemanticPredicates{
+				IsCrossComponent:      true,
+				IsCategoryEnumeration: true,
+			},
+		}
+		got, reason := reconcileSemanticPredicates(rm)
+		if !got.IsCrossComponent {
+			t.Fatalf("category enumeration must preserve IsCrossComponent=true; got false reason=%q", reason)
+		}
+		if reason != "" {
+			t.Fatalf("no demotion expected; got reason=%q", reason)
+		}
+	})
+
+	t.Run("count question with single exact target keeps cross component (B.4)", func(t *testing.T) {
+		// IsCountQuestion by definition aggregates across multiple source
+		// units → the cross-aggregation IS the cross-component dimension
+		// even when a single named target appears in the question.
+		rm := types.RequestModel{
+			RawRequest: "how many tools call helper X?",
+			Intent:     types.IntentEnumerate,
+			AnalyzerHints: types.AnalyzerHints{
+				Kind:         "scalar",
+				ExactTargets: []string{"X"},
+			},
+			Predicates: types.SemanticPredicates{
+				IsCrossComponent: true,
+				IsCountQuestion:  true,
+			},
+		}
+		got, reason := reconcileSemanticPredicates(rm)
+		if !got.IsCrossComponent {
+			t.Fatalf("count question must preserve IsCrossComponent=true; got false reason=%q", reason)
+		}
+		if reason != "" {
+			t.Fatalf("no demotion expected; got reason=%q", reason)
+		}
+	})
+
+	t.Run("history lookup with single exact target keeps cross component (B.4)", func(t *testing.T) {
+		// IsHistoryLookup → VCS-metadata answer crossing commits / authors;
+		// the history axis is orthogonal to the named target.
+		rm := types.RequestModel{
+			RawRequest: "when was function X last touched?",
+			Intent:     types.IntentExplain,
+			AnalyzerHints: types.AnalyzerHints{
+				Kind:         "history",
+				ExactTargets: []string{"X"},
+			},
+			Predicates: types.SemanticPredicates{
+				IsCrossComponent: true,
+				IsHistoryLookup:  true,
+			},
+		}
+		got, reason := reconcileSemanticPredicates(rm)
+		if !got.IsCrossComponent {
+			t.Fatalf("history lookup must preserve IsCrossComponent=true; got false reason=%q", reason)
+		}
+		if reason != "" {
+			t.Fatalf("no demotion expected; got reason=%q", reason)
+		}
+	})
+
+	t.Run("signalsExplicitMultiAxis helper covers all three signals (B.4)", func(t *testing.T) {
+		if signalsExplicitMultiAxis(types.SemanticPredicates{}) {
+			t.Errorf("zero-value predicates must NOT be multi-axis")
+		}
+		if !signalsExplicitMultiAxis(types.SemanticPredicates{IsCategoryEnumeration: true}) {
+			t.Errorf("IsCategoryEnumeration must be multi-axis")
+		}
+		if !signalsExplicitMultiAxis(types.SemanticPredicates{IsCountQuestion: true}) {
+			t.Errorf("IsCountQuestion must be multi-axis")
+		}
+		if !signalsExplicitMultiAxis(types.SemanticPredicates{IsHistoryLookup: true}) {
+			t.Errorf("IsHistoryLookup must be multi-axis")
+		}
+		// IsRelationalLookup is intentionally NOT folded into the helper —
+		// rule 1 checks it on its own line for separate audit-log signal.
+		if signalsExplicitMultiAxis(types.SemanticPredicates{IsRelationalLookup: true}) {
+			t.Errorf("IsRelationalLookup must NOT be folded into signalsExplicitMultiAxis (separate concern)")
+		}
+	})
+
 	t.Run("multi-topic trace keeps cross component", func(t *testing.T) {
 		rm := types.RequestModel{
 			RawRequest:     "X 是怎么一路调用到 Y 的？同时 Z 又是怎么接进去的？",

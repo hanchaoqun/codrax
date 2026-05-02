@@ -87,16 +87,19 @@ func checkSubtopicCoherence(ir *types.AnalysisIR, resolver normalizer.SymbolReso
 	rm := ir.RequestModel
 	nSub := len(rm.SubTopics)
 
-	// R1.1 — Domain divergence.
+	// B.5 audit followup (2026-05-02): instead of returning on the
+	// first failing rule (which hid R1.4 behind R1.5 when both fired),
+	// collect every triggering detail and surface them together. The
+	// LLM then sees both diagnostics on one retry and can repair the
+	// IR in one emit instead of bouncing between rules.
+	var details []string
 	domains := extractDistinctTermDomains(rm.TermGraph)
+
+	// R1.1 — Domain divergence.
 	if len(domains) >= 2 && nSub <= 1 {
-		return types.GateCheck{
-			Name:   "subtopic_coherence",
-			Passed: false,
-			Detail: fmt.Sprintf(
-				"R1.1 domain_divergence: TermGraph spans %d distinct repomap-verified domains %s but only %d sub-topic emitted",
-				len(domains), formatDomainList(domains), nSub),
-		}
+		details = append(details, fmt.Sprintf(
+			"R1.1 domain_divergence: TermGraph spans %d distinct repomap-verified domains %s but only %d sub-topic emitted",
+			len(domains), formatDomainList(domains), nSub))
 	}
 
 	// R1.2 — Predicate self-contradiction.
@@ -107,13 +110,9 @@ func checkSubtopicCoherence(ir *types.AnalysisIR, resolver normalizer.SymbolReso
 	// because it discarded the LLM's hard signal — the retry hint
 	// is the correct repair surface.
 	if rm.Predicates.IsCrossComponent && nSub <= 1 {
-		return types.GateCheck{
-			Name:   "subtopic_coherence",
-			Passed: false,
-			Detail: fmt.Sprintf(
-				"R1.2 predicate_contradiction: Predicates.IsCrossComponent=true but only %d sub-topic emitted — re-emit emit_analysis with at least 2 sub_topics (\"cross-component\" implies >=2 components by definition). Each sub_topic.summary names one component (e.g. \"the explorer stage's retry mechanism\"), and sub_topic.entities lists identifiers visible in the analyzer's pre-scan repo_map view that anchor that component. OR if the question is actually single-topic after all, set IsCrossComponent=false explicitly",
-				nSub),
-		}
+		details = append(details, fmt.Sprintf(
+			"R1.2 predicate_contradiction: Predicates.IsCrossComponent=true but only %d sub-topic emitted — re-emit emit_analysis with at least 2 sub_topics (\"cross-component\" implies >=2 components by definition). Each sub_topic.summary names one component (e.g. \"the explorer stage's retry mechanism\"), and sub_topic.entities lists identifiers visible in the analyzer's pre-scan repo_map view that anchor that component. OR if the question is actually single-topic after all, set IsCrossComponent=false explicitly",
+			nSub))
 	}
 
 	// R1.3 — Sub-topic entity orphan.
@@ -121,13 +120,9 @@ func checkSubtopicCoherence(ir *types.AnalysisIR, resolver normalizer.SymbolReso
 		subEnts := flattenSubTopicEntities(rm.SubTopics)
 		if len(subEnts) > 0 {
 			if !anyOverlap(subEnts, rm.AnalyzerHints.PrimaryEntities) {
-				return types.GateCheck{
-					Name:   "subtopic_coherence",
-					Passed: false,
-					Detail: fmt.Sprintf(
-						"R1.3 entity_orphan: sub-topic entities %s share no element with primary entities %s",
-						formatStringList(subEnts), formatStringList(rm.AnalyzerHints.PrimaryEntities)),
-				}
+				details = append(details, fmt.Sprintf(
+					"R1.3 entity_orphan: sub-topic entities %s share no element with primary entities %s",
+					formatStringList(subEnts), formatStringList(rm.AnalyzerHints.PrimaryEntities)))
 			}
 		}
 	}
@@ -197,12 +192,8 @@ func checkSubtopicCoherence(ir *types.AnalysisIR, resolver normalizer.SymbolReso
 					s.index+1, summaryShort(s.topic.Summary, 40),
 					formatStringList(s.topic.Entities)))
 			}
-			return types.GateCheck{
-				Name:   "subtopic_coherence",
-				Passed: false,
-				Detail: "R1.5 entity_unresolvable: " + strings.Join(unresolved, "; ") +
-					" — these sub-topics' entities don't resolve to any repo symbol, while sibling sub-topics did; the asymmetry suggests one sub-topic was hallucinated. Rename the entities to identifiers visible in the analyzer pre-scan repo_map, or drop the unresolvable sub-topic and merge its content into a sibling",
-			}
+			details = append(details, "R1.5 entity_unresolvable: "+strings.Join(unresolved, "; ")+
+				" — these sub-topics' entities don't resolve to any repo symbol, while sibling sub-topics did; the asymmetry suggests one sub-topic was hallucinated. Rename the entities to identifiers visible in the analyzer pre-scan repo_map, or drop the unresolvable sub-topic and merge its content into a sibling")
 		}
 	}
 
@@ -245,13 +236,21 @@ func checkSubtopicCoherence(ir *types.AnalysisIR, resolver normalizer.SymbolReso
 				collapsed = append(collapsed, d)
 			}
 			sort.Strings(collapsed)
-			return types.GateCheck{
-				Name:   "subtopic_coherence",
-				Passed: false,
-				Detail: fmt.Sprintf(
-					"R1.4 axis_collapse: %d sub-topics all resolve to domain set %s (<=1 distinct domain) under enumeration intent — your sub-topics enumerate values of one axis (e.g. one mode value per sub_topic) rather than independently-answerable questions. Repair by re-emitting emit_analysis ONCE with EITHER (a) sub_topics omitted entirely + answer_shape=list_of_symbols (the downstream finalizer will then emit one symbols[] item per enumerated value, each with file/line/name/kind/rationale — see the answer-document skill for the full schema; this is the natural form for \"what kinds of X exist\" questions), OR (b) sub_topics retained but each sub-topic's entities now span >=2 distinct repomap domains so the question really is multi-axis",
-					nSub, formatDomainList(collapsed)),
-			}
+			details = append(details, fmt.Sprintf(
+				"R1.4 axis_collapse: %d sub-topics all resolve to domain set %s (<=1 distinct domain) under enumeration intent — your sub-topics enumerate values of one axis (e.g. one mode value per sub_topic) rather than independently-answerable questions. Repair by re-emitting emit_analysis ONCE with EITHER (a) sub_topics omitted entirely + answer_shape=list_of_symbols (the downstream finalizer will then emit one symbols[] item per enumerated value, each with file/line/name/kind/rationale — see the answer-document skill for the full schema; this is the natural form for \"what kinds of X exist\" questions), OR (b) sub_topics retained but each sub-topic's entities now span >=2 distinct repomap domains so the question really is multi-axis",
+				nSub, formatDomainList(collapsed)))
+		}
+	}
+
+	if len(details) > 0 {
+		// B.5 multi-rule merge: when ≥2 rules fire, surface every detail
+		// joined by " | " so the LLM sees all diagnostics on one retry.
+		// plainCoherenceDetail's multi-prefix strip (analyzer.go) handles
+		// translating each prefix to plain prose for the LLM hint.
+		return types.GateCheck{
+			Name:   "subtopic_coherence",
+			Passed: false,
+			Detail: strings.Join(details, " | "),
 		}
 	}
 

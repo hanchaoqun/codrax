@@ -1583,6 +1583,27 @@ func collectAllLogFrames(bundle *LogBundle) []LogFrame {
 	return resolved
 }
 
+// intentFrameCap (B.7 audit followup, 2026-05-02) maps the request
+// Intent to the maximum number of artifact frames the drift pipeline
+// will keep. Trace and RootCause questions naturally need deeper
+// frame walks (the answer often hangs off a 30+-frame stack /
+// startup trace), while the default 16-cap remains for explain /
+// config-query / scalar questions that don't need that depth.
+//
+// The B.7 cap is a soft upper bound: log frames go first, then
+// perf stalls, jank, startup — so even at the smallest cap the
+// most informative frames survive. Raising the cap on Trace /
+// RootCause widens the suffix that perf signals get to occupy.
+func intentFrameCap(intent Intent) int {
+	switch intent {
+	case IntentTrace:
+		return 32
+	case IntentRootCause:
+		return 48
+	}
+	return 16
+}
+
 // collectArtifactFrames is the trace-aware counterpart used by the
 // drift-anchor derive path. It merges LogBundle frames (Errors[].Frames)
 // AND synthesised frames from PerfBundle.Stalls so trace-only runs
@@ -1593,8 +1614,13 @@ func collectAllLogFrames(bundle *LogBundle) []LogFrame {
 // Cap mirrors collectDiagramLogFrames (8 total frames) to bound the
 // drift-detection cost on huge traces. Log frames take precedence
 // in the cap order so panic-style log diagnostics stay first.
-func collectArtifactFrames(logBundle *LogBundle, perfBundle *PerfBundle) []LogFrame {
-	frames, _ := collectArtifactFramesWithOrigin(logBundle, perfBundle)
+//
+// B.7 audit followup: the cap is now intent-adaptive via
+// collectArtifactFramesWithOrigin's intent parameter. Existing call
+// sites that have no Intent context pass IntentUnknown which yields
+// the historical 16-cap (byte-identical legacy behaviour).
+func collectArtifactFrames(logBundle *LogBundle, perfBundle *PerfBundle, intent Intent) []LogFrame {
+	frames, _ := collectArtifactFramesWithOrigin(logBundle, perfBundle, intent)
 	return frames
 }
 
@@ -1609,7 +1635,14 @@ func collectArtifactFrames(logBundle *LogBundle, perfBundle *PerfBundle) []LogFr
 // PerfStartup (Mode marker). All artifact-derived signals
 // participate so the drift pipeline doesn't silently drop trace
 // observations whose file/line resolution failed at extraction.
-func collectArtifactFramesWithOrigin(logBundle *LogBundle, perfBundle *PerfBundle) ([]LogFrame, []ClaimOrigin) {
+//
+// B.7 audit followup (2026-05-02): the previously-hardcoded 16-cap
+// is now intent-adaptive via intentFrameCap. Trace=32, RootCause=48,
+// default=16. Empty intent (IntentUnknown) yields the 16 default so
+// existing callers that don't have RequestModel context stay byte-
+// identical to pre-B.7 behaviour.
+func collectArtifactFramesWithOrigin(logBundle *LogBundle, perfBundle *PerfBundle, intent Intent) ([]LogFrame, []ClaimOrigin) {
+	cap := intentFrameCap(intent)
 	resolved := collectAllLogFrames(logBundle)
 	origins := make([]ClaimOrigin, len(resolved))
 	for i := range origins {
@@ -1620,7 +1653,7 @@ func collectArtifactFramesWithOrigin(logBundle *LogBundle, perfBundle *PerfBundl
 	}
 	// PerfStall: typed (Symbol, File?, Line?) — primary perf surface.
 	for i := range perfBundle.Stalls {
-		if len(resolved) >= 16 {
+		if len(resolved) >= cap {
 			break
 		}
 		s := &perfBundle.Stalls[i]
@@ -1638,7 +1671,7 @@ func collectArtifactFramesWithOrigin(logBundle *LogBundle, perfBundle *PerfBundl
 	// from the trace's tracing_mark_write tags. No file/line; symbol-
 	// axis drift detection picks it up.
 	for i := range perfBundle.Janks {
-		if len(resolved) >= 16 {
+		if len(resolved) >= cap {
 			break
 		}
 		j := &perfBundle.Janks[i]
@@ -1652,7 +1685,7 @@ func collectArtifactFramesWithOrigin(logBundle *LogBundle, perfBundle *PerfBundl
 	// PerfStartup: when the trace covers a startup, surface its mode
 	// marker so a question like "is cold-start slow?" sees
 	// PerfStartup.Mode show up in the artifact frame stream.
-	if perfBundle.Startup != nil && len(resolved) < 16 {
+	if perfBundle.Startup != nil && len(resolved) < cap {
 		mode := strings.TrimSpace(perfBundle.Startup.Mode)
 		if mode != "" {
 			resolved = append(resolved, LogFrame{Func: mode + "-startup"})
@@ -1695,8 +1728,12 @@ func CollectLogSourceDriftAnchors(rm RequestModel, bundle *LogBundle, items []Ev
 // merges PerfBundle stalls into the frame source so traces with or
 // without symbolication surface drift symmetrically with logs.
 // BuildAnswerSurfacePlan calls this entry point with both bundles.
+//
+// B.7 audit followup: rm.Intent now drives intentFrameCap, raising
+// the cap to 32 for trace-shaped questions and 48 for root-cause
+// questions where deeper stack walks materially help drift detection.
 func CollectArtifactObservedAnchors(rm RequestModel, logBundle *LogBundle, perfBundle *PerfBundle, items []EvidenceItem) []LogSourceDriftAnchor {
-	out := deriveAnchorsFromArtifacts(logBundle, perfBundle, items, false)
+	out := deriveAnchorsFromArtifacts(logBundle, perfBundle, items, false, rm.Intent)
 	if out == nil {
 		return nil
 	}
@@ -1707,7 +1744,7 @@ func CollectArtifactObservedAnchors(rm RequestModel, logBundle *LogBundle, perfB
 // variant. Same coverage policy as CollectArtifactObservedAnchors,
 // filtered to evidence items whose Authority is non-factual.
 func CollectArtifactSourceDriftAnchors(rm RequestModel, logBundle *LogBundle, perfBundle *PerfBundle, items []EvidenceItem) []LogSourceDriftAnchor {
-	out := deriveAnchorsFromArtifacts(logBundle, perfBundle, items, true)
+	out := deriveAnchorsFromArtifacts(logBundle, perfBundle, items, true, rm.Intent)
 	if out == nil {
 		return nil
 	}
@@ -1720,8 +1757,11 @@ func CollectArtifactSourceDriftAnchors(rm RequestModel, logBundle *LogBundle, pe
 // (by file + tail) to recover ObservedLine, then constructs a
 // LogSourceDriftAnchor. Returns nil when NO items carry projection
 // data (signals: legacy fallback path required).
+//
+// Intent is unknown at this internal call-site (no RequestModel in
+// scope); IntentUnknown yields the historical 16-cap.
 func deriveLogObservedAnchorsFromEvidence(bundle *LogBundle, items []EvidenceItem) []LogSourceDriftAnchor {
-	return deriveAnchorsFromArtifacts(bundle, nil, items, false)
+	return deriveAnchorsFromArtifacts(bundle, nil, items, false, IntentUnknown)
 }
 
 // backfillUnprojectedItemsForDerive synthesises basic Origin /
@@ -1749,17 +1789,21 @@ func deriveLogObservedAnchorsFromEvidence(bundle *LogBundle, items []EvidenceIte
 //     ONLY when the item is a definition anchor and the frame's
 //     same file has at least one frame.Func.
 func backfillUnprojectedItemsForDerive(items []EvidenceItem, bundle *LogBundle) []EvidenceItem {
-	return backfillUnprojectedItemsForDeriveArtifacts(items, bundle, nil)
+	return backfillUnprojectedItemsForDeriveArtifacts(items, bundle, nil, IntentUnknown)
 }
 
 // backfillUnprojectedItemsForDeriveArtifacts is the artifact-aware
 // backfill. Trace-only runs need projection too; the merged frame
 // source from collectArtifactFrames covers both bundles.
-func backfillUnprojectedItemsForDeriveArtifacts(items []EvidenceItem, logBundle *LogBundle, perfBundle *PerfBundle) []EvidenceItem {
+//
+// B.7 audit followup: intent threads into the frame collection so
+// the cap matches the request's downstream needs. Internal callers
+// without RequestModel context pass IntentUnknown.
+func backfillUnprojectedItemsForDeriveArtifacts(items []EvidenceItem, logBundle *LogBundle, perfBundle *PerfBundle, intent Intent) []EvidenceItem {
 	if (logBundle == nil && perfBundle == nil) || len(items) == 0 {
 		return items
 	}
-	frames, frameOrigins := collectArtifactFramesWithOrigin(logBundle, perfBundle)
+	frames, frameOrigins := collectArtifactFramesWithOrigin(logBundle, perfBundle, intent)
 	if len(frames) == 0 {
 		return items
 	}
@@ -1933,7 +1977,7 @@ func itemTailCandidates(item EvidenceItem) []string {
 // detected drift). Mirrors deriveLogObservedAnchorsFromEvidence but
 // filters down to drifted items.
 func deriveLogSourceDriftAnchorsFromEvidence(bundle *LogBundle, items []EvidenceItem) []LogSourceDriftAnchor {
-	return deriveAnchorsFromArtifacts(bundle, nil, items, true)
+	return deriveAnchorsFromArtifacts(bundle, nil, items, true, IntentUnknown)
 }
 
 // deriveAnchorsFromArtifacts is the frame-driven anchor builder
@@ -1950,12 +1994,12 @@ func deriveLogSourceDriftAnchorsFromEvidence(bundle *LogBundle, items []Evidence
 // When driftedOnly is true, the result is filtered to anchors whose
 // underlying item carries a non-factual Authority OR an explicit
 // DriftReason (i.e. the projection determined this is real drift).
-func deriveAnchorsFromArtifacts(logBundle *LogBundle, perfBundle *PerfBundle, items []EvidenceItem, driftedOnly bool) []LogSourceDriftAnchor {
+func deriveAnchorsFromArtifacts(logBundle *LogBundle, perfBundle *PerfBundle, items []EvidenceItem, driftedOnly bool, intent Intent) []LogSourceDriftAnchor {
 	if (logBundle == nil && perfBundle == nil) || len(items) == 0 {
 		return nil
 	}
-	items = backfillUnprojectedItemsForDeriveArtifacts(items, logBundle, perfBundle)
-	frames := collectArtifactFrames(logBundle, perfBundle)
+	items = backfillUnprojectedItemsForDeriveArtifacts(items, logBundle, perfBundle, intent)
+	frames := collectArtifactFrames(logBundle, perfBundle, intent)
 	if len(frames) == 0 {
 		return nil
 	}

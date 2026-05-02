@@ -117,6 +117,14 @@ type RepairDirective struct {
 	// callers (chain promotion / grounder reject) keep working
 	// byte-identically.
 	LineRanges []LineRange
+
+	// Stage (A.1+E.1, 2026-05-02) is the explicit stage attribution
+	// for this directive. When non-empty, AddRepair bumps
+	// stats.PerStage[Stage].Repairs and propagates Stage into the
+	// auto-bridged PendingRead so StageHealthSnapshot no longer needs
+	// to derive from Origin. Empty Stage preserves byte-identical
+	// legacy behaviour for un-migrated callers.
+	Stage string
 }
 
 // MergeRepairs deduplicates a slice of RepairDirective by Kind +

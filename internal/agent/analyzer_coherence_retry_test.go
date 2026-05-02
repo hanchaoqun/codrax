@@ -107,3 +107,64 @@ func TestPrependEmitRetryDirective_HappyPathAttemptZero(t *testing.T) {
 		t.Errorf("attempt 0 must return base unchanged; got %q", out)
 	}
 }
+
+// TestPlainCoherenceDetail_StripsSinglePrefix pins byte-identical
+// behaviour for the single-rule case (the historical contract).
+func TestPlainCoherenceDetail_StripsSinglePrefix(t *testing.T) {
+	in := "R1.4 axis_collapse: 3 sub-topics all resolve to domain set {foo} (<=1 distinct domain)"
+	want := "3 sub-topics all resolve to domain set {foo} (<=1 distinct domain)"
+	if got := plainCoherenceDetail(in); got != want {
+		t.Errorf("single-rule strip: got %q want %q", got, want)
+	}
+}
+
+// TestPlainCoherenceDetail_StripsMultiplePrefixesB5 pins the B.5
+// audit followup (2026-05-02) contract: when checkSubtopicCoherence
+// emits multiple rules joined by " | ", every prefix must be
+// stripped independently so the LLM sees plain prose for each
+// diagnostic.
+func TestPlainCoherenceDetail_StripsMultiplePrefixesB5(t *testing.T) {
+	in := "R1.4 axis_collapse: 3 sub-topics all resolve to one domain | R1.5 entity_unresolvable: sub-topic 2 entity \"X\" doesn't resolve"
+	got := plainCoherenceDetail(in)
+	if strings.Contains(got, "R1.4") || strings.Contains(got, "R1.5") {
+		t.Errorf("multi-rule plain prose must NOT surface R-codes; got %q", got)
+	}
+	if !strings.Contains(got, "3 sub-topics all resolve") {
+		t.Errorf("first rule's plain prose missing; got %q", got)
+	}
+	if !strings.Contains(got, "doesn't resolve") {
+		t.Errorf("second rule's plain prose missing; got %q", got)
+	}
+	// Separator " | " is preserved between segments.
+	if !strings.Contains(got, " | ") {
+		t.Errorf("multi-rule joiner ' | ' must be preserved; got %q", got)
+	}
+}
+
+// TestComposeCoherenceRetryHint_RendersMultiRuleDetailB5 pins the
+// end-to-end B.5 path: a checkSubtopicCoherence result whose Detail
+// is multi-rule joined surfaces every plain-language piece into the
+// retry hint, so the LLM can fix all detected issues in one emit
+// instead of bouncing rule-by-rule.
+func TestComposeCoherenceRetryHint_RendersMultiRuleDetailB5(t *testing.T) {
+	report := types.GateReport{
+		Rejected: true,
+		Checks: []types.GateCheck{
+			{Name: "subtopic_coherence", Passed: false,
+				Detail: "R1.4 axis_collapse: 3 sub-topics all resolve to one domain | R1.5 entity_unresolvable: sub-topic 2 entity \"X\" doesn't resolve"},
+		},
+	}
+	hint := composeCoherenceRetryHint(report)
+	if hint == "" {
+		t.Fatal("non-empty hint expected on multi-rule failure")
+	}
+	if strings.Contains(hint, "R1.4") || strings.Contains(hint, "R1.5") {
+		t.Errorf("hint must NOT surface R-codes; got %q", hint)
+	}
+	if !strings.Contains(hint, "3 sub-topics all resolve") {
+		t.Errorf("hint must surface R1.4 plain prose; got %q", hint)
+	}
+	if !strings.Contains(hint, "doesn't resolve") {
+		t.Errorf("hint must surface R1.5 plain prose; got %q", hint)
+	}
+}

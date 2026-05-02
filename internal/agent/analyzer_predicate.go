@@ -60,11 +60,23 @@ func reconcileSemanticPredicates(rm types.RequestModel) (types.SemanticPredicate
 	if !resolved.IsCrossComponent {
 		return resolved, ""
 	}
-	// Existing rule: single exact-target lookup keeps one answer
-	// topic regardless of nearby layers.
+	// B.4 audit followup (2026-05-02): reverse-risk guard. Rule 1
+	// must not demote IsCrossComponent when the LLM has emitted an
+	// explicit multi-axis signal that survives "single exact target".
+	// Examples that pass exact-target=1 but still need cross-component
+	// reasoning:
+	//   - "what kinds of agents subscribe to event X?" (IsCategoryEnumeration)
+	//   - "how many tools call helper X?" (IsCountQuestion)
+	//   - "when was function X last touched?" (IsHistoryLookup)
+	// Each carries ONE exact target but the answer aggregates across
+	// the repo, which is what IsCrossComponent encodes. Without this
+	// guard, rule 1 silently flips IsCrossComponent=false and the
+	// downstream complexity / shape selection drift to single-symbol
+	// lookup answers.
 	if len(types.ExactResolutionTargets(rm)) == 1 &&
 		len(rm.SubTopics) == 0 &&
 		!resolved.IsRelationalLookup &&
+		!signalsExplicitMultiAxis(resolved) &&
 		rm.Intent != types.IntentTrace {
 		resolved.IsCrossComponent = false
 		return resolved,
@@ -126,4 +138,28 @@ func logPredicateReconcile(before, after types.SemanticPredicates, reason string
 		"[analyzer] predicates reconciled: is_cross_component=%t -> %t (%s)",
 		before.IsCrossComponent, after.IsCrossComponent, reason,
 	)
+}
+
+// signalsExplicitMultiAxis (B.4 audit followup, 2026-05-02) returns
+// true when the predicate set carries any signal that the question is
+// multi-axis even if a single exact target was named. These signals
+// must be preserved as cross-component-positive even when rule 1 of
+// reconcileSemanticPredicates would otherwise demote.
+//
+// Why each signal counts as multi-axis:
+//   - IsCategoryEnumeration: "what KINDS of X" iterates across all
+//     subtypes / categorisations of the named target — the answer
+//     spans multiple component implementations of X.
+//   - IsCountQuestion: by definition aggregates across multiple source
+//     units to produce a scalar number; the cross-aggregation IS the
+//     cross-component dimension.
+//   - IsHistoryLookup: VCS-metadata answer crossing commits / branches
+//     / authors; that history-axis is orthogonal to the named target.
+//
+// IsRelationalLookup is intentionally NOT folded into this helper: it
+// is checked separately in rule 1's condition list (and the gate
+// rules in coherence.go). Rolling it in here would mask which signal
+// is doing the demotion-block work in audit logs.
+func signalsExplicitMultiAxis(p types.SemanticPredicates) bool {
+	return p.IsCategoryEnumeration || p.IsCountQuestion || p.IsHistoryLookup
 }

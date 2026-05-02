@@ -113,3 +113,61 @@ func TestCollectExternalObservationSeeds_SurfacesResidueChunks(t *testing.T) {
 		t.Errorf("no residue seeds surfaced; got %d total seeds: %+v", len(seeds), seeds)
 	}
 }
+
+// TestIntentFrameCap_TraceAndRootCauseLargerThanDefault pins the
+// B.7 audit followup contract (2026-05-02): trace and root-cause
+// questions raise the frame cap above the historical 16 because
+// deeper stack walks materially help drift detection on those
+// shapes. Other intents stay at 16.
+func TestIntentFrameCap_TraceAndRootCauseLargerThanDefault(t *testing.T) {
+	cases := []struct {
+		intent Intent
+		want   int
+	}{
+		{IntentTrace, 32},
+		{IntentRootCause, 48},
+		{IntentExplain, 16},
+		{IntentEnumerate, 16},
+		{IntentConfigQuery, 16},
+		{IntentUnknown, 16}, // empty / unset Intent
+		{Intent(""), 16},    // unrecognised string
+	}
+	for _, c := range cases {
+		if got := intentFrameCap(c.intent); got != c.want {
+			t.Errorf("intentFrameCap(%q) = %d, want %d", c.intent, got, c.want)
+		}
+	}
+}
+
+// TestCollectArtifactFramesWithOrigin_RootCauseRaisesCap pins the
+// end-to-end B.7 contract: when intent=RootCause, the cap allows
+// 48 perf stalls instead of 16. We synthesise 50 stalls and verify
+// the cap honours the intent.
+func TestCollectArtifactFramesWithOrigin_RootCauseRaisesCap(t *testing.T) {
+	stalls := make([]PerfStall, 50)
+	for i := range stalls {
+		stalls[i] = PerfStall{Symbol: "Sym" + fmtInt(i), File: "x.go", Line: 100 + i}
+	}
+	perf := &PerfBundle{Stalls: stalls}
+
+	defaultFrames, _ := collectArtifactFramesWithOrigin(nil, perf, IntentExplain)
+	if len(defaultFrames) != 16 {
+		t.Errorf("default cap: got %d frames, want 16", len(defaultFrames))
+	}
+	traceFrames, _ := collectArtifactFramesWithOrigin(nil, perf, IntentTrace)
+	if len(traceFrames) != 32 {
+		t.Errorf("trace cap: got %d frames, want 32", len(traceFrames))
+	}
+	rcFrames, _ := collectArtifactFramesWithOrigin(nil, perf, IntentRootCause)
+	if len(rcFrames) != 48 {
+		t.Errorf("root-cause cap: got %d frames, want 48", len(rcFrames))
+	}
+}
+
+// fmtInt is a tiny helper so the test doesn't need strconv import.
+func fmtInt(i int) string {
+	if i < 10 {
+		return string(rune('0' + i))
+	}
+	return string(rune('0'+i/10)) + string(rune('0'+i%10))
+}
