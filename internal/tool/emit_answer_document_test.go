@@ -2516,8 +2516,17 @@ func TestEmitAnswerDocument_DriftBoundedSummaryPreservesAuthoritativeRichProse(t
 	if !strings.Contains(doc.Summary, "附带日志的结构化错误类型是`runtime.errorString`。") {
 		t.Fatalf("drift-bounded summary should keep deterministic log-type coverage: %q", doc.Summary)
 	}
-	if !strings.Contains(doc.Summary, "当前仓库当前能确认的最近机制是") {
-		t.Fatalf("drift-bounded summary should normalize to the compiled current-code mechanism summary: %q", doc.Summary)
+	// Plan-A unification (P3): legacy detector produced a single
+	// anchor that triggered "当前仓库当前能确认的最近机制是" prose.
+	// New frame-driven derivation produces two anchors (caller +
+	// callee) that trigger the richer "已锚定路径...已锚定机制是"
+	// prose. Either phrasing is the compiled current-code mechanism
+	// summary — what matters is that the canonical pattern fires
+	// (one of the two anchored-mechanism phrasings appears).
+	if !(strings.Contains(doc.Summary, "当前仓库当前能确认的最近机制是") ||
+		strings.Contains(doc.Summary, "当前最近的已锚定机制是") ||
+		strings.Contains(doc.Summary, "已锚定的最近机制是")) {
+		t.Fatalf("drift-bounded summary should normalize to a compiled current-code mechanism summary: %q", doc.Summary)
 	}
 	if strings.Contains(doc.Summary, "这个 panic 的 `runtime.errorString` 来自 `buildAnalysisIR` 函数内部的空指针解引用") {
 		t.Fatalf("free-form drift prose should not override the compiled bounded summary surface: %q", doc.Summary)

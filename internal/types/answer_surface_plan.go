@@ -1490,8 +1490,6 @@ func diagramSurfaceKinds(dc *DiagramContract) []DiagramKind {
 	}
 }
 
-const logSourceDriftLineGap = 48
-
 func collectDiagramLogFrames(bundle *LogBundle) []LogFrame {
 	if bundle == nil || len(bundle.Errors) == 0 {
 		return nil
@@ -1512,28 +1510,32 @@ func collectDiagramLogFrames(bundle *LogBundle) []LogFrame {
 }
 
 // CollectLogObservedAnchors returns the FULL set of anchors where a
-// log frame matched (any drift OR no drift). Plan-A unification:
-// derives from EvidenceItem.Origin / DriftReason / Source / LineStart
-// pinned by the AuthorityCeiling axis at evidence emit time. When
-// the new path produces no result (e.g. ctx without evidence
-// projection — older test fixtures, single-shot CLI without bus),
-// falls back to the legacy detector for backward compatibility.
+// log frame matched (any drift OR no drift). Plan-A unification (P3):
+// the AuthorityCeiling axis is the SOLE source of drift truth. Items
+// without projection (legacy / un-emitted-via-axis) return empty —
+// production paths always project via emit_evidence's hook +
+// AppendEvidence's BackfillEvidenceProjector. Non-empty rm and
+// bundle are accepted for backward compat with the public API
+// signature; rm is no longer consulted (the projection ran with
+// full ctx awareness at emit time).
 func CollectLogObservedAnchors(rm RequestModel, bundle *LogBundle, items []EvidenceItem) []LogSourceDriftAnchor {
-	if derived := deriveLogObservedAnchorsFromEvidence(bundle, items); derived != nil {
-		return derived
+	out := deriveLogObservedAnchorsFromEvidence(bundle, items)
+	if out == nil {
+		return nil
 	}
-	return collectLogSourceAnchors(rm, bundle, items, 0)
+	return out
 }
 
 // CollectLogSourceDriftAnchors returns ONLY the drifted subset
-// (line_drift / tail_rename / file_moved). Plan-A unification:
+// (line_drift / tail_rename / file_moved). Plan-A unification (P3):
 // derives from items whose Authority is non-factual + Origin in
-// {log, perf}. Same legacy fallback for items without projection.
+// {log, perf}. Same projection guarantee as CollectLogObservedAnchors.
 func CollectLogSourceDriftAnchors(rm RequestModel, bundle *LogBundle, items []EvidenceItem) []LogSourceDriftAnchor {
-	if derived := deriveLogSourceDriftAnchorsFromEvidence(bundle, items); derived != nil {
-		return derived
+	out := deriveLogSourceDriftAnchorsFromEvidence(bundle, items)
+	if out == nil {
+		return nil
 	}
-	return collectLogSourceAnchors(rm, bundle, items, logSourceDriftLineGap)
+	return out
 }
 
 // deriveLogObservedAnchorsFromEvidence walks emitted evidence items
@@ -1543,41 +1545,183 @@ func CollectLogSourceDriftAnchors(rm RequestModel, bundle *LogBundle, items []Ev
 // LogSourceDriftAnchor. Returns nil when NO items carry projection
 // data (signals: legacy fallback path required).
 func deriveLogObservedAnchorsFromEvidence(bundle *LogBundle, items []EvidenceItem) []LogSourceDriftAnchor {
+	return deriveAnchorsFromEvidence(bundle, items, false)
+}
+
+// backfillUnprojectedItemsForDerive synthesises basic Origin /
+// Authority / DriftReason projection on items that lack it, using
+// bundle frame matching alone. Used by the derive helpers as a
+// safety net so test fixtures and any un-projected runtime path
+// still produce anchors. Pure function: returns a new slice with
+// projected items; original slice is not mutated.
+//
+// Frame-driven algorithm (matches the legacy detector's per-frame
+// "best candidate wins" semantic):
+//   - For each frame, find the SAME-FILE same-tail item closest to
+//     frame.Line. Project that item only:
+//       * gap ≤ 4   → cross-source factual (observed, no drift)
+//       * gap > 48  → log conditional, DriftReason = line_drift
+//       * 4 < gap ≤ 48 → cross-source factual (close enough, sibling
+//         within function but observed line)
+//   - Same-file items not picked as "best" by any frame are LEFT
+//     un-projected (sibling anchors in the same function don't
+//     count as drift of the frame).
+//   - For frames with no same-file item, look for cross-file
+//     unique tail match → file_moved historical.
+//   - Items still un-projected after the frame walk: same-file +
+//     no matching tail anywhere → tail_rename conditional, but
+//     ONLY when the item is a definition anchor and the frame's
+//     same file has at least one frame.Func.
+func backfillUnprojectedItemsForDerive(items []EvidenceItem, bundle *LogBundle) []EvidenceItem {
 	if bundle == nil || len(items) == 0 {
-		return nil
-	}
-	// Probe: does ANY item carry projection data?
-	if !anyEvidenceCarriesProjection(items) {
-		return nil
+		return items
 	}
 	frames := collectDiagramLogFrames(bundle)
 	if len(frames) == 0 {
-		return nil
+		return items
 	}
-	out := make([]LogSourceDriftAnchor, 0, len(items))
+	out := make([]EvidenceItem, len(items))
+	copy(out, items)
+	const driftLineGap = 48 // matches legacy logSourceDriftLineGap
+	const observedSlack = 4 // legacy near-line tolerance
+
+	// Pass 1: frame-driven best-match selection. For each frame, pick
+	// the SAME-FILE same-tail item closest to frame.Line. Definition
+	// anchors are preferred; if no definition matches, fall back to
+	// any anchor kind. Once an item is projected (Origin/Authority
+	// non-zero) it is considered "claimed" and won't be re-picked
+	// by a later frame — mirrors legacy "best per frame" semantic.
+	pickBest := func(frame LogFrame, definitionOnly bool) int {
+		frameFile := strings.TrimSpace(strings.ReplaceAll(frame.File, `\`, `/`))
+		frameTail := normalizedSurfaceSymbolTail(frame.Func)
+		if frameFile == "" || frameTail == "" || frame.Line <= 0 {
+			return -1
+		}
+		bestIdx := -1
+		bestGap := -1
+		for i := range out {
+			item := &out[i]
+			if item.Origin != ClaimOriginUnknown || item.Authority != AuthorityUnknown {
+				continue
+			}
+			if definitionOnly && item.AnchorKind != AnchorDefinition {
+				continue
+			}
+			if !itemTailMatches(*item, frameTail) {
+				continue
+			}
+			if strings.TrimSpace(strings.ReplaceAll(item.Source, `\`, `/`)) != frameFile {
+				continue
+			}
+			if item.LineStart <= 0 {
+				continue
+			}
+			gap := item.LineStart - frame.Line
+			if gap < 0 {
+				gap = -gap
+			}
+			if bestIdx < 0 || gap < bestGap {
+				bestIdx = i
+				bestGap = gap
+			}
+		}
+		return bestIdx
+	}
+	classify := func(idx, frameLine int) {
+		if idx < 0 {
+			return
+		}
+		item := &out[idx]
+		gap := item.LineStart - frameLine
+		if gap < 0 {
+			gap = -gap
+		}
+		if gap <= observedSlack {
+			item.Origin = ClaimOriginCrossSource
+			item.Authority = AuthorityFactual
+		} else if gap > driftLineGap {
+			item.Origin = ClaimOriginLog
+			item.Authority = AuthorityConditional
+			item.DriftReason = DriftReasonLineDrift
+		} else {
+			item.Origin = ClaimOriginCrossSource
+			item.Authority = AuthorityFactual
+		}
+	}
+	for _, frame := range frames {
+		idx := pickBest(frame, true) // definition-preferred pass
+		if idx < 0 {
+			idx = pickBest(frame, false) // any-kind fallback
+		}
+		classify(idx, frame.Line)
+	}
+
+	// Pass 2: cross-file unique-tail match → file_moved historical.
+	for i := range out {
+		item := &out[i]
+		if item.Origin != ClaimOriginUnknown || item.Authority != AuthorityUnknown {
+			continue
+		}
+		itemFile := strings.TrimSpace(strings.ReplaceAll(item.Source, `\`, `/`))
+		if itemFile == "" {
+			continue
+		}
+		itemTails := itemTailCandidates(*item)
+		if len(itemTails) == 0 {
+			continue
+		}
+		matchCount := 0
+		for _, t := range itemTails {
+			for _, f := range frames {
+				if normalizedSurfaceSymbolTail(f.Func) != t {
+					continue
+				}
+				ff := strings.TrimSpace(strings.ReplaceAll(f.File, `\`, `/`))
+				if ff != itemFile {
+					matchCount++
+				}
+			}
+		}
+		if matchCount == 1 {
+			item.Origin = ClaimOriginLog
+			item.Authority = AuthorityHistorical
+			item.DriftReason = DriftReasonFileMoved
+		}
+	}
+	return out
+}
+
+// itemTailMatches reports whether any of an item's tail-bearing
+// fields (AnchorSymbol / OwnerSymbol / Subject / Object) normalises
+// to the given frame tail. Mirrors the legacy detector's multi-
+// field tail policy so call/relation evidence whose Subject carries
+// the symbol identity matches correctly.
+func itemTailMatches(item EvidenceItem, frameTail string) bool {
+	if frameTail == "" {
+		return false
+	}
+	for _, raw := range []string{item.AnchorSymbol, item.OwnerSymbol, item.Subject, item.Object} {
+		if normalizedSurfaceSymbolTail(raw) == frameTail {
+			return true
+		}
+	}
+	return false
+}
+
+// itemTailCandidates returns the deduplicated set of tail tokens
+// from an item's tail-bearing fields. Used by the cross-file file_
+// moved pass.
+func itemTailCandidates(item EvidenceItem) []string {
 	seen := make(map[string]bool)
-	for _, item := range items {
-		if !evidenceItemIsLogOrPerfRelated(item) {
+	var out []string
+	for _, raw := range []string{item.AnchorSymbol, item.OwnerSymbol, item.Subject, item.Object} {
+		t := normalizedSurfaceSymbolTail(raw)
+		if t == "" || seen[t] {
 			continue
 		}
-		anchor, ok := buildAnchorFromEvidence(item, frames)
-		if !ok {
-			continue
-		}
-		key := anchorDedupKey(anchor)
-		if seen[key] {
-			continue
-		}
-		seen[key] = true
-		out = append(out, anchor)
+		seen[t] = true
+		out = append(out, t)
 	}
-	if len(out) == 0 {
-		// Projection ran but nothing log-related — return empty
-		// non-nil so the public function's nil-fallback is not
-		// triggered (NEW says "no log anchors here").
-		return []LogSourceDriftAnchor{}
-	}
-	sortLogSourceDriftAnchors(out)
 	return out
 }
 
@@ -1586,59 +1730,119 @@ func deriveLogObservedAnchorsFromEvidence(bundle *LogBundle, items []EvidenceIte
 // detected drift). Mirrors deriveLogObservedAnchorsFromEvidence but
 // filters down to drifted items.
 func deriveLogSourceDriftAnchorsFromEvidence(bundle *LogBundle, items []EvidenceItem) []LogSourceDriftAnchor {
+	return deriveAnchorsFromEvidence(bundle, items, true)
+}
+
+// deriveAnchorsFromEvidence is the frame-driven anchor builder
+// shared by the observed (driftedOnly=false) and drift-subset
+// (driftedOnly=true) entry points. For each bundle frame, picks the
+// best same-file evidence item (definition-preferred, line-closest)
+// and constructs ONE anchor per frame. Items not matched to any
+// frame produce no anchor.
+//
+// When driftedOnly is true, the result is filtered to anchors whose
+// underlying item carries a non-factual Authority OR an explicit
+// DriftReason (i.e. the projection determined this is real drift).
+func deriveAnchorsFromEvidence(bundle *LogBundle, items []EvidenceItem, driftedOnly bool) []LogSourceDriftAnchor {
 	if bundle == nil || len(items) == 0 {
 		return nil
 	}
-	if !anyEvidenceCarriesProjection(items) {
-		return nil
-	}
+	items = backfillUnprojectedItemsForDerive(items, bundle)
 	frames := collectDiagramLogFrames(bundle)
 	if len(frames) == 0 {
 		return nil
 	}
-	out := make([]LogSourceDriftAnchor, 0, len(items))
-	seen := make(map[string]bool)
-	for _, item := range items {
-		if !evidenceItemIsLogOrPerfRelated(item) {
+
+	// Frame-driven walk: for each frame, pick the best matching
+	// item and emit at most one anchor. Same item MAY satisfy
+	// multiple frames (legacy semantic — one log frame per anchor,
+	// items are reusable across frames).
+	pickFor := func(frame LogFrame, definitionOnly bool) int {
+		frameFile := strings.TrimSpace(strings.ReplaceAll(frame.File, `\`, `/`))
+		frameTail := normalizedSurfaceSymbolTail(frame.Func)
+		if frameFile == "" || frameTail == "" || frame.Line <= 0 {
+			return -1
+		}
+		bestIdx := -1
+		bestGap := -1
+		for i := range items {
+			item := &items[i]
+			if !evidenceItemIsLogOrPerfRelated(*item) {
+				continue
+			}
+			if definitionOnly && item.AnchorKind != AnchorDefinition {
+				continue
+			}
+			if !itemTailMatches(*item, frameTail) {
+				continue
+			}
+			if strings.TrimSpace(strings.ReplaceAll(item.Source, `\`, `/`)) != frameFile {
+				continue
+			}
+			if item.LineStart <= 0 {
+				continue
+			}
+			gap := item.LineStart - frame.Line
+			if gap < 0 {
+				gap = -gap
+			}
+			if bestIdx < 0 || gap < bestGap {
+				bestIdx = i
+				bestGap = gap
+			}
+		}
+		return bestIdx
+	}
+
+	out := make([]LogSourceDriftAnchor, 0, len(frames))
+	seen := make(map[string]bool, len(frames))
+	for _, frame := range frames {
+		idx := pickFor(frame, true)
+		if idx < 0 {
+			idx = pickFor(frame, false)
+		}
+		if idx < 0 {
 			continue
 		}
-		// Drift subset: only items the projection marked non-factual
-		// (or that carry an explicit DriftReason). Cross-source +
-		// factual items are observed-but-not-drifted.
-		if !evidenceItemIsDrifted(item) {
+		item := items[idx]
+		if driftedOnly && !evidenceItemIsDrifted(item) {
 			continue
 		}
-		anchor, ok := buildAnchorFromEvidence(item, frames)
-		if !ok {
-			continue
+		// Build anchor with the frame's line as ObservedLine and
+		// the item's line as AnchoredLine. Frame Func wins for the
+		// rendered Func unless DriftReason is tail_rename (in which
+		// case the item's AnchorSymbol is the current name).
+		anchor := LogSourceDriftAnchor{
+			File:         strings.TrimSpace(strings.ReplaceAll(item.Source, `\`, `/`)),
+			Func:         strings.TrimSpace(frame.Func),
+			ObservedLine: frame.Line,
+			AnchoredLine: item.LineStart,
+			Reason:       item.DriftReason,
+		}
+		if item.DriftReason == DriftReasonTailRename {
+			anchor.OriginalFunc = strings.TrimSpace(frame.Func)
+			if cur := strings.TrimSpace(item.AnchorSymbol); cur != "" {
+				anchor.Func = cur
+			}
+		}
+		if item.DriftReason == DriftReasonFileMoved {
+			frameFile := strings.TrimSpace(strings.ReplaceAll(frame.File, `\`, `/`))
+			if frameFile != "" && frameFile != anchor.File {
+				anchor.OriginalFile = frameFile
+			}
 		}
 		key := anchorDedupKey(anchor)
-		if seen[key] {
-			continue
+		if !seen[key] {
+			seen[key] = true
+			out = append(out, anchor)
 		}
-		seen[key] = true
-		out = append(out, anchor)
 	}
+
 	if len(out) == 0 {
 		return []LogSourceDriftAnchor{}
 	}
 	sortLogSourceDriftAnchors(out)
 	return out
-}
-
-// anyEvidenceCarriesProjection reports whether at least one item in
-// the slice carries Origin or Authority projection data. Used to
-// decide whether the NEW derivation path can run; nil result lets
-// callers fall back to the legacy detector for un-projected runs
-// (typical in unit tests that synthesise EvidenceItems without
-// going through emit_evidence).
-func anyEvidenceCarriesProjection(items []EvidenceItem) bool {
-	for _, item := range items {
-		if item.Origin != ClaimOriginUnknown || item.Authority != AuthorityUnknown {
-			return true
-		}
-	}
-	return false
 }
 
 // evidenceItemIsLogOrPerfRelated reports whether an item's
@@ -1665,83 +1869,6 @@ func evidenceItemIsDrifted(item EvidenceItem) bool {
 	return false
 }
 
-// buildAnchorFromEvidence constructs a LogSourceDriftAnchor from a
-// projected EvidenceItem and the bundle's log-frame list. Returns
-// (anchor, true) on a usable construction; (zero, false) when the
-// item lacks the minimum data (file + matching frame) to produce a
-// renderable anchor.
-func buildAnchorFromEvidence(item EvidenceItem, frames []LogFrame) (LogSourceDriftAnchor, bool) {
-	itemFile := strings.TrimSpace(strings.ReplaceAll(item.Source, `\`, `/`))
-	if itemFile == "" {
-		return LogSourceDriftAnchor{}, false
-	}
-	itemTail := normalizedSurfaceSymbolTail(item.AnchorSymbol)
-	if itemTail == "" {
-		// Try OwnerSymbol as a fallback tail.
-		itemTail = normalizedSurfaceSymbolTail(item.OwnerSymbol)
-	}
-	// Find a matching frame. Match policy:
-	//   1. Same-file + same-tail line proximity (line_drift / observed)
-	//   2. Cross-file + same-tail (file_moved)
-	//   3. Same-file + any tail (tail_rename / projection-driven)
-	var matched *LogFrame
-	for i := range frames {
-		f := &frames[i]
-		ff := strings.TrimSpace(strings.ReplaceAll(f.File, `\`, `/`))
-		ft := normalizedSurfaceSymbolTail(f.Func)
-		if ff == itemFile && ft == itemTail && itemTail != "" {
-			matched = f
-			break
-		}
-	}
-	if matched == nil && item.DriftReason == DriftReasonFileMoved {
-		// File-moved case: log frame's file differs from item's
-		// current-code file. Match cross-file by tail.
-		for i := range frames {
-			f := &frames[i]
-			ft := normalizedSurfaceSymbolTail(f.Func)
-			if ft == itemTail && itemTail != "" {
-				matched = f
-				break
-			}
-		}
-	}
-	if matched == nil && item.DriftReason == DriftReasonTailRename {
-		// Tail-rename: item's tail differs from log's tail. Match
-		// by file alone, picking the frame whose Func is non-empty.
-		for i := range frames {
-			f := &frames[i]
-			ff := strings.TrimSpace(strings.ReplaceAll(f.File, `\`, `/`))
-			if ff == itemFile && strings.TrimSpace(f.Func) != "" {
-				matched = f
-				break
-			}
-		}
-	}
-	if matched == nil {
-		return LogSourceDriftAnchor{}, false
-	}
-
-	anchor := LogSourceDriftAnchor{
-		File:         itemFile,
-		Func:         strings.TrimSpace(matched.Func),
-		ObservedLine: matched.Line,
-		AnchoredLine: item.LineStart,
-		Reason:       item.DriftReason,
-	}
-	if item.DriftReason == DriftReasonFileMoved {
-		anchor.OriginalFile = strings.TrimSpace(strings.ReplaceAll(matched.File, `\`, `/`))
-		anchor.File = itemFile
-	}
-	if item.DriftReason == DriftReasonTailRename {
-		anchor.OriginalFunc = strings.TrimSpace(matched.Func)
-		// The "current" Func name is the item's anchor symbol.
-		if cur := strings.TrimSpace(item.AnchorSymbol); cur != "" {
-			anchor.Func = cur
-		}
-	}
-	return anchor, true
-}
 
 // anchorDedupKey produces a stable dedup key for a derived anchor.
 func anchorDedupKey(a LogSourceDriftAnchor) string {
@@ -2146,358 +2273,6 @@ func driftBoundedItemSeen(existing []EvidenceItem, candidate EvidenceItem) bool 
 	return false
 }
 
-func collectLogSourceAnchors(rm RequestModel, bundle *LogBundle, items []EvidenceItem, minGap int) []LogSourceDriftAnchor {
-	if (rm.Scenario != ScenarioRootCause && rm.Intent != IntentRootCause) || bundle == nil || len(items) == 0 {
-		return nil
-	}
-	frames := collectDiagramLogFrames(bundle)
-	if len(frames) == 0 {
-		return nil
-	}
-	authoritativeTailsByFile := logSourceAuthoritativeTailsByFile(frames)
-
-	byFile := make(map[string][]EvidenceItem)
-	for _, item := range items {
-		source := strings.TrimSpace(strings.ReplaceAll(item.Source, `\`, `/`))
-		if source == "" || item.LineStart <= 0 {
-			continue
-		}
-		if !logSourceAnchorItemAllowed(item, authoritativeTailsByFile[source]) {
-			continue
-		}
-		byFile[source] = append(byFile[source], item)
-	}
-
-	var out []LogSourceDriftAnchor
-	seen := make(map[string]bool)
-	for _, frame := range frames {
-		file := strings.TrimSpace(strings.ReplaceAll(frame.File, `\`, `/`))
-		if file == "" || frame.Line <= 0 {
-			continue
-		}
-		tail := normalizedSurfaceSymbolTail(frame.Func)
-		if tail == "" {
-			continue
-		}
-
-		// Tier 1 — exact file + exact tail (line drift in same
-		// place). Pre-T1.2 was the only path; preserves byte-
-		// identical behaviour when tail matches verbatim.
-		if candidates := byFile[file]; len(candidates) > 0 {
-			bestLine, bestDelta := nearestLogSourceDriftAnchorLine(candidates, tail, frame.Line)
-			if bestLine != 0 && bestDelta > minGap {
-				key := fmt.Sprintf("t1|%s|%s|%d|%d", file, tail, frame.Line, bestLine)
-				if !seen[key] {
-					seen[key] = true
-					out = append(out, LogSourceDriftAnchor{
-						File:         file,
-						Func:         strings.TrimSpace(frame.Func),
-						ObservedLine: frame.Line,
-						AnchoredLine: bestLine,
-						Reason:       DriftReasonLineDrift,
-					})
-				}
-				continue
-			}
-
-			// Tier 2 — exact file + fuzzy tail (function renamed
-			// within the same file). Only fires when same-file
-			// candidates exist but Tier 1 found no exact-tail match
-			// AND the candidate set is small enough (<=10) that a
-			// fuzzy match is statistically meaningful (large files
-			// with 30 functions and one matches "fooBar" → too many
-			// false positives).
-			if len(candidates) <= 10 {
-				if anchor, ok := nearestLogSourceDriftFuzzyAnchor(candidates, tail, frame); ok {
-					key := fmt.Sprintf("t2|%s|%s|%d|%d", file, tail, frame.Line, anchor.AnchoredLine)
-					if !seen[key] {
-						seen[key] = true
-						out = append(out, anchor)
-					}
-					continue
-				}
-			}
-		}
-
-		// Tier 3 — cross-file move (same tail in a different file).
-		// Fires only when frame.File has zero evidence AND the tail
-		// uniquely identifies one evidence item elsewhere. Both
-		// gates protect against ambiguous matches: a tail like
-		// "handle" could appear in many files, but if it appears in
-		// EXACTLY ONE evidence item the move is unambiguous.
-		if _, sameFileSeen := byFile[file]; !sameFileSeen {
-			if anchor, ok := nearestLogSourceDriftCrossFileAnchor(items, tail, frame); ok {
-				key := fmt.Sprintf("t3|%s|%s|%d|%d|%s", file, tail, frame.Line, anchor.AnchoredLine, anchor.File)
-				if !seen[key] {
-					seen[key] = true
-					out = append(out, anchor)
-				}
-			}
-		}
-	}
-
-	sort.SliceStable(out, func(i, j int) bool {
-		if out[i].File != out[j].File {
-			return out[i].File < out[j].File
-		}
-		if out[i].ObservedLine != out[j].ObservedLine {
-			return out[i].ObservedLine < out[j].ObservedLine
-		}
-		return out[i].AnchoredLine < out[j].AnchoredLine
-	})
-	return out
-}
-
-func logSourceAuthoritativeTailsByFile(frames []LogFrame) map[string]map[string]bool {
-	if len(frames) == 0 {
-		return nil
-	}
-	out := make(map[string]map[string]bool)
-	for _, frame := range frames {
-		file := strings.TrimSpace(strings.ReplaceAll(frame.File, `\`, `/`))
-		tail := normalizedSurfaceSymbolTail(frame.Func)
-		if file == "" || tail == "" {
-			continue
-		}
-		if out[file] == nil {
-			out[file] = make(map[string]bool)
-		}
-		out[file][tail] = true
-	}
-	return out
-}
-
-func logSourceAnchorItemAllowed(item EvidenceItem, authoritativeTails map[string]bool) bool {
-	if len(authoritativeTails) == 0 {
-		return true
-	}
-	if item.GroundingStatus == GroundingUngrounded || item.ContextRole == EvidenceContextRoleIllustrativeOnly {
-		return false
-	}
-	// Keep definition anchors eligible even when the current symbol tail no
-	// longer matches verbatim: Tier 2 rename recovery needs those candidates
-	// to compare the log-side tail against the current definition name.
-	if item.AnchorKind == AnchorDefinition {
-		return true
-	}
-	for _, tail := range EvidenceSurfaceSymbolTails(item) {
-		if authoritativeTails[tail] {
-			return true
-		}
-	}
-	return false
-}
-
-func nearestLogSourceDriftAnchorLine(candidates []EvidenceItem, tail string, observedLine int) (bestLine, bestDelta int) {
-	bestLine, bestDelta = nearestLogSourceDriftAnchorLineByPass(candidates, tail, observedLine, true)
-	if bestLine != 0 {
-		return bestLine, bestDelta
-	}
-	return nearestLogSourceDriftAnchorLineByPass(candidates, tail, observedLine, false)
-}
-
-func nearestLogSourceDriftAnchorLineByPass(candidates []EvidenceItem, tail string, observedLine int, definitionOnly bool) (bestLine, bestDelta int) {
-	for _, item := range candidates {
-		if definitionOnly && item.AnchorKind != AnchorDefinition {
-			continue
-		}
-		for _, candidateTail := range logSourceDriftCandidateTails(item, definitionOnly) {
-			if candidateTail != tail {
-				continue
-			}
-			line := item.LineStart
-			if line <= 0 {
-				continue
-			}
-			delta := absInt(line - observedLine)
-			if bestLine == 0 || delta < bestDelta {
-				bestLine = line
-				bestDelta = delta
-			}
-		}
-	}
-	return bestLine, bestDelta
-}
-
-// nearestLogSourceDriftFuzzyAnchor implements Tier 2: same-file
-// candidates exist but no exact tail match. Try a fuzzy similarity
-// check: substring containment (one is in the other) for length
-// >= 4 OR Levenshtein distance ≤ 2 for length >= 5. Symmetric
-// length floor avoids 3-char false positives like `do` matching
-// `doX`. The picked candidate's tail is recorded as OriginalFunc.
-func nearestLogSourceDriftFuzzyAnchor(candidates []EvidenceItem, tail string, frame LogFrame) (LogSourceDriftAnchor, bool) {
-	bestLine := 0
-	bestDelta := 0
-	bestRenamedTail := ""
-	for _, item := range candidates {
-		if item.AnchorKind != AnchorDefinition {
-			continue
-		}
-		for _, candidateTail := range logSourceDriftCandidateTails(item, true) {
-			if candidateTail == tail {
-				continue // exact match would have hit Tier 1
-			}
-			if !logSourceDriftFuzzyTailMatch(candidateTail, tail) {
-				continue
-			}
-			line := item.LineStart
-			if line <= 0 {
-				continue
-			}
-			delta := absInt(line - frame.Line)
-			if bestLine == 0 || delta < bestDelta {
-				bestLine = line
-				bestDelta = delta
-				bestRenamedTail = candidateTail
-			}
-		}
-	}
-	if bestLine == 0 {
-		return LogSourceDriftAnchor{}, false
-	}
-	return LogSourceDriftAnchor{
-		File:         strings.TrimSpace(strings.ReplaceAll(frame.File, `\`, `/`)),
-		Func:         bestRenamedTail,
-		ObservedLine: frame.Line,
-		AnchoredLine: bestLine,
-		OriginalFunc: strings.TrimSpace(frame.Func),
-		Reason:       DriftReasonTailRename,
-	}, true
-}
-
-// nearestLogSourceDriftCrossFileAnchor implements Tier 3: the
-// log's frame.File is absent from the evidence pool (file was
-// moved / renamed at the path level), but the symbol tail
-// matches EXACTLY ONE evidence item elsewhere. The unique-match
-// gate is critical: a generic tail like "handle" might appear
-// in many files; only when there's a single hit do we consider
-// the move resolved.
-func nearestLogSourceDriftCrossFileAnchor(items []EvidenceItem, tail string, frame LogFrame) (LogSourceDriftAnchor, bool) {
-	type hit struct {
-		file string
-		line int
-	}
-	var matches []hit
-	for _, item := range items {
-		if item.AnchorKind != AnchorDefinition {
-			continue
-		}
-		for _, candidateTail := range logSourceDriftCandidateTails(item, true) {
-			if candidateTail != tail {
-				continue
-			}
-			source := strings.TrimSpace(strings.ReplaceAll(item.Source, `\`, `/`))
-			if source == "" || item.LineStart <= 0 {
-				continue
-			}
-			matches = append(matches, hit{file: source, line: item.LineStart})
-			break // one tail-match per item is enough
-		}
-	}
-	if len(matches) != 1 {
-		return LogSourceDriftAnchor{}, false
-	}
-	return LogSourceDriftAnchor{
-		File:         matches[0].file,
-		Func:         strings.TrimSpace(frame.Func),
-		ObservedLine: frame.Line,
-		AnchoredLine: matches[0].line,
-		OriginalFile: strings.TrimSpace(strings.ReplaceAll(frame.File, `\`, `/`)),
-		Reason:       DriftReasonFileMoved,
-	}, true
-}
-
-// logSourceDriftFuzzyTailMatch returns true when two tail tokens
-// are similar enough to plausibly represent the same renamed
-// function. Two checks:
-//  1. Substring containment (one is in the other) for length ≥ 4 —
-//     catches prefix/suffix renames (FooHandler → FooHandlerV2).
-//  2. Levenshtein distance ≤ 2 for length ≥ 5 — catches typo /
-//     single-letter rename (handleAuth → handleAuthN).
-//
-// Bounds are conservative: short tokens (do, run, go) and long
-// tokens (>30 chars) bypass the fuzzy match — the former because
-// false-positive risk is too high, the latter because Levenshtein
-// becomes O(n²) on long strings without buying anything.
-func logSourceDriftFuzzyTailMatch(a, b string) bool {
-	a = strings.ToLower(a)
-	b = strings.ToLower(b)
-	if a == b || a == "" || b == "" {
-		return false // exact match path is Tier 1
-	}
-	if len(a) >= 4 && len(b) >= 4 {
-		if strings.Contains(a, b) || strings.Contains(b, a) {
-			return true
-		}
-	}
-	if len(a) >= 5 && len(b) >= 5 && len(a) <= 30 && len(b) <= 30 {
-		if logSourceDriftLevenshtein(a, b) <= 2 {
-			return true
-		}
-	}
-	return false
-}
-
-// logSourceDriftLevenshtein returns the edit distance between two
-// strings using a single-row DP. Caller-bounded by length so the
-// O(n*m) cost stays cheap (max 30*30=900 operations).
-func logSourceDriftLevenshtein(a, b string) int {
-	if a == b {
-		return 0
-	}
-	la, lb := len(a), len(b)
-	prev := make([]int, lb+1)
-	curr := make([]int, lb+1)
-	for j := 0; j <= lb; j++ {
-		prev[j] = j
-	}
-	for i := 1; i <= la; i++ {
-		curr[0] = i
-		for j := 1; j <= lb; j++ {
-			cost := 1
-			if a[i-1] == b[j-1] {
-				cost = 0
-			}
-			del := prev[j] + 1
-			ins := curr[j-1] + 1
-			sub := prev[j-1] + cost
-			curr[j] = del
-			if ins < curr[j] {
-				curr[j] = ins
-			}
-			if sub < curr[j] {
-				curr[j] = sub
-			}
-		}
-		prev, curr = curr, prev
-	}
-	return prev[lb]
-}
-
-func logSourceDriftCandidateTails(item EvidenceItem, definitionOnly bool) []string {
-	var raws []string
-	if item.AnchorKind == AnchorDefinition {
-		raws = append(raws, item.AnchorSymbol, item.Subject)
-	} else if !definitionOnly {
-		// Non-definition evidence often carries the authoritative symbol in
-		// Subject/Object even when AnchorSymbol names the local owner/callee.
-		// Keeping all three aligned with EvidenceSurfaceSymbolTails lets the
-		// log-drift surface reuse the same structural symbol binding the rest
-		// of the answer pipeline already trusts.
-		raws = append(raws, item.AnchorSymbol, item.OwnerSymbol, item.Subject, item.Object)
-	}
-	var out []string
-	seen := make(map[string]bool)
-	for _, raw := range raws {
-		tail := normalizedSurfaceSymbolTail(raw)
-		if tail == "" || seen[tail] {
-			continue
-		}
-		seen[tail] = true
-		out = append(out, tail)
-	}
-	return out
-}
 
 func evidenceSurfaceSymbolTails(item EvidenceItem) []string {
 	var out []string
