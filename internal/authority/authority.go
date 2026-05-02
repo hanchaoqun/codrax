@@ -455,12 +455,27 @@ func walkPerfBundleForMatch(b *types.PerfBundle, itemFile string, item types.Evi
 	// onto LogFrame shape. Synthesize a LogFrame for matching purposes;
 	// drift detection downstream needs the same fields whether the
 	// origin was a log or a trace.
+	//
+	// Round-8 trace-symmetry: also match by SYMBOL when stall.File is
+	// empty (unsymbolicated traces). This lets trace-only drift
+	// detection still fire on the symbol axis even without source
+	// path mapping.
 	for i := range b.Stalls {
 		s := &b.Stalls[i]
-		if normalizePath(s.File) != itemFile {
+		stallFile := normalizePath(s.File)
+		fileMatch := stallFile != "" && stallFile == itemFile
+		// Symbol-axis fallback: when stall has no file but its symbol
+		// matches the item's anchor symbol or owner symbol, synthesize
+		// a frame anchored at the item's source so drift detection
+		// can still classify (cross-source / line drift / etc).
+		symbolMatch := stallFile == "" &&
+			strings.TrimSpace(s.Symbol) != "" &&
+			(symbolTailEquals(item.AnchorSymbol, s.Symbol) ||
+				symbolTailEquals(item.OwnerSymbol, s.Symbol))
+		if !fileMatch && !symbolMatch {
 			continue
 		}
-		if item.LineStart > 0 && s.Line > 0 {
+		if fileMatch && item.LineStart > 0 && s.Line > 0 {
 			if abs(item.LineStart-s.Line) > logtriage.DefaultDriftLineGap*4 {
 				// Loose match — perf stalls report broader windows than
 				// log stack frames, so allow more slack.
@@ -468,11 +483,17 @@ func walkPerfBundleForMatch(b *types.PerfBundle, itemFile string, item types.Evi
 			}
 		}
 		// Reuse LogFrame as the canonical shape downstream expects.
-		return &types.LogFrame{
+		// For symbol-only matches, set File from the item so downstream
+		// knows where to look in current code.
+		frame := &types.LogFrame{
 			File: s.File,
 			Line: s.Line,
 			Func: s.Symbol,
 		}
+		if symbolMatch && frame.File == "" {
+			frame.File = item.Source
+		}
+		return frame
 	}
 	return nil
 }

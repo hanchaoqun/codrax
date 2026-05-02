@@ -1101,6 +1101,7 @@ func BuildAnswerSurfacePlan(
 		plan.ExactResolution = BuildExactResolutionContract(ir.RequestModel)
 	}
 
+	var perfBundle *PerfBundle
 	if mutable != nil {
 		plan.StableInvestigationResultKind = strings.TrimSpace(mutable.StableInvestigationResultKind())
 		plan.StableAbsenceJustification = strings.TrimSpace(mutable.StableAbsenceJustification())
@@ -1112,6 +1113,9 @@ func BuildAnswerSurfacePlan(
 		if logBundle == nil {
 			logBundle = mutable.LogTriage()
 		}
+		// Round-8: pull PerfBundle so trace-attached runs participate
+		// in the drift-anchor derive pipeline symmetrically with logs.
+		perfBundle = mutable.PerfTrace()
 	}
 	plan.StableAbsent = strings.EqualFold(plan.StableInvestigationResultKind, "absence") &&
 		plan.StableAbsenceJustification != ""
@@ -1128,18 +1132,20 @@ func BuildAnswerSurfacePlan(
 	ApplyEvidenceStepBackbone(plan, plan.SurfaceEvidence)
 	applyRequestedEnumerationBoundaryStepBackbone(plan, ir)
 	ApplyEvidenceExplanationAnchorBackbone(plan, ir, plan.SurfaceEvidence)
-	plan.LogObservedAnchors = CollectLogObservedAnchors(
+	plan.LogObservedAnchors = CollectArtifactObservedAnchors(
 		ir.RequestModel,
 		logBundle,
+		perfBundle,
 		plan.SurfaceEvidence,
 	)
 	plan.ExternalObservationSeeds = CollectExternalObservationSeeds(
 		logBundle,
 		plan.LogObservedAnchors,
 	)
-	plan.LogSourceDriftAnchors = CollectLogSourceDriftAnchors(
+	plan.LogSourceDriftAnchors = CollectArtifactSourceDriftAnchors(
 		ir.RequestModel,
 		logBundle,
+		perfBundle,
 		plan.SurfaceEvidence,
 	)
 	plan.DriftBoundedSurfaceItems = CollectDriftBoundedSurfaceItems(
@@ -1509,6 +1515,55 @@ func collectDiagramLogFrames(bundle *LogBundle) []LogFrame {
 	return resolved
 }
 
+// collectArtifactFrames is the trace-aware counterpart used by the
+// drift-anchor derive path. It merges LogBundle frames (Errors[].Frames)
+// AND synthesised frames from PerfBundle.Stalls so trace-only runs
+// surface drift identically to log-only runs. The synthesised perf
+// frames carry the same {File, Line, Func} shape as LogFrame, with
+// PerfStall.Symbol mapped to LogFrame.Func.
+//
+// Cap mirrors collectDiagramLogFrames (8 total frames) to bound the
+// drift-detection cost on huge traces. Log frames take precedence
+// in the cap order so panic-style log diagnostics stay first.
+func collectArtifactFrames(logBundle *LogBundle, perfBundle *PerfBundle) []LogFrame {
+	frames, _ := collectArtifactFramesWithOrigin(logBundle, perfBundle)
+	return frames
+}
+
+// collectArtifactFramesWithOrigin returns parallel slices of frames
+// and per-frame ClaimOrigin tags, so backfill can propagate the
+// correct Origin (log vs perf) when a stall-source frame matches an
+// evidence item. The two slices have identical length.
+func collectArtifactFramesWithOrigin(logBundle *LogBundle, perfBundle *PerfBundle) ([]LogFrame, []ClaimOrigin) {
+	resolved := collectDiagramLogFrames(logBundle)
+	origins := make([]ClaimOrigin, len(resolved))
+	for i := range origins {
+		origins[i] = ClaimOriginLog
+	}
+	if perfBundle == nil {
+		return resolved, origins
+	}
+	for i := range perfBundle.Stalls {
+		if len(resolved) >= 8 {
+			break
+		}
+		s := &perfBundle.Stalls[i]
+		// PerfStall may legitimately omit File/Line when the trace
+		// was unsymbolicated. Keep stalls with at least Symbol so the
+		// drift detector can still attempt symbol-based matching.
+		if strings.TrimSpace(s.Symbol) == "" {
+			continue
+		}
+		resolved = append(resolved, LogFrame{
+			File: s.File,
+			Line: s.Line,
+			Func: s.Symbol,
+		})
+		origins = append(origins, ClaimOriginPerf)
+	}
+	return resolved, origins
+}
+
 // CollectLogObservedAnchors returns the FULL set of anchors where a
 // log frame matched (any drift OR no drift). Plan-A unification (P3):
 // the AuthorityCeiling axis is the SOLE source of drift truth. Items
@@ -1518,20 +1573,43 @@ func collectDiagramLogFrames(bundle *LogBundle) []LogFrame {
 // bundle are accepted for backward compat with the public API
 // signature; rm is no longer consulted (the projection ran with
 // full ctx awareness at emit time).
+//
+// Round-8: this signature only sees LogBundle. For trace-aware
+// drift detection (perfetto / atrace / hitrace stall drift), prefer
+// CollectArtifactObservedAnchors which takes both bundles. Existing
+// log-only callers stay byte-identical.
 func CollectLogObservedAnchors(rm RequestModel, bundle *LogBundle, items []EvidenceItem) []LogSourceDriftAnchor {
-	out := deriveLogObservedAnchorsFromEvidence(bundle, items)
-	if out == nil {
-		return nil
-	}
-	return out
+	return CollectArtifactObservedAnchors(rm, bundle, nil, items)
 }
 
 // CollectLogSourceDriftAnchors returns ONLY the drifted subset
 // (line_drift / tail_rename / file_moved). Plan-A unification (P3):
 // derives from items whose Authority is non-factual + Origin in
 // {log, perf}. Same projection guarantee as CollectLogObservedAnchors.
+//
+// Round-8: log-only signature; prefer CollectArtifactSourceDriftAnchors
+// for trace-aware drift.
 func CollectLogSourceDriftAnchors(rm RequestModel, bundle *LogBundle, items []EvidenceItem) []LogSourceDriftAnchor {
-	out := deriveLogSourceDriftAnchorsFromEvidence(bundle, items)
+	return CollectArtifactSourceDriftAnchors(rm, bundle, nil, items)
+}
+
+// CollectArtifactObservedAnchors is the trace-aware variant: it
+// merges PerfBundle stalls into the frame source so traces with or
+// without symbolication surface drift symmetrically with logs.
+// BuildAnswerSurfacePlan calls this entry point with both bundles.
+func CollectArtifactObservedAnchors(rm RequestModel, logBundle *LogBundle, perfBundle *PerfBundle, items []EvidenceItem) []LogSourceDriftAnchor {
+	out := deriveAnchorsFromArtifacts(logBundle, perfBundle, items, false)
+	if out == nil {
+		return nil
+	}
+	return out
+}
+
+// CollectArtifactSourceDriftAnchors is the drift-only trace-aware
+// variant. Same coverage policy as CollectArtifactObservedAnchors,
+// filtered to evidence items whose Authority is non-factual.
+func CollectArtifactSourceDriftAnchors(rm RequestModel, logBundle *LogBundle, perfBundle *PerfBundle, items []EvidenceItem) []LogSourceDriftAnchor {
+	out := deriveAnchorsFromArtifacts(logBundle, perfBundle, items, true)
 	if out == nil {
 		return nil
 	}
@@ -1545,7 +1623,7 @@ func CollectLogSourceDriftAnchors(rm RequestModel, bundle *LogBundle, items []Ev
 // LogSourceDriftAnchor. Returns nil when NO items carry projection
 // data (signals: legacy fallback path required).
 func deriveLogObservedAnchorsFromEvidence(bundle *LogBundle, items []EvidenceItem) []LogSourceDriftAnchor {
-	return deriveAnchorsFromEvidence(bundle, items, false)
+	return deriveAnchorsFromArtifacts(bundle, nil, items, false)
 }
 
 // backfillUnprojectedItemsForDerive synthesises basic Origin /
@@ -1573,10 +1651,17 @@ func deriveLogObservedAnchorsFromEvidence(bundle *LogBundle, items []EvidenceIte
 //     ONLY when the item is a definition anchor and the frame's
 //     same file has at least one frame.Func.
 func backfillUnprojectedItemsForDerive(items []EvidenceItem, bundle *LogBundle) []EvidenceItem {
-	if bundle == nil || len(items) == 0 {
+	return backfillUnprojectedItemsForDeriveArtifacts(items, bundle, nil)
+}
+
+// backfillUnprojectedItemsForDeriveArtifacts is the artifact-aware
+// backfill. Trace-only runs need projection too; the merged frame
+// source from collectArtifactFrames covers both bundles.
+func backfillUnprojectedItemsForDeriveArtifacts(items []EvidenceItem, logBundle *LogBundle, perfBundle *PerfBundle) []EvidenceItem {
+	if (logBundle == nil && perfBundle == nil) || len(items) == 0 {
 		return items
 	}
-	frames := collectDiagramLogFrames(bundle)
+	frames, frameOrigins := collectArtifactFramesWithOrigin(logBundle, perfBundle)
 	if len(frames) == 0 {
 		return items
 	}
@@ -1627,7 +1712,7 @@ func backfillUnprojectedItemsForDerive(items []EvidenceItem, bundle *LogBundle) 
 		}
 		return bestIdx
 	}
-	classify := func(idx, frameLine int) {
+	classify := func(idx, frameLine int, frameOrigin ClaimOrigin) {
 		if idx < 0 {
 			return
 		}
@@ -1640,7 +1725,13 @@ func backfillUnprojectedItemsForDerive(items []EvidenceItem, bundle *LogBundle) 
 			item.Origin = ClaimOriginCrossSource
 			item.Authority = AuthorityFactual
 		} else if gap > driftLineGap {
-			item.Origin = ClaimOriginLog
+			// Use the frame's source origin (log vs perf) so a
+			// trace-detected drift carries ClaimOriginPerf rather
+			// than collapsing to ClaimOriginLog.
+			item.Origin = frameOrigin
+			if item.Origin == ClaimOriginUnknown {
+				item.Origin = ClaimOriginLog
+			}
 			item.Authority = AuthorityConditional
 			item.DriftReason = DriftReasonLineDrift
 		} else {
@@ -1648,12 +1739,16 @@ func backfillUnprojectedItemsForDerive(items []EvidenceItem, bundle *LogBundle) 
 			item.Authority = AuthorityFactual
 		}
 	}
-	for _, frame := range frames {
+	for fi, frame := range frames {
 		idx := pickBest(frame, true) // definition-preferred pass
 		if idx < 0 {
 			idx = pickBest(frame, false) // any-kind fallback
 		}
-		classify(idx, frame.Line)
+		origin := ClaimOriginLog
+		if fi < len(frameOrigins) {
+			origin = frameOrigins[fi]
+		}
+		classify(idx, frame.Line, origin)
 	}
 
 	// Pass 2: cross-file unique-tail match → file_moved historical.
@@ -1671,19 +1766,23 @@ func backfillUnprojectedItemsForDerive(items []EvidenceItem, bundle *LogBundle) 
 			continue
 		}
 		matchCount := 0
+		matchedOrigin := ClaimOriginLog
 		for _, t := range itemTails {
-			for _, f := range frames {
+			for fi, f := range frames {
 				if normalizedSurfaceSymbolTail(f.Func) != t {
 					continue
 				}
 				ff := strings.TrimSpace(strings.ReplaceAll(f.File, `\`, `/`))
 				if ff != itemFile {
 					matchCount++
+					if fi < len(frameOrigins) && frameOrigins[fi] != ClaimOriginUnknown {
+						matchedOrigin = frameOrigins[fi]
+					}
 				}
 			}
 		}
 		if matchCount == 1 {
-			item.Origin = ClaimOriginLog
+			item.Origin = matchedOrigin
 			item.Authority = AuthorityHistorical
 			item.DriftReason = DriftReasonFileMoved
 		}
@@ -1730,25 +1829,29 @@ func itemTailCandidates(item EvidenceItem) []string {
 // detected drift). Mirrors deriveLogObservedAnchorsFromEvidence but
 // filters down to drifted items.
 func deriveLogSourceDriftAnchorsFromEvidence(bundle *LogBundle, items []EvidenceItem) []LogSourceDriftAnchor {
-	return deriveAnchorsFromEvidence(bundle, items, true)
+	return deriveAnchorsFromArtifacts(bundle, nil, items, true)
 }
 
-// deriveAnchorsFromEvidence is the frame-driven anchor builder
+// deriveAnchorsFromArtifacts is the frame-driven anchor builder
 // shared by the observed (driftedOnly=false) and drift-subset
-// (driftedOnly=true) entry points. For each bundle frame, picks the
-// best same-file evidence item (definition-preferred, line-closest)
-// and constructs ONE anchor per frame. Items not matched to any
-// frame produce no anchor.
+// (driftedOnly=true) entry points. For each frame from the merged
+// log + perf source, picks the best same-file evidence item
+// (definition-preferred, line-closest) and constructs ONE anchor
+// per frame. Items not matched to any frame produce no anchor.
+//
+// Round-8: PerfBundle stalls are synthesised into the frame stream
+// so trace-only runs (no log attached) produce drift anchors
+// identically to log-only runs.
 //
 // When driftedOnly is true, the result is filtered to anchors whose
 // underlying item carries a non-factual Authority OR an explicit
 // DriftReason (i.e. the projection determined this is real drift).
-func deriveAnchorsFromEvidence(bundle *LogBundle, items []EvidenceItem, driftedOnly bool) []LogSourceDriftAnchor {
-	if bundle == nil || len(items) == 0 {
+func deriveAnchorsFromArtifacts(logBundle *LogBundle, perfBundle *PerfBundle, items []EvidenceItem, driftedOnly bool) []LogSourceDriftAnchor {
+	if (logBundle == nil && perfBundle == nil) || len(items) == 0 {
 		return nil
 	}
-	items = backfillUnprojectedItemsForDerive(items, bundle)
-	frames := collectDiagramLogFrames(bundle)
+	items = backfillUnprojectedItemsForDeriveArtifacts(items, logBundle, perfBundle)
+	frames := collectArtifactFrames(logBundle, perfBundle)
 	if len(frames) == 0 {
 		return nil
 	}
