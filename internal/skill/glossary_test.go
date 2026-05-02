@@ -121,6 +121,19 @@ func scanString(label, s string) []string {
 		}
 		out = append(out, label+": token="+term+" preview="+preview(s, idx, len(term)))
 	}
+	// Project-specific identifier scan — same matcher, separate
+	// list. Catches eval-case-specific config keys / repo paths
+	// that over-fit prompts to one question shape.
+	for _, term := range ProjectSpecificIdentifierBlocklist {
+		if term == "" {
+			continue
+		}
+		idx := findTermMatch(s, term)
+		if idx < 0 {
+			continue
+		}
+		out = append(out, label+": token="+term+" preview="+preview(s, idx, len(term)))
+	}
 	return out
 }
 

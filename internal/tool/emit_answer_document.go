@@ -411,15 +411,21 @@ func (t *EmitAnswerDocument) Parameters() json.RawMessage {
     },
     "citations": {
       "type": "array",
-      "description": "Shared citation pool. Each entry is one file:line anchor with an optional VERBATIM code quote. Zero-based indices; CitationRef=-1 means 'no citation'. The grounder validates quote tokens against the cited line — prose quotes are auto-cleared.",
+      "description": "Shared citation pool. Each entry is one anchor backing claims in the answer. Zero-based indices; CitationRef=-1 means 'no citation'. The grounder validates quote tokens against the cited line — prose quotes are auto-cleared. Pick a scope that matches what the citation actually proves (see scope field).",
       "items": {
         "type": "object",
         "properties": {
-          "file":  {"type": "string", "description": "Repository-relative file path. MUST NOT live inside the per-trace WorkDir (blob directory)."},
-          "line":  {"type": "integer", "description": "Gutter line number from read_file output. Must be > 0."},
-          "quote": {"type": "string", "description": "OPTIONAL verbatim copy of the code at file:line from read_file, ≤%d chars (longer previews are truncated on a UTF-8 boundary; file:line is always preserved). Rule: paste the literal source line, or LEAVE THIS FIELD EMPTY. Do NOT write prose, summaries, or paraphrases — the grounder compares quote tokens against the actual line text and strips any quote that does not overlap (prose will be automatically cleared). If you cannot paste the literal line, omit the field."}
+          "file":  {"type": "string", "description": "Repository-relative file path. MUST NOT live inside the per-trace WorkDir (blob directory). For scope=negative, name the file the absence holds within (or a marker like '(repo-wide grep)' when the search was repo-wide)."},
+          "line":  {"type": "integer", "description": "Gutter line number from read_file output. > 0 for scope=line / line_range. May be 0 when scope=file / crossfile / negative — those scope shapes are not anchored at a single line."},
+          "quote": {"type": "string", "description": "OPTIONAL verbatim copy of the code at file:line from read_file, ≤%d chars (longer previews are truncated on a UTF-8 boundary; file:line is always preserved). Rule: paste the literal source line, or LEAVE THIS FIELD EMPTY. Do NOT write prose, summaries, or paraphrases — the grounder compares quote tokens against the actual line text and strips any quote that does not overlap (prose will be automatically cleared). If you cannot paste the literal line, omit the field."},
+          "scope": {"type": "string", "enum": ["", "line", "line_range", "section", "file", "crossfile", "negative"], "description": "OPTIONAL — citation anchor shape. Empty falls back to legacy file:line rendering. Pick the scope that matches what the citation proves: 'line' = single (file, line); 'line_range' = multi-line block (set line + line_end); 'section' = a named schema section (set section_path); 'file' = the file IS a layer / role (set file_role_label); 'crossfile' = a cross-file contract verified by query (set crossfile_summary); 'negative' = a confirmed absence (set negative_pattern + name the file the absence applies to in 'file'). REQUIRED at scope=negative when ExactResolution.status=absent — see absence-citation discipline in the answer-rendering skill."},
+          "line_end":          {"type": "integer", "description": "REQUIRED with scope=line_range. Inclusive end line. line < line_end."},
+          "section_path":      {"type": "string", "description": "REQUIRED with scope=section. The named schema / config / structural path the citation anchors at, e.g. 'spec.template.spec.containers' / 'pkg/foo/bar.go::Type.Method' / 'configRoot.explore.heuristics'."},
+          "file_role_label":   {"type": "string", "enum": ["", "config_canonical", "cli_registration", "default_struct", "manifest", "schema"], "description": "REQUIRED with scope=file. Names the role the file plays in the answer. The enum values describe canonical file roles independent of any specific question; pick the one that matches what the citation proves about the file."},
+          "crossfile_summary": {"type": "string", "description": "REQUIRED with scope=crossfile. One-sentence summary of the cross-file contract the citation proves — name the contract (presence / absence / consistency / equality / etc.) and the files it spans. Operators read this to understand what would falsify the contract."},
+          "negative_pattern":  {"type": "string", "description": "REQUIRED with scope=negative. The EXACT search query whose absence-of-matches is the citation's claim — paste the regex / literal / symbol-name as you ran it (the same string you passed to grep / repo_map / search). Operators audit absence claims by reproducing this query, so a vague description fails the audit; a concrete pattern they can paste back into a search bar passes. When ExactResolution.status='absent', citations[] MUST include at least one entry with scope='negative' AND a non-empty negative_pattern — the system rejects unbounded absence claims."}
         },
-        "required": ["file", "line"]
+        "required": ["file"]
       }
     },
     "caveats": {
@@ -7405,8 +7411,31 @@ func buildEmitAnswerDocumentCitations(in []types.Citation, workDir string, gc *g
 			})
 			continue
 		}
-		if c.Line <= 0 {
-			return nil, nil, nil, nil, fmt.Errorf("citations[%d]: line must be > 0 (got %d) — Pattern 2 line-hallucination guard", i, c.Line)
+		// scope-axis lift: Citations whose scope is file / crossfile /
+		// negative are not anchored at a single line by definition —
+		// the absence / file-as-layer / cross-file-contract semantic
+		// has no specific line to point at. Line > 0 is enforced only
+		// for empty-scope (legacy file:line citations) and explicit
+		// line / line_range / section anchors. Required when the
+		// citation IS line-shaped; relaxed when it is not.
+		switch c.Scope {
+		case types.ScopeFile, types.ScopeCrossfile, types.ScopeNegative:
+			// Line may be 0 — no per-line anchor for these shapes.
+			if c.Line < 0 {
+				return nil, nil, nil, nil, fmt.Errorf("citations[%d]: line cannot be negative (got %d)", i, c.Line)
+			}
+			// scope=negative also requires a non-empty negative_pattern
+			// — the schema description says so; enforce structurally
+			// here so Phase 4's runAbsenceScopeBoundOracle can rely
+			// on every NegativePattern field being meaningful when
+			// set.
+			if c.Scope == types.ScopeNegative && strings.TrimSpace(c.NegativePattern) == "" {
+				return nil, nil, nil, nil, fmt.Errorf("citations[%d]: scope=negative requires a non-empty negative_pattern naming the search query whose absence-of-matches is the citation's claim", i)
+			}
+		default:
+			if c.Line <= 0 {
+				return nil, nil, nil, nil, fmt.Errorf("citations[%d]: line must be > 0 (got %d) — Pattern 2 line-hallucination guard", i, c.Line)
+			}
 		}
 		c.Quote = strings.TrimSpace(c.Quote)
 		quoteCap := types.CitationMaxQuoteChars()

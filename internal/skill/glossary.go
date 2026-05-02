@@ -5,6 +5,44 @@ package skill
 // (prompts, tool schemas, retry/mid-loop hints) — any listed token
 // appearing in a rendered LLM prompt fails the build.
 
+// ProjectSpecificIdentifierBlocklist is the curated denylist of
+// project-specific identifiers (eval-case-specific config keys,
+// repo file paths used as worked examples, etc.) that MUST NEVER
+// appear in LLM-facing prompt text. Distinct from
+// InternalTermsBlocklist (which catches Go internal type names);
+// this list catches the orthogonal pattern where a writer pastes
+// a concrete project identifier ("explore_mid_loop_hint_budget" /
+// "codrax.yaml") into a worked-example block, which over-fits the
+// prompt to one eval case and violates the
+// feedback_generalization_over_project_success.md red line.
+//
+// Maintenance: every time an eval case introduces a new
+// project-specific identifier (config key / file path / function
+// name) that gets used in a worked example or schema description,
+// audit the surrounding prompt — if the identifier is project-
+// specific (i.e. would not exist in another codrax-shaped repo),
+// add it here so the lint catches a future paste-in. The list is
+// allowed to grow; false-positive risk is near-zero because each
+// entry is a real concrete identifier.
+//
+// Scanned by the same 3 glossary lint tests
+// (TestNoInternalTermsInHints / TestNoInternalTermsInToolSchemas /
+// TestInternalTerms*) — a hit fails the test with a "rephrase as
+// a generic placeholder" suggestion.
+var ProjectSpecificIdentifierBlocklist = []string{
+	// s3a (config-trace) eval case — the missing config key the
+	// question asks about.
+	"explore_mid_loop_hint_budget",
+	// s3a / m1a — the repo's canonical config sample file basename.
+	// Path-shape fixtures should use generic placeholders like
+	// `<config-file>` instead.
+	"codrax.yaml",
+	// s3a — the structural CLI registration site. Worked examples
+	// that walk a 3-layer override chain should reference the role
+	// (`cli_registration` enum value) not the concrete repo path.
+	"cmd/root.go",
+}
+
 // InternalTermsBlocklist is the set of implementation-jargon tokens
 // that must NEVER appear in LLM-facing prompt text. Each entry is a
 // plain substring; the lint does a case-sensitive Contains check on

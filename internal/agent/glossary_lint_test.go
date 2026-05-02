@@ -89,6 +89,20 @@ func TestNoInternalTermsInHints(t *testing.T) {
 				pos := fset.Position(lit.Pos())
 				hits = append(hits, formatHintHit(pos.Filename, pos.Line, term, raw, idx))
 			}
+			// Project-specific identifier scan — same matcher, separate
+			// list. Catches eval-case-specific config keys / repo paths
+			// that over-fit prompts to one question shape.
+			for _, term := range skill.ProjectSpecificIdentifierBlocklist {
+				if term == "" {
+					continue
+				}
+				idx := findTermMatch(raw, term)
+				if idx < 0 {
+					continue
+				}
+				pos := fset.Position(lit.Pos())
+				hits = append(hits, formatHintHit(pos.Filename, pos.Line, term, raw, idx))
+			}
 			return true
 		})
 	}

@@ -1289,7 +1289,7 @@ func runAbsenceScopeBoundOracle(doc *types.AnswerDocument, rm *types.RequestMode
 	return []types.Violation{{
 		Kind: types.ViolAbsenceScopeExceeded,
 		Detail: "exact_resolution.status=absent declared but no citation carries scope=negative + a non-empty negative_pattern; the absence claim is unbounded",
-		Repair: "the next investigation pass should emit at least one citation with scope=negative + negative_pattern naming the exact search query (grep / repomap / file glob) that confirmed the absence. If a finalizer dispatch sees this hint and the bounded evidence is already in the pool, re-emit emit_answer_document with the negative citation included in citations[]; otherwise the extractor must run the bounded search.",
+		Repair: "Re-emit emit_answer_document with citations[] including at least one entry with scope='negative' AND a non-empty negative_pattern naming the exact search query (grep / repomap / file glob) that confirmed the absence. If the bounded evidence is already in the pool, attach it directly as a negative-scope citation; otherwise the next investigation pass must run the bounded search and surface its query.",
 		SuspectedRoot: types.SuspectedRoot{
 			IRField:    "exact_resolution.absence_scope",
 			Reason:     "absence claim without bounded negative-scope citation",

@@ -309,7 +309,7 @@ func emitEvidenceParametersSchema() json.RawMessage {
 						"file_role_label": map[string]any{
 							"type":        "string",
 							"enum":        emitEvidenceFileRoleLabelNames(),
-							"description": "REQUIRED when scope='file'. Names the canonical role this file plays as a layer. config_canonical = canonical user-facing config file (e.g. codrax.yaml); cli_registration = file registering CLI flags (e.g. cmd/root.go); default_struct = file holding the default-value struct; manifest = package/project manifest (go.mod, package.json, ...); schema = schema-defining file (proto, openapi, ...).",
+							"description": "REQUIRED when scope='file'. Names the canonical role this file plays as a layer. config_canonical = canonical user-facing config file (e.g. *.yaml / *.toml at repo root); cli_registration = file registering CLI flags / command-line entry points; default_struct = file holding the default-value struct; manifest = package/project manifest (go.mod, package.json, ...); schema = schema-defining file (proto, openapi, ...).",
 						},
 						"crossfile_query": map[string]any{
 							"type":        "object",

@@ -123,6 +123,19 @@ func scanLLMText(label, s string) []string {
 		}
 		out = append(out, label+": token="+term+" preview="+previewLLMText(s, idx, len(term)))
 	}
+	// Project-specific identifier scan — same matcher, separate
+	// list. Catches eval-case-specific config keys / repo paths
+	// that over-fit prompts to one question shape.
+	for _, term := range skill.ProjectSpecificIdentifierBlocklist {
+		if term == "" {
+			continue
+		}
+		idx := findTermMatchLocal(s, term)
+		if idx < 0 {
+			continue
+		}
+		out = append(out, label+": token="+term+" preview="+previewLLMText(s, idx, len(term)))
+	}
 	return out
 }
 
