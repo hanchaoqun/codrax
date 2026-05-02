@@ -157,6 +157,68 @@ func TestMentionedFileEntities_AbsolutePathRejected(t *testing.T) {
 	}
 }
 
+// TestMentionedFileEntities_UnionDeduplicates confirms the seeder
+// behaves correctly when callers union MentionedEntities ∪ ExactTargets
+// (the canonical caller pattern in analyzerRequiredFiles): duplicates
+// across the two lanes collapse to one fs-hit. Real-world trigger:
+// s3a-20260502-181424, where the LLM emitted "codrax.yaml" in
+// exact_targets but omitted entities at the top level, so
+// MentionedEntities was empty and the seeder needed exact_targets
+// to fire.
+func TestMentionedFileEntities_UnionDeduplicates(t *testing.T) {
+	root := scratchRepo(t, map[string]string{
+		"codrax.yaml.example": "ok",
+	})
+	// Same entity in both lanes — must not produce 2 hits.
+	got := fsHitPaths(mentionedFileEntities(root, []string{"codrax.yaml", "codrax.yaml"}, nil))
+	want := []string{"codrax.yaml.example"}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("duplicate input must dedup; got %v want %v", got, want)
+	}
+}
+
+func TestDedupStringList_OrderStableFirstWins(t *testing.T) {
+	got := dedupStringList(
+		[]string{"a", "b", "a"},                 // intra-list dup
+		[]string{"  ", "b", "c"},                // empty + cross-list dup
+		nil,                                     // nil-safe
+		[]string{"  d ", "  c  ", "  d  ", "e"}, // whitespace-trim + cross-list dup + intra dup
+	)
+	want := []string{"a", "b", "c", "d", "e"}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("got %v want %v", got, want)
+	}
+}
+
+func TestDedupStringList_AllEmptyReturnsNil(t *testing.T) {
+	if got := dedupStringList(nil, nil); got != nil {
+		t.Errorf("all-empty must return nil; got %v", got)
+	}
+	if got := dedupStringList([]string{"", "  ", "\t"}); got != nil && len(got) != 0 {
+		t.Errorf("whitespace-only must return empty; got %v", got)
+	}
+}
+
+// TestMentionedFileEntities_NonPathSymbolEntityNoFalsePositive
+// confirms non-path entities (function names / config keys / random
+// symbols) cannot accidentally seed a RequiredFiles entry. This
+// guards the "ExactTargets union doesn't affect non-path question
+// types" invariant.
+func TestMentionedFileEntities_NonPathSymbolEntityNoFalsePositive(t *testing.T) {
+	root := scratchRepo(t, map[string]string{
+		"src/explorer.go":   "package src\n",
+		"src/some_other.go": "package src\n",
+	})
+	// "ExploreMidLoopHintBudget" / "gate.Run" / "ParseOutput" — none
+	// of these are filesystem paths; Layer A/B/C must all miss.
+	got := mentionedFileEntities(root, []string{
+		"ExploreMidLoopHintBudget", "gate.Run", "ParseOutput",
+	}, nil)
+	if len(got) != 0 {
+		t.Errorf("non-path entities must not seed RequiredFiles; got %v", got)
+	}
+}
+
 func TestMentionedFileEntities_EmptyInputsAreNoop(t *testing.T) {
 	if got := mentionedFileEntities("", []string{"x"}, nil); got != nil {
 		t.Errorf("empty repo root must return nil; got %v", got)

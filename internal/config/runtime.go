@@ -334,6 +334,21 @@ type RuntimeSettings struct {
 	// equal-footing with ranker QueryScore hits — never blocks).
 	AnalyzerMentionCountMaxGrep *int `yaml:"analyzer_mention_count_max_grep"`
 
+	// PipelineFacetValidatorsEnabled (Phase 4 of Semantic Surface
+	// Contract, 2026-05-02) is the master switch for the three new
+	// finalizer-side oracles: runFacetCoverageOracle (SOFT) +
+	// runClaimFormSupportOracle (STRICT) + runAbsenceScopeBoundOracle
+	// (STRICT). When false, the oracles are not invoked at all —
+	// behaviour reverts to pre-Phase-4 (Block 2 oracles only).
+	//
+	// nil / unset = use default (true). Operators set false to fully
+	// disable Phase 4 enforcement during a regression / rollback
+	// without redeploying. Soft-kind classification of individual
+	// kinds remains tunable via pipeline_contract_strict_kinds /
+	// pipeline_contract_soft_kinds even when this master switch is
+	// on; turning it off bypasses both producer and classifier.
+	PipelineFacetValidatorsEnabled *bool `yaml:"pipeline_facet_validators_enabled"`
+
 	// PipelineSelfConsistencyReviewEnabled (commit 62, this-phase
 	// default TRUE) gates the post-finalize self-consistency
 	// reviewer LLM. When true, an independent reviewer reads

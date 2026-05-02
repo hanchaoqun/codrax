@@ -1701,13 +1701,33 @@ func analyzerRequiredFiles(ctx *types.AgentContext, rm types.RequestModel) []str
 		}
 	}
 
-	// Tier 1.5 — file-shaped MentionedEntities. Closes the gap where
-	// the user verbatim names a file path the repomap graph cannot
-	// rank (no code symbols → QueryScore=0, e.g. codrax.yaml.example
-	// / Dockerfile / *.proto). Filesystem is the only signal allowed
-	// to decide "this entity names a file" — no extension allowlist,
-	// no canonical basename table. See mentioned_file_entities.go.
-	mentioned := append([]string(nil), rm.AnalyzerHints.MentionedEntities...)
+	// Tier 1.5 — file-shaped MentionedEntities ∪ ExactTargets.
+	// Closes the gap where the user verbatim names a file path the
+	// repomap graph cannot rank (no code symbols → QueryScore=0,
+	// e.g. codrax.yaml.example / Dockerfile / *.proto). Filesystem
+	// is the only signal allowed to decide "this entity names a
+	// file" — no extension allowlist, no canonical basename table.
+	// See mentioned_file_entities.go.
+	//
+	// Both AnalyzerHints lanes feed the seeder:
+	//   - MentionedEntities: deterministic subset of Entities whose
+	//     surface forms appear verbatim in RawRequest (provenance-
+	//     bearing).
+	//   - ExactTargets: LLM-emitted "config keys / file paths /
+	//     symbols / literals", system-validated against RawRequest
+	//     provenance before downstream contracts consume it.
+	// Real eval s3a-20260502-181424 surfaced the gap: LLM placed
+	// "codrax.yaml" in exact_targets but omitted top-level entities,
+	// leaving MentionedEntities empty and bypassing the seeder.
+	// Non-path exact_targets (function names, config keys without
+	// a file form) match no fs layer (Layer A/B stat misses, Layer C
+	// basename equality almost never collides with symbol names),
+	// so the union adds coverage without false positives on non-
+	// path question types.
+	mentioned := dedupStringList(
+		rm.AnalyzerHints.MentionedEntities,
+		rm.AnalyzerHints.ExactTargets,
+	)
 	fsHits := mentionedFileEntities(ctx.RepoRoot, mentioned, graph)
 
 	ranked := rankAnalyzerRequiredFiles(graph, entities)
@@ -1768,6 +1788,36 @@ func mergeRequiredFilePathLists(head, tail []string, cap int) []string {
 // on RequiredFiles (Session-22 fix F1.2). Wrapped as a function so
 // future overrides have one site to flip; production stays at 3.
 func maxAnalyzerRequiredFilesCap() int { return 3 }
+
+// dedupStringList unions any number of input slices into one
+// order-stable, dedup'd result. Empty / whitespace-only entries are
+// dropped. First occurrence wins (subsequent duplicates skipped).
+//
+// Used by analyzerRequiredFiles to build the file-shaped seeder
+// input from MentionedEntities ∪ ExactTargets without paying the
+// inner Layer-A/B/C cost twice for the same surface form.
+func dedupStringList(lists ...[]string) []string {
+	total := 0
+	for _, l := range lists {
+		total += len(l)
+	}
+	if total == 0 {
+		return nil
+	}
+	seen := make(map[string]bool, total)
+	out := make([]string, 0, total)
+	for _, l := range lists {
+		for _, raw := range l {
+			s := strings.TrimSpace(raw)
+			if s == "" || seen[s] {
+				continue
+			}
+			seen[s] = true
+			out = append(out, s)
+		}
+	}
+	return out
+}
 
 // logBundleAuthoritativeFrames reports whether a log-triage bundle
 // should be treated as the file-set ceiling: at least one runtime

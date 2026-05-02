@@ -249,6 +249,52 @@ const (
 	// AnchorKind = AnchorCall — the answer is grounded but in the
 	// wrong shape (definition / assignment instead of the call).
 	ViolPredicateAxisMissing ViolationKind = "predicate_axis_missing"
+
+	// ViolFacetUncovered fires when a FacetCoverageContract.Required
+	// entry whose Required==FacetHardRequired has zero corresponding
+	// payload coverage in the rendered AnswerDocument. "Coverage"
+	// means at least one AnswerStep / AnswerSymbol / AnswerValue /
+	// AnswerBoolean carries a RenderedClaimUse whose FacetID matches
+	// the facet's Kind, OR (when LLM omitted ClaimUse) a payload
+	// whose referenced citation has a ClaimFormOf in the facet's
+	// AcceptableForms.
+	//
+	// Phase 4 default classification: SOFT — facet gaps usually
+	// require additional evidence collection (BackToExplore) rather
+	// than a finalizer rewrite, and the evaluation oracle for
+	// "did the LLM cover facet X" is itself fuzzy enough that hard-
+	// rejecting on a miss risks false positives. Operators promote
+	// to STRICT via pipeline_contract_strict_kinds for repos where
+	// all answers must be facet-complete.
+	ViolFacetUncovered ViolationKind = "facet_uncovered"
+
+	// ViolClaimFormUnsupported fires when a payload's RenderedClaimUse
+	// names a ClaimForm that is INCOMPATIBLE with the underlying
+	// evidence's actual ClaimForm projection. Example: a step's
+	// ClaimUse declares claim_form=call_edge but the cited
+	// EvidenceItem has AnchorKind=Definition (ClaimFormOf returns
+	// ClaimDefinitionFact, not ClaimCallEdge).
+	//
+	// Phase 4 default classification: STRICT — this is an explicit
+	// LLM-emitted self-contradiction. The LLM either named the wrong
+	// facet or cited the wrong evidence for it; either way the
+	// finalizer can fix it without new evidence (FinalizerOnly).
+	ViolClaimFormUnsupported ViolationKind = "claim_form_unsupported"
+
+	// ViolAbsenceScopeExceeded fires when the answer prose claims a
+	// broader absence than its citation can support. Example: the
+	// summary says "X is not used anywhere in the codebase" but the
+	// only Scope=Negative citation is a per-package grep (NegativePattern
+	// scoped to internal/foo/). The repo has not been searched
+	// exhaustively; the absence claim oversteps.
+	//
+	// Phase 4 default classification: STRICT — safety-critical for
+	// config-trace / absence-question shapes where downstream
+	// consumers act on the negative finding (operator removes a
+	// config knob, etc.). Fallback target is BackToExtract: the
+	// extractor must re-emit a tighter absence framing or surface
+	// the bounded scope verbatim.
+	ViolAbsenceScopeExceeded ViolationKind = "absence_scope_exceeded"
 )
 
 // AllViolationKinds returns every declared ViolationKind in a stable
@@ -288,6 +334,9 @@ func AllViolationKinds() []ViolationKind {
 		ViolIntentConfigNoTrail,
 		ViolSubjectAnchorMissing,
 		ViolPredicateAxisMissing,
+		ViolFacetUncovered,
+		ViolClaimFormUnsupported,
+		ViolAbsenceScopeExceeded,
 	}
 }
 

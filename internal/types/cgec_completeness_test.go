@@ -224,6 +224,12 @@ func TestAllViolationKindsHaveProducer(t *testing.T) {
 		ViolIntentConfigNoTrail:    true, // orchestrator/contract_check.go runIntentCoverageOracle
 		ViolSubjectAnchorMissing:   true, // orchestrator/contract_check.go runSubjectAnchorOracle
 		ViolPredicateAxisMissing:   true, // orchestrator/contract_check.go runPredicateAxisOracle
+		// Phase 4 (Semantic Surface Contract) — emit_answer_document
+		// validators consume the FacetCoverageContract + RenderedClaimUse
+		// annotations landed in P1 / P3.
+		ViolFacetUncovered:       true, // tool/emit_answer_document.go validateFacetCoverage
+		ViolClaimFormUnsupported: true, // tool/emit_answer_document.go validateClaimFormSupport
+		ViolAbsenceScopeExceeded: true, // tool/emit_answer_document.go validateAbsenceScopeBound
 	}
 	pending := map[ViolationKind]string{}
 	// Sanity: AllViolationKinds() must equal covered ∪ pending so the

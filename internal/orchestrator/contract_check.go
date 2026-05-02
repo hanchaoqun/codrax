@@ -114,6 +114,21 @@ func runContractCheck(out *agent.StageOutput, c types.AnswerContract, mut *types
 				runSubjectAnchorOracle(doc, ir)...)
 			result.Violations = append(result.Violations,
 				runPredicateAxisOracle(doc, ir, mut)...)
+			// Phase 4 (Semantic Surface Contract, 2026-05-02) —
+			// FacetCoverage / ClaimForm / Absence-Scope oracles.
+			// All three consume Phase-1 FacetCoverageContract +
+			// Phase-3 RenderedClaimUse annotations. SOFT/STRICT
+			// classification per defaultSoftKinds(); promotion via
+			// pipeline_contract_strict_kinds. Master-switch:
+			// pipeline_facet_validators_enabled (default true).
+			if FacetValidatorsEnabled() {
+				result.Violations = append(result.Violations,
+					runFacetCoverageOracle(doc, ir, mut)...)
+				result.Violations = append(result.Violations,
+					runClaimFormSupportOracle(doc, mut)...)
+				result.Violations = append(result.Violations,
+					runAbsenceScopeBoundOracle(doc, ir)...)
+			}
 		}
 	}
 
@@ -981,6 +996,348 @@ func runPredicateAxisOracle(doc *types.AnswerDocument, rm *types.RequestModel, m
 	}}
 }
 
+// FacetValidatorsEnabled returns whether the Phase 4 facet
+// validators (FacetCoverage / ClaimForm / Absence-Scope) are
+// active. Default true; flip to false via cmd/root.go's
+// SetFacetValidatorsEnabled when codrax.yaml sets
+// pipeline_facet_validators_enabled: false.
+func FacetValidatorsEnabled() bool {
+	facetValidatorsEnabledMu.RLock()
+	defer facetValidatorsEnabledMu.RUnlock()
+	return facetValidatorsEnabled
+}
+
+// SetFacetValidatorsEnabled flips the master switch. Called once
+// from cmd/root.go at startup after codrax.yaml merge.
+func SetFacetValidatorsEnabled(on bool) {
+	facetValidatorsEnabledMu.Lock()
+	defer facetValidatorsEnabledMu.Unlock()
+	facetValidatorsEnabled = on
+}
+
+var (
+	facetValidatorsEnabledMu sync.RWMutex
+	facetValidatorsEnabled   = true
+)
+
+// runFacetCoverageOracle (Phase 4 of Semantic Surface Contract,
+// 2026-05-02) walks the FacetCoverageContract.Required entries and
+// flags any FacetHardRequired facet that the rendered AnswerDocument
+// fails to cover. "Coverage" means at least one payload (step / symbol
+// / value / boolean) carries either:
+//
+//   - An explicit RenderedClaimUse with FacetID matching the facet's
+//     Kind — the LLM self-annotated the slot it filled.
+//   - A citation whose underlying evidence has a ClaimFormOf result
+//     in the facet's AcceptableForms — inferred coverage when the
+//     LLM omitted ClaimUse but the evidence shape implies the facet.
+//
+// Phase 1's HARD-degrade-to-SOFT pre-compile rule guarantees that any
+// facet remaining FacetHardRequired here had at least one bound
+// SourceCandidate at compile time — so a "no coverage" verdict is
+// not noise, it means the LLM had evidence available but did not
+// surface it in the rendered answer.
+//
+// Default classification: SOFT (missed-facet recovery typically needs
+// new evidence collection rather than a pure finalizer rewrite).
+// Promotion via pipeline_contract_strict_kinds.
+func runFacetCoverageOracle(doc *types.AnswerDocument, rm *types.RequestModel, mut *types.MutableState) []types.Violation {
+	if doc == nil || rm == nil {
+		return nil
+	}
+	// Build the FacetCoverageContract directly from RequestModel +
+	// the live evidence pool. Mirrors BuildAnswerSurfacePlan's call
+	// site at types/answer_surface_plan.go:1207 but without the
+	// surrounding shape-plan overhead — we only need the contract.
+	var surfaceEvidence []types.EvidenceItem
+	if mut != nil {
+		surfaceEvidence = mut.EmittedEvidence()
+	}
+	contract := types.CompileFacetCoverage(*rm, surfaceEvidence)
+	if contract == nil {
+		return nil
+	}
+	hardRequired := []types.FacetRequirement(nil)
+	for _, req := range contract.Required {
+		if req.Required == types.FacetHardRequired {
+			hardRequired = append(hardRequired, req)
+		}
+	}
+	if len(hardRequired) == 0 {
+		return nil
+	}
+
+	// Collect explicit claim_use facet IDs across all payload kinds.
+	explicitFacets := map[string]bool{}
+	collectClaimUseFacets(doc, func(c *types.RenderedClaimUse) {
+		if c != nil && c.FacetID != "" {
+			explicitFacets[c.FacetID] = true
+		}
+	})
+
+	// Collect inferred coverage from citations whose underlying
+	// evidence projects into one of each facet's AcceptableForms.
+	inferredFormsPerCitation := inferClaimFormsFromCitations(doc, mut)
+
+	var out []types.Violation
+	for _, req := range hardRequired {
+		if explicitFacets[string(req.Kind)] {
+			continue
+		}
+		if facetCoveredByInferredForms(req, inferredFormsPerCitation) {
+			continue
+		}
+		out = append(out, types.Violation{
+			Kind: types.ViolFacetUncovered,
+			Detail: fmt.Sprintf(
+				"facet=%s (HARD-required for %s) has no payload coverage — neither an explicit claim_use.facet_id reference nor an inferred match against acceptable_forms=%v",
+				req.Kind, contract.Family, claimFormsAsStrings(req.AcceptableForms)),
+			Repair: fmt.Sprintf(
+				"the next investigation pass should surface evidence for facet %q so the answer can cite it. If a finalizer dispatch sees this hint and the evidence is already in the pool, attach a claim_use{facet_id=%q,evidence_id=...} to the relevant payload row.",
+				req.Kind, req.Kind),
+			SuspectedRoot: types.SuspectedRoot{
+				IRField:    "facet_coverage",
+				Reason:     fmt.Sprintf("facet %s declared HARD but uncovered", req.Kind),
+				Confidence: 0.6,
+			},
+			Stage: string(types.StageFinalize),
+		})
+	}
+	return out
+}
+
+// runClaimFormSupportOracle (Phase 4, 2026-05-02) checks that every
+// payload's explicit RenderedClaimUse.ClaimForm is supported by the
+// underlying evidence's actual ClaimForm projection. If LLM emitted
+// claim_form=call_edge but the cited evidence has AnchorKind=Definition
+// (ClaimDefinitionFact), the annotation is internally inconsistent.
+//
+// Default classification: STRICT — explicit LLM self-contradiction
+// the finalizer can fix without new evidence (FinalizerOnly).
+//
+// Empty ClaimUse / nil ClaimUse / empty ClaimForm → skipped (no
+// annotation, nothing to validate). Phase 3's emit_answer_document
+// validateClaimUse already rejects unknown enum values; this oracle
+// validates SEMANTIC consistency between annotation and evidence.
+func runClaimFormSupportOracle(doc *types.AnswerDocument, mut *types.MutableState) []types.Violation {
+	if doc == nil {
+		return nil
+	}
+	var out []types.Violation
+	visit := func(label string, ref int, claim *types.RenderedClaimUse) {
+		if claim == nil || claim.ClaimForm == "" {
+			return
+		}
+		evidenceForm := claimFormForCitationRef(doc, mut, ref)
+		if evidenceForm == "" || evidenceForm == types.ClaimUnknown {
+			// No evidence projection available — cannot validate.
+			// Phase 0 trace data showed 34% of evidence projects to
+			// ClaimUnknown; treating that as "supported" is the
+			// back-compat-safe reading per the design doc §0.4.
+			return
+		}
+		if claim.ClaimForm != evidenceForm {
+			out = append(out, types.Violation{
+				Kind: types.ViolClaimFormUnsupported,
+				Detail: fmt.Sprintf(
+					"%s declares claim_form=%s but the cited evidence projects to claim_form=%s",
+					label, claim.ClaimForm, evidenceForm),
+				Repair: fmt.Sprintf(
+					"either drop %s.claim_use.claim_form (the LLM was wrong about the evidence shape), or change the citation to one whose anchor kind matches %s. The system will not auto-correct because this is a self-contradiction the LLM emitted; finalizer rewrite required.",
+					label, claim.ClaimForm),
+				SuspectedRoot: types.SuspectedRoot{
+					IRField:    "claim_use.claim_form",
+					Reason:     fmt.Sprintf("claim_form mismatch on %s", label),
+					Confidence: 0.7,
+				},
+				Stage: string(types.StageFinalize),
+			})
+		}
+	}
+	for i := range doc.Steps {
+		visit(fmt.Sprintf("steps[%d]", i), doc.Steps[i].CitationRef, doc.Steps[i].ClaimUse)
+	}
+	for i := range doc.Symbols {
+		// AnswerSymbol does not carry a CitationRef; the symbol IS
+		// the citation (File + Line are direct anchors). Use ref=-1
+		// so claimFormForCitationRef falls through to the symbol-
+		// based projection branch.
+		visit(fmt.Sprintf("symbols[%d]", i), -1, doc.Symbols[i].ClaimUse)
+	}
+	if doc.Value != nil {
+		visit("value", doc.Value.CitationRef, doc.Value.ClaimUse)
+	}
+	if doc.Boolean != nil {
+		visit("boolean", doc.Boolean.CitationRef, doc.Boolean.ClaimUse)
+	}
+	return out
+}
+
+// runAbsenceScopeBoundOracle (Phase 4, 2026-05-02) fires when the
+// AnswerDocument claims a NEGATIVE finding (status=absent) but no
+// citation in the pool carries a bounded negative scope to back the
+// claim up. Operationally: an answer that says "X is absent from the
+// codebase" must cite at least one Citation with Scope=Negative AND
+// non-empty NegativePattern (the pattern that was searched for and
+// found absent), otherwise the absence is unfounded.
+//
+// Default classification: STRICT — safety-critical for config-trace /
+// absence questions where downstream consumers act on the negative
+// finding (operator removes a config knob, etc.). Fallback target is
+// BackToExtract: the next pass must either surface the bounded
+// negative citation or re-frame the finding.
+//
+// Trigger uses ONLY typed enums (AnswerExactResolutionAbsent +
+// EvidenceScope=ScopeNegative); NO prose keyword matching. Following
+// the "precise signals for hard gates" red line.
+func runAbsenceScopeBoundOracle(doc *types.AnswerDocument, rm *types.RequestModel) []types.Violation {
+	if doc == nil || doc.ExactResolution == nil {
+		return nil
+	}
+	if doc.ExactResolution.Status != types.AnswerExactResolutionAbsent {
+		return nil
+	}
+	// Walk citation pool; an absent claim is bounded when any citation
+	// carries Scope=Negative + non-empty NegativePattern. The pattern
+	// itself is the system's record of "what we searched for and
+	// confirmed absent" — operators can audit the scope.
+	bounded := false
+	for _, c := range doc.Citations {
+		if c.Scope == types.ScopeNegative && strings.TrimSpace(c.NegativePattern) != "" {
+			bounded = true
+			break
+		}
+	}
+	if bounded {
+		return nil
+	}
+	return []types.Violation{{
+		Kind: types.ViolAbsenceScopeExceeded,
+		Detail: "exact_resolution.status=absent declared but no citation carries scope=negative + a non-empty negative_pattern; the absence claim is unbounded",
+		Repair: "the next investigation pass should emit at least one citation with scope=negative + negative_pattern naming the exact search query (grep / repomap / file glob) that confirmed the absence. If a finalizer dispatch sees this hint and the bounded evidence is already in the pool, re-emit emit_answer_document with the negative citation included in citations[]; otherwise the extractor must run the bounded search.",
+		SuspectedRoot: types.SuspectedRoot{
+			IRField:    "exact_resolution.absence_scope",
+			Reason:     "absence claim without bounded negative-scope citation",
+			Confidence: 0.65,
+		},
+		Stage: string(types.StageFinalize),
+	}}
+}
+
+// collectClaimUseFacets walks every payload position that may carry
+// a RenderedClaimUse pointer and invokes fn for each non-nil one.
+// Used by runFacetCoverageOracle to harvest explicit facet
+// annotations across the document tree.
+func collectClaimUseFacets(doc *types.AnswerDocument, fn func(*types.RenderedClaimUse)) {
+	if doc == nil {
+		return
+	}
+	for i := range doc.Steps {
+		fn(doc.Steps[i].ClaimUse)
+	}
+	for i := range doc.Symbols {
+		fn(doc.Symbols[i].ClaimUse)
+	}
+	if doc.Value != nil {
+		fn(doc.Value.ClaimUse)
+	}
+	if doc.Boolean != nil {
+		fn(doc.Boolean.ClaimUse)
+	}
+}
+
+// inferClaimFormsFromCitations returns, per citation index, the set
+// of ClaimForm values projected from the underlying evidence (when
+// matchable). Used to compute "inferred coverage" for facets the
+// LLM did not explicitly annotate via claim_use.
+//
+// The returned map is keyed by citation_ref (zero-based index into
+// doc.Citations). A citation with no matching evidence in the
+// MutableState's TurnA artefacts contributes ClaimUnknown; the
+// caller must treat ClaimUnknown as non-coverage.
+func inferClaimFormsFromCitations(doc *types.AnswerDocument, mut *types.MutableState) map[int]types.ClaimForm {
+	if doc == nil || len(doc.Citations) == 0 || mut == nil {
+		return nil
+	}
+	out := make(map[int]types.ClaimForm, len(doc.Citations))
+	for i := range doc.Citations {
+		out[i] = claimFormForCitation(doc.Citations[i], mut)
+	}
+	return out
+}
+
+// facetCoveredByInferredForms reports whether any citation's inferred
+// ClaimForm is in the facet's AcceptableForms. AcceptableForms=nil
+// means any non-Unknown form satisfies; matches Phase 1's
+// claimFormMatches semantic exactly.
+func facetCoveredByInferredForms(req types.FacetRequirement, inferred map[int]types.ClaimForm) bool {
+	for _, form := range inferred {
+		if form == "" || form == types.ClaimUnknown {
+			continue
+		}
+		if len(req.AcceptableForms) == 0 {
+			return true
+		}
+		for _, allow := range req.AcceptableForms {
+			if form == allow {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// claimFormForCitationRef returns the ClaimForm projection for the
+// citation at index ref (-1 means no citation, returns empty). Used
+// by runClaimFormSupportOracle to look up the actual evidence shape
+// behind a payload's claim_use.
+func claimFormForCitationRef(doc *types.AnswerDocument, mut *types.MutableState, ref int) types.ClaimForm {
+	if doc == nil || ref < 0 || ref >= len(doc.Citations) {
+		return ""
+	}
+	return claimFormForCitation(doc.Citations[ref], mut)
+}
+
+// claimFormForCitation finds the EvidenceItem in MutableState's
+// emitted-evidence pool matching the citation by Source path +
+// LineStart, then runs ClaimFormOf on it. Returns empty on no match.
+//
+// We read EmittedEvidence() rather than TurnAArtifacts.EvidenceItems
+// because the latter is a compile-time snapshot taken at end-of-Turn-A;
+// post-finalize oracles run when the live working pool already
+// contains every evidence item (whether or not the snapshot was
+// captured). EmittedEvidence is the union of all explorer + extractor
+// emit_evidence calls in the Run.
+func claimFormForCitation(citation types.Citation, mut *types.MutableState) types.ClaimForm {
+	if mut == nil {
+		return ""
+	}
+	for _, ev := range mut.EmittedEvidence() {
+		if ev.Source != citation.File {
+			continue
+		}
+		if ev.LineStart == 0 || citation.Line == 0 {
+			continue
+		}
+		if citation.Line == ev.LineStart {
+			return types.ClaimFormOf(ev)
+		}
+		if ev.LineEnd > 0 && citation.Line >= ev.LineStart && citation.Line <= ev.LineEnd {
+			return types.ClaimFormOf(ev)
+		}
+	}
+	return ""
+}
+
+// claimFormsAsStrings is a tiny renderer for violation Detail text.
+func claimFormsAsStrings(forms []types.ClaimForm) []string {
+	out := make([]string, 0, len(forms))
+	for _, f := range forms {
+		out = append(out, string(f))
+	}
+	return out
+}
+
 // walkAnchorKinds invokes fn for every AnchorKind observed across
 // the Run's evidence surfaces (TurnA artefacts + emitted answer
 // symbols). Stops early when fn returns true. Safe on nil mutable.
@@ -1272,6 +1629,18 @@ func defaultSoftKinds() map[types.ViolationKind]bool {
 		types.ViolIntentConfigNoTrail:    true,
 		types.ViolSubjectAnchorMissing:   true,
 		types.ViolPredicateAxisMissing:   true,
+		// Phase 4 (Semantic Surface Contract) — default classification:
+		//   ViolFacetUncovered      → SOFT (covering a facet often
+		//     requires fresh evidence; a missed HARD facet is a hint
+		//     to re-explore, not a finalizer self-failure).
+		//   ViolClaimFormUnsupported → STRICT (LLM emitted an annotation
+		//     incompatible with the cited evidence — a finalizer rewrite
+		//     fixes it, no new evidence needed).
+		//   ViolAbsenceScopeExceeded → STRICT (safety-critical: the
+		//     answer overstates the searched scope on a negative claim;
+		//     downstream consumers act on the absence, must not be
+		//     overstated).
+		types.ViolFacetUncovered: true,
 	}
 }
 

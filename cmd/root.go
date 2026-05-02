@@ -1732,6 +1732,10 @@ func initApp(cmd *cobra.Command, _ []string) error {
 		if rs.AnalyzerMentionCountMaxGrep != nil {
 			agent.SetMentionCountMaxGrep(*rs.AnalyzerMentionCountMaxGrep)
 		}
+		// Phase 4 (Semantic Surface Contract) master switch.
+		if rs.PipelineFacetValidatorsEnabled != nil {
+			orchestrator.SetFacetValidatorsEnabled(*rs.PipelineFacetValidatorsEnabled)
+		}
 		// Commit 61 Batch F.2: yaml-overridable grounding floors.
 		// Defaults are 0/0 (gates disabled); explicit positive values
 		// restore strict-mode rejection of low-grounded

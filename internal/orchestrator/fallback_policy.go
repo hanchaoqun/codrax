@@ -205,6 +205,19 @@ func DefaultFallbackPolicy() FallbackPolicy {
 		types.ViolIntentConfigNoTrail:    FallbackBackToExplore,
 		types.ViolSubjectAnchorMissing:   FallbackBackToExtract,
 		types.ViolPredicateAxisMissing:   FallbackBackToExplore,
+		// Phase 4 (Semantic Surface Contract):
+		//   ViolFacetUncovered — covering a facet typically needs new
+		//     evidence (a new file read, a new grep), so re-explore.
+		//     SOFT by default; only fires the fallback when promoted.
+		//   ViolClaimFormUnsupported — LLM-emitted annotation conflicts
+		//     with cited evidence shape. Finalizer rewrite (drop/swap
+		//     the claim_use) fixes it. STRICT.
+		//   ViolAbsenceScopeExceeded — extractor framed the absence
+		//     too broadly. BackToExtract so the next pass surfaces the
+		//     bounded scope verbatim. STRICT.
+		types.ViolFacetUncovered:       FallbackBackToExplore,
+		types.ViolClaimFormUnsupported: FallbackFinalizerOnly,
+		types.ViolAbsenceScopeExceeded: FallbackBackToExtract,
 	}
 }
 
