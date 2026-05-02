@@ -8212,3 +8212,271 @@ func TestExtractMermaidNodeLabels(t *testing.T) {
 		})
 	}
 }
+
+// ── Phase 3 (Semantic Surface Contract): RenderedClaimUse ──────────
+
+// TestEmitAnswerDocument_ClaimUse_AbsentBackCompat pins the back-
+// compat invariant: omitting claim_use is byte-identical to pre-
+// Phase-3 emit. Same payload as the legacy step_list happy path,
+// just no claim_use field present.
+func TestEmitAnswerDocument_ClaimUse_AbsentBackCompat(t *testing.T) {
+	tool := &EmitAnswerDocument{}
+	params := mustDocJSON(t, map[string]interface{}{
+		"shape":   "step_list",
+		"summary": "Pre-Phase-3 step list.",
+		"steps": []map[string]interface{}{
+			{"index": 1, "description": "Read input.", "citation_ref": 0},
+			{"index": 2, "description": "Process.", "citation_ref": 0},
+		},
+		"citations": []map[string]interface{}{{"file": "a.go", "line": 1}},
+	})
+	res, _ := tool.Execute(newDocBusCtx(""), params)
+	if !res.Success {
+		t.Fatalf("absent claim_use must accept like pre-Phase-3; rejected with: %s", res.Summary)
+	}
+}
+
+// TestEmitAnswerDocument_ClaimUse_AcceptsValidAnnotation pins that
+// a well-formed Phase-3 annotation passes. All four fields populated;
+// surface_role + claim_form + facet_id from the closed enums.
+func TestEmitAnswerDocument_ClaimUse_AcceptsValidAnnotation(t *testing.T) {
+	tool := &EmitAnswerDocument{}
+	params := mustDocJSON(t, map[string]interface{}{
+		"shape":   "step_list",
+		"summary": "Phase-3 annotated step list.",
+		"steps": []map[string]interface{}{
+			{
+				"index": 1, "description": "Cite the call.", "citation_ref": 0,
+				"claim_use": map[string]interface{}{
+					"facet_id":     "principal_path_edge",
+					"evidence_id":  "ev-call-1",
+					"claim_form":   "call_edge",
+					"surface_role": "principal",
+				},
+			},
+		},
+		"citations": []map[string]interface{}{{"file": "a.go", "line": 1}},
+	})
+	res, _ := tool.Execute(newDocBusCtx(""), params)
+	if !res.Success {
+		t.Fatalf("valid claim_use annotation must accept; rejected with: %s", res.Summary)
+	}
+}
+
+// TestEmitAnswerDocument_ClaimUse_RejectsUnknownSurfaceRole pins
+// the closed-enum gate on surface_role. Typos / unknown values must
+// reject so a bad annotation can't slip through silently.
+func TestEmitAnswerDocument_ClaimUse_RejectsUnknownSurfaceRole(t *testing.T) {
+	tool := &EmitAnswerDocument{}
+	params := mustDocJSON(t, map[string]interface{}{
+		"shape":   "step_list",
+		"summary": "Step with bad surface_role.",
+		"steps": []map[string]interface{}{
+			{
+				"index": 1, "description": "x", "citation_ref": 0,
+				"claim_use": map[string]interface{}{"surface_role": "load_bearing"},
+			},
+		},
+		"citations": []map[string]interface{}{{"file": "a.go", "line": 1}},
+	})
+	res, _ := tool.Execute(newDocBusCtx(""), params)
+	if res.Success {
+		t.Error("unknown surface_role: expected rejection")
+	}
+	if !strings.Contains(res.Summary, "surface_role") {
+		t.Errorf("rejection should name the offending field; got %q", res.Summary)
+	}
+}
+
+// TestEmitAnswerDocument_ClaimUse_RejectsUnknownClaimForm pins the
+// closed-enum gate on claim_form.
+func TestEmitAnswerDocument_ClaimUse_RejectsUnknownClaimForm(t *testing.T) {
+	tool := &EmitAnswerDocument{}
+	params := mustDocJSON(t, map[string]interface{}{
+		"shape":   "step_list",
+		"summary": "Step with bad claim_form.",
+		"steps": []map[string]interface{}{
+			{
+				"index": 1, "description": "x", "citation_ref": 0,
+				"claim_use": map[string]interface{}{"claim_form": "bogus_shape"},
+			},
+		},
+		"citations": []map[string]interface{}{{"file": "a.go", "line": 1}},
+	})
+	res, _ := tool.Execute(newDocBusCtx(""), params)
+	if res.Success {
+		t.Error("unknown claim_form: expected rejection")
+	}
+}
+
+// TestEmitAnswerDocument_ClaimUse_RejectsUnknownFacetID pins the
+// closed-allowlist gate on facet_id (mirrors AnswerFacetKind).
+func TestEmitAnswerDocument_ClaimUse_RejectsUnknownFacetID(t *testing.T) {
+	tool := &EmitAnswerDocument{}
+	params := mustDocJSON(t, map[string]interface{}{
+		"shape":   "step_list",
+		"summary": "Step with bad facet_id.",
+		"steps": []map[string]interface{}{
+			{
+				"index": 1, "description": "x", "citation_ref": 0,
+				"claim_use": map[string]interface{}{"facet_id": "made_up_facet"},
+			},
+		},
+		"citations": []map[string]interface{}{{"file": "a.go", "line": 1}},
+	})
+	res, _ := tool.Execute(newDocBusCtx(""), params)
+	if res.Success {
+		t.Error("unknown facet_id: expected rejection")
+	}
+}
+
+// TestEmitAnswerDocument_ClaimUse_AcceptsPartialFill pins that a
+// partial annotation (only one field set) is accepted — no field is
+// individually required.
+func TestEmitAnswerDocument_ClaimUse_AcceptsPartialFill(t *testing.T) {
+	tool := &EmitAnswerDocument{}
+	params := mustDocJSON(t, map[string]interface{}{
+		"shape":   "step_list",
+		"summary": "Step with only surface_role set.",
+		"steps": []map[string]interface{}{
+			{
+				"index": 1, "description": "x", "citation_ref": 0,
+				"claim_use": map[string]interface{}{"surface_role": "support"},
+			},
+		},
+		"citations": []map[string]interface{}{{"file": "a.go", "line": 1}},
+	})
+	res, _ := tool.Execute(newDocBusCtx(""), params)
+	if !res.Success {
+		t.Fatalf("partial claim_use must accept; rejected with: %s", res.Summary)
+	}
+}
+
+// TestEmitAnswerDocument_ClaimUse_PassesThroughOnSymbol pins the
+// symbol-payload path: a valid claim_use on symbols[i] survives
+// through buildEmitAnswerSymbolItem to the AnswerSymbol struct.
+func TestEmitAnswerDocument_ClaimUse_PassesThroughOnSymbol(t *testing.T) {
+	tool := &EmitAnswerDocument{}
+	ctx := newDocBusCtx("")
+	ctx.AnalysisIR = &types.AnalysisIR{
+		AnswerContract: types.AnswerContract{
+			RequiredAnswerShape: types.ShapeListOfSymbols,
+		},
+	}
+	params := mustDocJSON(t, map[string]interface{}{
+		"shape":   "list_of_symbols",
+		"summary": "Symbols with claim_use.",
+		"symbols": []map[string]interface{}{
+			{
+				"name": "Foo", "file": "a.go", "line": 1, "kind": "function",
+				"claim_use": map[string]interface{}{
+					"facet_id":     "resolved_literal_or_symbol",
+					"surface_role": "principal",
+				},
+			},
+		},
+		"symbols_completeness": "lower_bound",
+		"citations":            []map[string]interface{}{{"file": "a.go", "line": 1}},
+	})
+	res, _ := tool.Execute(ctx, params)
+	if !res.Success {
+		t.Fatalf("symbol with claim_use must accept; rejected with: %s", res.Summary)
+	}
+}
+
+// TestEmitAnswerDocument_ClaimUse_PassesThroughOnValue pins the
+// value-payload path. shape=value with claim_use.
+func TestEmitAnswerDocument_ClaimUse_PassesThroughOnValue(t *testing.T) {
+	tool := &EmitAnswerDocument{}
+	params := mustDocJSON(t, map[string]interface{}{
+		"shape":   "value",
+		"summary": "Counted lines in foo.go via wc -l command and got the result.",
+		"value": map[string]interface{}{
+			"literal":      "42",
+			"citation_ref": 0,
+			"claim_use": map[string]interface{}{
+				"facet_id":     "resolved_literal_or_symbol",
+				"surface_role": "principal",
+			},
+		},
+		"citations": []map[string]interface{}{{"file": "a.go", "line": 1}},
+	})
+	res, _ := tool.Execute(newDocBusCtx(""), params)
+	if !res.Success {
+		t.Fatalf("value with claim_use must accept; rejected with: %s", res.Summary)
+	}
+}
+
+// TestEmitAnswerDocument_ClaimUse_PassesThroughOnBoolean pins the
+// boolean-payload path. shape=boolean with claim_use on the boolean
+// sub-payload.
+func TestEmitAnswerDocument_ClaimUse_PassesThroughOnBoolean(t *testing.T) {
+	tool := &EmitAnswerDocument{}
+	params := mustDocJSON(t, map[string]interface{}{
+		"shape":   "boolean",
+		"summary": "Boolean with claim_use.",
+		"boolean": map[string]interface{}{
+			"decision":     "yes",
+			"rationale":    "The mechanism forces this outcome.",
+			"citation_ref": 0,
+			"claim_use": map[string]interface{}{
+				"surface_role": "principal",
+			},
+		},
+		"citations": []map[string]interface{}{{"file": "a.go", "line": 1}},
+	})
+	res, _ := tool.Execute(newDocBusCtx(""), params)
+	if !res.Success {
+		t.Fatalf("boolean with claim_use must accept; rejected with: %s", res.Summary)
+	}
+}
+
+// TestKnownFacetIDCoversAllAnswerFacetKinds is a structural drift
+// guard: knownFacetID must accept every AnswerFacetKind constant
+// declared in types/facet_plan.go. Adding a new facet kind without
+// adding a knownFacetID arm would silently make valid annotations
+// reject — the registry walk surfaces the gap at test time.
+func TestKnownFacetIDCoversAllAnswerFacetKinds(t *testing.T) {
+	for _, k := range []types.AnswerFacetKind{
+		types.FacetObservedArtifactFact,
+		types.FacetCurrentCodePath,
+		types.FacetNearestMechanism,
+		types.FacetUncertaintyBoundary,
+		types.FacetConfigPrecedenceRole,
+		types.FacetResolvedLiteralOrSymbol,
+		types.FacetEnumerationItem,
+		types.FacetBucketLabel,
+		types.FacetPrincipalPathEdge,
+		types.FacetBranchGuard,
+		types.FacetComponentRelation,
+		types.FacetDiagramSpine,
+	} {
+		if !knownFacetID(string(k)) {
+			t.Errorf("knownFacetID rejects %q — must include every AnswerFacetKind constant", k)
+		}
+	}
+}
+
+// TestEmitAnswerDocument_ClaimUse_SchemaIncludesClaimUseField pins
+// the schema surface contract: the rendered JSON schema must declare
+// claim_use as an object property on steps[i] / symbols[i] / value /
+// boolean. Lower-fidelity check than parsing — substring match — but
+// catches a silent removal of the field from the schema.
+func TestEmitAnswerDocument_ClaimUse_SchemaIncludesClaimUseField(t *testing.T) {
+	tool := &EmitAnswerDocument{}
+	schema := string(tool.Parameters())
+	if c := strings.Count(schema, `"claim_use"`); c < 4 {
+		t.Errorf("schema must declare claim_use on steps[i] / symbols[i] / value / boolean (4 sites); got %d occurrences", c)
+	}
+	for _, must := range []string{
+		`"facet_id"`,
+		`"evidence_id"`,
+		`"claim_form"`,
+		`"surface_role"`,
+		`"principal", "support", "prose_only", "diagram_only"`,
+	} {
+		if !strings.Contains(schema, must) {
+			t.Errorf("schema missing required claim_use sub-field / enum: %q", must)
+		}
+	}
+}

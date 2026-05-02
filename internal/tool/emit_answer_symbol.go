@@ -89,6 +89,10 @@ type emitAnswerSymbolItem struct {
 	Kind      string  `json:"kind"`
 	Chain     string  `json:"chain,omitempty"`
 	Rationale string  `json:"rationale,omitempty"`
+	// ClaimUse is the optional Phase-3 annotation. Pointer-typed +
+	// omitempty so absent annotations preserve byte-identical pre-
+	// Phase-3 emit. See types.RenderedClaimUse for field semantics.
+	ClaimUse *types.RenderedClaimUse `json:"claim_use,omitempty"`
 }
 
 // EmitAnswerSymbolProducer is the producer string stamped on every
@@ -397,6 +401,7 @@ func buildEmitAnswerSymbolItem(in emitAnswerSymbolItem, index int, workDir strin
 		Kind:      kind,
 		Chain:     strings.TrimSpace(in.Chain),
 		Rationale: strings.TrimSpace(in.Rationale),
+		ClaimUse:  in.ClaimUse,
 	}, nil
 }
 

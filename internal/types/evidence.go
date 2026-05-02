@@ -1018,6 +1018,14 @@ type AnswerSymbol struct {
 	// never populated — treated as factual-equivalent for byte-identical
 	// legacy behaviour.
 	Authority AuthorityCeiling `json:"authority,omitempty"`
+
+	// ClaimUse (Phase 3 of Semantic Surface Contract, 2026-05-02
+	// add) — optional annotation the LLM may attach to identify
+	// which FacetCoverageContract slot this symbol fills + which
+	// ClaimForm shape its evidence carries. Phase 4 validators read
+	// it; Phase 3 is back-compat-only — emits without claim_use are
+	// byte-identical to pre-Phase-3 output.
+	ClaimUse *RenderedClaimUse `json:"claim_use,omitempty"`
 }
 
 // AnswerChain is the typed ranked-and-scored answer-relevance envelope

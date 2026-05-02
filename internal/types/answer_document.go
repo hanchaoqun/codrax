@@ -358,31 +358,45 @@ func CountStepsOfKind(steps []AnswerStep, kind AnswerStepKind) int {
 // RequestedEnumerationBoundary validator. principal items count
 // toward the user-declared boundary; flow / caveat steps do not.
 // Empty Kind decodes to principal for back-compat.
+//
+// ClaimUse (Phase 3 of Semantic Surface Contract, 2026-05-02 add) is
+// an OPTIONAL annotation the LLM may attach to identify which
+// FacetCoverageContract slot this step fills + which ClaimForm
+// shape its evidence carries. Phase 4 validators read it to enforce
+// facet coverage; Phase 3 is back-compat-only — emits without
+// claim_use are byte-identical to pre-Phase-3 output.
 type AnswerStep struct {
-	Index       int            `json:"index"`
-	Description string         `json:"description"`
-	CitationRef int            `json:"citation_ref"`
-	Kind        AnswerStepKind `json:"kind,omitempty"`
+	Index       int               `json:"index"`
+	Description string            `json:"description"`
+	CitationRef int               `json:"citation_ref"`
+	Kind        AnswerStepKind    `json:"kind,omitempty"`
+	ClaimUse    *RenderedClaimUse `json:"claim_use,omitempty"`
 }
 
 // AnswerValue carries a single concrete value answer. Literal is the
 // verbatim string from the evidence (the renderer emits it in quotes
 // when appropriate). Key is the config-key path for ShapeConfigValue;
 // empty for plain ShapeValue answers.
+//
+// ClaimUse: see AnswerStep.ClaimUse — optional Phase-3 annotation.
 type AnswerValue struct {
-	Key         string `json:"key,omitempty"`
-	Literal     string `json:"literal"`
-	CitationRef int    `json:"citation_ref"`
+	Key         string            `json:"key,omitempty"`
+	Literal     string            `json:"literal"`
+	CitationRef int               `json:"citation_ref"`
+	ClaimUse    *RenderedClaimUse `json:"claim_use,omitempty"`
 }
 
 // AnswerBoolean carries a YES/NO answer plus a one-sentence rationale.
 // The renderer prefixes Rationale with a language-specific YES/NO
 // word drawn from Decision, so the LLM cannot hedge by supplying
 // "it depends" in Rationale.
+//
+// ClaimUse: see AnswerStep.ClaimUse — optional Phase-3 annotation.
 type AnswerBoolean struct {
-	Decision    bool   `json:"decision"`
-	Rationale   string `json:"rationale"`
-	CitationRef int    `json:"citation_ref"`
+	Decision    bool              `json:"decision"`
+	Rationale   string            `json:"rationale"`
+	CitationRef int               `json:"citation_ref"`
+	ClaimUse    *RenderedClaimUse `json:"claim_use,omitempty"`
 }
 
 // Citation is one entry in the AnswerDocument-level citation pool.
@@ -480,9 +494,23 @@ func CloneAnswerDocument(d *AnswerDocument) *AnswerDocument {
 	out := *d
 	if d.Steps != nil {
 		out.Steps = append([]AnswerStep(nil), d.Steps...)
+		// Deep-copy each step's optional ClaimUse pointer (Phase 3)
+		// so callers cannot mutate the source through the clone.
+		for i := range out.Steps {
+			if d.Steps[i].ClaimUse != nil {
+				cu := *d.Steps[i].ClaimUse
+				out.Steps[i].ClaimUse = &cu
+			}
+		}
 	}
 	if d.Symbols != nil {
 		out.Symbols = append([]AnswerSymbol(nil), d.Symbols...)
+		for i := range out.Symbols {
+			if d.Symbols[i].ClaimUse != nil {
+				cu := *d.Symbols[i].ClaimUse
+				out.Symbols[i].ClaimUse = &cu
+			}
+		}
 	}
 	if d.Citations != nil {
 		out.Citations = append([]Citation(nil), d.Citations...)
@@ -492,10 +520,18 @@ func CloneAnswerDocument(d *AnswerDocument) *AnswerDocument {
 	}
 	if d.Value != nil {
 		v := *d.Value
+		if v.ClaimUse != nil {
+			cu := *v.ClaimUse
+			v.ClaimUse = &cu
+		}
 		out.Value = &v
 	}
 	if d.Boolean != nil {
 		bl := *d.Boolean
+		if bl.ClaimUse != nil {
+			cu := *bl.ClaimUse
+			bl.ClaimUse = &cu
+		}
 		out.Boolean = &bl
 	}
 	if d.ExactResolution != nil {

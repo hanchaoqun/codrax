@@ -282,9 +282,10 @@ type emitAnswerDocumentParams struct {
 // straight into types.AnswerDocument; this one cannot because
 // types.AnswerBoolean.Decision is a bool.
 type emitAnswerDocumentBoolean struct {
-	Decision    string  `json:"decision"`
-	Rationale   string  `json:"rationale"`
-	CitationRef FlexInt `json:"citation_ref"`
+	Decision    string                  `json:"decision"`
+	Rationale   string                  `json:"rationale"`
+	CitationRef FlexInt                 `json:"citation_ref"`
+	ClaimUse    *types.RenderedClaimUse `json:"claim_use,omitempty"`
 }
 
 func (t *EmitAnswerDocument) Name() string { return "emit_answer_document" }
@@ -320,6 +321,22 @@ func (t *EmitAnswerDocument) Description() string {
 func (t *EmitAnswerDocument) Parameters() json.RawMessage {
 	summaryDescription := "LLM-authored prose. " + emitAnswerDocumentSummaryCapGuidance(true) +
 		" REQUIRED for 'explanation', 'value', and 'config_value'. For 'step_list', 'list_of_symbols', and 'boolean', summary is the lead-in / framing prose and may also need to carry a required grounded diagram."
+	// claim_use is the OPTIONAL Phase-3 annotation shared across
+	// steps[i] / symbols[i] / value / boolean. Same shape every place
+	// to keep the LLM mental model uniform. Field-shape rules:
+	// surface_role / claim_form / facet_id are closed enums; bad
+	// values fail the emit. Cross-document references (evidence_id
+	// existing in citations[], etc.) are Phase 4 work.
+	claimUseSchema := `"claim_use": {
+            "type": "object",
+            "description": "OPTIONAL — annotation that names which abstract answer facet this payload fills. Read the prompt's Required Answer Facets section and pick the matching facet name. Omitting the field is always safe; partial fills are accepted.",
+            "properties": {
+              "facet_id":     {"type": "string", "description": "OPTIONAL — the facet label this payload fills. Use the abstract names from the prompt's Required Answer Facets section (e.g. 'enumeration_item', 'config_precedence_role', 'principal_path_edge')."},
+              "evidence_id":  {"type": "string", "description": "OPTIONAL — identifier of the evidence the payload's claim derives from. Free-form; downstream consumers cross-reference it against the document's citations[] in later phases."},
+              "claim_form":   {"type": "string", "description": "OPTIONAL — the evidence shape backing this payload (e.g. 'definition_fact', 'call_edge', 'precedence_role'). Read the parenthesised hint after each facet in the prompt for the acceptable shapes."},
+              "surface_role": {"type": "string", "enum": ["", "principal", "support", "prose_only", "diagram_only"], "description": "OPTIONAL — how this payload's content surfaces in the rendered answer. 'principal' counts toward enumeration boundaries and role-lookup answers; 'support' provides anchoring context; 'prose_only' narrates flow without a citable claim; 'diagram_only' contributes a diagram node without prose mention."}
+            }
+          }`
 	// symbols[].kind enum is sourced from types.AnswerSymbolKindSchemaEnum
 	// so schema stays in lockstep with emit_answer_symbol's validator.
 	return json.RawMessage(fmt.Sprintf(`{
@@ -346,7 +363,8 @@ func (t *EmitAnswerDocument) Parameters() json.RawMessage {
           "index":         {"type": "integer", "description": "1-based step number. Must be positive."},
           "description":   {"type": "string", "description": "The step body — describe what this step DOES in terms of behavior and outcome, reference load-bearing identifiers with inline `+"`"+`code`+"`"+`, and give the reader enough context to understand why it matters in the overall mechanism. Use as many sentences as accuracy and clarity require; one step is one logical hop, do not collapse two."},
           "citation_ref":  {"type": "integer", "description": "Index into citations[], or -1 when no citation backs this step."},
-          "kind":          {"type": "string", "enum": ["", "principal", "flow", "caveat"], "description": "Step role: 'principal' (default; one of the items the user explicitly asked about — counts toward any declared item count when the question is bounded), 'flow' (transition / branch / scope-narration that helps the reader follow the sequence but is NOT itself one of the user-asked items), 'caveat' (trailing scope-warning / out-of-band note). Empty defaults to 'principal'. Decision rule: ask whether this step is itself one of the items the question's enumeration named, or whether it only frames where in the sequence the next named item appears. Items the question named → principal (a principal step CAN describe its own conditions and inputs — that's still principal). A step whose entire content is the framing (entering a branch, advancing the loop, switching scope, summarizing what comes next) without itself being one of the named items → flow. A step that constrains when the WHOLE answer applies (mode-conditional, version-conditional) rather than belonging inside it → caveat."}
+          "kind":          {"type": "string", "enum": ["", "principal", "flow", "caveat"], "description": "Step role: 'principal' (default; one of the items the user explicitly asked about — counts toward any declared item count when the question is bounded), 'flow' (transition / branch / scope-narration that helps the reader follow the sequence but is NOT itself one of the user-asked items), 'caveat' (trailing scope-warning / out-of-band note). Empty defaults to 'principal'. Decision rule: ask whether this step is itself one of the items the question's enumeration named, or whether it only frames where in the sequence the next named item appears. Items the question named → principal (a principal step CAN describe its own conditions and inputs — that's still principal). A step whose entire content is the framing (entering a branch, advancing the loop, switching scope, summarizing what comes next) without itself being one of the named items → flow. A step that constrains when the WHOLE answer applies (mode-conditional, version-conditional) rather than belonging inside it → caveat."},
+          %s
         },
         "required": ["index", "description", "citation_ref"]
       }
@@ -362,7 +380,8 @@ func (t *EmitAnswerDocument) Parameters() json.RawMessage {
           "line":      {"type": "integer"},
           "kind":      {"type": "string", "enum": [%s], "description": "Closed cross-language taxonomy — see types.AllAnswerSymbolKinds. Use 'literal' when the answer terminal is a value (string/number/bool) rather than a code identifier."},
           "chain":     {"type": "string"},
-          "rationale": {"type": "string", "description": "Natural-prose description of what this symbol is and what role it plays in the mechanism. Reference load-bearing identifiers with inline `+"`"+`code`+"`"+`. Do not duplicate the location column — \"Defined at X. Used by Y\" is a regression, since file:line is already rendered as its own column in the output table."}
+          "rationale": {"type": "string", "description": "Natural-prose description of what this symbol is and what role it plays in the mechanism. Reference load-bearing identifiers with inline `+"`"+`code`+"`"+`. Do not duplicate the location column — \"Defined at X. Used by Y\" is a regression, since file:line is already rendered as its own column in the output table."},
+          %s
         },
         "required": ["name", "file", "line", "kind"]
       }
@@ -374,7 +393,8 @@ func (t *EmitAnswerDocument) Parameters() json.RawMessage {
       "properties": {
         "key":          {"type": "string", "description": "Config key path. Required for config_value, empty for plain value."},
         "literal":      {"type": "string", "description": "Verbatim value literal from evidence."},
-        "citation_ref": {"type": "integer", "description": "Index into citations[], or -1 when no citation backs the value."}
+        "citation_ref": {"type": "integer", "description": "Index into citations[], or -1 when no citation backs the value."},
+        %s
       },
       "required": ["literal", "citation_ref"]
     },
@@ -384,7 +404,8 @@ func (t *EmitAnswerDocument) Parameters() json.RawMessage {
       "properties": {
         "decision":     {"type": "string", "enum": ["true", "false", "yes", "no", "是", "否"], "description": "Boolean decision in closed form — no hedging."},
         "rationale":    {"type": "string", "description": "The reasoning behind the decision — name the invariant or guard that forces the answer and explain the mechanism at whatever depth the subtlety requires. Reference load-bearing identifiers with inline `+"`"+`code`+"`"+`. A terse rationale on a non-trivial decision is a regression."},
-        "citation_ref": {"type": "integer", "description": "Index into citations[], or -1 when no citation backs the decision."}
+        "citation_ref": {"type": "integer", "description": "Index into citations[], or -1 when no citation backs the decision."},
+        %s
       },
       "required": ["decision", "rationale", "citation_ref"]
     },
@@ -408,7 +429,7 @@ func (t *EmitAnswerDocument) Parameters() json.RawMessage {
     }
   },
   "required": ["shape"]
-}`, summaryDescription, types.AnswerSymbolKindSchemaEnum(), types.CitationMaxQuoteChars()))
+}`, summaryDescription, claimUseSchema, types.AnswerSymbolKindSchemaEnum(), claimUseSchema, claimUseSchema, claimUseSchema, types.CitationMaxQuoteChars()))
 }
 
 func emitAnswerDocumentSummaryCapGuidance(schemaText bool) string {
@@ -1089,6 +1110,9 @@ func (t *EmitAnswerDocument) Execute(ctx *types.BusContext, params json.RawMessa
 		}
 		built := make([]types.AnswerSymbol, 0, len(p.Symbols))
 		for i, in := range p.Symbols {
+			if err := validateClaimUse(in.ClaimUse, fmt.Sprintf("symbols[%d].claim_use", i)); err != nil {
+				return failWithContext("%v", err)
+			}
 			sym, perr := buildEmitAnswerSymbolItem(in, i, workDir, docLogTriageBundle, groundCtx, stepCandidates)
 			if perr != nil {
 				return failWithContext("symbols[%d]: %v", i, perr)
@@ -1214,6 +1238,9 @@ func (t *EmitAnswerDocument) Execute(ctx *types.BusContext, params json.RawMessa
 		} else if len(p.Symbols) > 0 {
 			built := make([]types.AnswerSymbol, 0, len(p.Symbols))
 			for i, in := range p.Symbols {
+				if err := validateClaimUse(in.ClaimUse, fmt.Sprintf("symbols[%d].claim_use", i)); err != nil {
+					return failWithContext("%v", err)
+				}
 				sym, perr := buildEmitAnswerSymbolItem(in, i, workDir, docLogTriageBundle, groundCtx, stepCandidates)
 				if perr != nil {
 					return failWithContext("symbols[%d]: %v", i, perr)
@@ -1487,6 +1514,9 @@ func validateStep(s *types.AnswerStep, index int, numCites int) error {
 		return fmt.Errorf("steps[%d]: kind=%q invalid (allowed: principal, flow, caveat — empty defaults to principal)", index, s.Kind)
 	}
 	s.Kind = normalized
+	if err := validateClaimUse(s.ClaimUse, fmt.Sprintf("steps[%d].claim_use", index)); err != nil {
+		return err
+	}
 	return validateCitationRef("steps", index, s.CitationRef, numCites)
 }
 
@@ -1499,7 +1529,68 @@ func validateValueField(v *types.AnswerValue, requireKey bool, numCites int) err
 	if requireKey && v.Key == "" {
 		return fmt.Errorf("shape=config_value requires value.key (the config-key path)")
 	}
+	if err := validateClaimUse(v.ClaimUse, "value.claim_use"); err != nil {
+		return err
+	}
 	return validateCitationRef("value", 0, v.CitationRef, numCites)
+}
+
+// validateClaimUse runs back-compat-safe self-consistency checks on
+// an optional Phase-3 RenderedClaimUse annotation. Nil pointer +
+// IsEmpty struct return nil — absent annotations preserve byte-
+// identical pre-Phase-3 emit. When fields are populated, this checks
+// shape: surface_role must be a known enum value; claim_form must be
+// a known ClaimForm value; facet_id must be one of the known
+// AnswerFacetKind constants. Cross-document validation (EvidenceID
+// existence in citations[], ClaimForm matching ClaimFormOf(referenced
+// evidence)) is Phase 4 work and not enforced here.
+//
+// Why field-shape only at Phase 3: the LLM may emit an annotation
+// well before Phase 4 ships its hard validators; rejecting cross-
+// document references at this stage would break the back-compat
+// promise that "filling claim_use is safe and never penalised".
+// What WILL fail Phase 3: a typo'd surface_role / claim_form / facet_
+// id, since those are all closed enums and a bad value carries no
+// information for downstream consumers.
+func validateClaimUse(c *types.RenderedClaimUse, label string) error {
+	if c == nil || c.IsEmpty() {
+		return nil
+	}
+	if c.SurfaceRole != "" {
+		if _, ok := types.NormalizeSurfaceRole(string(c.SurfaceRole)); !ok {
+			return fmt.Errorf("%s.surface_role=%q invalid (allowed: principal, support, prose_only, diagram_only)", label, c.SurfaceRole)
+		}
+	}
+	if c.ClaimForm != "" && !c.ClaimForm.IsValid() {
+		return fmt.Errorf("%s.claim_form=%q invalid (must be one of the closed ClaimForm values; consult the prompt's Required Answer Facets section for acceptable evidence shapes)", label, c.ClaimForm)
+	}
+	if c.FacetID != "" && !knownFacetID(c.FacetID) {
+		return fmt.Errorf("%s.facet_id=%q invalid (must match one of the abstract facet labels listed in the prompt's Required Answer Facets section)", label, c.FacetID)
+	}
+	return nil
+}
+
+// knownFacetID is the closed allow-list for RenderedClaimUse.FacetID.
+// Mirrors types.AnswerFacetKind constants to avoid a runtime import
+// cycle on string conversion. Test
+// TestKnownFacetIDCoversAllAnswerFacetKinds enforces 1:1 coverage.
+func knownFacetID(id string) bool {
+	switch types.AnswerFacetKind(id) {
+	case types.FacetObservedArtifactFact,
+		types.FacetCurrentCodePath,
+		types.FacetNearestMechanism,
+		types.FacetUncertaintyBoundary,
+		types.FacetConfigPrecedenceRole,
+		types.FacetResolvedLiteralOrSymbol,
+		types.FacetEnumerationItem,
+		types.FacetBucketLabel,
+		types.FacetPrincipalPathEdge,
+		types.FacetBranchGuard,
+		types.FacetComponentRelation,
+		types.FacetDiagramSpine:
+		return true
+	}
+	return false
 }
 
 // valueLiteralTokenRe extracts identifier-shaped tokens from claim
@@ -7064,10 +7155,14 @@ func buildEmitAnswerDocumentBoolean(in *emitAnswerDocumentBoolean, numCites int)
 	if err := validateCitationRef("boolean", 0, citationRef, numCites); err != nil {
 		return nil, err
 	}
+	if err := validateClaimUse(in.ClaimUse, "boolean.claim_use"); err != nil {
+		return nil, err
+	}
 	return &types.AnswerBoolean{
 		Decision:    decision,
 		Rationale:   rationale,
 		CitationRef: citationRef,
+		ClaimUse:    in.ClaimUse,
 	}, nil
 }
 
