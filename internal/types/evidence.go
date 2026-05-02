@@ -294,6 +294,17 @@ const (
 	TierPackageSymbol    GroundingTier = "package_symbol"
 	TierNearestCall      GroundingTier = "nearest_call"
 	TierNearestCondition GroundingTier = "nearest_condition"
+
+	// 2026-05+ schema-level tiers — distinct from line-anchored tiers
+	// so the LLM-facing per-item feedback differentiates "I matched
+	// your file-identity claim" from "I matched your line-content
+	// claim". Without this, schema-level grounding silently re-used
+	// TierSymbolTable, masking the scope-axis difference.
+	TierFileLayer         GroundingTier = "file_layer"
+	TierLineRange         GroundingTier = "line_range"
+	TierSectionParse      GroundingTier = "section_parse"
+	TierCrossfileVerified GroundingTier = "crossfile_verified"
+	TierNegativeConfirmed GroundingTier = "negative_confirmed"
 )
 
 // EvidenceScope is the anchor-shape dimension. Required on every

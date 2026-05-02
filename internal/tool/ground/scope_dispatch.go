@@ -63,8 +63,39 @@ func GroundItemScoped(it *types.EvidenceItem, gc *Context) Report {
 // groundScopeLine is the canonical line-grounder. Wraps the existing
 // GroundItem function (the pre-2026-05 line-only path) so the rest of
 // the dispatcher does not have to know its tiered internals.
+//
+// Scope-shape mismatch nudge (2026-05+): after the underlying tier
+// cascade finishes, if the item is grounded BUT
+//   (a) source is a config-file path (yaml/json/toml/ini), AND
+//   (b) the cited line is comment-only,
+// the grounder appends an advisory suffix to GroundingNote suggesting
+// scope=`file` for layer identity or scope=`negative` for absence
+// proofs. The note is informational; it does NOT downgrade the
+// status. Without this, the LLM gets no feedback that its line cite
+// might fit a layer / absence shape better.
 func groundScopeLine(it *types.EvidenceItem, gc *Context) Report {
-	return GroundItem(it, gc)
+	rep := GroundItem(it, gc)
+	if it.GroundingStatus != types.GroundingGrounded || gc == nil {
+		return rep
+	}
+	if !types.LooksLikeConfigFilePath(it.Source) {
+		return rep
+	}
+	fileLines, ok := gc.LineIndex[it.Source]
+	if !ok || it.LineStart <= 0 {
+		return rep
+	}
+	if !LineLooksCommentOnly(fileLines, it.LineStart, it.Source) {
+		return rep
+	}
+	advisory := " // ADVISORY: this is a comment-only line in a config file. If your evidence is really about " +
+		"the file's identity AS a layer (e.g. `<file>` IS the config layer), consider an additional " +
+		"scope=`file` emit with file_role_label=`config_canonical`. If your evidence is about an absence " +
+		"(e.g. the target key is NOT in this file), use scope=`negative` with kind=`absent`. The line cite " +
+		"is grounded; this advisory only points out alternative anchor shapes that may render more clearly."
+	it.GroundingNote += advisory
+	rep.Note = it.GroundingNote
+	return rep
 }
 
 // groundScopeLineRange validates a multi-line block anchor. Required
@@ -102,7 +133,7 @@ func groundScopeLineRange(it *types.EvidenceItem, gc *Context) Report {
 	// the read_file gutter index"; absent that, the range is still
 	// considered grounded structurally because the file existed.
 	it.GroundingStatus = types.GroundingGrounded
-	it.GroundingTier = types.TierLineText
+	it.GroundingTier = types.TierLineRange
 	it.GroundingNote = fmt.Sprintf("scope=line_range %s:%d-%d", it.Source, it.LineStart, it.LineEnd)
 	rep.Status = it.GroundingStatus
 	rep.Tier = it.GroundingTier
@@ -142,7 +173,7 @@ func groundScopeSection(it *types.EvidenceItem, gc *Context) Report {
 	// Stage 2 placeholder: file exists + section_path non-empty →
 	// Grounded. Stage 4 swaps to real section parsing.
 	it.GroundingStatus = types.GroundingGrounded
-	it.GroundingTier = types.TierSymbolTable
+	it.GroundingTier = types.TierSectionParse
 	it.GroundingNote = fmt.Sprintf("scope=section %s [%s]", it.Source, it.SectionPath)
 	rep.Status = it.GroundingStatus
 	rep.Tier = it.GroundingTier
@@ -182,7 +213,7 @@ func groundScopeFile(it *types.EvidenceItem, gc *Context) Report {
 		return rep
 	}
 	it.GroundingStatus = types.GroundingGrounded
-	it.GroundingTier = types.TierSymbolTable
+	it.GroundingTier = types.TierFileLayer
 	it.GroundingNote = fmt.Sprintf("scope=file %s [layer:%s]", it.Source, it.FileRoleLabel)
 	rep.Status = it.GroundingStatus
 	rep.Tier = it.GroundingTier
@@ -322,7 +353,7 @@ func groundScopeCrossfile(it *types.EvidenceItem, gc *Context) Report {
 		it.GroundingNote = fmt.Sprintf("scope=crossfile unknown assertion kind %q", a.Kind)
 	}
 	if it.GroundingStatus == types.GroundingGrounded {
-		it.GroundingTier = types.TierSymbolTable
+		it.GroundingTier = types.TierCrossfileVerified
 	}
 	rep.Status = it.GroundingStatus
 	rep.Tier = it.GroundingTier
@@ -375,7 +406,7 @@ func groundScopeNegative(it *types.EvidenceItem, gc *Context) Report {
 	matches := patternRE.FindAllIndex(body, -1)
 	if len(matches) == 0 {
 		it.GroundingStatus = types.GroundingGrounded
-		it.GroundingTier = types.TierSymbolTable
+		it.GroundingTier = types.TierNegativeConfirmed
 		it.GroundingNote = fmt.Sprintf("scope=negative pattern absent in %s [%s]", file, it.NegativeScope)
 	} else {
 		it.GroundingStatus = types.GroundingUngrounded

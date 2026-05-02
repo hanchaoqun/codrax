@@ -911,16 +911,26 @@ func DriftBoundedRenderableSurfaceItems(items []EvidenceItem) []EvidenceItem {
 		return nil
 	}
 	focusTail := ""
+	focusFiles := map[string]bool{}
 	for _, item := range items {
 		if !driftBoundedIsCallItem(item) {
 			continue
 		}
-		focusTail = normalizedSurfaceSymbolTail(firstNonEmptySurfaceString(item.Object, item.AnchorSymbol))
-		if focusTail != "" {
-			break
+		if focusTail == "" {
+			focusTail = normalizedSurfaceSymbolTail(firstNonEmptySurfaceString(item.Object, item.AnchorSymbol))
+		}
+		// Track every file that hosts a call item so non-call items
+		// (Conditional / Assignment / Return statements at nearby
+		// lines) in the same file survive the focus filter — without
+		// this, the Conditional / Assignment items the LLM emits
+		// alongside the call get dropped just because their
+		// AnchorSymbol/OwnerSymbol/Subject/Object don't share a
+		// symbol tail with the call's target.
+		if f := strings.TrimSpace(strings.ReplaceAll(item.Source, `\`, `/`)); f != "" {
+			focusFiles[f] = true
 		}
 	}
-	if focusTail == "" {
+	if focusTail == "" && len(focusFiles) == 0 {
 		return append([]EvidenceItem(nil), items...)
 	}
 	filtered := make([]EvidenceItem, 0, len(items))
@@ -929,11 +939,43 @@ func DriftBoundedRenderableSurfaceItems(items []EvidenceItem) []EvidenceItem {
 			filtered = append(filtered, item)
 			continue
 		}
-		for _, raw := range []string{item.AnchorSymbol, item.OwnerSymbol, item.Subject, item.Object} {
-			if normalizedSurfaceSymbolTail(raw) == focusTail {
-				filtered = append(filtered, item)
-				break
+		// Keep when symbol tail matches the focus call's target.
+		// hasSymbolAnchoring uses ONLY AnchorSymbol/OwnerSymbol to
+		// detect "the LLM explicitly anchored this item to a symbol"
+		// — Object/Subject can carry code expressions (e.g.
+		// `ctx.Mutable.RequestModel()` as an assignment value),
+		// which are NOT symbol anchorings and should not block the
+		// same-file fallback for statement-level items.
+		matched := false
+		hasSymbolAnchoring := strings.TrimSpace(item.AnchorSymbol) != "" ||
+			strings.TrimSpace(item.OwnerSymbol) != ""
+		if focusTail != "" {
+			for _, raw := range []string{item.AnchorSymbol, item.OwnerSymbol, item.Subject, item.Object} {
+				if normalizedSurfaceSymbolTail(raw) == focusTail {
+					matched = true
+					break
+				}
 			}
+		}
+		// Same-file fallback ONLY when the item has NO symbol info at
+		// all (statement-level Condition / Assignment / Return whose
+		// AnchorSymbol/OwnerSymbol/Subject/Object are all empty —
+		// e.g. a bare condition string like "ctx == nil"). These items
+		// are part of the failure mechanism but have no symbol-name
+		// tie to the callee.
+		//
+		// Items WITH symbol info but mismatching tail (e.g. the outer
+		// caller's guard with AnchorSymbol="ParseOutput" when the
+		// focusTail is "buildAnalysisIR") are intentionally dropped —
+		// the focus-on-callee discipline still holds.
+		if !matched && !hasSymbolAnchoring && len(focusFiles) > 0 {
+			f := strings.TrimSpace(strings.ReplaceAll(item.Source, `\`, `/`))
+			if f != "" && focusFiles[f] {
+				matched = true
+			}
+		}
+		if matched {
+			filtered = append(filtered, item)
 		}
 	}
 	if len(filtered) == 0 {

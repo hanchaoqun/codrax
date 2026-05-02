@@ -40,6 +40,12 @@ func RegisterDefaults(r *Registry) {
 				"     — confirms no CLI flag binding exists.\n" +
 				"  ✓ scope=`line`     {source: \"<default-struct-file>\", line_start: <N>, anchor_kind: \"definition\", anchor_symbol: \"<defaults-function-name>\"}\n" +
 				"     — anchors the code default's actual function definition.\n\n" +
+				"INPUT-TO-OUTPUT WORKED EXAMPLE: when you emit the four items above for an absent-target config-trace question, the answer's citation pool renders to (one bullet per scope):\n" +
+				"  - `<config-file>` [layer: config_canonical]                          — surfaces the file as a layer\n" +
+				"  - `<config-file>` [absence: `<missing-target>`]                      — surfaces the verified absence\n" +
+				"  - cross-file contract: <expected-cli-flag-pattern> in <cli-registration-file>  — surfaces the cross-file forbidden assertion\n" +
+				"  - `<default-struct-file>:<N>`                                        — surfaces the line-anchored default\n" +
+				"Each citation has its own structural shape — the user reads the answer and immediately sees layer / absence / contract / specific-line distinctions. Compare with collapsing everything into `scope=line`: every citation renders as `<file>:<N>`, the layer / contract / absence semantics get hidden in prose, and the answer surface is weaker.\n\n" +
 				"COMMON ANTI-PATTERNS:\n" +
 				"  ✗ Using scope=`line` to anchor a sibling key just to make a config file \"appear\" in citations[]. Prefer scope=`file` for layer identity + scope=`negative` for absence.\n" +
 				"  ✗ Using scope=`line` for a fact like \"<group> has no CLI flag\" — there's no specific line to point at. Use scope=`crossfile` with assertion=forbidden.\n" +

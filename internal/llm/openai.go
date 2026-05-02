@@ -252,18 +252,28 @@ func buildHTTPClient(tlsOpts TLSOptions, baseURL string, timeout time.Duration) 
 func (o *OpenAIAdapter) ModelID() string { return o.model }
 
 // MaxContextTokens returns the configured context_window from
-// providers.yaml. When zero (not declared), returns the historical
-// 128000 fallback so any consumer that treats a positive return
-// value as ground truth (divide-by in fraction cap resolver, ratio
-// check in pressure watchdog) keeps working. Callers that need to
-// distinguish "unknown" from "128K" should consult the struct field
-// directly via a capability query rather than parsing this return.
+// providers.yaml. When zero (not declared), returns the 2026-05-02
+// default of 200000 — recent model upgrades broadly raised effective
+// context windows, and the 128000 historical fallback was triggering
+// premature context truncation on complex tasks. User-set
+// providers.yaml :: context_window still wins; if a model's actual
+// limit is below the default, callers consulting model-specific caps
+// override accordingly. Any consumer treating a positive return value
+// as ground truth (fraction-cap resolver, pressure watchdog) keeps
+// working.
 func (o *OpenAIAdapter) MaxContextTokens() int {
 	if o.contextWindow > 0 {
 		return o.contextWindow
 	}
-	return 128000
+	return DefaultContextWindow
 }
+
+// DefaultContextWindow is the system-wide default for adapters that
+// don't declare context_window in providers.yaml. Bumped from 128000
+// to 200000 on 2026-05-02 to track widespread model-upgrade headroom.
+// Operators with smaller models should declare context_window
+// explicitly so the adapter matches their model's true ceiling.
+const DefaultContextWindow = 200000
 
 // MaxOutputTokens returns the resolved client-side output cap. Zero
 // means "no cap, server uses the model's own ceiling" — the default.

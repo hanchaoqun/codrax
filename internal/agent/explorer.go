@@ -457,6 +457,9 @@ func (e *explorerEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk 
 		b.WriteString("- `[DIRECT] functionName line N: <what this code establishes>`\n")
 		b.WriteString("- `[CONDITIONAL] functionName line N: <what happens> IF <condition>`\n")
 		b.WriteString("- `[REGISTRATION] functionName line N: <what is registered, EXACT values>`\n\n")
+		if guide := schemaLevelScopeGuide(e); guide != "" {
+			b.WriteString(guide)
+		}
 		b.WriteString("**User question:** " + e.userQuestion)
 		return b.String()
 	}
@@ -970,8 +973,52 @@ func (e *explorerEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk 
 	b.WriteString("- Search broadly: grep the core keyword without filtering by file type\n")
 	b.WriteString("- Classify each discovered file by role: (a) defines types/structures, (b) implements core logic, (c) declares configuration/topology/rules, (d) loads/parses configuration, (e) entry point. Prioritize roles a-d over e\n")
 	b.WriteString("- Exclude: test files, utility/infrastructure files (logging, tool wrappers), generated code\n")
-	b.WriteString("- Files that DECLARE rules or topology are as important as files that IMPLEMENT logic — include both in your list")
+	b.WriteString("- Files that DECLARE rules or topology are as important as files that IMPLEMENT logic — include both in your list\n\n")
 
+	if guide := schemaLevelScopeGuide(e); guide != "" {
+		b.WriteString(guide)
+	}
+
+	return b.String()
+}
+
+// schemaLevelScopeGuide returns the dispatch-time instruction block
+// that nudges the LLM toward emitting schema-level scopes (file /
+// crossfile / negative) when the analyzer's classification suggests
+// the question's facts are layer-shaped, contract-shaped, or
+// absence-shaped rather than per-line.
+//
+// Triggers when (a) the analyzer set Scenario=config_trace AND
+// AnswerSubject.Kind=config_key — the strongest signal that schema-
+// level evidence is going to be needed — OR (b) any ExactResolutionContract
+// has AllowAbsence set, which signals the analyzer expects the
+// target may be absent.
+//
+// Returns "" when the conditions don't apply, so the caller can
+// guard with `if guide := schemaLevelScopeGuide(e); guide != ""`.
+func schemaLevelScopeGuide(e *explorerEvaluator) string {
+	if e == nil {
+		return ""
+	}
+	configTrace := false
+	if e.analysisIR != nil {
+		rm := e.analysisIR.RequestModel
+		if rm.Scenario == types.ScenarioConfigTrace &&
+			rm.AnswerSubject.Kind == types.SubjectConfigKey {
+			configTrace = true
+		}
+	}
+	allowAbsence := e.exactResolution != nil && e.exactResolution.AllowAbsence
+	if !configTrace && !allowAbsence {
+		return ""
+	}
+
+	var b strings.Builder
+	b.WriteString("**Anchor scope (when emitting evidence):** this question's classification suggests the facts are likely layer-shaped, contract-shaped, or absence-shaped — not all per-line. Prefer the matching scope on emit_evidence:\n")
+	b.WriteString("- `scope=file` for each layer-canonical file you identify (set source to the file path; set file_role_label to `config_canonical` / `cli_registration` / `default_struct` / `manifest` / `schema`). This anchors the file's identity AS a layer regardless of whether the target appears at any specific line in it.\n")
+	b.WriteString("- `scope=negative` to make a confirmed absence a citable fact (kind=`absent`, negative_query={file, pattern: <target>}, negative_scope=`file`/`section`/`struct_fields`).\n")
+	b.WriteString("- `scope=crossfile` for cross-file contracts you can verify by grep (crossfile_query={files, pattern} + crossfile_assertion={kind: `exists`/`forbidden`/`count_eq`}). The system re-runs the query so emit only what you can back.\n")
+	b.WriteString("Use `scope=line` for evidence anchored at one specific code location; do NOT use it as a fallback for layer / contract / absence facts. The answer surface is stronger when the evidence shape matches the fact shape.\n\n")
 	return b.String()
 }
 
@@ -3936,68 +3983,6 @@ func (e *explorerEvaluator) postExternalLogRedirectSignal(obs LoopObservation) L
 	return LoopSignal{}
 }
 
-// postSchemaLevelEvidenceSignal nudges the LLM to emit schema-level
-// evidence (scope=file / crossfile / negative) on config-trace
-// scenarios where the exact target is absent. The LLM's instinct is
-// to find sibling-key line cites; that sometimes works but leaves
-// gaps when the target is genuinely absent across a layer or a layer
-// is structurally absent (e.g. a yaml-only group has no CLI flag).
-//
-// This hint fires once per Run, after the LLM has had a chance to
-// emit line-shaped evidence (≥1 emit_evidence call) but BEFORE the
-// completion phase. It is a teaching nudge — the LLM remains the
-// decider; the system only points out the underused tools.
-func (e *explorerEvaluator) postSchemaLevelEvidenceSignal(obs LoopObservation) LoopSignal {
-	if e.midLoopSchemaLevelHintSent {
-		return LoopSignal{}
-	}
-	if e.exactResolution == nil || !e.exactResolution.AllowAbsence {
-		return LoopSignal{}
-	}
-	if obs.Iteration < e.heuristics.MidLoopMinIteration {
-		return LoopSignal{}
-	}
-	// Only meaningful when the LLM has already produced at least one
-	// line-shaped emit AND has NOT yet emitted any schema-level item.
-	hasLine := false
-	hasSchemaLevel := false
-	for _, ev := range e.structuredEvidence {
-		switch ev.Scope {
-		case types.ScopeFile, types.ScopeCrossfile, types.ScopeNegative:
-			hasSchemaLevel = true
-		default:
-			hasLine = true
-		}
-	}
-	if !hasLine || hasSchemaLevel {
-		return LoopSignal{}
-	}
-	// Only fire on config-trace + ConfigKey subject (where layer
-	// identity / cross-file contracts / absences typically apply).
-	if e.analysisIR == nil {
-		return LoopSignal{}
-	}
-	rm := e.analysisIR.RequestModel
-	if rm.Scenario != types.ScenarioConfigTrace ||
-		rm.AnswerSubject.Kind != types.SubjectConfigKey {
-		return LoopSignal{}
-	}
-
-	hint := "MID-LOOP CHECK: the exact target is absent and the layers you grounded so far all use scope=`line`. The answer surface for this question is stronger when at least one item per layer-canonical file is emitted with a schema-level scope, because a layer-canonical file's identity as a layer is a fact independent of whether the missing key appears at any specific line in it.\n\n" +
-		"Consider emitting ONE OR MORE of the following alongside your line cites:\n" +
-		"  • scope=`file` for each layer-canonical file you've identified (set source to the file path and file_role_label to `config_canonical` / `cli_registration` / `default_struct` / `manifest` / `schema` as appropriate).\n" +
-		"  • scope=`negative` for the missing target's absence (kind=`absent`, negative_query={file, pattern: <target>}, negative_scope=`file`).\n" +
-		"  • scope=`crossfile` if a layer is STRUCTURALLY absent: crossfile_query={files, pattern} + crossfile_assertion={kind: `forbidden`}.\n\n" +
-		"Each schema-level scope is verified by re-running its query — so emit only claims you have evidence to back. Continue line-shaped emits as needed; schema-level scopes complement them, not replace them."
-
-	e.midLoopSchemaLevelHintSent = true
-	return LoopSignal{
-		HintRequested: true,
-		Hint:          hint,
-		HintKey:       "schema_level_evidence",
-	}
-}
-
 func (e *explorerEvaluator) postExactAbsenceClosureSignal(obs LoopObservation) LoopSignal {
 	if e.midLoopExactAbsenceSent || e.exactResolution == nil || !e.exactResolution.AllowAbsence {
 		return LoopSignal{}
@@ -6104,9 +6089,6 @@ func (e *explorerEvaluator) observeMidLoop(obs LoopObservation) LoopSignal {
 		return sig
 	}
 	if sig := e.postExactAbsenceClosureSignal(obs); sig.HintRequested {
-		return sig
-	}
-	if sig := e.postSchemaLevelEvidenceSignal(obs); sig.HintRequested {
 		return sig
 	}
 	if sig := e.postClosureReadyBacklogSignal(obs); sig.HintRequested {

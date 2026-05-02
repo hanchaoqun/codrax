@@ -36,16 +36,16 @@ func testAdapterOpts(opts AdapterOptions) AdapterOptions {
 // TestOpenAIAdapter_MaxContextTokens_Resolution pins the zero-
 // sentinel fallback contract: a zero contextWindow (legacy
 // providers.yaml without the field, or agent that forgot to
-// override) returns 128000 so any consumer assuming a positive
-// return value stays safe. A declared positive value flows
-// through unchanged.
+// override) returns DefaultContextWindow (200000 as of 2026-05-02)
+// so any consumer assuming a positive return value stays safe. A
+// declared positive value flows through unchanged.
 func TestOpenAIAdapter_MaxContextTokens_Resolution(t *testing.T) {
 	cases := []struct {
 		name string
 		in   int
 		want int
 	}{
-		{"zero falls back to 128K", 0, 128000},
+		{"zero falls back to default 200K", 0, DefaultContextWindow},
 		{"explicit small value wins", 8000, 8000},
 		{"explicit large value wins", 1_000_000, 1_000_000},
 	}
