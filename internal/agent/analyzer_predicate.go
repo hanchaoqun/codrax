@@ -80,26 +80,30 @@ func reconcileSemanticPredicates(rm types.RequestModel) (types.SemanticPredicate
 		return resolved,
 			"single ordered structural trace keeps one answer topic even when the chain crosses files/packages; preserve the trace lane without promoting to multi-topic cross-component reasoning"
 	}
-	// New rule (R1.2 auto-fix): when the LLM emits IsCrossComponent=true
-	// but provides ZERO sub-topics, that's an internal contradiction
-	// — IsCrossComponent claims the question crosses multiple
-	// components, yet no sub-topics were enumerated. Pre-2026-04-30
-	// the gate (subtopic_coherence R1.2 in internal/analysis/gate)
-	// rejected this and pushed the LLM into a retry loop with a
-	// hint, but the LLM frequently couldn't recover within budget
-	// and the pipeline aborted. The structural fact (0 sub-topics)
-	// is unambiguous; the meta-claim (IsCrossComponent) is the
-	// soft signal. Demote IsCrossComponent so the pipeline treats
-	// the question as single-topic and proceeds. The gate's R1.1
-	// (domain divergence — separate signal from TermGraph) still
-	// catches genuine multi-domain questions where the LLM emitted
-	// 0 sub-topics by mistake — those need true sub-topic synthesis,
-	// not just the predicate flip.
-	if len(rm.SubTopics) <= 1 && !resolved.IsRelationalLookup && rm.Intent != types.IntentTrace {
-		resolved.IsCrossComponent = false
-		return resolved,
-			"R1.2 auto-fix: predicate IsCrossComponent=true contradicts SubTopics empty/single — demoting to false rather than failing the coherence gate; downstream behaviour is single-topic, with R1.1 (domain divergence) still active for true multi-domain catches"
-	}
+	// IsCrossComponent vs SubTopics inconsistency is intentionally
+	// LEFT to the coherence gate (gate.checkSubtopicCoherence R1.2)
+	// rather than auto-demoted here. Reasoning:
+	//
+	//  - IsCrossComponent is a SCHEMA-REQUIRED field (the LLM must
+	//    affirm true/false on every emit_analysis call); SubTopics
+	//    is SCHEMA-OPTIONAL (omitted by default). Required > optional
+	//    on the soft/hard signal hierarchy: the LLM's affirmative
+	//    claim that the question is cross-component is the harder
+	//    signal; the absence of sub_topics is the softer one.
+	//
+	//  - Pre-2026-05-02 this site auto-demoted IsCrossComponent to
+	//    match the missing sub_topics, but that's the wrong direction:
+	//    it discards the LLM's hard signal to defer to the soft one.
+	//    Worse, it short-circuited gate R1.2's retry loop — the gate
+	//    can no longer surface "you said cross-component but didn't
+	//    enumerate sub-topics, please add sub_topics" because the
+	//    predicate has already been flipped before the gate runs.
+	//
+	//  - The user-intent-over-system-gates red line applies here:
+	//    when the LLM judges a question as cross-component (e.g.
+	//    "compare module A's behaviour with module B's"), the system
+	//    must trust that judgment and let the retry path correct the
+	//    softer signal, not silently overwrite the harder signal.
 	return resolved, ""
 }
 

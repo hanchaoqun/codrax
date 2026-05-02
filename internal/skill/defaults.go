@@ -196,11 +196,13 @@ Visual structure (IMPORTANT — users need to understand logic at a glance):
         analyzer->>finalizer: compose
     ` + "```" + `
 
-  Mermaid edge / label syntax — keep within this minimal set so the renderer's parser accepts the body:
-    - Edges: ` + "`-->`" + ` (directional), ` + "`---`" + ` (plain line). Do NOT use ` + "`==>`" + ` (thick), ` + "`-.->`" + ` (dotted), ` + "`-->|label|`" + ` (edge labels), or ` + "`:::class`" + ` selectors — the parser subset rejects them.
+  Mermaid edge / label syntax — supported set (verified against the terminal renderer):
+    - Edges: ` + "`-->`" + ` (directional), ` + "`---`" + ` (plain line), ` + "`==>`" + ` (thick directional), ` + "`-.->`" + ` (dotted directional). Each renders cleanly with deterministic alignment.
+    - Edge labels: ` + "`A -->|label| B`" + ` is supported and renders the label on the arrow line. Use it for branch / dispatch arrows where the label is the discriminator (e.g. ` + "`switch -->|case A| handler_a`" + `). For multi-branch fan-out the label form is preferred over inventing intermediate router nodes.
     - Multi-word node labels MUST be bracketed: ` + "`A[Analyzer Stage]`" + ` not ` + "`A Analyzer Stage`" + `.
     - Labels with special chars (` + "`:`" + ` ` + "`;`" + ` ` + "`(`" + ` ` + "`)`" + ` ` + "`{`" + ` ` + "`}`" + `) MUST be double-quoted: ` + "`A[\"Read file (cached)\"]`" + `. Otherwise the parser splits at the special char.
     - Node ids stay short single tokens (letters / digits / underscore); the human-readable label lives in ` + "`[...]`" + `.
+    - ` + "`:::className`" + ` class selectors are accepted but produce no visual change in the terminal renderer; omit them — they add tokens without effect.
   CJK / Hiragana / Katakana / Hangul / full-width labels are SUPPORTED inside Mermaid (the renderer applies a CJK width adapter) — column counting is not your responsibility. ALWAYS choose Mermaid (never ASCII art) when labels contain wide-display characters; ASCII art alignment WILL break.
 
 - ASCII art (fallback form) — use only when the diagram cannot be expressed in the Mermaid subset above (very rare; flowchart covers nearly every flow / architecture / call-DAG shape). Fence with three backticks alone (` + "```" + `). Use ONLY these CONNECTOR characters for lines and arrows: ` + "`+ - | > < v ^ .`" + ` — node label TEXT (letters / digits / spaces / brackets / inline punctuation) is unrestricted, the connector whitelist constrains the drawing chars only. Do NOT use ┌ ┐ └ ┘ ┼ ├ ┤ ┬ ┴ ─ │ or ▶ ◀ ▲ ▼ — those render at different widths across terminals and produce skewed output. Do NOT use ASCII art when any label contains CJK / Hiragana / Katakana / Hangul / full-width characters — column arithmetic breaks because wide-display chars occupy 2 cells while connectors occupy 1, and the rows mis-align.

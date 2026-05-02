@@ -1008,7 +1008,7 @@ func (t *EmitAnswerDocument) Execute(ctx *types.BusContext, params json.RawMessa
 	// through ctx.Mutable.EvidenceClosure().AppendViolation so the
 	// retry-hint path picks them up. Skipped when oracle / graph
 	// is nil (single-shot CLI without scan).
-	maybeRunDiagramIdentifierOracle(p.Summary, ctx)
+	maybeRunDiagramIdentifierOracle(p.Summary, p.Citations, ctx)
 
 	// Log-triage coverage gate.
 	//
@@ -2827,7 +2827,7 @@ func SetDiagramIdentifierWhitelist(words []string) {
 // (single-shot CLI without scan; oracle returns false-by-default
 // would cause every identifier to look invalid). Returns nothing
 // — violations flow through the closure ledger.
-func maybeRunDiagramIdentifierOracle(summary string, ctx *types.BusContext) {
+func maybeRunDiagramIdentifierOracle(summary string, citations []types.Citation, ctx *types.BusContext) {
 	if ctx == nil || ctx.Mutable == nil {
 		return
 	}
@@ -2839,6 +2839,7 @@ func maybeRunDiagramIdentifierOracle(summary string, ctx *types.BusContext) {
 	if len(matches) == 0 {
 		return
 	}
+	citedFiles := citedFilePathSet(citations)
 	closure := ctx.Mutable.EvidenceClosure()
 	seen := map[string]bool{}
 	for _, m := range matches {
@@ -2849,6 +2850,26 @@ func maybeRunDiagramIdentifierOracle(summary string, ctx *types.BusContext) {
 		}
 		body := diagramGroundingBodyReplacer.Replace(m[2])
 		for _, label := range extractMermaidNodeLabels(body) {
+			// Per-label citation grounding: if the label literally
+			// names a `path/to/file.ext` (optionally with `:line`)
+			// that appears in citations[], the bare identifiers in
+			// that label inherit the citation's grounding even if
+			// they're scoped tokens (local variables, internal helper
+			// names) the repomap symbol table does not index at
+			// Tier 1-2. The whole label IS the cited evidence; the
+			// individual tokens within it don't need independent
+			// indexing. This eliminates the over-narrow filter that
+			// flagged labels like
+			//   `for i < maxIter (internal/agent/agent.go:925)`
+			// where `internal/agent/agent.go:925` IS in citations[].
+			// Without this exemption, every diagram that names a
+			// scoped helper / local var inside a grounded label
+			// triggers ViolDiagramIdentifier, and the LLM has no
+			// repair (the symbol genuinely is not a Tier 1-2 decl
+			// but IS the load-bearing token in a real cited line).
+			if labelGroundedByCitation(label, citedFiles) {
+				continue
+			}
 			for _, ident := range diagramBareIdentifierRe.FindAllString(label, -1) {
 				if seen[ident] {
 					continue
@@ -2876,6 +2897,51 @@ func maybeRunDiagramIdentifierOracle(summary string, ctx *types.BusContext) {
 			}
 		}
 	}
+}
+
+// citedFilePathSet collects every Citation.File path into a lookup
+// set the bare-identifier oracle uses to short-circuit per-label
+// grounding. Empty File entries are skipped. Returns nil when the
+// input is empty so callers can shortcut on len(set)==0.
+func citedFilePathSet(citations []types.Citation) map[string]bool {
+	if len(citations) == 0 {
+		return nil
+	}
+	out := make(map[string]bool, len(citations))
+	for _, c := range citations {
+		f := strings.TrimSpace(c.File)
+		if f != "" {
+			out[f] = true
+		}
+	}
+	return out
+}
+
+// diagramLabelFilePathRe matches every `path/to/file.ext` or
+// `file.ext:line` token inside a Mermaid label. Path segments accept
+// letters / digits / underscore / hyphen / dot; a real file path
+// requires at least one `/` segment OR a known code extension at the
+// tail to avoid matching plain CamelCase identifiers. The optional
+// trailing `:line` is consumed but not retained — we only care about
+// the path itself.
+var diagramLabelFilePathRe = regexp.MustCompile(
+	`(?:[A-Za-z0-9._-]+/)+[A-Za-z0-9._-]+\.[A-Za-z0-9]+`)
+
+// labelGroundedByCitation reports whether a Mermaid node label
+// contains any `path/to/file.ext` token that is also in citations[].
+// A grounded label inherits its citation's authority for every bare
+// identifier nested inside the label text — see the load-bearing
+// rationale at maybeRunDiagramIdentifierOracle's call site.
+func labelGroundedByCitation(label string, citedFiles map[string]bool) bool {
+	if len(citedFiles) == 0 {
+		return false
+	}
+	for _, candidate := range diagramLabelFilePathRe.FindAllString(label, -1) {
+		if citedFiles[candidate] {
+			return true
+		}
+	}
+	return false
 }
 
 func answerDiagramContract(ctx *types.BusContext) *types.DiagramContract {

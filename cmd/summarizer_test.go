@@ -132,24 +132,49 @@ func TestLLMSummarizer_ChatErrorFallsBack(t *testing.T) {
 	}
 }
 
-// TestLLMSummarizer_MissingToolCallFallsBack verifies the "LLM
-// forgot to emit the tool" path. Previously this would have been a
-// JSON parse error on an empty Content string, silently producing a
-// keyword-heuristic entry via the old parse-error branch; the new
-// contract routes it to the same fallback explicitly.
-func TestLLMSummarizer_MissingToolCallFallsBack(t *testing.T) {
+// TestLLMSummarizer_MissingToolCallSalvagesContent pins the
+// 2026-05-02 salvage path: when the provider does not honour
+// tool_choice="required" (MiniMax has been observed returning
+// finish_reason=end_turn with hundreds of tokens of summary in
+// resp.Content), the summarizer must NOT discard the prose. It
+// rescues resp.Content as Summary while keeping heuristic Topic /
+// Keywords. Pre-2026-05-02 the prose was thrown away and the
+// fallback truncated turn.Response to 400 chars instead.
+func TestLLMSummarizer_MissingToolCallSalvagesContent(t *testing.T) {
+	prose := "The normalizer walks the request and produces canonical TermGraph nodes which downstream stages consume — the same flow the analyzer uses to ground search hints."
 	adapter := &summarizerStubAdapter{
-		resp: llm.Response{Content: "I'm sorry, I can't do that."},
+		resp: llm.Response{Content: prose, StopReason: "end_turn"},
 	}
 	s := newLLMSummarizer(adapter)
 	entry, err := s.Summarize(context.Background(), newSummarizerTurn())
 	if err != nil {
-		t.Fatalf("missing tool_call must fall back, got err=%v", err)
+		t.Fatalf("salvage path must not error, got %v", err)
 	}
-	// Fallback Topic is truncated request; cannot equal the LLM's
-	// prose refusal.
-	if entry.Topic == "I'm sorry, I can't do that." {
-		t.Errorf("fallback must not leak refusal content into Topic")
+	if entry.Summary != prose {
+		t.Errorf("Summary must carry the LLM prose verbatim; got %q want %q",
+			entry.Summary, prose)
+	}
+	if entry.Topic == prose {
+		t.Errorf("Topic must stay heuristic (truncated Request), not leak prose; got %q", entry.Topic)
+	}
+	if len(entry.Keywords) == 0 {
+		t.Errorf("Keywords must stay heuristic; got empty")
+	}
+}
+
+// TestLLMSummarizer_MissingToolCallEmptyContentFallsBack pins the
+// genuine fallback: when both ToolCalls and Content are empty, the
+// summarizer cannot salvage anything and must produce the heuristic
+// IndexEntry so memory compaction still completes.
+func TestLLMSummarizer_MissingToolCallEmptyContentFallsBack(t *testing.T) {
+	adapter := &summarizerStubAdapter{resp: llm.Response{}}
+	s := newLLMSummarizer(adapter)
+	entry, err := s.Summarize(context.Background(), newSummarizerTurn())
+	if err != nil {
+		t.Fatalf("empty response must fall back, got err=%v", err)
+	}
+	if entry.Topic == "" || entry.Summary == "" {
+		t.Errorf("heuristic fallback must populate Topic+Summary; got %+v", entry)
 	}
 }
 

@@ -2990,7 +2990,32 @@ func (s *llmSummarizer) Summarize(_ context.Context, turn memory.Turn) (memory.I
 		return fallback, nil
 	}
 	if len(resp.ToolCalls) == 0 {
-		logging.Warning("[memory] summarizer LLM returned no tool_call, using fallback")
+		// Some providers (notably MiniMax) do not strictly honour
+		// tool_choice="required" — they return finish_reason=end_turn
+		// with hundreds of tokens of natural-language summary in
+		// resp.Content instead of an emit_memory_summary call.
+		// Pre-2026-05-02 this site discarded the prose entirely and
+		// fell back to an 80-char heuristic Topic + 400-char Response
+		// truncate, throwing away the LLM's actual work.
+		//
+		// Salvage: when content is non-empty, treat it as the Summary
+		// (truncated to a generous 800 chars so structured fields
+		// like extractKeywords-derived Keywords still anchor index
+		// matches). Topic stays heuristic because the prose may not
+		// surface a clean one-line topic — combining LLM Summary
+		// with heuristic Topic is the best of both signals when the
+		// tool channel breaks.
+		if content := strings.TrimSpace(resp.Content); content != "" {
+			logging.Warning("[memory] summarizer LLM returned text instead of tool_call (provider may not honour tool_choice=required); salvaging %d chars of prose as Summary",
+				len(content))
+			return memory.IndexEntry{
+				ID:       turn.ID,
+				Topic:    fallback.Topic,
+				Keywords: fallback.Keywords,
+				Summary:  truncate(content, 800),
+			}, nil
+		}
+		logging.Warning("[memory] summarizer LLM returned no tool_call AND empty content, using heuristic fallback")
 		return fallback, nil
 	}
 	call := resp.ToolCalls[0]

@@ -100,12 +100,18 @@ func checkSubtopicCoherence(ir *types.AnalysisIR, resolver normalizer.SymbolReso
 	}
 
 	// R1.2 — Predicate self-contradiction.
+	// Repair guidance is LLM-actionable: name the structural fix
+	// (emit sub_topics) rather than restating the contradiction.
+	// Pre-2026-05-02 analyzer_predicate.go used to auto-demote
+	// IsCrossComponent here as a workaround; that path was removed
+	// because it discarded the LLM's hard signal — the retry hint
+	// is the correct repair surface.
 	if rm.Predicates.IsCrossComponent && nSub <= 1 {
 		return types.GateCheck{
 			Name:   "subtopic_coherence",
 			Passed: false,
 			Detail: fmt.Sprintf(
-				"R1.2 predicate_contradiction: Predicates.IsCrossComponent=true but only %d sub-topic emitted",
+				"R1.2 predicate_contradiction: Predicates.IsCrossComponent=true but only %d sub-topic emitted — re-emit emit_analysis with one sub_topic per component the question compares (each sub_topic.summary names that component, sub_topic.entities lists its load-bearing identifiers); OR if the question is single-topic after all, set IsCrossComponent=false explicitly",
 				nSub),
 		}
 	}
