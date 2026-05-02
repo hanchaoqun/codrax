@@ -587,6 +587,33 @@ type EvidenceItem struct {
 	// the item if any match is found.
 	NegativeQuery *NegativeQuery `json:"negative_query,omitempty"`
 	NegativeScope NegativeScope  `json:"negative_scope,omitempty"`
+
+	// ====== AuthorityCeiling axis (2026-05+) ======
+	//
+	// Origin / Authority / AuthorityReason are computed by the
+	// emit_evidence (and emit_log_triage / emit_perf_trace) tool layer
+	// at write time. The LLM never emits these fields directly; the
+	// schema validator rejects them via additionalProperties=false on
+	// the LLM-facing input. Downstream consumers (extractor, finalizer,
+	// contract checker, renderer) read these as a read-only authority
+	// cap.
+	//
+	// Origin records WHERE the anchor came from (current_repo / log /
+	// perf / cross_source). Authority caps how strongly downstream
+	// stages may state a claim that rests on this evidence (factual /
+	// conditional / historical / illustrative). AuthorityReason is a
+	// short (≤140 chars) operator-readable hint explaining why the
+	// system computed this ceiling — useful for /plan show, debug
+	// logs, and ViolAuthorityOverreach diagnostics.
+	//
+	// Zero values (ClaimOriginUnknown / AuthorityUnknown / "") are
+	// equivalent to "anchor came from current repo" + "factual" for
+	// byte-identical legacy behaviour. The authority_ceiling_enabled
+	// yaml knob short-circuits computation when false; with that knob
+	// off the fields stay at zero value end-to-end.
+	Origin          ClaimOrigin      `json:"origin,omitempty"`
+	Authority       AuthorityCeiling `json:"authority,omitempty"`
+	AuthorityReason string           `json:"authority_reason,omitempty"`
 }
 
 // ValidateScope enforces the per-scope required-field invariants on
@@ -949,6 +976,17 @@ type AnswerSymbol struct {
 	Chain     string           `json:"chain"`               // full chain text that yielded this symbol
 	Kind      AnswerSymbolKind `json:"kind"`                // see answer_symbol_kind.go for the closed taxonomy
 	Rationale string           `json:"rationale,omitempty"` // optional: why this terminal was picked
+
+	// Authority (2026-05+) — the AuthorityCeiling cap inherited from
+	// the underlying EvidenceItem(s). When multiple evidence items
+	// support the same symbol, the extractor pins this to the WEAKEST
+	// (via WeakerOf) so an answer symbol's claim strength is bounded
+	// by its weakest support. The renderer reads this to decide
+	// whether to inject hedge language around the symbol's prose
+	// description. Zero value (AuthorityUnknown) means the field was
+	// never populated — treated as factual-equivalent for byte-identical
+	// legacy behaviour.
+	Authority AuthorityCeiling `json:"authority,omitempty"`
 }
 
 // AnswerChain is the typed ranked-and-scored answer-relevance envelope
