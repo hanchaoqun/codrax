@@ -623,13 +623,15 @@ func (t *EmitEvidence) Execute(ctx *types.BusContext, params json.RawMessage) (t
 	}
 
 	// AuthorityCeiling axis: project each grounded item to (Origin,
-	// Authority, AuthorityReason) before persisting. Pure function of
-	// the item + bus state, so a later replay computes the same triple.
+	// Authority, AuthorityReason, DriftReason) before persisting.
+	// Pure function of the item + bus state, so a later replay
+	// computes the same projection.
 	for i := range built {
-		origin, ceiling, reason := authority.ComputeForEvidence(built[i], ctx)
-		built[i].Origin = origin
-		built[i].Authority = ceiling
-		built[i].AuthorityReason = reason
+		proj := authority.ComputeForEvidence(built[i], ctx)
+		built[i].Origin = proj.Origin
+		built[i].Authority = proj.Authority
+		built[i].AuthorityReason = proj.Reason
+		built[i].DriftReason = proj.DriftReason
 	}
 
 	ctx.Mutable.AppendEvidence(built)

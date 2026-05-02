@@ -31,7 +31,7 @@ func (f *fakeLocator) SymbolsInFile(file string) []types.SymbolLocation {
 // nil for unit tests.
 func TestComputeForEvidence_NilBusSafePassthrough(t *testing.T) {
 	item := types.EvidenceItem{Scope: types.ScopeLine}
-	o, a, _ := ComputeForEvidence(item, nil)
+	p := ComputeForEvidence(item, nil); o, a := p.Origin, p.Authority; _ = ""
 	if o != types.ClaimOriginUnknown || a != types.AuthorityUnknown {
 		t.Errorf("nil bus: got (origin=%q, auth=%q); want zero", o, a)
 	}
@@ -58,7 +58,7 @@ func TestComputeForEvidence_SchemaLevelScopeAlwaysFactual(t *testing.T) {
 			GroundingStatus: types.GroundingGrounded,
 			FileRoleLabel:   types.FileRoleConfigCanonical,
 		}
-		o, a, _ := ComputeForEvidence(item, bus)
+		p := ComputeForEvidence(item, bus); o, a := p.Origin, p.Authority; _ = ""
 		if o != types.ClaimOriginCurrentRepo {
 			t.Errorf("scope=%q: Origin = %q; want current_repo", scope, o)
 		}
@@ -81,7 +81,7 @@ func TestComputeForEvidence_IllustrativeOnlyForcesIllustrative(t *testing.T) {
 		GroundingStatus: types.GroundingGrounded,
 		ContextRole:     types.EvidenceContextRoleIllustrativeOnly,
 	}
-	_, a, _ := ComputeForEvidence(item, bus)
+	p := ComputeForEvidence(item, bus); a := p.Authority
 	if a != types.AuthorityIllustrative {
 		t.Errorf("illustrative_only: Authority = %q; want illustrative", a)
 	}
@@ -98,7 +98,7 @@ func TestComputeForEvidence_UngroundedIsIllustrative(t *testing.T) {
 		AnchorKind:      types.AnchorDefinition,
 		GroundingStatus: types.GroundingUngrounded,
 	}
-	_, a, _ := ComputeForEvidence(item, bus)
+	p := ComputeForEvidence(item, bus); a := p.Authority
 	if a != types.AuthorityIllustrative {
 		t.Errorf("ungrounded: Authority = %q; want illustrative", a)
 	}
@@ -117,7 +117,7 @@ func TestComputeForEvidence_CurrentRepoLineGrounded(t *testing.T) {
 		GroundingStatus: types.GroundingGrounded,
 		GroundingTier:   types.TierLineText,
 	}
-	o, a, _ := ComputeForEvidence(item, bus)
+	p := ComputeForEvidence(item, bus); o, a := p.Origin, p.Authority; _ = ""
 	if o != types.ClaimOriginCurrentRepo {
 		t.Errorf("Origin = %q; want current_repo", o)
 	}
@@ -140,7 +140,7 @@ func TestComputeForEvidence_RecoveredFactualWithoutLog(t *testing.T) {
 		GroundingStatus: types.GroundingRecovered,
 		GroundingTier:   types.TierFQNameSameFile,
 	}
-	_, a, _ := ComputeForEvidence(item, bus)
+	p := ComputeForEvidence(item, bus); a := p.Authority
 	if a != types.AuthorityFactual {
 		t.Errorf("recovered without log: Authority = %q; want factual", a)
 	}
@@ -163,7 +163,7 @@ func TestComputeForEvidence_RecoveredConditionalWithLog(t *testing.T) {
 		GroundingStatus: types.GroundingRecovered,
 		GroundingTier:   types.TierFQNameSameFile,
 	}
-	_, a, _ := ComputeForEvidence(item, bus)
+	p := ComputeForEvidence(item, bus); a := p.Authority
 	if a != types.AuthorityConditional {
 		t.Errorf("recovered with log: Authority = %q; want conditional", a)
 	}
@@ -199,7 +199,7 @@ func TestComputeForEvidence_LogMatchPerfectCrossSource(t *testing.T) {
 		GroundingStatus: types.GroundingGrounded,
 		GroundingTier:   types.TierLineText,
 	}
-	o, a, reason := ComputeForEvidence(item, bus)
+	p := ComputeForEvidence(item, bus); o, a, reason := p.Origin, p.Authority, p.Reason
 	if o != types.ClaimOriginCrossSource {
 		t.Errorf("Origin = %q; want cross_source (reason=%q)", o, reason)
 	}
@@ -236,7 +236,7 @@ func TestComputeForEvidence_LogMatchLineDriftConditional(t *testing.T) {
 		AnchorKind:      types.AnchorDefinition,
 		GroundingStatus: types.GroundingGrounded,
 	}
-	o, a, reason := ComputeForEvidence(item, bus)
+	p := ComputeForEvidence(item, bus); o, a, reason := p.Origin, p.Authority, p.Reason
 	if o != types.ClaimOriginLog {
 		t.Errorf("Origin = %q; want log (reason=%q)", o, reason)
 	}
@@ -273,7 +273,7 @@ func TestComputeForEvidence_LogMatchFileMovedHistorical(t *testing.T) {
 		AnchorKind:      types.AnchorDefinition,
 		GroundingStatus: types.GroundingGrounded,
 	}
-	o, a, reason := ComputeForEvidence(item, bus)
+	p := ComputeForEvidence(item, bus); o, a, reason := p.Origin, p.Authority, p.Reason
 	if o != types.ClaimOriginLog {
 		t.Errorf("Origin = %q; want log (reason=%q)", o, reason)
 	}

@@ -76,10 +76,11 @@ func BackfillEvidenceProjector() types.EvidenceProjector {
 				items[i].Authority != types.AuthorityUnknown {
 				continue
 			}
-			origin, ceiling, reason := ComputeForEvidence(items[i], bus)
-			items[i].Origin = origin
-			items[i].Authority = ceiling
-			items[i].AuthorityReason = reason
+			proj := ComputeForEvidence(items[i], bus)
+			items[i].Origin = proj.Origin
+			items[i].Authority = proj.Authority
+			items[i].AuthorityReason = proj.Reason
+			items[i].DriftReason = proj.DriftReason
 		}
 		return items
 	}
@@ -100,11 +101,22 @@ func LocatorFromGraph(graph any) types.SymbolLocator {
 	return locatorProvider(graph)
 }
 
+// Projection is the atomic projection result from ComputeForEvidence.
+// All four fields are written together at evidence emit time and
+// pinned on the EvidenceItem; downstream consumers (renderer,
+// contract, derived drift anchor builders) read these as a typed
+// read-only authority cap.
+type Projection struct {
+	Origin      types.ClaimOrigin
+	Authority   types.AuthorityCeiling
+	Reason      string
+	DriftReason types.DriftReason
+}
+
 // ComputeForEvidence is the canonical projection from a constructed
-// EvidenceItem (post-grounding) and the bus context to a typed
-// (ClaimOrigin, AuthorityCeiling, AuthorityReason) triple. Pure
-// function: no mutation of inputs; same inputs always produce the
-// same output.
+// EvidenceItem (post-grounding) and the bus context to a Projection.
+// Pure function: no mutation of inputs; same inputs always produce
+// the same output.
 //
 // Algorithm (priority order — first hit wins):
 //
@@ -135,31 +147,40 @@ func LocatorFromGraph(graph any) types.SymbolLocator {
 //     (recovered tiers and section/range scopes get a softer cap by
 //     default — they survive grounding but the anchor is less
 //     precise).
-func ComputeForEvidence(item types.EvidenceItem, bus *types.BusContext) (types.ClaimOrigin, types.AuthorityCeiling, string) {
+func ComputeForEvidence(item types.EvidenceItem, bus *types.BusContext) Projection {
 	if bus == nil {
-		return types.ClaimOriginUnknown, types.AuthorityUnknown, ""
+		return Projection{}
 	}
 
 	// (2) Schema-level scopes: factual current_repo by construction.
 	switch item.Scope {
 	case types.ScopeFile, types.ScopeCrossfile, types.ScopeNegative:
-		return types.ClaimOriginCurrentRepo, types.AuthorityFactual,
-			"schema-level scope: structural assertion about current repo"
+		return Projection{
+			Origin:    types.ClaimOriginCurrentRepo,
+			Authority: types.AuthorityFactual,
+			Reason:    "schema-level scope: structural assertion about current repo",
+		}
 	}
 
 	// (3) Illustrative / ungrounded carve-out.
 	if item.ContextRole == types.EvidenceContextRoleIllustrativeOnly {
-		return types.ClaimOriginCurrentRepo, types.AuthorityIllustrative,
-			"context_role=illustrative_only — not a causal claim"
+		return Projection{
+			Origin:    types.ClaimOriginCurrentRepo,
+			Authority: types.AuthorityIllustrative,
+			Reason:    "context_role=illustrative_only — not a causal claim",
+		}
 	}
 	if item.GroundingStatus == types.GroundingUngrounded {
-		return types.ClaimOriginCurrentRepo, types.AuthorityIllustrative,
-			"grounding_status=ungrounded — anchor unverified"
+		return Projection{
+			Origin:    types.ClaimOriginCurrentRepo,
+			Authority: types.AuthorityIllustrative,
+			Reason:    "grounding_status=ungrounded — anchor unverified",
+		}
 	}
 
 	// (4) Log / perf bundle match — strongest evidence of drift.
-	if origin, ceiling, reason, matched := computeFromLogPerfDrift(item, bus); matched {
-		return origin, ceiling, reason
+	if proj, matched := computeFromLogPerfDrift(item, bus); matched {
+		return proj
 	}
 
 	// (5) Default current_repo path — graded by grounding tier + scope.
@@ -168,29 +189,34 @@ func ComputeForEvidence(item types.EvidenceItem, bus *types.BusContext) (types.C
 		// Recovery tier rewrote line/source. Round-3 refinement: only
 		// downgrade to conditional when an attached log/perf bundle is
 		// actually present. Without an attached artifact, "recovered"
-		// is an in-pipeline LLM line-typo correction (the LLM said
-		// line 12, the symbol is at line 14, the system fixed it) —
-		// NOT a drift signal. Hedging that as "drift" misleads the
-		// user with a fake provenance ("based on log") in the caveat.
-		// With an attached artifact, the LLM's imprecise anchor IS a
-		// hint that the artifact and current code may be out of sync,
-		// so the conditional cap is honest.
+		// is an in-pipeline LLM line-typo correction — NOT a drift
+		// signal.
 		if hasAttachedArtifact(bus) {
-			return types.ClaimOriginCurrentRepo, types.AuthorityConditional,
-				fmt.Sprintf("grounding recovered via %s — original anchor imprecise (log/perf attached)", item.GroundingTier)
+			return Projection{
+				Origin:    types.ClaimOriginCurrentRepo,
+				Authority: types.AuthorityConditional,
+				Reason:    fmt.Sprintf("grounding recovered via %s — original anchor imprecise (log/perf attached)", item.GroundingTier),
+			}
 		}
-		// No attached artifact: the recovery is plain LLM self-
-		// correction; treat as factual for the renderer.
-		return types.ClaimOriginCurrentRepo, types.AuthorityFactual,
-			fmt.Sprintf("grounding recovered via %s (no attached log; treated as factual self-correction)", item.GroundingTier)
+		return Projection{
+			Origin:    types.ClaimOriginCurrentRepo,
+			Authority: types.AuthorityFactual,
+			Reason:    fmt.Sprintf("grounding recovered via %s (no attached log; treated as factual self-correction)", item.GroundingTier),
+		}
 	}
 	if item.Scope.IsLineShaped() {
-		return types.ClaimOriginCurrentRepo, types.AuthorityFactual,
-			"current_repo line-shaped anchor, grounded"
+		return Projection{
+			Origin:    types.ClaimOriginCurrentRepo,
+			Authority: types.AuthorityFactual,
+			Reason:    "current_repo line-shaped anchor, grounded",
+		}
 	}
 	// Empty / unset scope or unrecognised — fail safe to factual to
 	// preserve legacy behaviour for items that pre-date the scope axis.
-	return types.ClaimOriginCurrentRepo, types.AuthorityFactual, ""
+	return Projection{
+		Origin:    types.ClaimOriginCurrentRepo,
+		Authority: types.AuthorityFactual,
+	}
 }
 
 func hasAttachedArtifact(bus *types.BusContext) bool {
@@ -200,20 +226,20 @@ func hasAttachedArtifact(bus *types.BusContext) bool {
 	return bus.Mutable.LogTriage() != nil || bus.Mutable.PerfTrace() != nil
 }
 
-func computeFromLogPerfDrift(item types.EvidenceItem, bus *types.BusContext) (types.ClaimOrigin, types.AuthorityCeiling, string, bool) {
+func computeFromLogPerfDrift(item types.EvidenceItem, bus *types.BusContext) (Projection, bool) {
 	if bus.Mutable == nil {
-		return "", "", "", false
+		return Projection{}, false
 	}
 	logBundle := bus.Mutable.LogTriage()
 	perfBundle := bus.Mutable.PerfTrace()
 	if logBundle == nil && perfBundle == nil {
-		return "", "", "", false
+		return Projection{}, false
 	}
 
 	// Try to find a matching frame.
 	matchedFrame, originKind := findMatchingFrame(item, logBundle, perfBundle)
 	if matchedFrame == nil {
-		return "", "", "", false
+		return Projection{}, false
 	}
 
 	// Resolve a SymbolLocator from the bus search graph.
@@ -224,31 +250,155 @@ func computeFromLogPerfDrift(item types.EvidenceItem, bus *types.BusContext) (ty
 
 	drift := logtriage.DetectDriftForFrame(*matchedFrame, locator)
 
+	// Plan-A fuzzy fallback: when graph-driven detection returned
+	// Unmappable / FileMoved, but the EVIDENCE POOL has same-file
+	// candidates whose anchor names fuzzy-match the log func tail,
+	// upgrade to TailRename. This recovers the pre-axis OLD system's
+	// tier-2 capability (rename within same file) which graph
+	// lookup alone misses because the new symbol name is not in
+	// SymbolDefs[oldName].
+	if drift.Status == types.DriftStatusUnmappable || drift.Status == types.DriftStatusFileMoved {
+		if upgraded, ok := fuzzyTailRenameFallback(*matchedFrame, bus.Mutable.EmittedEvidence()); ok {
+			drift = upgraded
+		}
+	}
+
 	switch drift.Status {
 	case types.DriftStatusNone:
-		return types.ClaimOriginCrossSource, types.AuthorityFactual,
-			fmt.Sprintf("log+repo agree at %s:%d", matchedFrame.File, matchedFrame.Line), true
+		return Projection{
+			Origin:    types.ClaimOriginCrossSource,
+			Authority: types.AuthorityFactual,
+			Reason:    fmt.Sprintf("log+repo agree at %s:%d", matchedFrame.File, matchedFrame.Line),
+		}, true
 	case types.DriftStatusLineDrift:
-		return originKind, types.AuthorityConditional,
-			fmt.Sprintf("line drift: log %d → repo %d in %s",
-				drift.OriginalLine, drift.AnchoredLine, drift.AnchoredFile), true
+		return Projection{
+			Origin:    originKind,
+			Authority: types.AuthorityConditional,
+			Reason: fmt.Sprintf("line drift: log %d → repo %d in %s",
+				drift.OriginalLine, drift.AnchoredLine, drift.AnchoredFile),
+			DriftReason: types.DriftReasonLineDrift,
+		}, true
 	case types.DriftStatusTailRename:
-		return originKind, types.AuthorityConditional,
-			fmt.Sprintf("function renamed in %s: log func=%s no longer present",
-				drift.AnchoredFile, drift.OriginalFunc), true
+		return Projection{
+			Origin:    originKind,
+			Authority: types.AuthorityConditional,
+			Reason: fmt.Sprintf("function renamed in %s: log func=%s no longer present",
+				drift.AnchoredFile, drift.OriginalFunc),
+			DriftReason: types.DriftReasonTailRename,
+		}, true
 	case types.DriftStatusFileMoved:
-		return originKind, types.AuthorityHistorical,
-			fmt.Sprintf("function moved: log file=%s → repo file=%s",
-				drift.OriginalFile, drift.AnchoredFile), true
+		return Projection{
+			Origin:    originKind,
+			Authority: types.AuthorityHistorical,
+			Reason: fmt.Sprintf("function moved: log file=%s → repo file=%s",
+				drift.OriginalFile, drift.AnchoredFile),
+			DriftReason: types.DriftReasonFileMoved,
+		}, true
 	case types.DriftStatusUnmappable:
-		return originKind, types.AuthorityHistorical,
-			fmt.Sprintf("log frame %s:%s no longer maps to current code",
-				drift.OriginalFile, drift.OriginalFunc), true
+		return Projection{
+			Origin:    originKind,
+			Authority: types.AuthorityHistorical,
+			Reason: fmt.Sprintf("log frame %s:%s no longer maps to current code",
+				drift.OriginalFile, drift.OriginalFunc),
+			DriftReason: types.DriftReasonFileMoved,
+		}, true
 	}
 	// Unknown / undetectable — treat as a log-derived match without
 	// drift information; conservative ceiling of conditional.
-	return originKind, types.AuthorityConditional,
-		"log/perf-derived anchor, drift detection unavailable", true
+	return Projection{
+		Origin:    originKind,
+		Authority: types.AuthorityConditional,
+		Reason:    "log/perf-derived anchor, drift detection unavailable",
+	}, true
+}
+
+// fuzzyTailRenameFallback inspects the evidence pool for items in
+// the SAME FILE as the log frame whose anchor symbol or definition
+// shape suggests a renamed tail. Returns an upgraded FrameDrift with
+// Status=TailRename when fuzzy match plausible. Pure function: no
+// side effects on inputs. Plan-A unification preserves the OLD
+// system's tier-2 fuzzy capability that graph-only NEW lookup
+// misses.
+func fuzzyTailRenameFallback(frame types.LogFrame, evidence []types.EvidenceItem) (types.FrameDrift, bool) {
+	frameFile := normalizePath(frame.File)
+	frameTail := strings.ToLower(strings.TrimSpace(lastSegment(frame.Func)))
+	if frameFile == "" || frameTail == "" || len(evidence) == 0 {
+		return types.FrameDrift{}, false
+	}
+	// Scan evidence for same-file definition-anchor items.
+	for _, item := range evidence {
+		if normalizePath(item.Source) != frameFile {
+			continue
+		}
+		if item.AnchorKind != types.AnchorDefinition {
+			continue
+		}
+		anchor := strings.ToLower(strings.TrimSpace(item.AnchorSymbol))
+		if anchor == "" || anchor == frameTail {
+			// anchor==frameTail would already match graph-lookup;
+			// fuzzy fallback is for the rename case.
+			continue
+		}
+		// Heuristic similarity: shared prefix of length >= 3 OR
+		// shared suffix of length >= 3 OR substring containment.
+		// Conservative on purpose — fuzzy fallback is best-effort.
+		if !looksLikeFuzzyTailRename(anchor, frameTail) {
+			continue
+		}
+		return types.FrameDrift{
+			Status:       types.DriftStatusTailRename,
+			AnchoredFile: item.Source,
+			AnchoredLine: item.LineStart,
+			AnchoredFunc: item.AnchorSymbol,
+			OriginalFile: frame.File,
+			OriginalLine: frame.Line,
+			OriginalFunc: frame.Func,
+		}, true
+	}
+	return types.FrameDrift{}, false
+}
+
+// looksLikeFuzzyTailRename reports whether two normalised lowercase
+// tail names plausibly refer to the same logical function under a
+// rename (shared prefix, shared suffix, or substring containment).
+// Both inputs are non-empty.
+func looksLikeFuzzyTailRename(a, b string) bool {
+	if strings.Contains(a, b) || strings.Contains(b, a) {
+		return true
+	}
+	const minOverlap = 3
+	prefix := commonPrefixLen(a, b)
+	if prefix >= minOverlap {
+		return true
+	}
+	suffix := commonSuffixLen(a, b)
+	return suffix >= minOverlap
+}
+
+func commonPrefixLen(a, b string) int {
+	n := len(a)
+	if len(b) < n {
+		n = len(b)
+	}
+	for i := 0; i < n; i++ {
+		if a[i] != b[i] {
+			return i
+		}
+	}
+	return n
+}
+
+func commonSuffixLen(a, b string) int {
+	n := len(a)
+	if len(b) < n {
+		n = len(b)
+	}
+	for i := 0; i < n; i++ {
+		if a[len(a)-1-i] != b[len(b)-1-i] {
+			return i
+		}
+	}
+	return n
 }
 
 // findMatchingFrame searches log + perf bundles for a frame whose

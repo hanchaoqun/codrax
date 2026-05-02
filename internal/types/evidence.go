@@ -613,6 +613,18 @@ type EvidenceItem struct {
 	Origin          ClaimOrigin      `json:"origin,omitempty"`
 	Authority       AuthorityCeiling `json:"authority,omitempty"`
 	AuthorityReason string           `json:"authority_reason,omitempty"`
+
+	// DriftReason captures the typed drift classification when
+	// ComputeForEvidence detected drift between an attached log/perf
+	// frame and current code. Plan-A unification: this field is the
+	// canonical drift telemetry for the NEW axis; the legacy
+	// LogSourceDriftAnchor pipeline (answer_surface_plan.go) will
+	// derive its outputs from EvidenceItems carrying this field plus
+	// Origin/Authority. Empty when no drift was detected (item is
+	// either current_repo or cross_source confirmed). The enum
+	// values are line_drift / tail_rename / file_moved (matches
+	// DriftReason elsewhere in this package).
+	DriftReason DriftReason `json:"drift_reason,omitempty"`
 }
 
 // ValidateScope enforces the per-scope required-field invariants on
