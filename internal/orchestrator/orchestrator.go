@@ -3605,6 +3605,16 @@ func (o *Orchestrator) runReadSchedulerLoop(stepBudget int) int {
 			state.yieldKillCount++
 			logging.Warning("[orchestrator] F5 yield kill: Δ=%d below MinRetryYield=%d — stopping retry loop",
 				delta, minYield)
+			// Audit followup (A.2, 2026-05-02): surface the kill to
+			// the dock so the user knows the retry stopped early by
+			// design (no new progress on any tracked axis), not a
+			// silent jump from "retry" to fail-loud answer header.
+			o.emit(render.Event{
+				Kind:      render.EventAgentReasoning,
+				Timestamp: time.Now(),
+				Agent:     "orchestrator",
+				Reasoning: softYieldKillMessage(o.busCtx.Language),
+			})
 			out.FinalAnswer = appendViolationsToAnswer(out.FinalAnswer, res)
 			out.FinalAnswer = prependFailLoudWarning(out.FinalAnswer, o.busCtx.Mutable, state,
 				"yield kill: retry window produced no new information", o.settings)
@@ -3654,13 +3664,27 @@ func (o *Orchestrator) runReadSchedulerLoop(stepBudget int) int {
 		fallback := FallbackTargetForViolations(res.Violations)
 		// Cap upstream fallbacks per Run. When exceeded, force
 		// FailLoud regardless of policy mapping.
+		capReached := false
 		if (fallback == FallbackBackToExtract || fallback == FallbackBackToExplore) &&
 			o.maxUpstreamFallbacksPerRun > 0 &&
 			state.upstreamFallbacksUsed >= o.maxUpstreamFallbacksPerRun {
 			logging.Warning("[orchestrator] upstream fallback cap reached (%d/%d); forcing fail-loud despite kind→%s mapping",
 				state.upstreamFallbacksUsed, o.maxUpstreamFallbacksPerRun, fallback)
 			fallback = FallbackFailLoud
+			capReached = true
+			// Audit followup (2026-05-02): surface the cap event to
+			// the dock so the user knows the loop terminated by
+			// design — not a silent jump from "retry" to "fail-loud
+			// header in answer text".
+			o.emit(render.Event{
+				Kind:      render.EventAgentReasoning,
+				Timestamp: time.Now(),
+				Agent:     "orchestrator",
+				Reasoning: softUpstreamFallbackCapMessage(o.busCtx.Language,
+					state.upstreamFallbacksUsed, o.maxUpstreamFallbacksPerRun),
+			})
 		}
+		_ = capReached
 		switch fallback {
 		case FallbackFailLoud:
 			out.FinalAnswer = appendViolationsToAnswer(out.FinalAnswer, res)
@@ -3728,11 +3752,17 @@ func (o *Orchestrator) runReadSchedulerLoop(stepBudget int) int {
 		// pendingViolation (which the NEXT window hint will consume
 		// to target the retry) but stripped from the user-facing
 		// event per the user_messages.go contract.
+		// Audit followup (2026-05-02): surface the SELECTIVE-FALLBACK
+		// target to the dock so the user can see exactly which layer
+		// is being re-run (just polishing answer / restructuring /
+		// re-investigating). Pre-this-fix the same generic
+		// "answer needs another pass" message rendered for every
+		// target, hiding the real scope of the retry.
 		o.emit(render.Event{
 			Kind:      render.EventAgentReasoning,
 			Timestamp: time.Now(),
 			Agent:     "orchestrator",
-			Reasoning: softAnswerCheckRetryMessage(o.busCtx.Language),
+			Reasoning: softFallbackTargetMessage(o.busCtx.Language, fallback),
 		})
 	}
 

@@ -154,12 +154,100 @@ func TestSoftMessages_NoInternalJargon(t *testing.T) {
 		softAnswerCheckRetryMessage("zh"),
 		softFinalizingMessage("en"),
 		softFinalizingMessage("zh"),
+		// Audit followup (2026-05-02) — Block 1+2+3 dock surfaces.
+		softFallbackTargetMessage("en", FallbackFinalizerOnly),
+		softFallbackTargetMessage("zh", FallbackFinalizerOnly),
+		softFallbackTargetMessage("en", FallbackBackToExtract),
+		softFallbackTargetMessage("zh", FallbackBackToExtract),
+		softFallbackTargetMessage("en", FallbackBackToExplore),
+		softFallbackTargetMessage("zh", FallbackBackToExplore),
+		softFallbackTargetMessage("en", FallbackFailLoud),
+		softFallbackTargetMessage("zh", FallbackFailLoud),
+		softUpstreamFallbackCapMessage("en", 2, 2),
+		softUpstreamFallbackCapMessage("zh", 2, 2),
+		softYieldKillMessage("en"),
+		softYieldKillMessage("zh"),
+		softPlanCriticReviewMessage("en", 3),
+		softPlanCriticReviewMessage("zh", 0),
 	}
 	for _, m := range messages {
 		lower := strings.ToLower(m)
 		for _, f := range forbidden {
 			if strings.Contains(lower, strings.ToLower(f)) {
 				t.Errorf("message %q leaks internal token %q", m, f)
+			}
+		}
+	}
+}
+
+// TestSoftFallbackTargetMessage_DistinctPerTarget pins the audit
+// followup contract (2026-05-02): each fallback target produces a
+// DIFFERENT user-visible line so the dock conveys which layer is
+// being re-run. Pre-this-fix every target rendered the same generic
+// "answer needs another pass", hiding scope.
+func TestSoftFallbackTargetMessage_DistinctPerTarget(t *testing.T) {
+	for _, lang := range []string{"en", "zh"} {
+		seen := map[string]FallbackTarget{}
+		for _, tgt := range []FallbackTarget{
+			FallbackFailLoud, FallbackFinalizerOnly,
+			FallbackBackToExtract, FallbackBackToExplore,
+		} {
+			msg := softFallbackTargetMessage(lang, tgt)
+			if msg == "" {
+				t.Errorf("lang=%s target=%s produced empty message", lang, tgt)
+				continue
+			}
+			if prev, dup := seen[msg]; dup {
+				t.Errorf("lang=%s targets %s and %s share message %q (must be distinct)", lang, prev, tgt, msg)
+			}
+			seen[msg] = tgt
+		}
+	}
+}
+
+// TestSoftPlanCriticReviewMessage_HonoursCount pins the per-count
+// branch: 0 risks renders cleanly without a count, ≥1 renders the
+// count plus a /plan show pointer so the user knows where to read
+// the full critique.
+func TestSoftPlanCriticReviewMessage_HonoursCount(t *testing.T) {
+	zero := softPlanCriticReviewMessage("en", 0)
+	three := softPlanCriticReviewMessage("en", 3)
+	if zero == three {
+		t.Errorf("zero-risk and 3-risk messages must differ")
+	}
+	if !strings.Contains(three, "3 risk") {
+		t.Errorf("3-risk message must surface the count: %q", three)
+	}
+	if !strings.Contains(three, "/plan show") {
+		t.Errorf("≥1 risk message must reference /plan show as the read-more pointer: %q", three)
+	}
+	if strings.Contains(zero, "/plan show") {
+		t.Errorf("0-risk message must NOT reference /plan show (nothing to read): %q", zero)
+	}
+}
+
+// TestSoftMessages_NoVisualShockSymbols pins the operator-feedback
+// red line (2026-05-02): triangles / heavy alert glyphs are too
+// strong for the dock cadence — soft '·' / '⟳' / '–' / '›' only.
+func TestSoftMessages_NoVisualShockSymbols(t *testing.T) {
+	visualShock := []string{"⚠", "❗", "‼", "⛔", "🚨", "🔴", "✘", "✗", "❌"}
+	messages := []string{
+		softFallbackTargetMessage("en", FallbackFailLoud),
+		softFallbackTargetMessage("zh", FallbackFailLoud),
+		softFallbackTargetMessage("en", FallbackFinalizerOnly),
+		softFallbackTargetMessage("en", FallbackBackToExtract),
+		softFallbackTargetMessage("en", FallbackBackToExplore),
+		softUpstreamFallbackCapMessage("en", 2, 2),
+		softUpstreamFallbackCapMessage("zh", 2, 2),
+		softYieldKillMessage("en"),
+		softYieldKillMessage("zh"),
+		softPlanCriticReviewMessage("en", 3),
+		softPlanCriticReviewMessage("en", 0),
+	}
+	for _, m := range messages {
+		for _, glyph := range visualShock {
+			if strings.Contains(m, glyph) {
+				t.Errorf("message %q contains visual-shock glyph %q (use soft '·' / '⟳' / '–' / '›' only)", m, glyph)
 			}
 		}
 	}

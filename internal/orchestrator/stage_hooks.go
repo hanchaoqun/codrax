@@ -186,11 +186,13 @@ func planPostHook(o *Orchestrator, out *agent.StageOutput) error {
 			// — apply is never blocked even if dozens of risks land.
 			confidence := PlanCriticConfidenceFloat(verdict.Confidence)
 			closure := o.busCtx.Mutable.EvidenceClosure()
+			riskCount := 0
 			for i, risk := range verdict.Risks {
 				risk = strings.TrimSpace(risk)
 				if risk == "" {
 					continue
 				}
+				riskCount++
 				closure.AppendViolation(types.Violation{
 					Kind:   types.ViolPlanCritic,
 					Detail: fmt.Sprintf("plan_critic risk %d/%d: %s", i+1, len(verdict.Risks), risk),
@@ -203,6 +205,19 @@ func planPostHook(o *Orchestrator, out *agent.StageOutput) error {
 					},
 				})
 			}
+			// Audit followup (2026-05-02): surface the review event to
+			// the dock so the user knows the reviewer ran and how many
+			// risks it flagged — without this, the critic's full output
+			// only appears via /plan show, which the user might not
+			// check before /approve. The full critique still persists
+			// on plan.PlanCritique; the dock line is a discoverability
+			// hint, not a replacement.
+			o.emit(render.Event{
+				Kind:      render.EventAgentReasoning,
+				Timestamp: time.Now(),
+				Agent:     "plan_critic",
+				Reasoning: softPlanCriticReviewMessage(o.busCtx.Language, riskCount),
+			})
 		}
 	}
 	return nil

@@ -216,6 +216,107 @@ func softAnswerCheckRetryMessage(lang string) string {
 	return "⟳ Answer needs another pass"
 }
 
+// softFallbackTargetMessage (B.7+ audit followup, 2026-05-02) renders a
+// stage-specific dock line when Block 3's selective-fallback policy
+// requeues a particular layer. Pre-this-helper, every fallback target
+// emitted the same softAnswerCheckRetryMessage ("answer needs another
+// pass"), which was opaque about WHICH part of the pipeline was being
+// re-run — users could not tell whether the system was just polishing
+// the answer or going back to re-investigate from scratch.
+//
+// One sentence per target, soft glyph, no internal jargon ("FailLoud" /
+// "BackToExtract" never reach the user).
+//
+//   - FailLoud: terminal — answer ships with caveat, no further retry.
+//   - FinalizerOnly: just the finalizer LLM re-runs; evidence intact.
+//   - BackToExtract: extract layer re-runs (extractor draft regenerated;
+//     evidence + scanned set preserved).
+//   - BackToExplore: explore layer re-runs (full re-investigation;
+//     evidence cleared, scanned set + read set preserved).
+//   - BackToAnalyze: reserved enum, never used in defaults; degrades
+//     to the generic answer-check message for safety.
+func softFallbackTargetMessage(lang string, target FallbackTarget) string {
+	zh := preferZhMessage(lang)
+	switch target {
+	case FallbackFailLoud:
+		if zh {
+			return "· 答案存在未解决问题,已无法通过重试修复"
+		}
+		return "· Answer has unresolved issues that retry cannot fix"
+	case FallbackFinalizerOnly:
+		if zh {
+			return "⟳ 答案待完善,正在重新组织表述"
+		}
+		return "⟳ Answer needs polishing — re-composing"
+	case FallbackBackToExtract:
+		if zh {
+			return "⟳ 答案结构待修正,回到结构化阶段"
+		}
+		return "⟳ Answer structure needs fixing — restructuring"
+	case FallbackBackToExplore:
+		if zh {
+			return "⟳ 答案证据不足,回到调查阶段"
+		}
+		return "⟳ Answer needs more evidence — re-investigating"
+	}
+	return softAnswerCheckRetryMessage(lang)
+}
+
+// softUpstreamFallbackCapMessage (B.7+ audit followup, 2026-05-02)
+// renders the dock line shown when Block 3's max-upstream-fallbacks
+// cap is reached and the next iteration is forced into FailLoud
+// regardless of the kind→target policy mapping. Pre-this-helper, the
+// user only saw the generic "answer needs another pass" message
+// followed silently by the fail-loud header in the answer text;
+// the cap event itself was invisible to the dock, leaving the user
+// unaware that the retry was capped rather than naturally completed.
+func softUpstreamFallbackCapMessage(lang string, used, cap int) string {
+	if preferZhMessage(lang) {
+		return fmt.Sprintf("· 已达调查回退上限 (%d/%d),不再回退,以现有证据作答", used, cap)
+	}
+	return fmt.Sprintf("· Upstream fallback cap reached (%d/%d) — finalizing with current evidence", used, cap)
+}
+
+// softYieldKillMessage (A.2 audit followup, 2026-05-02) renders the
+// dock line shown when the yield-delta kill gate fires (a retry
+// window produced no new information on any tracked axis). After
+// A.2, this means the same violation kind kept re-firing without
+// progress on ForcedReads / ScannedSet / DistinctViolationKindCount /
+// PatchesApplied — the loop is structurally stuck and shipping is
+// safer than another wasted dispatch. Pre-this-helper, the dock
+// showed the generic answer-check retry then jumped to fail-loud
+// with no explanation of WHY the retry stopped early.
+func softYieldKillMessage(lang string) string {
+	if preferZhMessage(lang) {
+		return "· 重试无新进展,以现有结论作答"
+	}
+	return "· Retry produced no new progress — finalizing"
+}
+
+// softPlanCriticReviewMessage (Block 1 audit followup, 2026-05-02)
+// renders the dock line shown right after the plan_critic LLM
+// returned its risks[]. The reviewer's full critique persists on
+// ChangePlan.PlanCritique (visible via `/plan show`); the dock
+// message confirms the review ran and how many risks it flagged so
+// the user knows the system is doing its review before they /approve.
+//
+// Risks count of 0 = clean review (still worth showing to confirm the
+// reviewer ran); any positive count = "you may want to read the full
+// critique via /plan show before approving".
+func softPlanCriticReviewMessage(lang string, riskCount int) string {
+	zh := preferZhMessage(lang)
+	if riskCount == 0 {
+		if zh {
+			return "· 方案已审阅,未发现风险点"
+		}
+		return "· Plan reviewed — no risks flagged"
+	}
+	if zh {
+		return fmt.Sprintf("· 方案已审阅,记录 %d 项风险点 (查看 /plan show)", riskCount)
+	}
+	return fmt.Sprintf("· Plan reviewed — %d risk(s) flagged (see /plan show)", riskCount)
+}
+
 // softFinalizingMessage renders the user-visible line emitted just
 // before the finalizer LLM call starts. Unlike explore / extract
 // which cycle through tool calls at visible cadence, the finalizer
