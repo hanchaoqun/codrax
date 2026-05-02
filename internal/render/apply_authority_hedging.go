@@ -30,7 +30,19 @@ import (
 //     downstream renderer surfaces with strikethrough), so they
 //     cannot enter causal chains in the user-visible prose.
 //
-//   - Summary: when the underlying evidence pool contains any
+//   - Summary: when ANY citation in doc.Citations[] points at an
+//     anchor whose evidence is non-factual, prefix doc.Summary with
+//     the strongest required hedge sentinel. Covers shape=value /
+//     config_value / explanation where Summary IS the body (or its
+//     lead-in) — without this, the contract checker would fire on
+//     a summary that cites drift-bounded evidence and force a retry
+//     the LLM cannot satisfy (the renderer is the only injector).
+//
+//   - Boolean.Rationale: same projection as Summary but scoped to
+//     the Boolean shape's free-form rationale field, which the
+//     renderer prints as the body of YES/NO answers.
+//
+//   - Caveats: when the underlying evidence pool contains any
 //     conditional / historical / illustrative items, append a
 //     drift-bounded caveat to doc.Caveats[]. The caveat is
 //     bilingual + reflects which downgrade severities are present
@@ -51,6 +63,8 @@ func ApplyAuthorityHedging(doc *types.AnswerDocument, evidence []types.EvidenceI
 
 	hedgeSteps(doc, evidence, l)
 	hedgeSymbols(doc, l)
+	hedgeSummary(doc, evidence, l)
+	hedgeBoolean(doc, evidence, l)
 	addAuthorityCaveat(doc, evidence, l)
 
 	return doc
@@ -100,6 +114,108 @@ func hedgeSymbols(doc *types.AnswerDocument, l answerDocLang) {
 		}
 		sym.Rationale = strings.TrimSpace(prefix + " " + sym.Rationale)
 	}
+}
+
+// hedgeSummary projects the strongest hedge ceiling implied by
+// doc.Citations[] onto doc.Summary. Covers value / config_value /
+// explanation shapes whose Summary is either the answer body or its
+// lead-in. Without this, runAuthorityOverreachCheck would fire on a
+// summary that cites drift-bounded evidence and force an unsatisfiable
+// retry (the LLM cannot inject sentinels — only the renderer can).
+//
+// Idempotent: when the summary already starts with a hedge sentinel
+// (re-render path), this is a no-op.
+func hedgeSummary(doc *types.AnswerDocument, evidence []types.EvidenceItem, l answerDocLang) {
+	summary := strings.TrimSpace(doc.Summary)
+	if summary == "" || alreadyHasHedgePrefix(summary) {
+		return
+	}
+	ceiling := strongestCitedCeiling(doc, evidence)
+	prefix := hedgePrefixFor(ceiling, l)
+	if prefix == "" {
+		return
+	}
+	doc.Summary = strings.TrimSpace(prefix + " " + summary)
+}
+
+// hedgeBoolean is the Boolean shape's analogue: prefix
+// doc.Boolean.Rationale with the hedge implied by Boolean.CitationRef
+// (and the broader citation pool, in case the rationale draws on
+// multiple cites). The renderer prints rationale verbatim after the
+// YES/NO marker, so injecting the sentinel here surfaces it to the
+// user.
+func hedgeBoolean(doc *types.AnswerDocument, evidence []types.EvidenceItem, l answerDocLang) {
+	if doc.Boolean == nil {
+		return
+	}
+	rationale := strings.TrimSpace(doc.Boolean.Rationale)
+	if rationale == "" || alreadyHasHedgePrefix(rationale) {
+		return
+	}
+	// Walk the boolean's own citation first, then fall back to the
+	// broader citation pool — a boolean answer often draws on multiple
+	// anchors but only carries one citation_ref.
+	ceiling := types.AuthorityUnknown
+	if ref := doc.Boolean.CitationRef; ref >= 0 && ref < len(doc.Citations) {
+		cit := doc.Citations[ref]
+		ceiling = authority.HighestAuthorityFor(evidence, cit.File, cit.Line)
+	}
+	if ceiling == types.AuthorityUnknown || ceiling == types.AuthorityFactual {
+		// Tighten with the broader citation pool — if any other cite
+		// is hedged, surface the strongest required ceiling.
+		ceiling = strongestCitedCeiling(doc, evidence)
+	}
+	prefix := hedgePrefixFor(ceiling, l)
+	if prefix == "" {
+		return
+	}
+	doc.Boolean.Rationale = strings.TrimSpace(prefix + " " + rationale)
+}
+
+// strongestCitedCeiling walks every Citation in doc and returns the
+// STRONGEST non-factual ceiling implied by the underlying evidence
+// pool. Used by hedgeSummary / hedgeBoolean to pick the right hedge
+// label when no single citation_ref is authoritative for the body.
+//
+// "Strongest" here means most severe (illustrative > historical >
+// conditional), which is the opposite of HighestAuthorityFor's "best
+// available evidence" — we want the hedge to reflect the worst-case
+// claim the answer rests on.
+func strongestCitedCeiling(doc *types.AnswerDocument, evidence []types.EvidenceItem) types.AuthorityCeiling {
+	worst := types.AuthorityUnknown
+	worstRank := 5 // higher than any real ceiling rank in this scope
+	for _, cit := range doc.Citations {
+		ceiling := authority.HighestAuthorityFor(evidence, cit.File, cit.Line)
+		switch ceiling {
+		case types.AuthorityIllustrative:
+			if 1 < worstRank {
+				worst = ceiling
+				worstRank = 1
+			}
+		case types.AuthorityHistorical:
+			if 2 < worstRank {
+				worst = ceiling
+				worstRank = 2
+			}
+		case types.AuthorityConditional:
+			if 3 < worstRank {
+				worst = ceiling
+				worstRank = 3
+			}
+		}
+	}
+	return worst
+}
+
+// alreadyHasHedgePrefix reports whether s starts with one of the
+// system-injected hedge sentinels. Used to make hedgeSummary /
+// hedgeBoolean idempotent across re-render paths so a retry doesn't
+// double-prefix.
+func alreadyHasHedgePrefix(s string) bool {
+	s = strings.TrimSpace(s)
+	return strings.HasPrefix(s, hedgeMarkerConditional) ||
+		strings.HasPrefix(s, hedgeMarkerHistorical) ||
+		strings.HasPrefix(s, hedgeMarkerIllustrative)
 }
 
 func addAuthorityCaveat(doc *types.AnswerDocument, evidence []types.EvidenceItem, l answerDocLang) {
@@ -187,7 +303,7 @@ func authorityCaveatText(hist map[types.AuthorityCeiling]int, l answerDocLang) s
 		if len(parts) == 0 {
 			return ""
 		}
-		return authorityCaveatPrefix + "本回答基于多源证据：" + strings.Join(parts, "；") + "。强结论仅由当前仓库内已对齐的证据支撑。"
+		return AuthorityCaveatPrefix + "本回答基于多源证据：" + strings.Join(parts, "；") + "。强结论仅由当前仓库内已对齐的证据支撑。"
 	}
 	if cond > 0 {
 		parts = append(parts, fmt.Sprintf("%d evidence item(s) from drifted log/trace (hedged)", cond))
@@ -201,13 +317,13 @@ func authorityCaveatText(hist map[types.AuthorityCeiling]int, l answerDocLang) s
 	if len(parts) == 0 {
 		return ""
 	}
-	return authorityCaveatPrefix + "Answer rests on mixed-authority evidence: " + strings.Join(parts, "; ") + ". Strong claims are made only from current-repo anchors that aligned cleanly."
+	return AuthorityCaveatPrefix + "Answer rests on mixed-authority evidence: " + strings.Join(parts, "; ") + ". Strong claims are made only from current-repo anchors that aligned cleanly."
 }
 
 // isAuthorityCaveat reports whether s carries the authority-caveat
 // sentinel. Used by ApplyAuthorityHedging to dedupe across retries.
 func isAuthorityCaveat(s string) bool {
-	return strings.HasPrefix(strings.TrimSpace(s), authorityCaveatPrefix)
+	return strings.HasPrefix(strings.TrimSpace(s), AuthorityCaveatPrefix)
 }
 
 // Sentinels — chosen to be visible in the rendered output but
@@ -222,7 +338,7 @@ const (
 	HedgeMarkerConditional  = "[hedged]"
 	HedgeMarkerHistorical   = "[historical]"
 	HedgeMarkerIllustrative = "[illustrative]"
-	authorityCaveatPrefix   = "Authority: "
+	AuthorityCaveatPrefix   = "Authority: "
 )
 
 // Backwards-compatible lowercase aliases used inside this file's

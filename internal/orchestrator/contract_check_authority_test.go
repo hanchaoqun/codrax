@@ -88,6 +88,31 @@ func TestRunAuthorityOverreachCheck_ConditionalCitedHedgePresentNoEmit(t *testin
 	}
 }
 
+// TestRunAuthorityOverreachCheck_DocLevelCaveatIsHedgeProof: when
+// the rendered prose contains the doc-level "Authority: ..." caveat
+// (rendered from doc.Caveats[] when ApplyAuthorityHedging detected
+// drifted evidence), the gate must NOT fire even if per-shape
+// sentinels are absent. The caveat is itself the hedging signal —
+// downstream consumers and the user already see it. Without this
+// escape, shapes whose body fields don't get per-sentinel hedges
+// would force unsatisfiable retries.
+func TestRunAuthorityOverreachCheck_DocLevelCaveatIsHedgeProof(t *testing.T) {
+	mut := types.NewMutableState("test")
+	mut.SetAnswerDocument(&types.AnswerDocument{
+		Shape:     types.ShapeExplanation,
+		Citations: []types.Citation{{File: "x.go", Line: 10}},
+	})
+	mut.AppendEvidence([]types.EvidenceItem{
+		{Source: "x.go", LineStart: 10, Authority: types.AuthorityHistorical},
+	})
+	// Prose lacks per-shape sentinels but DOES carry the doc-level caveat.
+	text := "X happened in legacy code; see x.go:10.\n\n" +
+		render.AuthorityCaveatPrefix + "1 historical observation; strong claims hedged."
+	if got := runAuthorityOverreachCheck(mut, text); got != nil {
+		t.Errorf("doc-level caveat should be hedge proof; got %d violations", len(got))
+	}
+}
+
 // TestRunAuthorityOverreachCheck_HistoricalRequiresHistoricalMarker:
 // each ceiling needs ITS sentinel — a [hedged] marker doesn't
 // satisfy a historical anchor's requirement.

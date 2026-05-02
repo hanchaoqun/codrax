@@ -97,7 +97,7 @@ func TestApplyAuthorityHedging_AppendsCaveat(t *testing.T) {
 	if len(doc.Caveats) != 1 {
 		t.Fatalf("Caveats len = %d; want 1", len(doc.Caveats))
 	}
-	if !strings.HasPrefix(doc.Caveats[0], authorityCaveatPrefix) {
+	if !strings.HasPrefix(doc.Caveats[0], AuthorityCaveatPrefix) {
 		t.Errorf("caveat missing prefix: %q", doc.Caveats[0])
 	}
 	if !strings.Contains(doc.Caveats[0], "drifted") || !strings.Contains(doc.Caveats[0], "historical") {
@@ -116,7 +116,7 @@ func TestApplyAuthorityHedging_DedupesCaveatOnRetry(t *testing.T) {
 	ApplyAuthorityHedging(doc, evidence, "en")
 	count := 0
 	for _, c := range doc.Caveats {
-		if strings.HasPrefix(c, authorityCaveatPrefix) {
+		if strings.HasPrefix(c, AuthorityCaveatPrefix) {
 			count++
 		}
 	}
@@ -134,7 +134,7 @@ func TestApplyAuthorityHedging_NoDriftNoCaveat(t *testing.T) {
 	}
 	ApplyAuthorityHedging(doc, evidence, "en")
 	for _, c := range doc.Caveats {
-		if strings.HasPrefix(c, authorityCaveatPrefix) {
+		if strings.HasPrefix(c, AuthorityCaveatPrefix) {
 			t.Errorf("unexpected authority caveat: %q", c)
 		}
 	}

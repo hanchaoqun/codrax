@@ -295,6 +295,21 @@ func runAuthorityOverreachCheck(mut *types.MutableState, draftText string) []typ
 		return nil
 	}
 
+	// Defense-in-depth escape hatch: a doc-level Authority: caveat
+	// (rendered from doc.Caveats[] when ApplyAuthorityHedging detected
+	// any non-factual evidence in the pool) is itself proof that the
+	// system flagged the doc as drift-bounded. When the caveat made
+	// it into the rendered prose, downstream consumers and the user
+	// already see the hedging signal — per-shape sentinel granularity
+	// is a secondary defense, not a strict requirement. Without this
+	// escape, shapes whose body fields don't get per-sentinel hedges
+	// (e.g. a value answer whose Summary is structured prose
+	// auto-built by the renderer) would trip the gate even when
+	// hedging was applied at the doc level.
+	if strings.Contains(draftText, render.AuthorityCaveatPrefix) {
+		return nil
+	}
+
 	// Look for the corresponding hedge sentinels in the rendered prose.
 	// When ANY required sentinel is absent, the doc has overreach.
 	missing := make([]string, 0)
