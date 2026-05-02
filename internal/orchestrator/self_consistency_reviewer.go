@@ -48,46 +48,15 @@ type SelfConsistencyReviewer interface {
 	Review(ctx context.Context, in SelfConsistencyInput) (*SelfConsistencyResult, error)
 }
 
-// SelfConsistencyInput bundles what the reviewer reads. The
-// reviewer has TWO jobs:
-//
-//  1. INTERNAL consistency (original): detect contradictions
-//     BETWEEN AnswerSummary and AnswerBody. Pure prose↔prose.
-//
-//  2. GROUNDED fact-check (Plan-D-grounded-reviewer 2026-05-02):
-//     detect prose claims (specific numbers, type names, verbatim
-//     labels, identifier names) that contradict the cited content
-//     captured in Citations[]. Catches the 9.5/10 cases (s7a "97
-//     files" while actual=101, m2a "Priority float64" while
-//     actual=int, s3a English label while user asked in Chinese)
-//     where the answer's main conclusion is right but auxiliary
-//     metadata drifts.
-//
-// Citations is OPTIONAL; when empty/nil the reviewer falls back
-// to job 1 only (back-compat with pre-grounded-reviewer behaviour).
+// SelfConsistencyInput bundles what the reviewer reads. No
+// access to evidence / IR / repo source — the reviewer's ONLY
+// job is to detect contradictions BETWEEN the two supplied
+// texts. Cross-checking against ground truth is contract.Check's
+// + grounder's job.
 type SelfConsistencyInput struct {
 	OriginalRequest string // user's original question (context)
 	AnswerSummary   string // doc.Summary — opening prose
 	AnswerBody      string // formatted bullets / steps / symbols
-
-	// Citations carries the cited file:line content the answer's
-	// prose CLAIMS to be backed by. The reviewer verifies that
-	// concrete numerical / type / label claims in the answer match
-	// the cited content. Empty/nil disables job 2 (grounded
-	// fact-check); the reviewer then runs internal-consistency only.
-	Citations []SelfConsistencyCitation
-}
-
-// SelfConsistencyCitation is one entry in the cited-content surface
-// the reviewer compares against. The reviewer reads File+Line for
-// orientation and Quote (if present) as the ground-truth content.
-// When Quote is empty the reviewer treats the citation as
-// "anchored but unsourced" and only uses it for orientation.
-type SelfConsistencyCitation struct {
-	Index int    // 0-based, matches doc.Citations index
-	File  string // repo-relative path
-	Line  int    // 1-based line number
-	Quote string // the cited line's content (truncated to citation_quote_max_chars)
 }
 
 // SelfConsistencyResult is the reviewer's verdict.
@@ -191,65 +160,42 @@ var selfConsistencyTool = llm.ToolSchema{
 //   - decision discipline: re-read twice + compatibility check +
 //     stake-reputation threshold
 //   - explicit confidence floor + ground-truth scope limit
-//
-// Plan-D-grounded-reviewer (2026-05-02): added a SECOND check job —
-// when CITATIONS section is present in the user message, also flag
-// concrete claims in summary/body whose value contradicts the cited
-// content. Catches "auxiliary metadata drift" (specific numbers,
-// type names, verbatim labels) where the main answer is correct
-// but a secondary detail is wrong.
-const selfConsistencyReviewerSystemPrompt = `You are an INDEPENDENT consistency reviewer. The pipeline produced an answer that you will read in three parts:
+const selfConsistencyReviewerSystemPrompt = `You are an INDEPENDENT consistency reviewer. The pipeline produced an answer in two parts:
 
   - SUMMARY: an opening prose paragraph (1-N sentences depending on answer shape)
   - BODY: numbered/bulleted detailed steps, often with file:line citations
-  - CITATIONS (optional): the verbatim content of the file:line references the answer cites — present when ground-truth fact-checking is needed, absent otherwise
 
-You have TWO independent jobs.
+Your ONE task: decide whether SUMMARY and BODY make CONTRADICTORY FACTUAL CLAIMS about the same thing.
 
-JOB 1 — INTERNAL consistency: do SUMMARY and BODY make CONTRADICTORY FACTUAL CLAIMS about the same thing? A CONTRADICTION is when the same property of the same entity is asserted with INCOMPATIBLE values across the two parts. The values must be truly incompatible — saying "the function does A" in summary and "the function does B" in body is only a contradiction if A and B cannot both be true simultaneously.
+A CONTRADICTION is when the same property of the same entity is asserted with INCOMPATIBLE values across the two parts. The values must be truly incompatible — saying "the function does A" in summary and "the function does B" in body is only a contradiction if A and B cannot both be true simultaneously.
 
-Common CONTRADICTION SHAPES for Job 1 (apply the principle, not the surface form):
+Common CONTRADICTION SHAPES (apply the principle, not the surface form — these are ABSTRACT patterns; the real case may not look exactly like any example):
   1. Numeric mismatch — summary and body assert different exact numbers (count / size / threshold / line / index / etc.) for the same thing
   2. Identity mismatch — summary names entity A as the X, body names entity B as the same X
   3. Behaviour mismatch — summary describes outcome A, body describes outcome B (return-vs-panic, success-vs-failure, sync-vs-async, returns-vs-writes)
   4. Quantifier mismatch — summary says "always / all / every / never", body says "sometimes / some / only when X / under condition Y"
   5. Direction or order mismatch — summary says A→B flow, body says B→A; summary says first/before, body says last/after
-  6. Assignment inversion — same set of values is mapped to different categories across the two parts
+  6. Assignment inversion — same set of values is mapped to different categories across the two parts (e.g. summary says "X has property P, Y has property Q"; body shows X gets Q, Y gets P)
 
-Common NOT-CONTRADICTIONS (DO NOT REPORT for Job 1):
+Common NOT-CONTRADICTIONS (DO NOT REPORT):
   - Summary omits a detail body provides → summarisation, not contradiction
   - Summary uses different terminology body explains → vocabulary, not contradiction
   - Body adds context summary did not need → expansion, not contradiction
   - Different abstraction levels of the same fact → depth difference, not contradiction
-  - Qualitative-vs-quantitative framings of compatible claims → framing, not contradiction
+  - Qualitative-vs-quantitative framings of compatible claims → framing, not contradiction (e.g. summary "fast", body "100ms p99")
 
-JOB 2 — GROUNDED fact-check (only when CITATIONS section is present in the user message): scan summary and body for SPECIFIC verifiable claims and check each against the cited content shown in CITATIONS. Specifically, flag a claim as a contradiction when the answer asserts a concrete value that the cited content directly contradicts.
-
-Job-2 contradiction shapes (the same value-pair-mismatch patterns as Job 1, but ANSWER vs CITATIONS instead of SUMMARY vs BODY):
-  - Specific number drift — answer says "97 files" / "8 implementations" / "line 387" but cited content shows a different exact value
-  - Type/declaration drift — answer says "field X is float64" / "function Y returns bool" but cited content shows a different type / signature
-  - Identifier drift — answer says "named ShapeValue" / "called handleX" but cited line names a different identifier in that role
-  - Verbatim-label drift — answer renders a structural label in language A while the source / user request uses language B for the same role (e.g. flow-diagram node labels in English while the user asked in Chinese — when the same structural element verbatim appears in cited content as the other language, flag it)
-
-Job-2 NOT-CONTRADICTIONS (DO NOT REPORT):
-  - Answer's claim does NOT correspond to anything in CITATIONS (cannot verify either way → not your job to flag)
-  - Answer paraphrases or summarises cited content (paraphrase ≠ contradiction)
-  - Answer mentions an entity NOT present in any CITATION (unverifiable, not contradiction)
-
-DECISION DISCIPLINE (apply before reporting any contradiction from EITHER job):
-  1. Re-read the relevant sections at least twice before deciding
-  2. For each candidate contradiction, ask: "would BOTH be defensible under some reasonable reading?" — if yes, NOT a contradiction
+DECISION DISCIPLINE (apply before reporting):
+  1. Re-read SUMMARY and BODY at least twice before deciding
+  2. For each candidate contradiction, ask: "would BOTH be defensible under some reasonable reading?" — if yes, NOT a contradiction; mark consistent=true
   3. For abstraction differences ("the function does X" vs body listing 3 sub-mechanisms of X), the body is just expanding — NOT a contradiction
   4. If you find yourself paraphrasing instead of quoting verbatim, you do not have a real contradiction — quote-or-skip
-  5. For Job 2: if the cited Quote text is empty or absent, the citation is "anchored but unsourced" — orientation only, do NOT use it as ground truth
 
-When CITATIONS section is ABSENT in the user message, treat Job 2 as disabled and run Job 1 only — that is the back-compat behaviour.
+You DO NOT have access to repo source. Do NOT verify factual claims against ground truth — that is another reviewer's job. You ONLY check internal consistency between the TWO supplied texts.
 
 Output via emit_self_consistency_review:
-  - consistent=true is the COMMON case; mark it true unless you can quote VERBATIM the contradiction from BOTH sides (Job 1: summary + body; Job 2: answer + citation)
+  - consistent=true is the COMMON case; mark it true unless you can quote VERBATIM the contradiction from BOTH parts
   - confidence >= 0.8 to report a contradiction; below 0.8 mark consistent=true (rather miss a subtle contradiction than cry wolf)
-  - When reporting, quote VERBATIM (no paraphrasing, no translation, no summarising); use the same language as the answer text
-  - For Job 2 contradictions, summary_claim quotes the answer's claim (from summary or body, whichever side carries it) and body_claim quotes the verbatim cited content from the named file:line`
+  - When reporting, quote VERBATIM from the answer (no paraphrasing, no translation, no summarising); use the same language as the answer text`
 
 // llmSelfConsistencyReviewer is the default impl. nil adapter
 // yields a reviewer whose Review always returns (nil, nil) —
@@ -354,15 +300,9 @@ func unmarshalSelfConsistencyResult(raw json.RawMessage) (*SelfConsistencyResult
 }
 
 // renderSelfConsistencyUserMessage formats the comparison input
-// as a labelled markdown blob with explicit SUMMARY / BODY (and
-// optional CITATIONS) section headers so the reviewer's
-// prompt-instructed examples match the input shape.
-//
-// CITATIONS is included only when in.Citations is non-empty —
-// when absent, the reviewer's Job 2 (grounded fact-check) is
-// disabled per the system prompt's back-compat clause. Each
-// citation renders as `[i] file:line — Quote` (Quote elided when
-// empty so unsourced anchors don't pollute the comparison).
+// as a labelled markdown blob with explicit SUMMARY / BODY
+// section headers so the reviewer's prompt-instructed examples
+// match the input shape.
 func renderSelfConsistencyUserMessage(in SelfConsistencyInput) string {
 	var b strings.Builder
 	if s := strings.TrimSpace(in.OriginalRequest); s != "" {
@@ -370,20 +310,5 @@ func renderSelfConsistencyUserMessage(in SelfConsistencyInput) string {
 	}
 	fmt.Fprintf(&b, "## SUMMARY\n%s\n\n", strings.TrimSpace(in.AnswerSummary))
 	fmt.Fprintf(&b, "## BODY\n%s\n", strings.TrimSpace(in.AnswerBody))
-	if len(in.Citations) > 0 {
-		b.WriteString("\n## CITATIONS (cited content for ground-truth fact-check)\n")
-		for _, c := range in.Citations {
-			loc := strings.TrimSpace(c.File)
-			if c.Line > 0 {
-				loc = fmt.Sprintf("%s:%d", loc, c.Line)
-			}
-			quote := strings.TrimSpace(c.Quote)
-			if quote == "" {
-				fmt.Fprintf(&b, "[%d] %s — (unsourced; orientation only)\n", c.Index, loc)
-				continue
-			}
-			fmt.Fprintf(&b, "[%d] %s — %s\n", c.Index, loc, quote)
-		}
-	}
 	return b.String()
 }

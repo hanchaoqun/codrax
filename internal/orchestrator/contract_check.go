@@ -1068,15 +1068,10 @@ func shouldReviewConsistency(doc *types.AnswerDocument) bool {
 
 // renderConsistencyReviewBody assembles a markdown body string
 // from doc.Steps + doc.Symbols so the reviewer LLM sees the
-// finalizer's bullet structure verbatim. Citations rendered into
-// body are file:line orientation only (no Quote text) — the
-// VERBATIM Quote text flows via the dedicated Citations field on
-// SelfConsistencyInput (Plan-D-grounded-reviewer 2026-05-02), so
-// the reviewer's body↔body comparison stays prose-only while its
-// answer↔citation fact-check (Job 2) reads Quote content from the
-// separate channel. This separation prevents the reviewer from
-// double-counting citation text as both "body content" AND "ground
-// truth", which would produce spurious self-contradiction flags.
+// finalizer's bullet structure verbatim. Citations are stripped
+// to file:line form (no Quote text) since we don't want the
+// reviewer hallucinating about repo content — its job is
+// purely prose↔prose.
 //
 // Plan D rollout (2026-05-02): kind=flow / kind=caveat steps render
 // with an inline marker so the reviewer doesn't false-flag a count
@@ -1117,48 +1112,6 @@ func renderConsistencyReviewBody(doc *types.AnswerDocument) string {
 	return b.String()
 }
 
-// buildSelfConsistencyCitations projects doc.Citations into the
-// reviewer-input shape (Plan-D-grounded-reviewer 2026-05-02).
-// Only forwards entries with a non-empty File AND positive Line —
-// orientation-only entries (file-scope Citation with line=0) carry
-// no line content the reviewer can fact-check, so they're elided.
-//
-// Quote text is forwarded verbatim. Non-line scopes (file /
-// crossfile / negative / section) are converted to a synthesised
-// orientation note ("(file-scope)" / "(absent: <pattern>)") so
-// the reviewer doesn't mistake them for ground-truth content.
-func buildSelfConsistencyCitations(cs []types.Citation) []SelfConsistencyCitation {
-	if len(cs) == 0 {
-		return nil
-	}
-	out := make([]SelfConsistencyCitation, 0, len(cs))
-	for i, c := range cs {
-		file := strings.TrimSpace(c.File)
-		if file == "" {
-			continue
-		}
-		entry := SelfConsistencyCitation{
-			Index: i,
-			File:  file,
-			Line:  c.Line,
-		}
-		switch c.Scope {
-		case types.ScopeNegative:
-			entry.Quote = fmt.Sprintf("(absent: %s)", strings.TrimSpace(c.NegativePattern))
-		case types.ScopeFile:
-			entry.Quote = "(file-scope; line content not available for fact-check)"
-		case types.ScopeCrossfile:
-			entry.Quote = fmt.Sprintf("(cross-file: %s)", strings.TrimSpace(c.CrossfileSummary))
-		case types.ScopeSection:
-			entry.Quote = fmt.Sprintf("(section: %s)", strings.TrimSpace(c.SectionPath))
-		default:
-			entry.Quote = strings.TrimSpace(c.Quote)
-		}
-		out = append(out, entry)
-	}
-	return out
-}
-
 // runSelfConsistencyReview dispatches the reviewer LLM and
 // converts its verdict into types.Violation entries. Method on
 // Orchestrator so it has access to reviewer / yaml flags / emit
@@ -1197,12 +1150,6 @@ func (o *Orchestrator) runSelfConsistencyReview(doc *types.AnswerDocument, mut *
 		OriginalRequest: mut.Objective(),
 		AnswerSummary:   render.StripAuthorityArtifacts(doc.Summary),
 		AnswerBody:      render.StripAuthorityArtifacts(renderConsistencyReviewBody(doc)),
-		// Plan-D-grounded-reviewer (2026-05-02): pass cited content
-		// so the reviewer can run Job 2 fact-check against ground
-		// truth. Catches the s7a "97 files" / m2a "Priority float64"
-		// / s3a verbatim-label-language drifts where the main answer
-		// is correct but auxiliary metadata is wrong.
-		Citations: buildSelfConsistencyCitations(doc.Citations),
 	}
 	ctx := o.busCtx.Ctx
 	if ctx == nil {

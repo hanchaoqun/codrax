@@ -9,7 +9,6 @@ import (
 	"time"
 
 	"github.com/hanchaoqun/codrax/internal/llm"
-	"github.com/hanchaoqun/codrax/internal/types"
 )
 
 type stubSelfConsistencyAdapter struct {
@@ -83,25 +82,8 @@ func TestSelfConsistencyReviewerPrompt_NotOverFittedToS1aCase(t *testing.T) {
 	if !strings.Contains(p, "DECISION DISCIPLINE") {
 		t.Error("prompt missing decision discipline section")
 	}
-	if !strings.Contains(p, "Re-read the relevant sections at least twice") {
+	if !strings.Contains(p, "Re-read SUMMARY and BODY at least twice") {
 		t.Error("prompt missing 're-read twice' rule")
-	}
-	// Plan-D-grounded-reviewer (2026-05-02): the upgraded prompt now
-	// has TWO jobs (internal consistency + grounded fact-check) and
-	// a CITATIONS-section gating clause. Pin those load-bearing
-	// pieces so a future prompt edit cannot silently regress to
-	// internal-only review.
-	if !strings.Contains(p, "JOB 1") || !strings.Contains(p, "JOB 2") {
-		t.Error("prompt missing two-job split (Job 1 / Job 2)")
-	}
-	if !strings.Contains(p, "CITATIONS") {
-		t.Error("prompt missing CITATIONS section reference")
-	}
-	if !strings.Contains(p, "GROUNDED fact-check") {
-		t.Error("prompt missing GROUNDED fact-check label")
-	}
-	if !strings.Contains(p, "When CITATIONS section is ABSENT") {
-		t.Error("prompt missing back-compat clause for missing CITATIONS")
 	}
 	if !strings.Contains(p, "rather miss a subtle contradiction than cry wolf") {
 		t.Error("prompt missing conservative-floor rule")
@@ -261,92 +243,5 @@ func TestSelfConsistencyReviewer_OutOfRangeConfidenceRejected(t *testing.T) {
 	})
 	if err == nil {
 		t.Error("confidence > 1 should error")
-	}
-}
-
-// ── Plan-D grounded reviewer (2026-05-02) ──────────────────────
-
-// TestRenderSelfConsistencyUserMessage_BackCompat_NoCitations pins
-// that absent Citations renders no ## CITATIONS section, preserving
-// pre-grounded-reviewer back-compat behaviour.
-func TestRenderSelfConsistencyUserMessage_BackCompat_NoCitations(t *testing.T) {
-	out := renderSelfConsistencyUserMessage(SelfConsistencyInput{
-		OriginalRequest: "what does X do?",
-		AnswerSummary:   "X does Y",
-		AnswerBody:      "1. X does Y",
-	})
-	if strings.Contains(out, "## CITATIONS") {
-		t.Errorf("absent Citations must NOT render CITATIONS section: %q", out)
-	}
-	if !strings.Contains(out, "## SUMMARY") || !strings.Contains(out, "## BODY") {
-		t.Errorf("SUMMARY/BODY sections required: %q", out)
-	}
-}
-
-// TestRenderSelfConsistencyUserMessage_GroundedRendersCitations pins
-// that the CITATIONS section appears with file:line + Quote when the
-// caller passes Citations[].
-func TestRenderSelfConsistencyUserMessage_GroundedRendersCitations(t *testing.T) {
-	out := renderSelfConsistencyUserMessage(SelfConsistencyInput{
-		OriginalRequest: "list types",
-		AnswerSummary:   "found 3 types",
-		AnswerBody:      "TypeA, TypeB, TypeC",
-		Citations: []SelfConsistencyCitation{
-			{Index: 0, File: "a.go", Line: 10, Quote: "type TypeA struct {"},
-			{Index: 1, File: "b.go", Line: 20, Quote: "type TypeB struct {"},
-			{Index: 2, File: "c.go", Line: 0, Quote: ""}, // unsourced anchor
-		},
-	})
-	if !strings.Contains(out, "## CITATIONS") {
-		t.Errorf("CITATIONS section missing: %q", out)
-	}
-	if !strings.Contains(out, "[0] a.go:10 — type TypeA struct") {
-		t.Errorf("citation 0 missing or malformed: %q", out)
-	}
-	if !strings.Contains(out, "[1] b.go:20 — type TypeB struct") {
-		t.Errorf("citation 1 missing or malformed: %q", out)
-	}
-	if !strings.Contains(out, "(unsourced; orientation only)") {
-		t.Errorf("unsourced anchor must render orientation-only marker: %q", out)
-	}
-}
-
-// TestBuildSelfConsistencyCitations_ProjectsCitationScope pins the
-// per-Scope projection: line+quote → quote text; file → orientation
-// note; negative → absence-pattern note; etc.
-func TestBuildSelfConsistencyCitations_ProjectsCitationScope(t *testing.T) {
-	in := []types.Citation{
-		{File: "a.go", Line: 10, Quote: "x := 42"},
-		{File: "b.go", Line: 0, Scope: types.ScopeFile},
-		{File: "c.go", Line: 0, Scope: types.ScopeNegative, NegativePattern: "ShapeFoo"},
-		{File: "d.go", Line: 5, Scope: types.ScopeSection, SectionPath: "init"},
-		{File: "", Line: 0}, // empty file → dropped
-	}
-	out := buildSelfConsistencyCitations(in)
-	if len(out) != 4 {
-		t.Fatalf("want 4 entries (5 minus empty-file drop); got %d", len(out))
-	}
-	if out[0].Quote != "x := 42" {
-		t.Errorf("line scope quote not preserved: %q", out[0].Quote)
-	}
-	if !strings.Contains(out[1].Quote, "file-scope") {
-		t.Errorf("file scope must render orientation note: %q", out[1].Quote)
-	}
-	if !strings.Contains(out[2].Quote, "absent: ShapeFoo") {
-		t.Errorf("negative scope must render absence pattern: %q", out[2].Quote)
-	}
-	if !strings.Contains(out[3].Quote, "section: init") {
-		t.Errorf("section scope must render section path: %q", out[3].Quote)
-	}
-}
-
-// TestBuildSelfConsistencyCitations_NilEmpty pins nil-safe
-// behaviour for callers without citations.
-func TestBuildSelfConsistencyCitations_NilEmpty(t *testing.T) {
-	if got := buildSelfConsistencyCitations(nil); got != nil {
-		t.Errorf("nil input → got %v, want nil", got)
-	}
-	if got := buildSelfConsistencyCitations([]types.Citation{}); got != nil {
-		t.Errorf("empty input → got %v, want nil", got)
 	}
 }
