@@ -129,7 +129,8 @@ func hedgeSummary(doc *types.AnswerDocument, evidence []types.EvidenceItem, l an
 	if summary == "" {
 		return
 	}
-	ceiling := strongestCitedCeiling(doc, evidence)
+	// Summary spans the whole answer — use the full citation pool.
+	ceiling := strongestCitedCeiling(doc.Citations, evidence)
 	marker := hedgeMarkerFor(ceiling)
 	if marker == "" {
 		return
@@ -157,7 +158,7 @@ func hedgeBoolean(doc *types.AnswerDocument, evidence []types.EvidenceItem, l an
 		ceiling = authority.HighestAuthorityFor(evidence, cit.File, cit.Line)
 	}
 	if ceiling == types.AuthorityUnknown || ceiling == types.AuthorityFactual {
-		ceiling = strongestCitedCeiling(doc, evidence)
+		ceiling = strongestCitedCeiling(doc.Citations, evidence)
 	}
 	marker := hedgeMarkerFor(ceiling)
 	if marker == "" {
@@ -167,19 +168,27 @@ func hedgeBoolean(doc *types.AnswerDocument, evidence []types.EvidenceItem, l an
 	doc.Boolean.Rationale = upsertHedgePrefix(rationale, marker, prefix)
 }
 
-// strongestCitedCeiling walks every Citation in doc and returns the
-// STRONGEST non-factual ceiling implied by the underlying evidence
-// pool. Used by hedgeSummary / hedgeBoolean to pick the right hedge
-// label when no single citation_ref is authoritative for the body.
+// strongestCitedCeiling walks every Citation in `cites` and returns
+// the STRONGEST non-factual ceiling implied by the underlying
+// evidence pool.
 //
 // "Strongest" here means most severe (illustrative > historical >
 // conditional), which is the opposite of HighestAuthorityFor's "best
 // available evidence" — we want the hedge to reflect the worst-case
 // claim the answer rests on.
-func strongestCitedCeiling(doc *types.AnswerDocument, evidence []types.EvidenceItem) types.AuthorityCeiling {
+//
+// Round-4 refinement: takes a CITATION SUBSET (not the full doc) so
+// callers can scope the worst-case calculation to only the cites
+// that actually back the prose surface being hedged. hedgeSummary
+// passes the full pool (Summary spans the whole answer); hedgeStep
+// / hedgeSymbol pass just their own citation_ref. Without this,
+// hedging a single-cite step inherited the worst-case label of the
+// whole doc — over-hedging factual sub-topics in multi-topic
+// explanations.
+func strongestCitedCeiling(cites []types.Citation, evidence []types.EvidenceItem) types.AuthorityCeiling {
 	worst := types.AuthorityUnknown
 	worstRank := 5 // higher than any real ceiling rank in this scope
-	for _, cit := range doc.Citations {
+	for _, cit := range cites {
 		ceiling := authority.HighestAuthorityFor(evidence, cit.File, cit.Line)
 		switch ceiling {
 		case types.AuthorityIllustrative:
@@ -304,13 +313,15 @@ func upsertHedgePrefix(text, marker, fullPrefix string) string {
 		}
 		text = strings.TrimSpace(strings.TrimPrefix(text, current))
 		// Drop the leading short-reason that travelled with the older
-		// marker (best-effort — a `(...)` immediately after the marker).
+		// marker. Byte limits are generous (round-4): Chinese terse
+		// reason is up to ~80 bytes UTF-8; long-form prose seen on
+		// upgrade-from-prior-Caveat paths can be longer.
 		if strings.HasPrefix(text, "(") {
-			if end := strings.Index(text, ")"); end > 0 && end < 60 {
+			if end := strings.Index(text, ")"); end > 0 && end < 200 {
 				text = strings.TrimSpace(text[end+1:])
 			}
 		} else if strings.HasPrefix(text, "（") {
-			if end := strings.Index(text, "）"); end > 0 && end < 80 {
+			if end := strings.Index(text, "）"); end > 0 && end < 400 {
 				text = strings.TrimSpace(text[end+len("）"):])
 			}
 		}
@@ -361,6 +372,11 @@ func hedgeMarkerSeverity(marker string) int {
 // Best-effort: strips the markers + terse `(...)` / `（...）` reasons
 // that follow them + any line beginning with the AuthorityCaveatPrefix
 // sentinel. The caller's reviewer prompt operates on what remains.
+//
+// Round-4 refinement: also strips inline terse reasons that appear
+// after a marker mid-line (the marker ReplaceAll alone left the
+// `(log-derived; code drifted)` phrase behind, polluting downstream
+// runExternalArtifactDecodedCheck token-match scans).
 func StripAuthorityArtifacts(text string) string {
 	if text == "" {
 		return text
@@ -368,20 +384,54 @@ func StripAuthorityArtifacts(text string) string {
 	out := make([]string, 0, len(text)/40+1)
 	for _, line := range strings.Split(text, "\n") {
 		trimmed := strings.TrimSpace(line)
-		// Drop entire line when it IS the doc-level caveat.
-		if strings.HasPrefix(trimmed, AuthorityCaveatPrefix) {
+		// Drop entire line when it IS the doc-level caveat. Match by
+		// the system-private tag (round-4) so an LLM-written caveat
+		// starting with the public prefix is preserved (only OUR
+		// caveat carries the tag).
+		if strings.Contains(trimmed, authorityCaveatTag) {
 			continue
 		}
 		// Strip leading markers + their terse reason from the line.
 		line = stripLeadingMarkerAndReason(line)
-		// Inline marker occurrences mid-line: drop just the bracketed
-		// token, keep surrounding prose.
+		// Mid-line marker + adjacent terse reason: marker
+		// ReplaceAll first, then sweep adjacent reason brackets.
 		for _, m := range []string{HedgeMarkerIllustrative, HedgeMarkerHistorical, HedgeMarkerConditional} {
-			line = strings.ReplaceAll(line, m, "")
+			line = stripInlineMarkerWithReason(line, m)
 		}
 		out = append(out, line)
 	}
 	return strings.Join(out, "\n")
+}
+
+// stripInlineMarkerWithReason removes every occurrence of `marker`
+// AND any immediately-following bracketed reason phrase (English `()`
+// or Chinese `（）`). Loop-based replace handles multiple inline
+// occurrences in the same line.
+func stripInlineMarkerWithReason(line, marker string) string {
+	for {
+		idx := strings.Index(line, marker)
+		if idx < 0 {
+			return line
+		}
+		head := line[:idx]
+		tail := strings.TrimLeft(line[idx+len(marker):], " \t")
+		// Drop adjacent reason bracket if present.
+		if strings.HasPrefix(tail, "(") {
+			if end := strings.Index(tail, ")"); end > 0 && end < 200 {
+				tail = strings.TrimSpace(tail[end+1:])
+			}
+		} else if strings.HasPrefix(tail, "（") {
+			if end := strings.Index(tail, "）"); end > 0 && end < 400 {
+				tail = strings.TrimSpace(tail[end+len("）"):])
+			}
+		}
+		// Stitch with a single space when both sides have content.
+		separator := ""
+		if strings.TrimRight(head, " \t") != "" && tail != "" {
+			separator = " "
+		}
+		line = strings.TrimRight(head, " \t") + separator + tail
+	}
 }
 
 // stripLeadingMarkerAndReason drops a leading marker AND any
@@ -394,12 +444,16 @@ func stripLeadingMarkerAndReason(line string) string {
 		return line
 	}
 	rest = strings.TrimSpace(strings.TrimPrefix(rest, marker))
+	// Byte limits raised in round-4: Chinese terse reason is up to ~80
+	// bytes (UTF-8 3 bytes/char); long-form caveat body is even longer
+	// when the markers travel inline (defense in depth — the caveat
+	// itself is dropped via the line-prefix rule above).
 	if strings.HasPrefix(rest, "(") {
-		if end := strings.Index(rest, ")"); end > 0 && end < 80 {
+		if end := strings.Index(rest, ")"); end > 0 && end < 200 {
 			rest = strings.TrimSpace(rest[end+1:])
 		}
 	} else if strings.HasPrefix(rest, "（") {
-		if end := strings.Index(rest, "）"); end > 0 && end < 100 {
+		if end := strings.Index(rest, "）"); end > 0 && end < 400 {
 			rest = strings.TrimSpace(rest[end+len("）"):])
 		}
 	}
@@ -425,7 +479,7 @@ func authorityCaveatText(hist map[types.AuthorityCeiling]int, l answerDocLang) s
 		if len(parts) == 0 {
 			return ""
 		}
-		return AuthorityCaveatPrefix + "本回答基于多源证据：" + strings.Join(parts, "；") + "。强结论仅由当前仓库内已对齐的证据支撑。"
+		return AuthorityCaveatPrefix + authorityCaveatTag + "本回答基于多源证据：" + strings.Join(parts, "；") + "。强结论仅由当前仓库内已对齐的证据支撑。"
 	}
 	if cond > 0 {
 		parts = append(parts, fmt.Sprintf("%d evidence item(s) from drifted log/trace (hedged)", cond))
@@ -439,13 +493,29 @@ func authorityCaveatText(hist map[types.AuthorityCeiling]int, l answerDocLang) s
 	if len(parts) == 0 {
 		return ""
 	}
-	return AuthorityCaveatPrefix + "Answer rests on mixed-authority evidence: " + strings.Join(parts, "; ") + ". Strong claims are made only from current-repo anchors that aligned cleanly."
+	return AuthorityCaveatPrefix + authorityCaveatTag + "Answer rests on mixed-authority evidence: " + strings.Join(parts, "; ") + ". Strong claims are made only from current-repo anchors that aligned cleanly."
 }
 
-// isAuthorityCaveat reports whether s carries the authority-caveat
-// sentinel. Used by ApplyAuthorityHedging to dedupe across retries.
+// AuthorityCaveatTag returns the system-private tag embedded inside
+// every system-generated authority caveat. Consumers (the orchestrator
+// gate, downstream Strip) use this for grep so they can distinguish
+// system-injected caveats from LLM-written ones that happen to share
+// the public "Authority: " prefix.
+func AuthorityCaveatTag() string { return authorityCaveatTag }
+
+// isAuthorityCaveat reports whether s carries the SYSTEM-injected
+// authority-caveat sentinel. Round-4 refinement: dedup looks for
+// authorityCaveatTag (a private internal token the LLM cannot
+// guess). Pre-round-4 the dedup matched any caveat starting with
+// "Authority: " — but the answer-document-skill teaches the LLM to
+// write Caveats[] with descriptive prefixes, and a user-written
+// "Authority: <something>" caveat would either get overwritten by
+// the system or shadow the system's own caveat. Tagging makes the
+// system's caveat unambiguously identifiable; the public-facing
+// AuthorityCaveatPrefix is what the user sees, the tag is what the
+// system uses for plumbing.
 func isAuthorityCaveat(s string) bool {
-	return strings.HasPrefix(strings.TrimSpace(s), AuthorityCaveatPrefix)
+	return strings.Contains(s, authorityCaveatTag)
 }
 
 // Sentinels — chosen to be visible in the rendered output but
@@ -454,13 +524,19 @@ func isAuthorityCaveat(s string) bool {
 // orchestrator.runAuthorityOverreachCheck can grep without
 // duplicating string literals (single source of truth).
 //
-// The prefix string on caveats is grep-able via isAuthorityCaveat
-// for the dedup-on-retry path.
+// authorityCaveatTag is a private invisible-ish token embedded INSIDE
+// the system-generated caveat string. The dedup path
+// (isAuthorityCaveat) looks for the tag rather than the public
+// "Authority: " prefix, so an LLM-written caveat that happens to
+// start with "Authority: " is not mistaken for the system's caveat.
+// The tag uses zero-width space + ASCII brackets so it's visually
+// invisible in user-facing prose but unambiguously machine-grep-able.
 const (
 	HedgeMarkerConditional  = "[hedged]"
 	HedgeMarkerHistorical   = "[historical]"
 	HedgeMarkerIllustrative = "[illustrative]"
 	AuthorityCaveatPrefix   = "Authority: "
+	authorityCaveatTag      = "​[auth-axis]​"
 )
 
 // Backwards-compatible lowercase aliases used inside this file's

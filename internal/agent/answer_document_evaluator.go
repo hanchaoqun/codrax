@@ -2792,6 +2792,18 @@ func (e *answerDocumentEvaluator) ParseOutput(ctx *types.AgentContext, messages 
 	if ctx != nil && ctx.Mutable != nil {
 		doc = ctx.Mutable.AnswerDocument()
 	}
+	// AuthorityCeiling axis (round-4): strip any system-injected hedge
+	// markers / Authority caveat from the LLM's emitted prose BEFORE
+	// the renderer's ApplyAuthorityHedging re-injects them. The LLM
+	// may have copied markers from prior conversation history (it
+	// sees its prior assistant messages with the renderer's
+	// post-injection content) and emitted them as if its own prose.
+	// Without this strip, double markers can land via concatenation
+	// and the LLM's spurious markers escape detection because the
+	// system can't tell which were system-injected vs LLM-written.
+	if doc != nil {
+		stripSystemHedgeArtifactsFromDoc(doc)
+	}
 
 	if doc == nil || doc.IsZero() {
 		var lastContent string
@@ -2986,6 +2998,31 @@ var (
 // preserve natural-language answer content; letting scratch JSON,
 // fake tool-call markup, or prompt-following meta prose leak back into
 // Summary degrades answer quality and can expose implementation detail.
+// stripSystemHedgeArtifactsFromDoc removes hedge markers + Authority
+// caveat tokens from every LLM-authored prose field on the doc
+// BEFORE ApplyAuthorityHedging re-injects them. Idempotent; runs once
+// per ParseOutput. Authority caveat lines in doc.Caveats[] are
+// preserved (the renderer's addAuthorityCaveat owns that channel and
+// the system uses it as the canonical hedge signal); LLM-written
+// caveats that happen to start with "Authority: " ARE stripped from
+// the LLM's text fields but not from doc.Caveats — see Fix B1 in
+// round-4 audit.
+func stripSystemHedgeArtifactsFromDoc(doc *types.AnswerDocument) {
+	if doc == nil {
+		return
+	}
+	doc.Summary = render.StripAuthorityArtifacts(doc.Summary)
+	for i := range doc.Steps {
+		doc.Steps[i].Description = render.StripAuthorityArtifacts(doc.Steps[i].Description)
+	}
+	for i := range doc.Symbols {
+		doc.Symbols[i].Rationale = render.StripAuthorityArtifacts(doc.Symbols[i].Rationale)
+	}
+	if doc.Boolean != nil {
+		doc.Boolean.Rationale = render.StripAuthorityArtifacts(doc.Boolean.Rationale)
+	}
+}
+
 func sanitizePriorDraftForSummary(s string) string {
 	if strings.TrimSpace(s) == "" {
 		return ""

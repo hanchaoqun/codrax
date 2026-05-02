@@ -306,9 +306,12 @@ func runAuthorityOverreachCheck(mut *types.MutableState, draftText string) []typ
 		return nil
 	}
 
-	// Doc-level caveat present → renderer ran successfully → the
-	// user sees the hedging signal. Pass.
-	if strings.Contains(draftText, render.AuthorityCaveatPrefix) {
+	// Doc-level caveat present (system tag inside) → renderer ran
+	// successfully → the user sees the hedging signal. Pass. We grep
+	// for the system-private tag rather than the user-visible prefix
+	// "Authority: " so an LLM-written caveat that happens to start
+	// with that prefix isn't mistaken for the system's signal.
+	if strings.Contains(draftText, render.AuthorityCaveatTag()) {
 		return nil
 	}
 

@@ -808,6 +808,15 @@ func StableEvidenceID(item EvidenceItem) string {
 		item.Condition,
 		item.Source,
 		fmt.Sprintf("%d:%d", item.LineStart, item.LineEnd),
+		// AuthorityCeiling axis (round-4): include Origin + Authority
+		// in the stable hash so two emits of the same anchor with
+		// different ceilings (e.g. retry-1 conditional, retry-2 after
+		// re-projection sees fresh log frames and grades historical)
+		// do NOT collide. Pre-fix: identical hash → dedupe-by-ID
+		// merged the two with arbitrary winner → Authority upgrades
+		// silently lost.
+		"origin=" + string(item.Origin),
+		"authority=" + string(item.Authority),
 	}
 	switch item.Scope {
 	case ScopeSection:

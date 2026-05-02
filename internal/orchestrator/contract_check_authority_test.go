@@ -73,7 +73,8 @@ func TestRunAuthorityOverreachCheck_ConditionalCitedButNoHedgeFires(t *testing.T
 // TestRunAuthorityOverreachCheck_DocCaveatIsRequiredAndSufficient:
 // the gate is anchored to the doc-level Authority caveat (the
 // system's primary user-visible hedging signal). When the caveat
-// is present, the check passes regardless of per-shape sentinels.
+// is present (recognised by the system-private tag, round-4),
+// the check passes regardless of per-shape sentinels.
 func TestRunAuthorityOverreachCheck_DocCaveatIsRequiredAndSufficient(t *testing.T) {
 	mut := types.NewMutableState("test")
 	mut.SetAnswerDocument(&types.AnswerDocument{
@@ -83,10 +84,11 @@ func TestRunAuthorityOverreachCheck_DocCaveatIsRequiredAndSufficient(t *testing.
 	mut.AppendEvidence([]types.EvidenceItem{
 		{Source: "x.go", LineStart: 10, Authority: types.AuthorityConditional},
 	})
-	// Prose without per-shape sentinel but WITH the doc-level caveat
-	// — system signaled drift via the canonical channel.
+	// Prose without per-shape sentinel but WITH a system-tagged
+	// caveat — system signaled drift via the canonical channel.
 	text := "Current code at x.go:10 reads X.\n\n" +
-		render.AuthorityCaveatPrefix + "1 evidence item from drifted log."
+		render.AuthorityCaveatPrefix + render.AuthorityCaveatTag() +
+		"1 evidence item from drifted log."
 	if got := runAuthorityOverreachCheck(mut, text); got != nil {
 		t.Errorf("doc-caveat present: got %d violations; want nil", len(got))
 	}
@@ -109,9 +111,12 @@ func TestRunAuthorityOverreachCheck_DocLevelCaveatIsHedgeProof(t *testing.T) {
 	mut.AppendEvidence([]types.EvidenceItem{
 		{Source: "x.go", LineStart: 10, Authority: types.AuthorityHistorical},
 	})
-	// Prose lacks per-shape sentinels but DOES carry the doc-level caveat.
+	// Prose lacks per-shape sentinels but DOES carry the system-
+	// tagged caveat (round-4: tag is the canonical hedge signal,
+	// not the public prefix).
 	text := "X happened in legacy code; see x.go:10.\n\n" +
-		render.AuthorityCaveatPrefix + "1 historical observation; strong claims hedged."
+		render.AuthorityCaveatPrefix + render.AuthorityCaveatTag() +
+		"1 historical observation; strong claims hedged."
 	if got := runAuthorityOverreachCheck(mut, text); got != nil {
 		t.Errorf("doc-level caveat should be hedge proof; got %d violations", len(got))
 	}

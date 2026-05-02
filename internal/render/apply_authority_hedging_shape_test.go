@@ -240,20 +240,45 @@ func TestApplyAuthorityHedging_StepsUseMarkerOnly_NoBodyDilution(t *testing.T) {
 // TestStripAuthorityArtifacts_RemovesMarkersAndCaveat exercises the
 // downstream-protection helper that shields SelfConsistency /
 // ExternalArtifactDecoded reviewers from system-injected annotations.
+//
+// Round-4 refinement: the caveat is recognised by its embedded
+// system-private tag, not the public "Authority: " prefix. Test
+// uses the actual generated caveat text so an LLM-written caveat
+// starting with the same prefix would be PRESERVED (system
+// distinguishes its own caveat by tag).
 func TestStripAuthorityArtifacts_RemovesMarkersAndCaveat(t *testing.T) {
+	systemCaveat := authorityCaveatText(map[types.AuthorityCeiling]int{
+		types.AuthorityHistorical: 1,
+	}, answerDocLangEN)
+	if systemCaveat == "" {
+		t.Fatalf("authorityCaveatText returned empty; setup failure")
+	}
 	input := hedgeMarkerHistorical + " (historical observation) X is at line 10.\n" +
 		"Inline " + hedgeMarkerConditional + " mid-sentence remains stripped.\n" +
-		AuthorityCaveatPrefix + "1 historical observation; strong claims hedged."
+		systemCaveat
 	out := StripAuthorityArtifacts(input)
 	if strings.Contains(out, hedgeMarkerConditional) ||
 		strings.Contains(out, hedgeMarkerHistorical) ||
 		strings.Contains(out, hedgeMarkerIllustrative) {
 		t.Errorf("strip left a marker behind: %q", out)
 	}
-	if strings.Contains(out, AuthorityCaveatPrefix) {
-		t.Errorf("strip left the caveat behind: %q", out)
+	if strings.Contains(out, authorityCaveatTag) {
+		t.Errorf("strip left the system caveat behind: %q", out)
 	}
 	if !strings.Contains(out, "X is at line 10.") {
 		t.Errorf("strip removed user content: %q", out)
+	}
+}
+
+// TestStripAuthorityArtifacts_PreservesLLMWrittenCaveat: a caveat
+// the LLM wrote that happens to start with "Authority: " (the public
+// prefix) does NOT carry the system-private tag and must NOT be
+// stripped. Without this guarantee, system stripping could swallow
+// honest LLM disclosures.
+func TestStripAuthorityArtifacts_PreservesLLMWrittenCaveat(t *testing.T) {
+	llmCaveat := AuthorityCaveatPrefix + "evidence in this answer is partial."
+	out := StripAuthorityArtifacts("X is at line 10.\n" + llmCaveat)
+	if !strings.Contains(out, llmCaveat) {
+		t.Errorf("LLM-written caveat was stripped: out=%q", out)
 	}
 }
