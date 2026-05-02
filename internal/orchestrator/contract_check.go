@@ -222,8 +222,14 @@ func runExternalArtifactDecodedCheck(mut *types.MutableState, draftText string) 
 	if logBundle == nil && perfBundle == nil {
 		return nil
 	}
+	// Strip system-injected authority artifacts before the token-match
+	// scan so the hedge body's literal "log" / "perf" / "drift" tokens
+	// don't get counted as proof the LLM decoded the bundle. Without
+	// this, a drift-bounded answer would auto-pass the gate even when
+	// the LLM ignored every Errors[].Type / Frame.Func / Signal in the
+	// bundle.
 	env := criterion.Env{
-		DraftAnswer: draftText,
+		DraftAnswer: render.StripAuthorityArtifacts(draftText),
 		LogTriage:   logBundle,
 		PerfTrace:   perfBundle,
 	}
@@ -244,26 +250,30 @@ func runExternalArtifactDecodedCheck(mut *types.MutableState, draftText string) 
 	}}
 }
 
-// runAuthorityOverreachCheck implements the AuthorityCeiling axis
-// contract gate. The check is structural: for every Citation in the
-// rendered AnswerDocument, look up the strongest underlying
-// AuthorityCeiling. When the ceiling is conditional / historical /
-// illustrative AND the rendered prose section that consumes that
-// citation lacks the system-injected hedge sentinel for that
-// ceiling, raise ViolAuthorityOverreach.
+// runAuthorityOverreachCheck guards against rendered drafts that
+// LACK the system's authority signaling on log-derived / drift-
+// bounded evidence. ApplyAuthorityHedging unconditionally injects
+// the doc-level "Authority: " caveat into doc.Caveats[] whenever ANY
+// emitted evidence is non-factual; the caveat travels through
+// RenderAnswerDocument into the user-visible prose.
 //
-// Critical: the check does NOT use keyword matching on the prose
-// (per the no-custom-keyword-matching red line). It greps for the
-// hedge sentinel tokens render.ApplyAuthorityHedging
-// deterministically injects. Triggering means either (a) the LLM
-// emitted a retry that stripped a previously-applied hedge, or (b)
-// the doc bypassed the renderer entirely.
+// The gate FIRES only when:
+//   - cited evidence requires hedging (any conditional / historical /
+//     illustrative in the cited anchor set), AND
+//   - the rendered draft text DOES NOT carry the doc-level Authority
+//     caveat (the system's primary user-visible hedging signal).
 //
-// Returns nil when the doc has no citations / no evidence (nothing
-// to check), or every cited anchor's strongest ceiling is factual.
+// In other words, this check catches drafts that bypassed the
+// renderer entirely (the doc.IsZero raw-prose fallback in
+// answer_document_evaluator) or drafts where some downstream
+// transformation stripped the caveat. The normal render path always
+// injects the caveat, so this check is silent on the dominant
+// success path — we don't burn finalizer retry budget on a strict
+// gate that fires on every drift-bounded answer.
 //
-// ViolAuthorityOverreach is classified strict in cmd/root.go
-// (forces finalizer retry with hedge repair).
+// Strict by classification (cmd/root.go); the actionable retry hint
+// is "the system's hedging signal didn't reach the user — re-render
+// via the documented path".
 func runAuthorityOverreachCheck(mut *types.MutableState, draftText string) []types.Violation {
 	if mut == nil {
 		return nil
@@ -277,78 +287,43 @@ func runAuthorityOverreachCheck(mut *types.MutableState, draftText string) []typ
 		return nil
 	}
 
-	// Walk citations and collect ceilings that should have been hedged.
-	type overreach struct {
-		file    string
-		line    int
-		ceiling types.AuthorityCeiling
-	}
-	var hits []overreach
+	// Any cited anchor whose strongest underlying evidence is non-
+	// factual REQUIRES the doc-level caveat to surface. We don't
+	// gate on per-step / per-symbol sentinels anymore — those are
+	// inline annotations for readability, not the contract anchor.
+	requiresHedging := false
 	for _, cit := range doc.Citations {
 		ceiling := authority.HighestAuthorityFor(evidence, cit.File, cit.Line)
 		switch ceiling {
 		case types.AuthorityConditional, types.AuthorityHistorical, types.AuthorityIllustrative:
-			hits = append(hits, overreach{file: cit.File, line: cit.Line, ceiling: ceiling})
+			requiresHedging = true
+		}
+		if requiresHedging {
+			break
 		}
 	}
-	if len(hits) == 0 {
+	if !requiresHedging {
 		return nil
 	}
 
-	// Defense-in-depth escape hatch: a doc-level Authority: caveat
-	// (rendered from doc.Caveats[] when ApplyAuthorityHedging detected
-	// any non-factual evidence in the pool) is itself proof that the
-	// system flagged the doc as drift-bounded. When the caveat made
-	// it into the rendered prose, downstream consumers and the user
-	// already see the hedging signal — per-shape sentinel granularity
-	// is a secondary defense, not a strict requirement. Without this
-	// escape, shapes whose body fields don't get per-sentinel hedges
-	// (e.g. a value answer whose Summary is structured prose
-	// auto-built by the renderer) would trip the gate even when
-	// hedging was applied at the doc level.
+	// Doc-level caveat present → renderer ran successfully → the
+	// user sees the hedging signal. Pass.
 	if strings.Contains(draftText, render.AuthorityCaveatPrefix) {
 		return nil
 	}
 
-	// Look for the corresponding hedge sentinels in the rendered prose.
-	// When ANY required sentinel is absent, the doc has overreach.
-	missing := make([]string, 0)
-	wantConditional := false
-	wantHistorical := false
-	wantIllustrative := false
-	for _, h := range hits {
-		switch h.ceiling {
-		case types.AuthorityConditional:
-			wantConditional = true
-		case types.AuthorityHistorical:
-			wantHistorical = true
-		case types.AuthorityIllustrative:
-			wantIllustrative = true
-		}
-	}
-	if wantConditional && !strings.Contains(draftText, render.HedgeMarkerConditional) {
-		missing = append(missing, "conditional")
-	}
-	if wantHistorical && !strings.Contains(draftText, render.HedgeMarkerHistorical) {
-		missing = append(missing, "historical")
-	}
-	if wantIllustrative && !strings.Contains(draftText, render.HedgeMarkerIllustrative) {
-		missing = append(missing, "illustrative")
-	}
-	if len(missing) == 0 {
-		return nil
-	}
-
-	detail := fmt.Sprintf(
-		"answer cites %d anchor(s) whose underlying evidence is non-factual but the rendered prose is missing the hedge sentinel for: %s. The renderer normally injects [hedged] / [historical] / [illustrative] markers when ApplyAuthorityHedging runs; their absence means the LLM stripped them on a retry or the doc bypassed the renderer.",
-		len(hits), strings.Join(missing, ", "))
+	// Caveat absent and hedging required: the renderer was bypassed
+	// (doc.IsZero raw-prose fallback) or some post-render mutation
+	// stripped the signal. Strict violation — finalizer must
+	// re-emit through the documented render path.
+	detail := "rendered draft cites drift-bounded evidence (conditional/historical/illustrative) but lacks the system's doc-level Authority caveat. The renderer normally injects this caveat into doc.Caveats[] whenever any evidence is non-factual; its absence means the doc bypassed the renderer (e.g. raw-prose fallback) or a downstream transformation stripped it."
 	return []types.Violation{{
 		Kind:   types.ViolAuthorityOverreach,
 		Detail: detail,
-		Repair: "regenerate the answer keeping the hedge sentinels around citations whose underlying evidence is hedged (conditional/historical/illustrative); do not rewrite drift-derived claims as direct facts",
+		Repair: "re-emit emit_answer_document so the answer flows through the renderer's ApplyAuthorityHedging pass; do not bypass the structured emit channel even on partial drafts",
 		SuspectedRoot: types.SuspectedRoot{
 			IRField:    "answer_authority",
-			Reason:     "rendered prose dropped hedge markers for non-factual evidence",
+			Reason:     "rendered draft missing system Authority caveat for drift-bounded evidence",
 			Confidence: 0.6,
 		},
 		Stage: string(types.StageFinalize),
@@ -588,10 +563,16 @@ func (o *Orchestrator) runSelfConsistencyReview(doc *types.AnswerDocument, mut *
 		Reasoning: selfConsistencyReviewStartMessage(o.busCtx.Language),
 	})
 
+	// Strip system-injected hedge markers + Authority caveat before
+	// the reviewer sees the prose. Without this the reviewer LLM
+	// treats "[hedged] X is at line 10" vs "X is at line 10" as a
+	// factual contradiction, mistaking system annotations for content.
+	// The drift-bounded answer would then trigger spurious self-
+	// contradiction retries on every log-attached run.
 	in := SelfConsistencyInput{
 		OriginalRequest: mut.Objective(),
-		AnswerSummary:   doc.Summary,
-		AnswerBody:      renderConsistencyReviewBody(doc),
+		AnswerSummary:   render.StripAuthorityArtifacts(doc.Summary),
+		AnswerBody:      render.StripAuthorityArtifacts(renderConsistencyReviewBody(doc)),
 	}
 	ctx := o.busCtx.Ctx
 	if ctx == nil {

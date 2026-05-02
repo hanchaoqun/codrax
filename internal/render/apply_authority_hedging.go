@@ -81,15 +81,16 @@ func hedgeSteps(doc *types.AnswerDocument, evidence []types.EvidenceItem, l answ
 			continue
 		}
 		cit := doc.Citations[ref]
-		// Use HighestAuthorityFor — at least one factual underlying
-		// item permits a strong claim. The user-friendly principle is
-		// "credit the LLM for the strongest support it has".
+		// HighestAuthorityFor — at least one factual underlying item
+		// permits a strong claim. Per-step uses MARKER-ONLY (no body)
+		// because the doc-level Caveat already carries the prose
+		// explanation; repeating it on every step dilutes the answer.
 		ceiling := authority.HighestAuthorityFor(evidence, cit.File, cit.Line)
-		prefix := hedgePrefixFor(ceiling, l)
-		if prefix == "" {
+		marker := hedgeMarkerFor(ceiling)
+		if marker == "" {
 			continue
 		}
-		step.Description = strings.TrimSpace(prefix + " " + step.Description)
+		step.Description = upsertHedgeMarker(step.Description, marker)
 	}
 }
 
@@ -99,77 +100,71 @@ func hedgeSymbols(doc *types.AnswerDocument, l answerDocLang) {
 	}
 	for i := range doc.Symbols {
 		sym := &doc.Symbols[i]
-		prefix := hedgePrefixFor(sym.Authority, l)
-		if prefix == "" {
+		marker := hedgeMarkerFor(sym.Authority)
+		if marker == "" {
 			continue
 		}
-		// Inject the hedge into the rationale (which is the prose
-		// surface the renderer puts after the symbol name). When
-		// rationale is empty, set it to the prefix alone — the
-		// renderer treats non-empty rationale as a parenthetical so
-		// the hedge becomes visible without restructuring the doc.
+		// Marker-only inline (the doc-level Caveat carries the body).
+		// When rationale is empty, set it to a short signed phrase so
+		// the renderer's table column has visible content; otherwise
+		// upsert the marker prefix.
 		if strings.TrimSpace(sym.Rationale) == "" {
-			sym.Rationale = prefix
+			sym.Rationale = marker + " " + shortHedgeReasonFor(sym.Authority, l)
 			continue
 		}
-		sym.Rationale = strings.TrimSpace(prefix + " " + sym.Rationale)
+		sym.Rationale = upsertHedgeMarker(sym.Rationale, marker)
 	}
 }
 
 // hedgeSummary projects the strongest hedge ceiling implied by
 // doc.Citations[] onto doc.Summary. Covers value / config_value /
-// explanation shapes whose Summary is either the answer body or its
-// lead-in. Without this, runAuthorityOverreachCheck would fire on a
-// summary that cites drift-bounded evidence and force an unsatisfiable
-// retry (the LLM cannot inject sentinels — only the renderer can).
+// explanation shapes whose Summary is the answer body or its lead-in.
 //
-// Idempotent: when the summary already starts with a hedge sentinel
-// (re-render path), this is a no-op.
+// Summary uses MARKER + TERSE reason (≤30 chars) because Summary is
+// the prominent prose anchor; per-step + per-symbol use marker only.
+// Idempotent across retries via upsertHedgeMarker which also UPGRADES
+// the ceiling label when stronger evidence arrives on retry.
 func hedgeSummary(doc *types.AnswerDocument, evidence []types.EvidenceItem, l answerDocLang) {
 	summary := strings.TrimSpace(doc.Summary)
-	if summary == "" || alreadyHasHedgePrefix(summary) {
+	if summary == "" {
 		return
 	}
 	ceiling := strongestCitedCeiling(doc, evidence)
-	prefix := hedgePrefixFor(ceiling, l)
-	if prefix == "" {
+	marker := hedgeMarkerFor(ceiling)
+	if marker == "" {
 		return
 	}
-	doc.Summary = strings.TrimSpace(prefix + " " + summary)
+	prefix := marker + " " + shortHedgeReasonFor(ceiling, l)
+	doc.Summary = upsertHedgePrefix(summary, marker, prefix)
 }
 
-// hedgeBoolean is the Boolean shape's analogue: prefix
-// doc.Boolean.Rationale with the hedge implied by Boolean.CitationRef
-// (and the broader citation pool, in case the rationale draws on
-// multiple cites). The renderer prints rationale verbatim after the
-// YES/NO marker, so injecting the sentinel here surfaces it to the
-// user.
+// hedgeBoolean is the Boolean shape's analogue: project the hedge
+// onto doc.Boolean.Rationale. Picks the ceiling first from
+// Boolean.CitationRef, then falls back to the broader citation pool
+// (a YES/NO answer often draws on multiple anchors but only carries
+// one citation_ref). Marker + terse reason (rationale is prominent).
 func hedgeBoolean(doc *types.AnswerDocument, evidence []types.EvidenceItem, l answerDocLang) {
 	if doc.Boolean == nil {
 		return
 	}
 	rationale := strings.TrimSpace(doc.Boolean.Rationale)
-	if rationale == "" || alreadyHasHedgePrefix(rationale) {
+	if rationale == "" {
 		return
 	}
-	// Walk the boolean's own citation first, then fall back to the
-	// broader citation pool — a boolean answer often draws on multiple
-	// anchors but only carries one citation_ref.
 	ceiling := types.AuthorityUnknown
 	if ref := doc.Boolean.CitationRef; ref >= 0 && ref < len(doc.Citations) {
 		cit := doc.Citations[ref]
 		ceiling = authority.HighestAuthorityFor(evidence, cit.File, cit.Line)
 	}
 	if ceiling == types.AuthorityUnknown || ceiling == types.AuthorityFactual {
-		// Tighten with the broader citation pool — if any other cite
-		// is hedged, surface the strongest required ceiling.
 		ceiling = strongestCitedCeiling(doc, evidence)
 	}
-	prefix := hedgePrefixFor(ceiling, l)
-	if prefix == "" {
+	marker := hedgeMarkerFor(ceiling)
+	if marker == "" {
 		return
 	}
-	doc.Boolean.Rationale = strings.TrimSpace(prefix + " " + rationale)
+	prefix := marker + " " + shortHedgeReasonFor(ceiling, l)
+	doc.Boolean.Rationale = upsertHedgePrefix(rationale, marker, prefix)
 }
 
 // strongestCitedCeiling walks every Citation in doc and returns the
@@ -207,16 +202,9 @@ func strongestCitedCeiling(doc *types.AnswerDocument, evidence []types.EvidenceI
 	return worst
 }
 
-// alreadyHasHedgePrefix reports whether s starts with one of the
-// system-injected hedge sentinels. Used to make hedgeSummary /
-// hedgeBoolean idempotent across re-render paths so a retry doesn't
-// double-prefix.
-func alreadyHasHedgePrefix(s string) bool {
-	s = strings.TrimSpace(s)
-	return strings.HasPrefix(s, hedgeMarkerConditional) ||
-		strings.HasPrefix(s, hedgeMarkerHistorical) ||
-		strings.HasPrefix(s, hedgeMarkerIllustrative)
-}
+// (alreadyHasHedgePrefix retired — superseded by upsertHedgeMarker
+// + upsertHedgePrefix which both subsume the idempotency check AND
+// allow ceiling upgrades.)
 
 func addAuthorityCaveat(doc *types.AnswerDocument, evidence []types.EvidenceItem, l answerDocLang) {
 	hist := authority.AuthorityHistogram(evidence)
@@ -242,46 +230,180 @@ func addAuthorityCaveat(doc *types.AnswerDocument, evidence []types.EvidenceItem
 	doc.Caveats = append(doc.Caveats, caveat)
 }
 
-// hedgePrefixFor returns the hedge sentinel (with leading sentinel
-// marker the renderer keys off) for a given AuthorityCeiling, or ""
-// when no hedge is needed.
-//
-// Sentinels are unicode-decorated so they survive markdown rendering
-// without colliding with normal prose, AND so the contract checker
-// (commit 6) can grep for them as proof that hedge was applied.
-func hedgePrefixFor(c types.AuthorityCeiling, l answerDocLang) string {
+// hedgeMarkerFor returns the bare sentinel marker for a ceiling, or
+// "" for factual / unknown. Used inline (per-step, per-symbol) where
+// the doc-level Caveat already carries the prose explanation —
+// repeating it on every step / symbol dilutes the answer with
+// redundant prose and trains user attention to ignore the signal.
+func hedgeMarkerFor(c types.AuthorityCeiling) string {
 	switch c {
 	case types.AuthorityConditional:
-		return hedgeMarkerConditional + " " + hedgeBodyFor(c, l)
+		return HedgeMarkerConditional
 	case types.AuthorityHistorical:
-		return hedgeMarkerHistorical + " " + hedgeBodyFor(c, l)
+		return HedgeMarkerHistorical
 	case types.AuthorityIllustrative:
-		return hedgeMarkerIllustrative + " " + hedgeBodyFor(c, l)
+		return HedgeMarkerIllustrative
 	}
 	return ""
 }
 
-func hedgeBodyFor(c types.AuthorityCeiling, l answerDocLang) string {
+// shortHedgeReasonFor returns a TERSE bilingual reason (≤30 chars)
+// suitable for prominent prose anchors (Summary / Boolean.Rationale)
+// where bare marker would feel cryptic. The doc-level Caveat carries
+// the long-form explanation; keep this terse so it doesn't crowd out
+// the actual answer content.
+func shortHedgeReasonFor(c types.AuthorityCeiling, l answerDocLang) string {
 	if l == answerDocLangZH {
 		switch c {
 		case types.AuthorityConditional:
-			return "（基于日志/性能轨迹观察，当前代码已有漂移；以下结论需谨慎）"
+			return "（基于日志，当前代码已漂移）"
 		case types.AuthorityHistorical:
-			return "（旧构建中的历史观察；当前代码已重构或对应符号已不存在）"
+			return "（旧构建历史观察）"
 		case types.AuthorityIllustrative:
-			return "（仅作示例，未经验证）"
+			return "（示例，未验证）"
 		}
 		return ""
 	}
 	switch c {
 	case types.AuthorityConditional:
-		return "(based on log/perf observation; current code has drifted — claim hedged)"
+		return "(log-derived; code drifted)"
 	case types.AuthorityHistorical:
-		return "(historical observation from an older build; current code has refactored or removed the corresponding implementation)"
+		return "(historical observation)"
 	case types.AuthorityIllustrative:
-		return "(illustrative only, not verified)"
+		return "(illustrative only)"
 	}
 	return ""
+}
+
+// upsertHedgeMarker prepends the marker IFF text doesn't already
+// carry it. Allows ceiling UPGRADES across retries: if text begins
+// with [hedged] and we now need [historical] (worse case), replace
+// the leading sentinel with the stronger one. This prevents stale
+// labels in retry chains where the evidence pool grew in severity.
+func upsertHedgeMarker(text, marker string) string {
+	text = strings.TrimSpace(text)
+	if hasMarker, current := leadingHedgeMarker(text); hasMarker {
+		if hedgeMarkerSeverity(current) >= hedgeMarkerSeverity(marker) {
+			return text
+		}
+		// Upgrade — strip the old leading marker and re-prepend.
+		text = strings.TrimSpace(strings.TrimPrefix(text, current))
+	}
+	return strings.TrimSpace(marker + " " + text)
+}
+
+// upsertHedgePrefix prepends a marker + reason phrase IFF the text's
+// leading marker is weaker (or absent). Mirrors upsertHedgeMarker for
+// callers (Summary / Rationale) that want the terse reason in
+// addition to the marker.
+func upsertHedgePrefix(text, marker, fullPrefix string) string {
+	text = strings.TrimSpace(text)
+	if hasMarker, current := leadingHedgeMarker(text); hasMarker {
+		if hedgeMarkerSeverity(current) >= hedgeMarkerSeverity(marker) {
+			return text
+		}
+		text = strings.TrimSpace(strings.TrimPrefix(text, current))
+		// Drop the leading short-reason that travelled with the older
+		// marker (best-effort — a `(...)` immediately after the marker).
+		if strings.HasPrefix(text, "(") {
+			if end := strings.Index(text, ")"); end > 0 && end < 60 {
+				text = strings.TrimSpace(text[end+1:])
+			}
+		} else if strings.HasPrefix(text, "（") {
+			if end := strings.Index(text, "）"); end > 0 && end < 80 {
+				text = strings.TrimSpace(text[end+len("）"):])
+			}
+		}
+	}
+	return strings.TrimSpace(fullPrefix + " " + text)
+}
+
+// leadingHedgeMarker reports whether text begins with one of the
+// system markers and returns which one. Order: most-severe first,
+// so a string starting with [illustrative] reports illustrative
+// (not a substring trip on [hedged]).
+func leadingHedgeMarker(text string) (bool, string) {
+	switch {
+	case strings.HasPrefix(text, HedgeMarkerIllustrative):
+		return true, HedgeMarkerIllustrative
+	case strings.HasPrefix(text, HedgeMarkerHistorical):
+		return true, HedgeMarkerHistorical
+	case strings.HasPrefix(text, HedgeMarkerConditional):
+		return true, HedgeMarkerConditional
+	}
+	return false, ""
+}
+
+// hedgeMarkerSeverity returns a comparable severity score for the
+// markers (illustrative > historical > conditional > none). Used by
+// upsert helpers to decide whether to UPGRADE a stale label.
+func hedgeMarkerSeverity(marker string) int {
+	switch marker {
+	case HedgeMarkerIllustrative:
+		return 3
+	case HedgeMarkerHistorical:
+		return 2
+	case HedgeMarkerConditional:
+		return 1
+	}
+	return 0
+}
+
+// StripAuthorityArtifacts removes ALL system-injected authority
+// markers, terse reason phrases, and the doc-level Authority caveat
+// from the rendered draft text. Used by downstream reviewers
+// (SelfConsistency, ExternalArtifactDecoded) so they don't see the
+// system's own annotations as content — without stripping, the
+// reviewer LLM treats "[hedged] X" vs "X" as a factual contradiction,
+// and the artifact-decoded check counts hedge-body tokens like "log"
+// / "perf" as proof the LLM decoded the bundle.
+//
+// Best-effort: strips the markers + terse `(...)` / `（...）` reasons
+// that follow them + any line beginning with the AuthorityCaveatPrefix
+// sentinel. The caller's reviewer prompt operates on what remains.
+func StripAuthorityArtifacts(text string) string {
+	if text == "" {
+		return text
+	}
+	out := make([]string, 0, len(text)/40+1)
+	for _, line := range strings.Split(text, "\n") {
+		trimmed := strings.TrimSpace(line)
+		// Drop entire line when it IS the doc-level caveat.
+		if strings.HasPrefix(trimmed, AuthorityCaveatPrefix) {
+			continue
+		}
+		// Strip leading markers + their terse reason from the line.
+		line = stripLeadingMarkerAndReason(line)
+		// Inline marker occurrences mid-line: drop just the bracketed
+		// token, keep surrounding prose.
+		for _, m := range []string{HedgeMarkerIllustrative, HedgeMarkerHistorical, HedgeMarkerConditional} {
+			line = strings.ReplaceAll(line, m, "")
+		}
+		out = append(out, line)
+	}
+	return strings.Join(out, "\n")
+}
+
+// stripLeadingMarkerAndReason drops a leading marker AND any
+// immediately-following bracketed reason phrase. Whitespace-tolerant.
+func stripLeadingMarkerAndReason(line string) string {
+	rest := strings.TrimLeft(line, " \t")
+	leadingSpaces := line[:len(line)-len(rest)]
+	hasMarker, marker := leadingHedgeMarker(rest)
+	if !hasMarker {
+		return line
+	}
+	rest = strings.TrimSpace(strings.TrimPrefix(rest, marker))
+	if strings.HasPrefix(rest, "(") {
+		if end := strings.Index(rest, ")"); end > 0 && end < 80 {
+			rest = strings.TrimSpace(rest[end+1:])
+		}
+	} else if strings.HasPrefix(rest, "（") {
+		if end := strings.Index(rest, "）"); end > 0 && end < 100 {
+			rest = strings.TrimSpace(rest[end+len("）"):])
+		}
+	}
+	return leadingSpaces + rest
 }
 
 func authorityCaveatText(hist map[types.AuthorityCeiling]int, l answerDocLang) string {

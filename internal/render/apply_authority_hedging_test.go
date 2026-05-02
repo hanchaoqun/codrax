@@ -141,7 +141,9 @@ func TestApplyAuthorityHedging_NoDriftNoCaveat(t *testing.T) {
 }
 
 // TestApplyAuthorityHedging_ChineseTemplate sanity-checks the
-// localised prose: zh language picks the Chinese hedge body.
+// localised prose: zh language picks the Chinese caveat body. Per-
+// step prefix uses marker-only (the doc-level Caveat is the canonical
+// prose surface for the long-form explanation).
 func TestApplyAuthorityHedging_ChineseTemplate(t *testing.T) {
 	doc := &types.AnswerDocument{
 		Shape: types.ShapeStepList,
@@ -154,7 +156,18 @@ func TestApplyAuthorityHedging_ChineseTemplate(t *testing.T) {
 		{Source: "a.go", LineStart: 10, Authority: types.AuthorityConditional},
 	}
 	ApplyAuthorityHedging(doc, evidence, "zh")
-	if !strings.Contains(doc.Steps[0].Description, "漂移") {
-		t.Errorf("zh hedge body missing in description: %q", doc.Steps[0].Description)
+	if !strings.HasPrefix(doc.Steps[0].Description, hedgeMarkerConditional) {
+		t.Errorf("zh step missing inline marker: %q", doc.Steps[0].Description)
+	}
+	// The doc-level caveat carries the Chinese long-form prose.
+	foundChinese := false
+	for _, c := range doc.Caveats {
+		if strings.Contains(c, "漂移") {
+			foundChinese = true
+			break
+		}
+	}
+	if !foundChinese {
+		t.Errorf("zh long-form prose missing from doc.Caveats: %v", doc.Caveats)
 	}
 }

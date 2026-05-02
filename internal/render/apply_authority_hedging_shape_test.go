@@ -163,3 +163,97 @@ func TestApplyAuthorityHedging_FactualOnlyDocSummaryUntouched(t *testing.T) {
 		t.Errorf("factual-only: summary was modified: %q", doc.Summary)
 	}
 }
+
+// TestApplyAuthorityHedging_CeilingUpgradeOnRetry: retry-1 saw
+// conditional evidence and prefixed Summary with [hedged]; retry-2
+// surfaces historical evidence (worse). The hedge label MUST upgrade
+// to [historical] — not stay stuck at [hedged]. Without upgrade, the
+// rendered label/evidence pair drift apart and reviewer LLMs may
+// mark it inconsistent.
+func TestApplyAuthorityHedging_CeilingUpgradeOnRetry(t *testing.T) {
+	doc := &types.AnswerDocument{
+		Shape:     types.ShapeExplanation,
+		Summary:   "Mechanism dispatches via x.go:10.",
+		Citations: []types.Citation{{File: "x.go", Line: 10}},
+	}
+	// First pass: conditional.
+	ev1 := []types.EvidenceItem{
+		{Source: "x.go", LineStart: 10, Authority: types.AuthorityConditional},
+	}
+	ApplyAuthorityHedging(doc, ev1, "en")
+	if !strings.HasPrefix(doc.Summary, hedgeMarkerConditional) {
+		t.Fatalf("first pass: missing conditional prefix: %q", doc.Summary)
+	}
+	// Second pass: same anchor now grades historical (worse).
+	ev2 := []types.EvidenceItem{
+		{Source: "x.go", LineStart: 10, Authority: types.AuthorityHistorical},
+	}
+	ApplyAuthorityHedging(doc, ev2, "en")
+	if !strings.HasPrefix(doc.Summary, hedgeMarkerHistorical) {
+		t.Errorf("second pass: ceiling did not upgrade to historical: %q", doc.Summary)
+	}
+	// And [hedged] must be GONE (was the previous prefix).
+	if strings.HasPrefix(doc.Summary, hedgeMarkerConditional) {
+		t.Errorf("second pass: stale conditional prefix retained: %q", doc.Summary)
+	}
+}
+
+// TestApplyAuthorityHedging_StepsUseMarkerOnly_NoBodyDilution: the
+// load-bearing UX guarantee — per-step injection MUST be marker-only
+// (no inline prose body). Repeating the long-form prose on every
+// step dilutes the answer; the doc-level Caveat carries the
+// explanation once.
+func TestApplyAuthorityHedging_StepsUseMarkerOnly_NoBodyDilution(t *testing.T) {
+	doc := &types.AnswerDocument{
+		Shape: types.ShapeStepList,
+		Steps: []types.AnswerStep{
+			{Index: 1, Description: "X dispatches Y", CitationRef: 0},
+			{Index: 2, Description: "Y handles Z", CitationRef: 0},
+		},
+		Citations: []types.Citation{{File: "a.go", Line: 10}},
+	}
+	evidence := []types.EvidenceItem{
+		{Source: "a.go", LineStart: 10, Authority: types.AuthorityConditional},
+	}
+	ApplyAuthorityHedging(doc, evidence, "en")
+	for i, step := range doc.Steps {
+		if !strings.HasPrefix(step.Description, hedgeMarkerConditional) {
+			t.Errorf("step[%d] missing marker: %q", i, step.Description)
+		}
+		// MUST NOT contain the long-form body that used to be
+		// repeated per-step.
+		if strings.Contains(step.Description, "based on log/perf observation") {
+			t.Errorf("step[%d] contains long-form body (dilution): %q",
+				i, step.Description)
+		}
+		if strings.Contains(step.Description, "drifted — claim hedged") {
+			t.Errorf("step[%d] contains long-form body: %q",
+				i, step.Description)
+		}
+	}
+	// The long-form body MUST live exactly once, in the doc Caveat.
+	if len(doc.Caveats) != 1 {
+		t.Errorf("expected 1 caveat carrying the explanation; got %d", len(doc.Caveats))
+	}
+}
+
+// TestStripAuthorityArtifacts_RemovesMarkersAndCaveat exercises the
+// downstream-protection helper that shields SelfConsistency /
+// ExternalArtifactDecoded reviewers from system-injected annotations.
+func TestStripAuthorityArtifacts_RemovesMarkersAndCaveat(t *testing.T) {
+	input := hedgeMarkerHistorical + " (historical observation) X is at line 10.\n" +
+		"Inline " + hedgeMarkerConditional + " mid-sentence remains stripped.\n" +
+		AuthorityCaveatPrefix + "1 historical observation; strong claims hedged."
+	out := StripAuthorityArtifacts(input)
+	if strings.Contains(out, hedgeMarkerConditional) ||
+		strings.Contains(out, hedgeMarkerHistorical) ||
+		strings.Contains(out, hedgeMarkerIllustrative) {
+		t.Errorf("strip left a marker behind: %q", out)
+	}
+	if strings.Contains(out, AuthorityCaveatPrefix) {
+		t.Errorf("strip left the caveat behind: %q", out)
+	}
+	if !strings.Contains(out, "X is at line 10.") {
+		t.Errorf("strip removed user content: %q", out)
+	}
+}

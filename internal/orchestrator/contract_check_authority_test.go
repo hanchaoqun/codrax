@@ -70,10 +70,11 @@ func TestRunAuthorityOverreachCheck_ConditionalCitedButNoHedgeFires(t *testing.T
 	}
 }
 
-// TestRunAuthorityOverreachCheck_ConditionalCitedHedgePresentNoEmit:
-// when the rendered prose DOES contain the hedge sentinel for a
-// conditional anchor, the check passes.
-func TestRunAuthorityOverreachCheck_ConditionalCitedHedgePresentNoEmit(t *testing.T) {
+// TestRunAuthorityOverreachCheck_DocCaveatIsRequiredAndSufficient:
+// the gate is anchored to the doc-level Authority caveat (the
+// system's primary user-visible hedging signal). When the caveat
+// is present, the check passes regardless of per-shape sentinels.
+func TestRunAuthorityOverreachCheck_DocCaveatIsRequiredAndSufficient(t *testing.T) {
 	mut := types.NewMutableState("test")
 	mut.SetAnswerDocument(&types.AnswerDocument{
 		Shape:     types.ShapeExplanation,
@@ -82,9 +83,12 @@ func TestRunAuthorityOverreachCheck_ConditionalCitedHedgePresentNoEmit(t *testin
 	mut.AppendEvidence([]types.EvidenceItem{
 		{Source: "x.go", LineStart: 10, Authority: types.AuthorityConditional},
 	})
-	hedged := "Based on log observation, " + render.HedgeMarkerConditional + " current code at x.go:10 reads X."
-	if got := runAuthorityOverreachCheck(mut, hedged); got != nil {
-		t.Errorf("hedged prose: got %d violations; want nil", len(got))
+	// Prose without per-shape sentinel but WITH the doc-level caveat
+	// — system signaled drift via the canonical channel.
+	text := "Current code at x.go:10 reads X.\n\n" +
+		render.AuthorityCaveatPrefix + "1 evidence item from drifted log."
+	if got := runAuthorityOverreachCheck(mut, text); got != nil {
+		t.Errorf("doc-caveat present: got %d violations; want nil", len(got))
 	}
 }
 
@@ -113,10 +117,11 @@ func TestRunAuthorityOverreachCheck_DocLevelCaveatIsHedgeProof(t *testing.T) {
 	}
 }
 
-// TestRunAuthorityOverreachCheck_HistoricalRequiresHistoricalMarker:
-// each ceiling needs ITS sentinel — a [hedged] marker doesn't
-// satisfy a historical anchor's requirement.
-func TestRunAuthorityOverreachCheck_HistoricalRequiresHistoricalMarker(t *testing.T) {
+// TestRunAuthorityOverreachCheck_FiresWhenCaveatStripped: the
+// failure mode the gate exists to catch — drift-bounded evidence
+// AND no doc-level caveat in rendered text (renderer was bypassed
+// or some downstream transformation stripped the caveat).
+func TestRunAuthorityOverreachCheck_FiresWhenCaveatStripped(t *testing.T) {
 	mut := types.NewMutableState("test")
 	mut.SetAnswerDocument(&types.AnswerDocument{
 		Shape:     types.ShapeExplanation,
@@ -125,12 +130,14 @@ func TestRunAuthorityOverreachCheck_HistoricalRequiresHistoricalMarker(t *testin
 	mut.AppendEvidence([]types.EvidenceItem{
 		{Source: "x.go", LineStart: 10, Authority: types.AuthorityHistorical},
 	})
+	// Per-shape sentinel present but doc-level caveat ABSENT —
+	// renderer was bypassed (raw-prose fallback) or caveat stripped.
 	text := render.HedgeMarkerConditional + " X happened in legacy code."
 	viols := runAuthorityOverreachCheck(mut, text)
 	if len(viols) != 1 {
 		t.Fatalf("got %d violations; want 1", len(viols))
 	}
-	if !strings.Contains(viols[0].Detail, "historical") {
-		t.Errorf("Detail missing 'historical': %q", viols[0].Detail)
+	if !strings.Contains(viols[0].Detail, "Authority caveat") {
+		t.Errorf("Detail should reference missing caveat: %q", viols[0].Detail)
 	}
 }
