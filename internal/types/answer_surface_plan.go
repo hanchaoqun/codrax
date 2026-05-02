@@ -1329,8 +1329,30 @@ func preferredAnswerSummarySurfaceMode(plan *AnswerSurfacePlan, rm RequestModel)
 		}
 		return AnswerSummarySurfaceDefault
 	}
+	// Round-9 user red line: gate on LLM-classified user intent
+	// (rm.Intent), not the partly-system-derived rm.Scenario. The
+	// user said: "对齐用户问题意图 (LLM 已前置分析出来) ... 触非用户问题
+	// 明确命中, 否则不能系统硬假设" + "当前系统已经对log和trace的场景
+	// 进行了用户意图的对齐分类, 请审视, 是否可以复用".
+	//
+	// Reuses the existing Intent enum (single source of truth set
+	// by analyzer's emit_analysis from the LLM's classification of
+	// the user's question). Drift surface mode is artifact-driven
+	// hedged-causality rendering; it fires when the LLM classified
+	// the user as asking either:
+	//   - IntentRootCause: "why did X happen" / "explain this panic"
+	//   - IntentTrace:     "trace this call path" / "what's the
+	//                       sequence here"
+	// Both intents inherently care about the artifact's structure
+	// vs. current code, so drift between them IS the answer's
+	// substance. For IntentExplain / IntentEnumerate / IntentConfig
+	// Query / IntentReturnValue / IntentUnknown the drift signal
+	// stays visible via the AuthorityCeiling axis (per-step markers
+	// + Authority caveat) — the user gets honest provenance without
+	// the system overriding their intent.
+	diagnosticIntent := rm.Intent == IntentRootCause || rm.Intent == IntentTrace
 	if plan.PreferredExactResolution == nil {
-		if rm.Scenario == ScenarioRootCause &&
+		if diagnosticIntent &&
 			len(plan.LogSourceDriftAnchors) > 0 &&
 			(plan.RequiredShape == ShapeStepList || plan.RequiredShape == ShapeExplanation) {
 			return AnswerSummarySurfaceDriftBoundedRootCause
@@ -1340,7 +1362,7 @@ func preferredAnswerSummarySurfaceMode(plan *AnswerSurfacePlan, rm RequestModel)
 		}
 		return AnswerSummarySurfaceDefault
 	}
-	if rm.Scenario == ScenarioRootCause &&
+	if diagnosticIntent &&
 		len(plan.LogSourceDriftAnchors) > 0 &&
 		(plan.RequiredShape == ShapeStepList || plan.RequiredShape == ShapeExplanation) {
 		return AnswerSummarySurfaceDriftBoundedRootCause
@@ -1496,6 +1518,11 @@ func diagramSurfaceKinds(dc *DiagramContract) []DiagramKind {
 	}
 }
 
+// collectDiagramLogFrames returns frames for diagram-rendering paths
+// that REQUIRE both file and line. Pre-round-9 this was also the
+// frame source for drift detection — but drift detection should
+// not require line. Use collectAllLogFrames for drift-pipeline
+// consumers that should process symbol-only frames too.
 func collectDiagramLogFrames(bundle *LogBundle) []LogFrame {
 	if bundle == nil || len(bundle.Errors) == 0 {
 		return nil
@@ -1510,6 +1537,47 @@ func collectDiagramLogFrames(bundle *LogBundle) []LogFrame {
 			if len(resolved) >= 8 {
 				return resolved
 			}
+		}
+	}
+	return resolved
+}
+
+// collectAllLogFrames returns EVERY frame the LLM extracted, with
+// only the constraint that Func is non-empty. Frames without
+// File/Line are preserved so symbol-axis drift detection can fire
+// on them (round-9 user red line: "无行号也不能被丢"). Cap mirrors
+// the diagram path (8) but counts the symbol-only frames toward it
+// so unsymbolicated traces don't crowd out file-anchored frames.
+func collectAllLogFrames(bundle *LogBundle) []LogFrame {
+	if bundle == nil || len(bundle.Errors) == 0 {
+		return nil
+	}
+	resolved := make([]LogFrame, 0, 8)
+	// Pass 1: file+line frames first (priority).
+	for _, err := range bundle.Errors {
+		for _, frame := range err.Frames {
+			if len(resolved) >= 8 {
+				return resolved
+			}
+			if frame.File == "" || frame.Line <= 0 {
+				continue
+			}
+			resolved = append(resolved, frame)
+		}
+	}
+	// Pass 2: symbol-only frames (Func set, File or Line missing).
+	for _, err := range bundle.Errors {
+		for _, frame := range err.Frames {
+			if len(resolved) >= 8 {
+				return resolved
+			}
+			if frame.File != "" && frame.Line > 0 {
+				continue // already taken in pass 1
+			}
+			if strings.TrimSpace(frame.Func) == "" {
+				continue
+			}
+			resolved = append(resolved, frame)
 		}
 	}
 	return resolved
@@ -1534,8 +1602,15 @@ func collectArtifactFrames(logBundle *LogBundle, perfBundle *PerfBundle) []LogFr
 // and per-frame ClaimOrigin tags, so backfill can propagate the
 // correct Origin (log vs perf) when a stall-source frame matches an
 // evidence item. The two slices have identical length.
+//
+// Round-9: log frames preserved even when File/Line missing (Func is
+// enough for symbol-axis drift detection); perf surface extended
+// from Stalls to include PerfJank (TriggerSpan as Func) and
+// PerfStartup (Mode marker). All artifact-derived signals
+// participate so the drift pipeline doesn't silently drop trace
+// observations whose file/line resolution failed at extraction.
 func collectArtifactFramesWithOrigin(logBundle *LogBundle, perfBundle *PerfBundle) ([]LogFrame, []ClaimOrigin) {
-	resolved := collectDiagramLogFrames(logBundle)
+	resolved := collectAllLogFrames(logBundle)
 	origins := make([]ClaimOrigin, len(resolved))
 	for i := range origins {
 		origins[i] = ClaimOriginLog
@@ -1543,14 +1618,12 @@ func collectArtifactFramesWithOrigin(logBundle *LogBundle, perfBundle *PerfBundl
 	if perfBundle == nil {
 		return resolved, origins
 	}
+	// PerfStall: typed (Symbol, File?, Line?) — primary perf surface.
 	for i := range perfBundle.Stalls {
-		if len(resolved) >= 8 {
+		if len(resolved) >= 16 {
 			break
 		}
 		s := &perfBundle.Stalls[i]
-		// PerfStall may legitimately omit File/Line when the trace
-		// was unsymbolicated. Keep stalls with at least Symbol so the
-		// drift detector can still attempt symbol-based matching.
 		if strings.TrimSpace(s.Symbol) == "" {
 			continue
 		}
@@ -1560,6 +1633,31 @@ func collectArtifactFramesWithOrigin(logBundle *LogBundle, perfBundle *PerfBundl
 			Func: s.Symbol,
 		})
 		origins = append(origins, ClaimOriginPerf)
+	}
+	// PerfJank: TriggerSpan often carries a symbol-ish identifier
+	// from the trace's tracing_mark_write tags. No file/line; symbol-
+	// axis drift detection picks it up.
+	for i := range perfBundle.Janks {
+		if len(resolved) >= 16 {
+			break
+		}
+		j := &perfBundle.Janks[i]
+		span := strings.TrimSpace(j.TriggerSpan)
+		if span == "" {
+			continue
+		}
+		resolved = append(resolved, LogFrame{Func: span})
+		origins = append(origins, ClaimOriginPerf)
+	}
+	// PerfStartup: when the trace covers a startup, surface its mode
+	// marker so a question like "is cold-start slow?" sees
+	// PerfStartup.Mode show up in the artifact frame stream.
+	if perfBundle.Startup != nil && len(resolved) < 16 {
+		mode := strings.TrimSpace(perfBundle.Startup.Mode)
+		if mode != "" {
+			resolved = append(resolved, LogFrame{Func: mode + "-startup"})
+			origins = append(origins, ClaimOriginPerf)
+		}
 	}
 	return resolved, origins
 }
@@ -1679,7 +1777,13 @@ func backfillUnprojectedItemsForDeriveArtifacts(items []EvidenceItem, logBundle 
 	pickBest := func(frame LogFrame, definitionOnly bool) int {
 		frameFile := strings.TrimSpace(strings.ReplaceAll(frame.File, `\`, `/`))
 		frameTail := normalizedSurfaceSymbolTail(frame.Func)
-		if frameFile == "" || frameTail == "" || frame.Line <= 0 {
+		// Round-9: frame.Line==0 is OK (unsymbolicated / no-line frame).
+		// Symbol-axis match still works; classify uses gap=∞ when line
+		// missing → conditional via DriftReasonLineDrift only when
+		// frame has a real line. With frame.Line==0 we fall through to
+		// the cross-source path (no detectable drift, but signal is
+		// preserved). frameFile==""可以,frameTail必须有.
+		if frameTail == "" {
 			return -1
 		}
 		bestIdx := -1
@@ -1695,7 +1799,7 @@ func backfillUnprojectedItemsForDeriveArtifacts(items []EvidenceItem, logBundle 
 			if !itemTailMatches(*item, frameTail) {
 				continue
 			}
-			if strings.TrimSpace(strings.ReplaceAll(item.Source, `\`, `/`)) != frameFile {
+			if frameFile != "" && strings.TrimSpace(strings.ReplaceAll(item.Source, `\`, `/`)) != frameFile {
 				continue
 			}
 			if item.LineStart <= 0 {
@@ -1863,7 +1967,13 @@ func deriveAnchorsFromArtifacts(logBundle *LogBundle, perfBundle *PerfBundle, it
 	pickFor := func(frame LogFrame, definitionOnly bool) int {
 		frameFile := strings.TrimSpace(strings.ReplaceAll(frame.File, `\`, `/`))
 		frameTail := normalizedSurfaceSymbolTail(frame.Func)
-		if frameFile == "" || frameTail == "" || frame.Line <= 0 {
+		// Round-9: frame.Line==0 is OK (unsymbolicated / no-line frame).
+		// Symbol-axis match still works; classify uses gap=∞ when line
+		// missing → conditional via DriftReasonLineDrift only when
+		// frame has a real line. With frame.Line==0 we fall through to
+		// the cross-source path (no detectable drift, but signal is
+		// preserved). frameFile==""可以,frameTail必须有.
+		if frameTail == "" {
 			return -1
 		}
 		bestIdx := -1
@@ -1879,7 +1989,7 @@ func deriveAnchorsFromArtifacts(logBundle *LogBundle, perfBundle *PerfBundle, it
 			if !itemTailMatches(*item, frameTail) {
 				continue
 			}
-			if strings.TrimSpace(strings.ReplaceAll(item.Source, `\`, `/`)) != frameFile {
+			if frameFile != "" && strings.TrimSpace(strings.ReplaceAll(item.Source, `\`, `/`)) != frameFile {
 				continue
 			}
 			if item.LineStart <= 0 {
@@ -2060,6 +2170,31 @@ func CollectExternalObservationSeeds(bundle *LogBundle, observed []LogSourceDrif
 			if len(out) >= 6 {
 				return out
 			}
+		}
+	}
+	// Round-9 user red line: "log/trace 里也有大量没有行号的不规则
+	// 输出和打印, 这些信息如果对齐了用户问题意图, 也不能在后续流程中
+	// 被轻易被忽略". Surface Residue.UnknownChunks as residue seeds
+	// so downstream consumers (skill prompts, evidence searches)
+	// can still consult unstructured log/print output that the LLM
+	// extractor couldn't parse into typed errors. Cap at 4 to stay
+	// inside the global 6-seed budget while leaving room for the
+	// log_frame seeds above.
+	for _, chunk := range bundle.Residue.UnknownChunks {
+		raw := strings.TrimSpace(chunk)
+		if raw == "" {
+			continue
+		}
+		// Truncate to a reasonable preview length for prompt budgets.
+		if len(raw) > 240 {
+			raw = raw[:240]
+		}
+		record(ExternalObservationSeed{
+			Kind: "log_residue",
+			Raw:  raw,
+		})
+		if len(out) >= 6 {
+			return out
 		}
 	}
 	return out

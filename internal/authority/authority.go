@@ -434,10 +434,22 @@ func walkLogBundleForMatch(b *types.LogBundle, itemFile string, item types.Evide
 		}
 		for i := range e.Frames {
 			f := &e.Frames[i]
-			if frameMatches(f, itemFile, item) {
-				found = f
+			if !frameMatches(f, itemFile, item) {
+				continue
+			}
+			// Round-9: when the match was symbol-only (frame.File empty),
+			// synthesize a fresh frame with File backed by item.Source so
+			// downstream DetectDriftForFrame has a where-to-look anchor.
+			// Also returns a fresh pointer so we don't accidentally mutate
+			// the bundle.
+			if normalizePath(f.File) == "" && itemFile != "" {
+				synth := *f
+				synth.File = item.Source
+				found = &synth
 				return
 			}
+			found = f
+			return
 		}
 		walk(e.Cause)
 	}
@@ -502,11 +514,23 @@ func frameMatches(f *types.LogFrame, itemFile string, item types.EvidenceItem) b
 	if f == nil {
 		return false
 	}
-	if normalizePath(f.File) != itemFile {
+	frameFile := normalizePath(f.File)
+	frameFunc := strings.TrimSpace(f.Func)
+	// Round-9 user red line: log frames without resolved File MUST
+	// still be matchable when the user's question intent aligns
+	// with the frame's symbol (e.g. Java basename-failed resolution,
+	// <init> constructors, frames whose file path resolution silently
+	// degraded). Symbol-axis match works whenever frameFunc is set
+	// and equals the item's anchor symbol or owner symbol tail.
+	fileMatch := frameFile != "" && frameFile == itemFile
+	symbolMatch := frameFile == "" && frameFunc != "" &&
+		(symbolTailEquals(item.AnchorSymbol, frameFunc) ||
+			symbolTailEquals(item.OwnerSymbol, frameFunc))
+	if !fileMatch && !symbolMatch {
 		return false
 	}
-	// Line match (preferred).
-	if item.LineStart > 0 && f.Line > 0 {
+	// Line match (preferred) for the file-equality case.
+	if fileMatch && item.LineStart > 0 && f.Line > 0 {
 		if abs(item.LineStart-f.Line) <= logtriage.DefaultDriftLineGap {
 			return true
 		}
@@ -514,13 +538,20 @@ func frameMatches(f *types.LogFrame, itemFile string, item types.EvidenceItem) b
 		// detection downstream will classify the gap.
 		return true
 	}
-	// Symbol-based match as fallback when one side lacks a line.
-	if anchor := strings.TrimSpace(item.AnchorSymbol); anchor != "" && f.Func != "" {
-		if symbolTailEquals(f.Func, anchor) {
-			return true
+	if fileMatch {
+		// File matched but lines missing on one side — accept via
+		// symbol when item provides a tail.
+		if anchor := strings.TrimSpace(item.AnchorSymbol); anchor != "" && frameFunc != "" {
+			if symbolTailEquals(frameFunc, anchor) {
+				return true
+			}
 		}
+		// Otherwise still accept — file equality alone is meaningful
+		// for absence-of-line frames.
+		return true
 	}
-	return false
+	// Symbol-only match: already validated by the symbolMatch gate.
+	return true
 }
 
 func symbolTailEquals(a, b string) bool {
