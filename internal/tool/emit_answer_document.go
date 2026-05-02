@@ -292,7 +292,7 @@ func (t *EmitAnswerDocument) Name() string { return "emit_answer_document" }
 
 func (t *EmitAnswerDocument) Description() string {
 	capGuidance := emitAnswerDocumentSummaryCapGuidance(false)
-	return "Emit the final answer as a structured AnswerDocument in ONE call per finalizer dispatch. " +
+	return "Emit the final answer as a structured AnswerDocument in ONE call per answer-rendering dispatch. " +
 		"Choose 'shape' from: list_of_symbols, step_list, value, boolean, config_value, explanation. " +
 		"Shape-specific required fields: list_of_symbols → symbols[] + symbols_completeness; " +
 		"step_list → steps[]; value → value{literal}; config_value → value{key,literal}; " +

@@ -260,6 +260,81 @@ func TestAbsenceScopeOracle_RejectsNegativeScopeWithoutPattern(t *testing.T) {
 	}
 }
 
+// ── runRichnessTelemetryOracle (Phase 5) ──────────────────────────
+
+func TestRichnessTelemetryOracle_NilDocOrRMReturnsEmpty(t *testing.T) {
+	if vs := runRichnessTelemetryOracle(nil, &types.RequestModel{}, nil); len(vs) != 0 {
+		t.Errorf("nil doc should return empty; got %+v", vs)
+	}
+	if vs := runRichnessTelemetryOracle(&types.AnswerDocument{}, nil, nil); len(vs) != 0 {
+		t.Errorf("nil rm should return empty; got %+v", vs)
+	}
+}
+
+func TestRichnessTelemetryOracle_NoOptionalFacetsReturnsEmpty(t *testing.T) {
+	// QFCallChain template has zero FacetOptional entries — telemetry
+	// oracle has nothing to flag.
+	rm := &types.RequestModel{Intent: types.IntentTrace}
+	doc := &types.AnswerDocument{Shape: types.ShapeStepList, Summary: "x"}
+	if vs := runRichnessTelemetryOracle(doc, rm, nil); len(vs) != 0 {
+		t.Errorf("no optional facets must return empty; got %+v", vs)
+	}
+}
+
+func TestRichnessTelemetryOracle_FiresOnUncoveredOptional(t *testing.T) {
+	// QFConfigPrecedence template has FacetDiagramSpine as the
+	// Optional / TierEnrichment entry. Build a request that lands
+	// in that family + an uncovered diagram_spine facet.
+	mut := types.NewMutableState("")
+	mut.AppendEvidence([]types.EvidenceItem{
+		{ID: "ev-1", Source: "config.go", LineStart: 10,
+			AnchorKind:  types.AnchorAssignment,
+			DiagramRole: types.EvidenceDiagramRoleConfig},
+	})
+	rm := &types.RequestModel{Intent: types.IntentConfigQuery}
+
+	doc := &types.AnswerDocument{
+		Shape:   types.ShapeExplanation,
+		Summary: "Plain prose with no claim_use annotations.",
+	}
+	vs := runRichnessTelemetryOracle(doc, rm, mut)
+	if len(vs) == 0 {
+		t.Fatal("expected at least one ViolRichnessRegression for uncovered enrichment facet")
+	}
+	for _, v := range vs {
+		if v.Kind != types.ViolRichnessRegression {
+			t.Errorf("unexpected kind %q (expected richness_regression)", v.Kind)
+		}
+		// Repair must NOT mention "Phase 5" / "[CGEC]" / "finalizer"
+		// (red-line audit on LLM-facing text).
+		for _, banned := range []string{"Phase 5", "[CGEC]", "finalizer"} {
+			if strings.Contains(v.Repair, banned) {
+				t.Errorf("Repair text leaked internal token %q: %q", banned, v.Repair)
+			}
+		}
+	}
+}
+
+func TestRichnessTelemetryOracle_RichnessTier_Default(t *testing.T) {
+	// FacetRequirement{} (no Tier set) decodes via EffectiveTier.
+	if got := (types.FacetRequirement{Required: types.FacetHardRequired}).EffectiveTier(); got != types.TierEssential {
+		t.Errorf("hard → essential; got %q", got)
+	}
+	if got := (types.FacetRequirement{Required: types.FacetSoftRequired}).EffectiveTier(); got != types.TierExpected {
+		t.Errorf("soft → expected; got %q", got)
+	}
+	if got := (types.FacetRequirement{Required: types.FacetOptional}).EffectiveTier(); got != types.TierEnrichment {
+		t.Errorf("optional → enrichment; got %q", got)
+	}
+	// Explicit Tier overrides Required-derived value.
+	if got := (types.FacetRequirement{
+		Required: types.FacetHardRequired,
+		Tier:     types.TierEnrichment,
+	}).EffectiveTier(); got != types.TierEnrichment {
+		t.Errorf("explicit Tier should override; got %q", got)
+	}
+}
+
 // ── master switch ──────────────────────────────────────────────────
 
 func TestFacetValidatorsEnabled_DefaultAndSet(t *testing.T) {

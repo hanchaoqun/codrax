@@ -218,6 +218,13 @@ func DefaultFallbackPolicy() FallbackPolicy {
 		types.ViolFacetUncovered:       FallbackBackToExplore,
 		types.ViolClaimFormUnsupported: FallbackFinalizerOnly,
 		types.ViolAbsenceScopeExceeded: FallbackBackToExtract,
+		// Phase 5 telemetry-only kind — never reaches the fallback
+		// switch under default SOFT classification, but mapped to
+		// FailLoud as a safety net so an accidental promotion to
+		// strict via pipeline_contract_strict_kinds does not silently
+		// trigger a retry storm. Operators who promote this kind
+		// must override the policy too.
+		types.ViolRichnessRegression: FallbackFailLoud,
 	}
 }
 

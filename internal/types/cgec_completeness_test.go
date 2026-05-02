@@ -230,6 +230,8 @@ func TestAllViolationKindsHaveProducer(t *testing.T) {
 		ViolFacetUncovered:       true, // tool/emit_answer_document.go validateFacetCoverage
 		ViolClaimFormUnsupported: true, // tool/emit_answer_document.go validateClaimFormSupport
 		ViolAbsenceScopeExceeded: true, // tool/emit_answer_document.go validateAbsenceScopeBound
+		// Phase 5 (Semantic Surface Contract) — telemetry-only kind.
+		ViolRichnessRegression: true, // orchestrator/contract_check.go runRichnessTelemetryOracle
 	}
 	pending := map[ViolationKind]string{}
 	// Sanity: AllViolationKinds() must equal covered ∪ pending so the

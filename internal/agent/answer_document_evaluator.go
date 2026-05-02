@@ -2023,7 +2023,7 @@ func (e *answerDocumentEvaluator) Observe(ctx *types.AgentContext, obs LoopObser
 	// shared key would silently truncate it to the first attempt.
 	return LoopSignal{
 		HintRequested: true,
-		HintKey:       fmt.Sprintf("finalizer.missing_document.%d", e.retriesUsed),
+		HintKey:       fmt.Sprintf("answer_doc.missing_document.%d", e.retriesUsed),
 		// Instruct the model to REUSE its prior prose rather than rewrite it.
 		// Without this directive, the second pass tends to produce a
 		// compressed paraphrase instead of copying the richer draft into
@@ -2060,8 +2060,8 @@ func (e *answerDocumentEvaluator) unexpectedFinalizerToolSignal(obs LoopObservat
 	toolList := strings.Join(unexpected, ", ")
 	return LoopSignal{
 		HintRequested: true,
-		HintKey:       fmt.Sprintf("finalizer.unexpected_tool.%d.%s", obs.Iteration, toolList),
-		Hint:          fmt.Sprintf("This finalizer is a pure synthesizer. Do NOT call `%s` or any other read/search tool. Re-emit `emit_answer_document` using only the already-provided grounded evidence: `citations[]`, Diagram Seeds, Exact Resolution Seeds, and the prompt's Diagram Node Allowlist. If a step cannot honestly cite one grounded line, keep that fact in `summary` or set that step's `citation_ref=-1` instead of reopening files. Do not write free-form prose outside the tool call.", toolList),
+		HintKey:       fmt.Sprintf("answer_doc.unexpected_tool.%d.%s", obs.Iteration, toolList),
+		Hint:          fmt.Sprintf("This stage is a pure answer synthesizer. Do NOT call `%s` or any other read/search tool. Re-emit `emit_answer_document` using only the already-provided grounded evidence: `citations[]`, Diagram Seeds, Exact Resolution Seeds, and the prompt's Diagram Node Allowlist. If a step cannot honestly cite one grounded line, keep that fact in `summary` or set that step's `citation_ref=-1` instead of reopening files. Do not write free-form prose outside the tool call.", toolList),
 	}
 }
 
@@ -2314,7 +2314,7 @@ func (e *answerDocumentEvaluator) emitAnswerDocumentRejectSignal(ctx *types.Agen
 	e.rejectHintsUsed++
 	return LoopSignal{
 		HintRequested:  true,
-		HintKey:        fmt.Sprintf("finalizer.reject.%s.%d", reasonKey, e.rejectHintsUsed),
+		HintKey:        fmt.Sprintf("answer_doc.reject.%s.%d", reasonKey, e.rejectHintsUsed),
 		Hint:           hint,
 		Progress:       true,
 		BypassThrottle: true,
@@ -2955,9 +2955,9 @@ func (e *answerDocumentEvaluator) ParseOutput(ctx *types.AgentContext, messages 
 				break
 			}
 		}
-		warning := "· answer_document emission missing — the finalizer could not produce a " +
-			"structured AnswerDocument. The text below is the raw LLM response; no schema-level " +
-			"validation ran on it."
+		warning := "· answer_document emission missing — the answer-rendering pass could not " +
+			"produce a structured AnswerDocument. The text below is the raw LLM response; no " +
+			"schema-level validation ran on it."
 		safeFallback := sanitizePriorDraftForSummary(lastContent)
 		if safeFallback == "" {
 			safeFallback = strings.TrimSpace(lastContent)

@@ -1343,7 +1343,7 @@ func raisePhase1UnreadPendingReads(ctx *types.BusContext, closure *types.Evidenc
 		for _, file := range unread {
 			closure.AddPendingRead(types.PendingRead{
 				File:      file,
-				Rationale: "Capability-surface authority file remains unread 鈥?inspect the canonical stage binding / skill contract / tool exposure source before declaring completion",
+				Rationale: "Capability-surface authority file remains unread — inspect the canonical stage binding / skill contract / tool exposure source before declaring completion",
 				Origin:    "phase1_unread",
 			})
 			logging.Info("[CGEC] phase1_unread: queued capability-authority file=%s", file)

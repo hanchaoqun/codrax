@@ -295,6 +295,20 @@ const (
 	// extractor must re-emit a tighter absence framing or surface
 	// the bounded scope verbatim.
 	ViolAbsenceScopeExceeded ViolationKind = "absence_scope_exceeded"
+
+	// ViolRichnessRegression (Phase 5 of Semantic Surface Contract,
+	// 2026-05-02) is a TELEMETRY-ONLY signal — the answer covered
+	// every Hard / Soft facet but skipped one or more
+	// FacetOptional (TierEnrichment) entries the evidence pool
+	// could have supported. The closure ledger records the gap so
+	// end-of-Run [CGEC] summary surfaces optional_facets_covered=N/M
+	// for cross-Run trend tracking; the finalizer NEVER retries on
+	// this kind. SOFT-by-default and explicitly NOT promotable to
+	// STRICT — it is a richness-coverage observation, not a
+	// correctness gate. Phase 4 hard kinds catch the correctness
+	// half of the contract; this kind only watches "did we leave
+	// useful supplemental context on the table".
+	ViolRichnessRegression ViolationKind = "richness_regression"
 )
 
 // AllViolationKinds returns every declared ViolationKind in a stable
@@ -337,6 +351,7 @@ func AllViolationKinds() []ViolationKind {
 		ViolFacetUncovered,
 		ViolClaimFormUnsupported,
 		ViolAbsenceScopeExceeded,
+		ViolRichnessRegression,
 	}
 }
 

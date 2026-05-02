@@ -6492,7 +6492,7 @@ func (e *explorerEvaluator) observeMidLoop(obs LoopObservation) LoopSignal {
 					"This kind was deprecated from the emit_evidence channel because the tool's validator requires line_start > 0 + anchor_kind + anchor_symbol for every item — a 'searched and found nothing' claim cannot satisfy these. " +
 					"ACTION: re-emit the batch with kind=absent items REMOVED. " +
 					"If the overall answer is 'zero / no X' (whole-answer absence), declare it on emit_investigation_complete with `result_kind=\"absence\"` and `absence_justification` describing what was searched and not found — that field waives the citation floor by contract. " +
-					"If the absence is per-fact inside a larger investigation, just omit the item from emit_evidence and describe the absence in your <think> notes (the finalizer's summary can pick it up from there). " +
+					"If the absence is per-fact inside a larger investigation, just omit the item from emit_evidence and describe the absence in your <think> notes (the answer summary can pick it up from there). " +
 					"Do not retry kind=absent — the channel will keep rejecting.\n")
 			e.midLoopAbsentRedirectSent = true
 			hintKey = "explorer.mid-loop.absent-redirect"

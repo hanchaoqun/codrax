@@ -128,6 +128,13 @@ func runContractCheck(out *agent.StageOutput, c types.AnswerContract, mut *types
 					runClaimFormSupportOracle(doc, mut)...)
 				result.Violations = append(result.Violations,
 					runAbsenceScopeBoundOracle(doc, ir)...)
+				// Phase 5 (2026-05-02) — telemetry-only richness
+				// regression oracle. SOFT-only ViolRichnessRegression
+				// entries flow into the closure ledger and surface
+				// in the end-of-Run [CGEC] summary's
+				// optional_facets_covered counter. No retry, no fail.
+				result.Violations = append(result.Violations,
+					runRichnessTelemetryOracle(doc, ir, mut)...)
 			}
 		}
 	}
@@ -1106,6 +1113,74 @@ func runFacetCoverageOracle(doc *types.AnswerDocument, rm *types.RequestModel, m
 	return out
 }
 
+// runRichnessTelemetryOracle (Phase 5 of Semantic Surface Contract,
+// 2026-05-02) walks the FacetCoverageContract.Optional entries
+// (TierEnrichment) and records SOFT ViolRichnessRegression for any
+// optional facet the rendered AnswerDocument fails to cover.
+// Coverage check is identical to runFacetCoverageOracle's: an
+// explicit RenderedClaimUse.FacetID match OR an inferred-from-citation
+// ClaimForm match against the facet's AcceptableForms.
+//
+// Phase 5 contract: TELEMETRY ONLY. The kind is permanently SOFT
+// (defaultSoftKinds, never promotable to STRICT) and the fallback
+// policy maps it to FailLoud as a safety net so an accidental
+// promotion does not silently spin a finalize retry. The oracle's
+// purpose is to feed end-of-Run [CGEC] summary's
+// optional_facets_covered=N/M counter so cross-Run trend tracking
+// shows whether prompt improvements lift richness coverage over
+// time.
+//
+// No Run-time side effect. The closure ledger is the only writer;
+// no answer prose is altered, no retry triggered, no hard fail.
+func runRichnessTelemetryOracle(doc *types.AnswerDocument, rm *types.RequestModel, mut *types.MutableState) []types.Violation {
+	if doc == nil || rm == nil {
+		return nil
+	}
+	var surfaceEvidence []types.EvidenceItem
+	if mut != nil {
+		surfaceEvidence = mut.EmittedEvidence()
+	}
+	contract := types.CompileFacetCoverage(*rm, surfaceEvidence)
+	if contract == nil || len(contract.Optional) == 0 {
+		return nil
+	}
+
+	explicitFacets := map[string]bool{}
+	collectClaimUseFacets(doc, func(c *types.RenderedClaimUse) {
+		if c != nil && c.FacetID != "" {
+			explicitFacets[c.FacetID] = true
+		}
+	})
+	inferredFormsPerCitation := inferClaimFormsFromCitations(doc, mut)
+
+	var out []types.Violation
+	for _, req := range contract.Optional {
+		if req.EffectiveTier() != types.TierEnrichment {
+			continue
+		}
+		if explicitFacets[string(req.Kind)] {
+			continue
+		}
+		if facetCoveredByInferredForms(req, inferredFormsPerCitation) {
+			continue
+		}
+		out = append(out, types.Violation{
+			Kind: types.ViolRichnessRegression,
+			Detail: fmt.Sprintf(
+				"optional facet=%s (tier=enrichment for %s) not covered — the answer is correct but did not surface a richness facet the evidence pool could have supported",
+				req.Kind, contract.Family),
+			Repair: "Telemetry-only signal — no retry triggered, no action required. To improve answer richness on subsequent dispatches, add a step / symbol / sentence that surfaces the optional facet's content using an existing citation.",
+			SuspectedRoot: types.SuspectedRoot{
+				IRField:    "richness_tier",
+				Reason:     fmt.Sprintf("optional facet %s uncovered", req.Kind),
+				Confidence: 0.4,
+			},
+			Stage: string(types.StageFinalize),
+		})
+	}
+	return out
+}
+
 // runClaimFormSupportOracle (Phase 4, 2026-05-02) checks that every
 // payload's explicit RenderedClaimUse.ClaimForm is supported by the
 // underlying evidence's actual ClaimForm projection. If LLM emitted
@@ -1641,6 +1716,9 @@ func defaultSoftKinds() map[types.ViolationKind]bool {
 		//     downstream consumers act on the absence, must not be
 		//     overstated).
 		types.ViolFacetUncovered: true,
+		// Phase 5 — telemetry-only richness regression. SOFT and
+		// explicitly NOT promotable; soft classification is permanent.
+		types.ViolRichnessRegression: true,
 	}
 }
 

@@ -294,7 +294,7 @@ func (e *extractorEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk
 		b.WriteString("## Anchor skeleton (one per sub-topic)\n\n")
 		fmt.Fprintf(&b, "The analyzer identified %d independently-answerable sub-topic(s). ", len(st))
 		b.WriteString("For each, call emit_answer_symbol with ONE anchor symbol — the load-bearing ")
-		b.WriteString("identifier that the finalizer's multi-paragraph summary will hang on. Each ")
+		b.WriteString("identifier that the multi-paragraph answer summary will hang on. Each ")
 		b.WriteString("anchor needs a concrete file:line from the 'Files the investigation read' list above; ")
 		b.WriteString("use the rationale field to name the sub-topic the anchor covers.\n\n")
 		for i, topic := range st {

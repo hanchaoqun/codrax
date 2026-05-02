@@ -3901,6 +3901,47 @@ contractFailureBreak:
 	return stepsUsed
 }
 
+// computeRichnessCoverage (Phase 5 of Semantic Surface Contract,
+// 2026-05-02) returns the (covered, total) pair for the Run's
+// FacetCoverageContract.Optional entries. Total is len(Optional)
+// at compile time; covered is total minus the count of
+// ViolRichnessRegression entries in the closure ledger. Returns
+// (0, 0) when there is no active question / no optional facets /
+// no closure — caller skips the [CGEC] summary tail.
+//
+// Recompiles the contract from RequestModel + EmittedEvidence at
+// summary time so the count reflects the post-extract evidence
+// pool (matches what runRichnessTelemetryOracle saw). Cheap:
+// CompileFacetCoverage runs in microseconds on the typical surface.
+func (o *Orchestrator) computeRichnessCoverage() (covered, total int) {
+	if o.busCtx == nil || o.busCtx.Mutable == nil {
+		return 0, 0
+	}
+	mut := o.busCtx.Mutable
+	rm := mut.RequestModel()
+	if rm == nil {
+		return 0, 0
+	}
+	contract := types.CompileFacetCoverage(*rm, mut.EmittedEvidence())
+	if contract == nil {
+		return 0, 0
+	}
+	total = len(contract.Optional)
+	if total == 0 {
+		return 0, 0
+	}
+	closure := mut.EvidenceClosure()
+	regressions := 0
+	if closure != nil {
+		regressions = len(closure.ViolationsByKind(types.ViolRichnessRegression))
+	}
+	covered = total - regressions
+	if covered < 0 {
+		covered = 0
+	}
+	return covered, total
+}
+
 // emitCGECSummary renders the per-task CGEC counter snapshot to the
 // operator trace. Always emits a single line so operators can grep
 // [CGEC] summary even on no-op tasks — a "no enforcer fired" line
@@ -3942,6 +3983,14 @@ func (o *Orchestrator) emitCGECSummary() {
 				line = fmt.Sprintf("%s violations=%d (no_suspected_root)", line, stats.ViolationsLogged)
 			}
 		}
+	}
+	// Phase 5 (Semantic Surface Contract, 2026-05-02) — richness
+	// telemetry tail. Prints optional_facets_covered=N/M when the
+	// active question had any FacetOptional / TierEnrichment entries.
+	// Always tail-appended so legacy log parsers stay byte-stable
+	// on Runs without optional facets.
+	if covered, total := o.computeRichnessCoverage(); total > 0 {
+		line = fmt.Sprintf("%s optional_facets_covered=%d/%d", line, covered, total)
 	}
 	logging.Info("%s", line)
 

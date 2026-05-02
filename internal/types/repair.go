@@ -205,7 +205,7 @@ func (r RepairDirective) Render() string {
 					continue
 				}
 				if r.Rationale != "" {
-					b.WriteString("- " + f + " 鈥?" + r.Rationale + "\n")
+					b.WriteString("- " + f + " — " + r.Rationale + "\n")
 				} else {
 					b.WriteString("- " + f + "\n")
 				}

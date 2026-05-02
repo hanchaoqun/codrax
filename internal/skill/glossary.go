@@ -77,6 +77,16 @@ var InternalTermsBlocklist = []string{
 	"Phase 0",
 	"Phase 1",
 	"Phase 2",
+	"Phase 3",
+	"Phase 4",
+	"Phase 5",
+
+	// Pipeline stage names — internal codenames for the
+	// analyze/explore/extract/finalize 4-stage taxonomy. LLM-facing
+	// prompts must use neutral language ("the answer-rendering
+	// stage" / "during answer composition" / "the rendered answer")
+	// instead of leaking the stage codename.
+	"finalizer",
 	"Tier 1",
 	"Tier 2",
 	"T1a",

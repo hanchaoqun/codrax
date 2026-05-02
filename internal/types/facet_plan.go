@@ -160,6 +160,44 @@ const (
 	FacetOptional     FacetRequiredness = "optional"
 )
 
+// RichnessTier (Phase 5 of Semantic Surface Contract, 2026-05-02)
+// names how the facet contributes to answer "richness" — the
+// difference between a technically-correct answer and one that
+// surfaces useful supplemental context. The tier is a 1:1 derived
+// view of FacetRequiredness; declared separately so Phase 5
+// telemetry-only paths can read tier semantics without coupling to
+// the gate-classification semantics.
+//
+//   - TierEssential   == FacetHardRequired: gate-required content
+//   - TierExpected    == FacetSoftRequired: soft-drift content,
+//     skill prompt encourages but does not gate
+//   - TierEnrichment  == FacetOptional: richness signal — when
+//     LLM omits, Phase 5 records SOFT ViolRichnessRegression for
+//     end-of-Run telemetry. NEVER promotes to STRICT.
+type RichnessTier string
+
+const (
+	TierEssential  RichnessTier = "essential"
+	TierExpected   RichnessTier = "expected"
+	TierEnrichment RichnessTier = "enrichment"
+)
+
+// TierFromRequiredness derives the canonical Tier from a
+// FacetRequiredness value. Pure 1:1 projection — used by the
+// CompileFacetCoverage compiler so every FacetRequirement carries
+// both fields after compile.
+func TierFromRequiredness(r FacetRequiredness) RichnessTier {
+	switch r {
+	case FacetHardRequired:
+		return TierEssential
+	case FacetSoftRequired:
+		return TierExpected
+	case FacetOptional:
+		return TierEnrichment
+	}
+	return TierEnrichment
+}
+
 // FacetRequirement describes one row in a FacetCoverageContract.
 // AcceptableForms whitelists which ClaimForm values can validly
 // support this facet; SourceCandidate carries EvidenceItem.IDs
@@ -171,11 +209,28 @@ const (
 // MUST list SourceCandidate (direct EvidenceItem.ID match) so
 // validation has a fallback that does not depend on ClaimForm
 // being non-Unknown.
+//
+// Phase 5 (2026-05-02): Tier is the derived richness classification
+// (1:1 from Required). Filled by CompileFacetCoverage so consumers
+// reading Tier do not need to call TierFromRequiredness inline.
+// Empty Tier on a hand-constructed FacetRequirement decodes via
+// EffectiveTier() so back-compat callers stay working.
 type FacetRequirement struct {
 	Kind            AnswerFacetKind
 	Required        FacetRequiredness
 	AcceptableForms []ClaimForm
 	SourceCandidate []string
+	Tier            RichnessTier
+}
+
+// EffectiveTier returns Tier when set, otherwise derives from
+// Required. Back-compat-safe accessor for any FacetRequirement
+// that bypassed CompileFacetCoverage.
+func (r FacetRequirement) EffectiveTier() RichnessTier {
+	if r.Tier != "" {
+		return r.Tier
+	}
+	return TierFromRequiredness(r.Required)
 }
 
 // FacetCoverageContract is the compiled per-question facet plan.
@@ -302,6 +357,10 @@ func CompileFacetCoverage(rm RequestModel, surface []EvidenceItem) *FacetCoverag
 		if bound.Required == FacetHardRequired && len(bound.SourceCandidate) == 0 {
 			bound.Required = FacetSoftRequired
 		}
+		// Phase 5: derive RichnessTier from the (post-fallback)
+		// Required value so consumers reading Tier never need to
+		// re-run the fallback rules.
+		bound.Tier = TierFromRequiredness(bound.Required)
 		switch bound.Required {
 		case FacetHardRequired, FacetSoftRequired:
 			plan.Required = append(plan.Required, bound)

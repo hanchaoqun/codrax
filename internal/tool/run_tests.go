@@ -22,7 +22,7 @@ import (
 // worktree and stores a structured ChangeReport on Mutable. The
 // B1.3 implementation covers four runners deterministically:
 //
-//   - Go:     `go test -json ./...` 鈥?native JSONL output
+//   - Go:     `go test -json ./...` — native JSONL output
 //   - Node:   `npm test -- --json` (jest) / `vitest --reporter=json`
 //   - Python: `pytest --json-report --json-report-file=...`
 //     (requires the pytest-json-report plugin; falls back
@@ -34,14 +34,14 @@ import (
 // The runner is detected by sniffing the worktree root for
 // language-tagged manifest files (go.mod / package.json /
 // pyproject.toml or pytest.ini / Cargo.toml). Detection is purely
-// filesystem-based 鈥?no LLM judgment, no git blame.
+// filesystem-based — no LLM judgment, no git blame.
 //
 // L3 red line: Execute MUST NOT invoke ground.BuildContext or
 // ground.GroundItem. Test outputs are structured pass/fail data,
 // not citations. Enforced by write_mode_red_lines_test.go.
 //
 // Classified ReadOnly + NonEvidenceTool. Tests read the repo and
-// produce verdicts but do not mutate the worktree 鈥?the file I/O
+// produce verdicts but do not mutate the worktree — the file I/O
 // tests do happen through run_tests, but only under test-framework
 // control (e.g. tmpdir fixtures) which the runner owns, not codrax.
 type RunTests struct {
@@ -157,7 +157,7 @@ func (t *RunTests) Name() string { return "run_tests" }
 // operators reading logs know the scope without reading code.
 func (t *RunTests) Description() string {
 	return "Run the detected project test suites inside the active worktree and emit a structured ChangeReport. " +
-		"Supports Go (go test -json), Node (jest/vitest --json), Python (pytest --json-report plugin required), Rust (cargo test text), Java (Maven/Gradle JUnit XML), Kotlin (via the Java Gradle path 鈥?build.gradle.kts recognised), Ruby (RSpec --format json), CMake (ctest --output-junit; requires pre-configured build dir), Meson (meson test --xunit-file), raw Makefile (make check/test; pass/fail from exit code), HarmonyOS ArkTS via hvigor (hvigorw test 鈫?JUnit XML), and HarmonyOS Cangjie via cjpm (cjpm test 鈫?cargo-style text)."
+		"Supports Go (go test -json), Node (jest/vitest --json), Python (pytest --json-report plugin required), Rust (cargo test text), Java (Maven/Gradle JUnit XML), Kotlin (via the Java Gradle path — build.gradle.kts recognised), Ruby (RSpec --format json), CMake (ctest --output-junit; requires pre-configured build dir), Meson (meson test --xunit-file), raw Makefile (make check/test; pass/fail from exit code), HarmonyOS ArkTS via hvigor (hvigorw test → JUnit XML), and HarmonyOS Cangjie via cjpm (cjpm test → cargo-style text)."
 }
 
 // Parameters returns the JSON schema.
@@ -2098,11 +2098,11 @@ func makeBuildFailureReport(label, output string) *types.ChangeReport {
 //
 // Candidates cover the common in-repo layouts:
 //
-//   - "build" / "Build"        鈥?cmake -S . -B build convention
-//   - "builddir"               鈥?meson default
-//   - "out"                    鈥?Google/Android-style
+//   - "build" / "Build"        —cmake -S . -B build convention
+//   - "builddir"               —meson default
+//   - "out"                    —Google/Android-style
 //   - "cmake-build-debug" and
-//     "cmake-build-release"    鈥?CLion IDE defaults
+//     "cmake-build-release"    —CLion IDE defaults
 //
 // Operators using a non-standard layout (e.g. sibling build dirs
 // outside the repo root) can't be auto-detected; they must invoke
@@ -2124,7 +2124,7 @@ func detectNativeBuildDir(repoRoot string) string {
 		}
 		// Peek for a generator sentinel so an empty dir left over from
 		// a failed configure doesn't count. CMake drops
-		// CMakeCache.txt; Meson drops meson-info/. We accept either 鈥?
+		// CMakeCache.txt; Meson drops meson-info/. We accept either —
 		// the parser step tolerates whichever output shape the command
 		// produces.
 		if _, err := os.Stat(filepath.Join(abs, "CMakeCache.txt")); err == nil {
@@ -2177,13 +2177,13 @@ func detectJavaBuildSystem(repoRoot string) string {
 //
 // Multi-module caveat: polyglot Java/Gradle repos may have multiple
 // surefire-reports directories under submodules. The parser's XML
-// walk handles that 鈥?we return the highest non-empty match and let
+// walk handles that —we return the highest non-empty match and let
 // parseJUnitXMLDir recurse.
 func locateJUnitReportDir(repoRoot string) string {
 	candidates := []string{
 		filepath.Join(repoRoot, "target", "surefire-reports"),
 		filepath.Join(repoRoot, "build", "test-results", "test"),
-		// HarmonyOS hvigor 鈥?Stage Model entry module.
+		// HarmonyOS hvigor —Stage Model entry module.
 		filepath.Join(repoRoot, "entry", "build", "default", "intermediates", "test", "test-results"),
 		filepath.Join(repoRoot, "entry", "build", "intermediates", "test", "test-results"),
 		filepath.Join(repoRoot, "build", "intermediates", "test", "test-results"),
@@ -2205,7 +2205,7 @@ func locateJUnitReportDir(repoRoot string) string {
 }
 
 // dirHasXML reports whether dir exists and contains at least one
-// `*.xml` file at its top level (we don't recurse 鈥?a directory with
+// `*.xml` file at its top level (we don't recurse —a directory with
 // only nested .xml is a hint we're at the wrong level and should
 // keep walking).
 func dirHasXML(dir string) bool {
@@ -2316,7 +2316,7 @@ func firstXMLDescendant(dir string, maxDepth int) bool {
 }
 
 // buildRunCommand assembles the shell command string for a runner.
-// Returns (command, extraFile) 鈥?extraFile is a temp file path
+// Returns (command, extraFile) —extraFile is a temp file path
 // the runner writes its JSON output to (pytest-json-report uses
 // a file argument; other runners print to stdout). Empty extraFile
 // means parse from stdout.
@@ -2416,7 +2416,7 @@ func buildRunCommand(runner, suite, repoRoot, mainRoot string) (string, string) 
 			}
 			return fmt.Sprintf("./gradlew --no-daemon --console=plain test --tests %q", filter), ""
 		}
-		// Unknown Java layout 鈥?let command fail and the parser
+		// Unknown Java layout —let command fail and the parser
 		// surface a clear error. Shouldn't happen because
 		// detectRunner matched one of pom.xml / build.gradle[.kts].
 		return "mvn -B -q test", ""
@@ -2521,7 +2521,7 @@ func buildRunCommand(runner, suite, repoRoot, mainRoot string) (string, string) 
 // target name the project uses. Preference order: "check" (GNU /
 // autotools convention) > "test" (CMake-generated / npm-style) >
 // "tests" (occasional plural). Defaults to "check" when neither
-// target is present 鈥?`make check` is the widely-accepted standard
+// target is present —`make check` is the widely-accepted standard
 // and a missing target surfaces a clean "No rule to make target
 // 'check'" error the parser can relay.
 //
@@ -2556,7 +2556,7 @@ func detectMakeTestTarget(repoRoot string) string {
 			continue
 		}
 		for _, target := range preference {
-			// "<target>:" at line start 鈥?Makefile target definition.
+			// "<target>:" at line start —Makefile target definition.
 			if strings.HasPrefix(ln, target+":") || strings.HasPrefix(ln, target+" :") {
 				found[target] = true
 			}

@@ -2307,7 +2307,7 @@ func TestAnswerDocumentEvaluator_Observe_MidLoopUnexpectedReadToolRequestsSynthe
 		t.Fatalf("unexpected read tool should request a correction hint, got %+v", sig)
 	}
 	for _, want := range []string{
-		"pure synthesizer",
+		"pure answer synthesizer",
 		"Do NOT call `read_file`",
 		"emit_answer_document",
 		"Diagram Node Allowlist",
