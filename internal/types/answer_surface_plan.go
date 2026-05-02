@@ -57,6 +57,16 @@ type AnswerSurfacePlan struct {
 
 	RelatedContextCitationCandidates []ConfigTraceRelatedContextCitationCandidate
 	ConfigTraceDiagramAnchors        []ConfigTraceDiagramAnchor
+
+	// FacetCoverage (Phase 1 of Semantic Surface Contract,
+	// docs/design/semantic_surface_contract_phases.md §1) compiles
+	// the per-question facet plan from the family resolver +
+	// surface evidence. Phase 1 is OBSERVATION ONLY — set on the
+	// plan, surfaced via trace logs, but does NOT drive any gate
+	// or finalizer prompt yet. Phase 2+ will start consuming.
+	// Nil when ResolveQuestionFamily returned no matching template
+	// or when the analyzer produced no usable RequestModel.
+	FacetCoverage *FacetCoverageContract
 }
 
 type AnswerSummarySurfaceMode string
@@ -1256,6 +1266,13 @@ func BuildAnswerSurfacePlan(
 	)
 	plan.PreferredExactResolution = preferredExactResolutionSurface(plan)
 	plan.SummarySurfaceMode = preferredAnswerSummarySurfaceMode(plan, ir.RequestModel)
+
+	// Phase 1 of Semantic Surface Contract: compile the per-question
+	// facet coverage plan from the resolved family + surface evidence.
+	// Pure deterministic projection — no LLM input. Phase 1 is
+	// observation-only; downstream consumers (finalizer prompt /
+	// validators) start in Phase 2+.
+	plan.FacetCoverage = CompileFacetCoverage(ir.RequestModel, plan.SurfaceEvidence)
 
 	return plan
 }

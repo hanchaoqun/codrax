@@ -808,6 +808,27 @@ func BuildPromptContext(ac *types.AgentContext, sk *skill.Config) *types.PromptC
 	})
 	findings := formatFlowFindings(ac.FlowFindings, 10)
 	logging.Debug("[builder] %s/%s: evidence_section_len=%d findings_section_len=%d", ac.AgentName, ac.Stage, len(evidence), len(findings))
+	// Phase 1 of Semantic Surface Contract
+	// (docs/design/semantic_surface_contract_phases.md §1): emit a
+	// debug snapshot of the compiled FacetCoverageContract so we
+	// can observe family classification + facet binding on real
+	// LLM runs before opening any gate (Phase 4+). The surface plan
+	// is built fresh per AgentContext via the existing helper;
+	// FacetCoverage is the new field on it. Read-only — Phase 1
+	// does not change emit/render behaviour.
+	if surfacePlan := types.BuildAnswerSurfacePlanForAgentContext(ac); surfacePlan != nil && surfacePlan.FacetCoverage != nil {
+		fc := surfacePlan.FacetCoverage
+		logging.Debug("[trace/facet] %s/%s family=%s required=%d optional=%d",
+			ac.AgentName, ac.Stage, fc.Family, len(fc.Required), len(fc.Optional))
+		for i, req := range fc.Required {
+			logging.Debug("[trace/facet] required[%d] kind=%s req=%s forms=%v candidates=%d",
+				i, req.Kind, req.Required, req.AcceptableForms, len(req.SourceCandidate))
+		}
+		for i, req := range fc.Optional {
+			logging.Debug("[trace/facet] optional[%d] kind=%s req=%s forms=%v candidates=%d",
+				i, req.Kind, req.Required, req.AcceptableForms, len(req.SourceCandidate))
+		}
+	}
 	// Structured Evidence carries the full top-18 evidence dump.
 	// Skipped for the extract-skill: that dispatch already sees the
 	// top-12 via Prior Stage Findings' Primary Evidence subsection
