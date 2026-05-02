@@ -9631,6 +9631,16 @@ func (e *explorerEvaluator) buildConcreteValuesSection(repoRoot string, readSet 
 			Producer:   "concrete_values",
 			Summary:    fmt.Sprintf("`%s()` %s %s", v.method, predicate, v.value),
 			Scope:      types.ScopeLine,
+			// 2026-05-02: project the syntactic predicate into the
+			// typed AnchorKind axis so Phase 0's ClaimFormOf can
+			// classify the evidence (was 100% ClaimUnknown
+			// pre-projection). See concreteValueKindToAnchorKind.
+			AnchorKind: concreteValueKindToAnchorKind(predicate),
+			// concrete_values evidence is repo-source-derived (the
+			// extractor scans repo .go / .py / .ts / etc. files);
+			// Origin makes the provenance explicit so downstream
+			// Phase 4 ClaimForm checks have full context.
+			Origin: types.ClaimOriginCurrentRepo,
 		}
 		cvItem.ID = types.StableEvidenceID(cvItem)
 		cvEvidence = append(cvEvidence, cvItem)
