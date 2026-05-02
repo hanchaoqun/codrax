@@ -915,7 +915,7 @@ func runPredicateAxisOracle(doc *types.AnswerDocument, rm *types.RequestModel, m
 			"predicate_axis=%s expects at least one evidence anchor of kind in %v; the answer's grounded evidence carries no matching anchor_kind",
 			axis, allowedNames),
 		Repair: fmt.Sprintf(
-			"investigate further and emit at least one evidence item with anchor_kind in %v (the action shape the question's verb implies). The current evidence may be grounded but does not match the requested action — definitions / assignments / etc are present but the asked-for kind is missing.",
+			"the next investigation pass should produce at least one evidence item with anchor_kind in %v (the action shape the question's verb implies). Current evidence is grounded but anchor-shape mismatched — definitions / assignments / etc are present, the asked-for kind is missing. If a finalizer dispatch sees this hint, re-emit emit_answer_document with the existing evidence verbatim — the system will route the next attempt to investigate further automatically.",
 			allowedNames),
 		SuspectedRoot: types.SuspectedRoot{
 			IRField:    "predicate_axis_anchor",

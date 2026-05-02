@@ -3665,7 +3665,7 @@ func (o *Orchestrator) runReadSchedulerLoop(stepBudget int) int {
 		case FallbackFailLoud:
 			out.FinalAnswer = appendViolationsToAnswer(out.FinalAnswer, res)
 			out.FinalAnswer = prependFailLoudWarning(out.FinalAnswer, o.busCtx.Mutable, state,
-				"fallback policy resolved to fail-loud", o.settings)
+				"this answer's flagged issues cannot be repaired by retry", o.settings)
 			lastFinalize = out
 			state.markDone(fin.ID)
 			o.emitNodeEnd(fin.ID, true, "")

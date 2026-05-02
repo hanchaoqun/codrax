@@ -1286,7 +1286,7 @@ func appendReflectorObservationToClosure(mut *types.MutableState, observation st
 	closure.AppendViolation(types.Violation{
 		Kind:   types.ViolReflectorObservation,
 		Detail: fmt.Sprintf("reflector observation (verify retry attempt %d): %s", attempt, observation),
-		Repair: "reflector is observational; the planner already received this critique on its retry input. No direct action required from downstream consumers.",
+		Repair: "this is an observational note from an independent reviewer LLM; the planner already received it on its retry. No direct action expected.",
 		Stage:  string(types.StageVerify),
 		SuspectedRoot: types.SuspectedRoot{
 			IRField:    "reflector_observation",

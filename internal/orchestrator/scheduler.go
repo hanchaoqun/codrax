@@ -373,6 +373,19 @@ func captureYieldSnapshot(closure *types.EvidenceClosure) yieldSnapshot {
 // the window). A zero return means the window produced no new
 // information on any axis — exactly the condition F5's kill gate
 // watches for.
+//
+// Block 1 audit (2026-05-02): with the closure auto-bumping
+// ViolationsLogged on every AppendViolation, this axis grows ≥1
+// per contract.Check fail — making the kill gate effectively
+// unreachable when MinRetryYield=1 (the default). The real
+// retry-loop bounds in production are RetryBudget (overall),
+// RetryBudgetByKind (per-violation-kind), and
+// MaxUpstreamFallbacksPerRun (selective-fallback ceiling, default
+// 2). Operators wanting yield-kill to catch zero-progress retries
+// should raise MinRetryYield, OR yield can be re-defined in a
+// future commit to count DISTINCT violation kinds rather than
+// total LedgerEntries — that would re-enable kill on "same
+// kind keeps re-firing" pathology.
 func yieldDelta(prev, now yieldSnapshot) int {
 	d := 0
 	if now.ForcedReads > prev.ForcedReads {
