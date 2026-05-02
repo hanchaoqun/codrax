@@ -7,31 +7,57 @@ import (
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
+// RenderDriftBoundedCurrentRootCauseSummary returns the prose for
+// drift-bounded answers. Round-11 user red line: drift mode now fires
+// for both IntentRootCause AND IntentTrace (R9), so this prose MUST
+// be intent-neutral. The pre-fix tail clause "Deeper internal
+// dereference details from the older build..." was panic-specific
+// and confused IntentTrace users (their question wasn't about
+// dereference). Replaced with intent-neutral "details from the
+// older artifact build are not directly proven by the current
+// citations" — covers panic / call-path / config-trace / perf
+// scenarios uniformly.
+//
+// Function name retains "RootCause" suffix for backward compat
+// (callers across orchestrator + emit_answer_document) but the
+// prose itself no longer assumes the user's question is root-cause.
 func RenderDriftBoundedCurrentRootCauseSummary(plan *types.AnswerSurfacePlan, lang string) string {
 	if plan == nil || plan.SummarySurfaceMode != types.AnswerSummarySurfaceDriftBoundedRootCause {
 		return ""
 	}
 	zh := answerDocumentRequiresChinese(lang)
 	callText, mechanismText := driftBoundedPrimaryClauses(plan, zh)
+	tail := driftBoundedTailDisclosure(zh)
 	switch {
 	case callText != "" && mechanismText != "" && callText != mechanismText:
 		if zh {
-			return fmt.Sprintf("当前仓库能确认的已锚定路径是%s。当前最近的已锚定机制是：%s。更深的旧构建内部解引用点仍未被当前引用直接证明。", callText, mechanismText)
+			return fmt.Sprintf("当前仓库能确认的已锚定路径是%s。当前最近的已锚定机制是：%s。%s", callText, mechanismText, tail)
 		}
-		return fmt.Sprintf("The current repo grounds the path where %s. The nearest grounded current-code mechanism is: %s. Deeper internal dereference details from the older build are still not directly proven by the current citations.", callText, mechanismText)
+		return fmt.Sprintf("The current repo grounds the path where %s. The nearest grounded current-code mechanism is: %s. %s", callText, mechanismText, tail)
 	case callText != "":
 		if zh {
-			return fmt.Sprintf("当前仓库能确认的已锚定路径是%s。更深的旧构建内部解引用点仍未被当前引用直接证明。", callText)
+			return fmt.Sprintf("当前仓库能确认的已锚定路径是%s。%s", callText, tail)
 		}
-		return fmt.Sprintf("The current repo grounds the path where %s. Deeper internal dereference details from the older build are still not directly proven by the current citations.", callText)
+		return fmt.Sprintf("The current repo grounds the path where %s. %s", callText, tail)
 	case mechanismText != "":
 		if zh {
-			return fmt.Sprintf("当前仓库当前能确认的最近机制是：%s。更深的旧构建内部解引用点仍未被当前引用直接证明。", mechanismText)
+			return fmt.Sprintf("当前仓库当前能确认的最近机制是：%s。%s", mechanismText, tail)
 		}
-		return fmt.Sprintf("The nearest grounded current-code mechanism is: %s. Deeper internal dereference details from the older build are still not directly proven by the current citations.", mechanismText)
+		return fmt.Sprintf("The nearest grounded current-code mechanism is: %s. %s", mechanismText, tail)
 	default:
 		return ""
 	}
+}
+
+// driftBoundedTailDisclosure returns the intent-neutral closing
+// sentence for the drift-bounded summary. Avoids panic-specific
+// vocabulary ("dereference", "解引用") so IntentTrace and
+// IntentRootCause user questions get equally appropriate prose.
+func driftBoundedTailDisclosure(zh bool) string {
+	if zh {
+		return "更深的旧构建细节仍未被当前引用直接证明。"
+	}
+	return "Deeper details from the older artifact build are not directly proven by the current citations."
 }
 
 func RenderDriftBoundedCurrentCodeDetailSummary(plan *types.AnswerSurfacePlan, lang string) string {
@@ -96,6 +122,16 @@ func RenderDriftBoundedErrorTypeCoverageSummary(errorTypes []string, lang string
 	return fmt.Sprintf("The attached log's structured error types are %s.", strings.Join(quoted, " -> "))
 }
 
+// RenderDriftBoundedLogBundleSurfaceSummary returns prose summarising
+// the attached LogBundle's signal + error types. Round-11 user red
+// line: prose phrasing must NOT hard-assume the artifact is a
+// "panic-style" log. Signal-set may be timeout / db / network /
+// validation / logic / performance / other — for these the
+// pre-fix "this is a [validation]" sentence was awkward. Now uses
+// "The attached log surfaced these signals: ..." which fits any
+// signal subset, and the artifact name uses "log" only when the
+// bundle is genuinely a LogBundle (perf-trace prose is rendered
+// by RenderDriftBoundedPerfBundleSurfaceSummary below).
 func RenderDriftBoundedLogBundleSurfaceSummary(bundle *types.LogBundle, lang string) string {
 	if bundle == nil {
 		return ""
@@ -133,17 +169,48 @@ func RenderDriftBoundedLogBundleSurfaceSummary(bundle *types.LogBundle, lang str
 	case len(signals) > 0 && len(errorTypes) > 0:
 		typeSummary := RenderDriftBoundedErrorTypeCoverageSummary(errorTypes, lang)
 		if zh {
-			return fmt.Sprintf("附带日志显示这是一次%s。%s", strings.Join(signals, " / "), typeSummary)
+			return fmt.Sprintf("附带日志的信号集是%s。%s", strings.Join(signals, " / "), typeSummary)
 		}
-		return fmt.Sprintf("The attached log is a %s. %s", strings.Join(signals, " / "), typeSummary)
+		return fmt.Sprintf("The attached log surfaced these signals: %s. %s", strings.Join(signals, " / "), typeSummary)
 	case len(signals) > 0:
 		if zh {
-			return fmt.Sprintf("附带日志显示这是一次%s。", strings.Join(signals, " / "))
+			return fmt.Sprintf("附带日志的信号集是%s。", strings.Join(signals, " / "))
 		}
-		return fmt.Sprintf("The attached log is a %s.", strings.Join(signals, " / "))
+		return fmt.Sprintf("The attached log surfaced these signals: %s.", strings.Join(signals, " / "))
 	default:
 		return RenderDriftBoundedErrorTypeCoverageSummary(errorTypes, lang)
 	}
+}
+
+// RenderDriftBoundedPerfBundleSurfaceSummary is the perf-trace
+// counterpart to RenderDriftBoundedLogBundleSurfaceSummary.
+// Round-11: perf-only / trace-only attached scenarios get correct
+// "perf trace" prose instead of being silently force-fit into
+// log-bundle prose (which said "附带日志..." even when only a
+// PerfBundle was attached).
+func RenderDriftBoundedPerfBundleSurfaceSummary(bundle *types.PerfBundle, lang string) string {
+	if bundle == nil {
+		return ""
+	}
+	zh := answerDocumentRequiresChinese(lang)
+	signals := make([]string, 0, len(bundle.Meta.Signals))
+	seen := make(map[string]bool)
+	for _, sig := range bundle.Meta.Signals {
+		name := strings.TrimSpace(sig)
+		key := strings.ToLower(name)
+		if name == "" || seen[key] {
+			continue
+		}
+		seen[key] = true
+		signals = append(signals, "`"+name+"`")
+	}
+	if len(signals) == 0 {
+		return ""
+	}
+	if zh {
+		return fmt.Sprintf("附带的性能轨迹的信号集是%s。", strings.Join(signals, " / "))
+	}
+	return fmt.Sprintf("The attached perf trace surfaced these signals: %s.", strings.Join(signals, " / "))
 }
 
 func renderDriftBoundedCurrentRootCauseSummary(ctx *types.BusContext) string {
