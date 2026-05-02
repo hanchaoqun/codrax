@@ -188,6 +188,67 @@ const (
 	// answer_taxonomy cache (commit 51) so the same signal feeds both
 	// in-Run health snapshots and cross-Run learning.
 	ViolAnswerReviewerDistilled ViolationKind = "answer_reviewer_distilled"
+
+	// Block 2 (architecture overhaul 2026-05-02) — Intent → Answer
+	// axis-coverage violations. Each fires when the analyzer's
+	// emit_analysis output declared one shape of question but the
+	// finalizer / extractor produced an answer that does not satisfy
+	// the structural expectation for that shape. SOFT-by-default —
+	// the answer ships with telemetry, operators promote to strict
+	// via pipeline_contract_strict_kinds.
+
+	// ViolIntentTraceShallow fires when rm.Intent == IntentTrace
+	// (LLM said "trace this from X to Y") but the answer has fewer
+	// than 2 hops in steps[] AND no sequenceDiagram fenced block in
+	// the summary. A trace answer with one bullet or no diagram
+	// failed to walk the chain — almost always a regression where
+	// the explorer found one anchor and the finalizer wrapped it
+	// in prose without crossing the actual intermediate functions.
+	ViolIntentTraceShallow ViolationKind = "intent_trace_shallow"
+
+	// ViolIntentEnumerateNotList fires when rm.Intent ==
+	// IntentEnumerate (LLM said "list all X") but the answer's
+	// shape is neither list_of_symbols NOR a step_list with ≥2
+	// items. Enumeration questions need a list-shaped surface;
+	// a single explanation paragraph is structurally wrong.
+	ViolIntentEnumerateNotList ViolationKind = "intent_enumerate_not_list"
+
+	// ViolIntentRootCauseNoCause fires when rm.Intent ==
+	// IntentRootCause (LLM said "why does X happen") but the
+	// AnswerDocument has zero citations naming concrete causal
+	// anchors. Root-cause answers must rest on at least one
+	// grounded site — a hand-wave explanation without anchors is
+	// a regression.
+	ViolIntentRootCauseNoCause ViolationKind = "intent_root_cause_no_cause"
+
+	// ViolIntentConfigNoTrail fires when rm.Intent ==
+	// IntentConfigQuery (LLM said "what's the value / where is X
+	// configured") but the answer has neither shape=value /
+	// config_value nor a citation pointing at a config-shaped
+	// path (yaml / json / toml / ini / .env / shell rc). The
+	// canonical config-query answer needs at least one of these
+	// signals; an Explanation with no config citation is wrong.
+	ViolIntentConfigNoTrail ViolationKind = "intent_config_no_trail"
+
+	// ViolSubjectAnchorMissing fires when the analyzer declared a
+	// concrete AnswerSubject (Kind ∈ {SubjectFunctionName,
+	// SubjectTypeName, SubjectHandlerRoute, SubjectConfigKey,
+	// SubjectStructField, SubjectInterface}) at confidence ≥
+	// coherenceSubjectConfidenceFloor (0.6), but the rendered
+	// AnswerDocument neither exposes this subject in doc.Symbols /
+	// doc.Steps (their .anchor fields) nor mentions it in the
+	// summary by inline backtick code. The subject the LLM said
+	// the question was about is missing from the answer surface.
+	ViolSubjectAnchorMissing ViolationKind = "subject_anchor_missing"
+
+	// ViolPredicateAxisMissing fires when rm.PredicateAxis is set
+	// (LLM declared the action verb) but the closure carries no
+	// EvidenceItem whose AnchorKind belongs to the axis's allowed
+	// set (per types/axis_anchor_map.go::PredicateAxisToAnchorKinds).
+	// E.g. PredicateAxis = AxisCall but no evidence with
+	// AnchorKind = AnchorCall — the answer is grounded but in the
+	// wrong shape (definition / assignment instead of the call).
+	ViolPredicateAxisMissing ViolationKind = "predicate_axis_missing"
 )
 
 // AllViolationKinds returns every declared ViolationKind in a stable
@@ -221,6 +282,12 @@ func AllViolationKinds() []ViolationKind {
 		ViolPlanCritic,
 		ViolReflectorObservation,
 		ViolAnswerReviewerDistilled,
+		ViolIntentTraceShallow,
+		ViolIntentEnumerateNotList,
+		ViolIntentRootCauseNoCause,
+		ViolIntentConfigNoTrail,
+		ViolSubjectAnchorMissing,
+		ViolPredicateAxisMissing,
 	}
 }
 

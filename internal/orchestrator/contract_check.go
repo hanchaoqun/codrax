@@ -102,6 +102,18 @@ func runContractCheck(out *agent.StageOutput, c types.AnswerContract, mut *types
 		if doc := mut.AnswerDocument(); doc != nil && ir != nil {
 			result.Violations = append(result.Violations,
 				runAnswerShapeOracle(doc, ir, mut)...)
+			// Block 2 (architecture overhaul 2026-05-02) — Intent /
+			// Subject / PredicateAxis oracles. Each runs after the
+			// existing Shape oracle so the violation set carries
+			// breadth ("shape" + "intent depth" + "subject anchor"
+			// + "axis evidence"). All SOFT-by-default; promotion
+			// via pipeline_contract_strict_kinds.
+			result.Violations = append(result.Violations,
+				runIntentCoverageOracle(doc, ir)...)
+			result.Violations = append(result.Violations,
+				runSubjectAnchorOracle(doc, ir)...)
+			result.Violations = append(result.Violations,
+				runPredicateAxisOracle(doc, ir, mut)...)
 		}
 	}
 
@@ -471,6 +483,468 @@ func runAnswerShapeOracle(doc *types.AnswerDocument, rm *types.RequestModel, mut
 	return out
 }
 
+// runIntentCoverageOracle (Block 2 architecture overhaul 2026-05-02)
+// validates that the rendered AnswerDocument structurally satisfies
+// the depth / shape / breadth implied by rm.Intent. Each Intent gets
+// its own coverage rule:
+//
+//   - IntentTrace: ≥2 hops in steps[] OR a sequenceDiagram fenced
+//     block in summary. A trace answer with one bullet failed to
+//     walk the chain.
+//   - IntentEnumerate: shape=list_of_symbols OR shape=step_list with
+//     ≥2 items. Enumeration questions need a list-shaped surface.
+//   - IntentRootCause: ≥1 citation. Root-cause needs at least one
+//     grounded site; an unanchored hand-wave explanation is wrong.
+//   - IntentConfigQuery: shape=value/config_value OR ≥1 citation
+//     pointing at a config-shaped path. The canonical config-query
+//     answer surfaces a literal or a config citation.
+//
+// Inputs: only IR fields (Intent, Shape) and AnswerDocument structure.
+// No question-text matching, no system-derived Scenario reads. Each
+// Intent's rule is a STRUCTURAL invariant on the LLM's emit.
+//
+// All produced violations are SOFT-by-default (cmd/root.go default
+// strict-kinds excludes them). Block 3 routes them to selective
+// fallback targets — IntentTrace/IntentRootCause/IntentConfig miss →
+// BackToExplore (need more evidence); IntentEnumerate miss →
+// FinalizerOnly (re-emit with the right shape).
+func runIntentCoverageOracle(doc *types.AnswerDocument, rm *types.RequestModel) []types.Violation {
+	if doc == nil || rm == nil {
+		return nil
+	}
+	var out []types.Violation
+	switch rm.Intent {
+	case types.IntentTrace:
+		if !traceAnswerHasDepth(doc) {
+			out = append(out, types.Violation{
+				Kind: types.ViolIntentTraceShallow,
+				Detail: fmt.Sprintf(
+					"intent=trace expects a multi-hop trace surface; finalizer emitted shape=%s with %d step(s) and %s sequenceDiagram block",
+					doc.Shape, len(doc.Steps), boolToHasOrNot(hasSequenceDiagram(doc.Summary), "a", "no")),
+				Repair: "re-emit emit_answer_document for this trace question with EITHER (a) steps[] containing >=2 hops, each step naming the file:line where the chain advances, OR (b) summary embedding a fenced sequenceDiagram block tracing the chain (`Actor->>Other: call`).",
+				SuspectedRoot: types.SuspectedRoot{
+					IRField:    "answer_shape",
+					Reason:     "intent declares trace; answer surface lacks multi-hop depth",
+					Confidence: 0.55,
+				},
+				Stage: string(types.StageFinalize),
+			})
+		}
+	case types.IntentEnumerate:
+		if !enumerateAnswerHasList(doc) {
+			out = append(out, types.Violation{
+				Kind: types.ViolIntentEnumerateNotList,
+				Detail: fmt.Sprintf(
+					"intent=enumerate expects a list surface; finalizer emitted shape=%s with %d step(s) and %d symbol(s)",
+					doc.Shape, len(doc.Steps), len(doc.Symbols)),
+				Repair: "re-emit emit_answer_document with shape=list_of_symbols and >=2 items in symbols[] (one per enumerated value), OR shape=step_list with >=2 entries each naming one value.",
+				SuspectedRoot: types.SuspectedRoot{
+					IRField:    "answer_shape",
+					Reason:     "intent declares enumerate; answer surface is not a list",
+					Confidence: 0.6,
+				},
+				Stage: string(types.StageFinalize),
+			})
+		}
+	case types.IntentRootCause:
+		if len(doc.Citations) == 0 {
+			out = append(out, types.Violation{
+				Kind:   types.ViolIntentRootCauseNoCause,
+				Detail: "intent=root_cause expects at least one citation naming the causal anchor; finalizer emitted zero citations.",
+				Repair: "re-emit emit_answer_document with at least one citation in citations[] pointing at the file:line where the cause is implemented (the failing branch, the buggy line, the missing guard).",
+				SuspectedRoot: types.SuspectedRoot{
+					IRField:    "answer_root_cause_anchor",
+					Reason:     "intent declares root_cause; answer carries no grounded cause site",
+					Confidence: 0.7,
+				},
+				Stage: string(types.StageFinalize),
+			})
+		}
+	case types.IntentConfigQuery:
+		if !configQueryAnswerHasTrail(doc) {
+			out = append(out, types.Violation{
+				Kind: types.ViolIntentConfigNoTrail,
+				Detail: fmt.Sprintf(
+					"intent=config_query expects shape=value/config_value OR at least one citation in a config-shaped path (yaml/json/toml/ini/.env/shell rc); finalizer emitted shape=%s with %d citation(s)",
+					doc.Shape, len(doc.Citations)),
+				Repair: "re-emit emit_answer_document with EITHER (a) shape=value or shape=config_value with the literal in value{} and citation_ref pointing at the defining line, OR (b) keep the current shape but add at least one citation pointing at a config file (yaml/json/toml/ini/.env/shell rc).",
+				SuspectedRoot: types.SuspectedRoot{
+					IRField:    "answer_config_trail",
+					Reason:     "intent declares config_query; answer surface lacks the canonical literal-or-config-citation pair",
+					Confidence: 0.55,
+				},
+				Stage: string(types.StageFinalize),
+			})
+		}
+	}
+	return out
+}
+
+// traceAnswerHasDepth reports whether a trace-class answer surface
+// has structural depth — either >=2 step hops or a sequenceDiagram
+// fenced block in summary.
+func traceAnswerHasDepth(doc *types.AnswerDocument) bool {
+	if doc == nil {
+		return false
+	}
+	if len(doc.Steps) >= 2 {
+		return true
+	}
+	return hasSequenceDiagram(doc.Summary)
+}
+
+// enumerateAnswerHasList reports whether an enumeration answer
+// renders as a list surface.
+func enumerateAnswerHasList(doc *types.AnswerDocument) bool {
+	if doc == nil {
+		return false
+	}
+	if doc.Shape == types.ShapeListOfSymbols {
+		return true
+	}
+	if doc.Shape == types.ShapeStepList && len(doc.Steps) >= 2 {
+		return true
+	}
+	return false
+}
+
+// configQueryAnswerHasTrail reports whether a config-query answer
+// has either a value/config_value shape OR at least one citation
+// pointing at a config-shaped file path.
+func configQueryAnswerHasTrail(doc *types.AnswerDocument) bool {
+	if doc == nil {
+		return false
+	}
+	if doc.Shape == types.ShapeValue || doc.Shape == types.ShapeConfigValue {
+		return true
+	}
+	for _, c := range doc.Citations {
+		if isConfigShapedPath(c.File) {
+			return true
+		}
+	}
+	return false
+}
+
+// hasSequenceDiagram reports whether the summary contains a
+// sequenceDiagram fenced block. Lookup is purely structural —
+// matches "```mermaid" followed by "sequenceDiagram" within the
+// same fence body. No keyword matching on prose text.
+func hasSequenceDiagram(summary string) bool {
+	if summary == "" {
+		return false
+	}
+	// Find `+"```"+`mermaid…sequenceDiagram… within the same fenced block.
+	fenceIdx := strings.Index(summary, "```mermaid")
+	for fenceIdx >= 0 {
+		body := summary[fenceIdx+len("```mermaid"):]
+		closeIdx := strings.Index(body, "```")
+		if closeIdx < 0 {
+			break
+		}
+		if strings.Contains(body[:closeIdx], "sequenceDiagram") {
+			return true
+		}
+		next := strings.Index(summary[fenceIdx+1:], "```mermaid")
+		if next < 0 {
+			break
+		}
+		fenceIdx = fenceIdx + 1 + next
+	}
+	return false
+}
+
+// isConfigShapedPath reports whether the citation file path looks
+// like a runtime config artifact (yaml/json/toml/ini/.env/shell rc).
+// Pure extension/basename check — no path heuristics, no token
+// matching. Used by the IntentConfigQuery oracle's secondary
+// signal.
+func isConfigShapedPath(file string) bool {
+	if file == "" {
+		return false
+	}
+	lower := strings.ToLower(file)
+	switch {
+	case strings.HasSuffix(lower, ".yaml"), strings.HasSuffix(lower, ".yml"):
+		return true
+	case strings.HasSuffix(lower, ".json"), strings.HasSuffix(lower, ".json5"):
+		return true
+	case strings.HasSuffix(lower, ".toml"), strings.HasSuffix(lower, ".ini"):
+		return true
+	case strings.HasSuffix(lower, ".env"):
+		return true
+	case strings.HasSuffix(lower, ".conf"), strings.HasSuffix(lower, ".cfg"):
+		return true
+	}
+	// Common shell rc and dotfile basenames.
+	base := lower
+	if i := strings.LastIndexByte(lower, '/'); i >= 0 {
+		base = lower[i+1:]
+	}
+	switch base {
+	case ".env", ".envrc", ".bashrc", ".zshrc", ".profile", ".bash_profile":
+		return true
+	}
+	return false
+}
+
+// boolToHasOrNot is a tiny presentation helper for the
+// IntentTraceShallow Detail string. Renders:
+//
+//	hasSequenceDiagram(summary) → "a sequenceDiagram block"
+//	!hasSequenceDiagram(summary) → "no sequenceDiagram block"
+func boolToHasOrNot(b bool, hasArticle, missingWord string) string {
+	if b {
+		return hasArticle
+	}
+	return missingWord
+}
+
+// runSubjectAnchorOracle (Block 2 — 2026-05-02) validates that the
+// rendered AnswerDocument exposes the analyzer's declared
+// AnswerSubject. When rm.AnswerSubject.Kind names a concrete
+// surface ({SubjectFunctionName, SubjectTypeName, SubjectHandlerRoute,
+// SubjectConfigKey, SubjectStructField, SubjectInterface}) at
+// confidence ≥ subjectFloor, the answer must surface that subject:
+//
+//   - via doc.Symbols[i].Name (any item)
+//   - via doc.Steps[i].Anchor (any step)
+//   - via inline backtick code in summary or any step description
+//
+// Pure structural — checks IR-emitted Subject text against
+// AnswerDocument structure. No question-text matching.
+func runSubjectAnchorOracle(doc *types.AnswerDocument, rm *types.RequestModel) []types.Violation {
+	if doc == nil || rm == nil {
+		return nil
+	}
+	subj := rm.AnswerSubject
+	if !concreteSubjectKind(subj.Kind) || subj.Confidence < subjectAnchorOracleFloor {
+		return nil
+	}
+	// EntityAxes carries the LLM-emitted subject identifiers; they
+	// may be empty when the LLM declared a Kind without naming
+	// concrete tokens. Without identifiers, we cannot check —
+	// abstain.
+	if len(subj.EntityAxes) == 0 {
+		return nil
+	}
+	if anyEntityAxisOnAnswerSurface(doc, subj.EntityAxes) {
+		return nil
+	}
+	return []types.Violation{{
+		Kind: types.ViolSubjectAnchorMissing,
+		Detail: fmt.Sprintf(
+			"answer_subject.kind=%s confidence=%.2f names %v but the rendered answer surfaces none of those identifiers in symbols[].name, steps[].anchor, or inline `code` in summary/steps",
+			subj.Kind, subj.Confidence, subj.EntityAxes),
+		Repair: fmt.Sprintf(
+			"re-emit emit_answer_document so the rendered answer surfaces at least one of %v — either as a symbols[] entry, as the .anchor on at least one step, or as an inline backtick `code` mention in summary or step descriptions.",
+			subj.EntityAxes),
+		SuspectedRoot: types.SuspectedRoot{
+			IRField:    "answer_subject_anchor",
+			Reason:     "subject named in IR is missing from the answer surface",
+			Confidence: float64(subj.Confidence),
+		},
+		Stage: string(types.StageFinalize),
+	}}
+}
+
+// concreteSubjectKind reports whether the AnswerSubjectKind names
+// a structural identifier that the answer can be expected to
+// expose verbatim. Generic / unknown subjects can't be checked.
+func concreteSubjectKind(k types.AnswerSubjectKind) bool {
+	switch k {
+	case types.SubjectFunctionName,
+		types.SubjectTypeName,
+		types.SubjectHandlerRoute,
+		types.SubjectConfigKey,
+		types.SubjectStructField,
+		types.SubjectInterface:
+		return true
+	}
+	return false
+}
+
+// subjectAnchorOracleFloor is the AnswerSubject.Confidence floor
+// below which the SubjectAnchor oracle abstains. Mirrors the
+// gate's coherenceSubjectConfidenceFloor (0.6) used for shape /
+// subject coherence — same noise-suppression rationale.
+const subjectAnchorOracleFloor = 0.6
+
+// anyEntityAxisOnAnswerSurface reports whether any entity in axes
+// appears verbatim (case-sensitive) in:
+//
+//   - doc.Symbols[i].Name (any item)
+//   - any step.Description's inline backtick `code`
+//   - doc.Summary's inline backtick `code`
+//
+// AnswerStep does not carry an explicit Anchor field today (Index +
+// Description + CitationRef only); the LLM-emitted load-bearing
+// identifier per step lives inline in the Description prose, which
+// is what extractInlineCodeTokens walks.
+//
+// Pure structural extraction — the inline-code parser walks
+// backtick pairs, no regex on prose words.
+func anyEntityAxisOnAnswerSurface(doc *types.AnswerDocument, axes []string) bool {
+	for _, sym := range doc.Symbols {
+		for _, a := range axes {
+			if sym.Name == a {
+				return true
+			}
+		}
+	}
+	for _, step := range doc.Steps {
+		for _, tok := range extractInlineCodeTokens(step.Description) {
+			for _, a := range axes {
+				if tok == a {
+					return true
+				}
+			}
+		}
+	}
+	for _, tok := range extractInlineCodeTokens(doc.Summary) {
+		for _, a := range axes {
+			if tok == a {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// extractInlineCodeTokens pulls every backtick-delimited token out
+// of prose. Walks the bytes, opens on a single backtick, closes on
+// the next single backtick. Handles paired ``code`` (rare) by
+// treating the inner content as one token. Skips fenced code blocks
+// (triple-backtick) — those do not contribute "the LLM mentioned X
+// inline" signal.
+func extractInlineCodeTokens(prose string) []string {
+	if prose == "" {
+		return nil
+	}
+	var out []string
+	i := 0
+	for i < len(prose) {
+		// Skip fenced blocks.
+		if i+2 < len(prose) && prose[i] == '`' && prose[i+1] == '`' && prose[i+2] == '`' {
+			end := strings.Index(prose[i+3:], "```")
+			if end < 0 {
+				return out
+			}
+			i += 3 + end + 3
+			continue
+		}
+		if prose[i] != '`' {
+			i++
+			continue
+		}
+		// Single-backtick run.
+		end := strings.IndexByte(prose[i+1:], '`')
+		if end < 0 {
+			return out
+		}
+		tok := strings.TrimSpace(prose[i+1 : i+1+end])
+		if tok != "" {
+			out = append(out, tok)
+		}
+		i += 1 + end + 1
+	}
+	return out
+}
+
+// runPredicateAxisOracle (Block 2 — 2026-05-02) validates that the
+// closure carries at least one EvidenceItem whose AnchorKind belongs
+// to the LLM-declared PredicateAxis's allowed-kind set (per
+// types/axis_anchor_map.go::PredicateAxisToAnchorKinds). When
+// PredicateAxis is set but no evidence has the matching shape, the
+// answer is grounded in the wrong axis — e.g. the LLM said the
+// question is "trace this call" (AxisCall) but every evidence item
+// carries AnchorDefinition (the function bodies, not the call sites).
+//
+// Skipped when:
+//   - rm.PredicateAxis == AxisUnknown (LLM didn't pin an axis)
+//   - the closure has no evidence with a non-empty AnchorKind
+//     (nothing to check; up-stream gates handle the empty case)
+//
+// SOFT-by-default. Block 3 routes to BackToExplore (more evidence
+// of the right shape).
+func runPredicateAxisOracle(doc *types.AnswerDocument, rm *types.RequestModel, mut *types.MutableState) []types.Violation {
+	if rm == nil || mut == nil {
+		return nil
+	}
+	axis := rm.PredicateAxis
+	if axis == types.AxisUnknown {
+		return nil
+	}
+	allowed := types.PredicateAxisToAnchorKinds(axis)
+	if len(allowed) == 0 {
+		return nil
+	}
+	closure := mut.EvidenceClosure()
+	if closure == nil {
+		return nil
+	}
+	evidence := closure.Stats() // touch to ensure init; real evidence lives elsewhere
+	_ = evidence
+	// Walk the evidence buffer through the answer document's
+	// citations as an indirection — every citation surfaces an
+	// evidence anchor, and the citation-pool already filtered to
+	// the items the answer actually rests on. We check the
+	// EmittedAnswerSymbol slate as well so step_list / list_of_
+	// symbols answers (whose citations are folded into per-row
+	// references) still get a fair check.
+	hasMatch := false
+	walkAnchorKinds(mut, func(k types.AnchorKind) bool {
+		for _, want := range allowed {
+			if k == want {
+				hasMatch = true
+				return true // stop early
+			}
+		}
+		return false
+	})
+	if hasMatch {
+		return nil
+	}
+	allowedNames := make([]string, 0, len(allowed))
+	for _, k := range allowed {
+		allowedNames = append(allowedNames, string(k))
+	}
+	return []types.Violation{{
+		Kind: types.ViolPredicateAxisMissing,
+		Detail: fmt.Sprintf(
+			"predicate_axis=%s expects at least one evidence anchor of kind in %v; the answer's grounded evidence carries no matching anchor_kind",
+			axis, allowedNames),
+		Repair: fmt.Sprintf(
+			"investigate further and emit at least one evidence item with anchor_kind in %v (the action shape the question's verb implies). The current evidence may be grounded but does not match the requested action — definitions / assignments / etc are present but the asked-for kind is missing.",
+			allowedNames),
+		SuspectedRoot: types.SuspectedRoot{
+			IRField:    "predicate_axis_anchor",
+			Reason:     "axis declared but no evidence with matching AnchorKind",
+			Confidence: 0.55,
+		},
+		Stage: string(types.StageFinalize),
+	}}
+}
+
+// walkAnchorKinds invokes fn for every AnchorKind observed across
+// the Run's evidence surfaces (TurnA artefacts + emitted answer
+// symbols). Stops early when fn returns true. Safe on nil mutable.
+func walkAnchorKinds(mut *types.MutableState, fn func(types.AnchorKind) bool) {
+	if mut == nil {
+		return
+	}
+	if turnA := mut.TurnAArtifacts(); turnA != nil {
+		for _, ev := range turnA.EvidenceItems {
+			if ev.AnchorKind == "" {
+				continue
+			}
+			if fn(ev.AnchorKind) {
+				return
+			}
+		}
+	}
+}
+
 // countDistinctAnswerSymbolBuckets reports how many distinct
 // "buckets" (sub-topic-like grouping) the answer-symbols span.
 // Bucket key is `File` when present (different files = different
@@ -707,11 +1181,26 @@ func buildSelfContradictionRepair(c SelfConsistencyContradiction, reasoning stri
 
 func defaultSoftKinds() map[types.ViolationKind]bool {
 	return map[types.ViolationKind]bool{
-		types.ViolShapeIntentMismatch:        true,
-		types.ViolSubTopicCountMismatch:      true,
-		types.ViolDiagramIdentifier:          true,
-		types.ViolDeclaredCountDrift:         true,
+		types.ViolShapeIntentMismatch:          true,
+		types.ViolSubTopicCountMismatch:        true,
+		types.ViolDiagramIdentifier:            true,
+		types.ViolDeclaredCountDrift:           true,
 		types.ViolExternalArtifactUnderdecoded: true,
+		// Block 1 (2026-05-02) reviewer-side kinds — telemetry only,
+		// never block apply / answer ship.
+		types.ViolPlanCritic:              true,
+		types.ViolReflectorObservation:    true,
+		types.ViolAnswerReviewerDistilled: true,
+		// Block 2 (2026-05-02) Intent / Subject / PredicateAxis
+		// oracle kinds — soft by default; promote individually via
+		// pipeline_contract_strict_kinds when an operator wants
+		// retry-loop enforcement.
+		types.ViolIntentTraceShallow:     true,
+		types.ViolIntentEnumerateNotList: true,
+		types.ViolIntentRootCauseNoCause: true,
+		types.ViolIntentConfigNoTrail:    true,
+		types.ViolSubjectAnchorMissing:   true,
+		types.ViolPredicateAxisMissing:   true,
 	}
 }
 

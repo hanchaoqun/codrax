@@ -216,11 +216,15 @@ func TestAllViolationKindsHaveProducer(t *testing.T) {
 		ViolPlanCritic:              true, // orchestrator/stage_hooks.go planPostHook
 		ViolReflectorObservation:    true, // orchestrator/stage_hooks.go appendReflectorObservationToClosure
 		ViolAnswerReviewerDistilled: true, // orchestrator/orchestrator.go runAnswerReview Block 1 hook
+		// Block 2 (2026-05-02) — Intent / Subject / PredicateAxis
+		// oracle kinds. Producers in orchestrator/contract_check.go.
+		ViolIntentTraceShallow:     true, // orchestrator/contract_check.go runIntentCoverageOracle
+		ViolIntentEnumerateNotList: true, // orchestrator/contract_check.go runIntentCoverageOracle
+		ViolIntentRootCauseNoCause: true, // orchestrator/contract_check.go runIntentCoverageOracle
+		ViolIntentConfigNoTrail:    true, // orchestrator/contract_check.go runIntentCoverageOracle
+		ViolSubjectAnchorMissing:   true, // orchestrator/contract_check.go runSubjectAnchorOracle
+		ViolPredicateAxisMissing:   true, // orchestrator/contract_check.go runPredicateAxisOracle
 	}
-	// All Session 11 violation kinds now have producers. The
-	// pending map remains empty but is kept so future additions
-	// can declare "not yet wired" kinds without deleting the
-	// pattern.
 	pending := map[ViolationKind]string{}
 	// Sanity: AllViolationKinds() must equal covered ∪ pending so the
 	// test itself catches a new kind added to the enum.
@@ -247,6 +251,13 @@ func TestAllViolationKindsHaveProducer(t *testing.T) {
 		ViolPlanCritic:              "ViolPlanCritic",
 		ViolReflectorObservation:    "ViolReflectorObservation",
 		ViolAnswerReviewerDistilled: "ViolAnswerReviewerDistilled",
+		// Block 2 (2026-05-02) Intent / Subject / PredicateAxis oracle kinds.
+		ViolIntentTraceShallow:     "ViolIntentTraceShallow",
+		ViolIntentEnumerateNotList: "ViolIntentEnumerateNotList",
+		ViolIntentRootCauseNoCause: "ViolIntentRootCauseNoCause",
+		ViolIntentConfigNoTrail:    "ViolIntentConfigNoTrail",
+		ViolSubjectAnchorMissing:   "ViolSubjectAnchorMissing",
+		ViolPredicateAxisMissing:   "ViolPredicateAxisMissing",
 	}
 
 	// Match only the "Kind: ViolXxx" composite-literal pattern —
