@@ -94,27 +94,27 @@ func extractEvidenceRequirementsWithModel(question string, entities []string, de
 }
 
 // extractEvidenceRequirementsWithHint is the analyzer-aware entry
-// point used by the explorer. When the analyzer declared a concrete
-// question_kind via emit_analysis (analyzer.go contract), we trust
-// it directly and emit the matching EvidenceRequirement without
-// running keyword inference — the analyzer has strictly more context
-// than a post-hoc regex over the same string. Empty or "unknown"
-// kind falls through to the keyword-based path.
+// point used by the explorer. Phase 6 stage 16 (2026-05-03):
+// keyword inference is REMOVED. RequirementKind comes ONLY from the
+// analyzer's typed emit (`question_kind` declared by emit_analysis,
+// or inferred deterministically from the typed RequestModel fields
+// via inferPrimaryRequirementKindFromSignals). Empty / unknown
+// declared kind no longer falls through to a keyword path; it
+// returns just the typed-secondary set from `preds`.
 //
-// The keyword path is still run as a SUPPLEMENT when the declared
-// kind is present — it may surface additional requirements (e.g. a
-// mechanism question that also needs a registration lookup) that the
-// analyzer did not think to declare. The declared kind is always
-// represented at least once in the output.
+// Per the user's directive "意图分类是分析器的工作", explore must
+// not re-tokenize the question to infer intent — the analyzer
+// already classified it; ERM consumes the typed result.
 func extractEvidenceRequirementsWithHint(question string, entities []string, declaredKindRaw string, preds types.SemanticPredicates) []EvidenceRequirement {
+	_ = question
 	declaredKind := types.NormalizeRequirementKind(declaredKindRaw)
 	if declaredKind == types.ReqUnknown {
-		reqs := extractEvidenceRequirementsWithEntities(question, entities)
-		return appendSecondaryKinds(reqs, entities, preds)
+		// No declared kind → no keyword fallback. Secondary kinds
+		// from typed SemanticPredicates only.
+		return appendSecondaryKinds(nil, entities, preds)
 	}
 
-	// Build the keyword-inferred set first so we can merge.
-	reqs := extractEvidenceRequirementsWithEntities(question, entities)
+	var reqs []EvidenceRequirement
 
 	// Track whether the declared kind already appeared in the keyword
 	// path — if so, the keyword path has already covered it.
@@ -361,238 +361,40 @@ func appendSecondaryKinds(reqs []EvidenceRequirement, entities []string, preds t
 // `RegisterDefaultSubAgents → SubExplorer` to the spurious `RegisterDefaults → GrepTool.Description`
 // chain — the tool registry matched MORE of the polluted entity set
 // than the correct answer.
+// extractEvidenceRequirementsWithEntities was retired 2026-05-03
+// (Phase 6 stage 16). The function classified the user's question
+// via 15 hardcoded EN+ZH keyword tables (enumeration / call_chain
+// / registration / return_value / history_noun / history_intent /
+// config_mapping / conditional / mechanism). Per the user's
+// architectural directive — "intent classification is the
+// analyzer's job, NOT explore's; keyword tables driving intent
+// classification are forbidden" — the entire keyword path is
+// removed. RequirementKind now derives ONLY from typed analyzer
+// signals (RequestModel.AnalyzerHints.Kind / Intent / Predicates /
+// PredicateAxis / AnswerSubject) via
+// extractEvidenceRequirementsFromStructuredSignals. When the
+// analyzer's emit_analysis tool call returns ReqUnknown for a
+// question, ERM stays empty rather than fabricating a kind from
+// re-tokenizing the question text.
+//
+// The function is preserved as a no-op for callers that haven't
+// migrated yet, returning an empty slice. Callers that produced
+// useful output through the keyword path now produce nothing —
+// the analyzer's structured emit is the single source of truth.
 func extractEvidenceRequirementsWithEntities(question string, entities []string) []EvidenceRequirement {
-	lower := strings.ToLower(question)
-
-	var reqs []EvidenceRequirement
-	seen := make(map[string]bool)
-	add := func(kind types.RequirementKind, reason string, ents ...string) {
-		key := string(kind) + ":" + strings.Join(ents, ",")
-		if seen[key] {
-			return
-		}
-		seen[key] = true
-		reqs = append(reqs, EvidenceRequirement{
-			Kind:     kind,
-			Entities: ents,
-			Reason:   reason,
-			Status:   "unsatisfied",
-		})
-	}
-
-	// --- Enumeration: "how many", "list all", "哪些", "多少", "列出" ---
-	//
-	// English set is broad enough to survive the analyzer's question
-	// rewriting. Original Chinese "有多少 / 哪些" gets rewritten by the
-	// analyzer to phrases like "Determine the number of X", "Count
-	// all X", "Find all instances of X", "List the X" — none of which
-	// the original {"how many", "list all", ...} set caught. All
-	// additions are multi-word phrases to keep false-positive risk
-	// low (bare "count" / "all" / "list" would over-trigger).
-	for _, kw := range []string{
-		"how many", "list all", "list each", "list the", "what are the",
-		"the number of", "count the", "count of",
-		"determine the number", "determine all",
-		"find all", "find every", "identify all",
-		"all instances of", "enumerate",
-	} {
-		if strings.Contains(lower, kw) {
-			add(types.ReqEnumeration, fmt.Sprintf("question asks to enumerate (%s)", kw), entities...)
-			break
-		}
-	}
-	for _, kw := range []string{"哪些", "多少", "列出", "哪几", "有几个", "分别"} {
-		if strings.Contains(question, kw) {
-			add(types.ReqEnumeration, fmt.Sprintf("question asks to enumerate (%s)", kw), entities...)
-			break
-		}
-	}
-
-	// --- Call chain: "calls", "invoke", "调用", "dispatch" ---
-	isCallChain := false
-	for _, kw := range []string{"call", "invoke", "dispatch", "calls"} {
-		if strings.Contains(lower, kw) {
-			isCallChain = true
-			break
-		}
-	}
-	for _, kw := range []string{"调用", "分发", "触发"} {
-		if strings.Contains(question, kw) {
-			isCallChain = true
-			break
-		}
-	}
-	if isCallChain && len(entities) >= 2 {
-		add(types.ReqCallChain,
-			fmt.Sprintf("need to trace how %s invokes/calls %s", entities[0], entities[1]),
-			entities...)
-	} else if isCallChain && len(entities) >= 1 {
-		add(types.ReqCallChain,
-			fmt.Sprintf("need to trace call relationships of %s", entities[0]),
-			entities...)
-	}
-
-	// --- Registration: "registered", "注册", or call_chain implies it ---
-	//
-	// "register" is a stem that already covers "registers/registered/
-	// registering/registry" via strings.Contains. Adding "bind"-family
-	// terms catches the analyzer's other common rewrite for 注册/绑定
-	// ("X is bound to Y", "binding for X").
-	isRegistration := false
-	for _, kw := range []string{"register", "registered", "registry", "bound to", "binding"} {
-		if strings.Contains(lower, kw) {
-			isRegistration = true
-			break
-		}
-	}
-	for _, kw := range []string{"注册", "绑定"} {
-		if strings.Contains(question, kw) {
-			isRegistration = true
-			break
-		}
-	}
-	// Call chains imply registration: "which X can call Y?" requires knowing what Y is registered
-	if isCallChain || isRegistration {
-		for _, ent := range entities {
-			add(types.ReqRegistration,
-				fmt.Sprintf("need to find where %s is registered/bound", ent),
-				ent)
-		}
-	}
-
-	// --- Return value: for each entity, we may need its concrete value ---
-	// Triggered when question asks about matching, identity, or naming.
-	//
-	// "return value" / "returned by" added because the analyzer rewrites
-	// "X 的方法返回什么?" → "Identify the return value of X" — and the
-	// original {name,type,which,what} set missed it (no name/type/which/
-	// what in that phrasing). Both additions are 2+ word phrases to
-	// avoid the false-positive trap of bare "return" (matches "early
-	// return", "return statement", code-structure questions).
-	for _, kw := range []string{
-		"name", "type", "which", "what",
-		"return value", "returned by",
-		"名称", "类型", "哪个", "什么",
-	} {
-		if strings.Contains(lower, kw) || strings.Contains(question, kw) {
-			for _, ent := range entities {
-				add(types.ReqReturnValue,
-					fmt.Sprintf("need concrete return values from %s (for matching/identity)", ent),
-					ent)
-			}
-			break
-		}
-	}
-
-	// --- History / authorship: "which commit", "introduced",
-	// "history", "blame", "首次引入", "谁提交的" ---
-	hasHistoryNoun := false
-	for _, kw := range []string{
-		"commit", "git log", "git blame", "history", "authorship",
-		"revision", "blame",
-	} {
-		if strings.Contains(lower, kw) {
-			hasHistoryNoun = true
-			break
-		}
-	}
-	if !hasHistoryNoun {
-		for _, kw := range []string{"提交", "历史", "版本", "修订"} {
-			if strings.Contains(question, kw) {
-				hasHistoryNoun = true
-				break
-			}
-		}
-	}
-	hasHistoryIntent := false
-	for _, kw := range []string{
-		"introduced", "first commit", "first added", "when added",
-		"who added", "who changed", "authored", "author",
-	} {
-		if strings.Contains(lower, kw) {
-			hasHistoryIntent = true
-			break
-		}
-	}
-	if !hasHistoryIntent {
-		for _, kw := range []string{"引入", "首次", "第一次", "添加", "谁提交", "谁改的", "什么时候"} {
-			if strings.Contains(question, kw) {
-				hasHistoryIntent = true
-				break
-			}
-		}
-	}
-	if hasHistoryNoun && hasHistoryIntent {
-		if len(entities) == 0 {
-			add(types.ReqHistory, "need repository history / authorship metadata for the requested target")
-		} else {
-			for _, ent := range entities {
-				add(types.ReqHistory,
-					fmt.Sprintf("need repository history / authorship metadata for %s", ent),
-					ent)
-			}
-		}
-	}
-
-	// --- Config mapping: "config", "configured", "配置" ---
-	for _, kw := range []string{"config", "configured", "configuration", "配置", "yaml", "json"} {
-		if strings.Contains(lower, kw) || strings.Contains(question, kw) {
-			add(types.ReqConfigMapping, "need to trace config keys to runtime behavior", entities...)
-			break
-		}
-	}
-
-	// --- Conditional: "when", "if", "condition", "条件", "什么时候" ---
-	//
-	// "triggered when" / "fires when" added to catch the analyzer's
-	// typical rewrite of "什么时候 X 触发?" → "Identify when X is
-	// triggered" / "Determine the conditions under which X fires".
-	// Bare "if" / "triggered" are NOT added because they over-trigger
-	// (every conditional code question contains "if").
-	for _, kw := range []string{
-		"when", "condition", "under what",
-		"triggered when", "fires when", "conditions under",
-		"条件", "什么时候", "何时",
-	} {
-		if strings.Contains(lower, kw) || strings.Contains(question, kw) {
-			add(types.ReqConditional, "need to resolve conditions under which behavior occurs", entities...)
-			break
-		}
-	}
-
-	// --- Mechanism (T2.1): "how does X work", "process", "原理", "机制", "怎么" ---
-	// English keyword set is intentionally broad enough to survive the
-	// analyzer's question rewriting (which often turns "X 怎么工作?" into
-	// "Explain how X works" or "Describe the process of X"). The Chinese
-	// set covers direct user phrasing.
-	//
-	// Detection avoids overlap with conditional ("when") and call_chain
-	// ("call/invoke") by requiring an explicit mechanism marker — we
-	// don't trigger on bare "how" because the analyzer uses "how" loosely.
-	for _, kw := range []string{
-		// English (analyzer-rewrite friendly)
-		"how does", "how is", "how do", "how the",
-		"explain how", "describe how", "describe the process",
-		"step by step", "steps involved", "mechanism of", "process of", "flow of",
-		"walk through", "walkthrough",
-	} {
-		if strings.Contains(lower, kw) {
-			add(types.ReqMechanism, fmt.Sprintf("need to trace mechanism (%s)", kw), entities...)
-			break
-		}
-	}
-	for _, kw := range []string{
-		// Chinese (direct user phrasing)
-		"怎么工作", "怎么实现", "如何实现", "如何工作", "如何处理",
-		"原理", "机制", "工作流程", "步骤", "过程",
-	} {
-		if strings.Contains(question, kw) {
-			add(types.ReqMechanism, fmt.Sprintf("need to trace mechanism (%s)", kw), entities...)
-			break
-		}
-	}
-
-	return reqs
+	// Phase 6 stage 16 (2026-05-03) — keyword-based intent
+	// classification REMOVED. Intent classification is the
+	// analyzer's job (emit_analysis tool call); ERM consumes the
+	// result via extractEvidenceRequirementsFromStructuredSignals.
+	// The retired path scanned 15 hardcoded EN+ZH keyword tables
+	// against the user's question prose to fabricate a
+	// RequirementKind — that violated the "no custom keyword
+	// matching" red line by making explore the intent classifier.
+	// Returning an empty slice routes callers through the typed
+	// analyzer signals.
+	_ = question
+	_ = entities
+	return nil
 }
 
 // ermThresholds carries the "satisfied" and "partial" floors for a

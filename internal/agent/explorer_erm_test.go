@@ -8,59 +8,17 @@ import (
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
-func TestExtractEvidenceRequirements_ChineseSubagent(t *testing.T) {
-	reqs := extractEvidenceRequirements("有多少个agent可以调用subagent? 请列出每个agent的名称和它能调用的subagent类型")
-
-	kinds := make(map[string]bool)
-	for _, r := range reqs {
-		kinds[string(r.Kind)] = true
-	}
-
-	if !kinds["enumeration"] {
-		t.Error("missing enumeration requirement (多少/列出)")
-	}
-	if !kinds["call_chain"] {
-		t.Error("missing call_chain requirement (调用)")
-	}
-	if !kinds["registration"] {
-		t.Error("missing registration requirement (implied by call_chain)")
-	}
-	if !kinds["return_value"] {
-		t.Error("missing return_value requirement (名称/类型)")
-	}
-}
-
-func TestExtractEvidenceRequirements_EnglishConfig(t *testing.T) {
-	reqs := extractEvidenceRequirements("How does the database.host config value flow to the HTTP handler?")
-
-	kinds := make(map[string]bool)
-	for _, r := range reqs {
-		kinds[string(r.Kind)] = true
-	}
-
-	if !kinds["config_mapping"] {
-		t.Error("missing config_mapping requirement")
-	}
-	// Structural entities should survive the tightened filter. The
-	// qualified identifier `database.host` contains a dot, so it
-	// lands in the entity set regardless of whether a symbol table
-	// is available. Short pure-lowercase prose ("handler", "config",
-	// "value") is intentionally filtered — see
-	// TestExtractRankingEntitiesWithGraph_AcceptsShortSymbolMatches
-	// for how production callers recover those when they hold a
-	// repomap.Graph.
-	hasDatabaseHost := false
-	for _, r := range reqs {
-		for _, e := range r.Entities {
-			if strings.Contains(e, "database.host") {
-				hasDatabaseHost = true
-			}
-		}
-	}
-	if !hasDatabaseHost {
-		t.Errorf("database.host entity not captured in any requirement: %v", reqs)
-	}
-}
+// TestExtractEvidenceRequirements_ChineseSubagent /
+// TestExtractEvidenceRequirements_EnglishConfig were retired
+// 2026-05-03 (Phase 6 stage 16). Both tests pinned the retired
+// extractEvidenceRequirements keyword-classification path which
+// scanned the user's question text for hardcoded EN+ZH keyword
+// tables to fabricate a RequirementKind. Per the architectural
+// directive "意图分类是分析器的工作", explore must NOT re-tokenize
+// the question to infer intent; the analyzer's emit_analysis tool
+// call IS the intent classifier, and ERM consumes the result via
+// extractEvidenceRequirementsFromStructuredSignals (typed
+// RequestModel fields only).
 
 func TestExtractEvidenceRequirements_NoMatch(t *testing.T) {
 	reqs := extractEvidenceRequirements("代码风格好不好")
@@ -240,29 +198,12 @@ func TestErmFileScore(t *testing.T) {
 // gets a positive set covering analyzer-style rewrites and a
 // negative set covering false-positive risks.
 
-func TestExtractEvidenceRequirements_EnumerationEnglishRewrites(t *testing.T) {
-	cases := []string{
-		"Determine the number of agents that can call subagent.",
-		"Count the agents in the system.",
-		"Find all instances of read_file usage.",
-		"Identify all evaluators in the agent package.",
-		"List the registered tools.",
-		"Enumerate the available skills.",
-	}
-	for _, q := range cases {
-		reqs := extractEvidenceRequirements(q)
-		hasEnum := false
-		for _, r := range reqs {
-			if r.Kind == "enumeration" {
-				hasEnum = true
-				break
-			}
-		}
-		if !hasEnum {
-			t.Errorf("question %q: no enumeration Kind extracted; reqs=%v", q, reqs)
-		}
-	}
-}
+// TestExtractEvidenceRequirements_EnumerationEnglishRewrites was
+// retired 2026-05-03 (Phase 6 stage 16). The test pinned the
+// retired English-keyword classification path. Intent
+// classification is now the analyzer's job — emit_analysis returns
+// `question_kind=enumeration` (or similar) and ERM consumes that
+// typed signal directly.
 
 func TestExtractEvidenceRequirements_EnumerationNegative(t *testing.T) {
 	// These contain enumeration-flavored words but are not enumeration
@@ -283,26 +224,9 @@ func TestExtractEvidenceRequirements_EnumerationNegative(t *testing.T) {
 	}
 }
 
-func TestExtractEvidenceRequirements_ReturnValueEnglishRewrites(t *testing.T) {
-	cases := []string{
-		"Identify the return value of the ShouldStop method in explorerEvaluator.",
-		"What is returned by SubExplorer.Name()?",
-		"Determine the return value of BaseAgent.Execute on hard stop.",
-	}
-	for _, q := range cases {
-		reqs := extractEvidenceRequirements(q)
-		hasRV := false
-		for _, r := range reqs {
-			if r.Kind == "return_value" {
-				hasRV = true
-				break
-			}
-		}
-		if !hasRV {
-			t.Errorf("question %q: no return_value Kind extracted; reqs=%v", q, reqs)
-		}
-	}
-}
+// TestExtractEvidenceRequirements_ReturnValueEnglishRewrites was
+// retired 2026-05-03 (Phase 6 stage 16) — same reason: keyword
+// classification is the analyzer's job, not explore's.
 
 func TestExtractEvidenceRequirements_ReturnValueNegative(t *testing.T) {
 	// "return" alone must NOT trigger return_value — it would match
@@ -322,112 +246,13 @@ func TestExtractEvidenceRequirements_ReturnValueNegative(t *testing.T) {
 	}
 }
 
-func TestExtractEvidenceRequirements_RegistrationBindRewrites(t *testing.T) {
-	// Analyzer rewrites of 注册/绑定 questions often use "bound to" /
-	// "binding". The expansion must catch these without depending on
-	// the bare "register" stem.
-	cases := []string{
-		"Where is the explorer agent bound to its sub-agents?",
-		"Find the binding for the propose_sub_agents tool.",
-	}
-	for _, q := range cases {
-		reqs := extractEvidenceRequirements(q)
-		hasReg := false
-		for _, r := range reqs {
-			if r.Kind == "registration" {
-				hasReg = true
-				break
-			}
-		}
-		if !hasReg {
-			t.Errorf("question %q: no registration Kind extracted; reqs=%v", q, reqs)
-		}
-	}
-}
-
-func TestExtractEvidenceRequirements_ConditionalEnglishRewrites(t *testing.T) {
-	cases := []string{
-		"Identify the conditions under which the explorer stops.",
-		"Determine when ShouldStop fires.",
-		"What is triggered when the cache misses?",
-	}
-	for _, q := range cases {
-		reqs := extractEvidenceRequirements(q)
-		hasCond := false
-		for _, r := range reqs {
-			if r.Kind == "conditional" {
-				hasCond = true
-				break
-			}
-		}
-		if !hasCond {
-			t.Errorf("question %q: no conditional Kind extracted; reqs=%v", q, reqs)
-		}
-	}
-}
-
-func TestExtractEvidenceRequirements_OriginalRequestPreserved(t *testing.T) {
-	// ERM Part 2 (corrected): the explorer must extract entities ONLY
-	// from the original user request and run keyword detection over
-	// the joined original+rewrite. The original commit c04298f ran
-	// BOTH over the joined string and was caught by integration testing
-	// — it polluted the entity set with generic English from the
-	// rewrite ("count","agents","that","call") and flipped
-	// answer_chain[0] to a spurious chain.
-	//
-	// This test mirrors the production split in explorer.go
-	// BuildInitialInstruction and verifies:
-	//  1. Keyword detection over the join produces the right Kind
-	//     (return_value triggered by "什么" in the original AND
-	//     "return value" in the rewrite — either is sufficient).
-	//  2. Entities are derived from the original ONLY, so the
-	//     CamelCase identifiers survive AND the generic English from
-	//     the rewrite is excluded.
-	original := "explorerEvaluator 的 ShouldStop 方法返回什么值?"
-	rewritten := "Identify the return value of the ShouldStop method in explorerEvaluator."
-	joined := original + " | " + rewritten
-	entities := extractRankingEntitiesWithGraph(original, nil)
-
-	reqs := extractEvidenceRequirementsWithEntities(joined, entities)
-	if len(reqs) == 0 {
-		t.Fatalf("split inputs produced 0 reqs; need ≥1 return_value Kind")
-	}
-	hasReturnValue := false
-	for _, r := range reqs {
-		if r.Kind == "return_value" {
-			hasReturnValue = true
-		}
-	}
-	if !hasReturnValue {
-		t.Errorf("split inputs should produce return_value Kind; got reqs=%v", reqs)
-	}
-
-	// Entities MUST contain the original CamelCase identifiers.
-	wantOriginals := []string{"explorerevaluator", "shouldstop"}
-	for _, want := range wantOriginals {
-		found := false
-		for _, e := range entities {
-			if e == want {
-				found = true
-				break
-			}
-		}
-		if !found {
-			t.Errorf("entity %q from original missing; got entities=%v", want, entities)
-		}
-	}
-
-	// Entities MUST NOT contain generic English from the rewrite.
-	// "identify", "method", "value" are the analyzer's noise.
-	bannedFromRewrite := []string{"identify", "method"}
-	for _, banned := range bannedFromRewrite {
-		for _, e := range entities {
-			if e == banned {
-				t.Errorf("entity %q leaked from rewrite into split entity set; got entities=%v", banned, entities)
-			}
-		}
-	}
-}
+// TestExtractEvidenceRequirements_RegistrationBindRewrites /
+// TestExtractEvidenceRequirements_ConditionalEnglishRewrites /
+// TestExtractEvidenceRequirements_OriginalRequestPreserved were
+// retired 2026-05-03 (Phase 6 stage 16). All three pinned the
+// retired keyword classification path — the analyzer is now the
+// only intent classifier; ERM does NOT re-tokenize the question
+// to fabricate a RequirementKind.
 
 // --- T1.1 satisfaction-helper fix audit tests ----------------------------
 //
@@ -583,54 +408,12 @@ func TestIdentifyAnswerChains_RefactorParity(t *testing.T) {
 // satisfaction via EvidenceMechanism + EvidenceRelationship, and the
 // "no spurious mechanism Kind on unrelated questions" reverse case.
 
-func TestExtractEvidenceRequirements_MechanismChinese(t *testing.T) {
-	cases := []string{
-		"explorer 怎么实现 ContinuationPrompt 的?",
-		"dataflow.Analyze 的工作流程是什么?",
-		"keyword_search 的原理是什么?",
-		"BaseAgent.Execute 的步骤?",
-	}
-	for _, q := range cases {
-		reqs := extractEvidenceRequirements(q)
-		hasMechanism := false
-		for _, r := range reqs {
-			if r.Kind == "mechanism" {
-				hasMechanism = true
-				break
-			}
-		}
-		if !hasMechanism {
-			t.Errorf("question %q: no mechanism Kind extracted; reqs=%v", q, reqs)
-		}
-	}
-}
-
-func TestExtractEvidenceRequirements_MechanismEnglish(t *testing.T) {
-	// These are the analyzer's typical English rewrites of Chinese
-	// mechanism questions. They MUST trigger mechanism Kind so the
-	// satisfaction check can fire when the question reaches the
-	// explorer.
-	cases := []string{
-		"Explain how ContinuationPrompt works in the explorer agent.",
-		"Describe the process of dataflow.Analyze.",
-		"How does keyword_search rank files?",
-		"Walk through the steps of BaseAgent.Execute.",
-		"How is the answer chain built from concrete values?",
-	}
-	for _, q := range cases {
-		reqs := extractEvidenceRequirements(q)
-		hasMechanism := false
-		for _, r := range reqs {
-			if r.Kind == "mechanism" {
-				hasMechanism = true
-				break
-			}
-		}
-		if !hasMechanism {
-			t.Errorf("question %q: no mechanism Kind extracted; reqs=%v", q, reqs)
-		}
-	}
-}
+// TestExtractEvidenceRequirements_MechanismChinese /
+// TestExtractEvidenceRequirements_MechanismEnglish were retired
+// 2026-05-03 (Phase 6 stage 16) along with the keyword
+// classification path. Mechanism Kind now flows from
+// `Intent=IntentExplain` / `IntentRootCause` typed signals via
+// extractEvidenceRequirementsFromStructuredSignals.
 
 func TestExtractEvidenceRequirements_MechanismNotTriggered(t *testing.T) {
 	// Reverse safety: questions that contain "how" but not as a
@@ -791,28 +574,13 @@ func TestExtractEvidenceRequirementsWithHint_DeclaredKindHonoured(t *testing.T) 
 	}
 }
 
-// TestExtractEvidenceRequirementsWithHint_UnknownFallsBack verifies
-// that question_kind="unknown" goes through the legacy keyword path
-// unchanged — the hint is advisory, not mandatory.
-func TestExtractEvidenceRequirementsWithHint_UnknownFallsBack(t *testing.T) {
-	reqs := extractEvidenceRequirementsWithHint(
-		"how does the ContinuationPrompt mechanism work?",
-		[]string{"ContinuationPrompt"},
-		"unknown",
-		types.SemanticPredicates{},
-	)
-	// Keyword path should still detect mechanism via "how does" / "mechanism".
-	seen := false
-	for _, r := range reqs {
-		if r.Kind == "mechanism" {
-			seen = true
-			break
-		}
-	}
-	if !seen {
-		t.Errorf("unknown kind should fall back to keyword inference; got: %+v", reqs)
-	}
-}
+// TestExtractEvidenceRequirementsWithHint_UnknownFallsBack was
+// retired 2026-05-03 (Phase 6 stage 16). The "unknown declared
+// kind → keyword path fallback" contract is GONE — when the
+// analyzer cannot classify, ERM stays empty (or uses
+// SemanticPredicates secondary kinds) rather than guessing from
+// question prose. Per the architectural directive,
+// intent classification is the analyzer's single responsibility.
 
 // TestExtractEvidenceRequirementsWithHint_RegistrationPerEntity verifies
 // that a declared registration kind is expanded per-entity (matching
