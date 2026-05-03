@@ -4076,71 +4076,33 @@ func validateSummaryExactResolution(summary string, ctx *types.BusContext) error
 			"exact-resolution contract violated: summary names the requested exact %s but does not clearly state it is absent / not found. Lead with the exact absence before any nearby context. Absence-only is acceptable.",
 			label)
 	}
-	if contract.AliasRequiresProof && containsPositiveAliasClaim(summary) {
-		return newAnswerDocValidationError(
-			"exact_resolution",
-			"exact-resolution contract violated: the investigation concluded the exact %s is absent, so nearby knobs / symbols may appear only as related context, not as equivalents, aliases, or substitutes for the requested target without explicit proof.",
-			label)
-	}
+	// Phase 6 stage 26 (2026-05-03) — the alias-prose claim
+	// detector that previously fired here was retired. The retired
+	// path scanned the LLM-emitted summary for EN+ZH alias keywords
+	// ({"is an alias", "alias of", "equivalent to", ..., "别名",
+	// "等价", "替代", "对应字段", "对应配置"}) plus a 24-char negation
+	// look-back window. Two issues: (a) the keyword tables are the
+	// same red-line pattern Phase 6 retires elsewhere; (b) the
+	// typed AnswerExactResolution.Status enum is the structural
+	// source of truth — when contract.AliasRequiresProof is set
+	// AND the LLM emits ExactResolution.Status=AliasMatch without
+	// the typed Anchor/proof fields, validateAnswerDocumentExactResolutionProof
+	// (above) catches it via Status enum equality. The
+	// pipeline_self_consistency_review (orchestrator/contract_check)
+	// catches summary-vs-status contradictions. Prose-keyword
+	// scanning was a redundant third tier prone to false positives
+	// (e.g. "the cluster is *not* the same as a node" containing
+	// "same as" without the negation pattern matching) and false
+	// negatives (paraphrased equivalence prose).
+	_ = label
 	return nil
 }
 
-func containsPositiveAliasClaim(summary string) bool {
-	lower := strings.ToLower(summary)
-	englishPositive := []string{
-		"is an alias",
-		"alias of",
-		"equivalent to",
-		"equivalent field",
-		"equivalent key",
-		"equivalent setting",
-		"equivalent knob",
-		"closest equivalent",
-		"closest match",
-		"nearest equivalent",
-		"nearest match",
-		"substitute for",
-		"same as",
-	}
-	for _, cue := range englishPositive {
-		idx := strings.Index(lower, cue)
-		for idx >= 0 {
-			windowStart := idx - 24
-			if windowStart < 0 {
-				windowStart = 0
-			}
-			window := lower[windowStart:idx]
-			if !strings.Contains(window, "not ") && !strings.Contains(window, "n't ") && !strings.Contains(window, "without ") {
-				return true
-			}
-			next := strings.Index(lower[idx+len(cue):], cue)
-			if next < 0 {
-				break
-			}
-			idx += len(cue) + next
-		}
-	}
-	chinesePositive := []string{"别名", "等价", "替代", "对应字段", "对应配置"}
-	for _, cue := range chinesePositive {
-		idx := strings.Index(summary, cue)
-		for idx >= 0 {
-			prefixRunes := []rune(summary[:idx])
-			if len(prefixRunes) > 20 {
-				prefixRunes = prefixRunes[len(prefixRunes)-20:]
-			}
-			window := string(prefixRunes)
-			if !strings.Contains(window, "不") && !strings.Contains(window, "非") {
-				return true
-			}
-			next := strings.Index(summary[idx+len(cue):], cue)
-			if next < 0 {
-				break
-			}
-			idx += len(cue) + next
-		}
-	}
-	return false
-}
+// containsPositiveAliasClaim was deleted 2026-05-03 (Phase 6
+// stage 26). EN+ZH alias-keyword scanning of LLM-emitted summary
+// prose violated the no-keyword-classification doctrine. Typed
+// AnswerExactResolution.Status enum equality is the structural
+// replacement.
 
 func exactTargetListForError(targets []string) string {
 	if len(targets) == 0 {
