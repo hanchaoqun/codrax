@@ -58,9 +58,6 @@ func hasEdge(g types.TaskGraph, from, to string, et types.EdgeType) bool {
 
 func TestCompile_ArchitectureExplain_HasExplanationContract(t *testing.T) {
 	out := compileT(sampleRM(types.ScenarioArchitectureExplain, types.IntentExplain, types.ComplexityModerate))
-	if out.AnswerContract.RequiredAnswerShape != types.ShapeExplanation {
-		t.Fatalf("shape=%q", out.AnswerContract.RequiredAnswerShape)
-	}
 	if countNodeType(out.TaskGraph, types.NodeProbe) != 1 {
 		t.Fatalf("want 1 probe node")
 	}
@@ -81,9 +78,6 @@ func TestCompile_ArchitectureExplain_HasExplanationContract(t *testing.T) {
 
 func TestCompile_RootCause_HasValidationFeedback(t *testing.T) {
 	out := compileT(sampleRM(types.ScenarioRootCause, types.IntentRootCause, types.ComplexityComplex))
-	if out.AnswerContract.RequiredAnswerShape != types.ShapeStepList {
-		t.Fatalf("shape=%q", out.AnswerContract.RequiredAnswerShape)
-	}
 	// validate → evidence feedback edge must exist.
 	var validateID, evidenceID string
 	for _, n := range out.TaskGraph.Nodes {
@@ -102,11 +96,8 @@ func TestCompile_RootCause_HasValidationFeedback(t *testing.T) {
 	}
 }
 
-func TestCompile_ConfigTrace_ShapeConfigValue(t *testing.T) {
+func TestCompile_ConfigTrace_BudgetReactsToComplexity(t *testing.T) {
 	out := compileT(sampleRM(types.ScenarioConfigTrace, types.IntentConfigQuery, types.ComplexitySimple))
-	if out.AnswerContract.RequiredAnswerShape != types.ShapeConfigValue {
-		t.Fatalf("shape=%q", out.AnswerContract.RequiredAnswerShape)
-	}
 	// Simple complexity must give a smaller budget than moderate.
 	moderate := compileT(sampleRM(types.ScenarioConfigTrace, types.IntentConfigQuery, types.ComplexityModerate))
 	if out.EvidencePlan.Budget.MaxFiles >= moderate.EvidencePlan.Budget.MaxFiles {
@@ -115,27 +106,23 @@ func TestCompile_ConfigTrace_ShapeConfigValue(t *testing.T) {
 	}
 }
 
-func TestCompile_PerformanceBottleneck_ListOfSymbols(t *testing.T) {
+func TestCompile_PerformanceBottleneck_ProducesContract(t *testing.T) {
 	out := compileT(sampleRM(types.ScenarioPerformanceBottleneck, types.IntentTrace, types.ComplexityModerate))
-	if out.AnswerContract.RequiredAnswerShape != types.ShapeListOfSymbols {
-		t.Fatalf("shape=%q", out.AnswerContract.RequiredAnswerShape)
+	if !out.AnswerContract.CitationReq.Required {
+		t.Fatalf("perf bottleneck contract must require citations: %+v", out.AnswerContract.CitationReq)
 	}
 }
 
-func TestCompile_Generic_ReactsToIntent(t *testing.T) {
-	cases := []struct {
-		intent types.Intent
-		want   types.AnswerShape
-	}{
-		{types.IntentExplain, types.ShapeExplanation},
-		{types.IntentReturnValue, types.ShapeValue},
-		{types.IntentEnumerate, types.ShapeListOfSymbols},
-		{types.IntentConfigQuery, types.ShapeConfigValue},
-	}
-	for _, c := range cases {
-		out := compileT(sampleRM(types.ScenarioGeneric, c.intent, types.ComplexityModerate))
-		if out.AnswerContract.RequiredAnswerShape != c.want {
-			t.Fatalf("intent=%s: want shape=%s got %s", c.intent, c.want, out.AnswerContract.RequiredAnswerShape)
+func TestCompile_Generic_ProducesContract(t *testing.T) {
+	for _, intent := range []types.Intent{
+		types.IntentExplain,
+		types.IntentReturnValue,
+		types.IntentEnumerate,
+		types.IntentConfigQuery,
+	} {
+		out := compileT(sampleRM(types.ScenarioGeneric, intent, types.ComplexityModerate))
+		if !out.AnswerContract.CitationReq.Required {
+			t.Fatalf("intent=%s: generic contract must require citations: %+v", intent, out.AnswerContract.CitationReq)
 		}
 	}
 }

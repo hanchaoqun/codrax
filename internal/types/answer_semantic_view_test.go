@@ -87,7 +87,6 @@ func TestBuildAnswerSemanticView_EveryShapeProducesNonNilView(t *testing.T) {
 func TestBuildAnswerSemanticView_FacetCoverageAliasedFromPlan(t *testing.T) {
 	fc := &FacetCoverageContract{Family: QFRoleLookup}
 	plan := &AnswerSurfacePlan{
-		RequiredShape:      ShapeValue,
 		FacetCoverage:      fc,
 		SummarySurfaceMode: AnswerSummarySurfaceMinimalScalarRoleLocate,
 	}

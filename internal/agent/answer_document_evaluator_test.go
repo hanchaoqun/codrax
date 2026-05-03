@@ -217,7 +217,7 @@ func TestAnswerDocumentEvaluator_BuildInitialInstruction_SingleTopicExplanationL
 		Mutable: types.NewMutableState(""),
 	}
 	prompt := (&answerDocumentEvaluator{}).BuildInitialInstruction(ctx, nil)
-	if !strings.Contains(prompt, "Leave `symbols[]` empty for this single-topic explanation") {
+	if !strings.Contains(prompt, "Leave `symbols[]` empty unless the prompt explicitly attached an Anchor skeleton section") {
 		t.Fatalf("single-topic explanation checklist must forbid anchor skeleton noise:\n%s", prompt)
 	}
 }
@@ -252,6 +252,7 @@ func TestAnswerDocumentEvaluator_BuildInitialInstruction_ResolvesAbsentConfigVal
 func TestAnswerDocumentEvaluator_BuildInitialInstruction_SurfacesCardinalityBaseline(t *testing.T) {
 	ctx := &types.AgentContext{
 		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{Intent: types.IntentEnumerate},
 			AnswerContract: types.AnswerContract{
 				RequiredAnswerShape: types.ShapeListOfSymbols,
 				MustInclude:         []string{"Alpha", "Beta"},
@@ -283,6 +284,7 @@ func TestAnswerDocumentEvaluator_BuildInitialInstruction_RendersStepBackboneForS
 	mut.SetEmittedAnswerSymbols(syms, types.CompletenessLowerBound)
 	ctx := &types.AgentContext{
 		AnalysisIR: &types.AnalysisIR{
+			RequestModel:   types.RequestModel{Intent: types.IntentTrace},
 			AnswerContract: types.AnswerContract{RequiredAnswerShape: types.ShapeStepList},
 		},
 		Mutable:                  mut,
@@ -306,6 +308,7 @@ func TestAnswerDocumentEvaluator_BuildInitialInstruction_RendersStepBackboneForS
 func TestAnswerDocumentEvaluator_BuildInitialInstruction_RendersFallbackStepBackboneFromEvidence(t *testing.T) {
 	ctx := &types.AgentContext{
 		AnalysisIR: &types.AnalysisIR{
+			RequestModel:   types.RequestModel{Intent: types.IntentTrace},
 			AnswerContract: types.AnswerContract{RequiredAnswerShape: types.ShapeStepList},
 		},
 		Mutable: types.NewMutableState(""),
@@ -356,6 +359,7 @@ func TestAnswerDocumentEvaluator_BuildInitialInstruction_RendersRequestedEnumera
 	ctx := &types.AgentContext{
 		AnalysisIR: &types.AnalysisIR{
 			RequestModel: types.RequestModel{
+				Intent: types.IntentTrace,
 				EnumerationBoundary: &types.RequestedEnumerationBoundary{
 					DeclaredCount: 7,
 					SourceQuote:   "7 checks",
@@ -365,18 +369,14 @@ func TestAnswerDocumentEvaluator_BuildInitialInstruction_RendersRequestedEnumera
 		},
 	}
 	prompt := (&answerDocumentEvaluator{}).BuildInitialInstruction(ctx, nil)
-	// Plan D rollout (2026-05-02): the boundary prompt now teaches
-	// the Kind discipline (principal / flow / caveat) instead of the
-	// pre-Kind "keep len(steps)" framing. Pin the new shape AND the
-	// invariants it conveys so a future rewrite cannot silently drop
-	// the discipline.
+	// Post-shape-retirement: an EnumerationBoundary obligation routes
+	// the family to QFEnumeration (symbols-slate principal payload).
+	// The kind:principal/flow/caveat discipline is only emitted for
+	// QFCallChain / QFRootCauseTrace (steps[] payload).
 	for _, want := range []string{
 		"## Requested Set Boundary",
 		"`7 checks` (7 item(s))",
-		"Mark exactly 7 step(s) with `kind: principal`",
-		"`kind: flow`",
-		"`kind: caveat`",
-		"Empty `kind` defaults to `principal`",
+		"Keep the principal `symbols[]` slate to 7 item(s)",
 		"do not silently blend them into the principal set",
 	} {
 		if !strings.Contains(prompt, want) {
@@ -385,6 +385,7 @@ func TestAnswerDocumentEvaluator_BuildInitialInstruction_RendersRequestedEnumera
 	}
 }
 
+
 // TestAnswerDocumentEvaluator_BuildInitialInstruction_NoFloorWithoutMustInclude
 // checks the other branch: when MustInclude is empty, the prompt
 // says "no floor is enforced" so the LLM picks the claim from its
@@ -392,6 +393,7 @@ func TestAnswerDocumentEvaluator_BuildInitialInstruction_RendersRequestedEnumera
 func TestAnswerDocumentEvaluator_BuildInitialInstruction_NoFloorWithoutMustInclude(t *testing.T) {
 	ctx := &types.AgentContext{
 		AnalysisIR: &types.AnalysisIR{
+			RequestModel:   types.RequestModel{Intent: types.IntentEnumerate},
 			AnswerContract: types.AnswerContract{RequiredAnswerShape: types.ShapeListOfSymbols},
 		},
 	}
@@ -404,6 +406,7 @@ func TestAnswerDocumentEvaluator_BuildInitialInstruction_NoFloorWithoutMustInclu
 func TestAnswerDocumentEvaluator_BuildInitialInstruction_RendersDiagramContractAndSeeds(t *testing.T) {
 	ctx := &types.AgentContext{
 		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{Intent: types.IntentTrace},
 			AnswerContract: types.AnswerContract{
 				RequiredAnswerShape: types.ShapeStepList,
 				Diagram: &types.DiagramContract{
@@ -1159,13 +1162,13 @@ func TestAnswerDocumentEvaluator_BuildInitialInstruction_RendersScalarLookupDisc
 	prompt := (&answerDocumentEvaluator{}).BuildInitialInstruction(ctx, nil)
 	for _, want := range []string{
 		"## Submission Checklist",
-		"Fill `value.literal` and `value.citation_ref`",
-		"Fill a real `summary` that names the subject being measured",
+		"Fill the principal scalar block with `value.literal` and `value.citation_ref`",
+		"Write a real `summary` that names the subject being measured",
 		"## Scalar Lookup Discipline",
 		"one named source-code literal",
-		"`shape=value` / `shape=config_value` / `shape=boolean` still require a real `summary`",
+		"The principal scalar block still requires a real `summary`",
 		"Do not expand into adjacent helpers",
-		"every non-negative `citation_ref` must point at a real entry in `citations[]`",
+		"Every non-negative `citation_ref` on a scalar payload must point at a real entry in `citations[]`",
 	} {
 		if !strings.Contains(prompt, want) {
 			t.Fatalf("prompt missing %q:\n%s", want, prompt)
@@ -1468,9 +1471,9 @@ func TestAnswerDocumentEvaluator_BuildInitialInstruction_UsesStableAbsenceStateA
 		"## Accepted Closure Rationale",
 		"all three nearby precedence layers were already traced before the window reset",
 		"Emit `exact_resolution.status=\"absent\"`",
-		"do NOT force `shape=config_value` with a synthetic literal",
+		"do NOT emit a principal scalar block with a synthetic literal",
 		"grounded same-scope anchors may appear in `summary` even when they do not carry a validated diagram role",
-		"Prefer `shape=explanation`",
+		"Prefer a summary-led explanation",
 	} {
 		if !strings.Contains(prompt, want) {
 			t.Fatalf("prompt missing %q after reset:\n%s", want, prompt)

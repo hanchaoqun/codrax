@@ -159,75 +159,14 @@ func CheckWithOracle(draft Answer, c types.AnswerContract, oracle types.SymbolOr
 
 // ── individual checks ─────────────────────────────────────────
 
-func checkShape(draft Answer, c types.AnswerContract) []Violation {
-	if c.RequiredAnswerShape == "" || c.RequiredAnswerShape == types.ShapeNone {
-		return nil
-	}
-	// Absence answers legitimately do not match shape heuristics —
-	// an honest "0 files match" has no bullets for list_of_symbols,
-	// no numbered steps for step_list, no yes/no for boolean (it
-	// might be explained in prose). The whole point is that the
-	// cited thing does not exist, so the shape-specific formatting
-	// rule does not apply. The IsAbsence flag is only set upstream
-	// when the LLM ran real investigation tools, so this waiver
-	// cannot rescue a lazy "didn't look and declared zero" run.
-	if draft.IsAbsence {
-		return nil
-	}
-	text := draft.Text
-	if shapeText := strings.TrimSpace(draft.ShapeText); shapeText != "" {
-		text = shapeText
-	}
-	// shapeRoot is the common SuspectedRoot template for every
-	// checkShape violation: the finalizer emitted a shape the
-	// answer contract does not accept. F2 aggregates these events
-	// per-answer_shape so the F3 patcher can decide whether to
-	// reconcile (e.g. config_value → value based on cue match).
-	shapeRoot := SuspectedRoot{
-		IRField:    "answer_shape",
-		Reason:     fmt.Sprintf("finalizer output violates contract shape=%s", c.RequiredAnswerShape),
-		Confidence: 0.80,
-	}
-	switch c.RequiredAnswerShape {
-	case types.ShapeBoolean:
-		lower := strings.ToLower(strings.TrimSpace(text))
-		// Accept yes/no as either the full answer or a leading token.
-		if !(strings.HasPrefix(lower, "yes") || strings.HasPrefix(lower, "no") ||
-			strings.HasPrefix(lower, "是") || strings.HasPrefix(lower, "否")) {
-			return []Violation{{Kind: ViolShape, Detail: "boolean answer must start with yes/no", SuspectedRoot: shapeRoot}}
-		}
-	case types.ShapeValue:
-		// A value answer must be short and non-empty. "Short" is a
-		// rough heuristic: ≤ 200 chars. Longer indicates the model
-		// wrote an explanation instead of returning the value.
-		if len(strings.TrimSpace(text)) == 0 {
-			return []Violation{{Kind: ViolShape, Detail: "value answer must not be empty", SuspectedRoot: shapeRoot}}
-		}
-		if len(text) > shapeValueMaxLen {
-			return []Violation{{Kind: ViolShape,
-				Detail:        fmt.Sprintf("value answer too long (%d chars) — expected a literal", len(text)),
-				SuspectedRoot: shapeRoot}}
-		}
-	case types.ShapeListOfSymbols:
-		// Require at least one line that looks like a bullet or
-		// symbol reference. We accept either explicit "-"/"*" bullets,
-		// numbered items, or backtick-fenced identifiers.
-		if !hasSymbolListShape(text) {
-			return []Violation{{Kind: ViolShape, Detail: "list_of_symbols answer must contain bulleted or fenced symbol entries", SuspectedRoot: shapeRoot}}
-		}
-	case types.ShapeStepList:
-		if !hasNumberedSteps(text) {
-			return []Violation{{Kind: ViolShape, Detail: "step_list answer must contain numbered steps", SuspectedRoot: shapeRoot}}
-		}
-	case types.ShapeConfigValue:
-		if !strings.Contains(text, "=") && !strings.Contains(text, ":") && !strings.Contains(text, " is ") {
-			return []Violation{{Kind: ViolShape, Detail: "config_value answer must express a key=value or key: value pair", SuspectedRoot: shapeRoot}}
-		}
-	case types.ShapeExplanation:
-		if len(strings.TrimSpace(text)) < shapeExplanationMinLen {
-			return []Violation{{Kind: ViolShape, Detail: "explanation answer too short to be meaningful", SuspectedRoot: shapeRoot}}
-		}
-	}
+// checkShape is retired per docs/migration/answer_shape_retirement.md.
+// V1 shape-text-heuristics (boolean prefix detection, list-bullet
+// regex, numbered-step detection) have been superseded by the V2
+// block oracles in internal/orchestrator/contract_check_block.go,
+// which read the typed AnswerDocumentV2 carrier rather than text
+// heuristics. This stub is preserved so contract.CheckWithOracle
+// callers compile; it never produces violations.
+func checkShape(_ Answer, _ types.AnswerContract) []Violation {
 	return nil
 }
 

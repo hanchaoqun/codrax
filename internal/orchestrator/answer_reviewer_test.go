@@ -55,7 +55,7 @@ func TestAnswerReviewer_HappyPath_EmitsPattern(t *testing.T) {
 		OriginalRequest: "how many handlers",
 		FinalAnswer:     "There are 12 handler interfaces.",
 		Scenario:        "enumerate",
-		Shape:           "list",
+		Family:          "enumeration",
 		RetryEvents: []AnswerRetryEvent{
 			{Stage: "analyze", Reason: "shape mismatch"},
 		},

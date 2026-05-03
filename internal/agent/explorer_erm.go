@@ -308,7 +308,7 @@ func isEnumerationRequestModel(rm types.RequestModel) bool {
 	if rm.Intent == types.IntentEnumerate || rm.Predicates.IsCategoryEnumeration {
 		return true
 	}
-	return mapLegacyAnswerShape(rm.AnalyzerHints.Shape) == types.ShapeListOfSymbols
+	return types.ResolveQuestionFamily(rm) == types.QFEnumeration
 }
 
 // appendSecondaryKinds consults inferSecondaryKinds for structural

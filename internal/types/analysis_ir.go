@@ -955,23 +955,6 @@ const (
 	ShapeConfigValue   AnswerShape = "config_value"
 	ShapeExplanation   AnswerShape = "explanation"
 	ShapeNone          AnswerShape = "none"
-
-	// Write-mode shapes (B0).
-	//
-	//   - ShapeChangePlan is the plan-stage output shape. The
-	//     AnswerDocument's Summary renders the planner's prose
-	//     explanation; the ChangePlan JSON lives as a sidecar under
-	//     .codrax/plans/<id>.json (referenced via Citations).
-	//     Emitted when RequiredAnswerShape is ShapeChangePlan; used
-	//     in --mode=plan Runs.
-	//
-	//   - ShapeChangeReport is the apply+verify combined output.
-	//     Summary renders a short "applied X files, N/M tests
-	//     passing, no regression" line; the full ChangeReport JSON
-	//     lives at .codrax/plans/<plan-id>.report.json. Emitted in
-	//     --mode=apply Runs after verify completes.
-	ShapeChangePlan   AnswerShape = "change_plan"
-	ShapeChangeReport AnswerShape = "change_report"
 )
 
 // IsEmittable reports whether the shape is one a producer (finalizer
@@ -982,8 +965,7 @@ const (
 func (s AnswerShape) IsEmittable() bool {
 	switch s {
 	case ShapeListOfSymbols, ShapeStepList, ShapeValue,
-		ShapeBoolean, ShapeConfigValue, ShapeExplanation,
-		ShapeChangePlan, ShapeChangeReport:
+		ShapeBoolean, ShapeConfigValue, ShapeExplanation:
 		return true
 	}
 	return false

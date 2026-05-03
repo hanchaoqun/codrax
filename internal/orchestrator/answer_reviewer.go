@@ -53,9 +53,12 @@ type AnswerReviewerInput struct {
 	// classification (e.g. "explain", "root_cause", "enumerate").
 	Scenario string
 
-	// Shape is RequiredAnswerShape from AnswerContract (e.g.
-	// "list", "value", "explanation").
-	Shape string
+	// Family is the resolved AnswerSemanticView family for the
+	// dispatch (e.g. "role_lookup", "config_precedence",
+	// "enumeration"). Replaces the legacy Shape field per
+	// docs/migration/answer_shape_retirement.md — patterns now
+	// scope by family rather than shape enum.
+	Family string
 
 	// RetryEvents lists the {stage, reason} pairs that fired
 	// during this Run. Non-empty implies the analyzer / explorer
@@ -121,10 +124,10 @@ var answerPatternTool = llm.ToolSchema{
       "items": {"type": "string"},
       "description": "Optional. Restrict relevance to specific Scenario values: explain / root_cause / enumerate / count / status / impact / behaviour / generic. Empty = applies to all scenarios."
     },
-    "applies_to_shapes": {
+    "applies_to_families": {
       "type": "array",
       "items": {"type": "string"},
-      "description": "Optional. Restrict relevance to specific RequiredAnswerShape values: list / value / explanation / status. Empty = applies to all shapes."
+      "description": "Optional. Restrict relevance to specific AnswerSemanticView family values: role_lookup / config_precedence / enumeration / call_chain / root_cause_trace / architecture / generic. Empty = applies to all families."
     }
   },
   "required": ["name", "description", "trigger", "confidence"]
@@ -136,13 +139,13 @@ var answerPatternTool = llm.ToolSchema{
 // Mirror of reflectorSystemPrompt with read-mode scoping.
 const answerReviewerSystemPrompt = `You are an independent reviewer reading the data from a code-question Run that produced an answer but had to retry one or more pipeline stages along the way.
 
-The pipeline is read-only: it does NOT modify code. It classifies the user's request, explores the repo, structures the evidence, and emits a final answer. Stages can self-reject ("re-analyze, the shape doesn't match the subject"; "re-explore, the coverage is too thin"; "re-extract, the answer-shape contradicts the hypothesis verdict"). When that happens, the orchestrator retries with an updated hint.
+The pipeline is read-only: it does NOT modify code. It classifies the user's request, explores the repo, structures the evidence, and emits a final answer. Stages can self-reject ("re-analyze, the family doesn't match the subject"; "re-explore, the coverage is too thin"; "re-extract, the required blocks contradict the hypothesis verdict"). When that happens, the orchestrator retries with an updated hint.
 
-Your job: read the original request, the final answer, the Scenario / Shape classification, and the retry history. If you see a generalisable pattern in WHY the retries fired — a kind of mis-classification or mis-shaping that is likely to recur on similar requests in this repo — emit one emit_answer_pattern call.
+Your job: read the original request, the final answer, the Scenario / Family classification, and the retry history. If you see a generalisable pattern in WHY the retries fired — a kind of mis-classification or mis-shaping that is likely to recur on similar requests in this repo — emit one emit_answer_pattern call.
 
 How to write a useful pattern:
 - Describe the kind of mistake, not the specific request. "FooBar question got wrong answer" is useless. "enumeration on this repo tends to count interfaces rather than implementations" is reusable.
-- Cite the data. Name the Scenario, the Shape, the retry stage. Vague observations are useless.
+- Cite the data. Name the Scenario, the Family, the retry stage. Vague observations are useless.
 - Stay in English for the Name field — dedup logic uses whitespace tokens.
 - Description / Trigger may be in any language but English keeps cross-Run dedup tightest.
 
@@ -225,10 +228,15 @@ func unmarshalAnswerPattern(raw json.RawMessage) (*types.AnswerPattern, error) {
 		ExampleLine        int      `json:"example_line"`
 		Confidence         float64  `json:"confidence"`
 		AppliesToScenarios []string `json:"applies_to_scenarios"`
-		AppliesToShapes    []string `json:"applies_to_shapes"`
+		AppliesToFamilies  []string `json:"applies_to_families"`
+		AppliesToShapes    []string `json:"applies_to_shapes"` // legacy alias for back-compat reads
 	}
 	if err := json.Unmarshal(raw, &parsed); err != nil {
 		return nil, fmt.Errorf("decode emit_answer_pattern: %w", err)
+	}
+	families := parsed.AppliesToFamilies
+	if len(families) == 0 && len(parsed.AppliesToShapes) > 0 {
+		families = parsed.AppliesToShapes
 	}
 	pattern := &types.AnswerPattern{
 		Name:               strings.TrimSpace(parsed.Name),
@@ -239,7 +247,7 @@ func unmarshalAnswerPattern(raw json.RawMessage) (*types.AnswerPattern, error) {
 		ExampleLine:        parsed.ExampleLine,
 		Confidence:         parsed.Confidence,
 		AppliesToScenarios: parsed.AppliesToScenarios,
-		AppliesToShapes:    parsed.AppliesToShapes,
+		AppliesToShapes:    families,
 	}
 	if !pattern.IsValid() {
 		return nil, fmt.Errorf("emit_answer_pattern fails validation: name=%q desc-len=%d trig-len=%d conf=%.2f",
@@ -268,8 +276,8 @@ func renderAnswerReviewerUserMessage(in AnswerReviewerInput) string {
 	if s := strings.TrimSpace(in.Scenario); s != "" {
 		fmt.Fprintf(&b, "Scenario classification: %s\n", s)
 	}
-	if s := strings.TrimSpace(in.Shape); s != "" {
-		fmt.Fprintf(&b, "Required answer shape: %s\n", s)
+	if s := strings.TrimSpace(in.Family); s != "" {
+		fmt.Fprintf(&b, "Question family: %s\n", s)
 	}
 	if b.Len() > 0 {
 		b.WriteString("\n")

@@ -10,12 +10,17 @@ import (
 // authority consumed by both the finalizer prompt builder and the
 // emit_answer_document validator.
 //
-// It compiles the current stable investigation state, effective shape,
-// effective diagram contract, exact-resolution policy, and the
-// categorized answer-surface evidence into one deterministic view so
-// downstream stages do not re-derive the same policy independently.
+// It compiles the current stable investigation state, the effective
+// diagram contract, exact-resolution policy, and the categorized
+// answer-surface evidence into one deterministic view so downstream
+// stages do not re-derive the same policy independently.
+//
+// Per docs/migration/answer_shape_retirement.md the legacy
+// RequiredShape field has been retired; downstream callers consume
+// AnswerSemanticView (NeedsPrincipalScalar / NeedsOrderedPrincipalList /
+// NeedsEnumerationSlate / etc.) for the obligation signals that
+// previously came from the shape enum.
 type AnswerSurfacePlan struct {
-	RequiredShape                  AnswerShape
 	RequestedEnumerationBoundary   *RequestedEnumerationBoundary
 	Diagram                        *DiagramContract
 	DiagramHardRequirementDropped  bool
@@ -204,8 +209,42 @@ func compileStepSurfaceAnchors(symbols []AnswerSymbol) []StepSurfaceAnchor {
 	return out
 }
 
-func ApplyAnswerSymbolStepBackbone(plan *AnswerSurfacePlan, symbols []AnswerSymbol, claim CompletenessClaim) {
-	if plan == nil || plan.RequiredShape != ShapeStepList || len(symbols) == 0 {
+// answerWantsStepBackbone reports whether the question's family
+// produces an ordered principal list (the legacy "RequiredShape ==
+// ShapeStepList" gate). True for the families whose compile_<family>
+// emits BlockOrderedList at SurfacePrincipal: QFRootCauseTrace,
+// QFCallChain, QFEnumeration. Read directly from the typed
+// QuestionFamily so no shape detour is needed.
+func answerWantsStepBackbone(ir *AnalysisIR) bool {
+	if ir == nil {
+		return false
+	}
+	switch ResolveQuestionFamily(ir.RequestModel) {
+	case QFRootCauseTrace, QFCallChain, QFEnumeration:
+		return true
+	}
+	return false
+}
+
+// answerWantsLongFormDriftSurface reports whether the question's
+// family produces a long-form prose answer where log-source drift
+// caveats land naturally (the legacy "RequiredShape == ShapeStepList ||
+// ShapeExplanation" gate). Excludes scalar / role-lookup / config-
+// precedence / enumeration families whose principal payload is a
+// scalar or list of items rather than a prose narrative.
+func answerWantsLongFormDriftSurface(ir *AnalysisIR) bool {
+	if ir == nil {
+		return false
+	}
+	switch ResolveQuestionFamily(ir.RequestModel) {
+	case QFRootCauseTrace, QFCallChain, QFArchitecture, QFGeneric:
+		return true
+	}
+	return false
+}
+
+func ApplyAnswerSymbolStepBackbone(plan *AnswerSurfacePlan, ir *AnalysisIR, symbols []AnswerSymbol, claim CompletenessClaim) {
+	if plan == nil || !answerWantsStepBackbone(ir) || len(symbols) == 0 {
 		return
 	}
 	anchors := compileStepSurfaceAnchors(symbols)
@@ -336,8 +375,8 @@ func mergeStepBackboneAnchors(base []StepSurfaceAnchor, extra []StepSurfaceAncho
 	return merged
 }
 
-func ApplyEvidenceStepBackbone(plan *AnswerSurfacePlan, evidence []EvidenceItem) {
-	if plan == nil || plan.RequiredShape != ShapeStepList || len(evidence) == 0 {
+func ApplyEvidenceStepBackbone(plan *AnswerSurfacePlan, ir *AnalysisIR, evidence []EvidenceItem) {
+	if plan == nil || !answerWantsStepBackbone(ir) || len(evidence) == 0 {
 		return
 	}
 	best := compileEvidenceStepBackbone(evidence)
@@ -361,7 +400,7 @@ func ApplyEvidenceStepBackbone(plan *AnswerSurfacePlan, evidence []EvidenceItem)
 }
 
 func applyRequestedEnumerationBoundaryStepBackbone(plan *AnswerSurfacePlan, ir *AnalysisIR) {
-	if plan == nil || ir == nil || plan.RequiredShape != ShapeStepList || len(plan.StepBackbone) == 0 {
+	if plan == nil || ir == nil || !answerWantsStepBackbone(ir) || len(plan.StepBackbone) == 0 {
 		return
 	}
 	boundary := plan.RequestedEnumerationBoundary
@@ -393,7 +432,7 @@ func applyRequestedEnumerationBoundaryStepBackbone(plan *AnswerSurfacePlan, ir *
 // grounded anchor line the extractor can hang a Key Anchors skeleton
 // on.
 func CompileExplanationAnchorBackbone(ir *AnalysisIR, evidence []EvidenceItem) ([]StepSurfaceAnchor, []string, CompletenessClaim) {
-	if !ExplanationAllowsAnchorSkeleton(ir) || len(evidence) == 0 {
+	if !IRAllowsAnchorSkeleton(ir) || len(evidence) == 0 {
 		return nil, nil, CompletenessUnknown
 	}
 	topics := ir.RequestModel.SubTopics
@@ -1099,11 +1138,7 @@ func BuildAnswerSurfacePlan(
 	}
 
 	plan := &AnswerSurfacePlan{
-		RequiredShape:                EffectiveRequiredAnswerShape(ir, mutable),
 		RequestedEnumerationBoundary: ir.RequestModel.EnumerationBoundary,
-	}
-	if plan.RequiredShape == ShapeNone {
-		plan.RequiredShape = ir.AnswerContract.RequiredAnswerShape
 	}
 
 	plan.ExactResolution = ir.AnswerContract.ExactResolution
@@ -1118,7 +1153,7 @@ func BuildAnswerSurfacePlan(
 		plan.StableInvestigationReason = strings.TrimSpace(mutable.StableInvestigationCompleteReason())
 		plan.ExactContextRequiredFiles = mutable.ExactContextRequiredFiles()
 		if syms, claim := mutable.EmittedAnswerSymbols(); len(syms) > 0 {
-			ApplyAnswerSymbolStepBackbone(plan, syms, claim)
+			ApplyAnswerSymbolStepBackbone(plan, ir, syms, claim)
 		}
 		if logBundle == nil {
 			logBundle = mutable.LogTriage()
@@ -1139,7 +1174,7 @@ func BuildAnswerSurfacePlan(
 		emitted = mutable.EmittedEvidence()
 	}
 	plan.SurfaceEvidence = ExactResolutionSurfaceEvidencePool(emitted, evidence, answerChains)
-	ApplyEvidenceStepBackbone(plan, plan.SurfaceEvidence)
+	ApplyEvidenceStepBackbone(plan, ir, plan.SurfaceEvidence)
 	applyRequestedEnumerationBoundaryStepBackbone(plan, ir)
 	ApplyEvidenceExplanationAnchorBackbone(plan, ir, plan.SurfaceEvidence)
 	plan.LogObservedAnchors = CollectArtifactObservedAnchors(
@@ -1372,7 +1407,7 @@ func preferredAnswerSummarySurfaceMode(plan *AnswerSurfacePlan, rm RequestModel)
 	if plan.PreferredExactResolution == nil {
 		if diagnosticIntent &&
 			len(plan.LogSourceDriftAnchors) > 0 &&
-			(plan.RequiredShape == ShapeStepList || plan.RequiredShape == ShapeExplanation) {
+			answerWantsLongFormDriftSurface(&AnalysisIR{RequestModel: rm}) {
 			return AnswerSummarySurfaceDriftBoundedRootCause
 		}
 		if IsScalarRoleLocateLookup(rm) {
@@ -1382,7 +1417,7 @@ func preferredAnswerSummarySurfaceMode(plan *AnswerSurfacePlan, rm RequestModel)
 	}
 	if diagnosticIntent &&
 		len(plan.LogSourceDriftAnchors) > 0 &&
-		(plan.RequiredShape == ShapeStepList || plan.RequiredShape == ShapeExplanation) {
+		answerWantsLongFormDriftSurface(&AnalysisIR{RequestModel: rm}) {
 		return AnswerSummarySurfaceDriftBoundedRootCause
 	}
 	if plan.PreferredExactResolution.Status == AnswerExactResolutionAbsent &&

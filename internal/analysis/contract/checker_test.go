@@ -23,96 +23,13 @@ func TestCheck_EmptyContract_AlwaysPasses(t *testing.T) {
 	}
 }
 
-func TestCheck_Boolean_Shape(t *testing.T) {
-	c := types.AnswerContract{RequiredAnswerShape: types.ShapeBoolean}
-	if !Check(Answer{Text: "Yes, it does."}, c).Passed {
-		t.Fatal("'Yes...' should pass boolean shape")
-	}
-	if !Check(Answer{Text: "是的"}, c).Passed {
-		t.Fatal("Chinese 是 should pass boolean shape")
-	}
-	if Check(Answer{Text: "It depends on ..."}, c).Passed {
-		t.Fatal("non-boolean leading should fail")
-	}
-}
-
-func TestCheck_Value_ShapeTooLong(t *testing.T) {
-	c := types.AnswerContract{RequiredAnswerShape: types.ShapeValue}
-	long := strings.Repeat("x", 600)
-	if Check(Answer{Text: long}, c).Passed {
-		t.Fatal("long value answer should fail")
-	}
-	if !Check(Answer{Text: "42"}, c).Passed {
-		t.Fatal("'42' should pass value shape")
-	}
-}
-
-func TestCheck_Value_UsesShapeTextWhenPresent(t *testing.T) {
-	c := types.AnswerContract{RequiredAnswerShape: types.ShapeValue}
-	longRendered := strings.Repeat("说明文字", 80)
-	if !Check(Answer{Text: longRendered, ShapeText: "01e0864"}, c).Passed {
-		t.Fatal("short literal in ShapeText should satisfy value shape even when rendered answer is long")
-	}
-}
-
-func TestCheck_Value_EmptyRejected(t *testing.T) {
-	c := types.AnswerContract{RequiredAnswerShape: types.ShapeValue}
-	if Check(Answer{Text: "   "}, c).Passed {
-		t.Fatal("empty value answer should fail")
-	}
-}
-
-func TestCheck_ListOfSymbols_Shape(t *testing.T) {
-	c := types.AnswerContract{RequiredAnswerShape: types.ShapeListOfSymbols}
-	bulleted := "- Foo\n- Bar\n- Baz"
-	if !Check(Answer{Text: bulleted}, c).Passed {
-		t.Fatal("bulleted list should pass")
-	}
-	fenced := "The answer is `Foo` and `Bar`."
-	if !Check(Answer{Text: fenced}, c).Passed {
-		t.Fatal("fenced identifiers should pass")
-	}
-	prose := "The explorer stops when it runs out of facts."
-	if Check(Answer{Text: prose}, c).Passed {
-		t.Fatal("prose without list markers should fail")
-	}
-}
-
-func TestCheck_StepList_RequiresMultipleNumbered(t *testing.T) {
-	c := types.AnswerContract{RequiredAnswerShape: types.ShapeStepList}
-	good := "1. First locate the file.\n2. Then read the symbol.\n3. Finally validate."
-	if !Check(Answer{Text: good}, c).Passed {
-		t.Fatal("numbered steps should pass")
-	}
-	// Only one numbered item — not a step list.
-	oneStep := "1. Just do this."
-	if Check(Answer{Text: oneStep}, c).Passed {
-		t.Fatal("single numbered line should not pass step_list")
-	}
-}
-
-func TestCheck_ConfigValue_Shape(t *testing.T) {
-	c := types.AnswerContract{RequiredAnswerShape: types.ShapeConfigValue}
-	if !Check(Answer{Text: "default_agent = explorer"}, c).Passed {
-		t.Fatal("key=value should pass")
-	}
-	if !Check(Answer{Text: "log_level: debug"}, c).Passed {
-		t.Fatal("key: value should pass")
-	}
-	if Check(Answer{Text: "It's some config"}, c).Passed {
-		t.Fatal("prose should fail config_value shape")
-	}
-}
-
-func TestCheck_Explanation_TooShort(t *testing.T) {
-	c := types.AnswerContract{RequiredAnswerShape: types.ShapeExplanation}
-	if Check(Answer{Text: "short"}, c).Passed {
-		t.Fatal("5-char explanation should fail")
-	}
-	if !Check(Answer{Text: "The explorer decides to stop when ERM conditions are satisfied."}, c).Passed {
-		t.Fatal("substantive explanation should pass")
-	}
-}
+// V1 shape-text-heuristic checks (boolean prefix detection, list-bullet
+// regex, numbered-step parser, config-value pair detection,
+// explanation min-length floor) have been retired with checkShape per
+// docs/migration/answer_shape_retirement.md. The V2 block oracles in
+// internal/orchestrator/contract_check_block.go own these obligations
+// against the typed AnswerDocumentV2 carrier; contract.Check remains
+// only for citation / acceptance / pre-flight checks.
 
 func TestCheck_Citations_MinCount_SoftDegrade(t *testing.T) {
 	// 1 citation with min=2: soft degradation accepts because
@@ -269,17 +186,16 @@ func TestCheck_Acceptance_CitationCountGE_ZeroRejects(t *testing.T) {
 
 func TestCheck_MultipleViolationsReported(t *testing.T) {
 	c := types.AnswerContract{
-		RequiredAnswerShape: types.ShapeListOfSymbols,
-		MustInclude:         []string{"Explorer"},
-		CitationReq:         types.CitationReq{Required: true, MinCitations: 1},
+		MustInclude: []string{"Explorer"},
+		CitationReq: types.CitationReq{Required: true, MinCitations: 1},
 	}
-	a := Answer{Text: "just prose, no list markers, no Explorer mentioned, no citations"}
+	a := Answer{Text: "just prose without the required term, no citations"}
 	r := Check(a, c)
 	if r.Passed {
 		t.Fatal("multi-failure answer must not pass")
 	}
 	if len(r.Violations) < 2 {
-		t.Fatalf("expected multiple violations; got %+v", r.Violations)
+		t.Fatalf("expected multiple violations (must_include + citation); got %+v", r.Violations)
 	}
 }
 

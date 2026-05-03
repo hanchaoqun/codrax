@@ -332,7 +332,7 @@ func runAuthorityOverreachCheck(mut *types.MutableState, draftText string) []typ
 		// the cause class, name the fix. Don't reference internal
 		// component names ("ApplyAuthorityHedging", "render path")
 		// the LLM has no schema for.
-		Repair: "Re-emit emit_answer_document with all required fields populated for the target shape (see the skill's Required-field dispatch table). The system will re-attach the drift disclosure automatically once the structured emit succeeds — do not write the disclosure prose yourself.",
+		Repair: "Re-emit emit_answer_document with all required block fields populated (see the skill's Required-Block dispatch table). The system will re-attach the drift disclosure automatically once the structured emit succeeds — do not write the disclosure prose yourself.",
 		SuspectedRoot: types.SuspectedRoot{
 			IRField:    "answer_authority",
 			Reason:     "drift disclosure missing on rendered answer (likely structured-emit failure)",

@@ -589,7 +589,7 @@ func TestReconcileDiagramContract(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			got := reconcileDiagramContract(tc.rm, tc.shape, tc.bundle)
+			got := reconcileDiagramContract(tc.rm, tc.bundle)
 			if tc.wantNil {
 				if got != nil {
 					t.Fatalf("expected nil contract, got %+v", got)
@@ -629,7 +629,7 @@ func TestReconcileDiagramContract(t *testing.T) {
 func TestIsMeasurementScalarRequest_Coverage(t *testing.T) {
 	triple := func(base types.RequestModel) types.RequestModel {
 		base.Intent = types.IntentReturnValue
-		base.AnalyzerHints.Shape = string(types.ShapeValue)
+		base.Predicates.IsScalarAnswer = true
 		base.AnswerSubject = types.AnswerSubject{Kind: types.SubjectNumeric}
 		return base
 	}
@@ -650,7 +650,6 @@ func TestIsMeasurementScalarRequest_Coverage(t *testing.T) {
 			name: "primary beats all: IsCountQuestion trumps mismatched signals",
 			rm: types.RequestModel{
 				Intent:        types.IntentExplain,
-				AnalyzerHints: types.AnalyzerHints{Shape: string(types.ShapeStepList)},
 				AnswerSubject: types.AnswerSubject{Kind: types.SubjectGeneric},
 				Predicates:    types.SemanticPredicates{IsCountQuestion: true},
 			},
@@ -662,15 +661,6 @@ func TestIsMeasurementScalarRequest_Coverage(t *testing.T) {
 				Predicates: types.SemanticPredicates{IsCountQuestion: false},
 			}),
 			want: true,
-		},
-		{
-			name: "fallback requires shape=value — step_list declines",
-			rm: func() types.RequestModel {
-				rm := triple(types.RequestModel{})
-				rm.AnalyzerHints.Shape = string(types.ShapeStepList)
-				return rm
-			}(),
-			want: false,
 		},
 		{
 			name: "fallback requires intent=return_value — explain declines",
@@ -694,15 +684,6 @@ func TestIsMeasurementScalarRequest_Coverage(t *testing.T) {
 			name: "fallback: fully zero RequestModel declines",
 			rm:   types.RequestModel{},
 			want: false,
-		},
-		{
-			name: "fallback: legacy shape casing + whitespace still normalizes",
-			rm: func() types.RequestModel {
-				rm := triple(types.RequestModel{})
-				rm.AnalyzerHints.Shape = "  VALUE  "
-				return rm
-			}(),
-			want: true,
 		},
 	}
 	for _, c := range cases {

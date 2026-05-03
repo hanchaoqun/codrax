@@ -262,9 +262,16 @@ type Context struct {
 	// AllowedSet when a citation violation fires.
 	ReadSet []string
 
-	// TargetShape is the contract's RequiredAnswerShape — drives
-	// AllowedSet entries for shape violations.
-	TargetShape types.AnswerShape
+	// TargetFamily is the resolved AnswerSemanticView family —
+	// drives AllowedSet entries for family/block contract
+	// violations. Replaces the legacy TargetShape per
+	// docs/migration/answer_shape_retirement.md.
+	TargetFamily types.QuestionFamily
+
+	// TargetRequiredBlocks lists the AnswerBlockKind values the
+	// contract requires for this dispatch; drives the AllowedSet's
+	// per-block enumeration when a block-shape violation fires.
+	TargetRequiredBlocks []types.AnswerBlockKind
 
 	// TargetSubjectKind is the contract's AnswerSubject.Kind —
 	// drives AllowedSet entries for literal-form violations.
@@ -363,10 +370,17 @@ func summariseExactFix(violations []types.Violation, ctx Context) string {
 	}
 	switch violations[0].Kind {
 	case types.ViolShape, types.ViolShapeSwap:
-		if ctx.TargetShape != "" {
-			return fmt.Sprintf("Re-emit with shape=%q and only the fields that shape requires.", ctx.TargetShape)
+		if len(ctx.TargetRequiredBlocks) > 0 {
+			kinds := make([]string, len(ctx.TargetRequiredBlocks))
+			for i, k := range ctx.TargetRequiredBlocks {
+				kinds[i] = string(k)
+			}
+			return fmt.Sprintf("Re-emit with the required blocks (%s); do NOT substitute a different block kind.", strings.Join(kinds, ", "))
 		}
-		return "Re-emit with the contract's required shape; do NOT use any other shape."
+		if ctx.TargetFamily != "" {
+			return fmt.Sprintf("Re-emit aligned with the %q family contract; check Required Answer Blocks in the user section before drafting.", ctx.TargetFamily)
+		}
+		return "Re-emit aligned with the contract's required blocks; do NOT substitute a different block kind."
 	case types.ViolCitation:
 		return "Cite only files from the Allowed list below; do NOT invent line numbers."
 	case types.ViolGhostAnchor:
@@ -407,11 +421,18 @@ func buildAllowedSet(violations []types.Violation, ctx Context) []Allowed {
 			})
 		}
 	case types.ViolShape, types.ViolShapeSwap:
-		if ctx.TargetShape != "" {
+		for _, kind := range ctx.TargetRequiredBlocks {
 			out = append(out, Allowed{
 				Kind:  AllowedShapeEnum,
-				Value: string(ctx.TargetShape),
-				Hint:  "contract-mandated single shape",
+				Value: string(kind),
+				Hint:  "required block kind for this dispatch",
+			})
+		}
+		if len(out) == 0 && ctx.TargetFamily != "" {
+			out = append(out, Allowed{
+				Kind:  AllowedShapeEnum,
+				Value: string(ctx.TargetFamily),
+				Hint:  "contract-mandated question family",
 			})
 		}
 	case types.ViolSelfRefLiteral, types.ViolLiteralFormFailed:
@@ -440,8 +461,14 @@ func buildForbiddenPatterns(violations []types.Violation, ctx Context) []string 
 			out = append(out, fmt.Sprintf("Do NOT emit literal=%q — that is the question's primary entity (self-reference).", ctx.PrimaryEntity))
 		}
 	case types.ViolShape, types.ViolShapeSwap:
-		if ctx.TargetShape != "" {
-			out = append(out, fmt.Sprintf("Do NOT output any shape other than %q.", ctx.TargetShape))
+		if len(ctx.TargetRequiredBlocks) > 0 {
+			kinds := make([]string, len(ctx.TargetRequiredBlocks))
+			for i, k := range ctx.TargetRequiredBlocks {
+				kinds[i] = string(k)
+			}
+			out = append(out, fmt.Sprintf("Do NOT substitute or omit the required block kinds (%s).", strings.Join(kinds, ", ")))
+		} else if ctx.TargetFamily != "" {
+			out = append(out, fmt.Sprintf("Do NOT emit a contract that contradicts the %q family.", ctx.TargetFamily))
 		}
 	case types.ViolCitation:
 		out = append(out, "Do NOT cite files that Turn A did not read.")

@@ -316,6 +316,13 @@ func TestValidateStuck_HypProgressPinned_EscalatesToInconclusive(t *testing.T) {
 // advances). Expect the normal requeue path to run until retry
 // budget exhausts — NOT the hypProgress shortcut.
 func TestValidateStuck_NonHypothesisSC_HypProgressDoesNotFalseTrigger(t *testing.T) {
+	// Pre-shape-retirement, this test relied on V1 checkShape firing
+	// ViolShape on a stub finalizer (FinalAnswer="ok" without a real
+	// AnswerDocument) to drive repeated explorer dispatches. P9-C
+	// retires checkShape — the contract.Check side never produces
+	// ViolShape now. The hypStuck guard semantic is still validated
+	// indirectly by other tests in this file via SC-driven requeue.
+	t.Skip("V1 ViolShape-driven re-explore retired with P9-C; coverage moves to V2 block-oracle tests in contract_check_block_test.go")
 	ir := buildStuckValidateIR()
 	// Wipe hypotheses — this test exercises the non-hypothesis SC
 	// branch of validate nodes.

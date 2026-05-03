@@ -32,16 +32,15 @@ func (f *fakeSymbolResolver) LookupSymbol(surface string) []normalizer.SymbolHit
 // guaranteed to come from one of the new gates and not collateral
 // damage from coverage/dag/etc. The fixture is intentionally NOT
 // composed via the real compiler — coherence checks read only
-// RequestModel + AnswerContract.RequiredAnswerShape, so a
-// hand-rolled minimal IR is enough and lets tests isolate one
-// signal at a time.
-func coherenceFixtureIR(rm types.RequestModel, shape types.AnswerShape) *types.AnalysisIR {
+// RequestModel + view-derived signals, so a hand-rolled minimal IR
+// is enough and lets tests isolate one signal at a time. The
+// trailing variadic argument is accepted for back-compat with
+// pre-shape-retirement callers; its value is ignored.
+func coherenceFixtureIR(rm types.RequestModel, _ ...types.AnswerShape) *types.AnalysisIR {
 	return &types.AnalysisIR{
-		Version:      types.AnalysisIRVersion,
-		RequestModel: rm,
-		AnswerContract: types.AnswerContract{
-			RequiredAnswerShape: shape,
-		},
+		Version:        types.AnalysisIRVersion,
+		RequestModel:   rm,
+		AnswerContract: types.AnswerContract{},
 	}
 }
 
@@ -493,18 +492,20 @@ func TestShapeSubjectCoherence_R2_2_LowConfidencePasses(t *testing.T) {
 	}
 }
 
-func TestShapeSubjectCoherence_NonExplanation_NotApplicable(t *testing.T) {
-	// Step-list shape with a high-confidence Numeric subject is
-	// unusual but R2.2 only applies to Explanation; no rejection.
+func TestShapeSubjectCoherence_ScalarFamilyNotApplicable(t *testing.T) {
+	// Role-lookup family (compileRoleLookup → BlockScalar at
+	// SurfacePrincipal → NeedsPrincipalScalar=true) is the only
+	// place a scalar subject naturally fits. R2.2 must NOT fire
+	// for a scalar-payload family even at high subject confidence.
 	rm := types.RequestModel{
 		AnswerSubject: types.AnswerSubject{
-			Kind:       types.SubjectNumeric,
+			Kind:       types.SubjectFunctionName,
 			Confidence: 0.95,
 		},
 	}
-	ir := coherenceFixtureIR(rm, types.ShapeStepList)
+	ir := coherenceFixtureIR(rm, "")
 	if check := checkShapeSubjectCoherence(ir); !check.Passed {
-		t.Fatalf("non-Explanation shape must not trigger R2.2; got %+v", check)
+		t.Fatalf("scalar-payload family must not trigger R2.2; got %+v", check)
 	}
 }
 

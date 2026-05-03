@@ -178,7 +178,7 @@ func answerSurfacePlan(ctx *types.BusContext) *types.AnswerSurfacePlan {
 	}
 	plan := types.BuildAnswerSurfacePlanForBusContext(ctx)
 	if plan != nil && len(ctx.AnswerSymbols) > 0 {
-		types.ApplyAnswerSymbolStepBackbone(plan, ctx.AnswerSymbols, ctx.AnswerSymbolCompleteness)
+		types.ApplyAnswerSymbolStepBackbone(plan, ctx.AnalysisIR, ctx.AnswerSymbols, ctx.AnswerSymbolCompleteness)
 	}
 	return plan
 }

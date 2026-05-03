@@ -1197,6 +1197,7 @@ func TestBuildAnswerSurfacePlan_CompilesStepBackboneFromAnswerSymbols(t *testing
 		},
 	}, CompletenessLowerBound)
 	ir := &AnalysisIR{
+		RequestModel: RequestModel{Intent: IntentTrace},
 		AnswerContract: AnswerContract{
 			RequiredAnswerShape: ShapeStepList,
 		},
@@ -1218,6 +1219,7 @@ func TestBuildAnswerSurfacePlan_CompilesStepBackboneFromAnswerSymbols(t *testing
 
 func TestBuildAnswerSurfacePlan_CompilesFallbackStepBackboneFromEvidence(t *testing.T) {
 	ir := &AnalysisIR{
+		RequestModel: RequestModel{Intent: IntentTrace},
 		AnswerContract: AnswerContract{
 			RequiredAnswerShape: ShapeStepList,
 		},
@@ -1274,6 +1276,7 @@ func TestBuildAnswerSurfacePlan_AugmentsLowerBoundStepBackboneWithEvidence(t *te
 		{Name: "gate.Run", File: "internal/agent/analyzer.go", Line: 1334, Kind: KindFunction},
 	}, CompletenessLowerBound)
 	ir := &AnalysisIR{
+		RequestModel: RequestModel{Intent: IntentTrace},
 		AnswerContract: AnswerContract{
 			RequiredAnswerShape: ShapeStepList,
 		},

@@ -142,23 +142,17 @@ func (e *answerDocumentEvaluator) BuildInitialInstruction(ctx *types.AgentContex
 	// User question is already rendered by builder.go as "User Request"
 	// section — no need to repeat it here.
 
-	// B8-T1 part 3 (block_only_carrier.md §5.8, 2026-05-03):
-	// `## Target answer shape` section + resolveAnswerDocShape
-	// helper deleted. The V2 block contract section below carries
-	// the equivalent guidance via Family-aware block requirements.
+	// V2 block contract section carries the family-aware block
+	// requirements that drive prompt structure.
 	if blockContract := renderAnswerDocBlockContract(ctx); blockContract != "" {
 		b.WriteString(blockContract)
 	}
 
-	// B8-T1 part 3 transitional: V1 fallback paths below still
-	// reference `shape` to gate shape-specific prose nudges. Use
-	// the analyzer's RequiredAnswerShape directly (no
-	// resolveAnswerDocShape indirection). Empty shape means V2
-	// default carrier — the gates below short-circuit.
-	shape := ""
-	if ctx != nil && ctx.AnalysisIR != nil {
-		shape = string(ctx.AnalysisIR.AnswerContract.RequiredAnswerShape)
-	}
+	// view is the typed runtime semantic contract; downstream prompt
+	// branches gate on view obligations (NeedsPrincipalScalar /
+	// NeedsOrderedPrincipalList / NeedsEnumerationSlate /
+	// AllowsAnchorSkeleton) instead of the legacy AnswerShape enum.
+	view := types.BuildAnswerSemanticViewForAgentContext(ctx)
 
 	if dc := answerDocDiagramContract(ctx); dc != nil && dc.Required {
 		e.diagramRequired = true
@@ -200,22 +194,22 @@ func (e *answerDocumentEvaluator) BuildInitialInstruction(ctx *types.AgentContex
 	if observations := renderAnswerDocExternalObservationSeeds(ctx); observations != "" {
 		b.WriteString(observations)
 	}
-	if checklist := renderAnswerDocSubmissionChecklist(ctx, shape, e.diagramRequired); checklist != "" {
+	if checklist := renderAnswerDocSubmissionChecklist(ctx, view, e.diagramRequired); checklist != "" {
 		b.WriteString(checklist)
 	}
-	if backbone := renderAnswerDocStepBackbone(ctx, shape); backbone != "" {
+	if backbone := renderAnswerDocStepBackbone(ctx, view); backbone != "" {
 		b.WriteString(backbone)
 	}
-	if boundary := renderAnswerDocEnumerationBoundary(ctx, shape); boundary != "" {
+	if boundary := renderAnswerDocEnumerationBoundary(ctx, view); boundary != "" {
 		b.WriteString(boundary)
 	}
 	if ctx != nil && ctx.AnalysisIR != nil && types.IsScalarSourceLiteralLookup(ctx.AnalysisIR.RequestModel) {
 		b.WriteString("## Scalar Lookup Discipline\n\n")
 		b.WriteString("- This dispatch asks for one named source-code literal, not for a walkthrough of the surrounding pipeline.\n")
 		b.WriteString("- Keep `summary` narrow: identify the literal, give its grounded file:line location, and add only the minimal role sentence needed to justify why it is the answer.\n")
-		b.WriteString("- `shape=value` / `shape=config_value` / `shape=boolean` still require a real `summary`. The literal or decision alone is not a complete answer.\n")
+		b.WriteString("- The principal scalar block still requires a real `summary`. The literal or decision alone is not a complete answer.\n")
 		b.WriteString("- Do not expand into adjacent helpers, orchestrated stages, or nearby components unless the user explicitly asked how the mechanism works.\n")
-		b.WriteString("- For scalar payloads (`value`, `config_value`, `boolean`), every non-negative `citation_ref` must point at a real entry in `citations[]`. Do not emit `citation_ref: 0` with an empty citations pool.\n")
+		b.WriteString("- Every non-negative `citation_ref` on a scalar payload must point at a real entry in `citations[]`. Do not emit `citation_ref: 0` with an empty citations pool.\n")
 		b.WriteString("- If you include a secondary citation beyond the defining one, it must still directly name or call/reference the SAME emitted literal. Drop type comments, nearby docstrings, or broad background citations even when they are grounded.\n")
 		b.WriteString("- If a related-context evidence item mentions surrounding pipeline pieces, treat that as background noise rather than answer content.\n\n")
 		if types.IsScalarRoleLocateLookup(ctx.AnalysisIR.RequestModel) {
@@ -224,7 +218,7 @@ func (e *answerDocumentEvaluator) BuildInitialInstruction(ctx *types.AgentContex
 		}
 	}
 
-	if shape == string(types.ShapeListOfSymbols) {
+	if view.NeedsEnumerationSlate() {
 		must := []string(nil)
 		if ctx != nil && ctx.AnalysisIR != nil {
 			must = ctx.AnalysisIR.AnswerContract.MustInclude
@@ -279,7 +273,7 @@ func (e *answerDocumentEvaluator) BuildInitialInstruction(ctx *types.AgentContex
 		// explanation shape. This pins the load-bearing identifiers
 		// in the rendered output and stops the finalizer from
 		// synthesizing prose that drifts from Turn A's evidence.
-		if shape == string(types.ShapeExplanation) && len(ctx.AnswerSymbols) > 0 {
+		if view.AllowsAnchorSkeleton(ctx.AnalysisIR.RequestModel) && len(ctx.AnswerSymbols) > 0 {
 			b.WriteString("### Anchor skeleton (emit as symbols[])\n\n")
 			b.WriteString("The extractor produced these per-sub-topic anchors. " +
 				"Re-emit them verbatim in the `symbols[]` field of emit_answer_document " +
@@ -303,43 +297,68 @@ func (e *answerDocumentEvaluator) BuildInitialInstruction(ctx *types.AgentContex
 	return b.String()
 }
 
-func renderAnswerDocSubmissionChecklist(ctx *types.AgentContext, shape string, diagramRequired bool) string {
+func renderAnswerDocSubmissionChecklist(ctx *types.AgentContext, view *types.AnswerSemanticView, diagramRequired bool) string {
 	var items []string
-	switch shape {
-	case string(types.ShapeListOfSymbols):
-		items = append(items,
-			"Fill non-empty `symbols[]` and set `symbols_completeness` honestly (`complete` / `lower_bound` / `unknown`).",
-			"Use `summary` to frame what the list enumerates; do not let the list stand alone without context when the question needs explanation.",
-		)
-	case string(types.ShapeStepList):
-		items = append(items,
-			"Fill `steps[]` with ordered logical hops. Each step must either cite one grounded line or set `citation_ref=-1` honestly.",
-			"Keep the hop-by-hop detail in `steps[]`; `summary` is only the lead-in and any required diagram.",
-			"Do not invent shorthand labels from citation line numbers (for example `L877` or `Line 42`) unless that exact token is itself grounded in cited text.",
-			"Keep each cited step at the abstraction directly named by its own citation. If one step needs both a guard/condition and a downstream action that are named on different lines, split the hop or cite the line that actually names the action instead of blending both into one cited sentence.",
-		)
-	case string(types.ShapeValue):
-		items = append(items,
-			"Fill `value.literal` and `value.citation_ref`.",
-			"Fill a real `summary` that names the subject being measured and states how the literal was obtained (lookup / file:line / command / chain).",
-		)
-	case string(types.ShapeConfigValue):
-		items = append(items,
-			"Fill `value.key`, `value.literal`, and `value.citation_ref`.",
-			"Fill a real `summary` that names the config key / subject and states how the literal was obtained (lookup / file:line / chain).",
-		)
-	case string(types.ShapeBoolean):
-		items = append(items,
-			"Fill `boolean{decision,rationale,citation_ref}` with a grounded yes/no result and the mechanism that forces it.",
-			"Use `summary` to set up the decision whenever a short lead-in improves readability.",
-		)
-	case string(types.ShapeExplanation):
-		items = append(items,
-			"`summary` is REQUIRED and is the main answer body for this dispatch.",
-		)
-		if ctx == nil || !types.ExplanationAllowsAnchorSkeleton(ctx.AnalysisIR) {
+	if view != nil {
+		// Walk RequiredBlocks and emit one prose item per principal
+		// obligation. Each Required block at SurfacePrincipal is a
+		// load-bearing payload the LLM must fill; principal blocks
+		// at non-principal hints are surfaced via their facet/diagram
+		// sections elsewhere in this prompt.
+		seenKinds := map[types.AnswerBlockKind]bool{}
+		for _, br := range view.RequiredBlocks {
+			if !br.Required || br.SurfaceRoleHint != types.SurfacePrincipal {
+				continue
+			}
+			if seenKinds[br.Kind] {
+				continue
+			}
+			seenKinds[br.Kind] = true
+			switch br.Kind {
+			case types.BlockScalar:
+				switch view.Family {
+				case types.QFConfigPrecedence:
+					items = append(items,
+						"Fill the principal scalar block with `value.key`, `value.literal`, and `value.citation_ref`.",
+						"Write a real `summary` that names the config key / subject and states how the literal was obtained (lookup / file:line / chain).",
+					)
+				default:
+					items = append(items,
+						"Fill the principal scalar block with `value.literal` and `value.citation_ref`.",
+						"Write a real `summary` that names the subject being measured and states how the literal was obtained (lookup / file:line / command / chain).",
+					)
+				}
+			case types.BlockOrderedList:
+				if view.Family == types.QFEnumeration {
+					items = append(items,
+						"Fill non-empty `symbols[]` and set `symbols_completeness` honestly (`complete` / `lower_bound` / `unknown`).",
+						"Use `summary` to frame what the list enumerates; do not let the list stand alone without context when the question needs explanation.",
+					)
+				} else {
+					items = append(items,
+						"Fill `steps[]` with ordered logical hops. Each step must either cite one grounded line or set `citation_ref=-1` honestly.",
+						"Keep the hop-by-hop detail in `steps[]`; `summary` is only the lead-in and any required diagram.",
+						"Do not invent shorthand labels from citation line numbers (for example `L877` or `Line 42`) unless that exact token is itself grounded in cited text.",
+						"Keep each cited step at the abstraction directly named by its own citation. If one step needs both a guard/condition and a downstream action that are named on different lines, split the hop or cite the line that actually names the action instead of blending both into one cited sentence.",
+					)
+				}
+			case types.BlockSection:
+				items = append(items,
+					"Structure `summary` with one named section per layer / component / topic, each under its own grounded heading.",
+				)
+			case types.BlockTable:
+				items = append(items,
+					"Fill the principal table block with one row per layer / member; each row's citation_ref must point at a real grounded line.",
+				)
+			case types.BlockSummary:
+				items = append(items,
+					"`summary` is REQUIRED and is the main answer body for this dispatch.",
+				)
+			}
+		}
+		if !view.AllowsAnchorSkeleton(answerDocRequestModel(ctx)) && view.Family != types.QFEnumeration {
 			items = append(items,
-				"Leave `symbols[]` empty for this single-topic explanation. Anchor skeletons are only for multi-topic explanation answers whose prompt includes an Anchor skeleton section.",
+				"Leave `symbols[]` empty unless the prompt explicitly attached an Anchor skeleton section for a multi-topic explanation.",
 			)
 		}
 	}
@@ -411,13 +430,24 @@ func answerSurfacePlan(ctx *types.AgentContext) *types.AnswerSurfacePlan {
 	}
 	plan := types.BuildAnswerSurfacePlanForAgentContext(ctx)
 	if plan != nil && len(ctx.AnswerSymbols) > 0 {
-		types.ApplyAnswerSymbolStepBackbone(plan, ctx.AnswerSymbols, ctx.AnswerSymbolCompleteness)
+		types.ApplyAnswerSymbolStepBackbone(plan, ctx.AnalysisIR, ctx.AnswerSymbols, ctx.AnswerSymbolCompleteness)
 	}
 	return plan
 }
 
-func renderAnswerDocStepBackbone(ctx *types.AgentContext, shape string) string {
-	if shape != string(types.ShapeStepList) {
+func answerDocRequestModel(ctx *types.AgentContext) types.RequestModel {
+	if ctx == nil || ctx.AnalysisIR == nil {
+		return types.RequestModel{}
+	}
+	return ctx.AnalysisIR.RequestModel
+}
+
+func renderAnswerDocStepBackbone(ctx *types.AgentContext, view *types.AnswerSemanticView) string {
+	// Step backbone is a hop-chain anchor list — it applies to
+	// trace / root-cause families specifically (not plain enumeration
+	// of items). Use Family directly so we can distinguish hop chain
+	// vs enumeration slate while both produce a principal ordered list.
+	if view == nil || (view.Family != types.QFCallChain && view.Family != types.QFRootCauseTrace) {
 		return ""
 	}
 	plan := answerSurfacePlan(ctx)
@@ -453,22 +483,22 @@ func renderAnswerDocStepBackbone(ctx *types.AgentContext, shape string) string {
 	return b.String()
 }
 
-func renderAnswerDocEnumerationBoundary(ctx *types.AgentContext, shape string) string {
+func renderAnswerDocEnumerationBoundary(ctx *types.AgentContext, view *types.AnswerSemanticView) string {
 	if ctx == nil || ctx.AnalysisIR == nil {
 		return ""
 	}
 	rm := ctx.AnalysisIR.RequestModel
-	view := rm.QuestionStructure()
+	qs := rm.QuestionStructure()
 	// Plan E (2026-05-02): when ANY axis is populated, render the
 	// per-axis instructions. Pre-Plan-E behaviour preserved when
 	// only EnumerationBoundary is set (no Completeness, no Buckets).
-	if !view.HasAnyObligation() {
+	if !qs.HasAnyObligation() {
 		return ""
 	}
 	boundary := rm.EnumerationBoundary
 	hasBoundary := boundary != nil && boundary.DeclaredCount > 0 && strings.TrimSpace(boundary.SourceQuote) != ""
-	hasCompleteness := view.CompletenessObligation.IsActive()
-	hasBuckets := len(view.Buckets) >= 2
+	hasCompleteness := qs.CompletenessObligation.IsActive()
+	hasBuckets := len(qs.Buckets) >= 2
 	var b strings.Builder
 	b.WriteString("## Requested Set Boundary\n\n")
 	if hasBoundary {
@@ -477,23 +507,23 @@ func renderAnswerDocEnumerationBoundary(ctx *types.AgentContext, shape string) s
 	}
 	if hasCompleteness {
 		fmt.Fprintf(&b, "The user demanded an exhaustive answer (`%s` in the question). Every match must be in the rendered answer; partial slates ship dishonestly. Set the answer's completeness claim to `complete` when you have grounded every match; fall back to `unknown` only when the investigation legitimately could not determine the full set.\n\n",
-			view.CompletenessObligation.SourceQuote)
+			qs.CompletenessObligation.SourceQuote)
 	}
 	if hasBuckets {
-		labels := make([]string, 0, len(view.Buckets))
-		for _, bk := range view.Buckets {
+		labels := make([]string, 0, len(qs.Buckets))
+		for _, bk := range qs.Buckets {
 			labels = append(labels, fmt.Sprintf("`%s`", bk.Label))
 		}
 		fmt.Fprintf(&b, "The user partitioned the answer into %d named groups: %s. Each label MUST appear verbatim in your rendered answer (summary section heading is the preferred surface; step description / symbol rationale also acceptable). The user's mental partition must survive end-to-end.\n\n",
-			len(view.Buckets), strings.Join(labels, ", "))
+			len(qs.Buckets), strings.Join(labels, ", "))
 	}
 	if !hasBoundary {
 		// No count axis — skip the per-shape count rules below.
 		return b.String()
 	}
-	switch shape {
-	case string(types.ShapeStepList):
-		// Plan D rollout 2026-05-02: teach the Kind discipline.
+	switch {
+	case view != nil && (view.Family == types.QFCallChain || view.Family == types.QFRootCauseTrace):
+		// Hop-chain principal payload: teach the Kind discipline.
 		// principal counts toward DeclaredCount; flow / caveat do
 		// not. The validator counts only kind=principal; the
 		// orchestrator's contract.Check fires declared_count_drift
@@ -502,7 +532,7 @@ func renderAnswerDocEnumerationBoundary(ctx *types.AgentContext, shape string) s
 		b.WriteString("- Use `kind: flow` for steps that only describe how the sequence transitions or under what condition the next item runs (branch entries, loop boundaries, scope shifts). flow steps do NOT count toward the declared boundary.\n")
 		b.WriteString("- Use `kind: caveat` for steps that qualify the answer's scope rather than belonging to it (e.g. \"this stage is skipped under flag X\"). caveat steps do NOT count toward the declared boundary.\n")
 		b.WriteString("- Empty `kind` defaults to `principal`. Leave `kind` empty only when every step IS principal.\n")
-	case string(types.ShapeListOfSymbols):
+	case view != nil && view.Family == types.QFEnumeration:
 		fmt.Fprintf(&b, "- Keep the principal `symbols[]` slate to %d item(s) when the grounded evidence supports that boundary.\n", boundary.DeclaredCount)
 	default:
 		fmt.Fprintf(&b, "- Keep the main enumerated set in `summary` to %d principal item(s).\n", boundary.DeclaredCount)
@@ -1200,13 +1230,13 @@ func renderAnswerDocExactResolutionContract(ctx *types.AgentContext) string {
 		b.WriteString("- Keep nearby context at the abstraction already grounded by the evidence. A cited struct / function / type name does NOT license an invented field inventory, member count, default-value table, or exhaustive list unless a cited line or structured evidence item explicitly enumerates those members.\n")
 		b.WriteString("- Do not add a separate paragraph about the effect of supplying the absent target unless the user explicitly asked for that behavior and a cited anchor proves it.\n")
 		if types.ExactResolutionTargetIsConfigKey(contract) {
-			b.WriteString("- Because the exact config key is absent, do NOT force `shape=config_value` with a synthetic literal such as `(missing)` / `(不存在)`. Prefer `shape=explanation` so the answer can lead with the exact absence before any nearby grounded context.\n")
+			b.WriteString("- Because the exact config key is absent, do NOT emit a principal scalar block with a synthetic literal such as `(missing)` / `(不存在)`. Prefer a summary-led explanation so the answer can lead with the exact absence before any nearby grounded context.\n")
 		}
 		if ctx.AnalysisIR != nil && ctx.AnalysisIR.RequestModel.Scenario == types.ScenarioConfigTrace {
-			b.WriteString("- Because the exact config key is absent, do NOT force `shape=config_value` with a synthetic literal such as `(missing)` / `(不存在)`. Prefer `shape=explanation` so the answer can lead with the exact absence and then explain any grounded same-family precedence chain as related context only.\n")
+			b.WriteString("- Because the exact config key is absent, do NOT emit a principal scalar block with a synthetic literal such as `(missing)` / `(不存在)`. Prefer a summary-led explanation so the answer can lead with the exact absence and then explain any grounded same-family precedence chain as related context only.\n")
 			b.WriteString("- For config-trace related context, grounded same-scope anchors may appear in `summary` even when they do not carry a validated diagram role. But fenced diagrams and diagram citations are stricter: only anchors with a validated `diagram_role_hint` (`default`, `config`, `runtime`, or `override`) may become diagram nodes.\n")
 			b.WriteString("- For config-precedence answers, only create a separate numbered step when that layer has its own grounded repo anchor. If a layer is absent or only inferred from the exact-absence state, keep it in `summary` or set that step's `citation_ref=-1` instead of borrowing a nearby config-file / struct citation.\n")
-			b.WriteString("- In `step_list`, any step with `citation_ref >= 0` must mention at least one identifier that appears on the cited line or its nearby corroboration window. If the step summarizes a whole struct/range/absence conclusion rather than one corroborated line, use `citation_ref=-1` and keep the precise line-backed facts in neighboring steps.\n")
+			b.WriteString("- In an ordered-list block, any step with `citation_ref >= 0` must mention at least one identifier that appears on the cited line or its nearby corroboration window. If the step summarizes a whole struct/range/absence conclusion rather than one corroborated line, use `citation_ref=-1` and keep the precise line-backed facts in neighboring steps.\n")
 			b.WriteString("- A repo-wide search result, aggregate absence conclusion, or test-only proof step usually has no single corroborating production line. In `step_list`, default those steps to `citation_ref=-1` unless one cited line literally states the same claim.\n")
 			if roles := types.JoinEvidenceDiagramRoles(contract.RequestedContextRoles); roles != "" {
 				fmt.Fprintf(&b, "- The user explicitly asked to cover these nearby precedence roles when you keep follow-on context: `%s`. Do not collapse the answer to only one surviving layer when grounded anchors for the other requested roles are still available in this dispatch.\n", roles)

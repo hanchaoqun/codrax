@@ -335,7 +335,7 @@ func (e *extractorEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk
 	}
 
 	// -------- Bounded principal member slate --------
-	if isBoundedPrincipalStepList(ctx) {
+	if viewNeedsBoundedPrincipalList(ctx) {
 		boundary := requestedEnumerationBoundary(ctx)
 		count := boundary.DeclaredCount
 		plan := extractorAnswerSurfacePlan(ctx)
@@ -769,7 +769,7 @@ func declarativeLiteralFallbackRelevant(ctx *types.AgentContext) bool {
 	if ctx == nil {
 		return false
 	}
-	requiresSymbolSlate := isListOfSymbolsShape(ctx) || isMultiTopicExplanation(ctx)
+	requiresSymbolSlate := viewNeedsEnumerationSlate(ctx) || isMultiTopicExplanation(ctx)
 	if !requiresSymbolSlate {
 		return false
 	}
@@ -782,7 +782,7 @@ func declarativeLiteralFallbackRelevant(ctx *types.AgentContext) bool {
 			axis = rm.PredicateAxis
 		}
 	}
-	isEnumeration := isListOfSymbolsShape(ctx) || enumerationIntentForContext(ctx)
+	isEnumeration := viewNeedsEnumerationSlate(ctx) || enumerationIntentForContext(ctx)
 	if !declarativeFocusRelevant(irQuestionKind(ctx), isEnumeration, axis) {
 		return false
 	}
@@ -820,7 +820,7 @@ func extractorAnswerSubjectSupportsLiteralFallback(kind types.AnswerSubjectKind)
 func extractorGenericDeclarativeLiteralFallbackAllowed(ctx *types.AgentContext, kind types.AnswerSubjectKind) bool {
 	switch kind {
 	case types.SubjectUnknown, types.SubjectGeneric:
-		return isListOfSymbolsShape(ctx)
+		return viewNeedsEnumerationSlate(ctx)
 	}
 	return false
 }
@@ -1023,7 +1023,7 @@ func axisAnchorRetryHint(ctx *types.AgentContext) string {
 	if ctx == nil || ctx.Mutable == nil || ctx.AnalysisIR == nil {
 		return ""
 	}
-	if isBoundedPrincipalStepList(ctx) {
+	if viewNeedsBoundedPrincipalList(ctx) {
 		// A user-declared bounded principal set uses the answer-symbol
 		// slate to lock the member set itself. Axis-aligned condition /
 		// call anchors can remain in the evidence pool and final prose;
@@ -1286,10 +1286,7 @@ func (e *extractorEvaluator) Observe(ctx *types.AgentContext, obs LoopObservatio
 	var missingParts []string
 	if missingSymbols {
 		switch {
-		case isListOfSymbolsShape(ctx):
-			missingParts = append(missingParts,
-				"call `emit_answer_symbol` with the symbols that answer this list_of_symbols question (cite each with a concrete file:line from the 'Files the investigation read' list)")
-		case isBoundedPrincipalStepList(ctx):
+		case viewNeedsBoundedPrincipalList(ctx):
 			boundary := requestedEnumerationBoundary(ctx)
 			count := 0
 			quote := ""
@@ -1299,6 +1296,9 @@ func (e *extractorEvaluator) Observe(ctx *types.AgentContext, obs LoopObservatio
 			}
 			missingParts = append(missingParts,
 				fmt.Sprintf("call `emit_answer_symbol` with the principal member slate for the bounded set `%s` (%d item(s)); keep the slate within that boundary, cite each item with a concrete file:line from the 'Files the investigation read' list, and leave adjacent caveat-only items out of the main slate", quote, count))
+		case viewNeedsEnumerationSlate(ctx):
+			missingParts = append(missingParts,
+				"call `emit_answer_symbol` with the symbols that answer this list_of_symbols question (cite each with a concrete file:line from the 'Files the investigation read' list)")
 		case isMultiTopicExplanation(ctx):
 			missingParts = append(missingParts,
 				"call `emit_answer_symbol` with ONE anchor symbol per sub-topic — the load-bearing identifier the final answer's prose should hang on. Cite each with a concrete file:line from the 'Files the investigation read' list. Downstream rendering presents these as a Key Anchors skeleton beneath the summary")
@@ -1340,35 +1340,20 @@ func NewExtractorAgent(deps *Dependencies) Agent {
 	})
 }
 
-// isListOfSymbolsShape reports whether the answer is enumeration-
-// shaped — i.e. the LLM is expected to emit a slate of named anchors
-// via emit_answer_symbol. Used by Observe to decide whether
-// emit_answer_symbol is an expected tool for this dispatch.
+// viewNeedsEnumerationSlate reports whether the answer is
+// enumeration-shaped — i.e. the LLM is expected to emit a slate of
+// named anchors via emit_answer_symbol. Used by Observe to decide
+// whether emit_answer_symbol is an expected tool for this dispatch.
 //
-// B8-T1 part 2 (block_only_carrier.md §5.8, 2026-05-03): converted
-// from V1 shape check to V2 Family-aware. Reads the typed
-// QuestionFamily (QFEnumeration ⇒ true) primarily; V1 ShapeListOfSymbols
-// remains as a fallback for the rare case where AnalysisIR is set
-// but the V2 surface plan can't be built. The Family check covers
-// the V2 default path; the V1 check covers the rollback path
-// (--emit-v2=off / pipeline_emit_v2_default=false).
-func isListOfSymbolsShape(ctx *types.AgentContext) bool {
+// Reads the compiled AnswerSemanticView's NeedsEnumerationSlate()
+// helper, which is true for QFEnumeration. The legacy ShapeListOfSymbols
+// gate has been retired per docs/migration/answer_shape_retirement.md.
+func viewNeedsEnumerationSlate(ctx *types.AgentContext) bool {
 	if ctx == nil || ctx.AnalysisIR == nil {
 		return false
 	}
-	// V1 LLM-emitted shape takes priority: when the analyzer
-	// declared a specific shape, honour it. Falls through to the
-	// V2 Family-aware path only when shape is unset / placeholder
-	// (ShapeNone or "") so the V2 carrier path can still detect
-	// enumeration intent from the typed QuestionFamily.
-	switch ctx.AnalysisIR.AnswerContract.RequiredAnswerShape {
-	case types.ShapeListOfSymbols:
-		return true
-	case types.ShapeStepList, types.ShapeValue, types.ShapeBoolean,
-		types.ShapeConfigValue, types.ShapeExplanation:
-		return false
-	}
-	return types.ResolveQuestionFamily(ctx.AnalysisIR.RequestModel) == types.QFEnumeration
+	view := types.BuildAnswerSemanticViewForAgentContext(ctx)
+	return view.NeedsEnumerationSlate()
 }
 
 func extractorAnswerSurfacePlan(ctx *types.AgentContext) *types.AnswerSurfacePlan {
@@ -1386,16 +1371,14 @@ func requestedEnumerationBoundary(ctx *types.AgentContext) *types.RequestedEnume
 	return boundary
 }
 
-// isBoundedPrincipalStepList reports whether the answer is a
+// viewNeedsBoundedPrincipalList reports whether the answer is a
 // bounded-count ordered sequence (the user declared "the N steps" /
-// "前 N 个" etc.) AND the family naturally produces an ordered list.
-//
-// B8-T1 part 2 (2026-05-03): converted to V2 Family-aware. V2 path:
-// QFCallChain / QFRootCauseTrace produce ordered lists (block kind
-// BlockOrderedList) by their family contract, so a bounded
-// enumeration boundary on those families counts. V1 fallback:
-// ShapeStepList (for rollback runs).
-func isBoundedPrincipalStepList(ctx *types.AgentContext) bool {
+// "前 N 个" etc.) AND the family produces a principal ordered list.
+// True for the families whose compile_<family> emits BlockOrderedList
+// at SurfacePrincipal: QFCallChain, QFRootCauseTrace, QFEnumeration.
+// Replaces the legacy isBoundedPrincipalStepList (RequiredShape-
+// driven) per docs/migration/answer_shape_retirement.md.
+func viewNeedsBoundedPrincipalList(ctx *types.AgentContext) bool {
 	if ctx == nil || ctx.AnalysisIR == nil {
 		return false
 	}
@@ -1405,30 +1388,20 @@ func isBoundedPrincipalStepList(ctx *types.AgentContext) bool {
 	if types.RequestedEnumerationBoundaryOwner(ctx.AnalysisIR.RequestModel) == "" {
 		return false
 	}
-	// V1 LLM-emitted shape takes priority (matches the historical
-	// fixture semantics). V2 Family path covers V2-default runs
-	// where shape might be left zero.
-	switch ctx.AnalysisIR.AnswerContract.RequiredAnswerShape {
-	case types.ShapeStepList:
-		return true
-	case types.ShapeListOfSymbols, types.ShapeValue, types.ShapeBoolean,
-		types.ShapeConfigValue, types.ShapeExplanation:
-		return false
-	}
 	family := types.ResolveQuestionFamily(ctx.AnalysisIR.RequestModel)
 	switch family {
-	case types.QFCallChain, types.QFRootCauseTrace:
+	case types.QFCallChain, types.QFRootCauseTrace, types.QFEnumeration:
 		return true
 	}
 	return false
 }
 
 func needsAnswerSymbols(ctx *types.AgentContext) bool {
-	return isListOfSymbolsShape(ctx) || isMultiTopicExplanation(ctx) || isBoundedPrincipalStepList(ctx)
+	return viewNeedsEnumerationSlate(ctx) || isMultiTopicExplanation(ctx) || viewNeedsBoundedPrincipalList(ctx)
 }
 
 func requiredAnswerSymbolCount(ctx *types.AgentContext) int {
-	if boundary := requestedEnumerationBoundary(ctx); boundary != nil && isBoundedPrincipalStepList(ctx) {
+	if boundary := requestedEnumerationBoundary(ctx); boundary != nil && viewNeedsBoundedPrincipalList(ctx) {
 		return boundary.DeclaredCount
 	}
 	if isMultiTopicExplanation(ctx) && ctx != nil && ctx.AnalysisIR != nil {
@@ -1457,7 +1430,7 @@ func answerSymbolMaterializationHint(ctx *types.AgentContext) string {
 		return "Re-emit `emit_answer_symbol` with the grounded answer-symbol slate before stopping."
 	}
 	syms, _ := ctx.Mutable.EmittedAnswerSymbols()
-	if isBoundedPrincipalStepList(ctx) {
+	if viewNeedsBoundedPrincipalList(ctx) {
 		if boundary := requestedEnumerationBoundary(ctx); boundary != nil {
 			return fmt.Sprintf("The user explicitly requested the bounded principal set `%s` (%d item(s)), but the accepted `emit_answer_symbol` slate currently contains only %d grounded item(s). Re-emit `emit_answer_symbol` now with the full principal member slate for that bounded set. Reuse the compiled candidate pool's exact file:line + symbol names when available, keep the slate within %d items, and leave adjacent caveat-only checks out of the main slate.", boundary.SourceQuote, boundary.DeclaredCount, len(syms), boundary.DeclaredCount)
 		}
@@ -1490,7 +1463,7 @@ func isMultiTopicExplanation(ctx *types.AgentContext) bool {
 	if ctx == nil {
 		return false
 	}
-	return types.ExplanationAllowsAnchorSkeleton(ctx.AnalysisIR)
+	return types.IRAllowsAnchorSkeleton(ctx.AnalysisIR)
 }
 
 // hasPendingHypotheses reports whether the analyzer posed hypotheses

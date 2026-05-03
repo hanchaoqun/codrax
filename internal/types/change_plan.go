@@ -443,7 +443,7 @@ type FileChange struct {
 // alongside the plan JSON as .codrax/plans/<plan-id>.report.json so
 // the verify outcome is recoverable across process restarts.
 //
-// Consumed by ShapeChangeReport's answer rendering path: the
+// Consumed by the write-mode ChangeReport rendering path: the
 // finalize stage reads this file and renders a user-visible
 // AnswerDocument describing the change and its test outcome.
 type ChangeReport struct {

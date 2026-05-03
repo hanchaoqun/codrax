@@ -675,7 +675,7 @@ func BuildPromptContext(ac *types.AgentContext, sk *skill.Config) *types.PromptC
 	// summaries here so the finalizer can pull the literal directly.
 	//
 	// NARROW SCOPE — citation-free value questions only. We gate on
-	// AnswerContract.RequiredAnswerShape == ShapeValue AND
+	// AnswerSemanticView.NeedsCitationFreeScalarIngest() AND
 	// CitationReq.Required == false; today that pair is produced by the
 	// analyzer for measurement scalars and VCS/history value lookups.
 	// For every other question shape (explanation / step_list /
@@ -1566,20 +1566,23 @@ func formatFlowFindings(findings []types.FlowFindingDigest, limit int) string {
 // value carve-out. Using the IR state as the gate keeps the rule 1:1
 // with its producer and avoids a second keyword table here.
 func isCitationFreeValueAnswer(ac *types.AgentContext) bool {
-	if ac.Mutable == nil {
-		return false
-	}
-	if ac.AnalysisIR == nil {
+	if ac == nil || ac.Mutable == nil || ac.AnalysisIR == nil {
 		return false
 	}
 	c := ac.AnalysisIR.AnswerContract
-	if c.RequiredAnswerShape != types.ShapeValue {
-		return false
-	}
 	if c.CitationReq.Required {
 		return false
 	}
-	return true
+	// Citation-free scalar — the analyzer's measurement-scalar
+	// carve-out drops CitationReq.Required for command-level
+	// returns (wc -l, git log, etc.). Combined with the typed
+	// IsScalarAnswer predicate (the LLM's classification of
+	// "answer is one literal"), this is the precise signal for
+	// surfacing the Raw Tool Outputs section. We DO NOT rely on
+	// the compiled view here because measurement scalars often
+	// land in QFGeneric (no scalar-principal block) yet still
+	// need this carve-out.
+	return ac.AnalysisIR.RequestModel.Predicates.IsScalarAnswer
 }
 
 // shouldRenderRawToolOutputs gates the Raw Tool Outputs section to

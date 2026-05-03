@@ -73,11 +73,16 @@ func irQuestionKind(ctx *types.AgentContext) string {
 	return ctx.AnalysisIR.RequestModel.AnalyzerHints.Kind
 }
 
-func irAnswerShape(ctx *types.AgentContext) string {
+// irQuestionFamily returns the resolved QuestionFamily for the
+// current request as a string. Replaces the legacy irAnswerShape
+// helper per docs/migration/answer_shape_retirement.md — downstream
+// stage-report consumers see the typed family classification rather
+// than the LLM-emitted shape hint.
+func irQuestionFamily(ctx *types.AgentContext) string {
 	if ctx == nil || ctx.AnalysisIR == nil {
 		return ""
 	}
-	return ctx.AnalysisIR.RequestModel.AnalyzerHints.Shape
+	return string(types.ResolveQuestionFamily(ctx.AnalysisIR.RequestModel))
 }
 
 // irComplexity returns the analyzer-classified complexity for the

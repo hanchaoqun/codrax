@@ -35,9 +35,11 @@ import "math"
 //
 // Field conventions:
 //
-//   - Shape: closed enum drawn from types.AnswerShape
-//   - Summary: LLM-authored prose, length-capped per shape by
-//     SummaryCapFor(shape, itemCount) — see SummaryCapConfig
+//   - Shape: closed enum drawn from types.AnswerShape (legacy field;
+//     post-block-only-migration the AnswerDocumentV2 carrier uses
+//     blocks[] and the view's required-block contract instead).
+//   - Summary: LLM-authored prose, length-capped per view by
+//     SummaryCapForView(view, principalCount) — see SummaryCapConfig
 //   - Steps: non-empty for ShapeStepList, empty for all other shapes
 //   - Symbols: non-empty for ShapeListOfSymbols
 //   - SymbolsCompleteness: set-level authority (see CompletenessClaim);
@@ -159,50 +161,62 @@ var summaryCapConfig = DefaultSummaryCapConfig()
 // locking because later Runs do not mutate this.
 func SetSummaryCapConfig(cfg SummaryCapConfig) { summaryCapConfig = cfg }
 
-// SummaryCapForConfig returns the Summary length ceiling for the
-// given shape and item count under an explicit config. itemCount is
-// len(Steps) for ShapeStepList and len(Symbols) for ShapeListOfSymbols;
-// it is ignored for scalar shapes. A negative itemCount is clamped to
-// 0. Callers should prefer SummaryCapFor; this variant exists so tests
+// SummaryCapForViewConfig returns the Summary length ceiling for
+// the compiled AnswerSemanticView and its principal item count
+// under an explicit config. principalCount is the number of
+// principal blocks the answer carries (0 for scalar / explanation
+// answers). A negative principalCount is clamped to 0. Callers
+// should prefer SummaryCapForView; this variant exists so tests
 // and the trimmer can reason about caps against arbitrary configs.
-func SummaryCapForConfig(cfg SummaryCapConfig, shape AnswerShape, itemCount int) int {
+//
+// Replaces the legacy SummaryCapForConfig(shape, itemCount) per
+// docs/migration/answer_shape_retirement.md. The view-driven gate
+// reads RequiredBlocks (BlockOrderedList / BlockSection / etc.)
+// and the family classification rather than the legacy shape enum.
+func SummaryCapForViewConfig(cfg SummaryCapConfig, view *AnswerSemanticView, principalCount int) int {
 	if !cfg.Enabled {
 		return SummaryCapUnlimited
 	}
-	if itemCount < 0 {
-		itemCount = 0
+	if principalCount < 0 {
+		principalCount = 0
 	}
-	switch shape {
-	case ShapeExplanation:
-		return cfg.Explanation
-	case ShapeValue:
-		return cfg.Value
-	case ShapeConfigValue:
-		return cfg.ConfigValue
-	case ShapeBoolean:
-		return cfg.Boolean
-	case ShapeStepList:
-		cap := cfg.StepListBase + itemCount*cfg.StepListPerItem
-		if cap > cfg.StepListMax {
-			cap = cfg.StepListMax
-		}
-		return cap
-	case ShapeListOfSymbols:
-		cap := cfg.SymbolsBase + itemCount*cfg.SymbolsPerItem
+	if view == nil {
+		return cfg.Default
+	}
+	switch {
+	case view.NeedsEnumerationSlate():
+		cap := cfg.SymbolsBase + principalCount*cfg.SymbolsPerItem
 		if cap > cfg.SymbolsMax {
 			cap = cfg.SymbolsMax
 		}
 		return cap
-	default:
-		return cfg.Default
+	case view.NeedsBoundedMechanismList() || view.NeedsOrderedPrincipalList():
+		cap := cfg.StepListBase + principalCount*cfg.StepListPerItem
+		if cap > cfg.StepListMax {
+			cap = cfg.StepListMax
+		}
+		return cap
+	case view.NeedsPrincipalScalar():
+		switch view.Family {
+		case QFConfigPrecedence:
+			return cfg.ConfigValue
+		default:
+			return cfg.Value
+		}
 	}
+	switch view.Family {
+	case QFGeneric, QFArchitecture:
+		return cfg.Explanation
+	}
+	return cfg.Default
 }
 
-// SummaryCapFor dispatches through the package-level summaryCapConfig.
-// itemCount is len(Steps) for ShapeStepList, len(Symbols) for
-// ShapeListOfSymbols, ignored otherwise.
-func SummaryCapFor(shape AnswerShape, itemCount int) int {
-	return SummaryCapForConfig(summaryCapConfig, shape, itemCount)
+// SummaryCapForView dispatches through the package-level
+// summaryCapConfig. principalCount is the count of principal items
+// (steps / symbols / table rows) in the rendered answer; ignored
+// for scalar / explanation answers.
+func SummaryCapForView(view *AnswerSemanticView, principalCount int) int {
+	return SummaryCapForViewConfig(summaryCapConfig, view, principalCount)
 }
 
 // CitationRefUnset is the sentinel value used when a typed field

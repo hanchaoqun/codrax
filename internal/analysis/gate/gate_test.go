@@ -177,24 +177,6 @@ func TestRun_BudgetTooLarge_Rejected(t *testing.T) {
 	}
 }
 
-func TestRun_ContractMissingShape_Rejected(t *testing.T) {
-	ir := validIR()
-	ir.AnswerContract.RequiredAnswerShape = ""
-	report := Run(ir, Thresholds{}, "")
-	if findCheck(report, "contract_complete").Passed {
-		t.Fatal("missing shape must fail")
-	}
-}
-
-func TestRun_ContractUnknownShape_Rejected(t *testing.T) {
-	ir := validIR()
-	ir.AnswerContract.RequiredAnswerShape = "not_a_real_shape"
-	report := Run(ir, Thresholds{}, "")
-	if findCheck(report, "contract_complete").Passed {
-		t.Fatal("unknown shape must fail")
-	}
-}
-
 func TestRun_ContractMissingLanguage_Rejected(t *testing.T) {
 	ir := validIR()
 	ir.AnswerContract.Language = ""

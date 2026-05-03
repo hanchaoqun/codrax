@@ -1714,6 +1714,9 @@ func TestReasoningHygiene_EveryStageProducesNonEmpty(t *testing.T) {
 // in the full analyzer build pipeline.
 func measurementScalarIR() *types.AnalysisIR {
 	return &types.AnalysisIR{
+		RequestModel: types.RequestModel{
+			Predicates: types.SemanticPredicates{IsScalarAnswer: true},
+		},
 		AnswerContract: types.AnswerContract{
 			RequiredAnswerShape: types.ShapeValue,
 			CitationReq:         types.CitationReq{Required: false, MinCitations: 0},

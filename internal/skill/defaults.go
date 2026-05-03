@@ -110,11 +110,11 @@ Keep any prose brief and operational; save the final user-facing answer for late
 	// one grep away, instead of in a Go string builder.
 	r.Register(&Config{
 		Name: "answer-document-skill",
-		Goal: "Produce the final answer as a structured AnswerDocument by calling emit_answer_document exactly once. A deterministic renderer turns the structure into user-visible prose. The target-shape contract is mandatory: emitting any shape other than the one declared in the user section is a hard rejection. The allowed shape AND required fields are enumerated in the user section; read them FIRST, then draft.",
+		Goal: "Produce the final answer as a structured AnswerDocument by calling emit_answer_document exactly once. A deterministic renderer turns the structure into user-visible prose. The Required Answer Blocks contract is mandatory: every block listed under `## Required Answer Blocks` in the user section MUST appear in the rendered answer with the right kind, count, and grounded payload. Read that section FIRST, then draft.",
 		Workflow: []string{
-			"Write the answer DIRECTLY into the `emit_answer_document` tool call from the start. Do not compose the answer as a plain prose paragraph first and then call the tool — compose the final text inside the `summary` field (and the shape-specific structured fields) as you think. The tool call is the only delivery surface; text outside it does not ship.",
-			"CRITICAL CONTRACT: the target shape is MANDATORY. Emitting any other shape will be rejected. The allowed shape / required fields / forbidden fields are listed in the user section's resolved target block — read them FIRST before drafting. Skipping a required field forces an explanation fallback, which is almost always a regression.",
-			"Read the resolved target shape from the user section (list_of_symbols / step_list / value / boolean / config_value / explanation). The target shape is MANDATORY — you MUST emit the structured fields that shape requires, even when your own reading of the question suggests a different shape. For example, if target=list_of_symbols and the question is 'how many X', you MUST emit symbols[] (the count IS the length of the symbols[] array); do NOT emit a boolean or a bare summary as a substitute.",
+			"Write the answer DIRECTLY into the `emit_answer_document` tool call from the start. Do not compose the answer as a plain prose paragraph first and then call the tool — compose the final text inside the `summary` field (and the structured fields backing each Required Block) as you think. The tool call is the only delivery surface; text outside it does not ship.",
+			"CRITICAL CONTRACT: the Required Answer Blocks list in the user section is MANDATORY. Each entry names the block kind (summary / section / ordered_list / bullet_list / scalar / decision / table / diagram / caveat), how many of that kind to emit, and which facet ids the block must cover. Skipping a required block, or emitting a different kind in its place, is a hard rejection.",
+			"Match each Required Block to the structured field that backs it: BlockSummary → `summary` prose; BlockOrderedList → `steps[]` (hop chain) or `symbols[]` (enumeration slate) depending on the family's principal facet; BlockScalar → `value{literal, citation_ref}` (plus `value.key` for config-precedence); BlockDecision → `boolean{decision, rationale, citation_ref}`; BlockSection → `### <Label>` headings inside `summary`; BlockTable → markdown table inside `summary`; BlockDiagram → fenced mermaid block inside `summary`; BlockCaveat → `caveats[]`. The user section's block list tells you which fields apply to THIS dispatch.",
 			"For list_of_symbols shape: inspect the prior extraction slate and the required-symbol floor rendered in the user section, and assemble the symbols[] array from them. Each symbol's `rationale` is a short natural-prose line describing the symbol's ROLE in the mechanism — what it does, how it participates in the answer. A rationale like \"the dispatch entry point that maps request kind to handler\" is useful; \"Defined at foo.go:42. Used by bar.\" is a regression because file:line is already rendered as its own column. Set symbols_completeness per the Completeness honesty contract in Output Format.",
 			"For step_list shape: emit steps[] with one entry per distinct branch or mechanism hop. Each step's `description` reads as natural explanation — state what the step DOES (the behavior, the guard it checks, the effect it produces for the next hop), reference the load-bearing identifiers with inline `code`, and give the reader enough context to understand why this step matters in the larger mechanism. A description that reads like \"`foo` is called at line 42, which calls `bar` at line 58\" is a regression — it reproduces the call graph but does not explain the mechanism. Use as many sentences as accuracy requires; one step is one logical hop, do not collapse two. Every step carries a positive index and a citation_ref into the shared citations pool (or -1 when no citation backs the step). If the Diagram Contract requires a diagram, include it in `summary` (see the diagram syntax rules in the Visual structure section). A step that paraphrases an attached-log frame (external source) should set citation_ref=-1 — a citation whose cited line shares no identifier with the description will be rejected.",
 			"Step kind discipline (step_list): each step carries a `kind` field — `principal` (default), `flow`, or `caveat`. principal steps ARE the items the question asked about; flow steps describe how the sequence transitions (entering a branch, advancing to the next iteration, scope shifting) but are NOT themselves answers; caveat steps qualify the answer's scope (\"this stage is skipped under flag X\"). When the user's question quotes an explicit count (the resolved-target block surfaces this as a Requested Set Boundary), only kind=principal items count toward that number. If you need a flow / caveat step for reader continuity, mark it accordingly — do NOT drop a real principal item to fit the count. Empty kind defaults to principal; leave kind empty only when every step IS principal.",
@@ -138,21 +138,21 @@ Keep any prose brief and operational; save the final user-facing answer for late
 		},
 		OutputFormat: `You have NO file-reading tools — no read_file, grep, or repo_map. You are a pure synthesizer working from prior stages' evidence. Your contribution is ONE emit_answer_document tool call per dispatch — the deterministic renderer turns the struct into user-visible prose. Do NOT write tool-call JSON in your text — use the function-calling mechanism only.
 
-Required-field dispatch by shape (these are mandatory rules, not examples — see the tool's JSON schema for the full contract):
+Required-field dispatch by Required Block (each Required Block in the user section maps to one or more structured fields you must populate — see the tool's JSON schema for the full contract):
 
-- shape=list_of_symbols → symbols[] (non-empty) + symbols_completeness ∈ {complete, lower_bound, unknown}
-- shape=step_list       → steps[] (non-empty), each with index + description + citation_ref
-- shape=value           → value{literal, citation_ref} + summary (non-empty; names subject + method)
-- shape=config_value    → value{key, literal, citation_ref} + summary (non-empty; names key/subject + method)
-- shape=boolean         → boolean{decision, rationale, citation_ref}
-- shape=explanation     → summary (non-empty, thorough multi-paragraph answer)
+- BlockOrderedList for QFEnumeration → symbols[] (non-empty) + symbols_completeness ∈ {complete, lower_bound, unknown}
+- BlockOrderedList for QFCallChain / QFRootCauseTrace → steps[] (non-empty), each with index + description + citation_ref + kind
+- BlockScalar (single literal)                       → value{literal, citation_ref} + summary (non-empty; names subject + method)
+- BlockScalar with config-key facet                  → value{key, literal, citation_ref} + summary (non-empty; names key/subject + method)
+- BlockDecision                                       → boolean{decision, rationale, citation_ref}
+- BlockSummary alone                                  → summary (non-empty, thorough multi-paragraph answer)
 
-Forbidden-field rules:
-- list_of_symbols forbids steps / value / boolean
-- step_list forbids symbols / value / boolean
-- value + config_value forbid steps / symbols / boolean
-- boolean forbids steps / symbols / value
-- explanation forbids steps / symbols / value / boolean
+Forbidden-field rules (each Required Block excludes the structured fields that back unrelated block kinds):
+- A dispatch that requires BlockOrderedList for an enumeration excludes top-level steps / value / boolean
+- A dispatch that requires BlockOrderedList for a hop chain excludes top-level symbols / value / boolean
+- A dispatch whose only principal block is BlockScalar excludes top-level steps / symbols / boolean
+- A dispatch whose only principal block is BlockDecision excludes top-level steps / symbols / value
+- A summary-only dispatch (no other Required Blocks) excludes top-level steps / symbols / value / boolean
 
 Citation pool:
 - citations[] is a shared zero-based array of {file, line, quote?}

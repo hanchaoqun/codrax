@@ -181,9 +181,6 @@ func TestAnalyzer_IRIsBuiltFromRequestModel(t *testing.T) {
 	if ir.RequestModel.Complexity != types.ComplexityComplex {
 		t.Errorf("complexity: got %q want complex (mechanism + 2 entities)", ir.RequestModel.Complexity)
 	}
-	if ir.AnswerContract.RequiredAnswerShape != types.ShapeStepList {
-		t.Errorf("answer shape override: got %q want step_list", ir.AnswerContract.RequiredAnswerShape)
-	}
 	if len(ir.TaskGraph.Nodes) < 3 {
 		t.Errorf("expected ≥3 task nodes from architecture_explain template; got %d", len(ir.TaskGraph.Nodes))
 	}

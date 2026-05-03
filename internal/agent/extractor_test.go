@@ -857,10 +857,18 @@ func observeMidLoopFixture(shape types.AnswerShape, hypotheses []types.Hypothesi
 	if len(existingVerdicts) > 0 {
 		mu.AppendEmittedHypothesisVerdicts(existingVerdicts)
 	}
+	intent := types.Intent("")
+	switch shape {
+	case types.ShapeListOfSymbols:
+		intent = types.IntentEnumerate
+	case types.ShapeStepList:
+		intent = types.IntentTrace
+	}
 	ctx := &types.AgentContext{
 		Objective: "q",
 		Mutable:   mu,
 		AnalysisIR: &types.AnalysisIR{
+			RequestModel:   types.RequestModel{Intent: intent},
 			AnswerContract: types.AnswerContract{RequiredAnswerShape: shape},
 			HypothesisSet:  hypotheses,
 		},
@@ -1348,8 +1356,8 @@ func TestExtractor_BoundedPrincipalStepListPromptReusesCompiledCandidates(t *tes
 	if !contains(prompt, "`checkCoverage` @ internal/analysis/gate/gate.go:127") {
 		t.Fatalf("prompt must expose compiled candidate pool: %q", prompt)
 	}
-	if !isBoundedPrincipalStepList(ctx) {
-		t.Fatal("isBoundedPrincipalStepList must return true for step_list + explicit boundary + single owner")
+	if !viewNeedsBoundedPrincipalList(ctx) {
+		t.Fatal("viewNeedsBoundedPrincipalList must return true for step_list + explicit boundary + single owner")
 	}
 }
 
@@ -1369,6 +1377,7 @@ func TestExtractor_SingleTopicExplanationNoSkeleton(t *testing.T) {
 func TestExtractor_ParseOutput_EmptySlateFallsBackToDeclarativeLiterals(t *testing.T) {
 	mu := types.NewMutableState("Which skills are registered by default?")
 	mu.SetRequestModel(types.RequestModel{
+		Intent:        types.IntentEnumerate,
 		PredicateAxis: types.AxisRegister,
 		AnswerSubject: types.AnswerSubject{Kind: types.SubjectStringLiteral},
 	})
@@ -1378,6 +1387,7 @@ func TestExtractor_ParseOutput_EmptySlateFallsBackToDeclarativeLiterals(t *testi
 		Mutable:   mu,
 		AnalysisIR: &types.AnalysisIR{
 			RequestModel: types.RequestModel{
+				Intent:        types.IntentEnumerate,
 				AnalyzerHints: types.AnalyzerHints{Kind: "enumeration"},
 				PredicateAxis: types.AxisRegister,
 				AnswerSubject: types.AnswerSubject{Kind: types.SubjectStringLiteral},
@@ -1430,6 +1440,7 @@ func TestExtractor_ParseOutput_EmptySlateFallsBackToDeclarativeLiterals(t *testi
 func TestExtractor_ParseOutput_PrunesDeclarativeHelperSymbols(t *testing.T) {
 	mu := types.NewMutableState("Which skills are registered by default?")
 	mu.SetRequestModel(types.RequestModel{
+		Intent:        types.IntentEnumerate,
 		PredicateAxis: types.AxisRegister,
 		AnswerSubject: types.AnswerSubject{Kind: types.SubjectStringLiteral},
 	})
@@ -1444,6 +1455,7 @@ func TestExtractor_ParseOutput_PrunesDeclarativeHelperSymbols(t *testing.T) {
 		Mutable:   mu,
 		AnalysisIR: &types.AnalysisIR{
 			RequestModel: types.RequestModel{
+				Intent:        types.IntentEnumerate,
 				AnalyzerHints: types.AnalyzerHints{Kind: "enumeration"},
 				PredicateAxis: types.AxisRegister,
 				AnswerSubject: types.AnswerSubject{Kind: types.SubjectStringLiteral},
@@ -1492,6 +1504,7 @@ func TestExtractor_ParseOutput_PrunesDeclarativeHelperSymbols(t *testing.T) {
 func TestExtractor_ParseOutput_EmptySlateFallsBackForGenericRegistrationLists(t *testing.T) {
 	mu := types.NewMutableState("Which skills are registered by default?")
 	mu.SetRequestModel(types.RequestModel{
+		Intent:        types.IntentEnumerate,
 		PredicateAxis: types.AxisRegister,
 		AnswerSubject: types.AnswerSubject{Kind: types.SubjectGeneric},
 	})
@@ -1501,6 +1514,7 @@ func TestExtractor_ParseOutput_EmptySlateFallsBackForGenericRegistrationLists(t 
 		Mutable:   mu,
 		AnalysisIR: &types.AnalysisIR{
 			RequestModel: types.RequestModel{
+				Intent:        types.IntentEnumerate,
 				AnalyzerHints: types.AnalyzerHints{Kind: "registration"},
 				PredicateAxis: types.AxisRegister,
 				AnswerSubject: types.AnswerSubject{Kind: types.SubjectGeneric},
@@ -1604,6 +1618,7 @@ func TestExtractor_ParseOutput_DoesNotSynthesizeFallbackSlateForSingleTopicExpla
 func TestExtractor_ParseOutput_AugmentsDeclarativeSlateFromReadFileLiterals(t *testing.T) {
 	mu := types.NewMutableState("Which skills are registered by default?")
 	mu.SetRequestModel(types.RequestModel{
+		Intent:        types.IntentEnumerate,
 		PredicateAxis: types.AxisRegister,
 		AnswerSubject: types.AnswerSubject{Kind: types.SubjectGeneric},
 	})
@@ -1638,6 +1653,7 @@ func TestExtractor_ParseOutput_AugmentsDeclarativeSlateFromReadFileLiterals(t *t
 		Mutable:   mu,
 		AnalysisIR: &types.AnalysisIR{
 			RequestModel: types.RequestModel{
+				Intent:        types.IntentEnumerate,
 				AnalyzerHints: types.AnalyzerHints{Kind: "registration"},
 				PredicateAxis: types.AxisRegister,
 				AnswerSubject: types.AnswerSubject{Kind: types.SubjectGeneric},

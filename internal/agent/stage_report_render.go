@@ -62,7 +62,7 @@ import (
 // responsible for de-duplication; this function only sorts.
 func renderExplorerStageReport(
 	questionKind string,
-	answerShape string,
+	questionFamily string,
 	exactResolution *types.ExactResolutionContract,
 	evidence []types.EvidenceItem,
 	chains []types.AnswerChain,
@@ -75,7 +75,7 @@ func renderExplorerStageReport(
 
 	b.WriteString("## Investigation Summary\n")
 	fmt.Fprintf(&b, "- question_kind: %s\n", emptyAsDash(questionKind))
-	fmt.Fprintf(&b, "- answer_shape: %s\n", emptyAsDash(answerShape))
+	fmt.Fprintf(&b, "- question_family: %s\n", emptyAsDash(questionFamily))
 	fmt.Fprintf(&b, "- enumeration_query: %v\n", isEnumeration)
 	fmt.Fprintf(&b, "- evidence_items: %d\n", len(evidence))
 	fmt.Fprintf(&b, "- answer_chains: %d\n", len(chains))

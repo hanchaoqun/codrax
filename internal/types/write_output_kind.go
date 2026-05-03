@@ -1,16 +1,8 @@
 package types
 
 // WriteOutputKind classifies the type of artifact a write-mode
-// dispatch produces. Introduced by B8-T0 (block_only_carrier.md
-// §5.8) as the destination for the V1 ShapeChangePlan /
-// ShapeChangeReport enum values that previously lived inside
-// AnswerShape. Splitting them out of AnswerShape is a hard
-// prerequisite for B8-T5's "delete AnswerShape entirely" step:
-// the read-mode answer carrier is already block-only by B6, so
-// once write-mode artifacts have their own typed home, AnswerShape
-// has zero remaining consumers.
-//
-// Read-mode output is ALWAYS the V2 AnswerDocumentV2 carrier; this
+// dispatch produces. The sole typed home for write-mode artefacts;
+// read-mode output is ALWAYS the AnswerDocumentV2 carrier and this
 // enum is irrelevant there.
 type WriteOutputKind string
 

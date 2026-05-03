@@ -97,19 +97,12 @@ func TestRunContractCheck_NilOutputPasses(t *testing.T) {
 	}
 }
 
-func TestRunContractCheck_FailingShape(t *testing.T) {
-	out := &agent.StageOutput{FinalAnswer: "no bullets here"}
-	c := types.AnswerContract{
-		RequiredAnswerShape: types.ShapeListOfSymbols,
-	}
-	res := runContractCheck(out, c, nil, nil)
-	if res.Passed {
-		t.Errorf("plain prose should fail list_of_symbols shape")
-	}
-	if len(res.Violations) == 0 {
-		t.Error("want at least one violation")
-	}
-}
+// V1 shape-text-heuristic check (checkShape) has been retired per
+// docs/migration/answer_shape_retirement.md; the V2 block oracles in
+// contract_check_block.go own the read-mode block contract on the
+// typed AnswerDocumentV2 carrier, not on rendered prose. The
+// TestRunContractCheck_FailingShape coverage moves to V2 block-level
+// tests in contract_check_block_test.go.
 
 func TestRunContractCheck_CitationGap_SoftDegrade(t *testing.T) {
 	// Contract requires 3 file_line citations; answer has 1.

@@ -30,7 +30,7 @@ import (
 // reversed it ("write 模式 9 项,read 模式 5 项"). Internal prose
 // inconsistency; system inputs were correct (verified via finalizer
 // user msg #1 in run-1.log). No existing gate (contract.Check /
-// runAnswerShapeOracle / grounder / EXPECT_NOT_CONTAINS /
+// V2 block oracles / grounder / EXPECT_NOT_CONTAINS /
 // renderEmitSummary) catches inter-paragraph factual
 // contradictions because they all check structural shape or
 // per-citation grounding, not prose semantics across paragraphs.

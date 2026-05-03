@@ -5,30 +5,23 @@ import "github.com/hanchaoqun/codrax/internal/logging"
 // emitSemanticViewTrace writes a [trace/sv] debug line summarising
 // the compiled view so operators can observe which family resolved
 // + how many block / diagram / uncertainty / richness obligations
-// the compiler produced. Per the docs/migration plan B1-T5 task
-// description: required_blocks_count / optional_blocks_count /
-// has_diagram / uncertainty_rules_count / richness_candidates_count.
+// the compiler produced.
 //
 // The "source" parameter ("agent" / "bus") tells the operator which
 // builder entry-point produced the view.
-func emitSemanticViewTrace(source string, view *AnswerSemanticView, ir *AnalysisIR, plan *AnswerSurfacePlan) {
+func emitSemanticViewTrace(source string, view *AnswerSemanticView, ir *AnalysisIR, _ *AnswerSurfacePlan) {
 	if view == nil {
 		return
 	}
 	hasDiagram := view.DiagramPlan != nil && view.DiagramPlan.Required
-	planShape := AnswerShape("")
-	if plan != nil {
-		planShape = plan.RequiredShape
-	}
 	intent := Intent("")
 	if ir != nil {
 		intent = ir.RequestModel.Intent
 	}
-	logging.Debug("[trace/sv] source=%s family=%s intent=%s plan_shape=%s required_blocks=%d optional_blocks=%d has_diagram=%v uncertainty_rules=%d richness_candidates=%d facet_coverage_present=%v exact_resolution_present=%v summary_mode=%q",
+	logging.Debug("[trace/sv] source=%s family=%s intent=%s required_blocks=%d optional_blocks=%d has_diagram=%v uncertainty_rules=%d richness_candidates=%d facet_coverage_present=%v exact_resolution_present=%v summary_mode=%q",
 		source,
 		view.Family,
 		intent,
-		planShape,
 		len(view.RequiredBlocks),
 		len(view.OptionalBlocks),
 		hasDiagram,

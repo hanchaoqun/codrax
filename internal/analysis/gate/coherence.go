@@ -28,7 +28,7 @@ import (
 // Both gates compare LLM-emitted IR fields against each other and
 // against the repomap-verified TermGraph domains. No keyword tables,
 // no language-specific cue lists — every input is either a typed
-// enum (AnswerSubject.Kind, EffectiveRequiredAnswerShape), an LLM
+// enum (AnswerSubject.Kind, AnswerSemanticView.Family), an LLM
 // self-judged bool (SemanticPredicates), or a structural signal
 // (TermGraph.Canonical, PrimaryEntities, SubTopics). When a gate
 // fires the GateReport.Retryable bit re-enters the analyzer's emit
@@ -316,18 +316,19 @@ func summaryShort(s string, runeMax int) string {
 }
 
 // checkShapeSubjectCoherence enforces two cross-signal invariants on
-// the AnswerShape ↔ AnswerSubject ↔ Predicates triangle. Both routes
-// catch genuine LLM contradictions rather than judgement calls.
+// the AnswerSemanticView ↔ AnswerSubject ↔ Predicates triangle. Both
+// routes catch genuine LLM contradictions rather than judgement calls.
 //
 // R2.1 Scalar vs multi-topic: Predicates.IsScalarAnswer is true but
 //      the LLM emitted ≥2 sub-topics. A scalar answer cannot be the
 //      union of multiple independently-answerable sub-topics.
 //
-// R2.2 Explanation vs scalar subject: the resolved required answer
-//      shape is Explanation but AnswerSubject.Kind is one of the
-//      single-value subject kinds (Numeric, StringLiteral,
-//      ReturnValue) at confidence ≥ floor. Explanation prose cannot
-//      "be" a single literal value.
+// R2.2 Long-form view with scalar subject: the compiled
+//      AnswerSemanticView's principal payload is NOT a scalar
+//      (i.e. an explanation / call-chain / enumeration prose answer)
+//      but AnswerSubject.Kind is one of the single-value subject
+//      kinds (Numeric, StringLiteral, ReturnValue) at confidence ≥
+//      floor. Long-form answers cannot "be" a single literal value.
 func checkShapeSubjectCoherence(ir *types.AnalysisIR) types.GateCheck {
 	rm := ir.RequestModel
 	nSub := len(rm.SubTopics)
@@ -343,18 +344,24 @@ func checkShapeSubjectCoherence(ir *types.AnalysisIR) types.GateCheck {
 		}
 	}
 
-	// R2.2 — Explanation shape with high-confidence scalar subject.
-	resolvedShape := types.EffectiveRequiredAnswerShape(ir, nil)
-	declaredShape := ir.AnswerContract.RequiredAnswerShape
-	isExplanation := resolvedShape == types.ShapeExplanation || declaredShape == types.ShapeExplanation
-	if isExplanation && isScalarSubjectKind(rm.AnswerSubject.Kind) &&
+	// R2.2 — Long-form view with high-confidence scalar subject.
+	view := types.BuildAnswerSemanticView(ir, nil)
+	family := types.QuestionFamily("")
+	isLongForm := false
+	if view != nil {
+		family = view.Family
+		// Principal payload is NOT a scalar literal — i.e. the
+		// answer is prose / ordered list / enumeration slate.
+		isLongForm = !view.NeedsPrincipalScalar()
+	}
+	if isLongForm && isScalarSubjectKind(rm.AnswerSubject.Kind) &&
 		float32(rm.AnswerSubject.Confidence) >= coherenceSubjectConfidenceFloor {
 		return types.GateCheck{
 			Name:   "shape_subject_coherence",
 			Passed: false,
 			Detail: fmt.Sprintf(
-				"R2.2 explanation_scalar_subject: resolved shape=%s but AnswerSubject.Kind=%s at confidence %.2f (>= %.2f)",
-				resolvedShape, rm.AnswerSubject.Kind, rm.AnswerSubject.Confidence, coherenceSubjectConfidenceFloor),
+				"R2.2 longform_scalar_subject: family=%s expects non-scalar payload but AnswerSubject.Kind=%s at confidence %.2f (>= %.2f)",
+				family, rm.AnswerSubject.Kind, rm.AnswerSubject.Confidence, coherenceSubjectConfidenceFloor),
 		}
 	}
 
@@ -362,8 +369,8 @@ func checkShapeSubjectCoherence(ir *types.AnalysisIR) types.GateCheck {
 		Name:   "shape_subject_coherence",
 		Passed: true,
 		Score:  1.0,
-		Detail: fmt.Sprintf("shape=%s subject_kind=%s scalar_pred=%t sub_topics=%d",
-			resolvedShape, rm.AnswerSubject.Kind, rm.Predicates.IsScalarAnswer, nSub),
+		Detail: fmt.Sprintf("family=%s subject_kind=%s scalar_pred=%t sub_topics=%d",
+			family, rm.AnswerSubject.Kind, rm.Predicates.IsScalarAnswer, nSub),
 	}
 }
 

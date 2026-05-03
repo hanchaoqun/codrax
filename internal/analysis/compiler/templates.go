@@ -240,8 +240,7 @@ func templateArchitectureExplain(rm types.RequestModel) Output {
 		},
 	}
 	contract := types.AnswerContract{
-		RequiredAnswerShape: types.ShapeExplanation,
-		CitationReq:         types.CitationReq{Required: true, Granularity: "file_line", MinCitations: TmplCitationCountHigh},
+		CitationReq: types.CitationReq{Required: true, Granularity: "file_line", MinCitations: TmplCitationCountHigh},
 		AcceptanceTests: []types.Criterion{
 			{Kind: types.CritCitationCountGE, Expr: strconv.Itoa(TmplCitationCountHigh)},
 		},
@@ -320,8 +319,7 @@ func templateRootCause(rm types.RequestModel) Output {
 		},
 	}
 	contract := types.AnswerContract{
-		RequiredAnswerShape: types.ShapeStepList,
-		CitationReq:         types.CitationReq{Required: true, Granularity: "file_line", MinCitations: TmplCitationCountMedium},
+		CitationReq: types.CitationReq{Required: true, Granularity: "file_line", MinCitations: TmplCitationCountMedium},
 		AcceptanceTests: []types.Criterion{
 			{Kind: types.CritCitationCountGE, Expr: strconv.Itoa(TmplCitationCountMedium)},
 		},
@@ -390,8 +388,7 @@ func templateConfigTrace(rm types.RequestModel) Output {
 		},
 	}
 	contract := types.AnswerContract{
-		RequiredAnswerShape: types.ShapeConfigValue,
-		CitationReq:         types.CitationReq{Required: true, Granularity: "file_line", MinCitations: TmplCitationCountLow},
+		CitationReq: types.CitationReq{Required: true, Granularity: "file_line", MinCitations: TmplCitationCountLow},
 		AcceptanceTests: []types.Criterion{
 			{Kind: types.CritCitationCountGE, Expr: strconv.Itoa(TmplCitationCountLow)},
 		},
@@ -453,8 +450,7 @@ func templatePerformanceBottleneck(rm types.RequestModel) Output {
 		},
 	}
 	contract := types.AnswerContract{
-		RequiredAnswerShape: types.ShapeListOfSymbols,
-		CitationReq:         types.CitationReq{Required: true, Granularity: "file_line", MinCitations: TmplCitationCountMedium},
+		CitationReq: types.CitationReq{Required: true, Granularity: "file_line", MinCitations: TmplCitationCountMedium},
 		AcceptanceTests: []types.Criterion{
 			{Kind: types.CritCitationCountGE, Expr: strconv.Itoa(TmplCitationCountMedium)},
 		},
@@ -529,8 +525,7 @@ func templateTraceWalkthrough(rm types.RequestModel) Output {
 		},
 	}
 	contract := types.AnswerContract{
-		RequiredAnswerShape: types.ShapeExplanation,
-		CitationReq:         types.CitationReq{Required: true, Granularity: "file_line", MinCitations: TmplCitationCountMedium},
+		CitationReq: types.CitationReq{Required: true, Granularity: "file_line", MinCitations: TmplCitationCountMedium},
 		AcceptanceTests: []types.Criterion{
 			{Kind: types.CritCitationCountGE, Expr: strconv.Itoa(TmplCitationCountMedium)},
 		},
@@ -584,17 +579,8 @@ func templateGeneric(rm types.RequestModel) Output {
 			{Kind: types.CritBudgetExhausted},
 		},
 	}
-	shape := types.ShapeExplanation
-	if rm.Intent == types.IntentReturnValue {
-		shape = types.ShapeValue
-	} else if rm.Intent == types.IntentEnumerate {
-		shape = types.ShapeListOfSymbols
-	} else if rm.Intent == types.IntentConfigQuery {
-		shape = types.ShapeConfigValue
-	}
 	contract := types.AnswerContract{
-		RequiredAnswerShape: shape,
-		CitationReq:         types.CitationReq{Required: true, Granularity: "file_line", MinCitations: TmplCitationCountLow},
+		CitationReq: types.CitationReq{Required: true, Granularity: "file_line", MinCitations: TmplCitationCountLow},
 		AcceptanceTests: []types.Criterion{
 			{Kind: types.CritCitationCountGE, Expr: strconv.Itoa(TmplCitationCountLow)},
 		},

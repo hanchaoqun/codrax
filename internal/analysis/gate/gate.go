@@ -284,13 +284,6 @@ func checkBudgetSanity(ir *types.AnalysisIR, th Thresholds) types.GateCheck {
 func checkContractComplete(ir *types.AnalysisIR, th Thresholds) types.GateCheck {
 	_ = th
 	c := ir.AnswerContract
-	if c.RequiredAnswerShape == "" {
-		return types.GateCheck{Name: "contract_complete", Passed: false, Detail: "required_answer_shape missing"}
-	}
-	if !isKnownShape(c.RequiredAnswerShape) {
-		return types.GateCheck{Name: "contract_complete", Passed: false,
-			Detail: fmt.Sprintf("unknown answer shape %q", c.RequiredAnswerShape)}
-	}
 	if c.Language == "" {
 		return types.GateCheck{Name: "contract_complete", Passed: false, Detail: "language missing"}
 	}
@@ -448,15 +441,6 @@ func findFirstByType(g types.TaskGraph, t types.TaskNodeType) string {
 		}
 	}
 	return ""
-}
-
-func isKnownShape(s types.AnswerShape) bool {
-	switch s {
-	case types.ShapeListOfSymbols, types.ShapeStepList, types.ShapeValue,
-		types.ShapeBoolean, types.ShapeConfigValue, types.ShapeExplanation, types.ShapeNone:
-		return true
-	}
-	return false
 }
 
 func findCycle(g types.TaskGraph) string {

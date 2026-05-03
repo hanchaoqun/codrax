@@ -92,7 +92,7 @@ func TestRenderExplorerStageReport_EmptyInputs(t *testing.T) {
 	for _, want := range []string{
 		"## Investigation Summary",
 		"question_kind: -",
-		"answer_shape: -",
+		"question_family: -",
 		"evidence_items: 0",
 		"answer_chains: 0",
 		"answer_symbols: 0",

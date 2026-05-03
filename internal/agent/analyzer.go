@@ -1323,11 +1323,6 @@ func buildAnalysisIR(ctx *types.AgentContext) (*types.AnalysisIR, error) {
 		PrescanHitRatio: prescanHitRatio(ctx, rm.AnalyzerHints),
 	}
 	out := compiler.Compile(rm, sig)
-	if rm.AnalyzerHints.Shape != "" {
-		if shape := mapLegacyAnswerShape(rm.AnalyzerHints.Shape); shape != "" {
-			out.AnswerContract.RequiredAnswerShape = shape
-		}
-	}
 	if out.AnswerContract.Language == "" {
 		out.AnswerContract.Language = rm.Language
 	}
@@ -1376,32 +1371,19 @@ func buildAnalysisIR(ctx *types.AgentContext) (*types.AnalysisIR, error) {
 	// keying off the downgrade event alone missed the "LLM got it
 	// right on its own" case and looped the retry budget.
 	//
-	// Consequences in order:
+	// Consequences: strip the three citation gate surfaces that all
+	// consult CritCitationCountGE independently — leaving any one
+	// enabled loops the retry budget on a mismatch no amount of
+	// re-investigation can fix:
 	//
-	//   (a) out.AnswerContract.RequiredAnswerShape → ShapeValue. Forces
-	//       the final shape past both compile's intent-switch (already
-	//       set to ShapeValue by IntentReturnValue) and the LLM-hint
-	//       override at "if rm.AnalyzerHints.Shape != ..." above,
-	//       whose stale list_of_symbols hint would otherwise restore
-	//       the wrong shape.
-	//   (b) rm.AnalyzerHints.Shape → ShapeValue (only when stale
-	//       list_of_symbols), so downstream readers of the hint
-	//       (ir_accessor.irAnswerShape, answer_document_evaluator)
-	//       see the reconciled shape, not the LLM's original emit.
-	//   (c-e) Strip the three citation gate surfaces that all consult
-	//         CritCitationCountGE independently:
+	//   (a) AnswerContract.CitationReq           → contract.checkCitations
+	//   (b) AnswerContract.AcceptanceTests       → contract.checkAcceptance
+	//   (c) TaskNode.SuccessCriteria (finalize)  → orchestrator.markSuccessCriteriaFailed
 	//
-	//         (c) AnswerContract.CitationReq           → contract.checkCitations
-	//         (d) AnswerContract.AcceptanceTests       → contract.checkAcceptance
-	//         (e) TaskNode.SuccessCriteria (finalize)  → orchestrator.markSuccessCriteriaFailed
-	//
-	//       Leaving any one enabled loops the retry budget on a
-	//       mismatch no amount of re-investigation can fix.
+	// The measurement-scalar / history-lookup carve-out is signalled
+	// downstream via Predicates.IsScalarAnswer (read by builder.go's
+	// citation-free Raw Tool Outputs gate) — no shape rewrite needed.
 	if isMeasurementScalar || isHistoryLookup {
-		out.AnswerContract.RequiredAnswerShape = types.ShapeValue
-		if mapLegacyAnswerShape(rm.AnalyzerHints.Shape) == types.ShapeListOfSymbols {
-			rm.AnalyzerHints.Shape = string(types.ShapeValue)
-		}
 		out.AnswerContract.CitationReq.Required = false
 		out.AnswerContract.CitationReq.MinCitations = 0
 		out.AnswerContract.AcceptanceTests = dropCitationCountGE(out.AnswerContract.AcceptanceTests)
@@ -1433,7 +1415,7 @@ func buildAnalysisIR(ctx *types.AgentContext) (*types.AnalysisIR, error) {
 	// for the legacy V1 path (which itself is going away in B8-T4);
 	// no system-side override.
 
-	out.AnswerContract.Diagram = reconcileDiagramContract(rm, out.AnswerContract.RequiredAnswerShape, logBundle)
+	out.AnswerContract.Diagram = reconcileDiagramContract(rm, logBundle)
 	out.AnswerContract.ExactResolution = types.BuildExactResolutionContract(rm)
 
 	ir := &types.AnalysisIR{

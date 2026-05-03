@@ -6,7 +6,7 @@ import (
 )
 
 // analyzer_intent.go holds the schema-v4 reconcile rules for Intent /
-// AnswerSubject / AnswerShape. After the v4 rewrite, every prose-cue
+// AnswerSubject / Predicates. After the v4 rewrite, every prose-cue
 // table that this file used to host has been deleted — the
 // classification signal now comes from the LLM-emitted
 // SemanticPredicates and PredicateAxis on RequestModel, which work
@@ -57,8 +57,7 @@ func isMeasurementScalarRequest(rm types.RequestModel) bool {
 	if rm.Predicates.IsCountQuestion {
 		return true
 	}
-	shape := mapLegacyAnswerShape(rm.AnalyzerHints.Shape)
-	return shape == types.ShapeValue &&
+	return rm.Predicates.IsScalarAnswer &&
 		rm.Intent == types.IntentReturnValue &&
 		rm.AnswerSubject.Kind == types.SubjectNumeric
 }
@@ -81,11 +80,7 @@ func isHistoryLookupRequest(rm types.RequestModel) bool {
 	if !rm.Predicates.IsHistoryLookup {
 		return false
 	}
-	shape := mapLegacyAnswerShape(rm.AnalyzerHints.Shape)
-	if shape != types.ShapeValue && rm.Intent != types.IntentReturnValue {
-		return false
-	}
-	if !rm.Predicates.IsScalarAnswer && shape != types.ShapeValue {
+	if !rm.Predicates.IsScalarAnswer && rm.Intent != types.IntentReturnValue {
 		return false
 	}
 	return true
@@ -291,12 +286,11 @@ func multiAxisStructuralSubject(subject types.AnswerSubject) bool {
 }
 
 // reconcileDiagramContract derives the finalizer-facing diagram
-// obligation from structural signals. The key design rule is that
-// diagram requirement is orthogonal to answer shape: step_list,
-// explanation, boolean, value, and config_value may all require a
-// grounded diagram when the user is really asking about flow, call
-// relationships, timing, or architecture.
-func reconcileDiagramContract(rm types.RequestModel, shape types.AnswerShape, bundle *types.LogBundle) *types.DiagramContract {
+// obligation from structural signals. Diagram requirement is
+// orthogonal to the principal-payload kind: scalar / list / explanation
+// answers may all require a grounded diagram when the user is
+// asking about flow, call relationships, timing, or architecture.
+func reconcileDiagramContract(rm types.RequestModel, bundle *types.LogBundle) *types.DiagramContract {
 	var preferred []types.DiagramKind
 	var reasons []string
 	required := false

@@ -4464,12 +4464,12 @@ func (o *Orchestrator) dispatchStage(stage types.PipelineStage) (*agent.StageOut
 	// match the "guide classification" purpose.
 	if o.answerTaxonomyStore != nil && stage == types.StageAnalyze {
 		scenario := ""
-		shape := ""
+		family := ""
 		if o.busCtx.AnalysisIR != nil {
 			scenario = string(o.busCtx.AnalysisIR.RequestModel.Scenario)
-			shape = string(o.busCtx.AnalysisIR.AnswerContract.RequiredAnswerShape)
+			family = string(types.ResolveQuestionFamily(o.busCtx.AnalysisIR.RequestModel))
 		}
-		if pitfalls := o.answerTaxonomyStore.RelevantTo(scenario, shape, 5); len(pitfalls) > 0 {
+		if pitfalls := o.answerTaxonomyStore.RelevantTo(scenario, family, 5); len(pitfalls) > 0 {
 			agentCtx.ActiveAnswerPitfalls = pitfalls
 			logging.Debug("[orchestrator] answer_taxonomy: %d active pitfalls injected at analyze entry", len(pitfalls))
 		}
@@ -5145,7 +5145,7 @@ func (o *Orchestrator) runAnswerReviewerOnSuccess() {
 	}
 	if o.busCtx.AnalysisIR != nil {
 		in.Scenario = string(o.busCtx.AnalysisIR.RequestModel.Scenario)
-		in.Shape = string(o.busCtx.AnalysisIR.AnswerContract.RequiredAnswerShape)
+		in.Family = string(types.ResolveQuestionFamily(o.busCtx.AnalysisIR.RequestModel))
 	}
 	for _, e := range events {
 		in.RetryEvents = append(in.RetryEvents, AnswerRetryEvent{Stage: e.Stage, Reason: e.Reason})

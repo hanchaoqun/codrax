@@ -12,9 +12,12 @@ import (
 // Reuses the existing Intent enum (single source of truth).
 func TestPreferredAnswerSummarySurfaceMode_GatesOnUserIntent(t *testing.T) {
 	plan := &AnswerSurfacePlan{
-		RequiredShape:         ShapeExplanation,
 		LogSourceDriftAnchors: []LogSourceDriftAnchor{{File: "x.go", AnchoredLine: 100}},
 	}
+	// Drift surface mode requires a long-form-prose family in addition
+	// to the diagnostic intent — supply Scenario=ArchitectureExplain so
+	// ResolveQuestionFamily routes to QFArchitecture (long-form). The
+	// gate's intent dimension is what the cases vary.
 	cases := []struct {
 		intent Intent
 		want   AnswerSummarySurfaceMode
@@ -28,7 +31,8 @@ func TestPreferredAnswerSummarySurfaceMode_GatesOnUserIntent(t *testing.T) {
 		{IntentUnknown, AnswerSummarySurfaceDefault},
 	}
 	for _, tc := range cases {
-		got := preferredAnswerSummarySurfaceMode(plan, RequestModel{Intent: tc.intent})
+		rm := RequestModel{Intent: tc.intent, Scenario: ScenarioArchitectureExplain}
+		got := preferredAnswerSummarySurfaceMode(plan, rm)
 		if got != tc.want {
 			t.Errorf("Intent=%q: got %q; want %q", tc.intent, got, tc.want)
 		}
@@ -41,7 +45,6 @@ func TestPreferredAnswerSummarySurfaceMode_GatesOnUserIntent(t *testing.T) {
 // LLM explicitly classified user intent as RootCause.
 func TestPreferredAnswerSummarySurfaceMode_ScenarioNoLongerHardCap(t *testing.T) {
 	plan := &AnswerSurfacePlan{
-		RequiredShape:         ShapeExplanation,
 		LogSourceDriftAnchors: []LogSourceDriftAnchor{{File: "x.go", AnchoredLine: 100}},
 	}
 	rm := RequestModel{

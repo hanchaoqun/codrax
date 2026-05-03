@@ -808,37 +808,33 @@ func preCompleteContractCheck(ctx *types.BusContext, justification string) strin
 		}
 		// CGEC B2b: eligible evidence is sufficient in quantity, but
 		// check for a static mismatch between AnswerSubject (what
-		// kind of literal the answer should be) and RequiredAnswerShape
-		// (what shape the finalizer will emit). reconcileShape runs
-		// at analyzer time but ONLY handles ShapeConfigValue →
-		// ShapeValue for source-code literal subjects; other shape
-		// mismatches (e.g. subject=SkillName + shape=ShapeExplanation)
-		// slip through. Emit RepairSwapShape so the retry hint
-		// surfaces the conflict explicitly — does NOT downgrade the
-		// current emit_investigation_complete because the evidence
-		// IS present; subsequent finalize + contract check will
-		// decide whether to accept.
-		if mismatch, fromShape, toShape := detectSubjectShapeMismatch(ir); mismatch {
+		// kind of literal the answer should be) and the compiled
+		// AnswerSemanticView's family classification. When the
+		// subject points at a code symbol (function / type /
+		// interface / handler route / return value) but the family
+		// resolved to QFConfigPrecedence (config-key scalar
+		// contract), the family routing under-fits the user's
+		// subject. Emit a repair so the retry hint surfaces the
+		// conflict; does NOT downgrade the current emit because
+		// evidence IS present.
+		if mismatch, fromFamily, toFamily := detectSubjectViewMismatch(ir); mismatch {
 			closure.AddRepair(types.RepairDirective{
 				Kind:      types.RepairSwapShape,
-				Subject:   fmt.Sprintf("from=%s,to=%s", fromShape, toShape),
-				Rationale: fmt.Sprintf("AnswerSubject=%s (source-code literal) but RequiredAnswerShape=%s — finalizer should produce %s instead", ir.RequestModel.AnswerSubject.Kind, fromShape, toShape),
-				Origin:    "pre_complete.subject_shape_mismatch",
+				Subject:   fmt.Sprintf("from=%s,to=%s", fromFamily, toFamily),
+				Rationale: fmt.Sprintf("AnswerSubject=%s (source-code literal) but family=%s — finalizer should produce a %s answer instead", ir.RequestModel.AnswerSubject.Kind, fromFamily, toFamily),
+				Origin:    "pre_complete.subject_view_mismatch",
 			})
-			logging.Info("[CGEC] B2b shape_swap: origin=pre_complete.subject_shape_mismatch from=%s to=%s", fromShape, toShape)
-			// Session 11 F1: shape mismatch detected at pre-complete
-			// boundary. High-confidence (0.85) signal that the IR's
-			// answer_shape disagrees with the subject.kind — F2 can
-			// aggregate with finalizer-side B2a events to push an IR
-			// patch. Pre-complete sees this earlier than the finalizer
-			// so the signal arrives in the ledger before the retry cycle.
+			logging.Info("[CGEC] B2b view_swap: origin=pre_complete.subject_view_mismatch from=%s to=%s", fromFamily, toFamily)
+			// View mismatch detected at pre-complete boundary.
+			// High-confidence (0.85) signal that the IR's family
+			// classification disagrees with the subject.kind.
 			closure.AppendViolation(types.Violation{
 				Kind:   types.ViolShapeSwap,
-				Detail: fmt.Sprintf("pre-complete B2b: AnswerSubject=%s vs RequiredAnswerShape=%s (→ %s)", ir.RequestModel.AnswerSubject.Kind, fromShape, toShape),
+				Detail: fmt.Sprintf("pre-complete B2b: AnswerSubject=%s vs family=%s (→ %s)", ir.RequestModel.AnswerSubject.Kind, fromFamily, toFamily),
 				Stage:  string(types.StageExplore),
 				SuspectedRoot: types.SuspectedRoot{
-					IRField:    "answer_shape",
-					Reason:     fmt.Sprintf("subject.kind=%s incompatible with shape=%s at pre-complete", ir.RequestModel.AnswerSubject.Kind, fromShape),
+					IRField:    "answer_subject",
+					Reason:     fmt.Sprintf("subject.kind=%s incompatible with family=%s at pre-complete", ir.RequestModel.AnswerSubject.Kind, fromFamily),
 					Confidence: 0.85,
 				},
 			})
@@ -872,7 +868,7 @@ func preCompleteContractCheck(ctx *types.BusContext, justification string) strin
 }
 
 func explanationAnchorBackboneDowngrade(ctx *types.BusContext) string {
-	if ctx == nil || ctx.AnalysisIR == nil || !types.ExplanationAllowsAnchorSkeleton(ctx.AnalysisIR) {
+	if ctx == nil || ctx.AnalysisIR == nil || !types.IRAllowsAnchorSkeleton(ctx.AnalysisIR) {
 		return ""
 	}
 	plan := types.BuildAnswerSurfacePlanForBusContext(ctx)
@@ -1519,23 +1515,23 @@ func countPrimaryAnchorFiles(ranked []types.Phase1RankedFile) int {
 	return count
 }
 
-// detectSubjectShapeMismatch returns true when the AnswerSubject is
-// a source-code literal kind (skill_name, agent_name, function_name,
-// type_name, interface, handler_route, return_value) but the
-// RequiredAnswerShape is one that cannot carry a single literal
-// (ShapeExplanation / ShapeStepList / ShapeBoolean / ShapeListOfSymbols).
-// ShapeValue / ShapeConfigValue are compatible targets; reconcileShape
-// at analyzer time already handles ConfigValue→Value so we don't
-// flag that case here.
+// detectSubjectViewMismatch returns true when the AnswerSubject is a
+// source-code literal kind (function_name, type_name, interface,
+// handler_route, return_value) but the compiled AnswerSemanticView's
+// principal facet is the config-precedence family — i.e. the
+// contract expects a config-key scalar but the subject points at a
+// code symbol. The repair signal tells downstream that the family
+// classification under-fits the user's actual subject.
 //
-// Returns (true, currentShape, recommendedShape) so the caller can
-// emit a structured RepairSwapShape with "from=X,to=Y" subject.
-func detectSubjectShapeMismatch(ir *types.AnalysisIR) (bool, types.AnswerShape, types.AnswerShape) {
+// Returns (true, currentFamily, suggestedFamily) so the caller can
+// emit a structured Repair with provenance metadata. fromFamily is
+// always QFConfigPrecedence; toFamily is QFRoleLookup which is the
+// closest scalar family for a code-symbol subject.
+func detectSubjectViewMismatch(ir *types.AnalysisIR) (bool, types.QuestionFamily, types.QuestionFamily) {
 	if ir == nil {
 		return false, "", ""
 	}
 	subj := ir.RequestModel.AnswerSubject.Kind
-	shape := ir.AnswerContract.RequiredAnswerShape
 	switch subj {
 	case types.SubjectFunctionName, types.SubjectTypeName,
 		types.SubjectInterface, types.SubjectHandlerRoute,
@@ -1543,10 +1539,11 @@ func detectSubjectShapeMismatch(ir *types.AnalysisIR) (bool, types.AnswerShape, 
 	default:
 		return false, "", ""
 	}
-	if shape != types.ShapeConfigValue {
+	family := types.ResolveQuestionFamily(ir.RequestModel)
+	if family != types.QFConfigPrecedence {
 		return false, "", ""
 	}
-	return true, shape, types.ShapeValue
+	return true, family, types.QFRoleLookup
 }
 
 // evidenceTally breaks an evidence slice into grounding-status

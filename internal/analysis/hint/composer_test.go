@@ -68,7 +68,10 @@ func TestCompose_ShapeViolation_BuildsAllowedAndForbidden(t *testing.T) {
 			Confidence: 0.85,
 		},
 	}}
-	h, err := c.Compose(Context{TargetShape: types.ShapeValue}, v)
+	h, err := c.Compose(Context{
+		TargetFamily:         types.QFRoleLookup,
+		TargetRequiredBlocks: []types.AnswerBlockKind{types.BlockSummary, types.BlockScalar},
+	}, v)
 	if err != nil {
 		t.Fatalf("Compose: %v", err)
 	}
@@ -78,8 +81,8 @@ func TestCompose_ShapeViolation_BuildsAllowedAndForbidden(t *testing.T) {
 	if !strings.Contains(h.WhyItFailed, "answer_shape") {
 		t.Errorf("WhyItFailed must mention SuspectedRoot.IRField, got %q", h.WhyItFailed)
 	}
-	if len(h.AllowedSet) != 1 || h.AllowedSet[0].Value != "value" {
-		t.Errorf("AllowedSet should contain the target shape, got %v", h.AllowedSet)
+	if len(h.AllowedSet) != 2 || h.AllowedSet[0].Value != "summary" || h.AllowedSet[1].Value != "scalar" {
+		t.Errorf("AllowedSet should enumerate the required block kinds, got %v", h.AllowedSet)
 	}
 	if len(h.ForbiddenPatterns) == 0 {
 		t.Errorf("ForbiddenPatterns must contain the negative example")
@@ -130,14 +133,14 @@ func TestCompose_SelfRefLiteral_ForbidsPrimaryEntity(t *testing.T) {
 
 func TestCompose_StrictModeRequiresAllFields(t *testing.T) {
 	c := New(Config{StrictMode: true, MaxAllowedSet: 5})
-	// Missing TargetShape → AllowedSet empty for a shape violation
-	// → Validate fails.
+	// Missing TargetFamily / TargetRequiredBlocks → AllowedSet empty
+	// for a shape violation → Validate fails.
 	v := []types.Violation{{
 		Kind:          types.ViolShape,
 		Detail:        "boolean vs value",
 		SuspectedRoot: types.SuspectedRoot{IRField: "answer_shape", Confidence: 0.85},
 	}}
-	if _, err := c.Compose(Context{ /* no TargetShape */ }, v); err == nil {
+	if _, err := c.Compose(Context{ /* no TargetFamily / TargetRequiredBlocks */ }, v); err == nil {
 		t.Fatal("strict mode must fail when AllowedSet is empty")
 	}
 }

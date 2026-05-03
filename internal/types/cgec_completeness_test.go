@@ -185,7 +185,6 @@ func TestAllViolationKindsHaveProducer(t *testing.T) {
 	// list short and documented so when a kind stays unproduced past
 	// its expected group, the operator can tell.
 	covered := map[ViolationKind]bool{
-		ViolShape:                true, // contract/checker.go
 		ViolCitation:             true, // contract/checker.go + emit_answer_document.go G1 dry-run
 		ViolMustInclude:          true, // contract/checker.go
 		ViolMustExclude:          true, // contract/checker.go
@@ -239,6 +238,7 @@ func TestAllViolationKindsHaveProducer(t *testing.T) {
 		ViolUncertaintyBlockMissing:  true, // orchestrator/contract_check_block.go validateUncertaintyBlockPresence
 	}
 	pending := map[ViolationKind]string{
+		ViolShape:                          "P9-C-retired-V1-checkShape (V2 block oracles cover read-mode block contract via runV2BlockOracles)",
 		ViolLiteralFormFailed:              "B8-T3-retired-V1-literal-form-check",
 		ViolIntentTraceShallow:             "B8-T4-retired-V1-intent-coverage-oracle",
 		ViolIntentEnumerateNotList:         "B8-T4-retired-V1-intent-coverage-oracle",

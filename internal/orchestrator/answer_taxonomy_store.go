@@ -192,7 +192,7 @@ func (s *AnswerTaxonomyStore) persistLocked() error {
 //
 // Relevance score combines:
 //   - Scenario match (AppliesToScenarios includes scenario)  — 3.0
-//   - Shape match (AppliesToShapes includes shape)           — 2.0
+//   - Family match (AppliesToShapes includes family)         — 2.0
 //   - Confidence                                             — 1.0 base
 //   - HitCount log-scaled                                    — log(1+HitCount)
 //   - Recency (decay 0..1 over decayDays)                    — 0.5 weight
@@ -203,7 +203,7 @@ func (s *AnswerTaxonomyStore) persistLocked() error {
 // Caller can supply repoRoot via SetExampleFileValidator at
 // startup; nil validator = no validity check (pre-commit-60
 // behaviour).
-func (s *AnswerTaxonomyStore) RelevantTo(scenario, shape string, k int) []types.AnswerPattern {
+func (s *AnswerTaxonomyStore) RelevantTo(scenario, family string, k int) []types.AnswerPattern {
 	if !s.Enabled() {
 		return nil
 	}
@@ -229,7 +229,7 @@ func (s *AnswerTaxonomyStore) RelevantTo(scenario, shape string, k int) []types.
 		if !s.exampleFileValid(&p) {
 			continue
 		}
-		score := scoreAnswerPatternRelevance(&p, scenario, shape, s.decayDays, now)
+		score := scoreAnswerPatternRelevance(&p, scenario, family, s.decayDays, now)
 		if score <= 0 {
 			continue
 		}
@@ -324,7 +324,7 @@ func (s *AnswerTaxonomyStore) Clear() error {
 	return nil
 }
 
-func scoreAnswerPatternRelevance(p *types.AnswerPattern, scenario, shape string, decayDays int, now time.Time) float64 {
+func scoreAnswerPatternRelevance(p *types.AnswerPattern, scenario, family string, decayDays int, now time.Time) float64 {
 	if p == nil {
 		return 0
 	}
@@ -344,8 +344,8 @@ func scoreAnswerPatternRelevance(p *types.AnswerPattern, scenario, shape string,
 	}
 	if len(p.AppliesToShapes) > 0 {
 		matched := false
-		for _, sh := range p.AppliesToShapes {
-			if sh == shape {
+		for _, fam := range p.AppliesToShapes {
+			if fam == family {
 				matched = true
 				break
 			}

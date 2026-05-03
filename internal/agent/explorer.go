@@ -4699,7 +4699,7 @@ func (e *explorerEvaluator) completionReadiness(toolResults []types.ToolResult, 
 	explanationAnchorReady := true
 	explanationAnchorCovered := 0
 	explanationAnchorTotal := 0
-	if e.analysisIR != nil && types.ExplanationAllowsAnchorSkeleton(e.analysisIR) {
+	if e.analysisIR != nil && types.IRAllowsAnchorSkeleton(e.analysisIR) {
 		if plan := e.answerSurfacePlan(); plan != nil {
 			explanationAnchorCovered = len(plan.ExplanationAnchorBackbone)
 			explanationAnchorTotal = explanationAnchorCovered + len(plan.ExplanationAnchorMissingTopics)
@@ -5112,7 +5112,7 @@ func (e *explorerEvaluator) postExplanationAnchorSignal(obs LoopObservation) Loo
 	if e.midLoopExplanationAnchorSent || e.phase != 1 || e.investigationComplete || e.analysisIR == nil {
 		return LoopSignal{}
 	}
-	if !types.ExplanationAllowsAnchorSkeleton(e.analysisIR) {
+	if !types.IRAllowsAnchorSkeleton(e.analysisIR) {
 		return LoopSignal{}
 	}
 	if obs.Iteration < e.heuristics.MidLoopMinIteration {
@@ -5225,8 +5225,17 @@ func (e *explorerEvaluator) driftBoundedCompletionReadyMode() bool {
 		e.analysisIR.RequestModel.Scenario != types.ScenarioRootCause {
 		return false
 	}
-	shape := types.EffectiveRequiredAnswerShape(e.analysisIR, nil)
-	if shape != types.ShapeStepList && shape != types.ShapeExplanation {
+	view := types.BuildAnswerSemanticView(e.analysisIR, e.answerSurfacePlan())
+	if view == nil {
+		return false
+	}
+	// Drift-bounded long-form rendering applies to families that emit
+	// either a principal ordered hop list (call_chain / root_cause_trace)
+	// or a long-form prose narrative (architecture / generic). The
+	// scalar / role-lookup / config-precedence / enumeration families
+	// are excluded because their principal payload is not a narrative.
+	if !view.NeedsOrderedPrincipalList() &&
+		view.Family != types.QFArchitecture && view.Family != types.QFGeneric {
 		return false
 	}
 	if plan := e.answerSurfacePlan(); plan != nil && len(plan.DriftBoundedSurfaceItems) > 0 {
@@ -5253,14 +5262,7 @@ func (e *explorerEvaluator) driftBoundedCompletionReason() string {
 		if len(items) == 0 {
 			return ""
 		}
-		shape := types.ShapeExplanation
-		if e.analysisIR != nil {
-			if resolved := types.EffectiveRequiredAnswerShape(e.analysisIR, nil); resolved != "" {
-				shape = resolved
-			}
-		}
 		plan = &types.AnswerSurfacePlan{
-			RequiredShape:            shape,
 			SummarySurfaceMode:       types.AnswerSummarySurfaceDriftBoundedRootCause,
 			LogObservedAnchors:       observed,
 			LogSourceDriftAnchors:    drift,
@@ -5283,14 +5285,7 @@ func (e *explorerEvaluator) driftBoundedCompletionHintReason() string {
 		if len(items) == 0 {
 			return ""
 		}
-		shape := types.ShapeExplanation
-		if e.analysisIR != nil {
-			if resolved := types.EffectiveRequiredAnswerShape(e.analysisIR, nil); resolved != "" {
-				shape = resolved
-			}
-		}
 		plan = &types.AnswerSurfacePlan{
-			RequiredShape:            shape,
 			SummarySurfaceMode:       types.AnswerSummarySurfaceDriftBoundedRootCause,
 			LogObservedAnchors:       observed,
 			LogSourceDriftAnchors:    drift,
@@ -5552,8 +5547,9 @@ func (e *explorerEvaluator) orderedSameFileTracePartialReadHint() string {
 	}
 	rm := e.analysisIR.RequestModel
 	if !types.IsSingleTopicStructuralTrace(rm) {
-		plan := e.answerSurfacePlan()
-		if plan == nil || plan.RequiredShape != types.ShapeStepList {
+		view := types.BuildAnswerSemanticView(e.analysisIR, e.answerSurfacePlan())
+		if view == nil || !view.NeedsOrderedPrincipalList() ||
+			(view.Family != types.QFCallChain && view.Family != types.QFRootCauseTrace) {
 			return ""
 		}
 	}
@@ -7886,7 +7882,7 @@ func (e *explorerEvaluator) ParseOutput(ctx *types.AgentContext, messages []llm.
 	}
 	canonicalReport := renderExplorerStageReport(
 		irQuestionKind(ctx),
-		irAnswerShape(ctx),
+		irQuestionFamily(ctx),
 		irExactResolutionContract(ctx),
 		rankedEvidence,
 		answerChains,
