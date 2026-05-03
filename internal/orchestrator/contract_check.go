@@ -1300,7 +1300,74 @@ func runStepIdentifierBackedByEvidenceOracle(doc *types.AnswerDocument, mut *typ
 	if doc.Summary != "" {
 		check("summary", doc.Summary)
 	}
+	// 2026-05-03 (Phase 6 stage 6): doc.Value.Literal grounding.
+	// The literal answer is a load-bearing claim (the user's
+	// scalar / config-value answer); it must be backed by typed
+	// evidence. Two layers, first match wins:
+	//   (a) full-string equality against any EvidenceItem's Subject /
+	//       Object / AnchorSymbol — typical when emit_evidence
+	//       captured the value verbatim (concrete_values producer).
+	//   (b) identifier-token membership in verified set — handles
+	//       multi-token literals where any constituent identifier is
+	//       backed.
+	// Empty pool / empty literal / citation_ref<0 paths skip
+	// silently — the LLM has the citation_ref=-1 escape for "value
+	// from log / external source" cases.
+	if doc.Value != nil &&
+		strings.TrimSpace(doc.Value.Literal) != "" &&
+		doc.Value.CitationRef >= 0 &&
+		mut != nil {
+		if !valueLiteralBackedByTypedEvidence(doc.Value.Literal, mut, verified) {
+			out = append(out, types.Violation{
+				Kind: types.ViolStepIdentifierUnverified,
+				Detail: fmt.Sprintf(
+					"value.literal %q is not backed by the typed evidence pool — no EvidenceItem.Subject / Object / AnchorSymbol matches the literal verbatim, and no identifier-shaped token in the literal appears in the verified-identifier set. The literal is either fabricated or the explorer's emit_evidence missed structurally capturing it. If the literal originates from an external source (attached log / shell command / VCS output), set citation_ref=-1 and state the provenance in summary.",
+					doc.Value.Literal),
+				Repair: "the next investigation pass should call emit_evidence with the literal value as Subject / Object / AnchorSymbol, OR the answer should set value.citation_ref=-1 with a summary that names the external source, OR the answer's literal should be replaced with a typed-pool-backed value.",
+				SuspectedRoot: types.SuspectedRoot{
+					IRField:    "value_literal_provenance",
+					Reason:     "value.literal not in typed evidence pool",
+					Confidence: 0.65,
+				},
+				Stage: string(types.StageFinalize),
+			})
+		}
+	}
 	return out
+}
+
+// valueLiteralBackedByTypedEvidence reports whether `literal` is
+// supported by the typed evidence pool. Two layers: full-string
+// equality against EvidenceItem.Subject/Object/AnchorSymbol fields
+// (preferred — exact match), or identifier-token membership in the
+// pre-built verified set (fallback for multi-token literals).
+//
+// Returns true on empty literal / nil mut / empty pool — caller
+// already gates on those conditions; this is defensive.
+func valueLiteralBackedByTypedEvidence(literal string, mut *types.MutableState, verified map[string]bool) bool {
+	literal = strings.TrimSpace(literal)
+	if literal == "" || mut == nil {
+		return true
+	}
+	pool := mut.EmittedEvidence()
+	if len(pool) == 0 {
+		return true
+	}
+	// Layer (a): exact equality against typed identifier slots.
+	for _, ev := range pool {
+		if ev.Subject == literal || ev.Object == literal || ev.AnchorSymbol == literal {
+			return true
+		}
+	}
+	// Layer (b): any identifier-token in the literal appears in
+	// the verified set (handles "foo.Bar()" multi-token literals
+	// where foo or Bar is structurally captured).
+	for _, tok := range identifierTokenizer.FindAllString(literal, -1) {
+		if verified[tok] {
+			return true
+		}
+	}
+	return false
 }
 
 // extractBacktickIdentifiers walks s and returns every

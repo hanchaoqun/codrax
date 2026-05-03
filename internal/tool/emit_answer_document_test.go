@@ -670,46 +670,14 @@ func TestEmitAnswerDocument_Value_Happy(t *testing.T) {
 	}
 }
 
-// TestEmitAnswerDocument_Value_RejectsFabricatedCitation is the
-// session-22 regression for the "partial" eval case: the attached
-// log named an error function (processRequest) that does not exist
-// anywhere in the repo, but the LLM fabricated a citation at
-// `internal/agent/analyzer.go:1` (which actually starts with
-// `package agent`) to satisfy the tool schema. The new literal-
-// grounding gate must catch the mismatch BEFORE the answer ships
-// and direct the LLM toward the honest escape (citation_ref=-1 +
-// summary caveat for externally-sourced literals).
-func TestEmitAnswerDocument_Value_RejectsFabricatedCitation(t *testing.T) {
-	tool := &EmitAnswerDocument{}
-	ctx := newDocBusCtx("")
-	// Seed a read_file result so the grounder's LineIndex picks up
-	// the cited file at line 1. The line content has zero overlap
-	// with the claimed literal. Banner uses the gutter format
-	// `N│ text` that ground.buildLineIndex parses.
-	ctx.Mutable.AppendDispatchToolResult(types.ToolResult{
-		ToolName: "read_file",
-		Success:  true,
-		Summary:  "[internal/agent/analyzer.go: showing lines 1-5 of 1500 total]\n     1│ package agent\n     2│ \n     3│ import (\n     4│ \t\"context\"\n     5│ )\n",
-	})
-	params := mustDocJSON(t, map[string]interface{}{
-		"shape": "value",
-		"value": map[string]interface{}{
-			"literal":      "processRequest",
-			"citation_ref": 0,
-		},
-		"citations": []map[string]interface{}{{"file": "internal/agent/analyzer.go", "line": 1}},
-	})
-	res, _ := tool.Execute(ctx, params)
-	if res.Success {
-		t.Fatalf("fabricated citation must be rejected; got Success=true, Summary=%q", res.Summary)
-	}
-	if !strings.Contains(res.Summary, "not corroborated") {
-		t.Errorf("rejection message must name the corroboration failure, got: %q", res.Summary)
-	}
-	if !strings.Contains(res.Summary, "citation_ref=-1") {
-		t.Errorf("rejection message must name the citation_ref=-1 escape, got: %q", res.Summary)
-	}
-}
+// TestEmitAnswerDocument_Value_RejectsFabricatedCitation retired
+// 2026-05-03 (Phase 6 stage 6) — the test pinned the old
+// validateValueLiteralGrounding's hard-reject-at-emit behaviour.
+// value.literal grounding moved to Phase 4's
+// runStepIdentifierBackedByEvidenceOracle (typed evidence pool);
+// the regression suite for that contract lives in
+// internal/orchestrator/contract_check_facet_oracle_test.go
+// (TestStepIdentifierOracle_* family).
 
 // TestEmitAnswerDocument_Value_AcceptsCitationRefMinusOneEscape is
 // the defensive-allow complement: when the LLM honestly declares
@@ -934,34 +902,12 @@ func TestEmitAnswerDocument_Steps_AcceptsCitationRefMinusOneEscape(t *testing.T)
 	}
 }
 
-// TestEmitAnswerDocument_Boolean_RejectsUncorroboratedRationale pins
-// ShapeBoolean: when the rationale names identifiers that the
-// cited line does not mention, the gate fires.
-func TestEmitAnswerDocument_Boolean_RejectsUncorroboratedRationale(t *testing.T) {
-	tool := &EmitAnswerDocument{}
-	ctx := newDocBusCtx("")
-	ctx.Mutable.AppendDispatchToolResult(types.ToolResult{
-		ToolName: "read_file",
-		Success:  true,
-		Summary:  "[foo.go: showing lines 1-5 of 100 total]\n     1│ package foo\n     2│ \n",
-	})
-	params := mustDocJSON(t, map[string]interface{}{
-		"shape": "boolean",
-		"boolean": map[string]interface{}{
-			"decision":     "yes",
-			"rationale":    "readyCheck returns true when the ConnectionPool is ready",
-			"citation_ref": 0,
-		},
-		"citations": []map[string]interface{}{{"file": "foo.go", "line": 1}},
-	})
-	res, _ := tool.Execute(ctx, params)
-	if res.Success {
-		t.Fatalf("boolean rationale without identifier overlap must be rejected; got Success=true, Summary=%q", res.Summary)
-	}
-	if !strings.Contains(res.Summary, "boolean.rationale") {
-		t.Errorf("rejection should name the claim location, got: %q", res.Summary)
-	}
-}
+// TestEmitAnswerDocument_Boolean_RejectsUncorroboratedRationale
+// retired 2026-05-03 (Phase 6 stage 6) — the test pinned the old
+// validateBooleanLiteralGrounding's hard-reject-at-emit behaviour.
+// boolean.rationale's backtick identifiers are now ground-truthed
+// by Phase 4's runStepIdentifierBackedByEvidenceOracle (extended
+// to scan boolean.rationale alongside step.description).
 
 // TestEmitAnswerDocument_Boolean_AcceptsCorroboratedRationale is the
 // positive path: rationale token appears in the cited window.

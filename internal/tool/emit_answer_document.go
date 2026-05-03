@@ -1187,9 +1187,13 @@ func (t *EmitAnswerDocument) Execute(ctx *types.BusContext, params json.RawMessa
 		if err := validateValueField(p.Value, false, numCites); err != nil {
 			return failWithContext("%v", err)
 		}
-		if err := validateValueLiteralGrounding(p.Value, citations, groundCtx, false); err != nil {
-			return failWithContext("%v", err)
-		}
+		// 2026-05-03 (Phase 6 stage 6): retired
+		// validateValueLiteralGrounding. value.literal is now
+		// ground-truthed by Phase 4's
+		// runStepIdentifierBackedByEvidenceOracle (typed evidence
+		// pool — full-string Subject/Object/AnchorSymbol equality,
+		// then identifier-token membership fallback) instead of
+		// token-overlap-against-cited-line-window.
 		// Fix G1: hard-reject empty / too-short summary on shape=value.
 		// The Fix F prompt change ("ALWAYS fill summary with 1-2 sentences
 		// naming subject + methodology") was advisory and the LLM honoured
@@ -1215,9 +1219,9 @@ func (t *EmitAnswerDocument) Execute(ctx *types.BusContext, params json.RawMessa
 		if err := validateValueField(p.Value, true, numCites); err != nil {
 			return failWithContext("%v", err)
 		}
-		if err := validateValueLiteralGrounding(p.Value, citations, groundCtx, true); err != nil {
-			return failWithContext("%v", err)
-		}
+		// 2026-05-03 (Phase 6 stage 6): retired the config_value
+		// branch of validateValueLiteralGrounding; same migration as
+		// the shape=value branch above.
 		// Fix G1 mirror: same summary requirement for config_value.
 		if err := validateValueShapeSummary(p.Summary, p.Value); err != nil {
 			return failWithContext("%v", err)
@@ -1235,9 +1239,15 @@ func (t *EmitAnswerDocument) Execute(ctx *types.BusContext, params json.RawMessa
 		if berr != nil {
 			return failWithContext("%v", berr)
 		}
-		if err := validateBooleanLiteralGrounding(bl, citations, groundCtx); err != nil {
-			return failWithContext("%v", err)
-		}
+		// 2026-05-03 (Phase 6 stage 6): retired
+		// validateBooleanLiteralGrounding. boolean.rationale's
+		// backtick identifiers are now ground-truthed by Phase 4's
+		// runStepIdentifierBackedByEvidenceOracle (extended in
+		// stage 2 to scan boolean.rationale alongside step.description).
+		// Non-backtick token grounding (the broader heuristic the old
+		// check applied) is no longer enforced — consistent with the
+		// "load-bearing identifiers go in backticks" convention the
+		// skill teaches.
 		if note := scrubForbiddenNonZeroFields(&p, shape, forbidSteps|forbidSymbols|forbidValue); note != "" {
 			shapeCorrectionNote = joinNote(shapeCorrectionNote, note)
 		}
@@ -1616,72 +1626,32 @@ func knownFacetID(id string) bool {
 	return false
 }
 
-// valueLiteralTokenRe extracts identifier-shaped tokens from claim
-// text / cited line text for the session-22 literal-corroboration
-// gate. Matches ASCII identifier shape (letters / digits /
-// underscore, must start with letter/underscore, min 3 chars).
-// Filters out trivial substrings that would false-match almost
-// anything.
+// valueLiteralTokenRe extracts identifier-shaped tokens from
+// claim text / cited line text. Min 3 chars to filter out trivial
+// substrings that would false-match almost anything. Used by
+// non-literal-grounding paths (normalize step backbone, value
+// citation focus, diagram label grounding, related-context
+// surface normalization) — these run their own structural
+// concerns through the same regex but are not the retired
+// validateValue/Boolean/StepsLiteralGrounding old-world gates.
 var valueLiteralTokenRe = regexp.MustCompile(`[A-Za-z_][A-Za-z0-9_]{2,}`)
 
-// corroborationWindow is the ±N-line slack the literal-grounding
-// gate inspects around the cited line. Three captures a
-// reasonable "the cite points at a symbol's opening / definition
-// block" range (doc comment, signature, first body lines) without
-// opening the gate to false-positives on unrelated neighbouring
-// code.
+// corroborationWindow is the ±N-line slack used by the residual
+// non-literal-grounding citation-window scanners (see callers of
+// valueLiteralTokenRe). Three captures a reasonable "doc comment
+// + signature + first body lines" range.
 const corroborationWindow = 3
 
-// requireCitationCorroboration is the SHAPE-AGNOSTIC
-// literal-grounding gate shipped as part of the session-22 citation
-// fabrication defence. Given a text blob that represents a claim
-// (value.Literal, symbol.Name, step.Description, boolean.Rationale)
-// and the file:line the LLM chose to back it, the helper reports an
-// error when the cited ±3-line window contains NO identifier token
-// present in the claim text.
-//
-// Shape coverage (all 5 citation-carrying shapes):
-//
-//	ShapeValue         → validateValueLiteralGrounding
-//	ShapeConfigValue   → validateValueLiteralGrounding (unions Key)
-//	ShapeListOfSymbols → validateSymbolsLiteralGrounding (per-item)
-//	ShapeStepList      → runStepIdentifierBackedByEvidenceOracle (typed-pool, post-finalize; old validateStepsLiteralGrounding retired 2026-05-02)
-//	ShapeBoolean       → validateBooleanLiteralGrounding
-//
-// ShapeExplanation intentionally skipped — summary is freeform prose
-// and citations[] are ad-lib references; per-citation corroboration
-// would over-match on identifier tokens the LLM mentions in narrative
-// unrelated to any specific cite.
-//
-// Contract (identical across all wrappers):
-//
-//   - unseedable anchor (citationRef == -1 for ref-based shapes, or
-//     File == "" / Line <= 0 for direct-anchor shapes like AnswerSymbol)
-//     → bypass. These are the LLM's honest escape hatches.
-//   - empty LineIndex or unindexed file → skip (degrades gracefully
-//     for sub-agent paths and unit tests without a line index).
-//   - claim text has no identifier-shape tokens → skip (numeric
-//     literals, short sentinels, prose with only noise words).
-//   - at least one token overlap in the ±3-line window → grounded.
-//   - otherwise → return a formatted error with the schema-legal
-//     escape spelled out.
-//
-// The caller supplies the shape-specific labels (what to call the
-// claim in the error message, how to name the escape route) so the
-// LLM sees actionable guidance no matter which shape it is emitting.
-func requireCitationCorroboration(claim, citeFile string, citeLine int, gc *ground.Context, cfg corroborationCfg) error {
-	if citationCorroboratesClaim(claim, citeFile, citeLine, gc, cfg.extraClaims...) {
-		return nil
-	}
-	msg := fmt.Sprintf("%s is not corroborated by %s (%s:%d): the cited line and ±%d-line window contain no identifier overlap with the claim. %s",
-		cfg.claimLabel, cfg.citeLabel, citeFile, citeLine, corroborationWindow, cfg.escape)
-	if cfg.code == "" {
-		return fmt.Errorf("%s", msg)
-	}
-	return newAnswerDocValidationError(cfg.code, "%s", msg).
-		WithFields(cfg.fields...).
-		WithHint(cfg.hint)
-}
+// requireCitationCorroboration was retired 2026-05-03 (Phase 6
+// stage 6). The token-overlap heuristic that drove validate*LiteralGrounding
+// is now subsumed by Phase 4's runStepIdentifierBackedByEvidenceOracle
+// which reads typed evidence pool fields. The lower-level utility
+// citationCorroborationStatus / valueLiteralTokenRe / corroborationWindow
+// constants stay because non-grounding callers (normalize step
+// backbone, diagram label scanner, related-context surface
+// normalization) still use them as generic identifier-extraction
+// + ±N-line-window primitives — those are structural / diagram
+// concerns, not the retired literal-grounding gate.
 
 type citationCorroborationState int
 
@@ -1692,10 +1662,10 @@ const (
 	citationCorroborationMissing
 )
 
-func citationCorroboratesClaim(claim, citeFile string, citeLine int, gc *ground.Context, extraClaims ...string) bool {
-	return citationCorroborationStatus(claim, citeFile, citeLine, gc, extraClaims...) != citationCorroborationMissing
-}
-
+// citationCorroborationStatus is retained as a structural
+// utility. Old-world use (validate*LiteralGrounding) was retired
+// Phase 6 stage 6; remaining callers are normalize / diagram-
+// grounding / surface-normalization paths.
 func citationCorroborationStatus(claim, citeFile string, citeLine int, gc *ground.Context, extraClaims ...string) citationCorroborationState {
 	if gc == nil || len(gc.LineIndex) == 0 {
 		return citationCorroborationUnavailable
@@ -1737,13 +1707,6 @@ func citationCorroborationStatus(claim, citeFile string, citeLine int, gc *groun
 	if !sawWindowLine {
 		return citationCorroborationUnavailable
 	}
-	// Token-set route did not corroborate. For mixed-language claims
-	// — e.g. `value.literal "用户已存在 ProcessRequest"` cited at a line
-	// whose ASCII identifier portion happens not to match — try a
-	// byte-level substring fallback against the same ±window. The
-	// trimmed full claim must appear verbatim somewhere in the window
-	// for the fallback to accept; otherwise the strict rejection
-	// below stands.
 	if trimmed := strings.TrimSpace(claim); trimmed != "" {
 		for line := citeLine - corroborationWindow; line <= citeLine+corroborationWindow; line++ {
 			if line <= 0 {
@@ -1759,20 +1722,6 @@ func citationCorroborationStatus(claim, citeFile string, citeLine int, gc *groun
 		}
 	}
 	return citationCorroborationMissing
-}
-
-// corroborationCfg holds the shape-specific strings the
-// requireCitationCorroboration helper interpolates into error
-// messages. Kept on its own struct so every shape wrapper is a
-// single call with its own copy of labels and escape text.
-type corroborationCfg struct {
-	claimLabel  string   // e.g. `value.literal "X"`, `symbols[2].name "Y"`
-	citeLabel   string   // e.g. `citations[0]`, `symbols[2].file/line`
-	escape      string   // shape-specific retry guidance
-	extraClaims []string // additional tokens to union into the claim set (e.g. value.Key for ConfigValue)
-	code        string
-	fields      []string
-	hint        string
 }
 
 // validateValueShapeSummary enforces a non-empty Summary on shape=value
@@ -1805,32 +1754,11 @@ func validateValueShapeSummary(summary string, v *types.AnswerValue) error {
 	return nil
 }
 
-// validateValueLiteralGrounding is the ShapeValue / ShapeConfigValue
-// wrapper. Retained for source compatibility — call sites in
-// Execute still call this by name.
-func validateValueLiteralGrounding(v *types.AnswerValue, citations []types.Citation, gc *ground.Context, isConfigValue bool) error {
-	if v == nil || v.CitationRef < 0 {
-		return nil
-	}
-	if v.CitationRef >= len(citations) {
-		return nil
-	}
-	cite := citations[v.CitationRef]
-	cfg := corroborationCfg{
-		claimLabel: fmt.Sprintf("value.literal %q", v.Literal),
-		citeLabel:  fmt.Sprintf("citations[%d]", v.CitationRef),
-		escape: "If this literal originates from the attached log / external source rather than repo code, " +
-			"set citation_ref=-1 and state in summary that the answer is derived from log semantics (no grounded repo source). " +
-			"Otherwise cite a real file:line where the literal appears.",
-		code:   "literal_grounding",
-		fields: []string{"value.literal", "value.citation_ref", "citations"},
-		hint:   "Re-emit `emit_answer_document` with a citation whose corroboration window contains an identifier from `value.literal`, or set `citation_ref=-1` if the scalar comes only from external/log context. Keep the answer shape unless the tool explicitly tells you otherwise.",
-	}
-	if isConfigValue && v.Key != "" {
-		cfg.extraClaims = []string{v.Key}
-	}
-	return requireCitationCorroboration(v.Literal, cite.File, cite.Line, gc, cfg)
-}
+// validateValueLiteralGrounding was retired 2026-05-03 (Phase 6
+// stage 6). value.literal grounding is now driven by Phase 4's
+// runStepIdentifierBackedByEvidenceOracle (typed evidence pool —
+// full-string Subject/Object/AnchorSymbol equality, then
+// identifier-token membership fallback).
 
 func validateValueCitationFocus(ctx *types.BusContext, v *types.AnswerValue, citations []types.Citation, gc *ground.Context) error {
 	if ctx == nil || v == nil || len(citations) <= 1 {
@@ -2461,27 +2389,11 @@ func normalizeDriftBoundedRootCauseSteps(steps []types.AnswerStep, ctx *types.Bu
 	return kept
 }
 
-// validateBooleanLiteralGrounding is the ShapeBoolean wrapper. The
-// Rationale sentence is the claim; the cited line should mention
-// at least one identifier the rationale names. Fire / bypass rules
-// match the value branch.
-func validateBooleanLiteralGrounding(b *types.AnswerBoolean, citations []types.Citation, gc *ground.Context) error {
-	if b == nil || b.CitationRef < 0 {
-		return nil
-	}
-	if b.CitationRef >= len(citations) {
-		return nil
-	}
-	cite := citations[b.CitationRef]
-	cfg := corroborationCfg{
-		claimLabel: fmt.Sprintf("boolean.rationale %q", b.Rationale),
-		citeLabel:  fmt.Sprintf("citations[%d]", b.CitationRef),
-		escape: "If the rationale draws on attached-log / external-source content rather than repo code, " +
-			"set citation_ref=-1 and let the rationale stand on its own. " +
-			"Otherwise cite a real file:line that contains an identifier named in the rationale.",
-	}
-	return requireCitationCorroboration(b.Rationale, cite.File, cite.Line, gc, cfg)
-}
+// validateBooleanLiteralGrounding was retired 2026-05-03 (Phase 6
+// stage 6). boolean.rationale's backtick identifiers are now
+// ground-truthed by Phase 4's
+// runStepIdentifierBackedByEvidenceOracle (extended in stage 2 to
+// scan boolean.rationale alongside step.description).
 
 // diagramFileExtensions is the allow-list of code-file extensions the
 // fenced-block grounding gate treats as load-bearing. A token like
