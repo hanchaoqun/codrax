@@ -236,6 +236,25 @@ func DefaultFallbackPolicy() FallbackPolicy {
 		// no new investigation needed since the typed signal +
 		// existing evidence already supply everything required.
 		types.ViolStructuralEnumerationDivergence: FallbackBackToExtract,
+		// B4 V2 block-only carrier validators
+		// (block_only_carrier.md §5.4). All 4 are SOFT-by-default
+		// during B4-B5 (telemetry only — never reach this fallback
+		// switch under default classification). B6 promotes to
+		// STRICT and the fallback target activates:
+		//   - BlockCoverageMissing: extractor re-emits the missing
+		//     block kind (FallbackBackToExtract).
+		//   - PrincipalClaimUseMissing: finalizer re-emits with
+		//     claim_use annotations (FallbackFinalizerOnly).
+		//   - DiagramEdgeUnsupported: finalizer re-emits diagram
+		//     with correct kind / matched edges (FinalizerOnly).
+		//   - UncertaintyBlockMissing: extractor / finalizer adds
+		//     the disclosure block — closer to a finalizer-only
+		//     repair since the fact (uncertainty source) is already
+		//     in evidence; the missing piece is the block itself.
+		types.ViolBlockCoverageMissing:     FallbackBackToExtract,
+		types.ViolPrincipalClaimUseMissing: FallbackFinalizerOnly,
+		types.ViolDiagramEdgeUnsupported:   FallbackFinalizerOnly,
+		types.ViolUncertaintyBlockMissing:  FallbackFinalizerOnly,
 		// Phase 5 telemetry-only kind — never reaches the fallback
 		// switch under default SOFT classification, but mapped to
 		// FailLoud as a safety net so an accidental promotion to

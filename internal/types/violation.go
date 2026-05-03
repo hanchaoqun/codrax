@@ -352,6 +352,46 @@ const (
 	// the extractor selects citations.
 	ViolValueSecondaryCitationOffFocus ViolationKind = "value_secondary_citation_off_focus"
 
+	// ── B4 V2 block-only carrier validators ─────────────────────
+	// 4 SOFT-by-default violation kinds raised by the V2 oracle
+	// dispatch path (block_only_carrier.md §5.4). They never affect
+	// Result.Passed during B4-B5 (telemetry-only); B6 promotes them
+	// to STRICT once V2 becomes the default carrier.
+
+	// ViolBlockCoverageMissing fires when the rendered V2 doc fails
+	// to satisfy a BlockRequirement.Required=true entry from the
+	// AnswerSemanticView — required block kind absent OR present
+	// but below MinCount. Diagnoses "LLM emitted V2 but skipped a
+	// required block kind". Stage="finalize". Default fallback
+	// FallbackFinalizerOnly during telemetry; B6 promotes to
+	// FallbackBackToExtract.
+	ViolBlockCoverageMissing ViolationKind = "block_coverage_missing"
+
+	// ViolPrincipalClaimUseMissing fires when a SurfaceRole=principal
+	// block carries no RenderedClaimUse on its Items[] (or block-
+	// level ClaimUses[]) AND the BlockRequirement's
+	// AcceptableClaimForms list is non-empty (i.e. the LLM was
+	// supposed to declare what claim form backs the principal
+	// payload). Stage="finalize". SOFT-by-default.
+	ViolPrincipalClaimUseMissing ViolationKind = "principal_claim_use_missing"
+
+	// ViolDiagramEdgeUnsupported fires when the V2 doc carries a
+	// BlockDiagram whose body lists nodes/edges that don't have
+	// matching ClaimUses (or whose declared Diagram.Kind disagrees
+	// with the AnswerSemanticView's DiagramFacetGraph.Kind). Catches
+	// "LLM drew a diagram but didn't declare which facets each
+	// edge represents". Stage="finalize". SOFT-by-default.
+	ViolDiagramEdgeUnsupported ViolationKind = "diagram_edge_unsupported"
+
+	// ViolUncertaintyBlockMissing fires when an UncertaintyRule's
+	// trigger fired (e.g. FacetObservedArtifactFact present in
+	// FacetCoverage.Required) but no matching BlockCaveat exists
+	// in doc.Blocks. Per the AnswerSemanticView contract, the LLM
+	// must disclose log-source drift / scope absence / external-
+	// observation provenance via a caveat block. Stage="finalize".
+	// SOFT-by-default.
+	ViolUncertaintyBlockMissing ViolationKind = "uncertainty_block_missing"
+
 	// ViolStructuralEnumerationDivergence (P3 #6 precise variant,
 	// 2026-05-03) fires when the answer's emitted set diverges from
 	// the typed Symbol.Implements relation AND the omitted items
@@ -460,6 +500,11 @@ func AllViolationKinds() []ViolationKind {
 		ViolValueSecondaryCitationOffFocus,
 		ViolSymbolAnchorMismatch,
 		ViolStructuralEnumerationDivergence,
+		// B4 V2 block-only carrier validators.
+		ViolBlockCoverageMissing,
+		ViolPrincipalClaimUseMissing,
+		ViolDiagramEdgeUnsupported,
+		ViolUncertaintyBlockMissing,
 	}
 }
 

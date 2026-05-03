@@ -246,6 +246,11 @@ func TestAllViolationKindsHaveProducer(t *testing.T) {
 		// vs emitted doc.Symbols + doc.Summary verbatim search;
 		// transparency oracle for code-vs-comment divergence.
 		ViolStructuralEnumerationDivergence: true, // orchestrator/contract_check.go runStructuralEnumerationDivergenceOracle
+		// B4 V2 block-only carrier validators (block_only_carrier.md §5.4).
+		ViolBlockCoverageMissing:     true, // orchestrator/contract_check_block.go validateRequiredBlockCoverage
+		ViolPrincipalClaimUseMissing: true, // orchestrator/contract_check_block.go validatePrincipalClaimUse
+		ViolDiagramEdgeUnsupported:   true, // orchestrator/contract_check_block.go validateDiagramEdgeSupport
+		ViolUncertaintyBlockMissing:  true, // orchestrator/contract_check_block.go validateUncertaintyBlockPresence
 	}
 	pending := map[ViolationKind]string{}
 	// Sanity: AllViolationKinds() must equal covered ∪ pending so the
@@ -288,6 +293,11 @@ func TestAllViolationKindsHaveProducer(t *testing.T) {
 		ViolValueSecondaryCitationOffFocus:  "ViolValueSecondaryCitationOffFocus",
 		ViolSymbolAnchorMismatch:            "ViolSymbolAnchorMismatch",
 		ViolStructuralEnumerationDivergence: "ViolStructuralEnumerationDivergence",
+		// B4 V2 block-only carrier validators.
+		ViolBlockCoverageMissing:     "ViolBlockCoverageMissing",
+		ViolPrincipalClaimUseMissing: "ViolPrincipalClaimUseMissing",
+		ViolDiagramEdgeUnsupported:   "ViolDiagramEdgeUnsupported",
+		ViolUncertaintyBlockMissing:  "ViolUncertaintyBlockMissing",
 	}
 
 	// Match only the "Kind: ViolXxx" composite-literal pattern —

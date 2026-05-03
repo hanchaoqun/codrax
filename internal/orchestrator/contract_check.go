@@ -167,6 +167,25 @@ func runContractCheck(out *agent.StageOutput, c types.AnswerContract, mut *types
 					runValueSecondaryCitationFocusOracle(doc, ir, mut)...)
 			}
 		}
+
+		// B4 V2 block-only carrier validators (block_only_carrier.md
+		// §5.4). When the LLM emitted document_model="v2",
+		// AnswerDocumentV2 is non-nil on Mutable; we run the 4 V2
+		// validators against it. SOFT-by-default during B4-B5
+		// (telemetry-only). B6 will promote them to STRICT.
+		//
+		// Sibling block to the V1 path — V2 docs are a separate
+		// carrier; the two oracles never run on the same document.
+		// Per the carrier-mutual-exclusion invariant set up in B3,
+		// AnswerDocument() and AnswerDocumentV2() are never both
+		// non-nil on the same Mutable.
+		if docV2 := mut.AnswerDocumentV2(); docV2 != nil && o != nil && o.busCtx != nil {
+			view := types.BuildAnswerSemanticViewForBusContext(o.busCtx)
+			if view != nil {
+				result.Violations = append(result.Violations,
+					runV2BlockOracles(docV2, view)...)
+			}
+		}
 	}
 
 	// 2026-05-02 — CritExternalArtifactDecoded oracle. Triggers
