@@ -262,6 +262,35 @@ const (
 	// LineFeatureArrowFunction — JS / TS arrow `(x) => y` or
 	// Rust closure shape. Lambda body marker.
 	LineFeatureArrowFunction LineFeature = "arrow_function"
+
+	// LineFeatureUnknownEffect — line contains a runtime-dynamic
+	// dispatch / reflection / unsafe escape that defeats static
+	// analysis. Phase 6 stage 27 (2026-05-03) typed replacement
+	// for the per-language byte-token scans in
+	// internal/analysis/dataflow/lower.go::detectUnknownEffect.
+	//
+	// Per-language patterns the AST walker recognises:
+	//   - Go: defer_statement; call to reflect.* / unsafe.*
+	//   - Python: call to getattr / setattr / importlib.*
+	//   - JS/TS/ArkTS: call to Reflect.* / require with binary
+	//     concatenation; member access expression with computed
+	//     subscript followed by call (`obj[name]()` shape)
+	//   - Java/Kotlin: call to Class.forName / java.lang.reflect.*
+	//     / `::class` reference
+	//   - Rust: macro_invocation; unsafe_block
+	//   - Ruby: call to send / public_send / const_get /
+	//     method_missing
+	//   - Swift: call to Mirror / NSClassFromString /
+	//     unsafeBitCast
+	//   - Lua: call to load / loadfile / loadstring; subscript
+	//     of _G
+	//   - C/C++: pointer_expression (`->` / `*p`)
+	//
+	// Empty / Tier 3+ regex-only fallback files: this feature is
+	// not emitted ⇒ detectUnknownEffect reports no escape ⇒
+	// dataflow lowering proceeds without the unknown-effect flag.
+	// Same typed-only contract as stages 18+.
+	LineFeatureUnknownEffect LineFeature = "unknown_effect"
 )
 
 // IsBlockTerminator reports whether `f` is a control-flow

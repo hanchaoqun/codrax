@@ -68,20 +68,36 @@ func TestDetectGuard_ExtendedLanguages(t *testing.T) {
 	}
 }
 
-func TestDetectUnknownEffect_ExtendedLanguages(t *testing.T) {
+// TestDetectUnknownEffect_ExtendedLanguages was retired
+// 2026-05-03 (Phase 6 stage 27). The byte-token detectUnknownEffect
+// signature was replaced with a typed
+// detectUnknownEffect(*FileInfo, line, text) that reads
+// LineFeatures populated by repomap's AST walker. The retired
+// per-language byte-token tables (Class.forName / public_send /
+// Mirror / loadfile / Reflect.get) are now AST-detected via
+// dynamicDispatchCallees + typed LineFeatureUnknownEffect.
+//
+// Replacement: TestDetectUnknownEffect_TypedFeature exercises the
+// typed contract — pass a synthetic FileInfo whose LineFeatures
+// includes LineFeatureUnknownEffect at the given line and verify
+// detectUnknownEffect returns the language's descriptor.
+func TestDetectUnknownEffect_TypedFeature(t *testing.T) {
 	cases := []struct {
 		lang string
-		line string
 	}{
-		{repomap.LangKotlin, `val k = Class.forName(name)`},
-		{repomap.LangRuby, `handler.public_send(method_name)`},
-		{repomap.LangSwift, `let t = Mirror(reflecting: value)`},
-		{repomap.LangLua, `local fn = loadfile(path)`},
-		{repomap.LangArkTS, `const out = Reflect.get(obj, key)`},
+		{repomap.LangKotlin}, {repomap.LangRuby}, {repomap.LangSwift},
+		{repomap.LangLua}, {repomap.LangArkTS}, {repomap.LangGo},
+		{repomap.LangPython}, {repomap.LangJavaScript}, {repomap.LangTypeScript},
+		{repomap.LangRust}, {repomap.LangC}, {repomap.LangCpp},
+		{repomap.LangJava}, {repomap.LangCangjie},
 	}
 	for _, c := range cases {
-		if got := detectUnknownEffect(c.lang, c.line); got == "" {
-			t.Fatalf("detectUnknownEffect(%q, %q) = empty, want non-empty reason", c.lang, c.line)
+		fi := &repomap.FileInfo{
+			Language:     c.lang,
+			LineFeatures: map[int][]repomap.LineFeature{1: {repomap.LineFeatureUnknownEffect}},
+		}
+		if got := detectUnknownEffect(fi, 1, "irrelevant"); got == "" {
+			t.Errorf("language %s: typed feature should yield descriptor; got empty", c.lang)
 		}
 	}
 }

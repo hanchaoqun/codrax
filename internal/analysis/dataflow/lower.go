@@ -333,7 +333,7 @@ func (l genericLowerer) lowerSymbol(file *repomap.FileInfo, sym repomap.Symbol, 
 				summary.AliasTargets = append(summary.AliasTargets, alias)
 			}
 		}
-		if reason := detectUnknownEffect(file.Language, line); reason != "" {
+		if reason := detectUnknownEffect(file, lineNo, line); reason != "" {
 			summary.HasUnknownEffect = true
 			if summary.UnknownReason == "" {
 				summary.UnknownReason = reason
@@ -558,50 +558,67 @@ func detectAliases(line string) []string {
 	return out
 }
 
-func detectUnknownEffect(lang, line string) string {
-	trimmed := strings.TrimSpace(line)
-	switch lang {
-	case repomap.LangGo:
-		if strings.Contains(trimmed, "reflect.") || strings.Contains(trimmed, "unsafe.") || strings.HasPrefix(trimmed, "defer ") {
-			return "dynamic reflection/unsafe or deferred side effects"
-		}
-	case repomap.LangPython:
-		if strings.Contains(trimmed, "getattr(") || strings.Contains(trimmed, "setattr(") || strings.Contains(trimmed, "importlib") {
-			return "dynamic attribute or import usage"
-		}
-	case repomap.LangJavaScript, repomap.LangTypeScript, repomap.LangArkTS:
-		if strings.Contains(trimmed, "require(") && strings.Contains(trimmed, "+") {
-			return "dynamic require/import expression"
-		}
-		if strings.Contains(trimmed, "Reflect.") || strings.Contains(trimmed, "[") && strings.Contains(trimmed, "](") {
-			return "dynamic property dispatch"
-		}
-	case repomap.LangKotlin, repomap.LangCangjie:
-		if strings.Contains(trimmed, "Class.forName(") || strings.Contains(trimmed, "java.lang.reflect") || strings.Contains(trimmed, "::class") {
-			return "dynamic reflection or class loading"
-		}
-	case repomap.LangRust:
-		if strings.Contains(trimmed, "macro_rules!") || strings.Contains(trimmed, "unsafe ") {
-			return "macro or unsafe block"
-		}
-	case repomap.LangRuby:
-		if strings.Contains(trimmed, "send(") || strings.Contains(trimmed, "public_send(") || strings.Contains(trimmed, "const_get(") || strings.Contains(trimmed, "method_missing") {
-			return "dynamic method or constant dispatch"
-		}
-	case repomap.LangSwift:
-		if strings.Contains(trimmed, "Mirror(") || strings.Contains(trimmed, "NSClassFromString(") || strings.Contains(trimmed, "unsafeBitCast(") {
-			return "runtime reflection or unsafe cast"
-		}
-	case repomap.LangLua:
-		if strings.Contains(trimmed, "load(") || strings.Contains(trimmed, "loadfile(") || strings.Contains(trimmed, "loadstring(") || strings.Contains(trimmed, "_G[") {
-			return "dynamic chunk loading or global dispatch"
-		}
-	case repomap.LangC, repomap.LangCpp:
-		if strings.Contains(trimmed, "->") || strings.Contains(trimmed, "*") {
-			return "pointer-heavy effect or aliasing"
+// detectUnknownEffect (Phase 6 stage 27, 2026-05-03) reads the
+// typed LineFeatureUnknownEffect flag populated by repomap's AST
+// walker. The retired path scanned `line` text with per-language
+// byte-token tables ({"reflect.", "unsafe.", "defer "}, {"getattr(",
+// "setattr(", "importlib"}, {"send(", "public_send(", ...}, etc.)
+// — direct red-line violation per the no-keyword-classification
+// doctrine, plus high false-positive risk (variable named "send"
+// in a non-Ruby file matching, raw `*` operator in C++ matching
+// the pointer-aliasing scan, etc.).
+//
+// New typed path:
+//   1. Read fi.LineFeatures[lineNo] for LineFeatureUnknownEffect
+//   2. Return per-language descriptor when set; "" otherwise
+//
+// The descriptor map is closed (one entry per supported language)
+// and operator-readable; downstream renderers consume these
+// strings to label the unknown-effect line in dataflow output.
+//
+// `line` argument is preserved on the signature for caller-side
+// telemetry / logging needs but is no longer scanned. Tier 3+
+// regex-only fallback files have empty LineFeatures ⇒ the typed
+// path returns "" (no unknown-effect flag), which is the same
+// semantic stage 18 chose for "no AST signal ⇒ skip".
+func detectUnknownEffect(file *repomap.FileInfo, lineNo int, line string) string {
+	_ = line
+	if file == nil || lineNo <= 0 {
+		return ""
+	}
+	for _, f := range file.LineFeatures[lineNo] {
+		if f == repomap.LineFeatureUnknownEffect {
+			return unknownEffectDescriptorFor(file.Language)
 		}
 	}
 	return ""
+}
+
+// unknownEffectDescriptorFor returns the per-language label for
+// a flagged dynamic-dispatch / unsafe / reflection line. Closed
+// map — adding a new language tier means adding a row here.
+func unknownEffectDescriptorFor(lang string) string {
+	switch lang {
+	case repomap.LangGo:
+		return "dynamic reflection/unsafe or deferred side effects"
+	case repomap.LangPython:
+		return "dynamic attribute or import usage"
+	case repomap.LangJavaScript, repomap.LangTypeScript, repomap.LangArkTS:
+		return "dynamic property dispatch or runtime require"
+	case repomap.LangKotlin, repomap.LangCangjie, repomap.LangJava:
+		return "dynamic reflection or class loading"
+	case repomap.LangRust:
+		return "macro or unsafe block"
+	case repomap.LangRuby:
+		return "dynamic method or constant dispatch"
+	case repomap.LangSwift:
+		return "runtime reflection or unsafe cast"
+	case repomap.LangLua:
+		return "dynamic chunk loading or global dispatch"
+	case repomap.LangC, repomap.LangCpp:
+		return "pointer-heavy effect or aliasing"
+	}
+	return "dynamic dispatch"
 }
 
 func isConcreteValue(value string) bool {

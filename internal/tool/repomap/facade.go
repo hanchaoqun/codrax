@@ -56,6 +56,7 @@ const (
 	LineFeatureNewExpression    = types.LineFeatureNewExpression
 	LineFeatureCompositeLiteral = types.LineFeatureCompositeLiteral
 	LineFeatureArrowFunction    = types.LineFeatureArrowFunction
+	LineFeatureUnknownEffect    = types.LineFeatureUnknownEffect
 )
 
 // ---- language constant re-exports -----------------------------------

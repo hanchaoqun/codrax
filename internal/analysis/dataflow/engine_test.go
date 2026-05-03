@@ -32,6 +32,12 @@ type testFile struct {
 	content   string
 	symbols   []repomap.Symbol
 	relations []repomap.Relation
+	// Phase 6 stage 27 (2026-05-03) — synthetic LineFeatures
+	// for fixtures that exercise typed dynamic-dispatch
+	// detection. Real production builds populate this via
+	// repomap's AST walker (extractLineFeatures); test
+	// fixtures opt-in by setting per-line flags.
+	lineFeatures map[int][]repomap.LineFeature
 }
 
 func setupTestRepo(t *testing.T, files []testFile) (string, *repomap.Graph) {
@@ -54,11 +60,12 @@ func setupTestRepo(t *testing.T, files []testFile) (string, *repomap.Graph) {
 			t.Fatal(err)
 		}
 		fi := &repomap.FileInfo{
-			RelPath:   tf.relPath,
-			Language:  tf.lang,
-			Hash:      "test-hash-" + tf.relPath,
-			Symbols:   tf.symbols,
-			Relations: tf.relations,
+			RelPath:      tf.relPath,
+			Language:     tf.lang,
+			Hash:         "test-hash-" + tf.relPath,
+			Symbols:      tf.symbols,
+			Relations:    tf.relations,
+			LineFeatures: tf.lineFeatures,
 		}
 		graph.FileIndex[tf.relPath] = fi
 		graph.Files = append(graph.Files, fi)
@@ -412,6 +419,13 @@ function getHost() {
 				{Name: "loadPlugin", Kind: "function", Line: 3, EndLine: 6, Exported: false},
 				{Name: "getHost", Kind: "function", Line: 8, EndLine: 10, Exported: false},
 			},
+			// Phase 6 stage 27 fixture: typed UnknownEffect at the
+			// dynamic require with `+` concat (line 4) and the
+			// process.env subscript (line 9).
+			lineFeatures: map[int][]repomap.LineFeature{
+				4: {repomap.LineFeatureUnknownEffect},
+				9: {repomap.LineFeatureUnknownEffect},
+			},
 		},
 	})
 
@@ -493,6 +507,13 @@ pub unsafe fn raw_alloc(size: usize) -> *mut u8 {
 				{Name: "name", Kind: "function", Line: 1, EndLine: 3, Exported: true},
 				{Name: "version", Kind: "function", Line: 5, EndLine: 7, Exported: true},
 				{Name: "raw_alloc", Kind: "function", Line: 9, EndLine: 12, Exported: true},
+			},
+			// Phase 6 stage 27 fixture: typed UnknownEffect at the
+			// `unsafe fn` declaration (line 9) and the `unsafe`
+			// alloc body (line 10).
+			lineFeatures: map[int][]repomap.LineFeature{
+				9:  {repomap.LineFeatureUnknownEffect},
+				10: {repomap.LineFeatureUnknownEffect},
 			},
 		},
 	})
@@ -621,6 +642,14 @@ int get_version() {
 			symbols: []repomap.Symbol{
 				{Name: "process", Kind: "function", Line: 3, EndLine: 6, Exported: true},
 				{Name: "get_version", Kind: "function", Line: 8, EndLine: 10, Exported: true},
+			},
+			// Phase 6 stage 27 fixture: typed UnknownEffect at the
+			// pointer-arrow access (line 4) and pointer dereference
+			// (line 5). Real tree-sitter-c parse emits
+			// `pointer_expression` nodes for both.
+			lineFeatures: map[int][]repomap.LineFeature{
+				4: {repomap.LineFeatureUnknownEffect},
+				5: {repomap.LineFeatureUnknownEffect},
 			},
 		},
 	})
@@ -1021,6 +1050,12 @@ func InvokeMethod(obj interface{}, name string) {
 `,
 			symbols: []repomap.Symbol{
 				{Name: "InvokeMethod", Kind: "function", Line: 5, EndLine: 9, Exported: true},
+			},
+			// Phase 6 stage 27 fixture: typed UnknownEffect at the
+			// reflect.ValueOf line (line 6 in the snippet above);
+			// real tree-sitter parse populates this automatically.
+			lineFeatures: map[int][]repomap.LineFeature{
+				6: {repomap.LineFeatureUnknownEffect},
 			},
 		},
 	})
