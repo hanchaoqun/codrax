@@ -291,6 +291,24 @@ const (
 	// dataflow lowering proceeds without the unknown-effect flag.
 	// Same typed-only contract as stages 18+.
 	LineFeatureUnknownEffect LineFeature = "unknown_effect"
+
+	// LineFeatureGuard — line opens a control-flow guard /
+	// branch construct (if / else if / elif / unless / guard /
+	// switch / case / when / match / until). Phase 6 stage 28
+	// (2026-05-03) typed replacement for the byte-prefix table
+	// in dataflow.detectGuard.
+	//
+	// Per-language tree-sitter node names this maps from:
+	//   - if_statement (Go, Java, Rust, JS/TS, Swift, Python's
+	//     `if_statement`, etc.)
+	//   - else_clause / else_if_clause / elif_clause
+	//   - switch_statement / switch_expression
+	//   - case_clause / when_entry / match_arm
+	//   - guard_statement (Swift)
+	//   - until_statement (Ruby / Lua)
+	//   - unless_statement (Ruby)
+	//   - ternary_expression (`a ? b : c`)
+	LineFeatureGuard LineFeature = "guard"
 )
 
 // IsBlockTerminator reports whether `f` is a control-flow

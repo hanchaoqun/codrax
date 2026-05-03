@@ -114,6 +114,12 @@ func GetPort() string {
 			symbols: []repomap.Symbol{
 				{Name: "GetPort", Kind: "function", Line: 5, EndLine: 11, Exported: true},
 			},
+			// Phase 6 stage 28 fixture: typed Guard at the
+			// `if port == ""` branch (line 7). Real tree-sitter
+			// parse populates this via if_statement.
+			lineFeatures: map[int][]repomap.LineFeature{
+				7: {repomap.LineFeatureGuard},
+			},
 		},
 		{
 			relPath: "handler.go",

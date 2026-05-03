@@ -114,6 +114,20 @@ func walkLineFeatures(node *sitter.Node, src []byte, add func(int, types.LineFea
 		"object",            // JS object literal
 		"object_pattern":    // TS / JS destructuring
 		add(line, types.LineFeatureCompositeLiteral)
+	// Phase 6 stage 28 (2026-05-03) — typed control-flow
+	// guard detection. Maps every grammar's if/else/case/match/
+	// guard/unless/until/switch node to LineFeatureGuard.
+	case "if_statement", "if_expression",
+		"else_clause", "else_if_clause", "elif_clause",
+		"switch_statement", "switch_expression",
+		"case_clause", "case_statement",
+		"when_entry", "when_clause", "when_expression",
+		"match_expression", "match_arm",
+		"guard_statement",
+		"unless_statement",
+		"until_statement", "until_expression",
+		"ternary_expression", "conditional_expression":
+		add(line, types.LineFeatureGuard)
 	}
 	for i := 0; i < int(node.NamedChildCount()); i++ {
 		walkLineFeatures(node.NamedChild(i), src, add)

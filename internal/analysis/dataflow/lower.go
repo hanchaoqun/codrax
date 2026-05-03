@@ -208,7 +208,7 @@ func (l genericLowerer) lowerSymbol(file *repomap.FileInfo, sym repomap.Symbol, 
 			continue
 		}
 
-		if guard := detectGuard(file.Language, line); guard != "" {
+		if guard := detectGuard(file, lineNo, line); guard != "" {
 			summary.Guards = append(summary.Guards, GuardExpr{
 				Expr:      guard,
 				Source:    file.RelPath,
@@ -424,29 +424,38 @@ func isCommentLine(lang, line string) bool {
 	}
 }
 
-func detectGuard(lang, line string) string {
-	trimmed := strings.TrimSpace(line)
-	for _, prefix := range []string{
-		"if ", "if(",
-		"else if ", "else if(",
-		"elseif ", "elseif(",
-		"elif ",
-		"unless ", "unless(",
-		"guard ",
-		"switch ", "switch(",
-		"case ",
-		"when ", "when(",
-		"match ",
-		"until ", "until(",
-	} {
-		if strings.HasPrefix(trimmed, prefix) {
-			return strings.TrimSpace(strings.TrimSuffix(strings.TrimSpace(trimmed), "{"))
+// detectGuard (Phase 6 stage 28, 2026-05-03) reads the typed
+// LineFeatureGuard flag populated by repomap's AST walker.
+// Replaces the retired 12-keyword byte-prefix table ({"if ",
+// "if(", "else if ", "elseif ", "elif ", "unless ", "guard ",
+// "switch ", "case ", "when ", "match ", "until "} + ternary).
+//
+// Returns the trimmed source line text as the guard description
+// (preserves caller-side rendering format) when LineFeatureGuard
+// is present at the line; "" otherwise. `line` argument carries
+// the source text used for the description; the typed feature
+// drives the decision.
+//
+// `lang` argument retired (unused under typed contract). Tier 3+
+// regex-only files have empty LineFeatures → no guard signal,
+// dataflow lowering proceeds without the guard label. Same
+// typed-only contract as stages 18 + 27.
+func detectGuard(file *repomap.FileInfo, lineNo int, line string) string {
+	if file == nil || lineNo <= 0 {
+		return ""
+	}
+	flagged := false
+	for _, f := range file.LineFeatures[lineNo] {
+		if f == repomap.LineFeatureGuard {
+			flagged = true
+			break
 		}
 	}
-	if strings.Contains(trimmed, " ? ") && strings.Contains(trimmed, " : ") {
-		return trimmed
+	if !flagged {
+		return ""
 	}
-	return ""
+	trimmed := strings.TrimSpace(line)
+	return strings.TrimSpace(strings.TrimSuffix(trimmed, "{"))
 }
 
 func detectReturnValues(line string) []string {

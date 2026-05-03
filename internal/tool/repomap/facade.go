@@ -57,6 +57,7 @@ const (
 	LineFeatureCompositeLiteral = types.LineFeatureCompositeLiteral
 	LineFeatureArrowFunction    = types.LineFeatureArrowFunction
 	LineFeatureUnknownEffect    = types.LineFeatureUnknownEffect
+	LineFeatureGuard            = types.LineFeatureGuard
 )
 
 // ---- language constant re-exports -----------------------------------

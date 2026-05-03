@@ -50,21 +50,35 @@ func TestIsCommentLine_ExtendedLanguages(t *testing.T) {
 	}
 }
 
-func TestDetectGuard_ExtendedLanguages(t *testing.T) {
+// TestDetectGuard_ExtendedLanguages was retired 2026-05-03
+// (Phase 6 stage 28). The byte-prefix detectGuard signature
+// was replaced with a typed detectGuard(*FileInfo, line, text)
+// that reads LineFeatureGuard populated by repomap's AST
+// walker. The retired keyword table ({"if ", "if(", "else if",
+// "elseif", "elif", "unless", "guard", "switch", "case",
+// "when", "match", "until"}) is now AST-detected via the
+// closed enum if_statement / case_clause / when_entry /
+// guard_statement / unless_statement / etc.
+func TestDetectGuard_TypedFeature(t *testing.T) {
 	cases := []struct {
-		lang string
+		name string
 		line string
 		want string
 	}{
-		{repomap.LangSwift, "guard user != nil else {", "guard user != nil else"},
-		{repomap.LangKotlin, "when (state) {", "when (state)"},
-		{repomap.LangLua, "elseif ready then", "elseif ready then"},
-		{repomap.LangRuby, "unless enabled?", "unless enabled?"},
+		{"swift guard", "guard user != nil else {", "guard user != nil else"},
+		{"kotlin when", "when (state) {", "when (state)"},
+		{"lua elseif", "elseif ready then", "elseif ready then"},
+		{"ruby unless", "unless enabled?", "unless enabled?"},
 	}
 	for _, c := range cases {
-		if got := detectGuard(c.lang, c.line); got != c.want {
-			t.Fatalf("detectGuard(%q, %q) = %q, want %q", c.lang, c.line, got, c.want)
-		}
+		t.Run(c.name, func(t *testing.T) {
+			fi := &repomap.FileInfo{
+				LineFeatures: map[int][]repomap.LineFeature{1: {repomap.LineFeatureGuard}},
+			}
+			if got := detectGuard(fi, 1, c.line); got != c.want {
+				t.Errorf("got %q want %q", got, c.want)
+			}
+		})
 	}
 }
 
