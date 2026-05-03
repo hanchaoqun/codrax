@@ -82,6 +82,34 @@ type Symbol struct {
 	Parent    string `json:"parent,omitempty"` // containing type/class
 	Arity     int    `json:"arity,omitempty"`  // param count for functions/methods, 0 otherwise
 
+	// ReturnTypeNames is the deduplicated set of bare type-name
+	// tokens parsed from this function/method's return signature.
+	// Phase 6 stage 20 (2026-05-03) replacement for the retired
+	// IdentifierFactoryPrefixes naming-convention heuristic. By
+	// reading the return type structurally (not guessing from
+	// `New` / `Create` / etc. prefix), the system gets:
+	//
+	//   - Correct positives: any function returning *Foo / Foo /
+	//     []Foo / Box<Foo> / Result<Foo, E> contributes "Foo" to
+	//     ReturnTypeNames regardless of function name. Cross-language
+	//     factory naming (Chinese 创建Foo, Rust Foo::new, Java Bean
+	//     getFoo) all caught.
+	//
+	//   - Correct negatives: getFooDescription returning string
+	//     does NOT contribute "Foo" — the prefix table would have
+	//     incorrectly matched it.
+	//
+	// Empty for non-functions, methods without return types
+	// (procedures), and Tier 3+ regex-only fallback parses where
+	// return-type extraction is unavailable. callers consume via
+	// containsIdentifier in internal/agent/explorer.go.
+	//
+	// Wrapping types (pointer, array, slice, generic) are stripped
+	// to bare type names. See returnTypeNamesFromGoType /
+	// equivalents in extractors. Multiple return values
+	// contribute distinct entries deduplicated case-sensitively.
+	ReturnTypeNames []string `json:"return_type_names,omitempty"`
+
 	// ID is the canonical drift-proof identity. Re-derived at
 	// BuildGraph time from Name/Receiver/Parent/Arity + the containing
 	// FileInfo.Language and FileInfo.Package, so it is NOT persisted

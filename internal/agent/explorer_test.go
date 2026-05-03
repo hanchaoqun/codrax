@@ -46,59 +46,43 @@ func midLoopExplorer(eval *explorerEvaluator, iter int, lastResult *types.ToolRe
 	return "", false
 }
 
-func TestContainsIdentifier(t *testing.T) {
+// TestContainsIdentifier was rewritten 2026-05-03 (Phase 6 stage
+// 20). The retired test cases pinned factory-prefix heuristic
+// behaviour ({"NewFoo()", "Foo", true}, etc.) — the prefix table
+// is gone; factory references now flow through the typed
+// containsFactoryReference path which reads Symbol.ReturnTypeNames.
+// Word-boundary semantics survive — covered by
+// TestContainsIdentifierWordBoundary below.
+
+func TestContainsIdentifierWordBoundary(t *testing.T) {
 	tests := []struct {
 		text string
 		name string
 		want bool
 	}{
-		// Basic matches
-		{"NewFoo()", "Foo", true},
+		// Word-boundary matches
 		{"&Foo{}", "Foo", true},
-		{"binds NewFoo", "Foo", true},
 		{"returns Foo{}", "Foo", true},
-
-		// Must not match substrings of longer identifiers
-		{"ErrorHandler", "Handler", false},
-		{"HandlerFunc", "Handler", false},
-		{"MyHandlerImpl", "Handler", false},
-
-		// Should match when bounded by non-ident characters
 		{"(Handler)", "Handler", true},
 		{"*Handler", "Handler", true},
 		{"Handler.Name", "Handler", true},
 		{".Handler.", "Handler", true},
-
-		// Short names still work with >= 4 char threshold
-		{"Agent{}", "Agent", true}, // 5 chars
-		{"NewAgent()", "Agent", true},
-		{"SubAgent", "Agent", false}, // embedded in longer word
-
+		{"Agent{}", "Agent", true},
+		// Must not match substrings of longer identifiers
+		{"ErrorHandler", "Handler", false},
+		{"HandlerFunc", "Handler", false},
+		{"MyHandlerImpl", "Handler", false},
+		{"SubAgent", "Agent", false},
 		// Edge cases
 		{"", "Foo", false},
 		{"Foo", "", false},
 		{"Foo", "Foo", true},
 		{"FooBar", "Foo", false},
 		{"BarFoo", "Foo", false},
-
-		// Underscore is an ident char
-		{"my_handler", "handler", false},   // preceded by _
-		{"handler_test", "handler", false}, // followed by _
+		{"my_handler", "handler", false},
+		{"handler_test", "handler", false},
 		{"my handler test", "handler", true},
-
-		// Cross-language factory prefixes
-		{"createHandler()", "Handler", true}, // Python/JS factory
-		{"CreateHandler()", "Handler", true}, // C#/Go factory
-		{"makeHandler()", "Handler", true},   // Ruby/functional style
-		{"MakeHandler()", "Handler", true},   // Go alternate factory
-		{"buildHandler()", "Handler", true},  // Builder pattern
-		{"BuildHandler()", "Handler", true},
-		{"getHandler()", "Handler", true}, // Accessor factory
-		{"GetHandler()", "Handler", true},
-		{"destroyHandler()", "Handler", false}, // Not a factory prefix
-		{"useHandler()", "Handler", false},     // Not a factory prefix
 	}
-
 	for _, tt := range tests {
 		got := containsIdentifier(tt.text, tt.name)
 		if got != tt.want {
@@ -106,6 +90,40 @@ func TestContainsIdentifier(t *testing.T) {
 		}
 	}
 }
+
+func TestContainsFactoryReference(t *testing.T) {
+	fi := &repotypes.FileInfo{
+		Symbols: []repotypes.Symbol{
+			{Name: "NewFoo", Kind: "function", ReturnTypeNames: []string{"Foo"}},
+			{Name: "createHandler", Kind: "function", ReturnTypeNames: []string{"Handler"}},
+			{Name: "GetSize", Kind: "function", ReturnTypeNames: []string{"int"}},
+		},
+	}
+	cases := []struct {
+		name   string
+		text   string
+		target string
+		want   bool
+	}{
+		{"factory call w/ matching return type", "x := NewFoo()", "Foo", true},
+		{"factory call w/ camelCase return type", "h := createHandler()", "Handler", true},
+		{"call to factory whose return type does not match", "n := GetSize()", "Foo", false},
+		{"text has no symbol references at all", "x := 42", "Foo", false},
+		{"nil FileInfo", "NewFoo()", "Foo", false},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			var arg *repotypes.FileInfo
+			if c.name != "nil FileInfo" {
+				arg = fi
+			}
+			if got := containsFactoryReference(c.text, c.target, arg); got != c.want {
+				t.Errorf("got %v want %v", got, c.want)
+			}
+		})
+	}
+}
+
 
 func TestResolveConditions(t *testing.T) {
 	concreteValues := `## Concrete Values (programmatically extracted from source code)

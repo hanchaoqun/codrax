@@ -102,15 +102,16 @@ func goExtractFunc(node *sitter.Node, src []byte, file string) (types.Symbol, bo
 	name := nodeText(nameNode, src)
 	sig := goFuncSignature(node, src)
 	return types.Symbol{
-		Name:      name,
-		Kind:      "function",
-		File:      file,
-		Line:      nodeLine(node),
-		EndLine:   nodeEndLine(node),
-		Exported:  unicode.IsUpper(rune(name[0])),
-		Signature: sig,
-		Arity:     goFuncArity(node),
-		Doc:       prevSiblingComment(node, src),
+		Name:            name,
+		Kind:            "function",
+		File:            file,
+		Line:            nodeLine(node),
+		EndLine:         nodeEndLine(node),
+		Exported:        unicode.IsUpper(rune(name[0])),
+		Signature:       sig,
+		Arity:           goFuncArity(node),
+		Doc:             prevSiblingComment(node, src),
+		ReturnTypeNames: extractReturnTypeNames(node, src),
 	}, true
 }
 
@@ -137,16 +138,17 @@ func goExtractMethod(node *sitter.Node, src []byte, file string) (types.Symbol, 
 
 	sig := goFuncSignature(node, src)
 	return types.Symbol{
-		Name:      name,
-		Kind:      "method",
-		File:      file,
-		Line:      nodeLine(node),
-		EndLine:   nodeEndLine(node),
-		Exported:  unicode.IsUpper(rune(name[0])),
-		Receiver:  receiver,
-		Signature: sig,
-		Arity:     goFuncArity(node),
-		Doc:       prevSiblingComment(node, src),
+		Name:            name,
+		Kind:            "method",
+		File:            file,
+		Line:            nodeLine(node),
+		EndLine:         nodeEndLine(node),
+		Exported:        unicode.IsUpper(rune(name[0])),
+		Receiver:        receiver,
+		Signature:       sig,
+		Arity:           goFuncArity(node),
+		Doc:             prevSiblingComment(node, src),
+		ReturnTypeNames: extractReturnTypeNames(node, src),
 	}, true
 }
 

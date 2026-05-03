@@ -9,7 +9,6 @@ import (
 	"sort"
 	"strconv"
 	"strings"
-	"sync"
 
 	"github.com/hanchaoqun/codrax/internal/analysis/dataflow"
 	"github.com/hanchaoqun/codrax/internal/analysis/declarative"
@@ -9086,7 +9085,8 @@ func (e *explorerEvaluator) buildConcreteValuesSection(repoRoot string, readSet 
 					continue
 				}
 				if av.receiver != "" && len(av.receiver) >= 4 &&
-					containsIdentifier(v.value, av.receiver) {
+					(containsIdentifier(v.value, av.receiver) ||
+						containsFactoryReference(v.value, av.receiver, graph.FileIndex[v.file])) {
 					relevant = append(relevant, av)
 					seen[av.method] = true
 					added++
@@ -9358,9 +9358,14 @@ func (e *explorerEvaluator) buildConcreteValuesSection(repoRoot string, readSet 
 				continue
 			}
 			// Standard identifier match: v.value mentions rv.receiver
-			// as a word-boundary substring (e.g. "binds NewFoo" contains
-			// "Foo" via factory prefix). Works for all non-call kinds.
-			linked := containsIdentifier(v.value, rv.receiver)
+			// as a word-boundary substring. Phase 6 stage 20 (2026-05-03)
+			// adds the typed factory-reference check: if v.value
+			// invokes a function whose declared return type includes
+			// rv.receiver (read from Symbol.ReturnTypeNames populated
+			// by the AST extractor), that's a structurally correct
+			// factory reference — naming-style-agnostic.
+			linked := containsIdentifier(v.value, rv.receiver) ||
+				containsFactoryReference(v.value, rv.receiver, graph.FileIndex[v.file])
 
 			// Graph-assisted call resolution: for "calls" entries the
 			// value contains a VARIABLE name ("subRuntime.Run") but
@@ -9391,10 +9396,12 @@ func (e *explorerEvaluator) buildConcreteValuesSection(repoRoot string, readSet 
 			if !linked && (v.kind == "embeds" || v.kind == "implements") {
 				// v.value is "embeds ReadOnly" or "implements SubAgent"
 				// — check if rv.receiver appears in the value string
-				linked = containsIdentifier(v.value, rv.receiver)
+				linked = containsIdentifier(v.value, rv.receiver) ||
+					containsFactoryReference(v.value, rv.receiver, graph.FileIndex[v.file])
 			}
 			if !linked && (rv.kind == "embeds" || rv.kind == "implements") {
-				linked = containsIdentifier(rv.value, v.receiver)
+				linked = containsIdentifier(rv.value, v.receiver) ||
+					containsFactoryReference(rv.value, v.receiver, graph.FileIndex[rv.file])
 			}
 
 			if linked {
@@ -13078,38 +13085,15 @@ func isProseLikeConcreteValue(v string) bool {
 //	Java/JS:     new (new Handler — but typically space-separated)
 //	Python/Ruby: create, make, build (create_handler, make_handler)
 //	General:     get (getFoo — factory accessor pattern)
-// factoryPrefixes was retired 2026-05-03 (Phase 6 stage 19). The
-// hardcoded inline list is now operator-tunable via
-// codrax.yaml :: explore.identifier_factory_prefixes
-// (DefaultExploreHeuristics().IdentifierFactoryPrefixes ships the
-// same 10-prefix default). containsIdentifier reads from the
-// package-global resolved-settings cache; cmd/root.go calls
-// SetIdentifierFactoryPrefixes at startup with the operator-
-// resolved list.
-
-var (
-	identifierFactoryPrefixesMu sync.RWMutex
-	identifierFactoryPrefixes   = types.DefaultExploreHeuristics().IdentifierFactoryPrefixes
-)
-
-// SetIdentifierFactoryPrefixes registers the operator-resolved
-// factory prefix list. Empty arg restores the default. Idempotent;
-// safe to call repeatedly.
-func SetIdentifierFactoryPrefixes(prefixes []string) {
-	identifierFactoryPrefixesMu.Lock()
-	if len(prefixes) == 0 {
-		identifierFactoryPrefixes = types.DefaultExploreHeuristics().IdentifierFactoryPrefixes
-	} else {
-		identifierFactoryPrefixes = append([]string(nil), prefixes...)
-	}
-	identifierFactoryPrefixesMu.Unlock()
-}
-
-func snapshotIdentifierFactoryPrefixes() []string {
-	identifierFactoryPrefixesMu.RLock()
-	defer identifierFactoryPrefixesMu.RUnlock()
-	return identifierFactoryPrefixes
-}
+// IdentifierFactoryPrefixes (the yaml field + setter +
+// package-global cache) was retired 2026-05-03 (Phase 6 stage 20).
+// The naming-convention heuristic (`NewFoo` matches a search for
+// `Foo` because `New` is a known factory verb) is replaced by a
+// structurally correct typed signal: every function/method's
+// `Symbol.ReturnTypeNames` is populated by the AST extractor;
+// `containsFactoryReference` walks the file's symbols and matches
+// any symbol whose return type includes the target. No naming
+// table — return type is the source of truth.
 
 func containsIdentifier(text, name string) bool {
 	if name == "" {
@@ -13136,20 +13120,58 @@ func containsIdentifier(text, name string) bool {
 		if !isIdentChar(before) {
 			return true // clean boundary
 		}
-		// Phase 6 stage 19 (2026-05-03) — yaml-tunable factory
-		// prefixes; default list (10 prefixes) preserved verbatim
-		// via DefaultExploreHeuristics. Empty list disables the
-		// generosity entirely (only exact word-boundary matches
-		// pass).
-		for _, prefix := range snapshotIdentifierFactoryPrefixes() {
-			plen := len(prefix)
-			if pos >= plen && text[pos-plen:pos] == prefix &&
-				!isIdentChar(safeCharAt(text, pos-plen-1)) {
-				return true
-			}
-		}
+		// Phase 6 stage 20 (2026-05-03) — the prior factory-prefix
+		// generosity branch was retired here. Factory-call evidence
+		// (`NewFoo` referencing `Foo`) is now derived structurally
+		// via containsFactoryReference, which reads the file's
+		// Symbol.ReturnTypeNames typed slot populated by the AST
+		// extractor. Word-boundary matching survives unchanged —
+		// it is itself a typed signal (left/right neighbour byte
+		// is not in [A-Za-z0-9_]).
 		start = pos + 1
 	}
+}
+
+// containsFactoryReference reports whether `text` references the
+// target type `name` via a factory call structurally captured in
+// `fi.Symbols`. Phase 6 stage 20 (2026-05-03) typed replacement
+// for the retired IdentifierFactoryPrefixes naming-convention
+// heuristic.
+//
+// For each Symbol in `fi` whose typed ReturnTypeNames includes
+// `name`, check whether `text` contains the symbol's Name as a
+// word-boundary match (reuses containsIdentifier's existing
+// boundary scanner — no new walker). A match means the text
+// actually invokes a function whose declared return type is the
+// target — strictly correct, naming-style-agnostic.
+//
+// Empty `fi` / no matching ReturnTypeNames ⇒ returns false. Tier 3+
+// regex-only files have empty ReturnTypeNames so this signal
+// degrades to "no factory match" rather than guessing via
+// prefix tables — same typed-only contract as stage 18.
+func containsFactoryReference(text, name string, fi *repotypes.FileInfo) bool {
+	if text == "" || name == "" || fi == nil {
+		return false
+	}
+	for _, sym := range fi.Symbols {
+		if sym.Name == "" || len(sym.ReturnTypeNames) == 0 {
+			continue
+		}
+		matchesTarget := false
+		for _, rt := range sym.ReturnTypeNames {
+			if rt == name {
+				matchesTarget = true
+				break
+			}
+		}
+		if !matchesTarget {
+			continue
+		}
+		if containsIdentifier(text, sym.Name) {
+			return true
+		}
+	}
+	return false
 }
 
 // safeCharAt returns the byte at position i, or 0 if out of bounds.

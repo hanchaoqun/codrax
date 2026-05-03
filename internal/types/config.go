@@ -901,23 +901,14 @@ type ExploreHeuristics struct {
 	// no-keyword-tables red line by being unconfigurable.
 	RegistrationFunctionNameTokens []string `yaml:"registration_function_name_tokens"`
 
-	// IdentifierFactoryPrefixes (Phase 6 stage 19, 2026-05-03)
-	// is the operator-tunable list of factory-style identifier
-	// prefixes used by containsIdentifier to allow factory-
-	// prefixed call sites to match an unprefixed identifier
-	// search. For example, when the explorer searches for `Foo`,
-	// matches against `NewFoo` / `CreateFoo` / `MakeFoo` /
-	// `BuildFoo` / `GetFoo` (and lowercase variants) are all
-	// accepted as factory-grade evidence. Default list ships
-	// English factory verbs; operators with non-English / project-
-	// specific factory naming extend per yaml without recompiling.
-	//
-	// Empty list disables factory-prefix matching entirely —
-	// only exact word-boundary matches qualify. Per the same red-
-	// line discipline as RegistrationFunctionNameTokens (this is
-	// a BREADTH HEURISTIC for typed identifier matching, not a
-	// grounding gate).
-	IdentifierFactoryPrefixes []string `yaml:"identifier_factory_prefixes"`
+	// IdentifierFactoryPrefixes was retired 2026-05-03 (Phase 6
+	// stage 20). The naming-convention heuristic was replaced by
+	// the structurally correct typed signal Symbol.ReturnTypeNames
+	// — populated by the AST extractor, consulted by
+	// containsFactoryReference. Naming styles (`NewFoo`,
+	// `createFoo`, `创建Foo`, `Foo::new`) all caught uniformly
+	// because the structural truth ("function returns Foo") is
+	// language-agnostic.
 }
 
 // DefaultExploreHeuristics returns the code-default values for every
@@ -952,18 +943,6 @@ func DefaultExploreHeuristics() ExploreHeuristics {
 			"register", "defaults", "route", "handler", "config",
 			"setup", "init", "bind", "subscribe", "provide",
 			"module", "Map",
-		},
-		// Phase 6 stage 19 (2026-05-03) default factory prefix list.
-		// Each prefix is matched as a leading substring of the
-		// candidate identifier, and the suffix (after stripping the
-		// prefix) is compared against the search target via word-
-		// boundary check. Mixed casings handle Go (NewFoo / GetFoo),
-		// Python/Ruby (create_foo, make_foo, build_foo), and Java
-		// camelCase (createFoo / makeFoo / buildFoo).
-		IdentifierFactoryPrefixes: []string{
-			"New", "new", "Create", "create",
-			"Make", "make", "Build", "build",
-			"Get", "get",
 		},
 	}
 }
@@ -1019,9 +998,6 @@ func ResolvedExploreHeuristics(h ExploreHeuristics) ExploreHeuristics {
 	}
 	if len(h.RegistrationFunctionNameTokens) == 0 {
 		h.RegistrationFunctionNameTokens = d.RegistrationFunctionNameTokens
-	}
-	if len(h.IdentifierFactoryPrefixes) == 0 {
-		h.IdentifierFactoryPrefixes = d.IdentifierFactoryPrefixes
 	}
 	return h
 }
