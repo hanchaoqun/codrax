@@ -100,8 +100,25 @@ func runContractCheck(out *agent.StageOutput, c types.AnswerContract, mut *types
 	if mut != nil {
 		ir := mut.RequestModel()
 		if doc := mut.AnswerDocument(); doc != nil && ir != nil {
-			result.Violations = append(result.Violations,
-				runAnswerShapeOracle(doc, ir, mut)...)
+			// B6-T3 (block_only_carrier.md, 2026-05-03) — V1 oracle
+			// downgrade. When V2 is the default carrier AND the
+			// rollback-rope (V1OracleStrictMode) is off, the V1
+			// runAnswerShapeOracle is downgraded to telemetry-only:
+			// the violations it raises still flow through the
+			// closure ledger (so the per-stage health snapshot
+			// records "V1 doc landed despite V2 default" as a
+			// pipeline anomaly), but they no longer flip
+			// Result.Passed because the oracle is not invoked.
+			//
+			// Operators flip yaml `pipeline_v1_oracle_strict_mode:
+			// true` for an emergency rollback that restores V1
+			// strict semantics for one Run.
+			if !EmitV2Default() || V1OracleStrictMode() {
+				result.Violations = append(result.Violations,
+					runAnswerShapeOracle(doc, ir, mut)...)
+			} else {
+				logging.Debug("[contract_check] V1 oracle telemetry-only (V2 default + V1 strict mode off); doc landed via V1 carrier despite V2 prompt")
+			}
 			// Block 2 (architecture overhaul 2026-05-02) — Intent /
 			// Subject / PredicateAxis oracles. Each runs after the
 			// existing Shape oracle so the violation set carries
@@ -1494,6 +1511,26 @@ var (
 	facetValidatorsEnabledMu sync.RWMutex
 	facetValidatorsEnabled   = true
 )
+
+// EmitV2Default / SetEmitV2Default / V1OracleStrictMode /
+// SetV1OracleStrictMode (B6, 2026-05-03) live in internal/types so
+// agent / render / orchestrator can all read them without import
+// cycles. The orchestrator package re-exports them as thin wrappers
+// for callers that already have orchestrator imported.
+
+// EmitV2Default returns types.EmitV2Default() — V2 carrier default
+// gate. See internal/types/answer_document_v2.go for semantics.
+func EmitV2Default() bool { return types.EmitV2Default() }
+
+// SetEmitV2Default flips the gate. cmd/root.go calls this at startup.
+func SetEmitV2Default(on bool) { types.SetEmitV2Default(on) }
+
+// V1OracleStrictMode returns types.V1OracleStrictMode() — rollback
+// rope to restore V1 oracle strict semantics during V2 default.
+func V1OracleStrictMode() bool { return types.V1OracleStrictMode() }
+
+// SetV1OracleStrictMode flips the rope. cmd/root.go startup.
+func SetV1OracleStrictMode(on bool) { types.SetV1OracleStrictMode(on) }
 
 // runFacetCoverageOracle (Phase 4 of Semantic Surface Contract,
 // 2026-05-02) walks the FacetCoverageContract.Required entries and

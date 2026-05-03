@@ -596,7 +596,7 @@ func TestBuildPromptContextIncludesStructuredEvidenceAndDataflow(t *testing.T) {
 	}
 
 	userMsg := msgs[1].Content
-	if !strings.Contains(userMsg, "## Structured Evidence") {
+	if !strings.Contains(userMsg, "## Knowledge & Evidence Pool") {
 		t.Fatalf("user prompt missing structured evidence section:\n%s", userMsg)
 	}
 	if !strings.Contains(userMsg, "Handler.Name") {
@@ -792,9 +792,9 @@ func TestBuildPromptContext_FinalizerStructuredEvidenceNeutralizesExactResolutio
 	}
 
 	pc := BuildPromptContext(ac, &skill.Config{Name: "finalize-answer"})
-	sec := findSectionTitle(pc, "Structured Evidence")
+	sec := findSectionTitle(pc, "Knowledge & Evidence Pool")
 	if sec == nil {
-		t.Fatalf("missing Structured Evidence section")
+		t.Fatalf("missing Knowledge & Evidence Pool section")
 	}
 	if strings.Contains(strings.ToLower(sec.Content), "do not repair this item") {
 		t.Fatalf("finalizer Structured Evidence should not carry operational repair notes:\n%s", sec.Content)
@@ -1573,7 +1573,7 @@ func TestBuildPromptContext_ExtractSkill_SkipsKnownFactsAndStructuredEvidence(t 
 	if findSectionTitle(pc, "Known Facts") != nil {
 		t.Error("extract-skill must drop Known Facts (tool dumps the extractor cannot act on)")
 	}
-	if findSectionTitle(pc, "Structured Evidence") != nil {
+	if findSectionTitle(pc, "Knowledge & Evidence Pool") != nil {
 		t.Error("extract-skill must drop Structured Evidence (duplicates Primary Evidence + Turn A digest)")
 	}
 }
@@ -1586,7 +1586,7 @@ func TestBuildPromptContext_FinalizerSkill_KeepsKnownFactsAndStructuredEvidence(
 	if findSectionTitle(pc, "Known Facts") == nil {
 		t.Error("finalizer still needs Known Facts (the trim targets extract-skill only)")
 	}
-	if findSectionTitle(pc, "Structured Evidence") == nil {
+	if findSectionTitle(pc, "Knowledge & Evidence Pool") == nil {
 		t.Error("finalizer needs Structured Evidence for citation pool coverage")
 	}
 }
@@ -1628,7 +1628,7 @@ func TestBuildPromptContext_ExplorerSkill_KeepsBothSections(t *testing.T) {
 	if findSectionTitle(pc, "Known Facts") == nil {
 		t.Error("explore-skill must keep Known Facts (explorer is the producer but may iterate)")
 	}
-	if findSectionTitle(pc, "Structured Evidence") == nil {
+	if findSectionTitle(pc, "Knowledge & Evidence Pool") == nil {
 		t.Error("explore-skill must keep Structured Evidence")
 	}
 }

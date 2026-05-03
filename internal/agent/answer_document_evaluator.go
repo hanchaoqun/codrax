@@ -146,6 +146,24 @@ func (e *answerDocumentEvaluator) BuildInitialInstruction(ctx *types.AgentContex
 	shape := resolveAnswerDocShape(ctx)
 	fmt.Fprintf(&b, "## Target answer shape\n\n`%s`\n\n", shape)
 
+	// B6-T1 (block_only_carrier.md, 2026-05-03) — V2 block contract.
+	// When the V2 carrier is the default (orchestrator.EmitV2Default
+	// returns true), the prompt also surfaces:
+	//   ## Required Answer Blocks — list of block kinds + min/max
+	//     count + LLM-facing rationale, derived from the typed
+	//     AnswerSemanticView for the resolved question family.
+	//   ## Facets each block must cover — the FacetCoverageContract
+	//     surfaces in plain LLM language so the LLM can match each
+	//     block to the structural facet(s) it covers.
+	// During the V1+V2 coexistence window (B6) the legacy "Target
+	// answer shape" section above stays for back-compat; B8-T1
+	// removes it entirely. The two sections are deliberately
+	// printed in this order so an LLM that reads top-down sees the
+	// block contract immediately after the (legacy) shape line.
+	if blockContract := renderAnswerDocBlockContract(ctx); blockContract != "" {
+		b.WriteString(blockContract)
+	}
+
 	if dc := answerDocDiagramContract(ctx); dc != nil && dc.Required {
 		e.diagramRequired = true
 		e.diagramMinimum = dc.Minimum
@@ -605,6 +623,90 @@ var answerDocClaimFormLabels = map[types.ClaimForm]string{
 //
 // Returns "" when the contract is empty or nil so existing prompt
 // shapes stay byte-identical.
+// renderAnswerDocBlockContract renders the V2 block contract for the
+// finalizer prompt (B6-T1, block_only_carrier.md §5.6). Returns ""
+// when V2 is not the default carrier OR no semantic view can be
+// compiled — both conditions short-circuit so the prompt stays
+// V1-only when the operator has rolled back via --emit-v2=off /
+// pipeline_emit_v2_default: false.
+//
+// LLM-facing language only (R4 red line); no internal Go terminology.
+// The two sub-sections are:
+//   ## Required Answer Blocks   — what kinds of blocks the answer
+//                                 must include (Summary/Section/
+//                                 OrderedList/Diagram/etc.) + min/max
+//                                 counts + the family rationale.
+//   ## Facets each block must cover — which semantic surface each
+//                                 block should ground (cross-ref to
+//                                 the existing Required Answer Facets
+//                                 section above).
+func renderAnswerDocBlockContract(ctx *types.AgentContext) string {
+	if !types.EmitV2Default() {
+		return ""
+	}
+	if ctx == nil || ctx.AnalysisIR == nil {
+		return ""
+	}
+	view := types.BuildAnswerSemanticViewForAgentContext(ctx)
+	if view == nil {
+		return ""
+	}
+
+	var b strings.Builder
+	b.WriteString("## Required Answer Blocks\n\n")
+	b.WriteString("Your answer should be composed from one or more BLOCKS. Each block has a kind " +
+		"(summary / section / ordered_list / bullet_list / scalar / decision / table / diagram / caveat) " +
+		"and counts toward the contract for this question's family. " +
+		"Required blocks marked below MUST appear; optional blocks add richness when their facet matches your evidence.\n\n")
+	if len(view.RequiredBlocks) > 0 {
+		b.WriteString("**Required (must emit):**\n\n")
+		for _, req := range view.RequiredBlocks {
+			renderAnswerDocBlockRequirement(&b, req, true)
+		}
+		b.WriteString("\n")
+	}
+	if len(view.OptionalBlocks) > 0 {
+		b.WriteString("**Optional (recommended when evidence supports):**\n\n")
+		for _, req := range view.OptionalBlocks {
+			renderAnswerDocBlockRequirement(&b, req, false)
+		}
+		b.WriteString("\n")
+	}
+	if view.DiagramPlan != nil && view.DiagramPlan.Required {
+		fmt.Fprintf(&b, "**Diagram contract:** required (kind=%s); the diagram block must cover the family's structural relationships.\n\n",
+			view.DiagramPlan.Kind)
+	}
+	if len(view.UncertaintyRules) > 0 {
+		b.WriteString("**Uncertainty disclosures:** when the listed conditions hold, include a caveat block disclosing the boundary so the user knows what was searched and what was assumed.\n\n")
+	}
+	return b.String()
+}
+
+func renderAnswerDocBlockRequirement(b *strings.Builder, req types.BlockRequirement, _ bool) {
+	countTag := ""
+	switch {
+	case req.MinCount == 0 && req.MaxCount == 1:
+		countTag = "0..1"
+	case req.MinCount == 1 && req.MaxCount == 1:
+		countTag = "exactly 1"
+	case req.MinCount > 0 && req.MaxCount == 0:
+		countTag = fmt.Sprintf("%d+", req.MinCount)
+	case req.MinCount == 0 && req.MaxCount == 0:
+		countTag = "any number"
+	default:
+		countTag = fmt.Sprintf("%d-%d", req.MinCount, req.MaxCount)
+	}
+	fmt.Fprintf(b, "- **%s** (%s)", req.Kind, countTag)
+	rationale := strings.TrimSpace(req.Rationale)
+	if rationale != "" {
+		fmt.Fprintf(b, " — %s", rationale)
+	}
+	if len(req.FacetIDs) > 0 {
+		fmt.Fprintf(b, " *covers facet(s): %s*", strings.Join(req.FacetIDs, ", "))
+	}
+	b.WriteString("\n")
+}
+
 func renderAnswerDocFacetCoverage(ctx *types.AgentContext) string {
 	plan := answerSurfacePlan(ctx)
 	if plan == nil || plan.FacetCoverage == nil {

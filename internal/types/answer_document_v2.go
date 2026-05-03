@@ -1,5 +1,7 @@
 package types
 
+import "sync"
+
 // AnswerDocumentV2 is the block-only carrier introduced by Phase 2 of
 // the docs/migration/block_only_carrier.md plan (B3 落地). It
 // REPLACES — at terminal-state B8 — the V1 `AnswerDocument` shape +
@@ -187,4 +189,55 @@ func AllowedDocumentModels() []string {
 // EXACT — empty / unknown values do NOT count as V2.
 func IsV2Document(doc *AnswerDocumentV2) bool {
 	return doc != nil && doc.DocumentModel == "v2"
+}
+
+// V2 carrier runtime toggles. Live in types (leaf package) so any
+// package — agent / orchestrator / render — can read them without
+// import cycles. cmd/root.go writes them once at startup.
+
+var (
+	emitV2DefaultEnabledMu sync.RWMutex
+	emitV2DefaultEnabled   = true // B6 default; B8-T7 deletes the toggle.
+)
+
+// EmitV2Default reports whether the V2 carrier is the default
+// emission target for the LLM-facing prompt. B6 default: true.
+// CLI --emit-v2={on,off,auto} + yaml pipeline_emit_v2_default
+// override at startup. Removed entirely at B8-T7.
+func EmitV2Default() bool {
+	emitV2DefaultEnabledMu.RLock()
+	defer emitV2DefaultEnabledMu.RUnlock()
+	return emitV2DefaultEnabled
+}
+
+// SetEmitV2Default flips the V2-default knob. Called from
+// cmd/root.go at startup after CLI + yaml resolution.
+func SetEmitV2Default(on bool) {
+	emitV2DefaultEnabledMu.Lock()
+	defer emitV2DefaultEnabledMu.Unlock()
+	emitV2DefaultEnabled = on
+}
+
+var (
+	v1OracleStrictModeMu sync.RWMutex
+	v1OracleStrictMode   = false // B6 default — V1 oracle telemetry-only.
+)
+
+// V1OracleStrictMode reports whether the V1 runAnswerShapeOracle
+// keeps strict (fail-loud) semantics during the V2-default rollout.
+// Default false: once V2 is default, V1 oracle drops to telemetry.
+// Operators flip true via yaml `pipeline_v1_oracle_strict_mode`
+// for an emergency rollback. Removed at B8-T7.
+func V1OracleStrictMode() bool {
+	v1OracleStrictModeMu.RLock()
+	defer v1OracleStrictModeMu.RUnlock()
+	return v1OracleStrictMode
+}
+
+// SetV1OracleStrictMode flips the rollback rope. Called from
+// cmd/root.go at startup.
+func SetV1OracleStrictMode(on bool) {
+	v1OracleStrictModeMu.Lock()
+	defer v1OracleStrictModeMu.Unlock()
+	v1OracleStrictMode = on
 }

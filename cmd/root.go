@@ -135,6 +135,10 @@ var (
 	// without editing yaml per run.
 	flagChitchatClassifier bool
 
+	// flagEmitV2 (B6, 2026-05-03) — V2 carrier per-run override.
+	// Resolution: "on" | "off" forces; "auto" (default) follows yaml.
+	flagEmitV2 string
+
 	// B0 write-mode CLI flags. See resolveWriteMode for merge and
 	// validation rules.
 	//
@@ -364,6 +368,10 @@ func init() {
 	f.StringVar(&flagAttachAtraceText, "atrace-text", "", "alias of --htrace-text (inline trace payload)")
 	f.StringVar(&flagLogSourcePrefix, "log-source-prefix", "", "strip this path prefix from C/C++ stack-frame files before repo lookup (override for build-machine absolute paths)")
 	f.BoolVar(&flagChitchatClassifier, "chitchat-classifier", false, "enable/disable the auto chit-chat classifier for this run (overrides codrax.yaml :: chitchat_classifier_enabled when passed; no-op when omitted)")
+	// B6 (block_only_carrier.md, 2026-05-03) — V2 carrier per-run override.
+	// auto = follow yaml pipeline_emit_v2_default (default true at B6).
+	// on = force V2 carrier; off = force V1 (rollback). Removed at B8-T7.
+	f.StringVar(&flagEmitV2, "emit-v2", "auto", "V2 carrier emission mode: auto (default; follow yaml pipeline_emit_v2_default), on (force V2), off (force V1 rollback)")
 
 	// B0 write-mode flags. Gated by codrax.yaml :: write_enabled
 	// (default false) — registering the flags always is fine because
@@ -1745,6 +1753,40 @@ func initApp(cmd *cobra.Command, _ []string) error {
 		// Phase 4 (Semantic Surface Contract) master switch.
 		if rs.PipelineFacetValidatorsEnabled != nil {
 			orchestrator.SetFacetValidatorsEnabled(*rs.PipelineFacetValidatorsEnabled)
+		}
+		// B6 (block_only_carrier.md, 2026-05-03) — V2 carrier knobs.
+		// Resolution order: CLI --emit-v2 (on/off) > yaml
+		// pipeline_emit_v2_default > code default (true).
+		// CLI value resolved at flag parse time; here we apply
+		// yaml + CLI together. The CLI mode "auto" leaves it
+		// to yaml.
+		emitV2Resolved := orchestrator.EmitV2Default()
+		emitV2Source := "code-default"
+		if rs.PipelineEmitV2Default != nil {
+			emitV2Resolved = *rs.PipelineEmitV2Default
+			emitV2Source = "yaml"
+		}
+		switch strings.ToLower(strings.TrimSpace(flagEmitV2)) {
+		case "on", "true", "1":
+			emitV2Resolved = true
+			emitV2Source = "cli"
+		case "off", "false", "0":
+			emitV2Resolved = false
+			emitV2Source = "cli"
+		case "", "auto":
+			// keep yaml/code default
+		default:
+			logging.Warning("[cmd] --emit-v2=%q not recognised; expected on/off/auto. Falling back to %s value=%v",
+				flagEmitV2, emitV2Source, emitV2Resolved)
+		}
+		orchestrator.SetEmitV2Default(emitV2Resolved)
+		logging.Info("[cmd] emit_v2_mode=%v (source=%s)", emitV2Resolved, emitV2Source)
+		// V1 oracle strict-mode rollback rope. yaml-only (no CLI flag);
+		// default false. Operators set true via yaml when V2 regression
+		// requires V1 oracle to fail-loud again.
+		if rs.PipelineV1OracleStrictMode != nil {
+			orchestrator.SetV1OracleStrictMode(*rs.PipelineV1OracleStrictMode)
+			logging.Info("[cmd] v1_oracle_strict_mode=%v (source=yaml)", *rs.PipelineV1OracleStrictMode)
 		}
 		// Commit 61 Batch F.2: yaml-overridable grounding floors.
 		// Defaults are 0/0 (gates disabled); explicit positive values

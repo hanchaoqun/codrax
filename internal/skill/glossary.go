@@ -96,6 +96,22 @@ var InternalTermsBlocklist = []string{
 	"AcceptableForms",
 	"SourceCandidate",
 
+	// Block-Only Carrier (B6 of block_only_carrier.md, 2026-05-03)
+	// — V2 carrier internal type names. The finalizer prompt is
+	// allowed to use the LLM-facing block kinds (summary / section
+	// / ordered_list / etc.) and the LLM-facing facet labels, but
+	// MUST NOT leak the Go type names listed here.
+	"AnswerSemanticView",
+	"BlockRequirement",
+	"AnswerBlockKind",
+	"DiagramFacetGraph",
+	"UncertaintyRule",
+	"RichnessCandidate",
+	"AnswerDocumentV2",
+	"AnswerBlock",
+	"AnswerBlockItem",
+	"AnswerDiagramBlock",
+
 	// Contract-field leakage (Go constant names surfacing as prose).
 	"MustInclude",
 	"must-include floor",

@@ -316,7 +316,7 @@ var canonicalUserSectionOrder = []string{
 	"Known Facts",
 	"Extracted Answer Symbols (deterministic, authoritative)",
 	"Answer Symbols (deterministic floor, may extend with cited evidence)",
-	"Structured Evidence",
+	"Knowledge & Evidence Pool",
 	"Unverified Leads (not for citation)",
 	"Dataflow Findings",
 	"Hypothesis Verdicts",
@@ -850,9 +850,17 @@ func BuildPromptContext(ac *types.AgentContext, sk *skill.Config) *types.PromptC
 	// appends. Other skills (finalizer especially) need the full
 	// list for citation coverage.
 	if !skipForExtractor && evidence != "" {
+		// B6-T1 (block_only_carrier.md, 2026-05-03) — section
+		// renamed from "Structured Evidence" to "Knowledge &
+		// Evidence Pool" to bridge V1's LLM-emitted evidence rows
+		// and V2's typed-graph rows under one neutral concept.
+		// The pool unifies both provenance lanes (llm_evidence /
+		// typed_graph) under a single section header so future
+		// typed channels (typed dataflow / typed import-graph /
+		// typed call-tree) plug in without forking the prompt.
 		pc.UserSections = append(pc.UserSections, types.PromptSection{
-			Title:   "Structured Evidence",
-			Content: evidence,
+			Title:   "Knowledge & Evidence Pool",
+			Content: knowledgePoolPreamble() + evidence,
 		})
 	}
 
@@ -1204,6 +1212,18 @@ func exactResolutionScenarioForRender(ac *types.AgentContext) types.Scenario {
 		return types.ScenarioGeneric
 	}
 	return ac.AnalysisIR.RequestModel.Scenario
+}
+
+// knowledgePoolPreamble returns the LLM-facing description that
+// prefixes the unified Knowledge & Evidence Pool section (B6-T1
+// rename). Two short sentences in LLM-natural language; no
+// internal Go terminology (R4 red line). Future typed-channel
+// additions only need to add a Provenance value; this preamble
+// does not need to enumerate them by name.
+func knowledgePoolPreamble() string {
+	return "The pool below unifies evidence the investigation collected (provenance=llm_evidence) " +
+		"with structurally-derived candidates from the project's typed graph (provenance=typed_graph). " +
+		"Both lanes are authoritative grounding for citations; treat them as one source of truth and pick whichever rows your answer needs.\n\n"
 }
 
 func formatEvidenceItems(items []types.EvidenceItem, limit int, strictLocation bool) string {
