@@ -477,18 +477,18 @@ func (t *EmitAnswerDocument) Execute(ctx *types.BusContext, params json.RawMessa
 		}, nil
 	}
 
-	// B3 (block_only_carrier.md §5.3) — document_model peek. When the
-	// LLM emits with document_model="v2" we route to the V2 carrier
-	// path (writes SetAnswerDocumentV2). Empty / missing falls through
-	// to the legacy V1 path unchanged. Any other value is rejected
-	// with a clear error so a typo can't silently coerce to V1.
+	// B8-T3 (block_only_carrier.md §5.8, 2026-05-03): V1 carrier
+	// retired. ALL emits route through V2; missing / empty
+	// document_model is treated as V2 attempt (the V2 validator
+	// rejects with a clear error if V1 fields are present).
+	// Anything other than "v2" or empty is rejected.
 	if model, ok, err := peekDocumentModel(params); err != nil {
 		return failEmit(t.Name(), now, "invalid params: %v", err)
-	} else if ok && model == "v2" {
+	} else if !ok || model == "" || model == "v2" {
 		return executeAnswerDocumentV2(t.Name(), ctx, params, now)
-	} else if ok && model != "" && model != "v2" {
+	} else {
 		return failEmit(t.Name(), now,
-			"document_model=%q is not supported; allowed values are \"\" (V1 legacy) or \"v2\"", model)
+			"document_model=%q is not supported; only \"v2\" is accepted (V1 carrier retired at B8)", model)
 	}
 
 	dec := json.NewDecoder(bytes.NewReader(params))
