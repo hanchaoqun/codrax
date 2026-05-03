@@ -107,7 +107,6 @@ func TestEmitInvestigationComplete_NormalizesLogSourceDriftReasonToBoundedSurfac
 				Intent:   types.IntentRootCause,
 			},
 			AnswerContract: types.AnswerContract{
-				RequiredAnswerShape: types.ShapeExplanation,
 			},
 		},
 	}

@@ -90,7 +90,6 @@ func TestRunContractCheck_EmptyContractAlwaysPasses(t *testing.T) {
 
 func TestRunContractCheck_NilOutputPasses(t *testing.T) {
 	res := runContractCheck(nil, types.AnswerContract{
-		RequiredAnswerShape: types.ShapeListOfSymbols,
 	}, nil, nil)
 	if !res.Passed {
 		t.Errorf("nil output should pass (caller decides separately); got %+v", res)
@@ -111,7 +110,6 @@ func TestRunContractCheck_CitationGap_SoftDegrade(t *testing.T) {
 		FinalAnswer: "- foo\n- bar\nSee internal/agent/explorer.go:42",
 	}
 	c := types.AnswerContract{
-		RequiredAnswerShape: types.ShapeListOfSymbols,
 		CitationReq: types.CitationReq{
 			Required:     true,
 			Granularity:  "file_line",
@@ -130,7 +128,6 @@ func TestRunContractCheck_CitationGap_ZeroRejects(t *testing.T) {
 		FinalAnswer: "- foo\n- bar\nNo citations at all",
 	}
 	c := types.AnswerContract{
-		RequiredAnswerShape: types.ShapeListOfSymbols,
 		CitationReq: types.CitationReq{
 			Required:     true,
 			Granularity:  "file_line",
@@ -149,7 +146,6 @@ func TestRunContractCheck_PassingCase(t *testing.T) {
 - ` + "`" + `Bar` + "`" + ` at internal/b.go:2`,
 	}
 	c := types.AnswerContract{
-		RequiredAnswerShape: types.ShapeListOfSymbols,
 		CitationReq: types.CitationReq{
 			Required:     true,
 			Granularity:  "file_line",

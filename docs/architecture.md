@@ -306,7 +306,7 @@ stateDiagram-v2
 | `analyzer` | `analyze` | `emit_analysis` + evidence-lite 预扫（`repo_map` / `grep files_only=true` / `list_files`） | 1-2 轮预扫验证实体，然后一次 `emit_analysis` LLM 调用产出 v4 `RequestModel`；`ParseOutput` 跑确定性管线组装 `AnalysisIR` |
 | `explorer`（Turn A） | `explore` | `grep` / `read_file` / `repo_map` / `list_files` / `exec_command` / `emit_evidence` / `emit_investigation_complete` / `propose_sub_agents` | 两阶段调查（Phase 0 Breadth → Phase 1 Depth），独占写 `EvidenceItems` / `AnswerChains` / `FlowFindings`，把投影快照写入 `TurnAArtifacts` |
 | `extractor`（Turn B） | `extract` | **仅** `emit_answer_symbol` + `emit_hypothesis_verdict` | 一次性 LLM 调用产出答案 slate + completeness claim + hypothesis verdict。**禁止文件 IO、禁止 `emit_evidence`**。工具参数校验失败有一次 retry 窗口（`ShouldStop: iteration >= 2`） |
-| `finalizer` | `finalize` | `emit_answer_document` | 按 `AnswerShape` 渲染结构化答案文档，触发 contract check |
+| `finalizer` | `finalize` | `emit_answer_document` | 按 `AnswerSemanticView`（QuestionFamily 编译） + 必填 block 渲染结构化 V2 答案文档，触发 block-only contract check |
 
 写模式 3 个 agent（需 `write_enabled: true`，详见 §4.6）：
 
@@ -420,7 +420,7 @@ type Config struct {
 | `analysis-skill` | analyzer | 由 `internal/skill/analysis_contract.go::BuildAnalysisSkill` 构造，字段枚举来自同文件 SSOT 表（`emit_analysis` schema 从这里读枚举）。Tool allowlist：仅 `emit_analysis` + 3 个 evidence-lite 预扫工具 |
 | `explore-skill` | explorer | 两阶段 workflow；Tool allowlist：6 个只读工具 + 3 个 emit_*。Prohibitions：无假设、无 "next steps"、无纯 prose headings |
 | `extract-skill` | extractor | Prohibition 显式禁 `emit_evidence`（Turn B 不能侵犯 Turn A 的 evidence 通道）；Tool allowlist：**仅** `emit_answer_symbol` + `emit_hypothesis_verdict` |
-| `answer-document-skill` | finalizer | Tool allowlist：仅 `emit_answer_document`；OutputFormat 按 `AnswerShape` 分 shape |
+| `answer-document-skill` | finalizer | Tool allowlist：仅 `emit_answer_document`；OutputFormat 按 V2 必填 block（BlockSummary / BlockOrderedList / BlockScalar / BlockDecision / BlockSection / BlockTable / BlockDiagram / BlockCaveat）分支 |
 
 `buildToolSchemas` 物理裁剪 LLM 看到的工具 schema：skill 没声明的工具 LLM 根本看不到。
 
@@ -462,7 +462,7 @@ type Config struct {
 | `emit_log_segmentation` | log_triager（两步升级 Step A） | 写按字节坐标切好的 segment 列表（kind = `stack` / `caused_by` / `header` / `context` / `trace` / `noise`），agent controller 随后对每个 `stack` / `caused_by` / `trace` 段逐段重调 `emit_log_triage`，`logtriage.MergeBundles` 合并结果 |
 | `emit_perf_trace` | perf_triager | 写 `PerfBundle` 的 Layer 1-3：`Meta`（source ∈ {hitrace/atrace/systrace/perfetto/unknown} / duration_ms / app_pid / signals / summary） + `Frames[]` / `Janks[]` / `Stalls[]` / `Startup` + `Residue`。Execute 调 `derivePerfLayer4` 派生 `IntentHint=performance`、`Entities`（trigger spans + tags + stall symbols）、`ResolvedFiles`（stall files），并按阈值（`PerfFrameBudget60HzMs` 16.67ms / `PerfStartupSlowColdMs` 1.2s / `PerfMainThreadStallMs` 100ms）自动追加 signals。结果挂到 `Mutable.PerfTrace()` |
 | `emit_perf_segmentation` | perf_triager（两步升级 Step A） | 写按字节坐标切好的 segment 列表（kind = `frame_window` / `jank_region` / `startup` / `thread_run` / `context` / `noise`），agent controller 对每个 `frame_window` / `jank_region` / `startup` / `thread_run` 段逐段重调 `emit_perf_trace`，`internal/analysis/perftriage.MergePerfBundles` 合并：frame/jank/stall 按签名去重、startup 取最大 `app_launch_ms`、signals/residue 并集、Layer 4 重派生 |
-| `emit_analysis` | analyzer | 一次性写 `RequestModel`（intent / scenario / complexity / keywords / entities / question_kind / answer_shape / sub_topics / answer_subject / predicates / predicate_axis）；`ParseOutput` 随后跑确定性管线组装完整 `AnalysisIR` |
+| `emit_analysis` | analyzer | 一次性写 `RequestModel`（intent / scenario / complexity / keywords / entities / question_kind / sub_topics / answer_subject / predicates / predicate_axis）；`ParseOutput` 随后跑确定性管线组装完整 `AnalysisIR` |
 | `emit_evidence` | explorer | 批量写 `EvidenceItem`（kind / subject / object / source / line_start / line_end / anchor_kind / anchor_symbol / condition / summary）。`kind` 为 6 种 `IsLLMEmittable` 值之一。Execute 内同步调 `ground.GroundItem` 做 tier 验证 |
 | `emit_investigation_complete` | explorer | 显式完成信号。需要 `reason` + `confidence`（high/medium），`low` 被拒。Execute 内跑 **CGEC I3** `preCompleteContractCheck`（6 条预检）并在失败时 downgrade + emit Repair |
 | `emit_answer_symbol` | extractor | 写答案符号 slate + `CompletenessClaim`（`complete` / `lower_bound` / `unknown`）。`extractor.ParseOutput` 跑 cardinality validator 自动降级不诚实的 `complete` claim（基线 `max(β=TerminalEvidenceCount, γ=len(MustInclude))`） |
@@ -618,7 +618,7 @@ Per-agent 模型路由在 `providers.yaml` 配（不同 Agent 可指向不同模
 
 ##### 跨信号 coherence 闸门（read mode）
 
-`internal/analysis/gate/coherence.go` 提供两条上游 cross-signal 检查，在 LLM 的 SubTopics 切错或 AnswerShape 跟 AnswerSubject 不一致时硬失败 + 触发 retry —— 全部基于 IR 内部 struct field 比对，**不引入任何关键字表**：
+`internal/analysis/gate/coherence.go` 提供两条上游 cross-signal 检查，在 LLM 的 SubTopics 切错或 AnswerSubject 与上游 Intent 不一致时硬失败 + 触发 retry —— 全部基于 IR 内部 struct field 比对，**不引入任何关键字表**：
 
 | ID | 规则 | 信号来源 |
 |----|------|---------|
@@ -626,7 +626,7 @@ Per-agent 模型路由在 `providers.yaml` 配（不同 Agent 可指向不同模
 | **R1.2** Predicate self-contradiction | `Predicates.IsCrossComponent ∧ len(SubTopics) ≤ 1` | LLM 自评 SemanticPredicates |
 | **R1.3** Sub-topic entity orphan | `len(PrimaryEntities) ≥ 2 ∧ ∅ = union(SubTopics[].Entities) ∩ PrimaryEntities` | LLM 自身两组 entity |
 | **R2.1** Scalar vs multi-topic | `Predicates.IsScalarAnswer ∧ len(SubTopics) ≥ 2` | LLM 自评 |
-| **R2.2** Explanation vs scalar subject | `(EffectiveRequiredAnswerShape \| RequiredAnswerShape) == ShapeExplanation ∧ AnswerSubject.Kind ∈ {Numeric, StringLiteral, ReturnValue} ∧ AnswerSubject.Confidence ≥ 0.6` | LLM 自评 + reconcile 链 |
+| **R2.2** Explanation vs scalar subject | `Intent ∈ {IntentExplain, IntentRootCause, IntentTrace} ∧ AnswerSubject.Kind ∈ {Numeric, StringLiteral, ReturnValue} ∧ AnswerSubject.Confidence ≥ 0.6` | LLM 自评 + reconcile 链 |
 
 **Retry 反馈**：失败的 coherence detail 写到 `Mutable.AnalyzerRetryHint`（consume-once 通道，镜像 `PlanningHint` 的语义）；下一次 `prependEmitRetryDirective` 取出渲染到 `## Structural contradiction` 段落注入 LLM prompt，让模型看到具体的 IR field-level 矛盾（例如 `R1.1 domain_divergence: TermGraph spans 3 distinct repomap-verified domains [agent, finalizer, orchestrator] but only 1 sub-topic emitted`）而不是泛化的 "gate rejected"。consume-once 在第一次 directive 渲染后把 hint 字段清掉，避免重渲染。
 
@@ -681,11 +681,11 @@ Turn B 的两项**独特职责**：
 1. **LLM-driven answer_symbol slate + completeness claim**。Phase 9 cardinality validator（`validateCompletenessClaim`）：LLM claim `complete` 但 `len(items) < max(TerminalEvidenceCount, len(MustInclude))` 时，claim 自动降级为 `lower_bound` + log warning。
 2. **LLM-driven hypothesis verdict + citation**。`confirmed`/`rejected` 强制带 `file:line` citation。编排器 post-extract hook 调 `AnalysisIR.MarkHypothesis` 写回。注意：`rejected` 和 `inconclusive` 有确定性路径——`ParseOutput` 的 auto-verdict 用 `criterion.Eval` 评估 `FalsificationCondition` → rejected、`RequiredEvidence` all-pass → inconclusive。编排器还在每次 explore window 后调 `runAutoVerdicts`（同样逻辑，不调 LLM）+ `drainHypothesisVerdicts` 更新 IR。
 
-#### Anchor skeleton for `shape=explanation + sub_topics ≥ 1`
+#### Anchor skeleton for explanation + sub_topics ≥ 1
 
-`isMultiTopicExplanation(ctx)` 谓词：`AnswerContract.RequiredAnswerShape == ShapeExplanation` AND `RequestModel.SubTopics > 0` 时，`Observe.needSymbols = true`，把 `emit_answer_symbol` 提升为 expected emit。LLM 为每个 sub-topic 产一条 anchor symbol（load-bearing identifier + `file:line` + `rationale=子话题描述`），作为 finalizer 多段 prose 的骨架。
+`isMultiTopicExplanation(ctx)` 谓词：当 `RequestModel.SubTopics > 0` 且 V2 view 的 family 落到 explanation 簇时，`Observe.needSymbols = true`，把 `emit_answer_symbol` 提升为 expected emit。LLM 为每个 sub-topic 产一条 anchor symbol（load-bearing identifier + `file:line` + `rationale=子话题描述`），作为 finalizer 多段 prose 的骨架。
 
-配套：`emit_answer_document` 对 `shape=explanation` 允许 optional `symbols[]` skeleton（仍禁 `steps[] / value / boolean`），completeness 在 skeleton 路径不要求；`render/answerdoc.go::renderAnswerDocExplanationSkeleton` 在 summary 和 citation pool 之间渲染 "Key anchors" / "关键锚点" 块；`answer_document_evaluator.go` 的 finalizer prompt 把 extractor 产的 per-topic slate 原样传下去附 "re-emit verbatim in symbols[]" 指令。单话题 explanation（`SubTopics == 0`）保持原路径——summary 就是答案。
+配套：`emit_answer_document` 对 explanation 答案允许 optional `symbols[]` skeleton（仍禁 `steps[] / value / boolean`），completeness 在 skeleton 路径不要求；`render/answerdoc.go::renderAnswerDocExplanationSkeleton` 在 summary 和 citation pool 之间渲染 "Key anchors" / "关键锚点" 块；`answer_document_evaluator.go` 的 finalizer prompt 把 extractor 产的 per-topic slate 原样传下去附 "re-emit verbatim in symbols[]" 指令。单话题 explanation（`SubTopics == 0`）保持原路径——summary 就是答案。
 
 #### Turn B 的诚实契约
 
@@ -699,7 +699,7 @@ Turn B 看不到新文件——所有信息在 Turn A transcript 快照里冻结
 | **Skill** | `answer-document-skill`（硬编码于 `topology.go`） |
 | **工具** | `emit_answer_document`（独占） |
 | **输入** | `BusContext.AnalysisIR.AnswerContract` + `AnswerSymbols` + completeness + `HypothesisSet` + Turn A 的 `StageReport` + (measurement-scalar only) Raw Tool Outputs 段 |
-| **工作** | 按 `RequiredAnswerShape` 分支构造 typed payload → 调 `emit_answer_document` → renderer 渲染 |
+| **工作** | 按 `AnswerSemanticView` 必填 block（BlockSummary / BlockOrderedList / BlockScalar / BlockDecision / BlockSection / BlockTable / BlockDiagram / BlockCaveat）构造 V2 typed payload → 调 `emit_answer_document` → renderer 渲染 |
 | **输出** | `StageOutput.FinalAnswer`（写进 task.Result）|
 
 #### 职责边界（严格不重叠）
@@ -1316,16 +1316,11 @@ const (
     TaskFailed     TaskStatus = "failed"
 )
 
-type AnswerShape string
-const (
-    ShapeListOfSymbols AnswerShape = "list_of_symbols"
-    ShapeStepList      AnswerShape = "step_list"
-    ShapeValue         AnswerShape = "value"
-    ShapeBoolean       AnswerShape = "boolean"
-    ShapeConfigValue   AnswerShape = "config_value"
-    ShapeExplanation   AnswerShape = "explanation"
-    ShapeNone          AnswerShape = "none"  // 不能落进 AnswerDocument
-)
+// type AnswerShape 已退役（见 docs/migration/answer_shape_terminal_retirement.md）。
+// V2 block-only 答案载体改由 internal/types/answer_semantic_view.go 编译的
+// AnswerSemanticView 驱动，关键 facets 通过 internal/types/facet_plan.go 的
+// FacetCoverageContract 表达；分类层落到 QuestionFamily（见
+// internal/types/answer_semantic_view.go）。
 
 // internal/types/analysis_ir.go — AnswerSubjectKind
 // SubjectUnknown / SubjectFunctionName / SubjectTypeName / SubjectHandlerRoute /

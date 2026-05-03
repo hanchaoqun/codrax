@@ -37,7 +37,6 @@ func TestPlanMode_E2E_StubPlannerProducesChangePlan(t *testing.T) {
 
 	agentFns := map[types.AgentName]func(*types.AgentContext, *skill.Config) (*agent.StageOutput, error){
 		types.AgentAnalyzer: dagAnalyzerFn(dagIR(types.AnswerContract{
-			RequiredAnswerShape: types.ShapeListOfSymbols,
 			Language:            "en",
 		})),
 		// The stub planner directly installs the ChangePlan on

@@ -35,40 +35,46 @@ func enableSummaryCapsForTest(t *testing.T) {
 // substrings in the dynamic prompt would resurrect the pre-cleanup
 // contradiction.
 func TestAnswerDocumentEvaluator_BuildInitialInstruction_RendersBlockContract(t *testing.T) {
-	// V2 carrier is the default at B6+. Each shape maps to a V2
-	// QuestionFamily; the block contract section must surface the
-	// "Required Answer Blocks" header plus the Summary block
-	// requirement which every family carries.
-	shapes := []types.AnswerShape{
-		types.ShapeListOfSymbols, types.ShapeStepList, types.ShapeValue,
-		types.ShapeConfigValue, types.ShapeBoolean, types.ShapeExplanation,
+	// V2 carrier renders the block contract from QuestionFamily.
+	// Iterating Intent/Scenario combinations exercises the same
+	// surface the pre-PR5 shape-driven test covered: the contract
+	// section must surface the "Required Answer Blocks" header
+	// plus a summary block requirement.
+	intents := []types.Intent{
+		types.IntentExplain,
+		types.IntentRootCause,
+		types.IntentTrace,
+		types.IntentEnumerate,
+		types.IntentConfigQuery,
+		types.IntentReturnValue,
 	}
-	for _, shape := range shapes {
-		t.Run(string(shape), func(t *testing.T) {
+	for _, intent := range intents {
+		t.Run(string(intent), func(t *testing.T) {
 			ctx := &types.AgentContext{
 				AnalysisIR: &types.AnalysisIR{
-					AnswerContract: types.AnswerContract{RequiredAnswerShape: shape},
+					RequestModel:   types.RequestModel{Intent: intent},
+					AnswerContract: types.AnswerContract{},
 				},
 			}
 			prompt := (&answerDocumentEvaluator{}).BuildInitialInstruction(ctx, nil)
 			if !strings.Contains(prompt, "## Required Answer Blocks") {
-				t.Errorf("shape=%s: prompt missing V2 block contract header: %q", shape, prompt)
+				t.Errorf("intent=%s: prompt missing V2 block contract header: %q", intent, prompt)
 			}
 			if !strings.Contains(prompt, "summary") {
-				t.Errorf("shape=%s: prompt missing summary block requirement: %q", shape, prompt)
+				t.Errorf("intent=%s: prompt missing summary block requirement: %q", intent, prompt)
 			}
 			// Guard against drift back to the pre-cleanup pattern:
 			// the static contract MUST NOT resurface here.
 			for _, banned := range []string{"emit_answer_document", "Prohibitions", "Citation pool"} {
 				if strings.Contains(prompt, banned) {
-					t.Errorf("shape=%s: dynamic prompt leaked static contract substring %q — "+
-						"that content belongs in answer-document-skill, not the evaluator", shape, banned)
+					t.Errorf("intent=%s: dynamic prompt leaked static contract substring %q — "+
+						"that content belongs in answer-document-skill, not the evaluator", intent, banned)
 				}
 			}
 			// B8-T1 part 3: the legacy "## Target answer shape"
 			// section is deleted; pin its absence so it can't drift back.
 			if strings.Contains(prompt, "## Target answer shape") {
-				t.Errorf("shape=%s: pre-B8 ## Target answer shape section resurfaced: %q", shape, prompt)
+				t.Errorf("intent=%s: pre-B8 ## Target answer shape section resurfaced: %q", intent, prompt)
 			}
 		})
 	}
@@ -102,7 +108,6 @@ func TestRenderAnswerDocFacetCoverage_EmitsHardSoftOptionalLabels(t *testing.T) 
 				Intent: types.IntentConfigQuery,
 			},
 			AnswerContract: types.AnswerContract{
-				RequiredAnswerShape: types.ShapeExplanation,
 			},
 		},
 	}
@@ -190,7 +195,6 @@ func TestRenderAnswerDocFacetCoverage_BuildInitialInstructionWiring(t *testing.T
 	ctx := &types.AgentContext{
 		AnalysisIR: &types.AnalysisIR{
 			AnswerContract: types.AnswerContract{
-				RequiredAnswerShape: types.ShapeExplanation,
 			},
 			RequestModel: types.RequestModel{
 				Intent: types.IntentEnumerate,
@@ -212,7 +216,8 @@ func TestRenderAnswerDocFacetCoverage_BuildInitialInstructionWiring(t *testing.T
 func TestAnswerDocumentEvaluator_BuildInitialInstruction_SingleTopicExplanationLeavesSymbolsEmpty(t *testing.T) {
 	ctx := &types.AgentContext{
 		AnalysisIR: &types.AnalysisIR{
-			AnswerContract: types.AnswerContract{RequiredAnswerShape: types.ShapeExplanation},
+			RequestModel:   types.RequestModel{Intent: types.IntentExplain},
+			AnswerContract: types.AnswerContract{},
 		},
 		Mutable: types.NewMutableState(""),
 	}
@@ -230,7 +235,6 @@ func TestAnswerDocumentEvaluator_BuildInitialInstruction_ResolvesAbsentConfigVal
 		Mutable: mut,
 		AnalysisIR: &types.AnalysisIR{
 			AnswerContract: types.AnswerContract{
-				RequiredAnswerShape: types.ShapeConfigValue,
 				ExactResolution: &types.ExactResolutionContract{
 					TargetKind:   types.SubjectConfigKey,
 					AllowAbsence: true,
@@ -239,8 +243,13 @@ func TestAnswerDocumentEvaluator_BuildInitialInstruction_ResolvesAbsentConfigVal
 		},
 	}
 	prompt := (&answerDocumentEvaluator{}).BuildInitialInstruction(ctx, nil)
-	if !strings.Contains(prompt, string(types.ShapeExplanation)) {
-		t.Fatalf("resolved prompt should target explanation for stable absent exact config key: %q", prompt)
+	// Pre-PR5 the prompt embedded the literal "explanation" shape
+	// label; with shape retired, the absence-narrative path is
+	// indicated by the V2 BlockSummary contract — assert that the
+	// contract section is rendered (not by tag) for an absent
+	// exact-config-key dispatch.
+	if !strings.Contains(prompt, "## Required Answer Blocks") {
+		t.Fatalf("absent exact config-key dispatch should still render block contract: %q", prompt)
 	}
 }
 
@@ -254,7 +263,6 @@ func TestAnswerDocumentEvaluator_BuildInitialInstruction_SurfacesCardinalityBase
 		AnalysisIR: &types.AnalysisIR{
 			RequestModel: types.RequestModel{Intent: types.IntentEnumerate},
 			AnswerContract: types.AnswerContract{
-				RequiredAnswerShape: types.ShapeListOfSymbols,
 				MustInclude:         []string{"Alpha", "Beta"},
 			},
 		},
@@ -285,7 +293,7 @@ func TestAnswerDocumentEvaluator_BuildInitialInstruction_RendersStepBackboneForS
 	ctx := &types.AgentContext{
 		AnalysisIR: &types.AnalysisIR{
 			RequestModel:   types.RequestModel{Intent: types.IntentTrace},
-			AnswerContract: types.AnswerContract{RequiredAnswerShape: types.ShapeStepList},
+			AnswerContract: types.AnswerContract{},
 		},
 		Mutable:                  mut,
 		AnswerSymbols:            syms,
@@ -309,7 +317,7 @@ func TestAnswerDocumentEvaluator_BuildInitialInstruction_RendersFallbackStepBack
 	ctx := &types.AgentContext{
 		AnalysisIR: &types.AnalysisIR{
 			RequestModel:   types.RequestModel{Intent: types.IntentTrace},
-			AnswerContract: types.AnswerContract{RequiredAnswerShape: types.ShapeStepList},
+			AnswerContract: types.AnswerContract{},
 		},
 		Mutable: types.NewMutableState(""),
 		EvidenceItems: []types.EvidenceItem{
@@ -365,7 +373,7 @@ func TestAnswerDocumentEvaluator_BuildInitialInstruction_RendersRequestedEnumera
 					SourceQuote:   "7 checks",
 				},
 			},
-			AnswerContract: types.AnswerContract{RequiredAnswerShape: types.ShapeStepList},
+			AnswerContract: types.AnswerContract{},
 		},
 	}
 	prompt := (&answerDocumentEvaluator{}).BuildInitialInstruction(ctx, nil)
@@ -394,7 +402,7 @@ func TestAnswerDocumentEvaluator_BuildInitialInstruction_NoFloorWithoutMustInclu
 	ctx := &types.AgentContext{
 		AnalysisIR: &types.AnalysisIR{
 			RequestModel:   types.RequestModel{Intent: types.IntentEnumerate},
-			AnswerContract: types.AnswerContract{RequiredAnswerShape: types.ShapeListOfSymbols},
+			AnswerContract: types.AnswerContract{},
 		},
 	}
 	prompt := (&answerDocumentEvaluator{}).BuildInitialInstruction(ctx, nil)
@@ -408,7 +416,6 @@ func TestAnswerDocumentEvaluator_BuildInitialInstruction_RendersDiagramContractA
 		AnalysisIR: &types.AnalysisIR{
 			RequestModel: types.RequestModel{Intent: types.IntentTrace},
 			AnswerContract: types.AnswerContract{
-				RequiredAnswerShape: types.ShapeStepList,
 				Diagram: &types.DiagramContract{
 					Required:       true,
 					Minimum:        1,
@@ -477,7 +484,6 @@ func TestAnswerDocumentEvaluator_BuildInitialInstruction_RendersConfigTraceDiagr
 				Scenario: types.ScenarioConfigTrace,
 			},
 			AnswerContract: types.AnswerContract{
-				RequiredAnswerShape: types.ShapeExplanation,
 				Diagram: &types.DiagramContract{
 					Required:       true,
 					Minimum:        1,
@@ -559,7 +565,6 @@ func TestAnswerDocumentEvaluator_BuildInitialInstruction_NoLiteralCLIBlacklist(t
 		AnalysisIR: &types.AnalysisIR{
 			RequestModel: types.RequestModel{Scenario: types.ScenarioConfigTrace},
 			AnswerContract: types.AnswerContract{
-				RequiredAnswerShape: types.ShapeExplanation,
 				Diagram: &types.DiagramContract{
 					Required:       true,
 					Minimum:        1,
@@ -640,7 +645,6 @@ func TestAnswerDocumentEvaluator_BuildInitialInstruction_ConfigTraceSeedWarnsWhe
 				Scenario: types.ScenarioConfigTrace,
 			},
 			AnswerContract: types.AnswerContract{
-				RequiredAnswerShape: types.ShapeExplanation,
 				Diagram: &types.DiagramContract{
 					Required:       true,
 					Minimum:        1,
@@ -670,7 +674,6 @@ func TestAnswerDocumentEvaluator_BuildInitialInstruction_ConfigTraceSeedWarnsWhe
 				Scenario: types.ScenarioConfigTrace,
 			},
 			AnswerContract: types.AnswerContract{
-				RequiredAnswerShape: types.ShapeExplanation,
 				Diagram: &types.DiagramContract{
 					Required:       true,
 					Minimum:        1,
@@ -889,7 +892,6 @@ func TestAnswerDocumentEvaluator_BuildInitialInstruction_RendersCapabilitySurfac
 		Mutable: types.NewMutableState(question),
 		AnalysisIR: &types.AnalysisIR{
 			AnswerContract: types.AnswerContract{
-				RequiredAnswerShape: types.ShapeExplanation,
 			},
 			RequestModel: types.RequestModel{
 				RawRequest: question,
@@ -1147,7 +1149,6 @@ func TestAnswerDocumentEvaluator_BuildInitialInstruction_RendersScalarLookupDisc
 	ctx := &types.AgentContext{
 		AnalysisIR: &types.AnalysisIR{
 			AnswerContract: types.AnswerContract{
-				RequiredAnswerShape: types.ShapeValue,
 			},
 			RequestModel: types.RequestModel{
 				Scenario:      types.ScenarioGeneric,
@@ -1180,7 +1181,6 @@ func TestAnswerDocumentEvaluator_BuildInitialInstruction_RendersRoleLocateScalar
 	ctx := &types.AgentContext{
 		AnalysisIR: &types.AnalysisIR{
 			AnswerContract: types.AnswerContract{
-				RequiredAnswerShape: types.ShapeValue,
 			},
 			RequestModel: types.RequestModel{
 				Scenario:      types.ScenarioGeneric,
@@ -1212,7 +1212,6 @@ func TestAnswerDocumentEvaluator_BuildInitialInstruction_RendersLogTriageAndDiag
 	ctx := &types.AgentContext{
 		AnalysisIR: &types.AnalysisIR{
 			AnswerContract: types.AnswerContract{
-				RequiredAnswerShape: types.ShapeExplanation,
 				Diagram: &types.DiagramContract{
 					Required:       true,
 					Minimum:        1,
@@ -1251,7 +1250,6 @@ func TestAnswerDocumentEvaluator_BuildInitialInstruction_RendersLogSourceDriftGu
 	ctx := &types.AgentContext{
 		AnalysisIR: &types.AnalysisIR{
 			AnswerContract: types.AnswerContract{
-				RequiredAnswerShape: types.ShapeExplanation,
 			},
 			RequestModel: types.RequestModel{
 				Scenario: types.ScenarioRootCause,
@@ -1514,7 +1512,6 @@ func TestAnswerDocumentEvaluator_BuildInitialInstruction_RendersExternalObservat
 				Intent:   types.IntentRootCause,
 			},
 			AnswerContract: types.AnswerContract{
-				RequiredAnswerShape: types.ShapeStepList,
 			},
 		},
 	}
@@ -1684,7 +1681,6 @@ func TestAnswerDocumentEvaluator_Observe_MidLoopMissingDiagramRejectIncludesConf
 				Scenario: types.ScenarioConfigTrace,
 			},
 			AnswerContract: types.AnswerContract{
-				RequiredAnswerShape: types.ShapeExplanation,
 				Diagram: &types.DiagramContract{
 					Required:       true,
 					Minimum:        1,

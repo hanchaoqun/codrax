@@ -54,35 +54,12 @@ func TestBuildAnswerSemanticView_NilInputReturnsNil(t *testing.T) {
 	}
 }
 
-func TestBuildAnswerSemanticView_EveryShapeProducesNonNilView(t *testing.T) {
-	for _, shape := range []AnswerShape{
-		ShapeListOfSymbols,
-		ShapeStepList,
-		ShapeValue,
-		ShapeBoolean,
-		ShapeConfigValue,
-		ShapeExplanation,
-	} {
-		ir := &AnalysisIR{
-			RequestModel: RequestModel{
-				Intent:   IntentExplain,
-				Scenario: ScenarioGeneric,
-			},
-			AnswerContract: AnswerContract{
-				RequiredAnswerShape: shape,
-			},
-		}
-		view := BuildAnswerSemanticView(ir, nil)
-		if view == nil {
-			t.Errorf("shape=%s: expected non-nil view; got nil", shape)
-			continue
-		}
-		// B1 skeleton: family resolves, no blocks yet.
-		if view.Family == "" {
-			t.Errorf("shape=%s: Family empty (ResolveQuestionFamily failed to map)", shape)
-		}
-	}
-}
+// AnswerShape constants retired in PR5 of the AnswerShape
+// terminal-retirement migration. The
+// "EveryShapeProducesNonNilView" loop test that lived here is
+// gone with them — V2 view rendering keys off QuestionFamily
+// (covered by the QuestionFamily helper tests in
+// answer_semantic_view_helpers_test.go).
 
 func TestBuildAnswerSemanticView_FacetCoverageAliasedFromPlan(t *testing.T) {
 	fc := &FacetCoverageContract{Family: QFRoleLookup}
@@ -91,8 +68,7 @@ func TestBuildAnswerSemanticView_FacetCoverageAliasedFromPlan(t *testing.T) {
 		SummarySurfaceMode: AnswerSummarySurfaceMinimalScalarRoleLocate,
 	}
 	ir := &AnalysisIR{
-		RequestModel:   RequestModel{Intent: IntentExplain},
-		AnswerContract: AnswerContract{RequiredAnswerShape: ShapeValue},
+		RequestModel: RequestModel{Intent: IntentExplain},
 	}
 	view := BuildAnswerSemanticView(ir, plan)
 	if view == nil {
@@ -111,7 +87,6 @@ func TestBuildAnswerSemanticView_ExactResolutionPropagated(t *testing.T) {
 	ir := &AnalysisIR{
 		RequestModel: RequestModel{Intent: IntentExplain},
 		AnswerContract: AnswerContract{
-			RequiredAnswerShape: ShapeValue,
 			ExactResolution:     er,
 		},
 	}

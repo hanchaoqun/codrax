@@ -327,7 +327,7 @@ func TestEmitAnswerSymbol_ReusesCompiledStepCandidateNameAtSameLine(t *testing.T
 				SourceQuote:   "7 checks",
 			},
 		},
-		AnswerContract: types.AnswerContract{RequiredAnswerShape: types.ShapeStepList},
+		AnswerContract: types.AnswerContract{},
 	}
 	ctx.EvidenceItems = []types.EvidenceItem{
 		{Kind: types.EvidenceDirect, Source: "internal/analysis/gate/gate.go", LineStart: 135, AnchorKind: types.AnchorCall, AnchorSymbol: "checkContractComplete", Subject: "Run", GroundingStatus: types.GroundingGrounded},

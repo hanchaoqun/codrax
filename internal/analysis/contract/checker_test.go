@@ -35,7 +35,6 @@ func TestCheck_Citations_MinCount_SoftDegrade(t *testing.T) {
 	// 1 citation with min=2: soft degradation accepts because
 	// citations > 0. Only 0 citations is a hard reject.
 	c := types.AnswerContract{
-		RequiredAnswerShape: types.ShapeExplanation,
 		CitationReq:         types.CitationReq{Required: true, Granularity: "file_line", MinCitations: 2},
 	}
 	a := Answer{
@@ -51,7 +50,6 @@ func TestCheck_Citations_MinCount_SoftDegrade(t *testing.T) {
 func TestCheck_Citations_MinCount_ZeroRejects(t *testing.T) {
 	// 0 citations with min=2: hard reject.
 	c := types.AnswerContract{
-		RequiredAnswerShape: types.ShapeExplanation,
 		CitationReq:         types.CitationReq{Required: true, Granularity: "file_line", MinCitations: 2},
 	}
 	a := Answer{
@@ -69,7 +67,6 @@ func TestCheck_Citations_MinCount_ZeroRejects(t *testing.T) {
 
 func TestCheck_Citations_Granularity(t *testing.T) {
 	c := types.AnswerContract{
-		RequiredAnswerShape: types.ShapeExplanation,
 		CitationReq:         types.CitationReq{Required: true, Granularity: "file_line", MinCitations: 1},
 	}
 	a := Answer{
@@ -84,7 +81,6 @@ func TestCheck_Citations_Granularity(t *testing.T) {
 
 func TestCheck_MustInclude(t *testing.T) {
 	c := types.AnswerContract{
-		RequiredAnswerShape: types.ShapeExplanation,
 		MustInclude:         []string{"Explorer", "ShouldStop"},
 	}
 	a := Answer{Text: "The Explorer uses ShouldStop when evidence is sufficient. This is a longer answer."}
@@ -103,7 +99,6 @@ func TestCheck_MustInclude(t *testing.T) {
 
 func TestCheck_MustExclude(t *testing.T) {
 	c := types.AnswerContract{
-		RequiredAnswerShape: types.ShapeExplanation,
 		MustExclude:         []string{"TODO", "FIXME"},
 	}
 	a := Answer{Text: "This is a complete answer without forbidden tokens and of sufficient length."}
@@ -122,7 +117,6 @@ func TestCheck_MustExclude(t *testing.T) {
 
 func TestCheck_Acceptance_ContainsSymbol(t *testing.T) {
 	c := types.AnswerContract{
-		RequiredAnswerShape: types.ShapeExplanation,
 		AcceptanceTests:     []types.Criterion{{Kind: types.CritContainsSymbol, Expr: "rollback"}},
 	}
 	good := Answer{Text: "The plan includes a rollback strategy described here at length sufficient to pass."}
@@ -137,7 +131,6 @@ func TestCheck_Acceptance_ContainsSymbol(t *testing.T) {
 
 func TestCheck_Acceptance_RegexMatch(t *testing.T) {
 	c := types.AnswerContract{
-		RequiredAnswerShape: types.ShapeExplanation,
 		AcceptanceTests:     []types.Criterion{{Kind: types.CritRegexMatch, Expr: `\b[A-Z][a-zA-Z]+Agent\b`}},
 	}
 	good := Answer{Text: "The ExplorerAgent handles the explore stage with sufficient context for shape check."}
@@ -152,7 +145,6 @@ func TestCheck_Acceptance_RegexMatch(t *testing.T) {
 
 func TestCheck_Acceptance_CitationCountGE_SoftDegrade(t *testing.T) {
 	c := types.AnswerContract{
-		RequiredAnswerShape: types.ShapeExplanation,
 		AcceptanceTests:     []types.Criterion{{Kind: types.CritCitationCountGE, Expr: "3"}},
 	}
 	// 2 citations with threshold 3: soft-pass (>0).
@@ -172,7 +164,6 @@ func TestCheck_Acceptance_CitationCountGE_SoftDegrade(t *testing.T) {
 
 func TestCheck_Acceptance_CitationCountGE_ZeroRejects(t *testing.T) {
 	c := types.AnswerContract{
-		RequiredAnswerShape: types.ShapeExplanation,
 		AcceptanceTests:     []types.Criterion{{Kind: types.CritCitationCountGE, Expr: "3"}},
 	}
 	a := Answer{
@@ -201,7 +192,6 @@ func TestCheck_MultipleViolationsReported(t *testing.T) {
 
 func TestCheck_RepairHintEmittedForRecoverable(t *testing.T) {
 	c := types.AnswerContract{
-		RequiredAnswerShape: types.ShapeExplanation,
 		MustInclude:         []string{"Explorer"},
 	}
 	a := Answer{Text: "This answer is long enough to pass the shape check threshold but lacks a must-include term."}

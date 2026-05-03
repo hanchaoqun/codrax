@@ -47,7 +47,6 @@ func TestBlock123_E2E_SelfContradictionDrivesBackToExplore(t *testing.T) {
 			},
 		},
 		AnswerContract: types.AnswerContract{
-			RequiredAnswerShape: types.ShapeExplanation,
 			Language:            "en",
 			MustInclude:         []string{"FORCE_RETRY"},
 		},
@@ -156,7 +155,6 @@ func TestBlock123_E2E_FinalizerOnlyKeepsExploreIntact(t *testing.T) {
 			},
 		},
 		AnswerContract: types.AnswerContract{
-			RequiredAnswerShape: types.ShapeExplanation,
 			Language:            "en",
 			// MustInclude triggers ViolMustInclude → FinalizerOnly
 			// per the default policy (no override here).

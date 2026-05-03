@@ -214,7 +214,6 @@ func TestEmitInvestigationComplete_PreCompleteCheck_ExplanationFunctionSubject_N
 				AnalyzerHints: types.AnalyzerHints{Kind: "mechanism"},
 			},
 			AnswerContract: types.AnswerContract{
-				RequiredAnswerShape: types.ShapeExplanation,
 				CitationReq: types.CitationReq{
 					Required:     true,
 					MinCitations: 1,
@@ -286,7 +285,6 @@ func TestEmitInvestigationComplete_PreCompleteCheck_MultiTopicExplanationAnchors
 				},
 			},
 			AnswerContract: types.AnswerContract{
-				RequiredAnswerShape: types.ShapeExplanation,
 			},
 		},
 	}
@@ -338,7 +336,6 @@ func TestEmitInvestigationComplete_PreCompleteCheck_SingleTopicExplanationSkipsA
 				},
 			},
 			AnswerContract: types.AnswerContract{
-				RequiredAnswerShape: types.ShapeExplanation,
 			},
 		},
 	}
@@ -409,7 +406,6 @@ func TestEmitInvestigationComplete_PreCompleteCheck_MultiTopicExplanationAnchors
 				},
 			},
 			AnswerContract: types.AnswerContract{
-				RequiredAnswerShape: types.ShapeExplanation,
 			},
 		},
 	}

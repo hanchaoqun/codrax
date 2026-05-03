@@ -282,7 +282,7 @@ func TestExtractor_Validator_Complete_EnumerationBoundaryOverridesTerminalBaseli
 			SourceQuote:   "7 checks",
 		},
 	}
-	ctx.AnalysisIR.AnswerContract.RequiredAnswerShape = types.ShapeStepList
+	ctx.AnalysisIR.RequestModel.Intent = types.IntentTrace
 	e := &extractorEvaluator{}
 	out, err := e.ParseOutput(ctx, nil, nil, nil)
 	if err != nil {
@@ -595,7 +595,6 @@ func TestExtractor_BuildPrompt_EnumerationBoundaryOverridesDisplayedFloor(t *tes
 				},
 			},
 			AnswerContract: types.AnswerContract{
-				RequiredAnswerShape: types.ShapeStepList,
 				MustInclude:         []string{"checkCoverage", "checkDAGClosure"},
 			},
 		},
@@ -846,30 +845,26 @@ func TestExtractor_RegisteredAsAgent(t *testing.T) {
 // The mid-loop controller must stop ONLY when every EXPECTED emit has
 // succeeded; missing expectations must return an empty signal so the
 // loop runs another iteration. "Expected" = emit_answer_symbol iff
-// shape is list_of_symbols, emit_hypothesis_verdict iff at least one
-// hypothesis lacks a verdict in the buffer.
+// intent is enumerate (the V2 carrier's enumeration slate),
+// emit_hypothesis_verdict iff at least one hypothesis lacks a verdict
+// in the buffer.
 
 // observeMidLoopFixture assembles a minimal ctx + obs so each test
-// can toggle one axis (shape, pending hypothesis, tool results) and
-// assert on the signal.
-func observeMidLoopFixture(shape types.AnswerShape, hypotheses []types.Hypothesis, existingVerdicts []types.HypothesisVerdict, tools []types.ToolResult) (*types.AgentContext, LoopObservation) {
+// can toggle one axis (intent, pending hypothesis, tool results) and
+// assert on the signal. (Pre-PR5 the parameter was AnswerShape; the
+// V2 carrier keys off intent/QuestionFamily, so the fixture switched
+// to taking the resolved intent directly.)
+func observeMidLoopFixture(intent types.Intent, hypotheses []types.Hypothesis, existingVerdicts []types.HypothesisVerdict, tools []types.ToolResult) (*types.AgentContext, LoopObservation) {
 	mu := types.NewMutableState("")
 	if len(existingVerdicts) > 0 {
 		mu.AppendEmittedHypothesisVerdicts(existingVerdicts)
-	}
-	intent := types.Intent("")
-	switch shape {
-	case types.ShapeListOfSymbols:
-		intent = types.IntentEnumerate
-	case types.ShapeStepList:
-		intent = types.IntentTrace
 	}
 	ctx := &types.AgentContext{
 		Objective: "q",
 		Mutable:   mu,
 		AnalysisIR: &types.AnalysisIR{
 			RequestModel:   types.RequestModel{Intent: intent},
-			AnswerContract: types.AnswerContract{RequiredAnswerShape: shape},
+			AnswerContract: types.AnswerContract{},
 			HypothesisSet:  hypotheses,
 		},
 	}
@@ -883,7 +878,7 @@ func observeMidLoopFixture(shape types.AnswerShape, hypotheses []types.Hypothesi
 
 func TestExtractor_Observe_MidLoop_BothExpected_BothSucceeded_Stops(t *testing.T) {
 	ctx, obs := observeMidLoopFixture(
-		types.ShapeListOfSymbols,
+		types.IntentEnumerate,
 		[]types.Hypothesis{{ID: "h1"}},
 		nil, // no pre-injected verdict → h1 is pending
 		[]types.ToolResult{
@@ -906,7 +901,7 @@ func TestExtractor_Observe_MidLoop_MissingVerdict_Continues(t *testing.T) {
 	// batch verdict in parallel. Current code must NOT stop — the
 	// loop runs another iteration so iter=1 can emit the verdict.
 	ctx, obs := observeMidLoopFixture(
-		types.ShapeListOfSymbols,
+		types.IntentEnumerate,
 		[]types.Hypothesis{{ID: "h1"}},
 		nil,
 		[]types.ToolResult{
@@ -923,7 +918,7 @@ func TestExtractor_Observe_MidLoop_MissingVerdict_Continues(t *testing.T) {
 func TestExtractor_Observe_MidLoop_MissingSymbols_Continues(t *testing.T) {
 	// Symmetric case: LLM emitted verdict but forgot symbols.
 	ctx, obs := observeMidLoopFixture(
-		types.ShapeListOfSymbols,
+		types.IntentEnumerate,
 		[]types.Hypothesis{{ID: "h1"}},
 		nil,
 		[]types.ToolResult{
@@ -953,7 +948,7 @@ func TestExtractor_Observe_MidLoop_BoundedStepListMissingSymbols_Continues(t *te
 					SourceQuote:   "7 checks",
 				},
 			},
-			AnswerContract: types.AnswerContract{RequiredAnswerShape: types.ShapeStepList},
+			AnswerContract: types.AnswerContract{},
 		},
 	}
 	obs := LoopObservation{
@@ -990,7 +985,7 @@ func TestExtractor_Observe_MidLoop_BoundedStepListPartialSymbols_Hints(t *testin
 					SourceQuote:   "7 checks",
 				},
 			},
-			AnswerContract: types.AnswerContract{RequiredAnswerShape: types.ShapeStepList},
+			AnswerContract: types.AnswerContract{},
 		},
 	}
 	obs := LoopObservation{
@@ -1015,7 +1010,7 @@ func TestExtractor_Observe_MidLoop_AutoVerdictAlreadyInBuffer_StopsOnSymbolsOnly
 	// before extractor ran, so hasPendingHypotheses=false. The LLM only
 	// needs to emit symbols; mid-loop stops after that single tool.
 	ctx, obs := observeMidLoopFixture(
-		types.ShapeListOfSymbols,
+		types.IntentEnumerate,
 		[]types.Hypothesis{{ID: "h1"}},
 		[]types.HypothesisVerdict{{HypothesisID: "h1", Status: types.HypInconclusive}},
 		[]types.ToolResult{
@@ -1037,7 +1032,7 @@ func TestExtractor_Observe_MidLoop_NonListShapeNoHypothesis_NothingExpected_AnyS
 	// set). Any success — or even none — satisfies "everything
 	// expected is done", so stop.
 	ctx, obs := observeMidLoopFixture(
-		types.ShapeExplanation,
+		types.IntentExplain,
 		nil,
 		nil,
 		nil,
@@ -1061,7 +1056,7 @@ func TestExtractor_Observe_SoftStop_MissingVerdict_InjectsHint(t *testing.T) {
 		Objective: "q",
 		Mutable:   mu,
 		AnalysisIR: &types.AnalysisIR{
-			AnswerContract: types.AnswerContract{RequiredAnswerShape: types.ShapeExplanation},
+			AnswerContract: types.AnswerContract{},
 			HypothesisSet:  []types.Hypothesis{{ID: "h1"}},
 		},
 	}
@@ -1086,7 +1081,7 @@ func TestExtractor_Observe_SoftStop_RetryBudgetExhausted_NoHint(t *testing.T) {
 		Objective: "q",
 		Mutable:   mu,
 		AnalysisIR: &types.AnalysisIR{
-			AnswerContract: types.AnswerContract{RequiredAnswerShape: types.ShapeListOfSymbols},
+			AnswerContract: types.AnswerContract{},
 			HypothesisSet:  []types.Hypothesis{{ID: "h1"}},
 		},
 	}
@@ -1113,7 +1108,7 @@ func TestExtractor_Observe_SoftStop_NothingMissing_NoHint(t *testing.T) {
 		Objective: "q",
 		Mutable:   mu,
 		AnalysisIR: &types.AnalysisIR{
-			AnswerContract: types.AnswerContract{RequiredAnswerShape: types.ShapeListOfSymbols},
+			AnswerContract: types.AnswerContract{},
 			HypothesisSet:  []types.Hypothesis{{ID: "h1"}},
 		},
 	}
@@ -1141,7 +1136,7 @@ func TestExtractor_Observe_SoftStop_BoundedStepListMissingSymbols_Hint(t *testin
 					SourceQuote:   "7 checks",
 				},
 			},
-			AnswerContract: types.AnswerContract{RequiredAnswerShape: types.ShapeStepList},
+			AnswerContract: types.AnswerContract{},
 		},
 	}
 	obs := LoopObservation{Phase: PhaseSoftStop, Iteration: 1}
@@ -1214,7 +1209,6 @@ func TestExtractor_MultiTopicExplanationTriggersAnchorSkeleton(t *testing.T) {
 			},
 		},
 		AnswerContract: types.AnswerContract{
-			RequiredAnswerShape: types.ShapeExplanation,
 		},
 	}
 	mut := types.NewMutableState("q")
@@ -1251,7 +1245,6 @@ func TestExtractor_MultiTopicExplanationPromptReusesCompiledAnchorBackbone(t *te
 			},
 		},
 		AnswerContract: types.AnswerContract{
-			RequiredAnswerShape: types.ShapeExplanation,
 		},
 	}
 	mut := types.NewMutableState("q")
@@ -1307,7 +1300,6 @@ func TestExtractor_BoundedPrincipalStepListPromptReusesCompiledCandidates(t *tes
 			},
 		},
 		AnswerContract: types.AnswerContract{
-			RequiredAnswerShape: types.ShapeStepList,
 		},
 	}
 	mut := types.NewMutableState("q")
@@ -1366,7 +1358,7 @@ func TestExtractor_BoundedPrincipalStepListPromptReusesCompiledCandidates(t *tes
 // the answer" path applies and no skeleton is emitted.
 func TestExtractor_SingleTopicExplanationNoSkeleton(t *testing.T) {
 	ir := &types.AnalysisIR{
-		AnswerContract: types.AnswerContract{RequiredAnswerShape: types.ShapeExplanation},
+		AnswerContract: types.AnswerContract{},
 	}
 	ctx := &types.AgentContext{AnalysisIR: ir, Mutable: types.NewMutableState("q")}
 	if isMultiTopicExplanation(ctx) {
@@ -1392,7 +1384,7 @@ func TestExtractor_ParseOutput_EmptySlateFallsBackToDeclarativeLiterals(t *testi
 				PredicateAxis: types.AxisRegister,
 				AnswerSubject: types.AnswerSubject{Kind: types.SubjectStringLiteral},
 			},
-			AnswerContract: types.AnswerContract{RequiredAnswerShape: types.ShapeListOfSymbols},
+			AnswerContract: types.AnswerContract{},
 		},
 		EvidenceItems: []types.EvidenceItem{
 			{
@@ -1460,7 +1452,7 @@ func TestExtractor_ParseOutput_PrunesDeclarativeHelperSymbols(t *testing.T) {
 				PredicateAxis: types.AxisRegister,
 				AnswerSubject: types.AnswerSubject{Kind: types.SubjectStringLiteral},
 			},
-			AnswerContract: types.AnswerContract{RequiredAnswerShape: types.ShapeListOfSymbols},
+			AnswerContract: types.AnswerContract{},
 		},
 		EvidenceItems: []types.EvidenceItem{
 			{
@@ -1519,7 +1511,7 @@ func TestExtractor_ParseOutput_EmptySlateFallsBackForGenericRegistrationLists(t 
 				PredicateAxis: types.AxisRegister,
 				AnswerSubject: types.AnswerSubject{Kind: types.SubjectGeneric},
 			},
-			AnswerContract: types.AnswerContract{RequiredAnswerShape: types.ShapeListOfSymbols},
+			AnswerContract: types.AnswerContract{},
 		},
 		EvidenceItems: []types.EvidenceItem{
 			{
@@ -1574,7 +1566,7 @@ func TestExtractor_ParseOutput_DoesNotSynthesizeFallbackSlateForSingleTopicExpla
 				PredicateAxis: types.AxisConfigure,
 				AnswerSubject: types.AnswerSubject{Kind: types.SubjectConfigKey},
 			},
-			AnswerContract: types.AnswerContract{RequiredAnswerShape: types.ShapeExplanation},
+			AnswerContract: types.AnswerContract{},
 		},
 		EvidenceItems: []types.EvidenceItem{
 			{
@@ -1658,7 +1650,7 @@ func TestExtractor_ParseOutput_AugmentsDeclarativeSlateFromReadFileLiterals(t *t
 				PredicateAxis: types.AxisRegister,
 				AnswerSubject: types.AnswerSubject{Kind: types.SubjectGeneric},
 			},
-			AnswerContract: types.AnswerContract{RequiredAnswerShape: types.ShapeListOfSymbols},
+			AnswerContract: types.AnswerContract{},
 		},
 		EvidenceItems: []types.EvidenceItem{
 			{

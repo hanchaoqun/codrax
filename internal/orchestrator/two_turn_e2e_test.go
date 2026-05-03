@@ -38,7 +38,6 @@ import (
 // independently drive the validator's β/γ baselines.
 func twoTurnIRWithHypotheses(mustInclude []string, terminalFloor int) *types.AnalysisIR {
 	ir := dagIR(types.AnswerContract{
-		RequiredAnswerShape: types.ShapeListOfSymbols,
 		Language:            "en",
 		MustInclude:         mustInclude,
 	})

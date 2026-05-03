@@ -1717,7 +1717,6 @@ func measurementScalarIR() *types.AnalysisIR {
 			Predicates: types.SemanticPredicates{IsScalarAnswer: true},
 		},
 		AnswerContract: types.AnswerContract{
-			RequiredAnswerShape: types.ShapeValue,
 			CitationReq:         types.CitationReq{Required: false, MinCitations: 0},
 		},
 	}
@@ -1730,7 +1729,6 @@ func measurementScalarIR() *types.AnalysisIR {
 func explanationIR() *types.AnalysisIR {
 	return &types.AnalysisIR{
 		AnswerContract: types.AnswerContract{
-			RequiredAnswerShape: types.ShapeExplanation,
 			CitationReq:         types.CitationReq{Required: true, MinCitations: 3, Granularity: "file_line"},
 		},
 	}
@@ -1760,7 +1758,6 @@ func TestShouldRenderRawToolOutputs_Gate(t *testing.T) {
 		{"value shape with citation still required does not render",
 			&types.AgentContext{Stage: types.StageFinalize, Mutable: mu, AnalysisIR: &types.AnalysisIR{
 				AnswerContract: types.AnswerContract{
-					RequiredAnswerShape: types.ShapeValue,
 					CitationReq:         types.CitationReq{Required: true, MinCitations: 1},
 				},
 			}}, false},

@@ -17,7 +17,6 @@ import (
 func TestWriteAnalyze_DispatchedInPlanMode(t *testing.T) {
 	dispatchCount := 0
 	ir := dagIR(types.AnswerContract{
-		RequiredAnswerShape: types.ShapeListOfSymbols,
 		Language:            "en",
 	})
 	agentFns := map[types.AgentName]func(*types.AgentContext, *skill.Config) (*agent.StageOutput, error){
@@ -72,7 +71,6 @@ func TestWriteAnalyze_DispatchedInPlanMode(t *testing.T) {
 func TestWriteAnalyze_NotDispatchedInReadMode(t *testing.T) {
 	dispatchCount := 0
 	ir := dagIR(types.AnswerContract{
-		RequiredAnswerShape: types.ShapeListOfSymbols,
 		Language:            "en",
 	})
 	agentFns := map[types.AgentName]func(*types.AgentContext, *skill.Config) (*agent.StageOutput, error){
@@ -121,7 +119,6 @@ func TestWriteAnalyze_NotDispatchedInReadMode(t *testing.T) {
 // downstream stages (planner / coder / verifier) still run.
 func TestWriteAnalyze_DegradesOnEmitFailure(t *testing.T) {
 	ir := dagIR(types.AnswerContract{
-		RequiredAnswerShape: types.ShapeListOfSymbols,
 		Language:            "en",
 	})
 	agentFns := map[types.AgentName]func(*types.AgentContext, *skill.Config) (*agent.StageOutput, error){

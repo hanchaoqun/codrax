@@ -53,7 +53,6 @@ func TestBuildAnalysisIR_CountQuestionStripsAllThreeGates(t *testing.T) {
 		AnalyzerHints: types.AnalyzerHints{
 			Keywords: []string{"go", "lines", "count"},
 			Entities: []string{},
-			Shape:    string(types.ShapeValue),
 		},
 		Predicates: types.SemanticPredicates{
 			IsScalarAnswer:  true,
@@ -97,7 +96,6 @@ func TestBuildAnalysisIR_HistoryLookupStripsAllThreeGates(t *testing.T) {
 			Keywords: []string{"EvidenceClosure", "commit", "history", "introduced"},
 			Entities: []string{"EvidenceClosure"},
 			Kind:     "history",
-			Shape:    string(types.ShapeValue),
 		},
 		AnswerSubject: types.AnswerSubject{Kind: types.SubjectStringLiteral},
 		Predicates: types.SemanticPredicates{
@@ -144,7 +142,6 @@ func TestBuildAnalysisIR_ReturnValueWithoutCountCue_KeepsGates(t *testing.T) {
 		AnalyzerHints: types.AnalyzerHints{
 			Keywords: []string{"function", "F", "return"},
 			Entities: []string{"F"},
-			Shape:    string(types.ShapeValue),
 		},
 		Predicates: types.SemanticPredicates{
 			IsScalarAnswer:  true,
@@ -175,7 +172,6 @@ func TestBuildAnalysisIR_NonCountQuestionKeepsGates(t *testing.T) {
 		AnalyzerHints: types.AnalyzerHints{
 			Keywords: []string{"list", "X", "Y"},
 			Entities: []string{"X", "Y"},
-			Shape:    string(types.ShapeListOfSymbols),
 		},
 		Predicates: types.SemanticPredicates{
 			IsScalarAnswer:  false,
@@ -229,7 +225,6 @@ func TestBuildAnalysisIR_DiagramContractPropagates(t *testing.T) {
 			Keywords: []string{"dispatch", "handler"},
 			Entities: []string{"Dispatch", "Handler"},
 			Kind:     "call_chain",
-			Shape:    string(types.ShapeStepList),
 		},
 		DiagramHint: &types.DiagramHint{Kind: types.DiagramCallDAG},
 	})
@@ -273,7 +268,6 @@ func TestBuildAnalysisIR_ExactResolutionContractPropagates(t *testing.T) {
 			Kind:            "config_mapping",
 			PrimaryEntities: []string{"explore_mid_loop_hint_budget"},
 			Entities:        []string{"explore_mid_loop_hint_budget"},
-			Shape:           string(types.ShapeConfigValue),
 		},
 		AnswerSubject: types.AnswerSubject{Kind: types.SubjectConfigKey},
 	})
@@ -360,7 +354,6 @@ func TestIsHistoryLookupRequest(t *testing.T) {
 			Intent: types.IntentReturnValue,
 			AnalyzerHints: types.AnalyzerHints{
 				Kind:  "history",
-				Shape: string(types.ShapeValue),
 			},
 			Predicates: types.SemanticPredicates{IsScalarAnswer: true},
 		}
@@ -375,7 +368,6 @@ func TestIsHistoryLookupRequest(t *testing.T) {
 			Intent:     types.IntentReturnValue,
 			AnalyzerHints: types.AnalyzerHints{
 				Keywords: []string{"EvidenceClosure"},
-				Shape:    string(types.ShapeValue),
 			},
 			Predicates: types.SemanticPredicates{
 				IsScalarAnswer:  true,
@@ -393,7 +385,6 @@ func TestIsHistoryLookupRequest(t *testing.T) {
 			Intent:     types.IntentReturnValue,
 			AnalyzerHints: types.AnalyzerHints{
 				Keywords: []string{"Execute", "return value"},
-				Shape:    string(types.ShapeValue),
 			},
 			Predicates: types.SemanticPredicates{IsScalarAnswer: true},
 		}
@@ -487,7 +478,6 @@ func TestReconcileDiagramContract(t *testing.T) {
 	cases := []struct {
 		name      string
 		rm        types.RequestModel
-		shape     types.AnswerShape
 		bundle    *types.LogBundle
 		wantNil   bool
 		wantKind  types.DiagramKind
@@ -496,7 +486,6 @@ func TestReconcileDiagramContract(t *testing.T) {
 		{
 			name:    "step_list without structural cues stays nil",
 			rm:      types.RequestModel{},
-			shape:   types.ShapeStepList,
 			wantNil: true,
 		},
 		{
@@ -504,7 +493,6 @@ func TestReconcileDiagramContract(t *testing.T) {
 			rm: types.RequestModel{
 				Intent: types.IntentTrace,
 			},
-			shape:     types.ShapeExplanation,
 			wantKind:  types.DiagramCallDAG,
 			wantScope: types.DiagramScopeOverall,
 		},
@@ -513,7 +501,6 @@ func TestReconcileDiagramContract(t *testing.T) {
 			rm: types.RequestModel{
 				Scenario: types.ScenarioArchitectureExplain,
 			},
-			shape:     types.ShapeExplanation,
 			wantKind:  types.DiagramArchitecture,
 			wantScope: types.DiagramScopeOverall,
 		},
@@ -522,7 +509,6 @@ func TestReconcileDiagramContract(t *testing.T) {
 			rm: types.RequestModel{
 				PredicateAxis: types.AxisCall,
 			},
-			shape:     types.ShapeValue,
 			wantKind:  types.DiagramCallDAG,
 			wantScope: types.DiagramScopeOverall,
 		},
@@ -532,7 +518,6 @@ func TestReconcileDiagramContract(t *testing.T) {
 				PredicateAxis: types.AxisConfigure,
 				Intent:        types.IntentConfigQuery,
 			},
-			shape:   types.ShapeConfigValue,
 			wantNil: true,
 		},
 		{
@@ -542,14 +527,12 @@ func TestReconcileDiagramContract(t *testing.T) {
 				Scenario:      types.ScenarioConfigTrace,
 				Intent:        types.IntentConfigQuery,
 			},
-			shape:     types.ShapeExplanation,
 			wantKind:  types.DiagramArchitecture,
 			wantScope: types.DiagramScopeOverall,
 		},
 		{
 			name:      "log call chain requires diagram",
 			rm:        types.RequestModel{},
-			shape:     types.ShapeBoolean,
 			bundle:    logBundle,
 			wantKind:  types.DiagramCallDAG,
 			wantScope: types.DiagramScopeOverall,
@@ -563,7 +546,6 @@ func TestReconcileDiagramContract(t *testing.T) {
 					{Summary: "B"},
 				},
 			},
-			shape:     types.ShapeExplanation,
 			wantKind:  types.DiagramCallDAG,
 			wantScope: types.DiagramScopePerSubTopic,
 		},
@@ -572,7 +554,6 @@ func TestReconcileDiagramContract(t *testing.T) {
 			rm: types.RequestModel{
 				Intent: types.IntentReturnValue,
 			},
-			shape:   types.ShapeValue,
 			wantNil: true,
 		},
 		{
@@ -582,7 +563,6 @@ func TestReconcileDiagramContract(t *testing.T) {
 				AnswerSubject: types.AnswerSubject{Kind: types.SubjectFunctionName},
 				Predicates:    types.SemanticPredicates{IsScalarAnswer: true},
 			},
-			shape:   types.ShapeValue,
 			wantNil: true,
 		},
 	}

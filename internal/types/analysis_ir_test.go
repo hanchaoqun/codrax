@@ -44,7 +44,6 @@ func sampleAnalysisIR() AnalysisIR {
 				Keywords: []string{"explorer", "ShouldStop"},
 				Entities: []string{"explorer", "ShouldStop"},
 				Kind:     "call_chain",
-				Shape:    string(ShapeExplanation),
 			},
 			AnswerSubject: AnswerSubject{Kind: SubjectFunctionName, Confidence: 0.8},
 			PredicateAxis: AxisCall,
@@ -101,7 +100,6 @@ func sampleAnalysisIR() AnalysisIR {
 			},
 		},
 		AnswerContract: AnswerContract{
-			RequiredAnswerShape: ShapeExplanation,
 			Diagram: &DiagramContract{
 				Required:       true,
 				Minimum:        1,
@@ -201,17 +199,10 @@ func TestAnalysisIR_EnumDistinctness(t *testing.T) {
 		seen[i] = true
 	}
 
-	shapes := []AnswerShape{
-		ShapeListOfSymbols, ShapeStepList, ShapeValue, ShapeBoolean,
-		ShapeConfigValue, ShapeExplanation, ShapeNone,
-	}
-	seenShape := make(map[AnswerShape]bool, len(shapes))
-	for _, s := range shapes {
-		if seenShape[s] {
-			t.Fatalf("duplicate AnswerShape constant: %q", s)
-		}
-		seenShape[s] = true
-	}
+	// AnswerShape constants retired in PR5 of the AnswerShape
+	// terminal-retirement migration; their cross-uniqueness test is
+	// gone with them. The replacement is the QuestionFamily enum
+	// covered by answer_semantic_view_test.go.
 
 	nodeTypes := []TaskNodeType{
 		NodeProbe, NodeEvidence, NodeValidate, NodeReconcile, NodeFinalize,

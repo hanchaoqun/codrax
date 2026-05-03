@@ -30,7 +30,6 @@ import (
 func readModeRun(t *testing.T, mode types.PipelineMode) *types.BusContext {
 	t.Helper()
 	ir := dagIR(types.AnswerContract{
-		RequiredAnswerShape: types.ShapeListOfSymbols,
 		Language:            "en",
 	})
 	agentFns := map[types.AgentName]func(*types.AgentContext, *skill.Config) (*agent.StageOutput, error){
@@ -220,7 +219,7 @@ func TestMode_ApplyReachesDispatch(t *testing.T) {
 // while still locking the runVerifyPhase → StageOutput.Error →
 // LastError path.
 func TestMode_VerifyReachesStub(t *testing.T) {
-	ir := dagIR(types.AnswerContract{RequiredAnswerShape: types.ShapeListOfSymbols, Language: "en"})
+	ir := dagIR(types.AnswerContract{Language: "en"})
 	agentFns := map[types.AgentName]func(*types.AgentContext, *skill.Config) (*agent.StageOutput, error){
 		types.AgentAnalyzer: dagAnalyzerFn(ir),
 		types.AgentVerifier: func(_ *types.AgentContext, _ *skill.Config) (*agent.StageOutput, error) {
@@ -281,7 +280,7 @@ func TestMode_UnknownRejected(t *testing.T) {
 // shared readModeRun helper) so the assertion can compare against
 // the exact path passed to Run on every OS.
 func TestMode_MainRepoRootPopulated(t *testing.T) {
-	ir := dagIR(types.AnswerContract{RequiredAnswerShape: types.ShapeListOfSymbols, Language: "en"})
+	ir := dagIR(types.AnswerContract{Language: "en"})
 	agentFns := map[types.AgentName]func(*types.AgentContext, *skill.Config) (*agent.StageOutput, error){
 		types.AgentAnalyzer: dagAnalyzerFn(ir),
 		types.AgentExplorer: func(_ *types.AgentContext, _ *skill.Config) (*agent.StageOutput, error) {
@@ -346,7 +345,7 @@ func TestMode_ApplyWithPlanPathSkipsPlanPhase(t *testing.T) {
 		t.Fatalf("WriteFile: %v", err)
 	}
 
-	ir := dagIR(types.AnswerContract{RequiredAnswerShape: types.ShapeListOfSymbols, Language: "en"})
+	ir := dagIR(types.AnswerContract{Language: "en"})
 	plannerCalled := false
 	agentFns := map[types.AgentName]func(*types.AgentContext, *skill.Config) (*agent.StageOutput, error){
 		types.AgentAnalyzer: dagAnalyzerFn(ir),

@@ -51,18 +51,18 @@ type RequestModel struct {
 	Ambiguities []Ambiguity `json:"ambiguities,omitempty"`
 	RiskMatrix  RiskMatrix  `json:"risk_matrix"`
 
-	// IntentConfidence / ComplexityConfidence / KindConfidence /
-	// ShapeConfidence are LLM-emitted certainty scores in [0.0, 1.0]
-	// for each classification dimension. Zero = "no opinion" (unusual
-	// — the schema asks the LLM to rate explicitly). Downstream
-	// consumers gate aggressive narrowing on confidence (e.g. the
-	// explorer's tightenDeclarativeFrontier only fires when
-	// KindConfidence ≥ 0.7) so a hesitant classification cannot
-	// over-narrow the read set.
+	// IntentConfidence / ComplexityConfidence / KindConfidence are
+	// LLM-emitted certainty scores in [0.0, 1.0] for each
+	// classification dimension. Zero = "no opinion" (unusual — the
+	// schema asks the LLM to rate explicitly). Downstream consumers
+	// gate aggressive narrowing on confidence (e.g. the explorer's
+	// tightenDeclarativeFrontier only fires when KindConfidence ≥
+	// 0.7) so a hesitant classification cannot over-narrow the read
+	// set. (Pre-PR5 a fourth ShapeConfidence rode alongside; it was
+	// retired with AnswerShape.)
 	IntentConfidence     float64 `json:"intent_confidence,omitempty"`
 	ComplexityConfidence float64 `json:"complexity_confidence,omitempty"`
 	KindConfidence       float64 `json:"kind_confidence,omitempty"`
-	ShapeConfidence      float64 `json:"shape_confidence,omitempty"`
 
 	// Predicates carries the LLM's semantic self-assessment of the
 	// question along axes that the prose-cue tables used to detect
@@ -442,7 +442,6 @@ type AnalyzerHints struct {
 	// source files are the canonical authority set for closure.
 	CapabilitySurface *CapabilitySurfaceHint `json:"capability_surface,omitempty"`
 	Kind              string                 `json:"kind,omitempty"`
-	Shape             string                 `json:"shape,omitempty"`
 }
 
 type Intent string
@@ -815,14 +814,13 @@ type StopCondition struct {
 // ── AnswerContract ──────────────────────────────────────────────────────
 
 type AnswerContract struct {
-	RequiredAnswerShape AnswerShape              `json:"required_answer_shape"`
-	Diagram             *DiagramContract         `json:"diagram,omitempty"`
-	ExactResolution     *ExactResolutionContract `json:"exact_resolution,omitempty"`
-	MustInclude         []string                 `json:"must_include,omitempty"`
-	MustExclude         []string                 `json:"must_exclude,omitempty"`
-	CitationReq         CitationReq              `json:"citation_requirements"`
-	AcceptanceTests     []Criterion              `json:"acceptance_tests,omitempty"`
-	Language            string                   `json:"language"`
+	Diagram         *DiagramContract         `json:"diagram,omitempty"`
+	ExactResolution *ExactResolutionContract `json:"exact_resolution,omitempty"`
+	MustInclude     []string                 `json:"must_include,omitempty"`
+	MustExclude     []string                 `json:"must_exclude,omitempty"`
+	CitationReq     CitationReq              `json:"citation_requirements"`
+	AcceptanceTests []Criterion              `json:"acceptance_tests,omitempty"`
+	Language        string                   `json:"language"`
 }
 
 type DiagramKind string
@@ -886,9 +884,10 @@ type DiagramHint struct {
 
 // DiagramContract is the finalizer-facing presentation contract for
 // answers that need a grounded structural diagram in summary. It is
-// intentionally orthogonal to AnswerShape: a scalar / boolean answer
-// may still require a diagram when the question is fundamentally about
-// flow, call relationships, timing, or architecture.
+// intentionally orthogonal to the principal answer block — a scalar
+// or boolean answer may still require a diagram when the question
+// is fundamentally about flow, call relationships, timing, or
+// architecture.
 type DiagramContract struct {
 	Required       bool          `json:"required"`
 	Minimum        int           `json:"minimum,omitempty"`
@@ -927,11 +926,11 @@ func (p ExactResolutionContextPolicy) IsValid() bool {
 // file path, symbol, route, or literal and the answer must resolve
 // THAT exact target before any nearby context is discussed.
 //
-// The contract is intentionally orthogonal to answer shape. A scalar
-// or explanation answer may still need to (a) explicitly name the
-// requested target, (b) allow honest "absent" outcomes, and
-// (c) require explicit proof before claiming a nearby item is an
-// alias / equivalent / substitute.
+// The contract is intentionally orthogonal to the principal answer
+// block. A scalar or explanation answer may still need to (a)
+// explicitly name the requested target, (b) allow honest "absent"
+// outcomes, and (c) require explicit proof before claiming a
+// nearby item is an alias / equivalent / substitute.
 type ExactResolutionContract struct {
 	TargetKind              AnswerSubjectKind            `json:"target_kind,omitempty"`
 	TargetLabel             string                       `json:"target_label,omitempty"`
@@ -945,31 +944,14 @@ type ExactResolutionContract struct {
 	RequestedContextRoles   []EvidenceDiagramRole        `json:"requested_context_roles,omitempty"`
 }
 
-type AnswerShape string
-
-const (
-	ShapeListOfSymbols AnswerShape = "list_of_symbols"
-	ShapeStepList      AnswerShape = "step_list"
-	ShapeValue         AnswerShape = "value"
-	ShapeBoolean       AnswerShape = "boolean"
-	ShapeConfigValue   AnswerShape = "config_value"
-	ShapeExplanation   AnswerShape = "explanation"
-	ShapeNone          AnswerShape = "none"
-)
-
-// IsEmittable reports whether the shape is one a producer (finalizer
-// emit_answer_document, analyzer AnswerContract) can actually emit.
-// ShapeNone is accepted by the type system as "no shape declared"
-// but MUST NOT land in an AnswerDocument — the tool schema rejects
-// it so a zero-value drift cannot reach the renderer.
-func (s AnswerShape) IsEmittable() bool {
-	switch s {
-	case ShapeListOfSymbols, ShapeStepList, ShapeValue,
-		ShapeBoolean, ShapeConfigValue, ShapeExplanation:
-		return true
-	}
-	return false
-}
+// type AnswerShape and the seven Shape* constants (ShapeListOfSymbols /
+// ShapeStepList / ShapeValue / ShapeBoolean / ShapeConfigValue /
+// ShapeExplanation / ShapeNone) were retired with the AnswerShape
+// terminal-retirement migration (PR5, 2026-05-03). The V2 block-only
+// AnswerDocumentV2 carrier derives rendering from
+// AnswerSemanticView (compiled per QuestionFamily) — there is no
+// longer a typed shape enum. See docs/migration/
+// answer_shape_terminal_retirement.md for the full rationale.
 
 type CitationReq struct {
 	Required     bool   `json:"required"`

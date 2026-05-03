@@ -67,7 +67,6 @@ func TestRunTaskGraph_HappyPath(t *testing.T) {
 	var observedExplorerHints []string
 
 	ir := dagIR(types.AnswerContract{
-		RequiredAnswerShape: types.ShapeListOfSymbols,
 		Language:            "en",
 	})
 
@@ -126,7 +125,6 @@ func TestRunTaskGraph_ContractFailureBacktracks(t *testing.T) {
 	var explorerCalls, finalizeCalls int
 
 	ir := dagIR(types.AnswerContract{
-		RequiredAnswerShape: types.ShapeListOfSymbols,
 		Language:            "en",
 		CitationReq: types.CitationReq{
 			Required:     true,
@@ -190,7 +188,6 @@ func TestRunTaskGraph_FinalizeSuccessCriterionFailureBacktracks(t *testing.T) {
 	var explorerCalls, finalizeCalls int
 
 	ir := dagIR(types.AnswerContract{
-		RequiredAnswerShape: types.ShapeExplanation,
 		Language:            "en",
 	})
 	// Attach the SuccessCriterion to the finalize node. The
@@ -245,7 +242,6 @@ func TestRunTaskGraph_FinalizeSuccessCriterionFailureBacktracks(t *testing.T) {
 func TestRunTaskGraph_BudgetExhaustedFailLoud(t *testing.T) {
 
 	ir := dagIR(types.AnswerContract{
-		RequiredAnswerShape: types.ShapeListOfSymbols,
 		Language:            "en",
 		CitationReq: types.CitationReq{
 			Required:     true,
@@ -293,7 +289,6 @@ func TestRunTaskGraph_RetryableExploreErrorRequeuesWindow(t *testing.T) {
 	var explorerCalls, finalizeCalls int
 
 	ir := dagIR(types.AnswerContract{
-		RequiredAnswerShape: types.ShapeExplanation,
 		Language:            "en",
 	})
 	// Disable graph-level content retry so this test isolates the
@@ -353,7 +348,6 @@ func TestRunTaskGraph_RetryableFinalizeErrorRequeuesFinalize(t *testing.T) {
 	var explorerCalls, finalizeCalls int
 
 	ir := dagIR(types.AnswerContract{
-		RequiredAnswerShape: types.ShapeExplanation,
 		Language:            "en",
 	})
 	// Same reason as RetryableExploreErrorRequeuesWindow: keep the test
@@ -444,7 +438,6 @@ func TestRunTaskGraph_EvidencePlanBudgetCapsSteps(t *testing.T) {
 	// loop should respect the IR cap.
 
 	ir := dagIR(types.AnswerContract{
-		RequiredAnswerShape: types.ShapeListOfSymbols,
 		Language:            "en",
 		CitationReq: types.CitationReq{
 			Required:     true,

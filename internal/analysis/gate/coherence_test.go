@@ -34,9 +34,10 @@ func (f *fakeSymbolResolver) LookupSymbol(surface string) []normalizer.SymbolHit
 // composed via the real compiler — coherence checks read only
 // RequestModel + view-derived signals, so a hand-rolled minimal IR
 // is enough and lets tests isolate one signal at a time. The
-// trailing variadic argument is accepted for back-compat with
-// pre-shape-retirement callers; its value is ignored.
-func coherenceFixtureIR(rm types.RequestModel, _ ...types.AnswerShape) *types.AnalysisIR {
+// trailing variadic argument is accepted (and ignored) so existing
+// callers don't have to drop their now-removed shape arg before
+// the next refactor.
+func coherenceFixtureIR(rm types.RequestModel, _ ...string) *types.AnalysisIR {
 	return &types.AnalysisIR{
 		Version:        types.AnalysisIRVersion,
 		RequestModel:   rm,
@@ -56,7 +57,7 @@ func TestSubtopicCoherence_R1_1_DomainDivergence_Fails(t *testing.T) {
 		},
 		// 0 sub-topics — the LLM emitted 1 sub-topic case is also a fail; exercise the boundary.
 	}
-	ir := coherenceFixtureIR(rm, types.ShapeNone)
+	ir := coherenceFixtureIR(rm)
 	check := checkSubtopicCoherence(ir, nil)
 	if check.Passed {
 		t.Fatalf("R1.1 must fail when 2 distinct domains and ≤1 sub-topic; got %+v", check)
@@ -79,7 +80,7 @@ func TestSubtopicCoherence_R1_1_DomainDivergence_PassesWithSubTopics(t *testing.
 			{Summary: "orchestrator half"},
 		},
 	}
-	ir := coherenceFixtureIR(rm, types.ShapeExplanation)
+	ir := coherenceFixtureIR(rm)
 	if check := checkSubtopicCoherence(ir, nil); !check.Passed {
 		t.Fatalf("R1.1 must pass when sub-topic count matches domain count; got %+v", check)
 	}
@@ -97,7 +98,7 @@ func TestSubtopicCoherence_R1_1_LowConfidenceTermsExcluded(t *testing.T) {
 			},
 		},
 	}
-	ir := coherenceFixtureIR(rm, types.ShapeNone)
+	ir := coherenceFixtureIR(rm)
 	if check := checkSubtopicCoherence(ir, nil); !check.Passed {
 		t.Fatalf("low-confidence terms must not contribute to domain count; got %+v", check)
 	}
@@ -108,7 +109,7 @@ func TestSubtopicCoherence_R1_2_PredicateContradiction_Fails(t *testing.T) {
 		Predicates: types.SemanticPredicates{IsCrossComponent: true},
 		// no sub-topics
 	}
-	ir := coherenceFixtureIR(rm, types.ShapeNone)
+	ir := coherenceFixtureIR(rm)
 	check := checkSubtopicCoherence(ir, nil)
 	if check.Passed {
 		t.Fatalf("R1.2 must fail when IsCrossComponent=true and ≤1 sub-topic; got %+v", check)
@@ -127,7 +128,7 @@ func TestSubtopicCoherence_R1_3_EntityOrphan_Fails(t *testing.T) {
 			{Summary: "drifted", Entities: []string{"Unrelated1", "Unrelated2"}},
 		},
 	}
-	ir := coherenceFixtureIR(rm, types.ShapeExplanation)
+	ir := coherenceFixtureIR(rm)
 	check := checkSubtopicCoherence(ir, nil)
 	if check.Passed {
 		t.Fatalf("R1.3 must fail when sub-topic entities share no element with primary entities; got %+v", check)
@@ -149,7 +150,7 @@ func TestSubtopicCoherence_R1_3_EntityOrphan_SinglePrimarySkipped(t *testing.T) 
 			{Summary: "topic", Entities: []string{"Y"}},
 		},
 	}
-	ir := coherenceFixtureIR(rm, types.ShapeExplanation)
+	ir := coherenceFixtureIR(rm)
 	if check := checkSubtopicCoherence(ir, nil); !check.Passed {
 		t.Fatalf("R1.3 must pass when PrimaryEntities < 2; got %+v", check)
 	}
@@ -165,7 +166,7 @@ func TestSubtopicCoherence_R1_3_EntityOrphan_OverlapPasses(t *testing.T) {
 			{Summary: "topic2", Entities: []string{"AlsoOther"}},
 		},
 	}
-	ir := coherenceFixtureIR(rm, types.ShapeExplanation)
+	ir := coherenceFixtureIR(rm)
 	if check := checkSubtopicCoherence(ir, nil); !check.Passed {
 		t.Fatalf("R1.3 must pass when sub-topics share at least one entity with primary; got %+v", check)
 	}
@@ -197,7 +198,7 @@ func TestSubtopicCoherence_R1_5_AllEntitiesUnresolved_Fails(t *testing.T) {
 			{Summary: "模式分发机制", Entities: []string{"PlanMode", "mode_dispatch"}},
 		},
 	}
-	ir := coherenceFixtureIR(rm, types.ShapeExplanation)
+	ir := coherenceFixtureIR(rm)
 	check := checkSubtopicCoherence(ir, resolver)
 	if check.Passed {
 		t.Fatalf("R1.5 must fail when a sub-topic has zero resolvable entities; got %+v", check)
@@ -227,7 +228,7 @@ func TestSubtopicCoherence_R1_5_OneEntityResolves_Passes(t *testing.T) {
 			{Summary: "second", Entities: []string{"PlanMode", "also_garbage"}},
 		},
 	}
-	ir := coherenceFixtureIR(rm, types.ShapeExplanation)
+	ir := coherenceFixtureIR(rm)
 	if check := checkSubtopicCoherence(ir, resolver); !check.Passed {
 		t.Fatalf("R1.5 must pass when at least one entity per sub-topic resolves; got %+v", check)
 	}
@@ -247,7 +248,7 @@ func TestSubtopicCoherence_R1_5_NilResolver_NoOp(t *testing.T) {
 			{Summary: "second", Entities: []string{"never-resolves"}},
 		},
 	}
-	ir := coherenceFixtureIR(rm, types.ShapeExplanation)
+	ir := coherenceFixtureIR(rm)
 	if check := checkSubtopicCoherence(ir, nil); !check.Passed {
 		t.Fatalf("nil resolver must disable R1.5; got %+v", check)
 	}
@@ -275,7 +276,7 @@ func TestSubtopicCoherence_R1_5_AllConceptual_NoOp(t *testing.T) {
 			{Summary: "verify 阶段（write 模式）的 retry 机制", Entities: []string{"verifier", "retry", "write"}},
 		},
 	}
-	ir := coherenceFixtureIR(rm, types.ShapeExplanation)
+	ir := coherenceFixtureIR(rm)
 	if check := checkSubtopicCoherence(ir, resolver); !check.Passed {
 		t.Fatalf("R1.5 must pass when all sub-topics are uniformly unresolved (no asymmetry); got %+v", check)
 	}
@@ -291,7 +292,7 @@ func TestSubtopicCoherence_R1_5_SingleTopic_NoOp(t *testing.T) {
 			{Summary: "only", Entities: []string{"never-resolves"}},
 		},
 	}
-	ir := coherenceFixtureIR(rm, types.ShapeExplanation)
+	ir := coherenceFixtureIR(rm)
 	if check := checkSubtopicCoherence(ir, resolver); !check.Passed {
 		t.Fatalf("R1.5 must skip when nSub<2; got %+v", check)
 	}
@@ -324,7 +325,7 @@ func TestSubtopicCoherence_R1_4_EnumerationCollapsesToSingleDomain_Fails(t *test
 			{Summary: "ModeApply", Entities: []string{"PipelineMode", "ModeApply"}},
 		},
 	}
-	ir := coherenceFixtureIR(rm, types.ShapeExplanation)
+	ir := coherenceFixtureIR(rm)
 	check := checkSubtopicCoherence(ir, resolver)
 	if check.Passed {
 		t.Fatalf("R1.4 must fail when enumeration sub-topics all collapse to one domain; got %+v", check)
@@ -354,7 +355,7 @@ func TestSubtopicCoherence_R1_4_TwoDomains_Passes(t *testing.T) {
 			{Summary: "resolver half", Entities: []string{"Resolver"}},
 		},
 	}
-	ir := coherenceFixtureIR(rm, types.ShapeExplanation)
+	ir := coherenceFixtureIR(rm)
 	if check := checkSubtopicCoherence(ir, resolver); !check.Passed {
 		t.Fatalf("R1.4 must pass when sub-topic entities span ≥2 domains; got %+v", check)
 	}
@@ -382,7 +383,7 @@ func TestSubtopicCoherence_R1_4_CrossComponent_NoOp(t *testing.T) {
 			{Summary: "second", Entities: []string{"ModePlan"}},
 		},
 	}
-	ir := coherenceFixtureIR(rm, types.ShapeExplanation)
+	ir := coherenceFixtureIR(rm)
 	if check := checkSubtopicCoherence(ir, resolver); !check.Passed {
 		t.Fatalf("R1.4 must respect IsCrossComponent=true; got %+v", check)
 	}
@@ -407,7 +408,7 @@ func TestSubtopicCoherence_R1_4_NotEnumeration_NoOp(t *testing.T) {
 			{Summary: "implementation", Entities: []string{"Explorer"}},
 		},
 	}
-	ir := coherenceFixtureIR(rm, types.ShapeExplanation)
+	ir := coherenceFixtureIR(rm)
 	if check := checkSubtopicCoherence(ir, resolver); !check.Passed {
 		t.Fatalf("R1.4 must skip non-enumeration intent; got %+v", check)
 	}
@@ -424,7 +425,7 @@ func TestSubtopicCoherence_R1_4_NilResolver_NoOp(t *testing.T) {
 			{Summary: "second", Entities: []string{"Y"}},
 		},
 	}
-	ir := coherenceFixtureIR(rm, types.ShapeExplanation)
+	ir := coherenceFixtureIR(rm)
 	if check := checkSubtopicCoherence(ir, nil); !check.Passed {
 		t.Fatalf("nil resolver must disable R1.4; got %+v", check)
 	}
@@ -440,7 +441,7 @@ func TestShapeSubjectCoherence_R2_1_ScalarMultiTopic_Fails(t *testing.T) {
 			{Summary: "second"},
 		},
 	}
-	ir := coherenceFixtureIR(rm, types.ShapeValue)
+	ir := coherenceFixtureIR(rm)
 	check := checkShapeSubjectCoherence(ir)
 	if check.Passed {
 		t.Fatalf("R2.1 must fail when IsScalarAnswer=true and 2+ sub-topics; got %+v", check)
@@ -454,7 +455,7 @@ func TestShapeSubjectCoherence_R2_1_SingleTopicScalarPasses(t *testing.T) {
 	rm := types.RequestModel{
 		Predicates: types.SemanticPredicates{IsScalarAnswer: true},
 	}
-	ir := coherenceFixtureIR(rm, types.ShapeValue)
+	ir := coherenceFixtureIR(rm)
 	if check := checkShapeSubjectCoherence(ir); !check.Passed {
 		t.Fatalf("R2.1 must pass for single-topic scalar; got %+v", check)
 	}
@@ -467,7 +468,7 @@ func TestShapeSubjectCoherence_R2_2_ExplanationScalarSubject_Fails(t *testing.T)
 			Confidence: 0.85,
 		},
 	}
-	ir := coherenceFixtureIR(rm, types.ShapeExplanation)
+	ir := coherenceFixtureIR(rm)
 	check := checkShapeSubjectCoherence(ir)
 	if check.Passed {
 		t.Fatalf("R2.2 must fail when Explanation shape but high-confidence Numeric subject; got %+v", check)
@@ -486,7 +487,7 @@ func TestShapeSubjectCoherence_R2_2_LowConfidencePasses(t *testing.T) {
 			Confidence: 0.40,
 		},
 	}
-	ir := coherenceFixtureIR(rm, types.ShapeExplanation)
+	ir := coherenceFixtureIR(rm)
 	if check := checkShapeSubjectCoherence(ir); !check.Passed {
 		t.Fatalf("R2.2 must pass below confidence floor; got %+v", check)
 	}
@@ -566,7 +567,7 @@ func TestRun_CoherenceGatesIntegrate_ReadModeOnly(t *testing.T) {
 			{Summary: "second"},
 		},
 	}
-	ir := coherenceFixtureIR(rm, types.ShapeValue)
+	ir := coherenceFixtureIR(rm)
 	// Write-mode bypass — pass any non-empty non-"read" mode.
 	report := Run(ir, Thresholds{}, "apply")
 	if c := findCheck(report, "shape_subject_coherence"); c != nil {

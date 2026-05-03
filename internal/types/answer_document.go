@@ -27,34 +27,14 @@ import "math"
 // other user-visible content is assembled by the renderer from the
 // typed fields below.
 
-// AnswerDocument is the structured final-answer payload the finalizer
-// emits via the emit_answer_document tool. Each shape-specific field
-// is populated only when AnswerDocument.Shape matches that shape; the
-// emit_answer_document schema validator enforces the per-shape
-// required-field contract.
-//
-// Field conventions:
-//
-//   - Shape: closed enum drawn from types.AnswerShape (legacy field;
-//     post-block-only-migration the AnswerDocumentV2 carrier uses
-//     blocks[] and the view's required-block contract instead).
-//   - Summary: LLM-authored prose, length-capped per view by
-//     SummaryCapForView(view, principalCount) — see SummaryCapConfig
-//   - Steps: non-empty for ShapeStepList, empty for all other shapes
-//   - Symbols: non-empty for ShapeListOfSymbols
-//   - SymbolsCompleteness: set-level authority (see CompletenessClaim);
-//     only meaningful when Shape == ShapeListOfSymbols. Reuses the
-//     P2.1 three-level ladder so the existing cardinality validator
-//     (extractor.validateCompletenessClaim) can be replayed verbatim
-//     at finalize-time against AnswerDocument.Symbols.
-//   - Value: non-nil for ShapeValue and ShapeConfigValue
-//   - Boolean: non-nil for ShapeBoolean
-//   - Citations: shared pool of file:line pointers. Each typed field
-//     above carries an integer CitationRef index into this slice so
-//     the same citation can be referenced from multiple places
-//     without duplication
-//   - Caveats: honesty/ungrounded markers the renderer surfaces at
-//     the bottom of the prose
+// The V1 AnswerDocument struct that this comment block once
+// described was retired together with AnswerShape. The V2 carrier
+// (AnswerDocumentV2 in answer_document_v2.go) replaces it: instead
+// of one shape-tagged struct with optional Steps / Symbols / Value /
+// Boolean fields, the V2 form is a list of typed Block values whose
+// presence is dictated by the AnswerSemanticView's required-block
+// contract. The supporting types below (CodeSnippet,
+// SummaryCapConfig, ExactResolutionStatus) are still active.
 //
 // CodeSnippet carries a contiguous code excerpt extracted from a
 // file that was actually read during Turn A. File+line range keys

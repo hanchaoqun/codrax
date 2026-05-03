@@ -27,7 +27,6 @@ func TestAnalyzerParseOutputCapturesSummary(t *testing.T) {
 		Complexity: types.ComplexityModerate,
 		AnalyzerHints: types.AnalyzerHints{
 			Kind:     "mechanism",
-			Shape:    "step_list",
 			Keywords: []string{"orchestrator", "agent", "pipeline"},
 			Entities: []string{"Orchestrator", "BaseAgent"},
 		},
@@ -143,7 +142,6 @@ func TestAnalyzer_IRIsBuiltFromRequestModel(t *testing.T) {
 			Keywords: []string{"explorer", "ShouldStop", "explore"},
 			Entities: []string{"Explorer", "ShouldStop"},
 			Kind:     "mechanism",
-			Shape:    "step_list",
 		},
 	})
 	ctx := &types.AgentContext{
@@ -461,7 +459,6 @@ func TestAnalyzer_CallCountGate_SingleCall(t *testing.T) {
 			Keywords: []string{"a", "b", "c", "d", "e", "f", "g", "h"},
 			Entities: []string{"Orchestrator"},
 			Kind:     "mechanism",
-			Shape:    "explanation",
 		},
 	})
 
@@ -499,7 +496,6 @@ func TestAnalyzer_CallCountGate_MultipleCalls_WarnAndContinue(t *testing.T) {
 			Keywords: []string{"a", "b", "c", "d", "e", "f", "g", "h"},
 			Entities: []string{"Foo"},
 			Kind:     "root_cause",
-			Shape:    "explanation",
 		},
 	})
 	// Three emit_analysis attempts — mix of successes and failures to

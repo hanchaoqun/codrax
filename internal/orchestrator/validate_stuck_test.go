@@ -444,7 +444,6 @@ func buildStuckValidateIR() *types.AnalysisIR {
 			Budget: types.EvidenceBudget{MaxReactIters: 10, MaxToolCalls: 20},
 		},
 		AnswerContract: types.AnswerContract{
-			RequiredAnswerShape: types.ShapeExplanation,
 			Language:            "en",
 		},
 	}

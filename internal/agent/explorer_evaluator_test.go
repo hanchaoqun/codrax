@@ -124,15 +124,18 @@ func TestShouldStop_AllCriteriaMet_ReturnsTrue(t *testing.T) {
 // tested elsewhere).
 
 // parseOutputCtx builds a minimal AgentContext suitable for
-// driving ParseOutput. The kind/shape pair is settable so each
-// test can switch between mechanism and other kinds.
-func parseOutputCtx(kind, shape string) *types.AgentContext {
+// driving ParseOutput. The kind is settable so each test can
+// switch between mechanism and other kinds. The trailing string
+// argument was once the AnalyzerHints.Shape; that field is gone
+// with the AnswerShape retirement, so callers pass any value
+// (it is ignored).
+func parseOutputCtx(kind, _ string) *types.AgentContext {
 	return &types.AgentContext{
 		Objective: "test question",
 		RepoRoot:  ".",
 		AnalysisIR: &types.AnalysisIR{
 			RequestModel: types.RequestModel{
-				AnalyzerHints: types.AnalyzerHints{Kind: kind, Shape: shape},
+				AnalyzerHints: types.AnalyzerHints{Kind: kind},
 			},
 		},
 	}

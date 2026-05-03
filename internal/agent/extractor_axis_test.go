@@ -196,7 +196,7 @@ func TestAxisAnchorRetryHint_BoundedPrincipalStepListSkipsRetry(t *testing.T) {
 				SourceQuote:   "7 checks",
 			},
 		},
-		AnswerContract: types.AnswerContract{RequiredAnswerShape: types.ShapeStepList},
+		AnswerContract: types.AnswerContract{},
 	}
 	mut := types.NewMutableState("")
 	mut.SetRequestModel(ir.RequestModel)

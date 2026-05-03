@@ -32,7 +32,6 @@ func TestReconcileEnumerationBoundaryScope_CollapsesSingleOwnerBoundedSet(t *tes
 		Predicates: types.SemanticPredicates{},
 		AnalyzerHints: types.AnalyzerHints{
 			Kind:              "mechanism",
-			Shape:             string(types.ShapeExplanation),
 			Entities:          []string{"gate.Run", "checkCoverage", "checkDAGClosure"},
 			PrimaryEntities:   []string{"gate.Run", "checkCoverage", "checkDAGClosure"},
 			MentionedEntities: []string{"gate.Run"},
@@ -73,7 +72,6 @@ func TestReconcileEnumerationBoundaryScope_SkipsCrossComponentBoundary(t *testin
 		Predicates: types.SemanticPredicates{IsCrossComponent: true},
 		AnalyzerHints: types.AnalyzerHints{
 			Kind:              "mechanism",
-			Shape:             string(types.ShapeExplanation),
 			Entities:          []string{"A", "B"},
 			PrimaryEntities:   []string{"A", "B"},
 			MentionedEntities: []string{"A", "B"},
@@ -99,7 +97,6 @@ func TestReconcileEnumerationBoundaryScope_CollapsesWithoutExactGraphHit(t *test
 		Predicates: types.SemanticPredicates{},
 		AnalyzerHints: types.AnalyzerHints{
 			Kind:              "mechanism",
-			Shape:             string(types.ShapeExplanation),
 			Entities:          []string{"gate.Run", "checkCoverage", "checkDAGClosure"},
 			PrimaryEntities:   []string{"gate.Run", "checkCoverage", "checkDAGClosure"},
 			MentionedEntities: []string{"gate.Run"},

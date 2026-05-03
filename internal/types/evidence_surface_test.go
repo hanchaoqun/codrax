@@ -188,7 +188,6 @@ func TestBuildAnswerSurfacePlan_SplitsCitationGradeAndProseOnlyContext(t *testin
 			},
 		},
 		AnswerContract: AnswerContract{
-			RequiredAnswerShape: ShapeExplanation,
 			ExactResolution: &ExactResolutionContract{
 				TargetKind:           SubjectConfigKey,
 				TargetLabel:          "config key",
@@ -296,7 +295,6 @@ func TestBuildAnswerSurfacePlan_CompilesLogDiagramFence(t *testing.T) {
 			Scenario: ScenarioRootCause,
 		},
 		AnswerContract: AnswerContract{
-			RequiredAnswerShape: ShapeExplanation,
 			Diagram: &DiagramContract{
 				Required:       true,
 				Minimum:        1,
@@ -332,7 +330,6 @@ func TestBuildAnswerSurfacePlan_UsesMinimalSummaryModeForRoleLocateScalar(t *tes
 			},
 		},
 		AnswerContract: AnswerContract{
-			RequiredAnswerShape: ShapeValue,
 		},
 	}
 
@@ -357,7 +354,6 @@ func TestBuildAnswerSurfacePlan_UsesMinimalSummaryModeForUnnamedRoleLocateFallba
 			},
 		},
 		AnswerContract: AnswerContract{
-			RequiredAnswerShape: ShapeValue,
 		},
 	}
 
@@ -377,7 +373,6 @@ func TestBuildAnswerSurfacePlan_ConfigTraceCompiledFenceUsesRoleLabels(t *testin
 			Scenario: ScenarioConfigTrace,
 		},
 		AnswerContract: AnswerContract{
-			RequiredAnswerShape: ShapeExplanation,
 			Diagram: &DiagramContract{
 				Required:       true,
 				PreferredKinds: []DiagramKind{DiagramFlow},
@@ -441,7 +436,6 @@ func TestBuildAnswerSurfacePlan_CollectsLogSourceDriftAnchors(t *testing.T) {
 			Intent:   IntentRootCause,
 		},
 		AnswerContract: AnswerContract{
-			RequiredAnswerShape: ShapeExplanation,
 		},
 	}
 	evidence := []EvidenceItem{
@@ -482,7 +476,6 @@ func TestBuildAnswerSurfacePlan_ConfigTraceCompilesRequestedRolesFromSurfaceFall
 			Scenario: ScenarioConfigTrace,
 		},
 		AnswerContract: AnswerContract{
-			RequiredAnswerShape: ShapeExplanation,
 			ExactResolution: &ExactResolutionContract{
 				TargetKind:            SubjectConfigKey,
 				TargetLabel:           "config key",
@@ -562,7 +555,6 @@ func TestBuildAnswerSurfacePlan_ConfigTraceCompilesFenceFromImplicitConfigAndDef
 			AnswerSubject: AnswerSubject{Kind: SubjectConfigKey},
 		},
 		AnswerContract: AnswerContract{
-			RequiredAnswerShape: ShapeExplanation,
 			ExactResolution: &ExactResolutionContract{
 				TargetKind:            SubjectConfigKey,
 				TargetLabel:           "config key",
@@ -635,7 +627,6 @@ func TestBuildAnswerSurfacePlan_LogObservedAnchorsPreferAuthoritativeBindings(t 
 			Intent:   IntentRootCause,
 		},
 		AnswerContract: AnswerContract{
-			RequiredAnswerShape: ShapeExplanation,
 		},
 	}
 	evidence := []EvidenceItem{
@@ -729,7 +720,6 @@ func TestBuildAnswerSurfacePlan_CollectsExternalObservationSeeds(t *testing.T) {
 			Intent:   IntentRootCause,
 		},
 		AnswerContract: AnswerContract{
-			RequiredAnswerShape: ShapeStepList,
 		},
 	}
 	evidence := []EvidenceItem{
@@ -797,7 +787,6 @@ func TestBuildAnswerSurfacePlan_CompilesDiagramFenceFromObservedAnchorsWhenAvail
 			Intent:   IntentRootCause,
 		},
 		AnswerContract: AnswerContract{
-			RequiredAnswerShape: ShapeExplanation,
 			Diagram: &DiagramContract{
 				Required:       true,
 				PreferredKinds: []DiagramKind{DiagramCallDAG},
@@ -868,23 +857,22 @@ func TestBuildAnswerSurfacePlan_UsesDriftBoundedRootCauseModeForRootCauseLogs(t 
 		},
 	}
 
-	for _, shape := range []AnswerShape{ShapeStepList, ShapeExplanation} {
-		ir := &AnalysisIR{
-			RequestModel: RequestModel{
-				Scenario: ScenarioRootCause,
-				Intent:   IntentRootCause,
-			},
-			AnswerContract: AnswerContract{
-				RequiredAnswerShape: shape,
-			},
-		}
-		plan := BuildAnswerSurfacePlan(ir, mut, logBundle, nil, nil, evidence)
-		if plan == nil {
-			t.Fatalf("BuildAnswerSurfacePlan returned nil for shape=%s", shape)
-		}
-		if plan.SummarySurfaceMode != AnswerSummarySurfaceDriftBoundedRootCause {
-			t.Fatalf("shape=%s summary surface mode = %s, want %s", shape, plan.SummarySurfaceMode, AnswerSummarySurfaceDriftBoundedRootCause)
-		}
+	// Pre-PR5 the loop iterated [ShapeStepList, ShapeExplanation];
+	// AnswerShape is retired so the surface plan keys off
+	// Intent/Scenario directly (see ScenarioRootCause + IntentRootCause).
+	ir := &AnalysisIR{
+		RequestModel: RequestModel{
+			Scenario: ScenarioRootCause,
+			Intent:   IntentRootCause,
+		},
+		AnswerContract: AnswerContract{},
+	}
+	plan := BuildAnswerSurfacePlan(ir, mut, logBundle, nil, nil, evidence)
+	if plan == nil {
+		t.Fatal("BuildAnswerSurfacePlan returned nil")
+	}
+	if plan.SummarySurfaceMode != AnswerSummarySurfaceDriftBoundedRootCause {
+		t.Fatalf("summary surface mode = %s, want %s", plan.SummarySurfaceMode, AnswerSummarySurfaceDriftBoundedRootCause)
 	}
 }
 
@@ -904,7 +892,6 @@ func TestBuildAnswerSurfacePlan_CollectsDriftBoundedSurfaceItems(t *testing.T) {
 			Intent:   IntentRootCause,
 		},
 		AnswerContract: AnswerContract{
-			RequiredAnswerShape: ShapeExplanation,
 		},
 	}
 	evidence := []EvidenceItem{
@@ -991,7 +978,6 @@ func TestBuildAnswerSurfacePlan_DriftBoundedSurfaceSkipsOuterFunctionNoiseWhenCa
 			Intent:   IntentRootCause,
 		},
 		AnswerContract: AnswerContract{
-			RequiredAnswerShape: ShapeExplanation,
 		},
 	}
 	evidence := []EvidenceItem{
@@ -1097,7 +1083,6 @@ func TestBuildAnswerSurfacePlan_DriftBoundedSurfaceUsesOwnerSymbolForLineLocalCo
 			Intent:   IntentRootCause,
 		},
 		AnswerContract: AnswerContract{
-			RequiredAnswerShape: ShapeExplanation,
 		},
 	}
 	evidence := []EvidenceItem{
@@ -1199,7 +1184,6 @@ func TestBuildAnswerSurfacePlan_CompilesStepBackboneFromAnswerSymbols(t *testing
 	ir := &AnalysisIR{
 		RequestModel: RequestModel{Intent: IntentTrace},
 		AnswerContract: AnswerContract{
-			RequiredAnswerShape: ShapeStepList,
 		},
 	}
 	plan := BuildAnswerSurfacePlan(ir, mut, nil, nil, nil, nil)
@@ -1221,7 +1205,6 @@ func TestBuildAnswerSurfacePlan_CompilesFallbackStepBackboneFromEvidence(t *test
 	ir := &AnalysisIR{
 		RequestModel: RequestModel{Intent: IntentTrace},
 		AnswerContract: AnswerContract{
-			RequiredAnswerShape: ShapeStepList,
 		},
 	}
 	evidence := []EvidenceItem{
@@ -1278,7 +1261,6 @@ func TestBuildAnswerSurfacePlan_AugmentsLowerBoundStepBackboneWithEvidence(t *te
 	ir := &AnalysisIR{
 		RequestModel: RequestModel{Intent: IntentTrace},
 		AnswerContract: AnswerContract{
-			RequiredAnswerShape: ShapeStepList,
 		},
 	}
 	evidence := []EvidenceItem{
@@ -1363,7 +1345,6 @@ func TestBuildAnswerSurfacePlan_DoesNotAugmentCompleteOrBoundedStepBackbone(t *t
 			},
 		},
 		AnswerContract: AnswerContract{
-			RequiredAnswerShape: ShapeStepList,
 		},
 	}
 	evidence := []EvidenceItem{
@@ -1409,7 +1390,6 @@ func TestBuildAnswerSurfacePlan_DropsOwnerFromRequestedEnumerationBoundaryStepBa
 			},
 		},
 		AnswerContract: AnswerContract{
-			RequiredAnswerShape: ShapeStepList,
 		},
 	}
 
@@ -1438,7 +1418,6 @@ func TestBuildAnswerSurfacePlan_CompilesExplanationAnchorBackboneFromEvidence(t 
 			},
 		},
 		AnswerContract: AnswerContract{
-			RequiredAnswerShape: ShapeExplanation,
 		},
 	}
 	evidence := []EvidenceItem{
@@ -1495,7 +1474,6 @@ func TestBuildAnswerSurfacePlan_ExplanationAnchorBackboneSkipsAuxiliaryEvidence(
 			},
 		},
 		AnswerContract: AnswerContract{
-			RequiredAnswerShape: ShapeExplanation,
 		},
 	}
 	evidence := []EvidenceItem{
@@ -1530,7 +1508,6 @@ func TestBuildAnswerSurfacePlan_ExplanationAnchorBackboneUsesGroundedSummaryBrid
 			},
 		},
 		AnswerContract: AnswerContract{
-			RequiredAnswerShape: ShapeExplanation,
 		},
 	}
 	evidence := []EvidenceItem{

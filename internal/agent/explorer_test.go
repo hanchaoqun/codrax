@@ -688,11 +688,9 @@ func TestEnumerationIntentForContext_StructuredNonEnumerationSuppressesRawListVe
 				Intent: types.IntentTrace,
 				AnalyzerHints: types.AnalyzerHints{
 					Kind:  "call_chain",
-					Shape: string(types.ShapeStepList),
 				},
 			},
 			AnswerContract: types.AnswerContract{
-				RequiredAnswerShape: types.ShapeStepList,
 			},
 		},
 	}
@@ -3003,7 +3001,6 @@ func TestOrderedSameFileTracePartialReadHint(t *testing.T) {
 				PredicateAxis: types.AxisCall,
 			},
 			AnswerContract: types.AnswerContract{
-				RequiredAnswerShape: types.ShapeStepList,
 			},
 		},
 	}
@@ -3042,7 +3039,6 @@ func TestMidLoopCheck_PostPrimaryReadPrefersScalarRoleLocateMaterialization(t *t
 				Predicates:    types.SemanticPredicates{IsScalarAnswer: true},
 			},
 			AnswerContract: types.AnswerContract{
-				RequiredAnswerShape: types.ShapeValue,
 			},
 		},
 	}
@@ -4302,7 +4298,6 @@ func TestFilterPartialReadsForPostPrimary_DropsUnrelatedScalarHints(t *testing.T
 				Predicates:    types.SemanticPredicates{IsScalarAnswer: true},
 			},
 			AnswerContract: types.AnswerContract{
-				RequiredAnswerShape: types.ShapeValue,
 			},
 		},
 		structuredEvidence: []types.EvidenceItem{
@@ -5115,7 +5110,6 @@ func TestObserveMidLoop_CompletionReadyHintAddsDriftBoundedGuardrail(t *testing.
 				Intent:   types.IntentRootCause,
 			},
 			AnswerContract: types.AnswerContract{
-				RequiredAnswerShape: types.ShapeExplanation,
 			},
 		},
 		logTriage: &types.LogBundle{
@@ -5195,7 +5189,6 @@ func TestObserveMidLoop_DriftBoundedAuthoritativeClosureBypassesUnsatisfiedERM(t
 				Intent:   types.IntentRootCause,
 			},
 			AnswerContract: types.AnswerContract{
-				RequiredAnswerShape: types.ShapeExplanation,
 			},
 		},
 		logTriage: &types.LogBundle{
@@ -5268,7 +5261,6 @@ func TestDriftBoundedCompletionReadyMode_AllowsObservedCurrentBranchWithoutDrift
 				Intent:   types.IntentRootCause,
 			},
 			AnswerContract: types.AnswerContract{
-				RequiredAnswerShape: types.ShapeExplanation,
 			},
 		},
 		logTriage: &types.LogBundle{
@@ -5686,7 +5678,6 @@ func TestObserveMidLoop_CompletionReadyFiresForMinimalScalarRoleLocate(t *testin
 				Predicates:    types.SemanticPredicates{IsScalarAnswer: true},
 			},
 			AnswerContract: types.AnswerContract{
-				RequiredAnswerShape: types.ShapeValue,
 			},
 		},
 		heuristics: types.ExploreHeuristics{MidLoopMinIteration: 2},
@@ -5747,7 +5738,6 @@ func TestObserveMidLoop_MultiTopicExplanationAnchorHint(t *testing.T) {
 				},
 			},
 			AnswerContract: types.AnswerContract{
-				RequiredAnswerShape: types.ShapeExplanation,
 			},
 		},
 		heuristics: types.ExploreHeuristics{MidLoopMinIteration: 2},
@@ -5843,7 +5833,6 @@ func TestObserveMidLoop_DriftBoundedCompletionReadyClosureOnlyFastTracks(t *test
 				Intent:   types.IntentRootCause,
 			},
 			AnswerContract: types.AnswerContract{
-				RequiredAnswerShape: types.ShapeExplanation,
 			},
 		},
 		logTriage: &types.LogBundle{

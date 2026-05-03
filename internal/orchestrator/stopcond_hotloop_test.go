@@ -64,7 +64,6 @@ func TestStopCondFired_TerminatesInsteadOfHotLooping(t *testing.T) {
 			},
 		},
 		AnswerContract: types.AnswerContract{
-			RequiredAnswerShape: types.ShapeExplanation,
 			Language:            "en",
 		},
 	}
@@ -160,7 +159,6 @@ func TestStopCondFired_RetryAfterFinalizeFailure_UsesExplorer(t *testing.T) {
 			},
 		},
 		AnswerContract: types.AnswerContract{
-			RequiredAnswerShape: types.ShapeExplanation,
 			Language:            "en",
 			// Answer will never contain this sentinel — forces contract
 			// violation on every finalize dispatch so the retry path

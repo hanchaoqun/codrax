@@ -41,7 +41,6 @@ func TestE2E_ReadMode_DispatchRoutesToReadLoop(t *testing.T) {
 	finalizeCalls := 0
 
 	ir := dagIR(types.AnswerContract{
-		RequiredAnswerShape: types.ShapeListOfSymbols,
 		Language:            "en",
 	})
 	if IsWriteGraph(ir.TaskGraph) {

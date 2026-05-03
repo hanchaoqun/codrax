@@ -609,7 +609,7 @@ func TestExtractEvidenceRequirementsWithModel_PrefersStructuredSignals(t *testin
 		Intent:        types.IntentExplain,
 		Scenario:      types.ScenarioConfigTrace,
 		PredicateAxis: types.AxisConfigure,
-		AnalyzerHints: types.AnalyzerHints{Shape: "step_list"},
+		AnalyzerHints: types.AnalyzerHints{Kind: "config_mapping"},
 		AnswerSubject: types.AnswerSubject{Kind: types.SubjectConfigKey},
 	}
 

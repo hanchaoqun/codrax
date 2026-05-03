@@ -141,7 +141,6 @@ func TestBuildAnalysisIR_CapabilitySurfacePreservesGenericScenario(t *testing.T)
 		Complexity:    types.ComplexityModerate,
 		AnalyzerHints: types.AnalyzerHints{
 			Kind:     "config_mapping",
-			Shape:    "config_value",
 			Entities: []string{"read_file", "analyzer stage"},
 			Keywords: []string{"read_file"},
 		},
