@@ -1168,9 +1168,13 @@ func (t *EmitAnswerDocument) Execute(ctx *types.BusContext, params json.RawMessa
 		// backtick identifiers are now ground-truthed by Phase 4's
 		// runStepIdentifierBackedByEvidenceOracle (typed evidence
 		// pool membership).
-		if err := validateLogSourceDriftStepCitations(p.Steps, ctx); err != nil {
-			return failWithContext("%v", err)
-		}
+		// 2026-05-03 (Phase 6 stage 4): retired
+		// validateLogSourceDriftStepCitations — it was dead code.
+		// normalizeDriftBoundedRootCauseSteps (above) already drops
+		// every step with CitationRef<0 in drift-bounded mode, so the
+		// subsequent validate-step found nothing to reject. Belt-and-
+		// suspenders pattern with the suspenders cut, no behaviour
+		// change.
 		if note := scrubForbiddenNonZeroFields(&p, shape, forbidSymbols|forbidValue|forbidBoolean); note != "" {
 			shapeCorrectionNote = joinNote(shapeCorrectionNote, note)
 		}
@@ -2441,24 +2445,12 @@ func valueCitationTextMatchesLiteral(kind types.AnswerSubjectKind, literalKey, t
 // Phase 4's runStepIdentifierBackedByEvidenceOracle (typed-pool
 // based, no token-overlap-against-cited-line heuristic).
 
-func validateLogSourceDriftStepCitations(steps []types.AnswerStep, ctx *types.BusContext) error {
-	plan := answerSurfacePlan(ctx)
-	if plan == nil || plan.SummarySurfaceMode != types.AnswerSummarySurfaceDriftBoundedRootCause {
-		return nil
-	}
-	for i, step := range steps {
-		if step.CitationRef >= 0 {
-			continue
-		}
-		return newAnswerDocValidationError(
-			"log_source_drift_step_citation",
-			"root-cause answers in log-source-drift mode must keep every step directly citation-backed; steps[%d] currently has citation_ref=-1 and can introduce an unsupported hypothesis beyond the grounded current mechanism.",
-			i,
-		).WithFields(fmt.Sprintf("steps[%d].citation_ref", i), "summary").
-			WithHint("Re-emit `emit_answer_document` with the same grounded call chain and drift-bounded explanation, but either ground this step to a cited file:line or delete the unsupported hypothesis step. Do not use `citation_ref=-1` for root-cause steps in this drift-bounded mode.")
-	}
-	return nil
-}
+// validateLogSourceDriftStepCitations was retired 2026-05-03
+// (Phase 6 stage 4). The function was dead code:
+// normalizeDriftBoundedRootCauseSteps (below) already drops every
+// step with CitationRef<0 in drift-bounded-root-cause mode, so the
+// subsequent validate-step found nothing to reject. Belt-and-
+// suspenders pattern with the suspenders cut.
 
 func normalizeDriftBoundedRootCauseSteps(steps []types.AnswerStep, ctx *types.BusContext) []types.AnswerStep {
 	plan := answerSurfacePlan(ctx)
