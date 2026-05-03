@@ -143,25 +143,22 @@ func (e *answerDocumentEvaluator) BuildInitialInstruction(ctx *types.AgentContex
 	// User question is already rendered by builder.go as "User Request"
 	// section — no need to repeat it here.
 
-	shape := resolveAnswerDocShape(ctx)
-	fmt.Fprintf(&b, "## Target answer shape\n\n`%s`\n\n", shape)
-
-	// B6-T1 (block_only_carrier.md, 2026-05-03) — V2 block contract.
-	// When the V2 carrier is the default (orchestrator.EmitV2Default
-	// returns true), the prompt also surfaces:
-	//   ## Required Answer Blocks — list of block kinds + min/max
-	//     count + LLM-facing rationale, derived from the typed
-	//     AnswerSemanticView for the resolved question family.
-	//   ## Facets each block must cover — the FacetCoverageContract
-	//     surfaces in plain LLM language so the LLM can match each
-	//     block to the structural facet(s) it covers.
-	// During the V1+V2 coexistence window (B6) the legacy "Target
-	// answer shape" section above stays for back-compat; B8-T1
-	// removes it entirely. The two sections are deliberately
-	// printed in this order so an LLM that reads top-down sees the
-	// block contract immediately after the (legacy) shape line.
+	// B8-T1 part 3 (block_only_carrier.md §5.8, 2026-05-03):
+	// `## Target answer shape` section + resolveAnswerDocShape
+	// helper deleted. The V2 block contract section below carries
+	// the equivalent guidance via Family-aware block requirements.
 	if blockContract := renderAnswerDocBlockContract(ctx); blockContract != "" {
 		b.WriteString(blockContract)
+	}
+
+	// B8-T1 part 3 transitional: V1 fallback paths below still
+	// reference `shape` to gate shape-specific prose nudges. Use
+	// the analyzer's RequiredAnswerShape directly (no
+	// resolveAnswerDocShape indirection). Empty shape means V2
+	// default carrier — the gates below short-circuit.
+	shape := ""
+	if ctx != nil && ctx.AnalysisIR != nil {
+		shape = string(ctx.AnalysisIR.AnswerContract.RequiredAnswerShape)
 	}
 
 	if dc := answerDocDiagramContract(ctx); dc != nil && dc.Required {
@@ -407,38 +404,6 @@ func extractAnswerDocLang(ctx *types.AgentContext) string {
 		return "en"
 	}
 	return "en"
-}
-
-// resolveAnswerDocShape picks the shape string the finalizer prompt
-// should target. Preference order:
-//
-//  1. AnalysisIR.AnswerContract.RequiredAnswerShape — the canonical
-//     source wired by P1.3. Typed + non-empty means the analyzer
-//     reached a decision.
-//  2. irAnswerShape(ctx) — the legacy AnalyzerHints.Shape field,
-//     kept as a fallback for pre-P1.3 call paths and REPL turns
-//     where the IR is nil.
-//  3. Presence of ctx.AnswerSymbols → list_of_symbols (an upstream
-//     extraction pipeline found candidates, so the shape is clearly
-//     a symbol list).
-//  4. Explanation — the safe default.
-//
-// Returning a string (rather than types.AnswerShape) keeps the callers
-// — prompt assembly + shape-specific instructions — uniform against
-// both the typed and legacy paths without a per-call coercion.
-func resolveAnswerDocShape(ctx *types.AgentContext) string {
-	if ctx != nil && ctx.AnalysisIR != nil {
-		if shape := types.EffectiveRequiredAnswerShape(ctx.AnalysisIR, ctx.Mutable); shape != "" && shape != types.ShapeNone {
-			return string(shape)
-		}
-	}
-	if s := irAnswerShape(ctx); s != "" {
-		return s
-	}
-	if ctx != nil && len(ctx.AnswerSymbols) > 0 {
-		return string(types.ShapeListOfSymbols)
-	}
-	return string(types.ShapeExplanation)
 }
 
 func answerSurfacePlan(ctx *types.AgentContext) *types.AnswerSurfacePlan {
@@ -1264,9 +1229,12 @@ func renderAnswerDocExactResolutionContract(ctx *types.AgentContext) string {
 	}
 	if plan != nil && plan.SummarySurfaceMode == types.AnswerSummarySurfaceDriftBoundedRootCause {
 		b.WriteString("- Summary surface mode: drift-bounded root cause. The renderer will prepend the log-source-drift lead, but it will keep your grounded `summary`. Use `summary` for the concise present-tense cause/mechanism sentence (and the compiled call-chain fence when helpful). Do not assert a more specific historical failure cause than the current cited code proves.\n")
-		if resolveAnswerDocShape(ctx) == string(types.ShapeStepList) {
-			b.WriteString("- Because this dispatch uses `shape=step_list`, put the detailed explanation into `steps[]` and keep every step directly citation-backed instead of adding uncited root-cause hypotheses.\n")
-		}
+		// B8-T1 part 3: the original step_list-only nudge is now
+		// covered by the V2 block contract's BlockOrderedList
+		// requirement on QFCallChain / QFRootCauseTrace families.
+		// The general drift-bounded surface guidance still
+		// applies to all shapes.
+		b.WriteString("- For ordered-step or call-chain answers, keep every step directly citation-backed instead of adding uncited root-cause hypotheses.\n")
 	}
 	b.WriteString("\n")
 	citationGradeRendered := false
@@ -3120,15 +3088,30 @@ func (e *answerDocumentEvaluator) ParseOutput(ctx *types.AgentContext, messages 
 
 	e.salvagePriorDraftIntoSummary(doc, messages)
 
-	// AuthorityCeiling axis: project hedge prefixes into
-	// Step.Description, Symbol.Rationale, and a top-level Caveats
-	// entry whenever the underlying evidence pool carries non-factual
-	// ceilings. Pure function; nil-safe.
-	if ctx != nil && ctx.Mutable != nil {
-		render.ApplyAuthorityHedging(doc, ctx.Mutable.EmittedEvidence(), e.language)
+	// B8-T2 (block_only_carrier.md §5.8, 2026-05-03): V1 renderer
+	// (RenderAnswerDocument) and V1 hedger (ApplyAuthorityHedging)
+	// are deleted. The V1 doc that landed here is a degraded-mode
+	// signal — emit_answer_document was called with a V1 schema
+	// (rollback path) but the V1 render path is gone. We fall back
+	// to the raw last-content path with a synthesised authority
+	// caveat so the user still gets readable prose.
+	logging.Warning("[finalizer/answer_document] V1 carrier emit landed at B8+ — V1 renderer deleted; falling back to raw content. Re-run without --emit-v2=off to use V2 carrier.")
+	var fallbackContent string
+	for i := len(messages) - 1; i >= 0; i-- {
+		if messages[i].Role == "assistant" && messages[i].Content != "" {
+			fallbackContent = messages[i].Content
+			break
+		}
 	}
-
-	prose := render.RenderAnswerDocument(doc, e.language)
+	if fallbackContent == "" {
+		fallbackContent = strings.TrimSpace(doc.Summary)
+	}
+	prose := fallbackContent
+	if ctx != nil && ctx.Mutable != nil {
+		if caveat := render.SynthesiseAuthorityCaveatFor(ctx.Mutable.EmittedEvidence(), e.language); caveat != "" {
+			prose = "*" + caveat + "*\n\n" + prose
+		}
+	}
 
 	out.Data = marshalStageData(answerDocumentStageData{
 		FinalAnswer:    prose,
@@ -3425,9 +3408,9 @@ func (e *answerDocumentEvaluator) parseOutputV2(ctx *types.AgentContext, docV2 *
 	// Apply V2 hedging in-place on the defensive copy
 	// (ctx.Mutable.AnswerDocumentV2() returns a clone).
 	if ctx != nil && ctx.Mutable != nil {
-		render.ApplyAuthorityHedgingV2(docV2, ctx.Mutable.EmittedEvidence(), e.language)
+		render.ApplyAuthorityHedging(docV2, ctx.Mutable.EmittedEvidence(), e.language)
 	}
-	prose := render.RenderAnswerDocumentV2(docV2, e.language)
+	prose := render.RenderAnswerDocument(docV2, e.language)
 	out.Data = marshalStageData(answerDocumentStageData{
 		FinalAnswer: prose,
 	})

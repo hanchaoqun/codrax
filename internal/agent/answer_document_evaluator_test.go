@@ -24,16 +24,23 @@ func enableSummaryCapsForTest(t *testing.T) {
 	t.Cleanup(func() { types.SetSummaryCapConfig(types.DefaultSummaryCapConfig()) })
 }
 
-// TestAnswerDocumentEvaluator_BuildInitialInstruction_RendersResolvedShape
-// pins that the dynamic prompt surfaces the resolved target shape
-// (for operator visibility + diagnostic logs). The STATIC shape
-// dispatch table — tool name, required fields, forbidden fields —
-// lives in answer-document-skill.OutputFormat and is rendered as a
-// system section by context/builder.go, NOT here. Asserting those
+// TestAnswerDocumentEvaluator_BuildInitialInstruction_RendersBlockContract
+// pins that the dynamic prompt surfaces the V2 block contract
+// (Required Answer Blocks section with at least the Summary block
+// requirement). B8-T1 part 3 deleted the `## Target answer shape`
+// section + resolveAnswerDocShape; the V2 block contract carries
+// the equivalent guidance via Family-aware block requirements.
+//
+// The STATIC contract — tool name, required fields, forbidden fields
+// — still lives in answer-document-skill.OutputFormat (rendered by
+// context/builder.go as a system section), NOT here. Asserting those
 // substrings in the dynamic prompt would resurrect the pre-cleanup
-// contradiction between the skill's declarative contract and the
-// evaluator's baked-in instructions.
-func TestAnswerDocumentEvaluator_BuildInitialInstruction_RendersResolvedShape(t *testing.T) {
+// contradiction.
+func TestAnswerDocumentEvaluator_BuildInitialInstruction_RendersBlockContract(t *testing.T) {
+	// V2 carrier is the default at B6+. Each shape maps to a V2
+	// QuestionFamily; the block contract section must surface the
+	// "Required Answer Blocks" header plus the Summary block
+	// requirement which every family carries.
 	shapes := []types.AnswerShape{
 		types.ShapeListOfSymbols, types.ShapeStepList, types.ShapeValue,
 		types.ShapeConfigValue, types.ShapeBoolean, types.ShapeExplanation,
@@ -46,11 +53,11 @@ func TestAnswerDocumentEvaluator_BuildInitialInstruction_RendersResolvedShape(t 
 				},
 			}
 			prompt := (&answerDocumentEvaluator{}).BuildInitialInstruction(ctx, nil)
-			// The dynamic prompt carries the shape name for operator
-			// visibility — this is the one substring the evaluator
-			// still owns after the static contract moved to the skill.
-			if !strings.Contains(prompt, string(shape)) {
-				t.Errorf("shape=%s: dynamic prompt missing resolved shape name: %q", shape, prompt)
+			if !strings.Contains(prompt, "## Required Answer Blocks") {
+				t.Errorf("shape=%s: prompt missing V2 block contract header: %q", shape, prompt)
+			}
+			if !strings.Contains(prompt, "summary") {
+				t.Errorf("shape=%s: prompt missing summary block requirement: %q", shape, prompt)
 			}
 			// Guard against drift back to the pre-cleanup pattern:
 			// the static contract MUST NOT resurface here.
@@ -59,6 +66,11 @@ func TestAnswerDocumentEvaluator_BuildInitialInstruction_RendersResolvedShape(t 
 					t.Errorf("shape=%s: dynamic prompt leaked static contract substring %q — "+
 						"that content belongs in answer-document-skill, not the evaluator", shape, banned)
 				}
+			}
+			// B8-T1 part 3: the legacy "## Target answer shape"
+			// section is deleted; pin its absence so it can't drift back.
+			if strings.Contains(prompt, "## Target answer shape") {
+				t.Errorf("shape=%s: pre-B8 ## Target answer shape section resurfaced: %q", shape, prompt)
 			}
 		})
 	}
@@ -2613,43 +2625,6 @@ func TestAnswerDocumentEvaluator_Observe_MidLoopRejectStopsHintingAfterBudget(t 
 
 // TestAnswerDocumentEvaluator_ParseOutput_Happy — a fully-populated
 // AnswerDocument in Mutable is rendered into FinalAnswer.
-func TestAnswerDocumentEvaluator_ParseOutput_Happy(t *testing.T) {
-	ctx := &types.AgentContext{
-		Mutable: types.NewMutableState(""),
-	}
-	doc := &types.AnswerDocument{
-		Shape:     types.ShapeValue,
-		Value:     &types.AnswerValue{Literal: "explorer", CitationRef: 0},
-		Citations: []types.Citation{{File: "a.go", Line: 42}},
-	}
-	ctx.Mutable.SetAnswerDocument(doc)
-
-	e := &answerDocumentEvaluator{language: "en"}
-	out, err := e.ParseOutput(ctx, nil, nil, nil)
-	if err != nil {
-		t.Fatalf("ParseOutput err: %v", err)
-	}
-	if out.FinalAnswer == "" {
-		t.Fatal("FinalAnswer empty")
-	}
-	if !strings.Contains(out.FinalAnswer, "`explorer`") {
-		t.Errorf("FinalAnswer missing literal: %q", out.FinalAnswer)
-	}
-	if !strings.Contains(out.FinalAnswer, "a.go:42") {
-		t.Errorf("FinalAnswer missing citation: %q", out.FinalAnswer)
-	}
-	// Data payload carries the structured doc for debugging.
-	var payload struct {
-		FinalAnswer    string          `json:"final_answer"`
-		AnswerDocument json.RawMessage `json:"answer_document"`
-	}
-	if err := json.Unmarshal(out.Data, &payload); err != nil {
-		t.Fatalf("unmarshal data: %v", err)
-	}
-	if len(payload.AnswerDocument) == 0 || string(payload.AnswerDocument) == "null" {
-		t.Error("Data.answer_document is empty/null")
-	}
-}
 
 // TestAnswerDocumentEvaluator_ParseOutput_MissingDoc_FailLoud covers
 // the fail-loud path: no document, retries exhausted, ParseOutput
@@ -2706,74 +2681,9 @@ func TestAnswerDocumentEvaluator_ParseOutput_MissingDoc_SanitizesFallback(t *tes
 // complete + len(Symbols) < baseline, ParseOutput downgrades to
 // lower_bound and appends a caveat. Reuses the same validator as
 // extractorEvaluator so this test pins the cross-stage contract.
-func TestAnswerDocumentEvaluator_ParseOutput_CardinalityDowngrade(t *testing.T) {
-	ctx := &types.AgentContext{
-		Mutable: types.NewMutableState(""),
-		AnalysisIR: &types.AnalysisIR{
-			AnswerContract: types.AnswerContract{
-				MustInclude: []string{"Alpha", "Beta", "Gamma", "Delta"}, // baseline = 4
-			},
-		},
-	}
-	doc := &types.AnswerDocument{
-		Shape:               types.ShapeListOfSymbols,
-		SymbolsCompleteness: types.CompletenessComplete,
-		Symbols: []types.AnswerSymbol{ // only 2 — below baseline of 4
-			{Name: "Alpha", File: "a.go", Line: 10},
-			{Name: "Beta", File: "b.go", Line: 20},
-		},
-	}
-	ctx.Mutable.SetAnswerDocument(doc)
-
-	e := &answerDocumentEvaluator{language: "en"}
-	out, err := e.ParseOutput(ctx, nil, nil, nil)
-	if err != nil {
-		t.Fatalf("ParseOutput err: %v", err)
-	}
-	if out.AnswerSymbolCompleteness != types.CompletenessLowerBound {
-		t.Errorf("completeness = %q, want lower_bound (downgrade)", out.AnswerSymbolCompleteness)
-	}
-	if !strings.Contains(out.FinalAnswer, "confirmed items") {
-		t.Errorf("downgraded rendering footer tag missing: %q", out.FinalAnswer)
-	}
-	if !strings.Contains(out.FinalAnswer, "downgraded to lower_bound") {
-		t.Errorf("downgrade caveat missing: %q", out.FinalAnswer)
-	}
-}
 
 // TestAnswerDocumentEvaluator_ParseOutput_NoDowngrade — completeness
 // complete with enough symbols passes through unchanged.
-func TestAnswerDocumentEvaluator_ParseOutput_NoDowngrade(t *testing.T) {
-	ctx := &types.AgentContext{
-		Mutable: types.NewMutableState(""),
-		AnalysisIR: &types.AnalysisIR{
-			AnswerContract: types.AnswerContract{
-				MustInclude: []string{"Alpha"}, // baseline = 1
-			},
-		},
-	}
-	doc := &types.AnswerDocument{
-		Shape:               types.ShapeListOfSymbols,
-		SymbolsCompleteness: types.CompletenessComplete,
-		Symbols: []types.AnswerSymbol{
-			{Name: "Alpha", File: "a.go", Line: 10},
-			{Name: "Beta", File: "b.go", Line: 20},
-		},
-	}
-	ctx.Mutable.SetAnswerDocument(doc)
-	e := &answerDocumentEvaluator{language: "en"}
-	out, _ := e.ParseOutput(ctx, nil, nil, nil)
-	if out.AnswerSymbolCompleteness != types.CompletenessComplete {
-		t.Errorf("completeness = %q, want complete (no downgrade)", out.AnswerSymbolCompleteness)
-	}
-	// Complete answers have no completeness tag — symbols listed directly.
-	if strings.Contains(out.FinalAnswer, "Complete answer") {
-		t.Errorf("complete should not have header in body: %q", out.FinalAnswer)
-	}
-	if !strings.Contains(out.FinalAnswer, "**Alpha**") {
-		t.Errorf("symbol missing: %q", out.FinalAnswer)
-	}
-}
 
 // richDraftProse is a ~1500-char explanation the LLM writes as plain
 // prose in its first attempt — the kind of answer the shrinkage
@@ -3100,46 +3010,6 @@ func TestAnswerDocumentEvaluator_ParseOutput_ShrinkageSalvage_NotShrunk(t *testi
 	}
 }
 
-func TestAnswerDocumentEvaluator_ParseOutput_ShrinkageSalvage_SkipsScaffoldingOnlyScalarDraft(t *testing.T) {
-	ctx := &types.AgentContext{Mutable: types.NewMutableState("")}
-	origSummary := "入口函数是 `buildAnalysisIR`，定义在 `internal/agent/analyzer.go:565`。"
-	doc := &types.AnswerDocument{
-		Shape:   types.ShapeValue,
-		Summary: origSummary,
-		Value:   &types.AnswerValue{Literal: "buildAnalysisIR", CitationRef: types.CitationRefUnset},
-	}
-	ctx.Mutable.SetAnswerDocument(doc)
-	prior := "<think>\n" +
-		"The user is asking about the exact entry function.\n" +
-		"</think>\n\n" +
-		"```json\n{\"shape\":\"value\",\"summary\":\"x\",\"citations\":[{\"file\":\"internal/agent/analyzer.go\",\"line\":565}]}\n```\n\n" +
-		"I need to emit exactly one emit_answer_document tool call.\n\n" +
-		"<minimax:tool_call>\n" +
-		"<invoke name=\"emit_answer_document\">\n" +
-		"<parameter name=\"shape\">value</parameter>\n" +
-		"</invoke>\n" +
-		"</minimax:tool_call>\n\n" +
-		"值为 `buildAnalysisIR` (`internal/agent/analyzer.go:565`)."
-	messages := []llm.Message{
-		{Role: "assistant", Content: prior},
-		{Role: "assistant", Content: "", ToolCalls: []llm.ToolCall{{ID: "1", Name: "emit_answer_document"}}},
-	}
-	e := &answerDocumentEvaluator{language: "zh"}
-	out, err := e.ParseOutput(ctx, messages, nil, nil)
-	if err != nil {
-		t.Fatalf("ParseOutput err: %v", err)
-	}
-	got := parseStageDoc(t, out)
-	if got.Summary != origSummary {
-		t.Fatalf("scalar salvage should skip scaffolding-heavy draft: got %q want %q", got.Summary, origSummary)
-	}
-	if len(got.Caveats) != 0 {
-		t.Fatalf("scalar salvage should not append caveat when sanitized draft is too short: %v", got.Caveats)
-	}
-	if strings.Contains(out.FinalAnswer, "<think>") || strings.Contains(out.FinalAnswer, "<minimax:tool_call>") {
-		t.Fatalf("FinalAnswer leaked scaffolding: %q", out.FinalAnswer)
-	}
-}
 
 // TestAnswerDocumentEvaluator_ParseOutput_ShrinkageSalvage_CapTrim —
 // a prior draft exceeding SummaryCapFor(ShapeExplanation, 0) must be

@@ -7,570 +7,224 @@ import (
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
-// TestRenderAnswerDocument_Nil returns empty string without panic.
-func TestRenderAnswerDocument_Nil(t *testing.T) {
+// ── B5-T8 V2 renderer per-BlockKind 单测 ───────────────────────────
+
+func TestRenderV2_BlockSummary(t *testing.T) {
+	doc := &types.AnswerDocumentV2{
+		DocumentModel: "v2",
+		Blocks: []types.AnswerBlock{
+			{ID: "b1", Kind: types.BlockSummary, Title: "Conclusion", Text: "the answer is X"},
+		},
+	}
+	out := RenderAnswerDocument(doc, "en")
+	if !strings.Contains(out, "## Conclusion") {
+		t.Errorf("missing summary heading; got %q", out)
+	}
+	if !strings.Contains(out, "the answer is X") {
+		t.Errorf("missing summary body; got %q", out)
+	}
+}
+
+func TestRenderV2_BlockSection(t *testing.T) {
+	doc := &types.AnswerDocumentV2{
+		Blocks: []types.AnswerBlock{
+			{ID: "s1", Kind: types.BlockSection, Title: "Layer A", Text: "responsibility"},
+		},
+	}
+	out := RenderAnswerDocument(doc, "en")
+	if !strings.Contains(out, "### Layer A") {
+		t.Errorf("missing section heading; got %q", out)
+	}
+}
+
+func TestRenderV2_BlockOrderedList(t *testing.T) {
+	doc := &types.AnswerDocumentV2{
+		Blocks: []types.AnswerBlock{
+			{
+				ID:   "l1",
+				Kind: types.BlockOrderedList,
+				Items: []types.AnswerBlockItem{
+					{Label: "Step 1", Text: "do thing", CitationRef: -1},
+					{Label: "Step 2", Text: "next thing", CitationRef: -1},
+				},
+			},
+		},
+	}
+	out := RenderAnswerDocument(doc, "en")
+	if !strings.Contains(out, "1. **Step 1**") || !strings.Contains(out, "2. **Step 2**") {
+		t.Errorf("ordered list rendering wrong; got %q", out)
+	}
+}
+
+func TestRenderV2_BlockBulletList(t *testing.T) {
+	doc := &types.AnswerDocumentV2{
+		Blocks: []types.AnswerBlock{
+			{
+				ID:   "b1",
+				Kind: types.BlockBulletList,
+				Items: []types.AnswerBlockItem{
+					{Label: "Item A", CitationRef: -1},
+					{Label: "Item B", CitationRef: -1},
+				},
+			},
+		},
+	}
+	out := RenderAnswerDocument(doc, "en")
+	if !strings.Contains(out, "- **Item A**") {
+		t.Errorf("bullet list rendering wrong; got %q", out)
+	}
+}
+
+func TestRenderV2_BlockScalar(t *testing.T) {
+	doc := &types.AnswerDocumentV2{
+		Blocks: []types.AnswerBlock{
+			{ID: "v1", Kind: types.BlockScalar, Text: "42"},
+		},
+	}
+	out := RenderAnswerDocument(doc, "en")
+	if !strings.Contains(out, "Value:") || !strings.Contains(out, "`42`") {
+		t.Errorf("scalar rendering wrong; got %q", out)
+	}
+}
+
+func TestRenderV2_BlockScalarZH(t *testing.T) {
+	doc := &types.AnswerDocumentV2{
+		Blocks: []types.AnswerBlock{
+			{ID: "v1", Kind: types.BlockScalar, Text: "42"},
+		},
+	}
+	out := RenderAnswerDocument(doc, "zh")
+	if !strings.Contains(out, "值：") {
+		t.Errorf("scalar zh rendering wrong; got %q", out)
+	}
+}
+
+func TestRenderV2_BlockDecision(t *testing.T) {
+	doc := &types.AnswerDocumentV2{
+		Blocks: []types.AnswerBlock{
+			{ID: "d1", Kind: types.BlockDecision, Text: "Yes"},
+		},
+	}
+	out := RenderAnswerDocument(doc, "en")
+	if !strings.Contains(out, "Decision:") || !strings.Contains(out, "Yes") {
+		t.Errorf("decision rendering wrong; got %q", out)
+	}
+}
+
+func TestRenderV2_BlockTable(t *testing.T) {
+	doc := &types.AnswerDocumentV2{
+		Blocks: []types.AnswerBlock{
+			{
+				ID:    "t1",
+				Kind:  types.BlockTable,
+				Title: "Layers",
+				Items: []types.AnswerBlockItem{
+					{Label: "L1", Text: "first"},
+					{Label: "L2", Text: "second"},
+				},
+			},
+		},
+	}
+	out := RenderAnswerDocument(doc, "en")
+	if !strings.Contains(out, "| L1 | first |") || !strings.Contains(out, "| L2 | second |") {
+		t.Errorf("table rendering wrong; got %q", out)
+	}
+}
+
+func TestRenderV2_BlockDiagram(t *testing.T) {
+	doc := &types.AnswerDocumentV2{
+		Blocks: []types.AnswerBlock{
+			{
+				ID:   "d1",
+				Kind: types.BlockDiagram,
+				Diagram: &types.AnswerDiagramBlock{
+					Kind:     types.DiagramFlow,
+					Language: "mermaid",
+					Body:     "flowchart LR\n  A --> B",
+				},
+			},
+		},
+	}
+	out := RenderAnswerDocument(doc, "en")
+	if !strings.Contains(out, "```mermaid") || !strings.Contains(out, "flowchart LR") {
+		t.Errorf("diagram rendering wrong; got %q", out)
+	}
+}
+
+func TestRenderV2_BlockCaveat(t *testing.T) {
+	doc := &types.AnswerDocumentV2{
+		Blocks: []types.AnswerBlock{
+			{ID: "c1", Kind: types.BlockCaveat, Text: "scope is bounded"},
+		},
+	}
+	out := RenderAnswerDocument(doc, "en")
+	if !strings.Contains(out, "> scope is bounded") {
+		t.Errorf("caveat rendering wrong; got %q", out)
+	}
+}
+
+func TestRenderV2_DocumentLevelCaveatsAndCitations(t *testing.T) {
+	doc := &types.AnswerDocumentV2{
+		Blocks: []types.AnswerBlock{
+			{ID: "b1", Kind: types.BlockSummary, Text: "x"},
+		},
+		Caveats: []string{"out of scope"},
+		Citations: []types.Citation{
+			{File: "internal/foo.go", Line: 42, Scope: types.ScopeLine},
+		},
+	}
+	out := RenderAnswerDocument(doc, "en")
+	if !strings.Contains(out, "Caveats:") || !strings.Contains(out, "out of scope") {
+		t.Errorf("doc-level caveat missing; got %q", out)
+	}
+	if !strings.Contains(out, "internal/foo.go:42") {
+		t.Errorf("citation pool missing; got %q", out)
+	}
+}
+
+func TestRenderV2_BoundaryEmptyBlocks(t *testing.T) {
+	doc := &types.AnswerDocumentV2{
+		Blocks: []types.AnswerBlock{
+			{ID: "b1", Kind: types.BlockOrderedList}, // empty Items
+			{ID: "b2", Kind: types.BlockSummary},     // empty Text
+		},
+	}
+	// Should not crash; produces minimal output.
+	out := RenderAnswerDocument(doc, "en")
+	if out == "" {
+		t.Error("expected non-empty output even for empty blocks")
+	}
+}
+
+func TestRenderV2_NilSafe(t *testing.T) {
 	if got := RenderAnswerDocument(nil, "en"); got != "" {
-		t.Errorf("nil doc: got %q, want empty", got)
+		t.Errorf("nil doc should return empty; got %q", got)
 	}
 }
 
-// -------- list_of_symbols --------
+// ── B5-T7 V1/V2 一致性 fixture (smoke-level: V2 渲染产用户 visible markdown) ──
 
-func TestRenderAnswerDocument_ListOfSymbols_Complete_EN(t *testing.T) {
-	doc := &types.AnswerDocument{
-		Shape:               types.ShapeListOfSymbols,
-		SymbolsCompleteness: types.CompletenessComplete,
-		Symbols: []types.AnswerSymbol{
-			{Name: "Foo", File: "a.go", Line: 10, Kind: "function"},
-			{Name: "Bar", File: "b.go", Line: 20, Kind: "method"},
-		},
+func TestRenderV2_AllBlockKindsCoveredBySwitch(t *testing.T) {
+	// 结构性测试: 每 BlockKind 都被 renderer dispatch 处理 (即使是 no-op).
+	// 手段: 构造一个 doc 含每种 BlockKind, 渲染不 panic 且非空.
+	blocks := []types.AnswerBlock{
+		{ID: "1", Kind: types.BlockSummary, Text: "x"},
+		{ID: "2", Kind: types.BlockSection, Title: "S", Text: "y"},
+		{ID: "3", Kind: types.BlockOrderedList, Items: []types.AnswerBlockItem{{Label: "a"}}},
+		{ID: "4", Kind: types.BlockBulletList, Items: []types.AnswerBlockItem{{Label: "a"}}},
+		{ID: "5", Kind: types.BlockScalar, Text: "42"},
+		{ID: "6", Kind: types.BlockDecision, Text: "Yes"},
+		{ID: "7", Kind: types.BlockTable, Items: []types.AnswerBlockItem{{Label: "a", Text: "b"}}},
+		{ID: "8", Kind: types.BlockDiagram, Diagram: &types.AnswerDiagramBlock{Kind: types.DiagramFlow, Body: "x"}},
+		{ID: "9", Kind: types.BlockCaveat, Text: "z"},
 	}
+	if len(blocks) != len(types.AllAnswerBlockKinds()) {
+		t.Fatalf("test fixture covers %d kinds but AllAnswerBlockKinds has %d — update fixture",
+			len(blocks), len(types.AllAnswerBlockKinds()))
+	}
+	doc := &types.AnswerDocumentV2{Blocks: blocks}
 	out := RenderAnswerDocument(doc, "en")
-	// Complete answers have no completeness tag — the answer speaks
-	// for itself. Symbols are listed directly.
-	if strings.Contains(out, "Complete answer") {
-		t.Errorf("complete should not have a header in the body: %q", out)
-	}
-	if !strings.Contains(out, "**Foo**") || !strings.Contains(out, "a.go:10") {
-		t.Errorf("missing Foo/a.go: %q", out)
-	}
-	if !strings.Contains(out, "**Bar**") || !strings.Contains(out, "b.go:20") {
-		t.Errorf("missing Bar/b.go: %q", out)
-	}
-}
-
-func TestRenderAnswerDocument_ListOfSymbols_LowerBound_ZH(t *testing.T) {
-	doc := &types.AnswerDocument{
-		Shape:               types.ShapeListOfSymbols,
-		SymbolsCompleteness: types.CompletenessLowerBound,
-		Symbols:             []types.AnswerSymbol{{Name: "Foo", File: "a.go", Line: 10}},
-	}
-	out := RenderAnswerDocument(doc, "zh")
-	// lower_bound renders as a quiet footer tag, not a header.
-	if !strings.Contains(out, "已确认信息") {
-		t.Errorf("zh lower_bound footer tag missing: %q", out)
-	}
-	if !strings.Contains(out, "Foo") {
-		t.Errorf("symbol missing in zh output: %q", out)
-	}
-}
-
-func TestRenderAnswerDocument_ListOfSymbols_Unknown_EN(t *testing.T) {
-	doc := &types.AnswerDocument{
-		Shape:               types.ShapeListOfSymbols,
-		SymbolsCompleteness: types.CompletenessUnknown,
-		Symbols:             []types.AnswerSymbol{{Name: "X", File: "a.go", Line: 1}},
-	}
-	out := RenderAnswerDocument(doc, "en")
-	// unknown renders as a quiet footer tag.
-	if !strings.Contains(out, "non-authoritative") {
-		t.Errorf("unknown footer tag missing: %q", out)
-	}
-}
-
-// -------- step_list --------
-
-func TestRenderAnswerDocument_StepList_EN_WithCitations(t *testing.T) {
-	doc := &types.AnswerDocument{
-		Shape:   types.ShapeStepList,
-		Summary: "Three branches dispatch the request.",
-		Steps: []types.AnswerStep{
-			{Index: 1, Description: "First branch", CitationRef: 0},
-			{Index: 2, Description: "Second branch", CitationRef: 1},
-			{Index: 3, Description: "Third branch", CitationRef: types.CitationRefUnset},
-		},
-		Citations: []types.Citation{
-			{File: "a.go", Line: 10},
-			{File: "b.go", Line: 20},
-		},
-	}
-	out := RenderAnswerDocument(doc, "en")
-	if !strings.Contains(out, "Three branches dispatch") {
-		t.Errorf("summary missing: %q", out)
-	}
-	if !strings.Contains(out, "1. First branch") {
-		t.Errorf("step 1 missing: %q", out)
-	}
-	if !strings.Contains(out, "a.go:10") {
-		t.Errorf("cite 0 missing: %q", out)
-	}
-	if !strings.Contains(out, "b.go:20") {
-		t.Errorf("cite 1 missing: %q", out)
-	}
-	// Step 3 has CitationRef=-1: no cite suffix.
-	lines := strings.Split(out, "\n")
-	var step3 string
-	for _, l := range lines {
-		if strings.HasPrefix(l, "3. ") {
-			step3 = l
-			break
-		}
-	}
-	if step3 == "" {
-		t.Fatalf("step 3 line not found: %q", out)
-	}
-	if strings.Contains(step3, ":") && strings.Contains(step3, "`") {
-		// A cite suffix would be like `[a.go:10]`. Its absence is the
-		// invariant we want.
-		if strings.Contains(step3, "[`") {
-			t.Errorf("step 3 unexpectedly rendered a cite: %q", step3)
-		}
-	}
-}
-
-func TestRenderAnswerDocument_StepList_ZH(t *testing.T) {
-	doc := &types.AnswerDocument{
-		Shape: types.ShapeStepList,
-		Steps: []types.AnswerStep{
-			{Index: 1, Description: "第一步", CitationRef: -1},
-		},
-	}
-	out := RenderAnswerDocument(doc, "zh")
-	if !strings.Contains(out, "步骤") {
-		t.Errorf("zh step_list header missing: %q", out)
-	}
-}
-
-// TestRenderAnswerDocument_StepList_KindMarkers pins the Plan D
-// rollout (2026-05-02): flow / caveat steps render with a leading
-// (narration) / (scope note) marker so the user can tell them
-// apart from principal items. Principal renders byte-identical to
-// pre-Kind output (no marker).
-func TestRenderAnswerDocument_StepList_KindMarkers_EN(t *testing.T) {
-	doc := &types.AnswerDocument{
-		Shape:   types.ShapeStepList,
-		Summary: "Mixed step kinds.",
-		Steps: []types.AnswerStep{
-			{Index: 1, Description: "principal item one", CitationRef: 0, Kind: types.AnswerStepKindPrincipal},
-			{Index: 2, Description: "transition narration", CitationRef: 0, Kind: types.AnswerStepKindFlow},
-			{Index: 3, Description: "principal item two", CitationRef: 0, Kind: types.AnswerStepKindPrincipal},
-			{Index: 4, Description: "applicable only when X", CitationRef: types.CitationRefUnset, Kind: types.AnswerStepKindCaveat},
-		},
-		Citations: []types.Citation{{File: "a.go", Line: 10}},
-	}
-	out := RenderAnswerDocument(doc, "en")
-	if !strings.Contains(out, "1. principal item one") {
-		t.Errorf("principal step rendered with marker (should be plain): %q", out)
-	}
-	if !strings.Contains(out, "*(narration)*") {
-		t.Errorf("flow step missing (narration) marker: %q", out)
-	}
-	if !strings.Contains(out, "*(scope note)*") {
-		t.Errorf("caveat step missing (scope note) marker: %q", out)
-	}
-}
-
-// TestRenderAnswerDocument_StepList_KindMarkers_ZH pins the
-// bilingual variant of the markers.
-func TestRenderAnswerDocument_StepList_KindMarkers_ZH(t *testing.T) {
-	doc := &types.AnswerDocument{
-		Shape:   types.ShapeStepList,
-		Summary: "混合步骤类型。",
-		Steps: []types.AnswerStep{
-			{Index: 1, Description: "主项目一", CitationRef: 0, Kind: types.AnswerStepKindPrincipal},
-			{Index: 2, Description: "过渡说明", CitationRef: 0, Kind: types.AnswerStepKindFlow},
-			{Index: 3, Description: "适用范围说明", CitationRef: types.CitationRefUnset, Kind: types.AnswerStepKindCaveat},
-		},
-		Citations: []types.Citation{{File: "a.go", Line: 10}},
-	}
-	out := RenderAnswerDocument(doc, "zh")
-	if !strings.Contains(out, "*（过渡）*") {
-		t.Errorf("zh flow step missing （过渡） marker: %q", out)
-	}
-	if !strings.Contains(out, "*（适用范围）*") {
-		t.Errorf("zh caveat step missing （适用范围） marker: %q", out)
-	}
-}
-
-// TestRenderAnswerDocument_StepList_BackCompatNoKind pins back-compat:
-// steps with Kind="" render byte-identical to pre-Kind output (no
-// marker), matching the NormalizeAnswerStepKind back-compat default.
-func TestRenderAnswerDocument_StepList_BackCompatNoKind(t *testing.T) {
-	doc := &types.AnswerDocument{
-		Shape: types.ShapeStepList,
-		Steps: []types.AnswerStep{
-			{Index: 1, Description: "first", CitationRef: 0},
-			{Index: 2, Description: "second", CitationRef: 0},
-		},
-		Citations: []types.Citation{{File: "a.go", Line: 10}},
-	}
-	out := RenderAnswerDocument(doc, "en")
-	if strings.Contains(out, "(narration)") || strings.Contains(out, "(scope note)") {
-		t.Errorf("back-compat empty-kind must NOT render markers: %q", out)
-	}
-	if !strings.Contains(out, "1. first") || !strings.Contains(out, "2. second") {
-		t.Errorf("back-compat step rendering broken: %q", out)
-	}
-}
-
-// -------- value + config_value --------
-
-func TestRenderAnswerDocument_Value_EN(t *testing.T) {
-	doc := &types.AnswerDocument{
-		Shape:     types.ShapeValue,
-		Value:     &types.AnswerValue{Literal: "explorer", CitationRef: 0},
-		Citations: []types.Citation{{File: "a.go", Line: 42}},
-	}
-	out := RenderAnswerDocument(doc, "en")
-	if !strings.Contains(out, "The answer is `explorer`") {
-		t.Errorf("value lead missing: %q", out)
-	}
-	if !strings.Contains(out, "`explorer`") {
-		t.Errorf("literal missing: %q", out)
-	}
-	if !strings.Contains(out, "a.go:42") {
-		t.Errorf("citation missing: %q", out)
-	}
-}
-
-func TestRenderAnswerDocument_Value_ZH(t *testing.T) {
-	doc := &types.AnswerDocument{
-		Shape:     types.ShapeValue,
-		Value:     &types.AnswerValue{Literal: "buildAnalysisIR", CitationRef: 0},
-		Citations: []types.Citation{{File: "internal/agent/analyzer.go", Line: 565}},
-	}
-	out := RenderAnswerDocument(doc, "zh")
-	if !strings.Contains(out, "答案是 `buildAnalysisIR`") {
-		t.Errorf("zh value lead missing: %q", out)
-	}
-}
-
-func TestRenderAnswerDocument_ConfigValue_ZH(t *testing.T) {
-	doc := &types.AnswerDocument{
-		Shape:     types.ShapeConfigValue,
-		Value:     &types.AnswerValue{Key: "default_agent", Literal: "explorer", CitationRef: 0},
-		Citations: []types.Citation{{File: "config.yaml", Line: 5}},
-	}
-	out := RenderAnswerDocument(doc, "zh")
-	if !strings.Contains(out, "default_agent") || !strings.Contains(out, "explorer") {
-		t.Errorf("config value round-trip failed: %q", out)
-	}
-	if !strings.Contains(out, "配置项") {
-		t.Errorf("zh config header missing: %q", out)
-	}
-}
-
-// -------- boolean --------
-
-func TestRenderAnswerDocument_Boolean_YES_EN(t *testing.T) {
-	doc := &types.AnswerDocument{
-		Shape:   types.ShapeBoolean,
-		Boolean: &types.AnswerBoolean{Decision: true, Rationale: "the flag gates the path", CitationRef: -1},
-	}
-	out := RenderAnswerDocument(doc, "en")
-	if !strings.HasPrefix(out, "**YES**") {
-		t.Errorf("boolean lead not YES: %q", out)
-	}
-	if !strings.Contains(out, "the flag gates the path") {
-		t.Errorf("rationale missing: %q", out)
-	}
-}
-
-func TestRenderAnswerDocument_Boolean_NO_ZH(t *testing.T) {
-	doc := &types.AnswerDocument{
-		Shape:   types.ShapeBoolean,
-		Boolean: &types.AnswerBoolean{Decision: false, Rationale: "标志默认关闭", CitationRef: -1},
-	}
-	out := RenderAnswerDocument(doc, "zh")
-	if !strings.HasPrefix(out, "**否**") {
-		t.Errorf("zh boolean lead not 否: %q", out)
-	}
-}
-
-// -------- explanation + fallback --------
-
-func TestRenderAnswerDocument_Explanation_WithPool(t *testing.T) {
-	doc := &types.AnswerDocument{
-		Shape:   types.ShapeExplanation,
-		Summary: "Codrax uses a 6-layer pipeline.",
-		Citations: []types.Citation{
-			{File: "CLAUDE.md", Line: 10, Quote: "orchestration layer"},
-		},
-	}
-	out := RenderAnswerDocument(doc, "en")
-	if !strings.Contains(out, "Codrax uses a 6-layer pipeline") {
-		t.Errorf("summary missing: %q", out)
-	}
-	if !strings.Contains(out, "CLAUDE.md:10") {
-		t.Errorf("citation missing: %q", out)
-	}
-	if !strings.Contains(out, "orchestration layer") {
-		t.Errorf("quote missing: %q", out)
-	}
-}
-
-// TestRenderAnswerDocument_Explanation_WithSkeleton pins the 2026-04-17
-// change: shape=explanation with non-empty symbols[] renders a Key
-// Anchors block between the summary prose and the citation pool.
-// English and Chinese variants both get the section header.
-func TestRenderAnswerDocument_Explanation_WithSkeleton(t *testing.T) {
-	doc := &types.AnswerDocument{
-		Shape:   types.ShapeExplanation,
-		Summary: "Explorer dispatches work to SubExplorer via ProposeSubAgents.",
-		Symbols: []types.AnswerSymbol{
-			{Name: "ProposeSubAgents", File: "internal/tool/propose_sub_agents.go", Line: 18, Rationale: "sub-topic 1: proposal schema"},
-			{Name: "SubExplorer", File: "internal/agent/sub_explorer.go", Line: 25, Rationale: "sub-topic 2: execution path"},
-		},
-	}
-	out := RenderAnswerDocument(doc, "en")
-	if !strings.Contains(out, "Key anchors:") {
-		t.Errorf("English skeleton header missing: %q", out)
-	}
-	if !strings.Contains(out, "ProposeSubAgents") || !strings.Contains(out, "propose_sub_agents.go:18") {
-		t.Errorf("first anchor missing: %q", out)
-	}
-	if !strings.Contains(out, "SubExplorer") || !strings.Contains(out, "sub_explorer.go:25") {
-		t.Errorf("second anchor missing: %q", out)
-	}
-	if !strings.Contains(out, "sub-topic 1") || !strings.Contains(out, "sub-topic 2") {
-		t.Errorf("rationale rendered: %q", out)
-	}
-
-	outZH := RenderAnswerDocument(doc, "zh")
-	if !strings.Contains(outZH, "关键锚点") {
-		t.Errorf("Chinese skeleton header missing: %q", outZH)
-	}
-}
-
-// TestRenderAnswerDocument_Explanation_NoSkeletonWhenEmpty locks the
-// backwards-compatible path: explanation without symbols[] renders
-// as before — no spurious Key Anchors block.
-func TestRenderAnswerDocument_Explanation_NoSkeletonWhenEmpty(t *testing.T) {
-	doc := &types.AnswerDocument{
-		Shape:   types.ShapeExplanation,
-		Summary: "single-topic answer.",
-	}
-	out := RenderAnswerDocument(doc, "en")
-	if strings.Contains(out, "Key anchors") {
-		t.Errorf("empty symbols[] must not render anchor block: %q", out)
-	}
-}
-
-// -------- caveats + edge cases --------
-
-func TestRenderAnswerDocument_Caveats_Appended(t *testing.T) {
-	doc := &types.AnswerDocument{
-		Shape:   types.ShapeExplanation,
-		Summary: "short answer",
-		Caveats: []string{"investigation was bounded", "one file unread"},
-	}
-	out := RenderAnswerDocument(doc, "en")
-	// Caveats render as italic lines in the footer, not a bold header.
-	if !strings.Contains(out, "investigation was bounded") || !strings.Contains(out, "one file unread") {
-		t.Errorf("caveat bodies missing: %q", out)
-	}
-	if !strings.Contains(out, "---") {
-		t.Errorf("footer separator missing: %q", out)
-	}
-}
-
-func TestRenderAnswerDocument_LookupCitation_OutOfRange(t *testing.T) {
-	// CitationRef=5 with a 1-entry pool must render WITHOUT a citation
-	// suffix and WITHOUT crashing. The schema validator prevents this
-	// in the normal path, but the renderer must still be defensive.
-	doc := &types.AnswerDocument{
-		Shape: types.ShapeStepList,
-		Steps: []types.AnswerStep{
-			{Index: 1, Description: "oops", CitationRef: 5},
-		},
-		Citations: []types.Citation{{File: "a.go", Line: 1}},
-	}
-	out := RenderAnswerDocument(doc, "en")
-	if !strings.Contains(out, "oops") {
-		t.Errorf("step body missing: %q", out)
-	}
-	// A.go:1 exists in the pool but is NOT referenced by CitationRef=5;
-	// since the fallback is to silently drop the cite suffix, we assert
-	// the line does not appear.
-	if strings.Contains(out, "[`a.go:1`]") {
-		t.Errorf("out-of-range CitationRef leaked a cite: %q", out)
-	}
-}
-
-func TestRenderAnswerDocument_LangFallback(t *testing.T) {
-	doc := &types.AnswerDocument{
-		Shape:               types.ShapeListOfSymbols,
-		SymbolsCompleteness: types.CompletenessComplete,
-		Symbols:             []types.AnswerSymbol{{Name: "X", File: "a.go", Line: 1}},
-	}
-	// "japanese" is not a recognized locale → fallback to English.
-	// Complete claims have no tag, so just verify symbols render.
-	out := RenderAnswerDocument(doc, "japanese")
-	if !strings.Contains(out, "**X**") {
-		t.Errorf("lang fallback did not render symbol: %q", out)
-	}
-}
-
-// TestRenderAnswerDocument_Snippets — Snippets section renders each
-// snippet as `📄 **<file>:<lines>**` header + blank line + language-
-// tagged fenced code block. The 📄 + bold + blank-line shape is
-// load-bearing: it visually separates the file:line anchor from the
-// adjacent code fence (pre-2026-04-29 the bare `<file>:<lines>`
-// inline code blurred into the fence's own monospace style — the
-// user reported "file:line 后面跟的代码片段和 file:line 融在一起").
-//
-// Single-line snippets render as "file:N" without the range suffix.
-func TestRenderAnswerDocument_Snippets(t *testing.T) {
-	doc := &types.AnswerDocument{
-		Shape:   types.ShapeExplanation,
-		Summary: "The mechanism works like this.",
-		Snippets: []types.CodeSnippet{
-			{File: "a.go", StartLine: 10, EndLine: 14, Language: "go",
-				Code: "func Foo() {\n    bar()\n}"},
-			{File: "b.py", StartLine: 5, EndLine: 5, Language: "python",
-				Code: "def baz(): pass"},
-		},
-	}
-	out := RenderAnswerDocument(doc, "en")
-	if !strings.Contains(out, "Key snippets:") {
-		t.Errorf("English header missing: %q", out)
-	}
-	// New header shape: 📄 + bold inline-code + trailing blank line.
-	if !strings.Contains(out, "📄 **`a.go:10-14`**\n\n") {
-		t.Errorf("range snippet header must be `📄 **<file>:<range>**` with blank line; got %q", out)
-	}
-	if !strings.Contains(out, "📄 **`b.py:5`**\n\n") {
-		t.Errorf("single-line snippet header must be `📄 **<file>:<line>**` (no range suffix) with blank line; got %q", out)
-	}
-	if !strings.Contains(out, "```go") {
-		t.Errorf("language tag missing for Go snippet: %q", out)
-	}
-	if !strings.Contains(out, "```python") {
-		t.Errorf("language tag missing for Python snippet: %q", out)
-	}
-	if !strings.Contains(out, "func Foo()") || !strings.Contains(out, "def baz()") {
-		t.Errorf("snippet bodies missing: %q", out)
-	}
-
-	// Chinese locale header.
-	outZH := RenderAnswerDocument(doc, "zh")
-	if !strings.Contains(outZH, "关键代码") {
-		t.Errorf("Chinese header missing: %q", outZH)
-	}
-	// Per-snippet header shape is identical across locales (only the
-	// section heading differs); check the bold form lands in zh too.
-	if !strings.Contains(outZH, "📄 **`a.go:10-14`**\n\n") {
-		t.Errorf("zh snippet header missing bold/anchor shape; got %q", outZH)
-	}
-}
-
-func TestTableCell(t *testing.T) {
-	cases := []struct {
-		name string
-		in   string
-		want string
-	}{
-		{"empty", "", ""},
-		{"plain", "hello world", "hello world"},
-		{"pipe escaped", "a|b|c", `a\|b\|c`},
-		{"newline becomes space", "line1\nline2", "line1 line2"},
-		{"CRLF collapsed", "line1\r\nline2", "line1 line2"},
-		{"tab becomes space", "col1\tcol2", "col1 col2"},
-		{"multiple whitespace collapsed", "a   b\n\nc", "a b c"},
-		{"NBSP normalised", "a\u00A0b", "a b"},
-		{"leading/trailing trim", "  x  ", "x"},
-		{"CJK preserved with pipe", "名称 | 值", `名称 \| 值`},
-		{"backticks kept", "`code`", "`code`"},
-	}
-	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) {
-			got := tableCell(c.in)
-			if got != c.want {
-				t.Errorf("tableCell(%q) = %q, want %q", c.in, got, c.want)
-			}
-		})
-	}
-}
-
-// TestRenderAnswerDocument_ListOfSymbols_PipeInRationaleEscaped:
-// a rationale containing `|` must not break the table row.
-func TestRenderAnswerDocument_ListOfSymbols_PipeInRationaleEscaped(t *testing.T) {
-	doc := &types.AnswerDocument{
-		Shape:   types.ShapeListOfSymbols,
-		Summary: "s",
-		Symbols: []types.AnswerSymbol{{Name: "Foo", File: "a.go", Line: 1, Rationale: "handles a | b cases"}},
-	}
-	out := RenderAnswerDocument(doc, "en")
-	if !strings.Contains(out, `handles a \| b cases`) {
-		t.Errorf("pipe in rationale should be escaped, got:\n%s", out)
-	}
-}
-
-// TestRenderAnswerDocument_NoSnippetsNoRenderBlock — empty Snippets
-// skips the Key snippets section entirely (no blank header).
-func TestRenderAnswerDocument_NoSnippetsNoRenderBlock(t *testing.T) {
-	doc := &types.AnswerDocument{
-		Shape:   types.ShapeExplanation,
-		Summary: "x",
-	}
-	out := RenderAnswerDocument(doc, "en")
-	if strings.Contains(out, "Key snippets") {
-		t.Errorf("empty Snippets must not render header: %q", out)
-	}
-}
-
-// TestRenderCitationDisplay_PerScope pins the per-scope citation
-// rendering: each scope gets its own visual format so the answer
-// surface clearly distinguishes a per-line cite from a layer cite or
-// an absence cite.
-func TestRenderCitationDisplay_PerScope(t *testing.T) {
-	cases := []struct {
-		name string
-		c    types.Citation
-		want string
-	}{
-		{
-			name: "line scope (default)",
-			c:    types.Citation{File: "a.go", Line: 42, Scope: types.ScopeLine},
-			want: "`a.go:42`",
-		},
-		{
-			name: "line legacy empty scope",
-			c:    types.Citation{File: "a.go", Line: 42},
-			want: "`a.go:42`",
-		},
-		{
-			name: "line_range with end",
-			c:    types.Citation{File: "config.go", Line: 100, LineEnd: 150, Scope: types.ScopeLineRange},
-			want: "`config.go:100-150`",
-		},
-		{
-			name: "section",
-			c:    types.Citation{File: "codrax.yaml", Line: 50, Scope: types.ScopeSection, SectionPath: "explore_*"},
-			want: "`codrax.yaml:50` [section: `explore_*`]",
-		},
-		{
-			name: "section without line",
-			c:    types.Citation{File: "codrax.yaml", Scope: types.ScopeSection, SectionPath: "explore_*"},
-			want: "`codrax.yaml` [section: `explore_*`]",
-		},
-		{
-			name: "file",
-			c:    types.Citation{File: "codrax.yaml", Scope: types.ScopeFile, FileRoleLabel: types.FileRoleConfigCanonical},
-			want: "`codrax.yaml` [layer: config_canonical]",
-		},
-		{
-			name: "crossfile with summary",
-			c:    types.Citation{Scope: types.ScopeCrossfile, CrossfileSummary: "explore_* has no CLI flag"},
-			want: "cross-file contract: explore_* has no CLI flag",
-		},
-		{
-			name: "negative",
-			c:    types.Citation{File: "codrax.yaml", Scope: types.ScopeNegative, NegativePattern: "explore_mid_loop_hint_budget"},
-			want: "`codrax.yaml` [absence: `explore_mid_loop_hint_budget`]",
-		},
-		{
-			name: "line with quote",
-			c:    types.Citation{File: "a.go", Line: 42, Quote: "func Foo() {", Scope: types.ScopeLine},
-			want: "`a.go:42` — func Foo() {",
-		},
-	}
-	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) {
-			got := renderCitationDisplay(c.c)
-			if got != c.want {
-				t.Errorf("renderCitationDisplay() = %q, want %q", got, c.want)
-			}
-		})
+	if out == "" {
+		t.Fatal("expected non-empty render for full-coverage doc")
 	}
 }

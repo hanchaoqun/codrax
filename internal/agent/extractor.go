@@ -1340,14 +1340,35 @@ func NewExtractorAgent(deps *Dependencies) Agent {
 	})
 }
 
-// isListOfSymbolsShape reports whether the analyzer resolved the
-// answer shape to list_of_symbols. Used by Observe to decide whether
+// isListOfSymbolsShape reports whether the answer is enumeration-
+// shaped — i.e. the LLM is expected to emit a slate of named anchors
+// via emit_answer_symbol. Used by Observe to decide whether
 // emit_answer_symbol is an expected tool for this dispatch.
+//
+// B8-T1 part 2 (block_only_carrier.md §5.8, 2026-05-03): converted
+// from V1 shape check to V2 Family-aware. Reads the typed
+// QuestionFamily (QFEnumeration ⇒ true) primarily; V1 ShapeListOfSymbols
+// remains as a fallback for the rare case where AnalysisIR is set
+// but the V2 surface plan can't be built. The Family check covers
+// the V2 default path; the V1 check covers the rollback path
+// (--emit-v2=off / pipeline_emit_v2_default=false).
 func isListOfSymbolsShape(ctx *types.AgentContext) bool {
 	if ctx == nil || ctx.AnalysisIR == nil {
 		return false
 	}
-	return ctx.AnalysisIR.AnswerContract.RequiredAnswerShape == types.ShapeListOfSymbols
+	// V1 LLM-emitted shape takes priority: when the analyzer
+	// declared a specific shape, honour it. Falls through to the
+	// V2 Family-aware path only when shape is unset / placeholder
+	// (ShapeNone or "") so the V2 carrier path can still detect
+	// enumeration intent from the typed QuestionFamily.
+	switch ctx.AnalysisIR.AnswerContract.RequiredAnswerShape {
+	case types.ShapeListOfSymbols:
+		return true
+	case types.ShapeStepList, types.ShapeValue, types.ShapeBoolean,
+		types.ShapeConfigValue, types.ShapeExplanation:
+		return false
+	}
+	return types.ResolveQuestionFamily(ctx.AnalysisIR.RequestModel) == types.QFEnumeration
 }
 
 func extractorAnswerSurfacePlan(ctx *types.AgentContext) *types.AnswerSurfacePlan {
@@ -1365,17 +1386,41 @@ func requestedEnumerationBoundary(ctx *types.AgentContext) *types.RequestedEnume
 	return boundary
 }
 
+// isBoundedPrincipalStepList reports whether the answer is a
+// bounded-count ordered sequence (the user declared "the N steps" /
+// "前 N 个" etc.) AND the family naturally produces an ordered list.
+//
+// B8-T1 part 2 (2026-05-03): converted to V2 Family-aware. V2 path:
+// QFCallChain / QFRootCauseTrace produce ordered lists (block kind
+// BlockOrderedList) by their family contract, so a bounded
+// enumeration boundary on those families counts. V1 fallback:
+// ShapeStepList (for rollback runs).
 func isBoundedPrincipalStepList(ctx *types.AgentContext) bool {
 	if ctx == nil || ctx.AnalysisIR == nil {
-		return false
-	}
-	if ctx.AnalysisIR.AnswerContract.RequiredAnswerShape != types.ShapeStepList {
 		return false
 	}
 	if requestedEnumerationBoundary(ctx) == nil {
 		return false
 	}
-	return types.RequestedEnumerationBoundaryOwner(ctx.AnalysisIR.RequestModel) != ""
+	if types.RequestedEnumerationBoundaryOwner(ctx.AnalysisIR.RequestModel) == "" {
+		return false
+	}
+	// V1 LLM-emitted shape takes priority (matches the historical
+	// fixture semantics). V2 Family path covers V2-default runs
+	// where shape might be left zero.
+	switch ctx.AnalysisIR.AnswerContract.RequiredAnswerShape {
+	case types.ShapeStepList:
+		return true
+	case types.ShapeListOfSymbols, types.ShapeValue, types.ShapeBoolean,
+		types.ShapeConfigValue, types.ShapeExplanation:
+		return false
+	}
+	family := types.ResolveQuestionFamily(ctx.AnalysisIR.RequestModel)
+	switch family {
+	case types.QFCallChain, types.QFRootCauseTrace:
+		return true
+	}
+	return false
 }
 
 func needsAnswerSymbols(ctx *types.AgentContext) bool {

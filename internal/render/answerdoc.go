@@ -7,550 +7,308 @@ import (
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
-// answerdoc.go — P2.2 deterministic AnswerDocument → prose renderer.
+// RenderAnswerDocument renders an AnswerDocumentV2 (block-only
+// carrier) into the user-visible markdown string. B5 落地. The
+// renderer iterates blocks in declared order; each block kind has a
+// dedicated helper. Citations + Snippets blocks render after the
+// main blocks, mirroring V1's RenderAnswerDocument tail.
 //
-// This file is independent of the CLI Renderer struct (renderer.go).
-// Both live in package render for organizational reasons: the CLI
-// Renderer handles streaming event output, and RenderAnswerDocument
-// handles one-shot final-answer composition. They share no state and
-// can be read, tested, and modified in isolation.
-//
-// Design contract (P2.2 remediation): the finalizer LLM emits a
-// typed AnswerDocument; this
-// renderer is the ONLY path by which that struct becomes user-visible
-// prose. Every per-shape template is a Go string builder — no Go
-// text/template or html/template, no locale library, no plugin
-// system. The goal is that a reviewer can grep `shape=step_list`
-// here and read the exact prose the user will see.
-//
-// Language selection:
-//
-//   - "zh" / "zh-CN" / "zh-cn" / "cn" / "chinese" → Simplified Chinese
-//   - "en" / "en-US" / "english" / "" / "off" / "none" → English
-//   - any other value → English (safe fallback)
-//
-// The language selector mirrors orchestrator.languageDirective so a
-// flag=on session's answers come out in the same language the
-// legacy finalizer would have produced.
-
-// RenderAnswerDocument converts an AnswerDocument into user-visible
-// prose in the specified language. The returned string is the full
-// final-answer body that the finalizer's ParseOutput stores in
-// StageOutput.FinalAnswer.
-//
-// A nil document returns an empty string — the caller is responsible
-// for treating that as a retry or fallback condition.
-//
-// The renderer never reads any state outside the document itself;
-// all per-shape content is assembled from doc.Steps / doc.Symbols /
-// etc. and citations are resolved through doc.Citations[CitationRef].
-// This is the structural invariant that makes Patterns 1-4
-// impossible: a step without a cited line references a Citation that
-// was itself validated by emit_answer_document, and the renderer
-// cannot emit a line that was not in the pool.
-func RenderAnswerDocument(doc *types.AnswerDocument, lang string) string {
+// Per docs/migration/block_only_carrier.md §5.5 design:
+//   - NO shape switch — the renderer never reads doc.Shape (V2 has
+//     none); it dispatches on per-block Kind.
+//   - The renderer NEVER writes to the document — output is the
+//     final string only. Per the feedback_no_system_backfill_to_user
+//     _panel red line, we cannot mutate doc.Blocks even to upgrade
+//     missing block IDs.
+//   - Caveat / surface_role / claim_uses are read for display
+//     decoration but never modified.
+func RenderAnswerDocument(doc *types.AnswerDocumentV2, lang string) string {
 	if doc == nil {
 		return ""
 	}
-	l := normalizeAnswerDocLang(lang)
-
+	docLang := normalizeAnswerDocLang(lang)
 	var b strings.Builder
 
-	// Optional summary lead-in. Rendered for every shape when set,
-	// since it is the one LLM-authored prose slot and carries the
-	// natural-language framing the user expects.
-	if s := strings.TrimSpace(doc.Summary); s != "" {
-		b.WriteString(s)
-		b.WriteString("\n\n")
+	for _, blk := range doc.Blocks {
+		renderAnswerDocV2Block(&b, blk, doc, docLang)
 	}
 
-	switch doc.Shape {
-	case types.ShapeListOfSymbols:
-		renderAnswerDocListOfSymbols(&b, doc, l)
-	case types.ShapeStepList:
-		renderAnswerDocStepList(&b, doc, l)
-	case types.ShapeValue:
-		renderAnswerDocValue(&b, doc, l, false)
-	case types.ShapeConfigValue:
-		renderAnswerDocValue(&b, doc, l, true)
-	case types.ShapeBoolean:
-		renderAnswerDocBoolean(&b, doc, l)
-	case types.ShapeExplanation:
-		// Summary already rendered above. 2026-04-17: explanation
-		// shape now optionally carries an anchor-symbol skeleton for
-		// multi-topic answers (one symbol per sub-topic). When
-		// present, render it as a Key Anchors block between the
-		// summary and the citation pool so the reader sees the
-		// load-bearing identifiers each topic hangs on.
-		if len(doc.Symbols) > 0 {
-			renderAnswerDocExplanationSkeleton(&b, doc, l)
-		}
-	default:
-		// ShapeNone / empty / unknown: degrade gracefully to the
-		// explanation path so the user at least sees Summary and
-		// citations if any.
+	if len(doc.Caveats) > 0 {
+		renderAnswerDocV2Caveats(&b, doc.Caveats, docLang)
 	}
 
-	// Render-only Key snippets block (deterministic, built by
-	// emit_answer_document from read_file gutter at each cited line).
-	// Rendered between shape-specific body and citation pool so the
-	// order is: prose → structured payload → code snippets → citations.
-	//
-	// Skipped for scalar shapes (value / boolean / config_value) —
-	// those shapes have a hard character cap in contract.checkShape
-	// ("value answer too long" etc.) and appending snippets blows
-	// the cap, retrying into the fail-loud banner even when the
-	// literal answer is correct. Snippets belong to shapes whose
-	// contract allows multi-paragraph prose (list_of_symbols /
-	// step_list / explanation). Also skipped when empty
-	// (non-read-backed answers).
-	switch doc.Shape {
-	case types.ShapeValue, types.ShapeBoolean, types.ShapeConfigValue:
-		// scalar shapes: render nothing extra
-	default:
-		if len(doc.Snippets) > 0 {
-			renderAnswerDocSnippets(&b, doc, l)
-		}
+	// Reuse V1's citation pool + snippet renderers; both already
+	// take their input by Citation / CodeSnippet slice — they don't
+	// care about V1 vs V2 docs.
+	if len(doc.Citations) > 0 {
+		renderAnswerDocV2Citations(&b, doc.Citations, docLang)
 	}
-
-	// Citation pool renders last for explanation / unknown-shape
-	// fall-throughs. Structured shapes (list_of_symbols / step_list
-	// / value / config_value / boolean) inline their citations at
-	// the payload level.
-	switch doc.Shape {
-	case types.ShapeListOfSymbols, types.ShapeStepList,
-		types.ShapeValue, types.ShapeConfigValue, types.ShapeBoolean:
-		// payload renderer already inlined citations
-	default:
-		renderAnswerDocCitationPool(&b, doc, l)
-	}
-
-	// Completeness and caveats: render as a quiet footer separated
-	// from the main answer by a blank line. Keeps the answer body
-	// clean and puts metadata where it belongs — at the bottom.
-	var footer []string
-	if doc.Shape == types.ShapeListOfSymbols {
-		if tag := completenessTag(doc.SymbolsCompleteness, l); tag != "" {
-			footer = append(footer, tag)
-		}
-	}
-	for _, c := range doc.Caveats {
-		if t := strings.TrimSpace(c); t != "" {
-			footer = append(footer, t)
-		}
-	}
-	if len(footer) > 0 {
-		b.WriteString("\n---\n")
-		for _, f := range footer {
-			fmt.Fprintf(&b, "*%s*\n", f)
-		}
+	if len(doc.Snippets) > 0 {
+		renderAnswerDocV2Snippets(&b, doc.Snippets, docLang)
 	}
 
 	return strings.TrimRight(b.String(), "\n") + "\n"
 }
 
-// answerDocLang is the normalized internal locale identifier. Only
-// two values exist today; adding a new language means adding a case
-// here and an entry in every answerDoc* helper below. Doing both at
-// the same grep site is the point of the enum.
-type answerDocLang int
-
-const (
-	answerDocLangEN answerDocLang = iota
-	answerDocLangZH
-)
-
-func normalizeAnswerDocLang(lang string) answerDocLang {
-	switch strings.ToLower(strings.TrimSpace(lang)) {
-	case "zh", "zh-cn", "cn", "chinese", "简体中文":
-		return answerDocLangZH
-	}
-	return answerDocLangEN
-}
-
-// -------- Shape: list_of_symbols --------
-
-func renderAnswerDocListOfSymbols(b *strings.Builder, doc *types.AnswerDocument, lang answerDocLang) {
-	if len(doc.Symbols) == 0 {
-		return
-	}
-	// Render as a markdown table for scanability. Tables are
-	// visually denser than bullet lists and let the reader quickly
-	// find a symbol by scanning the Name column.
-	switch lang {
-	case answerDocLangZH:
-		b.WriteString("| 名称 | 位置 | 说明 |\n")
-	default:
-		b.WriteString("| Name | Location | Description |\n")
-	}
-	b.WriteString("|---|---|---|\n")
-	for _, s := range doc.Symbols {
-		name := tableCell("**" + s.Name + "**")
-		loc := ""
-		if s.File != "" && s.Line > 0 {
-			loc = tableCell(fmt.Sprintf("`%s:%d`", s.File, s.Line))
-		} else if s.File != "" {
-			loc = tableCell(fmt.Sprintf("`%s`", s.File))
-		}
-		desc := tableCell(s.Rationale)
-		fmt.Fprintf(b, "| %s | %s | %s |\n", name, loc, desc)
+// renderAnswerDocV2Block dispatches on block.Kind. Unknown / empty
+// kind silently skips — schema validation (B3) already guarantees
+// every block has a valid kind, so this branch is a defensive
+// no-op only.
+func renderAnswerDocV2Block(b *strings.Builder, blk types.AnswerBlock, doc *types.AnswerDocumentV2, lang answerDocLang) {
+	switch blk.Kind {
+	case types.BlockSummary:
+		renderV2BlockSummary(b, blk, lang)
+	case types.BlockSection:
+		renderV2BlockSection(b, blk, lang)
+	case types.BlockOrderedList:
+		renderV2BlockOrderedList(b, blk, doc, lang)
+	case types.BlockBulletList:
+		renderV2BlockBulletList(b, blk, doc, lang)
+	case types.BlockScalar:
+		renderV2BlockScalar(b, blk, doc, lang)
+	case types.BlockDecision:
+		renderV2BlockDecision(b, blk, doc, lang)
+	case types.BlockTable:
+		renderV2BlockTable(b, blk, doc, lang)
+	case types.BlockDiagram:
+		renderV2BlockDiagram(b, blk, lang)
+	case types.BlockCaveat:
+		renderV2BlockCaveat(b, blk, lang)
 	}
 }
 
-// -------- Shape: explanation (anchor skeleton) --------
-
-// renderAnswerDocExplanationSkeleton renders the optional Key Anchors
-// block for multi-topic explanation answers. Each anchor is one
-// symbol + file:line + rationale, laid out bullet-style so the reader
-// can jump from the summary prose to the concrete code location.
-// Invoked only when doc.Symbols is non-empty on ShapeExplanation.
-func renderAnswerDocExplanationSkeleton(b *strings.Builder, doc *types.AnswerDocument, lang answerDocLang) {
-	if len(doc.Symbols) == 0 {
-		return
+func renderV2BlockSummary(b *strings.Builder, blk types.AnswerBlock, _ answerDocLang) {
+	if strings.TrimSpace(blk.Title) != "" {
+		fmt.Fprintf(b, "## %s\n\n", blk.Title)
 	}
-	// Render key anchors as a compact table for quick reference.
-	switch lang {
-	case answerDocLangZH:
-		b.WriteString("\n**关键锚点**：\n\n")
-		b.WriteString("| 组件 | 位置 | 作用 |\n")
-	default:
-		b.WriteString("\n**Key anchors:**\n\n")
-		b.WriteString("| Component | Location | Role |\n")
-	}
-	b.WriteString("|---|---|---|\n")
-	for _, s := range doc.Symbols {
-		name := tableCell("`" + s.Name + "`")
-		loc := ""
-		if s.File != "" && s.Line > 0 {
-			loc = tableCell(fmt.Sprintf("`%s:%d`", s.File, s.Line))
-		} else if s.File != "" {
-			loc = tableCell(fmt.Sprintf("`%s`", s.File))
-		}
-		desc := tableCell(s.Rationale)
-		fmt.Fprintf(b, "| %s | %s | %s |\n", name, loc, desc)
+	if strings.TrimSpace(blk.Text) != "" {
+		b.WriteString(blk.Text)
+		b.WriteString("\n\n")
 	}
 }
 
-// -------- Shape: step_list --------
-
-func renderAnswerDocStepList(b *strings.Builder, doc *types.AnswerDocument, lang answerDocLang) {
-	if len(doc.Steps) == 0 {
-		return
+func renderV2BlockSection(b *strings.Builder, blk types.AnswerBlock, lang answerDocLang) {
+	heading := strings.TrimSpace(blk.Title)
+	if heading == "" {
+		// A Section without an explicit Title is rendered without a
+		// heading line; the body still appears.
+	} else {
+		fmt.Fprintf(b, "### %s\n\n", heading)
 	}
-	// Detailed numbered list with file:line citations. Previously the
-	// renderer also auto-generated a "Flow overview" ASCII chain from
-	// steps[], but that shape assumed steps are linear — when the
-	// answer's step topology is a DAG (branches / parallel / fan-out),
-	// the auto-chain misrepresented the structure. The LLM now owns
-	// non-linear diagrams via the answer-document-skill, placing them
-	// in Summary where the full Unicode palette survives.
-	//
-	// Plan D rollout (2026-05-02): flow / caveat steps render with a
-	// subtle leading marker so the reader can distinguish them from
-	// principal items. The user-asked count (e.g. "9 X") matches the
-	// principal subset — interleaved narration that does NOT count
-	// must be visibly marked. Principals render verbatim (no marker)
-	// for byte-identical pre-Kind output.
-	switch lang {
-	case answerDocLangZH:
-		b.WriteString("**详细步骤**：\n\n")
-	default:
-		b.WriteString("**Detailed steps:**\n\n")
+	if strings.TrimSpace(blk.Text) != "" {
+		b.WriteString(blk.Text)
+		b.WriteString("\n\n")
 	}
-	for _, step := range doc.Steps {
-		marker := stepKindMarker(step.Kind, lang)
-		fmt.Fprintf(b, "%d. %s%s", step.Index, marker, strings.TrimSpace(step.Description))
-		if cite := lookupCitation(doc, step.CitationRef); cite != nil {
-			fmt.Fprintf(b, " [`%s:%d`]", cite.File, cite.Line)
+	if len(blk.Items) > 0 {
+		for _, it := range blk.Items {
+			fmt.Fprintf(b, "- %s\n", renderV2BlockItem(it, nil, lang))
 		}
 		b.WriteString("\n")
 	}
 }
 
-// stepKindMarker returns a short bilingual prefix for non-principal
-// steps so the user-facing rendering visually separates narration and
-// caveat steps from the principal items the question enumerated.
-// Principal (and back-compat empty) returns the empty string so the
-// pre-Kind output shape is byte-identical.
-func stepKindMarker(kind types.AnswerStepKind, lang answerDocLang) string {
-	switch kind {
-	case types.AnswerStepKindFlow:
-		if lang == answerDocLangZH {
-			return "*（过渡）* "
-		}
-		return "*(narration)* "
-	case types.AnswerStepKindCaveat:
-		if lang == answerDocLangZH {
-			return "*（适用范围）* "
-		}
-		return "*(scope note)* "
+func renderV2BlockOrderedList(b *strings.Builder, blk types.AnswerBlock, doc *types.AnswerDocumentV2, lang answerDocLang) {
+	if strings.TrimSpace(blk.Title) != "" {
+		fmt.Fprintf(b, "**%s**\n\n", blk.Title)
 	}
-	return ""
+	if strings.TrimSpace(blk.Text) != "" {
+		b.WriteString(blk.Text)
+		b.WriteString("\n\n")
+	}
+	for i, it := range blk.Items {
+		fmt.Fprintf(b, "%d. %s\n", i+1, renderV2BlockItem(it, doc, lang))
+	}
+	if len(blk.Items) > 0 {
+		b.WriteString("\n")
+	}
 }
 
-// -------- Shape: value + config_value --------
-
-func renderAnswerDocValue(b *strings.Builder, doc *types.AnswerDocument, lang answerDocLang, isConfig bool) {
-	if doc.Value == nil {
-		return
+func renderV2BlockBulletList(b *strings.Builder, blk types.AnswerBlock, doc *types.AnswerDocumentV2, lang answerDocLang) {
+	if strings.TrimSpace(blk.Title) != "" {
+		fmt.Fprintf(b, "**%s**\n\n", blk.Title)
 	}
-	v := doc.Value
-	switch lang {
-	case answerDocLangZH:
-		if isConfig && v.Key != "" {
-			fmt.Fprintf(b, "配置项 `%s` 的值为 `%s`", v.Key, v.Literal)
-		} else {
-			fmt.Fprintf(b, "答案是 `%s`", v.Literal)
-		}
-	default:
-		if isConfig && v.Key != "" {
-			fmt.Fprintf(b, "The config key `%s` resolves to `%s`", v.Key, v.Literal)
-		} else {
-			fmt.Fprintf(b, "The answer is `%s`", v.Literal)
-		}
+	if strings.TrimSpace(blk.Text) != "" {
+		b.WriteString(blk.Text)
+		b.WriteString("\n\n")
 	}
-	if cite := lookupCitation(doc, v.CitationRef); cite != nil {
-		fmt.Fprintf(b, " (`%s:%d`)", cite.File, cite.Line)
+	for _, it := range blk.Items {
+		fmt.Fprintf(b, "- %s\n", renderV2BlockItem(it, doc, lang))
 	}
-	b.WriteString(".\n")
+	if len(blk.Items) > 0 {
+		b.WriteString("\n")
+	}
 }
 
-// -------- Shape: boolean --------
-
-func renderAnswerDocBoolean(b *strings.Builder, doc *types.AnswerDocument, lang answerDocLang) {
-	if doc.Boolean == nil {
+func renderV2BlockScalar(b *strings.Builder, blk types.AnswerBlock, doc *types.AnswerDocumentV2, lang answerDocLang) {
+	prefix := "Value:"
+	if lang == answerDocLangZH {
+		prefix = "值："
+	}
+	literal := strings.TrimSpace(blk.Text)
+	if len(blk.Items) > 0 && literal == "" {
+		// Scalar may use first item's Label as literal when Text is
+		// empty (B3 schema accepts both shapes).
+		literal = strings.TrimSpace(blk.Items[0].Label)
+	}
+	if literal == "" {
 		return
 	}
-	bl := doc.Boolean
-	var lead string
-	switch lang {
-	case answerDocLangZH:
-		if bl.Decision {
-			lead = "**是**"
-		} else {
-			lead = "**否**"
-		}
-	default:
-		if bl.Decision {
-			lead = "**YES**"
-		} else {
-			lead = "**NO**"
-		}
+	fmt.Fprintf(b, "**%s** `%s`", prefix, literal)
+	cite := blockTopCitation(blk, doc)
+	if cite != "" {
+		fmt.Fprintf(b, " (%s)", cite)
 	}
-	fmt.Fprintf(b, "%s — %s", lead, strings.TrimSpace(bl.Rationale))
-	if cite := lookupCitation(doc, bl.CitationRef); cite != nil {
-		fmt.Fprintf(b, " (`%s:%d`)", cite.File, cite.Line)
+	b.WriteString("\n\n")
+	if strings.TrimSpace(blk.Title) != "" {
+		fmt.Fprintf(b, "*%s*\n\n", blk.Title)
+	}
+}
+
+func renderV2BlockDecision(b *strings.Builder, blk types.AnswerBlock, doc *types.AnswerDocumentV2, lang answerDocLang) {
+	prefix := "Decision:"
+	if lang == answerDocLangZH {
+		prefix = "结论："
+	}
+	body := strings.TrimSpace(blk.Text)
+	fmt.Fprintf(b, "**%s** %s", prefix, body)
+	cite := blockTopCitation(blk, doc)
+	if cite != "" {
+		fmt.Fprintf(b, " (%s)", cite)
+	}
+	b.WriteString("\n\n")
+}
+
+func renderV2BlockTable(b *strings.Builder, blk types.AnswerBlock, _ *types.AnswerDocumentV2, _ answerDocLang) {
+	if strings.TrimSpace(blk.Title) != "" {
+		fmt.Fprintf(b, "**%s**\n\n", blk.Title)
+	}
+	if len(blk.Items) == 0 {
+		return
+	}
+	// Two-column rendering: Label | Text. More elaborate column
+	// shapes are postponed to a later refinement; the V2 schema
+	// already gives Label + Text + CitationRef on each item.
+	b.WriteString("| Item | Detail |\n|---|---|\n")
+	for _, it := range blk.Items {
+		label := strings.TrimSpace(it.Label)
+		text := strings.TrimSpace(it.Text)
+		fmt.Fprintf(b, "| %s | %s |\n", escapePipe(label), escapePipe(text))
 	}
 	b.WriteString("\n")
 }
 
-// -------- Shared: citation pool footer --------
-
-// renderAnswerDocCitationPool emits a bulleted list of every citation
-// in the pool. Called by the explanation / fallback path. Shape-
-// specific renderers do NOT call this — they resolve citations
-// inline via lookupCitation — so there is exactly one source of
-// citation rendering per shape.
-//
-// 2026-05+ scope-axis: dispatches per Citation.Scope. Empty Scope
-// falls back to the historical "file:line when both set" rendering.
-func renderAnswerDocCitationPool(b *strings.Builder, doc *types.AnswerDocument, lang answerDocLang) {
-	if len(doc.Citations) == 0 {
+func renderV2BlockDiagram(b *strings.Builder, blk types.AnswerBlock, _ answerDocLang) {
+	if blk.Diagram == nil {
 		return
 	}
-	switch lang {
-	case answerDocLangZH:
+	d := blk.Diagram
+	body := strings.TrimSpace(d.Body)
+	if body == "" {
+		return
+	}
+	if strings.TrimSpace(blk.Title) != "" {
+		fmt.Fprintf(b, "**%s**\n\n", blk.Title)
+	}
+	lang := strings.TrimSpace(d.Language)
+	if lang == "" {
+		lang = "mermaid"
+	}
+	fmt.Fprintf(b, "```%s\n%s\n```\n\n", lang, body)
+}
+
+func renderV2BlockCaveat(b *strings.Builder, blk types.AnswerBlock, _ answerDocLang) {
+	body := strings.TrimSpace(blk.Text)
+	if body == "" {
+		return
+	}
+	// Caveat blocks are rendered with a leading marker so the user
+	// can spot them at a glance. Mirror the docs/architecture.md
+	// guidance: caveats are out-of-band notes, not principal answer.
+	if strings.TrimSpace(blk.Title) != "" {
+		fmt.Fprintf(b, "> **%s** %s\n\n", blk.Title, body)
+		return
+	}
+	fmt.Fprintf(b, "> %s\n\n", body)
+}
+
+// renderV2BlockItem returns the inline string for one item: Label
+// + optional Text + optional citation marker. Used by ordered /
+// bullet / section lists.
+func renderV2BlockItem(it types.AnswerBlockItem, doc *types.AnswerDocumentV2, _ answerDocLang) string {
+	parts := make([]string, 0, 3)
+	if l := strings.TrimSpace(it.Label); l != "" {
+		parts = append(parts, "**"+l+"**")
+	}
+	if t := strings.TrimSpace(it.Text); t != "" {
+		parts = append(parts, t)
+	}
+	out := strings.Join(parts, " — ")
+	if doc != nil && it.CitationRef >= 0 && it.CitationRef < len(doc.Citations) {
+		cite := renderCitationDisplay(doc.Citations[it.CitationRef])
+		if cite != "" {
+			out = out + " (" + cite + ")"
+		}
+	}
+	return out
+}
+
+// blockTopCitation pulls the first valid citation reference from a
+// block's items[] / claim_uses[]. Returns "" when no usable cite
+// exists.
+func blockTopCitation(blk types.AnswerBlock, doc *types.AnswerDocumentV2) string {
+	if doc == nil {
+		return ""
+	}
+	for _, it := range blk.Items {
+		if it.CitationRef >= 0 && it.CitationRef < len(doc.Citations) {
+			return renderCitationDisplay(doc.Citations[it.CitationRef])
+		}
+	}
+	return ""
+}
+
+func renderAnswerDocV2Caveats(b *strings.Builder, caveats []string, lang answerDocLang) {
+	heading := "**Caveats:**"
+	if lang == answerDocLangZH {
+		heading = "**说明**："
+	}
+	fmt.Fprintf(b, "\n%s\n\n", heading)
+	for _, c := range caveats {
+		fmt.Fprintf(b, "- %s\n", strings.TrimSpace(c))
+	}
+}
+
+func renderAnswerDocV2Citations(b *strings.Builder, citations []types.Citation, lang answerDocLang) {
+	if lang == answerDocLangZH {
 		b.WriteString("\n**引用**：\n\n")
-	default:
+	} else {
 		b.WriteString("\n**Citations:**\n\n")
 	}
-	for _, c := range doc.Citations {
+	for _, c := range citations {
 		fmt.Fprintf(b, "- %s\n", renderCitationDisplay(c))
 	}
 }
 
-// renderCitationDisplay produces the per-scope display string for a
-// single Citation, including optional Quote suffix. Centralised so
-// the bullet-list pool, inline shape renderers, and any future
-// rendering surface (markdown table, dock summary) share one
-// definition.
-func renderCitationDisplay(c types.Citation) string {
-	var head string
-	switch c.Scope {
-	case types.ScopeLineRange:
-		if c.LineEnd > c.Line {
-			head = fmt.Sprintf("`%s:%d-%d`", c.File, c.Line, c.LineEnd)
-		} else {
-			head = fmt.Sprintf("`%s:%d`", c.File, c.Line)
-		}
-	case types.ScopeSection:
-		if c.Line > 0 {
-			head = fmt.Sprintf("`%s:%d` [section: `%s`]", c.File, c.Line, c.SectionPath)
-		} else {
-			head = fmt.Sprintf("`%s` [section: `%s`]", c.File, c.SectionPath)
-		}
-	case types.ScopeFile:
-		head = fmt.Sprintf("`%s` [layer: %s]", c.File, c.FileRoleLabel)
-	case types.ScopeCrossfile:
-		summary := strings.TrimSpace(c.CrossfileSummary)
-		if summary == "" {
-			summary = "cross-file contract"
-		}
-		head = fmt.Sprintf("cross-file contract: %s", summary)
-		if c.File != "" {
-			head = fmt.Sprintf("%s (in `%s`)", head, c.File)
-		}
-	case types.ScopeNegative:
-		pattern := strings.TrimSpace(c.NegativePattern)
-		if pattern != "" {
-			head = fmt.Sprintf("`%s` [absence: `%s`]", c.File, pattern)
-		} else {
-			head = fmt.Sprintf("`%s` [absence]", c.File)
-		}
-	default:
-		// ScopeLine or empty (transitional).
-		if c.Line > 0 {
-			head = fmt.Sprintf("`%s:%d`", c.File, c.Line)
-		} else {
-			head = fmt.Sprintf("`%s`", c.File)
-		}
-	}
-	if q := strings.TrimSpace(c.Quote); q != "" {
-		return head + " — " + q
-	}
-	return head
-}
-
-// -------- Code snippets (render-only, added session 8) --------
-
-// renderAnswerDocSnippets emits a "Key snippets" / "关键代码" block
-// showing the clustered code excerpts doc.Snippets carries. Each
-// snippet has a header line `📄 **<file>:<lines>**` followed by a
-// blank line and the language-tagged markdown fence body.
-//
-// The 📄 + bold-inline-code header shape is load-bearing for
-// readability in the REPL: pre-2026-04-29 the header was a bare
-// `<file>:<lines>` inline code, which glamour/chroma rendered in
-// the SAME gray-monospace style as the immediately following code
-// fence — both blurred into one wall of code. Bold lifts the
-// header to the rendered theme's emphasis colour; the 📄 anchor +
-// blank line guarantees the fence visually starts on a new block.
-// See feedback log 2026-04-29 — the user reported "file:line 后面
-// 跟的代码片段和 file:line 融在一起 不容易区分".
-//
-// Empty when no snippets — caller already gated on
-// len(doc.Snippets) > 0 before calling.
-func renderAnswerDocSnippets(b *strings.Builder, doc *types.AnswerDocument, lang answerDocLang) {
-	switch lang {
-	case answerDocLangZH:
+func renderAnswerDocV2Snippets(b *strings.Builder, snippets []types.CodeSnippet, lang answerDocLang) {
+	if lang == answerDocLangZH {
 		b.WriteString("\n**关键代码**：\n\n")
-	default:
+	} else {
 		b.WriteString("\n**Key snippets:**\n\n")
 	}
-	for _, s := range doc.Snippets {
-		// Header: 📄 anchor + bold inline-code + trailing blank
-		// line. The blank line is required so glamour parses the
-		// fence as a separate block; without it some themes would
-		// merge the header into the fence's first code line.
-		if s.StartLine == s.EndLine {
-			fmt.Fprintf(b, "📄 **`%s:%d`**\n\n", s.File, s.StartLine)
-		} else {
-			fmt.Fprintf(b, "📄 **`%s:%d-%d`**\n\n", s.File, s.StartLine, s.EndLine)
-		}
-		if tag := strings.TrimSpace(s.Language); tag != "" {
-			fmt.Fprintf(b, "```%s\n", tag)
-		} else {
-			b.WriteString("```\n")
-		}
-		b.WriteString(s.Code)
-		if !strings.HasSuffix(s.Code, "\n") {
-			b.WriteByte('\n')
-		}
-		b.WriteString("```\n\n")
-	}
-}
-
-// completenessTag returns a short italic tag for the list_of_symbols
-// completeness claim, rendered in the footer. Returns empty for
-// CompletenessComplete (no annotation needed — the answer speaks for
-// itself).
-func completenessTag(claim types.CompletenessClaim, lang answerDocLang) string {
-	switch claim {
-	case types.CompletenessLowerBound:
-		switch lang {
-		case answerDocLangZH:
-			return "以上为已确认信息，可能还有其他符合条件的信息"
-		default:
-			return "confirmed items listed above; more may exist"
-		}
-	case types.CompletenessUnknown:
-		switch lang {
-		case answerDocLangZH:
-			return "以上为候选信息，非权威列表"
-		default:
-			return "candidate items above; non-authoritative"
-		}
-	}
-	// CompletenessComplete: no tag — a complete answer needs no qualifier.
-	return ""
-}
-
-// lookupCitation resolves a CitationRef integer against the
-// document's citation pool. Returns nil when ref == CitationRefUnset
-// (-1), when ref is out of range, or when the pool is empty. The
-// tool-layer schema validator guarantees that a non-unset ref is
-// always in range, so out-of-range here only happens under programmer
-// error and degrades silently (the step / value / boolean line is
-// rendered without a citation suffix).
-func lookupCitation(doc *types.AnswerDocument, ref int) *types.Citation {
-	if ref == types.CitationRefUnset {
-		return nil
-	}
-	if ref < 0 || ref >= len(doc.Citations) {
-		return nil
-	}
-	c := doc.Citations[ref]
-	return &c
-}
-
-// tableCell sanitises a string for safe use inside a markdown table
-// cell. The three things that break a table row are embedded
-// newlines (split the row), literal `|` characters (split a column
-// mid-cell), and leading/trailing whitespace (break the header
-// separator alignment). Newlines become spaces, `|` becomes `\|`
-// (markdown escape), and consecutive whitespace is collapsed so a
-// long rationale with internal line breaks doesn't blow the row
-// up. Empty input returns empty.
-func tableCell(s string) string {
-	if s == "" {
-		return ""
-	}
-	// Normalise every whitespace variant (newline, tab, CR, NBSP) to
-	// a single space before collapsing duplicates. Avoids an LLM-
-	// emitted tab or U+00A0 leaking through strings.Fields.
-	var b strings.Builder
-	b.Grow(len(s))
-	prevSpace := false
-	for _, r := range s {
-		switch r {
-		case '\n', '\r', '\t', '\v', '\f', '\u00A0':
-			if !prevSpace {
-				b.WriteByte(' ')
-				prevSpace = true
+	for _, s := range snippets {
+		header := s.File
+		if s.StartLine > 0 {
+			header = fmt.Sprintf("%s:%d", s.File, s.StartLine)
+			if s.EndLine > s.StartLine {
+				header = fmt.Sprintf("%s-%d", header, s.EndLine)
 			}
-		case '|':
-			b.WriteString(`\|`)
-			prevSpace = false
-		case ' ':
-			if !prevSpace {
-				b.WriteByte(' ')
-				prevSpace = true
-			}
-		default:
-			b.WriteRune(r)
-			prevSpace = false
 		}
+		fmt.Fprintf(b, "📄 **`%s`**\n\n```%s\n%s\n```\n\n", header, s.Language, s.Code)
 	}
-	return strings.TrimSpace(b.String())
 }
 
+// escapePipe replaces unescaped pipe characters in markdown table
+// cells so a Label / Text containing "|" doesn't break the table.
+func escapePipe(s string) string {
+	return strings.ReplaceAll(s, "|", "\\|")
+}

@@ -1,604 +1,206 @@
 package render
 
 import (
-	"fmt"
 	"strings"
 
 	"github.com/hanchaoqun/codrax/internal/authority"
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
-// ApplyAuthorityHedging is the render-time projection from a typed
-// AnswerDocument + evidence pool into a hedge-aware AnswerDocument
-// the renderer can serialise without further awareness. Pure
-// function (no I/O, no LLM) — same inputs always produce the same
-// output. Returns the in-place mutated doc for caller convenience.
+// ApplyAuthorityHedgingV2 is the V2 carrier equivalent of
+// ApplyAuthorityHedging (B5 落地). It projects an AnswerDocumentV2 +
+// evidence pool into a hedge-aware AnswerDocumentV2 the V2 renderer
+// can serialise without further awareness.
 //
-// Hedging strategy by document shape:
+// Per docs/migration/block_only_carrier.md §5.5 design:
+//   - hedging operates at BLOCK level, not at V1 field level. A
+//     block whose principal payload rests on
+//     conditional / historical evidence gets a hedge sentinel
+//     prepended to its Text (or its first item's Text), and a
+//     dedicated BlockCaveat block appended at document end carries
+//     the bilingual drift caveat (instead of V1's doc.Caveats[]
+//     auto-injection).
+//   - Diagram blocks are NOT hedged in-place — the diagram body
+//     stays verbatim; the dedicated BlockCaveat carries the
+//     "diagram lines may have drifted from runtime" disclosure.
+//   - SurfaceRole=support / prose_only / diagram_only blocks are
+//     NEVER hedged — only principal blocks (the answer's main-line
+//     payload) carry hedge sentinels.
 //
-//   - Steps: each AnswerStep's Description is prefixed with a
-//     hedge sentinel when the step's CitationRef points at an anchor
-//     whose underlying evidence has Authority ∈ {conditional,
-//     historical}. The strongest authority among matching evidence
-//     wins (HighestAuthorityFor) — even one factual support permits
-//     a strong claim, so steps with mixed support stay un-hedged.
+// Returns the in-place mutated doc. Nil-safe.
 //
-//   - Symbols: each AnswerSymbol with Authority ∈ {conditional,
-//     historical} has its Rationale prefixed with a hedge sentinel.
-//     Symbols with Authority=illustrative are MOVED to a separate
-//     "Unverified Leads" tier (modelled by a per-symbol prefix the
-//     downstream renderer surfaces with strikethrough), so they
-//     cannot enter causal chains in the user-visible prose.
-//
-//   - Summary: when ANY citation in doc.Citations[] points at an
-//     anchor whose evidence is non-factual, prefix doc.Summary with
-//     the strongest required hedge sentinel. Covers shape=value /
-//     config_value / explanation where Summary IS the body (or its
-//     lead-in) — without this, the contract checker would fire on
-//     a summary that cites drift-bounded evidence and force a retry
-//     the LLM cannot satisfy (the renderer is the only injector).
-//
-//   - Boolean.Rationale: same projection as Summary but scoped to
-//     the Boolean shape's free-form rationale field, which the
-//     renderer prints as the body of YES/NO answers.
-//
-//   - Caveats: when the underlying evidence pool contains any
-//     conditional / historical / illustrative items, append a
-//     drift-bounded caveat to doc.Caveats[]. The caveat is
-//     bilingual + reflects which downgrade severities are present
-//     so a multi-shape answer doesn't get a generic "results may
-//     vary" footnote.
-//
-// Locale: the hedge templates have zh / en variants. Pass the same
-// language string the surrounding renderer normalises (typically
-// e.language on the finalizer evaluator). Other values fall back to
-// English templates.
-//
-// nil-doc safe: returns the input unchanged.
-func ApplyAuthorityHedging(doc *types.AnswerDocument, evidence []types.EvidenceItem, lang string) *types.AnswerDocument {
+// Per the feedback_no_system_backfill_to_user_panel red line, this
+// function is a render-time TRANSFORM — it mutates the doc passed
+// to the renderer, NOT the doc stored on Mutable. Callers (the
+// finalizer's ParseOutput) work on a defensive clone via
+// MutableState.AnswerDocumentV2(), so the on-disk Mutable copy
+// stays untouched.
+func ApplyAuthorityHedging(doc *types.AnswerDocumentV2, evidence []types.EvidenceItem, lang string) *types.AnswerDocumentV2 {
 	if doc == nil {
 		return doc
 	}
 	l := normalizeAnswerDocLang(lang)
 
-	hedgeSteps(doc, evidence, l)
-	hedgeSymbols(doc, l)
-	hedgeSummary(doc, evidence, l)
-	hedgeBoolean(doc, evidence, l)
-	addAuthorityCaveat(doc, evidence, l)
+	hedgeV2PrincipalBlocks(doc, evidence, l)
+	addV2AuthorityCaveat(doc, evidence, l)
 
 	return doc
 }
 
-func hedgeSteps(doc *types.AnswerDocument, evidence []types.EvidenceItem, l answerDocLang) {
-	if len(doc.Steps) == 0 || len(doc.Citations) == 0 {
+// hedgeV2PrincipalBlocks walks blocks; for each principal-role block
+// whose first associated citation rests on non-factual evidence,
+// prefix the block's Text (or first item's Text) with the strongest
+// required hedge sentinel. Skip non-principal / caveat blocks.
+func hedgeV2PrincipalBlocks(doc *types.AnswerDocumentV2, evidence []types.EvidenceItem, l answerDocLang) {
+	if len(doc.Blocks) == 0 || len(doc.Citations) == 0 {
 		return
 	}
-	for i := range doc.Steps {
-		step := &doc.Steps[i]
-		ref := step.CitationRef
-		if ref < 0 || ref >= len(doc.Citations) {
+	for i := range doc.Blocks {
+		blk := &doc.Blocks[i]
+		// Skip caveat blocks (already hedge-shaped) + diagram bodies.
+		if blk.Kind == types.BlockCaveat || blk.Kind == types.BlockDiagram {
 			continue
 		}
-		cit := doc.Citations[ref]
-		// HighestAuthorityFor — at least one factual underlying item
-		// permits a strong claim. Per-step uses MARKER-ONLY (no body)
-		// because the doc-level Caveat already carries the prose
-		// explanation; repeating it on every step dilutes the answer.
-		ceiling := authority.HighestAuthorityFor(evidence, cit.File, cit.Line)
-		marker := hedgeMarkerFor(ceiling)
+		// Skip non-principal blocks: support / prose_only /
+		// diagram_only blocks are not load-bearing for hedging.
+		if blk.SurfaceRole != "" && blk.SurfaceRole != types.SurfacePrincipal {
+			continue
+		}
+		marker := strongestHedgeForV2Block(*blk, doc.Citations, evidence)
 		if marker == "" {
 			continue
 		}
-		step.Description = upsertHedgeMarker(step.Description, marker)
+		applyHedgeMarkerToV2Block(blk, marker, l)
 	}
 }
 
-func hedgeSymbols(doc *types.AnswerDocument, l answerDocLang) {
-	if len(doc.Symbols) == 0 {
-		return
-	}
-	for i := range doc.Symbols {
-		sym := &doc.Symbols[i]
-		marker := hedgeMarkerFor(sym.Authority)
-		if marker == "" {
-			continue
+// strongestHedgeForV2Block walks the block's items[] (and the
+// block-level citations indirectly via items' CitationRef) to find
+// the strongest authority ceiling that requires hedging. Returns
+// the hedge marker string, or "" when no marker applies.
+func strongestHedgeForV2Block(blk types.AnswerBlock, citations []types.Citation, evidence []types.EvidenceItem) string {
+	var top types.AuthorityCeiling
+	considered := false
+	consider := func(refIdx int) {
+		if refIdx < 0 || refIdx >= len(citations) {
+			return
 		}
-		// Marker-only inline (the doc-level Caveat carries the body).
-		// When rationale is empty, set it to a short signed phrase so
-		// the renderer's table column has visible content; otherwise
-		// upsert the marker prefix.
-		if strings.TrimSpace(sym.Rationale) == "" {
-			sym.Rationale = marker + " " + shortHedgeReasonFor(sym.Authority, l)
-			continue
+		c := citations[refIdx]
+		ceil := authority.HighestAuthorityFor(evidence, c.File, c.Line)
+		if !considered {
+			top = ceil
+			considered = true
+			return
 		}
-		sym.Rationale = upsertHedgeMarker(sym.Rationale, marker)
-	}
-}
-
-// hedgeSummary projects the strongest hedge ceiling implied by
-// doc.Citations[] onto doc.Summary. Covers value / config_value /
-// explanation shapes whose Summary is the answer body or its lead-in.
-//
-// Summary uses MARKER + TERSE reason (≤30 chars) because Summary is
-// the prominent prose anchor; per-step + per-symbol use marker only.
-// Idempotent across retries via upsertHedgeMarker which also UPGRADES
-// the ceiling label when stronger evidence arrives on retry.
-func hedgeSummary(doc *types.AnswerDocument, evidence []types.EvidenceItem, l answerDocLang) {
-	summary := strings.TrimSpace(doc.Summary)
-	if summary == "" {
-		return
-	}
-	// Summary spans the whole answer — use the full citation pool.
-	ceiling := strongestCitedCeiling(doc.Citations, evidence)
-	marker := hedgeMarkerFor(ceiling)
-	if marker == "" {
-		return
-	}
-	prefix := marker + " " + shortHedgeReasonFor(ceiling, l)
-	doc.Summary = upsertHedgePrefix(summary, marker, prefix)
-}
-
-// hedgeBoolean is the Boolean shape's analogue: project the hedge
-// onto doc.Boolean.Rationale. Picks the ceiling first from
-// Boolean.CitationRef, then falls back to the broader citation pool
-// (a YES/NO answer often draws on multiple anchors but only carries
-// one citation_ref). Marker + terse reason (rationale is prominent).
-func hedgeBoolean(doc *types.AnswerDocument, evidence []types.EvidenceItem, l answerDocLang) {
-	if doc.Boolean == nil {
-		return
-	}
-	rationale := strings.TrimSpace(doc.Boolean.Rationale)
-	if rationale == "" {
-		return
-	}
-	ceiling := types.AuthorityUnknown
-	if ref := doc.Boolean.CitationRef; ref >= 0 && ref < len(doc.Citations) {
-		cit := doc.Citations[ref]
-		ceiling = authority.HighestAuthorityFor(evidence, cit.File, cit.Line)
-	}
-	if ceiling == types.AuthorityUnknown || ceiling == types.AuthorityFactual {
-		ceiling = strongestCitedCeiling(doc.Citations, evidence)
-	}
-	marker := hedgeMarkerFor(ceiling)
-	if marker == "" {
-		return
-	}
-	prefix := marker + " " + shortHedgeReasonFor(ceiling, l)
-	doc.Boolean.Rationale = upsertHedgePrefix(rationale, marker, prefix)
-}
-
-// strongestCitedCeiling walks every Citation in `cites` and returns
-// the STRONGEST non-factual ceiling implied by the underlying
-// evidence pool.
-//
-// "Strongest" here means most severe (illustrative > historical >
-// conditional), which is the opposite of HighestAuthorityFor's "best
-// available evidence" — we want the hedge to reflect the worst-case
-// claim the answer rests on.
-//
-// Round-4 refinement: takes a CITATION SUBSET (not the full doc) so
-// callers can scope the worst-case calculation to only the cites
-// that actually back the prose surface being hedged. hedgeSummary
-// passes the full pool (Summary spans the whole answer); hedgeStep
-// / hedgeSymbol pass just their own citation_ref. Without this,
-// hedging a single-cite step inherited the worst-case label of the
-// whole doc — over-hedging factual sub-topics in multi-topic
-// explanations.
-func strongestCitedCeiling(cites []types.Citation, evidence []types.EvidenceItem) types.AuthorityCeiling {
-	worst := types.AuthorityUnknown
-	worstRank := 5 // higher than any real ceiling rank in this scope
-	for _, cit := range cites {
-		ceiling := authority.HighestAuthorityFor(evidence, cit.File, cit.Line)
-		switch ceiling {
-		case types.AuthorityIllustrative:
-			if 1 < worstRank {
-				worst = ceiling
-				worstRank = 1
-			}
-		case types.AuthorityHistorical:
-			if 2 < worstRank {
-				worst = ceiling
-				worstRank = 2
-			}
-		case types.AuthorityConditional:
-			if 3 < worstRank {
-				worst = ceiling
-				worstRank = 3
-			}
+		if hedgeMarkerSeverity(hedgeMarkerFor(ceil)) > hedgeMarkerSeverity(hedgeMarkerFor(top)) {
+			top = ceil
 		}
 	}
-	return worst
-}
-
-// (alreadyHasHedgePrefix retired — superseded by upsertHedgeMarker
-// + upsertHedgePrefix which both subsume the idempotency check AND
-// allow ceiling upgrades.)
-
-func addAuthorityCaveat(doc *types.AnswerDocument, evidence []types.EvidenceItem, l answerDocLang) {
-	hist := authority.AuthorityHistogram(evidence)
-	hasConditional := hist[types.AuthorityConditional] > 0
-	hasHistorical := hist[types.AuthorityHistorical] > 0
-	hasIllustrative := hist[types.AuthorityIllustrative] > 0
-	if !hasConditional && !hasHistorical && !hasIllustrative {
-		return
+	for _, it := range blk.Items {
+		consider(it.CitationRef)
 	}
-
-	caveat := authorityCaveatText(hist, l)
-	if caveat == "" {
-		return
-	}
-	// Avoid duplicate system caveats on retry. Round-5 refinement:
-	// dedupe ALL tagged entries, not just the first. Defends against
-	// any historical path that might have appended more than one
-	// system caveat (theoretically shouldn't but the dedup contract
-	// must hold across the whole slice). The replacement happens
-	// in-place at the FIRST tagged slot; subsequent tagged entries
-	// are filtered out.
-	cleaned := make([]string, 0, len(doc.Caveats)+1)
-	replaced := false
-	for _, existing := range doc.Caveats {
-		if isAuthorityCaveat(existing) {
-			if !replaced {
-				cleaned = append(cleaned, caveat)
-				replaced = true
-			}
-			continue
-		}
-		cleaned = append(cleaned, existing)
-	}
-	if !replaced {
-		cleaned = append(cleaned, caveat)
-	}
-	doc.Caveats = cleaned
-}
-
-// hedgeMarkerFor returns the bare sentinel marker for a ceiling, or
-// "" for factual / unknown. Used inline (per-step, per-symbol) where
-// the doc-level Caveat already carries the prose explanation —
-// repeating it on every step / symbol dilutes the answer with
-// redundant prose and trains user attention to ignore the signal.
-func hedgeMarkerFor(c types.AuthorityCeiling) string {
-	switch c {
-	case types.AuthorityConditional:
-		return HedgeMarkerConditional
-	case types.AuthorityHistorical:
-		return HedgeMarkerHistorical
-	case types.AuthorityIllustrative:
-		return HedgeMarkerIllustrative
-	}
-	return ""
-}
-
-// shortHedgeReasonFor returns a TERSE bilingual reason (≤30 chars)
-// suitable for prominent prose anchors (Summary / Boolean.Rationale)
-// where bare marker would feel cryptic. The doc-level Caveat carries
-// the long-form explanation; keep this terse so it doesn't crowd out
-// the actual answer content.
-func shortHedgeReasonFor(c types.AuthorityCeiling, l answerDocLang) string {
-	if l == answerDocLangZH {
-		switch c {
-		case types.AuthorityConditional:
-			return "（基于日志，当前代码已漂移）"
-		case types.AuthorityHistorical:
-			return "（旧构建历史观察）"
-		case types.AuthorityIllustrative:
-			return "（示例，未验证）"
-		}
+	if !considered {
 		return ""
 	}
-	switch c {
-	case types.AuthorityConditional:
-		return "(log-derived; code drifted)"
-	case types.AuthorityHistorical:
-		return "(historical observation)"
-	case types.AuthorityIllustrative:
-		return "(illustrative only)"
-	}
-	return ""
+	return hedgeMarkerFor(top)
 }
 
-// upsertHedgeMarker prepends the marker IFF text doesn't already
-// carry it. Allows ceiling UPGRADES across retries: if text begins
-// with [hedged] and we now need [historical] (worse case), replace
-// the leading sentinel with the stronger one. This prevents stale
-// labels in retry chains where the evidence pool grew in severity.
-func upsertHedgeMarker(text, marker string) string {
-	text = strings.TrimSpace(text)
-	if hasMarker, current := leadingHedgeMarker(text); hasMarker {
-		if hedgeMarkerSeverity(current) >= hedgeMarkerSeverity(marker) {
-			return text
+// applyHedgeMarkerToV2Block prepends the marker to the block's Text
+// when non-empty, otherwise to the first item's Text. Keeps existing
+// content; the marker becomes the leading prose so the renderer
+// emits it before the body.
+func applyHedgeMarkerToV2Block(blk *types.AnswerBlock, marker string, _ answerDocLang) {
+	if marker == "" {
+		return
+	}
+	if strings.TrimSpace(blk.Text) != "" {
+		blk.Text = marker + " " + blk.Text
+		return
+	}
+	for j := range blk.Items {
+		if strings.TrimSpace(blk.Items[j].Text) != "" {
+			blk.Items[j].Text = marker + " " + blk.Items[j].Text
+			return
 		}
-		// Upgrade — strip the old leading marker and re-prepend.
-		text = strings.TrimSpace(strings.TrimPrefix(text, current))
+		if strings.TrimSpace(blk.Items[j].Label) != "" {
+			blk.Items[j].Label = marker + " " + blk.Items[j].Label
+			return
+		}
 	}
-	return strings.TrimSpace(marker + " " + text)
 }
 
-// upsertHedgePrefix prepends a marker + reason phrase IFF the text's
-// leading marker is weaker (or absent). Mirrors upsertHedgeMarker for
-// callers (Summary / Rationale) that want the terse reason in
-// addition to the marker.
+// addV2AuthorityCaveat appends a BlockCaveat block to doc.Blocks
+// when the evidence pool carries any drift-bounded items. Mirrors
+// V1's addAuthorityCaveat (which writes to doc.Caveats[]) but uses
+// the V2 carrier's caveat block surface.
 //
-// Round-7 fix: stale-reason stripping is now SYSTEM-MATCH ONLY. Pre-
-// fix, the helper stripped any leading `(...)` after a stale marker,
-// which would corrupt legitimate prose like "(in older Go versions)
-// X happens" on a ceiling-upgrade retry — losing the user's real
-// parenthetical content. Now we only strip when the leading bracket
-// EXACTLY matches one of the system's known terse reasons.
-func upsertHedgePrefix(text, marker, fullPrefix string) string {
-	text = strings.TrimSpace(text)
-	if hasMarker, current := leadingHedgeMarker(text); hasMarker {
-		if hedgeMarkerSeverity(current) >= hedgeMarkerSeverity(marker) {
-			return text
-		}
-		text = strings.TrimSpace(strings.TrimPrefix(text, current))
-		text = stripLeadingSystemTerseReason(text)
+// The caveat block carries SurfaceRole=ProseOnly so V2 validators
+// don't treat it as principal and require a claim_use.
+func addV2AuthorityCaveat(doc *types.AnswerDocumentV2, evidence []types.EvidenceItem, l answerDocLang) {
+	caveatText := authorityCaveatProse(evidence, l)
+	if caveatText == "" {
+		return
 	}
-	return strings.TrimSpace(fullPrefix + " " + text)
-}
-
-// stripLeadingSystemTerseReason removes a leading bracketed phrase
-// IFF it matches one of the system's known terse reasons (returned
-// by shortHedgeReasonFor across both ceilings × both languages).
-// Legitimate user prose that happens to begin with a parenthetical
-// is preserved verbatim. Idempotent: no match → text returned as-is.
-func stripLeadingSystemTerseReason(text string) string {
-	for _, reason := range knownSystemTerseReasons() {
-		if strings.HasPrefix(text, reason) {
-			return strings.TrimSpace(text[len(reason):])
+	// If a caveat block already exists, append rather than duplicate.
+	for i := range doc.Blocks {
+		if doc.Blocks[i].Kind == types.BlockCaveat {
+			if existing := strings.TrimSpace(doc.Blocks[i].Text); existing != "" {
+				doc.Blocks[i].Text = existing + "\n\n" + caveatText
+			} else {
+				doc.Blocks[i].Text = caveatText
+			}
+			return
 		}
 	}
-	return text
+	// Otherwise append a new caveat block.
+	doc.Blocks = append(doc.Blocks, types.AnswerBlock{
+		ID:          "_authority_caveat",
+		Kind:        types.BlockCaveat,
+		Text:        caveatText,
+		SurfaceRole: types.SurfaceProseOnly,
+	})
 }
 
-// knownSystemTerseReasons is the canonical set of bracketed reason
-// phrases the system might have prepended next to a hedge marker.
-// Update this when shortHedgeReasonFor adds a new ceiling × language
-// combination — without an update, the new phrase would be retained
-// as stale on ceiling upgrade.
-func knownSystemTerseReasons() []string {
-	return []string{
-		// English
-		"(log-derived; code drifted)",
-		"(historical observation)",
-		"(illustrative only)",
-		// Chinese
-		"（基于日志，当前代码已漂移）",
-		"（旧构建历史观察）",
-		"（示例，未验证）",
-	}
-}
-
-// leadingHedgeMarker reports whether text begins with one of the
-// system markers and returns which one. Order: most-severe first,
-// so a string starting with [illustrative] reports illustrative
-// (not a substring trip on [hedged]).
-func leadingHedgeMarker(text string) (bool, string) {
-	switch {
-	case strings.HasPrefix(text, HedgeMarkerIllustrative):
-		return true, HedgeMarkerIllustrative
-	case strings.HasPrefix(text, HedgeMarkerHistorical):
-		return true, HedgeMarkerHistorical
-	case strings.HasPrefix(text, HedgeMarkerConditional):
-		return true, HedgeMarkerConditional
-	}
-	return false, ""
-}
-
-// hedgeMarkerSeverity returns a comparable severity score for the
-// markers (illustrative > historical > conditional > none). Used by
-// upsert helpers to decide whether to UPGRADE a stale label.
-func hedgeMarkerSeverity(marker string) int {
-	switch marker {
-	case HedgeMarkerIllustrative:
-		return 3
-	case HedgeMarkerHistorical:
-		return 2
-	case HedgeMarkerConditional:
-		return 1
-	}
-	return 0
-}
-
-// StripAuthorityArtifacts removes ALL system-injected authority
-// markers, terse reason phrases, and the doc-level Authority caveat
-// from the rendered draft text. Used by downstream reviewers
-// (SelfConsistency, ExternalArtifactDecoded) so they don't see the
-// system's own annotations as content — without stripping, the
-// reviewer LLM treats "[hedged] X" vs "X" as a factual contradiction,
-// and the artifact-decoded check counts hedge-body tokens like "log"
-// / "perf" as proof the LLM decoded the bundle.
-//
-// Best-effort: strips the markers + terse `(...)` / `（...）` reasons
-// that follow them + any line beginning with the AuthorityCaveatPrefix
-// sentinel. The caller's reviewer prompt operates on what remains.
-//
-// Round-4 refinement: also strips inline terse reasons that appear
-// after a marker mid-line (the marker ReplaceAll alone left the
-// `(log-derived; code drifted)` phrase behind, polluting downstream
-// runExternalArtifactDecodedCheck token-match scans).
-func StripAuthorityArtifacts(text string) string {
-	if text == "" {
-		return text
-	}
-	out := make([]string, 0, len(text)/40+1)
-	for _, line := range strings.Split(text, "\n") {
-		trimmed := strings.TrimSpace(line)
-		// Drop entire line when it IS the doc-level caveat. Match by
-		// the system-private tag (round-4) so an LLM-written caveat
-		// starting with the public prefix is preserved (only OUR
-		// caveat carries the tag).
-		if strings.Contains(trimmed, authorityCaveatTag) {
-			continue
+// authorityCaveatProse returns the bilingual caveat prose when the
+// evidence pool contains any drift-bounded items, or "" otherwise.
+// Reuses the V1 hedging templates (en/zh) so wording is consistent
+// across V1+V2 during the migration window.
+func authorityCaveatProse(evidence []types.EvidenceItem, l answerDocLang) string {
+	hasConditional, hasHistorical, hasIllustrative := false, false, false
+	for _, e := range evidence {
+		switch e.Authority {
+		case types.AuthorityConditional:
+			hasConditional = true
+		case types.AuthorityHistorical:
+			hasHistorical = true
+		case types.AuthorityIllustrative:
+			hasIllustrative = true
 		}
-		// Strip leading markers + their terse reason from the line.
-		line = stripLeadingMarkerAndReason(line)
-		// Mid-line marker + adjacent terse reason: marker
-		// ReplaceAll first, then sweep adjacent reason brackets.
-		for _, m := range []string{HedgeMarkerIllustrative, HedgeMarkerHistorical, HedgeMarkerConditional} {
-			line = stripInlineMarkerWithReason(line, m)
-		}
-		out = append(out, line)
 	}
-	return strings.Join(out, "\n")
-}
-
-// stripInlineMarkerWithReason removes every occurrence of `marker`
-// AND any immediately-following SYSTEM-GENERATED terse reason. Loop-
-// based replace handles multiple inline occurrences in the same line.
-//
-// Round-7 fix: legitimate parentheticals after a marker are
-// preserved (e.g. "X [hedged] (legacy code path) happens" keeps the
-// "(legacy code path)" while removing only "[hedged]").
-func stripInlineMarkerWithReason(line, marker string) string {
-	for {
-		idx := strings.Index(line, marker)
-		if idx < 0 {
-			return line
-		}
-		head := line[:idx]
-		tail := strings.TrimLeft(line[idx+len(marker):], " \t")
-		// Drop adjacent reason ONLY when it matches a system-generated
-		// terse reason exactly. User-authored parentheticals survive.
-		tail = stripLeadingSystemTerseReason(tail)
-		// Stitch with a single space when both sides have content.
-		separator := ""
-		if strings.TrimRight(head, " \t") != "" && tail != "" {
-			separator = " "
-		}
-		line = strings.TrimRight(head, " \t") + separator + tail
+	if !hasConditional && !hasHistorical && !hasIllustrative {
+		return ""
 	}
-}
-
-// stripLeadingMarkerAndReason drops a leading marker AND any
-// immediately-following SYSTEM-GENERATED terse reason. Whitespace-
-// tolerant.
-//
-// Round-7 fix: only matches the system's canonical terse reason
-// phrases. Pre-fix, any leading `(...)` after a marker was stripped,
-// corrupting cases like "[hedged] (in older Go) X" where the user
-// followed a marker with a legitimate parenthetical. Now legitimate
-// parentheticals are preserved.
-func stripLeadingMarkerAndReason(line string) string {
-	rest := strings.TrimLeft(line, " \t")
-	leadingSpaces := line[:len(line)-len(rest)]
-	hasMarker, marker := leadingHedgeMarker(rest)
-	if !hasMarker {
-		return line
-	}
-	rest = strings.TrimSpace(strings.TrimPrefix(rest, marker))
-	rest = stripLeadingSystemTerseReason(rest)
-	return leadingSpaces + rest
-}
-
-func authorityCaveatText(hist map[types.AuthorityCeiling]int, l answerDocLang) string {
-	cond := hist[types.AuthorityConditional]
-	histN := hist[types.AuthorityHistorical]
-	illust := hist[types.AuthorityIllustrative]
-
 	parts := make([]string, 0, 3)
 	if l == answerDocLangZH {
-		if cond > 0 {
-			parts = append(parts, fmt.Sprintf("%d 条证据来自漂移后的日志/轨迹（已对冲）", cond))
+		if hasConditional {
+			parts = append(parts, "部分论据来自条件分支，结论在该条件下成立")
 		}
-		if histN > 0 {
-			parts = append(parts, fmt.Sprintf("%d 条证据是无法映射回当前代码的历史观察", histN))
+		if hasHistorical {
+			parts = append(parts, "部分论据来自历史快照（log/perf），与当前源码可能已漂移")
 		}
-		if illust > 0 {
-			parts = append(parts, fmt.Sprintf("%d 条仅作示例，未参与因果链", illust))
+		if hasIllustrative {
+			parts = append(parts, "部分论据是说明性的，不具直接因果约束力")
 		}
-		if len(parts) == 0 {
-			return ""
-		}
-		return AuthorityCaveatPrefix + authorityCaveatTag + "本回答基于多源证据：" + strings.Join(parts, "；") + "。强结论仅由当前仓库内已对齐的证据支撑。"
+		return strings.Join(parts, "；") + "。"
 	}
-	if cond > 0 {
-		parts = append(parts, fmt.Sprintf("%d evidence item(s) from drifted log/trace (hedged)", cond))
+	if hasConditional {
+		parts = append(parts, "some evidence is conditional and the conclusion holds under that branch")
 	}
-	if histN > 0 {
-		parts = append(parts, fmt.Sprintf("%d historical observation(s) without a current-code mapping", histN))
+	if hasHistorical {
+		parts = append(parts, "some evidence is historical (log / perf) and may have drifted from current source")
 	}
-	if illust > 0 {
-		parts = append(parts, fmt.Sprintf("%d illustrative item(s) excluded from causal chains", illust))
+	if hasIllustrative {
+		parts = append(parts, "some evidence is illustrative and does not establish direct causation")
 	}
-	if len(parts) == 0 {
-		return ""
-	}
-	return AuthorityCaveatPrefix + authorityCaveatTag + "Answer rests on mixed-authority evidence: " + strings.Join(parts, "; ") + ". Strong claims are made only from current-repo anchors that aligned cleanly."
+	return strings.Join(parts, "; ") + "."
 }
-
-// AuthorityCaveatTag returns the system-private tag embedded inside
-// every system-generated authority caveat. Consumers (the orchestrator
-// gate, downstream Strip) use this for grep so they can distinguish
-// system-injected caveats from LLM-written ones that happen to share
-// the public "Authority: " prefix.
-func AuthorityCaveatTag() string { return authorityCaveatTag }
-
-// SynthesiseAuthorityCaveatFor returns the canonical system caveat
-// string for the given evidence pool, OR "" when the pool contains no
-// non-factual items. Used by the IsZero / raw-prose fallback path
-// in the finalizer evaluator: when emit_answer_document is bypassed
-// entirely, ApplyAuthorityHedging never runs and the fallback prose
-// would otherwise emit unhedged. Calling this directly lets the
-// fallback inject the canonical hedge signal so the user sees the
-// drift advisory even on the failure path. lang follows
-// normalizeAnswerDocLang's accepted values.
-func SynthesiseAuthorityCaveatFor(evidence []types.EvidenceItem, lang string) string {
-	hist := authority.AuthorityHistogram(evidence)
-	if hist[types.AuthorityConditional]+hist[types.AuthorityHistorical]+hist[types.AuthorityIllustrative] == 0 {
-		return ""
-	}
-	return authorityCaveatText(hist, normalizeAnswerDocLang(lang))
-}
-
-// isAuthorityCaveat reports whether s carries the SYSTEM-injected
-// authority-caveat sentinel. Round-4 refinement: dedup looks for
-// authorityCaveatTag (a private internal token the LLM cannot
-// guess). Pre-round-4 the dedup matched any caveat starting with
-// "Authority: " — but the answer-document-skill teaches the LLM to
-// write Caveats[] with descriptive prefixes, and a user-written
-// "Authority: <something>" caveat would either get overwritten by
-// the system or shadow the system's own caveat. Tagging makes the
-// system's caveat unambiguously identifiable; the public-facing
-// AuthorityCaveatPrefix is what the user sees, the tag is what the
-// system uses for plumbing.
-func isAuthorityCaveat(s string) bool {
-	return strings.Contains(s, authorityCaveatTag)
-}
-
-// Sentinels — visible in the rendered output for the user, but also
-// keyable for in-process strip / dedup paths. The HedgeMarker* values
-// are the inline annotations next to specific anchors in steps /
-// symbols / summary / boolean rationale. Exported so callers across
-// the codebase share one source of truth instead of duplicating
-// string literals.
-//
-// authorityCaveatTag is a system-private token embedded INSIDE every
-// system-generated authority caveat. It is the canonical signal the
-// orchestrator's runAuthorityOverreachCheck greps for ("did the
-// renderer attach the drift disclosure to this answer?"). Using a
-// tag rather than the public "Authority: " prefix lets the system
-// distinguish its own caveat from any LLM-written caveat that
-// happens to start with the same prefix. The tag uses zero-width
-// space + ASCII brackets so it's visually invisible in user-facing
-// prose but unambiguously machine-grep-able. NOTE: per-shape hedge
-// markers above are NOT used by the gate — only the caveat tag is.
-// Markers are inline annotations for the user; the tag is the
-// system's contract signal.
-const (
-	HedgeMarkerConditional  = "[hedged]"
-	HedgeMarkerHistorical   = "[historical]"
-	HedgeMarkerIllustrative = "[illustrative]"
-	AuthorityCaveatPrefix   = "Authority: "
-	authorityCaveatTag      = "​[auth-axis]​"
-)
-
-// Backwards-compatible lowercase aliases used inside this file's
-// hedge-injection branches. Keeping them avoids touching the per-
-// branch string concatenations during the export refactor.
-const (
-	hedgeMarkerConditional  = HedgeMarkerConditional
-	hedgeMarkerHistorical   = HedgeMarkerHistorical
-	hedgeMarkerIllustrative = HedgeMarkerIllustrative
-)
