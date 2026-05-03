@@ -1632,15 +1632,26 @@ func knownFacetID(id string) bool {
 	return false
 }
 
-// identifierTokenRe extracts identifier-shaped tokens (min 3
-// chars) from typed LLM-emitted prose surfaces — Citation.Quote
-// strings, observed-anchor symbol tails, drift-bounded answer
-// labels in backtick spans. Surviving callers all pass typed-
-// channel input (LLM-emitted fields), NOT raw source code lines;
-// raw-line ±N window scanners were retired across Phase 6
-// stages 7-10 + 11 along with the citationCorroborationStatus
-// helper that used to drive them.
-var identifierTokenRe = regexp.MustCompile(`[A-Za-z_][A-Za-z0-9_]{2,}`)
+// identifierTokenRe was deleted 2026-05-03 (Phase 6 stage 12).
+// The regex extracted identifier-shaped tokens (min 3 chars)
+// from typed LLM-emitted prose surfaces (Citation.Quote, drift-
+// bounded backticked labels). Stage 12 replaced its three
+// surviving consumers with typed-pool reads and explicit
+// delimiter splits:
+//
+//   - explanationCitationMatchesRootCauseAnchorTokens (Quote
+//     scan) → explanationCitationMatchesRootCauseAnchorEvidence
+//     (typed EvidenceItem.Subject / Object / AnchorSymbol slot
+//     equality via matchingEvidenceForCitation).
+//   - driftBoundedSummaryAllowedLabels addTokens(cite.Quote) →
+//     EvidenceItem slot reads at the citation's overlapping
+//     line.
+//   - driftBoundedSummaryBlockSupportedLabelHits identifier-
+//     tokenize-the-label → driftBoundedSplitLabel (explicit
+//     ':' / '.' / '/' / '\\' delimiter split for compound
+//     prose labels).
+//
+// Token-overlap-on-prose is fully eliminated.
 
 // observedAnchorNeighborhoodLines is the line-distance threshold
 // used by explanationCitationWithinObservedAnchorNeighborhood to
@@ -2797,21 +2808,21 @@ func pruneExplanationCitationsForSurface(shape types.AnswerShape, citations, ori
 	if plan == nil || plan.SummarySurfaceMode != types.AnswerSummarySurfaceDriftBoundedRootCause {
 		return citations
 	}
-	originalQuotes := make(map[string]string, len(original))
-	for _, cit := range original {
-		key := explanationCitationLookupKey(cit.File, cit.Line)
-		if key == "" || strings.TrimSpace(cit.Quote) == "" {
-			continue
-		}
-		if _, exists := originalQuotes[key]; !exists {
-			originalQuotes[key] = cit.Quote
-		}
-	}
+	// 2026-05-03 (Phase 6 stage 12) — removed the originalQuotes
+	// preserved-Quote map. The retired
+	// explanationCitationMatchesRootCauseAnchorTokens path scanned
+	// cit.Quote text for anchor symbol identifier substrings; now
+	// the equivalent check reads typed EvidenceItem slots from the
+	// evidence pool, which are structural and don't get rewritten
+	// during Citation pruning, so the pre-prune snapshot is no
+	// longer needed.
+	_ = original
+	_ = gc
 	out := make([]types.Citation, 0, len(citations))
 	for _, cit := range citations {
 		if explanationCitationMatchesObservedAnchorLine(cit, plan) ||
 			explanationCitationWithinObservedAnchorNeighborhood(cit, plan) ||
-			explanationCitationMatchesRootCauseAnchorTokens(cit, originalQuotes, gc, plan) {
+			explanationCitationMatchesRootCauseAnchorEvidence(cit, ctx, plan) {
 			out = append(out, cit)
 		}
 	}
@@ -2849,29 +2860,46 @@ func explanationCitationMatchesObservedAnchorLine(cit types.Citation, plan *type
 	return false
 }
 
-func explanationCitationMatchesRootCauseAnchorTokens(cit types.Citation, originalQuotes map[string]string, gc *ground.Context, plan *types.AnswerSurfacePlan) bool {
+// explanationCitationMatchesRootCauseAnchorEvidence (2026-05-03,
+// Phase 6 stage 12) is the typed-pool replacement for the retired
+// explanationCitationMatchesRootCauseAnchorTokens function. The
+// retired version scanned cit.Quote prose for identifier tokens
+// matching any plan-pinned observed-anchor symbol. The new
+// version reads structurally — find the EvidenceItem at the
+// citation's overlapping line, check whether its typed Subject /
+// Object / AnchorSymbol slot equals the normalised tail of any
+// LogObservedAnchors[*].Func. Equality (lowercase-folded) on
+// typed slots replaces substring scan on free-form Quote text;
+// unrelated identifiers in a Quote string can no longer trick
+// the gate.
+func explanationCitationMatchesRootCauseAnchorEvidence(cit types.Citation, ctx *types.BusContext, plan *types.AnswerSurfacePlan) bool {
 	tokens := explanationObservedAnchorTokens(plan)
 	if len(tokens) == 0 {
 		return false
 	}
-	if explanationCitationTextMentionsAnyToken(cit.Quote, tokens) {
-		return true
+	pool := answerDocSurfaceEvidencePool(ctx)
+	if len(pool) == 0 {
+		return false
 	}
-	if quote := originalQuotes[explanationCitationLookupKey(cit.File, cit.Line)]; explanationCitationTextMentionsAnyToken(quote, tokens) {
-		return true
+	matched := matchingEvidenceForCitation(pool, cit)
+	if matched.Source == "" {
+		return false
 	}
-	// 2026-05-03 (Phase 6 stage 9) — retired the ±3 cited-line
-	// token-window fallback. Anchor-token grounding now relies
-	// solely on the typed Quote field (cit.Quote + originalQuotes).
-	// The retired window scan was a token-overlap heuristic — an
-	// unrelated identifier sharing a name with an anchor symbol
-	// could appear in nearby comment / docstring / import text
-	// and falsely satisfy the gate. Skill prompts already teach
-	// the LLM to include the anchor symbol verbatim in cit.Quote
-	// when the citation supports a root-cause anchor; the retired
-	// window scan was a soft fallback that masked emit-time
-	// errors instead of catching them.
-	_ = gc
+	wanted := make(map[string]bool, len(tokens))
+	for _, t := range tokens {
+		wanted[strings.ToLower(t)] = true
+	}
+	for _, slot := range []string{matched.Subject, matched.Object, matched.AnchorSymbol} {
+		if slot == "" {
+			continue
+		}
+		if wanted[strings.ToLower(slot)] {
+			return true
+		}
+		if tail := types.NormalizedSurfaceSymbolTail(slot); tail != "" && wanted[strings.ToLower(tail)] {
+			return true
+		}
+	}
 	return false
 }
 
@@ -2913,21 +2941,13 @@ func explanationObservedAnchorTokens(plan *types.AnswerSurfacePlan) []string {
 	return out
 }
 
-func explanationCitationTextMentionsAnyToken(text string, tokens []string) bool {
-	if strings.TrimSpace(text) == "" || len(tokens) == 0 {
-		return false
-	}
-	wanted := make(map[string]bool, len(tokens))
-	for _, token := range tokens {
-		wanted[strings.ToLower(token)] = true
-	}
-	for _, tok := range identifierTokenRe.FindAllString(text, -1) {
-		if wanted[strings.ToLower(tok)] {
-			return true
-		}
-	}
-	return false
-}
+// explanationCitationTextMentionsAnyToken was retired 2026-05-03
+// (Phase 6 stage 12). The function tokenized free-form citation
+// Quote prose with identifierTokenRe and substring-matched the
+// tokens against the observed-anchor symbol set. Replacement:
+// explanationCitationMatchesRootCauseAnchorEvidence reads typed
+// EvidenceItem slots from the evidence pool — the structural
+// source of truth — instead of scanning Quote prose.
 
 // explanationCitationWindowMentionsAnyToken was retired 2026-05-03
 // (Phase 6 stage 9). The function scanned a cited line's ±3
@@ -5235,7 +5255,7 @@ func normalizeLogSourceDriftSummarySurface(summary string, citations []types.Cit
 	summary = original
 	plan := answerSurfacePlan(ctx)
 	if plan != nil && plan.SummarySurfaceMode == types.AnswerSummarySurfaceDriftBoundedRootCause {
-		allowed := driftBoundedSummaryAllowedLabels(citations, gc, plan)
+		allowed := driftBoundedSummaryAllowedLabels(citations, ctx, plan)
 		authoritative := driftBoundedSummaryAuthoritativeLabels(plan)
 		sanitized := sanitizeDriftBoundedRootCauseSummary(summary, citations, gc, ctx)
 		userFences := summaryDiagramFenceBlocks(sanitized)
@@ -5365,7 +5385,7 @@ func sanitizeDriftBoundedRootCauseSummary(summary string, citations []types.Cita
 	if plan == nil || plan.SummarySurfaceMode != types.AnswerSummarySurfaceDriftBoundedRootCause {
 		return strings.TrimSpace(summary)
 	}
-	allowed := driftBoundedSummaryAllowedLabels(citations, gc, plan)
+	allowed := driftBoundedSummaryAllowedLabels(citations, ctx, plan)
 	if len(allowed) == 0 {
 		return strings.TrimSpace(summary)
 	}
@@ -5490,7 +5510,7 @@ func renderStructuredDriftBoundedSummary(ctx *types.BusContext) string {
 	return joinDistinctSummaryBlocks(coverage, primary, detail)
 }
 
-func driftBoundedSummaryAllowedLabels(citations []types.Citation, gc *ground.Context, plan *types.AnswerSurfacePlan) map[string]bool {
+func driftBoundedSummaryAllowedLabels(citations []types.Citation, ctx *types.BusContext, plan *types.AnswerSurfacePlan) map[string]bool {
 	allowed := make(map[string]bool)
 	add := func(label string) {
 		label = strings.TrimSpace(strings.ReplaceAll(label, `\`, `/`))
@@ -5503,11 +5523,6 @@ func driftBoundedSummaryAllowedLabels(citations []types.Citation, gc *ground.Con
 		}
 		if tail := types.NormalizedSurfaceSymbolTail(label); tail != "" {
 			allowed["sym|"+tail] = true
-		}
-	}
-	addTokens := func(text string) {
-		for _, token := range identifierTokenRe.FindAllString(text, -1) {
-			add(token)
 		}
 	}
 	if plan != nil {
@@ -5530,26 +5545,32 @@ func driftBoundedSummaryAllowedLabels(citations []types.Citation, gc *ground.Con
 			add(seed.AnchoredFile)
 		}
 	}
+	// 2026-05-03 (Phase 6 stage 12) — replaced cite.Quote
+	// regex tokenization with typed evidence pool slot reads.
+	// matchingEvidenceForCitation finds the EvidenceItem whose
+	// [LineStart, LineEnd] window contains cite.Line; the
+	// item's typed Subject / Object / AnchorSymbol slots are
+	// the structural source of truth for "what symbol does
+	// this citation actually anchor". The retired Quote-text
+	// scan was a soft secondary signal (LLM might mention a
+	// symbol in Quote whose AnchorSymbol slot is empty) — a
+	// soft fallback that masked emit-time errors instead of
+	// catching them. The new path requires the LLM's
+	// emit_evidence to structurally capture the anchor symbol.
+	pool := answerDocSurfaceEvidencePool(ctx)
 	for _, cite := range citations {
 		add(cite.File)
-		// 2026-05-03 (Phase 6 stage 10) — preserved typed-only
-		// surfaces: cite.File (LLM-emitted Citation field) +
-		// cite.Quote (LLM-emitted Citation field) tokens.
-		// Retired: cite.Line ±3 raw-source-line scan that
-		// tokenized arbitrary nearby comment / docstring / import
-		// text into the allowed-label set. That was the same
-		// false-positive surface stages 1-9 retired — an unrelated
-		// identifier near a cited line could pass the
-		// driftBoundedSummary* allow-list gates because it
-		// happened to share a name with an answer-prose token.
-		// The drift-bounded surface now requires the LLM to either
-		// quote the relevant identifier in cit.Quote OR pin it via
-		// LogObservedAnchors / LogSourceDriftAnchors /
-		// ExternalObservationSeeds — both LLM-emitted typed
-		// channels.
-		addTokens(cite.Quote)
+		if len(pool) == 0 {
+			continue
+		}
+		matched := matchingEvidenceForCitation(pool, cite)
+		if matched.Source == "" {
+			continue
+		}
+		add(matched.Subject)
+		add(matched.Object)
+		add(matched.AnchorSymbol)
 	}
-	_ = gc
 	return allowed
 }
 
@@ -5620,11 +5641,23 @@ func driftBoundedSummaryBlockSupportedLabelHits(block string, allowed map[string
 		if !driftBoundedSummaryLabelLooksLikeCodeExpression(label) {
 			continue
 		}
-		for _, token := range identifierTokenRe.FindAllString(label, -1) {
-			if token == "" || !driftBoundedSummaryLabelAllowed(token, allowed) {
+		// 2026-05-03 (Phase 6 stage 12) — switched from
+		// identifierTokenRe regex to explicit delimiter split.
+		// Backticked labels in drift-bounded answer prose carry
+		// compound shapes (`file.go:120` / `module.symbol` /
+		// `path/to/file.go`); the legitimate decomposition is
+		// "split on path / qualifier separators, keep each
+		// constituent". Regex identifier extraction was the
+		// equivalent for valid inputs but bundled "what is an
+		// identifier" with "how do I split a compound label",
+		// which is a redundancy with the typed-shape semantic.
+		// The split-based path is more honest about what we
+		// extract from a compound prose label.
+		for _, part := range driftBoundedSplitLabel(label) {
+			if part == "" || !driftBoundedSummaryLabelAllowed(part, allowed) {
 				continue
 			}
-			key := strings.ToLower(token)
+			key := strings.ToLower(part)
 			if seen[key] {
 				continue
 			}
@@ -5633,6 +5666,55 @@ func driftBoundedSummaryBlockSupportedLabelHits(block string, allowed map[string
 		}
 	}
 	return hits
+}
+
+// driftBoundedSplitLabel decomposes a compound backticked label
+// from drift-bounded answer prose into its constituent identifier
+// parts using path-and-qualifier separators (':', '.', '/', '\').
+// Empty / numeric-only / whitespace-only parts are dropped — the
+// caller compares each part against a typed allowed-label set, so
+// numeric line-tail tokens (the `120` in `file.go:120`) and other
+// non-identifier fragments would never match anyway. Single-shot
+// tokenizer that replaces the retired identifierTokenRe regex
+// path; semantic equivalent on valid inputs but more honest about
+// what is being decomposed (a compound prose label, not a free-
+// form text body).
+func driftBoundedSplitLabel(label string) []string {
+	if label == "" {
+		return nil
+	}
+	splitter := func(r rune) bool {
+		switch r {
+		case ':', '.', '/', '\\', ' ', '\t':
+			return true
+		}
+		return false
+	}
+	out := make([]string, 0, 4)
+	for _, part := range strings.FieldsFunc(label, splitter) {
+		part = strings.TrimSpace(part)
+		if part == "" {
+			continue
+		}
+		// Drop numeric-only parts (line numbers, indices). The
+		// typed allowed set never contains bare numerics, so
+		// keeping them would be free; dropping them up-front
+		// lets the surviving callers stay in identifier-shaped
+		// territory which keeps the seen[]-dedup keys readable
+		// when a label like `foo.bar:120` is processed.
+		isNumeric := true
+		for _, r := range part {
+			if r < '0' || r > '9' {
+				isNumeric = false
+				break
+			}
+		}
+		if isNumeric {
+			continue
+		}
+		out = append(out, part)
+	}
+	return out
 }
 
 func driftBoundedSummaryBlockMentionsCitationLine(block string, citations []types.Citation) bool {

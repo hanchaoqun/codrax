@@ -2227,6 +2227,22 @@ func TestEmitAnswerDocument_PrunesDriftBoundedExplanationCitationsToSurfaceRelev
 			GroundingStatus: types.GroundingGrounded,
 			Producer:        EmitEvidenceProducer,
 		},
+		// Phase 6 stage 12 (2026-05-03): the call-site citation at
+		// line 412 must carry a typed EvidenceItem; the retired
+		// Quote-text scan path would have inferred the AnchorSymbol
+		// from the Quote string `ir, err := buildAnalysisIR(ctx)`,
+		// but the new typed-pool path reads structural slots only.
+		{
+			Kind:            types.EvidenceDirect,
+			Source:          "internal/agent/analyzer.go",
+			LineStart:       412,
+			AnchorKind:      types.AnchorCall,
+			Subject:         "ParseOutput",
+			Object:          "buildAnalysisIR",
+			AnchorSymbol:    "buildAnalysisIR",
+			GroundingStatus: types.GroundingGrounded,
+			Producer:        EmitEvidenceProducer,
+		},
 	})
 
 	params := mustDocJSON(t, map[string]interface{}{
