@@ -41,13 +41,16 @@ func TestBuildDegradedFallbackIR_PreservesObjective(t *testing.T) {
 // the fallback's AnswerContract has no required-citation floor:
 // otherwise finalize would fail another gate when explore never
 // produced citations.
+//
+// Pre-PR2 the fallback also pinned ShapeExplanation so the
+// finalizer's prose render path was active. With AnswerShape
+// retired, the V2 block-only carrier derives rendering from
+// AnswerSemanticView; an empty contract is the correct degraded
+// signal and downstream consumers nil-check the fields.
 func TestBuildDegradedFallbackIR_ContractDoesNotBlockReply(t *testing.T) {
 	ir := buildDegradedFallbackIR("q", errors.New("e"))
 	if ir.AnswerContract.CitationReq.Required {
 		t.Error("fallback contract must NOT require citations — explore never ran")
-	}
-	if ir.AnswerContract.RequiredAnswerShape != types.ShapeExplanation {
-		t.Errorf("expected ShapeExplanation; got %s", ir.AnswerContract.RequiredAnswerShape)
 	}
 }
 

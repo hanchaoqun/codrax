@@ -265,7 +265,7 @@ type Context struct {
 	// TargetFamily is the resolved AnswerSemanticView family —
 	// drives AllowedSet entries for family/block contract
 	// violations. Replaces the legacy TargetShape per
-	// docs/migration/answer_shape_retirement.md.
+	// docs/migration/answer_shape_terminal_retirement.md.
 	TargetFamily types.QuestionFamily
 
 	// TargetRequiredBlocks lists the AnswerBlockKind values the

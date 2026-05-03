@@ -760,7 +760,6 @@ func (e *analyzerEvaluator) ParseOutput(ctx *types.AgentContext, messages []llm.
 	if ir != nil {
 		hints := ir.RequestModel.AnalyzerHints
 		data["question_kind"] = hints.Kind
-		data["answer_shape"] = hints.Shape
 		data["complexity"] = string(ir.RequestModel.Complexity)
 		data["entity_count"] = len(hints.Entities)
 		data["keyword_count"] = len(hints.Keywords)
@@ -998,8 +997,8 @@ func buildAnalysisIR(ctx *types.AgentContext) (*types.AnalysisIR, error) {
 		logging.Debug("[analyzer] enumeration-boundary reconcile: %s", reason)
 		recordReconcileObservation(ctxMutable(ctx), reconcileEvent(
 			"enumeration_boundary",
-			fmt.Sprintf("sub_topics=%d entities=%d shape=%s", len(rm.SubTopics), len(rm.AnalyzerHints.Entities), rm.AnalyzerHints.Shape),
-			fmt.Sprintf("sub_topics=%d entities=%d shape=%s", len(resolved.SubTopics), len(resolved.AnalyzerHints.Entities), resolved.AnalyzerHints.Shape),
+			fmt.Sprintf("sub_topics=%d entities=%d", len(rm.SubTopics), len(rm.AnalyzerHints.Entities)),
+			fmt.Sprintf("sub_topics=%d entities=%d", len(resolved.SubTopics), len(resolved.AnalyzerHints.Entities)),
 			rm.KindConfidence,
 			reason,
 			rm.Predicates,
@@ -1078,17 +1077,16 @@ func buildAnalysisIR(ctx *types.AgentContext) (*types.AnalysisIR, error) {
 	rm.PerfTrace = perfBundle
 
 	// Sub-topics post-processing: when the LLM detected multiple
-	// independent sub-topics, force explanation shape and merge entities.
+	// independent sub-topics, lift complexity so downstream budgets
+	// expect multi-topic surface area. The pre-shape variant of this
+	// block also forced answer_shape=explanation; that override is
+	// retired with AnswerShape — the V2 block-only carrier carries
+	// multi-topic structure via AnswerSemanticView, not a shape enum.
 	if len(rm.SubTopics) > 5 {
 		rm.SubTopics = rm.SubTopics[:5]
 		logging.Warning("[analyzer] sub_topics truncated to 5")
 	}
 	if len(rm.SubTopics) > 1 {
-		if rm.AnalyzerHints.Shape != string(types.ShapeExplanation) {
-			logging.Warning("[analyzer] sub_topics detected (%d), forcing answer_shape explanation (was %s)",
-				len(rm.SubTopics), rm.AnalyzerHints.Shape)
-			rm.AnalyzerHints.Shape = string(types.ShapeExplanation)
-		}
 		if rm.Complexity == types.ComplexitySimple {
 			logging.Debug("[analyzer] sub_topics detected, upgrading complexity simple → moderate")
 			rm.Complexity = types.ComplexityModerate
@@ -1272,23 +1270,14 @@ func buildAnalysisIR(ctx *types.AgentContext) (*types.AnalysisIR, error) {
 		},
 	)
 
-	// Session 11 C0' step 1.5: reconcile classification from any
-	// line-level grep observations the analyzer captured in Round 2.
-	// Runs AFTER normalizer (so TermGraph is stable) and BEFORE
-	// scenario inference + compiler.Compile (so the refined
-	// answer_subject.kind + AnalyzerHints.Shape propagate into the
-	// deterministic pipeline). When the C0' trigger never fired,
-	// ClassificationObservations is empty and reconcileFromObservations
-	// is a no-op.
-	if ctx != nil && ctx.Mutable != nil {
-		obs := ctx.Mutable.ClassificationObservations()
-		if len(obs) > 0 {
-			logs := reconcileFromObservations(&rm, obs)
-			for _, line := range logs {
-				logging.Info("[analyzer] %s", line)
-			}
-		}
-	}
+	// Session 11 C0' classification reconcile retired with AnswerShape:
+	// the rule existed solely to nudge AnalyzerHints.Shape toward
+	// "value" when Round-2 grep observed a quoted literal. With shape
+	// retired, the rule has no observable effect — V2 carriers express
+	// "this answer is a single resolved literal" via AnswerSubject.Kind
+	// + AnswerSemanticView, both of which are derived from the LLM's
+	// emit_analysis output, not from a scan of incidental quoted
+	// strings.
 
 	// Session 11 R2 auto-keywords — when the classified question
 	// will benefit from declarative-file retrieval (registration,
@@ -1958,28 +1947,6 @@ func classifyGateFailure(report types.GateReport) (hard bool, detail string) {
 	return true, strings.Join(parts, "; ")
 }
 
-// mapLegacyAnswerShape coerces a free-form answer_shape string into
-// the typed AnswerShape enum.
-func mapLegacyAnswerShape(s string) types.AnswerShape {
-	switch types.AnswerShape(strings.ToLower(strings.TrimSpace(s))) {
-	case types.ShapeListOfSymbols:
-		return types.ShapeListOfSymbols
-	case types.ShapeStepList:
-		return types.ShapeStepList
-	case types.ShapeValue:
-		return types.ShapeValue
-	case types.ShapeBoolean:
-		return types.ShapeBoolean
-	case types.ShapeConfigValue:
-		return types.ShapeConfigValue
-	case types.ShapeExplanation:
-		return types.ShapeExplanation
-	case types.ShapeNone:
-		return types.ShapeNone
-	}
-	return ""
-}
-
 // detectLanguage picks "zh" when the raw request contains Han
 // characters, "en" otherwise.
 func detectLanguage(raw string, prefs []string) string {
@@ -2124,112 +2091,6 @@ func prescanHasDeclarativeCandidateResults(history []types.ToolResult, repoRoot,
 	return false
 }
 
-// reconcileFromObservations consumes the C0' ClassificationObs
-// sidecar and refines fields on rm. The caller (buildAnalysisIR) is
-// expected to have already run the normalizer; this function runs
-// BEFORE compiler.Compile so the refined values feed the downstream
-// deterministic pipeline.
-//
-// Reconciliation rules (Session 11 full-design §5.5 table):
-//
-//   - match literal has `-skill` suffix
-//     → AnswerSubject.Kind = skill_name, AnswerShape = value
-//   - match literal matches NewXxxAgent(... pattern
-//     → AnswerSubject.Kind = agent_name, AnswerShape = value
-//   - match literal is in a struct-field table `{Field1: V1, Field2: V2}`
-//     → EntityAxes = [Field1 → Field2]
-//   - match is `@route(...)` / `app.get(...)` pattern
-//     → AnswerSubject.Kind = handler_route
-//   - all matches inside `var X = map[...]{...}` body
-//     → QuestionKind ∈ {registration, config_mapping}
-//
-// Each successful reconcile appends a log entry to
-// rm.AnalyzerHints.ReconcileLog so the operator can audit why a
-// field changed. The reconciler is purely additive — it never
-// removes a value, only refines it when the observation is
-// unambiguous.
-func reconcileFromObservations(rm *types.RequestModel, obs []types.ClassificationObs) []string {
-	if rm == nil || len(obs) == 0 {
-		return nil
-	}
-
-	// Session-22 follow-up B4 — ShapeConfidence floor guard.
-	//
-	// C0' reconcile is a coarse, single-observation-triggered rule
-	// ("I saw a quoted literal, so the answer is probably a literal").
-	// It was designed as a safety net for LLMs that hedge or punt on
-	// shape classification. When the LLM rated its own shape
-	// classification at or above the floor, we should trust it —
-	// over-riding a confident classification on a single grep hit is
-	// the bug pattern we saw on m1a (ShapeConfidence=0.85 silently
-	// downgraded to `value` because Round-2 grep happened to land on
-	// a string-shaped match).
-	//
-	// Mirrors the `kindConfidenceFloorForNarrowing = 0.7` pattern in
-	// explorer.go: "zero = LLM declined to rate = treat as low", so
-	// the reconcile still fires for truly-unrated cases that C0' was
-	// originally designed for.
-	if rm.ShapeConfidence > 0 && rm.ShapeConfidence >= shapeConfidenceFloorForC0Reconcile {
-		return nil
-	}
-
-	var logs []string
-	// The analyzer's string shape hint lives in AnalyzerHints.Shape
-	// (a raw LLM-extracted label); the typed AnswerContract.
-	// RequiredAnswerShape is filled later by compiler.Compile from
-	// the hint. Rewriting the hint here lets the downstream compile
-	// pick up the refined shape without us touching the compiled
-	// AnswerContract directly.
-	shapeValueLabel := string(types.ShapeValue)
-
-	// C0' reconciliation is **language- and domain-neutral**: it
-	// operates only on observations that confirm the LLM's shape
-	// hint is a `value` shape (we saw a quoted literal in a
-	// declarative line). The reconciler does NOT hard-code
-	// domain-specific kind enums — picking a specific kind like
-	// "skill_name" vs "agent_name" is the analyzer-stage intent
-	// inference's job (analyzer_intent.go::inferAnswerSubject),
-	// which ALREADY consumes AnswerSubject hints and the subject
-	// taxonomy. Here we only nudge AnalyzerHints.Shape toward
-	// "value" when the observation is structurally literal-like,
-	// and let the downstream inference keep its subject decision.
-	//
-	// This keeps Session 11 generic: adding a new
-	// AnswerSubjectKind does not require a new reconciler branch,
-	// and the reconciler works identically on any source-code
-	// literal regardless of which domain concept it names.
-	for _, o := range obs {
-		lits := extractQuotedLiterals(o.Text)
-		if len(lits) == 0 {
-			continue
-		}
-		if rm.AnalyzerHints.Shape != shapeValueLabel {
-			logs = append(logs, fmt.Sprintf(
-				"reconcile shape %q → %q (observation %s:%d contained quoted literal %q)",
-				rm.AnalyzerHints.Shape, shapeValueLabel, o.Path, o.Line, lits[0]))
-			rm.AnalyzerHints.Shape = shapeValueLabel
-			break // one reconcile per dispatch
-		}
-	}
-	return logs
-}
-
-// shapeConfidenceFloorForC0Reconcile is the minimum LLM-emitted
-// ShapeConfidence at which C0' reconcileFromObservations will defer
-// to the LLM's shape classification and skip the quoted-literal
-// downgrade rule. Below this floor (or at zero — LLM declined to
-// rate), the safety net still fires for the ambiguous-subject
-// scenarios the rule was originally designed to catch.
-//
-// 0.7 matches `kindConfidenceFloorForNarrowing` in explorer.go so
-// every confidence-gated downstream behaviour speaks the same
-// threshold language. The symmetric-direction convention (narrow ONLY
-// when high confidence vs. override ONLY when low confidence) does
-// not change the chosen threshold — in both cases 0.7 separates
-// "confident enough to be trusted" from "hedged enough to be
-// overridable".
-const shapeConfidenceFloorForC0Reconcile = 0.7
-
 // extractQuotedLiterals walks s and returns every single- or
 // double-quoted substring as a slice of unquoted tokens. Used by
 // the C0' reconciler to feed candidate literals into the subject
@@ -2264,19 +2125,9 @@ func extractQuotedLiterals(s string) []string {
 	return out
 }
 
-// (Ex-helpers containsSkillLiteral / containsNewAgentLiteral /
-// isASCII* removed in the Session 11 over-fitting audit.
-// reconcileFromObservations is intentionally minimal: it scans
-// observations for any quoted literal via extractQuotedLiterals and
-// — on the first hit — downgrades AnalyzerHints.Shape to "value".
-// Picking a specific AnswerSubjectKind is inferAnswerSubject's job
-// (runs after this reconciler), so the subject.Score taxonomy is
-// consulted downstream rather than here.
-//
-// A prior version of this note claimed this function "delegates to
-// subject.Score"; that was an aspirational description of a design
-// that was never implemented, not a contract. Reconcile uses the
-// quoted-literal heuristic plus two guards: (a) test-file filter in
-// scanGrepLinesIntoClassificationObs keeps fixture strings out of
-// the obs pool, and (b) the ShapeConfidence >= 0.7 floor above keeps
-// confident LLM classifications from being blindly overridden.)
+// extractQuotedLiterals is consumed by extractor.go for evidence
+// scanning. The Session-11 reconcileFromObservations helper that
+// originally lived here was retired together with AnswerShape — the
+// rule existed solely to nudge AnalyzerHints.Shape toward "value"
+// on a quoted-literal hit, and the V2 carrier no longer keys answer
+// rendering off shape.

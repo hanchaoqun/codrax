@@ -19,7 +19,7 @@ func TestSubmit_RejectsNonWhitelistedField(t *testing.T) {
 
 func TestSubmit_AppliesWhitelistedReplace(t *testing.T) {
 	e := New(Budget{})
-	rec := e.Submit(PatchRequest{Field: "answer_shape", Operation: OpReplace, NewValue: "value"})
+	rec := e.Submit(PatchRequest{Field: "question_kind", Operation: OpReplace, NewValue: "value"})
 	if !rec.Applied {
 		t.Errorf("whitelisted replace should apply, got %+v", rec)
 	}
@@ -30,8 +30,8 @@ func TestSubmit_AppliesWhitelistedReplace(t *testing.T) {
 
 func TestSubmit_IdempotentOnRepeatValue(t *testing.T) {
 	e := New(Budget{})
-	e.Submit(PatchRequest{Field: "answer_shape", Operation: OpReplace, NewValue: "value"})
-	rec2 := e.Submit(PatchRequest{Field: "answer_shape", Operation: OpReplace, NewValue: "value"})
+	e.Submit(PatchRequest{Field: "question_kind", Operation: OpReplace, NewValue: "value"})
+	rec2 := e.Submit(PatchRequest{Field: "question_kind", Operation: OpReplace, NewValue: "value"})
 	if rec2.Applied {
 		t.Errorf("repeat of same value should be idempotent, got Applied=true")
 	}
@@ -42,11 +42,11 @@ func TestSubmit_IdempotentOnRepeatValue(t *testing.T) {
 
 func TestSubmit_MonotonicRejectsRevert(t *testing.T) {
 	e := New(Budget{MaxPatchesPerRun: 10, MaxPatchesPerField: 10})
-	e.Submit(PatchRequest{Field: "answer_shape", Operation: OpReplace, NewValue: "value"})
-	e.Submit(PatchRequest{Field: "answer_shape", Operation: OpReplace, NewValue: "explanation"})
+	e.Submit(PatchRequest{Field: "question_kind", Operation: OpReplace, NewValue: "value"})
+	e.Submit(PatchRequest{Field: "question_kind", Operation: OpReplace, NewValue: "explanation"})
 	// Revert back to the original — should hit the monotonic gate
 	// BEFORE the per-field budget (we set a large budget above).
-	rec := e.Submit(PatchRequest{Field: "answer_shape", Operation: OpReplace, NewValue: "value"})
+	rec := e.Submit(PatchRequest{Field: "question_kind", Operation: OpReplace, NewValue: "value"})
 	if rec.Applied {
 		t.Errorf("revert to earlier value should be rejected")
 	}
@@ -57,9 +57,9 @@ func TestSubmit_MonotonicRejectsRevert(t *testing.T) {
 
 func TestSubmit_PerFieldBudgetExhausted(t *testing.T) {
 	e := New(Budget{MaxPatchesPerRun: 10, MaxPatchesPerField: 2})
-	e.Submit(PatchRequest{Field: "answer_shape", Operation: OpReplace, NewValue: "value"})
-	e.Submit(PatchRequest{Field: "answer_shape", Operation: OpReplace, NewValue: "explanation"})
-	rec := e.Submit(PatchRequest{Field: "answer_shape", Operation: OpReplace, NewValue: "step_list"})
+	e.Submit(PatchRequest{Field: "question_kind", Operation: OpReplace, NewValue: "value"})
+	e.Submit(PatchRequest{Field: "question_kind", Operation: OpReplace, NewValue: "explanation"})
+	rec := e.Submit(PatchRequest{Field: "question_kind", Operation: OpReplace, NewValue: "step_list"})
 	if rec.Applied {
 		t.Errorf("third patch on same field should hit per-field cap")
 	}
@@ -70,7 +70,7 @@ func TestSubmit_PerFieldBudgetExhausted(t *testing.T) {
 
 func TestSubmit_RunBudgetExhausted(t *testing.T) {
 	e := New(Budget{MaxPatchesPerRun: 2, MaxPatchesPerField: 10})
-	e.Submit(PatchRequest{Field: "answer_shape", Operation: OpReplace, NewValue: "value"})
+	e.Submit(PatchRequest{Field: "question_kind", Operation: OpReplace, NewValue: "value"})
 	e.Submit(PatchRequest{Field: "question_kind", Operation: OpReplace, NewValue: "return_value"})
 	rec := e.Submit(PatchRequest{Field: "answer_subject.kind", Operation: OpReplace, NewValue: "skill_name"})
 	if rec.Applied {
@@ -83,18 +83,14 @@ func TestSubmit_RunBudgetExhausted(t *testing.T) {
 
 func TestApply_MutatesRequestModelFields(t *testing.T) {
 	e := New(Budget{})
-	e.Submit(PatchRequest{Field: "answer_shape", Operation: OpReplace, NewValue: "value"})
 	e.Submit(PatchRequest{Field: "answer_subject.kind", Operation: OpReplace, NewValue: types.SubjectFunctionName})
 	e.Submit(PatchRequest{Field: "question_kind", Operation: OpReplace, NewValue: "return_value"})
 
 	rm := &types.RequestModel{}
 	e.Apply(rm)
 
-	if rm.AnalyzerHints.Shape != "value" {
-		t.Errorf("AnalyzerHints.Shape = %q, want value", rm.AnalyzerHints.Shape)
-	}
 	if rm.AnswerSubject.Kind != types.SubjectFunctionName {
-		t.Errorf("AnswerSubject.Kind = %q, want skill_name", rm.AnswerSubject.Kind)
+		t.Errorf("AnswerSubject.Kind = %q, want function_name", rm.AnswerSubject.Kind)
 	}
 	if rm.AnalyzerHints.Kind != "return_value" {
 		t.Errorf("AnalyzerHints.Kind = %q, want return_value", rm.AnalyzerHints.Kind)
@@ -103,14 +99,14 @@ func TestApply_MutatesRequestModelFields(t *testing.T) {
 
 func TestApply_NilRequestModelSafe(t *testing.T) {
 	e := New(Budget{})
-	e.Submit(PatchRequest{Field: "answer_shape", Operation: OpReplace, NewValue: "value"})
+	e.Submit(PatchRequest{Field: "question_kind", Operation: OpReplace, NewValue: "value"})
 	// Must not panic.
 	e.Apply(nil)
 }
 
 func TestIsFieldWhitelisted_Sanity(t *testing.T) {
-	if !IsFieldWhitelisted("answer_shape") {
-		t.Errorf("answer_shape must be whitelisted")
+	if !IsFieldWhitelisted("question_kind") {
+		t.Errorf("question_kind must be whitelisted")
 	}
 	if IsFieldWhitelisted("arbitrary_field") {
 		t.Errorf("unknown field must NOT be whitelisted")

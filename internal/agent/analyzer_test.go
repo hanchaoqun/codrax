@@ -56,9 +56,6 @@ func TestAnalyzerParseOutputCapturesSummary(t *testing.T) {
 	if got, _ := data["question_kind"].(string); got != "mechanism" {
 		t.Errorf("Data.question_kind = %q, want mechanism", got)
 	}
-	if got, _ := data["answer_shape"].(string); got != "step_list" {
-		t.Errorf("Data.answer_shape = %q, want step_list", got)
-	}
 	// JSON numbers decode as float64 in map[string]any.
 	if got, _ := data["entity_count"].(float64); got != 2 {
 		t.Errorf("Data.entity_count = %v, want 2", got)

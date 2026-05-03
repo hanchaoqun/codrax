@@ -1,7 +1,6 @@
 package agent
 
 import (
-	"fmt"
 	"slices"
 	"strings"
 
@@ -58,18 +57,12 @@ func reconcileEnumerationBoundaryScope(rm types.RequestModel, graph *repomap.Gra
 		reasons = append(reasons, "narrowed primary_entities to the same owner")
 	}
 
-	wantShape := strings.TrimSpace(rm.AnalyzerHints.Shape)
-	switch kind {
-	case "mechanism", "call_chain", "conditional":
-		wantShape = string(types.ShapeStepList)
-	case "enumeration":
-		wantShape = string(types.ShapeListOfSymbols)
-	}
-	if wantShape != "" && !strings.EqualFold(strings.TrimSpace(rm.AnalyzerHints.Shape), wantShape) {
-		rm.AnalyzerHints.Shape = wantShape
-		changed = true
-		reasons = append(reasons, fmt.Sprintf("restored boundary-compatible shape %s", wantShape))
-	}
+	// AnswerShape "restoration" retired with the shape enum. The
+	// pre-shape variant of this block forced shape=step_list /
+	// list_of_symbols when the LLM had picked something else for a
+	// bounded-owner question; the V2 carrier derives the same effect
+	// from QuestionFamily + AnswerSubject + bounded-owner narrowing
+	// upstream, without needing a shape side-channel.
 	if !changed {
 		return rm, ""
 	}

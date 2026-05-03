@@ -108,7 +108,6 @@ func New(b Budget) *Engine {
 // review + test + document each. Unknown fields get a
 // "field_not_whitelisted" SkipReason.
 var allowedFields = map[string]bool{
-	"answer_shape":             true,
 	"answer_subject.kind":      true,
 	"question_kind":            true,
 	"entity_axes":              true,
@@ -262,19 +261,12 @@ func findLastApplied(history []PatchRecord) *PatchRecord {
 
 // applyReplace mutates rm's named scalar field with newVal.
 // Currently handles the whitelist's scalar fields
-// (answer_shape, answer_subject.kind, question_kind); list /
-// map fields are left to future G6/G7 implementations.
+// (answer_subject.kind, question_kind); list / map fields are left
+// to future G6/G7 implementations. The pre-PR2 patcher also accepted
+// "answer_shape" patches; that branch is retired together with
+// AnswerShape — no producer exists today.
 func applyReplace(rm *types.RequestModel, field string, newVal any) error {
 	switch field {
-	case "answer_shape":
-		// The LLM-string label lives in AnalyzerHints.Shape;
-		// typed AnswerShape sits on AnswerContract after compile.
-		s, ok := newVal.(string)
-		if !ok {
-			return fmt.Errorf("expected string for answer_shape")
-		}
-		rm.AnalyzerHints.Shape = s
-		return nil
 	case "answer_subject.kind":
 		// Accept either the typed enum or its string label.
 		switch v := newVal.(type) {

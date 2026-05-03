@@ -57,9 +57,6 @@ func TestReconcileEnumerationBoundaryScope_CollapsesSingleOwnerBoundedSet(t *tes
 	if len(got.AnalyzerHints.Entities) != 1 || got.AnalyzerHints.Entities[0] != "gate.Run" {
 		t.Fatalf("entities = %v, want [gate.Run]", got.AnalyzerHints.Entities)
 	}
-	if got.AnalyzerHints.Shape != string(types.ShapeStepList) {
-		t.Fatalf("shape = %q, want step_list", got.AnalyzerHints.Shape)
-	}
 }
 
 func TestReconcileEnumerationBoundaryScope_SkipsCrossComponentBoundary(t *testing.T) {
@@ -123,8 +120,5 @@ func TestReconcileEnumerationBoundaryScope_CollapsesWithoutExactGraphHit(t *test
 	}
 	if len(got.SubTopics) != 0 {
 		t.Fatalf("sub_topics = %d, want 0 after boundary collapse", len(got.SubTopics))
-	}
-	if got.AnalyzerHints.Shape != string(types.ShapeStepList) {
-		t.Fatalf("shape = %q, want step_list", got.AnalyzerHints.Shape)
 	}
 }

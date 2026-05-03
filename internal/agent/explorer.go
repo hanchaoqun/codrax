@@ -12645,7 +12645,7 @@ func hasStructuredRequestModel(ctx *types.AgentContext, rm *types.RequestModel) 
 	if rm.Intent != "" || rm.PredicateAxis != types.AxisUnknown || rm.AnswerSubject.Kind != "" {
 		return true
 	}
-	if rm.Language != "" || rm.AnalyzerHints.Kind != "" || rm.AnalyzerHints.Shape != "" {
+	if rm.Language != "" || rm.AnalyzerHints.Kind != "" {
 		return true
 	}
 	if rm.Predicates.IsCategoryEnumeration || rm.Predicates.IsRelationalLookup || rm.Predicates.IsScalarAnswer {

@@ -28,16 +28,15 @@ import (
 // is_count_question predicate — the LLM judges this for any language.
 //
 // Structural coherence fallback. When the LLM emits
-// is_count_question=false but three independent structural signals
-// coincide — answer_shape=value, intent=return_value, and
-// answer_subject.kind=numeric — the triple together describes a single
-// numeric answer to a return-value question, which is the same
-// population the primary signal targets. The fallback catches the
-// case where the LLM was internally inconsistent (emitted all three
-// structural signals for a measurement-scalar question but still
-// picked is_count_question=false). Pattern-consistent with
-// reconcileShape, which already fuses multiple LLM signals to override
-// a single field; no surface-word matching.
+// is_count_question=false but two independent structural signals
+// coincide — intent=return_value, and answer_subject.kind=numeric —
+// the pair together describes a single numeric answer to a
+// return-value question, which is the same population the primary
+// signal targets. The fallback catches the case where the LLM was
+// internally inconsistent (emitted both structural signals for a
+// measurement-scalar question but still picked is_count_question=
+// false). Adds is_scalar_answer=true as a sanity gate so a
+// non-scalar return value can't trip the carve-out.
 //
 // Over-trigger tradeoff. A citable-numeric-constant question
 // ("default value of MAX_STEPS") also satisfies the triple; for that
@@ -50,9 +49,8 @@ import (
 //
 // Upstream self-consistency (validateSelfConsistency in
 // emit_analysis) already rejects (is_count_question=true +
-// intent=enumerate) and (is_count_question=true +
-// shape=list_of_symbols); this function runs on a LLM output that has
-// already cleared those checks.
+// intent=enumerate); this function runs on an LLM output that has
+// already cleared that check.
 func isMeasurementScalarRequest(rm types.RequestModel) bool {
 	if rm.Predicates.IsCountQuestion {
 		return true

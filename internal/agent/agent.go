@@ -731,7 +731,7 @@ func contextPressureDirective(name types.AgentName, promptBytes, byteBudget int,
 func contextPressureFixAndAllowed(name types.AgentName) (string, []hint.Allowed) {
 	switch name {
 	case types.AgentAnalyzer:
-		return "Call `emit_analysis` now with whatever classification you have (best-effort intent / scenario / complexity / keywords / entities / answer_shape / predicates). Downstream stages will adapt.",
+		return "Call `emit_analysis` now with whatever classification you have (best-effort intent / scenario / complexity / keywords / entities / question_kind / predicates). Downstream stages will adapt.",
 			[]hint.Allowed{{Kind: AllowedTerminalTool, Value: "emit_analysis", Hint: "close the analyze stage"}}
 	case types.AgentExplorer:
 		return "Call `emit_investigation_complete` with `confidence=\"medium\"` and a `reason` explaining why the evidence is best-effort.",
@@ -1996,11 +1996,16 @@ func clampGrepMaxCount(params json.RawMessage, cap int) (json.RawMessage, error)
 //
 //  2. Parse the match lines out of the grep Summary and append
 //     each as a ClassificationObs on MutableState's sidecar
-//     channel. The reconcileFromObservations step in
-//     buildAnalysisIR consumes the sidecar to refine IR fields
-//     (answer_subject.kind, answer_shape, question_kind,
-//     entity_axes). The sidecar is OFF the TurnAArtifacts path, so
-//     no downstream stage ever sees these lines as evidence.
+//     channel. Pre-PR2 the buildAnalysisIR pipeline ran a
+//     reconcileFromObservations step against this sidecar to nudge
+//     AnalyzerHints.Shape toward "value" on a quoted-literal hit;
+//     that step retired with AnswerShape. The sidecar still
+//     accumulates so a future axis-specific reconciler
+//     (answer_subject.kind / question_kind / entity_axes) can pick
+//     it up — wiring a new consumer is the right place to add the
+//     refinement, not putting shape rules back. The sidecar stays
+//     OFF the TurnAArtifacts path, so no downstream stage ever sees
+//     these lines as evidence.
 //
 // The parser is a best-effort line extractor — unparseable outputs
 // fall through silently (reconciler still gets partial data from
@@ -2050,14 +2055,15 @@ func analyzerPostProcessToolResult(ctx *types.AgentContext, tc llm.ToolCall, res
 // Session-22 follow-up root-cause fix: lines whose `path` is a
 // test file are skipped. A test assertion string like
 // `"flag=on must write TurnAArtifacts"` matches extractQuotedLiterals
-// just as well as a production-source literal would, and C0'
-// reconcileFromObservations's first-match-wins downgrade rule cannot
-// tell the two apart. Leaking test observations caused the m1a
-// regression where an analyzer-emitted shape=explanation was
-// downgraded to shape=value because Round-2 line-level grep hit a
-// quoted string inside explorer_evaluator_test.go. The C0' pipeline
-// only needs declarative-source literals (const / map / registry /
-// routes) to make its call; test fixtures carry no such signal.
+// just as well as a production-source literal would, so leaking
+// test observations into the classification stream is structurally
+// noisy. The C0' downgrade rule that originally consumed these
+// observations was retired together with AnswerShape; the
+// observations themselves still flow into MutableState for any
+// future axis-specific reconciler (e.g. AnswerSubject.Kind), and
+// the test-file exclusion remains because production-quality
+// observations should not carry test-fixture noise regardless of
+// downstream consumer.
 func scanGrepLinesIntoClassificationObs(ctx *types.AgentContext, pattern, summary string) {
 	for _, line := range strings.Split(summary, "\n") {
 		line = strings.TrimSpace(line)

@@ -5014,8 +5014,6 @@ func formatViolationFieldTally(tally map[string]int) string {
 //
 //   - A single finalize node so the scheduler has SOMETHING to
 //     dispatch (empty TaskGraph would loop or fail another gate).
-//   - ShapeExplanation so the finalizer's prose render path is
-//     active (no shape-specific scaffolding to satisfy).
 //   - CitationReq.Required=false so the Run isn't blocked by
 //     citation floors that explore never had a chance to fill.
 //   - An AnalyzerHints carrying the original objective text so
@@ -5026,6 +5024,14 @@ func formatViolationFieldTally(tally map[string]int) string {
 // break it down") instead of a hard failure with empty result.
 // The TaskState.LastError still carries the diagnostic so wrapping
 // CLI / REPL layers can surface it to the operator.
+//
+// Shape: pre-PR2 the fallback set AnalyzerHints.Shape and
+// AnswerContract.RequiredAnswerShape to ShapeExplanation. With
+// AnswerShape retired (PR1), the V2 block-only carrier derives
+// rendering from AnswerSemanticView, so the fallback no longer
+// touches shape fields — they are zero-valued and downstream
+// consumers treat that as "no contract declared", which in
+// degraded mode is the correct semantic.
 func buildDegradedFallbackIR(objective string, analyzerErr error) *types.AnalysisIR {
 	finalizeNode := types.TaskNode{
 		ID:   "finalize",
@@ -5036,9 +5042,6 @@ func buildDegradedFallbackIR(objective string, analyzerErr error) *types.Analysi
 		Intent:     types.IntentExplain,
 		Scenario:   types.ScenarioGeneric,
 		Complexity: types.ComplexitySimple,
-		AnalyzerHints: types.AnalyzerHints{
-			Shape: string(types.ShapeExplanation),
-		},
 	}
 	return &types.AnalysisIR{
 		RequestModel: rm,
@@ -5046,16 +5049,15 @@ func buildDegradedFallbackIR(objective string, analyzerErr error) *types.Analysi
 			Nodes: []types.TaskNode{finalizeNode},
 		},
 		AnswerContract: types.AnswerContract{
-			RequiredAnswerShape: types.ShapeExplanation,
-			CitationReq:         types.CitationReq{Required: false},
+			CitationReq: types.CitationReq{Required: false},
 		},
 		QualityGate: types.GateReport{
 			Rejected: false,
 			Checks: []types.GateCheck{
 				{
-					Name:    "degraded_fallback",
-					Passed:  true,
-					Detail:  fmt.Sprintf("analyzer exhausted: %v — degraded to minimal IR", analyzerErr),
+					Name:   "degraded_fallback",
+					Passed: true,
+					Detail: fmt.Sprintf("analyzer exhausted: %v — degraded to minimal IR", analyzerErr),
 				},
 			},
 		},
