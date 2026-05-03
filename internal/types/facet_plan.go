@@ -81,6 +81,27 @@ const (
 	QFGeneric QuestionFamily = "generic"
 )
 
+// AllQuestionFamilies returns every declared QuestionFamily in a
+// stable enumeration order. Mirrors the AllAnchorKinds /
+// AllViolationKinds / AllAnswerBlockKinds pattern. Used by:
+//   - structural tests (e.g. TestAllQuestionFamiliesHaveCompiler in
+//     internal/types/answer_semantic_view_test.go) to enforce that
+//     every family has a compile entry-point in
+//     answer_semantic_view_compile.go's switch.
+//   - downstream telemetry that wants to iterate the canonical
+//     family set without re-listing it.
+func AllQuestionFamilies() []QuestionFamily {
+	return []QuestionFamily{
+		QFRootCauseTrace,
+		QFConfigPrecedence,
+		QFRoleLookup,
+		QFCallChain,
+		QFEnumeration,
+		QFArchitecture,
+		QFGeneric,
+	}
+}
+
 // AnswerFacetKind enumerates the semantic surfaces an answer may
 // need to cover. NOT a 1:1 mirror of ClaimForm — facets are answer-
 // shape requirements, ClaimForms are evidence capabilities.

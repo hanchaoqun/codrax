@@ -46,34 +46,46 @@ func emitSemanticViewTrace(source string, view *AnswerSemanticView, ir *Analysis
 // and BuildAnswerSemanticViewForBusContext can share the same
 // implementation by adapting their inputs.
 //
-// B1 (this commit): the compiler is a SKELETON — it produces a
-// non-nil view that mirrors AnswerSurfacePlan's existing fields
-// without doing any family-aware rule expansion. This is intentional:
-// B1 only proves the type wiring works end-to-end; B2 fills in the
-// per-family BlockRequirement / DiagramFacetGraph / UncertaintyRule
-// / RichnessCandidate tables.
+// B2 (this commit): family-aware dispatch — ResolveQuestionFamily
+// picks one of the 7 compile_<family>.go entry points which fills
+// the RequiredBlocks / OptionalBlocks / DiagramPlan / UncertaintyRules
+// / RichnessCandidates fields. Each compile_<family>.go is small
+// (~80-120 LOC) and reads only typed signals (R3: no keyword tables).
 //
 // Returns nil only when ir is nil — every other input shape produces
 // a (possibly minimal) view so downstream consumers can rely on
 // "if view != nil { ... }" without further nil-checks.
+//
+// AllQuestionFamilies() in facet_plan.go enumerates the 7 values
+// the dispatch must handle; the structural test
+// TestAllQuestionFamiliesHaveCompiler enforces no family slips
+// through without a compile entry-point.
 func BuildAnswerSemanticView(ir *AnalysisIR, plan *AnswerSurfacePlan) *AnswerSemanticView {
 	if ir == nil {
 		return nil
 	}
-	view := &AnswerSemanticView{
-		Family: ResolveQuestionFamily(ir.RequestModel),
+	family := ResolveQuestionFamily(ir.RequestModel)
+	switch family {
+	case QFRootCauseTrace:
+		return compileRootCauseTrace(ir, plan)
+	case QFConfigPrecedence:
+		return compileConfigPrecedence(ir, plan)
+	case QFRoleLookup:
+		return compileRoleLookup(ir, plan)
+	case QFCallChain:
+		return compileCallChain(ir, plan)
+	case QFEnumeration:
+		return compileEnumeration(ir, plan)
+	case QFArchitecture:
+		return compileArchitecture(ir, plan)
+	case QFGeneric:
+		return compileGeneric(ir, plan)
 	}
-	if plan != nil {
-		view.FacetCoverage = plan.FacetCoverage
-		view.SummaryMode = plan.SummarySurfaceMode
-	}
-	if ir.AnswerContract.ExactResolution != nil {
-		view.ExactResolution = ir.AnswerContract.ExactResolution
-	}
-	// B1 skeleton: no RequiredBlocks / OptionalBlocks / DiagramPlan /
-	// UncertaintyRules / RichnessCandidates yet. B2 fills them via
-	// per-family compile_<family>.go files dispatched on view.Family.
-	return view
+	// Unknown family: fall back to generic. This SHOULD never fire
+	// because AllQuestionFamilies + the structural test cover the
+	// 7-value enum, but keep the fallback so a future-added family
+	// without a compile entry-point still produces a non-nil view.
+	return compileGeneric(ir, plan)
 }
 
 // BuildAnswerSemanticViewForAgentContext compiles a view from the
