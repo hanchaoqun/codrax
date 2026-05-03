@@ -9,8 +9,9 @@ import (
 // CGEC enforcers can raise. Each kind maps to a distinct retry-hint
 // section the orchestrator renders into the next explore-window
 // prompt; the explorer then knows EXACTLY what to do (read these
-// files, swap to that shape, narrow to that subject) instead of
-// re-deriving the requirement from a free-form violation message.
+// files, swap to that QuestionFamily, narrow to that subject)
+// instead of re-deriving the requirement from a free-form violation
+// message.
 //
 // Why an enum and not a free-form string: the previous retry hint
 // was the human-readable contract violation ("0 citations < 1") and
@@ -42,10 +43,16 @@ const (
 	// has not grown.
 	RepairExpandSearch RepairKind = "expand_search"
 
-	// RepairSwapShape says the previous finalizer attempt used the
-	// wrong AnswerShape. Subject = "old→new" string; the renderer
-	// surfaces this as a Shape Reconcile section.
-	RepairSwapShape RepairKind = "swap_shape"
+	// RepairSwapView says the AnalysisIR's compiled QuestionFamily /
+	// AnswerSemanticView routing under-fits the resolved answer
+	// subject and the explorer should surface the conflict. Subject
+	// = "from=<family>,to=<family>" string; the renderer surfaces
+	// this as a View Reconcile section. (Pre-PR3 this was named
+	// "swap_shape"; the rename mirrors the AnswerShape →
+	// AnswerSemanticView migration — the underlying intent has
+	// always been "the family routing is wrong", never "the shape
+	// enum is wrong".)
+	RepairSwapView RepairKind = "swap_view"
 
 	// RepairRebindSubject says the chain ranker found a subject /
 	// terminal mismatch and the explorer should constrain its
@@ -68,7 +75,7 @@ func AllRepairKinds() []RepairKind {
 		RepairReadFile,
 		RepairEmitEvidence,
 		RepairExpandSearch,
-		RepairSwapShape,
+		RepairSwapView,
 		RepairRebindSubject,
 		RepairForceCompleteDowngrade,
 	}
@@ -77,7 +84,7 @@ func AllRepairKinds() []RepairKind {
 // IsValid returns true when k is one of the declared constants.
 func (k RepairKind) IsValid() bool {
 	switch k {
-	case RepairReadFile, RepairEmitEvidence, RepairExpandSearch, RepairSwapShape,
+	case RepairReadFile, RepairEmitEvidence, RepairExpandSearch, RepairSwapView,
 		RepairRebindSubject, RepairForceCompleteDowngrade:
 		return true
 	}
@@ -170,9 +177,9 @@ func MergeRepairs(in []RepairDirective) []RepairDirective {
 //	  ## Search Coverage Gap
 //	  Run grep over additional keyword stems: <kw1>, <kw2>, ...
 //
-//	swap_shape:
-//	  ## Shape Reconcile
-//	  Previous attempt used shape=<old>; reconcile to shape=<new> — <rationale>
+//	swap_view:
+//	  ## View Reconcile
+//	  Previous attempt routed family=<old>; reconcile to family=<new> — <rationale>
 //
 //	rebind_subject:
 //	  ## Subject Constraint
@@ -221,10 +228,10 @@ func (r RepairDirective) Render() string {
 		if r.Rationale != "" {
 			b.WriteString(r.Rationale + "\n")
 		}
-	case RepairSwapShape:
-		b.WriteString("## Shape Reconcile\n")
+	case RepairSwapView:
+		b.WriteString("## View Reconcile\n")
 		if r.Subject != "" {
-			b.WriteString("Previous attempt used shape mismatch: " + r.Subject + ".\n")
+			b.WriteString("Previous attempt routed mismatched family: " + r.Subject + ".\n")
 		}
 		if r.Rationale != "" {
 			b.WriteString(r.Rationale + "\n")

@@ -200,7 +200,7 @@ func (r RetryBudgetByKindSettings) For(kind ViolationKind, fallback int) int {
 		return v
 	}
 	switch kind {
-	case ViolShape, ViolShapeSwap:
+	case ViolFamilyMismatch, ViolViewSwap:
 		return pick(r.ShapeViolation)
 	case ViolCitation:
 		return pick(r.CitationViolation)

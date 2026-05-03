@@ -27,7 +27,7 @@ func TestDefaultFallbackPolicy_KnownPairs(t *testing.T) {
 	// patterns Block 3 was designed to fix.
 	cases := map[types.ViolationKind]FallbackTarget{
 		types.ViolSelfContradiction:     FallbackBackToExplore,
-		types.ViolShapeIntentMismatch:   FallbackFinalizerOnly,
+		types.ViolViewIntentMismatch:   FallbackFinalizerOnly,
 		types.ViolDeclaredCountDrift:    FallbackBackToExtract,
 		types.ViolDiagramIdentifier:     FallbackFinalizerOnly,
 		types.ViolMustInclude:           FallbackFinalizerOnly,
@@ -67,8 +67,8 @@ func TestFallbackTargetForViolations_PicksDeepest(t *testing.T) {
 			want: FallbackFinalizerOnly,
 		},
 		{
-			name: "single ViolShape (FinalizerOnly)",
-			vs:   []types.Violation{{Kind: types.ViolShape}},
+			name: "single ViolFamilyMismatch (FinalizerOnly)",
+			vs:   []types.Violation{{Kind: types.ViolFamilyMismatch}},
 			want: FallbackFinalizerOnly,
 		},
 		{
@@ -79,7 +79,7 @@ func TestFallbackTargetForViolations_PicksDeepest(t *testing.T) {
 		{
 			name: "Shape + Citation → BackToExplore wins",
 			vs: []types.Violation{
-				{Kind: types.ViolShape},
+				{Kind: types.ViolFamilyMismatch},
 				{Kind: types.ViolCitation},
 			},
 			want: FallbackBackToExplore,
@@ -138,33 +138,33 @@ func TestFallbackTarget_IsValid(t *testing.T) {
 
 func TestSetFallbackPolicyOverrides_ApplyAndRestore(t *testing.T) {
 	t.Cleanup(func() { SetFallbackPolicyOverrides(nil) })
-	// Default: ViolShape → FinalizerOnly
-	if got := FallbackTargetForKind(types.ViolShape); got != FallbackFinalizerOnly {
-		t.Fatalf("default ViolShape should map to FinalizerOnly; got %s", got)
+	// Default: ViolFamilyMismatch → FinalizerOnly
+	if got := FallbackTargetForKind(types.ViolFamilyMismatch); got != FallbackFinalizerOnly {
+		t.Fatalf("default ViolFamilyMismatch should map to FinalizerOnly; got %s", got)
 	}
 	// Override
 	SetFallbackPolicyOverrides(map[string]string{
-		string(types.ViolShape): string(FallbackBackToExplore),
+		string(types.ViolFamilyMismatch): string(FallbackBackToExplore),
 	})
-	if got := FallbackTargetForKind(types.ViolShape); got != FallbackBackToExplore {
-		t.Fatalf("override should map ViolShape to BackToExplore; got %s", got)
+	if got := FallbackTargetForKind(types.ViolFamilyMismatch); got != FallbackBackToExplore {
+		t.Fatalf("override should map ViolFamilyMismatch to BackToExplore; got %s", got)
 	}
 	// Restore by passing nil
 	SetFallbackPolicyOverrides(nil)
-	if got := FallbackTargetForKind(types.ViolShape); got != FallbackFinalizerOnly {
+	if got := FallbackTargetForKind(types.ViolFamilyMismatch); got != FallbackFinalizerOnly {
 		t.Errorf("nil override should restore defaults; got %s", got)
 	}
 }
 
 func TestSetFallbackPolicyOverrides_RejectsBackToAnalyze(t *testing.T) {
 	t.Cleanup(func() { SetFallbackPolicyOverrides(nil) })
-	// Operator tries to route ViolShape → BackToAnalyze. The override
+	// Operator tries to route ViolFamilyMismatch → BackToAnalyze. The override
 	// is REJECTED per design red line and silently degrades to
 	// FinalizerOnly (with a WARN log).
 	SetFallbackPolicyOverrides(map[string]string{
-		string(types.ViolShape): string(FallbackBackToAnalyze),
+		string(types.ViolFamilyMismatch): string(FallbackBackToAnalyze),
 	})
-	got := FallbackTargetForKind(types.ViolShape)
+	got := FallbackTargetForKind(types.ViolFamilyMismatch)
 	if got != FallbackFinalizerOnly {
 		t.Errorf("BackToAnalyze override should be rejected → FinalizerOnly; got %s", got)
 	}
@@ -182,11 +182,11 @@ func TestSetFallbackPolicyOverrides_BackToAnalyzeEnumStillValid(t *testing.T) {
 func TestSetFallbackPolicyOverrides_DropsUnknownTargets(t *testing.T) {
 	t.Cleanup(func() { SetFallbackPolicyOverrides(nil) })
 	SetFallbackPolicyOverrides(map[string]string{
-		string(types.ViolShape): "garbage_target", // invalid
+		string(types.ViolFamilyMismatch): "garbage_target", // invalid
 		string(types.ViolCitation): string(FallbackFinalizerOnly), // valid
 	})
 	// Invalid → kept as default (FinalizerOnly per the default map).
-	if got := FallbackTargetForKind(types.ViolShape); got != FallbackFinalizerOnly {
+	if got := FallbackTargetForKind(types.ViolFamilyMismatch); got != FallbackFinalizerOnly {
 		t.Errorf("invalid target should fall back to default; got %s", got)
 	}
 	// Valid override applied.

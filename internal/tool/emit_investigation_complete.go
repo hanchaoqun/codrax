@@ -819,7 +819,7 @@ func preCompleteContractCheck(ctx *types.BusContext, justification string) strin
 		// evidence IS present.
 		if mismatch, fromFamily, toFamily := detectSubjectViewMismatch(ir); mismatch {
 			closure.AddRepair(types.RepairDirective{
-				Kind:      types.RepairSwapShape,
+				Kind:      types.RepairSwapView,
 				Subject:   fmt.Sprintf("from=%s,to=%s", fromFamily, toFamily),
 				Rationale: fmt.Sprintf("AnswerSubject=%s (source-code literal) but family=%s — finalizer should produce a %s answer instead", ir.RequestModel.AnswerSubject.Kind, fromFamily, toFamily),
 				Origin:    "pre_complete.subject_view_mismatch",
@@ -829,7 +829,7 @@ func preCompleteContractCheck(ctx *types.BusContext, justification string) strin
 			// High-confidence (0.85) signal that the IR's family
 			// classification disagrees with the subject.kind.
 			closure.AppendViolation(types.Violation{
-				Kind:   types.ViolShapeSwap,
+				Kind:   types.ViolViewSwap,
 				Detail: fmt.Sprintf("pre-complete B2b: AnswerSubject=%s vs family=%s (→ %s)", ir.RequestModel.AnswerSubject.Kind, fromFamily, toFamily),
 				Stage:  string(types.StageExplore),
 				SuspectedRoot: types.SuspectedRoot{

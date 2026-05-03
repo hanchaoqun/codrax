@@ -9,7 +9,7 @@ import "testing"
 // small (≤7 stages) map plus the per-Run scalar bump.
 func BenchmarkAppendViolation_PerStageBookkeeping(b *testing.B) {
 	c := NewEvidenceClosure("")
-	v := Violation{Kind: ViolShape, Stage: "finalize"}
+	v := Violation{Kind: ViolFamilyMismatch, Stage: "finalize"}
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		c.AppendViolation(v)
@@ -26,7 +26,7 @@ func BenchmarkStageHealthSnapshot(b *testing.B) {
 	// Seed a realistic violation set: 100 entries spread across 4
 	// stages, including 10 contradictions.
 	for i := 0; i < 90; i++ {
-		c.AppendViolation(Violation{Kind: ViolShape, Stage: "finalize"})
+		c.AppendViolation(Violation{Kind: ViolFamilyMismatch, Stage: "finalize"})
 	}
 	for i := 0; i < 10; i++ {
 		c.AppendViolation(Violation{Kind: ViolSelfContradiction, Stage: "finalize"})
@@ -49,7 +49,7 @@ func BenchmarkStageHealthSnapshot(b *testing.B) {
 // with empty Stage skips the PerStage map write entirely.
 func BenchmarkAppendViolation_Baseline(b *testing.B) {
 	c := NewEvidenceClosure("")
-	v := Violation{Kind: ViolShape} // no Stage
+	v := Violation{Kind: ViolFamilyMismatch} // no Stage
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		c.AppendViolation(v)

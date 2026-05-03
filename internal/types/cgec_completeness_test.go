@@ -50,7 +50,7 @@ func TestAllRepairKindsHaveProducer(t *testing.T) {
 		RepairReadFile:               "RepairReadFile",
 		RepairEmitEvidence:           "RepairEmitEvidence",
 		RepairExpandSearch:           "RepairExpandSearch",
-		RepairSwapShape:              "RepairSwapShape",
+		RepairSwapView:              "RepairSwapView",
 		RepairRebindSubject:          "RepairRebindSubject",
 		RepairForceCompleteDowngrade: "RepairForceCompleteDowngrade",
 	}
@@ -192,7 +192,7 @@ func TestAllViolationKindsHaveProducer(t *testing.T) {
 		ViolSuccessCriterion:     true, // orchestrator.go SC merge
 		ViolGhostAnchor:          true, // agent/explorer.go D2
 		ViolPreCompleteDowngrade: true, // tool/emit_investigation_complete.go preComplete
-		ViolShapeSwap:            true, // tool/emit_answer_document.go B2a + emit_investigation_complete.go B2b
+		ViolViewSwap:            true, // tool/emit_answer_document.go B2a + emit_investigation_complete.go B2b
 		ViolSelfRefLiteral:       true, // tool/emit_evidence.go R4 self-ref filter (G6)
 		// ViolLiteralFormFailed: V1-only literal-form check, retired
 		// at B8-T3 (block_only_carrier.md §5.8). Producer deleted
@@ -200,7 +200,7 @@ func TestAllViolationKindsHaveProducer(t *testing.T) {
 		// pending until the kind itself is removed from the enum.
 		ViolChainDemoted:         true, // agent/explorer_erm.go R3 self-ref chain demote (G7)
 		// Commit 53 P2/P4 — read-mode answer-coherence violations.
-		ViolShapeIntentMismatch:   true, // orchestrator/contract_check.go runAnswerShapeOracle
+		ViolViewIntentMismatch:   true, // orchestrator/contract_check.go runAnswerShapeOracle
 		ViolSubTopicCountMismatch: true, // orchestrator/contract_check.go runAnswerShapeOracle
 		ViolDiagramIdentifier:     true, // tool/emit_answer_document.go diagram bare-identifier check (commit 53 P4)
 		// Commit 55 Batch A.3 — declared-count drift.
@@ -238,7 +238,7 @@ func TestAllViolationKindsHaveProducer(t *testing.T) {
 		ViolUncertaintyBlockMissing:  true, // orchestrator/contract_check_block.go validateUncertaintyBlockPresence
 	}
 	pending := map[ViolationKind]string{
-		ViolShape:                          "P9-C-retired-V1-checkShape (V2 block oracles cover read-mode block contract via runV2BlockOracles)",
+		ViolFamilyMismatch:                          "P9-C-retired-V1-checkShape (V2 block oracles cover read-mode block contract via runV2BlockOracles)",
 		ViolLiteralFormFailed:              "B8-T3-retired-V1-literal-form-check",
 		ViolIntentTraceShallow:             "B8-T4-retired-V1-intent-coverage-oracle",
 		ViolIntentEnumerateNotList:         "B8-T4-retired-V1-intent-coverage-oracle",
@@ -261,7 +261,7 @@ func TestAllViolationKindsHaveProducer(t *testing.T) {
 	}
 
 	kindSymbols := map[ViolationKind]string{
-		ViolShape:                "ViolShape",
+		ViolFamilyMismatch:                "ViolFamilyMismatch",
 		ViolCitation:             "ViolCitation",
 		ViolMustInclude:          "ViolMustInclude",
 		ViolMustExclude:          "ViolMustExclude",
@@ -272,7 +272,7 @@ func TestAllViolationKindsHaveProducer(t *testing.T) {
 		ViolSelfRefLiteral:       "ViolSelfRefLiteral",
 		ViolPreCompleteDowngrade: "ViolPreCompleteDowngrade",
 		ViolLiteralFormFailed:    "ViolLiteralFormFailed",
-		ViolShapeSwap:            "ViolShapeSwap",
+		ViolViewSwap:            "ViolViewSwap",
 		ViolAuthorityOverreach:   "ViolAuthorityOverreach",
 		// Block 1 (2026-05-02) reviewer-side kinds.
 		ViolPlanCritic:              "ViolPlanCritic",

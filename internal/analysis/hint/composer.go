@@ -369,7 +369,7 @@ func summariseExactFix(violations []types.Violation, ctx Context) string {
 		return ""
 	}
 	switch violations[0].Kind {
-	case types.ViolShape, types.ViolShapeSwap:
+	case types.ViolFamilyMismatch, types.ViolViewSwap:
 		if len(ctx.TargetRequiredBlocks) > 0 {
 			kinds := make([]string, len(ctx.TargetRequiredBlocks))
 			for i, k := range ctx.TargetRequiredBlocks {
@@ -420,7 +420,7 @@ func buildAllowedSet(violations []types.Violation, ctx Context) []Allowed {
 				Hint:  "file in Turn A ReadSet",
 			})
 		}
-	case types.ViolShape, types.ViolShapeSwap:
+	case types.ViolFamilyMismatch, types.ViolViewSwap:
 		for _, kind := range ctx.TargetRequiredBlocks {
 			out = append(out, Allowed{
 				Kind:  AllowedShapeEnum,
@@ -460,7 +460,7 @@ func buildForbiddenPatterns(violations []types.Violation, ctx Context) []string 
 		if ctx.PrimaryEntity != "" {
 			out = append(out, fmt.Sprintf("Do NOT emit literal=%q — that is the question's primary entity (self-reference).", ctx.PrimaryEntity))
 		}
-	case types.ViolShape, types.ViolShapeSwap:
+	case types.ViolFamilyMismatch, types.ViolViewSwap:
 		if len(ctx.TargetRequiredBlocks) > 0 {
 			kinds := make([]string, len(ctx.TargetRequiredBlocks))
 			for i, k := range ctx.TargetRequiredBlocks {

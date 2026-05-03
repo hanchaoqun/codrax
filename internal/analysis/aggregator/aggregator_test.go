@@ -17,9 +17,9 @@ func buildClosure(events ...types.Violation) *types.EvidenceClosure {
 func TestAggregate_GroupsByField(t *testing.T) {
 	a := New(DefaultConfig())
 	c := buildClosure(
-		types.Violation{Kind: types.ViolShape, SuspectedRoot: types.SuspectedRoot{IRField: "answer_shape", Confidence: 0.8}},
-		types.Violation{Kind: types.ViolShape, SuspectedRoot: types.SuspectedRoot{IRField: "answer_shape", Confidence: 0.9}},
-		types.Violation{Kind: types.ViolShape, SuspectedRoot: types.SuspectedRoot{IRField: "answer_shape", Confidence: 0.85}},
+		types.Violation{Kind: types.ViolFamilyMismatch, SuspectedRoot: types.SuspectedRoot{IRField: "answer_shape", Confidence: 0.8}},
+		types.Violation{Kind: types.ViolFamilyMismatch, SuspectedRoot: types.SuspectedRoot{IRField: "answer_shape", Confidence: 0.9}},
+		types.Violation{Kind: types.ViolFamilyMismatch, SuspectedRoot: types.SuspectedRoot{IRField: "answer_shape", Confidence: 0.85}},
 		types.Violation{Kind: types.ViolCitation, SuspectedRoot: types.SuspectedRoot{IRField: "ScannedSet", Confidence: 0.9}},
 	)
 	heats := a.Aggregate(c)
@@ -37,9 +37,9 @@ func TestAggregate_GroupsByField(t *testing.T) {
 func TestAggregate_FiltersLowConfidence(t *testing.T) {
 	a := New(Config{MinConfidence: 0.7, PatchThreshold: 0.70, HintThreshold: 0.50, MinEventCount: 3})
 	c := buildClosure(
-		types.Violation{Kind: types.ViolShape, SuspectedRoot: types.SuspectedRoot{IRField: "X", Confidence: 0.5}},
-		types.Violation{Kind: types.ViolShape, SuspectedRoot: types.SuspectedRoot{IRField: "X", Confidence: 0.6}},
-		types.Violation{Kind: types.ViolShape, SuspectedRoot: types.SuspectedRoot{IRField: "Y", Confidence: 0.8}}, // keeps
+		types.Violation{Kind: types.ViolFamilyMismatch, SuspectedRoot: types.SuspectedRoot{IRField: "X", Confidence: 0.5}},
+		types.Violation{Kind: types.ViolFamilyMismatch, SuspectedRoot: types.SuspectedRoot{IRField: "X", Confidence: 0.6}},
+		types.Violation{Kind: types.ViolFamilyMismatch, SuspectedRoot: types.SuspectedRoot{IRField: "Y", Confidence: 0.8}}, // keeps
 	)
 	heats := a.Aggregate(c)
 	if len(heats) != 1 || heats[0].IRField != "Y" {
@@ -50,8 +50,8 @@ func TestAggregate_FiltersLowConfidence(t *testing.T) {
 func TestAggregate_SkipsEmptyIRField(t *testing.T) {
 	a := New(DefaultConfig())
 	c := buildClosure(
-		types.Violation{Kind: types.ViolShape, Detail: "no root assigned"},
-		types.Violation{Kind: types.ViolShape, SuspectedRoot: types.SuspectedRoot{IRField: "answer_shape", Confidence: 0.9}},
+		types.Violation{Kind: types.ViolFamilyMismatch, Detail: "no root assigned"},
+		types.Violation{Kind: types.ViolFamilyMismatch, SuspectedRoot: types.SuspectedRoot{IRField: "answer_shape", Confidence: 0.9}},
 	)
 	heats := a.Aggregate(c)
 	if len(heats) != 1 || heats[0].IRField != "answer_shape" {
@@ -89,7 +89,7 @@ func TestAggregate_SaturationCapsEventContribution(t *testing.T) {
 	events := make([]types.Violation, 20)
 	for i := range events {
 		events[i] = types.Violation{
-			Kind:          types.ViolShape,
+			Kind:          types.ViolFamilyMismatch,
 			SuspectedRoot: types.SuspectedRoot{IRField: "Y", Confidence: 0.6},
 		}
 	}

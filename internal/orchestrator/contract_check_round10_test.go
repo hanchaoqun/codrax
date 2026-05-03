@@ -41,7 +41,7 @@ func TestCountNonPlumbingViolations_ExcludesAuthorityOverreach(t *testing.T) {
 		{
 			name: "mixed-counts-only-content",
 			in: []types.Violation{
-				{Kind: types.ViolShape},
+				{Kind: types.ViolFamilyMismatch},
 				{Kind: types.ViolAuthorityOverreach},
 				{Kind: types.ViolMustInclude},
 			},
@@ -50,7 +50,7 @@ func TestCountNonPlumbingViolations_ExcludesAuthorityOverreach(t *testing.T) {
 		{
 			name: "all-content",
 			in: []types.Violation{
-				{Kind: types.ViolShape},
+				{Kind: types.ViolFamilyMismatch},
 				{Kind: types.ViolCitation},
 			},
 			want: 2,
@@ -89,7 +89,7 @@ func TestCountNonPlumbingViolations_TriggerThresholdSemantic(t *testing.T) {
 
 	// Conversely: 2 content violations DO cross the floor.
 	contentOnly := []types.Violation{
-		{Kind: types.ViolShape},
+		{Kind: types.ViolFamilyMismatch},
 		{Kind: types.ViolMustInclude},
 	}
 	if got := countNonPlumbingViolations(contentOnly); got < softViolationLearnFloor {

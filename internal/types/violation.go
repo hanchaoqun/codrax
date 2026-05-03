@@ -5,7 +5,7 @@ package types
 // embed a []Violation ledger without creating the circular import
 // contract → types → contract. The contract package re-exports these
 // via Go type aliases (see internal/analysis/contract/checker.go), so
-// call sites continue to write contract.Violation / contract.ViolShape.
+// call sites continue to write contract.Violation / contract.ViolFamilyMismatch.
 //
 // Session 11 F1 (2026-04-18) added the Stage / DispatchID /
 // EvidenceRefs / SuspectedRoot fields so every enforcer write can
@@ -18,7 +18,7 @@ type ViolationKind string
 
 const (
 	// Original contract-checker kinds (pre-session-11).
-	ViolShape            ViolationKind = "shape"
+	ViolFamilyMismatch            ViolationKind = "shape"
 	ViolCitation         ViolationKind = "citation"
 	ViolMustInclude      ViolationKind = "must_include"
 	ViolMustExclude      ViolationKind = "must_exclude"
@@ -55,11 +55,11 @@ const (
 	// regex rule (e.g. skill_name must end with -skill).
 	ViolLiteralFormFailed ViolationKind = "literal_form_failed"
 
-	// ViolShapeSwap: B2a/B2b shape swap fired. Kept in the ledger
+	// ViolViewSwap: B2a/B2b shape swap fired. Kept in the ledger
 	// for audit even after C4 removes the can_correct=true rescue —
 	// operators still want to observe how often the LLM picks the
 	// wrong shape.
-	ViolShapeSwap ViolationKind = "shape_swap"
+	ViolViewSwap ViolationKind = "shape_swap"
 
 	// Commit 53 P2 — read-mode answer Shape Oracle violations.
 	// Defaults are SOFT (advisory only, mirrored to closure but
@@ -67,11 +67,11 @@ const (
 	// without breaking edge-case answers; operators can promote
 	// to strict via gate_contract_strict_kinds yaml.
 
-	// ViolShapeIntentMismatch: answer Shape contradicts Intent /
+	// ViolViewIntentMismatch: answer Shape contradicts Intent /
 	// Scenario from RequestModel (e.g. ShapeValue answer for a
 	// "explain how X works" intent). Caught by
 	// runAnswerShapeOracle. SuspectedRoot: answer_shape.
-	ViolShapeIntentMismatch ViolationKind = "shape_intent_mismatch"
+	ViolViewIntentMismatch ViolationKind = "shape_intent_mismatch"
 
 	// ViolSubTopicCountMismatch: doc.AnswerSymbols' distinct
 	// SubTopic-bucket count diverges from len(IR.SubTopics).
@@ -464,7 +464,7 @@ const (
 // kind coverage tooling.
 func AllViolationKinds() []ViolationKind {
 	return []ViolationKind{
-		ViolShape,
+		ViolFamilyMismatch,
 		ViolCitation,
 		ViolMustInclude,
 		ViolMustExclude,
@@ -475,8 +475,8 @@ func AllViolationKinds() []ViolationKind {
 		ViolSelfRefLiteral,
 		ViolPreCompleteDowngrade,
 		ViolLiteralFormFailed,
-		ViolShapeSwap,
-		ViolShapeIntentMismatch,
+		ViolViewSwap,
+		ViolViewIntentMismatch,
 		ViolSubTopicCountMismatch,
 		ViolDiagramIdentifier,
 		ViolDeclaredCountDrift,

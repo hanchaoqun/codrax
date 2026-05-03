@@ -100,7 +100,7 @@ type FallbackPolicy map[types.ViolationKind]FallbackTarget
 //     to flip the contradiction; explore-then-finalize gives the
 //     LLM fresh evidence to anchor on.
 //
-//   ViolShapeIntentMismatch      → FinalizerOnly
+//   ViolViewIntentMismatch      → FinalizerOnly
 //     Pure shape choice; evidence is intact, only the wrapper is
 //     wrong. No need to revisit upstream.
 //
@@ -139,7 +139,7 @@ type FallbackPolicy map[types.ViolationKind]FallbackTarget
 //     Soft signal already handled at emit time; Block 3 has no
 //     upstream remediation.
 //
-//   ViolShapeSwap                → FinalizerOnly
+//   ViolViewSwap                → FinalizerOnly
 //
 //   ViolSubTopicCountMismatch    → FinalizerOnly
 //     Re-emit with the right shape; the evidence supports either
@@ -174,7 +174,7 @@ func DefaultFallbackPolicy() FallbackPolicy {
 	return FallbackPolicy{
 		// Existing read-mode kinds.
 		types.ViolSelfContradiction:           FallbackBackToExplore,
-		types.ViolShapeIntentMismatch:         FallbackFinalizerOnly,
+		types.ViolViewIntentMismatch:         FallbackFinalizerOnly,
 		types.ViolDeclaredCountDrift:          FallbackBackToExtract,
 		types.ViolDiagramIdentifier:           FallbackFinalizerOnly,
 		types.ViolMustInclude:                 FallbackFinalizerOnly,
@@ -187,9 +187,9 @@ func DefaultFallbackPolicy() FallbackPolicy {
 		types.ViolSelfRefLiteral:              FallbackFinalizerOnly,
 		types.ViolLiteralFormFailed:           FallbackFinalizerOnly,
 		types.ViolPreCompleteDowngrade:        FallbackFinalizerOnly,
-		types.ViolShapeSwap:                   FallbackFinalizerOnly,
+		types.ViolViewSwap:                   FallbackFinalizerOnly,
 		types.ViolSubTopicCountMismatch:       FallbackFinalizerOnly,
-		types.ViolShape:                       FallbackFinalizerOnly,
+		types.ViolFamilyMismatch:                       FallbackFinalizerOnly,
 		types.ViolExternalArtifactUnderdecoded: FallbackFinalizerOnly,
 		types.ViolAuthorityOverreach:          FallbackFinalizerOnly,
 		// Block 1 reviewer kinds — informational, no upstream

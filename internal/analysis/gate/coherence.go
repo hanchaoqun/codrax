@@ -237,7 +237,7 @@ func checkSubtopicCoherence(ir *types.AnalysisIR, resolver normalizer.SymbolReso
 			}
 			sort.Strings(collapsed)
 			details = append(details, fmt.Sprintf(
-				"R1.4 axis_collapse: %d sub-topics all resolve to domain set %s (<=1 distinct domain) under enumeration intent — your sub-topics enumerate values of one axis (e.g. one mode value per sub_topic) rather than independently-answerable questions. Repair by re-emitting emit_analysis ONCE with EITHER (a) sub_topics omitted entirely + answer_shape=list_of_symbols (the downstream finalizer will then emit one symbols[] item per enumerated value, each with file/line/name/kind/rationale — see the answer-document skill for the full schema; this is the natural form for \"what kinds of X exist\" questions), OR (b) sub_topics retained but each sub-topic's entities now span >=2 distinct repomap domains so the question really is multi-axis",
+				"R1.4 axis_collapse: %d sub-topics all resolve to domain set %s (<=1 distinct domain) under enumeration intent — your sub-topics enumerate values of one axis (e.g. one mode value per sub_topic) rather than independently-answerable questions. Repair by re-emitting emit_analysis ONCE with EITHER (a) sub_topics omitted entirely (the finalizer will then emit one symbols[] item per enumerated value, each with file/line/name/kind/rationale — see the answer-document skill for the full schema; this is the natural form for \"what kinds of X exist\" questions), OR (b) sub_topics retained but each sub-topic's entities now span >=2 distinct repomap domains so the question really is multi-axis",
 				nSub, formatDomainList(collapsed)))
 		}
 	}

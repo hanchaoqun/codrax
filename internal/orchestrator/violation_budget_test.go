@@ -66,13 +66,13 @@ func TestCaptureYieldSnapshot_NilClosureSafe(t *testing.T) {
 func TestDominantViolationKind_PicksMostCommon(t *testing.T) {
 	res := contract.Result{
 		Violations: []types.Violation{
-			{Kind: types.ViolShape},
-			{Kind: types.ViolShape},
+			{Kind: types.ViolFamilyMismatch},
+			{Kind: types.ViolFamilyMismatch},
 			{Kind: types.ViolCitation},
 		},
 	}
-	if got := dominantViolationKind(res); got != types.ViolShape {
-		t.Errorf("dominantViolationKind = %s, want ViolShape", got)
+	if got := dominantViolationKind(res); got != types.ViolFamilyMismatch {
+		t.Errorf("dominantViolationKind = %s, want ViolFamilyMismatch", got)
 	}
 }
 
@@ -88,8 +88,8 @@ func TestDominantViolationKind_EmptyReturnsEmpty(t *testing.T) {
 func TestRetryBudgetByKind_UsesKindSpecificCap(t *testing.T) {
 	// Default Session-11 defaults table (see DefaultRetryBudgetByKindSettings).
 	def := types.DefaultRetryBudgetByKindSettings()
-	if got := def.For(types.ViolShape, 99); got != 1 {
-		t.Errorf("ViolShape cap = %d, want 1 (default shape budget)", got)
+	if got := def.For(types.ViolFamilyMismatch, 99); got != 1 {
+		t.Errorf("ViolFamilyMismatch cap = %d, want 1 (default shape budget)", got)
 	}
 	if got := def.For(types.ViolCitation, 99); got != 1 {
 		t.Errorf("ViolCitation cap = %d, want 1", got)
@@ -104,17 +104,17 @@ func TestRetryBudgetByKind_UsesKindSpecificCap(t *testing.T) {
 
 func TestRetryBudgetByKind_ZeroFallsBackToFallback(t *testing.T) {
 	r := types.RetryBudgetByKindSettings{} // all zero
-	if got := r.For(types.ViolShape, 5); got != 5 {
+	if got := r.For(types.ViolFamilyMismatch, 5); got != 5 {
 		t.Errorf("zero-entry cap should fall back to fallback=5, got %d", got)
 	}
 }
 
 func TestGraphState_PerKindCounterIsolated(t *testing.T) {
 	s := &graphState{}
-	s.recordRetryByKind(types.ViolShape)
-	s.recordRetryByKind(types.ViolShape)
+	s.recordRetryByKind(types.ViolFamilyMismatch)
+	s.recordRetryByKind(types.ViolFamilyMismatch)
 	s.recordRetryByKind(types.ViolCitation)
-	if got := s.retryUsedForKind(types.ViolShape); got != 2 {
+	if got := s.retryUsedForKind(types.ViolFamilyMismatch); got != 2 {
 		t.Errorf("shape retries = %d, want 2", got)
 	}
 	if got := s.retryUsedForKind(types.ViolCitation); got != 1 {
@@ -130,7 +130,7 @@ func TestPrependFailLoudWarning_EmitsHeaderWithFieldAndYieldKills(t *testing.T) 
 	closure := mut.EvidenceClosure()
 	// Populate a ledger entry so TopSuspectedField can surface a field.
 	closure.AppendViolation(types.Violation{
-		Kind: types.ViolShape,
+		Kind: types.ViolFamilyMismatch,
 		SuspectedRoot: types.SuspectedRoot{
 			IRField: "answer_shape", Confidence: 0.85,
 		},

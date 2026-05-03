@@ -60,7 +60,7 @@ func TestCompose_EmptyViolations_StrictErrors(t *testing.T) {
 func TestCompose_ShapeViolation_BuildsAllowedAndForbidden(t *testing.T) {
 	c := New(DefaultConfig())
 	v := []types.Violation{{
-		Kind:   types.ViolShape,
+		Kind:   types.ViolFamilyMismatch,
 		Detail: "LLM chose shape=boolean but contract requires value",
 		SuspectedRoot: types.SuspectedRoot{
 			IRField:    "answer_shape",
@@ -136,7 +136,7 @@ func TestCompose_StrictModeRequiresAllFields(t *testing.T) {
 	// Missing TargetFamily / TargetRequiredBlocks → AllowedSet empty
 	// for a shape violation → Validate fails.
 	v := []types.Violation{{
-		Kind:          types.ViolShape,
+		Kind:          types.ViolFamilyMismatch,
 		Detail:        "boolean vs value",
 		SuspectedRoot: types.SuspectedRoot{IRField: "answer_shape", Confidence: 0.85},
 	}}
@@ -148,7 +148,7 @@ func TestCompose_StrictModeRequiresAllFields(t *testing.T) {
 func TestRenderCompact_PreservesLegacySemicolonFormat(t *testing.T) {
 	c := New(DefaultConfig())
 	v := []types.Violation{
-		{Kind: types.ViolShape, Detail: "boolean vs value"},
+		{Kind: types.ViolFamilyMismatch, Detail: "boolean vs value"},
 		{Kind: types.ViolCitation, Detail: "missing line", Repair: "add :N"},
 	}
 	h, _ := c.Compose(Context{}, v)

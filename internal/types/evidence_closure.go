@@ -211,7 +211,7 @@ type EvidenceClosure struct {
 // below, which threads through the closure mutex so concurrent
 // emit_*-tool calls cannot race.
 //
-// ExpandSearchRaised and ShapeSwapRaised are separate from the
+// ExpandSearchRaised and ViewSwapRaised are separate from the
 // generic RepairsRaised counter because Session 10 Group B wires
 // them as first-class producers with their own semantics — operator
 // observability treats "the framework asked the LLM to grep wider"
@@ -222,7 +222,7 @@ type ClosureStats struct {
 	UnverifiedFinds       int // I1: hallucinated paths/symbols flagged by findings_validator
 	RepairsRaised         int // I2: structured RepairDirectives written to closure (any kind)
 	ExpandSearchRaised    int // B1: RepairExpandSearch directives raised (Phase0 / stall / preComplete)
-	ShapeSwapRaised       int // B2: RepairSwapShape directives raised (grounder / preComplete / retry)
+	ViewSwapRaised       int // B2: RepairSwapView directives raised (grounder / preComplete / retry)
 	PreCompleteDowngrades int // I3: emit_investigation_complete downgrade events
 	ForcedReads           int // I4: files read on the LLM's behalf (Lazy Auto-Read)
 	StallSoftHits         int // I4: convergence soft threshold hits
@@ -272,7 +272,7 @@ func (s StageStats) IsEmpty() bool {
 // not pollute the trace with an empty summary.
 func (s ClosureStats) HasActivity() bool {
 	if s.ChainsDemoted+s.UnverifiedFinds+s.RepairsRaised+
-		s.ExpandSearchRaised+s.ShapeSwapRaised+
+		s.ExpandSearchRaised+s.ViewSwapRaised+
 		s.PreCompleteDowngrades+s.ForcedReads+
 		s.StallSoftHits+s.StallHardHits+
 		s.ViolationsLogged > 0 {
@@ -1476,8 +1476,8 @@ func (c *EvidenceClosure) AddRepair(r RepairDirective) {
 		// to widen scope with another framework-forced read.
 	case RepairExpandSearch:
 		c.stats.ExpandSearchRaised++
-	case RepairSwapShape:
-		c.stats.ShapeSwapRaised++
+	case RepairSwapView:
+		c.stats.ViewSwapRaised++
 	}
 }
 
@@ -1955,8 +1955,8 @@ func (c *EvidenceClosure) BumpRepairsRaised(n int) {
 func (c *EvidenceClosure) BumpExpandSearchRaised(n int) {
 	c.bumpStat(func(s *ClosureStats) { s.ExpandSearchRaised += n })
 }
-func (c *EvidenceClosure) BumpShapeSwapRaised(n int) {
-	c.bumpStat(func(s *ClosureStats) { s.ShapeSwapRaised += n })
+func (c *EvidenceClosure) BumpViewSwapRaised(n int) {
+	c.bumpStat(func(s *ClosureStats) { s.ViewSwapRaised += n })
 }
 func (c *EvidenceClosure) BumpPreCompleteDowngrades(n int) {
 	c.bumpStat(func(s *ClosureStats) { s.PreCompleteDowngrades += n })

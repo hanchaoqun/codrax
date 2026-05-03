@@ -39,11 +39,11 @@ func TestIsPlumbingFailureViolation_ClassifiesBlock1ReviewerKinds(t *testing.T) 
 // content-related violations must be eligible for taxonomy collection.
 func TestIsPlumbingFailureViolation_AnswerQualityKindsPassThrough(t *testing.T) {
 	contentKinds := []types.ViolationKind{
-		types.ViolShape,
+		types.ViolFamilyMismatch,
 		types.ViolCitation,
 		types.ViolMustInclude,
 		types.ViolMustExclude,
-		types.ViolShapeIntentMismatch,
+		types.ViolViewIntentMismatch,
 		types.ViolSubTopicCountMismatch,
 		types.ViolDeclaredCountDrift,
 		types.ViolSelfContradiction,

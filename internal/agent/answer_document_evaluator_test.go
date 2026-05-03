@@ -1613,7 +1613,7 @@ func TestAnswerDocumentEvaluator_Observe_MidLoopSummaryCapRejectRequestsTargeted
 		LastToolResult: &types.ToolResult{
 			ToolName: "emit_answer_document",
 			Success:  false,
-			Summary:  "summary length 2782 exceeds cap 2500 for shape=explanation — shorten the summary",
+			Summary:  "summary length 2782 exceeds cap 2500 — shorten the summary",
 		},
 	})
 	if !sig.HintRequested {
@@ -1625,8 +1625,8 @@ func TestAnswerDocumentEvaluator_Observe_MidLoopSummaryCapRejectRequestsTargeted
 	if !sig.BypassBudget {
 		t.Fatalf("summary-cap reject hint should bypass the ordinary mid-loop budget, got %+v", sig)
 	}
-	if !strings.Contains(sig.Hint, "2500") || !strings.Contains(sig.Hint, "explanation") {
-		t.Fatalf("targeted summary-cap hint missing cap/shape detail: %q", sig.Hint)
+	if !strings.Contains(sig.Hint, "2500") || !strings.Contains(sig.Hint, "2782") {
+		t.Fatalf("targeted summary-cap hint missing cap detail: %q", sig.Hint)
 	}
 	if !strings.Contains(sig.Hint, "emit_answer_document") {
 		t.Fatalf("targeted summary-cap hint must tell the model to re-emit the tool call: %q", sig.Hint)
@@ -1641,7 +1641,7 @@ func TestAnswerDocumentEvaluator_Observe_MidLoopSummaryCapRejectPreservesRequire
 		LastToolResult: &types.ToolResult{
 			ToolName: "emit_answer_document",
 			Success:  false,
-			Summary:  "summary length 2782 exceeds cap 2500 for shape=explanation — shorten the summary",
+			Summary:  "summary length 2782 exceeds cap 2500 — shorten the summary",
 		},
 	})
 	if !sig.HintRequested {
@@ -2254,31 +2254,6 @@ func TestAnswerDocumentEvaluator_Observe_MidLoopExactResolutionRejectSurfacesAct
 	}
 }
 
-func TestAnswerDocumentEvaluator_Observe_MidLoopAbsentExactConfigValueShapeRejectSurfacesAction(t *testing.T) {
-	e := &answerDocumentEvaluator{maxRetries: 2}
-	sig := e.Observe(nil, LoopObservation{
-		Phase:     PhaseMidLoop,
-		Iteration: 0,
-		LastToolResult: &types.ToolResult{
-			ToolName: "emit_answer_document",
-			Success:  false,
-			Summary:  "[answer_doc_reject:absent_exact_config_value_shape] exact absent config-key answers must not use shape=config_value with a synthetic missing literal; use shape=explanation so the answer can lead with the exact absence",
-		},
-	})
-	if !sig.HintRequested {
-		t.Fatalf("absent exact config-value reject should request a correction hint, got %+v", sig)
-	}
-	for _, want := range []string{
-		"shape=explanation",
-		"exact_resolution.status=\"absent\"",
-		"related context only",
-	} {
-		if !strings.Contains(sig.Hint, want) {
-			t.Fatalf("absent config-value hint missing %q: %q", want, sig.Hint)
-		}
-	}
-}
-
 func TestAnswerDocumentEvaluator_Observe_MidLoopUnexpectedReadToolRequestsSynthesisOnlyRetry(t *testing.T) {
 	e := &answerDocumentEvaluator{maxRetries: 2}
 	sig := e.Observe(nil, LoopObservation{
@@ -2470,32 +2445,6 @@ func TestAnswerDocumentEvaluator_Observe_MidLoopCitationRefRepairUsesStructuredH
 	} {
 		if !strings.Contains(sig.Hint, want) {
 			t.Fatalf("citation_ref repair hint missing %q: %q", want, sig.Hint)
-		}
-	}
-}
-
-func TestAnswerDocumentEvaluator_Observe_MidLoopValueSummaryRejectSurfacesAction(t *testing.T) {
-	e := &answerDocumentEvaluator{maxRetries: 2}
-	sig := e.Observe(nil, LoopObservation{
-		Phase:     PhaseMidLoop,
-		Iteration: 0,
-		LastToolResult: &types.ToolResult{
-			ToolName: "emit_answer_document",
-			Success:  false,
-			Summary:  `shape=value requires summary to name the subject (file path / symbol / directory / measurement target) AND the methodology (command, chain, lookup) that produced the literal — the bare literal "buildAnalysisIR" alone is not a complete answer`,
-		},
-	})
-	if !sig.HintRequested {
-		t.Fatalf("value-summary reject should request a correction hint, got %+v", sig)
-	}
-	for _, want := range []string{
-		"`shape=value`",
-		"missing the required `summary`",
-		"keep the grounded `value.literal` / `value.citation_ref`",
-		"Do NOT reopen files or change the answer shape",
-	} {
-		if !strings.Contains(sig.Hint, want) {
-			t.Fatalf("value-summary hint missing %q: %q", want, sig.Hint)
 		}
 	}
 }

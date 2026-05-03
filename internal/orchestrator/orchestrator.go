@@ -3967,7 +3967,7 @@ func (o *Orchestrator) emitCGECSummary() {
 		line = fmt.Sprintf(
 			"[CGEC] summary: chains_demoted=%d unverified=%d repairs_raised=%d expand_search=%d shape_swap=%d pre_complete_downgrades=%d forced_reads=%d stall_soft=%d stall_hard=%d",
 			stats.ChainsDemoted, stats.UnverifiedFinds, stats.RepairsRaised,
-			stats.ExpandSearchRaised, stats.ShapeSwapRaised,
+			stats.ExpandSearchRaised, stats.ViewSwapRaised,
 			stats.PreCompleteDowngrades, stats.ForcedReads,
 			stats.StallSoftHits, stats.StallHardHits)
 		// Session 11 F1: extended summary with ViolationLedger view.
@@ -4816,7 +4816,7 @@ func (o *Orchestrator) applyStageOutput(output *agent.StageOutput) {
 	// dispatch. CGEC B3: only overwrite when the stage produced a
 	// non-empty hint of its own. An empty output.RetryHint leaves
 	// the orchestrator-written window hint (from renderWindowHint)
-	// in place so the Shape Reconcile / Subject Constraint /
+	// in place so the View Reconcile / Subject Constraint /
 	// Forced Read List sections persist through explore → extract →
 	// finalize within the same retry round. The hint is reset at
 	// the start of the NEXT window via applyWindowHint.

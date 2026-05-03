@@ -317,12 +317,12 @@ func TestValidateStuck_HypProgressPinned_EscalatesToInconclusive(t *testing.T) {
 // budget exhausts — NOT the hypProgress shortcut.
 func TestValidateStuck_NonHypothesisSC_HypProgressDoesNotFalseTrigger(t *testing.T) {
 	// Pre-shape-retirement, this test relied on V1 checkShape firing
-	// ViolShape on a stub finalizer (FinalAnswer="ok" without a real
+	// ViolFamilyMismatch on a stub finalizer (FinalAnswer="ok" without a real
 	// AnswerDocument) to drive repeated explorer dispatches. P9-C
 	// retires checkShape — the contract.Check side never produces
-	// ViolShape now. The hypStuck guard semantic is still validated
+	// ViolFamilyMismatch now. The hypStuck guard semantic is still validated
 	// indirectly by other tests in this file via SC-driven requeue.
-	t.Skip("V1 ViolShape-driven re-explore retired with P9-C; coverage moves to V2 block-oracle tests in contract_check_block_test.go")
+	t.Skip("V1 ViolFamilyMismatch-driven re-explore retired with P9-C; coverage moves to V2 block-oracle tests in contract_check_block_test.go")
 	ir := buildStuckValidateIR()
 	// Wipe hypotheses — this test exercises the non-hypothesis SC
 	// branch of validate nodes.
@@ -364,8 +364,8 @@ func TestValidateStuck_NonHypothesisSC_HypProgressDoesNotFalseTrigger(t *testing
 	// Block 3 (architecture overhaul 2026-05-02): the test stub
 	// finalizer returns FinalAnswer="ok" without constructing an
 	// AnswerDocument with shape=Explanation, which triggers
-	// ViolShape on every contract.Check. The default fallback
-	// policy maps ViolShape→FinalizerOnly (a shape mismatch is
+	// ViolFamilyMismatch on every contract.Check. The default fallback
+	// policy maps ViolFamilyMismatch→FinalizerOnly (a shape mismatch is
 	// re-rendered, not re-investigated). For THIS test — which
 	// validates the hypStuck guard's interaction with normal
 	// requeue — we override the policy to BackToExplore so the
@@ -373,7 +373,7 @@ func TestValidateStuck_NonHypothesisSC_HypProgressDoesNotFalseTrigger(t *testing
 	// assumption holds. Restored at cleanup.
 	t.Cleanup(func() { SetFallbackPolicyOverrides(nil) })
 	SetFallbackPolicyOverrides(map[string]string{
-		string(types.ViolShape): string(FallbackBackToExplore),
+		string(types.ViolFamilyMismatch): string(FallbackBackToExplore),
 	})
 
 	done := make(chan struct{})

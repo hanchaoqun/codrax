@@ -150,7 +150,7 @@ func TestAddRepair_ReadFile_MirrorsToPendingReads(t *testing.T) {
 }
 
 // TestAddRepair_NonReadFile_DoesNotMirror asserts the A1 bridge is
-// kind-specific: RepairExpandSearch / RepairSwapShape / etc. MUST
+// kind-specific: RepairExpandSearch / RepairSwapView / etc. MUST
 // NOT silently write PendingReads (those kinds have no file list
 // and the semantics differ).
 func TestAddRepair_NonReadFile_DoesNotMirror(t *testing.T) {
@@ -161,7 +161,7 @@ func TestAddRepair_NonReadFile_DoesNotMirror(t *testing.T) {
 		Origin:   "phase0.broaden_failed",
 	})
 	c.AddRepair(RepairDirective{
-		Kind:    RepairSwapShape,
+		Kind:    RepairSwapView,
 		Subject: "from=config_value,to=value",
 		Origin:  "emit_answer_document.shape_mismatch",
 	})
@@ -315,29 +315,29 @@ func TestAddRepair_ExpandSearch_BumpsStats(t *testing.T) {
 }
 
 // TestAddRepair_SwapShape_BumpsStats is the B2 producer regression:
-// every RepairSwapShape MUST bump ClosureStats.ShapeSwapRaised.
+// every RepairSwapView MUST bump ClosureStats.ViewSwapRaised.
 func TestAddRepair_SwapShape_BumpsStats(t *testing.T) {
 	c := NewEvidenceClosure("")
 	c.AddRepair(RepairDirective{
-		Kind:    RepairSwapShape,
+		Kind:    RepairSwapView,
 		Subject: "from=boolean,to=value",
 		Origin:  "emit_answer_document.shape_mismatch",
 	})
 	s := c.Stats()
-	if s.ShapeSwapRaised != 1 {
-		t.Errorf("ShapeSwapRaised=%d, want 1", s.ShapeSwapRaised)
+	if s.ViewSwapRaised != 1 {
+		t.Errorf("ViewSwapRaised=%d, want 1", s.ViewSwapRaised)
 	}
 	if s.RepairsRaised != 1 {
 		t.Errorf("RepairsRaised=%d, want 1", s.RepairsRaised)
 	}
 	// Distinct Subject = distinct directive, so another one bumps.
 	c.AddRepair(RepairDirective{
-		Kind:    RepairSwapShape,
+		Kind:    RepairSwapView,
 		Subject: "from=explanation,to=value",
 		Origin:  "pre_complete.subject_shape_mismatch",
 	})
-	if s2 := c.Stats(); s2.ShapeSwapRaised != 2 {
-		t.Errorf("ShapeSwapRaised=%d, want 2 (distinct Subject)", s2.ShapeSwapRaised)
+	if s2 := c.Stats(); s2.ViewSwapRaised != 2 {
+		t.Errorf("ViewSwapRaised=%d, want 2 (distinct Subject)", s2.ViewSwapRaised)
 	}
 }
 
@@ -419,8 +419,8 @@ func TestAddRepair_RebindSubject_StillCountsRepairsRaised(t *testing.T) {
 	if s.RepairsRaised != 2 {
 		t.Errorf("RepairsRaised=%d, want 2 (generic counter must fire for every kind)", s.RepairsRaised)
 	}
-	if s.ExpandSearchRaised != 0 || s.ShapeSwapRaised != 0 {
-		t.Errorf("per-kind counters must not fire for other kinds: ExpandSearch=%d ShapeSwap=%d", s.ExpandSearchRaised, s.ShapeSwapRaised)
+	if s.ExpandSearchRaised != 0 || s.ViewSwapRaised != 0 {
+		t.Errorf("per-kind counters must not fire for other kinds: ExpandSearch=%d ShapeSwap=%d", s.ExpandSearchRaised, s.ViewSwapRaised)
 	}
 }
 
@@ -482,9 +482,9 @@ func TestAppendViolation_BumpsStatsAndRetrieves(t *testing.T) {
 // noise from legacy three-field writers.
 func TestViolationFieldTally_SkipsZeroRootEntries(t *testing.T) {
 	c := NewEvidenceClosure("")
-	c.AppendViolation(Violation{Kind: ViolShape, Detail: "legacy write no root"})
+	c.AppendViolation(Violation{Kind: ViolFamilyMismatch, Detail: "legacy write no root"})
 	c.AppendViolation(Violation{
-		Kind: ViolShape, Detail: "modern write with root",
+		Kind: ViolFamilyMismatch, Detail: "modern write with root",
 		SuspectedRoot: SuspectedRoot{IRField: "answer_shape", Confidence: 0.8},
 	})
 	if got := c.Stats().ViolationsLogged; got != 2 {
@@ -504,9 +504,9 @@ func TestViolationFieldTally_SkipsZeroRootEntries(t *testing.T) {
 // across that field's events as the reported confidence.
 func TestTopSuspectedField_PicksHighestCount(t *testing.T) {
 	c := NewEvidenceClosure("")
-	c.AppendViolation(Violation{Kind: ViolShape, SuspectedRoot: SuspectedRoot{IRField: "answer_shape", Confidence: 0.80}})
-	c.AppendViolation(Violation{Kind: ViolShape, SuspectedRoot: SuspectedRoot{IRField: "answer_shape", Confidence: 0.85}})
-	c.AppendViolation(Violation{Kind: ViolShape, SuspectedRoot: SuspectedRoot{IRField: "answer_shape", Confidence: 0.75}})
+	c.AppendViolation(Violation{Kind: ViolFamilyMismatch, SuspectedRoot: SuspectedRoot{IRField: "answer_shape", Confidence: 0.80}})
+	c.AppendViolation(Violation{Kind: ViolFamilyMismatch, SuspectedRoot: SuspectedRoot{IRField: "answer_shape", Confidence: 0.85}})
+	c.AppendViolation(Violation{Kind: ViolFamilyMismatch, SuspectedRoot: SuspectedRoot{IRField: "answer_shape", Confidence: 0.75}})
 	c.AppendViolation(Violation{Kind: ViolCitation, SuspectedRoot: SuspectedRoot{IRField: "ScannedSet", Confidence: 0.90}})
 
 	field, count, conf := c.TopSuspectedField()

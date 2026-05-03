@@ -166,7 +166,7 @@ func TestRenderViolations_Ordering(t *testing.T) {
 	res := contract.Result{
 		Passed: false,
 		Violations: []contract.Violation{
-			{Kind: contract.ViolShape, Detail: "no bullets"},
+			{Kind: contract.ViolFamilyMismatch, Detail: "no bullets"},
 			{Kind: contract.ViolCitation, Detail: "0/3 citations", Repair: "add 3 anchors"},
 		},
 	}
@@ -191,7 +191,7 @@ func TestRenderViolations_EmptyOnPassed(t *testing.T) {
 func TestAppendViolationsToAnswer_FailLoudPattern(t *testing.T) {
 	original := "the answer body"
 	res := contract.Result{Passed: false, Violations: []contract.Violation{
-		{Kind: contract.ViolShape, Detail: "wrong"},
+		{Kind: contract.ViolFamilyMismatch, Detail: "wrong"},
 	}}
 	out := appendViolationsToAnswer(original, res)
 	if !strings.HasPrefix(out, "· answer-contract validation exhausted") {

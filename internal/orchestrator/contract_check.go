@@ -946,7 +946,7 @@ func abs(x int) int {
 // defaultSoftKinds is the set of ViolationKinds that, by default,
 // do NOT hard-fail the contract gate (they are mirrored to closure
 // for telemetry / future learning but don't trigger finalize retry).
-// The pre-commit-53 violation kinds (ViolShape / ViolCitation / ...)
+// The pre-commit-53 violation kinds (ViolFamilyMismatch / ViolCitation / ...)
 // are NOT in this set; their hard-gate behaviour is preserved
 // byte-identically. Only the 3 commit-53 newcomers default to soft.
 //
@@ -974,7 +974,7 @@ func abs(x int) int {
 //
 func defaultSoftKinds() map[types.ViolationKind]bool {
 	return map[types.ViolationKind]bool{
-		types.ViolShapeIntentMismatch:          true,
+		types.ViolViewIntentMismatch:          true,
 		types.ViolSubTopicCountMismatch:        true,
 		types.ViolDiagramIdentifier:            true,
 		types.ViolDeclaredCountDrift:           true,

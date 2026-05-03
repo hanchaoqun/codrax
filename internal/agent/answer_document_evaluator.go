@@ -2195,14 +2195,13 @@ func (e *answerDocumentEvaluator) emitAnswerDocumentRejectSignal(ctx *types.Agen
 		hint = answerDocPreserveHintIntro + " Re-emit `emit_answer_document` now: paste the FULL previous payload byte-identical, then change ONLY the field(s) named in this exact tool error: " + detail + ". Every other field must stay byte-identical to the prior emit; do not reopen files. Do not write free-form prose outside the tool call."
 	}
 
-	var summaryLen, cap int
-	var shape string
-	if _, err := fmt.Sscanf(summary, "summary length %d exceeds cap %d for shape=%s", &summaryLen, &cap, &shape); err == nil && cap > 0 {
+	var summaryLen, summaryCap int
+	if _, err := fmt.Sscanf(summary, "summary length %d exceeds cap %d", &summaryLen, &summaryCap); err == nil && summaryCap > 0 {
 		reasonKey = "summary-cap"
 		if e.diagramRequired {
-			hint = fmt.Sprintf("Your last `emit_answer_document` call was rejected because `summary` was too long for shape `%s` (cap %d chars, current %d). Re-emit `emit_answer_document` now with the same grounded answer but shorten `summary` below %d chars. Preserve the required grounded diagram; compress prose, repeated headings, and repeated citation prose first. Keep the facts in the tool fields and `citations[]`; do not write free-form prose outside the tool call.", strings.TrimSpace(shape), cap, summaryLen, cap)
+			hint = fmt.Sprintf("Your last `emit_answer_document` call was rejected because `summary` was too long (cap %d chars, current %d). Re-emit `emit_answer_document` now with the same grounded answer but shorten `summary` below %d chars. Preserve the required grounded diagram; compress prose, repeated headings, and repeated citation prose first. Keep the facts in the tool fields and `citations[]`; do not write free-form prose outside the tool call.", summaryCap, summaryLen, summaryCap)
 		} else {
-			hint = fmt.Sprintf("Your last `emit_answer_document` call was rejected because `summary` was too long for shape `%s` (cap %d chars, current %d). Re-emit `emit_answer_document` now with the same grounded answer but shorten `summary` below %d chars. Cut large diagrams, repeated headings, and repeated citation prose first. Keep the facts in the tool fields and `citations[]`; do not write free-form prose outside the tool call.", strings.TrimSpace(shape), cap, summaryLen, cap)
+			hint = fmt.Sprintf("Your last `emit_answer_document` call was rejected because `summary` was too long (cap %d chars, current %d). Re-emit `emit_answer_document` now with the same grounded answer but shorten `summary` below %d chars. Cut large diagrams, repeated headings, and repeated citation prose first. Keep the facts in the tool fields and `citations[]`; do not write free-form prose outside the tool call.", summaryCap, summaryLen, summaryCap)
 		}
 	}
 
@@ -2344,10 +2343,6 @@ func (e *answerDocumentEvaluator) emitAnswerDocumentRejectSignal(ctx *types.Agen
 		}
 		hint += " Do not collapse the answer to the renderer-generated exact-absence lead alone."
 	}
-	if rejectCode == answerDocRejectCodeAbsentExactConfigValueShape || strings.Contains(summary, "must not use shape=config_value") {
-		reasonKey = "absent-config-value-shape"
-		hint = "Your last `emit_answer_document` call was rejected because this dispatch is an exact-absent config-trace answer. Do NOT use `shape=config_value` with a synthetic literal like `(missing)` / `(不存在)`. Re-emit now with `shape=explanation`, keep `exact_resolution.status=\"absent\"`, and describe any grounded same-family precedence chain as related context only. Do not write free-form prose outside the tool call."
-	}
 	if rejectCode == answerDocRejectCodeLogTriageCoverage && repair != nil && strings.TrimSpace(repair.Hint) != "" {
 		reasonKey = "log-triage-coverage"
 		hint = strings.TrimSpace(repair.Hint)
@@ -2356,14 +2351,9 @@ func (e *answerDocumentEvaluator) emitAnswerDocumentRejectSignal(ctx *types.Agen
 		reasonKey = "scalar-summary-required"
 		hint = strings.TrimSpace(repair.Hint)
 	}
-	if requiredFieldHint := buildAnswerDocRequiredFieldRetryHint(summary); requiredFieldHint != "" {
-		reasonKey = "required-field"
-		hint = requiredFieldHint
-	}
-
-	// Session-22 special-case: the literal-grounding gate on shape=
-	// value / shape=config_value fires when the cited line has zero
-	// identifier overlap with value.literal. The tool's error body
+	// Session-22 special-case: the literal-grounding gate on a
+	// resolved-literal answer fires when the cited line has zero
+	// identifier overlap with the emitted literal. The tool's error body
 	// already names citation_ref=-1 as the escape, but that's
 	// buried after diagnostic detail — the LLM sometimes keeps
 	// trying fresh fabrications instead of reaching for -1.
@@ -2515,9 +2505,8 @@ const (
 	answerDocRejectCodeExactContextSurface         = "exact_context_surface"
 	answerDocRejectCodeFollowOnGroundedContext     = "follow_on_grounded_context"
 	answerDocRejectCodeExactResolution             = "exact_resolution"
-	answerDocRejectCodeLogSourceDriftStepCitation  = "log_source_drift_step_citation"
-	answerDocRejectCodeAbsentExactConfigValueShape = "absent_exact_config_value_shape"
-	answerDocRejectCodeLiteralGrounding            = "literal_grounding"
+	answerDocRejectCodeLogSourceDriftStepCitation = "log_source_drift_step_citation"
+	answerDocRejectCodeLiteralGrounding           = "literal_grounding"
 	answerDocRejectCodeScalarSummaryRequired       = "scalar_summary_required"
 	answerDocRejectCodeLogTriageCoverage           = "log_triage_coverage"
 )
@@ -2537,18 +2526,6 @@ func parseAnswerDocRejectEnvelope(summary string) (code, detail string) {
 		detail = summary
 	}
 	return code, detail
-}
-
-func buildAnswerDocRequiredFieldRetryHint(summary string) string {
-	switch {
-	case strings.Contains(summary, "shape=value requires summary to name the subject"):
-		return "Your last `emit_answer_document` call was rejected because `shape=value` is missing the required `summary`. Re-emit the SAME `shape=value` payload, keep the grounded `value.literal` / `value.citation_ref`, and add 1-2 sentences in `summary` that (1) name the measured subject from the question and (2) state how the literal was obtained (lookup / file:line / command / chain). Do NOT reopen files or change the answer shape. Do not write free-form prose outside the tool call."
-	case strings.Contains(summary, "shape=config_value requires summary to name the subject"):
-		return "Your last `emit_answer_document` call was rejected because `shape=config_value` is missing the required `summary`. Re-emit the SAME `shape=config_value` payload, keep the grounded `value.key` / `value.literal` / `value.citation_ref`, and add 1-2 sentences in `summary` that (1) name the config key or measured subject and (2) state how the literal was obtained (lookup / file:line / chain). Do NOT reopen files or change the answer shape. Do not write free-form prose outside the tool call."
-	case strings.Contains(summary, "shape=explanation requires a non-empty summary"):
-		return "Your last `emit_answer_document` call was rejected because `shape=explanation` requires a non-empty `summary`. Re-emit the SAME `shape=explanation` answer with the answer body written into `summary`; do not try to move the explanation into other fields or reopen files. Do not write free-form prose outside the tool call."
-	}
-	return ""
 }
 
 func appendRetryDiagramSeedHint(hint string, ctx *types.AgentContext, repair *types.ToolRepair) string {

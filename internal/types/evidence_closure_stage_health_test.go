@@ -10,7 +10,7 @@ import (
 // into the Contradictions sub-counter.
 func TestStageHealthSnapshot_AppendViolationBumpsPerStage(t *testing.T) {
 	c := NewEvidenceClosure("")
-	c.AppendViolation(Violation{Kind: ViolShape, Stage: "finalize"})
+	c.AppendViolation(Violation{Kind: ViolFamilyMismatch, Stage: "finalize"})
 	c.AppendViolation(Violation{Kind: ViolSelfContradiction, Stage: "finalize"})
 	c.AppendViolation(Violation{Kind: ViolPlanCritic, Stage: "plan"})
 	snap := c.StageHealthSnapshot()
@@ -70,8 +70,8 @@ func TestStageHealthSnapshot_PendingReadDerivedStage(t *testing.T) {
 // doesn't pin a stage.
 func TestViolationStageTally_BucketsByStage(t *testing.T) {
 	c := NewEvidenceClosure("")
-	c.AppendViolation(Violation{Kind: ViolShape, Stage: "finalize"})
-	c.AppendViolation(Violation{Kind: ViolShape, Stage: "finalize"})
+	c.AppendViolation(Violation{Kind: ViolFamilyMismatch, Stage: "finalize"})
+	c.AppendViolation(Violation{Kind: ViolFamilyMismatch, Stage: "finalize"})
 	c.AppendViolation(Violation{Kind: ViolPlanCritic, Stage: "plan"})
 	c.AppendViolation(Violation{Kind: ViolReflectorObservation, Stage: "verify"})
 	tally := c.ViolationStageTally()
@@ -90,9 +90,9 @@ func TestViolationStageTally_BucketsByStage(t *testing.T) {
 // end-of-Run summary line and Block 3's fallback policy.
 func TestTopSuspectedStage_PicksHighestCount(t *testing.T) {
 	c := NewEvidenceClosure("")
-	c.AppendViolation(Violation{Kind: ViolShape, Stage: "finalize",
+	c.AppendViolation(Violation{Kind: ViolFamilyMismatch, Stage: "finalize",
 		SuspectedRoot: SuspectedRoot{IRField: "answer_shape", Confidence: 0.7}})
-	c.AppendViolation(Violation{Kind: ViolShape, Stage: "finalize",
+	c.AppendViolation(Violation{Kind: ViolFamilyMismatch, Stage: "finalize",
 		SuspectedRoot: SuspectedRoot{IRField: "answer_shape", Confidence: 0.9}})
 	c.AppendViolation(Violation{Kind: ViolPlanCritic, Stage: "plan",
 		SuspectedRoot: SuspectedRoot{IRField: "plan_critic_risk", Confidence: 0.5}})
@@ -120,7 +120,7 @@ func TestEvidenceClosureReset_AllFieldsCleared(t *testing.T) {
 	c.AppendUnverifiedFinding(UnverifiedFinding{Token: "Foo"})
 	c.SetSubjectMatch("chain", 0.5)
 	c.AppendFingerprint(ClosureFingerprint{ReadSetHash: 1})
-	c.AppendViolation(Violation{Kind: ViolShape, Stage: "finalize"})
+	c.AppendViolation(Violation{Kind: ViolFamilyMismatch, Stage: "finalize"})
 	c.IncrementStageRetry("finalize")
 	c.MarkPhase1UnreadFired()
 
@@ -261,9 +261,9 @@ func TestDistinctViolationKindCount(t *testing.T) {
 	if got := c.DistinctViolationKindCount(); got != 0 {
 		t.Errorf("empty closure → DistinctViolationKindCount = %d, want 0", got)
 	}
-	c.AppendViolation(Violation{Kind: ViolShape, Stage: "finalize"})
-	c.AppendViolation(Violation{Kind: ViolShape, Stage: "finalize"})
-	c.AppendViolation(Violation{Kind: ViolShape, Stage: "finalize"})
+	c.AppendViolation(Violation{Kind: ViolFamilyMismatch, Stage: "finalize"})
+	c.AppendViolation(Violation{Kind: ViolFamilyMismatch, Stage: "finalize"})
+	c.AppendViolation(Violation{Kind: ViolFamilyMismatch, Stage: "finalize"})
 	if got := c.DistinctViolationKindCount(); got != 1 {
 		t.Errorf("3× same kind → DistinctViolationKindCount = %d, want 1", got)
 	}

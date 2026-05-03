@@ -1635,13 +1635,13 @@ var rawToolOutputSkipTools = map[string]bool{
 // emit_answer_document.citations[] pool. Without this line the LLM
 // tries to cite "tool:exec_command" as a file — rejected by the
 // path validator — then gets stuck in a retry loop that never
-// produces a valid document. For citation-free value questions
-// (shape=value + no citation floor), citation_ref=-1 on the value is
-// the correct answer.
+// produces a valid document. For citation-free scalar answers (a
+// BlockScalar with no citation floor), citation_ref=-1 on the value
+// is the correct answer.
 const rawToolOutputPreamble = "These are the raw outputs of commands the explorer ran during the investigation. " +
 	"Use them as the source of TRUTH for citation-free scalar answers whose literal comes from command / VCS output (counts, totals, sizes, version numbers, commit hashes, subject lines). " +
 	"These tool outputs are NOT repo files — they MUST NOT appear in citations[]. " +
-	"For a citation-free value answer (shape=value, no citation floor) emit value{literal, citation_ref:-1} " +
+	"For a citation-free scalar answer (BlockScalar with no citation floor) emit value{literal, citation_ref:-1} " +
 	"with the scalar taken directly from the tool output tail; -1 is the correct choice because the " +
 	"answer is a command-level measurement with no file:line anchor.\n\n"
 
@@ -1947,10 +1947,10 @@ func formatLogTriageStructured(bundle *types.LogBundle) string {
 	// call is burned on a dead-end.
 	if bundle.IsExternalSource() {
 		b.WriteString("⚠ **External-source log**: the attached log's stack frames do NOT resolve to any file in this repo (resolved_files=0). The answer must come from the log's own semantics — do NOT open repo files hoping to ground the log's frame literals, they are not there.\n")
-		b.WriteString("  - For shape=value / shape=config_value, set `citation_ref=-1` and state in `summary` that the literal is drawn from the attached log (no grounded repo source).\n")
+		b.WriteString("  - For a BlockScalar answer (single literal, optionally with config-key facet), set `citation_ref=-1` and state in `summary` that the literal is drawn from the attached log (no grounded repo source).\n")
 		b.WriteString("  - The literal-grounding gate on emit_answer_document rejects citations whose cited line does NOT contain the literal; `-1` is the honest, tool-schema-legal escape.\n")
-		b.WriteString("  - For shape=step_list / shape=explanation, cite log content by paraphrasing frames, not by inventing file:line anchors in this repo.\n")
-		b.WriteString("  - For shape=list_of_symbols or a multi-topic explanation answer-symbol skeleton: set symbols_completeness=\"unknown\" and omit items[] entirely — the emit_answer_symbol / emit_answer_document.symbols channels require repo-grounded file:line anchors, which external-log content cannot satisfy. The summary prose is the answer.\n\n")
+		b.WriteString("  - For a hop-chain (steps[]) or summary-only / explanation answer, cite log content by paraphrasing frames, not by inventing file:line anchors in this repo.\n")
+		b.WriteString("  - For a symbols[] enumeration slate or a multi-topic explanation answer-symbol skeleton: set symbols_completeness=\"unknown\" and omit items[] entirely — the emit_answer_symbol / emit_answer_document.symbols channels require repo-grounded file:line anchors, which external-log content cannot satisfy. The summary prose is the answer.\n\n")
 	}
 
 	// ── Meta block ────────────────────────────────────────────

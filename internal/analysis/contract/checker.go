@@ -66,7 +66,7 @@ type Result struct {
 // internal/types/violation.go in Session 11 F1 so EvidenceClosure
 // can embed a []Violation ledger without creating a circular import
 // (contract → types → contract). The aliases + re-exported const
-// values below keep every existing contract.Violation / contract.ViolShape
+// values below keep every existing contract.Violation / contract.ViolFamilyMismatch
 // caller compiling unchanged.
 
 // ViolationKind is an alias for types.ViolationKind.
@@ -82,7 +82,7 @@ type Violation = types.Violation
 // compiler resolves both names to the same typed string so comparison,
 // switches, and map keys work identically to the pre-move code.
 const (
-	ViolShape       = types.ViolShape
+	ViolFamilyMismatch       = types.ViolFamilyMismatch
 	ViolCitation    = types.ViolCitation
 	ViolMustInclude = types.ViolMustInclude
 	ViolMustExclude = types.ViolMustExclude
@@ -104,10 +104,10 @@ const (
 	ViolSelfRefLiteral       = types.ViolSelfRefLiteral
 	ViolPreCompleteDowngrade = types.ViolPreCompleteDowngrade
 	ViolLiteralFormFailed    = types.ViolLiteralFormFailed
-	ViolShapeSwap            = types.ViolShapeSwap
+	ViolViewSwap            = types.ViolViewSwap
 
 	// Commit 53 P2/P4 — read-mode answer-coherence violations.
-	ViolShapeIntentMismatch   = types.ViolShapeIntentMismatch
+	ViolViewIntentMismatch   = types.ViolViewIntentMismatch
 	ViolSubTopicCountMismatch = types.ViolSubTopicCountMismatch
 	ViolDiagramIdentifier     = types.ViolDiagramIdentifier
 	// Commit 55 Batch A.3 — declared-count drift.

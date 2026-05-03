@@ -239,8 +239,8 @@ func TestEmitInvestigationComplete_PreCompleteCheck_ExplanationFunctionSubject_N
 	if !mut.IsInvestigationComplete() {
 		t.Fatalf("InvestigationComplete should be set when explanation preflight passes")
 	}
-	if got := closure.Stats().ShapeSwapRaised; got != 0 {
-		t.Fatalf("ShapeSwapRaised=%d, want 0 for explanation anchored on a function", got)
+	if got := closure.Stats().ViewSwapRaised; got != 0 {
+		t.Fatalf("ViewSwapRaised=%d, want 0 for explanation anchored on a function", got)
 	}
 	for _, repair := range closure.PendingRepairs() {
 		if repair.Origin == "pre_complete.subject_shape_mismatch" {
