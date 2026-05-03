@@ -2930,6 +2930,17 @@ type answerDocumentStageData struct {
 func (e *answerDocumentEvaluator) ParseOutput(ctx *types.AgentContext, messages []llm.Message, _ []types.ToolResult, _ []types.MCPResponse) (*StageOutput, error) {
 	out := &StageOutput{}
 
+	// B5 落地 — V2 carrier branch. When the LLM emitted with
+	// document_model="v2", AnswerDocumentV2 is non-nil on Mutable
+	// (mutual exclusion guarantees AnswerDocument is nil in that
+	// case). Route to the V2 renderer + V2 hedging instead of the
+	// V1 path. The two paths NEVER run on the same dispatch.
+	if ctx != nil && ctx.Mutable != nil {
+		if docV2 := ctx.Mutable.AnswerDocumentV2(); docV2 != nil {
+			return e.parseOutputV2(ctx, docV2, out)
+		}
+	}
+
 	var doc *types.AnswerDocument
 	if ctx != nil && ctx.Mutable != nil {
 		doc = ctx.Mutable.AnswerDocument()
@@ -3286,4 +3297,38 @@ func findLastPreToolCallDraft(messages []llm.Message) string {
 		return m.Content
 	}
 	return ""
+}
+
+// parseOutputV2 is the V2 carrier branch of ParseOutput (B5 落地).
+// It runs the V2-specific hedging + render pipeline and returns the
+// StageOutput. Mirror of the V1 ParseOutput tail; uses
+// ApplyAuthorityHedgingV2 + RenderAnswerDocumentV2 so V2 docs never
+// touch V1's shape-specific helpers.
+//
+// V2 stage data is intentionally narrower than V1's:
+// answerDocumentStageData carries V1-shaped FinalAnswer + AnswerDocument
+// fields; V2 stores nil in the AnswerDocument slot and surfaces the
+// V2 doc via stageData's V2 sibling field (added at B5-T3 if absent).
+//
+// To avoid expanding the agent struct shape during B5 we keep
+// answerDocumentStageData V1-shaped and route V2 prose through
+// FinalAnswer (the only field downstream consumers read). The
+// mutable already holds the typed AnswerDocumentV2 for any
+// reviewer / oracle that needs the structured data.
+func (e *answerDocumentEvaluator) parseOutputV2(ctx *types.AgentContext, docV2 *types.AnswerDocumentV2, out *StageOutput) (*StageOutput, error) {
+	if docV2 == nil {
+		// Defensive: caller checked already, but make sure.
+		return out, nil
+	}
+	// Apply V2 hedging in-place on the defensive copy
+	// (ctx.Mutable.AnswerDocumentV2() returns a clone).
+	if ctx != nil && ctx.Mutable != nil {
+		render.ApplyAuthorityHedgingV2(docV2, ctx.Mutable.EmittedEvidence(), e.language)
+	}
+	prose := render.RenderAnswerDocumentV2(docV2, e.language)
+	out.Data = marshalStageData(answerDocumentStageData{
+		FinalAnswer: prose,
+	})
+	out.FinalAnswer = prose
+	return out, nil
 }

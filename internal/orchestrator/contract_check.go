@@ -185,6 +185,22 @@ func runContractCheck(out *agent.StageOutput, c types.AnswerContract, mut *types
 				result.Violations = append(result.Violations,
 					runV2BlockOracles(docV2, view)...)
 			}
+			// B5-T4: V2 adaptation of the structural-enumeration
+			// divergence oracle. Same precise typed-graph signal as
+			// the V1 path; consumes V2 blocks instead of doc.Symbols.
+			if rmFull := mut.RequestModel(); rmFull != nil {
+				result.Violations = append(result.Violations,
+					runStructuralEnumerationDivergenceOracleV2(docV2, rmFull, mut)...)
+				// B5-T5: V2 adaptation of the symbol-anchor-mismatch
+				// oracle. Reads the same per-Run rejection counter
+				// + V2 block item counts to detect "explorer never
+				// surfaced def-region lines for the user's
+				// principal entities".
+				if view != nil {
+					result.Violations = append(result.Violations,
+						runSymbolAnchorTrackOracleV2(docV2, rmFull, view, mut)...)
+				}
+			}
 		}
 	}
 
@@ -1137,6 +1153,90 @@ func runSymbolAnchorTrackOracle(doc *types.AnswerDocument, rm *types.RequestMode
 	}}
 }
 
+// runSymbolAnchorTrackOracleV2 is the V2 carrier adaptation of
+// runSymbolAnchorTrackOracle (B5-T5 落地). Same precise rejection-
+// counter signal as the V1 path; reads V2 blocks instead of
+// doc.Symbols / doc.Steps to compute the principal-anchor count.
+//
+// Mapping V2 → V1-equivalent counts:
+//   - "Got symbols" = sum of items[] across BlockOrderedList,
+//     BlockBulletList, BlockTable (each item is one principal
+//     anchor in V2's vocabulary).
+//   - "Got steps" = items[] count of BlockOrderedList specifically
+//     (V1's StepList shape becomes a BlockOrderedList in V2).
+//
+// "Required shape" is derived from view.Family + the family's
+// primary required block kind (mirrors the V1 oracle's
+// requiredShape parameter).
+func runSymbolAnchorTrackOracleV2(docV2 *types.AnswerDocumentV2, rm *types.RequestModel, view *types.AnswerSemanticView, mut *types.MutableState) []types.Violation {
+	if docV2 == nil || rm == nil || mut == nil {
+		return nil
+	}
+	closure := mut.EvidenceClosure()
+	if closure == nil {
+		return nil
+	}
+	rejections := closure.SymbolEmitRejections()
+	if rejections < symbolAnchorMismatchThreshold {
+		return nil
+	}
+	// V2 family eligibility — only enumeration-shaped or principal-
+	// list families need an anchor count check. Generic / role-
+	// lookup / config-precedence answers don't carry an enumerated
+	// list of symbols.
+	if view == nil {
+		return nil
+	}
+	switch view.Family {
+	case types.QFEnumeration, types.QFCallChain, types.QFRootCauseTrace:
+		// supported
+	default:
+		return nil
+	}
+	expected := 0
+	if b := rm.EnumerationBoundary; b != nil && b.DeclaredCount > 0 {
+		expected = b.DeclaredCount
+	}
+	gotSymbols := 0
+	gotSteps := 0
+	for _, blk := range docV2.Blocks {
+		switch blk.Kind {
+		case types.BlockOrderedList:
+			gotSteps += len(blk.Items)
+			gotSymbols += len(blk.Items)
+		case types.BlockBulletList, types.BlockTable:
+			gotSymbols += len(blk.Items)
+		}
+	}
+	switch {
+	case expected > 0 && gotSymbols >= expected:
+		return nil
+	case expected == 0 && view.Family == types.QFEnumeration && gotSymbols == 0:
+		// fire
+	case expected == 0 && view.Family == types.QFCallChain && gotSteps == 0:
+		// fire
+	case expected == 0 && view.Family == types.QFRootCauseTrace && gotSymbols == 0:
+		// fire
+	case expected > 0 && gotSymbols < expected:
+		// fire
+	default:
+		return nil
+	}
+	return []types.Violation{{
+		Kind: types.ViolSymbolAnchorMismatch,
+		Detail: fmt.Sprintf(
+			"emit_answer_symbol rejected %d items on line-anchor mismatch this Run; the rendered V2 answer carries %d enumerated item(s) for family=%s (declared count=%d). The rejections cluster around the def-line verifier.",
+			rejections, gotSymbols, view.Family, expected),
+		Repair: "the next investigation pass should re-explore around the principal entities the rejected items pointed to, with read_file slices that cover each entity's definition line.",
+		SuspectedRoot: types.SuspectedRoot{
+			IRField:    "explorer_def_region_coverage_v2",
+			Reason:     "repeated emit_answer_symbol rejections at line-anchor verifier (V2 carrier)",
+			Confidence: 0.7,
+		},
+		Stage: string(types.StageExtract),
+	}}
+}
+
 // runStructuralEnumerationDivergenceOracle (P3 #6 precise variant,
 // 2026-05-03) catches the specific transparency failure where the
 // answer's emitted set ⊊ Graph.ImplementersOf(IfaceName) AND the
@@ -1201,11 +1301,131 @@ func runStructuralEnumerationDivergenceOracle(doc *types.AnswerDocument, rm *typ
 	if len(typedImpl) == 0 {
 		return nil
 	}
-	emittedNames := make(map[string]bool, len(doc.Symbols))
-	for _, s := range doc.Symbols {
-		emittedNames[s.Name] = true
+	return enumerateStructuralDivergence(typedImpl, ifaceName, mapV1Names(doc.Symbols), doc.Summary)
+}
+
+// runStructuralEnumerationDivergenceOracleV2 is the V2 carrier
+// adaptation of runStructuralEnumerationDivergenceOracle (B5-T4
+// 落地). Reads the same typed Graph.Implements relation but pulls
+// emitted names from V2 blocks instead of V1's doc.Symbols and
+// builds the summary haystack from BlockSummary text.
+//
+// Emitted-name set composition (typed signal only — R2 red line):
+//   - All BlockOrderedList / BlockBulletList / BlockTable items'
+//     Label fields (verbatim, no normalisation).
+//   - All AnswerBlockItem.Text leading words when the item kind
+//     conventionally carries the name there (Scalar / Decision).
+//
+// Summary haystack: concatenation of every BlockSummary.Text +
+// any block.Title strings (used by the V1 oracle's
+// strings.Contains check unchanged — still verbatim substring
+// match per R2).
+func runStructuralEnumerationDivergenceOracleV2(docV2 *types.AnswerDocumentV2, rm *types.RequestModel, mut *types.MutableState) []types.Violation {
+	if docV2 == nil || rm == nil || mut == nil {
+		return nil
 	}
-	summary := doc.Summary
+	if !rm.Predicates.IsCategoryEnumeration {
+		return nil
+	}
+	graph, ok := mut.SearchGraph().(*repotypes.Graph)
+	if !ok || graph == nil {
+		return nil
+	}
+	candidateEntities := append([]string(nil), rm.AnalyzerHints.PrimaryEntities...)
+	candidateEntities = append(candidateEntities, rm.AnalyzerHints.Entities...)
+	var ifaceName string
+	var typedImpl []*repotypes.Symbol
+	for _, ent := range candidateEntities {
+		ent = strings.TrimSpace(ent)
+		if ent == "" {
+			continue
+		}
+		ids := graph.ImplementersOf(ent)
+		if len(ids) == 0 {
+			continue
+		}
+		ifaceName = ent
+		for _, id := range ids {
+			if sym, ok := graph.SymbolByID[id]; ok && sym != nil {
+				typedImpl = append(typedImpl, sym)
+			}
+		}
+		break
+	}
+	if len(typedImpl) == 0 {
+		return nil
+	}
+	return enumerateStructuralDivergence(typedImpl, ifaceName, v2EmittedNameSet(docV2), v2SummaryHaystack(docV2))
+}
+
+// mapV1Names converts a V1 AnswerSymbol slice into a name set the
+// shared enumerateStructuralDivergence consumer expects.
+func mapV1Names(syms []types.AnswerSymbol) map[string]bool {
+	out := make(map[string]bool, len(syms))
+	for _, s := range syms {
+		if name := strings.TrimSpace(s.Name); name != "" {
+			out[name] = true
+		}
+	}
+	return out
+}
+
+// v2EmittedNameSet builds the emitted-name set from a V2 doc by
+// walking enumeration-shaped blocks (OrderedList / BulletList /
+// Table) and collecting Label values verbatim. Scalar / Decision
+// blocks contribute their Text as a single name when non-empty.
+func v2EmittedNameSet(doc *types.AnswerDocumentV2) map[string]bool {
+	out := make(map[string]bool)
+	for _, blk := range doc.Blocks {
+		switch blk.Kind {
+		case types.BlockOrderedList, types.BlockBulletList, types.BlockTable:
+			for _, it := range blk.Items {
+				if name := strings.TrimSpace(it.Label); name != "" {
+					out[name] = true
+				}
+			}
+		case types.BlockScalar, types.BlockDecision:
+			if name := strings.TrimSpace(blk.Text); name != "" {
+				out[name] = true
+			}
+			for _, it := range blk.Items {
+				if name := strings.TrimSpace(it.Label); name != "" {
+					out[name] = true
+				}
+			}
+		}
+	}
+	return out
+}
+
+// v2SummaryHaystack builds the substring-match haystack from a V2
+// doc by concatenating every BlockSummary's Text + any block's
+// Title field. The substring check in
+// enumerateStructuralDivergence then runs verbatim against this
+// haystack — matching the V1 oracle's strings.Contains semantics.
+func v2SummaryHaystack(doc *types.AnswerDocumentV2) string {
+	var b strings.Builder
+	for _, blk := range doc.Blocks {
+		if blk.Kind == types.BlockSummary {
+			if t := strings.TrimSpace(blk.Text); t != "" {
+				b.WriteString(t)
+				b.WriteByte('\n')
+			}
+		}
+		if title := strings.TrimSpace(blk.Title); title != "" {
+			b.WriteString(title)
+			b.WriteByte('\n')
+		}
+	}
+	return b.String()
+}
+
+// enumerateStructuralDivergence is the shared core that both V1 and
+// V2 oracles dispatch into. It computes which typed implementers
+// the answer omitted (relative to emittedNames + summary haystack)
+// and returns the canonical ViolStructuralEnumerationDivergence
+// violation when divergence is silent.
+func enumerateStructuralDivergence(typedImpl []*repotypes.Symbol, ifaceName string, emittedNames map[string]bool, summary string) []types.Violation {
 	type missingEntry struct {
 		name string
 		file string
