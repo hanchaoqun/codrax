@@ -138,6 +138,18 @@ type MutableState struct {
 	// multi-task run.
 	answerDocument *AnswerDocument
 
+	// answerDocumentV2 is the block-only carrier introduced by the
+	// docs/migration/block_only_carrier.md plan (B3 落地). When the
+	// LLM emits with document_model="v2" the tool writes here
+	// instead of `answerDocument`. The two fields are MUTUALLY
+	// EXCLUSIVE per dispatch — emit_answer_document writes one OR
+	// the other, never both. ResetAnswerDocumentV2 clears at task
+	// entry, mirror of ResetAnswerDocument.
+	//
+	// At terminal-state B8 the V1 field is deleted and this field
+	// is renamed to `answerDocument`.
+	answerDocumentV2 *AnswerDocumentV2
+
 	// lastAnswerDocAttemptShape caches the size profile of the
 	// PREVIOUS emit_answer_document attempt (success or failure)
 	// for the catastrophic-regression detector. See
@@ -1418,6 +1430,130 @@ func (m *MutableState) ResetAnswerDocument() {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.answerDocument = nil
+	// Both V1 and V2 carriers reset together so a partial
+	// migration leaves no stale state on either field.
+	m.answerDocumentV2 = nil
+}
+
+// SetAnswerDocumentV2 atomically replaces the V2 block-only
+// carrier (B3 落地). Mirror of SetAnswerDocument. The input is
+// stored by-value-copy semantics through the cloning helper so
+// later mutations on the caller side cannot race readers.
+//
+// Per the carrier-mutual-exclusion invariant (B3 design): setting
+// V2 to non-nil ALSO clears V1 in the same critical section, so a
+// later AnswerDocument() reader returns nil — which is the correct
+// signal for "this dispatch's answer lives on V2".
+func (m *MutableState) SetAnswerDocumentV2(doc *AnswerDocumentV2) {
+	if m == nil {
+		return
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.answerDocumentV2 = cloneAnswerDocumentV2(doc)
+	if doc != nil {
+		// Mutual exclusion: V2 set → V1 cleared. The reverse
+		// direction is handled in SetAnswerDocument's existing
+		// implementation (V1 set is the legacy path; we leave V2
+		// alone there to avoid clobbering a legitimate V2 emit
+		// during the migration window — the tool layer enforces
+		// the choice at parse time).
+		m.answerDocument = nil
+	}
+}
+
+// AnswerDocumentV2 returns a defensive deep copy of the buffered
+// V2 carrier, or nil when no V2 document has been set on this
+// MutableState. The returned pointer is independent of internal
+// state.
+func (m *MutableState) AnswerDocumentV2() *AnswerDocumentV2 {
+	if m == nil {
+		return nil
+	}
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return cloneAnswerDocumentV2(m.answerDocumentV2)
+}
+
+// ResetAnswerDocumentV2 clears the V2 buffer. Used by tests + the
+// orchestrator's per-task reset path. The general task-entry reset
+// is handled by ResetAnswerDocument which clears BOTH carriers.
+func (m *MutableState) ResetAnswerDocumentV2() {
+	if m == nil {
+		return
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.answerDocumentV2 = nil
+}
+
+// cloneAnswerDocumentV2 makes a defensive deep copy of an
+// AnswerDocumentV2. Returns nil when the input is nil. Mirror of
+// CloneAnswerDocument; the per-field cloning ensures slices /
+// pointers are independent so readers cannot race writers.
+func cloneAnswerDocumentV2(in *AnswerDocumentV2) *AnswerDocumentV2 {
+	if in == nil {
+		return nil
+	}
+	out := &AnswerDocumentV2{
+		DocumentModel: in.DocumentModel,
+	}
+	if len(in.Blocks) > 0 {
+		out.Blocks = make([]AnswerBlock, len(in.Blocks))
+		for i, b := range in.Blocks {
+			cloned := AnswerBlock{
+				ID:          b.ID,
+				Kind:        b.Kind,
+				Title:       b.Title,
+				Text:        b.Text,
+				SurfaceRole: b.SurfaceRole,
+			}
+			if len(b.Items) > 0 {
+				cloned.Items = make([]AnswerBlockItem, len(b.Items))
+				for j, it := range b.Items {
+					itClone := AnswerBlockItem{
+						ID:          it.ID,
+						Label:       it.Label,
+						Text:        it.Text,
+						CitationRef: it.CitationRef,
+					}
+					if it.ClaimUse != nil {
+						cu := *it.ClaimUse
+						itClone.ClaimUse = &cu
+					}
+					cloned.Items[j] = itClone
+				}
+			}
+			if b.Diagram != nil {
+				diag := *b.Diagram
+				if len(b.Diagram.ClaimUses) > 0 {
+					diag.ClaimUses = append([]RenderedClaimUse(nil), b.Diagram.ClaimUses...)
+				}
+				cloned.Diagram = &diag
+			}
+			if len(b.ClaimUses) > 0 {
+				cloned.ClaimUses = append([]RenderedClaimUse(nil), b.ClaimUses...)
+			}
+			if len(b.FacetIDs) > 0 {
+				cloned.FacetIDs = append([]string(nil), b.FacetIDs...)
+			}
+			out.Blocks[i] = cloned
+		}
+	}
+	if len(in.Citations) > 0 {
+		out.Citations = append([]Citation(nil), in.Citations...)
+	}
+	if in.ExactResolution != nil {
+		er := *in.ExactResolution
+		out.ExactResolution = &er
+	}
+	if len(in.Caveats) > 0 {
+		out.Caveats = append([]string(nil), in.Caveats...)
+	}
+	if len(in.Snippets) > 0 {
+		out.Snippets = append([]CodeSnippet(nil), in.Snippets...)
+	}
+	return out
 }
 
 // SetChangePlan atomically installs the B0 write-mode ChangePlan

@@ -53,6 +53,12 @@ type finalizePreviewHook struct {
 	extractor  llm.SummaryExtractor
 	mu         sync.Mutex
 	buf        strings.Builder
+	// rawArgs accumulates the full streamed tool-call arguments
+	// (NOT just the extracted "summary" field). Populated alongside
+	// buf so V2 partial salvage can scan the raw JSON for V2 block
+	// shapes when the V1 SummaryExtractor produced nothing. B3 落地
+	// — see Partial() doc.
+	rawArgs    strings.Builder
 	lastEmitAt time.Time
 }
 
@@ -96,6 +102,10 @@ func (h *finalizePreviewHook) onToolCallDelta(index int, name string, argsChunk 
 	}
 
 	h.mu.Lock()
+	// rawArgs always captures the chunk so V2 partial salvage can
+	// scan the full streamed JSON later, even when the V1 extractor
+	// produced no `summary` decode.
+	h.rawArgs.WriteString(argsChunk)
 	decoded, _ := h.extractor.Feed(argsChunk)
 	if decoded == "" {
 		h.mu.Unlock()
@@ -143,6 +153,20 @@ func (h *finalizePreviewHook) onToolCallDelta(index int, name string, argsChunk 
 // Without this, a connection drop mid-summary would discard 5-30 KB
 // of streamed prose and force the user to retry from scratch.
 //
+// V2 carrier note (B3, block_only_carrier.md §5.3 B3-T6):
+// The V1 SummaryExtractor recognises the `summary` JSON field at
+// the document's top level. V2 emits express the answer's lead-in
+// prose through a BlockSummary block whose `text` field carries the
+// equivalent prose; that text reaches this hook through the same
+// argsChunk stream but the V1 extractor does not key on it. As a
+// transitional measure, when the buffered text already contains
+// enough V2-shape signal, the V2 partial salvage helper below
+// drains BlockSummary.text instead. This lets a connection drop
+// mid-V2-emit still rescue the prose. B5 will replace this with a
+// proper V2-aware streaming extractor; B3's helper is the minimum
+// viable path so V2 emits don't silently lose preview / partial-
+// salvage parity with V1.
+//
 // Nil-safe (mirrors flush()): non-finalize stages pass nil hooks.
 func (h *finalizePreviewHook) Partial() string {
 	if h == nil {
@@ -150,7 +174,15 @@ func (h *finalizePreviewHook) Partial() string {
 	}
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	return h.buf.String()
+	primary := h.buf.String()
+	if strings.TrimSpace(primary) != "" {
+		return primary
+	}
+	// V1 extractor produced nothing (no top-level "summary" field
+	// in the streamed JSON). Try the V2 fall-back: extract the first
+	// BlockSummary.text we can find in the raw stream-collected
+	// arguments.
+	return v2PartialFromArgsChunk(h.rawArgs.String())
 }
 
 // flush forces a final emit of the cumulative buffer regardless of
@@ -178,4 +210,77 @@ func (h *finalizePreviewHook) flush() {
 		Stage:       types.StageFinalize,
 		PreviewText: cumulative,
 	})
+}
+
+// v2PartialFromArgsChunk extracts the first BlockSummary text from a
+// streamed V2 emit_answer_document tool-call argument string. Used
+// as a fallback when the V1 SummaryExtractor produced nothing — a
+// V2 emit has no top-level "summary" field so the V1 extractor
+// returns "" and the partial-salvage path needs another route.
+//
+// The implementation is a deliberately simple character-level
+// state machine: it scans for the first "blocks" array, then within
+// it looks for the first object whose "kind" value is "summary",
+// then captures that object's "text" field. Truncated streams are
+// fine — we return whatever text characters we have collected.
+//
+// B3 落地 — minimal viable; B5 will replace this with a proper
+// V2-aware streaming extractor once the V2 carrier becomes default.
+func v2PartialFromArgsChunk(rawArgs string) string {
+	if !strings.Contains(rawArgs, `"v2"`) {
+		return ""
+	}
+	idx := strings.Index(rawArgs, `"kind":"summary"`)
+	if idx < 0 {
+		idx = strings.Index(rawArgs, `"kind": "summary"`)
+		if idx < 0 {
+			return ""
+		}
+	}
+	tail := rawArgs[idx:]
+	textKey := strings.Index(tail, `"text"`)
+	if textKey < 0 {
+		return ""
+	}
+	tail = tail[textKey:]
+	colon := strings.Index(tail, ":")
+	if colon < 0 {
+		return ""
+	}
+	tail = strings.TrimLeft(tail[colon+1:], " \t\r\n")
+	if !strings.HasPrefix(tail, `"`) {
+		return ""
+	}
+	tail = tail[1:]
+	var b strings.Builder
+	for i := 0; i < len(tail); i++ {
+		c := tail[i]
+		if c == '\\' && i+1 < len(tail) {
+			next := tail[i+1]
+			switch next {
+			case '"':
+				b.WriteByte('"')
+			case '\\':
+				b.WriteByte('\\')
+			case '/':
+				b.WriteByte('/')
+			case 'n':
+				b.WriteByte('\n')
+			case 't':
+				b.WriteByte('\t')
+			case 'r':
+				b.WriteByte('\r')
+			default:
+				b.WriteByte('\\')
+				b.WriteByte(next)
+			}
+			i++
+			continue
+		}
+		if c == '"' {
+			break
+		}
+		b.WriteByte(c)
+	}
+	return b.String()
 }

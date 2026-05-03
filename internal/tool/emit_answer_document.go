@@ -265,6 +265,11 @@ func emitAnswerDocumentBooleanDecision(s string) (bool, bool) {
 // Decoding directly into the types.* structs avoids a separate layer
 // of wire-format shims; the only translation step left is Boolean.
 type emitAnswerDocumentParams struct {
+	// DocumentModel is the V2 carrier marker (B3). Empty or absent =
+	// V1 legacy path; "v2" = block-only carrier (handled by
+	// executeAnswerDocumentV2 before this struct decodes). Any other
+	// value is rejected at peek time.
+	DocumentModel       string                       `json:"document_model,omitempty"`
 	Shape               string                       `json:"shape"`
 	Summary             string                       `json:"summary"`
 	ExactResolution     *types.AnswerExactResolution `json:"exact_resolution,omitempty"`
@@ -470,6 +475,20 @@ func (t *EmitAnswerDocument) Execute(ctx *types.BusContext, params json.RawMessa
 			Summary:   "emit_answer_document requires BusContext.Mutable; the caller did not provide one (sub-agents are not supported)",
 			Timestamp: now,
 		}, nil
+	}
+
+	// B3 (block_only_carrier.md §5.3) — document_model peek. When the
+	// LLM emits with document_model="v2" we route to the V2 carrier
+	// path (writes SetAnswerDocumentV2). Empty / missing falls through
+	// to the legacy V1 path unchanged. Any other value is rejected
+	// with a clear error so a typo can't silently coerce to V1.
+	if model, ok, err := peekDocumentModel(params); err != nil {
+		return failEmit(t.Name(), now, "invalid params: %v", err)
+	} else if ok && model == "v2" {
+		return executeAnswerDocumentV2(t.Name(), ctx, params, now)
+	} else if ok && model != "" && model != "v2" {
+		return failEmit(t.Name(), now,
+			"document_model=%q is not supported; allowed values are \"\" (V1 legacy) or \"v2\"", model)
 	}
 
 	dec := json.NewDecoder(bytes.NewReader(params))
