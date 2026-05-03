@@ -352,6 +352,46 @@ const (
 	// the extractor selects citations.
 	ViolValueSecondaryCitationOffFocus ViolationKind = "value_secondary_citation_off_focus"
 
+	// ViolStructuralEnumerationDivergence (P3 #6 precise variant,
+	// 2026-05-03) fires when the answer's emitted set diverges from
+	// the typed Symbol.Implements relation AND the omitted items
+	// are silent — neither listed (with caveat or otherwise) in
+	// doc.Symbols nor named verbatim in doc.Summary. The defining
+	// case: the user asks "list all implementers of <Iface>",
+	// Graph.ImplementersOf reports 8 concrete types via method-set
+	// match, but the LLM emitted only 7 because some narrative cue
+	// (a comment, doc fragment, naming heuristic) made the LLM
+	// quietly drop one. Both signals (typed structural relation +
+	// LLM prose reasoning) are legitimate; the bug is the silent
+	// drop, not the disagreement itself.
+	//
+	// Repair contract (mirrored in change-plan-skill / answer-document
+	// -skill prompt teaching): when typed and emitted sets diverge,
+	// the LLM MUST either (a) include the divergent item with a
+	// rationale starting with "[caveat]" that names the disagreeing
+	// signal, OR (b) name the item verbatim in summary as an
+	// exception case so the user can see the divergence and judge.
+	// Silently selecting one side of the disagreement is the
+	// transparency failure the oracle catches.
+	//
+	// Stage="finalize". SOFT-by-default — the answer ships with the
+	// divergence noted in the closure ledger; operators promote via
+	// pipeline_contract_strict_kinds when they want
+	// answer-rewrite-on-divergence behaviour. Fallback target (when
+	// promoted to STRICT): BackToExtract — the extractor re-emits
+	// emit_answer_symbol with the missing names included, the
+	// finalizer then re-renders with the divergence acknowledged.
+	//
+	// Red-line discipline: the gate reads (a) typed Graph.ImplementersOf
+	// output (deterministic method-set match), (b) LLM-emitted
+	// doc.Symbols[i].Name (verbatim string), (c) doc.Summary
+	// substring match (verbatim). Three precise signals; zero
+	// keyword tables or fuzzy heuristics. Per the precise-signals
+	// -for-hard-gates principle this oracle CAN drive a structural
+	// fallback, but defaults soft so the user keeps an answer even
+	// when transparency is partial.
+	ViolStructuralEnumerationDivergence ViolationKind = "structural_enumeration_divergence"
+
 	// ViolSymbolAnchorMismatch (P1 #3, 2026-05-03) fires when the
 	// extractor accumulated ≥ symbolAnchorMismatchThreshold (default 3)
 	// emit_answer_symbol rejections in a single Run AND the rendered
@@ -419,6 +459,7 @@ func AllViolationKinds() []ViolationKind {
 		ViolRichnessRegression,
 		ViolValueSecondaryCitationOffFocus,
 		ViolSymbolAnchorMismatch,
+		ViolStructuralEnumerationDivergence,
 	}
 }
 

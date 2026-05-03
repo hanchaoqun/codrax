@@ -121,6 +121,10 @@ func runContractCheck(out *agent.StageOutput, c types.AnswerContract, mut *types
 			// principal entities.
 			result.Violations = append(result.Violations,
 				runSymbolAnchorTrackOracle(doc, ir, c.RequiredAnswerShape, mut)...)
+			// P3 #6 precise variant (2026-05-03) — typed Symbol.
+			// Implements vs emitted-answer divergence transparency.
+			result.Violations = append(result.Violations,
+				runStructuralEnumerationDivergenceOracle(doc, ir, mut)...)
 			// Phase 4 (Semantic Surface Contract, 2026-05-02) —
 			// FacetCoverage / ClaimForm / Absence-Scope oracles.
 			// All three consume Phase-1 FacetCoverageContract +
@@ -1111,6 +1115,120 @@ func runSymbolAnchorTrackOracle(doc *types.AnswerDocument, rm *types.RequestMode
 			Confidence: 0.7,
 		},
 		Stage: string(types.StageExtract),
+	}}
+}
+
+// runStructuralEnumerationDivergenceOracle (P3 #6 precise variant,
+// 2026-05-03) catches the specific transparency failure where the
+// answer's emitted set ⊊ Graph.ImplementersOf(IfaceName) AND the
+// missing names are silent — neither emitted as caveat rows nor
+// named verbatim in summary. The oracle's purpose is NOT to force
+// the LLM to include every structural implementer (the LLM may
+// have a legitimate prose-side reason to exclude one); it is to
+// require that any divergence be DESCRIBED so the user sees both
+// signals (typed code relation + author-narrative reasoning) and
+// can judge.
+//
+// Three precise signals (zero keyword tables / ranker scores):
+//   - typed: g.ImplementersOf(entityName) — deterministic method-set match.
+//   - emitted: doc.Symbols[i].Name — exact verbatim string set.
+//   - narrative: strings.Contains(doc.Summary, name) — verbatim substring.
+//
+// Skip when:
+//   - rm.Predicates.IsCategoryEnumeration is false (not an
+//     enumeration question)
+//   - no analyzer entity resolves to an interface / trait / protocol
+//     (Graph.ImplementersOf returns 0 for all entities)
+//   - emitted set ⊇ typed set (no divergence)
+//   - every missing name is mentioned verbatim in doc.Summary
+//     (the LLM acknowledged the divergence in prose)
+//
+// SOFT-by-default. When promoted to STRICT via
+// pipeline_contract_strict_kinds, the fallback maps to
+// BackToExtract — the extractor re-emits the missing names
+// (typically as caveat-flagged rows), the finalizer re-renders.
+func runStructuralEnumerationDivergenceOracle(doc *types.AnswerDocument, rm *types.RequestModel, mut *types.MutableState) []types.Violation {
+	if doc == nil || rm == nil || mut == nil {
+		return nil
+	}
+	if !rm.Predicates.IsCategoryEnumeration {
+		return nil
+	}
+	graph, ok := mut.SearchGraph().(*repotypes.Graph)
+	if !ok || graph == nil {
+		return nil
+	}
+	candidateEntities := append([]string(nil), rm.AnalyzerHints.PrimaryEntities...)
+	candidateEntities = append(candidateEntities, rm.AnalyzerHints.Entities...)
+	var ifaceName string
+	var typedImpl []*repotypes.Symbol
+	for _, ent := range candidateEntities {
+		ent = strings.TrimSpace(ent)
+		if ent == "" {
+			continue
+		}
+		ids := graph.ImplementersOf(ent)
+		if len(ids) == 0 {
+			continue
+		}
+		ifaceName = ent
+		for _, id := range ids {
+			if sym, ok := graph.SymbolByID[id]; ok && sym != nil {
+				typedImpl = append(typedImpl, sym)
+			}
+		}
+		break
+	}
+	if len(typedImpl) == 0 {
+		return nil
+	}
+	emittedNames := make(map[string]bool, len(doc.Symbols))
+	for _, s := range doc.Symbols {
+		emittedNames[s.Name] = true
+	}
+	summary := doc.Summary
+	type missingEntry struct {
+		name string
+		file string
+	}
+	var missing []missingEntry
+	for _, t := range typedImpl {
+		if t == nil || t.Name == "" {
+			continue
+		}
+		if emittedNames[t.Name] {
+			continue
+		}
+		if strings.Contains(summary, t.Name) {
+			continue
+		}
+		missing = append(missing, missingEntry{name: t.Name, file: t.File})
+	}
+	if len(missing) == 0 {
+		return nil
+	}
+	names := make([]string, 0, len(missing))
+	for _, m := range missing {
+		if m.file != "" {
+			names = append(names, fmt.Sprintf("%s (%s)", m.name, m.file))
+		} else {
+			names = append(names, m.name)
+		}
+	}
+	return []types.Violation{{
+		Kind: types.ViolStructuralEnumerationDivergence,
+		Detail: fmt.Sprintf(
+			"typed Symbol.Implements relation reports %d concrete implementers of %q; the rendered answer omits %d of them WITHOUT naming them in summary or marking them as caveats: %v",
+			len(typedImpl), ifaceName, len(missing), names),
+		Repair: fmt.Sprintf(
+			"the typed code relation and your prose reasoning have diverged. Both are valid signals — typed = the method set structurally satisfies %q; prose = an author comment / narrative cue made you exclude these. Pick ONE of: (a) re-emit emit_answer_symbol with each omitted item included AND a rationale starting with \"[caveat]\" naming the disagreement (e.g. \"[caveat] method set satisfies %s but author comment at file:line excludes from semantic implementation\"); (b) re-emit emit_answer_document with the omitted names appearing verbatim in summary as exception cases (e.g. \"X also has the method set but author note excludes it because Y\"). Do NOT silently drop members — the user receives a partial set without knowing items were filtered.",
+			ifaceName, ifaceName),
+		SuspectedRoot: types.SuspectedRoot{
+			IRField:    "structural_enumeration_divergence",
+			Reason:     "typed implementers vs emitted answer set diverge silently",
+			Confidence: 0.85,
+		},
+		Stage: string(types.StageFinalize),
 	}}
 }
 

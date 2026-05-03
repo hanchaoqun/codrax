@@ -242,6 +242,10 @@ func TestAllViolationKindsHaveProducer(t *testing.T) {
 		// rejections diagnose def-region coverage gaps; oracle reads
 		// EvidenceClosure.SymbolEmitRejections counter.
 		ViolSymbolAnchorMismatch: true, // orchestrator/contract_check.go runSymbolAnchorTrackOracle
+		// P3 #6 precise variant (2026-05-03) — typed Graph.ImplementersOf
+		// vs emitted doc.Symbols + doc.Summary verbatim search;
+		// transparency oracle for code-vs-comment divergence.
+		ViolStructuralEnumerationDivergence: true, // orchestrator/contract_check.go runStructuralEnumerationDivergenceOracle
 	}
 	pending := map[ViolationKind]string{}
 	// Sanity: AllViolationKinds() must equal covered ∪ pending so the
@@ -281,8 +285,9 @@ func TestAllViolationKindsHaveProducer(t *testing.T) {
 		ViolAbsenceScopeExceeded:   "ViolAbsenceScopeExceeded",
 		ViolStepIdentifierUnverified:       "ViolStepIdentifierUnverified",
 		ViolRichnessRegression:             "ViolRichnessRegression",
-		ViolValueSecondaryCitationOffFocus: "ViolValueSecondaryCitationOffFocus",
-		ViolSymbolAnchorMismatch:           "ViolSymbolAnchorMismatch",
+		ViolValueSecondaryCitationOffFocus:  "ViolValueSecondaryCitationOffFocus",
+		ViolSymbolAnchorMismatch:            "ViolSymbolAnchorMismatch",
+		ViolStructuralEnumerationDivergence: "ViolStructuralEnumerationDivergence",
 	}
 
 	// Match only the "Kind: ViolXxx" composite-literal pattern —

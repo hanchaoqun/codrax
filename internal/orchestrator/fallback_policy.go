@@ -229,6 +229,13 @@ func DefaultFallbackPolicy() FallbackPolicy {
 		// def-region for the user's principal entities; remediation
 		// is a fresh investigation pass that probes def-line reads.
 		types.ViolSymbolAnchorMismatch: FallbackBackToExplore,
+		// P3 #6 precise variant (2026-05-03) — code-vs-comment
+		// divergence transparency. Remediation is in extractor's
+		// hands (re-emit emit_answer_symbol with caveat rows or
+		// emit_answer_document with explicit summary mentions);
+		// no new investigation needed since the typed signal +
+		// existing evidence already supply everything required.
+		types.ViolStructuralEnumerationDivergence: FallbackBackToExtract,
 		// Phase 5 telemetry-only kind — never reaches the fallback
 		// switch under default SOFT classification, but mapped to
 		// FailLoud as a safety net so an accidental promotion to
