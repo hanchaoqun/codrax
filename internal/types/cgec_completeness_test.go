@@ -219,36 +219,19 @@ func TestAllViolationKindsHaveProducer(t *testing.T) {
 		ViolPlanCritic:              true, // orchestrator/stage_hooks.go planPostHook
 		ViolReflectorObservation:    true, // orchestrator/stage_hooks.go appendReflectorObservationToClosure
 		ViolAnswerReviewerDistilled: true, // orchestrator/orchestrator.go runAnswerReview Block 1 hook
-		// Block 2 (2026-05-02) — Intent / Subject / PredicateAxis
-		// oracle kinds. Producers in orchestrator/contract_check.go.
-		ViolIntentTraceShallow:     true, // orchestrator/contract_check.go runIntentCoverageOracle
-		ViolIntentEnumerateNotList: true, // orchestrator/contract_check.go runIntentCoverageOracle
-		ViolIntentRootCauseNoCause: true, // orchestrator/contract_check.go runIntentCoverageOracle
-		ViolIntentConfigNoTrail:    true, // orchestrator/contract_check.go runIntentCoverageOracle
-		ViolSubjectAnchorMissing:   true, // orchestrator/contract_check.go runSubjectAnchorOracle
-		ViolPredicateAxisMissing:   true, // orchestrator/contract_check.go runPredicateAxisOracle
-		// Phase 4 (Semantic Surface Contract) — emit_answer_document
-		// validators consume the FacetCoverageContract + RenderedClaimUse
-		// annotations landed in P1 / P3.
-		ViolFacetUncovered:       true, // tool/emit_answer_document.go validateFacetCoverage
-		ViolClaimFormUnsupported: true, // tool/emit_answer_document.go validateClaimFormSupport
-		ViolAbsenceScopeExceeded: true, // tool/emit_answer_document.go validateAbsenceScopeBound
-		// Phase 4 extension (Semantic Surface Contract) —
-		// step-identifier-backed-by-evidence oracle.
-		ViolStepIdentifierUnverified: true, // orchestrator/contract_check.go runStepIdentifierBackedByEvidenceOracle
-		// Phase 5 (Semantic Surface Contract) — telemetry-only kind.
-		ViolRichnessRegression: true, // orchestrator/contract_check.go runRichnessTelemetryOracle
-		// Phase 6 stage 7 — typed-pool replacement for the retired
-		// emit-time validateValueCitationFocus token-overlap heuristic.
-		ViolValueSecondaryCitationOffFocus: true, // orchestrator/contract_check.go runValueSecondaryCitationFocusOracle
-		// P1 #3 (2026-05-03) — repeated emit_answer_symbol line-anchor
-		// rejections diagnose def-region coverage gaps; oracle reads
-		// EvidenceClosure.SymbolEmitRejections counter.
-		ViolSymbolAnchorMismatch: true, // orchestrator/contract_check.go runSymbolAnchorTrackOracle
-		// P3 #6 precise variant (2026-05-03) — typed Graph.ImplementersOf
-		// vs emitted doc.Symbols + doc.Summary verbatim search;
-		// transparency oracle for code-vs-comment divergence.
-		ViolStructuralEnumerationDivergence: true, // orchestrator/contract_check.go runStructuralEnumerationDivergenceOracle
+		// Block 2 / Phase 4 / Phase 5 / Phase 6 V1 oracle kinds —
+		// producers retired at B8-T4 along with the V1 oracle dispatch
+		// block in contract_check.go (block_only_carrier.md §5.8).
+		// V2 carrier covers the equivalent typed-axis coverage via
+		// BlockRequirement.{FacetIDs, AcceptableClaimForms,
+		// SurfaceRoleHint} consumed by runV2BlockOracles. Kinds remain
+		// in the enum so soft-set / fallback-policy / hint-composer
+		// references stay stable; B8-cleanup will prune them.
+		// P1 #3 / P3 #6 — V2 carrier siblings of the retired V1 oracles
+		// (B8-T4). V2 oracle reads V2 block items + ImplementersOf graph;
+		// produces the same kinds.
+		ViolSymbolAnchorMismatch:            true, // orchestrator/contract_check.go runSymbolAnchorTrackOracleV2
+		ViolStructuralEnumerationDivergence: true, // orchestrator/contract_check.go runStructuralEnumerationDivergenceOracleV2
 		// B4 V2 block-only carrier validators (block_only_carrier.md §5.4).
 		ViolBlockCoverageMissing:     true, // orchestrator/contract_check_block.go validateRequiredBlockCoverage
 		ViolPrincipalClaimUseMissing: true, // orchestrator/contract_check_block.go validatePrincipalClaimUse
@@ -256,7 +239,19 @@ func TestAllViolationKindsHaveProducer(t *testing.T) {
 		ViolUncertaintyBlockMissing:  true, // orchestrator/contract_check_block.go validateUncertaintyBlockPresence
 	}
 	pending := map[ViolationKind]string{
-		ViolLiteralFormFailed: "B8-T3-retired-V1-literal-form-check",
+		ViolLiteralFormFailed:              "B8-T3-retired-V1-literal-form-check",
+		ViolIntentTraceShallow:             "B8-T4-retired-V1-intent-coverage-oracle",
+		ViolIntentEnumerateNotList:         "B8-T4-retired-V1-intent-coverage-oracle",
+		ViolIntentRootCauseNoCause:         "B8-T4-retired-V1-intent-coverage-oracle",
+		ViolIntentConfigNoTrail:            "B8-T4-retired-V1-intent-coverage-oracle",
+		ViolSubjectAnchorMissing:           "B8-T4-retired-V1-subject-anchor-oracle",
+		ViolPredicateAxisMissing:           "B8-T4-retired-V1-predicate-axis-oracle",
+		ViolFacetUncovered:                 "B8-T4-retired-V1-facet-coverage-oracle",
+		ViolClaimFormUnsupported:           "B8-T4-retired-V1-claim-form-support-oracle",
+		ViolAbsenceScopeExceeded:           "B8-T4-retired-V1-absence-scope-bound-oracle",
+		ViolStepIdentifierUnverified:       "B8-T4-retired-V1-step-identifier-oracle",
+		ViolRichnessRegression:             "B8-T4-retired-V1-richness-telemetry-oracle",
+		ViolValueSecondaryCitationOffFocus: "B8-T4-retired-V1-value-secondary-citation-oracle",
 	}
 	// Sanity: AllViolationKinds() must equal covered ∪ pending so the
 	// test itself catches a new kind added to the enum.
