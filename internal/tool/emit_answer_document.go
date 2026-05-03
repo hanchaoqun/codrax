@@ -1204,9 +1204,15 @@ func (t *EmitAnswerDocument) Execute(ctx *types.BusContext, params json.RawMessa
 		if err := validateValueShapeSummary(p.Summary, p.Value); err != nil {
 			return failWithContext("%v", err)
 		}
-		if err := validateValueCitationFocus(ctx, p.Value, citations, groundCtx); err != nil {
-			return failWithContext("%v", err)
-		}
+		// validateValueCitationFocus retired 2026-05-03 (Phase 6 stage
+		// 7). Off-focus secondary-citation detection moved to
+		// runValueSecondaryCitationFocusOracle in
+		// internal/orchestrator/contract_check.go. The new oracle reads
+		// only the typed evidence pool (Subject / AnchorSymbol / Object)
+		// instead of the cited line + Quote token-overlap fallbacks the
+		// retired emit-time gate used. SOFT-by-default
+		// (ViolValueSecondaryCitationOffFocus); BackToExtract on
+		// promotion via pipeline_contract_strict_kinds.
 		if note := scrubForbiddenNonZeroFields(&p, shape, forbidSteps|forbidSymbols|forbidBoolean); note != "" {
 			shapeCorrectionNote = joinNote(shapeCorrectionNote, note)
 		}
@@ -1760,37 +1766,27 @@ func validateValueShapeSummary(summary string, v *types.AnswerValue) error {
 // full-string Subject/Object/AnchorSymbol equality, then
 // identifier-token membership fallback).
 
-func validateValueCitationFocus(ctx *types.BusContext, v *types.AnswerValue, citations []types.Citation, gc *ground.Context) error {
-	if ctx == nil || v == nil || len(citations) <= 1 {
-		return nil
-	}
-	subjectKind := valueCitationFocusSubjectKind(ctx)
-	if !valueSubjectNeedsCitationFocus(subjectKind) {
-		return nil
-	}
-	literalKey := valueCitationFocusKey(subjectKind, v.Literal)
-	if literalKey == "" {
-		return nil
-	}
-	pool := answerDocSurfaceEvidencePool(ctx)
-	for idx, cite := range citations {
-		if idx == v.CitationRef {
-			continue
-		}
-		matched := matchingEvidenceForCitation(pool, cite)
-		if valueCitationSupportsLiteral(subjectKind, literalKey, v.Literal, cite, matched, gc) {
-			continue
-		}
-		return newAnswerDocValidationError(
-			"scalar_citation_focus",
-			"shape=value is a scalar lookup answer, so secondary citations must directly support the emitted literal %q. citations[%d] (%s:%d) does not directly define or reference that literal; keep the defining line and, if needed, one direct call/reference, but move broader background into summary without this citation.",
-			v.Literal, idx, cite.File, cite.Line,
-		).
-			WithFields("value.literal", "value.citation_ref", fmt.Sprintf("citations[%d]", idx)).
-			WithHint("Re-emit `emit_answer_document` with `shape=value` still intact, keep the literal's own defining citation, and drop any secondary citation that does not directly define or reference the same literal. Broader background belongs in `summary` without extra citations.")
-	}
-	return nil
-}
+// validateValueCitationFocus was retired 2026-05-03 (Phase 6 stage
+// 7). The off-focus secondary-citation detection moved to
+// runValueSecondaryCitationFocusOracle in
+// internal/orchestrator/contract_check.go. The new oracle reads
+// only the typed evidence pool (Subject / AnchorSymbol / Object)
+// fields the explorer / extractor structurally emitted. The
+// retired emit-time gate had quote-substring + comment-line +
+// file-name fallbacks that produced false negatives on generic
+// literals (single-word type names matched any nearby quote token).
+// SOFT-by-default ViolValueSecondaryCitationOffFocus;
+// BackToExtract on promotion via pipeline_contract_strict_kinds.
+//
+// Helpers retired with this function:
+//   - valueCitationFocusSubjectKind (call site dropped)
+//   - valueSubjectNeedsCitationFocus (re-implemented in oracle)
+//   - valueCitationFocusKey (re-implemented in oracle)
+//   - valueCitationSupportsLiteral (re-implemented in oracle)
+//   - valueCitationTextMatchesLiteral (re-implemented in oracle)
+//   - citationLooksCommentOnly (call site dropped — the oracle
+//     does not rely on the cited line's comment shape; absence of
+//     a typed-pool match is itself the off-focus signal)
 
 
 func configTraceNearbyContextIsProseOnly(plan *types.AnswerSurfacePlan) bool {
@@ -2273,87 +2269,22 @@ func repeatedExactTargetAfterLead(contract *types.ExactResolutionContract, body 
 // ±N windows (2 vs 3). Belt-and-suspenders pattern; retired the
 // redundant suspenders.
 
-func valueCitationFocusSubjectKind(ctx *types.BusContext) types.AnswerSubjectKind {
-	if ctx == nil {
-		return types.SubjectUnknown
-	}
-	if ctx.AnalysisIR != nil {
-		return ctx.AnalysisIR.RequestModel.AnswerSubject.Kind
-	}
-	if ctx.Mutable != nil {
-		if rm := ctx.Mutable.RequestModel(); rm != nil {
-			return rm.AnswerSubject.Kind
-		}
-	}
-	return types.SubjectUnknown
-}
+// valueCitationFocusSubjectKind / valueSubjectNeedsCitationFocus /
+// valueCitationFocusKey / valueCitationSupportsLiteral /
+// valueCitationTextMatchesLiteral / citationLooksCommentOnly were
+// retired 2026-05-03 (Phase 6 stage 7) along with their sole caller
+// validateValueCitationFocus. Replacement:
+// runValueSecondaryCitationFocusOracle in
+// internal/orchestrator/contract_check.go reads only typed evidence
+// pool slots (Subject / AnchorSymbol / Object). Removed token-overlap
+// fallbacks: cited-line comment shape, Quote-substring scan,
+// File-name fallback. Each fallback was a soft signal that produced
+// false negatives on generic literals (single-word type names
+// matching any nearby quote token); the oracle's typed-pool-only
+// surface eliminates that drift.
 
 func configTraceAbsenceCitationAllowed(ctx *types.BusContext, contract *types.ExactResolutionContract, matched types.EvidenceItem) bool {
 	return types.ConfigTraceGroundedContextAnchorAllowedInFiles(contract, matched, answerDocExactContextRequiredFiles(ctx))
-}
-
-func valueSubjectNeedsCitationFocus(kind types.AnswerSubjectKind) bool {
-	switch kind {
-	case types.SubjectFunctionName,
-		types.SubjectTypeName,
-		types.SubjectHandlerRoute,
-		types.SubjectFilePath,
-		types.SubjectStringLiteral,
-		types.SubjectEnumValue,
-		types.SubjectStructField,
-		types.SubjectInterface:
-		return true
-	default:
-		return false
-	}
-}
-
-func valueCitationFocusKey(kind types.AnswerSubjectKind, literal string) string {
-	if kind == types.SubjectFilePath {
-		return types.ExactResolutionLookupKey("path", literal)
-	}
-	return types.ExactResolutionLookupKey("symbol", literal)
-}
-
-func valueCitationSupportsLiteral(kind types.AnswerSubjectKind, literalKey, literal string, cite types.Citation, matched types.EvidenceItem, gc *ground.Context) bool {
-	if matched.Source != "" {
-		if valueCitationTextMatchesLiteral(kind, literalKey, matched.Subject) ||
-			valueCitationTextMatchesLiteral(kind, literalKey, matched.AnchorSymbol) ||
-			valueCitationTextMatchesLiteral(kind, literalKey, matched.Object) {
-			return true
-		}
-	}
-	if citationLooksCommentOnly(cite, gc) {
-		return false
-	}
-	if kind == types.SubjectFilePath && strings.TrimSpace(cite.File) != "" {
-		return valueCitationTextMatchesLiteral(kind, literalKey, cite.File)
-	}
-	if strings.TrimSpace(cite.Quote) != "" {
-		return valueCitationTextMatchesLiteral(kind, literalKey, cite.Quote)
-	}
-	return false
-}
-
-func citationLooksCommentOnly(cite types.Citation, gc *ground.Context) bool {
-	if gc == nil || cite.File == "" || cite.Line <= 0 {
-		return false
-	}
-	fileLines, ok := gc.LineIndex[cite.File]
-	if !ok {
-		return false
-	}
-	return ground.LineLooksCommentOnly(fileLines, cite.Line, cite.File)
-}
-
-func valueCitationTextMatchesLiteral(kind types.AnswerSubjectKind, literalKey, text string) bool {
-	if literalKey == "" || strings.TrimSpace(text) == "" {
-		return false
-	}
-	if kind == types.SubjectFilePath {
-		return types.ExactResolutionLookupKey("path", text) == literalKey
-	}
-	return strings.Contains(types.ExactResolutionLookupKey("symbol", text), literalKey)
 }
 
 // validateStepsLiteralGrounding was retired 2026-05-02 (Phase 6

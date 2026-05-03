@@ -334,6 +334,23 @@ const (
 	// half of the contract; this kind only watches "did we leave
 	// useful supplemental context on the table".
 	ViolRichnessRegression ViolationKind = "richness_regression"
+
+	// ViolValueSecondaryCitationOffFocus (Phase 6 stage 7,
+	// 2026-05-03) fires when a shape=value answer carries 2+
+	// citations and at least one secondary citation does not
+	// directly support the emitted scalar literal under the
+	// AnswerSubject.Kind's lookup discipline. The finalizer renders
+	// scalar answers with one defining citation; secondary
+	// citations must each have their matched evidence pool entry
+	// (Subject / AnchorSymbol / Object) name the same literal —
+	// otherwise the citation is broader background and belongs in
+	// summary prose without an extra cite. SOFT-by-default; the
+	// pre-Phase-6 emit-time gate (validateValueCitationFocus) used
+	// citation file/line plus token-overlap fallbacks; this oracle
+	// reads only the typed evidence pool so generic-token false
+	// negatives are eliminated. Fallback target: BackToExtract —
+	// the extractor selects citations.
+	ViolValueSecondaryCitationOffFocus ViolationKind = "value_secondary_citation_off_focus"
 )
 
 // AllViolationKinds returns every declared ViolationKind in a stable
@@ -378,6 +395,7 @@ func AllViolationKinds() []ViolationKind {
 		ViolAbsenceScopeExceeded,
 		ViolStepIdentifierUnverified,
 		ViolRichnessRegression,
+		ViolValueSecondaryCitationOffFocus,
 	}
 }
 

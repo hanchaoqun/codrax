@@ -231,6 +231,11 @@ func DefaultFallbackPolicy() FallbackPolicy {
 		// trigger a retry storm. Operators who promote this kind
 		// must override the policy too.
 		types.ViolRichnessRegression: FallbackFailLoud,
+		// Phase 6 stage 7 — secondary citation does not directly
+		// support the scalar literal under the AnswerSubject.Kind
+		// lookup discipline. Citation choice is the extractor's
+		// surface; remediation is to re-pick citations.
+		types.ViolValueSecondaryCitationOffFocus: FallbackBackToExtract,
 	}
 }
 

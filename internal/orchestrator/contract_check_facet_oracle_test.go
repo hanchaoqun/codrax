@@ -594,3 +594,199 @@ func TestFacetValidatorsEnabled_DefaultAndSet(t *testing.T) {
 		t.Error("after SetFacetValidatorsEnabled(true), getter should return true")
 	}
 }
+
+// ── runValueSecondaryCitationFocusOracle ──────────────────────────
+//
+// Phase 6 stage 7 (2026-05-03) replacement for the retired emit-time
+// validateValueCitationFocus token-overlap heuristic.
+
+func TestRunValueSecondaryCitationFocusOracle_FiresOnOffFocusSecondary(t *testing.T) {
+	mut := types.NewMutableState("")
+	mut.AppendEvidence([]types.EvidenceItem{
+		{ID: "ev-1", Source: "x.go", LineStart: 10, LineEnd: 10,
+			Subject: "TargetSymbol", AnchorSymbol: "TargetSymbol",
+			GroundingStatus: types.GroundingGrounded},
+		// Secondary citation overlaps a different evidence item whose
+		// typed slots name a SIBLING — the off-focus signal.
+		{ID: "ev-2", Source: "x.go", LineStart: 50, LineEnd: 50,
+			Subject: "OtherSymbol", AnchorSymbol: "OtherSymbol",
+			GroundingStatus: types.GroundingGrounded},
+	})
+	rm := &types.RequestModel{
+		AnswerSubject: types.AnswerSubject{Kind: types.SubjectFunctionName},
+	}
+	doc := &types.AnswerDocument{
+		Shape: types.ShapeValue,
+		Value: &types.AnswerValue{Literal: "TargetSymbol", CitationRef: 0},
+		Citations: []types.Citation{
+			{File: "x.go", Line: 10},
+			{File: "x.go", Line: 50},
+		},
+	}
+	vs := runValueSecondaryCitationFocusOracle(doc, rm, mut)
+	if len(vs) != 1 || vs[0].Kind != types.ViolValueSecondaryCitationOffFocus {
+		t.Fatalf("expected 1 ViolValueSecondaryCitationOffFocus; got %+v", vs)
+	}
+	if !strings.Contains(vs[0].Detail, "TargetSymbol") {
+		t.Errorf("detail should name the literal; got %q", vs[0].Detail)
+	}
+	if !strings.Contains(vs[0].Detail, "citations[1]") {
+		t.Errorf("detail should name the offending citation index; got %q", vs[0].Detail)
+	}
+}
+
+func TestRunValueSecondaryCitationFocusOracle_PassesOnFocusedSecondary(t *testing.T) {
+	mut := types.NewMutableState("")
+	mut.AppendEvidence([]types.EvidenceItem{
+		{ID: "ev-1", Source: "x.go", LineStart: 10, LineEnd: 10,
+			Subject: "TargetSymbol", AnchorSymbol: "TargetSymbol",
+			GroundingStatus: types.GroundingGrounded},
+		// Both citations overlap evidence items naming the same literal.
+		{ID: "ev-2", Source: "x.go", LineStart: 50, LineEnd: 50,
+			Subject: "Caller", Object: "TargetSymbol",
+			AnchorSymbol: "Caller",
+			GroundingStatus: types.GroundingGrounded},
+	})
+	rm := &types.RequestModel{
+		AnswerSubject: types.AnswerSubject{Kind: types.SubjectFunctionName},
+	}
+	doc := &types.AnswerDocument{
+		Shape: types.ShapeValue,
+		Value: &types.AnswerValue{Literal: "TargetSymbol", CitationRef: 0},
+		Citations: []types.Citation{
+			{File: "x.go", Line: 10},
+			{File: "x.go", Line: 50},
+		},
+	}
+	if vs := runValueSecondaryCitationFocusOracle(doc, rm, mut); len(vs) != 0 {
+		t.Errorf("focused secondary must pass; got %+v", vs)
+	}
+}
+
+func TestRunValueSecondaryCitationFocusOracle_SkipsOnSingleCitation(t *testing.T) {
+	mut := types.NewMutableState("")
+	mut.AppendEvidence([]types.EvidenceItem{
+		{ID: "ev-1", Source: "x.go", LineStart: 10, Subject: "Foo"},
+	})
+	rm := &types.RequestModel{
+		AnswerSubject: types.AnswerSubject{Kind: types.SubjectFunctionName},
+	}
+	doc := &types.AnswerDocument{
+		Shape:     types.ShapeValue,
+		Value:     &types.AnswerValue{Literal: "Foo", CitationRef: 0},
+		Citations: []types.Citation{{File: "x.go", Line: 10}},
+	}
+	if vs := runValueSecondaryCitationFocusOracle(doc, rm, mut); len(vs) != 0 {
+		t.Errorf("single-citation answer should skip; got %+v", vs)
+	}
+}
+
+func TestRunValueSecondaryCitationFocusOracle_SkipsOnNonValueShape(t *testing.T) {
+	mut := types.NewMutableState("")
+	rm := &types.RequestModel{
+		AnswerSubject: types.AnswerSubject{Kind: types.SubjectFunctionName},
+	}
+	doc := &types.AnswerDocument{
+		Shape: types.ShapeStepList,
+		Steps: []types.AnswerStep{{Index: 1, Description: "step1"}},
+	}
+	if vs := runValueSecondaryCitationFocusOracle(doc, rm, mut); len(vs) != 0 {
+		t.Errorf("non-value shape should skip; got %+v", vs)
+	}
+}
+
+func TestRunValueSecondaryCitationFocusOracle_SkipsOnNonFocusSubjectKind(t *testing.T) {
+	mut := types.NewMutableState("")
+	mut.AppendEvidence([]types.EvidenceItem{
+		{ID: "ev-1", Source: "x.go", LineStart: 10, Subject: "Off"},
+	})
+	rm := &types.RequestModel{
+		// SubjectNumeric is outside the focus set; the oracle skips
+		// because numeric literals lack a stable identifier-lookup
+		// discipline.
+		AnswerSubject: types.AnswerSubject{Kind: types.SubjectNumeric},
+	}
+	doc := &types.AnswerDocument{
+		Shape: types.ShapeValue,
+		Value: &types.AnswerValue{Literal: "Foo", CitationRef: 0},
+		Citations: []types.Citation{
+			{File: "x.go", Line: 10},
+			{File: "x.go", Line: 99},
+		},
+	}
+	if vs := runValueSecondaryCitationFocusOracle(doc, rm, mut); len(vs) != 0 {
+		t.Errorf("non-focus subject kind should skip; got %+v", vs)
+	}
+}
+
+func TestRunValueSecondaryCitationFocusOracle_SkipsOnEmptyPool(t *testing.T) {
+	mut := types.NewMutableState("")
+	rm := &types.RequestModel{
+		AnswerSubject: types.AnswerSubject{Kind: types.SubjectFunctionName},
+	}
+	doc := &types.AnswerDocument{
+		Shape: types.ShapeValue,
+		Value: &types.AnswerValue{Literal: "Foo", CitationRef: 0},
+		Citations: []types.Citation{
+			{File: "x.go", Line: 10},
+			{File: "x.go", Line: 99},
+		},
+	}
+	if vs := runValueSecondaryCitationFocusOracle(doc, rm, mut); len(vs) != 0 {
+		t.Errorf("empty evidence pool should skip; got %+v", vs)
+	}
+}
+
+func TestRunValueSecondaryCitationFocusOracle_FiresWhenSecondaryHasNoMatchedEvidence(t *testing.T) {
+	mut := types.NewMutableState("")
+	// Only the primary citation has a matched evidence item.
+	mut.AppendEvidence([]types.EvidenceItem{
+		{ID: "ev-1", Source: "x.go", LineStart: 10, LineEnd: 10,
+			Subject: "TargetSymbol", AnchorSymbol: "TargetSymbol",
+			GroundingStatus: types.GroundingGrounded},
+	})
+	rm := &types.RequestModel{
+		AnswerSubject: types.AnswerSubject{Kind: types.SubjectFunctionName},
+	}
+	doc := &types.AnswerDocument{
+		Shape: types.ShapeValue,
+		Value: &types.AnswerValue{Literal: "TargetSymbol", CitationRef: 0},
+		Citations: []types.Citation{
+			{File: "x.go", Line: 10},
+			// Secondary citation hits a line with NO evidence overlap —
+			// off-focus by definition (no typed-pool support at all).
+			{File: "y.go", Line: 99},
+		},
+	}
+	vs := runValueSecondaryCitationFocusOracle(doc, rm, mut)
+	if len(vs) != 1 || vs[0].Kind != types.ViolValueSecondaryCitationOffFocus {
+		t.Fatalf("expected ViolValueSecondaryCitationOffFocus; got %+v", vs)
+	}
+}
+
+func TestRunValueSecondaryCitationFocusOracle_FilePathSubjectKind(t *testing.T) {
+	mut := types.NewMutableState("")
+	mut.AppendEvidence([]types.EvidenceItem{
+		{ID: "ev-1", Source: "config/auth.yaml", LineStart: 1, LineEnd: 1,
+			Subject: "config/auth.yaml", AnchorSymbol: "config/auth.yaml",
+			GroundingStatus: types.GroundingGrounded},
+		// Off-focus secondary: different file under typed pool.
+		{ID: "ev-2", Source: "config/auth.yaml", LineStart: 20, LineEnd: 20,
+			Subject: "different/path.yaml", GroundingStatus: types.GroundingGrounded},
+	})
+	rm := &types.RequestModel{
+		AnswerSubject: types.AnswerSubject{Kind: types.SubjectFilePath},
+	}
+	doc := &types.AnswerDocument{
+		Shape: types.ShapeValue,
+		Value: &types.AnswerValue{Literal: "config/auth.yaml", CitationRef: 0},
+		Citations: []types.Citation{
+			{File: "config/auth.yaml", Line: 1},
+			{File: "config/auth.yaml", Line: 20},
+		},
+	}
+	vs := runValueSecondaryCitationFocusOracle(doc, rm, mut)
+	if len(vs) != 1 || vs[0].Kind != types.ViolValueSecondaryCitationOffFocus {
+		t.Fatalf("expected ViolValueSecondaryCitationOffFocus on file-path off-focus secondary; got %+v", vs)
+	}
+}

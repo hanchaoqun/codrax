@@ -235,6 +235,9 @@ func TestAllViolationKindsHaveProducer(t *testing.T) {
 		ViolStepIdentifierUnverified: true, // orchestrator/contract_check.go runStepIdentifierBackedByEvidenceOracle
 		// Phase 5 (Semantic Surface Contract) — telemetry-only kind.
 		ViolRichnessRegression: true, // orchestrator/contract_check.go runRichnessTelemetryOracle
+		// Phase 6 stage 7 — typed-pool replacement for the retired
+		// emit-time validateValueCitationFocus token-overlap heuristic.
+		ViolValueSecondaryCitationOffFocus: true, // orchestrator/contract_check.go runValueSecondaryCitationFocusOracle
 	}
 	pending := map[ViolationKind]string{}
 	// Sanity: AllViolationKinds() must equal covered ∪ pending so the
@@ -269,6 +272,12 @@ func TestAllViolationKindsHaveProducer(t *testing.T) {
 		ViolIntentConfigNoTrail:    "ViolIntentConfigNoTrail",
 		ViolSubjectAnchorMissing:   "ViolSubjectAnchorMissing",
 		ViolPredicateAxisMissing:   "ViolPredicateAxisMissing",
+		ViolFacetUncovered:         "ViolFacetUncovered",
+		ViolClaimFormUnsupported:   "ViolClaimFormUnsupported",
+		ViolAbsenceScopeExceeded:   "ViolAbsenceScopeExceeded",
+		ViolStepIdentifierUnverified:       "ViolStepIdentifierUnverified",
+		ViolRichnessRegression:             "ViolRichnessRegression",
+		ViolValueSecondaryCitationOffFocus: "ViolValueSecondaryCitationOffFocus",
 	}
 
 	// Match only the "Kind: ViolXxx" composite-literal pattern —

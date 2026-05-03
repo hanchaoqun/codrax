@@ -144,6 +144,16 @@ func runContractCheck(out *agent.StageOutput, c types.AnswerContract, mut *types
 				// names. SOFT-by-default; BackToExplore on retry.
 				result.Violations = append(result.Violations,
 					runStepIdentifierBackedByEvidenceOracle(doc, mut)...)
+				// Phase 6 stage 7 (2026-05-03) — value-shape secondary
+				// citation focus oracle. Replaces the retired emit-time
+				// validateValueCitationFocus token-overlap heuristic.
+				// Reads the typed evidence pool: every secondary
+				// citation's matched EvidenceItem (Subject /
+				// AnchorSymbol / Object) must name the scalar literal
+				// under the AnswerSubject.Kind lookup discipline. SOFT
+				// by default; BackToExtract on promotion.
+				result.Violations = append(result.Violations,
+					runValueSecondaryCitationFocusOracle(doc, ir, mut)...)
 			}
 		}
 	}
@@ -1488,6 +1498,204 @@ func buildVerifiedIdentifierSet(doc *types.AnswerDocument, mut *types.MutableSta
 // uses identifierRegex which accepts 1+).
 var identifierTokenizer = regexp.MustCompile(`[A-Za-z_][A-Za-z0-9_]+`)
 
+// runValueSecondaryCitationFocusOracle (Phase 6 stage 7, 2026-05-03)
+// is the new-world replacement for the retired emit-time
+// validateValueCitationFocus token-overlap heuristic. The oracle
+// fires on shape=value answers carrying 2+ citations: every
+// non-primary citation MUST have a typed-pool match (Subject /
+// AnchorSymbol / Object) that names the same scalar literal as
+// doc.Value.Literal under the AnswerSubject.Kind lookup discipline.
+//
+// Off-focus citations turn the answer's "scalar" claim into a soft
+// citation cluster — broader background masquerading as direct
+// support. The fix is for the extractor to drop the citation (the
+// background belongs in summary prose without an extra cite) or
+// re-pick a citation that truly defines / references the literal.
+//
+// Old-world (emit-time validateValueCitationFocus) read citation
+// File / Line + token-overlap fallbacks (citationLooksCommentOnly,
+// quote-substring); a generic literal like "true" or a single-word
+// type name would falsely satisfy the cite when ANY token shape
+// matched. New-world reads ONLY the typed evidence pool — no
+// raw-source-line tokens, no Quote scanning. Skipped silently when
+// AnswerSubject.Kind is not in the citation-focus subject set
+// (mirrors valueSubjectNeedsCitationFocus discipline) or pool is
+// empty.
+//
+// SOFT by default; promotion via pipeline_contract_strict_kinds.
+// Fallback target: BackToExtract — citation choice is the
+// extractor's surface.
+func runValueSecondaryCitationFocusOracle(doc *types.AnswerDocument, rm *types.RequestModel, mut *types.MutableState) []types.Violation {
+	if doc == nil || doc.Shape != types.ShapeValue || doc.Value == nil {
+		return nil
+	}
+	if mut == nil || rm == nil {
+		return nil
+	}
+	if len(doc.Citations) <= 1 {
+		return nil
+	}
+	subjectKind := rm.AnswerSubject.Kind
+	if !valueSubjectNeedsCitationFocus(subjectKind) {
+		return nil
+	}
+	literal := strings.TrimSpace(doc.Value.Literal)
+	if literal == "" {
+		return nil
+	}
+	literalKey := valueCitationFocusLookupKey(subjectKind, literal)
+	if literalKey == "" {
+		return nil
+	}
+	pool := mut.EmittedEvidence()
+	if len(pool) == 0 {
+		return nil
+	}
+	var out []types.Violation
+	for idx, cite := range doc.Citations {
+		if idx == doc.Value.CitationRef {
+			continue
+		}
+		matched := matchCitationInEvidencePool(pool, cite)
+		if valueLiteralBackedByMatchedEvidence(subjectKind, literalKey, literal, matched) {
+			continue
+		}
+		out = append(out, types.Violation{
+			Kind: types.ViolValueSecondaryCitationOffFocus,
+			Detail: fmt.Sprintf(
+				"citations[%d] (%s:%d) does not directly support value.literal %q in the typed evidence pool — the matched EvidenceItem's Subject / AnchorSymbol / Object names a different identifier, so this secondary citation is broader background masquerading as direct support. Scalar (shape=value) answers under AnswerSubject.Kind=%s require every secondary citation to name the same literal in a typed slot.",
+				idx, cite.File, cite.Line, literal, subjectKind),
+			Repair: fmt.Sprintf(
+				"the next extractor pass should drop citations[%d] (move the broader background into summary prose without an extra cite) OR replace it with a citation whose matched EvidenceItem.Subject / AnchorSymbol / Object equals %q under the %s lookup discipline.",
+				idx, literal, subjectKind),
+			SuspectedRoot: types.SuspectedRoot{
+				IRField:    "value_citation_focus",
+				Reason:     fmt.Sprintf("citations[%d] off-focus for literal %q", idx, literal),
+				Confidence: 0.6,
+			},
+			Stage: string(types.StageFinalize),
+		})
+	}
+	return out
+}
+
+// valueCitationFocusLookupKey produces the stable lookup key for
+// the (subjectKind, literal) pair. Mirrors the file-vs-symbol split
+// the retired emit-time gate used; AnswerSubject.SubjectFilePath
+// keys under "path", everything else under "symbol". Returns "" on
+// empty literal.
+func valueCitationFocusLookupKey(kind types.AnswerSubjectKind, literal string) string {
+	if strings.TrimSpace(literal) == "" {
+		return ""
+	}
+	if kind == types.SubjectFilePath {
+		return types.ExactResolutionLookupKey("path", literal)
+	}
+	return types.ExactResolutionLookupKey("symbol", literal)
+}
+
+// valueLiteralBackedByMatchedEvidence reports whether `matched`'s
+// typed slots (Subject / AnchorSymbol / Object) name the same
+// literal as `literalKey` under the kind's lookup discipline.
+// Matched.Source=="" means no pool entry overlapped the citation —
+// the secondary citation has no typed evidence behind it AT ALL,
+// which is unconditionally off-focus.
+func valueLiteralBackedByMatchedEvidence(kind types.AnswerSubjectKind, literalKey, literal string, matched types.EvidenceItem) bool {
+	if matched.Source == "" {
+		return false
+	}
+	for _, candidate := range []string{matched.Subject, matched.AnchorSymbol, matched.Object} {
+		if valueLiteralKeyMatchesText(kind, literalKey, candidate) {
+			return true
+		}
+	}
+	return false
+}
+
+// valueLiteralKeyMatchesText reports whether `text` lookup-keyed
+// under `kind` contains `literalKey`. SubjectFilePath uses exact
+// equality (path discipline); identifier kinds use substring
+// (mirrors valueCitationTextMatchesLiteral's symbol path so a
+// matched evidence pool entry whose Subject="foo.Bar" supports a
+// literal key "bar"). Empty text returns false.
+func valueLiteralKeyMatchesText(kind types.AnswerSubjectKind, literalKey, text string) bool {
+	if literalKey == "" || strings.TrimSpace(text) == "" {
+		return false
+	}
+	if kind == types.SubjectFilePath {
+		return types.ExactResolutionLookupKey("path", text) == literalKey
+	}
+	return strings.Contains(types.ExactResolutionLookupKey("symbol", text), literalKey)
+}
+
+// matchCitationInEvidencePool finds the highest-scoring
+// EvidenceItem whose [LineStart, LineEnd] window contains
+// (cite.File, cite.Line). Returns the zero-value EvidenceItem when
+// no overlap exists — caller checks Source=="" for that case.
+//
+// Self-contained mirror of internal/tool::matchingEvidenceForCitation
+// (kept inside the orchestrator package so contract_check.go does
+// not pull internal/tool's heavier surface). The scoring is
+// intentionally simpler: GroundingStatus + start-line tiebreaker
+// only — the tool-side function adds DiagramRole / AnchorKind
+// nudges that are answer-document-specific concerns the oracle
+// does not need.
+func matchCitationInEvidencePool(pool []types.EvidenceItem, c types.Citation) types.EvidenceItem {
+	bestScore := -1
+	best := types.EvidenceItem{}
+	for _, item := range pool {
+		if item.Source != c.File || item.LineStart <= 0 {
+			continue
+		}
+		end := item.LineEnd
+		if end <= 0 {
+			end = item.LineStart
+		}
+		if c.Line < item.LineStart || c.Line > end {
+			continue
+		}
+		score := 0
+		switch item.GroundingStatus {
+		case types.GroundingGrounded:
+			score += 40
+		case types.GroundingRecovered:
+			score += 30
+		case types.GroundingUngrounded:
+			score += 5
+		}
+		if c.Line == item.LineStart {
+			score += 8
+		}
+		if score > bestScore {
+			bestScore = score
+			best = item
+		}
+	}
+	return best
+}
+
+// valueSubjectNeedsCitationFocus mirrors the same-named helper in
+// internal/tool::emit_answer_document.go; subject kinds whose
+// scalar literal is itself an identifier-shaped surface (function
+// name / type name / handler route / file path / etc.) trigger
+// secondary-citation focus enforcement. Other subject kinds (e.g.
+// SubjectExpression) carry rich literals without a stable lookup
+// discipline and are skipped.
+func valueSubjectNeedsCitationFocus(kind types.AnswerSubjectKind) bool {
+	switch kind {
+	case types.SubjectFunctionName,
+		types.SubjectTypeName,
+		types.SubjectHandlerRoute,
+		types.SubjectFilePath,
+		types.SubjectStringLiteral,
+		types.SubjectEnumValue,
+		types.SubjectStructField,
+		types.SubjectInterface:
+		return true
+	}
+	return false
+}
+
 func runClaimFormSupportOracle(doc *types.AnswerDocument, mut *types.MutableState) []types.Violation {
 	if doc == nil {
 		return nil
@@ -2020,6 +2228,12 @@ func defaultSoftKinds() map[types.ViolationKind]bool {
 		// Phase 5 — telemetry-only richness regression. SOFT and
 		// explicitly NOT promotable; soft classification is permanent.
 		types.ViolRichnessRegression: true,
+		// Phase 6 stage 7 — value secondary citation focus. SOFT-by-
+		// default: under default classification the answer ships
+		// with the off-focus citations and the gap is recorded for
+		// cross-Run learning. Operators promote to STRICT when their
+		// extractor pipeline guarantees focused secondary citations.
+		types.ViolValueSecondaryCitationOffFocus: true,
 	}
 }
 
