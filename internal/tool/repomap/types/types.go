@@ -166,6 +166,104 @@ type FileInfo struct {
 	// the build log at WARN level (red line L-Fallback-1 — no
 	// silent degradation).
 	FallbackReason string `json:"fallback_reason,omitempty"`
+
+	// LineFeatures is the per-line typed AST node-shape index
+	// populated by tree-sitter extractors. Keyed by 1-based line
+	// number; the slice contains every distinct LineFeature value
+	// observed on that line. Phase 6 stage 18 (2026-05-03):
+	// replaces the source-shape token tables that used to drive
+	// concrete_values producer's isEvidenceLine and the decision-
+	// block scanner's isBlockTerminator. Empty / nil map means
+	// "AST features not available" (regex-only Tier 3+ fallback);
+	// callers treat absence as "no signal" rather than guessing.
+	LineFeatures map[int][]LineFeature `json:"line_features,omitempty"`
+}
+
+// LineFeature tags a typed AST node-shape observation at a
+// specific source line. Phase 6 stage 18 (2026-05-03) replacement
+// for the explorer's source-shape token tables.
+//
+// The closed enum normalises across tree-sitter grammars: Go's
+// `return_statement`, Python's `return_statement`, Rust's
+// `return_expression` all collapse to LineFeatureReturnStmt;
+// similarly for break / raise / throw. Per-language extractors
+// own the mapping and only emit values from this enum.
+//
+// Values are intentionally coarse — they describe SHAPE, not
+// semantics. Whether a `call_expression` is a registration call
+// vs a regular function call is a separate concern decided
+// downstream by matching the call's target name against typed
+// helpers (e.g. yaml-tunable RegistrationFunctionNameTokens).
+type LineFeature string
+
+const (
+	// LineFeatureReturnStmt — `return X` / `return X, err` / bare
+	// `return`. Maps to tree-sitter return_statement /
+	// return_expression depending on grammar.
+	LineFeatureReturnStmt LineFeature = "return_stmt"
+
+	// LineFeatureBreakStmt — `break` / `break label`. Loop
+	// terminator.
+	LineFeatureBreakStmt LineFeature = "break_stmt"
+
+	// LineFeatureRaiseStmt — `raise X` (Python). Exception terminator.
+	LineFeatureRaiseStmt LineFeature = "raise_stmt"
+
+	// LineFeatureThrowStmt — `throw X` (Java / JS / TS / Rust
+	// macro `throw_stmt!`). Exception terminator. Held distinct
+	// from RaiseStmt for grammars that have both shapes.
+	LineFeatureThrowStmt LineFeature = "throw_stmt"
+
+	// LineFeatureCallExpression — function or method call
+	// `foo(...)` / `obj.method(...)`. Used by concrete_values
+	// producer to flag registration-shape lines via call-target
+	// name lookup against typed helpers.
+	LineFeatureCallExpression LineFeature = "call_expression"
+
+	// LineFeatureNewExpression — constructor invocation `new Foo(...)`
+	// (Java / JS / TS / C++) or factory-prefix call (Go's NewFoo,
+	// CreateFoo, MakeFoo). Composite-value creation marker.
+	LineFeatureNewExpression LineFeature = "new_expression"
+
+	// LineFeatureCompositeLiteral — `Type{...}` / `[]Type{...}` /
+	// `&Type{...}` (Go), `Foo { field: ... }` (Rust),
+	// `{ key: val }` (JS object literal). Establishes a new
+	// composite value.
+	LineFeatureCompositeLiteral LineFeature = "composite_literal"
+
+	// LineFeatureArrowFunction — JS / TS arrow `(x) => y` or
+	// Rust closure shape. Lambda body marker.
+	LineFeatureArrowFunction LineFeature = "arrow_function"
+)
+
+// IsBlockTerminator reports whether `f` is a control-flow
+// terminator shape (return / break / raise / throw). Phase 6
+// stage 18 typed replacement for the explorer's
+// isBlockTerminator string-prefix table.
+func (f LineFeature) IsBlockTerminator() bool {
+	switch f {
+	case LineFeatureReturnStmt, LineFeatureBreakStmt,
+		LineFeatureRaiseStmt, LineFeatureThrowStmt:
+		return true
+	}
+	return false
+}
+
+// IsEvidenceShape reports whether `f` describes a source-line
+// shape worth deeper analysis by the concrete_values producer
+// (return / call / new / composite literal / arrow function).
+// Phase 6 stage 18 typed replacement for the explorer's
+// isEvidenceLine token tables.
+func (f LineFeature) IsEvidenceShape() bool {
+	switch f {
+	case LineFeatureReturnStmt,
+		LineFeatureCallExpression,
+		LineFeatureNewExpression,
+		LineFeatureCompositeLiteral,
+		LineFeatureArrowFunction:
+		return true
+	}
+	return false
 }
 
 // MethodKey is the (package, receiver, name) tuple used to resolve

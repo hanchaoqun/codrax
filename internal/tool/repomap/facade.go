@@ -38,10 +38,24 @@ type (
 	SymbolID         = types.SymbolID
 	MethodKey        = types.MethodKey
 	ViewParams       = types.ViewParams
+	LineFeature      = types.LineFeature
 	FileEntry        = index.FileEntry
 	ViewData         = render.ViewData
 	ViewSection      = render.ViewSection
 	ViewItem         = render.ViewItem
+)
+
+// ---- LineFeature value re-exports -----------------------------------
+
+const (
+	LineFeatureReturnStmt       = types.LineFeatureReturnStmt
+	LineFeatureBreakStmt        = types.LineFeatureBreakStmt
+	LineFeatureRaiseStmt        = types.LineFeatureRaiseStmt
+	LineFeatureThrowStmt        = types.LineFeatureThrowStmt
+	LineFeatureCallExpression   = types.LineFeatureCallExpression
+	LineFeatureNewExpression    = types.LineFeatureNewExpression
+	LineFeatureCompositeLiteral = types.LineFeatureCompositeLiteral
+	LineFeatureArrowFunction    = types.LineFeatureArrowFunction
 )
 
 // ---- language constant re-exports -----------------------------------

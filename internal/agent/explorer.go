@@ -20,6 +20,7 @@ import (
 	"github.com/hanchaoqun/codrax/internal/tool"
 	"github.com/hanchaoqun/codrax/internal/tool/ground"
 	"github.com/hanchaoqun/codrax/internal/tool/repomap"
+	repotypes "github.com/hanchaoqun/codrax/internal/tool/repomap/types"
 	"github.com/hanchaoqun/codrax/internal/types"
 	"gopkg.in/yaml.v3"
 )
@@ -8798,10 +8799,15 @@ func (e *explorerEvaluator) buildConcreteValuesSection(repoRoot string, readSet 
 					end = len(allLines)
 				}
 				for li := start; li < end; li++ {
-					trimmed := strings.TrimSpace(allLines[li])
-					if !isEvidenceLine(trimmed) {
+					// Phase 6 stage 18 (2026-05-03) — typed AST query
+					// replaces the retired isEvidenceLine token-table
+					// scanner. fi.LineFeatures[li+1] is the per-line
+					// feature set populated by repomap's tree-sitter
+					// extractor; empty ⇒ skip (no AST signal).
+					if !isEvidenceLineByFeatures(fi.LineFeatures[li+1]) {
 						continue
 					}
+					_ = strings.TrimSpace(allLines[li])
 					// Grab ±1 line of context for the extractor.
 					ctxStart := li
 					if ctxStart > start {
@@ -9258,7 +9264,7 @@ func (e *explorerEvaluator) buildConcreteValuesSection(repoRoot string, readSet 
 			if bodyLines < 50 || sym.EndLine == 0 {
 				continue
 			}
-			blocks := extractDecisionBlocks(allLines, sym.Line, sym.EndLine)
+			blocks := extractDecisionBlocks(allLines, sym.Line, sym.EndLine, fi.LineFeatures)
 			if blocks == nil {
 				if bodyLines >= 100 {
 					logging.Debug("[explorer] decision blocks: %s.%s (%d lines, L%d-%d) → nil blocks",
@@ -10099,18 +10105,31 @@ type decisionBlock struct {
 // next early return/break at the same or shallower indent, or at the next
 // section header.
 //
-// This is a cross-language heuristic: section-header comments are universal
-// developer practice (Go //, Python #, Java //, Rust //, shell #, SQL --),
-// and early return is the universal block terminator.
+// Phase 6 stage 18 (2026-05-03): block-terminator detection is
+// driven by the typed `lineFeatures` map populated by repomap's
+// AST extractors (LineFeatureReturnStmt / BreakStmt / RaiseStmt /
+// ThrowStmt). The retired path used a hardcoded prefix-token
+// table ("return ", "break", "raise ", "throw ") on the source
+// line text — a red-line violation when read uniformly with the
+// rest of Phase 6's intent-classification cleanup. When
+// lineFeatures is nil/empty (Tier 3+ regex-only fallback or AST
+// not extracted for this language), the function returns nil:
+// no signal ⇒ no decision-block surfacing rather than guessing
+// from byte tokens.
 //
 // Parameters:
 //   - lines: the raw source lines of the file (0-indexed)
 //   - funcStart, funcEnd: 1-based inclusive line range of the function body
-//   - baseIndent: the indentation level of the function body's top-level
-//     statements (auto-detected from the first non-blank line after funcStart)
+//   - lineFeatures: the typed AST features map (FileInfo.LineFeatures),
+//     keyed by 1-based line. nil/empty disables this function.
 //
 // Returns nil if fewer than 3 blocks are found (not worth surfacing).
-func extractDecisionBlocks(lines []string, funcStart, funcEnd int) []decisionBlock {
+func extractDecisionBlocks(lines []string, funcStart, funcEnd int, lineFeatures map[int][]repotypes.LineFeature) []decisionBlock {
+	if len(lineFeatures) == 0 {
+		// Phase 6 stage 18 contract: no AST features ⇒ no signal ⇒
+		// skip rather than fall back to byte-token scanning.
+		return nil
+	}
 	if funcStart < 1 || funcEnd > len(lines) || funcEnd-funcStart < 10 {
 		return nil
 	}
@@ -10194,20 +10213,28 @@ func extractDecisionBlocks(lines []string, funcStart, funcEnd int) []decisionBlo
 		return label, true
 	}
 
-	// An early-return line at the function body's indent level (or one deeper).
-	isBlockTerminator := func(line string) bool {
-		trimmed := strings.TrimSpace(line)
+	// Phase 6 stage 18 (2026-05-03) — typed AST replacement for
+	// the retired hardcoded prefix-token table ("return ",
+	// "return\t", "break", "raise ", "throw ", "RAISE ", "THROW ").
+	// Reads the per-line LineFeature set populated by repomap's
+	// extractor and consults LineFeature.IsBlockTerminator() —
+	// closed enum that includes ReturnStmt / BreakStmt /
+	// RaiseStmt / ThrowStmt without scanning byte tokens.
+	//
+	// The indent gate is preserved: the AST feature flags any
+	// return/break/raise/throw, but only those at the function
+	// body's top-level indent (or one deeper) are treated as
+	// block terminators. Inner-loop break / nested-helper return
+	// inside the same function don't terminate the outer block.
+	isBlockTerminator := func(line string, lineNo int) bool {
 		indent := lineIndentLen(line)
 		if indent < baseIndentLen || indent > baseIndentLen+4 {
 			return false
 		}
-		for _, kw := range []string{"return ", "return\t", "break", "raise ", "throw ", "RAISE ", "THROW "} {
-			if strings.HasPrefix(trimmed, kw) {
+		for _, f := range lineFeatures[lineNo] {
+			if f.IsBlockTerminator() {
 				return true
 			}
-		}
-		if trimmed == "return" || trimmed == "return;" {
-			return true
 		}
 		return false
 	}
@@ -10227,7 +10254,7 @@ func extractDecisionBlocks(lines []string, funcStart, funcEnd int) []decisionBlo
 			continue
 		}
 
-		if current != nil && isBlockTerminator(lines[i]) {
+		if current != nil && isBlockTerminator(lines[i], i+1) {
 			current.endLine = lineNo
 			blocks = append(blocks, *current)
 			current = nil
@@ -10245,7 +10272,7 @@ func extractDecisionBlocks(lines []string, funcStart, funcEnd int) []decisionBlo
 	for _, blk := range blocks {
 		hasTerminator := false
 		for li := blk.startLine - 1; li < blk.endLine && li < len(lines); li++ {
-			if isBlockTerminator(lines[li]) {
+			if isBlockTerminator(lines[li], li+1) {
 				hasTerminator = true
 				break
 			}
@@ -12974,90 +13001,28 @@ func (e *explorerEvaluator) trackCrossReferences(note string) {
 	}
 }
 
-// isEvidenceLine returns true if a trimmed source line is likely to
-// contain a concrete value pattern (return statement, map entry,
-// registration call, or constructor binding). Used by the medium-function
-// local line scanner to skip irrelevant lines cheaply.
+// isEvidenceLineByFeatures (Phase 6 stage 18, 2026-05-03) is the
+// new-world replacement for the retired isEvidenceLine token-
+// table scanner. It reads the per-line typed AST features
+// populated by repomap's tree-sitter extractors
+// (FileInfo.LineFeatures) and consults the typed
+// LineFeature.IsEvidenceShape() predicate — closed enum that
+// includes ReturnStmt / CallExpression / NewExpression /
+// CompositeLiteral / ArrowFunction.
 //
-// Patterns are cross-language:
+// The retired isEvidenceLine had EIGHT independent byte-level
+// detectors (return prefix, =>, key:value, registration verb
+// table, `new ` keyword, &UpperCase, factory-prefix table,
+// composite literal RHS) — a direct red-line violation under
+// stage 17/18's no-keyword-tables doctrine.
 //
-//	return/yield   — Go, Python, Java, JS, Rust, Ruby
-//	=>             — JS/TS arrow functions, Ruby hash rockets
-//	key: value,    — Go maps, Python dicts, JS/TS objects, YAML
-//	registration   — Register/Add/Handle/Route/Subscribe/Bind (English naming)
-//	constructors   — new Foo (Java/JS), &Foo{ (Go), NewFoo/CreateFoo (Go/Python)
-func isEvidenceLine(trimmed string) bool {
-	// Return/yield statements (all languages).
-	if strings.HasPrefix(trimmed, "return ") || strings.HasPrefix(trimmed, "return\t") ||
-		strings.HasPrefix(trimmed, "yield ") {
-		return true
-	}
-	if strings.Contains(trimmed, " return ") {
-		return true // inline return: func() { return X }
-	}
-	// Arrow functions (JS/TS/Rust closures).
-	if strings.Contains(trimmed, "=>") {
-		return true
-	}
-	// Map/dict entries: "key": value, or key => value,
-	if (strings.Contains(trimmed, ":") || strings.Contains(trimmed, "=>")) &&
-		strings.Contains(trimmed, ",") {
-		return true
-	}
-	// Registration/binding calls — common cross-language verb patterns.
-	for _, kw := range []string{
-		"Register", "register", "Subscribe", "subscribe",
-		"Bind", "bind", "Handle", "handle",
-		"Route", "route", "Map(", "map(",
-		"Add(", "add(", "Set(", "set(",
-		"append(", "push(", "insert(",
-		"provide(", "Provide(",
-	} {
-		if strings.Contains(trimmed, kw) {
-			return true
-		}
-	}
-	// Constructor patterns — cross-language, tightened to avoid false positives.
-	//   Java/JS/TS:  new Foo(...)
-	//   Go:          &Foo{...}  (address-of struct literal)
-	//   Multi-lang:  FactoryPrefix + UpperCase (NewFoo, CreateFoo, MakeFoo, BuildFoo)
-	if strings.Contains(trimmed, "new ") || strings.Contains(trimmed, "new\t") {
-		return true
-	}
-	// &UpperCase{ — Go struct literal, also Rust &Type
-	for i := 0; i < len(trimmed)-2; i++ {
-		if trimmed[i] == '&' && trimmed[i+1] >= 'A' && trimmed[i+1] <= 'Z' {
-			return true
-		}
-	}
-	// FactoryPrefix + UpperCase — matches NewFoo, CreateFoo, MakeFoo, BuildFoo, GetFoo.
-	for _, prefix := range []string{"New", "Create", "Make", "Build", "Get"} {
-		plen := len(prefix)
-		for i := 0; i <= len(trimmed)-plen-1; i++ {
-			if trimmed[i:i+plen] == prefix && trimmed[i+plen] >= 'A' && trimmed[i+plen] <= 'Z' {
-				// Ensure prefix starts at word boundary.
-				if i == 0 || !isIdentChar(trimmed[i-1]) {
-					return true
-				}
-			}
-		}
-	}
-	// Variable assignment creating new composite values:
-	//   Go:     varName := Type{...} or varName := []Type{...}
-	//   JS/TS:  const x = { ... } or const x = [ ... ]
-	//   Python: x = ClassName(...)
-	// These are evidence because they establish what a variable IS
-	// (e.g., synthMessages is a NEW slice, not accumulated messages).
-	if strings.Contains(trimmed, ":=") || strings.Contains(trimmed, " = ") {
-		rhs := trimmed
-		if idx := strings.Index(trimmed, ":="); idx >= 0 {
-			rhs = strings.TrimSpace(trimmed[idx+2:])
-		} else if idx := strings.Index(trimmed, " = "); idx >= 0 {
-			rhs = strings.TrimSpace(trimmed[idx+3:])
-		}
-		// RHS creates a new composite value (struct/slice/map/array literal).
-		if strings.Contains(rhs, "{") || strings.HasPrefix(rhs, "[") ||
-			strings.HasPrefix(rhs, "[]") {
+// Empty lineFeatures slice ⇒ no signal ⇒ returns false. Tier 3+
+// regex-only fallback files / languages without AST extraction
+// silently skip the deep concrete-values scan rather than
+// guessing via byte tokens. This is the typed-only contract.
+func isEvidenceLineByFeatures(lineFeatures []repotypes.LineFeature) bool {
+	for _, f := range lineFeatures {
+		if f.IsEvidenceShape() {
 			return true
 		}
 	}

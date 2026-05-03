@@ -88,6 +88,43 @@ func (g *Graph) SymbolsInFile(file string) []Symbol {
 // in repomap/oracle.go just adapts this method to the interface
 // shape.
 //
+// LineFeaturesAt returns the typed AST node-shape features
+// observed at `file:line` (1-based). Phase 6 stage 18 (2026-05-03)
+// typed replacement for explorer-side source-line token tables.
+//
+// Empty slice ⇒ no features recorded (regex-only Tier 3+ fallback,
+// or AST extraction not yet wired for this language). Callers
+// treat the empty case as "no signal" and skip the dependent
+// branch rather than guessing via byte tokens. The caller-side
+// migration of explorer.go's isBlockTerminator + isEvidenceLine
+// uses LineFeature.IsBlockTerminator() / IsEvidenceShape() helpers
+// on the returned slice.
+//
+// nil receiver / unknown file / line out of range tolerated: all
+// return nil so callers don't need defensive checks.
+func (g *Graph) LineFeaturesAt(file string, line int) []LineFeature {
+	if g == nil || line <= 0 || file == "" {
+		return nil
+	}
+	fi, ok := g.FileIndex[file]
+	if !ok || fi == nil || len(fi.LineFeatures) == 0 {
+		return nil
+	}
+	return fi.LineFeatures[line]
+}
+
+// HasLineFeatureAt reports whether `feat` was observed at
+// `file:line`. Convenience wrapper for the common "is this line
+// a return statement?" / "is this line a call expression?" check.
+func (g *Graph) HasLineFeatureAt(file string, line int, feat LineFeature) bool {
+	for _, f := range g.LineFeaturesAt(file, line) {
+		if f == feat {
+			return true
+		}
+	}
+	return false
+}
+
 // nil receiver tolerated: returns (false, 0) so callers can pass
 // nil to disable validation without nil-checking each site.
 func (g *Graph) SymbolExists(name string) (bool, int) {

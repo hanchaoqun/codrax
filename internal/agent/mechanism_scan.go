@@ -9,6 +9,7 @@ import (
 
 	"github.com/hanchaoqun/codrax/internal/logging"
 	"github.com/hanchaoqun/codrax/internal/tool/repomap"
+	repotypes "github.com/hanchaoqun/codrax/internal/tool/repomap/types"
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
@@ -139,7 +140,17 @@ func scanMechanismEvidence(reqs []EvidenceRequirement, graph *repomap.Graph, rep
 			if sym.EndLine == 0 || sym.EndLine-sym.Line < mechanismMinBodyLines {
 				continue
 			}
-			blocks := extractDecisionBlocks(lines, sym.Line, sym.EndLine)
+			// Phase 6 stage 18 (2026-05-03) — extractDecisionBlocks
+			// now consumes the typed AST features map populated by
+			// repomap's tree-sitter extractors. Empty/nil features
+			// (Tier 3+ regex-only fallback) ⇒ no decision-block
+			// surfacing for this symbol.
+			fi := graph.FileIndex[sym.File]
+			var lineFeatures map[int][]repotypes.LineFeature
+			if fi != nil {
+				lineFeatures = fi.LineFeatures
+			}
+			blocks := extractDecisionBlocks(lines, sym.Line, sym.EndLine, lineFeatures)
 			if len(blocks) == 0 {
 				continue
 			}

@@ -104,6 +104,21 @@ func ContinuationPrompt() string {
 		Line:    4,  // 1-based: "func ContinuationPrompt..."
 		EndLine: 24, // closing brace
 	})
+	// Phase 6 stage 18 (2026-05-03) — the typed-only contract
+	// requires LineFeatures to drive extractDecisionBlocks. Real
+	// production runs get this from repomap's tree-sitter parse;
+	// this test fakes the relevant return-statement lines so the
+	// typed contract sees four block terminators (lines 8, 13, 18,
+	// 23 in `source` — 1-based), matching the four `return …`
+	// statements in the fake function body.
+	if fi, ok := graph.FileIndex[rel]; ok && fi != nil {
+		fi.LineFeatures = map[int][]repomap.LineFeature{
+			8:  {repomap.LineFeatureReturnStmt},
+			13: {repomap.LineFeatureReturnStmt},
+			18: {repomap.LineFeatureReturnStmt},
+			23: {repomap.LineFeatureReturnStmt},
+		}
+	}
 
 	reqs := []EvidenceRequirement{
 		{Kind: "mechanism", Entities: []string{"ContinuationPrompt"}},

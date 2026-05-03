@@ -180,6 +180,16 @@ func parseOneFile(entry FileEntry) *types.FileInfo {
 		fi.Package, fi.Symbols, fi.Imports, fi.Relations = extractProto(root, source, entry.RelPath)
 	}
 
+	// Phase 6 stage 18 (2026-05-03) — populate per-line typed AST
+	// node-shape features. Generic across languages: the walker
+	// reads tree-sitter node Type() names and maps the closed set
+	// (return_statement / call_expression / new_expression /
+	// arrow_function / composite_literal / etc.) to typed
+	// LineFeature enum values. Languages whose grammar uses
+	// different node names skip silently — callers treat absence
+	// as "no signal" rather than guessing via byte tokens.
+	fi.LineFeatures = extractLineFeatures(root, source)
+
 	return fi
 }
 
