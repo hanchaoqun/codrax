@@ -588,11 +588,8 @@ var answerDocClaimFormLabels = map[types.ClaimForm]string{
 // Returns "" when the contract is empty or nil so existing prompt
 // shapes stay byte-identical.
 // renderAnswerDocBlockContract renders the V2 block contract for the
-// finalizer prompt (B6-T1, block_only_carrier.md §5.6). Returns ""
-// when V2 is not the default carrier OR no semantic view can be
-// compiled — both conditions short-circuit so the prompt stays
-// V1-only when the operator has rolled back via --emit-v2=off /
-// pipeline_emit_v2_default: false.
+// finalizer prompt (B6-T1, block_only_carrier.md §5.6). Returns "" when
+// no semantic view can be compiled — V2 is the only carrier since B8.
 //
 // LLM-facing language only (R4 red line); no internal Go terminology.
 // The two sub-sections are:
@@ -605,9 +602,6 @@ var answerDocClaimFormLabels = map[types.ClaimForm]string{
 //                                 the existing Required Answer Facets
 //                                 section above).
 func renderAnswerDocBlockContract(ctx *types.AgentContext) string {
-	if !types.EmitV2Default() {
-		return ""
-	}
 	if ctx == nil || ctx.AnalysisIR == nil {
 		return ""
 	}

@@ -12,7 +12,6 @@ import (
 	"github.com/hanchaoqun/codrax/internal/analysis/criterion"
 	"github.com/hanchaoqun/codrax/internal/analysis/hint"
 	"github.com/hanchaoqun/codrax/internal/authority"
-	"github.com/hanchaoqun/codrax/internal/logging"
 	"github.com/hanchaoqun/codrax/internal/render"
 	"github.com/hanchaoqun/codrax/internal/tool/repomap"
 	repotypes "github.com/hanchaoqun/codrax/internal/tool/repomap/types"
@@ -124,20 +123,7 @@ func runContractCheck(out *agent.StageOutput, c types.AnswerContract, mut *types
 		// AnswerDocument() and AnswerDocumentV2() are never both
 		// non-nil on the same Mutable.
 		if docV2 := mut.AnswerDocumentV2(); docV2 != nil && o != nil && o.busCtx != nil {
-			// B7-T2 V1/V2 dispatch telemetry — one debug line per
-			// contract check so operators can confirm the V2 path
-			// fired (and which family) when grepping
-			// [trace/v1v2_diff]. Live as long as both carriers
-			// coexist; B8-T7 removes when V1 disappears.
 			view := types.BuildAnswerSemanticViewForBusContext(o.busCtx)
-			family := types.QuestionFamily("")
-			requiredCount := 0
-			if view != nil {
-				family = view.Family
-				requiredCount = len(view.RequiredBlocks)
-			}
-			logging.Debug("[trace/v1v2_diff] carrier=v2 family=%s blocks=%d required_block_kinds=%d v2_default=%v v1_strict=%v",
-				family, len(docV2.Blocks), requiredCount, EmitV2Default(), V1OracleStrictMode())
 			if view != nil {
 				result.Violations = append(result.Violations,
 					runV2BlockOracles(docV2, view)...)
@@ -789,26 +775,6 @@ var (
 	facetValidatorsEnabledMu sync.RWMutex
 	facetValidatorsEnabled   = true
 )
-
-// EmitV2Default / SetEmitV2Default / V1OracleStrictMode /
-// SetV1OracleStrictMode (B6, 2026-05-03) live in internal/types so
-// agent / render / orchestrator can all read them without import
-// cycles. The orchestrator package re-exports them as thin wrappers
-// for callers that already have orchestrator imported.
-
-// EmitV2Default returns types.EmitV2Default() — V2 carrier default
-// gate. See internal/types/answer_document_v2.go for semantics.
-func EmitV2Default() bool { return types.EmitV2Default() }
-
-// SetEmitV2Default flips the gate. cmd/root.go calls this at startup.
-func SetEmitV2Default(on bool) { types.SetEmitV2Default(on) }
-
-// V1OracleStrictMode returns types.V1OracleStrictMode() — rollback
-// rope to restore V1 oracle strict semantics during V2 default.
-func V1OracleStrictMode() bool { return types.V1OracleStrictMode() }
-
-// SetV1OracleStrictMode flips the rope. cmd/root.go startup.
-func SetV1OracleStrictMode(on bool) { types.SetV1OracleStrictMode(on) }
 
 // runFacetCoverageOracle (Phase 4 of Semantic Surface Contract,
 // 2026-05-02) walks the FacetCoverageContract.Required entries and

@@ -375,23 +375,6 @@ type RuntimeSettings struct {
 	// on; turning it off bypasses both producer and classifier.
 	PipelineFacetValidatorsEnabled *bool `yaml:"pipeline_facet_validators_enabled"`
 
-	// PipelineEmitV2Default (B6 of block_only_carrier.md, 2026-05-03)
-	// is the default carrier choice when the LLM does not explicitly
-	// pick a document_model in its emit. nil / unset = true (B6 makes
-	// V2 the production default). Operators may set false to roll
-	// back to V1 byte-identical behaviour. CLI --emit-v2={auto,on,off}
-	// overrides this for a single run; auto = follow this yaml value.
-	// Removed entirely at B8-T7 once V1 is deleted.
-	PipelineEmitV2Default *bool `yaml:"pipeline_emit_v2_default"`
-
-	// PipelineV1OracleStrictMode (B6, 2026-05-03) is the rollback
-	// rope: when V2 is default, the V1 runAnswerShapeOracle is
-	// downgraded to telemetry-only. Set this to true to restore the
-	// V1 oracle's strict / fail-loud behaviour for a single run when
-	// a V2 regression is suspected. nil = use default (false). Removed
-	// entirely at B8-T7.
-	PipelineV1OracleStrictMode *bool `yaml:"pipeline_v1_oracle_strict_mode"`
-
 	// PipelineSelfConsistencyReviewEnabled (commit 62, this-phase
 	// default TRUE) gates the post-finalize self-consistency
 	// reviewer LLM. When true, an independent reviewer reads
