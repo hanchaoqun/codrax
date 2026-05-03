@@ -3755,7 +3755,7 @@ func (e *explorerEvaluator) postReadWithoutEmitSignal(obs LoopObservation) LoopS
 		HintKey:       "explorer.mid-loop.read-without-emit",
 		Hint: fmt.Sprintf(
 			"MID-LOOP CHECK: you have read %d file(s) %s but %s. "+
-				"Facts left only in your prose notes are NOT recorded — downstream stages cannot see any concrete value, definition, call-site, or condition that is not passed through `emit_evidence(items=[...])`. "+
+				"Facts left only in your prose notes are NOT recorded — anything that is not passed through `emit_evidence(items=[...])` is invisible to the rest of the pipeline (concrete value, definition, call-site, or condition). "+
 				"Pick the strongest anchors you have identified in the files you just read and emit them in ONE batch now. Line numbers MUST come verbatim from the `read_file` gutter (copy the leading `N| ` prefix). "+
 				"After the batch succeeds, continue investigating or call `emit_investigation_complete(reason, confidence, result_kind)`.%s%s",
 			reads, scope, recording, e.authoritativeLogDriftReminder(obs.AllToolResults), e.authoritativeLogBackboneFirstEmitReminder(obs.AllToolResults)),
@@ -4003,7 +4003,7 @@ func (e *explorerEvaluator) postExternalLogRedirectSignal(obs LoopObservation) L
 			HintKey:       "explorer.mid-loop.external-log-no-anchor",
 			Hint: "MID-LOOP CHECK: the attached log is an external-source trace (resolved_files=0). " +
 				"Runtime frames that do not resolve to repo files cannot go through `emit_evidence`, and reading unrelated repo files just to manufacture citations is wasted work. " +
-				"If the structured Log Triage error chain already answers the question, call `emit_investigation_complete` now and let downstream stages answer from the log semantics. " +
+				"If the structured Log Triage error chain already answers the question, call `emit_investigation_complete` now — the answer can be composed from the log semantics alone. " +
 				"Only continue repo reads if you have identified a real repository file that explains how this repo handles the logged failure.",
 			Progress:       true,
 			BypassThrottle: true,

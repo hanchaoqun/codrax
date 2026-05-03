@@ -154,6 +154,35 @@ var InternalTermsBlocklist = []string{
 	"the system does with your output",
 	"deterministic validator",
 
+	// Phase 6 stage 30 (2026-05-03) — broader "the system X"
+	// pipeline-mechanics leakage. The retired-elsewhere phrases
+	// reveal post-emit pipeline behaviour ("the system handles
+	// hedging", "the system stops when applied", "the system
+	// auto-expands keywords") that the LLM cannot act on and
+	// that anchors prompts to current implementation.
+	"the system uses",
+	"the system handles",
+	"the system stops",
+	"the system completes",
+	"the system maps",
+	"the system auto-expands",
+	"the system has a deterministic fallback",
+	"the system rejects",
+	"the system added",
+	"the system injects",
+	"the system annotations",
+	"system-owned",
+	"the system's deterministic",
+	"the system's old",
+
+	// Cross-stage architecture disclosure ("downstream stages",
+	// "downstream search") — leaks the multi-stage pipeline
+	// shape to the LLM. Use neutral references ("later steps",
+	// "the rendering pipeline", or just describe what the LLM
+	// itself does/avoids).
+	"downstream stages",
+	"downstream stage",
+
 	// Log-triage internal layer numbers.
 	"Layer 1",
 	"Layer 2",

@@ -46,7 +46,7 @@ var analysisIntents = []AnalysisEnumChoice{
 	{string(types.IntentEnumerate), "the answer is a set of distinct named items, each independently valid — mutually exclusive with return_value (see predicates.is_count_question for the scalar/set boundary)"},
 	{string(types.IntentConfigQuery), "the subject is a configuration key and the answer describes what the key controls"},
 	{string(types.IntentReturnValue), "the answer is a single scalar: a count, a size, a function return, a literal value, a version number — one value, not a set"},
-	{string(types.IntentUnknown), "genuinely ambiguous — the system's deterministic fallback will decide"},
+	{string(types.IntentUnknown), "genuinely ambiguous — leave for a deterministic fallback to decide"},
 }
 
 // analysisScenarios is the canonical scenario enum. Values match
@@ -159,7 +159,7 @@ var analysisAnswerSubjects = []AnalysisEnumChoice{
 	{string(types.SubjectEnumValue), "answer is an enum constant / ALL_CAPS name"},
 	{string(types.SubjectStructField), "answer is a struct/object field name"},
 	{string(types.SubjectGeneric), "answer is heterogeneous (e.g. enumeration result)"},
-	{string(types.SubjectUnknown), "no clear answer-literal kind — let the system infer"},
+	{string(types.SubjectUnknown), "no clear answer-literal kind — leave for deterministic inference"},
 }
 
 // AnalysisAnswerSubjectChoices returns the canonical answer_subject.kind enum table.
@@ -365,7 +365,7 @@ func BuildAnalysisSkill() *Config {
 	of.WriteString("\n")
 	of.WriteString(renderEnumTable("answer_subject.kind", analysisAnswerSubjects))
 	of.WriteString("\n")
-	of.WriteString("answer_subject is OPTIONAL in general, but for define-axis single-target questions you should usually set it explicitly — that is how downstream stages tell apart \"explain this named entity\" from \"locate the function / file / route / config key that plays this role\". It tells downstream stages WHAT KIND of source-code literal the answer should be (a skill name, an agent name, a config key, ...). When the question clearly resolves to one of the listed kinds, set kind explicitly so the chain ranker can demote chains whose terminal token is the wrong kind. When unsure, leave the field unset; the system has a deterministic fallback that infers from question_kind. entity_axes is a short array describing the relational shape (e.g. [\"agent → skill\"] for \"what skill does the explorer agent use\").\n\n")
+	of.WriteString("answer_subject is OPTIONAL in general, but for define-axis single-target questions you should usually set it explicitly — that is how the rest of the pipeline tells apart \"explain this named entity\" from \"locate the function / file / route / config key that plays this role\". It declares WHAT KIND of source-code literal the answer should be (a skill name, an agent name, a config key, ...). When the question clearly resolves to one of the listed kinds, set kind explicitly so the chain ranker can demote chains whose terminal token is the wrong kind. When unsure, leave the field unset; a deterministic fallback infers from question_kind. entity_axes is a short array describing the relational shape (e.g. [\"agent → skill\"] for \"what skill does the explorer agent use\").\n\n")
 	of.WriteString(renderEnumTable("predicate_axis", analysisPredicateAxes))
 	of.WriteString("\n")
 	of.WriteString("predicate_axis names the action verb of the question (\"how is X CALLed\" → call; \"how is X REGISTERed\" → register). Pick the value that matches the user's verb regardless of language; leave empty when no clear verb cue exists.\n\n")
@@ -376,7 +376,7 @@ func BuildAnalysisSkill() *Config {
 	of.WriteString("exact_context_terms is OPTIONAL. Leave it unset by default. Use it only alongside exact_targets when nearby context truly needs one narrow identifier family / module scope, and only when you can copy 1-2 stems directly from the exact target lane itself. Example: if the exact target is a multi-segment snake_case identifier (`<family>_<sub>_<sub>`), a good term is the first / family-naming segment; if the exact target is a path under `<repo>/<package>/...`, good terms are path segments or identifier stems that come from that exact target lane. Do NOT invent new family names, layer labels, precedence words, or generic context terms. The system validates every term against the request-mentioned exact-target lane and silently drops invalid ones downstream.\n\n")
 	of.WriteString(renderEnumTable("exact_context_roles[]", analysisExactContextRoles))
 	of.WriteString("\n")
-	of.WriteString("exact_context_roles is OPTIONAL. Use it only alongside exact_targets when the user explicitly asks for precedence / lineage layers of a config-like exact target (for example code default vs config file vs CLI/env override). Emit only the abstract roles the user actually asked about, using the enum values above. Do not guess file names or repo-specific layer names here; the system maps grounded evidence onto these abstract roles downstream.\n\n")
+	of.WriteString("exact_context_roles is OPTIONAL. Use it only alongside exact_targets when the user explicitly asks for precedence / lineage layers of a config-like exact target (for example code default vs config file vs CLI/env override). Emit only the abstract roles the user actually asked about, using the enum values above. Do not guess file names or repo-specific layer names here; the rendering maps grounded evidence onto these abstract roles automatically.\n\n")
 	of.WriteString("## Confidence\n\n")
 	of.WriteString("For intent / complexity / question_kind / answer_shape, also emit a confidence float in [0.0, 1.0]:\n")
 	of.WriteString("- 0.9+ when the user's wording unambiguously dictates the value\n")
@@ -391,9 +391,9 @@ func BuildAnalysisSkill() *Config {
 	of.WriteString("- `is_relational_lookup`: true when the user is filtering set X by a relationship to Y ('functions that return Z', 'agents that use skill Y')\n")
 	of.WriteString("- `is_category_enumeration`: true when the user is asking 'what kinds / types / categories of X exist'\n")
 	of.WriteString("- `is_history_lookup`: true when the literal answer should come from repository history / authorship metadata (git log / blame / commit history), not from a repo file:line\n\n")
-	of.WriteString("These predicates replace the system's old prose-keyword tables. Be honest — `false` is a valid answer. The system uses these to pick the right downstream behaviour; a wrong predicate produces a wrong answer downstream.\n\n")
+	of.WriteString("These predicates are the structural intent signal — be honest, `false` is a valid answer. A wrong predicate produces a wrong answer because every later choice keys on these typed flags rather than re-reading the question text.\n\n")
 	of.WriteString("Entities: CamelCase/snake_case symbol names copied VERBATIM from the user's wording. Do NOT translate, re-case, pluralise, or paraphrase. Generic nouns (count, function, thing, agent, handler, module) MUST NOT appear here — they degrade the downstream evidence search. Leave empty only when the question has no identifier-looking tokens. The pre-scan confirms whether these entities exist; presence in the repo is not a filter, just a sanity check.\n\n")
-	of.WriteString("IMPORTANT — disambiguate from Prior Conversation: if the current request relies on Prior Conversation to resolve a pronoun or demonstrative (\"它\", \"那个\", \"它们\", \"this\", \"them\"), extract the concrete identifier from Prior and write THAT identifier verbatim into the entities array. The analyzer is the only stage that sees Prior Conversation by default; downstream stages only see the fields you emit here, so any Prior-derived disambiguation MUST land in entities or the downstream stages will lose the subject.\n\n")
+	of.WriteString("IMPORTANT — disambiguate from Prior Conversation: if the current request relies on Prior Conversation to resolve a pronoun or demonstrative (\"它\", \"那个\", \"它们\", \"this\", \"them\"), extract the concrete identifier from Prior and write THAT identifier verbatim into the entities array. Prior Conversation is visible only at this point in the pipeline; later steps only see the fields you emit here, so any Prior-derived disambiguation MUST land in entities or the subject is lost.\n\n")
 	of.WriteString("Keyword generation — target ≥8 diverse stems. For each concept, generate multiple variants:\n")
 	of.WriteString("- Word roots and inflections (e.g. send/sending/sent)\n")
 	of.WriteString("- Synonyms (e.g. send → emit, dispatch, publish, write)\n")
@@ -401,7 +401,7 @@ func BuildAnalysisSkill() *Config {
 	of.WriteString("- Abbreviations and full forms (e.g. config → configuration, ctx → context)\n")
 	of.WriteString("- CamelCase and snake_case identifiers (e.g. getUser, get_user)\n")
 	of.WriteString("- Compound identifiers that cross-combine core terms\n")
-	of.WriteString("For non-English questions, include BOTH the original language AND English programming equivalents. The system auto-expands each keyword into case variants, so produce diverse STEMS rather than repeating the same word. Validate a handful of stems via pre-scan grep to avoid wasting downstream search on non-existent terms.\n\n")
+	of.WriteString("For non-English questions, include BOTH the original language AND English programming equivalents. Each keyword is auto-expanded into case variants downstream, so produce diverse STEMS rather than repeating the same word. Validate a handful of stems via pre-scan grep to avoid wasting later search on non-existent terms.\n\n")
 	of.WriteString("## Sub-topic detection (sub_topics field)\n\n")
 	of.WriteString("When the user's question contains multiple independently-answerable sub-topics, list each in sub_topics. Rules:\n")
 	of.WriteString("- Each sub_topic has a one-sentence summary and its own entities\n")
@@ -411,7 +411,7 @@ func BuildAnalysisSkill() *Config {
 	of.WriteString("- When unsure, do NOT split (empty array is safe)\n")
 	of.WriteString("- Maximum 5 sub-topics\n\n")
 	of.WriteString("## Question structural obligations\n\n")
-	of.WriteString("The user's question may carry one or more structural obligations that downstream stages must enforce. Each axis is independent — emit each one that applies, omit those that don't. The system validates source quotes against the current request, so a fabricated quote is dropped silently.\n\n")
+	of.WriteString("The user's question may carry one or more structural obligations that the answer must respect. Each axis is independent — emit each one that applies, omit those that don't. Source quotes are validated against the current request; a fabricated quote is dropped silently.\n\n")
 	of.WriteString("### Count axis (`enumeration_boundary` field)\n\n")
 	of.WriteString("When the user explicitly declares a bounded principal set such as 'the 7 checks', 'the first 3 handlers', or 'top 5 stages', emit `enumeration_boundary` with:\n")
 	of.WriteString("- `declared_count`: the same user-declared count\n")

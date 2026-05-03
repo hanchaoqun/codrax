@@ -203,7 +203,7 @@ func buildEmitAnalysisSchema() {
 			},
 			"exact_targets": map[string]any{
 				"type":        "array",
-				"description": "Optional exact user-asked targets, copied verbatim from the current request text. Use when the request mentions neighboring context items but asks about one specific key/path/symbol/literal. Every item must be explicitly present in the current request text before downstream stages use it.",
+				"description": "Optional exact user-asked targets, copied verbatim from the current request text. Use when the request mentions neighboring context items but asks about one specific key/path/symbol/literal. Every item must be explicitly present in the current request text before later steps use it.",
 				"items":       map[string]string{"type": "string"},
 			},
 			"exact_context_terms": map[string]any{
@@ -221,7 +221,7 @@ func buildEmitAnalysisSchema() {
 			},
 			"answer_subject": map[string]any{
 				"type":        "object",
-				"description": "Optional. Classifies what kind of source-code literal the answer should be (skill_name, agent_name, config_key, ...). The chain ranker uses this to demote chains whose terminal token is the wrong kind. Leave unset when the answer kind is ambiguous; the system's deterministic fallback infers from question_kind.",
+				"description": "Optional. Classifies what kind of source-code literal the answer should be (skill_name, agent_name, config_key, ...). The chain ranker uses this to demote chains whose terminal token is the wrong kind. Leave unset when the answer kind is ambiguous; a deterministic fallback infers from question_kind.",
 				"properties": map[string]any{
 					"kind":        stringProp{Type: "string", Enum: skill.AnalysisAnswerSubjectValues()},
 					"entity_axes": arrayProp{Type: "array", Items: map[string]string{"type": "string"}},
