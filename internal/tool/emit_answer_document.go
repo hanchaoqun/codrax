@@ -2917,7 +2917,19 @@ func explanationCitationMatchesRootCauseAnchorTokens(cit types.Citation, origina
 	if quote := originalQuotes[explanationCitationLookupKey(cit.File, cit.Line)]; explanationCitationTextMentionsAnyToken(quote, tokens) {
 		return true
 	}
-	return explanationCitationWindowMentionsAnyToken(cit.File, cit.Line, tokens, gc)
+	// 2026-05-03 (Phase 6 stage 9) — retired the ±3 cited-line
+	// token-window fallback. Anchor-token grounding now relies
+	// solely on the typed Quote field (cit.Quote + originalQuotes).
+	// The retired window scan was a token-overlap heuristic — an
+	// unrelated identifier sharing a name with an anchor symbol
+	// could appear in nearby comment / docstring / import text
+	// and falsely satisfy the gate. Skill prompts already teach
+	// the LLM to include the anchor symbol verbatim in cit.Quote
+	// when the citation supports a root-cause anchor; the retired
+	// window scan was a soft fallback that masked emit-time
+	// errors instead of catching them.
+	_ = gc
+	return false
 }
 
 func explanationCitationWithinObservedAnchorNeighborhood(cit types.Citation, plan *types.AnswerSurfacePlan) bool {
@@ -2974,34 +2986,17 @@ func explanationCitationTextMentionsAnyToken(text string, tokens []string) bool 
 	return false
 }
 
-func explanationCitationWindowMentionsAnyToken(file string, line int, tokens []string, gc *ground.Context) bool {
-	if gc == nil || len(gc.LineIndex) == 0 || line <= 0 || len(tokens) == 0 {
-		return false
-	}
-	fileLines, ok := gc.LineIndex[file]
-	if !ok || len(fileLines) == 0 {
-		return false
-	}
-	wanted := make(map[string]bool, len(tokens))
-	for _, token := range tokens {
-		wanted[strings.ToLower(token)] = true
-	}
-	for current := line - corroborationWindow; current <= line+corroborationWindow; current++ {
-		if current <= 0 {
-			continue
-		}
-		text, ok := fileLines[current]
-		if !ok {
-			continue
-		}
-		for _, tok := range valueLiteralTokenRe.FindAllString(text, -1) {
-			if wanted[strings.ToLower(tok)] {
-				return true
-			}
-		}
-	}
-	return false
-}
+// explanationCitationWindowMentionsAnyToken was retired 2026-05-03
+// (Phase 6 stage 9). The function scanned a cited line's ±3
+// window for any token matching an anchor symbol set, returning
+// true on the first hit. That was a token-overlap heuristic with
+// the same false-positive surface stages 1-8 retired: an
+// unrelated identifier sharing a name with an anchor symbol could
+// appear in a nearby comment / docstring / import line and
+// falsely satisfy the gate. Replacement: the caller
+// (explanationCitationMatchesRootCauseAnchorTokens) now relies
+// solely on the typed Quote field (cit.Quote + originalQuotes
+// keyed by file:line) for anchor-token grounding.
 
 // MermaidGateMode controls how validateSummaryDiagramRenderable
 // reacts to per-block diagnostics. Set via cmd/root.go from yaml
