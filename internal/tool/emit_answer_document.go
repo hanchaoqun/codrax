@@ -3761,11 +3761,22 @@ func buildSummaryDiagramAllowlist(citations []types.Citation, gc *ground.Context
 			addDiagramAllowFromMatchedEvidence(&allow, matchingEvidenceForCitation(evidencePool, c))
 		}
 	}
-	if gc != nil && len(gc.LineIndex) > 0 {
-		for _, c := range citations {
-			addDiagramAllowFromCitationWindow(&allow, c, gc)
-		}
-	}
+	// 2026-05-03 (Phase 6 stage 8) — retired the ±N cited-line
+	// token-window expansion. Previously, every cited line's ±3
+	// window was scanned for diagramFileExtension-matching tokens
+	// and any such token joined the allowlist. That was a token-
+	// overlap heuristic: an unrelated file path appearing in a
+	// nearby comment / import statement / docstring expanded the
+	// allowlist with no semantic justification. The diagram
+	// allowlist now derives ONLY from typed signals: citation file
+	// paths (LLM-emitted Citation.File), matched evidence pool
+	// entries (Source / DiagramRole tokens captured by
+	// emit_evidence), and log_triage ResolvedFiles (LLM-emitted in
+	// LogBundle / PerfBundle). Labels that previously got in via
+	// raw-line-window scan now reject — that's the intended
+	// tightening, since they were never grounded by an answerable
+	// LLM emit.
+	_ = gc
 	if ctx != nil && ctx.Mutable != nil {
 		if bundle := ctx.Mutable.LogTriage(); bundle != nil {
 			for _, f := range bundle.ResolvedFiles {
@@ -3810,39 +3821,16 @@ func buildSummaryDiagramAllowlist(citations []types.Citation, gc *ground.Context
 	return allow
 }
 
-func addDiagramAllowFromCitationWindow(allow *summaryDiagramAllowlist, c types.Citation, gc *ground.Context) {
-	if allow == nil || gc == nil {
-		return
-	}
-	file := strings.ReplaceAll(strings.TrimSpace(c.File), `\`, `/`)
-	if file == "" || c.Line <= 0 {
-		return
-	}
-	fileLines, ok := gc.LineIndex[file]
-	if !ok || len(fileLines) == 0 {
-		return
-	}
-	for line := c.Line - corroborationWindow; line <= c.Line+corroborationWindow; line++ {
-		if line <= 0 {
-			continue
-		}
-		text, ok := fileLines[line]
-		if !ok || strings.TrimSpace(text) == "" {
-			continue
-		}
-		for _, tok := range diagramFileTokenRe.FindAllString(text, -1) {
-			bare := tok
-			if idx := strings.LastIndex(bare, ":"); idx >= 0 {
-				bare = bare[:idx]
-			}
-			ext := strings.ToLower(path.Ext(bare))
-			if !diagramFileExtensions[ext] {
-				continue
-			}
-			addDiagramAllowToken(allow, bare)
-		}
-	}
-}
+// addDiagramAllowFromCitationWindow was retired 2026-05-03 (Phase
+// 6 stage 8). The function expanded the diagram label allowlist by
+// scanning each cited line's ±3 line window for
+// diagramFileExtensions-matching tokens. That was a token-overlap
+// heuristic — an unrelated file path appearing in a nearby comment
+// / import statement / docstring expanded the allowlist with no
+// semantic justification, letting hallucinated diagram labels pass
+// the validateSummaryDiagramGrounding gate. Allowlist now derives
+// solely from typed signals: Citation.File paths, matched evidence
+// pool slots (DiagramRole / Source), and LogBundle.ResolvedFiles.
 
 func addDiagramAllowToken(allow *summaryDiagramAllowlist, token string) {
 	if allow == nil {

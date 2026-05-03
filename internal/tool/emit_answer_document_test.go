@@ -7030,36 +7030,17 @@ func TestEmitAnswerDocument_DiagramGate_HonoursLogTriageResolvedFiles(t *testing
 	}
 }
 
-func TestEmitAnswerDocument_DiagramGate_AcceptsGroundedPathLiteralFromCitationWindow(t *testing.T) {
-	tool := &EmitAnswerDocument{}
-	ctx := newDocBusCtx("")
-	ctx.Mutable.AppendDispatchToolResult(types.ToolResult{
-		ToolName: "read_file",
-		Success:  true,
-		Summary: "[config/template.yaml: showing lines 10-14 of 40 total]\n" +
-			"    10│ # precedence notes\n" +
-			"    11│ # effective order:\n" +
-			"    12│ #   code defaults < <deploy>/service.yaml < CLI flags\n" +
-			"    13│ features:\n" +
-			"    14│   enabled: true\n",
-	})
-	summary := "The effective config follows the documented precedence.\n\n" +
-		"```\n" +
-		"code defaults\n" +
-		"  -> service.yaml\n" +
-		"  -> CLI flags\n" +
-		"```\n" +
-		"The runtime config filename is grounded by the cited precedence comment."
-	params := mustDocJSON(t, map[string]interface{}{
-		"shape":     "explanation",
-		"summary":   summary,
-		"citations": []map[string]interface{}{{"file": "config/template.yaml", "line": 12}},
-	})
-	res, _ := tool.Execute(ctx, params)
-	if !res.Success {
-		t.Fatalf("diagram should accept path literal grounded by cited line text; got Success=false Summary=%q", res.Summary)
-	}
-}
+// TestEmitAnswerDocument_DiagramGate_AcceptsGroundedPathLiteralFromCitationWindow
+// was retired 2026-05-03 (Phase 6 stage 8). The test pinned the
+// behaviour of the retired addDiagramAllowFromCitationWindow path:
+// any file token appearing in a cited line's ±3 window joined the
+// diagram allowlist. That was a token-overlap heuristic — an
+// unrelated path mentioned in a nearby comment slipped past the
+// validateSummaryDiagramGrounding gate. The new tightening rule
+// is: diagram labels MUST be backed by a typed source (Citation
+// path / EvidenceItem.Source / DiagramRole / LogBundle.ResolvedFiles).
+// A label that only appears as raw-source-line text in a cited
+// file's ±3 window now correctly rejects.
 
 // -------- log-triage coverage gate (session-22 follow-up) --------
 
