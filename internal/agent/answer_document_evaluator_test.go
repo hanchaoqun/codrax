@@ -222,7 +222,7 @@ func TestAnswerDocumentEvaluator_BuildInitialInstruction_SingleTopicExplanationL
 		Mutable: types.NewMutableState(""),
 	}
 	prompt := (&answerDocumentEvaluator{}).BuildInitialInstruction(ctx, nil)
-	if !strings.Contains(prompt, "Leave `symbols[]` empty unless the prompt explicitly attached an Anchor skeleton section") {
+	if !strings.Contains(prompt, "Do NOT add an enumeration anchor skeleton block unless the prompt explicitly attached an Anchor skeleton section") {
 		t.Fatalf("single-topic explanation checklist must forbid anchor skeleton noise:\n%s", prompt)
 	}
 }
@@ -384,7 +384,7 @@ func TestAnswerDocumentEvaluator_BuildInitialInstruction_RendersRequestedEnumera
 	for _, want := range []string{
 		"## Requested Set Boundary",
 		"`7 checks` (7 item(s))",
-		"Keep the principal `symbols[]` slate to 7 item(s)",
+		"Keep the principal `ordered_list` block's `items[]` slate to 7 item(s)",
 		"do not silently blend them into the principal set",
 	} {
 		if !strings.Contains(prompt, want) {
@@ -1163,11 +1163,10 @@ func TestAnswerDocumentEvaluator_BuildInitialInstruction_RendersScalarLookupDisc
 	prompt := (&answerDocumentEvaluator{}).BuildInitialInstruction(ctx, nil)
 	for _, want := range []string{
 		"## Submission Checklist",
-		"Fill the principal scalar block with `value.literal` and `value.citation_ref`",
-		"Write a real `summary` that names the subject being measured",
+		"`scalar` block with `value{literal, citation_ref}`",
+		"names the subject being measured",
 		"## Scalar Lookup Discipline",
 		"one named source-code literal",
-		"The principal scalar block still requires a real `summary`",
 		"Do not expand into adjacent helpers",
 		"Every non-negative `citation_ref` on a scalar payload must point at a real entry in `citations[]`",
 	} {
@@ -1664,9 +1663,9 @@ func TestAnswerDocumentEvaluator_Observe_MidLoopMissingDiagramRejectSurfacesActi
 		t.Fatalf("missing-diagram reject should request a correction hint, got %+v", sig)
 	}
 	for _, want := range []string{
-		"grounded diagram",
-		"independent of answer shape",
+		"grounded `diagram` block",
 		"emit_answer_document",
+		"diagram.kind",
 	} {
 		if !strings.Contains(sig.Hint, want) {
 			t.Fatalf("missing-diagram hint missing %q: %q", want, sig.Hint)

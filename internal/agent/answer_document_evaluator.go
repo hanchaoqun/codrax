@@ -274,9 +274,9 @@ func (e *answerDocumentEvaluator) BuildInitialInstruction(ctx *types.AgentContex
 		// in the rendered output and stops the finalizer from
 		// synthesizing prose that drifts from Turn A's evidence.
 		if view.AllowsAnchorSkeleton(ctx.AnalysisIR.RequestModel) && len(ctx.AnswerSymbols) > 0 {
-			b.WriteString("### Anchor skeleton (emit as symbols[])\n\n")
+			b.WriteString("### Anchor skeleton (emit as one optional ordered_list block)\n\n")
 			b.WriteString("The extractor produced these per-sub-topic anchors. " +
-				"Re-emit them verbatim in the `symbols[]` field of emit_answer_document " +
+				"Re-emit them verbatim as an additional `ordered_list` block (one item per anchor; each item carries `id`, `label=<symbol-name>`, `text=<rationale>`, and `claim_use{claim_form=enumeration_member, citation_ref=N}`) " +
 				"so the renderer can show them as a Key Anchors block beneath your prose. " +
 				"Each anchor's file:line is authoritative — do not modify.\n\n")
 			for _, s := range ctx.AnswerSymbols {
@@ -319,46 +319,60 @@ func renderAnswerDocSubmissionChecklist(ctx *types.AgentContext, view *types.Ans
 				switch view.Family {
 				case types.QFConfigPrecedence:
 					items = append(items,
-						"Fill the principal scalar block with `value.key`, `value.literal`, and `value.citation_ref`.",
-						"Write a real `summary` that names the config key / subject and states how the literal was obtained (lookup / file:line / chain).",
+						"Emit the principal `scalar` block with `value{key, literal, citation_ref}` and attach `claim_use{claim_form=definition_fact, citation_ref=N}` (or `assignment` when the cited line is a config assignment).",
+						"Fill the block's `text` (or the lead summary block) with prose that names the config key / subject and states how the literal was obtained (lookup / file:line / chain).",
 					)
 				default:
 					items = append(items,
-						"Fill the principal scalar block with `value.literal` and `value.citation_ref`.",
-						"Write a real `summary` that names the subject being measured and states how the literal was obtained (lookup / file:line / command / chain).",
+						"Emit the principal `scalar` block with `value{literal, citation_ref}` and attach `claim_use{claim_form=definition_fact, citation_ref=N}` (use `observed_artifact_fact` when the literal is from an attached log / external trace).",
+						"Fill the block's `text` (or the lead summary block) with prose that names the subject being measured and states how the literal was obtained (lookup / file:line / command / chain).",
 					)
 				}
 			case types.BlockOrderedList:
-				if view.Family == types.QFEnumeration {
+				if br.SurfaceRoleHint == types.SurfacePrincipal && view.Family == types.QFEnumeration {
 					items = append(items,
-						"Fill non-empty `symbols[]` and set `symbols_completeness` honestly (`complete` / `lower_bound` / `unknown`).",
-						"Use `summary` to frame what the list enumerates; do not let the list stand alone without context when the question needs explanation.",
+						"Emit the principal `ordered_list` block with `items[]` (each item carries `id`, optional `label`, `text`, and per-item `claim_use{claim_form=enumeration_member, citation_ref=N}`).",
+						"Set the doc-level `symbols_completeness` honestly (`complete` / `lower_bound` / `unknown`); do NOT claim `complete` unless you've reached the expected answer count shown in the user section.",
+						"Use the lead summary block to frame what the list enumerates; do not let the list stand alone without context.",
 					)
 				} else {
 					items = append(items,
-						"Fill `steps[]` with ordered logical hops. Each step must either cite one grounded line or set `citation_ref=-1` honestly.",
-						"Keep the hop-by-hop detail in `steps[]`; `summary` is only the lead-in and any required diagram.",
+						"Emit the principal `ordered_list` block with `items[]` of ordered logical hops. Per-item `claim_use{claim_form=mechanism_step|call_edge|guard_condition, citation_ref=N}` is REQUIRED on principal items.",
+						"Each item carries an optional `kind` field (`principal` / `flow` / `caveat`); only `kind=principal` items count toward any user-quoted bounded set.",
+						"Keep the hop-by-hop detail in items[] `text`; the lead summary block is only the lead-in.",
 						"Do not invent shorthand labels from citation line numbers (for example `L877` or `Line 42`) unless that exact token is itself grounded in cited text.",
-						"Keep each cited step at the abstraction directly named by its own citation. If one step needs both a guard/condition and a downstream action that are named on different lines, split the hop or cite the line that actually names the action instead of blending both into one cited sentence.",
+						"Keep each cited item at the abstraction directly named by its own citation. If one hop needs both a guard/condition and a downstream action that are named on different lines, split the hop or cite the line that actually names the action.",
 					)
 				}
 			case types.BlockSection:
 				items = append(items,
-					"Structure `summary` with one named section per layer / component / topic, each under its own grounded heading.",
+					"Emit one `section` block per layer / component / topic, each with a grounded `title` and prose `text`. When the block's contract carries `AcceptableClaimForms`, attach `claim_use{claim_form=definition_fact, citation_ref=N}` on the section.",
 				)
 			case types.BlockTable:
 				items = append(items,
-					"Fill the principal table block with one row per layer / member; each row's citation_ref must point at a real grounded line.",
+					"Emit the principal `table` block with the markdown table inside its `text`; each row corresponds to a grounded entity, with citations[] entries for every cited file:line.",
 				)
 			case types.BlockSummary:
 				items = append(items,
-					"`summary` is REQUIRED and is the main answer body for this dispatch.",
+					"The `summary` block is REQUIRED and (when no other principal block exists) is the main answer body for this dispatch.",
+				)
+			case types.BlockDiagram:
+				items = append(items,
+					"Emit the `diagram` block with `diagram.kind` set to the SEMANTIC family the contract names (`flow` / `sequence` / `architecture` / `call_dag` — NOT a Mermaid keyword) and Mermaid syntax inside `diagram.body` with `diagram.language=\"mermaid\"`.",
+				)
+			case types.BlockDecision:
+				items = append(items,
+					"Emit the principal `decision` block with `boolean{decision, rationale, citation_ref}` and `claim_use{claim_form=guard_condition|definition_fact, citation_ref=N}` on the block.",
+				)
+			case types.BlockCaveat:
+				items = append(items,
+					"Emit a `caveat` block with honesty marker prose inside `text`. Use `claim_use{claim_form=divergence_caveat}` when the caveat exposes a code-vs-comment divergence.",
 				)
 			}
 		}
 		if !view.AllowsAnchorSkeleton(answerDocRequestModel(ctx)) && view.Family != types.QFEnumeration {
 			items = append(items,
-				"Leave `symbols[]` empty unless the prompt explicitly attached an Anchor skeleton section for a multi-topic explanation.",
+				"Do NOT add an enumeration anchor skeleton block unless the prompt explicitly attached an Anchor skeleton section for a multi-topic explanation.",
 			)
 		}
 	}
@@ -533,7 +547,7 @@ func renderAnswerDocEnumerationBoundary(ctx *types.AgentContext, view *types.Ans
 		b.WriteString("- Use `kind: caveat` for steps that qualify the answer's scope rather than belonging to it (e.g. \"this stage is skipped under flag X\"). caveat steps do NOT count toward the declared boundary.\n")
 		b.WriteString("- Empty `kind` defaults to `principal`. Leave `kind` empty only when every step IS principal.\n")
 	case view != nil && view.Family == types.QFEnumeration:
-		fmt.Fprintf(&b, "- Keep the principal `symbols[]` slate to %d item(s) when the grounded evidence supports that boundary.\n", boundary.DeclaredCount)
+		fmt.Fprintf(&b, "- Keep the principal `ordered_list` block's `items[]` slate to %d item(s) when the grounded evidence supports that boundary.\n", boundary.DeclaredCount)
 	default:
 		fmt.Fprintf(&b, "- Keep the main enumerated set in `summary` to %d principal item(s).\n", boundary.DeclaredCount)
 	}
@@ -2179,7 +2193,7 @@ func (e *answerDocumentEvaluator) emitAnswerDocumentRejectSignal(ctx *types.Agen
 		return LoopSignal{}
 	}
 
-	hint := answerDocPreserveHintIntro + " Re-emit `emit_answer_document` now: paste the FULL previous payload byte-identical, then change ONLY the field(s) named in the tool error. Every other field — citations[], steps[] (every index except those named), symbols[], summary, value, boolean, exact_resolution — must reproduce the prior emit byte-identical. Do not reopen files or call read/search tools. Do not write free-form prose outside the tool call."
+	hint := answerDocPreserveHintIntro + " Re-emit `emit_answer_document` now: paste the FULL previous payload byte-identical, then change ONLY the field(s) named in the tool error. Every other field — `blocks[]` (every block id and item id you previously emitted), `citations[]`, `claim_use` annotations, `exact_resolution` — must reproduce the prior emit byte-identical. Do not reopen files or call read/search tools. Do not write free-form prose outside the tool call."
 	reasonKey := "tool-reject"
 	if repair != nil && strings.TrimSpace(repair.Hint) != "" {
 		hint = strings.TrimSpace(repair.Hint)
@@ -2207,7 +2221,7 @@ func (e *answerDocumentEvaluator) emitAnswerDocumentRejectSignal(ctx *types.Agen
 
 	if rejectCode == answerDocRejectCodeMissingDiagram || strings.Contains(summary, "diagram required for this dispatch") {
 		reasonKey = "missing-diagram"
-		hint = "Your last `emit_answer_document` call was rejected because this dispatch REQUIRES a grounded diagram in `summary`. Re-emit `emit_answer_document` now with the same answer shape and payload fields, but add at least one grounded ` ```mermaid ` fenced block using `flowchart` (LR / TD / RL / BT) or `sequenceDiagram` to `summary`. ASCII art is the fallback only when the Mermaid subset cannot express the shape. This obligation is independent of answer shape. Keep every filename inside the diagram grounded by citations[] or the Log Triage frames; do not write free-form prose outside the tool call."
+		hint = "Your last `emit_answer_document` call was rejected because this dispatch REQUIRES a grounded `diagram` block. Re-emit `emit_answer_document` now with the same answer payload, but add a `diagram` block: set `diagram.kind` to the SEMANTIC family the user section names (`flow` / `sequence` / `architecture` / `call_dag`) — NOT a Mermaid keyword — and put the Mermaid syntax inside `diagram.body` (using `flowchart` for `flow`/`architecture`/`call_dag` family, `sequenceDiagram` for `sequence`). Set `diagram.language=\"mermaid\"`. Keep every filename inside the diagram grounded by `citations[]` or the Log Triage frames; do not write free-form prose outside the tool call."
 		if e.configTraceDiagram {
 			hint += " For config-precedence diagrams, do not invent a new box chart or layer aliases on retry; the seeded grounded precedence chain is the FLOOR — keep every node, but you MAY add additional grounded layers if your evidence supports a richer chain. Stay in ` ```mermaid ` form."
 		}
@@ -2476,7 +2490,7 @@ func answerDocFixOnlyDirective(fields []string) string {
 	if len(fields) == 0 {
 		return ""
 	}
-	return "Re-emit `emit_answer_document` with the FULL previous payload byte-identical, then change ONLY these field(s): `" + strings.Join(fields, "`, `") + "`. Every other field — citations[], steps[] (each index except those named), symbols[], summary, value, boolean, exact_resolution — must reproduce the prior emit byte-identical. Do not drop, blank, or shrink any other field."
+	return "Re-emit `emit_answer_document` with the FULL previous payload byte-identical, then change ONLY these field(s): `" + strings.Join(fields, "`, `") + "`. Every other field — `blocks[]` (each block id, kind, payload, item ids, item text, item claim_use), `citations[]`, doc-level `claim_use` annotations, `exact_resolution` — must reproduce the prior emit byte-identical. Do not drop, blank, or shrink any other field."
 }
 
 // answerDocPayloadRegressionHint surfaces the "you dropped fields"
@@ -2490,7 +2504,7 @@ func answerDocPayloadRegressionHint(droppedSummary string, fieldsToFix []string)
 	var b strings.Builder
 	b.WriteString("Your last `emit_answer_document` call REGRESSED — multiple grounded fields were dropped or blanked compared to the previous emit (")
 	b.WriteString(droppedSummary)
-	b.WriteString("). Re-emit `emit_answer_document` now: PASTE THE FULL PRIOR PAYLOAD BACK byte-identical (citations[], steps[], symbols[], summary, value, boolean, exact_resolution — every field that was present last round), then change ONLY: `")
+	b.WriteString("). Re-emit `emit_answer_document` now: PASTE THE FULL PRIOR PAYLOAD BACK byte-identical (`blocks[]` with every block id and item, `citations[]`, doc-level `claim_use` annotations, `exact_resolution` — every field that was present last round), then change ONLY: `")
 	b.WriteString(strings.Join(fieldsToFix, "`, `"))
 	b.WriteString("`. Restoring the payload comes FIRST; field correction is secondary. Do not reopen files or call read/search tools. Do not write free-form prose outside the tool call.")
 	return b.String()
