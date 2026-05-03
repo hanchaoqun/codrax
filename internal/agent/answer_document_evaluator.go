@@ -27,7 +27,6 @@ import (
 	"sort"
 	"strconv"
 	"strings"
-	"unicode/utf8"
 
 	"github.com/hanchaoqun/codrax/internal/llm"
 	"github.com/hanchaoqun/codrax/internal/logging"
@@ -2058,8 +2057,11 @@ func (e *answerDocumentEvaluator) Observe(ctx *types.AgentContext, obs LoopObser
 		// emit_answer_document is the finalizer's terminal action —
 		// once it fires, stop immediately instead of burning one extra
 		// LLM round that would just produce a content-only soft-stop.
+		// B8-T4: V2 carrier — non-empty Blocks slice signals "emit
+		// happened" (V2 docs are non-empty by validator construction;
+		// any successful emit produces ≥1 block).
 		if e.mu != nil {
-			if doc := e.mu.AnswerDocument(); doc != nil && !doc.IsZero() {
+			if docV2 := e.mu.AnswerDocumentV2(); docV2 != nil && len(docV2.Blocks) > 0 {
 				return LoopSignal{StopRequested: true, StopReason: "emit_answer_document called"}
 			}
 		}
@@ -2075,7 +2077,9 @@ func (e *answerDocumentEvaluator) Observe(ctx *types.AgentContext, obs LoopObser
 		return LoopSignal{}
 	}
 	if e.mu != nil {
-		if doc := e.mu.AnswerDocument(); doc != nil && !doc.IsZero() {
+		// B8-T4: V2 carrier presence check — non-empty Blocks means
+		// the LLM emitted; soft-stop accepts the response.
+		if docV2 := e.mu.AnswerDocumentV2(); docV2 != nil && len(docV2.Blocks) > 0 {
 			return LoopSignal{}
 		}
 	}
@@ -3011,119 +3015,41 @@ func (e *answerDocumentEvaluator) ParseOutput(ctx *types.AgentContext, messages 
 		}
 	}
 
-	var doc *types.AnswerDocument
-	if ctx != nil && ctx.Mutable != nil {
-		doc = ctx.Mutable.AnswerDocument()
-	}
-	// AuthorityCeiling axis (round-4): strip any system-injected hedge
-	// markers / Authority caveat from the LLM's emitted prose BEFORE
-	// the renderer's ApplyAuthorityHedging re-injects them. The LLM
-	// may have copied markers from prior conversation history (it
-	// sees its prior assistant messages with the renderer's
-	// post-injection content) and emitted them as if its own prose.
-	// Without this strip, double markers can land via concatenation
-	// and the LLM's spurious markers escape detection because the
-	// system can't tell which were system-injected vs LLM-written.
-	if doc != nil {
-		stripSystemHedgeArtifactsFromDoc(doc)
-	}
-
-	if doc == nil || doc.IsZero() {
-		var lastContent string
-		for i := len(messages) - 1; i >= 0; i-- {
-			if messages[i].Role == "assistant" && messages[i].Content != "" {
-				lastContent = messages[i].Content
-				break
-			}
-		}
-		warning := "· answer_document emission missing — the answer-rendering pass could not " +
-			"produce a structured AnswerDocument. The text below is the raw LLM response; no " +
-			"schema-level validation ran on it."
-		safeFallback := sanitizePriorDraftForSummary(lastContent)
-		if safeFallback == "" {
-			safeFallback = strings.TrimSpace(lastContent)
-		}
-		combined := warning
-		// Round-5 fix: when emit_answer_document was bypassed AND the
-		// evidence pool contains drift-bounded items, synthesise a
-		// system Authority caveat directly into the fallback prose.
-		// Pre-fix: this path skipped ApplyAuthorityHedging entirely, so
-		// a log-attached run whose evidence was Conditional/Historical
-		// silently emitted unhedged raw LLM text — the gate
-		// (runAuthorityOverreachCheck) couldn't catch it because
-		// doc.Citations was empty (no doc structure). Now the fallback
-		// itself prepends the canonical system caveat so the user sees
-		// the hedging signal even when the structured channel failed.
-		if ctx != nil && ctx.Mutable != nil {
-			caveat := render.SynthesiseAuthorityCaveatFor(ctx.Mutable.EmittedEvidence(), e.language)
-			if caveat != "" {
-				combined = warning + "\n\n*" + caveat + "*"
-			}
-		}
-		if safeFallback != "" {
-			combined = combined + "\n\n" + safeFallback
-		}
-		logging.Warning("[finalizer/answer_document] emit_answer_document missing after retries; falling back to raw content (len=%d)",
-			len(lastContent))
-		out.Data = marshalStageData(answerDocumentStageData{FinalAnswer: combined})
-		out.FinalAnswer = combined
-		return out, nil
-	}
-
-	if doc.Shape == types.ShapeListOfSymbols && doc.SymbolsCompleteness == types.CompletenessComplete {
-		validated := validateCompletenessClaim(ctx, doc.Symbols, doc.SymbolsCompleteness)
-		if validated != doc.SymbolsCompleteness {
-			logging.Warning("[finalizer/answer_document] symbols_completeness DOWNGRADED %s → %s for list_of_symbols answer",
-				doc.SymbolsCompleteness, validated)
-			doc.SymbolsCompleteness = validated
-			// Caveat surfaces the downgrade in the rendered prose
-			// instead of letting it happen silently.
-			caveat := "symbols list was marked complete but did not meet the expected answer count; downgraded to lower_bound"
-			if e.language == "zh" {
-				caveat = "符号列表声称完整但未达到预期数量，已自动降级为 lower_bound"
-			}
-			doc.Caveats = append(doc.Caveats, caveat)
-		}
-	}
-
-	e.salvagePriorDraftIntoSummary(doc, messages)
-
-	// B8-T2 (block_only_carrier.md §5.8, 2026-05-03): V1 renderer
-	// (RenderAnswerDocument) and V1 hedger (ApplyAuthorityHedging)
-	// are deleted. The V1 doc that landed here is a degraded-mode
-	// signal — emit_answer_document was called with a V1 schema
-	// (rollback path) but the V1 render path is gone. We fall back
-	// to the raw last-content path with a synthesised authority
-	// caveat so the user still gets readable prose.
-	logging.Warning("[finalizer/answer_document] V1 carrier emit landed at B8+ — V1 renderer deleted; falling back to raw content. Re-run without --emit-v2=off to use V2 carrier.")
-	var fallbackContent string
+	// B8-T4 (block_only_carrier.md §5.8): V1 carrier code path
+	// removed. emit_answer_document V1 schema was rejected at
+	// runtime since B8-T3, so reaching this point with
+	// AnswerDocumentV2() == nil means the LLM produced no emit at
+	// all. Synthesise the same fallback warning + authority caveat
+	// the prior path used — the LLM's last assistant message is the
+	// only prose available.
+	var lastContent string
 	for i := len(messages) - 1; i >= 0; i-- {
 		if messages[i].Role == "assistant" && messages[i].Content != "" {
-			fallbackContent = messages[i].Content
+			lastContent = messages[i].Content
 			break
 		}
 	}
-	if fallbackContent == "" {
-		fallbackContent = strings.TrimSpace(doc.Summary)
+	warning := "· answer_document emission missing — the answer-rendering pass could not " +
+		"produce a structured answer. The text below is the raw LLM response; no " +
+		"schema-level validation ran on it."
+	safeFallback := sanitizePriorDraftForSummary(lastContent)
+	if safeFallback == "" {
+		safeFallback = strings.TrimSpace(lastContent)
 	}
-	prose := fallbackContent
+	combined := warning
 	if ctx != nil && ctx.Mutable != nil {
-		if caveat := render.SynthesiseAuthorityCaveatFor(ctx.Mutable.EmittedEvidence(), e.language); caveat != "" {
-			prose = "*" + caveat + "*\n\n" + prose
+		caveat := render.SynthesiseAuthorityCaveatFor(ctx.Mutable.EmittedEvidence(), e.language)
+		if caveat != "" {
+			combined = warning + "\n\n*" + caveat + "*"
 		}
 	}
-
-	out.Data = marshalStageData(answerDocumentStageData{
-		FinalAnswer:    prose,
-		AnswerDocument: doc,
-	})
-	out.FinalAnswer = prose
-
-	if len(doc.Symbols) > 0 {
-		out.AnswerSymbols = doc.Symbols
-		out.AnswerSymbolCompleteness = doc.SymbolsCompleteness
+	if safeFallback != "" {
+		combined = combined + "\n\n" + safeFallback
 	}
-
+	logging.Warning("[finalizer/answer_document] emit_answer_document missing after retries; falling back to raw content (len=%d)",
+		len(lastContent))
+	out.Data = marshalStageData(answerDocumentStageData{FinalAnswer: combined})
+	out.FinalAnswer = combined
 	return out, nil
 }
 
@@ -3159,84 +3085,6 @@ const (
 // of shape); only the "is the prior draft substantive enough to
 // bother salvaging?" floor scales with Summary's role in each shape:
 //
-//   - Explanation: Summary IS the body → full baseline floor.
-//   - StepList / ListOfSymbols: Summary is a 1-3-sentence lead-in
-//     above the structured payload → half baseline (prior prose is
-//     the merged narrative before the LLM split it into structure).
-//   - Boolean: Summary is a lead-in before YES/NO + rationale →
-//     3/8 baseline.
-//   - Value / ConfigValue: Summary is a 1-sentence lead-in before a
-//     scalar literal → quarter baseline (scalar prior drafts
-//     rarely exceed a paragraph).
-func shrinkageThresholdsForShape(shape types.AnswerShape, baselineMinLen int, baselineRatio float64) (int, float64) {
-	switch shape {
-	case types.ShapeExplanation:
-		return baselineMinLen, baselineRatio
-	case types.ShapeStepList, types.ShapeListOfSymbols:
-		return baselineMinLen / 2, baselineRatio
-	case types.ShapeBoolean:
-		return (baselineMinLen * 3) / 8, baselineRatio
-	case types.ShapeValue, types.ShapeConfigValue:
-		return baselineMinLen / 4, baselineRatio
-	default:
-		return baselineMinLen, baselineRatio
-	}
-}
-
-// salvagePriorDraftIntoSummary mutates doc.Summary when the
-// finalizer LLM dropped significant content between its pre-tool-call
-// draft and its final emit_answer_document.summary. Every shape uses
-// Summary as framing text — for explanation it is the body, for the
-// other shapes it is a lead-in above the structured payload — so
-// losing that framing between drafts visibly degrades the answer on
-// every shape. Per-shape thresholds from shrinkageThresholdsForShape
-// guard against over-aggressive salvage on scalar shapes whose
-// Summary role is smaller.
-func (e *answerDocumentEvaluator) salvagePriorDraftIntoSummary(doc *types.AnswerDocument, messages []llm.Message) {
-	if e.preservePriorProse != nil && !*e.preservePriorProse {
-		return
-	}
-	if doc == nil {
-		return
-	}
-	baselineMin := e.shrinkageMinProseLen
-	if baselineMin <= 0 {
-		baselineMin = defaultShrinkageMinPriorProseLen
-	}
-	baselineRatio := e.shrinkageRatio
-	if baselineRatio <= 0 {
-		baselineRatio = defaultShrinkageRatio
-	}
-	minLen, ratio := shrinkageThresholdsForShape(doc.Shape, baselineMin, baselineRatio)
-	priorProse := sanitizePriorDraftForSummary(findLastPreToolCallDraft(messages))
-	if len(priorProse) < minLen {
-		return
-	}
-	if float64(len(doc.Summary)) >= ratio*float64(len(priorProse)) {
-		return
-	}
-	recovered := priorProse
-	itemCount := len(doc.Steps) + len(doc.Symbols)
-	if cap := types.SummaryCapFor(doc.Shape, itemCount); len(recovered) > cap {
-		// Trim at a UTF-8 rune boundary so CJK prose does not end in
-		// a partial multi-byte sequence (which would render as a
-		// replacement glyph in the final answer).
-		cut := cap
-		for cut > 0 && !utf8.RuneStart(recovered[cut]) {
-			cut--
-		}
-		recovered = recovered[:cut]
-	}
-	logging.Info("[finalizer/shrinkage] recovered prior draft into summary: shape=%s prior=%d summary=%d → %d",
-		doc.Shape, len(priorProse), len(doc.Summary), len(recovered))
-	doc.Summary = recovered
-	caveat := "richer prior draft was preserved in place of a compressed summary"
-	if e.language == "zh" {
-		caveat = "已保留更丰富的前一轮草稿，替代被压缩的概述"
-	}
-	doc.Caveats = append(doc.Caveats, caveat)
-}
-
 var (
 	priorDraftThinkBlockRe = regexp.MustCompile(`(?is)<think>.*?</think>\s*`)
 	priorDraftToolCallRe   = regexp.MustCompile(`(?is)<(?:minimax:)?tool_call>.*?</(?:minimax:)?tool_call>\s*`)
@@ -3257,47 +3105,6 @@ var (
 // BEFORE ApplyAuthorityHedging re-injects them. Idempotent; runs once
 // per ParseOutput.
 //
-// Round-6 refinement: also strips system markers from doc.Caveats[].
-// The LLM-written caveats may carry inline `[hedged]` tokens it
-// copied from prior conversation; without stripping, those LLM-
-// written caveats render verbatim alongside the system caveat,
-// confusing the user with duplicate-looking hedge signals. The
-// strip is targeted at MARKERS only — caveat lines that contain
-// the system-private authorityCaveatTag are preserved (those ARE
-// system caveats in transit during retry) AND non-system caveats
-// keep their LLM-authored prose minus any spurious markers.
-func stripSystemHedgeArtifactsFromDoc(doc *types.AnswerDocument) {
-	if doc == nil {
-		return
-	}
-	doc.Summary = render.StripAuthorityArtifacts(doc.Summary)
-	for i := range doc.Steps {
-		doc.Steps[i].Description = render.StripAuthorityArtifacts(doc.Steps[i].Description)
-	}
-	for i := range doc.Symbols {
-		doc.Symbols[i].Rationale = render.StripAuthorityArtifacts(doc.Symbols[i].Rationale)
-	}
-	if doc.Boolean != nil {
-		doc.Boolean.Rationale = render.StripAuthorityArtifacts(doc.Boolean.Rationale)
-	}
-	// Round-6: strip spurious markers from non-system caveats.
-	// System caveats (those carrying authorityCaveatTag) are dropped
-	// whole by StripAuthorityArtifacts, so only LLM-written caveats
-	// remain after the strip; remove any marker tokens LLM may have
-	// copied from prior conversation. ApplyAuthorityHedging's
-	// addAuthorityCaveat will re-attach the system caveat after.
-	cleaned := make([]string, 0, len(doc.Caveats))
-	for _, c := range doc.Caveats {
-		stripped := render.StripAuthorityArtifacts(c)
-		stripped = strings.TrimSpace(stripped)
-		if stripped == "" {
-			continue
-		}
-		cleaned = append(cleaned, stripped)
-	}
-	doc.Caveats = cleaned
-}
-
 func sanitizePriorDraftForSummary(s string) string {
 	if strings.TrimSpace(s) == "" {
 		return ""

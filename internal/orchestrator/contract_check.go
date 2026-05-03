@@ -63,20 +63,16 @@ func runContractCheck(out *agent.StageOutput, c types.AnswerContract, mut *types
 		IsAbsence: isJustifiedAbsenceAnswer(mut),
 	}
 	if mut != nil {
-		if doc := mut.AnswerDocument(); doc != nil {
-			// B8-T1 (block_only_carrier.md §5.8) — V1 ShapeText
-			// removed; the contract checker now reads carrier-
-			// neutral fields (Text, Citations, IsAbsence). The
-			// V2 carrier path produces the same draft fields via
-			// the V2 renderer's StageOutput.FinalAnswer.
-			if len(doc.Citations) > 0 {
-				draft.Citations = make([]contract.Citation, 0, len(doc.Citations))
-				for _, c := range doc.Citations {
-					draft.Citations = append(draft.Citations, contract.Citation{
-						File: c.File,
-						Line: c.Line,
-					})
-				}
+		// B8-T4 (block_only_carrier.md §5.8): V1 carrier path
+		// removed; read V2 carrier's typed citation pool. V2 docs
+		// carry the same Citations slice (file:line pairs) as V1.
+		if docV2 := mut.AnswerDocumentV2(); docV2 != nil && len(docV2.Citations) > 0 {
+			draft.Citations = make([]contract.Citation, 0, len(docV2.Citations))
+			for _, c := range docV2.Citations {
+				draft.Citations = append(draft.Citations, contract.Citation{
+					File: c.File,
+					Line: c.Line,
+				})
 			}
 		}
 	}
@@ -296,8 +292,9 @@ func runAuthorityOverreachCheck(mut *types.MutableState, draftText string) []typ
 	if mut == nil {
 		return nil
 	}
-	doc := mut.AnswerDocument()
-	if doc == nil || len(doc.Citations) == 0 {
+	// B8-T4: read V2 carrier's typed citations.
+	docV2 := mut.AnswerDocumentV2()
+	if docV2 == nil || len(docV2.Citations) == 0 {
 		return nil
 	}
 	evidence := mut.EmittedEvidence()
@@ -310,7 +307,7 @@ func runAuthorityOverreachCheck(mut *types.MutableState, draftText string) []typ
 	// gate on per-step / per-symbol sentinels anymore — those are
 	// inline annotations for readability, not the contract anchor.
 	requiresHedging := false
-	for _, cit := range doc.Citations {
+	for _, cit := range docV2.Citations {
 		ceiling := authority.HighestAuthorityFor(evidence, cit.File, cit.Line)
 		switch ceiling {
 		case types.AuthorityConditional, types.AuthorityHistorical, types.AuthorityIllustrative:
@@ -1142,28 +1139,17 @@ func isJustifiedAbsenceAnswer(mut *types.MutableState) bool {
 	if mut == nil {
 		return false
 	}
-	doc := mut.AnswerDocument()
-	// Declarative path — the LLM called emit_investigation_complete
-	// with an absence_justification saying "this is an honest zero
-	// with nothing to cite." We trust the claim but still audit that
-	// the explorer ran at least one investigation-class tool; a zero-
-	// tool "I didn't look and declared absence" run is rejected.
-	// This rescues explanation-shape absence answers (e.g. a prose
-	// sentence "There are no Python files in this repo") whose
-	// structural shape would otherwise fail isAbsenceShape and make
-	// the citation-floor gate fire with no possible repair.
+	// B8-T4 (block_only_carrier.md §5.8): structural-path V1 reader
+	// removed (doc.Shape / doc.Symbols / doc.Value / doc.Boolean).
+	// The declarative path (StableAbsenceJustification) is V2-compatible
+	// and now the sole fast-path; V2 carrier's runV2BlockOracles +
+	// validateRequiredBlockCoverage cover the absence-shape coherence
+	// (e.g. an empty bullet_list block under QFEnumeration is
+	// structurally an "honest zero").
 	if strings.TrimSpace(mut.StableAbsenceJustification()) != "" {
 		return hasAnyInvestigationSuccess(mut)
 	}
-	// Structural path — the finalized document's shape itself reads
-	// as zero (empty symbols + complete, literal "0"/"none"/"zero",
-	// boolean=false). Audit depth is shape-tiered: shallow shapes
-	// accept any one investigation tool; deep shapes require a real
-	// content read.
-	if !isAbsenceShape(doc) {
-		return false
-	}
-	return hasInvestigationEvidence(mut, doc)
+	return false
 }
 
 // hasAnyInvestigationSuccess reports whether Turn A succeeded in at
@@ -1178,71 +1164,22 @@ func hasAnyInvestigationSuccess(mut *types.MutableState) bool {
 	if ta == nil {
 		return false
 	}
+	investigation := map[string]bool{
+		"grep":         true,
+		"exec_command": true,
+		"list_files":   true,
+		"read_file":    true,
+		"repo_map":     true,
+	}
 	for _, r := range ta.ToolResults {
 		if !r.Success {
 			continue
 		}
-		if investigationToolKinds[r.ToolName] {
+		if investigation[r.ToolName] {
 			return true
 		}
 	}
 	return false
-}
-
-func isAbsenceShape(doc *types.AnswerDocument) bool {
-	if doc == nil {
-		return false
-	}
-	switch doc.Shape {
-	case types.ShapeListOfSymbols:
-		// Empty symbols slate is an honest "zero" signal as long as
-		// the completeness is NOT lower_bound (lower_bound on [] is
-		// self-contradictory and is rejected upstream in
-		// emit_answer_symbol anyway). Both CompletenessComplete ("I
-		// enumerated every match and there are none") and
-		// CompletenessUnknown ("extractor skipped emit_answer_symbol
-		// entirely because the LLM found nothing") are valid ways a
-		// real LLM expresses zero on a list_of_symbols question; the
-		// earlier "must be Complete" rule rejected the common
-		// "nothing matched, no emit" path and made count/existence
-		// questions mis-shaped by the analyzer unrecoverable.
-		if len(doc.Symbols) != 0 {
-			return false
-		}
-		return doc.SymbolsCompleteness != types.CompletenessLowerBound
-	case types.ShapeValue, types.ShapeConfigValue:
-		if doc.Value == nil {
-			return false
-		}
-		lit := strings.ToLower(strings.TrimSpace(doc.Value.Literal))
-		return isZeroLiteral(lit)
-	case types.ShapeBoolean:
-		return doc.Boolean != nil && !doc.Boolean.Decision
-	}
-	return false
-}
-
-// isZeroLiteral recognises the common cross-language ways a finalizer
-// expresses "no such value": empty string, "0", "none", "null", "nil",
-// "无" and "没有" (Chinese), "zero". Kept deliberately short so every
-// entry is one a real LLM has been seen to produce.
-func isZeroLiteral(lit string) bool {
-	switch lit {
-	case "", "0", "none", "null", "nil", "无", "没有", "zero":
-		return true
-	}
-	return false
-}
-
-// investigationToolKinds is the set of tools whose successful
-// invocation counts as "the explorer did real work". Excludes
-// orchestration / transport tools (propose_sub_agents, emit_* family).
-var investigationToolKinds = map[string]bool{
-	"grep":         true,
-	"exec_command": true,
-	"list_files":   true,
-	"read_file":    true,
-	"repo_map":     true,
 }
 
 // isShallowShape reports whether a shape can be honestly answered
@@ -1258,38 +1195,6 @@ var investigationToolKinds = map[string]bool{
 //	          does X" demands inspecting the candidate handlers'
 //	          code — listing file names is not sufficient because
 //	          the question is about behaviour, not identity.
-func isShallowShape(s types.AnswerShape) bool {
-	switch s {
-	case types.ShapeValue, types.ShapeBoolean, types.ShapeConfigValue:
-		return true
-	}
-	return false
-}
-
-// isContentRead reports whether a tool result represents the LLM
-// actually reading file content (as opposed to enumerating names).
-// read_file always qualifies; grep only when its summary carries
-// line-bearing matches (not the "[grep: N matching files]"
-// files_only shape).
-func isContentRead(r types.ToolResult) bool {
-	switch r.ToolName {
-	case "read_file":
-		return true
-	case "grep":
-		// files_only / no-match summaries advertise themselves with a
-		// bracketed prefix or the literal "no matches" phrase. Both
-		// are name-only signals and do not prove the LLM read code.
-		if strings.HasPrefix(r.Summary, "[grep:") && strings.Contains(r.Summary, "matching files]") {
-			return false
-		}
-		if strings.Contains(r.Summary, "no matches") {
-			return false
-		}
-		return true
-	}
-	return false
-}
-
 // hasInvestigationEvidence reports whether Turn A did enough work to
 // back an absence claim in the given shape. Two-tier rule:
 //
@@ -1299,48 +1204,17 @@ func isContentRead(r types.ToolResult) bool {
 //	deep shape    — at least one actual content read (read_file or
 //	                line-bearing grep). Rejects "I listed the files
 //	                and claim nothing inside does X" without looking.
-func hasInvestigationEvidence(mut *types.MutableState, doc *types.AnswerDocument) bool {
-	if mut == nil {
-		return false
-	}
-	ta := mut.TurnAArtifacts()
-	if ta == nil {
-		return false
-	}
-	// Empty list_of_symbols audits as shallow: the claim IS the
-	// emptiness ("zero matches"), not a behaviour assertion over
-	// candidate handlers. A `find` / `grep files_only` / `list_files`
-	// one-shot proves the count directly; opening any file adds no
-	// information. Only non-empty list_of_symbols (enumerations +
-	// behaviour claims) needs content-read audit.
-	emptyListAbsence := doc != nil && doc.Shape == types.ShapeListOfSymbols && len(doc.Symbols) == 0
-	shallow := emptyListAbsence || (doc != nil && isShallowShape(doc.Shape))
-	for _, r := range ta.ToolResults {
-		if !r.Success {
-			continue
-		}
-		if !investigationToolKinds[r.ToolName] {
-			continue
-		}
-		if shallow {
-			return true
-		}
-		if isContentRead(r) {
-			return true
-		}
-	}
-	return false
-}
-
 func isDriftBoundedCitationAnswer(bus *types.BusContext, out *agent.StageOutput) bool {
 	if bus == nil || bus.AnalysisIR == nil || bus.Mutable == nil {
 		return false
 	}
-	doc := bus.Mutable.AnswerDocument()
-	if doc == nil {
-		return false
-	}
-	if doc.Shape != types.ShapeExplanation && doc.Shape != types.ShapeStepList {
+	// B8-T4 (block_only_carrier.md §5.8): the doc.Shape gate
+	// (ShapeExplanation / ShapeStepList only) is removed — V2
+	// carrier covers explanation/step semantics through QFGeneric +
+	// QFRootCauseTrace block requirements; the surface-plan mode +
+	// drift-bounded surface items are the load-bearing precondition.
+	docV2 := bus.Mutable.AnswerDocumentV2()
+	if docV2 == nil {
 		return false
 	}
 	plan := types.BuildAnswerSurfacePlanForBusContext(bus)
@@ -1448,20 +1322,20 @@ var hintComposerSingleton = hint.New(hint.DefaultConfig())
 // to feed into criterion.Env.DraftCitations. The count is sourced in
 // this priority order:
 //
-//  1. Mutable.AnswerDocument().Citations — populated by
+//  1. Mutable.AnswerDocumentV2().Citations — populated by V2
 //     emit_answer_document.Execute after grounding + remap. This is
 //     the exact pool the renderer consults.
 //  2. extractCitationsFromAnswer(out.FinalAnswer) — legacy text-regex
-//     fallback when the AnswerDocument was never set (test harnesses
+//     fallback when AnswerDocumentV2 was never set (test harnesses
 //     that route directly through StageOutput.FinalAnswer).
 //
-// The regex fallback under-counts on list_of_symbols / step_list
+// The regex fallback under-counts on enumeration / step_list shapes
 // because those shapes inline citations into per-row renders and do
 // not emit the pool as a bulleted list. Using the pool count fixes
 // the "4 citations but orchestrator says 1" class of bugs.
 func finalizerCitationPoolSize(mut *types.MutableState, out *agent.StageOutput) int {
 	if mut != nil {
-		if doc := mut.AnswerDocument(); doc != nil && len(doc.Citations) > 0 {
+		if doc := mut.AnswerDocumentV2(); doc != nil && len(doc.Citations) > 0 {
 			return len(doc.Citations)
 		}
 	}

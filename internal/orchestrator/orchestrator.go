@@ -3548,12 +3548,14 @@ func (o *Orchestrator) runReadSchedulerLoop(stepBudget int) int {
 		if logging.IsDebug() {
 			absence := isJustifiedAbsenceAnswer(o.busCtx.Mutable)
 			poolCount := finalizerCitationPoolSize(o.busCtx.Mutable, out)
-			var shape types.AnswerShape
-			if doc := o.busCtx.Mutable.AnswerDocument(); doc != nil {
-				shape = doc.Shape
+			carrier := "none"
+			blockCount := 0
+			if doc := o.busCtx.Mutable.AnswerDocumentV2(); doc != nil {
+				carrier = "v2"
+				blockCount = len(doc.Blocks)
 			}
-			logging.Debug("[orchestrator] contract check state: is_absence=%v shape=%q citation_pool=%d",
-				absence, shape, poolCount)
+			logging.Debug("[orchestrator] contract check state: is_absence=%v carrier=%q blocks=%d citation_pool=%d",
+				absence, carrier, blockCount, poolCount)
 			for i, v := range res.Violations {
 				logging.Debug("[orchestrator]   violation[%d] kind=%s detail=%q repair=%q",
 					i, v.Kind, v.Detail, v.Repair)
@@ -5126,8 +5128,20 @@ func (o *Orchestrator) runAnswerReviewerOnSuccess() {
 		OriginalRequest: mu.Objective(),
 		IterationLedger: mu.IterationLedger(),
 	}
-	if doc := mu.AnswerDocument(); doc != nil {
-		in.FinalAnswer = doc.Summary
+	if doc := mu.AnswerDocumentV2(); doc != nil {
+		// B8-T4: V2 carrier — the answer reviewer wants the prose
+		// summary text. V2 carries this as a kind=summary block;
+		// concatenate any present summary block(s).
+		var sum strings.Builder
+		for _, b := range doc.Blocks {
+			if b.Kind == types.BlockSummary && strings.TrimSpace(b.Text) != "" {
+				if sum.Len() > 0 {
+					sum.WriteString("\n\n")
+				}
+				sum.WriteString(b.Text)
+			}
+		}
+		in.FinalAnswer = sum.String()
 	}
 	if o.busCtx.AnalysisIR != nil {
 		in.Scenario = string(o.busCtx.AnalysisIR.RequestModel.Scenario)

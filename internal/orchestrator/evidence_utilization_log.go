@@ -76,7 +76,7 @@ func finalizerCitationCount(o *Orchestrator, _ *agent.StageOutput) int {
 	if o == nil || o.busCtx == nil || o.busCtx.Mutable == nil {
 		return 0
 	}
-	doc := o.busCtx.Mutable.AnswerDocument()
+	doc := o.busCtx.Mutable.AnswerDocumentV2()
 	if doc == nil {
 		return 0
 	}

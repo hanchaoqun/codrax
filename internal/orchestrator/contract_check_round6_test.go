@@ -59,12 +59,14 @@ func TestIsPlumbingFailureViolation_AnswerQualityKindsPassThrough(t *testing.T) 
 // TestRunAuthorityOverreachCheck_RepairIsLLMActionable: the repair
 // hint must speak in terms the LLM has a schema for (tool name +
 // shape + required fields), not internal plumbing names like
-// "ApplyAuthorityHedging" or "render path".
+// "ApplyAuthorityHedging" or "render path". B8-T4: switched to V2
+// carrier (AnswerDocumentV2.Citations is the structurally-equivalent
+// pool the AuthorityOverreach check now reads).
 func TestRunAuthorityOverreachCheck_RepairIsLLMActionable(t *testing.T) {
 	mut := types.NewMutableState("test")
-	mut.SetAnswerDocument(&types.AnswerDocument{
-		Shape:     types.ShapeExplanation,
-		Citations: []types.Citation{{File: "x.go", Line: 10}},
+	mut.SetAnswerDocumentV2(&types.AnswerDocumentV2{
+		DocumentModel: "v2",
+		Citations:     []types.Citation{{File: "x.go", Line: 10}},
 	})
 	mut.AppendEvidence([]types.EvidenceItem{
 		{Source: "x.go", LineStart: 10, Authority: types.AuthorityConditional},
