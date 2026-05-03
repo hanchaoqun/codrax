@@ -1072,9 +1072,20 @@ func (t *EmitAnswerDocument) Execute(ctx *types.BusContext, params json.RawMessa
 	if err := validateAnswerDocumentExactResolutionProof(resolvedExact, citations, groundCtx, ctx); err != nil {
 		return failWithContext("%v", err)
 	}
-	if err := validateConfigTraceAbsenceCitationFocus(ctx, resolvedExact, citations, p.Summary); err != nil {
-		return failWithContext("%v", err)
-	}
+	// 2026-05-03 (Phase 6 stage 3): retired
+	// validateConfigTraceAbsenceCitationFocus. Absence citation
+	// enforcement is now driven by Phase 4's
+	// runAbsenceScopeBoundOracle (post-finalize, requires
+	// scope=Negative + non-empty negative_pattern when
+	// exact_resolution.status=absent). Precedence-role coverage
+	// for QFConfigPrecedence is driven by FacetCoverageContract +
+	// runFacetCoverageOracle with FacetConfigPrecedenceRole as a
+	// HARD facet. The retired check's specific
+	// "exact-absent + grounded_only context_mode" scoping rule
+	// becomes implicit through the typed-pool oracle path —
+	// citations whose underlying evidence projects to a
+	// precedence_role ClaimForm pass; others get flagged via
+	// FacetCoverageContract candidate-binding.
 	if err := validateExactResolutionContextSurface(p.Summary, resolvedExact, ctx); err != nil {
 		return failWithContext("%v", err)
 	}
@@ -1849,133 +1860,6 @@ func validateValueCitationFocus(ctx *types.BusContext, v *types.AnswerValue, cit
 	return nil
 }
 
-func validateConfigTraceAbsenceCitationFocus(ctx *types.BusContext, exact *types.AnswerExactResolution, citations []types.Citation, summary string) error {
-	if ctx == nil || exact == nil {
-		return nil
-	}
-	if exact.Status != types.AnswerExactResolutionAbsent || exact.ContextMode != types.AnswerExactResolutionContextGroundedOnly {
-		return nil
-	}
-	if ctx.AnalysisIR == nil ||
-		ctx.AnalysisIR.RequestModel.Scenario != types.ScenarioConfigTrace ||
-		ctx.AnalysisIR.RequestModel.AnswerSubject.Kind != types.SubjectConfigKey ||
-		ctx.Mutable == nil {
-		return nil
-	}
-	plan := answerSurfacePlan(ctx)
-	if plan == nil || plan.ExactResolution == nil {
-		return nil
-	}
-	contract := plan.ExactResolution
-	pool := plan.SurfaceEvidence
-	lead := renderAnswerDocumentExactResolutionLeadClean(contract, exact, requestedAnswerDocumentLanguage(ctx))
-	body := strings.TrimSpace(exactContextSummaryBodyAfterLead(summary, lead))
-	bodyNeedsLineageCitation := exactContextBodyNeedsStructuredGrounding(body)
-	requiredFiles := plan.ExactContextRequiredFiles
-	lineageCandidates := plan.RelatedContextCitationCandidates
-	allowedAnchors := types.JoinExactContextSurfaceDisplays(plan.AllowedExactContextLabels)
-	roleCoverage := formatConfigTraceRoleCoverage(plan)
-	proseOnlyRelatedContext := configTraceNearbyContextIsProseOnly(plan)
-	relatedContextCitations := 0
-	for idx, cite := range citations {
-		matched := matchingEvidenceForCitation(pool, cite)
-		// 2026-05+ scope axis: schema-level scopes (File / Crossfile /
-		// Negative) are first-class config-trace absence anchors —
-		// they're not "grounded code at file:line" but they ARE
-		// validated layer-identity / cross-file-contract / absence
-		// proofs. Accept any grounded schema-level anchor without
-		// running the per-line role validation that's meant for
-		// line-shaped evidence.
-		if matched.GroundingStatus == types.GroundingGrounded &&
-			(matched.Scope == types.ScopeFile ||
-				matched.Scope == types.ScopeCrossfile ||
-				matched.Scope == types.ScopeNegative) {
-			relatedContextCitations++
-			continue
-		}
-		if configTraceAbsenceCitationAllowed(ctx, contract, matched) {
-			if matched.ContextRole != types.EvidenceContextRoleAbsenceSupport &&
-				types.ConfigTraceGroundedContextAnchorAllowedInFiles(contract, matched, requiredFiles) {
-				relatedContextCitations++
-			}
-			continue
-		}
-		if types.ExactResolutionAnswerContextAnchorAllowedInFiles(contract, ctx.AnalysisIR.RequestModel.Scenario, true, matched, requiredFiles) {
-			err := newAnswerDocValidationError(
-				"config_trace_context_citation",
-				"exact-absent config-trace answers may cite only (a) the grounded absence-proof sources for the missing key or (b) grounded related-context anchors that carry a validated precedence role. citations[%d] (%s:%d) is a grounded same-scope context anchor, but it is not citation-grade precedence evidence yet; remove it from `citations[]` and any fenced diagram nodes. It may stay as uncited prose-only nearby context if the visible answer also cites a validated precedence anchor for its lineage explanation.",
-				idx, cite.File, cite.Line,
-			).
-				WithFields(fmt.Sprintf("citations[%d]", idx), "exact_resolution.context_mode").
-				WithHint("Re-emit `emit_answer_document` with the same exact-absence conclusion, but remove this anchor from `citations[]` and from any fenced diagram nodes. You may keep it in `summary` as prose-only grounded nearby context, but if the user-visible answer still explains precedence / lineage, cite at least one validated default/config/runtime/override anchor. Here `config` means a grounded repo/user config-file layer (YAML/JSON/TOML/INI/etc.). If you keep multi-layer precedence on the surface, preserve at least one visible anchor for each available precedence role instead of collapsing everything to a single mechanism anchor.")
-			if allowed := formatConfigTraceAllowedCitations(plan); allowed != "" {
-				err = err.WithMetadata("allowed_citations", allowed)
-			}
-			if roleCoverage != "" {
-				err = err.WithMetadata("precedence_role_anchors", roleCoverage)
-			}
-			if allowedAnchors != "" {
-				err = err.WithMetadata("allowed_anchors", allowedAnchors)
-			}
-			if proseOnlyRelatedContext {
-				err = err.WithMetadata("nearby_context_citation_mode", "prose_only")
-				err = err.WithMetadata("preferred_context_mode", string(types.AnswerExactResolutionContextGroundedOnly))
-			}
-			err = err.WithMetadata("drop_citations", fmt.Sprintf("%s:%d", cite.File, cite.Line))
-			if proseOnly := types.JoinExactContextSurfaceDisplays(types.ExactContextSurfaceLabelsForItem(contract, matched)); proseOnly != "" {
-				err = err.WithMetadata("prose_only_anchors", proseOnly)
-			}
-			return err
-		}
-		err := newAnswerDocValidationError(
-			"config_trace_context_citation",
-			"exact-absent config-trace answers may cite only (a) the grounded absence-proof sources for the missing key or (b) grounded related-context anchors that carry a validated precedence role. citations[%d] (%s:%d) is broad same-family background rather than a precedence-capable lineage anchor; drop it from citations and keep that background out of the answer surface.",
-			idx, cite.File, cite.Line,
-		).
-			WithFields(fmt.Sprintf("citations[%d]", idx), "exact_resolution.context_mode").
-			WithHint("Re-emit `emit_answer_document` with the same exact-absence conclusion, but keep citations only for the missing-key proof sources and for grounded precedence anchors that already carry validated default/config/runtime/override roles. Here `config` means a grounded repo/user config-file layer (YAML/JSON/TOML/INI/etc.). Drop broad same-family structs, counters, or helper comments from `citations[]` and from the rendered answer. If you still explain multi-layer precedence, preserve one visible anchor per available precedence role when possible.")
-		if allowed := formatConfigTraceAllowedCitations(plan); allowed != "" {
-			err = err.WithMetadata("allowed_citations", allowed)
-		}
-		if roleCoverage != "" {
-			err = err.WithMetadata("precedence_role_anchors", roleCoverage)
-		}
-		if allowedAnchors != "" {
-			err = err.WithMetadata("allowed_anchors", allowedAnchors)
-		}
-		if proseOnlyRelatedContext {
-			err = err.WithMetadata("nearby_context_citation_mode", "prose_only")
-			err = err.WithMetadata("preferred_context_mode", string(types.AnswerExactResolutionContextGroundedOnly))
-		}
-		err = err.WithMetadata("drop_citations", fmt.Sprintf("%s:%d", cite.File, cite.Line))
-		if forbidden := types.JoinExactContextSurfaceDisplays(types.ExactContextSurfaceLabelsForItem(contract, matched)); forbidden != "" {
-			err = err.WithMetadata("forbidden_anchors", forbidden)
-		}
-		return err
-	}
-	if !bodyNeedsLineageCitation || relatedContextCitations > 0 || len(lineageCandidates) == 0 {
-		return nil
-	}
-	err := newAnswerDocValidationError(
-		"config_trace_context_citation",
-		"exact-absent config-trace answers that keep grounded related context on the user-visible surface must cite at least one grounded precedence-capable lineage anchor. The current summary explains nearby precedence / context, but citations[] contains no validated default/config/runtime/override anchor for that explanation.",
-	).WithFields("citations", "summary", "exact_resolution.context_mode").
-		WithHint("Re-emit `emit_answer_document` with the same exact-absence conclusion, but if `summary` continues to explain nearby precedence / lineage context, keep at least one grounded precedence anchor in `citations[]` (for example a validated default/config/runtime/override anchor already named in the tool metadata). Here `config` means a grounded repo/user config-file layer (YAML/JSON/TOML/INI/etc.). If multiple precedence roles are available, preserve one visible anchor per role when possible instead of collapsing to a single mechanism anchor. If you do not want to cite nearby lineage context, drop that contextual explanation and keep only the renderer-generated absence lead.")
-	if allowed := formatConfigTraceAllowedCitations(plan); allowed != "" {
-		err = err.WithMetadata("allowed_citations", allowed)
-	}
-	if roleCoverage != "" {
-		err = err.WithMetadata("precedence_role_anchors", roleCoverage)
-	}
-	if allowedAnchors != "" {
-		err = err.WithMetadata("allowed_anchors", allowedAnchors)
-	}
-	if proseOnlyRelatedContext {
-		err = err.WithMetadata("nearby_context_citation_mode", "prose_only")
-		err = err.WithMetadata("preferred_context_mode", string(types.AnswerExactResolutionContextGroundedOnly))
-	}
-	return err
-}
 
 func configTraceNearbyContextIsProseOnly(plan *types.AnswerSurfacePlan) bool {
 	if plan == nil || len(plan.ProseOnlyExactContextItems) == 0 {
