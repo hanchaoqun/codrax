@@ -111,12 +111,18 @@ func TestRunContractCheck_FailingShape(t *testing.T) {
 	}
 }
 
-func TestRunContractCheck_UsesAnswerDocumentLiteralForValueShape(t *testing.T) {
-	out := &agent.StageOutput{FinalAnswer: strings.Repeat("解释性总结", 80)}
+// TestRunContractCheck_AcceptsValueShapeAnswerDocument is the post-B8
+// version of the previous "literal-from-AnswerDocument" check. With
+// runAnswerShapeOracle (and shapeTextForContractCheck) deleted, the
+// contract checker no longer pivots on shapeText vs FinalAnswer
+// length; it just runs the typed-axis oracles which leave a
+// well-formed value-shape answer alone.
+func TestRunContractCheck_AcceptsValueShapeAnswerDocument(t *testing.T) {
+	out := &agent.StageOutput{FinalAnswer: "01e0864"}
 	mut := types.NewMutableState("history question")
 	mut.SetAnswerDocument(&types.AnswerDocument{
 		Shape:   types.ShapeValue,
-		Summary: strings.Repeat("解释性总结", 80),
+		Summary: "the commit hash is 01e0864",
 		Value: &types.AnswerValue{
 			Literal:     "01e0864",
 			CitationRef: -1,
@@ -125,7 +131,7 @@ func TestRunContractCheck_UsesAnswerDocumentLiteralForValueShape(t *testing.T) {
 	c := types.AnswerContract{RequiredAnswerShape: types.ShapeValue}
 	res := runContractCheck(out, c, mut, nil)
 	if !res.Passed {
-		t.Fatalf("value shape should validate against AnswerDocument literal, got %+v", res)
+		t.Fatalf("value shape should validate, got %+v", res)
 	}
 }
 

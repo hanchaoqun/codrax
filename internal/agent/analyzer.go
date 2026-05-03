@@ -1425,39 +1425,13 @@ func buildAnalysisIR(ctx *types.AgentContext) (*types.AnalysisIR, error) {
 	// by reconcile picking a different shape; the two rules are
 	// disjoint in practice (measurement requires count-verb prefix;
 	// reconcile requires source-code-literal subject).
-	reconciledShape, shapeReason := reconcileShape(rm, out.AnswerContract.RequiredAnswerShape, rm.AnswerSubject, rm.Predicates)
-	if reconciledShape != out.AnswerContract.RequiredAnswerShape {
-		before := out.AnswerContract.RequiredAnswerShape
-		logShapeReconciled(before, reconciledShape, shapeReason)
-		recordReconcileObservation(ctxMutable(ctx), reconcileEvent(
-			"shape", string(before), string(reconciledShape),
-			rm.ShapeConfidence, shapeReason, rm.Predicates,
-		))
-		// Commit 61 Batch F.3 (audit MEDIUM #4, red line "no system
-		// hard-cap"): pre-fix the rule's chosen shape was applied
-		// unconditionally — overriding the LLM's judgment whenever
-		// 5 hard-coded predicate-combination rules said so. Per the
-		// no-hard-cap principle, the LLM's emit_analysis is the
-		// authoritative shape decision; reconcileShape's output is
-		// now treated as ADVISORY (logged + recorded for observers,
-		// not applied) unless the operator explicitly opts into
-		// strict mode via codrax.yaml :: analyzer_reconcile_strict_mode.
-		// The recordReconcileObservation call above keeps the F2
-		// aggregator fed with reconcile signals for telemetry +
-		// cross-Run learning, so the data surface is unchanged.
-		if reconcileStrictModeEnabled() {
-			out.AnswerContract.RequiredAnswerShape = reconciledShape
-			// Also align the AnalyzerHints surface so downstream readers
-			// (ir_accessor.irAnswerShape, answer_document_evaluator,
-			// emit_answer_document shape auto-correct) see the
-			// reconciled shape. Cover both the config_value→value and the
-			// new conditional-enumeration→list_of_symbols swap.
-			legacy := mapLegacyAnswerShape(rm.AnalyzerHints.Shape)
-			if legacy == types.ShapeConfigValue || legacy == before {
-				rm.AnalyzerHints.Shape = string(reconciledShape)
-			}
-		}
-	}
+	// B8-T1 (block_only_carrier.md §5.8): reconcileShape deleted.
+	// The V2 carrier path no longer reads RequiredAnswerShape for
+	// answer-rendering decisions — AnswerSemanticView (compiled per
+	// QuestionFamily) drives block requirements. The LLM's
+	// emit_analysis output is now the authoritative shape decision
+	// for the legacy V1 path (which itself is going away in B8-T4);
+	// no system-side override.
 
 	out.AnswerContract.Diagram = reconcileDiagramContract(rm, out.AnswerContract.RequiredAnswerShape, logBundle)
 	out.AnswerContract.ExactResolution = types.BuildExactResolutionContract(rm)

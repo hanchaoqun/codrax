@@ -66,7 +66,11 @@ func runContractCheck(out *agent.StageOutput, c types.AnswerContract, mut *types
 	}
 	if mut != nil {
 		if doc := mut.AnswerDocument(); doc != nil {
-			draft.ShapeText = shapeTextForContractCheck(doc)
+			// B8-T1 (block_only_carrier.md §5.8) — V1 ShapeText
+			// removed; the contract checker now reads carrier-
+			// neutral fields (Text, Citations, IsAbsence). The
+			// V2 carrier path produces the same draft fields via
+			// the V2 renderer's StageOutput.FinalAnswer.
 			if len(doc.Citations) > 0 {
 				draft.Citations = make([]contract.Citation, 0, len(doc.Citations))
 				for _, c := range doc.Citations {
@@ -105,25 +109,14 @@ func runContractCheck(out *agent.StageOutput, c types.AnswerContract, mut *types
 			// migration runs; removed at B8-T7.
 			logging.Debug("[trace/v1v2_diff] carrier=v1 shape=%s symbols=%d steps=%d v2_default=%v v1_strict=%v",
 				doc.Shape, len(doc.Symbols), len(doc.Steps), EmitV2Default(), V1OracleStrictMode())
-			// B6-T3 (block_only_carrier.md, 2026-05-03) — V1 oracle
-			// downgrade. When V2 is the default carrier AND the
-			// rollback-rope (V1OracleStrictMode) is off, the V1
-			// runAnswerShapeOracle is downgraded to telemetry-only:
-			// the violations it raises still flow through the
-			// closure ledger (so the per-stage health snapshot
-			// records "V1 doc landed despite V2 default" as a
-			// pipeline anomaly), but they no longer flip
-			// Result.Passed because the oracle is not invoked.
-			//
-			// Operators flip yaml `pipeline_v1_oracle_strict_mode:
-			// true` for an emergency rollback that restores V1
-			// strict semantics for one Run.
-			if !EmitV2Default() || V1OracleStrictMode() {
-				result.Violations = append(result.Violations,
-					runAnswerShapeOracle(doc, ir, mut)...)
-			} else {
-				logging.Debug("[contract_check] V1 oracle telemetry-only (V2 default + V1 strict mode off); doc landed via V1 carrier despite V2 prompt")
-			}
+			// B8-T1 (block_only_carrier.md §5.8, 2026-05-03):
+			// runAnswerShapeOracle deleted. Block 2 oracles below
+			// (Intent/Subject/PredicateAxis) cover the typed
+			// coverage axes; V2 carrier path runs the dedicated V2
+			// validators in the sibling block. V1-carrier dispatch
+			// here exists only as a defensive landing pad — if a
+			// V1 doc somehow lands despite V2 default, we still run
+			// the typed-axis oracles which apply to both carriers.
 			// Block 2 (architecture overhaul 2026-05-02) — Intent /
 			// Subject / PredicateAxis oracles. Each runs after the
 			// existing Shape oracle so the violation set carries
@@ -311,42 +304,6 @@ func runContractCheck(out *agent.StageOutput, c types.AnswerContract, mut *types
 	return result
 }
 
-// runAnswerShapeOracle applies the read-mode Answer Shape Oracle
-// (commit 53 P2): structural cross-checks between the finalized
-// AnswerDocument and the analyzer's RequestModel that the contract
-// schema cannot express. Returns a (possibly empty) violations slice.
-//
-// Two checks fire:
-//
-//   - Shape ↔ Intent coherence: a ShapeValue answer for an
-//     IntentExplain / IntentRootCause request is suspicious — the
-//     analyzer asked for prose, the finalizer produced a scalar.
-//     Vice versa: ShapeExplanation for IntentCount is suspicious.
-//
-//   - SubTopic count mismatch: when the analyzer declared N
-//     sub-topics, the doc.AnswerSymbols (when present) should cover
-//     close to N distinct buckets. A 3-sub-topic request answered
-//     with 1 symbol or 10 symbols is a coverage mismatch the
-//     analyzer should re-examine.
-//
-// Both checks are SOFT by default (added to ViolDiagramIdentifier-
-// /ViolSubTopicCountMismatch families that gate-soft-list excludes
-// from Passed=false hard-fail). Operators promote to strict via
-// gate_contract_strict_kinds yaml.
-// runExternalArtifactDecodedCheck is the orchestrator-side oracle
-// for CritExternalArtifactDecoded. Triggers structurally on
-// (mut.LogTriage() != nil OR mut.PerfTrace() != nil); fails when
-// draft text references fewer than the configured floor of
-// bundle-extracted non-path tokens.
-//
-// Returns at most one Violation per call. Vacuously satisfied when
-// no bundle is attached or both bundles produced zero decodable
-// tokens — read-mode runs without --log / --htrace pay no cost.
-//
-// Wraps the criterion-package evaluator (which holds the canonical
-// token-collection + threshold logic) so this oracle and the
-// scheduler's other criterion.Eval call sites cannot drift on the
-// definition of "decoded".
 func runExternalArtifactDecodedCheck(mut *types.MutableState, draftText string) []types.Violation {
 	if mut == nil {
 		return nil
@@ -508,150 +465,6 @@ func isPlumbingFailureViolation(k types.ViolationKind) bool {
 	return false
 }
 
-func runAnswerShapeOracle(doc *types.AnswerDocument, rm *types.RequestModel, mut *types.MutableState) []types.Violation {
-	if doc == nil || rm == nil {
-		return nil
-	}
-	var out []types.Violation
-
-	// Commit 55 Batch A.3 — declared-count drift. The extractor's
-	// emit_answer_symbol stamps the LLM's self-declared count on
-	// Mutable; if the finalizer's rendered doc.Symbols length
-	// diverges (mid-loop grounding stripped some, the finalizer
-	// re-derived a different shape, etc.), the count claim was
-	// silently invalidated. Soft-by-default — we don't want a
-	// post-emit grounder strip to hard-fail an otherwise good
-	// answer, but we DO want the reviewer to learn about the drift.
-	if mut != nil {
-		declared := mut.EmittedAnswerSymbolDeclaredCount()
-		if declared > 0 && len(doc.Symbols) != declared {
-			out = append(out, types.Violation{
-				Kind: types.ViolDeclaredCountDrift,
-				Detail: fmt.Sprintf("emit_answer_symbol declared count=%d but finalizer rendered %d doc.Symbols (post-emit drift)",
-					declared, len(doc.Symbols)),
-				Repair: fmt.Sprintf("re-emit emit_answer_symbol with count=%d to match the surviving slate after grounder strip, OR re-investigate to recover the dropped %d items if they are load-bearing",
-					len(doc.Symbols), declared-len(doc.Symbols)),
-				SuspectedRoot: types.SuspectedRoot{
-					IRField:    "answer_symbol",
-					Reason:     "declared item count diverges from rendered slate",
-					Confidence: 0.7,
-				},
-				Stage: string(types.StageFinalize),
-			})
-		}
-	}
-
-	// Plan D rollout 2026-05-02 — step_list lower-bound for
-	// RequestedEnumerationBoundary. The validator at emit time
-	// rejects upper-bound overflow (principal_count > DeclaredCount).
-	// The lower bound (principal_count < DeclaredCount) is SOFT here:
-	// we don't hard-reject, because the LLM may have honestly only
-	// found N-1 principal items even though the question quoted N
-	// (e.g. user said "the 9 X's" but only 8 actually exist). The
-	// reviewer learns the gap via this Violation and the final answer
-	// ships with caveat header. Stage=finalize.
-	//
-	// Skips when EnumerationBoundary is absent OR DeclaredCount<=0
-	// OR shape is anything but step_list.
-	if rm.EnumerationBoundary != nil &&
-		rm.EnumerationBoundary.DeclaredCount > 0 &&
-		doc.Shape == types.ShapeStepList {
-		boundary := rm.EnumerationBoundary
-		principal := types.PrincipalStepCount(doc.Steps)
-		if principal < boundary.DeclaredCount {
-			out = append(out, types.Violation{
-				Kind: types.ViolDeclaredCountDrift,
-				Detail: fmt.Sprintf("user asked for %d principal item(s) (`%s`) but your steps[] has %d kind=principal step(s) (total %d steps; flow=%d, caveat=%d)",
-					boundary.DeclaredCount, boundary.SourceQuote, principal, len(doc.Steps),
-					types.CountStepsOfKind(doc.Steps, types.AnswerStepKindFlow),
-					types.CountStepsOfKind(doc.Steps, types.AnswerStepKindCaveat)),
-				Repair: fmt.Sprintf("either (a) re-emit emit_answer_document with %d kind=principal step(s) to match the question's bound, OR (b) when only %d principal items genuinely exist, leave Steps as-is and adjust the summary prose to acknowledge the mismatch (\"the question quoted N but only K independent items exist\")",
-					boundary.DeclaredCount, principal),
-				SuspectedRoot: types.SuspectedRoot{
-					IRField:    "answer_steps",
-					Reason:     "principal step count below declared question boundary",
-					Confidence: 0.7,
-				},
-				Stage: string(types.StageFinalize),
-			})
-		}
-	}
-
-	// Shape ↔ Intent coherence.
-	switch rm.Intent {
-	case types.IntentExplain, types.IntentRootCause:
-		// Explanation requests should produce explanation-class
-		// shapes (Explanation / List). A pure value/boolean
-		// answer is structurally inconsistent.
-		switch doc.Shape {
-		case types.ShapeValue, types.ShapeBoolean, types.ShapeConfigValue:
-			out = append(out, types.Violation{
-				Kind: types.ViolShapeIntentMismatch,
-				Detail: fmt.Sprintf("intent=%s expects explanation-class shape; finalizer emitted shape=%s",
-					rm.Intent, doc.Shape),
-				Repair: fmt.Sprintf("re-emit emit_answer_document with shape=explanation (or list_of_symbols when the answer enumerates) — the user asked %q which expects prose, not a scalar",
-					rm.Intent),
-				SuspectedRoot: types.SuspectedRoot{
-					IRField:    "answer_shape",
-					Reason:     "intent declares explanation; shape declares scalar",
-					Confidence: 0.6,
-				},
-				Stage: string(types.StageFinalize),
-			})
-		}
-	case types.IntentReturnValue, types.IntentConfigQuery:
-		// Value-return / config-query requests want a scalar
-		// answer. An explanation shape is structurally
-		// inconsistent — the user asked "what's the value" not
-		// "explain why".
-		if doc.Shape == types.ShapeExplanation {
-			out = append(out, types.Violation{
-				Kind: types.ViolShapeIntentMismatch,
-				Detail: fmt.Sprintf("intent=%s expects value-class shape; finalizer emitted shape=explanation",
-					rm.Intent),
-				Repair: fmt.Sprintf("re-emit emit_answer_document with shape=value or shape=config_value (whichever matches the question's literal type) — the user asked %q which expects a scalar/key-value, not prose",
-					rm.Intent),
-				SuspectedRoot: types.SuspectedRoot{
-					IRField:    "answer_shape",
-					Reason:     "intent declares scalar; shape declares explanation",
-					Confidence: 0.6,
-				},
-				Stage: string(types.StageFinalize),
-			})
-		}
-	}
-
-	// SubTopic count check. Only meaningful when the analyzer
-	// emitted >= 2 sub-topics AND the doc has emit_answer_symbol
-	// rows; otherwise the check is moot.
-	if len(rm.SubTopics) >= 2 && len(doc.Symbols) > 0 {
-		distinctBuckets := countDistinctAnswerSymbolBuckets(doc.Symbols)
-		expected := len(rm.SubTopics)
-		// Tolerance: ±1 sub-topic absorbed (analyzer over/under
-		// segmentation is common). A 3-topic request with 2 or 4
-		// distinct buckets is fine; with 1 or 5+ it's a mismatch.
-		if abs(distinctBuckets-expected) > 1 {
-			repair := fmt.Sprintf("widen the answer to cover all %d sub-topics: emit one or more emit_answer_symbol items per sub-topic so doc.Symbols spans %d distinct files/symbols", expected, expected)
-			if distinctBuckets > expected+1 {
-				repair = fmt.Sprintf("the answer over-decomposed (%d buckets vs %d declared sub-topics) — collapse near-duplicate items into one bucket, or re-classify in the analyzer to recognise the additional sub-topics", distinctBuckets, expected)
-			}
-			out = append(out, types.Violation{
-				Kind: types.ViolSubTopicCountMismatch,
-				Detail: fmt.Sprintf("analyzer declared %d sub-topics; answer covers %d distinct buckets",
-					expected, distinctBuckets),
-				Repair: repair,
-				SuspectedRoot: types.SuspectedRoot{
-					IRField:    "sub_topics",
-					Reason:     "answer-symbol bucket count diverges from analyzer's sub-topic count",
-					Confidence: 0.5,
-				},
-				Stage: string(types.StageFinalize),
-			})
-		}
-	}
-
-	return out
-}
 
 // runIntentCoverageOracle (Block 2 architecture overhaul 2026-05-02)
 // validates that the rendered AnswerDocument structurally satisfies
@@ -2796,33 +2609,6 @@ func hasAnyStrictViolation(vs []types.Violation) bool {
 	return false
 }
 
-func shapeTextForContractCheck(doc *types.AnswerDocument) string {
-	if doc == nil {
-		return ""
-	}
-	switch doc.Shape {
-	case types.ShapeValue:
-		if doc.Value != nil {
-			return doc.Value.Literal
-		}
-	case types.ShapeConfigValue:
-		if doc.Value != nil {
-			key := strings.TrimSpace(doc.Value.Key)
-			if key != "" {
-				return key + "=" + doc.Value.Literal
-			}
-			return doc.Value.Literal
-		}
-	case types.ShapeBoolean:
-		if doc.Boolean != nil {
-			if doc.Boolean.Decision {
-				return "yes"
-			}
-			return "no"
-		}
-	}
-	return ""
-}
 
 // isJustifiedAbsenceAnswer reports whether the finalized document is
 // an honest "zero" shape AND the investigation did enough work to
