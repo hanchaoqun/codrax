@@ -1132,9 +1132,9 @@ func (t *EmitAnswerDocument) Execute(ctx *types.BusContext, params json.RawMessa
 			}
 			built = append(built, sym)
 		}
-		if err := validateSymbolsLiteralGrounding(built, groundCtx); err != nil {
-			return failWithContext("%v", err)
-		}
+		// 2026-05-03 (Phase 6 stage 5): retired validateSymbolsLiteralGrounding —
+		// every AnswerSymbol's Name was already grounded against
+		// File:Line via VerifyLineAnchor inside buildEmitAnswerSymbolItem.
 		doc.Symbols = built
 		doc.SymbolsCompleteness = claim
 
@@ -2335,27 +2335,15 @@ func repeatedExactTargetAfterLead(contract *types.ExactResolutionContract, body 
 // path/line pair passed os.Stat + the grounder's Tier-1 check
 // because analyzer.go really does have a line 100 — but the line's
 // content has zero overlap with `writeSession`, so this gate fires.
-func validateSymbolsLiteralGrounding(symbols []types.AnswerSymbol, gc *ground.Context) error {
-	for i, s := range symbols {
-		if s.File == "" || s.Line <= 0 || s.Name == "" {
-			continue
-		}
-		cfg := corroborationCfg{
-			claimLabel: fmt.Sprintf("symbols[%d].name %q", i, s.Name),
-			citeLabel:  fmt.Sprintf("symbols[%d].file/line", i),
-			escape: "If this symbol name is drawn from the attached log / an external trace rather than real repo code, " +
-				"drop the item (or set answer_symbols_completeness='unknown') — do NOT invent a repo file:line for a symbol the repo does not define. " +
-				"Otherwise cite a real file:line where the symbol appears.",
-			code:   "literal_grounding",
-			fields: []string{fmt.Sprintf("symbols[%d]", i)},
-			hint:   "Re-emit `emit_answer_document` with symbol entries whose cited file:line actually contains the symbol name, or drop external-only symbols instead of inventing a repo anchor.",
-		}
-		if err := requireCitationCorroboration(s.Name, s.File, s.Line, gc, cfg); err != nil {
-			return err
-		}
-	}
-	return nil
-}
+// validateSymbolsLiteralGrounding was retired 2026-05-03 (Phase 6
+// stage 5). The check was redundant: every AnswerSymbol passing
+// through this function had already passed
+// ground.VerifyLineAnchor inside buildEmitAnswerSymbolItem
+// (internal/tool/emit_answer_symbol.go). Both checks verified
+// the same invariant — Symbol.Name appears at Symbol.File:Line
+// ±N — through the same grounder facility, just at different
+// ±N windows (2 vs 3). Belt-and-suspenders pattern; retired the
+// redundant suspenders.
 
 func valueCitationFocusSubjectKind(ctx *types.BusContext) types.AnswerSubjectKind {
 	if ctx == nil {
