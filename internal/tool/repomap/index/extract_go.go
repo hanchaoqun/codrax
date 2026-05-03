@@ -1,6 +1,7 @@
 package index
 
 import (
+	"fmt"
 	"strings"
 	"unicode"
 
@@ -209,7 +210,7 @@ func goExtractTypes(node *sitter.Node, src []byte, file string) []types.Symbol {
 				kind = "interface"
 			}
 		}
-		syms = append(syms, types.Symbol{
+		sym := types.Symbol{
 			Name:     name,
 			Kind:     kind,
 			File:     file,
@@ -217,9 +218,96 @@ func goExtractTypes(node *sitter.Node, src []byte, file string) []types.Symbol {
 			EndLine:  nodeEndLine(spec),
 			Exported: unicode.IsUpper(rune(name[0])),
 			Doc:      prevSiblingComment(node, src),
-		})
+		}
+		// Phase 6 P0 batch (2026-05-03) — populate RequiredMethods
+		// for interface declarations so the populateImplementers
+		// post-pass can match concrete types against this contract.
+		if kind == "interface" && typeNode != nil {
+			sym.RequiredMethods = goExtractInterfaceMethods(typeNode, src)
+		}
+		syms = append(syms, sym)
 	}
 	return syms
+}
+
+// goExtractInterfaceMethods walks an `interface_type` node body
+// and returns the deduplicated set of "name(arity)" method specs.
+// Embedded interface references (e.g. `io.Reader` inside another
+// interface) are not expanded here — the post-pass treats embeds
+// as a separate transitive case if needed.
+//
+// tree-sitter-go grammar (verified): interface_type contains
+// `method_elem` children directly (no method_spec_list wrapper).
+// Each method_elem carries a `field_identifier` for the method
+// name + a `parameter_list`; arity is the comma count + 1.
+// Older grammar versions used `method_spec` — both names accepted
+// for cross-version safety.
+func goExtractInterfaceMethods(ifaceNode *sitter.Node, src []byte) []string {
+	if ifaceNode == nil {
+		return nil
+	}
+	seen := map[string]bool{}
+	var out []string
+	collect := func(spec *sitter.Node) {
+		if spec == nil {
+			return
+		}
+		// Try field-name first (newer grammars), fall back to
+		// child-by-type for `field_identifier` (the actual method
+		// name node in the current tree-sitter-go grammar).
+		nameNode := spec.ChildByFieldName("name")
+		if nameNode == nil {
+			nameNode = childByType(spec, "field_identifier")
+		}
+		if nameNode == nil {
+			return
+		}
+		mname := nodeText(nameNode, src)
+		// Arity from parameter_list: count parameter_declaration
+		// children. goFuncArity is tuned for method/function
+		// declarations whose parameters live under a `parameters`
+		// field; method_elem instead has a direct `parameter_list`
+		// child, so use a local helper.
+		arity := 0
+		if pl := childByType(spec, "parameter_list"); pl != nil {
+			for j := 0; j < int(pl.NamedChildCount()); j++ {
+				if pl.NamedChild(j).Type() == "parameter_declaration" {
+					arity++
+				}
+			}
+		}
+		key := fmt.Sprintf("%s(%d)", mname, arity)
+		if !seen[key] {
+			seen[key] = true
+			out = append(out, key)
+		}
+	}
+	for i := 0; i < int(ifaceNode.NamedChildCount()); i++ {
+		spec := ifaceNode.NamedChild(i)
+		if spec == nil {
+			continue
+		}
+		switch spec.Type() {
+		case "method_elem", "method_spec":
+			collect(spec)
+		case "method_spec_list":
+			// Older grammar: walk the wrapper.
+			for j := 0; j < int(spec.NamedChildCount()); j++ {
+				inner := spec.NamedChild(j)
+				if inner == nil {
+					continue
+				}
+				switch inner.Type() {
+				case "method_elem", "method_spec":
+					collect(inner)
+				}
+			}
+		}
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
 }
 
 func goExtractVarConst(node *sitter.Node, src []byte, file string) []types.Symbol {

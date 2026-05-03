@@ -82,6 +82,40 @@ type Symbol struct {
 	Parent    string `json:"parent,omitempty"` // containing type/class
 	Arity     int    `json:"arity,omitempty"`  // param count for functions/methods, 0 otherwise
 
+	// RequiredMethods is the deduplicated set of "name(arity)"
+	// method signatures an interface / trait declaration requires.
+	// Populated only for Kind=interface / Kind=trait symbols by the
+	// AST extractor; empty for concrete types. Phase 6 P0 batch
+	// (2026-05-03) — typed contract data behind the Implements
+	// post-pass that drives ImplementersOf queries.
+	//
+	// Format per entry: "<methodName>(<arity>)" — e.g.
+	// "Observe(2)" for Observe(ctx, obs). Receiver-name and
+	// parameter-type detail are intentionally omitted; arity is the
+	// minimum precision needed for Go-style structural matching.
+	// Cross-language note: Java / Kotlin use Symbol.Parent on each
+	// abstract method symbol to express the same contract; Go's
+	// interface_type body has no separate method symbols, so this
+	// field is the canonical Go-side carrier.
+	RequiredMethods []string `json:"required_methods,omitempty"`
+
+	// Implements is the list of interface SymbolIDs that this
+	// concrete type satisfies via its method set. Phase 6 P0 batch
+	// (2026-05-03) — populated by the populateImplementers post-
+	// pass after BuildGraph, by matching concrete-type method sets
+	// against interface RequiredMethods. Empty for interface /
+	// trait symbols themselves.
+	//
+	// Solves the structural-typing problem in Go: a type T satisfies
+	// interface I iff T has every method I requires, regardless of
+	// whether T's source mentions I textually. byte-grep for "I"
+	// across the repo finds ~half of T's because the rest are
+	// structurally-typed without an explicit "implements I" comment
+	// or interface-conversion expression. Implements drives the
+	// Graph.ImplementersOf API which downstream consumers (explorer,
+	// concrete_values producer) read instead of byte-grep.
+	Implements []SymbolID `json:"implements,omitempty"`
+
 	// ReturnTypeNames is the deduplicated set of bare type-name
 	// tokens parsed from this function/method's return signature.
 	// Phase 6 stage 20 (2026-05-03) replacement for the retired

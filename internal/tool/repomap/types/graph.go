@@ -88,6 +88,66 @@ func (g *Graph) SymbolsInFile(file string) []Symbol {
 // in repomap/oracle.go just adapts this method to the interface
 // shape.
 //
+// ImplementersOf returns the SymbolIDs of every concrete type
+// that satisfies the named interface / trait. Phase 6 P0 batch
+// (2026-05-03) — typed replacement for byte-grep searches that
+// asked "which types implement interface X". Reads the
+// Symbol.Implements list populated by the populateImplementers
+// post-pass against every interface whose Name == name.
+//
+// Returns nil for unknown names, nil receiver, or files that have
+// not yet been indexed. Callers can pass either a bare
+// `LoopController` style name or a fully-qualified `pkg.IFace`
+// — the lookup matches against both Symbol.Name (bare form, the
+// declaration site) and the resolved SymbolID.
+func (g *Graph) ImplementersOf(name string) []SymbolID {
+	if g == nil || name == "" {
+		return nil
+	}
+	defs, ok := g.SymbolDefs[name]
+	if !ok || len(defs) == 0 {
+		return nil
+	}
+	wanted := make(map[SymbolID]bool, len(defs))
+	for _, d := range defs {
+		if d == nil || d.ID == "" {
+			continue
+		}
+		// Only interface / trait declarations qualify as the
+		// "interface side" of the implements relation.
+		switch d.Kind {
+		case "interface", "trait":
+			wanted[d.ID] = true
+		}
+	}
+	if len(wanted) == 0 {
+		return nil
+	}
+	var out []SymbolID
+	seen := make(map[SymbolID]bool)
+	for _, fi := range g.Files {
+		if fi == nil {
+			continue
+		}
+		for i := range fi.Symbols {
+			sym := &fi.Symbols[i]
+			if len(sym.Implements) == 0 {
+				continue
+			}
+			for _, ifaceID := range sym.Implements {
+				if !wanted[ifaceID] {
+					continue
+				}
+				if !seen[sym.ID] {
+					seen[sym.ID] = true
+					out = append(out, sym.ID)
+				}
+			}
+		}
+	}
+	return out
+}
+
 // LineFeaturesAt returns the typed AST node-shape features
 // observed at `file:line` (1-based). Phase 6 stage 18 (2026-05-03)
 // typed replacement for explorer-side source-line token tables.

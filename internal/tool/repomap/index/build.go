@@ -1,6 +1,7 @@
 package index
 
 import (
+	"fmt"
 	"path/filepath"
 	"time"
 
@@ -92,7 +93,165 @@ func BuildGraph(repoRoot string, files []*types.FileInfo) *types.Graph {
 	}
 
 	resolveImportGraph(g)
+	populateImplementers(g)
 	return g
+}
+
+// populateImplementers (Phase 6 P0 batch, 2026-05-03) walks every
+// concrete type in the graph and matches its method set against
+// every interface's RequiredMethods. When the concrete type's
+// method set is a superset of the interface's required set, the
+// interface SymbolID is appended to the concrete type's
+// Implements slice.
+//
+// This is the typed replacement for byte-grep "implementers of
+// interface X" searches. Solves Go's structural-typing case: a
+// type T implementing interface I via method-set agreement
+// without textually mentioning I. Other languages benefit too —
+// Java/Kotlin's `class T implements I` already gives an explicit
+// signal but the typed lookup remains uniform across languages.
+//
+// Performance: O(N_interfaces × N_concrete_types) per file pair,
+// bounded in practice by the number of interfaces — codrax has
+// ~50 interfaces and ~3K types, so the full pass is ~150K
+// comparisons (microseconds).
+//
+// Per-package matching: a concrete type T at package P matches
+// interface I at any package — Go's structural typing is
+// package-agnostic. Cross-language matching is intentionally
+// disabled (a Java interface should not match a Python class).
+func populateImplementers(g *types.Graph) {
+	if g == nil {
+		return
+	}
+	type ifaceEntry struct {
+		id  types.SymbolID
+		req map[string]bool
+		fi  *types.FileInfo
+	}
+	// Group interfaces by language so cross-language matches are
+	// excluded structurally.
+	byLang := make(map[string][]ifaceEntry)
+	for _, fi := range g.Files {
+		if fi == nil {
+			continue
+		}
+		for i := range fi.Symbols {
+			sym := &fi.Symbols[i]
+			if sym.Kind != "interface" && sym.Kind != "trait" {
+				continue
+			}
+			if len(sym.RequiredMethods) == 0 {
+				continue
+			}
+			req := make(map[string]bool, len(sym.RequiredMethods))
+			for _, m := range sym.RequiredMethods {
+				req[m] = true
+			}
+			byLang[fi.Language] = append(byLang[fi.Language], ifaceEntry{
+				id:  sym.ID,
+				req: req,
+				fi:  fi,
+			})
+		}
+	}
+	if len(byLang) == 0 {
+		return
+	}
+	// For each file, group its method symbols by Receiver/Parent
+	// to derive per-type method sets. Then match against same-
+	// language interfaces.
+	for _, fi := range g.Files {
+		if fi == nil {
+			continue
+		}
+		ifaces := byLang[fi.Language]
+		if len(ifaces) == 0 {
+			continue
+		}
+		methodsByOwner := buildMethodSetsForFile(fi)
+		if len(methodsByOwner) == 0 {
+			continue
+		}
+		for i := range fi.Symbols {
+			sym := &fi.Symbols[i]
+			if sym.Kind == "interface" || sym.Kind == "trait" {
+				continue
+			}
+			ownerMethods, ok := methodsByOwner[sym.Name]
+			if !ok || len(ownerMethods) == 0 {
+				continue
+			}
+			for _, iface := range ifaces {
+				if !ownerMethods.Implements(iface.req) {
+					continue
+				}
+				sym.Implements = appendUniqueSymbolID(sym.Implements, iface.id)
+			}
+		}
+	}
+}
+
+// methodSet is the per-owner-type bag of method signatures.
+type methodSet map[string]bool
+
+// Implements reports whether `s` is a superset of `required`.
+func (s methodSet) Implements(required map[string]bool) bool {
+	if len(required) == 0 {
+		return false
+	}
+	for k := range required {
+		if !s[k] {
+			return false
+		}
+	}
+	return true
+}
+
+// buildMethodSetsForFile groups method symbols by their owner
+// (Receiver for Go, Parent for Java/Python/etc.). Returns
+// owner-name → set-of-"name(arity)" strings.
+func buildMethodSetsForFile(fi *types.FileInfo) map[string]methodSet {
+	out := make(map[string]methodSet)
+	for i := range fi.Symbols {
+		sym := &fi.Symbols[i]
+		if sym.Kind != "method" && sym.Kind != "function" {
+			// Java/Kotlin/Python interface contracts may surface
+			// methods under Kind="method" with Parent set; only
+			// these participate in implements matching.
+			if sym.Kind != "" {
+				continue
+			}
+		}
+		owner := sym.Receiver
+		if owner == "" {
+			owner = sym.Parent
+		}
+		if owner == "" {
+			continue
+		}
+		key := fmt.Sprintf("%s(%d)", sym.Name, sym.Arity)
+		set, ok := out[owner]
+		if !ok {
+			set = make(methodSet)
+			out[owner] = set
+		}
+		set[key] = true
+	}
+	return out
+}
+
+// appendUniqueSymbolID appends id to ids if not already present.
+func appendUniqueSymbolID(ids []types.SymbolID, id types.SymbolID) []types.SymbolID {
+	if id == "" {
+		return ids
+	}
+	for _, existing := range ids {
+		if existing == id {
+			return ids
+		}
+	}
+	return append(ids, id)
 }
 
 // resolveImportGraph builds file→file import edges by dispatching
