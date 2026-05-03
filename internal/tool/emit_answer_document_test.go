@@ -7323,12 +7323,24 @@ func TestEmitAnswerDocument_DiagramGate_IgnoresNonCodeExtensions(t *testing.T) {
 	}
 }
 
-// --- Session 24 codename-grounding gate tests ---
+// --- Session 24 codename-grounding gate tests retired 2026-05-03 ---
+//
+// The codename-grounding system (codenameTokenRe +
+// validateSummaryCodenameGrounding +
+// validateEvidenceSummaryCodenameGrounding) was retired in
+// Phase 6 stage 2. Identifier grounding for summary /
+// step.description / symbol.rationale / boolean.rationale is now
+// enforced by Phase 4's runStepIdentifierBackedByEvidenceOracle
+// (typed evidence pool membership). The 5 gate tests
+// (TestEmitAnswerDocument_CodenameGate_*,
+// TestEmitEvidence_CodenameGate_*) exercised behaviour that no
+// longer exists at emit time — retired with the gate.
 
 // seedCitedLineWindow wires a read_file ToolResult that exposes one
 // line's content via the gutter format expected by ground.BuildContext.
-// Keeps the codename-gate tests short — each just declares one
-// line:text pair and the citation's line number.
+// Kept after the codename-gate retirement — other tests
+// (StepLiteralGrounding_SkipsSparseUnreadCitationWindow, etc.)
+// use it to seed minimal LineIndex content.
 func seedCitedLineWindow(ctx *types.BusContext, path string, line int, text string) {
 	body := "[" + path + ": showing lines " + fmt.Sprint(line) + "-" + fmt.Sprint(line) + " of 99999 total]\n" +
 		"  " + fmt.Sprint(line) + "│ " + text + "\n"
@@ -7337,131 +7349,6 @@ func seedCitedLineWindow(ctx *types.BusContext, path string, line int, text stri
 		Success:  true,
 		Summary:  body,
 	})
-}
-
-// TestEmitAnswerDocument_CodenameGate_RejectsUngroundedFallbackLabel
-// is the headline case: the u3a failing-run fingerprint. Summary
-// introduces `S2` as a sequence extension, but the cited ±3 window
-// contains only `S1` — the LLM pattern-completed from prior. Reject.
-func TestEmitAnswerDocument_CodenameGate_RejectsUngroundedFallbackLabel(t *testing.T) {
-	tool := &EmitAnswerDocument{}
-	ctx := newDocBusCtx("")
-	seedCitedLineWindow(ctx, "internal/agent/explorer.go", 2426, "// Fallback S1: when the LLM soft-stops in Phase 1")
-	summary := "Primary path checks investigationComplete. Fallback S1 fires on ERM satisfaction; " +
-		"Fallback S2 fires at max iterations."
-	params := mustDocJSON(t, map[string]interface{}{
-		"shape":     "explanation",
-		"summary":   summary,
-		"citations": []map[string]interface{}{{"file": "internal/agent/explorer.go", "line": 2426}},
-	})
-	res, _ := tool.Execute(ctx, params)
-	if res.Success {
-		t.Fatalf("ungrounded `S2` / `Fallback S2` must be rejected; got Success=true Summary=%q", res.Summary)
-	}
-	if !strings.Contains(res.Summary, "S2") {
-		t.Errorf("rejection must name the offending codename; got: %q", res.Summary)
-	}
-	if res.Repair == nil || res.Repair.Code != "diagram_codename" {
-		t.Fatalf("codename reject should emit structured repair metadata, got %+v", res.Repair)
-	}
-}
-
-// TestEmitAnswerDocument_CodenameGate_AcceptsGroundedLabel is the
-// allow-path: summary says `S1` and the cited ±3 window contains `S1`.
-// Must pass even though `S2` is never mentioned, because `S1` alone is
-// the only codename token extracted.
-func TestEmitAnswerDocument_CodenameGate_AcceptsGroundedLabel(t *testing.T) {
-	tool := &EmitAnswerDocument{}
-	ctx := newDocBusCtx("")
-	seedCitedLineWindow(ctx, "internal/agent/explorer.go", 2426, "// Fallback S1: when the LLM soft-stops in Phase 1")
-	summary := "The primary path checks investigationComplete; Fallback S1 fires when ERM is satisfied."
-	params := mustDocJSON(t, map[string]interface{}{
-		"shape":     "explanation",
-		"summary":   summary,
-		"citations": []map[string]interface{}{{"file": "internal/agent/explorer.go", "line": 2426}},
-	})
-	res, _ := tool.Execute(ctx, params)
-	if !res.Success {
-		t.Fatalf("grounded `S1` / `Fallback S1` must pass; got Success=false Summary=%q", res.Summary)
-	}
-}
-
-// TestEmitAnswerDocument_CodenameGate_LineScopeNotFileScope pins the
-// core invariant: even when the fabricated token appears ELSEWHERE in
-// the cited file, the gate still rejects because the ±3 window around
-// the citation does not contain it. This differentiates our gate from
-// a whole-file substring check.
-func TestEmitAnswerDocument_CodenameGate_LineScopeNotFileScope(t *testing.T) {
-	tool := &EmitAnswerDocument{}
-	ctx := newDocBusCtx("")
-	// Cite line 2426 — only S1 in window.
-	seedCitedLineWindow(ctx, "internal/agent/explorer.go", 2426, "// Fallback S1: when the LLM soft-stops in Phase 1")
-	// ALSO seed a far-away line that happens to contain `S2` as an
-	// unrelated token (the real explorer.go has this at line 9001 in
-	// the entity-overlap filter).
-	seedCitedLineWindow(ctx, "internal/agent/explorer.go", 9001, "// S2 (2026-04-12 early-stop audit): the symbol name must overlap")
-	summary := "Fallback S2 handles max-iteration cutoff."
-	params := mustDocJSON(t, map[string]interface{}{
-		"shape":     "explanation",
-		"summary":   summary,
-		"citations": []map[string]interface{}{{"file": "internal/agent/explorer.go", "line": 2426}},
-	})
-	res, _ := tool.Execute(ctx, params)
-	if res.Success {
-		t.Fatalf("file-scope presence of `S2` must NOT satisfy the gate when the cited window lacks it; got Success=true Summary=%q", res.Summary)
-	}
-}
-
-// TestEmitAnswerDocument_CodenameGate_SkipsOnNoCodenameTokens guards
-// the degrade path: prose full of CamelCase identifiers but no
-// codename-shape tokens passes through untouched.
-func TestEmitAnswerDocument_CodenameGate_SkipsOnNoCodenameTokens(t *testing.T) {
-	tool := &EmitAnswerDocument{}
-	ctx := newDocBusCtx("")
-	seedCitedLineWindow(ctx, "a.go", 10, "func ShouldStop() bool { return false }")
-	summary := "ShouldStop returns false. It is called by BaseAgent.Execute and observed by LoopController."
-	params := mustDocJSON(t, map[string]interface{}{
-		"shape":     "explanation",
-		"summary":   summary,
-		"citations": []map[string]interface{}{{"file": "a.go", "line": 10}},
-	})
-	res, _ := tool.Execute(ctx, params)
-	if !res.Success {
-		t.Fatalf("prose with CamelCase but no codename tokens must pass; got Success=false Summary=%q", res.Summary)
-	}
-}
-
-// TestEmitAnswerDocument_CodenameGate_StepDescriptionIsChecked pins
-// the step_list branch: hallucinated `S2` in steps[i].description
-// (not in summary) must still be rejected. u3a-20260422-010419/run-5's
-// failure mode was exactly this path.
-func TestEmitAnswerDocument_CodenameGate_StepDescriptionIsChecked(t *testing.T) {
-	tool := &EmitAnswerDocument{}
-	ctx := newDocBusCtx("")
-	// Seed two distinct cited windows so steps[0] (investigationComplete)
-	// and steps[1-2] (Fallback S*) can ground on the appropriate line.
-	seedCitedLineWindow(ctx, "internal/agent/explorer.go", 2421, "if e.investigationComplete {")
-	seedCitedLineWindow(ctx, "internal/agent/explorer.go", 2426, "// Fallback S1: when the LLM soft-stops in Phase 1")
-	params := mustDocJSON(t, map[string]interface{}{
-		"shape":   "step_list",
-		"summary": "Termination layering.",
-		"steps": []map[string]interface{}{
-			{"index": 1, "description": "Primary path on investigationComplete.", "citation_ref": 0},
-			{"index": 2, "description": "Fallback S1 fires on ERM satisfaction.", "citation_ref": 1},
-			{"index": 3, "description": "Fallback S2 fires at max iterations.", "citation_ref": 1},
-		},
-		"citations": []map[string]interface{}{
-			{"file": "internal/agent/explorer.go", "line": 2421},
-			{"file": "internal/agent/explorer.go", "line": 2426},
-		},
-	})
-	res, _ := tool.Execute(ctx, params)
-	if res.Success {
-		t.Fatalf("ungrounded `S2` in step description must be rejected; got Success=true Summary=%q", res.Summary)
-	}
-	if !strings.Contains(res.Summary, "steps[2]") {
-		t.Errorf("rejection must point at the specific step index; got: %q", res.Summary)
-	}
 }
 
 func TestEmitAnswerDocument_StepLiteralGrounding_SkipsSparseUnreadCitationWindow(t *testing.T) {
@@ -7492,35 +7379,8 @@ func TestEmitAnswerDocument_StepLiteralGrounding_SkipsSparseUnreadCitationWindow
 	}
 }
 
-// TestEmitEvidence_CodenameGate_RejectsUngroundedLabel covers the
-// upstream hook: explorer-side emit_evidence items get the same check
-// against their own Source:[LineStart..LineEnd] window.
-func TestEmitEvidence_CodenameGate_RejectsUngroundedLabel(t *testing.T) {
-	tool := &EmitEvidence{}
-	ctx := newDocBusCtx("")
-	seedCitedLineWindow(ctx, "internal/agent/explorer.go", 2418, "func (e *explorerEvaluator) ShouldStop(resp llm.Response, iteration int) bool {")
-	params := mustDocJSON(t, map[string]interface{}{
-		"items": []map[string]interface{}{
-			{
-				"kind":          "direct",
-				"subject":       "explorerEvaluator",
-				"predicate":     "defines",
-				"object":        "bool",
-				"source":        "internal/agent/explorer.go",
-				"line_start":    2418,
-				"anchor_kind":   "definition",
-				"anchor_symbol": "ShouldStop",
-				"summary":       "S2 终止条件：若 LLM 本轮发出了工具调用则直接返回 false 继续循环",
-			},
-		},
-	})
-	res, _ := tool.Execute(ctx, params)
-	// The call itself may succeed (item rejected individually), but the
-	// rejection message must name the offending codename.
-	if !strings.Contains(res.Summary, "S2") {
-		t.Errorf("evidence summary containing ungrounded `S2` must be flagged; got Summary=%q Success=%v", res.Summary, res.Success)
-	}
-}
+// TestEmitEvidence_CodenameGate_RejectsUngroundedLabel retired
+// 2026-05-03 along with the codename gate (Phase 6 stage 2).
 
 // TestEmitAnswerDocument_ValueShape_RejectsEmptySummary pins Fix G1:
 // shape=value with empty (or too-short) summary is hard-rejected so

@@ -1247,11 +1247,15 @@ func runStepIdentifierBackedByEvidenceOracle(doc *types.AnswerDocument, mut *typ
 		return nil
 	}
 	var out []types.Violation
-	for i := range doc.Steps {
-		step := &doc.Steps[i]
-		ids := extractBacktickIdentifiers(step.Description)
+	// Walk every prose surface that may carry backtick-quoted
+	// identifiers: AnswerStep.Description, AnswerSymbol.Rationale,
+	// AnswerBoolean.Rationale, and AnswerDocument.Summary. Each
+	// surface produces one Violation entry naming the carrier so
+	// the operator can find the offending text quickly.
+	check := func(label, prose string) {
+		ids := extractBacktickIdentifiers(prose)
 		if len(ids) == 0 {
-			continue
+			return
 		}
 		var missing []string
 		seen := map[string]bool{}
@@ -1266,23 +1270,35 @@ func runStepIdentifierBackedByEvidenceOracle(doc *types.AnswerDocument, mut *typ
 			missing = append(missing, id)
 		}
 		if len(missing) == 0 {
-			continue
+			return
 		}
 		out = append(out, types.Violation{
 			Kind: types.ViolStepIdentifierUnverified,
 			Detail: fmt.Sprintf(
-				"steps[%d] inline-code identifiers not present in typed evidence pool: %v. The verified-identifier set is built from EvidenceItem.Subject / Object / AnchorSymbol and AnswerSymbol.Name fields the explorer / extractor structurally emitted. Identifiers in the step's description that have no typed-pool support are typically hallucinations — the LLM remembered a file:line position but invented the name at that position.",
-				i, missing),
+				"%s inline-code identifiers not present in typed evidence pool: %v. The verified-identifier set is built from EvidenceItem.Subject / Object / AnchorSymbol and AnswerSymbol.Name fields the explorer / extractor structurally emitted. Identifiers in the prose that have no typed-pool support are typically hallucinations — the LLM remembered a file:line position but invented the name at that position.",
+				label, missing),
 			Repair: fmt.Sprintf(
-				"the next investigation pass should call emit_evidence with at least one of %v as Subject / Object / AnchorSymbol, OR the finalizer should rephrase the step.description to use only identifiers the typed evidence pool already observed (cross-check by reading the prior stage's structured evidence section before re-emitting).",
-				missing),
+				"the next investigation pass should call emit_evidence with at least one of %v as Subject / Object / AnchorSymbol, OR the answer-rendering pass should rephrase %s to use only identifiers the typed evidence pool already observed (cross-check by reading the prior stage's structured evidence section before re-emitting).",
+				missing, label),
 			SuspectedRoot: types.SuspectedRoot{
 				IRField:    "step_identifier_provenance",
-				Reason:     fmt.Sprintf("steps[%d] uses %d unverified identifier(s)", i, len(missing)),
+				Reason:     fmt.Sprintf("%s uses %d unverified identifier(s)", label, len(missing)),
 				Confidence: 0.65,
 			},
 			Stage: string(types.StageFinalize),
 		})
+	}
+	for i := range doc.Steps {
+		check(fmt.Sprintf("steps[%d].description", i), doc.Steps[i].Description)
+	}
+	for i := range doc.Symbols {
+		check(fmt.Sprintf("symbols[%d].rationale", i), doc.Symbols[i].Rationale)
+	}
+	if doc.Boolean != nil {
+		check("boolean.rationale", doc.Boolean.Rationale)
+	}
+	if doc.Summary != "" {
+		check("summary", doc.Summary)
 	}
 	return out
 }
