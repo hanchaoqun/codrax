@@ -238,6 +238,10 @@ func TestAllViolationKindsHaveProducer(t *testing.T) {
 		// Phase 6 stage 7 — typed-pool replacement for the retired
 		// emit-time validateValueCitationFocus token-overlap heuristic.
 		ViolValueSecondaryCitationOffFocus: true, // orchestrator/contract_check.go runValueSecondaryCitationFocusOracle
+		// P1 #3 (2026-05-03) — repeated emit_answer_symbol line-anchor
+		// rejections diagnose def-region coverage gaps; oracle reads
+		// EvidenceClosure.SymbolEmitRejections counter.
+		ViolSymbolAnchorMismatch: true, // orchestrator/contract_check.go runSymbolAnchorTrackOracle
 	}
 	pending := map[ViolationKind]string{}
 	// Sanity: AllViolationKinds() must equal covered ∪ pending so the
@@ -278,6 +282,7 @@ func TestAllViolationKindsHaveProducer(t *testing.T) {
 		ViolStepIdentifierUnverified:       "ViolStepIdentifierUnverified",
 		ViolRichnessRegression:             "ViolRichnessRegression",
 		ViolValueSecondaryCitationOffFocus: "ViolValueSecondaryCitationOffFocus",
+		ViolSymbolAnchorMismatch:           "ViolSymbolAnchorMismatch",
 	}
 
 	// Match only the "Kind: ViolXxx" composite-literal pattern —

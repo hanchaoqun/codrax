@@ -224,6 +224,11 @@ func DefaultFallbackPolicy() FallbackPolicy {
 		// remediation is BackToExplore so the next pass captures it
 		// in a typed Subject/Object/AnchorSymbol field.
 		types.ViolStepIdentifierUnverified: FallbackBackToExplore,
+		// P1 #3 (2026-05-03) — repeated emit_answer_symbol line-
+		// anchor rejections diagnose the explorer never reading
+		// def-region for the user's principal entities; remediation
+		// is a fresh investigation pass that probes def-line reads.
+		types.ViolSymbolAnchorMismatch: FallbackBackToExplore,
 		// Phase 5 telemetry-only kind — never reaches the fallback
 		// switch under default SOFT classification, but mapped to
 		// FailLoud as a safety net so an accidental promotion to

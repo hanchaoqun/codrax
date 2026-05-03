@@ -271,6 +271,12 @@ func (t *EmitAnswerSymbol) Execute(ctx *types.BusContext, params json.RawMessage
 		sym, perr := buildEmitAnswerSymbolItem(in, i, workDir, bundle, groundCtx, stepCandidates)
 		if perr != nil {
 			dropped = append(dropped, perr.Error())
+			// P1 #3 (2026-05-03) — feed the per-Run rejection
+			// counter so runSymbolAnchorTrackOracle can spot
+			// repeated def-line misses and escalate to a
+			// BackToExplore fallback rather than silently letting
+			// the iteration cap bury the failure.
+			ctx.Mutable.EvidenceClosure().IncrementSymbolEmitRejection()
 			continue
 		}
 		built = append(built, sym)

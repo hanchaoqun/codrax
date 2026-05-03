@@ -351,6 +351,28 @@ const (
 	// negatives are eliminated. Fallback target: BackToExtract —
 	// the extractor selects citations.
 	ViolValueSecondaryCitationOffFocus ViolationKind = "value_secondary_citation_off_focus"
+
+	// ViolSymbolAnchorMismatch (P1 #3, 2026-05-03) fires when the
+	// extractor accumulated ≥ symbolAnchorMismatchThreshold (default 3)
+	// emit_answer_symbol rejections in a single Run AND the rendered
+	// AnswerDocument carries strictly fewer Symbols than the analyzer's
+	// declared count for the question (or zero when no count was
+	// declared but the answer shape is list_of_symbols). Diagnostic:
+	// the explorer either never read the def-regions of the user's
+	// principal entities, or read them but the lines surfaced through
+	// keyword_search were the call-site lines rather than the def lines.
+	// Either way the right escalation is BackToExplore so the next
+	// iteration can re-investigate with a hint pointing at the missing
+	// def-region symbols.
+	//
+	// Stage="extract" (the rejections are logged from emit_answer_symbol
+	// inside Turn B). SOFT-by-default (telemetry signal first; the
+	// orchestrator's existing iteration-cap escape and pre-existing
+	// soft fail-safe paths must observe the gap before retrying or
+	// shipping). Operators promote via pipeline_contract_strict_kinds.
+	// Fallback target (when promoted to STRICT): BackToExplore — the
+	// rejected lines mean keyword_search did not cover def-region.
+	ViolSymbolAnchorMismatch ViolationKind = "symbol_anchor_mismatch"
 )
 
 // AllViolationKinds returns every declared ViolationKind in a stable
@@ -396,6 +418,7 @@ func AllViolationKinds() []ViolationKind {
 		ViolStepIdentifierUnverified,
 		ViolRichnessRegression,
 		ViolValueSecondaryCitationOffFocus,
+		ViolSymbolAnchorMismatch,
 	}
 }
 

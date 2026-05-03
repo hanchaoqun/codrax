@@ -114,6 +114,13 @@ func runContractCheck(out *agent.StageOutput, c types.AnswerContract, mut *types
 				runSubjectAnchorOracle(doc, ir)...)
 			result.Violations = append(result.Violations,
 				runPredicateAxisOracle(doc, ir, mut)...)
+			// P1 #3 (2026-05-03) — symbol-anchor mismatch tracker
+			// reads the per-Run emit_answer_symbol rejection
+			// counter and signals BackToExplore when the explorer
+			// never delivered def-region lines for the user's
+			// principal entities.
+			result.Violations = append(result.Violations,
+				runSymbolAnchorTrackOracle(doc, ir, c.RequiredAnswerShape, mut)...)
 			// Phase 4 (Semantic Surface Contract, 2026-05-02) —
 			// FacetCoverage / ClaimForm / Absence-Scope oracles.
 			// All three consume Phase-1 FacetCoverageContract +
@@ -1019,6 +1026,91 @@ func runPredicateAxisOracle(doc *types.AnswerDocument, rm *types.RequestModel, m
 			Confidence: 0.55,
 		},
 		Stage: string(types.StageFinalize),
+	}}
+}
+
+// symbolAnchorMismatchThreshold is the rejection floor at which
+// runSymbolAnchorTrackOracle escalates from telemetry to a fallback
+// signal. Three rejections in one Run means the LLM emitted three
+// items that all failed line-anchor verification — strong evidence
+// the explorer never read the def-region of the user's principal
+// entities (the verifier is a precise per-line check; rejection on
+// three independently-emitted items cannot be explained by a single
+// off-by-one slip).
+const symbolAnchorMismatchThreshold = 3
+
+// runSymbolAnchorTrackOracle (P1 #3, 2026-05-03) reads the per-Run
+// emit_answer_symbol rejection counter from the closure and emits
+// ViolSymbolAnchorMismatch when (a) the rejection count crossed
+// symbolAnchorMismatchThreshold AND (b) the rendered AnswerDocument
+// has fewer Symbols than the analyzer-declared count for the
+// question (or zero Symbols when the answer shape is list_of_symbols
+// without a declared count). The signal is precise — it derives from
+// a deterministic per-line verifier inside the tool, NOT from
+// keyword scanning or fuzzy ranker output. Per the
+// precise-signals-for-hard-gates red line this oracle therefore
+// CAN drive a structural fallback decision; default classification
+// remains SOFT (telemetry first, operators promote via
+// pipeline_contract_strict_kinds for repos where it should
+// auto-trigger BackToExplore).
+//
+// Skip cases:
+//   - mut == nil (test scaffolding)
+//   - closure == nil OR rejection count below threshold
+//   - the rendered answer's symbol count already meets the user's
+//     expectation (rejections happened but the LLM still recovered)
+//   - shape is not list_of_symbols / step_list / explanation (the
+//     three shapes whose payload includes structural symbols)
+func runSymbolAnchorTrackOracle(doc *types.AnswerDocument, rm *types.RequestModel, requiredShape types.AnswerShape, mut *types.MutableState) []types.Violation {
+	if doc == nil || rm == nil || mut == nil {
+		return nil
+	}
+	closure := mut.EvidenceClosure()
+	if closure == nil {
+		return nil
+	}
+	rejections := closure.SymbolEmitRejections()
+	if rejections < symbolAnchorMismatchThreshold {
+		return nil
+	}
+	switch requiredShape {
+	case types.ShapeListOfSymbols, types.ShapeStepList, types.ShapeExplanation:
+		// supported
+	default:
+		return nil
+	}
+	expected := 0
+	if b := rm.EnumerationBoundary; b != nil && b.DeclaredCount > 0 {
+		expected = b.DeclaredCount
+	}
+	gotSymbols := len(doc.Symbols)
+	gotSteps := len(doc.Steps)
+	switch {
+	case expected > 0 && gotSymbols >= expected:
+		return nil
+	case expected == 0 && requiredShape == types.ShapeListOfSymbols && gotSymbols == 0:
+		// list_of_symbols + no declared count + zero emitted ⇒ fire
+	case expected == 0 && requiredShape == types.ShapeStepList && gotSteps == 0 && gotSymbols == 0:
+		// step_list with no anchor surface ⇒ fire
+	case expected == 0 && requiredShape == types.ShapeExplanation && gotSymbols == 0:
+		// explanation typically carries Key Anchors; zero ⇒ fire
+	case expected > 0 && gotSymbols < expected:
+		// declared count, came up short ⇒ fire
+	default:
+		return nil
+	}
+	return []types.Violation{{
+		Kind: types.ViolSymbolAnchorMismatch,
+		Detail: fmt.Sprintf(
+			"emit_answer_symbol rejected %d items on line-anchor mismatch this Run; the rendered answer carries %d symbol(s) for shape=%s (declared count=%d). The rejections cluster around the def-line verifier, signalling the explorer surfaced call-site lines or never read the def-region for the user's principal entities.",
+			rejections, gotSymbols, requiredShape, expected),
+		Repair: "the next investigation pass should re-explore around the principal entities the rejected items pointed to, with read_file slices that cover each entity's definition line (use repo_map symbol-defs lookup, then read_file with the def-line in range). The retried emit_answer_symbol then has correct line anchors to cite.",
+		SuspectedRoot: types.SuspectedRoot{
+			IRField:    "explorer_def_region_coverage",
+			Reason:     "repeated emit_answer_symbol rejections at line-anchor verifier",
+			Confidence: 0.7,
+		},
+		Stage: string(types.StageExtract),
 	}}
 }
 

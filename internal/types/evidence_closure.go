@@ -160,6 +160,20 @@ type EvidenceClosure struct {
 	// summary; reset to zero by Reset() on per-task entry.
 	stats ClosureStats
 
+	// symbolEmitRejections counts the per-Run number of
+	// emit_answer_symbol items rejected by the line-anchor
+	// verification (Pattern 2 line-hallucination guard inside
+	// internal/tool/emit_answer_symbol.go::compileItem). P1 #3
+	// (2026-05-03) consumes this as a precise structural signal
+	// for runSymbolAnchorTrackOracle which emits
+	// ViolSymbolAnchorMismatch when accumulation crosses
+	// symbolAnchorMismatchThreshold AND the rendered AnswerDocument
+	// is missing principal symbols — diagnosing a re-explore
+	// situation rather than a finalize-retry one.
+	//
+	// Cleared by Reset() at per-task entry.
+	symbolEmitRejections int
+
 	// violations is the Session 11 F1 ViolationLedger — structured
 	// per-run record of every enforcer reject that carries a
 	// SuspectedRoot self-diagnosis. The F2 RootCauseAggregator
@@ -1708,6 +1722,33 @@ func (c *EvidenceClosure) IncrementStageRetry(stage string) {
 	c.stats.PerStage[stage] = s
 }
 
+// IncrementSymbolEmitRejection bumps the per-Run counter of
+// emit_answer_symbol items rejected by the line-anchor verification
+// inside the tool (Pattern 2 line-hallucination guard). The counter
+// feeds runSymbolAnchorTrackOracle (P1 #3) which emits
+// ViolSymbolAnchorMismatch when accumulation crosses the threshold —
+// signalling that the explorer never surfaced def-region lines for
+// the user's principal entities and a BackToExplore fallback is
+// warranted.
+func (c *EvidenceClosure) IncrementSymbolEmitRejection() {
+	if c == nil {
+		return
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.symbolEmitRejections++
+}
+
+// SymbolEmitRejections returns the current rejection counter.
+func (c *EvidenceClosure) SymbolEmitRejections() int {
+	if c == nil {
+		return 0
+	}
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.symbolEmitRejections
+}
+
 // pendingReadDerivedStage maps a PendingRead.Origin string to the
 // most likely stage name. Pure helper, no closure access — called
 // inside StageHealthSnapshot under RLock so it must be lock-free.
@@ -1859,6 +1900,7 @@ func (c *EvidenceClosure) Reset() {
 	c.violations = nil
 	c.stats = ClosureStats{}
 	c.phase1UnreadFired = false
+	c.symbolEmitRejections = 0
 }
 
 // Phase1UnreadFired reports whether the session-12 phase1_unread
