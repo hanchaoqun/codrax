@@ -1190,7 +1190,6 @@ func TestBuildPromptContext_AnalysisSkill_RendersAllSections(t *testing.T) {
 		"scenario",
 		"complexity",
 		"question_kind",
-		"answer_shape",
 	} {
 		header := field + " — pick one:"
 		if !strings.Contains(of.Content, header) {

@@ -23,7 +23,6 @@ const v4DefaultsJSON = `,
 	"intent_confidence": 0.7,
 	"complexity_confidence": 0.7,
 	"kind_confidence": 0.7,
-	"shape_confidence": 0.7,
 	"predicates": {
 		"is_scalar_answer": false,
 		"is_role_locate_lookup": false,
@@ -42,7 +41,13 @@ func withV4Required(partial string) string {
 		// that violate this should be rewritten, not silently patched.
 		panic("withV4Required: payload is not a JSON object literal: " + partial)
 	}
-	return trimmed[:len(trimmed)-1] + v4DefaultsJSON + "}"
+	// Strip the closing brace + any trailing comma/whitespace from the
+	// last field so the v4 defaults can append cleanly with their own
+	// leading comma.
+	body := strings.TrimRightFunc(trimmed[:len(trimmed)-1], func(r rune) bool {
+		return r == ',' || r == ' ' || r == '\t' || r == '\n' || r == '\r'
+	})
+	return body + v4DefaultsJSON + "}"
 }
 
 // -----------------------------------------------------------------------------
@@ -78,7 +83,6 @@ func TestValidateSelfConsistency_RoleLocateRequiresScalarValueAndSubject(t *test
 	reason := validateSelfConsistency(
 		types.IntentExplain,
 		"mechanism",
-		"explanation",
 		preds,
 		types.AxisDefine,
 		[]string{"AnalysisIR"},
@@ -103,7 +107,6 @@ func TestValidateSelfConsistency_DefineAxisSingleTargetRequiresSubjectDisambigua
 	reason := validateSelfConsistency(
 		types.IntentExplain,
 		"mechanism",
-		"explanation",
 		preds,
 		types.AxisDefine,
 		[]string{"AnalysisIR"},
@@ -123,7 +126,6 @@ func TestValidateSelfConsistency_DefineAxisSingleTargetAcceptsExplicitRoleLocate
 	reason := validateSelfConsistency(
 		types.IntentExplain,
 		"mechanism",
-		"value",
 		preds,
 		types.AxisDefine,
 		[]string{"AnalysisIR"},
@@ -499,7 +501,6 @@ func TestEmitAnalysis_Execute_ReadsPrescanBlobFromMutable(t *testing.T) {
 		"keywords": ["explore"],
 		"entities": ["Agent", "Handler", "Orchestrator"],
 		"question_kind": "mechanism",
-		"answer_shape": "explanation"
 	}`
 
 	tl := &EmitAnalysis{}
@@ -554,7 +555,6 @@ func TestEmitAnalysis_ConfigTraceRecordsExactNoMatchAsUnverified(t *testing.T) {
 		"keywords": ["zz", "absent", "config", "knob"],
 		"entities": ["` + missingKey + `"],
 		"question_kind": "config_mapping",
-		"answer_shape": "explanation",
 		"answer_subject": {"kind": "config_key"}
 	}`
 
@@ -593,7 +593,6 @@ func TestEmitAnalysis_ConfigTraceNoMatchRequiresExactPatternToken(t *testing.T) 
 		"keywords": ["short", "config", "knob"],
 		"entities": ["` + key + `"],
 		"question_kind": "config_mapping",
-		"answer_shape": "explanation",
 		"answer_subject": {"kind": "config_key"}
 	}`
 
@@ -632,7 +631,6 @@ func TestEmitAnalysis_ConfigTraceRecordsAuxiliaryOnlyExactMatchesAsUnverified(t 
 		"keywords": ["explore", "mid", "loop", "hint", "budget"],
 		"entities": ["` + key + `"],
 		"question_kind": "config_mapping",
-		"answer_shape": "explanation",
 		"answer_subject": {"kind": "config_key"},
 		"exact_targets": ["` + key + `"]
 	}`
@@ -675,7 +673,6 @@ func TestEmitAnalysis_ConfigTraceProductionTextHitDoesNotMarkTargetUnverified(t 
 		"keywords": ["explore", "mid", "loop", "hint", "budget"],
 		"entities": ["` + key + `"],
 		"question_kind": "config_mapping",
-		"answer_shape": "explanation",
 		"answer_subject": {"kind": "config_key"},
 		"exact_targets": ["` + key + `"]
 	}`
@@ -702,7 +699,6 @@ func TestEmitAnalysis_Execute_PersistsDiagramHint(t *testing.T) {
 		"keywords": ["dispatch", "handler"],
 		"entities": ["Dispatch", "Handler"],
 		"question_kind": "call_chain",
-		"answer_shape": "step_list",
 		"predicate_axis": "call",
 		"diagram_hint": {"kind": "call_dag"}
 	}`
@@ -863,7 +859,6 @@ func TestEmitAnalysis_Execute_PersistsNormalizedRequestModel(t *testing.T) {
 		"keywords": ["orchestrator", "pipeline", "analyze"],
 		"entities": ["Orchestrator", "StageAnalyze"],
 		"question_kind": "mechanism",
-		"answer_shape": "explanation"
 	}`
 
 	res, mu := runEmitAnalysis(t, payload)
@@ -902,7 +897,6 @@ func TestEmitAnalysis_Execute_PersistsEnumerationBoundary(t *testing.T) {
 		"keywords": ["gate", "run", "checks"],
 		"entities": ["gate.Run", "checkCoverage"],
 		"question_kind": "mechanism",
-		"answer_shape": "step_list",
 		"enumeration_boundary": {
 			"declared_count": 7,
 			"source_quote": "7 checks"
@@ -940,7 +934,6 @@ func TestEmitAnalysis_Execute_RejectsEnumerationBoundaryQuoteOutsideRequest(t *t
 		"keywords": ["gate", "run", "checks"],
 		"entities": ["gate.Run"],
 		"question_kind": "mechanism",
-		"answer_shape": "step_list",
 		"enumeration_boundary": {
 			"declared_count": 7,
 			"source_quote": "9 checks"
@@ -964,7 +957,7 @@ func TestEmitAnalysis_Summary_ReportsNormalizedDelta(t *testing.T) {
 	t.Cleanup(func() { SetAnalysisLimits(prev) })
 	SetAnalysisLimits(AnalysisLimits{WarnBelowKeywords: 0, RejectBelowKeywords: 0})
 
-	// "root-cause" and "symbol_list" both coerce to canonical values
+	// "root-cause" and "register" both coerce to canonical values
 	// and should appear in the "normalized:" clause of the Summary.
 	payload := `{
 		"intent": "root-cause",
@@ -973,7 +966,6 @@ func TestEmitAnalysis_Summary_ReportsNormalizedDelta(t *testing.T) {
 		"keywords": ["a"],
 		"entities": ["Foo"],
 		"question_kind": "register",
-		"answer_shape": "symbol_list"
 	}`
 
 	res, _ := runEmitAnalysis(t, payload)
@@ -989,7 +981,6 @@ func TestEmitAnalysis_Summary_ReportsNormalizedDelta(t *testing.T) {
 	for _, want := range []string{
 		`intent "root-cause"→"root_cause"`,
 		`question_kind "register"→"registration"`,
-		`answer_shape "symbol_list"→"list_of_symbols"`,
 	} {
 		if !strings.Contains(res.Summary, want) {
 			t.Errorf("Summary missing delta %q, got %q", want, res.Summary)
@@ -1009,7 +1000,6 @@ func TestEmitAnalysis_Summary_CleanInputNoNormalizedClause(t *testing.T) {
 		"keywords": ["a", "b", "c", "d", "e", "f", "g", "h"],
 		"entities": ["Foo"],
 		"question_kind": "mechanism",
-		"answer_shape": "explanation"
 	}`
 	res, _ := runEmitAnalysis(t, payload)
 	if !res.Success {
@@ -1035,7 +1025,6 @@ func TestEmitAnalysis_Execute_WarnPathStillPersists(t *testing.T) {
 		"keywords": ["a", "b"],
 		"entities": ["Foo"],
 		"question_kind": "mechanism",
-		"answer_shape": "explanation"
 	}`
 	res, mu := runEmitAnalysis(t, payload)
 
@@ -1065,7 +1054,6 @@ func TestEmitAnalysis_Execute_RejectPathDoesNotPersist(t *testing.T) {
 		"keywords": ["a", "b"],
 		"entities": ["Foo"],
 		"question_kind": "mechanism",
-		"answer_shape": "explanation"
 	}`
 	res, mu := runEmitAnalysis(t, payload)
 
@@ -1092,7 +1080,6 @@ func TestEmitAnalysis_Execute_RejectsDegenerateClassification(t *testing.T) {
 		"keywords": [],
 		"entities": [],
 		"question_kind": "unknown",
-		"answer_shape": "none"
 	}`
 	res, mu := runEmitAnalysis(t, payload)
 
@@ -1127,7 +1114,6 @@ func TestEmitAnalysis_Execute_GenericEntitiesDropped(t *testing.T) {
 		"keywords": ["foo"],
 		"entities": ["Orchestrator", "agent", "handler"],
 		"question_kind": "mechanism",
-		"answer_shape": "explanation"
 	}`
 
 	res, mu := runEmitAnalysis(t, payload)
@@ -1158,7 +1144,6 @@ func TestEmitAnalysis_Execute_RejectsControlInput(t *testing.T) {
 		"keywords": ["build", "load", "graph"],
 		"entities": ["buildOrLoadGraph"],
 		"question_kind": "mechanism",
-		"answer_shape": "step_list"
 	}`
 	objective := "## Prior conversation\nold topic\n\n## Current request\n\\q"
 	res, mu := runEmitAnalysisWithObjective(t, objective, payload)
@@ -1221,11 +1206,9 @@ func TestEmitAnalysis_Execute_RejectsMissingPredicatesObject(t *testing.T) {
 		"keywords": ["a"],
 		"entities": ["Foo"],
 		"question_kind": "mechanism",
-		"answer_shape": "explanation",
 		"intent_confidence": 0.7,
 		"complexity_confidence": 0.7,
-		"kind_confidence": 0.7,
-		"shape_confidence": 0.7
+		"kind_confidence": 0.7
 	}`
 	res, _ := tool.Execute(&types.BusContext{Mutable: mu}, json.RawMessage(payload))
 	if res.Success {
@@ -1255,11 +1238,9 @@ func TestEmitAnalysis_Execute_RejectsMissingPredicateField(t *testing.T) {
 		"keywords": ["a"],
 		"entities": ["Foo"],
 		"question_kind": "mechanism",
-		"answer_shape": "explanation",
 		"intent_confidence": 0.7,
 		"complexity_confidence": 0.7,
 		"kind_confidence": 0.7,
-		"shape_confidence": 0.7,
 		"predicates": {
 			"is_scalar_answer": false,
 			"is_role_locate_lookup": false,
@@ -1291,7 +1272,6 @@ func TestEmitAnalysis_Execute_RejectsConfidenceOutOfRange(t *testing.T) {
 		"keywords": ["a"],
 		"entities": ["Foo"],
 		"question_kind": "mechanism",
-		"answer_shape": "explanation"
 	}`)
 	// Tamper: replace one valid confidence with an out-of-range value.
 	payload = strings.Replace(payload, `"intent_confidence": 0.7`, `"intent_confidence": 1.5`, 1)
@@ -1317,7 +1297,6 @@ func TestEmitAnalysis_Execute_RejectsInvalidPredicateAxis(t *testing.T) {
 		"keywords": ["a"],
 		"entities": ["Foo"],
 		"question_kind": "mechanism",
-		"answer_shape": "explanation",
 		"predicate_axis": "ponder"
 	}`)
 	res, _ := tool.Execute(&types.BusContext{Mutable: mu}, json.RawMessage(payload))
@@ -1345,9 +1324,8 @@ func TestEmitAnalysis_Execute_RejectsInconsistentCountIntent(t *testing.T) {
 		"keywords": ["agent"],
 		"entities": ["Agent"],
 		"question_kind": "enumeration",
-		"answer_shape": "value",
 		"intent_confidence": 0.7, "complexity_confidence": 0.7,
-		"kind_confidence": 0.7, "shape_confidence": 0.7,
+		"kind_confidence": 0.7, 
 		"predicates": {
 			"is_scalar_answer": true,
 			"is_role_locate_lookup": false,
@@ -1367,43 +1345,6 @@ func TestEmitAnalysis_Execute_RejectsInconsistentCountIntent(t *testing.T) {
 	}
 }
 
-func TestEmitAnalysis_Execute_RejectsInconsistentCountShape(t *testing.T) {
-	prev := CurrentAnalysisLimits()
-	t.Cleanup(func() { SetAnalysisLimits(prev) })
-	SetAnalysisLimits(AnalysisLimits{WarnBelowKeywords: 0, RejectBelowKeywords: 0})
-	mu := types.NewMutableState("how many agents are there")
-	tool := &EmitAnalysis{}
-	// is_count_question=true + answer_shape=list_of_symbols is the
-	// other half of the same failure shape.
-	payload := `{
-		"intent": "return_value",
-		"scenario": "generic",
-		"complexity": "simple",
-		"keywords": ["agent"],
-		"entities": ["Agent"],
-		"question_kind": "return_value",
-		"answer_shape": "list_of_symbols",
-		"intent_confidence": 0.7, "complexity_confidence": 0.7,
-		"kind_confidence": 0.7, "shape_confidence": 0.7,
-		"predicates": {
-			"is_scalar_answer": true,
-			"is_role_locate_lookup": false,
-			"is_count_question": true,
-			"is_cross_component": false,
-			"is_relational_lookup": false,
-			"is_category_enumeration": false,
-			"is_history_lookup": false
-		}
-	}`
-	res, _ := tool.Execute(&types.BusContext{Mutable: mu}, json.RawMessage(payload))
-	if res.Success {
-		t.Fatal("count question + shape=list_of_symbols must reject")
-	}
-	if !strings.Contains(res.Summary, "list_of_symbols") {
-		t.Errorf("reject summary should name the bad shape, got %q", res.Summary)
-	}
-}
-
 func TestEmitAnalysis_Execute_RejectsCountWithoutScalar(t *testing.T) {
 	prev := CurrentAnalysisLimits()
 	t.Cleanup(func() { SetAnalysisLimits(prev) })
@@ -1418,9 +1359,8 @@ func TestEmitAnalysis_Execute_RejectsCountWithoutScalar(t *testing.T) {
 		"keywords": ["agent"],
 		"entities": ["Agent"],
 		"question_kind": "return_value",
-		"answer_shape": "value",
 		"intent_confidence": 0.7, "complexity_confidence": 0.7,
-		"kind_confidence": 0.7, "shape_confidence": 0.7,
+		"kind_confidence": 0.7, 
 		"predicates": {
 			"is_scalar_answer": false,
 			"is_role_locate_lookup": false,
@@ -1453,9 +1393,8 @@ func TestEmitAnalysis_Execute_RejectsCategoryEnumerationWithScalar(t *testing.T)
 		"keywords": ["agent", "kind"],
 		"entities": ["Agent"],
 		"question_kind": "enumeration",
-		"answer_shape": "list_of_symbols",
 		"intent_confidence": 0.7, "complexity_confidence": 0.7,
-		"kind_confidence": 0.7, "shape_confidence": 0.7,
+		"kind_confidence": 0.7, 
 		"predicates": {
 			"is_scalar_answer": true,
 			"is_role_locate_lookup": false,
@@ -1488,11 +1427,9 @@ func TestEmitAnalysis_Execute_PersistsV4FieldsOntoRequestModel(t *testing.T) {
 		"keywords": ["agent", "count"],
 		"entities": ["Agent"],
 		"question_kind": "return_value",
-		"answer_shape": "value",
 		"intent_confidence": 0.92,
 		"complexity_confidence": 0.85,
 		"kind_confidence": 0.78,
-		"shape_confidence": 0.88,
 		"predicate_axis": "register",
 		"predicates": {
 			"is_scalar_answer": true,
@@ -1539,12 +1476,10 @@ func TestEmitAnalysis_Execute_RejectsInvalidExactTargets(t *testing.T) {
 		"keywords": ["explore", "hint", "budget"],
 		"entities": ["explore_mid_loop_hint_budget", "codrax.yaml"],
 		"question_kind": "config_mapping",
-		"answer_shape": "value",
 		"exact_targets": ["codrax.yaml"],
 		"intent_confidence": 0.8,
 		"complexity_confidence": 0.8,
 		"kind_confidence": 0.8,
-		"shape_confidence": 0.8,
 		"predicates": {
 			"is_scalar_answer": true,
 			"is_role_locate_lookup": false,
@@ -1577,13 +1512,11 @@ func TestEmitAnalysis_Execute_DropsInvalidExactContextTermsWithWarning(t *testin
 		"keywords": ["explore", "hint", "budget"],
 		"entities": ["explore_mid_loop_hint_budget"],
 		"question_kind": "config_mapping",
-		"answer_shape": "value",
 		"exact_targets": ["explore_mid_loop_hint_budget"],
 		"exact_context_terms": ["runtime"],
 		"intent_confidence": 0.8,
 		"complexity_confidence": 0.8,
 		"kind_confidence": 0.8,
-		"shape_confidence": 0.8,
 		"predicates": {
 			"is_scalar_answer": true,
 			"is_role_locate_lookup": false,
@@ -1623,12 +1556,10 @@ func TestEmitAnalysis_Execute_PersistsExactTargetsAndHistoryPredicate(t *testing
 		"keywords": ["EvidenceClosure", "history", "commit"],
 		"entities": ["EvidenceClosure"],
 		"question_kind": "history",
-		"answer_shape": "value",
 		"exact_targets": ["EvidenceClosure"],
 		"intent_confidence": 0.91,
 		"complexity_confidence": 0.80,
 		"kind_confidence": 0.93,
-		"shape_confidence": 0.88,
 		"predicates": {
 			"is_scalar_answer": true,
 			"is_role_locate_lookup": false,
@@ -1668,13 +1599,11 @@ func TestEmitAnalysis_Execute_PersistsExactContextTerms(t *testing.T) {
 		"keywords": ["explore", "hint", "budget"],
 		"entities": ["explore_mid_loop_hint_budget"],
 		"question_kind": "config_mapping",
-		"answer_shape": "value",
 		"exact_targets": ["explore_mid_loop_hint_budget"],
 		"exact_context_terms": ["explore"],
 		"intent_confidence": 0.8,
 		"complexity_confidence": 0.8,
 		"kind_confidence": 0.8,
-		"shape_confidence": 0.8,
 		"predicates": {
 			"is_scalar_answer": true,
 			"is_role_locate_lookup": false,
@@ -1714,14 +1643,12 @@ func TestEmitAnalysis_Execute_PersistsExactContextRoles(t *testing.T) {
 		"keywords": ["explore_mid_loop_hint_budget", "code default", "codrax.yaml", "CLI"],
 		"entities": ["explore_mid_loop_hint_budget", "codrax.yaml"],
 		"question_kind": "config_mapping",
-		"answer_shape": "explanation",
 		"answer_subject": {"kind": "config_key"},
 		"exact_targets": ["explore_mid_loop_hint_budget"],
 		"exact_context_roles": ["default", "config", "override"],
 		"intent_confidence": 0.9,
 		"complexity_confidence": 0.8,
 		"kind_confidence": 0.9,
-		"shape_confidence": 0.85,
 		"predicates": {
 			"is_scalar_answer": false,
 			"is_role_locate_lookup": false,
@@ -1766,14 +1693,12 @@ func TestEmitAnalysis_Execute_PreservesConfigTraceRolesWhenAnswerSubjectDriftsNu
 		"keywords": ["explore_mid_loop_hint_budget", "code default", "codrax.yaml", "CLI"],
 		"entities": ["explore_mid_loop_hint_budget", "codrax.yaml"],
 		"question_kind": "config_mapping",
-		"answer_shape": "explanation",
 		"answer_subject": {"kind": "numeric"},
 		"exact_targets": ["explore_mid_loop_hint_budget"],
 		"exact_context_roles": ["default", "config", "override"],
 		"intent_confidence": 0.9,
 		"complexity_confidence": 0.8,
 		"kind_confidence": 0.9,
-		"shape_confidence": 0.85,
 		"predicates": {
 			"is_scalar_answer": false,
 			"is_role_locate_lookup": false,

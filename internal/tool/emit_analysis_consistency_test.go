@@ -38,7 +38,6 @@ func TestEmitAnalysisSchemaMatchesContract(t *testing.T) {
 		{"scenario", skill.AnalysisScenarioValues()},
 		{"complexity", skill.AnalysisComplexityValues()},
 		{"question_kind", skill.AnalysisQuestionKindValues()},
-		{"answer_shape", skill.AnalysisAnswerShapeValues()},
 	}
 
 	for _, tc := range cases {
@@ -63,13 +62,13 @@ func TestEmitAnalysisSchemaMatchesContract(t *testing.T) {
 	wantRequired := map[string]bool{
 		"intent": true, "scenario": true, "complexity": true,
 		"keywords": true, "entities": true,
-		"question_kind": true, "answer_shape": true,
+		"question_kind": true,
 		// v4 fail-loud additions: every classification carries its own
 		// confidence; the predicates object is the cross-language
 		// replacement for the deleted prose-cue tables and must be
 		// fully populated.
 		"intent_confidence": true, "complexity_confidence": true,
-		"kind_confidence": true, "shape_confidence": true,
+		"kind_confidence": true,
 		"predicates": true,
 	}
 	gotRequired := make(map[string]bool, len(parsed.Required))

@@ -116,26 +116,6 @@ func buildAnalysisQuestionKinds() []AnalysisEnumChoice {
 	return out
 }
 
-// analysisAnswerShapes is the canonical answer_shape enum. Values
-// match types.AnswerShape constants (plus the "none" sentinel).
-//
-// Structural test for picking the shape: ask "can the user satisfy
-// their question by reading just the names of the items, with no
-// behavioral or relational prose?" If yes → list_of_symbols. If no →
-// step_list (when each behavioral hop is a discrete branch) or
-// explanation (when the answer needs multi-paragraph prose). A
-// question that compares two named subjects' behaviors is NOT
-// satisfied by reading names alone — pick step_list or explanation.
-var analysisAnswerShapes = []AnalysisEnumChoice{
-	{string(types.ShapeListOfSymbols), "the user wants the NAMES of items in a set, and naming the items by themselves is the complete answer — no behavioral or relational prose needed for the reader to understand each item's role. NOT for: questions whose answer is a mechanism walk-through, a comparison between two named subjects' behaviors, an architectural overview, or anything where the reader needs prose to interpret each item beyond its name"},
-	{string(types.ShapeStepList), "the answer is an ordered or branched sequence of behavioral hops — a mechanism walked step by step, OR a comparison between two named subjects rendered as discrete differences (one step per difference, one step per branch). Pick this when each item is a behavioral hop the reader follows in order, not a standalone name"},
-	{string(types.ShapeValue), "a single literal / returned value"},
-	{string(types.ShapeBoolean), "yes/no"},
-	{string(types.ShapeConfigValue), "a resolved config key value"},
-	{string(types.ShapeExplanation), "answer requires multi-paragraph prose to explain a mechanism, an architecture, or how concepts relate to each other; default for any explain-intent question whose subject is too entangled for a clean step list"},
-	{string(types.ShapeNone), "no structured shape applies"},
-}
-
 // analysisAnswerSubjects is the canonical answer_subject.kind enum.
 // Values match types.AnswerSubjectKind constants. Used by the chain
 // ranker (subject-aware scoring), shape reconciler (config_value →
@@ -235,10 +215,6 @@ func AnalysisComplexityChoices() []AnalysisEnumChoice { return analysisComplexit
 // table.
 func AnalysisQuestionKindChoices() []AnalysisEnumChoice { return analysisQuestionKinds }
 
-// AnalysisAnswerShapeChoices returns the canonical answer_shape enum
-// table.
-func AnalysisAnswerShapeChoices() []AnalysisEnumChoice { return analysisAnswerShapes }
-
 // AnalysisIntentValues returns the intent enum values in canonical
 // order. This is the slice the emit_analysis JSON schema reads.
 func AnalysisIntentValues() []string { return enumValues(analysisIntents) }
@@ -251,9 +227,6 @@ func AnalysisComplexityValues() []string { return enumValues(analysisComplexitie
 
 // AnalysisQuestionKindValues returns the question_kind enum values in canonical order.
 func AnalysisQuestionKindValues() []string { return enumValues(analysisQuestionKinds) }
-
-// AnalysisAnswerShapeValues returns the answer_shape enum values in canonical order.
-func AnalysisAnswerShapeValues() []string { return enumValues(analysisAnswerShapes) }
 
 func enumValues(choices []AnalysisEnumChoice) []string {
 	out := make([]string, len(choices))
@@ -279,7 +252,6 @@ var AnalysisHardRules = []string{
 	"every field in emit_analysis is REQUIRED (keywords and entities may be empty arrays); missing required fields rejects the call",
 	"entities come from the user's ORIGINAL text only — \"ContinuationPrompt\" stays as \"ContinuationPrompt\", not \"continuation prompt\" or \"continuation_prompt\"",
 	"do not invent an intent by stretching a category; if two fit equally, pick the one that matches the user's verb; if none fit, use \"unknown\"",
-	"answer_shape must match the answer's structural shape: list_of_symbols when the answer is a SET of distinct named items the user can satisfy by reading the NAMES ALONE (no behavioral prose per item); value when the answer is a single scalar aggregated across source units (predicates.is_count_question=true) or a single source-code literal; boolean when the answer is yes/no; step_list or explanation when the answer describes a mechanism, compares two named subjects' behaviors, or otherwise needs behavioral / relational prose. A scalar cannot satisfy the list_of_symbols shape contract — pick value + return_value for any count / size / total. A mechanism / comparison / architectural overview cannot satisfy the list_of_symbols shape contract either — when intent='explain' the shape MUST be step_list (discrete behavioral hops) or explanation (continuous prose), never list_of_symbols. For a single exact config key with precedence / override / lineage, use config_value when the answer is a scalar and explanation when the answer is narrative — never list_of_symbols. For a single source-code literal lookup by role (entry function / defining type / file path / route), use value rather than an architecture walkthrough.",
 	"call emit_analysis EXACTLY ONCE — multiple calls trigger a warning (or a hard reject when analysis_reject_multiple_emit=true) and only the last write is effective",
 	"do not defer emit_analysis by writing open-ended analysis prose — the moment you have enough information to classify, call the tool; brief reasoning paired with pre-scan tool calls is fine, a standalone \"let me think about this\" paragraph is not",
 	"do not translate or re-case entities — copy them verbatim from the user's text",
@@ -346,10 +318,10 @@ func BuildAnalysisSkill() *Config {
 	// guidance in one place.
 	of.WriteString("## emit_analysis contract\n\n")
 	of.WriteString("Call emit_analysis EXACTLY ONCE. The required fields are:\n")
-	of.WriteString("- intent, scenario, complexity, question_kind, answer_shape — one enum value each (tables below).\n")
+	of.WriteString("- intent, scenario, complexity, question_kind — one enum value each (tables below).\n")
 	of.WriteString("- keywords, entities — string arrays (may be empty).\n")
-	of.WriteString("- intent_confidence, complexity_confidence, kind_confidence, shape_confidence — floats in [0.0, 1.0].\n")
-	of.WriteString("- predicates — object with six required booleans (see Semantic predicates below).\n\n")
+	of.WriteString("- intent_confidence, complexity_confidence, kind_confidence — floats in [0.0, 1.0].\n")
+	of.WriteString("- predicates — object with seven required booleans (see Semantic predicates below).\n\n")
 	of.WriteString("Optional fields: sub_topics (array), answer_subject (object), predicate_axis (enum), diagram_hint (object), exact_targets (array), exact_context_terms (array), exact_context_roles (array), language.\n\n")
 	of.WriteString("Everything downstream — the search plan, the evidence plan, the hypothesis set, the quality checks — is derived automatically from your input; do not provide them.\n\n")
 	of.WriteString("Field enums:\n\n")
@@ -360,8 +332,6 @@ func BuildAnalysisSkill() *Config {
 	of.WriteString(renderEnumTable("complexity", analysisComplexities))
 	of.WriteString("\n")
 	of.WriteString(renderEnumTable("question_kind", analysisQuestionKinds))
-	of.WriteString("\n")
-	of.WriteString(renderEnumTable("answer_shape", analysisAnswerShapes))
 	of.WriteString("\n")
 	of.WriteString(renderEnumTable("answer_subject.kind", analysisAnswerSubjects))
 	of.WriteString("\n")
@@ -378,14 +348,14 @@ func BuildAnalysisSkill() *Config {
 	of.WriteString("\n")
 	of.WriteString("exact_context_roles is OPTIONAL. Use it only alongside exact_targets when the user explicitly asks for precedence / lineage layers of a config-like exact target (for example code default vs config file vs CLI/env override). Emit only the abstract roles the user actually asked about, using the enum values above. Do not guess file names or repo-specific layer names here; the rendering maps grounded evidence onto these abstract roles automatically.\n\n")
 	of.WriteString("## Confidence\n\n")
-	of.WriteString("For intent / complexity / question_kind / answer_shape, also emit a confidence float in [0.0, 1.0]:\n")
+	of.WriteString("For intent / complexity / question_kind, also emit a confidence float in [0.0, 1.0]:\n")
 	of.WriteString("- 0.9+ when the user's wording unambiguously dictates the value\n")
 	of.WriteString("- 0.5-0.7 when a plausible alternative exists\n")
 	of.WriteString("- below 0.5 when you are genuinely guessing\n\n")
 	of.WriteString("## Semantic predicates (REQUIRED, all seven fields)\n\n")
 	of.WriteString("In `predicates`, judge the user's question along seven language-neutral axes. Every field MUST be present and MUST be true OR false (no missing fields). Read the user's wording in whatever language they wrote it:\n")
 	of.WriteString("- `is_scalar_answer`: true when the answer is a single scalar (a number, a literal, a path), not a set or sequence\n")
-	of.WriteString("- `is_role_locate_lookup`: true when the request names a clue / output / context entity, but the answer is a DIFFERENT single literal that plays a role relative to that clue (entry function, defining file, route, config key, owner symbol, etc.). When this is true, also set `is_scalar_answer=true`, set `answer_subject.kind` explicitly, and use `answer_shape=value`\n")
+	of.WriteString("- `is_role_locate_lookup`: true when the request names a clue / output / context entity, but the answer is a DIFFERENT single literal that plays a role relative to that clue (entry function, defining file, route, config key, owner symbol, etc.). When this is true, also set `is_scalar_answer=true` and set `answer_subject.kind` explicitly\n")
 	of.WriteString("- `is_count_question`: true when the answer is a single number that must be computed by aggregating values across multiple source units (counting items, summing lines of code, summing file sizes, totalling bytes across a directory tree). Implies is_scalar_answer. False when the answer is a number that already exists as a single source-code literal (const declaration, default value, enum ordinal) — that case is is_scalar_answer=true without is_count_question\n")
 	of.WriteString("- `is_cross_component`: true when the user is comparing or relating two distinct subsystems / components / types. Leave it false for a single ordered source-to-sink call/flow trace even if that one chain crosses files/packages, and false for a single exact target that merely needs nearby context / precedence layers\n")
 	of.WriteString("- `is_relational_lookup`: true when the user is filtering set X by a relationship to Y ('functions that return Z', 'agents that use skill Y')\n")
@@ -406,8 +376,7 @@ func BuildAnalysisSkill() *Config {
 	of.WriteString("When the user's question contains multiple independently-answerable sub-topics, list each in sub_topics. Rules:\n")
 	of.WriteString("- Each sub_topic has a one-sentence summary and its own entities\n")
 	of.WriteString("- Do NOT split topics when the second depends on the first (e.g. a definition followed by its downstream effects belongs to one topic, not two)\n")
-	of.WriteString("- DO split when the topics are structurally independent – different answer shapes, different subjects, or different subsystems – and each could stand as its own separate question\n")
-	of.WriteString("- When sub_topics is non-empty, answer_shape MUST be explanation\n")
+	of.WriteString("- DO split when the topics are structurally independent – different answer subjects, different predicate axes, or different subsystems – and each could stand as its own separate question\n")
 	of.WriteString("- When unsure, do NOT split (empty array is safe)\n")
 	of.WriteString("- Maximum 5 sub-topics\n\n")
 	of.WriteString("## Question structural obligations\n\n")
@@ -432,15 +401,15 @@ func BuildAnalysisSkill() *Config {
 
 	return &Config{
 		Name: "analysis-skill",
-		Goal: "You are a CLASSIFIER, not an investigator. Classify the user request along seven fields (intent, scenario, complexity, keywords, entities, question_kind, answer_shape), then call emit_analysis exactly once. The explorer stage does the actual investigation — your job is only to verify entity existence and classify.",
+		Goal: "You are a CLASSIFIER, not an investigator. Classify the user request along six fields (intent, scenario, complexity, keywords, entities, question_kind), then call emit_analysis exactly once. The explorer stage does the actual investigation — your job is only to verify entity existence and classify.",
 		Workflow: []string{
 			"Detect the request's language.",
 			"Round 1 pre-scan: in a single response, issue parallel calls to repo_map and grep(files_only=true) for each candidate entity. A 'round' is one LLM response — multiple tool calls per response are normal and expected.",
 			"If Round 1 resolved every entity, call emit_analysis now — skip Round 2.",
 			"Round 2 is allowed at most once, when Round 1 ended ambiguous on either signal: (a) a key entity came back empty → broaden keyword stems / variants (still files_only=true); or (b) classification remains uncertain AND Round 1 surfaced a declarative file (e.g. a name matching topology / defaults / registry / routes / wire / init / manifest / schema / enum patterns) → a single response MAY include up to 3 grep(files_only=false, max_count=20) calls targeting those declarative files, to peek at the literal forms inside map/struct/enum bodies. Then call emit_analysis regardless of the Round 2 result.",
-			"For count / size / total / measurement-scalar questions: Round 1 confirms the subject exists (the directory / file / symbol the question is asking about), then immediately call emit_analysis with intent=return_value + answer_shape=value + predicates.is_count_question=true. Do NOT attempt to compute the answer literal yourself in pre-scan — the explore stage is the one that runs wc / find / grep -c and reads file content. Trying to retrieve full file content via grep(files_only=false) to count lines yourself will exhaust the pre-scan budget and fail-loud the analyze stage.",
-			"If the request spans multiple independent sub-topics, fill sub_topics (at most 5) and set answer_shape=explanation.",
-			"Call emit_analysis exactly once. Required fields: intent, scenario, complexity, keywords, entities, question_kind, answer_shape, the four confidence floats (intent_confidence, complexity_confidence, kind_confidence, shape_confidence), and the predicates object (seven booleans: is_scalar_answer, is_role_locate_lookup, is_count_question, is_cross_component, is_relational_lookup, is_category_enumeration, is_history_lookup). Optional: sub_topics, answer_subject, predicate_axis, diagram_hint, enumeration_boundary, completeness_obligation, buckets, exact_targets, exact_context_terms, exact_context_roles, language.",
+			"For count / size / total / measurement-scalar questions: Round 1 confirms the subject exists (the directory / file / symbol the question is asking about), then immediately call emit_analysis with intent=return_value + predicates.is_count_question=true + predicates.is_scalar_answer=true. Do NOT attempt to compute the answer literal yourself in pre-scan — the explore stage is the one that runs wc / find / grep -c and reads file content. Trying to retrieve full file content via grep(files_only=false) to count lines yourself will exhaust the pre-scan budget and fail-loud the analyze stage.",
+			"If the request spans multiple independent sub-topics, fill sub_topics (at most 5).",
+			"Call emit_analysis exactly once. Required fields: intent, scenario, complexity, keywords, entities, question_kind, the three confidence floats (intent_confidence, complexity_confidence, kind_confidence), and the predicates object (seven booleans: is_scalar_answer, is_role_locate_lookup, is_count_question, is_cross_component, is_relational_lookup, is_category_enumeration, is_history_lookup). Optional: sub_topics, answer_subject, predicate_axis, diagram_hint, enumeration_boundary, completeness_obligation, buckets, exact_targets, exact_context_terms, exact_context_roles, language.",
 		},
 		ToolSuggestions: append([]string(nil), AnalysisToolSuggestions...),
 		OutputFormat:    of.String(),

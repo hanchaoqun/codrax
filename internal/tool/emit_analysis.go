@@ -51,7 +51,6 @@ type emitAnalysisParams struct {
 	Keywords          []string                `json:"keywords"`
 	Entities          []string                `json:"entities"`
 	QuestionKind      string                  `json:"question_kind"`
-	AnswerShape       string                  `json:"answer_shape"`
 	Language          string                  `json:"language,omitempty"`
 	SubTopics         []types.SubTopic        `json:"sub_topics,omitempty"`
 	AnswerSubject     *emitAnswerSubjectParam `json:"answer_subject,omitempty"`
@@ -69,7 +68,6 @@ type emitAnalysisParams struct {
 	IntentConfidence     float64                       `json:"intent_confidence"`
 	ComplexityConfidence float64                       `json:"complexity_confidence"`
 	KindConfidence       float64                       `json:"kind_confidence"`
-	ShapeConfidence      float64                       `json:"shape_confidence"`
 	Predicates           *emitPredicatesParam          `json:"predicates"`
 	PredicateAxis        string                        `json:"predicate_axis,omitempty"`
 	DiagramHint          *emitDiagramHintParam         `json:"diagram_hint,omitempty"`
@@ -187,7 +185,6 @@ func buildEmitAnalysisSchema() {
 			"keywords":      arrayProp{Type: "array", Items: map[string]string{"type": "string"}},
 			"entities":      arrayProp{Type: "array", Items: map[string]string{"type": "string"}},
 			"question_kind": stringProp{Type: "string", Enum: skill.AnalysisQuestionKindValues()},
-			"answer_shape":  stringProp{Type: "string", Enum: skill.AnalysisAnswerShapeValues()},
 			"language":      stringProp{Type: "string", Enum: []string{"zh", "en"}},
 			"sub_topics": map[string]any{
 				"type":        "array",
@@ -231,7 +228,6 @@ func buildEmitAnalysisSchema() {
 			"intent_confidence":     map[string]any{"type": "number", "minimum": 0.0, "maximum": 1.0, "description": "Your certainty about the intent classification, in [0, 1]. 0.9+ = unambiguous; 0.5-0.7 = plausible alternative exists; < 0.5 = guessing."},
 			"complexity_confidence": map[string]any{"type": "number", "minimum": 0.0, "maximum": 1.0, "description": "Your certainty about the complexity classification, in [0, 1]."},
 			"kind_confidence":       map[string]any{"type": "number", "minimum": 0.0, "maximum": 1.0, "description": "Your certainty about the question_kind classification, in [0, 1]."},
-			"shape_confidence":      map[string]any{"type": "number", "minimum": 0.0, "maximum": 1.0, "description": "Your certainty about the answer_shape classification, in [0, 1]."},
 			"predicates": map[string]any{
 				"type":        "object",
 				"description": "Cross-language semantic self-assessment of the question. Every field is required; emit true OR false explicitly. A missing field is fail-loud rejection, not a silent default.",
@@ -292,8 +288,8 @@ func buildEmitAnalysisSchema() {
 			},
 		},
 		"required": []string{
-			"intent", "scenario", "complexity", "keywords", "entities", "question_kind", "answer_shape",
-			"intent_confidence", "complexity_confidence", "kind_confidence", "shape_confidence",
+			"intent", "scenario", "complexity", "keywords", "entities", "question_kind",
+			"intent_confidence", "complexity_confidence", "kind_confidence",
 			"predicates",
 		},
 	}
@@ -359,7 +355,6 @@ func (t *EmitAnalysis) Execute(ctx *types.BusContext, params json.RawMessage) (t
 	scenario := normalizeScenario(p.Scenario)
 	complexity := normalizeComplexity(p.Complexity)
 	kind := normalizeQuestionKind(p.QuestionKind)
-	shape := normalizeAnswerShape(p.AnswerShape)
 
 	keywords := trimStringSlice(p.Keywords)
 	entities := trimStringSlice(p.Entities)
@@ -396,7 +391,7 @@ func (t *EmitAnalysis) Execute(ctx *types.BusContext, params json.RawMessage) (t
 		}, nil
 	}
 	entities = val.FilteredEntities
-	if reason := rejectDegenerateClassification(intent, kind, shape, keywords, entities); reason != "" {
+	if reason := rejectDegenerateClassification(intent, kind, keywords, entities); reason != "" {
 		return types.ToolResult{
 			ToolName:  t.Name(),
 			Success:   false,
@@ -418,7 +413,7 @@ func (t *EmitAnalysis) Execute(ctx *types.BusContext, params json.RawMessage) (t
 			Timestamp: time.Now(),
 		}, nil
 	}
-	if reason := validateConfidenceRange(p.IntentConfidence, p.ComplexityConfidence, p.KindConfidence, p.ShapeConfidence); reason != "" {
+	if reason := validateConfidenceRange(p.IntentConfidence, p.ComplexityConfidence, p.KindConfidence); reason != "" {
 		return types.ToolResult{
 			ToolName:  t.Name(),
 			Success:   false,
@@ -513,7 +508,7 @@ func (t *EmitAnalysis) Execute(ctx *types.BusContext, params json.RawMessage) (t
 	// versus an explanation of the named entity itself, reject here so
 	// the retry hint forces the LLM to reconcile its own classification
 	// instead of a Go reconcile rule papering over the inconsistency.
-	if reason := validateSelfConsistency(intent, kind, shape, predicates, axis, entities, p.SubTopics, answerSubject); reason != "" {
+	if reason := validateSelfConsistency(intent, kind, predicates, axis, entities, p.SubTopics, answerSubject); reason != "" {
 		return types.ToolResult{
 			ToolName:  t.Name(),
 			Success:   false,
@@ -559,13 +554,11 @@ func (t *EmitAnalysis) Execute(ctx *types.BusContext, params json.RawMessage) (t
 			ExactContextTerms: exactContextTerms,
 			ExactContextRoles: exactContextRoles,
 			Kind:              kind,
-			Shape:             shape,
 		},
 		AnswerSubject:        answerSubject,
 		IntentConfidence:     p.IntentConfidence,
 		ComplexityConfidence: p.ComplexityConfidence,
 		KindConfidence:       p.KindConfidence,
-		ShapeConfidence:      p.ShapeConfidence,
 		Predicates:             predicates,
 		PredicateAxis:          axis,
 		DiagramHint:            diagramHint,
@@ -641,7 +634,6 @@ func exactTargetFindingKind(rm types.RequestModel) string {
 func rejectDegenerateClassification(
 	intent types.Intent,
 	kind string,
-	shape string,
 	keywords []string,
 	entities []string,
 ) string {
@@ -651,25 +643,22 @@ func rejectDegenerateClassification(
 	if !strings.EqualFold(strings.TrimSpace(kind), "unknown") {
 		return ""
 	}
-	if !strings.EqualFold(strings.TrimSpace(shape), "none") {
-		return ""
-	}
 	if len(keywords) > 0 || len(entities) > 0 {
 		return ""
 	}
-	return "degenerate classification (intent=unknown, question_kind=unknown, answer_shape=none, keywords=0, entities=0). Re-read the User Request section only and emit at least one real keyword/entity or choose a concrete question_kind/answer_shape."
+	return "degenerate classification (intent=unknown, question_kind=unknown, keywords=0, entities=0). Re-read the User Request section only and emit at least one real keyword/entity or choose a concrete question_kind."
 }
 
 // validateSelfConsistency cross-checks the LLM's intent / kind /
-// shape against its own predicates and rejects internally-contradictory
+// predicates / answer_subject and rejects internally-contradictory
 // classifications. The downstream pipeline trusts the LLM's predicates
 // as the cross-language signal that replaces the deleted prose-cue
 // tables; if the LLM emits "is_count_question=true" but also picks
-// intent=enumerate + shape=list_of_symbols, two things are wrong at
-// once and the retry hint should force the LLM to reconcile its own
-// answer rather than have a Go rule silently override one of them
+// intent=enumerate, it has answered the question wrong in two places
+// at once and the retry hint should force the LLM to reconcile its
+// own answer rather than have a Go rule silently override one of them
 // (which is what session 6 reconcileIntent used to do via the
-// prose-cue table that's about to be deleted).
+// prose-cue table that's now deleted).
 //
 // Each check fires only on a clear contradiction. We deliberately do
 // NOT enforce the full Cartesian product (e.g. is_cross_component
@@ -679,7 +668,6 @@ func rejectDegenerateClassification(
 func validateSelfConsistency(
 	intent types.Intent,
 	kind string,
-	shape string,
 	preds types.SemanticPredicates,
 	axis types.PredicateAxis,
 	entities []string,
@@ -690,25 +678,16 @@ func validateSelfConsistency(
 		if !preds.IsScalarAnswer {
 			return "is_role_locate_lookup=true requires is_scalar_answer=true — a role-locate question still resolves to one literal answer"
 		}
-		shapeLower := strings.ToLower(strings.TrimSpace(shape))
-		if shapeLower != string(types.ShapeValue) {
-			return "is_role_locate_lookup=true requires answer_shape=value — the answer is one located literal, not a prose/list carrier"
-		}
 		if !roleLocateSubjectKindAllowed(answerSubject.Kind) {
 			return "is_role_locate_lookup=true requires answer_subject.kind to name the located literal kind (function_name / type_name / file_path / handler_route / config_key / interface_name / struct_field / enum_value)"
 		}
 	}
 	// Count question must resolve to a scalar answer, not a list. If
-	// the LLM marked is_count_question but picked an enumerate intent
-	// or a list_of_symbols shape, it has answered the question wrong
-	// in two places at once.
+	// the LLM marked is_count_question but picked an enumerate intent,
+	// the classification is internally inconsistent.
 	if preds.IsCountQuestion {
 		if intent == types.IntentEnumerate {
-			return "is_count_question=true is inconsistent with intent=enumerate — a count question returns a single scalar; pick intent=return_value (and ensure answer_shape=value, not list_of_symbols)"
-		}
-		shapeLower := strings.ToLower(strings.TrimSpace(shape))
-		if shapeLower == "list_of_symbols" {
-			return "is_count_question=true is inconsistent with answer_shape=list_of_symbols — a count question returns a single scalar; set answer_shape=value"
+			return "is_count_question=true is inconsistent with intent=enumerate — a count question returns a single scalar; pick intent=return_value"
 		}
 	}
 	// is_count_question implies is_scalar_answer (the prompt says so).
@@ -718,7 +697,7 @@ func validateSelfConsistency(
 		return "is_count_question=true requires is_scalar_answer=true — a count question always yields a single scalar"
 	}
 	// Category enumeration ("what kinds of X exist") implies a list
-	// shape, not a single scalar. If both predicates are set the
+	// answer, not a single scalar. If both predicates are set the
 	// question is contradictory.
 	if preds.IsCategoryEnumeration && preds.IsScalarAnswer {
 		return "is_category_enumeration=true and is_scalar_answer=true are mutually exclusive — a 'what kinds of X' question yields a list, not a scalar"
@@ -727,15 +706,11 @@ func validateSelfConsistency(
 		if intent == types.IntentEnumerate {
 			return "is_history_lookup=true is inconsistent with intent=enumerate — repository-history questions yield a single scalar / literal, not a list"
 		}
-		shapeLower := strings.ToLower(strings.TrimSpace(shape))
-		if shapeLower == "list_of_symbols" {
-			return "is_history_lookup=true is inconsistent with answer_shape=list_of_symbols — repository-history questions yield a single scalar / literal; set answer_shape=value"
-		}
 		if !preds.IsScalarAnswer {
 			return "is_history_lookup=true requires is_scalar_answer=true — history / authorship lookups yield a single scalar / literal"
 		}
 	}
-	if needsRoleLocateDisambiguation(axis, intent, shape, preds, entities, subTopics) &&
+	if needsRoleLocateDisambiguation(axis, intent, preds, entities, subTopics) &&
 		answerSubject.Kind == types.SubjectUnknown {
 		return "single-target define-axis lookup is under-specified: set answer_subject.kind explicitly so the system can tell whether this is a role-locate scalar lookup (function / type / file / route / config key) or an explanation of the named entity itself; also set predicates.is_role_locate_lookup to true or false explicitly"
 	}
@@ -761,7 +736,6 @@ func roleLocateSubjectKindAllowed(kind types.AnswerSubjectKind) bool {
 func needsRoleLocateDisambiguation(
 	axis types.PredicateAxis,
 	intent types.Intent,
-	shape string,
 	preds types.SemanticPredicates,
 	entities []string,
 	subTopics []types.SubTopic,
@@ -785,10 +759,6 @@ func needsRoleLocateDisambiguation(
 	switch intent {
 	case types.IntentExplain, types.IntentUnknown, types.IntentReturnValue:
 	default:
-		return false
-	}
-	switch strings.ToLower(strings.TrimSpace(shape)) {
-	case "", string(types.ShapeNone), string(types.ShapeBoolean), string(types.ShapeListOfSymbols):
 		return false
 	}
 	return true
@@ -979,7 +949,7 @@ func sanitizeExactContextRoles(exactTargets []string, subjectKind types.AnswerSu
 // prompt-injection or schema-misread cannot smuggle a 99.0 confidence
 // past the downstream guards (which gate aggressive narrowing on
 // confidence ≥ 0.7).
-func validateConfidenceRange(intentConf, compConf, kindConf, shapeConf float64) string {
+func validateConfidenceRange(intentConf, compConf, kindConf float64) string {
 	for _, c := range [...]struct {
 		name string
 		val  float64
@@ -987,7 +957,6 @@ func validateConfidenceRange(intentConf, compConf, kindConf, shapeConf float64) 
 		{"intent_confidence", intentConf},
 		{"complexity_confidence", compConf},
 		{"kind_confidence", kindConf},
-		{"shape_confidence", shapeConf},
 	} {
 		if c.val < 0.0 || c.val > 1.0 {
 			return fmt.Sprintf("%s = %.2f out of [0.0, 1.0]", c.name, c.val)
@@ -1161,10 +1130,10 @@ func buildEmitAnalysisSummary(raw emitAnalysisParams, rm types.RequestModel, val
 	var b strings.Builder
 	h := rm.AnalyzerHints
 
-	fmt.Fprintf(&b, "analysis emitted: intent=%s scenario=%s complexity=%s kw=%d ent=%d kind=%s shape=%s",
+	fmt.Fprintf(&b, "analysis emitted: intent=%s scenario=%s complexity=%s kw=%d ent=%d kind=%s",
 		rm.Intent, rm.Scenario, rm.Complexity,
 		len(h.Keywords), len(h.Entities),
-		h.Kind, h.Shape)
+		h.Kind)
 	if len(h.ExactTargets) > 0 {
 		fmt.Fprintf(&b, " exact=%d", len(h.ExactTargets))
 	}
@@ -1227,7 +1196,6 @@ func collectNormalizationDeltas(raw emitAnalysisParams, rm types.RequestModel) [
 	check("scenario", raw.Scenario, string(rm.Scenario))
 	check("complexity", raw.Complexity, string(rm.Complexity))
 	check("question_kind", raw.QuestionKind, rm.AnalyzerHints.Kind)
-	check("answer_shape", raw.AnswerShape, rm.AnalyzerHints.Shape)
 	return deltas
 }
 
@@ -1293,27 +1261,6 @@ func normalizeQuestionKind(s string) string {
 		return "unknown"
 	}
 	return string(k)
-}
-
-// normalizeAnswerShape maps LLM-emitted answer_shape strings to the
-// canonical set consumed by the finalizer. Empty or unknown falls
-// back to "none".
-func normalizeAnswerShape(s string) string {
-	switch strings.ToLower(strings.TrimSpace(s)) {
-	case "list_of_symbols", "symbol_list", "list-of-symbols":
-		return "list_of_symbols"
-	case "step_list", "steps", "step-list":
-		return "step_list"
-	case "value", "literal":
-		return "value"
-	case "boolean", "yes_no", "yes/no":
-		return "boolean"
-	case "config_value", "config-value":
-		return "config_value"
-	case "explanation", "prose":
-		return "explanation"
-	}
-	return "none"
 }
 
 // countPrescanRounds derives the number of pre-scan rounds from

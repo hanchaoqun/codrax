@@ -40,7 +40,6 @@ func TestNoKeywordExamplesInEnums(t *testing.T) {
 		"analysisIntents":         AnalysisIntentChoices(),
 		"analysisComplexities":    AnalysisComplexityChoices(),
 		"analysisQuestionKinds":   AnalysisQuestionKindChoices(),
-		"analysisAnswerShapes":    AnalysisAnswerShapeChoices(),
 		"analysisAnswerSubjects":  AnalysisAnswerSubjectChoices(),
 		"analysisPredicateAxes":   AnalysisPredicateAxisChoices(),
 	}

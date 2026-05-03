@@ -144,7 +144,6 @@ func TestAnalyzerPrompt_SkillOwnsContractText(t *testing.T) {
 		"scenario",
 		"complexity",
 		"question_kind",
-		"answer_shape",
 	} {
 		header := field + " — pick one:"
 		if !strings.Contains(sk.OutputFormat, header) {
@@ -496,9 +495,9 @@ func TestAnalysisSkill_RequiredFieldsEnumeratedEverywhere(t *testing.T) {
 	required := []string{
 		"intent", "scenario", "complexity",
 		"keywords", "entities",
-		"question_kind", "answer_shape",
+		"question_kind",
 		"intent_confidence", "complexity_confidence",
-		"kind_confidence", "shape_confidence",
+		"kind_confidence",
 		"predicates",
 	}
 	for _, f := range required {
