@@ -114,9 +114,15 @@ func TestEvalAll_ReportsFailures(t *testing.T) {
 // subjects together. Used by multi-subject explain/trace hypotheses
 // (e.g. "blob 和 log 的关系") as the falsification criterion.
 func TestEval_RelationAbsent_BothInOneEvidence_NotAbsent(t *testing.T) {
+	// Phase 6 stage 13 (2026-05-03) fixture update: typed-pair
+	// match requires both symbols to appear in typed slots
+	// (Subject / Object / AnchorSymbol), NOT in free-form
+	// Summary prose. The retired blob substring path falsely
+	// matched "log" inside the Summary string; the new path
+	// requires the relation to be structurally encoded.
 	env := Env{
 		Evidence: []types.EvidenceItem{
-			{ID: "ev1", Subject: "Blob", Summary: "Blob writes into log pipeline"},
+			{ID: "ev1", Subject: "Blob", Object: "log", Summary: "Blob writes into log pipeline"},
 		},
 	}
 	r := Eval(types.Criterion{Kind: string(KindRelationAbsent), Expr: "Blob,log"}, env)
@@ -155,9 +161,13 @@ func TestEval_RelationAbsent_MalformedExpr(t *testing.T) {
 }
 
 func TestEval_RelationAbsent_CaseInsensitive(t *testing.T) {
+	// Phase 6 stage 13 (2026-05-03) fixture update: same reason
+	// as TestEval_RelationAbsent_BothInOneEvidence_NotAbsent —
+	// both symbols must appear in typed slots. Case-insensitive
+	// equality is preserved (BLOB/blob, Log/log).
 	env := Env{
 		Evidence: []types.EvidenceItem{
-			{ID: "ev1", Object: "BLOB", Summary: "reads from Log store"},
+			{ID: "ev1", Object: "BLOB", Subject: "Log", Summary: "reads from Log store"},
 		},
 	}
 	r := Eval(types.Criterion{Kind: string(KindRelationAbsent), Expr: "blob,log"}, env)

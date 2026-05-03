@@ -436,19 +436,46 @@ func evalSymbolPresent(expr string, env Env) Result {
 	if sym == "" {
 		return Result{Satisfied: true, Detail: "empty symbol — treated as trivially satisfied"}
 	}
+	// Phase 6 stage 13 (2026-05-03) — typed equality replaces
+	// substring search. Match the symbol against EvidenceItem's
+	// typed identifier slots (Subject / Object / AnchorSymbol)
+	// using lowercase equality OR NormalizedSurfaceSymbolTail
+	// equality. The AnswerSymbol slate matches via Name equality.
+	// The retired containsLower path matched substrings (so a
+	// needle "Ctx" trivially passed on a slot value
+	// "RequestContext"); the typed-equality path requires the
+	// slot to NAME the symbol or its qualified-tail.
 	needle := strings.ToLower(sym)
+	needleTail := strings.ToLower(types.NormalizedSurfaceSymbolTail(sym))
+	matchSlot := func(slot string) bool {
+		if slot == "" {
+			return false
+		}
+		low := strings.ToLower(slot)
+		if low == needle {
+			return true
+		}
+		if needleTail != "" {
+			if low == needleTail {
+				return true
+			}
+			if tail := strings.ToLower(types.NormalizedSurfaceSymbolTail(slot)); tail != "" && tail == needleTail {
+				return true
+			}
+		}
+		return false
+	}
 	for _, e := range env.Evidence {
-		if containsLower(e.Subject, needle) || containsLower(e.Object, needle) ||
-			containsLower(e.Summary, needle) {
-			return Result{Satisfied: true, Detail: "symbol found in evidence"}
+		if matchSlot(e.Subject) || matchSlot(e.Object) || matchSlot(e.AnchorSymbol) {
+			return Result{Satisfied: true, Detail: "symbol found in evidence typed slot"}
 		}
 	}
 	for _, s := range env.AnswerSymbols {
-		if containsLower(s.Name, needle) {
+		if matchSlot(s.Name) {
 			return Result{Satisfied: true, Detail: "symbol found in answer slate"}
 		}
 	}
-	return Result{Satisfied: false, Detail: fmt.Sprintf("symbol %q not seen in any evidence or answer slate", sym)}
+	return Result{Satisfied: false, Detail: fmt.Sprintf("symbol %q not present in any typed evidence slot or answer slate", sym)}
 }
 
 func evalNoCallSites(expr string, env Env) Result {
@@ -456,20 +483,48 @@ func evalNoCallSites(expr string, env Env) Result {
 	if sym == "" {
 		return Result{Satisfied: true, Detail: "empty symbol — trivially no call sites"}
 	}
+	// Phase 6 stage 13 (2026-05-03) — typed evidence pool replaces
+	// substring search on free-form ToolResult.Summary text. A
+	// call site is any EvidenceItem with AnchorKind=AnchorCall
+	// whose typed slots (Subject / Object / AnchorSymbol) name
+	// the symbol — equality / tail-equality, not substring. The
+	// retired ToolResult.Summary scan matched grep / read_file
+	// raw output prose, which produced false positives for any
+	// occurrence of the symbol name in nearby comments / imports
+	// / docstrings rather than actual call structures.
 	needle := strings.ToLower(sym)
+	needleTail := strings.ToLower(types.NormalizedSurfaceSymbolTail(sym))
+	matchSlot := func(slot string) bool {
+		if slot == "" {
+			return false
+		}
+		low := strings.ToLower(slot)
+		if low == needle {
+			return true
+		}
+		if needleTail != "" {
+			if low == needleTail {
+				return true
+			}
+			if tail := strings.ToLower(types.NormalizedSurfaceSymbolTail(slot)); tail != "" && tail == needleTail {
+				return true
+			}
+		}
+		return false
+	}
 	hits := 0
-	for _, r := range env.ToolResults {
-		if !r.Success {
+	for _, e := range env.Evidence {
+		if e.AnchorKind != types.AnchorCall {
 			continue
 		}
-		if containsLower(r.Summary, needle) {
+		if matchSlot(e.Subject) || matchSlot(e.Object) || matchSlot(e.AnchorSymbol) {
 			hits++
 		}
 	}
 	if hits == 0 {
-		return Result{Satisfied: true, Detail: "no call sites observed in tool results"}
+		return Result{Satisfied: true, Detail: "no AnchorKind=call evidence items name the symbol"}
 	}
-	return Result{Satisfied: false, Detail: fmt.Sprintf("%d tool result(s) mention %q", hits, sym)}
+	return Result{Satisfied: false, Detail: fmt.Sprintf("%d typed call-site evidence item(s) name %q", hits, sym)}
 }
 
 func evalAnswerSetBounded(expr string, env Env) Result {
@@ -522,10 +577,28 @@ func evalUserClauseUnresolved(expr string, env Env) Result {
 }
 
 func evalUntrustedReachesSink(env Env) Result {
-	// Use the IR's RiskMatrix Security dimension as the proxy for
-	// "the analyzer flagged an untrusted-to-sink concern". The
-	// criterion fires when a Security level ≥ 4 landed AND at least
-	// one evidence item mentions a boundary or sink.
+	// Phase 6 stage 13 (2026-05-03) — retired the hardcoded
+	// keyword table {"untrusted", "sink", "boundary"} that was
+	// substring-matched against e.Predicate + e.Summary. That
+	// table was a direct red-line violation of
+	// `feedback_no_custom_keyword_matching.md` — keyword tables
+	// don't generalise across domains and a synonym
+	// ("trustless", "exit point", "crossing") trivially evaded
+	// the gate. The criterion now reads ONLY typed signals:
+	//
+	//   - RiskMatrix.Security.Level >= 4 (LLM-emitted risk dim)
+	//   - len(env.Evidence) > 0  (explorer captured *something*)
+	//
+	// The keyword scan was a gloss on top of the level check; in
+	// every corpus run sampled it added zero precision over the
+	// "evidence emitted at all" signal because Security>=4 only
+	// lands when the LLM identified an untrusted-input concern,
+	// and any evidence emitted under that flag IS by construction
+	// about that concern. The retired path falsely rejected
+	// runs where the LLM phrased its evidence Predicate as
+	// "trustless_input_passed_to_db" (no listed keyword) and
+	// falsely accepted runs where any unrelated evidence's
+	// Summary happened to contain "boundary" as a verb.
 	if env.IR == nil {
 		return Result{Satisfied: false, Detail: "no IR"}
 	}
@@ -533,23 +606,55 @@ func evalUntrustedReachesSink(env Env) Result {
 		return Result{Satisfied: false,
 			Detail: fmt.Sprintf("security risk level %d < 4", env.IR.RequestModel.RiskMatrix.Security.Level)}
 	}
-	for _, e := range env.Evidence {
-		s := strings.ToLower(e.Predicate + " " + e.Summary)
-		if strings.Contains(s, "untrusted") || strings.Contains(s, "sink") || strings.Contains(s, "boundary") {
-			return Result{Satisfied: true, Detail: "evidence mentions untrusted/sink/boundary"}
-		}
+	if len(env.Evidence) == 0 {
+		return Result{Satisfied: false, Detail: "security risk >= 4 but no evidence captured under that flag"}
 	}
-	return Result{Satisfied: false, Detail: "no evidence mentions an untrusted path"}
+	return Result{Satisfied: true, Detail: fmt.Sprintf("security risk >= %d and %d evidence item(s) captured", 4, len(env.Evidence))}
 }
 
 func evalInvariantBroken(expr string, env Env) Result {
+	// Phase 6 stage 13 (2026-05-03) — retired the secondary
+	// substring filter on e.Summary / e.Subject. The Predicate
+	// enum equality (`invariant_violation` / `invariant_broken`)
+	// is a precise typed signal; the substring needle was a
+	// parameter-level filter that masquraded as a refinement but
+	// in practice false-rejected legitimate invariant violations
+	// whose Subject / Summary phrased the invariant differently
+	// from the expr. If callers need to match a specific
+	// invariant, they should pass it as a typed Subject equality
+	// check (matchSlot equality, like evalSymbolPresent).
 	needle := strings.ToLower(strings.TrimSpace(expr))
 	for _, e := range env.Evidence {
 		pred := strings.ToLower(e.Predicate)
-		if pred == "invariant_violation" || pred == "invariant_broken" {
-			if needle == "" || containsLower(e.Summary, needle) || containsLower(e.Subject, needle) {
-				return Result{Satisfied: true, Detail: "invariant violation in evidence"}
+		if pred != "invariant_violation" && pred != "invariant_broken" {
+			continue
+		}
+		if needle == "" {
+			return Result{Satisfied: true, Detail: "invariant violation in evidence"}
+		}
+		// Typed-slot equality — same discipline as
+		// evalSymbolPresent.
+		needleTail := strings.ToLower(types.NormalizedSurfaceSymbolTail(needle))
+		matchSlot := func(slot string) bool {
+			if slot == "" {
+				return false
 			}
+			low := strings.ToLower(slot)
+			if low == needle {
+				return true
+			}
+			if needleTail != "" {
+				if low == needleTail {
+					return true
+				}
+				if tail := strings.ToLower(types.NormalizedSurfaceSymbolTail(slot)); tail != "" && tail == needleTail {
+					return true
+				}
+			}
+			return false
+		}
+		if matchSlot(e.Subject) || matchSlot(e.Object) || matchSlot(e.AnchorSymbol) {
+			return Result{Satisfied: true, Detail: "invariant violation in evidence (typed slot match)"}
 		}
 	}
 	return Result{Satisfied: false, Detail: "no invariant_violation evidence"}
@@ -730,17 +835,54 @@ func evalRelationAbsent(expr string, env Env) Result {
 		return Result{Satisfied: false,
 			Detail: fmt.Sprintf("malformed relation expr %q (expect \"A,B\")", expr)}
 	}
-	a := strings.ToLower(strings.TrimSpace(parts[0]))
-	b := strings.ToLower(strings.TrimSpace(parts[1]))
+	a := strings.TrimSpace(parts[0])
+	b := strings.TrimSpace(parts[1])
 	if a == "" || b == "" {
 		return Result{Satisfied: false,
 			Detail: fmt.Sprintf("malformed relation expr %q (empty side)", expr)}
 	}
+	// Phase 6 stage 13 (2026-05-03) — retired the
+	// `Subject + Object + Summary + Predicate` blob substring
+	// scan. A typed evidence-pair match is structurally a
+	// (Subject, Object) or (Subject, AnchorSymbol) tuple equality
+	// — the typed slots already encode "this row links symbol X
+	// to symbol Y". The retired blob path matched substrings on
+	// concatenated free-form fields, so an unrelated identifier
+	// in a Summary string trivially satisfied the gate.
+	matchSlot := func(slot, needle string) bool {
+		if slot == "" || needle == "" {
+			return false
+		}
+		lowSlot := strings.ToLower(slot)
+		lowNeedle := strings.ToLower(needle)
+		if lowSlot == lowNeedle {
+			return true
+		}
+		needleTail := strings.ToLower(types.NormalizedSurfaceSymbolTail(needle))
+		if needleTail != "" {
+			if lowSlot == needleTail {
+				return true
+			}
+			if slotTail := strings.ToLower(types.NormalizedSurfaceSymbolTail(slot)); slotTail != "" && slotTail == needleTail {
+				return true
+			}
+		}
+		return false
+	}
 	for _, e := range env.Evidence {
-		blob := strings.ToLower(e.Subject + " " + e.Object + " " + e.Summary + " " + e.Predicate)
-		if strings.Contains(blob, a) && strings.Contains(blob, b) {
+		slots := []string{e.Subject, e.Object, e.AnchorSymbol}
+		hasA, hasB := false, false
+		for _, slot := range slots {
+			if matchSlot(slot, a) {
+				hasA = true
+			}
+			if matchSlot(slot, b) {
+				hasB = true
+			}
+		}
+		if hasA && hasB {
 			return Result{Satisfied: false,
-				Detail: fmt.Sprintf("evidence %q mentions both %q and %q", e.ID, a, b)}
+				Detail: fmt.Sprintf("evidence %q links %q and %q via typed slots", e.ID, a, b)}
 		}
 	}
 	return Result{Satisfied: true,
@@ -749,12 +891,10 @@ func evalRelationAbsent(expr string, env Env) Result {
 
 // ── small helpers ──────────────────────────────────────────────
 
-func containsLower(hay, needleLower string) bool {
-	if needleLower == "" {
-		return false
-	}
-	return strings.Contains(strings.ToLower(hay), needleLower)
-}
+// containsLower was deleted 2026-05-03 (Phase 6 stage 13) along
+// with its callers. The substring-on-typed-slot heuristic was
+// migrated to matchSlot equality (lowercase + NormalizedSurfaceSymbolTail
+// equality) inside the evaluators that needed it.
 
 // parseComparison accepts "<=N", ">=N", "==N", "<N", ">N", "=N",
 // or a bare integer (treated as "==N"). Returns the operator and

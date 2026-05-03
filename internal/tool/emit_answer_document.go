@@ -2760,11 +2760,52 @@ func normalizeStepBackboneDescriptions(steps []types.AnswerStep, citations []typ
 }
 
 func stepDescriptionMentionsAnchor(description string, anchor types.StepSurfaceAnchor) bool {
-	name := strings.ToLower(strings.TrimSpace(anchor.Name))
+	name := strings.TrimSpace(anchor.Name)
 	if name == "" {
 		return false
 	}
-	return strings.Contains(strings.ToLower(description), name)
+	// Phase 6 stage 13 (2026-05-03) — switched from raw substring
+	// match to identifier-boundary match. The retired path
+	// returned true for `myAnchor` when the description contained
+	// `myAnchorBackup` because substring scan is boundary-blind;
+	// the new path requires the anchor name to appear as a
+	// stand-alone identifier (preceded / followed by non-word
+	// characters or string boundary). Matching is case-insensitive
+	// for symbol naming consistency, identical to the retired
+	// path on legitimate hits.
+	return identifierBoundaryContains(description, name)
+}
+
+// identifierBoundaryContains reports whether `needle` appears in
+// `hay` as a whole identifier — bounded on each side by either
+// the string boundary or a non-word rune (anything not in
+// [A-Za-z0-9_]). Case-insensitive. Returns false on empty inputs.
+func identifierBoundaryContains(hay, needle string) bool {
+	if hay == "" || needle == "" {
+		return false
+	}
+	low := strings.ToLower(hay)
+	low_needle := strings.ToLower(needle)
+	for offset := 0; ; {
+		idx := strings.Index(low[offset:], low_needle)
+		if idx < 0 {
+			return false
+		}
+		start := offset + idx
+		end := start + len(low_needle)
+		isWordRune := func(b byte) bool {
+			return (b >= 'a' && b <= 'z') || (b >= '0' && b <= '9') || b == '_'
+		}
+		leftOK := start == 0 || !isWordRune(low[start-1])
+		rightOK := end == len(low) || !isWordRune(low[end])
+		if leftOK && rightOK {
+			return true
+		}
+		offset = start + 1
+		if offset >= len(low) {
+			return false
+		}
+	}
 }
 
 func normalizeLogSourceDriftObservedCitations(in []types.Citation, ctx *types.BusContext) []types.Citation {
