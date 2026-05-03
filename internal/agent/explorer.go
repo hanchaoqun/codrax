@@ -12424,43 +12424,32 @@ func tokenizeQuestionCJKAware(s string) []string {
 	return out
 }
 
-// detectDetailListingIntent checks if a question asks for an itemized
-// listing where each item should be described individually. This is
-// broader than enumeration — it also covers "what strategies", "what
-// are the steps", "哪几种" etc. where the answer should be a numbered
-// list, not a prose summary.
-func detectDetailListingIntent(question string) bool {
-	lower := strings.ToLower(question)
-	// Chinese patterns requesting itemized detail.
-	for _, kw := range []string{"哪几种", "具体有哪些", "分别", "逐个", "排列", "每种"} {
-		if strings.Contains(question, kw) {
-			return true
-		}
-	}
-	// English patterns.
-	for _, kw := range []string{
-		"what strategies", "what are the", "what steps",
-		"how many different", "list each", "describe each",
-		"what types of", "what kinds of",
-	} {
-		if strings.Contains(lower, kw) {
-			return true
-		}
-	}
-	// Enumeration queries are always detail-listing queries.
-	return detectEnumerationIntent(question)
-}
+// detectDetailListingIntent was retired 2026-05-03 (Phase 6
+// stage 17). The function classified the user's question via
+// hardcoded EN+ZH keyword tables ("哪几种", "what strategies",
+// "what kinds of", etc.) — the same red-line violation as the
+// stage 16 retired path in explorer_erm.go. Intent classification
+// is the analyzer's single responsibility; explore consumes the
+// typed result via isEnumerationRequestModel and other typed
+// accessors. Function had zero production callers (only the
+// retired test reached it).
 
+// enumerationIntentForContext (Phase 6 stage 17, 2026-05-03)
+// returns the typed `isEnumerationRequestModel` verdict when a
+// structured RequestModel is available; otherwise false. The
+// retired path fell back to detectEnumerationIntent which
+// tokenized the question's free-form text via hardcoded EN+ZH
+// keyword tables ("所有", "list all", etc.) — that violated the
+// "意图分类是分析器的工作" red line. When the analyzer hasn't
+// run, ERM cannot know whether the question is enumeration; the
+// safe default is false (the explorer's other coverage gates do
+// not depend on this signal except as an enrichment).
 func enumerationIntentForContext(ctx *types.AgentContext) bool {
-	if rm := requestModelFromContext(ctx); rm != nil {
-		if hasStructuredRequestModel(ctx, rm) {
-			return isEnumerationRequestModel(*rm)
-		}
+	rm := requestModelFromContext(ctx)
+	if rm != nil && hasStructuredRequestModel(ctx, rm) {
+		return isEnumerationRequestModel(*rm)
 	}
-	if ctx == nil {
-		return false
-	}
-	return detectEnumerationIntent(types.StripConversationPrefix(ctx.Objective))
+	return false
 }
 
 func requestModelFromContext(ctx *types.AgentContext) *types.RequestModel {
@@ -12501,43 +12490,16 @@ func hasStructuredRequestModel(ctx *types.AgentContext, rm *types.RequestModel) 
 	return false
 }
 
-// detectEnumerationIntent checks if a question asks to list or enumerate
-// all items of a certain type. This triggers stricter file coverage
-// thresholds and enumeration completeness verification in synthesis.
-//
-// Supports Chinese and English enumeration patterns. The heuristic
-// requires the enumeration keyword to appear in a context that suggests
-// exhaustive listing (not just incidental use of "all").
-func detectEnumerationIntent(question string) bool {
-	lower := strings.ToLower(question)
-
-	// Chinese enumeration keywords (high confidence).
-	for _, kw := range []string{"所有", "每个", "全部", "哪些", "有哪些", "列出", "列举"} {
-		if strings.Contains(question, kw) {
-			return true
-		}
-	}
-
-	// English enumeration patterns.
-	// Direct enumeration verbs.
-	for _, kw := range []string{"list all", "find all", "enumerate", "how many"} {
-		if strings.Contains(lower, kw) {
-			return true
-		}
-	}
-	// "all X" where X is a noun — "all implementations", "all types"
-	// Require "all" followed by a word, not "all errors are handled" pattern.
-	for _, prefix := range []string{"all the ", "every ", "each "} {
-		if strings.Contains(lower, prefix) {
-			return true
-		}
-	}
-	// "what are the Xs" — plural noun query
-	if strings.Contains(lower, "what are") || strings.Contains(lower, "which ") {
-		return true
-	}
-	return false
-}
+// detectEnumerationIntent was retired 2026-05-03 (Phase 6
+// stage 17). The function tokenized the user's question via
+// hardcoded EN+ZH keyword tables ("所有", "每个", "list all",
+// "find all", "enumerate", "how many", "every", "each", "what
+// are", "which") to fabricate an enumeration intent — a direct
+// red-line violation per the stage 16/17 architectural directive
+// "意图分类是分析器的工作 / 不允许出现这些关键字去更改意图分类的".
+// The typed analyzer signal `isEnumerationRequestModel` (reads
+// RequestModel.Predicates.IsCategoryEnumeration / Intent /
+// PredicateAxis enum values) is the canonical replacement.
 
 // partialReadHint describes a function/method that was partially read.
 type partialReadHint struct {

@@ -672,67 +672,18 @@ func TestDetectPartiallyReadSymbols(t *testing.T) {
 	})
 }
 
-func TestDetectEnumerationIntent(t *testing.T) {
-	tests := []struct {
-		question string
-		want     bool
-	}{
-		// Chinese enumeration patterns
-		{"项目中所有实现了Evaluator接口的类型有哪些", true},
-		{"列出每个agent的ShouldStop行为", true},
-		{"有哪些pipeline stage", true},
-		{"全部配置项列举一下", true},
-
-		// English enumeration patterns
-		{"list all Evaluator implementations", true},
-		{"find all files that contain ShouldStop", true},
-		{"what are the agent types", true},
-		{"which stages support self-loop", true},
-		{"how many tools are registered", true},
-		{"enumerate the pipeline stages", true},
-		{"every agent has a Name method", true},
-
-		// Non-enumeration questions
-		{"how does the explorer work", false},
-		{"explain the ReAct loop", false},
-		{"fix the bug in parser", false},
-		{"why is the build failing", false},
-	}
-	for _, tt := range tests {
-		got := detectEnumerationIntent(tt.question)
-		if got != tt.want {
-			t.Errorf("detectEnumerationIntent(%q) = %v, want %v", tt.question, got, tt.want)
-		}
-	}
-}
-
-// TestEnumerationIntent_NotPollutedByPriorConversation pins the
-// trace 1776448040358685830 fix: the BuildInitialInstruction
-// callsite strips the REPL's Prior Conversation prefix before
-// detectEnumerationIntent runs, so a prior turn's "哪些" / "how
-// many" does not flip the current non-enumeration question's
-// isEnumerationQuery flag. Raw detectEnumerationIntent still
-// returns true on a concatenated input — that is correct for the
-// substring search; the fix lives at the call site.
-func TestEnumerationIntent_NotPollutedByPriorConversation(t *testing.T) {
-	priorWithEnumKw := "## Prior conversation\n### Recent conversation\n- You: 通过哪些机制？\n  Codrax: some answer\n\n## Current request\n"
-	currentMechanism := "explorer 是如何调用 subagent的？"
-	full := priorWithEnumKw + currentMechanism
-
-	// Raw concatenated input still trips the detector (substring
-	// search finds 哪些 in the prior).
-	if !detectEnumerationIntent(full) {
-		t.Error("raw concatenated Objective should trip detector (prior has 哪些) — test premise invalid")
-	}
-
-	// After stripping the prior, only the current request is checked
-	// and the non-enumeration question returns false.
-	stripped := types.StripConversationPrefix(full)
-	if detectEnumerationIntent(stripped) {
-		t.Errorf("stripped current %q must NOT be enumeration; Prior pollution regressed",
-			stripped)
-	}
-}
+// TestDetectEnumerationIntent / TestEnumerationIntent_NotPollutedByPriorConversation
+// were retired 2026-05-03 (Phase 6 stage 17) along with their
+// classifier function. detectEnumerationIntent (and its sibling
+// detectDetailListingIntent) classified user-question prose via
+// hardcoded EN+ZH keyword tables — direct red-line violations.
+// Per "意图分类是分析器的工作", explore now consumes the typed
+// `isEnumerationRequestModel` verdict from the analyzer's
+// emit_analysis result; tests that pinned the keyword classifier
+// are no longer applicable. The typed-path entry point
+// `enumerationIntentForContext` is exercised by
+// TestEnumerationIntentForContext_PrefersStructuredSignals
+// (immediately below).
 
 func TestEnumerationIntentForContext_PrefersStructuredSignals(t *testing.T) {
 	ctx := &types.AgentContext{
@@ -769,13 +720,21 @@ func TestEnumerationIntentForContext_StructuredNonEnumerationSuppressesRawListVe
 	}
 }
 
+// TestEnumerationIntentForContext_FallsBackWithoutStructuredModel
+// was retired 2026-05-03 (Phase 6 stage 17). The test pinned the
+// retired raw-question keyword fallback ("列出所有 agent 的类型"
+// returns true even without a structured RequestModel via
+// detectEnumerationIntent's keyword scan). Per the architectural
+// directive, no-RequestModel must NOT fall back to question-text
+// tokenization; the typed-only contract returns false in that
+// case (analyzer must classify first).
 func TestEnumerationIntentForContext_FallsBackWithoutStructuredModel(t *testing.T) {
 	ctx := &types.AgentContext{
 		Objective: "列出所有 agent 的类型",
 		Mutable:   types.NewMutableState("列出所有 agent 的类型"),
 	}
-	if !enumerationIntentForContext(ctx) {
-		t.Fatal("raw-question fallback should still work when no structured request model is available")
+	if enumerationIntentForContext(ctx) {
+		t.Fatal("typed-only contract: no RequestModel ⇒ enumeration intent unknown ⇒ false")
 	}
 }
 
@@ -1145,28 +1104,12 @@ func TestExtractFileCoverageGrepFormats(t *testing.T) {
 	})
 }
 
-func TestDetectDetailListingIntent(t *testing.T) {
-	tests := []struct {
-		question string
-		want     bool
-	}{
-		{"具体有哪些策略", true},
-		{"哪几种continuation push", true},
-		{"按优先级从高到低排列", true},
-		{"分别说明每种的触发条件", true},
-		{"what strategies does the explorer use", true},
-		{"what are the different agent types", true},
-		{"describe each step", true},
-		{"how does it work", false},
-		{"explain the architecture", false},
-	}
-	for _, tt := range tests {
-		got := detectDetailListingIntent(tt.question)
-		if got != tt.want {
-			t.Errorf("detectDetailListingIntent(%q) = %v, want %v", tt.question, got, tt.want)
-		}
-	}
-}
+// TestDetectDetailListingIntent was retired 2026-05-03 (Phase 6
+// stage 17). The classified detectDetailListingIntent function had
+// zero production callers (only this test reached it) and used
+// hardcoded EN+ZH keyword tables ("哪几种", "what strategies",
+// etc.) for question-intent classification — a direct red-line
+// violation. Both function and test deleted.
 
 func TestIsEvidenceLineAssignment(t *testing.T) {
 	tests := []struct {
