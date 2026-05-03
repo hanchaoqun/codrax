@@ -5589,21 +5589,24 @@ func driftBoundedSummaryAllowedLabels(citations []types.Citation, gc *ground.Con
 	}
 	for _, cite := range citations {
 		add(cite.File)
+		// 2026-05-03 (Phase 6 stage 10) — preserved typed-only
+		// surfaces: cite.File (LLM-emitted Citation field) +
+		// cite.Quote (LLM-emitted Citation field) tokens.
+		// Retired: cite.Line ±3 raw-source-line scan that
+		// tokenized arbitrary nearby comment / docstring / import
+		// text into the allowed-label set. That was the same
+		// false-positive surface stages 1-9 retired — an unrelated
+		// identifier near a cited line could pass the
+		// driftBoundedSummary* allow-list gates because it
+		// happened to share a name with an answer-prose token.
+		// The drift-bounded surface now requires the LLM to either
+		// quote the relevant identifier in cit.Quote OR pin it via
+		// LogObservedAnchors / LogSourceDriftAnchors /
+		// ExternalObservationSeeds — both LLM-emitted typed
+		// channels.
 		addTokens(cite.Quote)
-		if gc == nil || cite.Line <= 0 {
-			continue
-		}
-		file := strings.TrimSpace(strings.ReplaceAll(cite.File, `\`, `/`))
-		lines := gc.LineIndex[file]
-		for current := cite.Line - corroborationWindow; current <= cite.Line+corroborationWindow; current++ {
-			if current <= 0 {
-				continue
-			}
-			if text, ok := lines[current]; ok {
-				addTokens(text)
-			}
-		}
 	}
+	_ = gc
 	return allowed
 }
 
