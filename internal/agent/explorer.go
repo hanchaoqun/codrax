@@ -13426,21 +13426,56 @@ func crossValidateEvidence(notes []string, concreteValuesSection string) string 
 // Handles patterns like "returns true", "returns \"explorer\"",
 // "binds NewFoo", "registers NewFoo and NewBar".
 // Returns the normalized value for comparison, or "" if unparseable.
+//
+// Phase 6 stage 29 (2026-05-03) — the prefix list now derives
+// from the typed concreteValueKind enum constants (stage 23)
+// rather than a parallel inline literal table. The producer
+// emits facts in the form "<kind> <value>" where <kind> is one
+// of concreteValueKindReturns / concreteValueKindBinds (and
+// "binds <qualifier>" variants) / concreteValueKindMaps /
+// concreteValueKindDecorates / concreteValueKindConfig (and
+// "registers" / "registers only" historical variants for
+// backward compat). Reading from the typed enum keeps this
+// helper in lockstep with the producer's vocabulary — adding a
+// new concreteValueKindFoo constant automatically extends the
+// strip set here.
 func normalizeValueAssertion(fact string) string {
 	fact = strings.TrimSpace(fact)
 	lower := strings.ToLower(fact)
-
-	// Strip common prefixes to get to the value.
-	for _, prefix := range []string{
-		"returns ", "return ", "binds only ", "binds ",
-		"maps ", "registers only ", "registers ",
-		"decorates ", "config ",
-	} {
+	for _, prefix := range valueAssertionPrefixes() {
 		if strings.HasPrefix(lower, prefix) {
 			return strings.TrimSpace(fact[len(prefix):])
 		}
 	}
 	return fact
+}
+
+// valueAssertionPrefixes returns the lowercase, space-suffixed
+// prefix forms derived from the typed concreteValueKind enum
+// (stage 23). Order matters: longer prefixes ("binds only ",
+// "registers only ") must come before their shorter siblings so
+// the HasPrefix loop doesn't strip "binds " when the actual
+// prefix is "binds only ".
+//
+// All values are lowercased to match the normalizeValueAssertion
+// `lower` comparison; the producer's `concreteValueKindBindsOnly`
+// constant is "binds ONLY" (mixed case) so we transform it.
+//
+// "registers" / "registers only" are kept as backward-compat
+// historical synonyms of binds-shape registration that some
+// older fixtures still emit. They have no concreteValueKind
+// constant of their own (the producer canonicalised on "binds"
+// long ago), so they live here as the only inline literals.
+func valueAssertionPrefixes() []string {
+	return []string{
+		strings.ToLower(concreteValueKindBindsOnly) + " ",
+		concreteValueKindBinds + " ",
+		"registers only ", "registers ",
+		concreteValueKindReturns + " ", "return ",
+		concreteValueKindMaps + " ",
+		concreteValueKindDecorates + " ",
+		concreteValueKindConfig + " ",
+	}
 }
 
 // valueAssertionsAgree checks if two normalized value assertions refer
