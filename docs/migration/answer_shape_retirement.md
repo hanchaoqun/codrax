@@ -1,5 +1,12 @@
 # Block-Only 现状审计与 `AnswerShape` 退役实施方案
 
+> ⚠️ **状态：superseded（2026-05-03）**
+>
+> 本文档基于 `origin/main@7a14a9d` 编写，是 `AnswerShape` 退役工作的第一版蓝图。`origin/main@3c71fe6` (`feat(shape-retirement): read-mode 主链 view-driven 化`) 落地了第一批改动后，残余清单与施工方法已经在
+> [`answer_shape_terminal_retirement.md`](answer_shape_terminal_retirement.md) 中重写并精确到行号。
+>
+> 新的施工请以终局版为准；本文件保留作为历史背景。
+
 更新时间：基于 `origin/main@7a14a9d21aeffac81a15b527e6610173b8a9d6d1`
 
 ## 1. 文档目的
