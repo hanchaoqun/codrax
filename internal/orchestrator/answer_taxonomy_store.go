@@ -192,7 +192,7 @@ func (s *AnswerTaxonomyStore) persistLocked() error {
 //
 // Relevance score combines:
 //   - Scenario match (AppliesToScenarios includes scenario)  — 3.0
-//   - Family match (AppliesToShapes includes family)         — 2.0
+//   - Family match (AppliesToFamilies includes family)       — 2.0
 //   - Confidence                                             — 1.0 base
 //   - HitCount log-scaled                                    — log(1+HitCount)
 //   - Recency (decay 0..1 over decayDays)                    — 0.5 weight
@@ -342,9 +342,9 @@ func scoreAnswerPatternRelevance(p *types.AnswerPattern, scenario, family string
 		}
 		score += 3.0
 	}
-	if len(p.AppliesToShapes) > 0 {
+	if len(p.AppliesToFamilies) > 0 {
 		matched := false
-		for _, fam := range p.AppliesToShapes {
+		for _, fam := range p.AppliesToFamilies {
 			if fam == family {
 				matched = true
 				break

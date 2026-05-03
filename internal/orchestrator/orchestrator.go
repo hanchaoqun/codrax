@@ -4454,12 +4454,12 @@ func (o *Orchestrator) dispatchStage(stage types.PipelineStage) (*agent.StageOut
 	// anti-pattern this block exists to prevent.
 	// Commit 51 Gap 3: read-mode Answer Taxonomy injection. The
 	// analyzer runs BEFORE AnalysisIR is set, so we cannot filter
-	// by Scenario/Shape on the first dispatch. RelevantTo("","",5)
+	// by Scenario/Family on the first dispatch. RelevantTo("","",5)
 	// returns only unconstrained patterns (patterns whose author
-	// declared no AppliesToScenarios / AppliesToShapes), which is
-	// exactly the "broadly applicable in this repo" set we want
+	// declared no AppliesToScenarios / AppliesToFamilies), which
+	// is exactly the "broadly applicable in this repo" set we want
 	// for analyze entry. On post-analyze stages the IR-aware
-	// switch below has the Scenario/Shape and could re-inject
+	// switch below has the Scenario/Family and could re-inject
 	// with proper filters; we keep it analyze-only for now to
 	// match the "guide classification" purpose.
 	if o.answerTaxonomyStore != nil && stage == types.StageAnalyze {

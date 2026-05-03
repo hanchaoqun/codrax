@@ -22,7 +22,7 @@ import (
 // fluff. The store applies dedup + decay; the analyzer's injection
 // layer scores relevance per request.
 //
-// AppliesToScenarios + AppliesToShapes scope a pattern to specific
+// AppliesToScenarios + AppliesToFamilies scope a pattern to specific
 // request shapes (mirror of FailurePattern.AppliesToKinds +
 // AppliesToPaths). Empty = applies to all.
 type AnswerPattern struct {
@@ -91,12 +91,17 @@ type AnswerPattern struct {
 	// "enumeration-shape pitfalls" on a root-cause request.
 	AppliesToScenarios []string `json:"applies_to_scenarios,omitempty"`
 
-	// AppliesToShapes restricts injection to specific
-	// RequiredAnswerShape values (e.g. "list", "value",
-	// "explanation"). Empty = no shape constraint. Lets the
-	// analyzer skip pitfalls clearly unrelated to the shape this
-	// request will produce.
-	AppliesToShapes []string `json:"applies_to_shapes,omitempty"`
+	// AppliesToFamilies restricts injection to specific
+	// QuestionFamily values (e.g. "QFEnumeration", "QFRoleLookup",
+	// "QFExplanation"). Empty = no family constraint. Lets the
+	// analyzer skip pitfalls clearly unrelated to the family this
+	// request will route to. Pre-PR4 this field was named
+	// AppliesToShapes (json `applies_to_shapes`); the rename
+	// mirrors the AnswerShape → QuestionFamily migration. Reader
+	// path (`reviewer.go`) keeps `applies_to_shapes` as a one-way
+	// JSON alias so on-disk caches written by older builds keep
+	// loading; new writes only emit `applies_to_families`.
+	AppliesToFamilies []string `json:"applies_to_families,omitempty"`
 }
 
 // IsValid reports whether the pattern carries the minimum content

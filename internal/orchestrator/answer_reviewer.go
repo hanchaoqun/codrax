@@ -247,7 +247,7 @@ func unmarshalAnswerPattern(raw json.RawMessage) (*types.AnswerPattern, error) {
 		ExampleLine:        parsed.ExampleLine,
 		Confidence:         parsed.Confidence,
 		AppliesToScenarios: parsed.AppliesToScenarios,
-		AppliesToShapes:    families,
+		AppliesToFamilies:  families,
 	}
 	if !pattern.IsValid() {
 		return nil, fmt.Errorf("emit_answer_pattern fails validation: name=%q desc-len=%d trig-len=%d conf=%.2f",
