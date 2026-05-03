@@ -2985,9 +2985,12 @@ func parseLiteralGroundingStepIndex(firstLine string) (int, bool) {
 // answerDocumentStageData is the JSON payload shape written into
 // StageOutput.Data. Marshaling via a typed struct (rather than
 // fmt.Sprintf with %q) keeps unicode escapes JSON-safe.
+//
+// B8-T7: AnswerDocumentV2 is the only carrier; the legacy
+// AnswerDocument field is gone. parseOutputV2 maintains a parallel
+// data shape (final_answer + answer_document_v2) via its own type.
 type answerDocumentStageData struct {
-	FinalAnswer    string                `json:"final_answer"`
-	AnswerDocument *types.AnswerDocument `json:"answer_document"`
+	FinalAnswer string `json:"final_answer"`
 }
 
 // ParseOutput reads the AnswerDocument from Mutable, runs the

@@ -1,17 +1,12 @@
 package types
 
-import (
-	"math"
-	"strings"
-)
+import "math"
 
-// answer_document.go — structured answer payload.
-//
-// AnswerDocument is the typed replacement for the finalizer's free
-// prose output. The finalizer LLM emits an AnswerDocument via the
-// emit_answer_document tool call, and a deterministic renderer
-// (internal/render/answerdoc.go) converts the struct into
-// user-visible prose keyed on BusContext language.
+// answer_document.go — supporting types for the V2 block-only answer
+// carrier (AnswerDocumentV2 lives in answer_document_v2.go). After
+// the B8 retirement of the V1 carrier, this file holds shared
+// payload types: per-shape Summary length caps + the Citation pool +
+// ExactResolution status enums + CodeSnippet.
 //
 // Design target: close R1 at the finalizer layer. The four
 // fake-green patterns become structurally impossible:
@@ -59,42 +54,6 @@ import (
 //   - Caveats: honesty/ungrounded markers the renderer surfaces at
 //     the bottom of the prose
 //
-// ShapeExplanation is the free-form fallback: only Summary +
-// Citations are required, Steps/Symbols/Value/Boolean are all empty.
-// Use it for general-explanation questions that do not fit any of the
-// structured shapes.
-type AnswerDocument struct {
-	Shape   AnswerShape `json:"shape"`
-	Summary string      `json:"summary,omitempty"`
-
-	// ExactResolution is the structured exact-target disposition for
-	// dispatches whose AnswerContract carries ExactResolution. The
-	// finalizer LLM recommends the status; emit_answer_document
-	// validates it against grounded evidence / absence state and may
-	// synthesize a deterministic lead sentence from it.
-	ExactResolution *AnswerExactResolution `json:"exact_resolution,omitempty"`
-
-	Steps []AnswerStep `json:"steps,omitempty"`
-
-	Symbols             []AnswerSymbol    `json:"symbols,omitempty"`
-	SymbolsCompleteness CompletenessClaim `json:"symbols_completeness,omitempty"`
-
-	Value   *AnswerValue   `json:"value,omitempty"`
-	Boolean *AnswerBoolean `json:"boolean,omitempty"`
-
-	Citations []Citation `json:"citations,omitempty"`
-	Caveats   []string   `json:"caveats,omitempty"`
-
-	// Snippets are short code excerpts (±2 lines around each
-	// citation, clustered when adjacent) extracted deterministically
-	// from the read_file gutter index. Populated by
-	// emit_answer_document post-dispatch; the LLM never writes into
-	// this field. Rendered below the Summary and above the Citations
-	// pool so readers can see the relevant code without following
-	// file:line links.
-	Snippets []CodeSnippet `json:"snippets,omitempty"`
-}
-
 // CodeSnippet carries a contiguous code excerpt extracted from a
 // file that was actually read during Turn A. File+line range keys
 // it for display; Code is the verbatim text with a leading gutter
@@ -272,82 +231,6 @@ const CitationRefUnset = -1
 // AnswerStepKindPrincipal at decode time so pre-2026-05-02 emits
 // stay byte-identical (every old step counted as principal).
 //
-//   - principal: a load-bearing item the user explicitly asked for.
-//     These are the items that count toward
-//     RequestedEnumerationBoundary.DeclaredCount.
-//   - flow: structural narration / transition that helps the reader
-//     follow the step sequence but does NOT count toward the
-//     boundary. Examples: "enter read-mode branch", "begin loop",
-//     "after this, the validator runs N times".
-//   - caveat: trailing scope-warning / out-of-band note that does
-//     NOT count toward the boundary. Use for "in write mode this
-//     step is skipped" or "ignored when X feature flag off".
-type AnswerStepKind string
-
-const (
-	AnswerStepKindPrincipal AnswerStepKind = "principal"
-	AnswerStepKindFlow      AnswerStepKind = "flow"
-	AnswerStepKindCaveat    AnswerStepKind = "caveat"
-)
-
-// IsValid reports whether k is one of the known kinds. Used by
-// emit_answer_document's schema validator and by the principal-
-// count helpers to reject typos defensively.
-func (k AnswerStepKind) IsValid() bool {
-	switch k {
-	case AnswerStepKindPrincipal, AnswerStepKindFlow, AnswerStepKindCaveat:
-		return true
-	}
-	return false
-}
-
-// NormalizeAnswerStepKind canonicalizes a raw string. Empty input
-// (back-compat path: pre-2026-05-02 emits had no kind field) maps
-// to AnswerStepKindPrincipal so the predecessor "every step is
-// principal" semantic is preserved exactly. Unknown values fall
-// back to AnswerStepKindPrincipal as well, with a returned ok=false
-// so the schema validator can decide whether to reject or warn.
-func NormalizeAnswerStepKind(raw string) (AnswerStepKind, bool) {
-	trimmed := strings.TrimSpace(strings.ToLower(raw))
-	if trimmed == "" {
-		return AnswerStepKindPrincipal, true
-	}
-	k := AnswerStepKind(trimmed)
-	if k.IsValid() {
-		return k, true
-	}
-	return AnswerStepKindPrincipal, false
-}
-
-// PrincipalStepCount counts AnswerStep entries with Kind==principal.
-// Used by emit_answer_document's RequestedEnumerationBoundary
-// validator AND by the orchestrator's contract.Check declared-
-// count-drift lower-bound check (Plan D rollout 2026-05-02). Empty
-// Kind is treated as principal so pre-Kind emits keep their
-// pre-2026-05-02 "every step counts" behaviour exactly.
-func PrincipalStepCount(steps []AnswerStep) int {
-	n := 0
-	for _, s := range steps {
-		if s.Kind == "" || s.Kind == AnswerStepKindPrincipal {
-			n++
-		}
-	}
-	return n
-}
-
-// CountStepsOfKind returns the number of steps whose Kind exactly
-// matches the argument. Used by validator hints to give per-kind
-// breakdowns ("9 principal + 1 flow + 0 caveat").
-func CountStepsOfKind(steps []AnswerStep, kind AnswerStepKind) int {
-	n := 0
-	for _, s := range steps {
-		if s.Kind == kind {
-			n++
-		}
-	}
-	return n
-}
-
 // AnswerStep is one numbered entry in a ShapeStepList answer. The
 // Description field carries LLM-authored prose for the step's body;
 // the CitationRef integer points at a Citation in the document-level
@@ -359,46 +242,16 @@ func CountStepsOfKind(steps []AnswerStep, kind AnswerStepKind) int {
 // toward the user-declared boundary; flow / caveat steps do not.
 // Empty Kind decodes to principal for back-compat.
 //
-// ClaimUse (Phase 3 of Semantic Surface Contract, 2026-05-02 add) is
-// an OPTIONAL annotation the LLM may attach to identify which
-// FacetCoverageContract slot this step fills + which ClaimForm
-// shape its evidence carries. Phase 4 validators read it to enforce
-// facet coverage; Phase 3 is back-compat-only — emits without
-// claim_use are byte-identical to pre-Phase-3 output.
-type AnswerStep struct {
-	Index       int               `json:"index"`
-	Description string            `json:"description"`
-	CitationRef int               `json:"citation_ref"`
-	Kind        AnswerStepKind    `json:"kind,omitempty"`
-	ClaimUse    *RenderedClaimUse `json:"claim_use,omitempty"`
-}
-
 // AnswerValue carries a single concrete value answer. Literal is the
 // verbatim string from the evidence (the renderer emits it in quotes
 // when appropriate). Key is the config-key path for ShapeConfigValue;
 // empty for plain ShapeValue answers.
 //
-// ClaimUse: see AnswerStep.ClaimUse — optional Phase-3 annotation.
-type AnswerValue struct {
-	Key         string            `json:"key,omitempty"`
-	Literal     string            `json:"literal"`
-	CitationRef int               `json:"citation_ref"`
-	ClaimUse    *RenderedClaimUse `json:"claim_use,omitempty"`
-}
-
 // AnswerBoolean carries a YES/NO answer plus a one-sentence rationale.
 // The renderer prefixes Rationale with a language-specific YES/NO
 // word drawn from Decision, so the LLM cannot hedge by supplying
 // "it depends" in Rationale.
 //
-// ClaimUse: see AnswerStep.ClaimUse — optional Phase-3 annotation.
-type AnswerBoolean struct {
-	Decision    bool              `json:"decision"`
-	Rationale   string            `json:"rationale"`
-	CitationRef int               `json:"citation_ref"`
-	ClaimUse    *RenderedClaimUse `json:"claim_use,omitempty"`
-}
-
 // Citation is one entry in the AnswerDocument-level citation pool.
 // The emit_answer_document schema requires File to be non-empty and
 // Line > 0; files inside BusContext.WorkDir are rejected (the blob
@@ -455,90 +308,6 @@ func SetCitationMaxQuoteChars(n int) {
 		return
 	}
 	citationMaxQuoteChars = n
-}
-
-// IsZero reports whether the document is fully empty — no shape set
-// and no fields populated. Used by the finalizer's ParseOutput to
-// decide whether a missing emit_answer_document call counts as "LLM
-// refused to emit" (retry required) or "genuinely empty answer"
-// (leaves FinalAnswer empty).
-func (d *AnswerDocument) IsZero() bool {
-	if d == nil {
-		return true
-	}
-	if d.Shape != "" {
-		return false
-	}
-	if d.Summary != "" {
-		return false
-	}
-	if d.ExactResolution != nil {
-		return false
-	}
-	if len(d.Steps) > 0 || len(d.Symbols) > 0 || len(d.Citations) > 0 || len(d.Caveats) > 0 {
-		return false
-	}
-	if d.Value != nil || d.Boolean != nil {
-		return false
-	}
-	return true
-}
-
-// CloneAnswerDocument returns a defensive deep copy of d. Used by the
-// MutableState accessor so external callers cannot mutate the
-// internal snapshot in place. Nil input returns nil.
-func CloneAnswerDocument(d *AnswerDocument) *AnswerDocument {
-	if d == nil {
-		return nil
-	}
-	out := *d
-	if d.Steps != nil {
-		out.Steps = append([]AnswerStep(nil), d.Steps...)
-		// Deep-copy each step's optional ClaimUse pointer (Phase 3)
-		// so callers cannot mutate the source through the clone.
-		for i := range out.Steps {
-			if d.Steps[i].ClaimUse != nil {
-				cu := *d.Steps[i].ClaimUse
-				out.Steps[i].ClaimUse = &cu
-			}
-		}
-	}
-	if d.Symbols != nil {
-		out.Symbols = append([]AnswerSymbol(nil), d.Symbols...)
-		for i := range out.Symbols {
-			if d.Symbols[i].ClaimUse != nil {
-				cu := *d.Symbols[i].ClaimUse
-				out.Symbols[i].ClaimUse = &cu
-			}
-		}
-	}
-	if d.Citations != nil {
-		out.Citations = append([]Citation(nil), d.Citations...)
-	}
-	if d.Caveats != nil {
-		out.Caveats = append([]string(nil), d.Caveats...)
-	}
-	if d.Value != nil {
-		v := *d.Value
-		if v.ClaimUse != nil {
-			cu := *v.ClaimUse
-			v.ClaimUse = &cu
-		}
-		out.Value = &v
-	}
-	if d.Boolean != nil {
-		bl := *d.Boolean
-		if bl.ClaimUse != nil {
-			cu := *bl.ClaimUse
-			bl.ClaimUse = &cu
-		}
-		out.Boolean = &bl
-	}
-	if d.ExactResolution != nil {
-		ex := *d.ExactResolution
-		out.ExactResolution = &ex
-	}
-	return &out
 }
 
 // AnswerExactResolutionStatus is the finalizer's structured judgment

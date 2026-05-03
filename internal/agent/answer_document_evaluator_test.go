@@ -1,7 +1,6 @@
 package agent
 
 import (
-	"encoding/json"
 	"strings"
 	"testing"
 
@@ -2670,25 +2669,6 @@ func richDraftProse() string {
 	return strings.Repeat(
 		"The dispatcher walks the handler chain and delegates to the registered listener. ",
 		20) // 20 * ~78 chars = ~1560 chars, well above the 400-char floor
-}
-
-// parseStageDoc reads the mutated AnswerDocument back out of the
-// StageOutput's JSON Data payload. MutableState.AnswerDocument()
-// returns a defensive clone on every call, so the mutations the
-// salvage applies inside ParseOutput are only observable through the
-// StageOutput it returns.
-func parseStageDoc(t *testing.T, out *StageOutput) *types.AnswerDocument {
-	t.Helper()
-	var payload struct {
-		AnswerDocument *types.AnswerDocument `json:"answer_document"`
-	}
-	if err := json.Unmarshal(out.Data, &payload); err != nil {
-		t.Fatalf("unmarshal stage data: %v", err)
-	}
-	if payload.AnswerDocument == nil {
-		t.Fatal("stage data.answer_document is nil")
-	}
-	return payload.AnswerDocument
 }
 
 func TestSanitizePriorDraftForSummary_StripsInternalScaffolding(t *testing.T) {

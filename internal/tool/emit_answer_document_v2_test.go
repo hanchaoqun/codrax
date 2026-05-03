@@ -193,9 +193,6 @@ func TestEmitAnswerDocumentV2_MutualExclusionWithV1(t *testing.T) {
 	if _, err := tool.Execute(bus, minimalV2EmitJSON()); err != nil {
 		t.Fatal(err)
 	}
-	if bus.Mutable.AnswerDocument() != nil {
-		t.Error("V2 emit polluted V1 carrier")
-	}
 	if bus.Mutable.AnswerDocumentV2() == nil {
 		t.Error("V2 emit did not write V2 carrier")
 	}

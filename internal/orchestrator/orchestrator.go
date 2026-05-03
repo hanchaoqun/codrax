@@ -2880,7 +2880,7 @@ func (o *Orchestrator) runReadSchedulerLoop(stepBudget int) int {
 		// AnswerDocument is the finalizer's structured output buffer;
 		// reset it alongside the extractor buffers so a multi-task run
 		// cannot drag a stale document from task N into task N+1.
-		o.busCtx.Mutable.ResetAnswerDocument()
+		o.busCtx.Mutable.ResetAnswerDocumentV2()
 		// CGEC: per-task reset of the EvidenceClosure (PendingReads,
 		// CitedRefs, Fingerprints, Repairs queue). Mirrors the other
 		// per-task resets above; without this a stall fingerprint
@@ -3412,7 +3412,7 @@ func (o *Orchestrator) runReadSchedulerLoop(stepBudget int) int {
 		// from a clean slate. Safe for round 0 (doc was already nil),
 		// correct for round 1+ (clears the stale doc from round N-1).
 		if o.busCtx.Mutable != nil {
-			o.busCtx.Mutable.ResetAnswerDocument()
+			o.busCtx.Mutable.ResetAnswerDocumentV2()
 		}
 		// Pre-dispatch cue: finalize runs one synchronous LLM call
 		// without intermediate tool activity, so without this the task

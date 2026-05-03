@@ -127,27 +127,16 @@ type MutableState struct {
 	// ResetDispatchToolResults clears it at loop entry so cross-
 	// dispatch leakage is impossible.
 	dispatchToolResults []ToolResult
-	// answerDocument is the structured final-answer payload. It is
-	// written by the emit_answer_document tool (one atomic set per
-	// dispatch) and read by the finalizer's ParseOutput to render the
-	// user-visible prose. Set semantics mirror SetEmittedAnswerSymbols:
-	// a later call REPLACES any previous document, so a correction
-	// retry from the ReAct loop cleanly wins over the prior attempt.
-	// Cross-task reset (runTaskGraph) calls ResetAnswerDocument at
-	// per-task entry so stale state cannot leak between tasks in a
-	// multi-task run.
-	answerDocument *AnswerDocument
-
-	// answerDocumentV2 is the block-only carrier introduced by the
-	// docs/migration/block_only_carrier.md plan (B3 落地). When the
-	// LLM emits with document_model="v2" the tool writes here
-	// instead of `answerDocument`. The two fields are MUTUALLY
-	// EXCLUSIVE per dispatch — emit_answer_document writes one OR
-	// the other, never both. ResetAnswerDocumentV2 clears at task
-	// entry, mirror of ResetAnswerDocument.
-	//
-	// At terminal-state B8 the V1 field is deleted and this field
-	// is renamed to `answerDocument`.
+	// answerDocumentV2 is the block-only carrier (
+	// docs/migration/block_only_carrier.md) — the structured final-
+	// answer payload written by the emit_answer_document tool (one
+	// atomic set per dispatch) and read by the finalizer's
+	// ParseOutput to render user-visible prose. Set semantics mirror
+	// SetEmittedAnswerSymbols: a later call REPLACES any previous
+	// document so a correction retry from the ReAct loop cleanly
+	// wins. Cross-task reset (runTaskGraph) calls
+	// ResetAnswerDocumentV2 at per-task entry so stale state cannot
+	// leak between tasks in a multi-task run.
 	answerDocumentV2 *AnswerDocumentV2
 
 	// lastAnswerDocAttemptShape caches the size profile of the
@@ -1386,64 +1375,10 @@ func (m *MutableState) LastAnswerDocAttemptShape() *AnswerDocAttemptShape {
 	return &clone
 }
 
-// SetAnswerDocument atomically replaces the P2.2 structured answer
-// payload. Called by the emit_answer_document tool after the schema
-// validator has accepted the LLM's emission. Set-replace semantics:
-// a later call fully overwrites any previous document, so a
-// correction retry from the finalizer's ReAct loop always wins. A nil
-// argument clears the buffer (the same effect as ResetAnswerDocument).
-//
-// The input is defensively deep-copied so a later mutation on the
-// caller's side cannot race with reader goroutines through the
-// AnswerDocument accessor.
-func (m *MutableState) SetAnswerDocument(doc *AnswerDocument) {
-	if m == nil {
-		return
-	}
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	m.answerDocument = CloneAnswerDocument(doc)
-}
-
-// AnswerDocument returns a defensive deep copy of the buffered
-// structured answer payload, or nil when no document has been set on
-// this MutableState. The returned pointer is independent of the
-// internal state — callers cannot mutate the buffered document in
-// place.
-func (m *MutableState) AnswerDocument() *AnswerDocument {
-	if m == nil {
-		return nil
-	}
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-	return CloneAnswerDocument(m.answerDocument)
-}
-
-// ResetAnswerDocument clears the answer payload at the start of a
-// fresh per-task dispatch. Mirror of ResetTurnAArtifacts /
-// ResetEmittedAnswerSymbols. Called from runTaskGraph so multi-task
-// runs do not drag a stale document from task N into task N+1.
-func (m *MutableState) ResetAnswerDocument() {
-	if m == nil {
-		return
-	}
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	m.answerDocument = nil
-	// Both V1 and V2 carriers reset together so a partial
-	// migration leaves no stale state on either field.
-	m.answerDocumentV2 = nil
-}
-
 // SetAnswerDocumentV2 atomically replaces the V2 block-only
 // carrier (B3 落地). Mirror of SetAnswerDocument. The input is
 // stored by-value-copy semantics through the cloning helper so
 // later mutations on the caller side cannot race readers.
-//
-// Per the carrier-mutual-exclusion invariant (B3 design): setting
-// V2 to non-nil ALSO clears V1 in the same critical section, so a
-// later AnswerDocument() reader returns nil — which is the correct
-// signal for "this dispatch's answer lives on V2".
 func (m *MutableState) SetAnswerDocumentV2(doc *AnswerDocumentV2) {
 	if m == nil {
 		return
@@ -1451,15 +1386,6 @@ func (m *MutableState) SetAnswerDocumentV2(doc *AnswerDocumentV2) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.answerDocumentV2 = cloneAnswerDocumentV2(doc)
-	if doc != nil {
-		// Mutual exclusion: V2 set → V1 cleared. The reverse
-		// direction is handled in SetAnswerDocument's existing
-		// implementation (V1 set is the legacy path; we leave V2
-		// alone there to avoid clobbering a legitimate V2 emit
-		// during the migration window — the tool layer enforces
-		// the choice at parse time).
-		m.answerDocument = nil
-	}
 }
 
 // AnswerDocumentV2 returns a defensive deep copy of the buffered
@@ -1652,14 +1578,14 @@ func (m *MutableState) ResetForFallback(target FallbackResetTarget) []string {
 	cleared := []string{}
 	switch target {
 	case FallbackResetTargetFinalizer:
-		m.ResetAnswerDocument()
-		cleared = append(cleared, "AnswerDocument")
+		m.ResetAnswerDocumentV2()
+		cleared = append(cleared, "AnswerDocumentV2")
 	case FallbackResetTargetExtract:
-		m.ResetAnswerDocument()
+		m.ResetAnswerDocumentV2()
 		m.ResetEmittedAnswerSymbols()
-		cleared = append(cleared, "AnswerDocument", "EmittedAnswerSymbols")
+		cleared = append(cleared, "AnswerDocumentV2", "EmittedAnswerSymbols")
 	case FallbackResetTargetExplore:
-		m.ResetAnswerDocument()
+		m.ResetAnswerDocumentV2()
 		m.ResetEmittedAnswerSymbols()
 		// ChangePlan only meaningful in write mode; ResetChangePlan
 		// is nil-safe via guards above.
@@ -1670,7 +1596,7 @@ func (m *MutableState) ResetForFallback(target FallbackResetTarget) []string {
 		if closure := m.EvidenceClosure(); closure != nil {
 			closure.ClearPendingReads()
 		}
-		cleared = append(cleared, "AnswerDocument", "EmittedAnswerSymbols", "ChangePlan", "PendingReads")
+		cleared = append(cleared, "AnswerDocumentV2", "EmittedAnswerSymbols", "ChangePlan", "PendingReads")
 	case FallbackResetTargetAnalyze:
 		// Deliberate no-op — see red line. Caller is expected to
 		// fail-loud at this depth.
