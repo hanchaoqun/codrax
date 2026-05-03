@@ -100,6 +100,11 @@ func runContractCheck(out *agent.StageOutput, c types.AnswerContract, mut *types
 	if mut != nil {
 		ir := mut.RequestModel()
 		if doc := mut.AnswerDocument(); doc != nil && ir != nil {
+			// B7-T2 V1/V2 dispatch telemetry — the V1-carrier sibling
+			// of the V2 line above. Co-existence diagnostic for
+			// migration runs; removed at B8-T7.
+			logging.Debug("[trace/v1v2_diff] carrier=v1 shape=%s symbols=%d steps=%d v2_default=%v v1_strict=%v",
+				doc.Shape, len(doc.Symbols), len(doc.Steps), EmitV2Default(), V1OracleStrictMode())
 			// B6-T3 (block_only_carrier.md, 2026-05-03) — V1 oracle
 			// downgrade. When V2 is the default carrier AND the
 			// rollback-rope (V1OracleStrictMode) is off, the V1
@@ -197,7 +202,20 @@ func runContractCheck(out *agent.StageOutput, c types.AnswerContract, mut *types
 		// AnswerDocument() and AnswerDocumentV2() are never both
 		// non-nil on the same Mutable.
 		if docV2 := mut.AnswerDocumentV2(); docV2 != nil && o != nil && o.busCtx != nil {
+			// B7-T2 V1/V2 dispatch telemetry — one debug line per
+			// contract check so operators can confirm the V2 path
+			// fired (and which family) when grepping
+			// [trace/v1v2_diff]. Live as long as both carriers
+			// coexist; B8-T7 removes when V1 disappears.
 			view := types.BuildAnswerSemanticViewForBusContext(o.busCtx)
+			family := types.QuestionFamily("")
+			requiredCount := 0
+			if view != nil {
+				family = view.Family
+				requiredCount = len(view.RequiredBlocks)
+			}
+			logging.Debug("[trace/v1v2_diff] carrier=v2 family=%s blocks=%d required_block_kinds=%d v2_default=%v v1_strict=%v",
+				family, len(docV2.Blocks), requiredCount, EmitV2Default(), V1OracleStrictMode())
 			if view != nil {
 				result.Violations = append(result.Violations,
 					runV2BlockOracles(docV2, view)...)

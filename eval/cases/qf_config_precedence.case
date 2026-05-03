@@ -1,0 +1,23 @@
+# Grid B6/B7 — QFConfigPrecedence
+#
+# Family: QFConfigPrecedence (block_only_carrier.md §5.2)
+# Question shape: "where is X configured / what value does K take / which
+# layer wins". Block contract requires Summary + Scalar + optional Table
+# (precedence layers).
+#
+# Ground truth: codrax.yaml-driven knobs and their default chain.
+# `pipeline_emit_v2_default` (B6) is a *bool — yaml absent → use code
+# default (true). The resolution chain is yaml > code default; CLI
+# --emit-v2 overrides at runtime. The V2 default flag drives:
+#   - V2 prompt section emission in finalizer
+#   - V1 oracle dispatch downgrade
+#   - emit_answer_document v2 schema acceptance
+#
+# Positive anchor: the yaml field name. Negative blocks generic
+# Java/Python answers that don't apply here.
+
+ID="qf_config_precedence"
+NAME="config precedence — pipeline_emit_v2_default 解析链"
+QUESTION="codrax.yaml 里的 pipeline_emit_v2_default 是怎么解析的？默认值是什么？CLI --emit-v2 怎么覆盖它？"
+EXPECT_CONTAINS="pipeline_emit_v2_default"
+EXPECT_NOT_CONTAINS=".java .py BaseAgent.java"

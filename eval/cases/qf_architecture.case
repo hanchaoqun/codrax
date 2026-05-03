@@ -1,0 +1,21 @@
+# Grid B6/B7 — QFArchitecture
+#
+# Family: QFArchitecture (block_only_carrier.md §5.2)
+# Question shape: "describe the architecture of X / how is X organised".
+# Block contract requires Summary + 1+ Section (one per layer) +
+# Diagram (Required=true).
+#
+# Ground truth: codrax read-mode pipeline has 4 stages (analyze /
+# explore / extract / finalize) plus 2 conditional pre-stages
+# (log_triage / perf_triage). The finalizer renders AnswerDocumentV2
+# blocks (B6 default). Each stage is implemented by an Evaluator;
+# the LoopController interface (commit 022add1+) is implemented by 8
+# concrete Evaluator types.
+#
+# Positive anchor: stage names. Negative blocks unrelated frameworks.
+
+ID="qf_architecture"
+NAME="architecture — codrax read-mode pipeline 4 stages"
+QUESTION="codrax 的 read-mode pipeline 由哪几个 stage 组成？每个 stage 大致负责什么？描述整体架构。"
+EXPECT_CONTAINS="analyze explore extract finalize"
+EXPECT_NOT_CONTAINS=".java .py BaseAgent.java Spring Django"
