@@ -155,10 +155,17 @@ func javaExtractMembers(body *sitter.Node, src []byte, file, parent string, meth
 			}
 			mname := nodeText(nameNode, src)
 			var sig string
+			arity := 0
 			if params := member.ChildByFieldName("parameters"); params != nil {
 				sig = nodeText(params, src)
 				if len(sig) > 120 {
 					sig = sig[:117] + "..."
+				}
+				for k := 0; k < int(params.NamedChildCount()); k++ {
+					p := params.NamedChild(k)
+					if p.Type() == "formal_parameter" || p.Type() == "spread_parameter" {
+						arity++
+					}
 				}
 			}
 			methods = append(methods, types.Symbol{
@@ -169,6 +176,7 @@ func javaExtractMembers(body *sitter.Node, src []byte, file, parent string, meth
 				EndLine:   nodeEndLine(member),
 				Exported:  javaHasModifier(member, src, "public"),
 				Parent:    parent,
+				Arity:     arity,
 				Signature: sig,
 				Doc:       prevSiblingComment(member, src),
 			})

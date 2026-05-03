@@ -129,6 +129,58 @@ func populateImplementers(g *types.Graph) {
 		req map[string]bool
 		fi  *types.FileInfo
 	}
+	// Phase 6 P0b (2026-05-03) — back-fill RequiredMethods from
+	// method-symbol Parent links for languages whose per-extractor
+	// path doesn't populate it inline. Java / Kotlin / TS / ArkTS /
+	// Swift / Python (ABC) / Cangjie all emit interface methods as
+	// Symbol{Kind=method, Parent=interfaceName}; iterating once
+	// over fi.Symbols and grouping by Parent gives the contract
+	// signature without touching each extractor.
+	//
+	// Pre-populated RequiredMethods (Go's inline path via
+	// goExtractInterfaceMethods) is preserved — back-fill only
+	// when empty.
+	for _, fi := range g.Files {
+		if fi == nil {
+			continue
+		}
+		var ifaceSymbols []*types.Symbol
+		methodsByOwner := make(map[string][]string)
+		for i := range fi.Symbols {
+			sym := &fi.Symbols[i]
+			switch sym.Kind {
+			case "interface", "trait", "protocol":
+				ifaceSymbols = append(ifaceSymbols, sym)
+			case "method", "function":
+				owner := sym.Parent
+				if owner == "" {
+					owner = sym.Receiver
+				}
+				if owner == "" {
+					continue
+				}
+				key := fmt.Sprintf("%s(%d)", sym.Name, sym.Arity)
+				methodsByOwner[owner] = append(methodsByOwner[owner], key)
+			}
+		}
+		for _, iface := range ifaceSymbols {
+			if len(iface.RequiredMethods) > 0 {
+				continue
+			}
+			methods, ok := methodsByOwner[iface.Name]
+			if !ok || len(methods) == 0 {
+				continue
+			}
+			seen := make(map[string]bool, len(methods))
+			for _, m := range methods {
+				if !seen[m] {
+					seen[m] = true
+					iface.RequiredMethods = append(iface.RequiredMethods, m)
+				}
+			}
+		}
+	}
+
 	// Group interfaces by language so cross-language matches are
 	// excluded structurally.
 	byLang := make(map[string][]ifaceEntry)
@@ -138,7 +190,7 @@ func populateImplementers(g *types.Graph) {
 		}
 		for i := range fi.Symbols {
 			sym := &fi.Symbols[i]
-			if sym.Kind != "interface" && sym.Kind != "trait" {
+			if sym.Kind != "interface" && sym.Kind != "trait" && sym.Kind != "protocol" {
 				continue
 			}
 			if len(sym.RequiredMethods) == 0 {

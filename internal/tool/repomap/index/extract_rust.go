@@ -122,10 +122,22 @@ func rustExtractFunc(node *sitter.Node, src []byte, file, parent string) (types.
 	}
 
 	var sig string
+	arity := 0
 	if params := node.ChildByFieldName("parameters"); params != nil {
 		sig = nodeText(params, src)
 		if len(sig) > 120 {
 			sig = sig[:117] + "..."
+		}
+		// rust grammar: each declared param is `parameter` /
+		// `self_parameter` / `variadic_parameter`. `self_parameter`
+		// (the `&self` / `&mut self` / `self` receiver) is excluded
+		// from arity for parity with Go's method-set view.
+		for k := 0; k < int(params.NamedChildCount()); k++ {
+			p := params.NamedChild(k)
+			switch p.Type() {
+			case "parameter", "variadic_parameter":
+				arity++
+			}
 		}
 	}
 
@@ -137,6 +149,7 @@ func rustExtractFunc(node *sitter.Node, src []byte, file, parent string) (types.
 		EndLine:   nodeEndLine(node),
 		Exported:  rustIsPublic(node, src),
 		Parent:    parent,
+		Arity:     arity,
 		Signature: sig,
 		Doc:       prevSiblingComment(node, src),
 	}, true

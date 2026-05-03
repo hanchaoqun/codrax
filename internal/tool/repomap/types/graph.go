@@ -113,10 +113,10 @@ func (g *Graph) ImplementersOf(name string) []SymbolID {
 		if d == nil || d.ID == "" {
 			continue
 		}
-		// Only interface / trait declarations qualify as the
-		// "interface side" of the implements relation.
+		// Only interface / trait / protocol declarations qualify as
+		// the "interface side" of the implements relation.
 		switch d.Kind {
-		case "interface", "trait":
+		case "interface", "trait", "protocol":
 			wanted[d.ID] = true
 		}
 	}

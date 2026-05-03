@@ -108,6 +108,12 @@ func swiftExtractFunc(node *sitter.Node, src []byte, file, parent string) (types
 		kind = "method"
 	}
 	exported := !swiftHasModifier(node, src, "private") && !swiftHasModifier(node, src, "fileprivate")
+	arity := 0
+	for k := 0; k < int(node.NamedChildCount()); k++ {
+		if node.NamedChild(k).Type() == "parameter" {
+			arity++
+		}
+	}
 	return types.Symbol{
 		Name:     name,
 		Kind:     kind,
@@ -116,6 +122,7 @@ func swiftExtractFunc(node *sitter.Node, src []byte, file, parent string) (types
 		EndLine:  nodeEndLine(node),
 		Exported: exported,
 		Parent:   parent,
+		Arity:    arity,
 	}, true
 }
 
@@ -156,7 +163,8 @@ func swiftExtractType(node *sitter.Node, src []byte, file string) (cls []types.S
 			for j := 0; j < int(ch.NamedChildCount()); j++ {
 				member := ch.NamedChild(j)
 				switch member.Type() {
-				case "function_declaration":
+				case "function_declaration", "protocol_function_declaration",
+					"protocol_property_declaration":
 					if s, ok := swiftExtractFunc(member, src, file, name); ok {
 						methods = append(methods, s)
 					}

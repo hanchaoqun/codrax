@@ -212,6 +212,17 @@ func jsExtractClass(node *sitter.Node, src []byte, file string) (cls []types.Sym
 					if member.Type() == "public_field_definition" {
 						kind = "field"
 					}
+					arity := 0
+					if kind == "method" {
+						if params := member.ChildByFieldName("parameters"); params != nil {
+							for k := 0; k < int(params.NamedChildCount()); k++ {
+								p := params.NamedChild(k)
+								if p.Type() == "required_parameter" || p.Type() == "optional_parameter" {
+									arity++
+								}
+							}
+						}
+					}
 					methods = append(methods, types.Symbol{
 						Name:    mn,
 						Kind:    kind,
@@ -219,6 +230,7 @@ func jsExtractClass(node *sitter.Node, src []byte, file string) (cls []types.Sym
 						Line:    nodeLine(member),
 						EndLine: nodeEndLine(member),
 						Parent:  name,
+						Arity:   arity,
 					})
 				}
 			}
@@ -265,14 +277,49 @@ func jsExtractInterface(node *sitter.Node, src []byte, file string) []types.Symb
 	if nameNode == nil {
 		return nil
 	}
-	return []types.Symbol{{
-		Name:    nodeText(nameNode, src),
+	ifaceName := nodeText(nameNode, src)
+	out := []types.Symbol{{
+		Name:    ifaceName,
 		Kind:    "interface",
 		File:    file,
 		Line:    nodeLine(node),
 		EndLine: nodeEndLine(node),
 		Doc:     prevSiblingComment(node, src),
 	}}
+	// Walk interface_body for method signatures so the typed
+	// interface-implementation back-fill in build.go can derive
+	// Symbol.RequiredMethods from the Parent links.
+	if body := node.ChildByFieldName("body"); body != nil {
+		for j := 0; j < int(body.NamedChildCount()); j++ {
+			member := body.NamedChild(j)
+			if member.Type() != "method_signature" && member.Type() != "method_definition" {
+				continue
+			}
+			mn := member.ChildByFieldName("name")
+			if mn == nil {
+				continue
+			}
+			arity := 0
+			if params := member.ChildByFieldName("parameters"); params != nil {
+				for k := 0; k < int(params.NamedChildCount()); k++ {
+					p := params.NamedChild(k)
+					if p.Type() == "required_parameter" || p.Type() == "optional_parameter" {
+						arity++
+					}
+				}
+			}
+			out = append(out, types.Symbol{
+				Name:    nodeText(mn, src),
+				Kind:    "method",
+				File:    file,
+				Line:    nodeLine(member),
+				EndLine: nodeEndLine(member),
+				Parent:  ifaceName,
+				Arity:   arity,
+			})
+		}
+	}
+	return out
 }
 
 func jsExtractTypeAlias(node *sitter.Node, src []byte, file string) (types.Symbol, bool) {
