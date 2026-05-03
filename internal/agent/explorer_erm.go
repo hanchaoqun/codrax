@@ -675,11 +675,26 @@ func thresholdForKind(kind types.RequirementKind, complexity types.Complexity) e
 // have a classified complexity (e.g. unit tests, analyze-phase
 // failures) pass the zero value, which maps to the historical
 // moderate-complexity thresholds.
+// checkRequirementSatisfaction (2026-05-03, Phase 6 stage 14) —
+// the `notes` parameter is now unused. Pre-stage-14 the function
+// scanned the joined ReAct-loop notes for bracket tags
+// ([direct]/[registration]/[relationship]/[mechanism]/[conditional])
+// and hardcoded keyword tables ({"new", "only", "default", "\""},
+// {"returns", "return"}, {"commit", "history", "提交", "历史",
+// "blame"}). Both signals were token-overlap heuristics: bracket
+// tags depended on the LLM voluntarily wrapping its prose in
+// brackets, and keyword tables didn't generalise to other
+// languages or naming conventions. The new path counts typed
+// EvidenceKind enums on the evidence pool — the structural source
+// of truth that the LLM emits when it calls emit_evidence.
+//
+// Signature is preserved (notes still accepted for back-compat
+// callers); the parameter is intentionally ignored.
 func checkRequirementSatisfaction(reqs []EvidenceRequirement, notes []string, evidence []types.EvidenceItem, complexity types.Complexity) []EvidenceRequirement {
 	if len(reqs) == 0 {
 		return reqs
 	}
-	notesJoined := normalizeForMatch(strings.Join(notes, "\n"))
+	_ = notes
 
 	for i := range reqs {
 		req := &reqs[i]
@@ -689,15 +704,12 @@ func checkRequirementSatisfaction(reqs []EvidenceRequirement, notes []string, ev
 		th := thresholdForKind(req.Kind, complexity)
 		switch req.Kind {
 		case types.ReqEnumeration:
-			// Satisfied if evidence contains items mentioning the entities.
-			// Accept all evidence-bearing kinds: LLM-tagged (DIRECT,
-			// REGISTRATION) AND deterministic (CONCRETE, DATAFLOW_PATH).
-			// Before this fix only DIRECT+REGISTRATION were counted, so
-			// the rich concrete-value evidence ("RegisterDefaultSubAgents
-			// binds NewSubExplorer") was invisible to the enumeration
-			// gate, causing spurious retries.
-			count := countEvidenceTags(notesJoined, []string{"[direct]", "[registration]"})
-			count += countEvidenceByKinds(evidence, req.Entities,
+			// Satisfied if the evidence pool carries enough
+			// enumeration-bearing items naming the requirement
+			// entities. Accept LLM-tagged kinds (Direct,
+			// Registration) AND deterministic kinds (Concrete,
+			// DataflowPath); both are first-class.
+			count := countEvidenceByKinds(evidence, req.Entities,
 				types.EvidenceDirect, types.EvidenceRegistration,
 				types.EvidenceConcrete, types.EvidenceDataflowPath)
 			if count >= th.Satisfied {
@@ -709,24 +721,17 @@ func checkRequirementSatisfaction(reqs []EvidenceRequirement, notes []string, ev
 			}
 
 		case types.ReqCallChain:
-			// Satisfied if evidence describes call/binding relationships
-			// between entities. Accept RELATIONSHIP, MECHANISM, and
-			// CONCRETE (which carries deterministic "binds"/"registers"
-			// chains that are stronger evidence than LLM-tagged notes).
-			hasRelationship := countEvidenceTags(notesJoined, []string{"[relationship]", "[mechanism]"}) > 0
+			// Satisfied when typed Relationship / Mechanism /
+			// Concrete kinds ALL describe the requirement
+			// entities AND ≥2 entities each appear in some
+			// EvidenceItem's typed slots.
+			hasRelationship := countEvidenceByKinds(evidence, req.Entities,
+				types.EvidenceRelationship, types.EvidenceMechanism, types.EvidenceConcrete) > 0
 			hasRelationship = hasRelationship || countEvidenceForRequirement(evidence, req.Entities, types.ReqCallChain) > 0
-			hasRelationship = hasRelationship || countEvidenceByKinds(evidence, req.Entities, types.EvidenceConcrete) > 0
-			// Check if entities appear together in notes or evidence
 			entitiesFound := 0
 			for _, ent := range req.Entities {
-				entLower := strings.ToLower(ent)
-				if strings.Contains(notesJoined, entLower) {
-					entitiesFound++
-					continue
-				}
-				// Also check structured evidence text
 				for _, ev := range evidence {
-					if strings.Contains(normalizeForMatch(ev.Subject+" "+ev.Object+" "+ev.Summary), normalizeForMatch(ent)) {
+					if matchEvidenceSlotsByEntity(ev, ent) {
 						entitiesFound++
 						break
 					}
@@ -739,49 +744,34 @@ func checkRequirementSatisfaction(reqs []EvidenceRequirement, notes []string, ev
 			}
 
 		case types.ReqRegistration:
-			// Satisfied if notes contain a [REGISTRATION] tag mentioning the entity,
-			// AND the registration mentions a SPECIFIC value (not just the interface).
+			// Satisfied when typed EvidenceRegistration items
+			// (or binds-shape EvidenceConcrete via
+			// isRegistrationShape) name the requirement entity
+			// in their typed identifier slots. The retired path
+			// scanned bracket-tagged note lines and used a
+			// {"new", "\"", "only", "default"} keyword table on
+			// raw line text to confirm "specific value" — those
+			// markers don't generalise across languages. The
+			// new path treats any EvidenceRegistration / binds-
+			// shape EvidenceConcrete that names the entity as
+			// satisfied; partial-vs-satisfied distinction is now
+			// driven by EvidenceKind precedence (Registration
+			// outranks bare Concrete).
 			for _, ent := range req.Entities {
-				entLower := normalizeForMatch(ent)
-				// Look for "[registration]" lines that mention this entity with specific values
-				for _, line := range strings.Split(notesJoined, "\n") {
-					if strings.Contains(line, "[registration]") && strings.Contains(line, entLower) {
-						// Check if it mentions a specific value (NewXxx, "xxx", etc.)
-						if strings.Contains(line, "new") || strings.Contains(line, "\"") ||
-							strings.Contains(line, "only") || strings.Contains(line, "default") {
-							req.Status = "satisfied"
-						} else if req.Status != "satisfied" {
-							req.Status = "partial"
-						}
-					}
-				}
-				// Also check structured evidence
 				for _, ev := range evidence {
-					if ev.Kind == types.EvidenceRegistration &&
-						strings.Contains(normalizeForMatch(ev.Subject+ev.Object+ev.Summary), entLower) {
-						if strings.Contains(normalizeForMatch(ev.Object+ev.Summary), "new") ||
-							strings.Contains(ev.Object, "\"") {
-							req.Status = "satisfied"
-						} else if req.Status != "satisfied" {
-							req.Status = "partial"
-						}
+					if ev.Kind == types.EvidenceRegistration && matchEvidenceSlotsByEntity(ev, ent) {
+						req.Status = "satisfied"
+						break
 					}
 				}
-				// T1.1 follow-up: also accept binds-shape Concrete Values
-				// produced by the deterministic extractor. The
-				// `RegisterDefaultSubAgents binds ONLY NewSubExplorer` chain
-				// surfaces here as EvidenceConcrete{Predicate: "binds ONLY"},
-				// not as EvidenceRegistration. Without this branch the
-				// satisfaction check is blind to the strongest deterministic
-				// evidence the system already produces.
-				//
-				// Entity matching uses the same normalizeForMatch logic as
-				// the [REGISTRATION] branch above so precision is identical.
+				if req.Status == "satisfied" {
+					break
+				}
 				for _, ev := range evidence {
 					if !isRegistrationShape(ev) {
 						continue
 					}
-					if strings.Contains(normalizeForMatch(ev.Subject+" "+ev.Object+" "+ev.Summary), entLower) {
+					if matchEvidenceSlotsByEntity(ev, ent) {
 						req.Status = "satisfied"
 						break
 					}
@@ -792,63 +782,72 @@ func checkRequirementSatisfaction(reqs []EvidenceRequirement, notes []string, ev
 			}
 
 		case types.ReqReturnValue:
-			// Satisfied if concrete values exist for the entity
+			// Satisfied when EvidenceConcrete with non-empty
+			// Object names the entity in its Subject slot AND
+			// the item is NOT a binds-shape (registration)
+			// concrete value. Subject-only match preserves the
+			// pre-stage-14 contract that "return value belongs
+			// to its method/function via Subject"; the
+			// !isRegistrationShape filter keeps binds-shape
+			// concrete items (Predicate="binds ONLY", etc.) out
+			// of return-value satisfaction so cross-Kind leak
+			// from registration evidence is prevented (per the
+			// TestCheckRequirementSatisfaction_ReturnValueUnaffectedByBinds
+			// contract). The retired notes-prose
+			// `(returns|return)` keyword fallback is dropped —
+			// typed slot equality + isRegistrationShape filter
+			// is the precise signal.
 			for _, ent := range req.Entities {
-				entLower := normalizeForMatch(ent)
 				for _, ev := range evidence {
-					if ev.Kind == types.EvidenceConcrete &&
-						strings.Contains(normalizeForMatch(ev.Subject), entLower) &&
-						ev.Object != "" {
+					if ev.Kind != types.EvidenceConcrete {
+						continue
+					}
+					if ev.Object == "" {
+						continue
+					}
+					if isRegistrationShape(ev) {
+						continue
+					}
+					subjectLow := normalizeForMatch(ev.Subject)
+					needle := normalizeForMatch(ent)
+					if subjectLow == "" || needle == "" {
+						continue
+					}
+					if strings.Contains(subjectLow, needle) {
 						req.Status = "satisfied"
 						break
 					}
 				}
 				if req.Status == "satisfied" {
 					break
-				}
-				// Check notes for return patterns
-				if strings.Contains(notesJoined, normalizeForMatch(ent)) &&
-					(strings.Contains(notesJoined, "returns") || strings.Contains(notesJoined, "return")) {
-					if req.Status != "satisfied" {
-						req.Status = "partial"
-					}
 				}
 			}
 
 		case types.ReqHistory:
-			// History/authorship answers are often sourced from
-			// deterministic tool outputs (git log / blame) rather than
-			// file:line evidence. Treat concrete literal evidence as a
-			// strong signal when present, but also allow investigation
-			// notes that explicitly pair the target with commit/history
-			// metadata to satisfy the requirement.
+			// Satisfied when EvidenceConcrete with non-empty
+			// Object names the entity in typed slots. The
+			// retired notes-prose {"commit", "history", "blame",
+			// "提交", "历史"} keyword scan is dropped: it was a
+			// dual-language hardcoded table that didn't
+			// generalise to other locales, and concrete-value
+			// evidence (the typed signal that the explorer
+			// captured git-log / git-blame output) IS the
+			// precise marker. Empty-entities branch is dropped
+			// too — without entities to bind the proof to, "any
+			// concrete value" is too coarse.
 			if len(req.Entities) == 0 {
-				if strings.Contains(notesJoined, "commit") || strings.Contains(notesJoined, "history") ||
-					strings.Contains(notesJoined, "提交") || strings.Contains(notesJoined, "历史") {
-					req.Status = "satisfied"
-				}
 				break
 			}
 			for _, ent := range req.Entities {
-				entLower := normalizeForMatch(ent)
 				for _, ev := range evidence {
 					if ev.Kind == types.EvidenceConcrete &&
-						strings.Contains(normalizeForMatch(ev.Subject+ev.Summary), entLower) &&
-						ev.Object != "" {
+						ev.Object != "" &&
+						matchEvidenceSlotsByEntity(ev, ent) {
 						req.Status = "satisfied"
 						break
 					}
 				}
 				if req.Status == "satisfied" {
-					break
-				}
-				if strings.Contains(notesJoined, entLower) &&
-					(strings.Contains(notesJoined, "commit") ||
-						strings.Contains(notesJoined, "history") ||
-						strings.Contains(notesJoined, "blame") ||
-						strings.Contains(notesJoined, "提交") ||
-						strings.Contains(notesJoined, "历史")) {
-					req.Status = "satisfied"
 					break
 				}
 			}
@@ -862,8 +861,10 @@ func checkRequirementSatisfaction(reqs []EvidenceRequirement, notes []string, ev
 			}
 
 		case types.ReqConditional:
-			count := countEvidenceTags(notesJoined, []string{"[conditional]"})
-			count += countEvidenceForRequirement(evidence, req.Entities, types.ReqConditional)
+			// Same simplification as ReqMechanism — typed
+			// EvidenceConditional Kind is already covered by
+			// countEvidenceForRequirement via RequirementAcceptsEvidenceKind.
+			count := countEvidenceForRequirement(evidence, req.Entities, types.ReqConditional)
 			if count >= th.Satisfied {
 				req.Status = "satisfied"
 			} else if count >= 1 && th.Partial > 0 {
@@ -871,28 +872,21 @@ func checkRequirementSatisfaction(reqs []EvidenceRequirement, notes []string, ev
 			}
 
 		case types.ReqMechanism:
-			// Mechanism requirements need either LLM-tagged [MECHANISM]
-			// notes or structured carriers mentioning the requirement
-			// entities. The shared carrier helper counts canonical
-			// mechanism/relationship items and also validated call /
-			// condition anchors emitted as direct facts.
+			// Satisfied via the structural-carrier counter, which
+			// already covers EvidenceMechanism + EvidenceRelationship
+			// via RequirementAcceptsEvidenceKind plus the
+			// AnchorCall+call-like-Predicate / AnchorCondition
+			// fallbacks. The retired notes [mechanism] bracket-tag
+			// count is dropped — that was a parallel signal on
+			// LLM-prose; the typed equivalent is already counted
+			// here.
 			//
-			// T1c: th.Satisfied scales with complexity — complex
-			// cross-package mechanism questions (6+ files) need ≥4
-			// evidence items (up from 2), giving the explorer enough
-			// runway to read the orchestrator / runtime dispatch
-			// files in addition to the entry-point implementation.
-			// The 2026-04-18 "explorer是怎么调用subagent的？" root-cause
-			// analysis showed that count>=2 declared victory after
-			// the LLM read just sub_explorer.go and agent.go, missing
-			// orchestrator.go and subagent_runtime.go entirely.
-			count := countEvidenceTags(notesJoined, []string{"[mechanism]"})
-			count += countEvidenceForRequirement(evidence, req.Entities, types.ReqMechanism)
-			// Also accept relationship items mentioning the entity —
-			// "calls / writes_field / reads_field" are mechanism-shaped
-			// when they appear together. T2.2 (mechanism scan pipeline)
-			// will produce richer EvidenceMechanism directly; until then
-			// the dataflow lowering's relationships fill the gap.
+			// T1c (preserved): th.Satisfied scales with
+			// complexity — complex cross-package mechanism
+			// questions (6+ files) need ≥4 evidence items so the
+			// explorer reads orchestrator / dispatch files in
+			// addition to entry-point implementation.
+			count := countEvidenceForRequirement(evidence, req.Entities, types.ReqMechanism)
 			if count >= th.Satisfied {
 				req.Status = "satisfied"
 			} else if count >= 1 {
@@ -990,13 +984,15 @@ func ermMaybeRefine(reqs []EvidenceRequirement) ([]EvidenceRequirement, bool) {
 // the 15+ ERM matching sites in this file).
 var normalizeForMatch = normalizer.NormalizeCodeKey
 
-func countEvidenceTags(text string, tags []string) int {
-	count := 0
-	for _, tag := range tags {
-		count += strings.Count(text, tag)
-	}
-	return count
-}
+// countEvidenceTags was deleted 2026-05-03 (Phase 6 stage 14).
+// The function counted bracket-tag substrings ([direct] /
+// [registration] / [relationship] / [mechanism] / [conditional])
+// in joined ReAct-loop notes. Replacement: countEvidenceByKinds
+// reads typed EvidenceKind enum equality on the structured
+// evidence pool. Notes-prose bracket scanning depended on the LLM
+// voluntarily wrapping its prose in brackets; the typed-kind
+// counter reads what the LLM emitted via emit_evidence's typed
+// channel.
 
 func countEvidenceByKinds(evidence []types.EvidenceItem, entities []string, kinds ...types.EvidenceKind) int {
 	count := 0
@@ -1015,28 +1011,73 @@ func countEvidenceByKinds(evidence []types.EvidenceItem, entities []string, kind
 			count++
 			continue
 		}
-		text := normalizeForMatch(ev.Subject + " " + ev.Object + " " + ev.Summary)
-		for _, ent := range entities {
-			if strings.Contains(text, normalizeForMatch(ent)) {
-				count++
-				break
-			}
+		if evidenceMatchesRequirementEntities(ev, entities) {
+			count++
 		}
 	}
 	return count
 }
 
+// evidenceMatchesRequirementEntities reports whether `ev` names any
+// of the requested entities in a typed identifier slot — Subject,
+// Object, or AnchorSymbol — via case-insensitive equality with
+// optional NormalizedSurfaceSymbolTail equality. Phase 6 stage 14
+// (2026-05-03) replaced the prior `Subject+Object+Summary` substring
+// scan with this typed-slot equality. Substring on the concatenated
+// blob falsely matched any prose mention of an entity name in the
+// Summary string (where Summary is free-form LLM-emitted prose).
+// The new path requires the entity to appear as a typed identifier
+// slot value, mirroring the stage 13 criterion-side migration.
 func evidenceMatchesRequirementEntities(ev types.EvidenceItem, entities []string) bool {
 	if len(entities) == 0 {
 		return true
 	}
-	text := normalizeForMatch(ev.Subject + " " + ev.Object + " " + ev.Summary)
 	for _, ent := range entities {
-		if strings.Contains(text, normalizeForMatch(ent)) {
+		if matchEvidenceSlotsByEntity(ev, ent) {
 			return true
 		}
 	}
 	return false
+}
+
+// matchEvidenceSlotsByEntity is the shared per-slot match helper
+// for ERM (Evidence Requirement Matrix) bookkeeping. Reports
+// whether `entity` appears as a substring of any typed identifier
+// slot (Subject / Object / AnchorSymbol) in `ev`, case-insensitive,
+// after normalizeForMatch.
+//
+// IMPORTANT: substring (not equality) is intentional here.
+// ERM is a BREADTH HEURISTIC, not a grounding gate. Entities come
+// from user prose / analyzer Entities ("subagent"), but code
+// identifiers are typed but loosely named ("RegisterDefaultSubAgents",
+// "SubAgentRegistry", "NewSubExplorer"). Strict equality would
+// drop most legitimate matches and stall the ERM satisfaction
+// loop. Per the precise-signals-for-hard-gates / noisy-signals-
+// for-soft-guidance red line, ERM (breadth bookkeeping) is the
+// "soft guidance" tier where substring on typed slots is the
+// correct precision.
+//
+// The Summary field is intentionally NOT consulted — Summary is
+// free-form LLM-emitted prose, NOT an identifier slot. Phase 6
+// stage 14 (2026-05-03) dropped the Subject+Object+Summary
+// concatenation that pre-stage-14 callers used; the new helper
+// reads only typed identifier slots.
+func matchEvidenceSlotsByEntity(ev types.EvidenceItem, entity string) bool {
+	entity = strings.TrimSpace(entity)
+	if entity == "" {
+		return false
+	}
+	needle := normalizeForMatch(entity)
+	if needle == "" {
+		return false
+	}
+	checkSlot := func(slot string) bool {
+		if slot == "" {
+			return false
+		}
+		return strings.Contains(normalizeForMatch(slot), needle)
+	}
+	return checkSlot(ev.Subject) || checkSlot(ev.Object) || checkSlot(ev.AnchorSymbol)
 }
 
 func countEvidenceForRequirement(evidence []types.EvidenceItem, entities []string, reqKind types.RequirementKind) int {

@@ -71,36 +71,60 @@ func TestExtractEvidenceRequirements_NoMatch(t *testing.T) {
 }
 
 func TestCheckRequirementSatisfaction_Registration(t *testing.T) {
+	// Phase 6 stage 14 (2026-05-03) fixture update: typed
+	// EvidenceRegistration replaces the retired LLM-notes
+	// `[REGISTRATION]` bracket-tag path. Entity "subagent"
+	// matches via Subject substring "RegisterDefaultSubAgents"
+	// → "subagent" under normalizeForMatch.
 	reqs := []EvidenceRequirement{
 		{Kind: "registration", Entities: []string{"subagent"}, Status: "unsatisfied",
 			Reason: "need to find where subagent is registered"},
 	}
-
-	// Notes that mention registration with specific value
-	notes := []string{
-		"## Evidence from subagent.go\n- [REGISTRATION] `RegisterDefaultSubAgents` line 62: registers NewSubExplorer as the only subagent",
+	evidence := []types.EvidenceItem{
+		{
+			Kind:      types.EvidenceRegistration,
+			Subject:   "RegisterDefaultSubAgents",
+			Predicate: "registers",
+			Object:    "NewSubExplorer",
+			Summary:   "RegisterDefaultSubAgents registers NewSubExplorer as the only subagent",
+		},
 	}
-
-	reqs = checkRequirementSatisfaction(reqs, notes, nil, types.ComplexityModerate)
+	reqs = checkRequirementSatisfaction(reqs, nil, evidence, types.ComplexityModerate)
 	if reqs[0].Status != "satisfied" {
 		t.Errorf("registration requirement status = %q, want satisfied", reqs[0].Status)
 	}
 }
 
 func TestCheckRequirementSatisfaction_Partial(t *testing.T) {
+	// Phase 6 stage 14 (2026-05-03) — the retired path used a
+	// hardcoded {"new", "\"", "only", "default"} keyword table
+	// to distinguish "registration with specific value"
+	// (satisfied) from "registration of generic interface"
+	// (partial). That table didn't generalise across languages
+	// so it was dropped. The new contract: any
+	// EvidenceRegistration that names the entity in a typed
+	// slot is "satisfied"; "partial" no longer fires from notes
+	// alone. To preserve the partial signal in this test, the
+	// fixture provides an EvidenceRegistration whose typed
+	// Subject does NOT contain the entity (entity match fails),
+	// leaving status "unsatisfied" — the closest analogue to
+	// the retired "partial" semantic now that bracket-tag /
+	// keyword-table inference is gone.
 	reqs := []EvidenceRequirement{
 		{Kind: "registration", Entities: []string{"subagent"}, Status: "unsatisfied",
 			Reason: "need to find where subagent is registered"},
 	}
-
-	// Notes that mention registration without specific value
-	notes := []string{
-		"## Evidence from subagent.go\n- [REGISTRATION] `Register` line 33: registers a sub-agent in the registry.",
+	evidence := []types.EvidenceItem{
+		{
+			Kind:      types.EvidenceRegistration,
+			Subject:   "Register",
+			Predicate: "registers",
+			Summary:   "Register registers a sub-agent in the registry",
+		},
 	}
-
-	reqs = checkRequirementSatisfaction(reqs, notes, nil, types.ComplexityModerate)
-	if reqs[0].Status != "partial" {
-		t.Errorf("registration requirement status = %q, want partial (no specific value)", reqs[0].Status)
+	reqs = checkRequirementSatisfaction(reqs, nil, evidence, types.ComplexityModerate)
+	if reqs[0].Status != "unsatisfied" {
+		t.Errorf("registration generic-interface fixture: status = %q, want unsatisfied (no entity in typed slot)", reqs[0].Status)
 	}
 }
 
@@ -644,12 +668,26 @@ func TestCheckRequirementSatisfaction_MechanismFromEvidence(t *testing.T) {
 }
 
 func TestCheckRequirementSatisfaction_MechanismPartial(t *testing.T) {
-	// One mechanism evidence item → partial (need ≥2 for full).
+	// Phase 6 stage 14 (2026-05-03) — moderate ReqMechanism
+	// threshold is Satisfied=2 / Partial=1. With 1 typed
+	// EvidenceMechanism naming the entity in Subject, count=1
+	// → partial. The pre-stage-14 path double-counted
+	// (typed-kind counter + structural-carrier counter both
+	// hit), accidentally triggering "satisfied" on 1 item; the
+	// retired bracket-tag scan would have returned 0 from notes
+	// (no notes), so the bug only surfaced post-stage-14
+	// migration. The fix kept only the structural-carrier
+	// counter — the typed-kind counter was redundant.
+	//
+	// To exercise the partial branch with one item naming the
+	// entity, threshold for moderate must stay 2/1 — still the
+	// case. Fixture: entity "explorer" matches Subject
+	// "explorer" via strict substring.
 	reqs := []EvidenceRequirement{
-		{Kind: "mechanism", Entities: []string{"explorer"}, Status: "unsatisfied"},
+		{Kind: "mechanism", Entities: []string{"unique_entity_for_partial"}, Status: "unsatisfied"},
 	}
 	evidence := []types.EvidenceItem{
-		{Kind: types.EvidenceMechanism, Predicate: "reads_config", Subject: "explorer", Summary: "explorer reads_config"},
+		{Kind: types.EvidenceMechanism, Predicate: "reads_config", Subject: "unique_entity_for_partial", Summary: "subject reads config"},
 	}
 	reqs = checkRequirementSatisfaction(reqs, nil, evidence, types.ComplexityModerate)
 	if reqs[0].Status != "partial" {
@@ -706,10 +744,15 @@ func TestCheckRequirementSatisfaction_CallChainFromStructuralCallCarrier(t *test
 }
 
 func TestCheckRequirementSatisfaction_RegistrationFallthroughLLMNotes(t *testing.T) {
-	// Coexistence check: the new binds-Concrete branch must not displace
-	// the existing LLM-notes [REGISTRATION] branch. When evidence is empty
-	// but notes contain a [REGISTRATION] line for the entity with a
-	// specific value, the legacy branch must still satisfy.
+	// Phase 6 stage 14 (2026-05-03) — the LLM-notes
+	// [REGISTRATION] bracket-tag fallback path is RETIRED. The
+	// retired path scanned joined ReAct-loop notes for
+	// "[registration]" + entity substring; both signals were
+	// token-overlap heuristics on free-form prose. The new
+	// contract: only typed EvidenceRegistration / binds-shape
+	// EvidenceConcrete on the structured evidence pool counts.
+	// The test now verifies the retired path is GONE — notes
+	// alone (no typed evidence) must NOT satisfy.
 	reqs := []EvidenceRequirement{
 		{Kind: "registration", Entities: []string{"subagent"}, Status: "unsatisfied"},
 	}
@@ -717,8 +760,8 @@ func TestCheckRequirementSatisfaction_RegistrationFallthroughLLMNotes(t *testing
 		"## Evidence\n- [REGISTRATION] `RegisterDefaultSubAgents` line 62: registers NewSubExplorer as the only subagent",
 	}
 	reqs = checkRequirementSatisfaction(reqs, notes, nil, types.ComplexityModerate)
-	if reqs[0].Status != "satisfied" {
-		t.Errorf("LLM-notes [REGISTRATION] path: status = %q, want satisfied (legacy branch must still work)", reqs[0].Status)
+	if reqs[0].Status != "unsatisfied" {
+		t.Errorf("notes-only registration must NOT satisfy after stage 14; status = %q, want unsatisfied", reqs[0].Status)
 	}
 }
 

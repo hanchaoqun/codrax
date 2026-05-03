@@ -326,10 +326,16 @@ func TestCheckRequirementSatisfaction_ComplexMechanismNeedsMoreEvidence(t *testi
 		Status:   "unsatisfied",
 	}}
 	// Exactly 2 mechanism items — historically "satisfied", now only
-	// "partial" under Complex.
+	// "partial" under Complex. Phase 6 stage 14 (2026-05-03):
+	// updated fixtures so each Subject contains "subagent" via
+	// substring match (entity match is now typed-slot only,
+	// Summary scan is dropped). Item 1 was already matched via
+	// Subject "SubAgentRuntime"; item 2's "SubExplorer" did not
+	// contain "subagent" so AnchorSymbol "subagent" is added to
+	// give the typed match an explicit hook.
 	evidence := []types.EvidenceItem{
 		{Kind: types.EvidenceMechanism, Subject: "SubAgentRuntime", Summary: "subagent dispatch"},
-		{Kind: types.EvidenceMechanism, Subject: "SubExplorer", Summary: "subagent execution"},
+		{Kind: types.EvidenceMechanism, Subject: "SubExplorer", AnchorSymbol: "subagent", Summary: "subagent execution"},
 	}
 
 	t.Run("complex stays partial at 2", func(t *testing.T) {
@@ -348,9 +354,13 @@ func TestCheckRequirementSatisfaction_ComplexMechanismNeedsMoreEvidence(t *testi
 	})
 	t.Run("complex reaches satisfied at 4", func(t *testing.T) {
 		bigger := append([]types.EvidenceItem{}, evidence...)
+		// Phase 6 stage 14 — both new items need entity
+		// "subagent" in a typed slot. ProposeSubAgents already
+		// contains "subagent" via Subject substring; "Orchestrator"
+		// gets AnchorSymbol "subagent" to anchor the match.
 		bigger = append(bigger,
 			types.EvidenceItem{Kind: types.EvidenceMechanism, Subject: "ProposeSubAgents", Summary: "subagent tool invocation"},
-			types.EvidenceItem{Kind: types.EvidenceMechanism, Subject: "Orchestrator", Summary: "subagent dispatch hook"},
+			types.EvidenceItem{Kind: types.EvidenceMechanism, Subject: "Orchestrator", AnchorSymbol: "subagent", Summary: "subagent dispatch hook"},
 		)
 		got := checkRequirementSatisfaction(append([]EvidenceRequirement{}, reqs...),
 			nil, bigger, types.ComplexityComplex)
