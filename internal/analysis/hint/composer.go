@@ -28,14 +28,21 @@ import (
 )
 
 // AllowedKind classifies one entry in the AllowedSet. The LLM
-// reads the Kind label inline ("file", "literal", "shape", ...)
-// so the rendered hint is self-describing.
+// reads the Kind label inline ("file", "literal", "block_kind",
+// "claim_form", ...) so the rendered hint is self-describing.
+//
+// (Pre-B2 the block-kind suggestion lane used `AllowedShapeEnum =
+// "shape"` — a residual term from the AnswerShape era. It was
+// renamed to AllowedBlockKind together with the V2 violation
+// composer rollout. The string value also moved from "shape" to
+// "block_kind" so LLM-facing rendered hints reflect V2 vocabulary.)
 type AllowedKind string
 
 const (
 	AllowedFileCitation AllowedKind = "file"
 	AllowedLiteralValue AllowedKind = "literal"
-	AllowedShapeEnum    AllowedKind = "shape"
+	AllowedBlockKind    AllowedKind = "block_kind"
+	AllowedClaimForm    AllowedKind = "claim_form"
 	AllowedSubjectKind  AllowedKind = "subject_kind"
 )
 
@@ -400,6 +407,30 @@ func summariseExactFix(violations []types.Violation, ctx Context) string {
 		return "Remove the forbidden term(s) from your answer text."
 	case types.ViolAcceptance, types.ViolSuccessCriterion:
 		return "Adjust the answer to satisfy the acceptance criterion."
+	case types.ViolPrincipalClaimUseMissing:
+		// V2 carrier — block whose surface_role=principal lacks
+		// claim_use under a non-empty AcceptableClaimForms contract.
+		// Composer pulls the offending block id + allowed claim_form
+		// values from the violation's repair text upstream.
+		return "Attach `claim_use{claim_form=<one-of-allowed>, citation_ref=N}` to the named principal block(s) (or to each principal item inside an ordered_list). Pick a `claim_form` from the AllowedSet below; the validator rejects forms outside that list."
+	case types.ViolDiagramEdgeUnsupported:
+		// V2 carrier — diagram block declares a kind that doesn't
+		// match the family contract's required diagram kind, OR an
+		// edge in the diagram has no supporting evidence.
+		return "Set `diagram.kind` to the SEMANTIC family the contract expects (`flow` / `sequence` / `architecture` / `call_dag`), NOT a Mermaid keyword. Mermaid syntax (`flowchart` / `sequenceDiagram`) goes inside `diagram.body`. If the family contract is too strict for this answer, drop the diagram block instead of fabricating edges."
+	case types.ViolUncertaintyBlockMissing:
+		// V2 carrier — UncertaintyRule fired but no caveat block
+		// covers the disclosure facet.
+		return "Add a `caveat` block disclosing the uncertainty source the contract names. Use `claim_use{claim_form=divergence_caveat}` when the caveat exposes drift between observed evidence and current code, or `claim_use{claim_form=observed_artifact_fact}` when the source is an attached log / external trace."
+	case types.ViolClaimFormUnsupported:
+		// V2 carrier — LLM-emitted claim_form on a block doesn't
+		// match the system-derived ClaimFormOf(citation) for that
+		// block's evidence shape.
+		return "Re-emit the named block with a `claim_use.claim_form` that matches the cited evidence's typed shape. The Allowed list below shows the claim_form values the system inferred from your citations[]; pick one of those, or swap the citation_ref to a different evidence item whose shape supports the claim_form you intended."
+	case types.ViolBlockCoverageMissing:
+		// V2 carrier — required block kind absent OR over the
+		// max-count cap.
+		return "Adjust the `blocks[]` slate to match the Required Answer Blocks list in the user section: emit each missing block kind, drop any that exceeds the cap, and keep the principal block's payload aligned with its family's contract (use the AllowedSet below for the required block kinds)."
 	}
 	return "Address the violation(s) listed above and re-emit."
 }
@@ -423,14 +454,14 @@ func buildAllowedSet(violations []types.Violation, ctx Context) []Allowed {
 	case types.ViolFamilyMismatch, types.ViolViewSwap:
 		for _, kind := range ctx.TargetRequiredBlocks {
 			out = append(out, Allowed{
-				Kind:  AllowedShapeEnum,
+				Kind:  AllowedBlockKind,
 				Value: string(kind),
 				Hint:  "required block kind for this dispatch",
 			})
 		}
 		if len(out) == 0 && ctx.TargetFamily != "" {
 			out = append(out, Allowed{
-				Kind:  AllowedShapeEnum,
+				Kind:  AllowedBlockKind,
 				Value: string(ctx.TargetFamily),
 				Hint:  "contract-mandated question family",
 			})
@@ -441,6 +472,50 @@ func buildAllowedSet(violations []types.Violation, ctx Context) []Allowed {
 				Kind:  AllowedSubjectKind,
 				Value: string(ctx.TargetSubjectKind),
 				Hint:  "pick a literal matching this kind",
+			})
+		}
+	case types.ViolPrincipalClaimUseMissing,
+		types.ViolClaimFormUnsupported:
+		// Surface the 9 allowed claim_form values so the LLM has
+		// something concrete to swap onto its principal block.
+		// (Per-block AcceptableClaimForms narrowing happens in the
+		// validator's repair text; this Allowed list is the global
+		// vocabulary.)
+		for _, form := range []string{
+			"definition_fact",
+			"mechanism_step",
+			"enumeration_member",
+			"derivation_step",
+			"call_edge",
+			"assignment",
+			"guard_condition",
+			"observed_artifact_fact",
+			"divergence_caveat",
+		} {
+			out = append(out, Allowed{
+				Kind:  AllowedClaimForm,
+				Value: form,
+				Hint:  "valid claim_form for principal block annotation",
+			})
+		}
+	case types.ViolDiagramEdgeUnsupported:
+		// Surface the 4 SEMANTIC diagram families. LLM commonly
+		// types `kind=flow` when the contract expects `architecture`
+		// — Allowed list nudges it back.
+		for _, family := range []string{"flow", "sequence", "architecture", "call_dag"} {
+			out = append(out, Allowed{
+				Kind:  AllowedBlockKind,
+				Value: family,
+				Hint:  "diagram.kind = SEMANTIC family (Mermaid keywords belong in diagram.body)",
+			})
+		}
+	case types.ViolBlockCoverageMissing:
+		// Surface required block kinds from the contract.
+		for _, kind := range ctx.TargetRequiredBlocks {
+			out = append(out, Allowed{
+				Kind:  AllowedBlockKind,
+				Value: string(kind),
+				Hint:  "required block kind for this dispatch",
 			})
 		}
 	}

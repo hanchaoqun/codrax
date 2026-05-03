@@ -2413,7 +2413,19 @@ func (e *answerDocumentEvaluator) emitAnswerDocumentRejectSignal(ctx *types.Agen
 		hint += " Do not write free-form prose outside the tool call."
 	}
 
+	// B2-F4 retry escalation: the dedup key already embeds the
+	// retry counter so each retry gets a fresh delivery, but the
+	// hint *text* itself was historically identical across retries
+	// — the LLM saw the same wording and made the same mistake
+	// again. Prepend an explicit escalation marker on retry ≥ 1 so
+	// the model knows this is a re-prompt of an unchanged issue:
+	// the text should be read MORE strictly (focus only on the
+	// named field; do not re-investigate; do not re-frame the
+	// answer). On retry ≥ 2 escalate further to "this is your
+	// LAST retry on this issue — fix THIS field now or the answer
+	// ships with the violation as a caveat".
 	e.rejectHintsUsed++
+	hint = answerDocAttachEscalation(hint, e.rejectHintsUsed)
 	return LoopSignal{
 		HintRequested:  true,
 		HintKey:        fmt.Sprintf("answer_doc.reject.%s.%d", reasonKey, e.rejectHintsUsed),
@@ -2422,6 +2434,28 @@ func (e *answerDocumentEvaluator) emitAnswerDocumentRejectSignal(ctx *types.Agen
 		BypassThrottle: true,
 		BypassBudget:   true,
 	}
+}
+
+// answerDocAttachEscalation prepends a retry-iteration aware
+// marker to the hint text so retries are signal-progressive rather
+// than text-identical. P14 escalation contract:
+//
+//   retry 1 (rejectHintsUsed == 1): no escalation — first hint at
+//     this issue, the LLM hasn't seen this text before.
+//   retry 2 (rejectHintsUsed == 2): "RETRY — same issue persisted
+//     from the previous attempt" prefix to make explicit that this
+//     is a re-prompt of an unchanged failure.
+//   retry 3+ (rejectHintsUsed >= 3): "FINAL RETRY — fix THIS field
+//     now or the answer ships with the violation as a caveat" so
+//     the LLM treats it as an absolute, not a suggestion.
+func answerDocAttachEscalation(hint string, attempt int) string {
+	if attempt <= 1 {
+		return hint
+	}
+	if attempt == 2 {
+		return "RETRY (this is your 2nd attempt on the SAME issue — your previous fix did not address it; re-read the named field and constraint below before re-emitting): " + hint
+	}
+	return "FINAL RETRY (this is attempt #" + fmt.Sprint(attempt) + " on the SAME issue — fix the named field NOW or the answer ships with the violation surfaced as a caveat): " + hint
 }
 
 // answerDocRepairIsRegression reports whether the repair's Code

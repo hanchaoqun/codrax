@@ -2705,3 +2705,60 @@ func TestAnswerDocumentSkill_DeclaresEmitTool(t *testing.T) {
 			sk.ToolSuggestions)
 	}
 }
+
+// TestAnswerDocAttachEscalation pins B2-F4's retry escalation
+// contract: same-issue retry text must visibly differ between
+// attempts so the LLM knows it's being re-prompted on a
+// persisted failure rather than reading a fresh issue.
+//
+//   attempt 1 → no escalation (first time hitting this issue)
+//   attempt 2 → "RETRY ... your previous fix did not address it"
+//   attempt 3+ → "FINAL RETRY ... fix NOW or the answer ships with violation"
+//
+// The dedup-key contract (rejectHintsUsed embedded in HintKey) is
+// orthogonal — it ensures each retry actually delivers the hint;
+// this test ensures the hint TEXT escalates.
+func TestAnswerDocAttachEscalation(t *testing.T) {
+	hint := "Attach claim_use to block X."
+	cases := []struct {
+		attempt    int
+		mustEqual  string
+		mustNotContain []string
+		mustContain    []string
+	}{
+		{
+			attempt:        1,
+			mustEqual:      hint, // no escalation
+			mustNotContain: []string{"RETRY", "FINAL RETRY"},
+		},
+		{
+			attempt:        2,
+			mustContain:    []string{"RETRY", "2nd attempt", "previous fix did not address"},
+			mustNotContain: []string{"FINAL RETRY"},
+		},
+		{
+			attempt:     3,
+			mustContain: []string{"FINAL RETRY", "fix the named field NOW", "ships with the violation"},
+		},
+		{
+			attempt:     5,
+			mustContain: []string{"FINAL RETRY", "attempt #5"},
+		},
+	}
+	for _, tc := range cases {
+		got := answerDocAttachEscalation(hint, tc.attempt)
+		if tc.mustEqual != "" && got != tc.mustEqual {
+			t.Errorf("attempt=%d: got %q, want %q", tc.attempt, got, tc.mustEqual)
+		}
+		for _, want := range tc.mustContain {
+			if !strings.Contains(got, want) {
+				t.Errorf("attempt=%d: missing %q in %q", tc.attempt, want, got)
+			}
+		}
+		for _, banned := range tc.mustNotContain {
+			if strings.Contains(got, banned) {
+				t.Errorf("attempt=%d: leaks %q in %q", tc.attempt, banned, got)
+			}
+		}
+	}
+}

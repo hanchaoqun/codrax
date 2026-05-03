@@ -173,3 +173,190 @@ func TestLimitAllowedAndForbidden_TrimsWithEllipsis(t *testing.T) {
 		t.Errorf("ellipsis entry missing 'more' marker, got %v", h.AllowedSet[2])
 	}
 }
+
+// composerExactFixSwitchKinds is the **canonical exhaustive list**
+// of ViolationKind values that summariseExactFix MUST handle as a
+// dedicated case. New ViolationKind constants added in
+// internal/types/violation.go are NOT auto-included here — extend
+// this slice when adding a kind that needs a dedicated repair-text
+// branch, OR add the kind to the explicitly-skip whitelist below.
+//
+// This guards against P34: "violation kind ↔ retry-hint must be 1:1
+// mapped". A ViolationKind without a switch case in summariseExactFix
+// falls through to the generic "Address the violation(s) listed
+// above and re-emit." which gives the LLM no actionable repair.
+//
+// When CI fails on TestComposer_AllViolationKindsHaveCase, the
+// developer choices are:
+//
+//   1. Add a `case types.ViolXxx: return "..."` branch in
+//      summariseExactFix and add `types.ViolXxx` to this slice
+//      (preferred — the LLM gets actionable repair text).
+//
+//   2. Add `types.ViolXxx` to composerExactFixSkipWhitelist below
+//      with a comment explaining why a generic fallback is OK.
+var composerExactFixSwitchKinds = map[types.ViolationKind]bool{
+	// Pre-V2 contract kinds.
+	types.ViolFamilyMismatch:       true,
+	types.ViolViewSwap:             true,
+	types.ViolCitation:             true,
+	types.ViolGhostAnchor:          true,
+	types.ViolSelfRefLiteral:       true,
+	types.ViolLiteralFormFailed:    true,
+	types.ViolPreCompleteDowngrade: true,
+	types.ViolMustInclude:          true,
+	types.ViolMustExclude:          true,
+	types.ViolAcceptance:           true,
+	types.ViolSuccessCriterion:     true,
+	// V2 carrier kinds (B2 1:1 mapping rollout).
+	types.ViolPrincipalClaimUseMissing: true,
+	types.ViolDiagramEdgeUnsupported:   true,
+	types.ViolUncertaintyBlockMissing:  true,
+	types.ViolClaimFormUnsupported:     true,
+	types.ViolBlockCoverageMissing:     true,
+}
+
+// composerExactFixSkipWhitelist names ViolationKind values that
+// intentionally fall through to the generic fallback. Each entry
+// must justify itself in a one-line comment.
+var composerExactFixSkipWhitelist = map[types.ViolationKind]string{
+	// Block 1 reviewer kinds — informational, mapped to FailLoud
+	// in fallback_policy. They never reach summariseExactFix
+	// because the run terminates before retry, so a generic
+	// fallback is OK.
+	types.ViolPlanCritic:              "Block-1 reviewer kind, FailLoud — never retries",
+	types.ViolReflectorObservation:    "Block-1 reviewer kind, FailLoud — never retries",
+	types.ViolAnswerReviewerDistilled: "Block-1 reviewer kind, FailLoud — never retries",
+
+	// Block 2 + 3 kinds — these have fallback policy mappings but
+	// the repair text is best derived from violation.Repair (set
+	// upstream by the validator with kind-specific detail). The
+	// generic fallback "Address the violation(s) listed above"
+	// pairs with violation.Detail to give actionable text.
+	types.ViolSelfContradiction:            "uses violation.Repair for fix prose",
+	types.ViolDeclaredCountDrift:           "uses violation.Repair for fix prose",
+	types.ViolDiagramIdentifier:            "uses violation.Repair for fix prose",
+	types.ViolChainDemoted:                 "uses violation.Repair for fix prose",
+	types.ViolViewIntentMismatch:           "uses violation.Repair for fix prose",
+	types.ViolSubTopicCountMismatch:        "uses violation.Repair for fix prose",
+	types.ViolExternalArtifactUnderdecoded: "uses violation.Repair for fix prose",
+	types.ViolAuthorityOverreach:           "uses violation.Repair for fix prose",
+	types.ViolIntentTraceShallow:           "uses violation.Repair for fix prose",
+	types.ViolIntentEnumerateNotList:       "uses violation.Repair for fix prose",
+	types.ViolIntentRootCauseNoCause:       "uses violation.Repair for fix prose",
+	types.ViolIntentConfigNoTrail:          "uses violation.Repair for fix prose",
+	types.ViolSubjectAnchorMissing:         "uses violation.Repair for fix prose",
+	types.ViolPredicateAxisMissing:         "uses violation.Repair for fix prose",
+
+	// Phase 4 (Semantic Surface Contract) kinds — same pattern.
+	types.ViolFacetUncovered:           "uses violation.Repair for fix prose",
+	types.ViolAbsenceScopeExceeded:     "uses violation.Repair for fix prose",
+	types.ViolStepIdentifierUnverified: "uses violation.Repair for fix prose",
+
+	// P1 #3 / P3 #6 / Phase 5 / Phase 6 stage 7 — same pattern.
+	types.ViolSymbolAnchorMismatch:            "uses violation.Repair for fix prose",
+	types.ViolStructuralEnumerationDivergence: "uses violation.Repair for fix prose",
+	types.ViolRichnessRegression:              "uses violation.Repair for fix prose",
+	types.ViolValueSecondaryCitationOffFocus:  "uses violation.Repair for fix prose",
+}
+
+// TestComposer_AllViolationKindsHaveCase enforces P34's
+// "violation kind ↔ retry-hint 1:1 mapping" invariant. Every
+// declared ViolationKind must either:
+//
+//   (a) appear in composerExactFixSwitchKinds (has a dedicated
+//       summariseExactFix case), OR
+//
+//   (b) appear in composerExactFixSkipWhitelist with justification
+//       (intentionally uses the generic fallback).
+//
+// New ViolationKind constants without coverage will fail this test;
+// the developer must explicitly choose (a) or (b) before merging.
+func TestComposer_AllViolationKindsHaveCase(t *testing.T) {
+	all := types.AllViolationKinds()
+	if len(all) == 0 {
+		t.Fatal("types.AllViolationKinds() returned empty — the upstream registry should not be empty")
+	}
+	missing := make([]types.ViolationKind, 0, len(all))
+	for _, k := range all {
+		if composerExactFixSwitchKinds[k] {
+			continue
+		}
+		if _, skip := composerExactFixSkipWhitelist[k]; skip {
+			continue
+		}
+		missing = append(missing, k)
+	}
+	if len(missing) > 0 {
+		t.Fatalf("ViolationKind(s) missing dedicated summariseExactFix case AND not whitelisted: %v\n"+
+			"  → add a `case types.ViolXxx:` in summariseExactFix + extend composerExactFixSwitchKinds, "+
+			"OR add to composerExactFixSkipWhitelist with a justification comment.", missing)
+	}
+}
+
+// TestComposer_V2ViolationsRouteThroughV2Vocabulary verifies the
+// new V2-specific exact-fix branches actually fire and use V2
+// vocabulary (claim_use / diagram.kind / blocks[]) rather than
+// V1 leftovers (steps[] / symbols[] / shape).
+func TestComposer_V2ViolationsRouteThroughV2Vocabulary(t *testing.T) {
+	c := New(DefaultConfig())
+	cases := []struct {
+		name           string
+		kind           types.ViolationKind
+		mustContain    []string
+		mustNotContain []string
+	}{
+		{
+			name:           "principal_claim_use_missing",
+			kind:           types.ViolPrincipalClaimUseMissing,
+			mustContain:    []string{"claim_use", "claim_form", "principal block"},
+			mustNotContain: []string{"shape=", "steps[]"},
+		},
+		{
+			name:           "diagram_edge_unsupported",
+			kind:           types.ViolDiagramEdgeUnsupported,
+			mustContain:    []string{"diagram.kind", "SEMANTIC family", "diagram.body"},
+			mustNotContain: []string{"shape=value", "shape=explanation"},
+		},
+		{
+			name:           "uncertainty_block_missing",
+			kind:           types.ViolUncertaintyBlockMissing,
+			mustContain:    []string{"caveat", "claim_form"},
+			mustNotContain: []string{"shape="},
+		},
+		{
+			name:           "claim_form_unsupported",
+			kind:           types.ViolClaimFormUnsupported,
+			mustContain:    []string{"claim_use.claim_form", "citation_ref"},
+			mustNotContain: []string{"shape="},
+		},
+		{
+			name:           "block_coverage_missing",
+			kind:           types.ViolBlockCoverageMissing,
+			mustContain:    []string{"blocks[]", "Required Answer Blocks"},
+			mustNotContain: []string{"steps[]", "symbols[]"},
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			h, err := c.Compose(Context{}, []types.Violation{{
+				Kind:   tc.kind,
+				Detail: "test",
+			}})
+			if err != nil {
+				t.Fatalf("Compose returned err=%v", err)
+			}
+			fix := h.ExactFix
+			for _, want := range tc.mustContain {
+				if !strings.Contains(fix, want) {
+					t.Errorf("%s ExactFix missing %q; got %q", tc.name, want, fix)
+				}
+			}
+			for _, banned := range tc.mustNotContain {
+				if strings.Contains(fix, banned) {
+					t.Errorf("%s ExactFix leaks V1 token %q; got %q", tc.name, banned, fix)
+				}
+			}
+		})
+	}
+}
