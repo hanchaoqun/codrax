@@ -877,6 +877,29 @@ type ExploreHeuristics struct {
 	// ErmSuggestLimit: maximum number of ERM file suggestions in the
 	// gap-directed hint. Default 3.
 	ErmSuggestLimit int `yaml:"erm_suggest_limit"`
+
+	// RegistrationFunctionNameTokens (Phase 6 stage 15, 2026-05-03)
+	// is the operator-tunable list of substring tokens used by the
+	// concrete_values producer to identify "registration-shaped"
+	// function names worth deeper scanning. The check is
+	// case-insensitive and substring-based on `strings.ToLower(name)`.
+	// Default list (DefaultExploreHeuristics) covers common English
+	// patterns; operators with non-English codebases (or different
+	// naming conventions like `wireDependencies` /
+	// `mountServices` / `installRoutes` / `创建服务`) extend the
+	// list via codrax.yaml without recompiling. Empty list disables
+	// the registration-name shortcut and falls back to medium-
+	// function depth scan only — that's slower but catches every
+	// registration-shaped function regardless of naming.
+	//
+	// Per the precise-signals-for-hard-gates / noisy-signals-for-
+	// soft-guidance red line, this is a BREADTH HEURISTIC for the
+	// concrete_values producer (which functions to scan deeper),
+	// not a grounding gate. Substring on a typed Symbol.Name field
+	// against an operator-tunable list is the correct precision —
+	// the retired hardcoded 12-token list violated the
+	// no-keyword-tables red line by being unconfigurable.
+	RegistrationFunctionNameTokens []string `yaml:"registration_function_name_tokens"`
 }
 
 // DefaultExploreHeuristics returns the code-default values for every
@@ -899,6 +922,19 @@ func DefaultExploreHeuristics() ExploreHeuristics {
 		ParallelUnreadFloor:      2,
 		EnumMidLoopUnreadFloor:   2,
 		ErmSuggestLimit:          3,
+		// Phase 6 stage 15 (2026-05-03) default token list. Each
+		// token is matched as a case-insensitive substring against
+		// the function's name. Operators extend / replace via
+		// codrax.yaml :: explore.registration_function_name_tokens.
+		// "Map" is matched case-sensitively against the original
+		// name (preserved-case suffix in registration helpers like
+		// `BuildKindMap`); the other tokens use lower-case
+		// substring on `strings.ToLower(name)`.
+		RegistrationFunctionNameTokens: []string{
+			"register", "defaults", "route", "handler", "config",
+			"setup", "init", "bind", "subscribe", "provide",
+			"module", "Map",
+		},
 	}
 }
 
@@ -950,6 +986,9 @@ func ResolvedExploreHeuristics(h ExploreHeuristics) ExploreHeuristics {
 	}
 	if h.ErmSuggestLimit == 0 {
 		h.ErmSuggestLimit = d.ErmSuggestLimit
+	}
+	if len(h.RegistrationFunctionNameTokens) == 0 {
+		h.RegistrationFunctionNameTokens = d.RegistrationFunctionNameTokens
 	}
 	return h
 }

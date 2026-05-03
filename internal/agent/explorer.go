@@ -8748,24 +8748,18 @@ func (e *explorerEvaluator) buildConcreteValuesSection(repoRoot string, readSet 
 			}
 			bodyLines := sym.EndLine - sym.Line
 			isShort := bodyLines <= 3
-			// For longer functions, only scan if the name suggests
-			// registration, mapping, or configuration. Uses cross-language
-			// verb patterns (case-insensitive where needed).
-			nameLower := strings.ToLower(sym.Name)
+			// Phase 6 stage 15 (2026-05-03) — the registration-name
+			// substring list is yaml-tunable via
+			// codrax.yaml :: explore.registration_function_name_tokens.
+			// Default list (12 English tokens) is unchanged so
+			// pre-stage-15 production behaviour is byte-identical;
+			// non-English / project-specific naming patterns can
+			// extend the list without recompiling. The retired
+			// hardcoded inline keyword table directly violated the
+			// no-keyword-tables red line by being unconfigurable.
 			isRegistrationFunc := !isShort &&
 				bodyLines <= 30 &&
-				(strings.Contains(nameLower, "register") ||
-					strings.Contains(nameLower, "defaults") ||
-					strings.Contains(nameLower, "route") ||
-					strings.Contains(nameLower, "handler") ||
-					strings.Contains(nameLower, "config") ||
-					strings.Contains(nameLower, "setup") ||
-					strings.Contains(nameLower, "init") ||
-					strings.Contains(nameLower, "bind") ||
-					strings.Contains(nameLower, "subscribe") ||
-					strings.Contains(nameLower, "provide") ||
-					strings.Contains(nameLower, "module") ||
-					strings.Contains(sym.Name, "Map"))
+				isRegistrationLikeName(sym.Name, e.heuristics.RegistrationFunctionNameTokens)
 			// Medium functions: not short, not registration-named, but
 			// ≤100 lines — scan specific lines for return/binding patterns.
 			isMediumFunc := !isShort && !isRegistrationFunc && bodyLines <= 100

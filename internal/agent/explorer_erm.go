@@ -1158,7 +1158,7 @@ func ermFileScore(fi *repomap.FileInfo, reqs []EvidenceRequirement) float64 {
 			if strings.Contains(symLower, entLower) || strings.Contains(entLower, symLower) {
 				score += 1.0
 				// Bonus for registration-like function names
-				if isRegistrationLikeName(sym.Name) {
+				if isRegistrationLikeName(sym.Name, nil) {
 					score += 2.0
 				}
 				// Bonus for Name()/String() methods (return_value requirement)
@@ -1172,14 +1172,67 @@ func ermFileScore(fi *repomap.FileInfo, reqs []EvidenceRequirement) float64 {
 	return score
 }
 
-func isRegistrationLikeName(name string) bool {
+// isRegistrationLikeName reports whether `name` matches any token
+// in `tokens`. Phase 6 stage 15 (2026-05-03): the previous
+// hardcoded inline 7-token list was unified with the
+// concrete_values producer's 12-token list and made yaml-tunable
+// via codrax.yaml :: explore.registration_function_name_tokens
+// (DefaultExploreHeuristics().RegistrationFunctionNameTokens).
+// Empty `tokens` falls back to defaults so unit tests with the
+// zero-value ExploreHeuristics still observe legacy behaviour.
+func isRegistrationLikeName(name string, tokens []string) bool {
+	if len(tokens) == 0 {
+		tokens = types.DefaultExploreHeuristics().RegistrationFunctionNameTokens
+	}
+	return symbolNameMatchesRegistrationTokens(name, tokens)
+}
+
+// symbolNameMatchesRegistrationTokens performs a case-aware
+// substring match of `name` against the operator-tunable token
+// list. Tokens that are entirely lower-case are matched
+// case-insensitively against `strings.ToLower(name)`; tokens
+// containing any upper-case rune are matched case-sensitively
+// against `name`. This preserves the pre-stage-15 behaviour of
+// the inline list where most tokens were lowercase substrings
+// (register / config / etc.) but "Map" was case-sensitive (to
+// avoid noise on words like "remap").
+func symbolNameMatchesRegistrationTokens(name string, tokens []string) bool {
+	if name == "" || len(tokens) == 0 {
+		return false
+	}
 	lower := strings.ToLower(name)
-	for _, prefix := range []string{"register", "bind", "setup", "init", "default", "provide", "subscribe"} {
-		if strings.Contains(lower, prefix) {
+	for _, tok := range tokens {
+		if tok == "" {
+			continue
+		}
+		if isAllLower(tok) {
+			if strings.Contains(lower, tok) {
+				return true
+			}
+			continue
+		}
+		if strings.Contains(name, tok) {
 			return true
 		}
 	}
 	return false
+}
+
+// isAllLower reports whether every byte in `s` is in [a-z0-9_-].
+// Used to decide whether a registration token should be matched
+// case-insensitively (lowercase token) or case-sensitively (mixed
+// or upper-case token).
+func isAllLower(s string) bool {
+	for _, r := range s {
+		switch {
+		case r >= 'a' && r <= 'z':
+		case r >= '0' && r <= '9':
+		case r == '_' || r == '-':
+		default:
+			return false
+		}
+	}
+	return true
 }
 
 // ermSuggestFiles returns files the ERM thinks should be read to fill
