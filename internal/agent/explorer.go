@@ -547,15 +547,22 @@ func (e *explorerEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk 
 	// reasoning strategy explicit. Fires when question_kind is
 	// enumeration and the question contains a relational verb.
 	if e.isEnumerationQuery && analyzerKind == "enumeration" {
-		lower := strings.ToLower(e.userQuestion)
+		// Phase 6 stage 25 (2026-05-03) — typed relational-lookup
+		// detection. The retired 12-keyword EN+ZH table ({"调用",
+		// "invoke", "call", "register", "实现", "implement", "use",
+		// "使用", "access", "触发", "trigger", "可以"}) scanned
+		// user-question prose; replaced by typed
+		// Predicates.IsRelationalLookup boolean + PredicateAxis enum
+		// equality on the analyzer's structured emit. Per the
+		// no-keyword-classification red line.
 		hasRelationalVerb := false
-		for _, verb := range []string{
-			"调用", "invoke", "call", "register", "实现", "implement",
-			"use", "使用", "access", "触发", "trigger", "可以",
-		} {
-			if strings.Contains(lower, verb) {
+		if rm := requestModelFromContext(ctx); rm != nil {
+			if rm.Predicates.IsRelationalLookup {
 				hasRelationalVerb = true
-				break
+			}
+			switch rm.PredicateAxis {
+			case types.AxisCall, types.AxisRegister, types.AxisImplement:
+				hasRelationalVerb = true
 			}
 		}
 		if hasRelationalVerb {
