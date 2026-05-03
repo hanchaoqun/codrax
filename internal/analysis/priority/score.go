@@ -66,28 +66,106 @@ func ComputeInputs(h types.Hypothesis, rm types.RequestModel) Inputs {
 	}
 }
 
+// intentMatch (Phase 6 stage 22, 2026-05-03) — typed mapping
+// from analyzer Intent enum to the FalsificationCondition.Kind
+// values that align with that intent. Replaces the retired
+// keyword-table scoring on Hypothesis.Statement prose ("cause",
+// "config", "architect", etc.) which violated the no-keyword-
+// matching red line by classifying typed Hypothesis records via
+// substring on free-form text.
+//
+// Per-intent score table:
+//
+//	IntentRootCause           → 1.0 if Falsification.Kind matches
+//	                             a root-cause-aligned criterion
+//	IntentConfigQuery         → 1.0 if config-aligned
+//	IntentEnumerate /
+//	IntentReturnValue         → 1.0 if enumeration-aligned
+//	IntentExplain /
+//	IntentTrace               → 0.8 if explanation/trace-aligned
+//	(fallback)                → 0.4
+//
+// The closed Criterion enum is the typed truth — HDP planner
+// emits Falsification.Kind structurally; no prose scan needed.
 func intentMatch(h types.Hypothesis, rm types.RequestModel) float64 {
-	stmt := strings.ToLower(h.Statement)
+	kind := h.FalsificationCondition.Kind
+	if kind == "" {
+		return 0.4
+	}
 	switch rm.Intent {
 	case types.IntentRootCause:
-		if strings.Contains(stmt, "cause") || strings.Contains(stmt, "symptom") || strings.Contains(stmt, "failing") {
+		if intentRootCauseAlignedCriterion(kind) {
 			return 1.0
 		}
 	case types.IntentConfigQuery:
-		if strings.Contains(stmt, "config") || strings.Contains(stmt, "resolve") || strings.Contains(stmt, "override") {
+		if intentConfigAlignedCriterion(kind) {
 			return 1.0
 		}
 	case types.IntentEnumerate, types.IntentReturnValue:
-		if strings.Contains(stmt, "set") || strings.Contains(stmt, "finite") || strings.Contains(stmt, "list") {
+		if intentEnumerationAlignedCriterion(kind) {
 			return 1.0
 		}
 	case types.IntentExplain, types.IntentTrace:
-		if strings.Contains(stmt, "architect") || strings.Contains(stmt, "evidence") || strings.Contains(stmt, "anchored") ||
-			strings.Contains(stmt, "relation") {
+		if intentExplainAlignedCriterion(kind) {
 			return 0.8
 		}
 	}
 	return 0.4
+}
+
+// intentRootCauseAlignedCriterion reports whether `kind` is a
+// FalsificationCondition.Kind that HDP planner emits for root-
+// cause hypotheses. The set is: untrusted-input → sink, broken
+// invariant, missing-evidence-on-symbol — all structural proxies
+// for "the bug originates here".
+func intentRootCauseAlignedCriterion(kind string) bool {
+	switch kind {
+	case types.CritUntrustedReachesSink,
+		types.CritInvariantBroken,
+		types.CritNoCallSites,
+		types.CritNoRelevantEvidence:
+		return true
+	}
+	return false
+}
+
+// intentConfigAlignedCriterion — config-query hypotheses test
+// "the configured value resolves through this chain" and
+// fail-loudly when multiple chains exist (ambiguous resolution).
+func intentConfigAlignedCriterion(kind string) bool {
+	switch kind {
+	case types.CritMultipleResolutionChains,
+		types.CritUserClauseUnresolved:
+		return true
+	}
+	return false
+}
+
+// intentEnumerationAlignedCriterion — enumeration / return-value
+// hypotheses fail when the answer set is unbounded or when no
+// concrete evidence supports a finite set.
+func intentEnumerationAlignedCriterion(kind string) bool {
+	switch kind {
+	case types.CritAnswerSetUnbounded,
+		types.CritNoRelevantEvidence,
+		types.CritEvidenceCount,
+		types.CritSymbolPresent:
+		return true
+	}
+	return false
+}
+
+// intentExplainAlignedCriterion — explain / trace hypotheses
+// rely on relationship/evidence-anchoring criteria.
+func intentExplainAlignedCriterion(kind string) bool {
+	switch kind {
+	case types.CritNoRelevantEvidence,
+		types.CritEvidenceCount,
+		types.CritSymbolPresent,
+		types.CritAnswerSetBounded:
+		return true
+	}
+	return false
 }
 
 func riskElevation(h types.Hypothesis, rm types.RequestModel) float64 {
@@ -108,20 +186,30 @@ func termCardinality(rm types.RequestModel) float64 {
 	return 1.0 - math.Exp(-n/5.0)
 }
 
+// ambiguityResolution (Phase 6 stage 22, 2026-05-03) — typed
+// match between Hypothesis.FalsificationCondition.Expr and the
+// Ambiguity.Clause that drove the hypothesis. HDP planner emits
+// every ambiguity-derived hypothesis with FalsificationCondition
+// .Kind == CritUserClauseUnresolved and .Expr == amb.Clause
+// verbatim (see internal/analysis/hdp/planner.go:117). The
+// retired path tokenized Hypothesis.Statement and substring-
+// matched against Ambiguity.Clause word fragments — heuristic
+// on free-form prose. The new path is structural equality on
+// typed Criterion fields.
 func ambiguityResolution(h types.Hypothesis, rm types.RequestModel) float64 {
 	if len(rm.Ambiguities) == 0 {
 		return 0
 	}
-	stmt := strings.ToLower(h.Statement)
+	if h.FalsificationCondition.Kind != types.CritUserClauseUnresolved {
+		return 0
+	}
+	expr := strings.TrimSpace(h.FalsificationCondition.Expr)
+	if expr == "" {
+		return 0
+	}
 	for _, a := range rm.Ambiguities {
-		clause := strings.ToLower(a.Clause)
-		if clause == "" {
-			continue
-		}
-		for _, tok := range strings.Fields(clause) {
-			if len(tok) > 3 && strings.Contains(stmt, tok) {
-				return 1.0
-			}
+		if strings.TrimSpace(a.Clause) == expr {
+			return 1.0
 		}
 	}
 	return 0
