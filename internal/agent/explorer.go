@@ -2742,6 +2742,58 @@ func (e *explorerEvaluator) coverageScopeFiles(discovered []string, readSet map[
 	return out
 }
 
+// implementerFilesFromGraph returns repo-relative paths of every
+// FileInfo that contains a concrete-type symbol whose Implements
+// field carries an interface SymbolID matching one of `entities`.
+// Returns nil when graph is nil OR no entity resolves to an
+// interface OR no implementers exist. P2 #4 (2026-05-03) — replaces
+// the keyword-ranker's noisy file list for category-enumeration
+// questions with the typed structural answer set, eliminating the
+// 12+ unrelated-file recommendations the s5a regression surfaced
+// (the ranker returned files like loop_policy.go / agent.go /
+// finalize_preview.go that have no LoopController implementer
+// but matched popular keywords).
+//
+// Pure typed-signal helper — reads only graph.SymbolDefs for the
+// interface lookup and walks fi.Symbols[i].Implements for the
+// concrete-side membership. Zero substring matching, zero ranker
+// scoring. Per the precise-signals-for-hard-gates red line, this
+// signal IS precise enough to drive a structural decision.
+func implementerFilesFromGraph(graph any, entities []string) []string {
+	if graph == nil || len(entities) == 0 {
+		return nil
+	}
+	g, ok := graph.(*repotypes.Graph)
+	if !ok || g == nil {
+		return nil
+	}
+	seen := make(map[string]bool)
+	var out []string
+	for _, entity := range entities {
+		entity = strings.TrimSpace(entity)
+		if entity == "" {
+			continue
+		}
+		ids := g.ImplementersOf(entity)
+		if len(ids) == 0 {
+			continue
+		}
+		for _, id := range ids {
+			sym, ok := g.SymbolByID[id]
+			if !ok || sym == nil {
+				continue
+			}
+			file := canonicalExplorerPath(sym.File)
+			if file == "" || seen[file] {
+				continue
+			}
+			seen[file] = true
+			out = append(out, file)
+		}
+	}
+	return out
+}
+
 func (e *explorerEvaluator) rankerCoverageFiles() []string {
 	if len(e.allScoredFiles) == 0 {
 		return nil
@@ -6251,7 +6303,27 @@ func (e *explorerEvaluator) observeMidLoop(obs LoopObservation) LoopSignal {
 
 	if e.isEnumerationQuery && !e.midLoopEnumInjected {
 		discovered, readSet, _ := extractFileCoverage(allResults, e.repoRoot)
-		scope := e.coverageScopeFiles(discovered, readSet, strings.Join(e.investigationNotes, "\n"))
+		// P2 #4 (2026-05-03) — typed override for category-enumeration
+		// questions that name a known interface / trait / protocol.
+		// implementerFilesFromGraph reads typed Symbol.Implements
+		// relations and bypasses the keyword ranker entirely; on
+		// `s5a` ("list all LoopController implementations") this
+		// returned the 8 actual implementer files instead of the
+		// ranker's 12+ unrelated ones.
+		var typedScope []string
+		if e.analysisIR != nil &&
+			e.analysisIR.RequestModel.Predicates.IsCategoryEnumeration {
+			rmHints := e.analysisIR.RequestModel.AnalyzerHints
+			candidateEntities := append([]string(nil), rmHints.PrimaryEntities...)
+			candidateEntities = append(candidateEntities, rmHints.Entities...)
+			if files := implementerFilesFromGraph(e.searchResult.Graph, candidateEntities); len(files) > 0 {
+				typedScope = files
+			}
+		}
+		scope := typedScope
+		if len(scope) == 0 {
+			scope = e.coverageScopeFiles(discovered, readSet, strings.Join(e.investigationNotes, "\n"))
+		}
 		if len(scope) > 0 {
 			readCount, coverage, unread := coverageSnapshot(scope, readSet)
 			if coverage < e.heuristics.MidLoopEnumCoverage && len(unread) >= e.heuristics.EnumMidLoopUnreadFloor {
@@ -6261,9 +6333,13 @@ func (e *explorerEvaluator) observeMidLoop(obs LoopObservation) LoopSignal {
 				if b.Len() > 0 {
 					b.WriteString("\n")
 				}
-				fmt.Fprintf(&b, "MID-LOOP CHECK: the question asks for an enumeration but you have read only %d of %d discovered files (%.0f%%). "+
+				headLabel := "discovered"
+				if len(typedScope) > 0 {
+					headLabel = "typed-relation"
+				}
+				fmt.Fprintf(&b, "MID-LOOP CHECK: the question asks for an enumeration but you have read only %d of %d %s files (%.0f%%). "+
 					"Read these next: %s\n",
-					readCount, len(scope), coverage*100, strings.Join(unread, ", "))
+					readCount, len(scope), headLabel, coverage*100, strings.Join(unread, ", "))
 				// Session-22 one-shot lock. Without this gate, the
 				// enumeration check re-fired every post-throttle window
 				// while coverage sat below MidLoopEnumCoverage — 68
