@@ -2912,9 +2912,25 @@ type AgentContext struct {
 	RelevantFacts []string            `json:"relevant_facts,omitempty"`
 	RelevantFiles []string            `json:"relevant_files,omitempty"`
 	EvidenceItems []EvidenceItem      `json:"evidence_items,omitempty"`
-	FlowFindings  []FlowFindingDigest `json:"flow_findings,omitempty"`
-	AnswerChains  []AnswerChain       `json:"answer_chains,omitempty"`
-	AnswerSymbols []AnswerSymbol      `json:"answer_symbols,omitempty"`
+	// TypedRelationHints is the system-derived structural-relation
+	// candidate channel (P3 #6 follow-up, 2026-05-03). Populated at
+	// BuildAgentContext time when the analyzer's predicates indicate
+	// a structural enumeration / relational lookup AND at least one
+	// analyzer entity resolves to a typed-graph relation source
+	// (interface / trait / protocol / class / function / package).
+	// The prompt assembler render-time-merges these into the
+	// "Structured Evidence" section with a Provenance column tagging
+	// each row as llm_evidence vs typed_graph. Dedup by
+	// (Subject, Object, AnchorKind) keeps the LLM's mental model
+	// unified — one evidence pool, two provenance lanes — rather
+	// than splitting into separate sections that the LLM would have
+	// to mentally union. Per
+	// feedback_no_system_backfill_to_user_panel, these never reach
+	// AnswerDocument fields; they are pure prompt input.
+	TypedRelationHints []TypedRelationHint `json:"typed_relation_hints,omitempty"`
+	FlowFindings       []FlowFindingDigest `json:"flow_findings,omitempty"`
+	AnswerChains       []AnswerChain       `json:"answer_chains,omitempty"`
+	AnswerSymbols      []AnswerSymbol      `json:"answer_symbols,omitempty"`
 	// AnswerSymbolCompleteness mirrors BusContext.AnswerSymbolCompleteness
 	// for the narrowed agent view. Read by finalize's prompt builder
 	// to pick Translation / softened-floor / shape-based rendering.

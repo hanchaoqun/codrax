@@ -112,6 +112,19 @@ func BuildAgentContext(bus *types.BusContext, agentName types.AgentName, stage t
 		ac.AnswerSymbols = append([]types.AnswerSymbol(nil), bus.AnswerSymbols...)
 		ac.AnswerSymbolCompleteness = bus.AnswerSymbolCompleteness
 
+		// Typed relation hint probe (P3 #6 follow-up, 2026-05-03):
+		// system-derived structural-relation candidates injected into
+		// the prompt's Structured Evidence section as input HINTING.
+		// LLM remains the sole author of doc.Symbols / Summary etc;
+		// per the feedback_no_system_backfill_to_user_panel red line
+		// the hint never reaches user-facing fields.
+		if bus.AnalysisIR != nil {
+			graph := analyzerGraphFromBus(bus)
+			if hints := ProbeTypedRelations(graph, &bus.AnalysisIR.RequestModel); len(hints) > 0 {
+				ac.TypedRelationHints = hints
+			}
+		}
+
 		// Collect tool summaries
 		ac.RelevantToolSummaries = extractToolSummaries(bus.ToolResults)
 
@@ -805,6 +818,7 @@ func BuildPromptContext(ac *types.AgentContext, sk *skill.Config) *types.PromptC
 		NeutralizeExactResolution: ac.Stage == types.StageFinalize || ac.Stage == types.StageExtract,
 		ExactResolutionContract:   exactResolutionContractForRender(ac),
 		ExactResolutionScenario:   exactResolutionScenarioForRender(ac),
+		TypedRelationHints:        ac.TypedRelationHints,
 	})
 	findings := formatFlowFindings(ac.FlowFindings, 10)
 	logging.Debug("[builder] %s/%s: evidence_section_len=%d findings_section_len=%d", ac.AgentName, ac.Stage, len(evidence), len(findings))
@@ -1167,6 +1181,15 @@ type evidenceRenderOptions struct {
 	NeutralizeExactResolution bool
 	ExactResolutionContract   *types.ExactResolutionContract
 	ExactResolutionScenario   types.Scenario
+
+	// TypedRelationHints, when non-empty, drives the typed_graph
+	// appendix rendered into the SAME Structured Evidence section
+	// after the LLM emit_evidence rows (P3 #6 follow-up, 2026-05-03).
+	// Dedup against the items slice ensures no (Subject, Object,
+	// AnchorKind) tuple is shown twice across the two provenance
+	// lanes. Empty/nil leaves rendering byte-identical to the
+	// pre-typed-relation behaviour.
+	TypedRelationHints []types.TypedRelationHint
 }
 
 func exactResolutionContractForRender(ac *types.AgentContext) *types.ExactResolutionContract {
@@ -1269,7 +1292,113 @@ func formatEvidenceItemsWithOptions(items []types.EvidenceItem, limit int, opts 
 			fmt.Fprintf(&b, "... and %d more evidence items\n", over)
 		}
 	}
+	// P3 #6 follow-up (2026-05-03) — append typed-graph relation rows
+	// when present, deduped against the LLM-emit rows above by
+	// (Subject, Object, AnchorKind). Per the
+	// feedback_no_system_backfill_to_user_panel red line, these flow
+	// only into the LLM's prompt, never into AnswerDocument fields.
+	// Per the user's "no split sections" feedback, the typed rows
+	// share the same Structured Evidence header; the Provenance tag
+	// distinguishes them inline.
+	if appendix := renderTypedRelationAppendix(opts.TypedRelationHints, items); appendix != "" {
+		if b.Len() > 0 {
+			b.WriteString("\n")
+		}
+		b.WriteString(appendix)
+	}
 	return strings.TrimSpace(b.String())
+}
+
+// renderTypedRelationAppendix produces the typed_graph-tagged rows
+// for the Structured Evidence section. Empty when no hints OR every
+// hint member is already covered by an LLM-emitted EvidenceItem.
+//
+// Dedup key: (SourceName, MemberName, AnchorKind) — matches the
+// (Subject, Object, AnchorKind) tuple LLM emit_evidence rows would
+// use when describing the same relation member, so the LLM never
+// sees the same (interface, implementer) pair listed twice across
+// the two provenance lanes.
+func renderTypedRelationAppendix(hints []types.TypedRelationHint, llmItems []types.EvidenceItem) string {
+	if len(hints) == 0 {
+		return ""
+	}
+	covered := make(map[string]bool, len(llmItems))
+	for _, it := range llmItems {
+		if it.Subject == "" || it.Object == "" {
+			continue
+		}
+		covered[typedRelationDedupKey(it.Subject, it.Object, it.AnchorKind)] = true
+	}
+	var out strings.Builder
+	for _, h := range hints {
+		if h.SourceName == "" || len(h.Members) == 0 {
+			continue
+		}
+		ak := types.TypedRelationAnchorKind(h.Relation)
+		var rendered []types.TypedRelationMember
+		for _, m := range h.Members {
+			if covered[typedRelationDedupKey(h.SourceName, m.Name, ak)] {
+				continue
+			}
+			rendered = append(rendered, m)
+		}
+		if len(rendered) == 0 {
+			continue
+		}
+		for _, m := range rendered {
+			line := evidenceLineForTypedMember(h, m, ak)
+			out.WriteString("- " + line + "\n")
+		}
+	}
+	if out.Len() == 0 {
+		return ""
+	}
+	return strings.TrimRight(out.String(), "\n")
+}
+
+// evidenceLineForTypedMember renders one typed_graph-provenance row
+// in the same shape (subject — predicate — object — file:line) that
+// llm_evidence rows use. The "[typed_graph]" Provenance tag at the
+// end is the only structural difference, so the LLM sees a uniform
+// table where Provenance is metadata, not a section divider.
+func evidenceLineForTypedMember(h types.TypedRelationHint, m types.TypedRelationMember, ak types.AnchorKind) string {
+	var b strings.Builder
+	b.WriteString("[")
+	b.WriteString(h.Relation)
+	b.WriteString("] ")
+	b.WriteString(h.SourceName)
+	b.WriteString(" — ")
+	b.WriteString(m.Name)
+	if m.File != "" {
+		b.WriteString(" (")
+		b.WriteString(m.File)
+		if m.Line > 0 {
+			fmt.Fprintf(&b, ":%d", m.Line)
+		}
+		b.WriteString(")")
+	}
+	if ak != "" {
+		b.WriteString(" anchor_kind=")
+		b.WriteString(string(ak))
+	}
+	b.WriteString(" provenance=typed_graph")
+	if h.SourceKind != "" {
+		b.WriteString(" source_kind=")
+		b.WriteString(h.SourceKind)
+	}
+	if m.Kind != "" {
+		b.WriteString(" member_kind=")
+		b.WriteString(m.Kind)
+	}
+	return b.String()
+}
+
+// typedRelationDedupKey is the canonical (Subject, Object, AnchorKind)
+// fingerprint used to suppress typed_graph rows that an LLM emit row
+// already covers. AnchorKind comparison is by string value so the
+// empty / unknown case maps cleanly.
+func typedRelationDedupKey(subject, object string, ak types.AnchorKind) string {
+	return subject + "\x00" + object + "\x00" + string(ak)
 }
 
 func evidencePromptLine(item types.EvidenceItem, opts evidenceRenderOptions) string {
