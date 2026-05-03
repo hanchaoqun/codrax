@@ -599,8 +599,10 @@ func TestReconcileDiagramContract(t *testing.T) {
 // signal AND the structural-coherence fallback added 2026-04-22 to
 // catch LLM inter-run inconsistency on is_count_question.
 //
-// Fallback triple: answer_shape=value AND intent=return_value AND
-// answer_subject.kind=numeric. All three must co-occur.
+// Fallback pair (post-PR2 simplification — the "shape=value" leg
+// was retired with AnswerShape): intent=return_value AND
+// answer_subject.kind=numeric AND is_scalar_answer=true. All three
+// must co-occur.
 //
 // Over-trigger is intentional: a citable-numeric question ("what is
 // MAX_STEPS") that trips the triple loses only citation enforcement,

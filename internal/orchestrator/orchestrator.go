@@ -4983,7 +4983,7 @@ func prependFailLoudWarning(answer string, mut *types.MutableState, state *graph
 
 // formatViolationFieldTally renders the ledger's per-field histogram
 // as a compact stable string for the CGEC summary line:
-// "{answer_shape:3,ScannedSet:8,answer_subject.kind:12}". Keys are
+// "{question_kind:3,ScannedSet:8,answer_subject.kind:12}". Keys are
 // sorted so log diffs are deterministic; empty input returns "{}".
 // Session 11 F1 — used only by emitCGECSummary.
 func formatViolationFieldTally(tally map[string]int) string {

@@ -132,7 +132,7 @@ func TestPrependFailLoudWarning_EmitsHeaderWithFieldAndYieldKills(t *testing.T) 
 	closure.AppendViolation(types.Violation{
 		Kind: types.ViolFamilyMismatch,
 		SuspectedRoot: types.SuspectedRoot{
-			IRField: "answer_shape", Confidence: 0.85,
+			IRField: "question_kind", Confidence: 0.85,
 		},
 	})
 	state := &graphState{yieldKillCount: 2}
@@ -147,7 +147,7 @@ func TestPrependFailLoudWarning_EmitsHeaderWithFieldAndYieldKills(t *testing.T) 
 	if !strings.Contains(out, "yield kill") {
 		t.Errorf("trigger missing: %q", out)
 	}
-	if !strings.Contains(out, "answer_shape") {
+	if !strings.Contains(out, "question_kind") {
 		t.Errorf("top suspected field missing: %q", out)
 	}
 	if !strings.Contains(out, "2 yield kill(s)") {

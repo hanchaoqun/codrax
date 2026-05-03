@@ -28,10 +28,12 @@ func minimalV2EmitJSON() json.RawMessage {
 	}`)
 }
 
-func TestEmitAnswerDocumentV2_NoDocumentModelRoutesV1(t *testing.T) {
+func TestEmitAnswerDocumentV2_NoDocumentModelDoesNotWriteV2(t *testing.T) {
 	bus := newV2TestBusContext()
 	tool := &EmitAnswerDocument{}
-	// V1-shaped emit (no document_model field) must NOT touch V2.
+	// Legacy V1-shaped emit (no document_model field, V1 carrier
+	// retired). Must NOT write the V2 carrier — when the V1 carrier
+	// existed this routed to V1; today it produces nothing.
 	v1JSON := json.RawMessage(`{"shape": "explanation", "summary": "hi"}`)
 	res, err := tool.Execute(bus, v1JSON)
 	if err != nil {
@@ -39,14 +41,15 @@ func TestEmitAnswerDocumentV2_NoDocumentModelRoutesV1(t *testing.T) {
 	}
 	_ = res
 	if bus.Mutable.AnswerDocumentV2() != nil {
-		t.Errorf("V1 emit must not write V2 carrier; got %+v", bus.Mutable.AnswerDocumentV2())
+		t.Errorf("legacy emit must not write V2 carrier; got %+v", bus.Mutable.AnswerDocumentV2())
 	}
 }
 
-func TestEmitAnswerDocumentV2_EmptyDocumentModelRoutesV1(t *testing.T) {
+func TestEmitAnswerDocumentV2_EmptyDocumentModelDoesNotWriteV2(t *testing.T) {
 	bus := newV2TestBusContext()
 	tool := &EmitAnswerDocument{}
-	// Explicit empty document_model still routes V1 (B3 design).
+	// Explicit empty document_model — pre-PR5 this routed V1 (B3
+	// design); with V1 retired, the call still must not write V2.
 	emptyJSON := json.RawMessage(`{"document_model": "", "shape": "explanation", "summary": "hi"}`)
 	res, err := tool.Execute(bus, emptyJSON)
 	if err != nil {

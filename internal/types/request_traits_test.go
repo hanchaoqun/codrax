@@ -9,8 +9,8 @@ import "testing"
 // evidence that the answer surface is a multi-step mechanism, not a
 // single source literal. Without this guard, the scenario reconciler
 // rewrites root_cause → generic, the system telegraphs "scalar
-// source-literal" via WARN, and the LLM self-corrupts to
-// answer_shape=value across multi-emit retries.
+// source-literal" via WARN, and the LLM self-corrupts to a scalar
+// answer across multi-emit retries.
 func TestIsScalarSourceLiteralLookup_RoleLocateBlockedByLogFrames(t *testing.T) {
 	rm := RequestModel{
 		Intent:        IntentRootCause,

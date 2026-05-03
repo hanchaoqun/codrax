@@ -67,11 +67,13 @@ const (
 	// without breaking edge-case answers; operators can promote
 	// to strict via gate_contract_strict_kinds yaml.
 
-	// ViolViewIntentMismatch: answer Shape contradicts Intent /
-	// Scenario from RequestModel (e.g. ShapeValue answer for a
-	// "explain how X works" intent). Caught by
-	// runAnswerShapeOracle. SuspectedRoot: answer_shape.
-	ViolViewIntentMismatch ViolationKind = "shape_intent_mismatch"
+	// ViolViewIntentMismatch: the resolved AnswerSemanticView's
+	// family contradicts Intent / Scenario from RequestModel (e.g.
+	// a scalar BlockScalar answer for an "explain how X works"
+	// intent). Caught by runAnswerShapeOracle (renamed in spirit
+	// to "AnswerView Oracle" — the function name is kept for
+	// historical grep-ability). SuspectedRoot: question_kind.
+	ViolViewIntentMismatch ViolationKind = "view_intent_mismatch"
 
 	// ViolSubTopicCountMismatch: doc.AnswerSymbols' distinct
 	// SubTopic-bucket count diverges from len(IR.SubTopics).
@@ -514,10 +516,12 @@ func AllViolationKinds() []ViolationKind {
 // decide whether to reconcile the upstream IR.
 //
 // IRField uses dotted-path notation matching the mutation API in
-// internal/analysis/patcher (e.g. "answer_shape",
-// "answer_subject.kind", "question_kind", "entity_axes",
-// "EvidencePlan.SourceMix", "ScannedSet", "CitationReq",
-// "AcceptanceTests"). Reason is a ≤ 140-char hint the operator can
+// internal/analysis/patcher (e.g. "answer_subject.kind",
+// "question_kind", "entity_axes", "EvidencePlan.SourceMix",
+// "ScannedSet", "CitationReq", "AcceptanceTests"). The pre-PR2
+// patcher allowlist also accepted "answer_shape"; that field is
+// retired with the AnswerShape migration. Reason is a ≤ 140-char
+// hint the operator can
 // skim; Confidence is a [0,1] score calibrated per enforcer (see
 // full-design doc §1.4).
 //

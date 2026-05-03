@@ -485,14 +485,14 @@ func TestViolationFieldTally_SkipsZeroRootEntries(t *testing.T) {
 	c.AppendViolation(Violation{Kind: ViolFamilyMismatch, Detail: "legacy write no root"})
 	c.AppendViolation(Violation{
 		Kind: ViolFamilyMismatch, Detail: "modern write with root",
-		SuspectedRoot: SuspectedRoot{IRField: "answer_shape", Confidence: 0.8},
+		SuspectedRoot: SuspectedRoot{IRField: "question_kind", Confidence: 0.8},
 	})
 	if got := c.Stats().ViolationsLogged; got != 2 {
 		t.Errorf("ViolationsLogged=%d, want 2 (both entries recorded)", got)
 	}
 	tally := c.ViolationFieldTally()
-	if tally["answer_shape"] != 1 {
-		t.Errorf("ViolationFieldTally[answer_shape]=%d, want 1", tally["answer_shape"])
+	if tally["question_kind"] != 1 {
+		t.Errorf("ViolationFieldTally[question_kind]=%d, want 1", tally["question_kind"])
 	}
 	if _, zero := tally[""]; zero {
 		t.Errorf("ViolationFieldTally must not have empty-key entry, got %v", tally)
@@ -504,14 +504,14 @@ func TestViolationFieldTally_SkipsZeroRootEntries(t *testing.T) {
 // across that field's events as the reported confidence.
 func TestTopSuspectedField_PicksHighestCount(t *testing.T) {
 	c := NewEvidenceClosure("")
-	c.AppendViolation(Violation{Kind: ViolFamilyMismatch, SuspectedRoot: SuspectedRoot{IRField: "answer_shape", Confidence: 0.80}})
-	c.AppendViolation(Violation{Kind: ViolFamilyMismatch, SuspectedRoot: SuspectedRoot{IRField: "answer_shape", Confidence: 0.85}})
-	c.AppendViolation(Violation{Kind: ViolFamilyMismatch, SuspectedRoot: SuspectedRoot{IRField: "answer_shape", Confidence: 0.75}})
+	c.AppendViolation(Violation{Kind: ViolFamilyMismatch, SuspectedRoot: SuspectedRoot{IRField: "question_kind", Confidence: 0.80}})
+	c.AppendViolation(Violation{Kind: ViolFamilyMismatch, SuspectedRoot: SuspectedRoot{IRField: "question_kind", Confidence: 0.85}})
+	c.AppendViolation(Violation{Kind: ViolFamilyMismatch, SuspectedRoot: SuspectedRoot{IRField: "question_kind", Confidence: 0.75}})
 	c.AppendViolation(Violation{Kind: ViolCitation, SuspectedRoot: SuspectedRoot{IRField: "ScannedSet", Confidence: 0.90}})
 
 	field, count, conf := c.TopSuspectedField()
-	if field != "answer_shape" {
-		t.Errorf("TopSuspectedField field=%q, want answer_shape", field)
+	if field != "question_kind" {
+		t.Errorf("TopSuspectedField field=%q, want question_kind", field)
 	}
 	if count != 3 {
 		t.Errorf("TopSuspectedField count=%d, want 3", count)

@@ -63,7 +63,7 @@ func TestCompose_ShapeViolation_BuildsAllowedAndForbidden(t *testing.T) {
 		Kind:   types.ViolFamilyMismatch,
 		Detail: "LLM chose shape=boolean but contract requires value",
 		SuspectedRoot: types.SuspectedRoot{
-			IRField:    "answer_shape",
+			IRField:    "question_kind",
 			Reason:     "finalizer picked boolean",
 			Confidence: 0.85,
 		},
@@ -78,7 +78,7 @@ func TestCompose_ShapeViolation_BuildsAllowedAndForbidden(t *testing.T) {
 	if h.WhatFailed == "" {
 		t.Errorf("WhatFailed empty")
 	}
-	if !strings.Contains(h.WhyItFailed, "answer_shape") {
+	if !strings.Contains(h.WhyItFailed, "question_kind") {
 		t.Errorf("WhyItFailed must mention SuspectedRoot.IRField, got %q", h.WhyItFailed)
 	}
 	if len(h.AllowedSet) != 2 || h.AllowedSet[0].Value != "summary" || h.AllowedSet[1].Value != "scalar" {
@@ -138,7 +138,7 @@ func TestCompose_StrictModeRequiresAllFields(t *testing.T) {
 	v := []types.Violation{{
 		Kind:          types.ViolFamilyMismatch,
 		Detail:        "boolean vs value",
-		SuspectedRoot: types.SuspectedRoot{IRField: "answer_shape", Confidence: 0.85},
+		SuspectedRoot: types.SuspectedRoot{IRField: "question_kind", Confidence: 0.85},
 	}}
 	if _, err := c.Compose(Context{ /* no TargetFamily / TargetRequiredBlocks */ }, v); err == nil {
 		t.Fatal("strict mode must fail when AllowedSet is empty")

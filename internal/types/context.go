@@ -2253,11 +2253,14 @@ func (m *MutableState) ResetPrescanSummary() {
 // ── Session 11 C0' ClassificationGrep accessors ────────────────────
 
 // ClassificationObs is one line-level grep match observation
-// captured in analyzer Round 2. The reconcileFromObservations step
-// in buildAnalysisIR consumes these to refine AnalysisIR fields
-// (answer_subject.kind, answer_shape, question_kind, entity_axes)
-// without the classification signal ever leaking into TurnAArtifacts
-// or EvidenceClosure.
+// captured in analyzer Round 2. Pre-PR2 the buildAnalysisIR
+// pipeline ran a reconcileFromObservations helper against this
+// stream to refine AnalysisIR fields (answer_subject.kind,
+// question_kind, entity_axes — and historically AnswerShape,
+// retired with the V2 carrier). The helper itself is gone; the
+// observation channel still flows so future axis-specific
+// reconcilers can pick it up. The classification signal never
+// leaks into TurnAArtifacts or EvidenceClosure.
 type ClassificationObs struct {
 	Pattern string    // grep pattern
 	Path    string    // file the match came from (repo-relative)

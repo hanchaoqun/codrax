@@ -1,12 +1,26 @@
 # AnswerShape 彻底退役主文件施工清单（终局版）
 
 > **归档元信息**
-> - 状态：design — 实施未启动
-> - 归档日期：2026-05-03
-> - 基线 commit：`origin/main@3c71fe6` (`feat(shape-retirement): read-mode 主链 view-driven 化 (P1-P11, 21 任务)`)
+> - 状态：**SHIPPED** — PR1–PR6 已全部落地
+> - 归档日期：2026-05-03 / 完工日期：2026-05-03
+> - 起始基线：`origin/main@3c71fe6` (`feat(shape-retirement): read-mode 主链 view-driven 化 (P1-P11, 21 任务)`)
+> - 完工基线：PR1 `7718f80` → PR2 `42ed529` → PR3 `1b5d3b3` → PR4 `0892f81` → PR5 `be83e9f` → PR6 (final)
+> - 累计 LOC：约 -700 净（删 type AnswerShape + 7 const + IsEmittable + IR 字段 + 5 条 self-consistency rules + reconcileFromObservations + degraded-fallback shape 注入 + RepairSwapShape + buildAnswerDocRequiredFieldRetryHint + analysisAnswerShapes 表 + 14 处 LLM-facing prompt shape 文案 + 200+ 测试 fixture）
+> - §12.17 grep 归零矩阵：全部 10 条 production-code 阈值 = 0
 > - 前置文档：[`answer_shape_retirement.md`](answer_shape_retirement.md)（基于 7a14a9d 的初版，本文档延续并接管其未尽事项）
 > - 范围：read-mode 彻底删除 `AnswerShape` 世界；write-mode 收敛到 `WriteOutputKind`
 > - 不在范围：V2 block 渲染层调整、富答案策略调整、新 evaluator 设计
+
+## 完工速览
+
+| PR | commit | 净 LOC | 影响文件 | 阶段 |
+|---|---|---|---|---|
+| PR1 | 7718f80 | -163 | 7 | P0-A 删 emit_analysis schema + P0-B 删 skill enum |
+| PR2 | 42ed529 | -315 | 13 | P0-D 删 analyzer 内部 reconcile + P0-E degraded fallback + P1-C hint composer 注释 |
+| PR3 | 1b5d3b3 | -67  | 30 | P1-A 删 finalizer hint + P1-B 删 skill OutputFormat shape 文案 + P1-D RepairSwapShape→RepairSwapView + P1-E ViolShape*→Viol*View |
+| PR4 | 0892f81 | +5  | 4  | P2-A taxonomy AppliesToShapes→AppliesToFamilies + back-compat alias |
+| PR5 | be83e9f | -188 | 32 | P0-C 删 type AnswerShape + 7 const + IR 字段 + P2-D answer_document SummaryCap 注释 + P3 docs/architecture.md |
+| PR6 | (final)  | ~ -25 | ~10 | grep 归零 sweep + V1-routing 测试 rename + 残余 IRField "answer_shape" → "question_kind" |
 
 ---
 

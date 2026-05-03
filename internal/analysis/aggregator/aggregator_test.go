@@ -17,20 +17,20 @@ func buildClosure(events ...types.Violation) *types.EvidenceClosure {
 func TestAggregate_GroupsByField(t *testing.T) {
 	a := New(DefaultConfig())
 	c := buildClosure(
-		types.Violation{Kind: types.ViolFamilyMismatch, SuspectedRoot: types.SuspectedRoot{IRField: "answer_shape", Confidence: 0.8}},
-		types.Violation{Kind: types.ViolFamilyMismatch, SuspectedRoot: types.SuspectedRoot{IRField: "answer_shape", Confidence: 0.9}},
-		types.Violation{Kind: types.ViolFamilyMismatch, SuspectedRoot: types.SuspectedRoot{IRField: "answer_shape", Confidence: 0.85}},
+		types.Violation{Kind: types.ViolFamilyMismatch, SuspectedRoot: types.SuspectedRoot{IRField: "question_kind", Confidence: 0.8}},
+		types.Violation{Kind: types.ViolFamilyMismatch, SuspectedRoot: types.SuspectedRoot{IRField: "question_kind", Confidence: 0.9}},
+		types.Violation{Kind: types.ViolFamilyMismatch, SuspectedRoot: types.SuspectedRoot{IRField: "question_kind", Confidence: 0.85}},
 		types.Violation{Kind: types.ViolCitation, SuspectedRoot: types.SuspectedRoot{IRField: "ScannedSet", Confidence: 0.9}},
 	)
 	heats := a.Aggregate(c)
 	if len(heats) != 2 {
 		t.Fatalf("expected 2 field buckets, got %d", len(heats))
 	}
-	if heats[0].IRField != "answer_shape" {
-		t.Errorf("expected answer_shape to be top by weighted score, got %s", heats[0].IRField)
+	if heats[0].IRField != "question_kind" {
+		t.Errorf("expected question_kind to be top by weighted score, got %s", heats[0].IRField)
 	}
 	if heats[0].EventCount != 3 {
-		t.Errorf("answer_shape EventCount = %d, want 3", heats[0].EventCount)
+		t.Errorf("question_kind EventCount = %d, want 3", heats[0].EventCount)
 	}
 }
 
@@ -51,10 +51,10 @@ func TestAggregate_SkipsEmptyIRField(t *testing.T) {
 	a := New(DefaultConfig())
 	c := buildClosure(
 		types.Violation{Kind: types.ViolFamilyMismatch, Detail: "no root assigned"},
-		types.Violation{Kind: types.ViolFamilyMismatch, SuspectedRoot: types.SuspectedRoot{IRField: "answer_shape", Confidence: 0.9}},
+		types.Violation{Kind: types.ViolFamilyMismatch, SuspectedRoot: types.SuspectedRoot{IRField: "question_kind", Confidence: 0.9}},
 	)
 	heats := a.Aggregate(c)
-	if len(heats) != 1 || heats[0].IRField != "answer_shape" {
+	if len(heats) != 1 || heats[0].IRField != "question_kind" {
 		t.Errorf("zero-root entry should be filtered, got heats=%v", heats)
 	}
 }

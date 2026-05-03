@@ -91,9 +91,9 @@ func TestViolationStageTally_BucketsByStage(t *testing.T) {
 func TestTopSuspectedStage_PicksHighestCount(t *testing.T) {
 	c := NewEvidenceClosure("")
 	c.AppendViolation(Violation{Kind: ViolFamilyMismatch, Stage: "finalize",
-		SuspectedRoot: SuspectedRoot{IRField: "answer_shape", Confidence: 0.7}})
+		SuspectedRoot: SuspectedRoot{IRField: "question_kind", Confidence: 0.7}})
 	c.AppendViolation(Violation{Kind: ViolFamilyMismatch, Stage: "finalize",
-		SuspectedRoot: SuspectedRoot{IRField: "answer_shape", Confidence: 0.9}})
+		SuspectedRoot: SuspectedRoot{IRField: "question_kind", Confidence: 0.9}})
 	c.AppendViolation(Violation{Kind: ViolPlanCritic, Stage: "plan",
 		SuspectedRoot: SuspectedRoot{IRField: "plan_critic_risk", Confidence: 0.5}})
 	stage, count, conf := c.TopSuspectedStage()
