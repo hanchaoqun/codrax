@@ -9,6 +9,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 
 	"github.com/hanchaoqun/codrax/internal/analysis/dataflow"
 	"github.com/hanchaoqun/codrax/internal/analysis/declarative"
@@ -13077,7 +13078,38 @@ func isProseLikeConcreteValue(v string) bool {
 //	Java/JS:     new (new Handler — but typically space-separated)
 //	Python/Ruby: create, make, build (create_handler, make_handler)
 //	General:     get (getFoo — factory accessor pattern)
-var factoryPrefixes = []string{"New", "new", "create", "Create", "make", "Make", "build", "Build", "get", "Get"}
+// factoryPrefixes was retired 2026-05-03 (Phase 6 stage 19). The
+// hardcoded inline list is now operator-tunable via
+// codrax.yaml :: explore.identifier_factory_prefixes
+// (DefaultExploreHeuristics().IdentifierFactoryPrefixes ships the
+// same 10-prefix default). containsIdentifier reads from the
+// package-global resolved-settings cache; cmd/root.go calls
+// SetIdentifierFactoryPrefixes at startup with the operator-
+// resolved list.
+
+var (
+	identifierFactoryPrefixesMu sync.RWMutex
+	identifierFactoryPrefixes   = types.DefaultExploreHeuristics().IdentifierFactoryPrefixes
+)
+
+// SetIdentifierFactoryPrefixes registers the operator-resolved
+// factory prefix list. Empty arg restores the default. Idempotent;
+// safe to call repeatedly.
+func SetIdentifierFactoryPrefixes(prefixes []string) {
+	identifierFactoryPrefixesMu.Lock()
+	if len(prefixes) == 0 {
+		identifierFactoryPrefixes = types.DefaultExploreHeuristics().IdentifierFactoryPrefixes
+	} else {
+		identifierFactoryPrefixes = append([]string(nil), prefixes...)
+	}
+	identifierFactoryPrefixesMu.Unlock()
+}
+
+func snapshotIdentifierFactoryPrefixes() []string {
+	identifierFactoryPrefixesMu.RLock()
+	defer identifierFactoryPrefixesMu.RUnlock()
+	return identifierFactoryPrefixes
+}
 
 func containsIdentifier(text, name string) bool {
 	if name == "" {
@@ -13104,8 +13136,12 @@ func containsIdentifier(text, name string) bool {
 		if !isIdentChar(before) {
 			return true // clean boundary
 		}
-		// Allow factory prefixes: "NewFoo", "createFoo", etc. match "Foo".
-		for _, prefix := range factoryPrefixes {
+		// Phase 6 stage 19 (2026-05-03) — yaml-tunable factory
+		// prefixes; default list (10 prefixes) preserved verbatim
+		// via DefaultExploreHeuristics. Empty list disables the
+		// generosity entirely (only exact word-boundary matches
+		// pass).
+		for _, prefix := range snapshotIdentifierFactoryPrefixes() {
 			plen := len(prefix)
 			if pos >= plen && text[pos-plen:pos] == prefix &&
 				!isIdentChar(safeCharAt(text, pos-plen-1)) {
