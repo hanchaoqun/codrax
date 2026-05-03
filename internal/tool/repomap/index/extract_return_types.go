@@ -4,6 +4,8 @@ import (
 	"strings"
 
 	sitter "github.com/smacker/go-tree-sitter"
+
+	"github.com/hanchaoqun/codrax/internal/tool/repomap/types"
 )
 
 // extractReturnTypeNames walks the function/method node and
@@ -130,6 +132,23 @@ func collectTypeNames(node *sitter.Node, src []byte, seen map[string]bool, out *
 			*out = append(*out, text)
 		}
 		return
+	case "identifier":
+		// Python / JS / Java fallback path: bare `identifier` nodes
+		// inside a return-type subtree are themselves the type
+		// names (Python `def f() -> Foo:` has return_type → type
+		// → identifier "Foo"; Java may emit `name` or `identifier`
+		// for unqualified return types). Restrict to leaf
+		// identifiers (no children) to avoid double-counting.
+		if int(node.NamedChildCount()) > 0 {
+			break
+		}
+		text := strings.TrimSpace(node.Content(src))
+		text = stripTypeWrappers(text)
+		if text != "" && !seen[text] {
+			seen[text] = true
+			*out = append(*out, text)
+		}
+		return
 	case "scoped_type_identifier", "qualified_type":
 		// Rust `Foo::Bar` / Java `pkg.Foo` — last segment is the
 		// canonical type name; recurse to find it.
@@ -184,4 +203,116 @@ func isReturnTypeShape(t string) bool {
 		return true
 	}
 	return false
+}
+
+// isFunctionNodeKind reports whether a tree-sitter node Type()
+// represents a callable declaration (function / method / lambda)
+// across the languages this repomap parses. Phase 6 stage 21
+// (2026-05-03): used by backfillReturnTypeNames to find every
+// function-like AST node so ReturnTypeNames can be populated for
+// all 11 supported languages from a single post-pass, without
+// touching each per-language extractor.
+//
+// The set is the union of conventional tree-sitter function-
+// declaration node names across Go, Python, JS/TS, Java, Kotlin,
+// Rust, C/C++, Ruby, Swift, Lua, and ArkTS (which rides TS
+// grammar). Adding a new language tier means adding rows here.
+func isFunctionNodeKind(t string) bool {
+	switch t {
+	// Go
+	case "function_declaration", "method_declaration":
+		return true
+	// Python
+	case "function_definition":
+		return true
+	// JS / TS / ArkTS
+	case "function_expression", "arrow_function",
+		"method_definition", "function_signature",
+		"method_signature", "abstract_method_signature":
+		return true
+	// Java
+	case "constructor_declaration":
+		return true
+	// Kotlin
+	case "function_declaration_kotlin", "function":
+		return true
+	// Rust
+	case "function_item", "function_signature_item":
+		return true
+	// C / C++
+	case "function_definition_c", "function_declarator":
+		return true
+	// Ruby
+	case "method", "singleton_method":
+		return true
+	// Swift
+	case "function_declaration_swift",
+		"protocol_function_declaration",
+		"init_declaration", "deinit_declaration":
+		return true
+	// Lua
+	case "function_declaration_lua", "function_definition_lua",
+		"local_function":
+		return true
+	}
+	return false
+}
+
+// backfillReturnTypeNames is the parser-level post-pass that
+// populates Symbol.ReturnTypeNames for every function-like
+// declaration in the AST. Phase 6 stage 21 (2026-05-03) approach:
+// rather than thread the call into every per-language extractor,
+// walk the AST once after extraction completes, find each
+// function/method node via isFunctionNodeKind, extract its
+// return-type names via extractReturnTypeNames, and match to the
+// matching Symbol by line range.
+//
+// Symbol matching: the function node's StartPoint().Row+1
+// matches the Symbol's Line (1-based). Strict equality — every
+// per-language extractor records the function's Line as the
+// declaration's start line, which is also the AST node's
+// StartPoint. Slack-based matching is intentionally NOT used:
+// when two symbols sit on adjacent lines (e.g. a class on L1
+// and the first def on L2), slack causes the second symbol to
+// inherit the first's slot and never receive its own
+// ReturnTypeNames.
+//
+// Existing ReturnTypeNames (e.g. Go's inline wiring in
+// goExtractFunc / goExtractMethod) is preserved — the post-pass
+// only sets the field when it's currently empty.
+func backfillReturnTypeNames(root *sitter.Node, src []byte, syms []types.Symbol) {
+	if root == nil || len(syms) == 0 {
+		return
+	}
+	byLine := make(map[int]int, len(syms))
+	for i := range syms {
+		if syms[i].Line <= 0 {
+			continue
+		}
+		// Strict line-equality — first symbol at a given line wins.
+		// Subsequent symbols at the same line (rare, only nested
+		// functions on a single line) are matched by walking nested
+		// children below.
+		if _, occupied := byLine[syms[i].Line]; !occupied {
+			byLine[syms[i].Line] = i
+		}
+	}
+	walkFunctionNodes(root, src, syms, byLine)
+}
+
+func walkFunctionNodes(node *sitter.Node, src []byte, syms []types.Symbol, byLine map[int]int) {
+	if node == nil {
+		return
+	}
+	if isFunctionNodeKind(node.Type()) {
+		startLine := int(node.StartPoint().Row) + 1
+		if idx, ok := byLine[startLine]; ok {
+			if len(syms[idx].ReturnTypeNames) == 0 {
+				syms[idx].ReturnTypeNames = extractReturnTypeNames(node, src)
+			}
+		}
+	}
+	for i := 0; i < int(node.NamedChildCount()); i++ {
+		walkFunctionNodes(node.NamedChild(i), src, syms, byLine)
+	}
 }

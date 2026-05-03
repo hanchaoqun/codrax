@@ -190,6 +190,18 @@ func parseOneFile(entry FileEntry) *types.FileInfo {
 	// as "no signal" rather than guessing via byte tokens.
 	fi.LineFeatures = extractLineFeatures(root, source)
 
+	// Phase 6 stage 21 (2026-05-03) — populate Symbol.ReturnTypeNames
+	// for every function-like declaration across all languages.
+	// Single post-pass walks the AST, finds every
+	// function/method/lambda node via isFunctionNodeKind, extracts
+	// its return-type names via extractReturnTypeNames, and matches
+	// to the corresponding Symbol by line range. Languages whose
+	// grammar uses different return-type field names degrade to
+	// empty ReturnTypeNames (typed-only contract). Existing inline
+	// wiring (goExtractFunc / goExtractMethod) is preserved — the
+	// post-pass only sets the field when currently empty.
+	backfillReturnTypeNames(root, source, fi.Symbols)
+
 	return fi
 }
 

@@ -346,7 +346,7 @@ func (p *cangjieParser) parseFuncDecl(mods, decorators []string, parent string) 
 	p.skipGenerics()
 	arity := p.countAndSkipParams()
 	// Return type `: T` — opaque, skip.
-	p.skipReturnType()
+	cjReturnTypes := p.skipReturnType()
 	p.skipWhereClause()
 
 	kind := "function"
@@ -354,15 +354,16 @@ func (p *cangjieParser) parseFuncDecl(mods, decorators []string, parent string) 
 		kind = "method"
 	}
 	p.syms = append(p.syms, types.Symbol{
-		Name:     name,
-		Kind:     kind,
-		File:     p.file,
-		Line:     start.Line,
-		EndLine:  start.Line,
-		Exported: hasExportModifier(mods) || parent == "" && len(decorators) > 0,
-		Parent:   parent,
-		Arity:    arity,
-		Doc:      modifierDoc(mods),
+		Name:            name,
+		Kind:            kind,
+		File:            p.file,
+		Line:            start.Line,
+		EndLine:         start.Line,
+		Exported:        hasExportModifier(mods) || parent == "" && len(decorators) > 0,
+		Parent:          parent,
+		Arity:           arity,
+		Doc:             modifierDoc(mods),
+		ReturnTypeNames: cjReturnTypes,
 	})
 	idx := len(p.syms) - 1
 
@@ -386,16 +387,17 @@ func (p *cangjieParser) parseForeignFunc(mods, decorators []string) {
 	p.advance()
 	p.skipGenerics()
 	p.countAndSkipParams()
-	p.skipReturnType()
+	cjReturnTypes := p.skipReturnType()
 	p.consumeOptionalSemi()
 	p.syms = append(p.syms, types.Symbol{
-		Name:     name,
-		Kind:     "foreign-func",
-		File:     p.file,
-		Line:     start.Line,
-		EndLine:  start.Line,
-		Exported: true,
-		Doc:      strings.TrimSpace("foreign " + modifierDoc(mods)),
+		Name:            name,
+		Kind:            "foreign-func",
+		File:            p.file,
+		Line:            start.Line,
+		EndLine:         start.Line,
+		Exported:        true,
+		Doc:             strings.TrimSpace("foreign " + modifierDoc(mods)),
+		ReturnTypeNames: cjReturnTypes,
 	})
 }
 
@@ -441,17 +443,18 @@ func (p *cangjieParser) parseOperatorFunc(mods, decorators []string, parent stri
 		p.advance()
 	}
 	p.countAndSkipParams()
-	p.skipReturnType()
+	cjReturnTypes := p.skipReturnType()
 	p.skipWhereClause()
 	p.syms = append(p.syms, types.Symbol{
-		Name:     "operator " + opText,
-		Kind:     "operator",
-		File:     p.file,
-		Line:     start.Line,
-		EndLine:  start.Line,
-		Exported: hasExportModifier(mods),
-		Parent:   parent,
-		Doc:      strings.TrimSpace("operator " + modifierDoc(mods)),
+		Name:            "operator " + opText,
+		Kind:            "operator",
+		File:            p.file,
+		Line:            start.Line,
+		EndLine:         start.Line,
+		Exported:        hasExportModifier(mods),
+		Parent:          parent,
+		Doc:             strings.TrimSpace("operator " + modifierDoc(mods)),
+		ReturnTypeNames: cjReturnTypes,
 	})
 	idx := len(p.syms) - 1
 	if p.cur().Kind == cjTokLBrace {
@@ -488,15 +491,16 @@ func (p *cangjieParser) parseMainEntry() {
 		return // not a main-entry shorthand
 	}
 	p.countAndSkipParams()
-	p.skipReturnType()
+	cjReturnTypes := p.skipReturnType()
 	p.syms = append(p.syms, types.Symbol{
-		Name:     "main",
-		Kind:     "function",
-		File:     p.file,
-		Line:     start.Line,
-		EndLine:  start.Line,
-		Exported: true,
-		Doc:      "main entry",
+		Name:            "main",
+		Kind:            "function",
+		File:            p.file,
+		Line:            start.Line,
+		EndLine:         start.Line,
+		Exported:        true,
+		Doc:             "main entry",
+		ReturnTypeNames: cjReturnTypes,
 	})
 	idx := len(p.syms) - 1
 	if p.cur().Kind == cjTokLBrace {
@@ -643,37 +647,55 @@ func (p *cangjieParser) skipWhereClause() {
 // where / statement-terminator / enclosing-closer token. Anything
 // before that is part of the type expression (including nested
 // generics, tuple types, function types, etc.).
-func (p *cangjieParser) skipReturnType() {
+//
+// Phase 6 stage 21 (2026-05-03): now also collects bare identifier
+// tokens encountered inside the return-type expression (across all
+// depths) into the deduplicated set returned to the caller. The
+// caller assigns the result to Symbol.ReturnTypeNames so the
+// downstream typed factory-detection (containsFactoryReference)
+// can resolve Cangjie factories the same way it does for tree-
+// sitter languages. Returns nil when no return-type clause is
+// present (procedures / void functions).
+func (p *cangjieParser) skipReturnType() []string {
 	if p.cur().Kind != cjTokColon {
-		return
+		return nil
 	}
 	p.advance() // :
 	depth := 0
+	seen := map[string]bool{}
+	var out []string
 	for p.cur().Kind != cjTokEOF {
 		t := p.cur()
 		if depth == 0 {
-			// Return-type terminators: body opener, expression body
-			// assign, where clause, statement end, or any closing
-			// delimiter that belongs to an outer construct.
 			switch t.Kind {
 			case cjTokLBrace, cjTokEq, cjTokSemicolon, cjTokRBrace:
-				return
+				return out
 			}
 			if t.Kind == cjTokKeyword && t.Text == "where" {
-				return
+				return out
 			}
+		}
+		// Collect identifier-shaped tokens at any depth — generic
+		// parameters, tuple component types, and bare type names
+		// all qualify as "type names that contributed to the return
+		// type". Generic-wrapper tokens (Option, Result, Box, etc.)
+		// are intentionally included alongside the inner T.
+		if t.Kind == cjTokIdent && !seen[t.Text] {
+			seen[t.Text] = true
+			out = append(out, t.Text)
 		}
 		switch t.Kind {
 		case cjTokLAngle, cjTokLParen, cjTokLBracket:
 			depth++
 		case cjTokRAngle, cjTokRParen, cjTokRBracket:
 			if depth == 0 {
-				return
+				return out
 			}
 			depth--
 		}
 		p.advance()
 	}
+	return out
 }
 
 // countAndSkipParams consumes a parenthesised parameter list and
