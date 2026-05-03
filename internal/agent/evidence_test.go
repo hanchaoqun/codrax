@@ -807,24 +807,62 @@ func TestRankEvidenceDiversity_DistinctAnchorsBypass(t *testing.T) {
 	}
 }
 
-func TestNeedsDataflowAnalysis_ChineseKeywords(t *testing.T) {
+// TestNeedsDataflowAnalysis_ChineseKeywords was retired 2026-05-03
+// (Phase 6 stage 24). The test pinned the retired EN+ZH question-
+// prose keyword tables (propagateKeywords + lookupKeywords) which
+// classified user-question text into IntentPropagate /
+// IntentLookup. Per the architectural directive "意图分类是分析器
+// 的工作", explore now consumes typed RequestModel.Intent /
+// PredicateAxis enum signals; question text is no longer scanned.
+// New typed-signal tests:
+
+func TestNeedsDataflowAnalysis_TypedSignals(t *testing.T) {
 	tests := []struct {
-		question string
-		want     bool
+		name string
+		rm   *types.RequestModel
+		want bool
 	}{
-		{"有多少个agent可以调用subagent?", true},                        // 调用 + 多少
-		{"请列出哪些agent注册了subagent", true},                         // 哪些 + 注册
-		{"这个配置项是怎么传播到handler的?", true},                          // 配置 + 传播 + 怎么
-		{"What is the project name?", false},                    // no trigger keywords
-		{"How does the value flow through the pipeline?", true}, // flow + through
-		{"列出所有注册的路由", true},                                     // 注册 + 路由
-		{"代码风格好不好", false},                                      // no trigger keywords
+		{
+			"trace intent → propagate",
+			&types.RequestModel{Intent: types.IntentTrace},
+			true,
+		},
+		{
+			"call axis + cross-component → propagate",
+			&types.RequestModel{
+				PredicateAxis: types.AxisCall,
+				Predicates:    types.SemanticPredicates{IsCrossComponent: true},
+			},
+			true,
+		},
+		{
+			"explain intent → lookup",
+			&types.RequestModel{Intent: types.IntentExplain},
+			true,
+		},
+		{
+			"register axis → lookup",
+			&types.RequestModel{PredicateAxis: types.AxisRegister},
+			true,
+		},
+		{
+			"unknown intent + no evidence → none",
+			&types.RequestModel{},
+			false,
+		},
+		{
+			"nil RequestModel → none (no evidence)",
+			nil,
+			false,
+		},
 	}
 	for _, tt := range tests {
-		got := needsDataflowAnalysis(tt.question, nil)
-		if got != tt.want {
-			t.Errorf("needsDataflowAnalysis(%q) = %v, want %v", tt.question, got, tt.want)
-		}
+		t.Run(tt.name, func(t *testing.T) {
+			got := needsDataflowAnalysis(tt.rm, nil)
+			if got != tt.want {
+				t.Errorf("got %v want %v", got, tt.want)
+			}
+		})
 	}
 }
 

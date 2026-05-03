@@ -7949,7 +7949,7 @@ func (e *explorerEvaluator) ensureStructuredEvidence(ctx *types.AgentContext, to
 	// GroundingStatus is left empty and the downstream renderer treats
 	// empty as "not submitted via the structured channel" — equivalent
 	// to ungrounded for citation-pool purposes.
-	intent := dataflowIntent(e.userQuestion, parsed)
+	intent := dataflowIntent(requestModelFromContext(ctx), parsed)
 	hasGraph := e.searchResult != nil && e.searchResult.Graph != nil
 	logging.Debug("[explorer] ensureStructuredEvidence: parsed=%d dataflowIntent=%s hasGraph=%v", len(parsed), intent, hasGraph)
 	if !hasGraph || intent == IntentNone {

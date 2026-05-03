@@ -1098,43 +1098,57 @@ func (d DataflowIntent) String() string {
 	return "unknown"
 }
 
-// propagateKeywords are phrases that explicitly indicate the user is
-// asking about cross-file value propagation, not single-hop identity or
-// enumeration. Kept tight on purpose: anything not on this list falls
-// through to Lookup.
-var propagateKeywords = []string{
-	// English
-	"flow", "flows", "propagate", "propagates", "through",
-	"where does", "call chain",
-	// Chinese
-	"传播", "流向", "怎么到", "如何到", "如何传",
-}
+// propagateKeywords + lookupKeywords were retired 2026-05-03
+// (Phase 6 stage 24). The combined ~30 EN+ZH question-prose
+// keywords ({"flow", "传播", "调用", "注册", "哪些", ...}) were
+// classifying user questions into IntentPropagate / IntentLookup
+// — direct red-line violation per the stage 16/17 doctrine
+// "意图分类是分析器的工作". The new dataflowIntent reads typed
+// RequestModel signals (Intent / PredicateAxis enum equality) +
+// typed Evidence Kind enum membership; question text is no
+// longer scanned.
 
-// lookupKeywords are phrases that the original needsDataflowAnalysis
-// triggered on but are single-hop in nature (registration, identity,
-// enumeration, configuration lookup). Listed verbatim from the legacy
-// table minus the propagate items above.
-var lookupKeywords = []string{
-	// English
-	"path", "trigger",
-	"which value", "what value", "who gets", "who is",
-	"condition", "configured", "config", "registered", "route", "handler",
-	"invoke", "dispatch", "how many",
-	// Chinese
-	"调用", "注册", "触发", "配置", "条件",
-	"路由", "处理器", "绑定", "分发", "哪些", "多少", "列出",
-	"哪个", "谁会", "谁能", "怎么",
-}
-
-func dataflowIntent(question string, items []types.EvidenceItem) DataflowIntent {
-	lower := strings.ToLower(question)
-	for _, needle := range propagateKeywords {
-		if strings.Contains(lower, needle) {
+// dataflowIntent (Phase 6 stage 24, 2026-05-03) classifies the
+// dataflow analysis intent from typed analyzer signals only.
+//
+// Decision ladder:
+//
+//   Propagate  : Intent ∈ {IntentTrace} OR
+//                PredicateAxis ∈ {AxisCall} with cross-component
+//                signals (Predicates.IsCrossFile or IsCrossComponent).
+//                Captures "trace this value through the system" and
+//                "how does X invoke Y" patterns.
+//
+//   Lookup     : Intent ∈ {IntentExplain, IntentRootCause,
+//                IntentReturnValue, IntentEnumerate, IntentConfigQuery}
+//                OR any EvidenceItem.Kind ∈ {EvidenceConditional,
+//                EvidenceRelationship, EvidenceMechanism, EvidenceRegistration}.
+//                Single-hop investigations.
+//
+//   None       : nil RequestModel + zero structurally-relevant
+//                evidence. The dataflow run is skipped entirely.
+//
+// Caller passes RequestModel when available (production path
+// through explorer); sub-explorer flows that lack a populated
+// RequestModel get evidence-kind-only classification, which
+// degrades gracefully (no false positives from question prose).
+func dataflowIntent(rm *types.RequestModel, items []types.EvidenceItem) DataflowIntent {
+	if rm != nil {
+		if rm.Intent == types.IntentTrace {
 			return IntentPropagate
 		}
-	}
-	for _, needle := range lookupKeywords {
-		if strings.Contains(lower, needle) {
+		if rm.PredicateAxis == types.AxisCall && rm.Predicates.IsCrossComponent {
+			return IntentPropagate
+		}
+		switch rm.Intent {
+		case types.IntentExplain, types.IntentRootCause,
+			types.IntentReturnValue, types.IntentEnumerate,
+			types.IntentConfigQuery:
+			return IntentLookup
+		}
+		switch rm.PredicateAxis {
+		case types.AxisRegister, types.AxisCondition,
+			types.AxisConfigure, types.AxisCall:
 			return IntentLookup
 		}
 	}
@@ -1147,9 +1161,9 @@ func dataflowIntent(question string, items []types.EvidenceItem) DataflowIntent 
 	return IntentNone
 }
 
-// needsDataflowAnalysis is a backward-compatible wrapper around
-// dataflowIntent. Returns true for both Lookup and Propagate. Kept so
-// sub_explorer and existing tests don't have to change.
-func needsDataflowAnalysis(question string, items []types.EvidenceItem) bool {
-	return dataflowIntent(question, items) != IntentNone
+// needsDataflowAnalysis is the backward-compatible wrapper.
+// Returns true for both Lookup and Propagate. Phase 6 stage 24
+// updated to take RequestModel rather than question text.
+func needsDataflowAnalysis(rm *types.RequestModel, items []types.EvidenceItem) bool {
+	return dataflowIntent(rm, items) != IntentNone
 }

@@ -326,7 +326,7 @@ func (e *subExplorerEvaluator) ensureStructuredEvidence(ctx *types.AgentContext,
 	// (Mutable is nil for them), so items surfaced via notes arrive
 	// ungrounded here; downstream rendering treats empty GroundingStatus
 	// like ungrounded for citation-pool purposes.
-	if graph == nil || !needsDataflowAnalysis(e.objective, parsed) {
+	if graph == nil || !needsDataflowAnalysis(requestModelFromContext(ctx), parsed) {
 		e.structuredEvidence = parsed
 		return
 	}
