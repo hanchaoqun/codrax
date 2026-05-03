@@ -1632,103 +1632,35 @@ func knownFacetID(id string) bool {
 	return false
 }
 
-// valueLiteralTokenRe extracts identifier-shaped tokens from
-// claim text / cited line text. Min 3 chars to filter out trivial
-// substrings that would false-match almost anything. Used by
-// non-literal-grounding paths (normalize step backbone, value
-// citation focus, diagram label grounding, related-context
-// surface normalization) — these run their own structural
-// concerns through the same regex but are not the retired
-// validateValue/Boolean/StepsLiteralGrounding old-world gates.
-var valueLiteralTokenRe = regexp.MustCompile(`[A-Za-z_][A-Za-z0-9_]{2,}`)
+// identifierTokenRe extracts identifier-shaped tokens (min 3
+// chars) from typed LLM-emitted prose surfaces — Citation.Quote
+// strings, observed-anchor symbol tails, drift-bounded answer
+// labels in backtick spans. Surviving callers all pass typed-
+// channel input (LLM-emitted fields), NOT raw source code lines;
+// raw-line ±N window scanners were retired across Phase 6
+// stages 7-10 + 11 along with the citationCorroborationStatus
+// helper that used to drive them.
+var identifierTokenRe = regexp.MustCompile(`[A-Za-z_][A-Za-z0-9_]{2,}`)
 
-// corroborationWindow is the ±N-line slack used by the residual
-// non-literal-grounding citation-window scanners (see callers of
-// valueLiteralTokenRe). Three captures a reasonable "doc comment
-// + signature + first body lines" range.
-const corroborationWindow = 3
+// observedAnchorNeighborhoodLines is the line-distance threshold
+// used by explanationCitationWithinObservedAnchorNeighborhood to
+// decide whether a citation is "near enough" to a plan-pinned
+// observed anchor to inherit its authority. Pure numeric line-
+// distance constant — there is no token-window scan; the
+// retired corroborationWindow constant (whose value derived this
+// threshold via corroborationWindow+2) was deleted in Phase 6
+// stage 11.
+const observedAnchorNeighborhoodLines = 5
 
-// requireCitationCorroboration was retired 2026-05-03 (Phase 6
-// stage 6). The token-overlap heuristic that drove validate*LiteralGrounding
-// is now subsumed by Phase 4's runStepIdentifierBackedByEvidenceOracle
-// which reads typed evidence pool fields. The lower-level utility
-// citationCorroborationStatus / valueLiteralTokenRe / corroborationWindow
-// constants stay because non-grounding callers (normalize step
-// backbone, diagram label scanner, related-context surface
-// normalization) still use them as generic identifier-extraction
-// + ±N-line-window primitives — those are structural / diagram
-// concerns, not the retired literal-grounding gate.
-
-type citationCorroborationState int
-
-const (
-	citationCorroborationUnavailable citationCorroborationState = iota
-	citationCorroborationTokenless
-	citationCorroborationCorroborated
-	citationCorroborationMissing
-)
-
-// citationCorroborationStatus is retained as a structural
-// utility. Old-world use (validate*LiteralGrounding) was retired
-// Phase 6 stage 6; remaining callers are normalize / diagram-
-// grounding / surface-normalization paths.
-func citationCorroborationStatus(claim, citeFile string, citeLine int, gc *ground.Context, extraClaims ...string) citationCorroborationState {
-	if gc == nil || len(gc.LineIndex) == 0 {
-		return citationCorroborationUnavailable
-	}
-	if citeFile == "" || citeLine <= 0 {
-		return citationCorroborationUnavailable
-	}
-	fileLines, ok := gc.LineIndex[citeFile]
-	if !ok || len(fileLines) == 0 {
-		return citationCorroborationUnavailable
-	}
-	tokens := valueLiteralTokenRe.FindAllString(claim, -1)
-	for _, extra := range extraClaims {
-		tokens = append(tokens, valueLiteralTokenRe.FindAllString(extra, -1)...)
-	}
-	if len(tokens) == 0 {
-		return citationCorroborationTokenless
-	}
-	wanted := make(map[string]bool, len(tokens))
-	for _, tok := range tokens {
-		wanted[tok] = true
-	}
-	sawWindowLine := false
-	for line := citeLine - corroborationWindow; line <= citeLine+corroborationWindow; line++ {
-		if line <= 0 {
-			continue
-		}
-		text, ok := fileLines[line]
-		if !ok {
-			continue
-		}
-		sawWindowLine = true
-		for _, tok := range valueLiteralTokenRe.FindAllString(text, -1) {
-			if wanted[tok] {
-				return citationCorroborationCorroborated
-			}
-		}
-	}
-	if !sawWindowLine {
-		return citationCorroborationUnavailable
-	}
-	if trimmed := strings.TrimSpace(claim); trimmed != "" {
-		for line := citeLine - corroborationWindow; line <= citeLine+corroborationWindow; line++ {
-			if line <= 0 {
-				continue
-			}
-			text, ok := fileLines[line]
-			if !ok {
-				continue
-			}
-			if strings.Contains(text, trimmed) {
-				return citationCorroborationCorroborated
-			}
-		}
-	}
-	return citationCorroborationMissing
-}
+// citationCorroborationStatus + citationCorroborationState enum +
+// corroborationWindow constant were deleted 2026-05-03 (Phase 6
+// stage 11). They were token-overlap helpers backing the retired
+// validate*LiteralGrounding gates (Phase 6 stage 6 retired the
+// gates, but the lower-level utility was retained because
+// normalizeStepBackboneDescriptions L2 fallback still called it).
+// Stage 11 collapsed that L2 fallback (description either names
+// anchor.Name verbatim → keep, or canonical rewrite); the helper
+// has zero callers and is removed in full.
 
 // validateValueShapeSummary enforces a non-empty Summary on shape=value
 // and shape=config_value answers. The bare literal alone is rarely
@@ -2792,12 +2724,23 @@ func normalizeStepBackboneDescriptions(steps []types.AnswerStep, citations []typ
 		if !ok {
 			continue
 		}
+		// 2026-05-03 (Phase 6 stage 11) — collapsed the L2
+		// citation-corroboration fallback. The retired ladder
+		// allowed step descriptions to survive normalization when
+		// their identifier tokens overlapped the cited line's ±3
+		// raw-source window. That was a token-overlap heuristic
+		// with the same false-positive surface stages 1-10
+		// retired — unrelated identifiers in nearby comments /
+		// imports / docstrings fooled the gate. New ladder is
+		// strictly typed: L1 (description names anchor.Name) →
+		// L3 (rewrite to canonical RenderStepSurfaceAnchorDescription).
+		// Skill prompts already require step descriptions to name
+		// the anchor symbol verbatim; the retired window scan was
+		// a soft fallback masking emit-time errors.
 		if stepDescriptionMentionsAnchor(step.Description, anchor) {
 			continue
 		}
-		if citationCorroborationStatus(step.Description, cite.File, cite.Line, gc) == citationCorroborationCorroborated {
-			continue
-		}
+		_ = gc
 		if desc := strings.TrimSpace(types.RenderStepSurfaceAnchorDescription(anchor)); desc != "" {
 			out[i].Description = desc
 		}
@@ -2946,7 +2889,7 @@ func explanationCitationWithinObservedAnchorNeighborhood(cit types.Citation, pla
 		if delta < 0 {
 			delta = -delta
 		}
-		if delta <= corroborationWindow+2 {
+		if delta <= observedAnchorNeighborhoodLines {
 			return true
 		}
 	}
@@ -2978,7 +2921,7 @@ func explanationCitationTextMentionsAnyToken(text string, tokens []string) bool 
 	for _, token := range tokens {
 		wanted[strings.ToLower(token)] = true
 	}
-	for _, tok := range valueLiteralTokenRe.FindAllString(text, -1) {
+	for _, tok := range identifierTokenRe.FindAllString(text, -1) {
 		if wanted[strings.ToLower(tok)] {
 			return true
 		}
@@ -5563,7 +5506,7 @@ func driftBoundedSummaryAllowedLabels(citations []types.Citation, gc *ground.Con
 		}
 	}
 	addTokens := func(text string) {
-		for _, token := range valueLiteralTokenRe.FindAllString(text, -1) {
+		for _, token := range identifierTokenRe.FindAllString(text, -1) {
 			add(token)
 		}
 	}
@@ -5677,7 +5620,7 @@ func driftBoundedSummaryBlockSupportedLabelHits(block string, allowed map[string
 		if !driftBoundedSummaryLabelLooksLikeCodeExpression(label) {
 			continue
 		}
-		for _, token := range valueLiteralTokenRe.FindAllString(label, -1) {
+		for _, token := range identifierTokenRe.FindAllString(label, -1) {
 			if token == "" || !driftBoundedSummaryLabelAllowed(token, allowed) {
 				continue
 			}
