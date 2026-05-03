@@ -8843,7 +8843,7 @@ func (e *explorerEvaluator) buildConcreteValuesSection(repoRoot string, readSet 
 				// but "calls" carries control-flow signal that the
 				// evidence-chain resolver uses for cross-package
 				// dispatch chains.
-				if !isShort && !strings.Contains(cv.kind, "binds") &&
+				if !isShort && !isBindsKind(cv.kind) &&
 					cv.kind != "maps" && cv.kind != "calls" &&
 					cv.kind != "embeds" && cv.kind != "implements" &&
 					cv.kind != "conditional" && cv.kind != "errors" {
@@ -9012,7 +9012,7 @@ func (e *explorerEvaluator) buildConcreteValuesSection(repoRoot string, readSet 
 	// triggered retention so the active-frontier path stays visible.
 	var cntA, cntB1Read, cntB1PreScan, cntB1Scored, cntB2, cntC, cntLongSkip int
 	for _, v := range allValues {
-		if strings.Contains(v.kind, "binds") || v.kind == "maps" || v.kind == "config" || v.kind == "decorates" || v.kind == "assigns" {
+		if isBindingShapeKind(v.kind) {
 			relevant = append(relevant, v)
 			cntA++
 			continue
@@ -9129,7 +9129,7 @@ func (e *explorerEvaluator) buildConcreteValuesSection(repoRoot string, readSet 
 	// short string returns (Name/Type), then booleans, then longer values.
 	sort.Slice(relevant, func(i, j int) bool {
 		scoreVal := func(v concreteValue) int {
-			if strings.Contains(v.kind, "binds") || v.kind == "maps" || v.kind == "config" || v.kind == "decorates" || v.kind == "assigns" {
+			if isBindingShapeKind(v.kind) {
 				return 100
 			}
 			if v.kind == "returns" && len(v.value) <= 20 {
@@ -9331,7 +9331,7 @@ func (e *explorerEvaluator) buildConcreteValuesSection(repoRoot string, readSet 
 		// referencing value (the LastIndex dot-split in
 		// scanCallTargetsInLine keeps the receiver identifier
 		// prominent so the identifier match fires).
-		if v.kind != "returns" && !strings.Contains(v.kind, "binds") &&
+		if v.kind != concreteValueKindReturns && !isBindsKind(v.kind) &&
 			v.kind != "maps" && v.kind != "config" &&
 			v.kind != "decorates" && v.kind != "calls" &&
 			v.kind != "embeds" && v.kind != "implements" {
@@ -10316,6 +10316,62 @@ type concreteValueEntry struct {
 	value string // the concrete value
 }
 
+// Phase 6 stage 23 (2026-05-03) — typed family predicates that
+// replace the `strings.Contains(kind, "binds")` substring checks
+// scattered across the buildConcreteValuesSection scoring path.
+// The concrete-values producer emits `kind` strings from a
+// closed enum (the canonical list below); reading that enum
+// structurally removes the substring family-membership pattern.
+//
+// The "binds" family is the only one that needs prefix-style
+// membership: the producer emits both bare "binds" and
+// "binds ONLY" / "binds default" / similar qualifiers in the
+// same architectural role. The typed predicate captures the
+// family without scanning arbitrary text.
+const (
+	concreteValueKindReturns    = "returns"
+	concreteValueKindBinds      = "binds"
+	concreteValueKindBindsOnly  = "binds ONLY"
+	concreteValueKindMaps       = "maps"
+	concreteValueKindConfig     = "config"
+	concreteValueKindDecorates  = "decorates"
+	concreteValueKindAssigns    = "assigns"
+	concreteValueKindCalls      = "calls"
+	concreteValueKindEmbeds     = "embeds"
+	concreteValueKindImplements = "implements"
+)
+
+// isBindsKind reports whether `kind` is the bare "binds" or any
+// "binds <qualifier>" variant. The producer emits qualifiers
+// like "binds ONLY" / "binds default" that all share the same
+// downstream semantic (factory-shape registration). Replaces
+// the retired `strings.Contains(kind, "binds")` substring check
+// with a structural prefix-equality test on the closed family.
+func isBindsKind(kind string) bool {
+	if kind == concreteValueKindBinds {
+		return true
+	}
+	return strings.HasPrefix(kind, concreteValueKindBinds+" ")
+}
+
+// isBindingShapeKind reports whether `kind` belongs to the
+// binding/registration family (binds variants + maps + config +
+// decorates + assigns). All five share the architectural role
+// of "this code line establishes a runtime binding from one
+// identifier to another". Replaces the retired Contains-OR
+// chain (`Contains(kind, "binds") || kind=="maps" || ...`).
+func isBindingShapeKind(kind string) bool {
+	if isBindsKind(kind) {
+		return true
+	}
+	switch kind {
+	case concreteValueKindMaps, concreteValueKindConfig,
+		concreteValueKindDecorates, concreteValueKindAssigns:
+		return true
+	}
+	return false
+}
+
 func isConcreteValueBodySymbolKind(kind string) bool {
 	switch kind {
 	case "function", "method", "ctor", "operator", "foreign-func", "builder",
@@ -10531,7 +10587,7 @@ func extractBridgeLiteralChains(graph *repomap.Graph, repoRoot string, consumerV
 				body := loadBody(fi.RelPath, sym.Line, sym.EndLine)
 				if body != "" {
 					for _, cv := range extractConcreteValues(body, fi.Language) {
-						if !strings.Contains(cv.kind, "binds") {
+						if !isBindsKind(cv.kind) {
 							continue
 						}
 						qual := sym.Name
