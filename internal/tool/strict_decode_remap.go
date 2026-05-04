@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"regexp"
 	"strings"
+
+	"github.com/hanchaoqun/codrax/internal/logging"
 )
 
 // strict_decode_remap.go — Phase 1-B (V2 runtime eval followup,
@@ -86,6 +88,12 @@ func RemapStrictDecodeError(err error, hints []MisplacedFieldHint) error {
 			}
 			paths := strings.Join(h.CorrectPaths, " / ")
 			containers := strings.Join(h.ContainerNames, " / ")
+			// Operator-side telemetry — record every remap event so
+			// eval scripts can count misplacement frequency and the
+			// G7 path-sensitive prescan ROI can be evaluated against
+			// real data without speculation.
+			logging.Info("[strict_decode_remap] misplaced field %q → suggested paths: %s",
+				field, paths)
 			return fmt.Errorf(
 				"%w — field %q exists in the schema at %s, NOT inside %s; relocate the value (do not rename or remove it)",
 				err, field, paths, containers)

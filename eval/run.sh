@@ -247,6 +247,13 @@ write_metrics() {
     #   semantic_quality_concerns    — reviewer-emitted concern count
     echo "semantic_quality_dispatches=$(count_pattern 'semantic_quality_reviewer.*verdict' "$log")"
     echo "semantic_quality_concerns=$(count_pattern 'semantic_quality_reviewer.*emitted [1-9]' "$log")"
+    # G7 trigger-data observability (post_v2_runtime_gap_remediation,
+    # 2026-05-04). strict_decode_remap fires when an LLM emit hits a
+    # known misplaced-field pattern. Counts the per-Run frequency so
+    # the G7 path-sensitive prescan ROI can be assessed from real
+    # data — high counts here justify implementing G7, low counts
+    # justify keeping it deferred.
+    echo "strict_decode_remap_events=$(count_pattern 'strict_decode_remap.*misplaced field' "$log")"
   } >"$metrics"
 }
 
@@ -584,7 +591,7 @@ SUMMARY="$OUTDIR/summary.md"
   # 2026-05-04): write_metrics writes them to run-N.metrics.txt;
   # aggregate them into the summary table so they show up next to
   # the legacy 12 mechanism counters with median.
-  metric_keys="tool_read_file concrete_values synthesis_runs function_boundary_push enumeration_push focus_warning t11_gate_skip t11_gate_run dataflow_intent_lookup dataflow_intent_propagate midloop_inject answer_chain_lines analyzer_iters explorer_iters extractor_iters finalizer_iters analyzer_dispatches explorer_dispatches extractor_dispatches finalizer_dispatches repair_plan_lines repair_exec_lines repair_exec_promote repair_exec_failloud semantic_quality_dispatches semantic_quality_concerns"
+  metric_keys="tool_read_file concrete_values synthesis_runs function_boundary_push enumeration_push focus_warning t11_gate_skip t11_gate_run dataflow_intent_lookup dataflow_intent_propagate midloop_inject answer_chain_lines analyzer_iters explorer_iters extractor_iters finalizer_iters analyzer_dispatches explorer_dispatches extractor_dispatches finalizer_dispatches repair_plan_lines repair_exec_lines repair_exec_promote repair_exec_failloud semantic_quality_dispatches semantic_quality_concerns strict_decode_remap_events"
   for key in $metric_keys; do
     row="| $key |"
     vals=()
