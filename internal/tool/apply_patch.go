@@ -98,7 +98,7 @@ func (t *ApplyPatch) Parameters() json.RawMessage {
 // full control flow.
 func (t *ApplyPatch) Execute(ctx *types.BusContext, params json.RawMessage) (types.ToolResult, error) {
 	if ctx == nil || ctx.Mutable == nil {
-		return errResult(t.Name(), "apply_patch requires BusContext.Mutable"), nil
+		return errResult(t.Name(), "apply_patch requires a writable run context (the orchestrator did not provide one)"), nil
 	}
 
 	// Strict decode so any schema drift (LLM emits a new field)

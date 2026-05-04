@@ -724,7 +724,7 @@ func (o *Orchestrator) detectStallAndAct() bool {
 				Rationale: fmt.Sprintf("no progress detected across %d consecutive explore rounds", cgecStallThresholdHard),
 				Origin:    "convergence_detector",
 			})
-			o.busCtx.Mutable.SetInvestigationComplete(fmt.Sprintf("CGEC I4 hard stall: %d identical fingerprints", cgecStallThresholdHard))
+			o.busCtx.Mutable.SetInvestigationComplete(fmt.Sprintf("convergence stall: %d consecutive explore rounds with no investigation progress", cgecStallThresholdHard))
 			o.emit(render.Event{
 				Kind:      render.EventAgentReasoning,
 				Timestamp: time.Now(),

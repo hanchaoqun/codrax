@@ -1832,9 +1832,9 @@ func queueTier1ReadRepairs(ctx *types.BusContext, targets []Tier1RepairTarget) {
 		return
 	}
 	for _, target := range targets {
-		rationale := "Tier-1 floor: read_file this source to convert non-line_text evidence into grounded evidence."
+		rationale := "Line-text grounding floor: read_file this source to convert non-line_text evidence into grounded evidence."
 		if lines := tier1LineList(target.Lines, 4); lines != "" {
-			rationale = fmt.Sprintf("Tier-1 floor: read_file %s near lines %s to convert non-line_text evidence into grounded evidence.", target.File, lines)
+			rationale = fmt.Sprintf("Line-text grounding floor: read_file %s near lines %s to convert non-line_text evidence into grounded evidence.", target.File, lines)
 		}
 		closure.AddRepair(types.RepairDirective{
 			Kind:      types.RepairReadFile,

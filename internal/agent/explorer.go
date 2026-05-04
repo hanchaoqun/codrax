@@ -4890,9 +4890,9 @@ func (e *explorerEvaluator) postAuthoritativeTier1CompletionSignal(obs LoopObser
 	e.midLoopAuthoritativeTier1Sent = true
 	var b strings.Builder
 	fmt.Fprintf(&b,
-		"MID-LOOP CHECK: the current authoritative log path is already semantically enough to answer, but `emit_investigation_complete` would still be rejected by the Tier-1 grounding floor (currently %d/%d = %.0f%%, need ≥ %.0f%%). Before closing, convert the load-bearing failure anchors to `read_file`-grounded line_text evidence on the CURRENT branch.\n",
+		"MID-LOOP CHECK: the current authoritative log path is already semantically enough to answer, but `emit_investigation_complete` would still be rejected by the line-text grounding floor (currently %d/%d = %.0f%%, need ≥ %.0f%%). Before closing, convert the load-bearing failure anchors to `read_file`-grounded line_text evidence on the CURRENT branch.\n",
 		tier1.Tier1, tier1.Total, float64(tier1.Tier1)*100/float64(tier1.Total), tier1.Floor*100)
-	b.WriteString("Do NOT widen into more neighboring files yet. Re-read the current authoritative sources near the cited lines, then re-emit ONE tighter `emit_evidence(items=[...])` batch that keeps the failure backbone grounded first. Related context and setup/background anchors can wait until after the backbone is Tier-1-safe.\n")
+	b.WriteString("Do NOT widen into more neighboring files yet. Re-read the current authoritative sources near the cited lines, then re-emit ONE tighter `emit_evidence(items=[...])` batch that keeps the failure backbone grounded first. Related context and setup/background anchors can wait until after the backbone passes the line-text grounding floor.\n")
 	if len(tier1.Targets) > 0 {
 		maxList := 4
 		if maxList > len(tier1.Targets) {

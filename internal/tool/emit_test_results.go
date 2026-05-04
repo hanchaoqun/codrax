@@ -106,7 +106,7 @@ func (t *EmitTestResults) Parameters() json.RawMessage {
 //     (logged as a warning; deterministic wins)
 func (t *EmitTestResults) Execute(ctx *types.BusContext, params json.RawMessage) (types.ToolResult, error) {
 	if ctx == nil || ctx.Mutable == nil {
-		return errResult(t.Name(), "emit_test_results requires BusContext.Mutable"), nil
+		return errResult(t.Name(), "emit_test_results requires a writable run context (the orchestrator did not provide one)"), nil
 	}
 
 	dec := json.NewDecoder(strings.NewReader(string(params)))

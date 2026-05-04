@@ -4928,8 +4928,8 @@ func TestObserveMidLoop_AuthoritativeTier1HintBeatsCompletionReady(t *testing.T)
 	if sig.HintKey != "explorer.mid-loop.authoritative-tier1-before-complete" {
 		t.Fatalf("HintKey = %q, want explorer.mid-loop.authoritative-tier1-before-complete", sig.HintKey)
 	}
-	if !strings.Contains(sig.Hint, "Tier-1") {
-		t.Fatalf("hint should explain Tier-1 precondition, got: %s", sig.Hint)
+	if !strings.Contains(sig.Hint, "line-text grounding floor") {
+		t.Fatalf("hint should explain line-text grounding precondition, got: %s", sig.Hint)
 	}
 	if !strings.Contains(sig.Hint, "internal/agent/analyzer.go") {
 		t.Fatalf("hint should name the current authoritative repair file, got: %s", sig.Hint)

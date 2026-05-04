@@ -51,12 +51,22 @@ var localInternalTerms = []string{
 	"Tier-2",
 }
 
-// TestSelfConsistencyReviewer_LLMFacingNoInternalJargon enforces
-// R4 for the reviewer's two LLM-facing string surfaces.
-func TestSelfConsistencyReviewer_LLMFacingNoInternalJargon(t *testing.T) {
+// TestReviewerPrompts_LLMFacingNoInternalJargon enforces R4 for
+// every reviewer/classifier system prompt + tool description in
+// the orchestrator package. Each new reviewer added here must be
+// listed below; otherwise jargon can leak silently.
+func TestReviewerPrompts_LLMFacingNoInternalJargon(t *testing.T) {
 	surfaces := map[string]string{
-		"selfConsistencyReviewerSystemPrompt": selfConsistencyReviewerSystemPrompt,
-		"selfConsistencyTool.Description":     selfConsistencyTool.Description,
+		// System prompt const blobs (long multi-line text).
+		"selfConsistencyReviewerSystemPrompt":  selfConsistencyReviewerSystemPrompt,
+		"answerReviewerSystemPrompt":           answerReviewerSystemPrompt,
+		"continuationClassifierSystemPrompt":   continuationClassifierSystemPrompt,
+		"acceptanceSystemPrompt":               acceptanceSystemPrompt,
+		"planCriticSystemPrompt":               planCriticSystemPrompt,
+		"reflectorSystemPrompt":                reflectorSystemPrompt,
+
+		// Tool descriptions (Description field on llm.ToolSchema).
+		"selfConsistencyTool.Description": selfConsistencyTool.Description,
 	}
 	for label, text := range surfaces {
 		for _, term := range localInternalTerms {

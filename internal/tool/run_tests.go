@@ -197,7 +197,7 @@ func (t *RunTests) Parameters() json.RawMessage {
 // stage surfaces the reason cleanly.
 func (t *RunTests) Execute(ctx *types.BusContext, params json.RawMessage) (types.ToolResult, error) {
 	if ctx == nil || ctx.Mutable == nil {
-		return errResult(t.Name(), "run_tests requires BusContext.Mutable"), nil
+		return errResult(t.Name(), "run_tests requires a writable run context (the orchestrator did not provide one)"), nil
 	}
 
 	var p runTestsParams
