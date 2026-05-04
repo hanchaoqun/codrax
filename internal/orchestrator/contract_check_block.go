@@ -235,29 +235,167 @@ func validateDiagramEdgeSupport(doc *types.AnswerDocumentV2, view *types.AnswerS
 			unsupported = append(unsupported, e)
 		}
 	}
-	if len(unsupported) == 0 {
-		return nil
+	if len(unsupported) > 0 {
+		// Aggregate as a single violation — the LLM should see the full
+		// list of broken edges in one repair pass instead of being
+		// re-prompted per edge. When Layer 1 fails, skip Layer 2: ask
+		// the LLM to ground endpoints first, then re-check relations on
+		// the next attempt.
+		pairs := make([]string, 0, len(unsupported))
+		for _, e := range unsupported {
+			pairs = append(pairs, fmt.Sprintf("%s -> %s", e.from, e.to))
+		}
+		return []types.Violation{{
+			Kind: types.ViolDiagramEdgeUnsupported,
+			Detail: fmt.Sprintf(
+				"diagram block id=%q has %d edge(s) whose endpoints are not grounded in any item, block title, claim_use annotation, or declared node label: [%s]",
+				diagramBlock.ID, len(unsupported), strings.Join(pairs, ", ")),
+			Repair: "for each listed edge, either (a) declare its endpoints as labelled nodes in the same Mermaid body (e.g. A[\"Label A\"] --> B[\"Label B\"]), (b) name the endpoints in an item label or block title in this answer, or (c) drop the edge if it represents an inference not backed by any grounded claim.",
+			SuspectedRoot: types.SuspectedRoot{
+				IRField:    "diagram_edges",
+				Reason:     "edge endpoints lack grounding in the rest of the answer",
+				Confidence: 0.65,
+			},
+			Stage: string(types.StageFinalize),
+		}}
 	}
-	// Aggregate as a single violation — the LLM should see the full
-	// list of broken edges in one repair pass instead of being
-	// re-prompted per edge.
-	pairs := make([]string, 0, len(unsupported))
-	for _, e := range unsupported {
-		pairs = append(pairs, fmt.Sprintf("%s -> %s", e.from, e.to))
+	// Layer 2 (Phase 3-C5) — relation legality. For each labelled
+	// edge whose label resolves to a typed DiagramRelationKind with
+	// an edge-level ClaimForm, require a claim_use in this document
+	// that (a) matches the ClaimForm and (b) anchors the (from, to)
+	// endpoints. Plus each DiagramFacetGraph.EdgeRelations contract
+	// with Min>0 must be met by at least Min labelled edges.
+	return validateDiagramRelationLegality(doc, view, diagramBlock, edges)
+}
+
+// validateDiagramRelationLegality is the Phase 3-C5 Layer-2 check.
+// Pre-condition: every edge endpoint already passes Layer 1
+// grounding; this function only inspects label-based relation
+// legality. Returns one aggregated violation for missing anchored
+// claim_uses + one per EdgeRelations.Min shortfall.
+func validateDiagramRelationLegality(
+	doc *types.AnswerDocumentV2,
+	view *types.AnswerSemanticView,
+	diagramBlock *types.AnswerBlock,
+	edges []mermaidEdge,
+) []types.Violation {
+	plan := view.DiagramPlan
+	anchoredIndex := buildClaimUseEdgeAnchorIndex(doc)
+
+	type missingAnchor struct {
+		from, to, label string
+		want            types.ClaimForm
 	}
-	return []types.Violation{{
-		Kind: types.ViolDiagramEdgeUnsupported,
-		Detail: fmt.Sprintf(
-			"diagram block id=%q has %d edge(s) whose endpoints are not grounded in any item, block title, claim_use annotation, or declared node label: [%s]",
-			diagramBlock.ID, len(unsupported), strings.Join(pairs, ", ")),
-		Repair: "for each listed edge, either (a) declare its endpoints as labelled nodes in the same Mermaid body (e.g. A[\"Label A\"] --> B[\"Label B\"]), (b) name the endpoints in an item label or block title in this answer, or (c) drop the edge if it represents an inference not backed by any grounded claim.",
-		SuspectedRoot: types.SuspectedRoot{
-			IRField:    "diagram_edges",
-			Reason:     "edge endpoints lack grounding in the rest of the answer",
-			Confidence: 0.65,
-		},
-		Stage: string(types.StageFinalize),
-	}}
+	var missing []missingAnchor
+	relCounts := make(map[types.DiagramRelationKind]int)
+	for _, e := range edges {
+		rel := types.InferRelationFromLabel(e.label)
+		if rel == types.DiagramRelUnknown {
+			continue
+		}
+		relCounts[rel]++
+		expected := types.ClaimFormForRelation(rel)
+		if expected == types.ClaimUnknown {
+			continue
+		}
+		if !claimUseAnchorsEdge(anchoredIndex, e.from, e.to, expected) {
+			missing = append(missing, missingAnchor{
+				from: e.from, to: e.to, label: e.label, want: expected,
+			})
+		}
+	}
+
+	var violations []types.Violation
+	if len(missing) > 0 {
+		details := make([]string, 0, len(missing))
+		for _, m := range missing {
+			details = append(details, fmt.Sprintf("%s --|%s|--> %s (need claim_use claim_form=%s anchored to from_node=%q to_node=%q)",
+				m.from, m.label, m.to, m.want, m.from, m.to))
+		}
+		violations = append(violations, types.Violation{
+			Kind: types.ViolDiagramEdgeUnsupported,
+			Detail: fmt.Sprintf(
+				"diagram block id=%q has %d labelled edge(s) lacking a typed claim_use anchored to (from_node, to_node) with the expected claim_form: [%s]",
+				diagramBlock.ID, len(missing), strings.Join(details, "; ")),
+			Repair: "for each listed edge, attach a claim_use to a block / item with claim_form set to the listed value AND from_node / to_node set to the verbatim node identifiers. Alternatively, drop the edge label if the relation isn't supported by typed evidence.",
+			SuspectedRoot: types.SuspectedRoot{
+				IRField:    "diagram_edges",
+				Reason:     "labelled edges lack typed claim_use anchor",
+				Confidence: 0.6,
+			},
+			Stage: string(types.StageFinalize),
+		})
+	}
+	for _, contract := range plan.EdgeRelations {
+		if contract.Min <= 0 {
+			continue
+		}
+		if relCounts[contract.Kind] >= contract.Min {
+			continue
+		}
+		violations = append(violations, types.Violation{
+			Kind: types.ViolDiagramEdgeUnsupported,
+			Detail: fmt.Sprintf(
+				"diagram block id=%q expected at least %d edge(s) of relation kind=%s but found %d (label the edges with vocabulary the relation kind recognises)",
+				diagramBlock.ID, contract.Min, contract.Kind, relCounts[contract.Kind]),
+			Repair: fmt.Sprintf(
+				"add at least %d Mermaid edge(s) whose label resolves to relation kind=%s (see the %q section above for the recognised label vocabulary); each such edge should be supported by a claim_use with claim_form=%s anchored to its (from_node, to_node)",
+				contract.Min-relCounts[contract.Kind], contract.Kind, types.SectionDiagramEdgeLabelVocabulary, contract.ClaimForm),
+			SuspectedRoot: types.SuspectedRoot{
+				IRField:    "diagram_edges",
+				Reason:     "minimum-count contract for typed relation not satisfied",
+				Confidence: 0.55,
+			},
+			Stage: string(types.StageFinalize),
+		})
+	}
+	return violations
+}
+
+// buildClaimUseEdgeAnchorIndex collects every claim_use in doc that
+// carries (FromNode, ToNode), keyed by (lower(FromNode),
+// lower(ToNode), ClaimForm). Multiple claim_uses sharing the same
+// key collapse — the index stores a presence bit, not the
+// annotation itself.
+func buildClaimUseEdgeAnchorIndex(doc *types.AnswerDocumentV2) map[claimUseEdgeKey]struct{} {
+	idx := make(map[claimUseEdgeKey]struct{})
+	add := func(cu *types.RenderedClaimUse) {
+		if cu == nil || !cu.HasEdgeAnchor() {
+			return
+		}
+		idx[claimUseEdgeKey{
+			from:  strings.ToLower(strings.TrimSpace(cu.FromNode)),
+			to:    strings.ToLower(strings.TrimSpace(cu.ToNode)),
+			claim: cu.ClaimForm,
+		}] = struct{}{}
+	}
+	for i := range doc.Blocks {
+		b := &doc.Blocks[i]
+		for j := range b.ClaimUses {
+			add(&b.ClaimUses[j])
+		}
+		for j := range b.Items {
+			add(b.Items[j].ClaimUse)
+		}
+	}
+	return idx
+}
+
+type claimUseEdgeKey struct {
+	from, to string
+	claim    types.ClaimForm
+}
+
+// claimUseAnchorsEdge reports whether the index contains a
+// claim_use whose (FromNode, ToNode, ClaimForm) matches the edge.
+// Matching is case-folded on the node identifiers.
+func claimUseAnchorsEdge(idx map[claimUseEdgeKey]struct{}, from, to string, want types.ClaimForm) bool {
+	_, ok := idx[claimUseEdgeKey{
+		from:  strings.ToLower(strings.TrimSpace(from)),
+		to:    strings.ToLower(strings.TrimSpace(to)),
+		claim: want,
+	}]
+	return ok
 }
 
 // mermaidEdge is the (from, to[, label]) tuple extracted from one

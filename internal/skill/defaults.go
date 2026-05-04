@@ -1,5 +1,7 @@
 package skill
 
+import "github.com/hanchaoqun/codrax/internal/types"
+
 // RegisterDefaults registers all built-in skill configurations.
 //
 // The analyzer's "analysis-skill" is built programmatically from the
@@ -205,6 +207,17 @@ When the user section's Diagram Contract says Required: yes, emit a ` + "`diagra
 - ` + "`diagram.body`" + ` carries the actual Mermaid source. Use ` + "`flowchart`" + ` syntax for ` + "`flow`" + ` / ` + "`architecture`" + ` / ` + "`call_dag`" + ` families; use ` + "`sequenceDiagram`" + ` syntax for ` + "`sequence`" + ` family.
 
 The contract validator rejects ` + "`kind=flow`" + ` when the family's contract expected ` + "`kind=architecture`" + ` (and similar mismatches).
+
+### ` + types.SectionDiagramEdgeLabelVocabulary + `
+
+Edge labels in the diagram body resolve to TYPED relation kinds. When you label an edge — flowchart ` + "`A -->|<label>| B`" + ` or sequence ` + "`A->>B: <label>`" + ` — pick a marker the system recognises so the validator can match an edge claim_use against it. The canonical lowercase keyword vocabulary (case-folded substring match against the label):
+
+` + BuildDiagramEdgeLabelVocabularyDoc() + `
+An UNLABELLED edge (no ` + "`|...|`" + ` block, no trailing ` + "`: msg`" + `) is legal — its endpoints only need to be referenced elsewhere in the answer (an item label, a block title, or a node-shape declaration in the same diagram body). A label that matches NONE of the keywords above also counts as label-free and does not require a claim_use anchor; use this when the edge text is purely descriptive (e.g. ` + "`A -->|next| B`" + `).
+
+When you DO label an edge with a recognised keyword, the rendered answer MUST include an anchored claim_use somewhere in the document: a block-level or item-level ` + "`claim_use`" + ` whose ` + "`claim_form`" + ` matches the relation's expected form AND whose ` + "`from_node`" + ` / ` + "`to_node`" + ` are the verbatim node identifiers from the edge. Example: for ` + "`Auth -->|invoke| Worker`" + ` (relation ` + "`call`" + `, expected claim_form ` + "`call_edge`" + `), emit a claim_use somewhere with ` + "`{claim_form: \"call_edge\", from_node: \"Auth\", to_node: \"Worker\"}`" + `. The most natural carrier is the diagram block's own ` + "`claim_uses[]`" + ` (it describes the edges of THIS diagram), but any principal block's items work too.
+
+Some diagram contracts also require a minimum number of edges of a particular relation kind (read these from the user section). Falling short is a hard reject — add a labelled edge that carries the relation, OR drop the diagram if no typed evidence supports it.
 
 ## Citation pool
 

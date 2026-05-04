@@ -41,6 +41,14 @@ import "strings"
 //   - The mapping ClaimFormForRelation MUST stay synchronised with
 //     the ClaimForm enum in claim_form.go. Adding a new ClaimForm
 //     that an edge can carry requires extending this file too.
+// SectionDiagramEdgeLabelVocabulary is the canonical sub-section
+// title used by the answer-document-skill prompt to introduce the
+// label keyword bullet list (Phase 3-C5). Single source of truth so
+// LLM-facing prose that REFERENCES the section by name (e.g. the
+// orchestrator validator's Repair text) cannot drift from the
+// rendered heading.
+const SectionDiagramEdgeLabelVocabulary = "Diagram-edge label vocabulary"
+
 type DiagramRelationKind string
 
 const (

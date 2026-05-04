@@ -1403,3 +1403,154 @@ func TestSplitMermaidEdgeLine_SignatureCarriesLabel(t *testing.T) {
 			from, to, label, ok)
 	}
 }
+
+// ── Phase 3-C5: validateDiagramRelationLegality (Layer 2) ─────────
+
+// callChainViewWithDiagram returns a sequence-family view that
+// requires a diagram (so EdgeRelations is populated to
+// [{call, Min:1, ClaimCallEdge}]).
+func callChainViewWithDiagram() *types.AnswerSemanticView {
+	return types.BuildAnswerSemanticView(
+		&types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				Intent:   types.IntentTrace,
+				Scenario: types.ScenarioGeneric,
+			},
+		},
+		&types.AnswerSurfacePlan{Diagram: &types.DiagramContract{Required: true}},
+	)
+}
+
+// docWithDiagramBody constructs a minimal V2 doc holding a diagram
+// block + body, with optional edge-anchored claim_use list. Includes
+// an ordered_list block whose item labels match the test edge nodes
+// "Auth" / "Worker" so Layer 1 endpoint grounding always passes —
+// the tests below exercise Layer 2 (relation legality) only.
+func docWithDiagramBody(body string, edgeClaimUses ...types.RenderedClaimUse) *types.AnswerDocumentV2 {
+	return &types.AnswerDocumentV2{
+		Blocks: []types.AnswerBlock{
+			{
+				ID:   "anchors",
+				Kind: types.BlockOrderedList,
+				Items: []types.AnswerBlockItem{
+					{ID: "n1", Label: "Auth"},
+					{ID: "n2", Label: "Worker"},
+				},
+			},
+			{
+				ID:          "d1",
+				Kind:        types.BlockDiagram,
+				SurfaceRole: types.SurfaceDiagramOnly,
+				Diagram: &types.AnswerDiagramBlock{
+					Kind:     types.DiagramSequence,
+					Language: "mermaid",
+					Body:     body,
+				},
+				ClaimUses: edgeClaimUses,
+			},
+		},
+	}
+}
+
+// Layer 2 fires when a labelled edge has no anchored claim_use.
+func TestValidateDiagramEdgeSupport_LabelledEdgeMissingClaimUseFires(t *testing.T) {
+	view := callChainViewWithDiagram()
+	doc := docWithDiagramBody("sequenceDiagram\n  Auth->>Worker: invoke\n")
+	vs := validateDiagramEdgeSupport(doc, view)
+	if len(vs) == 0 {
+		t.Fatal("expected violation: labelled call-edge has no anchored claim_use")
+	}
+	if vs[0].Kind != types.ViolDiagramEdgeUnsupported {
+		t.Errorf("kind = %q, want ViolDiagramEdgeUnsupported", vs[0].Kind)
+	}
+	if !strings.Contains(vs[0].Detail, "call_edge") {
+		t.Errorf("detail does not name expected claim_form; got %q", vs[0].Detail)
+	}
+}
+
+// Layer 2 passes when an anchored claim_use covers the labelled edge.
+func TestValidateDiagramEdgeSupport_LabelledEdgeWithAnchoredClaimUsePasses(t *testing.T) {
+	view := callChainViewWithDiagram()
+	doc := docWithDiagramBody(
+		"sequenceDiagram\n  Auth->>Worker: invoke\n",
+		types.RenderedClaimUse{
+			ClaimForm: types.ClaimCallEdge,
+			FromNode:  "Auth",
+			ToNode:    "Worker",
+		},
+	)
+	if vs := validateDiagramEdgeSupport(doc, view); len(vs) != 0 {
+		t.Errorf("anchored claim_use must satisfy Layer 2; got %+v", vs)
+	}
+}
+
+// Case-folded matching: edge token "auth" matches claim_use "Auth".
+func TestValidateDiagramEdgeSupport_AnchorMatchingIsCaseFolded(t *testing.T) {
+	view := callChainViewWithDiagram()
+	doc := docWithDiagramBody(
+		"sequenceDiagram\n  AUTH->>WORKER: invoke\n",
+		types.RenderedClaimUse{
+			ClaimForm: types.ClaimCallEdge,
+			FromNode:  "Auth",
+			ToNode:    "worker",
+		},
+	)
+	if vs := validateDiagramEdgeSupport(doc, view); len(vs) != 0 {
+		t.Errorf("case-folded match must succeed; got %+v", vs)
+	}
+}
+
+// Unlabelled edges skip Layer 2 entirely (legitimate label-free
+// state — Layer 1 endpoint grounding already passed for these).
+func TestValidateDiagramEdgeSupport_UnlabelledEdgeSkipsLayer2(t *testing.T) {
+	view := callChainViewWithDiagram()
+	// Body has 1 unlabelled edge + 1 labelled edge with anchor — the
+	// EdgeRelations.Min=1 contract is satisfied by the labelled edge.
+	doc := docWithDiagramBody(
+		"sequenceDiagram\n  Auth->>Worker\n  Auth->>Worker: invoke\n",
+		types.RenderedClaimUse{
+			ClaimForm: types.ClaimCallEdge,
+			FromNode:  "Auth",
+			ToNode:    "Worker",
+		},
+	)
+	if vs := validateDiagramEdgeSupport(doc, view); len(vs) != 0 {
+		t.Errorf("unlabelled edge must not trip Layer 2 when min satisfied; got %+v", vs)
+	}
+}
+
+// EdgeRelations.Min shortfall fires its own violation.
+func TestValidateDiagramEdgeSupport_MinCountShortfallFires(t *testing.T) {
+	view := callChainViewWithDiagram()
+	// Body has only unlabelled edges — Min=1 for relation=call not met.
+	doc := docWithDiagramBody("sequenceDiagram\n  Auth->>Worker\n")
+	vs := validateDiagramEdgeSupport(doc, view)
+	if len(vs) == 0 {
+		t.Fatal("expected violation: EdgeRelations.Min not met by labelled edges")
+	}
+	var found bool
+	for _, v := range vs {
+		if strings.Contains(v.Detail, "expected at least 1") &&
+			strings.Contains(v.Detail, "kind=call") {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("missing min-count violation in %+v", vs)
+	}
+}
+
+// Layer 1 failure short-circuits Layer 2 — when endpoints aren't
+// grounded, ask the LLM to fix the bigger problem first.
+func TestValidateDiagramEdgeSupport_Layer1FailureShortCircuitsLayer2(t *testing.T) {
+	view := callChainViewWithDiagram()
+	// "Ghost" endpoint not in any block / item / declaration.
+	doc := docWithDiagramBody("sequenceDiagram\n  Ghost->>Phantom: invoke\n")
+	vs := validateDiagramEdgeSupport(doc, view)
+	if len(vs) != 1 {
+		t.Fatalf("want exactly 1 violation (Layer 1); got %d (%+v)", len(vs), vs)
+	}
+	if !strings.Contains(vs[0].Detail, "endpoints are not grounded") {
+		t.Errorf("expected Layer 1 violation; got %q", vs[0].Detail)
+	}
+}
