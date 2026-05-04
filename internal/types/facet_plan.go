@@ -256,6 +256,22 @@ func TierFromRequiredness(r FacetRequiredness) RichnessTier {
 // reading Tier do not need to call TierFromRequiredness inline.
 // Empty Tier on a hand-constructed FacetRequirement decodes via
 // EffectiveTier() so back-compat callers stay working.
+//
+// SourceCandidate provenance invariant (Phase 5-E0, 2026-05-04):
+// SourceCandidate entries MUST be typed EvidenceItem.ID values. The
+// only writer is bindSourceCandidates, which filters surface
+// evidence through (a) claimFormMatches over the ClaimForm typed
+// enum and (b) optional LogPerfSubKind typed enum equality. NO
+// similarity scoring, NO frequency weighting, NO LLM-authored ID
+// strings, NO heuristic boosts. EvidenceItem.ID itself is
+// StableEvidenceID(item) — an FNV hash over typed fields (Kind /
+// Scope / Origin / Authority / scope-specific typed fields). This
+// invariant is what lets validators consume len(SourceCandidate) >
+// 0 (or specific membership) as a HARD gate signal without
+// violating R3 (precise signals → hard gates;noisy signals → soft
+// guidance only). Adding a non-typed source — frequency, ranker
+// score, similarity match — would corrupt the gate; route those
+// through soft guidance instead.
 type FacetRequirement struct {
 	Kind            AnswerFacetKind
 	Required        FacetRequiredness

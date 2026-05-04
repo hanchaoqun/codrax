@@ -536,3 +536,83 @@ func familyToRequestModel(f QuestionFamily) RequestModel {
 	}
 	return RequestModel{}
 }
+
+// ── Phase 5-E0: SourceCandidate provenance lock ──────────────────
+
+// TestBindSourceCandidates_FiltersByTypedClaimForm pins R3:
+// bindSourceCandidates uses claimFormMatches over the typed
+// ClaimForm enum, NOT similarity / frequency / heuristic. An
+// evidence item whose projected ClaimForm is not in AcceptableForms
+// MUST be excluded — even if its other fields look "close".
+func TestBindSourceCandidates_FiltersByTypedClaimForm(t *testing.T) {
+	req := FacetRequirement{
+		Kind:            FacetCurrentCodePath,
+		AcceptableForms: []ClaimForm{ClaimCallEdge}, // narrow whitelist
+	}
+	surface := []EvidenceItem{
+		{ID: "ev-call-1", AnchorKind: AnchorCall, Subject: "fn1"}, // → ClaimCallEdge
+		{ID: "ev-def-1", AnchorKind: AnchorDefinition, Subject: "fn1"}, // → ClaimDefinitionFact (rejected)
+	}
+	bound := bindSourceCandidates(req, surface)
+	if len(bound.SourceCandidate) != 1 || bound.SourceCandidate[0] != "ev-call-1" {
+		t.Errorf("AcceptableForms=ClaimCallEdge must accept exactly ev-call-1; got %v", bound.SourceCandidate)
+	}
+}
+
+// TestBindSourceCandidates_FiltersByTypedSubKind pins the typed
+// LogPerfSubKind filter (not similarity). When RequiredSubKind is
+// set, only evidence with the matching enum value passes.
+func TestBindSourceCandidates_FiltersByTypedSubKind(t *testing.T) {
+	req := FacetRequirement{
+		Kind:            FacetObservedArtifactFact,
+		AcceptableForms: []ClaimForm{ClaimExternalObservation},
+		RequiredSubKind: LogPanicFrame,
+	}
+	surface := []EvidenceItem{
+		{ID: "ev-panic", Origin: ClaimOriginLog, LogPerfSubKind: LogPanicFrame},
+		{ID: "ev-noise", Origin: ClaimOriginLog, LogPerfSubKind: LogNoiseFrame},
+	}
+	bound := bindSourceCandidates(req, surface)
+	if len(bound.SourceCandidate) != 1 || bound.SourceCandidate[0] != "ev-panic" {
+		t.Errorf("RequiredSubKind=LogPanicFrame must accept only ev-panic; got %v", bound.SourceCandidate)
+	}
+}
+
+// TestBindSourceCandidates_OutputAllInputIDs pins the provenance
+// invariant: every SourceCandidate entry MUST be the ID of an
+// evidence item in the input surface. No fabrication, no derived
+// IDs from prose.
+func TestBindSourceCandidates_OutputAllInputIDs(t *testing.T) {
+	req := FacetRequirement{
+		Kind:            FacetCurrentCodePath,
+		AcceptableForms: nil, // empty = any non-Unknown claim form
+	}
+	surface := []EvidenceItem{
+		{ID: "ev-1", AnchorKind: AnchorCall},
+		{ID: "ev-2", AnchorKind: AnchorDefinition},
+		{ID: "ev-3", AnchorKind: AnchorReturn},
+	}
+	bound := bindSourceCandidates(req, surface)
+	inputIDs := map[string]bool{"ev-1": true, "ev-2": true, "ev-3": true}
+	for _, id := range bound.SourceCandidate {
+		if !inputIDs[id] {
+			t.Errorf("SourceCandidate %q is NOT in input surface — fabrication / drift", id)
+		}
+	}
+}
+
+// TestStableEvidenceID_DeterministicOverTypedFields pins the
+// EvidenceItem.ID provenance: identical typed fields produce
+// identical IDs (deterministic projection, suitable as hard gate
+// input). Different typed fields produce different IDs.
+func TestStableEvidenceID_DeterministicOverTypedFields(t *testing.T) {
+	a := EvidenceItem{Kind: EvidenceDirect, Subject: "X", Source: "f.go", LineStart: 10, LineEnd: 10}
+	b := EvidenceItem{Kind: EvidenceDirect, Subject: "X", Source: "f.go", LineStart: 10, LineEnd: 10}
+	c := EvidenceItem{Kind: EvidenceDirect, Subject: "Y", Source: "f.go", LineStart: 10, LineEnd: 10}
+	if StableEvidenceID(a) != StableEvidenceID(b) {
+		t.Error("identical typed fields must produce identical IDs (deterministic)")
+	}
+	if StableEvidenceID(a) == StableEvidenceID(c) {
+		t.Error("different Subject must produce different IDs")
+	}
+}
