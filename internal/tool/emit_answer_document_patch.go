@@ -177,11 +177,17 @@ func (t *EmitAnswerDocumentPatch) Execute(ctx *types.BusContext, params json.Raw
 		patch.AddBlocks = converted
 	}
 
-	// Apply.
-	merged, err := types.ApplyAnswerDocumentV2Patch(prev, patch)
+	// G2-3 (post_v2_runtime_gap_remediation, 2026-05-04): apply via
+	// the unified AnswerDocumentMutation. Partial Apply routes through
+	// the same ApplyAnswerDocumentV2Patch chokepoint; the typed
+	// Mutation surface lets telemetry emit a single Summary format
+	// shared with the full-emit path.
+	mutation := types.NewPartialMutation(patch)
+	merged, err := mutation.Apply(prev)
 	if err != nil {
 		return failEmit(t.Name(), now, "patch apply rejected: %v", err)
 	}
+	logging.Info("[emit_answer_document_patch] mutation: %s", mutation.Summary())
 
 	// Re-validate every block id is unique in the merged doc (the
 	// V2 emit_answer_document Execute also enforces this — patch

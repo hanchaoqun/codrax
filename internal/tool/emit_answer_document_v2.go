@@ -172,7 +172,18 @@ func executeAnswerDocumentV2(toolName string, ctx *types.BusContext, raw json.Ra
 		doc.Blocks = append(doc.Blocks, blk)
 	}
 
-	ctx.Mutable.SetAnswerDocumentV2(doc)
+	// G2-3 (post_v2_runtime_gap_remediation, 2026-05-04): route the
+	// full-emit write through the unified AnswerDocumentMutation
+	// surface. ReplaceAll is identity on Apply (the merged doc IS
+	// the input doc); the typed Mutation gives telemetry a single
+	// summary format that the patch path also emits.
+	mutation := types.NewReplaceAllMutation(doc)
+	merged, err := mutation.Apply(nil)
+	if err != nil {
+		return failEmit(toolName, now, "internal mutation apply failed: %v", err)
+	}
+	ctx.Mutable.SetAnswerDocumentV2(merged)
+	logging.Info("[emit_answer_document] mutation: %s", mutation.Summary())
 
 	return types.ToolResult{
 		ToolName: toolName,
