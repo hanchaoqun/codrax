@@ -1,6 +1,7 @@
 package orchestrator
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 
@@ -1625,5 +1626,147 @@ func TestValidateDiagramEdgeSupport_Layer1FailureShortCircuitsLayer2(t *testing.
 	}
 	if !strings.Contains(vs[0].Detail, "endpoints are not grounded") {
 		t.Errorf("expected Layer 1 violation; got %q", vs[0].Detail)
+	}
+}
+
+// ── 修 B: validateEnumerationItemLabelExtractorMatch lock tests ──
+
+// helper: build a minimal V2 doc with an ordered_list block carrying
+// the supplied item labels.
+func docWithEnumItems(blockID string, labels ...string) *types.AnswerDocumentV2 {
+	items := make([]types.AnswerBlockItem, len(labels))
+	for i, l := range labels {
+		items[i] = types.AnswerBlockItem{ID: fmt.Sprintf("i%d", i+1), Label: l}
+	}
+	return &types.AnswerDocumentV2{
+		Blocks: []types.AnswerBlock{
+			{ID: blockID, Kind: types.BlockOrderedList, SurfaceRole: types.SurfacePrincipal, Items: items},
+		},
+	}
+}
+
+// helper: MutableState with N AnswerSymbols.
+func mutWithSymbols(names ...string) *types.MutableState {
+	mut := &types.MutableState{}
+	syms := make([]types.AnswerSymbol, len(names))
+	for i, n := range names {
+		syms[i] = types.AnswerSymbol{Name: n, File: "x.go", Line: i + 1, Kind: types.KindMethod}
+	}
+	mut.SetEmittedAnswerSymbols(syms, types.CompletenessComplete)
+	return mut
+}
+
+func enumView() *types.AnswerSemanticView {
+	return &types.AnswerSemanticView{Family: types.QFEnumeration}
+}
+
+// All 9 items[].label literal-equal AnswerSymbols → no violation.
+func TestEnumerationItemLabelExtractorMatch_AllVerbatimPasses(t *testing.T) {
+	mut := mutWithSymbols("checkCoverage", "checkDAGClosure", "checkBudgetSanity",
+		"checkContractComplete", "checkHypothesisCoverage", "checkSubtopicCoherence",
+		"checkShapeSubjectCoherence", "checkCriterionResolvable", "checkPendingFieldsWellformed")
+	doc := docWithEnumItems("list1",
+		"checkCoverage", "checkDAGClosure", "checkBudgetSanity",
+		"checkContractComplete", "checkHypothesisCoverage", "checkSubtopicCoherence",
+		"checkShapeSubjectCoherence", "checkCriterionResolvable", "checkPendingFieldsWellformed")
+	if vs := validateEnumerationItemLabelExtractorMatch(doc, enumView(), mut); len(vs) != 0 {
+		t.Errorf("verbatim labels MUST pass; got %+v", vs)
+	}
+}
+
+// s1a-2 reproduction: items[].label = "check 1 (gate.go:148)" abstract
+// placeholders, AnswerSymbols are the 9 real method names → fires.
+func TestEnumerationItemLabelExtractorMatch_AbstractPlaceholdersFire(t *testing.T) {
+	mut := mutWithSymbols("checkCoverage", "checkDAGClosure", "checkBudgetSanity",
+		"checkContractComplete", "checkHypothesisCoverage", "checkSubtopicCoherence",
+		"checkShapeSubjectCoherence", "checkCriterionResolvable", "checkPendingFieldsWellformed")
+	doc := docWithEnumItems("list1",
+		"check 1 (gate.go:148)", "check 2 (gate.go:149)", "check 3 (gate.go:150)",
+		"check 4 (gate.go:156)", "check 5 (gate.go:157)", "check 6 (gate.go:168)",
+		"check 7 (gate.go:169)", "check 8 (gate.go:171)", "check 9 (gate.go:172)")
+	vs := validateEnumerationItemLabelExtractorMatch(doc, enumView(), mut)
+	if len(vs) != 1 {
+		t.Fatalf("abstract placeholder labels MUST fire; got %d violations", len(vs))
+	}
+	if vs[0].Kind != types.ViolEnumerationItemLabelExtractorDrift {
+		t.Errorf("kind = %q, want ViolEnumerationItemLabelExtractorDrift", vs[0].Kind)
+	}
+	if !strings.Contains(vs[0].Detail, "checkCoverage") {
+		t.Errorf("detail must list verbatim names; got %q", vs[0].Detail)
+	}
+}
+
+// Relaxed substring match: "checkCoverage — 资源检查" contains the
+// verbatim name → counts as match.
+func TestEnumerationItemLabelExtractorMatch_RelaxedSubstringPasses(t *testing.T) {
+	mut := mutWithSymbols("checkCoverage", "checkDAGClosure", "checkBudgetSanity")
+	doc := docWithEnumItems("list1",
+		"checkCoverage — 资源检查", "checkDAGClosure (closure check)", "checkBudgetSanity")
+	if vs := validateEnumerationItemLabelExtractorMatch(doc, enumView(), mut); len(vs) != 0 {
+		t.Errorf("substring containment MUST pass; got %+v", vs)
+	}
+}
+
+// Skip: family is not enumeration-shaped.
+func TestEnumerationItemLabelExtractorMatch_NonEnumFamilySkipped(t *testing.T) {
+	mut := mutWithSymbols("X", "Y", "Z")
+	doc := docWithEnumItems("list1", "abstract 1", "abstract 2", "abstract 3")
+	view := &types.AnswerSemanticView{Family: types.QFGeneric}
+	if vs := validateEnumerationItemLabelExtractorMatch(doc, view, mut); len(vs) != 0 {
+		t.Errorf("non-enumeration family MUST skip; got %+v", vs)
+	}
+}
+
+// Skip: less than 3 AnswerSymbols (small slate, noise-prone).
+func TestEnumerationItemLabelExtractorMatch_SmallSymbolSetSkipped(t *testing.T) {
+	mut := mutWithSymbols("A", "B")
+	doc := docWithEnumItems("list1", "abstract 1", "abstract 2", "abstract 3")
+	if vs := validateEnumerationItemLabelExtractorMatch(doc, enumView(), mut); len(vs) != 0 {
+		t.Errorf("symbols<3 MUST skip; got %+v", vs)
+	}
+}
+
+// 80% threshold: 8/10 items match → passes; 7/10 → fires.
+// Use distinguishable identifiers so substring containment doesn't
+// false-positive on the placeholder labels.
+func TestEnumerationItemLabelExtractorMatch_EightyPercentThreshold(t *testing.T) {
+	mut := mutWithSymbols("alphaFn", "betaFn", "gammaFn", "deltaFn", "epsilonFn",
+		"zetaFn", "etaFn", "thetaFn", "iotaFn", "kappaFn")
+	// 8 verbatim + 2 unrelated → 80% — passes
+	doc8 := docWithEnumItems("list1",
+		"alphaFn", "betaFn", "gammaFn", "deltaFn", "epsilonFn",
+		"zetaFn", "etaFn", "thetaFn", "row 1 (xyz)", "row 2 (xyz)")
+	if vs := validateEnumerationItemLabelExtractorMatch(doc8, enumView(), mut); len(vs) != 0 {
+		t.Errorf("80%% match MUST pass; got %+v", vs)
+	}
+	// 7 verbatim + 3 unrelated → 70% — fires
+	doc7 := docWithEnumItems("list1",
+		"alphaFn", "betaFn", "gammaFn", "deltaFn", "epsilonFn",
+		"zetaFn", "etaFn", "row 1 (xyz)", "row 2 (xyz)", "row 3 (xyz)")
+	if vs := validateEnumerationItemLabelExtractorMatch(doc7, enumView(), mut); len(vs) == 0 {
+		t.Errorf("<80%% match MUST fire")
+	}
+}
+
+// SurfaceProseOnly / SurfaceDiagramOnly blocks skip — they don't
+// represent enumerated answers.
+func TestEnumerationItemLabelExtractorMatch_SurfaceRoleSkip(t *testing.T) {
+	mut := mutWithSymbols("checkCoverage", "checkDAGClosure", "checkBudgetSanity")
+	doc := &types.AnswerDocumentV2{
+		Blocks: []types.AnswerBlock{
+			{
+				ID:          "prose",
+				Kind:        types.BlockOrderedList,
+				SurfaceRole: types.SurfaceProseOnly,
+				Items: []types.AnswerBlockItem{
+					{ID: "i1", Label: "abstract 1"},
+					{ID: "i2", Label: "abstract 2"},
+					{ID: "i3", Label: "abstract 3"},
+				},
+			},
+		},
+	}
+	if vs := validateEnumerationItemLabelExtractorMatch(doc, enumView(), mut); len(vs) != 0 {
+		t.Errorf("prose_only block MUST skip; got %+v", vs)
 	}
 }

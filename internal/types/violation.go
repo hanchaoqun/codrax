@@ -525,6 +525,24 @@ const (
 	// Fallback target: BackToExtract — the extraction stage owns
 	// item composition; replaying explore wastes budget.
 	ViolEnumerationLabelUngrounded ViolationKind = "enumeration_label_ungrounded"
+
+	// ViolEnumerationItemLabelExtractorDrift (s1a-20260504-130143
+	// abstraction-drift forensic, 2026-05-04) fires when finalizer's
+	// ordered_list / bullet_list items[i].label values do NOT
+	// preserve the verbatim names from the extractor's
+	// emit_answer_symbol output. Detected case: extractor emitted
+	// 9 verbatim method names (checkCoverage, checkDAGClosure,
+	// checkContractComplete, etc.) but finalizer rendered them as
+	// abstract placeholders ("check 1 (gate.go:148)", "check 2
+	// (gate.go:149)", ...) — every existing oracle (label
+	// grounding / facet coverage / claim form) passed because
+	// "check" appears in evidence prose, but the user reading the
+	// answer cannot recover the real identifiers. Default
+	// classification: STRICT — verbatim identifier preservation is
+	// the contract between extractor (selects) and finalizer
+	// (renders). Fallback target: FinalizerOnly — the extraction
+	// signal is intact; only finalizer rendering needs rewrite.
+	ViolEnumerationItemLabelExtractorDrift ViolationKind = "enumeration_item_label_extractor_drift"
 )
 
 // AllViolationKinds returns every declared ViolationKind in a stable
@@ -572,6 +590,7 @@ func AllViolationKinds() []ViolationKind {
 		ViolValueSecondaryCitationOffFocus,
 		ViolSymbolAnchorMismatch,
 		ViolEnumerationLabelUngrounded,
+		ViolEnumerationItemLabelExtractorDrift,
 		ViolStructuralEnumerationDivergence,
 		ViolCrossCitationConflict,
 		// CGEC frequency bridges (R10).

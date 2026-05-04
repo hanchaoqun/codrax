@@ -1189,6 +1189,7 @@ func runV2BlockOraclesWithMut(doc *types.AnswerDocumentV2, view *types.AnswerSem
 	out = append(out, validateClaimFormSupport(doc, mut)...)
 	out = append(out, validateAbsenceScopeBound(doc)...)
 	out = append(out, validateEnumerationItemLabelGrounding(doc, mut)...)
+	out = append(out, validateEnumerationItemLabelExtractorMatch(doc, view, mut)...)
 	return out
 }
 
@@ -1286,6 +1287,140 @@ func validateEnumerationItemLabelGrounding(doc *types.AnswerDocumentV2, mut *typ
 		SuspectedRoot: types.SuspectedRoot{
 			IRField:    "block_items_label",
 			Reason:     "items[].label not supported by any evidence pool anchor",
+			Confidence: 0.85,
+		},
+		Stage: string(types.StageFinalize),
+	}}
+}
+
+// validateEnumerationItemLabelExtractorMatch (s1a-20260504-130143
+// abstraction-drift forensic, 2026-05-04) checks that finalizer's
+// items[i].label preserves the verbatim names from the extractor's
+// emit_answer_symbol output. Distinct from
+// validateEnumerationItemLabelGrounding which only verifies the
+// label is a SUBSTRING of any evidence pool anchor — that lenient
+// check passes "check 1 (gate.go:148)" because "check" appears in
+// evidence prose, but the user reading the answer cannot recover
+// the real method names checkCoverage / checkDAGClosure / etc.
+//
+// Trigger conditions (all required, R3 typed):
+//   - mut != nil and view.Family is enumeration-shaped
+//     (QFEnumeration / QFCallChain — both render principal
+//     ordered_list with verbatim identifiers)
+//   - extractor emitted at least 3 AnswerSymbols (small slates
+//     are noise-prone; below 3 the LLM may legitimately choose
+//     framing labels)
+//   - principal ordered_list / bullet_list block with at least
+//     3 items
+//
+// Match rule: case-folded equality between items[i].label
+// (trimmed) and one of AnswerSymbols[j].Name. Allows items[].label
+// to wrap the verbatim name with surrounding text ("checkCoverage
+// — 资源检查") via substring containment as a relaxed fallback.
+//
+// Threshold: at least 80% of items must match an AnswerSymbol.
+// Below 80% the violation fires with the list of drifted labels
+// + the verbatim names the LLM should have used.
+//
+// Default classification: STRICT — verbatim identifier
+// preservation is the contract between extractor (selects) and
+// finalizer (renders). Operators can soften via
+// pipeline_contract_strict_kinds yaml.
+func validateEnumerationItemLabelExtractorMatch(doc *types.AnswerDocumentV2, view *types.AnswerSemanticView, mut *types.MutableState) []types.Violation {
+	if doc == nil || view == nil || mut == nil {
+		return nil
+	}
+	if view.Family != types.QFEnumeration && view.Family != types.QFCallChain {
+		return nil
+	}
+	symbols, _ := mut.EmittedAnswerSymbols()
+	if len(symbols) < 3 {
+		return nil
+	}
+	// Build a case-folded lookup of verbatim extractor names.
+	nameSet := make(map[string]struct{}, len(symbols))
+	verbatimNames := make([]string, 0, len(symbols))
+	for _, s := range symbols {
+		n := strings.TrimSpace(s.Name)
+		if n == "" {
+			continue
+		}
+		nameSet[strings.ToLower(n)] = struct{}{}
+		verbatimNames = append(verbatimNames, n)
+	}
+	if len(nameSet) == 0 {
+		return nil
+	}
+	type drifted struct {
+		blockID string
+		itemID  string
+		label   string
+	}
+	var driftedItems []drifted
+	for _, b := range doc.Blocks {
+		if b.Kind != types.BlockOrderedList && b.Kind != types.BlockBulletList {
+			continue
+		}
+		if b.SurfaceRole == types.SurfaceProseOnly || b.SurfaceRole == types.SurfaceDiagramOnly {
+			continue
+		}
+		if len(b.Items) < 3 {
+			continue
+		}
+		matched := 0
+		blockDrifts := make([]drifted, 0, len(b.Items))
+		for _, it := range b.Items {
+			label := strings.TrimSpace(it.Label)
+			if label == "" {
+				continue
+			}
+			ll := strings.ToLower(label)
+			if _, exact := nameSet[ll]; exact {
+				matched++
+				continue
+			}
+			// Relaxed: allow label to contain the verbatim name as
+			// substring ("checkCoverage — 资源检查"). The verbatim
+			// name appearing somewhere in the label still preserves
+			// the identifier the user needs.
+			containsName := false
+			for vname := range nameSet {
+				if strings.Contains(ll, vname) {
+					containsName = true
+					break
+				}
+			}
+			if containsName {
+				matched++
+				continue
+			}
+			blockDrifts = append(blockDrifts, drifted{
+				blockID: b.ID,
+				itemID:  it.ID,
+				label:   label,
+			})
+		}
+		// 80% threshold per block: < 80% match → fire for this block.
+		if len(b.Items) > 0 && float64(matched)/float64(len(b.Items)) < 0.80 {
+			driftedItems = append(driftedItems, blockDrifts...)
+		}
+	}
+	if len(driftedItems) == 0 {
+		return nil
+	}
+	pairs := make([]string, 0, len(driftedItems))
+	for _, d := range driftedItems {
+		pairs = append(pairs, fmt.Sprintf("block=%q item=%q label=%q", d.blockID, d.itemID, d.label))
+	}
+	return []types.Violation{{
+		Kind: types.ViolEnumerationItemLabelExtractorDrift,
+		Detail: fmt.Sprintf(
+			"%d enumeration item label(s) drifted from the extractor's verbatim identifiers; the answer should preserve these names verbatim: [%s]. Drifted items: [%s]",
+			len(driftedItems), strings.Join(verbatimNames, ", "), strings.Join(pairs, "; ")),
+		Repair: "for each listed item, copy the verbatim identifier from the extractor's AnswerSymbols list (the names are the typed identifiers the extractor selected for the user to read). Abstract placeholders like 'check 1 (line N)' lose the real names the user needs to navigate the codebase. The extractor signal is intact; only the rendering needs to copy the names.",
+		SuspectedRoot: types.SuspectedRoot{
+			IRField:    "block_items_label",
+			Reason:     "finalizer rendered placeholder labels instead of preserving extractor's verbatim identifiers",
 			Confidence: 0.85,
 		},
 		Stage: string(types.StageFinalize),

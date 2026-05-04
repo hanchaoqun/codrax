@@ -26,7 +26,11 @@ func TestDefaultFallbackPolicy_KnownPairs(t *testing.T) {
 	// drift, retry behaviour drifts visibly for the audit-2 trace
 	// patterns Block 3 was designed to fix.
 	cases := map[types.ViolationKind]FallbackTarget{
-		types.ViolSelfContradiction:     FallbackBackToExplore,
+		// Phase 1-D source-fix (s1a-20260504-130143 forensic): SelfContradiction
+		// is finalizer-prose-internal; let finalizer rewrite, do NOT
+		// re-explore. Pre-fix BackToExplore amplified abstraction drift
+		// in the second pass.
+		types.ViolSelfContradiction:     FallbackFinalizerOnly,
 		types.ViolViewIntentMismatch:   FallbackFinalizerOnly,
 		types.ViolDeclaredCountDrift:    FallbackBackToExtract,
 		types.ViolDiagramIdentifier:     FallbackFinalizerOnly,

@@ -235,8 +235,33 @@ var defaultCooccurrenceRules = []CooccurrenceRule{
 		Primary: types.ViolDeclaredCountDrift,
 		Derived: []types.ViolationKind{
 			types.ViolEnumerationLabelUngrounded,
+			types.ViolEnumerationItemLabelExtractorDrift,
 		},
-		Reason: "enumeration labels are grounded against the extractor's declared symbol slate; a count drift means surplus items have no extractor anchor, guaranteeing UngroundedLabel for them",
+		Reason: "enumeration labels are grounded against the extractor's declared symbol slate; a count drift means surplus items have no extractor anchor, guaranteeing UngroundedLabel and ExtractorDrift downstream",
+	},
+
+	// ─────────────────────────────────────────────────────────────
+	// Rule C6.1 — Extractor drift ⇒ pool-substring grounding can
+	// still pass (s1a-20260504-130143 abstraction-drift forensic).
+	//
+	// Invariant: validateEnumerationItemLabelExtractorMatch checks
+	// items[].label preserves extractor's VERBATIM identifiers, which
+	// is stricter than validateEnumerationLabelGrounding's substring
+	// match against evidence pool. When ExtractorDrift fires alone,
+	// LabelUngrounded does NOT necessarily fire (placeholder labels
+	// like "check 1" still match the substring "check" in evidence).
+	// They share root cause (finalizer abstracted away identifiers),
+	// but Drift is the precise signal — cluster them so the repair
+	// targets the renderer once.
+	// Source: contract_check_block.go
+	// validateEnumerationItemLabelExtractorMatch +
+	// validateEnumerationItemLabelGrounding.
+	{
+		Primary: types.ViolEnumerationItemLabelExtractorDrift,
+		Derived: []types.ViolationKind{
+			types.ViolEnumerationLabelUngrounded,
+		},
+		Reason: "extractor-drift and ungrounded-label both fire when finalizer abstracted enumeration identifiers; cluster so a single rewrite restores verbatim names",
 	},
 
 	// ─────────────────────────────────────────────────────────────

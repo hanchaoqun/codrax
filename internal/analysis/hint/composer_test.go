@@ -255,8 +255,9 @@ var composerExactFixSkipWhitelist = map[types.ViolationKind]string{
 
 	// P1 #3 / P3 #6 / Phase 5 / Phase 6 stage 7 — same pattern.
 	types.ViolSymbolAnchorMismatch:            "uses violation.Repair for fix prose",
-	types.ViolEnumerationLabelUngrounded:      "uses violation.Repair for fix prose",
-	types.ViolStructuralEnumerationDivergence: "uses violation.Repair for fix prose",
+	types.ViolEnumerationLabelUngrounded:         "uses violation.Repair for fix prose",
+	types.ViolEnumerationItemLabelExtractorDrift: "uses violation.Repair for fix prose",
+	types.ViolStructuralEnumerationDivergence:    "uses violation.Repair for fix prose",
 	types.ViolRichnessRegression:              "uses violation.Repair for fix prose",
 	types.ViolValueSecondaryCitationOffFocus:  "uses violation.Repair for fix prose",
 

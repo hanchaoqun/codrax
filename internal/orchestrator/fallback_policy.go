@@ -250,7 +250,15 @@ type FallbackPolicy map[types.ViolationKind]FallbackTarget
 func DefaultFallbackPolicy() FallbackPolicy {
 	return FallbackPolicy{
 		// Existing read-mode kinds.
-		types.ViolSelfContradiction:           FallbackBackToExplore,
+		// Phase 1-D (s1a-20260504-130143 abstraction-drift forensic,
+		// 2026-05-04): ViolSelfContradiction was BackToExplore but
+		// the reviewer detects FINALIZER PROSE matter — the evidence
+		// pool is not the issue. Routing to BackToExplore is over-
+		// reaction; let finalizer rewrite with retry hint instead.
+		// The s1a-2 forensic showed back_to_explore actually
+		// AMPLIFIED the abstraction drift (LLM second-pass
+		// generalised more to avoid the contradiction).
+		types.ViolSelfContradiction:           FallbackFinalizerOnly,
 		types.ViolViewIntentMismatch:         FallbackFinalizerOnly,
 		types.ViolDeclaredCountDrift:          FallbackBackToExtract,
 		types.ViolDiagramIdentifier:           FallbackFinalizerOnly,
@@ -313,6 +321,13 @@ func DefaultFallbackPolicy() FallbackPolicy {
 		// (re-emit items[] with labels copied verbatim from the
 		// evidence pool), no fresh investigation pass needed.
 		types.ViolEnumerationLabelUngrounded: FallbackBackToExtract,
+		// s1a-20260504-130143 abstraction-drift forensic (2026-05-04)
+		// — extractor emit_answer_symbol provided 9 verbatim method
+		// names but finalizer rendered them as abstract placeholders.
+		// The extractor signal is intact; only finalizer rendering
+		// needs rewrite to copy the verbatim names. Hence
+		// FinalizerOnly.
+		types.ViolEnumerationItemLabelExtractorDrift: FallbackFinalizerOnly,
 		// P3 #6 precise variant (2026-05-03) — code-vs-comment
 		// divergence transparency. Remediation is in extractor's
 		// hands (re-emit emit_answer_symbol with caveat rows or
