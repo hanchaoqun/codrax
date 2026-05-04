@@ -105,6 +105,15 @@ type RepairExecutionPlan struct {
 	// FallbackTargetForViolationsWithBudget applied). Surfaced for
 	// telemetry only.
 	FinalizerLocalDowngradeApplied bool
+
+	// ClusterStates is the per-cluster closure state, 1:1 with
+	// Clusters at build time. v3 B1 (2026-05-04) — the cross-attempt
+	// closure detector reads ClusterStates to decide rebuild /
+	// promote / same-owner-stable++. See repair_cluster_closure.go
+	// for fingerprint extraction + decision rules. Older callers
+	// that examine RepairExecutionPlan but ignore this field continue
+	// to function unchanged (it is additive).
+	ClusterStates []RepairClusterExecutionState
 }
 
 // IsEmpty reports whether the plan carries no actionable owner. True
@@ -196,6 +205,15 @@ func BuildRepairExecutionPlan(vs []types.Violation, finalizerLocalUsed int) Repa
 	if len(ordered) > 1 {
 		out.RemainingOwners = append([]RepairLocus(nil), ordered[1:]...)
 	}
+	// v3 B1: seed ClusterStates 1:1 with plan.Clusters so the next
+	// attempt's closure detector can compare per-cluster state
+	// across retries.
+	if len(plan.Clusters) > 0 {
+		out.ClusterStates = make([]RepairClusterExecutionState, 0, len(plan.Clusters))
+		for _, c := range plan.Clusters {
+			out.ClusterStates = append(out.ClusterStates, ClusterStateForCluster(c))
+		}
+	}
 	return out
 }
 
@@ -215,10 +233,20 @@ func promoteFinalizerLocal(ordered []RepairLocus) []RepairLocus {
 }
 
 // PromoteNextOwner advances the plan when the orchestrator decides a
-// retry attempt closed the previous CurrentOwner's cluster (its
-// violation kind set is a strict subset of prev.Clusters' kind set).
-// The caller's classification is encoded by passing nil
-// freshViolations OR by calling shouldRebuildExecutionPlan first.
+// retry attempt closed the previous CurrentOwner's cluster.
+//
+// v3 B1 (2026-05-04): the caller chooses between rebuild / promote /
+// same-owner via shouldRebuildExecutionPlan; this helper handles only
+// the promote-or-stay paths. Rebuild is invoked directly via
+// BuildRepairExecutionPlan(freshViolations, ...) at the
+// AdvanceRepairExecutionPlan layer.
+//
+// closureUpdate (when non-nil) carries the next-attempt cluster
+// closure state so the promoted plan inherits up-to-date PrimaryResolved
+// / DerivedResolved / StableAttempts entries for any cluster owners
+// that retain their slot. Pass nil to keep prev.ClusterStates verbatim
+// (e.g. on the same-owner-stable++ path where the caller already
+// updated state in place).
 //
 // Behaviour:
 //
@@ -227,12 +255,12 @@ func promoteFinalizerLocal(ordered []RepairLocus) []RepairLocus {
 //     the only safe move.
 //
 //   - freshViolations == nil AND prev.RemainingOwners empty: returns
-//     prev unchanged. CurrentOwner stays put; the orchestrator's
-//     OwnerStableAttempts counter (RetryState) escalates upward.
+//     prev unchanged (caller decides between FailLoud and same-owner).
 //
 //   - freshViolations == nil AND prev.RemainingOwners non-empty:
 //     pops RemainingOwners[0] into CurrentOwner. Clusters /
-//     OrderedOwners preserve verbatim for telemetry.
+//     OrderedOwners / ClusterStates preserve for telemetry; the
+//     promoted owner's clusters reset StableAttempts to 0.
 //
 // finalizerLocalUsed is forwarded only in the rebuild branch (the
 // promote-next branch does not re-apply the downgrade — it has
@@ -255,27 +283,140 @@ func PromoteNextOwner(prev RepairExecutionPlan, freshViolations []types.Violatio
 	if len(prev.RemainingOwners) > 1 {
 		out.RemainingOwners = append([]RepairLocus(nil), prev.RemainingOwners[1:]...)
 	}
+	// v3 B1: carry forward ClusterStates with the promoted owner's
+	// stable counter reset (every cluster keeps its PrimaryResolved /
+	// DerivedResolved verdict so the next attempt's closure check
+	// has a starting baseline; promoted-owner clusters reset
+	// StableAttempts to 0 so their budget refreshes on activation).
+	if len(prev.ClusterStates) > 0 {
+		out.ClusterStates = make([]RepairClusterExecutionState, len(prev.ClusterStates))
+		for i, st := range prev.ClusterStates {
+			if st.Owner == out.CurrentOwner {
+				st.StableAttempts = 0
+			}
+			out.ClusterStates[i] = st
+		}
+	}
 	return out
 }
 
-// shouldRebuildExecutionPlan classifies the fresh violation set
-// against a previously-stashed plan. Returns true (rebuild) when:
+// nextPlanAction classifies what the caller should do given a
+// previously-stashed plan and fresh violations. v3 B1 (2026-05-04)
+// replaces the pre-v3 global kind-set strict-subset rule with
+// per-cluster closure state. See repair_cluster_closure.go for
+// fingerprint extraction + decision detail.
 //
-//   - prev is nil
-//   - prev.IsEmpty() OR prev.HasFailLoud (stale terminal state)
-//   - prev.RemainingOwners is empty (queue exhausted; force re-eval)
-//   - the fresh ViolationKind set is NOT a subset of prev.Clusters'
-//     kind set (kinds appeared that weren't there before)
+// Returns one of:
 //
-// Returns false (promote next) when the fresh kind set is a strict
-// subset of prev.Clusters' kind set — i.e. the previous owner's
-// dispatch closed at least one cluster's violations and only known
-// downstream kinds remain.
+//	planActionRebuild    — drop the prev plan, BuildRepairExecutionPlan
+//	                        from fresh
+//	planActionPromote    — pop RemainingOwners[0] into CurrentOwner
+//	                        (current owner's clusters all closed)
+//	planActionStay       — same owner, stable++ (in-place state
+//	                        update at AdvanceRepairExecutionPlan)
+//	planActionFailLoud   — owner stuck AND no remaining owners AND
+//	                        EscalationAllowed (caller maps to
+//	                        FallbackFailLoud)
+type nextPlanAction int
+
+const (
+	planActionRebuild nextPlanAction = iota
+	planActionPromote
+	planActionStay
+	planActionFailLoud
+)
+
+// classifyNextPlanAction reads prev (with its ClusterStates updated
+// by computeClusterClosure for the current attempt) and chooses the
+// next action.
 //
-// Equal kind sets (no violation closed) ALSO returns true (rebuild),
-// because no progress means re-clustering is at least as informative
-// as advancing through a queue that already failed once.
+// Order of checks:
+//
+//  1. prev nil / IsEmpty / HasFailLoud / no fresh / no clusters →
+//     rebuild (defensive — closure reasoning has nothing to read).
+//  2. fresh introduces a new (kind, fingerprint) → rebuild.
+//  3. any current-owner cluster: PrimaryResolved AND !DerivedResolved
+//     → rebuild (cooccurrence theory broken).
+//  4. all current-owner clusters: PrimaryResolved AND DerivedResolved
+//     → promote next (or FailLoud when queue empty + EscalationAllowed).
+//  5. any current-owner cluster: stuck (StableAttempts >= budget AND
+//     !PrimaryResolved) → promote next (or FailLoud when queue empty
+//     + EscalationAllowed).
+//  6. else → stay (same owner; closure detector already
+//     incremented StableAttempts).
+func classifyNextPlanAction(prev *RepairExecutionPlan, fresh []types.Violation, stableBudget int) nextPlanAction {
+	if prev == nil || prev.IsEmpty() || prev.HasFailLoud {
+		return planActionRebuild
+	}
+	if len(fresh) == 0 {
+		// No fresh violations at all — orchestrator wouldn't be in
+		// the retry path. Defensive: rebuild so caller sees an empty
+		// plan and the success branch fires.
+		return planActionRebuild
+	}
+	if len(prev.ClusterStates) == 0 {
+		// Pre-v3 plans (no ClusterStates seeded). Conservative: rebuild
+		// so v3 closure semantics start fresh.
+		return planActionRebuild
+	}
+	if freshIntroducesNewClusterIdent(*prev, fresh) {
+		return planActionRebuild
+	}
+	if currentOwnerHasPrimaryResolvedDerivedPersists(*prev) {
+		return planActionRebuild
+	}
+	if currentOwnerClustersAllClosed(*prev) {
+		return promoteOrFailLoud(*prev)
+	}
+	if currentOwnerStuck(*prev, stableBudget) {
+		return promoteOrFailLoud(*prev)
+	}
+	return planActionStay
+}
+
+// promoteOrFailLoud decides between promote-next and FailLoud when
+// the current owner is "done with the cluster" (closed) or stuck.
+// FailLoud requires an empty RemainingOwners queue AND
+// EscalationAllowed; otherwise the next owner activates.
+func promoteOrFailLoud(prev RepairExecutionPlan) nextPlanAction {
+	if len(prev.RemainingOwners) > 0 {
+		return planActionPromote
+	}
+	if prev.EscalationAllowed {
+		return planActionFailLoud
+	}
+	return planActionStay
+}
+
+// shouldRebuildExecutionPlan is the legacy boolean wrapper preserved
+// for back-compat with callers / tests that distinguished only
+// "rebuild vs promote". v3 B1 callers should use classifyNextPlanAction
+// directly to discriminate stay / FailLoud from rebuild / promote.
 func shouldRebuildExecutionPlan(prev *RepairExecutionPlan, fresh []types.Violation) bool {
+	// computeClusterClosure needs prev.ClusterStates already-set for
+	// the current attempt; for back-compat callers we synthesise the
+	// closure once here so the boolean answer reflects the new rules.
+	if prev != nil && len(prev.ClusterStates) > 0 && len(fresh) > 0 {
+		updatedStates := computeClusterClosure(*prev, fresh)
+		clone := *prev
+		clone.ClusterStates = updatedStates
+		switch classifyNextPlanAction(&clone, fresh, ClusterStableBudget()) {
+		case planActionPromote, planActionStay, planActionFailLoud:
+			return false
+		default:
+			return true
+		}
+	}
+	// No ClusterStates → legacy semantics (rebuild on any kind change /
+	// equal kind set). Preserved for migration safety.
+	return shouldRebuildExecutionPlanLegacy(prev, fresh)
+}
+
+// shouldRebuildExecutionPlanLegacy is the pre-v3 global kind-set
+// strict-subset rule. Retained as a fallback for callers / tests
+// that pre-date ClusterStates seeding. Behaviour byte-identical to
+// the pre-B1 implementation.
+func shouldRebuildExecutionPlanLegacy(prev *RepairExecutionPlan, fresh []types.Violation) bool {
 	if prev == nil || prev.IsEmpty() || prev.HasFailLoud {
 		return true
 	}
@@ -283,8 +424,6 @@ func shouldRebuildExecutionPlan(prev *RepairExecutionPlan, fresh []types.Violati
 		return true
 	}
 	if len(fresh) == 0 {
-		// No fresh violations at all — orchestrator wouldn't be in
-		// the retry path. Defensive: rebuild.
 		return true
 	}
 
@@ -301,16 +440,11 @@ func shouldRebuildExecutionPlan(prev *RepairExecutionPlan, fresh []types.Violati
 		freshKinds[v.Kind] = struct{}{}
 	}
 
-	// Any kind in fresh not in prev → rebuild (new root cause exposed).
 	for k := range freshKinds {
 		if _, ok := prevKinds[k]; !ok {
 			return true
 		}
 	}
-	// All fresh kinds were in prev. Strict-subset means progress was
-	// made (some kinds are gone): promote next. Equal means zero
-	// progress: rebuild — safer than advancing through a queue that
-	// already failed.
 	if len(freshKinds) >= len(prevKinds) {
 		return true
 	}
@@ -319,28 +453,34 @@ func shouldRebuildExecutionPlan(prev *RepairExecutionPlan, fresh []types.Violati
 
 // AdvanceRepairExecutionPlan is the orchestrator-side entry point that
 // reads the previously-stashed plan from MutableState, classifies the
-// fresh violations against it, builds-or-promotes accordingly, and
-// stashes the resulting plan back. Returns the resulting plan + the
-// FallbackTarget the orchestrator should dispatch.
+// fresh violations against it, builds-or-promotes-or-stays
+// accordingly, and stashes the resulting plan back. Returns the
+// resulting plan + the FallbackTarget the orchestrator should
+// dispatch.
 //
-// Behaviour mirrors the legacy FallbackTargetForViolationsWithBudget
-// + telemetry semantics:
+// v3 B1 (2026-05-04): the rebuild/promote/stay/fail-loud decision now
+// reads per-cluster closure state (computeClusterClosure +
+// classifyNextPlanAction). The pre-v3 global kind-set strict-subset
+// rule is retained as a back-compat fallback (shouldRebuildExecutionPlanLegacy)
+// for plans without ClusterStates seeded.
 //
-//   - Empty fresh violations: returns FallbackFinalizerOnly (the
-//     safest no-op when validator returned nothing) and an empty
+// Behaviour:
+//
+//   - Empty fresh violations: returns FallbackFinalizerOnly + empty
 //     plan; no MutableState write.
 //   - HasFailLoud cluster: returns FallbackFailLoud; plan stashed.
 //   - Otherwise: stashes the plan and returns
-//     targetForLocus(plan.CurrentOwner).
+//     targetForLocus(plan.CurrentOwner). When the closure detector
+//     diagnoses "current owner stuck AND no remaining owners AND
+//     EscalationAllowed" the result is FallbackFailLoud (escalate
+//     instead of cycling on the same stuck owner).
 //
 // preDowngrade is the locus the legacy budget-less picker WOULD
 // have chosen — used by the orchestrator's R2.2 telemetry to detect
-// "downgrade fired" events. Equals plan.CurrentOwner when no
-// downgrade applied; otherwise equals the deepest cluster's owner.
+// "downgrade fired" events.
 //
 // nil MutableState is tolerated for tests / direct callers — the
-// plan is built fresh every call (no persistence). Production
-// callers always pass a non-nil MutableState.
+// plan is built fresh every call (no persistence).
 func AdvanceRepairExecutionPlan(mut *types.MutableState, fresh []types.Violation, finalizerLocalUsed int) (RepairExecutionPlan, FallbackTarget, FallbackTarget) {
 	if len(fresh) == 0 {
 		return RepairExecutionPlan{EscalationAllowed: true},
@@ -357,10 +497,19 @@ func AdvanceRepairExecutionPlan(mut *types.MutableState, fresh []types.Violation
 	}
 
 	var plan RepairExecutionPlan
-	if shouldRebuildExecutionPlan(prevPlan, fresh) {
+	switch chooseNextPlanAction(prevPlan, fresh) {
+	case planActionRebuild:
 		plan = BuildRepairExecutionPlan(fresh, finalizerLocalUsed)
-	} else {
+	case planActionPromote:
 		plan = PromoteNextOwner(*prevPlan, nil, finalizerLocalUsed)
+	case planActionStay:
+		// Same owner — keep prev verbatim but persist updated
+		// ClusterStates (StableAttempts incremented inside the
+		// closure detector).
+		plan = stayWithClusterClosure(*prevPlan, fresh)
+	case planActionFailLoud:
+		plan = stayWithClusterClosure(*prevPlan, fresh)
+		plan.HasFailLoud = true
 	}
 
 	if mut != nil {
@@ -392,27 +541,114 @@ func AdvanceRepairExecutionPlan(mut *types.MutableState, fresh []types.Violation
 	return plan, target, preDowngrade
 }
 
+// chooseNextPlanAction wraps classifyNextPlanAction with the
+// closure-state computation. Returns the action; pre-v3 plans
+// without ClusterStates fall through to legacy rebuild-or-promote.
+func chooseNextPlanAction(prev *RepairExecutionPlan, fresh []types.Violation) nextPlanAction {
+	if prev == nil || prev.IsEmpty() || prev.HasFailLoud || len(prev.ClusterStates) == 0 {
+		// Legacy fallback path so callers without ClusterStates
+		// behave byte-identically to pre-v3.
+		if shouldRebuildExecutionPlanLegacy(prev, fresh) {
+			return planActionRebuild
+		}
+		return planActionPromote
+	}
+	updated := computeClusterClosure(*prev, fresh)
+	clone := *prev
+	clone.ClusterStates = updated
+	return classifyNextPlanAction(&clone, fresh, ClusterStableBudget())
+}
+
+// stayWithClusterClosure preserves prev but updates ClusterStates
+// with the latest closure verdict so the next attempt sees current
+// PrimaryResolved / DerivedResolved / StableAttempts. Used by the
+// stay and FailLoud paths in AdvanceRepairExecutionPlan.
+func stayWithClusterClosure(prev RepairExecutionPlan, fresh []types.Violation) RepairExecutionPlan {
+	out := RepairExecutionPlan{
+		Clusters:                       append([]RepairCluster(nil), prev.Clusters...),
+		OrderedOwners:                  append([]RepairLocus(nil), prev.OrderedOwners...),
+		CurrentOwner:                   prev.CurrentOwner,
+		EscalationAllowed:              prev.EscalationAllowed,
+		HasFailLoud:                    prev.HasFailLoud,
+		FinalizerLocalDowngradeApplied: prev.FinalizerLocalDowngradeApplied,
+	}
+	if len(prev.RemainingOwners) > 0 {
+		out.RemainingOwners = append([]RepairLocus(nil), prev.RemainingOwners...)
+	}
+	out.ClusterStates = computeClusterClosure(prev, fresh)
+	return out
+}
+
+// ── B1 v3 stable-budget knob ─────────────────────────────────────
+
+// clusterStableBudget is the per-cluster cap on how many attempts
+// the same owner may run without resolving its Primary before the
+// closure detector promotes/escalates. Default 2 — matches the
+// pre-v3 finalizerLocalRetryBudget intuition (give the owner two
+// shots; if no progress, advance).
+//
+// Wired via cmd/root.go from yaml `pipeline_cluster_stable_budget`.
+// Tests may override directly via SetClusterStableBudget.
+var clusterStableBudget = 2
+
+// ClusterStableBudget exposes the current budget for the closure
+// detector.
+func ClusterStableBudget() int { return clusterStableBudget }
+
+// SetClusterStableBudget overrides the budget. Non-positive values
+// reset to default (2). Call from cmd/root.go after merging
+// codrax.yaml.
+func SetClusterStableBudget(n int) {
+	if n <= 0 {
+		clusterStableBudget = 2
+		return
+	}
+	clusterStableBudget = n
+}
+
 // SummarizeRepairExecutionPlan returns a one-line telemetry summary
 // for trace emission. Format mirrors SummarizeRepairPlan but adds
-// queue state. INTERNAL telemetry — never rendered into LLM-facing
-// strings.
+// queue + per-cluster closure state. INTERNAL telemetry — never
+// rendered into LLM-facing strings.
 //
-//	"current=<locus> ordered=[o1,o2,...] remaining=N stable=<bool>
-//	 budget_downgrade=<bool> fail_loud=<bool>"
+//	"current=<locus> ordered=[o1,o2,...] remaining=N
+//	 closed=<bool> stuck=<bool> stable_max=<int>
+//	 budget_downgrade=<bool> fail_loud=<bool> clusters=[(...)]"
+//
+// closed reports whether all current-owner clusters have both
+// Primary AND Derived resolved on the latest closure update;
+// stuck reports whether any current-owner cluster has reached
+// the stable-attempt budget without resolving. stable_max is the
+// max StableAttempts across current-owner clusters.
 func SummarizeRepairExecutionPlan(plan RepairExecutionPlan) string {
 	if plan.IsEmpty() {
-		return "current=<empty> ordered=[] remaining=0"
+		return "current=<empty> ordered=[] remaining=0 clusters=[]"
 	}
 	owners := make([]string, 0, len(plan.OrderedOwners))
 	for _, o := range plan.OrderedOwners {
 		owners = append(owners, string(o))
 	}
+	closed := currentOwnerClustersAllClosed(plan)
+	stuck := currentOwnerStuck(plan, ClusterStableBudget())
+	stableMax := 0
+	for _, st := range plan.ClusterStates {
+		if st.Owner != plan.CurrentOwner {
+			continue
+		}
+		if st.StableAttempts > stableMax {
+			stableMax = st.StableAttempts
+		}
+	}
 	return fmt.Sprintf(
-		"current=%s ordered=[%s] remaining=%d budget_downgrade=%t fail_loud=%t",
+		"current=%s ordered=[%s] remaining=%d closed=%t stuck=%t stable_max=%d budget_downgrade=%t fail_loud=%t clusters=%s",
 		plan.CurrentOwner,
 		strings.Join(owners, ","),
 		len(plan.RemainingOwners),
+		closed,
+		stuck,
+		stableMax,
 		plan.FinalizerLocalDowngradeApplied,
 		plan.HasFailLoud,
+		SummarizeClusterStates(plan.ClusterStates),
 	)
 }

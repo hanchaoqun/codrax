@@ -225,6 +225,12 @@ type RuntimeSettings struct {
 	// 0 / negative to disable the downgrade entirely.
 	PipelineFinalizerLocalRetriesBeforeEscalate *int `yaml:"pipeline_finalizer_local_retries_before_escalate"`
 
+	// PipelineClusterStableBudget caps how many attempts the same
+	// owner may run on a cluster without resolving its Primary
+	// before the v3 closure detector promotes/escalates. Default 2.
+	// Non-positive resets to default. v3 B1 (2026-05-04).
+	PipelineClusterStableBudget *int `yaml:"pipeline_cluster_stable_budget"`
+
 	// PipelineFinalizerRetryNoThink controls whether think_aloud is
 	// dynamically disabled on FINALIZER retry iterations (iter ≥ 1).
 	// Iter 0 (first dispatch) always keeps the operator's yaml-

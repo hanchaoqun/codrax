@@ -1678,6 +1678,10 @@ func initApp(cmd *cobra.Command, _ []string) error {
 		if rs.PipelineFinalizerLocalRetriesBeforeEscalate != nil {
 			orchestrator.SetFinalizerLocalRetryBudget(*rs.PipelineFinalizerLocalRetriesBeforeEscalate)
 		}
+		// v3 B1 (2026-05-04) cluster-state closure stable-budget knob.
+		if rs.PipelineClusterStableBudget != nil {
+			orchestrator.SetClusterStableBudget(*rs.PipelineClusterStableBudget)
+		}
 		// B6-F4 finalizer retry-iter think_aloud dynamic disable.
 		finalizerRetryNoThink := true
 		if rs.PipelineFinalizerRetryNoThink != nil {
