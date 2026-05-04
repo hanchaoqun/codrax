@@ -17,5 +17,16 @@
 ID="u5a"
 NAME="test coverage — uncovered exported functions in compiler package"
 QUESTION="internal/analysis/compiler 包里哪些导出函数（首字母大写）目前没有对应的 _test.go 测试覆盖？逐一列出函数名。"
+# 2026-05-04 strictness audit: previous EC was just `compiler` (the
+# package name in the question) — bar = "复述题目". Tighten by
+# requiring the answer to name AT LEAST ONE specific exported
+# function (`Compile` / `RecomputeBudget` / `InferScenario` are the
+# 3 canonical exports per `grep '^func [A-Z]' internal/analysis/
+# compiler/*.go`). The list of which are uncovered drifts as tests
+# are added; the bar is "answer surfaces a real exported function
+# name", not "answer matches a fixed list". Honest "all covered"
+# answers must justify with the same function names; this gate
+# distinguishes investigation from hand-wavy.
 EXPECT_CONTAINS="compiler"
+EXPECT_MATCHES_REGEX="\b(Compile|RecomputeBudget|InferScenario|Output|BuildOutput)\b"
 EXPECT_NOT_CONTAINS="all.covered no.gaps fully.tested"

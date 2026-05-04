@@ -25,6 +25,16 @@
 ID="m1a"
 NAME="relation inquiry — explorer and extractor collaboration"
 QUESTION="codrax 里的 explorer agent 和 extractor agent 是如何协作的？两者之间的数据是通过什么传递的？分别列出 Turn A 和 Turn B 产出的 emit_* 工具。"
+# 2026-05-04 strictness audit: previous EC pinned the 2 emit tool
+# names but didn't gate on the Turn A / Turn B mechanism question.
+# The user asks (1) how they collaborate (2) what carries data
+# between them (3) Turn A vs Turn B emit tools — three distinct
+# concept axes. Strengthen by requiring the data-carrier
+# (BusContext / MutableState / TurnAArtifacts) to appear and the
+# Turn A vs Turn B partition to be explicit.
 EXPECT_CONTAINS="emit_evidence emit_answer_symbol"
+EXPECT_MATCHES_REGEX="(Turn A|TurnA)
+(Turn B|TurnB)
+(BusContext|MutableState|TurnAArtifacts|EvidenceItems)"
 EXPECT_NOT_CONTAINS=".java .py identical same.agent"
 EXPECT_SECTIONS="explorer extractor"

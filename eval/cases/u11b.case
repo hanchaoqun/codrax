@@ -14,5 +14,20 @@
 ID="u11b"
 NAME="locate by role — single producer of CitationReq.Required=false"
 QUESTION="本仓库里，把 CitationReq.Required 设置为 false 的生产代码位点一共有几处？在哪个文件？给出文件路径和行号。"
-EXPECT_CONTAINS="analyzer.go"
+# 2026-05-04 strictness audit: previous EC was just `analyzer.go`
+# (one filename) — bar = "复述文件名". Re-verified ground truth via
+# `grep -rn 'CitationReq.*Required.*false\|CitationReq{.*Required:
+# false}' internal/`(non-test, non-md):
+#   1) internal/orchestrator/orchestrator.go:5378
+#      CitationReq: types.CitationReq{Required: false}
+#   2) internal/agent/analyzer.go:1402
+#      out.AnswerContract.CitationReq.Required = false
+# So the truth is 2 production sites. Strict-bar requires answer to
+# surface BOTH file paths AND the count (2/两/两处). The original
+# spec claimed "exactly one" was the answer — that's stale; current
+# code has two.
+EXPECT_CONTAINS="analyzer.go orchestrator.go"
+EXPECT_MATCHES_REGEX="\b(2|两|二)\b
+internal/agent/analyzer\.go
+internal/orchestrator/orchestrator\.go"
 EXPECT_NOT_CONTAINS="multiple.places several.places many.places"

@@ -19,5 +19,16 @@
 ID="qf_config_precedence"
 NAME="config precedence — pipeline_emit_v2_default 解析链"
 QUESTION="codrax.yaml 里的 pipeline_emit_v2_default 是怎么解析的？默认值是什么？CLI --emit-v2 怎么覆盖它？"
-EXPECT_CONTAINS="pipeline_emit_v2_default"
+# 2026-05-04 strictness audit: previous EC `pipeline_emit_v2_default`
+# was just the question's keyword — bar = "复述题目", any hand-wavy
+# answer mentioning the field name PASSed. Strengthen by requiring
+# the answer to also surface the 3 layers (default value + yaml
+# override + CLI flag override) so the resolution chain is actually
+# enumerated. Pin `--emit-v2` token because it's the precise CLI
+# flag name; pin `default` and `cli` semantics so layer coverage is
+# load-bearing.
+EXPECT_CONTAINS="pipeline_emit_v2_default --emit-v2"
+EXPECT_MATCHES_REGEX="(default value|默认值|代码默认)
+(yaml|codrax\.yaml)
+(CLI|flag|命令行)"
 EXPECT_NOT_CONTAINS=".java .py BaseAgent.java"

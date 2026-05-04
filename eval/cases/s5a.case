@@ -14,5 +14,20 @@
 ID="s5a"
 NAME="enumerate — LoopController implementers"
 QUESTION="列出本仓库里所有实现了 LoopController 接口的具体类型，逐个给出类型名和所在文件。"
+# 2026-05-04 strictness audit: previous EC was just `LoopController`
+# (the interface name in the question itself) — bar = "复述题目"
+# 即可 PASS, no enumeration verification. Ground truth (verified via
+# `grep -rE 'func \([a-z]+ \*[a-zA-Z]+(Evaluator|Reviewer)\)
+# ShouldStop' internal/agent/`): 10 implementers — analyzerEvaluator
+# / answerDocumentEvaluator / coderEvaluator / explorerEvaluator /
+# extractorEvaluator / logTriagerEvaluator / perfTriagerEvaluator /
+# plannerEvaluator / subExplorerEvaluator / verifierEvaluator /
+# writeAnalyzerEvaluator (≥10). Strict-bar requires AT LEAST 4
+# distinct implementer names verbatim — generic prose "several
+# Evaluator types implement it" no longer PASSes.
 EXPECT_CONTAINS="LoopController"
+EXPECT_MATCHES_REGEX="(analyzerEvaluator|analyzer_evaluator)
+(explorerEvaluator|explorer_evaluator)
+(extractorEvaluator|extractor_evaluator)
+(answerDocumentEvaluator|finalizer.*[Ee]valuator|answer_document_evaluator)"
 EXPECT_NOT_CONTAINS=".java .py Evaluator.java BaseAgent.java"

@@ -17,5 +17,17 @@
 ID="qf_architecture"
 NAME="architecture — codrax read-mode pipeline 4 stages"
 QUESTION="codrax 的 read-mode pipeline 由哪几个 stage 组成？每个 stage 大致负责什么？描述整体架构。"
+# 2026-05-04 strictness audit: previous EC pinned the 4 stage names
+# but didn't gate on per-stage role description (the question's
+# "每个 stage 大致负责什么" axis). Bar = "复述 4 个名词" was too
+# loose — a "the pipeline has analyze/explore/extract/finalize"
+# answer PASSed without describing what each does. Strengthen by
+# requiring each stage's CORE ROLE keyword to appear (analyzer
+# classifies / explorer reads / extractor structures / finalizer
+# renders). Allow English or Chinese phrasing.
 EXPECT_CONTAINS="analyze explore extract finalize"
+EXPECT_MATCHES_REGEX="(classif|分类|hypothes|假设)
+(read_file|grep|investig|读取|调查)
+(structured|symbol|结构化|提取)
+(render|emit_answer_document|渲染|生成)"
 EXPECT_NOT_CONTAINS=".java .py BaseAgent.java Spring Django"

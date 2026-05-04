@@ -19,4 +19,12 @@ NAME="measurement scalar — total .go LOC under internal/tool (non-test)"
 QUESTION="internal/tool 目录下所有 .go 文件（不含 _test.go）的总行数是多少？请给出准确数字。"
 EXPECT_CONTAINS="internal/tool"
 EXPECT_NOT_CONTAINS="approximately roughly estimated"
-EXPECT_MATCHES_REGEX="[0-9]{4,}"
+# 2026-05-04 strictness audit (post_v2_runtime_gap_remediation):
+# previous regex `[0-9]{4,}` accepted ANY 4+ digit number — a false
+# positive: an answer like "approximately 1234" would pass. Ground
+# truth `wc -l internal/tool/*.go` (excluding _test.go) = 23,828 at
+# this snapshot. Narrow to the 5-digit 2x,xxx range so the answer
+# must be in the correct magnitude (small drift over time fits;
+# 4-digit / 30K+ guesses fail). Both `23828` and `23,828` formats
+# accepted.
+EXPECT_MATCHES_REGEX="\b2[0-9],?[0-9]{3}\b"

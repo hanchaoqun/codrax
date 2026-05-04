@@ -13,6 +13,16 @@
 ID="u7b"
 NAME="history — recent commits touching runTaskGraph"
 QUESTION="最近 20 次修改 internal/orchestrator/ 目录的 commit 中，有多少个直接涉及 runTaskGraph 函数？给出数字。"
+# 2026-05-04 strictness audit: previous regex `\b[0-9]{1,2}\b`
+# accepted ANY 1-2 digit number 0-99 (false positive — answers "5"
+# or "12" both passed regardless of truth). Ground truth at this
+# snapshot (verified via `git log -20 --pretty=format:'%h' --
+# internal/orchestrator/ | xargs -I{} git show {} -- internal/
+# orchestrator/orchestrator.go | grep runTaskGraph`): 0 commits
+# touch runTaskGraph in the last 20 orchestrator/ commits — the
+# function body has been stable since the runReadSchedulerLoop
+# split. Tighten to `\b[0-2]\b` (small drift tolerance: 0-2) so
+# the answer must reflect the actual stability rather than guess.
 EXPECT_CONTAINS="runTaskGraph"
 EXPECT_NOT_CONTAINS="estimate approximately roughly"
-EXPECT_MATCHES_REGEX="\b[0-9]{1,2}\b"
+EXPECT_MATCHES_REGEX="\b[0-2]\b"

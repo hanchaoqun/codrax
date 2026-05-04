@@ -19,5 +19,14 @@
 ID="u1a"
 NAME="security audit — exec_command injection surface"
 QUESTION="codrax 的 exec_command 工具是否存在命令注入风险？请给出实际的 taint source 和 sink，以及现有的防护点。"
+# 2026-05-04 strictness audit: previous EC was just `exec_command`
+# (the tool name in the question) — answer "Yes exec_command has
+# injection risk" PASSed without naming taint source / sink /
+# defense. Strengthen by requiring the answer to surface the THREE
+# security-audit pillars explicitly: taint (source), sink, and
+# defense / 防护. Allow English or Chinese phrasing.
 EXPECT_CONTAINS="exec_command"
+EXPECT_MATCHES_REGEX="(taint|污点|输入)
+(sink|执行点|shell|外部.*命令)
+(defense|defense|sanitize|whitelist|防护|过滤|清洗)"
 EXPECT_NOT_CONTAINS="no.risk SQL.injection sql"

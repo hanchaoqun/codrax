@@ -14,5 +14,14 @@
 ID="u1b"
 NAME="security audit — REPL input reaching filesystem operations"
 QUESTION="Which code paths in internal/repl pass raw user input into a filesystem operation (open / write / mkdir) without sanitization? Name the files and line ranges."
+# 2026-05-04 strictness audit: previous EC was just `repl` — the
+# question's path token; bar = "复述题目". Tighten by requiring the
+# answer to either name the FS-API surface (open|write|mkdir from
+# the question itself) AND a specific repl file (commands.go or
+# session.go are likely sites — answer must verify path lineage,
+# not just claim no risk). Negative gates already block the
+# stereotype brush-off.
 EXPECT_CONTAINS="repl"
+EXPECT_MATCHES_REGEX="internal/repl/[a-z_]+\.go
+(open|write|mkdir|os\.Create|os\.Open|os\.MkdirAll|filepath\.Join)"
 EXPECT_NOT_CONTAINS="assumed stereotype generally no risk"

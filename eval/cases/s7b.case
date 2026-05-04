@@ -15,6 +15,14 @@
 ID="s7b"
 NAME="measurement scalar — count of Criterion Kind constants"
 QUESTION="How many distinct Criterion Kind constants are declared in internal/analysis/criterion/grammar.go? Give the exact count."
+# 2026-05-04 strictness audit: previous regex accepted 15-25 (any
+# integer in that range), so 15 / 16 / 17 / 18 / 19 / 20 / 21 / 22 /
+# 23 / 24 all PASSed regardless of the truth. Ground truth at this
+# snapshot: 25 distinct Kind constants in
+# internal/analysis/criterion/grammar.go (counted via `grep -E '^\s*
+# Kind[A-Z][A-Za-z0-9]+\s+Kind\s*=' grammar.go | wc -l`). Tighten
+# to a 24-26 window for ±1 drift tolerance; older 15-19 guesses now
+# correctly fail.
 EXPECT_CONTAINS="criterion"
 EXPECT_NOT_CONTAINS="approximately roughly estimated"
-EXPECT_MATCHES_REGEX="\b(1[5-9]|2[0-5])\b"
+EXPECT_MATCHES_REGEX="\b2[4-6]\b"

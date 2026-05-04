@@ -13,5 +13,13 @@
 ID="s11a"
 NAME="boolean — does the analyzer stage allow read_file?"
 QUESTION="Explorer stage 之前的 analyzer stage 里是否允许调用 read_file？"
-EXPECT_CONTAINS="analyze read_file"
+# 2026-05-04 strictness audit: previous EC `analyze read_file` was
+# the question's two keywords — bar = "复述题目"; a generic "yes
+# the analyzer can call read_file" PASSed without the truthful
+# answer ("no"). Strengthen by requiring the answer to surface
+# (a) a negative verdict (no/forbidden/not allowed/禁止/不允许)
+# AND (b) the enforcer's name (validateAnalyzerPrescanToolCall),
+# proving the answer reached the actual gate logic.
+EXPECT_CONTAINS="analyze read_file validateAnalyzerPrescanToolCall"
+EXPECT_MATCHES_REGEX="(\bno\b|not allowed|forbidden|禁止|不允许|不能)"
 EXPECT_NOT_CONTAINS="it.depends sometimes maybe"

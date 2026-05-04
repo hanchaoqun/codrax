@@ -19,6 +19,16 @@
 ID="u3a"
 NAME="comparison — explorer vs extractor ShouldStop conditions"
 QUESTION="对比 explorer.go 和 extractor.go 的 ReAct 循环终止条件有何不同？给出两个文件里 ShouldStop 方法的行为对比，逐条列出差异。"
+# 2026-05-04 strictness audit: previous EC was just `ShouldStop` —
+# the method name in the question; bar = "复述题目". The case
+# already had EXPECT_SECTIONS for the two filenames (good), but
+# nothing enforced the BEHAVIORAL difference enumeration the
+# question demands. Strengthen by requiring answer to surface the
+# core asymmetry: explorer is multi-round (iteration / completion
+# / idle / heuristic), extractor is one-shot (first emit /
+# emit_answer_symbol). Permits English or Chinese phrasing.
 EXPECT_CONTAINS="ShouldStop"
+EXPECT_MATCHES_REGEX="(iteration|轮次|多轮|multi.?round|completion)
+(one.?shot|first emit|首次|emit_answer_symbol|emit_hypothesis_verdict)"
 EXPECT_NOT_CONTAINS="identical same.behavior .java"
 EXPECT_SECTIONS="explorer.go extractor.go"
