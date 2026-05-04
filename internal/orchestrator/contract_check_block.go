@@ -290,12 +290,161 @@ func formNames(forms []types.ClaimForm) []string {
 	return out
 }
 
+// validateFacetCoverage (R2.3 V2 重接, post_shape_residual_audit.md
+// 2026-05-04) checks that every Required FacetCoverageContract entry
+// (Tier=Hard/Soft) is covered by at least one V2 block whose
+// block.FacetIDs[] names the facet's Kind.
+//
+// Pre-B8-T4 the V1 sibling (runFacetCoverageOracle) walked V1 doc
+// payloads and matched the facet's SourceCandidate evidence IDs
+// against per-payload citation refs — V2 mirrors that with the
+// typed FacetIDs slice the V2 emit_answer_document validator
+// already populates on every block. Coverage now = "any block
+// declared this FacetID" — a precise, typed signal (R2 red line).
+//
+// Skip rules:
+//   - view == nil OR view.FacetCoverage == nil: family doesn't carry
+//     facet obligations.
+//   - facet.Tier == TierEnrichment (Optional): handled by
+//     validateRichnessRegression below, not here.
+//
+// Default classification SOFT (covering a facet often requires
+// fresh evidence; missed HARD facet = re-explore hint, not finalizer
+// self-failure). Operators promote to STRICT via
+// pipeline_contract_strict_kinds.
+func validateFacetCoverage(doc *types.AnswerDocumentV2, view *types.AnswerSemanticView) []types.Violation {
+	if doc == nil || view == nil || view.FacetCoverage == nil {
+		return nil
+	}
+	covered := make(map[string]bool, 8)
+	for _, b := range doc.Blocks {
+		for _, fid := range b.FacetIDs {
+			covered[strings.TrimSpace(fid)] = true
+		}
+		// Items / ClaimUses MAY also carry FacetID via
+		// RenderedClaimUse.FacetID — fold those in too.
+		for _, cu := range b.ClaimUses {
+			if cu.FacetID != "" {
+				covered[strings.TrimSpace(cu.FacetID)] = true
+			}
+		}
+		for _, item := range b.Items {
+			if item.ClaimUse != nil && item.ClaimUse.FacetID != "" {
+				covered[strings.TrimSpace(item.ClaimUse.FacetID)] = true
+			}
+		}
+	}
+	var out []types.Violation
+	for _, req := range view.FacetCoverage.Required {
+		if req.Tier == types.TierEnrichment {
+			continue
+		}
+		kind := strings.TrimSpace(string(req.Kind))
+		if kind == "" {
+			continue
+		}
+		if covered[kind] {
+			continue
+		}
+		out = append(out, types.Violation{
+			Kind: types.ViolFacetUncovered,
+			Detail: fmt.Sprintf(
+				"required facet %q (tier=%s) is not covered: no V2 block declared it via block.facet_ids[] or via item.claim_use.facet_id",
+				kind, req.Tier),
+			Repair: fmt.Sprintf(
+				"declare facet_id=%q on at least one block whose payload covers this facet, OR re-investigate to gather evidence whose ClaimForm matches the facet's AcceptableForms (when no current evidence supports the facet).",
+				kind),
+			SuspectedRoot: types.SuspectedRoot{
+				IRField:    "answer_facet_coverage",
+				Reason:     "FacetCoverageContract.Required entry uncovered by V2 blocks",
+				Confidence: 0.7,
+			},
+			Stage: string(types.StageFinalize),
+		})
+	}
+	return out
+}
+
+// validateRichnessRegression (R2.3 V2 重接, post_shape_residual_audit
+// 2026-05-04) records ViolRichnessRegression for each Optional facet
+// (Tier=Enrichment) whose SourceCandidate is non-empty but no block
+// declared its FacetID. This is the pure-telemetry tier — Phase 5
+// design says the kind is SOFT-by-default and explicitly NOT
+// promotable to STRICT (richness regression is observation, not a
+// correctness gate).
+//
+// Reads:
+//   - view.FacetCoverage.Optional[i].SourceCandidate (non-empty =
+//     evidence is available, the answer COULD have surfaced it)
+//   - block.FacetIDs / item.ClaimUse.FacetID (coverage signal,
+//     same as facet_uncovered above)
+func validateRichnessRegression(doc *types.AnswerDocumentV2, view *types.AnswerSemanticView) []types.Violation {
+	if doc == nil || view == nil || view.FacetCoverage == nil {
+		return nil
+	}
+	if len(view.FacetCoverage.Optional) == 0 {
+		return nil
+	}
+	covered := make(map[string]bool, 8)
+	for _, b := range doc.Blocks {
+		for _, fid := range b.FacetIDs {
+			covered[strings.TrimSpace(fid)] = true
+		}
+		for _, cu := range b.ClaimUses {
+			if cu.FacetID != "" {
+				covered[strings.TrimSpace(cu.FacetID)] = true
+			}
+		}
+		for _, item := range b.Items {
+			if item.ClaimUse != nil && item.ClaimUse.FacetID != "" {
+				covered[strings.TrimSpace(item.ClaimUse.FacetID)] = true
+			}
+		}
+	}
+	var out []types.Violation
+	for _, req := range view.FacetCoverage.Optional {
+		if len(req.SourceCandidate) == 0 {
+			continue // no evidence available — not a regression
+		}
+		kind := strings.TrimSpace(string(req.Kind))
+		if kind == "" {
+			continue
+		}
+		if covered[kind] {
+			continue
+		}
+		out = append(out, types.Violation{
+			Kind: types.ViolRichnessRegression,
+			Detail: fmt.Sprintf(
+				"optional richness facet %q has %d evidence candidate(s) but no V2 block surfaced it (telemetry only — answer ships unchanged)",
+				kind, len(req.SourceCandidate)),
+			Repair: fmt.Sprintf(
+				"if the question would benefit from this facet, declare facet_id=%q on a block; otherwise leave as-is (richness regression is informational).",
+				kind),
+			SuspectedRoot: types.SuspectedRoot{
+				IRField:    "answer_richness_facet_coverage",
+				Reason:     "optional facet with available evidence not surfaced",
+				Confidence: 0.5,
+			},
+			Stage: string(types.StageFinalize),
+		})
+	}
+	return out
+}
+
 // runV2BlockOracles is the single orchestrator-side dispatch entry
 // for B4. Returns the union of all 4 V2 validator violations. Caller
 // (runContractCheck) appends to the result Violations slice the
 // same way Block 2/3 oracles do.
 //
 // Returns nil when doc or view is nil.
+//
+// R2.3 (post_shape_residual_audit.md, 2026-05-04): two new V2
+// oracles join the dispatch — validateFacetCoverage (HARD/SOFT
+// facet uncovered) + validateRichnessRegression (Optional facet
+// telemetry). They restore producers for ViolFacetUncovered +
+// ViolRichnessRegression, both of which had their V1 dispatch
+// deleted at B8-T4.
 func runV2BlockOracles(doc *types.AnswerDocumentV2, view *types.AnswerSemanticView) []types.Violation {
 	if doc == nil || view == nil {
 		return nil
@@ -305,6 +454,8 @@ func runV2BlockOracles(doc *types.AnswerDocumentV2, view *types.AnswerSemanticVi
 	out = append(out, validatePrincipalClaimUse(doc, view)...)
 	out = append(out, validateDiagramEdgeSupport(doc, view)...)
 	out = append(out, validateUncertaintyBlockPresence(doc, view)...)
+	out = append(out, validateFacetCoverage(doc, view)...)
+	out = append(out, validateRichnessRegression(doc, view)...)
 	return out
 }
 

@@ -238,6 +238,9 @@ func TestAllViolationKindsHaveProducer(t *testing.T) {
 		ViolUncertaintyBlockMissing:  true, // orchestrator/contract_check_block.go validateUncertaintyBlockPresence
 		// B6-F1 (post-shape consolidated audit, 2026-05-04).
 		ViolCrossCitationConflict: true, // orchestrator/contract_check.go runCrossCitationConflictOracleV2
+		// R2.3 V2 重接 (post_shape_residual_audit.md, 2026-05-04).
+		ViolFacetUncovered:     true, // orchestrator/contract_check_block.go validateFacetCoverage
+		ViolRichnessRegression: true, // orchestrator/contract_check_block.go validateRichnessRegression
 	}
 	pending := map[ViolationKind]string{
 		ViolFamilyMismatch:                          "P9-C-retired-V1-checkShape (V2 block oracles cover read-mode block contract via runV2BlockOracles)",
@@ -248,11 +251,9 @@ func TestAllViolationKindsHaveProducer(t *testing.T) {
 		ViolIntentConfigNoTrail:            "B8-T4-retired-V1-intent-coverage-oracle",
 		ViolSubjectAnchorMissing:           "B8-T4-retired-V1-subject-anchor-oracle",
 		ViolPredicateAxisMissing:           "B8-T4-retired-V1-predicate-axis-oracle",
-		ViolFacetUncovered:                 "B8-T4-retired-V1-facet-coverage-oracle",
-		ViolClaimFormUnsupported:           "B8-T4-retired-V1-claim-form-support-oracle",
-		ViolAbsenceScopeExceeded:           "B8-T4-retired-V1-absence-scope-bound-oracle",
+		ViolClaimFormUnsupported:           "B8-T4-retired-V1-claim-form-support-oracle (R2.3 V2 重接 pending)",
+		ViolAbsenceScopeExceeded:           "B8-T4-retired-V1-absence-scope-bound-oracle (R2.3 V2 重接 pending)",
 		ViolStepIdentifierUnverified:       "B8-T4-retired-V1-step-identifier-oracle",
-		ViolRichnessRegression:             "B8-T4-retired-V1-richness-telemetry-oracle",
 		ViolValueSecondaryCitationOffFocus: "B8-T4-retired-V1-value-secondary-citation-oracle",
 	}
 	// Sanity: AllViolationKinds() must equal covered ∪ pending so the

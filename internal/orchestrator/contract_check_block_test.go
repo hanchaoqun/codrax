@@ -288,6 +288,183 @@ func TestRunV2BlockOracles_NilGuards(t *testing.T) {
 	}
 }
 
+// ── R2.3 V2 重接 facet_uncovered + richness_regression tests ──────
+
+// TestValidateFacetCoverage_AllRequiredCovered confirms no fire
+// when every Required facet has a block declaring its FacetID.
+func TestValidateFacetCoverage_AllRequiredCovered(t *testing.T) {
+	doc := &types.AnswerDocumentV2{
+		Blocks: []types.AnswerBlock{
+			{Kind: types.BlockSummary, FacetIDs: []string{"facet.intro"}},
+			{Kind: types.BlockOrderedList, FacetIDs: []string{"facet.steps"}},
+		},
+	}
+	view := &types.AnswerSemanticView{
+		FacetCoverage: &types.FacetCoverageContract{
+			Required: []types.FacetRequirement{
+				{Kind: "facet.intro", Tier: types.TierEssential},
+				{Kind: "facet.steps", Tier: types.TierExpected},
+			},
+		},
+	}
+	if vs := validateFacetCoverage(doc, view); len(vs) > 0 {
+		t.Errorf("all required facets covered: got false fire %+v", vs)
+	}
+}
+
+// TestValidateFacetCoverage_MissingFires confirms ViolFacetUncovered
+// fires when a Required facet has no block declaring its FacetID.
+func TestValidateFacetCoverage_MissingFires(t *testing.T) {
+	doc := &types.AnswerDocumentV2{
+		Blocks: []types.AnswerBlock{
+			{Kind: types.BlockSummary, FacetIDs: []string{"facet.intro"}},
+		},
+	}
+	view := &types.AnswerSemanticView{
+		FacetCoverage: &types.FacetCoverageContract{
+			Required: []types.FacetRequirement{
+				{Kind: "facet.intro", Tier: types.TierEssential},
+				{Kind: "facet.steps", Tier: types.TierExpected},
+			},
+		},
+	}
+	vs := validateFacetCoverage(doc, view)
+	if len(vs) != 1 {
+		t.Fatalf("want 1 violation; got %d (%+v)", len(vs), vs)
+	}
+	if vs[0].Kind != types.ViolFacetUncovered {
+		t.Errorf("kind = %q, want ViolFacetUncovered", vs[0].Kind)
+	}
+	if !strings.Contains(vs[0].Detail, "facet.steps") {
+		t.Errorf("Detail must name uncovered facet; got %q", vs[0].Detail)
+	}
+}
+
+// TestValidateFacetCoverage_OptionalFacetSkipped confirms
+// Tier=Enrichment is NOT a violation here (handled by
+// validateRichnessRegression below).
+func TestValidateFacetCoverage_OptionalFacetSkipped(t *testing.T) {
+	doc := &types.AnswerDocumentV2{
+		Blocks: []types.AnswerBlock{
+			{Kind: types.BlockSummary, FacetIDs: []string{"facet.intro"}},
+		},
+	}
+	view := &types.AnswerSemanticView{
+		FacetCoverage: &types.FacetCoverageContract{
+			Required: []types.FacetRequirement{
+				{Kind: "facet.intro", Tier: types.TierEssential},
+				{Kind: "facet.optional_extra", Tier: types.TierEnrichment},
+			},
+		},
+	}
+	if vs := validateFacetCoverage(doc, view); len(vs) > 0 {
+		t.Errorf("Tier=Enrichment must skip facet_uncovered; got %+v", vs)
+	}
+}
+
+// TestValidateFacetCoverage_ClaimUseFacetIDCounts confirms FacetID
+// declared via item.ClaimUse.FacetID also satisfies coverage.
+func TestValidateFacetCoverage_ClaimUseFacetIDCounts(t *testing.T) {
+	doc := &types.AnswerDocumentV2{
+		Blocks: []types.AnswerBlock{{
+			Kind: types.BlockOrderedList,
+			Items: []types.AnswerBlockItem{
+				{Label: "step1", ClaimUse: &types.RenderedClaimUse{FacetID: "facet.steps"}},
+			},
+		}},
+	}
+	view := &types.AnswerSemanticView{
+		FacetCoverage: &types.FacetCoverageContract{
+			Required: []types.FacetRequirement{
+				{Kind: "facet.steps", Tier: types.TierEssential},
+			},
+		},
+	}
+	if vs := validateFacetCoverage(doc, view); len(vs) > 0 {
+		t.Errorf("item.ClaimUse.FacetID must satisfy coverage; got %+v", vs)
+	}
+}
+
+// TestValidateFacetCoverage_NilGuards covers nil cases.
+func TestValidateFacetCoverage_NilGuards(t *testing.T) {
+	if vs := validateFacetCoverage(nil, &types.AnswerSemanticView{}); vs != nil {
+		t.Errorf("nil doc → nil")
+	}
+	if vs := validateFacetCoverage(&types.AnswerDocumentV2{}, nil); vs != nil {
+		t.Errorf("nil view → nil")
+	}
+	if vs := validateFacetCoverage(&types.AnswerDocumentV2{}, &types.AnswerSemanticView{}); vs != nil {
+		t.Errorf("nil FacetCoverage → nil")
+	}
+}
+
+// TestValidateRichnessRegression_FiresWhenOptionalUnsurfaced
+// confirms optional facets with evidence available but no block
+// coverage fire ViolRichnessRegression.
+func TestValidateRichnessRegression_FiresWhenOptionalUnsurfaced(t *testing.T) {
+	doc := &types.AnswerDocumentV2{
+		Blocks: []types.AnswerBlock{
+			{Kind: types.BlockSummary, FacetIDs: []string{"facet.intro"}},
+		},
+	}
+	view := &types.AnswerSemanticView{
+		FacetCoverage: &types.FacetCoverageContract{
+			Optional: []types.FacetRequirement{
+				{
+					Kind:            "facet.tip",
+					Tier:            types.TierEnrichment,
+					SourceCandidate: []string{"ev1", "ev2"},
+				},
+			},
+		},
+	}
+	vs := validateRichnessRegression(doc, view)
+	if len(vs) != 1 {
+		t.Fatalf("want 1 richness regression; got %d (%+v)", len(vs), vs)
+	}
+	if vs[0].Kind != types.ViolRichnessRegression {
+		t.Errorf("kind = %q, want ViolRichnessRegression", vs[0].Kind)
+	}
+}
+
+// TestValidateRichnessRegression_NoEvidenceNoFire confirms an
+// optional facet with empty SourceCandidate is NOT a regression.
+func TestValidateRichnessRegression_NoEvidenceNoFire(t *testing.T) {
+	doc := &types.AnswerDocumentV2{
+		Blocks: []types.AnswerBlock{{Kind: types.BlockSummary}},
+	}
+	view := &types.AnswerSemanticView{
+		FacetCoverage: &types.FacetCoverageContract{
+			Optional: []types.FacetRequirement{
+				{Kind: "facet.tip", Tier: types.TierEnrichment, SourceCandidate: nil},
+			},
+		},
+	}
+	if vs := validateRichnessRegression(doc, view); len(vs) > 0 {
+		t.Errorf("no evidence available → not a regression; got %+v", vs)
+	}
+}
+
+// TestValidateRichnessRegression_CoveredOptionalNoFire confirms
+// covered Optional facet does not fire.
+func TestValidateRichnessRegression_CoveredOptionalNoFire(t *testing.T) {
+	doc := &types.AnswerDocumentV2{
+		Blocks: []types.AnswerBlock{
+			{Kind: types.BlockSummary, FacetIDs: []string{"facet.tip"}},
+		},
+	}
+	view := &types.AnswerSemanticView{
+		FacetCoverage: &types.FacetCoverageContract{
+			Optional: []types.FacetRequirement{
+				{Kind: "facet.tip", Tier: types.TierEnrichment, SourceCandidate: []string{"ev1"}},
+			},
+		},
+	}
+	if vs := validateRichnessRegression(doc, view); len(vs) > 0 {
+		t.Errorf("covered optional must not fire; got %+v", vs)
+	}
+}
+
 // ── AllViolationKinds 完整性 (4 新 kind 在 covered + kindSymbols 双表) ──
 func TestB4ViolationKindsRegistered(t *testing.T) {
 	want := []types.ViolationKind{
