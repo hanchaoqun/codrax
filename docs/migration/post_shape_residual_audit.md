@@ -108,11 +108,12 @@
 | R1.3 | ⬜ pending | — | — |
 | R1.4 | ⬜ pending | — | — |
 | **R1.5** | 🟢 SHIPPED 同 R7 (一并落地) | TBD | 真 eval rerun 验证 |
-| **R6** | ⬜ pending P1(全量日志深挖发现) | — | retry 字段失忆 — 类 A,见 post_shape_deep_log_audit.md |
-| **R6.1** | ⬜ pending P1(R7 verification 深挖发现) | — | retry 失忆 sub-pattern: block-level claim_use 优先丢失,item-level 优先保留;m1a r1 真证据 iter=0→iter=1: 4 sections block-level claim_use 全丢。见 R7_eval_deep_audit.md |
-| **R11** | ⬜ pending P2(R7 verification 深挖发现) | — | violation 缺 Severity 字段,facet 噪声 17 把真正紧急的 block_coverage_missing 4 events 推迟到 retry budget 用完。见 R7_eval_deep_audit.md |
-| **R12** | ⬜ pending P3(R7 verification 深挖发现) | — | explorer/extractor/finalizer iter 计数 cross-dispatch 累加,m1a r1 metric `explorer_iters=40` 实际 4 次 dispatch × ~10 iter,运维看错。见 R7_eval_deep_audit.md |
-| **R13** | ⬜ pending P2(R7 verification 深挖发现) | — | scheduler `citation_count_ge` SuccessCriterion 与 V2 oracle 引用检查重复 gating;m1a r1 浮出 CitationReq:10 violations。见 R7_eval_deep_audit.md |
+| ~~**R6**~~ | 🔵 由 R14 统一解决 | — | retry 字段失忆 — 类 A;深层根因同 R6.1/R11/R13 |
+| ~~**R6.1**~~ | 🔵 由 R14 统一解决 | — | block vs item 失忆 sub-pattern;深层根因同 R6/R11/R13 |
+| ~~**R11**~~ | 🔵 由 R14 统一解决 | — | violation 缺 Severity;深层根因同 R6/R6.1/R13 |
+| **R12** | ⬜ pending P3(R7 verification 深挖发现) | — | explorer/extractor/finalizer iter 计数 cross-dispatch 累加,m1a r1 metric `explorer_iters=40` 实际 4 次 dispatch × ~10 iter,运维看错。**纯观测性问题,不属 retry-state 范畴**,独立修。见 R7_eval_deep_audit.md |
+| ~~**R13**~~ | 🔵 由 R14 统一解决 | — | scheduler vs V2 oracle 双层 gating;深层根因同 R6/R6.1/R11 |
+| **R14** | ⬜ pending P1(统一方案,取代 R6/R6.1/R11/R13)| — | **typed retry-state contract** — 在 retry 路径上一次性渲染 prev typed-state + 跨层 violations(按 Severity 分组)+ 显式 preserve/change 字段分类。一个改动取代 4 个零碎补丁。见 R14_unified_retry_state_design.md(178 行)|
 | **R7** | 🟢 SHIPPED typed-set verbatim + 反向归属 | TBD | 真 eval rerun 验证 facet_uncovered 数下降 |
 | **R8** | ⬜ pending P2(全量日志深挖发现) | — | analyzer 自动决策无 telemetry — 类 C |
 | **R10** | ⬜ pending P2(全量日志深挖发现) | — | CGEC 高频事件主链不可观测 — 类 D |
