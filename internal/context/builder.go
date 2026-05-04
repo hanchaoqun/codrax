@@ -314,8 +314,8 @@ var canonicalUserSectionOrder = []string{
 	"Unverified Analyzer Findings",
 	"Exact Resolution",
 	"Known Facts",
-	"Extracted Answer Symbols (deterministic, authoritative)",
-	"Answer Symbols (deterministic floor, may extend with cited evidence)",
+	"Extracted Answer Symbols (authoritative)",
+	"Answer Symbols (lower-bound floor, may extend with cited evidence)",
 	"Knowledge & Evidence Pool",
 	"Unverified Leads (not for citation)",
 	"Dataflow Findings",
@@ -751,7 +751,7 @@ func BuildPromptContext(ac *types.AgentContext, sk *skill.Config) *types.PromptC
 	// complete AND the claim survives Phase 9 validation.
 	if len(ac.AnswerSymbols) > 0 && ac.AnswerSymbolCompleteness == types.CompletenessComplete {
 		var symContent strings.Builder
-		symContent.WriteString("The deterministic pipeline has already identified the answer to this question. " +
+		symContent.WriteString("The prior analysis phase has already identified the answer to this question. " +
 			"Your task is to render these symbols as prose. You MUST NOT add or remove symbols; your " +
 			"training-data recall is irrelevant here.\n\n")
 		for _, s := range ac.AnswerSymbols {
@@ -766,12 +766,12 @@ func BuildPromptContext(ac *types.AgentContext, sk *skill.Config) *types.PromptC
 		symContent.WriteString("2. For each symbol, cite its file:line if provided.\n")
 		symContent.WriteString("3. If a plausible-looking name is not in the list above, it is NOT part of the answer.\n")
 		pc.UserSections = append(pc.UserSections, types.PromptSection{
-			Title:   "Extracted Answer Symbols (deterministic, authoritative)",
+			Title:   "Extracted Answer Symbols (authoritative)",
 			Content: symContent.String(),
 		})
 	} else if len(ac.AnswerSymbols) > 0 && ac.AnswerSymbolCompleteness == types.CompletenessLowerBound {
 		var symContent strings.Builder
-		symContent.WriteString("The deterministic pipeline has confirmed the following symbols as part of the answer, " +
+		symContent.WriteString("The prior analysis phase has confirmed the following symbols as part of the answer, " +
 			"but the list is a LOWER BOUND — additional symbols may also be part of the answer if the " +
 			"evidence below supports them. Your task is to render this floor faithfully AND supplement it " +
 			"with any additional symbols you can ground in the Structured Evidence / Dataflow Findings / " +
@@ -790,7 +790,7 @@ func BuildPromptContext(ac *types.AgentContext, sk *skill.Config) *types.PromptC
 			"in the evidence sections below. Training-data recall alone is NOT sufficient.\n")
 		symContent.WriteString("3. Any symbol you add must be cited the same way as the floor symbols.\n")
 		pc.UserSections = append(pc.UserSections, types.PromptSection{
-			Title:   "Answer Symbols (deterministic floor, may extend with cited evidence)",
+			Title:   "Answer Symbols (lower-bound floor, may extend with cited evidence)",
 			Content: symContent.String(),
 		})
 	}

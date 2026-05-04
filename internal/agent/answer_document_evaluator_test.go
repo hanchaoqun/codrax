@@ -301,8 +301,8 @@ func TestAnswerDocumentEvaluator_BuildInitialInstruction_RendersStepBackboneForS
 	}
 	prompt := (&answerDocumentEvaluator{}).BuildInitialInstruction(ctx, nil)
 	for _, want := range []string{
-		"## Step Backbone",
-		"ordered lower-bound backbone",
+		"## Resolved Step Sequence",
+		"ordered lower-bound sequence",
 		"`RequestModel` (internal/agent/analyzer.go:616)",
 		"`gate.Run` (internal/agent/analyzer.go:1062)",
 		"Do not merge one anchor's citation with semantics that only appear in another file / definition",
@@ -352,7 +352,7 @@ func TestAnswerDocumentEvaluator_BuildInitialInstruction_RendersFallbackStepBack
 	}
 	prompt := (&answerDocumentEvaluator{}).BuildInitialInstruction(ctx, nil)
 	for _, want := range []string{
-		"## Step Backbone",
+		"## Resolved Step Sequence",
 		"`checkCoverage` (internal/analysis/gate/gate.go:127)",
 		"`checkDAGClosure` (internal/analysis/gate/gate.go:128)",
 		"`checkBudgetSanity` (internal/analysis/gate/gate.go:129)",

@@ -249,7 +249,7 @@ func (e *answerDocumentEvaluator) BuildInitialInstruction(ctx *types.AgentContex
 
 		if ctx != nil && len(ctx.AnswerSymbols) > 0 {
 			b.WriteString("## Prior slate from the extraction pipeline\n\n")
-			b.WriteString("The upstream deterministic pipeline produced this answer-symbol list. ")
+			b.WriteString("The prior analysis phase produced this symbol list. ")
 			b.WriteString("Use it as the starting point; adding items requires evidence from the ")
 			b.WriteString("Evidence Items section, removing items requires a rationale in the ")
 			b.WriteString("symbol's `rationale` field.\n\n")
@@ -480,14 +480,14 @@ func renderAnswerDocStepBackbone(ctx *types.AgentContext, view *types.AnswerSema
 		return ""
 	}
 	var b strings.Builder
-	b.WriteString("## Step Backbone\n\n")
+	b.WriteString("## Resolved Step Sequence\n\n")
 	switch plan.StepBackboneCompleteness {
 	case types.CompletenessComplete:
-		b.WriteString("The upstream deterministic pipeline already resolved a complete ordered backbone for this step list. Use these anchors as the default spine of the principal `ordered_list` block's `items[]`.\n\n")
+		b.WriteString("The analysis phase identified a complete ordered sequence for this step list. Use these anchors as the default core sequence of the principal `ordered_list` block's `items[]`.\n\n")
 	case types.CompletenessLowerBound:
-		b.WriteString("The upstream deterministic pipeline already resolved an ordered lower-bound backbone for this step list. Keep these anchors in order in the principal `ordered_list` block's `items[]`, and only add more cited items when another grounded line independently supports them.\n\n")
+		b.WriteString("The analysis phase identified an ordered lower-bound sequence for this step list. Keep these anchors in order in the principal `ordered_list` block's `items[]`, and only add more cited items when another grounded line independently supports them.\n\n")
 	default:
-		b.WriteString("The upstream deterministic pipeline already resolved an ordered grounded backbone for this step list. Use these anchors as the default spine of the principal `ordered_list` block's `items[]`.\n\n")
+		b.WriteString("The analysis phase identified an ordered grounded sequence for this step list. Use these anchors as the default core sequence of the principal `ordered_list` block's `items[]`.\n\n")
 	}
 	b.WriteString("- Keep each cited item at the abstraction directly corroborated by its own citation.\n")
 	b.WriteString("- If a cited anchor is a call site / assignment / guard, describe that call site / assignment / guard there; helper internals belong in a separately grounded item or in the `summary` block's text.\n")

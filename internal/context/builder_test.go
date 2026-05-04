@@ -946,7 +946,7 @@ func TestBuildPromptContext_AnswerSymbols_Complete_RendersTranslationMode(t *tes
 	ac := buildAgentCtxWithSymbols(syms, types.CompletenessComplete)
 	pc := BuildPromptContext(ac, &skill.Config{Name: "s"})
 
-	sec := findSectionTitle(pc, "Extracted Answer Symbols (deterministic, authoritative)")
+	sec := findSectionTitle(pc, "Extracted Answer Symbols (authoritative)")
 	if sec == nil {
 		t.Fatal("Translation-mode section missing for CompletenessComplete")
 	}
@@ -957,7 +957,7 @@ func TestBuildPromptContext_AnswerSymbols_Complete_RendersTranslationMode(t *tes
 		t.Errorf("Complete branch must list all symbols, got:\n%s", sec.Content)
 	}
 	// Guard against the lower-bound title leaking in
-	if findSectionTitle(pc, "Answer Symbols (deterministic floor, may extend with cited evidence)") != nil {
+	if findSectionTitle(pc, "Answer Symbols (lower-bound floor, may extend with cited evidence)") != nil {
 		t.Error("Complete branch must not emit the lower-bound section title")
 	}
 }
@@ -969,7 +969,7 @@ func TestBuildPromptContext_AnswerSymbols_LowerBound_RendersSoftenedFloor(t *tes
 	ac := buildAgentCtxWithSymbols(syms, types.CompletenessLowerBound)
 	pc := BuildPromptContext(ac, &skill.Config{Name: "s"})
 
-	sec := findSectionTitle(pc, "Answer Symbols (deterministic floor, may extend with cited evidence)")
+	sec := findSectionTitle(pc, "Answer Symbols (lower-bound floor, may extend with cited evidence)")
 	if sec == nil {
 		t.Fatal("LowerBound section missing for CompletenessLowerBound")
 	}
@@ -986,7 +986,7 @@ func TestBuildPromptContext_AnswerSymbols_LowerBound_RendersSoftenedFloor(t *tes
 		t.Errorf("LowerBound branch must list floor symbols, got:\n%s", sec.Content)
 	}
 	// Guard against Translation-mode title leaking
-	if findSectionTitle(pc, "Extracted Answer Symbols (deterministic, authoritative)") != nil {
+	if findSectionTitle(pc, "Extracted Answer Symbols (authoritative)") != nil {
 		t.Error("LowerBound branch must not emit the Translation-mode section title")
 	}
 }
@@ -1002,10 +1002,10 @@ func TestBuildPromptContext_AnswerSymbols_Unknown_DropsSection(t *testing.T) {
 	ac := buildAgentCtxWithSymbols(syms, types.CompletenessUnknown)
 	pc := BuildPromptContext(ac, &skill.Config{Name: "s"})
 
-	if findSectionTitle(pc, "Extracted Answer Symbols (deterministic, authoritative)") != nil {
+	if findSectionTitle(pc, "Extracted Answer Symbols (authoritative)") != nil {
 		t.Error("Unknown claim must not render the Translation-mode section")
 	}
-	if findSectionTitle(pc, "Answer Symbols (deterministic floor, may extend with cited evidence)") != nil {
+	if findSectionTitle(pc, "Answer Symbols (lower-bound floor, may extend with cited evidence)") != nil {
 		t.Error("Unknown claim must not render the LowerBound section")
 	}
 }
@@ -1019,10 +1019,10 @@ func TestBuildPromptContext_AnswerSymbols_EmptyAlwaysDrops(t *testing.T) {
 	} {
 		ac := buildAgentCtxWithSymbols(nil, claim)
 		pc := BuildPromptContext(ac, &skill.Config{Name: "s"})
-		if findSectionTitle(pc, "Extracted Answer Symbols (deterministic, authoritative)") != nil {
+		if findSectionTitle(pc, "Extracted Answer Symbols (authoritative)") != nil {
 			t.Errorf("claim=%q with empty slate must drop Translation section", claim)
 		}
-		if findSectionTitle(pc, "Answer Symbols (deterministic floor, may extend with cited evidence)") != nil {
+		if findSectionTitle(pc, "Answer Symbols (lower-bound floor, may extend with cited evidence)") != nil {
 			t.Errorf("claim=%q with empty slate must drop LowerBound section", claim)
 		}
 	}
@@ -2170,7 +2170,7 @@ func TestBuildAgentContext_WriteStage_ScrubsReadModeArtifacts(t *testing.T) {
 				"Unverified Analyzer Findings",
 				"Structured Evidence",
 				"Dataflow Findings",
-				"Extracted Answer Symbols (deterministic, authoritative)",
+				"Extracted Answer Symbols (authoritative)",
 				"Extracted Answer Symbols (lower-bound)",
 				"Subject Match Summary",
 			}
