@@ -616,3 +616,153 @@ func TestStableEvidenceID_DeterministicOverTypedFields(t *testing.T) {
 		t.Error("different Subject must produce different IDs")
 	}
 }
+
+// ── G6 (post_v2_runtime_gap_remediation, 2026-05-04) — promotion policy
+
+func TestFacetPromotionPolicy_FromRequiredness_OneToOne(t *testing.T) {
+	cases := []struct {
+		req  FacetRequiredness
+		want FacetPromotionPolicy
+	}{
+		{FacetHardRequired, PromotionAlwaysHard},
+		{FacetSoftRequired, PromotionWhenEvidenceSufficient},
+		{FacetOptional, PromotionAdvisoryOnly},
+		// Unknown / zero-value defaults to AdvisoryOnly (safe — no
+		// surprise hard gating on a hand-constructed FacetRequirement).
+		{FacetRequiredness(""), PromotionAdvisoryOnly},
+	}
+	for _, c := range cases {
+		if got := PromotionPolicyFromRequiredness(c.req); got != c.want {
+			t.Errorf("PromotionPolicyFromRequiredness(%q) = %q, want %q", c.req, got, c.want)
+		}
+	}
+}
+
+func TestFacetPromotionPolicy_IsValid(t *testing.T) {
+	for _, p := range []FacetPromotionPolicy{
+		PromotionAlwaysHard, PromotionWhenEvidenceSufficient, PromotionAdvisoryOnly,
+	} {
+		if !p.IsValid() {
+			t.Errorf("%q must be valid", p)
+		}
+	}
+	if FacetPromotionPolicy("").IsValid() {
+		t.Error("empty must be invalid")
+	}
+	if FacetPromotionPolicy("foo").IsValid() {
+		t.Error("bogus must be invalid")
+	}
+}
+
+// EssentialAlwaysPromoted: TierEssential / PromotionAlwaysHard
+// promotes to HARD regardless of evidence (analyzer template
+// pinned the facet as essential).
+func TestFacetRequirement_IsPromoted_EssentialAlwaysHard(t *testing.T) {
+	req := FacetRequirement{
+		Required:        FacetHardRequired,
+		PromotionPolicy: PromotionAlwaysHard,
+		// SourceCandidate empty
+	}
+	if !req.IsPromoted() {
+		t.Errorf("Essential must promote regardless of evidence")
+	}
+}
+
+func TestFacetRequirement_IsPromoted_ExpectedWithEvidencePromotes(t *testing.T) {
+	req := FacetRequirement{
+		Required:                FacetSoftRequired,
+		PromotionPolicy:         PromotionWhenEvidenceSufficient,
+		MinEvidenceForPromotion: 1,
+		SourceCandidate:         []string{"ev-1", "ev-2"},
+	}
+	if !req.IsPromoted() {
+		t.Errorf("Expected with len(SourceCandidate)=2 ≥ Min=1 must promote")
+	}
+}
+
+func TestFacetRequirement_IsPromoted_ExpectedWithoutEvidenceSkips(t *testing.T) {
+	req := FacetRequirement{
+		Required:                FacetSoftRequired,
+		PromotionPolicy:         PromotionWhenEvidenceSufficient,
+		MinEvidenceForPromotion: 1,
+		SourceCandidate:         nil,
+	}
+	if req.IsPromoted() {
+		t.Errorf("Expected with empty SourceCandidate must NOT promote (avoid forcing fabrication)")
+	}
+}
+
+func TestFacetRequirement_IsPromoted_EnrichmentNeverPromotes(t *testing.T) {
+	req := FacetRequirement{
+		Required:        FacetOptional,
+		PromotionPolicy: PromotionAdvisoryOnly,
+		// Even with abundant evidence:
+		SourceCandidate: []string{"ev-1", "ev-2", "ev-3", "ev-4", "ev-5", "ev-6", "ev-7", "ev-8", "ev-9", "ev-10"},
+	}
+	if req.IsPromoted() {
+		t.Errorf("Enrichment must NEVER promote regardless of evidence (R3 noisy-signal protection)")
+	}
+}
+
+// EffectiveMinEvidenceForPromotion defaults to
+// DefaultMinEvidenceForPromotion when zero (back-compat for
+// hand-constructed FacetRequirements).
+func TestFacetRequirement_EffectiveMinEvidenceForPromotion_Default(t *testing.T) {
+	req := FacetRequirement{} // all zero
+	if got := req.EffectiveMinEvidenceForPromotion(); got != DefaultMinEvidenceForPromotion {
+		t.Errorf("zero MinEvidenceForPromotion → %d, want %d (default)", got, DefaultMinEvidenceForPromotion)
+	}
+	req2 := FacetRequirement{MinEvidenceForPromotion: 3}
+	if got := req2.EffectiveMinEvidenceForPromotion(); got != 3 {
+		t.Errorf("explicit Min=3 → %d, want 3", got)
+	}
+}
+
+// CompileFacetCoverage MUST fill PromotionPolicy + MinEvidenceForPromotion
+// 1:1 from Requiredness on every emitted FacetRequirement (Required
+// list AND Optional list).
+func TestCompileFacetCoverage_FillsPromotionPolicy(t *testing.T) {
+	rm := RequestModel{
+		Intent: IntentTrace,
+	}
+	plan := CompileFacetCoverage(rm, []EvidenceItem{
+		{Kind: EvidenceDirect, Subject: "X", Source: "f.go", LineStart: 10, LineEnd: 10},
+	})
+	if plan == nil {
+		t.Fatal("plan is nil — fixture mis-configured")
+	}
+	for _, req := range plan.Required {
+		want := PromotionPolicyFromRequiredness(req.Required)
+		if req.PromotionPolicy != want {
+			t.Errorf("Required facet %q: PromotionPolicy=%q, want %q", req.Kind, req.PromotionPolicy, want)
+		}
+		if req.MinEvidenceForPromotion <= 0 {
+			t.Errorf("Required facet %q: MinEvidenceForPromotion=%d, want >=1 (default fill)", req.Kind, req.MinEvidenceForPromotion)
+		}
+	}
+	for _, req := range plan.Optional {
+		if req.PromotionPolicy != PromotionAdvisoryOnly {
+			t.Errorf("Optional facet %q: PromotionPolicy=%q, want PromotionAdvisoryOnly", req.Kind, req.PromotionPolicy)
+		}
+	}
+}
+
+// EffectivePromotionPolicy back-compat accessor: hand-constructed
+// FacetRequirement (no compile) still surfaces the right policy.
+func TestFacetRequirement_EffectivePromotionPolicy_BackCompat(t *testing.T) {
+	cases := []struct {
+		req  FacetRequirement
+		want FacetPromotionPolicy
+	}{
+		{FacetRequirement{Required: FacetHardRequired}, PromotionAlwaysHard},
+		{FacetRequirement{Required: FacetSoftRequired}, PromotionWhenEvidenceSufficient},
+		{FacetRequirement{Required: FacetOptional}, PromotionAdvisoryOnly},
+		// Explicit override stays:
+		{FacetRequirement{Required: FacetHardRequired, PromotionPolicy: PromotionAdvisoryOnly}, PromotionAdvisoryOnly},
+	}
+	for i, c := range cases {
+		if got := c.req.EffectivePromotionPolicy(); got != c.want {
+			t.Errorf("case %d: got %q, want %q", i, got, c.want)
+		}
+	}
+}

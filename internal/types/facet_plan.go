@@ -239,6 +239,78 @@ func TierFromRequiredness(r FacetRequiredness) RichnessTier {
 	return TierEnrichment
 }
 
+// FacetPromotionPolicy (G6 post_v2_runtime_gap_remediation, 2026-05-04)
+// classifies how a facet's coverage demand is enforced when typed
+// evidence is available to support it. Phase 5-E1 introduced the
+// "evidence-sufficient skip" gate: TierExpected facets without
+// SourceCandidate were skipped to avoid forcing the LLM to invent
+// unsupported claims. G6 generalises that into an explicit
+// promotion policy so consumers (validator severity, reviewer,
+// accept policy) can read a single typed enum instead of replicating
+// the (Tier, len(SourceCandidate)) joint logic at every site.
+//
+// R3 invariant: every promotion decision derives from the typed
+// (PromotionPolicy, MinEvidenceForPromotion, len(SourceCandidate))
+// triple — no heuristic, no similarity, no frequency.
+//
+// CompileFacetCoverage maps Requiredness → PromotionPolicy 1:1:
+//
+//	FacetHardRequired → PromotionAlwaysHard
+//	FacetSoftRequired → PromotionWhenEvidenceSufficient
+//	FacetOptional     → PromotionAdvisoryOnly
+type FacetPromotionPolicy string
+
+const (
+	// PromotionAlwaysHard names a facet whose coverage demand is
+	// hard regardless of evidence (analyzer template pinned it
+	// essential; the answer must surface it). Mirrors TierEssential.
+	PromotionAlwaysHard FacetPromotionPolicy = "always_hard"
+
+	// PromotionWhenEvidenceSufficient names a facet that promotes to
+	// HARD when len(SourceCandidate) >= MinEvidenceForPromotion. When
+	// the evidence pool has nothing typed to surface, the demand is
+	// SOFT (advisory) so the LLM is not forced to invent. Mirrors
+	// TierExpected.
+	PromotionWhenEvidenceSufficient FacetPromotionPolicy = "when_evidence_sufficient"
+
+	// PromotionAdvisoryOnly names a facet that NEVER promotes — its
+	// signal is permanently SOFT (telemetry surface for
+	// validateRichnessRegression). Mirrors TierEnrichment.
+	PromotionAdvisoryOnly FacetPromotionPolicy = "advisory_only"
+)
+
+// IsValid reports whether p is a known FacetPromotionPolicy.
+func (p FacetPromotionPolicy) IsValid() bool {
+	switch p {
+	case PromotionAlwaysHard, PromotionWhenEvidenceSufficient, PromotionAdvisoryOnly:
+		return true
+	}
+	return false
+}
+
+// PromotionPolicyFromRequiredness derives the canonical promotion
+// policy from a FacetRequiredness value. Pure 1:1 projection,
+// mirrors TierFromRequiredness — keeps Tier and PromotionPolicy
+// in lock-step.
+func PromotionPolicyFromRequiredness(r FacetRequiredness) FacetPromotionPolicy {
+	switch r {
+	case FacetHardRequired:
+		return PromotionAlwaysHard
+	case FacetSoftRequired:
+		return PromotionWhenEvidenceSufficient
+	case FacetOptional:
+		return PromotionAdvisoryOnly
+	}
+	return PromotionAdvisoryOnly
+}
+
+// DefaultMinEvidenceForPromotion is the minimum SourceCandidate
+// count that triggers PromotionWhenEvidenceSufficient → HARD.
+// 1 is the conservative default: any single typed evidence row
+// supporting the facet promotes the demand. Operators (or future
+// per-facet overrides) can raise the bar via MinEvidenceForPromotion.
+const DefaultMinEvidenceForPromotion = 1
+
 // FacetRequirement describes one row in a FacetCoverageContract.
 // AcceptableForms whitelists which ClaimForm values can validly
 // support this facet; SourceCandidate carries EvidenceItem.IDs
@@ -293,6 +365,17 @@ type FacetRequirement struct {
 	// LogPerfSubKind == this value, in addition to passing the
 	// AcceptableForms whitelist.
 	RequiredSubKind LogPerfSubKind
+
+	// PromotionPolicy + MinEvidenceForPromotion (G6
+	// post_v2_runtime_gap_remediation, 2026-05-04): explicit promotion
+	// classification for this facet. PromotionPolicy is filled by
+	// CompileFacetCoverage 1:1 from Requiredness; MinEvidenceForPromotion
+	// defaults to DefaultMinEvidenceForPromotion when zero. Together
+	// they let validators / reviewers read a single typed signal
+	// instead of replicating (Tier, len(SourceCandidate)) joint
+	// logic at every consumer.
+	PromotionPolicy         FacetPromotionPolicy
+	MinEvidenceForPromotion int
 }
 
 // EffectiveTier returns Tier when set, otherwise derives from
@@ -303,6 +386,49 @@ func (r FacetRequirement) EffectiveTier() RichnessTier {
 		return r.Tier
 	}
 	return TierFromRequiredness(r.Required)
+}
+
+// EffectivePromotionPolicy returns PromotionPolicy when set,
+// otherwise derives from Required. Back-compat accessor for any
+// FacetRequirement that bypassed CompileFacetCoverage.
+func (r FacetRequirement) EffectivePromotionPolicy() FacetPromotionPolicy {
+	if r.PromotionPolicy != "" {
+		return r.PromotionPolicy
+	}
+	return PromotionPolicyFromRequiredness(r.Required)
+}
+
+// EffectiveMinEvidenceForPromotion returns MinEvidenceForPromotion
+// when > 0, otherwise DefaultMinEvidenceForPromotion. Zero is
+// indistinguishable from "field not initialised", so the
+// effective getter applies the default.
+func (r FacetRequirement) EffectiveMinEvidenceForPromotion() int {
+	if r.MinEvidenceForPromotion > 0 {
+		return r.MinEvidenceForPromotion
+	}
+	return DefaultMinEvidenceForPromotion
+}
+
+// IsPromoted reports whether this facet's coverage demand is
+// currently HARD given the typed evidence available. Pure typed-
+// signal computation (R3 red line):
+//
+//   - PromotionAlwaysHard       → always HARD (regardless of evidence)
+//   - PromotionWhenEvidenceSufficient → HARD iff
+//     len(SourceCandidate) >= EffectiveMinEvidenceForPromotion()
+//   - PromotionAdvisoryOnly     → never HARD
+//
+// The (Tier, len(SourceCandidate)) joint logic that used to live in
+// validateFacetCoverage is centralised here so reviewer / accept-
+// policy / future consumers all read the same answer.
+func (r FacetRequirement) IsPromoted() bool {
+	switch r.EffectivePromotionPolicy() {
+	case PromotionAlwaysHard:
+		return true
+	case PromotionWhenEvidenceSufficient:
+		return len(r.SourceCandidate) >= r.EffectiveMinEvidenceForPromotion()
+	}
+	return false
 }
 
 // FacetCoverageContract is the compiled per-question facet plan.
@@ -521,6 +647,15 @@ func CompileFacetCoverage(rm RequestModel, surface []EvidenceItem, sinks ...Rich
 		// Required value so consumers reading Tier never need to
 		// re-run the fallback rules.
 		bound.Tier = TierFromRequiredness(bound.Required)
+		// G6 (post_v2_runtime_gap_remediation, 2026-05-04): mirror
+		// the same 1:1 derivation onto PromotionPolicy. Both fields
+		// are filled here so downstream consumers (validators,
+		// reviewers, accept policies) can read either surface
+		// without re-running the projection.
+		bound.PromotionPolicy = PromotionPolicyFromRequiredness(bound.Required)
+		if bound.MinEvidenceForPromotion <= 0 {
+			bound.MinEvidenceForPromotion = DefaultMinEvidenceForPromotion
+		}
 		switch bound.Required {
 		case FacetHardRequired, FacetSoftRequired:
 			plan.Required = append(plan.Required, bound)
