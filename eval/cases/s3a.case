@@ -15,5 +15,15 @@
 ID="s3a"
 NAME="config trace — explore_mid_loop_hint_budget precedence"
 QUESTION="explore_mid_loop_hint_budget 的最终有效值是怎么计算出来的？给我 code default / codrax.yaml / CLI 三层的覆盖优先级。"
+# 2026-05-04 strictness audit: previous EC required 2 anchor names
+# but didn't gate on the question's CORE answer — that explore_*
+# group is YAML-only (no CLI flag). Tighten by requiring the
+# answer to (a) state the precedence rule (code default → yaml →
+# CLI) AND (b) note that explore_* group lacks CLI binding (the
+# load-bearing fact for this question). Generic chain-listing
+# without the "no CLI for explore_*" verdict no longer PASSes.
 EXPECT_CONTAINS="codrax.yaml DefaultExploreHeuristics"
+EXPECT_MATCHES_REGEX="(default|默认值|默认值|代码默认)
+(yaml|codrax\.yaml)
+(no CLI|CLI flag.*not|no flag|没有.*CLI|未绑定|不接受)"
 EXPECT_NOT_CONTAINS="os.Getenv environment.variable .env"

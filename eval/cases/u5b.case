@@ -14,5 +14,11 @@
 ID="u5b"
 NAME="test coverage — runTaskGraph stall-forces-finalize path"
 QUESTION="Does runTaskGraph's stall-forces-finalize fallback path (the branch described in CLAUDE.md as 'scheduler stall forces one finalize dispatch so the task always terminates') have a dedicated unit test? If yes, which test file and function?"
+# 2026-05-04 strictness audit: previous EC `runTaskGraph` was the
+# question's keyword — bar = "复述题目". Tighten by requiring the
+# answer to surface either (a) a specific *_test.go file path AND
+# the test function name, OR (b) the explicit "no test" / "无测试"
+# verdict — proving the LLM actually looked rather than hedged.
 EXPECT_CONTAINS="runTaskGraph"
+EXPECT_MATCHES_REGEX="(_test\.go.*Test[A-Z][a-zA-Z]+|no.*test|没有.*测试|尚无.*测试|无.*覆盖)"
 EXPECT_NOT_CONTAINS="probably likely assumption"

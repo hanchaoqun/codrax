@@ -32,6 +32,13 @@ QUESTION="explore_xyz_phantom_unique_budget 在三层覆盖（默认值 / codrax
 # Required tokens (any case): codrax.yaml as a layer anchor + the
 # default-struct function name + at least one absence-acknowledgement.
 EXPECT_CONTAINS="codrax.yaml DefaultExploreHeuristics"
+# 2026-05-04 strictness audit: phantom key absence must be
+# explicit. Previous bar relied on EXPECT_SECTIONS (3 layer names)
+# but didn't gate on absence verdict — answer could list 3 layers
+# with hallucinated values for each layer and PASS. Add EMR
+# requiring an absence-acknowledgement keyword (not found / 未定义
+# / does not exist / 不存在) — proves the LLM verified absence.
+EXPECT_MATCHES_REGEX="(not found|does not exist|未定义|不存在|absent|no such|undefined|not.*declared)"
 # EXPECT_NOT_CONTAINS would token-split on whitespace, banning the
 # question subject itself — left empty intentionally. The "must not
 # hallucinate concrete numerical defaults" anti-pattern is covered

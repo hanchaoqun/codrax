@@ -13,6 +13,16 @@
 ID="u4b"
 NAME="reverse dependency — change-impact of deleting internal/tool/ground"
 QUESTION="If I delete the package internal/tool/ground, which source files would stop compiling? List the call sites with file paths."
+# 2026-05-04 strictness audit: previous EMR `emit_[a-z_]+\.go`
+# accepted ANY emit_<word>.go mention — 1 hit was enough (could
+# fabricate `emit_xyz.go` and PASS). Verified ground truth (`grep
+# -rln '"github.com/hanchaoqun/codrax/internal/tool/ground"'` non-
+# test): 6 importer files — emit_evidence.go, emit_answer_symbol.go,
+# emit_investigation_complete.go, multipath/decision.go,
+# explorer.go, extractor.go. Strict-bar requires ≥3 distinct file
+# names from this verified set.
 EXPECT_CONTAINS="internal/tool/ground"
 EXPECT_NOT_CONTAINS="nothing no.impact safely"
-EXPECT_MATCHES_REGEX="emit_[a-z_]+\.go"
+EXPECT_MATCHES_REGEX="(emit_evidence|emit_answer_symbol|emit_investigation_complete)\.go
+(explorer|extractor|multipath)\.go
+internal/(tool|agent)/"

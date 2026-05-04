@@ -15,5 +15,13 @@
 ID="s1b"
 NAME="mechanism drill-down — runTaskGraph validate failure fine-grained backtrack"
 QUESTION="How does runTaskGraph's criterion-aware window scheduler handle a failed validate node — which upstream nodes get requeued, and does the whole DAG restart?"
+# 2026-05-04 strictness audit: EC has 3 specific function names
+# (good) + ENC blocks wrong roles. Add EMR to gate the binary
+# question "whole DAG restart" — answer must explicitly say no/不
+# (selective requeue, not whole restart). Generic listing of 3
+# function names without addressing the binary axis no longer
+# PASSes.
 EXPECT_CONTAINS="runTaskGraph EdgeValidationFeedback markSuccessCriteriaFailed"
+EXPECT_MATCHES_REGEX="(\bno\b|not.*restart|partial|selective|不会.*重启|仅.*重排|不重启)
+(upstream|前置|evidence node|证据)"
 EXPECT_NOT_CONTAINS="CodeReviewer Planner DesignReviewer .java"

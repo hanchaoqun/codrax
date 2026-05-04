@@ -14,5 +14,19 @@
 ID="s5b"
 NAME="enumerate — internal/analysis sub-packages"
 QUESTION="列出 internal/analysis/ 下所有子包的目录名，以及每个子包的单一入口函数（entry-point function）。"
+# 2026-05-04 strictness audit: previous EC required 4 sub-package
+# names (good), but the question also asks for the "single entry-
+# point function" of each — EC didn't gate on function names,
+# letting "normalizer / compiler / criterion / gate" PASS without
+# enumerating entry-points. Verified ground truth (`grep -E '^func
+# [A-Z]' internal/analysis/<pkg>/*.go`):
+#   - normalizer: Normalize  - compiler: Compile / InferScenario
+#   - criterion: Eval / EvalAll  - gate: Run / RunWith
+#   - binder: BindByRelevance  - budget: Compute  - hdp: Plan
+# Strict-bar: at least 3 distinct entry-point function names
+# verbatim (cross-package coverage).
 EXPECT_CONTAINS="normalizer compiler criterion gate"
+EXPECT_MATCHES_REGEX="\b(Normalize|InferScenario|Compile|Eval|EvalAll|Run|RunWith|BindByRelevance|Plan|Compute)\b
+\b(Normalize|InferScenario|Compile|Eval|EvalAll|Run|RunWith|BindByRelevance|Plan|Compute)\b
+\b(Normalize|InferScenario|Compile|Eval|EvalAll|Run|RunWith|BindByRelevance|Plan|Compute)\b"
 EXPECT_NOT_CONTAINS=".java .py"
