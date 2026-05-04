@@ -332,6 +332,153 @@ func TestRunCrossCitationConflictOracleV2_NilGuards(t *testing.T) {
 	}
 }
 
+// ── R2.4 selection-fix tests (post_shape_residual_audit.md
+// 2026-05-04) ──────────────────────────────────────────────────────
+
+// TestRunCrossCitationConflictOracleV2_WordyLabelNoLongerFires pins
+// the R2.4 fix: pre-fix, an item whose Label is wordy prose like
+// "checkCoverage — 覆盖度检查" + a different sibling item with the
+// same Label would group as the same symbol. R2.4 changes the
+// identity key to require identifier shape, so wordy Labels are
+// silently skipped (no false grouping → no false fire).
+//
+// This is the s1a r1 false-negative root: 15 items had distinct
+// wordy Labels each pointing at gate.go:128. Pre-R2.4 behaviour
+// would NOT fire (because Labels were distinct), but the fix
+// keeps the same outcome on this specific shape via a more
+// principled gating — and stops false fires on a hypothetical
+// case where the LLM emits the same wordy prose twice.
+func TestRunCrossCitationConflictOracleV2_WordyLabelNoLongerFires(t *testing.T) {
+	doc := &types.AnswerDocumentV2{
+		DocumentModel: "v2",
+		Citations: []types.Citation{
+			{File: "internal/agent/extractor.go", Line: 114},
+			{File: "internal/agent/extractor.go", Line: 200},
+		},
+		Blocks: []types.AnswerBlock{{
+			Kind: types.BlockOrderedList,
+			Items: []types.AnswerBlockItem{
+				{Label: "checkCoverage — 覆盖度检查", CitationRef: 0},
+				{Label: "checkCoverage — 覆盖度检查", CitationRef: 1},
+			},
+		}},
+	}
+	if vs := runCrossCitationConflictOracleV2(doc); len(vs) > 0 {
+		t.Errorf("wordy Label must NOT group items; got false fire %+v", vs)
+	}
+}
+
+// TestRunCrossCitationConflictOracleV2_EvidenceIDGroupingFires pins
+// the precise-typed-signal path: when both items carry a
+// RenderedClaimUse with the same EvidenceID, that's the canonical
+// "same evidence" claim — different cite resolutions = real
+// contradiction.
+func TestRunCrossCitationConflictOracleV2_EvidenceIDGroupingFires(t *testing.T) {
+	cu := func(eid string) *types.RenderedClaimUse {
+		return &types.RenderedClaimUse{EvidenceID: eid}
+	}
+	doc := &types.AnswerDocumentV2{
+		DocumentModel: "v2",
+		Citations: []types.Citation{
+			{File: "x.go", Line: 100},
+			{File: "x.go", Line: 200},
+		},
+		Blocks: []types.AnswerBlock{{
+			Kind: types.BlockOrderedList,
+			Items: []types.AnswerBlockItem{
+				// Wordy Labels but SAME EvidenceID → group + fire.
+				{Label: "the long prose label A", CitationRef: 0, ClaimUse: cu("ev_42")},
+				{Label: "the long prose label B", CitationRef: 1, ClaimUse: cu("ev_42")},
+			},
+		}},
+	}
+	vs := runCrossCitationConflictOracleV2(doc)
+	if len(vs) != 1 {
+		t.Fatalf("EvidenceID-keyed grouping must fire once; got %d (%+v)", len(vs), vs)
+	}
+	if !strings.Contains(vs[0].Detail, "evidence:ev_42") {
+		t.Errorf("Detail must name the evidence-keyed identity; got %q", vs[0].Detail)
+	}
+}
+
+// TestRunCrossCitationConflictOracleV2_ItemIDGroupingFires confirms
+// the second-priority signal: when EvidenceID is empty but ID is
+// set, ID becomes the identity key.
+func TestRunCrossCitationConflictOracleV2_ItemIDGroupingFires(t *testing.T) {
+	doc := &types.AnswerDocumentV2{
+		DocumentModel: "v2",
+		Citations: []types.Citation{
+			{File: "x.go", Line: 50},
+			{File: "x.go", Line: 150},
+		},
+		Blocks: []types.AnswerBlock{{
+			Kind: types.BlockOrderedList,
+			Items: []types.AnswerBlockItem{
+				{ID: "step1", Label: "wordy prose A", CitationRef: 0},
+				{ID: "step1", Label: "wordy prose B", CitationRef: 1},
+			},
+		}},
+	}
+	if vs := runCrossCitationConflictOracleV2(doc); len(vs) != 1 {
+		t.Errorf("ID-keyed grouping must fire once; got %d (%+v)", len(vs), vs)
+	}
+}
+
+// TestLooksLikeIdentifierShape covers the helper edge cases.
+func TestLooksLikeIdentifierShape(t *testing.T) {
+	cases := []struct {
+		in   string
+		want bool
+	}{
+		{"TurnAArtifacts", true},
+		{"check_coverage", true},
+		{"my.dotted.name", true},
+		{"kebab-name", true},
+		{"V2", true},
+		{"", false},
+		{"has space", false},
+		{"中文标识符", false},
+		{"label — extra prose", false},
+		{"foo()", false},
+	}
+	for _, tc := range cases {
+		if got := looksLikeIdentifierShape(tc.in); got != tc.want {
+			t.Errorf("looksLikeIdentifierShape(%q) = %v, want %v", tc.in, got, tc.want)
+		}
+	}
+}
+
+// TestCrossCitationIdentityKey_PriorityOrder pins the priority:
+// EvidenceID > ID > Label (ident-shape only).
+func TestCrossCitationIdentityKey_PriorityOrder(t *testing.T) {
+	cu := &types.RenderedClaimUse{EvidenceID: "EV"}
+
+	// EvidenceID wins
+	if got := crossCitationIdentityKey(types.AnswerBlockItem{
+		ID: "iid", Label: "Lbl", ClaimUse: cu,
+	}); got != "evidence:EV" {
+		t.Errorf("EvidenceID priority broken: %q", got)
+	}
+
+	// No ClaimUse → ID wins
+	if got := crossCitationIdentityKey(types.AnswerBlockItem{
+		ID: "iid", Label: "Lbl",
+	}); got != "id:iid" {
+		t.Errorf("ID priority broken: %q", got)
+	}
+
+	// No ClaimUse, no ID → Label (only when ident-shape)
+	if got := crossCitationIdentityKey(types.AnswerBlockItem{Label: "Lbl"}); got != "label:Lbl" {
+		t.Errorf("Label fallback broken: %q", got)
+	}
+	// Wordy Label → ""
+	if got := crossCitationIdentityKey(types.AnswerBlockItem{
+		Label: "wordy prose label",
+	}); got != "" {
+		t.Errorf("wordy Label must yield empty key; got %q", got)
+	}
+}
+
 // TestIsJustifiedAbsenceAnswer_ShapeTieredGate pins the shape-tiered
 // trust check. Shallow shapes (value / boolean / config_value) and
 // EMPTY list_of_symbols pass on any single investigation tool. Only

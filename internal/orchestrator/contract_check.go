@@ -582,26 +582,48 @@ func runSymbolAnchorTrackOracleV2(docV2 *types.AnswerDocumentV2, rm *types.Reque
 // line) are not a conflict; cites that drift more than this are.
 const crossCitationLineTolerance = 2
 
-// runCrossCitationConflictOracleV2 (B6-F1, 2026-05-04) walks the V2
-// AnswerDocument's symbol-emitting items and flags symbols cited
-// at more than one (file, line) locus. The single-locus rule:
-// when symbol X is named in multiple block items + the items'
-// CitationRef-resolved Citations point at different files OR at
-// lines >crossCitationLineTolerance apart, at most one cite can
-// be the actual locus of the claim about X — the others reference
-// fragments that mention X without being its definition site. Real
-// case (m1a-): one cite extractor.go:114 + another extractor.go:135
-// both labelled "the Turn-B handoff function"; user cannot tell
-// which is the actual handoff.
+// runCrossCitationConflictOracleV2 (B6-F1, 2026-05-04;
+// R2.4 selection-fix 2026-05-04) walks the V2 AnswerDocument's
+// symbol-emitting items and flags symbols cited at more than one
+// (file, line) locus. The single-locus rule: when the SAME
+// underlying symbol is named in multiple block items + their
+// CitationRef-resolved Citations point at different files OR
+// drift >crossCitationLineTolerance lines apart, at most one cite
+// can be the actual locus of the claim about that symbol — the
+// others reference fragments that mention it without being its
+// definition site. Real case (m1a-): one cite extractor.go:114 +
+// another extractor.go:135 both labelled "the Turn-B handoff
+// function"; user cannot tell which is the actual handoff.
+//
+// R2.4 fix (2026-05-04): the original implementation used
+// item.Label as the symbol identity key, but Label is rendered
+// PROSE (e.g. "checkCoverage — 覆盖度检查") which is wordy
+// + nearly always unique per item even when the underlying symbol
+// is the same. The fix prefers structured signals in priority
+// order:
+//
+//  1. RenderedClaimUse.EvidenceID — precise typed signal: same
+//     EvidenceID = same evidence item = canonical identity. Two
+//     items with same EvidenceID but different Citations is the
+//     direct contradiction shape we're catching.
+//  2. item.ID — when LLM populates IDs (rarely in practice).
+//  3. Label first 32 chars as a last-resort heuristic, gated by
+//     a minimum-shape filter: token must be a single CamelCase /
+//     snake_case identifier (no whitespace, no separator). This
+//     skips wordy prose Labels like "checkCoverage — 覆盖度检查"
+//     while still catching short verbatim-symbol Labels like
+//     "TurnAArtifacts".
 //
 // Detection signals (precise — R2 red line):
-//   - V2 docV2.Blocks[i].Items[j].Label (verbatim symbol name).
+//   - V2 RenderedClaimUse.EvidenceID (typed evidence handle), OR
+//   - V2 AnswerBlockItem.ID (typed item handle), OR
+//   - V2 AnswerBlockItem.Label (only when matches identifier shape).
 //   - V2 docV2.Citations[item.CitationRef].File / Line (typed
 //     resolution; CitationRef==-1 / out-of-range items skip).
 //
 // Skipped when:
 //   - docV2 == nil OR no Citations in pool.
-//   - Every symbol-name appears at most once in items[].
+//   - Every symbol identity appears at most once in items[].
 //
 // Stage="finalize". SOFT-by-default (operators promote via
 // pipeline_contract_strict_kinds when they want auto-rewrite).
@@ -616,8 +638,8 @@ func runCrossCitationConflictOracleV2(docV2 *types.AnswerDocumentV2) []types.Vio
 	loci := make(map[string][]locus, 8)
 	for _, blk := range docV2.Blocks {
 		for _, item := range blk.Items {
-			name := strings.TrimSpace(item.Label)
-			if name == "" {
+			id := crossCitationIdentityKey(item)
+			if id == "" {
 				continue
 			}
 			ref := item.CitationRef
@@ -628,7 +650,7 @@ func runCrossCitationConflictOracleV2(docV2 *types.AnswerDocumentV2) []types.Vio
 			if cit.File == "" {
 				continue
 			}
-			loci[name] = append(loci[name], locus{file: cit.File, line: cit.Line})
+			loci[id] = append(loci[id], locus{file: cit.File, line: cit.Line})
 		}
 	}
 	if len(loci) == 0 {
@@ -668,6 +690,61 @@ func runCrossCitationConflictOracleV2(docV2 *types.AnswerDocumentV2) []types.Vio
 		}
 	}
 	return violations
+}
+
+// crossCitationIdentityKey returns the symbol-identity grouping
+// key for an AnswerBlockItem (R2.4 fix, 2026-05-04). Priority:
+//
+//  1. ClaimUse.EvidenceID — typed evidence handle (most precise).
+//  2. item.ID — typed item handle, when LLM populated it.
+//  3. item.Label — only if Label has identifier shape (single
+//     CamelCase / snake_case token, ≤ 32 chars, no whitespace),
+//     trimmed to first 32 chars to bound the key length.
+//
+// Returns "" when no signal is usable; caller skips the item so
+// the oracle never groups by wordy prose.
+func crossCitationIdentityKey(item types.AnswerBlockItem) string {
+	if item.ClaimUse != nil {
+		if id := strings.TrimSpace(item.ClaimUse.EvidenceID); id != "" {
+			return "evidence:" + id
+		}
+	}
+	if id := strings.TrimSpace(item.ID); id != "" {
+		return "id:" + id
+	}
+	label := strings.TrimSpace(item.Label)
+	if label == "" {
+		return ""
+	}
+	if !looksLikeIdentifierShape(label) {
+		return ""
+	}
+	if len([]rune(label)) > 32 {
+		return ""
+	}
+	return "label:" + label
+}
+
+// looksLikeIdentifierShape reports whether s looks like a single
+// CamelCase / snake_case identifier token. Whitespace, punctuation
+// (other than `_`/`.`/`-` for dotted/dashed identifiers), and
+// non-ASCII letters disqualify it. The check is structural only
+// — no keyword table.
+func looksLikeIdentifierShape(s string) bool {
+	if s == "" {
+		return false
+	}
+	for _, r := range s {
+		switch {
+		case r >= 'a' && r <= 'z':
+		case r >= 'A' && r <= 'Z':
+		case r >= '0' && r <= '9':
+		case r == '_' || r == '.' || r == '-':
+		default:
+			return false
+		}
+	}
+	return true
 }
 
 // runStructuralEnumerationDivergenceOracle (P3 #6 precise variant,
