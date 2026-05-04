@@ -126,23 +126,46 @@ var defaultCooccurrenceRules = []CooccurrenceRule{
 	},
 
 	// ─────────────────────────────────────────────────────────────
-	// Rule C3 — Facet uncovered ⇒ principal claim_use anchor target
-	// is empty.
+	// Rule C3 — Facet uncovered ⇒ multi-derived: principal
+	// claim_use anchor target empty + richness regression on same
+	// facet + diagram edge unsupported on same dispatch.
 	//
-	// Invariant: validatePrincipalClaimUse requires that each
-	// principal block's claim_use[].facet_id reference an entry in
-	// view.FacetCoverage.Required. ViolFacetUncovered means the
-	// block-side never declared a facet_id matching the required
-	// facet; the principal claim_use would have no typed facet to
-	// anchor to even if the LLM emitted one.
+	// Invariant: validatePrincipalClaimUse requires each principal
+	// block's claim_use[].facet_id reference an entry in
+	// view.FacetCoverage.Required; FacetUncovered means no facet_id
+	// match → claim_use anchor empty.
+	// validateRichnessRegression (Phase 5 SOFT) fires on the SAME
+	// uncovered facet when SourceCandidate evidence exists.
+	// Phase 3-C5 validateDiagramEdgeSupport Layer 2 fires when the
+	// diagram-related facet is uncovered and the diagram block's
+	// edges lack typed claim_use anchors.
+	//
+	// V2 runtime eval Phase 1-C (2026-05-04): pre-fix, the latter
+	// two were singletons → cluster count inflated → SOFT
+	// RichnessRegression's FailLoud safety-net mapping flipped the
+	// whole plan to fail_loud (m1a-2 / u3a-1 outlier root cause).
+	// Now they cluster under FacetUncovered as a single repair
+	// target.
+	//
 	// Source: contract_check_block.go validateFacetCoverage +
-	// validatePrincipalClaimUse cross-reference.
+	// validatePrincipalClaimUse + validateRichnessRegression +
+	// validateDiagramRelationLegality.
 	{
 		Primary: types.ViolFacetUncovered,
 		Derived: []types.ViolationKind{
 			types.ViolPrincipalClaimUseMissing,
+			types.ViolRichnessRegression,
+			types.ViolDiagramEdgeUnsupported,
+			// Phase 1-C: AuthorityOverreach + ClaimFormUnsupported
+			// also key on the typed evidence whose facet is
+			// uncovered — when the answer drops the facet, downstream
+			// authority/claim_form gates often fire on the same
+			// missing surface. Cluster reduces the same root cause
+			// to one repair target.
+			types.ViolAuthorityOverreach,
+			types.ViolClaimFormUnsupported,
 		},
-		Reason: "principal claim_use must anchor to a facet_id present in the FacetCoverage contract; an uncovered facet leaves the claim_use anchor target empty",
+		Reason: "principal claim_use, richness regression, diagram edge support, authority overreach, and claim_form support all key on FacetCoverage typed evidence; an uncovered facet collapses these downstream signals into one repair target — re-cover the facet to clear them at once",
 	},
 
 	// ─────────────────────────────────────────────────────────────

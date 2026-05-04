@@ -120,10 +120,35 @@ func BuildRepairPlan(vs []types.Violation) RepairPlan {
 
 	// Compute PrimaryOwner: deepest among clusters; LocusTerminal
 	// wins outright (failure-of-last-resort red line).
+	//
+	// Phase 1-C (V2 runtime eval followup, 2026-05-04): SOFT-
+	// Terminal clusters DO NOT trigger HasFailLoud. Pre-fix, the
+	// FailLoud safety-net mapping for SOFT-default kinds (e.g.
+	// ViolRichnessRegression → FallbackFailLoud, intended only
+	// when operator promotes to STRICT) leaked into BuildRepairPlan
+	// via LocusOfTarget(FallbackFailLoud) = LocusTerminal,
+	// forcing the entire plan to fail_loud whenever the SOFT
+	// violation appeared. The m1a-2 / u3a-1 outlier traces were
+	// the symptom: 4-cluster plans with one SOFT richness
+	// regression flipped routing to terminal.
+	//
+	// Filter scope: SOFT-Terminal ONLY. SOFT clusters with a
+	// non-Terminal owner (LocusExtract / LocusExplore /
+	// LocusFinalizer) still drive PrimaryOwner, because most
+	// violation kinds default to SOFT classification — gating all
+	// SOFT clusters out of routing would break extract/explore
+	// fallback for the common case (SubjectAnchorMissing →
+	// extract, FacetUncovered → explore, etc.). The narrow filter
+	// only blocks the FailLoud-promotion path for SOFT kinds.
 	plan.PrimaryOwner = LocusFinalizer
 	maxDepth := -1
 	for _, c := range clusters {
-		if c.Owner == LocusTerminal {
+		ownerIsTerminal := c.Owner == LocusTerminal
+		isSoft := isSoftViolationKind(c.Primary.Kind)
+		if ownerIsTerminal && isSoft {
+			continue
+		}
+		if ownerIsTerminal {
 			plan.HasFailLoud = true
 		}
 		if d := locusDepth(c.Owner); d > maxDepth {

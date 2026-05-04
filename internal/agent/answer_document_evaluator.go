@@ -1459,7 +1459,7 @@ func renderAnswerDocDiagramConfigTraceSeed(ctx *types.AgentContext) string {
 		types.ConfigTraceDiagramRoleNodeLabel(types.EvidenceDiagramRoleDefault))
 	fmt.Fprintf(&b, "  2. Write a compound `<content> (<role-marker>)` label whose parenthetical is one of `override` / `config` / `runtime` / `default` (or their long forms). The role-marker carries the binding; the content phrase is the human-readable surface.\n")
 	fmt.Fprintf(&b, "  3. Use a concrete file path or symbol that appears in `citations[]`.\n")
-	fmt.Fprintf(&b, "Any label that fits NONE of the three channels (a one-word concept like `CLI` / `RPC` / `UI` without a role marker, a numbered tier such as `Layer 1`, an architectural archetype) is rejected. Drop those nodes from the fence and explain the concept in prose instead — do not invent a new bucket name.\n")
+	fmt.Fprintf(&b, "Any label that fits NONE of the three channels (a one-word concept like `CLI` / `RPC` / `UI` without a role marker, a numbered band such as `band 1`, an architectural archetype) is rejected. Drop those nodes from the fence and explain the concept in prose instead — do not invent a new bucket name.\n")
 	return strings.TrimSpace(b.String())
 }
 

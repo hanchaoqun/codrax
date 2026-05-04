@@ -821,7 +821,7 @@ func preCompleteContractCheck(ctx *types.BusContext, justification string) strin
 			closure.AddRepair(types.RepairDirective{
 				Kind:      types.RepairSwapView,
 				Subject:   fmt.Sprintf("from=%s,to=%s", fromFamily, toFamily),
-				Rationale: fmt.Sprintf("AnswerSubject=%s (source-code literal) but family=%s — finalizer should produce a %s answer instead", ir.RequestModel.AnswerSubject.Kind, fromFamily, toFamily),
+				Rationale: fmt.Sprintf("answer subject=%s (source-code literal) but family=%s — the rendered answer should be %s instead", ir.RequestModel.AnswerSubject.Kind, fromFamily, toFamily),
 				Origin:    "pre_complete.subject_view_mismatch",
 			})
 			logging.Info("[CGEC] B2b view_swap: origin=pre_complete.subject_view_mismatch from=%s to=%s", fromFamily, toFamily)
@@ -1895,7 +1895,7 @@ func groundingGateReject(ctx *types.BusContext, floor float64) (string, bool) {
 			i+1, it.Kind, it.Source, it.LineStart, it.AnchorKind, anchor, note)
 	}
 	b.WriteString("\nRepair options per item:\n")
-	b.WriteString("  (A) call read_file on the source near the cited line so Tier 1 (line_text) can validate.\n")
+	b.WriteString("  (A) call read_file on the source near the cited line so the line-text grounding pass can validate.\n")
 	b.WriteString("  (B) re-emit with a different anchor_symbol — the identifier the grounder should find on that line.\n")
 	b.WriteString("  (C) if you provided no snippet, add one (1-2 lines of actual code) so the snippet_fuzzy recovery tier can re-anchor.\n")
 	b.WriteString("  (D) drop the item entirely if it was speculative — emit_evidence rejects of speculation do not hurt the investigation.\n")
@@ -1940,13 +1940,13 @@ func tier1GateReject(ctx *types.BusContext, floor float64, resultKind, justifica
 	queueTier1ReadRepairs(ctx, targets)
 	var b strings.Builder
 	fmt.Fprintf(&b,
-		"emit_investigation_complete rejected: Tier-1 proven ratio %.0f%% (%d grounded-via-line_text / %d total) < floor %.0f%%.\n\n",
+		"emit_investigation_complete rejected: line-text-grounded ratio %.0f%% (%d grounded-via-line_text / %d total) < floor %.0f%%.\n\n",
 		ratio*100, t.tier1, t.total, floor*100)
-	b.WriteString("The pipeline's finalizer grounder is stricter than the evidence grounder: if the explorer never read_file'd the cited sources, finalize time will drop those citations and bounce the pipeline.\n\n")
+	b.WriteString("Citation grounding at answer-render time is stricter than at evidence-emit time: if the cited sources were never read via read_file, the rendered answer will drop those citations and the pipeline will reject the result.\n\n")
 	if len(targets) > 0 {
-		b.WriteString("Repair: structured read_file repairs have been queued for the non-line_text sources below. Read them, emit grounded evidence, then retry completion.\n")
+		b.WriteString("Repair: structured read_file repairs have been queued for the sources below. Read them, emit grounded evidence, then retry completion.\n")
 	} else {
-		b.WriteString("Repair: call read_file on the sources below so Tier 1 (line_text) can re-ground them.\n")
+		b.WriteString("Repair: call read_file on the sources below so the line-text grounding pass can re-validate them.\n")
 	}
 	maxList := 6
 	for i, target := range targets {

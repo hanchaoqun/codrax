@@ -450,3 +450,40 @@ func TestEmitAnswerDocumentV2_NestedFlatModeAccepts(t *testing.T) {
 		t.Errorf("items not deserialised; got %d, want 2", got)
 	}
 }
+
+// TestEmitAnswerDocumentV2_CitationRefInsideClaimUseRemapped pins
+// Phase 1-B (V2 runtime eval followup, 2026-05-04): when the LLM
+// places `citation_ref` inside `claim_use` (the u3a-1 forensic
+// outlier), the strict-decode error MUST surface the correct
+// paths so the next retry sees concrete relocation guidance. A
+// bare `unknown field "citation_ref"` reject was burning 5-7 retry
+// iters; the remap reduces that to ≤ 2.
+func TestEmitAnswerDocumentV2_CitationRefInsideClaimUseRemapped(t *testing.T) {
+	bus := newV2TestBusContext()
+	tool := &EmitAnswerDocument{}
+	misplaced := json.RawMessage(`{
+		"document_model": "v2",
+		"blocks": [{
+			"id": "b1",
+			"kind": "summary",
+			"text": "x",
+			"claim_uses": [{"claim_form": "definition_fact", "citation_ref": 0}]
+		}],
+		"citations": [{"file": "f.go", "line": 1}]
+	}`)
+	res, _ := tool.Execute(bus, misplaced)
+	if res.Success {
+		t.Fatal("expected misplaced citation_ref reject")
+	}
+	for _, want := range []string{
+		`field "citation_ref"`,
+		"items[i].citation_ref",
+		"value.citation_ref",
+		"boolean.citation_ref",
+		"NOT inside",
+	} {
+		if !strings.Contains(res.Summary, want) {
+			t.Errorf("error message missing %q (Phase 1-B remap broken); got: %s", want, res.Summary)
+		}
+	}
+}

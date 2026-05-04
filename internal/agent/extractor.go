@@ -340,7 +340,7 @@ func (e *extractorEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk
 		count := boundary.DeclaredCount
 		plan := extractorAnswerSurfacePlan(ctx)
 		b.WriteString("## Principal member slate\n\n")
-		fmt.Fprintf(&b, "The user explicitly declared a bounded principal set: `%s` (%d item(s)). Emit `emit_answer_symbol` with the principal member slate for that bounded set before the finalizer writes the step list.\n\n",
+		fmt.Fprintf(&b, "The user explicitly declared a bounded principal set: `%s` (%d item(s)). Emit `emit_answer_symbol` with the principal member slate for that bounded set before the answer-rendering step writes the step list.\n\n",
 			boundary.SourceQuote, count)
 		b.WriteString("Rules for this slate:\n")
 		fmt.Fprintf(&b, "- Keep `items[]` within %d principal member(s).\n", count)

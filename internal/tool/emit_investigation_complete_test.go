@@ -791,8 +791,8 @@ func TestEmitInvestigationComplete_Tier1FloorRejectsPureRecovery(t *testing.T) {
 	if res.Success {
 		t.Fatalf("pure-recovery investigation must be rejected; got success=%q", res.Summary)
 	}
-	if !strings.Contains(res.Summary, "Tier-1 proven ratio") {
-		t.Errorf("rejection must name the Tier-1 gate: %q", res.Summary)
+	if !strings.Contains(res.Summary, "line-text-grounded ratio") {
+		t.Errorf("rejection must name the line-text grounding gate: %q", res.Summary)
 	}
 	if !strings.Contains(res.Summary, "read_file") {
 		t.Errorf("rejection must suggest read_file repair: %q", res.Summary)

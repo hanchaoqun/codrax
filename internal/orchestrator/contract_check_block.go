@@ -927,7 +927,7 @@ func validateFacetCoverage(doc *types.AnswerDocumentV2, view *types.AnswerSemant
 				kind),
 			SuspectedRoot: types.SuspectedRoot{
 				IRField:    "answer_facet_coverage",
-				Reason:     "FacetCoverageContract.Required entry uncovered by V2 blocks",
+				Reason:     "required answer facet uncovered by emitted blocks",
 				Confidence: 0.7,
 			},
 			Stage: string(types.StageFinalize),

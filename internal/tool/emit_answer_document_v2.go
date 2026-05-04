@@ -131,6 +131,7 @@ func executeAnswerDocumentV2(toolName string, ctx *types.BusContext, raw json.Ra
 	dec.DisallowUnknownFields()
 	var p emitAnswerDocumentV2Params
 	if err := dec.Decode(&p); err != nil {
+		err = RemapStrictDecodeError(err, answerDocumentV2MisplacedHints)
 		return failEmit(toolName, now, "invalid params: %v", err)
 	}
 
@@ -442,4 +443,34 @@ func summarizeV2Blocks(blocks []types.AnswerBlock) string {
 		parts = append(parts, string(b.Kind))
 	}
 	return " (kinds=" + strings.Join(parts, ",") + ")"
+}
+
+// answerDocumentV2MisplacedHints lists field-name patterns
+// historically seen as `unknown field` strict-decode rejects in
+// V2 emit calls — typically caused by the LLM placing a sibling
+// field inside a nested object whose description grew large
+// enough to look like a "metadata bag". The remap rewrites the
+// strict-decode error to surface the correct paths so the next
+// retry sees concrete relocation guidance instead of a bare
+// field-name reject.
+//
+// Provenance:
+//   - citation_ref → claim_use / claim_uses: u3a-1 forensic
+//     2026-05-04 (7 retry iters before recovery). Phase 3-C3
+//     added from_node/to_node to claim_use; LLMs increasingly
+//     guessed citation_ref into the same nested object.
+//
+// Adding new entries: confirm via grep + real-eval log that the
+// LLM mistake is recurring (not a one-off), then add the pattern
+// here and a regression test.
+var answerDocumentV2MisplacedHints = []MisplacedFieldHint{
+	{
+		Field:          "citation_ref",
+		ContainerNames: []string{"claim_use", "claim_uses"},
+		CorrectPaths: []string{
+			"items[i].citation_ref",
+			"value.citation_ref",
+			"boolean.citation_ref",
+		},
+	},
 }

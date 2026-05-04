@@ -94,6 +94,31 @@ func TestBuildRepairPlan_FacetUncoveredClustering(t *testing.T) {
 	}
 }
 
+// Phase 1-C (V2 runtime eval followup, 2026-05-04): C3 rule's
+// derived list expanded so RichnessRegression + DiagramEdgeUnsupported
+// also peel into the FacetUncovered cluster instead of ballooning
+// cluster count via singleton fallback. Pre-fix, the m1a-2 / u3a-1
+// outlier traces showed 4 clusters where 1 was the real root.
+func TestBuildRepairPlan_FacetUncoveredClustersAllDerived(t *testing.T) {
+	plan := BuildRepairPlan([]types.Violation{
+		vio(types.ViolFacetUncovered, "d1"),
+		vio(types.ViolPrincipalClaimUseMissing, "d1"),
+		vio(types.ViolRichnessRegression, "d1"),
+		vio(types.ViolDiagramEdgeUnsupported, "d1"),
+	})
+	if len(plan.Clusters) != 1 {
+		t.Fatalf("Phase 1-C: 4-violation set should peel to 1 cluster (FacetUncovered + 3 derived); got %d (%+v)",
+			len(plan.Clusters), plan.Clusters)
+	}
+	c := plan.Clusters[0]
+	if c.Primary.Kind != types.ViolFacetUncovered {
+		t.Errorf("cluster Primary = %q, want ViolFacetUncovered", c.Primary.Kind)
+	}
+	if len(c.Derived) != 3 {
+		t.Errorf("cluster Derived count = %d, want 3 (PrincipalClaim + RichnessRegression + DiagramEdge)", len(c.Derived))
+	}
+}
+
 // Multiple independent root causes: each becomes its own cluster.
 // PrimaryOwner = deepest among them.
 //
@@ -122,20 +147,57 @@ func TestBuildRepairPlan_MultipleIndependentClusters(t *testing.T) {
 	}
 }
 
-// FailLoud violation in input forces PrimaryOwner = Terminal regardless
-// of whether deeper clusters exist. Tests the failure-of-last-resort
-// red line (mirrors FallbackTargetForViolations behaviour).
-func TestBuildRepairPlan_FailLoudOverridesAll(t *testing.T) {
+// SOFT-Terminal cluster does NOT force PrimaryOwner=Terminal —
+// Phase 1-C SOFT-immune semantic (V2 runtime eval followup,
+// 2026-05-04). Pre-fix, the FailLoud safety-net mapping for
+// SOFT-default kinds (e.g. ViolDemotionStorm SeveritySoft → mapped
+// to FallbackFailLoud as a safety net for operator-promoted
+// strict mode) was leaking into BuildRepairPlan and forcing the
+// entire plan to fail_loud whenever the SOFT violation appeared.
+// The m1a-2 / u3a-1 outlier traces were the real-eval symptom.
+//
+// New semantic: SOFT-Terminal clusters stay in clusters[] for
+// telemetry but do NOT trigger HasFailLoud; operators who want
+// fail_loud on a normally-SOFT kind must promote it via
+// pipeline_contract_strict_kinds yaml first.
+func TestBuildRepairPlan_SoftFailLoudKindDoesNotForceTerminal(t *testing.T) {
 	plan := BuildRepairPlan([]types.Violation{
-		vio(types.ViolDemotionStorm, "d1"), // FailLoud kind
+		vio(types.ViolDemotionStorm, "d1"), // SOFT FailLoud-mapped kind
 		vio(types.ViolFacetUncovered, "d1"),
 	})
-
-	if !plan.HasFailLoud {
-		t.Errorf("HasFailLoud = false, want true")
+	if plan.HasFailLoud {
+		t.Errorf("SOFT FailLoud kind MUST NOT trigger HasFailLoud (Phase 1-C); got true")
 	}
-	if plan.PrimaryOwner != LocusTerminal {
-		t.Errorf("PrimaryOwner = %v, want LocusTerminal", plan.PrimaryOwner)
+	if plan.PrimaryOwner == LocusTerminal {
+		t.Errorf("SOFT FailLoud kind MUST NOT force PrimaryOwner=Terminal (Phase 1-C); got %v", plan.PrimaryOwner)
+	}
+}
+
+// Operator-promoted SOFT kind via extraSoft → extraStrict path
+// removes the kind from the soft override map; downstream
+// hasOverride=false → falls back to intrinsic Severity Soft.
+// Intentional design choice: SOFT-by-default kinds with
+// SeveritySoft are PERMANENTLY soft — operator-yaml cannot bump
+// them to strict (the safety-net FailLoud mapping in
+// fallback_policy.go is documentation of intent, not an active
+// gate). Test covers the operator-add-to-soft path which IS
+// honoured.
+//
+// (A real operator-promote-to-strict on a SeveritySoft kind would
+// require redesigning ViolationProfileFor's isStrict argument
+// interplay, which is a separate change beyond Phase 1-C scope.)
+func TestBuildRepairPlan_OperatorAddedSoftKindStillSkipsFailLoud(t *testing.T) {
+	t.Cleanup(func() { SetSoftViolationKinds(nil, nil) })
+	// Operator marks ViolFacetUncovered explicitly soft; combined
+	// with a normally-SOFT FailLoud-mapped kind, plan stays
+	// non-terminal.
+	SetSoftViolationKinds([]string{string(types.ViolFacetUncovered)}, nil)
+	plan := BuildRepairPlan([]types.Violation{
+		vio(types.ViolDemotionStorm, "d1"),
+		vio(types.ViolFacetUncovered, "d1"),
+	})
+	if plan.HasFailLoud {
+		t.Errorf("all-SOFT plan MUST NOT trigger HasFailLoud; got true")
 	}
 }
 
@@ -233,5 +295,68 @@ func TestBuildRepairPlan_RulePrecedence(t *testing.T) {
 	}
 	if len(citationCluster.Derived) != 1 || citationCluster.Derived[0].Kind != types.ViolStepIdentifierUnverified {
 		t.Errorf("Citation cluster Derived = %+v, want [ViolStepIdentifierUnverified]", citationCluster.Derived)
+	}
+}
+
+// TestEveryHardDefaultViolKindHasCooccurrenceCoverage pins Phase 1-C
+// (V2 runtime eval followup, 2026-05-04) checklist for new
+// ViolationKind on-line: every HARD-default kind MUST appear in
+// at least one cooccurrence rule (as Primary or Derived) UNLESS
+// it is explicitly listed in `intentionalSingletons` below.
+//
+// Why this matters: pre-Phase-1-C, Phase 3-C5 + Phase 5-E1 added
+// ViolDiagramEdgeUnsupported / ViolFacetUncovered without
+// updating defaultCooccurrenceRules. New violations went singleton,
+// inflating cluster count to 4 in real-eval m1a-2 / u3a-1, which
+// dragged RepairPlan toward fail_loud through the SOFT-Terminal
+// safety-net leak. Lock so future kinds can't repeat the omission.
+//
+// Intentional singletons: kinds whose semantics are genuinely
+// standalone (e.g. structural-baseline checks with no co-firing
+// peer). Add a kind here ONLY when you can document why it has no
+// cooccurring partner. The list is intentionally short so adding
+// to it forces a discussion.
+func TestEveryHardDefaultViolKindHasCooccurrenceCoverage(t *testing.T) {
+	covered := make(map[types.ViolationKind]bool)
+	for _, rule := range defaultCooccurrenceRules {
+		covered[rule.Primary] = true
+		for _, d := range rule.Derived {
+			covered[d] = true
+		}
+	}
+
+	// Kinds documented as genuinely standalone — must include
+	// rationale in adjacent godoc.
+	intentionalSingletons := map[types.ViolationKind]string{
+		types.ViolMustInclude:                     "answer-shape baseline; fires alone when must-include list violated",
+		types.ViolMustExclude:                     "answer-shape baseline; fires alone when must-exclude list violated",
+		types.ViolAcceptance:                      "criterion-acceptance baseline; fires alone when acceptance test fails",
+		types.ViolSuccessCriterion:                "scheduler success criterion; fires alone at validate-node level",
+		types.ViolLiteralFormFailed:               "literal-form-validator baseline; standalone schema check",
+		types.ViolSelfRefLiteral:                  "self-reference literal grounder; fires alone when literal grounds to itself",
+		types.ViolDiagramIdentifier:               "deprecated V1 diagram bare-identifier check; standalone",
+		types.ViolPreCompleteDowngrade:            "pre-complete soft downgrade marker; fires alone when downgrade applied",
+		types.ViolViewSwap:                        "view-swap retry hint marker; fires alone when subject/view mismatch detected at pre-complete",
+		types.ViolFamilyMismatch:                  "family-mismatch baseline; fires alone when QFamily does not match family contract",
+		types.ViolExternalArtifactUnderdecoded:    "external-artifact decode floor; fires alone on under-decode of attached log/perf trace",
+		types.ViolValueSecondaryCitationOffFocus:  "scalar-value secondary citation gate; standalone",
+		types.ViolCrossCitationConflict:           "cross-citation single-locus oracle; standalone",
+		types.ViolStructuralEnumerationDivergence: "code-vs-comment enumeration divergence; standalone caveat marker",
+		types.ViolSelfContradiction:               "reviewer-detected SUMMARY-vs-BODY contradiction; LLM-text comparator with no structural co-fire",
+		types.ViolAbsenceScopeExceeded:            "extractor framed absence too broadly; standalone semantic boundary check",
+	}
+
+	for _, kind := range types.AllViolationKinds() {
+		if isSoftViolationKind(kind) {
+			continue // SOFT-default kinds are telemetry; cluster coverage optional
+		}
+		if covered[kind] {
+			continue
+		}
+		if reason, ok := intentionalSingletons[kind]; ok {
+			_ = reason
+			continue
+		}
+		t.Errorf("Phase 1-C checklist: HARD-default ViolationKind %q has no cooccurrence rule and is not in intentionalSingletons. Add a rule in repair_cooccurrence.go OR document standalone semantics by adding the kind to intentionalSingletons here.", kind)
 	}
 }

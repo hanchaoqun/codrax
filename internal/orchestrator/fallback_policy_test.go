@@ -93,17 +93,22 @@ func TestFallbackTargetForViolations_PicksDeepest(t *testing.T) {
 			want: FallbackBackToExplore,
 		},
 		{
-			name: "PlanCritic alone → FailLoud (informational)",
+			// Phase 1-C: SOFT-only plan (PlanCritic alone) defaults
+			// to FinalizerOnly when no HARD cluster is present.
+			// Telemetry-only violation cannot block ship.
+			name: "PlanCritic alone → FinalizerOnly (SOFT-only plan)",
 			vs:   []types.Violation{{Kind: types.ViolPlanCritic}},
-			want: FallbackFailLoud,
+			want: FallbackFinalizerOnly,
 		},
 		{
-			name: "PlanCritic + Citation → FailLoud (FailLoud short-circuits)",
+			// Phase 1-C: SOFT FailLoud kind + HARD cluster → HARD
+			// drives routing (Citation is BackToExplore-mapped).
+			name: "PlanCritic + Citation → BackToExplore (HARD wins, SOFT FailLoud no-op)",
 			vs: []types.Violation{
 				{Kind: types.ViolPlanCritic},
 				{Kind: types.ViolCitation},
 			},
-			want: FallbackFailLoud,
+			want: FallbackBackToExplore,
 		},
 	}
 	for _, tc := range cases {
@@ -210,14 +215,17 @@ func TestFallbackTargetForViolations_RootCauseClustering(t *testing.T) {
 		},
 		{
 			// FailLoud preserved: any LocusTerminal cluster forces
-			// the whole plan to FailLoud regardless of other clusters.
-			name: "FailLoud overrides any cluster",
+			// SOFT FailLoud kind alongside HARD clusters does NOT
+			// override (Phase 1-C SOFT-immune: PlanCritic is
+			// telemetry-only; HARD PrincipalClaimUseMissing drives
+			// routing via finalizer-locus instead).
+			name: "SOFT FailLoud kind does not override HARD clusters",
 			vs: []types.Violation{
 				{Kind: types.ViolPrincipalClaimUseMissing},
 				{Kind: types.ViolDiagramEdgeUnsupported},
-				{Kind: types.ViolPlanCritic},
+				{Kind: types.ViolPlanCritic}, // SOFT FailLoud-mapped
 			},
-			want: FallbackFailLoud,
+			want: FallbackFinalizerOnly,
 		},
 	}
 	for _, tc := range cases {
@@ -454,15 +462,21 @@ func TestFallbackTargetForViolationsWithBudget_NoFinalizerLocalNoDowngrade(t *te
 	}
 }
 
-// TestFallbackTargetForViolationsWithBudget_FailLoudOverridesDowngrade
-// confirms the FailLoud short-circuit is unchanged.
-func TestFallbackTargetForViolationsWithBudget_FailLoudOverridesDowngrade(t *testing.T) {
+// TestFallbackTargetForViolationsWithBudget_SoftFailLoudDoesNotShortCircuit
+// pins Phase 1-C: SOFT FailLoud-mapped kinds (PlanCritic /
+// Reflector / RichnessRegression / etc.) NO LONGER short-circuit
+// to fail_loud. They are telemetry-only and let the deepest HARD
+// cluster drive routing. Pre-Phase-1-C, ViolPlanCritic + any
+// SOFT cluster forced fail_loud (V2 runtime eval m1a-2 / u3a-1
+// outlier root cause).
+func TestFallbackTargetForViolationsWithBudget_SoftFailLoudDoesNotShortCircuit(t *testing.T) {
 	vs := []types.Violation{
-		{Kind: types.ViolPlanCritic},
-		{Kind: types.ViolDiagramIdentifier},
+		{Kind: types.ViolPlanCritic},        // SOFT FailLoud-mapped
+		{Kind: types.ViolDiagramIdentifier}, // SOFT FinalizerOnly-mapped
 	}
-	if got := FallbackTargetForViolationsWithBudget(vs, 0); got != FallbackFailLoud {
-		t.Errorf("FailLoud must short-circuit budget downgrade: got %s, want fail_loud", got)
+	got := FallbackTargetForViolationsWithBudget(vs, 0)
+	if got == FallbackFailLoud {
+		t.Errorf("Phase 1-C: SOFT FailLoud kind MUST NOT short-circuit; got fail_loud")
 	}
 }
 

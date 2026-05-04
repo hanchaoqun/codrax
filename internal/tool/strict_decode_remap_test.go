@@ -1,0 +1,115 @@
+package tool
+
+import (
+	"bytes"
+	"encoding/json"
+	"errors"
+	"strings"
+	"testing"
+)
+
+// produceStrictDecodeErr returns an actual strict-decode error
+// from the json package so tests exercise the real shape rather
+// than a hand-crafted error string.
+func produceStrictDecodeErr(t *testing.T, payload string) error {
+	t.Helper()
+	type innerObj struct {
+		Form string `json:"form"`
+	}
+	type wrapper struct {
+		Inner innerObj `json:"inner"`
+	}
+	var w wrapper
+	dec := json.NewDecoder(bytes.NewReader([]byte(payload)))
+	dec.DisallowUnknownFields()
+	err := dec.Decode(&w)
+	if err == nil {
+		t.Fatalf("expected decode error for payload %q", payload)
+	}
+	return err
+}
+
+func TestRemapStrictDecodeError_NoHintsPassesThrough(t *testing.T) {
+	original := produceStrictDecodeErr(t, `{"inner":{"form":"x","extra":1}}`)
+	got := RemapStrictDecodeError(original, nil)
+	if got != original {
+		t.Errorf("nil hints must return original err untouched")
+	}
+}
+
+func TestRemapStrictDecodeError_MismatchedFieldPassesThrough(t *testing.T) {
+	original := produceStrictDecodeErr(t, `{"inner":{"form":"x","other":1}}`)
+	hints := []MisplacedFieldHint{
+		{Field: "citation_ref", ContainerNames: []string{"claim_use"}, CorrectPaths: []string{"items[i].citation_ref"}},
+	}
+	got := RemapStrictDecodeError(original, hints)
+	if got != original {
+		t.Errorf("hint with non-matching field MUST pass original err through; got %v", got)
+	}
+}
+
+func TestRemapStrictDecodeError_MatchedFieldRewritesMessage(t *testing.T) {
+	original := produceStrictDecodeErr(t, `{"inner":{"form":"x","citation_ref":7}}`)
+	hints := []MisplacedFieldHint{
+		{
+			Field:          "citation_ref",
+			ContainerNames: []string{"claim_use", "claim_uses"},
+			CorrectPaths: []string{
+				"items[i].citation_ref",
+				"value.citation_ref",
+				"boolean.citation_ref",
+			},
+		},
+	}
+	got := RemapStrictDecodeError(original, hints)
+	if got == original {
+		t.Fatal("matched hint MUST wrap the error")
+	}
+	msg := got.Error()
+	for _, want := range []string{
+		`field "citation_ref"`,
+		"items[i].citation_ref",
+		"value.citation_ref",
+		"boolean.citation_ref",
+		"NOT inside claim_use",
+	} {
+		if !strings.Contains(msg, want) {
+			t.Errorf("rewritten message missing %q; got %q", want, msg)
+		}
+	}
+	// Wrapped error MUST still unwrap to the original (errors.Is /
+	// errors.Unwrap chain preserved).
+	if !errors.Is(got, original) {
+		t.Errorf("wrapped err MUST unwrap to original (errors.Is broken)")
+	}
+}
+
+func TestRemapStrictDecodeError_NilErrorReturnsNil(t *testing.T) {
+	got := RemapStrictDecodeError(nil, []MisplacedFieldHint{
+		{Field: "x", ContainerNames: []string{"y"}, CorrectPaths: []string{"z"}},
+	})
+	if got != nil {
+		t.Errorf("nil err MUST return nil; got %v", got)
+	}
+}
+
+func TestExtractUnknownFieldName_RealStrictDecodeError(t *testing.T) {
+	err := produceStrictDecodeErr(t, `{"inner":{"form":"x","banana":1}}`)
+	got := extractUnknownFieldName(err)
+	if got != "banana" {
+		t.Errorf("got %q, want %q (err msg=%q)", got, "banana", err.Error())
+	}
+}
+
+func TestExtractUnknownFieldName_NonStrictErrorReturnsEmpty(t *testing.T) {
+	err := errors.New("some other error")
+	if got := extractUnknownFieldName(err); got != "" {
+		t.Errorf("non-strict err must yield empty; got %q", got)
+	}
+}
+
+func TestExtractUnknownFieldName_NilReturnsEmpty(t *testing.T) {
+	if got := extractUnknownFieldName(nil); got != "" {
+		t.Errorf("nil err must yield empty; got %q", got)
+	}
+}
