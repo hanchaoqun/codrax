@@ -91,6 +91,28 @@ func TestSelfConsistencyReviewerPrompt_NotOverFittedToS1aCase(t *testing.T) {
 	if !strings.Contains(p, "VERBATIM") {
 		t.Error("prompt missing verbatim-quote rule")
 	}
+
+	// B6-F2 (post-shape consolidated audit, 2026-05-04): the
+	// SEMANTIC-NORMALIZATION section MUST be present so the reviewer
+	// canonicalizes entity / scope / count expressions before
+	// pattern-matching contradiction shapes. The 4 abstract moves
+	// (same entity under different names, scope qualifier, same
+	// count expressed differently, different facts named the same
+	// way) are mandatory — adding a 5th move is fine; removing one
+	// would let the qf-... case slip through.
+	if !strings.Contains(p, "SEMANTIC-NORMALIZATION") {
+		t.Error("B6-F2 prompt missing SEMANTIC-NORMALIZATION header")
+	}
+	for _, want := range []string{
+		"SAME ENTITY UNDER DIFFERENT NAMES",
+		"SCOPE QUALIFIER",
+		"SAME COUNT EXPRESSED DIFFERENTLY",
+		"DIFFERENT FACTS NAMED THE SAME WAY",
+	} {
+		if !strings.Contains(p, want) {
+			t.Errorf("B6-F2 prompt missing normalization move: %q", want)
+		}
+	}
 }
 
 func TestSelfConsistencyReviewer_NilAdapterIsNoOp(t *testing.T) {
