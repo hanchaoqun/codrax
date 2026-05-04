@@ -2891,3 +2891,172 @@ func TestRenderQuotedList_FormatStability(t *testing.T) {
 		}
 	}
 }
+
+// ── R14-c9 retry-state rendering lock tests
+// (post_shape_residual_audit.md, 2026-05-04) ──────────────────────
+
+// TestRenderAnswerDocRetryState_NilOrEmpty pins the byte-identity
+// invariant: fresh dispatches (no retry state on Mutable) must
+// render empty so the prompt is byte-identical to pre-R14.
+func TestRenderAnswerDocRetryState_NilOrEmpty(t *testing.T) {
+	if got := renderAnswerDocRetryState(nil); got != "" {
+		t.Errorf("nil ctx: got %q, want empty", got)
+	}
+	ctx := &types.AgentContext{}
+	if got := renderAnswerDocRetryState(ctx); got != "" {
+		t.Errorf("ctx without Mutable: got %q, want empty", got)
+	}
+	ctx = &types.AgentContext{Mutable: &types.MutableState{}}
+	if got := renderAnswerDocRetryState(ctx); got != "" {
+		t.Errorf("Mutable without RetryState: got %q, want empty", got)
+	}
+	mut := &types.MutableState{}
+	mut.SetRetryState(&types.RetryState{Attempt: 0})
+	ctx = &types.AgentContext{Mutable: mut}
+	if got := renderAnswerDocRetryState(ctx); got != "" {
+		t.Errorf("Attempt=0 RetryState: got %q, want empty", got)
+	}
+}
+
+// TestRenderAnswerDocRetryState_FullPayload pins the 4 required
+// sections + key invariants:
+//   - Hard Rule referenced first
+//   - Required Changes lists Critical first
+//   - Active Violations groups by Severity (incl Soft as telemetry)
+//   - Previous Emit shows block-level claim_use + facet_ids verbatim
+func TestRenderAnswerDocRetryState_FullPayload(t *testing.T) {
+	rs := &types.RetryState{
+		Attempt: 2,
+		PrevEmitSummary: types.RetryStateSummary{
+			CitationsCount: 5,
+			CitationFiles:  []string{"a.go", "b.go"},
+			BlockSummaries: []types.RetryBlockSummary{
+				{
+					ID: "lifecycle", Kind: types.BlockSection,
+					SurfaceRole: types.SurfacePrincipal,
+					FacetIDs:    []string{"current_code_path"},
+					HasClaimUse: true,
+					ClaimForm:   types.ClaimDefinitionFact,
+				},
+				{
+					ID: "items_block", Kind: types.BlockOrderedList,
+					HasItems: true, ItemCount: 3,
+					ItemsWithClaimUse: 2, ItemsWithCitation: 3,
+				},
+			},
+			HasExactResolution: false,
+		},
+		ActiveViolations: []types.ScoredViolation{
+			{
+				Kind: types.ViolPrincipalClaimUseMissing,
+				Detail: `principal block id="lifecycle" kind=section has no claim_use`,
+				Repair:    "emit claim_use on the block",
+				Severity:  types.SeverityCritical,
+				Layer:     "v2_oracle",
+				BlockID:   "lifecycle",
+				FieldPath: `blocks[id="lifecycle"].claim_use`,
+			},
+			{
+				Kind: types.ViolFacetUncovered,
+				Detail: `required facet "diagram_spine" not covered`,
+				Repair:    `declare facet_id="diagram_spine"`,
+				Severity:  types.SeverityHigh,
+				Layer:     "v2_oracle",
+				FieldPath: "blocks[*].facet_ids",
+			},
+			{
+				Kind: types.ViolRichnessRegression,
+				Detail: `optional facet "uncertainty_boundary" not surfaced`,
+				Severity: types.SeveritySoft,
+				Layer:    "v2_oracle",
+			},
+		},
+	}
+	mut := &types.MutableState{}
+	mut.SetRetryState(rs)
+	ctx := &types.AgentContext{Mutable: mut}
+	got := renderAnswerDocRetryState(ctx)
+
+	// 1. Hard Rule
+	for _, want := range []string{
+		"## Hard Rule (retry attempt 2)",
+		"byte-identical to your Previous Emit",
+		"Do NOT regenerate from scratch",
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("Hard Rule missing %q in:\n%s", want, got)
+		}
+	}
+
+	// 2. Required Changes — Critical first, then High; Soft NOT in this section
+	cIdx := strings.Index(got, "## Required Changes")
+	if cIdx < 0 {
+		t.Fatal("Required Changes section missing")
+	}
+	criticalIdx := strings.Index(got, "**CRITICAL**")
+	highIdx := strings.Index(got, "**HIGH**")
+	if criticalIdx <= 0 || criticalIdx > highIdx {
+		t.Errorf("CRITICAL must precede HIGH in Required Changes")
+	}
+	if !strings.Contains(got, `blocks[id="lifecycle"].claim_use`) {
+		t.Errorf("missing typed FieldPath in Required Changes:\n%s", got[cIdx:cIdx+800])
+	}
+	// Soft not in Required Changes section (between Required and Active sections).
+	requiredSection := got[cIdx:strings.Index(got, "## Active Violations")]
+	if strings.Contains(requiredSection, "uncertainty_boundary") {
+		t.Errorf("Soft violation must not appear in Required Changes:\n%s", requiredSection)
+	}
+
+	// 3. Active Violations
+	if !strings.Contains(got, "## Active Violations (typed, by severity + layer)") {
+		t.Error("Active Violations section header missing")
+	}
+	// Soft IS shown in Active Violations with telemetry tag
+	if !strings.Contains(got, "uncertainty_boundary") {
+		t.Error("Soft violation missing in Active Violations")
+	}
+	if !strings.Contains(got, "*(telemetry only)*") {
+		t.Error("Soft violation must carry telemetry-only tag")
+	}
+
+	// 4. Previous Emit
+	for _, want := range []string{
+		"## Previous Emit (preserve every field below byte-identical",
+		`Block id="lifecycle" kind=section surface_role="principal"`,
+		`facet_ids: ["current_code_path"]`,
+		`claim_use: present (claim_form="definition_fact")`,
+		`Block id="items_block" kind=ordered_list`,
+		"items: 3 total, 2 with claim_use, 3 with citation",
+		"Citations: 5 entries (top files: a.go, b.go)",
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("Previous Emit missing %q in:\n%s", want, got)
+		}
+	}
+}
+
+// TestRenderRetryRequiredChanges_GroupsBySeverity verifies the
+// Critical → High → Medium ordering and Soft exclusion.
+func TestRenderRetryRequiredChanges_GroupsBySeverity(t *testing.T) {
+	rs := &types.RetryState{
+		ActiveViolations: []types.ScoredViolation{
+			{Kind: "k_med", Severity: types.SeverityMedium, Detail: "med"},
+			{Kind: "k_crit", Severity: types.SeverityCritical, Detail: "crit"},
+			{Kind: "k_high", Severity: types.SeverityHigh, Detail: "high"},
+			{Kind: "k_soft", Severity: types.SeveritySoft, Detail: "soft"},
+		},
+	}
+	got := renderRetryRequiredChanges(rs)
+	cIdx := strings.Index(got, "**CRITICAL**")
+	hIdx := strings.Index(got, "**HIGH**")
+	mIdx := strings.Index(got, "**MEDIUM**")
+	if cIdx < 0 || hIdx < 0 || mIdx < 0 {
+		t.Fatalf("missing severity sections; got:\n%s", got)
+	}
+	if !(cIdx < hIdx && hIdx < mIdx) {
+		t.Errorf("severity ordering broken: c=%d h=%d m=%d", cIdx, hIdx, mIdx)
+	}
+	if strings.Contains(got, "soft") {
+		t.Errorf("Soft must not appear in Required Changes:\n%s", got)
+	}
+}

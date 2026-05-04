@@ -139,6 +139,16 @@ func (e *answerDocumentEvaluator) BuildInitialInstruction(ctx *types.AgentContex
 
 	var b strings.Builder
 
+	// R14 (post_shape_residual_audit.md, 2026-05-04): render
+	// typed retry-state surface BEFORE any other dynamic content
+	// when this dispatch is a retry. The LLM sees Previous Emit
+	// + Active Violations + Required Changes + Hard Rule at the
+	// top, anchoring the retry around prev typed-state instead
+	// of regenerating from scratch.
+	if retryState := renderAnswerDocRetryState(ctx); retryState != "" {
+		b.WriteString(retryState)
+	}
+
 	// User question is already rendered by builder.go as "User Request"
 	// section — no need to repeat it here.
 
@@ -642,6 +652,234 @@ var answerDocClaimFormLabels = map[types.ClaimForm]string{
 //                                 must include (Summary/Section/
 //                                 OrderedList/Diagram/etc.) + min/max
 //                                 counts + the family rationale.
+// renderAnswerDocRetryState (R14-c5..c8, post_shape_residual_audit.md
+// 2026-05-04) is the unified retry-state prompt section. Rendered
+// at the TOP of BuildInitialInstruction when ctx.EmitStageRetryAttempt > 0
+// AND ctx.Mutable.RetryState() carries content.
+//
+// Renders 4 sections in fixed order:
+//
+//   1. ## Hard Rule (top) — preserve every unchanged field byte-identical.
+//   2. ## Required Changes — typed FieldPath + Repair text per violation,
+//      grouped by Severity (Critical first, then High, Medium; Soft skipped).
+//   3. ## Active Violations — full set, by Severity + Layer, so the
+//      LLM has cross-layer visibility (R13 fix).
+//   4. ## Previous Emit — typed projection of prev emit (R6/R6.1 fix:
+//      LLM sees what fields it already filled).
+//
+// Returns "" when no retry state to render (preserves byte-identical
+// pre-R14 behaviour on fresh dispatches).
+func renderAnswerDocRetryState(ctx *types.AgentContext) string {
+	if ctx == nil || ctx.Mutable == nil {
+		return ""
+	}
+	rs := ctx.Mutable.RetryState()
+	if rs == nil || !rs.HasContent() {
+		return ""
+	}
+
+	var b strings.Builder
+	fmt.Fprintf(&b, "## Hard Rule (retry attempt %d)\n\n", rs.Attempt)
+	b.WriteString("Your last `emit_answer_document` was rejected. Re-emit by **starting from your previous payload (shown in 'Previous Emit' below) and changing ONLY the field paths listed in 'Required Changes' below**. Every other field — `blocks[].id`, `blocks[].kind`, `blocks[].facet_ids`, `blocks[].claim_use`, `blocks[].surface_role`, `blocks[].items[]`, `citations[]`, `exact_resolution` — MUST appear byte-identical to your Previous Emit. Do NOT regenerate from scratch. The validator will reject any retry that loses fields you already filled correctly.\n\n")
+
+	// 2. Required Changes (sorted by severity desc, soft excluded).
+	if changes := renderRetryRequiredChanges(rs); changes != "" {
+		b.WriteString(changes)
+	}
+
+	// 3. Active Violations (full set, grouped by severity then layer).
+	if active := renderRetryActiveViolations(rs); active != "" {
+		b.WriteString(active)
+	}
+
+	// 4. Previous Emit (typed summary).
+	if prev := renderRetryPrevEmit(rs); prev != "" {
+		b.WriteString(prev)
+	}
+	return b.String()
+}
+
+// renderRetryRequiredChanges renders the typed FieldPath + Repair
+// list for every violation with Severity >= Medium. Soft violations
+// are listed in the Active Violations section but NOT in Required
+// Changes (LLM is informed they exist but not required to fix).
+//
+// Sort order: Critical first, then High, then Medium. Within a
+// severity bucket, preserve producer order (deterministic).
+func renderRetryRequiredChanges(rs *types.RetryState) string {
+	if rs == nil || len(rs.ActiveViolations) == 0 {
+		return ""
+	}
+	type bucket struct {
+		severity types.Severity
+		entries  []types.ScoredViolation
+	}
+	buckets := []*bucket{
+		{severity: types.SeverityCritical},
+		{severity: types.SeverityHigh},
+		{severity: types.SeverityMedium},
+	}
+	for _, sv := range rs.ActiveViolations {
+		for _, b := range buckets {
+			if sv.Severity == b.severity {
+				b.entries = append(b.entries, sv)
+				break
+			}
+		}
+	}
+	totalActionable := 0
+	for _, b := range buckets {
+		totalActionable += len(b.entries)
+	}
+	if totalActionable == 0 {
+		return ""
+	}
+	var out strings.Builder
+	out.WriteString("## Required Changes\n\n")
+	out.WriteString("Apply each change below. Each entry names the typed FIELD PATH the LLM must edit (relative to your `emit_answer_document` params) and the validator's repair guidance.\n\n")
+	for _, b := range buckets {
+		if len(b.entries) == 0 {
+			continue
+		}
+		fmt.Fprintf(&out, "**%s** (must fix):\n\n", strings.ToUpper(string(b.severity)))
+		for _, sv := range b.entries {
+			out.WriteString("- ")
+			if sv.FieldPath != "" {
+				fmt.Fprintf(&out, "field path `%s`", sv.FieldPath)
+			} else {
+				fmt.Fprintf(&out, "kind=%s", sv.Kind)
+			}
+			if sv.BlockID != "" && !strings.Contains(sv.FieldPath, sv.BlockID) {
+				fmt.Fprintf(&out, " (block id=%q)", sv.BlockID)
+			}
+			repair := strings.TrimSpace(sv.Repair)
+			if repair == "" {
+				repair = strings.TrimSpace(sv.Detail)
+			}
+			if repair != "" {
+				fmt.Fprintf(&out, " — %s", repair)
+			}
+			out.WriteString("\n")
+		}
+		out.WriteString("\n")
+	}
+	return out.String()
+}
+
+// renderRetryActiveViolations renders the full violation set
+// grouped by Severity+Layer. Includes Soft violations (telemetry
+// only — LLM is informed but not required to fix). Cross-layer
+// rendering ensures LLM sees scheduler / V2 oracle / contract.Check
+// violations together (R13).
+func renderRetryActiveViolations(rs *types.RetryState) string {
+	if rs == nil || len(rs.ActiveViolations) == 0 {
+		return ""
+	}
+	// Group: severity → layer → []entries
+	bySeverity := map[types.Severity]map[string][]types.ScoredViolation{}
+	for _, sv := range rs.ActiveViolations {
+		layers := bySeverity[sv.Severity]
+		if layers == nil {
+			layers = map[string][]types.ScoredViolation{}
+			bySeverity[sv.Severity] = layers
+		}
+		layers[sv.Layer] = append(layers[sv.Layer], sv)
+	}
+	var out strings.Builder
+	out.WriteString("## Active Violations (typed, by severity + layer)\n\n")
+	severityOrder := []types.Severity{
+		types.SeverityCritical, types.SeverityHigh,
+		types.SeverityMedium, types.SeveritySoft,
+	}
+	for _, sev := range severityOrder {
+		layers := bySeverity[sev]
+		if len(layers) == 0 {
+			continue
+		}
+		fmt.Fprintf(&out, "**%s**:\n\n", strings.ToUpper(string(sev)))
+		// Stable iteration: sort layers by name (deterministic prompt).
+		layerNames := make([]string, 0, len(layers))
+		for n := range layers {
+			layerNames = append(layerNames, n)
+		}
+		// Simple sort without import; len is small.
+		for i := 0; i < len(layerNames); i++ {
+			for j := i + 1; j < len(layerNames); j++ {
+				if layerNames[j] < layerNames[i] {
+					layerNames[i], layerNames[j] = layerNames[j], layerNames[i]
+				}
+			}
+		}
+		for _, layer := range layerNames {
+			for _, sv := range layers[layer] {
+				fmt.Fprintf(&out, "- [%s · %s] %s", layer, sv.Kind, strings.TrimSpace(sv.Detail))
+				if sv.Severity == types.SeveritySoft {
+					out.WriteString(" *(telemetry only)*")
+				}
+				out.WriteString("\n")
+			}
+		}
+		out.WriteString("\n")
+	}
+	return out.String()
+}
+
+// renderRetryPrevEmit renders the typed projection of the previous
+// emit so the LLM sees what fields it already filled (R6/R6.1 fix).
+//
+// For each block, lists:
+//   - id + kind + surface_role
+//   - facet_ids verbatim (if non-empty)
+//   - block-level claim_use presence + claim_form (if any)
+//   - item count + items_with_claim_use + items_with_citation (if any)
+//   - text preview (head 400 + tail 200 truncation)
+func renderRetryPrevEmit(rs *types.RetryState) string {
+	if rs == nil || len(rs.PrevEmitSummary.BlockSummaries) == 0 {
+		return ""
+	}
+	var out strings.Builder
+	out.WriteString("## Previous Emit (preserve every field below byte-identical unless listed in Required Changes)\n\n")
+	for _, bs := range rs.PrevEmitSummary.BlockSummaries {
+		fmt.Fprintf(&out, "Block id=%q kind=%s", bs.ID, bs.Kind)
+		if bs.SurfaceRole != "" {
+			fmt.Fprintf(&out, " surface_role=%q", string(bs.SurfaceRole))
+		}
+		out.WriteString(":\n")
+		if len(bs.FacetIDs) > 0 {
+			fmt.Fprintf(&out, "  facet_ids: %s\n", renderQuotedList(bs.FacetIDs))
+		}
+		if bs.HasClaimUse {
+			fmt.Fprintf(&out, "  claim_use: present (claim_form=%q)\n", string(bs.ClaimForm))
+		} else {
+			out.WriteString("  claim_use: ABSENT (verify whether contract requires it)\n")
+		}
+		if bs.HasItems {
+			fmt.Fprintf(&out, "  items: %d total, %d with claim_use, %d with citation\n",
+				bs.ItemCount, bs.ItemsWithClaimUse, bs.ItemsWithCitation)
+		}
+		if bs.TextPreview != "" {
+			// Indent preview for readability.
+			preview := strings.ReplaceAll(strings.TrimSpace(bs.TextPreview), "\n", " ")
+			if len([]rune(preview)) > 200 {
+				preview = string([]rune(preview)[:200]) + "…"
+			}
+			fmt.Fprintf(&out, "  text preview: %q\n", preview)
+		}
+		out.WriteString("\n")
+	}
+	if rs.PrevEmitSummary.CitationsCount > 0 {
+		fmt.Fprintf(&out, "Citations: %d entries", rs.PrevEmitSummary.CitationsCount)
+		if len(rs.PrevEmitSummary.CitationFiles) > 0 {
+			fmt.Fprintf(&out, " (top files: %s)", strings.Join(rs.PrevEmitSummary.CitationFiles, ", "))
+		}
+		out.WriteString("\n\n")
+	}
+	if rs.PrevEmitSummary.HasExactResolution {
+		out.WriteString("exact_resolution: present (preserve byte-identical)\n\n")
+	}
+	return out.String()
+}
+
 //   ## Facets each block must cover — which semantic surface each
 //                                 block should ground (cross-ref to
 //                                 the existing Required Answer Facets
