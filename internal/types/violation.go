@@ -462,6 +462,30 @@ const (
 	// names the conflicting symbol + lists the disagreeing cites.
 	ViolCrossCitationConflict ViolationKind = "cross_citation_conflict"
 
+	// ViolDemotionStorm fires when the per-Run ClosureStats.ChainsDemoted
+	// counter exceeds the configured threshold. Each demotion event
+	// individually is a normal CGEC enforcement signal (a hallucinated
+	// chain or terminal-predicate self-ref correctly stripped from the
+	// prompt); collectively a high-frequency stream signals the
+	// explorer is over-producing low-quality chains, which the
+	// operator should see in the Run summary as a single SOFT
+	// violation rather than buried in the [CGEC] summary INFO line.
+	//
+	// SOFT-by-default — telemetry-only. Defaulted threshold is 10
+	// per-Run; configurable via pipeline_demotion_storm_threshold.
+	// Stage="finalize" (recorded at end-of-Run after all stages have
+	// closed). Never blocks shipping.
+	ViolDemotionStorm ViolationKind = "demotion_storm"
+
+	// ViolForcedReadStorm fires when ClosureStats.ForcedReads exceeds
+	// the configured threshold. Each forced read individually is a
+	// recovery action (the orchestrator paged a file the LLM should
+	// have read but skipped); a high count signals the explorer's
+	// keyword_search is consistently leaving primary anchors
+	// unread. Same SOFT-by-default + per-Run + Stage="finalize"
+	// semantics as ViolDemotionStorm.
+	ViolForcedReadStorm ViolationKind = "forced_read_storm"
+
 	// ViolSymbolAnchorMismatch (P1 #3, 2026-05-03) fires when the
 	// extractor accumulated ≥ symbolAnchorMismatchThreshold (default 3)
 	// emit_answer_symbol rejections in a single Run AND the rendered
@@ -531,7 +555,10 @@ func AllViolationKinds() []ViolationKind {
 		ViolSymbolAnchorMismatch,
 		ViolStructuralEnumerationDivergence,
 		ViolCrossCitationConflict,
-		// B4 V2 block-only carrier validators.
+		// CGEC frequency bridges (R10).
+		ViolDemotionStorm,
+		ViolForcedReadStorm,
+		// V2 block-only carrier validators.
 		ViolBlockCoverageMissing,
 		ViolPrincipalClaimUseMissing,
 		ViolDiagramEdgeUnsupported,

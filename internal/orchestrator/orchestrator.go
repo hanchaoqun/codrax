@@ -4044,6 +4044,12 @@ func (o *Orchestrator) emitCGECSummary() {
 	}
 	closure := o.busCtx.Mutable.EvidenceClosure()
 	stats := closure.Stats()
+	// CGEC frequency bridge: high-frequency CGEC events get a
+	// SOFT violation entry so operators see the storm in the
+	// closure ledger / by_field tally, not just the raw counter
+	// in the [CGEC] summary INFO line. Telemetry-only (Severity=
+	// Soft per types.DeriveSeverity); never blocks shipping.
+	emitCGECStormViolations(closure, stats)
 	var line string
 	if !stats.HasActivity() {
 		line = "[CGEC] summary: no enforcer fired (contract quiet)"
@@ -4103,6 +4109,87 @@ func (o *Orchestrator) emitCGECSummary() {
 			logging.Warning("[richness] %s family=%s facet_id=%s facet_kind=%s buckets=%d reason=%s",
 				sig.Kind, sig.Family, sig.FacetID, sig.FacetKind, sig.BucketCount, sig.Reason)
 		}
+	}
+}
+
+// CGEC frequency bridge thresholds (R10). When the per-Run scalar
+// counter exceeds the corresponding threshold, the bridge emits a
+// SOFT-by-default violation so operators see the storm signal in
+// closure ledger / [CGEC] by_field tally rather than only the raw
+// counter in the summary line. Wired via cmd/root.go from yaml
+// pipeline_demotion_storm_threshold / pipeline_forced_read_storm_threshold.
+//
+// Setting either threshold to 0 disables the corresponding bridge
+// (no storm violation ever emits). Negative values reset to default.
+var (
+	demotionStormThreshold   = 10
+	forcedReadStormThreshold = 8
+)
+
+// SetCGECStormThresholds is wired from cmd/root.go yaml merge.
+// Non-positive values reset to defaults (10 / 8). Pass any positive
+// integer to tune.
+func SetCGECStormThresholds(demotion, forcedRead int) {
+	if demotion > 0 {
+		demotionStormThreshold = demotion
+	} else if demotion == 0 {
+		demotionStormThreshold = 0 // explicit disable
+	} else {
+		demotionStormThreshold = 10
+	}
+	if forcedRead > 0 {
+		forcedReadStormThreshold = forcedRead
+	} else if forcedRead == 0 {
+		forcedReadStormThreshold = 0 // explicit disable
+	} else {
+		forcedReadStormThreshold = 8
+	}
+}
+
+// emitCGECStormViolations is the R10 frequency-to-violation bridge.
+// At end-of-Run, when ClosureStats.ChainsDemoted exceeds the
+// configured threshold, append one ViolDemotionStorm entry;
+// similarly for ChainsForcedReads → ViolForcedReadStorm. SOFT
+// kinds — never block shipping, just visible in operator tooling.
+//
+// Idempotent within a Run: emits at most one ViolDemotionStorm +
+// one ViolForcedReadStorm per Run (driven by the same counter, so
+// re-calling emitCGECSummary would just produce the same dup —
+// harmless because closure.AppendViolation appends regardless;
+// callers shouldn't re-invoke emitCGECSummary anyway).
+func emitCGECStormViolations(closure *types.EvidenceClosure, stats types.ClosureStats) {
+	if closure == nil {
+		return
+	}
+	if demotionStormThreshold > 0 && stats.ChainsDemoted >= demotionStormThreshold {
+		closure.AppendViolation(types.Violation{
+			Kind: types.ViolDemotionStorm,
+			Detail: fmt.Sprintf(
+				"chains_demoted=%d (threshold %d) — explorer over-produced low-quality chains; review keyword_search noise",
+				stats.ChainsDemoted, demotionStormThreshold),
+			Repair: "operator-side: review explorer's keyword_search ranking + chain promotion thresholds (no LLM action required — telemetry only).",
+			SuspectedRoot: types.SuspectedRoot{
+				IRField:    "explorer_chain_quality",
+				Reason:     "chains_demoted exceeds storm threshold",
+				Confidence: 0.6,
+			},
+			Stage: string(types.StageFinalize),
+		})
+	}
+	if forcedReadStormThreshold > 0 && stats.ForcedReads >= forcedReadStormThreshold {
+		closure.AppendViolation(types.Violation{
+			Kind: types.ViolForcedReadStorm,
+			Detail: fmt.Sprintf(
+				"forced_reads=%d (threshold %d) — explorer skipped primary anchors that the orchestrator had to page in via Lazy Auto-Read",
+				stats.ForcedReads, forcedReadStormThreshold),
+			Repair: "operator-side: review keyword_search coverage of primary entities; Lazy Auto-Read should be a fallback, not the main path.",
+			SuspectedRoot: types.SuspectedRoot{
+				IRField:    "explorer_anchor_coverage",
+				Reason:     "forced_reads exceeds storm threshold",
+				Confidence: 0.6,
+			},
+			Stage: string(types.StageFinalize),
+		})
 	}
 }
 

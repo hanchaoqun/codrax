@@ -243,6 +243,9 @@ func TestAllViolationKindsHaveProducer(t *testing.T) {
 		ViolRichnessRegression:   true, // orchestrator/contract_check_block.go validateRichnessRegression
 		ViolClaimFormUnsupported: true, // orchestrator/contract_check_block.go validateClaimFormSupport
 		ViolAbsenceScopeExceeded: true, // orchestrator/contract_check_block.go validateAbsenceScopeBound
+		// R10 CGEC frequency bridges (post_shape_residual_audit.md, 2026-05-04).
+		ViolDemotionStorm:   true, // orchestrator/orchestrator.go emitCGECStormViolations
+		ViolForcedReadStorm: true, // orchestrator/orchestrator.go emitCGECStormViolations
 	}
 	pending := map[ViolationKind]string{
 		ViolFamilyMismatch:                          "P9-C-retired-V1-checkShape (V2 block oracles cover read-mode block contract via runV2BlockOracles)",

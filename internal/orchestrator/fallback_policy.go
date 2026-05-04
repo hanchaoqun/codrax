@@ -352,6 +352,16 @@ func DefaultFallbackPolicy() FallbackPolicy {
 		// answer ships with the conflict noted; promotion to STRICT
 		// triggers BackToExtract retry (extractor must converge).
 		types.ViolCrossCitationConflict: FallbackBackToExtract,
+		// R10 CGEC frequency bridges (post_shape_residual_audit.md,
+		// 2026-05-04). Telemetry-only — operator-side review signals,
+		// no LLM retry can fix them (the LLM does not directly
+		// control chain demotion / forced read counts). Mapped to
+		// FailLoud as a safety net: if an operator accidentally
+		// promotes them via pipeline_contract_strict_kinds, the run
+		// fails fast rather than retry-storming on a non-LLM-actionable
+		// signal.
+		types.ViolDemotionStorm:   FallbackFailLoud,
+		types.ViolForcedReadStorm: FallbackFailLoud,
 	}
 }
 

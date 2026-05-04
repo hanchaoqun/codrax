@@ -198,6 +198,20 @@ type RuntimeSettings struct {
 	// Default true so silent rule firings are visible.
 	PipelineRichnessSofteningWarn *bool `yaml:"pipeline_richness_softening_warn"`
 
+	// PipelineDemotionStormThreshold + PipelineForcedReadStormThreshold
+	// gate the CGEC frequency-to-violation bridge: when the per-Run
+	// scalar counter (closure.Stats.ChainsDemoted /
+	// closure.Stats.ForcedReads) reaches the threshold, a SOFT
+	// ViolDemotionStorm / ViolForcedReadStorm violation is appended
+	// to the closure ledger so operators see the storm signal in
+	// closure ledger / [CGEC] by_field tally rather than only the
+	// raw counter line. Defaults: demotion=10, forced_read=8. Set
+	// to 0 to disable the bridge entirely (no storm violation
+	// emits regardless of counter); negative values reset to
+	// default.
+	PipelineDemotionStormThreshold   *int `yaml:"pipeline_demotion_storm_threshold"`
+	PipelineForcedReadStormThreshold *int `yaml:"pipeline_forced_read_storm_threshold"`
+
 	// PipelineFinalizerLocalRetriesBeforeEscalate gates the R2.2
 	// (post_shape_residual_audit.md, 2026-05-04) finalize-local
 	// priority downgrade. When the contract checker emits a violation

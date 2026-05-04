@@ -1675,6 +1675,19 @@ func initApp(cmd *cobra.Command, _ []string) error {
 			finalizerRetryNoThink = *rs.PipelineFinalizerRetryNoThink
 		}
 		orchestrator.SetFinalizerRetryNoThinkEnabled(finalizerRetryNoThink)
+		// CGEC frequency-to-violation bridge thresholds. -1 sentinel
+		// preserves default behaviour when the yaml knob is absent;
+		// the orchestrator setter treats negative values as "reset
+		// to default", 0 as "explicit disable".
+		demotionStorm := -1
+		forcedReadStorm := -1
+		if rs.PipelineDemotionStormThreshold != nil {
+			demotionStorm = *rs.PipelineDemotionStormThreshold
+		}
+		if rs.PipelineForcedReadStormThreshold != nil {
+			forcedReadStorm = *rs.PipelineForcedReadStormThreshold
+		}
+		orchestrator.SetCGECStormThresholds(demotionStorm, forcedReadStorm)
 		// Read-mode Answer Taxonomy yaml knobs (commit 51 Gap 3).
 		if rs.PipelineAnswerTaxonomyEnabled != nil {
 			answerTaxonomyEnabled = *rs.PipelineAnswerTaxonomyEnabled

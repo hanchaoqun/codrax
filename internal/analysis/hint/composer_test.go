@@ -266,6 +266,13 @@ var composerExactFixSkipWhitelist = map[types.ViolationKind]string{
 	// disagreeing loci verbatim) so the generic composer fallback
 	// pairs naturally with the actionable Detail.
 	types.ViolCrossCitationConflict: "uses violation.Repair for fix prose",
+
+	// R10 (post_shape_residual_audit.md, 2026-05-04) — CGEC
+	// frequency-to-violation bridges. Telemetry-only (operator-side
+	// signals, not LLM-actionable) — Repair text addresses the
+	// operator, not the LLM.
+	types.ViolDemotionStorm:   "telemetry only — operator review signal, no LLM repair",
+	types.ViolForcedReadStorm: "telemetry only — operator review signal, no LLM repair",
 }
 
 // TestComposer_AllViolationKindsHaveCase enforces P34's

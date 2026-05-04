@@ -358,7 +358,10 @@ func DeriveSeverity(kind ViolationKind, isStrict bool) Severity {
 	case ViolRichnessRegression,
 		ViolPlanCritic,
 		ViolReflectorObservation,
-		ViolAnswerReviewerDistilled:
+		ViolAnswerReviewerDistilled,
+		// R10 CGEC frequency bridges — telemetry-only, never block.
+		ViolDemotionStorm,
+		ViolForcedReadStorm:
 		return SeveritySoft
 	}
 	// Unknown kinds default to Medium — safer than Soft (won't
