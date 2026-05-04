@@ -465,6 +465,147 @@ func TestValidateRichnessRegression_CoveredOptionalNoFire(t *testing.T) {
 	}
 }
 
+// ── R2.3 V2 重接 ClaimFormUnsupported tests ──────────────────────
+
+// TestValidateClaimFormSupport_MatchPasses confirms when the LLM-
+// declared ClaimForm matches ClaimFormOf(evidence), no fire.
+func TestValidateClaimFormSupport_MatchPasses(t *testing.T) {
+	mut := &types.MutableState{}
+	// Definition-anchor evidence projects to ClaimDefinitionFact.
+	mut.AppendEvidence([]types.EvidenceItem{{
+		ID: "ev1", AnchorKind: types.AnchorDefinition,
+		Source: "x.go", LineStart: 10, Subject: "Foo",
+	}})
+	doc := &types.AnswerDocumentV2{
+		Blocks: []types.AnswerBlock{{
+			ID:   "b1",
+			Kind: types.BlockOrderedList,
+			Items: []types.AnswerBlockItem{{
+				Label: "step1",
+				ClaimUse: &types.RenderedClaimUse{
+					EvidenceID: "ev1",
+					ClaimForm:  types.ClaimDefinitionFact,
+				},
+			}},
+		}},
+	}
+	if vs := validateClaimFormSupport(doc, mut); len(vs) > 0 {
+		t.Errorf("matching ClaimForm must not fire; got %+v", vs)
+	}
+}
+
+// TestValidateClaimFormSupport_MismatchFires confirms a typed-
+// projection mismatch fires ViolClaimFormUnsupported.
+func TestValidateClaimFormSupport_MismatchFires(t *testing.T) {
+	mut := &types.MutableState{}
+	// Call-anchor evidence → ClaimCallEdge.
+	mut.AppendEvidence([]types.EvidenceItem{{
+		ID: "ev1", AnchorKind: types.AnchorCall,
+		Source: "x.go", LineStart: 50, Subject: "callerFn", Object: "calleeFn",
+	}})
+	doc := &types.AnswerDocumentV2{
+		Blocks: []types.AnswerBlock{{
+			ID:   "b1",
+			Kind: types.BlockBulletList,
+			Items: []types.AnswerBlockItem{{
+				Label: "x",
+				ClaimUse: &types.RenderedClaimUse{
+					EvidenceID: "ev1",
+					ClaimForm:  types.ClaimDefinitionFact, // wrong — evidence is a call
+				},
+			}},
+		}},
+	}
+	vs := validateClaimFormSupport(doc, mut)
+	if len(vs) != 1 {
+		t.Fatalf("want 1 violation; got %d (%+v)", len(vs), vs)
+	}
+	if vs[0].Kind != types.ViolClaimFormUnsupported {
+		t.Errorf("kind = %q, want ViolClaimFormUnsupported", vs[0].Kind)
+	}
+	if !strings.Contains(vs[0].Detail, "definition_fact") || !strings.Contains(vs[0].Detail, "call_edge") {
+		t.Errorf("Detail must name both forms; got %q", vs[0].Detail)
+	}
+}
+
+// TestValidateClaimFormSupport_GeneralisationOK confirms when
+// ClaimFormOf(evidence) is ClaimUnknown (projection couldn't lock
+// a form), the LLM is allowed to declare a more specific form.
+func TestValidateClaimFormSupport_GeneralisationOK(t *testing.T) {
+	mut := &types.MutableState{}
+	// Bare evidence with no AnchorKind → ClaimUnknown.
+	mut.AppendEvidence([]types.EvidenceItem{{ID: "ev1"}})
+	doc := &types.AnswerDocumentV2{
+		Blocks: []types.AnswerBlock{{
+			Kind: types.BlockBulletList,
+			Items: []types.AnswerBlockItem{{
+				Label: "x",
+				ClaimUse: &types.RenderedClaimUse{
+					EvidenceID: "ev1",
+					ClaimForm:  types.ClaimAssignmentFact,
+				},
+			}},
+		}},
+	}
+	if vs := validateClaimFormSupport(doc, mut); len(vs) > 0 {
+		t.Errorf("ClaimUnknown projection must allow generalisation; got %+v", vs)
+	}
+}
+
+// TestValidateClaimFormSupport_UnknownEvidenceIDSkipped confirms
+// EvidenceID not in pool is silently skipped (no spurious fire).
+func TestValidateClaimFormSupport_UnknownEvidenceIDSkipped(t *testing.T) {
+	mut := &types.MutableState{}
+	mut.AppendEvidence([]types.EvidenceItem{{ID: "ev1", AnchorKind: types.AnchorDefinition}})
+	doc := &types.AnswerDocumentV2{
+		Blocks: []types.AnswerBlock{{
+			Kind: types.BlockBulletList,
+			Items: []types.AnswerBlockItem{{
+				Label: "x",
+				ClaimUse: &types.RenderedClaimUse{
+					EvidenceID: "ev_phantom",
+					ClaimForm:  types.ClaimDefinitionFact,
+				},
+			}},
+		}},
+	}
+	if vs := validateClaimFormSupport(doc, mut); len(vs) > 0 {
+		t.Errorf("unknown EvidenceID must be silently skipped; got %+v", vs)
+	}
+}
+
+// TestValidateClaimFormSupport_NilGuards covers nil guards.
+func TestValidateClaimFormSupport_NilGuards(t *testing.T) {
+	if vs := validateClaimFormSupport(nil, &types.MutableState{}); vs != nil {
+		t.Errorf("nil doc → nil")
+	}
+	if vs := validateClaimFormSupport(&types.AnswerDocumentV2{}, nil); vs != nil {
+		t.Errorf("nil mut → nil")
+	}
+	if vs := validateClaimFormSupport(&types.AnswerDocumentV2{}, &types.MutableState{}); vs != nil {
+		t.Errorf("empty pool → nil")
+	}
+}
+
+// TestValidateClaimFormSupport_EmptyClaimFormSkipped confirms when
+// LLM didn't declare a ClaimForm (empty), there's nothing to check.
+func TestValidateClaimFormSupport_EmptyClaimFormSkipped(t *testing.T) {
+	mut := &types.MutableState{}
+	mut.AppendEvidence([]types.EvidenceItem{{ID: "ev1", AnchorKind: types.AnchorDefinition}})
+	doc := &types.AnswerDocumentV2{
+		Blocks: []types.AnswerBlock{{
+			Kind: types.BlockBulletList,
+			Items: []types.AnswerBlockItem{{
+				Label:    "x",
+				ClaimUse: &types.RenderedClaimUse{EvidenceID: "ev1"}, // no ClaimForm declared
+			}},
+		}},
+	}
+	if vs := validateClaimFormSupport(doc, mut); len(vs) > 0 {
+		t.Errorf("empty ClaimForm must be silently skipped; got %+v", vs)
+	}
+}
+
 // ── AllViolationKinds 完整性 (4 新 kind 在 covered + kindSymbols 双表) ──
 func TestB4ViolationKindsRegistered(t *testing.T) {
 	want := []types.ViolationKind{

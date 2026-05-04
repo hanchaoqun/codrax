@@ -432,20 +432,126 @@ func validateRichnessRegression(doc *types.AnswerDocumentV2, view *types.AnswerS
 	return out
 }
 
+// validateClaimFormSupport (R2.3 V2 重接, post_shape_residual_audit.md
+// 2026-05-04) — for every RenderedClaimUse on the V2 doc that names
+// both a ClaimForm AND an EvidenceID, look up the EvidenceItem in
+// the closure pool and verify the LLM-declared ClaimForm is
+// COMPATIBLE with the deterministic ClaimFormOf(item) projection.
+//
+// Two compatibility shapes count:
+//
+//  1. Exact match — ClaimUse.ClaimForm == ClaimFormOf(item).
+//  2. Generalisation match — ClaimFormOf(item) == ClaimUnknown
+//     (the projection couldn't lock the form from typed evidence
+//     fields). The LLM is allowed to declare a more specific form
+//     than the projection produced; only HARD contradictions fire.
+//
+// Mismatch = LLM declared the wrong form for the cited evidence
+// (or cited the wrong evidence for the declared form). Either
+// way the finalizer can fix it without new investigation:
+// FallbackFinalizerOnly per default policy.
+//
+// Default classification STRICT (per V1 rationale: explicit
+// LLM-emitted self-contradiction; finalizer rewrite without new
+// evidence is enough). Operators relax via
+// pipeline_contract_strict_kinds.
+//
+// Skip rules:
+//   - mut == nil (test no-op path).
+//   - EvidenceID empty / not found in pool (LLM may cite by
+//     EvidenceID we never observed; treat as "no signal" rather
+//     than a different violation).
+//   - ClaimForm empty (LLM didn't declare; nothing to check).
+//   - ClaimFormOf(evidence) == ClaimUnknown (generalisation OK).
+func validateClaimFormSupport(doc *types.AnswerDocumentV2, mut *types.MutableState) []types.Violation {
+	if doc == nil || mut == nil {
+		return nil
+	}
+	pool := mut.EmittedEvidence()
+	if len(pool) == 0 {
+		return nil
+	}
+	byID := make(map[string]types.EvidenceItem, len(pool))
+	for _, ev := range pool {
+		if ev.ID != "" {
+			byID[ev.ID] = ev
+		}
+	}
+	if len(byID) == 0 {
+		return nil
+	}
+	var out []types.Violation
+	checkClaim := func(cu *types.RenderedClaimUse, blockID, scope string) {
+		if cu == nil || cu.ClaimForm == "" || cu.EvidenceID == "" {
+			return
+		}
+		ev, ok := byID[strings.TrimSpace(cu.EvidenceID)]
+		if !ok {
+			return
+		}
+		projected := types.ClaimFormOf(ev)
+		if projected == types.ClaimUnknown {
+			return
+		}
+		if projected == cu.ClaimForm {
+			return
+		}
+		out = append(out, types.Violation{
+			Kind: types.ViolClaimFormUnsupported,
+			Detail: fmt.Sprintf(
+				"%s in block %q declared claim_form=%s but the cited evidence (id=%s, source=%s:%d) projects to claim_form=%s",
+				scope, blockID, cu.ClaimForm, cu.EvidenceID, ev.Source, ev.LineStart, projected),
+			Repair: fmt.Sprintf(
+				"either change claim_form to %s on this annotation, or cite a different evidence id whose typed fields project to %s. Do NOT invent new evidence — pick from the existing pool.",
+				projected, cu.ClaimForm),
+			SuspectedRoot: types.SuspectedRoot{
+				IRField:    "answer_claim_form_support",
+				Reason:     "RenderedClaimUse declares form incompatible with cited evidence projection",
+				Confidence: 0.85,
+			},
+			Stage: string(types.StageFinalize),
+		})
+	}
+	for _, b := range doc.Blocks {
+		for i := range b.ClaimUses {
+			checkClaim(&b.ClaimUses[i], b.ID, "block-level claim_use")
+		}
+		if b.Diagram != nil {
+			for i := range b.Diagram.ClaimUses {
+				checkClaim(&b.Diagram.ClaimUses[i], b.ID, "diagram claim_use")
+			}
+		}
+		for j := range b.Items {
+			checkClaim(b.Items[j].ClaimUse, b.ID, fmt.Sprintf("item[%d] claim_use", j))
+		}
+	}
+	return out
+}
+
 // runV2BlockOracles is the single orchestrator-side dispatch entry
-// for B4. Returns the union of all 4 V2 validator violations. Caller
+// for B4. Returns the union of all V2 validator violations. Caller
 // (runContractCheck) appends to the result Violations slice the
 // same way Block 2/3 oracles do.
 //
 // Returns nil when doc or view is nil.
 //
-// R2.3 (post_shape_residual_audit.md, 2026-05-04): two new V2
-// oracles join the dispatch — validateFacetCoverage (HARD/SOFT
-// facet uncovered) + validateRichnessRegression (Optional facet
-// telemetry). They restore producers for ViolFacetUncovered +
-// ViolRichnessRegression, both of which had their V1 dispatch
-// deleted at B8-T4.
+// R2.3 (post_shape_residual_audit.md, 2026-05-04): three new V2
+// oracles join the dispatch:
+//   - validateFacetCoverage (HARD/SOFT facet uncovered)
+//   - validateRichnessRegression (Optional facet telemetry)
+//   - validateClaimFormSupport (LLM-declared ClaimForm vs typed
+//     evidence's projected ClaimForm — needs evidence pool, so
+//     dispatch via runV2BlockOraclesWithMut wrapper that takes
+//     the MutableState handle)
 func runV2BlockOracles(doc *types.AnswerDocumentV2, view *types.AnswerSemanticView) []types.Violation {
+	return runV2BlockOraclesWithMut(doc, view, nil)
+}
+
+// runV2BlockOraclesWithMut is the mut-aware variant. nil mut
+// disables the validators that need evidence-pool access (used in
+// unit tests that don't wire a Mutable). Production caller in
+// contract_check.go::runContractCheck threads mut.
+func runV2BlockOraclesWithMut(doc *types.AnswerDocumentV2, view *types.AnswerSemanticView, mut *types.MutableState) []types.Violation {
 	if doc == nil || view == nil {
 		return nil
 	}
@@ -456,6 +562,7 @@ func runV2BlockOracles(doc *types.AnswerDocumentV2, view *types.AnswerSemanticVi
 	out = append(out, validateUncertaintyBlockPresence(doc, view)...)
 	out = append(out, validateFacetCoverage(doc, view)...)
 	out = append(out, validateRichnessRegression(doc, view)...)
+	out = append(out, validateClaimFormSupport(doc, mut)...)
 	return out
 }
 

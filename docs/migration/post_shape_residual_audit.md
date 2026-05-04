@@ -108,7 +108,7 @@
 | R1.4 | ⬜ pending | — | — |
 | R2.1 | 🟢 SHIPPED V2 重接 (commit pending push) | TBD | 待真 eval 跑 QF 多 topic case |
 | R2.2 | 🟢 SHIPPED 分流 + 预算 | TBD | 待真 eval 出现 finalize+deeper 混合场景 |
-| R2.3 | 🟡 部分 SHIPPED:Facet/Richness 重接 (commit pending), ClaimForm + AbsenceScope 待 | partial | — |
+| R2.3 | 🟡 部分 SHIPPED:Facet/Richness/ClaimForm 重接 (3a4a39a + pending), AbsenceScope 待 | partial | — |
 | R2.4 | 🟢 SHIPPED 选位修 | TBD | 待真 eval rerun s1a 看是否触发 |
 | R3.1 | ⬜ pending | — | — |
 | R4.1 | ⬜ pending | — | — |

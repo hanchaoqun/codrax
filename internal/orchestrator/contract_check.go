@@ -128,8 +128,10 @@ func runContractCheck(out *agent.StageOutput, c types.AnswerContract, mut *types
 		if docV2 := mut.AnswerDocumentV2(); docV2 != nil && o != nil && o.busCtx != nil {
 			view := types.BuildAnswerSemanticViewForBusContext(o.busCtx)
 			if view != nil {
+				// R2.3 V2 重接: mut-aware variant so
+				// validateClaimFormSupport can read the evidence pool.
 				result.Violations = append(result.Violations,
-					runV2BlockOracles(docV2, view)...)
+					runV2BlockOraclesWithMut(docV2, view, mut)...)
 			}
 			// B5-T4: V2 adaptation of the structural-enumeration
 			// divergence oracle. Same precise typed-graph signal as
