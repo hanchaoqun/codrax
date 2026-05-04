@@ -1156,7 +1156,11 @@ func TestAnswerDocumentEvaluator_Observe_MidLoopExactResolutionLockedRejectUsesM
 		t.Fatalf("locked exact-resolution reject should request a correction hint, got %+v", sig)
 	}
 	for _, want := range []string{
-		"status is already locked by upstream state",
+		// G4 (post_v2_runtime_gap_remediation, 2026-05-04): "upstream
+		// state" was R4-cleaned out of the LLM-facing hint. Lock the
+		// remaining contract phrasing ("the status is already locked")
+		// without the pipeline-shape leak.
+		"the status is already locked",
 		"`exact_resolution.status=\"absent\"`",
 		"`exact_resolution.context_mode=\"grounded_context_only\"`",
 		"Do not switch to `exact_match` or `alias_match`",

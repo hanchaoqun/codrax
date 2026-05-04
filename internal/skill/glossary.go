@@ -198,6 +198,15 @@ var InternalTermsBlocklist = []string{
 	// itself does/avoids).
 	"downstream stages",
 	"downstream stage",
+	// G4 (post_v2_runtime_gap_remediation, 2026-05-04) — symmetric
+	// "upstream X" pipeline-shape disclosure. Bare "upstream" has
+	// legitimate uses (upstream library / upstream PR), so block
+	// only the load-bearing collocations that name the pipeline.
+	"upstream stage",
+	"upstream state",
+	"upstream pipeline",
+	"upstream provided",
+	"upstream already provided",
 
 	// Log-triage internal layer numbers.
 	"Layer 1",

@@ -1735,7 +1735,7 @@ func renderAnswerDocProseOnlyExactContextAnchors(ctx *types.AgentContext, contra
 	}
 	var b strings.Builder
 	b.WriteString("## Prose-Only Grounded Context Anchors\n\n")
-	b.WriteString("These grounded same-scope anchors may stay in `summary` as nearby context even when they do not yet carry a validated precedence role. Keep them out of fenced diagrams and `citations[]` unless upstream already provided a validated `diagram_role_hint` for them.\n\n")
+	b.WriteString("These grounded same-scope anchors may stay in `summary` as nearby context even when they do not yet carry a validated precedence role. Keep them out of fenced diagrams and `citations[]` unless a validated `diagram_role_hint` is already attached to them.\n\n")
 	for _, anchor := range anchors {
 		fmt.Fprintf(&b, "- %s\n", anchor.Text)
 	}
@@ -2621,7 +2621,7 @@ func (e *answerDocumentEvaluator) emitAnswerDocumentRejectSignal(ctx *types.Agen
 	if repair != nil && repair.Code == "exact_resolution" && repair.Metadata != nil {
 		if locked := strings.TrimSpace(repair.Metadata["locked_status"]); locked != "" {
 			reasonKey = "exact-resolution-locked"
-			hint = "Your last `emit_answer_document` call was rejected by the exact-resolution contract because the status is already locked by upstream state. Re-emit `emit_answer_document` now with `exact_resolution.status=\"" + locked + "\"`."
+			hint = "Your last `emit_answer_document` call was rejected by the exact-resolution contract because the status is already locked. Re-emit `emit_answer_document` now with `exact_resolution.status=\"" + locked + "\"`."
 			if mode := strings.TrimSpace(repair.Metadata["preferred_context_mode"]); mode != "" {
 				hint += " If you keep any nearby grounded context, set `exact_resolution.context_mode=\"" + mode + "\"`."
 			}
