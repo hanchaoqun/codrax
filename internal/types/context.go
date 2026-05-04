@@ -392,6 +392,14 @@ type MutableState struct {
 	// a richness signal by silently inventing a new family").
 	richnessTelemetry []RichnessTelemetrySignal
 
+	// analyzerDecisions records every silent automatic decision
+	// the analyzer / extractor makes (R8 — scenario reconcile /
+	// completeness downgrade / pre-scan budget reject / subtopic
+	// coherence retry). Pure observability — never drives a
+	// violation or retry. Drained by operator-facing summary
+	// tooling at end-of-Run.
+	analyzerDecisions []AnalyzerDecisionSignal
+
 	// retryState is the R14 typed retry-state contract surface
 	// (post_shape_residual_audit.md, 2026-05-04). Populated by the
 	// orchestrator + contract_check at retry-decision time;
@@ -478,6 +486,39 @@ type ReconcileObservation struct {
 	Confidence float64            `json:"confidence"` // LLM-emitted confidence on this dimension
 	RuleFired  string             `json:"rule_fired"` // human-readable rule name (or "none" when no override)
 	Predicates SemanticPredicates `json:"predicates"` // snapshot of LLM predicates at decision time
+}
+
+// AnalyzerDecisionSignal is a single observation emitted whenever
+// the analyzer / extractor performs a silent automatic decision
+// — quality-gate retry, scenario reconcile, completeness downgrade,
+// pre-scan budget reject, etc. Pure observability: signals are
+// appended at the decision site and drained by operator-facing
+// summary tooling. The channel never drives a violation or retry
+// (decisions already affect downstream state by their direct
+// effect; telemetry is what surfaces the otherwise-silent choice
+// to operators).
+//
+// Replaces ad-hoc logging.Warning lines that were the only signal
+// operators had for these decisions. Each line still logs (so
+// existing log parsers stay byte-stable), and additionally an
+// AnalyzerDecisionSignal lands on Mutable for the run summary +
+// future telemetry consumers.
+//
+// Kind values (open enum — adding a new decision site appends here):
+//   - "scenario_reconciled"          — reconcileScenario flipped Scenario
+//   - "completeness_downgraded"      — extractor downgraded
+//                                       completeness=complete → lower_bound
+//   - "prescan_rejected"             — analyzer prescan tool call rejected
+//                                       (budget exhausted / terminal-emit mode)
+//   - "subtopic_coherence_failed"    — gate.Run emitted subtopic_coherence
+//                                       hard fail; analyzer is about to retry
+type AnalyzerDecisionSignal struct {
+	Kind   string `json:"kind"`
+	Stage  string `json:"stage,omitempty"`
+	Before string `json:"before,omitempty"`
+	After  string `json:"after,omitempty"`
+	Reason string `json:"reason,omitempty"`
+	Detail string `json:"detail,omitempty"`
 }
 
 // RichnessTelemetrySignal is a single observation emitted by the
@@ -2505,6 +2546,40 @@ func (m *MutableState) ResetRichnessTelemetry() {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.richnessTelemetry = nil
+}
+
+// AppendAnalyzerDecision records one analyzer/extractor automatic-
+// decision signal. Empty Kind silently drops. Identical signals
+// are deduplicated by composite key so the same decision firing
+// from a retry loop records once.
+func (m *MutableState) AppendAnalyzerDecision(sig AnalyzerDecisionSignal) {
+	if m == nil || sig.Kind == "" {
+		return
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for _, existing := range m.analyzerDecisions {
+		if existing == sig {
+			return
+		}
+	}
+	m.analyzerDecisions = append(m.analyzerDecisions, sig)
+}
+
+// AnalyzerDecisions returns a defensive copy of recorded
+// analyzer-decision signals.
+func (m *MutableState) AnalyzerDecisions() []AnalyzerDecisionSignal {
+	if m == nil {
+		return nil
+	}
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	if len(m.analyzerDecisions) == 0 {
+		return nil
+	}
+	out := make([]AnalyzerDecisionSignal, len(m.analyzerDecisions))
+	copy(out, m.analyzerDecisions)
+	return out
 }
 
 // SetRetryState installs the R14 typed retry-state surface. Called

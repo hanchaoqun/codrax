@@ -836,6 +836,19 @@ func (e *analyzerEvaluator) ParseOutput(ctx *types.AgentContext, messages []llm.
 		if hard, detail := classifyGateFailure(ir.QualityGate); hard {
 			logging.Error("[analyzer-v3] quality gate HARD failure: %s", detail)
 			out.Error = fmt.Sprintf("analyzer quality gate rejected: %s", detail)
+			// R8 (post_shape_residual_audit.md, 2026-05-04): surface
+			// the gate failure on the AnalyzerDecision channel so the
+			// end-of-Run operator summary catches the silent retry
+			// (otherwise only the [analyzer-v3] ERROR log line + the
+			// next dispatch's WARN "analyze attempt N/M failed" trail
+			// hint at it).
+			if mut := ctxMutable(ctx); mut != nil {
+				mut.AppendAnalyzerDecision(types.AnalyzerDecisionSignal{
+					Kind:   "quality_gate_hard_fail",
+					Stage:  string(types.StageAnalyze),
+					Reason: detail,
+				})
+			}
 			// Coherence-specific feedback: when the failing checks
 			// are the cross-signal coherence gates, render an IR-
 			// field-level retry hint so the next dispatch's directive
@@ -1198,6 +1211,19 @@ func buildAnalysisIR(ctx *types.AgentContext) (*types.AnalysisIR, error) {
 				"scenario", string(rm.Scenario), string(scenarioResolved),
 				0, scenarioReason, rm.Predicates,
 			))
+			// R8 (post_shape_residual_audit.md, 2026-05-04): also
+			// record an end-of-Run operator-facing signal so the
+			// scenario flip is visible in the Run summary tooling
+			// (not just the [analyzer] WARN log line).
+			if mut := ctxMutable(ctx); mut != nil {
+				mut.AppendAnalyzerDecision(types.AnalyzerDecisionSignal{
+					Kind:   "scenario_reconciled",
+					Stage:  string(types.StageAnalyze),
+					Before: string(rm.Scenario),
+					After:  string(scenarioResolved),
+					Reason: scenarioReason,
+				})
+			}
 			rm.Scenario = scenarioResolved
 		}
 		if resolved, capabilityQuery, reason := reconcileStageToolCapabilitySurface(rm); capabilityQuery != nil {

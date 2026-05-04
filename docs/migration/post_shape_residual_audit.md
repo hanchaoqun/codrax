@@ -117,7 +117,7 @@
 | **R15** | 🟢 SHIPPED ViolationProfile 单一 source of truth | TBD | 待 c2 真 eval rerun 验证 R14 retry-state 真触发率上升 |
 | **R16** | 🟢 SHIPPED c1+c2+c3 (3d0f359 + 549a9a1);**c4 真 eval 待跑** | 3d0f359+549a9a1 | AnswerDocumentV2Patch 数据 + ApplyPatch + emit_answer_document_patch tool + skill 教学全 wire,21 lock test 全过。c4 真 eval 期望:LLM 在 retry 路径上选 patch tool + unchanged_block_ids,m1a r2 类 retry 失忆消失 |
 | **R7** | 🟢 SHIPPED typed-set verbatim + 反向归属 | TBD | 真 eval rerun 验证 facet_uncovered 数下降 |
-| **R8** | ⬜ pending P2(全量日志深挖发现) | — | analyzer 自动决策无 telemetry — 类 C |
+| **R8** | 🟢 SHIPPED AnalyzerDecisionSignal channel — 4 决策点全 wire | (本 commit) | scenario_reconciled / completeness_downgraded / prescan_rejected / quality_gate_hard_fail 四个决策点都通过 mut.AppendAnalyzerDecision 走统一通道,operator 可在 Run summary 看到 |
 | **R10** | 🟢 SHIPPED CGEC frequency bridge — ViolDemotionStorm + ViolForcedReadStorm SOFT 阈值化 | (本 commit) | 真 eval 跑出 chains_demoted ≥ 10 / forced_reads ≥ 8 时 closure ledger 出现 storm violation;by_field tally 可见 |
 | R2.1 | 🟢 SHIPPED V2 重接 (commit pending push) | TBD | 待真 eval 跑 QF 多 topic case |
 | R2.2 | 🟢 SHIPPED 分流 + 预算 | TBD | 待真 eval 出现 finalize+deeper 混合场景 |

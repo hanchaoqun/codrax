@@ -1861,13 +1861,13 @@ func validateAnalyzerPrescanToolCall(ctx *types.AgentContext, tc llm.ToolCall) *
 		return nil
 	}
 	if ctx.EmitStageRetryAttempt > 0 {
-		return rejectAnalyzerPrescanTool(tc,
+		return rejectAnalyzerPrescanTool(ctx, tc,
 			"analyze retry is already in terminal emit mode; do not call repo_map / grep / list_files again. Call emit_analysis now with the best classification you have.")
 	}
 	if ctx.Mutable != nil {
 		limit := ctx.Mutable.PrescanRoundLimit()
 		if limit > 0 && ctx.Mutable.PrescanRoundCount() >= limit {
-			return rejectAnalyzerPrescanTool(tc,
+			return rejectAnalyzerPrescanTool(ctx, tc,
 				fmt.Sprintf("pre-scan budget already reached (%d/%d rounds used). Do not call repo_map / grep / list_files again; call emit_analysis now with the fields you have.",
 					ctx.Mutable.PrescanRoundCount(), limit))
 		}
@@ -1896,11 +1896,11 @@ func validateAnalyzerPrescanToolCall(ctx *types.AgentContext, tc llm.ToolCall) *
 	// budget is not exhausted.
 	limits := tool.CurrentAnalysisLimits()
 	if !limits.ClassificationGrepEnabled {
-		return rejectAnalyzerPrescanTool(tc,
+		return rejectAnalyzerPrescanTool(ctx, tc,
 			"classification_grep disabled by config; retry with files_only=true")
 	}
 	if ctx.Mutable == nil || !ctx.Mutable.ClassificationGrepTriggered() {
-		return rejectAnalyzerPrescanTool(tc,
+		return rejectAnalyzerPrescanTool(ctx, tc,
 			"grep in analyze stage must be called with files_only=true "+
 				"(evidence-lite boundary). Round 2 line-level grep is only "+
 				"allowed after the classification_grep trigger fires "+
@@ -1910,7 +1910,7 @@ func validateAnalyzerPrescanToolCall(ctx *types.AgentContext, tc llm.ToolCall) *
 	// Call budget.
 	if limits.ClassificationGrepMaxCalls > 0 &&
 		ctx.Mutable.ClassificationGrepCalls() >= limits.ClassificationGrepMaxCalls {
-		return rejectAnalyzerPrescanTool(tc,
+		return rejectAnalyzerPrescanTool(ctx, tc,
 			fmt.Sprintf("classification_grep call budget exhausted "+
 				"(%d/%d calls used). Call emit_analysis now with your "+
 				"best-effort classification — the reconciler will accept "+
@@ -1922,7 +1922,7 @@ func validateAnalyzerPrescanToolCall(ctx *types.AgentContext, tc llm.ToolCall) *
 	// cost before execution; block only when already exhausted.
 	if limits.ClassificationGrepMaxTotalBytes > 0 &&
 		ctx.Mutable.ClassificationGrepBytes() >= limits.ClassificationGrepMaxTotalBytes {
-		return rejectAnalyzerPrescanTool(tc,
+		return rejectAnalyzerPrescanTool(ctx, tc,
 			fmt.Sprintf("classification_grep byte budget exhausted "+
 				"(%d/%d bytes used). Call emit_analysis now.",
 				ctx.Mutable.ClassificationGrepBytes(),
@@ -1953,9 +1953,20 @@ func validateAnalyzerPrescanToolCall(ctx *types.AgentContext, tc llm.ToolCall) *
 // returned from validateAnalyzerPrescanToolCall when the analyzer
 // issues a prescan tool call that the runtime gate will not admit.
 // Logs the rejection at WARN so operators can spot unexpected
-// trigger misfires in production.
-func rejectAnalyzerPrescanTool(tc llm.ToolCall, reason string) *types.ToolResult {
+// trigger misfires in production. R8 (post_shape_residual_audit.md,
+// 2026-05-04): also records an AnalyzerDecisionSignal on Mutable
+// so the end-of-Run summary surfaces the rejection, not just the
+// log line.
+func rejectAnalyzerPrescanTool(ctx *types.AgentContext, tc llm.ToolCall, reason string) *types.ToolResult {
 	logging.Warning("[analyzer] prescan tool %q rejected: %s", tc.Name, reason)
+	if ctx != nil && ctx.Mutable != nil {
+		ctx.Mutable.AppendAnalyzerDecision(types.AnalyzerDecisionSignal{
+			Kind:   "prescan_rejected",
+			Stage:  string(types.StageAnalyze),
+			Reason: reason,
+			Detail: tc.Name,
+		})
+	}
 	return &types.ToolResult{
 		ToolName:  tc.Name,
 		Success:   false,

@@ -622,6 +622,18 @@ func validateCompletenessClaim(ctx *types.AgentContext, syms []types.AnswerSymbo
 
 	logging.Warning("[extractor] completeness=complete DOWNGRADED to lower_bound: %d items < baseline %d (termCount=%d mustInclude=%d). The slate is preserved as a floor; the finalizer will use the softened prompt.",
 		len(syms), baseline, termCount, mustInclude)
+	// R8: surface the silent downgrade on the AnalyzerDecision channel
+	// so the end-of-Run operator summary catches it.
+	if ctx != nil && ctx.Mutable != nil {
+		ctx.Mutable.AppendAnalyzerDecision(types.AnalyzerDecisionSignal{
+			Kind:   "completeness_downgraded",
+			Stage:  string(types.StageExtract),
+			Before: string(types.CompletenessComplete),
+			After:  string(types.CompletenessLowerBound),
+			Reason: fmt.Sprintf("%d items < baseline %d", len(syms), baseline),
+			Detail: fmt.Sprintf("termCount=%d mustInclude=%d", termCount, mustInclude),
+		})
+	}
 	return types.CompletenessLowerBound
 }
 
