@@ -154,6 +154,86 @@ func TestRenderAnswerDocFacetCoverage_EvidenceCountAnnotation(t *testing.T) {
 	}
 }
 
+// G6-3 (post_v2_runtime_gap_remediation, 2026-05-04): SOFT facets
+// with typed evidence available (IsPromoted=true) carry an
+// `(elevated)` marker after the evidence count, signalling to the
+// LLM that the SOFT gate is currently behaving as HARD.
+func TestRenderAnswerDocFacetCoverage_ElevatedMarkerOnPromotedSoft(t *testing.T) {
+	// IntentTrace → QFCallChain template has FacetCurrentCodePath
+	// as SOFT requirement, AcceptableForms=[ClaimDefinitionFact].
+	// FacetBranchGuard is SOFT with AcceptableForms=[ClaimGuardCondition]
+	// — leave it WITHOUT matching evidence so it stays unpromoted.
+	// AnchorDefinition projects to ClaimDefinitionFact, which matches
+	// FacetCurrentCodePath's AcceptableForms.
+	defEvidence := types.EvidenceItem{
+		Kind:       types.EvidenceDirect,
+		Subject:    "DefSym",
+		Source:     "x.go",
+		LineStart:  10,
+		LineEnd:    10,
+		AnchorKind: types.AnchorDefinition,
+	}
+	ctx := &types.AgentContext{
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				Intent: types.IntentTrace,
+			},
+		},
+		EvidenceItems: []types.EvidenceItem{defEvidence},
+	}
+	got := renderAnswerDocFacetCoverage(ctx)
+	// Header prose MUST explain elevation.
+	if !strings.Contains(got, "elevated") {
+		t.Errorf("header prose missing elevated explanation; got\n%s", got)
+	}
+	// At least one promoted SOFT line should carry `(elevated)` — the
+	// header occurrence is wrapped in backticks; the bare marker on
+	// a facet line is the typed signal.
+	lines := strings.Split(got, "\n")
+	bareMarkerCount := 0
+	for _, line := range lines {
+		// Skip header lines (they describe the marker via backticks)
+		if !strings.HasPrefix(strings.TrimSpace(line), "-") {
+			continue
+		}
+		if strings.Contains(line, " (elevated)") {
+			bareMarkerCount++
+		}
+	}
+	if bareMarkerCount < 1 {
+		t.Errorf("expected ≥1 facet line with bare `(elevated)`; got %d\n%s", bareMarkerCount, got)
+	}
+}
+
+// G6-3: facet line WITHOUT typed evidence (SOFT, SourceCandidate=0)
+// MUST NOT carry the (elevated) bare marker — IsPromoted=false
+// keeps the gate skipped per Phase 5-E1 evidence-sufficient
+// invariant.
+func TestRenderAnswerDocFacetCoverage_NoElevatedWhenNoEvidence(t *testing.T) {
+	// IntentTrace → QFCallChain. Provide NO evidence at all so every
+	// SOFT facet has SourceCandidate=0; expect no bare (elevated).
+	ctx := &types.AgentContext{
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				Intent: types.IntentTrace,
+			},
+		},
+	}
+	got := renderAnswerDocFacetCoverage(ctx)
+	lines := strings.Split(got, "\n")
+	for _, line := range lines {
+		// Header lines (no `-` prefix) include the marker in backticks
+		// — fine. Facet lines start with `-` and must NOT carry the
+		// bare marker when evidence is absent.
+		if !strings.HasPrefix(strings.TrimSpace(line), "-") {
+			continue
+		}
+		if strings.Contains(line, " (elevated)") {
+			t.Errorf("no-evidence SOFT facet must NOT carry bare (elevated); got line %q", line)
+		}
+	}
+}
+
 // TestRenderAnswerDocFacetCoverage_NoGoInternalNamesLeak pins the
 // glossary-lint contract at the function-output level. None of the
 // Phase 1 internal type names may appear in the rendered LLM-facing

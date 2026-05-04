@@ -1048,7 +1048,8 @@ func renderAnswerDocFacetCoverage(ctx *types.AgentContext) string {
 	b.WriteString("To declare a facet on a block, set `block.facet_ids` (or `item.claim_use.facet_id`) to the verbatim string shown after `facet_id:` on each line below — that exact string MUST appear in the emit. The rightmost hint (when present) names the block kind(s) that typically cover the facet so you know where to place it.\n\n")
 	b.WriteString("Each line ends with `(evidence: N)` — N is the count of typed evidence items already bound to the facet. " +
 		"For SOFT facets this count gates the coverage demand: when N=0 the facet is skipped (no typed evidence to surface), so do NOT invent claims for it. " +
-		"For HARD facets, coverage is demanded regardless of N (the question pinned the facet as essential).\n\n")
+		"For HARD facets, coverage is demanded regardless of N (the question pinned the facet as essential). " +
+		"A SOFT facet with N≥1 is **elevated** — its line carries an `(elevated)` marker AFTER the evidence count, and you must cover it as if it were HARD; the typed evidence is available, so the answer must surface it.\n\n")
 
 	emit := func(req types.FacetRequirement) {
 		label, ok := answerDocFacetLabels[req.Kind]
@@ -1069,6 +1070,13 @@ func renderAnswerDocFacetCoverage(ctx *types.AgentContext) string {
 		fmt.Fprintf(&b, " `facet_id: %q`.", string(req.Kind))
 		// Phase 5-E2: typed evidence count surfaces the gate input.
 		fmt.Fprintf(&b, " (evidence: %d)", len(req.SourceCandidate))
+		// G6-3 (post_v2_runtime_gap_remediation, 2026-05-04): SOFT
+		// facets with typed evidence available are elevated to HARD
+		// gating. Surface the typed signal so the LLM knows this
+		// SOFT facet currently behaves as HARD.
+		if req.Required == types.FacetSoftRequired && req.IsPromoted() {
+			b.WriteString(" (elevated)")
+		}
 		if len(req.AcceptableForms) > 0 {
 			forms := make([]string, 0, len(req.AcceptableForms))
 			seen := map[string]bool{}
