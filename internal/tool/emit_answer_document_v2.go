@@ -155,72 +155,20 @@ func executeAnswerDocumentV2(toolName string, ctx *types.BusContext, raw json.Ra
 	}
 	seenIDs := make(map[string]bool, len(p.Blocks))
 	for i, raw := range p.Blocks {
-		if strings.TrimSpace(raw.ID) == "" {
-			return failEmit(toolName, now,
-				"blocks[%d]: id is required and must be non-empty", i)
-		}
 		if seenIDs[raw.ID] {
 			return failEmit(toolName, now,
 				"blocks[%d]: duplicate id %q (each block must have a unique id)", i, raw.ID)
 		}
-		seenIDs[raw.ID] = true
-
-		kind := types.AnswerBlockKind(raw.Kind)
-		if !types.IsValidAnswerBlockKind(kind) {
-			return failEmit(toolName, now,
-				"blocks[%d]: kind=%q is not a valid AnswerBlockKind; allowed values: %v",
-				i, raw.Kind, types.AllAnswerBlockKinds())
+		// G2 (post_v2_runtime_gap_remediation, 2026-05-04): per-block
+		// validation + conversion lives in the single-source
+		// NormalizeEmitAnswerBlock helper. Patch path uses the same
+		// helper so a typed annotation field added to AnswerBlock
+		// surfaces in BOTH paths automatically.
+		blk, err := NormalizeEmitAnswerBlock(raw, fmt.Sprintf("blocks[%d]", i))
+		if err != nil {
+			return failEmit(toolName, now, "%s", err.Error())
 		}
-
-		blk := types.AnswerBlock{
-			ID:          raw.ID,
-			Kind:        kind,
-			Title:       raw.Title,
-			Text:        raw.Text,
-			ClaimUses:   raw.ClaimUses,
-			EdgeAnchors: raw.EdgeAnchors,
-			FacetIDs:    raw.FacetIDs,
-			SurfaceRole: types.SurfaceRole(raw.SurfaceRole),
-		}
-		if blk.SurfaceRole != "" {
-			if _, ok := types.NormalizeSurfaceRole(string(blk.SurfaceRole)); !ok {
-				return failEmit(toolName, now,
-					"blocks[%d]: surface_role=%q is not a valid SurfaceRole",
-					i, raw.SurfaceRole)
-			}
-		}
-
-		if len(raw.Items) > 0 {
-			blk.Items = make([]types.AnswerBlockItem, 0, len(raw.Items))
-			for j, it := range raw.Items {
-				blk.Items = append(blk.Items, types.AnswerBlockItem{
-					ID:          it.ID,
-					Label:       it.Label,
-					Text:        it.Text,
-					CitationRef: int(it.CitationRef),
-					ClaimUse:    it.ClaimUse,
-				})
-				_ = j
-			}
-		}
-
-		if raw.Diagram != nil {
-			diag := &types.AnswerDiagramBlock{
-				Kind:      types.DiagramKind(raw.Diagram.Kind),
-				Language:  raw.Diagram.Language,
-				Body:      raw.Diagram.Body,
-				ClaimUses: raw.Diagram.ClaimUses,
-			}
-			if strings.TrimSpace(diag.Body) == "" {
-				return failEmit(toolName, now,
-					"blocks[%d]: diagram body is required when diagram is present", i)
-			}
-			blk.Diagram = diag
-		} else if blk.Kind == types.BlockDiagram {
-			return failEmit(toolName, now,
-				"blocks[%d]: kind=diagram requires a non-nil diagram payload", i)
-		}
-
+		seenIDs[blk.ID] = true
 		doc.Blocks = append(doc.Blocks, blk)
 	}
 

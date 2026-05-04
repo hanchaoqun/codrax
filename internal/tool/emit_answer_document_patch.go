@@ -249,57 +249,16 @@ func recoverPrevFromRetryState(mut *types.MutableState) *types.AnswerDocumentV2 
 //
 // Returns ([]AnswerBlock, nil) on success; ("", error) names the
 // offending block (with field path) so the LLM can fix the patch.
+// convertEmitBlocksToTyped routes through the unified
+// NormalizeEmitAnswerBlock so the patch path picks up every typed
+// annotation field automatically (G2 post_v2_runtime_gap_remediation,
+// 2026-05-04 — pre-G2 this loop silently dropped EdgeAnchors).
 func convertEmitBlocksToTyped(toolName string, in []emitAnswerBlockV2, fieldName string) ([]types.AnswerBlock, error) {
 	out := make([]types.AnswerBlock, 0, len(in))
 	for i, raw := range in {
-		if strings.TrimSpace(raw.ID) == "" {
-			return nil, fmt.Errorf("%s: %s[%d]: id is required and must be non-empty", toolName, fieldName, i)
-		}
-		kind := types.AnswerBlockKind(raw.Kind)
-		if !types.IsValidAnswerBlockKind(kind) {
-			return nil, fmt.Errorf("%s: %s[%d]: kind=%q is not a valid AnswerBlockKind; allowed values: %v",
-				toolName, fieldName, i, raw.Kind, types.AllAnswerBlockKinds())
-		}
-		blk := types.AnswerBlock{
-			ID:          raw.ID,
-			Kind:        kind,
-			Title:       raw.Title,
-			Text:        raw.Text,
-			ClaimUses:   raw.ClaimUses,
-			FacetIDs:    raw.FacetIDs,
-			SurfaceRole: types.SurfaceRole(raw.SurfaceRole),
-		}
-		if blk.SurfaceRole != "" {
-			if _, ok := types.NormalizeSurfaceRole(string(blk.SurfaceRole)); !ok {
-				return nil, fmt.Errorf("%s: %s[%d]: surface_role=%q is not a valid SurfaceRole",
-					toolName, fieldName, i, raw.SurfaceRole)
-			}
-		}
-		if len(raw.Items) > 0 {
-			blk.Items = make([]types.AnswerBlockItem, 0, len(raw.Items))
-			for _, it := range raw.Items {
-				blk.Items = append(blk.Items, types.AnswerBlockItem{
-					ID:          it.ID,
-					Label:       it.Label,
-					Text:        it.Text,
-					CitationRef: int(it.CitationRef),
-					ClaimUse:    it.ClaimUse,
-				})
-			}
-		}
-		if raw.Diagram != nil {
-			diag := &types.AnswerDiagramBlock{
-				Kind:      types.DiagramKind(raw.Diagram.Kind),
-				Language:  raw.Diagram.Language,
-				Body:      raw.Diagram.Body,
-				ClaimUses: raw.Diagram.ClaimUses,
-			}
-			if strings.TrimSpace(diag.Body) == "" {
-				return nil, fmt.Errorf("%s: %s[%d]: diagram body is required when diagram is present", toolName, fieldName, i)
-			}
-			blk.Diagram = diag
-		} else if blk.Kind == types.BlockDiagram {
-			return nil, fmt.Errorf("%s: %s[%d]: kind=diagram requires a non-nil diagram payload", toolName, fieldName, i)
+		blk, err := NormalizeEmitAnswerBlock(raw, fmt.Sprintf("%s: %s[%d]", toolName, fieldName, i))
+		if err != nil {
+			return nil, err
 		}
 		out = append(out, blk)
 	}

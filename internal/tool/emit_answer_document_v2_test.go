@@ -151,8 +151,13 @@ func TestEmitAnswerDocumentV2_RejectsInvalidBlockKind(t *testing.T) {
 	if res.Success {
 		t.Fatal("expected invalid block kind to be rejected")
 	}
-	if !strings.Contains(res.Summary, "AnswerBlockKind") {
-		t.Errorf("error message should reference AnswerBlockKind; got %q", res.Summary)
+	// G2 (post_v2_runtime_gap_remediation, 2026-05-04): the unified
+	// NormalizeEmitAnswerBlock helper uses LLM-facing prose
+	// ("block kind" instead of the Go type name "AnswerBlockKind",
+	// per R4). The error message MUST still name the offending kind
+	// verbatim AND the allowed list, so the LLM can fix the emit.
+	if !strings.Contains(res.Summary, `"bogus_kind"`) || !strings.Contains(res.Summary, "block kind") {
+		t.Errorf("error message must name the bad value + the contract concept; got %q", res.Summary)
 	}
 }
 
