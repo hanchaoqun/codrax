@@ -252,25 +252,59 @@ func TestApplyPatch_RejectsUnknownBlockID(t *testing.T) {
 }
 
 // TestApplyPatch_RejectsConflictingOps covers cross-op conflict
-// detection.
+// detection — the 3 mutual-exclusion invariants from the godoc:
+//   (1) Replace∩Remove ∅
+//   (2) Replace∩Add ∅
+//   (3) Add∩Remove ∅
 func TestApplyPatch_RejectsConflictingOps(t *testing.T) {
 	prev := samplePrevDoc()
-	cases := []*AnswerDocumentV2Patch{
-		// Replace + Remove same id
+	cases := []struct {
+		name  string
+		patch *AnswerDocumentV2Patch
+	}{
 		{
-			RemoveBlockIDs: []string{"s1"},
-			ReplaceBlocks:  []AnswerBlock{{ID: "s1", Kind: BlockSummary}},
+			name: "(1) Replace + Remove same id",
+			patch: &AnswerDocumentV2Patch{
+				RemoveBlockIDs: []string{"s1"},
+				ReplaceBlocks:  []AnswerBlock{{ID: "s1", Kind: BlockSummary}},
+			},
 		},
-		// Add + Replace same id (Add must be NEW id)
 		{
-			ReplaceBlocks: []AnswerBlock{{ID: "s1", Kind: BlockSummary}},
-			AddBlocks:     []AnswerBlock{{ID: "s1", Kind: BlockSummary}},
+			name: "(2) Replace + Add same id",
+			patch: &AnswerDocumentV2Patch{
+				ReplaceBlocks: []AnswerBlock{{ID: "s1", Kind: BlockSummary}},
+				AddBlocks:     []AnswerBlock{{ID: "s1", Kind: BlockSummary}},
+			},
+		},
+		{
+			name: "(3) Add + Remove same id (Add MUST be NEW; cannot also be Removed)",
+			patch: &AnswerDocumentV2Patch{
+				AddBlocks:      []AnswerBlock{{ID: "newAndRemoved", Kind: BlockSummary, Text: "x"}},
+				RemoveBlockIDs: []string{"newAndRemoved"},
+			},
 		},
 	}
-	for i, p := range cases {
-		if _, err := ApplyAnswerDocumentV2Patch(prev, p); err == nil {
-			t.Errorf("case %d: conflicting ops must reject", i)
-		}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if _, err := ApplyAnswerDocumentV2Patch(prev, tc.patch); err == nil {
+				t.Errorf("conflicting ops must reject")
+			}
+		})
+	}
+}
+
+// TestApplyPatch_CitationsReplaceXorAppend pins mutation-contract
+// invariant (5): ReplaceCitations and AppendCitations are mutually
+// exclusive. Setting BOTH must reject — the LLM is signalling
+// contradictory intents (replace pool wholesale vs additive).
+func TestApplyPatch_CitationsReplaceXorAppend(t *testing.T) {
+	prev := samplePrevDoc()
+	patch := &AnswerDocumentV2Patch{
+		ReplaceCitations: []Citation{{File: "a.go", Line: 1}},
+		AppendCitations:  []Citation{{File: "b.go", Line: 2}},
+	}
+	if _, err := ApplyAnswerDocumentV2Patch(prev, patch); err == nil {
+		t.Error("ReplaceCitations + AppendCitations both set must reject (mutation contract invariant 5)")
 	}
 }
 

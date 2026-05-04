@@ -26,32 +26,79 @@ import (
 // prev emit verbatim"; system copies that block over without LLM
 // having a chance to rewrite it.
 
-// AnswerDocumentV2Patch describes the delta the LLM emits on a
-// retry path. All four fields are optional:
+// AnswerDocumentV2Patch — Mutation Contract (canonical reference)
 //
-//   - UnchangedBlockIDs: block ids from the prev emit to copy over
-//     unchanged. The system clones each prev block by id (with all
-//     its annotations: claim_use / facet_ids / surface_role / items
-//     / diagram). LLM never has to re-emit fields on these blocks.
-//   - ReplaceBlocks: full block payloads that override the prev
-//     emit's block with the same id. Must each carry a non-empty
-//     id; the id MUST exist in the prev emit (otherwise reject).
-//   - AddBlocks: full block payloads to APPEND to the prev emit.
-//     Each id MUST NOT already exist in prev emit (or in
-//     ReplaceBlocks).
-//   - RemoveBlockIDs: block ids from the prev emit to drop from
-//     the new doc. Must each name an existing block.
+// AnswerDocumentV2Patch IS the unified mutation model over V2
+// AnswerDocument. Every retry-path edit expresses through one of the
+// operations below; there is no second carrier protocol.
 //
-// The four operations are commutative within a patch (Replace +
-// Remove on the same id is rejected; Add + Replace on the same id
-// is rejected). Citations are merged by union; LLM may also pass a
-// fresh Citations slice via ReplaceCitations to fully override.
+// MUTATION CONTRACT TABLE
+// =======================
 //
-// Validation invariant (post-apply): the resulting AnswerDocumentV2
-// MUST pass the same V2 validator chain that emit_answer_document
-// runs (no V1 fields, every block kind valid, every block id
-// unique, etc.). Apply rejects pre-validation if the patch itself
-// is malformed (unknown ids, dup ids, etc.).
+// Op group         | Operations                       | Mutual exclusion
+// -----------------|----------------------------------|---------------------
+// Blocks           | Unchanged | Replace | Add | Remove | (1) Replace∩Remove ∅
+//                  |                                    | (2) Replace∩Add ∅
+//                  |                                    | (3) Add∩Remove ∅
+//                  |                                    | (4) Unchanged ⊆ prev.ids
+// Citations        | Replace | Append                  | (5) Replace XOR Append
+// ExactResolution  | Replace                           | nil = inherit prev
+// Caveats          | Replace                           | nil = inherit prev
+// Snippets         | Replace                           | nil = inherit prev
+//
+// Op semantics:
+//
+//   - UnchangedBlockIDs: block ids from prev emit copied verbatim
+//     (every annotation field — claim_use / facet_ids / surface_role
+//     / items / diagram — preserved byte-identical). The id MUST
+//     exist in prev (invariant 4). LLM never re-emits fields on
+//     these blocks; structural preservation against drop-on-retry.
+//   - ReplaceBlocks: full block payloads override the prev emit's
+//     block with the same id. id MUST exist in prev. id MUST NOT
+//     also appear in RemoveBlockIDs (1) or AddBlocks (2).
+//   - AddBlocks: full block payloads APPENDED at tail. id MUST NOT
+//     already exist in prev. id MUST NOT also appear in
+//     ReplaceBlocks (2) or RemoveBlockIDs (3).
+//   - RemoveBlockIDs: block ids dropped from new doc. id MUST exist
+//     in prev. id MUST NOT also appear in ReplaceBlocks (1) or
+//     AddBlocks (3).
+//   - Citations: ReplaceCitations and AppendCitations are mutually
+//     exclusive (5); use Replace for holistic re-pick, Append for
+//     additive (e.g. negative-pattern citation without rewriting
+//     pool).
+//   - ExactResolution / Caveats / Snippets: replace-or-inherit.
+//
+// Block id is LLM-provided (never system-generated). Replace targets
+// existing id; Add inserts new id; Remove drops by id; Unchanged
+// flows through byte-identical. Block ordering: removed blocks drop
+// in place; replaced blocks substitute at original position;
+// unchanged blocks preserve original position; added blocks append
+// at tail. This determinism preserves the LLM's original ordering
+// when the LLM didn't intend reorganization.
+//
+// VALIDATION INVARIANT (post-apply)
+// ==================================
+// The resulting AnswerDocumentV2 MUST pass the same V2 validator
+// chain that emit_answer_document_v2 runs (no V1 fields, every block
+// kind valid, every block id unique, etc.). Apply rejects
+// pre-validation when the patch itself is malformed (unknown ids,
+// dup ids, conflicting ops, mutually-exclusive Citations both set,
+// etc.).
+//
+// HISTORY
+// =======
+// R16 protocol-level retry preservation (post_shape_residual_audit.md,
+// 2026-05-04). Replaces R14 prompt-level "Hard Rule: byte-identical
+// preserve" — m1a r2 真证据 from R14_eval_deep_audit.md §3 类 J shows
+// LLM dropped fields on retry despite the prompt directive. R16 makes
+// preservation structural: LLM declares what to keep / replace / add
+// / remove; system copies what was declared kept verbatim, LLM never
+// has the opportunity to rewrite preserved fields.
+//
+// Phase 1 mutation-contract documentation (this godoc, 2026-05-04):
+// the operations table above is the canonical reference. Tools that
+// emit patches MUST select exactly one op per field group; validators
+// MUST treat the merged doc as truth, NOT inspect the patch shape.
 type AnswerDocumentV2Patch struct {
 	UnchangedBlockIDs []string                      `json:"unchanged_block_ids,omitempty"`
 	ReplaceBlocks     []AnswerBlock                 `json:"replace_blocks,omitempty"`
@@ -286,6 +333,14 @@ func validatePatchStructure(prev *AnswerDocumentV2, p *AnswerDocumentV2Patch) er
 		if !IsValidAnswerBlockKind(b.Kind) {
 			return fmt.Errorf("patch: replace_blocks[%q] kind=%q is not valid", b.ID, b.Kind)
 		}
+	}
+
+	// Mutation-contract invariant (5): Citations Replace XOR Append.
+	// ReplaceCitations re-pickes the pool wholesale; AppendCitations
+	// adds to the inherited pool. Setting BOTH signals contradictory
+	// LLM intent and is rejected — the LLM must commit to one mode.
+	if p.ReplaceCitations != nil && len(p.AppendCitations) > 0 {
+		return fmt.Errorf("patch: replace_citations and append_citations are mutually exclusive (contract invariant 5); set exactly one")
 	}
 
 	return nil
