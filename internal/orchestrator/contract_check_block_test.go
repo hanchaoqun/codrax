@@ -203,6 +203,282 @@ func TestDiagramEdgeSupport_NoDiagramPlanSkipped(t *testing.T) {
 	}
 }
 
+// ── R4.3 deepening: per-edge endpoint grounding ─────────────
+
+func diagramFlowView() *types.AnswerSemanticView {
+	return &types.AnswerSemanticView{
+		Family: types.QFRootCauseTrace,
+		DiagramPlan: &types.DiagramFacetGraph{
+			Required: true,
+			Kind:     types.DiagramFlow,
+		},
+	}
+}
+
+// TestDiagramEdgeSupport_AllEdgesGroundedInBodyDecls — every edge's
+// endpoint is a declared node in the same body, so grounding succeeds
+// purely from the body itself with no other doc content needed.
+func TestDiagramEdgeSupport_AllEdgesGroundedInBodyDecls(t *testing.T) {
+	view := diagramFlowView()
+	body := "flowchart LR\n" +
+		"  A[\"Login\"] --> B[\"AuthCheck\"]\n" +
+		"  B --> C[\"Dashboard\"]\n"
+	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{
+		{
+			ID:   "d1",
+			Kind: types.BlockDiagram,
+			Diagram: &types.AnswerDiagramBlock{
+				Kind: types.DiagramFlow,
+				Body: body,
+			},
+		},
+	}}
+	if vs := validateDiagramEdgeSupport(doc, view); len(vs) != 0 {
+		t.Errorf("all-grounded body edges should pass; got %+v", vs)
+	}
+}
+
+// TestDiagramEdgeSupport_AllEdgesGroundedInItemsAndTitles —
+// endpoints are bare identifiers (no in-body decl) but each is named
+// in an item label or block title elsewhere in the doc. Grounding
+// succeeds via the cross-doc support set.
+func TestDiagramEdgeSupport_AllEdgesGroundedInItemsAndTitles(t *testing.T) {
+	view := diagramFlowView()
+	body := "flowchart LR\n  Login --> AuthCheck\n  AuthCheck --> Dashboard\n"
+	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{
+		{
+			ID:    "ol1",
+			Kind:  types.BlockOrderedList,
+			Title: "Login",
+			Items: []types.AnswerBlockItem{
+				{Label: "AuthCheck"},
+				{Label: "Dashboard"},
+			},
+		},
+		{
+			ID:   "d1",
+			Kind: types.BlockDiagram,
+			Diagram: &types.AnswerDiagramBlock{
+				Kind: types.DiagramFlow,
+				Body: body,
+			},
+		},
+	}}
+	if vs := validateDiagramEdgeSupport(doc, view); len(vs) != 0 {
+		t.Errorf("items/title-grounded edges should pass; got %+v", vs)
+	}
+}
+
+// TestDiagramEdgeSupport_HallucinatedMiddleNodeFires — Login and
+// Dashboard are grounded but InternalGate is not. Both edges
+// (Login -> InternalGate) and (InternalGate -> Dashboard) cite
+// InternalGate as an endpoint, so both fire.
+func TestDiagramEdgeSupport_HallucinatedMiddleNodeFires(t *testing.T) {
+	view := diagramFlowView()
+	body := "flowchart LR\n  Login --> InternalGate\n  InternalGate --> Dashboard\n"
+	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{
+		{
+			ID:    "ol1",
+			Kind:  types.BlockOrderedList,
+			Title: "Login",
+			Items: []types.AnswerBlockItem{
+				{Label: "Dashboard"},
+			},
+		},
+		{
+			ID:   "d1",
+			Kind: types.BlockDiagram,
+			Diagram: &types.AnswerDiagramBlock{
+				Kind: types.DiagramFlow,
+				Body: body,
+			},
+		},
+	}}
+	vs := validateDiagramEdgeSupport(doc, view)
+	if len(vs) != 1 || vs[0].Kind != types.ViolDiagramEdgeUnsupported {
+		t.Fatalf("expected one ViolDiagramEdgeUnsupported; got %+v", vs)
+	}
+	if !strings.Contains(vs[0].Detail, "InternalGate") {
+		t.Errorf("Detail should name the hallucinated endpoint; got %q", vs[0].Detail)
+	}
+	if !strings.Contains(vs[0].Detail, "Login -> InternalGate") {
+		t.Errorf("Detail should list the unsupported (from -> to) pair; got %q", vs[0].Detail)
+	}
+	if !strings.Contains(vs[0].Detail, "InternalGate -> Dashboard") {
+		t.Errorf("Detail should list both unsupported pairs; got %q", vs[0].Detail)
+	}
+}
+
+// TestDiagramEdgeSupport_FullyHallucinatedEdgesFire — neither
+// endpoint of either edge is grounded; every edge is reported.
+func TestDiagramEdgeSupport_FullyHallucinatedEdgesFire(t *testing.T) {
+	view := diagramFlowView()
+	body := "flowchart LR\n  Phantom1 --> Phantom2\n  Phantom2 --> Phantom3\n"
+	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{
+		{
+			ID:   "d1",
+			Kind: types.BlockDiagram,
+			Diagram: &types.AnswerDiagramBlock{
+				Kind: types.DiagramFlow,
+				Body: body,
+			},
+		},
+	}}
+	vs := validateDiagramEdgeSupport(doc, view)
+	if len(vs) != 1 {
+		t.Fatalf("expected exactly one aggregated violation; got %d (%+v)", len(vs), vs)
+	}
+	d := vs[0].Detail
+	if !strings.Contains(d, "2 edge(s)") {
+		t.Errorf("Detail should report 2 unsupported edges; got %q", d)
+	}
+}
+
+// TestDiagramEdgeSupport_BodyWithLabelsButEmptyClaimsPasses — the
+// body declares the labels via shape wrappers; doc has nothing else.
+// Grounding via the body's own node decls is sufficient.
+func TestDiagramEdgeSupport_BodyWithLabelsButEmptyClaimsPasses(t *testing.T) {
+	view := diagramFlowView()
+	body := "flowchart TD\n" +
+		"  N1((\"Start\")) --> N2{Decision}\n" +
+		"  N2 --> N3[\"End\"]\n"
+	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{
+		{
+			ID:   "d1",
+			Kind: types.BlockDiagram,
+			Diagram: &types.AnswerDiagramBlock{
+				Kind: types.DiagramFlow,
+				Body: body,
+			},
+		},
+	}}
+	if vs := validateDiagramEdgeSupport(doc, view); len(vs) != 0 {
+		t.Errorf("self-declared body should pass; got %+v", vs)
+	}
+}
+
+// TestDiagramEdgeSupport_SequenceDiagramArrowsAreParsed — the
+// sequence-diagram arrow operators (->>, -->>) are recognised as
+// edges by the parser.
+func TestDiagramEdgeSupport_SequenceDiagramArrowsAreParsed(t *testing.T) {
+	view := &types.AnswerSemanticView{
+		Family: types.QFCallChain,
+		DiagramPlan: &types.DiagramFacetGraph{
+			Required: true,
+			Kind:     types.DiagramSequence,
+		},
+	}
+	body := "sequenceDiagram\n  Client->>Server: GET /x\n  Server-->>PhantomDB: query\n  PhantomDB-->>Server: row\n  Server-->>Client: 200 OK\n"
+	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{
+		{
+			ID:    "ol1",
+			Kind:  types.BlockBulletList,
+			Title: "Trace",
+			Items: []types.AnswerBlockItem{
+				{Label: "Client"},
+				{Label: "Server"},
+			},
+		},
+		{
+			ID:   "d1",
+			Kind: types.BlockDiagram,
+			Diagram: &types.AnswerDiagramBlock{
+				Kind: types.DiagramSequence,
+				Body: body,
+			},
+		},
+	}}
+	vs := validateDiagramEdgeSupport(doc, view)
+	if len(vs) != 1 {
+		t.Fatalf("expected one violation listing the PhantomDB edges; got %+v", vs)
+	}
+	if !strings.Contains(vs[0].Detail, "PhantomDB") {
+		t.Errorf("Detail should name PhantomDB; got %q", vs[0].Detail)
+	}
+}
+
+// TestDiagramEdgeSupport_NilClaimUsesDoesNotPanic — the per-edge
+// path must handle a doc whose blocks have nil ClaimUses / nil item
+// ClaimUse pointers without panicking.
+func TestDiagramEdgeSupport_NilClaimUsesDoesNotPanic(t *testing.T) {
+	view := diagramFlowView()
+	body := "flowchart LR\n  A --> B\n"
+	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{
+		{
+			ID:        "ol1",
+			Kind:      types.BlockOrderedList,
+			Title:     "A",
+			Items:     []types.AnswerBlockItem{{Label: "B"}},
+			ClaimUses: nil,
+		},
+		{
+			ID:   "d1",
+			Kind: types.BlockDiagram,
+			Diagram: &types.AnswerDiagramBlock{
+				Kind:      types.DiagramFlow,
+				Body:      body,
+				ClaimUses: nil,
+			},
+		},
+	}}
+	defer func() {
+		if r := recover(); r != nil {
+			t.Fatalf("nil claim_uses caused panic: %v", r)
+		}
+	}()
+	if vs := validateDiagramEdgeSupport(doc, view); len(vs) != 0 {
+		t.Errorf("nil claim_uses with grounded items should pass; got %+v", vs)
+	}
+}
+
+// TestDiagramEdgeSupport_EdgesWithLabelsParseCorrectly — the
+// `A -->|cond| B` and `A -- text --> B` shapes must split as
+// (A, B) so the labels do not leak into endpoint tokens.
+func TestDiagramEdgeSupport_EdgesWithLabelsParseCorrectly(t *testing.T) {
+	view := diagramFlowView()
+	body := "flowchart LR\n  A -->|matched| B\n  B -- when_x_is_true --> C\n"
+	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{
+		{
+			ID:    "ol1",
+			Kind:  types.BlockOrderedList,
+			Title: "A",
+			Items: []types.AnswerBlockItem{{Label: "B"}, {Label: "C"}},
+		},
+		{
+			ID:   "d1",
+			Kind: types.BlockDiagram,
+			Diagram: &types.AnswerDiagramBlock{
+				Kind: types.DiagramFlow,
+				Body: body,
+			},
+		},
+	}}
+	if vs := validateDiagramEdgeSupport(doc, view); len(vs) != 0 {
+		t.Errorf("labelled edges with grounded endpoints should pass; got %+v", vs)
+	}
+}
+
+// TestDiagramEdgeSupport_EmptyBodyShortCircuits — an empty body must
+// not cause the parser to misclassify it as fully-hallucinated. The
+// validator returns nil so the existing kind/presence violations
+// remain the only signal.
+func TestDiagramEdgeSupport_EmptyBodyShortCircuits(t *testing.T) {
+	view := diagramFlowView()
+	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{
+		{
+			ID:   "d1",
+			Kind: types.BlockDiagram,
+			Diagram: &types.AnswerDiagramBlock{
+				Kind: types.DiagramFlow,
+				Body: "   \n  \n",
+			},
+		},
+	}}
+	if vs := validateDiagramEdgeSupport(doc, view); len(vs) != 0 {
+		t.Errorf("empty body should not fire edge oracle; got %+v", vs)
+	}
+}
+
 // ── validateUncertaintyBlockPresence ───────────────────────
 
 func uncertaintyView() *types.AnswerSemanticView {

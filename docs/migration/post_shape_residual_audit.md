@@ -126,7 +126,7 @@
 | R3.1 | 🟢 SHIPPED 真根因修(emptySurface 短路 inconclusive) | TBD | 待真 eval rerun s1a/m1a 确认 facet_softened 不再 fire 4/4 |
 | R4.1 | 🟢 SHIPPED nested-array string-mode 兜底扩展 | (本 commit) | repairNestedArraysAsString 处理 items[] / claim_uses[] / diagram.claim_uses[] string-encoded 失败模式;7 单测 (3 case + multi + 7 negative + e2e) |
 | R4.2 | 🔵 由 R16 取代 — emit_answer_document_patch 即 F7-A retained-draft 协议层实施 | (R16) | n/a |
-| R4.3 | ⬜ pending | — | — |
+| R4.3 | 🟢 SHIPPED 每条 edge endpoint 必须 map 到 body decl / item label / block title / ClaimUse FacetID/EvidenceID | (本 commit) | parseMermaidEdges + mermaidNodeDeclarationsAll + buildDiagramSupportTokens + diagramTokenSupported;支持 flowchart `--> -.-> ==>` + sequenceDiagram `->> -->>` + 带 label 的 `A -->|cond| B` / `A -- text --> B`;聚合所有未支撑 edge 入单条 ViolDiagramEdgeUnsupported (Detail 列出 from→to 对);9 lock test 覆盖 grounded-in-body / grounded-in-items / hallucinated-middle / fully-hallucinated / nilClaimUses / sequence-arrows / labelled-edges / empty-body / kind-mismatch 兼容旧 4 测试 |
 | R4.4 | 🟢 SHIPPED QFComparison family | (本 commit) | Buckets >= 2 路由到 QFComparison;compile_comparison.go 一对一 BlockSection per bucket;commonFacets 自动附 FacetBucketLabel HARD;7 lock test |
 | R5.1 | 🟢 SHIPPED summary 4 列 | TBD | smoke 通过 (s1a 历史数据) |
 | R5.2 | 🟢 NO-OP — B6-F5 metric 已 1:1 LLM turn (baseline eval 真验证),仅日志冗余降级 P3 (合并到 R12) | (B6-F5) | n/a |

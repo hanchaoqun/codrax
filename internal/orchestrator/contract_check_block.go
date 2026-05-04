@@ -150,13 +150,21 @@ func validatePrincipalClaimUse(doc *types.AnswerDocumentV2, view *types.AnswerSe
 // validateDiagramEdgeSupport checks each BlockDiagram in doc.Blocks
 // against view.DiagramPlan: when DiagramPlan.Required, the diagram
 // must exist and its Kind should match (when both view and block
-// declare a Kind). The validator is intentionally lenient on edge
-// shape introspection (mermaid edge parsing is complex); it raises
-// only on the structural mismatches it can detect deterministically.
+// declare a Kind). On top of those structural checks (R4.3 deepening
+// 2026-05-04), it now performs per-edge semantic grounding:
+// every edge parsed from the Mermaid body must have BOTH endpoints
+// resolvable to (a) a node declared in the same body, OR (b) a
+// substring of an Item.Label / Block.Title in the same answer doc,
+// OR (c) a substring of any RenderedClaimUse FacetID/EvidenceID in
+// the answer. Edges whose endpoints fail every grounding fork are
+// surfaced as ViolDiagramEdgeUnsupported with Detail listing each
+// unsupported (from -> to) pair so the LLM can repair them on retry.
 //
-// Failure-mode summary: "V2 doc emitted a diagram block but its
+// Failure-mode summary: "V2 doc emitted a diagram block but (a) its
 // declared Kind disagrees with the family's DiagramFacetGraph kind,
-// OR the family required a diagram and none was emitted."
+// (b) the family required a diagram and none was emitted, OR (c)
+// the diagram contains hallucinated edges whose endpoints have no
+// grounded basis in the rest of the answer."
 func validateDiagramEdgeSupport(doc *types.AnswerDocumentV2, view *types.AnswerSemanticView) []types.Violation {
 	if doc == nil || view == nil || view.DiagramPlan == nil {
 		return nil
@@ -208,7 +216,380 @@ func validateDiagramEdgeSupport(doc *types.AnswerDocumentV2, view *types.AnswerS
 			Stage: string(types.StageFinalize),
 		}}
 	}
-	return nil
+
+	// R4.3 deepening — per-edge endpoint grounding. Skip when the
+	// diagram has no body (defensive; the schema validator should
+	// reject empty Body, but a downstream consumer must not panic).
+	body := diagramBlock.Diagram.Body
+	if strings.TrimSpace(body) == "" {
+		return nil
+	}
+	edges := parseMermaidEdges(body)
+	if len(edges) == 0 {
+		return nil
+	}
+	support := buildDiagramSupportTokens(doc, diagramBlock)
+	var unsupported []mermaidEdge
+	for _, e := range edges {
+		if !diagramTokenSupported(e.from, support) || !diagramTokenSupported(e.to, support) {
+			unsupported = append(unsupported, e)
+		}
+	}
+	if len(unsupported) == 0 {
+		return nil
+	}
+	// Aggregate as a single violation — the LLM should see the full
+	// list of broken edges in one repair pass instead of being
+	// re-prompted per edge.
+	pairs := make([]string, 0, len(unsupported))
+	for _, e := range unsupported {
+		pairs = append(pairs, fmt.Sprintf("%s -> %s", e.from, e.to))
+	}
+	return []types.Violation{{
+		Kind: types.ViolDiagramEdgeUnsupported,
+		Detail: fmt.Sprintf(
+			"diagram block id=%q has %d edge(s) whose endpoints are not grounded in any item, block title, claim_use annotation, or declared node label: [%s]",
+			diagramBlock.ID, len(unsupported), strings.Join(pairs, ", ")),
+		Repair: "for each listed edge, either (a) declare its endpoints as labelled nodes in the same Mermaid body (e.g. A[\"Label A\"] --> B[\"Label B\"]), (b) name the endpoints in an item label or block title in this answer, or (c) drop the edge if it represents an inference not backed by any grounded claim.",
+		SuspectedRoot: types.SuspectedRoot{
+			IRField:    "diagram_edges",
+			Reason:     "edge endpoints lack grounding in the rest of the answer",
+			Confidence: 0.65,
+		},
+		Stage: string(types.StageFinalize),
+	}}
+}
+
+// mermaidEdge is the (from, to) token pair extracted from one edge
+// declaration in a Mermaid body. Both fields are the raw identifier /
+// label substring as it appears in source — matching is case-folded
+// downstream.
+type mermaidEdge struct {
+	from string
+	to   string
+}
+
+// parseMermaidEdges scans a Mermaid body and returns every edge
+// declaration it can recognise. Supported shapes (covers the bodies
+// the LLM emits for flowchart / sequenceDiagram / call_dag /
+// architecture):
+//   - flowchart:    A --> B  /  A --- B  /  A ==> B  /  A -.-> B
+//                   A -->|label| B  /  A -- text --> B
+//   - sequence:     A->>B: msg  /  A-->>B: reply  /  A->B: txt
+//
+// Unrecognised lines (subgraph headers, classDefs, %%comments) are
+// silently skipped — the goal is best-effort coverage of the common
+// edge syntaxes, not an exhaustive Mermaid parser.
+func parseMermaidEdges(body string) []mermaidEdge {
+	var edges []mermaidEdge
+	for _, raw := range strings.Split(body, "\n") {
+		line := strings.TrimSpace(raw)
+		if line == "" || strings.HasPrefix(line, "%%") || strings.HasPrefix(line, "classDef") || strings.HasPrefix(line, "click") {
+			continue
+		}
+		// Strip the trailing ": message" payload that sequenceDiagram
+		// and noteOver lines carry — the message is prose, not a
+		// node identifier, so we never want it as a "to" token.
+		if idx := strings.Index(line, ":"); idx > 0 {
+			line = strings.TrimSpace(line[:idx])
+		}
+		from, to, ok := splitMermaidEdgeLine(line)
+		if !ok {
+			continue
+		}
+		from = stripMermaidNodeShape(from)
+		to = stripMermaidNodeShape(to)
+		if from == "" || to == "" {
+			continue
+		}
+		edges = append(edges, mermaidEdge{from: from, to: to})
+	}
+	return edges
+}
+
+// splitMermaidEdgeLine attempts to split a single Mermaid statement
+// into (from, to) on the first arrow operator it finds. Returns
+// ok=false when no arrow appears (declaration-only lines).
+//
+// Arrow operators (longest-first match prevents `--` from clipping
+// `-->`):
+//
+//	-->>  -.->  -->  -->|...|  ==>  ==>|...|
+//	-.->|...|  --|text|-->  -- text -->
+//	---  ->>  -->>
+func splitMermaidEdgeLine(line string) (string, string, bool) {
+	// Strip optional `|inline label|` between the dashes — Mermaid
+	// flowchart's `A -->|cond| B` and `A -- text --> B` shapes — by
+	// removing every `|...|` group before searching for arrows.
+	for {
+		i := strings.Index(line, "|")
+		if i < 0 {
+			break
+		}
+		j := strings.Index(line[i+1:], "|")
+		if j < 0 {
+			break
+		}
+		line = line[:i] + " " + line[i+1+j+1:]
+	}
+	// Operator candidates ordered longest-first.
+	operators := []string{
+		"-->>", "-.->", "-->", "==>", "->>", "---", "==", "->",
+	}
+	for _, op := range operators {
+		idx := strings.Index(line, op)
+		if idx < 0 {
+			continue
+		}
+		from := strings.TrimSpace(line[:idx])
+		to := strings.TrimSpace(line[idx+len(op):])
+		// `---` matches inside identifiers like `a---b`; require
+		// the from / to halves to look like identifier / label.
+		if from == "" || to == "" {
+			continue
+		}
+		// Drop trailing punctuation that follows the to token (";",
+		// ",", trailing class binding `:::cls`).
+		to = strings.SplitN(to, ";", 2)[0]
+		to = strings.SplitN(to, ":::", 2)[0]
+		to = strings.TrimSpace(to)
+		// `-- text -->` shape: after stripping the `|...|` block we
+		// may be left with `A   B` separated by inner text — the
+		// arrow we found could be the inner `--`. Heuristic: if both
+		// sides still contain an arrow, pick the rightmost one.
+		if strings.Contains(to, "-->") || strings.Contains(to, "==>") || strings.Contains(to, "->>") {
+			// recurse on the rightmost portion
+			f2, t2, ok := splitMermaidEdgeLine(to)
+			if ok {
+				return f2, t2, true
+			}
+		}
+		return from, to, true
+	}
+	return "", "", false
+}
+
+// stripMermaidNodeShape collapses a node declaration with a shape
+// wrapper to its identifier. Examples:
+//
+//	A[Label]    -> A
+//	A("Label")  -> A
+//	A((Round))  -> A
+//	A>flag]     -> A
+//	A{rhombus}  -> A
+//	A&fa:fa-x   -> A (cosmetic prefix, drop the stuff after)
+//
+// When no shape wrapper is present, the input is returned trimmed.
+// The label itself is intentionally discarded — the supported-token
+// set carries label substrings from the body separately so matching
+// remains label-aware.
+func stripMermaidNodeShape(tok string) string {
+	t := strings.TrimSpace(tok)
+	if t == "" {
+		return ""
+	}
+	// Strip optional class binding suffix `:::clsName`
+	if i := strings.Index(t, ":::"); i > 0 {
+		t = strings.TrimSpace(t[:i])
+	}
+	// Find the first shape opener and cut at it: [, (, {, >
+	cutAt := -1
+	for i, r := range t {
+		if r == '[' || r == '(' || r == '{' || r == '>' {
+			cutAt = i
+			break
+		}
+	}
+	if cutAt > 0 {
+		t = strings.TrimSpace(t[:cutAt])
+	}
+	// Drop leading `&` cosmetic prefix
+	t = strings.TrimPrefix(t, "&")
+	return t
+}
+
+// buildDiagramSupportTokens collects every textual anchor in the
+// answer doc that an edge endpoint can match against. The set is
+// case-folded so callers can do plain `strings.Contains` lookups.
+//
+// Sources, in order of intentional generosity:
+//  1. Mermaid node declarations from the diagram body itself
+//     (identifier + bracketed label, both flavours).
+//  2. Every block.Title (case-folded full string) and every
+//     block-level / item-level / diagram-level RenderedClaimUse's
+//     FacetID + EvidenceID.
+//  3. Every Item.Label across all blocks in the doc.
+//
+// Why doc-level (not Mutable) sources only: the V2 carrier is
+// intentionally self-describing — the answer the user reads must
+// itself ground every edge. Pulling subjects from the evidence pool
+// would let the LLM hide an unsupported edge behind evidence the
+// user never sees rendered.
+func buildDiagramSupportTokens(doc *types.AnswerDocumentV2, diagramBlock *types.AnswerBlock) map[string]struct{} {
+	out := make(map[string]struct{}, 32)
+	add := func(s string) {
+		s = strings.TrimSpace(s)
+		if s == "" {
+			return
+		}
+		out[strings.ToLower(s)] = struct{}{}
+	}
+	// 1) Mermaid node declarations from the body. A single line can
+	// declare multiple nodes — `A[Label] --> B[Label2]` is one
+	// statement with TWO decls. Walk every shape opener on the line
+	// instead of stopping at the first one.
+	if diagramBlock != nil && diagramBlock.Diagram != nil {
+		for _, line := range strings.Split(diagramBlock.Diagram.Body, "\n") {
+			line = strings.TrimSpace(line)
+			if line == "" || strings.HasPrefix(line, "%%") {
+				continue
+			}
+			for _, decl := range mermaidNodeDeclarationsAll(line) {
+				if decl.ident != "" {
+					add(decl.ident)
+				}
+				if decl.label != "" {
+					add(decl.label)
+				}
+			}
+		}
+		// Diagram-level claim uses
+		for _, cu := range diagramBlock.Diagram.ClaimUses {
+			add(cu.FacetID)
+			add(cu.EvidenceID)
+		}
+	}
+	// 2) Block titles + 3) item labels + per-block / per-item claim_use
+	if doc != nil {
+		for _, b := range doc.Blocks {
+			add(b.Title)
+			for _, cu := range b.ClaimUses {
+				add(cu.FacetID)
+				add(cu.EvidenceID)
+			}
+			for _, it := range b.Items {
+				add(it.Label)
+				if it.ClaimUse != nil {
+					add(it.ClaimUse.FacetID)
+					add(it.ClaimUse.EvidenceID)
+				}
+			}
+		}
+	}
+	return out
+}
+
+// mermaidNodeDecl is the (identifier, label) pair extracted from one
+// Mermaid node declaration found anywhere in a body line. A single
+// statement like `A[Label A] --> B[Label B]` produces two decls.
+type mermaidNodeDecl struct {
+	ident string
+	label string
+}
+
+// mermaidNodeDeclarationsAll walks `line` and returns every node
+// declaration it can recognise (one statement may declare several
+// nodes joined by arrows). Supported shape wrappers, longest-first:
+//
+//	A["..."]       -> ident=A label=...
+//	A[...]         -> ident=A label=...
+//	A(("..."))     -> ident=A label=...
+//	A((...))       -> ident=A label=...
+//	A({...})       -> ident=A label=...
+//	A{...}         -> ident=A label=...
+//	A("...")       -> ident=A label=...
+//	A(...)         -> ident=A label=...
+//	A>...]         -> ident=A label=...
+//
+// Identifier extraction walks backwards from each opener to the
+// previous whitespace or arrow-edge boundary; the label is the inner
+// text between opener and matching close.
+func mermaidNodeDeclarationsAll(line string) []mermaidNodeDecl {
+	openers := []struct{ open, close string }{
+		{"[\"", "\"]"},
+		{"((", "))"},
+		{"{{", "}}"},
+		{"(\"", "\")"},
+		{"[", "]"},
+		{"(", ")"},
+		{"{", "}"},
+		{">", "]"},
+	}
+	var out []mermaidNodeDecl
+	cursor := 0
+	for cursor < len(line) {
+		// Find the next-earliest opener at or after `cursor`.
+		bestPos := -1
+		var bestOpener struct{ open, close string }
+		for _, op := range openers {
+			pos := strings.Index(line[cursor:], op.open)
+			if pos < 0 {
+				continue
+			}
+			absPos := cursor + pos
+			if bestPos < 0 || absPos < bestPos {
+				bestPos = absPos
+				bestOpener = op
+			}
+		}
+		if bestPos < 0 {
+			break
+		}
+		// Walk backwards from bestPos to find the identifier.
+		identStart := bestPos
+		for identStart > cursor {
+			r := line[identStart-1]
+			if r == ' ' || r == '\t' || r == '>' || r == ']' || r == ')' || r == '}' || r == '|' {
+				break
+			}
+			identStart--
+		}
+		ident := strings.TrimSpace(line[identStart:bestPos])
+		// Identifier sanity check: arrow-operator characters can
+		// never start an identifier. Walk past the opener WITHOUT
+		// claiming any close — otherwise the `>` opener (which
+		// shares its `]` close with `[`) would swallow the rest of
+		// the line on `B --> C[Label]` shapes.
+		if ident == "" || strings.ContainsAny(ident, "-=>") {
+			cursor = bestPos + len(bestOpener.open)
+			continue
+		}
+		// Locate matching close.
+		labelStart := bestPos + len(bestOpener.open)
+		closeRel := strings.Index(line[labelStart:], bestOpener.close)
+		if closeRel < 0 {
+			cursor = bestPos + len(bestOpener.open)
+			continue
+		}
+		labelEnd := labelStart + closeRel
+		label := strings.TrimSpace(line[labelStart:labelEnd])
+		label = strings.Trim(label, "\"'")
+		out = append(out, mermaidNodeDecl{ident: ident, label: label})
+		cursor = labelEnd + len(bestOpener.close)
+	}
+	return out
+}
+
+// diagramTokenSupported reports whether `token` (an edge endpoint's
+// raw text) appears as / inside any anchor in the support set. The
+// match is case-folded and uses substring containment in BOTH
+// directions — token-contains-anchor AND anchor-contains-token —
+// so e.g. a single-letter `B` in the diagram matches a longer
+// support token `BlockHandler` and vice versa.
+func diagramTokenSupported(token string, support map[string]struct{}) bool {
+	t := strings.ToLower(strings.TrimSpace(token))
+	if t == "" {
+		return false
+	}
+	if _, ok := support[t]; ok {
+		return true
+	}
+	for s := range support {
+		if strings.Contains(s, t) || strings.Contains(t, s) {
+			return true
+		}
+	}
+	return false
 }
 
 // validateUncertaintyBlockPresence walks view.UncertaintyRules; for
