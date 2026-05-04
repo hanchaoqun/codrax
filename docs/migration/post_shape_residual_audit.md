@@ -113,7 +113,7 @@
 | ~~**R11**~~ | 🔵 由 R14 统一解决 | — | violation 缺 Severity;深层根因同 R6/R6.1/R13 |
 | **R12** | ⬜ pending P3(R7 verification 深挖发现) | — | explorer/extractor/finalizer iter 计数 cross-dispatch 累加,m1a r1 metric `explorer_iters=40` 实际 4 次 dispatch × ~10 iter,运维看错。**纯观测性问题,不属 retry-state 范畴**,独立修。见 R7_eval_deep_audit.md |
 | ~~**R13**~~ | 🔵 由 R14 统一解决 | — | scheduler vs V2 oracle 双层 gating;深层根因同 R6/R6.1/R11 |
-| **R14** | ⬜ pending P1(统一方案,取代 R6/R6.1/R11/R13)| — | **typed retry-state contract** — 在 retry 路径上一次性渲染 prev typed-state + 跨层 violations(按 Severity 分组)+ 显式 preserve/change 字段分类。一个改动取代 4 个零碎补丁。见 R14_unified_retry_state_design.md(178 行)|
+| **R14** | 🟢 SHIPPED c1-c9(数据+写入+渲染全链路)| e79f308+3162146+9e3b038 | 待 c10 真 eval rerun 验证(期望 m1a r1 retry 失忆消失,principal_claim_use_missing 6→低值)|
 | **R7** | 🟢 SHIPPED typed-set verbatim + 反向归属 | TBD | 真 eval rerun 验证 facet_uncovered 数下降 |
 | **R8** | ⬜ pending P2(全量日志深挖发现) | — | analyzer 自动决策无 telemetry — 类 C |
 | **R10** | ⬜ pending P2(全量日志深挖发现) | — | CGEC 高频事件主链不可观测 — 类 D |
