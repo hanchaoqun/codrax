@@ -113,7 +113,9 @@
 | ~~**R11**~~ | 🔵 由 R14 统一解决 | — | violation 缺 Severity;深层根因同 R6/R6.1/R13 |
 | **R12** | ⬜ pending P3(R7 verification 深挖发现) | — | explorer/extractor/finalizer iter 计数 cross-dispatch 累加,m1a r1 metric `explorer_iters=40` 实际 4 次 dispatch × ~10 iter,运维看错。**纯观测性问题,不属 retry-state 范畴**,独立修。见 R7_eval_deep_audit.md |
 | ~~**R13**~~ | 🔵 由 R14 统一解决 | — | scheduler vs V2 oracle 双层 gating;深层根因同 R6/R6.1/R11 |
-| **R14** | 🟢 SHIPPED c1-c9(数据+写入+渲染全链路)| e79f308+3162146+9e3b038 | 待 c10 真 eval rerun 验证(期望 m1a r1 retry 失忆消失,principal_claim_use_missing 6→低值)|
+| **R14** | 🟢 SHIPPED c1-c10(c10 真 eval verify 完成)| e79f308+3162146+9e3b038 | Pass rate 3/4→**4/4**;Hard Rule renders × 4 真触发;facet_uncovered 4→1 (-75%)。但暴露 R15/R16 深层 insight。见 R14_eval_deep_audit.md |
+| **R15** | ⬜ pending P1(R14 c10 verification 真发现) | — | **多维分类贯通** — R14 Severity / `pipeline_contract_strict_kinds` / `FallbackTargetForKind` 三个分类机制各自独立,R14 Critical 不自动等于 strict (m1a r2 真证据:retry rendered × 2 但 principal_claim_use_missing × 9 因 strict-list 没收 → soft pass)。统一成 typed ViolationProfile。见 R14_eval_deep_audit.md §3 类 I |
+| **R16** | ⬜ pending P1(R14 c10 verification 真发现) | — | **协议层 retry preservation** — m1a r2 R14 Hard Rule 渲染 2 次但 LLM 仍 regenerate (iter 1 出现 18 claim_use 含 prev emit 回显;iter 7-10 = 0)。Prompt-level "preserve byte-identical" 不可靠。延续 F7-A / R4.2 设计:`emit_answer_document_patch` tool,LLM 只发 delta,系统侧 ApplyPatch。见 R14_eval_deep_audit.md §3 类 J |
 | **R7** | 🟢 SHIPPED typed-set verbatim + 反向归属 | TBD | 真 eval rerun 验证 facet_uncovered 数下降 |
 | **R8** | ⬜ pending P2(全量日志深挖发现) | — | analyzer 自动决策无 telemetry — 类 C |
 | **R10** | ⬜ pending P2(全量日志深挖发现) | — | CGEC 高频事件主链不可观测 — 类 D |
