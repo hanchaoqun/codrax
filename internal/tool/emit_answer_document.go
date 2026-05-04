@@ -93,12 +93,12 @@ func (t *EmitAnswerDocument) Description() string {
 		"],\"citations\":[{\"file\":\"x.go\",\"line\":1},{\"file\":\"y.go\",\"line\":1}]}\n" +
 		"```\n" +
 		"\n" +
-		"4) Single-literal scalar (BlockScalar):\n" +
+		"4) Single-literal scalar (BlockScalar — literal in block.text, citation via one-element items[]):\n" +
 		"```json\n" +
 		"{\"document_model\":\"v2\",\"blocks\":[\n" +
-		"  {\"id\":\"v1\",\"kind\":\"scalar\",\"text\":\"<names the subject + how the value was obtained>\",\"surface_role\":\"principal\",\n" +
-		"   \"value\":{\"literal\":\"42\",\"citation_ref\":0},\n" +
-		"   \"claim_use\":{\"claim_form\":\"definition_fact\",\"citation_ref\":0}}\n" +
+		"  {\"id\":\"v1\",\"kind\":\"scalar\",\"text\":\"42\",\"surface_role\":\"principal\",\n" +
+		"   \"items\":[{\"id\":\"vcite\",\"citation_ref\":0}],\n" +
+		"   \"claim_uses\":[{\"claim_form\":\"definition_fact\"}]}\n" +
 		"],\"citations\":[{\"file\":\"const.go\",\"line\":7}]}\n" +
 		"```\n" +
 		"\n" +
@@ -147,7 +147,7 @@ func (t *EmitAnswerDocument) Parameters() json.RawMessage {
                 "id":           {"type": "string"},
                 "label":        {"type": "string", "description": "Primary visible text / row header. For enumeration items, MUST be the verbatim identifier copied from one of the evidence pool's anchor_symbol / subject / object values — fabricated labels are rejected by validateEnumerationItemLabelGrounding."},
                 "text":         {"type": "string", "description": "Item body / row content."},
-                "citation_ref": {"type": "integer", "description": "Top-level field on the item; zero-based index into citations[], or -1 when no cite backs the item. NEVER place citation_ref inside claim_use — it is rejected with 'unknown field \"citation_ref\"'."},
+                "citation_ref": {"type": "integer", "description": "Top-level field on the item; zero-based index into citations[], or -1 when no cite backs the item. For scalar / decision blocks (where the literal / verdict sits in block.text), anchor the citation by attaching a one-element items=[{id:\"x\", citation_ref: N}] — there is no top-level value/boolean field on the block. NEVER place citation_ref inside claim_use — it is rejected with 'unknown field \"citation_ref\"'."},
                 "claim_use":    {"type": "object", "description": "Optional per-item claim annotation. EXACTLY 4 fields: {claim_form: <enum>, facet_id?: string, evidence_id?: string, surface_role?: <enum>}. Does NOT carry citation_ref (citation_ref is top-level on the item, not inside this object). Does NOT carry from_node / to_node (those live in the block-level edge_anchors[] array — see below — never inside claim_use)."}
               }
             }
@@ -161,7 +161,7 @@ func (t *EmitAnswerDocument) Parameters() json.RawMessage {
               "body":     {"type": "string", "description": "Raw diagram source (the part inside fenced markers; the renderer adds the fences). For diagram.kind=flow/architecture/call_dag use Mermaid \"flowchart\" syntax (direction LR/TD/RL/BT); for diagram.kind=sequence use Mermaid \"sequenceDiagram\"."}
             }
           },
-          "claim_uses":   {"type": "array", "description": "Block-level claim annotations array (the singular form claim_use does NOT exist at block level — only inside items[i].claim_use). REQUIRED on principal blocks (surface_role=principal) when the contract's AcceptableClaimForms list is non-empty. Each entry has EXACTLY 4 fields: {claim_form: <one of definition_fact|call_edge|guard_condition|assignment_fact|return_fact|absence_fact|precedence_role|external_observation|import_edge>, facet_id?: string, evidence_id?: string, surface_role?: <enum>}. Single-form blocks emit a one-element array (claim_uses=[{claim_form=definition_fact}]). Each entry does NOT carry citation_ref — citations live on the enclosing carrier (value.citation_ref / boolean.citation_ref / per-item items[i].citation_ref). Each entry does NOT carry from_node / to_node — those live in the block-level edge_anchors[] field below."},
+          "claim_uses":   {"type": "array", "description": "Block-level claim annotations array (the singular form claim_use does NOT exist at block level — only inside items[i].claim_use). REQUIRED on principal blocks (surface_role=principal) when the contract's AcceptableClaimForms list is non-empty. Each entry has EXACTLY 4 fields: {claim_form: <one of definition_fact|call_edge|guard_condition|assignment_fact|return_fact|absence_fact|precedence_role|external_observation|import_edge>, facet_id?: string, evidence_id?: string, surface_role?: <enum>}. Single-form blocks emit a one-element array (claim_uses=[{claim_form=definition_fact}]). Each entry does NOT carry citation_ref — citations live on the enclosing carrier (per-item items[i].citation_ref (scalar / decision blocks anchor the cite via a one-element items=[{citation_ref:N}])). Each entry does NOT carry from_node / to_node — those live in the block-level edge_anchors[] field below."},
           "edge_anchors": {"type": "array", "description": "Optional block-level array of typed (from_node, to_node, claim_form) triples that anchor labelled diagram edges to typed claim_form values. Use this when the block contributes evidence about a directed relation in a diagram (typically when the block is a diagram or when its items describe edge endpoints of a diagram in another block). Each entry shape: {from_node: string, to_node: string, claim_form?: <one of call_edge|guard_condition|import_edge|precedence_role|external_observation>}. Both from_node and to_node MUST be the verbatim node identifier strings as they appear in the diagram body. Empty / absent = no edge anchor on this block (legitimate for non-diagram-edge blocks).", "items": {"type": "object"}},
           "facet_ids":    {"type": "array", "items": {"type": "string"}, "description": "Optional facet ids this block covers — read these from the user section's Required Answer Blocks list."},
           "surface_role": {"type": "string", "enum": ["", "principal", "support", "prose_only", "diagram_only"], "description": "Block's role in the answer surface. principal = carries the answer payload (must usually attach claim_use); support = corroborates principal (e.g. anchor skeleton); prose_only = lead-in / framing; diagram_only = purely visual. The user-section's block list flags which role each Required Block expects."}

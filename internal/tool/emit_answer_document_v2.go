@@ -470,9 +470,50 @@ var answerDocumentV2MisplacedHints = []MisplacedFieldHint{
 		Field:          "citation_ref",
 		ContainerNames: []string{"claim_use", "claim_uses"},
 		CorrectPaths: []string{
-			"items[i].citation_ref",
-			"value.citation_ref",
-			"boolean.citation_ref",
+			"items[i].citation_ref (anchor scalar / decision blocks via a one-element items=[{citation_ref:N}])",
+		},
+	},
+	// V1 carrier residue: scalar blocks used to carry value{literal,
+	// citation_ref}, decision blocks used to carry boolean{decision,
+	// rationale, citation_ref}. V2 carrier puts the literal / verdict
+	// in block.text and the citation on a one-element items[].
+	// LLMs trained on the old shape may still emit value / boolean
+	// at block top level; the remap directs them to the V2 location.
+	{
+		Field:          "value",
+		ContainerNames: []string{"block (top-level)"},
+		CorrectPaths: []string{
+			"blocks[i].text (put the literal here directly, e.g. text=\"42\")",
+			"blocks[i].items=[{id:\"v\", citation_ref: N}] (anchor citation here)",
+		},
+	},
+	{
+		Field:          "boolean",
+		ContainerNames: []string{"block (top-level)"},
+		CorrectPaths: []string{
+			"blocks[i].text (put the verdict + rationale here directly, e.g. text=\"yes — the function returns ...\")",
+			"blocks[i].items=[{id:\"d\", citation_ref: N}] (anchor citation here)",
+		},
+	},
+	{
+		Field:          "literal",
+		ContainerNames: []string{"value (the value field is rejected; this targets the nested literal)"},
+		CorrectPaths: []string{
+			"blocks[i].text (the literal goes directly in block.text on a scalar block)",
+		},
+	},
+	{
+		Field:          "decision",
+		ContainerNames: []string{"boolean (the boolean field is rejected; this targets the nested decision)"},
+		CorrectPaths: []string{
+			"blocks[i].text (the verdict and rationale go directly in block.text on a decision block)",
+		},
+	},
+	{
+		Field:          "rationale",
+		ContainerNames: []string{"boolean (the boolean field is rejected; this targets the nested rationale)"},
+		CorrectPaths: []string{
+			"blocks[i].text (the verdict and rationale go directly in block.text on a decision block)",
 		},
 	},
 	// Phase 1-B source-fix follow-on (2026-05-04): from_node /

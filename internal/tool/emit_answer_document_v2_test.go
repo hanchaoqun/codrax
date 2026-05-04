@@ -478,12 +478,77 @@ func TestEmitAnswerDocumentV2_CitationRefInsideClaimUseRemapped(t *testing.T) {
 	for _, want := range []string{
 		`field "citation_ref"`,
 		"items[i].citation_ref",
-		"value.citation_ref",
-		"boolean.citation_ref",
 		"NOT inside",
 	} {
 		if !strings.Contains(res.Summary, want) {
 			t.Errorf("error message missing %q (Phase 1-B remap broken); got: %s", want, res.Summary)
+		}
+	}
+}
+
+// TestEmitAnswerDocumentV2_ValueFieldInScalarBlockRemapped pins
+// V1-carrier-residue bug fix (u3a forensic, 2026-05-04): scalar
+// blocks no longer carry block.value{literal, citation_ref};
+// literal goes in block.text and citation in items[0].citation_ref.
+// LLMs trained on V1 mental model still emit value{...} on a
+// scalar block — strict-decode rejects "unknown field value" and
+// the remap MUST direct to the V2 location.
+func TestEmitAnswerDocumentV2_ValueFieldInScalarBlockRemapped(t *testing.T) {
+	bus := newV2TestBusContext()
+	tool := &EmitAnswerDocument{}
+	misplaced := json.RawMessage(`{
+		"document_model": "v2",
+		"blocks": [{
+			"id": "v1",
+			"kind": "scalar",
+			"surface_role": "principal",
+			"value": {"literal": "42", "citation_ref": 0}
+		}],
+		"citations": [{"file": "f.go", "line": 1}]
+	}`)
+	res, _ := tool.Execute(bus, misplaced)
+	if res.Success {
+		t.Fatal("expected misplaced value field reject")
+	}
+	for _, want := range []string{
+		`field "value"`,
+		"blocks[i].text",
+		"blocks[i].items=",
+		"NOT inside",
+	} {
+		if !strings.Contains(res.Summary, want) {
+			t.Errorf("error message missing %q; got: %s", want, res.Summary)
+		}
+	}
+}
+
+// Boolean/decision block parallel: LLM emits boolean{...} at block
+// level (V1 mental model); V2 needs verdict in block.text and
+// citation in items[0].
+func TestEmitAnswerDocumentV2_BooleanFieldInDecisionBlockRemapped(t *testing.T) {
+	bus := newV2TestBusContext()
+	tool := &EmitAnswerDocument{}
+	misplaced := json.RawMessage(`{
+		"document_model": "v2",
+		"blocks": [{
+			"id": "d1",
+			"kind": "decision",
+			"surface_role": "principal",
+			"boolean": {"decision": "yes", "rationale": "because", "citation_ref": 0}
+		}],
+		"citations": [{"file": "f.go", "line": 1}]
+	}`)
+	res, _ := tool.Execute(bus, misplaced)
+	if res.Success {
+		t.Fatal("expected misplaced boolean field reject")
+	}
+	for _, want := range []string{
+		`field "boolean"`,
+		"blocks[i].text",
+		"NOT inside",
+	} {
+		if !strings.Contains(res.Summary, want) {
+			t.Errorf("error message missing %q; got: %s", want, res.Summary)
 		}
 	}
 }
