@@ -139,23 +139,35 @@ type AnswerBlock struct {
 	EdgeAnchors []DiagramEdgeAnchor `json:"edge_anchors,omitempty"`
 }
 
-// DiagramEdgeAnchor is a typed (from_node, to_node, claim_form)
-// triple that anchors a labelled diagram edge to its expected
-// claim_form. Lives on AnswerBlock.EdgeAnchors (Phase 1-B
-// source-fix, 2026-05-04) — moved here from RenderedClaimUse
-// fields so the claim_use schema does not balloon and invite
-// sibling-field misplacement.
+// DiagramEdgeAnchor is a typed edge-anchor record. Each entry binds
+// a (FromNode, ToNode) pair to (a) the typed claim_form the edge
+// represents, and (b) — G3 (post_v2_runtime_gap_remediation,
+// 2026-05-04) — an OPTIONAL typed RelationKind asserting the basic
+// semantic relation directly. When RelationKind is set, the
+// validator reads it as the authoritative relation (label
+// vocabulary becomes a consistency check, not the primary source);
+// when omitted, the validator falls back to the legacy
+// InferRelationFromLabel path so existing answers stay valid.
+//
+// Lives on AnswerBlock.EdgeAnchors (Phase 1-B source-fix,
+// 2026-05-04) — moved here from RenderedClaimUse fields so the
+// claim_use schema does not balloon and invite sibling-field
+// misplacement.
 //
 // Both FromNode and ToNode MUST be the verbatim node identifier
 // strings as they appear in the diagram body; case-folded matching
 // is downstream. ClaimForm names the typed expected claim shape
 // (call_edge / guard_condition / import_edge / precedence_role /
 // external_observation); ClaimUnknown means "no edge-level
-// claim_form required" (e.g. containment relations).
+// claim_form required" (e.g. containment relations). RelationKind
+// is the optional typed enum (call / guard / import / precedence /
+// contain / observe); empty / unknown means "let label inference
+// decide".
 type DiagramEdgeAnchor struct {
-	FromNode  string    `json:"from_node"`
-	ToNode    string    `json:"to_node"`
-	ClaimForm ClaimForm `json:"claim_form,omitempty"`
+	FromNode     string              `json:"from_node"`
+	ToNode       string              `json:"to_node"`
+	RelationKind DiagramRelationKind `json:"relation_kind,omitempty"`
+	ClaimForm    ClaimForm           `json:"claim_form,omitempty"`
 }
 
 // HasEdgeAnchor reports whether the anchor has a non-empty
@@ -166,6 +178,19 @@ func (e *DiagramEdgeAnchor) HasEdgeAnchor() bool {
 		return false
 	}
 	return e.FromNode != "" && e.ToNode != ""
+}
+
+// HasTypedRelation reports whether the anchor declares a typed
+// RelationKind — i.e. the LLM emitted an explicit relation rather
+// than relying on label inference. Validators check this to decide
+// whether to consult the typed enum (true) or fall back to
+// InferRelationFromLabel (false). DiagramRelUnknown is the empty
+// sentinel and counts as "not typed".
+func (e *DiagramEdgeAnchor) HasTypedRelation() bool {
+	if e == nil {
+		return false
+	}
+	return e.RelationKind.IsValid()
 }
 
 // AnswerBlockItem is one item inside a list / table block. Each item

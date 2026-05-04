@@ -1,6 +1,10 @@
 package types
 
-import "testing"
+import (
+	"encoding/json"
+	"strings"
+	"testing"
+)
 
 func TestSurfaceRole_IsValid(t *testing.T) {
 	cases := []struct {
@@ -100,6 +104,59 @@ func TestDiagramEdgeAnchor_HasEdgeAnchor(t *testing.T) {
 	}
 	if !(&DiagramEdgeAnchor{FromNode: "A", ToNode: "B"}).HasEdgeAnchor() {
 		t.Error("both FromNode and ToNode populated MUST report HasEdgeAnchor")
+	}
+}
+
+// G3 step 1 (post_v2_runtime_gap_remediation, 2026-05-04). Pins the
+// new RelationKind field semantics: typed enum overrides label
+// inference; unset / unknown means "fall back to label".
+func TestDiagramEdgeAnchor_HasTypedRelation(t *testing.T) {
+	cases := []struct {
+		name string
+		anc  *DiagramEdgeAnchor
+		want bool
+	}{
+		{"nil receiver", nil, false},
+		{"zero struct", &DiagramEdgeAnchor{}, false},
+		{"unknown sentinel", &DiagramEdgeAnchor{RelationKind: DiagramRelUnknown}, false},
+		{"typed call", &DiagramEdgeAnchor{RelationKind: DiagramRelCall}, true},
+		{"typed guard", &DiagramEdgeAnchor{RelationKind: DiagramRelGuard}, true},
+		{"typed import", &DiagramEdgeAnchor{RelationKind: DiagramRelImport}, true},
+		{"typed precedence", &DiagramEdgeAnchor{RelationKind: DiagramRelPrecedence}, true},
+		{"typed contain", &DiagramEdgeAnchor{RelationKind: DiagramRelContain}, true},
+		{"typed observe", &DiagramEdgeAnchor{RelationKind: DiagramRelObserve}, true},
+		// Bogus relation kind → IsValid()=false → not typed.
+		{"bogus relation kind", &DiagramEdgeAnchor{RelationKind: DiagramRelationKind("foo")}, false},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			if got := c.anc.HasTypedRelation(); got != c.want {
+				t.Errorf("HasTypedRelation()=%v, want %v (anc=%+v)", got, c.want, c.anc)
+			}
+		})
+	}
+}
+
+// G3 step 1: JSON serialisation of RelationKind preserves shape +
+// omits when empty (back-compat with answers emitted before the
+// field existed).
+func TestDiagramEdgeAnchor_RelationKindJSONOmitempty(t *testing.T) {
+	noTyped := DiagramEdgeAnchor{FromNode: "A", ToNode: "B", ClaimForm: ClaimCallEdge}
+	withTyped := DiagramEdgeAnchor{FromNode: "A", ToNode: "B", RelationKind: DiagramRelCall, ClaimForm: ClaimCallEdge}
+
+	noTypedJSON, err := json.Marshal(noTyped)
+	if err != nil {
+		t.Fatalf("marshal noTyped: %v", err)
+	}
+	if strings.Contains(string(noTypedJSON), "relation_kind") {
+		t.Errorf("noTyped marshal must omit relation_kind: %s", noTypedJSON)
+	}
+	withTypedJSON, err := json.Marshal(withTyped)
+	if err != nil {
+		t.Fatalf("marshal withTyped: %v", err)
+	}
+	if !strings.Contains(string(withTypedJSON), `"relation_kind":"call"`) {
+		t.Errorf(`withTyped marshal must contain "relation_kind":"call": %s`, withTypedJSON)
 	}
 }
 
