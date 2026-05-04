@@ -1239,7 +1239,17 @@ func BuildAnswerSurfacePlan(
 	// Done BEFORE the no-ExactResolution.Targets early return so every
 	// AnswerSurfacePlan carries FacetCoverage regardless of exact-
 	// resolution outcome. Pure deterministic projection — no LLM input.
-	plan.FacetCoverage = CompileFacetCoverage(ir.RequestModel, plan.SurfaceEvidence)
+	// B5-F2/F3 telemetry sink: the BusContext-aware caller wires
+	// MutableState in here so silent hard→soft downgrades + family-
+	// fit fallbacks land in the per-Run RichnessTelemetry channel.
+	// Callers without MutableState in scope (tests, raw IR
+	// construction) pass nil mutable → the sinks slice is empty and
+	// CompileFacetCoverage stays byte-identical to pre-B5-F2.
+	var richnessSink RichnessTelemetrySink
+	if mutable != nil {
+		richnessSink = mutable
+	}
+	plan.FacetCoverage = CompileFacetCoverage(ir.RequestModel, plan.SurfaceEvidence, richnessSink)
 
 	if plan.ExactResolution == nil || len(plan.ExactResolution.Targets) == 0 {
 		return plan

@@ -210,3 +210,100 @@ func TestEmitAnswerDocumentV2_MutualExclusionWithV1(t *testing.T) {
 		t.Error("V1 emit polluted V2 carrier")
 	}
 }
+
+// ── B5-F1 flat-mode tolerance: blocks[] arrived as JSON-encoded string ─
+
+// TestEmitAnswerDocumentV2_FlatModeBlocksAsString covers the
+// streaming-artefact path where the LLM stringified the blocks
+// array. The repair re-parses the embedded JSON array and the emit
+// is accepted byte-equivalently.
+func TestEmitAnswerDocumentV2_FlatModeBlocksAsString(t *testing.T) {
+	bus := newV2TestBusContext()
+	tool := &EmitAnswerDocument{}
+	// blocks rendered as a JSON-encoded string instead of an array.
+	flat := json.RawMessage(`{
+		"document_model": "v2",
+		"blocks": "[{\"id\":\"b1\",\"kind\":\"summary\",\"text\":\"Hello\"}]"
+	}`)
+	res, err := tool.Execute(bus, flat)
+	if err != nil {
+		t.Fatalf("flat-mode emit error: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("flat-mode emit should succeed via repair; got %+v", res)
+	}
+	doc := bus.Mutable.AnswerDocumentV2()
+	if doc == nil {
+		t.Fatal("flat-mode repair did not write V2 carrier")
+	}
+	if len(doc.Blocks) != 1 || doc.Blocks[0].ID != "b1" || doc.Blocks[0].Kind != types.BlockSummary {
+		t.Errorf("flat-mode block did not deserialise: %+v", doc.Blocks)
+	}
+}
+
+// TestRepairBlocksAsString_NoTrigger pins the negative cases — the
+// repair must NOT fire when blocks is already an array, when the
+// embedded string is not a JSON array, or when blocks is absent.
+func TestRepairBlocksAsString_NoTrigger(t *testing.T) {
+	cases := []struct {
+		name string
+		raw  string
+	}{
+		{"already_array", `{"blocks":[{"id":"b1","kind":"summary"}]}`},
+		{"absent", `{"document_model":"v2"}`},
+		{"string_not_array", `{"blocks":"hello"}`},
+		{"empty", ``},
+		{"malformed_outer", `{not json`},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			_, ok := repairBlocksAsString(json.RawMessage(tc.raw))
+			if ok {
+				t.Errorf("%s: repair fired unexpectedly", tc.name)
+			}
+		})
+	}
+}
+
+// TestRepairBlocksAsString_PreservesOtherFields confirms the patch
+// surgically swaps blocks while every other top-level key passes
+// through verbatim.
+func TestRepairBlocksAsString_PreservesOtherFields(t *testing.T) {
+	raw := json.RawMessage(`{
+		"document_model": "v2",
+		"caveats": ["a","b"],
+		"blocks": "[{\"id\":\"b1\",\"kind\":\"summary\"}]"
+	}`)
+	patched, ok := repairBlocksAsString(raw)
+	if !ok {
+		t.Fatal("repair did not fire")
+	}
+	if !strings.Contains(string(patched), `"document_model":"v2"`) {
+		t.Errorf("document_model lost: %s", patched)
+	}
+	if !strings.Contains(string(patched), `"caveats":["a","b"]`) {
+		t.Errorf("caveats lost: %s", patched)
+	}
+	// Critically: blocks must now be a real JSON array.
+	if !strings.Contains(string(patched), `"blocks":[`) {
+		t.Errorf("blocks not converted to array: %s", patched)
+	}
+}
+
+// TestEmitAnswerDocumentV2_FlatModeRejectsMixedV1FieldsAfterRepair
+// confirms the repair does NOT bypass downstream V1↔V2 mutual
+// exclusion: even if blocks-as-string is repaired, top-level V1
+// fields still trigger rejection.
+func TestEmitAnswerDocumentV2_FlatModeRejectsMixedV1FieldsAfterRepair(t *testing.T) {
+	bus := newV2TestBusContext()
+	tool := &EmitAnswerDocument{}
+	mixed := json.RawMessage(`{
+		"document_model": "v2",
+		"shape": "explanation",
+		"blocks": "[{\"id\":\"b1\",\"kind\":\"summary\"}]"
+	}`)
+	res, _ := tool.Execute(bus, mixed)
+	if res.Success {
+		t.Fatal("flat-mode emit with V1 'shape' field must still reject")
+	}
+}

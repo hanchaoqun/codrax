@@ -290,6 +290,165 @@ func contains(s []string, target string) bool {
 	return false
 }
 
+// ── B5-F2 / B5-F3 richness telemetry tests ─────────────────────────
+
+// fakeRichnessSink captures every signal that flows through the
+// CompileFacetCoverage / ResolveQuestionFamily channel for a single
+// test case. Mirrors MutableState.AppendRichnessTelemetry's surface
+// (the production sink) so the production deduper does not interfere
+// with assertions.
+type fakeRichnessSink struct {
+	signals []RichnessTelemetrySignal
+}
+
+func (f *fakeRichnessSink) AppendRichnessTelemetry(sig RichnessTelemetrySignal) {
+	f.signals = append(f.signals, sig)
+}
+
+func TestCompileFacetCoverage_FacetSofteningTelemetryFires(t *testing.T) {
+	// QFRootCauseTrace + no log evidence → HARD facets degrade to
+	// SOFT. With a sink wired, we expect at least one
+	// "facet_softened" signal.
+	rm := RequestModel{
+		Intent:    IntentRootCause,
+		LogTriage: &LogBundle{},
+	}
+	sink := &fakeRichnessSink{}
+	plan := CompileFacetCoverage(rm, nil, sink)
+	if plan == nil {
+		t.Fatal("plan must be non-nil")
+	}
+	gotSoftened := false
+	for _, sig := range sink.signals {
+		if sig.Kind == "facet_softened" {
+			gotSoftened = true
+			if sig.Family != string(QFRootCauseTrace) {
+				t.Errorf("family on signal = %q, want QFRootCauseTrace", sig.Family)
+			}
+			if sig.FacetKind == "" {
+				t.Errorf("facet_kind must be populated; got empty signal %+v", sig)
+			}
+			if sig.Reason == "" {
+				t.Errorf("reason must be populated; got empty signal %+v", sig)
+			}
+		}
+	}
+	if !gotSoftened {
+		t.Errorf("no facet_softened signal recorded; got %+v", sink.signals)
+	}
+}
+
+func TestCompileFacetCoverage_NoSofteningWhenAllCovered(t *testing.T) {
+	// QFRoleLookup + a candidate that satisfies the facet → no
+	// HARD→SOFT degradation, no signal.
+	rm := RequestModel{
+		Intent: IntentExplain,
+		AnswerSubject: AnswerSubject{
+			Kind: SubjectFunctionName, Confidence: 0.8,
+		},
+	}
+	surface := []EvidenceItem{
+		{ID: "e1", Source: "x.go", AnchorKind: AnchorDefinition, Summary: "definition"},
+	}
+	sink := &fakeRichnessSink{}
+	_ = CompileFacetCoverage(rm, surface, sink)
+	for _, sig := range sink.signals {
+		if sig.Kind == "facet_softened" {
+			t.Errorf("unexpected softening signal on satisfied requirement: %+v", sig)
+		}
+	}
+}
+
+func TestResolveQuestionFamily_FamilyUnderrepresentedFiresWhenBucketed(t *testing.T) {
+	// QuestionStructure with Buckets=2 + Intent=IntentEnumerate falls
+	// to QFEnumeration; the family does not preserve per-bucket
+	// structure, so a "family_underrepresented" telemetry signal
+	// must fire.
+	rm := RequestModel{
+		Intent: IntentEnumerate,
+		Buckets: []QuestionBucket{
+			{Label: "read mode", Index: 1},
+			{Label: "write mode", Index: 2},
+		},
+	}
+	sink := &fakeRichnessSink{}
+	got := ResolveQuestionFamily(rm, sink)
+	if got != QFEnumeration {
+		t.Fatalf("family = %q, want QFEnumeration", got)
+	}
+	matched := false
+	for _, sig := range sink.signals {
+		if sig.Kind == "family_underrepresented" {
+			matched = true
+			if sig.Family != string(QFEnumeration) {
+				t.Errorf("signal family = %q, want QFEnumeration", sig.Family)
+			}
+			if sig.BucketCount != 2 {
+				t.Errorf("bucket_count = %d, want 2", sig.BucketCount)
+			}
+		}
+	}
+	if !matched {
+		t.Errorf("no family_underrepresented signal; got %+v", sink.signals)
+	}
+}
+
+func TestResolveQuestionFamily_NoFamilyUnderrepresentedSingleBucket(t *testing.T) {
+	// Only 1 bucket → no fallback signal.
+	rm := RequestModel{
+		Intent: IntentEnumerate,
+		Buckets: []QuestionBucket{
+			{Label: "only one", Index: 1},
+		},
+	}
+	sink := &fakeRichnessSink{}
+	_ = ResolveQuestionFamily(rm, sink)
+	for _, sig := range sink.signals {
+		if sig.Kind == "family_underrepresented" {
+			t.Errorf("did not expect family_underrepresented at bucket_count=1; got %+v", sig)
+		}
+	}
+}
+
+func TestResolveQuestionFamily_NoSignalWhenSinkNil(t *testing.T) {
+	// Calling without a sink must not panic and must not invoke any
+	// telemetry side-effect — back-compat for tests / non-orchestrator
+	// callers.
+	rm := RequestModel{
+		Intent: IntentEnumerate,
+		Buckets: []QuestionBucket{
+			{Label: "read mode", Index: 1},
+			{Label: "write mode", Index: 2},
+		},
+	}
+	_ = ResolveQuestionFamily(rm)
+	_ = CompileFacetCoverage(rm, nil)
+}
+
+// TestMutableState_AppendRichnessTelemetry_Dedups confirms identical
+// signals only land once even when many call sites fire.
+func TestMutableState_AppendRichnessTelemetry_Dedups(t *testing.T) {
+	mut := &MutableState{}
+	sig := RichnessTelemetrySignal{Kind: "facet_softened", FacetKind: "X", Family: "QFGeneric", Reason: "r"}
+	mut.AppendRichnessTelemetry(sig)
+	mut.AppendRichnessTelemetry(sig)
+	mut.AppendRichnessTelemetry(sig)
+	got := mut.RichnessTelemetry()
+	if len(got) != 1 {
+		t.Errorf("expected dedup → len=1; got %d (%+v)", len(got), got)
+	}
+
+	// A signal that differs in any field is recorded separately.
+	mut.AppendRichnessTelemetry(RichnessTelemetrySignal{
+		Kind: "facet_softened", FacetKind: "Y", Family: "QFGeneric", Reason: "r",
+	})
+	if got := mut.RichnessTelemetry(); len(got) != 2 {
+		t.Errorf("expected len=2 after distinct signal; got %d", len(got))
+	}
+}
+
+// ───────────────────────────────────────────────────────────────────
+
 func familyToRequestModel(f QuestionFamily) RequestModel {
 	switch f {
 	case QFRootCauseTrace:

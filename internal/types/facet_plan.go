@@ -314,7 +314,7 @@ type FacetCoverageContract struct {
 //
 // Phase 0 trace data on s1a / s5a / m1a / s3a / logtri_go
 // confirms each branch hits at least one case.
-func ResolveQuestionFamily(rm RequestModel) QuestionFamily {
+func ResolveQuestionFamily(rm RequestModel, sinks ...RichnessTelemetrySink) QuestionFamily {
 	hasLog := rm.LogTriage != nil
 	hasPerf := rm.PerfTrace != nil
 
@@ -330,6 +330,7 @@ func ResolveQuestionFamily(rm RequestModel) QuestionFamily {
 
 	view := rm.QuestionStructure()
 	hasObligation := view.HasAnyObligation()
+	bucketCount := len(view.Buckets)
 
 	// Rule 3: role-lookup detection (named-entity subject + no
 	// enumeration obligation).
@@ -343,11 +344,18 @@ func ResolveQuestionFamily(rm RequestModel) QuestionFamily {
 
 	// Rule 4: trace intent without obligation.
 	if rm.Intent == IntentTrace && !hasObligation {
-		return QFCallChain
+		family := QFCallChain
+		emitFamilyUnderrepresentedIfBucketed(sinks, family, bucketCount)
+		return family
 	}
 
 	// Rule 5: enumeration / obligation-bearing.
 	if hasObligation || rm.Intent == IntentEnumerate {
+		// Enumeration bucket-aware: when an enumeration question carries
+		// >=2 buckets, QFEnumeration's flat list-of-X structure does NOT
+		// preserve the partition. Telemetry-only per §9.5 — system NEVER
+		// silently picks a different family.
+		emitFamilyUnderrepresentedIfBucketed(sinks, QFEnumeration, bucketCount)
 		return QFEnumeration
 	}
 
@@ -356,7 +364,34 @@ func ResolveQuestionFamily(rm RequestModel) QuestionFamily {
 		return QFArchitecture
 	}
 
-	return QFGeneric
+	family := QFGeneric
+	emitFamilyUnderrepresentedIfBucketed(sinks, family, bucketCount)
+	return family
+}
+
+// emitFamilyUnderrepresentedIfBucketed records a "family did not
+// model the question's bucket partition" telemetry signal. B5-F3
+// 2026-05-03 — fires for QFCallChain / QFEnumeration / QFGeneric
+// when QuestionStructure.Buckets has 2+ entries, the three families
+// whose templates do NOT carry per-bucket structure. QFRootCauseTrace
+// / QFConfigPrecedence / QFRoleLookup / QFArchitecture are exempted
+// because their templates are bucket-orthogonal (one root cause vs
+// many can still be cleanly expressed without per-bucket facets).
+func emitFamilyUnderrepresentedIfBucketed(sinks []RichnessTelemetrySink, family QuestionFamily, bucketCount int) {
+	if bucketCount < 2 {
+		return
+	}
+	for _, sink := range sinks {
+		if sink == nil {
+			continue
+		}
+		sink.AppendRichnessTelemetry(RichnessTelemetrySignal{
+			Kind:        "family_underrepresented",
+			Family:      string(family),
+			BucketCount: bucketCount,
+			Reason:      "QuestionStructure.Buckets is multi-valued but resolved family does not preserve per-bucket structure",
+		})
+	}
 }
 
 // CompileFacetCoverage produces the FacetCoverageContract for a
@@ -372,8 +407,19 @@ func ResolveQuestionFamily(rm RequestModel) QuestionFamily {
 // produces a lot of ClaimUnknown evidence. A facet should not be
 // declared HARD-required just because the family template says so;
 // it must also have grounded supporting evidence.
-func CompileFacetCoverage(rm RequestModel, surface []EvidenceItem) *FacetCoverageContract {
-	family := ResolveQuestionFamily(rm)
+// RichnessTelemetrySink names the (optional) channel
+// CompileFacetCoverage / ResolveQuestionFamily use to record silent
+// softening / family-fit fallback events. MutableState satisfies
+// this interface via AppendRichnessTelemetry; nil sinks are a
+// supported no-op so test callers and the answer_surface_plan path
+// (which has no MutableState in scope at deep helpers) can stay
+// silent.
+type RichnessTelemetrySink interface {
+	AppendRichnessTelemetry(sig RichnessTelemetrySignal)
+}
+
+func CompileFacetCoverage(rm RequestModel, surface []EvidenceItem, sinks ...RichnessTelemetrySink) *FacetCoverageContract {
+	family := ResolveQuestionFamily(rm, sinks...)
 	template := familyTemplate(family, rm)
 	if template == nil {
 		return nil
@@ -390,8 +436,26 @@ func CompileFacetCoverage(rm RequestModel, surface []EvidenceItem) *FacetCoverag
 		// degrade to SOFT so we don't report false-fail in trace
 		// observation. Phase 4 may revisit this rule with stricter
 		// semantics once richer ClaimForm coverage lands.
+		//
+		// B5-F2 (2026-05-03): record a richness-telemetry signal so
+		// the silent downgrade is observable. Callers that supply a
+		// sink (orchestrator hot path via mut) accumulate signals;
+		// callers that don't (test cases, deep helpers without
+		// MutableState in scope) stay byte-identical to pre-B5-F2
+		// behaviour.
 		if bound.Required == FacetHardRequired && len(bound.SourceCandidate) == 0 {
 			bound.Required = FacetSoftRequired
+			for _, sink := range sinks {
+				if sink == nil {
+					continue
+				}
+				sink.AppendRichnessTelemetry(RichnessTelemetrySignal{
+					Kind:      "facet_softened",
+					FacetKind: string(bound.Kind),
+					Family:    string(family),
+					Reason:    "hard requirement had no surface evidence matching any AcceptableForm; downgraded to SOFT to avoid false-fail",
+				})
+			}
 		}
 		// Phase 5: derive RichnessTier from the (post-fallback)
 		// Required value so consumers reading Tier never need to

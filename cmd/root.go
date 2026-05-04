@@ -239,6 +239,12 @@ var (
 	answerTaxonomyDecayDays = 0
 )
 
+// richnessSofteningWarn carries the
+// pipeline_richness_softening_warn yaml knob (B5-F2 / B5-F3,
+// 2026-05-03) across merge→wiring. Default true so silent
+// hard→soft / family-fit signals are visible at WARN level.
+var richnessSofteningWarn = true
+
 // selfConsistency* (commit 62) carry the pipeline_self_consistency_*
 // family across the merge-block→wiring-block boundary. This-phase
 // defaults: enabled=true, rewrite=true, min_confidence=0.8. Same
@@ -1653,6 +1659,11 @@ func initApp(cmd *cobra.Command, _ []string) error {
 		if rs.PipelineFailureTaxonomyDecayDays != nil {
 			failureTaxonomyDecayDays = *rs.PipelineFailureTaxonomyDecayDays
 		}
+		// B5-F2 / B5-F3 richness telemetry WARN gate.
+		if rs.PipelineRichnessSofteningWarn != nil {
+			richnessSofteningWarn = *rs.PipelineRichnessSofteningWarn
+		}
+		orchestrator.SetRichnessSofteningWarnEnabled(richnessSofteningWarn)
 		// Read-mode Answer Taxonomy yaml knobs (commit 51 Gap 3).
 		if rs.PipelineAnswerTaxonomyEnabled != nil {
 			answerTaxonomyEnabled = *rs.PipelineAnswerTaxonomyEnabled

@@ -382,6 +382,16 @@ type MutableState struct {
 	// when no enforcer fires.
 	reconcileObservations []ReconcileObservation
 
+	// richnessTelemetry is the silent-softening / family-fit channel
+	// added by B5-F2/F3 (post-shape-retirement consolidated audit
+	// 2026-05-03). Pure observability: signals are appended at the
+	// site of the silent rule (CompileFacetCoverage hard→soft
+	// downgrade, ResolveQuestionFamily comparison-fallback) and
+	// drained by operator-facing summary tooling. The channel never
+	// drives a violation or retry per §9.5 ("system NEVER reacts to
+	// a richness signal by silently inventing a new family").
+	richnessTelemetry []RichnessTelemetrySignal
+
 	// logTriage is the validated output of the log_triage pre-stage.
 	// Written once by the log_triager agent via SetLogTriage; read by
 	// the analyzer (entity merge, intent override, RequiredFiles seed)
@@ -455,6 +465,34 @@ type ReconcileObservation struct {
 	Confidence float64            `json:"confidence"` // LLM-emitted confidence on this dimension
 	RuleFired  string             `json:"rule_fired"` // human-readable rule name (or "none" when no override)
 	Predicates SemanticPredicates `json:"predicates"` // snapshot of LLM predicates at decision time
+}
+
+// RichnessTelemetrySignal is a single observation emitted by the
+// FacetCoverageContract / FamilyResolution machinery when the
+// system silently softened a hard contract OR resolved a question
+// to a family that does not capture its expressive structure.
+//
+// The channel is informational (never raises a violation). B5-F2 +
+// B5-F3 add the writers; readers are TBD — the signal will surface
+// in operator-facing logs (B6+) and inform the catalogue of when to
+// add a new QFComparison family vs. when to extend an existing
+// family. Per the consolidated audit §9.5, the system NEVER reacts
+// to a richness signal by silently inventing a new family.
+//
+// Kind values:
+//   - "facet_softened" — a HARD facet requirement was downgraded to
+//     SOFT because no surface evidence matched any AcceptableForm.
+//   - "family_underrepresented" — ResolveQuestionFamily returned a
+//     family that doesn't model the question's structural axes
+//     (e.g. comparison-class question with QuestionStructure.Buckets
+//     ≥ 2 fell to QFCallChain / QFGeneric).
+type RichnessTelemetrySignal struct {
+	Kind       string `json:"kind"`
+	FacetID    string `json:"facet_id,omitempty"`
+	FacetKind  string `json:"facet_kind,omitempty"`
+	Family     string `json:"family,omitempty"`
+	BucketCount int   `json:"bucket_count,omitempty"`
+	Reason     string `json:"reason"`
 }
 
 // TurnAArtifacts is the P2.1 handoff payload from Turn A (explorer)
@@ -2404,6 +2442,56 @@ func (m *MutableState) ResetReconcileObservations() {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.reconcileObservations = nil
+}
+
+// AppendRichnessTelemetry records one richness-telemetry signal
+// (facet softening or family underrepresentation). Safe to call
+// concurrently. Empty Kind is silently dropped. Identical signals
+// are deduplicated by composite key (Kind + FacetID + FacetKind +
+// Family + BucketCount + Reason) — the same softening rule firing
+// from multiple call sites within the same Run records once.
+func (m *MutableState) AppendRichnessTelemetry(sig RichnessTelemetrySignal) {
+	if m == nil || sig.Kind == "" {
+		return
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for _, existing := range m.richnessTelemetry {
+		if existing == sig {
+			return
+		}
+	}
+	m.richnessTelemetry = append(m.richnessTelemetry, sig)
+}
+
+// RichnessTelemetry returns a defensive copy of the recorded
+// richness-telemetry signals. Empty slice means no silent softening
+// or family-fit fallback has fired so far in this Run.
+func (m *MutableState) RichnessTelemetry() []RichnessTelemetrySignal {
+	if m == nil {
+		return nil
+	}
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	if len(m.richnessTelemetry) == 0 {
+		return nil
+	}
+	out := make([]RichnessTelemetrySignal, len(m.richnessTelemetry))
+	copy(out, m.richnessTelemetry)
+	return out
+}
+
+// ResetRichnessTelemetry clears the channel — typically called at
+// the start of a fresh Run by NewMutableState callers; not part of
+// any per-dispatch reset cycle (the channel is per-Run, not per-
+// dispatch).
+func (m *MutableState) ResetRichnessTelemetry() {
+	if m == nil {
+		return
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.richnessTelemetry = nil
 }
 
 // ResetClassificationGrep clears every C0' gate/budget/observation

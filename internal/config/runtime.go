@@ -189,6 +189,15 @@ type RuntimeSettings struct {
 	// so a yaml typo can't unleash a 30-phase fan-out.
 	PipelineMaxPhasesPerRun *int `yaml:"pipeline_max_phases_per_run"`
 
+	// PipelineRichnessSofteningWarn gates the WARN-level log line
+	// emitted when CompileFacetCoverage silently downgrades a HARD
+	// facet to SOFT or ResolveQuestionFamily falls back to a family
+	// that does not preserve a multi-bucket question. Telemetry is
+	// always recorded on Mutable.RichnessTelemetry (zero behaviour
+	// change); this knob only governs the operator-facing log line.
+	// Default true so silent rule firings are visible.
+	PipelineRichnessSofteningWarn *bool `yaml:"pipeline_richness_softening_warn"`
+
 	// PipelineFailureTaxonomyEnabled gates stage 3's per-repo
 	// Failure Taxonomy: when false, the reflector still runs
 	// but the LLM's emit_failure_pattern emits are dropped

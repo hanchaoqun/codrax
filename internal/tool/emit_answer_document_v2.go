@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/hanchaoqun/codrax/internal/logging"
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
@@ -106,6 +107,17 @@ func executeAnswerDocumentV2(toolName string, ctx *types.BusContext, raw json.Ra
 		return failEmit(toolName, now,
 			"document_model=v2 emit must not include V1 field %q at the top level; "+
 				"the V2 carrier expresses the answer through blocks[] only", violation)
+	}
+
+	// B5-F1: flat-mode tolerance. Some LLMs emit blocks[] as a JSON
+	// string ("[{...},{...}]") instead of a real array — typically a
+	// streaming artefact where the model ran the array through
+	// JSON.stringify before placing it in the tool-call. Detect and
+	// re-parse so we accept the emit instead of forcing an empty
+	// retry, but log a WARN so operators see the recovery.
+	if repaired, ok := repairBlocksAsString(raw); ok {
+		logging.Warning("[emit_answer_document] blocks[] arrived as JSON-encoded string; re-parsed via flat-mode tolerance path")
+		raw = repaired
 	}
 
 	dec := json.NewDecoder(bytes.NewReader(raw))
@@ -243,6 +255,61 @@ func detectV1FieldsInV2Emit(raw json.RawMessage) string {
 		}
 	}
 	return ""
+}
+
+// repairBlocksAsString detects the "blocks[] arrived as JSON
+// string" failure mode and returns a re-encoded RawMessage with
+// blocks[] inlined as a real array.
+//
+// Trigger condition: top-level object whose `blocks` field decodes
+// as a JSON string AND that string itself decodes as a JSON array.
+// Anything else returns (_, false) and the caller proceeds with the
+// original raw JSON unchanged — a hard parse error then surfaces
+// the original schema violation to the LLM via the existing
+// rejection path.
+//
+// The repair is conservative: only `blocks` is patched; every other
+// top-level key passes through verbatim. This means downstream
+// V1-field detection (detectV1FieldsInV2Emit) still fires after the
+// repair, so we cannot soften any of the V1↔V2 mutual-exclusion
+// invariants.
+func repairBlocksAsString(raw json.RawMessage) (json.RawMessage, bool) {
+	if len(raw) == 0 {
+		return nil, false
+	}
+	var probe map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &probe); err != nil {
+		return nil, false
+	}
+	rawBlocks, ok := probe["blocks"]
+	if !ok {
+		return nil, false
+	}
+	// blocks must be encoded as a JSON string for this repair path.
+	if len(rawBlocks) == 0 || rawBlocks[0] != '"' {
+		return nil, false
+	}
+	var encoded string
+	if err := json.Unmarshal(rawBlocks, &encoded); err != nil {
+		return nil, false
+	}
+	trimmed := strings.TrimSpace(encoded)
+	if !strings.HasPrefix(trimmed, "[") {
+		return nil, false
+	}
+	// Parse the embedded string as a JSON array — bail on any error so
+	// the regular decode path produces the real schema rejection.
+	var inner []json.RawMessage
+	if err := json.Unmarshal([]byte(trimmed), &inner); err != nil {
+		return nil, false
+	}
+	// Re-encode just the blocks key, preserving every other field.
+	probe["blocks"], _ = json.Marshal(inner)
+	patched, err := json.Marshal(probe)
+	if err != nil {
+		return nil, false
+	}
+	return patched, true
 }
 
 // summarizeV2Blocks builds a short " (kinds=summary,ordered_list,…)"

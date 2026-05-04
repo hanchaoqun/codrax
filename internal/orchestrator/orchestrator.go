@@ -3963,7 +3963,7 @@ func (o *Orchestrator) computeRichnessCoverage() (covered, total int) {
 	if rm == nil {
 		return 0, 0
 	}
-	contract := types.CompileFacetCoverage(*rm, mut.EmittedEvidence())
+	contract := types.CompileFacetCoverage(*rm, mut.EmittedEvidence(), mut)
 	if contract == nil {
 		return 0, 0
 	}
@@ -4047,6 +4047,30 @@ func (o *Orchestrator) emitCGECSummary() {
 			logging.Info("[CGEC] perStage: %s", stageLine)
 		}
 	}
+
+	// B5-F2 / B5-F3 richness telemetry surface. Each signal
+	// renders a single WARN line so operators can grep the silent
+	// rule firings (facet softening / family underrepresentation).
+	// Gated by pipeline_richness_softening_warn (default true);
+	// telemetry is always recorded regardless of the WARN gate.
+	if richnessSofteningWarnEnabled() {
+		for _, sig := range o.busCtx.Mutable.RichnessTelemetry() {
+			logging.Warning("[richness] %s family=%s facet_id=%s facet_kind=%s buckets=%d reason=%s",
+				sig.Kind, sig.Family, sig.FacetID, sig.FacetKind, sig.BucketCount, sig.Reason)
+		}
+	}
+}
+
+// richnessSofteningWarnEnabled is set by cmd/root.go after merging
+// codrax.yaml. We use a function indirection so the orchestrator
+// package doesn't take a hard import on cmd. Default true preserves
+// "silent rule visibility" — operators must opt out explicitly.
+var richnessSofteningWarnEnabled = func() bool { return true }
+
+// SetRichnessSofteningWarnEnabled is wired by cmd/root.go to thread
+// the pipeline_richness_softening_warn yaml knob.
+func SetRichnessSofteningWarnEnabled(enabled bool) {
+	richnessSofteningWarnEnabled = func() bool { return enabled }
 }
 
 // formatStageHealthSnapshot renders a closure's StageHealthSnapshot
