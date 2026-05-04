@@ -392,6 +392,19 @@ type MutableState struct {
 	// a richness signal by silently inventing a new family").
 	richnessTelemetry []RichnessTelemetrySignal
 
+	// retryState is the R14 typed retry-state contract surface
+	// (post_shape_residual_audit.md, 2026-05-04). Populated by the
+	// orchestrator + contract_check at retry-decision time;
+	// consumed by the agent layer's renderRetryState helper to
+	// produce the "Previous Emit / Active Violations / Required
+	// Changes / Hard Rule" prompt sections on retry attempts.
+	//
+	// Lifecycle: nil on fresh dispatches (no rendering); populated
+	// only when scheduler decides to retry the finalizer; reset
+	// to nil after the retry dispatch consumes it (so a successful
+	// retry doesn't leak prev state into a subsequent fresh Run).
+	retryState *RetryState
+
 	// logTriage is the validated output of the log_triage pre-stage.
 	// Written once by the log_triager agent via SetLogTriage; read by
 	// the analyzer (entity merge, intent override, RequiredFiles seed)
@@ -2492,6 +2505,45 @@ func (m *MutableState) ResetRichnessTelemetry() {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.richnessTelemetry = nil
+}
+
+// SetRetryState installs the R14 typed retry-state surface. Called
+// by the orchestrator after contract.Check failure when the
+// scheduler decides to retry the finalizer. nil rs clears the
+// state so a fresh dispatch starts with no retry signal.
+func (m *MutableState) SetRetryState(rs *RetryState) {
+	if m == nil {
+		return
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.retryState = rs
+}
+
+// RetryState returns the current retry-state pointer (or nil when
+// no retry is in progress). Read by the agent layer's render path.
+// Returned pointer is the LIVE value — callers MUST NOT mutate
+// without going through SetRetryState (the field is mutex-guarded).
+// Read-only consumption (rendering) is safe under the RLock.
+func (m *MutableState) RetryState() *RetryState {
+	if m == nil {
+		return nil
+	}
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return m.retryState
+}
+
+// ResetRetryState clears the retry-state surface. Called at fresh
+// dispatch entry so a finalizer dispatch always starts with a clean
+// slate even if a previous run left state behind.
+func (m *MutableState) ResetRetryState() {
+	if m == nil {
+		return
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.retryState = nil
 }
 
 // ResetClassificationGrep clears every C0' gate/budget/observation
