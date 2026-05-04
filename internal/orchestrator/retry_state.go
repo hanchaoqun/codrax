@@ -31,6 +31,10 @@ import (
 //   2. Every violation in the result, scored with severity / layer
 //      / field path so the LLM can prioritise.
 //   3. The retry attempt counter so renderers know we're in a retry.
+//   4. (Phase 1-A2) The RepairPlan summary: LastPrimaryOwner,
+//      OwnerStableAttempts (stability counter), LastPrimaryViolation.
+//      Wired so the orchestrator can detect ping-pong / decide on
+//      escalation without recomputing the plan.
 //
 // Called BEFORE state.requeue(fin.ID) so the next finalizer dispatch
 // observes the populated state on its first BuildInitialInstruction
@@ -39,6 +43,10 @@ func populateRetryState(mut *types.MutableState, res contract.Result, prevAttemp
 	if mut == nil {
 		return
 	}
+	// A2: read previous state BEFORE building new RetryState so the
+	// stability counter has access to the prior LastPrimaryOwner.
+	prevState := mut.RetryState()
+
 	rs := &types.RetryState{
 		Attempt: prevAttempt + 1,
 	}
@@ -54,7 +62,31 @@ func populateRetryState(mut *types.MutableState, res contract.Result, prevAttemp
 		}
 	}
 	rs.ActiveViolations = scoreViolations(res.Violations)
+
+	// A2: compute RepairPlan + populate stability fields.
+	plan := BuildRepairPlan(res.Violations)
+	rs.LastPrimaryOwner = string(plan.PrimaryOwner)
+	rs.LastPrimaryViolation = deepestPrimaryKind(plan)
+	if prevState != nil && prevState.LastPrimaryOwner == rs.LastPrimaryOwner && rs.LastPrimaryOwner != "" {
+		rs.OwnerStableAttempts = prevState.OwnerStableAttempts + 1
+	} else if rs.LastPrimaryOwner != "" {
+		rs.OwnerStableAttempts = 1
+	}
+
 	mut.SetRetryState(rs)
+}
+
+// deepestPrimaryKind returns the Primary.Kind of the deepest cluster
+// in plan.Clusters (the cluster that drives PrimaryOwner). Empty
+// when the plan has no clusters. Helper for populateRetryState
+// stability tracking.
+func deepestPrimaryKind(plan RepairPlan) types.ViolationKind {
+	if len(plan.Clusters) == 0 {
+		return ""
+	}
+	// plan.Clusters is sorted deepest-first by sortClustersDeepestFirst,
+	// so the first entry is the cluster whose Owner == PrimaryOwner.
+	return plan.Clusters[0].Primary.Kind
 }
 
 // scoreViolations turns the contract.Check Violation slice into

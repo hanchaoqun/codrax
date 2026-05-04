@@ -219,6 +219,33 @@ type RetryState struct {
 	// etc.). 0 means "no retry yet" — RetryState is unused on
 	// fresh dispatches.
 	Attempt int `json:"attempt,omitempty"`
+
+	// LastPrimaryOwner names the RepairLocus picked by BuildRepairPlan
+	// for the previous attempt's violations (string form of
+	// orchestrator.RepairLocus — "finalizer" / "extract" / "explore" /
+	// "terminal"). Empty when no plan was computed (fresh dispatch
+	// or pre-Phase-1 retry path).
+	//
+	// Phase 1-A2 (V2 runtime consolidation, 2026-05-04): wired by
+	// populateRetryState so the orchestrator can detect ping-pong
+	// (same owner picked N times with no progress → escalate to
+	// FailLoud). Surfaced in retry-summary trace + telemetry.
+	LastPrimaryOwner string `json:"last_primary_owner,omitempty"`
+
+	// OwnerStableAttempts counts how many consecutive retries have
+	// landed on the SAME LastPrimaryOwner. Resets to 1 when the owner
+	// changes; increments when the next plan picks the same owner.
+	//
+	// Used by escalation logic: if OwnerStableAttempts exceeds a
+	// configured threshold without the violation set shrinking, the
+	// router escalates one locus deeper (or to FailLoud at terminal).
+	OwnerStableAttempts int `json:"owner_stable_attempts,omitempty"`
+
+	// LastPrimaryViolation names the deepest cluster's Primary
+	// ViolationKind from the previous attempt's RepairPlan. Surfaced
+	// in trace for operator audit ("which root cause did the router
+	// chase last attempt"). Empty when no plan computed.
+	LastPrimaryViolation ViolationKind `json:"last_primary_violation,omitempty"`
 }
 
 // HasContent reports whether the RetryState carries any
