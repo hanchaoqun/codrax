@@ -260,13 +260,26 @@ func validateDiagramEdgeSupport(doc *types.AnswerDocumentV2, view *types.AnswerS
 	}}
 }
 
-// mermaidEdge is the (from, to) token pair extracted from one edge
-// declaration in a Mermaid body. Both fields are the raw identifier /
-// label substring as it appears in source — matching is case-folded
-// downstream.
+// mermaidEdge is the (from, to[, label]) tuple extracted from one
+// edge declaration in a Mermaid body. The from / to fields are raw
+// identifier / label substrings as they appear in source — matching
+// is case-folded downstream.
+//
+// The label field captures the verbatim relation marker the LLM put
+// on the edge:
+//   - flowchart `A -->|cond| B`            → label = "cond"
+//   - flowchart `A -- text --> B`          → label = "text" (best-effort)
+//   - sequenceDiagram `A->>B: handleReq`   → label = "handleReq"
+//
+// Empty label means "unlabelled edge" (or a label form the parser
+// could not extract). Phase 3 §6.2.2's InferRelationFromLabel
+// resolves the label to a typed DiagramRelationKind; an empty label
+// resolves to DiagramRelUnknown — a legitimate state the validator
+// treats as "label-free edge" rather than a violation.
 type mermaidEdge struct {
-	from string
-	to   string
+	from  string
+	to    string
+	label string
 }
 
 // parseMermaidEdges scans a Mermaid body and returns every edge
@@ -287,22 +300,28 @@ func parseMermaidEdges(body string) []mermaidEdge {
 		if line == "" || strings.HasPrefix(line, "%%") || strings.HasPrefix(line, "classDef") || strings.HasPrefix(line, "click") {
 			continue
 		}
-		// Strip the trailing ": message" payload that sequenceDiagram
-		// and noteOver lines carry — the message is prose, not a
-		// node identifier, so we never want it as a "to" token.
+		// SequenceDiagram (and noteOver) lines carry a trailing
+		// `: message` payload that is prose, not a node identifier.
+		// Capture it as the edge's label BEFORE stripping so the
+		// relation-aware validator can read the message verbatim.
+		var seqLabel string
 		if idx := strings.Index(line, ":"); idx > 0 {
+			seqLabel = strings.TrimSpace(line[idx+1:])
 			line = strings.TrimSpace(line[:idx])
 		}
-		from, to, ok := splitMermaidEdgeLine(line)
+		from, to, label, ok := splitMermaidEdgeLine(line)
 		if !ok {
 			continue
+		}
+		if label == "" {
+			label = seqLabel
 		}
 		from = stripMermaidNodeShape(from)
 		to = stripMermaidNodeShape(to)
 		if from == "" || to == "" {
 			continue
 		}
-		edges = append(edges, mermaidEdge{from: from, to: to})
+		edges = append(edges, mermaidEdge{from: from, to: to, label: label})
 	}
 	return edges
 }
@@ -317,10 +336,12 @@ func parseMermaidEdges(body string) []mermaidEdge {
 //	-->>  -.->  -->  -->|...|  ==>  ==>|...|
 //	-.->|...|  --|text|-->  -- text -->
 //	---  ->>  -->>
-func splitMermaidEdgeLine(line string) (string, string, bool) {
-	// Strip optional `|inline label|` between the dashes — Mermaid
-	// flowchart's `A -->|cond| B` and `A -- text --> B` shapes — by
-	// removing every `|...|` group before searching for arrows.
+func splitMermaidEdgeLine(line string) (string, string, string, bool) {
+	// Capture the FIRST `|inline label|` block before stripping —
+	// Mermaid flowchart's `A -->|cond| B` puts the relation marker
+	// between pipes. Subsequent `|...|` groups (rare) are stripped
+	// without capture; first wins.
+	var pipeLabel string
 	for {
 		i := strings.Index(line, "|")
 		if i < 0 {
@@ -329,6 +350,9 @@ func splitMermaidEdgeLine(line string) (string, string, bool) {
 		j := strings.Index(line[i+1:], "|")
 		if j < 0 {
 			break
+		}
+		if pipeLabel == "" {
+			pipeLabel = strings.TrimSpace(line[i+1 : i+1+j])
 		}
 		line = line[:i] + " " + line[i+1+j+1:]
 	}
@@ -358,15 +382,20 @@ func splitMermaidEdgeLine(line string) (string, string, bool) {
 		// arrow we found could be the inner `--`. Heuristic: if both
 		// sides still contain an arrow, pick the rightmost one.
 		if strings.Contains(to, "-->") || strings.Contains(to, "==>") || strings.Contains(to, "->>") {
-			// recurse on the rightmost portion
-			f2, t2, ok := splitMermaidEdgeLine(to)
+			// recurse on the rightmost portion; preserve any
+			// pipe-label captured in the outer call (the recursion
+			// only re-parses the trailing `to` segment).
+			f2, t2, innerLabel, ok := splitMermaidEdgeLine(to)
 			if ok {
-				return f2, t2, true
+				if innerLabel != "" {
+					return f2, t2, innerLabel, true
+				}
+				return f2, t2, pipeLabel, true
 			}
 		}
-		return from, to, true
+		return from, to, pipeLabel, true
 	}
-	return "", "", false
+	return "", "", "", false
 }
 
 // stripMermaidNodeShape collapses a node declaration with a shape

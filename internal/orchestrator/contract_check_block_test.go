@@ -1304,3 +1304,102 @@ func TestEnumerationLabelGrounding_BidirectionalSubstring(t *testing.T) {
 		t.Errorf("bidirectional substring should match; got %+v", vs)
 	}
 }
+
+// ── Phase 3-C2: parseMermaidEdges label capture ───────────────────
+
+// TestParseMermaidEdges_PipeLabelCaptured — flowchart `A -->|cond| B`
+// puts the relation marker between pipes; the verbatim text MUST
+// land in mermaidEdge.label.
+func TestParseMermaidEdges_PipeLabelCaptured(t *testing.T) {
+	body := "flowchart TD\n  A -->|guard| B\n"
+	got := parseMermaidEdges(body)
+	if len(got) != 1 {
+		t.Fatalf("want 1 edge, got %d (%+v)", len(got), got)
+	}
+	if got[0].label != "guard" {
+		t.Errorf("label = %q, want %q", got[0].label, "guard")
+	}
+	if got[0].from != "A" || got[0].to != "B" {
+		t.Errorf("endpoint regression: from=%q to=%q (want A→B)", got[0].from, got[0].to)
+	}
+}
+
+// TestParseMermaidEdges_SequenceMessageCapturedAsLabel — sequence
+// diagrams encode the relation as the trailing `: message`.
+func TestParseMermaidEdges_SequenceMessageCapturedAsLabel(t *testing.T) {
+	body := "sequenceDiagram\n  A->>B: handleRequest\n"
+	got := parseMermaidEdges(body)
+	if len(got) != 1 {
+		t.Fatalf("want 1 edge, got %d", len(got))
+	}
+	if got[0].label != "handleRequest" {
+		t.Errorf("label = %q, want %q", got[0].label, "handleRequest")
+	}
+	if got[0].from != "A" || got[0].to != "B" {
+		t.Errorf("endpoint regression: from=%q to=%q", got[0].from, got[0].to)
+	}
+}
+
+// TestParseMermaidEdges_UnlabelledEdgeHasEmptyLabel — bare arrows
+// MUST yield label == "" so InferRelationFromLabel returns
+// DiagramRelUnknown ("label-free edge", legitimate state).
+func TestParseMermaidEdges_UnlabelledEdgeHasEmptyLabel(t *testing.T) {
+	body := "flowchart LR\n  A --> B\n  X --> Y\n"
+	got := parseMermaidEdges(body)
+	if len(got) != 2 {
+		t.Fatalf("want 2 edges, got %d", len(got))
+	}
+	for _, e := range got {
+		if e.label != "" {
+			t.Errorf("unlabelled edge has label = %q, want empty", e.label)
+		}
+	}
+}
+
+// TestParseMermaidEdges_MultiEdgeWithMixedLabels — labels are
+// per-edge; capture must not leak across edges in the same body.
+func TestParseMermaidEdges_MultiEdgeWithMixedLabels(t *testing.T) {
+	body := "flowchart TD\n" +
+		"  A -->|call| B\n" +
+		"  B --> C\n" +
+		"  C -->|guard| D\n"
+	got := parseMermaidEdges(body)
+	if len(got) != 3 {
+		t.Fatalf("want 3 edges, got %d", len(got))
+	}
+	wantLabels := []string{"call", "", "guard"}
+	for i, e := range got {
+		if e.label != wantLabels[i] {
+			t.Errorf("edge[%d] label = %q, want %q", i, e.label, wantLabels[i])
+		}
+	}
+}
+
+// TestParseMermaidEdges_PipeLabelStripsBeforeNodeShape — endpoint
+// extraction MUST still strip node-shape brackets even when a label
+// is present (`A["Label A"] -->|cond| B["Label B"]`).
+func TestParseMermaidEdges_PipeLabelStripsBeforeNodeShape(t *testing.T) {
+	body := "flowchart TD\n  A[\"Auth\"] -->|invoke| B[\"Worker\"]\n"
+	got := parseMermaidEdges(body)
+	if len(got) != 1 {
+		t.Fatalf("want 1 edge, got %d", len(got))
+	}
+	if got[0].from != "A" || got[0].to != "B" {
+		t.Errorf("endpoint regression with label present: from=%q to=%q", got[0].from, got[0].to)
+	}
+	if got[0].label != "invoke" {
+		t.Errorf("label = %q, want invoke", got[0].label)
+	}
+}
+
+// TestSplitMermaidEdgeLine_SignatureCarriesLabel — defensive
+// signature test: the new 4-return form MUST be the only callable
+// surface. (Compile-time check; if signature drifts back, this fails
+// to build.)
+func TestSplitMermaidEdgeLine_SignatureCarriesLabel(t *testing.T) {
+	from, to, label, ok := splitMermaidEdgeLine("A -->|cond| B")
+	if !ok || from != "A" || to != "B" || label != "cond" {
+		t.Errorf("splitMermaidEdgeLine = (%q,%q,%q,%v), want (A,B,cond,true)",
+			from, to, label, ok)
+	}
+}
