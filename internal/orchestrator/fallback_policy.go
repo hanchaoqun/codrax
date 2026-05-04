@@ -492,116 +492,68 @@ func FallbackTargetForViolations(vs []types.Violation) FallbackTarget {
 	return FallbackTargetForViolationsWithBudget(vs, 1<<30)
 }
 
-// FallbackTargetForViolationsWithBudget extends
-// FallbackTargetForViolations with R2.2 finalize-local priority
-// (post_shape_residual_audit.md, 2026-05-04). When the primary
-// locus is deeper than Finalizer AND the violation set contains
-// at least one finalize-local violation AND finalizerLocalUsed <
-// FinalizerLocalRetryBudget(), the picker DOWNGRADES the result
-// to FallbackFinalizerOnly so the cheap re-emit gets a chance
-// before the run escalates upstream.
+// FallbackTargetForViolationsWithBudget routes a violation set to
+// a FallbackTarget using the Phase 1-A3 cooccurrence-cluster algorithm
+// (BuildRepairPlan in repair_plan.go), with the R2.2 finalize-local
+// priority preserved as a cost-optimization tiebreak.
 //
-// Why: pre-R2.2 a single ViolBlockCoverageMissing (BackToExtract)
-// co-occurring with one ViolPrincipalClaimUseMissing
-// (FinalizerOnly) made the count-based picker tie at 1-1 and the
-// deepest-locus tiebreak chose Extract — so even a finalize-local-
-// fixable contradiction got dragged upstream. The audit P10/P36
-// successor: instead of changing the count tiebreak (which would
-// hide real explore-only failures), give finalize-local a SMALL
-// retry budget; if N attempts fail, escalate to the deeper locus
-// as before.
+// Phase 1-A3 (V2 runtime consolidation, 2026-05-04) replaced the
+// pre-A3 "bucket-by-locus + count + deepest-tiebreak" model:
+//
+//   Pre-A3 model picked the locus with the MOST violations as primary.
+//   This treats each violation as independent — when one root cause
+//   emits 3+ derived consequences, the count tilted the picker toward
+//   the locus owning the consequences instead of the locus owning the
+//   root cause. Tests covered this as "majority wins"; the model is
+//   correct when violations ARE independent but wrong when they share
+//   a typed cause→consequence relationship.
+//
+//   Post-A3 model uses BuildRepairPlan: typed cooccurrence rules
+//   (repair_cooccurrence.go) cluster violations by root cause; each
+//   cluster has ONE Primary + zero-or-more Derived; PrimaryOwner is
+//   the deepest cluster Owner. Derived do NOT contribute to owner
+//   selection — fixing Primary necessarily clears them. Independent
+//   violations remain singleton clusters, so a single explore-local
+//   issue cannot be drowned out by N finalize-local issues from a
+//   different root cause.
+//
+// R2.2 finalize-local downgrade preserved: when primary is deeper
+// than Finalizer AND any cluster has Finalizer owner AND used <
+// FinalizerLocalRetryBudget(), the result is downgraded to
+// FinalizerOnly so the cheap re-emit gets up to budget attempts
+// before the run escalates upstream. The downgrade is COST-OPT, not
+// correctness — at budget exhaustion the original PrimaryOwner
+// pick activates.
 //
 // finalizerLocalUsed is the per-Run counter the caller increments
-// each time this picker downgrades to FinalizerOnly under this
-// rule; when the counter reaches the budget, downgrade stops
-// firing and the original primary-locus pick wins.
-//
-// Non-zero budget AND non-zero used count is the only way the
-// downgrade activates; default 0/0 keeps the call site byte-
-// identical to FallbackTargetForViolations (backward compat for
-// tests / callers that don't track the budget).
+// each time this picker downgrades; when used >= budget, downgrade
+// stops firing.
 func FallbackTargetForViolationsWithBudget(vs []types.Violation, finalizerLocalUsed int) FallbackTarget {
 	if len(vs) == 0 {
 		return FallbackFinalizerOnly
 	}
-	type bucket struct {
-		locus  RepairLocus
-		target FallbackTarget
-		count  int
-		seen   bool
-	}
-	buckets := map[RepairLocus]*bucket{}
-	bumpBucket := func(l RepairLocus, t FallbackTarget) {
-		b, ok := buckets[l]
-		if !ok {
-			b = &bucket{locus: l, target: t, count: 0}
-			buckets[l] = b
-		}
-		// Within the same locus, keep the first target observed —
-		// they are equivalent under stage semantics. (The caller
-		// resets state per locus, not per target.)
-		b.count++
-		b.seen = true
-	}
-	hasFailLoud := false
-	hasFinalizerLocal := false
-	for _, v := range vs {
-		t := FallbackTargetForViolation(v)
-		if t == FallbackFailLoud {
-			hasFailLoud = true
-		}
-		l := LocusOfTarget(t)
-		if l == LocusFinalizer {
-			hasFinalizerLocal = true
-		}
-		bumpBucket(l, t)
-	}
-	// FailLoud always wins (any single non-recoverable violation
-	// terminates the retry loop — semantics unchanged from pre-B3).
-	if hasFailLoud {
+
+	// A3: route via BuildRepairPlan. The plan returns FailLoud
+	// outright when any violation has LocusTerminal owner — that
+	// failure-of-last-resort semantic is preserved exactly.
+	plan := BuildRepairPlan(vs)
+	if plan.HasFailLoud {
 		return FallbackFailLoud
 	}
-	// Pick primary locus by count, with deepest-locus tiebreak.
-	locusDepth := func(l RepairLocus) int {
-		switch l {
-		case LocusFinalizer:
-			return 1
-		case LocusExtract:
-			return 2
-		case LocusExplore:
-			return 3
-		case LocusTerminal:
-			return 4
-		}
-		return 0
-	}
-	var best *bucket
-	for _, b := range buckets {
-		if best == nil {
-			best = b
-			continue
-		}
-		if b.count > best.count {
-			best = b
-			continue
-		}
-		if b.count == best.count && locusDepth(b.locus) > locusDepth(best.locus) {
-			best = b
-		}
-	}
-	if best == nil {
-		return FallbackFinalizerOnly
-	}
-	primary := targetForLocus(best.locus)
 
-	// R2.2 (2026-05-04) finalize-local priority. When the primary
-	// pick is deeper than Finalizer BUT finalize-local violations
-	// also exist AND we still have budget, downgrade to
-	// FinalizerOnly so the cheap re-emit gets a try first. This
-	// counters the audit P10/P36 successor: a single deeper
-	// violation co-occurring with finalize-local violations would
-	// drag the whole retry upstream even though most could fix in
-	// place.
+	primary := targetForLocus(plan.PrimaryOwner)
+
+	// R2.2 (2026-05-04) finalize-local priority preserved. When the
+	// primary pick is deeper than Finalizer BUT at least one cluster
+	// has Finalizer owner AND we still have budget, downgrade to
+	// FinalizerOnly so the cheap re-emit gets a try first.
+	hasFinalizerLocal := false
+	for _, c := range plan.Clusters {
+		if c.Owner == LocusFinalizer {
+			hasFinalizerLocal = true
+			break
+		}
+	}
 	budget := FinalizerLocalRetryBudget()
 	if budget > 0 && finalizerLocalUsed < budget && hasFinalizerLocal {
 		switch primary {

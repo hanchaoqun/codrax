@@ -115,30 +115,58 @@ func TestFallbackTargetForViolations_PicksDeepest(t *testing.T) {
 	}
 }
 
-// TestFallbackTargetForViolations_PrimaryRepairLocus pins B3-F2's
-// repair-locus picker semantics (replacing pre-B3 "deepest wins").
-// Same locus on most violations wins regardless of single-violation
-// depth; tie tiebreaks by deepest. FailLoud always wins.
-func TestFallbackTargetForViolations_PrimaryRepairLocus(t *testing.T) {
+// TestFallbackTargetForViolations_RootCauseClustering pins Phase 1-A3
+// cooccurrence-cluster picker semantics, replacing the pre-A3 "bucket
+// by locus, count + deepest-tiebreak" model.
+//
+// Behaviour change vs pre-A3 (intentional, per design doc §3.1):
+//
+//   The pre-A3 picker chose by majority count: 2 finalizer + 1 explore
+//   went to FinalizerOnly because finalizer-locus had more violations.
+//   This is wrong when the lone explore violation is INDEPENDENT
+//   (different root cause) — finalizer-only retries can never fix
+//   the explore-local issue, so majority just delays the inevitable
+//   escalation while burning retry budget.
+//
+//   The post-A3 picker uses BuildRepairPlan: typed cooccurrence rules
+//   detect cause→consequence relationships and cluster only those
+//   together (Derived do NOT inflate Primary's owner count).
+//   Independent violations are singleton clusters; the deepest
+//   cluster owner wins. R2.2 budget downgrade still applies as a
+//   cost-optimization but is no longer the primary semantic.
+func TestFallbackTargetForViolations_RootCauseClustering(t *testing.T) {
 	cases := []struct {
 		name string
 		vs   []types.Violation
 		want FallbackTarget
 	}{
 		{
-			// 2 finalizer-local + 1 explore — pre-B3 picked Explore
-			// (deepest). Post-B3 picks FinalizerOnly (majority locus).
-			name: "2 finalizer + 1 explore → finalizer_only (majority)",
+			// 2 INDEPENDENT finalizer-local + 1 INDEPENDENT explore.
+			// (PrincipalClaimUseMissing + DiagramEdgeUnsupported are
+			// finalize-local kinds; without their parents
+			// BlockCoverageMissing/FacetUncovered/ChainDemoted in the
+			// set, no cooccurrence rule applies and they remain
+			// singletons. Citation is independent explore-local.)
+			//
+			// Pre-A3 picked FinalizerOnly (majority); A3 picks
+			// BackToExplore — the explore issue cannot be drowned
+			// out by independent finalizer-local issues from a
+			// different root cause.
+			name: "3 independent (2 fin + 1 explore) → back_to_explore (deepest cluster wins)",
 			vs: []types.Violation{
 				{Kind: types.ViolPrincipalClaimUseMissing},
 				{Kind: types.ViolDiagramEdgeUnsupported},
 				{Kind: types.ViolCitation},
 			},
-			want: FallbackFinalizerOnly,
+			want: FallbackBackToExplore,
 		},
 		{
-			// Inverted majority — explore wins.
-			name: "2 explore + 1 finalizer → back_to_explore (majority)",
+			// Same shape as above but 2 explore + 1 finalizer →
+			// still back_to_explore. (Citation + GhostAnchor are
+			// independent unless their derived consequences
+			// StepIdentifierUnverified / EnumerationLabelUngrounded
+			// are also present — they aren't here, so 2 singletons.)
+			name: "2 explore + 1 finalizer → back_to_explore (deepest cluster wins)",
 			vs: []types.Violation{
 				{Kind: types.ViolCitation},
 				{Kind: types.ViolGhostAnchor},
@@ -147,9 +175,9 @@ func TestFallbackTargetForViolations_PrimaryRepairLocus(t *testing.T) {
 			want: FallbackBackToExplore,
 		},
 		{
-			// Tie: 1 finalizer + 1 extract → tiebreak by deepest =
-			// extract.
-			name: "1 finalizer + 1 extract tie → extract (deepest tiebreak)",
+			// 1 finalizer + 1 extract: independent singletons; deepest
+			// wins (extract).
+			name: "1 finalizer + 1 extract → extract (deepest singleton)",
 			vs: []types.Violation{
 				{Kind: types.ViolPrincipalClaimUseMissing},
 				{Kind: types.ViolDeclaredCountDrift},
@@ -157,8 +185,33 @@ func TestFallbackTargetForViolations_PrimaryRepairLocus(t *testing.T) {
 			want: FallbackBackToExtract,
 		},
 		{
-			// PlanCritic forces FailLoud regardless of majority.
-			name: "FailLoud overrides any majority",
+			// COOCCURRENCE CLUSTER: SubjectAnchorMissing's typed
+			// pipeline invariant is the precondition of step/symbol
+			// verification; Derived violations DO NOT inflate the
+			// owner. Single cluster Owner=Extract.
+			name: "SubjectAnchorMissing + 2 derived → extract (one cluster)",
+			vs: []types.Violation{
+				{Kind: types.ViolSubjectAnchorMissing},
+				{Kind: types.ViolStepIdentifierUnverified},
+				{Kind: types.ViolSymbolAnchorMismatch},
+			},
+			want: FallbackBackToExtract,
+		},
+		{
+			// COOCCURRENCE CLUSTER: BlockCoverageMissing peels its
+			// derived consequences; cluster Owner=Extract.
+			name: "BlockCoverageMissing + diagram edge derived → extract (one cluster)",
+			vs: []types.Violation{
+				{Kind: types.ViolBlockCoverageMissing,
+					Detail: "required block kind=ordered_list appears 0 time(s)"},
+				{Kind: types.ViolDiagramEdgeUnsupported},
+			},
+			want: FallbackBackToExtract,
+		},
+		{
+			// FailLoud preserved: any LocusTerminal cluster forces
+			// the whole plan to FailLoud regardless of other clusters.
+			name: "FailLoud overrides any cluster",
 			vs: []types.Violation{
 				{Kind: types.ViolPrincipalClaimUseMissing},
 				{Kind: types.ViolDiagramEdgeUnsupported},
