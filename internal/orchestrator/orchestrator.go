@@ -3707,6 +3707,13 @@ func (o *Orchestrator) runReadSchedulerLoop(stepBudget int) int {
 		// budget-less) is preserved for tests + back-compat.
 		preDowngrade := FallbackTargetForViolations(res.Violations)
 		fallback := FallbackTargetForViolationsWithBudget(res.Violations, finalizerLocalRetriesUsed)
+		// A4 telemetry: surface the underlying RepairPlan structure
+		// so operators can grep `repair_plan=` to audit cluster
+		// composition vs the chosen fallback target. The plan is the
+		// SAME object the pickers above consume internally — this
+		// log line is purely observational, not load-bearing.
+		logging.Info("[orchestrator] repair_plan: %s target=%s",
+			SummarizeRepairPlan(BuildRepairPlan(res.Violations)), fallback)
 		if fallback == FallbackFinalizerOnly && preDowngrade != FallbackFinalizerOnly {
 			finalizerLocalRetriesUsed++
 			logging.Info("[orchestrator] R2.2 finalize-local priority: primary-locus pick=%s downgraded to finalizer_only (used %d/%d)",
