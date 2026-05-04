@@ -133,6 +133,63 @@ func TestRetryState_HasContent(t *testing.T) {
 	}
 }
 
+// ── R15 ViolationProfile lock tests ─────────────────────────
+
+// TestViolationProfileFor_RetryEligibleFromSeverity pins the
+// derivation rule — Severity Soft → RetryEligible=false; all
+// others true.
+func TestViolationProfileFor_RetryEligibleFromSeverity(t *testing.T) {
+	cases := []struct {
+		kind     ViolationKind
+		strict   bool
+		wantSev  Severity
+		wantElig bool
+	}{
+		{ViolPrincipalClaimUseMissing, false, SeverityCritical, true},
+		{ViolBlockCoverageMissing, false, SeverityCritical, true},
+		{ViolFacetUncovered, false, SeverityMedium, true},   // not strict → Medium per DeriveSeverity
+		{ViolFacetUncovered, true, SeverityHigh, true},      // strict → High
+		{ViolRichnessRegression, false, SeveritySoft, false},
+		{ViolRichnessRegression, true, SeveritySoft, false}, // soft permanent
+		{ViolPlanCritic, false, SeveritySoft, false},
+		{ViolReflectorObservation, true, SeveritySoft, false}, // reviewer kinds permanent soft
+	}
+	for _, tc := range cases {
+		got := ViolationProfileFor(tc.kind, tc.strict)
+		if got.Kind != tc.kind {
+			t.Errorf("kind round-trip: got %q want %q", got.Kind, tc.kind)
+		}
+		if got.Severity != tc.wantSev {
+			t.Errorf("ViolationProfileFor(%q, strict=%v).Severity = %q, want %q",
+				tc.kind, tc.strict, got.Severity, tc.wantSev)
+		}
+		if got.RetryEligible != tc.wantElig {
+			t.Errorf("ViolationProfileFor(%q, strict=%v).RetryEligible = %v, want %v",
+				tc.kind, tc.strict, got.RetryEligible, tc.wantElig)
+		}
+	}
+}
+
+// TestViolationProfileFor_CriticalCoherence is the R15 RED-LINE
+// invariant: every kind classified Critical MUST be RetryEligible.
+// Drift here (e.g. someone marks a kind Critical but its profile
+// flips RetryEligible=false) is a SOURCE-OF-TRUTH violation.
+func TestViolationProfileFor_CriticalCoherence(t *testing.T) {
+	for _, kind := range AllViolationKinds() {
+		for _, strict := range []bool{true, false} {
+			p := ViolationProfileFor(kind, strict)
+			if p.Severity == SeverityCritical && !p.RetryEligible {
+				t.Errorf("R15 coherence violated: kind=%q strict=%v Severity=Critical but RetryEligible=false",
+					kind, strict)
+			}
+			if p.Severity == SeveritySoft && p.RetryEligible {
+				t.Errorf("R15 coherence violated: kind=%q strict=%v Severity=Soft but RetryEligible=true",
+					kind, strict)
+			}
+		}
+	}
+}
+
 // TestMutableState_RetryState_SetGet covers MutableState wiring +
 // nil safety.
 func TestMutableState_RetryState_SetGet(t *testing.T) {

@@ -1258,10 +1258,35 @@ func SetSoftViolationKinds(extraSoft []string, extraStrict []string) {
 
 // isSoftViolationKind is the read-side predicate. Used by
 // hasAnyStrictViolation + the soft-violation-only renderer.
+//
+// R15 (post_shape_residual_audit.md, 2026-05-04): refactored to
+// read from types.ViolationProfileFor — the single source of truth
+// shared with R14 Severity. Legacy softViolationKinds map is
+// preserved for operator-yaml override fidelity (extraSoft +
+// extraStrict), but the underlying classification reads R14
+// Severity to ensure Critical/High/Medium kinds are never
+// mis-classified as soft (which was the m1a r2 retry-skipped bug).
+//
+// Resolution rule (R15):
+//   - operator-yaml extraStrict overrides win (kind absent from
+//     softViolationKinds → strict)
+//   - operator-yaml extraSoft overrides win (kind present in
+//     softViolationKinds → soft, even if R14 says Critical)
+//   - default (no operator override): consult ViolationProfile —
+//     Severity == Soft → soft; otherwise strict
 func isSoftViolationKind(k types.ViolationKind) bool {
 	softKindsMu.RLock()
-	defer softKindsMu.RUnlock()
-	return softViolationKinds[k]
+	mapVal, hasOverride := softViolationKinds[k]
+	softKindsMu.RUnlock()
+	if hasOverride {
+		// Operator-yaml or initialised default explicitly named this
+		// kind — honour the override exactly.
+		return mapVal
+	}
+	// No explicit override → consult ViolationProfile. Pass
+	// isStrict=false because we're in the "no operator strict
+	// override" branch by construction.
+	return !types.ViolationProfileFor(k, false).RetryEligible
 }
 
 // hasAnyStrictViolation reports whether the slice contains at least

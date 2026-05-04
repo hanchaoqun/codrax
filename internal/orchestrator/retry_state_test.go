@@ -199,3 +199,51 @@ func TestTextHeadTail_TruncatesLargeText(t *testing.T) {
 		t.Errorf("long text must include truncation marker; got %q", got[:80])
 	}
 }
+
+// ── R15 isSoftViolationKind unification tests ───────────────────
+
+// TestIsSoftViolationKind_MapOverrideWins pins R15 contract:
+// explicit operator-yaml override (extraSoft / extraStrict) takes
+// precedence over the ViolationProfile fallback. Default
+// initialisation calls SetSoftViolationKinds([], []) which loads
+// the legacy defaultSoftKinds map; every kind in that map is
+// treated as override.
+func TestIsSoftViolationKind_MapOverrideWins(t *testing.T) {
+	t.Cleanup(func() { SetSoftViolationKinds(nil, nil) })
+
+	// Reset to defaults, then force-promote ViolFacetUncovered to
+	// strict via extraStrict.
+	SetSoftViolationKinds(nil, []string{string(types.ViolFacetUncovered)})
+	if isSoftViolationKind(types.ViolFacetUncovered) {
+		t.Error("operator-yaml extraStrict must promote FacetUncovered to strict")
+	}
+
+	// Demote ViolPrincipalClaimUseMissing (Critical Severity) to soft.
+	SetSoftViolationKinds([]string{string(types.ViolPrincipalClaimUseMissing)}, nil)
+	if !isSoftViolationKind(types.ViolPrincipalClaimUseMissing) {
+		t.Error("operator-yaml extraSoft must demote PrincipalClaimUseMissing to soft")
+	}
+}
+
+// TestIsSoftViolationKind_FallbackToProfile pins the R15 fallback
+// path: when a kind is NOT in the override map, isSoftViolationKind
+// reads ViolationProfile. This is the path that catches m1a r2 type
+// future regressions where Severity=Critical but legacy code
+// forgets to add the kind to the strict-list.
+func TestIsSoftViolationKind_FallbackToProfile(t *testing.T) {
+	t.Cleanup(func() { SetSoftViolationKinds(nil, nil) })
+	// Restore plain defaults so override map contains only legacy
+	// soft kinds.
+	SetSoftViolationKinds(nil, nil)
+
+	// A kind we registered AFTER R14 / R15 (no entry in
+	// defaultSoftKinds) — must read from profile.
+	// ViolUnknownKindForTesting is not declared, so use
+	// ViolationKind("never_emitted_kind") which has no override.
+	probe := types.ViolationKind("never_emitted_kind_for_test")
+	// Profile of unknown kinds returns Medium (DeriveSeverity default)
+	// → RetryEligible=true → not soft.
+	if isSoftViolationKind(probe) {
+		t.Error("unknown kind must default to strict via ViolationProfile fallback")
+	}
+}

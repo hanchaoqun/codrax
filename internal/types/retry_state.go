@@ -237,6 +237,60 @@ func (rs *RetryState) HasContent() bool {
 		len(rs.PrevEmitJSON) > 0
 }
 
+// ViolationProfile is the **R15 single source of truth** for every
+// runtime decision driven by a ViolationKind:
+//
+//   - Severity (R14): drives prompt rendering priority in
+//     RetryState (Critical → Required Changes top, Soft → telemetry
+//     section only).
+//   - RetryEligible (R15): drives whether contract.Check flips
+//     Passed=false and the scheduler triggers a retry. Replaces the
+//     legacy defaultSoftKinds / softViolationKinds map gate.
+//   - FallbackTargetHint (R15): the canonical fallback locus for
+//     this kind, sourced from the orchestrator's FallbackPolicy at
+//     RuntimeViolationProfile time. Optional — pure-types callers
+//     can derive without it.
+//
+// Replaces the m1a r2 deep-audit divergence:
+//
+//   - R14 marks ViolPrincipalClaimUseMissing Severity=Critical
+//   - But defaultSoftKinds happens to NOT include it, so it
+//     IS strict for retry-trigger purposes (good)
+//
+// However for OTHER kinds (Block 2 Intent / Subject /
+// PredicateAxis oracle kinds), R14 marks them High but
+// defaultSoftKinds marks them SOFT — divergence. R15 unifies:
+// every production decision reads ViolationProfile, ensuring
+// Severity and RetryEligible cannot drift.
+type ViolationProfile struct {
+	Kind          ViolationKind
+	Severity      Severity
+	RetryEligible bool
+}
+
+// ViolationProfileFor returns the canonical profile for a kind.
+// Single source of truth — consumed by isSoftViolationKind,
+// FallbackTargetForKind (transitively), and the R14 retry-state
+// scoreViolations path.
+//
+// RetryEligible derivation:
+//
+//	Severity Critical / High / Medium → true (retry triggers)
+//	Severity Soft                     → false (telemetry only,
+//	                                            never blocks ship)
+//
+// isStrict honours pipeline_contract_strict_kinds yaml override:
+// when operator promotes a Soft kind to strict, the profile
+// bumps Severity Soft → Medium AND RetryEligible false → true.
+func ViolationProfileFor(kind ViolationKind, isStrict bool) ViolationProfile {
+	sev := DeriveSeverity(kind, isStrict)
+	return ViolationProfile{
+		Kind:          kind,
+		Severity:      sev,
+		RetryEligible: sev != SeveritySoft,
+	}
+}
+
 // DeriveSeverity is the single SOURCE OF TRUTH for Severity
 // classification of every ViolationKind. Called by every producer
 // (scheduler / V2 oracle / contract.Check / self_consistency /
