@@ -13,6 +13,16 @@
 ID="u10a"
 NAME="change impact — renaming ShapeValue to ShapeScalar"
 QUESTION="如果把 internal/types/analysis_ir.go 里的 ShapeValue 常量改名为 ShapeScalar，还需要改哪些文件？列出文件路径以及改动的大致类型。"
+# 2026-05-04 strictness audit: previous EMR `internal/[a-z/]+\.go`
+# accepted ANY Go file under internal/. Verified ground truth
+# (`grep -rln 'ShapeValue\b' internal/` non-test): 5 production
+# files — analysis_ir.go (declaration), analyzer.go,
+# contract_check.go, answer_document.go,
+# answer_semantic_view_helpers.go. Strict-bar requires ≥3 of the
+# 4 non-declaration files (the question explicitly excludes the
+# self-reference at internal/types/analysis_ir.go).
 EXPECT_CONTAINS="ShapeValue"
 EXPECT_NOT_CONTAINS="none nothing.else only.one.file"
-EXPECT_MATCHES_REGEX="internal/[a-z/]+\.go"
+EXPECT_MATCHES_REGEX="(orchestrator|orchestrator/contract_check|contract_check)\.go
+(agent|agent/analyzer|analyzer)\.go
+(types/answer_document|answer_document|answer_semantic_view)"

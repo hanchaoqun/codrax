@@ -15,5 +15,14 @@
 ID="u8a"
 NAME="API surface — public exports of internal/analysis/criterion"
 QUESTION="internal/analysis/criterion 对外导出的全部 API（函数、类型、常量、变量）共有哪些？分类列出。"
+# 2026-05-04 strictness audit: previous EC was 3 function names —
+# but the question asks for FOUR categories (函数 / 类型 / 常量 /
+# 变量). Tighten by requiring the answer to surface ≥1 type
+# (Kind / Env / Result), ≥1 var (ErrUnknownKind), AND ≥1 Kind*
+# constant — proving the answer enumerated the full surface, not
+# just the function set.
 EXPECT_CONTAINS="Eval EvalAll RegisteredKinds"
+EXPECT_MATCHES_REGEX="\b(Kind|Env|Result)\b
+ErrUnknownKind
+\bKind[A-Z][a-zA-Z]+\b"
 EXPECT_NOT_CONTAINS="private internal.use"

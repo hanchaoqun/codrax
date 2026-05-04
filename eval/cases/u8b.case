@@ -13,5 +13,14 @@
 ID="u8b"
 NAME="API surface — public enum types in internal/types"
 QUESTION="列出 internal/types 包里所有公开（首字母大写）的字符串枚举类型名（例如 Intent 这类 'type X string' 加上 const 集合的）。"
-EXPECT_CONTAINS="Intent Scenario Complexity AnswerShape"
-EXPECT_NOT_CONTAINS="private lowercase int.enum"
+# 2026-05-04 strictness audit: previous EC required `AnswerShape`
+# but that type has been retired (shape-era cleanup, V2 block-only
+# carrier migration; see types/answer_document.go comment). Replace
+# with currently-extant enum type names verified via `grep -n
+# 'type [A-Z][a-zA-Z]+ string' internal/types/`. Strict-bar: 4
+# distinct extant enum types from the load-bearing set.
+EXPECT_CONTAINS="Intent Scenario Complexity QuestionFamily"
+EXPECT_MATCHES_REGEX="\b(Intent|IntentExplain|IntentRootCause)\b
+\b(Scenario|ScenarioGeneric|ScenarioConfigTrace)\b
+\b(Complexity|ComplexitySimple|ComplexityComplex)\b"
+EXPECT_NOT_CONTAINS="private lowercase int.enum AnswerShape"

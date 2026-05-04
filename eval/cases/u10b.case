@@ -14,6 +14,16 @@
 ID="u10b"
 NAME="change impact — CitationReq.Required bool → enum upgrade"
 QUESTION="Which production code sites (non-test) would need changes if CitationReq.Required were changed from bool to an enum type with three states (required / optional / disabled)? List the files."
+# 2026-05-04 strictness audit: previous EMR `internal/[a-z/_]+\.go`
+# accepted ANY internal/ Go file. Verified ground truth (`grep
+# -rln 'CitationReq\.Required\b' internal/` non-test): 6
+# production sites — emit_investigation_complete.go,
+# context/builder.go, orchestrator/orchestrator.go,
+# agent/analyzer.go, analysis/gate/gate.go,
+# analysis/criterion/eval.go. Strict-bar requires ≥3 distinct
+# real consumer files.
 EXPECT_CONTAINS="CitationReq"
 EXPECT_NOT_CONTAINS="trivial safe no.changes"
-EXPECT_MATCHES_REGEX="internal/[a-z/_]+\.go"
+EXPECT_MATCHES_REGEX="(emit_investigation_complete|context/builder)\.go
+(orchestrator|analyzer)\.go
+(gate|criterion|eval)\.go"

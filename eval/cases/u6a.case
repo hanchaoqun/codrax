@@ -15,5 +15,12 @@
 ID="u6a"
 NAME="code convention — Go error wrapping idiom used in this repo"
 QUESTION="本仓库里 Go error 是怎么 wrap 的？用的是标准库 fmt.Errorf 的 %w 动词，还是第三方库比如 github.com/pkg/errors？给一个最常见的 call-site 样例。"
+# 2026-05-04 strictness audit: previous EC was just `fmt.Errorf`
+# (the answer's idiom). Bar = "答主答案动词" but the question also
+# asks for an actual call-site example. Tighten by requiring the
+# %w verb token AND a code citation (file path:line OR file path
+# with code snippet), proving the answer pulled a real sample.
 EXPECT_CONTAINS="fmt.Errorf"
+EXPECT_MATCHES_REGEX="%w
+(internal/[a-z/_]+\.go|cmd/[a-z_]+\.go)"
 EXPECT_NOT_CONTAINS="pkg/errors github.com/pkg/errors"
