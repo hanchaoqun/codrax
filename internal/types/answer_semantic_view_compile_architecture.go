@@ -82,6 +82,7 @@ func compileArchitecture(ir *AnalysisIR, plan *AnswerSurfacePlan) *AnswerSemanti
 	view.DiagramPlan = diagramPlanFor(plan, DiagramArchitecture,
 		[]string{string(FacetComponentRelation)},
 		[]string{string(FacetPrincipalPathEdge)},
+		DefaultEdgeRelationsForKind(DiagramArchitecture),
 	)
 	view.RichnessCandidates = richnessCandidatesFromOptionalFacets(view.FacetCoverage)
 	return view

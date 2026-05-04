@@ -80,6 +80,11 @@ func compileRootCauseTrace(ir *AnalysisIR, plan *AnswerSurfacePlan) *AnswerSeman
 	view.DiagramPlan = diagramPlanFor(plan, DiagramSequence,
 		[]string{string(FacetCurrentCodePath)},
 		[]string{string(FacetPrincipalPathEdge)},
+		append(DefaultEdgeRelationsForKind(DiagramSequence),
+			DiagramEdgeRelationContract{
+				Kind: DiagramRelObserve, Min: 0, ClaimForm: ClaimExternalObservation,
+			},
+		),
 	)
 	view.UncertaintyRules = []UncertaintyRule{uncertaintyRuleForObservedArtifact()}
 	view.RichnessCandidates = richnessCandidatesFromOptionalFacets(view.FacetCoverage)

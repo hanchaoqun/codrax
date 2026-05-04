@@ -128,17 +128,39 @@ type BlockRequirement struct {
 // "just emit a diagram" — it specifies which facets must be
 // expressed as nodes (typically entity-shaped facets like
 // FacetActor / FacetComponent) vs edges (typically relation-shaped
-// facets like FacetCallEdge / FacetDataflow).
+// facets like FacetCallEdge / FacetDataflow), and which TYPED
+// relation kinds those edges must carry (Phase 3-C4).
 //
 // Validators read NodeFacets / EdgeFacets to enforce that
 // (a) the diagram block exists when Required=true, (b) every NodeFacet
 // is represented as a Mermaid node, (c) every EdgeFacet is
 // represented as a Mermaid edge connecting the right pair of nodes.
+//
+// EdgeRelations adds a per-relation-kind expectation: for each
+// contract entry (Kind, Min, ClaimForm), the validator confirms the
+// diagram body has at least Min labelled edges resolving to Kind via
+// InferRelationFromLabel — and (Phase 3-C5) that each such edge is
+// supported by a claim_use whose ClaimForm matches and whose
+// FromNode/ToNode anchor the edge endpoints. Min=0 entries make the
+// relation expected-when-present rather than required.
 type DiagramFacetGraph struct {
-	Required   bool
-	Kind       DiagramKind // flow / sequence / architecture / call_dag
-	NodeFacets []string    // FacetIDs that must appear as diagram nodes
-	EdgeFacets []string    // FacetIDs that must appear as diagram edges
+	Required      bool
+	Kind          DiagramKind                   // flow / sequence / architecture / call_dag
+	NodeFacets    []string                      // FacetIDs that must appear as diagram nodes
+	EdgeFacets    []string                      // FacetIDs that must appear as diagram edges
+	EdgeRelations []DiagramEdgeRelationContract // typed relations the family expects on edges
+}
+
+// DiagramEdgeRelationContract names a single (relation, min count,
+// expected claim_form) tuple this diagram must satisfy. Compiled
+// once by the family's compile_<family>.go and read by Phase 3-C5
+// validateDiagramEdgeSupport. ClaimForm == ClaimUnknown means the
+// relation is recognised but has no edge-level claim_form (e.g.
+// DiagramRelContain whose support lives at block-level facets).
+type DiagramEdgeRelationContract struct {
+	Kind      DiagramRelationKind
+	Min       int
+	ClaimForm ClaimForm
 }
 
 // UncertaintyRule names a trigger condition + expected block + LLM-

@@ -42,7 +42,7 @@ func optionalCaveatBlock(rationale string, facetIDs ...string) BlockRequirement 
 // Maps the ClaimForm pool through to AcceptableClaimForms only when
 // downstream B4 validators need to fence which forms are legal for
 // node vs edge claim_uses.
-func diagramPlanFor(plan *AnswerSurfacePlan, kind DiagramKind, nodeFacets []string, edgeFacets []string) *DiagramFacetGraph {
+func diagramPlanFor(plan *AnswerSurfacePlan, kind DiagramKind, nodeFacets []string, edgeFacets []string, edgeRelations []DiagramEdgeRelationContract) *DiagramFacetGraph {
 	if plan == nil || plan.Diagram == nil {
 		return nil
 	}
@@ -55,11 +55,48 @@ func diagramPlanFor(plan *AnswerSurfacePlan, kind DiagramKind, nodeFacets []stri
 		resolvedKind = contract.PreferredKinds[0]
 	}
 	return &DiagramFacetGraph{
-		Required:   contract.Required,
-		Kind:       resolvedKind,
-		NodeFacets: nodeFacets,
-		EdgeFacets: edgeFacets,
+		Required:      contract.Required,
+		Kind:          resolvedKind,
+		NodeFacets:    nodeFacets,
+		EdgeFacets:    edgeFacets,
+		EdgeRelations: append([]DiagramEdgeRelationContract(nil), edgeRelations...),
 	}
+}
+
+// DefaultEdgeRelationsForKind returns the canonical typed relation
+// contract for the SST diagram-kind mapping. Families that do not
+// need a specialised contract should pass the result of this helper
+// to diagramPlanFor; families with extra typed expectations should
+// extend the returned slice rather than build from scratch.
+//
+// Mapping (Phase 3-C4 §6.2.4):
+//   - DiagramFlow         → guard (Min:1, ClaimGuardCondition)
+//   - DiagramSequence     → call  (Min:1, ClaimCallEdge)
+//   - DiagramCallDAG      → call  (Min:1, ClaimCallEdge)
+//   - DiagramArchitecture → contain (Min:0, ClaimUnknown — block-level)
+//   - DiagramNone         → nil
+//
+// The function returns a fresh slice so callers may safely append.
+func DefaultEdgeRelationsForKind(kind DiagramKind) []DiagramEdgeRelationContract {
+	switch kind {
+	case DiagramFlow:
+		return []DiagramEdgeRelationContract{
+			{Kind: DiagramRelGuard, Min: 1, ClaimForm: ClaimGuardCondition},
+		}
+	case DiagramSequence:
+		return []DiagramEdgeRelationContract{
+			{Kind: DiagramRelCall, Min: 1, ClaimForm: ClaimCallEdge},
+		}
+	case DiagramCallDAG:
+		return []DiagramEdgeRelationContract{
+			{Kind: DiagramRelCall, Min: 1, ClaimForm: ClaimCallEdge},
+		}
+	case DiagramArchitecture:
+		return []DiagramEdgeRelationContract{
+			{Kind: DiagramRelContain, Min: 0, ClaimForm: ClaimUnknown},
+		}
+	}
+	return nil
 }
 
 // uncertaintyRuleForObservedArtifact returns the canonical "log /
