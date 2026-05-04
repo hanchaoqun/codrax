@@ -545,7 +545,12 @@ SUMMARY="$OUTDIR/summary.md"
   echo
   echo "| metric | $(seq 1 "$N" | sed 's|^|run |' | tr '\n' '|' | sed 's/|$//') | median |"
   echo "|--------|$(printf '%.0s---|' $(seq 1 "$N"))------|"
-  metric_keys="tool_read_file concrete_values synthesis_runs function_boundary_push enumeration_push focus_warning t11_gate_skip t11_gate_run dataflow_intent_lookup dataflow_intent_propagate midloop_inject answer_chain_lines"
+  # B6-F5 added per-agent LLM-turn counters (analyzer / explorer /
+  # extractor / finalizer iters). R5.1 (post_shape_residual_audit
+  # 2026-05-04): write_metrics writes them to run-N.metrics.txt;
+  # aggregate them into the summary table so they show up next to
+  # the legacy 12 mechanism counters with median.
+  metric_keys="tool_read_file concrete_values synthesis_runs function_boundary_push enumeration_push focus_warning t11_gate_skip t11_gate_run dataflow_intent_lookup dataflow_intent_propagate midloop_inject answer_chain_lines analyzer_iters explorer_iters extractor_iters finalizer_iters"
   for key in $metric_keys; do
     row="| $key |"
     vals=()

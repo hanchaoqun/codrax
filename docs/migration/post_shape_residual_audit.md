@@ -115,7 +115,7 @@
 | R4.2 | ⬜ pending(等 F7-A) | — | — |
 | R4.3 | ⬜ pending | — | — |
 | R4.4 | ⬜ pending(等 R3.1) | — | — |
-| R5.1 | ⬜ pending | — | — |
+| R5.1 | 🟢 SHIPPED summary 4 列 | TBD | smoke 通过 (s1a 历史数据) |
 | R5.2 | ⬜ pending | — | — |
 
 实际开发时每条修完更新这个表。
