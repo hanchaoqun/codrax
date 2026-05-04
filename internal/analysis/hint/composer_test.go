@@ -282,6 +282,13 @@ var composerExactFixSkipWhitelist = map[types.ViolationKind]string{
 	// drifting edges and the section to consult, so the generic
 	// composer fallback pairs with that actionable Detail.
 	types.ViolDiagramEdgeLabelMismatch: "uses violation.Repair for fix prose",
+	// G5 (post_v2_runtime_gap_remediation, 2026-05-04) — semantic
+	// quality reviewer thinness signal. Reviewer-side Concerns are
+	// surfaced verbatim via Violation.Repair (built by
+	// runSemanticQualityReview in orchestrator/contract_check.go);
+	// the generic composer fallback pairs with that actionable
+	// Detail.
+	types.ViolAnswerSemanticUnderfilled: "uses violation.Repair for fix prose",
 }
 
 // TestComposer_AllViolationKindsHaveCase enforces P34's

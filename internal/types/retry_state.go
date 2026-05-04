@@ -420,6 +420,18 @@ func DeriveSeverity(kind ViolationKind, isStrict bool) Severity {
 		ViolDiagramEdgeLabelMismatch:
 		return SeveritySoft
 	}
+	// G5 (post_v2_runtime_gap_remediation, 2026-05-04) — semantic
+	// quality reviewer signal. SOFT-by-default; isStrict promotes
+	// to Medium so an operator who configures
+	// pipeline_contract_strict_kinds can lift it into the retry
+	// loop. Never reaches Critical (the reviewer's confidence is
+	// load-bearing but not infallible).
+	if kind == ViolAnswerSemanticUnderfilled {
+		if isStrict {
+			return SeverityMedium
+		}
+		return SeveritySoft
+	}
 	// Unknown kinds default to Medium — safer than Soft (won't
 	// silently drop) but not Critical (won't unexpectedly fail-loud).
 	return SeverityMedium

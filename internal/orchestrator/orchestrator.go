@@ -213,6 +213,15 @@ type Orchestrator struct {
 	// when pipeline_self_consistency_review_enabled=true.
 	selfConsistencyReviewer SelfConsistencyReviewer
 
+	// semanticQualityReviewer (G5 post_v2_runtime_gap_remediation,
+	// 2026-05-04) is the second-layer reviewer that catches "answer
+	// ships clean but thin" — promoted facets uncovered, diagram
+	// edge minimums short, richness candidates with available
+	// evidence not surfaced. Independent from
+	// selfConsistencyReviewer so each can be tuned (confidence
+	// floor, prompt scope) independently. Nil = disabled.
+	semanticQualityReviewer SemanticQualityReviewer
+
 	// selfConsistencyRewriteOnContradiction (commit 62 yaml gate)
 	// controls whether ViolSelfContradiction is treated as STRICT
 	// (default true this phase: triggers retry / rewrite) or
@@ -881,6 +890,17 @@ func (o *Orchestrator) SetAnswerReviewer(r AnswerReviewer) {
 		return
 	}
 	o.answerReviewer = r
+}
+
+// SetSemanticQualityReviewer wires the G5 second-layer reviewer
+// (post_v2_runtime_gap_remediation, 2026-05-04). Nil disables the
+// dispatch surface entirely; runContractCheck skips the review when
+// the field is nil.
+func (o *Orchestrator) SetSemanticQualityReviewer(r SemanticQualityReviewer) {
+	if o == nil {
+		return
+	}
+	o.semanticQualityReviewer = r
 }
 
 // SetSelfConsistencyReviewer wires the commit-62 prose-coherence

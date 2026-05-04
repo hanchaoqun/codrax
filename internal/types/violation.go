@@ -397,6 +397,15 @@ const (
 	// 2026-05-04).
 	ViolDiagramEdgeLabelMismatch ViolationKind = "diagram_edge_label_mismatch"
 
+	// ViolAnswerSemanticUnderfilled fires when the SemanticQualityReviewer
+	// (G5 post_v2_runtime_gap_remediation, 2026-05-04) judges the
+	// answer thin — promoted facets uncovered, diagram edge minimums
+	// short, or richness candidates with available typed evidence
+	// not surfaced. SOFT-by-default; operators may promote to STRICT
+	// via pipeline_contract_strict_kinds when their pipeline
+	// guarantees richer answers. Stage="finalize".
+	ViolAnswerSemanticUnderfilled ViolationKind = "answer_semantic_underfilled"
+
 	// ViolUncertaintyBlockMissing fires when an UncertaintyRule's
 	// trigger fired (e.g. FacetObservedArtifactFact present in
 	// FacetCoverage.Required) but no matching BlockCaveat exists
@@ -614,6 +623,9 @@ func AllViolationKinds() []ViolationKind {
 		ViolDiagramEdgeUnsupported,
 		ViolDiagramEdgeLabelMismatch,
 		ViolUncertaintyBlockMissing,
+		// G5 (post_v2_runtime_gap_remediation, 2026-05-04) — semantic-
+		// quality reviewer thinness signal.
+		ViolAnswerSemanticUnderfilled,
 	}
 }
 

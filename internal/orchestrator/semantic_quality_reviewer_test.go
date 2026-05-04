@@ -207,6 +207,42 @@ func TestBuildSemanticQualityInput_NilGuards(t *testing.T) {
 	}
 }
 
+// G5-2: shouldReviewSemanticQuality gate.
+func TestShouldReviewSemanticQuality_GateSemantics(t *testing.T) {
+	body := []types.AnswerBlock{
+		{ID: "s1", Kind: types.BlockSummary, Text: "summary"},
+		{ID: "b1", Kind: types.BlockOrderedList, Items: []types.AnswerBlockItem{{ID: "i1", Label: "x"}}},
+	}
+	docFull := &types.AnswerDocumentV2{Blocks: body}
+
+	// Single-block summary-only — skip.
+	docSummaryOnly := &types.AnswerDocumentV2{Blocks: body[:1]}
+	if shouldReviewSemanticQuality(docSummaryOnly, nil) {
+		t.Error("single-block doc should skip reviewer")
+	}
+
+	// Body present + no hard violations → review.
+	if !shouldReviewSemanticQuality(docFull, nil) {
+		t.Error("body present + no hard violations → reviewer should fire")
+	}
+
+	// Hard violation present → skip.
+	hardViolations := []types.Violation{
+		{Kind: types.ViolFacetUncovered, Detail: "x"},
+	}
+	if shouldReviewSemanticQuality(docFull, hardViolations) {
+		t.Error("hard violation present → reviewer should skip")
+	}
+
+	// SOFT violation present → review still fires.
+	softViolations := []types.Violation{
+		{Kind: types.ViolRichnessRegression, Detail: "x"},
+	}
+	if !shouldReviewSemanticQuality(docFull, softViolations) {
+		t.Error("only SOFT violations → reviewer should fire")
+	}
+}
+
 // R4 lock — reviewer prompts + retry hint surface must NOT contain
 // stage codenames or Go type names.
 func TestSemanticQualityReviewer_Prompts_NoLLMFacingJargon(t *testing.T) {

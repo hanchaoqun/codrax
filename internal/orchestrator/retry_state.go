@@ -150,6 +150,11 @@ func inferViolationLayer(kind types.ViolationKind) string {
 	case types.ViolSelfContradiction:
 		return "self_consistency"
 
+	// G5 (post_v2_runtime_gap_remediation, 2026-05-04) — second-layer
+	// reviewer for thinness / coverage gaps.
+	case types.ViolAnswerSemanticUnderfilled:
+		return "semantic_quality"
+
 	// External artifact decoded check.
 	case types.ViolExternalArtifactUnderdecoded:
 		return "external_artifact"

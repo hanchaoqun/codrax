@@ -191,6 +191,19 @@ func runContractCheck(out *agent.StageOutput, c types.AnswerContract, mut *types
 		}
 	}
 
+	// G5 (post_v2_runtime_gap_remediation, 2026-05-04) — semantic
+	// quality reviewer. Wired AFTER self-consistency so the reviewer
+	// only sees answers that already passed prose-coherence; gated on
+	// hard-facet-violation absence so we don't double-noise on
+	// already-failing answers.
+	if o != nil && o.semanticQualityReviewer != nil && mut != nil {
+		if docV2 := mut.AnswerDocumentV2(); docV2 != nil &&
+			shouldReviewSemanticQuality(docV2, result.Violations) {
+			result.Violations = append(result.Violations,
+				o.runSemanticQualityReview(docV2, mut)...)
+		}
+	}
+
 	// Session 11 F1 ViolationLedger — mirror every violation into the
 	// per-Run EvidenceClosure so the F2 aggregator and F4 HintComposer
 	// can consume them the same way they consume enforcer-emitted
@@ -1214,6 +1227,13 @@ func defaultSoftKinds() map[types.ViolationKind]bool {
 		// promotion at the gate level; the validator emits SOFT
 		// regardless.
 		types.ViolDiagramEdgeLabelMismatch: true,
+		// G5 (post_v2_runtime_gap_remediation, 2026-05-04) — semantic
+		// quality reviewer signal. SOFT-by-default;
+		// pipeline_contract_strict_kinds CAN promote (unlike
+		// DiagramEdgeLabelMismatch — reviewer LLM is more reliable
+		// than label substring inference) so operators who want a
+		// stricter answer floor can lift it into the retry loop.
+		types.ViolAnswerSemanticUnderfilled: true,
 	}
 }
 
@@ -1803,4 +1823,105 @@ func formatViolationsForLogger(res contract.Result) string {
 	b.WriteString("· answer-contract validation exhausted: ")
 	b.WriteString(renderViolations(res))
 	return b.String()
+}
+
+// shouldReviewSemanticQuality gates the G5 reviewer dispatch
+// (post_v2_runtime_gap_remediation, 2026-05-04). Skips when:
+//   - any HARD violation already present (we'd double-noise the
+//     answer that's already failing other gates)
+//   - the doc has no body to evaluate (single-block summary-only)
+//
+// Returns true to invoke the reviewer.
+func shouldReviewSemanticQuality(doc *types.AnswerDocumentV2, existing []types.Violation) bool {
+	if doc == nil || len(doc.Blocks) < 2 {
+		// No body — reviewer has nothing to judge.
+		return false
+	}
+	// Hard violations present — defer reviewer to a clean run.
+	for _, v := range existing {
+		switch v.Kind {
+		case types.ViolBlockCoverageMissing,
+			types.ViolPrincipalClaimUseMissing,
+			types.ViolFacetUncovered,
+			types.ViolDiagramEdgeUnsupported,
+			types.ViolFamilyMismatch,
+			types.ViolViewIntentMismatch,
+			types.ViolViewSwap:
+			return false
+		}
+	}
+	return true
+}
+
+// runSemanticQualityReview dispatches the G5 reviewer LLM and
+// converts its verdict into types.Violation entries
+// (ViolAnswerSemanticUnderfilled, SOFT-by-default).
+//
+// Mirrors runSelfConsistencyReviewV2 control flow — reviewer error /
+// nil verdict / sub-floor confidence are non-fatal (answer ships,
+// learning failure recorded, no violations returned).
+func (o *Orchestrator) runSemanticQualityReview(doc *types.AnswerDocumentV2, mut *types.MutableState) []types.Violation {
+	if o == nil || o.semanticQualityReviewer == nil || doc == nil || mut == nil {
+		return nil
+	}
+	floor := SemanticQualityMinConfidenceDefault
+
+	// Project the typed orchestrator state into the reviewer input.
+	view := types.BuildAnswerSemanticViewForBusContext(o.busCtx)
+	summaryText := ""
+	for _, blk := range doc.Blocks {
+		if blk.Kind == types.BlockSummary {
+			summaryText += blk.Text
+		}
+	}
+	in := BuildSemanticQualityInput(
+		mut.Objective(),
+		render.StripAuthorityArtifacts(summaryText),
+		render.StripAuthorityArtifacts(renderConsistencyReviewBodyV2(doc)),
+		doc, view,
+		BuildEvidenceAnchorSet(mut.EmittedEvidence()),
+	)
+
+	ctx := o.busCtx.Ctx
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	verdict, err := o.semanticQualityReviewer.Review(ctx, in)
+	if err != nil {
+		mut.AppendLearningFailure("semantic_quality_reviewer", err.Error())
+		logging.Warning("[semantic_quality_reviewer] dispatch failed (non-fatal): %v", err)
+		return nil
+	}
+	if verdict == nil || verdict.Sufficient || verdict.Confidence < floor {
+		if verdict != nil {
+			logging.Info("[semantic_quality_reviewer] verdict sufficient=%v confidence=%.2f (floor=%.2f) reasoning=%q",
+				verdict.Sufficient, verdict.Confidence, floor, verdict.Reasoning)
+		}
+		return nil
+	}
+
+	out := make([]types.Violation, 0, len(verdict.Concerns))
+	reasoning := clampReasoningForRepair(verdict.Reasoning)
+	for i, c := range verdict.Concerns {
+		repair := fmt.Sprintf("[%d/%d] expand the answer to address %q. %s",
+			i+1, len(verdict.Concerns), c.Topic, c.Suggestion)
+		if reasoning != "" {
+			repair += fmt.Sprintf(" Reviewer rationale: %s", reasoning)
+		}
+		out = append(out, types.Violation{
+			Kind: types.ViolAnswerSemanticUnderfilled,
+			Detail: fmt.Sprintf("answer_underfilled[%s] — observation: %s",
+				c.Topic, c.Observation),
+			Repair: repair,
+			SuspectedRoot: types.SuspectedRoot{
+				IRField:    "answer_semantic_quality",
+				Reason:     "reviewer detected coverage / richness thinness",
+				Confidence: verdict.Confidence,
+			},
+			Stage: string(types.StageFinalize),
+		})
+	}
+	logging.Info("[semantic_quality_reviewer] emitted %d concern(s) at confidence=%.2f reasoning=%q",
+		len(verdict.Concerns), verdict.Confidence, verdict.Reasoning)
+	return out
 }

@@ -250,6 +250,10 @@ func TestAllViolationKindsHaveProducer(t *testing.T) {
 		ViolForcedReadStorm: true, // orchestrator/orchestrator.go emitCGECStormViolations
 		// G3 (post_v2_runtime_gap_remediation, 2026-05-04).
 		ViolDiagramEdgeLabelMismatch: true, // orchestrator/contract_check_block.go validateDiagramRelationLegality
+		// G5 (post_v2_runtime_gap_remediation, 2026-05-04) — semantic
+		// quality reviewer thinness signal. Producer wired in
+		// orchestrator/contract_check.go runSemanticQualityReview (G5-2).
+		ViolAnswerSemanticUnderfilled: true,
 	}
 	pending := map[ViolationKind]string{
 		ViolFamilyMismatch:                          "P9-C-retired-V1-checkShape (V2 block oracles cover read-mode block contract via runV2BlockOracles)",
@@ -308,8 +312,9 @@ func TestAllViolationKindsHaveProducer(t *testing.T) {
 		ViolBlockCoverageMissing:     "ViolBlockCoverageMissing",
 		ViolPrincipalClaimUseMissing: "ViolPrincipalClaimUseMissing",
 		ViolDiagramEdgeUnsupported:   "ViolDiagramEdgeUnsupported",
-		ViolDiagramEdgeLabelMismatch: "ViolDiagramEdgeLabelMismatch",
-		ViolUncertaintyBlockMissing:  "ViolUncertaintyBlockMissing",
+		ViolDiagramEdgeLabelMismatch:  "ViolDiagramEdgeLabelMismatch",
+		ViolAnswerSemanticUnderfilled: "ViolAnswerSemanticUnderfilled",
+		ViolUncertaintyBlockMissing:   "ViolUncertaintyBlockMissing",
 		// B6-F1 (post-shape consolidated audit, 2026-05-04).
 		ViolCrossCitationConflict: "ViolCrossCitationConflict",
 	}
