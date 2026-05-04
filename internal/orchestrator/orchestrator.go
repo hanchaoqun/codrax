@@ -3745,6 +3745,17 @@ func (o *Orchestrator) runReadSchedulerLoop(stepBudget int) int {
 			o.emitNodeEnd(fin.ID, true, "")
 			goto contractFailureBreak
 		case FallbackFinalizerOnly:
+			// R14-c3: populate typed retry-state BEFORE state reset
+			// so the next dispatch's BuildInitialInstruction sees the
+			// prev emit + active violations. Reset clears AnswerDocV2,
+			// so this MUST happen first.
+			if o.busCtx != nil && o.busCtx.Mutable != nil {
+				prevAttempt := 0
+				if rs := o.busCtx.Mutable.RetryState(); rs != nil {
+					prevAttempt = rs.Attempt
+				}
+				populateRetryState(o.busCtx.Mutable, res, prevAttempt)
+			}
 			state.requeue(fin.ID)
 			if o.busCtx != nil && o.busCtx.Mutable != nil {
 				o.busCtx.Mutable.ResetForFallback(types.FallbackResetTargetFinalizer)
@@ -3754,6 +3765,14 @@ func (o *Orchestrator) runReadSchedulerLoop(stepBudget int) int {
 			// preserved). The skip lives at line ~3406.
 			lastFallbackFinalizerOnly = true
 		case FallbackBackToExtract:
+			// R14-c3: populate retry-state BEFORE Mutable reset.
+			if o.busCtx != nil && o.busCtx.Mutable != nil {
+				prevAttempt := 0
+				if rs := o.busCtx.Mutable.RetryState(); rs != nil {
+					prevAttempt = rs.Attempt
+				}
+				populateRetryState(o.busCtx.Mutable, res, prevAttempt)
+			}
 			// Read-mode TaskGraph has no NodeExtract today (extract
 			// is implicit in the explore pass); selective requeue
 			// reduces to FinalizerOnly + extractor state reset.
@@ -3766,6 +3785,14 @@ func (o *Orchestrator) runReadSchedulerLoop(stepBudget int) int {
 			// iteration's pre-finalize extract dispatch is correct.
 			lastFallbackFinalizerOnly = false
 		case FallbackBackToExplore:
+			// R14-c3: populate retry-state BEFORE Mutable reset.
+			if o.busCtx != nil && o.busCtx.Mutable != nil {
+				prevAttempt := 0
+				if rs := o.busCtx.Mutable.RetryState(); rs != nil {
+					prevAttempt = rs.Attempt
+				}
+				populateRetryState(o.busCtx.Mutable, res, prevAttempt)
+			}
 			requeued := state.requeueToStage(types.StageExplore, false)
 			state.requeue(fin.ID)
 			if o.busCtx != nil && o.busCtx.Mutable != nil {
