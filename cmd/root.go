@@ -2359,6 +2359,10 @@ func initApp(cmd *cobra.Command, _ []string) error {
 	toolRegistry.Register(&tool.EmitAnswerSymbol{})
 	toolRegistry.Register(&tool.EmitHypothesisVerdict{})
 	toolRegistry.Register(&tool.EmitAnswerDocument{})
+	// Protocol-level retry preservation. Registered alongside
+	// emit_answer_document so the LLM can choose patch vs full
+	// re-emit on retry paths.
+	toolRegistry.Register(&tool.EmitAnswerDocumentPatch{})
 	toolRegistry.Register(&tool.EmitLogTriage{})
 	toolRegistry.Register(&tool.EmitLogSegmentation{})
 	toolRegistry.Register(&tool.EmitPerfTrace{})

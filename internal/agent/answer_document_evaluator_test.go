@@ -2699,10 +2699,19 @@ func TestAnswerDocumentSkill_DeclaresEmitTool(t *testing.T) {
 	}
 	// Sanity checks: the skill must NOT accidentally declare the
 	// legacy finalize skills' tools (todo_write etc.) which would
-	// reintroduce the prose-writing pathway.
-	if len(sk.ToolSuggestions) != 1 {
-		t.Errorf("answer-document-skill should only declare emit_answer_document, got %v",
-			sk.ToolSuggestions)
+	// reintroduce the prose-writing pathway. The expanded set is
+	// {emit_answer_document, emit_answer_document_patch} — patch
+	// is the protocol-level retry preservation tool used on retry
+	// paths only.
+	allowed := map[string]bool{
+		"emit_answer_document":       true,
+		"emit_answer_document_patch": true,
+	}
+	for _, name := range sk.ToolSuggestions {
+		if !allowed[name] {
+			t.Errorf("answer-document-skill ToolSuggestions has unexpected entry %q (allowed: %v)",
+				name, allowed)
+		}
 	}
 }
 

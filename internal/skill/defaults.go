@@ -137,8 +137,18 @@ Keep any prose brief and operational; save the final user-facing answer for late
 		},
 		ToolSuggestions: []string{
 			"emit_answer_document",
+			// Protocol-level retry preservation. LLM picks
+			// emit_answer_document_patch on retry paths when only a
+			// few blocks need editing — system structurally preserves
+			// every typed annotation field on unchanged blocks.
+			"emit_answer_document_patch",
 		},
-		OutputFormat: `You have NO file-reading tools — no read_file, grep, or repo_map. You are a pure synthesizer working from prior stages' evidence. Your contribution is ONE emit_answer_document tool call per dispatch — the deterministic renderer turns the struct into user-visible prose. Do NOT write tool-call JSON in your text — use the function-calling mechanism only.
+		OutputFormat: `You have NO file-reading tools — no read_file, grep, or repo_map. You are a pure synthesizer working from prior stages' evidence. Your contribution is ONE emit_answer_document (or emit_answer_document_patch on retry paths) tool call per dispatch — the deterministic renderer turns the struct into user-visible prose. Do NOT write tool-call JSON in your text — use the function-calling mechanism only.
+
+## Tool choice
+
+- **First dispatch / no prior emit**: call ` + "`emit_answer_document`" + ` with the FULL document.
+- **Retry path** (you see ` + "`## Hard Rule (retry attempt N)`" + ` and ` + "`## Previous Emit`" + ` sections in this prompt): PREFER ` + "`emit_answer_document_patch`" + ` when only a few blocks need editing. Pass ` + "`unchanged_block_ids: [\"id1\", \"id2\", ...]`" + ` to assert preservation of every typed annotation field (claim_use, facet_ids, surface_role, items[].claim_use) on blocks you do NOT need to edit — the system clones them byte-identical from your previous emit, so you cannot accidentally drop a field. Use ` + "`replace_blocks`" + ` for the blocks you DO need to fix; use ` + "`add_blocks`" + ` for new blocks. The patch tool rejects if you cite an unknown id, conflict ops, or emit an empty patch.
 
 ## Block contract
 
