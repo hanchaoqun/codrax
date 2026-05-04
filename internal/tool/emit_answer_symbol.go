@@ -179,6 +179,7 @@ func (t *EmitAnswerSymbol) Execute(ctx *types.BusContext, params json.RawMessage
 	dec.DisallowUnknownFields()
 	var p emitAnswerSymbolParams
 	if err := dec.Decode(&p); err != nil {
+		err = RemapStrictDecodeError(err, nil)
 		return failEmit(t.Name(), now, "invalid params: %v", err)
 	}
 

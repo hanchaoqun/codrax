@@ -91,6 +91,7 @@ func (t *EmitPlanChange) Execute(ctx *types.BusContext, params json.RawMessage) 
 	dec.DisallowUnknownFields()
 	var p emitPlanChangeParams
 	if err := dec.Decode(&p); err != nil {
+		err = RemapStrictDecodeError(err, nil)
 		return types.ToolResult{
 			ToolName:  t.Name(),
 			Success:   false,

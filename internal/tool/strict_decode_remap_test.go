@@ -113,3 +113,74 @@ func TestExtractUnknownFieldName_NilReturnsEmpty(t *testing.T) {
 		t.Errorf("nil err must yield empty; got %q", got)
 	}
 }
+
+// ── R4 紧急修 (m1a-20260504-141035 forensic) — 错误信息 sanitize ──
+
+// TestRemapStrictDecodeError_CannotUnmarshalStringRewritten pins
+// the streaming-artefact rewrite: LLM emits blocks[] as a JSON-
+// encoded string ("[{...},{...}]") instead of a real array; Go
+// strict-decode rejects with `cannot unmarshal string into Go
+// struct field ...blocks of type ...`. The remap MUST surface
+// LLM-actionable guidance + strip Go type names (R4).
+func TestRemapStrictDecodeError_CannotUnmarshalStringRewritten(t *testing.T) {
+	original := errors.New(
+		`json: cannot unmarshal string into Go struct field emitAnswerDocumentV2Params.blocks of type []tool.emitAnswerBlockV2`)
+	got := RemapStrictDecodeError(original, nil)
+	if got == original {
+		t.Fatal("cannot-unmarshal-string MUST be rewritten")
+	}
+	msg := got.Error()
+	for _, want := range []string{
+		`"blocks" field`,
+		"native JSON array",
+		"not a JSON-encoded string",
+	} {
+		if !strings.Contains(msg, want) {
+			t.Errorf("rewritten message missing %q; got: %s", want, msg)
+		}
+	}
+	// R4: Go-internal type names MUST NOT leak.
+	for _, banned := range []string{
+		"emitAnswerDocumentV2Params",
+		"tool.emitAnswerBlockV2",
+		"Go struct field",
+	} {
+		if strings.Contains(msg, banned) {
+			t.Errorf("R4 leak — Go-internal token %q present in LLM-facing message: %s", banned, msg)
+		}
+	}
+}
+
+// TestRemapStrictDecodeError_SanitizeStripsGoTypeNames pins the
+// fall-through path: even when no hint matches and no pattern
+// rewrites, R4 sanitization MUST strip Go type names.
+func TestRemapStrictDecodeError_SanitizeStripsGoTypeNames(t *testing.T) {
+	// Generic Go decode error that doesn't match unknown-field or
+	// cannot-unmarshal-string patterns — sanitize fallback applies.
+	original := errors.New(
+		`some custom error mentioning emitAnswerDocumentV2Params and tool.emitAnswerBlockV2 in prose`)
+	got := RemapStrictDecodeError(original, nil)
+	msg := got.Error()
+	for _, banned := range []string{
+		"emitAnswerDocumentV2Params",
+		"tool.emitAnswerBlockV2",
+	} {
+		if strings.Contains(msg, banned) {
+			t.Errorf("R4 leak — Go-internal token %q present after sanitize: %s", banned, msg)
+		}
+	}
+	if !strings.Contains(msg, "the schema's internal payload type") {
+		t.Errorf("sanitize MUST replace Go names with neutral marker; got %s", msg)
+	}
+}
+
+// TestRemapStrictDecodeError_CleanErrorPassesThrough pins the
+// no-op path: an error with no Go type names and no rewrite
+// pattern returns unchanged.
+func TestRemapStrictDecodeError_CleanErrorPassesThrough(t *testing.T) {
+	original := errors.New("plain LLM-friendly error")
+	got := RemapStrictDecodeError(original, nil)
+	if got != original {
+		t.Errorf("clean err MUST return verbatim; got %v", got)
+	}
+}

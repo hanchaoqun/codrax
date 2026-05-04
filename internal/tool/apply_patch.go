@@ -106,7 +106,9 @@ func (t *ApplyPatch) Execute(ctx *types.BusContext, params json.RawMessage) (typ
 	dec := json.NewDecoder(strings.NewReader(string(params)))
 	dec.DisallowUnknownFields()
 	var p applyPatchParams
-	if err := dec.Decode(&p); err != nil {
+	err := dec.Decode(&p)
+	if err != nil {
+		err = RemapStrictDecodeError(err, nil)
 		return errResult(t.Name(), fmt.Sprintf("invalid params: %v", err)), err
 	}
 

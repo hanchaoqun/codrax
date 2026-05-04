@@ -146,6 +146,9 @@ func (t *EmitAnswerDocumentPatch) Execute(ctx *types.BusContext, params json.Raw
 	dec.DisallowUnknownFields()
 	var p emitAnswerDocumentPatchParams
 	if err := dec.Decode(&p); err != nil {
+		// Reuse the V2 emit's misplaced-field hint table (same
+		// schema for blocks); R4 sanitization always applies.
+		err = RemapStrictDecodeError(err, answerDocumentV2MisplacedHints)
 		return failEmit(t.Name(), now, "invalid params: %v", err)
 	}
 

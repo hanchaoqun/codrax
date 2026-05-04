@@ -128,6 +128,7 @@ func (t *EmitPerfTrace) Execute(ctx *types.BusContext, params json.RawMessage) (
 	dec := json.NewDecoder(strings.NewReader(string(params)))
 	dec.DisallowUnknownFields()
 	if err := dec.Decode(&p); err != nil {
+		err = RemapStrictDecodeError(err, nil)
 		return types.ToolResult{
 			ToolName:  t.Name(),
 			Success:   false,

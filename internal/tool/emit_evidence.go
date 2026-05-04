@@ -452,6 +452,7 @@ func (t *EmitEvidence) Execute(ctx *types.BusContext, params json.RawMessage) (t
 	dec.DisallowUnknownFields()
 	var p emitEvidenceParams
 	if err := dec.Decode(&p); err != nil {
+		err = RemapStrictDecodeError(err, nil)
 		return failEmit(t.Name(), now, "invalid params: %v", err)
 	}
 	if len(p.Items) == 0 {

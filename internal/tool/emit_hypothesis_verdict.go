@@ -115,6 +115,7 @@ func (t *EmitHypothesisVerdict) Execute(ctx *types.BusContext, params json.RawMe
 	dec.DisallowUnknownFields()
 	var p emitHypothesisVerdictParams
 	if err := dec.Decode(&p); err != nil {
+		err = RemapStrictDecodeError(err, nil)
 		return failEmit(t.Name(), now, "invalid params: %v", err)
 	}
 	if len(p.Items) == 0 {

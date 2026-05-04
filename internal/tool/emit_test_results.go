@@ -113,6 +113,7 @@ func (t *EmitTestResults) Execute(ctx *types.BusContext, params json.RawMessage)
 	dec.DisallowUnknownFields()
 	var p emitTestResultsParams
 	if err := dec.Decode(&p); err != nil {
+		err = RemapStrictDecodeError(err, nil)
 		return errResult(t.Name(), fmt.Sprintf("invalid params: %v", err)), err
 	}
 	// Schema-level required-key enforcement. JSON unmarshal accepts
