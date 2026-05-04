@@ -857,6 +857,10 @@ func renderRetryPrevEmit(rs *types.RetryState) string {
 			fmt.Fprintf(&out, "  items: %d total, %d with claim_use, %d with citation\n",
 				bs.ItemCount, bs.ItemsWithClaimUse, bs.ItemsWithCitation)
 		}
+		if bs.EdgeAnchoredClaimUses > 0 {
+			fmt.Fprintf(&out, "  edge_anchored_claim_uses: %d (claim_uses carrying from_node/to_node — preserve these on retry)\n",
+				bs.EdgeAnchoredClaimUses)
+		}
 		if bs.TextPreview != "" {
 			// Indent preview for readability.
 			preview := strings.ReplaceAll(strings.TrimSpace(bs.TextPreview), "\n", " ")

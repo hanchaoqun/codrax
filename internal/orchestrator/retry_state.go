@@ -319,11 +319,19 @@ func summarizeAnswerDocV2ForRetry(doc *types.AnswerDocumentV2) types.RetryStateS
 					break
 				}
 			}
+			for i := range b.ClaimUses {
+				if b.ClaimUses[i].HasEdgeAnchor() {
+					bs.EdgeAnchoredClaimUses++
+				}
+			}
 		}
 		// Item-level claim_use / citation count (R6.1 sibling layer).
 		for _, it := range b.Items {
 			if it.ClaimUse != nil && !it.ClaimUse.IsEmpty() {
 				bs.ItemsWithClaimUse++
+				if it.ClaimUse.HasEdgeAnchor() {
+					bs.EdgeAnchoredClaimUses++
+				}
 			}
 			if it.CitationRef >= 0 {
 				bs.ItemsWithCitation++

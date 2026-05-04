@@ -187,6 +187,50 @@ func TestSummarizeAnswerDocV2ForRetry_NilSafe(t *testing.T) {
 	}
 }
 
+// TestSummarizeAnswerDocV2ForRetry_EdgeAnchoredCounted — Phase 3-C3
+// retry summary MUST surface how many claim_uses on each block carry
+// (FromNode, ToNode) so the retry hint can pressure preservation.
+func TestSummarizeAnswerDocV2ForRetry_EdgeAnchoredCounted(t *testing.T) {
+	doc := &types.AnswerDocumentV2{
+		Blocks: []types.AnswerBlock{
+			{
+				ID:          "d1",
+				Kind:        types.BlockDiagram,
+				SurfaceRole: types.SurfaceDiagramOnly,
+				ClaimUses: []types.RenderedClaimUse{
+					{ClaimForm: types.ClaimCallEdge, FromNode: "Auth", ToNode: "Worker"},
+					{ClaimForm: types.ClaimGuardCondition, FromNode: "Worker", ToNode: "DB"},
+					{ClaimForm: types.ClaimDefinitionFact}, // no anchor
+				},
+			},
+			{
+				ID:   "list1",
+				Kind: types.BlockOrderedList,
+				Items: []types.AnswerBlockItem{
+					{ID: "i1", ClaimUse: &types.RenderedClaimUse{
+						ClaimForm: types.ClaimCallEdge, FromNode: "X", ToNode: "Y",
+					}},
+					{ID: "i2", ClaimUse: &types.RenderedClaimUse{
+						ClaimForm: types.ClaimDefinitionFact, // no anchor
+					}},
+				},
+			},
+		},
+	}
+	got := summarizeAnswerDocV2ForRetry(doc)
+	if len(got.BlockSummaries) != 2 {
+		t.Fatalf("want 2 block summaries, got %d", len(got.BlockSummaries))
+	}
+	if got.BlockSummaries[0].EdgeAnchoredClaimUses != 2 {
+		t.Errorf("d1 EdgeAnchoredClaimUses = %d, want 2 (block-level)",
+			got.BlockSummaries[0].EdgeAnchoredClaimUses)
+	}
+	if got.BlockSummaries[1].EdgeAnchoredClaimUses != 1 {
+		t.Errorf("list1 EdgeAnchoredClaimUses = %d, want 1 (item-level)",
+			got.BlockSummaries[1].EdgeAnchoredClaimUses)
+	}
+}
+
 // TestTextHeadTail_TruncatesLargeText covers the head+tail clip.
 func TestTextHeadTail_TruncatesLargeText(t *testing.T) {
 	short := "short text"

@@ -74,11 +74,31 @@ func TestRenderedClaimUse_IsEmpty(t *testing.T) {
 		{EvidenceID: "ev-1"},
 		{ClaimForm: ClaimDefinitionFact},
 		{SurfaceRole: SurfacePrincipal},
+		{FromNode: "Auth"},
+		{ToNode: "Worker"},
 	}
 	for _, c := range cases {
 		if c.IsEmpty() {
 			t.Errorf("non-empty struct reported empty: %+v", c)
 		}
+	}
+}
+
+func TestRenderedClaimUse_HasEdgeAnchor(t *testing.T) {
+	if (*RenderedClaimUse)(nil).HasEdgeAnchor() {
+		t.Error("nil pointer must NOT report HasEdgeAnchor")
+	}
+	if (&RenderedClaimUse{}).HasEdgeAnchor() {
+		t.Error("zero struct must NOT report HasEdgeAnchor")
+	}
+	if (&RenderedClaimUse{FromNode: "A"}).HasEdgeAnchor() {
+		t.Error("only FromNode populated must NOT count — both required")
+	}
+	if (&RenderedClaimUse{ToNode: "B"}).HasEdgeAnchor() {
+		t.Error("only ToNode populated must NOT count — both required")
+	}
+	if !(&RenderedClaimUse{FromNode: "A", ToNode: "B"}).HasEdgeAnchor() {
+		t.Error("both FromNode and ToNode populated MUST report HasEdgeAnchor")
 	}
 }
 
@@ -90,9 +110,12 @@ func TestRenderedClaimUse_FieldShape(t *testing.T) {
 		EvidenceID:  "ev-7",
 		ClaimForm:   ClaimDefinitionFact,
 		SurfaceRole: SurfacePrincipal,
+		FromNode:    "Auth",
+		ToNode:      "Worker",
 	}
 	if c.FacetID == "" || c.EvidenceID == "" ||
-		c.ClaimForm == "" || c.SurfaceRole == "" {
+		c.ClaimForm == "" || c.SurfaceRole == "" ||
+		c.FromNode == "" || c.ToNode == "" {
 		t.Fatal("struct field assignment failed")
 	}
 }

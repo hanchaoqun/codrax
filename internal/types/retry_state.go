@@ -166,6 +166,12 @@ type RetryBlockSummary struct {
 	ItemCount         int             `json:"item_count,omitempty"`
 	ItemsWithClaimUse int             `json:"items_with_claim_use,omitempty"`
 	ItemsWithCitation int             `json:"items_with_citation,omitempty"`
+	// EdgeAnchoredClaimUses counts how many block-level + item-level
+	// claim_uses on this block carry a populated (FromNode, ToNode)
+	// pair. Surfaces to the retry prompt so the LLM sees whether it
+	// already grounded its diagram edges; preservation pressure is
+	// applied the same way HasClaimUse does for the typed fields.
+	EdgeAnchoredClaimUses int `json:"edge_anchored_claim_uses,omitempty"`
 	// TextPreview is the head+tail clip of the block's text /
 	// title (head 400 + tail 200 chars when over the cap, full
 	// text when under). Lets the LLM identify the block by

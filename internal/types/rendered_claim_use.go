@@ -104,7 +104,7 @@ func AllSurfaceRoles() []SurfaceRole {
 	}
 }
 
-// RenderedClaimUse is the optional per-payload annotation. All four
+// RenderedClaimUse is the optional per-payload annotation. All
 // fields are independently optional — the LLM may fill any subset.
 // Validator semantics (Phase 3):
 //
@@ -126,6 +126,16 @@ func AllSurfaceRoles() []SurfaceRole {
 //     Used by Phase 4 facet validators (e.g. FacetEnumerationItem
 //     requires SurfacePrincipal).
 //
+//   - FromNode / ToNode: ONLY populated when ClaimForm is
+//     edge-capable (call_edge / guard_condition / import_edge /
+//     precedence_role / external_observation) AND SurfaceRole ==
+//     diagram_only. Identifies which diagram edge this claim
+//     grounds. Both must be the verbatim node identifiers used in
+//     the diagram body (case-folded matching is downstream). Phase
+//     3-C5 validator reads these to enforce relation legality on
+//     labelled diagram edges. Empty = "no edge anchor" (legitimate
+//     for non-edge claim forms).
+//
 // JSON tags use "omitempty" so a zero-valued struct serialises to
 // the empty object {}. Pointer-typed embedding on the parent payload
 // means an absent annotation serialises to absence (no claim_use
@@ -135,6 +145,8 @@ type RenderedClaimUse struct {
 	EvidenceID  string      `json:"evidence_id,omitempty"`
 	ClaimForm   ClaimForm   `json:"claim_form,omitempty"`
 	SurfaceRole SurfaceRole `json:"surface_role,omitempty"`
+	FromNode    string      `json:"from_node,omitempty"`
+	ToNode      string      `json:"to_node,omitempty"`
 }
 
 // IsEmpty reports whether c carries no annotation data. Useful for
@@ -145,5 +157,16 @@ func (c *RenderedClaimUse) IsEmpty() bool {
 		return true
 	}
 	return c.FacetID == "" && c.EvidenceID == "" &&
-		c.ClaimForm == "" && c.SurfaceRole == ""
+		c.ClaimForm == "" && c.SurfaceRole == "" &&
+		c.FromNode == "" && c.ToNode == ""
+}
+
+// HasEdgeAnchor reports whether the annotation carries a non-empty
+// (FromNode, ToNode) pair. Phase 3-C5 reads this to find claim_uses
+// that ground specific diagram edges.
+func (c *RenderedClaimUse) HasEdgeAnchor() bool {
+	if c == nil {
+		return false
+	}
+	return c.FromNode != "" && c.ToNode != ""
 }
