@@ -241,6 +241,12 @@ write_metrics() {
     echo "repair_exec_lines=$(count_pattern 'repair_exec: ' "$log")"
     echo "repair_exec_promote=$(count_pattern 'repair_exec: .*remaining=[1-9].*budget_downgrade=true' "$log")"
     echo "repair_exec_failloud=$(count_pattern 'repair_exec: .*fail_loud=true' "$log")"
+    # G5 (post_v2_runtime_gap_remediation, 2026-05-04) — semantic
+    # quality reviewer dispatch + verdict telemetry.
+    #   semantic_quality_dispatches  — reviewer dispatched this run
+    #   semantic_quality_concerns    — reviewer-emitted concern count
+    echo "semantic_quality_dispatches=$(count_pattern 'semantic_quality_reviewer.*verdict' "$log")"
+    echo "semantic_quality_concerns=$(count_pattern 'semantic_quality_reviewer.*emitted [1-9]' "$log")"
   } >"$metrics"
 }
 
@@ -578,7 +584,7 @@ SUMMARY="$OUTDIR/summary.md"
   # 2026-05-04): write_metrics writes them to run-N.metrics.txt;
   # aggregate them into the summary table so they show up next to
   # the legacy 12 mechanism counters with median.
-  metric_keys="tool_read_file concrete_values synthesis_runs function_boundary_push enumeration_push focus_warning t11_gate_skip t11_gate_run dataflow_intent_lookup dataflow_intent_propagate midloop_inject answer_chain_lines analyzer_iters explorer_iters extractor_iters finalizer_iters analyzer_dispatches explorer_dispatches extractor_dispatches finalizer_dispatches repair_plan_lines repair_exec_lines repair_exec_promote repair_exec_failloud"
+  metric_keys="tool_read_file concrete_values synthesis_runs function_boundary_push enumeration_push focus_warning t11_gate_skip t11_gate_run dataflow_intent_lookup dataflow_intent_propagate midloop_inject answer_chain_lines analyzer_iters explorer_iters extractor_iters finalizer_iters analyzer_dispatches explorer_dispatches extractor_dispatches finalizer_dispatches repair_plan_lines repair_exec_lines repair_exec_promote repair_exec_failloud semantic_quality_dispatches semantic_quality_concerns"
   for key in $metric_keys; do
     row="| $key |"
     vals=()

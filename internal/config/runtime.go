@@ -445,6 +445,17 @@ type RuntimeSettings struct {
 	// dropped (avoid cried-wolf noise). 0/nil = default 0.8.
 	PipelineSelfConsistencyMinConfidence *float64 `yaml:"pipeline_self_consistency_min_confidence"`
 
+	// PipelineSemanticQualityReviewEnabled (G5
+	// post_v2_runtime_gap_remediation, 2026-05-04) gates the second-
+	// layer reviewer that catches "answer ships clean but thin" —
+	// promoted facets uncovered, diagram edge minimums short,
+	// richness candidates with available evidence not surfaced.
+	// Independent from the self-consistency reviewer. Default
+	// FALSE this phase pending real-eval validation; flip to true
+	// once eval confirms ≤10% false-positive rate. nil = use
+	// default (false).
+	PipelineSemanticQualityReviewEnabled *bool `yaml:"pipeline_semantic_quality_review_enabled"`
+
 
 	// RepomapMinParseTier (commit 53 P5) hard-gates files whose
 	// repomap parse tier exceeds the floor (Tier 1=primary

@@ -257,6 +257,14 @@ var (
 	selfConsistencyMinConfidence = 0.8
 )
 
+// G5 (post_v2_runtime_gap_remediation, 2026-05-04). Semantic-quality
+// reviewer wire-up state. Default-disabled this phase pending real-
+// eval validation; once eval shows ≤10% false-positive rate flip to
+// true. yaml gate: pipeline_semantic_quality_review_enabled.
+var (
+	semanticQualityEnabled = false
+)
+
 // maxAttachedTraceBytes is the live cap for the perf-channel
 // attachments (--htrace / --atrace / --htrace-text / --atrace-text /
 // REPL /htrace / /atrace). Mirrors maxAttachedLogBytes for the log
@@ -1714,6 +1722,11 @@ func initApp(cmd *cobra.Command, _ []string) error {
 		if rs.PipelineSelfConsistencyMinConfidence != nil {
 			selfConsistencyMinConfidence = *rs.PipelineSelfConsistencyMinConfidence
 		}
+		// G5 (post_v2_runtime_gap_remediation, 2026-05-04) — second-
+		// layer semantic-quality reviewer gate.
+		if rs.PipelineSemanticQualityReviewEnabled != nil {
+			semanticQualityEnabled = *rs.PipelineSemanticQualityReviewEnabled
+		}
 		extraSoft := append([]string{}, rs.PipelineContractSoftKinds...)
 		extraStrict := append([]string{}, rs.PipelineContractStrictKinds...)
 		if selfConsistencyEnabled && selfConsistencyRewrite {
@@ -2674,6 +2687,21 @@ func initApp(cmd *cobra.Command, _ []string) error {
 				adapter.ModelID(), selfConsistencyRewrite, selfConsistencyMinConfidence)
 		} else {
 			logging.Warning("[self_consistency] adapter resolve failed (%v); reviewer disabled this Run", err)
+		}
+	}
+
+	// G5 (post_v2_runtime_gap_remediation, 2026-05-04) — second-layer
+	// semantic-quality reviewer wiring. Routed via providers.yaml ::
+	// agents.semantic_quality_reviewer when present, falls back to
+	// the self_consistency_reviewer slot (same task class:
+	// independent reviewer LLM with structured emit).
+	if semanticQualityEnabled {
+		resolved := config.ResolveProvider(providersCfg, "semantic_quality_reviewer")
+		if adapter, err := llm.NewFromConfig(resolved); err == nil {
+			app.orch.SetSemanticQualityReviewer(orchestrator.NewSemanticQualityReviewer(adapter))
+			logging.Info("[semantic_quality] reviewer enabled: model=%s", adapter.ModelID())
+		} else {
+			logging.Warning("[semantic_quality] adapter resolve failed (%v); reviewer disabled this Run", err)
 		}
 	}
 
