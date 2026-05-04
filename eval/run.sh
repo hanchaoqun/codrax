@@ -224,6 +224,23 @@ write_metrics() {
     echo "explorer_dispatches=$(count_pattern 'diag explorer.*DISPATCH stage=' "$log")"
     echo "extractor_dispatches=$(count_pattern 'diag extractor.*DISPATCH stage=' "$log")"
     echo "finalizer_dispatches=$(count_pattern 'diag finalizer.*DISPATCH stage=' "$log")"
+    # G1 (post_v2_runtime_gap_remediation, 2026-05-04) repair-plan +
+    # repair-exec telemetry. The orchestrator's retry-decision site
+    # emits one repair_plan= line + one repair_exec= line per failed
+    # validator pass.
+    #
+    #   repair_plan_lines      — total repair-plan trace lines
+    #   repair_exec_lines      — total repair-exec trace lines (≤ repair_plan_lines)
+    #   repair_exec_promote    — repair-exec lines whose remaining > 0
+    #                            AND budget_downgrade=true (queue-state
+    #                            advance signal; rebuild branch always
+    #                            shows budget_downgrade=true on first
+    #                            cluster, so this is a coarse upper bound)
+    #   repair_exec_failloud   — repair-exec lines that surfaced fail_loud=true
+    echo "repair_plan_lines=$(count_pattern 'repair_plan: ' "$log")"
+    echo "repair_exec_lines=$(count_pattern 'repair_exec: ' "$log")"
+    echo "repair_exec_promote=$(count_pattern 'repair_exec: .*remaining=[1-9].*budget_downgrade=true' "$log")"
+    echo "repair_exec_failloud=$(count_pattern 'repair_exec: .*fail_loud=true' "$log")"
   } >"$metrics"
 }
 
@@ -561,7 +578,7 @@ SUMMARY="$OUTDIR/summary.md"
   # 2026-05-04): write_metrics writes them to run-N.metrics.txt;
   # aggregate them into the summary table so they show up next to
   # the legacy 12 mechanism counters with median.
-  metric_keys="tool_read_file concrete_values synthesis_runs function_boundary_push enumeration_push focus_warning t11_gate_skip t11_gate_run dataflow_intent_lookup dataflow_intent_propagate midloop_inject answer_chain_lines analyzer_iters explorer_iters extractor_iters finalizer_iters analyzer_dispatches explorer_dispatches extractor_dispatches finalizer_dispatches"
+  metric_keys="tool_read_file concrete_values synthesis_runs function_boundary_push enumeration_push focus_warning t11_gate_skip t11_gate_run dataflow_intent_lookup dataflow_intent_propagate midloop_inject answer_chain_lines analyzer_iters explorer_iters extractor_iters finalizer_iters analyzer_dispatches explorer_dispatches extractor_dispatches finalizer_dispatches repair_plan_lines repair_exec_lines repair_exec_promote repair_exec_failloud"
   for key in $metric_keys; do
     row="| $key |"
     vals=()
