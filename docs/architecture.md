@@ -1336,8 +1336,8 @@ const (
 // GhostAnchor / SelfRefLiteral / Other
 
 // internal/types/repair.go — RepairKind
-// RepairReadFile / RepairExpandSearch / RepairSwapShape /
-// RepairRebindSubject / RepairForceCompleteDowngrade
+// RepairReadFile / RepairEmitEvidence / RepairExpandSearch /
+// RepairSwapView / RepairRebindSubject / RepairForceCompleteDowngrade
 ```
 
 ### BusContext
@@ -1399,7 +1399,6 @@ type AnalysisIR struct {
                                    // NodeBudgetHints / RequiredFiles
     AnswerContract AnswerContract  // MustInclude / MustExclude / CitationReq /
                                    // Language / AcceptanceTests ([]Criterion)
-                                   // (RequiredAnswerShape 已随 AnswerShape 退役)
     HypothesisSet  []Hypothesis
     QualityGate    GateReport
 }
@@ -1656,14 +1655,14 @@ sequenceDiagram
 
 | 步骤 | 包 / 文件 | 作用 |
 |------|----|------|
-| 1. Sub-topic post-processing | `analyzer.go` 内联 | `SubTopics > 1` → 强制 `ShapeExplanation` + complexity simple → moderate 升级 |
+| 1. Sub-topic post-processing | `analyzer.go` 内联 | `SubTopics > 1` → complexity simple → moderate 升级（多 sub-topic 走更宽预算）;`SubTopics > 5` 截断 |
 | 2a. Complexity sanity | `analyzer_complexity.go::reconcileComplexity` | 5 条 deterministic rule（sub-topic ≥3 floor / cross-component cue / lookup-shape downgrade / multi-entity upgrade / sparse-prompt floor），强信号反对才覆写 |
 | 2b. Intent sanity | `analyzer_intent.go::reconcileIntent` | 首句 count-verb prefix + `IntentEnumerate + ComplexitySimple` → 降级 `IntentReturnValue` |
 | 2c. AnswerSubject inference | `analyzer_intent.go::inferAnswerSubject` | LLM 未填时用双语 cue 表 + question_kind fallback + **E1 hard-fallback** 永不 SubjectUnknown（weakest SubjectGeneric, confidence=0.1） |
 | 2d. PredicateAxis reconcile | `analyzer_predicate.go::reconcilePredicateAxis` | verb-cue 表填空 `PredicateAxis`；零值 `AxisUnknown` 是 no-op；只填空不覆盖 |
 | 2e. Sub-topic entity merge | `analyzer.go` | 把每个 sub-topic 的 entities 合并到主 `AnalyzerHints.Entities` |
 | 3. Normalize | `internal/analysis/normalizer::Normalize` | 产 `TermGraph`（canonical terms + aliases），用 repomap-backed `SymbolResolver` + LLM Entities；`kindEnWord` 双门升级 `TermSymbol`：`NormalizeCodeKey(surface) ∈ Entities` ∧ resolver ≥1 hit |
-| 4. Observation reconcile | `analyzer_observability.go::reconcileFromObservations` | round 2 grep 观察重新定型 classification，refined `answer_subject.kind` + `AnalyzerHints.Shape` 进后续管线 |
+| 4. Observation reconcile | `analyzer_observability.go::reconcileFromObservations` | round 2 grep 观察重新定型 classification，refined `answer_subject.kind` 进后续管线 |
 | 5. Auto-keywords | `analyzer.go::appendDeclarativeKeywords` | registration / config_mapping / call_chain / source-literal subject 问题追加 declarative filename stems（topology/defaults/registry/routes/wire/init/manifest/schema/enum） |
 | 6. Infer scenario | `internal/analysis/compiler::InferScenario` | LLM 未指定时填 Scenario 默认 |
 | 7. Compile | `internal/analysis/compiler::Compile` | 产 `TaskGraph` + `EvidencePlan` + 默认 `AnswerContract`；`sourcemix.FromTemplateMix` → `NodeBudgetHints` |
@@ -1672,7 +1671,7 @@ sequenceDiagram
 | 10. Bind hypotheses | `internal/analysis/binder::BindByRelevance` | hypothesis ↔ node 相关性绑定 |
 | 11. Counterfactual | `internal/analysis/counterfactual::Expand` | complex + ambiguous explain/root_cause 触发；新分支再 `BindByRelevance` 一遍 |
 | 12. Measurement-scalar carve-out | `analyzer.go` 内联 | `isMeasurementScalarRequest` flag 驱动：剥 3 层 citation gate（`CitationReq` / `AcceptanceTests` / 每个 `TaskNode.SuccessCriteria`）；V2 carrier 下答案落 `block.kind=scalar` + `value{literal, citation_ref:-1}` |
-| 13. Subject reconcile | `analyzer_intent.go::reconcileShape`（历史命名，函数名保留以便 grep 历史 commit） | subject 是源码 literal（skill_name / agent_name / function_name / type_name / handler_route / return_value）时调整为 scalar-source-literal 形态；runs after measurement-scalar 所以两规则互不干扰 |
+| 13. Subject reconcile | `analyzer_intent.go::inferAnswerSubject` + 周边 reconcile（B8-T1 后已无独立 reconcileShape 函数,subject 调整逻辑归入 inferAnswerSubject + measurement-scalar carve-out） | subject 是源码 literal（skill_name / agent_name / function_name / type_name / handler_route / return_value）时由 V2 carrier 自动落 `block.kind=scalar`;runs after measurement-scalar 所以两规则互不干扰 |
 | 14. RequiredFiles | `analyzer.go::analyzerRequiredFiles` | 用 repomap graph 查 `AnalyzerHints.Entities` 的定义文件写进 `EvidencePlan.RequiredFiles`，explorer keyword-search 会 merge 这份列表 |
 | 15. Quality gate | `internal/analysis/gate::Run` | 7 check hard/soft 分级（见 §4.1） |
 
@@ -1790,7 +1789,7 @@ typed data ───────────────> Markdown prompt ──
 |---|---|---|---|
 | **I1** | 所有 prompt 中 surface 的 `file:line` ⊆ ReadSet | explorer `applyChainPromotion`、Type Hierarchy filter、`findings_validator` | chain 锚点 ∉ ReadSet → 不渲染 prompt + 锚点 file 进 PendingReads；analyzer 幻觉 path/symbol → UnverifiedFindings + prompt "## Unverified Analyzer Findings" 段渲染 `~~text~~ ⚠️[未验证]` |
 | **I2** | 所有 emit_*-接受的 citation ⊆ ReadSet | `emit_answer_document.go` 的 whitelist check + **pre-finalize dry-run**（`simulateCitationGrounding`）| dry-run 在调真 grounder 前先预检，全 miss 时直接 reject tool call；grounder 本身 drop citation + `RepairDirective{Kind: RepairReadFile, ...}` 进 Repairs 队列 + **A1 bridge** 同步镜像到 PendingReads |
-| **I3** | `emit_investigation_complete` ⇒ 模拟 `contract.Check` 能过 | `emit_investigation_complete.go::preCompleteContractCheck`（6 条 check a-f） | (a) PendingReads 非空 downgrade + 按 ScannedSet 分段渲染 Forced Read List vs Suspicious Anchors；(b) citation 预检；(c) MinCit 短缺 → emit `RepairExpandSearch`；(d) subject×shape mismatch → `RepairSwapShape`；(e) evidence.Source 落在 unverifiedFinds.Path → downgrade + `RepairExpandSearch`；(f) 所有 chain SubjectMatch<0.4 → `RepairRebindSubject` |
+| **I3** | `emit_investigation_complete` ⇒ 模拟 `contract.Check` 能过 | `emit_investigation_complete.go::preCompleteContractCheck`（6 条 check a-f） | (a) PendingReads 非空 downgrade + 按 ScannedSet 分段渲染 Forced Read List vs Suspicious Anchors；(b) citation 预检；(c) MinCit 短缺 → emit `RepairExpandSearch`；(d) subject×view mismatch → `RepairSwapView`；(e) evidence.Source 落在 unverifiedFinds.Path → downgrade + `RepairExpandSearch`；(f) 所有 chain SubjectMatch<0.4 → `RepairRebindSubject` |
 | **I4** | retry 间至少 (ReadSet, Evidence, ChainTerm, CitedRefs) 四维之一单调进步 | `cgec_enforcers.go::detectStallAndAct + runForcedReads`；调用点在 `orchestrator.runTaskGraph` 的 pre-dispatch + post-dispatch 两处 | soft stall（默认 2）→ `runForcedReads`（Lazy Auto-Read，框架代读 ≤N 个 PendingReads，单轮上限 `cgec_forced_reads_per_round=3`）+ emit `RepairExpandSearch`；hard stall（默认 3）→ `SetInvestigationComplete` + `RepairForceCompleteDowngrade` |
 
 #### 5 种 RepairKind
@@ -1801,20 +1800,19 @@ typed data ───────────────> Markdown prompt ──
 |---|---|---|
 | `RepairReadFile` | grounder (I2) + chain_promotion (I1) + pre-finalize dry-run | `renderWindowHint` "## Forced Read List" + runForcedReads Lazy Auto-Read |
 | `RepairExpandSearch` | explorer Phase 0 broaden 耗尽 + stall 时 ReadSet 饱和 + preComplete 低 MinCit + findings_validator unverified 符号 | `renderWindowHint` "## Search Coverage Gap" |
-| `RepairSwapShape` | `emit_answer_document` shape mismatch + preComplete subject/shape mismatch | `renderWindowHint` "## Shape Reconcile"（retry hint 跨 explore→extract→finalize 持久） |
+| `RepairSwapView` | `emit_answer_document` view mismatch + preComplete subject/view mismatch | `renderWindowHint` "## View Reconcile"（retry hint 跨 explore→extract→finalize 持久） |
 | `RepairRebindSubject` | `rankChainsBySubject.bestMatch<0.4` + preComplete SubjectMatch<0.4 | `renderWindowHint` "## Subject Constraint" |
 | `RepairForceCompleteDowngrade` | `detectStallAndAct` hard stall | `renderWindowHint` "## Force-Complete Downgrade" + `SetInvestigationComplete` |
 
 #### 辅助层
 
 - **AnswerSubject taxonomy**（`internal/types/analysis_ir.go::AnswerSubjectKind` + `internal/analysis/subject/taxonomy.go` 的 per-kind judge）
-- **`inferAnswerSubject`**：双语 cue 表 + question_kind fallback + E1 hard-fallback 永不 SubjectUnknown（weakest: SubjectGeneric, confidence=0.1），保证下游 `reconcileShape` / `rankChainsBySubject` / preComplete 的 subject 检查不因 Unknown 退化为死代码
-- **`reconcileShape`**（历史命名;subject reconcile 函数）：subject 是源码 literal 时调整为 scalar-source-literal 形态(V2 carrier 下答案 block.kind=scalar)
+- **`inferAnswerSubject`**：双语 cue 表 + question_kind fallback + E1 hard-fallback 永不 SubjectUnknown（weakest: SubjectGeneric, confidence=0.1），保证下游 `rankChainsBySubject` / preComplete 的 subject 检查不因 Unknown 退化为死代码
 - **`rankChainsBySubject`**：chain 终端 token 按 `subject.Score` 重排 + Subject Match Summary 渲染在 extractor/finalizer prompt
 
 #### RetryHint 跨 stage 持久
 
-`orchestrator.applyStageOutput` 只在 `output.RetryHint != ""` 时覆盖 `TaskState.RetryHint`，让 explorer 写入的 Shape Reconcile / Forced Read List / Subject Constraint 段贯穿 explore → extract → finalize 一个 retry 回合，下一轮 `applyWindowHint` 再重置。
+`orchestrator.applyStageOutput` 只在 `output.RetryHint != ""` 时覆盖 `TaskState.RetryHint`，让 explorer 写入的 View Reconcile / Forced Read List / Subject Constraint 段贯穿 explore → extract → finalize 一个 retry 回合，下一轮 `applyWindowHint` 再重置。
 
 所有 enforcer fire log 统一前缀 `[CGEC] <I|E|A|B|C|D|E|F|G> <event>`（9 处入口），一次 grep 看全。
 
@@ -2065,7 +2063,6 @@ Go 1.24.0。主要依赖：
 1. 新增 `AnswerSubjectKind` 常量
 2. `internal/analysis/subject/taxonomy.go` 加 per-kind judge
 3. `analyzer_intent.go::inferAnswerSubject` 的 cue 表加 trigger
-4. `reconcileShape` 的 shape 映射可能需更新
 
 ### 添加新 CGEC RepairKind
 

@@ -200,11 +200,11 @@ func TestAllViolationKindsHaveProducer(t *testing.T) {
 		// pending until the kind itself is removed from the enum.
 		ViolChainDemoted:         true, // agent/explorer_erm.go R3 self-ref chain demote (G7)
 		// Commit 53 P2/P4 — read-mode answer-coherence violations.
-		ViolViewIntentMismatch:   true, // orchestrator/contract_check.go runAnswerShapeOracle
-		ViolSubTopicCountMismatch: true, // orchestrator/contract_check.go runAnswerShapeOracle
+		ViolViewIntentMismatch:   true, // orchestrator/contract_check.go finalize-stage view oracle
+		ViolSubTopicCountMismatch: true, // orchestrator/contract_check.go finalize-stage view oracle
 		ViolDiagramIdentifier:     true, // tool/emit_answer_document.go diagram bare-identifier check (commit 53 P4)
 		// Commit 55 Batch A.3 — declared-count drift.
-		ViolDeclaredCountDrift: true, // orchestrator/contract_check.go runAnswerShapeOracle
+		ViolDeclaredCountDrift: true, // orchestrator/contract_check.go finalize-stage view oracle
 		// Commit 62 — answer-prose self-contradiction.
 		ViolSelfContradiction: true, // orchestrator/contract_check.go runSelfConsistencyReview
 		// 2026-05-02 — external-artifact decode shortfall.

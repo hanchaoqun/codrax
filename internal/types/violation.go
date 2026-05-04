@@ -70,15 +70,15 @@ const (
 	// ViolViewIntentMismatch: the resolved AnswerSemanticView's
 	// family contradicts Intent / Scenario from RequestModel (e.g.
 	// a scalar BlockScalar answer for an "explain how X works"
-	// intent). Caught by runAnswerShapeOracle (renamed in spirit
-	// to "AnswerView Oracle" — the function name is kept for
-	// historical grep-ability). SuspectedRoot: question_kind.
+	// intent). Produced by the finalize-stage view oracle in
+	// orchestrator/contract_check.go. SuspectedRoot: question_kind.
 	ViolViewIntentMismatch ViolationKind = "view_intent_mismatch"
 
 	// ViolSubTopicCountMismatch: doc.AnswerSymbols' distinct
 	// SubTopic-bucket count diverges from len(IR.SubTopics).
 	// Catches multi-topic answers that under-cover or over-cover.
-	// Caught by runAnswerShapeOracle. SuspectedRoot: sub_topics.
+	// Produced by the finalize-stage view oracle in
+	// orchestrator/contract_check.go. SuspectedRoot: sub_topics.
 	ViolSubTopicCountMismatch ViolationKind = "sub_topic_count_mismatch"
 
 	// ViolDiagramIdentifier: a bare CamelCase / snake_case

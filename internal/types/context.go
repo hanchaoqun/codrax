@@ -91,11 +91,11 @@ type MutableState struct {
 	emittedAnswerSymbolCompleteness CompletenessClaim
 	// emittedAnswerSymbolDeclaredCount mirrors the LLM's
 	// self-declared count from the most recent emit_answer_symbol
-	// call (commit 49 added the field, commit 55 Batch A.3
-	// persists it across stages). Zero = no claim made (back-
-	// compat). The finalizer-side runAnswerShapeOracle compares
-	// this against the rendered doc.Symbols length to catch
-	// "claimed N but rendered only M" drift.
+	// call. Zero = no claim made (back-compat). Finalize-stage
+	// validators (e.g. ViolDeclaredCountDrift producer in
+	// orchestrator/contract_check.go) compare this against the
+	// rendered doc count to catch "claimed N but rendered only M"
+	// drift.
 	emittedAnswerSymbolDeclaredCount int
 	emittedHypothesisVerdicts       []HypothesisVerdict
 	turnAArtifacts                  *TurnAArtifacts
@@ -1294,11 +1294,10 @@ func (m *MutableState) SetEmittedAnswerSymbols(items []AnswerSymbol, claim Compl
 }
 
 // SetEmittedAnswerSymbolDeclaredCount stores the LLM's self-
-// declared item count from emit_answer_symbol (commit 49). Zero
-// resets to "no claim". Called immediately after
-// SetEmittedAnswerSymbols on the same emit invocation. Read by
-// runAnswerShapeOracle for the cross-stage drift check (commit 55
-// Batch A.3 — MEDIUM #4 fix).
+// declared item count from emit_answer_symbol. Zero resets to "no
+// claim". Called immediately after SetEmittedAnswerSymbols on the
+// same emit invocation. Read by finalize-stage drift validators
+// (orchestrator/contract_check.go ViolDeclaredCountDrift producer).
 func (m *MutableState) SetEmittedAnswerSymbolDeclaredCount(n int) {
 	if m == nil {
 		return
