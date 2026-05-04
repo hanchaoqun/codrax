@@ -115,7 +115,7 @@
 | ~~**R13**~~ | 🔵 由 R14 统一解决 | — | scheduler vs V2 oracle 双层 gating;深层根因同 R6/R6.1/R11 |
 | **R14** | 🟢 SHIPPED c1-c10(c10 真 eval verify 完成)| e79f308+3162146+9e3b038 | Pass rate 3/4→**4/4**;Hard Rule renders × 4 真触发;facet_uncovered 4→1 (-75%)。但暴露 R15/R16 深层 insight。见 R14_eval_deep_audit.md |
 | **R15** | 🟢 SHIPPED ViolationProfile 单一 source of truth | TBD | 待 c2 真 eval rerun 验证 R14 retry-state 真触发率上升 |
-| **R16** | ⬜ pending P1(R14 c10 verification 真发现) | — | **协议层 retry preservation** — m1a r2 R14 Hard Rule 渲染 2 次但 LLM 仍 regenerate (iter 1 出现 18 claim_use 含 prev emit 回显;iter 7-10 = 0)。Prompt-level "preserve byte-identical" 不可靠。延续 F7-A / R4.2 设计:`emit_answer_document_patch` tool,LLM 只发 delta,系统侧 ApplyPatch。见 R14_eval_deep_audit.md §3 类 J |
+| **R16** | 🟢 SHIPPED c1+c2+c3 (3d0f359 + 549a9a1);**c4 真 eval 待跑** | 3d0f359+549a9a1 | AnswerDocumentV2Patch 数据 + ApplyPatch + emit_answer_document_patch tool + skill 教学全 wire,21 lock test 全过。c4 真 eval 期望:LLM 在 retry 路径上选 patch tool + unchanged_block_ids,m1a r2 类 retry 失忆消失 |
 | **R7** | 🟢 SHIPPED typed-set verbatim + 反向归属 | TBD | 真 eval rerun 验证 facet_uncovered 数下降 |
 | **R8** | ⬜ pending P2(全量日志深挖发现) | — | analyzer 自动决策无 telemetry — 类 C |
 | **R10** | ⬜ pending P2(全量日志深挖发现) | — | CGEC 高频事件主链不可观测 — 类 D |
@@ -129,6 +129,6 @@
 | R4.3 | ⬜ pending | — | — |
 | R4.4 | ⬜ pending(等 R3.1) | — | — |
 | R5.1 | 🟢 SHIPPED summary 4 列 | TBD | smoke 通过 (s1a 历史数据) |
-| R5.2 | ⬜ pending | — | — |
+| R5.2 | 🟢 NO-OP — B6-F5 metric 已 1:1 LLM turn (baseline eval 真验证),仅日志冗余降级 P3 (合并到 R12) | (B6-F5) | n/a |
 
 实际开发时每条修完更新这个表。
