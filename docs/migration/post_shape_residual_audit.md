@@ -107,9 +107,9 @@
 | R1.2 | 🟢 SHIPPED LLM 词汇 1:1 内部 enum + 锁 test | TBD | 待真 eval 验证不再 false-fire ClaimForm 验证器 |
 | R1.3 | ⬜ pending | — | — |
 | R1.4 | ⬜ pending | — | — |
-| **R1.5** | ⬜ pending(eval verification 真发现) | — | s1a r1 真测发现 |
+| **R1.5** | 🟢 SHIPPED 同 R7 (一并落地) | TBD | 真 eval rerun 验证 |
 | **R6** | ⬜ pending P1(全量日志深挖发现) | — | retry 字段失忆 — 类 A,见 post_shape_deep_log_audit.md |
-| **R7** | ⬜ pending P1(全量日志深挖发现) | — | facet 归属未渲染 — 类 B,扩展 R1.5,见 post_shape_deep_log_audit.md |
+| **R7** | 🟢 SHIPPED typed-set verbatim + 反向归属 | TBD | 真 eval rerun 验证 facet_uncovered 数下降 |
 | **R8** | ⬜ pending P2(全量日志深挖发现) | — | analyzer 自动决策无 telemetry — 类 C |
 | **R10** | ⬜ pending P2(全量日志深挖发现) | — | CGEC 高频事件主链不可观测 — 类 D |
 | R2.1 | 🟢 SHIPPED V2 重接 (commit pending push) | TBD | 待真 eval 跑 QF 多 topic case |

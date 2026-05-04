@@ -704,10 +704,53 @@ func renderAnswerDocBlockRequirement(b *strings.Builder, req types.BlockRequirem
 	if rationale != "" {
 		fmt.Fprintf(b, " — %s", rationale)
 	}
-	if len(req.FacetIDs) > 0 {
-		fmt.Fprintf(b, " *covers facet(s): %s*", strings.Join(req.FacetIDs, ", "))
-	}
 	b.WriteString("\n")
+
+	// R7 (post_shape_residual_audit.md, 2026-05-04): typed-set
+	// fields verbatim — LLM was filling block.facet_ids /
+	// block.claim_use.claim_form / block.surface_role using GUESS-WORK
+	// because the prose only listed field NAMES, not the typed string
+	// VALUES. Now we expose the values verbatim under each block
+	// requirement so the LLM can copy them directly into the emit.
+	if len(req.FacetIDs) > 0 {
+		fmt.Fprintf(b, "  - `block.facet_ids` MUST include: %s (copy verbatim into the emit).\n",
+			renderQuotedList(req.FacetIDs))
+	}
+	if len(req.AcceptableClaimForms) > 0 {
+		forms := make([]string, 0, len(req.AcceptableClaimForms))
+		for _, f := range req.AcceptableClaimForms {
+			forms = append(forms, string(f))
+		}
+		fmt.Fprintf(b, "  - `block.claim_use.claim_form` MUST be one of: %s (copy verbatim).\n",
+			renderQuotedList(forms))
+	}
+	if req.SurfaceRoleHint != "" {
+		fmt.Fprintf(b, "  - `block.surface_role` SHOULD be %q (copy verbatim).\n",
+			string(req.SurfaceRoleHint))
+	}
+}
+
+// renderQuotedList formats a slice of typed string values as a
+// comma-separated list of double-quoted tokens so the LLM sees
+// JSON-ready string values it can copy directly into the emit:
+//
+//	["enumeration_item", "uncertainty_boundary"]
+//
+// R7: LLM-facing typed-set field rendering — the verbatim form
+// removes the "guess what string to put here" failure mode.
+func renderQuotedList(values []string) string {
+	if len(values) == 0 {
+		return ""
+	}
+	out := make([]string, 0, len(values))
+	for _, v := range values {
+		v = strings.TrimSpace(v)
+		if v == "" {
+			continue
+		}
+		out = append(out, fmt.Sprintf("%q", v))
+	}
+	return "[" + strings.Join(out, ", ") + "]"
 }
 
 func renderAnswerDocFacetCoverage(ctx *types.AgentContext) string {
@@ -720,11 +763,47 @@ func renderAnswerDocFacetCoverage(ctx *types.AgentContext) string {
 		return ""
 	}
 
+	// R7 (post_shape_residual_audit.md, 2026-05-04): build a reverse
+	// map of facet kind → block kind(s) so each facet line can name
+	// the block where it should live. Reads view.RequiredBlocks /
+	// OptionalBlocks (already in the prompt above) without
+	// duplicating typed values.
+	view := types.BuildAnswerSemanticViewForAgentContext(ctx)
+	facetToBlocks := map[types.AnswerFacetKind][]types.AnswerBlockKind{}
+	if view != nil {
+		collect := func(blocks []types.BlockRequirement) {
+			for _, blk := range blocks {
+				for _, fid := range blk.FacetIDs {
+					k := types.AnswerFacetKind(fid)
+					facetToBlocks[k] = append(facetToBlocks[k], blk.Kind)
+				}
+			}
+		}
+		collect(view.RequiredBlocks)
+		collect(view.OptionalBlocks)
+	}
+	formatBlocks := func(kinds []types.AnswerBlockKind) string {
+		if len(kinds) == 0 {
+			return ""
+		}
+		seen := map[types.AnswerBlockKind]bool{}
+		out := make([]string, 0, len(kinds))
+		for _, k := range kinds {
+			if seen[k] {
+				continue
+			}
+			seen[k] = true
+			out = append(out, fmt.Sprintf("`%s`", string(k)))
+		}
+		return strings.Join(out, ", ")
+	}
+
 	var b strings.Builder
 	b.WriteString("## Required Answer Facets\n\n")
 	b.WriteString("The user's question imposes the following coverage requirements on the rendered answer. " +
 		"Each facet names a semantic surface the answer must touch; the parenthesised hint names the evidence shape that supports it. " +
 		"Cover every HARD facet that has grounded evidence; SOFT facets are recommended but not strictly required; OPTIONAL facets add richness when they fit.\n\n")
+	b.WriteString("To declare a facet on a block, set `block.facet_ids` (or `item.claim_use.facet_id`) to the verbatim string shown after `facet_id:` on each line below — that exact string MUST appear in the emit. The rightmost hint (when present) names the block kind(s) that typically cover the facet so you know where to place it.\n\n")
 
 	emit := func(req types.FacetRequirement) {
 		label, ok := answerDocFacetLabels[req.Kind]
@@ -741,6 +820,8 @@ func renderAnswerDocFacetCoverage(ctx *types.AgentContext) string {
 			tag = "OPTIONAL"
 		}
 		fmt.Fprintf(&b, "- **%s**: %s.", tag, label)
+		// R7: verbatim facet_id string the LLM must copy.
+		fmt.Fprintf(&b, " `facet_id: %q`.", string(req.Kind))
 		if len(req.AcceptableForms) > 0 {
 			forms := make([]string, 0, len(req.AcceptableForms))
 			seen := map[string]bool{}
@@ -755,6 +836,10 @@ func renderAnswerDocFacetCoverage(ctx *types.AgentContext) string {
 			if len(forms) > 0 {
 				fmt.Fprintf(&b, " Acceptable evidence: %s.", strings.Join(forms, ", "))
 			}
+		}
+		// R7: reverse lookup — which block kind(s) cover this facet.
+		if owners, ok := facetToBlocks[req.Kind]; ok && len(owners) > 0 {
+			fmt.Fprintf(&b, " Place on block kind: %s.", formatBlocks(owners))
 		}
 		b.WriteString("\n")
 	}

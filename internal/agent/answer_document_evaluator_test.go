@@ -2762,3 +2762,132 @@ func TestAnswerDocAttachEscalation(t *testing.T) {
 		}
 	}
 }
+
+// ── R7 typed-set 字段值 verbatim 渲染 (post_shape_residual_audit
+// 2026-05-04) ─────────────────────────────────────────────────────
+
+// TestRenderAnswerDocBlockRequirement_VerbatimTypedSets pins R7's
+// fix: BlockRequirement.FacetIDs / AcceptableClaimForms /
+// SurfaceRoleHint must each render as JSON-ready string lists the
+// LLM can copy verbatim into block.facet_ids[] / claim_use.claim_form
+// / surface_role.
+//
+// Pre-R7 the prose only said "covers facet(s): X" without
+// instructing the LLM to copy "X" into the emit's typed field, so
+// the LLM 100% missed HARD facets in eval verification (4/4 runs).
+func TestRenderAnswerDocBlockRequirement_VerbatimTypedSets(t *testing.T) {
+	req := types.BlockRequirement{
+		Kind:                 types.BlockSection,
+		MinCount:             1,
+		MaxCount:             1,
+		Required:             true,
+		Rationale:            "the principal explanation surface",
+		FacetIDs:             []string{"current_code_path", "component_relation"},
+		AcceptableClaimForms: []types.ClaimForm{types.ClaimDefinitionFact, types.ClaimCallEdge},
+		SurfaceRoleHint:      types.SurfacePrincipal,
+	}
+	var b strings.Builder
+	renderAnswerDocBlockRequirement(&b, req, true)
+	got := b.String()
+
+	// Verbatim FacetID strings (LLM copies into block.facet_ids[]).
+	for _, want := range []string{
+		"`block.facet_ids` MUST include",
+		`"current_code_path"`,
+		`"component_relation"`,
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("missing verbatim facet_ids token %q in:\n%s", want, got)
+		}
+	}
+	// Verbatim ClaimForm strings.
+	for _, want := range []string{
+		"`block.claim_use.claim_form` MUST be one of",
+		`"definition_fact"`,
+		`"call_edge"`,
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("missing verbatim claim_form token %q in:\n%s", want, got)
+		}
+	}
+	// Verbatim SurfaceRole.
+	if !strings.Contains(got, `"principal"`) {
+		t.Errorf("missing verbatim surface_role 'principal' in:\n%s", got)
+	}
+	if !strings.Contains(got, "`block.surface_role`") {
+		t.Errorf("missing surface_role field name in:\n%s", got)
+	}
+}
+
+// TestRenderAnswerDocBlockRequirement_OmitsTypedSetsWhenEmpty
+// confirms zero-value fields are NOT rendered (no empty
+// "MUST include []" lines).
+func TestRenderAnswerDocBlockRequirement_OmitsTypedSetsWhenEmpty(t *testing.T) {
+	req := types.BlockRequirement{
+		Kind:     types.BlockSummary,
+		MinCount: 1, MaxCount: 1,
+		Rationale: "lead-in",
+	}
+	var b strings.Builder
+	renderAnswerDocBlockRequirement(&b, req, true)
+	got := b.String()
+	for _, banned := range []string{
+		"`block.facet_ids` MUST include",
+		"`block.claim_use.claim_form` MUST be one of",
+		"`block.surface_role` SHOULD be",
+	} {
+		if strings.Contains(got, banned) {
+			t.Errorf("empty-field requirement should not render %q in:\n%s", banned, got)
+		}
+	}
+}
+
+// TestRenderAnswerDocFacetCoverage_VerbatimFacetIDAndOwnerBlock
+// confirms each facet line carries `facet_id: "X"` verbatim AND
+// the reverse-lookup "Place on block kind: ..." hint when the
+// view's BlockRequirements list which block covers the facet.
+func TestRenderAnswerDocFacetCoverage_VerbatimFacetIDAndOwnerBlock(t *testing.T) {
+	ctx := &types.AgentContext{
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				Intent:    types.IntentExplain,
+				Scenario:  types.ScenarioArchitectureExplain,
+			},
+		},
+	}
+	got := renderAnswerDocFacetCoverage(ctx)
+	// verbatim facet_id string
+	if !strings.Contains(got, `facet_id: "current_code_path"`) {
+		t.Errorf("missing verbatim facet_id for current_code_path:\n%s", got)
+	}
+	// preamble teaching that the value is what to copy into emit
+	if !strings.Contains(got, "`block.facet_ids` (or `item.claim_use.facet_id`)") {
+		t.Errorf("missing R7 declarative preamble:\n%s", got)
+	}
+	// reverse-lookup hint (architecture family has BlockRequirement
+	// with FacetIDs, so the reverse map is populated)
+	if strings.Contains(got, "Place on block kind:") == false {
+		t.Errorf("missing R7 reverse-lookup hint:\n%s", got)
+	}
+}
+
+// TestRenderQuotedList_FormatStability pins the JSON-ready output
+// shape (LLM-friendly format).
+func TestRenderQuotedList_FormatStability(t *testing.T) {
+	cases := []struct {
+		in   []string
+		want string
+	}{
+		{nil, ""},
+		{[]string{}, ""},
+		{[]string{"a"}, `["a"]`},
+		{[]string{"a", "b"}, `["a", "b"]`},
+		{[]string{"  a  ", "b"}, `["a", "b"]`}, // trim whitespace
+		{[]string{"", "a"}, `["a"]`},           // skip empty
+	}
+	for _, tc := range cases {
+		if got := renderQuotedList(tc.in); got != tc.want {
+			t.Errorf("renderQuotedList(%v) = %q, want %q", tc.in, got, tc.want)
+		}
+	}
+}
