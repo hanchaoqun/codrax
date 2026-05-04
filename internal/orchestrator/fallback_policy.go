@@ -344,6 +344,14 @@ func DefaultFallbackPolicy() FallbackPolicy {
 		// lookup discipline. Citation choice is the extractor's
 		// surface; remediation is to re-pick citations.
 		types.ViolValueSecondaryCitationOffFocus: FallbackBackToExtract,
+		// B6-F1 (post-shape consolidated audit, 2026-05-04):
+		// cross-citation single-locus conflict. The extractor selects
+		// citations + names the principal items; resolving the
+		// conflict means re-picking which (file, line) is the
+		// canonical locus for the symbol. SOFT-by-default so the
+		// answer ships with the conflict noted; promotion to STRICT
+		// triggers BackToExtract retry (extractor must converge).
+		types.ViolCrossCitationConflict: FallbackBackToExtract,
 	}
 }
 

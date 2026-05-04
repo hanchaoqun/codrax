@@ -258,6 +258,14 @@ var composerExactFixSkipWhitelist = map[types.ViolationKind]string{
 	types.ViolStructuralEnumerationDivergence: "uses violation.Repair for fix prose",
 	types.ViolRichnessRegression:              "uses violation.Repair for fix prose",
 	types.ViolValueSecondaryCitationOffFocus:  "uses violation.Repair for fix prose",
+
+	// B6-F1 (post-shape consolidated audit, 2026-05-04) —
+	// cross-citation single-locus oracle. Same pattern as the other
+	// B5+/B6 oracles: validator stamps a kind-specific repair string
+	// on Violation.Repair (names the conflicting symbol + the two
+	// disagreeing loci verbatim) so the generic composer fallback
+	// pairs naturally with the actionable Detail.
+	types.ViolCrossCitationConflict: "uses violation.Repair for fix prose",
 }
 
 // TestComposer_AllViolationKindsHaveCase enforces P34's

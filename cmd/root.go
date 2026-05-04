@@ -1664,6 +1664,12 @@ func initApp(cmd *cobra.Command, _ []string) error {
 			richnessSofteningWarn = *rs.PipelineRichnessSofteningWarn
 		}
 		orchestrator.SetRichnessSofteningWarnEnabled(richnessSofteningWarn)
+		// B6-F4 finalizer retry-iter think_aloud dynamic disable.
+		finalizerRetryNoThink := true
+		if rs.PipelineFinalizerRetryNoThink != nil {
+			finalizerRetryNoThink = *rs.PipelineFinalizerRetryNoThink
+		}
+		orchestrator.SetFinalizerRetryNoThinkEnabled(finalizerRetryNoThink)
 		// Read-mode Answer Taxonomy yaml knobs (commit 51 Gap 3).
 		if rs.PipelineAnswerTaxonomyEnabled != nil {
 			answerTaxonomyEnabled = *rs.PipelineAnswerTaxonomyEnabled

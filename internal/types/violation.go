@@ -434,6 +434,34 @@ const (
 	// when transparency is partial.
 	ViolStructuralEnumerationDivergence ViolationKind = "structural_enumeration_divergence"
 
+	// ViolCrossCitationConflict (B6-F1, 2026-05-04) fires when the
+	// rendered AnswerDocument cites the same SYMBOL across multiple
+	// citations whose (file, line) tuples disagree. The single-locus
+	// rule: if symbol X is cited in two payloads and the citations
+	// resolve to different files OR different lines (>2-line drift),
+	// at most one of the cites can refer to X's actual definition —
+	// the other points at a fragment that mentions X without being
+	// the locus of the claim. Real-world case (m1a-...): one cite
+	// referenced extractor.go:114, another extractor.go:135, both
+	// labelled "the same Turn-B handoff function" — the user reads
+	// the answer and cannot tell which line is the actual handoff.
+	//
+	// Detection: walk doc.Symbols + every AnswerStep's Anchor and
+	// CitationRef pairs; group cites by canonical symbol name
+	// (Symbols[i].Name OR an anchor.Symbol field); within each
+	// group flag any pair whose File OR (|line_a - line_b| > 2)
+	// disagree. The 2-line tolerance covers receiver-decl vs body-
+	// signature situations where two cites legitimately point at
+	// adjacent lines of the same function.
+	//
+	// Stage="finalize". SOFT-by-default — operators may want
+	// retain-and-caveat behaviour rather than auto-rewrite. Fallback
+	// target (when promoted to STRICT via pipeline_contract_strict_kinds):
+	// BackToExtract — the extractor must pick consistent loci before
+	// the finalizer re-renders. Repair text is LLM-actionable:
+	// names the conflicting symbol + lists the disagreeing cites.
+	ViolCrossCitationConflict ViolationKind = "cross_citation_conflict"
+
 	// ViolSymbolAnchorMismatch (P1 #3, 2026-05-03) fires when the
 	// extractor accumulated ≥ symbolAnchorMismatchThreshold (default 3)
 	// emit_answer_symbol rejections in a single Run AND the rendered
@@ -502,6 +530,7 @@ func AllViolationKinds() []ViolationKind {
 		ViolValueSecondaryCitationOffFocus,
 		ViolSymbolAnchorMismatch,
 		ViolStructuralEnumerationDivergence,
+		ViolCrossCitationConflict,
 		// B4 V2 block-only carrier validators.
 		ViolBlockCoverageMissing,
 		ViolPrincipalClaimUseMissing,

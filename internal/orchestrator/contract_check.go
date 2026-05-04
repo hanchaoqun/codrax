@@ -144,6 +144,13 @@ func runContractCheck(out *agent.StageOutput, c types.AnswerContract, mut *types
 						runSymbolAnchorTrackOracleV2(docV2, rmFull, view, mut)...)
 				}
 			}
+			// B6-F1 (post-shape consolidated audit, 2026-05-04):
+			// cross-citation single-locus oracle. Independent of the
+			// AnswerSemanticView — operates purely on V2 block items
+			// + citation pool to flag the same symbol cited at
+			// conflicting (file, line) tuples.
+			result.Violations = append(result.Violations,
+				runCrossCitationConflictOracleV2(docV2)...)
 		}
 	}
 
@@ -558,6 +565,100 @@ func runSymbolAnchorTrackOracleV2(docV2 *types.AnswerDocumentV2, rm *types.Reque
 		},
 		Stage: string(types.StageExtract),
 	}}
+}
+
+// crossCitationLineTolerance is the max line distance two cites may
+// differ by while still being considered the same locus. Two cites
+// at consecutive lines of a function body (signature + first body
+// line) are not a conflict; cites that drift more than this are.
+const crossCitationLineTolerance = 2
+
+// runCrossCitationConflictOracleV2 (B6-F1, 2026-05-04) walks the V2
+// AnswerDocument's symbol-emitting items and flags symbols cited
+// at more than one (file, line) locus. The single-locus rule:
+// when symbol X is named in multiple block items + the items'
+// CitationRef-resolved Citations point at different files OR at
+// lines >crossCitationLineTolerance apart, at most one cite can
+// be the actual locus of the claim about X — the others reference
+// fragments that mention X without being its definition site. Real
+// case (m1a-): one cite extractor.go:114 + another extractor.go:135
+// both labelled "the Turn-B handoff function"; user cannot tell
+// which is the actual handoff.
+//
+// Detection signals (precise — R2 red line):
+//   - V2 docV2.Blocks[i].Items[j].Label (verbatim symbol name).
+//   - V2 docV2.Citations[item.CitationRef].File / Line (typed
+//     resolution; CitationRef==-1 / out-of-range items skip).
+//
+// Skipped when:
+//   - docV2 == nil OR no Citations in pool.
+//   - Every symbol-name appears at most once in items[].
+//
+// Stage="finalize". SOFT-by-default (operators promote via
+// pipeline_contract_strict_kinds when they want auto-rewrite).
+func runCrossCitationConflictOracleV2(docV2 *types.AnswerDocumentV2) []types.Violation {
+	if docV2 == nil || len(docV2.Blocks) == 0 || len(docV2.Citations) == 0 {
+		return nil
+	}
+	type locus struct {
+		file string
+		line int
+	}
+	loci := make(map[string][]locus, 8)
+	for _, blk := range docV2.Blocks {
+		for _, item := range blk.Items {
+			name := strings.TrimSpace(item.Label)
+			if name == "" {
+				continue
+			}
+			ref := item.CitationRef
+			if ref < 0 || ref >= len(docV2.Citations) {
+				continue
+			}
+			cit := docV2.Citations[ref]
+			if cit.File == "" {
+				continue
+			}
+			loci[name] = append(loci[name], locus{file: cit.File, line: cit.Line})
+		}
+	}
+	if len(loci) == 0 {
+		return nil
+	}
+	var violations []types.Violation
+	for name, lst := range loci {
+		if len(lst) < 2 {
+			continue
+		}
+		// Conflict iff any pair disagrees on file OR drifts >
+		// crossCitationLineTolerance lines apart. Walk from index 0
+		// outward; first disagreement records the violation and
+		// breaks (one violation per symbol — multi-pair conflicts
+		// for the same symbol surface as a single repair task).
+		anchor := lst[0]
+		for _, other := range lst[1:] {
+			if other.file != anchor.file ||
+				abs(other.line-anchor.line) > crossCitationLineTolerance {
+				violations = append(violations, types.Violation{
+					Kind: types.ViolCrossCitationConflict,
+					Detail: fmt.Sprintf(
+						"symbol %q cited at conflicting loci: %s:%d vs %s:%d",
+						name, anchor.file, anchor.line, other.file, other.line),
+					Repair: fmt.Sprintf(
+						"resolve %q to a single canonical locus and re-emit emit_answer_document so every block item naming %q points at the same (file, line) cite. If two distinct sites legitimately co-exist (e.g. interface decl + impl), surface them as separate items with distinct labels.",
+						name, name),
+					SuspectedRoot: types.SuspectedRoot{
+						IRField:    "answer_citations_locus",
+						Reason:     "single-locus consistency violated for cited symbol",
+						Confidence: 0.7,
+					},
+					Stage: string(types.StageFinalize),
+				})
+				break
+			}
+		}
+	}
+	return violations
 }
 
 // runStructuralEnumerationDivergenceOracle (P3 #6 precise variant,
@@ -1022,6 +1123,13 @@ func defaultSoftKinds() map[types.ViolationKind]bool {
 		// cross-Run learning. Operators promote to STRICT when their
 		// extractor pipeline guarantees focused secondary citations.
 		types.ViolValueSecondaryCitationOffFocus: true,
+		// B6-F1 (post-shape consolidated audit, 2026-05-04) —
+		// cross-citation single-locus oracle. SOFT-by-default: the
+		// answer can ship with a "different lines for same symbol"
+		// note (the Detail names both loci verbatim); operators who
+		// need auto-rewrite-to-single-locus behaviour promote via
+		// pipeline_contract_strict_kinds.
+		types.ViolCrossCitationConflict: true,
 	}
 }
 

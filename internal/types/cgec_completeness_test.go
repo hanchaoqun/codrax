@@ -236,6 +236,8 @@ func TestAllViolationKindsHaveProducer(t *testing.T) {
 		ViolPrincipalClaimUseMissing: true, // orchestrator/contract_check_block.go validatePrincipalClaimUse
 		ViolDiagramEdgeUnsupported:   true, // orchestrator/contract_check_block.go validateDiagramEdgeSupport
 		ViolUncertaintyBlockMissing:  true, // orchestrator/contract_check_block.go validateUncertaintyBlockPresence
+		// B6-F1 (post-shape consolidated audit, 2026-05-04).
+		ViolCrossCitationConflict: true, // orchestrator/contract_check.go runCrossCitationConflictOracleV2
 	}
 	pending := map[ViolationKind]string{
 		ViolFamilyMismatch:                          "P9-C-retired-V1-checkShape (V2 block oracles cover read-mode block contract via runV2BlockOracles)",
@@ -298,6 +300,8 @@ func TestAllViolationKindsHaveProducer(t *testing.T) {
 		ViolPrincipalClaimUseMissing: "ViolPrincipalClaimUseMissing",
 		ViolDiagramEdgeUnsupported:   "ViolDiagramEdgeUnsupported",
 		ViolUncertaintyBlockMissing:  "ViolUncertaintyBlockMissing",
+		// B6-F1 (post-shape consolidated audit, 2026-05-04).
+		ViolCrossCitationConflict: "ViolCrossCitationConflict",
 	}
 
 	// Match only the "Kind: ViolXxx" composite-literal pattern —

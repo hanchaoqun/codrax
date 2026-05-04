@@ -214,6 +214,124 @@ func TestFormatViolationsForLogger_NoViolationsReturnsEmpty(t *testing.T) {
 	}
 }
 
+// ── B6-F1 cross-citation single-locus oracle tests ─────────────────
+
+// TestRunCrossCitationConflictOracleV2_FlagsDifferentLines covers the
+// canonical case: same symbol in two block items with citations
+// pointing at different lines >tolerance apart in the SAME file.
+// Real-world example from m1a-... (extractor.go:114 vs :135).
+func TestRunCrossCitationConflictOracleV2_FlagsDifferentLines(t *testing.T) {
+	doc := &types.AnswerDocumentV2{
+		DocumentModel: "v2",
+		Citations: []types.Citation{
+			{File: "internal/agent/extractor.go", Line: 114},
+			{File: "internal/agent/extractor.go", Line: 135},
+		},
+		Blocks: []types.AnswerBlock{
+			{
+				Kind: types.BlockOrderedList,
+				Items: []types.AnswerBlockItem{
+					{Label: "TurnAArtifacts", Text: "first reference", CitationRef: 0},
+					{Label: "TurnAArtifacts", Text: "second reference", CitationRef: 1},
+				},
+			},
+		},
+	}
+	vs := runCrossCitationConflictOracleV2(doc)
+	if len(vs) != 1 {
+		t.Fatalf("want 1 violation; got %d (%+v)", len(vs), vs)
+	}
+	if vs[0].Kind != types.ViolCrossCitationConflict {
+		t.Errorf("kind = %q, want ViolCrossCitationConflict", vs[0].Kind)
+	}
+	if !strings.Contains(vs[0].Detail, "TurnAArtifacts") {
+		t.Errorf("Detail must name the conflicting symbol; got %q", vs[0].Detail)
+	}
+	if !strings.Contains(vs[0].Detail, "extractor.go:114") || !strings.Contains(vs[0].Detail, "extractor.go:135") {
+		t.Errorf("Detail must verbatim list both loci; got %q", vs[0].Detail)
+	}
+}
+
+// TestRunCrossCitationConflictOracleV2_DifferentFilesFlags covers the
+// "two different files" case (interface decl vs impl). Without
+// distinct labels, this is also a conflict.
+func TestRunCrossCitationConflictOracleV2_DifferentFilesFlags(t *testing.T) {
+	doc := &types.AnswerDocumentV2{
+		DocumentModel: "v2",
+		Citations: []types.Citation{
+			{File: "iface.go", Line: 10},
+			{File: "impl.go", Line: 10},
+		},
+		Blocks: []types.AnswerBlock{{
+			Kind: types.BlockBulletList,
+			Items: []types.AnswerBlockItem{
+				{Label: "MyHandler", CitationRef: 0},
+				{Label: "MyHandler", CitationRef: 1},
+			},
+		}},
+	}
+	if vs := runCrossCitationConflictOracleV2(doc); len(vs) != 1 {
+		t.Errorf("want 1 violation for cross-file conflict; got %d (%+v)", len(vs), vs)
+	}
+}
+
+// TestRunCrossCitationConflictOracleV2_AdjacentLinesPass confirms the
+// 2-line tolerance — receiver-decl + signature lines are not a
+// conflict.
+func TestRunCrossCitationConflictOracleV2_AdjacentLinesPass(t *testing.T) {
+	doc := &types.AnswerDocumentV2{
+		DocumentModel: "v2",
+		Citations: []types.Citation{
+			{File: "x.go", Line: 100},
+			{File: "x.go", Line: 101},
+		},
+		Blocks: []types.AnswerBlock{{
+			Kind: types.BlockBulletList,
+			Items: []types.AnswerBlockItem{
+				{Label: "F", CitationRef: 0},
+				{Label: "F", CitationRef: 1},
+			},
+		}},
+	}
+	if vs := runCrossCitationConflictOracleV2(doc); len(vs) > 0 {
+		t.Errorf("want no conflict on adjacent lines; got %+v", vs)
+	}
+}
+
+// TestRunCrossCitationConflictOracleV2_DistinctNamesNoConflict
+// confirms that two different symbols cited at different lines
+// is the normal case — no conflict.
+func TestRunCrossCitationConflictOracleV2_DistinctNamesNoConflict(t *testing.T) {
+	doc := &types.AnswerDocumentV2{
+		DocumentModel: "v2",
+		Citations: []types.Citation{
+			{File: "x.go", Line: 10},
+			{File: "x.go", Line: 200},
+		},
+		Blocks: []types.AnswerBlock{{
+			Kind: types.BlockBulletList,
+			Items: []types.AnswerBlockItem{
+				{Label: "A", CitationRef: 0},
+				{Label: "B", CitationRef: 1},
+			},
+		}},
+	}
+	if vs := runCrossCitationConflictOracleV2(doc); len(vs) > 0 {
+		t.Errorf("distinct names must not conflict; got %+v", vs)
+	}
+}
+
+// TestRunCrossCitationConflictOracleV2_NilGuards exercises the early-
+// return guards.
+func TestRunCrossCitationConflictOracleV2_NilGuards(t *testing.T) {
+	if vs := runCrossCitationConflictOracleV2(nil); vs != nil {
+		t.Errorf("nil doc must yield nil; got %+v", vs)
+	}
+	if vs := runCrossCitationConflictOracleV2(&types.AnswerDocumentV2{}); vs != nil {
+		t.Errorf("empty doc must yield nil; got %+v", vs)
+	}
+}
+
 // TestIsJustifiedAbsenceAnswer_ShapeTieredGate pins the shape-tiered
 // trust check. Shallow shapes (value / boolean / config_value) and
 // EMPTY list_of_symbols pass on any single investigation tool. Only

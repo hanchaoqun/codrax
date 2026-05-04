@@ -198,6 +198,17 @@ type RuntimeSettings struct {
 	// Default true so silent rule firings are visible.
 	PipelineRichnessSofteningWarn *bool `yaml:"pipeline_richness_softening_warn"`
 
+	// PipelineFinalizerRetryNoThink controls whether think_aloud is
+	// dynamically disabled on FINALIZER retry iterations (iter ≥ 1).
+	// Iter 0 (first dispatch) always keeps the operator's yaml-
+	// configured think_aloud so the first-pass reasoning chain is
+	// auditable; subsequent retries drop the chain to (a) shave
+	// 30-50% LLM tokens, and (b) prevent the LLM from re-using its
+	// first-pass reasoning instead of responding to the contract
+	// violation feedback. Default true. Non-finalizer agents and
+	// iter==0 dispatches are unaffected by this knob.
+	PipelineFinalizerRetryNoThink *bool `yaml:"pipeline_finalizer_retry_no_think"`
+
 	// PipelineFailureTaxonomyEnabled gates stage 3's per-repo
 	// Failure Taxonomy: when false, the reflector still runs
 	// but the LLM's emit_failure_pattern emits are dropped

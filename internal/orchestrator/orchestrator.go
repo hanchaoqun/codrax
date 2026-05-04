@@ -4073,6 +4073,19 @@ func SetRichnessSofteningWarnEnabled(enabled bool) {
 	richnessSofteningWarnEnabled = func() bool { return enabled }
 }
 
+// finalizerRetryNoThinkEnabled gates B6-F4 — dynamic think_aloud
+// disable on finalizer retry iterations. Function indirection mirrors
+// SetRichnessSofteningWarnEnabled so the orchestrator package does
+// not take a hard import on cmd. Default true (savings on by default;
+// the per-agent ThinkAloud yaml is unchanged for iteration 0).
+var finalizerRetryNoThinkEnabled = func() bool { return true }
+
+// SetFinalizerRetryNoThinkEnabled is wired by cmd/root.go to thread
+// the pipeline_finalizer_retry_no_think yaml knob.
+func SetFinalizerRetryNoThinkEnabled(enabled bool) {
+	finalizerRetryNoThinkEnabled = func() bool { return enabled }
+}
+
 // formatStageHealthSnapshot renders a closure's StageHealthSnapshot
 // into a stable single-line breakdown. Stages emit in canonical
 // pipeline order (analyze / explore / extract / finalize / plan /
@@ -4477,6 +4490,24 @@ func (o *Orchestrator) dispatchStage(stage types.PipelineStage) (*agent.StageOut
 	// leak across stages.
 	agentCtx.EmitStageRetryAttempt = o.emitStageRetryAttempt
 	o.emitStageRetryAttempt = 0
+
+	// B6-F4 (post-shape consolidated audit, 2026-05-04): dynamically
+	// disable think_aloud on FINALIZER retry attempts. Iteration 0
+	// (the first dispatch) keeps think_aloud per the operator's yaml
+	// configuration so the LLM's first-pass reasoning chain is
+	// auditable; iteration ≥1 (retries triggered by contract.Check
+	// failure) drops the chain to (a) shave ~30-50% LLM tokens off
+	// the retry, and (b) prevent the LLM from re-using its first-
+	// pass reasoning as gospel — the retry should respond to the
+	// violation Detail / Repair, not re-prosecute the original line
+	// of thought. Gated by pipeline_finalizer_retry_no_think
+	// (default true). Non-finalizer agents and iter==0 finalizer
+	// dispatches are unaffected.
+	if finalizerRetryNoThinkEnabled() &&
+		agentName == types.AgentFinalizer &&
+		agentCtx.EmitStageRetryAttempt > 0 {
+		agentCtx.ThinkAloud = false
+	}
 
 	// Prior Conversation visibility. The Objective always carries the
 	// full prior+current payload so StripConversationPrefix /
