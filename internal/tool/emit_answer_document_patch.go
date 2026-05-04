@@ -200,8 +200,11 @@ func (t *EmitAnswerDocumentPatch) Execute(ctx *types.BusContext, params json.Raw
 		}
 	}
 
-	// Write the merged doc.
-	ctx.Mutable.SetAnswerDocumentV2(merged)
+	// Write the merged doc. B4: use the from-patch setter so retry
+	// summary can flag inheritance lineage (mut.LastEmitFromPatch()
+	// returns true after this call until the next full emit
+	// overwrites).
+	ctx.Mutable.SetAnswerDocumentV2FromPatch(merged)
 
 	logging.Info("[emit_answer_document_patch] applied: %d unchanged + %d replaced + %d added + %d removed → %d blocks total",
 		len(patch.UnchangedBlockIDs), len(patch.ReplaceBlocks),

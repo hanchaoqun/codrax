@@ -246,6 +246,17 @@ type RetryState struct {
 	// in trace for operator audit ("which root cause did the router
 	// chase last attempt"). Empty when no plan computed.
 	LastPrimaryViolation ViolationKind `json:"last_primary_violation,omitempty"`
+
+	// LastEmitFromPatch flags whether the previous emit was sourced
+	// via emit_answer_document_patch (true — base inherited from a
+	// prior full emit, modified by patch operations) or fresh full
+	// emit (false — entire doc rewritten by LLM).
+	//
+	// Phase 2-B4 (V2 runtime consolidation, 2026-05-04). Pure
+	// observability — surfaces in retry summary so operators can
+	// audit "is this a clean retry chain or a patch-extended one?"
+	// without inferring from external signals.
+	LastEmitFromPatch bool `json:"last_emit_from_patch,omitempty"`
 }
 
 // HasContent reports whether the RetryState carries any

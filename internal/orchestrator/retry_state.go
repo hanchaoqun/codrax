@@ -52,6 +52,9 @@ func populateRetryState(mut *types.MutableState, res contract.Result, prevAttemp
 	}
 	if doc := mut.AnswerDocumentV2(); doc != nil {
 		rs.PrevEmitSummary = summarizeAnswerDocV2ForRetry(doc)
+		// B4: surface patch lineage so retry summary observability
+		// can audit "patch-extended vs fresh emit chain".
+		rs.LastEmitFromPatch = mut.LastEmitFromPatch()
 		// PrevEmitJSON: serialise the V2 doc as canonical JSON so
 		// the LLM has the verbatim previous payload as a fallback
 		// when summary alone is insufficient. Best-effort —

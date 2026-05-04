@@ -139,6 +139,14 @@ type MutableState struct {
 	// leak between tasks in a multi-task run.
 	answerDocumentV2 *AnswerDocumentV2
 
+	// lastEmitFromPatch flags whether the most recent answerDocumentV2
+	// write came from emit_answer_document_patch (true) or full
+	// emit_answer_document (false). Phase 2-B4 (V2 runtime
+	// consolidation, 2026-05-04) — surfaces inheritance lineage in
+	// retry summary for observability. Set by SetAnswerDocumentV2 /
+	// SetAnswerDocumentV2FromPatch.
+	lastEmitFromPatch bool
+
 	// lastAnswerDocAttemptShape caches the size profile of the
 	// PREVIOUS emit_answer_document attempt (success or failure)
 	// for the catastrophic-regression detector. See
@@ -1471,6 +1479,10 @@ func (m *MutableState) LastAnswerDocAttemptShape() *AnswerDocAttemptShape {
 // carrier (B3 落地). Mirror of SetAnswerDocument. The input is
 // stored by-value-copy semantics through the cloning helper so
 // later mutations on the caller side cannot race readers.
+//
+// Used by full emit (emit_answer_document_v2). The patch path uses
+// SetAnswerDocumentV2FromPatch so retry summary can flag the
+// inheritance lineage (Phase 2-B4).
 func (m *MutableState) SetAnswerDocumentV2(doc *AnswerDocumentV2) {
 	if m == nil {
 		return
@@ -1478,6 +1490,40 @@ func (m *MutableState) SetAnswerDocumentV2(doc *AnswerDocumentV2) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.answerDocumentV2 = cloneAnswerDocumentV2(doc)
+	m.lastEmitFromPatch = false
+}
+
+// SetAnswerDocumentV2FromPatch is the patch-path counterpart of
+// SetAnswerDocumentV2. It writes the merged AnswerDocumentV2 (the
+// post-ApplyAnswerDocumentV2Patch result) AND flags the doc as
+// patch-sourced so the retry summary can carry from_patch=true and
+// downstream observability can audit the inheritance lineage.
+//
+// Phase 2-B4 (V2 runtime consolidation, 2026-05-04): introduced so
+// retry summary can render "Previous Emit (inherited from patch)"
+// instead of an opaque "Previous Emit" header. Pure observability —
+// no behaviour change.
+func (m *MutableState) SetAnswerDocumentV2FromPatch(doc *AnswerDocumentV2) {
+	if m == nil {
+		return
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.answerDocumentV2 = cloneAnswerDocumentV2(doc)
+	m.lastEmitFromPatch = true
+}
+
+// LastEmitFromPatch reports whether the most recent V2 doc on this
+// MutableState was sourced via emit_answer_document_patch (true) or
+// fresh full emit (false). Returns false on nil receiver or when no
+// emit has happened yet.
+func (m *MutableState) LastEmitFromPatch() bool {
+	if m == nil {
+		return false
+	}
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return m.lastEmitFromPatch
 }
 
 // AnswerDocumentV2 returns a defensive deep copy of the buffered
