@@ -3703,17 +3703,27 @@ func (o *Orchestrator) runReadSchedulerLoop(stepBudget int) int {
 		// next dispatch's prompt clean.
 		// R2.2: pass the per-Run downgrade counter so the picker
 		// can prefer FinalizerOnly until the budget is exhausted.
-		// The original picker (FallbackTargetForViolations,
-		// budget-less) is preserved for tests + back-compat.
-		preDowngrade := FallbackTargetForViolations(res.Violations)
-		fallback := FallbackTargetForViolationsWithBudget(res.Violations, finalizerLocalRetriesUsed)
-		// A4 telemetry: surface the underlying RepairPlan structure
-		// so operators can grep `repair_plan=` to audit cluster
-		// composition vs the chosen fallback target. The plan is the
-		// SAME object the pickers above consume internally — this
-		// log line is purely observational, not load-bearing.
+		// G1 (post_v2_runtime_gap_remediation, 2026-05-04): route
+		// through AdvanceRepairExecutionPlan which persists the
+		// dispatch-ready owner queue across retries — when the prev
+		// owner closes its cluster, the next-shallower owner
+		// activates without re-running BuildRepairPlan from scratch.
+		// Behaviour is byte-equivalent to FallbackTargetForViolationsWithBudget
+		// on the FIRST failed dispatch (initial Build); subsequent
+		// retries advance through the queue when fresh violations
+		// are a strict subset of the previous set. The legacy
+		// pickers (FallbackTargetForViolations / WithBudget) remain
+		// for back-compat callers + tests.
+		execPlan, fallback, preDowngrade := AdvanceRepairExecutionPlan(o.busCtx.Mutable, res.Violations, finalizerLocalRetriesUsed)
+		// A4 + G1 telemetry: surface BOTH the underlying cluster
+		// structure (RepairPlan) AND the dispatch-ready queue
+		// (RepairExecutionPlan). Operators can grep `repair_plan=`
+		// for cluster composition and `repair_exec=` for queue
+		// state. Both lines are purely observational.
 		logging.Info("[orchestrator] repair_plan: %s target=%s",
 			SummarizeRepairPlan(BuildRepairPlan(res.Violations)), fallback)
+		logging.Info("[orchestrator] repair_exec: %s",
+			SummarizeRepairExecutionPlan(execPlan))
 		if fallback == FallbackFinalizerOnly && preDowngrade != FallbackFinalizerOnly {
 			finalizerLocalRetriesUsed++
 			logging.Info("[orchestrator] R2.2 finalize-local priority: primary-locus pick=%s downgraded to finalizer_only (used %d/%d)",

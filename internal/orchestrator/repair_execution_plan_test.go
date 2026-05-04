@@ -309,6 +309,102 @@ func TestSummarizeRepairExecutionPlan_Format(t *testing.T) {
 	}
 }
 
+// AdvanceRepairExecutionPlan integration tests — orchestrator-side
+// entry point. Cover the three branches: empty / rebuild / promote.
+
+func TestAdvanceRepairExecutionPlan_EmptyViolations(t *testing.T) {
+	mut := &types.MutableState{}
+	plan, target, preDown := AdvanceRepairExecutionPlan(mut, nil, 0)
+	if !plan.IsEmpty() {
+		t.Errorf("empty fresh: plan.IsEmpty()=false: %+v", plan)
+	}
+	if target != FallbackFinalizerOnly || preDown != FallbackFinalizerOnly {
+		t.Errorf("empty fresh: target=%v preDown=%v, want FallbackFinalizerOnly twice", target, preDown)
+	}
+	if mut.RepairExecutionPlan() != nil {
+		t.Errorf("empty fresh: should NOT stash plan; got %+v", mut.RepairExecutionPlan())
+	}
+}
+
+func TestAdvanceRepairExecutionPlan_RebuildBranch(t *testing.T) {
+	mut := &types.MutableState{}
+	// First call — no prev plan → rebuild.
+	plan, target, preDown := AdvanceRepairExecutionPlan(mut, []types.Violation{
+		vio(types.ViolSubjectAnchorMissing, "d1"),
+		vio(types.ViolSelfContradiction, "d2"),
+	}, 0)
+	// R2.2 downgrade should fire (budget=0 used, Finalizer in queue).
+	if !plan.FinalizerLocalDowngradeApplied {
+		t.Errorf("rebuild: downgrade should fire on first call; plan=%+v", plan)
+	}
+	if target != FallbackFinalizerOnly {
+		t.Errorf("rebuild: target=%v, want FallbackFinalizerOnly (downgrade)", target)
+	}
+	if preDown != FallbackBackToExtract {
+		t.Errorf("rebuild: preDown=%v, want FallbackBackToExtract (deepest)", preDown)
+	}
+	stashed, ok := mut.RepairExecutionPlan().(RepairExecutionPlan)
+	if !ok {
+		t.Fatalf("rebuild: plan not stashed: %T", mut.RepairExecutionPlan())
+	}
+	if stashed.CurrentOwner != LocusFinalizer {
+		t.Errorf("rebuild: stashed CurrentOwner = %v, want LocusFinalizer", stashed.CurrentOwner)
+	}
+}
+
+func TestAdvanceRepairExecutionPlan_PromoteBranch(t *testing.T) {
+	mut := &types.MutableState{}
+	// Stash a prev plan: 2 owners, currently at Finalizer (downgrade
+	// applied), Extract is RemainingOwners[0].
+	prev := RepairExecutionPlan{
+		Clusters: []RepairCluster{
+			{Primary: types.Violation{Kind: types.ViolSubjectAnchorMissing}, Owner: LocusExtract},
+			{Primary: types.Violation{Kind: types.ViolSelfContradiction}, Owner: LocusFinalizer},
+		},
+		OrderedOwners:                  []RepairLocus{LocusFinalizer, LocusExtract},
+		CurrentOwner:                   LocusFinalizer,
+		RemainingOwners:                []RepairLocus{LocusExtract},
+		FinalizerLocalDowngradeApplied: true,
+		EscalationAllowed:              true,
+	}
+	mut.SetRepairExecutionPlan(prev)
+
+	// Fresh = strict subset of prev (Finalizer-owned cluster fixed,
+	// only Extract-owned remains). Should PROMOTE next, not rebuild.
+	plan, target, preDown := AdvanceRepairExecutionPlan(mut, []types.Violation{
+		vio(types.ViolSubjectAnchorMissing, "d1"),
+	}, 1) // budget used 1 — would no longer downgrade on rebuild
+
+	if plan.CurrentOwner != LocusExtract {
+		t.Errorf("promote: CurrentOwner = %v, want LocusExtract", plan.CurrentOwner)
+	}
+	if target != FallbackBackToExtract {
+		t.Errorf("promote: target = %v, want FallbackBackToExtract", target)
+	}
+	// promote inherits prev's downgrade flag — preDowngrade should
+	// recover from OrderedOwners[1] = LocusExtract.
+	if preDown != FallbackBackToExtract {
+		t.Errorf("promote: preDown = %v, want FallbackBackToExtract", preDown)
+	}
+	if len(plan.RemainingOwners) != 0 {
+		t.Errorf("promote: RemainingOwners = %v, want []", plan.RemainingOwners)
+	}
+}
+
+// AdvanceRepairExecutionPlan tolerates nil MutableState (tests /
+// direct callers).
+func TestAdvanceRepairExecutionPlan_NilMutableState(t *testing.T) {
+	plan, target, _ := AdvanceRepairExecutionPlan(nil, []types.Violation{
+		vio(types.ViolFacetUncovered, "d1"),
+	}, 1<<30)
+	if plan.CurrentOwner != LocusExplore {
+		t.Errorf("nil mut: CurrentOwner = %v, want LocusExplore", plan.CurrentOwner)
+	}
+	if target != FallbackBackToExplore {
+		t.Errorf("nil mut: target = %v, want FallbackBackToExplore", target)
+	}
+}
+
 // R4 lock — internal symbols never appear in the LLM-facing
 // retry-summary surface. This is a forward-looking guard: G1 step 1
 // adds the SUMMARIZE helper which is internal-only; G1 step 4 adds

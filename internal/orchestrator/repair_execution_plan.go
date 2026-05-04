@@ -317,6 +317,81 @@ func shouldRebuildExecutionPlan(prev *RepairExecutionPlan, fresh []types.Violati
 	return false
 }
 
+// AdvanceRepairExecutionPlan is the orchestrator-side entry point that
+// reads the previously-stashed plan from MutableState, classifies the
+// fresh violations against it, builds-or-promotes accordingly, and
+// stashes the resulting plan back. Returns the resulting plan + the
+// FallbackTarget the orchestrator should dispatch.
+//
+// Behaviour mirrors the legacy FallbackTargetForViolationsWithBudget
+// + telemetry semantics:
+//
+//   - Empty fresh violations: returns FallbackFinalizerOnly (the
+//     safest no-op when validator returned nothing) and an empty
+//     plan; no MutableState write.
+//   - HasFailLoud cluster: returns FallbackFailLoud; plan stashed.
+//   - Otherwise: stashes the plan and returns
+//     targetForLocus(plan.CurrentOwner).
+//
+// preDowngrade is the locus the legacy budget-less picker WOULD
+// have chosen — used by the orchestrator's R2.2 telemetry to detect
+// "downgrade fired" events. Equals plan.CurrentOwner when no
+// downgrade applied; otherwise equals the deepest cluster's owner.
+//
+// nil MutableState is tolerated for tests / direct callers — the
+// plan is built fresh every call (no persistence). Production
+// callers always pass a non-nil MutableState.
+func AdvanceRepairExecutionPlan(mut *types.MutableState, fresh []types.Violation, finalizerLocalUsed int) (RepairExecutionPlan, FallbackTarget, FallbackTarget) {
+	if len(fresh) == 0 {
+		return RepairExecutionPlan{EscalationAllowed: true},
+			FallbackFinalizerOnly, FallbackFinalizerOnly
+	}
+
+	var prevPlan *RepairExecutionPlan
+	if mut != nil {
+		if raw := mut.RepairExecutionPlan(); raw != nil {
+			if p, ok := raw.(RepairExecutionPlan); ok {
+				prevPlan = &p
+			}
+		}
+	}
+
+	var plan RepairExecutionPlan
+	if shouldRebuildExecutionPlan(prevPlan, fresh) {
+		plan = BuildRepairExecutionPlan(fresh, finalizerLocalUsed)
+	} else {
+		plan = PromoteNextOwner(*prevPlan, nil, finalizerLocalUsed)
+	}
+
+	if mut != nil {
+		mut.SetRepairExecutionPlan(plan)
+	}
+
+	if plan.HasFailLoud {
+		return plan, FallbackFailLoud, FallbackFailLoud
+	}
+
+	target := targetForLocus(plan.CurrentOwner)
+
+	// Compute preDowngrade — the FallbackTarget the legacy budget-
+	// less picker would have chosen. When the budget downgrade fired
+	// in this build, preDowngrade is the deepest cluster owner (i.e.
+	// the locus we WOULD have picked without the cost-opt). When no
+	// downgrade fired, preDowngrade == target. Promote-next path
+	// inherits the original build's downgrade flag, so preDowngrade
+	// is recomputed from the cluster set verbatim.
+	preDowngrade := target
+	if plan.FinalizerLocalDowngradeApplied {
+		// The deepest cluster owner is the second entry of OrderedOwners
+		// (Finalizer was promoted to [0]; the natural deepest pick is
+		// at [1] when downgrade applied).
+		if len(plan.OrderedOwners) >= 2 {
+			preDowngrade = targetForLocus(plan.OrderedOwners[1])
+		}
+	}
+	return plan, target, preDowngrade
+}
+
 // SummarizeRepairExecutionPlan returns a one-line telemetry summary
 // for trace emission. Format mirrors SummarizeRepairPlan but adds
 // queue state. INTERNAL telemetry — never rendered into LLM-facing
