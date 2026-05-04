@@ -109,6 +109,10 @@
 | R1.4 | ⬜ pending | — | — |
 | **R1.5** | 🟢 SHIPPED 同 R7 (一并落地) | TBD | 真 eval rerun 验证 |
 | **R6** | ⬜ pending P1(全量日志深挖发现) | — | retry 字段失忆 — 类 A,见 post_shape_deep_log_audit.md |
+| **R6.1** | ⬜ pending P1(R7 verification 深挖发现) | — | retry 失忆 sub-pattern: block-level claim_use 优先丢失,item-level 优先保留;m1a r1 真证据 iter=0→iter=1: 4 sections block-level claim_use 全丢。见 R7_eval_deep_audit.md |
+| **R11** | ⬜ pending P2(R7 verification 深挖发现) | — | violation 缺 Severity 字段,facet 噪声 17 把真正紧急的 block_coverage_missing 4 events 推迟到 retry budget 用完。见 R7_eval_deep_audit.md |
+| **R12** | ⬜ pending P3(R7 verification 深挖发现) | — | explorer/extractor/finalizer iter 计数 cross-dispatch 累加,m1a r1 metric `explorer_iters=40` 实际 4 次 dispatch × ~10 iter,运维看错。见 R7_eval_deep_audit.md |
+| **R13** | ⬜ pending P2(R7 verification 深挖发现) | — | scheduler `citation_count_ge` SuccessCriterion 与 V2 oracle 引用检查重复 gating;m1a r1 浮出 CitationReq:10 violations。见 R7_eval_deep_audit.md |
 | **R7** | 🟢 SHIPPED typed-set verbatim + 反向归属 | TBD | 真 eval rerun 验证 facet_uncovered 数下降 |
 | **R8** | ⬜ pending P2(全量日志深挖发现) | — | analyzer 自动决策无 telemetry — 类 C |
 | **R10** | ⬜ pending P2(全量日志深挖发现) | — | CGEC 高频事件主链不可观测 — 类 D |
