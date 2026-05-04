@@ -421,6 +421,19 @@ type MutableState struct {
 	// retry doesn't leak prev state into a subsequent fresh Run).
 	retryState *RetryState
 
+	// repairExecutionPlan is the dispatch-ready owner queue stashed by
+	// the retry-decision site (G1 post_v2_runtime_gap_remediation,
+	// 2026-05-04). Carried as `any` so internal/types stays decoupled
+	// from internal/orchestrator (mirrors the searchGraph pattern at
+	// line ~108). Consumers (orchestrator retry-decision site) type-
+	// assert on their own side.
+	//
+	// Lifetime mirrors retryState: overwritten on every retry-
+	// decision pass, cleared by ResetForFallback (Finalizer / Extract /
+	// Explore targets) and ResetRetryState. Nil on fresh dispatches /
+	// no-retry runs.
+	repairExecutionPlan any
+
 	// logTriage is the validated output of the log_triage pre-stage.
 	// Written once by the log_triager agent via SetLogTriage; read by
 	// the analyzer (entity merge, intent override, RequiredFiles seed)
@@ -1716,24 +1729,27 @@ func (m *MutableState) ResetForFallback(target FallbackResetTarget) []string {
 	switch target {
 	case FallbackResetTargetFinalizer:
 		m.ResetAnswerDocumentV2()
-		cleared = append(cleared, "AnswerDocumentV2")
+		m.ResetRepairExecutionPlan()
+		cleared = append(cleared, "AnswerDocumentV2", "RepairExecutionPlan")
 	case FallbackResetTargetExtract:
 		m.ResetAnswerDocumentV2()
 		m.ResetEmittedAnswerSymbols()
-		cleared = append(cleared, "AnswerDocumentV2", "EmittedAnswerSymbols")
+		m.ResetRepairExecutionPlan()
+		cleared = append(cleared, "AnswerDocumentV2", "EmittedAnswerSymbols", "RepairExecutionPlan")
 	case FallbackResetTargetExplore:
 		m.ResetAnswerDocumentV2()
 		m.ResetEmittedAnswerSymbols()
 		// ChangePlan only meaningful in write mode; ResetChangePlan
 		// is nil-safe via guards above.
 		m.ResetChangePlan()
+		m.ResetRepairExecutionPlan()
 		// PendingReads — clear via closure so the next explorer
 		// dispatch's repair-queue starts empty. Evidence /
 		// ScannedSet / ReadSet preserved (sunk cost).
 		if closure := m.EvidenceClosure(); closure != nil {
 			closure.ClearPendingReads()
 		}
-		cleared = append(cleared, "AnswerDocumentV2", "EmittedAnswerSymbols", "ChangePlan", "PendingReads")
+		cleared = append(cleared, "AnswerDocumentV2", "EmittedAnswerSymbols", "ChangePlan", "RepairExecutionPlan", "PendingReads")
 	case FallbackResetTargetAnalyze:
 		// Deliberate no-op — see red line. Caller is expected to
 		// fail-loud at this depth.
@@ -2657,6 +2673,10 @@ func (m *MutableState) RetryState() *RetryState {
 // ResetRetryState clears the retry-state surface. Called at fresh
 // dispatch entry so a finalizer dispatch always starts with a clean
 // slate even if a previous run left state behind.
+//
+// G1 (post_v2_runtime_gap_remediation, 2026-05-04): also clears the
+// stashed RepairExecutionPlan — the two surfaces are paired
+// (retry-state populator updates both together).
 func (m *MutableState) ResetRetryState() {
 	if m == nil {
 		return
@@ -2664,6 +2684,51 @@ func (m *MutableState) ResetRetryState() {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.retryState = nil
+	m.repairExecutionPlan = nil
+}
+
+// SetRepairExecutionPlan stashes the dispatch-ready owner queue
+// produced by the retry-decision site. Carried as `any` so
+// internal/types stays decoupled from internal/orchestrator;
+// orchestrator-side callers type-assert on the receive side. Passing
+// nil clears the slot.
+//
+// G1 step 2 (post_v2_runtime_gap_remediation, 2026-05-04). The
+// retry-decision site MUST call this BEFORE state.requeue so the
+// next dispatch's retry-decision pass observes the queue.
+func (m *MutableState) SetRepairExecutionPlan(plan any) {
+	if m == nil {
+		return
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.repairExecutionPlan = plan
+}
+
+// RepairExecutionPlan returns the most recently stashed plan (or nil
+// when no retry-decision pass has run). Read-only consumption is
+// safe under the RLock; mutation MUST go through SetRepairExecutionPlan.
+func (m *MutableState) RepairExecutionPlan() any {
+	if m == nil {
+		return nil
+	}
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return m.repairExecutionPlan
+}
+
+// ResetRepairExecutionPlan clears the stashed plan in isolation.
+// Called by ResetForFallback at every reset target — the queue is
+// scoped to the current retry chain; once a fallback re-runs an
+// upstream stage, the queue from the prior chain is no longer
+// authoritative.
+func (m *MutableState) ResetRepairExecutionPlan() {
+	if m == nil {
+		return
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.repairExecutionPlan = nil
 }
 
 // ResetClassificationGrep clears every C0' gate/budget/observation

@@ -210,3 +210,110 @@ func TestMutableState_RetryState_SetGet(t *testing.T) {
 		t.Error("ResetRetryState did not clear")
 	}
 }
+
+// G1 step 2 (post_v2_runtime_gap_remediation, 2026-05-04).
+// Covers MutableState.SetRepairExecutionPlan /
+// RepairExecutionPlan() / ResetRepairExecutionPlan.
+//
+// Plan is carried as `any` so internal/types stays decoupled from
+// internal/orchestrator (mirrors the searchGraph pattern). The test
+// uses an opaque struct as the stand-in for orchestrator.RepairExecutionPlan.
+func TestMutableState_RepairExecutionPlan_SetGetReset(t *testing.T) {
+	type opaquePlan struct {
+		current   string
+		remaining []string
+	}
+	if (*MutableState)(nil).RepairExecutionPlan() != nil {
+		t.Error("nil receiver must yield nil")
+	}
+	mut := &MutableState{}
+	if mut.RepairExecutionPlan() != nil {
+		t.Error("fresh MutableState must have no repair execution plan")
+	}
+	plan := opaquePlan{current: "extract", remaining: []string{"finalizer"}}
+	mut.SetRepairExecutionPlan(plan)
+	got, ok := mut.RepairExecutionPlan().(opaquePlan)
+	if !ok {
+		t.Fatalf("type-assert opaquePlan failed: %T", mut.RepairExecutionPlan())
+	}
+	if got.current != "extract" {
+		t.Errorf("round-trip current = %q, want extract", got.current)
+	}
+	mut.ResetRepairExecutionPlan()
+	if mut.RepairExecutionPlan() != nil {
+		t.Error("ResetRepairExecutionPlan did not clear")
+	}
+
+	// nil through SetRepairExecutionPlan also clears.
+	mut.SetRepairExecutionPlan(plan)
+	mut.SetRepairExecutionPlan(nil)
+	if mut.RepairExecutionPlan() != nil {
+		t.Error("SetRepairExecutionPlan(nil) did not clear")
+	}
+}
+
+// G1 step 2: ResetRetryState clears the paired ExecutionPlan slot
+// (the two surfaces share lifecycle — populator overwrites both).
+func TestMutableState_ResetRetryState_AlsoClearsExecutionPlan(t *testing.T) {
+	mut := &MutableState{}
+	mut.SetRetryState(&RetryState{Attempt: 2})
+	mut.SetRepairExecutionPlan(struct{ x int }{1})
+
+	mut.ResetRetryState()
+
+	if mut.RetryState() != nil {
+		t.Error("ResetRetryState did not clear retry state")
+	}
+	if mut.RepairExecutionPlan() != nil {
+		t.Error("ResetRetryState did not clear paired RepairExecutionPlan")
+	}
+}
+
+// G1 step 2: ResetForFallback at every reset target clears the
+// stashed plan. Locks the contract that an upstream-stage rerun
+// invalidates the prior retry chain's owner queue.
+func TestMutableState_ResetForFallback_ClearsExecutionPlan(t *testing.T) {
+	cases := []struct {
+		name   string
+		target FallbackResetTarget
+	}{
+		{"finalizer", FallbackResetTargetFinalizer},
+		{"extract", FallbackResetTargetExtract},
+		{"explore", FallbackResetTargetExplore},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			mut := &MutableState{}
+			mut.SetRepairExecutionPlan(struct{ ordered []string }{ordered: []string{"finalizer"}})
+			cleared := mut.ResetForFallback(tc.target)
+
+			if mut.RepairExecutionPlan() != nil {
+				t.Errorf("%s: plan not cleared", tc.name)
+			}
+			found := false
+			for _, name := range cleared {
+				if name == "RepairExecutionPlan" {
+					found = true
+					break
+				}
+			}
+			if !found {
+				t.Errorf("%s: cleared list missing RepairExecutionPlan: %v", tc.name, cleared)
+			}
+		})
+	}
+}
+
+// G1 step 2: Analyze fallback is a no-op (red line) — must not even
+// touch the plan slot.
+func TestMutableState_ResetForFallback_AnalyzeNoOp(t *testing.T) {
+	mut := &MutableState{}
+	mut.SetRepairExecutionPlan(struct{ x int }{1})
+	cleared := mut.ResetForFallback(FallbackResetTargetAnalyze)
+	if cleared != nil {
+		t.Errorf("Analyze: cleared = %v, want nil (no-op)", cleared)
+	}
+	if mut.RepairExecutionPlan() == nil {
+		t.Errorf("Analyze: plan was cleared but Analyze fallback must be a no-op")
+	}
+}
