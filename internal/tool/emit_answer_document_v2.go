@@ -109,14 +109,21 @@ func executeAnswerDocumentV2(toolName string, ctx *types.BusContext, raw json.Ra
 				"the V2 carrier expresses the answer through blocks[] only", violation)
 	}
 
-	// B5-F1: flat-mode tolerance. Some LLMs emit blocks[] as a JSON
-	// string ("[{...},{...}]") instead of a real array — typically a
+	// Flat-mode tolerance. Some LLMs emit nested arrays as JSON
+	// strings ("[{...}]") instead of real arrays — typically a
 	// streaming artefact where the model ran the array through
-	// JSON.stringify before placing it in the tool-call. Detect and
-	// re-parse so we accept the emit instead of forcing an empty
-	// retry, but log a WARN so operators see the recovery.
+	// JSON.stringify before placing it in the tool-call. We
+	// repair top-level blocks[] AND every nested array on each
+	// block (items / claim_uses / diagram.claim_uses) so the
+	// LLM gets accepted instead of forced to retry, while a WARN
+	// log surfaces the recovery for operator visibility.
 	if repaired, ok := repairBlocksAsString(raw); ok {
 		logging.Warning("[emit_answer_document] blocks[] arrived as JSON-encoded string; re-parsed via flat-mode tolerance path")
+		raw = repaired
+	}
+	if repaired, paths, ok := repairNestedArraysAsString(raw); ok {
+		logging.Warning("[emit_answer_document] nested arrays arrived as JSON-encoded strings (paths: %s); re-parsed via flat-mode tolerance path",
+			strings.Join(paths, ", "))
 		raw = repaired
 	}
 
@@ -310,6 +317,117 @@ func repairBlocksAsString(raw json.RawMessage) (json.RawMessage, bool) {
 		return nil, false
 	}
 	return patched, true
+}
+
+// repairNestedArraysAsString detects the same "JSON-encoded string
+// where an array is expected" failure mode for the nested arrays
+// inside each block (items, claim_uses, diagram.claim_uses) and
+// returns a re-encoded RawMessage with each affected array inlined
+// as a real array. Mirrors repairBlocksAsString conservatively —
+// only the named fields are patched; everything else passes through
+// verbatim so downstream V1-field detection + schema validation
+// still fire on whatever else may be wrong.
+//
+// Returns (raw, [list of repaired paths], true) on at least one
+// repair, or (raw, nil, false) when nothing was repaired.
+//
+// Paths use dotted-bracket notation so the WARN log can name the
+// exact site (e.g. blocks[0].items, blocks[2].claim_uses,
+// blocks[1].diagram.claim_uses).
+func repairNestedArraysAsString(raw json.RawMessage) (json.RawMessage, []string, bool) {
+	if len(raw) == 0 {
+		return nil, nil, false
+	}
+	var probe map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &probe); err != nil {
+		return nil, nil, false
+	}
+	rawBlocks, ok := probe["blocks"]
+	if !ok || len(rawBlocks) == 0 || rawBlocks[0] != '[' {
+		return nil, nil, false
+	}
+	var blocks []json.RawMessage
+	if err := json.Unmarshal(rawBlocks, &blocks); err != nil {
+		return nil, nil, false
+	}
+	var paths []string
+	repaired := false
+	for i, blk := range blocks {
+		var blkObj map[string]json.RawMessage
+		if err := json.Unmarshal(blk, &blkObj); err != nil {
+			continue
+		}
+		for _, field := range []string{"items", "claim_uses"} {
+			if r, ok := repairBlockArrayField(blkObj, field); ok {
+				blkObj[field] = r
+				paths = append(paths, fmt.Sprintf("blocks[%d].%s", i, field))
+				repaired = true
+			}
+		}
+		// Diagram.claim_uses — one level deeper.
+		if rawDiag, ok := blkObj["diagram"]; ok && len(rawDiag) > 0 && rawDiag[0] == '{' {
+			var diagObj map[string]json.RawMessage
+			if err := json.Unmarshal(rawDiag, &diagObj); err == nil {
+				if r, ok := repairBlockArrayField(diagObj, "claim_uses"); ok {
+					diagObj["claim_uses"] = r
+					if patched, err := json.Marshal(diagObj); err == nil {
+						blkObj["diagram"] = patched
+						paths = append(paths, fmt.Sprintf("blocks[%d].diagram.claim_uses", i))
+						repaired = true
+					}
+				}
+			}
+		}
+		if patched, err := json.Marshal(blkObj); err == nil {
+			blocks[i] = patched
+		}
+	}
+	if !repaired {
+		return raw, nil, false
+	}
+	if patchedBlocks, err := json.Marshal(blocks); err == nil {
+		probe["blocks"] = patchedBlocks
+	}
+	out, err := json.Marshal(probe)
+	if err != nil {
+		return raw, nil, false
+	}
+	return out, paths, true
+}
+
+// repairBlockArrayField detects a JSON-encoded string at obj[field]
+// where a JSON array is expected, and returns the re-encoded array
+// RawMessage. Returns (raw, false) when the field is absent OR is
+// already a real array OR the string content cannot be decoded as
+// an array. Conservative: any decode failure leaves the field
+// untouched so the regular validator surfaces the real schema
+// violation.
+func repairBlockArrayField(obj map[string]json.RawMessage, field string) (json.RawMessage, bool) {
+	rawField, ok := obj[field]
+	if !ok || len(rawField) == 0 {
+		return nil, false
+	}
+	if rawField[0] != '"' {
+		// Already a real array (or another shape) — nothing to do.
+		return nil, false
+	}
+	var encoded string
+	if err := json.Unmarshal(rawField, &encoded); err != nil {
+		return nil, false
+	}
+	trimmed := strings.TrimSpace(encoded)
+	if !strings.HasPrefix(trimmed, "[") {
+		return nil, false
+	}
+	var inner []json.RawMessage
+	if err := json.Unmarshal([]byte(trimmed), &inner); err != nil {
+		return nil, false
+	}
+	out, err := json.Marshal(inner)
+	if err != nil {
+		return nil, false
+	}
+	return out, true
 }
 
 // summarizeV2Blocks builds a short " (kinds=summary,ordered_list,…)"

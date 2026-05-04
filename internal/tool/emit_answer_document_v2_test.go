@@ -307,3 +307,146 @@ func TestEmitAnswerDocumentV2_FlatModeRejectsMixedV1FieldsAfterRepair(t *testing
 		t.Fatal("flat-mode emit with V1 'shape' field must still reject")
 	}
 }
+
+// ── R4.1 nested-array string-mode tolerance tests ──────────────
+
+// TestRepairNestedArraysAsString_ItemsAsString covers the
+// per-block items[] string-encoded case (extending B5-F1's
+// blocks[] coverage).
+func TestRepairNestedArraysAsString_ItemsAsString(t *testing.T) {
+	raw := json.RawMessage(`{
+		"document_model": "v2",
+		"blocks": [
+			{"id": "list1", "kind": "ordered_list",
+			 "items": "[{\"id\":\"i1\",\"label\":\"A\"},{\"id\":\"i2\",\"label\":\"B\"}]"}
+		]
+	}`)
+	patched, paths, ok := repairNestedArraysAsString(raw)
+	if !ok {
+		t.Fatal("repair must fire")
+	}
+	if len(paths) != 1 || paths[0] != "blocks[0].items" {
+		t.Errorf("paths = %v, want [blocks[0].items]", paths)
+	}
+	// Confirm blocks[0].items is now a real array (not string)
+	if !strings.Contains(string(patched), `"items":[{`) {
+		t.Errorf("items[] not converted to array: %s", patched)
+	}
+}
+
+// TestRepairNestedArraysAsString_ClaimUsesAsString covers the
+// per-block claim_uses[] string-encoded case.
+func TestRepairNestedArraysAsString_ClaimUsesAsString(t *testing.T) {
+	raw := json.RawMessage(`{
+		"document_model": "v2",
+		"blocks": [
+			{"id": "s1", "kind": "summary",
+			 "claim_uses": "[{\"claim_form\":\"definition_fact\"}]"}
+		]
+	}`)
+	_, paths, ok := repairNestedArraysAsString(raw)
+	if !ok {
+		t.Fatal("repair must fire")
+	}
+	if len(paths) != 1 || paths[0] != "blocks[0].claim_uses" {
+		t.Errorf("paths = %v, want [blocks[0].claim_uses]", paths)
+	}
+}
+
+// TestRepairNestedArraysAsString_DiagramClaimUses covers the
+// nested-deeper diagram.claim_uses[] case.
+func TestRepairNestedArraysAsString_DiagramClaimUses(t *testing.T) {
+	raw := json.RawMessage(`{
+		"document_model": "v2",
+		"blocks": [
+			{"id": "d1", "kind": "diagram",
+			 "diagram": {"kind": "flow", "body": "flowchart TD\nA-->B",
+			   "claim_uses": "[{\"claim_form\":\"call_edge\"}]"}}
+		]
+	}`)
+	_, paths, ok := repairNestedArraysAsString(raw)
+	if !ok {
+		t.Fatal("repair must fire")
+	}
+	if len(paths) != 1 || paths[0] != "blocks[0].diagram.claim_uses" {
+		t.Errorf("paths = %v, want [blocks[0].diagram.claim_uses]", paths)
+	}
+}
+
+// TestRepairNestedArraysAsString_MultipleAtOnce confirms the
+// repair handles multiple nested-string sites in one emit.
+func TestRepairNestedArraysAsString_MultipleAtOnce(t *testing.T) {
+	raw := json.RawMessage(`{
+		"document_model": "v2",
+		"blocks": [
+			{"id": "list1", "kind": "ordered_list",
+			 "items": "[{\"id\":\"i1\",\"label\":\"A\"}]",
+			 "claim_uses": "[{\"claim_form\":\"call_edge\"}]"},
+			{"id": "d1", "kind": "diagram",
+			 "diagram": {"kind": "flow", "body": "x",
+			   "claim_uses": "[{\"claim_form\":\"definition_fact\"}]"}}
+		]
+	}`)
+	_, paths, ok := repairNestedArraysAsString(raw)
+	if !ok {
+		t.Fatal("repair must fire")
+	}
+	if len(paths) != 3 {
+		t.Errorf("expected 3 repair paths; got %v", paths)
+	}
+}
+
+// TestRepairNestedArraysAsString_NoTrigger confirms the negative
+// cases (already arrays, absent fields, non-array strings, etc.)
+// don't trigger the repair.
+func TestRepairNestedArraysAsString_NoTrigger(t *testing.T) {
+	cases := []struct {
+		name string
+		raw  string
+	}{
+		{"already_array", `{"blocks":[{"id":"b1","kind":"summary","items":[{"id":"i1"}]}]}`},
+		{"items_absent", `{"blocks":[{"id":"b1","kind":"summary"}]}`},
+		{"items_not_string", `{"blocks":[{"id":"b1","kind":"summary","items":42}]}`},
+		{"items_string_not_array", `{"blocks":[{"id":"b1","kind":"summary","items":"plain text"}]}`},
+		{"empty", ``},
+		{"malformed", `{not json`},
+		{"blocks_string_top_level", `{"blocks":"[{}]"}`}, // covered by repairBlocksAsString, NOT this one
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			_, _, ok := repairNestedArraysAsString(json.RawMessage(tc.raw))
+			if ok {
+				t.Errorf("repair fired unexpectedly for %s", tc.name)
+			}
+		})
+	}
+}
+
+// TestEmitAnswerDocumentV2_NestedFlatModeAccepts pins end-to-end
+// behaviour: tool Execute path repairs nested string + completes
+// the emit successfully.
+func TestEmitAnswerDocumentV2_NestedFlatModeAccepts(t *testing.T) {
+	bus := newV2TestBusContext()
+	tool := &EmitAnswerDocument{}
+	flat := json.RawMessage(`{
+		"document_model": "v2",
+		"blocks": [
+			{"id": "list1", "kind": "ordered_list",
+			 "items": "[{\"id\":\"i1\",\"label\":\"first\"},{\"id\":\"i2\",\"label\":\"second\"}]"}
+		]
+	}`)
+	res, err := tool.Execute(bus, flat)
+	if err != nil {
+		t.Fatalf("flat-mode nested emit error: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("nested string repair must succeed; got %+v", res)
+	}
+	doc := bus.Mutable.AnswerDocumentV2()
+	if doc == nil || len(doc.Blocks) != 1 {
+		t.Fatalf("doc not written; got %+v", doc)
+	}
+	if got := len(doc.Blocks[0].Items); got != 2 {
+		t.Errorf("items not deserialised; got %d, want 2", got)
+	}
+}

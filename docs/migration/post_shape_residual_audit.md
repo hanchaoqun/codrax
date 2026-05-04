@@ -124,7 +124,7 @@
 | R2.3 | 🟢 SHIPPED 4/4:Facet (3a4a39a) + Richness (3a4a39a) + ClaimForm (8cdfd93) + AbsenceScope (pending) | TBD | 待真 eval 触发场景 |
 | R2.4 | 🟢 SHIPPED 选位修 | TBD | 待真 eval rerun s1a 看是否触发 |
 | R3.1 | 🟢 SHIPPED 真根因修(emptySurface 短路 inconclusive) | TBD | 待真 eval rerun s1a/m1a 确认 facet_softened 不再 fire 4/4 |
-| R4.1 | ⬜ pending | — | — |
+| R4.1 | 🟢 SHIPPED nested-array string-mode 兜底扩展 | (本 commit) | repairNestedArraysAsString 处理 items[] / claim_uses[] / diagram.claim_uses[] string-encoded 失败模式;7 单测 (3 case + multi + 7 negative + e2e) |
 | R4.2 | 🔵 由 R16 取代 — emit_answer_document_patch 即 F7-A retained-draft 协议层实施 | (R16) | n/a |
 | R4.3 | ⬜ pending | — | — |
 | R4.4 | ⬜ pending(等 R3.1) | — | — |
