@@ -4623,6 +4623,15 @@ func (o *Orchestrator) dispatchStage(stage types.PipelineStage) (*agent.StageOut
 	agentCtx.EmitStageRetryAttempt = o.emitStageRetryAttempt
 	o.emitStageRetryAttempt = 0
 
+	// Per-dispatch marker — gives operators a precise dispatch count
+	// distinct from the per-iteration "ASSISTANT content_len=" lines.
+	// Operators previously misread `explorer_iters=40` as a single
+	// long-running ReAct loop when it was actually 4 dispatches × ~10
+	// iters/dispatch; eval/run.sh's <agent>_dispatches metric counts
+	// this line.
+	logging.Debug("[diag %s] DISPATCH stage=%s attempt=%d",
+		agentName, stage, agentCtx.EmitStageRetryAttempt)
+
 	// B6-F4 (post-shape consolidated audit, 2026-05-04): dynamically
 	// disable think_aloud on FINALIZER retry attempts. Iteration 0
 	// (the first dispatch) keeps think_aloud per the operator's yaml

@@ -111,7 +111,7 @@
 | ~~**R6**~~ | 🔵 由 R14 统一解决 | — | retry 字段失忆 — 类 A;深层根因同 R6.1/R11/R13 |
 | ~~**R6.1**~~ | 🔵 由 R14 统一解决 | — | block vs item 失忆 sub-pattern;深层根因同 R6/R11/R13 |
 | ~~**R11**~~ | 🔵 由 R14 统一解决 | — | violation 缺 Severity;深层根因同 R6/R6.1/R13 |
-| **R12** | ⬜ pending P3(R7 verification 深挖发现) | — | explorer/extractor/finalizer iter 计数 cross-dispatch 累加,m1a r1 metric `explorer_iters=40` 实际 4 次 dispatch × ~10 iter,运维看错。**纯观测性问题,不属 retry-state 范畴**,独立修。见 R7_eval_deep_audit.md |
+| **R12** | 🟢 SHIPPED 每 dispatch 一行 `DISPATCH stage=… attempt=…` + eval/run.sh `<agent>_dispatches` 指标 + R5.2 `phase=<sub>` 子事件标识 | (本 commit) | 观测可解出 dispatch 数 vs LLM turn 数,iter=N grep 不再混淆;4 子事件 (cancel/prune/toolcall/embedded_correction/softstop_signal/softstop_inject/toolresult/midloop_signal/midloop_inject/midloop_force_stop) 均带 phase=,ASSISTANT content_len 保持纯净 (B6-F5 metric 不变) |
 | ~~**R13**~~ | 🔵 由 R14 统一解决 | — | scheduler vs V2 oracle 双层 gating;深层根因同 R6/R6.1/R11 |
 | **R14** | 🟢 SHIPPED c1-c10(c10 真 eval verify 完成)| e79f308+3162146+9e3b038 | Pass rate 3/4→**4/4**;Hard Rule renders × 4 真触发;facet_uncovered 4→1 (-75%)。但暴露 R15/R16 深层 insight。见 R14_eval_deep_audit.md |
 | **R15** | 🟢 SHIPPED ViolationProfile 单一 source of truth | TBD | 待 c2 真 eval rerun 验证 R14 retry-state 真触发率上升 |

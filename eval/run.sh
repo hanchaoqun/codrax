@@ -213,6 +213,17 @@ write_metrics() {
     echo "explorer_iters=$(count_pattern 'diag explorer.*ASSISTANT content_len=' "$log")"
     echo "extractor_iters=$(count_pattern 'diag extractor.*ASSISTANT content_len=' "$log")"
     echo "finalizer_iters=$(count_pattern 'diag finalizer.*ASSISTANT content_len=' "$log")"
+    # R12 (post-shape 残留 audit, 2026-05-04): per-agent dispatch
+    # counters distinct from per-iteration "ASSISTANT content_len="
+    # lines. Operators previously misread `explorer_iters=40` as a
+    # single long ReAct loop when it was 4 dispatches × ~10 iters
+    # each. The orchestrator emits exactly one `[diag <agent>]
+    # DISPATCH stage=… attempt=…` line per dispatch, so iter median
+    # per dispatch = explorer_iters / explorer_dispatches.
+    echo "analyzer_dispatches=$(count_pattern 'diag analyzer.*DISPATCH stage=' "$log")"
+    echo "explorer_dispatches=$(count_pattern 'diag explorer.*DISPATCH stage=' "$log")"
+    echo "extractor_dispatches=$(count_pattern 'diag extractor.*DISPATCH stage=' "$log")"
+    echo "finalizer_dispatches=$(count_pattern 'diag finalizer.*DISPATCH stage=' "$log")"
   } >"$metrics"
 }
 
@@ -550,7 +561,7 @@ SUMMARY="$OUTDIR/summary.md"
   # 2026-05-04): write_metrics writes them to run-N.metrics.txt;
   # aggregate them into the summary table so they show up next to
   # the legacy 12 mechanism counters with median.
-  metric_keys="tool_read_file concrete_values synthesis_runs function_boundary_push enumeration_push focus_warning t11_gate_skip t11_gate_run dataflow_intent_lookup dataflow_intent_propagate midloop_inject answer_chain_lines analyzer_iters explorer_iters extractor_iters finalizer_iters"
+  metric_keys="tool_read_file concrete_values synthesis_runs function_boundary_push enumeration_push focus_warning t11_gate_skip t11_gate_run dataflow_intent_lookup dataflow_intent_propagate midloop_inject answer_chain_lines analyzer_iters explorer_iters extractor_iters finalizer_iters analyzer_dispatches explorer_dispatches extractor_dispatches finalizer_dispatches"
   for key in $metric_keys; do
     row="| $key |"
     vals=()

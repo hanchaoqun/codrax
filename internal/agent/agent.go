@@ -935,7 +935,7 @@ func (b *BaseAgent) Execute(ctx *types.AgentContext, sk *skill.Config) (*StageOu
 		// into llm.Chat for HTTP-level interruption.
 		if b.deps.CancelChecker != nil {
 			if err := b.deps.CancelChecker(); err != nil {
-				logging.Info("[diag %s] iter=%d cancel checkpoint fired: %v", b.name, i, err)
+				logging.Info("[diag %s] iter=%d phase=cancel cancel checkpoint fired: %v", b.name, i, err)
 				return nil, err
 			}
 		}
@@ -949,7 +949,7 @@ func (b *BaseAgent) Execute(ctx *types.AgentContext, sk *skill.Config) (*StageOu
 			toolHistBudget = 150 * 1024
 		}
 		if pruneToolHistory(messages, toolHistBudget) {
-			logging.Debug("[diag %s] iter=%d TOOL HISTORY PRUNED (budget=%d bytes)",
+			logging.Debug("[diag %s] iter=%d phase=prune TOOL HISTORY PRUNED (budget=%d bytes)",
 				b.name, i, toolHistBudget)
 		}
 
@@ -1140,7 +1140,7 @@ func (b *BaseAgent) Execute(ctx *types.AgentContext, sk *skill.Config) (*StageOu
 			})
 		}
 		for j, tc := range resp.ToolCalls {
-			logging.Debug("[diag %s] iter=%d call[%d] tool=%s params=%s",
+			logging.Debug("[diag %s] iter=%d phase=toolcall call[%d] tool=%s params=%s",
 				b.name, i, j, tc.Name, string(tc.Params))
 		}
 		historyToolCalls := sanitizeToolCallsForHistory(resp.ToolCalls)
@@ -1198,7 +1198,7 @@ func (b *BaseAgent) Execute(ctx *types.AgentContext, sk *skill.Config) (*StageOu
 			// calls as markdown JSON blocks. Inject a correction hint
 			// so the LLM retries with real tool_use blocks.
 			if looksLikeEmbeddedToolCall(resp.Content) {
-				logging.Debug("[diag %s] iter=%d detected embedded tool-call JSON in content — injecting correction", b.name, i)
+				logging.Debug("[diag %s] iter=%d phase=embedded_correction detected embedded tool-call JSON in content — injecting correction", b.name, i)
 				messages = append(messages, llm.Message{
 					Role:    "assistant",
 					Content: resp.Content,
@@ -1231,7 +1231,7 @@ func (b *BaseAgent) Execute(ctx *types.AgentContext, sk *skill.Config) (*StageOu
 				// useful (carries the policy-layer rejection
 				// explanation for dropped hints), so both fields
 				// stay on the same line.
-				logging.Debug("[diag %s] iter=%d SOFT-STOP signal hint=%t progress=%t stop=%t key=%q → %s (%s)",
+				logging.Debug("[diag %s] iter=%d phase=softstop_signal hint=%t progress=%t stop=%t key=%q → %s (%s)",
 					b.name, i, sig.HintRequested, sig.Progress, sig.StopRequested,
 					sig.HintKey, result.Outcome, result.Reason)
 				if result.Outcome == OutcomeInjectHint {
@@ -1244,7 +1244,7 @@ func (b *BaseAgent) Execute(ctx *types.AgentContext, sk *skill.Config) (*StageOu
 						Role:    "user",
 						Content: result.Hint,
 					})
-					logging.Debug("[diag %s] iter=%d SOFT-STOP inject len=%d:\n%s\n---",
+					logging.Debug("[diag %s] iter=%d phase=softstop_inject SOFT-STOP inject len=%d:\n%s\n---",
 						b.name, i, len(result.Hint), logging.Truncate(result.Hint, logging.HintBodyMax))
 					continue
 				}
@@ -1326,7 +1326,7 @@ func (b *BaseAgent) Execute(ctx *types.AgentContext, sk *skill.Config) (*StageOu
 						Content:    er.result.Summary,
 						ToolCallID: tc.ID,
 					})
-					logging.Debug("[diag %s] iter=%d TOOLRESULT %s ok=%v len=%d:\n%s\n---",
+					logging.Debug("[diag %s] iter=%d phase=toolresult TOOLRESULT %s ok=%v len=%d:\n%s\n---",
 						b.name, i, er.result.ToolName, er.result.Success, len(er.result.Summary),
 						truncForLog(er.result.Summary, 2000))
 				}
@@ -1380,7 +1380,7 @@ func (b *BaseAgent) Execute(ctx *types.AgentContext, sk *skill.Config) (*StageOu
 						Content:    result.Summary,
 						ToolCallID: tc.ID,
 					})
-					logging.Debug("[diag %s] iter=%d TOOLRESULT %s ok=%v len=%d:\n%s\n---",
+					logging.Debug("[diag %s] iter=%d phase=toolresult TOOLRESULT %s ok=%v len=%d:\n%s\n---",
 						b.name, i, result.ToolName, result.Success, len(result.Summary),
 						truncForLog(result.Summary, 2000))
 				}
@@ -1438,7 +1438,7 @@ func (b *BaseAgent) Execute(ctx *types.AgentContext, sk *skill.Config) (*StageOu
 			// HintKey — without it, trace analysis has to grep the
 			// evaluator source to figure out which detection
 			// branch fired.
-			logging.Debug("[diag %s] iter=%d MIDLOOP signal hint=%t progress=%t stop=%t key=%q → %s (%s)",
+			logging.Debug("[diag %s] iter=%d phase=midloop_signal hint=%t progress=%t stop=%t key=%q → %s (%s)",
 				b.name, i, sig.HintRequested, sig.Progress, sig.StopRequested,
 				sig.HintKey, result.Outcome, result.Reason)
 			switch result.Outcome {
@@ -1447,14 +1447,14 @@ func (b *BaseAgent) Execute(ctx *types.AgentContext, sk *skill.Config) (*StageOu
 					Role:    "user",
 					Content: result.Hint,
 				})
-				logging.Debug("[diag %s] iter=%d MIDLOOP inject len=%d:\n%s\n---",
+				logging.Debug("[diag %s] iter=%d phase=midloop_inject MIDLOOP inject len=%d:\n%s\n---",
 					b.name, i, len(result.Hint), logging.Truncate(result.Hint, logging.HintBodyMax))
 			case OutcomeStop:
 				// Policy decided to terminate — e.g. idle-streak
 				// force-stop or evaluator StopRequested. Record the
 				// reason for the trace and break out of the ReAct
 				// loop on the next iteration's top check.
-				logging.Debug("[diag %s] iter=%d MIDLOOP force-stop: %s",
+				logging.Debug("[diag %s] iter=%d phase=midloop_force_stop MIDLOOP force-stop: %s",
 					b.name, i, result.Reason)
 				forceStop = true
 			}
