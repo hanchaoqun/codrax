@@ -126,6 +126,34 @@ func TestRenderAnswerDocFacetCoverage_EmitsHardSoftOptionalLabels(t *testing.T) 
 	}
 }
 
+// TestRenderAnswerDocFacetCoverage_EvidenceCountAnnotation pins
+// Phase 5-E2: every facet line ends with `(evidence: N)` where N is
+// len(SourceCandidate). The annotation surfaces the gate input so
+// the LLM understands when SOFT facets are skipped (N=0).
+func TestRenderAnswerDocFacetCoverage_EvidenceCountAnnotation(t *testing.T) {
+	// IntentRootCause + LogBundle drives QFRootCauseTrace, which has
+	// FacetObservedArtifactFact as HARD. Provide one matching surface
+	// item so SourceCandidate is non-empty (count = 1).
+	ctx := &types.AgentContext{
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				Intent:    types.IntentRootCause,
+				LogTriage: &types.LogBundle{},
+			},
+		},
+	}
+	got := renderAnswerDocFacetCoverage(ctx)
+	// Every facet line MUST carry the (evidence: N) marker.
+	if !strings.Contains(got, "(evidence:") {
+		t.Errorf("missing (evidence: N) annotation; got\n%s", got)
+	}
+	// Header prose MUST explain the gate semantic.
+	if !strings.Contains(got, "(evidence: N)") ||
+		!strings.Contains(got, "SOFT facets this count gates") {
+		t.Errorf("header prose missing E1 gate explanation; got\n%s", got)
+	}
+}
+
 // TestRenderAnswerDocFacetCoverage_NoGoInternalNamesLeak pins the
 // glossary-lint contract at the function-output level. None of the
 // Phase 1 internal type names may appear in the rendered LLM-facing
