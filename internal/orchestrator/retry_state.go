@@ -126,7 +126,20 @@ func scoreViolations(in []contract.Violation) []types.ScoredViolation {
 //
 // When a kind has multiple producers (rare), prefer the most
 // frequent. Unknown kinds default to "contract_check".
+//
+// v3 B0 (2026-05-04): registry-first. When a spec exists for kind,
+// the spec.Layer wins; otherwise fall through to the legacy switch.
+// TestRegistryDerivesAllLegacyTables enforces byte-identical agreement
+// for every kind in AllViolationKinds().
 func inferViolationLayer(kind types.ViolationKind) string {
+	if spec, ok := types.ViolKindSpecFor(kind); ok && spec.Layer != "" {
+		return spec.Layer
+	}
+	return legacyInferViolationLayer(kind)
+}
+
+// legacyInferViolationLayer retains the pre-v3 hardcoded switch.
+func legacyInferViolationLayer(kind types.ViolationKind) string {
 	switch kind {
 	// V2 oracle layer (runV2BlockOraclesWithMut + V2 carrier oracles
 	// in contract_check.go).

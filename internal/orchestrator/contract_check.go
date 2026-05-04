@@ -1171,7 +1171,30 @@ func abs(x int) int {
 // Orchestrator so it has access to reviewer / yaml flags / emit
 // surface for the REPL bottom-status line.
 //
+// defaultSoftKinds returns the canonical soft-by-default map. v3 B0
+// (2026-05-04) derives this from each kind's ViolKindSpec.SoftByDefault
+// in the registry; the legacy literal below is retained for
+// migration-window byte-identical verification
+// (TestRegistryDerivesAllLegacyTables). Unregistered kinds fall through
+// to the legacy literal so back-compat is preserved.
 func defaultSoftKinds() map[types.ViolationKind]bool {
+	out := map[types.ViolationKind]bool{}
+	for _, spec := range types.AllViolKindSpecs() {
+		if spec.SoftByDefault {
+			out[spec.Kind] = true
+		}
+	}
+	for k, v := range legacyDefaultSoftKinds() {
+		if _, ok := out[k]; !ok && v {
+			out[k] = true
+		}
+	}
+	return out
+}
+
+// legacyDefaultSoftKinds retains the pre-v3 hardcoded literal. Kept
+// during the migration window only.
+func legacyDefaultSoftKinds() map[types.ViolationKind]bool {
 	return map[types.ViolationKind]bool{
 		types.ViolViewIntentMismatch:          true,
 		types.ViolSubTopicCountMismatch:        true,

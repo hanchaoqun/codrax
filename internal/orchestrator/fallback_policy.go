@@ -97,31 +97,34 @@ func (t FallbackTarget) IsValid() bool {
 //   3. On tie, fall back to the deepest target (preserves safety —
 //      if equal counts, we'd rather over-rebuild than under-repair).
 //
-// Locus values mirror the read-mode pipeline stages plus a terminal
-// fail-loud sentinel:
-type RepairLocus string
+// v3 B0 (2026-05-04): the canonical RepairLocus type now lives in
+// internal/types/violation_registry.go so the ViolKindRegistry can
+// declare FallbackLocus per kind without an orchestrator → types →
+// orchestrator import cycle. This file aliases the canonical type
+// and constants so existing callsites continue compiling unchanged.
+type RepairLocus = types.RepairLocus
 
 const (
 	// LocusFinalizer — the violation can be fixed by re-emitting
 	// the answer document with adjusted block payload / claim_use /
 	// diagram.kind / Authority disclosure. Evidence + extractor
 	// state are preserved.
-	LocusFinalizer RepairLocus = "finalizer"
+	LocusFinalizer = types.LocusFinalizer
 
 	// LocusExtract — the violation needs the extractor to re-pick
 	// citations / re-frame absence scope / re-emit the symbol
 	// slate. Evidence is preserved, the extract output is reset.
-	LocusExtract RepairLocus = "extract"
+	LocusExtract = types.LocusExtract
 
 	// LocusExplore — the violation needs new evidence (a new file
 	// read, a new grep, a new closure entry). Both extract output
 	// and answer document are reset; explorer re-runs.
-	LocusExplore RepairLocus = "explore"
+	LocusExplore = types.LocusExplore
 
 	// LocusTerminal — the violation is non-recoverable through
 	// retry (analyzer-classification disputes, retry budget, yield
 	// kill, reviewer-distilled informational kinds).
-	LocusTerminal RepairLocus = "terminal"
+	LocusTerminal = types.LocusTerminal
 )
 
 // LocusOfTarget returns the RepairLocus that owns the named
@@ -247,7 +250,43 @@ type FallbackPolicy map[types.ViolationKind]FallbackTarget
 //     ViolIntentConfigNoTrail     → BackToExplore
 //     ViolSubjectAnchorMissing    → BackToExtract
 //     ViolPredicateAxisMissing    → BackToExplore
+//
+// v3 B0 (2026-05-04): per-kind targets are now registered as part of
+// each kind's ViolKindSpec.FallbackLocus in
+// internal/types/violation_registry.go. DefaultFallbackPolicy derives
+// the legacy map from the registry; the literal below is retained for
+// migration-window byte-identical verification (TestRegistryDerivesAllLegacyTables).
+// The literal is the SECONDARY source — the registry is canonical.
 func DefaultFallbackPolicy() FallbackPolicy {
+	policy := defaultFallbackPolicyFromRegistry()
+	// Migration window: callers may still depend on hardcoded legacy
+	// entries the registry has not yet seeded (none today, but the
+	// guard exists so a future kind missing from the registry keeps
+	// the legacy map's entry rather than silently dropping). When the
+	// registry is the sole source we drop this back-compat layer.
+	for k, v := range legacyDefaultFallbackPolicy() {
+		if _, ok := policy[k]; !ok {
+			policy[k] = v
+		}
+	}
+	return policy
+}
+
+// defaultFallbackPolicyFromRegistry builds the policy from registered
+// ViolKindSpec entries. FallbackLocus → FallbackTarget via
+// targetForLocus.
+func defaultFallbackPolicyFromRegistry() FallbackPolicy {
+	policy := FallbackPolicy{}
+	for _, spec := range types.AllViolKindSpecs() {
+		policy[spec.Kind] = targetForLocus(spec.FallbackLocus)
+	}
+	return policy
+}
+
+// legacyDefaultFallbackPolicy retains the pre-v3 hardcoded map. Kept
+// during the migration window only; TestRegistryDerivesAllLegacyTables
+// enforces byte-identical agreement with the registry-derived map.
+func legacyDefaultFallbackPolicy() FallbackPolicy {
 	return FallbackPolicy{
 		// Existing read-mode kinds.
 		// Phase 1-D (s1a-20260504-130143 abstraction-drift forensic,

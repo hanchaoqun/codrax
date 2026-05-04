@@ -331,7 +331,17 @@ type ViolationProfile struct {
 // isStrict honours pipeline_contract_strict_kinds yaml override:
 // when operator promotes a Soft kind to strict, the profile
 // bumps Severity Soft → Medium AND RetryEligible false → true.
+//
+// v3 B0 (2026-05-04): when the kind has a registered ViolKindSpec
+// AND the spec marks it as not Promotable, isStrict is silently
+// ignored (the operator-promote path is a no-op). This honours
+// the permanently-soft contract (label inference / frequency
+// bridges / richness regression) at the profile layer rather than
+// only at SetSoftViolationKinds.
 func ViolationProfileFor(kind ViolationKind, isStrict bool) ViolationProfile {
+	if isStrict && !IsViolKindPromotable(kind) {
+		isStrict = false
+	}
 	sev := DeriveSeverity(kind, isStrict)
 	return ViolationProfile{
 		Kind:          kind,
@@ -351,7 +361,35 @@ func ViolationProfileFor(kind ViolationKind, isStrict bool) ViolationProfile {
 // function bumps SeveritySoft → SeverityMedium. When the operator
 // relaxes a Critical kind, this function does NOT downgrade —
 // Critical is intrinsic ("answer cannot ship without").
+//
+// v3 B0 (2026-05-04): the registry is the canonical source for the
+// non-strict (operator-default) classification. When a spec exists
+// for kind AND isStrict=false, the registry's DefaultSeverity wins.
+// Strict promotion (isStrict=true) currently delegates to the legacy
+// switch so existing nuanced bump rules (Medium→High for V2 oracle
+// kinds; Soft→Medium for some kinds; Soft-permanent for others)
+// remain byte-identical. A follow-up PR can push strict semantics
+// into the registry once eval validates the rules.
+//
+// Permanently non-promotable kinds (spec.Promotable=false) ignore
+// isStrict at the ViolationProfileFor layer (see promotion guard
+// there); DeriveSeverity itself does not need to special-case them
+// because the legacy switch happens to encode their strict-stays-
+// soft behaviour already.
 func DeriveSeverity(kind ViolationKind, isStrict bool) Severity {
+	if !isStrict {
+		if spec, ok := ViolKindSpecFor(kind); ok {
+			return spec.DefaultSeverity
+		}
+	}
+	return legacyDeriveSeverity(kind, isStrict)
+}
+
+// legacyDeriveSeverity is the pre-B0 hardcoded switch. Retained for
+// migration-window verification and as a fallback for any
+// not-yet-registered kind. Deletion follows once registry coverage
+// is enforced via TestEveryViolKindHasSpec.
+func legacyDeriveSeverity(kind ViolationKind, isStrict bool) Severity {
 	switch kind {
 	// Critical: answer cannot ship — finalizer-only fixable but
 	// fail-loud on budget exhaustion.
