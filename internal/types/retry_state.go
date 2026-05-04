@@ -332,6 +332,7 @@ func DeriveSeverity(kind ViolationKind, isStrict bool) Severity {
 		ViolStepIdentifierUnverified,
 		ViolValueSecondaryCitationOffFocus,
 		ViolSymbolAnchorMismatch,
+		ViolEnumerationLabelUngrounded,
 		ViolCrossCitationConflict,
 		ViolDeclaredCountDrift,
 		ViolSelfContradiction,

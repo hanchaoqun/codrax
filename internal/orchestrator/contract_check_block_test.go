@@ -968,6 +968,7 @@ func TestB4ViolationKindsRegistered(t *testing.T) {
 		types.ViolPrincipalClaimUseMissing,
 		types.ViolDiagramEdgeUnsupported,
 		types.ViolUncertaintyBlockMissing,
+		types.ViolEnumerationLabelUngrounded,
 	}
 	all := types.AllViolationKinds()
 	seen := map[types.ViolationKind]bool{}
@@ -978,5 +979,266 @@ func TestB4ViolationKindsRegistered(t *testing.T) {
 		if !seen[k] {
 			t.Errorf("AllViolationKinds() missing %q (B4 oracle should be registered)", k)
 		}
+	}
+}
+
+// ── R-Hallu post-shape s1a-20260504-064754 forensic:
+// validateEnumerationItemLabelGrounding lock tests ───────
+
+func mutWithEvidence(items []types.EvidenceItem) *types.MutableState {
+	mut := &types.MutableState{}
+	mut.SetTurnAArtifacts(types.TurnAArtifacts{EvidenceItems: items})
+	return mut
+}
+
+// TestEnumerationLabelGrounding_AllLabelsMatchAnchorPasses — every
+// items[].label is the verbatim AnchorSymbol of an evidence item;
+// oracle returns no violations.
+func TestEnumerationLabelGrounding_AllLabelsMatchAnchorPasses(t *testing.T) {
+	mut := mutWithEvidence([]types.EvidenceItem{
+		{ID: "e1", AnchorSymbol: "checkCoverage"},
+		{ID: "e2", AnchorSymbol: "checkDAGClosure"},
+		{ID: "e3", AnchorSymbol: "checkContractComplete"},
+	})
+	doc := &types.AnswerDocumentV2{
+		DocumentModel: "v2",
+		Blocks: []types.AnswerBlock{
+			{
+				ID:   "list",
+				Kind: types.BlockOrderedList,
+				Items: []types.AnswerBlockItem{
+					{ID: "i1", Label: "checkCoverage"},
+					{ID: "i2", Label: "checkDAGClosure"},
+					{ID: "i3", Label: "checkContractComplete"},
+				},
+			},
+		},
+	}
+	if vs := validateEnumerationItemLabelGrounding(doc, mut); len(vs) != 0 {
+		t.Errorf("all-grounded labels should pass; got %+v", vs)
+	}
+}
+
+// TestEnumerationLabelGrounding_HallucinatedLabelFires — the s1a
+// failure mode reproduced as a unit test: 3 grounded labels +
+// 2 fabricated labels (no evidence anchor); oracle reports the 2.
+func TestEnumerationLabelGrounding_HallucinatedLabelFires(t *testing.T) {
+	mut := mutWithEvidence([]types.EvidenceItem{
+		{ID: "e1", AnchorSymbol: "checkCoverage"},
+		{ID: "e2", AnchorSymbol: "checkDAGClosure"},
+		{ID: "e3", AnchorSymbol: "checkContractComplete"},
+	})
+	doc := &types.AnswerDocumentV2{
+		DocumentModel: "v2",
+		Blocks: []types.AnswerBlock{
+			{
+				ID:   "list",
+				Kind: types.BlockOrderedList,
+				Items: []types.AnswerBlockItem{
+					{ID: "i1", Label: "checkCoverage"},
+					{ID: "i2", Label: "checkCrossSignalCoherence"}, // hallucinated
+					{ID: "i3", Label: "checkAnswerSubjectKindIsValid"}, // hallucinated
+				},
+			},
+		},
+	}
+	vs := validateEnumerationItemLabelGrounding(doc, mut)
+	if len(vs) != 1 {
+		t.Fatalf("expected one aggregated violation; got %d (%+v)", len(vs), vs)
+	}
+	if vs[0].Kind != types.ViolEnumerationLabelUngrounded {
+		t.Errorf("kind = %q, want %q", vs[0].Kind, types.ViolEnumerationLabelUngrounded)
+	}
+	if !strings.Contains(vs[0].Detail, "checkCrossSignalCoherence") {
+		t.Errorf("Detail should name first hallucinated label; got %q", vs[0].Detail)
+	}
+	if !strings.Contains(vs[0].Detail, "checkAnswerSubjectKindIsValid") {
+		t.Errorf("Detail should name second hallucinated label; got %q", vs[0].Detail)
+	}
+	if !strings.Contains(vs[0].Detail, "2 enumeration item label(s)") {
+		t.Errorf("Detail should report the count; got %q", vs[0].Detail)
+	}
+}
+
+// TestEnumerationLabelGrounding_SubjectAndObjectAlsoSupport —
+// evidence Subject and Object also count as support tokens.
+func TestEnumerationLabelGrounding_SubjectAndObjectAlsoSupport(t *testing.T) {
+	mut := mutWithEvidence([]types.EvidenceItem{
+		{ID: "e1", Subject: "Login", Object: "AuthCheck"},
+		{ID: "e2", AnchorSymbol: "Dashboard"},
+	})
+	doc := &types.AnswerDocumentV2{
+		DocumentModel: "v2",
+		Blocks: []types.AnswerBlock{
+			{
+				ID:   "list",
+				Kind: types.BlockBulletList,
+				Items: []types.AnswerBlockItem{
+					{ID: "i1", Label: "Login"},
+					{ID: "i2", Label: "AuthCheck"},
+					{ID: "i3", Label: "Dashboard"},
+				},
+			},
+		},
+	}
+	if vs := validateEnumerationItemLabelGrounding(doc, mut); len(vs) != 0 {
+		t.Errorf("subject/object should support items; got %+v", vs)
+	}
+}
+
+// TestEnumerationLabelGrounding_NonListBlocksSkipped — scalar /
+// decision / summary / section / diagram blocks are NOT subject to
+// the oracle.
+func TestEnumerationLabelGrounding_NonListBlocksSkipped(t *testing.T) {
+	mut := mutWithEvidence([]types.EvidenceItem{
+		{ID: "e1", AnchorSymbol: "answer"},
+	})
+	doc := &types.AnswerDocumentV2{
+		DocumentModel: "v2",
+		Blocks: []types.AnswerBlock{
+			{
+				ID:    "summ",
+				Kind:  types.BlockSummary,
+				Title: "ungroundedTitle",
+				Text:  "any prose here, oracle does not check this",
+			},
+			{
+				ID:   "tab",
+				Kind: types.BlockTable,
+				Items: []types.AnswerBlockItem{
+					{ID: "r1", Label: "ungroundedRowLabel"},
+				},
+			},
+		},
+	}
+	if vs := validateEnumerationItemLabelGrounding(doc, mut); len(vs) != 0 {
+		t.Errorf("non-list blocks should be skipped; got %+v", vs)
+	}
+}
+
+// TestEnumerationLabelGrounding_ProseOnlyAndDiagramOnlySkipped —
+// SurfaceRole gates prose_only / diagram_only out of the oracle.
+func TestEnumerationLabelGrounding_ProseOnlyAndDiagramOnlySkipped(t *testing.T) {
+	mut := mutWithEvidence([]types.EvidenceItem{
+		{ID: "e1", AnchorSymbol: "X"},
+	})
+	doc := &types.AnswerDocumentV2{
+		DocumentModel: "v2",
+		Blocks: []types.AnswerBlock{
+			{
+				ID:          "prose",
+				Kind:        types.BlockBulletList,
+				SurfaceRole: types.SurfaceProseOnly,
+				Items: []types.AnswerBlockItem{
+					{ID: "p1", Label: "ungrounded_in_prose_only"},
+				},
+			},
+			{
+				ID:          "diagOnly",
+				Kind:        types.BlockOrderedList,
+				SurfaceRole: types.SurfaceDiagramOnly,
+				Items: []types.AnswerBlockItem{
+					{ID: "d1", Label: "ungrounded_in_diagram_only"},
+				},
+			},
+		},
+	}
+	if vs := validateEnumerationItemLabelGrounding(doc, mut); len(vs) != 0 {
+		t.Errorf("prose_only / diagram_only blocks should be skipped; got %+v", vs)
+	}
+}
+
+// TestEnumerationLabelGrounding_EmptyLabelSkipped — empty / whitespace
+// labels do not fire the oracle (the prose lives in `text`).
+func TestEnumerationLabelGrounding_EmptyLabelSkipped(t *testing.T) {
+	mut := mutWithEvidence([]types.EvidenceItem{
+		{ID: "e1", AnchorSymbol: "X"},
+	})
+	doc := &types.AnswerDocumentV2{
+		DocumentModel: "v2",
+		Blocks: []types.AnswerBlock{
+			{
+				ID:   "list",
+				Kind: types.BlockOrderedList,
+				Items: []types.AnswerBlockItem{
+					{ID: "i1", Label: "X"},
+					{ID: "i2", Label: "  "},
+					{ID: "i3", Label: ""},
+					{ID: "i4", Text: "describes something but no label"},
+				},
+			},
+		},
+	}
+	if vs := validateEnumerationItemLabelGrounding(doc, mut); len(vs) != 0 {
+		t.Errorf("empty labels should not fire; got %+v", vs)
+	}
+}
+
+// TestEnumerationLabelGrounding_NilMutDisablesOracle — nil mut means
+// no evidence pool wired (unit-test mode); oracle returns no
+// violations rather than false-positives on legitimate items.
+func TestEnumerationLabelGrounding_NilMutDisablesOracle(t *testing.T) {
+	doc := &types.AnswerDocumentV2{
+		DocumentModel: "v2",
+		Blocks: []types.AnswerBlock{
+			{
+				ID:   "list",
+				Kind: types.BlockOrderedList,
+				Items: []types.AnswerBlockItem{
+					{ID: "i1", Label: "anything"},
+				},
+			},
+		},
+	}
+	if vs := validateEnumerationItemLabelGrounding(doc, nil); len(vs) != 0 {
+		t.Errorf("nil mut should disable oracle; got %+v", vs)
+	}
+}
+
+// TestEnumerationLabelGrounding_EmptyEvidencePoolSkipsOracle —
+// when the evidence pool is empty the oracle skips (the LLM may
+// legitimately rely on extractor-derived data only).
+func TestEnumerationLabelGrounding_EmptyEvidencePoolSkipsOracle(t *testing.T) {
+	mut := mutWithEvidence(nil)
+	doc := &types.AnswerDocumentV2{
+		DocumentModel: "v2",
+		Blocks: []types.AnswerBlock{
+			{
+				ID:   "list",
+				Kind: types.BlockOrderedList,
+				Items: []types.AnswerBlockItem{
+					{ID: "i1", Label: "fabricated_but_no_pool"},
+				},
+			},
+		},
+	}
+	if vs := validateEnumerationItemLabelGrounding(doc, mut); len(vs) != 0 {
+		t.Errorf("empty evidence pool should disable oracle; got %+v", vs)
+	}
+}
+
+// TestEnumerationLabelGrounding_BidirectionalSubstring — a label
+// that is shorter / longer than the anchor should still match
+// (e.g. anchor "checkCoverage(ir,th)" supports label "checkCoverage").
+func TestEnumerationLabelGrounding_BidirectionalSubstring(t *testing.T) {
+	mut := mutWithEvidence([]types.EvidenceItem{
+		{ID: "e1", AnchorSymbol: "checkCoverage(ir, th)"},
+		{ID: "e2", AnchorSymbol: "DAGClosure"},
+	})
+	doc := &types.AnswerDocumentV2{
+		DocumentModel: "v2",
+		Blocks: []types.AnswerBlock{
+			{
+				ID:   "list",
+				Kind: types.BlockOrderedList,
+				Items: []types.AnswerBlockItem{
+					{ID: "i1", Label: "checkCoverage"},   // shorter ⊂ anchor
+					{ID: "i2", Label: "checkDAGClosure"}, // longer ⊃ anchor
+				},
+			},
+		},
+	}
+	if vs := validateEnumerationItemLabelGrounding(doc, mut); len(vs) != 0 {
+		t.Errorf("bidirectional substring should match; got %+v", vs)
 	}
 }

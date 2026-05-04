@@ -306,6 +306,13 @@ func DefaultFallbackPolicy() FallbackPolicy {
 		// def-region for the user's principal entities; remediation
 		// is a fresh investigation pass that probes def-line reads.
 		types.ViolSymbolAnchorMismatch: FallbackBackToExplore,
+		// post-shape s1a-20260504-064754 hallucination forensic
+		// (2026-05-04) — finalizer emitted enumeration items[].label
+		// values that no EvidenceItem.AnchorSymbol/Subject/Object
+		// substring-supports; remediation is in extractor's hands
+		// (re-emit items[] with labels copied verbatim from the
+		// evidence pool), no fresh investigation pass needed.
+		types.ViolEnumerationLabelUngrounded: FallbackBackToExtract,
 		// P3 #6 precise variant (2026-05-03) — code-vs-comment
 		// divergence transparency. Remediation is in extractor's
 		// hands (re-emit emit_answer_symbol with caveat rows or

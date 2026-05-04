@@ -145,10 +145,10 @@ func (t *EmitAnswerDocument) Parameters() json.RawMessage {
               "type": "object",
               "properties": {
                 "id":           {"type": "string"},
-                "label":        {"type": "string", "description": "Primary visible text / row header."},
+                "label":        {"type": "string", "description": "Primary visible text / row header. For enumeration items, MUST be the verbatim identifier copied from one of the evidence pool's anchor_symbol / subject / object values — fabricated labels are rejected by validateEnumerationItemLabelGrounding."},
                 "text":         {"type": "string", "description": "Item body / row content."},
-                "citation_ref": {"type": "integer", "description": "Zero-based index into citations[], or -1 when no cite backs the item."},
-                "claim_use":    {"type": "object", "description": "Optional per-item claim annotation (claim_form / surface_role / facet_id)."}
+                "citation_ref": {"type": "integer", "description": "Top-level field on the item; zero-based index into citations[], or -1 when no cite backs the item. NEVER place citation_ref inside claim_use — it is rejected with 'unknown field \"citation_ref\"'."},
+                "claim_use":    {"type": "object", "description": "Optional per-item claim annotation. Shape: {claim_form: <enum>, facet_id?: string, evidence_id?: string, surface_role?: <enum>}. Does NOT carry citation_ref (citation_ref is top-level on the item, not inside this object)."}
               }
             }
           },
@@ -161,8 +161,7 @@ func (t *EmitAnswerDocument) Parameters() json.RawMessage {
               "body":     {"type": "string", "description": "Raw diagram source (the part inside fenced markers; the renderer adds the fences). For diagram.kind=flow/architecture/call_dag use Mermaid \"flowchart\" syntax (direction LR/TD/RL/BT); for diagram.kind=sequence use Mermaid \"sequenceDiagram\"."}
             }
           },
-          "claim_use":    {"type": "object", "description": "Optional block-level claim annotation. REQUIRED on principal blocks (surface_role=principal) when the contract's AcceptableClaimForms list is non-empty. Shape: {claim_form: <one of definition_fact|call_edge|guard_condition|assignment_fact|return_fact|absence_fact|precedence_role|external_observation|import_edge>, citation_ref: <int>, surface_role?, facet_id?}. Use this for whole-block annotation (most scalar/decision/diagram blocks)."},
-          "claim_uses":   {"type": "array", "description": "Optional block-level claim annotations array. Use this when one block legitimately spans multiple claim forms (e.g. an ordered_list mixing call_edge and guard_condition hops). Each entry has the same shape as claim_use."},
+          "claim_uses":   {"type": "array", "description": "Block-level claim annotations array (the singular form claim_use does NOT exist at block level — only inside items[i].claim_use). REQUIRED on principal blocks (surface_role=principal) when the contract's AcceptableClaimForms list is non-empty. Each entry shape: {claim_form: <one of definition_fact|call_edge|guard_condition|assignment_fact|return_fact|absence_fact|precedence_role|external_observation|import_edge>, facet_id?: string, evidence_id?: string, surface_role?: <enum>}. Single-form blocks emit a one-element array (claim_uses=[{claim_form=definition_fact}]). Each entry does NOT carry citation_ref — citations live on the enclosing carrier (value.citation_ref / boolean.citation_ref / per-item items[i].citation_ref)."},
           "facet_ids":    {"type": "array", "items": {"type": "string"}, "description": "Optional facet ids this block covers — read these from the user section's Required Answer Blocks list."},
           "surface_role": {"type": "string", "enum": ["", "principal", "support", "prose_only", "diagram_only"], "description": "Block's role in the answer surface. principal = carries the answer payload (must usually attach claim_use); support = corroborates principal (e.g. anchor skeleton); prose_only = lead-in / framing; diagram_only = purely visual. The user-section's block list flags which role each Required Block expects."}
         },

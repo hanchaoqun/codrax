@@ -230,6 +230,7 @@ func TestAllViolationKindsHaveProducer(t *testing.T) {
 		// (B8-T4). V2 oracle reads V2 block items + ImplementersOf graph;
 		// produces the same kinds.
 		ViolSymbolAnchorMismatch:            true, // orchestrator/contract_check.go runSymbolAnchorTrackOracleV2
+		ViolEnumerationLabelUngrounded:      true, // orchestrator/contract_check_block.go validateEnumerationItemLabelGrounding (post-shape s1a-20260504-064754, 2026-05-04)
 		ViolStructuralEnumerationDivergence: true, // orchestrator/contract_check.go runStructuralEnumerationDivergenceOracleV2
 		// B4 V2 block-only carrier validators (block_only_carrier.md §5.4).
 		ViolBlockCoverageMissing:     true, // orchestrator/contract_check_block.go validateRequiredBlockCoverage
@@ -298,6 +299,7 @@ func TestAllViolationKindsHaveProducer(t *testing.T) {
 		ViolRichnessRegression:             "ViolRichnessRegression",
 		ViolValueSecondaryCitationOffFocus:  "ViolValueSecondaryCitationOffFocus",
 		ViolSymbolAnchorMismatch:            "ViolSymbolAnchorMismatch",
+		ViolEnumerationLabelUngrounded:      "ViolEnumerationLabelUngrounded",
 		ViolStructuralEnumerationDivergence: "ViolStructuralEnumerationDivergence",
 		// B4 V2 block-only carrier validators.
 		ViolBlockCoverageMissing:     "ViolBlockCoverageMissing",

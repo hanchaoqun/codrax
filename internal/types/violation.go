@@ -507,6 +507,24 @@ const (
 	// Fallback target (when promoted to STRICT): BackToExplore — the
 	// rejected lines mean keyword_search did not cover def-region.
 	ViolSymbolAnchorMismatch ViolationKind = "symbol_anchor_mismatch"
+
+	// ViolEnumerationLabelUngrounded (post-shape s1a-20260504-064754
+	// hallucination forensic, 2026-05-04) fires when an
+	// ordered_list / bullet_list block in the V2 carrier carries
+	// items[i].label values that do NOT appear as a substring of any
+	// EvidenceItem.AnchorSymbol / Subject / Object in the dispatch's
+	// evidence pool. Detected case: explorer emitted 28 grounded
+	// items naming the 9 real gate.Run checks (checkCoverage /
+	// checkContractComplete / etc.); finalizer emitted 9 fabricated
+	// labels (checkCrossSignalCoherence / checkAnswerSubjectKindIsValid
+	// / etc.) that no evidence item supported. self_consistency
+	// reviewer compared SUMMARY vs BODY (consistent=true) but no
+	// existing oracle compared BODY vs evidence pool, so the
+	// hallucination shipped. Default classification: STRICT — silent
+	// hallucination is the worst-case answer-quality regression.
+	// Fallback target: BackToExtract — the extraction stage owns
+	// item composition; replaying explore wastes budget.
+	ViolEnumerationLabelUngrounded ViolationKind = "enumeration_label_ungrounded"
 )
 
 // AllViolationKinds returns every declared ViolationKind in a stable
@@ -553,6 +571,7 @@ func AllViolationKinds() []ViolationKind {
 		ViolRichnessRegression,
 		ViolValueSecondaryCitationOffFocus,
 		ViolSymbolAnchorMismatch,
+		ViolEnumerationLabelUngrounded,
 		ViolStructuralEnumerationDivergence,
 		ViolCrossCitationConflict,
 		// CGEC frequency bridges (R10).

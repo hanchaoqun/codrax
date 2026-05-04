@@ -996,6 +996,140 @@ func runV2BlockOraclesWithMut(doc *types.AnswerDocumentV2, view *types.AnswerSem
 	out = append(out, validateRichnessRegression(doc, view)...)
 	out = append(out, validateClaimFormSupport(doc, mut)...)
 	out = append(out, validateAbsenceScopeBound(doc)...)
+	out = append(out, validateEnumerationItemLabelGrounding(doc, mut)...)
+	return out
+}
+
+// validateEnumerationItemLabelGrounding (post-shape s1a-20260504-064754
+// hallucination forensic, 2026-05-04) checks that every
+// ordered_list / bullet_list block's items[i].label is supported by
+// at least one EvidenceItem in the dispatch's evidence pool — by
+// substring match against AnchorSymbol / Subject / Object. The
+// case that motivated the oracle: explorer emitted 28 evidence
+// items naming the 9 real gate.Run checks (checkCoverage /
+// checkContractComplete / checkSubtopicCoherence / etc.), but the
+// finalizer wrote 9 items with fabricated labels (checkCrossSignalCoherence
+// / checkAnswerSubjectKindIsValid / etc.) and shipped, because no
+// pre-existing oracle compared `items[].label` to the evidence
+// pool — `validateClaimFormSupport` checks claim_form vs evidence
+// kind but ignores the label string itself, and the
+// self_consistency_reviewer compares SUMMARY-vs-BODY only.
+//
+// Skip conditions (no false positives):
+//
+//   - mut == nil → unit-test path, no evidence pool to check against.
+//   - Empty / nil EvidenceItems → no anchors to ground against; the
+//     LLM may legitimately rely on extractor-derived data only.
+//   - Blocks with kind ∉ { ordered_list, bullet_list }: scalar /
+//     decision / diagram / section / summary blocks have their own
+//     grounding lanes (citation_ref + grounder).
+//   - Items with empty label: the prose lives in `text`, not the
+//     label, so there's nothing structurally to ground.
+//   - Item kind == "flow" or "caveat": those are narration / scope
+//     notes, not principal enumeration entries — `Kind` discipline
+//     (Plan D, 2026-05-02) explicitly excludes them from the count.
+//   - Block.SurfaceRole == prose_only / diagram_only: not principal
+//     payload.
+//
+// Match semantics: case-folded substring match in BOTH directions
+// (label-contains-anchor OR anchor-contains-label) so a label like
+// `checkCoverage` matches an evidence anchor like `checkCoverage(ir,
+// th)` and a fragment-style anchor like `Coverage` matches the
+// label `checkCoverage`. This mirrors the diagram edge oracle's
+// `diagramTokenSupported` semantics (R4.3) so the two oracles
+// behave consistently across enumeration vs diagram surfaces.
+func validateEnumerationItemLabelGrounding(doc *types.AnswerDocumentV2, mut *types.MutableState) []types.Violation {
+	if doc == nil || mut == nil {
+		return nil
+	}
+	turnA := mut.TurnAArtifacts()
+	if turnA == nil || len(turnA.EvidenceItems) == 0 {
+		return nil
+	}
+	support := buildEvidenceLabelSupportTokens(turnA.EvidenceItems)
+	if len(support) == 0 {
+		return nil
+	}
+	type ungroundedItem struct {
+		blockID string
+		itemID  string
+		label   string
+	}
+	var ungrounded []ungroundedItem
+	for _, b := range doc.Blocks {
+		if b.Kind != types.BlockOrderedList && b.Kind != types.BlockBulletList {
+			continue
+		}
+		if b.SurfaceRole == types.SurfaceProseOnly || b.SurfaceRole == types.SurfaceDiagramOnly {
+			continue
+		}
+		for _, it := range b.Items {
+			label := strings.TrimSpace(it.Label)
+			if label == "" {
+				continue
+			}
+			if diagramTokenSupported(label, support) {
+				continue
+			}
+			ungrounded = append(ungrounded, ungroundedItem{
+				blockID: b.ID,
+				itemID:  it.ID,
+				label:   label,
+			})
+		}
+	}
+	if len(ungrounded) == 0 {
+		return nil
+	}
+	pairs := make([]string, 0, len(ungrounded))
+	for _, u := range ungrounded {
+		pairs = append(pairs, fmt.Sprintf("block=%q item=%q label=%q", u.blockID, u.itemID, u.label))
+	}
+	return []types.Violation{{
+		Kind: types.ViolEnumerationLabelUngrounded,
+		Detail: fmt.Sprintf(
+			"%d enumeration item label(s) do not match any evidence pool anchor_symbol / subject / object: [%s]",
+			len(ungrounded), strings.Join(pairs, "; ")),
+		Repair: "for each listed item, copy the label verbatim from one of the evidence pool's anchor_symbol values (or replace the item with one whose label is grounded). Fabricating identifiers that the evidence does not name is silently misleading; if the answer truly requires an item that no evidence supports, reopen the investigation rather than inventing a label.",
+		SuspectedRoot: types.SuspectedRoot{
+			IRField:    "block_items_label",
+			Reason:     "items[].label not supported by any evidence pool anchor",
+			Confidence: 0.85,
+		},
+		Stage: string(types.StageFinalize),
+	}}
+}
+
+// buildEvidenceLabelSupportTokens collects every ground-able token
+// from the evidence pool. Tokens are case-folded so callers do
+// substring lookup with the same key normaliser. Sources:
+//
+//   - EvidenceItem.AnchorSymbol — the named identifier the explorer
+//     pinned at the citation line.
+//   - EvidenceItem.Subject / Object — the relation endpoints
+//     (loaded by Predicate-axis evidence, e.g. "checkCoverage CALLS
+//     ContractComplete").
+//   - EvidenceItem.OwnerSymbol — the enclosing function / type when
+//     the anchor is itself nested.
+//
+// Empty tokens are dropped. Each token also has its leading/trailing
+// whitespace trimmed before lower-casing so the diagramTokenSupported
+// substring loop never has to re-trim.
+func buildEvidenceLabelSupportTokens(items []types.EvidenceItem) map[string]struct{} {
+	out := make(map[string]struct{}, 4*len(items))
+	add := func(s string) {
+		s = strings.TrimSpace(s)
+		if s == "" {
+			return
+		}
+		out[strings.ToLower(s)] = struct{}{}
+	}
+	for _, it := range items {
+		add(it.AnchorSymbol)
+		add(it.OwnerSymbol)
+		add(it.Subject)
+		add(it.Object)
+	}
 	return out
 }
 
