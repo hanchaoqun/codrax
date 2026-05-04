@@ -108,6 +108,10 @@
 | R1.3 | ⬜ pending | — | — |
 | R1.4 | ⬜ pending | — | — |
 | **R1.5** | ⬜ pending(eval verification 真发现) | — | s1a r1 真测发现 |
+| **R6** | ⬜ pending P1(全量日志深挖发现) | — | retry 字段失忆 — 类 A,见 post_shape_deep_log_audit.md |
+| **R7** | ⬜ pending P1(全量日志深挖发现) | — | facet 归属未渲染 — 类 B,扩展 R1.5,见 post_shape_deep_log_audit.md |
+| **R8** | ⬜ pending P2(全量日志深挖发现) | — | analyzer 自动决策无 telemetry — 类 C |
+| **R10** | ⬜ pending P2(全量日志深挖发现) | — | CGEC 高频事件主链不可观测 — 类 D |
 | R2.1 | 🟢 SHIPPED V2 重接 (commit pending push) | TBD | 待真 eval 跑 QF 多 topic case |
 | R2.2 | 🟢 SHIPPED 分流 + 预算 | TBD | 待真 eval 出现 finalize+deeper 混合场景 |
 | R2.3 | 🟢 SHIPPED 4/4:Facet (3a4a39a) + Richness (3a4a39a) + ClaimForm (8cdfd93) + AbsenceScope (pending) | TBD | 待真 eval 触发场景 |
