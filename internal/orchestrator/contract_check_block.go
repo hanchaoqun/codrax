@@ -528,6 +528,57 @@ func validateClaimFormSupport(doc *types.AnswerDocumentV2, mut *types.MutableSta
 	return out
 }
 
+// validateAbsenceScopeBound (R2.3 V2 重接, post_shape_residual_audit.md
+// 2026-05-04) fires when the V2 doc claims a NEGATIVE finding
+// (ExactResolution.Status == AnswerExactResolutionAbsent) but no
+// citation in the pool carries a bounded negative scope to back the
+// claim up. Operationally: an answer that says "X is absent from
+// the codebase" must cite at least one Citation with
+// Scope=ScopeNegative AND non-empty NegativePattern (the search
+// query the system ran and confirmed absent), otherwise the
+// absence claim is unbounded.
+//
+// V2 carrier shares Citation + ExactResolution types verbatim with
+// V1, so this is a direct port of the V1 oracle (deleted at B8-T4).
+//
+// Default classification STRICT (V1 rationale: safety-critical for
+// config-trace / absence questions where downstream consumers act
+// on the negative finding — operator removes a config knob, etc.).
+// Operators relax via pipeline_contract_strict_kinds.
+//
+// Inputs are typed-only (AnswerExactResolutionAbsent +
+// EvidenceScope=ScopeNegative + NegativePattern non-empty). Zero
+// prose keyword matching.
+func validateAbsenceScopeBound(doc *types.AnswerDocumentV2) []types.Violation {
+	if doc == nil || doc.ExactResolution == nil {
+		return nil
+	}
+	if doc.ExactResolution.Status != types.AnswerExactResolutionAbsent {
+		return nil
+	}
+	bounded := false
+	for _, c := range doc.Citations {
+		if c.Scope == types.ScopeNegative && strings.TrimSpace(c.NegativePattern) != "" {
+			bounded = true
+			break
+		}
+	}
+	if bounded {
+		return nil
+	}
+	return []types.Violation{{
+		Kind:   types.ViolAbsenceScopeExceeded,
+		Detail: "exact_resolution.status=absent declared but no citation carries scope=negative + a non-empty negative_pattern; the absence claim is unbounded",
+		Repair: "Re-emit emit_answer_document with citations[] including at least one entry with scope='negative' AND a non-empty negative_pattern naming the exact search query (grep / repomap / file glob) that confirmed the absence. If the bounded evidence is already in the pool, attach it directly as a negative-scope citation; otherwise the next investigation pass must run the bounded search and surface its query.",
+		SuspectedRoot: types.SuspectedRoot{
+			IRField:    "exact_resolution.absence_scope",
+			Reason:     "absence claim without bounded negative-scope citation",
+			Confidence: 0.65,
+		},
+		Stage: string(types.StageFinalize),
+	}}
+}
+
 // runV2BlockOracles is the single orchestrator-side dispatch entry
 // for B4. Returns the union of all V2 validator violations. Caller
 // (runContractCheck) appends to the result Violations slice the
@@ -563,6 +614,7 @@ func runV2BlockOraclesWithMut(doc *types.AnswerDocumentV2, view *types.AnswerSem
 	out = append(out, validateFacetCoverage(doc, view)...)
 	out = append(out, validateRichnessRegression(doc, view)...)
 	out = append(out, validateClaimFormSupport(doc, mut)...)
+	out = append(out, validateAbsenceScopeBound(doc)...)
 	return out
 }
 

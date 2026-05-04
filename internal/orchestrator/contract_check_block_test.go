@@ -606,6 +606,85 @@ func TestValidateClaimFormSupport_EmptyClaimFormSkipped(t *testing.T) {
 	}
 }
 
+// ── R2.3 V2 重接 AbsenceScopeBound tests ─────────────────────────
+
+// TestValidateAbsenceScopeBound_BoundedPasses confirms an absent
+// claim with at least one Scope=Negative citation + non-empty
+// NegativePattern is bounded → no fire.
+func TestValidateAbsenceScopeBound_BoundedPasses(t *testing.T) {
+	doc := &types.AnswerDocumentV2{
+		ExactResolution: &types.AnswerExactResolution{Status: types.AnswerExactResolutionAbsent},
+		Citations: []types.Citation{
+			{File: "internal", Scope: types.ScopeNegative, NegativePattern: "rg -n FooBar internal/"},
+		},
+	}
+	if vs := validateAbsenceScopeBound(doc); len(vs) > 0 {
+		t.Errorf("bounded absence must not fire; got %+v", vs)
+	}
+}
+
+// TestValidateAbsenceScopeBound_UnboundedFires confirms an absent
+// claim with NO Scope=Negative citation fires
+// ViolAbsenceScopeExceeded.
+func TestValidateAbsenceScopeBound_UnboundedFires(t *testing.T) {
+	doc := &types.AnswerDocumentV2{
+		ExactResolution: &types.AnswerExactResolution{Status: types.AnswerExactResolutionAbsent},
+		Citations: []types.Citation{
+			{File: "x.go", Line: 10},
+		},
+	}
+	vs := validateAbsenceScopeBound(doc)
+	if len(vs) != 1 {
+		t.Fatalf("want 1 violation; got %d (%+v)", len(vs), vs)
+	}
+	if vs[0].Kind != types.ViolAbsenceScopeExceeded {
+		t.Errorf("kind = %q, want ViolAbsenceScopeExceeded", vs[0].Kind)
+	}
+}
+
+// TestValidateAbsenceScopeBound_NegativeWithoutPatternFires confirms
+// the NegativePattern emptiness check: a Citation with
+// Scope=Negative but empty NegativePattern is NOT a bound (the
+// system has no audit trail of the actual search query).
+func TestValidateAbsenceScopeBound_NegativeWithoutPatternFires(t *testing.T) {
+	doc := &types.AnswerDocumentV2{
+		ExactResolution: &types.AnswerExactResolution{Status: types.AnswerExactResolutionAbsent},
+		Citations: []types.Citation{
+			{File: "x.go", Scope: types.ScopeNegative, NegativePattern: "  "}, // whitespace
+		},
+	}
+	if vs := validateAbsenceScopeBound(doc); len(vs) != 1 {
+		t.Errorf("whitespace-only NegativePattern must NOT count as bounded; got %d (%+v)", len(vs), vs)
+	}
+}
+
+// TestValidateAbsenceScopeBound_NonAbsentSkipped confirms the
+// oracle skips when the resolution is resolved / unknown / nil.
+func TestValidateAbsenceScopeBound_NonAbsentSkipped(t *testing.T) {
+	for _, status := range []types.AnswerExactResolutionStatus{
+		"",                  // empty
+		"resolved",          // typed
+		"unknown",
+	} {
+		doc := &types.AnswerDocumentV2{
+			ExactResolution: &types.AnswerExactResolution{Status: status},
+		}
+		if vs := validateAbsenceScopeBound(doc); len(vs) > 0 {
+			t.Errorf("status=%q must skip; got %+v", status, vs)
+		}
+	}
+}
+
+// TestValidateAbsenceScopeBound_NilGuards covers nil cases.
+func TestValidateAbsenceScopeBound_NilGuards(t *testing.T) {
+	if vs := validateAbsenceScopeBound(nil); vs != nil {
+		t.Errorf("nil doc → nil")
+	}
+	if vs := validateAbsenceScopeBound(&types.AnswerDocumentV2{}); vs != nil {
+		t.Errorf("nil ExactResolution → nil")
+	}
+}
+
 // ── AllViolationKinds 完整性 (4 新 kind 在 covered + kindSymbols 双表) ──
 func TestB4ViolationKindsRegistered(t *testing.T) {
 	want := []types.ViolationKind{
