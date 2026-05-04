@@ -428,6 +428,16 @@ func init() {
 		Layer: "evidence_pool",
 	})
 
+	// ── B3 v3 (2026-05-04) — diagram relation typed-first ──
+	// SOFT-by-default; promotable. Encourages typed relation_kind
+	// declaration when label-only inference would fill the contract
+	// minimum.
+	RegisterViolKind(ViolKindSpec{
+		Kind: ViolDiagramRelationLabelOnly, DefaultSeverity: SeveritySoft,
+		SoftByDefault: true, Promotable: true, FallbackLocus: LocusFinalizer,
+		Layer: "v2_oracle",
+	})
+
 	// ── Structural / forensic kinds ──
 	// Legacy defaultSoftKinds does NOT list StructuralEnumerationDivergence;
 	// the kind's SOFT semantic comes from its DefaultSeverity flowing

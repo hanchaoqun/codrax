@@ -1272,6 +1272,10 @@ func legacyDefaultSoftKinds() map[types.ViolationKind]bool {
 		// default; pipeline_contract_strict_kinds CAN promote
 		// once eval validates the false-positive rate is low.
 		types.ViolEnumerationEvidenceUnderspecified: true,
+		// B3 v3 (2026-05-04) — diagram relation typed-first label-only
+		// advisory. SOFT-by-default; promotable when operator wants
+		// typed declarations enforced.
+		types.ViolDiagramRelationLabelOnly: true,
 	}
 }
 

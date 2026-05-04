@@ -406,6 +406,21 @@ const (
 	// guarantees richer answers. Stage="finalize".
 	ViolAnswerSemanticUnderfilled ViolationKind = "answer_semantic_underfilled"
 
+	// ViolDiagramRelationLabelOnly fires when EdgeRelations.Min is
+	// satisfied for some relation kind ONLY because label-inferred
+	// edges fill the gap (i.e. typed RelationKind on edge_anchors[]
+	// is below Min on its own; total typed + label-only counts
+	// reach Min). The contract is satisfied so the answer ships,
+	// but the validator emits a SOFT advisory encouraging the LLM
+	// to declare `relation_kind` directly on edge_anchors[] for the
+	// label-only edges so future readers see the typed authority.
+	//
+	// SOFT-by-default; promotable via pipeline_contract_strict_kinds
+	// when the operator wants typed declarations enforced. Stage =
+	// "finalize". Layer = "v2_oracle". B3 (v3 runtime consolidation,
+	// 2026-05-04).
+	ViolDiagramRelationLabelOnly ViolationKind = "diagram_relation_label_only"
+
 	// ViolEnumerationEvidenceUnderspecified fires when the user's
 	// question carries an explicit enumeration count N (via the
 	// analyzer's EnumerationBoundary) AND the family is enumeration-
@@ -649,6 +664,9 @@ func AllViolationKinds() []ViolationKind {
 		// 修 B (post_v2_runtime_gap_remediation, 2026-05-04) —
 		// enumeration evidence underspecification structural gate.
 		ViolEnumerationEvidenceUnderspecified,
+		// B3 v3 (2026-05-04) — diagram relation typed-first label-only
+		// advisory.
+		ViolDiagramRelationLabelOnly,
 	}
 }
 

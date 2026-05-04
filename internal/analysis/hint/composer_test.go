@@ -294,6 +294,11 @@ var composerExactFixSkipWhitelist = map[types.ViolationKind]string{
 	// the missing N − K count + the gap-filling guidance verbatim;
 	// composer fallback pairs.
 	types.ViolEnumerationEvidenceUnderspecified: "uses violation.Repair for fix prose",
+	// B3 v3 (2026-05-04) — diagram relation typed-first label-only
+	// advisory. SOFT-only; validator's Violation.Repair names the
+	// label-only edges + the typed declaration the LLM should add,
+	// so the generic composer fallback pairs naturally.
+	types.ViolDiagramRelationLabelOnly: "uses violation.Repair for fix prose",
 }
 
 // TestComposer_AllViolationKindsHaveCase enforces P34's

@@ -482,6 +482,14 @@ func legacyDeriveSeverity(kind ViolationKind, isStrict bool) Severity {
 		}
 		return SeveritySoft
 	}
+	// B3 v3 (2026-05-04) — diagram relation label-only advisory.
+	// SOFT-by-default; isStrict promotes to Medium.
+	if kind == ViolDiagramRelationLabelOnly {
+		if isStrict {
+			return SeverityMedium
+		}
+		return SeveritySoft
+	}
 	// Unknown kinds default to Medium — safer than Soft (won't
 	// silently drop) but not Critical (won't unexpectedly fail-loud).
 	return SeverityMedium

@@ -212,20 +212,7 @@ The contract validator rejects ` + "`kind=flow`" + ` when the family's contract 
 
 ### ` + types.SectionDiagramEdgeLabelVocabulary + `
 
-Edge labels in the diagram body resolve to TYPED relation kinds. When you label an edge — flowchart ` + "`A -->|<label>| B`" + ` or sequence ` + "`A->>B: <label>`" + ` — pick a marker the system recognises so the validator can match an edge claim_use against it. The canonical lowercase keyword vocabulary (case-folded substring match against the label):
-
-` + BuildDiagramEdgeLabelVocabularyDoc() + `
-An UNLABELLED edge (no ` + "`|...|`" + ` block, no trailing ` + "`: msg`" + `) is legal — its endpoints only need to be referenced elsewhere in the answer (an item label, a block title, or a node-shape declaration in the same diagram body). A label that matches NONE of the keywords above also counts as label-free and does not require a claim_use anchor; use this when the edge text is purely descriptive (e.g. ` + "`A -->|next| B`" + `).
-
-When you DO label an edge with a recognised keyword — OR when you want to declare the relation directly without depending on label wording — the rendered answer MUST include an anchored entry in the diagram block's ` + "`edge_anchors[]`" + ` array. Each entry is ` + "`{from_node, to_node, relation_kind?, claim_form?}`" + `:
-
-- ` + "`relation_kind`" + ` (PREFERRED): set this to the typed relation directly — one of ` + BuildDiagramRelationKindList() + `. When set, the typed declaration AUTHORITATIVELY names the relation; the rendered label is then free prose for readability. The validator emits an advisory note when label vocabulary disagrees with the typed declaration, so prefer to keep the two aligned. Use ` + "`relation_kind`" + ` whenever your label is non-standard prose (or in any other language) — typed declaration removes the dependency on label wording.
-- ` + "`claim_form`" + ` matches the relation's expected form (see the vocabulary above for the relation→claim_form mapping).
-- ` + "`from_node`" + ` / ` + "`to_node`" + ` are the verbatim node identifiers from the edge.
-
-Example: for ` + "`Auth -->|invoke| Worker`" + ` (relation ` + "`call`" + `, expected claim_form ` + "`call_edge`" + `), emit ` + "`edge_anchors: [{from_node: \"Auth\", to_node: \"Worker\", relation_kind: \"call\", claim_form: \"call_edge\"}]`" + ` on the diagram block (or another block whose items describe these endpoints). When ` + "`relation_kind`" + ` is omitted, the validator falls back to inferring the relation from the rendered label vocabulary above. Edge anchors are a SEPARATE top-level array — they NEVER live inside a claim_use object.
-
-Some diagram contracts also require a minimum number of edges of a particular relation kind (read these from the user section). Falling short is a hard reject — add a labelled edge that carries the relation, OR drop the diagram if no typed evidence supports it.
+` + BuildDiagramRelationContractDoc() + `
 
 ## Citation pool
 

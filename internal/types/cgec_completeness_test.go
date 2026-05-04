@@ -258,6 +258,10 @@ func TestAllViolationKindsHaveProducer(t *testing.T) {
 		// enumeration evidence pool structural gate. Producer wired
 		// in orchestrator/contract_check.go validateEnumerationEvidenceCoverage.
 		ViolEnumerationEvidenceUnderspecified: true,
+		// B3 v3 (2026-05-04) — diagram relation typed-first label-only
+		// advisory. Producer wired in
+		// orchestrator/contract_check_block.go validateDiagramRelationLegality.
+		ViolDiagramRelationLabelOnly: true,
 	}
 	pending := map[ViolationKind]string{
 		ViolFamilyMismatch:                          "P9-C-retired-V1-checkShape (V2 block oracles cover read-mode block contract via runV2BlockOracles)",

@@ -1645,18 +1645,25 @@ func TestValidateDiagramEdgeSupport_LabelledEdgeMissingClaimUseFires(t *testing.
 }
 
 // Layer 2 passes when an anchored edge entry covers the labelled edge.
+//
+// B3 v3 (2026-05-04): the anchor must declare BOTH RelationKind AND
+// ClaimForm to count as typed-first. RelationKind is what the v3
+// validator reads to fill EdgeRelations.Min via typed declarations;
+// without it the contract is satisfied via label-only inference and
+// the SOFT advisory ViolDiagramRelationLabelOnly fires.
 func TestValidateDiagramEdgeSupport_LabelledEdgeWithAnchoredClaimUsePasses(t *testing.T) {
 	view := callChainViewWithDiagram()
 	doc := docWithDiagramBody(
 		"sequenceDiagram\n  Auth->>Worker: invoke\n",
 		types.DiagramEdgeAnchor{
-			ClaimForm: types.ClaimCallEdge,
-			FromNode:  "Auth",
-			ToNode:    "Worker",
+			RelationKind: types.DiagramRelCall,
+			ClaimForm:    types.ClaimCallEdge,
+			FromNode:     "Auth",
+			ToNode:       "Worker",
 		},
 	)
 	if vs := validateDiagramEdgeSupport(doc, view); len(vs) != 0 {
-		t.Errorf("anchored edge entry must satisfy Layer 2; got %+v", vs)
+		t.Errorf("typed anchored edge entry must satisfy Layer 2 cleanly; got %+v", vs)
 	}
 }
 
@@ -1666,9 +1673,10 @@ func TestValidateDiagramEdgeSupport_AnchorMatchingIsCaseFolded(t *testing.T) {
 	doc := docWithDiagramBody(
 		"sequenceDiagram\n  AUTH->>WORKER: invoke\n",
 		types.DiagramEdgeAnchor{
-			ClaimForm: types.ClaimCallEdge,
-			FromNode:  "Auth",
-			ToNode:    "worker",
+			RelationKind: types.DiagramRelCall,
+			ClaimForm:    types.ClaimCallEdge,
+			FromNode:     "Auth",
+			ToNode:       "worker",
 		},
 	)
 	if vs := validateDiagramEdgeSupport(doc, view); len(vs) != 0 {
@@ -1680,18 +1688,67 @@ func TestValidateDiagramEdgeSupport_AnchorMatchingIsCaseFolded(t *testing.T) {
 // state — Layer 1 endpoint grounding already passed for these).
 func TestValidateDiagramEdgeSupport_UnlabelledEdgeSkipsLayer2(t *testing.T) {
 	view := callChainViewWithDiagram()
-	// Body has 1 unlabelled edge + 1 labelled edge with anchor — the
-	// EdgeRelations.Min=1 contract is satisfied by the labelled edge.
+	// Body has 1 unlabelled edge + 1 labelled edge with typed anchor —
+	// the EdgeRelations.Min=1 contract is satisfied by the typed edge.
 	doc := docWithDiagramBody(
 		"sequenceDiagram\n  Auth->>Worker\n  Auth->>Worker: invoke\n",
 		types.DiagramEdgeAnchor{
+			RelationKind: types.DiagramRelCall,
+			ClaimForm:    types.ClaimCallEdge,
+			FromNode:     "Auth",
+			ToNode:       "Worker",
+		},
+	)
+	if vs := validateDiagramEdgeSupport(doc, view); len(vs) != 0 {
+		t.Errorf("unlabelled edge must not trip Layer 2 when min satisfied; got %+v", vs)
+	}
+}
+
+// B3 v3 (2026-05-04): label-only edge satisfies EdgeRelations.Min
+// but no RelationKind on edge_anchors → SOFT advisory fires
+// (ViolDiagramRelationLabelOnly) encouraging typed declaration.
+func TestValidateDiagramEdgeSupport_LabelOnlySatisfiesMinFiresAdvisory(t *testing.T) {
+	view := callChainViewWithDiagram()
+	doc := docWithDiagramBody(
+		"sequenceDiagram\n  Auth->>Worker: invoke\n",
+		types.DiagramEdgeAnchor{
+			// Note: NO RelationKind set — only ClaimForm. v3 considers
+			// this "label-only typed surface".
 			ClaimForm: types.ClaimCallEdge,
 			FromNode:  "Auth",
 			ToNode:    "Worker",
 		},
 	)
-	if vs := validateDiagramEdgeSupport(doc, view); len(vs) != 0 {
-		t.Errorf("unlabelled edge must not trip Layer 2 when min satisfied; got %+v", vs)
+	vs := validateDiagramEdgeSupport(doc, view)
+	if len(vs) != 1 {
+		t.Fatalf("expected exactly 1 SOFT advisory; got %d violations: %+v", len(vs), vs)
+	}
+	if vs[0].Kind != types.ViolDiagramRelationLabelOnly {
+		t.Errorf("kind = %q, want ViolDiagramRelationLabelOnly", vs[0].Kind)
+	}
+	if !strings.Contains(vs[0].Detail, "relation_kind") {
+		t.Errorf("detail should encourage typed relation_kind declaration; got %q", vs[0].Detail)
+	}
+}
+
+// B3 v3 (2026-05-04): typed satisfies AND extra label-only edges
+// also exist for the same contract → no advisory (typed is already
+// authoritative; label-only edges that fall outside the contract
+// don't trigger).
+func TestValidateDiagramEdgeSupport_TypedSatisfiesNoAdvisoryOnExtraLabels(t *testing.T) {
+	view := callChainViewWithDiagram()
+	doc := docWithDiagramBody(
+		"sequenceDiagram\n  Auth->>Worker: invoke\n",
+		types.DiagramEdgeAnchor{
+			RelationKind: types.DiagramRelCall,
+			ClaimForm:    types.ClaimCallEdge,
+			FromNode:     "Auth",
+			ToNode:       "Worker",
+		},
+	)
+	vs := validateDiagramEdgeSupport(doc, view)
+	if len(vs) != 0 {
+		t.Errorf("typed-satisfied contract must not fire any violation; got %+v", vs)
 	}
 }
 

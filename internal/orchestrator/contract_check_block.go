@@ -296,9 +296,20 @@ func validateDiagramRelationLegality(
 		typed           types.DiagramRelationKind
 		labelInferred   types.DiagramRelationKind
 	}
+	type labelOnlyEdge struct {
+		from, to, label string
+		labelInferred   types.DiagramRelationKind
+	}
 	var missing []missingAnchor
 	var mismatches []labelMismatch
-	relCounts := make(map[types.DiagramRelationKind]int)
+	// B3 v3 (2026-05-04): split typed and label-only counts so the
+	// EdgeRelations.Min check can distinguish "typed satisfies the
+	// minimum" from "label-only inference saved the minimum". Typed
+	// counts are authoritative; label-only counts also fill the
+	// contract but trigger ViolDiagramRelationLabelOnly SOFT advisory.
+	typedRelCounts := make(map[types.DiagramRelationKind]int)
+	labelRelCounts := make(map[types.DiagramRelationKind]int)
+	labelOnlyEdges := make(map[types.DiagramRelationKind][]labelOnlyEdge)
 	for _, e := range edges {
 		// Resolution priority:
 		//   1. Typed RelationKind on a matching EdgeAnchor (from,to) →
@@ -315,6 +326,7 @@ func validateDiagramRelationLegality(
 		switch {
 		case hasTyped:
 			rel = typedRel
+			typedRelCounts[typedRel]++
 			// Advisory drift signal: typed says X, label parses to Y, X≠Y.
 			// SOFT-only — labels are noisy; never promote.
 			if labelRel != types.DiagramRelUnknown && labelRel != typedRel {
@@ -325,11 +337,15 @@ func validateDiagramRelationLegality(
 			}
 		default:
 			rel = labelRel
+			if labelRel != types.DiagramRelUnknown {
+				labelRelCounts[labelRel]++
+				labelOnlyEdges[labelRel] = append(labelOnlyEdges[labelRel],
+					labelOnlyEdge{from: e.from, to: e.to, label: e.label, labelInferred: labelRel})
+			}
 		}
 		if rel == types.DiagramRelUnknown {
 			continue
 		}
-		relCounts[rel]++
 		expected := types.ClaimFormForRelation(rel)
 		if expected == types.ClaimUnknown {
 			continue
@@ -366,24 +382,65 @@ func validateDiagramRelationLegality(
 		if contract.Min <= 0 {
 			continue
 		}
-		if relCounts[contract.Kind] >= contract.Min {
-			continue
+		typedSatisfied := typedRelCounts[contract.Kind] >= contract.Min
+		totalSatisfied := typedRelCounts[contract.Kind]+labelRelCounts[contract.Kind] >= contract.Min
+		switch {
+		case typedSatisfied:
+			// All Min met by typed declarations — clean pass.
+		case totalSatisfied:
+			// Label-only inference filled the gap. Emit SOFT advisory
+			// encouraging typed declaration on the label-only edges.
+			edges := labelOnlyEdges[contract.Kind]
+			edgeStrs := make([]string, 0, len(edges))
+			for _, e := range edges {
+				edgeStrs = append(edgeStrs, fmt.Sprintf("%s --|%s|--> %s", e.from, e.label, e.to))
+			}
+			violations = append(violations, types.Violation{
+				Kind: types.ViolDiagramRelationLabelOnly,
+				Detail: fmt.Sprintf(
+					"diagram block id=%q satisfies relation kind=%s minimum=%d via %d label-only edge(s) and %d typed edge(s); typed declaration is the authoritative surface — consider declaring relation_kind on edge_anchors[] for: [%s]",
+					diagramBlock.ID, contract.Kind, contract.Min,
+					labelRelCounts[contract.Kind], typedRelCounts[contract.Kind],
+					strings.Join(edgeStrs, "; ")),
+				Repair: fmt.Sprintf(
+					"for each label-only edge listed, add an edge_anchors[] entry with relation_kind=%s, from_node, to_node, and claim_form=%s. The contract is currently met but typed declarations let future readers see the typed authority directly.",
+					contract.Kind, contract.ClaimForm),
+				SuspectedRoot: types.SuspectedRoot{
+					IRField:    "diagram_edges",
+					Reason:     "relation contract met via label-only inference",
+					Confidence: 0.5,
+				},
+				Stage: string(types.StageFinalize),
+			})
+		default:
+			// Even total counts (typed + label) below minimum — HARD
+			// reject. Detail describes the typed surface as primary.
+			// When typed has occupied an edge with a different
+			// RelationKind than this contract's Kind, the surfaced
+			// detail explains why label inference can't save the
+			// minimum (the edge is already typed-occupied).
+			short := contract.Min - typedRelCounts[contract.Kind] - labelRelCounts[contract.Kind]
+			detailExtra := ""
+			if typedRelCounts[contract.Kind] == 0 && len(labelOnlyEdges[contract.Kind]) == 0 {
+				detailExtra = fmt.Sprintf(" — typed declarations exist for other relation kinds; if you intended an edge to carry kind=%s, set its edge_anchors[] entry's relation_kind accordingly", contract.Kind)
+			}
+			violations = append(violations, types.Violation{
+				Kind: types.ViolDiagramEdgeUnsupported,
+				Detail: fmt.Sprintf(
+					"diagram block id=%q expected at least %d edge(s) of relation kind=%s but found %d typed + %d label-only (need %d more)%s",
+					diagramBlock.ID, contract.Min, contract.Kind,
+					typedRelCounts[contract.Kind], labelRelCounts[contract.Kind], short, detailExtra),
+				Repair: fmt.Sprintf(
+					"add at least %d edge(s) of relation kind=%s. PREFERRED: declare relation_kind=%s on a block-level edge_anchors entry along with from_node / to_node / claim_form=%s. ALTERNATIVE: label the Mermaid edge with vocabulary that resolves to this relation (see the %q section above for the recognised label vocabulary).",
+					short, contract.Kind, contract.Kind, contract.ClaimForm, types.SectionDiagramEdgeLabelVocabulary),
+				SuspectedRoot: types.SuspectedRoot{
+					IRField:    "diagram_edges",
+					Reason:     "minimum-count contract for typed relation not satisfied",
+					Confidence: 0.55,
+				},
+				Stage: string(types.StageFinalize),
+			})
 		}
-		violations = append(violations, types.Violation{
-			Kind: types.ViolDiagramEdgeUnsupported,
-			Detail: fmt.Sprintf(
-				"diagram block id=%q expected at least %d edge(s) of relation kind=%s but found %d (declare the relation either via a block-level edge_anchors entry with relation_kind=%s, or via a label whose vocabulary recognises this relation)",
-				diagramBlock.ID, contract.Min, contract.Kind, relCounts[contract.Kind], contract.Kind),
-			Repair: fmt.Sprintf(
-				"add at least %d edge(s) of relation kind=%s. PREFERRED: declare relation_kind=%s on a block-level edge_anchors entry along with from_node / to_node / claim_form=%s. ALTERNATIVE: label the Mermaid edge with vocabulary that resolves to this relation (see the %q section above for the recognised label vocabulary).",
-				contract.Min-relCounts[contract.Kind], contract.Kind, contract.Kind, contract.ClaimForm, types.SectionDiagramEdgeLabelVocabulary),
-			SuspectedRoot: types.SuspectedRoot{
-				IRField:    "diagram_edges",
-				Reason:     "minimum-count contract for typed relation not satisfied",
-				Confidence: 0.55,
-			},
-			Stage: string(types.StageFinalize),
-		})
 	}
 	if len(mismatches) > 0 {
 		// G3 SOFT advisory — readers benefit when the rendered label
