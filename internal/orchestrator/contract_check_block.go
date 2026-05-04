@@ -309,18 +309,18 @@ func validateDiagramRelationLegality(
 	if len(missing) > 0 {
 		details := make([]string, 0, len(missing))
 		for _, m := range missing {
-			details = append(details, fmt.Sprintf("%s --|%s|--> %s (need claim_use claim_form=%s anchored to from_node=%q to_node=%q)",
+			details = append(details, fmt.Sprintf("%s --|%s|--> %s (need block-level edge_anchors entry with claim_form=%s, from_node=%q, to_node=%q)",
 				m.from, m.label, m.to, m.want, m.from, m.to))
 		}
 		violations = append(violations, types.Violation{
 			Kind: types.ViolDiagramEdgeUnsupported,
 			Detail: fmt.Sprintf(
-				"diagram block id=%q has %d labelled edge(s) lacking a typed claim_use anchored to (from_node, to_node) with the expected claim_form: [%s]",
+				"diagram block id=%q has %d labelled edge(s) lacking a typed entry in block-level edge_anchors[] (with from_node, to_node, claim_form): [%s]",
 				diagramBlock.ID, len(missing), strings.Join(details, "; ")),
-			Repair: "for each listed edge, attach a claim_use to a block / item with claim_form set to the listed value AND from_node / to_node set to the verbatim node identifiers. Alternatively, drop the edge label if the relation isn't supported by typed evidence.",
+			Repair: "for each listed edge, add an entry to a block's edge_anchors[] array with claim_form set to the listed value AND from_node / to_node set to the verbatim node identifiers. Alternatively, drop the edge label if the relation isn't supported by typed evidence.",
 			SuspectedRoot: types.SuspectedRoot{
 				IRField:    "diagram_edges",
-				Reason:     "labelled edges lack typed claim_use anchor",
+				Reason:     "labelled edges lack typed edge_anchors entry",
 				Confidence: 0.6,
 			},
 			Stage: string(types.StageFinalize),
@@ -339,7 +339,7 @@ func validateDiagramRelationLegality(
 				"diagram block id=%q expected at least %d edge(s) of relation kind=%s but found %d (label the edges with vocabulary the relation kind recognises)",
 				diagramBlock.ID, contract.Min, contract.Kind, relCounts[contract.Kind]),
 			Repair: fmt.Sprintf(
-				"add at least %d Mermaid edge(s) whose label resolves to relation kind=%s (see the %q section above for the recognised label vocabulary); each such edge should be supported by a claim_use with claim_form=%s anchored to its (from_node, to_node)",
+				"add at least %d Mermaid edge(s) whose label resolves to relation kind=%s (see the %q section above for the recognised label vocabulary); each such edge should be supported by a block-level edge_anchors[] entry with claim_form=%s and matching from_node / to_node",
 				contract.Min-relCounts[contract.Kind], contract.Kind, types.SectionDiagramEdgeLabelVocabulary, contract.ClaimForm),
 			SuspectedRoot: types.SuspectedRoot{
 				IRField:    "diagram_edges",

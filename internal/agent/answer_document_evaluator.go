@@ -858,7 +858,7 @@ func renderRetryPrevEmit(rs *types.RetryState) string {
 				bs.ItemCount, bs.ItemsWithClaimUse, bs.ItemsWithCitation)
 		}
 		if bs.EdgeAnchoredClaimUses > 0 {
-			fmt.Fprintf(&out, "  edge_anchored_claim_uses: %d (claim_uses carrying from_node/to_node — preserve these on retry)\n",
+			fmt.Fprintf(&out, "  edge_anchors: %d entries (block-level edge_anchors[] array — preserve these on retry)\n",
 				bs.EdgeAnchoredClaimUses)
 		}
 		if bs.TextPreview != "" {
