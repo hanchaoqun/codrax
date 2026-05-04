@@ -450,10 +450,10 @@ type RuntimeSettings struct {
 	// layer reviewer that catches "answer ships clean but thin" —
 	// promoted facets uncovered, diagram edge minimums short,
 	// richness candidates with available evidence not surfaced.
-	// Independent from the self-consistency reviewer. Default
-	// FALSE this phase pending real-eval validation; flip to true
-	// once eval confirms ≤10% false-positive rate. nil = use
-	// default (false).
+	// Independent from the self-consistency reviewer. Default TRUE
+	// (eval signal accrues from day one). Operators set to false
+	// when the cost is too high or false-positive rate exceeds
+	// tolerance. nil = use default (true).
 	PipelineSemanticQualityReviewEnabled *bool `yaml:"pipeline_semantic_quality_review_enabled"`
 
 

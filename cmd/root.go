@@ -258,11 +258,12 @@ var (
 )
 
 // G5 (post_v2_runtime_gap_remediation, 2026-05-04). Semantic-quality
-// reviewer wire-up state. Default-disabled this phase pending real-
-// eval validation; once eval shows ≤10% false-positive rate flip to
-// true. yaml gate: pipeline_semantic_quality_review_enabled.
+// reviewer wire-up state. Default TRUE so eval signal accumulates
+// from day one; operators flip to false in codrax.yaml via
+// pipeline_semantic_quality_review_enabled when the cost is too
+// high or the false-positive rate exceeds tolerance.
 var (
-	semanticQualityEnabled = false
+	semanticQualityEnabled = true
 )
 
 // maxAttachedTraceBytes is the live cap for the perf-channel
