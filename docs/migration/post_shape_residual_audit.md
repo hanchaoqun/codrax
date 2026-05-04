@@ -132,3 +132,43 @@
 | R5.2 | 🟢 NO-OP — B6-F5 metric 已 1:1 LLM turn (baseline eval 真验证),仅日志冗余降级 P3 (合并到 R12) | (B6-F5) | n/a |
 
 实际开发时每条修完更新这个表。
+
+---
+
+## 2026-05-04 真 eval 验证总览 (s1a×2 064754 + m1a×2 064806)
+
+| TBD 项 | 真 eval 数据 | 验证结果 |
+|---|---|---|
+| R12 / R5.2 | DISPATCH count = 5/5 (s1a) + 8/7 (m1a) = 1+2+1+(1 或 finalizer-retry) ✓ 与 `<agent>_dispatches` metric 1:1;phase=toolresult/midloop_signal/etc 子事件标识全出现 | ✅ 100% 验证 |
+| R4.3 | s1a 1 (老 kind-mismatch path),m1a 2-3 (老路径) | ✅ 老路径稳;新 edge-grounding 0 false positive;本 4 run 无真 hallucinated edge case |
+| R5.1 | summary.md 4 列 (analyzer/explorer/extractor/finalizer)_dispatches 出现 | ✅ verified visible |
+| R7 | s1a 0;m1a r1 = 3 (retry 中间态),最终 ship 含 facet_ids,2/2 PASS | ✅ detection 工作正常,**retry 中间态**,LLM 自纠 |
+| R14 | m1a r1 finalizer 4 dispatch 真触发 retry 路径 (3 dispatch retry) | ✅ retry-state contract 实际被使用 |
+| R15 | retry 路径触发但日志未单独 surface ViolationProfile struct | 🟡 内部使用,日志层无显式 metric |
+| R2.1-2.4 / R3.1 | s1a / m1a 都 PASS,无 facet_softened / V2 oracle hard fail | ✅ 隐式验证 (无 false-fire) |
+| R8 | 4 决策点 0 触发 (干净 case 不触发) | 🟡 wired 但需故意 broken case 验证 |
+| R10 | s1a / m1a 4 run chains_demoted / forced_reads 未达 storm 阈值 | 🟡 wired 但本批次未触发 |
+| R16 | 本批次 retry path 走 emit_answer_document 而非 patch tool | 🟡 wired 但 LLM 未选 patch (skill prompt 需更强引导) |
+
+---
+
+## 2026-05-04 s1a-064754 forensic — L1-L4 4 层根因
+
+s1a r1 FAIL 深挖发现 4 层根因(细节见 [project_session_post_shape_s1a_forensic.md](../../../.claude/projects/-home-chatpp-codrax/memory/project_session_post_shape_s1a_forensic.md)):
+
+| 层级 | 根因 | 修复 |
+|---|---|---|
+| L1 trigger | finalizer 3 轮 schema-fix retry 烧光 budget,iter=3 仓促通过的内容已被 LLM 编造 | 自然消解(L2 修后) |
+| L2 prompt-vs-schema drift | skill prompt 教 block-level 单数 `claim_use` + `claim_use.citation_ref`,但 Go struct 只有 `claim_uses[]` 复数,`RenderedClaimUse` 无 `CitationRef` 字段 | ✅ 14d9b6e (17 处修正) |
+| L3 enumeration items[].label oracle gap | finalizer 写编造 label,无 oracle 比 BODY items[].label vs evidence pool | ✅ 14d9b6e (新 ViolEnumerationLabelUngrounded oracle) |
+| L4 self_consistency BODY-vs-evidence 盲点 | reviewer 只比 SUMMARY vs BODY,内部一致就放过(s1a 内部一致 conf=0.95 但全编造);m1a 验证真矛盾上 reviewer working | 🟡 留下 session — 给 reviewer 喂 evidence pool 摘要做 cross-check |
+
+m1a r1 finalizer 4 dispatch × ~7 iter ≈ **28 LLM calls**,绝大多数耗在 L2 drift 上;commit 14d9b6e 修后预期降到 ~4 calls。
+
+---
+
+## 下个 session 最高 ROI
+
+1. 真 eval rerun s1a×2 + m1a×2 验证 14d9b6e 把 m1a r1 finalizer 28 calls 降到 ~4
+2. L4 self_consistency BODY-vs-evidence 扩展 — 给 reviewer 喂 evidence pool anchor_symbol 摘要
+3. R8 故意构造 broken case 让 4 决策点至少 1 个真触发
