@@ -13,5 +13,23 @@
 ID="s8a"
 NAME="call chain — analyzer post-processing buildAnalysisIR → gate.Run"
 QUESTION="从 analyzer.go 的 buildAnalysisIR 到 gate.Run 之间的确定性处理链都经过哪几步？按调用顺序列出中间的关键函数。"
+# 2026-05-04 strictness audit: previous EC `buildAnalysisIR gate.Run`
+# was the question's two endpoints — bar = "复述题目两端"; an answer
+# "buildAnalysisIR runs analyzer logic and ends at gate.Run" PASSed
+# without enumerating the chain. Verified ground truth (sequence in
+# `internal/agent/analyzer.go::buildAnalysisIR` line 1280-1430):
+#   1. normalizer.Normalize  → TermGraph
+#   2. compiler.InferScenario → Scenario
+#   3. compiler.Compile        → TaskGraph + EvidencePlan + AnswerContract
+#   4. hdp.Plan                → Hypotheses (HDP)
+#   5. compiler.RecomputeBudget → final budget
+#   6. binder.BindByRelevance  → criterion binding
+#   7. gate.RunWith / gate.Run → quality gate
+# Strict-bar requires answer to surface ≥3 of the 5 numbered chain
+# functions verbatim — generic "the analyzer runs several steps"
+# no longer PASSes.
 EXPECT_CONTAINS="buildAnalysisIR gate.Run"
+EXPECT_MATCHES_REGEX="(normalizer\.Normalize|TermGraph)
+(compiler\.Compile|TaskGraph|EvidencePlan|RecomputeBudget)
+(hdp\.Plan|hypothes|HypothesisSet|binder\.BindByRelevance)"
 EXPECT_NOT_CONTAINS="runTaskGraph DesignReviewer"

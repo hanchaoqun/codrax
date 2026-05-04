@@ -16,6 +16,16 @@
 ID="u4a"
 NAME="reverse dependency — importers of internal/analysis/criterion"
 QUESTION="哪些包 import 了 internal/analysis/criterion？逐一列出包的路径，按数量排序。"
+# 2026-05-04 strictness audit: previous EMR `internal/[a-z]+`
+# accepted ANY internal/<word> path (including the question's own
+# `internal/analysis`). Verified ground truth (`grep -rln
+# '"github.com/hanchaoqun/codrax/internal/analysis/criterion"'`
+# excluding test/eval-result dirs): 5 unique importer packages —
+# cmd, internal/agent, internal/analysis/gate,
+# internal/analysis/stopcond, internal/orchestrator. Strict-bar
+# requires ≥3 of the 5 verbatim, including at least one
+# top-level package and one inner sub-package.
 EXPECT_CONTAINS="internal/analysis/criterion"
 EXPECT_NOT_CONTAINS="several some .java"
-EXPECT_MATCHES_REGEX="internal/[a-z]+"
+EXPECT_MATCHES_REGEX="internal/agent|internal/orchestrator|cmd
+internal/analysis/gate|internal/analysis/stopcond"

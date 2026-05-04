@@ -14,5 +14,13 @@
 ID="u9a"
 NAME="error handling — validateAnalyzerPrescanToolCall rejection path"
 QUESTION="BaseAgent.executeTool 调用 validateAnalyzerPrescanToolCall 返回非 nil 错误时，调用流程走哪条分支？tool 调用被直接 reject，还是先执行再 override？"
+# 2026-05-04 strictness audit: previous EC was the 2 question
+# function names — bar = "复述题目函数名". The question asks the
+# binary decision (reject vs execute-then-override). Tighten to
+# require the answer to surface (a) the rejection verdict word
+# AND (b) "before" / "pre-dispatch" / "prior to execution" timing
+# — proving the answer reached the actual control-flow site.
 EXPECT_CONTAINS="executeTool validateAnalyzerPrescanToolCall"
+EXPECT_MATCHES_REGEX="(reject|拒绝|denied|blocked)
+(before|pre.?dispatch|prior to|未执行|未调用)"
 EXPECT_NOT_CONTAINS="ignore swallow silent"

@@ -13,5 +13,15 @@
 ID="u9b"
 NAME="error handling — emit_evidence per-item vs batch rejection"
 QUESTION="When emit_evidence receives a batch where exactly one item is missing the anchor_kind field, does the whole call fail, or does the rest of the batch succeed and only the bad item get rejected?"
+# 2026-05-04 strictness audit: previous EC was 2 question keywords
+# — bar = "复述题目". Verified ground truth (`internal/tool/
+# emit_evidence.go` line 471-525): per-item reject is shipped (the
+# bad item gets rejected, valid items proceed). Tighten by
+# requiring the answer to surface (a) the verdict word per-item /
+# 单项 / 单条 / partial AND (b) explicit "rest succeed" / "其他
+# 通过" / "valid items proceed" semantic — proving the answer
+# distinguishes from "whole batch fails".
 EXPECT_CONTAINS="emit_evidence anchor_kind"
-EXPECT_NOT_CONTAINS="unclear maybe depends"
+EXPECT_MATCHES_REGEX="(per.?item|单项|单条|partial)
+(rest.*(succeed|proceed|accept)|其他.*通过|其余.*接受|valid items)"
+EXPECT_NOT_CONTAINS="unclear maybe depends whole.batch"
