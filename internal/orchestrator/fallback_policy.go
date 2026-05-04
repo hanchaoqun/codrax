@@ -468,6 +468,42 @@ func FallbackTargetForViolation(v types.Violation) FallbackTarget {
 //      still drags the whole retry to FailLoud regardless of
 //      majority (failure-of-last-resort red line).
 func FallbackTargetForViolations(vs []types.Violation) FallbackTarget {
+	// math.MaxInt32 effectively disables the R2.2 downgrade — the
+	// budget-less wrapper is byte-identical to pre-R2.2 behaviour
+	// (existing tests and any caller that hasn't opted into the
+	// per-Run counter).
+	return FallbackTargetForViolationsWithBudget(vs, 1<<30)
+}
+
+// FallbackTargetForViolationsWithBudget extends
+// FallbackTargetForViolations with R2.2 finalize-local priority
+// (post_shape_residual_audit.md, 2026-05-04). When the primary
+// locus is deeper than Finalizer AND the violation set contains
+// at least one finalize-local violation AND finalizerLocalUsed <
+// FinalizerLocalRetryBudget(), the picker DOWNGRADES the result
+// to FallbackFinalizerOnly so the cheap re-emit gets a chance
+// before the run escalates upstream.
+//
+// Why: pre-R2.2 a single ViolBlockCoverageMissing (BackToExtract)
+// co-occurring with one ViolPrincipalClaimUseMissing
+// (FinalizerOnly) made the count-based picker tie at 1-1 and the
+// deepest-locus tiebreak chose Extract — so even a finalize-local-
+// fixable contradiction got dragged upstream. The audit P10/P36
+// successor: instead of changing the count tiebreak (which would
+// hide real explore-only failures), give finalize-local a SMALL
+// retry budget; if N attempts fail, escalate to the deeper locus
+// as before.
+//
+// finalizerLocalUsed is the per-Run counter the caller increments
+// each time this picker downgrades to FinalizerOnly under this
+// rule; when the counter reaches the budget, downgrade stops
+// firing and the original primary-locus pick wins.
+//
+// Non-zero budget AND non-zero used count is the only way the
+// downgrade activates; default 0/0 keeps the call site byte-
+// identical to FallbackTargetForViolations (backward compat for
+// tests / callers that don't track the budget).
+func FallbackTargetForViolationsWithBudget(vs []types.Violation, finalizerLocalUsed int) FallbackTarget {
 	if len(vs) == 0 {
 		return FallbackFinalizerOnly
 	}
@@ -491,12 +527,17 @@ func FallbackTargetForViolations(vs []types.Violation) FallbackTarget {
 		b.seen = true
 	}
 	hasFailLoud := false
+	hasFinalizerLocal := false
 	for _, v := range vs {
 		t := FallbackTargetForViolation(v)
 		if t == FallbackFailLoud {
 			hasFailLoud = true
 		}
-		bumpBucket(LocusOfTarget(t), t)
+		l := LocusOfTarget(t)
+		if l == LocusFinalizer {
+			hasFinalizerLocal = true
+		}
+		bumpBucket(l, t)
 	}
 	// FailLoud always wins (any single non-recoverable violation
 	// terminates the retry loop — semantics unchanged from pre-B3).
@@ -534,7 +575,53 @@ func FallbackTargetForViolations(vs []types.Violation) FallbackTarget {
 	if best == nil {
 		return FallbackFinalizerOnly
 	}
-	return targetForLocus(best.locus)
+	primary := targetForLocus(best.locus)
+
+	// R2.2 (2026-05-04) finalize-local priority. When the primary
+	// pick is deeper than Finalizer BUT finalize-local violations
+	// also exist AND we still have budget, downgrade to
+	// FinalizerOnly so the cheap re-emit gets a try first. This
+	// counters the audit P10/P36 successor: a single deeper
+	// violation co-occurring with finalize-local violations would
+	// drag the whole retry upstream even though most could fix in
+	// place.
+	budget := FinalizerLocalRetryBudget()
+	if budget > 0 && finalizerLocalUsed < budget && hasFinalizerLocal {
+		switch primary {
+		case FallbackBackToExtract, FallbackBackToExplore, FallbackBackToAnalyze:
+			return FallbackFinalizerOnly
+		}
+	}
+	return primary
+}
+
+// finalizerLocalRetryBudget is the per-Run cap on how many times
+// FallbackTargetForViolationsWithBudget will downgrade a deeper
+// primary locus to FinalizerOnly. When the per-Run counter reaches
+// this budget, the original primary-locus pick activates and the
+// retry escalates upstream as before. Default 2 — gives finalize
+// two cheap re-emit attempts before paying for upstream rework.
+//
+// Wired via cmd/root.go from yaml
+// `pipeline_finalizer_local_retries_before_escalate`. Tests may
+// override directly via SetFinalizerLocalRetryBudget.
+var finalizerLocalRetryBudget = 2
+
+// FinalizerLocalRetryBudget exposes the current budget for the
+// fallback picker.
+func FinalizerLocalRetryBudget() int {
+	return finalizerLocalRetryBudget
+}
+
+// SetFinalizerLocalRetryBudget overrides the budget. Non-positive
+// values reset to default (2). Call from cmd/root.go after merging
+// codrax.yaml.
+func SetFinalizerLocalRetryBudget(n int) {
+	if n <= 0 {
+		finalizerLocalRetryBudget = 2
+		return
+	}
+	finalizerLocalRetryBudget = n
 }
 
 // PolicySnapshot returns a defensive copy of the active policy for

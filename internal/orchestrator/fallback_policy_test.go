@@ -357,3 +357,88 @@ func TestFallbackTargetForKind_UnknownDefaultsFinalizerOnly(t *testing.T) {
 		t.Errorf("unknown kind default = %s, want %s", got, FallbackFinalizerOnly)
 	}
 }
+
+// ── R2.2 finalize-local priority tests (post_shape_residual_audit
+// 2026-05-04) ──────────────────────────────────────────────────────
+
+// TestFallbackTargetForViolationsWithBudget_DowngradesWhenFinalizerLocalCoexists
+// pins the R2.2 contract: when primary locus would deeper-pull AND
+// the violation set has finalize-local violations AND budget is
+// available, the picker downgrades to FinalizerOnly.
+func TestFallbackTargetForViolationsWithBudget_DowngradesWhenFinalizerLocalCoexists(t *testing.T) {
+	// Violations: 1 BackToExtract (DeclaredCountDrift) + 1
+	// FinalizerOnly (DiagramIdentifier). Pre-R2.2 → tied 1-1 →
+	// deepest tiebreak picks BackToExtract.
+	vs := []types.Violation{
+		{Kind: types.ViolDeclaredCountDrift},
+		{Kind: types.ViolDiagramIdentifier},
+	}
+
+	// Budget=2, used=0 → downgrade fires.
+	if got := FallbackTargetForViolationsWithBudget(vs, 0); got != FallbackFinalizerOnly {
+		t.Errorf("budget=2 used=0 with finalize-local coexisting: got %s, want finalizer_only", got)
+	}
+	// Budget=2, used=1 → still has budget → downgrade fires.
+	if got := FallbackTargetForViolationsWithBudget(vs, 1); got != FallbackFinalizerOnly {
+		t.Errorf("budget=2 used=1: got %s, want finalizer_only", got)
+	}
+	// Budget=2, used=2 → exhausted → escalate to primary pick.
+	if got := FallbackTargetForViolationsWithBudget(vs, 2); got != FallbackBackToExtract {
+		t.Errorf("budget=2 used=2 (exhausted): got %s, want back_to_extract", got)
+	}
+}
+
+// TestFallbackTargetForViolationsWithBudget_NoFinalizerLocalNoDowngrade
+// confirms the downgrade requires finalize-local violations to
+// exist; pure deeper violations escalate as before.
+func TestFallbackTargetForViolationsWithBudget_NoFinalizerLocalNoDowngrade(t *testing.T) {
+	vs := []types.Violation{
+		{Kind: types.ViolDeclaredCountDrift},
+		{Kind: types.ViolDeclaredCountDrift},
+	}
+	if got := FallbackTargetForViolationsWithBudget(vs, 0); got != FallbackBackToExtract {
+		t.Errorf("no finalize-local in set: got %s, want back_to_extract", got)
+	}
+}
+
+// TestFallbackTargetForViolationsWithBudget_FailLoudOverridesDowngrade
+// confirms the FailLoud short-circuit is unchanged.
+func TestFallbackTargetForViolationsWithBudget_FailLoudOverridesDowngrade(t *testing.T) {
+	vs := []types.Violation{
+		{Kind: types.ViolPlanCritic},
+		{Kind: types.ViolDiagramIdentifier},
+	}
+	if got := FallbackTargetForViolationsWithBudget(vs, 0); got != FallbackFailLoud {
+		t.Errorf("FailLoud must short-circuit budget downgrade: got %s, want fail_loud", got)
+	}
+}
+
+// TestFallbackTargetForViolations_BackCompatNoDowngrade pins the
+// budget-less wrapper byte-identity contract.
+func TestFallbackTargetForViolations_BackCompatNoDowngrade(t *testing.T) {
+	vs := []types.Violation{
+		{Kind: types.ViolDeclaredCountDrift},
+		{Kind: types.ViolDiagramIdentifier},
+	}
+	if got := FallbackTargetForViolations(vs); got != FallbackBackToExtract {
+		t.Errorf("budget-less wrapper must NOT downgrade: got %s, want back_to_extract", got)
+	}
+}
+
+// TestFinalizerLocalRetryBudget_SetGet covers the setter / getter
+// + non-positive reset to default.
+func TestFinalizerLocalRetryBudget_SetGet(t *testing.T) {
+	t.Cleanup(func() { SetFinalizerLocalRetryBudget(2) })
+	SetFinalizerLocalRetryBudget(5)
+	if got := FinalizerLocalRetryBudget(); got != 5 {
+		t.Errorf("after set 5: got %d", got)
+	}
+	SetFinalizerLocalRetryBudget(0)
+	if got := FinalizerLocalRetryBudget(); got != 2 {
+		t.Errorf("non-positive must reset to 2: got %d", got)
+	}
+	SetFinalizerLocalRetryBudget(-1)
+	if got := FinalizerLocalRetryBudget(); got != 2 {
+		t.Errorf("negative must reset to 2: got %d", got)
+	}
+}

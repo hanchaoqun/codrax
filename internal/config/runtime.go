@@ -198,6 +198,19 @@ type RuntimeSettings struct {
 	// Default true so silent rule firings are visible.
 	PipelineRichnessSofteningWarn *bool `yaml:"pipeline_richness_softening_warn"`
 
+	// PipelineFinalizerLocalRetriesBeforeEscalate gates the R2.2
+	// (post_shape_residual_audit.md, 2026-05-04) finalize-local
+	// priority downgrade. When the contract checker emits a violation
+	// set whose primary locus is BackToExtract / BackToExplore but
+	// finalize-local violations also exist, the picker downgrades
+	// to FallbackFinalizerOnly for up to N attempts; the (N+1)-th
+	// time the deeper primary-locus pick activates and the run
+	// escalates upstream as before. Default 2 (give finalize two
+	// cheap re-emit tries before paying for upstream rework).
+	// Non-positive resets to default. Set to 1 to halve the budget,
+	// 0 / negative to disable the downgrade entirely.
+	PipelineFinalizerLocalRetriesBeforeEscalate *int `yaml:"pipeline_finalizer_local_retries_before_escalate"`
+
 	// PipelineFinalizerRetryNoThink controls whether think_aloud is
 	// dynamically disabled on FINALIZER retry iterations (iter ≥ 1).
 	// Iter 0 (first dispatch) always keeps the operator's yaml-

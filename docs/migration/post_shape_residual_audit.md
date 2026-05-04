@@ -107,7 +107,7 @@
 | R1.3 | ⬜ pending | — | — |
 | R1.4 | ⬜ pending | — | — |
 | R2.1 | 🟢 SHIPPED V2 重接 (commit pending push) | TBD | 待真 eval 跑 QF 多 topic case |
-| R2.2 | ⬜ pending | — | — |
+| R2.2 | 🟢 SHIPPED 分流 + 预算 | TBD | 待真 eval 出现 finalize+deeper 混合场景 |
 | R2.3 | 🔵 决策已定:重接 V2(4 个 oracle 各 1 commit) | — | — |
 | R2.4 | 🟢 SHIPPED 选位修 | TBD | 待真 eval rerun s1a 看是否触发 |
 | R3.1 | ⬜ pending | — | — |

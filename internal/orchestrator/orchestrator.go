@@ -2951,6 +2951,14 @@ func (o *Orchestrator) runReadSchedulerLoop(stepBudget int) int {
 	// that DO mutate upstream state get a fresh extract dispatch.
 	lastFallbackFinalizerOnly := false
 
+	// R2.2 (post_shape_residual_audit.md, 2026-05-04): per-Run
+	// counter for the finalize-local priority downgrade. Each time
+	// FallbackTargetForViolationsWithBudget chooses to downgrade a
+	// deeper primary locus to FinalizerOnly, this counter increments;
+	// when it reaches FinalizerLocalRetryBudget(), downgrade stops
+	// and the deeper primary-locus pick activates.
+	finalizerLocalRetriesUsed := 0
+
 	// forceFinalizeTriggered latches once stopcond.ShouldStop has fired
 	// and forceCloseExploreWindow has marked every non-finalize node
 	// as done. The flag serves two distinct purposes:
@@ -3693,7 +3701,17 @@ func (o *Orchestrator) runReadSchedulerLoop(stepBudget int) int {
 		// requeueToStage handles the "always-include-finalize"
 		// invariant centrally; partial Mutable reset keeps the
 		// next dispatch's prompt clean.
-		fallback := FallbackTargetForViolations(res.Violations)
+		// R2.2: pass the per-Run downgrade counter so the picker
+		// can prefer FinalizerOnly until the budget is exhausted.
+		// The original picker (FallbackTargetForViolations,
+		// budget-less) is preserved for tests + back-compat.
+		preDowngrade := FallbackTargetForViolations(res.Violations)
+		fallback := FallbackTargetForViolationsWithBudget(res.Violations, finalizerLocalRetriesUsed)
+		if fallback == FallbackFinalizerOnly && preDowngrade != FallbackFinalizerOnly {
+			finalizerLocalRetriesUsed++
+			logging.Info("[orchestrator] R2.2 finalize-local priority: primary-locus pick=%s downgraded to finalizer_only (used %d/%d)",
+				preDowngrade, finalizerLocalRetriesUsed, FinalizerLocalRetryBudget())
+		}
 		// Cap upstream fallbacks per Run. When exceeded, force
 		// FailLoud regardless of policy mapping.
 		capReached := false

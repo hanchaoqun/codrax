@@ -1664,6 +1664,11 @@ func initApp(cmd *cobra.Command, _ []string) error {
 			richnessSofteningWarn = *rs.PipelineRichnessSofteningWarn
 		}
 		orchestrator.SetRichnessSofteningWarnEnabled(richnessSofteningWarn)
+		// R2.2 (post_shape_residual_audit.md, 2026-05-04) finalizer-
+		// local retry budget for the fallback picker downgrade.
+		if rs.PipelineFinalizerLocalRetriesBeforeEscalate != nil {
+			orchestrator.SetFinalizerLocalRetryBudget(*rs.PipelineFinalizerLocalRetriesBeforeEscalate)
+		}
 		// B6-F4 finalizer retry-iter think_aloud dynamic disable.
 		finalizerRetryNoThink := true
 		if rs.PipelineFinalizerRetryNoThink != nil {
