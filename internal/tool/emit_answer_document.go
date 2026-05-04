@@ -50,7 +50,7 @@ func (t *EmitAnswerDocument) Description() string {
 		"(text for prose blocks, items[] for list/table blocks, diagram for diagram blocks). " +
 		"\n\n" +
 		"PRINCIPAL BLOCKS (the user-section's Required Answer Blocks list flags these as `surface_role=principal`) MUST carry a `claim_use` annotation when the contract's AcceptableClaimForms list is non-empty. " +
-		"Allowed claim_form values: `definition_fact` (cited line establishes a typed fact), `mechanism_step` (one hop in a behavior chain), `enumeration_member` (one member of a closed set), `derivation_step` (intermediate computation), `call_edge` (caller→callee call site), `assignment` (config / variable assignment), `guard_condition` (branch / condition gating the answer), `observed_artifact_fact` (runtime / log fact), `divergence_caveat` (code-vs-comment divergence). " +
+		"Allowed claim_form values: `definition_fact` (cited line establishes a typed fact: const, struct field, function signature, default value), `call_edge` (caller→callee call site), `guard_condition` (branch / condition gating the answer), `assignment_fact` (config / variable / field assignment), `return_fact` (return statement / function output), `absence_fact` (cited evidence carries Negative scope — search confirmed absent), `precedence_role` (cited evidence carries a layer / override role), `external_observation` (cited evidence is from runtime log / perf trace, not repo source), `import_edge` (module / package import edge). " +
 		"Use a single block-level `claim_use` for whole-block annotation; per-item `claim_use` (inside items[i].claim_use) when individual items carry distinct claim forms; block-level `claim_uses[]` array for blocks legitimately spanning multiple claim forms. " +
 		"\n\n" +
 		"DIAGRAM BLOCKS — `diagram.kind` is the SEMANTIC FAMILY (`flow` / `sequence` / `architecture` / `call_dag`), NOT a Mermaid keyword. Mermaid syntax (`flowchart` / `sequenceDiagram`) goes inside `diagram.body` with `diagram.language=\"mermaid\"`. " +
@@ -75,8 +75,8 @@ func (t *EmitAnswerDocument) Description() string {
 		"  {\"id\":\"s1\",\"kind\":\"summary\",\"text\":\"<lead-in framing the chain>\"},\n" +
 		"  {\"id\":\"hops\",\"kind\":\"ordered_list\",\"surface_role\":\"principal\",\n" +
 		"   \"items\":[\n" +
-		"    {\"id\":\"h1\",\"label\":\"Stage A\",\"text\":\"<what stage A does>\",\"kind\":\"principal\",\"claim_use\":{\"claim_form\":\"mechanism_step\",\"citation_ref\":0}},\n" +
-		"    {\"id\":\"h2\",\"label\":\"Stage B\",\"text\":\"<what stage B does>\",\"kind\":\"principal\",\"claim_use\":{\"claim_form\":\"mechanism_step\",\"citation_ref\":1}}\n" +
+		"    {\"id\":\"h1\",\"label\":\"Stage A\",\"text\":\"<what stage A does>\",\"kind\":\"principal\",\"claim_use\":{\"claim_form\":\"call_edge\",\"citation_ref\":0}},\n" +
+		"    {\"id\":\"h2\",\"label\":\"Stage B\",\"text\":\"<what stage B does>\",\"kind\":\"principal\",\"claim_use\":{\"claim_form\":\"call_edge\",\"citation_ref\":1}}\n" +
 		"   ]}\n" +
 		"],\"citations\":[{\"file\":\"a.go\",\"line\":10},{\"file\":\"b.go\",\"line\":20}]}\n" +
 		"```\n" +
@@ -87,8 +87,8 @@ func (t *EmitAnswerDocument) Description() string {
 		"  {\"id\":\"s1\",\"kind\":\"summary\",\"text\":\"<frames what the list enumerates>\"},\n" +
 		"  {\"id\":\"slate\",\"kind\":\"ordered_list\",\"surface_role\":\"principal\",\n" +
 		"   \"items\":[\n" +
-		"    {\"id\":\"m1\",\"label\":\"MemberA\",\"text\":\"<role / why it belongs>\",\"claim_use\":{\"claim_form\":\"enumeration_member\",\"citation_ref\":0}},\n" +
-		"    {\"id\":\"m2\",\"label\":\"MemberB\",\"text\":\"<role / why it belongs>\",\"claim_use\":{\"claim_form\":\"enumeration_member\",\"citation_ref\":1}}\n" +
+		"    {\"id\":\"m1\",\"label\":\"MemberA\",\"text\":\"<role / why it belongs>\",\"claim_use\":{\"claim_form\":\"definition_fact\",\"citation_ref\":0}},\n" +
+		"    {\"id\":\"m2\",\"label\":\"MemberB\",\"text\":\"<role / why it belongs>\",\"claim_use\":{\"claim_form\":\"definition_fact\",\"citation_ref\":1}}\n" +
 		"   ]}\n" +
 		"],\"citations\":[{\"file\":\"x.go\",\"line\":1},{\"file\":\"y.go\",\"line\":1}]}\n" +
 		"```\n" +
@@ -161,8 +161,8 @@ func (t *EmitAnswerDocument) Parameters() json.RawMessage {
               "body":     {"type": "string", "description": "Raw diagram source (the part inside fenced markers; the renderer adds the fences). For diagram.kind=flow/architecture/call_dag use Mermaid \"flowchart\" syntax (direction LR/TD/RL/BT); for diagram.kind=sequence use Mermaid \"sequenceDiagram\"."}
             }
           },
-          "claim_use":    {"type": "object", "description": "Optional block-level claim annotation. REQUIRED on principal blocks (surface_role=principal) when the contract's AcceptableClaimForms list is non-empty. Shape: {claim_form: <one of definition_fact|mechanism_step|enumeration_member|derivation_step|call_edge|assignment|guard_condition|observed_artifact_fact|divergence_caveat>, citation_ref: <int>, surface_role?, facet_id?}. Use this for whole-block annotation (most scalar/decision/diagram blocks)."},
-          "claim_uses":   {"type": "array", "description": "Optional block-level claim annotations array. Use this when one block legitimately spans multiple claim forms (e.g. an ordered_list mixing mechanism_step and guard_condition). Each entry has the same shape as claim_use."},
+          "claim_use":    {"type": "object", "description": "Optional block-level claim annotation. REQUIRED on principal blocks (surface_role=principal) when the contract's AcceptableClaimForms list is non-empty. Shape: {claim_form: <one of definition_fact|call_edge|guard_condition|assignment_fact|return_fact|absence_fact|precedence_role|external_observation|import_edge>, citation_ref: <int>, surface_role?, facet_id?}. Use this for whole-block annotation (most scalar/decision/diagram blocks)."},
+          "claim_uses":   {"type": "array", "description": "Optional block-level claim annotations array. Use this when one block legitimately spans multiple claim forms (e.g. an ordered_list mixing call_edge and guard_condition hops). Each entry has the same shape as claim_use."},
           "facet_ids":    {"type": "array", "items": {"type": "string"}, "description": "Optional facet ids this block covers — read these from the user section's Required Answer Blocks list."},
           "surface_role": {"type": "string", "enum": ["", "principal", "support", "prose_only", "diagram_only"], "description": "Block's role in the answer surface. principal = carries the answer payload (must usually attach claim_use); support = corroborates principal (e.g. anchor skeleton); prose_only = lead-in / framing; diagram_only = purely visual. The user-section's block list flags which role each Required Block expects."}
         },

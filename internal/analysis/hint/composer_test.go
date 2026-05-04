@@ -368,3 +368,48 @@ func TestComposer_V2ViolationsRouteThroughV2Vocabulary(t *testing.T) {
 		})
 	}
 }
+
+// TestComposer_ClaimFormVocabularyMatchesInternalEnum (R1.2 lock,
+// post_shape_residual_audit.md 2026-05-04) — the
+// ViolClaimFormUnsupported AllowedClaimForm set surfaced to the LLM
+// MUST be exactly the canonical AllClaimForms() set. Adding /
+// removing a ClaimForm value MUST update both the enum AND this
+// composer arm; the test shouts when they diverge.
+//
+// Pinned because:
+//   1. validateClaimFormSupport compares LLM-emitted ClaimForm
+//      against ClaimFormOf(evidence) projection, which only ever
+//      yields one of the AllClaimForms() values. Any LLM-facing
+//      hint listing higher-level "user-friendly" names (e.g. the
+//      pre-R1.2 mechanism_step / enumeration_member / etc.) is a
+//      contract drift bug — those forms can never satisfy the
+//      validator and the LLM gets stuck false-firing.
+//   2. The "no alias layer" red line means LLM and internal share
+//      one vocabulary. This test enforces it structurally.
+func TestComposer_ClaimFormVocabularyMatchesInternalEnum(t *testing.T) {
+	got := buildAllowedSet([]types.Violation{{Kind: types.ViolClaimFormUnsupported}}, Context{})
+	gotSet := map[string]bool{}
+	for _, a := range got {
+		if a.Kind == AllowedClaimForm {
+			gotSet[a.Value] = true
+		}
+	}
+	for _, want := range types.AllClaimForms() {
+		if !gotSet[string(want)] {
+			t.Errorf("composer ViolClaimFormUnsupported missing canonical ClaimForm %q from AllClaimForms()", want)
+		}
+	}
+	if want, got := len(types.AllClaimForms()), len(gotSet); want != got {
+		t.Errorf("composer surfaces %d claim_form values, AllClaimForms has %d — vocabulary drift", got, want)
+	}
+	// Banned: any of the V1-era higher-level names that don't exist
+	// in the internal enum.
+	for _, banned := range []string{
+		"mechanism_step", "enumeration_member", "derivation_step",
+		"divergence_caveat", "observed_artifact_fact", "assignment",
+	} {
+		if gotSet[banned] {
+			t.Errorf("composer surfaces V1-era stale name %q (must be removed per R1.2)", banned)
+		}
+	}
+}

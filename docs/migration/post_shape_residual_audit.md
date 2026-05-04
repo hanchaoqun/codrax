@@ -103,7 +103,7 @@
 | ID | 状态 | commit | 真 eval 验证 |
 |---|---|---|---|
 | R1.1 | ⬜ pending | — | — |
-| R1.2 | ⬜ pending | — | — |
+| R1.2 | 🟢 SHIPPED LLM 词汇 1:1 内部 enum + 锁 test | TBD | 待真 eval 验证不再 false-fire ClaimForm 验证器 |
 | R1.3 | ⬜ pending | — | — |
 | R1.4 | ⬜ pending | — | — |
 | R2.1 | 🟢 SHIPPED V2 重接 (commit pending push) | TBD | 待真 eval 跑 QF 多 topic case |

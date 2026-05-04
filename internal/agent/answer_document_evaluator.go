@@ -276,7 +276,7 @@ func (e *answerDocumentEvaluator) BuildInitialInstruction(ctx *types.AgentContex
 		if view.AllowsAnchorSkeleton(ctx.AnalysisIR.RequestModel) && len(ctx.AnswerSymbols) > 0 {
 			b.WriteString("### Anchor skeleton (emit as one optional ordered_list block)\n\n")
 			b.WriteString("The extractor produced these per-sub-topic anchors. " +
-				"Re-emit them verbatim as an additional `ordered_list` block (one item per anchor; each item carries `id`, `label=<symbol-name>`, `text=<rationale>`, and `claim_use{claim_form=enumeration_member, citation_ref=N}`) " +
+				"Re-emit them verbatim as an additional `ordered_list` block (one item per anchor; each item carries `id`, `label=<symbol-name>`, `text=<rationale>`, and `claim_use{claim_form=definition_fact, citation_ref=N}` — pick the form matching what the cited line actually is) " +
 				"so the renderer can show them as a Key Anchors block beneath your prose. " +
 				"Each anchor's file:line is authoritative — do not modify.\n\n")
 			for _, s := range ctx.AnswerSymbols {
@@ -319,25 +319,25 @@ func renderAnswerDocSubmissionChecklist(ctx *types.AgentContext, view *types.Ans
 				switch view.Family {
 				case types.QFConfigPrecedence:
 					items = append(items,
-						"Emit the principal `scalar` block with `value{key, literal, citation_ref}` and attach `claim_use{claim_form=definition_fact, citation_ref=N}` (or `assignment` when the cited line is a config assignment).",
+						"Emit the principal `scalar` block with `value{key, literal, citation_ref}` and attach `claim_use{claim_form=definition_fact, citation_ref=N}` (or `assignment_fact` when the cited line is a config / variable assignment).",
 						"Fill the block's `text` (or the lead summary block) with prose that names the config key / subject and states how the literal was obtained (lookup / file:line / chain).",
 					)
 				default:
 					items = append(items,
-						"Emit the principal `scalar` block with `value{literal, citation_ref}` and attach `claim_use{claim_form=definition_fact, citation_ref=N}` (use `observed_artifact_fact` when the literal is from an attached log / external trace).",
+						"Emit the principal `scalar` block with `value{literal, citation_ref}` and attach `claim_use{claim_form=definition_fact, citation_ref=N}` (use `external_observation` when the literal is from an attached log / external trace).",
 						"Fill the block's `text` (or the lead summary block) with prose that names the subject being measured and states how the literal was obtained (lookup / file:line / command / chain).",
 					)
 				}
 			case types.BlockOrderedList:
 				if br.SurfaceRoleHint == types.SurfacePrincipal && view.Family == types.QFEnumeration {
 					items = append(items,
-						"Emit the principal `ordered_list` block with `items[]` (each item carries `id`, optional `label`, `text`, and per-item `claim_use{claim_form=enumeration_member, citation_ref=N}`).",
+						"Emit the principal `ordered_list` block with `items[]` (each item carries `id`, optional `label`, `text`, and per-item `claim_use{claim_form=definition_fact, citation_ref=N}` — pick `call_edge`, `assignment_fact`, etc. when those match what the cited line actually is).",
 						"Set the doc-level `symbols_completeness` honestly (`complete` / `lower_bound` / `unknown`); do NOT claim `complete` unless you've reached the expected answer count shown in the user section.",
 						"Use the lead summary block to frame what the list enumerates; do not let the list stand alone without context.",
 					)
 				} else {
 					items = append(items,
-						"Emit the principal `ordered_list` block with `items[]` of ordered logical hops. Per-item `claim_use{claim_form=mechanism_step|call_edge|guard_condition, citation_ref=N}` is REQUIRED on principal items.",
+						"Emit the principal `ordered_list` block with `items[]` of ordered logical hops. Per-item `claim_use{claim_form=call_edge|guard_condition|return_fact, citation_ref=N}` is REQUIRED on principal items — pick the form matching what the cited line actually is (call site / branch condition / return statement).",
 						"Each item carries an optional `kind` field (`principal` / `flow` / `caveat`); only `kind=principal` items count toward any user-quoted bounded set.",
 						"Keep the hop-by-hop detail in items[] `text`; the lead summary block is only the lead-in.",
 						"Do not invent shorthand labels from citation line numbers (for example `L877` or `Line 42`) unless that exact token is itself grounded in cited text.",
@@ -366,7 +366,7 @@ func renderAnswerDocSubmissionChecklist(ctx *types.AgentContext, view *types.Ans
 				)
 			case types.BlockCaveat:
 				items = append(items,
-					"Emit a `caveat` block with honesty marker prose inside `text`. Use `claim_use{claim_form=divergence_caveat}` when the caveat exposes a code-vs-comment divergence.",
+					"Emit a `caveat` block with honesty marker prose inside `text`. When the caveat names a search confirmed absent, set `claim_use{claim_form=absence_fact}`; when the caveat reports an external runtime/log observation that diverges from repo, set `claim_use{claim_form=external_observation}`; otherwise leave `claim_use` off (caveat blocks rarely require a typed claim_form).",
 				)
 			}
 		}

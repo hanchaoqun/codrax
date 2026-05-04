@@ -421,7 +421,7 @@ func summariseExactFix(violations []types.Violation, ctx Context) string {
 	case types.ViolUncertaintyBlockMissing:
 		// V2 carrier — UncertaintyRule fired but no caveat block
 		// covers the disclosure facet.
-		return "Add a `caveat` block disclosing the uncertainty source the contract names. Use `claim_use{claim_form=divergence_caveat}` when the caveat exposes drift between observed evidence and current code, or `claim_use{claim_form=observed_artifact_fact}` when the source is an attached log / external trace."
+		return "Add a `caveat` block disclosing the uncertainty source the contract names. Use `claim_use{claim_form=absence_fact}` when the caveat names a search confirmed absent, or `claim_use{claim_form=external_observation}` when the source is an attached log / external trace; otherwise leave `claim_use` off (caveat blocks rarely need a typed claim form)."
 	case types.ViolClaimFormUnsupported:
 		// V2 carrier — LLM-emitted claim_form on a block doesn't
 		// match the system-derived ClaimFormOf(citation) for that
@@ -481,16 +481,23 @@ func buildAllowedSet(violations []types.Violation, ctx Context) []Allowed {
 		// (Per-block AcceptableClaimForms narrowing happens in the
 		// validator's repair text; this Allowed list is the global
 		// vocabulary.)
+		// R1.2 (post_shape_residual_audit.md, 2026-05-04): vocabulary
+		// aligned 1:1 with internal types.ClaimForm enum; the V1-era
+		// higher-level names (mechanism_step / enumeration_member /
+		// derivation_step / divergence_caveat) and renames (assignment
+		// / observed_artifact_fact) are gone. Validator
+		// validateClaimFormSupport compares against ClaimFormOf(evidence)
+		// projection; only these 9 values can match.
 		for _, form := range []string{
 			"definition_fact",
-			"mechanism_step",
-			"enumeration_member",
-			"derivation_step",
 			"call_edge",
-			"assignment",
 			"guard_condition",
-			"observed_artifact_fact",
-			"divergence_caveat",
+			"assignment_fact",
+			"return_fact",
+			"absence_fact",
+			"precedence_role",
+			"external_observation",
+			"import_edge",
 		} {
 			out = append(out, Allowed{
 				Kind:  AllowedClaimForm,
