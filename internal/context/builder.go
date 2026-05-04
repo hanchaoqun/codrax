@@ -278,50 +278,9 @@ func isExtractorSkill(sk *skill.Config) bool {
 	return sk != nil && sk.Name == "extract-skill"
 }
 
-// canonicalSystemSectionOrder lists every system-role section title
-// BuildPromptContext may emit, in the exact order the LLM sees them.
-// The list is purely documentary — it pins the contract between the
-// builder and the evaluators and mirrors the append() sequence in
-// BuildPromptContext. When a new system section is added below, also
-// add its title here so a grep reaches both sides.
-var canonicalSystemSectionOrder = []string{
-	"Agent Identity",
-	"Reasoning Hygiene",
-	"Think Aloud",
-	"Constraints",
-	"User Preferences",
-	"Pipeline State",
-	"Skill Goal",
-	"Workflow",
-	"Output Format",
-	"Prohibitions",
-}
-
-// canonicalUserSectionOrder does the same for user-role sections.
-// Note that several of these are conditional — they only appear when
-// their backing AgentContext field is non-empty — but the relative
-// ORDER is fixed. Evaluators (BuildInitialInstruction) must not re-emit
-// any of these titles: they append a separate user message after the
-// builder's output, so a duplicate title produces two visually
-// identical sections and contradictory directives when the two sides
-// drift.
-var canonicalUserSectionOrder = []string{
-	"Retry Directive (READ FIRST)",
-	"User Request",
-	"Analyzer Pre-scan Findings", // write-mode (StagePlan) only — structured fields from AnalysisIR
-	"Prior Conversation (reference only)",
-	"Prior Stage Findings", // carries the canonical Resolution Chains subsection
-	"Unverified Analyzer Findings",
-	"Exact Resolution",
-	"Known Facts",
-	"Extracted Answer Symbols (authoritative)",
-	"Answer Symbols (lower-bound floor, may extend with cited evidence)",
-	"Knowledge & Evidence Pool",
-	"Unverified Leads (not for citation)",
-	"Dataflow Findings",
-	"Hypothesis Verdicts",
-	"Relevant Files",
-}
+// canonicalSystemSectionOrder and canonicalUserSectionOrder live in
+// section_titles.go alongside the section-title constants. Always
+// reference those constants — never write a section title literal.
 
 // BuildPromptContext assembles the final prompt payload from an
 // AgentContext and Skill config.
@@ -362,25 +321,25 @@ func BuildPromptContext(ac *types.AgentContext, sk *skill.Config) *types.PromptC
 	// as a real user-role message rather than buried in the system role.
 	pc.SystemSections = []types.PromptSection{
 		{
-			Title: "Agent Identity",
+			Title: SectionAgentIdentity,
 			Content: fmt.Sprintf("You are the %s agent operating in the %s stage.",
 				ac.AgentName, ac.Stage),
 		},
 		{
-			Title:   "Reasoning Hygiene",
+			Title:   SectionReasoningHygiene,
 			Content: reasoningHygieneFor(sk),
 		},
 	}
 	if ac.ThinkAloud {
 		pc.SystemSections = append(pc.SystemSections, types.PromptSection{
-			Title:   "Think Aloud",
+			Title:   SectionThinkAloud,
 			Content: thinkAloudDirective,
 		})
 	}
 
 	if len(ac.Constraints) > 0 {
 		pc.SystemSections = append(pc.SystemSections, types.PromptSection{
-			Title:   "Constraints",
+			Title:   SectionConstraints,
 			Content: strings.Join(ac.Constraints, "\n"),
 		})
 	}
@@ -399,7 +358,7 @@ func BuildPromptContext(ac *types.AgentContext, sk *skill.Config) *types.PromptC
 	}
 	if len(prefs) > 0 {
 		pc.SystemSections = append(pc.SystemSections, types.PromptSection{
-			Title:   "User Preferences",
+			Title:   SectionUserPreferences,
 			Content: strings.Join(prefs, "\n"),
 		})
 	}
@@ -407,7 +366,7 @@ func BuildPromptContext(ac *types.AgentContext, sk *skill.Config) *types.PromptC
 	// Skill instructions — merged into system sections
 	if ac.MissingPiece != types.MissingNone {
 		pc.SystemSections = append(pc.SystemSections, types.PromptSection{
-			Title: "Pipeline State",
+			Title: SectionPipelineState,
 			Content: fmt.Sprintf(
 				"Current missing piece for scheduler state: %s.\n"+
 					"Treat this as internal orchestration metadata, NOT as part of the user's request, "+
@@ -417,18 +376,18 @@ func BuildPromptContext(ac *types.AgentContext, sk *skill.Config) *types.PromptC
 		})
 	}
 
-	outputTitle := "Output Format"
+	outputTitle := SectionOutputFormat
 	if sk.Name == "explore-skill" {
-		outputTitle = "Exploration Contract"
+		outputTitle = SectionExplorationContract
 	}
 
 	pc.SystemSections = append(pc.SystemSections,
 		types.PromptSection{
-			Title:   "Skill Goal",
+			Title:   SectionSkillGoal,
 			Content: sk.Goal,
 		},
 		types.PromptSection{
-			Title:   "Workflow",
+			Title:   SectionWorkflow,
 			Content: formatNumberedList(sk.Workflow),
 		},
 		types.PromptSection{
@@ -439,7 +398,7 @@ func BuildPromptContext(ac *types.AgentContext, sk *skill.Config) *types.PromptC
 
 	if len(sk.Prohibitions) > 0 {
 		pc.SystemSections = append(pc.SystemSections, types.PromptSection{
-			Title:   "Prohibitions",
+			Title:   SectionProhibitions,
 			Content: formatBulletList(sk.Prohibitions),
 		})
 	}
@@ -459,7 +418,7 @@ func BuildPromptContext(ac *types.AgentContext, sk *skill.Config) *types.PromptC
 	// reintroduce the double heading.
 	if ac.RetryHint != "" {
 		pc.UserSections = append(pc.UserSections, types.PromptSection{
-			Title:   "Retry Directive (READ FIRST)",
+			Title:   SectionRetryDirective,
 			Content: ac.RetryHint,
 		})
 	}
@@ -489,7 +448,7 @@ func BuildPromptContext(ac *types.AgentContext, sk *skill.Config) *types.PromptC
 		priorConv, currentReq := types.SplitConversation(ac.Objective)
 		if currentReq != "" {
 			pc.UserSections = append(pc.UserSections, types.PromptSection{
-				Title:   "User Request",
+				Title:   SectionUserRequest,
 				Content: currentReq,
 			})
 		}
@@ -521,14 +480,14 @@ func BuildPromptContext(ac *types.AgentContext, sk *skill.Config) *types.PromptC
 		if ac.Stage == types.StagePlan {
 			if section := formatAnalyzerPrescanForPlan(ac.AnalysisIR); section != "" {
 				pc.UserSections = append(pc.UserSections, types.PromptSection{
-					Title:   "Analyzer Pre-scan Findings",
+					Title:   SectionAnalyzerPrescan,
 					Content: section,
 				})
 			}
 		}
 		if priorConv != "" && !ac.PriorConvHidden {
 			pc.UserSections = append(pc.UserSections, types.PromptSection{
-				Title: "Prior Conversation (reference only)",
+				Title: SectionPriorConversation,
 				Content: "The text below is prior-turn conversation for continuity. " +
 					"Do NOT treat it as the current question, and do NOT copy its citations or symbols into the answer without re-verifying against the current repo.\n\n" +
 					priorConv,
@@ -553,7 +512,7 @@ func BuildPromptContext(ac *types.AgentContext, sk *skill.Config) *types.PromptC
 	if ac.AgentName != types.AgentLogTriager {
 		if section := formatLogTriageStructured(ac.LogTriage); section != "" {
 			pc.UserSections = append(pc.UserSections, types.PromptSection{
-				Title:   "Log Triage — Validated Extraction",
+				Title:   SectionLogTriageExtraction,
 				Content: section,
 			})
 		}
@@ -561,7 +520,7 @@ func BuildPromptContext(ac *types.AgentContext, sk *skill.Config) *types.PromptC
 	if ac.AgentName != types.AgentPerfTriager {
 		if section := formatPerfTriageStructured(ac.PerfTrace); section != "" {
 			pc.UserSections = append(pc.UserSections, types.PromptSection{
-				Title:   "Perf Triage — Validated Extraction",
+				Title:   SectionPerfTriageExtraction,
 				Content: section,
 			})
 		}
@@ -585,7 +544,7 @@ func BuildPromptContext(ac *types.AgentContext, sk *skill.Config) *types.PromptC
 	// Empty AttachedLog is a no-op.
 	if section := formatAttachedLog(ac.AttachedLog, ac.WorkDir); section != "" {
 		pc.UserSections = append(pc.UserSections, types.PromptSection{
-			Title:   "Attached Runtime Log",
+			Title:   SectionAttachedRuntimeLog,
 			Content: section,
 		})
 	}
@@ -603,14 +562,14 @@ func BuildPromptContext(ac *types.AgentContext, sk *skill.Config) *types.PromptC
 			// same channel; the prompt section name lists every
 			// supported source so a model that pattern-matches on
 			// section title doesn't bias toward a single platform.
-			Title:   "Attached Performance Trace (HiTrace / atrace / systrace / perfetto)",
+			Title:   SectionAttachedPerfTrace,
 			Content: section,
 		})
 	}
 
 	if len(ac.PriorReports) > 0 {
 		pc.UserSections = append(pc.UserSections, types.PromptSection{
-			Title:   "Prior Stage Findings",
+			Title:   SectionPriorStageFindings,
 			Content: formatStageReports(ac.PriorReports),
 		})
 	}
@@ -625,19 +584,19 @@ func BuildPromptContext(ac *types.AgentContext, sk *skill.Config) *types.PromptC
 	// also match in trace.
 	if uf := formatUnverifiedFindings(ac.UnverifiedAnalyzerFindings); uf != "" {
 		pc.UserSections = append(pc.UserSections, types.PromptSection{
-			Title:   "Unverified Analyzer Findings",
+			Title:   SectionUnverifiedAnalyzer,
 			Content: uf,
 		})
 	}
 	if cfgAbsence := formatExactResolutionHint(ac); cfgAbsence != "" {
 		pc.UserSections = append(pc.UserSections, types.PromptSection{
-			Title:   "Exact Resolution",
+			Title:   SectionExactResolution,
 			Content: cfgAbsence,
 		})
 	}
 	if toolValue := formatToolSourcedValueHint(ac); toolValue != "" {
 		pc.UserSections = append(pc.UserSections, types.PromptSection{
-			Title:   "Tool-Sourced Value",
+			Title:   SectionToolSourcedValue,
 			Content: toolValue,
 		})
 	}
@@ -656,7 +615,7 @@ func BuildPromptContext(ac *types.AgentContext, sk *skill.Config) *types.PromptC
 	if ac.Stage == types.StageExtract || ac.Stage == types.StageFinalize {
 		if sm := formatSubjectMatchSummary(ac.SubjectMatches, ac.ExpectedAnswerSubject); sm != "" {
 			pc.UserSections = append(pc.UserSections, types.PromptSection{
-				Title:   "Subject Match Summary",
+				Title:   SectionSubjectMatchSummary,
 				Content: sm,
 			})
 		}
@@ -696,7 +655,7 @@ func BuildPromptContext(ac *types.AgentContext, sk *skill.Config) *types.PromptC
 		if ta := ac.Mutable.TurnAArtifacts(); ta != nil && len(ta.ToolResults) > 0 {
 			if rendered := formatRawToolOutputs(ta.ToolResults); rendered != "" {
 				pc.UserSections = append(pc.UserSections, types.PromptSection{
-					Title:   "Raw Tool Outputs from the Investigation",
+					Title:   SectionRawToolOutputs,
 					Content: rendered,
 				})
 			}
@@ -715,7 +674,7 @@ func BuildPromptContext(ac *types.AgentContext, sk *skill.Config) *types.PromptC
 
 	if !skipForExtractor && len(ac.RelevantFacts) > 0 {
 		pc.UserSections = append(pc.UserSections, types.PromptSection{
-			Title:   "Known Facts",
+			Title:   SectionKnownFacts,
 			Content: strings.Join(ac.RelevantFacts, "\n"),
 		})
 	}
@@ -766,16 +725,17 @@ func BuildPromptContext(ac *types.AgentContext, sk *skill.Config) *types.PromptC
 		symContent.WriteString("2. For each symbol, cite its file:line if provided.\n")
 		symContent.WriteString("3. If a plausible-looking name is not in the list above, it is NOT part of the answer.\n")
 		pc.UserSections = append(pc.UserSections, types.PromptSection{
-			Title:   "Extracted Answer Symbols (authoritative)",
+			Title:   SectionAnswerSymbolsAuth,
 			Content: symContent.String(),
 		})
 	} else if len(ac.AnswerSymbols) > 0 && ac.AnswerSymbolCompleteness == types.CompletenessLowerBound {
 		var symContent strings.Builder
-		symContent.WriteString("The prior analysis phase has confirmed the following symbols as part of the answer, " +
-			"but the list is a LOWER BOUND — additional symbols may also be part of the answer if the " +
-			"evidence below supports them. Your task is to render this floor faithfully AND supplement it " +
-			"with any additional symbols you can ground in the Structured Evidence / Dataflow Findings / " +
-			"Prior Stage Findings' Resolution Chains sections.\n\n")
+		symContent.WriteString(fmt.Sprintf(
+			"The prior analysis phase has confirmed the following symbols as part of the answer, "+
+				"but the list is a LOWER BOUND — additional symbols may also be part of the answer if the "+
+				"evidence below supports them. Your task is to render this floor faithfully AND supplement it "+
+				"with any additional symbols you can ground in the %s / %s / %s' Resolution Chains sections.\n\n",
+			SectionEvidencePool, SectionDataflowFindings, SectionPriorStageFindings))
 		symContent.WriteString("Confirmed floor (MUST include all):\n")
 		for _, s := range ac.AnswerSymbols {
 			if s.File != "" {
@@ -790,7 +750,7 @@ func BuildPromptContext(ac *types.AgentContext, sk *skill.Config) *types.PromptC
 			"in the evidence sections below. Training-data recall alone is NOT sufficient.\n")
 		symContent.WriteString("3. Any symbol you add must be cited the same way as the floor symbols.\n")
 		pc.UserSections = append(pc.UserSections, types.PromptSection{
-			Title:   "Answer Symbols (lower-bound floor, may extend with cited evidence)",
+			Title:   SectionAnswerSymbolsFloor,
 			Content: symContent.String(),
 		})
 	}
@@ -859,7 +819,7 @@ func BuildPromptContext(ac *types.AgentContext, sk *skill.Config) *types.PromptC
 		// typed channels (typed dataflow / typed import-graph /
 		// typed call-tree) plug in without forking the prompt.
 		pc.UserSections = append(pc.UserSections, types.PromptSection{
-			Title:   "Knowledge & Evidence Pool",
+			Title:   SectionEvidencePool,
 			Content: knowledgePoolPreamble() + evidence,
 		})
 	}
@@ -872,14 +832,14 @@ func BuildPromptContext(ac *types.AgentContext, sk *skill.Config) *types.PromptC
 	// without pulling it into emit_answer_symbol.
 	if leads := formatUnverifiedLeads(ac.EvidenceItems, 12, strictEvidenceLoc); leads != "" {
 		pc.UserSections = append(pc.UserSections, types.PromptSection{
-			Title:   "Unverified Leads (not for citation)",
+			Title:   SectionUnverifiedLeads,
 			Content: leads,
 		})
 	}
 
 	if findings != "" && !(ac.Stage == types.StageFinalize && priorReportsContainSection(ac.PriorReports, "## Dataflow Findings")) {
 		pc.UserSections = append(pc.UserSections, types.PromptSection{
-			Title:   "Dataflow Findings",
+			Title:   SectionDataflowFindings,
 			Content: findings,
 		})
 	}
@@ -912,7 +872,7 @@ func BuildPromptContext(ac *types.AgentContext, sk *skill.Config) *types.PromptC
 				vc.WriteString("\n")
 			}
 			pc.UserSections = append(pc.UserSections, types.PromptSection{
-				Title:   "Hypothesis Verdicts",
+				Title:   SectionHypothesisVerdicts,
 				Content: vc.String(),
 			})
 		}
@@ -920,7 +880,7 @@ func BuildPromptContext(ac *types.AgentContext, sk *skill.Config) *types.PromptC
 
 	if len(ac.RelevantFiles) > 0 {
 		pc.UserSections = append(pc.UserSections, types.PromptSection{
-			Title:   "Relevant Files",
+			Title:   SectionRelevantFiles,
 			Content: strings.Join(ac.RelevantFiles, "\n"),
 		})
 	}

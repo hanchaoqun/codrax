@@ -48,6 +48,7 @@ import (
 	"sort"
 	"strings"
 
+	promptctx "github.com/hanchaoqun/codrax/internal/context"
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
@@ -108,7 +109,7 @@ func renderExplorerStageReport(
 			b.WriteString("- " + formatEvidenceLineForReport(ev, exactResolution) + "\n")
 		}
 		if len(primaryEvidence) > topN {
-			fmt.Fprintf(&b, "- ... (+%d more in Structured Evidence section)\n", len(primaryEvidence)-topN)
+			fmt.Fprintf(&b, "- ... (+%d more in %s section)\n", len(primaryEvidence)-topN, promptctx.SectionEvidencePool)
 		}
 		b.WriteString("\n")
 	}

@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	"github.com/hanchaoqun/codrax/internal/analysis/dataflow"
+	promptctx "github.com/hanchaoqun/codrax/internal/context"
 	"github.com/hanchaoqun/codrax/internal/analysis/declarative"
 	"github.com/hanchaoqun/codrax/internal/analysis/normalizer"
 	"github.com/hanchaoqun/codrax/internal/analysis/subject"
@@ -721,10 +722,12 @@ func (e *explorerEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk 
 			logFiles, rankerFiles := e.partitionRequiredFilesByLogTriage(reqFiles)
 			if len(logFiles) > 0 {
 				b.WriteString("### Frames from the attached log\n\n")
-				b.WriteString("The attached runtime log's stack frames resolved to these repo files. " +
-					"They are the authoritative anchors for the failure — read them first and base " +
-					"any call-chain / sequence diagram in the answer on the Call chain block in the " +
-					"Log Triage section, not on the Auxiliary candidates below.\n\n")
+				b.WriteString(fmt.Sprintf(
+					"The attached runtime log's stack frames resolved to these repo files. "+
+						"They are the authoritative anchors for the failure — read them first and base "+
+						"any call-chain / sequence diagram in the answer on the Call chain block in the "+
+						"%s section, not on the Auxiliary candidates below.\n\n",
+					promptctx.SectionLogTriageExtraction))
 				for _, p := range logFiles {
 					b.WriteString("- `" + p + "`\n")
 				}

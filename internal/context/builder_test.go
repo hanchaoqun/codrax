@@ -135,13 +135,13 @@ func TestBuildPromptContext_AttachedLogSection_Rendered(t *testing.T) {
 	pc := BuildPromptContext(ac, &skill.Config{Name: "test"})
 	var found *types.PromptSection
 	for i := range pc.UserSections {
-		if pc.UserSections[i].Title == "Attached Runtime Log" {
+		if pc.UserSections[i].Title == SectionAttachedRuntimeLog {
 			found = &pc.UserSections[i]
 			break
 		}
 	}
 	if found == nil {
-		t.Fatalf("no 'Attached Runtime Log' section; sections = %v", sectionTitles(pc.UserSections))
+		t.Fatalf("no 'Attached Runtime Log' section; sections = %v", SectionTitles(pc.UserSections))
 	}
 	if !strings.Contains(found.Content, "main.crashy") {
 		t.Errorf("section content missing frame func; got %q", found.Content)
@@ -164,7 +164,7 @@ func TestBuildPromptContext_AttachedLogSection_OmittedWhenEmpty(t *testing.T) {
 	}
 	pc := BuildPromptContext(ac, &skill.Config{Name: "test"})
 	for _, s := range pc.UserSections {
-		if s.Title == "Attached Runtime Log" {
+		if s.Title == SectionAttachedRuntimeLog {
 			t.Fatalf("unexpected Attached Runtime Log section when AttachedLog empty")
 		}
 	}
@@ -250,7 +250,7 @@ func TestFormatAttachedTrace_BlobOffload_UsesDistinctBlobName(t *testing.T) {
 	}
 }
 
-func sectionTitles(sections []types.PromptSection) []string {
+func SectionTitles(sections []types.PromptSection) []string {
 	out := make([]string, 0, len(sections))
 	for _, s := range sections {
 		out = append(out, s.Title)
@@ -297,7 +297,7 @@ func TestBuildPromptContext(t *testing.T) {
 	t.Run("system sections include workflow", func(t *testing.T) {
 		found := false
 		for _, s := range pc.SystemSections {
-			if s.Title == "Workflow" {
+			if s.Title == SectionWorkflow {
 				found = true
 				break
 			}
@@ -310,7 +310,7 @@ func TestBuildPromptContext(t *testing.T) {
 	t.Run("system sections include prohibitions", func(t *testing.T) {
 		found := false
 		for _, s := range pc.SystemSections {
-			if s.Title == "Prohibitions" {
+			if s.Title == SectionProhibitions {
 				found = true
 				break
 			}
@@ -321,7 +321,7 @@ func TestBuildPromptContext(t *testing.T) {
 	})
 
 	t.Run("missing piece moves to pipeline state", func(t *testing.T) {
-		sec := findSystemSection(pc, "Pipeline State")
+		sec := findSystemSection(pc, SectionPipelineState)
 		if sec == nil {
 			t.Fatal("system sections missing Pipeline State")
 		}
@@ -341,8 +341,8 @@ func TestBuildPromptContext(t *testing.T) {
 			t.Fatal("expected user sections to be populated")
 		}
 		first := pc.UserSections[0]
-		if first.Title != "User Request" {
-			t.Errorf("first user section = %q, want User Request", first.Title)
+		if first.Title != SectionUserRequest {
+			t.Errorf("first user section = %q, want %q", first.Title, SectionUserRequest)
 		}
 		if first.Content != "Analyze requirements" {
 			t.Errorf("user request content = %q, want Analyze requirements", first.Content)
@@ -792,7 +792,7 @@ func TestBuildPromptContext_FinalizerStructuredEvidenceNeutralizesExactResolutio
 	}
 
 	pc := BuildPromptContext(ac, &skill.Config{Name: "finalize-answer"})
-	sec := findSectionTitle(pc, "Knowledge & Evidence Pool")
+	sec := findSectionTitle(pc, SectionEvidencePool)
 	if sec == nil {
 		t.Fatalf("missing Knowledge & Evidence Pool section")
 	}
@@ -878,7 +878,7 @@ func TestBuildPromptContext_ConfigKeyAbsenceSection(t *testing.T) {
 	}
 	pc := BuildPromptContext(ac, &skill.Config{Name: "explore-skill"})
 
-	sec := findSectionTitle(pc, "Exact Resolution")
+	sec := findSectionTitle(pc, SectionExactResolution)
 	if sec == nil {
 		t.Fatalf("missing Exact Resolution section")
 	}
@@ -929,7 +929,7 @@ func TestBuildAgentContext_MergesUnverifiedFindingsFromPriorStageReport(t *testi
 	if len(ac.UnverifiedAnalyzerFindings) != 1 {
 		t.Fatalf("unverified findings = %d, want 1", len(ac.UnverifiedAnalyzerFindings))
 	}
-	sec := findSectionTitle(pc, "Exact Resolution")
+	sec := findSectionTitle(pc, SectionExactResolution)
 	if sec == nil {
 		t.Fatalf("prior stage unverified annotation should render exact-resolution section")
 	}
@@ -946,7 +946,7 @@ func TestBuildPromptContext_AnswerSymbols_Complete_RendersTranslationMode(t *tes
 	ac := buildAgentCtxWithSymbols(syms, types.CompletenessComplete)
 	pc := BuildPromptContext(ac, &skill.Config{Name: "s"})
 
-	sec := findSectionTitle(pc, "Extracted Answer Symbols (authoritative)")
+	sec := findSectionTitle(pc, SectionAnswerSymbolsAuth)
 	if sec == nil {
 		t.Fatal("Translation-mode section missing for CompletenessComplete")
 	}
@@ -957,7 +957,7 @@ func TestBuildPromptContext_AnswerSymbols_Complete_RendersTranslationMode(t *tes
 		t.Errorf("Complete branch must list all symbols, got:\n%s", sec.Content)
 	}
 	// Guard against the lower-bound title leaking in
-	if findSectionTitle(pc, "Answer Symbols (lower-bound floor, may extend with cited evidence)") != nil {
+	if findSectionTitle(pc, SectionAnswerSymbolsFloor) != nil {
 		t.Error("Complete branch must not emit the lower-bound section title")
 	}
 }
@@ -969,7 +969,7 @@ func TestBuildPromptContext_AnswerSymbols_LowerBound_RendersSoftenedFloor(t *tes
 	ac := buildAgentCtxWithSymbols(syms, types.CompletenessLowerBound)
 	pc := BuildPromptContext(ac, &skill.Config{Name: "s"})
 
-	sec := findSectionTitle(pc, "Answer Symbols (lower-bound floor, may extend with cited evidence)")
+	sec := findSectionTitle(pc, SectionAnswerSymbolsFloor)
 	if sec == nil {
 		t.Fatal("LowerBound section missing for CompletenessLowerBound")
 	}
@@ -986,7 +986,7 @@ func TestBuildPromptContext_AnswerSymbols_LowerBound_RendersSoftenedFloor(t *tes
 		t.Errorf("LowerBound branch must list floor symbols, got:\n%s", sec.Content)
 	}
 	// Guard against Translation-mode title leaking
-	if findSectionTitle(pc, "Extracted Answer Symbols (authoritative)") != nil {
+	if findSectionTitle(pc, SectionAnswerSymbolsAuth) != nil {
 		t.Error("LowerBound branch must not emit the Translation-mode section title")
 	}
 }
@@ -1002,10 +1002,10 @@ func TestBuildPromptContext_AnswerSymbols_Unknown_DropsSection(t *testing.T) {
 	ac := buildAgentCtxWithSymbols(syms, types.CompletenessUnknown)
 	pc := BuildPromptContext(ac, &skill.Config{Name: "s"})
 
-	if findSectionTitle(pc, "Extracted Answer Symbols (authoritative)") != nil {
+	if findSectionTitle(pc, SectionAnswerSymbolsAuth) != nil {
 		t.Error("Unknown claim must not render the Translation-mode section")
 	}
-	if findSectionTitle(pc, "Answer Symbols (lower-bound floor, may extend with cited evidence)") != nil {
+	if findSectionTitle(pc, SectionAnswerSymbolsFloor) != nil {
 		t.Error("Unknown claim must not render the LowerBound section")
 	}
 }
@@ -1019,10 +1019,10 @@ func TestBuildPromptContext_AnswerSymbols_EmptyAlwaysDrops(t *testing.T) {
 	} {
 		ac := buildAgentCtxWithSymbols(nil, claim)
 		pc := BuildPromptContext(ac, &skill.Config{Name: "s"})
-		if findSectionTitle(pc, "Extracted Answer Symbols (authoritative)") != nil {
+		if findSectionTitle(pc, SectionAnswerSymbolsAuth) != nil {
 			t.Errorf("claim=%q with empty slate must drop Translation section", claim)
 		}
-		if findSectionTitle(pc, "Answer Symbols (lower-bound floor, may extend with cited evidence)") != nil {
+		if findSectionTitle(pc, SectionAnswerSymbolsFloor) != nil {
 			t.Errorf("claim=%q with empty slate must drop LowerBound section", claim)
 		}
 	}
@@ -1042,7 +1042,7 @@ func TestBuildPromptContext_RendersHypothesisVerdictsSection(t *testing.T) {
 	}
 	pc := BuildPromptContext(ac, &skill.Config{Name: "final-answer-skill"})
 
-	sec := findSectionTitle(pc, "Hypothesis Verdicts")
+	sec := findSectionTitle(pc, SectionHypothesisVerdicts)
 	if sec == nil {
 		t.Fatal("Hypothesis Verdicts section missing when buffer populated")
 	}
@@ -1062,7 +1062,7 @@ func TestBuildPromptContext_SkipsHypothesisVerdictsWhenEmpty(t *testing.T) {
 		Mutable:   mu,
 	}
 	pc := BuildPromptContext(ac, &skill.Config{Name: "s"})
-	if findSectionTitle(pc, "Hypothesis Verdicts") != nil {
+	if findSectionTitle(pc, SectionHypothesisVerdicts) != nil {
 		t.Error("empty verdict buffer must not produce the section")
 	}
 }
@@ -1075,7 +1075,7 @@ func TestBuildPromptContext_SkipsHypothesisVerdictsWhenMutableNil(t *testing.T) 
 		Mutable:   nil,
 	}
 	pc := BuildPromptContext(ac, &skill.Config{Name: "s"})
-	if findSectionTitle(pc, "Hypothesis Verdicts") != nil {
+	if findSectionTitle(pc, SectionHypothesisVerdicts) != nil {
 		t.Error("nil Mutable must not produce the section")
 	}
 }
@@ -1147,12 +1147,12 @@ func TestBuildPromptContext_AnalysisSkill_RendersAllSections(t *testing.T) {
 
 	// --- static skill sections (system side) ---
 	requiredSystemSections := []string{
-		"Agent Identity",
-		"Skill Goal",
-		"Workflow",
-		"Output Format",
-		"Prohibitions",
-		"User Preferences",
+		SectionAgentIdentity,
+		SectionSkillGoal,
+		SectionWorkflow,
+		SectionOutputFormat,
+		SectionProhibitions,
+		SectionUserPreferences,
 	}
 	for _, title := range requiredSystemSections {
 		if findSystemSection(pc, title) == nil {
@@ -1161,17 +1161,17 @@ func TestBuildPromptContext_AnalysisSkill_RendersAllSections(t *testing.T) {
 	}
 
 	// --- dynamic builder sections (user side) ---
-	if sec := findSectionTitle(pc, "User Request"); sec == nil {
+	if sec := findSectionTitle(pc, SectionUserRequest); sec == nil {
 		t.Error("user sections missing User Request")
 	} else if !strings.Contains(sec.Content, objectivePin) {
 		t.Errorf("User Request missing objective sentinel %q, got:\n%s", objectivePin, sec.Content)
 	}
-	if sec := findSectionTitle(pc, "Retry Directive (READ FIRST)"); sec == nil {
+	if sec := findSectionTitle(pc, SectionRetryDirective); sec == nil {
 		t.Error("user sections missing Retry Directive")
 	} else if !strings.Contains(sec.Content, retryPin) {
 		t.Errorf("Retry Directive missing retry sentinel %q, got:\n%s", retryPin, sec.Content)
 	}
-	if sec := findSystemSection(pc, "User Preferences"); sec == nil {
+	if sec := findSystemSection(pc, SectionUserPreferences); sec == nil {
 		t.Error("system sections missing User Preferences")
 	} else if !strings.Contains(sec.Content, preferencePin) {
 		t.Errorf("User Preferences missing preference sentinel %q, got:\n%s", preferencePin, sec.Content)
@@ -1181,7 +1181,7 @@ func TestBuildPromptContext_AnalysisSkill_RendersAllSections(t *testing.T) {
 	// enum-table header renderEnumTable emits. If this fails, the
 	// analysis-skill lost its classification content and the LLM
 	// sees neither side. ---
-	of := findSystemSection(pc, "Output Format")
+	of := findSystemSection(pc, SectionOutputFormat)
 	if of == nil {
 		t.Fatal("Output Format section missing")
 	}
@@ -1252,13 +1252,13 @@ func TestBuildPromptContext_AnalysisSkill_NoDuplicateSections(t *testing.T) {
 		systemCounts[s.Title]++
 	}
 	for _, title := range []string{
-		"Agent Identity",
-		"Reasoning Hygiene",
-		"User Preferences",
-		"Skill Goal",
-		"Workflow",
-		"Output Format",
-		"Prohibitions",
+		SectionAgentIdentity,
+		SectionReasoningHygiene,
+		SectionUserPreferences,
+		SectionSkillGoal,
+		SectionWorkflow,
+		SectionOutputFormat,
+		SectionProhibitions,
 	} {
 		if c := systemCounts[title]; c != 1 {
 			t.Errorf("system section %q rendered %d times, want 1", title, c)
@@ -1269,7 +1269,7 @@ func TestBuildPromptContext_AnalysisSkill_NoDuplicateSections(t *testing.T) {
 	for _, s := range pc.UserSections {
 		userCounts[s.Title]++
 	}
-	for _, title := range []string{"User Request"} {
+	for _, title := range []string{SectionUserRequest} {
 		if c := userCounts[title]; c != 1 {
 			t.Errorf("user section %q rendered %d times, want 1", title, c)
 		}
@@ -1369,7 +1369,7 @@ func reasoningHygieneSectionOf(t *testing.T, sk *skill.Config) string {
 		Objective: "capability matrix probe",
 	}
 	pc := BuildPromptContext(ac, sk)
-	sec := findSystemSection(pc, "Reasoning Hygiene")
+	sec := findSystemSection(pc, SectionReasoningHygiene)
 	if sec == nil {
 		t.Fatal("Reasoning Hygiene section missing")
 	}
@@ -1569,10 +1569,10 @@ func acWithFactsAndEvidence() *types.AgentContext {
 func TestBuildPromptContext_ExtractSkill_SkipsKnownFactsAndStructuredEvidence(t *testing.T) {
 	ac := acWithFactsAndEvidence()
 	pc := BuildPromptContext(ac, extractorSkill())
-	if findSectionTitle(pc, "Known Facts") != nil {
+	if findSectionTitle(pc, SectionKnownFacts) != nil {
 		t.Error("extract-skill must drop Known Facts (tool dumps the extractor cannot act on)")
 	}
-	if findSectionTitle(pc, "Knowledge & Evidence Pool") != nil {
+	if findSectionTitle(pc, SectionEvidencePool) != nil {
 		t.Error("extract-skill must drop Structured Evidence (duplicates Primary Evidence + Turn A digest)")
 	}
 }
@@ -1582,10 +1582,10 @@ func TestBuildPromptContext_FinalizerSkill_KeepsKnownFactsAndStructuredEvidence(
 	ac.AgentName = types.AgentFinalizer
 	ac.Stage = types.StageFinalize
 	pc := BuildPromptContext(ac, finalizerSkill())
-	if findSectionTitle(pc, "Known Facts") == nil {
+	if findSectionTitle(pc, SectionKnownFacts) == nil {
 		t.Error("finalizer still needs Known Facts (the trim targets extract-skill only)")
 	}
-	if findSectionTitle(pc, "Knowledge & Evidence Pool") == nil {
+	if findSectionTitle(pc, SectionEvidencePool) == nil {
 		t.Error("finalizer needs Structured Evidence for citation pool coverage")
 	}
 }
@@ -1611,10 +1611,10 @@ func TestBuildPromptContext_FinalizerSkill_SkipsDuplicateDataflowFindings(t *tes
 	}
 
 	pc := BuildPromptContext(ac, finalizerSkill())
-	if findSectionTitle(pc, "Prior Stage Findings") == nil {
+	if findSectionTitle(pc, SectionPriorStageFindings) == nil {
 		t.Fatal("test setup should render prior reports")
 	}
-	if findSectionTitle(pc, "Dataflow Findings") != nil {
+	if findSectionTitle(pc, SectionDataflowFindings) != nil {
 		t.Fatal("finalizer should not render a second standalone Dataflow Findings section when prior reports already contain one")
 	}
 }
@@ -1624,10 +1624,10 @@ func TestBuildPromptContext_ExplorerSkill_KeepsBothSections(t *testing.T) {
 	ac.AgentName = types.AgentExplorer
 	ac.Stage = types.StageExplore
 	pc := BuildPromptContext(ac, explorerSkill())
-	if findSectionTitle(pc, "Known Facts") == nil {
+	if findSectionTitle(pc, SectionKnownFacts) == nil {
 		t.Error("explore-skill must keep Known Facts (explorer is the producer but may iterate)")
 	}
-	if findSectionTitle(pc, "Knowledge & Evidence Pool") == nil {
+	if findSectionTitle(pc, SectionEvidencePool) == nil {
 		t.Error("explore-skill must keep Structured Evidence")
 	}
 }
@@ -1639,10 +1639,10 @@ func TestBuildPromptContext_ExplorerSkill_UsesExplorationContractTitle(t *testin
 		Objective: "q",
 	}, explorerSkill())
 
-	if findSystemSection(pc, "Exploration Contract") == nil {
+	if findSystemSection(pc, SectionExplorationContract) == nil {
 		t.Fatal("explore-skill must render Exploration Contract")
 	}
-	if findSystemSection(pc, "Output Format") != nil {
+	if findSystemSection(pc, SectionOutputFormat) != nil {
 		t.Fatal("explore-skill must not render the generic Output Format title")
 	}
 }
@@ -1883,7 +1883,7 @@ func TestBuildPromptContext_RawToolOutputs_WiredForMeasurementScalar(t *testing.
 		AnalysisIR: measurementScalarIR(),
 	}
 	pc := BuildPromptContext(ac, &skill.Config{Name: "answer-document-skill"})
-	sec := findSectionTitle(pc, "Raw Tool Outputs from the Investigation")
+	sec := findSectionTitle(pc, SectionRawToolOutputs)
 	if sec == nil {
 		t.Fatal("expected Raw Tool Outputs section to be present for measurement-scalar IR")
 	}
@@ -1902,7 +1902,7 @@ func TestBuildPromptContext_ToolSourcedValueGuidance_RenderedForExplore(t *testi
 		AnalysisIR: measurementScalarIR(),
 	}
 	pc := BuildPromptContext(ac, &skill.Config{Name: "explorer-skill"})
-	sec := findSectionTitle(pc, "Tool-Sourced Value")
+	sec := findSectionTitle(pc, SectionToolSourcedValue)
 	if sec == nil {
 		t.Fatal("expected Tool-Sourced Value section to be present for citation-free value IR")
 	}
@@ -1930,7 +1930,7 @@ func TestBuildPromptContext_RawToolOutputs_SkippedForExplanationShape(t *testing
 		AnalysisIR: explanationIR(),
 	}
 	pc := BuildPromptContext(ac, &skill.Config{Name: "answer-document-skill"})
-	if findSectionTitle(pc, "Raw Tool Outputs from the Investigation") != nil {
+	if findSectionTitle(pc, SectionRawToolOutputs) != nil {
 		t.Error("Raw Tool Outputs must NOT render for explanation-shape questions")
 	}
 }
@@ -1951,10 +1951,10 @@ func TestBuildPromptContext_PriorConvHiddenFlag(t *testing.T) {
 		Objective: objective,
 	}
 	pcVis := BuildPromptContext(acVis, &skill.Config{Name: "s"})
-	if findSectionTitle(pcVis, "Prior Conversation (reference only)") == nil {
+	if findSectionTitle(pcVis, SectionPriorConversation) == nil {
 		t.Fatal("zero-value PriorConvHidden must render Prior Conversation section (legacy default)")
 	}
-	if findSectionTitle(pcVis, "User Request") == nil {
+	if findSectionTitle(pcVis, SectionUserRequest) == nil {
 		t.Fatal("User Request section must always render")
 	}
 
@@ -1966,13 +1966,13 @@ func TestBuildPromptContext_PriorConvHiddenFlag(t *testing.T) {
 		PriorConvHidden: true,
 	}
 	pcHid := BuildPromptContext(acHid, &skill.Config{Name: "s"})
-	if findSectionTitle(pcHid, "Prior Conversation (reference only)") != nil {
+	if findSectionTitle(pcHid, SectionPriorConversation) != nil {
 		t.Error("PriorConvHidden=true must omit Prior Conversation section")
 	}
-	if findSectionTitle(pcHid, "User Request") == nil {
+	if findSectionTitle(pcHid, SectionUserRequest) == nil {
 		t.Error("PriorConvHidden=true must STILL render User Request section")
 	}
-	urSection := findSectionTitle(pcHid, "User Request")
+	urSection := findSectionTitle(pcHid, SectionUserRequest)
 	if !strings.Contains(urSection.Content, "how does Foo work") {
 		t.Errorf("User Request must carry the current question, got %q", urSection.Content)
 	}
@@ -2166,13 +2166,13 @@ func TestBuildAgentContext_WriteStage_ScrubsReadModeArtifacts(t *testing.T) {
 			// render any of the read-mode-only section titles.
 			pc := BuildPromptContext(ac, &skill.Config{Name: "change-plan-skill"})
 			leakSections := []string{
-				"Prior Stage Findings",
-				"Unverified Analyzer Findings",
-				"Structured Evidence",
-				"Dataflow Findings",
-				"Extracted Answer Symbols (authoritative)",
-				"Extracted Answer Symbols (lower-bound)",
-				"Subject Match Summary",
+				SectionPriorStageFindings,
+				SectionUnverifiedAnalyzer,
+				"Structured Evidence",                  // historical name — guard against accidental re-introduction
+				SectionDataflowFindings,
+				SectionAnswerSymbolsAuth,
+				"Extracted Answer Symbols (lower-bound)", // historical name — guard against accidental re-introduction
+				SectionSubjectMatchSummary,
 			}
 			for _, title := range leakSections {
 				if sec := findSectionTitle(pc, title); sec != nil {
@@ -2216,7 +2216,7 @@ func TestBuildPromptContext_PlanStage_RendersAnalyzerPrescan(t *testing.T) {
 	ac := BuildAgentContext(bus, types.AgentPlanner, types.StagePlan)
 	pc := BuildPromptContext(ac, &skill.Config{Name: "change-plan-skill"})
 
-	sec := findSectionTitle(pc, "Analyzer Pre-scan Findings")
+	sec := findSectionTitle(pc, SectionAnalyzerPrescan)
 	if sec == nil {
 		t.Fatal("StagePlan: expected 'Analyzer Pre-scan Findings' section, got none")
 	}
@@ -2274,7 +2274,7 @@ func TestBuildPromptContext_NonPlanStages_SuppressAnalyzerPrescan(t *testing.T) 
 		t.Run(string(c.stage), func(t *testing.T) {
 			ac := BuildAgentContext(mkBus(), c.agent, c.stage)
 			pc := BuildPromptContext(ac, &skill.Config{Name: "test-skill"})
-			if sec := findSectionTitle(pc, "Analyzer Pre-scan Findings"); sec != nil {
+			if sec := findSectionTitle(pc, SectionAnalyzerPrescan); sec != nil {
 				t.Errorf("stage %s rendered StagePlan-only section (body=%q)", c.stage, sec.Content)
 			}
 		})
