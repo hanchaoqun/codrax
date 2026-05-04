@@ -432,6 +432,18 @@ func DeriveSeverity(kind ViolationKind, isStrict bool) Severity {
 		}
 		return SeveritySoft
 	}
+	// 修 B (post_v2_runtime_gap_remediation, 2026-05-04) —
+	// enumeration evidence underspecification. SOFT-by-default
+	// (typed signal is precise but too noisy for hard gate without
+	// structural pattern match — see design doc). isStrict
+	// promotes to Medium so an operator with high-confidence
+	// explorer pipelines can lift it into the retry loop.
+	if kind == ViolEnumerationEvidenceUnderspecified {
+		if isStrict {
+			return SeverityMedium
+		}
+		return SeveritySoft
+	}
 	// Unknown kinds default to Medium — safer than Soft (won't
 	// silently drop) but not Critical (won't unexpectedly fail-loud).
 	return SeverityMedium

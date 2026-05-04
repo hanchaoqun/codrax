@@ -254,6 +254,10 @@ func TestAllViolationKindsHaveProducer(t *testing.T) {
 		// quality reviewer thinness signal. Producer wired in
 		// orchestrator/contract_check.go runSemanticQualityReview (G5-2).
 		ViolAnswerSemanticUnderfilled: true,
+		// 修 B (post_v2_runtime_gap_remediation, 2026-05-04) —
+		// enumeration evidence pool structural gate. Producer wired
+		// in orchestrator/contract_check.go validateEnumerationEvidenceCoverage.
+		ViolEnumerationEvidenceUnderspecified: true,
 	}
 	pending := map[ViolationKind]string{
 		ViolFamilyMismatch:                          "P9-C-retired-V1-checkShape (V2 block oracles cover read-mode block contract via runV2BlockOracles)",
@@ -312,9 +316,10 @@ func TestAllViolationKindsHaveProducer(t *testing.T) {
 		ViolBlockCoverageMissing:     "ViolBlockCoverageMissing",
 		ViolPrincipalClaimUseMissing: "ViolPrincipalClaimUseMissing",
 		ViolDiagramEdgeUnsupported:   "ViolDiagramEdgeUnsupported",
-		ViolDiagramEdgeLabelMismatch:  "ViolDiagramEdgeLabelMismatch",
-		ViolAnswerSemanticUnderfilled: "ViolAnswerSemanticUnderfilled",
-		ViolUncertaintyBlockMissing:   "ViolUncertaintyBlockMissing",
+		ViolDiagramEdgeLabelMismatch:           "ViolDiagramEdgeLabelMismatch",
+		ViolAnswerSemanticUnderfilled:          "ViolAnswerSemanticUnderfilled",
+		ViolEnumerationEvidenceUnderspecified:  "ViolEnumerationEvidenceUnderspecified",
+		ViolUncertaintyBlockMissing:            "ViolUncertaintyBlockMissing",
 		// B6-F1 (post-shape consolidated audit, 2026-05-04).
 		ViolCrossCitationConflict: "ViolCrossCitationConflict",
 	}

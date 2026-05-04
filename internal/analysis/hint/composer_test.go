@@ -289,6 +289,11 @@ var composerExactFixSkipWhitelist = map[types.ViolationKind]string{
 	// the generic composer fallback pairs with that actionable
 	// Detail.
 	types.ViolAnswerSemanticUnderfilled: "uses violation.Repair for fix prose",
+	// 修 B (post_v2_runtime_gap_remediation, 2026-05-04) —
+	// enumeration evidence pool structural gate. Repair text names
+	// the missing N − K count + the gap-filling guidance verbatim;
+	// composer fallback pairs.
+	types.ViolEnumerationEvidenceUnderspecified: "uses violation.Repair for fix prose",
 }
 
 // TestComposer_AllViolationKindsHaveCase enforces P34's

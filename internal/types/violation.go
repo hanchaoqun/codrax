@@ -406,6 +406,26 @@ const (
 	// guarantees richer answers. Stage="finalize".
 	ViolAnswerSemanticUnderfilled ViolationKind = "answer_semantic_underfilled"
 
+	// ViolEnumerationEvidenceUnderspecified fires when the user's
+	// question carries an explicit enumeration count N (via the
+	// analyzer's EnumerationBoundary) AND the family is enumeration-
+	// shaped (QFEnumeration / QFRootCauseTrace / QFCallChain) AND the
+	// evidence pool has fewer than N distinct typed anchor_symbol
+	// values. Diagnoses the s1a-class failure where the explorer
+	// aggregates N parallel callsites into a single line_range item
+	// with anchor_symbol pointing at the container — leaving the
+	// pool with too few typed names for the renderer to enumerate.
+	//
+	// SOFT-by-default. Routes to FallbackBackToExplore on retry —
+	// the only honest fix is gathering more evidence, not finalizer
+	// rewrite. Operators may promote to STRICT via
+	// pipeline_contract_strict_kinds once eval confirms low
+	// false-positive rate; the typed signal (DeclaredCount integer
+	// + len(unique anchor_symbol) integer) supports promotion.
+	// Stage="extract" (fires after evidence pool is finalised).
+	// 修 B (post_v2_runtime_gap_remediation, 2026-05-04).
+	ViolEnumerationEvidenceUnderspecified ViolationKind = "enumeration_evidence_underspecified"
+
 	// ViolUncertaintyBlockMissing fires when an UncertaintyRule's
 	// trigger fired (e.g. FacetObservedArtifactFact present in
 	// FacetCoverage.Required) but no matching BlockCaveat exists
@@ -626,6 +646,9 @@ func AllViolationKinds() []ViolationKind {
 		// G5 (post_v2_runtime_gap_remediation, 2026-05-04) — semantic-
 		// quality reviewer thinness signal.
 		ViolAnswerSemanticUnderfilled,
+		// 修 B (post_v2_runtime_gap_remediation, 2026-05-04) —
+		// enumeration evidence underspecification structural gate.
+		ViolEnumerationEvidenceUnderspecified,
 	}
 }
 

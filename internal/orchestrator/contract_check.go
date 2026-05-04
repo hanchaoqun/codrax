@@ -126,6 +126,16 @@ func runContractCheck(out *agent.StageOutput, c types.AnswerContract, mut *types
 				result.Violations = append(result.Violations,
 					runV2BlockOraclesWithMut(docV2, view, mut)...)
 			}
+			// 修 B (post_v2_runtime_gap_remediation, 2026-05-04) —
+			// enumeration evidence pool structural gate. Fires when
+			// the user's question states an explicit count N AND the
+			// evidence pool has fewer than N distinct named anchors.
+			// Routes to BackToExplore (the only honest fix is more
+			// evidence, not finalizer rewrite).
+			if view != nil {
+				result.Violations = append(result.Violations,
+					validateEnumerationEvidenceCoverage(mut, view)...)
+			}
 			// B5-T4: V2 adaptation of the structural-enumeration
 			// divergence oracle. Same precise typed-graph signal as
 			// the V1 path; consumes V2 blocks instead of doc.Symbols.
@@ -1234,6 +1244,11 @@ func defaultSoftKinds() map[types.ViolationKind]bool {
 		// than label substring inference) so operators who want a
 		// stricter answer floor can lift it into the retry loop.
 		types.ViolAnswerSemanticUnderfilled: true,
+		// 修 B (post_v2_runtime_gap_remediation, 2026-05-04) —
+		// enumeration evidence pool underspecification. SOFT-by-
+		// default; pipeline_contract_strict_kinds CAN promote
+		// once eval validates the false-positive rate is low.
+		types.ViolEnumerationEvidenceUnderspecified: true,
 	}
 }
 
@@ -1823,6 +1838,83 @@ func formatViolationsForLogger(res contract.Result) string {
 	b.WriteString("· answer-contract validation exhausted: ")
 	b.WriteString(renderViolations(res))
 	return b.String()
+}
+
+// validateEnumerationEvidenceCoverage (修 B,
+// post_v2_runtime_gap_remediation, 2026-05-04) is the structural
+// gate that fires when the user's question states an explicit
+// enumeration count N AND the evidence pool has fewer than N
+// distinct typed anchor_symbol values. It diagnoses the s1a-class
+// failure where the explorer aggregates N parallel callsites into
+// a single line_range item with anchor_symbol pointing at the
+// container array — leaving the pool with too few typed names for
+// the renderer to enumerate without placeholders.
+//
+// Trigger conditions (all must hold):
+//
+//  1. mut.RequestModel().EnumerationBoundary != nil AND DeclaredCount > 0
+//  2. The resolved family is enumeration-shaped (QFEnumeration /
+//     QFRootCauseTrace / QFCallChain) — these are the families
+//     whose answers carry an ordered_list slate where each item
+//     SHOULD render a verbatim identifier.
+//  3. len(unique anchor_symbol in evidence pool) < DeclaredCount.
+//
+// The signal is typed (DeclaredCount integer + unique-anchor count
+// integer) so SOFT classification is precise; hard-gate promotion
+// is intentionally gated behind operator opt-in via
+// pipeline_contract_strict_kinds because identifying which
+// anchor_symbol values are "named callsite identifiers" vs
+// "container-name aggregations" requires structural pattern match
+// the explorer pipeline does not currently expose.
+//
+// Repair routes to FallbackBackToExplore — the only honest fix is
+// gathering more evidence, not finalizer rewrite.
+func validateEnumerationEvidenceCoverage(mut *types.MutableState, view *types.AnswerSemanticView) []types.Violation {
+	if mut == nil || view == nil {
+		return nil
+	}
+	rm := mut.RequestModel()
+	if rm == nil || rm.EnumerationBoundary == nil {
+		return nil
+	}
+	declared := rm.EnumerationBoundary.DeclaredCount
+	if declared <= 0 {
+		return nil
+	}
+	switch view.Family {
+	case types.QFEnumeration, types.QFRootCauseTrace, types.QFCallChain:
+		// fall through
+	default:
+		return nil
+	}
+
+	uniqueAnchors := make(map[string]struct{}, declared)
+	for _, ev := range mut.EmittedEvidence() {
+		s := strings.TrimSpace(ev.AnchorSymbol)
+		if s == "" {
+			continue
+		}
+		uniqueAnchors[s] = struct{}{}
+	}
+	if len(uniqueAnchors) >= declared {
+		return nil
+	}
+	gap := declared - len(uniqueAnchors)
+	return []types.Violation{{
+		Kind: types.ViolEnumerationEvidenceUnderspecified,
+		Detail: fmt.Sprintf(
+			"the question states %d enumerated items but the evidence pool has only %d distinct named anchors (gap: %d)",
+			declared, len(uniqueAnchors), gap),
+		Repair: fmt.Sprintf(
+			"re-investigate the source files that contain the parallel callsites and emit one evidence item PER named identifier (each with `scope=line` and a distinct `anchor_symbol`). The current pool aggregates the parallel set into too few typed names — the answer cannot enumerate %d items without %d distinct anchors. Read the file region carrying the parallel definitions / registrations / appends and call `emit_evidence` with one item per identifier.",
+			declared, declared),
+		SuspectedRoot: types.SuspectedRoot{
+			IRField:    "evidence_pool_named_anchors",
+			Reason:     "enumeration evidence pool below declared count",
+			Confidence: 0.7,
+		},
+		Stage: string(types.StageExtract),
+	}}
 }
 
 // shouldReviewSemanticQuality gates the G5 reviewer dispatch

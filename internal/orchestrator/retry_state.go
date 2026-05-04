@@ -155,6 +155,11 @@ func inferViolationLayer(kind types.ViolationKind) string {
 	case types.ViolAnswerSemanticUnderfilled:
 		return "semantic_quality"
 
+	// 修 B (post_v2_runtime_gap_remediation, 2026-05-04) — evidence
+	// pool structural gate.
+	case types.ViolEnumerationEvidenceUnderspecified:
+		return "evidence_pool"
+
 	// External artifact decoded check.
 	case types.ViolExternalArtifactUnderdecoded:
 		return "external_artifact"
