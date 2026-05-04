@@ -17,6 +17,7 @@ func TestAllQuestionFamiliesHaveCompiler(t *testing.T) {
 		QFCallChain:        irForCallChain(),
 		QFEnumeration:      irForEnumeration(),
 		QFArchitecture:     irForArchitecture(),
+		QFComparison:       irForComparison(),
 		QFGeneric:          irForGeneric(),
 	}
 	for _, family := range AllQuestionFamilies() {
@@ -54,7 +55,7 @@ func TestAllQuestionFamiliesHaveCompiler(t *testing.T) {
 // constants. If you add a new const without updating the function,
 // this catches it before the compile-test below would.
 func TestAllQuestionFamiliesEnumerated(t *testing.T) {
-	want := 7
+	want := 8 // R4.4 added QFComparison
 	if got := len(AllQuestionFamilies()); got != want {
 		t.Errorf("expected %d declared QuestionFamily values; got %d (%v)", want, got, AllQuestionFamilies())
 	}

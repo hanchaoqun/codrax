@@ -70,6 +70,19 @@ func irForGeneric() *AnalysisIR {
 	}
 }
 
+func irForComparison() *AnalysisIR {
+	return &AnalysisIR{
+		RequestModel: RequestModel{
+			Intent:   IntentExplain,
+			Scenario: ScenarioGeneric,
+			Buckets: []QuestionBucket{
+				{Label: "read mode", Index: 1},
+				{Label: "write mode", Index: 2},
+			},
+		},
+	}
+}
+
 // ── QFRootCauseTrace 3 cases ───────────────────────────────────────
 
 func TestCompileRootCauseTrace_ResolvesFamily(t *testing.T) {
@@ -326,6 +339,106 @@ func TestCompileGeneric_NoStructuralAssumptions(t *testing.T) {
 	for _, b := range view.OptionalBlocks {
 		if b.MaxCount != 0 && b.Kind != BlockDiagram {
 			t.Errorf("generic optional block %s should not assume MaxCount; got %d", b.Kind, b.MaxCount)
+		}
+	}
+}
+
+// ── R4.4 QFComparison family compile tests ─────────────────────
+
+// TestCompileComparison_ResolvesFamily covers the basic family
+// dispatch — 2 buckets → QFComparison + non-empty RequiredBlocks.
+func TestCompileComparison_ResolvesFamily(t *testing.T) {
+	view := BuildAnswerSemanticView(irForComparison(), nil)
+	if view == nil {
+		t.Fatal("nil view")
+	}
+	if view.Family != QFComparison {
+		t.Errorf("Family = %q, want QFComparison", view.Family)
+	}
+	if len(view.RequiredBlocks) == 0 {
+		t.Error("RequiredBlocks empty")
+	}
+}
+
+// TestCompileComparison_BucketSectionCountPinned is the
+// **R4.4 load-bearing test**: bucket count → BlockSection
+// MinCount/MaxCount must match exactly so the answer carries
+// one section per user-named bucket (no more, no less).
+func TestCompileComparison_BucketSectionCountPinned(t *testing.T) {
+	cases := []int{2, 3, 4}
+	for _, n := range cases {
+		buckets := make([]QuestionBucket, n)
+		for i := range buckets {
+			buckets[i] = QuestionBucket{Label: "bucket" + string(rune('A'+i)), Index: i + 1}
+		}
+		ir := &AnalysisIR{
+			RequestModel: RequestModel{
+				Intent:  IntentExplain,
+				Buckets: buckets,
+			},
+		}
+		view := BuildAnswerSemanticView(ir, nil)
+		if view == nil {
+			t.Fatal("nil view")
+		}
+		hasSection := false
+		for _, b := range view.RequiredBlocks {
+			if b.Kind != BlockSection {
+				continue
+			}
+			hasSection = true
+			if b.MinCount != n || b.MaxCount != n {
+				t.Errorf("buckets=%d: section MinCount=%d MaxCount=%d, want both %d",
+					n, b.MinCount, b.MaxCount, n)
+			}
+		}
+		if !hasSection {
+			t.Errorf("buckets=%d: no Section block in RequiredBlocks", n)
+		}
+	}
+}
+
+// TestCompileComparison_FacetBucketLabelHardPresent pins the
+// FacetCoverageContract template carries a HARD FacetBucketLabel
+// entry (the bucket-alignment signal). commonFacets() emits this
+// when Buckets >= 2, so QFComparison piggybacks; the entry is the
+// gate-side signal that every bucket Label must appear verbatim
+// in the rendered answer.
+//
+// Read directly from familyTemplate (the FacetCoverageContract
+// builder) since BuildAnswerSemanticView with nil plan doesn't
+// populate view.FacetCoverage.
+func TestCompileComparison_FacetBucketLabelHardPresent(t *testing.T) {
+	rm := RequestModel{
+		Intent: IntentExplain,
+		Buckets: []QuestionBucket{
+			{Label: "read mode", Index: 1},
+			{Label: "write mode", Index: 2},
+		},
+	}
+	template := familyTemplate(QFComparison, rm)
+	hasBucketLabelHard := false
+	for _, req := range template {
+		if req.Kind == FacetBucketLabel && req.Required == FacetHardRequired {
+			hasBucketLabelHard = true
+			break
+		}
+	}
+	if !hasBucketLabelHard {
+		t.Error("QFComparison template missing FacetBucketLabel HARD entry (commonFacets should append one when Buckets>=2)")
+	}
+}
+
+// TestCompileComparison_NoRequiredDiagram pins the design choice:
+// comparisons are prose-led;diagram is NOT required.
+func TestCompileComparison_NoRequiredDiagram(t *testing.T) {
+	view := BuildAnswerSemanticView(irForComparison(), nil)
+	if view.DiagramPlan != nil && view.DiagramPlan.Required {
+		t.Error("comparison must NOT require diagram (prose-led)")
+	}
+	for _, b := range view.RequiredBlocks {
+		if b.Kind == BlockDiagram {
+			t.Error("comparison must NOT have a Required BlockDiagram")
 		}
 	}
 }

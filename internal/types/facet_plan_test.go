@@ -84,7 +84,10 @@ func TestResolveQuestionFamily_ObligationOverridesRoleLookup(t *testing.T) {
 	}
 }
 
-func TestResolveQuestionFamily_EnumerationFromBuckets(t *testing.T) {
+// TestResolveQuestionFamily_BucketsRouteToComparison: buckets >= 2
+// route to QFComparison (R4.4) — pre-R4.4 fell to QFEnumeration
+// via the obligation rule + family_underrepresented telemetry.
+func TestResolveQuestionFamily_BucketsRouteToComparison(t *testing.T) {
 	rm := RequestModel{
 		Intent: IntentExplain,
 		Buckets: []QuestionBucket{
@@ -92,8 +95,8 @@ func TestResolveQuestionFamily_EnumerationFromBuckets(t *testing.T) {
 			{Label: "B", Index: 2},
 		},
 	}
-	if got := ResolveQuestionFamily(rm); got != QFEnumeration {
-		t.Errorf("got %q, want QFEnumeration", got)
+	if got := ResolveQuestionFamily(rm); got != QFComparison {
+		t.Errorf("got %q, want QFComparison", got)
 	}
 }
 
@@ -420,54 +423,53 @@ func TestCompileFacetCoverage_NoSofteningWhenAllCovered(t *testing.T) {
 	}
 }
 
-func TestResolveQuestionFamily_FamilyUnderrepresentedFiresWhenBucketed(t *testing.T) {
-	// QuestionStructure with Buckets=2 + Intent=IntentEnumerate falls
-	// to QFEnumeration; the family does not preserve per-bucket
-	// structure, so a "family_underrepresented" telemetry signal
-	// must fire.
-	rm := RequestModel{
-		Intent: IntentEnumerate,
-		Buckets: []QuestionBucket{
-			{Label: "read mode", Index: 1},
-			{Label: "write mode", Index: 2},
-		},
+// TestResolveQuestionFamily_BucketedRoutesToComparison pins the
+// R4.4 QFComparison routing: any RequestModel with Buckets >= 2
+// routes to QFComparison regardless of Intent (comparison takes
+// priority over enumeration / call-chain / generic so the user's
+// mental partition survives end-to-end).
+func TestResolveQuestionFamily_BucketedRoutesToComparison(t *testing.T) {
+	cases := []struct {
+		name   string
+		intent Intent
+	}{
+		{"with_enumerate_intent", IntentEnumerate},
+		{"with_explain_intent", IntentExplain},
+		{"with_trace_intent", IntentTrace},
 	}
-	sink := &fakeRichnessSink{}
-	got := ResolveQuestionFamily(rm, sink)
-	if got != QFEnumeration {
-		t.Fatalf("family = %q, want QFEnumeration", got)
-	}
-	matched := false
-	for _, sig := range sink.signals {
-		if sig.Kind == "family_underrepresented" {
-			matched = true
-			if sig.Family != string(QFEnumeration) {
-				t.Errorf("signal family = %q, want QFEnumeration", sig.Family)
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			rm := RequestModel{
+				Intent: tc.intent,
+				Buckets: []QuestionBucket{
+					{Label: "read mode", Index: 1},
+					{Label: "write mode", Index: 2},
+				},
 			}
-			if sig.BucketCount != 2 {
-				t.Errorf("bucket_count = %d, want 2", sig.BucketCount)
+			got := ResolveQuestionFamily(rm)
+			if got != QFComparison {
+				t.Errorf("intent=%s: family = %q, want QFComparison", tc.intent, got)
 			}
-		}
-	}
-	if !matched {
-		t.Errorf("no family_underrepresented signal; got %+v", sink.signals)
+		})
 	}
 }
 
-func TestResolveQuestionFamily_NoFamilyUnderrepresentedSingleBucket(t *testing.T) {
-	// Only 1 bucket → no fallback signal.
+// TestResolveQuestionFamily_SingleBucketDoesNotRouteToComparison
+// confirms only Buckets >= 2 triggers QFComparison;
+// single-bucket / no-bucket questions route by Intent as before.
+func TestResolveQuestionFamily_SingleBucketDoesNotRouteToComparison(t *testing.T) {
 	rm := RequestModel{
 		Intent: IntentEnumerate,
 		Buckets: []QuestionBucket{
 			{Label: "only one", Index: 1},
 		},
 	}
-	sink := &fakeRichnessSink{}
-	_ = ResolveQuestionFamily(rm, sink)
-	for _, sig := range sink.signals {
-		if sig.Kind == "family_underrepresented" {
-			t.Errorf("did not expect family_underrepresented at bucket_count=1; got %+v", sig)
-		}
+	got := ResolveQuestionFamily(rm)
+	if got == QFComparison {
+		t.Errorf("single-bucket must NOT route to QFComparison; got %q", got)
+	}
+	if got != QFEnumeration {
+		t.Errorf("single-bucket enumeration: got %q, want QFEnumeration", got)
 	}
 }
 

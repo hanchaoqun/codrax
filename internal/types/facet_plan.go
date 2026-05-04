@@ -75,6 +75,25 @@ const (
 	// ("how does the X subsystem work overall").
 	QFArchitecture QuestionFamily = "architecture"
 
+	// QFComparison covers questions that PARTITION the answer
+	// across 2+ user-named buckets ("compare A vs B", "X for A
+	// and Y for B", "differences between A and B"). Triggered
+	// when QuestionStructure.Buckets has 2+ entries — the
+	// resolver promotes the question out of QFCallChain /
+	// QFEnumeration / QFGeneric (where the bucket partition
+	// would be lost) into a dedicated family that scaffolds one
+	// principal section block per bucket, preserving the
+	// user's mental partition end-to-end.
+	//
+	// Compile template (compile_comparison.go): one
+	// BlockSummary (lead-in describing what's being compared),
+	// 2+ BlockSection (one per bucket — verbatim Label as Title),
+	// optional BlockTable (side-by-side rendering when the
+	// comparison is multi-axis). FacetCoverage Required uses
+	// FacetBucketLabel HARD per bucket so the renderer / oracle
+	// can verify each Label appears verbatim in some block.
+	QFComparison QuestionFamily = "comparison"
+
 	// QFGeneric is the fallback when no specific family matches.
 	// Compiled facet plan stays minimal (resolved-literal +
 	// uncertainty-boundary only).
@@ -98,6 +117,7 @@ func AllQuestionFamilies() []QuestionFamily {
 		QFCallChain,
 		QFEnumeration,
 		QFArchitecture,
+		QFComparison,
 		QFGeneric,
 	}
 }
@@ -332,7 +352,18 @@ func ResolveQuestionFamily(rm RequestModel, sinks ...RichnessTelemetrySink) Ques
 	hasObligation := view.HasAnyObligation()
 	bucketCount := len(view.Buckets)
 
-	// Rule 3: role-lookup detection (named-entity subject + no
+	// Rule 3 (R4.4): comparison family. When the question carries
+	// 2+ user-named buckets (verbatim labels in QuestionStructure
+	// .Buckets), a flat family (QFCallChain / QFEnumeration /
+	// QFGeneric) would lose the partition. QFComparison scaffolds
+	// one principal section per bucket so the user's mental
+	// partition survives. Driven by the typed bucket-count signal,
+	// not by question-text matching (§9.5 red line preserved).
+	if bucketCount >= 2 {
+		return QFComparison
+	}
+
+	// Rule 4: role-lookup detection (named-entity subject + no
 	// enumeration obligation).
 	if !hasObligation {
 		switch rm.AnswerSubject.Kind {
@@ -342,31 +373,27 @@ func ResolveQuestionFamily(rm RequestModel, sinks ...RichnessTelemetrySink) Ques
 		}
 	}
 
-	// Rule 4: trace intent without obligation.
+	// Rule 5: trace intent without obligation.
 	if rm.Intent == IntentTrace && !hasObligation {
-		family := QFCallChain
-		emitFamilyUnderrepresentedIfBucketed(sinks, family, bucketCount)
-		return family
+		// bucketCount < 2 here (QFComparison handled above);
+		// no telemetry needed — single-bucket trace cleanly fits
+		// QFCallChain.
+		return QFCallChain
 	}
 
-	// Rule 5: enumeration / obligation-bearing.
+	// Rule 6: enumeration / obligation-bearing.
 	if hasObligation || rm.Intent == IntentEnumerate {
-		// Enumeration bucket-aware: when an enumeration question carries
-		// >=2 buckets, QFEnumeration's flat list-of-X structure does NOT
-		// preserve the partition. Telemetry-only per §9.5 — system NEVER
-		// silently picks a different family.
-		emitFamilyUnderrepresentedIfBucketed(sinks, QFEnumeration, bucketCount)
+		// bucketCount < 2 by construction (QFComparison absorbed
+		// the multi-bucket case above).
 		return QFEnumeration
 	}
 
-	// Rule 6: architecture explain.
+	// Rule 7: architecture explain.
 	if rm.Intent == IntentExplain && rm.Scenario == ScenarioArchitectureExplain {
 		return QFArchitecture
 	}
 
-	family := QFGeneric
-	emitFamilyUnderrepresentedIfBucketed(sinks, family, bucketCount)
-	return family
+	return QFGeneric
 }
 
 // emitFamilyUnderrepresentedIfBucketed records a "family did not
@@ -611,6 +638,20 @@ func familyTemplate(family QuestionFamily, rm RequestModel) []FacetRequirement {
 			{Kind: FacetDiagramSpine, Required: FacetSoftRequired,
 				AcceptableForms: []ClaimForm{ClaimCallEdge, ClaimImportEdge}},
 			{Kind: FacetUncertaintyBoundary, Required: FacetOptional},
+		}, common...)
+	case QFComparison:
+		// R4.4 (post_shape_residual_audit.md, 2026-05-04): the
+		// shared commonFacets() helper already appends a
+		// FacetBucketLabel HARD entry whenever Buckets >= 2 (the
+		// canonical bucket-alignment signal); QFComparison's
+		// dedicated facets are the *content* corroborators —
+		// FacetCurrentCodePath SOFT for grounded code refs in
+		// each bucket's section, FacetUncertaintyBoundary SOFT
+		// for disclosing axis asymmetry between buckets.
+		return append([]FacetRequirement{
+			{Kind: FacetCurrentCodePath, Required: FacetSoftRequired,
+				AcceptableForms: []ClaimForm{ClaimDefinitionFact, ClaimCallEdge}},
+			{Kind: FacetUncertaintyBoundary, Required: FacetSoftRequired},
 		}, common...)
 	case QFGeneric:
 		return append([]FacetRequirement{

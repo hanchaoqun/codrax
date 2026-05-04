@@ -71,6 +71,8 @@ func BuildAnswerSemanticView(ir *AnalysisIR, plan *AnswerSurfacePlan) *AnswerSem
 		return compileEnumeration(ir, plan)
 	case QFArchitecture:
 		return compileArchitecture(ir, plan)
+	case QFComparison:
+		return compileComparison(ir, plan)
 	case QFGeneric:
 		return compileGeneric(ir, plan)
 	}

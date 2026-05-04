@@ -127,7 +127,7 @@
 | R4.1 | 🟢 SHIPPED nested-array string-mode 兜底扩展 | (本 commit) | repairNestedArraysAsString 处理 items[] / claim_uses[] / diagram.claim_uses[] string-encoded 失败模式;7 单测 (3 case + multi + 7 negative + e2e) |
 | R4.2 | 🔵 由 R16 取代 — emit_answer_document_patch 即 F7-A retained-draft 协议层实施 | (R16) | n/a |
 | R4.3 | ⬜ pending | — | — |
-| R4.4 | ⬜ pending(等 R3.1) | — | — |
+| R4.4 | 🟢 SHIPPED QFComparison family | (本 commit) | Buckets >= 2 路由到 QFComparison;compile_comparison.go 一对一 BlockSection per bucket;commonFacets 自动附 FacetBucketLabel HARD;7 lock test |
 | R5.1 | 🟢 SHIPPED summary 4 列 | TBD | smoke 通过 (s1a 历史数据) |
 | R5.2 | 🟢 NO-OP — B6-F5 metric 已 1:1 LLM turn (baseline eval 真验证),仅日志冗余降级 P3 (合并到 R12) | (B6-F5) | n/a |
 
