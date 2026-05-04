@@ -8,6 +8,7 @@ import (
 
 	"github.com/hanchaoqun/codrax/internal/llm"
 	"github.com/hanchaoqun/codrax/internal/logging"
+	"github.com/hanchaoqun/codrax/internal/types"
 )
 
 // SelfConsistencyReviewer is an independent reviewer LLM that
@@ -48,15 +49,31 @@ type SelfConsistencyReviewer interface {
 	Review(ctx context.Context, in SelfConsistencyInput) (*SelfConsistencyResult, error)
 }
 
-// SelfConsistencyInput bundles what the reviewer reads. No
-// access to evidence / IR / repo source — the reviewer's ONLY
-// job is to detect contradictions BETWEEN the two supplied
-// texts. Cross-checking against ground truth is contract.Check's
-// + grounder's job.
+// SelfConsistencyInput bundles what the reviewer reads. The
+// reviewer's job is to detect contradictions BETWEEN the supplied
+// texts AND between BODY and the evidence anchor set
+// (Phase 2 extension, 2026-05-04). Cross-checking against repo
+// source is still grounder's job — the anchor set here is the
+// list of identifiers that DID get grounded, surfaced verbatim
+// from evidence items so the reviewer can flag BODY identifiers
+// that exist nowhere in evidence.
 type SelfConsistencyInput struct {
 	OriginalRequest string // user's original question (context)
 	AnswerSummary   string // doc.Summary — opening prose
 	AnswerBody      string // formatted bullets / steps / symbols
+
+	// EvidenceAnchorSet is the deduplicated set of structural
+	// identifiers (anchor_symbol / subject / object) verbatim from
+	// the evidence pool. When non-empty, the reviewer additionally
+	// flags BODY identifier mentions that have no member in this
+	// set (the s1a forensic blind spot — finalizer wrote 9
+	// fabricated check names that SUMMARY-vs-BODY check missed
+	// because both fabricated identical content).
+	//
+	// Empty = legacy SUMMARY-vs-BODY only; back-compat preserved.
+	// Cap recommended at ~50 entries to keep prompt budget bounded;
+	// callers should truncate before populating.
+	EvidenceAnchorSet []string
 }
 
 // SelfConsistencyResult is the reviewer's verdict.
@@ -184,6 +201,7 @@ Common CONTRADICTION SHAPES (apply the principle, not the surface form — these
   4. Quantifier mismatch — summary says "always / all / every / never", body says "sometimes / some / only when X / under condition Y"
   5. Direction or order mismatch — summary says A→B flow, body says B→A; summary says first/before, body says last/after
   6. Assignment inversion — same set of values is mapped to different categories across the two parts (e.g. summary says "X has property P, Y has property Q"; body shows X gets Q, Y gets P)
+  7. Fabricated identifier (ONLY when an EVIDENCE ANCHORS section is supplied) — BODY names a structural identifier (function / type / file path / config key / check / handler / etc.) presented as "the actual code/structure" that has NO member in the supplied EVIDENCE ANCHORS set. Look at: list-item labels, code-fenced identifiers in body items, and identifiers BODY claims are ground-truth. Stylistic terms ("the validator", "the helper") and prose generic phrasing are NOT identifiers — only flag named code-shape tokens. When flagged, set summary_claim to the corresponding SUMMARY mention of the same identifier (or empty when summary doesn't mention it) and body_claim to the verbatim BODY occurrence. This shape is independent of SUMMARY content — fabrication can fire even when SUMMARY agrees with BODY.
 
 Common NOT-CONTRADICTIONS (DO NOT REPORT):
   - Summary omits a detail body provides → summarisation, not contradiction
@@ -308,9 +326,9 @@ func unmarshalSelfConsistencyResult(raw json.RawMessage) (*SelfConsistencyResult
 }
 
 // renderSelfConsistencyUserMessage formats the comparison input
-// as a labelled markdown blob with explicit SUMMARY / BODY
-// section headers so the reviewer's prompt-instructed examples
-// match the input shape.
+// as a labelled markdown blob with explicit SUMMARY / BODY (and
+// optional EVIDENCE ANCHORS) section headers so the reviewer's
+// prompt-instructed examples match the input shape.
 func renderSelfConsistencyUserMessage(in SelfConsistencyInput) string {
 	var b strings.Builder
 	if s := strings.TrimSpace(in.OriginalRequest); s != "" {
@@ -318,5 +336,58 @@ func renderSelfConsistencyUserMessage(in SelfConsistencyInput) string {
 	}
 	fmt.Fprintf(&b, "## SUMMARY\n%s\n\n", strings.TrimSpace(in.AnswerSummary))
 	fmt.Fprintf(&b, "## BODY\n%s\n", strings.TrimSpace(in.AnswerBody))
+	if len(in.EvidenceAnchorSet) > 0 {
+		b.WriteString("\n## EVIDENCE ANCHORS (deduplicated identifier set from grounded evidence)\n")
+		b.WriteString("Each identifier below appears verbatim in at least one grounded evidence item " +
+			"(anchor_symbol / subject / object field). Use this set ONLY to detect fabricated identifiers " +
+			"in BODY — see contradiction shape #7 in the system prompt. Empty entries are intentionally absent.\n\n")
+		for _, id := range in.EvidenceAnchorSet {
+			fmt.Fprintf(&b, "- %s\n", id)
+		}
+	}
 	return b.String()
+}
+
+// SelfConsistencyAnchorCap caps the EVIDENCE ANCHORS section size
+// to keep prompt budget bounded. 50 is generous enough to cover
+// typical eval-case anchor breadth (s1a forensic showed ~28 distinct
+// identifiers per run) without blowing the reviewer prompt.
+const SelfConsistencyAnchorCap = 50
+
+// BuildEvidenceAnchorSet pulls the deduplicated set of structural
+// identifiers from a list of EvidenceItems. Reads anchor_symbol +
+// subject + object verbatim. Order = first-seen, so cap truncation
+// preserves the earliest-emitted (typically most-load-bearing)
+// identifiers. Empty fields and pure whitespace are skipped.
+//
+// The function is purely typed-projection — no LLM input, no
+// similarity, no scoring. Phase 5-E0 R3 invariant: the output is a
+// hard-gate-grade signal because it derives only from typed
+// EvidenceItem fields.
+func BuildEvidenceAnchorSet(evidence []types.EvidenceItem) []string {
+	seen := make(map[string]struct{}, 32)
+	out := make([]string, 0, 32)
+	add := func(s string) {
+		s = strings.TrimSpace(s)
+		if s == "" {
+			return
+		}
+		if _, dup := seen[s]; dup {
+			return
+		}
+		seen[s] = struct{}{}
+		out = append(out, s)
+	}
+	for _, ev := range evidence {
+		add(ev.AnchorSymbol)
+		add(ev.Subject)
+		add(ev.Object)
+		if len(out) >= SelfConsistencyAnchorCap {
+			break
+		}
+	}
+	if len(out) > SelfConsistencyAnchorCap {
+		out = out[:SelfConsistencyAnchorCap]
+	}
+	return out
 }

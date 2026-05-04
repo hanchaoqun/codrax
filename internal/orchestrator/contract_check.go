@@ -1685,9 +1685,10 @@ func (o *Orchestrator) runSelfConsistencyReviewV2(doc *types.AnswerDocumentV2, m
 		}
 	}
 	in := SelfConsistencyInput{
-		OriginalRequest: mut.Objective(),
-		AnswerSummary:   render.StripAuthorityArtifacts(summaryText),
-		AnswerBody:      render.StripAuthorityArtifacts(renderConsistencyReviewBodyV2(doc)),
+		OriginalRequest:   mut.Objective(),
+		AnswerSummary:     render.StripAuthorityArtifacts(summaryText),
+		AnswerBody:        render.StripAuthorityArtifacts(renderConsistencyReviewBodyV2(doc)),
+		EvidenceAnchorSet: BuildEvidenceAnchorSet(mut.EmittedEvidence()),
 	}
 
 	ctx := o.busCtx.Ctx

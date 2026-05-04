@@ -4,11 +4,13 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/hanchaoqun/codrax/internal/llm"
+	"github.com/hanchaoqun/codrax/internal/types"
 )
 
 type stubSelfConsistencyAdapter struct {
@@ -265,5 +267,87 @@ func TestSelfConsistencyReviewer_OutOfRangeConfidenceRejected(t *testing.T) {
 	})
 	if err == nil {
 		t.Error("confidence > 1 should error")
+	}
+}
+
+// ── Phase 2 BODY-vs-evidence extension (2026-05-04) ─────────
+
+// TestBuildEvidenceAnchorSet_DedupesAcrossFields pins the
+// invariant that anchor_symbol + subject + object all flow into
+// the set, deduped first-seen.
+func TestBuildEvidenceAnchorSet_DedupesAcrossFields(t *testing.T) {
+	evidence := []types.EvidenceItem{
+		{AnchorSymbol: "checkCoverage", Subject: "gate.Run", Object: ""},
+		{AnchorSymbol: "checkCoverage", Subject: "gate.Run", Object: "DAGClosure"}, // dup symbol+subject
+		{AnchorSymbol: "checkBudget", Subject: "  ", Object: ""},
+		{AnchorSymbol: "", Subject: "", Object: "criterionResolvable"},
+	}
+	got := BuildEvidenceAnchorSet(evidence)
+	want := []string{"checkCoverage", "gate.Run", "DAGClosure", "checkBudget", "criterionResolvable"}
+	if len(got) != len(want) {
+		t.Fatalf("len = %d (got=%v), want %d", len(got), got, len(want))
+	}
+	for i, w := range want {
+		if got[i] != w {
+			t.Errorf("got[%d] = %q, want %q (full=%v)", i, got[i], w, got)
+		}
+	}
+}
+
+// TestBuildEvidenceAnchorSet_CapTruncates pins prompt-budget
+// guard: never more than SelfConsistencyAnchorCap entries.
+func TestBuildEvidenceAnchorSet_CapTruncates(t *testing.T) {
+	evidence := make([]types.EvidenceItem, 200)
+	for i := range evidence {
+		evidence[i].AnchorSymbol = fmt.Sprintf("sym%03d", i)
+	}
+	got := BuildEvidenceAnchorSet(evidence)
+	if len(got) > SelfConsistencyAnchorCap {
+		t.Errorf("len = %d, want <= %d", len(got), SelfConsistencyAnchorCap)
+	}
+	// First entry MUST be sym000 (first-seen preservation under cap).
+	if len(got) > 0 && got[0] != "sym000" {
+		t.Errorf("first-seen broken: got[0] = %q, want sym000", got[0])
+	}
+}
+
+// TestRenderSelfConsistencyUserMessage_OmitsAnchorSectionWhenEmpty
+// pins back-compat: pre-Phase-2 callers (empty EvidenceAnchorSet)
+// see the rendered message UNCHANGED — no extra anchor section.
+func TestRenderSelfConsistencyUserMessage_OmitsAnchorSectionWhenEmpty(t *testing.T) {
+	in := SelfConsistencyInput{AnswerSummary: "S", AnswerBody: "B"}
+	got := renderSelfConsistencyUserMessage(in)
+	if strings.Contains(got, "EVIDENCE ANCHORS") {
+		t.Errorf("empty anchor set must NOT render the section; got\n%s", got)
+	}
+}
+
+// TestRenderSelfConsistencyUserMessage_EmitsAnchorSectionWhenSet
+// pins Phase 2 wiring: when caller supplies anchors, the rendered
+// message exposes them as a markdown bullet list.
+func TestRenderSelfConsistencyUserMessage_EmitsAnchorSectionWhenSet(t *testing.T) {
+	in := SelfConsistencyInput{
+		AnswerSummary:     "S",
+		AnswerBody:        "B",
+		EvidenceAnchorSet: []string{"checkCoverage", "gate.Run"},
+	}
+	got := renderSelfConsistencyUserMessage(in)
+	if !strings.Contains(got, "EVIDENCE ANCHORS") {
+		t.Error("non-empty anchor set MUST render section header")
+	}
+	if !strings.Contains(got, "- checkCoverage") || !strings.Contains(got, "- gate.Run") {
+		t.Errorf("each anchor MUST appear as bullet; got\n%s", got)
+	}
+}
+
+// TestSelfConsistencyReviewerPrompt_DocumentsFabricationShape pins
+// that the system prompt mentions contradiction shape #7
+// (fabricated identifier) so prompt drift breaks tests.
+func TestSelfConsistencyReviewerPrompt_DocumentsFabricationShape(t *testing.T) {
+	if !strings.Contains(selfConsistencyReviewerSystemPrompt, "Fabricated identifier") {
+		t.Error("system prompt missing contradiction shape #7 (Fabricated identifier)")
+	}
+	if !strings.Contains(selfConsistencyReviewerSystemPrompt, "EVIDENCE ANCHORS") {
+		t.Error("system prompt missing EVIDENCE ANCHORS reference")
 	}
 }
