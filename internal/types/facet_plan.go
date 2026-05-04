@@ -425,6 +425,20 @@ func CompileFacetCoverage(rm RequestModel, surface []EvidenceItem, sinks ...Rich
 		return nil
 	}
 
+	// R3.1 (post_shape_residual_audit.md, 2026-05-04): when the
+	// caller invokes CompileFacetCoverage BEFORE any emit_evidence
+	// has run (e.g. analyzer-time BuildAnswerSurfacePlan call),
+	// surface is empty by construction — every facet looks
+	// "uncovered" but only because evidence collection hasn't
+	// started yet. Treat this as INCONCLUSIVE: skip both the
+	// HARD→SOFT downgrade and the facet_softened telemetry, so
+	// the false-positive signal eval baseline saw (4/4 runs
+	// silently softening) goes away. The Required tier reaches
+	// downstream untouched — later in the Run a re-compile with
+	// real surface evidence either covers the facet OR keeps it
+	// HARD for a real validator to act on.
+	emptySurface := len(surface) == 0
+
 	// Bind SourceCandidate: walk surface evidence, match each
 	// requirement's AcceptableForms, attach matching IDs.
 	plan := &FacetCoverageContract{
@@ -443,7 +457,10 @@ func CompileFacetCoverage(rm RequestModel, surface []EvidenceItem, sinks ...Rich
 		// callers that don't (test cases, deep helpers without
 		// MutableState in scope) stay byte-identical to pre-B5-F2
 		// behaviour.
-		if bound.Required == FacetHardRequired && len(bound.SourceCandidate) == 0 {
+		//
+		// R3.1: emptySurface short-circuits the downgrade — no
+		// evidence yet ≠ HARD facet uncoverable. Skip telemetry too.
+		if !emptySurface && bound.Required == FacetHardRequired && len(bound.SourceCandidate) == 0 {
 			bound.Required = FacetSoftRequired
 			for _, sink := range sinks {
 				if sink == nil {

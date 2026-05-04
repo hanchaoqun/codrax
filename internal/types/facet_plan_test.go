@@ -132,12 +132,26 @@ func TestResolveQuestionFamily_GenericFallthrough(t *testing.T) {
 func TestCompileFacetCoverage_HardDegradesToSoftWhenNoCandidate(t *testing.T) {
 	// QFRootCauseTrace template has FacetObservedArtifactFact as
 	// HARD with AcceptableForms=[ClaimExternalObservation]. Provide
-	// no log evidence → no candidate → HARD must degrade to SOFT.
+	// non-empty surface evidence whose ClaimForm is NOT
+	// ClaimExternalObservation → no candidate matches → HARD must
+	// degrade to SOFT.
+	//
+	// R3.1 (2026-05-04): empty surface is now short-circuited as
+	// "inconclusive" (no evidence collected yet ≠ uncoverable), so
+	// the downgrade test must pass NON-empty surface that fails
+	// the AcceptableForms match — the real "evidence collected
+	// but doesn't fit" case the rule targets.
 	rm := RequestModel{
 		Intent:    IntentRootCause,
 		LogTriage: &LogBundle{},
 	}
-	plan := CompileFacetCoverage(rm, nil)
+	// AnchorDefinition → ClaimDefinitionFact, NOT acceptable for
+	// FacetObservedArtifactFact (which requires
+	// ClaimExternalObservation).
+	surface := []EvidenceItem{
+		{ID: "e1", Source: "x.go", AnchorKind: AnchorDefinition},
+	}
+	plan := CompileFacetCoverage(rm, surface)
 	if plan == nil {
 		t.Fatal("plan must be non-nil for QFRootCauseTrace")
 	}
@@ -147,6 +161,39 @@ func TestCompileFacetCoverage_HardDegradesToSoftWhenNoCandidate(t *testing.T) {
 	for _, req := range plan.Required {
 		if req.Kind == FacetObservedArtifactFact && req.Required == FacetHardRequired {
 			t.Errorf("FacetObservedArtifactFact must degrade to SOFT when no candidate; got HARD")
+		}
+	}
+}
+
+// TestCompileFacetCoverage_EmptySurfaceInconclusiveNoSoftening
+// pins R3.1 (post_shape_residual_audit.md, 2026-05-04): when
+// CompileFacetCoverage runs at analyzer-time (before any emit_evidence
+// call) surface is empty and we MUST NOT silently downgrade
+// HARD facets — the lack of evidence is "not yet collected", not
+// "facet uncoverable". Telemetry MUST also stay silent.
+func TestCompileFacetCoverage_EmptySurfaceInconclusiveNoSoftening(t *testing.T) {
+	rm := RequestModel{
+		Intent:    IntentRootCause,
+		LogTriage: &LogBundle{},
+	}
+	sink := &fakeRichnessSink{}
+	// nil surface — analyzer-time / pre-evidence call shape.
+	plan := CompileFacetCoverage(rm, nil, sink)
+	if plan == nil {
+		t.Fatal("plan must be non-nil")
+	}
+	hardKept := false
+	for _, req := range plan.Required {
+		if req.Kind == FacetObservedArtifactFact && req.Required == FacetHardRequired {
+			hardKept = true
+		}
+	}
+	if !hardKept {
+		t.Errorf("HARD facet must remain HARD on empty surface (R3.1 inconclusive); got softened")
+	}
+	for _, sig := range sink.signals {
+		if sig.Kind == "facet_softened" {
+			t.Errorf("R3.1 must skip facet_softened telemetry on empty surface; got %+v", sig)
 		}
 	}
 }
@@ -306,15 +353,29 @@ func (f *fakeRichnessSink) AppendRichnessTelemetry(sig RichnessTelemetrySignal) 
 }
 
 func TestCompileFacetCoverage_FacetSofteningTelemetryFires(t *testing.T) {
-	// QFRootCauseTrace + no log evidence → HARD facets degrade to
-	// SOFT. With a sink wired, we expect at least one
-	// "facet_softened" signal.
+	// QFRootCauseTrace + non-empty surface evidence that DOESN'T
+	// match the FacetObservedArtifactFact AcceptableForms (which
+	// requires ClaimExternalObservation only). With a sink wired,
+	// we expect at least one "facet_softened" signal.
+	//
+	// R3.1 (2026-05-04): emptySurface=nil now short-circuits the
+	// downgrade path (treat as inconclusive — analyzer-time call
+	// before any emit_evidence). The test must pass NON-empty
+	// surface that fails to satisfy the facet AcceptableForms,
+	// which is the genuine "evidence collected but doesn't match"
+	// case the softening rule was designed for.
 	rm := RequestModel{
 		Intent:    IntentRootCause,
 		LogTriage: &LogBundle{},
 	}
+	// AnchorDefinition → ClaimDefinitionFact, NOT in
+	// FacetObservedArtifactFact AcceptableForms (which is
+	// ClaimExternalObservation only).
+	surface := []EvidenceItem{
+		{ID: "e1", Source: "x.go", AnchorKind: AnchorDefinition},
+	}
 	sink := &fakeRichnessSink{}
-	plan := CompileFacetCoverage(rm, nil, sink)
+	plan := CompileFacetCoverage(rm, surface, sink)
 	if plan == nil {
 		t.Fatal("plan must be non-nil")
 	}

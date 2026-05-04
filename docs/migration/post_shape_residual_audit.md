@@ -110,7 +110,7 @@
 | R2.2 | 🟢 SHIPPED 分流 + 预算 | TBD | 待真 eval 出现 finalize+deeper 混合场景 |
 | R2.3 | 🟢 SHIPPED 4/4:Facet (3a4a39a) + Richness (3a4a39a) + ClaimForm (8cdfd93) + AbsenceScope (pending) | TBD | 待真 eval 触发场景 |
 | R2.4 | 🟢 SHIPPED 选位修 | TBD | 待真 eval rerun s1a 看是否触发 |
-| R3.1 | ⬜ pending | — | — |
+| R3.1 | 🟢 SHIPPED 真根因修(emptySurface 短路 inconclusive) | TBD | 待真 eval rerun s1a/m1a 确认 facet_softened 不再 fire 4/4 |
 | R4.1 | ⬜ pending | — | — |
 | R4.2 | ⬜ pending(等 F7-A) | — | — |
 | R4.3 | ⬜ pending | — | — |
