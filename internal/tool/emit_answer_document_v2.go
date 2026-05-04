@@ -535,4 +535,15 @@ var answerDocumentV2MisplacedHints = []MisplacedFieldHint{
 			"blocks[i].edge_anchors[j].to_node",
 		},
 	},
+	// G3 (post_v2_runtime_gap_remediation, 2026-05-04). relation_kind
+	// is typed-only on EdgeAnchor; LLMs that have not yet learned the
+	// new schema may misplace it inside claim_use (alongside its
+	// neighbour fields from_node / to_node).
+	{
+		Field:          "relation_kind",
+		ContainerNames: []string{"claim_use", "claim_uses"},
+		CorrectPaths: []string{
+			"blocks[i].edge_anchors[j].relation_kind",
+		},
+	},
 }

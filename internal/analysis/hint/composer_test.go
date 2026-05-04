@@ -275,6 +275,13 @@ var composerExactFixSkipWhitelist = map[types.ViolationKind]string{
 	// operator, not the LLM.
 	types.ViolDemotionStorm:   "telemetry only — operator review signal, no LLM repair",
 	types.ViolForcedReadStorm: "telemetry only — operator review signal, no LLM repair",
+
+	// G3 (post_v2_runtime_gap_remediation, 2026-05-04) — typed-vs-label
+	// drift advisory. SOFT-only and DELIBERATELY not promotable to
+	// STRICT; the validator's Violation.Repair already names the
+	// drifting edges and the section to consult, so the generic
+	// composer fallback pairs with that actionable Detail.
+	types.ViolDiagramEdgeLabelMismatch: "uses violation.Repair for fix prose",
 }
 
 // TestComposer_AllViolationKindsHaveCase enforces P34's

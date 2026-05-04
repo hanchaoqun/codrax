@@ -60,3 +60,23 @@ func BuildDiagramEdgeLabelVocabularyDoc() string {
 	}
 	return b.String()
 }
+
+// BuildDiagramRelationKindList returns the canonical comma-separated
+// list of typed RelationKind values, rendered for inline embedding in
+// LLM-facing prompts (e.g. "`call` / `guard` / `import` / ..."). The
+// list is sorted alphabetically for prompt-stability and rendered
+// directly from types.AllDiagramRelationKinds() so the skill prompt
+// cannot drift from the typed enum (SST red line).
+//
+// G3 (post_v2_runtime_gap_remediation, 2026-05-04) — replaces the
+// hand-mirrored "call / guard / import / ..." string that would
+// otherwise have to be kept in sync by hand.
+func BuildDiagramRelationKindList() string {
+	kinds := types.AllDiagramRelationKinds()
+	names := make([]string, 0, len(kinds))
+	for _, k := range kinds {
+		names = append(names, fmt.Sprintf("`%s`", string(k)))
+	}
+	sort.Strings(names)
+	return strings.Join(names, " / ")
+}
