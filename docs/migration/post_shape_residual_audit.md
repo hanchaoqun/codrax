@@ -26,9 +26,9 @@
 
 | ID | 严重性 | 标题 | 代码证据 | 修复方向 | 验收 |
 |---|---|---|---|---|---|
-| **R2.1** | P1 | self-consistency reviewer 是死特性 | `self_consistency_reviewer.go` 实现完整,`cmd/root.go` 配置完整,**但主链没找到 runtime 调用入口**;`ViolSelfContradiction` 在 fallback 表里却永远不可能被产生 | grep 全仓 `selfConsistencyReviewer.Review\|.Review(` 找消费点;**有可能 B8-T4 V1 oracle 删除 commit 把 reviewer dispatch 一起删了**(参考 contract_check.go:176-183 注释提到的 deletion)— 需要重新接 V2 carrier 输入(reviewer 要 doc.Summary + body bullets,V2 是 BlockSummary + 其他 blocks);决策点:重新接 v2,or 删除 reviewer + ViolSelfContradiction + 配置 | 真 eval 跑 1-2 个会自相矛盾 case(QF 多topic 类),log 出现 `[self_consistency]` 字样 + violation 进 closure;OR 完全删除三个文件 + cmd/root.go reviewer 配置 + violation kind |
+| **R2.1** | P1 | self-consistency reviewer 是死特性 | `self_consistency_reviewer.go` 实现完整,`cmd/root.go` 配置完整,**但主链没找到 runtime 调用入口**;`ViolSelfContradiction` 在 fallback 表里却永远不可能被产生 | **决策已定:重接 V2** (2026-05-04)。reviewer 输入从 V1 `doc.Summary + steps[]` 改成 V2 `BlockSummary.Text + 其他 blocks 渲染`;主链 dispatch 在 `runContractCheck` 后接(commit 62 deletion 的位置);触发条件保留:`ShapeStepList/ShapeListOfSymbols/ShapeExplanation` 等价 → V2 family 等价物 (QFEnumeration/QFCallChain/QFGeneric/...) + summary 字数门槛 + body 块数门槛 | 真 eval 跑 1-2 个会自相矛盾 case(QF 多topic 类),log 出现 `[self_consistency]` 字样 + violation 进 closure |
 | **R2.2** | P1 | finalize V2 contract fail 还会被拉回 extract/explore | `fallback_policy.go::FallbackTargetForViolations` 按整组主 repair locus 选(deepest),finalize-local 问题混上 `ViolBlockCoverageMissing/ViolFacetUncovered/ViolAbsenceScopeExceeded` 时整轮被深拉 | (a) **不能简单"按 finalize-local 优先"** — 那会让真该深拉的回归;(b) 加分流:violation **群组**按 RepairLocus 分两个 batch — finalize-locus violations 先在 finalize 内部 retry(N 次),N 失败才放更深的 violations 推回上游;(c) 有 `lastFallbackFinalizerOnly` latch 但还不彻底 | 新单测覆盖 4 类混合:全 finalize-local / 全 deeper / 混合 + finalize 优先 / 混合 + 深 violation 跨 N 次后允许 escalate |
-| **R2.3** | P1 | `ViolFacetUncovered/ClaimFormUnsupported/AbsenceScopeExceeded/RichnessRegression` 无生产者 | 类型在 `violation.go`,被 `composer.go::summariseExactFix` + `fallback_policy.go::DefaultFallbackPolicy` 消费;**但 `cgec_completeness_test.go::pending` 表显示这 4 个都是 `B8-T4-retired-V1-...-oracle`** — 即生产者已被 V2 carrier 删除 | 决策点:(a) **重新接 V2 oracle**(优先):写 V2 版本的 facet coverage / claim form / absence scope / richness regression oracle;参考 `runStructuralEnumerationDivergenceOracleV2` 的 V2 重写模式;(b) **删除**(下策):删 4 个 kind + composer 4 个 case + fallback 4 个 row + composer skip-whitelist + cgec_completeness pending 表 | 重新接路径:真 eval 跑相应触发场景,closure ledger 出现这 4 个 kind 之一;**至少 R2.1 的 self-consistency 也是同类 — 一并决策"重新接 V2 / 删"** |
+| **R2.3** | P1 | `ViolFacetUncovered/ClaimFormUnsupported/AbsenceScopeExceeded/RichnessRegression` 无生产者 | 类型在 `violation.go`,被 `composer.go::summariseExactFix` + `fallback_policy.go::DefaultFallbackPolicy` 消费;**但 `cgec_completeness_test.go::pending` 表显示这 4 个都是 `B8-T4-retired-V1-...-oracle`** — 即生产者已被 V2 carrier 删除 | **决策已定:重接 V2** (2026-05-04)。参考 `runStructuralEnumerationDivergenceOracleV2` / `runSymbolAnchorTrackOracleV2` 的 V2 重写模式;每个 oracle 一个 commit;输入 = V2 `AnswerDocumentV2.Blocks` + AnswerSemanticView + 必要的 EvidenceClosure 数据;cgec_completeness pending 表搬到 covered 表 | 真 eval 跑相应触发场景,closure ledger 出现这 4 个 kind 之一;facet/claim_form 在 R3.1 facet 模板审计后也跟着触发 |
 | **R2.4** | P1 | B6-F1 cross_citation_conflict oracle 选位错(eval baseline 4.1) | `runCrossCitationConflictOracleV2` 按 `Items[].Label` 分组,Label 是渲染文本(如 "checkCoverage — 覆盖度检查");s1a r1 答案 15 条 citation 全指 `gate.go:128` 但 oracle 没触发 | 改读符号身份:优先 `Items[].ClaimUse.EntityID`(若 LLM 填了),次之 `Items[].ID`,最次回退 `Items[].Label` 但限制 ≤ 32 字符 + 单行(避免渲染长文本)| 新单测复现 s1a r1 类 case + 修后验证 oracle 触发;eval baseline rerun s1a 应观察 `cross_citation_conflict` 出现 |
 
 ## R3 表(类 B 续 — facet 模板过严)
@@ -51,7 +51,7 @@
 | ID | 严重性 | 标题 | 代码证据 | 修复方向 | 验收 |
 |---|---|---|---|---|---|
 | **R5.1** | P1 | eval/run.sh summary.md 渲染缺 4 列(eval baseline 4.2) | `write_metrics` 写 analyzer/explorer/extractor/finalizer_iters 4 字段,聚合表格还在老 12 列 | summary.md 渲染聚合块加 4 列(median 一致格式);verdict 表格不动 | 真 eval rerun 看 summary.md 出现 4 列 |
-| **R5.2** | P3 | LLM-turn 与系统内部循环可观测错觉 | `[diag X] iter=N` 日志混了 LLM 真 turn 与内部 mid-loop hint / validator repair pass | 区分两种 iter:LLM dispatch iter (`AGENT REQUEST`) vs 内部 hint/validator iter(无 LLM 调用)— 给后者打不同前缀(`[diag X] internal-pass=N` 而非 `iter=N`) | log 里 `iter=` 数 = LLM 真 turn 数(不再含内部 pass);eval/run.sh 4 列 metric 调整对齐 |
+| **R5.2** | P3 | LLM-turn 与系统内部循环可观测错觉 | `[diag X] iter=N ASSISTANT content_len=` 与 adapter 侧 `[llm] response:` 完全 1:1(2026-05-04 真测验证 26=26);**计数已正确**,B6-F5 metric 准确反映 LLM turn。残留是**日志冗余**:同一个 ReAct iter 内有 INIT / TOOL HISTORY PRUNED / ASSISTANT / TOOLRESULT / MIDLOOP / SOFT-STOP 等都带 `iter=N` 前缀,grep `iter=` 会得假阳性 | 给非-LLM-dispatch 的子事件加二级标识(`[diag X] iter=N phase=midloop` / `phase=toolresult`),保留 `iter=N` 主索引 | grep `iter=N ASSISTANT content_len=` 严格 1:1 LLM dispatch(已成立 ✓);grep `iter=N` 模糊 = 该 iter 所有子事件,但每个子事件带 phase 后缀 |
 
 ---
 
@@ -106,9 +106,9 @@
 | R1.2 | ⬜ pending | — | — |
 | R1.3 | ⬜ pending | — | — |
 | R1.4 | ⬜ pending | — | — |
-| R2.1 | ⬜ pending(决策点) | — | — |
+| R2.1 | 🟢 SHIPPED V2 重接 (commit pending push) | TBD | 待真 eval 跑 QF 多 topic case |
 | R2.2 | ⬜ pending | — | — |
-| R2.3 | ⬜ pending(决策点) | — | — |
+| R2.3 | 🔵 决策已定:重接 V2(4 个 oracle 各 1 commit) | — | — |
 | R2.4 | ⬜ pending | — | — |
 | R3.1 | ⬜ pending | — | — |
 | R4.1 | ⬜ pending | — | — |

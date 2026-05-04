@@ -1,17 +1,20 @@
 package orchestrator
 
 import (
+	"context"
 	"fmt"
 	"regexp"
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/hanchaoqun/codrax/internal/agent"
 	"github.com/hanchaoqun/codrax/internal/analysis/contract"
 	"github.com/hanchaoqun/codrax/internal/analysis/criterion"
 	"github.com/hanchaoqun/codrax/internal/analysis/hint"
 	"github.com/hanchaoqun/codrax/internal/authority"
+	"github.com/hanchaoqun/codrax/internal/logging"
 	"github.com/hanchaoqun/codrax/internal/render"
 	"github.com/hanchaoqun/codrax/internal/tool/repomap"
 	repotypes "github.com/hanchaoqun/codrax/internal/tool/repomap/types"
@@ -180,14 +183,20 @@ func runContractCheck(out *agent.StageOutput, c types.AnswerContract, mut *types
 			runAuthorityOverreachCheck(mut, draft.Text)...)
 	}
 
-	// B8-T4 (block_only_carrier.md §5.8, 2026-05-03): Commit 62
-	// self-consistency reviewer dispatch deleted. The reviewer
-	// consumed V1 doc.Summary + doc.Steps; V1 emit is rejected
-	// at runtime since B8-T3, so the reviewer would never fire.
-	// V2 carrier carries an equivalent structure (block-kind=summary
-	// + body blocks); a V2 reviewer can be re-added later as a
-	// separate session. Reviewer field remains on Orchestrator
-	// (used only by tests today); a future session prunes it.
+	// R2.1 (post-shape consolidated audit, 2026-05-04): self-
+	// consistency reviewer V2 carrier dispatch. Reviewer reads V2
+	// AnswerDocumentV2 instead of the retired V1 carrier. Same
+	// commit-62 contract: independent LLM detects FACTUAL
+	// contradictions between BlockSummary text and the body blocks
+	// (BlockOrderedList / BlockBulletList / BlockSection / etc.);
+	// gated by reviewer presence, dispatch-eligibility (sufficient
+	// summary text + body items), and self-rated confidence floor.
+	if o != nil && o.selfConsistencyReviewer != nil && mut != nil {
+		if docV2 := mut.AnswerDocumentV2(); docV2 != nil && shouldReviewConsistencyV2(docV2) {
+			result.Violations = append(result.Violations,
+				o.runSelfConsistencyReviewV2(docV2, mut)...)
+		}
+	}
 
 	// Session 11 F1 ViolationLedger — mirror every violation into the
 	// per-Run EvidenceClosure so the F2 aggregator and F4 HintComposer
@@ -1428,6 +1437,256 @@ func finalizerCitationPoolSize(mut *types.MutableState, out *agent.StageOutput) 
 // (caller treats empty string as "nothing to surface").
 //
 // Pre-B4-F3 the function was named appendViolationsToAnswer and
+// ── R2.1 V2 self-consistency reviewer (post_shape_residual_audit.md
+// 2026-05-04) ──────────────────────────────────────────────────────
+
+// shouldReviewConsistencyV2 gates whether the self-consistency
+// reviewer dispatches for a given V2 AnswerDocumentV2. The reviewer
+// adds value only when the doc has BOTH a non-trivial summary AND
+// enough body content for inter-paragraph contradictions to live in.
+// V2 carrier mirrors the V1 floors (summary >= 100 chars + body
+// items >= 3) but reads them off blocks[] instead of doc.Summary /
+// doc.Steps / doc.Symbols.
+//
+// Family eligibility: only families that produce a summary + body
+// structure benefit. Single-block scalar / boolean / config_value
+// answers (BlockScalar / BlockDecision sole-content shapes) lack
+// the dual-paragraph surface; reviewer is silently skipped.
+func shouldReviewConsistencyV2(doc *types.AnswerDocumentV2) bool {
+	if doc == nil || len(doc.Blocks) == 0 {
+		return false
+	}
+	summaryRunes := 0
+	bodyItems := 0
+	hasSection := false
+	for _, blk := range doc.Blocks {
+		switch blk.Kind {
+		case types.BlockSummary:
+			summaryRunes += len([]rune(strings.TrimSpace(blk.Text)))
+		case types.BlockOrderedList, types.BlockBulletList, types.BlockTable:
+			bodyItems += len(blk.Items)
+		case types.BlockSection:
+			// Section text counts as body content; multi-paragraph
+			// section often is where contradictions surface.
+			if strings.TrimSpace(blk.Text) != "" {
+				hasSection = true
+				bodyItems++
+			}
+		}
+	}
+	if summaryRunes < 100 {
+		return false
+	}
+	if bodyItems < 3 && !hasSection {
+		return false
+	}
+	return true
+}
+
+// renderConsistencyReviewBodyV2 assembles a markdown body string
+// from V2 blocks for the reviewer LLM. Walks blocks in declaration
+// order so the reviewer sees the same surface the user sees.
+//
+// Only body-shaped blocks render here (BlockOrderedList /
+// BlockBulletList / BlockSection / BlockTable / BlockCaveat /
+// BlockScalar / BlockDecision); BlockSummary is rendered separately
+// as the AnswerSummary input. BlockDiagram is skipped — reviewer's
+// job is prose↔prose, not figure validation.
+//
+// Citations strip to file:line form via Quote=""; reviewer should
+// not introspect repo content.
+func renderConsistencyReviewBodyV2(doc *types.AnswerDocumentV2) string {
+	if doc == nil {
+		return ""
+	}
+	var b strings.Builder
+	for _, blk := range doc.Blocks {
+		switch blk.Kind {
+		case types.BlockSummary, types.BlockDiagram:
+			continue
+		case types.BlockSection:
+			title := strings.TrimSpace(blk.Title)
+			if title != "" {
+				fmt.Fprintf(&b, "## %s\n", title)
+			}
+			text := strings.TrimSpace(blk.Text)
+			if text != "" {
+				fmt.Fprintf(&b, "%s\n\n", text)
+			}
+		case types.BlockOrderedList:
+			for i, it := range blk.Items {
+				desc := itemBodyText(it)
+				fmt.Fprintf(&b, "%d. %s\n", i+1, desc)
+			}
+			b.WriteString("\n")
+		case types.BlockBulletList, types.BlockTable:
+			for _, it := range blk.Items {
+				desc := itemBodyText(it)
+				fmt.Fprintf(&b, "- %s\n", desc)
+			}
+			b.WriteString("\n")
+		case types.BlockScalar:
+			text := strings.TrimSpace(blk.Text)
+			if text != "" {
+				fmt.Fprintf(&b, "Scalar: %s\n\n", text)
+			}
+		case types.BlockDecision:
+			text := strings.TrimSpace(blk.Text)
+			if text != "" {
+				fmt.Fprintf(&b, "Decision: %s\n\n", text)
+			}
+		case types.BlockCaveat:
+			text := strings.TrimSpace(blk.Text)
+			if text != "" {
+				fmt.Fprintf(&b, "[caveat] %s\n\n", text)
+			}
+		}
+	}
+	return b.String()
+}
+
+// itemBodyText returns the most informative single-line rendering
+// of an AnswerBlockItem for the reviewer's body view: prefer the
+// Label when set, fall back to Text. Caller adds ordinal / bullet
+// prefix.
+func itemBodyText(it types.AnswerBlockItem) string {
+	label := strings.TrimSpace(it.Label)
+	text := strings.TrimSpace(it.Text)
+	switch {
+	case label != "" && text != "":
+		return label + " — " + text
+	case label != "":
+		return label
+	default:
+		return text
+	}
+}
+
+// runSelfConsistencyReviewV2 dispatches the reviewer LLM with V2
+// carrier inputs and converts its verdict into types.Violation
+// entries. Mirrors the V1 control flow — reviewer error / nil
+// verdict / sub-floor confidence are non-fatal (answer ships,
+// learning failure recorded, no violations returned).
+func (o *Orchestrator) runSelfConsistencyReviewV2(doc *types.AnswerDocumentV2, mut *types.MutableState) []types.Violation {
+	if o == nil || o.selfConsistencyReviewer == nil || doc == nil || mut == nil {
+		return nil
+	}
+	floor := o.selfConsistencyMinConfidence
+	if floor <= 0 {
+		floor = 0.8
+	}
+
+	// Status line: never silent background work.
+	o.emit(render.Event{
+		Kind:      render.EventAgentReasoning,
+		Timestamp: time.Now(),
+		Agent:     "orchestrator",
+		Reasoning: selfConsistencyReviewStartMessage(o.busCtx.Language),
+	})
+
+	// Pull summary + body off V2 blocks. Strip system-injected
+	// hedge / Authority caveat tokens so the reviewer LLM doesn't
+	// flag system annotations as factual contradictions.
+	summaryText := ""
+	for _, blk := range doc.Blocks {
+		if blk.Kind == types.BlockSummary {
+			summaryText += blk.Text
+		}
+	}
+	in := SelfConsistencyInput{
+		OriginalRequest: mut.Objective(),
+		AnswerSummary:   render.StripAuthorityArtifacts(summaryText),
+		AnswerBody:      render.StripAuthorityArtifacts(renderConsistencyReviewBodyV2(doc)),
+	}
+
+	ctx := o.busCtx.Ctx
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	verdict, err := o.selfConsistencyReviewer.Review(ctx, in)
+	if err != nil {
+		mut.AppendLearningFailure("self_consistency_reviewer", err.Error())
+		logging.Warning("[self_consistency_reviewer] dispatch failed (non-fatal): %v", err)
+		return nil
+	}
+	if verdict == nil || verdict.Consistent || verdict.Confidence < floor {
+		if verdict != nil {
+			logging.Info("[self_consistency_reviewer] verdict consistent=%v confidence=%.2f (floor=%.2f) reasoning=%q",
+				verdict.Consistent, verdict.Confidence, floor, verdict.Reasoning)
+		}
+		return nil
+	}
+
+	// Surface contradiction count + rewrite-mode to the user.
+	o.emit(render.Event{
+		Kind:      render.EventAgentReasoning,
+		Timestamp: time.Now(),
+		Agent:     "orchestrator",
+		Reasoning: selfConsistencyContradictionMessage(o.busCtx.Language, o.selfConsistencyRewriteOnContradiction, len(verdict.Contradictions)),
+	})
+
+	out := make([]types.Violation, 0, len(verdict.Contradictions))
+	totalN := len(verdict.Contradictions)
+	reasoning := clampReasoningForRepair(verdict.Reasoning)
+	for i, c := range verdict.Contradictions {
+		out = append(out, types.Violation{
+			Kind: types.ViolSelfContradiction,
+			Detail: fmt.Sprintf("self_contradiction[%s] — SUMMARY: %q ⇄ BODY: %q",
+				c.Topic, c.SummaryClaim, c.BodyClaim),
+			Repair: buildSelfContradictionRepair(c, reasoning, i+1, totalN),
+			SuspectedRoot: types.SuspectedRoot{
+				IRField:    "answer_summary_body_consistency",
+				Reason:     "reviewer detected inter-paragraph contradiction (V2 carrier)",
+				Confidence: verdict.Confidence,
+			},
+			Stage: string(types.StageFinalize),
+		})
+	}
+	logging.Info("[self_consistency_reviewer] V2 emitted %d contradiction(s) at confidence=%.2f rewrite_on=%v reasoning=%q",
+		len(verdict.Contradictions), verdict.Confidence, o.selfConsistencyRewriteOnContradiction, verdict.Reasoning)
+	return out
+}
+
+// clampReasoningForRepair returns a single-line, ≤ 200-rune
+// rendering of the reviewer's reasoning, suitable for embedding
+// in a Violation.Repair string.
+func clampReasoningForRepair(s string) string {
+	s = strings.ReplaceAll(strings.ReplaceAll(s, "\n", " "), "\r", " ")
+	s = strings.TrimSpace(s)
+	const maxLen = 200
+	r := []rune(s)
+	if len(r) > maxLen {
+		return string(r[:maxLen]) + "…"
+	}
+	return s
+}
+
+// buildSelfContradictionRepair generates the LLM-actionable repair
+// prose for a single contradiction. Names both verbatim claims +
+// reviewer reasoning + ordinal so the finalizer's retry sees
+// concrete reconciliation targets, not abstract guidance.
+func buildSelfContradictionRepair(c SelfConsistencyContradiction, reasoning string, idx, total int) string {
+	var b strings.Builder
+	if total > 1 {
+		fmt.Fprintf(&b, "[%d/%d] ", idx, total)
+	}
+	b.WriteString("re-emit emit_answer_document so summary and body align on this fact: ")
+	if c.Topic != "" {
+		fmt.Fprintf(&b, "topic %q. ", c.Topic)
+	}
+	if c.SummaryClaim != "" {
+		fmt.Fprintf(&b, "Summary asserts %q; ", c.SummaryClaim)
+	}
+	if c.BodyClaim != "" {
+		fmt.Fprintf(&b, "body asserts %q. ", c.BodyClaim)
+	}
+	b.WriteString("Pick the claim supported by the cited evidence and rewrite the OTHER side to match (do NOT invent new evidence).")
+	if reasoning != "" {
+		fmt.Fprintf(&b, " Reviewer reasoning: %s", reasoning)
+	}
+	return b.String()
+}
+
 // always wrote the digest into the answer text. The B4
 // (post_shape_retirement_consolidated_audit.md §8 Batch B4,
 // 2026-05-04) refactor decoupled the formatter from the channel
