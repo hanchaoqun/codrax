@@ -21,6 +21,7 @@
 | **R1.2** | P1 | claim_form 枚举值/提示词不一致 | 内部枚举:`internal/types/claim_form.go` 的 `assignment_fact / return_fact / ...`;但 `emit_answer_document.go` / `skill/defaults.go` / `analysis/hint/composer.go` 模型可见说明仍有 `assignment` 等旧叫法 | (a) grep 三处文件比对,改写成 internal 枚举值;(b) **不**加 alias 归一化层(那是绕路),让模型直接看到正确名 | grep `\bassignment\b` (作为 ClaimForm 名,非 Go 变量) in 三处 = 0;新单测 `TestClaimFormVocabularyConsistency_LLMFacingMatchesEnum` |
 | **R1.3** | P3 | `contract_check.go` V1 注释残留 | 文件内有大块注释讲 V1 era 的 oracles/shape/steps/symbols | 删 V1 era 解释段(只删注释不动逻辑);保留迁移提醒(`docs/migration/...` 路径引用) | grep `runShapeOracle\|V1 oracle\|shape steps/symbols\|RequiredAnswerShape` 在 contract_check.go = 0 |
 | **R1.4** | P3 | docs/architecture.md shape-era 残留 | 6 处 `AnswerShape` 已是迁移历史,但还有更多 shape-era 描述段在主文中 | 一遍 pass 把"shape-era 描述"改写成"V2 carrier + AnswerSemanticView 描述";保留迁移历史段不删 | grep -c `AnswerShape\|RequiredAnswerShape` 不变(允许迁移历史);新增"V2 carrier"段或确认已存在 |
+| **R1.5** | P1(eval verification 真发现) | LLM-facing typed-set 字段值缺渲染(类问题) | s1a r1 真 eval 触发 9 个 `ViolFacetUncovered`(enumeration_item × 6 + uncertainty_boundary × 3),Detail 都是"no V2 block declared it via block.facet_ids[] or via item.claim_use.facet_id"。深挖根因:`renderAnswerDocBlockContract` / `renderAnswerDocFacetCoverage` 只列 facet **名称**,**未把 typed FacetID 字符串值 verbatim 渲染到 prompt**。LLM 看到 schema 说"读 user section",但 user section 没值可读 → 无法 copy → 100% false-fire。**类问题**:任何 BlockRequirement 上的 typed 集合字段(`FacetIDs` / `AcceptableClaimForms` / `SurfaceRoleHint`)只要"字段名声明在 prose 中、typed 值未到达 LLM",validator 必触发(因 validator 是字面 string 匹配)。 | 泛化修复(非单点加"facet_ids 必填"教学):(a) `renderAnswerDocBlockContract` 在每个 BlockRequirement 行后追加 verbatim typed 值列(facet_ids: ["X","Y"] / acceptable_claim_forms: ["definition_fact","call_edge"] / surface_role_hint);(b) `renderAnswerDocFacetCoverage` 在每个 facet 行后追加 verbatim ID 字符串;(c) schema 字段描述 "read from user section" → "copy verbatim from 'Block Contract' section's typed-value lines"。红线:不加 alias 层(R1.2)/不加 keyword/不动 facet 模板。| 真 eval rerun s1a:`facet_uncovered` 触发数 9 → ≤2(允许 LLM 偶尔漏一两个但不 100%)。grep 三处文件 `facet_ids:.*\[` 至少在 BlockRequirement 渲染行存在 |
 
 ## R2 表(类 B — 看似有、实际未接上线)
 
@@ -106,6 +107,7 @@
 | R1.2 | 🟢 SHIPPED LLM 词汇 1:1 内部 enum + 锁 test | TBD | 待真 eval 验证不再 false-fire ClaimForm 验证器 |
 | R1.3 | ⬜ pending | — | — |
 | R1.4 | ⬜ pending | — | — |
+| **R1.5** | ⬜ pending(eval verification 真发现) | — | s1a r1 真测发现 |
 | R2.1 | 🟢 SHIPPED V2 重接 (commit pending push) | TBD | 待真 eval 跑 QF 多 topic case |
 | R2.2 | 🟢 SHIPPED 分流 + 预算 | TBD | 待真 eval 出现 finalize+deeper 混合场景 |
 | R2.3 | 🟢 SHIPPED 4/4:Facet (3a4a39a) + Richness (3a4a39a) + ClaimForm (8cdfd93) + AbsenceScope (pending) | TBD | 待真 eval 触发场景 |
