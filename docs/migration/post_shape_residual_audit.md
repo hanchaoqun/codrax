@@ -105,8 +105,8 @@
 |---|---|---|---|
 | R1.1 | 🟢 SHIPPED finalizer helper LLM 词汇统一 | TBD | 真 eval 验证 LLM 不再被 V1 心智误导 |
 | R1.2 | 🟢 SHIPPED LLM 词汇 1:1 内部 enum + 锁 test | TBD | 待真 eval 验证不再 false-fire ClaimForm 验证器 |
-| R1.3 | ⬜ pending | — | — |
-| R1.4 | ⬜ pending | — | — |
+| R1.3 | 🟢 SHIPPED contract_check.go V1 注释清扫 | (本 commit) | grep `runShapeOracle\|V1 oracle\|RequiredAnswerShape` 在 contract_check.go = 0 |
+| R1.4 | 🟢 SHIPPED docs/architecture.md shape-era 残留清扫 | (本 commit) | 6 处 AnswerShape 残留全为迁移历史标记 (`已退役` / `已删除`),无活动技术描述 |
 | **R1.5** | 🟢 SHIPPED 同 R7 (一并落地) | TBD | 真 eval rerun 验证 |
 | ~~**R6**~~ | 🔵 由 R14 统一解决 | — | retry 字段失忆 — 类 A;深层根因同 R6.1/R11/R13 |
 | ~~**R6.1**~~ | 🔵 由 R14 统一解决 | — | block vs item 失忆 sub-pattern;深层根因同 R6/R11/R13 |

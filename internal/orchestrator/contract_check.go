@@ -65,9 +65,7 @@ func runContractCheck(out *agent.StageOutput, c types.AnswerContract, mut *types
 		IsAbsence: isJustifiedAbsenceAnswer(mut),
 	}
 	if mut != nil {
-		// B8-T4 (block_only_carrier.md §5.8): V1 carrier path
-		// removed; read V2 carrier's typed citation pool. V2 docs
-		// carry the same Citations slice (file:line pairs) as V1.
+		// Read V2 carrier's typed citation pool when present.
 		if docV2 := mut.AnswerDocumentV2(); docV2 != nil && len(docV2.Citations) > 0 {
 			draft.Citations = make([]contract.Citation, 0, len(docV2.Citations))
 			for _, c := range docV2.Citations {
@@ -92,44 +90,39 @@ func runContractCheck(out *agent.StageOutput, c types.AnswerContract, mut *types
 
 	// Commit 53 P2 — Answer Shape Oracle. After the contract.Check
 	// suite, run additional read-mode-only coherence checks that need
-	// the full IR (not just the contract). These produce new
-	// ViolationKind values (shape_intent_mismatch / sub_topic_count_
-	// mismatch) that downstream sees as ordinary violations. Soft by
-	// default at the gate-layer (see softViolationKinds below); the
-	// Append-to-closure path is unchanged.
-	// B8-T4 (block_only_carrier.md §5.8, 2026-05-03): V1 oracle
-	// dispatch block deleted. emit_answer_document V1 schema is
-	// rejected at runtime since B8-T3, so mut.AnswerDocument()
-	// returns nil on every read-mode finalize. The V2 dispatch
-	// block below is the sole oracle driver. The V1-only oracles
-	// (Intent / Subject / PredicateAxis / FacetCoverage / ClaimForm
-	// / AbsenceScope / Richness / StepIdentifier /
-	// ValueSecondaryCitation / SymbolAnchorTrack /
-	// StructuralEnumerationDivergence) are deleted with this block;
-	// V2 siblings (runV2BlockOracles +
-	// runStructuralEnumerationDivergenceOracleV2 +
-	// runSymbolAnchorTrackOracleV2) cover the equivalent typed
-	// axes via BlockRequirement.FacetIDs +
-	// BlockRequirement.AcceptableClaimForms +
-	// BlockRequirement.SurfaceRoleHint.
+	// the full IR (not just the contract). These produce additional
+	// ViolationKind values (Intent / Subject / PredicateAxis /
+	// SemanticView coherence) that downstream sees as ordinary
+	// violations. Soft by default at the gate-layer (see
+	// softViolationKinds below); the Append-to-closure path is
+	// unchanged.
+	//
+	// V2 carrier dispatch (the only carrier supported at runtime —
+	// AnswerDocumentV2 is the sole emit shape; legacy carriers are
+	// retired and rejected at the tool-call boundary). V2 oracle
+	// coverage:
+	//   - runV2BlockOracles: block coverage / principal claim use /
+	//     diagram edge support / uncertainty block / facet coverage /
+	//     richness regression / claim form support / absence scope
+	//   - runStructuralEnumerationDivergenceOracleV2 + symbol-anchor
+	//     mismatch + cross-citation conflict
+	// Validator inputs are typed BlockRequirement.FacetIDs /
+	// AcceptableClaimForms / SurfaceRoleHint surfaces.
 	if mut != nil {
 
-		// B4 V2 block-only carrier validators (block_only_carrier.md
-		// §5.4). When the LLM emitted document_model="v2",
-		// AnswerDocumentV2 is non-nil on Mutable; we run the 4 V2
-		// validators against it. SOFT-by-default during B4-B5
-		// (telemetry-only). B6 will promote them to STRICT.
-		//
-		// Sibling block to the V1 path — V2 docs are a separate
-		// carrier; the two oracles never run on the same document.
-		// Per the carrier-mutual-exclusion invariant set up in B3,
-		// AnswerDocument() and AnswerDocumentV2() are never both
-		// non-nil on the same Mutable.
+		// V2 block-carrier validators. When the LLM emitted
+		// document_model="v2", AnswerDocumentV2 is non-nil on
+		// Mutable; we run the V2 oracle suite against it. Default
+		// classification leans SOFT for telemetry-only kinds and
+		// STRICT for structural correctness kinds (single source of
+		// truth: types.ViolationProfileFor / DeriveSeverity);
+		// operators flip individual kinds via
+		// pipeline_contract_strict_kinds yaml.
 		if docV2 := mut.AnswerDocumentV2(); docV2 != nil && o != nil && o.busCtx != nil {
 			view := types.BuildAnswerSemanticViewForBusContext(o.busCtx)
 			if view != nil {
-				// R2.3 V2 重接: mut-aware variant so
-				// validateClaimFormSupport can read the evidence pool.
+				// mut-aware variant so validateClaimFormSupport can
+				// read the evidence pool.
 				result.Violations = append(result.Violations,
 					runV2BlockOraclesWithMut(docV2, view, mut)...)
 			}
@@ -185,10 +178,8 @@ func runContractCheck(out *agent.StageOutput, c types.AnswerContract, mut *types
 			runAuthorityOverreachCheck(mut, draft.Text)...)
 	}
 
-	// R2.1 (post-shape consolidated audit, 2026-05-04): self-
-	// consistency reviewer V2 carrier dispatch. Reviewer reads V2
-	// AnswerDocumentV2 instead of the retired V1 carrier. Same
-	// commit-62 contract: independent LLM detects FACTUAL
+	// Self-consistency reviewer dispatch. Reviewer reads V2
+	// AnswerDocumentV2 — independent LLM detects FACTUAL
 	// contradictions between BlockSummary text and the body blocks
 	// (BlockOrderedList / BlockBulletList / BlockSection / etc.);
 	// gated by reviewer presence, dispatch-eligibility (sufficient
@@ -494,21 +485,18 @@ const symbolAnchorMismatchThreshold = 3
 // pipeline_contract_strict_kinds for repos where it should
 // auto-trigger BackToExplore).
 //
-// runSymbolAnchorTrackOracleV2 is the V2 carrier adaptation of
-// runSymbolAnchorTrackOracle (B5-T5 落地). Same precise rejection-
-// counter signal as the V1 path; reads V2 blocks instead of
-// doc.Symbols / doc.Steps to compute the principal-anchor count.
+// runSymbolAnchorTrackOracleV2 reads V2 blocks to compute the
+// principal-anchor count and compares against the family's
+// expected count.
 //
-// Mapping V2 → V1-equivalent counts:
+// Counting:
 //   - "Got symbols" = sum of items[] across BlockOrderedList,
 //     BlockBulletList, BlockTable (each item is one principal
-//     anchor in V2's vocabulary).
-//   - "Got steps" = items[] count of BlockOrderedList specifically
-//     (V1's StepList shape becomes a BlockOrderedList in V2).
+//     anchor).
+//   - "Got steps" = items[] count of BlockOrderedList specifically.
 //
 // "Required shape" is derived from view.Family + the family's
-// primary required block kind (mirrors the V1 oracle's
-// requiredShape parameter).
+// primary required block kind.
 func runSymbolAnchorTrackOracleV2(docV2 *types.AnswerDocumentV2, rm *types.RequestModel, view *types.AnswerSemanticView, mut *types.MutableState) []types.Violation {
 	if docV2 == nil || rm == nil || mut == nil {
 		return nil
@@ -787,9 +775,8 @@ func looksLikeIdentifierShape(s string) bool {
 //     conventionally carries the name there (Scalar / Decision).
 //
 // Summary haystack: concatenation of every BlockSummary.Text +
-// any block.Title strings (used by the V1 oracle's
-// strings.Contains check unchanged — still verbatim substring
-// match per R2).
+// any block.Title strings (verbatim substring match per R2 red
+// line — no fuzzy matching).
 func runStructuralEnumerationDivergenceOracleV2(docV2 *types.AnswerDocumentV2, rm *types.RequestModel, mut *types.MutableState) []types.Violation {
 	if docV2 == nil || rm == nil || mut == nil {
 		return nil
@@ -872,7 +859,7 @@ func v2EmittedNameSet(doc *types.AnswerDocumentV2) map[string]bool {
 // doc by concatenating every BlockSummary's Text + any block's
 // Title field. The substring check in
 // enumerateStructuralDivergence then runs verbatim against this
-// haystack — matching the V1 oracle's strings.Contains semantics.
+// haystack (strings.Contains).
 func v2SummaryHaystack(doc *types.AnswerDocumentV2) string {
 	var b strings.Builder
 	for _, blk := range doc.Blocks {

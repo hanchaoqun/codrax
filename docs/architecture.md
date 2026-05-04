@@ -1671,8 +1671,8 @@ sequenceDiagram
 | 9. Recompute budget | `compiler.RecomputeBudget` | 用真实 hypothesis count 重算 |
 | 10. Bind hypotheses | `internal/analysis/binder::BindByRelevance` | hypothesis ↔ node 相关性绑定 |
 | 11. Counterfactual | `internal/analysis/counterfactual::Expand` | complex + ambiguous explain/root_cause 触发；新分支再 `BindByRelevance` 一遍 |
-| 12. Measurement-scalar carve-out | `analyzer.go` 内联 | `isMeasurementScalarRequest` flag 驱动：shape→`ShapeValue` + 剥 3 层 citation gate（`CitationReq` / `AcceptanceTests` / 每个 `TaskNode.SuccessCriteria`） |
-| 13. Shape reconcile | `analyzer_intent.go::reconcileShape` | subject 是源码 literal（skill_name / agent_name / function_name / type_name / handler_route / return_value）时 `ShapeConfigValue → ShapeValue`；runs after measurement-scalar 所以两规则互不干扰 |
+| 12. Measurement-scalar carve-out | `analyzer.go` 内联 | `isMeasurementScalarRequest` flag 驱动：剥 3 层 citation gate（`CitationReq` / `AcceptanceTests` / 每个 `TaskNode.SuccessCriteria`）；V2 carrier 下答案落 `block.kind=scalar` + `value{literal, citation_ref:-1}` |
+| 13. Subject reconcile | `analyzer_intent.go::reconcileShape`（历史命名，函数名保留以便 grep 历史 commit） | subject 是源码 literal（skill_name / agent_name / function_name / type_name / handler_route / return_value）时调整为 scalar-source-literal 形态；runs after measurement-scalar 所以两规则互不干扰 |
 | 14. RequiredFiles | `analyzer.go::analyzerRequiredFiles` | 用 repomap graph 查 `AnalyzerHints.Entities` 的定义文件写进 `EvidencePlan.RequiredFiles`，explorer keyword-search 会 merge 这份列表 |
 | 15. Quality gate | `internal/analysis/gate::Run` | 7 check hard/soft 分级（见 §4.1） |
 
@@ -1809,7 +1809,7 @@ typed data ───────────────> Markdown prompt ──
 
 - **AnswerSubject taxonomy**（`internal/types/analysis_ir.go::AnswerSubjectKind` + `internal/analysis/subject/taxonomy.go` 的 per-kind judge）
 - **`inferAnswerSubject`**：双语 cue 表 + question_kind fallback + E1 hard-fallback 永不 SubjectUnknown（weakest: SubjectGeneric, confidence=0.1），保证下游 `reconcileShape` / `rankChainsBySubject` / preComplete 的 subject 检查不因 Unknown 退化为死代码
-- **`reconcileShape`**：subject 是源码 literal 时 `ShapeConfigValue → ShapeValue` 自动交换
+- **`reconcileShape`**（历史命名;subject reconcile 函数）：subject 是源码 literal 时调整为 scalar-source-literal 形态(V2 carrier 下答案 block.kind=scalar)
 - **`rankChainsBySubject`**：chain 终端 token 按 `subject.Score` 重排 + Subject Match Summary 渲染在 extractor/finalizer prompt
 
 #### RetryHint 跨 stage 持久
