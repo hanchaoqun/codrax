@@ -850,11 +850,25 @@ func formNames(forms []types.ClaimForm) []string {
 // already populates on every block. Coverage now = "any block
 // declared this FacetID" — a precise, typed signal (R2 red line).
 //
-// Skip rules:
+// Tier branching (Phase 5-E1, 2026-05-04):
+//   - TierEssential (HARD): always demand coverage. Even when
+//     SourceCandidate is empty post-binding, the analyzer template
+//     pinned this facet as essential — the answer cannot ship
+//     without it; uncovered fires a violation.
+//   - TierExpected (SOFT): demand coverage IFF SourceCandidate is
+//     non-empty. Non-empty SourceCandidate = typed evidence exists
+//     to support the facet, so the answer COULD have surfaced it.
+//     Empty SourceCandidate = no typed evidence binds to this
+//     facet's AcceptableForms — skipping the gate avoids a noisy
+//     "uncovered" demand the LLM cannot satisfy honestly. R3
+//     justified because SourceCandidate is fully typed (Phase 5-E0
+//     audit).
+//   - TierEnrichment (Optional): handled by
+//     validateRichnessRegression below, not here.
+//
+// Skip rules (file-level):
 //   - view == nil OR view.FacetCoverage == nil: family doesn't carry
 //     facet obligations.
-//   - facet.Tier == TierEnrichment (Optional): handled by
-//     validateRichnessRegression below, not here.
 //
 // Default classification SOFT (covering a facet often requires
 // fresh evidence; missed HARD facet = re-explore hint, not finalizer
@@ -885,6 +899,15 @@ func validateFacetCoverage(doc *types.AnswerDocumentV2, view *types.AnswerSemant
 	var out []types.Violation
 	for _, req := range view.FacetCoverage.Required {
 		if req.Tier == types.TierEnrichment {
+			continue
+		}
+		// Phase 5-E1 evidence-sufficient gate: TierExpected facets
+		// with no typed evidence supporting them are skipped — the
+		// answer has nothing typed to surface, so demanding coverage
+		// would force the LLM to invent unsupported claims.
+		// TierEssential always demands regardless (analyzer template
+		// pinned it as essential).
+		if req.Tier == types.TierExpected && len(req.SourceCandidate) == 0 {
 			continue
 		}
 		kind := strings.TrimSpace(string(req.Kind))

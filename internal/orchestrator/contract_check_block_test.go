@@ -662,7 +662,12 @@ func TestValidateFacetCoverage_MissingFires(t *testing.T) {
 		FacetCoverage: &types.FacetCoverageContract{
 			Required: []types.FacetRequirement{
 				{Kind: "facet.intro", Tier: types.TierEssential},
-				{Kind: "facet.steps", Tier: types.TierExpected},
+				// Phase 5-E1: TierExpected with SourceCandidate
+				// populated (typed evidence available) — demand
+				// coverage. Without SourceCandidate the gate would
+				// skip; that branch is covered by
+				// TestValidateFacetCoverage_ExpectedWithoutEvidenceSkipped.
+				{Kind: "facet.steps", Tier: types.TierExpected, SourceCandidate: []string{"ev-1"}},
 			},
 		},
 	}
@@ -675,6 +680,71 @@ func TestValidateFacetCoverage_MissingFires(t *testing.T) {
 	}
 	if !strings.Contains(vs[0].Detail, "facet.steps") {
 		t.Errorf("Detail must name uncovered facet; got %q", vs[0].Detail)
+	}
+}
+
+// Phase 5-E1: Essential always demands coverage even when
+// SourceCandidate is empty (analyzer template pinned it; cannot ship
+// without it).
+func TestValidateFacetCoverage_EssentialWithoutEvidenceStillFires(t *testing.T) {
+	doc := &types.AnswerDocumentV2{
+		Blocks: []types.AnswerBlock{
+			{Kind: types.BlockSummary, FacetIDs: []string{"facet.other"}},
+		},
+	}
+	view := &types.AnswerSemanticView{
+		FacetCoverage: &types.FacetCoverageContract{
+			Required: []types.FacetRequirement{
+				// Essential, empty SourceCandidate — MUST still fire.
+				{Kind: "facet.essential", Tier: types.TierEssential, SourceCandidate: nil},
+			},
+		},
+	}
+	vs := validateFacetCoverage(doc, view)
+	if len(vs) != 1 || vs[0].Kind != types.ViolFacetUncovered {
+		t.Fatalf("Essential MUST always demand coverage; got %+v", vs)
+	}
+}
+
+// Phase 5-E1: Expected with empty SourceCandidate is SKIPPED — no
+// typed evidence binds to the facet; demanding coverage would force
+// the LLM to invent unsupported claims (R3 noisy-signal avoidance).
+func TestValidateFacetCoverage_ExpectedWithoutEvidenceSkipped(t *testing.T) {
+	doc := &types.AnswerDocumentV2{
+		Blocks: []types.AnswerBlock{
+			{Kind: types.BlockSummary, FacetIDs: []string{"facet.other"}},
+		},
+	}
+	view := &types.AnswerSemanticView{
+		FacetCoverage: &types.FacetCoverageContract{
+			Required: []types.FacetRequirement{
+				// Expected, empty SourceCandidate — evidence-sufficient gate skips.
+				{Kind: "facet.expected", Tier: types.TierExpected, SourceCandidate: nil},
+			},
+		},
+	}
+	if vs := validateFacetCoverage(doc, view); len(vs) != 0 {
+		t.Errorf("Expected without typed evidence MUST NOT fire; got %+v", vs)
+	}
+}
+
+// Phase 5-E1: Expected with non-empty SourceCandidate AND covered →
+// no violation (positive baseline for the gate).
+func TestValidateFacetCoverage_ExpectedWithEvidenceAndCoveredPasses(t *testing.T) {
+	doc := &types.AnswerDocumentV2{
+		Blocks: []types.AnswerBlock{
+			{Kind: types.BlockSummary, FacetIDs: []string{"facet.expected"}},
+		},
+	}
+	view := &types.AnswerSemanticView{
+		FacetCoverage: &types.FacetCoverageContract{
+			Required: []types.FacetRequirement{
+				{Kind: "facet.expected", Tier: types.TierExpected, SourceCandidate: []string{"ev-1"}},
+			},
+		},
+	}
+	if vs := validateFacetCoverage(doc, view); len(vs) != 0 {
+		t.Errorf("Expected with evidence + covered MUST pass; got %+v", vs)
 	}
 }
 
