@@ -487,3 +487,36 @@ func TestEmitAnswerDocumentV2_CitationRefInsideClaimUseRemapped(t *testing.T) {
 		}
 	}
 }
+
+// TestEmitAnswerDocumentV2_FromNodeInsideClaimUseRemapped pins
+// Phase 1-B source-fix follow-on (2026-05-04): from_node /
+// to_node moved out of RenderedClaimUse into block-level
+// edge_anchors[]. LLMs trained on the old shape may still try to
+// place them inside claim_use; the remap directs to the new path.
+func TestEmitAnswerDocumentV2_FromNodeInsideClaimUseRemapped(t *testing.T) {
+	bus := newV2TestBusContext()
+	tool := &EmitAnswerDocument{}
+	misplaced := json.RawMessage(`{
+		"document_model": "v2",
+		"blocks": [{
+			"id": "d1",
+			"kind": "diagram",
+			"diagram": {"kind":"sequence","language":"mermaid","body":"sequenceDiagram\n  A->>B: invoke\n"},
+			"claim_uses": [{"claim_form": "call_edge", "from_node": "A", "to_node": "B"}]
+		}],
+		"citations": []
+	}`)
+	res, _ := tool.Execute(bus, misplaced)
+	if res.Success {
+		t.Fatal("expected misplaced from_node/to_node reject")
+	}
+	for _, want := range []string{
+		`field "from_node"`,
+		"blocks[i].edge_anchors[j].from_node",
+		"NOT inside",
+	} {
+		if !strings.Contains(res.Summary, want) {
+			t.Errorf("error message missing %q; got: %s", want, res.Summary)
+		}
+	}
+}

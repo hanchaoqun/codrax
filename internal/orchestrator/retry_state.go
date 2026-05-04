@@ -319,19 +319,22 @@ func summarizeAnswerDocV2ForRetry(doc *types.AnswerDocumentV2) types.RetryStateS
 					break
 				}
 			}
-			for i := range b.ClaimUses {
-				if b.ClaimUses[i].HasEdgeAnchor() {
-					bs.EdgeAnchoredClaimUses++
-				}
+		}
+		// Phase 1-B source-fix (V2 runtime eval followup, 2026-05-04):
+		// edge anchors moved out of RenderedClaimUse into typed
+		// AnswerBlock.EdgeAnchors. Count them directly from the
+		// new top-level field; same retry-summary semantic preserved
+		// (LLM sees how many edge anchors it filled, retry pressure
+		// to keep them on rewrite).
+		for i := range b.EdgeAnchors {
+			if b.EdgeAnchors[i].HasEdgeAnchor() {
+				bs.EdgeAnchoredClaimUses++
 			}
 		}
 		// Item-level claim_use / citation count (R6.1 sibling layer).
 		for _, it := range b.Items {
 			if it.ClaimUse != nil && !it.ClaimUse.IsEmpty() {
 				bs.ItemsWithClaimUse++
-				if it.ClaimUse.HasEdgeAnchor() {
-					bs.EdgeAnchoredClaimUses++
-				}
 			}
 			if it.CitationRef >= 0 {
 				bs.ItemsWithCitation++

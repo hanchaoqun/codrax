@@ -1492,11 +1492,14 @@ func callChainViewWithDiagram() *types.AnswerSemanticView {
 }
 
 // docWithDiagramBody constructs a minimal V2 doc holding a diagram
-// block + body, with optional edge-anchored claim_use list. Includes
-// an ordered_list block whose item labels match the test edge nodes
-// "Auth" / "Worker" so Layer 1 endpoint grounding always passes —
-// the tests below exercise Layer 2 (relation legality) only.
-func docWithDiagramBody(body string, edgeClaimUses ...types.RenderedClaimUse) *types.AnswerDocumentV2 {
+// block + body, with optional edge anchors. Includes an ordered_list
+// block whose item labels match the test edge nodes "Auth" /
+// "Worker" so Layer 1 endpoint grounding always passes — the tests
+// below exercise Layer 2 (relation legality) only.
+//
+// Phase 1-B (V2 runtime eval followup, 2026-05-04): edge anchors
+// moved from RenderedClaimUse fields to typed AnswerBlock.EdgeAnchors[].
+func docWithDiagramBody(body string, edgeAnchors ...types.DiagramEdgeAnchor) *types.AnswerDocumentV2 {
 	return &types.AnswerDocumentV2{
 		Blocks: []types.AnswerBlock{
 			{
@@ -1516,7 +1519,7 @@ func docWithDiagramBody(body string, edgeClaimUses ...types.RenderedClaimUse) *t
 					Language: "mermaid",
 					Body:     body,
 				},
-				ClaimUses: edgeClaimUses,
+				EdgeAnchors: edgeAnchors,
 			},
 		},
 	}
@@ -1538,28 +1541,28 @@ func TestValidateDiagramEdgeSupport_LabelledEdgeMissingClaimUseFires(t *testing.
 	}
 }
 
-// Layer 2 passes when an anchored claim_use covers the labelled edge.
+// Layer 2 passes when an anchored edge entry covers the labelled edge.
 func TestValidateDiagramEdgeSupport_LabelledEdgeWithAnchoredClaimUsePasses(t *testing.T) {
 	view := callChainViewWithDiagram()
 	doc := docWithDiagramBody(
 		"sequenceDiagram\n  Auth->>Worker: invoke\n",
-		types.RenderedClaimUse{
+		types.DiagramEdgeAnchor{
 			ClaimForm: types.ClaimCallEdge,
 			FromNode:  "Auth",
 			ToNode:    "Worker",
 		},
 	)
 	if vs := validateDiagramEdgeSupport(doc, view); len(vs) != 0 {
-		t.Errorf("anchored claim_use must satisfy Layer 2; got %+v", vs)
+		t.Errorf("anchored edge entry must satisfy Layer 2; got %+v", vs)
 	}
 }
 
-// Case-folded matching: edge token "auth" matches claim_use "Auth".
+// Case-folded matching: edge token "auth" matches anchor "Auth".
 func TestValidateDiagramEdgeSupport_AnchorMatchingIsCaseFolded(t *testing.T) {
 	view := callChainViewWithDiagram()
 	doc := docWithDiagramBody(
 		"sequenceDiagram\n  AUTH->>WORKER: invoke\n",
-		types.RenderedClaimUse{
+		types.DiagramEdgeAnchor{
 			ClaimForm: types.ClaimCallEdge,
 			FromNode:  "Auth",
 			ToNode:    "worker",
@@ -1578,7 +1581,7 @@ func TestValidateDiagramEdgeSupport_UnlabelledEdgeSkipsLayer2(t *testing.T) {
 	// EdgeRelations.Min=1 contract is satisfied by the labelled edge.
 	doc := docWithDiagramBody(
 		"sequenceDiagram\n  Auth->>Worker\n  Auth->>Worker: invoke\n",
-		types.RenderedClaimUse{
+		types.DiagramEdgeAnchor{
 			ClaimForm: types.ClaimCallEdge,
 			FromNode:  "Auth",
 			ToNode:    "Worker",

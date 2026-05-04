@@ -74,8 +74,6 @@ func TestRenderedClaimUse_IsEmpty(t *testing.T) {
 		{EvidenceID: "ev-1"},
 		{ClaimForm: ClaimDefinitionFact},
 		{SurfaceRole: SurfacePrincipal},
-		{FromNode: "Auth"},
-		{ToNode: "Worker"},
 	}
 	for _, c := range cases {
 		if c.IsEmpty() {
@@ -84,20 +82,23 @@ func TestRenderedClaimUse_IsEmpty(t *testing.T) {
 	}
 }
 
-func TestRenderedClaimUse_HasEdgeAnchor(t *testing.T) {
-	if (*RenderedClaimUse)(nil).HasEdgeAnchor() {
+// TestDiagramEdgeAnchor_HasEdgeAnchor pins the Phase 1-B
+// source-fix invariant: edge anchors live in DiagramEdgeAnchor
+// (not RenderedClaimUse). Both FromNode AND ToNode required.
+func TestDiagramEdgeAnchor_HasEdgeAnchor(t *testing.T) {
+	if (*DiagramEdgeAnchor)(nil).HasEdgeAnchor() {
 		t.Error("nil pointer must NOT report HasEdgeAnchor")
 	}
-	if (&RenderedClaimUse{}).HasEdgeAnchor() {
+	if (&DiagramEdgeAnchor{}).HasEdgeAnchor() {
 		t.Error("zero struct must NOT report HasEdgeAnchor")
 	}
-	if (&RenderedClaimUse{FromNode: "A"}).HasEdgeAnchor() {
+	if (&DiagramEdgeAnchor{FromNode: "A"}).HasEdgeAnchor() {
 		t.Error("only FromNode populated must NOT count — both required")
 	}
-	if (&RenderedClaimUse{ToNode: "B"}).HasEdgeAnchor() {
+	if (&DiagramEdgeAnchor{ToNode: "B"}).HasEdgeAnchor() {
 		t.Error("only ToNode populated must NOT count — both required")
 	}
-	if !(&RenderedClaimUse{FromNode: "A", ToNode: "B"}).HasEdgeAnchor() {
+	if !(&DiagramEdgeAnchor{FromNode: "A", ToNode: "B"}).HasEdgeAnchor() {
 		t.Error("both FromNode and ToNode populated MUST report HasEdgeAnchor")
 	}
 }
@@ -105,17 +106,16 @@ func TestRenderedClaimUse_HasEdgeAnchor(t *testing.T) {
 func TestRenderedClaimUse_FieldShape(t *testing.T) {
 	// Pin the JSON tag shape so a future schema-renaming refactor
 	// breaks tests instead of silently breaking emit-on-the-wire.
+	// Phase 1-B: claim_use is back to 4 fields (from/to_node moved
+	// to DiagramEdgeAnchor on AnswerBlock.EdgeAnchors[]).
 	c := RenderedClaimUse{
 		FacetID:     "enumeration_item",
 		EvidenceID:  "ev-7",
 		ClaimForm:   ClaimDefinitionFact,
 		SurfaceRole: SurfacePrincipal,
-		FromNode:    "Auth",
-		ToNode:      "Worker",
 	}
 	if c.FacetID == "" || c.EvidenceID == "" ||
-		c.ClaimForm == "" || c.SurfaceRole == "" ||
-		c.FromNode == "" || c.ToNode == "" {
+		c.ClaimForm == "" || c.SurfaceRole == "" {
 		t.Fatal("struct field assignment failed")
 	}
 }

@@ -126,15 +126,17 @@ func AllSurfaceRoles() []SurfaceRole {
 //     Used by Phase 4 facet validators (e.g. FacetEnumerationItem
 //     requires SurfacePrincipal).
 //
-//   - FromNode / ToNode: ONLY populated when ClaimForm is
-//     edge-capable (call_edge / guard_condition / import_edge /
-//     precedence_role / external_observation) AND SurfaceRole ==
-//     diagram_only. Identifies which diagram edge this claim
-//     grounds. Both must be the verbatim node identifiers used in
-//     the diagram body (case-folded matching is downstream). Phase
-//     3-C5 validator reads these to enforce relation legality on
-//     labelled diagram edges. Empty = "no edge anchor" (legitimate
-//     for non-edge claim forms).
+// Phase 1-B source-fix (V2 runtime eval followup, 2026-05-04):
+// FromNode/ToNode were REMOVED from this struct. Their u3a-1 real-
+// eval forensic showed that swelling claim_use's inner field count
+// from 4 → 6 invited LLMs to mis-fill sibling fields like
+// citation_ref into the same nested object (7-iter strict-decode
+// retry loop). Edge anchors now live on the typed
+// AnswerBlock.EdgeAnchors []DiagramEdgeAnchor — see
+// answer_document_v2.go. The LLM sees TWO distinct shapes:
+// claim_use (4 fields, facet/claim annotation) vs edge_anchors
+// (3 fields, diagram-edge typed triples), and the two cannot be
+// confused.
 //
 // JSON tags use "omitempty" so a zero-valued struct serialises to
 // the empty object {}. Pointer-typed embedding on the parent payload
@@ -145,8 +147,6 @@ type RenderedClaimUse struct {
 	EvidenceID  string      `json:"evidence_id,omitempty"`
 	ClaimForm   ClaimForm   `json:"claim_form,omitempty"`
 	SurfaceRole SurfaceRole `json:"surface_role,omitempty"`
-	FromNode    string      `json:"from_node,omitempty"`
-	ToNode      string      `json:"to_node,omitempty"`
 }
 
 // IsEmpty reports whether c carries no annotation data. Useful for
@@ -157,16 +157,5 @@ func (c *RenderedClaimUse) IsEmpty() bool {
 		return true
 	}
 	return c.FacetID == "" && c.EvidenceID == "" &&
-		c.ClaimForm == "" && c.SurfaceRole == "" &&
-		c.FromNode == "" && c.ToNode == ""
-}
-
-// HasEdgeAnchor reports whether the annotation carries a non-empty
-// (FromNode, ToNode) pair. Phase 3-C5 reads this to find claim_uses
-// that ground specific diagram edges.
-func (c *RenderedClaimUse) HasEdgeAnchor() bool {
-	if c == nil {
-		return false
-	}
-	return c.FromNode != "" && c.ToNode != ""
+		c.ClaimForm == "" && c.SurfaceRole == ""
 }

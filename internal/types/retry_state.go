@@ -166,11 +166,16 @@ type RetryBlockSummary struct {
 	ItemCount         int             `json:"item_count,omitempty"`
 	ItemsWithClaimUse int             `json:"items_with_claim_use,omitempty"`
 	ItemsWithCitation int             `json:"items_with_citation,omitempty"`
-	// EdgeAnchoredClaimUses counts how many block-level + item-level
-	// claim_uses on this block carry a populated (FromNode, ToNode)
-	// pair. Surfaces to the retry prompt so the LLM sees whether it
-	// already grounded its diagram edges; preservation pressure is
-	// applied the same way HasClaimUse does for the typed fields.
+	// EdgeAnchoredClaimUses counts how many DiagramEdgeAnchor
+	// entries this block carries (Phase 1-B source-fix, 2026-05-04).
+	// Pre-fix, edge anchors lived as inner fields of RenderedClaimUse
+	// (FromNode/ToNode) and inflated claim_use's schema density to
+	// 6 inner fields; LLMs mis-filled sibling fields like
+	// citation_ref into the same nested object (u3a-1 forensic).
+	// Now edge anchors are typed AnswerBlock.EdgeAnchors[] and
+	// claim_use is back to 4 fields. The field name retains the
+	// historical "ClaimUses" suffix for tooling compatibility — the
+	// underlying signal is "edge anchors on this block".
 	EdgeAnchoredClaimUses int `json:"edge_anchored_claim_uses,omitempty"`
 	// TextPreview is the head+tail clip of the block's text /
 	// title (head 400 + tail 200 chars when over the cap, full

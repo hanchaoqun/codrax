@@ -187,9 +187,11 @@ func TestSummarizeAnswerDocV2ForRetry_NilSafe(t *testing.T) {
 	}
 }
 
-// TestSummarizeAnswerDocV2ForRetry_EdgeAnchoredCounted — Phase 3-C3
-// retry summary MUST surface how many claim_uses on each block carry
-// (FromNode, ToNode) so the retry hint can pressure preservation.
+// TestSummarizeAnswerDocV2ForRetry_EdgeAnchoredCounted — Phase 1-B
+// source-fix (V2 runtime eval followup, 2026-05-04): edge anchors
+// moved out of RenderedClaimUse into typed AnswerBlock.EdgeAnchors.
+// Retry summary counts those entries directly so the LLM sees
+// preservation pressure on rewrite.
 func TestSummarizeAnswerDocV2ForRetry_EdgeAnchoredCounted(t *testing.T) {
 	doc := &types.AnswerDocumentV2{
 		Blocks: []types.AnswerBlock{
@@ -197,22 +199,22 @@ func TestSummarizeAnswerDocV2ForRetry_EdgeAnchoredCounted(t *testing.T) {
 				ID:          "d1",
 				Kind:        types.BlockDiagram,
 				SurfaceRole: types.SurfaceDiagramOnly,
+				EdgeAnchors: []types.DiagramEdgeAnchor{
+					{FromNode: "Auth", ToNode: "Worker", ClaimForm: types.ClaimCallEdge},
+					{FromNode: "Worker", ToNode: "DB", ClaimForm: types.ClaimGuardCondition},
+				},
 				ClaimUses: []types.RenderedClaimUse{
-					{ClaimForm: types.ClaimCallEdge, FromNode: "Auth", ToNode: "Worker"},
-					{ClaimForm: types.ClaimGuardCondition, FromNode: "Worker", ToNode: "DB"},
-					{ClaimForm: types.ClaimDefinitionFact}, // no anchor
+					{ClaimForm: types.ClaimDefinitionFact}, // claim annotation, no edge
 				},
 			},
 			{
 				ID:   "list1",
 				Kind: types.BlockOrderedList,
+				EdgeAnchors: []types.DiagramEdgeAnchor{
+					{FromNode: "X", ToNode: "Y", ClaimForm: types.ClaimCallEdge},
+				},
 				Items: []types.AnswerBlockItem{
-					{ID: "i1", ClaimUse: &types.RenderedClaimUse{
-						ClaimForm: types.ClaimCallEdge, FromNode: "X", ToNode: "Y",
-					}},
-					{ID: "i2", ClaimUse: &types.RenderedClaimUse{
-						ClaimForm: types.ClaimDefinitionFact, // no anchor
-					}},
+					{ID: "i1", ClaimUse: &types.RenderedClaimUse{ClaimForm: types.ClaimDefinitionFact}},
 				},
 			},
 		},
@@ -222,11 +224,11 @@ func TestSummarizeAnswerDocV2ForRetry_EdgeAnchoredCounted(t *testing.T) {
 		t.Fatalf("want 2 block summaries, got %d", len(got.BlockSummaries))
 	}
 	if got.BlockSummaries[0].EdgeAnchoredClaimUses != 2 {
-		t.Errorf("d1 EdgeAnchoredClaimUses = %d, want 2 (block-level)",
+		t.Errorf("d1 EdgeAnchoredClaimUses = %d, want 2 (2 entries in EdgeAnchors[])",
 			got.BlockSummaries[0].EdgeAnchoredClaimUses)
 	}
 	if got.BlockSummaries[1].EdgeAnchoredClaimUses != 1 {
-		t.Errorf("list1 EdgeAnchoredClaimUses = %d, want 1 (item-level)",
+		t.Errorf("list1 EdgeAnchoredClaimUses = %d, want 1 (1 entry in EdgeAnchors[])",
 			got.BlockSummaries[1].EdgeAnchoredClaimUses)
 	}
 }

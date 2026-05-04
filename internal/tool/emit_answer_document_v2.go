@@ -41,15 +41,16 @@ type emitAnswerDocumentV2Params struct {
 }
 
 type emitAnswerBlockV2 struct {
-	ID          string                  `json:"id"`
-	Kind        string                  `json:"kind"`
-	Title       string                  `json:"title,omitempty"`
-	Text        string                  `json:"text,omitempty"`
-	Items       []emitAnswerBlockItemV2 `json:"items,omitempty"`
-	Diagram     *emitAnswerDiagramV2    `json:"diagram,omitempty"`
-	ClaimUses   []types.RenderedClaimUse `json:"claim_uses,omitempty"`
-	FacetIDs    []string                `json:"facet_ids,omitempty"`
-	SurfaceRole string                  `json:"surface_role,omitempty"`
+	ID          string                     `json:"id"`
+	Kind        string                     `json:"kind"`
+	Title       string                     `json:"title,omitempty"`
+	Text        string                     `json:"text,omitempty"`
+	Items       []emitAnswerBlockItemV2    `json:"items,omitempty"`
+	Diagram     *emitAnswerDiagramV2       `json:"diagram,omitempty"`
+	ClaimUses   []types.RenderedClaimUse   `json:"claim_uses,omitempty"`
+	EdgeAnchors []types.DiagramEdgeAnchor  `json:"edge_anchors,omitempty"`
+	FacetIDs    []string                   `json:"facet_ids,omitempty"`
+	SurfaceRole string                     `json:"surface_role,omitempty"`
 }
 
 type emitAnswerBlockItemV2 struct {
@@ -177,6 +178,7 @@ func executeAnswerDocumentV2(toolName string, ctx *types.BusContext, raw json.Ra
 			Title:       raw.Title,
 			Text:        raw.Text,
 			ClaimUses:   raw.ClaimUses,
+			EdgeAnchors: raw.EdgeAnchors,
 			FacetIDs:    raw.FacetIDs,
 			SurfaceRole: types.SurfaceRole(raw.SurfaceRole),
 		}
@@ -471,6 +473,25 @@ var answerDocumentV2MisplacedHints = []MisplacedFieldHint{
 			"items[i].citation_ref",
 			"value.citation_ref",
 			"boolean.citation_ref",
+		},
+	},
+	// Phase 1-B source-fix follow-on (2026-05-04): from_node /
+	// to_node previously lived inside RenderedClaimUse and were
+	// removed for source-level information-density reduction.
+	// LLMs trained on the old shape may still place them inside
+	// claim_use; remap to the new edge_anchors[] location.
+	{
+		Field:          "from_node",
+		ContainerNames: []string{"claim_use", "claim_uses"},
+		CorrectPaths: []string{
+			"blocks[i].edge_anchors[j].from_node",
+		},
+	},
+	{
+		Field:          "to_node",
+		ContainerNames: []string{"claim_use", "claim_uses"},
+		CorrectPaths: []string{
+			"blocks[i].edge_anchors[j].to_node",
 		},
 	},
 }

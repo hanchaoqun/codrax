@@ -119,6 +119,53 @@ type AnswerBlock struct {
 	// Validators use this to distinguish principal payload from
 	// supporting blocks when checking claim use coverage.
 	SurfaceRole SurfaceRole `json:"surface_role,omitempty"`
+
+	// EdgeAnchors carry typed (from_node, to_node, claim_form)
+	// triples that anchor labelled diagram edges to typed
+	// claim_form values. Phase 1-B source-fix (V2 runtime eval
+	// followup, 2026-05-04): pre-fix, FromNode/ToNode were inner
+	// fields of RenderedClaimUse, swelling claim_use to 6 inner
+	// fields and inviting LLMs to mis-fill sibling fields like
+	// citation_ref into the same nested object (u3a-1 forensic
+	// 7-iter retry loop). Now claim_use is back to 4 fields and
+	// edge anchors live as a separate top-level array. The LLM
+	// sees TWO distinct shapes — claim_use (facet/claim
+	// annotation) vs edge_anchors (diagram-edge typed pairs) —
+	// and the two cannot be confused.
+	//
+	// Validators (Phase 3-C5 validateDiagramRelationLegality)
+	// read this field to match labelled edges against typed
+	// claim_form expectations.
+	EdgeAnchors []DiagramEdgeAnchor `json:"edge_anchors,omitempty"`
+}
+
+// DiagramEdgeAnchor is a typed (from_node, to_node, claim_form)
+// triple that anchors a labelled diagram edge to its expected
+// claim_form. Lives on AnswerBlock.EdgeAnchors (Phase 1-B
+// source-fix, 2026-05-04) — moved here from RenderedClaimUse
+// fields so the claim_use schema does not balloon and invite
+// sibling-field misplacement.
+//
+// Both FromNode and ToNode MUST be the verbatim node identifier
+// strings as they appear in the diagram body; case-folded matching
+// is downstream. ClaimForm names the typed expected claim shape
+// (call_edge / guard_condition / import_edge / precedence_role /
+// external_observation); ClaimUnknown means "no edge-level
+// claim_form required" (e.g. containment relations).
+type DiagramEdgeAnchor struct {
+	FromNode  string    `json:"from_node"`
+	ToNode    string    `json:"to_node"`
+	ClaimForm ClaimForm `json:"claim_form,omitempty"`
+}
+
+// HasEdgeAnchor reports whether the anchor has a non-empty
+// (FromNode, ToNode) pair. Both must be present for the anchor
+// to be considered grounded.
+func (e *DiagramEdgeAnchor) HasEdgeAnchor() bool {
+	if e == nil {
+		return false
+	}
+	return e.FromNode != "" && e.ToNode != ""
 }
 
 // AnswerBlockItem is one item inside a list / table block. Each item

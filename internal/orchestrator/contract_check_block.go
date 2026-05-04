@@ -352,30 +352,32 @@ func validateDiagramRelationLegality(
 	return violations
 }
 
-// buildClaimUseEdgeAnchorIndex collects every claim_use in doc that
-// carries (FromNode, ToNode), keyed by (lower(FromNode),
-// lower(ToNode), ClaimForm). Multiple claim_uses sharing the same
-// key collapse — the index stores a presence bit, not the
-// annotation itself.
+// buildClaimUseEdgeAnchorIndex collects every DiagramEdgeAnchor
+// in doc, keyed by (lower(FromNode), lower(ToNode), ClaimForm).
+// Multiple anchors sharing the same key collapse — the index
+// stores a presence bit, not the entry itself.
+//
+// Phase 1-B source-fix (V2 runtime eval followup, 2026-05-04):
+// Pre-fix, this index walked block-level claim_uses[] and
+// item-level claim_use[].FromNode/ToNode (when those fields lived
+// inside RenderedClaimUse). The u3a-1 forensic showed that schema
+// density caused LLMs to mis-fill sibling fields. Edge anchors
+// now live on AnswerBlock.EdgeAnchors[] as a typed array — the
+// index walks that array directly.
 func buildClaimUseEdgeAnchorIndex(doc *types.AnswerDocumentV2) map[claimUseEdgeKey]struct{} {
 	idx := make(map[claimUseEdgeKey]struct{})
-	add := func(cu *types.RenderedClaimUse) {
-		if cu == nil || !cu.HasEdgeAnchor() {
-			return
-		}
-		idx[claimUseEdgeKey{
-			from:  strings.ToLower(strings.TrimSpace(cu.FromNode)),
-			to:    strings.ToLower(strings.TrimSpace(cu.ToNode)),
-			claim: cu.ClaimForm,
-		}] = struct{}{}
-	}
 	for i := range doc.Blocks {
 		b := &doc.Blocks[i]
-		for j := range b.ClaimUses {
-			add(&b.ClaimUses[j])
-		}
-		for j := range b.Items {
-			add(b.Items[j].ClaimUse)
+		for j := range b.EdgeAnchors {
+			a := &b.EdgeAnchors[j]
+			if !a.HasEdgeAnchor() {
+				continue
+			}
+			idx[claimUseEdgeKey{
+				from:  strings.ToLower(strings.TrimSpace(a.FromNode)),
+				to:    strings.ToLower(strings.TrimSpace(a.ToNode)),
+				claim: a.ClaimForm,
+			}] = struct{}{}
 		}
 	}
 	return idx
@@ -387,8 +389,8 @@ type claimUseEdgeKey struct {
 }
 
 // claimUseAnchorsEdge reports whether the index contains a
-// claim_use whose (FromNode, ToNode, ClaimForm) matches the edge.
-// Matching is case-folded on the node identifiers.
+// DiagramEdgeAnchor whose (FromNode, ToNode, ClaimForm) matches
+// the edge. Matching is case-folded on the node identifiers.
 func claimUseAnchorsEdge(idx map[claimUseEdgeKey]struct{}, from, to string, want types.ClaimForm) bool {
 	_, ok := idx[claimUseEdgeKey{
 		from:  strings.ToLower(strings.TrimSpace(from)),
