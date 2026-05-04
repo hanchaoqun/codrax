@@ -1436,6 +1436,17 @@ func initApp(cmd *cobra.Command, _ []string) error {
 		// re-investigation passes per Run; further attempts force
 		// FailLoud so wall-clock stays bounded.
 		MaxUpstreamFallbacksPerRun: 2,
+		// B4-F1 (2026-05-04) — wire DefaultViolationBudgetSettings
+		// into the production seed so the documented defaults
+		// (FailLoudEnabled=true, UserVisibleViolationCaveat=false)
+		// actually take effect. Pre-B4-F1 the default-table was
+		// referenced only by tests; production used the zero value
+		// so FailLoudEnabled was silently false. The
+		// UserVisibleViolationCaveat=false default keeps the
+		// per-violation digest off the user panel by default
+		// (operators flip it via codrax.yaml ::
+		// violation_budget.user_visible_caveat).
+		ViolationBudget: types.DefaultViolationBudgetSettings(),
 	}
 	// Default-LLM context window for fraction-form byte budget
 	// resolution. The fallback path in MaxContextTokens guarantees a

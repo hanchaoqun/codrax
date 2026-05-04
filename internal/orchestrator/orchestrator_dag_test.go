@@ -265,7 +265,17 @@ func TestRunTaskGraph_BudgetExhaustedFailLoud(t *testing.T) {
 	}
 
 	ar, sr, sar := buildRegistries(agentFns)
-	o := New(types.PipelineSettings{}, ar, sr, sar)
+	// B4-F1: explicitly opt into user-visible caveat for this test
+	// (default is false post-B4 — digest goes to logger only).
+	// The test's purpose is to verify the digest content rendering
+	// when the user-visible path IS active.
+	settings := types.PipelineSettings{
+		ViolationBudget: types.ViolationBudgetSettings{
+			FailLoudEnabled:            true,
+			UserVisibleViolationCaveat: true,
+		},
+	}
+	o := New(settings, ar, sr, sar)
 	o.SetMaxSteps(20)
 
 	busCtx, err := o.Run("explain X", "/tmp/repo", "main")
@@ -282,6 +292,57 @@ func TestRunTaskGraph_BudgetExhaustedFailLoud(t *testing.T) {
 	// Original answer body must survive beneath the warning.
 	if !strings.Contains(result, "- foo") {
 		t.Errorf("expected original answer beneath warning; got %q", result)
+	}
+}
+
+// TestRunTaskGraph_BudgetExhaustedHidesCaveatByDefault pins the
+// post-B4-F1 default: when the operator does not flip
+// UserVisibleViolationCaveat the per-violation digest is
+// suppressed from the user panel (goes to logger only). The
+// answer body still survives — just without the digest banner.
+func TestRunTaskGraph_BudgetExhaustedHidesCaveatByDefault(t *testing.T) {
+	ir := dagIR(types.AnswerContract{
+		Language: "en",
+		CitationReq: types.CitationReq{
+			Required:     true,
+			Granularity:  "file_line",
+			MinCitations: 2,
+		},
+	})
+	agentFns := map[types.AgentName]func(*types.AgentContext, *skill.Config) (*agent.StageOutput, error){
+		types.AgentAnalyzer: dagAnalyzerFn(ir),
+		types.AgentExplorer: func(ctx *types.AgentContext, sk *skill.Config) (*agent.StageOutput, error) {
+			return &agent.StageOutput{MissingPiece: types.MissingFacts}, nil
+		},
+		types.AgentFinalizer: func(ctx *types.AgentContext, sk *skill.Config) (*agent.StageOutput, error) {
+			return &agent.StageOutput{
+				MissingPiece: types.MissingNone,
+				FinalAnswer:  "- foo\n- bar",
+			}, nil
+		},
+	}
+	ar, sr, sar := buildRegistries(agentFns)
+	// Default zero-value settings — UserVisibleViolationCaveat=false
+	// (post-B4 default). FailLoudEnabled defaults to false here too
+	// because zero-value PipelineSettings does not call
+	// DefaultViolationBudgetSettings; that's fine — the test pins
+	// "digest does NOT leak when caveat flag is false".
+	o := New(types.PipelineSettings{}, ar, sr, sar)
+	o.SetMaxSteps(20)
+
+	busCtx, err := o.Run("explain X", "/tmp/repo", "main")
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	result := busCtx.Mutable.Result()
+	if result == "" {
+		t.Fatal("no result recorded")
+	}
+	if strings.Contains(result, "answer-contract validation exhausted") {
+		t.Errorf("digest must NOT leak to user panel under default settings; got %q", result)
+	}
+	if !strings.Contains(result, "- foo") {
+		t.Errorf("answer body must survive; got %q", result)
 	}
 }
 

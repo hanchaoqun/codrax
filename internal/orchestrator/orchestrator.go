@@ -3595,7 +3595,7 @@ func (o *Orchestrator) runReadSchedulerLoop(stepBudget int) int {
 		if state.retryBudgetExhausted() {
 			// Fail-loud — preserve the original answer beneath an
 			// honest warning so the user sees the gap.
-			out.FinalAnswer = appendViolationsToAnswer(out.FinalAnswer, res)
+			out.FinalAnswer = o.applyContractViolations(out.FinalAnswer, res)
 			out.FinalAnswer = prependFailLoudWarning(out.FinalAnswer, o.busCtx.Mutable, state, "retry budget exhausted", o.settings)
 			lastFinalize = out
 			state.markDone(fin.ID)
@@ -3614,7 +3614,7 @@ func (o *Orchestrator) runReadSchedulerLoop(stepBudget int) int {
 			if state.retryUsedForKind(kind) >= cap {
 				logging.Warning("[orchestrator] retry budget for kind=%s exhausted (%d/%d) — accepting answer with caveat",
 					kind, state.retryUsedForKind(kind), cap)
-				out.FinalAnswer = appendViolationsToAnswer(out.FinalAnswer, res)
+				out.FinalAnswer = o.applyContractViolations(out.FinalAnswer, res)
 				out.FinalAnswer = prependFailLoudWarning(out.FinalAnswer, o.busCtx.Mutable, state,
 					fmt.Sprintf("per-kind retry budget exhausted: %s", kind), o.settings)
 				lastFinalize = out
@@ -3647,7 +3647,7 @@ func (o *Orchestrator) runReadSchedulerLoop(stepBudget int) int {
 				Agent:     "orchestrator",
 				Reasoning: softYieldKillMessage(o.busCtx.Language),
 			})
-			out.FinalAnswer = appendViolationsToAnswer(out.FinalAnswer, res)
+			out.FinalAnswer = o.applyContractViolations(out.FinalAnswer, res)
 			out.FinalAnswer = prependFailLoudWarning(out.FinalAnswer, o.busCtx.Mutable, state,
 				"yield kill: retry window produced no new information", o.settings)
 			lastFinalize = out
@@ -3719,7 +3719,7 @@ func (o *Orchestrator) runReadSchedulerLoop(stepBudget int) int {
 		_ = capReached
 		switch fallback {
 		case FallbackFailLoud:
-			out.FinalAnswer = appendViolationsToAnswer(out.FinalAnswer, res)
+			out.FinalAnswer = o.applyContractViolations(out.FinalAnswer, res)
 			out.FinalAnswer = prependFailLoudWarning(out.FinalAnswer, o.busCtx.Mutable, state,
 				"this answer's flagged issues cannot be repaired by retry", o.settings)
 			lastFinalize = out
@@ -4986,8 +4986,26 @@ func dominantViolationKind(res contract.Result) types.ViolationKind {
 // ViolationBudget.FailLoudEnabled config knob so operators can
 // disable the banner for golden-path test harnesses, but the
 // default (true) is to never hide the failure.
+//
+// B4-F2 dedup (2026-05-04): when applyContractViolations already
+// prepended the per-violation digest line (
+// "· answer-contract validation exhausted: ..."), the FailLoud
+// header overlaps in spirit (both signal "the answer is shipping
+// with unresolved problems"). The pre-B4 stack-on-stack rendered
+// two distinct banner lines at the top of the answer — visual
+// noise. Now: when the digest is already there, suppress the
+// FailLoud header (the digest's "validation exhausted" prefix
+// reads as the failure marker; the trigger string the FailLoud
+// banner adds is operator-only context that goes to the logger
+// via applyContractViolations's WARN line).
 func prependFailLoudWarning(answer string, mut *types.MutableState, state *graphState, trigger string, settings types.PipelineSettings) string {
 	if !settings.ViolationBudget.FailLoudEnabled {
+		return answer
+	}
+	// B4-F2 dedup: if the answer already begins with the digest
+	// banner line, skip the FailLoud header to avoid double-noise.
+	if strings.HasPrefix(strings.TrimLeft(answer, " \t\r\n"), "· answer-contract validation exhausted:") {
+		logging.Info("[orchestrator] B4-F2 suppressed FailLoud header (answer already carries violation digest); operator-only context: trigger=%q", trigger)
 		return answer
 	}
 	var (
@@ -5018,6 +5036,42 @@ func prependFailLoudWarning(answer string, mut *types.MutableState, state *graph
 	}
 	header += ". Classification may be incorrect.\n\n"
 	return header + answer
+}
+
+// applyContractViolations is the **single decision point** for
+// where the contract checker's per-violation digest goes
+// (user panel vs operator log). Replaces the 4 in-line calls to
+// the pre-B4 appendViolationsToAnswer in the contract-failure
+// switch (orchestrator.go retry / yield / per-kind / fallback
+// terminations). Introduced in B4-F1 (2026-05-04).
+//
+// Channel decision per
+// settings.ViolationBudget.UserVisibleViolationCaveat:
+//
+//   true  — prepend digest to answer (pre-B4 default).
+//   false — write digest to logger.Warning only; answer
+//           stays clean (post-B4 default).
+//
+// Either way the digest also flows into per-stage CGEC summary
+// telemetry via the closure's violation ledger, so operators
+// always have the data; the toggle only controls whether the
+// USER sees it.
+//
+// Returns the (possibly mutated) answer string. Empty / passing
+// results are passthrough no-ops (no logger noise either).
+func (o *Orchestrator) applyContractViolations(answer string, res contract.Result) string {
+	digest := formatViolationsForLogger(res)
+	if digest == "" {
+		return answer
+	}
+	// Operator log line — fires regardless of channel choice so
+	// operators always see the failure summary in trace logs.
+	logging.Warning("[orchestrator] %s", digest)
+	if !o.settings.ViolationBudget.UserVisibleViolationCaveat {
+		return answer
+	}
+	// User-panel mode: prepend the digest with separator.
+	return digest + "\n\n" + answer
 }
 
 // formatViolationFieldTally renders the ledger's per-field histogram

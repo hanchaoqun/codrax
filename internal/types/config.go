@@ -175,6 +175,28 @@ type ViolationBudgetSettings struct {
 	// answer when the yield kill fires or any budget is exhausted.
 	// Default true — never silently hide a failure.
 	FailLoudEnabled bool `yaml:"fail_loud_enabled"`
+
+	// UserVisibleViolationCaveat (B4-F1, 2026-05-04) controls
+	// whether the contract validator's "validation exhausted: ..."
+	// per-violation digest is prepended to the user's final
+	// answer (true) or written ONLY to the operator log via a
+	// WARN line (false).
+	//
+	// Default false — system "I-could-not-fix-this" failure
+	// summaries are operational metadata; the user already sees
+	// FailLoudEnabled's "Pipeline terminated with unresolved
+	// violations" header (when enabled) AND any caveats the LLM
+	// chose to write into a `caveat` block, which together cover
+	// the user-facing honesty contract. The per-violation digest
+	// is internal — operators who want it visible can flip this
+	// flag in codrax.yaml :: violation_budget.user_visible_caveat.
+	//
+	// Setting both UserVisibleViolationCaveat=true AND
+	// FailLoudEnabled=true was the pre-B4-F2 default and produced
+	// double-layered banner noise (digest + FailLoud header).
+	// Post-B4-F2, when both are enabled the dedup logic in
+	// prependFailLoudWarning collapses overlap.
+	UserVisibleViolationCaveat bool `yaml:"user_visible_caveat"`
 }
 
 // RetryBudgetByKindSettings — Session 11 C6. Zero entries mean
@@ -215,13 +237,17 @@ func (r RetryBudgetByKindSettings) For(kind ViolationKind, fallback int) int {
 }
 
 // DefaultViolationBudgetSettings returns the full-design §4
-// defaults: 4/2/1/true.
+// defaults: 4/2/1/true/false. UserVisibleViolationCaveat=false
+// means the per-violation digest goes to logger only (B4-F1, 2026-
+// 05-04); the FailLoud header still fires for the user when
+// FailLoudEnabled=true.
 func DefaultViolationBudgetSettings() ViolationBudgetSettings {
 	return ViolationBudgetSettings{
-		MaxPatchesPerRun:   4,
-		MaxPatchesPerField: 2,
-		MinRetryYield:      1,
-		FailLoudEnabled:    true,
+		MaxPatchesPerRun:           4,
+		MaxPatchesPerField:         2,
+		MinRetryYield:              1,
+		FailLoudEnabled:            true,
+		UserVisibleViolationCaveat: false,
 	}
 }
 

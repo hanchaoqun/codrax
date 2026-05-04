@@ -184,25 +184,33 @@ func TestRenderViolations_EmptyOnPassed(t *testing.T) {
 	}
 }
 
-func TestAppendViolationsToAnswer_FailLoudPattern(t *testing.T) {
-	original := "the answer body"
+// TestFormatViolationsForLogger_FailLoudPattern verifies the digest
+// formatter (renamed from appendViolationsToAnswer in B4-F3,
+// 2026-05-04). The function now returns the digest string only;
+// the channel decision (user panel vs operator log) lives in
+// orchestrator.go::applyContractViolations.
+func TestFormatViolationsForLogger_FailLoudPattern(t *testing.T) {
 	res := contract.Result{Passed: false, Violations: []contract.Violation{
 		{Kind: contract.ViolFamilyMismatch, Detail: "wrong"},
 	}}
-	out := appendViolationsToAnswer(original, res)
-	if !strings.HasPrefix(out, "· answer-contract validation exhausted") {
-		t.Errorf("want fail-loud prefix; got %q", out)
+	got := formatViolationsForLogger(res)
+	if !strings.HasPrefix(got, "· answer-contract validation exhausted") {
+		t.Errorf("want digest prefix; got %q", got)
 	}
-	if !strings.Contains(out, original) {
-		t.Errorf("want original answer preserved beneath warning; got %q", out)
+	if !strings.Contains(got, "wrong") {
+		t.Errorf("want violation detail in digest; got %q", got)
 	}
 }
 
-func TestAppendViolationsToAnswer_PassedKeepsOriginal(t *testing.T) {
-	original := "good answer"
-	res := contract.Result{Passed: true}
-	if got := appendViolationsToAnswer(original, res); got != original {
-		t.Errorf("passed: want original unchanged; got %q", got)
+func TestFormatViolationsForLogger_PassedReturnsEmpty(t *testing.T) {
+	if got := formatViolationsForLogger(contract.Result{Passed: true}); got != "" {
+		t.Errorf("passed: want empty digest; got %q", got)
+	}
+}
+
+func TestFormatViolationsForLogger_NoViolationsReturnsEmpty(t *testing.T) {
+	if got := formatViolationsForLogger(contract.Result{Passed: false}); got != "" {
+		t.Errorf("no violations: want empty digest; got %q", got)
 	}
 }
 

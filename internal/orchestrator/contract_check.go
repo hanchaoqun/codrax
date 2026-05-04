@@ -1311,19 +1311,28 @@ func finalizerCitationPoolSize(mut *types.MutableState, out *agent.StageOutput) 
 	return 0
 }
 
-// appendViolationsToAnswer prepends a single visible warning line to
-// the final answer text when the contract checker has exhausted its
-// retry budget. The original answer is preserved beneath the warning
-// so no information is lost — same fail-loud pattern P0.2 uses for
-// shape-validator exhaustion. See feedback_honesty_over_cleverness.md.
-func appendViolationsToAnswer(originalAnswer string, res contract.Result) string {
+// formatViolationsForLogger renders the contract checker's
+// violation digest as a single string, suitable for either a
+// logger.Warning line OR an answer-prepended caveat (caller's
+// choice). Pure formatting — no side effects on the answer.
+//
+// Returns "" when the result passed or carries no violations
+// (caller treats empty string as "nothing to surface").
+//
+// Pre-B4-F3 the function was named appendViolationsToAnswer and
+// always wrote the digest into the answer text. The B4
+// (post_shape_retirement_consolidated_audit.md §8 Batch B4,
+// 2026-05-04) refactor decoupled the formatter from the channel
+// decision: callers now invoke this helper to GET the digest, and
+// the channel decision (user panel vs operator log) lives in
+// orchestrator.go::decideViolationOutputChannel reading
+// settings.ViolationBudget.UserVisibleViolationCaveat.
+func formatViolationsForLogger(res contract.Result) string {
 	if res.Passed || len(res.Violations) == 0 {
-		return originalAnswer
+		return ""
 	}
 	var b strings.Builder
 	b.WriteString("· answer-contract validation exhausted: ")
 	b.WriteString(renderViolations(res))
-	b.WriteString("\n\n")
-	b.WriteString(originalAnswer)
 	return b.String()
 }
