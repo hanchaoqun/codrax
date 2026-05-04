@@ -204,6 +204,15 @@ write_metrics() {
     echo "dataflow_intent_propagate=$(count_pattern 'dataflowIntent=propagate' "$log")"
     echo "midloop_inject=$(count_pattern 'MIDLOOP inject' "$log")"
     echo "answer_chain_lines=$(count_pattern 'answer_chain' "$log")"
+    # B6-F5 (post-shape consolidated audit, 2026-05-04): per-agent
+    # LLM-turn counters. Each ReAct iteration logs exactly one
+    # "[diag <agent>] iter=N ASSISTANT content_len=…" line, so
+    # counting that suffix gives the actual model-turn count
+    # uncontaminated by INIT msg / TOOLRESULT / MIDLOOP siblings.
+    echo "analyzer_iters=$(count_pattern 'diag analyzer.*ASSISTANT content_len=' "$log")"
+    echo "explorer_iters=$(count_pattern 'diag explorer.*ASSISTANT content_len=' "$log")"
+    echo "extractor_iters=$(count_pattern 'diag extractor.*ASSISTANT content_len=' "$log")"
+    echo "finalizer_iters=$(count_pattern 'diag finalizer.*ASSISTANT content_len=' "$log")"
   } >"$metrics"
 }
 

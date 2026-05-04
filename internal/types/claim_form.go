@@ -40,11 +40,19 @@ package types
 // a 9-state enum that downstream gates can pattern-match cheaply.
 //
 // Red lines held:
-//   - LLM never sees ClaimForm (precise-signals-for-hard-gates red
-//     line: ClaimForm is derived from typed enums, never from prose)
+//   - LLM-emitted ClaimForm flows through RenderedClaimUse only
+//     (block.claim_uses[].claim_form on V2 emit_answer_document); the
+//     deterministic ClaimFormOf projection is the system-side
+//     validator that re-derives the form from typed evidence fields
+//     and rejects mismatches. The two-channel split keeps the LLM
+//     answering "which sentence shape am I asserting" while the
+//     validator owns the "is that supportable by the evidence"
+//     question.
 //   - Zero keyword tables (red line)
-//   - Zero new EvidenceItem write surface — ClaimForm is read-only
-//     projection of fields the LLM already emits via emit_evidence
+//   - Zero new EvidenceItem write surface — ClaimForm projection is
+//     read-only over fields the LLM already emits via emit_evidence;
+//     RenderedClaimUse is a separate carrier on AnswerBlock, not a
+//     write back into EvidenceItem.
 
 // ClaimForm is the deterministic projection of an EvidenceItem onto
 // the basic sentence shape it can validly support. See ClaimFormOf

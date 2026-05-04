@@ -1397,8 +1397,9 @@ type AnalysisIR struct {
     TaskGraph      TaskGraph       // Nodes / Edges / ExecutionPolicy
     EvidencePlan   EvidencePlan    // Budget / SourceMix / StopConditions /
                                    // NodeBudgetHints / RequiredFiles
-    AnswerContract AnswerContract  // RequiredAnswerShape / MustInclude /
-                                   // CitationReq / Language / AcceptanceTests ([]Criterion)
+    AnswerContract AnswerContract  // MustInclude / MustExclude / CitationReq /
+                                   // Language / AcceptanceTests ([]Criterion)
+                                   // (RequiredAnswerShape 已随 AnswerShape 退役)
     HypothesisSet  []Hypothesis
     QualityGate    GateReport
 }
@@ -1687,13 +1688,13 @@ sequenceDiagram
 | 2 | `AnswerContract.AcceptanceTests` | `contract/checker.go::checkAcceptance` | `"only 0 citations, need ≥N"` |
 | 3 | `TaskNode.SuccessCriteria`（finalize 节点） | `scheduler.go::markSuccessCriteriaFailed` → `criterion.Eval` | `"finalize success_criterion citation_count_ge N"` |
 
-`isMeasurementScalar` 信号（由 `isMeasurementScalarRequest` 在 `analyzer_intent.go` 计算）：`complexity == simple + intent ∈ {enumerate, return_value} + 首句命中 count-verb`。flag 为 true 时步骤 12 在一个 block 里应用 5 个后果：
+`isMeasurementScalar` 信号（由 `isMeasurementScalarRequest` 在 `analyzer_intent.go` 计算）：`complexity == simple + intent ∈ {enumerate, return_value} + 首句命中 count-verb`。flag 为 true 时步骤 12 在一个 block 里应用 3 个后果（AnswerShape 已退役，原 RequiredAnswerShape / AnalyzerHints.Shape 两步已删除）：
 
-1. `out.AnswerContract.RequiredAnswerShape = ShapeValue`（覆盖 compile 结果和 hint override）
-2. `rm.AnalyzerHints.Shape → ShapeValue`（保持 `irAnswerShape` 下游读取一致）
-3. `CitationReq.Required = false` + `MinCitations = 0`（gate #1）
-4. `AcceptanceTests = dropCitationCountGE(...)`（gate #2）
-5. 每个 TaskNode `SuccessCriteria = dropCitationCountGE(...)`（gate #3）
+1. `CitationReq.Required = false` + `MinCitations = 0`（gate #1）
+2. `AcceptanceTests = dropCitationCountGE(...)`（gate #2）
+3. 每个 TaskNode `SuccessCriteria = dropCitationCountGE(...)`（gate #3）
+
+V2 carrier 下 measurement-scalar 答案落 `block.kind=scalar` + `value{literal, citation_ref:-1}`；renderer / Turn-B 渲染从这里读，不再依赖 RequiredAnswerShape。
 
 "one signal, one response" 契约让 `grep isMeasurementScalar` 一次能看到所有因果链。全仓 `CitationReq.Required = false` 唯一生产点是 `analyzer.go` 的这个 block。
 
@@ -1705,8 +1706,7 @@ sequenceDiagram
 |---|------|
 | 1 | `Stage ∈ {extract, finalize}` |
 | 2-3 | `Mutable != nil && AnalysisIR != nil` |
-| 4 | `AnswerContract.RequiredAnswerShape == ShapeValue` |
-| 5 | `AnswerContract.CitationReq.Required == false`（与 measurement-scalar carve-out 共用设点） |
+| 4 | `AnswerContract.CitationReq.Required == false`（与 measurement-scalar carve-out 共用设点；V2 carrier 下 RequiredAnswerShape 已退役） |
 
 渲染：`head + (trim marker) + tail` —— **tail 永远保留**（shell 工具把 summarising scalar 放在输出末尾）。per-call head/tail 800/400 字节、total cap 4000 字节。skip list：所有 `emit_*` + `propose_sub_agents` + `repo_map`。开头 preamble 明确告诉 LLM："这些 tool output **不是** citations[] 的入口 —— 对 measurement scalar 用 `value{literal, citation_ref:-1}`"。
 
@@ -2047,12 +2047,18 @@ Go 1.24.0。主要依赖：
 3. Scenario → `internal/analysis/compiler/templates.go` 补模板
 4. Intent → `internal/analysis/compiler/scenario.go::InferScenario` 可能加分支
 
-### 添加新 AnswerShape
+### 添加新 AnswerBlock kind / SurfaceRole
 
-1. 新增 `AnswerShape` 常量并加进 `IsEmittable()`
-2. `internal/render/answerdoc.go` 的 renderer 加分支
-3. `emit_answer_document` tool schema 的 typed payload union 加分支
-4. Finalizer `answer_document_evaluator` 根据 shape 决定 prompt 模板
+> 历史"添加新 AnswerShape"章节已删除 —— V2 carrier (block-only) 已替代 AnswerShape。
+> 退役过程见 `docs/migration/answer_shape_terminal_retirement.md`。
+
+1. 新增 `AnswerBlockKind` 或 `SurfaceRole` 常量并加进 `AllAnswerBlockKinds()` /
+   `IsValidAnswerBlockKind` / `NormalizeSurfaceRole`
+2. `internal/tool/emit_answer_document_v2.go` 的 schema 描述补充新 kind 含义 + worked
+   example;`detectV1FieldsInV2Emit` 不需要变(V1 字段集已固定)
+3. `internal/render/answerdoc.go` 的 V2 renderer 加分支(block kind switch)
+4. `internal/orchestrator/contract_check_block.go` 加 oracle 验证规则(family ↔ block
+   kind 必填关系)
 
 ### 添加新 AnswerSubjectKind
 
