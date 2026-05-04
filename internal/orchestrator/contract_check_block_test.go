@@ -564,6 +564,68 @@ func TestRunV2BlockOracles_NilGuards(t *testing.T) {
 	}
 }
 
+// TestRunV2BlockOracles_PatchMergedDocTriggersSameValidators is a
+// Phase 2-B2 regression guard. It pins the contract that V2 oracle
+// validation is INVARIANT to whether the AnswerDocumentV2 reached
+// MutableState via fresh full emit (SetAnswerDocumentV2) or via
+// patch merge (SetAnswerDocumentV2FromPatch + ApplyAnswerDocumentV2Patch).
+//
+// The orchestrator's runContractCheck reads mut.AnswerDocumentV2()
+// post-emit; both emit paths funnel through the same MutableState
+// surface, so the V2 oracle suite sees identical input regardless
+// of provenance. If a future commit short-circuits patch emit to
+// bypass MutableState (or routes patch through a different
+// pre-validation that strips fields), this test will fire the
+// validators on a known-violating merged doc and prove the breach.
+func TestRunV2BlockOracles_PatchMergedDocTriggersSameValidators(t *testing.T) {
+	// Step 1: build a prev doc lacking a required summary block.
+	// (Pre-patch shape passes patch's structural validator —
+	// missing required block kind is a CONTRACT-level violation,
+	// not a STRUCTURAL one.)
+	prev := &types.AnswerDocumentV2{
+		DocumentModel: "v2",
+		Blocks: []types.AnswerBlock{
+			{ID: "list1", Kind: types.BlockOrderedList,
+				Items: []types.AnswerBlockItem{{ID: "i1", Label: "A"}}},
+		},
+	}
+	// Step 2: apply an empty-mutation patch (UnchangedBlockIDs only).
+	// Merged doc == prev structurally. Critical: ApplyAnswerDocumentV2Patch
+	// only checks structural invariants — it does NOT enforce
+	// "must have a summary block". That gate belongs to runV2BlockOracles.
+	patch := &types.AnswerDocumentV2Patch{
+		UnchangedBlockIDs: []string{"list1"},
+	}
+	merged, err := types.ApplyAnswerDocumentV2Patch(prev, patch)
+	if err != nil {
+		t.Fatalf("patch apply failed: %v", err)
+	}
+
+	// Step 3: feed the merged doc into runV2BlockOracles with a view
+	// that DOES require a summary. The validators must fire on the
+	// patch-merged doc the same way they would fire on a fresh emit
+	// of the same shape.
+	view := uncertaintyView()
+	view.RequiredBlocks = []types.BlockRequirement{
+		{Kind: types.BlockSummary, MinCount: 1, MaxCount: 1, Required: true, Rationale: "summary"},
+	}
+	violations := runV2BlockOracles(merged, view)
+	if len(violations) == 0 {
+		t.Fatalf("patch-merged doc lacking required summary must trigger ViolBlockCoverageMissing; got 0 violations")
+	}
+	// Verify the expected violation kind is present.
+	foundCoverageMissing := false
+	for _, v := range violations {
+		if v.Kind == types.ViolBlockCoverageMissing {
+			foundCoverageMissing = true
+			break
+		}
+	}
+	if !foundCoverageMissing {
+		t.Errorf("expected ViolBlockCoverageMissing from patch-merged doc; got %+v", violations)
+	}
+}
+
 // ── R2.3 V2 重接 facet_uncovered + richness_regression tests ──────
 
 // TestValidateFacetCoverage_AllRequiredCovered confirms no fire

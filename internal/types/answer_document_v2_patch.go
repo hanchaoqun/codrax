@@ -148,6 +148,28 @@ func (p *AnswerDocumentV2Patch) IsEmpty() bool {
 // (nil, error) on any validation failure (unknown ids, dup ids,
 // conflicting ops, etc.).
 //
+// CONTRACT VALIDATION CHOKEPOINT (Phase 2-B2 audit, 2026-05-04):
+// This function only enforces structural validity (block id
+// uniqueness, kind enum, mutual-exclusion invariants 1-5,
+// diagram-payload presence). It does NOT run the V2 oracle suite
+// (block coverage / claim_use / facet / diagram edge / absence /
+// richness). Those validators are owned by the orchestrator's
+// runContractCheck (orchestrator/contract_check.go) which reads
+// mut.AnswerDocumentV2() AFTER SetAnswerDocumentV2FromPatch
+// commits the merged doc. Both emit paths (full + patch) write
+// through the same MutableState surface, so runContractCheck sees
+// identical merged-doc input regardless of provenance — the
+// validation chokepoint is unified at the orchestrator layer.
+//
+// REGRESSION GUARD: If a future commit short-circuits patch emit
+// to bypass mut.SetAnswerDocumentV2FromPatch (or its sibling
+// SetAnswerDocumentV2), the post-merge V2 oracle suite will not
+// observe the merged doc and silent contract-violations would ship.
+// Tests in contract_check_block_test.go (Test*_PatchMergedDoc*)
+// pin this contract by injecting a known-violating block via the
+// patch path and asserting the same V2 oracles fire that would have
+// fired on a fresh full emit of the same payload.
+//
 // Determinism: the resulting block order is
 //   1. Every prev block in original order, EXCEPT removed and
 //      replaced. Replaced blocks substitute the new payload at the
