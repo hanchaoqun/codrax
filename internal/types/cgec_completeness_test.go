@@ -248,6 +248,8 @@ func TestAllViolationKindsHaveProducer(t *testing.T) {
 		// R10 CGEC frequency bridges (post_shape_residual_audit.md, 2026-05-04).
 		ViolDemotionStorm:   true, // orchestrator/orchestrator.go emitCGECStormViolations
 		ViolForcedReadStorm: true, // orchestrator/orchestrator.go emitCGECStormViolations
+		// G3 (post_v2_runtime_gap_remediation, 2026-05-04).
+		ViolDiagramEdgeLabelMismatch: true, // orchestrator/contract_check_block.go validateDiagramRelationLegality
 	}
 	pending := map[ViolationKind]string{
 		ViolFamilyMismatch:                          "P9-C-retired-V1-checkShape (V2 block oracles cover read-mode block contract via runV2BlockOracles)",
@@ -306,6 +308,7 @@ func TestAllViolationKindsHaveProducer(t *testing.T) {
 		ViolBlockCoverageMissing:     "ViolBlockCoverageMissing",
 		ViolPrincipalClaimUseMissing: "ViolPrincipalClaimUseMissing",
 		ViolDiagramEdgeUnsupported:   "ViolDiagramEdgeUnsupported",
+		ViolDiagramEdgeLabelMismatch: "ViolDiagramEdgeLabelMismatch",
 		ViolUncertaintyBlockMissing:  "ViolUncertaintyBlockMissing",
 		// B6-F1 (post-shape consolidated audit, 2026-05-04).
 		ViolCrossCitationConflict: "ViolCrossCitationConflict",

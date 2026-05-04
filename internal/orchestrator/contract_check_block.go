@@ -281,15 +281,51 @@ func validateDiagramRelationLegality(
 ) []types.Violation {
 	plan := view.DiagramPlan
 	anchoredIndex := buildClaimUseEdgeAnchorIndex(doc)
+	// G3 (post_v2_runtime_gap_remediation, 2026-05-04): build
+	// (from,to) → typed RelationKind index from EdgeAnchors that
+	// declare RelationKind directly. Resolution is typed-first;
+	// label inference is the fallback.
+	typedRelIndex := buildTypedRelationIndex(doc)
 
 	type missingAnchor struct {
 		from, to, label string
 		want            types.ClaimForm
 	}
+	type labelMismatch struct {
+		from, to, label string
+		typed           types.DiagramRelationKind
+		labelInferred   types.DiagramRelationKind
+	}
 	var missing []missingAnchor
+	var mismatches []labelMismatch
 	relCounts := make(map[types.DiagramRelationKind]int)
 	for _, e := range edges {
-		rel := types.InferRelationFromLabel(e.label)
+		// Resolution priority:
+		//   1. Typed RelationKind on a matching EdgeAnchor (from,to) →
+		//      authoritative.
+		//   2. Otherwise InferRelationFromLabel(e.label).
+		// Unknown (no typed AND no recognised label keyword) keeps the
+		// pre-G3 "label-free edge" semantic — legitimate, no violation.
+		typedRel, hasTyped := typedRelIndex[edgeKey{
+			from: strings.ToLower(strings.TrimSpace(e.from)),
+			to:   strings.ToLower(strings.TrimSpace(e.to)),
+		}]
+		labelRel := types.InferRelationFromLabel(e.label)
+		var rel types.DiagramRelationKind
+		switch {
+		case hasTyped:
+			rel = typedRel
+			// Advisory drift signal: typed says X, label parses to Y, X≠Y.
+			// SOFT-only — labels are noisy; never promote.
+			if labelRel != types.DiagramRelUnknown && labelRel != typedRel {
+				mismatches = append(mismatches, labelMismatch{
+					from: e.from, to: e.to, label: e.label,
+					typed: typedRel, labelInferred: labelRel,
+				})
+			}
+		default:
+			rel = labelRel
+		}
 		if rel == types.DiagramRelUnknown {
 			continue
 		}
@@ -336,11 +372,11 @@ func validateDiagramRelationLegality(
 		violations = append(violations, types.Violation{
 			Kind: types.ViolDiagramEdgeUnsupported,
 			Detail: fmt.Sprintf(
-				"diagram block id=%q expected at least %d edge(s) of relation kind=%s but found %d (label the edges with vocabulary the relation kind recognises)",
-				diagramBlock.ID, contract.Min, contract.Kind, relCounts[contract.Kind]),
+				"diagram block id=%q expected at least %d edge(s) of relation kind=%s but found %d (declare the relation either via a block-level edge_anchors entry with relation_kind=%s, or via a label whose vocabulary recognises this relation)",
+				diagramBlock.ID, contract.Min, contract.Kind, relCounts[contract.Kind], contract.Kind),
 			Repair: fmt.Sprintf(
-				"add at least %d Mermaid edge(s) whose label resolves to relation kind=%s (see the %q section above for the recognised label vocabulary); each such edge should be supported by a block-level edge_anchors[] entry with claim_form=%s and matching from_node / to_node",
-				contract.Min-relCounts[contract.Kind], contract.Kind, types.SectionDiagramEdgeLabelVocabulary, contract.ClaimForm),
+				"add at least %d edge(s) of relation kind=%s. PREFERRED: declare relation_kind=%s on a block-level edge_anchors entry along with from_node / to_node / claim_form=%s. ALTERNATIVE: label the Mermaid edge with vocabulary that resolves to this relation (see the %q section above for the recognised label vocabulary).",
+				contract.Min-relCounts[contract.Kind], contract.Kind, contract.Kind, contract.ClaimForm, types.SectionDiagramEdgeLabelVocabulary),
 			SuspectedRoot: types.SuspectedRoot{
 				IRField:    "diagram_edges",
 				Reason:     "minimum-count contract for typed relation not satisfied",
@@ -349,7 +385,73 @@ func validateDiagramRelationLegality(
 			Stage: string(types.StageFinalize),
 		})
 	}
+	if len(mismatches) > 0 {
+		// G3 SOFT advisory — readers benefit when the rendered label
+		// matches the typed declaration. Never promotable to STRICT
+		// (label inference is noisy; defaultSoftKinds permanently
+		// classifies this kind SOFT).
+		details := make([]string, 0, len(mismatches))
+		for _, m := range mismatches {
+			details = append(details, fmt.Sprintf(
+				"%s --|%s|--> %s (typed declares %s; the label reads as %s)",
+				m.from, m.label, m.to, m.typed, m.labelInferred))
+		}
+		violations = append(violations, types.Violation{
+			Kind: types.ViolDiagramEdgeLabelMismatch,
+			Detail: fmt.Sprintf(
+				"diagram block id=%q has %d edge(s) whose typed relation_kind disagrees with the rendered label vocabulary: [%s]",
+				diagramBlock.ID, len(mismatches), strings.Join(details, "; ")),
+			Repair: fmt.Sprintf(
+				"the typed relation_kind on edge_anchors is the authority; align the rendered label vocabulary with each typed declaration so readers see the same relation the validator does (see the %q section above for the recognised label vocabulary). The answer ships with this drift left in place; this signal is advisory.",
+				types.SectionDiagramEdgeLabelVocabulary),
+			SuspectedRoot: types.SuspectedRoot{
+				IRField:    "diagram_edges",
+				Reason:     "rendered label disagrees with typed relation declaration",
+				Confidence: 0.5,
+			},
+			Stage: string(types.StageFinalize),
+		})
+	}
 	return violations
+}
+
+// edgeKey is the (lowercase from, lowercase to) lookup key for the
+// typed-relation index. Keep separate from claimUseEdgeKey so the
+// two indexes can diverge (typed-relation lookup does not key on
+// ClaimForm — multiple ClaimForm entries on the same edge collapse
+// onto the same RelationKind).
+type edgeKey struct {
+	from, to string
+}
+
+// buildTypedRelationIndex collects every EdgeAnchor whose RelationKind
+// is set, keyed by case-folded (FromNode, ToNode). When two anchors
+// for the same edge declare different RelationKinds, the FIRST entry
+// wins (defensive — schema doesn't currently allow duplicates, but
+// the validator should not panic on them).
+//
+// G3 (post_v2_runtime_gap_remediation, 2026-05-04). Building the
+// index once per diagram block keeps the per-edge resolution O(1).
+func buildTypedRelationIndex(doc *types.AnswerDocumentV2) map[edgeKey]types.DiagramRelationKind {
+	idx := make(map[edgeKey]types.DiagramRelationKind)
+	for i := range doc.Blocks {
+		b := &doc.Blocks[i]
+		for j := range b.EdgeAnchors {
+			a := &b.EdgeAnchors[j]
+			if !a.HasEdgeAnchor() || !a.HasTypedRelation() {
+				continue
+			}
+			k := edgeKey{
+				from: strings.ToLower(strings.TrimSpace(a.FromNode)),
+				to:   strings.ToLower(strings.TrimSpace(a.ToNode)),
+			}
+			if _, exists := idx[k]; exists {
+				continue
+			}
+			idx[k] = a.RelationKind
+		}
+	}
+	return idx
 }
 
 // buildClaimUseEdgeAnchorIndex collects every DiagramEdgeAnchor

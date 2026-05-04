@@ -1629,6 +1629,129 @@ func TestValidateDiagramEdgeSupport_Layer1FailureShortCircuitsLayer2(t *testing.
 	}
 }
 
+// ── G3 typed RelationKind 优先 (post_v2_runtime_gap_remediation, 2026-05-04) ──
+
+// G3 step 2: typed RelationKind on the EdgeAnchor overrides label
+// inference when both differ. The legacy 1-cluster contract
+// (EdgeRelations.Min=1 for relation=call) is satisfied by the typed
+// declaration even when the label parses to a different relation.
+func TestValidateDiagramRelationLegality_TypedRelationOverridesLabel(t *testing.T) {
+	view := callChainViewWithDiagram()
+	// Label "if call ready" parses to DiagramRelGuard via priority
+	// (guard > call). Typed RelationKind=Call should override.
+	doc := docWithDiagramBody(
+		"sequenceDiagram\n  Auth->>Worker: if call ready\n",
+		types.DiagramEdgeAnchor{
+			FromNode:     "Auth",
+			ToNode:       "Worker",
+			RelationKind: types.DiagramRelCall,
+			ClaimForm:    types.ClaimCallEdge,
+		},
+	)
+	vs := validateDiagramEdgeSupport(doc, view)
+	// Must NOT fire ViolDiagramEdgeUnsupported — typed Call satisfies
+	// EdgeRelations.Min=1 + the anchored claim_use is present.
+	for _, v := range vs {
+		if v.Kind == types.ViolDiagramEdgeUnsupported {
+			t.Errorf("typed Call should satisfy EdgeRelations.Min — got unexpected: %+v", v)
+		}
+	}
+	// MUST fire ViolDiagramEdgeLabelMismatch — typed=Call, label=Guard.
+	var foundMismatch bool
+	for _, v := range vs {
+		if v.Kind == types.ViolDiagramEdgeLabelMismatch {
+			foundMismatch = true
+			if !strings.Contains(v.Detail, "call") || !strings.Contains(v.Detail, "guard") {
+				t.Errorf("mismatch detail must name both relations; got %q", v.Detail)
+			}
+		}
+	}
+	if !foundMismatch {
+		t.Errorf("expected ViolDiagramEdgeLabelMismatch when typed≠label; got %+v", vs)
+	}
+}
+
+// G3 step 2: when typed RelationKind is set AND label is empty (or
+// parses to Unknown), no mismatch fires — the typed declaration
+// authoritatively drives the relation; the (absent) label is not a
+// drift.
+func TestValidateDiagramRelationLegality_TypedAloneNoMismatch(t *testing.T) {
+	view := callChainViewWithDiagram()
+	doc := docWithDiagramBody(
+		"sequenceDiagram\n  Auth->>Worker\n", // unlabelled
+		types.DiagramEdgeAnchor{
+			FromNode:     "Auth",
+			ToNode:       "Worker",
+			RelationKind: types.DiagramRelCall,
+			ClaimForm:    types.ClaimCallEdge,
+		},
+	)
+	vs := validateDiagramEdgeSupport(doc, view)
+	for _, v := range vs {
+		if v.Kind == types.ViolDiagramEdgeLabelMismatch {
+			t.Errorf("unlabelled edge with typed relation must NOT fire mismatch; got %+v", v)
+		}
+	}
+}
+
+// G3 step 2: legacy label-only path stays valid when no typed
+// RelationKind set. Back-compat: existing answers must keep passing.
+func TestValidateDiagramRelationLegality_LabelOnlyPathPreserved(t *testing.T) {
+	view := callChainViewWithDiagram()
+	doc := docWithDiagramBody(
+		"sequenceDiagram\n  Auth->>Worker: invoke\n",
+		types.DiagramEdgeAnchor{
+			FromNode:  "Auth",
+			ToNode:    "Worker",
+			ClaimForm: types.ClaimCallEdge,
+			// RelationKind unset → fall back to label inference.
+		},
+	)
+	vs := validateDiagramEdgeSupport(doc, view)
+	for _, v := range vs {
+		if v.Kind == types.ViolDiagramEdgeLabelMismatch {
+			t.Errorf("typed unset must NOT fire mismatch (label-only legacy path); got %+v", v)
+		}
+		if v.Kind == types.ViolDiagramEdgeUnsupported {
+			t.Errorf("legacy label=invoke + ClaimCallEdge anchor must satisfy Layer 2; got %+v", v)
+		}
+	}
+}
+
+// G3 step 2: typed RelationKind satisfies EdgeRelations.Min even when
+// the label parses to Unknown (vocabulary doesn't know the word).
+func TestValidateDiagramRelationLegality_TypedSatisfiesMinWithUnknownLabel(t *testing.T) {
+	view := callChainViewWithDiagram()
+	doc := docWithDiagramBody(
+		"sequenceDiagram\n  Auth->>Worker: ☆☆☆\n", // label not in vocabulary
+		types.DiagramEdgeAnchor{
+			FromNode:     "Auth",
+			ToNode:       "Worker",
+			RelationKind: types.DiagramRelCall,
+			ClaimForm:    types.ClaimCallEdge,
+		},
+	)
+	vs := validateDiagramEdgeSupport(doc, view)
+	for _, v := range vs {
+		if v.Kind == types.ViolDiagramEdgeUnsupported {
+			t.Errorf("typed Call with unknown-vocabulary label must still satisfy Min; got %+v", v)
+		}
+	}
+}
+
+// G3 step 2: ViolDiagramEdgeLabelMismatch is permanently SOFT — even
+// when the operator promotes via pipeline_contract_strict_kinds, the
+// validator emits SOFT (no STRICT route). Locked via DeriveSeverity
+// returning SeveritySoft regardless of isStrict.
+func TestViolDiagramEdgeLabelMismatch_PermanentlySoft(t *testing.T) {
+	for _, isStrict := range []bool{false, true} {
+		got := types.DeriveSeverity(types.ViolDiagramEdgeLabelMismatch, isStrict)
+		if got != types.SeveritySoft {
+			t.Errorf("isStrict=%v: DeriveSeverity = %v, want SeveritySoft (permanent SOFT, R3 noisy-signal red line)", isStrict, got)
+		}
+	}
+}
+
 // ── 修 B: validateEnumerationItemLabelExtractorMatch lock tests ──
 
 // helper: build a minimal V2 doc with an ordered_list block carrying

@@ -385,6 +385,18 @@ const (
 	// edge represents". Stage="finalize". SOFT-by-default.
 	ViolDiagramEdgeUnsupported ViolationKind = "diagram_edge_unsupported"
 
+	// ViolDiagramEdgeLabelMismatch fires when an edge carries a typed
+	// RelationKind on its EdgeAnchor entry AND the rendered label
+	// resolves (via InferRelationFromLabel) to a DIFFERENT non-Unknown
+	// RelationKind. Surfaces a consistency drift — the typed
+	// declaration is the authority for legality checks, but a
+	// mismatched label confuses readers. SOFT-by-default and never
+	// promotable to STRICT (label inference is a noisy signal — R3
+	// invariant: noisy signals only drive soft guidance).
+	// Stage="finalize". G3 (post_v2_runtime_gap_remediation,
+	// 2026-05-04).
+	ViolDiagramEdgeLabelMismatch ViolationKind = "diagram_edge_label_mismatch"
+
 	// ViolUncertaintyBlockMissing fires when an UncertaintyRule's
 	// trigger fired (e.g. FacetObservedArtifactFact present in
 	// FacetCoverage.Required) but no matching BlockCaveat exists
@@ -600,6 +612,7 @@ func AllViolationKinds() []ViolationKind {
 		ViolBlockCoverageMissing,
 		ViolPrincipalClaimUseMissing,
 		ViolDiagramEdgeUnsupported,
+		ViolDiagramEdgeLabelMismatch,
 		ViolUncertaintyBlockMissing,
 	}
 }

@@ -133,6 +133,7 @@ func inferViolationLayer(kind types.ViolationKind) string {
 	case types.ViolBlockCoverageMissing,
 		types.ViolPrincipalClaimUseMissing,
 		types.ViolDiagramEdgeUnsupported,
+		types.ViolDiagramEdgeLabelMismatch,
 		types.ViolUncertaintyBlockMissing,
 		types.ViolFacetUncovered,
 		types.ViolRichnessRegression,

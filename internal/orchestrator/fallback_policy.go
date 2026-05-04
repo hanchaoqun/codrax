@@ -353,6 +353,10 @@ func DefaultFallbackPolicy() FallbackPolicy {
 		types.ViolBlockCoverageMissing:     FallbackBackToExtract,
 		types.ViolPrincipalClaimUseMissing: FallbackFinalizerOnly,
 		types.ViolDiagramEdgeUnsupported:   FallbackFinalizerOnly,
+		// G3 (post_v2_runtime_gap_remediation, 2026-05-04) — typed
+		// vs label drift is a finalize-local rewrite (relabel for
+		// readability without changing typed declaration).
+		types.ViolDiagramEdgeLabelMismatch: FallbackFinalizerOnly,
 		types.ViolUncertaintyBlockMissing:  FallbackFinalizerOnly,
 		// Phase 5 telemetry-only kind — never reaches the fallback
 		// switch under default SOFT classification, but mapped to

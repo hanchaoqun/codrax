@@ -412,7 +412,12 @@ func DeriveSeverity(kind ViolationKind, isStrict bool) Severity {
 		ViolAnswerReviewerDistilled,
 		// R10 CGEC frequency bridges — telemetry-only, never block.
 		ViolDemotionStorm,
-		ViolForcedReadStorm:
+		ViolForcedReadStorm,
+		// G3 (post_v2_runtime_gap_remediation, 2026-05-04) —
+		// diagram edge label-vs-typed drift. Permanently SOFT
+		// (label inference is noisy; isStrict has no effect — the
+		// operator-promote path is intentionally a no-op).
+		ViolDiagramEdgeLabelMismatch:
 		return SeveritySoft
 	}
 	// Unknown kinds default to Medium — safer than Soft (won't

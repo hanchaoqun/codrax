@@ -1205,6 +1205,15 @@ func defaultSoftKinds() map[types.ViolationKind]bool {
 		// need auto-rewrite-to-single-locus behaviour promote via
 		// pipeline_contract_strict_kinds.
 		types.ViolCrossCitationConflict: true,
+		// G3 (post_v2_runtime_gap_remediation, 2026-05-04) —
+		// diagram edge label inference vs typed RelationKind drift.
+		// SOFT-by-default and DELIBERATELY not promotable to STRICT:
+		// label inference is a noisy signal (R3 invariant — only
+		// precise signals drive hard gates). Operators who set
+		// pipeline_contract_strict_kinds for this kind get a no-op
+		// promotion at the gate level; the validator emits SOFT
+		// regardless.
+		types.ViolDiagramEdgeLabelMismatch: true,
 	}
 }
 
