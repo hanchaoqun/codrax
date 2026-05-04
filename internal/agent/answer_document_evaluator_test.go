@@ -1133,7 +1133,7 @@ func TestAnswerDocumentEvaluator_Observe_MidLoopExactContextSurfaceRejectUsesMet
 		t.Fatalf("exact-context-surface reject should request a correction hint, got %+v", sig)
 	}
 	for _, want := range []string{
-		"Do NOT restate `explore_mid_loop_hint_budget` in `summary`",
+		"Do NOT restate `explore_mid_loop_hint_budget` in the `summary` block's text",
 		"renderer already prints the exact-target lead",
 		"`ExploreBudget`, `internal/config/runtime.go`",
 		"`DefaultExploreHeuristics()`, `codrax.yaml.example`",

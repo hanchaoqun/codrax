@@ -206,8 +206,8 @@ func (e *answerDocumentEvaluator) BuildInitialInstruction(ctx *types.AgentContex
 	if ctx != nil && ctx.AnalysisIR != nil && types.IsScalarSourceLiteralLookup(ctx.AnalysisIR.RequestModel) {
 		b.WriteString("## Scalar Lookup Discipline\n\n")
 		b.WriteString("- This dispatch asks for one named source-code literal, not for a walkthrough of the surrounding pipeline.\n")
-		b.WriteString("- Keep `summary` narrow: identify the literal, give its grounded file:line location, and add only the minimal role sentence needed to justify why it is the answer.\n")
-		b.WriteString("- The principal scalar block still requires a real `summary`. The literal or decision alone is not a complete answer.\n")
+		b.WriteString("- Keep the `summary` block's text narrow: identify the literal, give its grounded file:line location, and add only the minimal role sentence needed to justify why it is the answer.\n")
+		b.WriteString("- The principal `scalar` block still requires a real `summary` block alongside it. The literal or decision alone is not a complete answer.\n")
 		b.WriteString("- Do not expand into adjacent helpers, orchestrated stages, or nearby components unless the user explicitly asked how the mechanism works.\n")
 		b.WriteString("- Every non-negative `citation_ref` on a scalar payload must point at a real entry in `citations[]`. Do not emit `citation_ref: 0` with an empty citations pool.\n")
 		b.WriteString("- If you include a secondary citation beyond the defining one, it must still directly name or call/reference the SAME emitted literal. Drop type comments, nearby docstrings, or broad background citations even when they are grounded.\n")
@@ -258,20 +258,21 @@ func (e *answerDocumentEvaluator) BuildInitialInstruction(ctx *types.AgentContex
 	if ctx != nil && ctx.AnalysisIR != nil && len(ctx.AnalysisIR.RequestModel.SubTopics) > 1 {
 		b.WriteString("## Answer Structure (multi-topic)\n\n")
 		b.WriteString("The user asked about multiple topics. " +
-			"Your summary MUST address each one with a clearly labeled section:\n\n")
+			"Your principal blocks MUST address each one with a clearly labeled section (use `section` blocks per topic OR a single `summary` block whose text carries one labeled section per topic):\n\n")
 		for i, st := range ctx.AnalysisIR.RequestModel.SubTopics {
 			fmt.Fprintf(&b, "%d. %s\n", i+1, st.Summary)
 		}
 		b.WriteString("\nProvide citations for each section.\n\n")
 
 		// Anchor skeleton: when the extractor produced a per-topic
-		// anchor slate (answer-symbols emitted during Turn B with
-		// shape=explanation + sub_topics ≥ 1), echo those anchors
-		// in the finalizer prompt so the LLM re-emits them as the
-		// symbols[] payload. The renderer draws a Key Anchors block
-		// beneath the summary when symbols[] is non-empty on
-		// explanation shape. This pins the load-bearing identifiers
-		// in the rendered output and stops the finalizer from
+		// anchor slate (answer-symbols emitted during Turn B for
+		// multi-topic explanation questions, sub_topics ≥ 1), echo
+		// those anchors in the finalizer prompt so the LLM re-emits
+		// them as items inside an optional `ordered_list` Key Anchors
+		// block alongside the principal blocks. The renderer draws
+		// the Key Anchors block beneath the summary block when the
+		// LLM emits one. This pins the load-bearing identifiers in
+		// the rendered output and stops the finalizer from
 		// synthesizing prose that drifts from Turn A's evidence.
 		if view.AllowsAnchorSkeleton(ctx.AnalysisIR.RequestModel) && len(ctx.AnswerSymbols) > 0 {
 			b.WriteString("### Anchor skeleton (emit as one optional ordered_list block)\n\n")
@@ -386,7 +387,7 @@ func renderAnswerDocSubmissionChecklist(ctx *types.AgentContext, view *types.Ans
 	)
 	if ctx != nil && ctx.LogTriage != nil && len(ctx.LogTriage.Errors) > 0 {
 		items = append(items,
-			"If this answer explains an attached log / stack trace, name each structured log error type or exception identifier from Log Triage at least once in `summary`. Do not paraphrase the type name away.",
+			"If this answer explains an attached log / stack trace, name each structured log error type or exception identifier from Log Triage at least once in the `summary` block's text. Do not paraphrase the type name away.",
 		)
 		if explicit := renderRequiredLogTriageTypes(ctx.LogTriage); explicit != "" {
 			items = append(items, explicit)
@@ -398,7 +399,7 @@ func renderAnswerDocSubmissionChecklist(ctx *types.AgentContext, view *types.Ans
 			// preference here so this checklist agrees with the
 			// Diagram Contract section. ASCII art is a fallback
 			// only when the Mermaid subset cannot express the shape.
-			"`summary` must include at least one grounded fenced diagram for this dispatch. PREFERRED: a ` ```mermaid ` fenced block using `flowchart` (LR / TD / RL / BT) or `sequenceDiagram` (the renderer applies a deterministic-alignment pass). ASCII art is the fallback only.",
+			"This dispatch must include at least one grounded fenced diagram via a `diagram` block (preferred — `diagram.kind` ∈ flow / sequence / architecture / call_dag, `diagram.language=\"mermaid\"`) OR a fenced block embedded in the `summary` block's text. PREFERRED Mermaid: a ` ```mermaid ` fenced block using `flowchart` (LR / TD / RL / BT) or `sequenceDiagram` (the renderer applies a deterministic-alignment pass). ASCII art is the fallback only.",
 			"When a `Diagram Seeds` / `First-Pass Diagram Reference` section is present, treat its grounded labels as a FLOOR you can extend, not a verbatim ceiling. You SHOULD add additional grounded nodes / branches / fan-out when your investigation supports a richer mechanism. The hard rule: every file/path label inside the fenced block stays grounded in citations[] or Log Triage frames.",
 			"Every file/path node you keep inside a fenced diagram must also be grounded by `citations[]` or by attached Log Triage frames in this dispatch. If a relationship lacks a grounded node label, explain it in prose instead of inventing a diagram node.",
 		)
@@ -472,14 +473,14 @@ func renderAnswerDocStepBackbone(ctx *types.AgentContext, view *types.AnswerSema
 	b.WriteString("## Step Backbone\n\n")
 	switch plan.StepBackboneCompleteness {
 	case types.CompletenessComplete:
-		b.WriteString("The upstream deterministic pipeline already resolved a complete ordered backbone for this step list. Use these anchors as the default spine of `steps[]`.\n\n")
+		b.WriteString("The upstream deterministic pipeline already resolved a complete ordered backbone for this step list. Use these anchors as the default spine of the principal `ordered_list` block's `items[]`.\n\n")
 	case types.CompletenessLowerBound:
-		b.WriteString("The upstream deterministic pipeline already resolved an ordered lower-bound backbone for this step list. Keep these anchors in order, and only add more cited hops when another grounded line independently supports them.\n\n")
+		b.WriteString("The upstream deterministic pipeline already resolved an ordered lower-bound backbone for this step list. Keep these anchors in order in the principal `ordered_list` block's `items[]`, and only add more cited items when another grounded line independently supports them.\n\n")
 	default:
-		b.WriteString("The upstream deterministic pipeline already resolved an ordered grounded backbone for this step list. Use these anchors as the default spine of `steps[]`.\n\n")
+		b.WriteString("The upstream deterministic pipeline already resolved an ordered grounded backbone for this step list. Use these anchors as the default spine of the principal `ordered_list` block's `items[]`.\n\n")
 	}
-	b.WriteString("- Keep each cited step at the abstraction directly corroborated by its own citation.\n")
-	b.WriteString("- If a cited anchor is a call site / assignment / guard, describe that call site / assignment / guard there; helper internals belong in a separately grounded step or in uncited summary prose.\n")
+	b.WriteString("- Keep each cited item at the abstraction directly corroborated by its own citation.\n")
+	b.WriteString("- If a cited anchor is a call site / assignment / guard, describe that call site / assignment / guard there; helper internals belong in a separately grounded item or in the `summary` block's text.\n")
 	b.WriteString("- Do not merge one anchor's citation with semantics that only appear in another file / definition.\n\n")
 	for i, anchor := range plan.StepBackbone {
 		desc := types.RenderStepSurfaceAnchorDescription(anchor)
@@ -528,7 +529,7 @@ func renderAnswerDocEnumerationBoundary(ctx *types.AgentContext, view *types.Ans
 		for _, bk := range qs.Buckets {
 			labels = append(labels, fmt.Sprintf("`%s`", bk.Label))
 		}
-		fmt.Fprintf(&b, "The user partitioned the answer into %d named groups: %s. Each label MUST appear verbatim in your rendered answer (summary section heading is the preferred surface; step description / symbol rationale also acceptable). The user's mental partition must survive end-to-end.\n\n",
+		fmt.Fprintf(&b, "The user partitioned the answer into %d named groups: %s. Each label MUST appear verbatim in your rendered answer (a heading inside the `summary` block's text is the preferred surface; an item label inside an `ordered_list` / `bullet_list` block is also acceptable). The user's mental partition must survive end-to-end.\n\n",
 			len(qs.Buckets), strings.Join(labels, ", "))
 	}
 	if !hasBoundary {
@@ -549,7 +550,7 @@ func renderAnswerDocEnumerationBoundary(ctx *types.AgentContext, view *types.Ans
 	case view != nil && view.Family == types.QFEnumeration:
 		fmt.Fprintf(&b, "- Keep the principal `ordered_list` block's `items[]` slate to %d item(s) when the grounded evidence supports that boundary.\n", boundary.DeclaredCount)
 	default:
-		fmt.Fprintf(&b, "- Keep the main enumerated set in `summary` to %d principal item(s).\n", boundary.DeclaredCount)
+		fmt.Fprintf(&b, "- Keep the principal enumerated set (the `ordered_list` / `bullet_list` block's `items[]` AND any per-topic items mentioned in the `summary` block) to %d principal item(s).\n", boundary.DeclaredCount)
 	}
 	b.WriteString("- If current code also contains adjacent guards, helpers, or later-added side conditions around the same owner, do not silently blend them into the principal set.\n")
 	b.WriteString("- Mention auxiliary items as a short caveat or follow-on note after the principal set, and only when grounded evidence makes the distinction clear.\n")
@@ -801,7 +802,7 @@ func renderAnswerDocDiagramContract(dc *types.DiagramContract) string {
 	if len(dc.Reasons) > 0 {
 		fmt.Fprintf(&b, "- Reasons: %s\n", strings.Join(dc.Reasons, ", "))
 	}
-	b.WriteString("- This requirement is independent of answer shape: if it says `Required: yes`, `summary` must contain at least one grounded fenced diagram block.\n")
+	b.WriteString("- This requirement is independent of question family: if it says `Required: yes`, the dispatch must contain at least one grounded fenced diagram via a principal `diagram` block (preferred) or a fenced block embedded in the `summary` block's text.\n")
 	b.WriteString("- PREFERRED form: a ` ```mermaid ` fenced block using `flowchart` (LR / TD / RL / BT) or `sequenceDiagram`. The renderer applies a deterministic-alignment pass to Mermaid bodies so the diagram looks clean across terminals / locales / CJK content. ASCII art (a bare ``` fence with `+ - | > <` connectors) is the FALLBACK ONLY when the supported Mermaid subset cannot express the shape.\n")
 	b.WriteString("- Reuse grounded labels directly inside the fence. Do not rename, normalize, or abstract a cited file / symbol / path literal into a different label unless that alternate label is itself grounded in citations or log frames.\n")
 	b.WriteString("- Avoid invented enumeration labels like `Level 1`, `Round 2`, or `Step 3` unless those exact labels appear in grounded evidence.\n\n")
@@ -1517,7 +1518,7 @@ func renderAnswerDocLogSourceDrift(ctx *types.AgentContext) string {
 	}
 	if len(plan.DriftBoundedSurfaceItems) > 0 {
 		b.WriteString("\n### Drift-Bounded Current Surface\n\n")
-		b.WriteString("Only claims directly expressible from the grounded anchors below belong in `summary` / `steps[]`. Treat anything beyond them as unproven older-build detail.\n\n")
+		b.WriteString("Only claims directly expressible from the grounded anchors below belong in the `summary` block's text or in any principal `ordered_list` / `bullet_list` items. Treat anything beyond them as unproven older-build detail.\n\n")
 		for _, item := range plan.DriftBoundedSurfaceItems {
 			label := strings.TrimSpace(types.EvidenceStructuredSemanticLine(item, false))
 			if label == "" {
@@ -1606,7 +1607,7 @@ func renderAnswerDocForbiddenExactContextAnchors(ctx *types.AgentContext, contra
 	}
 	var b strings.Builder
 	b.WriteString("## Background-Only Anchors\n\n")
-	b.WriteString("These nearby same-family / illustrative anchors are NOT answer-grade context for this dispatch. Do not cite them, do not turn them into diagram nodes, and do not surface them in summary prose unless the investigation is explicitly reopened with new grounded proof.\n\n")
+	b.WriteString("These nearby same-family / illustrative anchors are NOT answer-grade context for this dispatch. Do not cite them, do not turn them into diagram nodes, and do not surface them in the `summary` block's text or in any principal block's items unless the investigation is explicitly reopened with new grounded proof.\n\n")
 	for _, anchor := range anchors {
 		fmt.Fprintf(&b, "- %s\n", anchor.Text)
 	}
@@ -2250,10 +2251,10 @@ func (e *answerDocumentEvaluator) emitAnswerDocumentRejectSignal(ctx *types.Agen
 	}
 	if rejectCode == answerDocRejectCodeExactContextSurface {
 		reasonKey = "exact-context-surface"
-		hint = "Your last `emit_answer_document` call was rejected because `summary` leaked exact-target / nearby-context material that does not belong on the user-visible answer surface. Re-emit `emit_answer_document` now with the same `exact_resolution` object and answer shape, but treat `summary` as the follow-on grounded-context block only."
+		hint = "Your last `emit_answer_document` call was rejected because the `summary` block's text leaked exact-target / nearby-context material that does not belong on the user-visible answer surface. Re-emit `emit_answer_document` now with the same `exact_resolution` object and the same V2 block layout, but treat the `summary` block as the follow-on grounded-context block only."
 		if repair != nil && repair.Metadata != nil {
 			if repeated := strings.TrimSpace(repair.Metadata["repeated_target"]); repeated != "" {
-				hint += " Do NOT restate " + repeated + " in `summary`: the renderer already prints the exact-target lead for this dispatch."
+				hint += " Do NOT restate " + repeated + " in the `summary` block's text: the renderer already prints the exact-target lead for this dispatch."
 			}
 			if forbidden := strings.TrimSpace(repair.Metadata["forbidden_anchors"]); forbidden != "" {
 				hint += " Drop these background-only anchors from prose, diagrams, and citations: `" + strings.ReplaceAll(forbidden, ", ", "`, `") + "`."

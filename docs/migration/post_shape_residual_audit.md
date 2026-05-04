@@ -102,7 +102,7 @@
 
 | ID | 状态 | commit | 真 eval 验证 |
 |---|---|---|---|
-| R1.1 | ⬜ pending | — | — |
+| R1.1 | 🟢 SHIPPED finalizer helper LLM 词汇统一 | TBD | 真 eval 验证 LLM 不再被 V1 心智误导 |
 | R1.2 | 🟢 SHIPPED LLM 词汇 1:1 内部 enum + 锁 test | TBD | 待真 eval 验证不再 false-fire ClaimForm 验证器 |
 | R1.3 | ⬜ pending | — | — |
 | R1.4 | ⬜ pending | — | — |
