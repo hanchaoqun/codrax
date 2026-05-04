@@ -18,19 +18,23 @@ package types
 //   - ExactResolution / Caveats / Snippets stay as document-level
 //     fields because they are answer-level concepts, not block-level.
 //
-// Schema invariant: the LLM-facing JSON schema (in
-// internal/tool/emit_answer_document.go for V2 path) ALWAYS sets
-// DocumentModel="v2"; the field is the Marker the validator uses to
-// distinguish the two carrier paths during the migration window.
+// Schema invariant (B3-F1 four-layer-consistency, 2026-05-04): the
+// LLM-facing JSON schema (in internal/tool/emit_answer_document.go),
+// the executor (executeAnswerDocumentV2 in
+// emit_answer_document_v2.go), AllowedDocumentModels() above, and
+// this type comment all say the same thing — DocumentModel MUST
+// equal "v2"; empty / missing is rejected at the dispatch boundary.
+// V1 carrier is retired at B8-T3 (2026-05-03).
 //
 // Per the feedback_no_system_backfill_to_user_panel red line, ALL
 // AnswerDocumentV2 fields are LLM-emitted; no system code mutates
 // them post-emit. Renderer / hedging / oracles READ this struct;
 // they never write to it.
 type AnswerDocumentV2 struct {
-	// DocumentModel marks the carrier version. ALWAYS "v2" for
-	// V2-emitted documents. Empty when an old code path tries to
-	// reuse the V1 path; a non-"" non-"v2" value is invalid.
+	// DocumentModel marks the carrier version. MUST be exactly
+	// "v2" for V2-emitted documents — empty / missing / any other
+	// value is rejected at the emit_answer_document dispatch
+	// boundary (post-B3-F1, 2026-05-04). V1 carrier is retired.
 	DocumentModel string `json:"document_model"`
 
 	// Blocks is the ordered sequence of answer blocks. Renderer
@@ -172,13 +176,17 @@ type AnswerDiagramBlock struct {
 }
 
 // AllowedDocumentModels enumerates the DocumentModel values the V2
-// schema validator accepts. Empty string is treated as V1 (legacy
-// path); "v2" routes to V2 parsing. Any other value is rejected.
+// schema validator accepts. Currently exactly "v2" — V1 carrier is
+// retired (B8-T3, 2026-05-03) and empty / missing is rejected at
+// the dispatch boundary (B3-F1, 2026-05-04). Any other value is
+// rejected.
 //
 // Adding a new model (e.g. "v3" some day) requires updating this
-// list AND the emit_answer_document tool's Execute dispatch.
+// list AND the emit_answer_document tool's schema enum AND the
+// Execute dispatch — see post_shape_retirement_consolidated_audit.md
+// §8 Batch B3 for the four-layer-consistency rule.
 func AllowedDocumentModels() []string {
-	return []string{"", "v2"}
+	return []string{"v2"}
 }
 
 // IsV2Document reports whether the doc's DocumentModel field marks

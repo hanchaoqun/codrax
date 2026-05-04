@@ -2939,6 +2939,18 @@ func (o *Orchestrator) runReadSchedulerLoop(stepBudget int) int {
 	stepsUsed := 0
 	var lastFinalize *agent.StageOutput
 
+	// lastFallbackFinalizerOnly latches when the previous loop
+	// iteration picked FallbackFinalizerOnly as the fallback target —
+	// upstream extractor / explorer state was preserved verbatim, so
+	// the next iteration's pre-finalize extract dispatch is wasted
+	// LLM work (the answer-symbol slate is already correct;
+	// re-running extract just re-emits the same items + verdicts on
+	// the same evidence). B3-F3 (post_shape_retirement_consolidated_
+	// audit.md §8 Batch B3, 2026-05-04) skips extract on this path.
+	// Reset to false on any non-FinalizerOnly fallback so retries
+	// that DO mutate upstream state get a fresh extract dispatch.
+	lastFallbackFinalizerOnly := false
+
 	// forceFinalizeTriggered latches once stopcond.ShouldStop has fired
 	// and forceCloseExploreWindow has marked every non-finalize node
 	// as done. The flag serves two distinct purposes:
@@ -3389,13 +3401,31 @@ func (o *Orchestrator) runReadSchedulerLoop(stepBudget int) int {
 		// finalize, with complete accumulated evidence from all
 		// explore windows. Answer-symbol selection + LLM hypothesis
 		// verdicts happen here.
-		o.busCtx.PipelineStage = types.StageExtract
-		o.busCtx.TaskState.Stage = types.StageExtract
-		stepsUsed++
-		if _, exErr := o.dispatchStage(types.StageExtract); exErr != nil {
-			logging.Warning("[orchestrator] pre-finalize extract dispatch failed (continuing): %v", exErr)
+		//
+		// B3-F3 (2026-05-04) skip path: when the previous iteration
+		// fell back FinalizerOnly the upstream evidence + answer-
+		// symbol slate are already correct (FinalizerOnly explicitly
+		// preserved them). Re-running extract just re-emits the
+		// same items + verdicts on the same evidence — wasted LLM
+		// turns. Skip the re-dispatch on this path; the existing
+		// AnswerSymbols / HypothesisVerdicts in BusContext stay
+		// valid from the prior iteration. (The skip is one-shot:
+		// we reset the latch immediately so any later non-Finalizer
+		// fallback re-runs extract as before.)
+		if lastFallbackFinalizerOnly && len(o.busCtx.AnswerSymbols) > 0 {
+			logging.Info("[orchestrator] B3-F3 skip pre-finalize extract: prior FinalizerOnly fallback preserved upstream state (AnswerSymbols=%d)",
+				len(o.busCtx.AnswerSymbols))
+			lastFallbackFinalizerOnly = false
 		} else {
-			o.drainHypothesisVerdicts()
+			o.busCtx.PipelineStage = types.StageExtract
+			o.busCtx.TaskState.Stage = types.StageExtract
+			stepsUsed++
+			if _, exErr := o.dispatchStage(types.StageExtract); exErr != nil {
+				logging.Warning("[orchestrator] pre-finalize extract dispatch failed (continuing): %v", exErr)
+			} else {
+				o.drainHypothesisVerdicts()
+			}
+			lastFallbackFinalizerOnly = false
 		}
 
 		state.markRunning(fin.ID)
@@ -3701,6 +3731,10 @@ func (o *Orchestrator) runReadSchedulerLoop(stepBudget int) int {
 			if o.busCtx != nil && o.busCtx.Mutable != nil {
 				o.busCtx.Mutable.ResetForFallback(types.FallbackResetTargetFinalizer)
 			}
+			// B3-F3: latch — the next iteration's pre-finalize
+			// extract dispatch is redundant (upstream state
+			// preserved). The skip lives at line ~3406.
+			lastFallbackFinalizerOnly = true
 		case FallbackBackToExtract:
 			// Read-mode TaskGraph has no NodeExtract today (extract
 			// is implicit in the explore pass); selective requeue
@@ -3710,6 +3744,9 @@ func (o *Orchestrator) runReadSchedulerLoop(stepBudget int) int {
 				o.busCtx.Mutable.ResetForFallback(types.FallbackResetTargetExtract)
 			}
 			state.upstreamFallbacksUsed++
+			// extract DID change (we cleared the slate) — next
+			// iteration's pre-finalize extract dispatch is correct.
+			lastFallbackFinalizerOnly = false
 		case FallbackBackToExplore:
 			requeued := state.requeueToStage(types.StageExplore, false)
 			state.requeue(fin.ID)
@@ -3719,6 +3756,7 @@ func (o *Orchestrator) runReadSchedulerLoop(stepBudget int) int {
 					requeued, cleared)
 			}
 			state.upstreamFallbacksUsed++
+			lastFallbackFinalizerOnly = false
 		default:
 			// Unrecognised target — degrade to FinalizerOnly so
 			// retries always make progress.
@@ -3726,6 +3764,7 @@ func (o *Orchestrator) runReadSchedulerLoop(stepBudget int) int {
 			if o.busCtx != nil && o.busCtx.Mutable != nil {
 				o.busCtx.Mutable.ResetForFallback(types.FallbackResetTargetFinalizer)
 			}
+			lastFallbackFinalizerOnly = true
 		}
 		state.recordRetry()
 		// Block 1 (architecture overhaul 2026-05-02) — also bump the

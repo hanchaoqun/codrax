@@ -17,9 +17,13 @@ var _ = time.Now // ensure time stays imported when failEmit moved
 // the struct into user-visible prose.
 //
 // B8-T3+T4 (block_only_carrier.md §5.8, 2026-05-03): V1 carrier
-// fully retired. Only document_model="v2" (or empty / missing,
-// which routes to V2 too) is accepted. The V2 schema is enforced
-// in executeAnswerDocumentV2 (emit_answer_document_v2.go).
+// fully retired. Only document_model="v2" is accepted. B3-F1
+// (post_shape_retirement_consolidated_audit.md §8 Batch B3,
+// 2026-05-04) tightened the gate further: empty / missing
+// document_model is now rejected at the executor with an explicit
+// "document_model must equal \"v2\"" error so schema / executor /
+// type-level contract all say the same thing. The V2 schema is
+// enforced in executeAnswerDocumentV2 (emit_answer_document_v2.go).
 //
 // Classified ReadOnly because IsWrite() is the filesystem-write
 // boundary; mutating BusContext is not a filesystem write.
@@ -117,8 +121,8 @@ func (t *EmitAnswerDocument) Parameters() json.RawMessage {
   "properties": {
     "document_model": {
       "type": "string",
-      "enum": ["", "v2"],
-      "description": "Carrier marker. Use \"v2\" (or omit) — only the block-only carrier is accepted."
+      "enum": ["v2"],
+      "description": "Carrier marker. MUST equal \"v2\" (the only accepted carrier — V1 is retired). Empty / missing is rejected."
     },
     "blocks": {
       "type": "array",
@@ -174,15 +178,17 @@ func (t *EmitAnswerDocument) Parameters() json.RawMessage {
     "caveats":  {"type": "array", "items": {"type": "string"}, "description": "Optional document-level caveat strings (cross-block scope notes)."},
     "snippets": {"type": "array", "items": {"type": "object"}, "description": "Optional code snippets shown alongside the answer."}
   },
-  "required": ["blocks"]
+  "required": ["document_model", "blocks"]
 }`
 	return json.RawMessage(schema)
 }
 
 // Execute routes the emit to the V2 validator + writer. V1 carrier
-// is retired (B8-T3); empty / missing document_model is treated as
-// V2 attempt and the V2 validator gives a clear error if the
-// payload contains V1 fields.
+// is retired (B8-T3); B3-F1 (2026-05-04) tightened the contract so
+// empty / missing document_model is now an explicit fail-fast
+// rejection here at the dispatch boundary, not silently routed to
+// V2 to be rejected later by the executor — keeps schema /
+// dispatch / executor / type-level all saying the same thing.
 func (t *EmitAnswerDocument) Execute(ctx *types.BusContext, params json.RawMessage) (types.ToolResult, error) {
 	now := time.Now()
 	if ctx == nil || ctx.Mutable == nil {
@@ -193,14 +199,19 @@ func (t *EmitAnswerDocument) Execute(ctx *types.BusContext, params json.RawMessa
 			Timestamp: now,
 		}, nil
 	}
-	if model, ok, err := peekDocumentModel(params); err != nil {
+	model, ok, err := peekDocumentModel(params)
+	if err != nil {
 		return failEmit(t.Name(), now, "invalid params: %v", err)
-	} else if !ok || model == "" || model == "v2" {
-		return executeAnswerDocumentV2(t.Name(), ctx, params, now)
-	} else {
+	}
+	if !ok {
+		return failEmit(t.Name(), now,
+			"document_model is required and must equal \"v2\" — V1 carrier is retired and empty / missing is rejected at the dispatch boundary")
+	}
+	if model != "v2" {
 		return failEmit(t.Name(), now,
 			"document_model=%q is not supported; only \"v2\" is accepted (V1 carrier retired at B8)", model)
 	}
+	return executeAnswerDocumentV2(t.Name(), ctx, params, now)
 }
 
 // requestedAnswerDocumentLanguage returns the requested answer

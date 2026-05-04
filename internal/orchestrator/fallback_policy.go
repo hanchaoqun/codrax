@@ -82,6 +82,83 @@ func (t FallbackTarget) IsValid() bool {
 	return false
 }
 
+// RepairLocus classifies WHERE a violation can actually be repaired
+// — the stage that legitimately owns the fix. Introduced in B3-F2
+// (post_shape_retirement_consolidated_audit.md §8 Batch B3,
+// 2026-05-04) to replace the pre-B3 "deepest fallback target wins"
+// rule. The pre-B3 rule over-pulled when one finalizer-local
+// violation co-occurred with one extract-local violation: the
+// extract-local target dominated and the entire retry got dragged
+// upstream, even though most violations could be fixed at finalize.
+//
+// The B3 rule is "primary repair locus":
+//   1. Bucket violations by their locus.
+//   2. Pick the locus with the most violations.
+//   3. On tie, fall back to the deepest target (preserves safety —
+//      if equal counts, we'd rather over-rebuild than under-repair).
+//
+// Locus values mirror the read-mode pipeline stages plus a terminal
+// fail-loud sentinel:
+type RepairLocus string
+
+const (
+	// LocusFinalizer — the violation can be fixed by re-emitting
+	// the answer document with adjusted block payload / claim_use /
+	// diagram.kind / Authority disclosure. Evidence + extractor
+	// state are preserved.
+	LocusFinalizer RepairLocus = "finalizer"
+
+	// LocusExtract — the violation needs the extractor to re-pick
+	// citations / re-frame absence scope / re-emit the symbol
+	// slate. Evidence is preserved, the extract output is reset.
+	LocusExtract RepairLocus = "extract"
+
+	// LocusExplore — the violation needs new evidence (a new file
+	// read, a new grep, a new closure entry). Both extract output
+	// and answer document are reset; explorer re-runs.
+	LocusExplore RepairLocus = "explore"
+
+	// LocusTerminal — the violation is non-recoverable through
+	// retry (analyzer-classification disputes, retry budget, yield
+	// kill, reviewer-distilled informational kinds).
+	LocusTerminal RepairLocus = "terminal"
+)
+
+// LocusOfTarget returns the RepairLocus that owns the named
+// FallbackTarget. Identity-mapped except BackToAnalyze →
+// LocusTerminal (re-classification is a design red line and
+// FailLoud → LocusTerminal).
+func LocusOfTarget(t FallbackTarget) RepairLocus {
+	switch t {
+	case FallbackFinalizerOnly:
+		return LocusFinalizer
+	case FallbackBackToExtract:
+		return LocusExtract
+	case FallbackBackToExplore:
+		return LocusExplore
+	case FallbackBackToAnalyze, FallbackFailLoud:
+		return LocusTerminal
+	}
+	return LocusFinalizer
+}
+
+// targetForLocus returns the FallbackTarget aligned with the given
+// RepairLocus. Used by FallbackTargetForViolations after picking
+// the primary locus.
+func targetForLocus(l RepairLocus) FallbackTarget {
+	switch l {
+	case LocusFinalizer:
+		return FallbackFinalizerOnly
+	case LocusExtract:
+		return FallbackBackToExtract
+	case LocusExplore:
+		return FallbackBackToExplore
+	case LocusTerminal:
+		return FallbackFailLoud
+	}
+	return FallbackFinalizerOnly
+}
+
 // FallbackPolicy maps each ViolationKind to its preferred
 // FallbackTarget. Operators override individual entries via
 // codrax.yaml :: pipeline_fallback_policy_overrides; missing entries
@@ -322,37 +399,134 @@ func FallbackTargetForKind(kind types.ViolationKind) FallbackTarget {
 	return FallbackFinalizerOnly
 }
 
-// FallbackTargetForViolations returns the deepest FallbackTarget
-// across the supplied violation set. "Deepest" follows the order
-// FailLoud > BackToAnalyze > BackToExplore > BackToExtract >
-// FinalizerOnly so a single high-signal violation can drag the
-// whole retry up the pipeline. Empty input returns
-// FallbackFinalizerOnly — caller treats that as "no upstream
-// fallback needed".
+// FallbackTargetForViolation returns the FallbackTarget for one
+// specific violation, including any per-violation overrides that
+// inspect violation.Detail. Introduced in B3-F2 (2026-05-04) to
+// fix P36: ViolBlockCoverageMissing was statically mapped to
+// BackToExtract, but when the missing block is `diagram` or
+// `table` (kinds the finalizer alone can re-emit from existing
+// evidence) the upstream fallback is wasteful and slow.
+//
+// The override rule is conservative: only the Detail patterns we
+// can confidently classify trigger a non-default target. Any
+// uncertain Detail falls back to the kind's default policy entry,
+// preserving pre-B3 behaviour for those cases.
+func FallbackTargetForViolation(v types.Violation) FallbackTarget {
+	def := FallbackTargetForKind(v.Kind)
+	if v.Kind == types.ViolBlockCoverageMissing {
+		// Detail format example:
+		//   "required block kind=diagram appears 0 time(s) in answer; the family contract requires at least 1"
+		// or:
+		//   "required block kind=scalar appears 2 time(s); the family contract caps it at 1"
+		//
+		// kind=diagram / kind=table missing blocks are pure
+		// finalizer-emit failures (the visualisation / tabulation
+		// is constructed from already-present evidence; the
+		// extractor has no diagram/table channel to re-pick from).
+		// Overflow / count-cap variants stay BackToExtract because
+		// the extractor's slate may need to drop items.
+		detail := strings.ToLower(v.Detail)
+		if strings.Contains(detail, "appears 0 time(s)") {
+			if strings.Contains(detail, "kind=diagram") || strings.Contains(detail, "kind=table") {
+				return FallbackFinalizerOnly
+			}
+		}
+	}
+	return def
+}
+
+// FallbackTargetForViolations returns the FallbackTarget for the
+// supplied violation set, picking by **primary repair locus** (the
+// locus that owns the most violations in the set). Replaces the
+// pre-B3 "deepest target wins" rule — see RepairLocus comment for
+// rationale and the post_shape_retirement_consolidated_audit.md
+// §8 Batch B3 entry for the issue this fixes (P10 / P36).
+//
+// Empty input returns FallbackFinalizerOnly — caller treats that as
+// "no upstream fallback needed".
+//
+// Algorithm:
+//
+//   1. Collect (locus, target) for each violation via
+//      FallbackTargetForViolation (per-violation Detail-aware).
+//   2. Bucket by locus and count.
+//   3. Pick the locus with the highest count as the **primary
+//      repair locus**. On tie, prefer the deepest locus (Terminal >
+//      Explore > Extract > Finalizer) — when equal-count buckets
+//      disagree the safer choice is to over-rebuild rather than
+//      under-repair.
+//   4. Return the target aligned with that locus, **except** when
+//      any single violation in the set is FailLoud — that one
+//      still drags the whole retry to FailLoud regardless of
+//      majority (failure-of-last-resort red line).
 func FallbackTargetForViolations(vs []types.Violation) FallbackTarget {
-	rank := func(t FallbackTarget) int {
-		switch t {
-		case FallbackFinalizerOnly:
+	if len(vs) == 0 {
+		return FallbackFinalizerOnly
+	}
+	type bucket struct {
+		locus  RepairLocus
+		target FallbackTarget
+		count  int
+		seen   bool
+	}
+	buckets := map[RepairLocus]*bucket{}
+	bumpBucket := func(l RepairLocus, t FallbackTarget) {
+		b, ok := buckets[l]
+		if !ok {
+			b = &bucket{locus: l, target: t, count: 0}
+			buckets[l] = b
+		}
+		// Within the same locus, keep the first target observed —
+		// they are equivalent under stage semantics. (The caller
+		// resets state per locus, not per target.)
+		b.count++
+		b.seen = true
+	}
+	hasFailLoud := false
+	for _, v := range vs {
+		t := FallbackTargetForViolation(v)
+		if t == FallbackFailLoud {
+			hasFailLoud = true
+		}
+		bumpBucket(LocusOfTarget(t), t)
+	}
+	// FailLoud always wins (any single non-recoverable violation
+	// terminates the retry loop — semantics unchanged from pre-B3).
+	if hasFailLoud {
+		return FallbackFailLoud
+	}
+	// Pick primary locus by count, with deepest-locus tiebreak.
+	locusDepth := func(l RepairLocus) int {
+		switch l {
+		case LocusFinalizer:
 			return 1
-		case FallbackBackToExtract:
+		case LocusExtract:
 			return 2
-		case FallbackBackToExplore:
+		case LocusExplore:
 			return 3
-		case FallbackBackToAnalyze:
+		case LocusTerminal:
 			return 4
-		case FallbackFailLoud:
-			return 5
 		}
 		return 0
 	}
-	best := FallbackFinalizerOnly
-	for _, v := range vs {
-		t := FallbackTargetForKind(v.Kind)
-		if rank(t) > rank(best) {
-			best = t
+	var best *bucket
+	for _, b := range buckets {
+		if best == nil {
+			best = b
+			continue
+		}
+		if b.count > best.count {
+			best = b
+			continue
+		}
+		if b.count == best.count && locusDepth(b.locus) > locusDepth(best.locus) {
+			best = b
 		}
 	}
-	return best
+	if best == nil {
+		return FallbackFinalizerOnly
+	}
+	return targetForLocus(best.locus)
 }
 
 // PolicySnapshot returns a defensive copy of the active policy for

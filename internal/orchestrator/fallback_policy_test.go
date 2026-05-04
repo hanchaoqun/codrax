@@ -98,7 +98,7 @@ func TestFallbackTargetForViolations_PicksDeepest(t *testing.T) {
 			want: FallbackFailLoud,
 		},
 		{
-			name: "PlanCritic + Citation → FailLoud (deepest wins)",
+			name: "PlanCritic + Citation → FailLoud (FailLoud short-circuits)",
 			vs: []types.Violation{
 				{Kind: types.ViolPlanCritic},
 				{Kind: types.ViolCitation},
@@ -112,6 +112,146 @@ func TestFallbackTargetForViolations_PicksDeepest(t *testing.T) {
 				t.Errorf("got %s, want %s", got, tc.want)
 			}
 		})
+	}
+}
+
+// TestFallbackTargetForViolations_PrimaryRepairLocus pins B3-F2's
+// repair-locus picker semantics (replacing pre-B3 "deepest wins").
+// Same locus on most violations wins regardless of single-violation
+// depth; tie tiebreaks by deepest. FailLoud always wins.
+func TestFallbackTargetForViolations_PrimaryRepairLocus(t *testing.T) {
+	cases := []struct {
+		name string
+		vs   []types.Violation
+		want FallbackTarget
+	}{
+		{
+			// 2 finalizer-local + 1 explore — pre-B3 picked Explore
+			// (deepest). Post-B3 picks FinalizerOnly (majority locus).
+			name: "2 finalizer + 1 explore → finalizer_only (majority)",
+			vs: []types.Violation{
+				{Kind: types.ViolPrincipalClaimUseMissing},
+				{Kind: types.ViolDiagramEdgeUnsupported},
+				{Kind: types.ViolCitation},
+			},
+			want: FallbackFinalizerOnly,
+		},
+		{
+			// Inverted majority — explore wins.
+			name: "2 explore + 1 finalizer → back_to_explore (majority)",
+			vs: []types.Violation{
+				{Kind: types.ViolCitation},
+				{Kind: types.ViolGhostAnchor},
+				{Kind: types.ViolPrincipalClaimUseMissing},
+			},
+			want: FallbackBackToExplore,
+		},
+		{
+			// Tie: 1 finalizer + 1 extract → tiebreak by deepest =
+			// extract.
+			name: "1 finalizer + 1 extract tie → extract (deepest tiebreak)",
+			vs: []types.Violation{
+				{Kind: types.ViolPrincipalClaimUseMissing},
+				{Kind: types.ViolDeclaredCountDrift},
+			},
+			want: FallbackBackToExtract,
+		},
+		{
+			// PlanCritic forces FailLoud regardless of majority.
+			name: "FailLoud overrides any majority",
+			vs: []types.Violation{
+				{Kind: types.ViolPrincipalClaimUseMissing},
+				{Kind: types.ViolDiagramEdgeUnsupported},
+				{Kind: types.ViolPlanCritic},
+			},
+			want: FallbackFailLoud,
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := FallbackTargetForViolations(tc.vs); got != tc.want {
+				t.Errorf("got %s, want %s", got, tc.want)
+			}
+		})
+	}
+}
+
+// TestFallbackTargetForViolation_BlockCoverageSubClassification pins
+// B3-F2's per-violation override on ViolBlockCoverageMissing: when
+// the missing block kind is `diagram` or `table` (visualisation
+// blocks the finalizer can re-emit from existing evidence), the
+// fallback target overrides the kind's default BackToExtract to
+// FinalizerOnly. Other missing block kinds retain the default.
+func TestFallbackTargetForViolation_BlockCoverageSubClassification(t *testing.T) {
+	cases := []struct {
+		name   string
+		v      types.Violation
+		want   FallbackTarget
+	}{
+		{
+			name: "missing diagram → finalizer_only (override)",
+			v: types.Violation{
+				Kind:   types.ViolBlockCoverageMissing,
+				Detail: `required block kind=diagram appears 0 time(s) in answer; the family contract requires at least 1`,
+			},
+			want: FallbackFinalizerOnly,
+		},
+		{
+			name: "missing table → finalizer_only (override)",
+			v: types.Violation{
+				Kind:   types.ViolBlockCoverageMissing,
+				Detail: `required block kind=table appears 0 time(s); the family requires at least 1`,
+			},
+			want: FallbackFinalizerOnly,
+		},
+		{
+			name: "missing scalar → back_to_extract (default)",
+			v: types.Violation{
+				Kind:   types.ViolBlockCoverageMissing,
+				Detail: `required block kind=scalar appears 0 time(s); the family requires at least 1`,
+			},
+			want: FallbackBackToExtract,
+		},
+		{
+			name: "scalar over-cap → back_to_extract (default; not 'appears 0')",
+			v: types.Violation{
+				Kind:   types.ViolBlockCoverageMissing,
+				Detail: `required block kind=scalar appears 2 time(s); the family contract caps it at 1`,
+			},
+			want: FallbackBackToExtract,
+		},
+		{
+			name: "missing ordered_list → back_to_extract (default; not visual)",
+			v: types.Violation{
+				Kind:   types.ViolBlockCoverageMissing,
+				Detail: `required block kind=ordered_list appears 0 time(s)`,
+			},
+			want: FallbackBackToExtract,
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := FallbackTargetForViolation(tc.v); got != tc.want {
+				t.Errorf("got %s, want %s", got, tc.want)
+			}
+		})
+	}
+}
+
+// TestLocusOfTarget_AllTargetsMapped pins the FallbackTarget →
+// RepairLocus mapping completeness invariant.
+func TestLocusOfTarget_AllTargetsMapped(t *testing.T) {
+	for _, tt := range []FallbackTarget{
+		FallbackFinalizerOnly,
+		FallbackBackToExtract,
+		FallbackBackToExplore,
+		FallbackBackToAnalyze,
+		FallbackFailLoud,
+	} {
+		l := LocusOfTarget(tt)
+		if l == "" {
+			t.Errorf("FallbackTarget %q has no RepairLocus mapping", tt)
+		}
 	}
 }
 
