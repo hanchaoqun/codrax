@@ -1613,6 +1613,14 @@ func cloneAnswerDocumentV2(in *AnswerDocumentV2) *AnswerDocumentV2 {
 			if len(b.FacetIDs) > 0 {
 				cloned.FacetIDs = append([]string(nil), b.FacetIDs...)
 			}
+			// G2-4 (post_v2_runtime_gap_remediation, 2026-05-04):
+			// EdgeAnchors was previously omitted from this clone,
+			// silently dropping the typed annotation field on every
+			// SetAnswerDocumentV2 / AnswerDocumentV2() round-trip.
+			// The G2 cross-path equivalence audit caught this.
+			if len(b.EdgeAnchors) > 0 {
+				cloned.EdgeAnchors = append([]DiagramEdgeAnchor(nil), b.EdgeAnchors...)
+			}
 			out.Blocks[i] = cloned
 		}
 	}
