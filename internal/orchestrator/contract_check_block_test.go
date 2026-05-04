@@ -807,6 +807,108 @@ func TestValidateFacetCoverage_NilGuards(t *testing.T) {
 	}
 }
 
+// G6-2: Essential Detail label surfaces "essential" — the LLM /
+// operator can tell why this facet was promoted (always-hard).
+func TestValidateFacetCoverage_DetailNamesEssentialPromotion(t *testing.T) {
+	doc := &types.AnswerDocumentV2{
+		Blocks: []types.AnswerBlock{
+			{Kind: types.BlockSummary, FacetIDs: []string{"facet.other"}},
+		},
+	}
+	view := &types.AnswerSemanticView{
+		FacetCoverage: &types.FacetCoverageContract{
+			Required: []types.FacetRequirement{
+				{Kind: "facet.essential", Required: types.FacetHardRequired,
+					PromotionPolicy: types.PromotionAlwaysHard, SourceCandidate: nil},
+			},
+		},
+	}
+	vs := validateFacetCoverage(doc, view)
+	if len(vs) != 1 {
+		t.Fatalf("want 1 violation; got %d (%+v)", len(vs), vs)
+	}
+	if !strings.Contains(vs[0].Detail, "essential") {
+		t.Errorf("Detail must surface 'essential' promotion label; got %q", vs[0].Detail)
+	}
+}
+
+// G6-2: Expected promoted (evidence-sufficient) Detail surfaces
+// the typed evidence count.
+func TestValidateFacetCoverage_DetailNamesEvidenceSufficientPromotion(t *testing.T) {
+	doc := &types.AnswerDocumentV2{
+		Blocks: []types.AnswerBlock{
+			{Kind: types.BlockSummary, FacetIDs: []string{"facet.other"}},
+		},
+	}
+	view := &types.AnswerSemanticView{
+		FacetCoverage: &types.FacetCoverageContract{
+			Required: []types.FacetRequirement{
+				{Kind: "facet.expected", Required: types.FacetSoftRequired,
+					PromotionPolicy:         types.PromotionWhenEvidenceSufficient,
+					MinEvidenceForPromotion: 1,
+					SourceCandidate:         []string{"ev-a", "ev-b", "ev-c"}},
+			},
+		},
+	}
+	vs := validateFacetCoverage(doc, view)
+	if len(vs) != 1 {
+		t.Fatalf("want 1 violation; got %d (%+v)", len(vs), vs)
+	}
+	if !strings.Contains(vs[0].Detail, "evidence-sufficient") {
+		t.Errorf("Detail must surface 'evidence-sufficient' label; got %q", vs[0].Detail)
+	}
+	if !strings.Contains(vs[0].Detail, "3 typed evidence rows") {
+		t.Errorf("Detail must surface evidence count (=3); got %q", vs[0].Detail)
+	}
+}
+
+// G6-2: AdvisoryOnly facet in Required list is defensively skipped —
+// this exercises the EffectivePromotionPolicy=AdvisoryOnly guard.
+func TestValidateFacetCoverage_AdvisoryOnlyInRequiredSkipped(t *testing.T) {
+	doc := &types.AnswerDocumentV2{
+		Blocks: []types.AnswerBlock{
+			{Kind: types.BlockSummary, FacetIDs: []string{"facet.other"}},
+		},
+	}
+	view := &types.AnswerSemanticView{
+		FacetCoverage: &types.FacetCoverageContract{
+			Required: []types.FacetRequirement{
+				{Kind: "facet.optional_in_required", Required: types.FacetOptional,
+					PromotionPolicy: types.PromotionAdvisoryOnly, SourceCandidate: []string{"ev-a"}},
+			},
+		},
+	}
+	if vs := validateFacetCoverage(doc, view); len(vs) != 0 {
+		t.Errorf("AdvisoryOnly in Required must be skipped; got %+v", vs)
+	}
+}
+
+// G6-2: Repair text is free of internal jargon (Go field/type names).
+// Existing R4 self-check during refactor swapped "AcceptableForms"
+// → "acceptable forms" and "ClaimForm" → "claim_form". Lock that.
+func TestValidateFacetCoverage_RepairNoInternalJargon(t *testing.T) {
+	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{
+		{Kind: types.BlockSummary, FacetIDs: []string{"facet.other"}},
+	}}
+	view := &types.AnswerSemanticView{FacetCoverage: &types.FacetCoverageContract{
+		Required: []types.FacetRequirement{
+			{Kind: "facet.x", Required: types.FacetHardRequired},
+		},
+	}}
+	vs := validateFacetCoverage(doc, view)
+	if len(vs) != 1 {
+		t.Fatalf("want 1 violation; got %+v", vs)
+	}
+	for _, banned := range []string{"AcceptableForms", "ClaimForm", "FacetCoverage", "FacetRequirement", "PromotionPolicy"} {
+		if strings.Contains(vs[0].Repair, banned) {
+			t.Errorf("Repair contains internal jargon %q: %q", banned, vs[0].Repair)
+		}
+		if strings.Contains(vs[0].Detail, banned) {
+			t.Errorf("Detail contains internal jargon %q: %q", banned, vs[0].Detail)
+		}
+	}
+}
+
 // TestValidateRichnessRegression_FiresWhenOptionalUnsurfaced
 // confirms optional facets with evidence available but no block
 // coverage fire ViolRichnessRegression.

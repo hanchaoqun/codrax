@@ -389,13 +389,27 @@ func (r FacetRequirement) EffectiveTier() RichnessTier {
 }
 
 // EffectivePromotionPolicy returns PromotionPolicy when set,
-// otherwise derives from Required. Back-compat accessor for any
-// FacetRequirement that bypassed CompileFacetCoverage.
+// otherwise derives from Required. When BOTH PromotionPolicy and
+// Required are unset (hand-constructed FacetRequirement carrying
+// only Tier — common in pre-G6 fixtures), derive from Tier instead
+// of defaulting to AdvisoryOnly so existing callers' semantics are
+// preserved.
 func (r FacetRequirement) EffectivePromotionPolicy() FacetPromotionPolicy {
 	if r.PromotionPolicy != "" {
 		return r.PromotionPolicy
 	}
-	return PromotionPolicyFromRequiredness(r.Required)
+	if r.Required != "" {
+		return PromotionPolicyFromRequiredness(r.Required)
+	}
+	switch r.Tier {
+	case TierEssential:
+		return PromotionAlwaysHard
+	case TierExpected:
+		return PromotionWhenEvidenceSufficient
+	case TierEnrichment:
+		return PromotionAdvisoryOnly
+	}
+	return PromotionAdvisoryOnly
 }
 
 // EffectiveMinEvidenceForPromotion returns MinEvidenceForPromotion

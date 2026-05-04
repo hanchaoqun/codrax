@@ -954,21 +954,21 @@ func formNames(forms []types.ClaimForm) []string {
 // already populates on every block. Coverage now = "any block
 // declared this FacetID" — a precise, typed signal (R2 red line).
 //
-// Tier branching (Phase 5-E1, 2026-05-04):
-//   - TierEssential (HARD): always demand coverage. Even when
-//     SourceCandidate is empty post-binding, the analyzer template
-//     pinned this facet as essential — the answer cannot ship
-//     without it; uncovered fires a violation.
-//   - TierExpected (SOFT): demand coverage IFF SourceCandidate is
-//     non-empty. Non-empty SourceCandidate = typed evidence exists
-//     to support the facet, so the answer COULD have surfaced it.
-//     Empty SourceCandidate = no typed evidence binds to this
-//     facet's AcceptableForms — skipping the gate avoids a noisy
-//     "uncovered" demand the LLM cannot satisfy honestly. R3
-//     justified because SourceCandidate is fully typed (Phase 5-E0
-//     audit).
-//   - TierEnrichment (Optional): handled by
-//     validateRichnessRegression below, not here.
+// Promotion gate (G6 post_v2_runtime_gap_remediation, 2026-05-04):
+// the (Tier, len(SourceCandidate)) joint logic is centralised on
+// FacetRequirement.IsPromoted(). The validator now reads a single
+// typed predicate:
+//
+//   - IsPromoted()=true  → demand coverage (uncovered fires a
+//     violation). Always-hard facets and evidence-sufficient
+//     promoted facets both flow through this branch.
+//   - IsPromoted()=false → skip the gate. Either the policy is
+//     AdvisoryOnly (Optional / Enrichment) — handled by
+//     validateRichnessRegression — or the policy is
+//     WhenEvidenceSufficient with no typed evidence supporting
+//     this facet, in which case demanding coverage would force the
+//     LLM to invent unsupported claims (R3 invariant — typed
+//     evidence absence is a precise skip signal).
 //
 // Skip rules (file-level):
 //   - view == nil OR view.FacetCoverage == nil: family doesn't carry
@@ -1002,16 +1002,17 @@ func validateFacetCoverage(doc *types.AnswerDocumentV2, view *types.AnswerSemant
 	}
 	var out []types.Violation
 	for _, req := range view.FacetCoverage.Required {
-		if req.Tier == types.TierEnrichment {
+		// Enrichment facets are AdvisoryOnly — handled by
+		// validateRichnessRegression. Defensive guard preserved for
+		// callers that hand-construct contracts with Enrichment in
+		// the Required list.
+		if req.EffectivePromotionPolicy() == types.PromotionAdvisoryOnly {
 			continue
 		}
-		// Phase 5-E1 evidence-sufficient gate: TierExpected facets
-		// with no typed evidence supporting them are skipped — the
-		// answer has nothing typed to surface, so demanding coverage
-		// would force the LLM to invent unsupported claims.
-		// TierEssential always demands regardless (analyzer template
-		// pinned it as essential).
-		if req.Tier == types.TierExpected && len(req.SourceCandidate) == 0 {
+		// G6: single typed gate — promote only when the typed
+		// (PromotionPolicy, MinEvidenceForPromotion, len(SourceCandidate))
+		// triple says so.
+		if !req.IsPromoted() {
 			continue
 		}
 		kind := strings.TrimSpace(string(req.Kind))
@@ -1021,13 +1022,26 @@ func validateFacetCoverage(doc *types.AnswerDocumentV2, view *types.AnswerSemant
 		if covered[kind] {
 			continue
 		}
+		// Detail surfaces the typed evidence count so the LLM /
+		// operator can tell WHY this facet was promoted (always-hard
+		// vs evidence-sufficient).
+		var promotionLabel string
+		switch req.EffectivePromotionPolicy() {
+		case types.PromotionAlwaysHard:
+			promotionLabel = "essential"
+		case types.PromotionWhenEvidenceSufficient:
+			promotionLabel = fmt.Sprintf("evidence-sufficient (%d typed evidence rows support this facet)",
+				len(req.SourceCandidate))
+		default:
+			promotionLabel = string(req.EffectivePromotionPolicy())
+		}
 		out = append(out, types.Violation{
 			Kind: types.ViolFacetUncovered,
 			Detail: fmt.Sprintf(
-				"required facet %q (tier=%s) is not covered: no V2 block declared it via block.facet_ids[] or via item.claim_use.facet_id",
-				kind, req.Tier),
+				"required facet %q (%s) is not covered: no V2 block declared it via block.facet_ids[] or via item.claim_use.facet_id",
+				kind, promotionLabel),
 			Repair: fmt.Sprintf(
-				"declare facet_id=%q on at least one block whose payload covers this facet, OR re-investigate to gather evidence whose ClaimForm matches the facet's AcceptableForms (when no current evidence supports the facet).",
+				"declare facet_id=%q on at least one block whose payload covers this facet, OR re-investigate to gather evidence whose claim_form matches the facet's acceptable forms (when no current evidence supports the facet).",
 				kind),
 			SuspectedRoot: types.SuspectedRoot{
 				IRField:    "answer_facet_coverage",
