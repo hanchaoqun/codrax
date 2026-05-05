@@ -36,6 +36,26 @@ func TestClaimFormForRelation_AllKinds(t *testing.T) {
 	}
 }
 
+func TestRelationForClaimForm_AllKinds(t *testing.T) {
+	cases := []struct {
+		cf   ClaimForm
+		want DiagramRelationKind
+	}{
+		{ClaimCallEdge, DiagramRelCall},
+		{ClaimGuardCondition, DiagramRelGuard},
+		{ClaimImportEdge, DiagramRelImport},
+		{ClaimPrecedenceRole, DiagramRelPrecedence},
+		{ClaimExternalObservation, DiagramRelObserve},
+		{ClaimDefinitionFact, DiagramRelUnknown},
+		{ClaimUnknown, DiagramRelUnknown},
+	}
+	for _, c := range cases {
+		if got := RelationForClaimForm(c.cf); got != c.want {
+			t.Errorf("RelationForClaimForm(%q) = %q, want %q", c.cf, got, c.want)
+		}
+	}
+}
+
 // 6 relations × 5 label forms (verbatim/keyword-with-context/uppercase/empty/no-match).
 // Verifies the typed dictionary is the only signal — no fuzzy or
 // repo-specific matching leaks in.

@@ -143,6 +143,26 @@ func ClaimFormForRelation(rk DiagramRelationKind) ClaimForm {
 	return ClaimUnknown
 }
 
+// RelationForClaimForm is the inverse bridge for edge-capable claim
+// forms. It upgrades an already-typed edge claim into the basic
+// relation kind even when the LLM omitted relation_kind on
+// edge_anchors[]. Returns DiagramRelUnknown for non-edge claim forms.
+func RelationForClaimForm(cf ClaimForm) DiagramRelationKind {
+	switch cf {
+	case ClaimCallEdge:
+		return DiagramRelCall
+	case ClaimGuardCondition:
+		return DiagramRelGuard
+	case ClaimImportEdge:
+		return DiagramRelImport
+	case ClaimPrecedenceRole:
+		return DiagramRelPrecedence
+	case ClaimExternalObservation:
+		return DiagramRelObserve
+	}
+	return DiagramRelUnknown
+}
+
 // diagramRelationKeywords is the canonical exact-substring keyword
 // dictionary consumed by InferRelationFromLabel. Each entry
 // associates a lowercase keyword with the relation it asserts.

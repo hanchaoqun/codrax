@@ -495,7 +495,14 @@ func buildTypedRelationIndex(doc *types.AnswerDocumentV2) map[edgeKey]types.Diag
 		b := &doc.Blocks[i]
 		for j := range b.EdgeAnchors {
 			a := &b.EdgeAnchors[j]
-			if !a.HasEdgeAnchor() || !a.HasTypedRelation() {
+			if !a.HasEdgeAnchor() {
+				continue
+			}
+			rel := a.RelationKind
+			if rel == types.DiagramRelUnknown {
+				rel = types.RelationForClaimForm(a.ClaimForm)
+			}
+			if rel == types.DiagramRelUnknown {
 				continue
 			}
 			k := edgeKey{
@@ -505,7 +512,7 @@ func buildTypedRelationIndex(doc *types.AnswerDocumentV2) map[edgeKey]types.Diag
 			if _, exists := idx[k]; exists {
 				continue
 			}
-			idx[k] = a.RelationKind
+			idx[k] = rel
 		}
 	}
 	return idx

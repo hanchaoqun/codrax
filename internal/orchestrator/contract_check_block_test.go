@@ -1704,30 +1704,25 @@ func TestValidateDiagramEdgeSupport_UnlabelledEdgeSkipsLayer2(t *testing.T) {
 	}
 }
 
-// B3 v3 (2026-05-04): label-only edge satisfies EdgeRelations.Min
-// but no RelationKind on edge_anchors → SOFT advisory fires
-// (ViolDiagramRelationLabelOnly) encouraging typed declaration.
+// Claim-form-only edge anchors now count as typed relation authority:
+// when edge_anchors[] carries an edge-capable claim_form, the
+// validator derives the relation kind from that typed claim instead of
+// downgrading to label-only inference.
 func TestValidateDiagramEdgeSupport_LabelOnlySatisfiesMinFiresAdvisory(t *testing.T) {
 	view := callChainViewWithDiagram()
 	doc := docWithDiagramBody(
 		"sequenceDiagram\n  Auth->>Worker: invoke\n",
 		types.DiagramEdgeAnchor{
-			// Note: NO RelationKind set — only ClaimForm. v3 considers
-			// this "label-only typed surface".
+			// Note: NO RelationKind set — only ClaimForm. The validator
+			// should derive relation=call from ClaimCallEdge.
 			ClaimForm: types.ClaimCallEdge,
 			FromNode:  "Auth",
 			ToNode:    "Worker",
 		},
 	)
 	vs := validateDiagramEdgeSupport(doc, view)
-	if len(vs) != 1 {
-		t.Fatalf("expected exactly 1 SOFT advisory; got %d violations: %+v", len(vs), vs)
-	}
-	if vs[0].Kind != types.ViolDiagramRelationLabelOnly {
-		t.Errorf("kind = %q, want ViolDiagramRelationLabelOnly", vs[0].Kind)
-	}
-	if !strings.Contains(vs[0].Detail, "relation_kind") {
-		t.Errorf("detail should encourage typed relation_kind declaration; got %q", vs[0].Detail)
+	if len(vs) != 0 {
+		t.Fatalf("claim-form-only edge anchor should satisfy the relation contract without advisory; got %+v", vs)
 	}
 }
 
@@ -1894,6 +1889,27 @@ func TestValidateDiagramRelationLegality_TypedSatisfiesMinWithUnknownLabel(t *te
 	for _, v := range vs {
 		if v.Kind == types.ViolDiagramEdgeUnsupported {
 			t.Errorf("typed Call with unknown-vocabulary label must still satisfy Min; got %+v", v)
+		}
+	}
+}
+
+// When relation_kind is omitted but claim_form already names an
+// edge-capable typed relation, the validator should treat that edge as
+// typed-first rather than falling back to label vocabulary.
+func TestValidateDiagramRelationLegality_ClaimFormOnlySatisfiesMinWithUnknownLabel(t *testing.T) {
+	view := callChainViewWithDiagram()
+	doc := docWithDiagramBody(
+		"sequenceDiagram\n  Auth->>Worker: ☆☆☆\n",
+		types.DiagramEdgeAnchor{
+			FromNode:  "Auth",
+			ToNode:    "Worker",
+			ClaimForm: types.ClaimCallEdge,
+		},
+	)
+	vs := validateDiagramEdgeSupport(doc, view)
+	for _, v := range vs {
+		if v.Kind == types.ViolDiagramEdgeUnsupported {
+			t.Errorf("claim_form-only Call edge with unknown-vocabulary label must still satisfy Min; got %+v", v)
 		}
 	}
 }
