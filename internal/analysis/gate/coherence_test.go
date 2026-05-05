@@ -333,8 +333,8 @@ func TestSubtopicCoherence_R1_4_EnumerationCollapsesToSingleDomain_Fails(t *test
 	if !strings.Contains(check.Detail, "R1.4") {
 		t.Errorf("detail must cite R1.4; got %q", check.Detail)
 	}
-	if !strings.Contains(check.Detail, "symbols[]") {
-		t.Errorf("detail must propose the symbols[] repair; got %q", check.Detail)
+	if !strings.Contains(check.Detail, "ordered_list item") {
+		t.Errorf("detail must propose the V2 ordered_list repair; got %q", check.Detail)
 	}
 }
 
