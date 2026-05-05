@@ -8,6 +8,7 @@ import (
 	"strings"
 	"unicode"
 
+	"github.com/hanchaoqun/codrax/internal/analysis/amplifier"
 	"github.com/hanchaoqun/codrax/internal/analysis/binder"
 	"github.com/hanchaoqun/codrax/internal/analysis/budget"
 	"github.com/hanchaoqun/codrax/internal/analysis/compiler"
@@ -1127,6 +1128,23 @@ func buildAnalysisIR(ctx *types.AgentContext) (*types.AnalysisIR, error) {
 	// the LLM's choice stays the default; see
 	// internal/agent/analyzer_complexity.go for the rule catalogue.
 	{
+		// Amplifier pre-compile pass — fills LLM-omitted optional typed
+		// slots (Predicates.IsCategoryEnumeration / SubTopics) using
+		// purely structural signals already on rm (TermGraph kinds /
+		// confidence shape, Intent, AnswerSubject, Entities). Runs
+		// BEFORE every reconcile* call below so subsequent reconcilers
+		// see the augmented predicates / sub-topics. Phase 1.2 wires
+		// the empty rule registry; Phase 2/3 land the actual rules. See
+		// docs/design/analyzer_amplifier_layer.md §4.2 for the
+		// insertion-point contract.
+		amplified, ampObs := amplifier.Amplify(rm)
+		for _, obs := range ampObs {
+			recordReconcileObservation(ctxMutable(ctx), reconcileEvent(
+				obs.Field, obs.Before, obs.After, 0, obs.Reason, amplified.Predicates,
+			))
+		}
+		rm = amplified
+
 		// Raw request stripped of the REPL conversation prefix — otherwise
 		// "## Current request\nrepomap的作用" would show simple-lookup
 		// cues even for a complex question re-asked in REPL mode.
@@ -1350,6 +1368,18 @@ func buildAnalysisIR(ctx *types.AgentContext) (*types.AnalysisIR, error) {
 	// Recompute budget with the real hypothesis count.
 	sig.HypothesisCount = len(hypotheses)
 	compiler.RecomputeBudget(&out, rm, sig)
+
+	// Amplifier post-compile pass — pins typed identifiers into
+	// AnswerContract.MustInclude when the request is an enumeration
+	// over named entities. Runs AFTER compiler.Compile populates
+	// AnswerContract and BEFORE binder.BindByRelevance so any binder
+	// pass over MustInclude sees the augmented set. Phase 1.2 wires
+	// the empty rule registry; Phase 4 lands R3.
+	for _, obs := range amplifier.AmplifyPostCompile(rm, &out.AnswerContract) {
+		recordReconcileObservation(ctxMutable(ctx), reconcileEvent(
+			obs.Field, obs.Before, obs.After, 0, obs.Reason, rm.Predicates,
+		))
+	}
 
 	// Relevance-based hypothesis binding.
 	if err := binder.BindByRelevance(&out.TaskGraph, hypotheses, binder.Options{}); err != nil {
