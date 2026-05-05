@@ -139,6 +139,59 @@ func TestFinalizerSkill_ClarifiesFacetIDAndVerticalDiagramPreference(t *testing.
 	}
 }
 
+// TestFinalizerSkill_TeachesAbstractionLevelMatching pins the
+// abstraction-level matching workflow rule (added 2026-05-05 for
+// task #8). The rule defends against the LLM-jitter failure mode
+// where finalizer describes pipeline stages / agents / steps using
+// implementation chains ("X calls Y which builds Z") instead of
+// conceptual responsibility ("X is responsible for <outcome>") on
+// "what does each X do" enumeration questions. The workflow sub-
+// strings asserted here are the structurally load-bearing pieces:
+// the rule's trigger condition, the positive/negative pattern, and
+// the explicit non-applicability carve-out for "how does X work"
+// mechanism questions. If a future refactor drops or reword this
+// rule, the test fails with a pointer back to task #8.
+func TestFinalizerSkill_TeachesAbstractionLevelMatching(t *testing.T) {
+	r := NewRegistry()
+	RegisterDefaults(r)
+
+	sk, err := r.Get("answer-document-skill")
+	if err != nil {
+		t.Fatalf("Get(answer-document-skill) returned error: %v", err)
+	}
+	blob := strings.Join(append([]string{sk.Goal, sk.OutputFormat}, sk.Workflow...), "\n")
+
+	// Trigger phrase — recognises the question shape that activates
+	// the rule. Two language surfaces (English + Chinese) so the
+	// rule fires on both 'what does each X do' and '每个 X 负责什么'.
+	for _, trigger := range []string{
+		"what does each X do",
+		"每个 X 负责什么",
+	} {
+		if !strings.Contains(blob, trigger) {
+			t.Errorf("abstraction-level matching rule missing trigger phrase %q (task #8 regression)", trigger)
+		}
+	}
+
+	// Positive vs negative pattern — the rule distinguishes a
+	// conceptual responsibility answer from an implementation-
+	// chain regression. Both must appear so the LLM has a clear
+	// pair to compare against.
+	if !strings.Contains(blob, "is responsible for") {
+		t.Error("abstraction-level rule missing positive pattern 'is responsible for' (task #8)")
+	}
+	if !strings.Contains(blob, "IMPLEMENTATION CHAIN") {
+		t.Error("abstraction-level rule missing negative pattern 'IMPLEMENTATION CHAIN' (task #8)")
+	}
+
+	// Non-applicability carve-out — mechanism / how-does-it-work
+	// enumerations legitimately want implementation chains. The
+	// rule must not bleed into those question shapes.
+	if !strings.Contains(blob, "how does each X work") {
+		t.Error("abstraction-level rule must carve out 'how does each X work' mechanism enumerations (task #8)")
+	}
+}
+
 func TestExtractSkill_DoesNotTeachLegacySymbolsArray(t *testing.T) {
 	r := NewRegistry()
 	RegisterDefaults(r)
