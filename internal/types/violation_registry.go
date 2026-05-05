@@ -165,6 +165,11 @@ var (
 
 	caveatFamilyMu       sync.RWMutex
 	caveatFamilyRegistry = map[string]CaveatFamilyTemplate{}
+	// caveatFamilyOrder preserves registration order so AllCaveatFamilies
+	// returns templates in a stable, predictable sequence (used by
+	// MaterializeUnresolvedViolationsAsCaveats to build deterministic
+	// output).
+	caveatFamilyOrder []string
 )
 
 // CaveatFamilyTemplate carries the user-facing language renderings for
@@ -197,6 +202,9 @@ func RegisterCaveatFamily(t CaveatFamilyTemplate) {
 	}
 	caveatFamilyMu.Lock()
 	defer caveatFamilyMu.Unlock()
+	if _, existed := caveatFamilyRegistry[t.ID]; !existed {
+		caveatFamilyOrder = append(caveatFamilyOrder, t.ID)
+	}
 	caveatFamilyRegistry[t.ID] = t
 }
 
@@ -209,14 +217,15 @@ func CaveatFamilyTemplateFor(id string) (CaveatFamilyTemplate, bool) {
 	return t, ok
 }
 
-// AllCaveatFamilies returns every registered template. Used by
-// structural tests that sweep the registry.
+// AllCaveatFamilies returns every registered template in
+// registration order. Stable across calls — consumers (such as the
+// materializer) rely on this for deterministic output.
 func AllCaveatFamilies() []CaveatFamilyTemplate {
 	caveatFamilyMu.RLock()
 	defer caveatFamilyMu.RUnlock()
-	out := make([]CaveatFamilyTemplate, 0, len(caveatFamilyRegistry))
-	for _, t := range caveatFamilyRegistry {
-		out = append(out, t)
+	out := make([]CaveatFamilyTemplate, 0, len(caveatFamilyOrder))
+	for _, id := range caveatFamilyOrder {
+		out = append(out, caveatFamilyRegistry[id])
 	}
 	return out
 }
