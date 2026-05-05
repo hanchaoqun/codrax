@@ -867,15 +867,14 @@ func resolveWriteMode(in writeModeInputs) (types.PipelineMode, error) {
 func runSingleShot(_ *cobra.Command, request string) error {
 	logging.Info("starting pipeline for request: %s", request)
 	app.renderer.SetOutput(os.Stderr)
-	// Single-shot CLI: ship mermaid source as-is so users piping
-	// output to file / markdown viewers / mermaid-cli get the
-	// authoritative source, not a pre-baked ASCII transformation.
-	// REPL keeps the default (enabled) so terminal readers see
-	// aligned diagrams immediately. Operators can flip it back on
-	// via --mermaid-render for direct terminal consumption (e.g.
-	// eval inspection where the answer body is read by a human, not
-	// a downstream pipeline).
-	render.SetMermaidRenderingEnabled(flagMermaidRender)
+	// Single-shot CLI: ship mermaid source as-is in the default
+	// path so output piped to file / markdown viewer / mermaid-cli
+	// stays authoritative. The render hook is intentionally NOT
+	// installed at any intermediate stage — the only place mermaid
+	// rendering happens in single-shot is the final user-output
+	// step below (gated by --mermaid-render). REPL has its own
+	// renderer at the user-output boundary; both paths follow the
+	// "render only at the user-facing edge" rule.
 	busCtx, err := app.orch.Run(request, flagRepo, flagBranch)
 	if err != nil {
 		logging.Error("pipeline failed: %v", err)
@@ -913,6 +912,12 @@ func runSingleShot(_ *cobra.Command, request string) error {
 	if busCtx.Mutable != nil {
 		if result := busCtx.Mutable.Result(); result != "" {
 			logging.Info("final answer:\n%s", result)
+			// --mermaid-render: opt-in ASCII transform for terminal
+			// consumption. Default off ships raw Mermaid source for
+			// downstream piping (file / mermaid-cli / markdown viewer).
+			if flagMermaidRender {
+				result = render.RenderMermaidBlocks(result)
+			}
 			// Separator between thinking trace (stderr) and answer (stdout).
 			// On a terminal both streams interleave visually, so the
 			// separator helps the user see where the answer begins.
