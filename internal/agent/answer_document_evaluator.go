@@ -615,7 +615,7 @@ var answerDocFacetLabels = map[types.AnswerFacetKind]string{
 	types.FacetPrincipalPathEdge:       "Principal path edge (cite each call edge with the line that names both caller and callee)",
 	types.FacetBranchGuard:             "Branch guard (cite the condition that gates a path; do not blend guard and action into one citation)",
 	types.FacetComponentRelation:       "Component relation (cite the import / dependency edge with the line that names both endpoints)",
-	types.FacetDiagramSpine:            "Diagram spine (the structural backbone of the rendered fence, every node grounded in a citation)",
+	types.FacetDiagramSpine:            "Diagram facet (every node grounded in a citation; relationships supported by typed claim_use entries)",
 }
 
 // answerDocClaimFormLabels names each ClaimForm in evidence-shape

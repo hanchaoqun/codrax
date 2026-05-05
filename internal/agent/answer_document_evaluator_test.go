@@ -118,7 +118,10 @@ func TestRenderAnswerDocFacetCoverage_EmitsHardSoftOptionalLabels(t *testing.T) 
 		"Config precedence role",
 		"Uncertainty boundary",
 		"Optional richness facets:",
-		"Diagram spine",
+		// v3 B5 (2026-05-04): "Diagram spine" / "structural backbone"
+		// language replaced with neutral "Diagram facet" — lint
+		// catches the old wording in InternalTermsBlocklist.
+		"Diagram facet",
 	} {
 		if !strings.Contains(got, want) {
 			t.Errorf("rendered prompt missing %q\n----\n%s", want, got)

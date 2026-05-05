@@ -227,6 +227,26 @@ var InternalTermsBlocklist = []string{
 	"session 10",
 	"Session-22",
 	"Session 22",
+
+	// v3 B5 (2026-05-04) — implementation-scaffold jargon. These
+	// terms describe internal pipeline mechanics ("step backbone",
+	// "diagram spine", "deterministic renderer") that LLMs read as
+	// scaffold protocol rather than answer obligations. Replace with
+	// neutral output-contract language: "ordered anchor sequence" /
+	// "the structured emit IS the delivery; rendering is automatic" /
+	// "consistent layout".
+	"step backbone",
+	"anchor backbone",
+	"compiled anchor backbone",
+	"failure backbone",
+	"backbone batch",
+	"diagram spine",
+	"structural backbone",
+	"deterministic pipeline",
+	"deterministic renderer",
+	"deterministic compiler",
+	"deterministic alignment",
+	"deterministic fallback",
 }
 
 // KeywordExamplePhrases is the auxiliary blocklist used by

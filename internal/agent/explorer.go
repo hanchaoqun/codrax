@@ -3928,7 +3928,7 @@ func (e *explorerEvaluator) authoritativeLogBackboneFirstEmitReminder(allResults
 		return ""
 	}
 	noun := e.failureTraceNounPhrase()
-	return " For " + noun + ", keep the FIRST `emit_evidence` batch on the failure backbone itself: record one caller→callee edge from the grounded frames plus one mechanism/guard/definition anchor from those same frame files. Defer related_context, setup helpers, and broader same-file background until that backbone batch succeeds."
+	return " For " + noun + ", keep the FIRST `emit_evidence` batch on the failure path itself: record one caller→callee edge from the grounded frames plus one mechanism/guard/definition anchor from those same frame files. Defer related_context, setup helpers, and broader same-file background until that initial batch succeeds."
 }
 
 // failureTraceNounPhrase renders the LLM-facing noun phrase for the
@@ -4892,7 +4892,7 @@ func (e *explorerEvaluator) postAuthoritativeTier1CompletionSignal(obs LoopObser
 	fmt.Fprintf(&b,
 		"MID-LOOP CHECK: the current authoritative log path is already semantically enough to answer, but `emit_investigation_complete` would still be rejected by the line-text grounding floor (currently %d/%d = %.0f%%, need ≥ %.0f%%). Before closing, convert the load-bearing failure anchors to `read_file`-grounded line_text evidence on the CURRENT branch.\n",
 		tier1.Tier1, tier1.Total, float64(tier1.Tier1)*100/float64(tier1.Total), tier1.Floor*100)
-	b.WriteString("Do NOT widen into more neighboring files yet. Re-read the current authoritative sources near the cited lines, then re-emit ONE tighter `emit_evidence(items=[...])` batch that keeps the failure backbone grounded first. Related context and setup/background anchors can wait until after the backbone passes the line-text grounding floor.\n")
+	b.WriteString("Do NOT widen into more neighboring files yet. Re-read the current authoritative sources near the cited lines, then re-emit ONE tighter `emit_evidence(items=[...])` batch that keeps the failure path grounded first. Related context and setup/background anchors can wait until after the principal anchors pass the line-text grounding floor.\n")
 	if len(tier1.Targets) > 0 {
 		maxList := 4
 		if maxList > len(tier1.Targets) {

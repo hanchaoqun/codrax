@@ -1448,7 +1448,7 @@ func answerSymbolMaterializationHint(ctx *types.AgentContext) string {
 		}
 	}
 	if isMultiTopicExplanation(ctx) && ctx.AnalysisIR != nil {
-		return fmt.Sprintf("The analyzer produced %d sub-topic(s), but the accepted `emit_answer_symbol` slate currently contains only %d grounded anchor(s). Re-emit `emit_answer_symbol` now with one grounded anchor per sub-topic, reusing the compiled anchor backbone when available.", len(ctx.AnalysisIR.RequestModel.SubTopics), len(syms))
+		return fmt.Sprintf("The analyzer produced %d sub-topic(s), but the accepted `emit_answer_symbol` slate currently contains only %d grounded anchor(s). Re-emit `emit_answer_symbol` now with one grounded anchor per sub-topic, reusing the resolved anchor list when available.", len(ctx.AnalysisIR.RequestModel.SubTopics), len(syms))
 	}
 	return "Re-emit `emit_answer_symbol` with the grounded answer-symbol slate before stopping."
 }

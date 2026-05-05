@@ -218,7 +218,7 @@ func buildEmitAnalysisSchema() {
 			},
 			"answer_subject": map[string]any{
 				"type":        "object",
-				"description": "Optional. Classifies what kind of source-code literal the answer should be (skill_name, agent_name, config_key, ...). The chain ranker uses this to demote chains whose terminal token is the wrong kind. Leave unset when the answer kind is ambiguous; a deterministic fallback infers from question_kind.",
+				"description": "Optional. Classifies what kind of source-code literal the answer should be (skill_name, agent_name, config_key, ...). The chain ranker uses this to demote chains whose terminal token is the wrong kind. Leave unset when the answer kind is ambiguous; an automatic fallback infers from question_kind.",
 				"properties": map[string]any{
 					"kind":        stringProp{Type: "string", Enum: skill.AnalysisAnswerSubjectValues()},
 					"entity_axes": arrayProp{Type: "array", Items: map[string]string{"type": "string"}},
