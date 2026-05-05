@@ -194,8 +194,9 @@ func planPostHook(o *Orchestrator, out *agent.StageOutput) error {
 				}
 				riskCount++
 				closure.AppendViolation(types.Violation{
-					Kind:   types.ViolPlanCritic,
-					Detail: fmt.Sprintf("plan_critic risk %d/%d: %s", i+1, len(verdict.Risks), risk),
+					Kind:       types.ViolPlanCritic,
+					ClusterKey: types.RootClusterKey("plan_critic_risk"),
+					Detail:     fmt.Sprintf("plan_critic risk %d/%d: %s", i+1, len(verdict.Risks), risk),
 					Repair: "review the plan against this risk before /approve; the critic is observational, not a hard reject. Address the risk by editing the plan or accept it as a known concern.",
 					Stage:  string(types.StagePlan),
 					SuspectedRoot: types.SuspectedRoot{
@@ -1299,8 +1300,9 @@ func appendReflectorObservationToClosure(mut *types.MutableState, observation st
 		return
 	}
 	closure.AppendViolation(types.Violation{
-		Kind:   types.ViolReflectorObservation,
-		Detail: fmt.Sprintf("reflector observation (verify retry attempt %d): %s", attempt, observation),
+		Kind:       types.ViolReflectorObservation,
+		ClusterKey: types.RootClusterKey("reflector_observation"),
+		Detail:     fmt.Sprintf("reflector observation (verify retry attempt %d): %s", attempt, observation),
 		Repair: "this is an observational note from an independent reviewer LLM; the planner already received it on its retry. No direct action expected.",
 		Stage:  string(types.StageVerify),
 		SuspectedRoot: types.SuspectedRoot{

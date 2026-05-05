@@ -8555,6 +8555,7 @@ func applyChainPromotion(in concreteValuesResult, readSet map[string]bool, closu
 				closure.AppendViolation(types.Violation{
 					Kind:         types.ViolGhostAnchor,
 					Detail:       fmt.Sprintf("chain anchor file=%s origin=%s not in ScannedSet", f, anchor.Origin),
+					ClusterKey:   types.IdentityClusterKey("file:"+f, "ScannedSet"),
 					Stage:        string(types.StageExplore),
 					EvidenceRefs: []string{f, "origin:" + anchor.Origin},
 					SuspectedRoot: types.SuspectedRoot{

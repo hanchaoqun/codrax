@@ -193,9 +193,10 @@ func checkCitations(draft Answer, c types.AnswerContract) []Violation {
 			// pass — some citations present
 		} else {
 			return []Violation{{
-				Kind:   ViolCitation,
-				Detail: fmt.Sprintf("%d citations provided, %d required", len(draft.Citations), req.MinCitations),
-				Repair: "collect more evidence with file:line anchors",
+				Kind:       ViolCitation,
+				ClusterKey: types.RootClusterKey("CitationReq"),
+				Detail:     fmt.Sprintf("%d citations provided, %d required", len(draft.Citations), req.MinCitations),
+				Repair:     "collect more evidence with file:line anchors",
 				SuspectedRoot: SuspectedRoot{
 					IRField:    "CitationReq",
 					Reason:     "finalizer produced zero citations though contract requires ≥N",
@@ -217,15 +218,38 @@ func checkCitations(draft Answer, c types.AnswerContract) []Violation {
 		switch req.Granularity {
 		case "file":
 			if strings.TrimSpace(cit.File) == "" {
-				return []Violation{{Kind: ViolCitation, Detail: "citation missing file", SuspectedRoot: citGranRoot}}
+				return []Violation{{
+					Kind:          ViolCitation,
+					ClusterKey:    types.RootClusterKey("CitationReq"),
+					Detail:        "citation missing file",
+					SuspectedRoot: citGranRoot,
+				}}
 			}
 		case "file_line":
 			if strings.TrimSpace(cit.File) == "" || cit.Line <= 0 {
-				return []Violation{{Kind: ViolCitation, Detail: fmt.Sprintf("citation %q missing line number", cit.File), SuspectedRoot: citGranRoot}}
+				key := types.RootClusterKey("CitationReq")
+				if strings.TrimSpace(cit.File) != "" {
+					key = types.IdentityClusterKey("file:"+cit.File, "CitationReq")
+				}
+				return []Violation{{
+					Kind:          ViolCitation,
+					ClusterKey:    key,
+					Detail:        fmt.Sprintf("citation %q missing line number", cit.File),
+					SuspectedRoot: citGranRoot,
+				}}
 			}
 		case "file_line_range":
 			if strings.TrimSpace(cit.File) == "" || (cit.Line <= 0 && len(cit.Lines) == 0) {
-				return []Violation{{Kind: ViolCitation, Detail: fmt.Sprintf("citation %q missing line range", cit.File), SuspectedRoot: citGranRoot}}
+				key := types.RootClusterKey("CitationReq")
+				if strings.TrimSpace(cit.File) != "" {
+					key = types.IdentityClusterKey("file:"+cit.File, "CitationReq")
+				}
+				return []Violation{{
+					Kind:          ViolCitation,
+					ClusterKey:    key,
+					Detail:        fmt.Sprintf("citation %q missing line range", cit.File),
+					SuspectedRoot: citGranRoot,
+				}}
 			}
 		}
 	}
@@ -260,9 +284,10 @@ func checkMustIncludeOracle(draft Answer, c types.AnswerContract, oracle types.S
 		}
 		if !hit {
 			out = append(out, Violation{
-				Kind:   ViolMustInclude,
-				Detail: fmt.Sprintf("required term %q missing from answer", sym),
-				Repair: "include " + sym + " in the final answer",
+				Kind:       ViolMustInclude,
+				ClusterKey: types.IdentityClusterKey("term:"+sym, "must_include"),
+				Detail:     fmt.Sprintf("required term %q missing from answer", sym),
+				Repair:     "include " + sym + " in the final answer",
 			})
 		}
 	}
@@ -321,8 +346,9 @@ func checkMustExcludeOracle(draft Answer, c types.AnswerContract, oracle types.S
 		}
 		if hit {
 			out = append(out, Violation{
-				Kind:   ViolMustExclude,
-				Detail: fmt.Sprintf("forbidden term %q present in answer", sym),
+				Kind:       ViolMustExclude,
+				ClusterKey: types.IdentityClusterKey("term:"+sym, "must_exclude"),
+				Detail:     fmt.Sprintf("forbidden term %q present in answer", sym),
 			})
 		}
 	}
@@ -359,6 +385,7 @@ func checkAcceptanceOracle(draft Answer, c types.AnswerContract, oracle types.Sy
 			}
 			if !hit {
 				out = append(out, Violation{Kind: ViolAcceptance,
+					ClusterKey:    types.IdentityClusterKey("acceptance:contains_symbol", "AcceptanceTests"),
 					Detail:        fmt.Sprintf("acceptance contains_symbol %q failed", a.Expr),
 					SuspectedRoot: acceptanceRoot})
 			}
@@ -366,12 +393,14 @@ func checkAcceptanceOracle(draft Answer, c types.AnswerContract, oracle types.Sy
 			re, err := regexp.Compile(a.Expr)
 			if err != nil {
 				out = append(out, Violation{Kind: ViolAcceptance,
+					ClusterKey:    types.IdentityClusterKey("acceptance:regex", "AcceptanceTests"),
 					Detail:        fmt.Sprintf("invalid regex %q: %v", a.Expr, err),
 					SuspectedRoot: acceptanceRoot})
 				continue
 			}
 			if !re.MatchString(draft.Text) {
 				out = append(out, Violation{Kind: ViolAcceptance,
+					ClusterKey:    types.IdentityClusterKey("acceptance:regex", "AcceptanceTests"),
 					Detail:        fmt.Sprintf("acceptance regex %q did not match", a.Expr),
 					SuspectedRoot: acceptanceRoot})
 			}
@@ -389,6 +418,7 @@ func checkAcceptanceOracle(draft Answer, c types.AnswerContract, oracle types.Sy
 			n, err := strconv.Atoi(strings.TrimSpace(a.Expr))
 			if err != nil {
 				out = append(out, Violation{Kind: ViolAcceptance,
+					ClusterKey:    types.RootClusterKey("AcceptanceTests"),
 					Detail:        fmt.Sprintf("citation_count_ge expects integer, got %q", a.Expr),
 					SuspectedRoot: acceptanceRoot})
 				continue
@@ -406,7 +436,8 @@ func checkAcceptanceOracle(draft Answer, c types.AnswerContract, oracle types.Sy
 					continue // pass with implicit caveat
 				}
 				out = append(out, Violation{Kind: ViolAcceptance,
-					Detail: fmt.Sprintf("only %d citations, need ≥%d", len(draft.Citations), n),
+					ClusterKey: types.RootClusterKey("CitationReq"),
+					Detail:     fmt.Sprintf("only %d citations, need ≥%d", len(draft.Citations), n),
 					SuspectedRoot: SuspectedRoot{
 						IRField:    "CitationReq",
 						Reason:     "zero citations vs acceptance floor — answer is ungrounded",
@@ -415,6 +446,7 @@ func checkAcceptanceOracle(draft Answer, c types.AnswerContract, oracle types.Sy
 			}
 		default:
 			out = append(out, Violation{Kind: ViolAcceptance,
+				ClusterKey:    types.RootClusterKey("AcceptanceTests"),
 				Detail:        fmt.Sprintf("unknown acceptance test kind %q (expr=%q)", a.Kind, a.Expr),
 				SuspectedRoot: acceptanceRoot})
 		}

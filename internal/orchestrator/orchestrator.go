@@ -4256,7 +4256,8 @@ func emitCGECStormViolations(closure *types.EvidenceClosure, stats types.Closure
 	}
 	if demotionStormThreshold > 0 && stats.ChainsDemoted >= demotionStormThreshold {
 		closure.AppendViolation(types.Violation{
-			Kind: types.ViolDemotionStorm,
+			Kind:       types.ViolDemotionStorm,
+			ClusterKey: types.RootClusterKey("explorer_chain_quality"),
 			Detail: fmt.Sprintf(
 				"chains_demoted=%d (threshold %d) — explorer over-produced low-quality chains; review keyword_search noise",
 				stats.ChainsDemoted, demotionStormThreshold),
@@ -4271,7 +4272,8 @@ func emitCGECStormViolations(closure *types.EvidenceClosure, stats types.Closure
 	}
 	if forcedReadStormThreshold > 0 && stats.ForcedReads >= forcedReadStormThreshold {
 		closure.AppendViolation(types.Violation{
-			Kind: types.ViolForcedReadStorm,
+			Kind:       types.ViolForcedReadStorm,
+			ClusterKey: types.RootClusterKey("explorer_anchor_coverage"),
 			Detail: fmt.Sprintf(
 				"forced_reads=%d (threshold %d) — explorer skipped primary anchors that the orchestrator had to page in via Lazy Auto-Read",
 				stats.ForcedReads, forcedReadStormThreshold),
@@ -5547,7 +5549,8 @@ func (o *Orchestrator) runAnswerReviewerOnSuccess() {
 	closure := mu.EvidenceClosure()
 	if closure != nil {
 		closure.AppendViolation(types.Violation{
-			Kind: types.ViolAnswerReviewerDistilled,
+			Kind:       types.ViolAnswerReviewerDistilled,
+			ClusterKey: types.RootClusterKey("answer_reviewer_distilled"),
 			Detail: fmt.Sprintf("answer_reviewer distilled pitfall %q (%s): %s",
 				pattern.Name, pattern.Trigger, pattern.Description),
 			Repair: "informational telemetry — the pattern has been persisted for cross-Run learning and will surface on similar future questions.",
