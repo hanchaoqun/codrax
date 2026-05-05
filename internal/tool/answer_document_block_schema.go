@@ -51,9 +51,9 @@ func BuildAnswerDocumentSemanticContractDescription() string {
 		"Each block has an `id` (any non-empty string the LLM picks; load-bearing — your retry hints reference it back to you) and `kind` " +
 		"(text for prose blocks, items[] for list/table blocks, diagram for diagram blocks). " +
 		"\n\n" +
-		"PRINCIPAL BLOCKS (the user-section's Required Answer Blocks list flags these as `surface_role=principal`) MUST carry a `claim_use` annotation when the contract's AcceptableClaimForms list is non-empty. " +
+		"PRINCIPAL BLOCKS (the user-section's Required Answer Blocks list flags these as `surface_role=principal`) MUST carry a claim annotation when the contract's AcceptableClaimForms list is non-empty. " +
 		"Allowed claim_form values: `definition_fact` (cited line establishes a typed fact: const, struct field, function signature, default value), `call_edge` (caller→callee call site), `guard_condition` (branch / condition gating the answer), `assignment_fact` (config / variable / field assignment), `return_fact` (return statement / function output), `absence_fact` (cited evidence carries Negative scope — search confirmed absent), `precedence_role` (cited evidence carries a layer / override role), `external_observation` (cited evidence is from runtime log / perf trace, not repo source), `import_edge` (module / package import edge). " +
-		"Use a single block-level `claim_use` for whole-block annotation; per-item `claim_use` (inside items[i].claim_use) when individual items carry distinct claim forms; block-level `claim_uses[]` array for blocks legitimately spanning multiple claim forms. " +
+		"Annotation placement: at BLOCK level use `claim_uses[]` (PLURAL ARRAY — single-form blocks emit a one-element array like `claim_uses=[{claim_form=definition_fact}]`); at ITEM level use `items[i].claim_use` (SINGULAR object). The schema does NOT have a singular `claim_use` at block level — emitting `block.claim_use` is rejected with `unknown field \"claim_use\"`. " +
 		"\n\n" +
 		"DIAGRAM BLOCKS — `diagram.kind` is the SEMANTIC FAMILY (`flow` / `sequence` / `architecture` / `call_dag`), NOT a Mermaid keyword. Mermaid syntax (`flowchart` / `sequenceDiagram`) goes inside `diagram.body` with `diagram.language=\"mermaid\"`. " +
 		"\n\n" +
@@ -64,14 +64,14 @@ func BuildAnswerDocumentSemanticContractDescription() string {
 		"\n\n" +
 		"WORKED EXAMPLES (minimal happy-path emits — each shows one principal-block family):\n" +
 		"\n" +
-		"1) Summary-only explanation (single principal BlockSummary):\n" +
+		"1) Summary-only explanation (single principal `summary` block):\n" +
 		"```json\n" +
 		"{\"document_model\":\"v2\",\"blocks\":[\n" +
-		"  {\"id\":\"s1\",\"kind\":\"summary\",\"text\":\"<multi-paragraph answer body>\",\"surface_role\":\"principal\",\"claim_use\":{\"claim_form\":\"definition_fact\",\"citation_ref\":0}}\n" +
+		"  {\"id\":\"s1\",\"kind\":\"summary\",\"text\":\"<multi-paragraph answer body>\",\"surface_role\":\"principal\",\"claim_uses\":[{\"claim_form\":\"definition_fact\"}],\"items\":[{\"id\":\"c0\",\"citation_ref\":0}]}\n" +
 		"],\"citations\":[{\"file\":\"foo/bar.go\",\"line\":42}]}\n" +
 		"```\n" +
 		"\n" +
-		"2) Hop-chain (BlockOrderedList over mechanism steps):\n" +
+		"2) Hop-chain (`ordered_list` block over mechanism steps):\n" +
 		"```json\n" +
 		"{\"document_model\":\"v2\",\"blocks\":[\n" +
 		"  {\"id\":\"s1\",\"kind\":\"summary\",\"text\":\"<lead-in framing the chain>\"},\n" +
@@ -83,7 +83,7 @@ func BuildAnswerDocumentSemanticContractDescription() string {
 		"],\"citations\":[{\"file\":\"a.go\",\"line\":10},{\"file\":\"b.go\",\"line\":20}]}\n" +
 		"```\n" +
 		"\n" +
-		"3) Enumeration slate (BlockOrderedList over enumeration members):\n" +
+		"3) Enumeration slate (`ordered_list` block over enumeration members):\n" +
 		"```json\n" +
 		"{\"document_model\":\"v2\",\"blocks\":[\n" +
 		"  {\"id\":\"s1\",\"kind\":\"summary\",\"text\":\"<frames what the list enumerates>\"},\n" +
@@ -95,7 +95,7 @@ func BuildAnswerDocumentSemanticContractDescription() string {
 		"],\"citations\":[{\"file\":\"x.go\",\"line\":1},{\"file\":\"y.go\",\"line\":1}]}\n" +
 		"```\n" +
 		"\n" +
-		"4) Single-literal scalar (BlockScalar — literal in block.text, citation via one-element items[]):\n" +
+		"4) Single-literal scalar (`scalar` block — literal in block.text, citation via one-element items[]):\n" +
 		"```json\n" +
 		"{\"document_model\":\"v2\",\"blocks\":[\n" +
 		"  {\"id\":\"v1\",\"kind\":\"scalar\",\"text\":\"42\",\"surface_role\":\"principal\",\n" +
@@ -104,10 +104,10 @@ func BuildAnswerDocumentSemanticContractDescription() string {
 		"],\"citations\":[{\"file\":\"const.go\",\"line\":7}]}\n" +
 		"```\n" +
 		"\n" +
-		"5) Architecture diagram (BlockDiagram with semantic family `architecture`):\n" +
+		"5) Architecture diagram (`diagram` block with semantic family `architecture`):\n" +
 		"```json\n" +
 		"{\"document_model\":\"v2\",\"blocks\":[\n" +
-		"  {\"id\":\"s1\",\"kind\":\"summary\",\"text\":\"<overall architecture lead-in>\",\"surface_role\":\"principal\",\"claim_use\":{\"claim_form\":\"definition_fact\",\"citation_ref\":0}},\n" +
+		"  {\"id\":\"s1\",\"kind\":\"summary\",\"text\":\"<overall architecture lead-in>\",\"surface_role\":\"principal\",\"claim_uses\":[{\"claim_form\":\"definition_fact\"}],\"items\":[{\"id\":\"c0\",\"citation_ref\":0}]},\n" +
 		"  {\"id\":\"d1\",\"kind\":\"diagram\",\n" +
 		"   \"diagram\":{\"kind\":\"architecture\",\"language\":\"mermaid\",\"body\":\"flowchart TD\\n    A[\\\"<grounded node A>\\\"] --> B[\\\"<grounded node B>\\\"]\"}}\n" +
 		"],\"citations\":[{\"file\":\"main.go\",\"line\":1}]}\n" +

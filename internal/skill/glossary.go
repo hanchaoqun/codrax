@@ -228,6 +228,20 @@ var InternalTermsBlocklist = []string{
 	"Session-22",
 	"Session 22",
 
+	// v3 B5 + audit (2026-05-05) — Go-internal AnswerBlockKind
+	// constant names. The LLM-facing surface uses lowercase string
+	// enums ("summary" / "ordered_list" / "scalar" / etc.), so the
+	// capitalized Go form is a Go-shape leak.
+	"BlockSummary",
+	"BlockSection",
+	"BlockOrderedList",
+	"BlockBulletList",
+	"BlockScalar",
+	"BlockDecision",
+	"BlockTable",
+	"BlockDiagram",
+	"BlockCaveat",
+
 	// v3 B5 (2026-05-04) — implementation-scaffold jargon. These
 	// terms describe internal pipeline mechanics ("step backbone",
 	// "diagram spine", "deterministic renderer") that LLMs read as

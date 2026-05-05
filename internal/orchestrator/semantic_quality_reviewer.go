@@ -87,18 +87,34 @@ type SemanticQualityInput struct {
 // SystemDetectedGap is one typed verdict already raised by the v3
 // validators. Reviewer reads to avoid restating; its prompt asks
 // reviewer to verify the gap rather than rediscover it.
+//
+// Kind is rendered to the LLM as a human-readable category label
+// (NOT the internal ViolationKind string). Use the enum constants
+// below; code that builds gaps from validator output translates
+// the typed verdict into one of these strings before stashing.
 type SystemDetectedGap struct {
-	// Kind is "richness_glaring" or "prose_underfilled".
+	// Kind is the human-readable category label rendered into the
+	// reviewer prompt. One of:
+	//   "uncovered enrichment facet with available evidence"
+	//   "principal block prose lacks inline grounding"
 	Kind string
-	// FacetKind is the missing facet (richness_glaring case).
+	// FacetKind is the missing facet (enrichment-gap case).
 	FacetKind string
-	// BlockID is the offending block id (prose_underfilled case).
+	// BlockID is the offending block id (prose-underfilled case).
 	BlockID string
-	// EvidenceCount is len(SourceCandidate) for richness_glaring;
-	// for prose_underfilled it is the typed claim_use count on the
-	// block.
+	// EvidenceCount is len(SourceCandidate) for an enrichment gap;
+	// for a prose-underfilled gap it is the typed claim_use count
+	// on the block.
 	EvidenceCount int
 }
+
+// Reviewer-facing category labels for SystemDetectedGap.Kind. Kept
+// separate from the internal ViolationKind constants so the LLM
+// prompt cannot drift into codrax-specific taxonomy strings.
+const (
+	gapKindEnrichmentUncovered = "uncovered enrichment facet with available evidence"
+	gapKindProseUnderfilled    = "principal block prose lacks inline grounding"
+)
 
 // FacetCoverageDepth audits one promoted facet's declared vs
 // anchored coverage on the rendered V2 doc.
@@ -396,16 +412,16 @@ func renderSemanticQualityUserMessage(in SemanticQualityInput) string {
 		}
 	}
 	if len(in.SystemDetectedGaps) > 0 {
-		b.WriteString("\n## SYSTEM-DETECTED GAPS (typed validators already raised — REVERSE-CHECK these)\n")
+		b.WriteString("\n## SYSTEM-DETECTED GAPS (already raised by structural checks — REVERSE-CHECK these)\n")
 		b.WriteString("For each gap: judge whether the BODY above addresses it via equivalent expression. If yes → sufficient=true (you are the second opinion).\n\n")
 		for _, g := range in.SystemDetectedGaps {
 			switch g.Kind {
-			case "richness_glaring":
-				fmt.Fprintf(&b, "- richness_glaring: facet=`%s` evidence_count=%d (uncovered)\n",
-					g.FacetKind, g.EvidenceCount)
-			case "prose_underfilled":
-				fmt.Fprintf(&b, "- prose_underfilled: block_id=`%s` typed_claim_count=%d (zero inline-code anchors)\n",
-					g.BlockID, g.EvidenceCount)
+			case gapKindEnrichmentUncovered:
+				fmt.Fprintf(&b, "- %s: facet=`%s` (typed evidence rows available: %d)\n",
+					g.Kind, g.FacetKind, g.EvidenceCount)
+			case gapKindProseUnderfilled:
+				fmt.Fprintf(&b, "- %s: block_id=`%s` (cited claims: %d, inline-code anchors in prose: 0)\n",
+					g.Kind, g.BlockID, g.EvidenceCount)
 			default:
 				fmt.Fprintf(&b, "- %s\n", g.Kind)
 			}
@@ -554,7 +570,7 @@ func BuildSemanticQualityInput(
 			}
 		}
 		in.SystemDetectedGaps = append(in.SystemDetectedGaps, SystemDetectedGap{
-			Kind:          "richness_glaring",
+			Kind:          gapKindEnrichmentUncovered,
 			FacetKind:     facetKind,
 			EvidenceCount: evidenceCount,
 		})
@@ -579,7 +595,7 @@ func BuildSemanticQualityInput(
 			break
 		}
 		in.SystemDetectedGaps = append(in.SystemDetectedGaps, SystemDetectedGap{
-			Kind:          "prose_underfilled",
+			Kind:          gapKindProseUnderfilled,
 			BlockID:       blockID,
 			EvidenceCount: typedClaimCount,
 		})

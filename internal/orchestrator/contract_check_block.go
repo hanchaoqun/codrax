@@ -1092,7 +1092,7 @@ func validateFacetCoverage(doc *types.AnswerDocumentV2, view *types.AnswerSemant
 		out = append(out, types.Violation{
 			Kind: types.ViolFacetUncovered,
 			Detail: fmt.Sprintf(
-				"required facet %q (%s) is not covered: no V2 block declared it via block.facet_ids[] or via item.claim_use.facet_id",
+				"required facet %q (%s) is not covered: no block declared it via block.facet_ids[] or via item.claim_use.facet_id",
 				kind, promotionLabel),
 			Repair: fmt.Sprintf(
 				"declare facet_id=%q on at least one block whose payload covers this facet, OR re-investigate to gather evidence whose claim_form matches the facet's acceptable forms (when no current evidence supports the facet).",
@@ -1156,7 +1156,7 @@ func validateRichnessRegression(doc *types.AnswerDocumentV2, view *types.AnswerS
 		out = append(out, types.Violation{
 			Kind: types.ViolRichnessRegression,
 			Detail: fmt.Sprintf(
-				"optional richness facet %q has %d evidence candidate(s) but no V2 block surfaced it (telemetry only — answer ships unchanged)",
+				"optional richness facet %q has %d evidence candidate(s) but no block surfaced it (telemetry only — answer ships unchanged)",
 				kind, len(req.SourceCandidate)),
 			Repair: fmt.Sprintf(
 				"if the question would benefit from this facet, declare facet_id=%q on a block; otherwise leave as-is (richness regression is informational).",
@@ -1239,7 +1239,7 @@ func validateRichnessGlaringGap(doc *types.AnswerDocumentV2, view *types.AnswerS
 		out = append(out, types.Violation{
 			Kind: types.ViolRichnessGlaringGap,
 			Detail: fmt.Sprintf(
-				"optional facet %q has %d typed evidence candidate(s) (>= family threshold %d) but no V2 block surfaced it; the answer ships without enrichment available evidence supports",
+				"optional facet %q has %d typed evidence candidate(s) (>= threshold %d) but no block surfaced it; the answer ships without enrichment available evidence supports",
 				kind, len(req.SourceCandidate), req.EffectiveMinEvidenceForGlaring(view.Family)),
 			Repair: fmt.Sprintf(
 				"declare facet_id=%q on at least one block whose payload covers this facet, AND reference at least one of the typed evidence anchors inline so the surrounding prose is grounded.",
