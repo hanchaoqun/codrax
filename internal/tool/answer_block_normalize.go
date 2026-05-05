@@ -72,8 +72,14 @@ func NormalizeEmitAnswerBlock(raw emitAnswerBlockV2, fieldPath string) (types.An
 	}
 	if len(raw.Items) > 0 {
 		blk.Items = make([]types.AnswerBlockItem, 0, len(raw.Items))
-		for _, it := range raw.Items {
+		for i, it := range raw.Items {
+			itemKind, ok := types.NormalizeAnswerBlockItemKind(it.Kind)
+			if !ok {
+				return types.AnswerBlock{}, fmt.Errorf("%s.items[%d]: kind=%q is not a valid item kind; allowed values: %v",
+					fieldPath, i, it.Kind, types.AllAnswerBlockItemKinds())
+			}
 			blk.Items = append(blk.Items, types.AnswerBlockItem{
+				Kind:        itemKind,
 				ID:          it.ID,
 				Label:       it.Label,
 				Text:        it.Text,

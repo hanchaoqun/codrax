@@ -29,6 +29,18 @@ returns through internal/agent/finalizer.go:567.`
 	}
 }
 
+func TestPrincipalOrderedListItemCount_IgnoresFlowAndCaveat(t *testing.T) {
+	items := []types.AnswerBlockItem{
+		{Label: "A"},
+		{Label: "B", Kind: types.AnswerBlockItemKindPrincipal},
+		{Label: "Flow", Kind: types.AnswerBlockItemKindFlow},
+		{Label: "Scope", Kind: types.AnswerBlockItemKindCaveat},
+	}
+	if got := principalOrderedListItemCount(items); got != 2 {
+		t.Fatalf("principalOrderedListItemCount = %d, want 2", got)
+	}
+}
+
 func TestExtractCitations_RangeForm(t *testing.T) {
 	text := "see file.go:100-150 for the full block."
 	cits := extractCitationsFromAnswer(text)

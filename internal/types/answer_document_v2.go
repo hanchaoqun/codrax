@@ -1,5 +1,7 @@
 package types
 
+import "strings"
+
 // AnswerDocumentV2 is the block-only carrier introduced by Phase 2 of
 // the docs/migration/block_only_carrier.md plan (B3 落地). It
 // REPLACES — at terminal-state B8 — the V1 `AnswerDocument` shape +
@@ -234,6 +236,11 @@ func (e *DiagramEdgeAnchor) HasTypedRelation() bool {
 // can carry its own claim_use if the items represent independent
 // claims (typical case for OrderedList / BulletList).
 type AnswerBlockItem struct {
+	// Kind classifies an ordered-list item's role in the rendered
+	// sequence. Empty Kind defaults to principal for back-compat and
+	// for emits that do not need auxiliary flow/caveat rows.
+	Kind AnswerBlockItemKind `json:"kind,omitempty"`
+
 	// ID is optional; useful when a downstream block needs to
 	// reference this specific item.
 	ID string `json:"id,omitempty"`
@@ -256,6 +263,55 @@ type AnswerBlockItem struct {
 	// the AcceptableClaimForms list of the parent block's
 	// BlockRequirement.
 	ClaimUse *RenderedClaimUse `json:"claim_use,omitempty"`
+}
+
+// AnswerBlockItemKind classifies the role of a V2 list item. This is
+// the block-only successor to the old AnswerStepKind semantic:
+// principal items are the user-asked members; flow and caveat items
+// are auxiliary scaffolding and do not count toward bounded principal
+// sets.
+type AnswerBlockItemKind string
+
+const (
+	AnswerBlockItemKindPrincipal AnswerBlockItemKind = "principal"
+	AnswerBlockItemKindFlow      AnswerBlockItemKind = "flow"
+	AnswerBlockItemKindCaveat    AnswerBlockItemKind = "caveat"
+)
+
+func (k AnswerBlockItemKind) IsValid() bool {
+	switch k {
+	case AnswerBlockItemKindPrincipal, AnswerBlockItemKindFlow, AnswerBlockItemKindCaveat:
+		return true
+	}
+	return false
+}
+
+// NormalizeAnswerBlockItemKind canonicalizes an item kind. Empty input
+// is accepted and normalized to principal so older emits and typed test
+// fixtures continue to count as principal items by default.
+func NormalizeAnswerBlockItemKind(raw string) (AnswerBlockItemKind, bool) {
+	trimmed := strings.TrimSpace(strings.ToLower(raw))
+	if trimmed == "" {
+		return AnswerBlockItemKindPrincipal, true
+	}
+	k := AnswerBlockItemKind(trimmed)
+	if k.IsValid() {
+		return k, true
+	}
+	return AnswerBlockItemKindPrincipal, false
+}
+
+func AllAnswerBlockItemKinds() []AnswerBlockItemKind {
+	return []AnswerBlockItemKind{
+		AnswerBlockItemKindPrincipal,
+		AnswerBlockItemKindFlow,
+		AnswerBlockItemKindCaveat,
+	}
+}
+
+func (k AnswerBlockItemKind) IsPrincipal() bool {
+	nk, _ := NormalizeAnswerBlockItemKind(string(k))
+	return nk == AnswerBlockItemKindPrincipal
 }
 
 // AnswerDiagramBlock is the payload for BlockDiagram blocks. It

@@ -38,8 +38,8 @@ func TestCompose_EmptyViolations_NonStrictReturnsEmptyHint(t *testing.T) {
 func TestRender_NoDuplicateHeader(t *testing.T) {
 	c := New(DefaultConfig())
 	h := &Hint{
-		WhatFailed:  "contract mismatch",
-		ExactFix:    "pick another shape",
+		WhatFailed: "contract mismatch",
+		ExactFix:   "pick another shape",
 	}
 	out := c.Render(h)
 	if strings.Contains(out, "## Retry Directive") {
@@ -209,11 +209,12 @@ var composerExactFixSwitchKinds = map[types.ViolationKind]bool{
 	types.ViolAcceptance:           true,
 	types.ViolSuccessCriterion:     true,
 	// V2 carrier kinds (B2 1:1 mapping rollout).
-	types.ViolPrincipalClaimUseMissing: true,
-	types.ViolDiagramEdgeUnsupported:   true,
-	types.ViolUncertaintyBlockMissing:  true,
-	types.ViolClaimFormUnsupported:     true,
-	types.ViolBlockCoverageMissing:     true,
+	types.ViolPrincipalClaimUseMissing:        true,
+	types.ViolDiagramEdgeUnsupported:          true,
+	types.ViolUncertaintyBlockMissing:         true,
+	types.ViolClaimFormUnsupported:            true,
+	types.ViolBlockCoverageMissing:            true,
+	types.ViolMissingRequestedRoleUndisclosed: true,
 }
 
 // composerExactFixSkipWhitelist names ViolationKind values that
@@ -254,12 +255,12 @@ var composerExactFixSkipWhitelist = map[types.ViolationKind]string{
 	types.ViolStepIdentifierUnverified: "uses violation.Repair for fix prose",
 
 	// P1 #3 / P3 #6 / Phase 5 / Phase 6 stage 7 — same pattern.
-	types.ViolSymbolAnchorMismatch:            "uses violation.Repair for fix prose",
+	types.ViolSymbolAnchorMismatch:               "uses violation.Repair for fix prose",
 	types.ViolEnumerationLabelUngrounded:         "uses violation.Repair for fix prose",
 	types.ViolEnumerationItemLabelExtractorDrift: "uses violation.Repair for fix prose",
 	types.ViolStructuralEnumerationDivergence:    "uses violation.Repair for fix prose",
-	types.ViolRichnessRegression:              "uses violation.Repair for fix prose",
-	types.ViolValueSecondaryCitationOffFocus:  "uses violation.Repair for fix prose",
+	types.ViolRichnessRegression:                 "uses violation.Repair for fix prose",
+	types.ViolValueSecondaryCitationOffFocus:     "uses violation.Repair for fix prose",
 
 	// B6-F1 (post-shape consolidated audit, 2026-05-04) —
 	// cross-citation single-locus oracle. Same pattern as the other
@@ -381,6 +382,12 @@ func TestComposer_V2ViolationsRouteThroughV2Vocabulary(t *testing.T) {
 			kind:           types.ViolBlockCoverageMissing,
 			mustContain:    []string{"blocks[]", "Required Answer Blocks"},
 			mustNotContain: []string{"steps[]", "symbols[]"},
+		},
+		{
+			name:           "missing_requested_role_undisclosed",
+			kind:           types.ViolMissingRequestedRoleUndisclosed,
+			mustContain:    []string{"missing_requested_roles[]", "role:<default|config|runtime|override>", "semantic-view contract"},
+			mustNotContain: []string{"shape=", "steps[]"},
 		},
 	}
 	for _, tc := range cases {

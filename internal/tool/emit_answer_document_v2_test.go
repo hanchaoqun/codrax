@@ -83,6 +83,37 @@ func TestEmitAnswerDocumentV2_AcceptsValidV2(t *testing.T) {
 	}
 }
 
+func TestEmitAnswerDocumentV2_AcceptsOrderedListItemKind(t *testing.T) {
+	bus := newV2TestBusContext()
+	tool := &EmitAnswerDocument{}
+	payload := json.RawMessage(`{
+		"document_model": "v2",
+		"blocks": [
+			{"id": "list1", "kind": "ordered_list", "items": [
+				{"id": "i1", "kind": "principal", "label": "A", "text": "alpha"},
+				{"id": "i2", "kind": "flow", "label": "B", "text": "beta"}
+			]}
+		]
+	}`)
+	res, err := tool.Execute(bus, payload)
+	if err != nil {
+		t.Fatalf("unexpected exec error: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("expected V2 emit to succeed; got %+v", res)
+	}
+	doc := bus.Mutable.AnswerDocumentV2()
+	if doc == nil || len(doc.Blocks) != 1 || len(doc.Blocks[0].Items) != 2 {
+		t.Fatalf("typed ordered_list not written: %+v", doc)
+	}
+	if got := doc.Blocks[0].Items[0].Kind; got != types.AnswerBlockItemKindPrincipal {
+		t.Fatalf("item[0].Kind=%q, want principal", got)
+	}
+	if got := doc.Blocks[0].Items[1].Kind; got != types.AnswerBlockItemKindFlow {
+		t.Fatalf("item[1].Kind=%q, want flow", got)
+	}
+}
+
 func TestEmitAnswerDocumentV2_RejectsV1FieldsAtTopLevel(t *testing.T) {
 	bus := newV2TestBusContext()
 	tool := &EmitAnswerDocument{}

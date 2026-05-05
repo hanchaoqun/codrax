@@ -431,6 +431,11 @@ func summariseExactFix(violations []types.Violation, ctx Context) string {
 		// V2 carrier — required block kind absent OR over the
 		// max-count cap.
 		return "Adjust the `blocks[]` slate to match the Required Answer Blocks list in the user section: emit each missing block kind, drop any that exceeds the cap, and keep the principal block's payload aligned with its family's contract (use the AllowedSet below for the required block kinds)."
+	case types.ViolMissingRequestedRoleUndisclosed:
+		// V2 carrier — config-precedence exact-absence answers must
+		// surface user-requested missing layers through the typed
+		// document-level field rather than vague prose placeholders.
+		return "Populate document-level `missing_requested_roles[]` exactly from the semantic-view contract for this dispatch. Each entry is `{role:<default|config|runtime|override>, label?:<user-facing bucket name>}`; preserve any surfaced labels (for example `CLI`) and do not replace missing layers with vague prose like `N/A` or `not applicable`."
 	}
 	return "Address the violation(s) listed above and re-emit."
 }

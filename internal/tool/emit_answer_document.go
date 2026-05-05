@@ -82,6 +82,7 @@ func (t *EmitAnswerDocument) Parameters() json.RawMessage {
               "type": "object",
               "properties": {
                 "id":           {"type": "string"},
+                "kind":         {"type": "string", "enum": ["principal", "flow", "caveat"], "description": "Optional ordered-list item role. principal items are the actual members / hops the user asked for. flow items are transition scaffolding only. caveat items qualify scope. Empty / omitted defaults to principal."},
                 "label":        {"type": "string", "description": "Primary visible text / row header. For enumeration items, MUST be the verbatim identifier copied from one of the evidence pool's anchor_symbol / subject / object values — fabricated labels are rejected by validateEnumerationItemLabelGrounding."},
                 "text":         {"type": "string", "description": "Item body / row content."},
                 "citation_ref": {"type": "integer", "description": "Top-level field on the item; zero-based index into citations[], or -1 when no cite backs the item. For scalar / decision blocks (where the literal / verdict sits in block.text), anchor the citation by attaching a one-element items=[{id:\"x\", citation_ref: N}] — there is no top-level value/boolean field on the block. NEVER place citation_ref inside claim_use — it is rejected with 'unknown field \"citation_ref\"'."},

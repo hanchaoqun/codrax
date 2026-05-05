@@ -56,6 +56,7 @@ type emitAnswerBlockV2 struct {
 
 type emitAnswerBlockItemV2 struct {
 	ID          string                  `json:"id,omitempty"`
+	Kind        string                  `json:"kind,omitempty"`
 	Label       string                  `json:"label,omitempty"`
 	Text        string                  `json:"text,omitempty"`
 	CitationRef FlexInt                 `json:"citation_ref,omitempty"`

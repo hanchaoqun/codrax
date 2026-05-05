@@ -1589,6 +1589,7 @@ func cloneAnswerDocumentV2(in *AnswerDocumentV2) *AnswerDocumentV2 {
 				cloned.Items = make([]AnswerBlockItem, len(b.Items))
 				for j, it := range b.Items {
 					itClone := AnswerBlockItem{
+						Kind:        it.Kind,
 						ID:          it.ID,
 						Label:       it.Label,
 						Text:        it.Text,
