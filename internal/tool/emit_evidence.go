@@ -608,6 +608,32 @@ func (t *EmitEvidence) Execute(ctx *types.BusContext, params json.RawMessage) (t
 		built[i].DriftReason = proj.DriftReason
 	}
 
+	// Plan 2 v2 (2026-05-05) — deterministic role-description pairing.
+	// For every grounded definition-anchor item, attempt to extract the
+	// leading doc comment from the same source's read_file gutter and
+	// append a parallel evidence_kind=mechanism item carrying the
+	// role description. Skill prompt's Plan-2-v1 LLM pairing path
+	// stays in place; this hook guarantees the pool covers cases
+	// where the LLM forgets to emit the WHAT axis.
+	autoPaired := autoPairRoleDescriptionEvidence(built, gc)
+	if len(autoPaired) > 0 {
+		built = append(built, autoPaired...)
+		// Keep reports[] in lockstep with built[] for renderEmitSummary
+		// — every auto-paired item is born grounded against the
+		// read_file gutter, so its synthetic Report mirrors that.
+		for _, ap := range autoPaired {
+			reports = append(reports, ground.Report{
+				ItemID: ap.ID, Status: ap.GroundingStatus, Tier: ap.GroundingTier,
+				OriginalLine: ap.LineStart, AdjustedLine: ap.LineStart,
+				Note: ap.GroundingNote,
+			})
+		}
+		if ctx.Mutable != nil {
+			ctx.Mutable.EvidenceClosure().BumpAutoPairedRoleDescriptions(len(autoPaired))
+		}
+		logging.Debug("[emit_evidence] Plan 2 v2 auto-paired %d role-description mechanism evidence items", len(autoPaired))
+	}
+
 	ctx.Mutable.AppendEvidence(built)
 
 	summary := renderEmitSummary(ctx, built, reports, ctx.Mutable.EmittedEvidence())
@@ -2126,6 +2152,133 @@ func emitSourceMatchesAnyRequiredFile(source string, requiredFiles []string) boo
 // All three conditions must hold; loose matching here would
 // reject legitimate self-descriptive evidence (e.g. a struct
 // that genuinely bears its own name).
+// autoPairRoleDescriptionEvidence (Plan 2 v2, 2026-05-05) walks the
+// just-built evidence batch and, for every grounded definition-anchor
+// item whose source's leading doc comment is in the read_file gutter,
+// produces a parallel evidence_kind=mechanism item carrying the
+// component's role description (the WHAT axis to the original's
+// WHERE axis). Returns the list of newly synthesised items; callers
+// append to the batch and bump the AutoPairedRoleDescriptions counter.
+//
+// Trigger conditions (ALL must hold):
+//   - it.AnchorKind == AnchorDefinition (definition-class anchor)
+//   - it.GroundingStatus == Grounded or Recovered (evidence is sound)
+//   - it.Scope == ScopeLine and it.LineStart > 0
+//   - it.Source is non-empty and present in gc.LineIndex
+//   - the same (source, line_start) does not already have a manual
+//     EvidenceMechanism entry in this same batch (deduplication)
+//
+// The extracted comment text feeds Summary; Subject is copied from
+// the originating item; Predicate is set to "documents". The synthesised
+// item has Producer="auto_pair_role_description" so downstream
+// consumers can attribute / filter if needed.
+func autoPairRoleDescriptionEvidence(built []types.EvidenceItem, gc *ground.Context) []types.EvidenceItem {
+	if len(built) == 0 || gc == nil || len(gc.LineIndex) == 0 {
+		return nil
+	}
+	// Index existing mechanism entries by (source, line_start) so we
+	// don't double-pair if the LLM already supplied a WHAT axis.
+	type srcLine struct {
+		source string
+		line   int
+	}
+	manualMech := make(map[srcLine]bool, len(built))
+	for _, it := range built {
+		if it.Kind != types.EvidenceMechanism {
+			continue
+		}
+		manualMech[srcLine{it.Source, it.LineStart}] = true
+	}
+	out := make([]types.EvidenceItem, 0, 4)
+	seen := make(map[srcLine]bool, 4)
+	for i := range built {
+		it := built[i]
+		if it.AnchorKind != types.AnchorDefinition {
+			continue
+		}
+		if it.Scope != "" && it.Scope != types.ScopeLine {
+			continue
+		}
+		if it.LineStart <= 0 || it.Source == "" {
+			continue
+		}
+		if it.GroundingStatus != types.GroundingGrounded && it.GroundingStatus != types.GroundingRecovered {
+			continue
+		}
+		key := srcLine{it.Source, it.LineStart}
+		if manualMech[key] || seen[key] {
+			continue
+		}
+		text, commentLine := extractDocCommentForGroundedItem(gc, it.Source, it.LineStart)
+		if text == "" {
+			continue
+		}
+		seen[key] = true
+		mech := types.EvidenceItem{
+			Kind:            types.EvidenceMechanism,
+			Subject:         it.Subject,
+			Predicate:       "documents",
+			Object:          it.AnchorSymbol,
+			Summary:         text,
+			Source:          it.Source,
+			LineStart:       commentLine,
+			AnchorKind:      types.AnchorDefinition,
+			AnchorSymbol:    it.AnchorSymbol,
+			OwnerSymbol:     it.OwnerSymbol,
+			Scope:           types.ScopeLine,
+			Confidence:      it.Confidence,
+			DerivedFrom:     []string{it.ID},
+			Producer:        "auto_pair_role_description",
+			GroundingStatus: types.GroundingGrounded,
+			GroundingTier:   types.TierLineText,
+			GroundingNote:   "auto-paired from leading doc comment",
+		}
+		mech.ID = types.StableEvidenceID(mech)
+		out = append(out, mech)
+	}
+	return out
+}
+
+// extractDocCommentForGroundedItem reconstructs a content view of the
+// source from the read_file gutter and dispatches to the
+// language-aware comment extractor. Returns empty when the line(s)
+// above lineStart were not in the read_file history (no false-pair
+// risk from unread regions).
+func extractDocCommentForGroundedItem(gc *ground.Context, source string, lineStart int) (string, int) {
+	if gc == nil || gc.LineIndex == nil {
+		return "", 0
+	}
+	idx := gc.LineIndex[source]
+	if len(idx) == 0 {
+		return "", 0
+	}
+	// Require the line immediately above to be in the gutter — this
+	// is where any leading comment block would start its tail. If the
+	// region is unread, decline rather than risk a missed comment.
+	if _, ok := idx[lineStart-1]; !ok {
+		// Allow the case where the def has no comment above but does
+		// have a Python docstring on the line(s) below; we still need
+		// SOME context. For Python, require lineStart+1 instead.
+		if _, okBelow := idx[lineStart+1]; !okBelow {
+			return "", 0
+		}
+	}
+	// Build a 1-based contiguous string from the LineIndex map. Find
+	// the max line number we know about and pad missing rows with "".
+	maxLine := lineStart + 6 // python docstring may sit a few lines below def
+	for k := range idx {
+		if k > maxLine {
+			maxLine = k
+		}
+	}
+	parts := make([]string, maxLine)
+	for i := 1; i <= maxLine; i++ {
+		parts[i-1] = idx[i]
+	}
+	content := []byte(strings.Join(parts, "\n"))
+	return types.ExtractLeadingDocComment(content, lineStart, source)
+}
+
 func isSelfRefEvidence(ev *types.EvidenceItem, primaryEntity string) bool {
 	if ev == nil || primaryEntity == "" {
 		return false

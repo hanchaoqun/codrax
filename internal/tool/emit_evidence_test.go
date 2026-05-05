@@ -2097,6 +2097,137 @@ func TestEmitEvidence_RejectsScopeMissingRequiredField(t *testing.T) {
 	}
 }
 
+// TestEmitEvidence_AutoPairsRoleDescriptionFromLeadingDocComment is the
+// Plan 2 v2 (2026-05-05) integration test for the deterministic
+// role-description pairing hook. Setup: a Go source whose definition
+// at line 5 has a 2-line `//` doc comment immediately above. The LLM
+// emits one definition-anchor evidence item; the system MUST auto-pair
+// a parallel evidence_kind=mechanism item carrying the doc comment
+// text as Summary.
+func TestEmitEvidence_AutoPairsRoleDescriptionFromLeadingDocComment(t *testing.T) {
+	tool := &EmitEvidence{}
+	ctx := newEmitCtx()
+	// Seed read_file gutter with a Go file whose def line is 5 and
+	// the two lines above are //-comments.
+	seedReadFileHistory(ctx, "internal/agent/foo.go", 1,
+		"package foo",
+		"",
+		"// Foo coordinates the storm pipeline by deciding when each",
+		"// stage emits and persisting the rolling baseline.",
+		"func Foo() {",
+		"    return",
+		"}",
+	)
+	params := json.RawMessage(`{
+        "items": [
+          {"kind": "direct", "subject": "Foo", "source": "internal/agent/foo.go", "line_start": 5, "summary": "Foo is defined here", "anchor_kind": "definition", "anchor_symbol": "Foo"}
+        ]
+    }`)
+	res, err := tool.Execute(ctx, params)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("expected success, got: %s", res.Summary)
+	}
+	got := ctx.Mutable.EmittedEvidence()
+	if len(got) != 2 {
+		t.Fatalf("want 2 items (1 manual + 1 auto-paired), got %d", len(got))
+	}
+	var paired *types.EvidenceItem
+	for i := range got {
+		if got[i].Producer == "auto_pair_role_description" {
+			paired = &got[i]
+			break
+		}
+	}
+	if paired == nil {
+		t.Fatalf("auto-paired mechanism item missing; producers seen: %s", producersOf(got))
+	}
+	if paired.Kind != types.EvidenceMechanism {
+		t.Errorf("auto-paired item kind = %q, want mechanism", paired.Kind)
+	}
+	if !strings.Contains(paired.Summary, "Foo coordinates the storm pipeline") {
+		t.Errorf("auto-paired Summary missing doc-comment text: %q", paired.Summary)
+	}
+	if paired.LineStart != 3 {
+		t.Errorf("auto-paired LineStart = %d, want 3 (first comment line)", paired.LineStart)
+	}
+	if len(paired.DerivedFrom) != 1 || paired.DerivedFrom[0] != got[0].ID {
+		t.Errorf("auto-paired DerivedFrom = %v, want [%q]", paired.DerivedFrom, got[0].ID)
+	}
+	stats := ctx.Mutable.EvidenceClosure().Stats()
+	if stats.AutoPairedRoleDescriptions != 1 {
+		t.Errorf("AutoPairedRoleDescriptions counter = %d, want 1", stats.AutoPairedRoleDescriptions)
+	}
+}
+
+// TestEmitEvidence_DoesNotAutoPairWhenManualMechanismExists guards the
+// dedup rule: if the LLM already supplied a mechanism evidence at the
+// same (source, line_start), the auto-pair MUST stand down so the
+// authored explanation remains canonical.
+func TestEmitEvidence_DoesNotAutoPairWhenManualMechanismExists(t *testing.T) {
+	tool := &EmitEvidence{}
+	ctx := newEmitCtx()
+	seedReadFileHistory(ctx, "internal/agent/foo.go", 1,
+		"package foo",
+		"",
+		"// Foo runs the storm pipeline and persists the baseline.",
+		"func Foo() {",
+		"    return",
+		"}",
+	)
+	params := json.RawMessage(`{
+        "items": [
+          {"kind": "direct", "subject": "Foo", "source": "internal/agent/foo.go", "line_start": 4, "summary": "Foo is defined here", "anchor_kind": "definition", "anchor_symbol": "Foo"},
+          {"kind": "mechanism", "subject": "Foo", "predicate": "documents", "summary": "Foo handles the storm pipeline (LLM authored).", "source": "internal/agent/foo.go", "line_start": 4, "anchor_kind": "definition", "anchor_symbol": "Foo"}
+        ]
+    }`)
+	res, err := tool.Execute(ctx, params)
+	if err != nil || !res.Success {
+		t.Fatalf("execute failed: err=%v summary=%s", err, res.Summary)
+	}
+	got := ctx.Mutable.EmittedEvidence()
+	for _, it := range got {
+		if it.Producer == "auto_pair_role_description" {
+			t.Errorf("auto-pair should stand down when manual mechanism present at same anchor; got auto-paired item %q", it.Summary)
+		}
+	}
+}
+
+// TestEmitEvidence_AutoPairSkipsWhenSourceUnread exercises the safety
+// rail: when the source's lines around lineStart are NOT in the
+// read_file gutter, the extractor must decline rather than risk a
+// false-positive comment from an unread region.
+func TestEmitEvidence_AutoPairSkipsWhenSourceUnread(t *testing.T) {
+	tool := &EmitEvidence{}
+	ctx := newEmitCtx()
+	// No seedReadFileHistory call → gc.LineIndex is empty.
+	params := json.RawMessage(`{
+        "items": [
+          {"kind": "direct", "subject": "Foo", "source": "internal/agent/foo.go", "line_start": 5, "summary": "Foo is defined here", "anchor_kind": "definition", "anchor_symbol": "Foo"}
+        ]
+    }`)
+	_, err := tool.Execute(ctx, params)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	got := ctx.Mutable.EmittedEvidence()
+	for _, it := range got {
+		if it.Producer == "auto_pair_role_description" {
+			t.Errorf("auto-pair must not fire without read_file coverage; got %+v", it)
+		}
+	}
+}
+
+func producersOf(items []types.EvidenceItem) string {
+	parts := make([]string, len(items))
+	for i, it := range items {
+		parts[i] = it.Producer
+	}
+	return strings.Join(parts, ",")
+}
+
 func TestEmitEvidence_ToolSurface(t *testing.T) {
 	tool := &EmitEvidence{}
 	if tool.Name() != "emit_evidence" {

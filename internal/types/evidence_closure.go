@@ -228,6 +228,7 @@ type ClosureStats struct {
 	StallSoftHits         int // I4: convergence soft threshold hits
 	StallHardHits         int // I4: convergence hard threshold hits (force-complete)
 	ViolationsLogged      int // Session 11 F1: ledger entries recorded (any kind)
+	AutoPairedRoleDescriptions int // Plan 2 v2 (2026-05-05): role-description mechanism evidence auto-paired by emit_evidence from leading doc-comment
 
 	// PerStage carries stage-wise breakdown of the same activity the
 	// scalar counters above record at Run scope. Block 1 (architecture
@@ -275,7 +276,7 @@ func (s ClosureStats) HasActivity() bool {
 		s.ExpandSearchRaised+s.ViewSwapRaised+
 		s.PreCompleteDowngrades+s.ForcedReads+
 		s.StallSoftHits+s.StallHardHits+
-		s.ViolationsLogged > 0 {
+		s.ViolationsLogged+s.AutoPairedRoleDescriptions > 0 {
 		return true
 	}
 	for _, st := range s.PerStage {
@@ -1991,6 +1992,9 @@ func (c *EvidenceClosure) BumpForcedReadsForStage(stage string, n int) {
 }
 func (c *EvidenceClosure) BumpStallSoftHits(n int) {
 	c.bumpStat(func(s *ClosureStats) { s.StallSoftHits += n })
+}
+func (c *EvidenceClosure) BumpAutoPairedRoleDescriptions(n int) {
+	c.bumpStat(func(s *ClosureStats) { s.AutoPairedRoleDescriptions += n })
 }
 func (c *EvidenceClosure) BumpStallHardHits(n int) {
 	c.bumpStat(func(s *ClosureStats) { s.StallHardHits += n })
