@@ -123,3 +123,34 @@ func FilterDerivedViolations(violations []types.Violation) []types.Violation {
 	}
 	return out
 }
+
+// IncrementAttemptsAndCheckExhausted bumps the per-(kind, fp)
+// counter on history for every ROOT violation in violations, then
+// reports whether every root has reached MaxRepairAttemptsPerRoot.
+// W2.6 (2026-05-05): cross-scope retry budget gate.
+//
+// "Every root exhausted" means we have nothing left to fix that
+// retry could plausibly resolve — caller should ship the answer
+// with materialised caveats instead of dispatching another retry.
+//
+// If history is nil (test paths / pre-W2 callers), behaviour is
+// pre-W2: returns false unconditionally so the legacy retry budget
+// continues to gate.
+func IncrementAttemptsAndCheckExhausted(violations []types.Violation, history *types.RepairAttemptHistory) bool {
+	if history == nil || len(violations) == 0 {
+		return false
+	}
+	roots := FilterDerivedViolations(violations)
+	if len(roots) == 0 {
+		return false
+	}
+	allExhausted := true
+	for _, v := range roots {
+		k := types.FpKey{Kind: v.Kind, Fingerprint: clusterFingerprintOf(v)}
+		history.Increment(k)
+		if !history.Exhausted(k) {
+			allExhausted = false
+		}
+	}
+	return allExhausted
+}

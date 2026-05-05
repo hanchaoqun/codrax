@@ -357,6 +357,18 @@ type MutableState struct {
 	// All accessor methods live in evidence_closure.go.
 	evidenceClosure *EvidenceClosure
 
+	// repairAttempts is the cross-scope attempt counter introduced
+	// in W2.5 (docs/design/iteration_inflation_remediation.md §3
+	// source #3). Tracks how many times each unique
+	// (ViolKind, Fingerprint) has been dispatched for repair across
+	// mid-loop / fallback / contract retry scopes combined. Once a
+	// key exceeds MaxRepairAttemptsPerRoot, the orchestrator
+	// transitions that violation to "materialise as caveat" mode
+	// instead of dispatching another retry. Lazily initialised by
+	// RepairAttempts(); reset at task entry by
+	// ResetRepairAttempts.
+	repairAttempts *RepairAttemptHistory
+
 	// writeClosure is the write-phase mirror of evidenceClosure — the
 	// per-Run CGEC-W tracker for the four write-mode invariants W1-W4.
 	// Populated by the apply (W1, W3), verify (W2, W4), and plan

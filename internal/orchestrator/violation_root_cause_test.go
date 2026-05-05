@@ -189,6 +189,69 @@ func stubResultWithViolations(vs ...types.Violation) contractResultStub {
 // emulate the public surface needed.
 type contractResultStub = contract.Result
 
+// TestIncrementAttemptsAndCheckExhausted_PinsCrossScopeBudget pins
+// W2.6: same root violation across N attempts triggers exhaustion
+// after MaxRepairAttemptsPerRoot regardless of which scope the
+// retries came from.
+func TestIncrementAttemptsAndCheckExhausted_PinsCrossScopeBudget(t *testing.T) {
+	hist := types.NewRepairAttemptHistory()
+	root := []types.Violation{{
+		Kind:          types.ViolDiagramEdgeUnsupported,
+		Detail:        "block id=\"d1\" edge missing typed anchor",
+		SuspectedRoot: types.SuspectedRoot{IRField: "diagram_edges"},
+	}}
+	for i := 0; i < types.MaxRepairAttemptsPerRoot-1; i++ {
+		if exhausted := IncrementAttemptsAndCheckExhausted(root, hist); exhausted {
+			t.Fatalf("attempt %d: exhausted=true earlier than MaxRepairAttemptsPerRoot=%d",
+				i+1, types.MaxRepairAttemptsPerRoot)
+		}
+	}
+	if !IncrementAttemptsAndCheckExhausted(root, hist) {
+		t.Fatalf("attempt %d: exhausted=false but should be true", types.MaxRepairAttemptsPerRoot)
+	}
+}
+
+// TestIncrementAttemptsAndCheckExhausted_DerivedSkipped — derived
+// violations don't count toward the per-root budget. The root carries
+// the budget; derivations are noise the LLM should not be asked to
+// fix.
+func TestIncrementAttemptsAndCheckExhausted_DerivedSkipped(t *testing.T) {
+	hist := types.NewRepairAttemptHistory()
+	mixed := []types.Violation{
+		{Kind: types.ViolDiagramEdgeUnsupported, SuspectedRoot: types.SuspectedRoot{IRField: "diagram_edges"}},
+		{
+			Kind:      types.ViolDiagramEdgeLabelMismatch,
+			IsDerived: true,
+			RootKind:  types.ViolDiagramEdgeUnsupported,
+		},
+	}
+	IncrementAttemptsAndCheckExhausted(mixed, hist)
+	rootKey := types.FpKey{
+		Kind:        types.ViolDiagramEdgeUnsupported,
+		Fingerprint: clusterFingerprintOf(mixed[0]),
+	}
+	derivedKey := types.FpKey{
+		Kind:        types.ViolDiagramEdgeLabelMismatch,
+		Fingerprint: clusterFingerprintOf(mixed[1]),
+	}
+	if got := hist.Get(rootKey); got != 1 {
+		t.Errorf("root attempt count = %d, want 1", got)
+	}
+	if got := hist.Get(derivedKey); got != 0 {
+		t.Errorf("derived attempt count = %d, want 0 (must not be incremented)", got)
+	}
+}
+
+// TestIncrementAttemptsAndCheckExhausted_NilHistoryPassthrough —
+// pre-W2 callers without a history (nil) must not panic and must
+// return false so legacy retry budget continues to gate.
+func TestIncrementAttemptsAndCheckExhausted_NilHistoryPassthrough(t *testing.T) {
+	violations := []types.Violation{{Kind: types.ViolDiagramEdgeUnsupported}}
+	if got := IncrementAttemptsAndCheckExhausted(violations, nil); got {
+		t.Errorf("nil history should return false, got true")
+	}
+}
+
 // TestComputeRootCauseClosure_EmptyInput — nil/empty in -> nil out.
 func TestComputeRootCauseClosure_EmptyInput(t *testing.T) {
 	if got := ComputeRootCauseClosure(nil); got != nil {

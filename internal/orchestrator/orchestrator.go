@@ -2919,6 +2919,12 @@ func (o *Orchestrator) runReadSchedulerLoop(stepBudget int) int {
 		// from task N would carry into task N+1 and trigger a false
 		// hard-stall on the very first round.
 		o.busCtx.Mutable.ResetEvidenceClosure()
+		// W2.6 (2026-05-05): per-task reset of the cross-scope
+		// repair-attempt history. A fresh task starts with zero
+		// attempts on every (kind, fp); without this a stale
+		// "exhausted" verdict from task N would short-circuit task
+		// N+1's first retry round.
+		o.busCtx.Mutable.ResetRepairAttempts()
 	}
 	// AnswerSymbolCompleteness is a BusContext field, not a
 	// MutableState field — reset it here too so the applyStageOutput
@@ -3648,6 +3654,25 @@ func (o *Orchestrator) runReadSchedulerLoop(stepBudget int) int {
 				logging.Debug("[orchestrator]   violation[%d] kind=%s detail=%q repair=%q",
 					i, v.Kind, v.Detail, v.Repair)
 			}
+		}
+
+		// W2.6 (2026-05-05): cross-scope (kind, fp) attempt budget.
+		// Increments the per-Run RepairAttemptHistory for each ROOT
+		// violation; when every root has reached
+		// MaxRepairAttemptsPerRoot, retry is structurally pointless —
+		// the same root has been dispatched MaxAttempts times across
+		// any combination of mid-loop / fallback / contract retry
+		// scopes. Ship with caveats instead of dispatching another
+		// wasted round.
+		if IncrementAttemptsAndCheckExhausted(res.Violations, o.busCtx.Mutable.RepairAttempts()) {
+			out.FinalAnswer = o.applyContractViolations(out.FinalAnswer, res)
+			out.FinalAnswer = AppendUserCaveatsToAnswer(out.FinalAnswer, res.Violations, o.busCtx.Language)
+			logging.Warning("[orchestrator] cross-scope repair attempts exhausted on every root; %d violation(s) materialised as user caveat",
+				len(res.Violations))
+			lastFinalize = out
+			state.markDone(fin.ID)
+			o.emitNodeEnd(fin.ID, true, "")
+			break
 		}
 
 		if state.retryBudgetExhausted() {
