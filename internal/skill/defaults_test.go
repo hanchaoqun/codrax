@@ -95,6 +95,27 @@ func TestFinalizerSkill_DoesNotTeachRetiredV1AnswerPayloads(t *testing.T) {
 	}
 }
 
+func TestFinalizerSkill_TeachesTypedDiagramRelationAuthority(t *testing.T) {
+	r := NewRegistry()
+	RegisterDefaults(r)
+
+	sk, err := r.Get("answer-document-skill")
+	if err != nil {
+		t.Fatalf("Get(answer-document-skill) returned error: %v", err)
+	}
+	blob := strings.Join(append([]string{sk.Goal, sk.OutputFormat}, sk.Workflow...), "\n")
+	for _, want := range []string{
+		"`edge_anchors` is the OPTIONAL block-level array for diagram-edge typed anchors",
+		"relation_kind?: <one of call|guard|import|precedence|contain|observe>",
+		"PREFERRED: set `relation_kind` directly",
+		"the authoritative semantic relation",
+	} {
+		if !strings.Contains(blob, want) {
+			t.Fatalf("answer-document-skill missing typed diagram relation guidance %q:\n%s", want, blob)
+		}
+	}
+}
+
 func TestExtractSkill_DoesNotTeachLegacySymbolsArray(t *testing.T) {
 	r := NewRegistry()
 	RegisterDefaults(r)
