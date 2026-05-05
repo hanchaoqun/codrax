@@ -63,6 +63,36 @@ func TestFinalizerSkillKeepsInternalJargonOutOfUserProse(t *testing.T) {
 	}
 }
 
+func TestFinalizerSkill_DoesNotTeachRetiredV1AnswerPayloads(t *testing.T) {
+	r := NewRegistry()
+	RegisterDefaults(r)
+
+	sk, err := r.Get("answer-document-skill")
+	if err != nil {
+		t.Fatalf("Get(answer-document-skill) returned error: %v", err)
+	}
+	blob := strings.Join(append([]string{sk.Goal, sk.OutputFormat}, sk.Workflow...), "\n")
+	for _, banned := range []string{
+		"value{literal, citation_ref}",
+		"value{key, literal, citation_ref}",
+		"boolean{decision, rationale, citation_ref}",
+		"include the candidate in symbols[]",
+	} {
+		if strings.Contains(blob, banned) {
+			t.Fatalf("answer-document-skill must not teach retired V1 payload %q:\n%s", banned, blob)
+		}
+	}
+	for _, want := range []string{
+		"scalar carries the literal in block `text`",
+		"decision carries the verdict + rationale in block `text`",
+		"The block schema does NOT carry top-level `value` or `boolean` fields",
+	} {
+		if !strings.Contains(blob, want) {
+			t.Fatalf("answer-document-skill missing V2 guidance %q:\n%s", want, blob)
+		}
+	}
+}
+
 // TestChangePlanSkill_PhaseAInvestigateWorkflow verifies Module A's
 // "investigate before emit" guidance is in the planner's skill
 // workflow. Pure description-of-method (PHASE A — INVESTIGATE), no

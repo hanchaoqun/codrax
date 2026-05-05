@@ -330,12 +330,12 @@ func renderAnswerDocSubmissionChecklist(ctx *types.AgentContext, view *types.Ans
 				switch view.Family {
 				case types.QFConfigPrecedence:
 					items = append(items,
-						"Emit the principal `scalar` block with `value{key, literal, citation_ref}` and attach block-level `claim_uses=[{claim_form=definition_fact}]` (plural array) — citation_ref already lives on `value`, NEVER inside the claim_uses object. Use `assignment_fact` when the cited line is a config / variable assignment.",
+						"Emit the principal `scalar` block with the literal in block `text`, and attach a one-element `items=[{id:\"v\", citation_ref:N}]` when you need a citation anchor. Attach block-level `claim_uses=[{claim_form=definition_fact}]` (plural array). Use `assignment_fact` when the cited line is a config / variable assignment. There is NO top-level `value{...}` payload in V2.",
 						"Fill the block's `text` (or the lead summary block) with prose that names the config key / subject and states how the literal was obtained (lookup / file:line / chain).",
 					)
 				default:
 					items = append(items,
-						"Emit the principal `scalar` block with `value{literal, citation_ref}` and attach block-level `claim_uses=[{claim_form=definition_fact}]` (plural array) — citation_ref already lives on `value`, NEVER inside the claim_uses object. Use `external_observation` when the literal is from an attached log / external trace.",
+						"Emit the principal `scalar` block with the literal in block `text`, and attach a one-element `items=[{id:\"v\", citation_ref:N}]` when you need a citation anchor. Attach block-level `claim_uses=[{claim_form=definition_fact}]` (plural array). Use `external_observation` when the literal is from an attached log / external trace. There is NO top-level `value{...}` payload in V2.",
 						"Fill the block's `text` (or the lead summary block) with prose that names the subject being measured and states how the literal was obtained (lookup / file:line / command / chain).",
 					)
 				}
@@ -373,7 +373,7 @@ func renderAnswerDocSubmissionChecklist(ctx *types.AgentContext, view *types.Ans
 				)
 			case types.BlockDecision:
 				items = append(items,
-					"Emit the principal `decision` block with `boolean{decision, rationale, citation_ref}` and block-level `claim_uses=[{claim_form=guard_condition|definition_fact}]` (plural array) — citation_ref already lives on `boolean`, NEVER inside the claim_uses object.",
+					"Emit the principal `decision` block with the verdict at the START of block `text`, followed by the rationale prose. Attach a one-element `items=[{id:\"d\", citation_ref:N}]` when you need a citation anchor, and attach block-level `claim_uses=[{claim_form=guard_condition|definition_fact}]` (plural array). There is NO top-level `boolean{...}` payload in V2.",
 				)
 			case types.BlockCaveat:
 				items = append(items,
@@ -950,7 +950,7 @@ func renderAnswerDocBlockRequirement(b *strings.Builder, req types.BlockRequirem
 
 	// R7 (post_shape_residual_audit.md, 2026-05-04): typed-set
 	// fields verbatim — LLM was filling block.facet_ids /
-	// block.claim_use.claim_form / block.surface_role using GUESS-WORK
+	// block.claim_uses[].claim_form / block.surface_role using GUESS-WORK
 	// because the prose only listed field NAMES, not the typed string
 	// VALUES. Now we expose the values verbatim under each block
 	// requirement so the LLM can copy them directly into the emit.
@@ -963,7 +963,7 @@ func renderAnswerDocBlockRequirement(b *strings.Builder, req types.BlockRequirem
 		for _, f := range req.AcceptableClaimForms {
 			forms = append(forms, string(f))
 		}
-		fmt.Fprintf(b, "  - `block.claim_use.claim_form` MUST be one of: %s (copy verbatim).\n",
+		fmt.Fprintf(b, "  - At least one `block.claim_uses[]` entry's `claim_form` MUST be one of: %s (copy verbatim).\n",
 			renderQuotedList(forms))
 	}
 	if req.SurfaceRoleHint != "" {

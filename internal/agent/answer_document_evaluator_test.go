@@ -1278,7 +1278,8 @@ func TestAnswerDocumentEvaluator_BuildInitialInstruction_RendersScalarLookupDisc
 	prompt := (&answerDocumentEvaluator{}).BuildInitialInstruction(ctx, nil)
 	for _, want := range []string{
 		"## Submission Checklist",
-		"`scalar` block with `value{literal, citation_ref}`",
+		"`scalar` block with the literal in block `text`",
+		"There is NO top-level `value{...}` payload in V2",
 		"names the subject being measured",
 		"## Scalar Lookup Discipline",
 		"one named source-code literal",
@@ -1287,6 +1288,15 @@ func TestAnswerDocumentEvaluator_BuildInitialInstruction_RendersScalarLookupDisc
 	} {
 		if !strings.Contains(prompt, want) {
 			t.Fatalf("prompt missing %q:\n%s", want, prompt)
+		}
+	}
+	for _, banned := range []string{
+		"value{literal, citation_ref}",
+		"value{key, literal, citation_ref}",
+		"boolean{decision, rationale, citation_ref}",
+	} {
+		if strings.Contains(prompt, banned) {
+			t.Fatalf("prompt must not teach retired V1 payload %q:\n%s", banned, prompt)
 		}
 	}
 }
@@ -2893,7 +2903,7 @@ func TestAnswerDocAttachEscalation(t *testing.T) {
 // TestRenderAnswerDocBlockRequirement_VerbatimTypedSets pins R7's
 // fix: BlockRequirement.FacetIDs / AcceptableClaimForms /
 // SurfaceRoleHint must each render as JSON-ready string lists the
-// LLM can copy verbatim into block.facet_ids[] / claim_use.claim_form
+// LLM can copy verbatim into block.facet_ids[] / block.claim_uses[].claim_form
 // / surface_role.
 //
 // Pre-R7 the prose only said "covers facet(s): X" without
@@ -2926,7 +2936,7 @@ func TestRenderAnswerDocBlockRequirement_VerbatimTypedSets(t *testing.T) {
 	}
 	// Verbatim ClaimForm strings.
 	for _, want := range []string{
-		"`block.claim_use.claim_form` MUST be one of",
+		"`block.claim_uses[]` entry's `claim_form` MUST be one of",
 		`"definition_fact"`,
 		`"call_edge"`,
 	} {
@@ -2957,7 +2967,7 @@ func TestRenderAnswerDocBlockRequirement_OmitsTypedSetsWhenEmpty(t *testing.T) {
 	got := b.String()
 	for _, banned := range []string{
 		"`block.facet_ids` MUST include",
-		"`block.claim_use.claim_form` MUST be one of",
+		"`block.claim_uses[]` entry's `claim_form` MUST be one of",
 		"`block.surface_role` SHOULD be",
 	} {
 		if strings.Contains(got, banned) {
