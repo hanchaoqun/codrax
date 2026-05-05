@@ -143,8 +143,9 @@ type MutableState struct {
 	// write came from emit_answer_document_patch (true) or full
 	// emit_answer_document (false). Phase 2-B4 (V2 runtime
 	// consolidation, 2026-05-04) — surfaces inheritance lineage in
-	// retry summary for observability. Set by SetAnswerDocumentV2 /
-	// SetAnswerDocumentV2FromPatch.
+	// retry summary for observability. v3 B4 (2026-05-04): set by
+	// SetAnswerDocumentV2WithMutation based on MutationKind ==
+	// MutationPartial.
 	lastEmitFromPatch bool
 
 	// lastAnswerDocAttemptShape caches the size profile of the
@@ -1487,42 +1488,30 @@ func (m *MutableState) LastAnswerDocAttemptShape() *AnswerDocAttemptShape {
 	return &clone
 }
 
-// SetAnswerDocumentV2 atomically replaces the V2 block-only
-// carrier (B3 落地). Mirror of SetAnswerDocument. The input is
-// stored by-value-copy semantics through the cloning helper so
-// later mutations on the caller side cannot race readers.
+// SetAnswerDocumentV2WithMutation atomically replaces the V2 block-
+// only carrier and flags the patch-lineage according to the typed
+// MutationKind. v3 B4 (2026-05-04) — single canonical setter,
+// replacing the pre-v3 split SetAnswerDocumentV2 (full emit) /
+// SetAnswerDocumentV2FromPatch (patch emit) pair. The input is
+// cloned through cloneAnswerDocumentV2 so later caller-side
+// mutations cannot race readers.
 //
-// Used by full emit (emit_answer_document_v2). The patch path uses
-// SetAnswerDocumentV2FromPatch so retry summary can flag the
-// inheritance lineage (Phase 2-B4).
-func (m *MutableState) SetAnswerDocumentV2(doc *AnswerDocumentV2) {
+// MutationPartial sets LastEmitFromPatch=true so retry summary can
+// render "Previous Emit (inherited from patch)" lineage; any other
+// kind (including MutationReplaceAll) clears the flag.
+//
+// Both emit_answer_document and emit_answer_document_patch route
+// through ApplyAndPersistMutation in internal/tool, which calls
+// this setter. Direct callers should NOT bypass that helper —
+// merged-doc validation lives there.
+func (m *MutableState) SetAnswerDocumentV2WithMutation(kind MutationKind, doc *AnswerDocumentV2) {
 	if m == nil {
 		return
 	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.answerDocumentV2 = cloneAnswerDocumentV2(doc)
-	m.lastEmitFromPatch = false
-}
-
-// SetAnswerDocumentV2FromPatch is the patch-path counterpart of
-// SetAnswerDocumentV2. It writes the merged AnswerDocumentV2 (the
-// post-ApplyAnswerDocumentV2Patch result) AND flags the doc as
-// patch-sourced so the retry summary can carry from_patch=true and
-// downstream observability can audit the inheritance lineage.
-//
-// Phase 2-B4 (V2 runtime consolidation, 2026-05-04): introduced so
-// retry summary can render "Previous Emit (inherited from patch)"
-// instead of an opaque "Previous Emit" header. Pure observability —
-// no behaviour change.
-func (m *MutableState) SetAnswerDocumentV2FromPatch(doc *AnswerDocumentV2) {
-	if m == nil {
-		return
-	}
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	m.answerDocumentV2 = cloneAnswerDocumentV2(doc)
-	m.lastEmitFromPatch = true
+	m.lastEmitFromPatch = (kind == MutationPartial)
 }
 
 // LastEmitFromPatch reports whether the most recent V2 doc on this

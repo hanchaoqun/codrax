@@ -17,7 +17,7 @@ import (
 // helper: build a fresh BusContext with a prev emit.
 func newPatchTestBusContext() *types.BusContext {
 	bus := &types.BusContext{Mutable: &types.MutableState{}}
-	bus.Mutable.SetAnswerDocumentV2(&types.AnswerDocumentV2{
+	bus.Mutable.SetAnswerDocumentV2WithMutation(types.MutationReplaceAll, &types.AnswerDocumentV2{
 		DocumentModel: "v2",
 		Citations:     []types.Citation{{File: "x.go", Line: 10}},
 		Blocks: []types.AnswerBlock{

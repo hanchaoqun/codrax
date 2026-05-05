@@ -145,7 +145,12 @@ func executeAnswerDocumentV2(toolName string, ctx *types.BusContext, raw json.Ra
 			"blocks[] is required and must be non-empty for document_model=v2")
 	}
 
-	// Build typed AnswerDocumentV2 + run per-block validation.
+	// Build typed AnswerDocumentV2 — per-block validation lives in
+	// NormalizeEmitAnswerBlock (shared with the patch path so a typed
+	// annotation field added to AnswerBlock surfaces in BOTH paths).
+	// Merged-doc invariants (block-id uniqueness, diagram payload,
+	// max blocks) are enforced inside ApplyAndPersistMutation so
+	// both paths share them.
 	doc := &types.AnswerDocumentV2{
 		DocumentModel:   "v2",
 		Citations:       p.Citations,
@@ -153,47 +158,19 @@ func executeAnswerDocumentV2(toolName string, ctx *types.BusContext, raw json.Ra
 		Caveats:         p.Caveats,
 		Snippets:        p.Snippets,
 	}
-	seenIDs := make(map[string]bool, len(p.Blocks))
 	for i, raw := range p.Blocks {
-		if seenIDs[raw.ID] {
-			return failEmit(toolName, now,
-				"blocks[%d]: duplicate id %q (each block must have a unique id)", i, raw.ID)
-		}
-		// G2 (post_v2_runtime_gap_remediation, 2026-05-04): per-block
-		// validation + conversion lives in the single-source
-		// NormalizeEmitAnswerBlock helper. Patch path uses the same
-		// helper so a typed annotation field added to AnswerBlock
-		// surfaces in BOTH paths automatically.
 		blk, err := NormalizeEmitAnswerBlock(raw, fmt.Sprintf("blocks[%d]", i))
 		if err != nil {
 			return failEmit(toolName, now, "%s", err.Error())
 		}
-		seenIDs[blk.ID] = true
 		doc.Blocks = append(doc.Blocks, blk)
 	}
 
-	// G2-3 (post_v2_runtime_gap_remediation, 2026-05-04): route the
-	// full-emit write through the unified AnswerDocumentMutation
-	// surface. ReplaceAll is identity on Apply (the merged doc IS
-	// the input doc); the typed Mutation gives telemetry a single
-	// summary format that the patch path also emits.
+	// v3 B4 (2026-05-04): route the full-emit write through the
+	// unified mutation runtime — same chokepoint as the patch path,
+	// merged-doc validation + persist + telemetry shared.
 	mutation := types.NewReplaceAllMutation(doc)
-	merged, err := mutation.Apply(nil)
-	if err != nil {
-		return failEmit(toolName, now, "internal mutation apply failed: %v", err)
-	}
-	ctx.Mutable.SetAnswerDocumentV2(merged)
-	logging.Info("[emit_answer_document] mutation: %s", mutation.Summary())
-
-	return types.ToolResult{
-		ToolName: toolName,
-		Success:  true,
-		Summary: fmt.Sprintf(
-			"emit_answer_document accepted V2 carrier with %d block(s)%s",
-			len(doc.Blocks),
-			summarizeV2Blocks(doc.Blocks)),
-		Timestamp: now,
-	}, nil
+	return ApplyAndPersistMutation(ctx, toolName, mutation, nil, now)
 }
 
 // detectV1FieldsInV2Emit scans the raw JSON for any top-level field

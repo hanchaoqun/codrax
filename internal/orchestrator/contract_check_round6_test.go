@@ -64,7 +64,7 @@ func TestIsPlumbingFailureViolation_AnswerQualityKindsPassThrough(t *testing.T) 
 // pool the AuthorityOverreach check now reads).
 func TestRunAuthorityOverreachCheck_RepairIsLLMActionable(t *testing.T) {
 	mut := types.NewMutableState("test")
-	mut.SetAnswerDocumentV2(&types.AnswerDocumentV2{
+	mut.SetAnswerDocumentV2WithMutation(types.MutationReplaceAll, &types.AnswerDocumentV2{
 		DocumentModel: "v2",
 		Citations:     []types.Citation{{File: "x.go", Line: 10}},
 	})

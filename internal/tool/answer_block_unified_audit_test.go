@@ -52,7 +52,7 @@ func TestUnifiedMutation_FullAndPatchProduceEquivalentMergedDocs(t *testing.T) {
 	// Step 2: same final state via patch (start from a draft prev with
 	// stale text, then ReplaceBlocks every block to the target shape).
 	busPatch := &types.BusContext{Mutable: &types.MutableState{}}
-	busPatch.Mutable.SetAnswerDocumentV2(&types.AnswerDocumentV2{
+	busPatch.Mutable.SetAnswerDocumentV2WithMutation(types.MutationReplaceAll, &types.AnswerDocumentV2{
 		DocumentModel: "v2",
 		Blocks: []types.AnswerBlock{
 			{ID: "s1", Kind: types.BlockSummary, Text: "stale"},

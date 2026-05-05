@@ -17,7 +17,7 @@ import (
 //   4. RetryStateSummary captures block-level + item-level annotations
 func TestPopulateRetryState_RoundTrip(t *testing.T) {
 	mut := &types.MutableState{}
-	mut.SetAnswerDocumentV2(&types.AnswerDocumentV2{
+	mut.SetAnswerDocumentV2WithMutation(types.MutationReplaceAll, &types.AnswerDocumentV2{
 		DocumentModel: "v2",
 		Citations: []types.Citation{
 			{File: "x.go", Line: 10},

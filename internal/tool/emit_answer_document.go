@@ -42,74 +42,16 @@ func (t *EmitAnswerDocument) Name() string { return "emit_answer_document" }
 // Per the feedback_no_internal_info_in_llm_prompts red line, this
 // description avoids internal Go terminology (AnswerDocumentV2 /
 // BlockRequirement etc.) and uses LLM-natural language only.
+//
+// v3 B4 (2026-05-04): the block-semantic contract body is shared
+// with emit_answer_document_patch via
+// BuildAnswerDocumentSemanticContractDescription so adding a new
+// block field / kind / claim_form / worked example only edits one
+// helper.
 func (t *EmitAnswerDocument) Description() string {
-	return "Emit the final answer as a structured block-only document via document_model=\"v2\" + blocks[]. " +
-		"The answer is composed from one or more BLOCKS, each tagged by `kind`: " +
-		"summary / section / ordered_list / bullet_list / scalar / decision / table / diagram / caveat. " +
-		"Each block has a unique non-empty `id` and the kind-appropriate body fields " +
-		"(text for prose blocks, items[] for list/table blocks, diagram for diagram blocks). " +
-		"\n\n" +
-		"PRINCIPAL BLOCKS (the user-section's Required Answer Blocks list flags these as `surface_role=principal`) MUST carry a `claim_use` annotation when the contract's AcceptableClaimForms list is non-empty. " +
-		"Allowed claim_form values: `definition_fact` (cited line establishes a typed fact: const, struct field, function signature, default value), `call_edge` (caller→callee call site), `guard_condition` (branch / condition gating the answer), `assignment_fact` (config / variable / field assignment), `return_fact` (return statement / function output), `absence_fact` (cited evidence carries Negative scope — search confirmed absent), `precedence_role` (cited evidence carries a layer / override role), `external_observation` (cited evidence is from runtime log / perf trace, not repo source), `import_edge` (module / package import edge). " +
-		"Use a single block-level `claim_use` for whole-block annotation; per-item `claim_use` (inside items[i].claim_use) when individual items carry distinct claim forms; block-level `claim_uses[]` array for blocks legitimately spanning multiple claim forms. " +
-		"\n\n" +
-		"DIAGRAM BLOCKS — `diagram.kind` is the SEMANTIC FAMILY (`flow` / `sequence` / `architecture` / `call_dag`), NOT a Mermaid keyword. Mermaid syntax (`flowchart` / `sequenceDiagram`) goes inside `diagram.body` with `diagram.language=\"mermaid\"`. " +
-		"\n\n" +
-		"Citations live in a shared `citations` pool; per-item `citation_ref` (and per-claim_use `citation_ref`) is a zero-based index into it (or -1 for no cite). " +
-		"`exact_resolution`, `caveats[]`, `snippets[]` are document-level optional fields. " +
-		"\n\n" +
-		"V1 carrier (top-level shape / steps / symbols / value / boolean / summary) is retired and rejected at runtime." +
-		"\n\n" +
-		"WORKED EXAMPLES (minimal happy-path emits — each shows one principal-block family):\n" +
-		"\n" +
-		"1) Summary-only explanation (single principal BlockSummary):\n" +
-		"```json\n" +
-		"{\"document_model\":\"v2\",\"blocks\":[\n" +
-		"  {\"id\":\"s1\",\"kind\":\"summary\",\"text\":\"<multi-paragraph answer body>\",\"surface_role\":\"principal\",\"claim_use\":{\"claim_form\":\"definition_fact\",\"citation_ref\":0}}\n" +
-		"],\"citations\":[{\"file\":\"foo/bar.go\",\"line\":42}]}\n" +
-		"```\n" +
-		"\n" +
-		"2) Hop-chain (BlockOrderedList over mechanism steps):\n" +
-		"```json\n" +
-		"{\"document_model\":\"v2\",\"blocks\":[\n" +
-		"  {\"id\":\"s1\",\"kind\":\"summary\",\"text\":\"<lead-in framing the chain>\"},\n" +
-		"  {\"id\":\"hops\",\"kind\":\"ordered_list\",\"surface_role\":\"principal\",\n" +
-		"   \"items\":[\n" +
-		"    {\"id\":\"h1\",\"label\":\"Stage A\",\"text\":\"<what stage A does>\",\"kind\":\"principal\",\"claim_use\":{\"claim_form\":\"call_edge\",\"citation_ref\":0}},\n" +
-		"    {\"id\":\"h2\",\"label\":\"Stage B\",\"text\":\"<what stage B does>\",\"kind\":\"principal\",\"claim_use\":{\"claim_form\":\"call_edge\",\"citation_ref\":1}}\n" +
-		"   ]}\n" +
-		"],\"citations\":[{\"file\":\"a.go\",\"line\":10},{\"file\":\"b.go\",\"line\":20}]}\n" +
-		"```\n" +
-		"\n" +
-		"3) Enumeration slate (BlockOrderedList over enumeration members):\n" +
-		"```json\n" +
-		"{\"document_model\":\"v2\",\"blocks\":[\n" +
-		"  {\"id\":\"s1\",\"kind\":\"summary\",\"text\":\"<frames what the list enumerates>\"},\n" +
-		"  {\"id\":\"slate\",\"kind\":\"ordered_list\",\"surface_role\":\"principal\",\n" +
-		"   \"items\":[\n" +
-		"    {\"id\":\"m1\",\"label\":\"MemberA\",\"text\":\"<role / why it belongs>\",\"claim_use\":{\"claim_form\":\"definition_fact\",\"citation_ref\":0}},\n" +
-		"    {\"id\":\"m2\",\"label\":\"MemberB\",\"text\":\"<role / why it belongs>\",\"claim_use\":{\"claim_form\":\"definition_fact\",\"citation_ref\":1}}\n" +
-		"   ]}\n" +
-		"],\"citations\":[{\"file\":\"x.go\",\"line\":1},{\"file\":\"y.go\",\"line\":1}]}\n" +
-		"```\n" +
-		"\n" +
-		"4) Single-literal scalar (BlockScalar — literal in block.text, citation via one-element items[]):\n" +
-		"```json\n" +
-		"{\"document_model\":\"v2\",\"blocks\":[\n" +
-		"  {\"id\":\"v1\",\"kind\":\"scalar\",\"text\":\"42\",\"surface_role\":\"principal\",\n" +
-		"   \"items\":[{\"id\":\"vcite\",\"citation_ref\":0}],\n" +
-		"   \"claim_uses\":[{\"claim_form\":\"definition_fact\"}]}\n" +
-		"],\"citations\":[{\"file\":\"const.go\",\"line\":7}]}\n" +
-		"```\n" +
-		"\n" +
-		"5) Architecture diagram (BlockDiagram with semantic family `architecture`):\n" +
-		"```json\n" +
-		"{\"document_model\":\"v2\",\"blocks\":[\n" +
-		"  {\"id\":\"s1\",\"kind\":\"summary\",\"text\":\"<overall architecture lead-in>\",\"surface_role\":\"principal\",\"claim_use\":{\"claim_form\":\"definition_fact\",\"citation_ref\":0}},\n" +
-		"  {\"id\":\"d1\",\"kind\":\"diagram\",\n" +
-		"   \"diagram\":{\"kind\":\"architecture\",\"language\":\"mermaid\",\"body\":\"flowchart TD\\n    A[\\\"<grounded node A>\\\"] --> B[\\\"<grounded node B>\\\"]\"}}\n" +
-		"],\"citations\":[{\"file\":\"main.go\",\"line\":1}]}\n" +
-		"```"
+	return "Emit the FULL final answer document via document_model=\"v2\" + blocks[]. " +
+		"Use this on first dispatches and whenever the answer needs a complete rewrite. On retry paths where only a few blocks need editing, prefer emit_answer_document_patch which protocol-level preserves typed annotation fields on blocks you do not touch.\n\n" +
+		BuildAnswerDocumentSemanticContractDescription()
 }
 
 // Parameters returns the V2 JSON schema. Block kinds + per-block

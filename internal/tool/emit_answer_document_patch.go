@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
-	"strings"
 	"time"
 
 	"github.com/hanchaoqun/codrax/internal/logging"
@@ -49,14 +48,16 @@ func (t *EmitAnswerDocumentPatch) Description() string {
 	return "Emit a DELTA against your previous `emit_answer_document` call instead of re-emitting the whole document. Use ONLY on retry paths (when `## Hard Rule (retry attempt N)` appears in the system prompt and a `## Previous Emit` section is present). On first dispatches, use `emit_answer_document` instead.\n\n" +
 		"Patch fields (all optional, but at least one MUST be non-empty):\n\n" +
 		"- `unchanged_block_ids`: ids of blocks from the previous emit to copy over byte-identical. Use this to assert preservation of every typed annotation field (claim_uses, edge_anchors, facet_ids, surface_role, items[].claim_use) on blocks you do NOT need to edit.\n" +
-		"- `replace_blocks`: full block payloads that replace the previous emit's block with the same id. Each entry must carry a non-empty id that exists in the previous emit.\n" +
-		"- `add_blocks`: new block payloads to append. Each id must NOT already exist in the previous emit.\n" +
+		"- `replace_blocks`: full block payloads that replace the previous emit's block with the same id. Each entry must carry a non-empty id that exists in the previous emit. Block payload shape matches the canonical block contract — see below.\n" +
+		"- `add_blocks`: new block payloads to append. Each id must NOT already exist in the previous emit. Block payload shape matches the canonical block contract — see below.\n" +
 		"- `remove_block_ids`: ids of previous-emit blocks to drop.\n" +
 		"- `replace_citations`: when present, REPLACES the citation pool entirely. Otherwise the previous citations are inherited.\n" +
 		"- `append_citations`: when present and `replace_citations` is absent, appended to the inherited pool.\n" +
 		"- `replace_exact_resolution` / `replace_caveats` / `replace_snippets`: when present, replace the corresponding document-level field.\n\n" +
 		"Validation: every id named in `unchanged_block_ids` / `replace_blocks` / `remove_block_ids` MUST exist in the previous emit; every `add_blocks` id MUST NOT. Cross-op conflicts (Replace + Remove same id, etc.) are rejected. Block kind is validated against the canonical AnswerBlockKind list. The merged document is written to Mutable as if you had called `emit_answer_document` with the full payload.\n\n" +
-		"Empty patches are rejected — every retry MUST declare some change (set `unchanged_block_ids` to assert preservation if no edits are needed)."
+		"Empty patches are rejected — every retry MUST declare some change (set `unchanged_block_ids` to assert preservation if no edits are needed).\n\n" +
+		"BLOCK CONTRACT (same shape replace_blocks / add_blocks payloads must follow as a full emit):\n\n" +
+		BuildAnswerDocumentSemanticContractDescription()
 }
 
 func (t *EmitAnswerDocumentPatch) Parameters() json.RawMessage {
@@ -177,57 +178,13 @@ func (t *EmitAnswerDocumentPatch) Execute(ctx *types.BusContext, params json.Raw
 		patch.AddBlocks = converted
 	}
 
-	// G2-3 (post_v2_runtime_gap_remediation, 2026-05-04): apply via
-	// the unified AnswerDocumentMutation. Partial Apply routes through
-	// the same ApplyAnswerDocumentV2Patch chokepoint; the typed
-	// Mutation surface lets telemetry emit a single Summary format
-	// shared with the full-emit path.
+	// v3 B4 (2026-05-04): route the patch-emit write through the
+	// unified mutation runtime — same chokepoint as the full path.
+	// Partial Apply runs ApplyAnswerDocumentV2Patch internally;
+	// merged-doc invariants (id uniqueness / diagram payload /
+	// max blocks) live in ApplyAndPersistMutation.
 	mutation := types.NewPartialMutation(patch)
-	merged, err := mutation.Apply(prev)
-	if err != nil {
-		return failEmit(t.Name(), now, "patch apply rejected: %v", err)
-	}
-	logging.Info("[emit_answer_document_patch] mutation: %s", mutation.Summary())
-
-	// Re-validate every block id is unique in the merged doc (the
-	// V2 emit_answer_document Execute also enforces this — patch
-	// must produce a doc that would have passed full emit gate).
-	seenIDs := make(map[string]bool, len(merged.Blocks))
-	for i, b := range merged.Blocks {
-		if strings.TrimSpace(b.ID) == "" {
-			return failEmit(t.Name(), now,
-				"merged blocks[%d]: id is empty after applying patch", i)
-		}
-		if seenIDs[b.ID] {
-			return failEmit(t.Name(), now,
-				"merged blocks[%d]: duplicate id %q after applying patch (each block must have a unique id)", i, b.ID)
-		}
-		seenIDs[b.ID] = true
-		if b.Kind == types.BlockDiagram && b.Diagram == nil {
-			return failEmit(t.Name(), now,
-				"merged blocks[%d]: kind=diagram requires a non-nil diagram payload", i)
-		}
-	}
-
-	// Write the merged doc. B4: use the from-patch setter so retry
-	// summary can flag inheritance lineage (mut.LastEmitFromPatch()
-	// returns true after this call until the next full emit
-	// overwrites).
-	ctx.Mutable.SetAnswerDocumentV2FromPatch(merged)
-
-	logging.Info("[emit_answer_document_patch] applied: %d unchanged + %d replaced + %d added + %d removed → %d blocks total",
-		len(patch.UnchangedBlockIDs), len(patch.ReplaceBlocks),
-		len(patch.AddBlocks), len(patch.RemoveBlockIDs), len(merged.Blocks))
-
-	return types.ToolResult{
-		ToolName: t.Name(),
-		Success:  true,
-		Summary: fmt.Sprintf(
-			"emit_answer_document_patch applied: %d unchanged, %d replaced, %d added, %d removed → %d blocks",
-			len(patch.UnchangedBlockIDs), len(patch.ReplaceBlocks),
-			len(patch.AddBlocks), len(patch.RemoveBlockIDs), len(merged.Blocks)),
-		Timestamp: now,
-	}, nil
+	return ApplyAndPersistMutation(ctx, t.Name(), mutation, prev, now)
 }
 
 // recoverPrevFromRetryState attempts to decode the prev emit JSON
