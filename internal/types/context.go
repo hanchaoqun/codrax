@@ -97,8 +97,8 @@ type MutableState struct {
 	// rendered doc count to catch "claimed N but rendered only M"
 	// drift.
 	emittedAnswerSymbolDeclaredCount int
-	emittedHypothesisVerdicts       []HypothesisVerdict
-	turnAArtifacts                  *TurnAArtifacts
+	emittedHypothesisVerdicts        []HypothesisVerdict
+	turnAArtifacts                   *TurnAArtifacts
 	// searchGraph is an opaque handle to the repomap.Graph produced by
 	// explorer.keywordSearch. Carried as `any` so internal/types stays
 	// decoupled from internal/tool/repomap — consumers (emit_evidence,
@@ -541,11 +541,11 @@ type ReconcileObservation struct {
 // Kind values (open enum — adding a new decision site appends here):
 //   - "scenario_reconciled"          — reconcileScenario flipped Scenario
 //   - "completeness_downgraded"      — extractor downgraded
-//                                       completeness=complete → lower_bound
+//     completeness=complete → lower_bound
 //   - "prescan_rejected"             — analyzer prescan tool call rejected
-//                                       (budget exhausted / terminal-emit mode)
+//     (budget exhausted / terminal-emit mode)
 //   - "subtopic_coherence_failed"    — gate.Run emitted subtopic_coherence
-//                                       hard fail; analyzer is about to retry
+//     hard fail; analyzer is about to retry
 type AnalyzerDecisionSignal struct {
 	Kind   string `json:"kind"`
 	Stage  string `json:"stage,omitempty"`
@@ -575,12 +575,12 @@ type AnalyzerDecisionSignal struct {
 //     (e.g. comparison-class question with QuestionStructure.Buckets
 //     ≥ 2 fell to QFCallChain / QFGeneric).
 type RichnessTelemetrySignal struct {
-	Kind       string `json:"kind"`
-	FacetID    string `json:"facet_id,omitempty"`
-	FacetKind  string `json:"facet_kind,omitempty"`
-	Family     string `json:"family,omitempty"`
-	BucketCount int   `json:"bucket_count,omitempty"`
-	Reason     string `json:"reason"`
+	Kind        string `json:"kind"`
+	FacetID     string `json:"facet_id,omitempty"`
+	FacetKind   string `json:"facet_kind,omitempty"`
+	Family      string `json:"family,omitempty"`
+	BucketCount int    `json:"bucket_count,omitempty"`
+	Reason      string `json:"reason"`
 }
 
 // TurnAArtifacts is the P2.1 handoff payload from Turn A (explorer)
@@ -1632,6 +1632,9 @@ func cloneAnswerDocumentV2(in *AnswerDocumentV2) *AnswerDocumentV2 {
 		er := *in.ExactResolution
 		out.ExactResolution = &er
 	}
+	if len(in.MissingRequestedRoles) > 0 {
+		out.MissingRequestedRoles = append([]AnswerMissingRequestedRole(nil), in.MissingRequestedRoles...)
+	}
 	if len(in.Caveats) > 0 {
 		out.Caveats = append([]string(nil), in.Caveats...)
 	}
@@ -1681,18 +1684,25 @@ func (m *MutableState) ChangePlan() *ChangePlan {
 // reset extract+finalize; etc).
 //
 // FallbackResetTargetFinalizer  — clear AnswerDocument; keep
-//                                 EmittedAnswerSymbol + Evidence
+//
+//	EmittedAnswerSymbol + Evidence
+//
 // FallbackResetTargetExtract    — clear AnswerDocument +
-//                                 EmittedAnswerSymbol; keep Evidence
+//
+//	EmittedAnswerSymbol; keep Evidence
+//
 // FallbackResetTargetExplore    — clear AnswerDocument +
-//                                 EmittedAnswerSymbol; keep Evidence
-//                                 + ScannedSet + ReadSet (sunk cost),
-//                                 caller is expected to repopulate
-//                                 PendingReads if it wants the
-//                                 explorer to read more
+//
+//	EmittedAnswerSymbol; keep Evidence
+//	+ ScannedSet + ReadSet (sunk cost),
+//	caller is expected to repopulate
+//	PendingReads if it wants the
+//	explorer to read more
+//
 // FallbackResetTargetAnalyze    — currently unimplemented (analyzer
-//                                 reset is fail-loud per the red
-//                                 line); reserved for future expansion.
+//
+//	reset is fail-loud per the red
+//	line); reserved for future expansion.
 type FallbackResetTarget string
 
 const (
@@ -1708,7 +1718,8 @@ const (
 //
 //   - Finalizer-only fallback: clear AnswerDocument so the next
 //     finalize re-emit starts from a clean slate. EmittedAnswerSymbol
-//     + Evidence preserved (the next finalizer dispatch reads them).
+//
+//   - Evidence preserved (the next finalizer dispatch reads them).
 //
 //   - Extract fallback: also clear EmittedAnswerSymbol so the
 //     extractor can re-build the slate from current evidence. Sub-
@@ -3308,9 +3319,9 @@ type AgentContext struct {
 	// consumers MUST nil-check before reading.
 	AnalysisIR *AnalysisIR `json:"-"`
 
-	RelevantFacts []string            `json:"relevant_facts,omitempty"`
-	RelevantFiles []string            `json:"relevant_files,omitempty"`
-	EvidenceItems []EvidenceItem      `json:"evidence_items,omitempty"`
+	RelevantFacts []string       `json:"relevant_facts,omitempty"`
+	RelevantFiles []string       `json:"relevant_files,omitempty"`
+	EvidenceItems []EvidenceItem `json:"evidence_items,omitempty"`
 	// TypedRelationHints is the system-derived structural-relation
 	// candidate channel (P3 #6 follow-up, 2026-05-03). Populated at
 	// BuildAgentContext time when the analyzer's predicates indicate

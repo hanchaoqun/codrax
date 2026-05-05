@@ -50,7 +50,7 @@ func TestAllRepairKindsHaveProducer(t *testing.T) {
 		RepairReadFile:               "RepairReadFile",
 		RepairEmitEvidence:           "RepairEmitEvidence",
 		RepairExpandSearch:           "RepairExpandSearch",
-		RepairSwapView:              "RepairSwapView",
+		RepairSwapView:               "RepairSwapView",
 		RepairRebindSubject:          "RepairRebindSubject",
 		RepairForceCompleteDowngrade: "RepairForceCompleteDowngrade",
 	}
@@ -192,15 +192,15 @@ func TestAllViolationKindsHaveProducer(t *testing.T) {
 		ViolSuccessCriterion:     true, // orchestrator.go SC merge
 		ViolGhostAnchor:          true, // agent/explorer.go D2
 		ViolPreCompleteDowngrade: true, // tool/emit_investigation_complete.go preComplete
-		ViolViewSwap:            true, // tool/emit_answer_document.go B2a + emit_investigation_complete.go B2b
+		ViolViewSwap:             true, // tool/emit_answer_document.go B2a + emit_investigation_complete.go B2b
 		ViolSelfRefLiteral:       true, // tool/emit_evidence.go R4 self-ref filter (G6)
 		// ViolLiteralFormFailed: V1-only literal-form check, retired
 		// at B8-T3 (block_only_carrier.md §5.8). Producer deleted
 		// along with V1 emit_answer_document path; kind moves to
 		// pending until the kind itself is removed from the enum.
-		ViolChainDemoted:         true, // agent/explorer_erm.go R3 self-ref chain demote (G7)
+		ViolChainDemoted: true, // agent/explorer_erm.go R3 self-ref chain demote (G7)
 		// Commit 53 P2/P4 — read-mode answer-coherence violations.
-		ViolViewIntentMismatch:   true, // orchestrator/contract_check.go finalize-stage view oracle
+		ViolViewIntentMismatch:    true, // orchestrator/contract_check.go finalize-stage view oracle
 		ViolSubTopicCountMismatch: true, // orchestrator/contract_check.go finalize-stage view oracle
 		ViolDiagramIdentifier:     true, // tool/emit_answer_document.go diagram bare-identifier check (commit 53 P4)
 		// Commit 55 Batch A.3 — declared-count drift.
@@ -229,10 +229,10 @@ func TestAllViolationKindsHaveProducer(t *testing.T) {
 		// P1 #3 / P3 #6 — V2 carrier siblings of the retired V1 oracles
 		// (B8-T4). V2 oracle reads V2 block items + ImplementersOf graph;
 		// produces the same kinds.
-		ViolSymbolAnchorMismatch:            true, // orchestrator/contract_check.go runSymbolAnchorTrackOracleV2
-		ViolEnumerationLabelUngrounded:      true, // orchestrator/contract_check_block.go validateEnumerationItemLabelGrounding (post-shape s1a-20260504-064754, 2026-05-04)
+		ViolSymbolAnchorMismatch:               true, // orchestrator/contract_check.go runSymbolAnchorTrackOracleV2
+		ViolEnumerationLabelUngrounded:         true, // orchestrator/contract_check_block.go validateEnumerationItemLabelGrounding (post-shape s1a-20260504-064754, 2026-05-04)
 		ViolEnumerationItemLabelExtractorDrift: true, // orchestrator/contract_check_block.go validateEnumerationItemLabelExtractorMatch (s1a-20260504-130143, 2026-05-04)
-		ViolStructuralEnumerationDivergence: true, // orchestrator/contract_check.go runStructuralEnumerationDivergenceOracleV2
+		ViolStructuralEnumerationDivergence:    true, // orchestrator/contract_check.go runStructuralEnumerationDivergenceOracleV2
 		// B4 V2 block-only carrier validators (block_only_carrier.md §5.4).
 		ViolBlockCoverageMissing:     true, // orchestrator/contract_check_block.go validateRequiredBlockCoverage
 		ViolPrincipalClaimUseMissing: true, // orchestrator/contract_check_block.go validatePrincipalClaimUse
@@ -241,10 +241,11 @@ func TestAllViolationKindsHaveProducer(t *testing.T) {
 		// B6-F1 (post-shape consolidated audit, 2026-05-04).
 		ViolCrossCitationConflict: true, // orchestrator/contract_check.go runCrossCitationConflictOracleV2
 		// R2.3 V2 重接 (post_shape_residual_audit.md, 2026-05-04).
-		ViolFacetUncovered:       true, // orchestrator/contract_check_block.go validateFacetCoverage
-		ViolRichnessRegression:   true, // orchestrator/contract_check_block.go validateRichnessRegression
-		ViolClaimFormUnsupported: true, // orchestrator/contract_check_block.go validateClaimFormSupport
-		ViolAbsenceScopeExceeded: true, // orchestrator/contract_check_block.go validateAbsenceScopeBound
+		ViolFacetUncovered:                  true, // orchestrator/contract_check_block.go validateFacetCoverage
+		ViolRichnessRegression:              true, // orchestrator/contract_check_block.go validateRichnessRegression
+		ViolClaimFormUnsupported:            true, // orchestrator/contract_check_block.go validateClaimFormSupport
+		ViolAbsenceScopeExceeded:            true, // orchestrator/contract_check_block.go validateAbsenceScopeBound
+		ViolMissingRequestedRoleUndisclosed: true, // orchestrator/contract_check_block.go validateMissingRequestedRoleDisclosure
 		// R10 CGEC frequency bridges (post_shape_residual_audit.md, 2026-05-04).
 		ViolDemotionStorm:   true, // orchestrator/orchestrator.go emitCGECStormViolations
 		ViolForcedReadStorm: true, // orchestrator/orchestrator.go emitCGECStormViolations
@@ -270,7 +271,7 @@ func TestAllViolationKindsHaveProducer(t *testing.T) {
 		ViolPrincipalProseUnderfilled: true,
 	}
 	pending := map[ViolationKind]string{
-		ViolFamilyMismatch:                          "P9-C-retired-V1-checkShape (V2 block oracles cover read-mode block contract via runV2BlockOracles)",
+		ViolFamilyMismatch:                 "P9-C-retired-V1-checkShape (V2 block oracles cover read-mode block contract via runV2BlockOracles)",
 		ViolLiteralFormFailed:              "B8-T3-retired-V1-literal-form-check",
 		ViolIntentTraceShallow:             "B8-T4-retired-V1-intent-coverage-oracle",
 		ViolIntentEnumerateNotList:         "B8-T4-retired-V1-intent-coverage-oracle",
@@ -289,7 +290,7 @@ func TestAllViolationKindsHaveProducer(t *testing.T) {
 	}
 
 	kindSymbols := map[ViolationKind]string{
-		ViolFamilyMismatch:                "ViolFamilyMismatch",
+		ViolFamilyMismatch:       "ViolFamilyMismatch",
 		ViolCitation:             "ViolCitation",
 		ViolMustInclude:          "ViolMustInclude",
 		ViolMustExclude:          "ViolMustExclude",
@@ -300,36 +301,37 @@ func TestAllViolationKindsHaveProducer(t *testing.T) {
 		ViolSelfRefLiteral:       "ViolSelfRefLiteral",
 		ViolPreCompleteDowngrade: "ViolPreCompleteDowngrade",
 		ViolLiteralFormFailed:    "ViolLiteralFormFailed",
-		ViolViewSwap:            "ViolViewSwap",
+		ViolViewSwap:             "ViolViewSwap",
 		ViolAuthorityOverreach:   "ViolAuthorityOverreach",
 		// Block 1 (2026-05-02) reviewer-side kinds.
 		ViolPlanCritic:              "ViolPlanCritic",
 		ViolReflectorObservation:    "ViolReflectorObservation",
 		ViolAnswerReviewerDistilled: "ViolAnswerReviewerDistilled",
 		// Block 2 (2026-05-02) Intent / Subject / PredicateAxis oracle kinds.
-		ViolIntentTraceShallow:     "ViolIntentTraceShallow",
-		ViolIntentEnumerateNotList: "ViolIntentEnumerateNotList",
-		ViolIntentRootCauseNoCause: "ViolIntentRootCauseNoCause",
-		ViolIntentConfigNoTrail:    "ViolIntentConfigNoTrail",
-		ViolSubjectAnchorMissing:   "ViolSubjectAnchorMissing",
-		ViolPredicateAxisMissing:   "ViolPredicateAxisMissing",
-		ViolFacetUncovered:         "ViolFacetUncovered",
-		ViolClaimFormUnsupported:   "ViolClaimFormUnsupported",
-		ViolAbsenceScopeExceeded:   "ViolAbsenceScopeExceeded",
-		ViolStepIdentifierUnverified:       "ViolStepIdentifierUnverified",
-		ViolRichnessRegression:             "ViolRichnessRegression",
+		ViolIntentTraceShallow:              "ViolIntentTraceShallow",
+		ViolIntentEnumerateNotList:          "ViolIntentEnumerateNotList",
+		ViolIntentRootCauseNoCause:          "ViolIntentRootCauseNoCause",
+		ViolIntentConfigNoTrail:             "ViolIntentConfigNoTrail",
+		ViolSubjectAnchorMissing:            "ViolSubjectAnchorMissing",
+		ViolPredicateAxisMissing:            "ViolPredicateAxisMissing",
+		ViolFacetUncovered:                  "ViolFacetUncovered",
+		ViolClaimFormUnsupported:            "ViolClaimFormUnsupported",
+		ViolAbsenceScopeExceeded:            "ViolAbsenceScopeExceeded",
+		ViolMissingRequestedRoleUndisclosed: "ViolMissingRequestedRoleUndisclosed",
+		ViolStepIdentifierUnverified:        "ViolStepIdentifierUnverified",
+		ViolRichnessRegression:              "ViolRichnessRegression",
 		ViolValueSecondaryCitationOffFocus:  "ViolValueSecondaryCitationOffFocus",
 		ViolSymbolAnchorMismatch:            "ViolSymbolAnchorMismatch",
 		ViolEnumerationLabelUngrounded:      "ViolEnumerationLabelUngrounded",
 		ViolStructuralEnumerationDivergence: "ViolStructuralEnumerationDivergence",
 		// B4 V2 block-only carrier validators.
-		ViolBlockCoverageMissing:     "ViolBlockCoverageMissing",
-		ViolPrincipalClaimUseMissing: "ViolPrincipalClaimUseMissing",
-		ViolDiagramEdgeUnsupported:   "ViolDiagramEdgeUnsupported",
-		ViolDiagramEdgeLabelMismatch:           "ViolDiagramEdgeLabelMismatch",
-		ViolAnswerSemanticUnderfilled:          "ViolAnswerSemanticUnderfilled",
-		ViolEnumerationEvidenceUnderspecified:  "ViolEnumerationEvidenceUnderspecified",
-		ViolUncertaintyBlockMissing:            "ViolUncertaintyBlockMissing",
+		ViolBlockCoverageMissing:              "ViolBlockCoverageMissing",
+		ViolPrincipalClaimUseMissing:          "ViolPrincipalClaimUseMissing",
+		ViolDiagramEdgeUnsupported:            "ViolDiagramEdgeUnsupported",
+		ViolDiagramEdgeLabelMismatch:          "ViolDiagramEdgeLabelMismatch",
+		ViolAnswerSemanticUnderfilled:         "ViolAnswerSemanticUnderfilled",
+		ViolEnumerationEvidenceUnderspecified: "ViolEnumerationEvidenceUnderspecified",
+		ViolUncertaintyBlockMissing:           "ViolUncertaintyBlockMissing",
 		// B6-F1 (post-shape consolidated audit, 2026-05-04).
 		ViolCrossCitationConflict: "ViolCrossCitationConflict",
 	}

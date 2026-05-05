@@ -229,6 +229,28 @@ func TestRenderV2_DocumentLevelCaveatsAndCitations(t *testing.T) {
 	}
 }
 
+func TestRenderV2_MissingRequestedRoles(t *testing.T) {
+	doc := &types.AnswerDocumentV2{
+		Blocks: []types.AnswerBlock{
+			{ID: "b1", Kind: types.BlockSummary, Text: "exact key is absent"},
+		},
+		MissingRequestedRoles: []types.AnswerMissingRequestedRole{
+			{Role: types.EvidenceDiagramRoleConfig, Label: "codrax.yaml"},
+			{Role: types.EvidenceDiagramRoleOverride, Label: "CLI"},
+		},
+	}
+	out := RenderAnswerDocument(doc, "en")
+	for _, want := range []string{
+		"Missing requested layers:",
+		"No codrax.yaml entry binds this exact target.",
+		"No CLI flag or command-line override binds this exact target.",
+	} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("rendered output missing %q:\n%s", want, out)
+		}
+	}
+}
+
 func TestRenderV2_BoundaryEmptyBlocks(t *testing.T) {
 	doc := &types.AnswerDocumentV2{
 		Blocks: []types.AnswerBlock{

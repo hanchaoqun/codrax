@@ -19,6 +19,9 @@ func samplePrevDoc() *AnswerDocumentV2 {
 			{File: "x.go", Line: 10},
 			{File: "y.go", Line: 20},
 		},
+		MissingRequestedRoles: []AnswerMissingRequestedRole{
+			{Role: EvidenceDiagramRoleOverride, Label: "CLI"},
+		},
 		Blocks: []AnswerBlock{
 			{
 				ID: "s1", Kind: BlockSummary,
@@ -116,6 +119,9 @@ func TestApplyPatch_PureUnchangedPreservesAllFields(t *testing.T) {
 	// Citation pool preservation
 	if len(got.Citations) != 2 {
 		t.Errorf("citations dropped; got %d, want 2", len(got.Citations))
+	}
+	if len(got.MissingRequestedRoles) != 1 || got.MissingRequestedRoles[0].Role != EvidenceDiagramRoleOverride {
+		t.Errorf("missing requested roles not preserved; got %+v", got.MissingRequestedRoles)
 	}
 }
 
@@ -232,6 +238,26 @@ func TestApplyPatch_AppendCitations(t *testing.T) {
 	}
 }
 
+func TestApplyPatch_ReplaceMissingRequestedRoles(t *testing.T) {
+	prev := samplePrevDoc()
+	patch := &AnswerDocumentV2Patch{
+		ReplaceMissingRequestedRoles: []AnswerMissingRequestedRole{
+			{Role: EvidenceDiagramRoleConfig, Label: "codrax.yaml"},
+			{Role: EvidenceDiagramRoleOverride, Label: "CLI"},
+		},
+	}
+	got, err := ApplyAnswerDocumentV2Patch(prev, patch)
+	if err != nil {
+		t.Fatalf("Apply: %v", err)
+	}
+	if len(got.MissingRequestedRoles) != 2 {
+		t.Fatalf("missing requested roles count = %d, want 2", len(got.MissingRequestedRoles))
+	}
+	if got.MissingRequestedRoles[0].Role != EvidenceDiagramRoleConfig || got.MissingRequestedRoles[1].Role != EvidenceDiagramRoleOverride {
+		t.Fatalf("missing requested roles replaced incorrectly: %+v", got.MissingRequestedRoles)
+	}
+}
+
 // ── Validation rejection tests ───────────────────────────────
 
 // TestApplyPatch_RejectsUnknownBlockID covers the unknown-id guard.
@@ -253,9 +279,10 @@ func TestApplyPatch_RejectsUnknownBlockID(t *testing.T) {
 
 // TestApplyPatch_RejectsConflictingOps covers cross-op conflict
 // detection — the 3 mutual-exclusion invariants from the godoc:
-//   (1) Replace∩Remove ∅
-//   (2) Replace∩Add ∅
-//   (3) Add∩Remove ∅
+//
+//	(1) Replace∩Remove ∅
+//	(2) Replace∩Add ∅
+//	(3) Add∩Remove ∅
 func TestApplyPatch_RejectsConflictingOps(t *testing.T) {
 	prev := samplePrevDoc()
 	cases := []struct {

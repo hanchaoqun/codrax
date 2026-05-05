@@ -5,20 +5,22 @@ package types
 // take / where is K configured / which layer overrides which".
 //
 // Required blocks:
-//   1× BlockSummary           — what value, where it lands
-//   1× BlockScalar OR BlockTable — final resolved value (Scalar) OR
-//                               layer-by-key precedence (Table). The
-//                               OR is expressed as MinCount=1 on each
-//                               + Required=true on at least one;
-//                               B4 validator enforces "at least one
-//                               of {scalar, table}" in
-//                               validatePrincipalClaimUse.
+//
+//	1× BlockSummary           — what value, where it lands
+//	1× BlockScalar OR BlockTable — final resolved value (Scalar) OR
+//	                            layer-by-key precedence (Table). The
+//	                            OR is expressed as MinCount=1 on each
+//	                            + Required=true on at least one;
+//	                            B4 validator enforces "at least one
+//	                            of {scalar, table}" in
+//	                            validatePrincipalClaimUse.
 //
 // Optional:
-//   0..N× BlockOrderedList    — when precedence has clear linear
-//                               ordering, render as ordered list of
-//                               layer-source pairs.
-//   0..N× BlockCaveat         — absence-scope / external-tool caveats.
+//
+//	0..N× BlockOrderedList    — when precedence has clear linear
+//	                            ordering, render as ordered list of
+//	                            layer-source pairs.
+//	0..N× BlockCaveat         — absence-scope / external-tool caveats.
 //
 // Generalisation note: the precedence layers MAY come from any config
 // system — yaml, JSON, TOML, INI, .env, shell rc, command-line flags,
@@ -31,6 +33,12 @@ func compileConfigPrecedence(ir *AnalysisIR, plan *AnswerSurfacePlan) *AnswerSem
 	if plan != nil {
 		view.FacetCoverage = plan.FacetCoverage
 		view.SummaryMode = plan.SummarySurfaceMode
+		view.MissingRequestedRoles = ConfigTraceMissingRequestedRoleDisclosures(
+			ir.RequestModel,
+			plan.ExactResolution,
+			plan.ExactContextRequiredFiles,
+			plan.SurfaceEvidence,
+		)
 	}
 	if ir != nil && ir.AnswerContract.ExactResolution != nil {
 		view.ExactResolution = ir.AnswerContract.ExactResolution

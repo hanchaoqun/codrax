@@ -1708,6 +1708,7 @@ func TestAnswerDocumentEvaluator_BuildInitialInstruction_ConfigTraceAbsenceAsksF
 		"`no config-file key matches this target`",
 		"`no CLI flag binds this key`",
 		"instead of vague placeholders like `N/A` / `不适用`",
+		"Populate document-level `missing_requested_roles[]` with the missing requested layers below",
 		"## Explicit Missing-Layer Wording",
 		"`CLI`, prefer explicit absence wording such as `CLI 层未绑定该键` or `no CLI flag binds this key`",
 	} {

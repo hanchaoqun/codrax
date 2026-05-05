@@ -344,6 +344,7 @@ func TestEveryHardDefaultViolKindHasCooccurrenceCoverage(t *testing.T) {
 		types.ViolStructuralEnumerationDivergence: "code-vs-comment enumeration divergence; standalone caveat marker",
 		types.ViolSelfContradiction:               "reviewer-detected SUMMARY-vs-BODY contradiction; LLM-text comparator with no structural co-fire",
 		types.ViolAbsenceScopeExceeded:            "extractor framed absence too broadly; standalone semantic boundary check",
+		types.ViolMissingRequestedRoleUndisclosed: "typed missing-layer disclosure is a finalize-local standalone repair",
 		// B2 v3 (2026-05-04) — three-layer quality contract violations
 		// fire as independent finalize-locus signals; the LLM either
 		// re-emits with the missing facet declared (richness gap) or

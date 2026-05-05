@@ -404,6 +404,11 @@ func renderAnswerDocSubmissionChecklist(ctx *types.AgentContext, view *types.Ans
 		items = append(items,
 			"Fill `exact_resolution{status,anchor?,context_mode}` to match the current exact-target state; do not leave the status implicit in prose.",
 		)
+		if view != nil && len(view.MissingRequestedRoles) > 0 {
+			items = append(items,
+				"Populate document-level `missing_requested_roles[]` with every user-requested precedence layer that remained unbound in this dispatch. Each entry is `{role:<default|config|runtime|override>, label?:<user bucket label>}`. The renderer materialises the explicit missing-layer prose from this typed field, so do not hide missing requested layers behind `N/A` / `not applicable` / vague placeholders.",
+			)
+		}
 	}
 	items = append(items,
 		"Keep the answer at the abstraction already grounded by the evidence. A cited struct / function / type name does NOT license an invented field inventory, member count, default table, or exhaustive list unless a cited line or structured evidence item explicitly enumerates those members.",
@@ -1662,8 +1667,9 @@ func renderAnswerDocConfigTraceMissingLayerWording(ctx *types.AgentContext, cont
 	if len(missing) == 0 {
 		return ""
 	}
-	labelByRole := configTraceRequestedRoleLabels(ctx, contract)
+	labelByRole := types.ConfigTraceRequestedRoleLabels(ctx.AnalysisIR.RequestModel, contract)
 	var lines []string
+	lines = append(lines, "- Populate document-level `missing_requested_roles[]` with the missing requested layers below; the renderer will materialise the explicit missing-layer prose from this typed field.")
 	for _, role := range missing {
 		label := strings.TrimSpace(labelByRole[role])
 		switch role {
@@ -1709,29 +1715,6 @@ func renderAnswerDocConfigTraceMissingLayerWording(ctx *types.AgentContext, cont
 	}
 	b.WriteString("\n")
 	return b.String()
-}
-
-func configTraceRequestedRoleLabels(ctx *types.AgentContext, contract *types.ExactResolutionContract) map[types.EvidenceDiagramRole]string {
-	out := make(map[types.EvidenceDiagramRole]string)
-	if ctx == nil || ctx.AnalysisIR == nil || contract == nil {
-		return out
-	}
-	requested := types.ConfigTraceRequestedDiagramRoles(contract)
-	if len(requested) == 0 {
-		return out
-	}
-	buckets := ctx.AnalysisIR.RequestModel.QuestionStructure().Buckets
-	if len(buckets) < len(requested) {
-		return out
-	}
-	for i, role := range requested {
-		label := strings.TrimSpace(buckets[i].Label)
-		if label == "" {
-			continue
-		}
-		out[role] = label
-	}
-	return out
 }
 
 func renderAnswerDocAcceptedClosure(ctx *types.AgentContext) string {

@@ -7,8 +7,8 @@ import (
 
 	"github.com/hanchaoqun/codrax/internal/types"
 )
-var _ = time.Now // ensure time stays imported when failEmit moved
 
+var _ = time.Now // ensure time stays imported when failEmit moved
 
 // EmitAnswerDocument is the structured finalizer channel. The
 // finalizer LLM makes exactly one emit_answer_document call per
@@ -112,6 +112,18 @@ func (t *EmitAnswerDocument) Parameters() json.RawMessage {
       "items": {"type": "object"}
     },
     "exact_resolution": {"type": "object", "description": "Optional exact-resolution contract result (status / anchor / context_mode)."},
+    "missing_requested_roles": {
+      "type": "array",
+      "description": "Optional typed disclosure for user-requested config-precedence layers that have NO grounded binding for the exact target in this dispatch. Use this when the question explicitly asked for layers such as code default / config file / CLI and one or more of those requested layers remained absent. Each entry is {role: one of default|config|runtime|override, label?: string}. role is the abstract precedence role; label is the user-facing bucket name from the question (for example CLI). The renderer turns these entries into explicit missing-layer prose, so do NOT hide them behind N/A / not applicable / vague placeholders.",
+      "items": {
+        "type": "object",
+        "properties": {
+          "role": {"type": "string", "enum": ["default", "config", "runtime", "override"]},
+          "label": {"type": "string"}
+        },
+        "required": ["role"]
+      }
+    },
     "caveats":  {"type": "array", "items": {"type": "string"}, "description": "Optional document-level caveat strings (cross-block scope notes)."},
     "snippets": {"type": "array", "items": {"type": "object"}, "description": "Optional code snippets shown alongside the answer."}
   },
@@ -191,4 +203,3 @@ func answerExactResolutionContract(ctx *types.BusContext) *types.ExactResolution
 	}
 	return nil
 }
-

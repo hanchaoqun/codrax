@@ -39,14 +39,14 @@ import (
 // one consistent contract regardless of which tool they call.
 //
 // Output sections (in order):
-//   1. Block-kind table reminder
-//   2. Principal-block claim_use rule (with the ClaimForm enum)
-//   3. Diagram payload rule (semantic family vs Mermaid keyword)
-//   4. Citation pool semantics (citation_ref placement, -1 sentinel,
-//      scalar / decision item-level anchor convention)
-//   5. exact_resolution / caveats / snippets document-level fields
-//   6. V1 carrier retirement reminder
-//   7. Five worked examples (one per principal-block family)
+//  1. Block-kind table reminder
+//  2. Principal-block claim_use rule (with the ClaimForm enum)
+//  3. Diagram payload rule (semantic family vs Mermaid keyword)
+//  4. Citation pool semantics (citation_ref placement, -1 sentinel,
+//     scalar / decision item-level anchor convention)
+//  5. exact_resolution / caveats / snippets document-level fields
+//  6. V1 carrier retirement reminder
+//  7. Five worked examples (one per principal-block family)
 //
 // LLM-facing prose only — no internal Go terminology (R4 invariant).
 // Maintenance: edits to block-level invariants live here so both
@@ -70,7 +70,7 @@ func BuildAnswerDocumentSemanticContractDescription() string {
 		"DIAGRAM BLOCKS — `diagram.kind` is the SEMANTIC FAMILY (`flow` / `sequence` / `architecture` / `call_dag`), NOT a Mermaid keyword. Mermaid syntax (`flowchart` / `sequenceDiagram`) goes inside `diagram.body` with `diagram.language=\"mermaid\"`. " +
 		"\n\n" +
 		"Citations live in a shared `citations` pool; per-item `citation_ref` (and per-claim_use `citation_ref`) is a zero-based index into it (or -1 for no cite). " +
-		"`exact_resolution`, `caveats[]`, `snippets[]` are document-level optional fields. " +
+		"`exact_resolution`, `missing_requested_roles[]`, `caveats[]`, `snippets[]` are document-level optional fields. Use `missing_requested_roles[]` only when the question explicitly asked for named config-precedence layers and one or more of those requested layers has NO grounded binding for the exact target. Each entry is `{role: default|config|runtime|override, label?: <user-facing bucket name>}`; the renderer materialises the explicit missing-layer prose from this typed field, so do not hide missing requested layers behind vague placeholders like `N/A`. " +
 		"\n\n" +
 		"Top-level fields shape / steps / symbols / value / boolean / summary are NOT accepted at runtime — the entire answer payload lives inside blocks[] only." +
 		"\n\n" +

@@ -1,5 +1,7 @@
 package types
 
+import "strings"
+
 // EffectiveDiagramContract applies the current grounded-structure
 // support to a static DiagramContract. The analyzer may correctly
 // infer that a question is structural, but by finalization time the
@@ -282,6 +284,74 @@ func ConfigTraceMissingRequestedDiagramRoles(contract *ExactResolutionContract, 
 		}
 	}
 	return missing
+}
+
+// ConfigTraceRequestedRoleLabels projects QuestionStructure bucket
+// labels onto the requested precedence roles in order. This preserves
+// the user-facing naming (`CLI`, `codrax.yaml`, `env file`, ...)
+// alongside the abstract role enum (`override`, `config`, ...).
+//
+// The mapping is intentionally structural rather than keyword-based:
+// it only consumes the already-compiled QuestionStructure buckets and
+// the already-validated requested role list from the exact-resolution
+// contract. When bucket count and requested-role count diverge, the
+// helper returns an empty map rather than guess.
+func ConfigTraceRequestedRoleLabels(rm RequestModel, contract *ExactResolutionContract) map[EvidenceDiagramRole]string {
+	out := make(map[EvidenceDiagramRole]string)
+	if contract == nil {
+		return out
+	}
+	requested := ConfigTraceRequestedDiagramRoles(contract)
+	if len(requested) == 0 {
+		return out
+	}
+	buckets := rm.QuestionStructure().Buckets
+	if len(buckets) < len(requested) {
+		return out
+	}
+	for i, role := range requested {
+		label := strings.TrimSpace(buckets[i].Label)
+		if label == "" {
+			continue
+		}
+		out[role] = label
+	}
+	return out
+}
+
+// ConfigTraceMissingRequestedRoleDisclosures returns the typed answer-
+// level disclosures for user-requested precedence roles that remained
+// unbound in the current grounded evidence surface.
+//
+// It is the shared source for:
+//   - AnswerSemanticView.MissingRequestedRoles
+//   - finalizer prompt guidance
+//   - V2 validator exact-role disclosure checks
+//   - deterministic renderer missing-layer prose
+func ConfigTraceMissingRequestedRoleDisclosures(
+	rm RequestModel,
+	contract *ExactResolutionContract,
+	requiredFiles []string,
+	evidence []EvidenceItem,
+) []AnswerMissingRequestedRole {
+	missing := ConfigTraceMissingRequestedDiagramRoles(contract, requiredFiles, evidence)
+	if len(missing) == 0 {
+		return nil
+	}
+	labelByRole := ConfigTraceRequestedRoleLabels(rm, contract)
+	out := make([]AnswerMissingRequestedRole, 0, len(missing))
+	seen := make(map[EvidenceDiagramRole]bool, len(missing))
+	for _, role := range missing {
+		if role == EvidenceDiagramRoleUnknown || seen[role] {
+			continue
+		}
+		seen[role] = true
+		out = append(out, AnswerMissingRequestedRole{
+			Role:  role,
+			Label: strings.TrimSpace(labelByRole[role]),
+		})
+	}
+	return out
 }
 
 func ConfigTraceRequiredRoleCoverageSatisfied(contract *ExactResolutionContract, requiredFiles []string, evidence []EvidenceItem) bool {

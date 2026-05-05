@@ -58,6 +58,16 @@ type AnswerSemanticView struct {
 	// question shapes that don't carry that contract.
 	ExactResolution *ExactResolutionContract
 
+	// MissingRequestedRoles carries the subset of user-requested
+	// precedence roles that the current grounded config-precedence
+	// surface still shows as absent for the exact target. This is a
+	// typed answer obligation: when non-empty, the final answer must
+	// disclose these missing layers explicitly instead of collapsing
+	// them into vague placeholders (`N/A`, `not applicable`, etc.).
+	//
+	// Only config-precedence exact-absence families populate this.
+	MissingRequestedRoles []AnswerMissingRequestedRole
+
 	// SummaryMode is a pointer alias to the SurfacePlan's
 	// AnswerSummarySurfaceMode so the V2 prompt builder can apply
 	// the right summary stylistic mode without re-deriving it.

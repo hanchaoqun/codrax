@@ -18,7 +18,7 @@ type ViolationKind string
 
 const (
 	// Original contract-checker kinds (pre-session-11).
-	ViolFamilyMismatch            ViolationKind = "shape"
+	ViolFamilyMismatch   ViolationKind = "shape"
 	ViolCitation         ViolationKind = "citation"
 	ViolMustInclude      ViolationKind = "must_include"
 	ViolMustExclude      ViolationKind = "must_exclude"
@@ -297,6 +297,18 @@ const (
 	// extractor must re-emit a tighter absence framing or surface
 	// the bounded scope verbatim.
 	ViolAbsenceScopeExceeded ViolationKind = "absence_scope_exceeded"
+
+	// ViolMissingRequestedRoleUndisclosed fires when a
+	// config-precedence exact-absence answer has one or more
+	// user-requested precedence layers that remained unbound in the
+	// grounded evidence surface, but the emitted V2 document does
+	// not disclose them via document-level missing_requested_roles[].
+	//
+	// This is a finalizer-local surface failure: the semantic view
+	// already compiled the missing role set and the renderer already
+	// knows how to materialise it. No new evidence is required; the
+	// fix is to populate the typed field correctly.
+	ViolMissingRequestedRoleUndisclosed ViolationKind = "missing_requested_role_undisclosed"
 
 	// ViolStepIdentifierUnverified (Phase 4 extension, 2026-05-02)
 	// fires when an AnswerStep's prose contains a backtick-quoted
@@ -668,6 +680,7 @@ func AllViolationKinds() []ViolationKind {
 		ViolFacetUncovered,
 		ViolClaimFormUnsupported,
 		ViolAbsenceScopeExceeded,
+		ViolMissingRequestedRoleUndisclosed,
 		ViolStepIdentifierUnverified,
 		ViolRichnessRegression,
 		ViolValueSecondaryCitationOffFocus,

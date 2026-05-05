@@ -152,6 +152,7 @@ func legacyInferViolationLayer(kind types.ViolationKind) string {
 		types.ViolRichnessRegression,
 		types.ViolClaimFormUnsupported,
 		types.ViolAbsenceScopeExceeded,
+		types.ViolMissingRequestedRoleUndisclosed,
 		types.ViolStructuralEnumerationDivergence,
 		types.ViolSymbolAnchorMismatch,
 		types.ViolCrossCitationConflict,
@@ -279,6 +280,8 @@ func inferFieldPathFromKind(kind types.ViolationKind, detail string) string {
 		return "blocks[*].claim_use.claim_form"
 	case types.ViolAbsenceScopeExceeded:
 		return "exact_resolution OR citations[*] (add scope=negative + negative_pattern)"
+	case types.ViolMissingRequestedRoleUndisclosed:
+		return "missing_requested_roles[]"
 	case types.ViolCitation:
 		return "citations[]"
 	case types.ViolMustInclude, types.ViolMustExclude:

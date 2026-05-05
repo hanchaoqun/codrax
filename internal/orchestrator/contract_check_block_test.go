@@ -71,6 +71,61 @@ func TestRequiredBlockCoverage_NilGuards(t *testing.T) {
 	}
 }
 
+func TestMissingRequestedRoleDisclosure_RequiredAndPresentPasses(t *testing.T) {
+	view := &types.AnswerSemanticView{
+		Family: types.QFConfigPrecedence,
+		MissingRequestedRoles: []types.AnswerMissingRequestedRole{
+			{Role: types.EvidenceDiagramRoleConfig, Label: "codrax.yaml"},
+			{Role: types.EvidenceDiagramRoleOverride, Label: "CLI"},
+		},
+	}
+	doc := &types.AnswerDocumentV2{
+		ExactResolution: &types.AnswerExactResolution{Status: types.AnswerExactResolutionAbsent},
+		MissingRequestedRoles: []types.AnswerMissingRequestedRole{
+			{Role: types.EvidenceDiagramRoleConfig, Label: "codrax.yaml"},
+			{Role: types.EvidenceDiagramRoleOverride, Label: "CLI"},
+		},
+	}
+	if vs := validateMissingRequestedRoleDisclosure(doc, view); len(vs) != 0 {
+		t.Fatalf("expected pass; got %+v", vs)
+	}
+}
+
+func TestMissingRequestedRoleDisclosure_MissingEntryFires(t *testing.T) {
+	view := &types.AnswerSemanticView{
+		Family: types.QFConfigPrecedence,
+		MissingRequestedRoles: []types.AnswerMissingRequestedRole{
+			{Role: types.EvidenceDiagramRoleConfig, Label: "codrax.yaml"},
+			{Role: types.EvidenceDiagramRoleOverride, Label: "CLI"},
+		},
+	}
+	doc := &types.AnswerDocumentV2{
+		ExactResolution: &types.AnswerExactResolution{Status: types.AnswerExactResolutionAbsent},
+		MissingRequestedRoles: []types.AnswerMissingRequestedRole{
+			{Role: types.EvidenceDiagramRoleConfig, Label: "codrax.yaml"},
+		},
+	}
+	vs := validateMissingRequestedRoleDisclosure(doc, view)
+	if len(vs) != 1 || vs[0].Kind != types.ViolMissingRequestedRoleUndisclosed {
+		t.Fatalf("expected ViolMissingRequestedRoleUndisclosed; got %+v", vs)
+	}
+}
+
+func TestMissingRequestedRoleDisclosure_OutsideExactAbsenceFires(t *testing.T) {
+	view := &types.AnswerSemanticView{
+		Family: types.QFGeneric,
+	}
+	doc := &types.AnswerDocumentV2{
+		MissingRequestedRoles: []types.AnswerMissingRequestedRole{
+			{Role: types.EvidenceDiagramRoleOverride, Label: "CLI"},
+		},
+	}
+	vs := validateMissingRequestedRoleDisclosure(doc, view)
+	if len(vs) != 1 || vs[0].Kind != types.ViolMissingRequestedRoleUndisclosed {
+		t.Fatalf("expected ViolMissingRequestedRoleUndisclosed outside exact-absence surface; got %+v", vs)
+	}
+}
+
 // ── validatePrincipalClaimUse ──────────────────────────────
 
 func principalClaimUseView() *types.AnswerSemanticView {

@@ -38,11 +38,14 @@ import (
 // Op group         | Operations                       | Mutual exclusion
 // -----------------|----------------------------------|---------------------
 // Blocks           | Unchanged | Replace | Add | Remove | (1) Replace∩Remove ∅
-//                  |                                    | (2) Replace∩Add ∅
-//                  |                                    | (3) Add∩Remove ∅
-//                  |                                    | (4) Unchanged ⊆ prev.ids
+//
+//	|                                    | (2) Replace∩Add ∅
+//	|                                    | (3) Add∩Remove ∅
+//	|                                    | (4) Unchanged ⊆ prev.ids
+//
 // Citations        | Replace | Append                  | (5) Replace XOR Append
 // ExactResolution  | Replace                           | nil = inherit prev
+// MissingRequestedRoles | Replace                      | nil = inherit prev
 // Caveats          | Replace                           | nil = inherit prev
 // Snippets         | Replace                           | nil = inherit prev
 //
@@ -66,7 +69,8 @@ import (
 //     exclusive (5); use Replace for holistic re-pick, Append for
 //     additive (e.g. negative-pattern citation without rewriting
 //     pool).
-//   - ExactResolution / Caveats / Snippets: replace-or-inherit.
+//   - ExactResolution / MissingRequestedRoles / Caveats /
+//     Snippets: replace-or-inherit.
 //
 // Block id is LLM-provided (never system-generated). Replace targets
 // existing id; Add inserts new id; Remove drops by id; Unchanged
@@ -100,10 +104,10 @@ import (
 // emit patches MUST select exactly one op per field group; validators
 // MUST treat the merged doc as truth, NOT inspect the patch shape.
 type AnswerDocumentV2Patch struct {
-	UnchangedBlockIDs []string                      `json:"unchanged_block_ids,omitempty"`
-	ReplaceBlocks     []AnswerBlock                 `json:"replace_blocks,omitempty"`
-	AddBlocks         []AnswerBlock                 `json:"add_blocks,omitempty"`
-	RemoveBlockIDs    []string                      `json:"remove_block_ids,omitempty"`
+	UnchangedBlockIDs []string      `json:"unchanged_block_ids,omitempty"`
+	ReplaceBlocks     []AnswerBlock `json:"replace_blocks,omitempty"`
+	AddBlocks         []AnswerBlock `json:"add_blocks,omitempty"`
+	RemoveBlockIDs    []string      `json:"remove_block_ids,omitempty"`
 	// ReplaceCitations is OPTIONAL. When non-nil, the resulting
 	// doc's Citations slice is REPLACED entirely (used when the
 	// LLM needs to re-pick citations holistically). When nil,
@@ -117,6 +121,9 @@ type AnswerDocumentV2Patch struct {
 	// ReplaceExactResolution: when non-nil, replaces prev
 	// ExactResolution. nil means "keep prev".
 	ReplaceExactResolution *AnswerExactResolution `json:"replace_exact_resolution,omitempty"`
+	// ReplaceMissingRequestedRoles: when non-nil, replaces prev
+	// MissingRequestedRoles. nil means "keep prev".
+	ReplaceMissingRequestedRoles []AnswerMissingRequestedRole `json:"replace_missing_requested_roles,omitempty"`
 	// ReplaceCaveats / ReplaceSnippets: when non-nil, replace.
 	ReplaceCaveats  []string      `json:"replace_caveats,omitempty"`
 	ReplaceSnippets []CodeSnippet `json:"replace_snippets,omitempty"`
@@ -137,6 +144,7 @@ func (p *AnswerDocumentV2Patch) IsEmpty() bool {
 		p.ReplaceCitations == nil &&
 		len(p.AppendCitations) == 0 &&
 		p.ReplaceExactResolution == nil &&
+		p.ReplaceMissingRequestedRoles == nil &&
 		p.ReplaceCaveats == nil &&
 		p.ReplaceSnippets == nil
 }
@@ -171,10 +179,10 @@ func (p *AnswerDocumentV2Patch) IsEmpty() bool {
 // fired on a fresh full emit of the same payload.
 //
 // Determinism: the resulting block order is
-//   1. Every prev block in original order, EXCEPT removed and
-//      replaced. Replaced blocks substitute the new payload at the
-//      original position.
-//   2. Added blocks appended in declaration order.
+//  1. Every prev block in original order, EXCEPT removed and
+//     replaced. Replaced blocks substitute the new payload at the
+//     original position.
+//  2. Added blocks appended in declaration order.
 //
 // This preserves the LLM's original block ordering when it
 // chooses Unchanged + Replace, which keeps the user-facing
@@ -208,12 +216,17 @@ func ApplyAnswerDocumentV2Patch(prev *AnswerDocumentV2, p *AnswerDocumentV2Patch
 		}
 	}
 
-	// Handle ExactResolution / Caveats / Snippets: replace-only
-	// surfaces.
+	// Handle ExactResolution / MissingRequestedRoles / Caveats /
+	// Snippets: replace-only surfaces.
 	if p.ReplaceExactResolution != nil {
 		out.ExactResolution = p.ReplaceExactResolution
 	} else {
 		out.ExactResolution = prev.ExactResolution
+	}
+	if p.ReplaceMissingRequestedRoles != nil {
+		out.MissingRequestedRoles = append([]AnswerMissingRequestedRole(nil), p.ReplaceMissingRequestedRoles...)
+	} else {
+		out.MissingRequestedRoles = append([]AnswerMissingRequestedRole(nil), prev.MissingRequestedRoles...)
 	}
 	if p.ReplaceCaveats != nil {
 		out.Caveats = append([]string(nil), p.ReplaceCaveats...)

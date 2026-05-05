@@ -53,6 +53,26 @@ type AnswerDocumentV2 struct {
 	// V1 type AnswerExactResolution is reused.
 	ExactResolution *AnswerExactResolution `json:"exact_resolution,omitempty"`
 
+	// MissingRequestedRoles carries any user-requested precedence
+	// roles that the current exact-absence config-precedence
+	// dispatch confirmed have NO grounded binding for the exact
+	// target. This is a typed surface contract, not free prose:
+	// the renderer materialises explicit "missing layer" sentences
+	// from these entries so finalizers do not have to improvise
+	// wording like "no CLI flag binds this key".
+	//
+	// Empty / omitted means either:
+	//   - the question did not explicitly ask for named layers, or
+	//   - every requested layer has grounded coverage, or
+	//   - this dispatch is not a config-precedence exact-absence
+	//     answer.
+	//
+	// `label`, when present, is the user-facing bucket name lifted
+	// from QuestionStructure (for example `CLI` rather than the
+	// abstract role name `override`). The validator keys on `role`;
+	// the renderer prefers `label` for user-visible wording.
+	MissingRequestedRoles []AnswerMissingRequestedRole `json:"missing_requested_roles,omitempty"`
+
 	// Caveats is a list of free-form caveats not tied to a single
 	// block. Per-block caveat content lives inside BlockCaveat
 	// blocks; document-level Caveats are reserved for cross-block
@@ -62,6 +82,23 @@ type AnswerDocumentV2 struct {
 	// Snippets carries optional CodeSnippet entries the renderer
 	// shows alongside the answer. Reused from V1.
 	Snippets []CodeSnippet `json:"snippets,omitempty"`
+}
+
+// AnswerMissingRequestedRole is a typed answer-level disclosure that
+// a user-requested precedence layer is absent for the current exact
+// target. It is intentionally narrow:
+//   - used by config-precedence exact-absence answers
+//   - keyed by abstract precedence role (default/config/runtime/override)
+//   - optionally preserves the user-facing bucket label (`CLI`,
+//     `codrax.yaml`, `env file`, ...) for deterministic rendering
+//
+// The renderer uses these entries to emit explicit missing-layer
+// sentences; validators use `Role` to ensure the answer discloses
+// every user-requested layer that remained unbound in the grounded
+// evidence surface.
+type AnswerMissingRequestedRole struct {
+	Role  EvidenceDiagramRole `json:"role"`
+	Label string              `json:"label,omitempty"`
 }
 
 // AnswerBlock is one block in AnswerDocumentV2.Blocks. The Kind +

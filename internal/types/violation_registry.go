@@ -593,6 +593,13 @@ func init() {
 		Layer: "v2_oracle", CaveatFamilyID: CaveatFamilyAcceptance,
 	})
 	RegisterViolKind(ViolKindSpec{
+		Kind: ViolMissingRequestedRoleUndisclosed, DefaultSeverity: SeverityMedium,
+		SoftByDefault: false, Promotable: true, FallbackLocus: LocusFinalizer,
+		Layer: "v2_oracle", CaveatFamilyID: CaveatFamilyAnswerCoverage,
+		SchemaDescriptionFragment: "When the semantic view names missing_requested_roles[] for a config-precedence exact-absence answer, copy every listed role into the document-level missing_requested_roles[] field. Do not omit a requested missing layer and do not replace it with vague placeholders like N/A.",
+		FixableByAgents:           []AgentName{AgentFinalizer},
+	})
+	RegisterViolKind(ViolKindSpec{
 		Kind: ViolStepIdentifierUnverified, DefaultSeverity: SeverityMedium,
 		SoftByDefault: true, Promotable: true, FallbackLocus: LocusExplore,
 		Layer: "answer_oracle", CaveatFamilyID: CaveatFamilyCitationGrounded,

@@ -92,10 +92,10 @@ func (t FallbackTarget) IsValid() bool {
 // upstream, even though most violations could be fixed at finalize.
 //
 // The B3 rule is "primary repair locus":
-//   1. Bucket violations by their locus.
-//   2. Pick the locus with the most violations.
-//   3. On tie, fall back to the deepest target (preserves safety —
-//      if equal counts, we'd rather over-rebuild than under-repair).
+//  1. Bucket violations by their locus.
+//  2. Pick the locus with the most violations.
+//  3. On tie, fall back to the deepest target (preserves safety —
+//     if equal counts, we'd rather over-rebuild than under-repair).
 //
 // v3 B0 (2026-05-04): the canonical RepairLocus type now lives in
 // internal/types/violation_registry.go so the ViolKindRegistry can
@@ -173,83 +173,83 @@ type FallbackPolicy map[types.ViolationKind]FallbackTarget
 // Per-kind rationale (red lines: reviewer-specific, no one-size-fits-
 // all):
 //
-//   ViolSelfContradiction        → BackToExplore
-//     The summary contradicts the body. Either the LLM hallucinated
-//     a fact (need more evidence) or it has the right facts in the
-//     wrong place. Re-emitting the doc alone (FinalizerOnly) tends
-//     to flip the contradiction; explore-then-finalize gives the
-//     LLM fresh evidence to anchor on.
+//	ViolSelfContradiction        → BackToExplore
+//	  The summary contradicts the body. Either the LLM hallucinated
+//	  a fact (need more evidence) or it has the right facts in the
+//	  wrong place. Re-emitting the doc alone (FinalizerOnly) tends
+//	  to flip the contradiction; explore-then-finalize gives the
+//	  LLM fresh evidence to anchor on.
 //
-//   ViolViewIntentMismatch      → FinalizerOnly
-//     Pure shape choice; evidence is intact, only the wrapper is
-//     wrong. No need to revisit upstream.
+//	ViolViewIntentMismatch      → FinalizerOnly
+//	  Pure shape choice; evidence is intact, only the wrapper is
+//	  wrong. No need to revisit upstream.
 //
-//   ViolDeclaredCountDrift       → BackToExtract
-//     The extractor's symbol slate count and the renderer's count
-//     diverge. Re-running the extractor with the same evidence is
-//     the targeted repair.
+//	ViolDeclaredCountDrift       → BackToExtract
+//	  The extractor's symbol slate count and the renderer's count
+//	  diverge. Re-running the extractor with the same evidence is
+//	  the targeted repair.
 //
-//   ViolDiagramIdentifier        → FinalizerOnly
-//     Bare-identifier hallucination in the rendered diagram.
-//     Evidence still backs the answer; the diagram is a finalizer
-//     stylistic choice.
+//	ViolDiagramIdentifier        → FinalizerOnly
+//	  Bare-identifier hallucination in the rendered diagram.
+//	  Evidence still backs the answer; the diagram is a finalizer
+//	  stylistic choice.
 //
-//   ViolMustInclude / MustExclude → FinalizerOnly
-//     Must-include is a shape-level claim about the rendered text;
-//     re-emit with the same evidence.
+//	ViolMustInclude / MustExclude → FinalizerOnly
+//	  Must-include is a shape-level claim about the rendered text;
+//	  re-emit with the same evidence.
 //
-//   ViolCitation / ViolGhostAnchor → BackToExplore
-//     The cited line doesn't ground the claim. Need more evidence.
+//	ViolCitation / ViolGhostAnchor → BackToExplore
+//	  The cited line doesn't ground the claim. Need more evidence.
 //
-//   ViolAcceptance               → BackToExplore
-//     AnswerContract acceptance test failed. Usually evidence-shape
-//     mismatch — give the explorer another shot.
+//	ViolAcceptance               → BackToExplore
+//	  AnswerContract acceptance test failed. Usually evidence-shape
+//	  mismatch — give the explorer another shot.
 //
-//   ViolSuccessCriterion         → BackToExplore
-//     Same as Acceptance.
+//	ViolSuccessCriterion         → BackToExplore
+//	  Same as Acceptance.
 //
-//   ViolChainDemoted             → BackToExplore
-//     Chain promotion failure means an anchor lacks a real
-//     definition site. More evidence is the cure.
+//	ViolChainDemoted             → BackToExplore
+//	  Chain promotion failure means an anchor lacks a real
+//	  definition site. More evidence is the cure.
 //
-//   ViolSelfRefLiteral / LiteralFormFailed → FinalizerOnly
-//     Pure shape / literal-validation issues; evidence is intact.
+//	ViolSelfRefLiteral / LiteralFormFailed → FinalizerOnly
+//	  Pure shape / literal-validation issues; evidence is intact.
 //
-//   ViolPreCompleteDowngrade     → FinalizerOnly
-//     Soft signal already handled at emit time; Block 3 has no
-//     upstream remediation.
+//	ViolPreCompleteDowngrade     → FinalizerOnly
+//	  Soft signal already handled at emit time; Block 3 has no
+//	  upstream remediation.
 //
-//   ViolViewSwap                → FinalizerOnly
+//	ViolViewSwap                → FinalizerOnly
 //
-//   ViolSubTopicCountMismatch    → FinalizerOnly
-//     Re-emit with the right shape; the evidence supports either
-//     side of the count.
+//	ViolSubTopicCountMismatch    → FinalizerOnly
+//	  Re-emit with the right shape; the evidence supports either
+//	  side of the count.
 //
-//   ViolExternalArtifactUnderdecoded → FinalizerOnly
-//     The bundle is already in Mutable; re-emit with the missing
-//     tokens decoded.
+//	ViolExternalArtifactUnderdecoded → FinalizerOnly
+//	  The bundle is already in Mutable; re-emit with the missing
+//	  tokens decoded.
 //
-//   ViolAuthorityOverreach       → FinalizerOnly
-//     Renderer bypass diagnostic — re-emit through the structured
-//     emit path.
+//	ViolAuthorityOverreach       → FinalizerOnly
+//	  Renderer bypass diagnostic — re-emit through the structured
+//	  emit path.
 //
-//   ViolPlanCritic / Reflector / AnswerReviewer (Block 1 reviewer
-//     kinds) → FailLoud — IMPORTANT: this routing only ACTIVATES
-//     when the operator promotes the kind to strict via
-//     pipeline_contract_strict_kinds. Under default SOFT
-//     classification (defaultSoftKinds in contract_check.go) these
-//     violations are recorded for telemetry but do NOT flip
-//     res.Passed=false, so they never reach the fallback switch.
-//     The FailLoud target is the safety net for operators who
-//     specifically want reviewer signals to halt the Run.
+//	ViolPlanCritic / Reflector / AnswerReviewer (Block 1 reviewer
+//	  kinds) → FailLoud — IMPORTANT: this routing only ACTIVATES
+//	  when the operator promotes the kind to strict via
+//	  pipeline_contract_strict_kinds. Under default SOFT
+//	  classification (defaultSoftKinds in contract_check.go) these
+//	  violations are recorded for telemetry but do NOT flip
+//	  res.Passed=false, so they never reach the fallback switch.
+//	  The FailLoud target is the safety net for operators who
+//	  specifically want reviewer signals to halt the Run.
 //
-//   Block 2 Intent oracle kinds:
-//     ViolIntentTraceShallow      → BackToExplore
-//     ViolIntentEnumerateNotList  → FinalizerOnly
-//     ViolIntentRootCauseNoCause  → BackToExplore
-//     ViolIntentConfigNoTrail     → BackToExplore
-//     ViolSubjectAnchorMissing    → BackToExtract
-//     ViolPredicateAxisMissing    → BackToExplore
+//	Block 2 Intent oracle kinds:
+//	  ViolIntentTraceShallow      → BackToExplore
+//	  ViolIntentEnumerateNotList  → FinalizerOnly
+//	  ViolIntentRootCauseNoCause  → BackToExplore
+//	  ViolIntentConfigNoTrail     → BackToExplore
+//	  ViolSubjectAnchorMissing    → BackToExtract
+//	  ViolPredicateAxisMissing    → BackToExplore
 //
 // v3 B0 (2026-05-04): per-kind targets are now registered as part of
 // each kind's ViolKindSpec.FallbackLocus in
@@ -297,25 +297,25 @@ func legacyDefaultFallbackPolicy() FallbackPolicy {
 		// The s1a-2 forensic showed back_to_explore actually
 		// AMPLIFIED the abstraction drift (LLM second-pass
 		// generalised more to avoid the contradiction).
-		types.ViolSelfContradiction:           FallbackFinalizerOnly,
-		types.ViolViewIntentMismatch:         FallbackFinalizerOnly,
-		types.ViolDeclaredCountDrift:          FallbackBackToExtract,
-		types.ViolDiagramIdentifier:           FallbackFinalizerOnly,
-		types.ViolMustInclude:                 FallbackFinalizerOnly,
-		types.ViolMustExclude:                 FallbackFinalizerOnly,
-		types.ViolCitation:                    FallbackBackToExplore,
-		types.ViolGhostAnchor:                 FallbackBackToExplore,
-		types.ViolAcceptance:                  FallbackBackToExplore,
-		types.ViolSuccessCriterion:            FallbackBackToExplore,
-		types.ViolChainDemoted:                FallbackBackToExplore,
-		types.ViolSelfRefLiteral:              FallbackFinalizerOnly,
-		types.ViolLiteralFormFailed:           FallbackFinalizerOnly,
-		types.ViolPreCompleteDowngrade:        FallbackFinalizerOnly,
-		types.ViolViewSwap:                   FallbackFinalizerOnly,
-		types.ViolSubTopicCountMismatch:       FallbackFinalizerOnly,
-		types.ViolFamilyMismatch:                       FallbackFinalizerOnly,
+		types.ViolSelfContradiction:            FallbackFinalizerOnly,
+		types.ViolViewIntentMismatch:           FallbackFinalizerOnly,
+		types.ViolDeclaredCountDrift:           FallbackBackToExtract,
+		types.ViolDiagramIdentifier:            FallbackFinalizerOnly,
+		types.ViolMustInclude:                  FallbackFinalizerOnly,
+		types.ViolMustExclude:                  FallbackFinalizerOnly,
+		types.ViolCitation:                     FallbackBackToExplore,
+		types.ViolGhostAnchor:                  FallbackBackToExplore,
+		types.ViolAcceptance:                   FallbackBackToExplore,
+		types.ViolSuccessCriterion:             FallbackBackToExplore,
+		types.ViolChainDemoted:                 FallbackBackToExplore,
+		types.ViolSelfRefLiteral:               FallbackFinalizerOnly,
+		types.ViolLiteralFormFailed:            FallbackFinalizerOnly,
+		types.ViolPreCompleteDowngrade:         FallbackFinalizerOnly,
+		types.ViolViewSwap:                     FallbackFinalizerOnly,
+		types.ViolSubTopicCountMismatch:        FallbackFinalizerOnly,
+		types.ViolFamilyMismatch:               FallbackFinalizerOnly,
 		types.ViolExternalArtifactUnderdecoded: FallbackFinalizerOnly,
-		types.ViolAuthorityOverreach:          FallbackFinalizerOnly,
+		types.ViolAuthorityOverreach:           FallbackFinalizerOnly,
 		// Block 1 reviewer kinds — informational, no upstream
 		// remediation. Mapped to FailLoud so a Run that ONLY has
 		// reviewer-noise violations does NOT spin a finalize retry.
@@ -339,9 +339,10 @@ func legacyDefaultFallbackPolicy() FallbackPolicy {
 		//   ViolAbsenceScopeExceeded — extractor framed the absence
 		//     too broadly. BackToExtract so the next pass surfaces the
 		//     bounded scope verbatim. STRICT.
-		types.ViolFacetUncovered:       FallbackBackToExplore,
-		types.ViolClaimFormUnsupported: FallbackFinalizerOnly,
-		types.ViolAbsenceScopeExceeded: FallbackBackToExtract,
+		types.ViolFacetUncovered:                  FallbackBackToExplore,
+		types.ViolClaimFormUnsupported:            FallbackFinalizerOnly,
+		types.ViolAbsenceScopeExceeded:            FallbackBackToExtract,
+		types.ViolMissingRequestedRoleUndisclosed: FallbackFinalizerOnly,
 		// Phase 4 extension — step-identifier-not-in-typed-evidence-
 		// pool. Missing identifiers usually mean explorer skipped
 		// emit_evidence on the load-bearing symbol; the right
@@ -405,7 +406,7 @@ func legacyDefaultFallbackPolicy() FallbackPolicy {
 		// the explorer can fix this; finalize-only rewrite would
 		// just regenerate the same placeholder text.
 		types.ViolEnumerationEvidenceUnderspecified: FallbackBackToExplore,
-		types.ViolUncertaintyBlockMissing:  FallbackFinalizerOnly,
+		types.ViolUncertaintyBlockMissing:           FallbackFinalizerOnly,
 		// Phase 5 telemetry-only kind — never reaches the fallback
 		// switch under default SOFT classification, but mapped to
 		// FailLoud as a safety net so an accidental promotion to
@@ -539,18 +540,18 @@ func FallbackTargetForViolation(v types.Violation) FallbackTarget {
 //
 // Algorithm:
 //
-//   1. Collect (locus, target) for each violation via
-//      FallbackTargetForViolation (per-violation Detail-aware).
-//   2. Bucket by locus and count.
-//   3. Pick the locus with the highest count as the **primary
-//      repair locus**. On tie, prefer the deepest locus (Terminal >
-//      Explore > Extract > Finalizer) — when equal-count buckets
-//      disagree the safer choice is to over-rebuild rather than
-//      under-repair.
-//   4. Return the target aligned with that locus, **except** when
-//      any single violation in the set is FailLoud — that one
-//      still drags the whole retry to FailLoud regardless of
-//      majority (failure-of-last-resort red line).
+//  1. Collect (locus, target) for each violation via
+//     FallbackTargetForViolation (per-violation Detail-aware).
+//  2. Bucket by locus and count.
+//  3. Pick the locus with the highest count as the **primary
+//     repair locus**. On tie, prefer the deepest locus (Terminal >
+//     Explore > Extract > Finalizer) — when equal-count buckets
+//     disagree the safer choice is to over-rebuild rather than
+//     under-repair.
+//  4. Return the target aligned with that locus, **except** when
+//     any single violation in the set is FailLoud — that one
+//     still drags the whole retry to FailLoud regardless of
+//     majority (failure-of-last-resort red line).
 func FallbackTargetForViolations(vs []types.Violation) FallbackTarget {
 	// math.MaxInt32 effectively disables the R2.2 downgrade — the
 	// budget-less wrapper is byte-identical to pre-R2.2 behaviour
@@ -567,22 +568,22 @@ func FallbackTargetForViolations(vs []types.Violation) FallbackTarget {
 // Phase 1-A3 (V2 runtime consolidation, 2026-05-04) replaced the
 // pre-A3 "bucket-by-locus + count + deepest-tiebreak" model:
 //
-//   Pre-A3 model picked the locus with the MOST violations as primary.
-//   This treats each violation as independent — when one root cause
-//   emits 3+ derived consequences, the count tilted the picker toward
-//   the locus owning the consequences instead of the locus owning the
-//   root cause. Tests covered this as "majority wins"; the model is
-//   correct when violations ARE independent but wrong when they share
-//   a typed cause→consequence relationship.
+//	Pre-A3 model picked the locus with the MOST violations as primary.
+//	This treats each violation as independent — when one root cause
+//	emits 3+ derived consequences, the count tilted the picker toward
+//	the locus owning the consequences instead of the locus owning the
+//	root cause. Tests covered this as "majority wins"; the model is
+//	correct when violations ARE independent but wrong when they share
+//	a typed cause→consequence relationship.
 //
-//   Post-A3 model uses BuildRepairPlan: typed cooccurrence rules
-//   (repair_cooccurrence.go) cluster violations by root cause; each
-//   cluster has ONE Primary + zero-or-more Derived; PrimaryOwner is
-//   the deepest cluster Owner. Derived do NOT contribute to owner
-//   selection — fixing Primary necessarily clears them. Independent
-//   violations remain singleton clusters, so a single explore-local
-//   issue cannot be drowned out by N finalize-local issues from a
-//   different root cause.
+//	Post-A3 model uses BuildRepairPlan: typed cooccurrence rules
+//	(repair_cooccurrence.go) cluster violations by root cause; each
+//	cluster has ONE Primary + zero-or-more Derived; PrimaryOwner is
+//	the deepest cluster Owner. Derived do NOT contribute to owner
+//	selection — fixing Primary necessarily clears them. Independent
+//	violations remain singleton clusters, so a single explore-local
+//	issue cannot be drowned out by N finalize-local issues from a
+//	different root cause.
 //
 // R2.2 finalize-local downgrade preserved: when primary is deeper
 // than Finalizer AND any cluster has Finalizer owner AND used <

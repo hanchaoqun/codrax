@@ -53,7 +53,7 @@ func (t *EmitAnswerDocumentPatch) Description() string {
 		"- `remove_block_ids`: ids of previous-emit blocks to drop.\n" +
 		"- `replace_citations`: when present, REPLACES the citation pool entirely. Otherwise the previous citations are inherited.\n" +
 		"- `append_citations`: when present and `replace_citations` is absent, appended to the inherited pool.\n" +
-		"- `replace_exact_resolution` / `replace_caveats` / `replace_snippets`: when present, replace the corresponding document-level field.\n\n" +
+		"- `replace_exact_resolution` / `replace_missing_requested_roles` / `replace_caveats` / `replace_snippets`: when present, replace the corresponding document-level field.\n\n" +
 		"Validation: every id named in `unchanged_block_ids` / `replace_blocks` / `remove_block_ids` MUST exist in the previous emit; every `add_blocks` id MUST NOT. Cross-op conflicts (Replace + Remove same id, etc.) are rejected. Block kind is validated against the canonical AnswerBlockKind list. The merged document is written to Mutable as if you had called `emit_answer_document` with the full payload.\n\n" +
 		"Empty patches are rejected — every retry MUST declare some change (set `unchanged_block_ids` to assert preservation if no edits are needed).\n\n" +
 		"BLOCK CONTRACT (same shape replace_blocks / add_blocks payloads must follow as a full emit):\n\n" +
@@ -95,6 +95,18 @@ func (t *EmitAnswerDocumentPatch) Parameters() json.RawMessage {
       "items": {"type": "object"}
     },
     "replace_exact_resolution": {"type": "object", "description": "OPTIONAL. When present, replaces previous exact_resolution. Otherwise inherited from previous emit."},
+    "replace_missing_requested_roles": {
+      "type": "array",
+      "description": "OPTIONAL. When present, replaces previous missing_requested_roles[]. Use this when a retry needs to add / remove / correct typed missing requested precedence layers for an exact-absence config-precedence answer.",
+      "items": {
+        "type": "object",
+        "properties": {
+          "role": {"type": "string", "enum": ["default", "config", "runtime", "override"]},
+          "label": {"type": "string"}
+        },
+        "required": ["role"]
+      }
+    },
     "replace_caveats":  {"type": "array", "items": {"type": "string"}, "description": "OPTIONAL. When present, replaces previous caveats."},
     "replace_snippets": {"type": "array", "items": {"type": "object"}, "description": "OPTIONAL. When present, replaces previous snippets."}
   }
@@ -107,15 +119,16 @@ func (t *EmitAnswerDocumentPatch) Parameters() json.RawMessage {
 // fields use the same FlexInt typed approach as the V2 emit so
 // citation_ref values can be int OR string from the LLM.
 type emitAnswerDocumentPatchParams struct {
-	UnchangedBlockIDs      []string                  `json:"unchanged_block_ids,omitempty"`
-	ReplaceBlocks          []emitAnswerBlockV2       `json:"replace_blocks,omitempty"`
-	AddBlocks              []emitAnswerBlockV2       `json:"add_blocks,omitempty"`
-	RemoveBlockIDs         []string                  `json:"remove_block_ids,omitempty"`
-	ReplaceCitations       []types.Citation          `json:"replace_citations,omitempty"`
-	AppendCitations        []types.Citation          `json:"append_citations,omitempty"`
-	ReplaceExactResolution *types.AnswerExactResolution `json:"replace_exact_resolution,omitempty"`
-	ReplaceCaveats         []string                  `json:"replace_caveats,omitempty"`
-	ReplaceSnippets        []types.CodeSnippet       `json:"replace_snippets,omitempty"`
+	UnchangedBlockIDs            []string                           `json:"unchanged_block_ids,omitempty"`
+	ReplaceBlocks                []emitAnswerBlockV2                `json:"replace_blocks,omitempty"`
+	AddBlocks                    []emitAnswerBlockV2                `json:"add_blocks,omitempty"`
+	RemoveBlockIDs               []string                           `json:"remove_block_ids,omitempty"`
+	ReplaceCitations             []types.Citation                   `json:"replace_citations,omitempty"`
+	AppendCitations              []types.Citation                   `json:"append_citations,omitempty"`
+	ReplaceExactResolution       *types.AnswerExactResolution       `json:"replace_exact_resolution,omitempty"`
+	ReplaceMissingRequestedRoles []types.AnswerMissingRequestedRole `json:"replace_missing_requested_roles,omitempty"`
+	ReplaceCaveats               []string                           `json:"replace_caveats,omitempty"`
+	ReplaceSnippets              []types.CodeSnippet                `json:"replace_snippets,omitempty"`
 }
 
 // Execute applies the patch to the previous V2 emit. Failure paths
@@ -155,13 +168,14 @@ func (t *EmitAnswerDocumentPatch) Execute(ctx *types.BusContext, params json.Raw
 
 	// Build typed AnswerDocumentV2Patch from the decoded params.
 	patch := &types.AnswerDocumentV2Patch{
-		UnchangedBlockIDs:      append([]string(nil), p.UnchangedBlockIDs...),
-		RemoveBlockIDs:         append([]string(nil), p.RemoveBlockIDs...),
-		ReplaceCitations:       p.ReplaceCitations,
-		AppendCitations:        p.AppendCitations,
-		ReplaceExactResolution: p.ReplaceExactResolution,
-		ReplaceCaveats:         p.ReplaceCaveats,
-		ReplaceSnippets:        p.ReplaceSnippets,
+		UnchangedBlockIDs:            append([]string(nil), p.UnchangedBlockIDs...),
+		RemoveBlockIDs:               append([]string(nil), p.RemoveBlockIDs...),
+		ReplaceCitations:             p.ReplaceCitations,
+		AppendCitations:              p.AppendCitations,
+		ReplaceExactResolution:       p.ReplaceExactResolution,
+		ReplaceMissingRequestedRoles: p.ReplaceMissingRequestedRoles,
+		ReplaceCaveats:               p.ReplaceCaveats,
+		ReplaceSnippets:              p.ReplaceSnippets,
 	}
 	if len(p.ReplaceBlocks) > 0 {
 		converted, err := convertEmitBlocksToTyped(t.Name(), p.ReplaceBlocks, "replace_blocks")

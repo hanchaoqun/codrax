@@ -1547,6 +1547,114 @@ func validateAbsenceScopeBound(doc *types.AnswerDocumentV2) []types.Violation {
 	}}
 }
 
+// validateMissingRequestedRoleDisclosure enforces the typed
+// config-precedence exact-absence disclosure contract:
+// AnswerSemanticView.MissingRequestedRoles is the authoritative list
+// of user-requested precedence layers that remained unbound in the
+// grounded evidence surface, and AnswerDocumentV2 must copy that list
+// into document-level missing_requested_roles[] so the renderer can
+// materialise explicit missing-layer prose deterministically.
+func validateMissingRequestedRoleDisclosure(doc *types.AnswerDocumentV2, view *types.AnswerSemanticView) []types.Violation {
+	if doc == nil || view == nil {
+		return nil
+	}
+
+	expected := make(map[types.EvidenceDiagramRole]string, len(view.MissingRequestedRoles))
+	for _, item := range view.MissingRequestedRoles {
+		if item.Role == types.EvidenceDiagramRoleUnknown {
+			continue
+		}
+		expected[item.Role] = strings.TrimSpace(item.Label)
+	}
+	actual := make(map[types.EvidenceDiagramRole]string, len(doc.MissingRequestedRoles))
+	for _, item := range doc.MissingRequestedRoles {
+		if item.Role == types.EvidenceDiagramRoleUnknown {
+			continue
+		}
+		actual[item.Role] = strings.TrimSpace(item.Label)
+	}
+
+	allowedSurface := view.Family == types.QFConfigPrecedence &&
+		doc.ExactResolution != nil &&
+		doc.ExactResolution.Status == types.AnswerExactResolutionAbsent
+	if !allowedSurface {
+		if len(actual) == 0 {
+			return nil
+		}
+		return []types.Violation{{
+			Kind:       types.ViolMissingRequestedRoleUndisclosed,
+			Detail:     "document-level missing_requested_roles[] is only valid for config-precedence exact-absence answers, but this document emitted it outside that surface",
+			Repair:     "Re-emit the answer without document-level missing_requested_roles[] unless this dispatch is a config-precedence exact-absence answer whose semantic view explicitly names missing requested layers.",
+			ClusterKey: "root:missing_requested_roles",
+			SuspectedRoot: types.SuspectedRoot{
+				IRField:    "missing_requested_roles",
+				Reason:     "typed missing-layer disclosure emitted on an incompatible answer surface",
+				Confidence: 0.8,
+			},
+			Stage: string(types.StageFinalize),
+		}}
+	}
+	if len(expected) == 0 && len(actual) == 0 {
+		return nil
+	}
+
+	var missing []string
+	var extra []string
+	var labelMismatch []string
+	for role, expectedLabel := range expected {
+		actualLabel, ok := actual[role]
+		if !ok {
+			missing = append(missing, string(role))
+			continue
+		}
+		if expectedLabel != "" && !strings.EqualFold(expectedLabel, actualLabel) {
+			labelMismatch = append(labelMismatch, fmt.Sprintf("%s(label=%q, want %q)", role, actualLabel, expectedLabel))
+		}
+	}
+	for role := range actual {
+		if _, ok := expected[role]; !ok {
+			extra = append(extra, string(role))
+		}
+	}
+	if len(missing) == 0 && len(extra) == 0 && len(labelMismatch) == 0 {
+		return nil
+	}
+	sort.Strings(missing)
+	sort.Strings(extra)
+	sort.Strings(labelMismatch)
+	return []types.Violation{{
+		Kind: types.ViolMissingRequestedRoleUndisclosed,
+		Detail: fmt.Sprintf(
+			"document-level missing_requested_roles[] does not match the semantic-view obligation (missing=%v extra=%v label_mismatch=%v)",
+			missing, extra, labelMismatch),
+		Repair: fmt.Sprintf(
+			"Re-emit the answer with document-level missing_requested_roles[] exactly set to %s. Copy the role set from the semantic-view contract, preserve any user-facing labels (for example `CLI`), and let the renderer materialise the explicit missing-layer prose from this typed field.",
+			formatMissingRequestedRolesForRepair(view.MissingRequestedRoles)),
+		ClusterKey: "root:missing_requested_roles",
+		SuspectedRoot: types.SuspectedRoot{
+			IRField:    "missing_requested_roles",
+			Reason:     "required typed disclosure for missing requested precedence layers is absent or mismatched",
+			Confidence: 0.82,
+		},
+		Stage: string(types.StageFinalize),
+	}}
+}
+
+func formatMissingRequestedRolesForRepair(items []types.AnswerMissingRequestedRole) string {
+	if len(items) == 0 {
+		return "[]"
+	}
+	parts := make([]string, 0, len(items))
+	for _, item := range items {
+		if strings.TrimSpace(item.Label) != "" {
+			parts = append(parts, fmt.Sprintf(`{"role":"%s","label":"%s"}`, item.Role, strings.TrimSpace(item.Label)))
+			continue
+		}
+		parts = append(parts, fmt.Sprintf(`{"role":"%s"}`, item.Role))
+	}
+	return "[" + strings.Join(parts, ", ") + "]"
+}
+
 // runV2BlockOracles is the single orchestrator-side dispatch entry
 // for B4. Returns the union of all V2 validator violations. Caller
 // (runContractCheck) appends to the result Violations slice the
@@ -1590,6 +1698,7 @@ func runV2BlockOraclesWithMut(doc *types.AnswerDocumentV2, view *types.AnswerSem
 	out = append(out, validatePrincipalProseUnderfilled(doc)...)
 	out = append(out, validateRichnessRegression(doc, view)...)
 	out = append(out, validateClaimFormSupport(doc, mut)...)
+	out = append(out, validateMissingRequestedRoleDisclosure(doc, view)...)
 	out = append(out, validateAbsenceScopeBound(doc)...)
 	out = append(out, validateEnumerationItemLabelGrounding(doc, mut)...)
 	out = append(out, validateEnumerationItemLabelExtractorMatch(doc, view, mut)...)

@@ -33,6 +33,10 @@ func RenderAnswerDocument(doc *types.AnswerDocumentV2, lang string) string {
 		renderAnswerDocV2Block(&b, blk, doc, docLang)
 	}
 
+	if len(doc.MissingRequestedRoles) > 0 {
+		renderAnswerDocV2MissingRequestedRoles(&b, doc.MissingRequestedRoles, docLang)
+	}
+
 	if len(doc.Caveats) > 0 {
 		renderAnswerDocV2Caveats(&b, doc.Caveats, docLang)
 	}
@@ -298,6 +302,83 @@ func renderAnswerDocV2Caveats(b *strings.Builder, caveats []string, lang answerD
 	fmt.Fprintf(b, "\n%s\n\n", heading)
 	for _, c := range caveats {
 		fmt.Fprintf(b, "- %s\n", strings.TrimSpace(c))
+	}
+}
+
+func renderAnswerDocV2MissingRequestedRoles(b *strings.Builder, roles []types.AnswerMissingRequestedRole, lang answerDocLang) {
+	if len(roles) == 0 {
+		return
+	}
+	if lang == answerDocLangZH {
+		b.WriteString("\n**缺失的请求层**：\n\n")
+	} else {
+		b.WriteString("\n**Missing requested layers:**\n\n")
+	}
+	for _, role := range roles {
+		line := renderMissingRequestedRoleLine(role, lang)
+		if strings.TrimSpace(line) == "" {
+			continue
+		}
+		fmt.Fprintf(b, "- %s\n", line)
+	}
+	b.WriteString("\n")
+}
+
+func renderMissingRequestedRoleLine(role types.AnswerMissingRequestedRole, lang answerDocLang) string {
+	label := strings.TrimSpace(role.Label)
+	switch role.Role {
+	case types.EvidenceDiagramRoleConfig:
+		if lang == answerDocLangZH {
+			if label != "" {
+				return fmt.Sprintf("%s 层没有为这个精确目标提供匹配的配置项。", label)
+			}
+			return "配置文件层没有为这个精确目标提供匹配的配置项。"
+		}
+		if label != "" {
+			return fmt.Sprintf("No %s entry binds this exact target.", label)
+		}
+		return "No config-file entry binds this exact target."
+	case types.EvidenceDiagramRoleOverride:
+		if strings.EqualFold(label, "cli") {
+			if lang == answerDocLangZH {
+				return "CLI 标志或命令行覆盖层没有为这个精确目标提供绑定。"
+			}
+			return "No CLI flag or command-line override binds this exact target."
+		}
+		if lang == answerDocLangZH {
+			if label != "" {
+				return fmt.Sprintf("%s 覆盖层没有为这个精确目标提供绑定。", label)
+			}
+			return "覆盖层没有为这个精确目标提供绑定。"
+		}
+		if label != "" {
+			return fmt.Sprintf("No %s override binds this exact target.", label)
+		}
+		return "No override binding exists for this exact target."
+	case types.EvidenceDiagramRoleDefault:
+		if lang == answerDocLangZH {
+			if label != "" {
+				return fmt.Sprintf("%s 层没有为这个精确目标提供默认绑定。", label)
+			}
+			return "代码默认层没有为这个精确目标提供绑定。"
+		}
+		if label != "" {
+			return fmt.Sprintf("No %s binding exists for this exact target.", label)
+		}
+		return "No code-default binding exists for this exact target."
+	case types.EvidenceDiagramRoleRuntime:
+		if lang == answerDocLangZH {
+			if label != "" {
+				return fmt.Sprintf("%s 层没有为这个精确目标提供运行时绑定。", label)
+			}
+			return "运行时层没有为这个精确目标提供绑定。"
+		}
+		if label != "" {
+			return fmt.Sprintf("No %s binding exists for this exact target.", label)
+		}
+		return "No runtime binding exists for this exact target."
+	default:
+		return ""
 	}
 }
 

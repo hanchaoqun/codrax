@@ -32,25 +32,26 @@ import (
 // fields) before constructing the typed value. CitationRef is
 // transported as FlexInt to accept either int or string forms.
 type emitAnswerDocumentV2Params struct {
-	DocumentModel string                 `json:"document_model"`
-	Blocks        []emitAnswerBlockV2    `json:"blocks"`
-	Citations     []types.Citation       `json:"citations,omitempty"`
-	ExactResolution *types.AnswerExactResolution `json:"exact_resolution,omitempty"`
-	Caveats       []string               `json:"caveats,omitempty"`
-	Snippets      []types.CodeSnippet    `json:"snippets,omitempty"`
+	DocumentModel         string                             `json:"document_model"`
+	Blocks                []emitAnswerBlockV2                `json:"blocks"`
+	Citations             []types.Citation                   `json:"citations,omitempty"`
+	ExactResolution       *types.AnswerExactResolution       `json:"exact_resolution,omitempty"`
+	MissingRequestedRoles []types.AnswerMissingRequestedRole `json:"missing_requested_roles,omitempty"`
+	Caveats               []string                           `json:"caveats,omitempty"`
+	Snippets              []types.CodeSnippet                `json:"snippets,omitempty"`
 }
 
 type emitAnswerBlockV2 struct {
-	ID          string                     `json:"id"`
-	Kind        string                     `json:"kind"`
-	Title       string                     `json:"title,omitempty"`
-	Text        string                     `json:"text,omitempty"`
-	Items       []emitAnswerBlockItemV2    `json:"items,omitempty"`
-	Diagram     *emitAnswerDiagramV2       `json:"diagram,omitempty"`
-	ClaimUses   []types.RenderedClaimUse   `json:"claim_uses,omitempty"`
-	EdgeAnchors []types.DiagramEdgeAnchor  `json:"edge_anchors,omitempty"`
-	FacetIDs    []string                   `json:"facet_ids,omitempty"`
-	SurfaceRole string                     `json:"surface_role,omitempty"`
+	ID          string                    `json:"id"`
+	Kind        string                    `json:"kind"`
+	Title       string                    `json:"title,omitempty"`
+	Text        string                    `json:"text,omitempty"`
+	Items       []emitAnswerBlockItemV2   `json:"items,omitempty"`
+	Diagram     *emitAnswerDiagramV2      `json:"diagram,omitempty"`
+	ClaimUses   []types.RenderedClaimUse  `json:"claim_uses,omitempty"`
+	EdgeAnchors []types.DiagramEdgeAnchor `json:"edge_anchors,omitempty"`
+	FacetIDs    []string                  `json:"facet_ids,omitempty"`
+	SurfaceRole string                    `json:"surface_role,omitempty"`
 }
 
 type emitAnswerBlockItemV2 struct {
@@ -130,11 +131,12 @@ func executeAnswerDocumentV2(toolName string, ctx *types.BusContext, raw json.Ra
 	// max blocks) are enforced inside ApplyAndPersistMutation so
 	// both paths share them.
 	doc := &types.AnswerDocumentV2{
-		DocumentModel:   "v2",
-		Citations:       p.Citations,
-		ExactResolution: p.ExactResolution,
-		Caveats:         p.Caveats,
-		Snippets:        p.Snippets,
+		DocumentModel:         "v2",
+		Citations:             p.Citations,
+		ExactResolution:       p.ExactResolution,
+		MissingRequestedRoles: p.MissingRequestedRoles,
+		Caveats:               p.Caveats,
+		Snippets:              p.Snippets,
 	}
 	for i, raw := range p.Blocks {
 		blk, err := NormalizeEmitAnswerBlock(raw, fmt.Sprintf("blocks[%d]", i))
