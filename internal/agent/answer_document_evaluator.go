@@ -2722,8 +2722,9 @@ func (e *answerDocumentEvaluator) Observe(ctx *types.AgentContext, obs LoopObser
 			"message; treat that draft as your final text. Call `emit_answer_document` now and copy " +
 			"your previous answer VERBATIM into the `summary` field. Do not trim for length unless " +
 			"a prior tool rejection named an active summary cap. Derive the remaining required structured fields (citations[] " +
-			"and any shape-specific payload) from the same draft. Do NOT rewrite, compress, or " +
-			"paraphrase the content — the richness of the original draft is the answer.",
+			"and any other block payloads the user-section's Required Answer Blocks list calls for) " +
+			"from the same draft. Do NOT rewrite, compress, or paraphrase the content — the richness " +
+			"of the original draft is the answer.",
 	}
 }
 
