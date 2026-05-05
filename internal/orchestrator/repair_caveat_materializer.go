@@ -91,6 +91,44 @@ func MaterializeUnresolvedViolationsAsCaveats(violations []types.Violation, lang
 	return out
 }
 
+// AppendUserCaveatsToAnswer renders materialized caveats as a
+// trailing markdown section appended to the answer text. Replaces
+// prependFailLoudWarning's hostile header pattern: caveats sit at
+// the END of the answer (after the body the user just read), in
+// natural language, with no internal jargon.
+//
+// The heading text is "系统提示：" (ZH) / "System note:" (EN) —
+// deliberately different from the answer document's own LLM-
+// authored "**说明**：" / "**Caveats:**" section so the two channels
+// remain visually distinguishable. LLM-authored caveats describe
+// content gaps the LLM identified; system caveats describe
+// orchestration constraints the retry loop could not resolve.
+//
+// If MaterializeUnresolvedViolationsAsCaveats returns no caveats
+// (all violations are operator-only telemetry, or the input is
+// empty), the answer is returned unchanged.
+func AppendUserCaveatsToAnswer(answer string, violations []types.Violation, lang string) string {
+	caveats := MaterializeUnresolvedViolationsAsCaveats(violations, lang)
+	if len(caveats) == 0 {
+		return answer
+	}
+	heading := "**System note:**"
+	if isChineseLang(lang) {
+		heading = "**系统提示：**"
+	}
+	var b strings.Builder
+	b.WriteString(strings.TrimRight(answer, "\n"))
+	b.WriteString("\n\n")
+	b.WriteString(heading)
+	b.WriteString("\n\n")
+	for _, c := range caveats {
+		b.WriteString("- ")
+		b.WriteString(c)
+		b.WriteString("\n")
+	}
+	return b.String()
+}
+
 // isChineseLang accepts the same set of variants the renderer
 // already recognises in answerDocumentRequiresChinese (the canonical
 // gate is in tool/emit_answer_document.go). Duplicated here as a

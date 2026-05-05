@@ -2847,9 +2847,21 @@ func (o *Orchestrator) handleStructurallyEmptyInvestigation(state *graphState, f
 		return nil, msg, true
 	}
 	return &agent.StageOutput{
-		FinalAnswer: prependFailLoudWarning(msg, o.busCtx.Mutable, state, "structurally empty investigation", o.settings),
+		FinalAnswer: structurallyEmptyAnswerForUser(o.busCtx.Language),
 		Error:       msg,
 	}, "", true
+}
+
+// structurallyEmptyAnswerForUser returns a user-facing prose message
+// for the degenerate case where the explore phase produced no
+// successful read / search / evidence — the operator-style msg is
+// preserved on out.Error for telemetry, but the user sees only
+// natural-language prose.
+func structurallyEmptyAnswerForUser(lang string) string {
+	if isChineseLang(lang) {
+		return "系统未能就这个问题收集到足够的代码证据，无法给出可靠回答。建议补充更具体的描述或限定检索范围后重试。"
+	}
+	return "The system could not gather enough code evidence to answer this question reliably. Please refine the request or narrow the search scope and retry."
 }
 
 // runReadSchedulerLoop walks the read-mode AnalysisIR.TaskGraph with
@@ -3621,10 +3633,14 @@ func (o *Orchestrator) runReadSchedulerLoop(stepBudget int) int {
 		}
 
 		if state.retryBudgetExhausted() {
-			// Fail-loud — preserve the original answer beneath an
-			// honest warning so the user sees the gap.
+			// W1.3 (2026-05-05): replace prependFailLoudWarning's
+			// internal-jargon header with materialized user-facing
+			// caveats appended to the answer. Operator telemetry
+			// stays on logging.Warning + closure stats; the user
+			// sees natural-language caveats only.
 			out.FinalAnswer = o.applyContractViolations(out.FinalAnswer, res)
-			out.FinalAnswer = prependFailLoudWarning(out.FinalAnswer, o.busCtx.Mutable, state, "retry budget exhausted", o.settings)
+			out.FinalAnswer = AppendUserCaveatsToAnswer(out.FinalAnswer, res.Violations, o.busCtx.Language)
+			logging.Warning("[orchestrator] retry budget exhausted; %d violation(s) materialized as user caveat", len(res.Violations))
 			lastFinalize = out
 			state.markDone(fin.ID)
 			o.emitNodeEnd(fin.ID, true, "")
@@ -3643,8 +3659,7 @@ func (o *Orchestrator) runReadSchedulerLoop(stepBudget int) int {
 				logging.Warning("[orchestrator] retry budget for kind=%s exhausted (%d/%d) — accepting answer with caveat",
 					kind, state.retryUsedForKind(kind), cap)
 				out.FinalAnswer = o.applyContractViolations(out.FinalAnswer, res)
-				out.FinalAnswer = prependFailLoudWarning(out.FinalAnswer, o.busCtx.Mutable, state,
-					fmt.Sprintf("per-kind retry budget exhausted: %s", kind), o.settings)
+				out.FinalAnswer = AppendUserCaveatsToAnswer(out.FinalAnswer, res.Violations, o.busCtx.Language)
 				lastFinalize = out
 				state.markDone(fin.ID)
 				o.emitNodeEnd(fin.ID, true, "")
@@ -3676,8 +3691,7 @@ func (o *Orchestrator) runReadSchedulerLoop(stepBudget int) int {
 				Reasoning: softYieldKillMessage(o.busCtx.Language),
 			})
 			out.FinalAnswer = o.applyContractViolations(out.FinalAnswer, res)
-			out.FinalAnswer = prependFailLoudWarning(out.FinalAnswer, o.busCtx.Mutable, state,
-				"yield kill: retry window produced no new information", o.settings)
+			out.FinalAnswer = AppendUserCaveatsToAnswer(out.FinalAnswer, res.Violations, o.busCtx.Language)
 			lastFinalize = out
 			state.markDone(fin.ID)
 			o.emitNodeEnd(fin.ID, true, "")
@@ -3775,8 +3789,7 @@ func (o *Orchestrator) runReadSchedulerLoop(stepBudget int) int {
 		switch fallback {
 		case FallbackFailLoud:
 			out.FinalAnswer = o.applyContractViolations(out.FinalAnswer, res)
-			out.FinalAnswer = prependFailLoudWarning(out.FinalAnswer, o.busCtx.Mutable, state,
-				"this answer's flagged issues cannot be repaired by retry", o.settings)
+			out.FinalAnswer = AppendUserCaveatsToAnswer(out.FinalAnswer, res.Violations, o.busCtx.Language)
 			lastFinalize = out
 			state.markDone(fin.ID)
 			o.emitNodeEnd(fin.ID, true, "")

@@ -84,8 +84,18 @@ func TestHandleStructurallyEmptyInvestigation_FailsLoudWhenRetryBudgetSpent(t *t
 	if out == nil {
 		t.Fatal("expected fail-loud output when retry budget is exhausted")
 	}
-	if !strings.Contains(out.FinalAnswer, "investigation structurally empty") {
-		t.Fatalf("final answer should explain structurally empty investigation, got %q", out.FinalAnswer)
+	// W1.3 (2026-05-05): user-facing FinalAnswer is now natural-
+	// language prose; the operator-style "investigation structurally
+	// empty" message moved to out.Error for telemetry.
+	if !strings.Contains(out.Error, "investigation structurally empty") {
+		t.Fatalf("operator error surface should explain structurally empty investigation, got %q", out.Error)
+	}
+	if strings.Contains(out.FinalAnswer, "investigation structurally empty") {
+		t.Fatalf("user-facing FinalAnswer must NOT contain operator jargon; got %q", out.FinalAnswer)
+	}
+	if !strings.ContainsAny(out.FinalAnswer, "系统") &&
+		!strings.Contains(out.FinalAnswer, "could not gather") {
+		t.Fatalf("FinalAnswer should be user-friendly prose, got %q", out.FinalAnswer)
 	}
 }
 
