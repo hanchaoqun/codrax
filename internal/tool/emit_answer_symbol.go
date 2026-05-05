@@ -244,10 +244,18 @@ func (t *EmitAnswerSymbol) Execute(ctx *types.BusContext, params json.RawMessage
 	// quantity (only a description-level hint). Mismatch ejects
 	// with a hint nudging either trim or recount. Zero / absent
 	// = no claim (back-compat).
+	//
+	// v3.1 D2'' (2026-05-05): when the analyzer detected an
+	// EnumerationBoundary AND the evidence pool has typed
+	// anchor_symbol values >= the user-declared count, surface
+	// that typed signal in the rejection so the LLM has a
+	// concrete floor to match. Pure typed-integer comparison —
+	// no keyword detection.
 	if p.DeclaredCount > 0 && p.DeclaredCount != len(p.Items) {
+		extra := boundaryTypedDiagnosticForEmitAnswerSymbol(ctx)
 		return failEmit(t.Name(), now,
-			"declared count=%d does not match items length=%d. Either revise the count to match the slate (if the slate is right) OR add/remove items to match the count (if the count is right). Quantitative claims in the answer must agree with the structured slate.",
-			p.DeclaredCount, len(p.Items))
+			"declared count=%d does not match items length=%d. Either revise the count to match the slate (if the slate is right) OR add/remove items to match the count (if the count is right). Quantitative claims in the answer must agree with the structured slate.%s",
+			p.DeclaredCount, len(p.Items), extra)
 	}
 
 	workDir := strings.TrimSpace(ctx.WorkDir)
@@ -333,6 +341,48 @@ func (t *EmitAnswerSymbol) Execute(ctx *types.BusContext, params json.RawMessage
 // attached). When the bundle is flagged external-source — structured
 // errors extracted but zero frames resolved to repo files — the
 // "file required" and "line > 0" rejections redirect the LLM toward
+// boundaryTypedDiagnosticForEmitAnswerSymbol returns extra prose
+// (with leading space) appended to the count-mismatch rejection when
+// the typed signals show:
+//
+//   - the analyzer detected an EnumerationBoundary with DeclaredCount=K
+//   - the evidence pool already has >=K unique typed anchor_symbol
+//     values
+//
+// In that case the LLM has all it needs to emit a K-item slate; the
+// reject prose names the typed floor so the LLM doesn't fall back to
+// a "skip emit_answer_symbol" escape. v3.1 D2'' (2026-05-05). Pure
+// typed-integer comparisons — no keyword matching, no language-
+// specific detection.
+//
+// Returns "" when no boundary is set or when pool size is below the
+// declared count (in which case the gap is genuine — the explorer
+// hasn't gathered enough typed anchors yet).
+func boundaryTypedDiagnosticForEmitAnswerSymbol(ctx *types.BusContext) string {
+	if ctx == nil || ctx.AnalysisIR == nil || ctx.Mutable == nil {
+		return ""
+	}
+	boundary := ctx.AnalysisIR.RequestModel.EnumerationBoundary
+	if boundary == nil || boundary.DeclaredCount <= 0 {
+		return ""
+	}
+	pool := ctx.Mutable.EmittedEvidence()
+	uniq := make(map[string]struct{}, len(pool))
+	for _, item := range pool {
+		anchor := strings.TrimSpace(item.AnchorSymbol)
+		if anchor == "" {
+			continue
+		}
+		uniq[anchor] = struct{}{}
+	}
+	if len(uniq) < boundary.DeclaredCount {
+		return ""
+	}
+	return fmt.Sprintf(
+		" The analyzer recorded an explicit declared_count=%d (source: %q) AND the evidence pool currently has %d unique typed anchor_symbol values matching the question scope; emit a slate of %d items mirroring those anchors.",
+		boundary.DeclaredCount, boundary.SourceQuote, len(uniq), boundary.DeclaredCount)
+}
+
 // symbols_completeness=unknown + empty items[] rather than letting
 // it hammer the gates with manufactured anchors derived from log
 // message names. This is the symmetric sibling of the kind=absent

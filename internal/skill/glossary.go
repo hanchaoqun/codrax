@@ -228,6 +228,17 @@ var InternalTermsBlocklist = []string{
 	"Session-22",
 	"Session 22",
 
+	// v3.1 (2026-05-05) — internal carrier-version concepts. The
+	// LLM emits document_model="v2" (lowercase enum string) but does
+	// not need to know the system has a V1/V2 versioning history.
+	// "V1 carrier" / "V2 carrier" leak the migration concept; replace
+	// with neutral protocol language ("the answer is expressed through
+	// blocks[] only" / "document_model must equal \"v2\"").
+	"V1 carrier",
+	"V2 carrier",
+	"V1 dispatch",
+	"V2 dispatch",
+
 	// v3 B5 + audit (2026-05-05) — Go-internal AnswerBlockKind
 	// constant names. The LLM-facing surface uses lowercase string
 	// enums ("summary" / "ordered_list" / "scalar" / etc.), so the

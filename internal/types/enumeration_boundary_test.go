@@ -1,45 +1,97 @@
 package types
 
-import (
-	"strings"
-	"testing"
-)
+import "testing"
 
-func TestRecoverRequestedEnumerationBoundary_SingleOwnerMechanism(t *testing.T) {
-	rm := RequestModel{
-		RawRequest: "gate.Run 的 7 项检查是按什么顺序跑的？",
-		Predicates: SemanticPredicates{},
-		AnalyzerHints: AnalyzerHints{
-			Kind:              "mechanism",
-			Entities:          []string{"gate.Run"},
-			PrimaryEntities:   []string{"gate.Run"},
-			MentionedEntities: []string{"gate.Run"},
-		},
-	}
-	got := RecoverRequestedEnumerationBoundary(rm)
+// enumeration_boundary_test.go — v3.1 (2026-05-05) cleanup. The
+// regex-driven RecoverRequestedEnumerationBoundary path was deleted
+// per feedback_no_custom_keyword_matching.md (the 4-pattern keyword
+// table covered only EN/ZH counter words from the original eval
+// set; would miss any future Chinese counter / Japanese / Korean /
+// novel English shape). Tests for that function were removed.
+//
+// Surviving typed-only surface tests:
+//   - NormalizeRequestedEnumerationBoundary (typed validation,
+//     verifies LLM-emitted SourceQuote is verbatim in RawRequest)
+//   - RequestedEnumerationBoundaryOwner (entity-based, no regex)
+//   - EnumerationBoundaryCountString (typed integer → string)
+
+func TestNormalizeRequestedEnumerationBoundary_AcceptsLLMEmitWithVerbatimQuote(t *testing.T) {
+	raw := "list all 9 checks performed by gate.Run"
+	in := &RequestedEnumerationBoundary{DeclaredCount: 9, SourceQuote: "9 checks"}
+	got := NormalizeRequestedEnumerationBoundary(raw, in)
 	if got == nil {
-		t.Fatal("expected recovered enumeration boundary")
+		t.Fatal("expected normalized boundary; got nil")
 	}
-	if got.DeclaredCount != 7 {
-		t.Fatalf("DeclaredCount = %d, want 7", got.DeclaredCount)
-	}
-	if !strings.Contains(got.SourceQuote, "7 项检查") {
-		t.Fatalf("SourceQuote = %q, want it to contain %q", got.SourceQuote, "7 项检查")
+	if got.DeclaredCount != 9 || got.SourceQuote != "9 checks" {
+		t.Errorf("unexpected normalized boundary: %+v", got)
 	}
 }
 
-func TestRecoverRequestedEnumerationBoundary_SkipsCrossComponent(t *testing.T) {
+func TestNormalizeRequestedEnumerationBoundary_RejectsFabricatedQuote(t *testing.T) {
+	raw := "describe the architecture of the system"
+	in := &RequestedEnumerationBoundary{DeclaredCount: 9, SourceQuote: "9 layers"}
+	if got := NormalizeRequestedEnumerationBoundary(raw, in); got != nil {
+		t.Errorf("fabricated quote (not in raw) must be rejected; got %+v", got)
+	}
+}
+
+func TestNormalizeRequestedEnumerationBoundary_NilInput(t *testing.T) {
+	if got := NormalizeRequestedEnumerationBoundary("any raw", nil); got != nil {
+		t.Errorf("nil input must return nil; got %+v", got)
+	}
+}
+
+func TestNormalizeRequestedEnumerationBoundary_ZeroOrNegativeCount(t *testing.T) {
+	raw := "test"
+	for _, n := range []int{0, -1, -99} {
+		got := NormalizeRequestedEnumerationBoundary(raw, &RequestedEnumerationBoundary{
+			DeclaredCount: n,
+			SourceQuote:   "test",
+		})
+		if got != nil {
+			t.Errorf("count=%d must return nil; got %+v", n, got)
+		}
+	}
+}
+
+func TestEnumerationBoundaryCountString(t *testing.T) {
+	cases := []struct {
+		b    *RequestedEnumerationBoundary
+		want string
+	}{
+		{nil, ""},
+		{&RequestedEnumerationBoundary{DeclaredCount: 0}, ""},
+		{&RequestedEnumerationBoundary{DeclaredCount: -1}, ""},
+		{&RequestedEnumerationBoundary{DeclaredCount: 9}, "9"},
+		{&RequestedEnumerationBoundary{DeclaredCount: 100}, "100"},
+	}
+	for _, tc := range cases {
+		if got := EnumerationBoundaryCountString(tc.b); got != tc.want {
+			t.Errorf("EnumerationBoundaryCountString(%+v) = %q, want %q", tc.b, got, tc.want)
+		}
+	}
+}
+
+func TestRequestedEnumerationBoundaryOwner_SingleEntityReturnsIt(t *testing.T) {
 	rm := RequestModel{
-		RawRequest: "What are the first 3 differences between A and B?",
-		Predicates: SemanticPredicates{IsCrossComponent: true},
+		RawRequest: "describe gate.Run behavior",
 		AnalyzerHints: AnalyzerHints{
-			Kind:              "mechanism",
-			Entities:          []string{"A", "B"},
-			PrimaryEntities:   []string{"A", "B"},
-			MentionedEntities: []string{"A", "B"},
+			MentionedEntities: []string{"gate.Run"},
 		},
 	}
-	if got := RecoverRequestedEnumerationBoundary(rm); got != nil {
-		t.Fatalf("expected nil boundary for cross-component request, got %+v", got)
+	if got := RequestedEnumerationBoundaryOwner(rm); got != "gate.Run" {
+		t.Errorf("got %q, want %q", got, "gate.Run")
+	}
+}
+
+func TestRequestedEnumerationBoundaryOwner_MultipleEntitiesReturnsEmpty(t *testing.T) {
+	rm := RequestModel{
+		RawRequest: "compare gate.Run with checker.Verify",
+		AnalyzerHints: AnalyzerHints{
+			MentionedEntities: []string{"gate.Run", "checker.Verify"},
+		},
+	}
+	if got := RequestedEnumerationBoundaryOwner(rm); got != "" {
+		t.Errorf("multi-entity request must return empty; got %q", got)
 	}
 }

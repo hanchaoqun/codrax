@@ -36,8 +36,8 @@ func TestDryBuildPython_SyntaxErrorRejected(t *testing.T) {
 	if rej == "" {
 		t.Fatal("Python dry-build must reject syntactically broken new_content")
 	}
-	if !strings.Contains(rej, "V2 dry-build failed") {
-		t.Errorf("rejection text should carry the V2 prefix the planner recognises; got %q", rej)
+	if !strings.Contains(rej, "dry-build failed") {
+		t.Errorf("rejection text should carry the dry-build prefix the planner recognises; got %q", rej)
 	}
 	if !strings.Contains(rej, "Python") {
 		t.Errorf("rejection text should name the language; got %q", rej)
@@ -100,8 +100,8 @@ func TestDryBuildNodeJS_SyntaxErrorRejected(t *testing.T) {
 	if rej == "" {
 		t.Fatal("Node.js dry-build must reject syntactically broken new_content")
 	}
-	if !strings.Contains(rej, "V2 dry-build failed") {
-		t.Errorf("rejection text should carry the V2 prefix; got %q", rej)
+	if !strings.Contains(rej, "dry-build failed") {
+		t.Errorf("rejection text should carry the dry-build prefix; got %q", rej)
 	}
 	if !strings.Contains(rej, "Node.js") {
 		t.Errorf("rejection text should name the language; got %q", rej)

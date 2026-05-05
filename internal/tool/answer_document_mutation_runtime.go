@@ -88,7 +88,7 @@ func ApplyAndPersistMutation(
 		ToolName: toolName,
 		Success:  true,
 		Summary: fmt.Sprintf(
-			"%s accepted V2 carrier: %s%s",
+			"%s accepted: %s%s",
 			toolName, mutation.Summary(),
 			summarizeV2Blocks(merged.Blocks)),
 		Timestamp: now,

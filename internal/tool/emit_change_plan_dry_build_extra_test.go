@@ -144,8 +144,8 @@ path = "src/main.rs"
 	if rej == "" {
 		t.Fatal("Rust dry-build must reject syntactically broken new_content")
 	}
-	if !strings.Contains(rej, "V2 dry-build failed") {
-		t.Errorf("rejection should carry V2 prefix; got %q", rej)
+	if !strings.Contains(rej, "dry-build failed") {
+		t.Errorf("rejection should carry dry-build prefix; got %q", rej)
 	}
 	if !strings.Contains(rej, "Rust") {
 		t.Errorf("rejection should name the language; got %q", rej)
@@ -169,8 +169,8 @@ func TestDryBuildKotlin_SyntaxErrorRejected(t *testing.T) {
 	if rej == "" {
 		t.Fatal("Kotlin dry-build must reject syntactically broken new_content")
 	}
-	if !strings.Contains(rej, "V2 dry-build failed") {
-		t.Errorf("rejection should carry V2 prefix; got %q", rej)
+	if !strings.Contains(rej, "dry-build failed") {
+		t.Errorf("rejection should carry dry-build prefix; got %q", rej)
 	}
 	if !strings.Contains(rej, "Kotlin") {
 		t.Errorf("rejection should name the language; got %q", rej)

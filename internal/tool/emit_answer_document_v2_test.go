@@ -96,23 +96,19 @@ func TestEmitAnswerDocumentV2_RejectsV1FieldsAtTopLevel(t *testing.T) {
 	if res.Success {
 		t.Fatal("expected mixed V1+V2 emit to be rejected")
 	}
-	if !strings.Contains(res.Summary, "V1 field") {
-		t.Errorf("error message should name V1 field; got %q", res.Summary)
+	// v3.1 (2026-05-05): the rejection text no longer mentions
+	// internal version concepts ("V1") — it only names the offending
+	// top-level field and explains the answer must live in blocks[].
+	if !strings.Contains(res.Summary, "shape") || !strings.Contains(res.Summary, "blocks[]") {
+		t.Errorf("error message should name the offending field and the blocks-only contract; got %q", res.Summary)
 	}
 }
 
-func TestEmitAnswerDocumentV2_RejectsUnknownDocumentModel(t *testing.T) {
-	bus := newV2TestBusContext()
-	tool := &EmitAnswerDocument{}
-	bad := json.RawMessage(`{"document_model": "v3", "blocks":[]}`)
-	res, _ := tool.Execute(bus, bad)
-	if res.Success {
-		t.Fatal("expected document_model=v3 to be rejected")
-	}
-	if !strings.Contains(res.Summary, "v3") {
-		t.Errorf("error message should name the bad value; got %q", res.Summary)
-	}
-}
+// v3.1 (2026-05-05) — TestEmitAnswerDocumentV2_RejectsUnknownDocumentModel
+// removed. The system runs only one carrier and document_model is no
+// longer surfaced to the LLM nor validated by the executor; whatever
+// value the LLM emits (or omits) is silently accepted. Future
+// migration to a second carrier would re-introduce a typed rejection.
 
 func TestEmitAnswerDocumentV2_RejectsEmptyBlocks(t *testing.T) {
 	bus := newV2TestBusContext()

@@ -60,20 +60,20 @@ func BuildAnswerDocumentSemanticContractDescription() string {
 		"Citations live in a shared `citations` pool; per-item `citation_ref` (and per-claim_use `citation_ref`) is a zero-based index into it (or -1 for no cite). " +
 		"`exact_resolution`, `caveats[]`, `snippets[]` are document-level optional fields. " +
 		"\n\n" +
-		"V1 carrier (top-level shape / steps / symbols / value / boolean / summary) is retired and rejected at runtime." +
+		"Top-level fields shape / steps / symbols / value / boolean / summary are NOT accepted at runtime — the entire answer payload lives inside blocks[] only." +
 		"\n\n" +
 		"WORKED EXAMPLES (minimal happy-path emits — each shows one principal-block family):\n" +
 		"\n" +
 		"1) Summary-only explanation (single principal `summary` block):\n" +
 		"```json\n" +
-		"{\"document_model\":\"v2\",\"blocks\":[\n" +
+		"{\"blocks\":[\n" +
 		"  {\"id\":\"s1\",\"kind\":\"summary\",\"text\":\"<multi-paragraph answer body>\",\"surface_role\":\"principal\",\"claim_uses\":[{\"claim_form\":\"definition_fact\"}],\"items\":[{\"id\":\"c0\",\"citation_ref\":0}]}\n" +
 		"],\"citations\":[{\"file\":\"foo/bar.go\",\"line\":42}]}\n" +
 		"```\n" +
 		"\n" +
 		"2) Hop-chain (`ordered_list` block over mechanism steps):\n" +
 		"```json\n" +
-		"{\"document_model\":\"v2\",\"blocks\":[\n" +
+		"{\"blocks\":[\n" +
 		"  {\"id\":\"s1\",\"kind\":\"summary\",\"text\":\"<lead-in framing the chain>\"},\n" +
 		"  {\"id\":\"hops\",\"kind\":\"ordered_list\",\"surface_role\":\"principal\",\n" +
 		"   \"items\":[\n" +
@@ -85,7 +85,7 @@ func BuildAnswerDocumentSemanticContractDescription() string {
 		"\n" +
 		"3) Enumeration slate (`ordered_list` block over enumeration members):\n" +
 		"```json\n" +
-		"{\"document_model\":\"v2\",\"blocks\":[\n" +
+		"{\"blocks\":[\n" +
 		"  {\"id\":\"s1\",\"kind\":\"summary\",\"text\":\"<frames what the list enumerates>\"},\n" +
 		"  {\"id\":\"slate\",\"kind\":\"ordered_list\",\"surface_role\":\"principal\",\n" +
 		"   \"items\":[\n" +
@@ -97,7 +97,7 @@ func BuildAnswerDocumentSemanticContractDescription() string {
 		"\n" +
 		"4) Single-literal scalar (`scalar` block — literal in block.text, citation via one-element items[]):\n" +
 		"```json\n" +
-		"{\"document_model\":\"v2\",\"blocks\":[\n" +
+		"{\"blocks\":[\n" +
 		"  {\"id\":\"v1\",\"kind\":\"scalar\",\"text\":\"42\",\"surface_role\":\"principal\",\n" +
 		"   \"items\":[{\"id\":\"vcite\",\"citation_ref\":0}],\n" +
 		"   \"claim_uses\":[{\"claim_form\":\"definition_fact\"}]}\n" +
@@ -106,7 +106,7 @@ func BuildAnswerDocumentSemanticContractDescription() string {
 		"\n" +
 		"5) Architecture diagram (`diagram` block with semantic family `architecture`):\n" +
 		"```json\n" +
-		"{\"document_model\":\"v2\",\"blocks\":[\n" +
+		"{\"blocks\":[\n" +
 		"  {\"id\":\"s1\",\"kind\":\"summary\",\"text\":\"<overall architecture lead-in>\",\"surface_role\":\"principal\",\"claim_uses\":[{\"claim_form\":\"definition_fact\"}],\"items\":[{\"id\":\"c0\",\"citation_ref\":0}]},\n" +
 		"  {\"id\":\"d1\",\"kind\":\"diagram\",\n" +
 		"   \"diagram\":{\"kind\":\"architecture\",\"language\":\"mermaid\",\"body\":\"flowchart TD\\n    A[\\\"<grounded node A>\\\"] --> B[\\\"<grounded node B>\\\"]\"}}\n" +

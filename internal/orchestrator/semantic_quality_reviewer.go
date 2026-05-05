@@ -270,6 +270,9 @@ You are NOT checking:
   - Whether the prose is well-written, grammatical, or stylistically optimal
   - Whether the answer should be at a different abstraction level
 
+DEFINITION CLARITY:
+  - "inline code anchor" = a Markdown backtick-quoted identifier inside the prose, e.g. ` + "`funcName`" + ` or ` + "`package.Type`" + `. Parenthesized file:line citations like "(foo.go:42)" do NOT count as inline code anchors — they are bibliographic references that sit OUTSIDE the prose stream, not in-prose anchors. When a typed gap mentions "zero inline ` + "`code`" + ` references", verify by reading the prose for actual backtick spans, not for parenthesized file:line.
+
 DECISION DISCIPLINE (apply before reporting):
   1. PART A first: walk every SYSTEM-DETECTED GAP and verify whether BODY addresses it. If yes for all → sufficient=true.
   2. PART B second: scan the typed attestations for shortfalls the system did NOT flag.

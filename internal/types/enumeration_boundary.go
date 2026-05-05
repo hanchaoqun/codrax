@@ -1,23 +1,49 @@
 package types
 
 import (
-	"regexp"
 	"strconv"
 	"strings"
 )
 
-var (
-	reEnglishLeadingEnumerationBoundary = regexp.MustCompile(`(?i)\b(?:the\s+)?(?:first|top)\s+([1-9]\d{0,2})\s+([A-Za-z][A-Za-z0-9_-]*(?:\s+[A-Za-z][A-Za-z0-9_-]*){0,3})\b`)
-	reEnglishCountEnumerationBoundary   = regexp.MustCompile(`(?i)\b([1-9]\d{0,2})\s+([A-Za-z][A-Za-z0-9_-]*(?:\s+[A-Za-z][A-Za-z0-9_-]*){0,3})\b`)
-	reChineseLeadingEnumerationBoundary = regexp.MustCompile(`前\s*([1-9]\d{0,2})\s*(?:个|项|条|步|层|类|种|处|段)?\s*([\p{Han}A-Za-z_]{0,12})`)
-	reChineseCountEnumerationBoundary   = regexp.MustCompile(`([1-9]\d{0,2})\s*(个|项|条|步|层|类|种|处|段)\s*([\p{Han}A-Za-z_]{0,12})`)
-)
+// enumeration_boundary.go — typed-only surface for the user-declared
+// enumeration boundary. v3.1 (2026-05-05) removed the regex-driven
+// fallback recovery path:
+//
+// Pre-v3.1, when the analyzer LLM omitted enumeration_boundary, a
+// regex chain (4 hardcoded counter-word patterns: "first/top N X",
+// "前 N 个/项/...", "[1-9]+ 个/项/条/步/层/类/种/处/段 X", and English
+// "[1-9]+ X") attempted to extract a count from the raw question.
+// That chain was a keyword-table band-aid — it covered only EN/ZH
+// counter words from the original eval set and missed:
+//   - Chinese counters not in the 8-word list (道/关/类/...)
+//   - Japanese (個/枚) / Korean (개) / other languages
+//   - Mixed-language questions
+//   - English "first" / "top" leading patterns missing the prefix
+//
+// Per feedback_no_custom_keyword_matching.md red line ("LLM 分类错就是
+// prompt 歧义,不是加关键词表绕过"), the regex fallback was deleted in
+// v3.1. EnumerationBoundary now sources only from emit_analysis output:
+// the LLM either correctly identifies the explicit count or the
+// pipeline routes through QFGeneric / QFArchitecture / etc. with an
+// honest "may have missed an item" caveat. honest weakness >
+// dishonest confidence.
+//
+// What survived the cleanup:
+//   - RequestedEnumerationBoundary struct (typed payload)
+//   - NormalizeRequestedEnumerationBoundary (typed validation:
+//     verifies LLM-emitted SourceQuote is verbatim in RawRequest;
+//     no regex, no keywords)
+//   - RequestedEnumerationBoundaryOwner (entity-based check via
+//     MentionedEntitiesFromRawRequest; used by step backbone
+//     enrichment in answer_surface_plan.go and the boundary-scope
+//     reconciler)
+//   - EnumerationBoundaryCountString (typed integer → string)
 
 // RequestedEnumerationBoundary captures a user-declared set boundary
 // that should survive downstream synthesis. Typical examples are
 // questions like "the 7 checks", "the first 3 handlers", or "top 5
-// stages". The LLM recommends the boundary at analyze time, and the
-// system validates it against the current RawRequest before any
+// stages". The LLM emits the boundary at analyze time; the system
+// validates SourceQuote against the current RawRequest before any
 // downstream stage consumes it.
 //
 // The boundary is intentionally narrow:
@@ -87,6 +113,13 @@ func EnumerationBoundaryCountString(b *RequestedEnumerationBoundary) string {
 // RequestedEnumerationBoundaryOwner returns the single request-mentioned
 // owner entity for a bounded-set question. Empty means the request
 // either did not name a single owner or stayed ambiguous.
+//
+// Owner detection is purely entity-based — it consults
+// AnalyzerHints.{ExactTargets, MentionedEntities, PrimaryEntities}
+// (all already verified verbatim against RawRequest by upstream
+// helpers) and never inspects raw text via regex. Used downstream by
+// step-backbone enrichment (answer_surface_plan.go) and the
+// boundary-scope reconciler.
 func RequestedEnumerationBoundaryOwner(rm RequestModel) string {
 	if len(rm.AnalyzerHints.ExactTargets) > 0 {
 		if mentioned := MentionedEntitiesFromRawRequest(rm.RawRequest, rm.AnalyzerHints.ExactTargets); len(mentioned) == 1 {
@@ -100,74 +133,4 @@ func RequestedEnumerationBoundaryOwner(rm RequestModel) string {
 		return recovered[0]
 	}
 	return ""
-}
-
-// RecoverRequestedEnumerationBoundary is the deterministic fallback
-// for bounded principal-set questions when the analyzer LLM omitted
-// enumeration_boundary. It only fires for single-owner, non-count,
-// non-cross-component mechanism/enumeration-style questions, so the
-// recovery stays request-structural rather than repository-specific.
-func RecoverRequestedEnumerationBoundary(rm RequestModel) *RequestedEnumerationBoundary {
-	if rm.EnumerationBoundary != nil {
-		return NormalizeRequestedEnumerationBoundary(rm.RawRequest, rm.EnumerationBoundary)
-	}
-	if strings.TrimSpace(rm.RawRequest) == "" ||
-		rm.Predicates.IsCountQuestion ||
-		rm.Predicates.IsCrossComponent ||
-		rm.Predicates.IsRelationalLookup {
-		return nil
-	}
-	switch strings.ToLower(strings.TrimSpace(rm.AnalyzerHints.Kind)) {
-	case "mechanism", "enumeration", "call_chain", "conditional":
-	default:
-		return nil
-	}
-	if RequestedEnumerationBoundaryOwner(rm) == "" {
-		return nil
-	}
-	return detectRequestedEnumerationBoundaryFromRaw(rm.RawRequest)
-}
-
-func detectRequestedEnumerationBoundaryFromRaw(raw string) *RequestedEnumerationBoundary {
-	type candidate struct {
-		count int
-		quote string
-		score int
-	}
-	var best candidate
-	consider := func(count int, quote string, score int) {
-		boundary := NormalizeRequestedEnumerationBoundary(raw, &RequestedEnumerationBoundary{
-			DeclaredCount: count,
-			SourceQuote:   strings.TrimSpace(quote),
-		})
-		if boundary == nil {
-			return
-		}
-		if score > best.score || (score == best.score && len(boundary.SourceQuote) > len(best.quote)) {
-			best = candidate{count: boundary.DeclaredCount, quote: boundary.SourceQuote, score: score}
-		}
-	}
-	for _, match := range reEnglishLeadingEnumerationBoundary.FindAllStringSubmatch(raw, -1) {
-		count, _ := strconv.Atoi(match[1])
-		consider(count, match[0], 4)
-	}
-	for _, match := range reChineseLeadingEnumerationBoundary.FindAllStringSubmatch(raw, -1) {
-		count, _ := strconv.Atoi(match[1])
-		consider(count, strings.TrimSpace(match[0]), 4)
-	}
-	for _, match := range reChineseCountEnumerationBoundary.FindAllStringSubmatch(raw, -1) {
-		count, _ := strconv.Atoi(match[1])
-		consider(count, strings.TrimSpace(match[0]), 3)
-	}
-	for _, match := range reEnglishCountEnumerationBoundary.FindAllStringSubmatch(raw, -1) {
-		count, _ := strconv.Atoi(match[1])
-		consider(count, match[0], 2)
-	}
-	if best.count <= 0 || strings.TrimSpace(best.quote) == "" {
-		return nil
-	}
-	return &RequestedEnumerationBoundary{
-		DeclaredCount: best.count,
-		SourceQuote:   best.quote,
-	}
 }

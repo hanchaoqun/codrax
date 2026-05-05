@@ -49,7 +49,7 @@ func (t *EmitAnswerDocument) Name() string { return "emit_answer_document" }
 // block field / kind / claim_form / worked example only edits one
 // helper.
 func (t *EmitAnswerDocument) Description() string {
-	return "Emit the FULL final answer document via document_model=\"v2\" + blocks[]. " +
+	return "Emit the FULL final answer document as a structured blocks[] array. " +
 		"Use this on first dispatches and whenever the answer needs a complete rewrite. On retry paths where only a few blocks need editing, prefer emit_answer_document_patch which protocol-level preserves typed annotation fields on blocks you do not touch.\n\n" +
 		BuildAnswerDocumentSemanticContractDescription()
 }
@@ -61,11 +61,6 @@ func (t *EmitAnswerDocument) Parameters() json.RawMessage {
 	const schema = `{
   "type": "object",
   "properties": {
-    "document_model": {
-      "type": "string",
-      "enum": ["v2"],
-      "description": "Carrier marker. MUST equal \"v2\" (the only accepted carrier — V1 is retired). Empty / missing is rejected."
-    },
     "blocks": {
       "type": "array",
       "description": "Ordered list of answer blocks. REQUIRED; must be non-empty. Each block is a structured payload tagged by kind.",
@@ -120,7 +115,7 @@ func (t *EmitAnswerDocument) Parameters() json.RawMessage {
     "caveats":  {"type": "array", "items": {"type": "string"}, "description": "Optional document-level caveat strings (cross-block scope notes)."},
     "snippets": {"type": "array", "items": {"type": "object"}, "description": "Optional code snippets shown alongside the answer."}
   },
-  "required": ["document_model", "blocks"]
+  "required": ["blocks"]
 }`
 	return json.RawMessage(schema)
 }
@@ -141,18 +136,11 @@ func (t *EmitAnswerDocument) Execute(ctx *types.BusContext, params json.RawMessa
 			Timestamp: now,
 		}, nil
 	}
-	model, ok, err := peekDocumentModel(params)
-	if err != nil {
-		return failEmit(t.Name(), now, "invalid params: %v", err)
-	}
-	if !ok {
-		return failEmit(t.Name(), now,
-			"document_model is required and must equal \"v2\" — V1 carrier is retired and empty / missing is rejected at the dispatch boundary")
-	}
-	if model != "v2" {
-		return failEmit(t.Name(), now,
-			"document_model=%q is not supported; only \"v2\" is accepted (V1 carrier retired at B8)", model)
-	}
+	// v3.1 (2026-05-05): the dispatcher no longer inspects
+	// document_model at all — there is only one executor path, and
+	// the LLM-facing schema no longer mentions the field. The
+	// executor itself silently tolerates whatever value (or absence)
+	// the LLM supplies; nothing here is worth a round-trip rejection.
 	return executeAnswerDocumentV2(t.Name(), ctx, params, now)
 }
 

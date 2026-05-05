@@ -68,31 +68,6 @@ type emitAnswerDiagramV2 struct {
 	ClaimUses []types.RenderedClaimUse `json:"claim_uses,omitempty"`
 }
 
-// peekDocumentModel pre-decodes only the document_model field from
-// the raw JSON so we can dispatch V1 vs V2 without forcing the V1
-// strict-decode (DisallowUnknownFields) to fail on V2 fields.
-//
-// Returns (model, true, nil) when document_model is present (even
-// when empty); (model, false, nil) when absent; or (-, -, err) on
-// JSON decode failure.
-func peekDocumentModel(raw json.RawMessage) (string, bool, error) {
-	if len(raw) == 0 {
-		return "", false, nil
-	}
-	var probe struct {
-		DocumentModel *string `json:"document_model"`
-	}
-	dec := json.NewDecoder(bytes.NewReader(raw))
-	// Allow unknown fields here — we're only peeking.
-	if err := dec.Decode(&probe); err != nil {
-		return "", false, err
-	}
-	if probe.DocumentModel == nil {
-		return "", false, nil
-	}
-	return *probe.DocumentModel, true, nil
-}
-
 // executeAnswerDocumentV2 handles document_model="v2" emits. It
 // validates the V2 schema, rejects mixed V1+V2 fields, and writes
 // the typed AnswerDocumentV2 to MutableState via
@@ -100,14 +75,15 @@ func peekDocumentModel(raw json.RawMessage) (string, bool, error) {
 // so finalize_preview / orchestrator hooks render consistent
 // per-call text.
 func executeAnswerDocumentV2(toolName string, ctx *types.BusContext, raw json.RawMessage, now time.Time) (types.ToolResult, error) {
-	// First pass: detect V1 fields at top level — they must not
-	// appear when document_model="v2". This is an explicit rejection
-	// rather than relying on DisallowUnknownFields so the error
-	// message can NAME the offending field.
+	// First pass: detect retired top-level fields (shape / steps /
+	// symbols / value / boolean / summary / symbols_completeness).
+	// The answer payload lives entirely inside blocks[]; these
+	// top-level fields would silently shadow the block contract and
+	// must be moved into the appropriate block kind.
 	if violation := detectV1FieldsInV2Emit(raw); violation != "" {
 		return failEmit(toolName, now,
-			"document_model=v2 emit must not include V1 field %q at the top level; "+
-				"the V2 carrier expresses the answer through blocks[] only", violation)
+			"top-level field %q is not accepted; the answer is expressed through blocks[] only — move any answer payload into the appropriate block kind",
+			violation)
 	}
 
 	// Flat-mode tolerance. Some LLMs emit nested arrays as JSON
@@ -136,13 +112,15 @@ func executeAnswerDocumentV2(toolName string, ctx *types.BusContext, raw json.Ra
 		return failEmit(toolName, now, "invalid params: %v", err)
 	}
 
-	if p.DocumentModel != "v2" {
-		return failEmit(toolName, now,
-			"document_model must equal \"v2\" on this code path; got %q", p.DocumentModel)
-	}
+	// v3.1 (2026-05-05): document_model is no longer surfaced to the
+	// LLM. The system runs only one carrier so any value (or absence)
+	// the LLM happens to emit is silently accepted — the dispatcher
+	// always routes to this executor and the typed model is hardcoded
+	// downstream. Future migration to a second carrier would re-introduce
+	// validation here.
 	if len(p.Blocks) == 0 {
 		return failEmit(toolName, now,
-			"blocks[] is required and must be non-empty for document_model=v2")
+			"blocks[] is required and must be non-empty")
 	}
 
 	// Build typed AnswerDocumentV2 — per-block validation lives in

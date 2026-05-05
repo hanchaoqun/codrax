@@ -999,12 +999,13 @@ func buildAnalysisIR(ctx *types.AgentContext) (*types.AnalysisIR, error) {
 	rm.AnalyzerHints.PrimaryEntities = append([]string(nil), rm.AnalyzerHints.Entities...)
 	rm.AnalyzerHints.MentionedEntities = types.MentionedEntitiesFromRawRequest(
 		rm.RawRequest, rm.AnalyzerHints.PrimaryEntities)
-	if rm.EnumerationBoundary == nil {
-		if recovered := types.RecoverRequestedEnumerationBoundary(rm); recovered != nil {
-			rm.EnumerationBoundary = recovered
-			logging.Debug("[analyzer] recovered enumeration-boundary: count=%d quote=%q", recovered.DeclaredCount, recovered.SourceQuote)
-		}
-	}
+	// v3.1 (2026-05-05): the regex-driven enumeration-boundary
+	// recovery path was deleted as a keyword-table band-aid (see
+	// internal/types/enumeration_boundary.go header). EnumerationBoundary
+	// now sources solely from the analyzer LLM's emit_analysis output.
+	// When the LLM omits it the question routes through whatever family
+	// matches (typically QFGeneric / QFArchitecture / etc.) — honest
+	// weakness over dishonest confidence.
 	graph := analyzerGraphForNormalize(ctx, rm)
 	if resolved, reason := reconcileEnumerationBoundaryScope(rm, graph); reason != "" {
 		logging.Debug("[analyzer] enumeration-boundary reconcile: %s", reason)
