@@ -97,7 +97,7 @@ func MaterializeUnresolvedViolationsAsCaveats(violations []types.Violation, lang
 // the END of the answer (after the body the user just read), in
 // natural language, with no internal jargon.
 //
-// The heading text is "系统提示：" (ZH) / "System note:" (EN) —
+// The heading text is "补充说明：" (ZH) / "Additional notes:" (EN) —
 // deliberately different from the answer document's own LLM-
 // authored "**说明**：" / "**Caveats:**" section so the two channels
 // remain visually distinguishable. LLM-authored caveats describe
@@ -112,9 +112,9 @@ func AppendUserCaveatsToAnswer(answer string, violations []types.Violation, lang
 	if len(caveats) == 0 {
 		return answer
 	}
-	heading := "**System note:**"
+	heading := "**Additional notes:**"
 	if isChineseLang(lang) {
-		heading = "**系统提示：**"
+		heading = "**补充说明：**"
 	}
 	var b strings.Builder
 	b.WriteString(strings.TrimRight(answer, "\n"))
