@@ -76,6 +76,7 @@ func TestFinalizerSkill_DoesNotTeachRetiredV1AnswerPayloads(t *testing.T) {
 		"value{literal, citation_ref}",
 		"value{key, literal, citation_ref}",
 		"boolean{decision, rationale, citation_ref}",
+		"boolean.rationale",
 		"include the candidate in symbols[]",
 	} {
 		if strings.Contains(blob, banned) {
@@ -85,6 +86,7 @@ func TestFinalizerSkill_DoesNotTeachRetiredV1AnswerPayloads(t *testing.T) {
 	for _, want := range []string{
 		"scalar carries the literal in block `text`",
 		"decision carries the verdict + rationale in block `text`",
+		"Put the verdict and the core reasoning together in the decision block's `text` field",
 		"The block schema does NOT carry top-level `value` or `boolean` fields",
 	} {
 		if !strings.Contains(blob, want) {
