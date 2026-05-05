@@ -135,6 +135,14 @@ var (
 	// without editing yaml per run.
 	flagChitchatClassifier bool
 
+	// Single-shot CLI: opt-in to ASCII Mermaid rendering. Default
+	// false preserves the pipeable-source contract — users who write
+	// stdout to a file / markdown viewer / mermaid-cli get
+	// authoritative source. Pass --mermaid-render to override for
+	// terminal-only consumption (e.g. eval inspection). REPL is
+	// unaffected — its renderer is always on.
+	flagMermaidRender bool
+
 	// B0 write-mode CLI flags. See resolveWriteMode for merge and
 	// validation rules.
 	//
@@ -379,6 +387,7 @@ func init() {
 	f.StringVar(&flagAttachAtraceText, "atrace-text", "", "alias of --htrace-text (inline trace payload)")
 	f.StringVar(&flagLogSourcePrefix, "log-source-prefix", "", "strip this path prefix from C/C++ stack-frame files before repo lookup (override for build-machine absolute paths)")
 	f.BoolVar(&flagChitchatClassifier, "chitchat-classifier", false, "enable/disable the auto chit-chat classifier for this run (overrides codrax.yaml :: chitchat_classifier_enabled when passed; no-op when omitted)")
+	f.BoolVar(&flagMermaidRender, "mermaid-render", false, "single-shot only: render ```mermaid``` fences as aligned ASCII for terminal viewing. Default false ships raw Mermaid source so output piped to file / markdown viewer / mermaid-cli stays authoritative. REPL renders unconditionally regardless of this flag.")
 	// B6 (block_only_carrier.md, 2026-05-03) — V2 carrier per-run override.
 	// auto = follow yaml pipeline_emit_v2_default (default true at B6).
 	// on = force V2 carrier; off = force V1 (rollback). Removed at B8-T7.
@@ -862,8 +871,11 @@ func runSingleShot(_ *cobra.Command, request string) error {
 	// output to file / markdown viewers / mermaid-cli get the
 	// authoritative source, not a pre-baked ASCII transformation.
 	// REPL keeps the default (enabled) so terminal readers see
-	// aligned diagrams immediately.
-	render.SetMermaidRenderingEnabled(false)
+	// aligned diagrams immediately. Operators can flip it back on
+	// via --mermaid-render for direct terminal consumption (e.g.
+	// eval inspection where the answer body is read by a human, not
+	// a downstream pipeline).
+	render.SetMermaidRenderingEnabled(flagMermaidRender)
 	busCtx, err := app.orch.Run(request, flagRepo, flagBranch)
 	if err != nil {
 		logging.Error("pipeline failed: %v", err)
