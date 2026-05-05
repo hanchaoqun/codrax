@@ -363,10 +363,10 @@ func TestAnswerDocumentEvaluator_BuildInitialInstruction_ResolvesAbsentConfigVal
 }
 
 // TestAnswerDocumentEvaluator_BuildInitialInstruction_SurfacesCardinalityBaseline
-// checks that when MustInclude is populated and the resolved shape
-// is list_of_symbols, the dynamic prompt renders the γ floor so the
-// LLM can compute its completeness claim without re-deriving it from
-// the IR.
+// checks that when MustInclude is populated and the answer needs an
+// enumeration slate, the dynamic prompt renders the grounded
+// required-member floor so the finalizer preserves those members in
+// V2 blocks instead of inventing a retired completeness field.
 func TestAnswerDocumentEvaluator_BuildInitialInstruction_SurfacesCardinalityBaseline(t *testing.T) {
 	ctx := &types.AgentContext{
 		AnalysisIR: &types.AnalysisIR{
@@ -387,8 +387,8 @@ func TestAnswerDocumentEvaluator_BuildInitialInstruction_SurfacesCardinalityBase
 	if !strings.Contains(prompt, "Required-symbol floor: **2 name(s)**") {
 		t.Errorf("required-symbol floor not surfaced: %q", prompt)
 	}
-	if !strings.Contains(prompt, "fewer than 2 items will be DOWNGRADED") {
-		t.Errorf("downgrade warning not surfaced: %q", prompt)
+	if !strings.Contains(prompt, "must preserve all 2 grounded name(s)") {
+		t.Errorf("required-member preservation guidance not surfaced: %q", prompt)
 	}
 }
 
@@ -504,8 +504,9 @@ func TestAnswerDocumentEvaluator_BuildInitialInstruction_RendersRequestedEnumera
 
 // TestAnswerDocumentEvaluator_BuildInitialInstruction_NoFloorWithoutMustInclude
 // checks the other branch: when MustInclude is empty, the prompt
-// says "no floor is enforced" so the LLM picks the claim from its
-// own recall confidence.
+// says there is no explicit required-member floor, so the finalizer
+// keeps the rendered list aligned with the prior slate / evidence
+// rather than inventing a retired completeness field.
 func TestAnswerDocumentEvaluator_BuildInitialInstruction_NoFloorWithoutMustInclude(t *testing.T) {
 	ctx := &types.AgentContext{
 		AnalysisIR: &types.AnalysisIR{
@@ -514,7 +515,7 @@ func TestAnswerDocumentEvaluator_BuildInitialInstruction_NoFloorWithoutMustInclu
 		},
 	}
 	prompt := (&answerDocumentEvaluator{}).BuildInitialInstruction(ctx, nil)
-	if !strings.Contains(prompt, "Required-symbol floor is empty") {
+	if !strings.Contains(prompt, "Required-member floor is empty") {
 		t.Errorf("no-floor branch missing: %q", prompt)
 	}
 }

@@ -243,18 +243,18 @@ func (e *answerDocumentEvaluator) BuildInitialInstruction(ctx *types.AgentContex
 		if ctx != nil && ctx.AnalysisIR != nil {
 			must = ctx.AnalysisIR.AnswerContract.MustInclude
 		}
-		b.WriteString("## Expected answer count (symbols_completeness floor)\n\n")
+		b.WriteString("## Expected principal-item floor\n\n")
 		if len(must) > 0 {
 			fmt.Fprintf(&b, "Required-symbol floor: **%d name(s)** — %s\n\n",
 				len(must), strings.Join(must, ", "))
 			fmt.Fprintf(&b,
-				"A `symbols_completeness=complete` claim with fewer than %d items will be "+
-					"DOWNGRADED to `lower_bound` automatically with a visible caveat in the "+
-					"rendered answer. If you cannot reach the floor, choose `lower_bound` up "+
-					"front — it is the honest terminal state.\n\n", len(must))
+				"Your principal enumeration block must preserve all %d grounded name(s). "+
+					"If the investigation only established a lower bound or could not prove "+
+					"the full set, disclose that bound in prose or a `caveat` block instead "+
+					"of inventing a retired completeness field.\n\n", len(must))
 		} else {
-			b.WriteString("Required-symbol floor is empty. No floor is enforced for this dispatch — ")
-			b.WriteString("choose `complete` / `lower_bound` / `unknown` based on your own recall confidence.\n\n")
+			b.WriteString("Required-member floor is empty. No explicit minimum member set is enforced for this dispatch — ")
+			b.WriteString("keep the rendered list/table aligned with the prior extraction slate and surfaced evidence.\n\n")
 		}
 
 		if ctx != nil && len(ctx.AnswerSymbols) > 0 {
@@ -355,7 +355,7 @@ func renderAnswerDocSubmissionChecklist(ctx *types.AgentContext, view *types.Ans
 				if br.SurfaceRoleHint == types.SurfacePrincipal && view.Family == types.QFEnumeration {
 					items = append(items,
 						"Emit the principal `ordered_list` block with `items[]` (each item carries `id`, optional `label`, `text`, top-level `citation_ref=N` (zero-based index into doc.citations[]), and per-item `claim_use={claim_form=definition_fact}` — citation_ref is NEVER inside the claim_use object; pick `call_edge`, `assignment_fact`, etc. when those match what the cited line actually is). EVERY item.label MUST be the verbatim identifier from an evidence pool anchor_symbol or evidence subject/object — fabricated labels are rejected by the structural enumeration grounding oracle.",
-						"Set the doc-level `symbols_completeness` honestly (`complete` / `lower_bound` / `unknown`); do NOT claim `complete` unless you've reached the expected answer count shown in the user section.",
+						"Preserve every grounded member from the prior slate / required-member floor. If the investigation only established a lower bound or an unknown full set, disclose that bound in prose or a `caveat` block; do NOT invent a retired completeness field.",
 						"Use the lead summary block to frame what the list enumerates; do not let the list stand alone without context.",
 					)
 				} else {
@@ -549,7 +549,7 @@ func renderAnswerDocEnumerationBoundary(ctx *types.AgentContext, view *types.Ans
 			boundary.SourceQuote, boundary.DeclaredCount)
 	}
 	if hasCompleteness {
-		fmt.Fprintf(&b, "The user demanded an exhaustive answer (`%s` in the question). Every match must be in the rendered answer; partial slates ship dishonestly. Set the answer's completeness claim to `complete` when you have grounded every match; fall back to `unknown` only when the investigation legitimately could not determine the full set.\n\n",
+		fmt.Fprintf(&b, "The user demanded an exhaustive answer (`%s` in the question). Every grounded match must appear in the rendered answer. If the investigation legitimately could not determine the full set, disclose that bound explicitly in prose or a `caveat` block — do not invent a separate completeness payload field.\n\n",
 			qs.CompletenessObligation.SourceQuote)
 	}
 	if hasBuckets {
@@ -3588,11 +3588,10 @@ type answerDocumentStageData struct {
 	FinalAnswer string `json:"final_answer"`
 }
 
-// ParseOutput reads the AnswerDocument from Mutable, runs the
-// cardinality cross-check on list_of_symbols + complete claims,
-// renders the document to prose, and packages the result into a
-// StageOutput. On a zero/missing document, emits a fail-loud warning
-// prefixed to the raw last LLM content.
+// ParseOutput reads the final AnswerDocument from Mutable, renders
+// it to prose, and packages the result into a StageOutput. On a
+// zero/missing document, emits a fail-loud warning prefixed to the
+// raw last LLM content.
 func (e *answerDocumentEvaluator) ParseOutput(ctx *types.AgentContext, messages []llm.Message, _ []types.ToolResult, _ []types.MCPResponse) (*StageOutput, error) {
 	out := &StageOutput{}
 

@@ -78,6 +78,7 @@ func TestFinalizerSkill_DoesNotTeachRetiredV1AnswerPayloads(t *testing.T) {
 		"boolean{decision, rationale, citation_ref}",
 		"boolean.rationale",
 		"include the candidate in symbols[]",
+		"symbols_completeness",
 		"retired carrier shape",
 	} {
 		if strings.Contains(blob, banned) {
