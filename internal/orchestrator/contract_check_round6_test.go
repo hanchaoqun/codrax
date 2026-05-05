@@ -75,6 +75,9 @@ func TestRunAuthorityOverreachCheck_RepairIsLLMActionable(t *testing.T) {
 	if len(viols) != 1 {
 		t.Fatalf("got %d violations; want 1", len(viols))
 	}
+	if got := viols[0].ClusterKey; got != "root:answer_authority" {
+		t.Errorf("ClusterKey = %q, want root:answer_authority", got)
+	}
 	repair := viols[0].Repair
 	// Must mention the user-actionable tool name.
 	if !substringContainsRound6(repair, "emit_answer_document") {

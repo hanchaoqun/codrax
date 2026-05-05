@@ -67,6 +67,66 @@ func relationClusterKey(kind types.DiagramRelationKind, rootField string) string
 	}
 }
 
+func familyClusterKey(kind types.QuestionFamily, rootField string) string {
+	fam := strings.TrimSpace(string(kind))
+	rootField = strings.TrimSpace(rootField)
+	switch {
+	case fam != "" && rootField != "":
+		return fmt.Sprintf("family:%s|root:%s", fam, rootField)
+	case fam != "":
+		return "family:" + fam
+	case rootField != "":
+		return "root:" + rootField
+	default:
+		return ""
+	}
+}
+
+func symbolClusterKey(symbol string, rootField string) string {
+	symbol = strings.TrimSpace(symbol)
+	rootField = strings.TrimSpace(rootField)
+	switch {
+	case symbol != "" && rootField != "":
+		return fmt.Sprintf("symbol:%s|root:%s", symbol, rootField)
+	case symbol != "":
+		return "symbol:" + symbol
+	case rootField != "":
+		return "root:" + rootField
+	default:
+		return ""
+	}
+}
+
+func identityClusterKey(identity string, rootField string) string {
+	identity = strings.TrimSpace(identity)
+	rootField = strings.TrimSpace(rootField)
+	switch {
+	case identity != "" && rootField != "":
+		return fmt.Sprintf("%s|root:%s", identity, rootField)
+	case identity != "":
+		return identity
+	case rootField != "":
+		return "root:" + rootField
+	default:
+		return ""
+	}
+}
+
+func topicClusterKey(topic string, rootField string) string {
+	topic = strings.TrimSpace(topic)
+	rootField = strings.TrimSpace(rootField)
+	switch {
+	case topic != "" && rootField != "":
+		return fmt.Sprintf("topic:%s|root:%s", topic, rootField)
+	case topic != "":
+		return "topic:" + topic
+	case rootField != "":
+		return "root:" + rootField
+	default:
+		return ""
+	}
+}
+
 // V2 block-only carrier validators (B4 落地 — block_only_carrier.md
 // §5.4). 4 validators raise SOFT-by-default ViolationKind values
 // when the LLM's emitted AnswerDocumentV2 fails to satisfy the
@@ -315,7 +375,7 @@ func validateDiagramEdgeSupport(doc *types.AnswerDocumentV2, view *types.AnswerS
 			Detail: fmt.Sprintf(
 				"diagram block id=%q has %d edge(s) whose endpoints are not grounded in any item, block title, claim_use annotation, or declared node label: [%s]",
 				diagramBlock.ID, len(unsupported), strings.Join(pairs, ", ")),
-			Repair: "for each listed edge, either (a) declare its endpoints as labelled nodes in the same Mermaid body (e.g. A[\"Label A\"] --> B[\"Label B\"]), (b) name the endpoints in an item label or block title in this answer, or (c) drop the edge if it represents an inference not backed by any grounded claim.",
+			Repair:     "for each listed edge, either (a) declare its endpoints as labelled nodes in the same Mermaid body (e.g. A[\"Label A\"] --> B[\"Label B\"]), (b) name the endpoints in an item label or block title in this answer, or (c) drop the edge if it represents an inference not backed by any grounded claim.",
 			ClusterKey: blockClusterKey(diagramBlock.ID, "diagram_edges"),
 			SuspectedRoot: types.SuspectedRoot{
 				IRField:    "diagram_edges",
@@ -435,7 +495,7 @@ func validateDiagramRelationLegality(
 			Detail: fmt.Sprintf(
 				"diagram block id=%q has %d labelled edge(s) lacking a typed entry in block-level edge_anchors[] (with from_node, to_node, claim_form): [%s]",
 				diagramBlock.ID, len(missing), strings.Join(details, "; ")),
-			Repair: "for each listed edge, add an entry to a block's edge_anchors[] array with claim_form set to the listed value AND from_node / to_node set to the verbatim node identifiers. Alternatively, drop the edge label if the relation isn't supported by typed evidence.",
+			Repair:     "for each listed edge, add an entry to a block's edge_anchors[] array with claim_form set to the listed value AND from_node / to_node set to the verbatim node identifiers. Alternatively, drop the edge label if the relation isn't supported by typed evidence.",
 			ClusterKey: blockClusterKey(diagramBlock.ID, "diagram_edges"),
 			SuspectedRoot: types.SuspectedRoot{
 				IRField:    "diagram_edges",
@@ -663,7 +723,7 @@ type mermaidEdge struct {
 // the LLM emits for flowchart / sequenceDiagram / call_dag /
 // architecture):
 //   - flowchart:    A --> B  /  A --- B  /  A ==> B  /  A -.-> B
-//                   A -->|label| B  /  A -- text --> B
+//     A -->|label| B  /  A -- text --> B
 //   - sequence:     A->>B: msg  /  A-->>B: reply  /  A->B: txt
 //
 // Unrecognised lines (subgraph headers, classDefs, %%comments) are
@@ -1037,7 +1097,7 @@ func validateUncertaintyBlockPresence(doc *types.AnswerDocumentV2, view *types.A
 			Detail: fmt.Sprintf(
 				"uncertainty rule (trigger=%q) requires a block of kind=%s but none is present",
 				rule.TriggerFacet, rule.ExpectedBlockKind),
-			Repair: rule.MissingMessage,
+			Repair:     rule.MissingMessage,
 			ClusterKey: blockKindClusterKey(rule.ExpectedBlockKind, "uncertainty_block"),
 			SuspectedRoot: types.SuspectedRoot{
 				IRField:    "uncertainty_block",
@@ -1409,7 +1469,7 @@ func validatePrincipalProseUnderfilled(doc *types.AnswerDocumentV2) []types.Viol
 // countInlineCodeSegments counts Markdown inline-code segments
 // (backtick-delimited substrings) in s. Verbatim structural signal
 // — universal across languages, no keyword tables. Empty backtick
-// runs (``) count as one zero-content segment; the validator only
+// runs (“) count as one zero-content segment; the validator only
 // cares whether the count is > 0, so this is conservative.
 func countInlineCodeSegments(s string) int {
 	count := 0
@@ -1561,9 +1621,9 @@ func validateAbsenceScopeBound(doc *types.AnswerDocumentV2) []types.Violation {
 		return nil
 	}
 	return []types.Violation{{
-		Kind:   types.ViolAbsenceScopeExceeded,
-		Detail: "exact_resolution.status=absent declared but no citation carries scope=negative + a non-empty negative_pattern; the absence claim is unbounded",
-		Repair: "Re-emit emit_answer_document with citations[] including at least one entry with scope='negative' AND a non-empty negative_pattern naming the exact search query (grep / repomap / file glob) that confirmed the absence. If the bounded evidence is already in the pool, attach it directly as a negative-scope citation; otherwise the next investigation pass must run the bounded search and surface its query.",
+		Kind:       types.ViolAbsenceScopeExceeded,
+		Detail:     "exact_resolution.status=absent declared but no citation carries scope=negative + a non-empty negative_pattern; the absence claim is unbounded",
+		Repair:     "Re-emit emit_answer_document with citations[] including at least one entry with scope='negative' AND a non-empty negative_pattern naming the exact search query (grep / repomap / file glob) that confirmed the absence. If the bounded evidence is already in the pool, attach it directly as a negative-scope citation; otherwise the next investigation pass must run the bounded search and surface its query.",
 		ClusterKey: "root:exact_resolution.absence_scope",
 		SuspectedRoot: types.SuspectedRoot{
 			IRField:    "exact_resolution.absence_scope",

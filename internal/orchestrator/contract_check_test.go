@@ -89,8 +89,7 @@ func TestRunContractCheck_EmptyContractAlwaysPasses(t *testing.T) {
 }
 
 func TestRunContractCheck_NilOutputPasses(t *testing.T) {
-	res := runContractCheck(nil, types.AnswerContract{
-	}, nil, nil)
+	res := runContractCheck(nil, types.AnswerContract{}, nil, nil)
 	if !res.Passed {
 		t.Errorf("nil output should pass (caller decides separately); got %+v", res)
 	}
@@ -243,6 +242,9 @@ func TestRunCrossCitationConflictOracleV2_FlagsDifferentLines(t *testing.T) {
 	}
 	if vs[0].Kind != types.ViolCrossCitationConflict {
 		t.Errorf("kind = %q, want ViolCrossCitationConflict", vs[0].Kind)
+	}
+	if got := vs[0].ClusterKey; got != "label:TurnAArtifacts|root:answer_citations_locus" {
+		t.Errorf("ClusterKey = %q, want typed symbol cluster key", got)
 	}
 	if !strings.Contains(vs[0].Detail, "TurnAArtifacts") {
 		t.Errorf("Detail must name the conflicting symbol; got %q", vs[0].Detail)

@@ -46,6 +46,9 @@ func TestValidateEnumerationEvidenceCoverage_FiresWhenAnchorCountBelowDeclared(t
 	if vs[0].Kind != types.ViolEnumerationEvidenceUnderspecified {
 		t.Errorf("kind = %q, want ViolEnumerationEvidenceUnderspecified", vs[0].Kind)
 	}
+	if got := vs[0].ClusterKey; got != "family:enumeration|root:evidence_pool_named_anchors" {
+		t.Errorf("ClusterKey = %q, want family-based typed cluster key", got)
+	}
 	if !strings.Contains(vs[0].Detail, "9") || !strings.Contains(vs[0].Detail, "2") {
 		t.Errorf("Detail must name declared (9) and actual (2) counts: %q", vs[0].Detail)
 	}

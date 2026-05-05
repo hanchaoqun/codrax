@@ -270,9 +270,10 @@ func runExternalArtifactDecodedCheck(mut *types.MutableState, draftText string) 
 		return nil
 	}
 	return []types.Violation{{
-		Kind:   types.ViolExternalArtifactUnderdecoded,
-		Detail: res.Detail,
-		Repair: res.Detail,
+		Kind:       types.ViolExternalArtifactUnderdecoded,
+		Detail:     res.Detail,
+		Repair:     res.Detail,
+		ClusterKey: "root:external_artifact_decoded",
 		SuspectedRoot: types.SuspectedRoot{
 			IRField:    "external_artifact_decoded",
 			Reason:     "answer underdecodes triaged log / perf trace",
@@ -364,7 +365,8 @@ func runAuthorityOverreachCheck(mut *types.MutableState, draftText string) []typ
 		// the cause class, name the fix. Don't reference internal
 		// component names ("ApplyAuthorityHedging", "render path")
 		// the LLM has no schema for.
-		Repair: "Re-emit emit_answer_document with all required block fields populated (see the skill's Required-Block dispatch table). The system will re-attach the drift disclosure automatically once the structured emit succeeds — do not write the disclosure prose yourself.",
+		Repair:     "Re-emit emit_answer_document with all required block fields populated (see the skill's Required-Block dispatch table). The system will re-attach the drift disclosure automatically once the structured emit succeeds — do not write the disclosure prose yourself.",
+		ClusterKey: "root:answer_authority",
 		SuspectedRoot: types.SuspectedRoot{
 			IRField:    "answer_authority",
 			Reason:     "drift disclosure missing on rendered answer (likely structured-emit failure)",
@@ -407,7 +409,6 @@ func isPlumbingFailureViolation(k types.ViolationKind) bool {
 	return false
 }
 
-
 // runIntentCoverageOracle (Block 2 architecture overhaul 2026-05-02)
 // validates that the rendered AnswerDocument structurally satisfies
 // the depth / shape / breadth implied by rm.Intent. Each Intent gets
@@ -440,6 +441,7 @@ func isPlumbingFailureViolation(k types.ViolationKind) bool {
 //
 //	hasSequenceDiagram(summary) → "a sequenceDiagram block"
 //	!hasSequenceDiagram(summary) → "no sequenceDiagram block"
+//
 // runSubjectAnchorOracle (Block 2 — 2026-05-02) validates that the
 // rendered AnswerDocument exposes the analyzer's declared
 // AnswerSubject. When rm.AnswerSubject.Kind names a concrete
@@ -579,7 +581,8 @@ func runSymbolAnchorTrackOracleV2(docV2 *types.AnswerDocumentV2, rm *types.Reque
 		Detail: fmt.Sprintf(
 			"emit_answer_symbol rejected %d items on line-anchor mismatch this Run; the rendered V2 answer carries %d enumerated item(s) for family=%s (declared count=%d). The rejections cluster around the def-line verifier.",
 			rejections, gotSymbols, view.Family, expected),
-		Repair: "the next investigation pass should re-explore around the principal entities the rejected items pointed to, with read_file slices that cover each entity's definition line.",
+		Repair:     "the next investigation pass should re-explore around the principal entities the rejected items pointed to, with read_file slices that cover each entity's definition line.",
+		ClusterKey: familyClusterKey(view.Family, "explorer_def_region_coverage_v2"),
 		SuspectedRoot: types.SuspectedRoot{
 			IRField:    "explorer_def_region_coverage_v2",
 			Reason:     "repeated emit_answer_symbol rejections at line-anchor verifier (V2 carrier)",
@@ -691,6 +694,7 @@ func runCrossCitationConflictOracleV2(docV2 *types.AnswerDocumentV2) []types.Vio
 					Repair: fmt.Sprintf(
 						"resolve %q to a single canonical locus and re-emit emit_answer_document so every block item naming %q points at the same (file, line) cite. If two distinct sites legitimately co-exist (e.g. interface decl + impl), surface them as separate items with distinct labels.",
 						name, name),
+					ClusterKey: identityClusterKey(name, "answer_citations_locus"),
 					SuspectedRoot: types.SuspectedRoot{
 						IRField:    "answer_citations_locus",
 						Reason:     "single-locus consistency violated for cited symbol",
@@ -942,6 +946,7 @@ func enumerateStructuralDivergence(typedImpl []*repotypes.Symbol, ifaceName stri
 		Repair: fmt.Sprintf(
 			"the typed code relation and your prose reasoning have diverged. Both are valid signals — typed = the method set structurally satisfies %q; prose = an author comment / narrative cue made you exclude these. Pick ONE of: (a) re-emit emit_answer_symbol with each omitted item included AND a rationale starting with \"[caveat]\" naming the disagreement (e.g. \"[caveat] method set satisfies %s but author comment at file:line excludes from semantic implementation\"); (b) re-emit emit_answer_document with the omitted names appearing verbatim in summary as exception cases (e.g. \"X also has the method set but author note excludes it because Y\"). Do NOT silently drop members — the user receives a partial set without knowing items were filtered.",
 			ifaceName, ifaceName),
+		ClusterKey: symbolClusterKey(ifaceName, "structural_enumeration_divergence"),
 		SuspectedRoot: types.SuspectedRoot{
 			IRField:    "structural_enumeration_divergence",
 			Reason:     "typed implementers vs emitted answer set diverge silently",
@@ -1134,7 +1139,6 @@ var identifierTokenizer = regexp.MustCompile(`[A-Za-z_][A-Za-z0-9_]+`)
 // claimFormForCitation finds the EvidenceItem in MutableState's
 // emitted-evidence pool matching the citation by Source path +
 // LineStart, then runs ClaimFormOf on it. Returns empty on no match.
-//
 func abs(x int) int {
 	if x < 0 {
 		return -x
@@ -1196,7 +1200,7 @@ func defaultSoftKinds() map[types.ViolationKind]bool {
 // during the migration window only.
 func legacyDefaultSoftKinds() map[types.ViolationKind]bool {
 	return map[types.ViolationKind]bool{
-		types.ViolViewIntentMismatch:          true,
+		types.ViolViewIntentMismatch:           true,
 		types.ViolSubTopicCountMismatch:        true,
 		types.ViolDiagramIdentifier:            true,
 		types.ViolDeclaredCountDrift:           true,
@@ -1364,7 +1368,6 @@ func hasAnyStrictViolation(vs []types.Violation) bool {
 	return false
 }
 
-
 // isJustifiedAbsenceAnswer reports whether the finalized document is
 // an honest "zero" shape AND the investigation did enough work to
 // trust that zero. Both halves matter:
@@ -1445,6 +1448,7 @@ func hasAnyInvestigationSuccess(mut *types.MutableState) bool {
 //	          does X" demands inspecting the candidate handlers'
 //	          code — listing file names is not sufficient because
 //	          the question is about behaviour, not identity.
+//
 // hasInvestigationEvidence reports whether Turn A did enough work to
 // back an absence claim in the given shape. Two-tier rule:
 //
@@ -1810,7 +1814,8 @@ func (o *Orchestrator) runSelfConsistencyReviewV2(doc *types.AnswerDocumentV2, m
 			Kind: types.ViolSelfContradiction,
 			Detail: fmt.Sprintf("self_contradiction[%s] — SUMMARY: %q ⇄ BODY: %q",
 				c.Topic, c.SummaryClaim, c.BodyClaim),
-			Repair: buildSelfContradictionRepair(c, reasoning, i+1, totalN),
+			Repair:     buildSelfContradictionRepair(c, reasoning, i+1, totalN),
+			ClusterKey: topicClusterKey(c.Topic, "answer_summary_body_consistency"),
 			SuspectedRoot: types.SuspectedRoot{
 				IRField:    "answer_summary_body_consistency",
 				Reason:     "reviewer detected inter-paragraph contradiction (V2 carrier)",
@@ -1949,6 +1954,7 @@ func validateEnumerationEvidenceCoverage(mut *types.MutableState, view *types.An
 		Repair: fmt.Sprintf(
 			"re-investigate the source files that contain the parallel callsites and emit one evidence item PER named identifier (each with `scope=line` and a distinct `anchor_symbol`). The current pool aggregates the parallel set into too few typed names — the answer cannot enumerate %d items without %d distinct anchors. Read the file region carrying the parallel definitions / registrations / appends and call `emit_evidence` with one item per identifier.",
 			declared, declared),
+		ClusterKey: familyClusterKey(view.Family, "evidence_pool_named_anchors"),
 		SuspectedRoot: types.SuspectedRoot{
 			IRField:    "evidence_pool_named_anchors",
 			Reason:     "enumeration evidence pool below declared count",
@@ -2045,7 +2051,8 @@ func (o *Orchestrator) runSemanticQualityReview(doc *types.AnswerDocumentV2, mut
 			Kind: types.ViolAnswerSemanticUnderfilled,
 			Detail: fmt.Sprintf("answer_underfilled[%s] — observation: %s",
 				c.Topic, c.Observation),
-			Repair: repair,
+			Repair:     repair,
+			ClusterKey: topicClusterKey(c.Topic, "answer_semantic_quality"),
 			SuspectedRoot: types.SuspectedRoot{
 				IRField:    "answer_semantic_quality",
 				Reason:     "reviewer detected coverage / richness thinness",
