@@ -64,6 +64,48 @@ type SemanticQualityInput struct {
 	// cross-check fabricated mechanism names — but its primary job
 	// here is COVERAGE (not contradiction).
 	EvidenceAnchorSet []string
+
+	// SystemDetectedGaps lists typed gaps the v3 B2 validators
+	// already identified (ViolRichnessGlaringGap +
+	// ViolPrincipalProseUnderfilled). The reviewer treats these as
+	// system-confirmed signals; its job is reverse-check —
+	// verify whether BODY in fact addresses each gap via equivalent
+	// expression. Reviewer must NOT restate system-detected gaps in
+	// Concerns — concerns are ADDITIONS the typed validators missed.
+	SystemDetectedGaps []SystemDetectedGap
+
+	// PromotedFacetCoverage is the depth audit for promoted facets:
+	// DeclaredCount counts how many times a block.FacetIDs / item
+	// .ClaimUse.FacetID names this facet kind; AnchoredCount is the
+	// subset of those declarations that ALSO carry an evidence_id /
+	// claim_form on the same site. A facet with DeclaredCount > 0
+	// but AnchoredCount == 0 is a "shallow declaration" — covered by
+	// label, not anchored to evidence. v3 B2 (2026-05-04).
+	PromotedFacetCoverage []FacetCoverageDepth
+}
+
+// SystemDetectedGap is one typed verdict already raised by the v3
+// validators. Reviewer reads to avoid restating; its prompt asks
+// reviewer to verify the gap rather than rediscover it.
+type SystemDetectedGap struct {
+	// Kind is "richness_glaring" or "prose_underfilled".
+	Kind string
+	// FacetKind is the missing facet (richness_glaring case).
+	FacetKind string
+	// BlockID is the offending block id (prose_underfilled case).
+	BlockID string
+	// EvidenceCount is len(SourceCandidate) for richness_glaring;
+	// for prose_underfilled it is the typed claim_use count on the
+	// block.
+	EvidenceCount int
+}
+
+// FacetCoverageDepth audits one promoted facet's declared vs
+// anchored coverage on the rendered V2 doc.
+type FacetCoverageDepth struct {
+	Kind          string
+	DeclaredCount int
+	AnchoredCount int
 }
 
 // SemanticFacetSummary is the typed projection of one
@@ -193,32 +235,37 @@ var semanticQualityTool = llm.ToolSchema{
 // R5 invariant — describes JUDGEMENT criteria, not what the answer
 // should literally contain. R6 invariant — every example is an
 // abstract pattern, not a verbatim case study.
-const semanticQualityReviewerSystemPrompt = `You are an INDEPENDENT completeness reviewer. The pipeline produced an answer plus typed coverage attestations. Your ONE task: decide whether the answer surfaces ENOUGH of what the typed attestations show is available.
+//
+// v3 B2 (2026-05-04): reviewer role split into two halves —
+//   (a) reverse-check the system-detected gaps (already raised by
+//       the typed validators) and confirm whether BODY actually
+//       addresses each via equivalent expression;
+//   (b) ADD any coverage gaps the typed validators missed.
+// Reviewer MUST NOT restate system-detected gaps verbatim — that
+// would double-bill the LLM on retry.
+const semanticQualityReviewerSystemPrompt = `You are an INDEPENDENT completeness reviewer. The pipeline produced an answer plus typed coverage attestations and a list of system-detected gaps. Your job has TWO parts:
+
+  PART A — REVERSE-CHECK system-detected gaps. The typed validators already identified these gaps; their accuracy is the question. For each entry in SYSTEM-DETECTED GAPS, decide whether the BODY in fact ADDRESSES the gap via equivalent expression (same content under different framing, or covered by adjacent prose). If the BODY truly addresses every system-detected gap → mark sufficient=true (Concerns may stay empty even when the system flagged gaps; the system is conservative and you are the second opinion).
+
+  PART B — ADD coverage gaps the typed validators missed. The PROMOTED FACETS / DIAGRAM CONTRACT / RICHNESS CANDIDATES / EVIDENCE ANCHORS attestations describe what's available. When you see a coverage shortfall the system did NOT flag (e.g. a promoted facet with covered=true but prose only paraphrases without engaging the typed evidence), enumerate it in Concerns. Concerns must be ADDITIONS — never restate a SYSTEM-DETECTED GAP verbatim.
 
 You are NOT checking:
   - Whether SUMMARY and BODY contradict each other (a separate reviewer handles that)
   - Whether the prose is well-written, grammatical, or stylistically optimal
   - Whether the answer should be at a different abstraction level
 
-You ARE checking — and ONLY checking — three coverage dimensions, in this priority order:
-
-  1. PROMOTED FACETS: Each entry in REQUIRED FACETS marked promoted=true MUST be surfaced in the answer. "Surfaced" means the rendered prose / list / diagram presents the facet's content (via the facet_ids attestation OR via clearly-related body text). Promoted=true means typed evidence is available to support the facet — failing to surface a promoted facet is a real coverage gap. covered=true means the answer already declared this facet via facet_ids; flag only when promoted AND covered=false.
-
-  2. DIAGRAM RELATION CONTRACT: Each row in DIAGRAM CONTRACT names a relation kind and a minimum count. When a row's min_satisfied < min_expected AND a diagram block is present, the answer is short on that relation. Flag when the diagram exists but its edge relations fail to meet the typed minimum.
-
-  3. AVAILABLE RICHNESS: RICHNESS CANDIDATES lists facets whose typed evidence is available but not surfaced. These are NOT hard requirements — flag at most ONE richness gap, and only when the gap is glaring (e.g. the answer is principal-only with NO supplemental context AND there are 2+ rich facets unsurfaced). Richness gaps should NOT dominate Concerns; promoted-facet gaps are the primary signal.
-
 DECISION DISCIPLINE (apply before reporting):
-  1. Count the promoted-facets that are uncovered. ZERO uncovered = sufficient=true (subject to diagram + richness).
-  2. For each candidate Concern, ask: does the typed attestation actually show evidence for this gap? If the attestation lists no SourceCandidate / no min_expected / no body excerpt, the gap is not yours to flag.
+  1. PART A first: walk every SYSTEM-DETECTED GAP and verify whether BODY addresses it. If yes for all → sufficient=true.
+  2. PART B second: scan the typed attestations for shortfalls the system did NOT flag.
   3. Stay within the supplied attestations. Do NOT fetch repo sources, do NOT speculate on missing evidence the prior investigation never produced.
   4. Stylistic preferences ("the answer would read better if it added a section on X") are NOT concerns. Only typed-evidence-available coverage gaps qualify.
-  5. When a promoted facet is covered=true but the body's prose for that facet feels thin — that is NOT a concern (abstraction is editorial choice; coverage is the gate).
+  5. When a promoted facet is covered=true AND the body engages the cited evidence — that is NOT a concern (abstraction is editorial choice; coverage with grounding is the gate).
+  6. PROMOTED FACET COVERAGE depth: when a facet has DeclaredCount > 0 but AnchoredCount == 0, the declaration is shallow (label-only). Flag only when the shortfall is structurally important (multiple shallow declarations, or the principal facet is shallow).
 
 Output via emit_semantic_quality_review:
-  - sufficient=true is the COMMON case; mark it true unless you can name a SPECIFIC promoted/diagram/richness gap supported by the attestations.
+  - sufficient=true is the COMMON case; mark it true unless you can name a SPECIFIC ADDITIONAL gap supported by the attestations.
   - confidence >= 0.85 to report a gap; below 0.85 mark sufficient=true (rather miss a thin spot than force a rewrite on a defensible answer).
-  - When reporting, name the typed signal (facet kind / relation kind / richness facet kind). Use the same language as the answer text in the prose fields.`
+  - When reporting, name the typed signal (facet kind / relation kind / richness facet kind). Use the same language as the answer text in the prose fields. Do NOT restate SYSTEM-DETECTED GAPS — concerns must be ADDITIONS.`
 
 // llmSemanticQualityReviewer is the default impl. nil adapter ⇒
 // disabled.
@@ -348,13 +395,117 @@ func renderSemanticQualityUserMessage(in SemanticQualityInput) string {
 			fmt.Fprintf(&b, "- %s\n", id)
 		}
 	}
+	if len(in.SystemDetectedGaps) > 0 {
+		b.WriteString("\n## SYSTEM-DETECTED GAPS (typed validators already raised — REVERSE-CHECK these)\n")
+		b.WriteString("For each gap: judge whether the BODY above addresses it via equivalent expression. If yes → sufficient=true (you are the second opinion).\n\n")
+		for _, g := range in.SystemDetectedGaps {
+			switch g.Kind {
+			case "richness_glaring":
+				fmt.Fprintf(&b, "- richness_glaring: facet=`%s` evidence_count=%d (uncovered)\n",
+					g.FacetKind, g.EvidenceCount)
+			case "prose_underfilled":
+				fmt.Fprintf(&b, "- prose_underfilled: block_id=`%s` typed_claim_count=%d (zero inline-code anchors)\n",
+					g.BlockID, g.EvidenceCount)
+			default:
+				fmt.Fprintf(&b, "- %s\n", g.Kind)
+			}
+		}
+	}
+	if len(in.PromotedFacetCoverage) > 0 {
+		b.WriteString("\n## PROMOTED FACET COVERAGE DEPTH (declared vs anchored)\n")
+		b.WriteString("Each row: facet kind / DeclaredCount / AnchoredCount. DeclaredCount > 0 with AnchoredCount == 0 = label-only declaration without evidence anchor.\n\n")
+		for _, c := range in.PromotedFacetCoverage {
+			fmt.Fprintf(&b, "- kind=`%s` declared=%d anchored=%d\n",
+				c.Kind, c.DeclaredCount, c.AnchoredCount)
+		}
+	}
 	return b.String()
+}
+
+// countFacetCoverageDepth counts (declared, anchored) pairs for the
+// named facet kind on doc:
+//   - declared = number of sites (block.FacetIDs / item.ClaimUse.FacetID
+//     / block.ClaimUses[].FacetID) that name this facet
+//   - anchored = subset of declared sites that ALSO carry a non-empty
+//     EvidenceID or ClaimForm on the same surface
+//
+// AnchoredCount < DeclaredCount signals shallow coverage (label-only
+// declarations); reviewer reads as part of the depth audit.
+func countFacetCoverageDepth(doc *types.AnswerDocumentV2, kind string) (declared, anchored int) {
+	if doc == nil || kind == "" {
+		return 0, 0
+	}
+	for _, b := range doc.Blocks {
+		for _, fid := range b.FacetIDs {
+			if strings.TrimSpace(fid) != kind {
+				continue
+			}
+			declared++
+			// A block-level FacetIDs declaration is "anchored" when
+			// any of its block-level ClaimUses or any item.ClaimUse
+			// also declares this facet kind WITH a ClaimForm or
+			// EvidenceID — proving the claim is grounded in evidence,
+			// not just labelled.
+			if blockHasAnchoredClaim(b, kind) {
+				anchored++
+			}
+		}
+		for _, cu := range b.ClaimUses {
+			if strings.TrimSpace(cu.FacetID) != kind {
+				continue
+			}
+			declared++
+			if cu.EvidenceID != "" || cu.ClaimForm != "" {
+				anchored++
+			}
+		}
+		for _, item := range b.Items {
+			if item.ClaimUse == nil {
+				continue
+			}
+			if strings.TrimSpace(item.ClaimUse.FacetID) != kind {
+				continue
+			}
+			declared++
+			if item.ClaimUse.EvidenceID != "" || item.ClaimUse.ClaimForm != "" {
+				anchored++
+			}
+		}
+	}
+	return declared, anchored
+}
+
+// blockHasAnchoredClaim reports whether the block has any claim_use
+// (block-level or item-level) for the named facet kind that also
+// names a ClaimForm or EvidenceID. Used by countFacetCoverageDepth
+// to distinguish label-only declarations from grounded ones.
+func blockHasAnchoredClaim(b types.AnswerBlock, kind string) bool {
+	for _, cu := range b.ClaimUses {
+		if strings.TrimSpace(cu.FacetID) == kind && (cu.EvidenceID != "" || cu.ClaimForm != "") {
+			return true
+		}
+	}
+	for _, item := range b.Items {
+		if item.ClaimUse == nil {
+			continue
+		}
+		if strings.TrimSpace(item.ClaimUse.FacetID) == kind &&
+			(item.ClaimUse.EvidenceID != "" || item.ClaimUse.ClaimForm != "") {
+			return true
+		}
+	}
+	return false
 }
 
 // BuildSemanticQualityInput projects the orchestrator's typed state
 // into the reviewer input. Pure typed projection (R3 invariant);
 // no heuristic, no similarity, no frequency. Caller passes the
 // already-built EvidenceAnchorSet (shared SST with self-consistency).
+//
+// v3 B2 (2026-05-04): also computes SystemDetectedGaps + PromotedFacetCoverage
+// from the typed validators (validateRichnessGlaringGap +
+// validatePrincipalProseUnderfilled) so reviewer can reverse-check
+// rather than rediscover the gaps.
 func BuildSemanticQualityInput(
 	originalRequest, summary, body string,
 	doc *types.AnswerDocumentV2,
@@ -386,6 +537,72 @@ func BuildSemanticQualityInput(
 			if item.ClaimUse != nil && item.ClaimUse.FacetID != "" {
 				covered[strings.TrimSpace(item.ClaimUse.FacetID)] = true
 			}
+		}
+	}
+
+	// v3 B2: project SystemDetectedGaps from the typed validators so
+	// reviewer reverse-checks rather than rediscovers.
+	for _, vio := range validateRichnessGlaringGap(doc, view) {
+		facetKind := extractFacetKindFromDetail(vio.Detail)
+		evidenceCount := 0
+		if facetKind != "" && view.FacetCoverage != nil {
+			for _, req := range view.FacetCoverage.Optional {
+				if string(req.Kind) == facetKind {
+					evidenceCount = len(req.SourceCandidate)
+					break
+				}
+			}
+		}
+		in.SystemDetectedGaps = append(in.SystemDetectedGaps, SystemDetectedGap{
+			Kind:          "richness_glaring",
+			FacetKind:     facetKind,
+			EvidenceCount: evidenceCount,
+		})
+	}
+	for _, vio := range validatePrincipalProseUnderfilled(doc) {
+		blockID := extractBlockIDFromDetail(vio.Detail)
+		typedClaimCount := 0
+		for _, b := range doc.Blocks {
+			if b.ID != blockID {
+				continue
+			}
+			switch b.Kind {
+			case types.BlockSummary, types.BlockSection, types.BlockCaveat:
+				typedClaimCount = len(b.ClaimUses)
+			case types.BlockOrderedList, types.BlockBulletList:
+				for _, item := range b.Items {
+					if item.ClaimUse != nil && !item.ClaimUse.IsEmpty() {
+						typedClaimCount++
+					}
+				}
+			}
+			break
+		}
+		in.SystemDetectedGaps = append(in.SystemDetectedGaps, SystemDetectedGap{
+			Kind:          "prose_underfilled",
+			BlockID:       blockID,
+			EvidenceCount: typedClaimCount,
+		})
+	}
+
+	// PromotedFacetCoverage depth audit — declared vs anchored per
+	// promoted facet. AnchoredCount = sites that declare BOTH
+	// FacetID AND non-empty EvidenceID/ClaimForm on the same surface.
+	if view.FacetCoverage != nil {
+		for _, req := range view.FacetCoverage.Required {
+			if !req.IsPromoted() {
+				continue
+			}
+			kind := strings.TrimSpace(string(req.Kind))
+			if kind == "" {
+				continue
+			}
+			declared, anchored := countFacetCoverageDepth(doc, kind)
+			in.PromotedFacetCoverage = append(in.PromotedFacetCoverage, FacetCoverageDepth{
+				Kind:          kind,
+				DeclaredCount: declared,
+				AnchoredCount: anchored,
+			})
 		}
 	}
 

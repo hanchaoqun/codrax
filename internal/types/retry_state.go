@@ -490,6 +490,15 @@ func legacyDeriveSeverity(kind ViolationKind, isStrict bool) Severity {
 		}
 		return SeveritySoft
 	}
+	// B2 v3 (2026-05-04) — three-layer quality contract: glaring gap
+	// + principal prose underfilled. Medium-by-default;
+	// isStrict promotes to High.
+	if kind == ViolRichnessGlaringGap || kind == ViolPrincipalProseUnderfilled {
+		if isStrict {
+			return SeverityHigh
+		}
+		return SeverityMedium
+	}
 	// Unknown kinds default to Medium — safer than Soft (won't
 	// silently drop) but not Critical (won't unexpectedly fail-loud).
 	return SeverityMedium

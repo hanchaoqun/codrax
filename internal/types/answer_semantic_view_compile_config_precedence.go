@@ -93,5 +93,8 @@ func compileConfigPrecedence(ir *AnalysisIR, plan *AnswerSurfacePlan) *AnswerSem
 		},
 	}
 	view.RichnessCandidates = richnessCandidatesFromOptionalFacets(view.FacetCoverage)
+	// v3 B2 — config-precedence answers benefit from explicit
+	// precedence-role context when typed evidence supports it.
+	markGlaringFacets(view, FacetConfigPrecedenceRole)
 	return view
 }

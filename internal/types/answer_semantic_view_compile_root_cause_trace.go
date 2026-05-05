@@ -88,5 +88,8 @@ func compileRootCauseTrace(ir *AnalysisIR, plan *AnswerSurfacePlan) *AnswerSeman
 	)
 	view.UncertaintyRules = []UncertaintyRule{uncertaintyRuleForObservedArtifact()}
 	view.RichnessCandidates = richnessCandidatesFromOptionalFacets(view.FacetCoverage)
+	// v3 B2 — root-cause-trace answers benefit from branch_guard +
+	// nearest_mechanism context to keep the explanation reproducible.
+	markGlaringFacets(view, FacetBranchGuard, FacetNearestMechanism)
 	return view
 }

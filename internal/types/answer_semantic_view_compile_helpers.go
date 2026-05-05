@@ -175,6 +175,59 @@ func blockKindForFacet(facet AnswerFacetKind) AnswerBlockKind {
 	return BlockSection
 }
 
+// markGlaringFacets sets Strength=EnrichmentGlaring on every
+// FacetCoverage.Optional entry whose Kind matches one of the given
+// kinds. Idempotent — calling twice with the same arguments is safe.
+// No-op when view.FacetCoverage is nil.
+//
+// v3 B2 (2026-05-04). Each compile_<family>.go calls this helper
+// after setting view.FacetCoverage to mark which optional facets the
+// family considers "glaring richness" — uncovered + threshold-met
+// evidence triggers ViolRichnessGlaringGap.
+func markGlaringFacets(view *AnswerSemanticView, kinds ...AnswerFacetKind) {
+	if view == nil || view.FacetCoverage == nil {
+		return
+	}
+	wanted := make(map[AnswerFacetKind]bool, len(kinds))
+	for _, k := range kinds {
+		wanted[k] = true
+	}
+	for i := range view.FacetCoverage.Optional {
+		if wanted[view.FacetCoverage.Optional[i].Kind] {
+			view.FacetCoverage.Optional[i].Strength = EnrichmentGlaring
+		}
+	}
+}
+
+// familyGlaringEvidenceThreshold returns the per-family floor on
+// SourceCandidate count above which an optional facet marked
+// EnrichmentGlaring promotes to ViolRichnessGlaringGap (Medium /
+// retry-eligible). v3 B2 (2026-05-04).
+//
+// Family-level principle (cross-repo, cross-language):
+//   - QFArchitecture, QFRootCauseTrace — high-richness families
+//     where component / mechanism context is the answer's reason
+//     to exist; demand at least 3 typed evidence rows before
+//     promoting.
+//   - QFCallChain, QFConfigPrecedence — chain / precedence content
+//     where 2 rows is enough to anchor a useful supplementary
+//     surface.
+//   - default (other families) — conservative floor of 4 so the
+//     advisory does not fire on shallow evidence pools.
+//
+// Adding a family: extend the switch with a principled threshold
+// derived from cross-language richness norms — never from eval-case
+// content.
+func familyGlaringEvidenceThreshold(family QuestionFamily) int {
+	switch family {
+	case QFArchitecture, QFRootCauseTrace:
+		return 3
+	case QFCallChain, QFConfigPrecedence:
+		return 2
+	}
+	return 4
+}
+
 // appendUniqueStr appends `add` strings to `dst` skipping duplicates
 // and empties. Stable order; mirrors helpers used elsewhere in
 // internal/types.

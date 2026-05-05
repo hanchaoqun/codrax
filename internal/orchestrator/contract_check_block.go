@@ -1119,6 +1119,11 @@ func validateFacetCoverage(doc *types.AnswerDocumentV2, view *types.AnswerSemant
 // promotable to STRICT (richness regression is observation, not a
 // correctness gate).
 //
+// v3 B2 (2026-05-04): when validateRichnessGlaringGap fires on the
+// SAME facet, this validator suppresses its telemetry entry to
+// avoid duplicate notice. Reviewer / retry hint render reads only
+// one violation per facet.
+//
 // Reads:
 //   - view.FacetCoverage.Optional[i].SourceCandidate (non-empty =
 //     evidence is available, the answer COULD have surfaced it)
@@ -1131,22 +1136,7 @@ func validateRichnessRegression(doc *types.AnswerDocumentV2, view *types.AnswerS
 	if len(view.FacetCoverage.Optional) == 0 {
 		return nil
 	}
-	covered := make(map[string]bool, 8)
-	for _, b := range doc.Blocks {
-		for _, fid := range b.FacetIDs {
-			covered[strings.TrimSpace(fid)] = true
-		}
-		for _, cu := range b.ClaimUses {
-			if cu.FacetID != "" {
-				covered[strings.TrimSpace(cu.FacetID)] = true
-			}
-		}
-		for _, item := range b.Items {
-			if item.ClaimUse != nil && item.ClaimUse.FacetID != "" {
-				covered[strings.TrimSpace(item.ClaimUse.FacetID)] = true
-			}
-		}
-	}
+	covered := buildFacetCoverageSet(doc)
 	var out []types.Violation
 	for _, req := range view.FacetCoverage.Optional {
 		if len(req.SourceCandidate) == 0 {
@@ -1157,6 +1147,13 @@ func validateRichnessRegression(doc *types.AnswerDocumentV2, view *types.AnswerS
 			continue
 		}
 		if covered[kind] {
+			continue
+		}
+		// v3 B2 suppression: skip the SOFT telemetry entry when this
+		// facet is also a glaring-gap candidate — the new validator
+		// emits a more actionable Medium-severity violation that
+		// supersedes this one.
+		if req.IsGlaringGap(view.Family, false) {
 			continue
 		}
 		out = append(out, types.Violation{
@@ -1176,6 +1173,177 @@ func validateRichnessRegression(doc *types.AnswerDocumentV2, view *types.AnswerS
 		})
 	}
 	return out
+}
+
+// buildFacetCoverageSet projects the rendered V2 doc's facet
+// coverage signal into a string set: a facet kind appears when ANY
+// block declares it via block.FacetIDs OR item.ClaimUse.FacetID OR
+// block.ClaimUses[i].FacetID. Shared by the facet / richness /
+// glaring-gap validators so coverage logic stays consistent.
+func buildFacetCoverageSet(doc *types.AnswerDocumentV2) map[string]bool {
+	covered := make(map[string]bool, 8)
+	if doc == nil {
+		return covered
+	}
+	for _, b := range doc.Blocks {
+		for _, fid := range b.FacetIDs {
+			covered[strings.TrimSpace(fid)] = true
+		}
+		for _, cu := range b.ClaimUses {
+			if cu.FacetID != "" {
+				covered[strings.TrimSpace(cu.FacetID)] = true
+			}
+		}
+		for _, item := range b.Items {
+			if item.ClaimUse != nil && item.ClaimUse.FacetID != "" {
+				covered[strings.TrimSpace(item.ClaimUse.FacetID)] = true
+			}
+		}
+	}
+	return covered
+}
+
+// validateRichnessGlaringGap (B2 v3, 2026-05-04) records
+// ViolRichnessGlaringGap for each Optional facet marked
+// EnrichmentGlaring whose SourceCandidate count meets the family
+// threshold AND whose FacetID is not surfaced anywhere in the
+// rendered V2 doc.
+//
+// Severity = Medium (retry-eligible). Driving the LLM to re-emit
+// with the missing facet declared keeps the answer rich when typed
+// evidence supports it. Operators may promote to STRICT via
+// pipeline_contract_strict_kinds.
+//
+// Trigger predicates (all runtime typed):
+//   - req.Strength == EnrichmentGlaring
+//   - len(req.SourceCandidate) >= EffectiveMinEvidenceForGlaring(family)
+//   - covered == false
+//
+// All three are typed-enum / typed-integer / typed-boolean
+// comparisons — R3 invariant satisfied.
+func validateRichnessGlaringGap(doc *types.AnswerDocumentV2, view *types.AnswerSemanticView) []types.Violation {
+	if doc == nil || view == nil || view.FacetCoverage == nil {
+		return nil
+	}
+	if len(view.FacetCoverage.Optional) == 0 {
+		return nil
+	}
+	covered := buildFacetCoverageSet(doc)
+	var out []types.Violation
+	for _, req := range view.FacetCoverage.Optional {
+		kind := strings.TrimSpace(string(req.Kind))
+		if kind == "" {
+			continue
+		}
+		isCovered := covered[kind]
+		if !req.IsGlaringGap(view.Family, isCovered) {
+			continue
+		}
+		out = append(out, types.Violation{
+			Kind: types.ViolRichnessGlaringGap,
+			Detail: fmt.Sprintf(
+				"optional facet %q has %d typed evidence candidate(s) (>= family threshold %d) but no V2 block surfaced it; the answer ships without enrichment available evidence supports",
+				kind, len(req.SourceCandidate), req.EffectiveMinEvidenceForGlaring(view.Family)),
+			Repair: fmt.Sprintf(
+				"declare facet_id=%q on at least one block whose payload covers this facet, AND reference at least one of the typed evidence anchors inline so the surrounding prose is grounded.",
+				kind),
+			SuspectedRoot: types.SuspectedRoot{
+				IRField:    "answer_richness_facet_coverage",
+				Reason:     "glaring richness facet uncovered with sufficient typed evidence",
+				Confidence: 0.7,
+			},
+			Stage: string(types.StageFinalize),
+		})
+	}
+	return out
+}
+
+// validatePrincipalProseUnderfilled (B2 v3, 2026-05-04) detects the
+// "covered but prose thin" pattern using a typed structural signal:
+// a principal block declares ≥ 3 typed claim_use annotations but its
+// rendered prose contains zero Markdown inline-code references
+// (`...` segments). The signal says "you have 3+ grounded evidence
+// rows but didn't anchor any identifier inline" — common when the
+// LLM generalises the prose away from the typed anchors it cites.
+//
+// Per-block-kind dispatch:
+//   - Summary / Section / Caveat → check block.Text
+//   - OrderedList / BulletList    → aggregate items[].Text
+//   - Scalar / Decision / Diagram / Table → skip (claim_use density
+//     and prose surface differ; a 1-claim_use scalar is not "thin")
+//
+// Severity = Medium. Operators may promote via
+// pipeline_contract_strict_kinds when their pipeline guarantees rich
+// prose. R3 invariant: claim_use count is typed integer, inline-code
+// match is verbatim Markdown substring; both runtime typed.
+func validatePrincipalProseUnderfilled(doc *types.AnswerDocumentV2) []types.Violation {
+	if doc == nil {
+		return nil
+	}
+	const claimUseFloor = 3
+	var out []types.Violation
+	for _, b := range doc.Blocks {
+		if b.SurfaceRole != types.SurfacePrincipal {
+			continue
+		}
+		var inlineCode int
+		var claimCount int
+		switch b.Kind {
+		case types.BlockSummary, types.BlockSection, types.BlockCaveat:
+			inlineCode = countInlineCodeSegments(b.Text)
+			claimCount = len(b.ClaimUses)
+		case types.BlockOrderedList, types.BlockBulletList:
+			for _, item := range b.Items {
+				inlineCode += countInlineCodeSegments(item.Text)
+				if item.ClaimUse != nil && !item.ClaimUse.IsEmpty() {
+					claimCount++
+				}
+			}
+		default:
+			continue // scalar / decision / diagram / table — skip
+		}
+		if claimCount < claimUseFloor {
+			continue
+		}
+		if inlineCode > 0 {
+			continue
+		}
+		out = append(out, types.Violation{
+			Kind: types.ViolPrincipalProseUnderfilled,
+			Detail: fmt.Sprintf(
+				"principal block id=%q (kind=%s) carries %d typed claim_use annotation(s) but its prose contains zero inline `code` references — the surrounding text was abstracted away from the cited evidence",
+				b.ID, b.Kind, claimCount),
+			Repair: fmt.Sprintf(
+				"reference at least one grounded identifier inline (e.g. `funcName` / `package.Type`) on block id=%q so the prose anchors to the typed evidence the answer cited.",
+				b.ID),
+			SuspectedRoot: types.SuspectedRoot{
+				IRField:    "answer_prose_density",
+				Reason:     "principal block has multiple cited claims but no inline-code anchors in prose",
+				Confidence: 0.6,
+			},
+			Stage: string(types.StageFinalize),
+		})
+	}
+	return out
+}
+
+// countInlineCodeSegments counts Markdown inline-code segments
+// (backtick-delimited substrings) in s. Verbatim structural signal
+// — universal across languages, no keyword tables. Empty backtick
+// runs (``) count as one zero-content segment; the validator only
+// cares whether the count is > 0, so this is conservative.
+func countInlineCodeSegments(s string) int {
+	count := 0
+	open := false
+	for _, r := range s {
+		if r == '`' {
+			if open {
+				count++
+			}
+			open = !open
+		}
+	}
+	return count
 }
 
 // validateClaimFormSupport (R2.3 V2 重接, post_shape_residual_audit.md
@@ -1358,6 +1526,14 @@ func runV2BlockOraclesWithMut(doc *types.AnswerDocumentV2, view *types.AnswerSem
 	out = append(out, validateDiagramEdgeSupport(doc, view)...)
 	out = append(out, validateUncertaintyBlockPresence(doc, view)...)
 	out = append(out, validateFacetCoverage(doc, view)...)
+	// v3 B2 (2026-05-04) — three-layer quality contract:
+	//   layer 3a: ViolRichnessGlaringGap (Medium, retry-eligible)
+	//   layer 3b: ViolPrincipalProseUnderfilled (Medium, retry-eligible)
+	// Both wired BEFORE validateRichnessRegression so the suppression
+	// rule inside validateRichnessRegression sees the glaring fire and
+	// drops duplicate telemetry on the same facet.
+	out = append(out, validateRichnessGlaringGap(doc, view)...)
+	out = append(out, validatePrincipalProseUnderfilled(doc)...)
 	out = append(out, validateRichnessRegression(doc, view)...)
 	out = append(out, validateClaimFormSupport(doc, mut)...)
 	out = append(out, validateAbsenceScopeBound(doc)...)

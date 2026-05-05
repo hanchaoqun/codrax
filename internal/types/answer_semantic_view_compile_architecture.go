@@ -85,5 +85,10 @@ func compileArchitecture(ir *AnalysisIR, plan *AnswerSurfacePlan) *AnswerSemanti
 		DefaultEdgeRelationsForKind(DiagramArchitecture),
 	)
 	view.RichnessCandidates = richnessCandidatesFromOptionalFacets(view.FacetCoverage)
+	// v3 B2 (2026-05-04) — architecture answers gain materially from
+	// component_relation + nearest_mechanism context when typed
+	// evidence is available. Mark them glaring so uncovered state
+	// promotes to ViolRichnessGlaringGap.
+	markGlaringFacets(view, FacetComponentRelation, FacetNearestMechanism)
 	return view
 }

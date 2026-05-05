@@ -108,5 +108,8 @@ func compileComparison(ir *AnalysisIR, plan *AnswerSurfacePlan) *AnswerSemanticV
 	// signal, but the family does not require it.
 
 	view.RichnessCandidates = richnessCandidatesFromOptionalFacets(view.FacetCoverage)
+	// v3 B2 — comparison answers benefit from component_relation
+	// context when comparing structurally-related entities.
+	markGlaringFacets(view, FacetComponentRelation)
 	return view
 }

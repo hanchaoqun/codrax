@@ -406,6 +406,33 @@ const (
 	// guarantees richer answers. Stage="finalize".
 	ViolAnswerSemanticUnderfilled ViolationKind = "answer_semantic_underfilled"
 
+	// ViolRichnessGlaringGap fires when an Optional facet is
+	// flagged as EnrichmentGlaring AND has typed-evidence support
+	// (len(SourceCandidate) >= family threshold) AND the rendered V2
+	// doc does NOT cover it. Severity = Medium (retry-eligible) —
+	// the LLM gets an actionable prompt to re-emit with the missing
+	// facet declared. Per-family glaring marking lives in
+	// compile_<family>.go via markGlaringFacets.
+	//
+	// SOFT-by-default; promotable via pipeline_contract_strict_kinds.
+	// Stage = "finalize". Layer = "v2_oracle". B2 v3 (2026-05-04).
+	ViolRichnessGlaringGap ViolationKind = "richness_glaring_gap"
+
+	// ViolPrincipalProseUnderfilled fires when a principal block
+	// declares ≥ 3 typed claim_use annotations but the rendered
+	// prose contains ZERO Markdown inline-code references — the
+	// surrounding text was abstracted away from the cited evidence.
+	// Per-block-kind dispatch (Summary / Section / Caveat use
+	// block.Text; OrderedList / BulletList aggregate items[].Text;
+	// Scalar / Decision / Diagram / Table skip).
+	//
+	// Severity = Medium (retry-eligible). The LLM gets a pointer to
+	// the offending block id + a request to anchor at least one
+	// inline identifier so prose density returns to evidence-grounded.
+	// SOFT-by-default; promotable via pipeline_contract_strict_kinds.
+	// Stage = "finalize". Layer = "v2_oracle". B2 v3 (2026-05-04).
+	ViolPrincipalProseUnderfilled ViolationKind = "principal_prose_underfilled"
+
 	// ViolDiagramRelationLabelOnly fires when EdgeRelations.Min is
 	// satisfied for some relation kind ONLY because label-inferred
 	// edges fill the gap (i.e. typed RelationKind on edge_anchors[]
@@ -667,6 +694,10 @@ func AllViolationKinds() []ViolationKind {
 		// B3 v3 (2026-05-04) — diagram relation typed-first label-only
 		// advisory.
 		ViolDiagramRelationLabelOnly,
+		// B2 v3 (2026-05-04) — richness glaring gap + principal prose
+		// underfilled.
+		ViolRichnessGlaringGap,
+		ViolPrincipalProseUnderfilled,
 	}
 }
 

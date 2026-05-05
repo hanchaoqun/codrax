@@ -438,6 +438,21 @@ func init() {
 		Layer: "v2_oracle",
 	})
 
+	// ── B2 v3 (2026-05-04) — three-layer quality contract ──
+	// Severity=Medium so RetryEligible=true; SoftByDefault=false so
+	// the gate flips Passed=false. Operators may demote via
+	// pipeline_contract_soft_kinds when noise rate is too high.
+	RegisterViolKind(ViolKindSpec{
+		Kind: ViolRichnessGlaringGap, DefaultSeverity: SeverityMedium,
+		SoftByDefault: false, Promotable: true, FallbackLocus: LocusFinalizer,
+		Layer: "v2_oracle",
+	})
+	RegisterViolKind(ViolKindSpec{
+		Kind: ViolPrincipalProseUnderfilled, DefaultSeverity: SeverityMedium,
+		SoftByDefault: false, Promotable: true, FallbackLocus: LocusFinalizer,
+		Layer: "v2_oracle",
+	})
+
 	// ── Structural / forensic kinds ──
 	// Legacy defaultSoftKinds does NOT list StructuralEnumerationDivergence;
 	// the kind's SOFT semantic comes from its DefaultSeverity flowing

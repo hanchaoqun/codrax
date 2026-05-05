@@ -262,6 +262,12 @@ func TestAllViolationKindsHaveProducer(t *testing.T) {
 		// advisory. Producer wired in
 		// orchestrator/contract_check_block.go validateDiagramRelationLegality.
 		ViolDiagramRelationLabelOnly: true,
+		// B2 v3 (2026-05-04) — three-layer quality contract.
+		// Producer wired in
+		// orchestrator/contract_check_block.go validateRichnessGlaringGap +
+		// validatePrincipalProseUnderfilled.
+		ViolRichnessGlaringGap:        true,
+		ViolPrincipalProseUnderfilled: true,
 	}
 	pending := map[ViolationKind]string{
 		ViolFamilyMismatch:                          "P9-C-retired-V1-checkShape (V2 block oracles cover read-mode block contract via runV2BlockOracles)",

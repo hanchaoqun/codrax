@@ -299,6 +299,11 @@ var composerExactFixSkipWhitelist = map[types.ViolationKind]string{
 	// label-only edges + the typed declaration the LLM should add,
 	// so the generic composer fallback pairs naturally.
 	types.ViolDiagramRelationLabelOnly: "uses violation.Repair for fix prose",
+	// B2 v3 (2026-05-04) — three-layer quality contract.
+	// Validator Violation.Repair names the offending facet kind /
+	// block id with actionable language; composer fallback pairs.
+	types.ViolRichnessGlaringGap:        "uses violation.Repair for fix prose",
+	types.ViolPrincipalProseUnderfilled: "uses violation.Repair for fix prose",
 }
 
 // TestComposer_AllViolationKindsHaveCase enforces P34's

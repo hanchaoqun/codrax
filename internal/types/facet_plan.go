@@ -376,6 +376,86 @@ type FacetRequirement struct {
 	// logic at every consumer.
 	PromotionPolicy         FacetPromotionPolicy
 	MinEvidenceForPromotion int
+
+	// Strength + MinEvidenceForGlaring (B2 v3, 2026-05-04): when
+	// Strength == EnrichmentGlaring AND len(SourceCandidate) >=
+	// EffectiveMinEvidenceForGlaring(family), the optional facet's
+	// uncovered state triggers the new ViolRichnessGlaringGap
+	// validator (Severity=Medium, retry-eligible). The family-level
+	// threshold (familyGlaringEvidenceThreshold) supplies the floor
+	// when MinEvidenceForGlaring is zero. Strength applies only to
+	// optional facets — Required facets honour PromotionPolicy
+	// instead.
+	//
+	// R3 invariant: every input is a typed signal — Strength is a
+	// typed enum, MinEvidenceForGlaring is a typed integer compared
+	// against len(SourceCandidate). No keyword tables, no fuzzy
+	// matching.
+	Strength              EnrichmentStrength
+	MinEvidenceForGlaring int
+}
+
+// EnrichmentStrength classifies how much an optional facet matters
+// when its evidence pool is non-empty. EnrichmentNone is the default
+// — pure RichnessRegression telemetry. EnrichmentGlaring lifts the
+// facet into the runtime ViolRichnessGlaringGap path: when the
+// answer leaves the facet uncovered AND the family threshold is
+// met, a retry-eligible Medium violation fires so the LLM gets a
+// concrete pointer to the typed evidence available.
+//
+// Per-family marking (in compile_<family>.go) reflects family-level
+// principles: Architecture / RootCauseTrace etc. demand certain
+// optional facets when evidence supports them; QFGeneric / QFRoleLookup
+// stay None-only.
+type EnrichmentStrength string
+
+const (
+	// EnrichmentNone — default. Optional facet contributes only
+	// RichnessRegression telemetry when uncovered with evidence.
+	EnrichmentNone EnrichmentStrength = ""
+
+	// EnrichmentGlaring — typed escalation. Uncovered + evidence
+	// pool ≥ threshold → ViolRichnessGlaringGap (Medium).
+	EnrichmentGlaring EnrichmentStrength = "glaring"
+)
+
+// IsValid reports whether s is a known EnrichmentStrength.
+func (s EnrichmentStrength) IsValid() bool {
+	switch s {
+	case EnrichmentNone, EnrichmentGlaring:
+		return true
+	}
+	return false
+}
+
+// EffectiveMinEvidenceForGlaring returns MinEvidenceForGlaring when
+// > 0, otherwise the family-level default
+// (familyGlaringEvidenceThreshold). Zero is indistinguishable from
+// "field not initialised", so the effective getter applies the
+// family default.
+func (r FacetRequirement) EffectiveMinEvidenceForGlaring(family QuestionFamily) int {
+	if r.MinEvidenceForGlaring > 0 {
+		return r.MinEvidenceForGlaring
+	}
+	return familyGlaringEvidenceThreshold(family)
+}
+
+// IsGlaringGap reports whether this optional facet should fire
+// ViolRichnessGlaringGap given the family's evidence threshold and
+// the runtime coverage state. covered is the runtime-typed boolean
+// from inspecting block.FacetIDs / item.ClaimUse.FacetID for the
+// rendered AnswerDocument. Pure typed-signal computation (R3).
+func (r FacetRequirement) IsGlaringGap(family QuestionFamily, covered bool) bool {
+	if r.Strength != EnrichmentGlaring {
+		return false
+	}
+	if covered {
+		return false
+	}
+	if len(r.SourceCandidate) < r.EffectiveMinEvidenceForGlaring(family) {
+		return false
+	}
+	return true
 }
 
 // EffectiveTier returns Tier when set, otherwise derives from

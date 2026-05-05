@@ -344,6 +344,13 @@ func TestEveryHardDefaultViolKindHasCooccurrenceCoverage(t *testing.T) {
 		types.ViolStructuralEnumerationDivergence: "code-vs-comment enumeration divergence; standalone caveat marker",
 		types.ViolSelfContradiction:               "reviewer-detected SUMMARY-vs-BODY contradiction; LLM-text comparator with no structural co-fire",
 		types.ViolAbsenceScopeExceeded:            "extractor framed absence too broadly; standalone semantic boundary check",
+		// B2 v3 (2026-05-04) — three-layer quality contract violations
+		// fire as independent finalize-locus signals; the LLM either
+		// re-emits with the missing facet declared (richness gap) or
+		// adds inline-code anchors (prose underfilled). No upstream
+		// cooccurrence — they're orthogonal to V1 oracle clusters.
+		types.ViolRichnessGlaringGap:        "v3 B2 richness escalation; finalizer re-emits to surface missing optional facet",
+		types.ViolPrincipalProseUnderfilled: "v3 B2 prose-density escalation; finalizer re-emits with inline anchors",
 	}
 
 	for _, kind := range types.AllViolationKinds() {

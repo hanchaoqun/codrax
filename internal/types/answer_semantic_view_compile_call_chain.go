@@ -75,5 +75,8 @@ func compileCallChain(ir *AnalysisIR, plan *AnswerSurfacePlan) *AnswerSemanticVi
 	)
 	view.UncertaintyRules = []UncertaintyRule{uncertaintyRuleForObservedArtifact()}
 	view.RichnessCandidates = richnessCandidatesFromOptionalFacets(view.FacetCoverage)
+	// v3 B2 — call-chain answers benefit materially from branch_guard +
+	// principal_path_edge typed evidence when present.
+	markGlaringFacets(view, FacetBranchGuard, FacetPrincipalPathEdge)
 	return view
 }
