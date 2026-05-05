@@ -241,15 +241,44 @@ func computeClusterClosure(prev RepairExecutionPlan, fresh []types.Violation) []
 	}
 	freshIdent := make(map[clusterIdent]bool, len(fresh))
 	freshKinds := make(map[types.ViolationKind]bool, len(fresh))
+	// W2.7 (2026-05-05): build a fp -> set of fresh kinds map so
+	// rotation detection can ask "did the same fp persist with a
+	// SIBLING kind that PrimaryKind implies?". Without this, the
+	// qfa-mr3 forensic rotation (DiagramEdgeUnsupported -> Edge-
+	// LabelMismatch on fp=block:d1) looked like "Primary resolved
+	// + new cluster" (stable=0) instead of "rotating sibling
+	// (stable++)".
+	freshKindsByFp := make(map[string]map[types.ViolationKind]bool, len(fresh))
 	for _, v := range fresh {
-		freshIdent[clusterIdent{Kind: v.Kind, Fingerprint: clusterFingerprintOf(v)}] = true
+		fp := clusterFingerprintOf(v)
+		freshIdent[clusterIdent{Kind: v.Kind, Fingerprint: fp}] = true
 		freshKinds[v.Kind] = true
+		set := freshKindsByFp[fp]
+		if set == nil {
+			set = make(map[types.ViolationKind]bool, 2)
+			freshKindsByFp[fp] = set
+		}
+		set[v.Kind] = true
 	}
 
 	out := make([]RepairClusterExecutionState, len(prev.ClusterStates))
 	for i, st := range prev.ClusterStates {
 		ident := clusterIdent{Kind: st.PrimaryKind, Fingerprint: st.PrimaryFingerprint}
-		st.PrimaryResolved = !freshIdent[ident]
+		exactMatch := freshIdent[ident]
+		// W2.7 sibling-on-same-fp check: when PrimaryKind is gone
+		// from fresh BUT a kind that PrimaryKind.Implies appears on
+		// the same fp, treat as exact-match-equivalent. The
+		// cooccurrence theory holds; a sibling validator just took
+		// over reporting the same root cause. Without this branch,
+		// the LLM "fixing" one validator only to trip another on
+		// the same fp resets stable=0 every round.
+		impliedSiblingOnSameFp := false
+		if !exactMatch {
+			if siblings := primaryImpliesSiblingsOnFp(st.PrimaryKind, freshKindsByFp[st.PrimaryFingerprint]); siblings {
+				impliedSiblingOnSameFp = true
+			}
+		}
+		st.PrimaryResolved = !(exactMatch || impliedSiblingOnSameFp)
 		st.DerivedResolved = derivedAllResolved(st.DerivedKinds, freshKinds)
 		if st.PrimaryResolved {
 			st.StableAttempts = 0
@@ -259,6 +288,25 @@ func computeClusterClosure(prev RepairExecutionPlan, fresh []types.Violation) []
 		out[i] = st
 	}
 	return out
+}
+
+// primaryImpliesSiblingsOnFp returns true when at least one
+// freshKind is declared by primary.Implies in the registry.
+// Empty / unregistered primary returns false.
+func primaryImpliesSiblingsOnFp(primary types.ViolationKind, freshKinds map[types.ViolationKind]bool) bool {
+	if len(freshKinds) == 0 {
+		return false
+	}
+	spec, ok := types.ViolKindSpecFor(primary)
+	if !ok {
+		return false
+	}
+	for _, implied := range spec.Implies {
+		if freshKinds[implied] {
+			return true
+		}
+	}
+	return false
 }
 
 // clusterIdent is the (kind, fingerprint) pair used as cross-attempt

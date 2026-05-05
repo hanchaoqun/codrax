@@ -128,6 +128,47 @@ func TestComputeClusterClosure_PrimaryFingerprintDistinguishesSameKindClusters(t
 	}
 }
 
+// TestComputeClusterClosure_KindShiftSameFpStaysUnresolved is the
+// W2.7 (2026-05-05) qfa-mr3 forensic case: Round 0 cluster with
+// PrimaryKind=DiagramEdgeUnsupported, fp=block:d1; Round 1 fresh
+// has DiagramEdgeLabelMismatch with fp=block:d1 (LLM "fixed"
+// unsupported by adding edge_anchors but introduced label
+// mismatch). Pre-W2.7 this looked like "cluster resolved + new
+// cluster" (stable=0). Post-W2.7 the fp match keeps the cluster
+// alive and stable increments — cycle detection works.
+func TestComputeClusterClosure_KindShiftSameFpStaysUnresolved(t *testing.T) {
+	prev := RepairExecutionPlan{
+		ClusterStates: []RepairClusterExecutionState{
+			{
+				Owner:              LocusFinalizer,
+				PrimaryKind:        types.ViolDiagramEdgeUnsupported,
+				PrimaryFingerprint: "block:d1|root:diagram_edges",
+				StableAttempts:     1,
+			},
+		},
+		CurrentOwner: LocusFinalizer,
+	}
+	// Round 1 violation: DIFFERENT kind, SAME fingerprint.
+	fresh := []types.Violation{
+		{
+			Kind:          types.ViolDiagramEdgeLabelMismatch,
+			Detail:        "block id=\"d1\" edge label drifts",
+			SuspectedRoot: types.SuspectedRoot{IRField: "diagram_edges"},
+		},
+	}
+	got := computeClusterClosure(prev, fresh)
+	if len(got) != 1 {
+		t.Fatalf("expected 1 cluster state, got %d", len(got))
+	}
+	if got[0].PrimaryResolved {
+		t.Errorf("Kind shift on same fp must keep cluster unresolved (rotation case); got PrimaryResolved=true")
+	}
+	if got[0].StableAttempts != 2 {
+		t.Errorf("StableAttempts = %d, want 2 (incremented from 1 because primary stayed unresolved)",
+			got[0].StableAttempts)
+	}
+}
+
 // TestClassifyNextPlanAction_AllOwnerClustersClosed_PromotesNext —
 // when every cluster owned by CurrentOwner has Primary AND Derived
 // resolved, action is PROMOTE.
