@@ -1,19 +1,21 @@
 # Finalizer Prompt Phase A — Rule Bisection
 
 **Status**: Design (not yet implemented).
-**Target session**: single-session ship, 5-8 commits.
-**Predecessor**: `docs/design/analyzer_amplifier_layer.md` (analyzer-side amplifier 主线 SHIPPED 2026-05-05; finalizer prompt jitter 仍在 — 本设计是后续治理).
-**Successor**: `docs/design/finalizer_phase_c_shape_contract.md` (Phase C — typed EnumerationSubType signal; ship 在 Phase A 完成且真 eval 验证后).
+**Target session**: single-session ship, 6-9 commits.
+**Predecessor**: `docs/design/analyzer_amplifier_layer.md`(analyzer-side amplifier 主线 SHIPPED 2026-05-05;finalizer prompt jitter 仍在 — 本设计是后续治理).
+**Successor**: `docs/design/finalizer_phase_c_shape_contract.md`(Phase C — typed EnumerationSubType signal;ship 在 Phase A 完成且真 eval 验证后).
 **Owner**: 任意接手者(本文档目标:不熟悉本仓库的开发者读完一遍即可开始改).
 **Eval bar**: qf_arch x4 → 4/4 PASS;m1a / s1a / u3a / qf_config_precedence x4 → 不回归.
+
+**Baseline**: 本文档所有 `internal/...` 文件 file:line 引用基于 **commit `4cd053d`**(等价于代码层 `efa4ff3` — `4cd053d` 仅加 design doc,不改代码)。后续提交可能让具体行号漂移。**实施前**先 grep 关键 symbol(`runV2BlockOraclesWithMut` / `summariseExactFix` / `defaultCooccurrenceRules` / `validate*` 等)对齐行号;若漂移,以 grep 真实结果为准,不要按文档行号瞎改。可用 `git log --oneline efa4ff3..HEAD -- internal/skill/ internal/orchestrator/ internal/analysis/hint/ internal/agent/answer_document_evaluator.go` 查 baseline 后所有相关代码改动。
 
 ---
 
 ## 0. TL;DR — 一句话设计
 
-`internal/skill/defaults.go` 里 `answer-document-skill` 当前承载 24 条 Workflow + 10 条 Prohibitions + ~155 行 OutputFormat(共 ~80 directive)。其中 **15-18 条规则只是在重复重述 `internal/orchestrator/contract_check_block.go::runV2BlockOraclesWithMut` 已经机器化校验的不变量**。Phase A = **把这些重复规则从 prompt 删除,仅保留判断题型规则(A''/subject discipline/authority discipline/divergence/abstraction-level)**,同时把 hint composer 的 ExactFix 文本扩充 1.5-3× 以覆盖删去的教学信息。
+`internal/skill/defaults.go` 里 `answer-document-skill` 当前承载 24 条 Workflow + 10 条 Prohibitions + ~155 行 OutputFormat(共 ~80 directive)。其中 **11 条 Workflow 规则可安全删除**(对应 V2 validator 已机器化校验且 hint composer 已有 actionable case 或将通过本 Phase Commit 1 补强),**4 条规则需 hint 补强后才能安全删除**(条件 DELETE),**1 条规则部分删除**(规则 #16 拆分),**8 条规则保留全文**(LLM 判断题或 validator 不覆盖)。Hint composer 现有 15 explicit case + 1 default,Commit 1 加 2 个新 case + 改 1 个 existing case 让删除决策有 actionable 兜底。
 
-**为什么这能修 A'' jitter**: 删去 15 条机器化规则后,A''(规则 8)在 Workflow 里的注意力份额从 1/24 翻到 ~1/9。validator+hint 双闭环已确保结构性约束不会因为从 prompt 拿掉而失守。
+**为什么这能修 A'' jitter**:删去 11 条机器化规则后,A''(规则 8)在 Workflow 里的注意力份额从 1/24 翻到 ~1/13。validator + hint composer + cooccurrence rule 三层联防确保结构性约束不会因为从 prompt 拿掉而失守。
 
 ---
 
@@ -21,7 +23,7 @@
 
 ### 1.1 现状问题(load-bearing 事实)
 
-`internal/skill/defaults.go::Register{Name: "answer-document-skill"}` (line 115-320) 注册的 finalizer skill 包含:
+`internal/skill/defaults.go::Register{Name: "answer-document-skill"}`(line 115-320)注册的 finalizer skill 包含:
 
 - **Workflow** = 24 条编号 list,line 119-142
 - **OutputFormat** = ~155 行散文 + 表格,line 152-307
@@ -35,51 +37,52 @@ LLM 对长 list 注意力非均匀。2026-05-05 commit `efa4ff3` 在第 8 条插
 
 跨 4 个 Explore agent 验证后,得到 3 个事实:
 
-**事实 1**:`internal/orchestrator/contract_check_block.go::runV2BlockOraclesWithMut` (line 1681) 在每次 finalizer emit 之后**强制运行 13 个 V2 validator**,逐项 hard-check 大部分 Workflow 规则的不变量:
+**事实 1**:`internal/orchestrator/contract_check_block.go::runV2BlockOraclesWithMut`(line 1681)在每次 finalizer emit 之后**强制运行 13 个 V2 validator**,逐项 hard-check 大部分 Workflow 规则的不变量:
 
 ```go
-// line 1681-1706
+// line 1681-1706(真实代码)
 func runV2BlockOraclesWithMut(doc *AnswerDocumentV2, view *AnswerSemanticView, mut *MutableState) []Violation {
     var out []Violation
     out = append(out, validateRequiredBlockCoverage(doc, view)...)        // 规则 #2
     out = append(out, validatePrincipalClaimUse(doc, view)...)            // 规则 #4
     out = append(out, validateDiagramEdgeSupport(doc, view)...)           // 规则 #5
     out = append(out, validateUncertaintyBlockPresence(doc, view)...)     // 隐式
-    out = append(out, validateFacetCoverage(doc, view)...)                // 规则 #2 的 facet 维度
+    out = append(out, validateFacetCoverage(doc, view)...)                // 规则 #2 facet 维度
     out = append(out, validateRichnessGlaringGap(doc, view)...)
     out = append(out, validatePrincipalProseUnderfilled(doc)...)
     out = append(out, validateRichnessRegression(doc, view)...)
-    out = append(out, validateClaimFormSupport(doc, mut)...)              // 规则 #4 + #7 的 claim_form 维度
+    out = append(out, validateClaimFormSupport(doc, mut)...)              // 规则 #4 + #7 claim_form 维度
     out = append(out, validateMissingRequestedRoleDisclosure(doc, view)...)// 规则 #11 (bucket alignment)
     out = append(out, validateAbsenceScopeBound(doc)...)                  // 规则 #24 (absence-citation)
     out = append(out, validateEnumerationItemLabelGrounding(doc, mut)...) // 规则 #7 + #14 (label verbatim)
-    out = append(out, validateEnumerationItemLabelExtractorMatch(...)
+    out = append(out, validateEnumerationItemLabelExtractorMatch(...))
+    return out
 }
 ```
 
-外加 `internal/orchestrator/contract_check.go:121-243` 里另外 6 个独立 validator(StructuralEnumerationDivergence、ExternalArtifactDecoded、AuthorityOverreach、SelfConsistency、SemanticQuality、CrossCitationConflict)+ tool 层 `internal/agent/answer_block_normalize.go::failEmit` 的 schema enum 校验。
+外加 `internal/orchestrator/contract_check.go:121-243` 里另外 6 个独立 validator(`runStructuralEnumerationDivergenceOracleV2`、`runExternalArtifactDecodedCheck`、`runAuthorityOverreachCheck`、`runSelfConsistencyReviewV2`、`runSemanticQualityReview`、`runCrossCitationConflictOracleV2`)+ tool 层 `internal/agent/answer_block_normalize.go::failEmit` 的 schema enum 校验。
 
 **所有 validator 都是 PRECISE 信号**(typed enum / index 比对 / substring match in evidence pool),无 score / heuristic — 符合本仓库红线 `feedback_precise_signals_for_hard_gates.md`。
 
-**事实 2**:`internal/analysis/hint/composer.go::summariseExactFix` (line 374-440) 已经针对 25 个 violation kind **逐一硬编码** ExactFix 文本(每条 60-300 字符,直接告诉 LLM "Attach claim annotations on the correct V2 carrier: use block-level `claim_uses=[{claim_form=<one-of-allowed>}]` ..." 这种细节)。Hint 通过 `internal/context/builder.go:419-424` 作为 user section **第一段**渲染给 LLM,LLM 不可能漏看。
+**事实 2**:`internal/analysis/hint/composer.go::summariseExactFix`(line 374-440)真实有 **15 个 explicit case + 1 default fallback**(grep `case types.Viol` 数 25 是因为 6 个 case 复合多 ViolKind)。每个 explicit case 给出 60-300 字符的 actionable hint(直接告诉 LLM "Attach claim annotations on the correct V2 carrier: use block-level `claim_uses=[{claim_form=<one-of-allowed>}]` ..." 这种细节)。Hint 通过 `internal/context/builder.go:419-424` 作为 user section **第一段**渲染给 LLM,LLM 不可能漏看。
 
-**事实 3**:`internal/orchestrator/repair_cooccurrence.go::defaultCooccurrenceRules` (line 83+) 有 9 条 Primary→Derived 规则把多 violation 折叠成单一根因(例:`ViolBlockCoverageMissing` 是 Primary,自动吃掉 `ViolPrincipalClaimUseMissing` / `ViolDiagramEdgeUnsupported` / `ViolUncertaintyBlockMissing` 三个 Derived),避免 retry hint 用一堆衍生 violation 噪音淹没 LLM。
+**事实 3**:`internal/orchestrator/repair_cooccurrence.go::defaultCooccurrenceRules`(line 83+)真实有 **9 条 Primary→Derived 规则**把多 violation 折叠成单一根因(例:`ViolBlockCoverageMissing` 是 Primary,自动吃掉 `ViolPrincipalClaimUseMissing` / `ViolDiagramEdgeUnsupported` / `ViolUncertaintyBlockMissing` 三个 Derived),避免 retry hint 用一堆衍生 violation 噪音淹没 LLM。
 
 **结论**:删 prompt 重复规则不是裸奔;删后 validator + hint composer + cooccurrence rule 三层联防仍然可保结构正确,LLM 在 first-emit reject 后 1-2 retry 内可完成结构修复 — 这个 retry 成本远小于 attention dilution 导致 A'' jitter 的 cost。
 
-### 1.3 风险(必须前置消除)
+### 1.3 关键风险(必须前置消除)
 
-来自 Phase A 调研报告的真实评估(并非 Agent 4 给的"3 个高风险"):
+来自 hint composer 真实 case 审计(2026-05-05):
 
-- **R1 — Hint 文本细节不足以覆盖删除的教学**:已存在的 25 case 中,有些 hint(如 `ViolBlockCoverageMissing`)只说"调整 blocks[]",未说"如果 X 缺则加 Y"。**Mitigation**:Phase A commit 序列里有专门一步增强 hint 文本(详见 §5.4)。
-- **R2 — Cooccurrence 覆盖空洞**:9 条 cooccurrence 规则覆盖最常见组合,但仍有 ~30% violation 组合无 Primary 折叠 → 多 retry 同时面对多 root cause hint。**Mitigation**:Phase A 暂不扩 cooccurrence(留给 Phase B 改进),只挑选**当前 cooccurrence 已覆盖的高频规则**优先删除,其余规则先保留。
+- **R1 — 部分规则的 hint 走 DEFAULT fallback**:hint composer 15 explicit case 中,`ViolEnumerationLabelUngrounded` 和 `ViolAbsenceScopeExceeded` 等不在专用 case 列表,触发时走 `"Address the violation(s) listed above and re-emit."` 这种 generic fallback。LLM 收不到"如何修"的具体教学。**Mitigation**:Phase A Commit 1 显式加这 2 个新 case + 增强 1 个 existing case,让被删规则对应的 Violation 都有 actionable hint(详见 §4)。
+- **R2 — Cooccurrence 覆盖 9 条**:覆盖最常见组合,但仍有 ~30% violation 组合无 Primary 折叠 → 多 retry 同时面对多 root cause hint。**Mitigation**:Phase A 暂不扩 cooccurrence(留给 Phase B 改进),只挑选**当前 cooccurrence 已覆盖或 Commit 1 增强后 hint 充足的高频规则**优先删除,其余规则保留。
 - **R3 — 跨 case 回归**:m1a / s1a / u3a / qf_config_precedence 等已 PASS 的 case 可能在删规则后第一轮 emit 失败率上升。**Mitigation**:eval bar 跑 4 case x4 = 16 次,任一回归 → 该次 commit revert,该规则保留。
 
 ---
 
 ## 2. 代码定位指南(让不熟代码的开发者立即上手)
 
-下面所有文件路径都是相对 `/home/chatpp/codrax`。
+下面所有文件路径都是相对 `/home/chatpp/codrax`。**所有 file:line 经真实代码审计验证(baseline `4cd053d`)**。
 
 ### 2.1 Skill 注册(prompt 内容所在地)
 
@@ -91,13 +94,24 @@ func runV2BlockOraclesWithMut(doc *AnswerDocumentV2, view *AnswerSemanticView, m
 | `internal/skill/defaults.go:308-319` | 10 条 | Prohibitions bullet list |
 | `internal/skill/skill.go:8-53` | struct | `Config{Name, Goal, Workflow, OutputFormat, Prohibitions, ToolSuggestions}` 定义 + `Registry` 单例 |
 
+**OutputFormat §-标题真实存在性核对**(KEEP-COMPACT 决策依赖这些 anchor):
+
+| §-标题 | line | 内容 |
+|---|---|---|
+| `## Tool choice` | line 154 | first-dispatch / retry-path 选择 emit_answer_document vs patch |
+| `## Block contract` | line 159 | blocks[] 通用规约 |
+| `## Block-kind payloads` | line 168 | 9 种 block kind 的 payload 表 |
+| `## Claim annotations` | line 184 | claim_uses 4 字段 schema + 9 claim_form |
+| `## Diagram contract` | line 205 | diagram.kind / language / body 规约 |
+| `## Citation pool` | line 219 | citations[] / citation_ref 规约 |
+
 ### 2.2 Skill → LLM prompt 渲染管线
 
 | 文件 | 关键 line | 作用 |
 |---|---|---|
 | `internal/context/builder.go:384-403` | 整段 | 把 `Workflow / OutputFormat / Prohibitions` 渲染成 system sections |
 | `internal/context/builder.go:419-424` | 整段 | RetryHint 作为 user section **第一段**(SectionRetryDirective) |
-| `internal/agent/answer_document_evaluator.go::BuildInitialInstruction` (line 127+) | 整段 | 构造 dynamic per-dispatch user section(Required Answer Blocks / Diagram Contract / Facet Coverage / Exact Resolution 等) |
+| `internal/agent/answer_document_evaluator.go::BuildInitialInstruction`(line 127+) | 整段 | 构造 dynamic per-dispatch user section |
 
 ### 2.3 Validator 管线(machine-check 的实质所在地)
 
@@ -115,184 +129,236 @@ func runV2BlockOraclesWithMut(doc *AnswerDocumentV2, view *AnswerSemanticView, m
 | 文件 | 关键 line | 作用 |
 |---|---|---|
 | `internal/analysis/hint/composer.go:142-201` | `Compose()` | 顶层入口,接 violations 出 6 字段 Hint struct |
-| `internal/analysis/hint/composer.go:202-244` | `Render()` | Hint struct → 字符串 |
-| `internal/analysis/hint/composer.go:374-440` | `summariseExactFix` | 25 case 硬编码 ExactFix 文本 |
-| `internal/analysis/hint/composer.go:445-540` | `buildAllowedSet` | 给 LLM 列举允许值(claim forms / file list / block kinds) |
+| `internal/analysis/hint/composer.go:202-244` | `Render()` | Hint struct → 字符串(无长度截断,Phase A 增强可放心扩文本) |
+| `internal/analysis/hint/composer.go:374-440` | `summariseExactFix` | **真实 15 explicit case + 1 default**,本 Phase Commit 1 加 2 case + 改 1 case |
+| `internal/analysis/hint/composer.go:445-540` | `buildAllowedSet` | 给 LLM 列举允许值(claim forms / file list / block kinds)|
 | `internal/orchestrator/repair_cooccurrence.go:83-337` | `defaultCooccurrenceRules` | 9 条 Primary→Derived 折叠规则 |
+| `internal/types/violation.go:299` | const | `ViolAbsenceScopeExceeded`(`absence_scope_exceeded`)真实 ViolKind 名 |
 
-### 2.5 测试影响面
+### 2.5 Finalizer reject signal pathway(非 V2 validator 路径)
+
+| 文件 | 关键 line | reject code |
+|---|---|---|
+| `internal/agent/answer_document_evaluator.go:2762` | `missing_diagram` | hint 254 字详细 |
+| `internal/agent/answer_document_evaluator.go:2770` | `diagram_grounding` | 456 字 + allowed_labels metadata |
+| `internal/agent/answer_document_evaluator.go:2783` | `diagram_codename` | 319 字 |
+| `internal/agent/answer_document_evaluator.go:2791` | `exact_context_surface` | 动态(repair.Metadata)|
+| `internal/agent/answer_document_evaluator.go:2811` | `exact_resolution` | 318 字 |
+| `internal/agent/answer_document_evaluator.go:2815` | `log_source_drift_step_citation` | 叠加 hint |
+| `internal/agent/answer_document_evaluator.go:2887` | `follow_on_grounded_context` | repair.Hint |
+| `internal/agent/answer_document_evaluator.go:2900` | `log_triage_coverage` | repair.Hint |
+| `internal/agent/answer_document_evaluator.go:2904` | `scalar_summary_required` | repair.Hint |
+| `internal/agent/answer_document_evaluator.go:2918` | `literal_grounding` | 含 `citation_ref=-1` 逃生舱 |
+| `internal/agent/answer_document_evaluator.go:3119` | `appendRetryDiagramSeedHint` | seal 路径专用 hint |
+
+### 2.6 测试影响面
 
 | 文件 | 关键测试 | 影响 |
 |---|---|---|
-| `internal/skill/defaults_test.go:51-95` | 多个 substring assert 找特定 prompt 文本 | 删规则后这些断言会 fail,需要改 |
-| `internal/skill/defaults_test.go:74,108,162,242,267` | `strings.Join(sk.Workflow, "\n")` + `strings.Contains` | 同上,断言对象是合并 blob |
-| `internal/skill/keyword_examples_test.go` | LLM-facing jargon 红线 | 不应受影响,但需 grep 确认删的句子不在白名单/黑名单 |
-| `internal/agent/answer_document_evaluator_test.go:33-71,2976+` | 多个对 `answer-document-skill.OutputFormat` 内容的断言 | 同样需更新 |
-| `internal/orchestrator/contract_check_block_test.go` | 13 个 validator 各自 unit test | **不动** — validator 行为不变 |
-| `internal/analysis/hint/composer_test.go` | 25 case 各自 hint 文本断言 | **可能更新**(如果 §5.4 增强 hint 文本) |
-| `internal/orchestrator/llm_facing_jargon_audit_test.go` | LLM-facing 术语红线 | 删规则减少 jargon,应该过更绿 |
+| `internal/skill/defaults_test.go:27-193` | 6 个测试函数对 finalizer skill 做 substring assert | 详见 §6 |
+| `internal/skill/keyword_examples_test.go` | LLM-facing keyword 红线 | 不直接锁规则,删规则不影响 |
+| `internal/skill/glossary_test.go` | glossary 测试 | 不影响 |
+| `internal/agent/answer_document_evaluator_test.go:33-71,2976+` | 多个对 OutputFormat 内容的断言 | 详见 §6;锁 dynamic dispatch 文本而非 static skill |
+| `internal/orchestrator/contract_check_block_test.go` | 13 个 validator unit test | **不动** — validator 行为不变 |
+| `internal/analysis/hint/composer_test.go` | 15 case 各自 hint 文本断言 | **更新**(Commit 1 加 2 新 case + 改 1 existing case)|
+| `internal/orchestrator/llm_facing_jargon_audit_test.go` | LLM-facing 术语红线 | 删规则减少 jargon 应过更绿;Commit 1 增强 hint 文本需 grep 验证不含内部术语 |
+
+**跨文件引用核对**(`grep -rn "abstraction-level matching\|sealed-seed\|bucket alignment\|absence-citation" docs/ CLAUDE.md`):
+- **MEMORY.md / CLAUDE.md / 其他 design doc 没有引用规则名** — Phase A 删规则**零 cross-document sync 成本**
+- 规则名只在 Phase A 设计文档自身和 commit `efa4ff3` 的 commit message 中出现
 
 ---
 
-## 3. 24 条 Workflow 规则的逐条分类(本设计的核心决策表)
+## 3. 24 条 Workflow 规则的逐条决策表
 
-下表把 `defaults.go:119-142` 每条规则映射到对应 validator + 决策。**决策三档**:
-- **DELETE**:规则纯属重复 validator 已 hard-check,删除后 validator 拒+hint 教即可;
-- **KEEP-COMPACT**:规则不能删(语义判断或 schema 教学),但可大幅压缩(去重 / 用 `§N` 锚点引用 OutputFormat 表格);
-- **KEEP-FULL**:规则保留全文(含 A'' / subject discipline / authority discipline / divergence — 都是 LLM 判断题).
+下表把 `defaults.go:119-142` 每条规则映射到对应 validator + 真实代码审计后的决策。**决策四档**:
+- **DELETE-UNCONDITIONAL**:规则纯属重复 validator 已 hard-check + hint composer 已有 actionable case,直接删
+- **DELETE-CONDITIONAL**:规则可删,但**前置条件**是 Commit 1 的 hint 增强必须先 land(否则 LLM 收到 DEFAULT fallback 难以收敛)
+- **KEEP-COMPACT**:规则不能删(语义判断或 schema 教学),但可大幅压缩(去重 / 用 §-锚点引用 OutputFormat)
+- **KEEP-FULL**:规则保留全文(LLM 判断题 — A'' / subject discipline / authority discipline / divergence / item.kind count discipline)
 
-| # | 规则摘要 | 已 machine-check by | 决策 | 删除后 hint 是否充分 |
+| # | 规则摘要 | machine-check by | 决策 | hint case 状态 |
 |---|---|---|---|---|
-| 1 | 答案直接写进 emit_answer_document 字段 | tool 层强制(无 emit 即 fail) | **KEEP-COMPACT** (1 句话压缩) | n/a |
-| 2 | Required Answer Blocks 必须满足 | `validateRequiredBlockCoverage` (cb:71) | **DELETE** | ✓ `ViolBlockCoverageMissing` hint (composer.go:430) |
-| 3 | blocks[] 是 carrier(kind/payload 规约) | tool 层 schema(emit_answer_document_v2.go) + OutputFormat 表 | **KEEP-COMPACT** (引用 OutputFormat §Block-kind payloads) | n/a |
-| 4 | claim_uses 在 principal block 必填,4 字段 schema | `validatePrincipalClaimUse` (cb:134) + tool 层 strict-decode | **DELETE** | ✓ `ViolPrincipalClaimUseMissing` hint(composer.go:410,六行细节) |
-| 5 | edge_anchors block 级数组 schema | `validateDiagramEdgeSupport` (cb:204) + tool 层 strict-decode | **DELETE** | ✓ `ViolDiagramEdgeUnsupported` hint(composer.go:416) |
-| 6 | diagram.kind 是语义 family | `answer_block_normalize.go:52-56` enum | **DELETE** | ✓ 同上 hint 显式说"NOT a Mermaid keyword" |
-| 7 | enumeration ordered_list label verbatim | `validateEnumerationItemLabelGrounding` (cb:1746) + `validateEnumerationItemLabelExtractorMatch` (cb:1858) | **DELETE** | ⚠ 需要增强 — 当前 hint 仅 `ViolEnumerationLabelUngrounded` 单句,§5.4 加详细模板 |
+| 1 | 答案直接写进 emit_answer_document | tool 层强制(无 emit 即 fail)| **KEEP-COMPACT**(1 句话压缩)| n/a |
+| 2 | Required Answer Blocks 必须满足 | `validateRequiredBlockCoverage`(cb:71)| **DELETE-UNCONDITIONAL** | ✓ `ViolBlockCoverageMissing`(composer.go:430,177 字详细)|
+| 3 | blocks[] 是 carrier(kind/payload 规约)| tool 层 schema + OutputFormat §Block-kind payloads(line 168)| **KEEP-COMPACT**(引用 §)| n/a |
+| 4 | claim_uses 在 principal block 必填 | `validatePrincipalClaimUse`(cb:134)| **DELETE-UNCONDITIONAL** | ✓ `ViolPrincipalClaimUseMissing`(composer.go:410,142 字详细)|
+| 5 | edge_anchors block 级数组 schema | `validateDiagramEdgeSupport`(cb:204)只 check kind/edge grounding,placement 由 tool strict-decode 拒 | **DELETE-CONDITIONAL** | ⚠️ `ViolDiagramEdgeUnsupported` 已存在但未明示 "edge_anchors[] never inside claim_use" — Commit 1 增强 |
+| 6 | diagram.kind 是语义 family | `answer_block_normalize.go:52-56` enum | **DELETE-UNCONDITIONAL** | ✓ `ViolDiagramEdgeUnsupported` hint(composer.go:416)显式说"NOT a Mermaid keyword" |
+| 7 | enumeration ordered_list label verbatim | `validateEnumerationItemLabelGrounding`(cb:1746)+ `validateEnumerationItemLabelExtractorMatch`(cb:1858)| **DELETE-CONDITIONAL** | ⚠️ `ViolEnumerationLabelUngrounded` 走 DEFAULT fallback — Commit 1 加新 case |
 | **8** | **A'' — abstraction-level matching for role-enumeration** | **❌ 无** — 纯 LLM 判断题 | **KEEP-FULL** | n/a — Phase A 主战场是让这条规则获得更多注意力 |
-| 9 | hop-chain ordered_list 每 item 是一 hop,text 是 behavior | ❌ 无(prose voice 是判断题) | **KEEP-FULL** | n/a |
-| 10 | item.kind ∈ {principal/flow/caveat},declared count 只数 principal | `validatePrincipalClaimUse` 内部统计 + `validateRequiredBlockCoverage` | **DELETE** | ✓ `ViolBlockCoverageMissing` hint 已说 count |
-| 11 | bucket alignment(用户 label verbatim) | `validateMissingRequestedRoleDisclosure` (cb:1557) | **DELETE** | ✓ `ViolMissingRequestedRoleUndisclosed` hint(composer.go:434,详细) |
-| 12 | scalar block 规约(literal 在 block.text) | `answer_block_normalize.go` schema | **KEEP-COMPACT** | n/a — schema 教学 |
-| 13 | decision block 规约(verdict + rationale) | `answer_block_normalize.go` schema | **KEEP-COMPACT** | n/a |
-| 14 | enumeration item file:line 必须真 anchor | `validateEnumerationItemLabelGrounding` (cb:1746) | **DELETE** | 同 #7 |
-| 15 | summary-only 答案规约(### 子标题) | ❌ 无(prose 风格判断题) | **KEEP-FULL** | n/a |
-| 16 | citations[] 唯一 declare,citation_ref 是 index | tool 层 schema | **KEEP-COMPACT** (1 句话) | n/a |
-| 17 | log-triage 答案 prefer hop-chain | ❌ 无(策略选择题) | **KEEP-FULL** | n/a |
-| 18 | 文件形 token 必须在 citations 里(diagram-grounding) | `answer_document_evaluator.go:2770` (diagram-grounding gate) | **DELETE** | ✓ reject signal `diagram_grounding` 含 allowed_labels metadata |
-| 19 | Sealed-seed rule(diagram 中 file:line verbatim copy) | `appendRetryDiagramSeedHint` (ade.go:3119) | **DELETE** | ✓ 已有专用 retry hint 段 |
-| 20 | log-triage error.Type 必须 verbatim 出现 | `runExternalArtifactDecodedCheck` (cc.go:248) | **DELETE** | ✓ rationale 列举 missing tokens verbatim(cc.go:165-176) |
-| 21 | Subject discipline(无关同名 file 不进 summary) | ❌ 无(语义判断) | **KEEP-FULL** | n/a |
-| 22 | Authority discipline(drift bound,显式归属) | ⚠ `runAuthorityOverreachCheck` (cc.go:186) 部分 check | **KEEP-FULL** | validator 只 check hedge sentinel,prose attribution 是判断题 |
-| 23 | Code-vs-narrative divergence(不静默选边) | `runStructuralEnumerationDivergenceOracleV2` (cc.go:144) 部分 check | **KEEP-FULL** | validator 只 check 候选漏列,narrative 阐述是判断题 |
-| 24 | Absence-citation discipline(status='absent' 必带 negative-scope) | `validateAbsenceScopeBound` (cb:1519) | **DELETE** | ⚠ 需增强 hint(当前 generic fallback) |
+| 9 | hop-chain ordered_list 每 item 是一 hop,text 是 behavior | ❌ 无(prose voice 是判断题)| **KEEP-FULL** | n/a |
+| 10 | item.kind ∈ {principal/flow/caveat},declared count 只数 principal | tool 层 enum check(`answer_block_normalize.go:76-79`)有,**但"only principal items count"约束 NO validator** | **KEEP-FULL** | n/a — count discipline 是判断题,validator 不覆盖 |
+| 11 | bucket alignment(用户 label verbatim)| `validateMissingRequestedRoleDisclosure`(cb:1557)只 check 文档级字段,**不 check prose 出现** | **DELETE-CONDITIONAL** | ⚠️ `ViolMissingRequestedRoleUndisclosed` 已存在但未提 bucket label 要 verbatim — Commit 1 改 |
+| 12 | scalar block 规约(literal 在 block.text)| `answer_block_normalize.go` schema | **KEEP-COMPACT** | n/a — schema 教学 |
+| 13 | decision block 规约(verdict + rationale)| `answer_block_normalize.go` schema | **KEEP-COMPACT** | n/a |
+| 14 | enumeration item file:line 必须真 anchor | `validateEnumerationItemLabelGrounding`(cb:1746)check LABEL substring,**不 check file:line 存在性**(grounder 在 render 时 check)| **DELETE-CONDITIONAL** | ⚠️ Commit 1 增强的 `ViolEnumerationLabelUngrounded` 必须显式说"do NOT invent file:line" |
+| 15 | summary-only 答案规约(### 子标题)| ❌ 无(prose 风格判断题)| **KEEP-FULL** | n/a |
+| 16 | citations[] 唯一 declare,citation_ref 是 index,-1 表无 cite | "Declare ONCE" 无 validator(LLM 判断);"citation_ref NEVER in claim_use" tool 层 strict-decode 拒 | **SPLIT — 半 KEEP-COMPACT 半 DELETE** | n/a |
+| 17 | log-triage 答案 prefer hop-chain | ❌ 无(策略选择题)| **KEEP-FULL** | n/a |
+| 18 | 文件形 token 必须在 citations 里(diagram-grounding gate)| `answer_document_evaluator.go:2770`(diagram-grounding gate)| **DELETE-UNCONDITIONAL** | ✓ reject signal `diagram_grounding` 含 allowed_labels metadata,456 字 |
+| 19 | Sealed-seed rule(diagram 中 file:line verbatim copy)| `appendRetryDiagramSeedHint`(ade:3119)| **DELETE-UNCONDITIONAL** | ✓ 已有专用 retry hint 段 |
+| 20 | log-triage error.Type 必须 verbatim 出现 | `runExternalArtifactDecodedCheck`(cc:248)| **DELETE-UNCONDITIONAL** | ✓ rationale 列举 missing tokens verbatim(cc:165-176)|
+| 21 | Subject discipline(无关同名 file 不进 summary)| ❌ 无(语义判断)| **KEEP-FULL** | n/a |
+| 22 | Authority discipline(drift bound,显式归属)| ⚠ `runAuthorityOverreachCheck`(cc:186)check caveat presence,**prose attribution 是判断题** | **KEEP-FULL** | n/a — partial machine-check 但 prose 部分必须 LLM 判断 |
+| 23 | Code-vs-narrative divergence(不静默选边)| ⚠ `runStructuralEnumerationDivergenceOracleV2`(cc:144)detect divergence,**prose 阐述是判断题** | **KEEP-FULL** | n/a — 同上 |
+| 24 | Absence-citation discipline(status='absent' 必带 negative-scope)| `validateAbsenceScopeBound`(cb:1519)| **DELETE-CONDITIONAL** | ⚠️ `ViolAbsenceScopeExceeded`(violation.go:299)走 DEFAULT fallback — Commit 1 加新 case |
 
 **汇总**:
-- **DELETE = 13 条** (#2 #4 #5 #6 #7 #10 #11 #14 #18 #19 #20 #24 — 12 条 + #16 部分):净删除 12-13 条
-- **KEEP-COMPACT = 5 条** (#1 #3 #12 #13 #16):合并为 2-3 条 schema-mechanics 长 rule
-- **KEEP-FULL = 7 条** (#8 #9 #15 #17 #21 #22 #23):核心判断题,每条独立保留并加 §-锚点
+- **DELETE-UNCONDITIONAL = 6 条**(#2, #4, #6, #18, #19, #20)— 直接删,hint 已 actionable
+- **DELETE-CONDITIONAL = 5 条**(#5, #7, #11, #14, #24)— 必须先做 Commit 1 hint 增强才删
+- **SPLIT = 1 条**(#16)— "Declare ONCE" 保留,"citation_ref NEVER in claim_use" 删
+- **KEEP-COMPACT = 5 条**(#1, #3, #12, #13, #16 部分)— 合并/压缩为 2-3 条 schema-mechanics 规则
+- **KEEP-FULL = 8 条**(#8, #9, #10, #15, #17, #21, #22, #23)— 核心判断题,每条独立保留 + 加 §-锚点
 
-**Workflow 净规模**: 24 → ~10(KEEP-FULL 7 + KEEP-COMPACT 合并 3)。A'' (#8) 在新 list 中份额从 1/24 → 1/10。
+**Workflow 净规模**:24 → ~13(KEEP-FULL 8 + KEEP-COMPACT 合并 2-3 + SPLIT 半保留 ~1-2)。A''(#8)在新 list 中份额从 1/24 → ~1/13。
 
-### 3.1 Prohibitions 10 条同样处理
+### 3.1 Prohibitions 10 条决策
 
 | Prohibition 摘要(line 308-319) | 决策 | 已 machine-check |
 |---|---|---|
-| 不写 prose 在 emit 外 | **KEEP** (合并到 #1) | tool 层无法 check 但 system 提示 |
-| 不 cite 不在 evidence 的 file | **DELETE** | `ViolCitation` |
-| 不发明 line 号 | **DELETE** | `ViolGhostAnchor` (composer.go:393) |
-| quote 不能放 prose | **DELETE** | grounder 自动 strip(已注释) |
-| 不预压缩 prose | **KEEP** (LLM 判断题) | n/a |
-| citation_ref 不用 zero-sentinel | **DELETE** | tool 层 schema |
-| 不静默截 bounded set | **KEEP** (与 #15 合并) | n/a — completeness 是判断题 |
-| 不发明 codename labels | **KEEP** (LLM 判断题) | n/a |
-| 不漏 claim_uses | **DELETE** (重复 #4) | `ViolPrincipalClaimUseMissing` |
-| 不在 diagram.kind 写 mermaid keyword | **DELETE** (重复 #6) | tool 层 schema |
+| 不写 prose 在 emit 外 | **KEEP**(合并到 #1)| tool 层无法 check 但 system 提示 |
+| 不 cite 不在 evidence 的 file | **DELETE-UNCONDITIONAL** | `ViolCitation`(composer.go:391)已有 actionable case |
+| 不发明 line 号 | **DELETE-UNCONDITIONAL** | `ViolGhostAnchor`(composer.go:393)|
+| quote 不能放 prose | **DELETE-UNCONDITIONAL** | grounder 自动 strip(已 inline 注释)|
+| 不预压缩 prose | **KEEP**(LLM 判断题)| n/a |
+| citation_ref 不用 zero-sentinel | **DELETE-UNCONDITIONAL** | tool 层 schema |
+| 不静默截 bounded set | **KEEP**(与 #15 合并)| n/a — completeness 是判断题 |
+| 不发明 codename labels | **KEEP**(LLM 判断题)| n/a |
+| 不漏 claim_uses | **DELETE-UNCONDITIONAL**(重复 #4)| `ViolPrincipalClaimUseMissing` |
+| 不在 diagram.kind 写 mermaid keyword | **DELETE-UNCONDITIONAL**(重复 #6)| tool 层 schema |
 
-**汇总**:Prohibitions 10 → ~4 条(删 6 条)。
+**汇总**:Prohibitions 10 → 4 条(删 6 条无条件)。**注**:Agent 验证 `defaults_test.go` 中 0 个测试锁 Prohibitions 文本 — Commit 5 (Prohibitions 删除) 无测试更新成本。
 
 ### 3.2 OutputFormat 内嵌指令处理
 
 `defaults.go:152-307` 的 OutputFormat ~155 行散文,内嵌 ~50 个隐性 directive。**Phase A 不动 OutputFormat 主体**(它的 schema 教学是 KEEP-COMPACT 类),只做以下修改:
 
-- 把 `## Tool choice` / `## Block contract` / `## Block-kind payloads` / `## Claim annotations` / `## Diagram contract` / `## Citation pool` 等 §-标题保留 — 这些是 KEEP-COMPACT 规则的引用目标
-- `## Enumeration completeness and bounded sets` (line 227-232) 已被 commit `5388410` 简化
-- `## Per-block prose guidance` (line 242-248) **不动** — 是 KEEP-FULL 类(prose voice 判断)
-- `## Visual structure` (line 250-289) **不动** — mermaid 教学 schema-level
+- 保留所有 §-标题(已核对存在,见 §2.1 表)— 这些是 KEEP-COMPACT 规则的引用目标
+- `## Per-block prose guidance`(line 242-248)**不动** — 是 KEEP-FULL 类(prose voice 判断)
+- `## Visual structure`(line 250-289)**不动** — mermaid 教学 schema-level
+- `## Enumeration completeness and bounded sets`(line 227-232)已被 commit `5388410` 简化,不动
 
 ---
 
-## 4. Hint 增强清单(为 §3 删除规则做的对应补强)
+## 4. Hint 增强清单(Commit 1 — 必须先 land 才能做条件 DELETE)
 
-`internal/analysis/hint/composer.go::summariseExactFix` 当前 25 case 中,3 case 在删 prompt 规则后必须增强 hint 文本。**这是 Phase A commit 序列里独立的一步**,不删任何东西,只为后续删除做准备。
+`internal/analysis/hint/composer.go::summariseExactFix`(line 374-440)真实 15 explicit case + 1 default。Phase A 加 **2 个新 case + 改 1 个 existing case**。
 
-### 4.1 增强 case 1:`ViolEnumerationLabelUngrounded`
+### 4.1 新 case 1:`ViolEnumerationLabelUngrounded`(为规则 #7 + #14 删除作准备)
 
-**当前位置**: composer.go default fallback("Address the violation(s) listed above and re-emit.")
-**问题**: 删规则 #7 + #14 后,LLM 看到 reject 不知具体怎么修。
-**增强后文本**(草稿):
-> "Each ordered_list item's `label` MUST appear verbatim in at least one EvidenceItem (anchor_symbol / subject / object). The validator does case-folded substring match in BOTH directions. Cited evidence pool is in the user section under `## Prior Evidence Slate` — pick label tokens from those entries. If the candidate symbol does not appear in evidence, you cannot include it; either drop the item, or revisit explorer findings."
+**当前**:走 DEFAULT fallback(`"Address the violation(s) listed above and re-emit."`)
+**问题**:删规则 #7 + #14 后,LLM 看到 reject 不知具体怎么修。
+**新增**(在 `ViolMissingRequestedRoleUndisclosed` case 后、default 前插入):
 
-### 4.2 增强 case 2:`validateAbsenceScopeBound` (Viol kind 待确认)
+```go
+case types.ViolEnumerationLabelUngrounded:
+    return "Each ordered_list item's `label` MUST appear verbatim in at least one EvidenceItem (anchor_symbol / subject / object). The validator does case-folded substring match in BOTH directions. Cited evidence pool is in the user section under `## Prior Evidence Slate` — pick label tokens from those entries. Each item's `citation_ref` MUST point at a real file:line that already appears in citations[] AND that the label token also appears at; do NOT invent file:line combinations that do not exist in the evidence pool. If the candidate symbol does not appear in evidence, you cannot include it; either drop the item, or revisit explorer findings."
+```
 
-**当前位置**: composer.go default fallback
-**问题**: 删规则 #24 后,LLM 不知 absent 答案要带 negative-scope citation。
-**增强后文本**(草稿):
-> "When `exact_resolution.status='absent'`, the citations[] array MUST include at least one entry with `scope='negative'` AND a non-empty `negative_pattern` field naming the EXACT search query whose absence-of-matches confirms the finding. Schema: `{file: '<file-or-repo-wide-marker>', scope: 'negative', negative_pattern: '<exact-query-you-ran>'}`. The `file` field can be a literal repo path or `(repo-wide grep)` for repo-wide searches; `line` may be 0."
+**buildAllowedSet 同步**:加 `case types.ViolEnumerationLabelUngrounded` 返回 evidence pool 中的 anchor_symbol 列表(从 `ctx.ReadSet` 或新加 `ctx.EvidenceAnchors`)。
 
-### 4.3 增强 case 3:`ViolMissingRequestedRoleUndisclosed`
+### 4.2 新 case 2:`ViolAbsenceScopeExceeded`(为规则 #24 删除作准备)
 
-**当前位置**: composer.go:434(已存在,但可加 bucket alignment 维度)
-**问题**: 删规则 #11 后,bucket label verbatim 教学需要补到 hint。
-**增强后文本**(草稿):
-> "Populate document-level `missing_requested_roles[]` exactly from the semantic-view contract for this dispatch. Each entry is `{role:<default|config|runtime|override>, label?:<user-facing bucket name>}`; **for bucket-style questions ('X for A, Y for B'), every bucket label from QuestionStructure.Buckets MUST appear VERBATIM in the rendered answer's user-facing fields** — preferred form: each bucket as a `### <Label>` section heading inside summary OR its own section block."
+**真实 ViolKind 名验证**:`internal/types/violation.go:299` `ViolAbsenceScopeExceeded ViolationKind = "absence_scope_exceeded"`
+**当前**:走 DEFAULT fallback。Validator 自带 Repair 文本(`contract_check_block.go:1539`)但 composer 未提取。
+**新增**(同位置插入):
+
+```go
+case types.ViolAbsenceScopeExceeded:
+    return "When `exact_resolution.status='absent'`, the citations[] array MUST include at least one entry with `scope='negative'` AND a non-empty `negative_pattern` field naming the EXACT search query whose absence-of-matches confirms the finding (the literal pattern you ran with grep / repo_map / search, or the missing identifier itself). Schema template: `{file: '<file-or-repo-wide-marker>', scope: 'negative', negative_pattern: '<exact-query-you-ran>'}`. The `file` field can be a literal repo path or `(repo-wide grep)` for repo-wide searches; `line` may be 0 for negative scope."
+```
+
+### 4.3 改 existing case:`ViolMissingRequestedRoleUndisclosed`(为规则 #11 删除作准备)
+
+**当前**(composer.go:434-438):
+```go
+case types.ViolMissingRequestedRoleUndisclosed:
+    return "Populate document-level `missing_requested_roles[]` exactly from the semantic-view contract for this dispatch. Each entry is `{role:<default|config|runtime|override>, label?:<user-facing bucket name>}`; preserve any surfaced labels (for example `CLI`) and do not replace missing layers with vague prose like `N/A` or `not applicable`."
+```
+**问题**:未提 bucket alignment(规则 #11 的核心)— LLM 不知道 bucket label 要 VERBATIM 出现在 user-facing 答案字段。
+**改后**:
+```go
+case types.ViolMissingRequestedRoleUndisclosed:
+    return "Populate document-level `missing_requested_roles[]` exactly from the semantic-view contract for this dispatch. Each entry is `{role:<default|config|runtime|override>, label?:<user-facing bucket name>}`; preserve the exact bucket labels and do not replace missing layers with vague prose like `N/A` or `not applicable`. **For bucket-style questions ('X for A, Y for B'), every bucket label from QuestionStructure.Buckets MUST appear VERBATIM in the rendered answer's user-facing fields** — preferred form: each bucket as a `### <Label>` section heading inside summary, OR its own section block, OR mentioned inside relevant items[].text."
+```
 
 ### 4.4 测试更新
 
-`internal/analysis/hint/composer_test.go` 需为这 3 case 添加 substring assert 锁住新文本(防止后续误删)。
+`internal/analysis/hint/composer_test.go` 加 3 个 substring assert(2 新 case + 1 改 case 的关键文本)。
+
+### 4.5 LLM-facing jargon 红线 check
+
+Commit 1 增强后必 grep `internal/orchestrator/llm_facing_jargon_audit_test.go` 的 blocklist 验证新 hint 文本不含内部术语(`validator / Viol / evidence pool / amplifier / R4` 等只在系统侧用的词)。
 
 ---
 
-## 5. Commit 序列(单 session 5-8 commits)
+## 5. Commit 序列(单 session 6-9 commits)
 
-每条 commit 必须独立可 revert。Eval 在 commit 5 之后整批跑(每 case x4)。
+每条 commit 必须独立可 revert。Eval 在 commit 5 之后整批跑。
 
-### Commit 1 — Hint enrichment 1(增强 3 case ExactFix 文本)
+### Commit 1 — Hint enrichment(2 新 case + 1 改 case)
 
-- 改 `internal/analysis/hint/composer.go:374-440` 加 3 个新 case 或扩展现有 case:
-  - `ViolEnumerationLabelUngrounded` (新 case,在 default 之前)
-  - `validateAbsenceScopeBound` 对应 ViolKind(grep `ViolAbsence*` 找)
-  - `ViolMissingRequestedRoleUndisclosed` 扩展(加 bucket alignment 段)
+- 改 `internal/analysis/hint/composer.go:374-440`:
+  - 加 `case types.ViolEnumerationLabelUngrounded`(在 #15 `ViolMissingRequestedRoleUndisclosed` 后)
+  - 加 `case types.ViolAbsenceScopeExceeded`
+  - 改 `case types.ViolMissingRequestedRoleUndisclosed`(加 bucket alignment 段)
+- 改 `internal/analysis/hint/composer.go:445-540` `buildAllowedSet`:加 `ViolEnumerationLabelUngrounded` case 返回 evidence pool anchor 列表
 - 改 `internal/analysis/hint/composer_test.go` 新增 3 substring assert
+- LLM-facing jargon audit:grep 验证新文本不含系统内部术语
 - 不改 prompt — 这是纯增强
-- **Eval**: 全 case 任意 1 个 PASS 即可(只是确认 hint composer 没崩)
+- **Eval**: composer test 全绿。无真 eval 需求(只是 hint composer 增强,无行为改动到 finalizer)。
 
-### Commit 2 — Workflow rule DELETE 第一批(低风险:tool 层 schema 类)
+### Commit 2 — Workflow rule DELETE 第一批(无条件 6 条)
 
-删 `defaults.go:119-142` 中以下规则(对应 #4 部分 / #5 部分 / #6 / #16 部分 / #19):
+删 `defaults.go:119-142` 中以下规则:
 
-- 规则 #4 第二段 "It does NOT carry citation_ref ..." 删(strict-decode 自动 reject)
-- 规则 #5 第二段 "Edge anchors NEVER live inside a claim_use object" 删
-- 规则 #6 全删(diagram.kind 语义 family — schema enum 已 enforce)
-- 规则 #16 后半 "citation_ref NEVER appears inside a claim_use object" 删
-- 规则 #19 全删(sealed-seed,有专用 retry hint)
+- 规则 #2(Required Answer Blocks)— validator + hint 已完整 cover
+- 规则 #4(claim_uses 在 principal block 必填)— validator + hint 已完整 cover
+- 规则 #6(diagram.kind 语义 family)— schema enum 已 enforce
+- 规则 #18(diagram-grounding 文件 token)— reject signal 已带 allowed_labels
+- 规则 #19(sealed-seed)— 有专用 retry hint
+- 规则 #20(log-triage error.Type verbatim)— rationale 已列 missing tokens
 
-更新 `defaults_test.go` 删去对应 substring assert。
+更新 `defaults_test.go` 删去对应 substring assert(详见 §6 表)。
 
 **Eval**: m1a x4 + qf_arch x4 = 8 次。任一 case 在 retry 内不收敛 → revert,该规则保留。
 
-### Commit 3 — Workflow rule DELETE 第二批(中风险:validator 已 cover 类)
+### Commit 3 — Workflow rule SPLIT(规则 #16)
 
-删以下规则(对应 #2 / #11 / #18 / #20 / #24):
+- 拆规则 #16:保留"Declare every file:line ONCE in citations[]"(LLM 判断题),删"citation_ref NEVER inside claim_use"(tool 层 strict-decode 拒)
+- 改 `defaults_test.go` 对应断言
 
-- 规则 #2(Required Answer Blocks)— validator + hint 已完整 cover
-- 规则 #11(bucket alignment)— validator + commit 1 增强 hint 已 cover
-- 规则 #18(diagram-grounding)— reject signal 已带 allowed_labels
-- 规则 #20(log-triage error.Type verbatim)— rationale 已列 missing tokens
-- 规则 #24(absence-citation)— validator + commit 1 增强 hint 已 cover
+**Eval**: 4 case x4 = 16 次。低风险,纯文本拆分。
 
-**Eval**: 4 case x4 = 16 次。
+### Commit 4 — Workflow rule DELETE 第二批(条件,基于 Commit 1)
 
-### Commit 4 — Workflow rule DELETE 第三批(高风险:enumeration label 类)
+删 #5、#11、#24:
 
-删规则 #7 + #14 + #10:
+- 规则 #5(edge_anchors block 级数组)— Commit 1 增强 `ViolDiagramEdgeUnsupported` hint 已说 placement
+- 规则 #11(bucket alignment)— Commit 1 增强 `ViolMissingRequestedRoleUndisclosed` 已加 bucket VERBATIM 段
+- 规则 #24(absence-citation discipline)— Commit 1 加 `ViolAbsenceScopeExceeded` 新 case
+
+**Eval**: 4 case x4 = 16 次。必须验证 Commit 1 hint 增强的 actionability。
+
+### Commit 5 — Workflow rule DELETE 第三批(高风险:enumeration label)
+
+删规则 #7 + #14:
 
 - 规则 #7(enumeration item.text 规约)— 第一句保留(item.text 是短自然 prose 描述 ROLE)— 因为这是 KEEP-FULL 类的判断教学;只删后半 schema 重述部分(claim_use + claim_form 各种 enum 列举)
-- 规则 #14(enumeration item file:line anchor)— 全删,validator 已 cover
-- 规则 #10(item.kind 计数)— 全删
+- 规则 #14(enumeration item file:line anchor)— 全删,Commit 1 增强 `ViolEnumerationLabelUngrounded` 已说"do NOT invent file:line"
 
 **Eval**: 4 case x4 = 16 次。这一批最高风险 — 因为 #7 / #14 直接关联 A'' 所在的 enumeration 路径。
 
-### Commit 5 — Prohibitions 同步删除 6 条
+### Commit 6 — Prohibitions 同步删除 6 条
 
-删 §3.1 决策表中标 DELETE 的 6 条 Prohibitions。
+删 §3.1 决策表中标 DELETE-UNCONDITIONAL 的 6 条 Prohibitions。
 
-**Eval**: 同 commit 4(4 case x4)。
+**Eval**: 同 commit 5(4 case x4)。**Agent 验证 `defaults_test.go` 0 个 substring 锁 Prohibitions 文本 → 无测试更新成本**。
 
-### Commit 6 — Workflow rule §-锚点重命名 + 主题分组 header
+### Commit 7 — Workflow rule §-锚点重命名 + 主题分组 header
 
-把 KEEP-FULL 7 条 + KEEP-COMPACT 合并 3 条 = ~10 条 Workflow rule 加 `§B.2` / `§C.1` / `§G.1` 这种锚点前缀,方便后续 hint 引用。在 list 头部加 1-2 行说明:
+把 KEEP-FULL 8 条 + KEEP-COMPACT 合并 2-3 条 + SPLIT 半保留 ~1-2 条 = ~13 条 Workflow rule 加 `§B.2` / `§C.1` / `§G.1` 这种锚点前缀,方便后续 hint 引用。在 list 头部加 1-2 行说明:
 
 ```
 Workflow rules below are organized into thematic groups:
@@ -302,44 +368,38 @@ Workflow rules below are organized into thematic groups:
   §D: Scalar / Decision shapes
   §E: Summary-only shape
   §F: Log-triage / Diagram grounding
-  §G: Universal honesty (subject / authority / divergence)
+  §G: Universal honesty (subject / authority / divergence / item-kind discipline)
 ```
 
 **Eval**: 4 case x4 = 16 次。本 commit 不应引入语义改动,纯重命名 + 顺序调整。
 
-### Commit 7 — 真 eval 验收 + memory 收尾
+### Commit 8 — 真 eval 验收 + memory 收尾
 
 - 跑 qf_arch x4 + m1a x4 + s1a x4 + u3a x4 + qf_config_precedence x4 = 20 次
 - 写 `feedback_eval_pass_is_not_green.md` 已锁红线下的真 eval verdict 表
 - 更新 `MEMORY.md` 顶部为本 Phase A SHIPPED + 指向 Phase C
 - 更新本文档 Status: `SHIPPED <date>`
 
-### (可选) Commit 8 — 如 §6 中任何 case 出现 jitter,补打 patch
+### (可选)Commit 9 — 如 §6 中任何 case 出现 jitter,补打 patch
 
 ---
 
-## 6. 真 eval 跑法(精确命令)
+## 6. 测试影响详表(`defaults_test.go` 6 个测试 + `answer_document_evaluator_test.go`)
 
-```bash
-# 所有 case 的 eval 入口在 evals/ 下,跑法:
-go test ./evals/<case_name>/ -run Test<CaseName>_x4 -count=1 -v -timeout 30m
+`internal/skill/defaults_test.go` 真实 6 个测试函数对 `answer-document-skill` 做 substring assert:
 
-# 4 + qf_config_precedence,5 case x4 = 20 次,~30-45 min(LLM API 限速)
-go test ./evals/qf_arch/         -run TestQfArch_x4         -count=1 -v -timeout 30m
-go test ./evals/m1a/             -run TestM1a_x4            -count=1 -v -timeout 30m
-go test ./evals/s1a/             -run TestS1a_x4            -count=1 -v -timeout 30m
-go test ./evals/u3a/             -run TestU3a_x4            -count=1 -v -timeout 30m
-go test ./evals/qf_config_precedence/ -run TestQfConfigPrecedence_x4 -count=1 -v -timeout 30m
-```
+| 测试函数 | 锁定内容 | 对应规则 | Phase A 影响 |
+|---|---|---|---|
+| 测试 #1(line ~30)| 锁 OutputFormat 含 diagram 教学 | OutputFormat | **SAFE** — Phase A 不动 OutputFormat 主体 |
+| 测试 #2(line ~50)| 锁 OutputFormat 含 V2 carrier 标识 | OutputFormat | **SAFE** |
+| 测试 #3(line ~70)| 锁 Workflow + OutputFormat 不含退役 V1 词汇 | OutputFormat | **SAFE** — Phase A 增加纯化(删规则)反而更绿 |
+| 测试 #4(line ~104)| 锁 Workflow 提及 claim_uses 教学(规则 #4)| 规则 #4 | **MUST VERIFY**:删 #4 后,需确认 OutputFormat §Claim annotations 仍包含等价教学 |
+| 测试 #5(line ~125)| 锁 Workflow 提及 edge_anchors 教学(规则 #5)| 规则 #5 | **MUST VERIFY**:删 #5 后同上 |
+| 测试 #6(line ~155)| 锁 Workflow 含 abstraction-level matching(规则 #8 / A'')| 规则 #8 | **KEEP & EXPAND** — 加 `// task #8 ref` 注释 |
 
-**注**:实际 case 路径 + 测试名以 `internal/orchestrator/` / `evals/` 下的实际文件为准 — 提交前 grep `t.Run("<case_name>"` 确认。Eval 命令模板见 `MEMORY.md` 中"Real eval workflow"段(若不存在则 Phase A commit 7 顺手新增)。
+**验证策略**:Commit 2 / Commit 4 实施前,先确认 `defaults.go::OutputFormat` 的对应 §-标题(§Claim annotations / §Diagram contract)真包含规则 #4 / #5 的等价教学;若不全,先把缺失部分补到 OutputFormat,再删 Workflow 规则。
 
-**PASS 判定**:每 case 4 次 run,使用本 case spec 自带的 regex/keyword 验证。Phase A bar:
-- qf_arch x4 = 4/4(从 3/4)
-- m1a x4 = 4/4
-- s1a / u3a / qf_config_precedence x4 = 不低于当前 baseline
-
-**FAIL 处理**:严格按 `feedback_no_eval_bar_relaxation.md` — 任何 case 回归则该 commit revert。**禁止**调整 case spec regex 让 PASS。
+`internal/agent/answer_document_evaluator_test.go` 中对 OutputFormat 的断言(line 33-71, 2976+)— Agent 验证这些锁的是 **dynamic dispatch 文本而非 static skill 定义** → Phase A 改 static skill 不影响这些测试。
 
 ---
 
@@ -351,19 +411,19 @@ go test ./evals/qf_config_precedence/ -run TestQfConfigPrecedence_x4 -count=1 -v
 - 🔴 `feedback_redundant_inline_directive_removal.md` — 删 LLM-facing 指令 3 步走:(1)确认对应 validator/hint 已 cover (2)delete (3)eval 验证
 - 🔴 `feedback_no_eval_bar_relaxation.md` — 跑出 FAIL 不放宽 case spec
 - 🔴 `feedback_no_dismiss_as_llm_flake.md` — 任何 jitter 必须深查根因,不许"LLM flake"草草收场
-- 🔴 `feedback_root_cause_only.md` — 删规则若引发新 jitter,根因可能是 hint 不够细 → 加 hint(commit 1 已留扩展余地),不许通过加 prompt 规则绕回去
-- 🔴 `feedback_prompt_redline_checklist.md` — KEEP-FULL 7 条规则若改文本必过 ATOMIC 7 条 R3+R4+R5+R6+R7+SST+R2' checklist
-- 🔴 `feedback_no_internal_info_in_llm_prompts.md` — 增强的 hint 文本不能露 system 内部术语(grep "validator" / "Viol" / "evidence pool" 这些只在系统侧用的词)
+- 🔴 `feedback_root_cause_only.md` — 删规则若引发新 jitter,根因可能是 hint 不够细 → 加 hint(Commit 1 已留扩展余地),不许通过加 prompt 规则绕回去
+- 🔴 `feedback_prompt_redline_checklist.md` — KEEP-FULL 8 条规则若改文本必过 ATOMIC 7 条 R3+R4+R5+R6+R7+SST+R2' checklist
+- 🔴 `feedback_no_internal_info_in_llm_prompts.md` — 增强的 hint 文本不能露 system 内部术语(grep `validator` / `Viol` / `evidence pool` 这些只在系统侧用的词);Commit 1 加 LLM-facing jargon audit 验证
 
 ---
 
 ## 8. 失败回退路径
 
-如果 commit 4(高风险 enumeration label 删除批)在 eval 中导致 m1a / qf_arch 回归且 commit 1 增强的 hint 仍不够:
+如果 commit 5(高风险 enumeration label 删除批)在 eval 中导致 m1a / qf_arch 回归且 Commit 1 增强的 hint 仍不够:
 
-- **Plan A**: 回退 commit 4,接受 Phase A 净 DELETE = 7-8 条(commit 2 + 3 + 5 已删的)。A'' 注意力份额从 1/24 → ~1/14,仍是有效改善。
-- **Plan B**: 不回退,但补打一个 commit 进一步增强 `ViolEnumerationLabelUngrounded` hint 文本(加例子 + 反例)。再跑 eval。
-- **Plan C** (最差):回退 commit 4 + commit 5,Phase A 收口为 commit 1-3,准备 Phase B(扩 cooccurrence 规则覆盖)再回头删剩余规则。
+- **Plan A**:回退 commit 5,接受 Phase A 净 DELETE = 8 条(commit 2 + 3 + 4 + 6 已删的 6+1+3+6 — 含 Prohibitions)。A'' 注意力份额从 1/24 → ~1/16,仍是有效改善。
+- **Plan B**:不回退,但补打一个 commit 进一步增强 `ViolEnumerationLabelUngrounded` hint 文本(加例子 + 反例)。再跑 eval。
+- **Plan C**(最差):回退 commit 4 + commit 5,Phase A 收口为 commit 1-3 + 6,准备 Phase B(扩 cooccurrence 规则覆盖)再回头删剩余规则。
 
 ---
 
@@ -373,14 +433,59 @@ go test ./evals/qf_config_precedence/ -run TestQfConfigPrecedence_x4 -count=1 -v
 - ❌ 不动 AnswerSemanticView 结构 — 那是 Phase C
 - ❌ 不引入 sub-family enum(role-enum / mechanism-enum)— Phase C
 - ❌ 不动 OutputFormat ~155 行散文主体 — 它是 KEEP-COMPACT 类
-- ❌ 不动 hint composer 25 case 之外的新 ViolKind — 现有 ViolKind 集合足够
+- ❌ 不动 hint composer 现有 15 case 的 14 个 — 只动 1 个 existing case + 加 2 新 case
 - ❌ 不动 retry budget / cooccurrence rule 数量 — Phase B 工作
+- ❌ 不删规则 #10(item.kind count discipline)— 那是 LLM 判断题,validator 不覆盖
+- ❌ 不删规则 #16 全部 — 拆分为半保留 + 半删除
 
 ---
 
-## 10. 验收 checklist(本 session 收口前必跑)
+## 10. 真实代码事实速查表(实施时验证用)
 
-- [ ] commit 序列 1-7 全部 push 到 origin/main(未推则 `feedback_confirm_before_push.md`)
+下面是本 Phase 涉及的所有真实 code 信号,实施前必 grep 一次确认未漂移:
+
+```bash
+# 24 条 Workflow 规则(逐字读)
+sed -n '119,142p' internal/skill/defaults.go
+
+# 10 条 Prohibitions
+sed -n '308,319p' internal/skill/defaults.go
+
+# OutputFormat §-标题真实存在性
+grep -n "^## " <(sed -n '152,307p' internal/skill/defaults.go)
+
+# 13 个 V2 validator 装配
+grep -n "validateRequiredBlockCoverage\|validatePrincipalClaimUse\|validateDiagramEdgeSupport\|validateUncertaintyBlockPresence\|validateFacetCoverage\|validateRichnessGlaringGap\|validatePrincipalProseUnderfilled\|validateRichnessRegression\|validateClaimFormSupport\|validateMissingRequestedRoleDisclosure\|validateAbsenceScopeBound\|validateEnumerationItemLabelGrounding\|validateEnumerationItemLabelExtractorMatch" internal/orchestrator/contract_check_block.go
+
+# Hint composer 真实 15 explicit case + 1 default
+grep -c "case types.Viol\|^\s*}\s*$\|^\s*return \"Address" internal/analysis/hint/composer.go
+
+# ViolAbsenceScopeExceeded 真实定义
+grep -n "ViolAbsenceScopeExceeded\s*ViolationKind" internal/types/violation.go
+
+# ViolEnumerationLabelUngrounded 真实定义
+grep -n "ViolEnumerationLabelUngrounded\s*ViolationKind" internal/types/violation.go
+
+# defaults_test.go 锁 finalizer skill 的所有 substring
+grep -n "answer-document-skill" internal/skill/defaults_test.go
+
+# answer_document_evaluator.go reject signal codes
+grep -n "answerDocRejectCode" internal/agent/answer_document_evaluator.go
+
+# 9 条 cooccurrence rule
+grep -n "Primary:\s*types.Viol" internal/orchestrator/repair_cooccurrence.go
+
+# LLM-facing jargon 红线
+grep -n "validator\|Viol\|evidence pool" internal/orchestrator/llm_facing_jargon_audit_test.go
+```
+
+实施任何 commit 前,先把这些 grep 结果与 §2 / §3 各表对齐。如有漂移,本 Phase 设计需要修正,而不是猜测继续实施。
+
+---
+
+## 11. 验收 checklist(本 session 收口前必跑)
+
+- [ ] commit 序列 1-8 全部 push 到 origin/main(`feedback_confirm_before_push.md`)
 - [ ] qf_arch x4 = 4/4(本 Phase 主 bar)
 - [ ] m1a x4 = 4/4(不回归)
 - [ ] s1a / u3a / qf_config_precedence x4 不回归
@@ -395,34 +500,34 @@ go test ./evals/qf_config_precedence/ -run TestQfConfigPrecedence_x4 -count=1 -v
 
 ## 附录 A — 24 Workflow 规则 + Validator file:line 速查表
 
-| # | 规则一句话摘要 | Validator file:line | Hint composer case |
-|---|---|---|---|
-| 1 | Write directly into emit_answer_document | tool layer | n/a |
-| 2 | Required Answer Blocks mandatory | contract_check_block.go:71 `validateRequiredBlockCoverage` | composer.go:430 `ViolBlockCoverageMissing` |
-| 3 | blocks[] is the carrier | tool layer schema | n/a |
-| 4 | claim_uses required on principal | contract_check_block.go:134 `validatePrincipalClaimUse` | composer.go:410 `ViolPrincipalClaimUseMissing` |
-| 5 | edge_anchors block-level array | contract_check_block.go:204 `validateDiagramEdgeSupport` | composer.go:416 `ViolDiagramEdgeUnsupported` |
-| 6 | diagram.kind ∈ semantic family enum | answer_block_normalize.go:52-56 | composer.go:416 (same as #5) |
-| 7 | enumeration item label verbatim | contract_check_block.go:1746,1858 `validateEnumerationItemLabelGrounding/ExtractorMatch` | (default) — 增强见 §4.1 |
-| 8 | **A'' abstraction-level matching** | **none — judgment** | n/a — KEEP-FULL |
-| 9 | hop-chain item describes behavior | none — judgment | n/a — KEEP-FULL |
-| 10 | item.kind enum + count | contract_check_block.go:71 (count gate) | composer.go:430 |
-| 11 | bucket label verbatim | contract_check_block.go:1557 `validateMissingRequestedRoleDisclosure` | composer.go:434 — 增强见 §4.3 |
-| 12 | scalar block schema | answer_block_normalize.go schema | n/a — schema teaching |
-| 13 | decision block schema | answer_block_normalize.go schema | n/a |
-| 14 | enumeration item file:line real anchor | contract_check_block.go:1746 | (default) |
-| 15 | summary-only structure | none — judgment | n/a — KEEP-FULL |
-| 16 | citations[] declared once | tool layer schema | n/a |
-| 17 | log-triage prefer hop-chain | none — judgment | n/a — KEEP-FULL |
-| 18 | file-shaped tokens in citations | answer_document_evaluator.go:2770 | reject signal `diagram_grounding` |
-| 19 | sealed-seed verbatim | answer_document_evaluator.go:3119 `appendRetryDiagramSeedHint` | dedicated retry hint |
-| 20 | log-triage error.Type verbatim | contract_check.go:248 `runExternalArtifactDecodedCheck` | rationale lists missing tokens |
-| 21 | subject discipline | none — judgment | n/a — KEEP-FULL |
-| 22 | authority discipline (drift) | contract_check.go:186 `runAuthorityOverreachCheck` (partial) | n/a — KEEP-FULL |
-| 23 | code-vs-narrative divergence | contract_check.go:144 `runStructuralEnumerationDivergenceOracleV2` (partial) | n/a — KEEP-FULL |
-| 24 | absence-citation discipline | contract_check_block.go:1519 `validateAbsenceScopeBound` | (default) — 增强见 §4.2 |
+| # | 规则一句话摘要 | Validator file:line | Hint composer case | 决策 |
+|---|---|---|---|---|
+| 1 | Write directly into emit_answer_document | tool layer | n/a | KEEP-COMPACT |
+| 2 | Required Answer Blocks mandatory | contract_check_block.go:71 `validateRequiredBlockCoverage` | composer.go:430 `ViolBlockCoverageMissing` | DELETE-UNCOND |
+| 3 | blocks[] is the carrier | tool layer schema | n/a | KEEP-COMPACT |
+| 4 | claim_uses required on principal | contract_check_block.go:134 `validatePrincipalClaimUse` | composer.go:410 `ViolPrincipalClaimUseMissing` | DELETE-UNCOND |
+| 5 | edge_anchors block-level array | contract_check_block.go:204 `validateDiagramEdgeSupport` | composer.go:416 `ViolDiagramEdgeUnsupported`(增强后)| DELETE-COND |
+| 6 | diagram.kind ∈ semantic family enum | answer_block_normalize.go:52-56 | composer.go:416(同 #5)| DELETE-UNCOND |
+| 7 | enumeration item label verbatim | contract_check_block.go:1746,1858 | (新加 case,见 §4.1)| DELETE-COND |
+| **8** | **A'' abstraction-level matching** | **none — judgment** | n/a | **KEEP-FULL** |
+| 9 | hop-chain item describes behavior | none — judgment | n/a | KEEP-FULL |
+| 10 | item.kind enum + count discipline | tool layer enum check;**count NO validator** | n/a | KEEP-FULL |
+| 11 | bucket label verbatim | contract_check_block.go:1557 `validateMissingRequestedRoleDisclosure` | composer.go:434 `ViolMissingRequestedRoleUndisclosed`(增强后)| DELETE-COND |
+| 12 | scalar block schema | answer_block_normalize.go schema | n/a | KEEP-COMPACT |
+| 13 | decision block schema | answer_block_normalize.go schema | n/a | KEEP-COMPACT |
+| 14 | enumeration item file:line real anchor | contract_check_block.go:1746(label only)+ grounder render-time | (新加 case,见 §4.1)| DELETE-COND |
+| 15 | summary-only structure | none — judgment | n/a | KEEP-FULL |
+| 16 | citations[] declared once + citation_ref placement | "ONCE" judgment / "placement" tool schema | n/a | SPLIT(半 KEEP / 半 DELETE)|
+| 17 | log-triage prefer hop-chain | none — judgment | n/a | KEEP-FULL |
+| 18 | file-shaped tokens in citations | answer_document_evaluator.go:2770 | reject signal `diagram_grounding`(456 字)| DELETE-UNCOND |
+| 19 | sealed-seed verbatim | answer_document_evaluator.go:3119 `appendRetryDiagramSeedHint` | dedicated retry hint | DELETE-UNCOND |
+| 20 | log-triage error.Type verbatim | contract_check.go:248 `runExternalArtifactDecodedCheck` | rationale lists missing tokens | DELETE-UNCOND |
+| 21 | subject discipline | none — judgment | n/a | KEEP-FULL |
+| 22 | authority discipline (drift) | contract_check.go:186 `runAuthorityOverreachCheck`(partial — caveat presence)| n/a — prose attribution judgment | KEEP-FULL |
+| 23 | code-vs-narrative divergence | contract_check.go:144 `runStructuralEnumerationDivergenceOracleV2`(partial)| n/a — prose narrative judgment | KEEP-FULL |
+| 24 | absence-citation discipline | contract_check_block.go:1519 `validateAbsenceScopeBound` | (新加 case,见 §4.2 — 真实 ViolKind `ViolAbsenceScopeExceeded` violation.go:299)| DELETE-COND |
 
-`cb` = `contract_check_block.go`, `cc` = `contract_check.go`.
+`cb` = `contract_check_block.go`, `cc` = `contract_check.go`, `ade` = `answer_document_evaluator.go`.
 
 ---
 
@@ -431,11 +536,26 @@ go test ./evals/qf_config_precedence/ -run TestQfConfigPrecedence_x4 -count=1 -v
 `MEMORY.md` 索引中本设计的位置:`docs/design/finalizer_phase_a_rule_bisection.md`。Phase A 完成 ship 后,在 `MEMORY.md` 顶部增加:
 
 ```
-- 🟢 [**finalizer Phase A — rule bisection SHIPPED (<date>, N commits)**](project_session_finalizer_phase_a_shipped.md) — 删 12-13 条 machine-checkable Workflow rule + 6 条重复 Prohibition + 增强 3 case hint。A'' 注意力份额从 1/24 → 1/10。qf_arch x4 = 4/4 PASS。下一阶段:Phase C SHAPE_CONTRACT typed sub-family enum。
+- 🟢 [**finalizer Phase A — rule bisection SHIPPED (<date>, N commits)**](project_session_finalizer_phase_a_shipped.md) — 删 11 条 machine-checkable Workflow rule(6 unconditional + 5 conditional after hint enrichment)+ 6 条重复 Prohibition + SPLIT 1 条 + 增强 hint composer 3 case(2 新 + 1 改)。A'' 注意力份额从 1/24 → ~1/13。qf_arch x4 = 4/4 PASS。下一阶段:Phase C SHAPE_CONTRACT typed sub-family enum。
 ```
 
 并加一条 cross-session red line(如果新发现):
 
 ```
-- 🔴 [**删 prompt 规则前必须查 hint composer 是否有对应 case**](feedback_prompt_delete_requires_hint_case.md) — Phase A SHIPPED 经验
+- 🔴 [**删 prompt 规则前必须查 hint composer 是否有 actionable case**](feedback_prompt_delete_requires_hint_case.md) — Phase A SHIPPED 经验:DEFAULT fallback 不算 actionable
 ```
+
+---
+
+## 附录 C — 实施 quirk 备注(2026-05-05 真实代码审计)
+
+1. **Hint composer 真实 case 数**:`summariseExactFix`(composer.go:374-440)有 **15 explicit case + 1 default**(grep `case types.Viol` 数 25 是因为 6 个 case 复合多 ViolKind,如 `case ViolFamilyMismatch, ViolViewSwap`)。
+2. **`ViolAbsenceScopeExceeded` 真实定义**:`internal/types/violation.go:299` `ViolAbsenceScopeExceeded ViolationKind = "absence_scope_exceeded"`。**Phase A Commit 1 加新 case 时用此名,不要用其它猜测的名字**。
+3. **`ViolEnumerationLabelUngrounded` 当前状态**:不在 `summariseExactFix` 任何 case,走 DEFAULT fallback。在 cooccurrence rule C5 / C6 / C6.1 中作 Derived 角色。
+4. **Hint 长度无 Render 截断**:`composer.go::Render` 直接 `fmt.Fprintf("**How to fix now**: %s\n\n", h.ExactFix)` — 无 truncation。Phase A 增强可放心扩文本(单 case 200-400 字符均可)。AllowedSet/ForbiddenPatterns 各有 cap(default 10/5)。
+5. **defaults_test.go 0 个 Prohibition substring 锁**:Commit 6(Prohibitions 删除)无测试更新成本 — 验证过。
+6. **跨文档引用零成本**:CLAUDE.md / MEMORY.md / 其他 docs 不引用 Phase A 规则名 — 删规则不需 cross-doc sync。
+7. **Workflow 重新编号风险**:`internal/context/builder.go::formatNumberedList(sk.Workflow)` 把 Workflow slice 渲染成 1-based numbered list。删规则后剩余规则编号 1-13 重排 — Hint / cooccurrence 文本中**没有** `rule #N` 引用,所以重新编号无 dangling reference 风险。
+8. **真 eval 命令**:本仓库的 eval test 命名约定可能是 `TestE2E_<case>_x4` 而非 `Test<Case>_x4` — 实施前 grep `t.Run("` 确认。
+9. **OutputFormat §-标题验证完成**:§Tool choice / §Block contract / §Block-kind payloads / §Claim annotations / §Diagram contract / §Citation pool 全部存在(见 §2.1 表精确 line)。
+10. **`buildAllowedSet` 覆盖度**:仅 6 个 ViolKind 有 case(其余 36 个 ViolKind 返回空 Allowed list)。Commit 1 加 `ViolEnumerationLabelUngrounded` 时同时加 `buildAllowedSet` case 返回 evidence pool anchor。
