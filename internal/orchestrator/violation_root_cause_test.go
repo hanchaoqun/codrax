@@ -3,6 +3,7 @@ package orchestrator
 import (
 	"testing"
 
+	"github.com/hanchaoqun/codrax/internal/analysis/contract"
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
@@ -140,6 +141,53 @@ func TestFilterDerivedViolations(t *testing.T) {
 		}
 	}
 }
+
+// TestRenderViolations_SkipsDerived pins the W2.4 wiring: when
+// renderViolations sees a result whose only violations are
+// IsDerived=true, the retry hint comes back empty (the root's
+// derivation has been collapsed by ComputeRootCauseClosure
+// upstream).
+func TestRenderViolations_SkipsDerived(t *testing.T) {
+	res := stubResultWithViolations(
+		types.Violation{
+			Kind:      types.ViolDiagramEdgeLabelMismatch,
+			IsDerived: true,
+			RootKind:  types.ViolDiagramEdgeUnsupported,
+		},
+	)
+	if got := renderViolations(res); got != "" {
+		t.Errorf("renderViolations should suppress all-derived input, got %q", got)
+	}
+}
+
+// TestRenderViolations_KeepsRoot — a root violation co-existing
+// with its derivation surfaces only the root in the retry hint.
+func TestRenderViolations_KeepsRoot(t *testing.T) {
+	res := stubResultWithViolations(
+		types.Violation{Kind: types.ViolDiagramEdgeUnsupported, Detail: "edge needs typed anchor"},
+		types.Violation{
+			Kind:      types.ViolDiagramEdgeLabelMismatch,
+			IsDerived: true,
+			RootKind:  types.ViolDiagramEdgeUnsupported,
+		},
+	)
+	got := renderViolations(res)
+	if got == "" {
+		t.Fatal("renderViolations should surface the root violation")
+	}
+}
+
+// stubResultWithViolations is a small test helper. We cannot import
+// contract package here directly because of cycle constraints — so
+// we go through the type-aliased contract.Violation.
+func stubResultWithViolations(vs ...types.Violation) contractResultStub {
+	return contractResultStub{Passed: false, Violations: vs}
+}
+
+// contractResultStub has the same fields as contract.Result needed
+// by renderViolations. Because Result has unexported fields, we
+// emulate the public surface needed.
+type contractResultStub = contract.Result
 
 // TestComputeRootCauseClosure_EmptyInput — nil/empty in -> nil out.
 func TestComputeRootCauseClosure_EmptyInput(t *testing.T) {

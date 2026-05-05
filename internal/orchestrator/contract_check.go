@@ -1555,9 +1555,18 @@ func renderViolations(res contract.Result) string {
 	if res.Passed || len(res.Violations) == 0 {
 		return ""
 	}
-	// The Composer accepts []types.Violation and contract.Violation
-	// is a type alias, so the slice passes through without copying.
-	h, _ := hintComposerSingleton.Compose(hint.Context{}, []types.Violation(res.Violations))
+	// W2.4 (2026-05-05): drop IsDerived=true entries before
+	// rendering so the retry hint surfaces ONE root per
+	// fingerprint, not N facets of the same problem. ChainsDemoted
+	// / SymbolAnchorMismatch / EdgeUnsupported etc. that are
+	// flagged as derivations of a higher-level root carry no
+	// independent fix instruction; suppressing them stops the
+	// "fix one, three new ones rotate in" loop seen pre-W2.
+	roots := FilterDerivedViolations([]types.Violation(res.Violations))
+	if len(roots) == 0 {
+		return ""
+	}
+	h, _ := hintComposerSingleton.Compose(hint.Context{}, roots)
 	return hintComposerSingleton.RenderCompact(h)
 }
 

@@ -3573,6 +3573,24 @@ func (o *Orchestrator) runReadSchedulerLoop(stepBudget int) int {
 			}
 		}
 
+		// W2.4 (2026-05-05): root-cause closure runs once per
+		// contract result so downstream consumers (retry hint
+		// builder, repair planner, materializer) see the SAME
+		// IsDerived / RootKind classification. Without this central
+		// pass the LLM gets a retry hint listing 4 violations when
+		// only 1 root cause exists, then "fixes" one and the others
+		// rotate (qfa-mr3 forensic — see
+		// docs/design/iteration_inflation_remediation.md §3 #1).
+		//
+		// The closure is non-mutating w.r.t. the underlying validator
+		// outputs — it only stamps IsDerived / RootKind for in-batch
+		// suppression. Operator telemetry (ledger, closure stats)
+		// continues to receive every violation; only the LLM-facing
+		// surfaces honour the IsDerived flag.
+		if len(res.Violations) > 0 {
+			res.Violations = ComputeRootCauseClosure(res.Violations)
+		}
+
 		if res.Passed {
 			// Live preview cleanup: contract pass means the draft
 			// just streamed IS the final answer (modulo the
