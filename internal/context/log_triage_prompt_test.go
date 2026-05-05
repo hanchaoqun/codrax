@@ -337,6 +337,11 @@ func TestFormatLogTriageStructured_ExternalSourceDirective_FiresWhenResolvedZero
 		t.Errorf("External-source directive must appear before Meta block (directive at %d, Meta at %d):\n%s",
 			directiveIdx, metaIdx, got)
 	}
+	for _, forbidden := range []string{"steps[]", "emit_answer_document.symbols"} {
+		if strings.Contains(got, forbidden) {
+			t.Errorf("external-source directive must not mention retired V1/V1.5 channels %q:\n%s", forbidden, got)
+		}
+	}
 }
 
 // TestFormatLogTriageStructured_ExternalSourceDirective_NoFireWhenResolvedNonEmpty

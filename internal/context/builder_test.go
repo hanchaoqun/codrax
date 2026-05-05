@@ -1890,6 +1890,9 @@ func TestBuildPromptContext_RawToolOutputs_WiredForMeasurementScalar(t *testing.
 	if !strings.Contains(sec.Content, "73396 total") {
 		t.Errorf("section missing the scalar tail:\n%s", sec.Content)
 	}
+	if strings.Contains(sec.Content, "value{literal") {
+		t.Errorf("raw tool output guidance must not teach retired V1 scalar payloads:\n%s", sec.Content)
+	}
 }
 
 func TestBuildPromptContext_ToolSourcedValueGuidance_RenderedForExplore(t *testing.T) {
