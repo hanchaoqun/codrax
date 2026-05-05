@@ -273,6 +273,32 @@ func TestRenderV2_MissingRequestedRoles(t *testing.T) {
 	}
 }
 
+func TestRenderV2_StripsAuthorityMarkersFromPrincipalBlocks(t *testing.T) {
+	doc := &types.AnswerDocumentV2{
+		Blocks: []types.AnswerBlock{
+			{ID: "s1", Kind: types.BlockSummary, Text: "[hedged] current code suggests the failure starts here."},
+			{
+				ID:   "o1",
+				Kind: types.BlockOrderedList,
+				Items: []types.AnswerBlockItem{
+					{Label: "[historical] ParseOutput", Text: "[illustrative] old stack frame", CitationRef: -1},
+				},
+			},
+		},
+	}
+	out := RenderAnswerDocument(doc, "en")
+	for _, forbidden := range []string{"[hedged]", "[historical]", "[illustrative]"} {
+		if strings.Contains(out, forbidden) {
+			t.Fatalf("authority marker %q leaked into rendered output:\n%s", forbidden, out)
+		}
+	}
+	for _, want := range []string{"current code suggests the failure starts here.", "ParseOutput", "old stack frame"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("rendered output missing %q after stripping markers:\n%s", want, out)
+		}
+	}
+}
+
 func TestRenderV2_BoundaryEmptyBlocks(t *testing.T) {
 	doc := &types.AnswerDocumentV2{
 		Blocks: []types.AnswerBlock{

@@ -85,8 +85,8 @@ func renderV2BlockSummary(b *strings.Builder, blk types.AnswerBlock, _ answerDoc
 	if strings.TrimSpace(blk.Title) != "" {
 		fmt.Fprintf(b, "## %s\n\n", blk.Title)
 	}
-	if strings.TrimSpace(blk.Text) != "" {
-		b.WriteString(blk.Text)
+	if text := renderUserSurfaceText(blk.Text); text != "" {
+		b.WriteString(text)
 		b.WriteString("\n\n")
 	}
 }
@@ -99,8 +99,8 @@ func renderV2BlockSection(b *strings.Builder, blk types.AnswerBlock, lang answer
 	} else {
 		fmt.Fprintf(b, "### %s\n\n", heading)
 	}
-	if strings.TrimSpace(blk.Text) != "" {
-		b.WriteString(blk.Text)
+	if text := renderUserSurfaceText(blk.Text); text != "" {
+		b.WriteString(text)
 		b.WriteString("\n\n")
 	}
 	rendered := 0
@@ -126,8 +126,8 @@ func renderV2BlockOrderedList(b *strings.Builder, blk types.AnswerBlock, doc *ty
 	if strings.TrimSpace(blk.Title) != "" {
 		fmt.Fprintf(b, "**%s**\n\n", blk.Title)
 	}
-	if strings.TrimSpace(blk.Text) != "" {
-		b.WriteString(blk.Text)
+	if text := renderUserSurfaceText(blk.Text); text != "" {
+		b.WriteString(text)
 		b.WriteString("\n\n")
 	}
 	idx := 0
@@ -148,8 +148,8 @@ func renderV2BlockBulletList(b *strings.Builder, blk types.AnswerBlock, doc *typ
 	if strings.TrimSpace(blk.Title) != "" {
 		fmt.Fprintf(b, "**%s**\n\n", blk.Title)
 	}
-	if strings.TrimSpace(blk.Text) != "" {
-		b.WriteString(blk.Text)
+	if text := renderUserSurfaceText(blk.Text); text != "" {
+		b.WriteString(text)
 		b.WriteString("\n\n")
 	}
 	rendered := 0
@@ -171,11 +171,11 @@ func renderV2BlockScalar(b *strings.Builder, blk types.AnswerBlock, doc *types.A
 	if lang == answerDocLangZH {
 		prefix = "值："
 	}
-	literal := strings.TrimSpace(blk.Text)
+	literal := renderUserSurfaceText(blk.Text)
 	if len(blk.Items) > 0 && literal == "" {
 		// Scalar may use first item's Label as literal when Text is
 		// empty (B3 schema accepts both shapes).
-		literal = strings.TrimSpace(blk.Items[0].Label)
+		literal = renderUserSurfaceText(blk.Items[0].Label)
 	}
 	if literal == "" {
 		return
@@ -196,7 +196,7 @@ func renderV2BlockDecision(b *strings.Builder, blk types.AnswerBlock, doc *types
 	if lang == answerDocLangZH {
 		prefix = "结论："
 	}
-	body := strings.TrimSpace(blk.Text)
+	body := renderUserSurfaceText(blk.Text)
 	fmt.Fprintf(b, "**%s** %s", prefix, body)
 	cite := blockTopCitation(blk, doc)
 	if cite != "" {
@@ -209,8 +209,8 @@ func renderV2BlockTable(b *strings.Builder, blk types.AnswerBlock, _ *types.Answ
 	if strings.TrimSpace(blk.Title) != "" {
 		fmt.Fprintf(b, "**%s**\n\n", blk.Title)
 	}
-	if strings.TrimSpace(blk.Text) != "" {
-		b.WriteString(strings.TrimSpace(blk.Text))
+	if text := renderUserSurfaceText(blk.Text); text != "" {
+		b.WriteString(text)
 		b.WriteString("\n\n")
 	}
 	if len(blk.Items) == 0 {
@@ -248,7 +248,7 @@ func renderV2BlockDiagram(b *strings.Builder, blk types.AnswerBlock, _ answerDoc
 }
 
 func renderV2BlockCaveat(b *strings.Builder, blk types.AnswerBlock, _ answerDocLang) {
-	body := strings.TrimSpace(blk.Text)
+	body := renderUserSurfaceText(blk.Text)
 	if body == "" {
 		return
 	}
@@ -267,10 +267,10 @@ func renderV2BlockCaveat(b *strings.Builder, blk types.AnswerBlock, _ answerDocL
 // bullet / section lists.
 func renderV2BlockItem(it types.AnswerBlockItem, doc *types.AnswerDocumentV2, _ answerDocLang) string {
 	parts := make([]string, 0, 3)
-	if l := strings.TrimSpace(it.Label); l != "" {
+	if l := renderUserSurfaceText(it.Label); l != "" {
 		parts = append(parts, "**"+l+"**")
 	}
-	if t := strings.TrimSpace(it.Text); t != "" {
+	if t := renderUserSurfaceText(it.Text); t != "" {
 		parts = append(parts, t)
 	}
 	out := strings.Join(parts, " — ")
@@ -419,4 +419,9 @@ func renderAnswerDocV2Snippets(b *strings.Builder, snippets []types.CodeSnippet,
 // cells so a Label / Text containing "|" doesn't break the table.
 func escapePipe(s string) string {
 	return strings.ReplaceAll(s, "|", "\\|")
+}
+
+func renderUserSurfaceText(s string) string {
+	s = StripAuthorityArtifacts(s)
+	return strings.TrimSpace(s)
 }
