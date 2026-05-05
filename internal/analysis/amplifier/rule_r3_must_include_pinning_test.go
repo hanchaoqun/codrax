@@ -1,0 +1,210 @@
+package amplifier
+
+import (
+	"testing"
+
+	"github.com/hanchaoqun/codrax/internal/types"
+)
+
+func collectR3Observations(obs []Observation) []Observation {
+	var out []Observation
+	for _, o := range obs {
+		if o.Rule == "R3_typed_identifier_mustinclude" {
+			out = append(out, o)
+		}
+	}
+	return out
+}
+
+// TestR3_FiresOnEnumeration covers the canonical case: cat=true +
+// 4 identifier-shaped entities → all 4 added to MustInclude, one
+// observation emitted.
+func TestR3_FiresOnEnumeration(t *testing.T) {
+	rm := types.RequestModel{
+		AnalyzerHints: types.AnalyzerHints{
+			Entities: []string{"StageAnalyze", "StageExplore", "StageExtract", "StageFinalize"},
+		},
+		Predicates: types.SemanticPredicates{
+			IsCategoryEnumeration: true,
+		},
+	}
+	contract := types.AnswerContract{}
+	obs := AmplifyPostCompile(rm, &contract)
+	r3 := collectR3Observations(obs)
+	if len(r3) != 1 {
+		t.Fatalf("expected 1 R3 observation, got %d (%+v)", len(r3), r3)
+	}
+	if len(contract.MustInclude) != 4 {
+		t.Errorf("expected 4 MustInclude entries, got %d (%+v)", len(contract.MustInclude), contract.MustInclude)
+	}
+	want := map[string]bool{"StageAnalyze": true, "StageExplore": true, "StageExtract": true, "StageFinalize": true}
+	for _, m := range contract.MustInclude {
+		if !want[m] {
+			t.Errorf("unexpected MustInclude entry %q", m)
+		}
+	}
+}
+
+// TestR3_NoFire_NotEnumeration covers gate #1: when
+// IsCategoryEnumeration=false the rule must not fire even with
+// many identifier-shaped entities.
+func TestR3_NoFire_NotEnumeration(t *testing.T) {
+	rm := types.RequestModel{
+		AnalyzerHints: types.AnalyzerHints{
+			Entities: []string{"StageAnalyze", "StageExplore", "StageExtract"},
+		},
+		Predicates: types.SemanticPredicates{
+			IsCategoryEnumeration: false,
+		},
+	}
+	contract := types.AnswerContract{}
+	obs := AmplifyPostCompile(rm, &contract)
+	r3 := collectR3Observations(obs)
+	if len(r3) != 0 {
+		t.Errorf("R3 must NOT fire when IsCategoryEnumeration=false, got %+v", r3)
+	}
+	if len(contract.MustInclude) != 0 {
+		t.Errorf("R3 must not modify MustInclude on no-fire, got %+v", contract.MustInclude)
+	}
+}
+
+// TestR3_NoFire_EmptyEntities covers gate #2.
+func TestR3_NoFire_EmptyEntities(t *testing.T) {
+	rm := types.RequestModel{
+		Predicates: types.SemanticPredicates{IsCategoryEnumeration: true},
+	}
+	contract := types.AnswerContract{}
+	obs := AmplifyPostCompile(rm, &contract)
+	r3 := collectR3Observations(obs)
+	if len(r3) != 0 {
+		t.Errorf("R3 must NOT fire on empty entity list, got %+v", r3)
+	}
+}
+
+// TestR3_DropsProseEntities covers gate #3: the isIdentifierLike
+// filter rejects lowercase prose words. Mixed input must result in
+// only identifier-shaped entries pinned.
+func TestR3_DropsProseEntities(t *testing.T) {
+	rm := types.RequestModel{
+		AnalyzerHints: types.AnalyzerHints{
+			Entities: []string{
+				"StageAnalyze", "StageExplore",
+				"stage", "agent", "概念性短语", "config",
+			},
+		},
+		Predicates: types.SemanticPredicates{IsCategoryEnumeration: true},
+	}
+	contract := types.AnswerContract{}
+	obs := AmplifyPostCompile(rm, &contract)
+	r3 := collectR3Observations(obs)
+	if len(r3) != 1 {
+		t.Fatalf("expected 1 R3 observation, got %+v", r3)
+	}
+	if len(contract.MustInclude) != 2 {
+		t.Errorf("expected 2 identifier-shaped MustInclude entries, got %d (%+v)",
+			len(contract.MustInclude), contract.MustInclude)
+	}
+}
+
+// TestR3_DedupesAgainstExisting covers gate #4: entities already
+// present in MustInclude must not be re-added.
+func TestR3_DedupesAgainstExisting(t *testing.T) {
+	rm := types.RequestModel{
+		AnalyzerHints: types.AnalyzerHints{
+			Entities: []string{"StageAnalyze", "StageExplore", "StageExtract"},
+		},
+		Predicates: types.SemanticPredicates{IsCategoryEnumeration: true},
+	}
+	contract := types.AnswerContract{
+		MustInclude: []string{"StageAnalyze"}, // already pinned by template
+	}
+	obs := AmplifyPostCompile(rm, &contract)
+	r3 := collectR3Observations(obs)
+	if len(r3) != 1 {
+		t.Fatalf("expected 1 R3 observation, got %+v", r3)
+	}
+	if len(contract.MustInclude) != 3 {
+		t.Errorf("expected MustInclude=3 (1 existing + 2 added), got %d (%+v)",
+			len(contract.MustInclude), contract.MustInclude)
+	}
+	// Verify no duplicate of StageAnalyze was added.
+	count := 0
+	for _, m := range contract.MustInclude {
+		if m == "StageAnalyze" {
+			count++
+		}
+	}
+	if count != 1 {
+		t.Errorf("StageAnalyze duplicated %d times; dedupe failed", count)
+	}
+}
+
+// TestR3_DedupeIsCaseFolded covers the case-insensitive dedupe:
+// "stageAnalyze" in entity list should be treated as duplicate of
+// "StageAnalyze" already in MustInclude, even though the surface
+// strings differ.
+func TestR3_DedupeIsCaseFolded(t *testing.T) {
+	rm := types.RequestModel{
+		AnalyzerHints: types.AnalyzerHints{
+			Entities: []string{"stageAnalyze", "StageExplore"},
+		},
+		Predicates: types.SemanticPredicates{IsCategoryEnumeration: true},
+	}
+	contract := types.AnswerContract{
+		MustInclude: []string{"StageAnalyze"},
+	}
+	obs := AmplifyPostCompile(rm, &contract)
+	r3 := collectR3Observations(obs)
+	if len(r3) != 1 {
+		t.Fatalf("expected 1 R3 observation, got %+v", r3)
+	}
+	if len(contract.MustInclude) != 2 {
+		t.Errorf("expected MustInclude=2 (StageAnalyze case-folded dedupe), got %d (%+v)",
+			len(contract.MustInclude), contract.MustInclude)
+	}
+}
+
+// TestR3_NoFire_AllProse covers gate #3 boundary: when every entity
+// is prose, the rule must not fire and MustInclude stays untouched.
+func TestR3_NoFire_AllProse(t *testing.T) {
+	rm := types.RequestModel{
+		AnalyzerHints: types.AnalyzerHints{
+			Entities: []string{"stage", "agent", "concept"},
+		},
+		Predicates: types.SemanticPredicates{IsCategoryEnumeration: true},
+	}
+	contract := types.AnswerContract{
+		MustInclude: []string{"existing"},
+	}
+	obs := AmplifyPostCompile(rm, &contract)
+	r3 := collectR3Observations(obs)
+	if len(r3) != 0 {
+		t.Errorf("R3 must NOT fire when no entities are identifier-shaped, got %+v", r3)
+	}
+	if len(contract.MustInclude) != 1 || contract.MustInclude[0] != "existing" {
+		t.Errorf("MustInclude was modified despite no-fire, got %+v", contract.MustInclude)
+	}
+}
+
+// TestR3_Idempotent: a second AmplifyPostCompile pass over the
+// already-augmented contract must be a no-op (gate #4 dedupe).
+func TestR3_Idempotent(t *testing.T) {
+	rm := types.RequestModel{
+		AnalyzerHints: types.AnalyzerHints{
+			Entities: []string{"StageAnalyze", "StageExplore"},
+		},
+		Predicates: types.SemanticPredicates{IsCategoryEnumeration: true},
+	}
+	contract := types.AnswerContract{}
+	obs1 := AmplifyPostCompile(rm, &contract)
+	if len(collectR3Observations(obs1)) == 0 {
+		t.Fatalf("expected R3 to fire on first pass")
+	}
+	obs2 := AmplifyPostCompile(rm, &contract)
+	if len(collectR3Observations(obs2)) != 0 {
+		t.Errorf("R3 fired on second pass — idempotency broken: %+v", obs2)
+	}
+	if len(contract.MustInclude) != 2 {
+		t.Errorf("second pass mutated MustInclude: %+v", contract.MustInclude)
+	}
+}
