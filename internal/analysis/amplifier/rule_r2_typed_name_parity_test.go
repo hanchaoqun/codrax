@@ -16,14 +16,19 @@ func collectR2Observations(obs []Observation) []Observation {
 	return out
 }
 
-// TestR2_FiresOnSinglePrefixFamily covers the qf_arch shape: four
-// stage entities sharing the prefix "Stage" should derive four
-// SubTopics, one per stage.
-func TestR2_FiresOnSinglePrefixFamily(t *testing.T) {
+// TestR2_FiresOnSinglePrefixFamily_CrossComponent covers the
+// safe-fire path: four stage entities sharing the prefix "Stage"
+// in a CROSS-COMPONENT question (legitimately spans subsystems)
+// should derive four SubTopics, one per stage. axis_collapse won't
+// trigger because IsCrossComponent=true bypasses gate condition #2.
+func TestR2_FiresOnSinglePrefixFamily_CrossComponent(t *testing.T) {
 	rm := types.RequestModel{
 		Intent: types.IntentExplain,
 		AnalyzerHints: types.AnalyzerHints{
 			Entities: []string{"StageAnalyze", "StageExplore", "StageExtract", "StageFinalize"},
+		},
+		Predicates: types.SemanticPredicates{
+			IsCrossComponent: true, // bypasses axis_collapse alignment gate
 		},
 	}
 	got, obs := Amplify(rm)
@@ -45,9 +50,10 @@ func TestR2_FiresOnSinglePrefixFamily(t *testing.T) {
 	}
 }
 
-// TestR2_FiresOnMultiFamily covers the m1a shape: 8 entities
-// split across 2 affix families (Agent*, emit_*). Every family
-// member should yield one SubTopic.
+// TestR2_FiresOnMultiFamily covers the m1a shape: 6 entities
+// split across 2 affix families (Agent*, emit_*) in a cross-
+// component question. Every family member should yield one
+// SubTopic.
 func TestR2_FiresOnMultiFamily(t *testing.T) {
 	rm := types.RequestModel{
 		Intent: types.IntentExplain,
@@ -58,6 +64,9 @@ func TestR2_FiresOnMultiFamily(t *testing.T) {
 				"emit_answer_symbol", "emit_hypothesis_verdict",
 			},
 		},
+		Predicates: types.SemanticPredicates{
+			IsCrossComponent: true, // m1a-shape: spans subsystems
+		},
 	}
 	got, obs := Amplify(rm)
 	r2 := collectR2Observations(obs)
@@ -67,6 +76,34 @@ func TestR2_FiresOnMultiFamily(t *testing.T) {
 	if len(got.SubTopics) != 6 {
 		t.Errorf("expected 6 SubTopics (Agent*[2] + emit_*[4]), got %d (%+v)",
 			len(got.SubTopics), got.SubTopics)
+	}
+}
+
+// TestR2_NoFire_SingleComponent_SinglePrefixFamily is the
+// counterpart of the previous test and the canonical qf_arch
+// failure shape: single-component + single-axis enumeration with
+// 4 same-prefix entities. R2 must NOT fire because the derived
+// SubTopics would all share a domain and trigger axis_collapse.
+func TestR2_NoFire_SingleComponent_SinglePrefixFamily(t *testing.T) {
+	rm := types.RequestModel{
+		Intent: types.IntentExplain,
+		AnalyzerHints: types.AnalyzerHints{
+			Entities: []string{"StageAnalyze", "StageExplore", "StageExtract", "StageFinalize"},
+		},
+		Predicates: types.SemanticPredicates{
+			// After R1 flips IsCategoryEnumeration to true (because the
+			// test input meets all R1 gates), R2 must skip because
+			// IsCrossComponent=false.
+			IsCrossComponent: false,
+		},
+	}
+	got, obs := Amplify(rm)
+	r2 := collectR2Observations(obs)
+	if len(r2) != 0 {
+		t.Errorf("R2 must NOT fire on single-component single-axis enumeration: %+v", r2)
+	}
+	if len(got.SubTopics) != 0 {
+		t.Errorf("R2 must NOT derive SubTopics in this scenario, got %+v", got.SubTopics)
 	}
 }
 
@@ -199,13 +236,17 @@ func TestR2_GroupSizeUpperCap(t *testing.T) {
 }
 
 // TestR2_Idempotent: a second pass over the augmented output must
-// be a no-op because R2's gate #1 (SubTopics empty) is no longer
-// satisfied.
+// be a no-op because R2's red-line #1 (SubTopics empty) is no
+// longer satisfied. Uses IsCrossComponent=true to pass the
+// axis-collapse alignment gate so R2 actually fires on first pass.
 func TestR2_Idempotent(t *testing.T) {
 	rm := types.RequestModel{
 		Intent: types.IntentExplain,
 		AnalyzerHints: types.AnalyzerHints{
 			Entities: []string{"StageAnalyze", "StageExplore", "StageExtract"},
+		},
+		Predicates: types.SemanticPredicates{
+			IsCrossComponent: true, // bypass axis-collapse alignment gate
 		},
 	}
 	first, obs1 := Amplify(rm)
@@ -222,9 +263,65 @@ func TestR2_Idempotent(t *testing.T) {
 	}
 }
 
+// TestR2_NoFire_AxisCollapseAlignment_EnumerationSingleComponent
+// covers gate #2 (Phase 3.2-fix): when LLM (or R1) marks the
+// question as single-axis enumeration, R2 must not derive
+// SubTopics from a same-affix family because the downstream
+// axis_collapse gate will reject same-domain SubTopics under
+// IsCategoryEnumeration. The right answer shape is empty
+// SubTopics + finalizer ordered_list. Empirical: 2026-05-05
+// qf_arch run-1 — 4 Stage* entities + LLM cat=true +
+// !IsCrossComponent → R2 derived 4 same-domain SubTopics →
+// axis_collapse → 4 retries exhausted → eval FAIL.
+func TestR2_NoFire_AxisCollapseAlignment_EnumerationSingleComponent(t *testing.T) {
+	rm := types.RequestModel{
+		Intent: types.IntentExplain,
+		AnalyzerHints: types.AnalyzerHints{
+			Entities: []string{"StageAnalyze", "StageExplore", "StageExtract", "StageFinalize"},
+		},
+		Predicates: types.SemanticPredicates{
+			IsCategoryEnumeration: true,
+			IsCrossComponent:      false,
+		},
+	}
+	got, obs := Amplify(rm)
+	if len(got.SubTopics) != 0 {
+		t.Errorf("R2 must NOT fire when IsCategoryEnumeration=true && !IsCrossComponent " +
+			"(would trigger axis_collapse downstream)")
+	}
+	for _, o := range obs {
+		if o.Rule == "R2_typed_name_parity_subtopics" {
+			t.Errorf("unexpected R2 firing: %+v", o)
+		}
+	}
+}
+
+// TestR2_FiresOnCrossComponentEnumeration verifies the escape
+// clause: when IsCrossComponent=true the question legitimately
+// spans subsystems, axis_collapse won't fire on single-domain
+// SubTopics, so R2 may safely derive subtopics from an affix
+// family. m1a-shape (cross-component multi-agent question).
+func TestR2_FiresOnCrossComponentEnumeration(t *testing.T) {
+	rm := types.RequestModel{
+		Intent: types.IntentExplain,
+		AnalyzerHints: types.AnalyzerHints{
+			Entities: []string{"AgentExplorer", "AgentExtractor"},
+		},
+		Predicates: types.SemanticPredicates{
+			IsCategoryEnumeration: true,
+			IsCrossComponent:      true,
+		},
+	}
+	got, _ := Amplify(rm)
+	if len(got.SubTopics) == 0 {
+		t.Errorf("R2 should fire on cross-component enumeration (axis_collapse won't trigger)")
+	}
+}
+
 // TestR2_DropsNonIdentifiers covers the case where AnalyzerHints
 // contains a mix of identifiers and prose phrases. R2 should
 // affix-group only the identifiers and emit a clean SubTopic set.
+// Uses IsCrossComponent=true to bypass axis-collapse alignment.
 func TestR2_DropsNonIdentifiers(t *testing.T) {
 	rm := types.RequestModel{
 		AnalyzerHints: types.AnalyzerHints{
@@ -232,6 +329,9 @@ func TestR2_DropsNonIdentifiers(t *testing.T) {
 				"StageAnalyze", "StageExplore",
 				"some prose phrase", "另一个 中文短语", "config",
 			},
+		},
+		Predicates: types.SemanticPredicates{
+			IsCrossComponent: true, // bypass axis-collapse alignment gate
 		},
 	}
 	got, obs := Amplify(rm)

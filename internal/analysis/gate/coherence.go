@@ -206,6 +206,15 @@ func checkSubtopicCoherence(ir *types.AnalysisIR, resolver normalizer.SymbolReso
 	// sub-topics — a structural over-decomposition the multi-topic
 	// anchor backbone cannot satisfy.
 	//
+	// CONTRACT for upstream writers (analyzer reconcilers / amplifier
+	// rules): if you ever flip IsCategoryEnumeration to true, OR
+	// derive new SubTopics, you MUST not steer rm into the four-
+	// condition combo below, or the analyzer enters a retry storm
+	// that exhausts the budget. The amplifier package encodes its
+	// alignment defense as gate #2 in r2TypedNameParitySubTopics
+	// and gate #6 in r1MultiSubjectPredicate; new amplifier rules
+	// are pinned by axis_collapse_fixture_test.go.
+	//
 	// Each predicate is load-bearing:
 	//  - nSub >= 2: complementary to R1.1/R1.2 which guard the
 	//    under-count direction; R1.4 guards the over-decompose direction.

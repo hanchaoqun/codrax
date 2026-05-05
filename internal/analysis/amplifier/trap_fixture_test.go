@@ -43,14 +43,21 @@ import (
 )
 
 // TestAmplifier_TrapFixture_EmptyTermGraphMultiEntity asserts that
-// the canonical empirical case (Chinese qf_arch question, four
-// stage entities only present in AnalyzerHints.Entities, empty
-// TermGraph because none of those names appear in the raw question)
-// still drives R1 + R2 to fire correctly.
+// the canonical empirical case (Chinese qf_arch-style question,
+// four stage entities only present in AnalyzerHints.Entities,
+// empty TermGraph because none of those names appear in the raw
+// question) still drives R1 + R2 to fire correctly when the
+// question is cross-component.
 //
 // Failure mode this defends: a rule reads rm.TermGraph.Canonical
 // to count subjects. With empty TermGraph the rule no-ops despite
 // the LLM having emitted 4 obvious subjects.
+//
+// We use IsCrossComponent=true so both R1 and R2 reach their
+// firing path past the axis-collapse alignment gate. The pure
+// single-component enumeration case is covered by
+// TestAmplifier_AxisCollapseFixture_SingleComponentEnumeration in
+// axis_collapse_fixture_test.go.
 func TestAmplifier_TrapFixture_EmptyTermGraphMultiEntity(t *testing.T) {
 	rm := types.RequestModel{
 		Intent: types.IntentExplain,
@@ -59,6 +66,9 @@ func TestAmplifier_TrapFixture_EmptyTermGraphMultiEntity(t *testing.T) {
 		TermGraph: types.TermGraph{},
 		AnalyzerHints: types.AnalyzerHints{
 			Entities: []string{"StageAnalyze", "StageExplore", "StageExtract", "StageFinalize"},
+		},
+		Predicates: types.SemanticPredicates{
+			IsCrossComponent: true, // pass axis-collapse alignment gates
 		},
 	}
 	got, obs := Amplify(rm)

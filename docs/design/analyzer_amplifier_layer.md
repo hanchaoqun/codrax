@@ -301,12 +301,16 @@ for _, obs := range postObs {
    - 不包含 `IntentConfigQuery / IntentReturnValue / IntentUnknown`
 4. AND `len(types.ExactResolutionTargets(rm)) != 1`(单 exact target 不是 enumeration)
 5. AND `rm.Predicates.IsScalarAnswer == false`(scalar 答案不是 enumeration;原文档写 `SubjectScalar` 但该枚举值不存在,`IsScalarAnswer` 是同等 typed 信号)
+6. **AND NOT `(len(rm.SubTopics) >= 2 AND !rm.Predicates.IsCrossComponent)`**(Phase 3.2-fix axis_collapse alignment)
+   - 当 LLM 已经 emit ≥2 SubTopics 在单组件问题上,翻转 IsCategoryEnumeration 到 true 会激活下游 axis_collapse gate(`internal/analysis/gate/coherence.go::R1.4`)的全部 4 个触发条件,导致 analyzer 进入 retry storm 直到 budget 耗尽,整个 Run 失败
+   - 信任 LLM 的 SubTopics 结构判断;若 IsCrossComponent=true,SubTopics 合法跨子系统,axis_collapse 不会 trigger,R1 可以安全 fire
+   - empirical:2026-05-05 m1a runs 全 IsCrossComponent=true,本 gate 不阻塞 R1 fire
 
 **动作:**
 - 设 `rm.Predicates.IsCategoryEnumeration = true`
 - 记录 `Observation{Rule: "R1_multi_subject_predicate", Field: "predicates.is_category_enumeration", Before: "false", After: "true", Reason: "AnalyzerHints.Entities has N distinct named subjects with intent=X and non-scalar answer"}`
 
-**理由:** `AnalyzerHints.Entities` 是 LLM 在 emit_analysis 里直接产出的"我识别到了哪些命名实体"清单(纯 typed slot,无 keyword 表/正则匹配)。R1 把这个已有结构信号 propagate 到 predicates 层。Intent 限定 + scalar 排除 + single-exact-target 排除三道闸门确保不误触发。
+**理由:** `AnalyzerHints.Entities` 是 LLM 在 emit_analysis 里直接产出的"我识别到了哪些命名实体"清单(纯 typed slot,无 keyword 表/正则匹配)。R1 把这个已有结构信号 propagate 到 predicates 层。Intent 限定 + scalar 排除 + single-exact-target 排除 + axis_collapse 对齐四道闸门确保不误触发也不踩 retry storm。
 
 **与下游 reconciler 的兼容(post Phase 2.1-fix wiring):**
 - Amplify 在 reconcile 链之后跑(因 TermGraph 依赖,见 §4.2),所以 reconcileSemanticPredicates / reconcileComplexity 看不到 R1 写入的 `IsCategoryEnumeration=true`,无法触发 simple→moderate 升级。
@@ -315,16 +319,22 @@ for _, obs := range postObs {
 
 ### R2 — Typed-Name Parity → SubTopics Derivation
 
-**输入:** `rm.TermGraph`, `rm.AnalyzerHints.Entities`, `rm.SubTopics`
+**输入:** `rm.AnalyzerHints.Entities`, `rm.Predicates`, `rm.SubTopics`
+
+**信号源选择(Phase 3.1):** 同 R1 的 Phase 2.1-fix-2 教训(见 §5 R1 信号源段),R2 也读 `rm.AnalyzerHints.Entities` 而非 `rm.TermGraph.Canonical`。TermKind 过滤被 `isIdentifierLike()`(CamelCase / snake_case / dot-path 形态检查)替代,无需 normalizer 双 gate。
 
 **触发条件:**
 
-1. `rm.SubTopics` 为空
-2. AND `rm.TermGraph.Canonical` 中存在 ≥ 2 个 `CanonicalTerm` 共享 typed parent:
-   - 同 `Kind`(同时是 `TermSymbol` 或同时是 `TermConfig`、`TermLiteral`、`TermCommand` — `TermConcept` 通常不形成 parallel-naming 命名集,排除)
-   - AND `Surface` 共享至少 4 字符的公共前缀或后缀
-3. AND 公共前缀 / 后缀本身是合法标识符(letter / digit / 下划线)
-4. AND 这一组共享 parent 的 entity 数 ≥ 2 且 ≤ 8
+1. `rm.SubTopics` 为空(red line #2:不覆盖 LLM 已填 SubTopics)
+2. **NOT `(rm.Predicates.IsCategoryEnumeration AND !rm.Predicates.IsCrossComponent)`**(Phase 3.2-fix axis_collapse alignment)
+   - 单组件 enumeration 问题(`cat=true && !IsCrossComponent`)不应有 SubTopics — 应由 finalizer 用 ordered_list 渲染。
+   - 此时若 R2 派生同 affix family 的 SubTopics,它们大概率落在同一 repomap domain → 激活 `axis_collapse` 全部 4 触发条件 → analyzer retry storm → eval FAIL。
+   - empirical:2026-05-05 qf_arch run-1,LLM cat=true + !IsCrossComponent + 4 个 Stage* entity → R2(无该 gate)派生 4 个 SubTopics → axis_collapse → 4 retries 耗尽 → FAIL。
+3. AND `distinctEntityCount(rm.AnalyzerHints.Entities) ≥ 2`(空 / 单 entity 没什么可分组)
+4. AND `commonAffixGroups(rm.AnalyzerHints.Entities)` 至少返回 1 个 qualifying group:
+   - 每组内 surfaces 共享 ≥ 4 字符公共前缀或后缀
+   - 每组 entity 数 ≥ 2 且 ≤ 8
+   - `isIdentifierLike()` 过滤掉 prose 词(全小写无分隔符如 "stage" / "agent")
 
 **为什么是 4 字符 / 8 项:**
 
@@ -332,15 +342,17 @@ for _, obs := range postObs {
 - **8 项上限:** 单一命名集很少超过 8 项;超过 8 项往往是 codebase 全局符号(`Test*` / `Err*`)被误归一组,这类不构成用户 question 的 sub-topic 边界。8 是保守上限。
 
 **动作:**
-- 为每个共享 parent 的 entity 生成 `SubTopic{Summary: <Surface>, Entities: [<Surface>]}`
+- 为每个 qualifying group 中的 EVERY entity 生成 `SubTopic{Summary: <Surface>, Entities: [<Surface>]}`
 - 设 `rm.SubTopics = derived`
-- 记录 `Observation{Rule: "R2_typed_name_parity_subtopics", Field: "sub_topics", ...}`
+- 记录 `Observation{Rule: "R2_typed_name_parity_subtopics", Field: "sub_topics", Before: "0", After: "<N>", Reason: "AnalyzerHints.Entities has <K> affix-grouped families: <affix1>, <affix2>"}`
+- buildAnalysisIR 中已有的 truncate-to-5 块 cap 总 SubTopics 数
 
-**理由:** TermKind 是 typed 分类,public-prefix/suffix 是 string-slot 结构推断,均不依赖关键词词表。
+**理由:** `AnalyzerHints.Entities` 是 LLM 直接 emit 的命名实体清单。affix grouping 是 string-slot 结构推断。`isIdentifierLike()` 把概念词排除。**axis_collapse 对齐 gate(条件 #2)是 Phase 3.2 真 eval forensic 后加上的硬性防护** — 没它 R2 在单组件 enumeration 上必然踩 retry storm,即使 unit test 全绿。
 
 **与下游 reconciler 的兼容:**
-- `reconcileComplexity` 后续看到 `len(rm.SubTopics) ≥ 1` → 升级 simple→moderate(buildAnalysisIR 已有逻辑)
+- `reconcileComplexity` 后续看到 `len(rm.SubTopics) ≥ 1` → 升级 simple→moderate(buildAnalysisIR 已有逻辑;Amplify 在 reconcileComplexity 之后跑,所以这条 propagate 不到,但下游 compiler 看到 SubTopics 仍走多 subtopic 模板)
 - `coherence.go::flattenSubTopicEntities` 自然读取派生的 SubTopics
+- `coherence.go::R1.4 axis_collapse` — 有 R2 的 gate #2 兜底,不会被 R2 派生的同 domain SubTopics 激活
 
 ### R3 — Typed-Identifier MustInclude Pinning
 
@@ -480,13 +492,30 @@ R4 涉及 question 多 `?` 切分 / parallel-naming pattern 检测,需要更细�
 | 1 | amplifier 永不读 `rm.RawRequest` 文本 | 单元测试 + 代码 review |
 | 2 | amplifier 永不覆盖 LLM 已填的非零字段 | 每条规则前置 `if existing != zero { skip }` |
 | 3 | amplifier 规则不引用具体测试 case 字面 entity 名 | 代码 review;测试覆盖结构性输入 |
-| 4 | amplifier 只读 typed slots(TermGraph/Entities/Predicates) | 函数签名约束(无 ctx 参数,无 reader 注入) |
+| 4 | amplifier 只读 typed slots(AnalyzerHints/Predicates;TermGraph 注意只是 raw-text surface 镜像)| 函数签名约束 + `feedback_termgraph_vs_analyzerhints_entities.md` + `trap_fixture_test.go` |
 | 5 | amplifier 输出与 reconcileEvent telemetry 兼容 | Observation 类型对齐 reconcileEvent 字段 |
 | 6 | amplifier 是纯函数 | 函数签名 + 单元测试(随机输入幂等性)|
+| 7 | amplifier 不踩 axis_collapse trap | 每条 IsCategoryEnumeration / SubTopics writer 必加 axis_collapse alignment gate;`axis_collapse_fixture_test.go` 钉死 |
 
 **最容易踩的是红线 2** — 看到 LLM 输出"差点意思"想覆盖回去。覆盖 = 退化为 reconciler family 已在做的"reconcile 已填字段",违反单一原则。
 
 **最容易绕过的是红线 4** — 给 amplifier 加 `*MutableState` 参数就能拿运行时状态。一旦加,红线 1 失效。**函数签名是 6 条红线的物理屏障。**
+
+**最容易隐蔽的是红线 7(2026-05-05 加)** — unit test 全绿但 runtime 触发 retry storm。axis_collapse(`internal/analysis/gate/coherence.go::R1.4`)在 4 个条件全满足时 reject:`nSub≥2 + !IsCrossComponent + (cat=true || Intent=Enumerate) + ≤1 distinct domain`。任何 amplifier 规则 flip cat=true 或 derive SubTopics 必须加对齐 gate;`axis_collapse_fixture_test.go` 是 forensic-driven regression 防线。
+
+## 9.1 防护层一览(代码级 trap 防护体系)
+
+amplifier 包内已部署的"后续开发者不再重踩"防护层:
+
+| 层 | 文件 | 防护对象 |
+|---|---|---|
+| 1 | `package amplifier` doc(`amplifier.go` 顶部)| TermGraph trap + axis_collapse trap 的概念性警告 |
+| 2 | `trap_fixture_test.go` | TermGraph 是空时新规则必须仍然 fire(R1/R2 验证)|
+| 3 | `axis_collapse_fixture_test.go` | 任何 IsCategoryEnumeration writer / SubTopics writer 不能让 rm 进入 axis_collapse 触发态 |
+| 4 | `internal/types/analysis_ir.go::TermGraph` 类型 doc | 警告 TermGraph 不是 LLM emit 镜像 |
+| 5 | `internal/analysis/gate/coherence.go::R1.4` doc | 反向指明上游 writer 的合约 |
+| 6 | `~/.claude/projects/.../memory/feedback_termgraph_vs_analyzerhints_entities.md` | 跨 session 红线条目(下次 Claude 自动加载)|
+| 7 | 红线条目 #7(本表)| amplifier 规则作者必读 |
 
 ---
 

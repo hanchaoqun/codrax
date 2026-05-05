@@ -196,9 +196,26 @@ func commonAffix(group []string) string {
 //
 //  1. rm.SubTopics is empty (red line #2: never override
 //     LLM-emitted SubTopics).
-//  2. distinctEntityCount(rm.AnalyzerHints.Entities) ≥ 2
+//  2. NOT (rm.Predicates.IsCategoryEnumeration AND
+//     !rm.Predicates.IsCrossComponent). This precisely mirrors the
+//     downstream axis_collapse gate in
+//     internal/analysis/gate/coherence.go::R1.4. When the question
+//     is a single-axis enumeration (IsCategoryEnumeration=true)
+//     and is NOT cross-component, derived SubTopics that share a
+//     repomap Domain WILL trigger axis_collapse and force the
+//     analyzer into a retry storm. The right answer shape for
+//     single-axis enumeration is empty SubTopics + finalizer
+//     ordered_list, not affix-derived SubTopics. Empirical:
+//     2026-05-05 qf_arch run-1 with 4 Stage* entities + LLM
+//     cat=true + cross_component=false produced 4 same-domain
+//     SubTopics → axis_collapse → 4 retries exhausted → eval FAIL.
+//     Safe to skip here because R1 only flips IsCategoryEnumeration
+//     to true when entities ≥ 2; if the user wanted multi-subtopic
+//     they would have set IsCrossComponent=true (which legitimately
+//     spans ≥ 2 subsystems and bypasses axis_collapse).
+//  3. distinctEntityCount(rm.AnalyzerHints.Entities) ≥ 2
 //     (an empty or single-entity model has nothing to group).
-//  3. commonAffixGroups returns at least one qualifying group.
+//  4. commonAffixGroups returns at least one qualifying group.
 //
 // Source choice — like R1, R2 reads rm.AnalyzerHints.Entities
 // rather than rm.TermGraph.Canonical. The original design used
@@ -220,6 +237,12 @@ func commonAffix(group []string) string {
 // which sets a soft upper bound across all groups.
 func r2TypedNameParitySubTopics(in types.RequestModel, out *types.RequestModel) *Observation {
 	if len(out.SubTopics) > 0 {
+		return nil
+	}
+	// Axis-collapse alignment: skip when the downstream gate would
+	// reject any same-domain SubTopics we derive. See gate #2 in
+	// the doc above and internal/analysis/gate/coherence.go R1.4.
+	if out.Predicates.IsCategoryEnumeration && !out.Predicates.IsCrossComponent {
 		return nil
 	}
 	if distinctEntityCount(out.AnalyzerHints.Entities) < minGroupSize {

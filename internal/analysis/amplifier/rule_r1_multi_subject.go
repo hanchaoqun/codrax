@@ -67,6 +67,18 @@ func distinctEntityCount(entities []string) int {
 //     mentioned in the design doc; either form means "answer is
 //     one literal, not a set", which is incompatible with
 //     enumeration.
+//  6. NOT (len(rm.SubTopics) >= 2 AND !rm.Predicates.IsCrossComponent).
+//     Axis-collapse alignment: when the LLM has emitted ≥2
+//     SubTopics in a single-component question, flipping
+//     IsCategoryEnumeration to true creates exactly the four
+//     conditions axis_collapse rejects (nSub≥2 + !IsCrossComponent
+//     + IsCategoryEnumeration + ≤1 distinct domain). Trust the
+//     LLM's structured SubTopics emit and skip R1 in this scenario.
+//     If LLM marked IsCrossComponent=true, the SubTopics
+//     legitimately span ≥2 subsystems and axis_collapse will not
+//     trigger — R1 may fire safely. Empirical: 2026-05-05 m1a runs
+//     all had IsCrossComponent=true so this gate did not block any
+//     m1a R1 firing. See internal/analysis/gate/coherence.go::R1.4.
 //
 // The action sets IsCategoryEnumeration=true and emits one
 // Observation. No other slot is touched: SubTopics derivation is
@@ -82,6 +94,10 @@ func r1MultiSubjectPredicate(in types.RequestModel, out *types.RequestModel) *Ob
 	case types.IntentExplain, types.IntentTrace, types.IntentRootCause:
 		// fall through to the structural checks
 	default:
+		return nil
+	}
+	// Axis-collapse alignment gate: see #6 in the doc above.
+	if len(out.SubTopics) >= 2 && !out.Predicates.IsCrossComponent {
 		return nil
 	}
 	count := distinctEntityCount(out.AnalyzerHints.Entities)
