@@ -1282,7 +1282,7 @@ func TestAnswerDocumentEvaluator_BuildInitialInstruction_RendersScalarLookupDisc
 	for _, want := range []string{
 		"## Submission Checklist",
 		"`scalar` block with the literal in block `text`",
-		"There is NO top-level `value{...}` payload in V2",
+		"Do not emit any retired top-level scalar payload outside blocks",
 		"names the subject being measured",
 		"## Scalar Lookup Discipline",
 		"one named source-code literal",
@@ -1683,11 +1683,21 @@ func TestAnswerDocumentEvaluator_BuildInitialInstruction_ConfigTraceAbsenceAsksF
 					Targets:              []string{"explore_mid_loop_hint_budget"},
 					AllowAbsence:         true,
 					RelatedContextPolicy: types.ExactContextSameFamilyGrounded,
+					RequestedContextRoles: []types.EvidenceDiagramRole{
+						types.EvidenceDiagramRoleDefault,
+						types.EvidenceDiagramRoleConfig,
+						types.EvidenceDiagramRoleOverride,
+					},
 				},
 			},
 			RequestModel: types.RequestModel{
 				Scenario:      types.ScenarioConfigTrace,
 				AnswerSubject: types.AnswerSubject{Kind: types.SubjectConfigKey},
+				Buckets: []types.QuestionBucket{
+					{Label: "code default", Index: 1},
+					{Label: "codrax.yaml", Index: 2},
+					{Label: "CLI", Index: 3},
+				},
 			},
 		},
 	}
@@ -1698,9 +1708,36 @@ func TestAnswerDocumentEvaluator_BuildInitialInstruction_ConfigTraceAbsenceAsksF
 		"`no config-file key matches this target`",
 		"`no CLI flag binds this key`",
 		"instead of vague placeholders like `N/A` / `不适用`",
+		"## Explicit Missing-Layer Wording",
+		"`CLI`, prefer explicit absence wording such as `CLI 层未绑定该键` or `no CLI flag binds this key`",
 	} {
 		if !strings.Contains(prompt, want) {
 			t.Fatalf("prompt missing %q:\n%s", want, prompt)
+		}
+	}
+}
+
+func TestAnswerDocumentEvaluator_BuildInitialInstruction_DoesNotMentionRetiredTopLevelScalarPayloads(t *testing.T) {
+	ctx := &types.AgentContext{
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				AnswerSubject: types.AnswerSubject{Kind: types.SubjectFunctionName},
+			},
+		},
+	}
+	view := &types.AnswerSemanticView{
+		Family: types.QFRoleLookup,
+		RequiredBlocks: []types.BlockRequirement{
+			{Kind: types.BlockSummary, Required: true, SurfaceRoleHint: types.SurfacePrincipal},
+			{Kind: types.BlockScalar, Required: true, SurfaceRoleHint: types.SurfacePrincipal},
+			{Kind: types.BlockDecision, Required: true, SurfaceRoleHint: types.SurfacePrincipal},
+		},
+	}
+
+	prompt := renderAnswerDocSubmissionChecklist(ctx, view, false)
+	for _, forbidden := range []string{"value{", "boolean{"} {
+		if strings.Contains(prompt, forbidden) {
+			t.Fatalf("submission checklist must not mention retired top-level payload %q:\n%s", forbidden, prompt)
 		}
 	}
 }

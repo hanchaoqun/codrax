@@ -330,12 +330,12 @@ func renderAnswerDocSubmissionChecklist(ctx *types.AgentContext, view *types.Ans
 				switch view.Family {
 				case types.QFConfigPrecedence:
 					items = append(items,
-						"Emit the principal `scalar` block with the literal in block `text`, and attach a one-element `items=[{id:\"v\", citation_ref:N}]` when you need a citation anchor. Attach block-level `claim_uses=[{claim_form=definition_fact}]` (plural array). Use `assignment_fact` when the cited line is a config / variable assignment. There is NO top-level `value{...}` payload in V2.",
+						"Emit the principal `scalar` block with the literal in block `text`, and attach a one-element `items=[{id:\"v\", citation_ref:N}]` when you need a citation anchor. Attach block-level `claim_uses=[{claim_form=definition_fact}]` (plural array). Use `assignment_fact` when the cited line is a config / variable assignment. Do not emit any retired top-level scalar payload outside blocks.",
 						"Fill the block's `text` (or the lead summary block) with prose that names the config key / subject and states how the literal was obtained (lookup / file:line / chain).",
 					)
 				default:
 					items = append(items,
-						"Emit the principal `scalar` block with the literal in block `text`, and attach a one-element `items=[{id:\"v\", citation_ref:N}]` when you need a citation anchor. Attach block-level `claim_uses=[{claim_form=definition_fact}]` (plural array). Use `external_observation` when the literal is from an attached log / external trace. There is NO top-level `value{...}` payload in V2.",
+						"Emit the principal `scalar` block with the literal in block `text`, and attach a one-element `items=[{id:\"v\", citation_ref:N}]` when you need a citation anchor. Attach block-level `claim_uses=[{claim_form=definition_fact}]` (plural array). Use `external_observation` when the literal is from an attached log / external trace. Do not emit any retired top-level scalar payload outside blocks.",
 						"Fill the block's `text` (or the lead summary block) with prose that names the subject being measured and states how the literal was obtained (lookup / file:line / command / chain).",
 					)
 				}
@@ -373,7 +373,7 @@ func renderAnswerDocSubmissionChecklist(ctx *types.AgentContext, view *types.Ans
 				)
 			case types.BlockDecision:
 				items = append(items,
-					"Emit the principal `decision` block with the verdict at the START of block `text`, followed by the rationale prose. Attach a one-element `items=[{id:\"d\", citation_ref:N}]` when you need a citation anchor, and attach block-level `claim_uses=[{claim_form=guard_condition|definition_fact}]` (plural array). There is NO top-level `boolean{...}` payload in V2.",
+					"Emit the principal `decision` block with the verdict at the START of block `text`, followed by the rationale prose. Attach a one-element `items=[{id:\"d\", citation_ref:N}]` when you need a citation anchor, and attach block-level `claim_uses=[{claim_form=guard_condition|definition_fact}]` (plural array). Do not emit any retired top-level decision payload outside blocks.",
 				)
 			case types.BlockCaveat:
 				items = append(items,
@@ -1647,6 +1647,9 @@ func renderAnswerDocExactResolutionContract(ctx *types.AgentContext) string {
 	if candidates := renderAnswerDocRelatedContextCitationCandidates(ctx, contract); candidates != "" {
 		b.WriteString(candidates)
 	}
+	if missing := renderAnswerDocConfigTraceMissingLayerWording(ctx, contract); missing != "" {
+		b.WriteString(missing)
+	}
 	if forbidden := renderAnswerDocForbiddenExactContextAnchors(ctx, contract); forbidden != "" {
 		b.WriteString(forbidden)
 	}
@@ -1654,6 +1657,89 @@ func renderAnswerDocExactResolutionContract(ctx *types.AgentContext) string {
 		b.WriteString(seeds)
 	}
 	return b.String()
+}
+
+func renderAnswerDocConfigTraceMissingLayerWording(ctx *types.AgentContext, contract *types.ExactResolutionContract) string {
+	if ctx == nil || ctx.AnalysisIR == nil || contract == nil {
+		return ""
+	}
+	if ctx.AnalysisIR.RequestModel.Scenario != types.ScenarioConfigTrace || contract.TargetKind != types.SubjectConfigKey {
+		return ""
+	}
+	missing := types.ConfigTraceMissingRequestedDiagramRoles(contract, answerDocExactContextRequiredFiles(ctx), ctx.EvidenceItems)
+	if len(missing) == 0 {
+		return ""
+	}
+	labelByRole := configTraceRequestedRoleLabels(ctx, contract)
+	var lines []string
+	for _, role := range missing {
+		label := strings.TrimSpace(labelByRole[role])
+		switch role {
+		case types.EvidenceDiagramRoleConfig:
+			if label == "" {
+				label = "config-file"
+			}
+			lines = append(lines,
+				fmt.Sprintf("- For the missing `%s` layer, prefer explicit absence wording such as `%s 层没有匹配该键` or `no %s key matches this target`.", role, label, label))
+		case types.EvidenceDiagramRoleOverride:
+			if strings.EqualFold(strings.TrimSpace(label), "cli") {
+				lines = append(lines,
+					"- For the missing `override` layer when the user names it as `CLI`, prefer explicit absence wording such as `CLI 层未绑定该键` or `no CLI flag binds this key`.")
+				continue
+			}
+			if label == "" {
+				label = "override"
+			}
+			lines = append(lines,
+				fmt.Sprintf("- For the missing `%s` layer, prefer explicit absence wording such as `%s 层未绑定该键` or `no %s binding exists for this target`.", role, label, label))
+		case types.EvidenceDiagramRoleDefault:
+			if label == "" {
+				label = "code default"
+			}
+			lines = append(lines,
+				fmt.Sprintf("- For the missing `%s` layer, prefer explicit absence wording such as `%s 层没有为该精确键提供绑定` or `no %s binding exists for this exact key`.", role, label, label))
+		case types.EvidenceDiagramRoleRuntime:
+			if label == "" {
+				label = "runtime"
+			}
+			lines = append(lines,
+				fmt.Sprintf("- For the missing `%s` layer, prefer explicit absence wording such as `%s 层未提供该键的运行时绑定` or `no %s binding exists for this target`.", role, label, label))
+		}
+	}
+	if len(lines) == 0 {
+		return ""
+	}
+	var b strings.Builder
+	b.WriteString("## Explicit Missing-Layer Wording\n\n")
+	for _, line := range lines {
+		b.WriteString(line)
+		b.WriteString("\n")
+	}
+	b.WriteString("\n")
+	return b.String()
+}
+
+func configTraceRequestedRoleLabels(ctx *types.AgentContext, contract *types.ExactResolutionContract) map[types.EvidenceDiagramRole]string {
+	out := make(map[types.EvidenceDiagramRole]string)
+	if ctx == nil || ctx.AnalysisIR == nil || contract == nil {
+		return out
+	}
+	requested := types.ConfigTraceRequestedDiagramRoles(contract)
+	if len(requested) == 0 {
+		return out
+	}
+	buckets := ctx.AnalysisIR.RequestModel.QuestionStructure().Buckets
+	if len(buckets) < len(requested) {
+		return out
+	}
+	for i, role := range requested {
+		label := strings.TrimSpace(buckets[i].Label)
+		if label == "" {
+			continue
+		}
+		out[role] = label
+	}
+	return out
 }
 
 func renderAnswerDocAcceptedClosure(ctx *types.AgentContext) string {
