@@ -20,12 +20,15 @@ import "strings"
 //   - ExactResolution / Caveats / Snippets stay as document-level
 //     fields because they are answer-level concepts, not block-level.
 //
-// Schema invariant (B3-F1 four-layer-consistency, 2026-05-04): the
-// LLM-facing JSON schema (in internal/tool/emit_answer_document.go),
-// the executor (executeAnswerDocumentV2 in
-// emit_answer_document_v2.go), AllowedDocumentModels() above, and
-// this type comment all say the same thing — DocumentModel MUST
-// equal "v2"; empty / missing is rejected at the dispatch boundary.
+// Runtime invariant (post block-only consolidation, 2026-05-05):
+// the LLM-facing emit_answer_document schema no longer exposes or
+// requires `document_model`. The executor always routes to the V2
+// block-only path, ignores any legacy caller-supplied
+// `document_model` field, and persists AnswerDocumentV2 with
+// DocumentModel hard-stamped to "v2". In other words:
+//   - external callers emit blocks[] only
+//   - persisted/internal V2 documents still carry DocumentModel="v2"
+//     as a carrier marker
 // V1 carrier is retired at B8-T3 (2026-05-03).
 //
 // Per the feedback_no_system_backfill_to_user_panel red line, ALL
@@ -33,10 +36,10 @@ import "strings"
 // them post-emit. Renderer / hedging / oracles READ this struct;
 // they never write to it.
 type AnswerDocumentV2 struct {
-	// DocumentModel marks the carrier version. MUST be exactly
-	// "v2" for V2-emitted documents — empty / missing / any other
-	// value is rejected at the emit_answer_document dispatch
-	// boundary (post-B3-F1, 2026-05-04). V1 carrier is retired.
+	// DocumentModel marks the persisted carrier version. It is an
+	// INTERNAL field on stored/typed V2 documents, not an external
+	// requirement on emit_answer_document callers. The executor
+	// stamps it to "v2" after decoding blocks[].
 	DocumentModel string `json:"document_model"`
 
 	// Blocks is the ordered sequence of answer blocks. Renderer
@@ -340,11 +343,11 @@ type AnswerDiagramBlock struct {
 	ClaimUses []RenderedClaimUse `json:"claim_uses,omitempty"`
 }
 
-// AllowedDocumentModels enumerates the DocumentModel values the V2
-// schema validator accepts. Currently exactly "v2" — V1 carrier is
-// retired (B8-T3, 2026-05-03) and empty / missing is rejected at
-// the dispatch boundary (B3-F1, 2026-05-04). Any other value is
-// rejected.
+// AllowedDocumentModels enumerates the persisted/internal
+// DocumentModel values the V2 runtime recognises on stored
+// AnswerDocumentV2 instances. It does NOT describe the
+// LLM-facing emit_answer_document schema, which is blocks[]-only
+// and does not require callers to send document_model.
 //
 // Adding a new model (e.g. "v3" some day) requires updating this
 // list AND the emit_answer_document tool's schema enum AND the

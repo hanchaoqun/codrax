@@ -110,9 +110,9 @@ func runContractCheck(out *agent.StageOutput, c types.AnswerContract, mut *types
 	// AcceptableClaimForms / SurfaceRoleHint surfaces.
 	if mut != nil {
 
-		// V2 block-carrier validators. When the LLM emitted
-		// document_model="v2", AnswerDocumentV2 is non-nil on
-		// Mutable; we run the V2 oracle suite against it. Default
+		// V2 block-carrier validators. When a block-only answer has
+		// been persisted, AnswerDocumentV2 is non-nil on Mutable; we
+		// run the V2 oracle suite against it. Default
 		// classification leans SOFT for telemetry-only kinds and
 		// STRICT for structural correctness kinds (single source of
 		// truth: types.ViolationProfileFor / DeriveSeverity);

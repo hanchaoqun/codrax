@@ -149,7 +149,8 @@ func (m AnswerDocumentMutation) Summary() string {
 
 // NewReplaceAllMutation is a convenience constructor for the full-
 // emit path. Caller is responsible for ensuring doc is non-nil and
-// has DocumentModel="v2".
+// already represents a persisted/internal V2 document (the runtime
+// stamps DocumentModel="v2" before constructing this mutation).
 func NewReplaceAllMutation(doc *AnswerDocumentV2) AnswerDocumentMutation {
 	return AnswerDocumentMutation{Kind: MutationReplaceAll, Replace: doc}
 }

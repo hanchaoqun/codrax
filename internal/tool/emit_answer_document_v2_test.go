@@ -27,12 +27,12 @@ func minimalV2EmitJSON() json.RawMessage {
 	}`)
 }
 
-func TestEmitAnswerDocumentV2_NoDocumentModelDoesNotWriteV2(t *testing.T) {
+func TestEmitAnswerDocumentV2_LegacyV1PayloadDoesNotWriteV2(t *testing.T) {
 	bus := newV2TestBusContext()
 	tool := &EmitAnswerDocument{}
-	// Legacy V1-shaped emit (no document_model field, V1 carrier
-	// retired). Must NOT write the V2 carrier — when the V1 carrier
-	// existed this routed to V1; today it produces nothing.
+	// Legacy V1-shaped emit. Must NOT write the V2 carrier. The
+	// deciding factor is the retired V1 top-level payload, not the
+	// absence of any document_model field.
 	v1JSON := json.RawMessage(`{"shape": "explanation", "summary": "hi"}`)
 	res, err := tool.Execute(bus, v1JSON)
 	if err != nil {
@@ -44,11 +44,11 @@ func TestEmitAnswerDocumentV2_NoDocumentModelDoesNotWriteV2(t *testing.T) {
 	}
 }
 
-func TestEmitAnswerDocumentV2_EmptyDocumentModelDoesNotWriteV2(t *testing.T) {
+func TestEmitAnswerDocumentV2_LegacyHybridPayloadDoesNotWriteV2(t *testing.T) {
 	bus := newV2TestBusContext()
 	tool := &EmitAnswerDocument{}
-	// Explicit empty document_model should not resurrect any legacy
-	// routing; mixed V1 top-level payload still must not write V2.
+	// Even if a legacy caller includes an empty document_model field,
+	// the retired V1 top-level payload still must not write V2.
 	emptyJSON := json.RawMessage(`{"document_model": "", "shape": "explanation", "summary": "hi"}`)
 	res, err := tool.Execute(bus, emptyJSON)
 	if err != nil {
@@ -56,7 +56,7 @@ func TestEmitAnswerDocumentV2_EmptyDocumentModelDoesNotWriteV2(t *testing.T) {
 	}
 	_ = res
 	if bus.Mutable.AnswerDocumentV2() != nil {
-		t.Errorf("empty document_model must not write V2 carrier; got %+v", bus.Mutable.AnswerDocumentV2())
+		t.Errorf("legacy hybrid payload must not write V2 carrier; got %+v", bus.Mutable.AnswerDocumentV2())
 	}
 }
 

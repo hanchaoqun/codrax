@@ -3596,11 +3596,11 @@ type answerDocumentStageData struct {
 func (e *answerDocumentEvaluator) ParseOutput(ctx *types.AgentContext, messages []llm.Message, _ []types.ToolResult, _ []types.MCPResponse) (*StageOutput, error) {
 	out := &StageOutput{}
 
-	// B5 落地 — V2 carrier branch. When the LLM emitted with
-	// document_model="v2", AnswerDocumentV2 is non-nil on Mutable
-	// (mutual exclusion guarantees AnswerDocument is nil in that
-	// case). Route to the V2 renderer + V2 hedging instead of the
-	// V1 path. The two paths NEVER run on the same dispatch.
+	// B5 落地 — V2 carrier branch. Once emit_answer_document has
+	// persisted a block-only answer, AnswerDocumentV2 is non-nil on
+	// Mutable (mutual exclusion guarantees AnswerDocument is nil in
+	// that case). Route to the V2 renderer + V2 hedging instead of
+	// the V1 path. The two paths NEVER run on the same dispatch.
 	if ctx != nil && ctx.Mutable != nil {
 		if docV2 := ctx.Mutable.AnswerDocumentV2(); docV2 != nil {
 			return e.parseOutputV2(ctx, docV2, out)
