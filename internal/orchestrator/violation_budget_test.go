@@ -1,7 +1,6 @@
 package orchestrator
 
 import (
-	"strings"
 	"testing"
 
 	"github.com/hanchaoqun/codrax/internal/analysis/contract"
@@ -125,46 +124,11 @@ func TestGraphState_PerKindCounterIsolated(t *testing.T) {
 	}
 }
 
-func TestPrependFailLoudWarning_EmitsHeaderWithFieldAndYieldKills(t *testing.T) {
-	mut := types.NewMutableState("test")
-	closure := mut.EvidenceClosure()
-	// Populate a ledger entry so TopSuspectedField can surface a field.
-	closure.AppendViolation(types.Violation{
-		Kind: types.ViolFamilyMismatch,
-		SuspectedRoot: types.SuspectedRoot{
-			IRField: "question_kind", Confidence: 0.85,
-		},
-	})
-	state := &graphState{yieldKillCount: 2}
-	settings := types.PipelineSettings{
-		ViolationBudget: types.DefaultViolationBudgetSettings(),
-	}
-
-	out := prependFailLoudWarning("real answer body\n", mut, state, "yield kill", settings)
-	if !strings.Contains(out, "· Pipeline terminated") {
-		t.Errorf("missing fail-loud header: %q", out)
-	}
-	if !strings.Contains(out, "yield kill") {
-		t.Errorf("trigger missing: %q", out)
-	}
-	if !strings.Contains(out, "question_kind") {
-		t.Errorf("top suspected field missing: %q", out)
-	}
-	if !strings.Contains(out, "2 yield kill(s)") {
-		t.Errorf("yield kill count missing: %q", out)
-	}
-	// Original body preserved beneath the warning.
-	if !strings.Contains(out, "real answer body") {
-		t.Errorf("original answer body dropped: %q", out)
-	}
-}
-
-func TestPrependFailLoudWarning_DisabledPassesThrough(t *testing.T) {
-	settings := types.PipelineSettings{
-		ViolationBudget: types.ViolationBudgetSettings{FailLoudEnabled: false},
-	}
-	out := prependFailLoudWarning("body", nil, nil, "x", settings)
-	if out != "body" {
-		t.Errorf("FailLoudEnabled=false should pass through, got %q", out)
-	}
-}
+// W1.4 (2026-05-05): TestPrependFailLoudWarning_* removed.
+// The prependFailLoudWarning function was deleted along with the
+// pre-pending pattern that leaked internal IR field names + yield-
+// kill counts into the user-visible answer. Replacement coverage
+// lives in:
+//   - repair_caveat_materializer_test.go — caveat translation
+//   - structurally_empty_investigation_test.go — assertion that
+//     out.FinalAnswer no longer contains operator strings.

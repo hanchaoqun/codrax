@@ -5227,63 +5227,6 @@ func dominantViolationKind(res contract.Result) types.ViolationKind {
 	return bestKind
 }
 
-// prependFailLoudWarning wraps the final answer with a Session 11
-// F5 warning line when the retry/yield gates fired. Honours the
-// ViolationBudget.FailLoudEnabled config knob so operators can
-// disable the banner for golden-path test harnesses, but the
-// default (true) is to never hide the failure.
-//
-// B4-F2 dedup (2026-05-04): when applyContractViolations already
-// prepended the per-violation digest line (
-// "· answer-contract validation exhausted: ..."), the FailLoud
-// header overlaps in spirit (both signal "the answer is shipping
-// with unresolved problems"). The pre-B4 stack-on-stack rendered
-// two distinct banner lines at the top of the answer — visual
-// noise. Now: when the digest is already there, suppress the
-// FailLoud header (the digest's "validation exhausted" prefix
-// reads as the failure marker; the trigger string the FailLoud
-// banner adds is operator-only context that goes to the logger
-// via applyContractViolations's WARN line).
-func prependFailLoudWarning(answer string, mut *types.MutableState, state *graphState, trigger string, settings types.PipelineSettings) string {
-	if !settings.ViolationBudget.FailLoudEnabled {
-		return answer
-	}
-	// B4-F2 dedup: if the answer already begins with the digest
-	// banner line, skip the FailLoud header to avoid double-noise.
-	if strings.HasPrefix(strings.TrimLeft(answer, " \t\r\n"), "· answer-contract validation exhausted:") {
-		logging.Info("[orchestrator] B4-F2 suppressed FailLoud header (answer already carries violation digest); operator-only context: trigger=%q", trigger)
-		return answer
-	}
-	var (
-		topField string
-		topCount int
-		topConf  float64
-	)
-	if mut != nil {
-		if closure := mut.EvidenceClosure(); closure != nil {
-			topField, topCount, topConf = closure.TopSuspectedField()
-		}
-	}
-	var yieldKills int
-	if state != nil {
-		yieldKills = state.yieldKillCount
-	}
-	header := fmt.Sprintf("· Pipeline terminated with unresolved violations (%s)", trigger)
-	var details []string
-	if yieldKills > 0 {
-		details = append(details, fmt.Sprintf("%d yield kill(s)", yieldKills))
-	}
-	if topField != "" {
-		details = append(details, fmt.Sprintf("top suspected IR field: %s (conf=%.2f, %d event(s))",
-			topField, topConf, topCount))
-	}
-	if len(details) > 0 {
-		header = fmt.Sprintf("%s — %s", header, strings.Join(details, "; "))
-	}
-	header += ". Classification may be incorrect.\n\n"
-	return header + answer
-}
-
 // applyContractViolations is the **single decision point** for
 // where the contract checker's per-violation digest goes
 // (user panel vs operator log). Replaces the 4 in-line calls to
