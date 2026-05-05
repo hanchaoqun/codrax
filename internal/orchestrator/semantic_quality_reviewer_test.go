@@ -259,3 +259,32 @@ func TestSemanticQualityReviewer_Prompts_NoLLMFacingJargon(t *testing.T) {
 		}
 	}
 }
+
+func TestRenderSemanticQualityUserMessage_UsesPublicFacetLabels(t *testing.T) {
+	in := SemanticQualityInput{
+		RequiredFacets: []SemanticFacetSummary{
+			{Kind: "diagram_spine", Tier: "expected", Promoted: true, Covered: false},
+		},
+		RichnessCandidates: []SemanticRichnessSummary{
+			{Kind: "current_code_path", EvidenceCount: 2},
+		},
+		SystemDetectedGaps: []SystemDetectedGap{
+			{Kind: gapKindEnrichmentUncovered, FacetKind: "diagram_spine", EvidenceCount: 3},
+		},
+		PromotedFacetCoverage: []FacetCoverageDepth{
+			{Kind: "diagram_spine", DeclaredCount: 1, AnchoredCount: 0},
+		},
+	}
+	msg := renderSemanticQualityUserMessage(in)
+	if strings.Contains(msg, "`diagram_spine`") || strings.Contains(msg, "kind=`diagram_spine`") {
+		t.Fatalf("reviewer user message must not expose raw facet ids; got\n%s", msg)
+	}
+	for _, want := range []string{
+		`facet="Diagram facet (every node grounded in a citation; relationships supported by typed claim annotations)"`,
+		`facet="Current code path (cite the live source file:line that proves what the code does today)"`,
+	} {
+		if !strings.Contains(msg, want) {
+			t.Fatalf("reviewer user message missing public facet label %q; got\n%s", want, msg)
+		}
+	}
+}

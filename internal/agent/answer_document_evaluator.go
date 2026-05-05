@@ -613,24 +613,6 @@ func renderAnswerDocCapabilitySurface(ctx *types.AgentContext) string {
 	return renderCapabilityAuthoritySection(detectStageToolCapabilityQueryFromContext(ctx), "Capability Surface Authority")
 }
 
-// answerDocFacetLabels maps each AnswerFacetKind to a single-line,
-// LLM-facing English label. Kept tight so the rendered prompt section
-// stays under one screen even when every facet fires.
-var answerDocFacetLabels = map[types.AnswerFacetKind]string{
-	types.FacetObservedArtifactFact:    "Observed artifact fact (anchor every claim about the attached log/perf trace to a specific frame or marker)",
-	types.FacetCurrentCodePath:         "Current code path (cite the live source file:line that proves what the code does today)",
-	types.FacetNearestMechanism:        "Nearest mechanism (when the exact target is absent, name the closest grounded approximation and explain the gap)",
-	types.FacetUncertaintyBoundary:     "Uncertainty boundary (name what was searched and what remained unverified rather than hedging silently)",
-	types.FacetConfigPrecedenceRole:    "Config precedence role (cover each grounded layer once with the citation that proves the layer)",
-	types.FacetResolvedLiteralOrSymbol: "Resolved literal or symbol (name the specific identifier the question is about with its file:line)",
-	types.FacetEnumerationItem:         "Enumeration item (one principal item per item the user asked to enumerate; flow / caveat steps do not count)",
-	types.FacetBucketLabel:             "Bucket label (each user-named partition appears verbatim somewhere in summary or per-item rationale)",
-	types.FacetPrincipalPathEdge:       "Principal path edge (cite each call edge with the line that names both caller and callee)",
-	types.FacetBranchGuard:             "Branch guard (cite the condition that gates a path; do not blend guard and action into one citation)",
-	types.FacetComponentRelation:       "Component relation (cite the import / dependency edge with the line that names both endpoints)",
-	types.FacetDiagramSpine:            "Diagram facet (every node grounded in a citation; relationships supported by typed claim_use entries)",
-}
-
 // answerDocClaimFormLabels names each ClaimForm in evidence-shape
 // vocabulary the LLM already understands. Used to render the
 // AcceptableForms whitelist as a human-readable hint per facet.
@@ -1068,10 +1050,7 @@ func renderAnswerDocFacetCoverage(ctx *types.AgentContext) string {
 		"A SOFT facet with N≥1 is **elevated** — its line carries an `(elevated)` marker AFTER the evidence count, and you must cover it as if it were HARD; the typed evidence is available, so the answer must surface it.\n\n")
 
 	emit := func(req types.FacetRequirement) {
-		label, ok := answerDocFacetLabels[req.Kind]
-		if !ok {
-			return
-		}
+		label := types.AnswerFacetPublicLabel(req.Kind)
 		var tag string
 		switch req.Required {
 		case types.FacetHardRequired:

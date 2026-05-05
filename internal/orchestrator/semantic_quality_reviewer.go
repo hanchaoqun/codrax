@@ -166,7 +166,7 @@ type SemanticQualityResult struct {
 	Sufficient bool
 
 	// Concerns lists up to 5 specific gaps. Each entry names the
-	// Topic (facet kind / "diagram_spine" / richness facet kind),
+	// Topic (public facet label / diagram contract row / enrichment label),
 	// what the reviewer observed (Observation), and what it
 	// suggests adding (Suggestion).
 	Concerns []SemanticQualityConcern
@@ -216,7 +216,7 @@ var semanticQualityTool = llm.ToolSchema{
           "topic": {
             "type": "string",
             "maxLength": 60,
-            "description": "Concise framing — name the facet kind / diagram contract row / richness facet at issue."
+            "description": "Concise framing — name the public facet label / diagram contract row / enrichment item at issue."
           },
           "observation": {
             "type": "string",
@@ -284,7 +284,7 @@ DECISION DISCIPLINE (apply before reporting):
 Output via emit_semantic_quality_review:
   - sufficient=true is the COMMON case; mark it true unless you can name a SPECIFIC ADDITIONAL gap supported by the attestations.
   - confidence >= 0.85 to report a gap; below 0.85 mark sufficient=true (rather miss a thin spot than force a rewrite on a defensible answer).
-  - When reporting, name the typed signal (facet kind / relation kind / richness facet kind). Use the same language as the answer text in the prose fields. Do NOT restate SYSTEM-DETECTED GAPS — concerns must be ADDITIONS.`
+  - When reporting, name the public semantic label (facet label / relation kind / enrichment label). Use the same language as the answer text in the prose fields. Do NOT restate SYSTEM-DETECTED GAPS — concerns must be ADDITIONS.`
 
 // llmSemanticQualityReviewer is the default impl. nil adapter ⇒
 // disabled.
@@ -383,9 +383,10 @@ func renderSemanticQualityUserMessage(in SemanticQualityInput) string {
 
 	if len(in.RequiredFacets) > 0 {
 		b.WriteString("\n## REQUIRED FACETS (typed coverage attestation)\n")
-		b.WriteString("Each row: facet kind / tier / promoted / covered. Flag entries that are promoted=true but covered=false.\n\n")
+		b.WriteString("Each row: public facet label / tier / promoted / covered. Flag entries that are promoted=true but covered=false.\n\n")
 		for _, f := range in.RequiredFacets {
-			fmt.Fprintf(&b, "- kind=`%s` tier=%s promoted=%t covered=%t\n", f.Kind, f.Tier, f.Promoted, f.Covered)
+			fmt.Fprintf(&b, "- facet=%q tier=%s promoted=%t covered=%t\n",
+				types.AnswerFacetPublicLabelString(f.Kind), f.Tier, f.Promoted, f.Covered)
 		}
 	}
 	if in.DiagramContract != nil && in.DiagramContract.Required {
@@ -403,9 +404,10 @@ func renderSemanticQualityUserMessage(in SemanticQualityInput) string {
 	}
 	if len(in.RichnessCandidates) > 0 {
 		b.WriteString("\n## RICHNESS CANDIDATES (optional facets with typed evidence available)\n")
-		b.WriteString("Each row: facet kind / typed evidence count. Flag at most ONE richness gap, and only when glaring.\n\n")
+		b.WriteString("Each row: public facet label / typed evidence count. Flag at most ONE richness gap, and only when glaring.\n\n")
 		for _, r := range in.RichnessCandidates {
-			fmt.Fprintf(&b, "- kind=`%s` evidence_count=%d\n", r.Kind, r.EvidenceCount)
+			fmt.Fprintf(&b, "- facet=%q evidence_count=%d\n",
+				types.AnswerFacetPublicLabelString(r.Kind), r.EvidenceCount)
 		}
 	}
 	if len(in.EvidenceAnchorSet) > 0 {
@@ -420,8 +422,8 @@ func renderSemanticQualityUserMessage(in SemanticQualityInput) string {
 		for _, g := range in.SystemDetectedGaps {
 			switch g.Kind {
 			case gapKindEnrichmentUncovered:
-				fmt.Fprintf(&b, "- %s: facet=`%s` (typed evidence rows available: %d)\n",
-					g.Kind, g.FacetKind, g.EvidenceCount)
+				fmt.Fprintf(&b, "- %s: facet=%q (typed evidence rows available: %d)\n",
+					g.Kind, types.AnswerFacetPublicLabelString(g.FacetKind), g.EvidenceCount)
 			case gapKindProseUnderfilled:
 				fmt.Fprintf(&b, "- %s: block_id=`%s` (cited claims: %d, inline-code anchors in prose: 0)\n",
 					g.Kind, g.BlockID, g.EvidenceCount)
@@ -432,10 +434,10 @@ func renderSemanticQualityUserMessage(in SemanticQualityInput) string {
 	}
 	if len(in.PromotedFacetCoverage) > 0 {
 		b.WriteString("\n## PROMOTED FACET COVERAGE DEPTH (declared vs anchored)\n")
-		b.WriteString("Each row: facet kind / DeclaredCount / AnchoredCount. DeclaredCount > 0 with AnchoredCount == 0 = label-only declaration without evidence anchor.\n\n")
+		b.WriteString("Each row: public facet label / DeclaredCount / AnchoredCount. DeclaredCount > 0 with AnchoredCount == 0 = label-only declaration without evidence anchor.\n\n")
 		for _, c := range in.PromotedFacetCoverage {
-			fmt.Fprintf(&b, "- kind=`%s` declared=%d anchored=%d\n",
-				c.Kind, c.DeclaredCount, c.AnchoredCount)
+			fmt.Fprintf(&b, "- facet=%q declared=%d anchored=%d\n",
+				types.AnswerFacetPublicLabelString(c.Kind), c.DeclaredCount, c.AnchoredCount)
 		}
 	}
 	return b.String()
