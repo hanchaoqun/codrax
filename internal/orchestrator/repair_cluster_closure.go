@@ -41,6 +41,7 @@ import (
 	"crypto/sha1"
 	"encoding/hex"
 	"fmt"
+	"sort"
 	"strings"
 
 	"github.com/hanchaoqun/codrax/internal/types"
@@ -104,26 +105,42 @@ func ClusterStateForCluster(c RepairCluster) RepairClusterExecutionState {
 // from a violation that lets the closure detector match the same
 // "logical cluster" across retry attempts. Strategy (priority order):
 //
-//  1. block id — `block id="<X>"` substring (V2 oracle violations).
-//  2. facet kind — `facet "<X>"` substring (validateFacetCoverage).
-//  3. relation kind — `relation kind=<X>` substring (diagram edge).
-//  4. fallback — sha1 hash of the first 80 bytes of v.Detail.
+//  1. typed primary tokens from Detail when present:
+//     - block id        (`block id="<X>"`)
+//     - facet kind      (`facet "<X>"`)
+//     - relation kind   (`relation kind=<X>`)
+//  2. SuspectedRoot.IRField when present (typed producer-side root
+//     field, independent of Detail wording)
+//  3. EvidenceRefs fingerprint when present (stable references the
+//     producer attached to the violation)
+//  4. fallback — sha1 hash of the first 80 bytes of v.Detail
 //
-// The fallback ensures a never-empty fingerprint even when Detail
-// shape is unfamiliar; the hash is stable per Detail, so identical
-// violations across attempts produce the same fingerprint.
+// The result is a joined typed identity (e.g.
+// "block:summary|root:block_claim_use") when multiple signals are
+// available. This keeps existing high-signal tokens, but reduces the
+// closure detector's dependency on violation.Detail prose phrasing.
 //
-// All branches read **runtime current-dispatch typed substrings** —
-// no static dictionary, no fuzzy matching. R3 invariant.
+// All branches read **runtime current-dispatch typed substrings /
+// fields** — no static dictionary, no fuzzy matching. R3 invariant.
 func clusterFingerprintOf(v types.Violation) string {
+	parts := make([]string, 0, 4)
 	if id := extractBlockIDFromDetail(v.Detail); id != "" {
-		return "block:" + id
+		parts = append(parts, "block:"+id)
 	}
 	if facet := extractFacetKindFromDetail(v.Detail); facet != "" {
-		return "facet:" + facet
+		parts = append(parts, "facet:"+facet)
 	}
 	if rel := extractRelationKindFromDetail(v.Detail); rel != "" {
-		return "relation:" + rel
+		parts = append(parts, "relation:"+rel)
+	}
+	if root := strings.TrimSpace(v.SuspectedRoot.IRField); root != "" {
+		parts = append(parts, "root:"+root)
+	}
+	if len(parts) > 0 {
+		return strings.Join(parts, "|")
+	}
+	if refs := evidenceRefsFingerprint(v.EvidenceRefs); refs != "" {
+		return refs
 	}
 	// Fallback — opaque hash of the prefix. Stable across attempts
 	// when the producer emits identical Detail.
@@ -133,6 +150,38 @@ func clusterFingerprintOf(v types.Violation) string {
 	}
 	sum := sha1.Sum([]byte(prefix))
 	return "h:" + hex.EncodeToString(sum[:6])
+}
+
+func evidenceRefsFingerprint(refs []string) string {
+	if len(refs) == 0 {
+		return ""
+	}
+	seen := make(map[string]struct{}, len(refs))
+	norm := make([]string, 0, len(refs))
+	for _, ref := range refs {
+		ref = strings.TrimSpace(ref)
+		if ref == "" {
+			continue
+		}
+		if _, ok := seen[ref]; ok {
+			continue
+		}
+		seen[ref] = struct{}{}
+		norm = append(norm, ref)
+	}
+	if len(norm) == 0 {
+		return ""
+	}
+	if len(norm) == 1 {
+		return "ref:" + norm[0]
+	}
+	sort.Strings(norm)
+	joined := strings.Join(norm, "|")
+	if len(joined) <= 96 {
+		return "refs:" + joined
+	}
+	sum := sha1.Sum([]byte(joined))
+	return "refs:h:" + hex.EncodeToString(sum[:6])
 }
 
 // extractFacetKindFromDetail pulls the facet kind out of details

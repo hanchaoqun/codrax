@@ -45,6 +45,46 @@ func vClaimFormForBlock(blockID string) types.Violation {
 	}
 }
 
+func TestClusterFingerprintOf_PrefersTypedRootFieldWhenDetailIsGeneric(t *testing.T) {
+	v := types.Violation{
+		Kind: types.ViolPrincipalProseUnderfilled,
+		Detail: "principal block prose is too abstract",
+		SuspectedRoot: types.SuspectedRoot{
+			IRField: "answer_prose_density",
+		},
+	}
+	got := clusterFingerprintOf(v)
+	if got != "root:answer_prose_density" {
+		t.Fatalf("clusterFingerprintOf should prefer typed root field, got %q", got)
+	}
+}
+
+func TestClusterFingerprintOf_CombinesBlockAndTypedRoot(t *testing.T) {
+	v := types.Violation{
+		Kind:   types.ViolPrincipalClaimUseMissing,
+		Detail: `principal block id="summary" has no claim_use`,
+		SuspectedRoot: types.SuspectedRoot{
+			IRField: "block_claim_use",
+		},
+	}
+	got := clusterFingerprintOf(v)
+	if got != "block:summary|root:block_claim_use" {
+		t.Fatalf("clusterFingerprintOf should combine detail-derived and typed root identity, got %q", got)
+	}
+}
+
+func TestClusterFingerprintOf_FallsBackToEvidenceRefsBeforeDetailHash(t *testing.T) {
+	v := types.Violation{
+		Kind:         types.ViolExternalArtifactUnderdecoded,
+		Detail:       "generic underdecoded payload",
+		EvidenceRefs: []string{"error_type:panic", "frame:buildAnalysisIR", "error_type:panic"},
+	}
+	got := clusterFingerprintOf(v)
+	if got != "refs:error_type:panic|frame:buildAnalysisIR" {
+		t.Fatalf("clusterFingerprintOf should prefer stable evidence refs before detail hash, got %q", got)
+	}
+}
+
 // TestComputeClusterClosure_PrimaryFingerprintDistinguishesSameKindClusters
 // — two ViolFacetUncovered clusters for facet=X and facet=Y are
 // recognised as DISTINCT identities. Resolving X (fresh contains only
