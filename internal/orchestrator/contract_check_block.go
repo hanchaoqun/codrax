@@ -7,6 +7,66 @@ import (
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
+func blockClusterKey(blockID string, rootField string) string {
+	blockID = strings.TrimSpace(blockID)
+	rootField = strings.TrimSpace(rootField)
+	switch {
+	case blockID != "" && rootField != "":
+		return fmt.Sprintf("block:%s|root:%s", blockID, rootField)
+	case blockID != "":
+		return "block:" + blockID
+	case rootField != "":
+		return "root:" + rootField
+	default:
+		return ""
+	}
+}
+
+func blockKindClusterKey(kind types.AnswerBlockKind, rootField string) string {
+	blockKind := strings.TrimSpace(string(kind))
+	rootField = strings.TrimSpace(rootField)
+	switch {
+	case blockKind != "" && rootField != "":
+		return fmt.Sprintf("block_kind:%s|root:%s", blockKind, rootField)
+	case blockKind != "":
+		return "block_kind:" + blockKind
+	case rootField != "":
+		return "root:" + rootField
+	default:
+		return ""
+	}
+}
+
+func facetClusterKey(kind string, rootField string) string {
+	kind = strings.TrimSpace(kind)
+	rootField = strings.TrimSpace(rootField)
+	switch {
+	case kind != "" && rootField != "":
+		return fmt.Sprintf("facet:%s|root:%s", kind, rootField)
+	case kind != "":
+		return "facet:" + kind
+	case rootField != "":
+		return "root:" + rootField
+	default:
+		return ""
+	}
+}
+
+func relationClusterKey(kind types.DiagramRelationKind, rootField string) string {
+	rel := strings.TrimSpace(string(kind))
+	rootField = strings.TrimSpace(rootField)
+	switch {
+	case rel != "" && rootField != "":
+		return fmt.Sprintf("relation:%s|root:%s", rel, rootField)
+	case rel != "":
+		return "relation:" + rel
+	case rootField != "":
+		return "root:" + rootField
+	default:
+		return ""
+	}
+}
+
 // V2 block-only carrier validators (B4 落地 — block_only_carrier.md
 // §5.4). 4 validators raise SOFT-by-default ViolationKind values
 // when the LLM's emitted AnswerDocumentV2 fails to satisfy the
@@ -58,6 +118,7 @@ func validateRequiredBlockCoverage(doc *types.AnswerDocumentV2, view *types.Answ
 				Repair: fmt.Sprintf(
 					"emit at least %d block(s) of kind=%s. Per the rationale: %s",
 					req.MinCount, req.Kind, req.Rationale),
+				ClusterKey: blockKindClusterKey(req.Kind, "answer_block_coverage"),
 				SuspectedRoot: types.SuspectedRoot{
 					IRField:    "answer_block_coverage",
 					Reason:     "required block kind under-emitted",
@@ -76,6 +137,7 @@ func validateRequiredBlockCoverage(doc *types.AnswerDocumentV2, view *types.Answ
 				Repair: fmt.Sprintf(
 					"reduce kind=%s blocks to at most %d. Per the rationale: %s",
 					req.Kind, req.MaxCount, req.Rationale),
+				ClusterKey: blockKindClusterKey(req.Kind, "answer_block_coverage"),
 				SuspectedRoot: types.SuspectedRoot{
 					IRField:    "answer_block_coverage",
 					Reason:     "required block kind over-emitted",
@@ -136,6 +198,7 @@ func validatePrincipalClaimUse(doc *types.AnswerDocumentV2, view *types.AnswerSe
 			Repair: fmt.Sprintf(
 				"emit claim_use on the block (or on at least one item) declaring claim_form ∈ %v so the validator can match the principal payload to its evidence shape",
 				formNames(req.AcceptableClaimForms)),
+			ClusterKey: blockClusterKey(b.ID, "block_claim_use"),
 			SuspectedRoot: types.SuspectedRoot{
 				IRField:    "block_claim_use",
 				Reason:     "principal block lacks claim_use annotation",
@@ -186,6 +249,7 @@ func validateDiagramEdgeSupport(doc *types.AnswerDocumentV2, view *types.AnswerS
 			Repair: fmt.Sprintf(
 				"emit a BlockDiagram (kind=%s) covering node facets %v and edge facets %v",
 				plan.Kind, plan.NodeFacets, plan.EdgeFacets),
+			ClusterKey: blockKindClusterKey(types.BlockDiagram, "diagram_block"),
 			SuspectedRoot: types.SuspectedRoot{
 				IRField:    "diagram_block",
 				Reason:     "required diagram absent",
@@ -208,6 +272,7 @@ func validateDiagramEdgeSupport(doc *types.AnswerDocumentV2, view *types.AnswerS
 			Repair: fmt.Sprintf(
 				"set diagram.kind=%s OR drop the diagram if the family contract should be relaxed",
 				plan.Kind),
+			ClusterKey: blockClusterKey(diagramBlock.ID, "diagram_kind"),
 			SuspectedRoot: types.SuspectedRoot{
 				IRField:    "diagram_kind",
 				Reason:     "diagram kind mismatch",
@@ -251,6 +316,7 @@ func validateDiagramEdgeSupport(doc *types.AnswerDocumentV2, view *types.AnswerS
 				"diagram block id=%q has %d edge(s) whose endpoints are not grounded in any item, block title, claim_use annotation, or declared node label: [%s]",
 				diagramBlock.ID, len(unsupported), strings.Join(pairs, ", ")),
 			Repair: "for each listed edge, either (a) declare its endpoints as labelled nodes in the same Mermaid body (e.g. A[\"Label A\"] --> B[\"Label B\"]), (b) name the endpoints in an item label or block title in this answer, or (c) drop the edge if it represents an inference not backed by any grounded claim.",
+			ClusterKey: blockClusterKey(diagramBlock.ID, "diagram_edges"),
 			SuspectedRoot: types.SuspectedRoot{
 				IRField:    "diagram_edges",
 				Reason:     "edge endpoints lack grounding in the rest of the answer",
@@ -370,6 +436,7 @@ func validateDiagramRelationLegality(
 				"diagram block id=%q has %d labelled edge(s) lacking a typed entry in block-level edge_anchors[] (with from_node, to_node, claim_form): [%s]",
 				diagramBlock.ID, len(missing), strings.Join(details, "; ")),
 			Repair: "for each listed edge, add an entry to a block's edge_anchors[] array with claim_form set to the listed value AND from_node / to_node set to the verbatim node identifiers. Alternatively, drop the edge label if the relation isn't supported by typed evidence.",
+			ClusterKey: blockClusterKey(diagramBlock.ID, "diagram_edges"),
 			SuspectedRoot: types.SuspectedRoot{
 				IRField:    "diagram_edges",
 				Reason:     "labelled edges lack typed edge_anchors entry",
@@ -405,6 +472,7 @@ func validateDiagramRelationLegality(
 				Repair: fmt.Sprintf(
 					"for each label-only edge listed, add an edge_anchors[] entry with relation_kind=%s, from_node, to_node, and claim_form=%s. The contract is currently met but typed declarations let future readers see the typed authority directly.",
 					contract.Kind, contract.ClaimForm),
+				ClusterKey: relationClusterKey(contract.Kind, "diagram_edges"),
 				SuspectedRoot: types.SuspectedRoot{
 					IRField:    "diagram_edges",
 					Reason:     "relation contract met via label-only inference",
@@ -433,6 +501,7 @@ func validateDiagramRelationLegality(
 				Repair: fmt.Sprintf(
 					"add at least %d edge(s) of relation kind=%s. PREFERRED: declare relation_kind=%s on a block-level edge_anchors entry along with from_node / to_node / claim_form=%s. ALTERNATIVE: label the Mermaid edge with vocabulary that resolves to this relation (see the %q section above for the recognised label vocabulary).",
 					short, contract.Kind, contract.Kind, contract.ClaimForm, types.SectionDiagramEdgeLabelVocabulary),
+				ClusterKey: relationClusterKey(contract.Kind, "diagram_edges"),
 				SuspectedRoot: types.SuspectedRoot{
 					IRField:    "diagram_edges",
 					Reason:     "minimum-count contract for typed relation not satisfied",
@@ -461,6 +530,7 @@ func validateDiagramRelationLegality(
 			Repair: fmt.Sprintf(
 				"the typed relation_kind on edge_anchors is the authority; align the rendered label vocabulary with each typed declaration so readers see the same relation the validator does (see the %q section above for the recognised label vocabulary). The answer ships with this drift left in place; this signal is advisory.",
 				types.SectionDiagramEdgeLabelVocabulary),
+			ClusterKey: blockClusterKey(diagramBlock.ID, "diagram_edges"),
 			SuspectedRoot: types.SuspectedRoot{
 				IRField:    "diagram_edges",
 				Reason:     "rendered label disagrees with typed relation declaration",
@@ -968,6 +1038,7 @@ func validateUncertaintyBlockPresence(doc *types.AnswerDocumentV2, view *types.A
 				"uncertainty rule (trigger=%q) requires a block of kind=%s but none is present",
 				rule.TriggerFacet, rule.ExpectedBlockKind),
 			Repair: rule.MissingMessage,
+			ClusterKey: blockKindClusterKey(rule.ExpectedBlockKind, "uncertainty_block"),
 			SuspectedRoot: types.SuspectedRoot{
 				IRField:    "uncertainty_block",
 				Reason:     "required disclosure block absent",
@@ -1104,6 +1175,7 @@ func validateFacetCoverage(doc *types.AnswerDocumentV2, view *types.AnswerSemant
 			Repair: fmt.Sprintf(
 				"declare facet_id=%q on at least one block whose payload covers this facet, OR re-investigate to gather evidence whose claim_form matches the facet's acceptable forms (when no current evidence supports the facet).",
 				kind),
+			ClusterKey: facetClusterKey(kind, "answer_facet_coverage"),
 			SuspectedRoot: types.SuspectedRoot{
 				IRField:    "answer_facet_coverage",
 				Reason:     "required answer facet uncovered by emitted blocks",
@@ -1168,6 +1240,7 @@ func validateRichnessRegression(doc *types.AnswerDocumentV2, view *types.AnswerS
 			Repair: fmt.Sprintf(
 				"if the question would benefit from this facet, declare facet_id=%q on a block; otherwise leave as-is (richness regression is informational).",
 				kind),
+			ClusterKey: facetClusterKey(kind, "answer_richness_facet_coverage"),
 			SuspectedRoot: types.SuspectedRoot{
 				IRField:    "answer_richness_facet_coverage",
 				Reason:     "optional facet with available evidence not surfaced",
@@ -1251,6 +1324,7 @@ func validateRichnessGlaringGap(doc *types.AnswerDocumentV2, view *types.AnswerS
 			Repair: fmt.Sprintf(
 				"declare facet_id=%q on at least one block whose payload covers this facet, AND reference at least one of the typed evidence anchors inline so the surrounding prose is grounded.",
 				kind),
+			ClusterKey: facetClusterKey(kind, "answer_richness_facet_coverage"),
 			SuspectedRoot: types.SuspectedRoot{
 				IRField:    "answer_richness_facet_coverage",
 				Reason:     "glaring richness facet uncovered with sufficient typed evidence",
@@ -1320,6 +1394,7 @@ func validatePrincipalProseUnderfilled(doc *types.AnswerDocumentV2) []types.Viol
 			Repair: fmt.Sprintf(
 				"reference at least one grounded identifier inline (e.g. `funcName` / `package.Type`) on block id=%q so the prose anchors to the typed evidence the answer cited.",
 				b.ID),
+			ClusterKey: blockClusterKey(b.ID, "answer_prose_density"),
 			SuspectedRoot: types.SuspectedRoot{
 				IRField:    "answer_prose_density",
 				Reason:     "principal block has multiple cited claims but no inline-code anchors in prose",
@@ -1422,6 +1497,7 @@ func validateClaimFormSupport(doc *types.AnswerDocumentV2, mut *types.MutableSta
 			Repair: fmt.Sprintf(
 				"either change claim_form to %s on this annotation, or cite a different evidence id whose typed fields project to %s. Do NOT invent new evidence — pick from the existing pool.",
 				projected, cu.ClaimForm),
+			ClusterKey: blockClusterKey(blockID, "answer_claim_form_support"),
 			SuspectedRoot: types.SuspectedRoot{
 				IRField:    "answer_claim_form_support",
 				Reason:     "RenderedClaimUse declares form incompatible with cited evidence projection",
@@ -1488,6 +1564,7 @@ func validateAbsenceScopeBound(doc *types.AnswerDocumentV2) []types.Violation {
 		Kind:   types.ViolAbsenceScopeExceeded,
 		Detail: "exact_resolution.status=absent declared but no citation carries scope=negative + a non-empty negative_pattern; the absence claim is unbounded",
 		Repair: "Re-emit emit_answer_document with citations[] including at least one entry with scope='negative' AND a non-empty negative_pattern naming the exact search query (grep / repomap / file glob) that confirmed the absence. If the bounded evidence is already in the pool, attach it directly as a negative-scope citation; otherwise the next investigation pass must run the bounded search and surface its query.",
+		ClusterKey: "root:exact_resolution.absence_scope",
 		SuspectedRoot: types.SuspectedRoot{
 			IRField:    "exact_resolution.absence_scope",
 			Reason:     "absence claim without bounded negative-scope citation",

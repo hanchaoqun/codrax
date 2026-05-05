@@ -745,6 +745,7 @@ type Violation struct {
 	// Session 11 F1 extensions — all optional.
 	Stage         string        // PipelineStage name: "analyze" / "explore" / "extract" / "finalize"
 	DispatchID    string        // trace-N-iter-M or equivalent correlation token
+	ClusterKey    string        // producer-side typed repair-cluster identity; preferred over Detail parsing
 	EvidenceRefs  []string      // chain_id / evidence_id / citation_idx references
 	SuspectedRoot SuspectedRoot // F2-consumed root-cause hypothesis
 }

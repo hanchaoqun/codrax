@@ -45,6 +45,9 @@ func TestRequiredBlockCoverage_MissingBlockFires(t *testing.T) {
 	if !strings.Contains(vs[0].Detail, "summary") {
 		t.Errorf("detail should name missing kind; got %q", vs[0].Detail)
 	}
+	if got := vs[0].ClusterKey; got != "block_kind:summary|root:answer_block_coverage" {
+		t.Fatalf("missing-block violation cluster_key = %q, want block_kind:summary|root:answer_block_coverage", got)
+	}
 }
 
 func TestRequiredBlockCoverage_OverEmittedFires(t *testing.T) {
@@ -111,6 +114,9 @@ func TestPrincipalClaimUse_MissingFires(t *testing.T) {
 	vs := validatePrincipalClaimUse(doc, view)
 	if len(vs) != 1 || vs[0].Kind != types.ViolPrincipalClaimUseMissing {
 		t.Fatalf("expected ViolPrincipalClaimUseMissing; got %+v", vs)
+	}
+	if got := vs[0].ClusterKey; got != "block:s1|root:block_claim_use" {
+		t.Fatalf("principal-claim-use violation cluster_key = %q, want block:s1|root:block_claim_use", got)
 	}
 }
 
@@ -681,6 +687,9 @@ func TestValidateFacetCoverage_MissingFires(t *testing.T) {
 	}
 	if !strings.Contains(vs[0].Detail, "facet.steps") {
 		t.Errorf("Detail must name uncovered facet; got %q", vs[0].Detail)
+	}
+	if got := vs[0].ClusterKey; got != "facet:facet.steps|root:answer_facet_coverage" {
+		t.Fatalf("facet-uncovered violation cluster_key = %q, want facet:facet.steps|root:answer_facet_coverage", got)
 	}
 }
 

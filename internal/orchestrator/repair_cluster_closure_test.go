@@ -45,6 +45,21 @@ func vClaimFormForBlock(blockID string) types.Violation {
 	}
 }
 
+func TestClusterFingerprintOf_PrefersExplicitClusterKey(t *testing.T) {
+	v := types.Violation{
+		Kind:       types.ViolFacetUncovered,
+		Detail:     `required facet "diagram_spine" not covered`,
+		ClusterKey: "facet:diagram_spine|root:answer_facet_coverage",
+		SuspectedRoot: types.SuspectedRoot{
+			IRField: "answer_facet_coverage",
+		},
+	}
+	got := clusterFingerprintOf(v)
+	if got != "facet:diagram_spine|root:answer_facet_coverage" {
+		t.Fatalf("clusterFingerprintOf should prefer explicit ClusterKey, got %q", got)
+	}
+}
+
 func TestClusterFingerprintOf_PrefersTypedRootFieldWhenDetailIsGeneric(t *testing.T) {
 	v := types.Violation{
 		Kind: types.ViolPrincipalProseUnderfilled,

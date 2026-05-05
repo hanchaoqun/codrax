@@ -105,15 +105,16 @@ func ClusterStateForCluster(c RepairCluster) RepairClusterExecutionState {
 // from a violation that lets the closure detector match the same
 // "logical cluster" across retry attempts. Strategy (priority order):
 //
-//  1. typed primary tokens from Detail when present:
+//  1. producer-side ClusterKey when present
+//  2. typed primary tokens from Detail when present:
 //     - block id        (`block id="<X>"`)
 //     - facet kind      (`facet "<X>"`)
 //     - relation kind   (`relation kind=<X>`)
-//  2. SuspectedRoot.IRField when present (typed producer-side root
+//  3. SuspectedRoot.IRField when present (typed producer-side root
 //     field, independent of Detail wording)
-//  3. EvidenceRefs fingerprint when present (stable references the
+//  4. EvidenceRefs fingerprint when present (stable references the
 //     producer attached to the violation)
-//  4. fallback — sha1 hash of the first 80 bytes of v.Detail
+//  5. fallback — sha1 hash of the first 80 bytes of v.Detail
 //
 // The result is a joined typed identity (e.g.
 // "block:summary|root:block_claim_use") when multiple signals are
@@ -123,6 +124,9 @@ func ClusterStateForCluster(c RepairCluster) RepairClusterExecutionState {
 // All branches read **runtime current-dispatch typed substrings /
 // fields** — no static dictionary, no fuzzy matching. R3 invariant.
 func clusterFingerprintOf(v types.Violation) string {
+	if key := strings.TrimSpace(v.ClusterKey); key != "" {
+		return key
+	}
 	parts := make([]string, 0, 4)
 	if id := extractBlockIDFromDetail(v.Detail); id != "" {
 		parts = append(parts, "block:"+id)

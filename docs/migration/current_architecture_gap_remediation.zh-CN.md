@@ -35,7 +35,7 @@
 
 当前剩余问题已经收敛成五条主线：
 
-1. repair 已具备 cluster closure，但 cluster identity 仍未完全摆脱 `Violation.Detail` 文本形状；
+1. repair 已具备 cluster closure，也已经引入 `ClusterKey`，但 cluster identity 仍未完全摆脱 `Violation.Detail` 文本形状；
 2. diagram relation 已 typed-first，但 relation 真值仍保留 label fallback；
 3. richness / completeness 已有 validator 与 reviewer，但仍未统一成单一质量闭环；
 4. full emit / patch emit 已共享 mutation runtime，但外部协议、retry 心智和字段演进仍然是双入口维护面；
@@ -161,7 +161,7 @@
 
 ## 4. 当前现存问题与根因
 
-### 4.1 问题 A：repair cluster 已有 closure，但 cluster identity 仍未完全结构化
+### 4.1 问题 A：repair cluster 已有 closure，也已有 `ClusterKey`，但 cluster identity 仍未完全结构化
 
 优先级：`P1`
 
@@ -171,8 +171,9 @@
 - [C:/Users/ssccv/codrax/internal/orchestrator/repair_execution_plan.go](C:/Users/ssccv/codrax/internal/orchestrator/repair_execution_plan.go)
 - [C:/Users/ssccv/codrax/internal/types/violation.go](C:/Users/ssccv/codrax/internal/types/violation.go)
 
-关键函数：
+关键函数 / 字段：
 
+- `Violation.ClusterKey`
 - `clusterFingerprintOf(...)`
 - `computeClusterClosure(...)`
 - `ClusterStateForCluster(...)`
@@ -182,6 +183,7 @@
 - 系统已经有 `RepairClusterExecutionState`。
 - 已经能区分 `PrimaryResolved / DerivedResolved / StableAttempts`。
 - 已经不是旧式“单 owner + 全局 kind-set strict subset”。
+- `Violation` 已新增 `ClusterKey`，且 block-contract 主生产者已经开始写入 typed cluster key。
 
 但 cluster identity 仍部分依赖：
 
@@ -192,9 +194,9 @@
 
 根因：
 
-- cluster identity 仍然是“typed signal + detail extraction”的混合体。
-- `SuspectedRoot.IRField`、`EvidenceRefs` 已接入 fingerprint，但仍不是 producer-side 的显式 cluster id。
-- violation producer 没有统一产出“我属于哪个 repair cluster”的结构化字段。
+- cluster identity 仍然是“显式 `ClusterKey` + typed signal + detail extraction”的混合体。
+- `SuspectedRoot.IRField`、`EvidenceRefs`、`ClusterKey` 都已进入 fingerprint，但还不是所有 producer 都会稳定写 `ClusterKey`。
+- closure 层为了兼容旧 producer，仍保留 detail 解析与 hash fallback。
 
 风险：
 
@@ -203,9 +205,9 @@
 
 整改要求：
 
-1. 为 `types.Violation` 增加显式 `ClusterKey` 或等价 typed 字段。
-2. violation producer 在生成 violation 时就写明 cluster identity，不允许 closure 再从 `Detail` 反解析。
-3. `clusterFingerprintOf(...)` 最终应退化为 migration compatibility path，而不是长期 authoritative path。
+1. 将 `ClusterKey` 扩展到所有长期参与 repair closure 的 producer，不只限于 block-contract 主链。
+2. violation producer 在生成 violation 时就写明 cluster identity，不允许新增逻辑继续把 repair identity 埋在 `Detail` 里。
+3. `clusterFingerprintOf(...)` 中的 detail 解析最终应退化为 migration compatibility path，而不是长期 authoritative path。
 4. `repair_execution_plan.go` 的 owner 推进逻辑必须以 cluster-state 真实闭环为准，而不是以“fresh violations 缩小了”作为代理。
 
 ---
