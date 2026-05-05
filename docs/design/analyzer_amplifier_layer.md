@@ -1,16 +1,76 @@
 # Analyzer IR Amplifier Layer — 设计文档
 
 状态:Phase 0(待施工)
-代码基线:`origin/main@f98235c`(2026-05-05)
+代码基线:`origin/main@9977e7d` 或更新(2026-05-05)
 责任范围:为 analyzer LLM emit 后的 RequestModel 补全 LLM 漏填的可选 typed 字段。不替代任何执行层契约。
+
+---
+
+## 0. 快速进入
+
+**一句话目标:** 给 `analyzer.go::buildAnalysisIR` 加一个新的 deterministic 后处理层,补 LLM 漏填的 `Predicates.IsCategoryEnumeration` / `SubTopics` / `Buckets` 等可选字段。
+
+**新文件位置:** `internal/analysis/amplifier/`(新建包)
+
+**接入位置:** `internal/agent/analyzer.go::buildAnalysisIR`,在所有现有 `reconcile*` 函数之前,在 `compiler.Compile` 之前。
+
+**起点:** 跳到 §6 Phase 1.1。
+
+**红线 6 条总览(细节看 §8):**
+1. 永不读 `rm.RawRequest` 文本
+2. 永不覆盖 LLM 已填非零字段
+3. 不引用具体测试 case 字面 entity 名
+4. 只读 typed slots(函数签名约束,无 ctx 参数)
+5. Observation 输出兼容现有 telemetry
+6. 是纯函数
 
 ---
 
 ## 1. 问题陈述
 
+### 1.1 抽象描述
+
 `AnalysisIR.RequestModel` 携带多组 typed 信号(`Buckets / SubTopics / Predicates / EnumerationBoundary / CompletenessObligation`),由 analyzer LLM 通过单次 `emit_analysis` 工具填写。这些信号是**下游执行层**(`AnswerSemanticView` 编译、`FacetBucketLabel HARD` 强制、enumeration 子契约等)做契约决策的唯一输入。
 
-可选字段一旦在 LLM emit 时漏填,系统没有任何 deterministic 后处理把这些信号补回。因此当问题形态需要这些信号触发的契约,而 LLM 分类时遗漏,**整条契约链断裂**,finalizer 自由发挥。表现为同一问题的两次运行答案质量差异显著。
+可选字段一旦在 LLM emit 时漏填,系统没有任何 deterministic 后处理把这些信号补回。当问题形态需要这些信号触发的契约,而 LLM 分类时遗漏,**整条契约链断裂**。
+
+### 1.2 具体证据 — qf_arch 同 question 双跑对照
+
+**问题:** "codrax 的 read-mode pipeline 由哪几个 stage 组成?每个 stage 大致负责什么?描述整体架构。"
+
+| 维度 | r1(FAIL)| r2(PASS) |
+|---|---|---|
+| `predicates.is_category_enumeration` | **false** | **true** |
+| `question_kind` | mechanism | enumeration |
+| `entities` 中 Stage 命名数 | 0 | **6**(StageLogTriage..StageFinalize) |
+| `Buckets` | 空 | 空 |
+| `SubTopics` | 空 | 空 |
+| StageAnalyze 角色描述(answer prose) | "**分发** analyzer agent" | "**负责分类**用户请求" |
+
+**因果链(完全 structural cascade,无运气):**
+
+```
+analyzer LLM 随机选 mechanism (r1) vs enumeration (r2)
+        ↓
+predicates.IsCategoryEnumeration  false (r1) | true (r2)
+        ↓
+AnswerSemanticView 编译  无 enumeration 契约 (r1) | 有 (r2)
+        ↓
+finalizer prose 自由发挥 (r1) | 必出 per-stage role 描述 (r2)
+        ↓
+"分发 / 生成" (r1) | "分类" (r2)
+        ↓
+case regex FAIL (r1) | PASS (r2)
+```
+
+**每一步都是结构性传递,唯一随机点是 L0 — analyzer LLM 的分类。**
+
+### 1.3 同根因姊妹 case
+
+**m1a:** "explorer agent 和 extractor agent 如何协作?分别列出 Turn A 和 Turn B 产出的 emit_* 工具。"
+- analyzer.predicates.is_category_enumeration = false(应为 true)
+- 答案漏 `emit_evidence`(Turn A 的关键 emit 工具)
+- case `EXPECT_CONTAINS=emit_evidence` ✗ FAIL
 
 ---
 
@@ -22,43 +82,109 @@
 
 | 现有函数 | 文件 | 职责 |
 |---|---|---|
-| `reconcileEnumerationBoundaryScope` | `analyzer_boundary.go:19` | 验证 boundary 在 sub_topics 范围内 |
-| `reconcileSemanticPredicates` | `analyzer_predicate.go:58` | 调 `IsCrossComponent` 的反向风险 |
-| `reconcileComplexity` | `analyzer_complexity.go:70` | 复杂度交叉校验 |
-| `reconcileIntent` | `analyzer_intent.go:131` | intent 与 predicates 一致性 |
-| `inferAnswerSubject` | `analyzer_intent.go:243` | answer subject 推导(ADD-only)|
-| `reconcilePredicateAxis` | `analyzer_predicate.go:31` | axis 推导(ADD-only)|
-| `reconcileScenario` | `analyzer_intent.go:95` | scenario 与 intent 一致性 |
+| `reconcileEnumerationBoundaryScope` | `analyzer_boundary.go` | 验证 boundary 在 sub_topics 范围内 |
+| `reconcileSemanticPredicates` | `analyzer_predicate.go` | 调 `IsCrossComponent` 的反向风险 |
+| `reconcileComplexity` | `analyzer_complexity.go` | 复杂度交叉校验 |
+| `reconcileIntent` | `analyzer_intent.go` | intent 与 predicates 一致性 |
+| `inferAnswerSubject` | `analyzer_intent.go` | answer subject 推导(ADD-only)|
+| `reconcilePredicateAxis` | `analyzer_predicate.go` | axis 推导(ADD-only)|
+| `reconcileScenario` | `analyzer_intent.go` | scenario 与 intent 一致性 |
 
-这是已建立的"deterministic augmentation"模式。所有调用都通过 `recordReconcileObservation` 统一观测。
+这是已建立的"deterministic augmentation"模式。所有调用都通过 `recordReconcileObservation` 统一观测。Amplifier 是这个模式的扩展,不是新层。
 
 ### 2.2 执行层契约(已健全)
 
 | 字段 / 机制 | 文件 | 用途 |
 |---|---|---|
-| `RequestModel.Buckets[]` | `types/analysis_ir.go:148` | 命名分区 |
-| `RequestModel.SubTopics[]` | `types/analysis_ir.go:78` | 多 sub-topic 独立 DAG 节点 |
-| `RequestModel.EnumerationBoundary` | `types/analysis_ir.go:131` | 用户声明的边界数量 |
-| `RequestModel.CompletenessObligation` | `types/analysis_ir.go:144` | "all/every" 强制覆盖 |
+| `RequestModel.Buckets[]` | `types/analysis_ir.go` | 命名分区 |
+| `RequestModel.SubTopics[]` | `types/analysis_ir.go` | 多 sub-topic 独立 DAG 节点 |
+| `RequestModel.EnumerationBoundary` | `types/analysis_ir.go` | 用户声明的边界数量 |
+| `RequestModel.CompletenessObligation` | `types/analysis_ir.go` | "all/every" 强制覆盖 |
 | `Predicates.IsCategoryEnumeration` | `types/predicates.go` | 触发 enumeration 子契约 |
-| `FacetBucketLabel HARD per bucket` | `types/facet_plan.go:919` | `Buckets ≥ 2` 时每 bucket 必出现一条 facet |
-| `view.Buckets ≥ 2` 触发 QFComparison | `answer_semantic_view_compile_comparison.go:53` | 多 bucket → 比较结构 |
+| `FacetBucketLabel HARD per bucket` | `types/facet_plan.go` | `Buckets ≥ 2` 时每 bucket 必出现一条 facet |
+| `view.Buckets ≥ 2` 触发 QFComparison | `types/answer_semantic_view_compile_comparison.go` | 多 bucket → 比较结构 |
 | `HDP.topSymbols()` | `analysis/hdp/planner.go` | 已实现的 multi-subject 结构性检测 |
 
 ### 2.3 Gap
 
 reconciler family 的 7 个函数中,**没有任何一个填写或调整以下字段:**
-- `Predicates.IsCategoryEnumeration`(只有 `reconcileSemanticPredicates` 处理 `IsCrossComponent`)
-- `SubTopics`(只有 truncate 到 5 项的处理,没有派生)
-- `Buckets`(完全无后处理)
 
-LLM emit 是这三个字段的唯一来源。
+- `Predicates.IsCategoryEnumeration`(`reconcileSemanticPredicates` 只处理 `IsCrossComponent`)
+- `SubTopics`(`buildAnalysisIR` 只 truncate 到 5 项,无派生)
+- `Buckets`(无任何后处理)
+
+**LLM emit 是这三个字段的唯一来源。** 这是 amplifier 要补的洞。
 
 ---
 
-## 3. 设计
+## 3. 必要的类型字典(下个 session 实施时直接对照)
 
-### 3.1 包结构
+### 3.1 `types.Intent`(`types/analysis_ir.go`)
+
+```go
+type Intent string
+
+const (
+    IntentExplain     Intent = "explain"
+    IntentRootCause   Intent = "root_cause"
+    IntentTrace       Intent = "trace"
+    IntentEnumerate   Intent = "enumerate"
+    IntentConfigQuery Intent = "config_query"
+    IntentReturnValue Intent = "return_value"
+    IntentUnknown     Intent = "unknown"
+)
+```
+
+**没有 `IntentCompare` 这个值。** 比较类问题落到 `IntentExplain` 或 `IntentEnumerate`。
+
+### 3.2 `types.TermKind`(`types/analysis_ir.go`)
+
+```go
+type TermKind string
+
+const (
+    TermSymbol  TermKind = "symbol"
+    TermConcept TermKind = "concept"
+    TermConfig  TermKind = "config"
+    TermCommand TermKind = "command"
+    TermLiteral TermKind = "literal"
+)
+```
+
+`TermSymbol` / `TermConfig` / `TermLiteral` / `TermCommand` 是命名实体类(typed identifiers)。`TermConcept` 是抽象概念。
+
+### 3.3 `types.AnswerSubject.Kind`(`types/analysis_ir.go`)
+
+包含 `SubjectScalar`(scalar 答案)/ `SubjectConfigKey` / `SubjectGeneric` 等。完整列表查 `analysis_ir.go::AnswerSubjectKind`。
+
+### 3.4 `types.SemanticPredicates`(`types/analysis_ir.go`)
+
+```go
+type SemanticPredicates struct {
+    IsScalarAnswer        bool
+    IsRoleLocateLookup    bool
+    IsCountQuestion       bool
+    IsCrossComponent      bool
+    IsRelationalLookup    bool
+    IsCategoryEnumeration bool   // ← amplifier R1 写入
+    IsHistoryLookup       bool
+}
+```
+
+### 3.5 `types.SubTopic`(`types/analysis_ir.go`)
+
+```go
+type SubTopic struct {
+    Summary  string   `json:"summary"`
+    Entities []string `json:"entities,omitempty"`
+}
+```
+
+---
+
+## 4. 设计
+
+### 4.1 包结构
 
 `internal/analysis/amplifier/`(新包)
 
@@ -77,201 +203,272 @@ import "github.com/hanchaoqun/codrax/internal/types"
 // existing recordReconcileObservation telemetry chain.
 func Amplify(rm types.RequestModel) (types.RequestModel, []Observation)
 
+// AmplifyPostCompile runs the rules that depend on out.AnswerContract
+// being already populated by compiler.Compile. Mutates out's contract
+// fields in place; returns observations.
+func AmplifyPostCompile(out interface{}, rm types.RequestModel) []Observation
+// (interface{} placeholder — actual signature uses *compiler.Output;
+// avoid pulling compiler into amplifier — invert via accessor func
+// or duplicate the small piece of contract API needed)
+
 // Observation records one rule firing for telemetry parity with
 // the existing reconciler family.
 type Observation struct {
-	Rule   string // identifier, e.g. "R1_multi_subject_predicate"
-	Field  string // field that was modified, e.g. "predicates.is_category_enumeration"
-	Before string // serialized prior value
-	After  string // serialized new value
-	Reason string // structural rationale
+    Rule   string // identifier, e.g. "R1_multi_subject_predicate"
+    Field  string // field that was modified, e.g. "predicates.is_category_enumeration"
+    Before string // serialized prior value
+    After  string // serialized new value
+    Reason string // structural rationale
 }
 ```
 
-### 3.2 调用点
-
-`internal/agent/analyzer.go::buildAnalysisIR`,在以下范围内插入:
-
-- 在 `rm.AnalyzerHints.MentionedEntities` 设置之后
-- 在 log/perf-triage entity merge 之后
-- 在 `sub_topics` truncate + complexity 升级处理之后
-- 在 `reconcileSemanticPredicates` 之前
-- 在 `compiler.Compile` 之前
-
-具体在 `reconcileSemanticPredicates` 调用前(`analyzer.go:1133` 上方),作为 reconciler family 的前置步骤。
-
-### 3.3 调用形式
+**避免循环依赖:** `internal/analysis/compiler/` 已经在 internal/analysis 树下,但为了 R3 的 post-compile pass 接入 `compiler.Output`,可以让 amplifier 反向接受一个最小接口:
 
 ```go
-amplified, observations := amplifier.Amplify(rm)
-for _, obs := range observations {
-	recordReconcileObservation(ctxMutable(ctx), reconcileEvent(
-		obs.Field, obs.Before, obs.After, 0, obs.Reason, rm.Predicates,
-	))
+// MustIncludeMutator 是 AmplifyPostCompile 用的最小接口,避免直接 import compiler。
+type MustIncludeMutator interface {
+    AppendMustInclude(items []string)
+    HasMustInclude(item string) bool
 }
-rm = amplified
 ```
 
-### 3.4 不变性
+### 4.2 调用点
 
-- amplifier **永不覆盖** LLM 已填的非零字段(`if rm.X != zero { skip }`)
-- amplifier **永不读** `rm.RawRequest` 文本(只读 `TermGraph` / `AnalyzerHints.Entities` / `Predicates` 等 typed 字段)
+`internal/agent/analyzer.go::buildAnalysisIR` 函数内,文本锚定方式(不依赖具体行号):
+
+**Amplify(pre-compile)插入位置:**
+- AFTER `rm.AnalyzerHints.MentionedEntities = ...` 设置
+- AFTER `reconcileEnumerationBoundaryScope` 调用
+- AFTER log/perf-triage entity merge 块(`logBundle != nil` 那段)
+- AFTER sub_topics truncate + complexity 升级处理(`if len(rm.SubTopics) > 5 { ... }` 块)
+- BEFORE `reconcileSemanticPredicates` 调用
+- BEFORE `compiler.Compile(rm, sig)` 调用
+
+定位提示:在文件中搜索 `predsResolved, predsReason := reconcileSemanticPredicates(rm)`,Amplify 调用插在该行之前。
+
+**AmplifyPostCompile(post-compile)插入位置:**
+- AFTER `compiler.RecomputeBudget(&out, rm, sig)` 调用
+- BEFORE `binder.BindByRelevance(...)` 调用
+
+### 4.3 调用形式
+
+```go
+// pre-compile pass
+amplified, observations := amplifier.Amplify(rm)
+for _, obs := range observations {
+    recordReconcileObservation(ctxMutable(ctx), reconcileEvent(
+        obs.Field, obs.Before, obs.After, 0, obs.Reason, rm.Predicates,
+    ))
+}
+rm = amplified
+
+// ... compiler.Compile(rm, sig) ... compiler.RecomputeBudget ...
+
+// post-compile pass
+postObs := amplifier.AmplifyPostCompile(&out, rm)
+for _, obs := range postObs {
+    recordReconcileObservation(ctxMutable(ctx), reconcileEvent(
+        obs.Field, obs.Before, obs.After, 0, obs.Reason, rm.Predicates,
+    ))
+}
+```
+
+### 4.4 不变性(实施时随时对照)
+
+- amplifier **永不覆盖** LLM 已填的非零字段(`if existing != zero { skip }`)
+- amplifier **永不读** `rm.RawRequest` 文本 — 函数签名禁止接受能 leak 文本的参数
 - amplifier 规则**不允许引用具体测试 case 的字面 entity 名**
-- amplifier 是**纯函数** — 同输入同输出,无副作用,无 I/O,无并发原语
+- amplifier 是**纯函数** — 无副作用,无 I/O,无并发原语,同输入同输出
 
 ---
 
-## 4. 规则集
+## 5. 规则集
 
 ### R1 — Multi-subject Predicate Inference
 
-**输入:** `rm.TermGraph`, `rm.Predicates`, `rm.Intent`, `rm.AnswerSubject`, `rm.AnalyzerHints`
+**输入:** `rm.TermGraph`, `rm.Predicates`, `rm.Intent`, `rm.AnswerSubject`, 以及通过 `types.ExactResolutionTargets(rm)` 取出的 exact targets 列表。
 
-**触发条件(全部满足):**
-- `len(hdpTopSymbols(rm.TermGraph, 3)) ≥ 2`(复用 `internal/analysis/hdp/planner.go` 中既有 `topSymbols` 算法的同等逻辑;若该函数 unexport,提取 helper 到 amplifier 包内)
-- AND `rm.Predicates.IsCategoryEnumeration == false`
-- AND `rm.Intent ∈ {Explain, Trace, Compare}`
-- AND `len(types.ExactResolutionTargets(rm)) != 1`
-- AND `rm.AnswerSubject.Kind != types.SubjectScalar`
+**触发条件(全部必须满足):**
+
+1. `len(hdpTopSymbols(rm.TermGraph, 3)) ≥ 2`
+   - 复用 `internal/analysis/hdp/planner.go::topSymbols` 的算法逻辑。该函数当前 unexport — 实施时把同等算法复制到 amplifier 包内的 helper(避免 amplifier 反向 import hdp 包,绕开 hdp.Plan 副作用)。
+   - 算法摘要:从 `tg.Canonical` 取 `Kind == TermSymbol` 的项,按 `Confidence` desc 排序,如果第 0 项与第 1 项 Confidence 差 > 0.4 则返回 1 项,否则返回 ≤ k 项。
+2. AND `rm.Predicates.IsCategoryEnumeration == false`
+3. AND `rm.Intent ∈ {IntentExplain, IntentTrace, IntentRootCause}`
+   - 不包含 `IntentEnumerate`(已是 enumeration,不需要补)
+   - 不包含 `IntentConfigQuery / IntentReturnValue / IntentUnknown`
+4. AND `len(types.ExactResolutionTargets(rm)) != 1`(单 exact target 不是 enumeration)
+5. AND `rm.AnswerSubject.Kind != types.SubjectScalar`(scalar 答案不是 enumeration)
 
 **动作:**
 - 设 `rm.Predicates.IsCategoryEnumeration = true`
-- 记录 Observation
+- 记录 `Observation{Rule: "R1_multi_subject_predicate", Field: "predicates.is_category_enumeration", Before: "false", After: "true", Reason: "HDP topSymbols ≥ 2 with no sharp gap"}`
 
-**理由:** HDP topSymbols 基于 typed `TermGraph.Canonical[].Confidence` 检测 multi-subject。R1 把这个已有结构信号 propagate 到 predicates 层,补 LLM emit 层的盲点。Intent 限定 + scalar 排除 + single-exact-target 排除三道闸门确保不误触发。
+**理由:** HDP topSymbols 基于 typed `TermGraph.Canonical[].Confidence` 检测 multi-subject(纯 typed 数据,无 keyword)。R1 把这个已有结构信号 propagate 到 predicates 层。Intent 限定 + scalar 排除 + single-exact-target 排除三道闸门确保不误触发。
 
 **与下游 reconciler 的兼容:**
-- `reconcileSemanticPredicates` 在 R1 之后跑,其 `signalsExplicitMultiAxis(p)` (predicate.go:164) 会读到新的 `IsCategoryEnumeration=true`,行为自然 propagate
-- `reconcileComplexity` 在 R1 之后跑,其 `IsCategoryEnumeration` 检查 (complexity.go:152) 会触发正确的 simple→moderate 升级
+- `reconcileSemanticPredicates` 在 R1 之后跑,其 `signalsExplicitMultiAxis(p)`(`analyzer_predicate.go`)会读到新的 `IsCategoryEnumeration=true`,行为自然 propagate
+- `reconcileComplexity` 在 R1 之后跑,`IsCategoryEnumeration` 检查在 `analyzer_complexity.go` 已存在,会触发正确的 simple→moderate 升级
 
 ### R2 — Typed-Name Parity → SubTopics Derivation
 
 **输入:** `rm.TermGraph`, `rm.AnalyzerHints.Entities`, `rm.SubTopics`
 
 **触发条件:**
-- `rm.SubTopics` 为空
-- AND `rm.TermGraph.Canonical` 中存在 ≥ 2 个 `CanonicalTerm` 共享 typed parent:
-  - 同 `Kind`(同时是 `TermSymbol` 或同时是 `TermConfig` 等)
-  - AND `Surface` 共享至少 4 字符的公共前缀或后缀(纯 string slot 操作,非 keyword 列表)
-- AND 公共前缀 / 后缀本身是合法标识符(letter / digit / 下划线)
-- AND 这一组共享 parent 的 entity 数 ≥ 2 且 ≤ 8(过多视为偶然)
+
+1. `rm.SubTopics` 为空
+2. AND `rm.TermGraph.Canonical` 中存在 ≥ 2 个 `CanonicalTerm` 共享 typed parent:
+   - 同 `Kind`(同时是 `TermSymbol` 或同时是 `TermConfig`、`TermLiteral`、`TermCommand` — `TermConcept` 通常不形成 parallel-naming 命名集,排除)
+   - AND `Surface` 共享至少 4 字符的公共前缀或后缀
+3. AND 公共前缀 / 后缀本身是合法标识符(letter / digit / 下划线)
+4. AND 这一组共享 parent 的 entity 数 ≥ 2 且 ≤ 8
+
+**为什么是 4 字符 / 8 项:**
+
+- **4 字符前缀阈值:** 太短(1-3 字符)误触发率高 — Go 名字 "Get" / "Set" / "io" 等 3 字符前缀广泛存在却不构成命名集。4 字符是经验下限,典型命名集前缀(`Stage*` 5 字符 / `emit_` 5 字符 / `Turn*` 4 字符)都 ≥ 4 字符。如实施后发现误触发,可调到 5。
+- **8 项上限:** 单一命名集很少超过 8 项;超过 8 项往往是 codebase 全局符号(`Test*` / `Err*`)被误归一组,这类不构成用户 question 的 sub-topic 边界。8 是保守上限。
 
 **动作:**
 - 为每个共享 parent 的 entity 生成 `SubTopic{Summary: <Surface>, Entities: [<Surface>]}`
 - 设 `rm.SubTopics = derived`
+- 记录 `Observation{Rule: "R2_typed_name_parity_subtopics", Field: "sub_topics", ...}`
 
 **理由:** TermKind 是 typed 分类,public-prefix/suffix 是 string-slot 结构推断,均不依赖关键词词表。
 
 **与下游 reconciler 的兼容:**
-- `reconcileComplexity` 后续看到 `len(rm.SubTopics) ≥ 1` → 升级 simple→moderate(`analyzer.go:1103-1108` 已有逻辑)
+- `reconcileComplexity` 后续看到 `len(rm.SubTopics) ≥ 1` → 升级 simple→moderate(buildAnalysisIR 已有逻辑)
 - `coherence.go::flattenSubTopicEntities` 自然读取派生的 SubTopics
 
 ### R3 — Typed-Identifier MustInclude Pinning
 
 **输入:** `rm.AnalyzerHints.Entities`, `rm.TermGraph`, `rm.Predicates`, `out.AnswerContract.MustInclude`
 
-**关键时序约束:** R3 依赖 `compiler.Compile` 已生成 `out.AnswerContract`。因此 R3 不能在 buildAnalysisIR 的 `reconcileSemanticPredicates` 之前跑,必须有第二次 amplify pass。
+**关键时序约束:** R3 依赖 `compiler.Compile` 已生成 `out.AnswerContract`。R3 必须在 `AmplifyPostCompile` pass 内运行,不能在 pre-compile pass 内。
 
-**实现方案:**
-- amplifier 包提供两个入口:
-  - `Amplify(rm)` — pre-compile(R1, R2)
-  - `AmplifyPostCompile(out *compiler.Output, rm types.RequestModel)` — post-compile(R3)
-- 调用顺序:`Amplify(rm)` → `compiler.Compile(rm, sig)` → `AmplifyPostCompile(&out, rm)`
+**调用顺序约束:** `Amplify(rm)` → `compiler.Compile(rm, sig)` → `AmplifyPostCompile(&out, rm)` → 后续 `binder.BindByRelevance` 等。
 
 **触发条件:**
-- `rm.Predicates.IsCategoryEnumeration == true`(包含 R1 触发后的结果)
-- AND `rm.AnalyzerHints.Entities` 中存在 typed identifier(`TermGraph.Canonical[].Kind ∈ {TermSymbol, TermConfig, TermLiteral}` 的对应 Surface)
-- AND 该 identifier 不在 `out.AnswerContract.MustInclude`
+
+1. `rm.Predicates.IsCategoryEnumeration == true`(包含 R1 触发后的结果 — R1 必须先于 R3 跑)
+2. AND `rm.AnalyzerHints.Entities` 中存在 typed identifier — 即 `rm.TermGraph.Canonical` 中 `Kind ∈ {TermSymbol, TermConfig, TermLiteral, TermCommand}` 且其 `Surface` 在 `rm.AnalyzerHints.Entities` 列表中
+3. AND 该 identifier 不在 `out.AnswerContract.MustInclude`
 
 **动作:**
 - 把符合条件的 typed identifier append 进 `out.AnswerContract.MustInclude`(去重)
+- 记录 `Observation{Rule: "R3_typed_identifier_mustinclude", Field: "answer_contract.must_include", ...}`
 
 **理由:** 当问题被识别为 enumeration AND analyzer 已确认这些 identifier 是命名实体(TermKind 非 concept),它们就是答案必含项。不依赖 question 文本的 keyword 匹配。
 
-### R4 — Buckets Derivation(Phase 2 后视情况追加)
+### R4 — Buckets Derivation(推迟到 Phase 5)
 
-设计推迟。R4 涉及 question 多 `?` 切分 / parallel-naming pattern 检测,需要更细致的边界设计,首版不做。
-
----
-
-## 5. 不在本设计内
-
-- ❌ analyzer LLM prompt 调教(本设计走结构性补全路线,不动 prompt)
-- ❌ 添加新的 typed 字段到 `RequestModel`(沿用现有字段)
-- ❌ 修改 `AnswerSemanticView` 编译逻辑或契约执行层
-- ❌ 修改 emit_analysis 工具的 schema 或 Parameters
-- ❌ amplifier 读取 `rm.RawRequest` 文本做关键词/正则匹配
-- ❌ amplifier 覆盖 LLM 已填的非零字段
-- ❌ amplifier 为单个 case 设计字面规则
+R4 涉及 question 多 `?` 切分 / parallel-naming pattern 检测,需要更细致的边界设计。Phase 1-4 完成后,根据 eval 数据稳定度再考虑是否要做。**首版不做。**
 
 ---
 
-## 6. 实施分批
+## 6. 不在本设计内
+
+- ❌ analyzer LLM prompt 调教(本设计走结构性补全路线,不动 prompt;prompt 调教是另一条独立路径)
+- ❌ 添加新的 typed 字段到 `RequestModel`(沿用现有字段;若发现现有字段不够表达推论,**回到 §5 重审规则**,不擅自加字段)
+- ❌ 修改 `AnswerSemanticView` 编译逻辑或契约执行层(执行层已健全)
+- ❌ 修改 `emit_analysis` 工具的 schema 或 Parameters(LLM 视角对 amplifier 不可见)
+- ❌ amplifier 读取 `rm.RawRequest` 文本做关键词/正则匹配(红线 1,函数签名物理屏障)
+- ❌ amplifier 覆盖 LLM 已填的非零字段(红线 2)
+- ❌ amplifier 为单个 case 设计字面规则(红线 3)
+
+---
+
+## 7. 实施分批
 
 ### Phase 1 — 框架与接入(2 commit)
 
-**Phase 1.1**
+**Phase 1.1**(commit 1)
 - 新建 `internal/analysis/amplifier/` 包
-- 实现 `Amplify` / `AmplifyPostCompile` 入口骨架(无规则)
+- 实现 `Amplify(rm)` 入口骨架(规则注册表为空)
+- 实现 `AmplifyPostCompile(out, rm)` 入口骨架(规则注册表为空)
 - 实现 `Observation` 类型
-- 单元测试:空 rm 恒等、LLM 满 rm 恒等、幂等性(二次调用无变化)
+- 单元测试 `amplifier_test.go`:
+  - 空 rm 的恒等性(无规则触发 → 无变化)
+  - 已满 rm 的恒等性(LLM 已填 → 不覆盖)
+  - 多次调用幂等性(amplifier 第二次调用无变化)
 
-**Phase 1.2**
-- 接入 `analyzer.go::buildAnalysisIR`(`Amplify` 在 reconcileSemanticPredicates 前)
-- 接入 `analyzer.go::buildAnalysisIR`(`AmplifyPostCompile` 在 `compiler.RecomputeBudget` 后)
-- 测试:`TestBuildAnalysisIR_AmplifierInsertionOrder` 钉死调用顺序
-- 全量回归测试 0 失败
+**Phase 1.2**(commit 2)
+- 接入 `internal/agent/analyzer.go::buildAnalysisIR`
+  - 在 §4.2 描述的位置插入 `Amplify` 调用(在 `reconcileSemanticPredicates` 之前)
+  - 在 `compiler.RecomputeBudget` 之后插入 `AmplifyPostCompile` 调用
+- 把 observations 接入 `recordReconcileObservation`(用 `reconcileEvent` 包装)
+- 测试 `TestBuildAnalysisIR_AmplifierInsertionOrder` — 钉死 amplifier 在所有 reconciler 之前调用
+- 全部现有 analyzer / compiler / orchestrator 测试 0 回归
 
 ### Phase 2 — R1 规则(2 commit)
 
-**Phase 2.1**
-- 在 amplifier 包内实现 `topSymbols` 等价 helper(避免对 hdp 包的依赖)
+**Phase 2.1**(commit 3)
+- 在 amplifier 包内实现 `topSymbolsLikeHDP(tg types.TermGraph, k int) []string` helper(参考 `internal/analysis/hdp/planner.go::topSymbols` 算法,duplicate logic 避免反向 import hdp)
 - 实现 R1 规则
-- 单元测试:多 subject 触发、单 subject 不触发、scalar 排除、single-exact-target 排除、Intent 限定
+- 单元测试覆盖:
+  - 多 subject(2+ TermSymbol 同 Confidence)→ R1 触发,IsCategoryEnumeration=true
+  - 单 subject(只有 1 TermSymbol)→ R1 不触发
+  - sharp gap(top 2 Confidence 差 > 0.4)→ R1 不触发
+  - Intent ∉ {Explain, Trace, RootCause}(如 Enumerate / Lookup) → R1 不触发
+  - SubjectScalar → R1 不触发
+  - len(ExactResolutionTargets) == 1 → R1 不触发
+  - LLM 已填 IsCategoryEnumeration=true → R1 不触发(单向 ADD)
 
-**Phase 2.2**
-- 真 eval 验证:qf_arch x4 + s1a x2 + m1a x2
-- 验收:qf_arch 两次 PASS(消除 r1/r2 随机性)
+**Phase 2.2**(commit 4)
+- 真 eval:跑 qf_arch x4 + s1a x2 + m1a x2
+- **验收:qf_arch 至少 3/4 PASS**(消除 r1/r2 随机性 — pre-amplifier 是 1/4 PASS)
 
 ### Phase 3 — R2 规则(2 commit)
 
-**Phase 3.1**
-- 实现 `commonAffixGroups(canonical []CanonicalTerm) [][]string`
+**Phase 3.1**(commit 5)
+- 实现 `commonAffixGroups(canonical []CanonicalTerm) [][]string` helper:
+  - 按 Kind 分组
+  - 每组内找 Surface 共享 ≥ 4 字符前缀或后缀的子集
+  - 返回 group 数 ≥ 2 且 ≤ 8 的子集
 - 实现 R2 规则
-- 单元测试:6 个 Stage* → 1 组 → 6 个 SubTopic
+- 单元测试:
+  - 6 个 `Stage*` TermSymbol → 1 组 → 6 个 SubTopic
+  - 5 个混合 Kind(Stage* TermSymbol + 1 TermConcept)→ 只取 5 TermSymbol → 5 SubTopic
+  - LLM 已填 SubTopics → R2 不触发
+  - 共享 3 字符前缀(< 4)→ R2 不触发
 
-**Phase 3.2**
-- 真 eval 验证:m1a x4 + qf_arch x2
-- 验收:m1a r1 + r2 都覆盖 emit_evidence(R2 派生 [explorer agent, extractor agent] subtopics → 下游每 subtopic 期望 emit_* 列表)
+**Phase 3.2**(commit 6)
+- 真 eval:跑 m1a x4 + qf_arch x2
+- **验收:m1a 4/4 包含 emit_evidence**(R2 派生 SubTopics + 下游契约强制每 subtopic 完整 emit_*)
 
 ### Phase 4 — R3 规则(2 commit)
 
-**Phase 4.1**
+**Phase 4.1**(commit 7)
 - 实现 `AmplifyPostCompile` R3 分支
-- 单元测试:enumeration + named identifier → MustInclude 注入
+- 单元测试:
+  - enumeration + named TermSymbol identifier → MustInclude 注入
+  - enumeration + TermConcept(非命名实体)→ R3 不触发
+  - non-enumeration → R3 不触发
+  - identifier 已在 MustInclude → R3 跳过去重
 
-**Phase 4.2**
+**Phase 4.2**(commit 8)
 - 真 eval 跨 5 case 验证
-- 验收:案 EXPECT_CONTAINS 中的命名 identifier 在 enumeration 类问题中稳定覆盖
+- **验收:enumeration 类问题命名 identifier 在答案中 100% 覆盖**
 
 ---
 
-## 7. 验证指标
+## 8. 验证指标
 
-每完成一个 Phase 跑 5 case x 2 runs:
+每完成一个 Phase 跑指定 case 子集:
 
 | Phase | 必跑 case | 期望 |
 |---|---|---|
-| 1 | qf_arch x2 + s1a x2 | 0 回归 |
-| 2 | qf_arch x4 + s1a x2 + m1a x2 | qf_arch 两次都 PASS |
-| 3 | qf_arch x4 + s1a x2 + m1a x4 + u3a x2 | m1a 两次都包含 emit_evidence;u3a 不回归 |
-| 4 | 全 5 case x 2 runs | 含 enumeration 的 case 命名 identifier 全覆盖 |
+| 1 | qf_arch x2 + s1a x2 | 0 回归(amplifier 还没规则触发) |
+| 2 | qf_arch x4 + s1a x2 + m1a x2 | qf_arch 至少 3/4 PASS,m1a 至少 1/2 PASS |
+| 3 | qf_arch x4 + s1a x2 + m1a x4 + u3a x2 | m1a 4/4 包含 emit_evidence;u3a 不回归 |
+| 4 | 全 5 case x 2 runs | enumeration 类问题命名 identifier 全覆盖 |
+
+**u3a 备注:** u3a 当前 case 已 stale(case spec 描述 extractor 是 one-shot,但代码已改为 iterationCap)。amplifier 不会让 u3a 通过 — case 本身需独立更新。"u3a 不回归" 指 u3a 已 FAIL 状态保持 FAIL,不应因 amplifier 引入新 FAIL 模式。
 
 任何 Phase 引入回归 → 立即回滚,debug 后再推。
 
 ---
 
-## 8. 红线 / 不变性
+## 9. 红线 / 不变性
 
 | # | 规则 | 强制方式 |
 |---|---|---|
@@ -282,22 +479,26 @@ rm = amplified
 | 5 | amplifier 输出与 reconcileEvent telemetry 兼容 | Observation 类型对齐 reconcileEvent 字段 |
 | 6 | amplifier 是纯函数 | 函数签名 + 单元测试(随机输入幂等性)|
 
+**最容易踩的是红线 2** — 看到 LLM 输出"差点意思"想覆盖回去。覆盖 = 退化为 reconciler family 已在做的"reconcile 已填字段",违反单一原则。
+
+**最容易绕过的是红线 4** — 给 amplifier 加 `*MutableState` 参数就能拿运行时状态。一旦加,红线 1 失效。**函数签名是 6 条红线的物理屏障。**
+
 ---
 
-## 9. 接续 checklist
+## 10. 接续 checklist
 
-如本 session 中断,下个 session 接续按以下顺序确认进度:
+下个 session 接续按以下顺序确认进度:
 
 1. `git log origin/main` 确认相关 commit
 2. `ls internal/analysis/amplifier/` 看 Phase 1.1 是否落地
 3. `grep -n amplifier.Amplify internal/agent/analyzer.go` 看 Phase 1.2 是否接入
 4. `go test ./internal/analysis/amplifier/ -count=1 -v` 看规则覆盖
 5. `bash eval/run.sh eval/cases/qf_architecture.case 2` 看 Phase 2 落地后 r1/r2 一致性
-6. 按"实施分批"小节顺序推进未完成 Phase
+6. 按"§7 实施分批"顺序推进未完成 Phase
 
 ---
 
-## 10. 与并行设计的边界
+## 11. 与并行设计的边界
 
 | 文档 | 焦点 | 与本文档关系 |
 |---|---|---|
