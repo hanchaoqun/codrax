@@ -44,8 +44,7 @@ func compileArchitecture(ir *AnalysisIR, plan *AnswerSurfacePlan) *AnswerSemanti
 			AcceptableClaimForms: []ClaimForm{
 				ClaimDefinitionFact,
 			},
-			Rationale: "One section per architectural layer / component group. Each section's " +
-				"title names the layer; the body describes its responsibilities + key files.",
+			Rationale: "One section per architectural layer / component group. The body MUST combine TWO axes: (a) WHAT the component does — its role / purpose / responsibility, expressed as an active sentence whose subject is the component and whose predicate is a behavioural verb (an action the component performs for the system, not just an internal data structure it owns); (b) WHERE the component lives — grounded file:line references supporting (a). Listing only file:line locations or only internal type names without an active behaviour sentence is incomplete; describing the role without grounded references is unverified. Each section needs both axes.",
 			SurfaceRoleHint: SurfacePrincipal,
 		},
 		{
