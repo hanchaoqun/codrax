@@ -75,6 +75,53 @@ func TestRenderV2_BlockBulletList(t *testing.T) {
 	}
 }
 
+// TestRenderV2_SkipsEmptyItems pins the 2026-05-05 fix: items
+// without Label or Text (e.g. carriers of typed claim_use only)
+// MUST NOT render as bare "- " bullets. Section / BulletList /
+// OrderedList all share the same chokepoint.
+func TestRenderV2_SkipsEmptyItems(t *testing.T) {
+	doc := &types.AnswerDocumentV2{
+		Blocks: []types.AnswerBlock{
+			{
+				ID: "s1", Kind: types.BlockSection, Title: "S", Text: "body",
+				Items: []types.AnswerBlockItem{
+					{CitationRef: -1}, // empty (claim_use-only emit shape)
+					{CitationRef: -1},
+				},
+			},
+			{
+				ID: "b1", Kind: types.BlockBulletList,
+				Items: []types.AnswerBlockItem{
+					{Label: "Real", CitationRef: -1},
+					{CitationRef: -1}, // empty — should be skipped
+				},
+			},
+			{
+				ID: "o1", Kind: types.BlockOrderedList,
+				Items: []types.AnswerBlockItem{
+					{CitationRef: -1}, // empty — should be skipped
+					{Label: "Two", CitationRef: -1},
+				},
+			},
+		},
+	}
+	out := RenderAnswerDocument(doc, "en")
+	if strings.Contains(out, "- \n") {
+		t.Errorf("rendered empty bullet '- '; output:\n%s", out)
+	}
+	if strings.Contains(out, "1. \n") || strings.Contains(out, "2. \n") {
+		t.Errorf("rendered empty ordered item; output:\n%s", out)
+	}
+	if !strings.Contains(out, "- **Real**") {
+		t.Errorf("non-empty bullet item missing; output:\n%s", out)
+	}
+	// OrderedList numbering must be re-indexed after skipping empty:
+	// only "Two" remains, so it should be "1. **Two**", not "2. ...".
+	if !strings.Contains(out, "1. **Two**") {
+		t.Errorf("ordered-list re-numbering after skip wrong; output:\n%s", out)
+	}
+}
+
 func TestRenderV2_BlockScalar(t *testing.T) {
 	doc := &types.AnswerDocumentV2{
 		Blocks: []types.AnswerBlock{

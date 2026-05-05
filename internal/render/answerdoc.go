@@ -99,10 +99,21 @@ func renderV2BlockSection(b *strings.Builder, blk types.AnswerBlock, lang answer
 		b.WriteString(blk.Text)
 		b.WriteString("\n\n")
 	}
-	if len(blk.Items) > 0 {
-		for _, it := range blk.Items {
-			fmt.Fprintf(b, "- %s\n", renderV2BlockItem(it, nil, lang))
+	rendered := 0
+	for _, it := range blk.Items {
+		// Skip items that contribute no user-visible prose. Some LLM
+		// emits attach typed claim annotations (items[i].claim_use)
+		// without Label/Text — those are contract-layer signals, not
+		// answer prose. Without this guard the renderer prints "- "
+		// per signal-only item.
+		s := renderV2BlockItem(it, nil, lang)
+		if strings.TrimSpace(s) == "" {
+			continue
 		}
+		fmt.Fprintf(b, "- %s\n", s)
+		rendered++
+	}
+	if rendered > 0 {
 		b.WriteString("\n")
 	}
 }
@@ -115,10 +126,16 @@ func renderV2BlockOrderedList(b *strings.Builder, blk types.AnswerBlock, doc *ty
 		b.WriteString(blk.Text)
 		b.WriteString("\n\n")
 	}
-	for i, it := range blk.Items {
-		fmt.Fprintf(b, "%d. %s\n", i+1, renderV2BlockItem(it, doc, lang))
+	idx := 0
+	for _, it := range blk.Items {
+		s := renderV2BlockItem(it, doc, lang)
+		if strings.TrimSpace(s) == "" {
+			continue
+		}
+		idx++
+		fmt.Fprintf(b, "%d. %s\n", idx, s)
 	}
-	if len(blk.Items) > 0 {
+	if idx > 0 {
 		b.WriteString("\n")
 	}
 }
@@ -131,10 +148,16 @@ func renderV2BlockBulletList(b *strings.Builder, blk types.AnswerBlock, doc *typ
 		b.WriteString(blk.Text)
 		b.WriteString("\n\n")
 	}
+	rendered := 0
 	for _, it := range blk.Items {
-		fmt.Fprintf(b, "- %s\n", renderV2BlockItem(it, doc, lang))
+		s := renderV2BlockItem(it, doc, lang)
+		if strings.TrimSpace(s) == "" {
+			continue
+		}
+		fmt.Fprintf(b, "- %s\n", s)
+		rendered++
 	}
-	if len(blk.Items) > 0 {
+	if rendered > 0 {
 		b.WriteString("\n")
 	}
 }
