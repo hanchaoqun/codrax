@@ -355,7 +355,7 @@ func TestComposer_V2ViolationsRouteThroughV2Vocabulary(t *testing.T) {
 		{
 			name:           "principal_claim_use_missing",
 			kind:           types.ViolPrincipalClaimUseMissing,
-			mustContain:    []string{"claim_use", "claim_form", "principal block"},
+			mustContain:    []string{"claim_uses", "items[i].claim_use", "citation_ref", "principal block"},
 			mustNotContain: []string{"shape=", "steps[]"},
 		},
 		{
@@ -367,13 +367,13 @@ func TestComposer_V2ViolationsRouteThroughV2Vocabulary(t *testing.T) {
 		{
 			name:           "uncertainty_block_missing",
 			kind:           types.ViolUncertaintyBlockMissing,
-			mustContain:    []string{"caveat", "claim_form"},
+			mustContain:    []string{"caveat", "claim_uses", "claim_form"},
 			mustNotContain: []string{"shape="},
 		},
 		{
 			name:           "claim_form_unsupported",
 			kind:           types.ViolClaimFormUnsupported,
-			mustContain:    []string{"claim_use.claim_form", "citation_ref"},
+			mustContain:    []string{"claim_uses[]", "items[i].claim_use", "citation_ref"},
 			mustNotContain: []string{"shape="},
 		},
 		{

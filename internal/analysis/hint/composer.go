@@ -412,7 +412,7 @@ func summariseExactFix(violations []types.Violation, ctx Context) string {
 		// claim_use under a non-empty AcceptableClaimForms contract.
 		// Composer pulls the offending block id + allowed claim_form
 		// values from the violation's repair text upstream.
-		return "Attach `claim_use{claim_form=<one-of-allowed>, citation_ref=N}` to the named principal block(s) (or to each principal item inside an ordered_list). Pick a `claim_form` from the AllowedSet below; the validator rejects forms outside that list."
+		return "Attach claim annotations on the correct V2 carrier: use block-level `claim_uses=[{claim_form=<one-of-allowed>}]` on the named principal block(s), OR per-item `items[i].claim_use={claim_form=<one-of-allowed>}` on each principal ordered_list item. Keep `citation_ref` on the carrier (`items[i].citation_ref`, or a one-element `items[]` anchor for scalar / decision blocks) — never inside a claim_use object. Pick a `claim_form` from the AllowedSet below; the validator rejects forms outside that list."
 	case types.ViolDiagramEdgeUnsupported:
 		// V2 carrier — diagram block declares a kind that doesn't
 		// match the family contract's required diagram kind, OR an
@@ -421,12 +421,12 @@ func summariseExactFix(violations []types.Violation, ctx Context) string {
 	case types.ViolUncertaintyBlockMissing:
 		// V2 carrier — UncertaintyRule fired but no caveat block
 		// covers the disclosure facet.
-		return "Add a `caveat` block disclosing the uncertainty source the contract names. Use `claim_use{claim_form=absence_fact}` when the caveat names a search confirmed absent, or `claim_use{claim_form=external_observation}` when the source is an attached log / external trace; otherwise leave `claim_use` off (caveat blocks rarely need a typed claim form)."
+		return "Add a `caveat` block disclosing the uncertainty source the contract names. When the caveat itself needs a typed claim annotation, use block-level `claim_uses=[{claim_form=absence_fact}]` for search-confirmed absence or `claim_uses=[{claim_form=external_observation}]` for an attached log / external trace; otherwise leave claim_uses off (caveat blocks rarely need a typed claim form)."
 	case types.ViolClaimFormUnsupported:
 		// V2 carrier — LLM-emitted claim_form on a block doesn't
 		// match the system-derived ClaimFormOf(citation) for that
 		// block's evidence shape.
-		return "Re-emit the named block with a `claim_use.claim_form` that matches the cited evidence's typed shape. The Allowed list below shows the claim_form values the system inferred from your citations[]; pick one of those, or swap the citation_ref to a different evidence item whose shape supports the claim_form you intended."
+		return "Re-emit the named block with a claim annotation whose `claim_form` matches the cited evidence's typed shape: use block-level `claim_uses[]` for whole-block claims, or per-item `items[i].claim_use` for list rows. The Allowed list below shows the claim_form values the system inferred from your citations[]; pick one of those, or swap the carrier-level `citation_ref` to different evidence whose shape supports the claim you intended. Keep `citation_ref` on the carrier, never inside claim_use."
 	case types.ViolBlockCoverageMissing:
 		// V2 carrier — required block kind absent OR over the
 		// max-count cap.
