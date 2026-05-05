@@ -149,12 +149,12 @@ type emitEvidenceItem struct {
 	// Scope-specific bundles. Each bundle is read only when the Scope
 	// field selects it; ValidateScope enforces that the required
 	// bundle fields are populated.
-	SectionPath        string                `json:"section_path,omitempty"`
-	FileRoleLabel      string                `json:"file_role_label,omitempty"`
-	CrossfileQuery     *emitCrossfileQuery   `json:"crossfile_query,omitempty"`
-	CrossfileAssertion *emitCrossfileAssert  `json:"crossfile_assertion,omitempty"`
-	NegativeQuery      *emitNegativeQuery    `json:"negative_query,omitempty"`
-	NegativeScope      string                `json:"negative_scope,omitempty"`
+	SectionPath        string               `json:"section_path,omitempty"`
+	FileRoleLabel      string               `json:"file_role_label,omitempty"`
+	CrossfileQuery     *emitCrossfileQuery  `json:"crossfile_query,omitempty"`
+	CrossfileAssertion *emitCrossfileAssert `json:"crossfile_assertion,omitempty"`
+	NegativeQuery      *emitNegativeQuery   `json:"negative_query,omitempty"`
+	NegativeScope      string               `json:"negative_scope,omitempty"`
 }
 
 type emitCrossfileQuery struct {
@@ -499,9 +499,10 @@ func (t *EmitEvidence) Execute(ctx *types.BusContext, params json.RawMessage) (t
 			ev.Confidence = 0
 			if ctx.Mutable != nil {
 				ctx.Mutable.EvidenceClosure().AppendViolation(types.Violation{
-					Kind:   types.ViolSelfRefLiteral,
-					Detail: fmt.Sprintf("items[%d]: subject=%s matches primary entity; anchor literal is self-reference", i, ev.Subject),
-					Stage:  string(types.StageExplore),
+					Kind:       types.ViolSelfRefLiteral,
+					Detail:     fmt.Sprintf("items[%d]: subject=%s matches primary entity; anchor literal is self-reference", i, ev.Subject),
+					ClusterKey: fmt.Sprintf("symbol:%s|root:answer_subject.kind", primaryEntity),
+					Stage:      string(types.StageExplore),
 					SuspectedRoot: types.SuspectedRoot{
 						IRField:    "answer_subject.kind",
 						Reason:     "evidence subject=primary_entity with self-name literal",

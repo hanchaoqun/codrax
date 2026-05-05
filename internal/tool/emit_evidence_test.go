@@ -103,6 +103,55 @@ func TestEmitEvidence_RejectsEvidenceKindValueInsideAnchorKind(t *testing.T) {
 	}
 }
 
+func TestEmitEvidence_SelfRefLiteralEmitsTypedClusterKey(t *testing.T) {
+	tool := &EmitEvidence{}
+	ctx := newEmitCtx()
+	ctx.AnalysisIR = &types.AnalysisIR{
+		RequestModel: types.RequestModel{
+			AnalyzerHints: types.AnalyzerHints{
+				Entities: []string{"explorer"},
+			},
+		},
+	}
+	params := json.RawMessage(`{
+		"items": [
+			{
+				"evidence_kind": "direct",
+				"subject": "explorer",
+				"predicate": "returns",
+				"object": "\"explorer\"",
+				"snippet": "return \"explorer\"",
+				"source": "internal/agent/sub_explorer.go",
+				"line_start": 12,
+				"summary": "Explorer.Name returns explorer",
+				"anchor_kind": "definition",
+				"anchor_symbol": "Explorer.Name"
+			}
+		]
+	}`)
+	res, err := tool.Execute(ctx, params)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("expected success, got: %s", res.Summary)
+	}
+	vs := ctx.Mutable.EvidenceClosure().ViolationsByKind(types.ViolSelfRefLiteral)
+	if len(vs) != 1 {
+		t.Fatalf("expected one self-ref violation, got %d", len(vs))
+	}
+	if got, want := vs[0].ClusterKey, "symbol:explorer|root:answer_subject.kind"; got != want {
+		t.Fatalf("ClusterKey=%q, want %q", got, want)
+	}
+	got := ctx.Mutable.EmittedEvidence()
+	if len(got) != 1 {
+		t.Fatalf("want 1 emitted evidence item, got %d", len(got))
+	}
+	if got[0].Confidence != 0 {
+		t.Fatalf("self-ref evidence confidence=%v, want 0", got[0].Confidence)
+	}
+}
+
 func TestEmitEvidence_ParametersExposeEvidenceKindNotLegacyKind(t *testing.T) {
 	tool := &EmitEvidence{}
 	schema := string(tool.Parameters())
@@ -2068,9 +2117,9 @@ func TestEmitEvidence_AcceptsScopeLineRange(t *testing.T) {
 func TestEmitEvidence_RejectsScopeMissingRequiredField(t *testing.T) {
 	tool := &EmitEvidence{}
 	cases := []struct {
-		name   string
-		json   string
-		hint   string
+		name string
+		json string
+		hint string
 	}{
 		{"file scope missing role label", `{"items": [{"scope": "file", "kind": "direct", "source": "a.yaml"}]}`, "file_role_label"},
 		{"section scope missing path", `{"items": [{"scope": "section", "kind": "direct", "source": "a.go"}]}`, "section_path"},
