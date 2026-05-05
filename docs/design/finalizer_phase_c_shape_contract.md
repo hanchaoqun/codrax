@@ -112,7 +112,7 @@ each X do' / 'what is each X for' / '每个 X 负责什么' ...)
 | `internal/types/analysis_ir.go:835-843` | struct | `AnswerContract`(Phase C 不动) |
 | `internal/types/answer_semantic_view_compile.go:56-88` | dispatch | `BuildAnswerSemanticView()` 顶层 family switch — Phase C 不改签名 |
 | `internal/types/answer_semantic_view_compile_enumeration.go:26-94` | `compileEnumeration()` | 编译 QFEnumeration 的 view(本 Phase 改这里加 sub-type 内部 derive) |
-| `internal/types/claim_form.go`(grep `ClaimForm`)| enum | 9 个 ClaimForm 值 |
+| `internal/types/claim_form.go`(grep `ClaimForm`)| enum | 10 个 ClaimForm 值 |
 
 ### 2.2 Analyzer 后处理(EnumerationSubTypeHint 的 producer)
 
@@ -173,7 +173,7 @@ Line 223  EnumerationBoundary
 | 文件 | 关键 line | 作用 |
 |---|---|---|
 | `internal/analysis/hint/composer.go:142-201` | `Compose()` | 顶层入口,接 violations 出 6 字段 Hint struct |
-| `internal/analysis/hint/composer.go:374-440` | `summariseExactFix` | **真实 14 个 case**(非 25)硬编码 ExactFix 文本,本 Phase 加第 15 个 case |
+| `internal/analysis/hint/composer.go:374-441` | `summariseExactFix` | **真实 15 个 case label**(awk 限定函数体 grep 数到 15;`grep -c "^	case"` 全文 25 是因函数外仍有其他 switch 块)硬编码 ExactFix 文本,本 Phase 加新 case(具体序号取决于 Phase A 是否先 ship 增加 case)|
 | `internal/analysis/hint/composer.go:445-540` | `buildAllowedSet` | 给 LLM 列举允许值 |
 | `internal/orchestrator/repair_cooccurrence.go:83-337` | `defaultCooccurrenceRules` | 9 条 Primary→Derived,本 Phase 可选加 1 条 |
 
@@ -947,7 +947,7 @@ out = append(out, validateRichnessGlaringGap(doc, view)...)
 
 ### 8.3 Hint composer 新 case
 
-`internal/analysis/hint/composer.go::summariseExactFix` 真实当前有 14 个 case(line 374-440)。本 Phase 加第 15 个 case(在 `ViolMissingRequestedRoleUndisclosed` 后、`return "Address..."` default 前):
+`internal/analysis/hint/composer.go::summariseExactFix` 真实当前有 15 个 case label(line 374-441;awk 限定函数体内 grep `case` 数到 15)。本 Phase 加新 case(在 `ViolMissingRequestedRoleUndisclosed` 后、`return "Address..."` default 前;具体序号取决于 Phase A 是否先 ship 增加 case):
 
 ```go
 case types.ViolEnumerationAbstractionLevelMismatch:
@@ -1040,7 +1040,7 @@ case types.ViolEnumerationAbstractionLevelMismatch:
 
 ### Commit 9 — Hint composer case
 
-- 加 `internal/analysis/hint/composer.go::summariseExactFix` 第 15 个 case(在 `ViolMissingRequestedRoleUndisclosed` 后、default 前)
+- 加 `internal/analysis/hint/composer.go::summariseExactFix` 新 case(在 `ViolMissingRequestedRoleUndisclosed` 后、default 前;baseline 已有 15 case,Phase A 若先 ship 还会增加,本 Phase 在最终末尾追加即可)
 - 加 `internal/analysis/hint/composer_test.go` 对应 case 测试(substring assert 锁住关键文本)
 - **Eval**: composer test 全绿。无真 eval。
 
@@ -1132,7 +1132,7 @@ Phase C 的所有改动按"**影响隔离 + 默认 EnumNone**"原则设计,对�
 - ❌ 不动 PredicateAxis enum(8 真实值不增不减)
 - ❌ 不动 AnswerSubjectKind enum(13 真实值不增不减)— 不引入 SubjectRoleNoun
 - ❌ 不动 SemanticPredicates 7 bool 字段
-- ❌ 不动 hint composer 现有 14 case(只加第 15 case)
+- ❌ 不动 hint composer 现有 case(只在末尾追加新 case;baseline 15 case,Phase A 若先 ship 还会变动)
 - ❌ 不动 cooccurrence 9 条(可选加 1 条,初版不加)
 - ❌ 不引入新 QuestionFamily(EnumerationSubType 是 sub-type,不上升到 top-level)
 - ❌ 不动 amplifier R1/R2/R3(本 Phase 沿用方案 Y 加 R4,不改前 3 条)
@@ -1189,8 +1189,8 @@ grep -n "validateRequiredBlockCoverage\|validatePrincipalClaimUse\|validateDiagr
 # viewNeedsExtractorBackedEnumerationSlate(防跨 family 误伤的 helper)
 grep -n "viewNeedsExtractorBackedEnumerationSlate" internal/orchestrator/contract_check_block.go  # line 1968
 
-# Hint composer 真实 14 case
-grep -n "case types.Viol" internal/analysis/hint/composer.go             # 应数到 14
+# Hint composer 真实 case 数(限定 summariseExactFix 函数体)
+awk '/^func summariseExactFix/,/^}/' internal/analysis/hint/composer.go | grep -cE "^[[:space:]]+case "  # baseline 应数到 15(Phase A 若先 ship 数会增加)
 
 # cgec completeness map(新 ViolKind 必加两处)
 grep -n "covered\s*:=\s*map\|kindSymbols\s*:=\s*map" internal/types/cgec_completeness_test.go
@@ -1332,7 +1332,7 @@ T=11 SHIP answer to user;
 | 改 BlockRequirement | 否 | 是(AcceptableClaimForms 按 sub-type 分支) |
 | 改 finalizer user section | 否 | 是(加 1 个 render 函数 + 1 个 BuildInitialInstruction 调用) |
 | 改 validator 集合 | 否(行为不变) | 是(加第 14 个 V2 validator,SOFT only) |
-| 改 hint composer | 是(增强 3 case) | 是(加第 15 个 case) |
+| 改 hint composer | 是(增强 3 case) | 是(在末尾追加新 case;baseline 15 case)|
 | 加 amplifier rule | 否 | 是(R4 — 走 init() 注册) |
 | eval 风险 | 中(删规则可能让 retry 多 1 轮) | 中(typed 分类可能误判;new validator 默认 SOFT 不阻 ship) |
 | 单 session 可控? | 是,5-8 commits | 是,7-10 commits |
@@ -1367,7 +1367,7 @@ T=11 SHIP answer to user;
 5. **AnswerBlockItem 真实字段名是 `Kind`**(非 `ItemKind`),值域 `AnswerBlockItemKindPrincipal / AnswerBlockItemKindFlow / AnswerBlockItemKindCaveat`。SurfaceRole 在 block 级,值域 `SurfacePrincipal / SurfaceSupport / SurfaceProseOnly / SurfaceDiagramOnly`。
 6. **Violation 真实 10 字段**:`Kind / Detail / Repair / Stage / DispatchID / ClusterKey / EvidenceRefs / SuspectedRoot / IsDerived / RootKind`。**Detail 必填,无 Metadata 字段**。
 7. **ViolKindSpec 真实 11 字段**:`Kind / DefaultSeverity / SoftByDefault / Promotable / FallbackLocus / Layer / Description / FixableByAgents / SchemaDescriptionFragment / Implies / CaveatFamilyID`。`RegisterViolKind` panic 校验 `DefaultSeverity / FallbackLocus` 必填(violation_registry.go:301-308)。
-8. **Hint composer 真实 14 case**(非 25):本 Phase 加第 15 个 case。
+8. **Hint composer 真实 15 case label**(在 `summariseExactFix` 函数体内 awk 限定 grep,数到 15;`grep -c "case types.Viol"` 全文 25 是因函数外仍有其他 switch 块):本 Phase 在末尾追加新 case(具体序号取决于 Phase A 是否先 ship 增加 case)。
 9. **Amplifier preCompileRule 真实签名**:`func(in RequestModel, out *RequestModel) *Observation`(amplifier.go:75)。R4 必须用相同签名,通过 `func init()` append 到 `preCompileRules` slice(R1/R2 模式),**不要在 amplifier.go 集中改 slice**。
 10. **Amplify 真实行为**:浅拷贝 rm,顺序跑 rule(后者读前者写),无 panic recovery。R4 不要 panic。
 11. **真 eval 命令**:本仓库的 eval test 命名约定可能是 `TestE2E_<case>_x4` 而非 `Test<Case>_x4` — 实施前 grep `t.Run("` 确认。
