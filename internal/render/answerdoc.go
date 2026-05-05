@@ -209,6 +209,10 @@ func renderV2BlockTable(b *strings.Builder, blk types.AnswerBlock, _ *types.Answ
 	if strings.TrimSpace(blk.Title) != "" {
 		fmt.Fprintf(b, "**%s**\n\n", blk.Title)
 	}
+	if strings.TrimSpace(blk.Text) != "" {
+		b.WriteString(strings.TrimSpace(blk.Text))
+		b.WriteString("\n\n")
+	}
 	if len(blk.Items) == 0 {
 		return
 	}
@@ -341,18 +345,18 @@ func renderMissingRequestedRoleLine(role types.AnswerMissingRequestedRole, lang 
 	case types.EvidenceDiagramRoleOverride:
 		if strings.EqualFold(label, "cli") {
 			if lang == answerDocLangZH {
-				return "CLI 标志或命令行覆盖层没有为这个精确目标提供绑定。"
+				return "CLI 标志或命令行覆盖层未绑定这个精确目标。"
 			}
-			return "No CLI flag or command-line override binds this exact target."
+			return "No CLI flag or command-line override binding exists for this exact target."
 		}
 		if lang == answerDocLangZH {
 			if label != "" {
-				return fmt.Sprintf("%s 覆盖层没有为这个精确目标提供绑定。", label)
+				return fmt.Sprintf("%s 覆盖层未绑定这个精确目标。", label)
 			}
-			return "覆盖层没有为这个精确目标提供绑定。"
+			return "覆盖层未绑定这个精确目标。"
 		}
 		if label != "" {
-			return fmt.Sprintf("No %s override binds this exact target.", label)
+			return fmt.Sprintf("No %s override binding exists for this exact target.", label)
 		}
 		return "No override binding exists for this exact target."
 	case types.EvidenceDiagramRoleDefault:

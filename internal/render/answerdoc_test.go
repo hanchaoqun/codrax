@@ -178,6 +178,28 @@ func TestRenderV2_BlockTable(t *testing.T) {
 	}
 }
 
+func TestRenderV2_BlockTableTextOnly(t *testing.T) {
+	doc := &types.AnswerDocumentV2{
+		Blocks: []types.AnswerBlock{
+			{
+				ID:    "t1",
+				Kind:  types.BlockTable,
+				Title: "Layers",
+				Text: "| Layer | Detail |\n|---|---|\n| code default | DefaultExploreHeuristics() |",
+			},
+		},
+	}
+	out := RenderAnswerDocument(doc, "en")
+	for _, want := range []string{
+		"**Layers**",
+		"| code default | DefaultExploreHeuristics() |",
+	} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("text-only table rendering missing %q:\n%s", want, out)
+		}
+	}
+}
+
 func TestRenderV2_BlockDiagram(t *testing.T) {
 	doc := &types.AnswerDocumentV2{
 		Blocks: []types.AnswerBlock{
@@ -243,7 +265,7 @@ func TestRenderV2_MissingRequestedRoles(t *testing.T) {
 	for _, want := range []string{
 		"Missing requested layers:",
 		"No codrax.yaml entry binds this exact target.",
-		"No CLI flag or command-line override binds this exact target.",
+		"No CLI flag or command-line override binding exists for this exact target.",
 	} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("rendered output missing %q:\n%s", want, out)
