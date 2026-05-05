@@ -6,28 +6,28 @@ import (
 	"testing"
 )
 
-// TestBuildAnalysisIR_AmplifierInsertionOrder is the Phase 1.2 nail-
-// down test: it asserts that the amplifier wiring in
+// TestBuildAnalysisIR_AmplifierInsertionOrder is the Phase 1.2 / 2.1
+// nail-down test: it asserts that the amplifier wiring in
 // internal/agent/analyzer.go::buildAnalysisIR sits at the documented
 // insertion points.
 //
-// Why source-level instead of behavioural: the amplifier's empty
-// registry (Phase 1.1) means a runtime test cannot observe ordering
-// without first registering a rule. A behavioural test would also
-// have to drive buildAnalysisIR with a fully populated
-// AgentContext + repomap graph + hypotheses just to exercise
-// ordering — high friction for low signal. The source-level
-// assertion catches the regression we actually care about (someone
-// moves the amplifier call past reconcileSemanticPredicates or
-// past compiler.Compile) and stays meaningful as Phase 2/3 rules
-// land, because the call sites do not move.
+// Why source-level instead of behavioural: a runtime test would have
+// to drive buildAnalysisIR with a fully populated AgentContext +
+// repomap graph + hypotheses just to exercise ordering — high
+// friction for low signal. The source-level assertion catches the
+// regression we actually care about (someone moves the amplifier
+// call before normalizer.Normalize or past compiler.Compile).
 //
-// docs/design/analyzer_amplifier_layer.md §4.2 specifies the
-// insertion contract:
-//   - Amplify before reconcileSemanticPredicates and before
-//     compiler.Compile
-//   - AmplifyPostCompile after compiler.RecomputeBudget and
-//     before binder.BindByRelevance
+// Phase 2.1 corrected the pre-compile insertion point: the original
+// design placed Amplify before the reconcile chain, but rm.TermGraph
+// is not populated until normalizer.Normalize runs LATER in the
+// function. R1 reads rm.TermGraph.Canonical, so without TermGraph
+// data R1 cannot fire. The corrected contract:
+//   - Amplify after normalizer.Normalize (so TermGraph is populated)
+//     and before compiler.Compile (so the template picks on the
+//     amplified predicates).
+//   - AmplifyPostCompile after compiler.RecomputeBudget and before
+//     binder.BindByRelevance.
 func TestBuildAnalysisIR_AmplifierInsertionOrder(t *testing.T) {
 	src, err := os.ReadFile("analyzer.go")
 	if err != nil {
@@ -39,15 +39,16 @@ func TestBuildAnalysisIR_AmplifierInsertionOrder(t *testing.T) {
 	if idxAmplify < 0 {
 		t.Fatal("amplifier.Amplify(rm) call missing from buildAnalysisIR — Phase 1.2 wiring lost")
 	}
-	idxReconcilePreds := strings.Index(body, "reconcileSemanticPredicates(rm)")
-	if idxReconcilePreds < 0 {
-		t.Fatal("reconcileSemanticPredicates call missing — has the reconcile chain been renamed?")
+	idxNormalize := strings.Index(body, "rm.TermGraph = normalizer.Normalize(")
+	if idxNormalize < 0 {
+		t.Fatal("normalizer.Normalize assignment missing — has the analyzer pipeline been refactored?")
 	}
-	if idxAmplify >= idxReconcilePreds {
+	if idxAmplify <= idxNormalize {
 		t.Errorf(
-			"amplifier.Amplify must be called BEFORE reconcileSemanticPredicates "+
-				"(got Amplify@%d, reconcile@%d) — see docs/design/analyzer_amplifier_layer.md §4.2",
-			idxAmplify, idxReconcilePreds,
+			"amplifier.Amplify must be called AFTER normalizer.Normalize populates rm.TermGraph "+
+				"(got Normalize@%d, Amplify@%d). R1 reads TermGraph.Canonical and fires zero "+
+				"rules without it — see docs/design/analyzer_amplifier_layer.md §4.2",
+			idxNormalize, idxAmplify,
 		)
 	}
 

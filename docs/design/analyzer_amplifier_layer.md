@@ -236,15 +236,15 @@ type MustIncludeMutator interface {
 
 `internal/agent/analyzer.go::buildAnalysisIR` 函数内,文本锚定方式(不依赖具体行号):
 
-**Amplify(pre-compile)插入位置:**
-- AFTER `rm.AnalyzerHints.MentionedEntities = ...` 设置
-- AFTER `reconcileEnumerationBoundaryScope` 调用
-- AFTER log/perf-triage entity merge 块(`logBundle != nil` 那段)
-- AFTER sub_topics truncate + complexity 升级处理(`if len(rm.SubTopics) > 5 { ... }` 块)
-- BEFORE `reconcileSemanticPredicates` 调用
-- BEFORE `compiler.Compile(rm, sig)` 调用
+**Amplify(pre-compile)插入位置 — Phase 2.1 修订:**
+- AFTER `rm.TermGraph = normalizer.Normalize(...)` 赋值
+- BEFORE `compiler.InferScenario(rm)` / `compiler.Compile(rm, sig)` 调用
 
-定位提示:在文件中搜索 `predsResolved, predsReason := reconcileSemanticPredicates(rm)`,Amplify 调用插在该行之前。
+定位提示:在文件中搜索 `rm.TermGraph = normalizer.Normalize(`,Amplify 调用紧跟在该 statement 之后。
+
+**为什么不在 reconcile 链之前(原 v1 设计已废弃):** 原设计要求 Amplify 在 `reconcileSemanticPredicates` 之前调用,期望 R1 写入的 `IsCategoryEnumeration=true` 能 propagate 到下游 `reconcileComplexity` 触发 simple→moderate 升级。**实测发现** rm.TermGraph 由 `normalizer.Normalize` 在 reconcile 链之后才填充,在 reconcile 链之前调用 Amplify 时 TermGraph 永远是空的,R1 的 `topSymbolsLikeHDP` 永远返回 nil → R1 永不触发(2026-05-05 真 eval 验证:`reconcile-shadow` summary 无 amplifier 字段;m1a run-1 LLM emit 含 8 个 multi-symbol entities + intent=explain + IsCategoryEnumeration=false,完美 R1 触发条件,但 R1 并未 fire,因 TermGraph.Canonical 为 [])。
+
+**新位置的 tradeoff:** R1 在 `reconcileComplexity` 之后跑,无法触发 simple→moderate 升级(此为 nice-to-have,非 load-bearing)。`compiler.Compile` / `compiler.InferScenario` 仍读到正确的 `IsCategoryEnumeration=true`,enumeration 模板选择不受影响,主链路完整。R3(post-compile MustInclude pinning,Phase 4)与 reconcile 链的解耦也由此 tradeoff 隐含覆盖 — R3 始终在 compiler 之后跑。
 
 **AmplifyPostCompile(post-compile)插入位置:**
 - AFTER `compiler.RecomputeBudget(&out, rm, sig)` 调用
