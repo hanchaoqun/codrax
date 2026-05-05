@@ -95,6 +95,33 @@ func TestFinalizerSkill_DoesNotTeachRetiredV1AnswerPayloads(t *testing.T) {
 	}
 }
 
+func TestExtractSkill_DoesNotTeachLegacySymbolsArray(t *testing.T) {
+	r := NewRegistry()
+	RegisterDefaults(r)
+
+	sk, err := r.Get("extract-skill")
+	if err != nil {
+		t.Fatalf("Get(extract-skill) returned error: %v", err)
+	}
+	blob := strings.Join(append([]string{sk.Goal, sk.OutputFormat}, sk.Workflow...), "\n")
+	for _, banned := range []string{
+		"Every item in symbols[]",
+		"emit answer_symbol in symbols[]",
+	} {
+		if strings.Contains(blob, banned) {
+			t.Fatalf("extract-skill must not teach legacy symbols[] payload wording %q:\n%s", banned, blob)
+		}
+	}
+	for _, want := range []string{
+		"emit_answer_symbol.items[]",
+		"the answer is the terminal that the chain RESOLVES TO",
+	} {
+		if !strings.Contains(blob, want) {
+			t.Fatalf("extract-skill missing updated answer-symbol slate guidance %q:\n%s", want, blob)
+		}
+	}
+}
+
 // TestChangePlanSkill_PhaseAInvestigateWorkflow verifies Module A's
 // "investigate before emit" guidance is in the planner's skill
 // workflow. Pure description-of-method (PHASE A — INVESTIGATE), no
