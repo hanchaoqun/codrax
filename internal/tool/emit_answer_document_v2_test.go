@@ -291,6 +291,69 @@ func TestRepairBlocksAsString_PreservesOtherFields(t *testing.T) {
 	}
 }
 
+// TestRepairBlocksAsString_WholeDocumentStringify covers the v2 repair
+// extension (Plan 2 v2 follow-up, 2026-05-05) — the LLM JSON.stringify'd
+// the entire document body, producing
+//
+//	{"blocks": "[blocks_array], \"citations\": [...], \"caveats\": [...]"}
+//
+// where the encoded string contains the blocks array followed by the
+// rest of the top-level fields. Recovery: wrap the encoded string with
+// `{"blocks": ... }` so the whole-doc payload becomes a parseable
+// top-level object, then merge.
+func TestRepairBlocksAsString_WholeDocumentStringify(t *testing.T) {
+	raw := json.RawMessage(`{"blocks": "[{\"id\":\"b1\",\"kind\":\"summary\",\"text\":\"hi\"}], \"citations\": [{\"file\":\"x.go\",\"line\":1}], \"caveats\": [\"c1\"]"}`)
+	patched, ok := repairBlocksAsString(raw)
+	if !ok {
+		t.Fatal("repair did not fire on whole-document stringify")
+	}
+	if !strings.Contains(string(patched), `"blocks":[`) {
+		t.Errorf("blocks not converted to array: %s", patched)
+	}
+	if !strings.Contains(string(patched), `"citations":[`) {
+		t.Errorf("citations not lifted to top level: %s", patched)
+	}
+	if !strings.Contains(string(patched), `"caveats":["c1"]`) {
+		t.Errorf("caveats not lifted to top level: %s", patched)
+	}
+	// Validate full Decode round-trip.
+	var p emitAnswerDocumentV2Params
+	if err := json.Unmarshal(patched, &p); err != nil {
+		t.Fatalf("repaired payload no longer parses: %v", err)
+	}
+	if len(p.Blocks) != 1 || p.Blocks[0].ID != "b1" {
+		t.Errorf("blocks lost during repair: %+v", p.Blocks)
+	}
+	if len(p.Citations) != 1 {
+		t.Errorf("citations lost during repair: %+v", p.Citations)
+	}
+}
+
+// TestEmitAnswerDocumentV2_WholeDocumentStringifyAccepted is the
+// end-to-end version: a finalizer-shaped LLM emit where the whole
+// answer body was JSON.stringify'd into the blocks key MUST now be
+// accepted instead of failing 6 retries before answer quality
+// degrades (qf_arch run-2 forensic, 2026-05-05).
+func TestEmitAnswerDocumentV2_WholeDocumentStringifyAccepted(t *testing.T) {
+	bus := newV2TestBusContext()
+	tool := &EmitAnswerDocument{}
+	flat := json.RawMessage(`{"blocks": "[{\"id\":\"sum1\",\"kind\":\"summary\",\"text\":\"abc\"}], \"citations\": [{\"file\":\"x.go\",\"line\":1}]"}`)
+	res, err := tool.Execute(bus, flat)
+	if err != nil {
+		t.Fatalf("emit error: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("whole-document stringify should be repaired and accepted; got %+v", res)
+	}
+	doc := bus.Mutable.AnswerDocumentV2()
+	if doc == nil || len(doc.Blocks) != 1 {
+		t.Fatalf("answer document not written: %+v", doc)
+	}
+	if len(doc.Citations) != 1 {
+		t.Errorf("citations not preserved through repair: %+v", doc.Citations)
+	}
+}
+
 // TestEmitAnswerDocumentV2_FlatModeRejectsMixedV1FieldsAfterRepair
 // confirms the repair does NOT bypass downstream V1↔V2 mutual
 // exclusion: even if blocks-as-string is repaired, top-level V1

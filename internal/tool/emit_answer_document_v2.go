@@ -221,19 +221,53 @@ func repairBlocksAsString(raw json.RawMessage) (json.RawMessage, bool) {
 	if !strings.HasPrefix(trimmed, "[") {
 		return nil, false
 	}
-	// Parse the embedded string as a JSON array — bail on any error so
-	// the regular decode path produces the real schema rejection.
+	// Path A: pure-array stringify ("[{...},{...}]"). Repair just
+	// the blocks key, preserve every other top-level field.
 	var inner []json.RawMessage
-	if err := json.Unmarshal([]byte(trimmed), &inner); err != nil {
+	if err := json.Unmarshal([]byte(trimmed), &inner); err == nil {
+		probe["blocks"] = mustMarshal(inner)
+		patched, err := json.Marshal(probe)
+		if err != nil {
+			return nil, false
+		}
+		return patched, true
+	}
+	// Path B: whole-document stringify — the LLM put the entire
+	// answer body inside the blocks string, so trimmed looks like
+	//   "[{...blocks...}], \"citations\": [{...}], \"caveats\": [...]"
+	// Recovery: wrap the encoded string with `{"blocks":` ... `}`
+	// to form a fresh top-level object, parse, then merge with the
+	// outer probe (outer wins on key conflict so caller-side keys
+	// are not silently dropped).
+	wrapped := []byte(`{"blocks": ` + trimmed + `}`)
+	var fullDoc map[string]json.RawMessage
+	if err := json.Unmarshal(wrapped, &fullDoc); err != nil {
 		return nil, false
 	}
-	// Re-encode just the blocks key, preserving every other field.
-	probe["blocks"], _ = json.Marshal(inner)
-	patched, err := json.Marshal(probe)
+	innerBlocks, ok := fullDoc["blocks"]
+	if !ok || len(innerBlocks) == 0 || innerBlocks[0] != '[' {
+		return nil, false
+	}
+	merged := make(map[string]json.RawMessage, len(probe)+len(fullDoc))
+	for k, v := range fullDoc {
+		merged[k] = v
+	}
+	for k, v := range probe {
+		if k == "blocks" {
+			continue
+		}
+		merged[k] = v
+	}
+	patched, err := json.Marshal(merged)
 	if err != nil {
 		return nil, false
 	}
 	return patched, true
+}
+
+func mustMarshal(v interface{}) json.RawMessage {
+	b, _ := json.Marshal(v)
+	return b
 }
 
 // repairNestedArraysAsString detects the same "JSON-encoded string

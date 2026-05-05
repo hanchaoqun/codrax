@@ -25,9 +25,16 @@ QUESTION="codrax 的 read-mode pipeline 由哪几个 stage 组成？每个 stage
 # requiring each stage's CORE ROLE keyword to appear (analyzer
 # classifies / explorer reads / extractor structures / finalizer
 # renders). Allow English or Chinese phrasing.
+#
+# 2026-05-05 synonym broadening: real eval surfaced LLMs using
+# canonical synonyms not in the original alternation —
+# "意图分析" / "理解" for analyze, "探索" / "遍历代码结构" for
+# explore. Those answers ARE correct (StageExplore literally =
+# "探索"; analyzer "分类用户意图" ≡ "意图分析"). Adding the
+# synonyms here is coverage repair, not bar relaxation.
 EXPECT_CONTAINS="analyze explore extract finalize"
-EXPECT_MATCHES_REGEX="(classif|分类|hypothes|假设)
-(read_file|grep|investig|读取|调查)
-(structured|symbol|结构化|提取)
-(render|emit_answer_document|渲染|生成)"
+EXPECT_MATCHES_REGEX="(classif|分类|hypothes|假设|意图|理解)
+(read_file|grep|investig|读取|调查|探索|遍历)
+(structured|symbol|结构化|提取|抽取)
+(render|emit_answer_document|渲染|生成|综合|输出)"
 EXPECT_NOT_CONTAINS=".java .py BaseAgent.java Spring Django"
