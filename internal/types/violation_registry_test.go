@@ -1,6 +1,7 @@
 package types
 
 import (
+	"strings"
 	"testing"
 )
 
@@ -62,6 +63,97 @@ func TestRegisterViolKind_RejectsInvalidSpec(t *testing.T) {
 	mustPanic("invalid locus", func() {
 		RegisterViolKind(ViolKindSpec{Kind: "test_x", DefaultSeverity: SeverityMedium, FallbackLocus: "bogus"})
 	})
+}
+
+// TestCaveatFamily_AllRegisteredHaveTemplates pins W1.1: every
+// CaveatFamilyID a ViolKindSpec references MUST resolve in the
+// CaveatFamily registry, and every registered template MUST have
+// non-empty ZH and EN strings.
+func TestCaveatFamily_AllRegisteredHaveTemplates(t *testing.T) {
+	for _, spec := range AllViolKindSpecs() {
+		if spec.CaveatFamilyID == "" {
+			continue // operator-only ViolKinds intentionally have no caveat
+		}
+		tmpl, ok := CaveatFamilyTemplateFor(spec.CaveatFamilyID)
+		if !ok {
+			t.Errorf("ViolKind %q references unknown CaveatFamilyID %q",
+				spec.Kind, spec.CaveatFamilyID)
+			continue
+		}
+		if tmpl.ZH == "" || tmpl.EN == "" {
+			t.Errorf("CaveatFamily %q has empty ZH=%q or EN=%q",
+				spec.CaveatFamilyID, tmpl.ZH, tmpl.EN)
+		}
+	}
+}
+
+// TestCaveatFamily_NoInternalJargon enforces the W1 red-line:
+// templates must NOT contain ViolKind names, IR-field tokens, or
+// orchestration jargon. Forbidden tokens scanned per template.
+func TestCaveatFamily_NoInternalJargon(t *testing.T) {
+	forbidden := []string{
+		"yield kill", "Pipeline terminated", "retryUsed",
+		"ViolKind", "IRField", "conf=", "event(s)",
+		"block_items_label", "diagram_edges", "facet_uncovered",
+		"answer_authority", "answer_richness_facet_coverage",
+	}
+	for _, tmpl := range AllCaveatFamilies() {
+		for _, body := range []string{tmpl.ZH, tmpl.EN} {
+			for _, token := range forbidden {
+				if strings.Contains(body, token) {
+					t.Errorf("CaveatFamily %q template contains forbidden token %q: %q",
+						tmpl.ID, token, body)
+				}
+			}
+		}
+	}
+}
+
+// TestCaveatFamily_OperatorOnlyKindsHaveNoCaveat pins the
+// expectation that pure-telemetry ViolKinds (reviewer / frequency-
+// bridge) intentionally carry empty CaveatFamilyID — guarding
+// against accidentally adding user-visible caveats for operator
+// signals.
+func TestCaveatFamily_OperatorOnlyKindsHaveNoCaveat(t *testing.T) {
+	operatorOnly := map[ViolationKind]bool{
+		ViolPlanCritic:              true,
+		ViolReflectorObservation:    true,
+		ViolAnswerReviewerDistilled: true,
+		ViolDemotionStorm:           true,
+		ViolForcedReadStorm:         true,
+	}
+	for _, spec := range AllViolKindSpecs() {
+		if !operatorOnly[spec.Kind] {
+			continue
+		}
+		if spec.CaveatFamilyID != "" {
+			t.Errorf("operator-only ViolKind %q must have empty CaveatFamilyID; got %q",
+				spec.Kind, spec.CaveatFamilyID)
+		}
+	}
+}
+
+// TestRegisterCaveatFamily_RejectsInvalid covers the panic path
+// for empty ID / empty ZH / empty EN — fail-loud at init.
+func TestRegisterCaveatFamily_RejectsInvalid(t *testing.T) {
+	cases := []struct {
+		name string
+		t    CaveatFamilyTemplate
+	}{
+		{"empty_id", CaveatFamilyTemplate{ID: "", ZH: "x", EN: "y"}},
+		{"empty_zh", CaveatFamilyTemplate{ID: "x", ZH: "", EN: "y"}},
+		{"empty_en", CaveatFamilyTemplate{ID: "x", ZH: "y", EN: ""}},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			defer func() {
+				if recover() == nil {
+					t.Errorf("expected panic for %s", c.name)
+				}
+			}()
+			RegisterCaveatFamily(c.t)
+		})
+	}
 }
 
 // TestAllViolKindSpecs_OrderStable verifies declaration order is

@@ -106,6 +106,32 @@ type ViolKindSpec struct {
 	// Description is the operator-facing one-line summary. NEVER
 	// rendered into LLM-facing prompts (R4 red line). May be empty.
 	Description string
+
+	// CaveatFamilyID groups ViolKinds that share the same user-facing
+	// caveat template. Many ViolKinds describe the same root cause
+	// from different validators — e.g. richness_regression /
+	// facet_uncovered / principal_prose_underfilled all map to one
+	// natural-language caveat about "answer coverage may be
+	// incomplete". Grouping prevents the user from seeing 3 caveats
+	// for one underlying issue.
+	//
+	// Empty string means this ViolKind has no user-facing caveat
+	// (operator-only kinds such as ViolPlanCritic / reviewer-only
+	// telemetry). When the materializer encounters such a kind in
+	// the unresolved list it logs to telemetry but does NOT emit a
+	// caveat.
+	//
+	// Templates are registered separately in the CaveatFamily
+	// registry (see RegisterCaveatFamily). The pair (CaveatFamilyID,
+	// language) maps to the user-facing string. Per the
+	// "user-panel hygiene" red line (docs/design/iteration_inflation_
+	// remediation.md W1), the template MUST NOT contain any of:
+	//   - ViolKind name, IRField name
+	//   - confidence number, event count
+	//   - "yield kill", "Pipeline terminated"
+	//   - any other internal jargon
+	// It MUST be a complete user-readable sentence.
+	CaveatFamilyID string
 }
 
 // RepairLocus is declared in internal/orchestrator/fallback_policy.go;
@@ -136,7 +162,64 @@ var (
 	violRegistry   = map[ViolationKind]ViolKindSpec{}
 	// violRegistryOrder preserves declaration order for AllViolKindSpecs.
 	violRegistryOrder []ViolationKind
+
+	caveatFamilyMu       sync.RWMutex
+	caveatFamilyRegistry = map[string]CaveatFamilyTemplate{}
 )
+
+// CaveatFamilyTemplate carries the user-facing language renderings for
+// one caveat family. Multiple ViolKinds may share one family — the
+// materializer dedupes so the user sees one caveat per family even
+// when 3 ViolKinds in that family fired.
+//
+// Templates are PLAIN PROSE — no placeholders, no internal jargon,
+// no ViolKind names. They are read by users, not LLMs.
+type CaveatFamilyTemplate struct {
+	// ID is the identifier referenced by ViolKindSpec.CaveatFamilyID.
+	ID string
+
+	// ZH is the simplified Chinese rendering.
+	ZH string
+
+	// EN is the English rendering.
+	EN string
+}
+
+// RegisterCaveatFamily appends a template. Idempotent — second call
+// with same ID overwrites (test path). Panics on empty ID or empty
+// templates so registration errors fail loud at init.
+func RegisterCaveatFamily(t CaveatFamilyTemplate) {
+	if t.ID == "" {
+		panic("RegisterCaveatFamily: ID required")
+	}
+	if t.ZH == "" || t.EN == "" {
+		panic(fmt.Sprintf("RegisterCaveatFamily(%q): both ZH and EN templates required", t.ID))
+	}
+	caveatFamilyMu.Lock()
+	defer caveatFamilyMu.Unlock()
+	caveatFamilyRegistry[t.ID] = t
+}
+
+// CaveatFamilyTemplateFor returns the template for id, or (zero,
+// false) when no template was registered. Concurrent-safe.
+func CaveatFamilyTemplateFor(id string) (CaveatFamilyTemplate, bool) {
+	caveatFamilyMu.RLock()
+	defer caveatFamilyMu.RUnlock()
+	t, ok := caveatFamilyRegistry[id]
+	return t, ok
+}
+
+// AllCaveatFamilies returns every registered template. Used by
+// structural tests that sweep the registry.
+func AllCaveatFamilies() []CaveatFamilyTemplate {
+	caveatFamilyMu.RLock()
+	defer caveatFamilyMu.RUnlock()
+	out := make([]CaveatFamilyTemplate, 0, len(caveatFamilyRegistry))
+	for _, t := range caveatFamilyRegistry {
+		out = append(out, t)
+	}
+	return out
+}
 
 // RegisterViolKind appends a spec to the registry. Idempotent: a
 // second call with the same Kind overwrites the previous spec
@@ -198,113 +281,176 @@ func IsViolKindPromotable(kind ViolationKind) bool {
 	return true
 }
 
+// Caveat family identifiers. ViolKindSpec.CaveatFamilyID references
+// these constants. Adding a new family: define the const, register
+// the template in init(), then point relevant ViolKindSpec entries
+// at it. Prefer growing existing families over creating new ones —
+// 7-8 families covers the natural taxonomy.
+const (
+	CaveatFamilyAnswerCoverage   = "answer_coverage"
+	CaveatFamilyDiagramFidelity  = "diagram_fidelity"
+	CaveatFamilyEnumerationDepth = "enumeration_depth"
+	CaveatFamilyCitationGrounded = "citation_grounding"
+	CaveatFamilyAuthorityHedging = "authority_hedging"
+	CaveatFamilyConsistency      = "consistency"
+	CaveatFamilyAcceptance       = "acceptance"
+	CaveatFamilyShapeFit         = "shape_fit"
+)
+
 // init registers the canonical spec for every ViolationKind declared
 // in violation.go. The order mirrors AllViolationKinds() for
 // telemetry stability. Adding a new kind: declare the constant in
 // violation.go, append to AllViolationKinds, register here.
 func init() {
+	// ── Caveat family templates (W1.1, 2026-05-05) ──
+	// Grouped by user-facing root cause, not by validator origin.
+	// Wording is deliberately tentative ("可能" / "may") to match the
+	// reality that retry exhausted but the answer is still shipped.
+	RegisterCaveatFamily(CaveatFamilyTemplate{
+		ID: CaveatFamilyAnswerCoverage,
+		ZH: "答案在某些维度的覆盖度可能不充分，建议结合源码进一步核对相关组件。",
+		EN: "Coverage on some dimensions of the answer may be incomplete; cross-check with source for the affected components.",
+	})
+	RegisterCaveatFamily(CaveatFamilyTemplate{
+		ID: CaveatFamilyDiagramFidelity,
+		ZH: "图示中部分边的关系标注未达到完整的类型化支持，渲染图可仅作辅助参考。",
+		EN: "Some diagram edges lack fully typed relation backing; treat the diagram as a supporting illustration rather than authoritative.",
+	})
+	RegisterCaveatFamily(CaveatFamilyTemplate{
+		ID: CaveatFamilyEnumerationDepth,
+		ZH: "枚举类条目中部分项的证据支持稍弱，请按需对该类别的列表进一步核实完整性。",
+		EN: "Some enumerated items have weaker evidence backing; verify completeness of the listed set against source if it is load-bearing.",
+	})
+	RegisterCaveatFamily(CaveatFamilyTemplate{
+		ID: CaveatFamilyCitationGrounded,
+		ZH: "答案引用的部分锚点未能完整通过校验，相关文件:行 信息建议作为参考而非定论。",
+		EN: "Some cited anchors did not fully pass verification; treat the file:line references as guidance rather than definitive proof.",
+	})
+	RegisterCaveatFamily(CaveatFamilyTemplate{
+		ID: CaveatFamilyAuthorityHedging,
+		ZH: "答案在部分论断的可信强度上做了较强声明，实际证据来源可能仅支撑较弱断言。",
+		EN: "The answer states some claims more confidently than the underlying evidence may support; calibrate accordingly.",
+	})
+	RegisterCaveatFamily(CaveatFamilyTemplate{
+		ID: CaveatFamilyConsistency,
+		ZH: "答案前后某些表述存在不完全一致之处，请按需对该处具体段落复核。",
+		EN: "Some passages of the answer are not fully consistent with each other; review the specific section if precision matters.",
+	})
+	RegisterCaveatFamily(CaveatFamilyTemplate{
+		ID: CaveatFamilyAcceptance,
+		ZH: "答案在部分验收检查上未达到预期标准，结果中的相应部分可能需要补充验证。",
+		EN: "Some acceptance checks did not meet expected standards; the corresponding parts of the answer may need additional verification.",
+	})
+	RegisterCaveatFamily(CaveatFamilyTemplate{
+		ID: CaveatFamilyShapeFit,
+		ZH: "答案的整体结构与问题最贴合的形态略有出入，可能影响个别局部的清晰度。",
+		EN: "The answer's overall structure does not perfectly match the most natural shape for the question, which may affect clarity in specific spots.",
+	})
+
 	// ── Original contract-checker kinds ──
 	RegisterViolKind(ViolKindSpec{
 		Kind: ViolFamilyMismatch, DefaultSeverity: SeverityMedium,
 		SoftByDefault: false, Promotable: true, FallbackLocus: LocusFinalizer,
-		Layer: "contract_check",
+		Layer: "contract_check", CaveatFamilyID: CaveatFamilyAcceptance,
 	})
 	RegisterViolKind(ViolKindSpec{
 		Kind: ViolCitation, DefaultSeverity: SeverityMedium,
 		SoftByDefault: false, Promotable: true, FallbackLocus: LocusExplore,
-		Layer: "contract_check",
+		Layer: "contract_check", CaveatFamilyID: CaveatFamilyCitationGrounded,
 	})
 	RegisterViolKind(ViolKindSpec{
 		Kind: ViolMustInclude, DefaultSeverity: SeverityMedium,
 		SoftByDefault: false, Promotable: true, FallbackLocus: LocusFinalizer,
-		Layer: "contract_check",
+		Layer: "contract_check", CaveatFamilyID: CaveatFamilyAnswerCoverage,
 	})
 	RegisterViolKind(ViolKindSpec{
 		Kind: ViolMustExclude, DefaultSeverity: SeverityMedium,
 		SoftByDefault: false, Promotable: true, FallbackLocus: LocusFinalizer,
-		Layer: "contract_check",
+		Layer: "contract_check", CaveatFamilyID: CaveatFamilyAcceptance,
 	})
 	RegisterViolKind(ViolKindSpec{
 		Kind: ViolAcceptance, DefaultSeverity: SeverityMedium,
 		SoftByDefault: false, Promotable: true, FallbackLocus: LocusExplore,
-		Layer: "contract_check",
+		Layer: "contract_check", CaveatFamilyID: CaveatFamilyAcceptance,
 	})
 	RegisterViolKind(ViolKindSpec{
 		Kind: ViolSuccessCriterion, DefaultSeverity: SeverityMedium,
 		SoftByDefault: false, Promotable: true, FallbackLocus: LocusExplore,
-		Layer: "contract_check",
+		Layer: "contract_check", CaveatFamilyID: CaveatFamilyAcceptance,
 	})
 
 	// ── Session 11 enforcer kinds ──
 	RegisterViolKind(ViolKindSpec{
 		Kind: ViolGhostAnchor, DefaultSeverity: SeverityMedium,
 		SoftByDefault: false, Promotable: true, FallbackLocus: LocusExplore,
-		Layer: "cgec",
+		Layer: "cgec", CaveatFamilyID: CaveatFamilyCitationGrounded,
 	})
 	RegisterViolKind(ViolKindSpec{
 		Kind: ViolChainDemoted, DefaultSeverity: SeverityMedium,
 		SoftByDefault: false, Promotable: true, FallbackLocus: LocusExplore,
-		Layer: "cgec",
+		Layer: "cgec", CaveatFamilyID: CaveatFamilyCitationGrounded,
 	})
 	RegisterViolKind(ViolKindSpec{
 		Kind: ViolSelfRefLiteral, DefaultSeverity: SeverityMedium,
 		SoftByDefault: false, Promotable: true, FallbackLocus: LocusFinalizer,
-		Layer: "cgec",
+		Layer: "cgec", CaveatFamilyID: CaveatFamilyConsistency,
 	})
 	RegisterViolKind(ViolKindSpec{
 		Kind: ViolPreCompleteDowngrade, DefaultSeverity: SeverityMedium,
 		SoftByDefault: false, Promotable: true, FallbackLocus: LocusFinalizer,
-		Layer: "cgec",
+		Layer: "cgec", CaveatFamilyID: CaveatFamilyConsistency,
 	})
 	RegisterViolKind(ViolKindSpec{
 		Kind: ViolLiteralFormFailed, DefaultSeverity: SeverityMedium,
 		SoftByDefault: false, Promotable: true, FallbackLocus: LocusFinalizer,
-		Layer: "cgec",
+		Layer: "cgec", CaveatFamilyID: CaveatFamilyCitationGrounded,
 	})
 	RegisterViolKind(ViolKindSpec{
 		Kind: ViolViewSwap, DefaultSeverity: SeverityMedium,
 		SoftByDefault: false, Promotable: true, FallbackLocus: LocusFinalizer,
-		Layer: "cgec",
+		Layer: "cgec", CaveatFamilyID: CaveatFamilyShapeFit,
 	})
 
 	// ── Commit 53 P2 read-mode shape oracle ──
 	RegisterViolKind(ViolKindSpec{
 		Kind: ViolViewIntentMismatch, DefaultSeverity: SeverityMedium,
 		SoftByDefault: true, Promotable: true, FallbackLocus: LocusFinalizer,
-		Layer: "answer_oracle",
+		Layer: "answer_oracle", CaveatFamilyID: CaveatFamilyShapeFit,
 	})
 	RegisterViolKind(ViolKindSpec{
 		Kind: ViolSubTopicCountMismatch, DefaultSeverity: SeverityMedium,
 		SoftByDefault: true, Promotable: true, FallbackLocus: LocusFinalizer,
-		Layer: "answer_oracle",
+		Layer: "answer_oracle", CaveatFamilyID: CaveatFamilyAnswerCoverage,
 	})
 	RegisterViolKind(ViolKindSpec{
 		Kind: ViolDiagramIdentifier, DefaultSeverity: SeverityMedium,
 		SoftByDefault: true, Promotable: true, FallbackLocus: LocusFinalizer,
-		Layer: "v2_oracle",
+		Layer: "v2_oracle", CaveatFamilyID: CaveatFamilyDiagramFidelity,
 	})
 	RegisterViolKind(ViolKindSpec{
 		Kind: ViolDeclaredCountDrift, DefaultSeverity: SeverityMedium,
 		SoftByDefault: true, Promotable: true, FallbackLocus: LocusExtract,
-		Layer: "v2_oracle",
+		Layer: "v2_oracle", CaveatFamilyID: CaveatFamilyEnumerationDepth,
 	})
 	RegisterViolKind(ViolKindSpec{
 		Kind: ViolSelfContradiction, DefaultSeverity: SeverityMedium,
 		SoftByDefault: false, Promotable: true, FallbackLocus: LocusFinalizer,
-		Layer: "self_consistency",
+		Layer: "self_consistency", CaveatFamilyID: CaveatFamilyConsistency,
 	})
 	RegisterViolKind(ViolKindSpec{
 		Kind: ViolExternalArtifactUnderdecoded, DefaultSeverity: SeverityMedium,
 		SoftByDefault: true, Promotable: true, FallbackLocus: LocusFinalizer,
-		Layer: "external_artifact",
+		Layer: "external_artifact", CaveatFamilyID: CaveatFamilyAcceptance,
 	})
 	RegisterViolKind(ViolKindSpec{
 		Kind: ViolAuthorityOverreach, DefaultSeverity: SeverityCritical,
 		SoftByDefault: false, Promotable: true, FallbackLocus: LocusFinalizer,
-		Layer: "authority",
+		Layer: "authority", CaveatFamilyID: CaveatFamilyAuthorityHedging,
 	})
 
 	// ── Block 1 reviewer kinds (telemetry-only) ──
+	// Reviewer kinds are operator-only telemetry — no user-visible
+	// caveat (CaveatFamilyID intentionally empty).
 	RegisterViolKind(ViolKindSpec{
 		Kind: ViolPlanCritic, DefaultSeverity: SeveritySoft,
 		SoftByDefault: true, Promotable: true, FallbackLocus: LocusTerminal,
@@ -325,60 +471,60 @@ func init() {
 	RegisterViolKind(ViolKindSpec{
 		Kind: ViolIntentTraceShallow, DefaultSeverity: SeverityMedium,
 		SoftByDefault: true, Promotable: true, FallbackLocus: LocusExplore,
-		Layer: "answer_oracle",
+		Layer: "answer_oracle", CaveatFamilyID: CaveatFamilyAnswerCoverage,
 	})
 	RegisterViolKind(ViolKindSpec{
 		Kind: ViolIntentEnumerateNotList, DefaultSeverity: SeverityMedium,
 		SoftByDefault: true, Promotable: true, FallbackLocus: LocusFinalizer,
-		Layer: "answer_oracle",
+		Layer: "answer_oracle", CaveatFamilyID: CaveatFamilyShapeFit,
 	})
 	RegisterViolKind(ViolKindSpec{
 		Kind: ViolIntentRootCauseNoCause, DefaultSeverity: SeverityMedium,
 		SoftByDefault: true, Promotable: true, FallbackLocus: LocusExplore,
-		Layer: "answer_oracle",
+		Layer: "answer_oracle", CaveatFamilyID: CaveatFamilyAnswerCoverage,
 	})
 	RegisterViolKind(ViolKindSpec{
 		Kind: ViolIntentConfigNoTrail, DefaultSeverity: SeverityMedium,
 		SoftByDefault: true, Promotable: true, FallbackLocus: LocusExplore,
-		Layer: "answer_oracle",
+		Layer: "answer_oracle", CaveatFamilyID: CaveatFamilyAnswerCoverage,
 	})
 	RegisterViolKind(ViolKindSpec{
 		Kind: ViolSubjectAnchorMissing, DefaultSeverity: SeverityMedium,
 		SoftByDefault: true, Promotable: true, FallbackLocus: LocusExtract,
-		Layer: "answer_oracle",
+		Layer: "answer_oracle", CaveatFamilyID: CaveatFamilyCitationGrounded,
 	})
 	RegisterViolKind(ViolKindSpec{
 		Kind: ViolPredicateAxisMissing, DefaultSeverity: SeverityMedium,
 		SoftByDefault: true, Promotable: true, FallbackLocus: LocusExplore,
-		Layer: "answer_oracle",
+		Layer: "answer_oracle", CaveatFamilyID: CaveatFamilyCitationGrounded,
 	})
 
 	// ── Phase 4 Semantic Surface Contract ──
 	RegisterViolKind(ViolKindSpec{
 		Kind: ViolFacetUncovered, DefaultSeverity: SeverityMedium,
 		SoftByDefault: true, Promotable: true, FallbackLocus: LocusExplore,
-		Layer: "v2_oracle",
+		Layer: "v2_oracle", CaveatFamilyID: CaveatFamilyAnswerCoverage,
 	})
 	RegisterViolKind(ViolKindSpec{
 		Kind: ViolClaimFormUnsupported, DefaultSeverity: SeverityMedium,
 		SoftByDefault: false, Promotable: true, FallbackLocus: LocusFinalizer,
-		Layer: "v2_oracle",
+		Layer: "v2_oracle", CaveatFamilyID: CaveatFamilyAcceptance,
 	})
 	RegisterViolKind(ViolKindSpec{
 		Kind: ViolAbsenceScopeExceeded, DefaultSeverity: SeverityMedium,
 		SoftByDefault: false, Promotable: true, FallbackLocus: LocusExtract,
-		Layer: "v2_oracle",
+		Layer: "v2_oracle", CaveatFamilyID: CaveatFamilyAcceptance,
 	})
 	RegisterViolKind(ViolKindSpec{
 		Kind: ViolStepIdentifierUnverified, DefaultSeverity: SeverityMedium,
 		SoftByDefault: true, Promotable: true, FallbackLocus: LocusExplore,
-		Layer: "answer_oracle",
+		Layer: "answer_oracle", CaveatFamilyID: CaveatFamilyCitationGrounded,
 	})
 	// Phase 5 — telemetry-only, permanently SOFT.
 	RegisterViolKind(ViolKindSpec{
 		Kind: ViolRichnessRegression, DefaultSeverity: SeveritySoft,
 		SoftByDefault: true, Promotable: false, FallbackLocus: LocusTerminal,
-		Layer: "v2_oracle",
+		Layer: "v2_oracle", CaveatFamilyID: CaveatFamilyAnswerCoverage,
 	})
 	RegisterViolKind(ViolKindSpec{
 		Kind: ViolValueSecondaryCitationOffFocus, DefaultSeverity: SeverityMedium,
@@ -386,46 +532,46 @@ func init() {
 		// Legacy inferViolationLayer groups this under answer_oracle
 		// alongside other Block 2 oracle kinds; preserved verbatim
 		// for migration parity. v3 follow-up may regroup.
-		Layer: "answer_oracle",
+		Layer: "answer_oracle", CaveatFamilyID: CaveatFamilyCitationGrounded,
 	})
 
 	// ── B4 V2 block-only carrier validators ──
 	RegisterViolKind(ViolKindSpec{
 		Kind: ViolBlockCoverageMissing, DefaultSeverity: SeverityCritical,
 		SoftByDefault: false, Promotable: true, FallbackLocus: LocusExtract,
-		Layer: "v2_oracle",
+		Layer: "v2_oracle", CaveatFamilyID: CaveatFamilyAnswerCoverage,
 	})
 	RegisterViolKind(ViolKindSpec{
 		Kind: ViolPrincipalClaimUseMissing, DefaultSeverity: SeverityCritical,
 		SoftByDefault: false, Promotable: true, FallbackLocus: LocusFinalizer,
-		Layer: "v2_oracle",
+		Layer: "v2_oracle", CaveatFamilyID: CaveatFamilyCitationGrounded,
 	})
 	RegisterViolKind(ViolKindSpec{
 		Kind: ViolDiagramEdgeUnsupported, DefaultSeverity: SeverityMedium,
 		SoftByDefault: false, Promotable: true, FallbackLocus: LocusFinalizer,
-		Layer: "v2_oracle",
+		Layer: "v2_oracle", CaveatFamilyID: CaveatFamilyDiagramFidelity,
 	})
 	RegisterViolKind(ViolKindSpec{
 		Kind: ViolDiagramEdgeLabelMismatch, DefaultSeverity: SeveritySoft,
 		SoftByDefault: true, Promotable: false, FallbackLocus: LocusFinalizer,
-		Layer: "v2_oracle",
+		Layer: "v2_oracle", CaveatFamilyID: CaveatFamilyDiagramFidelity,
 	})
 	RegisterViolKind(ViolKindSpec{
 		Kind: ViolUncertaintyBlockMissing, DefaultSeverity: SeverityMedium,
 		SoftByDefault: false, Promotable: true, FallbackLocus: LocusFinalizer,
-		Layer: "v2_oracle",
+		Layer: "v2_oracle", CaveatFamilyID: CaveatFamilyAnswerCoverage,
 	})
 
 	// ── G5 / 修 B post_v2_runtime_gap_remediation ──
 	RegisterViolKind(ViolKindSpec{
 		Kind: ViolAnswerSemanticUnderfilled, DefaultSeverity: SeveritySoft,
 		SoftByDefault: true, Promotable: true, FallbackLocus: LocusFinalizer,
-		Layer: "semantic_quality",
+		Layer: "semantic_quality", CaveatFamilyID: CaveatFamilyAnswerCoverage,
 	})
 	RegisterViolKind(ViolKindSpec{
 		Kind: ViolEnumerationEvidenceUnderspecified, DefaultSeverity: SeveritySoft,
 		SoftByDefault: true, Promotable: true, FallbackLocus: LocusExplore,
-		Layer: "evidence_pool",
+		Layer: "evidence_pool", CaveatFamilyID: CaveatFamilyEnumerationDepth,
 	})
 
 	// ── B3 v3 (2026-05-04) — diagram relation typed-first ──
@@ -435,7 +581,7 @@ func init() {
 	RegisterViolKind(ViolKindSpec{
 		Kind: ViolDiagramRelationLabelOnly, DefaultSeverity: SeveritySoft,
 		SoftByDefault: true, Promotable: true, FallbackLocus: LocusFinalizer,
-		Layer: "v2_oracle",
+		Layer: "v2_oracle", CaveatFamilyID: CaveatFamilyDiagramFidelity,
 	})
 
 	// ── B2 v3 (2026-05-04) — three-layer quality contract ──
@@ -445,12 +591,12 @@ func init() {
 	RegisterViolKind(ViolKindSpec{
 		Kind: ViolRichnessGlaringGap, DefaultSeverity: SeverityMedium,
 		SoftByDefault: false, Promotable: true, FallbackLocus: LocusFinalizer,
-		Layer: "v2_oracle",
+		Layer: "v2_oracle", CaveatFamilyID: CaveatFamilyAnswerCoverage,
 	})
 	RegisterViolKind(ViolKindSpec{
 		Kind: ViolPrincipalProseUnderfilled, DefaultSeverity: SeverityMedium,
 		SoftByDefault: false, Promotable: true, FallbackLocus: LocusFinalizer,
-		Layer: "v2_oracle",
+		Layer: "v2_oracle", CaveatFamilyID: CaveatFamilyAnswerCoverage,
 	})
 
 	// ── Structural / forensic kinds ──
@@ -460,17 +606,16 @@ func init() {
 	RegisterViolKind(ViolKindSpec{
 		Kind: ViolStructuralEnumerationDivergence, DefaultSeverity: SeverityMedium,
 		SoftByDefault: false, Promotable: true, FallbackLocus: LocusExtract,
-		Layer: "v2_oracle",
+		Layer: "v2_oracle", CaveatFamilyID: CaveatFamilyEnumerationDepth,
 	})
 	RegisterViolKind(ViolKindSpec{
 		Kind: ViolCrossCitationConflict, DefaultSeverity: SeverityMedium,
 		SoftByDefault: true, Promotable: true, FallbackLocus: LocusExtract,
-		Layer: "v2_oracle",
+		Layer: "v2_oracle", CaveatFamilyID: CaveatFamilyCitationGrounded,
 	})
 
 	// ── R10 CGEC frequency bridges (telemetry-only, permanently SOFT) ──
-	// Legacy defaultSoftKinds does NOT list these; their SOFT classification
-	// comes from DefaultSeverity. Preserved verbatim.
+	// Pure operator telemetry — no user-visible caveat (CaveatFamilyID empty).
 	RegisterViolKind(ViolKindSpec{
 		Kind: ViolDemotionStorm, DefaultSeverity: SeveritySoft,
 		SoftByDefault: false, Promotable: false, FallbackLocus: LocusTerminal,
@@ -490,16 +635,16 @@ func init() {
 	RegisterViolKind(ViolKindSpec{
 		Kind: ViolSymbolAnchorMismatch, DefaultSeverity: SeverityMedium,
 		SoftByDefault: false, Promotable: true, FallbackLocus: LocusExplore,
-		Layer: "v2_oracle",
+		Layer: "v2_oracle", CaveatFamilyID: CaveatFamilyCitationGrounded,
 	})
 	RegisterViolKind(ViolKindSpec{
 		Kind: ViolEnumerationLabelUngrounded, DefaultSeverity: SeverityMedium,
 		SoftByDefault: false, Promotable: true, FallbackLocus: LocusExtract,
-		Layer: "contract_check",
+		Layer: "contract_check", CaveatFamilyID: CaveatFamilyEnumerationDepth,
 	})
 	RegisterViolKind(ViolKindSpec{
 		Kind: ViolEnumerationItemLabelExtractorDrift, DefaultSeverity: SeverityMedium,
 		SoftByDefault: false, Promotable: true, FallbackLocus: LocusFinalizer,
-		Layer: "contract_check",
+		Layer: "contract_check", CaveatFamilyID: CaveatFamilyEnumerationDepth,
 	})
 }
