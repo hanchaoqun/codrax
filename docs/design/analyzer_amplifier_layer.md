@@ -286,29 +286,32 @@ for _, obs := range postObs {
 
 ### R1 — Multi-subject Predicate Inference
 
-**输入:** `rm.TermGraph`, `rm.Predicates`, `rm.Intent`, `rm.AnswerSubject`, 以及通过 `types.ExactResolutionTargets(rm)` 取出的 exact targets 列表。
+**输入:** `rm.AnalyzerHints.Entities`, `rm.Predicates`, `rm.Intent`, 以及通过 `types.ExactResolutionTargets(rm)` 取出的 exact targets 列表。
+
+**信号源选择(Phase 2.1-fix-2,2026-05-05):** 原设计读 `rm.TermGraph.Canonical` 里 `Kind==TermSymbol` 的 entry,沿用 `hdp.topSymbols` 的 confidence-gap 截断。**实测发现** TermGraph 由 `normalizer.Normalize` 从 `RawRequest` 文本里抽 surface,中文 / 自然语言问题(用户描述概念但不点名标识符)的 TermGraph.Canonical 永远没有 LLM 后续命名的 symbol entries,所以 R1 永不 fire。`rm.AnalyzerHints.Entities` 是 LLM 在 `emit_analysis` 里直接给出的命名实体清单 — 才是 multi-subject 的真正 typed 信号源。empirical evidence:2026-05-05 qf_arch run-2,LLM emit `entities=[StageAnalyze, StageExplore, StageExtract, StageFinalize]` + `intent=explain` + `is_category_enumeration=false`,完美 R1 触发条件,但旧 R1 无 fire(TermGraph.Canonical 里这 4 个名字一个都没有,都不在用户的中文 RawRequest 里出现)。
 
 **触发条件(全部必须满足):**
 
-1. `len(hdpTopSymbols(rm.TermGraph, 3)) ≥ 2`
-   - 复用 `internal/analysis/hdp/planner.go::topSymbols` 的算法逻辑。该函数当前 unexport — 实施时把同等算法复制到 amplifier 包内的 helper(避免 amplifier 反向 import hdp 包,绕开 hdp.Plan 副作用)。
-   - 算法摘要:从 `tg.Canonical` 取 `Kind == TermSymbol` 的项,按 `Confidence` desc 排序,如果第 0 项与第 1 项 Confidence 差 > 0.4 则返回 1 项,否则返回 ≤ k 项。
-2. AND `rm.Predicates.IsCategoryEnumeration == false`
+1. `distinctEntityCount(rm.AnalyzerHints.Entities) ≥ 2`
+   - 去掉空白/case-fold 后的 distinct count。重复同一名字 N 次仍计为 1 subject。
+   - 不再使用 confidence-gap 截断 — LLM emit 的命名实体不带 rarity 噪音(那是 normalizer ranker 的问题)。
+2. AND `rm.Predicates.IsCategoryEnumeration == false`(red line #2:不覆盖 LLM 已填正值)
 3. AND `rm.Intent ∈ {IntentExplain, IntentTrace, IntentRootCause}`
    - 不包含 `IntentEnumerate`(已是 enumeration,不需要补)
    - 不包含 `IntentConfigQuery / IntentReturnValue / IntentUnknown`
 4. AND `len(types.ExactResolutionTargets(rm)) != 1`(单 exact target 不是 enumeration)
-5. AND `rm.AnswerSubject.Kind != types.SubjectScalar`(scalar 答案不是 enumeration)
+5. AND `rm.Predicates.IsScalarAnswer == false`(scalar 答案不是 enumeration;原文档写 `SubjectScalar` 但该枚举值不存在,`IsScalarAnswer` 是同等 typed 信号)
 
 **动作:**
 - 设 `rm.Predicates.IsCategoryEnumeration = true`
-- 记录 `Observation{Rule: "R1_multi_subject_predicate", Field: "predicates.is_category_enumeration", Before: "false", After: "true", Reason: "HDP topSymbols ≥ 2 with no sharp gap"}`
+- 记录 `Observation{Rule: "R1_multi_subject_predicate", Field: "predicates.is_category_enumeration", Before: "false", After: "true", Reason: "AnalyzerHints.Entities has N distinct named subjects with intent=X and non-scalar answer"}`
 
-**理由:** HDP topSymbols 基于 typed `TermGraph.Canonical[].Confidence` 检测 multi-subject(纯 typed 数据,无 keyword)。R1 把这个已有结构信号 propagate 到 predicates 层。Intent 限定 + scalar 排除 + single-exact-target 排除三道闸门确保不误触发。
+**理由:** `AnalyzerHints.Entities` 是 LLM 在 emit_analysis 里直接产出的"我识别到了哪些命名实体"清单(纯 typed slot,无 keyword 表/正则匹配)。R1 把这个已有结构信号 propagate 到 predicates 层。Intent 限定 + scalar 排除 + single-exact-target 排除三道闸门确保不误触发。
 
-**与下游 reconciler 的兼容:**
-- `reconcileSemanticPredicates` 在 R1 之后跑,其 `signalsExplicitMultiAxis(p)`(`analyzer_predicate.go`)会读到新的 `IsCategoryEnumeration=true`,行为自然 propagate
-- `reconcileComplexity` 在 R1 之后跑,`IsCategoryEnumeration` 检查在 `analyzer_complexity.go` 已存在,会触发正确的 simple→moderate 升级
+**与下游 reconciler 的兼容(post Phase 2.1-fix wiring):**
+- Amplify 在 reconcile 链之后跑(因 TermGraph 依赖,见 §4.2),所以 reconcileSemanticPredicates / reconcileComplexity 看不到 R1 写入的 `IsCategoryEnumeration=true`,无法触发 simple→moderate 升级。
+- compiler.Compile / compiler.InferScenario 直接读到正确的 `IsCategoryEnumeration=true`,enumeration 模板选择不受影响,主链路完整。
+- complexity 升级丢失为 nice-to-have 缺失,非 load-bearing。
 
 ### R2 — Typed-Name Parity → SubTopics Derivation
 
@@ -399,19 +402,21 @@ R4 涉及 question 多 `?` 切分 / parallel-naming pattern 检测,需要更细�
 - 测试 `TestBuildAnalysisIR_AmplifierInsertionOrder` — 钉死 amplifier 在所有 reconciler 之前调用
 - 全部现有 analyzer / compiler / orchestrator 测试 0 回归
 
-### Phase 2 — R1 规则(2 commit)
+### Phase 2 — R1 规则(2 commit + 2 fix commit,2026-05-05)
 
-**Phase 2.1**(commit 3)
-- 在 amplifier 包内实现 `topSymbolsLikeHDP(tg types.TermGraph, k int) []string` helper(参考 `internal/analysis/hdp/planner.go::topSymbols` 算法,duplicate logic 避免反向 import hdp)
-- 实现 R1 规则
+**Phase 2.1**(commit 3 + 2 fix:`8dfd27b` + `7bf5ce5` 重定位 + `<TBD>` 信号源切换)
+- 实现 `distinctEntityCount(entities []string) int` helper(去 blank,case-fold 后 distinct count)
+- 实现 R1 规则,信号源是 `rm.AnalyzerHints.Entities`(non TermGraph,见 §5 R1 信号源选择段)
 - 单元测试覆盖:
-  - 多 subject(2+ TermSymbol 同 Confidence)→ R1 触发,IsCategoryEnumeration=true
-  - 单 subject(只有 1 TermSymbol)→ R1 不触发
-  - sharp gap(top 2 Confidence 差 > 0.4)→ R1 不触发
+  - 多 entity(≥ 2 distinct)→ R1 触发,IsCategoryEnumeration=true
+  - 单 entity → R1 不触发
+  - 重复同名(case-fold + trim 后 collapse 到 1)→ R1 不触发
+  - blank entries 被过滤掉,只剩 1 时 → R1 不触发
   - Intent ∉ {Explain, Trace, RootCause}(如 Enumerate / Lookup) → R1 不触发
-  - SubjectScalar → R1 不触发
+  - IsScalarAnswer=true → R1 不触发
   - len(ExactResolutionTargets) == 1 → R1 不触发
   - LLM 已填 IsCategoryEnumeration=true → R1 不触发(单向 ADD)
+  - empirical qf_arch shape(4 个 Stage* entity + intent=explain + 全 false predicates)→ R1 触发
 
 **Phase 2.2**(commit 4)
 - 真 eval:跑 qf_arch x4 + s1a x2 + m1a x2
