@@ -1323,6 +1323,43 @@ func buildAnalysisIR(ctx *types.AgentContext) (*types.AnalysisIR, error) {
 		rm = amplified
 	}
 
+	// L0-B (2026-05-05) — Enumeration cardinality structural sanity.
+	// When the analyzer LLM (or amplifier R1 flip) declares the
+	// question as IsCategoryEnumeration=true but only emitted ≤1
+	// distinct named entity, the emit is structurally self-
+	// contradictory: enumerate-one-thing has no answer shape. The
+	// likely cause is the LLM picking the enclosing TYPE name
+	// (e.g. PipelineStage) instead of the enumerated VALUES (e.g.
+	// StageAnalyze / StageExplore / ...). Fail-loud here so the
+	// analyzer's MaxRetriesPerStage budget retries with an explicit
+	// fix hint; LLM almost always re-emits the enumerated values
+	// on the next attempt because the reject message names the
+	// fix exactly.
+	//
+	// Precise-signal rationale: rm.Predicates.IsCategoryEnumeration
+	// and len(rm.AnalyzerHints.Entities) are both typed precise
+	// slots. The combination cat=true && distinct ≤ 1 is itself a
+	// precise structural matrix — not a heuristic — so this hard
+	// gate satisfies the "precise signals for hard gates" red line.
+	//
+	// Empirical: 2026-05-05 qf_arch run-1 (Phase 4.2 eval) emitted
+	// entities=[PipelineStage] with cat=false, then later runs in
+	// the same case emitted entities=[StageAnalyze, StageExplore,
+	// StageExtract, StageFinalize] with cat=true and PASSed. This
+	// gate catches the cat=true variant of the entity-1 trap; the
+	// cat=false variant (genuine type-name lookup) legitimately
+	// passes through.
+	if rm.Predicates.IsCategoryEnumeration &&
+		distinctNamedEntities(rm.AnalyzerHints.Entities) <= 1 {
+		return nil, fmt.Errorf(
+			"analyzer: enumeration intent with ≤1 distinct named entity is structurally inconsistent — " +
+				"is_category_enumeration=true means the user is asking 'what kinds/types exist', " +
+				"so entities must list the ENUMERATED VALUES (e.g. StageAnalyze, StageExplore, ...) " +
+				"not the enclosing TYPE name. Re-emit emit_analysis ONCE with entities populated " +
+				"with the actual enumerated members the user is asking about, OR set " +
+				"is_category_enumeration=false if the question is really a type-name / scalar lookup")
+	}
+
 	// Session 11 C0' classification reconcile retired with AnswerShape:
 	// the rule existed solely to nudge AnalyzerHints.Shape toward
 	// "value" when Round-2 grep observed a quoted literal. With shape
@@ -2196,3 +2233,25 @@ func extractQuotedLiterals(s string) []string {
 // rule existed solely to nudge AnalyzerHints.Shape toward "value"
 // on a quoted-literal hit, and the V2 carrier no longer keys answer
 // rendering off shape.
+
+// distinctNamedEntities counts the case-folded distinct non-blank
+// entries in entities. Used by the L0-B enumeration cardinality
+// gate (see buildAnalysisIR). Mirrors amplifier.distinctEntityCount
+// — duplicate logic chosen over importing amplifier here because
+// agent already imports amplifier and the helper is a 6-line pure
+// function; making it package-private to amplifier preserves that
+// package's "no consumers reach in" boundary.
+func distinctNamedEntities(entities []string) int {
+	if len(entities) == 0 {
+		return 0
+	}
+	seen := make(map[string]struct{}, len(entities))
+	for _, e := range entities {
+		key := strings.ToLower(strings.TrimSpace(e))
+		if key == "" {
+			continue
+		}
+		seen[key] = struct{}{}
+	}
+	return len(seen)
+}
