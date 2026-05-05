@@ -1546,7 +1546,7 @@ func identifyAnswerChains(question string, evidence []types.EvidenceItem, maxCha
 					f(types.Violation{
 						Kind:       types.ViolChainDemoted,
 						Detail:     fmt.Sprintf("chain terminal equals primary entity %q (self-ref)", primary),
-						ClusterKey: fmt.Sprintf("symbol:%s|root:answer_subject.kind", primary),
+						ClusterKey: types.SymbolClusterKey(primary, "answer_subject.kind"),
 						Stage:      string(types.StageExplore),
 						SuspectedRoot: types.SuspectedRoot{
 							IRField:    "answer_subject.kind",

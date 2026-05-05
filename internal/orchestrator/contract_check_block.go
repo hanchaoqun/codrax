@@ -9,123 +9,35 @@ import (
 )
 
 func blockClusterKey(blockID string, rootField string) string {
-	blockID = strings.TrimSpace(blockID)
-	rootField = strings.TrimSpace(rootField)
-	switch {
-	case blockID != "" && rootField != "":
-		return fmt.Sprintf("block:%s|root:%s", blockID, rootField)
-	case blockID != "":
-		return "block:" + blockID
-	case rootField != "":
-		return "root:" + rootField
-	default:
-		return ""
-	}
+	return types.BlockClusterKey(blockID, rootField)
 }
 
 func blockKindClusterKey(kind types.AnswerBlockKind, rootField string) string {
-	blockKind := strings.TrimSpace(string(kind))
-	rootField = strings.TrimSpace(rootField)
-	switch {
-	case blockKind != "" && rootField != "":
-		return fmt.Sprintf("block_kind:%s|root:%s", blockKind, rootField)
-	case blockKind != "":
-		return "block_kind:" + blockKind
-	case rootField != "":
-		return "root:" + rootField
-	default:
-		return ""
-	}
+	return types.BlockKindClusterKey(kind, rootField)
 }
 
 func facetClusterKey(kind string, rootField string) string {
-	kind = strings.TrimSpace(kind)
-	rootField = strings.TrimSpace(rootField)
-	switch {
-	case kind != "" && rootField != "":
-		return fmt.Sprintf("facet:%s|root:%s", kind, rootField)
-	case kind != "":
-		return "facet:" + kind
-	case rootField != "":
-		return "root:" + rootField
-	default:
-		return ""
-	}
+	return types.FacetClusterKey(kind, rootField)
 }
 
 func relationClusterKey(kind types.DiagramRelationKind, rootField string) string {
-	rel := strings.TrimSpace(string(kind))
-	rootField = strings.TrimSpace(rootField)
-	switch {
-	case rel != "" && rootField != "":
-		return fmt.Sprintf("relation:%s|root:%s", rel, rootField)
-	case rel != "":
-		return "relation:" + rel
-	case rootField != "":
-		return "root:" + rootField
-	default:
-		return ""
-	}
+	return types.RelationClusterKey(kind, rootField)
 }
 
 func familyClusterKey(kind types.QuestionFamily, rootField string) string {
-	fam := strings.TrimSpace(string(kind))
-	rootField = strings.TrimSpace(rootField)
-	switch {
-	case fam != "" && rootField != "":
-		return fmt.Sprintf("family:%s|root:%s", fam, rootField)
-	case fam != "":
-		return "family:" + fam
-	case rootField != "":
-		return "root:" + rootField
-	default:
-		return ""
-	}
+	return types.FamilyClusterKey(kind, rootField)
 }
 
 func symbolClusterKey(symbol string, rootField string) string {
-	symbol = strings.TrimSpace(symbol)
-	rootField = strings.TrimSpace(rootField)
-	switch {
-	case symbol != "" && rootField != "":
-		return fmt.Sprintf("symbol:%s|root:%s", symbol, rootField)
-	case symbol != "":
-		return "symbol:" + symbol
-	case rootField != "":
-		return "root:" + rootField
-	default:
-		return ""
-	}
+	return types.SymbolClusterKey(symbol, rootField)
 }
 
 func identityClusterKey(identity string, rootField string) string {
-	identity = strings.TrimSpace(identity)
-	rootField = strings.TrimSpace(rootField)
-	switch {
-	case identity != "" && rootField != "":
-		return fmt.Sprintf("%s|root:%s", identity, rootField)
-	case identity != "":
-		return identity
-	case rootField != "":
-		return "root:" + rootField
-	default:
-		return ""
-	}
+	return types.IdentityClusterKey(identity, rootField)
 }
 
 func topicClusterKey(topic string, rootField string) string {
-	topic = strings.TrimSpace(topic)
-	rootField = strings.TrimSpace(rootField)
-	switch {
-	case topic != "" && rootField != "":
-		return fmt.Sprintf("topic:%s|root:%s", topic, rootField)
-	case topic != "":
-		return "topic:" + topic
-	case rootField != "":
-		return "root:" + rootField
-	default:
-		return ""
-	}
+	return types.TopicClusterKey(topic, rootField)
 }
 
 // V2 block-only carrier validators (B4 落地 — block_only_carrier.md

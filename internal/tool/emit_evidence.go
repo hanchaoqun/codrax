@@ -501,7 +501,7 @@ func (t *EmitEvidence) Execute(ctx *types.BusContext, params json.RawMessage) (t
 				ctx.Mutable.EvidenceClosure().AppendViolation(types.Violation{
 					Kind:       types.ViolSelfRefLiteral,
 					Detail:     fmt.Sprintf("items[%d]: subject=%s matches primary entity; anchor literal is self-reference", i, ev.Subject),
-					ClusterKey: fmt.Sprintf("symbol:%s|root:answer_subject.kind", primaryEntity),
+					ClusterKey: types.SymbolClusterKey(primaryEntity, "answer_subject.kind"),
 					Stage:      string(types.StageExplore),
 					SuspectedRoot: types.SuspectedRoot{
 						IRField:    "answer_subject.kind",

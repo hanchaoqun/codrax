@@ -479,7 +479,7 @@ func (t *EmitInvestigationComplete) Execute(ctx *types.BusContext, params json.R
 			closure.AppendViolation(types.Violation{
 				Kind:       types.ViolPreCompleteDowngrade,
 				Detail:     "pre-complete simulator rejected emit_investigation_complete",
-				ClusterKey: "root:CitationReq|stage:pre_complete",
+				ClusterKey: types.ComposeClusterKey("root", "CitationReq", "stage", "pre_complete"),
 				Stage:      string(types.StageExplore),
 				SuspectedRoot: types.SuspectedRoot{
 					IRField:    "CitationReq",
@@ -832,7 +832,7 @@ func preCompleteContractCheck(ctx *types.BusContext, justification string) strin
 			closure.AppendViolation(types.Violation{
 				Kind:       types.ViolViewSwap,
 				Detail:     fmt.Sprintf("pre-complete B2b: AnswerSubject=%s vs family=%s (→ %s)", ir.RequestModel.AnswerSubject.Kind, fromFamily, toFamily),
-				ClusterKey: fmt.Sprintf("subject:%s|from:%s|to:%s|root:answer_subject", ir.RequestModel.AnswerSubject.Kind, fromFamily, toFamily),
+				ClusterKey: types.ComposeClusterKey("subject", string(ir.RequestModel.AnswerSubject.Kind), "from", string(fromFamily), "to", string(toFamily), "root", "answer_subject"),
 				Stage:      string(types.StageExplore),
 				SuspectedRoot: types.SuspectedRoot{
 					IRField:    "answer_subject",
