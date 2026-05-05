@@ -107,6 +107,24 @@ type ViolKindSpec struct {
 	// rendered into LLM-facing prompts (R4 red line). May be empty.
 	Description string
 
+	// Implies names the ViolKinds whose presence is structurally
+	// caused by THIS kind firing. When two validators report on the
+	// same root cause from different angles, Implies lets
+	// ComputeRootCauseClosure mark the symptom as derived so the
+	// retry hint surfaces ONE root, not N facets.
+	//
+	// Example: ViolBlockCoverageMissing implies both
+	// ViolEnumerationLabelUngrounded and ViolFacetUncovered when
+	// they fire together against the same fingerprint — fixing the
+	// missing block resolves all three.
+	//
+	// Empty Implies list = leaf root cause (the common case).
+	// Cycles are not allowed; the closure algorithm will panic on
+	// detection at startup-time validation. Implies is per-Kind not
+	// per-cluster, so direct relations only — transitive closure
+	// is computed at run-time by walking the graph.
+	Implies []ViolationKind
+
 	// CaveatFamilyID groups ViolKinds that share the same user-facing
 	// caveat template. Many ViolKinds describe the same root cause
 	// from different validators — e.g. richness_regression /
@@ -513,6 +531,9 @@ func init() {
 		Kind: ViolFacetUncovered, DefaultSeverity: SeverityMedium,
 		SoftByDefault: true, Promotable: true, FallbackLocus: LocusExplore,
 		Layer: "v2_oracle", CaveatFamilyID: CaveatFamilyAnswerCoverage,
+		// FacetUncovered → richness drops because a required facet
+		// has no block. Same root, different reporter angle.
+		Implies: []ViolationKind{ViolRichnessRegression},
 	})
 	RegisterViolKind(ViolKindSpec{
 		Kind: ViolClaimFormUnsupported, DefaultSeverity: SeverityMedium,
@@ -549,6 +570,13 @@ func init() {
 		Kind: ViolBlockCoverageMissing, DefaultSeverity: SeverityCritical,
 		SoftByDefault: false, Promotable: true, FallbackLocus: LocusExtract,
 		Layer: "v2_oracle", CaveatFamilyID: CaveatFamilyAnswerCoverage,
+		// A missing block means its items + claim_uses don't exist
+		// to be checked, so symptom violations on those become
+		// derivations of the missing-block root.
+		Implies: []ViolationKind{
+			ViolEnumerationLabelUngrounded,
+			ViolPrincipalClaimUseMissing,
+		},
 	})
 	RegisterViolKind(ViolKindSpec{
 		Kind: ViolPrincipalClaimUseMissing, DefaultSeverity: SeverityCritical,
@@ -559,6 +587,16 @@ func init() {
 		Kind: ViolDiagramEdgeUnsupported, DefaultSeverity: SeverityMedium,
 		SoftByDefault: false, Promotable: true, FallbackLocus: LocusFinalizer,
 		Layer: "v2_oracle", CaveatFamilyID: CaveatFamilyDiagramFidelity,
+		// "Edge unsupported" is the structural lack of an
+		// edge_anchor. When LLM "fixes" by adding an anchor whose
+		// label/relation pair drifts, label_mismatch /
+		// relation_label_only fire — same root edge problem.
+		// Without this Implies, qfa-mr3 saw Round 0 unsupported ->
+		// Round 1 label_mismatch as a "new" cluster (stable=0).
+		Implies: []ViolationKind{
+			ViolDiagramEdgeLabelMismatch,
+			ViolDiagramRelationLabelOnly,
+		},
 	})
 	RegisterViolKind(ViolKindSpec{
 		Kind: ViolDiagramEdgeLabelMismatch, DefaultSeverity: SeveritySoft,
@@ -576,6 +614,13 @@ func init() {
 		Kind: ViolAnswerSemanticUnderfilled, DefaultSeverity: SeveritySoft,
 		SoftByDefault: true, Promotable: true, FallbackLocus: LocusFinalizer,
 		Layer: "semantic_quality", CaveatFamilyID: CaveatFamilyAnswerCoverage,
+		// Semantic-underfilled is the broad reviewer signal that
+		// principal prose is thin or enumeration evidence is sparse;
+		// those specific symptoms are derivations of the same root.
+		Implies: []ViolationKind{
+			ViolPrincipalProseUnderfilled,
+			ViolEnumerationEvidenceUnderspecified,
+		},
 	})
 	RegisterViolKind(ViolKindSpec{
 		Kind: ViolEnumerationEvidenceUnderspecified, DefaultSeverity: SeveritySoft,
@@ -601,6 +646,10 @@ func init() {
 		Kind: ViolRichnessGlaringGap, DefaultSeverity: SeverityMedium,
 		SoftByDefault: false, Promotable: true, FallbackLocus: LocusFinalizer,
 		Layer: "v2_oracle", CaveatFamilyID: CaveatFamilyAnswerCoverage,
+		// A "glaring" gap on a facet is the more severe form of
+		// generic richness regression — when both fire on the same
+		// fingerprint, the regression is the symptom.
+		Implies: []ViolationKind{ViolRichnessRegression},
 	})
 	RegisterViolKind(ViolKindSpec{
 		Kind: ViolPrincipalProseUnderfilled, DefaultSeverity: SeverityMedium,
@@ -650,6 +699,13 @@ func init() {
 		Kind: ViolEnumerationLabelUngrounded, DefaultSeverity: SeverityMedium,
 		SoftByDefault: false, Promotable: true, FallbackLocus: LocusExtract,
 		Layer: "contract_check", CaveatFamilyID: CaveatFamilyEnumerationDepth,
+		// When labels are ungrounded, the extractor's label-emit
+		// drift symptom + the underspecified-evidence symptom both
+		// derive from the same root.
+		Implies: []ViolationKind{
+			ViolEnumerationItemLabelExtractorDrift,
+			ViolEnumerationEvidenceUnderspecified,
+		},
 	})
 	RegisterViolKind(ViolKindSpec{
 		Kind: ViolEnumerationItemLabelExtractorDrift, DefaultSeverity: SeverityMedium,

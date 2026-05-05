@@ -748,4 +748,26 @@ type Violation struct {
 	ClusterKey    string        // producer-side typed repair-cluster identity; preferred over Detail parsing
 	EvidenceRefs  []string      // chain_id / evidence_id / citation_idx references
 	SuspectedRoot SuspectedRoot // F2-consumed root-cause hypothesis
+
+	// W2.1 (2026-05-05) — root-cause closure axis. Lets the
+	// reporter pre-collapse violations that share a root before the
+	// retry hint is built so the LLM sees ONE root issue per
+	// fingerprint, not 3 derived facets of the same problem.
+	//
+	// IsDerived = true means this violation describes a SYMPTOM of
+	// another violation in the same set; UI / retry hints SHOULD
+	// suppress it in favour of its RootKind. The Violation still
+	// reaches the closure ledger (telemetry sees it), it's just
+	// not surfaced as a separate fix instruction.
+	//
+	// RootKind names the upstream root-cause ViolKind when the
+	// reporter knows it. Empty when this Violation IS its own root
+	// (the common case) or when no Implies relation matched.
+	//
+	// Derivation is computed by ComputeRootCauseClosure (W2.3) per
+	// emit batch using ViolKindSpec.Implies (W2.2). The fields are
+	// purely advisory — downstream consumers that ignore them get
+	// pre-W2.1 behaviour.
+	IsDerived bool
+	RootKind  ViolationKind
 }
