@@ -1,3 +1,5 @@
+> Status: archived (2026-05-05). Current architecture lives in docs/architecture.md and docs/design/v3_runtime_consolidation.md.
+
 # Post-shape 全量日志深挖 — 隐藏深层风险 + 泛化方案 (2026-05-04)
 
 **Source**:`eval/results/{s1a-20260504-024900,m1a-20260504-024904}/run-{1,2}.logs/*.log` (4 真 verification runs against `f8b8fd7` post-R1.1/R1.2/R2.1/R2.2/R2.3/R2.4/R3.1)

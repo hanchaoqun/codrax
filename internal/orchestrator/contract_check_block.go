@@ -1004,12 +1004,9 @@ func formNames(forms []types.ClaimForm) []string {
 // (Tier=Hard/Soft) is covered by at least one V2 block whose
 // block.FacetIDs[] names the facet's Kind.
 //
-// Pre-B8-T4 the V1 sibling (runFacetCoverageOracle) walked V1 doc
-// payloads and matched the facet's SourceCandidate evidence IDs
-// against per-payload citation refs — V2 mirrors that with the
-// typed FacetIDs slice the V2 emit_answer_document validator
-// already populates on every block. Coverage now = "any block
-// declared this FacetID" — a precise, typed signal (R2 red line).
+// Coverage = "any block declared this FacetID via block.FacetIDs[],
+// item.ClaimUse.FacetID, or block.ClaimUses[i].FacetID" — a precise
+// typed signal (R3 red line).
 //
 // Promotion gate (G6 post_v2_runtime_gap_remediation, 2026-05-04):
 // the (Tier, len(SourceCandidate)) joint logic is centralised on

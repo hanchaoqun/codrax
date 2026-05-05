@@ -1,3 +1,5 @@
+> Status: archived (2026-05-05). Current architecture lives in docs/architecture.md and docs/design/v3_runtime_consolidation.md.
+
 # Block-Only 现状审计与 `AnswerShape` 退役实施方案
 
 > ⚠️ **状态：superseded（2026-05-03）**

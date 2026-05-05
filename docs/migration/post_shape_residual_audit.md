@@ -1,3 +1,5 @@
+> Status: archived (2026-05-05). Current architecture lives in docs/architecture.md and docs/design/v3_runtime_consolidation.md.
+
 # post-shape 残留 audit + 修复跟踪表 (2026-05-04)
 
 合并自:

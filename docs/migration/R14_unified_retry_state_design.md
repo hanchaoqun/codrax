@@ -1,3 +1,5 @@
+> Status: archived (2026-05-05). Current architecture lives in docs/architecture.md and docs/design/v3_runtime_consolidation.md.
+
 # R14 — Typed Retry-State Contract (统一方案,取代 R6/R6.1/R11/R13)
 
 **起草**:2026-05-04

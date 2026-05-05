@@ -1,3 +1,5 @@
+> Status: archived (2026-05-05). Current architecture lives in docs/architecture.md and docs/design/v3_runtime_consolidation.md.
+
 # R1-R3 真 eval verification (2026-05-04)
 
 **Cases**: s1a × 2 + m1a × 2(同 baseline 配置)

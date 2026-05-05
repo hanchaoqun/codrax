@@ -1,3 +1,5 @@
+> Status: archived (2026-05-05). Current architecture lives in docs/architecture.md and docs/design/v3_runtime_consolidation.md.
+
 # AnswerShape 彻底退役主文件施工清单（终局版）
 
 > **归档元信息**

@@ -1,3 +1,5 @@
+> Status: archived (2026-05-05). Current architecture lives in docs/architecture.md and docs/design/v3_runtime_consolidation.md.
+
 # V2 Runtime B 源头修复 — 真 eval 验证 (2026-05-04)
 
 **Branch**: `main` @ `2882032`(B 源头方案 + prompt audit)

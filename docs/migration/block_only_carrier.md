@@ -1,3 +1,5 @@
+> Status: archived (2026-05-05). Current architecture lives in docs/architecture.md and docs/design/v3_runtime_consolidation.md.
+
 # Block-Only Carrier 终局迁移：实施计划
 
 | 项 | 值 |

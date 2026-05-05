@@ -54,6 +54,26 @@ codrax 接受用户的自然语言问题，通过一条**确定性的主流水�
 - Analysis 层是纯确定性函数 —— 不调 LLM、不调工具、不读文件系统。
 - Skill 是声明式配置，被 Agent 读取后渲染进 prompt，自己不调任何东西。
 
+### V2 写入主链（单一收口，v3 2026-05）
+
+V2 carrier 全链已统一收口到一条单一主链；新增 block 字段 / claim_form / 关系类型时，每条只改一处即可。
+
+| 角色 | 真理源 | 加新内容改这一处 |
+|---|---|---|
+| 用户语义合同 | `internal/types/answer_semantic_view.go::AnswerSemanticView` | family compile 文件的 RequiredBlocks / OptionalBlocks |
+| 唯一载体 | `internal/types/answer_document_v2.go::AnswerDocumentV2` | 该文件加 typed 字段 |
+| 唯一写入协议 | `internal/types/answer_document_v2_mutation.go::AnswerDocumentMutation` (kind: `replace_all` \| `partial`) | 不需要扩种类，typed 字段在载体层走完即可 |
+| 唯一写入闭环 | `internal/tool/answer_document_mutation_runtime.go::ApplyAndPersistMutation` | merged-doc 不变量加这里 |
+| 唯一 setter | `MutableState.SetAnswerDocumentV2WithMutation(kind, doc)` | 不再有 split full/patch setter |
+| LLM-facing 块合同 | `internal/tool/answer_document_block_schema.go::BuildAnswerDocumentSemanticContractDescription` | tool Description() 自动同步 |
+| Diagram 关系合同 | `internal/skill/diagram_relation_doc.go::BuildDiagramRelationContractDoc` (从 `types.AllDiagramRelationKinds` 自动渲染) | 加 RelationKind / keyword / claim_form 自动同步 prompt |
+| 校验主链 | `internal/orchestrator/contract_check_block.go::runV2BlockOraclesWithMut` (HARD/correctness + Layer 2 completeness + Layer 3 richness) | 加 validator 入此 dispatch |
+| 二级反检 | `internal/orchestrator/semantic_quality_reviewer.go` (reverse-check system-detected gaps) | reviewer prompt + SemanticQualityInput |
+| 修复编排 | `internal/orchestrator/repair_execution_plan.go` + `repair_cluster_closure.go` (cluster-state closure progresses owners) | classifyNextPlanAction |
+| ViolKind 注册 | `internal/types/violation_registry.go::RegisterViolKind` (单源真理，5 张派生表自动覆盖) | 新 kind 一处 spec 即可 |
+
+加新 block 字段成本路径：typed model + NormalizeEmitAnswerBlock → 自动覆盖 full + patch + tool Description + 校验主链。
+
 ### 系统概览
 
 ```mermaid
@@ -715,17 +735,17 @@ Turn B 看不到新文件——所有信息在 Turn A transcript 快照里冻结
 | `HypothesisSet[i].Status` | **Extractor 写 buffer** | `emit_hypothesis_verdict` + `drainHypothesisVerdicts` |
 | `AnswerDocument` | **Finalizer 独占** | `emit_answer_document` + renderer |
 
-#### Summary 长度：shape-tiered cap
+#### Summary 长度：block-kind-tiered cap
 
-`emit_answer_document` 的 `summary` 长度由 `types.SummaryCapConfig` + `types.SummaryCapFor(shape, itemCount)` 决定。**默认 disabled**（`SummaryCapConfig.Enabled=false` → `SummaryCapUnlimited`）。`codrax.yaml` 的 `summary_cap_enabled: true` 激活：
+`emit_answer_document` 的 `summary` 长度由 `types.SummaryCapConfig` + `types.SummaryCapFor(blockKind, itemCount)` 决定。**默认 disabled**（`SummaryCapConfig.Enabled=false` → `SummaryCapUnlimited`）。`codrax.yaml` 的 `summary_cap_enabled: true` 激活:
 
-| shape | 上限 | 用途 |
+| principal block kind | 上限 | 用途 |
 |---|---|---|
-| `explanation` | `Explanation` (default 2500) | Summary **IS** 答案正文 —— 多段 prose + 可选 Mermaid |
-| `boolean` | `Boolean` (default 800) | 1-3 句 lead-in + rationale |
-| `value` / `config_value` | `Value` / `ConfigValue` (default 500) | 单句 lead-in + scalar literal |
-| `step_list` | `min(StepListMax, StepListBase + n·StepListPerItem)` (default 1000 + 120·n, max 2500) | lead-in；随步数扩张 |
-| `list_of_symbols` | `min(SymbolsMax, SymbolsBase + n·SymbolsPerItem)` (default 1000 + 100·n, max 2500) | lead-in；随 symbol 数扩张 |
+| `summary` (explanation) | `Explanation` (default 2500) | Summary **IS** 答案正文 —— 多段 prose + 可选 Mermaid |
+| `decision` | `Boolean` (default 800) | 1-3 句 lead-in + rationale |
+| `scalar` | `Value` / `ConfigValue` (default 500) | 单句 lead-in + scalar literal |
+| `ordered_list` (hop chain) | `min(StepListMax, StepListBase + n·StepListPerItem)` (default 1000 + 120·n, max 2500) | lead-in；随步数扩张 |
+| `ordered_list` (enumeration) | `min(SymbolsMax, SymbolsBase + n·SymbolsPerItem)` (default 1000 + 100·n, max 2500) | lead-in；随 symbol 数扩张 |
 
 全部字段通过 `codrax.yaml` 的 `summary_cap_*` 覆盖。`cmd/root.go` 加载 YAML 后调 `types.SetSummaryCapConfig` 一次性替换 package-level config，下游 `emit_answer_document` + shrinkage-salvage trimmer 共用。
 
@@ -1921,7 +1941,7 @@ per-process blob 存储。Session dir `<CWD>/.codrax/blob/<timestamp>-<pid>/`，
 |------|------|
 | `event.go` | Event struct（Kind, Timestamp, TraceID, Agent, ...) + 事件类型（PipelineStart/End, StageDispatch, AgentReasoning, ToolCall, ToolResult, AnalysisReady, TaskNodeStart/End, ...） |
 | `renderer.go` | CLI 渲染器（pterm.Area + 实时事件消费） |
-| `answerdoc.go` | `AnswerDocument → markdown` 渲染器，shape-aware，多语言（zh/en），code block 语法标记，citation pool 渲染 |
+| `answerdoc.go` | `AnswerDocument → markdown` 渲染器，block-kind-aware，多语言（zh/en），code block 语法标记，citation pool 渲染 |
 
 ### 响应语言
 
@@ -1963,7 +1983,7 @@ per-process blob 存储。Session dir `<CWD>/.codrax/blob/<timestamp>-<pid>/`，
 | `explore_*` | `explore_per_tool_default_cap` + 15 个 `ExploreHeuristics` 阈值（mid-loop / soft-stop / Phase 0 / enumeration / parallelize） |
 | `agent_*` | `agent_max_iterations` / `agent_max_tool_history_bytes` / **`agent_max_tool_history_fraction`**（fraction × context_window × 4 B/token；同 `blob_max_inline_fraction` 的优先级规则） / 4 个 `agent_loop_*` / 3 个 `agent_finalizer_shrinkage_*` + `agent_finalizer_max_correction_retries` + `agent_finalizer_preserve_prior_prose` / `agent_extractor_max_correction_retries` / **per-evaluator 双段 iter caps**（`agent_planner_soft_iter_cap`/`hard_iter_cap` 默认 6/9，`agent_extractor_soft_iter_cap`/`hard_iter_cap` 默认 3/5，`agent_verifier_soft_iter_cap`/`hard_iter_cap` 默认 5/8，`agent_coder_soft_iter_slack` 默认 3 + `agent_coder_hard_iter_recovery` 默认 3）/ **per-dispatch scaling**（`agent_subtopic_{prescan,explorer,planner,pipeline,retry,extractor}_extra` × N，外加 `agent_planner_complexity_extra` 默认 2 / `agent_extractor_complexity_extra` 默认 1 按 complexity 等级放大，`agent_target_paths_verifier_extra` 默认 1 按 plan.TargetPaths 数量给 verifier 放大；orchestrator 的 per-dispatch scaling block 把每个 evaluator 的软上限写到 `AgentContext.{PlannerSoftIterCapOverride, ExtractorSoftIterCapOverride, VerifierSoftIterCapOverride}`，evaluator 在 `BuildInitialInstruction` 消费；硬顶分别走 `agent_{prescan_rounds,explorer_scaled_iter_max,planner_scaled_iter_max,extractor_scaled_iter_max,verifier_scaled_iter_max,max_retry_budget}_ceil`，全部 yaml 可调，零值回落到代码默认）/ `agent_log_triager_iter_cap` / `agent_perf_triager_iter_cap`（默认均 6） / `agent_investigation_complete_policy` / `agent_prior_conversation_policy` / **`agent_context_pressure_soft_ratio`** / **`agent_context_pressure_hard_ratio`**（context-pressure 监控软/硬阈值，默认 0.7 / 0.9）|
 | `memory_*` | REPL 多轮记忆存储 + 检索调优。**容量**(5 key):`memory_dir` / `memory_max_recent_turns` / `memory_max_recent_bytes` / `memory_max_turn_body_bytes` / `memory_max_build_context_matches`。**检索打分**(2 key):`memory_entity_min_runes`(默认 3,过滤短噪声 entity)/ `memory_session_tie_breaker_bonus`(默认 1,同 session 命中并列时排序加分)。**按 Kind 策略**(5 个嵌套):`memory_policy_{chitchat,shell,pipeline,plan,default}`,每个含 5 字段 `session_pin_count` / `recent_body_chars` / `compacted_match_cap` / `entity_score_mul` / `refs_chain_depth`,字段级合并(override 字段为 0 表示沿用默认)。所有 17 个原 hardcode 数已暴露,单一真值源在 `types.DefaultMemoryKindPolicies`,`internal/memory.policyFor` 在其上叠 yaml override |
-| `summary_cap_*` | `summary_cap_enabled`（master switch，默认 false）+ 11 个 per-shape cap — Summary 长度上限 |
+| `summary_cap_*` | `summary_cap_enabled`（master switch，默认 false）+ 11 个 per-block-kind cap — Summary 长度上限 |
 | `citation_quote_max_chars` | citation quote 预览字符上限（默认 500，UTF-8 边界静默截断）。file+line 始终保留；prose 防御由 grounder token 匹配兜底，跟长度无关 |
 | `cgec_*` | `cgec_forced_reads_per_round` / `cgec_stall_threshold_soft` / `cgec_stall_threshold_hard` / `cgec_phase1_unread_top_k` / `cgec_phase1_unread_min_unread` — Citation-Grounded Evidence Closure 调节 |
 

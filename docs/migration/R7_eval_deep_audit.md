@@ -1,3 +1,5 @@
+> Status: archived (2026-05-05). Current architecture lives in docs/architecture.md and docs/design/v3_runtime_consolidation.md.
+
 # R7 真 eval verification 深度审计 — 隐藏深层风险 + 泛化方案 (2026-05-04)
 
 **Source**:`eval/results/{s1a-20260504-032008,m1a-20260504-032012}/run-{1,2}.logs/*.log` (4 真 verification runs against `25d1e4a` post-R7)

@@ -1,3 +1,5 @@
+> Status: archived (2026-05-05). Current architecture lives in docs/architecture.md and docs/design/v3_runtime_consolidation.md.
+
 # Block-Only 运行时收口审计终稿(P01-P38 + Batch B1-B6 整改计划)
 
 > **归档元信息**

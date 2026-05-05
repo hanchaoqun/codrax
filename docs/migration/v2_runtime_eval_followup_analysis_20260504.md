@@ -1,3 +1,5 @@
+> Status: archived (2026-05-05). Current architecture lives in docs/architecture.md and docs/design/v3_runtime_consolidation.md.
+
 # V2 Runtime 收口 — Eval 残留 outlier 深层次根因分析 (2026-05-04)
 
 **触发**: `docs/migration/v2_runtime_consolidation_eval_20260504.md` 6/6 PASS,但 2 个 outlier 模式需深挖根因(用户红线:不写局部补丁,要泛化方案)。

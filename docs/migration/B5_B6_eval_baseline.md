@@ -1,3 +1,5 @@
+> Status: archived (2026-05-05). Current architecture lives in docs/architecture.md and docs/design/v3_runtime_consolidation.md.
+
 # B5 + B6 真 eval baseline (2026-05-04)
 
 **Cases**: s1a (mechanism enumeration — gate.Run) × 2, m1a (architecture — explorer/extractor 协作) × 2

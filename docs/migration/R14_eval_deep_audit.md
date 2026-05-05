@@ -1,3 +1,5 @@
+> Status: archived (2026-05-05). Current architecture lives in docs/architecture.md and docs/design/v3_runtime_consolidation.md.
+
 # R14 c10 真 eval verification 深度审计 (2026-05-04)
 
 **Source**:`eval/results/{s1a-20260504-041906,m1a-20260504-041910}/run-{1,2}.logs/*.log` 4 真 verification runs against `31655d1` post-R14。

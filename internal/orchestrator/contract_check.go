@@ -136,9 +136,9 @@ func runContractCheck(out *agent.StageOutput, c types.AnswerContract, mut *types
 				result.Violations = append(result.Violations,
 					validateEnumerationEvidenceCoverage(mut, view)...)
 			}
-			// B5-T4: V2 adaptation of the structural-enumeration
-			// divergence oracle. Same precise typed-graph signal as
-			// the V1 path; consumes V2 blocks instead of doc.Symbols.
+			// V2 structural-enumeration divergence oracle. Reads typed
+			// V2 blocks (block.facet_ids + per-item claim_use) and the
+			// graph's ImplementersOf / Subclasses relations.
 			if rmFull := mut.RequestModel(); rmFull != nil {
 				result.Violations = append(result.Violations,
 					runStructuralEnumerationDivergenceOracleV2(docV2, rmFull, mut)...)

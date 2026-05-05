@@ -1,3 +1,5 @@
+> Status: archived (2026-05-05). Current architecture lives in docs/architecture.md and docs/design/v3_runtime_consolidation.md.
+
 # V2 Runtime 收口 — 真 eval 验证 (2026-05-04)
 
 **Branch**: `main` @ `0143b2f`(Session 2 末尾,Phase 3+5+6 全 ship)

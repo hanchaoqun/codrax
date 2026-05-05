@@ -1,3 +1,5 @@
+> Status: archived (2026-05-05). Current architecture lives in docs/architecture.md and docs/design/v3_runtime_consolidation.md.
+
 # B6-F6 / B6-F7 设计 + 影响分析
 
 **状态**:design-only,未开发。审计通过后再开 commit。

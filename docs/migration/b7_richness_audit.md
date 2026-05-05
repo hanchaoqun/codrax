@@ -1,3 +1,5 @@
+> Status: archived (2026-05-05). Current architecture lives in docs/architecture.md and docs/design/v3_runtime_consolidation.md.
+
 # B7-T3 Richness Audit — 6 Family Live Eval (B6 V2 default)
 
 | 项 | 值 |
