@@ -1,5 +1,11 @@
 package tool
 
+import (
+	"strings"
+
+	"github.com/hanchaoqun/codrax/internal/types"
+)
+
 // answer_document_block_schema.go — B4 v3 (2026-05-04). Single-source-
 // of-truth helpers for the answer-document tool surfaces shared by
 // emit_answer_document (full) and emit_answer_document_patch
@@ -12,6 +18,12 @@ package tool
 // strings by hand. v3 collapses the shared prose into
 // BuildAnswerDocumentSemanticContractDescription so the two callers
 // stay in lock-step automatically.
+//
+// W3 (2026-05-05) extends the prose with auto-collected
+// SchemaDescriptionFragment entries from ViolKindSpec, so the LLM
+// sees the post-emit validator constraints AT EMIT TIME rather
+// than learning them from a retry hint. See
+// docs/design/iteration_inflation_remediation.md §3 source #1.
 //
 // JSON Schema sharing is a separate concern — the patch tool keeps
 // replace_blocks / add_blocks as opaque object arrays today; the
@@ -111,5 +123,32 @@ func BuildAnswerDocumentSemanticContractDescription() string {
 		"  {\"id\":\"d1\",\"kind\":\"diagram\",\n" +
 		"   \"diagram\":{\"kind\":\"architecture\",\"language\":\"mermaid\",\"body\":\"flowchart TD\\n    A[\\\"<grounded node A>\\\"] --> B[\\\"<grounded node B>\\\"]\"}}\n" +
 		"],\"citations\":[{\"file\":\"main.go\",\"line\":1}]}\n" +
-		"```"
+		"```" +
+		buildPreEmitConstraintsSection()
+}
+
+// buildPreEmitConstraintsSection assembles the W3 pre-emit
+// constraints block from every registered ViolKindSpec that has a
+// non-empty SchemaDescriptionFragment. Output ordering follows
+// AllViolKindSpecs registration order so the constraint set is
+// stable across builds.
+//
+// Empty when no kind has registered a fragment (test harnesses
+// using a stripped registry). Returns empty string in that case so
+// the schema description is byte-identical to pre-W3.
+func buildPreEmitConstraintsSection() string {
+	specs := types.AllViolKindSpecs()
+	fragments := make([]string, 0, len(specs))
+	for _, s := range specs {
+		f := strings.TrimSpace(s.SchemaDescriptionFragment)
+		if f == "" {
+			continue
+		}
+		fragments = append(fragments, "- "+f)
+	}
+	if len(fragments) == 0 {
+		return ""
+	}
+	return "\n\nPRE-EMIT CONSTRAINTS (the contract validator enforces these at emit time; addressing them in the FIRST emit avoids retry rounds):\n\n" +
+		strings.Join(fragments, "\n")
 }

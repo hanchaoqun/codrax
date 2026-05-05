@@ -107,6 +107,47 @@ type ViolKindSpec struct {
 	// rendered into LLM-facing prompts (R4 red line). May be empty.
 	Description string
 
+	// FixableByAgents lists the AgentName values that can plausibly
+	// fix this kind through their available tools. The orchestrator's
+	// retry-target picker validates the chosen target against this
+	// list — when the candidate target is not in FixableByAgents,
+	// routing escalates upstream (or surfaces as a caveat) instead
+	// of dispatching a retry that cannot succeed.
+	//
+	// Example: ViolEnumerationLabelUngrounded is owned by the
+	// extractor (FallbackLocus=LocusExtract) but the per-kind retry
+	// budget often pins target=finalizer_only. The finalizer is a
+	// pure synthesizer (no read_file / grep) — it cannot resolve a
+	// label-grounding issue. Without FixableByAgents the dispatch
+	// fails predictably and burns a round.
+	//
+	// Empty list = unconstrained (any agent the locus rules pick is
+	// acceptable). Filled list = whitelist; orchestrator verifies
+	// chosen target is in it.
+	//
+	// Per W3 (docs/design/iteration_inflation_remediation.md
+	// source #4).
+	FixableByAgents []AgentName
+
+	// SchemaDescriptionFragment is a sentence-level structural rule
+	// the LLM should know AT EMIT TIME (rather than learn
+	// post-rejection from a retry hint). When non-empty, the
+	// fragment is automatically pulled into the LLM-facing tool
+	// Description() — so the constraint preview is single-source-
+	// of-truth with the validator that enforces it.
+	//
+	// Per W3 (docs/design/iteration_inflation_remediation.md), the
+	// system migrates from "validate after emit" to "guide before
+	// emit" by giving the LLM the structural requirement at the
+	// point of generation.
+	//
+	// Format: ONE complete sentence in LLM-facing language. No
+	// internal Go terminology, no ViolKind names, no IRField
+	// strings, no operator jargon. Empty (the common case) means
+	// the validator is post-hoc only — the LLM cannot prevent the
+	// violation by knowing the rule (e.g. self-contradiction).
+	SchemaDescriptionFragment string
+
 	// Implies names the ViolKinds whose presence is structurally
 	// caused by THIS kind firing. When two validators report on the
 	// same root cause from different angles, Implies lets
@@ -458,6 +499,7 @@ func init() {
 		Kind: ViolDeclaredCountDrift, DefaultSeverity: SeverityMedium,
 		SoftByDefault: true, Promotable: true, FallbackLocus: LocusExtract,
 		Layer: "v2_oracle", CaveatFamilyID: CaveatFamilyEnumerationDepth,
+		SchemaDescriptionFragment: "When emit_answer_symbol declared a count of N, the rendered enumeration block MUST contain exactly N items — drift below or above the claim is rejected.",
 	})
 	RegisterViolKind(ViolKindSpec{
 		Kind: ViolSelfContradiction, DefaultSeverity: SeverityMedium,
@@ -531,6 +573,11 @@ func init() {
 		Kind: ViolFacetUncovered, DefaultSeverity: SeverityMedium,
 		SoftByDefault: true, Promotable: true, FallbackLocus: LocusExplore,
 		Layer: "v2_oracle", CaveatFamilyID: CaveatFamilyAnswerCoverage,
+		SchemaDescriptionFragment: "Every required facet listed in the user section MUST be claimed by at least one block — set block.facet_ids=[<facet>] OR items[i].claim_use.facet_id=<facet>.",
+		// Fix path: finalizer can claim existing facet via
+		// facet_ids; if facet has no evidence, explorer re-investigation
+		// is needed.
+		FixableByAgents: []AgentName{AgentFinalizer, AgentExplorer},
 		// FacetUncovered → richness drops because a required facet
 		// has no block. Same root, different reporter angle.
 		Implies: []ViolationKind{ViolRichnessRegression},
@@ -570,6 +617,12 @@ func init() {
 		Kind: ViolBlockCoverageMissing, DefaultSeverity: SeverityCritical,
 		SoftByDefault: false, Promotable: true, FallbackLocus: LocusExtract,
 		Layer: "v2_oracle", CaveatFamilyID: CaveatFamilyAnswerCoverage,
+		SchemaDescriptionFragment: "Every block kind named in the user section's Required Answer Blocks list MUST appear in blocks[] at least the listed minimum count, with the required FacetIDs covered.",
+		// Fix path: finalizer can usually add the missing block
+		// kind from existing evidence; if facets need new evidence,
+		// extractor + explorer come into play. Finalizer is the
+		// primary fix agent.
+		FixableByAgents: []AgentName{AgentFinalizer, AgentExtractor},
 		// A missing block means its items + claim_uses don't exist
 		// to be checked, so symptom violations on those become
 		// derivations of the missing-block root.
@@ -582,11 +635,13 @@ func init() {
 		Kind: ViolPrincipalClaimUseMissing, DefaultSeverity: SeverityCritical,
 		SoftByDefault: false, Promotable: true, FallbackLocus: LocusFinalizer,
 		Layer: "v2_oracle", CaveatFamilyID: CaveatFamilyCitationGrounded,
+		SchemaDescriptionFragment: "Every principal block (surface_role=principal) whose required AcceptableClaimForms list is non-empty MUST emit at least one entry in claim_uses[] (or items[i].claim_use for list/table blocks).",
 	})
 	RegisterViolKind(ViolKindSpec{
 		Kind: ViolDiagramEdgeUnsupported, DefaultSeverity: SeverityMedium,
 		SoftByDefault: false, Promotable: true, FallbackLocus: LocusFinalizer,
 		Layer: "v2_oracle", CaveatFamilyID: CaveatFamilyDiagramFidelity,
+		SchemaDescriptionFragment: "Every diagram edge that carries a labelled relation MUST have a matching entry in the diagram block's edge_anchors[] with a typed relation_kind (call/guard/import/precedence/contain/observe) and from_node/to_node names that appear verbatim in the diagram body.",
 		// "Edge unsupported" is the structural lack of an
 		// edge_anchor. When LLM "fixes" by adding an anchor whose
 		// label/relation pair drifts, label_mismatch /
@@ -699,6 +754,13 @@ func init() {
 		Kind: ViolEnumerationLabelUngrounded, DefaultSeverity: SeverityMedium,
 		SoftByDefault: false, Promotable: true, FallbackLocus: LocusExtract,
 		Layer: "contract_check", CaveatFamilyID: CaveatFamilyEnumerationDepth,
+		SchemaDescriptionFragment: "For enumeration ordered_list / bullet_list blocks, every items[i].label MUST be the verbatim identifier copied from one of the evidence pool's anchor_symbol / subject / object values — fabricated labels are rejected.",
+		// Fix path: extractor re-emit_answer_symbol with grounded
+		// labels, OR explorer re-investigation. Finalizer is a
+		// pure synthesizer with no file tools — cannot ground
+		// labels by itself. Routing through finalizer_only burns
+		// a round.
+		FixableByAgents: []AgentName{AgentExtractor, AgentExplorer},
 		// When labels are ungrounded, the extractor's label-emit
 		// drift symptom + the underspecified-evidence symptom both
 		// derive from the same root.

@@ -625,10 +625,43 @@ func FallbackTargetForViolationsWithBudget(vs []types.Violation, finalizerLocalU
 	if budget > 0 && finalizerLocalUsed < budget && hasFinalizerLocal {
 		switch primary {
 		case FallbackBackToExtract, FallbackBackToExplore, FallbackBackToAnalyze:
-			return FallbackFinalizerOnly
+			// W3.5 (2026-05-05): only downgrade to finalizer_only
+			// when EVERY violation's FixableByAgents (when set)
+			// includes AgentFinalizer. Otherwise we'd dispatch
+			// finalizer to fix something only the extractor /
+			// explorer can — guaranteed-fail round.
+			if violationsFixableByAgent(vs, types.AgentFinalizer) {
+				return FallbackFinalizerOnly
+			}
 		}
 	}
 	return primary
+}
+
+// violationsFixableByAgent reports whether `agent` appears in
+// every Violation's FixableByAgents list (treating empty / missing
+// FixableByAgents as unconstrained pass). When true, dispatching
+// `agent` is structurally plausible; when false, at least one
+// violation requires a different agent and the routing should
+// escalate.
+func violationsFixableByAgent(vs []types.Violation, agent types.AgentName) bool {
+	for _, v := range vs {
+		spec, ok := types.ViolKindSpecFor(v.Kind)
+		if !ok || len(spec.FixableByAgents) == 0 {
+			continue
+		}
+		matched := false
+		for _, a := range spec.FixableByAgents {
+			if a == agent {
+				matched = true
+				break
+			}
+		}
+		if !matched {
+			return false
+		}
+	}
+	return true
 }
 
 // finalizerLocalRetryBudget is the per-Run cap on how many times
