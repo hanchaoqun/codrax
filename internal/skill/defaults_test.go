@@ -78,6 +78,7 @@ func TestFinalizerSkill_DoesNotTeachRetiredV1AnswerPayloads(t *testing.T) {
 		"boolean{decision, rationale, citation_ref}",
 		"boolean.rationale",
 		"include the candidate in symbols[]",
+		"retired carrier shape",
 	} {
 		if strings.Contains(blob, banned) {
 			t.Fatalf("answer-document-skill must not teach retired V1 payload %q:\n%s", banned, blob)
@@ -87,7 +88,7 @@ func TestFinalizerSkill_DoesNotTeachRetiredV1AnswerPayloads(t *testing.T) {
 		"scalar carries the literal in block `text`",
 		"decision carries the verdict + rationale in block `text`",
 		"Put the verdict and the core reasoning together in the decision block's `text` field",
-		"The block schema does NOT carry top-level `value` or `boolean` fields",
+		"top-level `value` / `boolean` payloads are not part of this tool's schema",
 	} {
 		if !strings.Contains(blob, want) {
 			t.Fatalf("answer-document-skill missing V2 guidance %q:\n%s", want, blob)
@@ -128,6 +129,9 @@ func TestExtractSkill_DoesNotTeachLegacySymbolsArray(t *testing.T) {
 	for _, banned := range []string{
 		"Every item in symbols[]",
 		"emit answer_symbol in symbols[]",
+		"shape-based prompt",
+		"Mechanism-shape answers",
+		"mechanism-shaped",
 	} {
 		if strings.Contains(blob, banned) {
 			t.Fatalf("extract-skill must not teach legacy symbols[] payload wording %q:\n%s", banned, blob)
@@ -136,6 +140,9 @@ func TestExtractSkill_DoesNotTeachLegacySymbolsArray(t *testing.T) {
 	for _, want := range []string{
 		"emit_answer_symbol.items[]",
 		"the answer is the terminal that the chain RESOLVES TO",
+		"downstream rendering answers from prose / blocks only",
+		"sub_topics ≥ 1 — emit ONE anchor symbol per sub-topic as a skeleton",
+		"Requested Set Boundary block declares an explicit count N",
 	} {
 		if !strings.Contains(blob, want) {
 			t.Fatalf("extract-skill missing updated answer-symbol slate guidance %q:\n%s", want, blob)
