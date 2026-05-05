@@ -139,6 +139,16 @@ func (e *answerDocumentEvaluator) BuildInitialInstruction(ctx *types.AgentContex
 
 	var b strings.Builder
 
+	// W3.3 (2026-05-05): one-line pointer to the schema's
+	// authoritative PRE-EMIT CONSTRAINTS section. The prompt below
+	// gives rationale + workflow + per-dispatch dynamic data; the
+	// answer-document tool description has the structural
+	// constraints (block contracts, claim_uses, edge_anchors,
+	// enumeration labels, declared count) that the validator
+	// enforces — when the prompt and the tool description disagree
+	// on emit shape, the tool description is authoritative.
+	b.WriteString("> Note — structural emit-time constraints are listed under PRE-EMIT CONSTRAINTS in the answer-document tool's description. This prompt focuses on rationale + workflow + per-dispatch data. When in doubt about emit shape, the tool description is authoritative.\n\n")
+
 	// R14 (post_shape_residual_audit.md, 2026-05-04): render
 	// typed retry-state surface BEFORE any other dynamic content
 	// when this dispatch is a retry. The LLM sees Previous Emit
