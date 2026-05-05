@@ -1282,7 +1282,7 @@ func TestAnswerDocumentEvaluator_BuildInitialInstruction_RendersScalarLookupDisc
 	for _, want := range []string{
 		"## Submission Checklist",
 		"`scalar` block with the literal in block `text`",
-		"Do not emit any retired top-level scalar payload outside blocks",
+		"Keep the complete scalar answer inside V2 blocks",
 		"names the subject being measured",
 		"## Scalar Lookup Discipline",
 		"one named source-code literal",
@@ -1735,9 +1735,17 @@ func TestAnswerDocumentEvaluator_BuildInitialInstruction_DoesNotMentionRetiredTo
 	}
 
 	prompt := renderAnswerDocSubmissionChecklist(ctx, view, false)
-	for _, forbidden := range []string{"value{", "boolean{"} {
+	for _, forbidden := range []string{"value{", "boolean{", "retired top-level scalar payload", "retired top-level decision payload"} {
 		if strings.Contains(prompt, forbidden) {
 			t.Fatalf("submission checklist must not mention retired top-level payload %q:\n%s", forbidden, prompt)
+		}
+	}
+	for _, want := range []string{
+		"Keep the complete scalar answer inside V2 blocks",
+		"Keep the complete decision answer inside V2 blocks",
+	} {
+		if !strings.Contains(prompt, want) {
+			t.Fatalf("submission checklist missing positive V2 guidance %q:\n%s", want, prompt)
 		}
 	}
 }

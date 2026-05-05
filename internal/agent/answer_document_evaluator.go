@@ -330,13 +330,15 @@ func renderAnswerDocSubmissionChecklist(ctx *types.AgentContext, view *types.Ans
 				switch view.Family {
 				case types.QFConfigPrecedence:
 					items = append(items,
-						"Emit the principal `scalar` block with the literal in block `text`, and attach a one-element `items=[{id:\"v\", citation_ref:N}]` when you need a citation anchor. Attach block-level `claim_uses=[{claim_form=definition_fact}]` (plural array). Use `assignment_fact` when the cited line is a config / variable assignment. Do not emit any retired top-level scalar payload outside blocks.",
+						"Emit the principal `scalar` block with the literal in block `text`, and attach a one-element `items=[{id:\"v\", citation_ref:N}]` when you need a citation anchor. Attach block-level `claim_uses=[{claim_form=definition_fact}]` (plural array). Use `assignment_fact` when the cited line is a config / variable assignment.",
 						"Fill the block's `text` (or the lead summary block) with prose that names the config key / subject and states how the literal was obtained (lookup / file:line / chain).",
+						"Keep the complete scalar answer inside V2 blocks: the literal belongs in the principal `scalar` block, and any framing prose belongs in the `summary` block or the scalar block title.",
 					)
 				default:
 					items = append(items,
-						"Emit the principal `scalar` block with the literal in block `text`, and attach a one-element `items=[{id:\"v\", citation_ref:N}]` when you need a citation anchor. Attach block-level `claim_uses=[{claim_form=definition_fact}]` (plural array). Use `external_observation` when the literal is from an attached log / external trace. Do not emit any retired top-level scalar payload outside blocks.",
+						"Emit the principal `scalar` block with the literal in block `text`, and attach a one-element `items=[{id:\"v\", citation_ref:N}]` when you need a citation anchor. Attach block-level `claim_uses=[{claim_form=definition_fact}]` (plural array). Use `external_observation` when the literal is from an attached log / external trace.",
 						"Fill the block's `text` (or the lead summary block) with prose that names the subject being measured and states how the literal was obtained (lookup / file:line / command / chain).",
+						"Keep the complete scalar answer inside V2 blocks: the literal belongs in the principal `scalar` block, and any framing prose belongs in the `summary` block or the scalar block title.",
 					)
 				}
 			case types.BlockOrderedList:
@@ -373,7 +375,8 @@ func renderAnswerDocSubmissionChecklist(ctx *types.AgentContext, view *types.Ans
 				)
 			case types.BlockDecision:
 				items = append(items,
-					"Emit the principal `decision` block with the verdict at the START of block `text`, followed by the rationale prose. Attach a one-element `items=[{id:\"d\", citation_ref:N}]` when you need a citation anchor, and attach block-level `claim_uses=[{claim_form=guard_condition|definition_fact}]` (plural array). Do not emit any retired top-level decision payload outside blocks.",
+					"Emit the principal `decision` block with the verdict at the START of block `text`, followed by the rationale prose. Attach a one-element `items=[{id:\"d\", citation_ref:N}]` when you need a citation anchor, and attach block-level `claim_uses=[{claim_form=guard_condition|definition_fact}]` (plural array).",
+					"Keep the complete decision answer inside V2 blocks: the verdict and rationale belong in the principal `decision` block, with any extra framing prose in a `summary` or `caveat` block as needed.",
 				)
 			case types.BlockCaveat:
 				items = append(items,
