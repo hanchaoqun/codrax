@@ -1024,6 +1024,36 @@ func TestIdentifyAnswerChains_TerminalRangeDemoted(t *testing.T) {
 	}
 }
 
+func TestIdentifyAnswerChains_SelfRefDemoteEmitsTypedClusterKey(t *testing.T) {
+	question := "which skill does explorer use?"
+	evidence := []types.EvidenceItem{
+		{
+			Kind:      types.EvidenceDataflowPath,
+			Predicate: "resolution_chain",
+			Summary:   "`Explorer.Name()` returns \"explorer\"",
+		},
+	}
+	var captured []types.Violation
+	SetLedgerHook(func(v types.Violation) {
+		captured = append(captured, v)
+	})
+	defer SetLedgerHook(nil)
+
+	chains := identifyAnswerChains(question, evidence, 5, answerPredicateWhitelist{}, nil, nil)
+	if len(chains) == 0 {
+		t.Fatal("expected at least one chain")
+	}
+	if len(captured) != 1 {
+		t.Fatalf("expected one demote violation, got %d (%+v)", len(captured), captured)
+	}
+	if got, want := captured[0].Kind, types.ViolChainDemoted; got != want {
+		t.Fatalf("Kind=%q, want %q", got, want)
+	}
+	if got, want := captured[0].ClusterKey, "symbol:explorer|root:answer_subject.kind"; got != want {
+		t.Fatalf("ClusterKey=%q, want %q", got, want)
+	}
+}
+
 // TestIdentifyAnswerChains_NoPredicateForMechanism verifies mechanism
 // kind leaves ranking untouched (no demotion applied) — important
 // because df3 is a mechanism case and must not regress.

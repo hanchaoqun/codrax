@@ -1544,9 +1544,10 @@ func identifyAnswerChains(question string, evidence []types.EvidenceItem, maxCha
 				// evidence.
 				if f := activeLedgerHook; f != nil {
 					f(types.Violation{
-						Kind:   types.ViolChainDemoted,
-						Detail: fmt.Sprintf("chain terminal equals primary entity %q (self-ref)", primary),
-						Stage:  string(types.StageExplore),
+						Kind:       types.ViolChainDemoted,
+						Detail:     fmt.Sprintf("chain terminal equals primary entity %q (self-ref)", primary),
+						ClusterKey: fmt.Sprintf("symbol:%s|root:answer_subject.kind", primary),
+						Stage:      string(types.StageExplore),
 						SuspectedRoot: types.SuspectedRoot{
 							IRField:    "answer_subject.kind",
 							Reason:     "chain terminal is primary_entity self-name — not an attribute lookup",
