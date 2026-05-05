@@ -406,3 +406,51 @@ func TestExactResolutionContextFilesFromScenarioCoverageEvidence_IgnoresUnrelate
 		}
 	}
 }
+
+func TestExactResolutionContextFilesFromScenarioCoverageEvidence_IgnoresPromptSupportRequestedDefaultFile(t *testing.T) {
+	contract := &types.ExactResolutionContract{
+		TargetKind:            types.SubjectConfigKey,
+		TargetLabel:           "config key",
+		Targets:               []string{"explore_mid_loop_hint_budget"},
+		AllowAbsence:          true,
+		RelatedContextPolicy:  types.ExactContextSameFamilyGrounded,
+		RelatedContextTerms:   []string{"explore"},
+		RequestedContextRoles: []types.EvidenceDiagramRole{types.EvidenceDiagramRoleDefault, types.EvidenceDiagramRoleConfig, types.EvidenceDiagramRoleOverride},
+	}
+	evidence := []types.EvidenceItem{
+		{
+			Kind:            types.EvidenceDirect,
+			Subject:         "DefaultExploreHeuristics",
+			Source:          "internal/types/config.go",
+			GroundingStatus: types.GroundingGrounded,
+			ContextRole:     types.EvidenceContextRoleRelatedContext,
+			DiagramRole:     types.EvidenceDiagramRoleDefault,
+			AnchorKind:      types.AnchorDefinition,
+			AnchorSymbol:    "DefaultExploreHeuristics",
+			LineStart:       876,
+		},
+		{
+			Kind:                 types.EvidenceDirect,
+			Subject:              "ProjectSpecificIdentifierBlocklist",
+			Source:               "internal/skill/glossary.go",
+			GroundingStatus:      types.GroundingGrounded,
+			ContextRole:          types.EvidenceContextRoleRelatedContext,
+			RequestedDiagramRole: types.EvidenceDiagramRoleDefault,
+			AnchorKind:           types.AnchorDefinition,
+			AnchorSymbol:         "ProjectSpecificIdentifierBlocklist",
+			Summary:              "prompt-hygiene blocklist documents explore_mid_loop_hint_budget",
+			LineStart:            32,
+		},
+	}
+	got := exactResolutionContextFilesFromScenarioCoverageEvidence(
+		contract,
+		types.ScenarioConfigTrace,
+		evidence,
+		[]string{"internal/types/config.go", "codrax.yaml.example"},
+	)
+	for _, file := range got {
+		if file == "internal/skill/glossary.go" {
+			t.Fatalf("prompt-support requested-role file leaked into coverage scope: %v", got)
+		}
+	}
+}

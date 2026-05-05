@@ -69,3 +69,31 @@ func TestLooksLikeAuxiliaryEvidencePath(t *testing.T) {
 		}
 	}
 }
+
+func TestLooksLikePromptSupportPath(t *testing.T) {
+	positive := []string{
+		"internal/skill/glossary.go",
+		"internal/skill/defaults.go",
+		"internal/analysis/hint/composer.go",
+		"prompts/finalizer.md",
+		"skills/config/SKILL.md",
+	}
+	for _, path := range positive {
+		if !LooksLikePromptSupportPath(path) {
+			t.Fatalf("LooksLikePromptSupportPath(%q) = false, want true", path)
+		}
+	}
+
+	negative := []string{
+		"internal/config/runtime.go",
+		"internal/types/config.go",
+		"cmd/root.go",
+		"docs/architecture.md",
+		"codrax.yaml.example",
+	}
+	for _, path := range negative {
+		if LooksLikePromptSupportPath(path) {
+			t.Fatalf("LooksLikePromptSupportPath(%q) = true, want false", path)
+		}
+	}
+}

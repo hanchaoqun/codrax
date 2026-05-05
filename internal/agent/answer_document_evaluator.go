@@ -648,10 +648,12 @@ var answerDocClaimFormLabels = map[types.ClaimForm]string{
 //
 // LLM-facing language only (R4 red line); no internal Go terminology.
 // The two sub-sections are:
-//   ## Required Answer Blocks   — what kinds of blocks the answer
-//                                 must include (Summary/Section/
-//                                 OrderedList/Diagram/etc.) + min/max
-//                                 counts + the family rationale.
+//
+//	## Required Answer Blocks   — what kinds of blocks the answer
+//	                              must include (Summary/Section/
+//	                              OrderedList/Diagram/etc.) + min/max
+//	                              counts + the family rationale.
+//
 // renderAnswerDocRetryState (R14-c5..c8, post_shape_residual_audit.md
 // 2026-05-04) is the unified retry-state prompt section. Rendered
 // at the TOP of BuildInitialInstruction when ctx.EmitStageRetryAttempt > 0
@@ -659,13 +661,13 @@ var answerDocClaimFormLabels = map[types.ClaimForm]string{
 //
 // Renders 4 sections in fixed order:
 //
-//   1. ## Hard Rule (top) — preserve every unchanged field byte-identical.
-//   2. ## Required Changes — typed FieldPath + Repair text per violation,
-//      grouped by Severity (Critical first, then High, Medium; Soft skipped).
-//   3. ## Active Violations — full set, by Severity + Layer, so the
-//      LLM has cross-layer visibility (R13 fix).
-//   4. ## Previous Emit — typed projection of prev emit (R6/R6.1 fix:
-//      LLM sees what fields it already filled).
+//  1. ## Hard Rule (top) — preserve every unchanged field byte-identical.
+//  2. ## Required Changes — typed FieldPath + Repair text per violation,
+//     grouped by Severity (Critical first, then High, Medium; Soft skipped).
+//  3. ## Active Violations — full set, by Severity + Layer, so the
+//     LLM has cross-layer visibility (R13 fix).
+//  4. ## Previous Emit — typed projection of prev emit (R6/R6.1 fix:
+//     LLM sees what fields it already filled).
 //
 // Returns "" when no retry state to render (preserves byte-identical
 // pre-R14 behaviour on fresh dispatches).
@@ -680,7 +682,7 @@ func renderAnswerDocRetryState(ctx *types.AgentContext) string {
 
 	var b strings.Builder
 	fmt.Fprintf(&b, "## Hard Rule (retry attempt %d)\n\n", rs.Attempt)
-	b.WriteString("Your last `emit_answer_document` was rejected. Re-emit by **starting from your previous payload (shown in 'Previous Emit' below) and changing ONLY the field paths listed in 'Required Changes' below**. Every other field — `blocks[].id`, `blocks[].kind`, `blocks[].facet_ids`, `blocks[].claim_use`, `blocks[].surface_role`, `blocks[].items[]`, `citations[]`, `exact_resolution` — MUST appear byte-identical to your Previous Emit. Do NOT regenerate from scratch. The validator will reject any retry that loses fields you already filled correctly.\n\n")
+	b.WriteString("Your last `emit_answer_document` was rejected. Re-emit by **starting from your previous payload (shown in 'Previous Emit' below) and changing ONLY the field paths listed in 'Required Changes' below**. Every other field — `blocks[].id`, `blocks[].kind`, `blocks[].facet_ids`, `blocks[].claim_uses[]`, `blocks[].surface_role`, `blocks[].items[]`, `items[].claim_use`, `citations[]`, `exact_resolution` — MUST appear byte-identical to your Previous Emit. Do NOT regenerate from scratch. The validator will reject any retry that loses fields you already filled correctly.\n\n")
 
 	// 2. Required Changes (sorted by severity desc, soft excluded).
 	if changes := renderRetryRequiredChanges(rs); changes != "" {
@@ -884,10 +886,11 @@ func renderRetryPrevEmit(rs *types.RetryState) string {
 	return out.String()
 }
 
-//   ## Facets each block must cover — which semantic surface each
-//                                 block should ground (cross-ref to
-//                                 the existing Required Answer Facets
-//                                 section above).
+// ## Facets each block must cover — which semantic surface each
+//
+//	block should ground (cross-ref to
+//	the existing Required Answer Facets
+//	section above).
 func renderAnswerDocBlockContract(ctx *types.AgentContext) string {
 	if ctx == nil || ctx.AnalysisIR == nil {
 		return ""
@@ -1590,6 +1593,7 @@ func renderAnswerDocExactResolutionContract(ctx *types.AgentContext) string {
 		if ctx.AnalysisIR != nil && ctx.AnalysisIR.RequestModel.Scenario == types.ScenarioConfigTrace {
 			b.WriteString("- Because the exact config key is absent, do NOT emit a principal scalar block with a synthetic literal such as `(missing)` / `(不存在)`. Prefer a summary-led explanation so the answer can lead with the exact absence and then explain any grounded same-family precedence chain as related context only.\n")
 			b.WriteString("- For config-trace related context, grounded same-scope anchors may appear in `summary` even when they do not carry a validated diagram role. But fenced diagrams and diagram citations are stricter: only anchors with a validated `diagram_role_hint` (`default`, `config`, `runtime`, or `override`) may become diagram nodes.\n")
+			b.WriteString("- When a requested precedence layer has no grounded binding, say that layer absence explicitly (for example, `no config-file key matches this target` or `no CLI flag binds this key`) instead of vague placeholders like `N/A` / `不适用`.\n")
 			b.WriteString("- For config-precedence answers, only create a separate numbered step when that layer has its own grounded repo anchor. If a layer is absent or only inferred from the exact-absence state, keep it in `summary` or set that step's `citation_ref=-1` instead of borrowing a nearby config-file / struct citation.\n")
 			b.WriteString("- In an ordered-list block, any step with `citation_ref >= 0` must mention at least one identifier that appears on the cited line or its nearby corroboration window. If the step summarizes a whole struct/range/absence conclusion rather than one corroborated line, use `citation_ref=-1` and keep the precise line-backed facts in neighboring steps.\n")
 			b.WriteString("- A repo-wide search result, aggregate absence conclusion, or test-only proof step usually has no single corroborating production line. In `step_list`, default those steps to `citation_ref=-1` unless one cited line literally states the same claim.\n")
@@ -1614,11 +1618,19 @@ func renderAnswerDocExactResolutionContract(ctx *types.AgentContext) string {
 		// applies to all shapes.
 		b.WriteString("- For ordered-step or call-chain answers, keep every step directly citation-backed instead of adding uncited root-cause hypotheses.\n")
 	}
+	if ctx.AnalysisIR != nil &&
+		ctx.AnalysisIR.RequestModel.Scenario == types.ScenarioConfigTrace &&
+		contract.TargetKind == types.SubjectConfigKey {
+		b.WriteString("- When you mention a precedence layer that lacks a grounded binding for the requested target, say that layer absence explicitly (for example `no config-file key matches this target` or `no CLI flag binds this key`) instead of vague placeholders like `N/A` / `不适用`.\n")
+	}
 	b.WriteString("\n")
 	citationGradeRendered := false
 	if citationGrade := renderAnswerDocCitationGradeExactContextAnchors(ctx, contract); citationGrade != "" {
 		citationGradeRendered = true
 		b.WriteString(citationGrade)
+	}
+	if primary := renderAnswerDocPrimaryExactProofCitationSeeds(ctx, contract); primary != "" {
+		b.WriteString(primary)
 	}
 	if policy := renderAnswerDocNearbyContextCitationPolicy(ctx, contract); policy != "" {
 		b.WriteString(policy)
@@ -1970,6 +1982,21 @@ func renderAnswerDocExactResolutionSeeds(ctx *types.AgentContext, contract *type
 	return b.String()
 }
 
+func renderAnswerDocPrimaryExactProofCitationSeeds(ctx *types.AgentContext, contract *types.ExactResolutionContract) string {
+	seeds := collectPrimaryExactProofCitationSeeds(ctx, contract)
+	if len(seeds) == 0 {
+		return ""
+	}
+	var b strings.Builder
+	b.WriteString("## Primary Exact-Proof / Absence-Proof Citation Seeds\n\n")
+	b.WriteString("Copy one or more of these citation objects verbatim into `citations[]` for the primary exact-target proof. In `exact_resolution.status=\"absent\"` mode, at least one cited seed MUST be an absence-proof object (for example `scope:\"negative\"` + `negative_pattern`). Nearby grounded context citations are secondary.\n\n")
+	for _, seed := range seeds {
+		fmt.Fprintf(&b, "- `%s`\n", seed)
+	}
+	b.WriteString("\n")
+	return b.String()
+}
+
 func collectAllowedExactContextAnchors(ctx *types.AgentContext, contract *types.ExactResolutionContract) []exactResolutionSeed {
 	plan := answerSurfacePlan(ctx)
 	if plan == nil || contract == nil {
@@ -2235,6 +2262,116 @@ func collectExactResolutionSeeds(ctx *types.AgentContext, contract *types.ExactR
 		}
 	}
 	return out
+}
+
+func collectPrimaryExactProofCitationSeeds(ctx *types.AgentContext, contract *types.ExactResolutionContract) []string {
+	plan := answerSurfacePlan(ctx)
+	if plan == nil || contract == nil {
+		return nil
+	}
+	seen := map[string]bool{}
+	var out []string
+	for _, ev := range plan.SurfaceEvidence {
+		if !exactResolutionEvidenceIsPrimaryProof(contract, ev) {
+			continue
+		}
+		seed := formatExactProofCitationSeed(ev)
+		if seed == "" || seen[seed] {
+			continue
+		}
+		seen[seed] = true
+		out = append(out, seed)
+	}
+	sort.Strings(out)
+	if len(out) > 6 {
+		out = out[:6]
+	}
+	return out
+}
+
+func exactResolutionEvidenceIsPrimaryProof(contract *types.ExactResolutionContract, ev types.EvidenceItem) bool {
+	switch ev.GroundingStatus {
+	case types.GroundingGrounded, types.GroundingRecovered:
+	default:
+		return false
+	}
+	if types.ExactResolutionEvidenceSupportsAbsence(contract, ev) {
+		return true
+	}
+	if !types.ExactResolutionSourceIsDefiningPrimaryProofLike(contract, ev.Source) {
+		return false
+	}
+	return types.ExactResolutionDirectAnchorMatchesAnyTarget(contract, ev.Subject, ev.AnchorSymbol, ev.Object)
+}
+
+func formatExactProofCitationSeed(ev types.EvidenceItem) string {
+	if ev.Scope == types.ScopeNegative && ev.NegativeQuery != nil {
+		cite := map[string]any{
+			"file":             strings.TrimSpace(ev.NegativeQuery.File),
+			"scope":            string(types.ScopeNegative),
+			"negative_pattern": strings.TrimSpace(ev.NegativeQuery.Pattern),
+		}
+		if cite["file"] == "" || cite["negative_pattern"] == "" {
+			return ""
+		}
+		buf, err := json.Marshal(cite)
+		if err != nil {
+			return ""
+		}
+		return string(buf)
+	}
+	cite := map[string]any{
+		"file": strings.TrimSpace(ev.Source),
+	}
+	switch ev.Scope {
+	case types.ScopeLine, "":
+		if ev.LineStart <= 0 {
+			return ""
+		}
+		cite["line"] = ev.LineStart
+	case types.ScopeLineRange:
+		if ev.LineStart <= 0 {
+			return ""
+		}
+		cite["line"] = ev.LineStart
+		if ev.LineEnd > ev.LineStart {
+			cite["line_end"] = ev.LineEnd
+		}
+		cite["scope"] = string(types.ScopeLineRange)
+	case types.ScopeSection:
+		cite["scope"] = string(types.ScopeSection)
+		if ev.LineStart > 0 {
+			cite["line"] = ev.LineStart
+		}
+		if section := strings.TrimSpace(ev.SectionPath); section != "" {
+			cite["section_path"] = section
+		}
+	case types.ScopeFile:
+		cite["scope"] = string(types.ScopeFile)
+		if ev.FileRoleLabel != "" {
+			cite["file_role_label"] = string(ev.FileRoleLabel)
+		}
+	case types.ScopeCrossfile:
+		cite["scope"] = string(types.ScopeCrossfile)
+		if ev.CrossfileQuery != nil {
+			if summary := strings.TrimSpace(ev.CrossfileQuery.Context); summary != "" {
+				cite["crossfile_summary"] = summary
+			}
+		}
+	default:
+		if ev.LineStart <= 0 {
+			return ""
+		}
+		cite["line"] = ev.LineStart
+	}
+	if strings.TrimSpace(ev.Source) == "" {
+		return ""
+	}
+	buf, err := json.Marshal(cite)
+	if err != nil {
+		return ""
+	}
+	return string(buf)
 }
 
 func scoreExactResolutionEvidence(ev types.EvidenceItem, contract *types.ExactResolutionContract, contextTerms []string, configTraceExactContext bool) int {
@@ -2781,14 +2918,14 @@ func (e *answerDocumentEvaluator) emitAnswerDocumentRejectSignal(ctx *types.Agen
 // marker to the hint text so retries are signal-progressive rather
 // than text-identical. P14 escalation contract:
 //
-//   retry 1 (rejectHintsUsed == 1): no escalation — first hint at
-//     this issue, the LLM hasn't seen this text before.
-//   retry 2 (rejectHintsUsed == 2): "RETRY — same issue persisted
-//     from the previous attempt" prefix to make explicit that this
-//     is a re-prompt of an unchanged failure.
-//   retry 3+ (rejectHintsUsed >= 3): "FINAL RETRY — fix THIS field
-//     now or the answer ships with the violation as a caveat" so
-//     the LLM treats it as an absolute, not a suggestion.
+//	retry 1 (rejectHintsUsed == 1): no escalation — first hint at
+//	  this issue, the LLM hasn't seen this text before.
+//	retry 2 (rejectHintsUsed == 2): "RETRY — same issue persisted
+//	  from the previous attempt" prefix to make explicit that this
+//	  is a re-prompt of an unchanged failure.
+//	retry 3+ (rejectHintsUsed >= 3): "FINAL RETRY — fix THIS field
+//	  now or the answer ships with the violation as a caveat" so
+//	  the LLM treats it as an absolute, not a suggestion.
 func answerDocAttachEscalation(hint string, attempt int) string {
 	if attempt <= 1 {
 		return hint
@@ -2888,16 +3025,16 @@ func answerDocPayloadRegressionHint(droppedSummary string, fieldsToFix []string)
 const answerDocRejectPrefix = "[answer_doc_reject:"
 
 const (
-	answerDocRejectCodeMissingDiagram              = "missing_diagram"
-	answerDocRejectCodeDiagramGrounding            = "diagram_grounding"
-	answerDocRejectCodeDiagramCodename             = "diagram_codename"
-	answerDocRejectCodeExactContextSurface         = "exact_context_surface"
-	answerDocRejectCodeFollowOnGroundedContext     = "follow_on_grounded_context"
-	answerDocRejectCodeExactResolution             = "exact_resolution"
+	answerDocRejectCodeMissingDiagram             = "missing_diagram"
+	answerDocRejectCodeDiagramGrounding           = "diagram_grounding"
+	answerDocRejectCodeDiagramCodename            = "diagram_codename"
+	answerDocRejectCodeExactContextSurface        = "exact_context_surface"
+	answerDocRejectCodeFollowOnGroundedContext    = "follow_on_grounded_context"
+	answerDocRejectCodeExactResolution            = "exact_resolution"
 	answerDocRejectCodeLogSourceDriftStepCitation = "log_source_drift_step_citation"
 	answerDocRejectCodeLiteralGrounding           = "literal_grounding"
-	answerDocRejectCodeScalarSummaryRequired       = "scalar_summary_required"
-	answerDocRejectCodeLogTriageCoverage           = "log_triage_coverage"
+	answerDocRejectCodeScalarSummaryRequired      = "scalar_summary_required"
+	answerDocRejectCodeLogTriageCoverage          = "log_triage_coverage"
 )
 
 func parseAnswerDocRejectEnvelope(summary string) (code, detail string) {
@@ -3477,7 +3614,6 @@ const (
 // independent (the LLM compresses by the same proportion regardless
 // of shape); only the "is the prior draft substantive enough to
 // bother salvaging?" floor scales with Summary's role in each shape:
-//
 var (
 	priorDraftThinkBlockRe = regexp.MustCompile(`(?is)<think>.*?</think>\s*`)
 	priorDraftToolCallRe   = regexp.MustCompile(`(?is)<(?:minimax:)?tool_call>.*?</(?:minimax:)?tool_call>\s*`)
@@ -3497,7 +3633,6 @@ var (
 // caveat tokens from every LLM-authored prose field on the doc
 // BEFORE ApplyAuthorityHedging re-injects them. Idempotent; runs once
 // per ParseOutput.
-//
 func sanitizePriorDraftForSummary(s string) string {
 	if strings.TrimSpace(s) == "" {
 		return ""

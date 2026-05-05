@@ -58,29 +58,33 @@ func BuildAnswerSemanticView(ir *AnalysisIR, plan *AnswerSurfacePlan) *AnswerSem
 		return nil
 	}
 	family := ResolveQuestionFamily(ir.RequestModel)
+	var view *AnswerSemanticView
 	switch family {
 	case QFRootCauseTrace:
-		return compileRootCauseTrace(ir, plan)
+		view = compileRootCauseTrace(ir, plan)
 	case QFConfigPrecedence:
-		return compileConfigPrecedence(ir, plan)
+		view = compileConfigPrecedence(ir, plan)
 	case QFRoleLookup:
-		return compileRoleLookup(ir, plan)
+		view = compileRoleLookup(ir, plan)
 	case QFCallChain:
-		return compileCallChain(ir, plan)
+		view = compileCallChain(ir, plan)
 	case QFEnumeration:
-		return compileEnumeration(ir, plan)
+		view = compileEnumeration(ir, plan)
 	case QFArchitecture:
-		return compileArchitecture(ir, plan)
+		view = compileArchitecture(ir, plan)
 	case QFComparison:
-		return compileComparison(ir, plan)
+		view = compileComparison(ir, plan)
 	case QFGeneric:
-		return compileGeneric(ir, plan)
+		view = compileGeneric(ir, plan)
+	default:
+		// Unknown family: fall back to generic. This SHOULD never fire
+		// because AllQuestionFamilies + the structural test cover the
+		// 7-value enum, but keep the fallback so a future-added family
+		// without a compile entry-point still produces a non-nil view.
+		view = compileGeneric(ir, plan)
 	}
-	// Unknown family: fall back to generic. This SHOULD never fire
-	// because AllQuestionFamilies + the structural test cover the
-	// 7-value enum, but keep the fallback so a future-added family
-	// without a compile entry-point still produces a non-nil view.
-	return compileGeneric(ir, plan)
+	applyExactAbsenceSummaryLead(view, plan)
+	return view
 }
 
 // BuildAnswerSemanticViewForAgentContext compiles a view from the

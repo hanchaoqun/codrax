@@ -162,6 +162,48 @@ func TestCompileConfigPrecedence_HasOptionalTableForLayers(t *testing.T) {
 	}
 }
 
+func TestCompileConfigPrecedence_ExactAbsenceBecomesSummaryLed(t *testing.T) {
+	ir := irForConfigPrecedence()
+	ir.AnswerContract.ExactResolution = &ExactResolutionContract{
+		TargetKind:   SubjectConfigKey,
+		Targets:      []string{"explore_mid_loop_hint_budget"},
+		AllowAbsence: true,
+	}
+	plan := &AnswerSurfacePlan{
+		PreferredExactResolution: &AnswerExactResolution{
+			Status:      AnswerExactResolutionAbsent,
+			ContextMode: AnswerExactResolutionContextGroundedOnly,
+		},
+	}
+	view := BuildAnswerSemanticView(ir, plan)
+	if view == nil {
+		t.Fatal("view nil")
+	}
+	hasRequiredScalar := false
+	var summary *BlockRequirement
+	for i := range view.RequiredBlocks {
+		req := &view.RequiredBlocks[i]
+		if req.Kind == BlockScalar && req.Required {
+			hasRequiredScalar = true
+		}
+		if req.Kind == BlockSummary && req.Required {
+			summary = req
+		}
+	}
+	if hasRequiredScalar {
+		t.Fatal("exact-absence config precedence must not require a principal scalar")
+	}
+	if summary == nil {
+		t.Fatal("required summary block missing")
+	}
+	if !containsString(summary.FacetIDs, string(FacetResolvedLiteralOrSymbol)) {
+		t.Fatalf("summary block must carry resolved_literal_or_symbol in exact-absence mode: %+v", summary.FacetIDs)
+	}
+	if len(summary.AcceptableClaimForms) == 0 || summary.AcceptableClaimForms[0] != ClaimAbsenceFact && !containsClaimForm(summary.AcceptableClaimForms, ClaimAbsenceFact) {
+		t.Fatalf("summary block must accept absence_fact in exact-absence mode: %+v", summary.AcceptableClaimForms)
+	}
+}
+
 // ── QFRoleLookup 3 cases ───────────────────────────────────────────
 
 func TestCompileRoleLookup_ResolvesFamily(t *testing.T) {
@@ -188,6 +230,46 @@ func TestCompileRoleLookup_HasNoDiagram(t *testing.T) {
 	view := BuildAnswerSemanticView(irForRoleLookup(), nil)
 	if view.DiagramPlan != nil && view.DiagramPlan.Required {
 		t.Error("role lookup should NOT require a diagram (single-literal answer)")
+	}
+}
+
+func TestCompileRoleLookup_ExactAbsenceBecomesSummaryLed(t *testing.T) {
+	ir := irForRoleLookup()
+	ir.AnswerContract.ExactResolution = &ExactResolutionContract{
+		TargetKind:   SubjectFunctionName,
+		Targets:      []string{"ParseUserRequestToIR"},
+		AllowAbsence: true,
+	}
+	plan := &AnswerSurfacePlan{
+		PreferredExactResolution: &AnswerExactResolution{
+			Status:      AnswerExactResolutionAbsent,
+			ContextMode: AnswerExactResolutionContextGroundedOnly,
+		},
+	}
+	view := BuildAnswerSemanticView(ir, plan)
+	if view == nil {
+		t.Fatal("view nil")
+	}
+	for _, req := range view.RequiredBlocks {
+		if req.Kind == BlockScalar && req.Required {
+			t.Fatal("exact-absence role lookup must not require a principal scalar")
+		}
+	}
+	var summary *BlockRequirement
+	for i := range view.RequiredBlocks {
+		if view.RequiredBlocks[i].Kind == BlockSummary && view.RequiredBlocks[i].Required {
+			summary = &view.RequiredBlocks[i]
+			break
+		}
+	}
+	if summary == nil {
+		t.Fatal("required summary block missing")
+	}
+	if !containsString(summary.FacetIDs, string(FacetResolvedLiteralOrSymbol)) {
+		t.Fatalf("summary block must carry resolved_literal_or_symbol in exact-absence mode: %+v", summary.FacetIDs)
+	}
+	if !containsClaimForm(summary.AcceptableClaimForms, ClaimAbsenceFact) {
+		t.Fatalf("summary block must accept absence_fact in exact-absence mode: %+v", summary.AcceptableClaimForms)
 	}
 }
 
@@ -261,6 +343,15 @@ func TestCompileEnumeration_HasOptionalBucketSection(t *testing.T) {
 	if !hasSection {
 		t.Error("enumeration must offer optional Section for user-named buckets")
 	}
+}
+
+func containsClaimForm(items []ClaimForm, want ClaimForm) bool {
+	for _, item := range items {
+		if item == want {
+			return true
+		}
+	}
+	return false
 }
 
 func TestCompileEnumeration_NoMaxBucketAssumption(t *testing.T) {

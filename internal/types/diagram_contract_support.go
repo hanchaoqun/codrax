@@ -204,6 +204,58 @@ func ConfigTraceValidatedDiagramRoleCount(contract *ExactResolutionContract, req
 	return len(roles)
 }
 
+// ConfigTraceCoverageRoleInFiles returns the abstract precedence role
+// an evidence item can satisfy for config-trace coverage / closure.
+//
+// This is intentionally broader than ConfigTraceSurfaceDiagramRoleInFiles:
+// diagrams still require line-shaped, diagram-grade anchors, but
+// facet coverage and exact-absence closure must also be able to
+// consume grounded schema-level layer evidence such as:
+//   - scope=file + file_role_label=config_canonical
+//   - scope=file + file_role_label=default_struct
+//   - scope=file + file_role_label=cli_registration
+//
+// Without this broader coverage role, config-precedence questions can
+// gather valid typed layer evidence yet still report zero
+// SourceCandidate for FacetConfigPrecedenceRole, which thins the
+// final answer even though the layer coverage is already grounded.
+func ConfigTraceCoverageRoleInFiles(contract *ExactResolutionContract, requiredFiles []string, item EvidenceItem) EvidenceDiagramRole {
+	if role := ConfigTraceSurfaceDiagramRoleInFiles(contract, item, requiredFiles); role != EvidenceDiagramRoleUnknown {
+		return role
+	}
+	return configTraceSchemaLevelCoverageRole(item)
+}
+
+func configTraceSchemaLevelCoverageRole(item EvidenceItem) EvidenceDiagramRole {
+	if item.Source == "" || LooksLikeAuxiliaryEvidencePath(item.Source) {
+		return EvidenceDiagramRoleUnknown
+	}
+	switch item.GroundingStatus {
+	case GroundingGrounded, GroundingRecovered, "":
+	default:
+		return EvidenceDiagramRoleUnknown
+	}
+	if item.Kind == EvidenceUnresolved || item.Kind == EvidenceTruncated {
+		return EvidenceDiagramRoleUnknown
+	}
+	if item.ContextRole == EvidenceContextRoleIllustrativeOnly {
+		return EvidenceDiagramRoleUnknown
+	}
+	if item.Scope != ScopeFile {
+		return EvidenceDiagramRoleUnknown
+	}
+	switch item.FileRoleLabel {
+	case FileRoleConfigCanonical:
+		return EvidenceDiagramRoleConfig
+	case FileRoleDefaultStruct:
+		return EvidenceDiagramRoleDefault
+	case FileRoleCLIRegistration:
+		return EvidenceDiagramRoleOverride
+	default:
+		return EvidenceDiagramRoleUnknown
+	}
+}
+
 func ConfigTraceRequestedDiagramRoles(contract *ExactResolutionContract) []EvidenceDiagramRole {
 	if contract == nil {
 		return nil
@@ -218,7 +270,7 @@ func ConfigTraceMissingRequestedDiagramRoles(contract *ExactResolutionContract, 
 	}
 	covered := make(map[EvidenceDiagramRole]bool, len(requested))
 	for _, item := range evidence {
-		role := ConfigTraceSurfaceDiagramRoleInFiles(contract, item, requiredFiles)
+		role := ConfigTraceCoverageRoleInFiles(contract, requiredFiles, item)
 		if role != EvidenceDiagramRoleUnknown {
 			covered[role] = true
 		}

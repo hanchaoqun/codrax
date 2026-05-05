@@ -107,8 +107,7 @@ func TestRenderAnswerDocFacetCoverage_EmitsHardSoftOptionalLabels(t *testing.T) 
 			RequestModel: types.RequestModel{
 				Intent: types.IntentConfigQuery,
 			},
-			AnswerContract: types.AnswerContract{
-			},
+			AnswerContract: types.AnswerContract{},
 		},
 	}
 	got := renderAnswerDocFacetCoverage(ctx)
@@ -305,8 +304,7 @@ func TestRenderAnswerDocFacetCoverage_OptionalSectionOmittedWhenEmpty(t *testing
 func TestRenderAnswerDocFacetCoverage_BuildInitialInstructionWiring(t *testing.T) {
 	ctx := &types.AgentContext{
 		AnalysisIR: &types.AnalysisIR{
-			AnswerContract: types.AnswerContract{
-			},
+			AnswerContract: types.AnswerContract{},
 			RequestModel: types.RequestModel{
 				Intent: types.IntentEnumerate,
 				EnumerationBoundary: &types.RequestedEnumerationBoundary{
@@ -374,7 +372,7 @@ func TestAnswerDocumentEvaluator_BuildInitialInstruction_SurfacesCardinalityBase
 		AnalysisIR: &types.AnalysisIR{
 			RequestModel: types.RequestModel{Intent: types.IntentEnumerate},
 			AnswerContract: types.AnswerContract{
-				MustInclude:         []string{"Alpha", "Beta"},
+				MustInclude: []string{"Alpha", "Beta"},
 			},
 		},
 		AnswerSymbols: []types.AnswerSymbol{
@@ -504,7 +502,6 @@ func TestAnswerDocumentEvaluator_BuildInitialInstruction_RendersRequestedEnumera
 	}
 }
 
-
 // TestAnswerDocumentEvaluator_BuildInitialInstruction_NoFloorWithoutMustInclude
 // checks the other branch: when MustInclude is empty, the prompt
 // says "no floor is enforced" so the LLM picks the claim from its
@@ -604,6 +601,10 @@ func TestAnswerDocumentEvaluator_BuildInitialInstruction_RendersConfigTraceDiagr
 				},
 			},
 		},
+		UnverifiedAnalyzerFindings: []types.UnverifiedFinding{{
+			Token: "explore_mid_loop_hint_budget",
+			Kind:  "symbol",
+		}},
 		EvidenceItems: []types.EvidenceItem{
 			{Source: "internal/types/config.go", LineStart: 707, Subject: "DefaultExploreHeuristics", Summary: "code defaults", Kind: types.EvidenceDirect, GroundingStatus: types.GroundingGrounded, AnchorKind: types.AnchorDefinition, AnchorSymbol: "DefaultExploreHeuristics", DiagramRole: types.EvidenceDiagramRoleDefault},
 			{Source: "codrax.yaml.example", LineStart: 20, Subject: "ExploreHeuristics", Summary: "yaml precedence comment", Kind: types.EvidenceDirect, GroundingStatus: types.GroundingGrounded, AnchorKind: types.AnchorDefinition, AnchorSymbol: "ExploreHeuristics", DiagramRole: types.EvidenceDiagramRoleYAML},
@@ -736,6 +737,10 @@ func TestAnswerDocumentEvaluator_BuildInitialInstruction_DowngradesHardDiagramWi
 				AnchorSymbol:    "DefaultExploreHeuristics",
 			},
 		},
+		UnverifiedAnalyzerFindings: []types.UnverifiedFinding{{
+			Token: "explore_mid_loop_hint_budget",
+			Kind:  "symbol",
+		}},
 	}
 	ctx.Mutable.SetInvestigationResultKind("absence")
 	ctx.Mutable.SetAbsenceJustification("missing_key is absent from the current repo state")
@@ -1002,8 +1007,7 @@ func TestAnswerDocumentEvaluator_BuildInitialInstruction_RendersCapabilitySurfac
 	ctx := &types.AgentContext{
 		Mutable: types.NewMutableState(question),
 		AnalysisIR: &types.AnalysisIR{
-			AnswerContract: types.AnswerContract{
-			},
+			AnswerContract: types.AnswerContract{},
 			RequestModel: types.RequestModel{
 				RawRequest: question,
 				Scenario:   types.ScenarioGeneric,
@@ -1263,8 +1267,7 @@ func TestAnswerDocumentEvaluator_Observe_MidLoopExactContextSurfaceRejectUsesMet
 func TestAnswerDocumentEvaluator_BuildInitialInstruction_RendersScalarLookupDiscipline(t *testing.T) {
 	ctx := &types.AgentContext{
 		AnalysisIR: &types.AnalysisIR{
-			AnswerContract: types.AnswerContract{
-			},
+			AnswerContract: types.AnswerContract{},
 			RequestModel: types.RequestModel{
 				Scenario:      types.ScenarioGeneric,
 				AnswerSubject: types.AnswerSubject{Kind: types.SubjectFunctionName},
@@ -1304,8 +1307,7 @@ func TestAnswerDocumentEvaluator_BuildInitialInstruction_RendersScalarLookupDisc
 func TestAnswerDocumentEvaluator_BuildInitialInstruction_RendersRoleLocateScalarDiscipline(t *testing.T) {
 	ctx := &types.AgentContext{
 		AnalysisIR: &types.AnalysisIR{
-			AnswerContract: types.AnswerContract{
-			},
+			AnswerContract: types.AnswerContract{},
 			RequestModel: types.RequestModel{
 				Scenario:      types.ScenarioGeneric,
 				AnswerSubject: types.AnswerSubject{Kind: types.SubjectFunctionName},
@@ -1373,8 +1375,7 @@ func TestAnswerDocumentEvaluator_BuildInitialInstruction_RendersLogTriageAndDiag
 func TestAnswerDocumentEvaluator_BuildInitialInstruction_RendersLogSourceDriftGuidance(t *testing.T) {
 	ctx := &types.AgentContext{
 		AnalysisIR: &types.AnalysisIR{
-			AnswerContract: types.AnswerContract{
-			},
+			AnswerContract: types.AnswerContract{},
 			RequestModel: types.RequestModel{
 				Scenario: types.ScenarioRootCause,
 				Intent:   types.IntentRootCause,
@@ -1603,6 +1604,135 @@ func TestAnswerDocumentEvaluator_BuildInitialInstruction_UsesStableAbsenceStateA
 	}
 }
 
+func TestAnswerDocumentEvaluator_BuildInitialInstruction_RendersPrimaryAbsenceProofCitationSeeds(t *testing.T) {
+	mu := types.NewMutableState("")
+	mu.SetInvestigationComplete("bounded search already confirmed the exact key is absent")
+	mu.SetAbsenceJustification("no config key named `explore_mid_loop_hint_budget` exists in the repo")
+	mu.SetInvestigationResultKind("absence")
+	ctx := &types.AgentContext{
+		Mutable: mu,
+		AnalysisIR: &types.AnalysisIR{
+			AnswerContract: types.AnswerContract{
+				ExactResolution: &types.ExactResolutionContract{
+					TargetKind:           types.SubjectConfigKey,
+					TargetLabel:          "config key",
+					Targets:              []string{"explore_mid_loop_hint_budget"},
+					AllowAbsence:         true,
+					RelatedContextPolicy: types.ExactContextSameFamilyGrounded,
+				},
+			},
+			RequestModel: types.RequestModel{
+				Scenario:      types.ScenarioConfigTrace,
+				AnswerSubject: types.AnswerSubject{Kind: types.SubjectConfigKey},
+			},
+		},
+		EvidenceItems: []types.EvidenceItem{
+			{
+				Kind:      types.EvidenceAbsent,
+				Subject:   "explore_mid_loop_hint_budget",
+				Predicate: "absent_in",
+				Object:    "cmd/root.go",
+				Source:    "cmd/root.go",
+				Scope:     types.ScopeNegative,
+				NegativeQuery: &types.NegativeQuery{
+					File:    "cmd/root.go",
+					Pattern: "ExploreMidLoopHintBudget|ExploreMidLoop.*Budget",
+				},
+				NegativeScope:   types.NegativeScopeFile,
+				ContextRole:     types.EvidenceContextRoleAbsenceSupport,
+				GroundingStatus: types.GroundingGrounded,
+			},
+			{
+				Kind:            types.EvidenceDirect,
+				Subject:         "DefaultExploreHeuristics",
+				Predicate:       "defines",
+				Object:          "ExploreHeuristics defaults",
+				Source:          "internal/types/config.go",
+				LineStart:       707,
+				ContextRole:     types.EvidenceContextRoleRelatedContext,
+				DiagramRole:     types.EvidenceDiagramRoleDefault,
+				GroundingStatus: types.GroundingGrounded,
+			},
+		},
+	}
+
+	prompt := (&answerDocumentEvaluator{}).BuildInitialInstruction(ctx, nil)
+	for _, want := range []string{
+		"## Primary Exact-Proof / Absence-Proof Citation Seeds",
+		"`{\"file\":\"cmd/root.go\",\"negative_pattern\":\"ExploreMidLoopHintBudget|ExploreMidLoop.*Budget\",\"scope\":\"negative\"}`",
+		"In `exact_resolution.status=\"absent\"` mode, at least one cited seed MUST be an absence-proof object",
+	} {
+		if !strings.Contains(prompt, want) {
+			t.Fatalf("prompt missing %q:\n%s", want, prompt)
+		}
+	}
+}
+
+func TestAnswerDocumentEvaluator_BuildInitialInstruction_ConfigTraceAbsenceAsksForExplicitMissingLayerWording(t *testing.T) {
+	mu := types.NewMutableState("")
+	mu.SetInvestigationComplete("bounded search already confirmed the exact key is absent")
+	mu.SetAbsenceJustification("no config key named `explore_mid_loop_hint_budget` exists in the repo")
+	mu.SetInvestigationResultKind("absence")
+	ctx := &types.AgentContext{
+		Mutable: mu,
+		AnalysisIR: &types.AnalysisIR{
+			AnswerContract: types.AnswerContract{
+				ExactResolution: &types.ExactResolutionContract{
+					TargetKind:           types.SubjectConfigKey,
+					TargetLabel:          "config key",
+					Targets:              []string{"explore_mid_loop_hint_budget"},
+					AllowAbsence:         true,
+					RelatedContextPolicy: types.ExactContextSameFamilyGrounded,
+				},
+			},
+			RequestModel: types.RequestModel{
+				Scenario:      types.ScenarioConfigTrace,
+				AnswerSubject: types.AnswerSubject{Kind: types.SubjectConfigKey},
+			},
+		},
+	}
+
+	prompt := (&answerDocumentEvaluator{}).BuildInitialInstruction(ctx, nil)
+	for _, want := range []string{
+		"say that layer absence explicitly",
+		"`no config-file key matches this target`",
+		"`no CLI flag binds this key`",
+		"instead of vague placeholders like `N/A` / `不适用`",
+	} {
+		if !strings.Contains(prompt, want) {
+			t.Fatalf("prompt missing %q:\n%s", want, prompt)
+		}
+	}
+}
+
+func TestAnswerDocumentEvaluator_BuildRetryInstruction_UsesPluralBlockClaimUsesPath(t *testing.T) {
+	mut := types.NewMutableState("")
+	mut.SetRetryState(&types.RetryState{
+		Attempt: 1,
+		PrevEmitSummary: types.RetryStateSummary{
+			BlockSummaries: []types.RetryBlockSummary{{
+				ID:   "b1",
+				Kind: types.BlockSummary,
+			}},
+		},
+		ActiveViolations: []types.ScoredViolation{{
+			Severity:  types.SeverityHigh,
+			Kind:      types.ViolPrincipalClaimUseMissing,
+			FieldPath: "blocks[0].claim_uses",
+			Detail:    "principal block missing claim use",
+			Repair:    "add block-level claim_uses",
+			Layer:     "finalize",
+		}},
+	})
+	hint := renderAnswerDocRetryState(&types.AgentContext{Mutable: mut})
+	if !strings.Contains(hint, "`blocks[].claim_uses[]`") {
+		t.Fatalf("retry instruction must mention blocks[].claim_uses[] path:\n%s", hint)
+	}
+	if strings.Contains(hint, "`blocks[].claim_use`") {
+		t.Fatalf("retry instruction must not mention stale blocks[].claim_use path:\n%s", hint)
+	}
+}
+
 func TestAnswerDocumentEvaluator_BuildInitialInstruction_RendersExternalObservationSeeds(t *testing.T) {
 	ctx := &types.AgentContext{
 		LogTriage: &types.LogBundle{
@@ -1635,8 +1765,7 @@ func TestAnswerDocumentEvaluator_BuildInitialInstruction_RendersExternalObservat
 				Scenario: types.ScenarioRootCause,
 				Intent:   types.IntentRootCause,
 			},
-			AnswerContract: types.AnswerContract{
-			},
+			AnswerContract: types.AnswerContract{},
 		},
 	}
 
@@ -2770,7 +2899,6 @@ I need to emit exactly one emit_answer_document tool call.
 	}
 }
 
-
 // TestFindLastPreToolCallDraft_IgnoresToolCallTurns — the helper
 // must SKIP assistant messages that have tool calls, since those
 // represent "tool call fired" turns, not pre-tool-call drafts. The
@@ -2845,9 +2973,9 @@ func TestAnswerDocumentSkill_DeclaresEmitTool(t *testing.T) {
 // attempts so the LLM knows it's being re-prompted on a
 // persisted failure rather than reading a fresh issue.
 //
-//   attempt 1 → no escalation (first time hitting this issue)
-//   attempt 2 → "RETRY ... your previous fix did not address it"
-//   attempt 3+ → "FINAL RETRY ... fix NOW or the answer ships with violation"
+//	attempt 1 → no escalation (first time hitting this issue)
+//	attempt 2 → "RETRY ... your previous fix did not address it"
+//	attempt 3+ → "FINAL RETRY ... fix NOW or the answer ships with violation"
 //
 // The dedup-key contract (rejectHintsUsed embedded in HintKey) is
 // orthogonal — it ensures each retry actually delivers the hint;
@@ -2855,8 +2983,8 @@ func TestAnswerDocumentSkill_DeclaresEmitTool(t *testing.T) {
 func TestAnswerDocAttachEscalation(t *testing.T) {
 	hint := "Attach claim_use to block X."
 	cases := []struct {
-		attempt    int
-		mustEqual  string
+		attempt        int
+		mustEqual      string
 		mustNotContain []string
 		mustContain    []string
 	}{
@@ -2984,8 +3112,8 @@ func TestRenderAnswerDocFacetCoverage_VerbatimFacetIDAndOwnerBlock(t *testing.T)
 	ctx := &types.AgentContext{
 		AnalysisIR: &types.AnalysisIR{
 			RequestModel: types.RequestModel{
-				Intent:    types.IntentExplain,
-				Scenario:  types.ScenarioArchitectureExplain,
+				Intent:   types.IntentExplain,
+				Scenario: types.ScenarioArchitectureExplain,
 			},
 		},
 	}
@@ -3082,8 +3210,8 @@ func TestRenderAnswerDocRetryState_FullPayload(t *testing.T) {
 		},
 		ActiveViolations: []types.ScoredViolation{
 			{
-				Kind: types.ViolPrincipalClaimUseMissing,
-				Detail: `principal block id="lifecycle" kind=section has no claim_use`,
+				Kind:      types.ViolPrincipalClaimUseMissing,
+				Detail:    `principal block id="lifecycle" kind=section has no claim_use`,
 				Repair:    "emit claim_use on the block",
 				Severity:  types.SeverityCritical,
 				Layer:     "v2_oracle",
@@ -3091,16 +3219,16 @@ func TestRenderAnswerDocRetryState_FullPayload(t *testing.T) {
 				FieldPath: `blocks[id="lifecycle"].claim_use`,
 			},
 			{
-				Kind: types.ViolFacetUncovered,
-				Detail: `required facet "diagram_spine" not covered`,
+				Kind:      types.ViolFacetUncovered,
+				Detail:    `required facet "diagram_spine" not covered`,
 				Repair:    `declare facet_id="diagram_spine"`,
 				Severity:  types.SeverityHigh,
 				Layer:     "v2_oracle",
 				FieldPath: "blocks[*].facet_ids",
 			},
 			{
-				Kind: types.ViolRichnessRegression,
-				Detail: `optional facet "uncertainty_boundary" not surfaced`,
+				Kind:     types.ViolRichnessRegression,
+				Detail:   `optional facet "uncertainty_boundary" not surfaced`,
 				Severity: types.SeveritySoft,
 				Layer:    "v2_oracle",
 			},

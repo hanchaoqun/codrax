@@ -871,6 +871,12 @@ func canonicalExactResolutionPath(path string) string {
 }
 
 func exactResolutionSourceIsProductionLike(contract *types.ExactResolutionContract, source string) bool {
+	if contract != nil &&
+		contract.TargetKind == types.SubjectConfigKey &&
+		types.LooksLikePromptSupportPath(source) &&
+		!types.LooksLikeConfigFilePath(source) {
+		return false
+	}
 	return types.ExactResolutionSourceIsDefiningPrimaryProofLike(contract, source)
 }
 

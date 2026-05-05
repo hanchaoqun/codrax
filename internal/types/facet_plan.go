@@ -709,6 +709,9 @@ func CompileFacetCoverage(rm RequestModel, surface []EvidenceItem, sinks ...Rich
 	}
 	for _, req := range template {
 		bound := bindSourceCandidates(req, surface)
+		if family == QFConfigPrecedence && req.Kind == FacetConfigPrecedenceRole {
+			bound = bindConfigPrecedenceRoleCandidates(bound, rm, surface)
+		}
 		// Phase 1 fallback: if a HARD requirement has no candidate,
 		// degrade to SOFT so we don't report false-fail in trace
 		// observation. Phase 4 may revisit this rule with stricter
@@ -758,6 +761,32 @@ func CompileFacetCoverage(rm RequestModel, surface []EvidenceItem, sinks ...Rich
 		}
 	}
 	return plan
+}
+
+func bindConfigPrecedenceRoleCandidates(req FacetRequirement, rm RequestModel, surface []EvidenceItem) FacetRequirement {
+	contract := BuildExactResolutionContract(rm)
+	if contract == nil || len(surface) == 0 {
+		return req
+	}
+	seen := make(map[string]bool, len(req.SourceCandidate))
+	for _, id := range req.SourceCandidate {
+		id = strings.TrimSpace(id)
+		if id != "" {
+			seen[id] = true
+		}
+	}
+	for _, item := range surface {
+		if ConfigTraceCoverageRoleInFiles(contract, nil, item) == EvidenceDiagramRoleUnknown {
+			continue
+		}
+		id := strings.TrimSpace(item.ID)
+		if id == "" || seen[id] {
+			continue
+		}
+		seen[id] = true
+		req.SourceCandidate = append(req.SourceCandidate, id)
+	}
+	return req
 }
 
 // bindSourceCandidates walks the surface evidence and attaches the

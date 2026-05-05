@@ -1116,3 +1116,48 @@ func TestConfigTraceSurfaceDiagramRoleInFiles_UsesGroundedSummaryForSameFamilyDe
 		t.Fatalf("surface role = %s, want default", got)
 	}
 }
+
+func TestConfigTraceSurfaceDiagramRoleInFiles_RejectsPromptSupportDefaultInference(t *testing.T) {
+	contract := &ExactResolutionContract{
+		TargetKind:            SubjectConfigKey,
+		TargetLabel:           "config key",
+		Targets:               []string{"explore_mid_loop_hint_budget"},
+		AllowAbsence:          true,
+		RelatedContextPolicy:  ExactContextSameFamilyGrounded,
+		RelatedContextTerms:   []string{"explore"},
+		RequestedContextRoles: []EvidenceDiagramRole{EvidenceDiagramRoleDefault, EvidenceDiagramRoleConfig, EvidenceDiagramRoleOverride},
+	}
+	item := EvidenceItem{
+		Source:          "internal/skill/glossary.go",
+		LineStart:       32,
+		AnchorKind:      AnchorDefinition,
+		AnchorSymbol:    "ProjectSpecificIdentifierBlocklist",
+		ContextRole:     EvidenceContextRoleRelatedContext,
+		GroundingStatus: GroundingGrounded,
+		Summary:         "ProjectSpecificIdentifierBlocklist documents the exact config key name explore_mid_loop_hint_budget for prompt hygiene and overfit prevention",
+	}
+	if got := ConfigTraceSurfaceDiagramRoleInFiles(contract, item, []string{"internal/types/config.go", "codrax.yaml.example"}); got != EvidenceDiagramRoleUnknown {
+		t.Fatalf("surface role = %s, want unknown for prompt-support anchor", got)
+	}
+}
+
+func TestExactResolutionEvidenceSupportsAbsence_RejectsPromptSupportConfigMention(t *testing.T) {
+	contract := &ExactResolutionContract{
+		TargetKind:   SubjectConfigKey,
+		TargetLabel:  "config key",
+		Targets:      []string{"explore_mid_loop_hint_budget"},
+		AllowAbsence: true,
+	}
+	item := EvidenceItem{
+		Source:          "internal/skill/glossary.go",
+		LineStart:       32,
+		AnchorKind:      AnchorDefinition,
+		AnchorSymbol:    "ProjectSpecificIdentifierBlocklist",
+		ContextRole:     EvidenceContextRoleAbsenceSupport,
+		GroundingStatus: GroundingGrounded,
+		Summary:         "ProjectSpecificIdentifierBlocklist documents explore_mid_loop_hint_budget as a project-specific identifier",
+	}
+	if ExactResolutionEvidenceSupportsAbsence(contract, item) {
+		t.Fatal("prompt-support config mention must not count as exact absence support")
+	}
+}

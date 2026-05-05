@@ -1072,7 +1072,12 @@ func configTraceDiagramEvidenceWithinScope(contract *ExactResolutionContract, it
 }
 
 func configTraceDiagramCodeLayerAllowed(contract *ExactResolutionContract, item EvidenceItem, requiredFiles []string) bool {
-	if item.Source == "" || LooksLikeConfigFilePath(item.Source) || LooksLikeAuxiliaryEvidencePath(item.Source) {
+	if item.Source == "" {
+		return false
+	}
+	if LooksLikeConfigFilePath(item.Source) ||
+		LooksLikeAuxiliaryEvidencePath(item.Source) ||
+		LooksLikePromptSupportPath(item.Source) {
 		return false
 	}
 	if item.AnchorKind == "" {
@@ -1317,6 +1322,12 @@ func ExactResolutionEvidenceSupportsAbsence(c *ExactResolutionContract, item Evi
 	}
 	if !ExactResolutionTextsMentionAnyTarget(c,
 		item.Subject, item.Predicate, item.Object, item.AnchorSymbol, item.Condition, item.Snippet, item.Summary) {
+		return false
+	}
+	if c != nil &&
+		c.TargetKind == SubjectConfigKey &&
+		LooksLikePromptSupportPath(item.Source) &&
+		!LooksLikeConfigFilePath(item.Source) {
 		return false
 	}
 	return true

@@ -550,7 +550,7 @@ func TestBindSourceCandidates_FiltersByTypedClaimForm(t *testing.T) {
 		AcceptableForms: []ClaimForm{ClaimCallEdge}, // narrow whitelist
 	}
 	surface := []EvidenceItem{
-		{ID: "ev-call-1", AnchorKind: AnchorCall, Subject: "fn1"}, // → ClaimCallEdge
+		{ID: "ev-call-1", AnchorKind: AnchorCall, Subject: "fn1"},      // → ClaimCallEdge
 		{ID: "ev-def-1", AnchorKind: AnchorDefinition, Subject: "fn1"}, // → ClaimDefinitionFact (rejected)
 	}
 	bound := bindSourceCandidates(req, surface)
@@ -598,6 +598,81 @@ func TestBindSourceCandidates_OutputAllInputIDs(t *testing.T) {
 		if !inputIDs[id] {
 			t.Errorf("SourceCandidate %q is NOT in input surface — fabrication / drift", id)
 		}
+	}
+}
+
+func TestCompileFacetCoverage_ConfigPrecedenceRoleUsesCoverageRoles(t *testing.T) {
+	rm := RequestModel{
+		RawRequest: "explore_mid_loop_hint_budget 的 code default / codrax.yaml / CLI 覆盖优先级是什么？",
+		Intent:     IntentConfigQuery,
+		Scenario:   ScenarioConfigTrace,
+		AnswerSubject: AnswerSubject{
+			Kind: SubjectConfigKey,
+		},
+		AnalyzerHints: AnalyzerHints{
+			ExactTargets:      []string{"explore_mid_loop_hint_budget"},
+			ExactContextRoles: []EvidenceDiagramRole{EvidenceDiagramRoleDefault, EvidenceDiagramRoleConfig, EvidenceDiagramRoleOverride},
+		},
+	}
+	surface := []EvidenceItem{
+		{
+			ID:              "ev-default",
+			Source:          "internal/types/config.go",
+			LineStart:       943,
+			Scope:           ScopeLine,
+			GroundingStatus: GroundingGrounded,
+			AnchorKind:      AnchorDefinition,
+			DiagramRole:     EvidenceDiagramRoleDefault,
+			Subject:         "ExploreMidLoopMinIteration",
+			Summary:         "default midloop heuristics",
+		},
+		{
+			ID:              "ev-config",
+			Source:          "codrax.yaml.example",
+			LineStart:       22,
+			Scope:           ScopeLine,
+			GroundingStatus: GroundingGrounded,
+			AnchorKind:      AnchorDefinition,
+			DiagramRole:     EvidenceDiagramRoleConfig,
+		},
+		{
+			ID:              "ev-cli",
+			Source:          "cmd/root.go",
+			Scope:           ScopeFile,
+			GroundingStatus: GroundingGrounded,
+			FileRoleLabel:   FileRoleCLIRegistration,
+		},
+		{
+			ID:              "ev-noise",
+			Source:          "internal/skill/glossary.go",
+			LineStart:       35,
+			Scope:           ScopeLine,
+			GroundingStatus: GroundingGrounded,
+			AnchorKind:      AnchorDefinition,
+			DiagramRole:     EvidenceDiagramRoleDefault,
+		},
+	}
+	plan := CompileFacetCoverage(rm, surface)
+	if plan == nil {
+		t.Fatal("CompileFacetCoverage returned nil")
+	}
+	var got *FacetRequirement
+	for i := range plan.Required {
+		if plan.Required[i].Kind == FacetConfigPrecedenceRole {
+			got = &plan.Required[i]
+			break
+		}
+	}
+	if got == nil {
+		t.Fatal("FacetConfigPrecedenceRole missing from required set")
+	}
+	for _, want := range []string{"ev-default", "ev-config", "ev-cli"} {
+		if !contains(got.SourceCandidate, want) {
+			t.Fatalf("config precedence facet missing source candidate %q: %v", want, got.SourceCandidate)
+		}
+	}
+	if contains(got.SourceCandidate, "ev-noise") {
+		t.Fatalf("auxiliary evidence must not become precedence source candidate: %v", got.SourceCandidate)
 	}
 }
 

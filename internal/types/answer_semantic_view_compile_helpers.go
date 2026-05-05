@@ -1,5 +1,7 @@
 package types
 
+import "strings"
+
 // Shared helpers used by every compile_<family>.go file. Per the
 // docs/migration plan §5.2 B2 design, each family produces its own
 // BlockRequirement set; these helpers exist so common shapes are
@@ -17,6 +19,79 @@ func requireSummaryBlock(rationale string) BlockRequirement {
 		Rationale:       rationale,
 		SurfaceRoleHint: SurfacePrincipal,
 	}
+}
+
+// applyExactAbsenceSummaryLead rewrites scalar-first families into a
+// summary-led contract when the compiled surface plan has already
+// concluded the exact target is absent.
+//
+// Why this exists:
+//   - exact-absence questions often need the principal answer to lead
+//     with the absence itself ("no such key / symbol / binding"), not a
+//     synthetic scalar literal like "(missing)"
+//   - the evaluator prompt already instructs the finalizer to avoid a
+//     fabricated scalar in these cases
+//   - without a typed compile-side rewrite, the runtime still requires
+//     BlockScalar, so the finalizer gets contradictory instructions
+//
+// The rewrite is intentionally narrow and typed:
+//   - only applies when the compiled preferred exact-resolution status
+//     is absent
+//   - only affects families that currently require a principal scalar
+//     carrying FacetResolvedLiteralOrSymbol
+//   - promotes the principal Summary block into the carrier of the
+//     resolved-literal facet via ClaimAbsenceFact, while making the
+//     scalar block optional support rather than required payload
+func applyExactAbsenceSummaryLead(view *AnswerSemanticView, plan *AnswerSurfacePlan) {
+	if view == nil || plan == nil || plan.PreferredExactResolution == nil {
+		return
+	}
+	if plan.PreferredExactResolution.Status != AnswerExactResolutionAbsent {
+		return
+	}
+	summaryIdx, scalarIdx := -1, -1
+	for i := range view.RequiredBlocks {
+		req := view.RequiredBlocks[i]
+		if !req.Required || req.SurfaceRoleHint != SurfacePrincipal {
+			continue
+		}
+		switch req.Kind {
+		case BlockSummary:
+			summaryIdx = i
+		case BlockScalar:
+			if containsString(req.FacetIDs, string(FacetResolvedLiteralOrSymbol)) {
+				scalarIdx = i
+			}
+		}
+	}
+	if summaryIdx < 0 || scalarIdx < 0 {
+		return
+	}
+
+	summary := &view.RequiredBlocks[summaryIdx]
+	summary.FacetIDs = appendUniqueStr(summary.FacetIDs, string(FacetResolvedLiteralOrSymbol))
+	summary.AcceptableClaimForms = appendUniqueClaimForms(summary.AcceptableClaimForms, ClaimAbsenceFact)
+	switch view.Family {
+	case QFConfigPrecedence:
+		summary.Rationale = strings.TrimSpace(summary.Rationale +
+			" When the exact config target is absent, this summary block becomes the principal carrier of the absence conclusion. " +
+			"Lead with the absent key finding, then explain any grounded precedence / lineage context without fabricating a missing scalar literal.")
+	case QFRoleLookup:
+		summary.Rationale = strings.TrimSpace(summary.Rationale +
+			" When the exact role target is absent, this summary block becomes the principal carrier of the absence conclusion. " +
+			"Lead with the absent lookup result instead of fabricating a placeholder scalar literal.")
+	default:
+		summary.Rationale = strings.TrimSpace(summary.Rationale +
+			" When the exact target is absent, this summary block becomes the principal carrier of the absence conclusion. " +
+			"Do not fabricate a placeholder scalar literal.")
+	}
+
+	scalar := &view.RequiredBlocks[scalarIdx]
+	scalar.Required = false
+	scalar.MinCount = 0
+	scalar.SurfaceRoleHint = SurfaceSupport
+	scalar.Rationale = strings.TrimSpace(scalar.Rationale +
+		" Optional only when a grounded literal truly exists; when the exact target is absent, do not emit a synthetic `(missing)` / `(不存在)` scalar.")
 }
 
 // optionalCaveatBlock returns a caveat-style block requirement that
@@ -244,4 +319,32 @@ func appendUniqueStr(dst []string, add ...string) []string {
 		dst = append(dst, s)
 	}
 	return dst
+}
+
+func appendUniqueClaimForms(dst []ClaimForm, add ...ClaimForm) []ClaimForm {
+	seen := make(map[ClaimForm]bool, len(dst)+len(add))
+	for _, f := range dst {
+		seen[f] = true
+	}
+	for _, f := range add {
+		if f == ClaimUnknown || seen[f] {
+			continue
+		}
+		seen[f] = true
+		dst = append(dst, f)
+	}
+	return dst
+}
+
+func containsString(items []string, want string) bool {
+	want = strings.TrimSpace(want)
+	if want == "" {
+		return false
+	}
+	for _, item := range items {
+		if strings.TrimSpace(item) == want {
+			return true
+		}
+	}
+	return false
 }

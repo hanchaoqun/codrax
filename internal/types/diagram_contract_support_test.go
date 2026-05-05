@@ -163,3 +163,54 @@ func TestSupportedDiagramKindsForAnswer_ConfigTraceAllowsConfigFileAbsenceRole(t
 		t.Fatalf("config-file absence support should still count toward config-trace diagram support, got %v", got)
 	}
 }
+
+func TestConfigTraceCoverageRoleInFiles_FileRoleFallbacks(t *testing.T) {
+	contract := &ExactResolutionContract{
+		TargetKind:            SubjectConfigKey,
+		Targets:               []string{"missing_key"},
+		RequestedContextRoles: []EvidenceDiagramRole{EvidenceDiagramRoleDefault, EvidenceDiagramRoleConfig, EvidenceDiagramRoleOverride},
+	}
+	tests := []struct {
+		name string
+		item EvidenceItem
+		want EvidenceDiagramRole
+	}{
+		{
+			name: "config file role becomes config coverage",
+			item: EvidenceItem{
+				Source:          "codrax.yaml.example",
+				Scope:           ScopeFile,
+				GroundingStatus: GroundingGrounded,
+				FileRoleLabel:   FileRoleConfigCanonical,
+			},
+			want: EvidenceDiagramRoleConfig,
+		},
+		{
+			name: "default struct role becomes default coverage",
+			item: EvidenceItem{
+				Source:          "internal/types/config.go",
+				Scope:           ScopeFile,
+				GroundingStatus: GroundingGrounded,
+				FileRoleLabel:   FileRoleDefaultStruct,
+			},
+			want: EvidenceDiagramRoleDefault,
+		},
+		{
+			name: "cli registration role becomes override coverage",
+			item: EvidenceItem{
+				Source:          "cmd/root.go",
+				Scope:           ScopeFile,
+				GroundingStatus: GroundingGrounded,
+				FileRoleLabel:   FileRoleCLIRegistration,
+			},
+			want: EvidenceDiagramRoleOverride,
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := ConfigTraceCoverageRoleInFiles(contract, nil, tc.item); got != tc.want {
+				t.Fatalf("ConfigTraceCoverageRoleInFiles() = %q, want %q", got, tc.want)
+			}
+		})
+	}
+}
