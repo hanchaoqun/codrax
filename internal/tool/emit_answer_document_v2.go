@@ -11,12 +11,10 @@ import (
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
-// V2 carrier dispatch for emit_answer_document. B3 落地 — handled
-// behind a document_model="v2" gate; V1 path is unchanged.
+// Block-only carrier dispatch for emit_answer_document.
 //
 // Schema validation discipline (R2 / R12 from
 // docs/migration/block_only_carrier.md §3):
-//   - document_model MUST be exactly "v2"
 //   - blocks[] MUST be present and non-empty
 //   - every block.kind MUST be in AllAnswerBlockKinds()
 //   - every block.id MUST be non-empty
@@ -70,8 +68,8 @@ type emitAnswerDiagramV2 struct {
 	ClaimUses []types.RenderedClaimUse `json:"claim_uses,omitempty"`
 }
 
-// executeAnswerDocumentV2 handles document_model="v2" emits. It
-// validates the V2 schema, rejects mixed V1+V2 fields, and writes
+// executeAnswerDocumentV2 handles block-only emits. It validates the
+// schema, rejects mixed V1+V2 fields, and writes
 // the typed AnswerDocumentV2 to MutableState via
 // SetAnswerDocumentV2. The result Summary string mirrors V1's tone
 // so finalize_preview / orchestrator hooks render consistent
@@ -114,12 +112,12 @@ func executeAnswerDocumentV2(toolName string, ctx *types.BusContext, raw json.Ra
 		return failEmit(toolName, now, "invalid params: %v", err)
 	}
 
-	// v3.1 (2026-05-05): document_model is no longer surfaced to the
-	// LLM. The system runs only one carrier so any value (or absence)
-	// the LLM happens to emit is silently accepted — the dispatcher
-	// always routes to this executor and the typed model is hardcoded
-	// downstream. Future migration to a second carrier would re-introduce
-	// validation here.
+	// document_model is no longer surfaced to the LLM. The system
+	// runs only one carrier so any value (or absence) the model
+	// happens to emit is silently accepted — the dispatcher always
+	// routes to this executor and the typed model is hardcoded
+	// downstream. Future migration to a second carrier would
+	// re-introduce validation here.
 	if len(p.Blocks) == 0 {
 		return failEmit(toolName, now,
 			"blocks[] is required and must be non-empty")
@@ -422,6 +420,15 @@ var answerDocumentV2MisplacedHints = []MisplacedFieldHint{
 		ContainerNames: []string{"claim_use", "claim_uses"},
 		CorrectPaths: []string{
 			"items[i].citation_ref (anchor scalar / decision blocks via a one-element items=[{citation_ref:N}])",
+		},
+	},
+	{
+		Field:          "facet_ids",
+		ContainerNames: []string{"claim_use", "claim_uses"},
+		CorrectPaths: []string{
+			"blocks[i].facet_ids (plural, block-level coverage list)",
+			"items[i].claim_use.facet_id (singular, per-item claim annotation)",
+			"blocks[i].claim_uses[j].facet_id (singular, block-level claim annotation)",
 		},
 	},
 	// V1 carrier residue: scalar blocks used to carry value{literal,

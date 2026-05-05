@@ -52,10 +52,11 @@ var ProjectSpecificIdentifierBlocklist = []string{
 //
 // Guidance for writers: if you need to reference an internal concept
 // in a prompt, either
-//   (a) rephrase in user-facing language (e.g. "AnalysisIR" → "the
-//       analysis contract"; "TaskGraph" → "the evidence plan"), or
-//   (b) extend the vocabulary here with a new abstract name and keep
-//       the original token off-limits.
+//
+//	(a) rephrase in user-facing language (e.g. "AnalysisIR" → "the
+//	    analysis contract"; "TaskGraph" → "the evidence plan"), or
+//	(b) extend the vocabulary here with a new abstract name and keep
+//	    the original token off-limits.
 //
 // Keep the list ordered by category so a reviewer can see the family
 // each token belongs to at a glance.
@@ -229,11 +230,9 @@ var InternalTermsBlocklist = []string{
 	"Session 22",
 
 	// v3.1 (2026-05-05) — internal carrier-version concepts. The
-	// LLM emits document_model="v2" (lowercase enum string) but does
-	// not need to know the system has a V1/V2 versioning history.
-	// "V1 carrier" / "V2 carrier" leak the migration concept; replace
-	// with neutral protocol language ("the answer is expressed through
-	// blocks[] only" / "document_model must equal \"v2\"").
+	// external contract is now simply "answer is expressed through
+	// blocks[] only". "V1 carrier" / "V2 carrier" leak migration
+	// history the model does not need to reason about.
 	"V1 carrier",
 	"V2 carrier",
 	"V1 dispatch",

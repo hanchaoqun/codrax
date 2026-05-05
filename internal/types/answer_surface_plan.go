@@ -697,9 +697,12 @@ func RenderLinearDiagramFence(nodes []string, limit int) string {
 	return renderMermaidLinearFence(out)
 }
 
-// renderMermaidLinearFence builds a flowchart LR with `id1 --> id2`
-// edges chaining the nodes in order. Nodes with non-identifier
-// characters get a synthetic short id and a quoted label.
+// renderMermaidLinearFence builds a flowchart TD with `id1 --> id2`
+// edges chaining the nodes in order. Vertical is the default because
+// code-bearing labels (file:line / symbol tails / role prose) are
+// often wider than they are tall; LR quickly overflows terminals and
+// decks. Nodes with non-identifier characters get a synthetic short
+// id and a quoted label.
 func renderMermaidLinearFence(nodes []string) string {
 	type rendered struct {
 		id   string
@@ -712,7 +715,7 @@ func renderMermaidLinearFence(nodes []string) string {
 	}
 	var b strings.Builder
 	b.WriteString("```mermaid\n")
-	b.WriteString("flowchart LR\n")
+	b.WriteString("flowchart TD\n")
 	for _, p := range prepared {
 		if p.decl != "" {
 			b.WriteString("    ")
@@ -842,7 +845,7 @@ func RenderLogDiagramFence(bundle *LogBundle) string {
 	}
 	var b strings.Builder
 	b.WriteString("```mermaid\n")
-	b.WriteString("flowchart LR\n")
+	b.WriteString("flowchart TD\n")
 	for _, r := range rows {
 		fmt.Fprintf(&b, "    %s[%q]\n", r.id, r.label)
 	}
@@ -901,7 +904,7 @@ func RenderLogAnchorDiagramFence(anchors []LogSourceDriftAnchor) string {
 	}
 	var b strings.Builder
 	b.WriteString("```mermaid\n")
-	b.WriteString("flowchart LR\n")
+	b.WriteString("flowchart TD\n")
 	for _, r := range rows {
 		fmt.Fprintf(&b, "    %s[%q]\n", r.id, r.label)
 	}
@@ -2189,7 +2192,6 @@ func evidenceItemIsDrifted(item EvidenceItem) bool {
 	return false
 }
 
-
 // anchorDedupKey produces a stable dedup key for a derived anchor.
 func anchorDedupKey(a LogSourceDriftAnchor) string {
 	return fmt.Sprintf("%s|%s|%d|%d|%s|%s|%s",
@@ -2617,7 +2619,6 @@ func driftBoundedItemSeen(existing []EvidenceItem, candidate EvidenceItem) bool 
 	}
 	return false
 }
-
 
 func evidenceSurfaceSymbolTails(item EvidenceItem) []string {
 	var out []string

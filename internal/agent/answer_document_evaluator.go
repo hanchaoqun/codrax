@@ -427,7 +427,7 @@ func renderAnswerDocSubmissionChecklist(ctx *types.AgentContext, view *types.Ans
 			// preference here so this checklist agrees with the
 			// Diagram Contract section. ASCII art is a fallback
 			// only when the Mermaid subset cannot express the shape.
-			"This dispatch must include at least one grounded fenced diagram via a `diagram` block (preferred — `diagram.kind` ∈ flow / sequence / architecture / call_dag, `diagram.language=\"mermaid\"`) OR a fenced block embedded in the `summary` block's text. PREFERRED Mermaid: a ` ```mermaid ` fenced block using `flowchart` (LR / TD / RL / BT) or `sequenceDiagram` (the renderer applies a deterministic-alignment pass). ASCII art is the fallback only.",
+			"This dispatch must include at least one grounded fenced diagram via a `diagram` block (preferred — `diagram.kind` ∈ flow / sequence / architecture / call_dag, `diagram.language=\"mermaid\"`) OR a fenced block embedded in the `summary` block's text. PREFERRED Mermaid: for flow / architecture / call_dag use `flowchart TD` by default (switch direction only when it materially improves readability); for sequence use `sequenceDiagram`, but keep participant labels short because actors render horizontally. ASCII art is the fallback only.",
 			"When a `Diagram Seeds` / `First-Pass Diagram Reference` section is present, treat its grounded labels as a FLOOR you can extend, not a verbatim ceiling. You SHOULD add additional grounded nodes / branches / fan-out when your investigation supports a richer mechanism. The hard rule: every file/path label inside the fenced block stays grounded in citations[] or Log Triage frames.",
 			"Every file/path node you keep inside a fenced diagram must also be grounded by `citations[]` or by attached Log Triage frames in this dispatch. If a relationship lacks a grounded node label, explain it in prose instead of inventing a diagram node.",
 		)
@@ -1143,7 +1143,7 @@ func renderAnswerDocDiagramContract(dc *types.DiagramContract) string {
 		fmt.Fprintf(&b, "- Reasons: %s\n", strings.Join(dc.Reasons, ", "))
 	}
 	b.WriteString("- This requirement is independent of question family: if it says `Required: yes`, the dispatch must contain at least one grounded fenced diagram via a principal `diagram` block (preferred) or a fenced block embedded in the `summary` block's text.\n")
-	b.WriteString("- PREFERRED form: a ` ```mermaid ` fenced block using `flowchart` (LR / TD / RL / BT) or `sequenceDiagram`. The renderer applies a deterministic-alignment pass to Mermaid bodies so the diagram looks clean across terminals / locales / CJK content. ASCII art (a bare ``` fence with `+ - | > <` connectors) is the FALLBACK ONLY when the supported Mermaid subset cannot express the shape.\n")
+	b.WriteString("- PREFERRED form: a ` ```mermaid ` fenced block. For flow / architecture / call_dag families, default to `flowchart TD` and switch to LR / RL / BT only when that genuinely improves readability; vertical is preferred because code-bearing labels are often long. For `sequenceDiagram`, keep participant labels short and move detailed prose into messages / surrounding text because actors render horizontally. The renderer applies a deterministic-alignment pass to Mermaid bodies so the diagram looks clean across terminals / locales / CJK content. ASCII art (a bare ``` fence with `+ - | > <` connectors) is the FALLBACK ONLY when the supported Mermaid subset cannot express the shape.\n")
 	b.WriteString("- Reuse grounded labels directly inside the fence. Do not rename, normalize, or abstract a cited file / symbol / path literal into a different label unless that alternate label is itself grounded in citations or log frames.\n")
 	b.WriteString("- Avoid invented enumeration labels like `Level 1`, `Round 2`, or `Step 3` unless those exact labels appear in grounded evidence.\n\n")
 	return b.String()
@@ -1205,13 +1205,13 @@ func renderAnswerDocFirstPassDiagramSkeleton(ctx *types.AgentContext) string {
 	// seed shape. The reframing below presents the skeleton as a
 	// GROUNDED FLOOR (every node here is already evidence-grounded)
 	// rather than a CEILING: the model is explicitly authorised to
-	// add nodes, change `flowchart LR` to `TD`, introduce branches /
+	// add nodes, change `flowchart TD` to LR / RL / BT when needed, introduce branches /
 	// fan-out, or switch to `sequenceDiagram` — the only hard rule
 	// being that every label remains grounded in citations[] or
 	// Log Triage frames.
 	b.WriteString("Below is a grounded starting reference — every node listed here is already corroborated by evidence in this dispatch, and some scenarios may supply prevalidated role labels whose supporting anchors are listed elsewhere in the prompt. Use it as a FLOOR, not a ceiling:\n\n")
 	b.WriteString("- You SHOULD extend it with additional grounded nodes when the investigation supports a richer mechanism (e.g. more call-chain hops, branch points, fan-out, error paths).\n")
-	b.WriteString("- You MAY change the direction (`flowchart LR` ↔ `TD` / `RL` / `BT`), introduce subgraph-like clusters as flat nodes, or switch to `sequenceDiagram` if actor-to-actor better fits the mechanism — none of these are forbidden.\n")
+	b.WriteString("- You MAY change the direction (`flowchart TD` ↔ `LR` / `RL` / `BT`), introduce subgraph-like clusters as flat nodes, or switch to `sequenceDiagram` if actor-to-actor better fits the mechanism — none of these are forbidden.\n")
 	b.WriteString("- You MAY add branches / fan-out / multi-source / multi-sink shapes; the linear chain in the reference is just the safest default skeleton, not a structural requirement.\n")
 	b.WriteString("- HARD RULE: every node label must remain grounded in citations[] or Log Triage frames. Renaming an existing node, abstracting it, or inventing a node without grounded backing is rejected by the diagram-grounding gate.\n\n")
 	b.WriteString(fence)

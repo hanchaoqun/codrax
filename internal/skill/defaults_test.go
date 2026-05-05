@@ -117,6 +117,27 @@ func TestFinalizerSkill_TeachesTypedDiagramRelationAuthority(t *testing.T) {
 	}
 }
 
+func TestFinalizerSkill_ClarifiesFacetIDAndVerticalDiagramPreference(t *testing.T) {
+	r := NewRegistry()
+	RegisterDefaults(r)
+
+	sk, err := r.Get("answer-document-skill")
+	if err != nil {
+		t.Fatalf("Get(answer-document-skill) returned error: %v", err)
+	}
+	blob := strings.Join(append([]string{sk.Goal, sk.OutputFormat}, sk.Workflow...), "\n")
+	for _, want := range []string{
+		"claim annotations use singular `facet_id`",
+		"plural `facet_ids` belongs on the block",
+		"`flowchart TD` by default",
+		"keep participant labels short because actors render horizontally",
+	} {
+		if !strings.Contains(blob, want) {
+			t.Fatalf("answer-document-skill missing clarified V2 contract guidance %q:\n%s", want, blob)
+		}
+	}
+}
+
 func TestExtractSkill_DoesNotTeachLegacySymbolsArray(t *testing.T) {
 	r := NewRegistry()
 	RegisterDefaults(r)
@@ -132,6 +153,7 @@ func TestExtractSkill_DoesNotTeachLegacySymbolsArray(t *testing.T) {
 		"shape-based prompt",
 		"Mechanism-shape answers",
 		"mechanism-shaped",
+		"enumeration / call-chain (the slate IS the answer)",
 	} {
 		if strings.Contains(blob, banned) {
 			t.Fatalf("extract-skill must not teach legacy symbols[] payload wording %q:\n%s", banned, blob)
@@ -143,6 +165,7 @@ func TestExtractSkill_DoesNotTeachLegacySymbolsArray(t *testing.T) {
 		"downstream rendering answers from prose / blocks only",
 		"sub_topics ≥ 1 — emit ONE anchor symbol per sub-topic as a skeleton",
 		"Requested Set Boundary block declares an explicit count N",
+		"Plain single-topic call-chain / root-cause / mechanism questions WITHOUT case (c) do NOT use emit_answer_symbol",
 	} {
 		if !strings.Contains(blob, want) {
 			t.Fatalf("extract-skill missing updated answer-symbol slate guidance %q:\n%s", want, blob)

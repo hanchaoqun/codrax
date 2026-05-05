@@ -1829,9 +1829,13 @@ func validateEnumerationItemLabelGrounding(doc *types.AnswerDocumentV2, mut *typ
 // the real method names checkCoverage / checkDAGClosure / etc.
 //
 // Trigger conditions (all required, R3 typed):
-//   - mut != nil and view.Family is enumeration-shaped
-//     (QFEnumeration / QFCallChain — both render principal
-//     ordered_list with verbatim identifiers)
+//   - mut != nil and the view carries an extractor-backed
+//     identifier slate obligation:
+//   - QFEnumeration always qualifies
+//   - non-enumeration families qualify only when the typed
+//     FacetCoverage includes FacetEnumerationItem (today this is
+//     the bounded-principal-set path for call-chain /
+//     root-cause-trace questions)
 //   - extractor emitted at least 3 AnswerSymbols (small slates
 //     are noise-prone; below 3 the LLM may legitimately choose
 //     framing labels)
@@ -1855,7 +1859,7 @@ func validateEnumerationItemLabelExtractorMatch(doc *types.AnswerDocumentV2, vie
 	if doc == nil || view == nil || mut == nil {
 		return nil
 	}
-	if view.Family != types.QFEnumeration && view.Family != types.QFCallChain {
+	if !viewNeedsExtractorBackedEnumerationSlate(view) {
 		return nil
 	}
 	symbols, _ := mut.EmittedAnswerSymbols()
@@ -1959,6 +1963,24 @@ func validateEnumerationItemLabelExtractorMatch(doc *types.AnswerDocumentV2, vie
 		})
 	}
 	return out
+}
+
+func viewNeedsExtractorBackedEnumerationSlate(view *types.AnswerSemanticView) bool {
+	if view == nil {
+		return false
+	}
+	if view.Family == types.QFEnumeration {
+		return true
+	}
+	if view.FacetCoverage == nil {
+		return false
+	}
+	for _, req := range view.FacetCoverage.Required {
+		if req.Kind == types.FacetEnumerationItem {
+			return true
+		}
+	}
+	return false
 }
 
 // buildEvidenceLabelSupportTokens collects every ground-able token

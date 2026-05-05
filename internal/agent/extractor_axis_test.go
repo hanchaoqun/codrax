@@ -57,7 +57,10 @@ func TestAnswerSymbolCorrelatesWithEvidence_Range(t *testing.T) {
 // call-anchored item. The validator should fire.
 func TestAxisAnchorRetryHint_RegressionCase(t *testing.T) {
 	ir := &types.AnalysisIR{
-		RequestModel: types.RequestModel{PredicateAxis: types.AxisCall},
+		RequestModel: types.RequestModel{
+			Intent:        types.IntentEnumerate,
+			PredicateAxis: types.AxisCall,
+		},
 	}
 	evidence := []types.EvidenceItem{
 		{
@@ -116,7 +119,10 @@ func TestAxisAnchorRetryHint_RegressionCase(t *testing.T) {
 // LLM picked a call-anchored symbol → no retry hint.
 func TestAxisAnchorRetryHint_AlignedPicksPass(t *testing.T) {
 	ir := &types.AnalysisIR{
-		RequestModel: types.RequestModel{PredicateAxis: types.AxisCall},
+		RequestModel: types.RequestModel{
+			Intent:        types.IntentEnumerate,
+			PredicateAxis: types.AxisCall,
+		},
 	}
 	evidence := []types.EvidenceItem{
 		{
@@ -142,7 +148,10 @@ func TestAxisAnchorRetryHint_AlignedPicksPass(t *testing.T) {
 // the validator must silently pass — no regression for pre-L1 paths.
 func TestAxisAnchorRetryHint_UnknownAxisNoOp(t *testing.T) {
 	ir := &types.AnalysisIR{
-		RequestModel: types.RequestModel{PredicateAxis: types.AxisUnknown},
+		RequestModel: types.RequestModel{
+			Intent:        types.IntentEnumerate,
+			PredicateAxis: types.AxisUnknown,
+		},
 	}
 	mut := types.NewMutableState("")
 	mut.SetRequestModel(ir.RequestModel)
@@ -164,7 +173,10 @@ func TestAxisAnchorRetryHint_UnknownAxisNoOp(t *testing.T) {
 // non-matching anchors — validator must pass.
 func TestAxisAnchorRetryHint_NoMatchingEvidenceNoOp(t *testing.T) {
 	ir := &types.AnalysisIR{
-		RequestModel: types.RequestModel{PredicateAxis: types.AxisCall},
+		RequestModel: types.RequestModel{
+			Intent:        types.IntentEnumerate,
+			PredicateAxis: types.AxisCall,
+		},
 	}
 	mut := types.NewMutableState("")
 	mut.SetRequestModel(ir.RequestModel)

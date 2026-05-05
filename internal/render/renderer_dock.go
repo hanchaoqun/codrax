@@ -77,7 +77,7 @@ func (r *Renderer) handleEvent(ev Event) {
 		}
 		line := formatReasoning(string(ev.Agent), ev.Iteration, ev.Reasoning)
 		if !r.dockEnabled && r.dock == nil {
-			fmt.Fprintln(r.outputWriter(), line)
+			r.handleEventNonTTY(ev)
 			return
 		}
 		r.commitLineLocked(line)
@@ -91,7 +91,7 @@ func (r *Renderer) handleEvent(ev Event) {
 			return
 		}
 		if !r.dockEnabled && r.dock == nil {
-			fmt.Fprint(r.outputWriter(), block)
+			r.handleEventNonTTY(ev)
 			return
 		}
 		r.commitMultilineLocked(block)
@@ -101,7 +101,7 @@ func (r *Renderer) handleEvent(ev Event) {
 		line := formatPhaseProgressLine(r.lang, ev.PhaseIndex, ev.PhaseTotal,
 			ev.PhaseProgressKind, ev.PhaseDetail)
 		if !r.dockEnabled && r.dock == nil {
-			fmt.Fprintln(r.outputWriter(), line)
+			r.handleEventNonTTY(ev)
 			return
 		}
 		r.commitLineLocked(line)
@@ -535,9 +535,9 @@ func (r *Renderer) handleEvent(ev Event) {
 			kind:   activitySwitchingProvider,
 			detail: ev.FallbackTo,
 		}
-		body := fmt.Sprintf("切换 provider · %s → %s", ev.FallbackFrom, ev.FallbackTo)
+		body := fmt.Sprintf("切换 LLM 服务 %s → %s", ev.FallbackFrom, ev.FallbackTo)
 		if !isZh(r.lang) {
-			body = fmt.Sprintf("provider fallback · %s → %s", ev.FallbackFrom, ev.FallbackTo)
+			body = fmt.Sprintf("switched LLM provider %s → %s", ev.FallbackFrom, ev.FallbackTo)
 		}
 		line := formatCommitRow(commitRow{
 			kind: commitRowRetry,
@@ -614,10 +614,10 @@ func (r *Renderer) commitLineLocked(line string) {
 	if line == "" {
 		return
 	}
-	mirrorDockLineToLog(line)
 	if r.dock == nil {
 		return
 	}
+	mirrorDockLineToLog(line)
 	rows := r.composeCurrentDockRows()
 	r.dock.commitToScrollback(line+"\n", rows)
 }
@@ -634,10 +634,10 @@ func (r *Renderer) commitMultilineLocked(body string) {
 	if body == "" {
 		return
 	}
-	mirrorDockBlockToLog(body)
 	if r.dock == nil {
 		return
 	}
+	mirrorDockBlockToLog(body)
 	rows := r.composeCurrentDockRows()
 	r.dock.commitToScrollback(body, rows)
 }
@@ -1018,10 +1018,10 @@ func formatSubTopicsBlock(lang string, taskNodes []TaskNodeInfo) string {
 //
 // Layout:
 //
-//	  多阶段方案识别到 3 个 phase：
-//	    ① 添加迁移
-//	    ② 更新 ORM
-//	    ③ 弃用旧字段
+//	多阶段方案识别到 3 个 phase：
+//	  ① 添加迁移
+//	  ② 更新 ORM
+//	  ③ 弃用旧字段
 func formatPhaseGroupBlock(lang string, phases []PhaseInfo) string {
 	if len(phases) == 0 {
 		return ""
@@ -1149,6 +1149,9 @@ func (r *Renderer) handleEventNonTTY(ev Event) {
 			r.emitNonTTYLine(fmt.Sprintf("✓ %s", ev.NodeKind))
 		}
 	case EventAnalysisReady:
+		if row := r.findFinishedStageRowAt("analyze", ev.Timestamp); row != nil {
+			r.emitNonTTYLine(fmt.Sprintf("✓ %s", row.stage))
+		}
 		if block := formatSubTopicsBlock(r.lang, ev.TaskNodes); block != "" {
 			fmt.Fprint(r.outputWriter(), block)
 			mirrorDockBlockToLog(block)
@@ -1194,6 +1197,22 @@ func (r *Renderer) handleEventNonTTY(ev Event) {
 		r.emitNonTTYLine(formatPhaseProgressLine(r.lang, ev.PhaseIndex, ev.PhaseTotal,
 			ev.PhaseProgressKind, ev.PhaseDetail))
 	}
+}
+
+func (r *Renderer) findFinishedStageRowAt(stage string, ts time.Time) *taskRow {
+	for i := len(r.tasks) - 1; i >= 0; i-- {
+		row := r.tasks[i]
+		if row == nil || row.isNodeRow || row.isSubAgent {
+			continue
+		}
+		if row.stage != stage {
+			continue
+		}
+		if row.endTime.Equal(ts) {
+			return row
+		}
+	}
+	return nil
 }
 
 // emitNonTTYLine writes a single line to stdout AND mirrors it to

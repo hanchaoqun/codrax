@@ -21,7 +21,6 @@ func newV2TestBusContext() *types.BusContext {
 // helper: minimal V2 emit JSON with one summary block.
 func minimalV2EmitJSON() json.RawMessage {
 	return json.RawMessage(`{
-		"document_model": "v2",
 		"blocks": [
 			{"id": "b1", "kind": "summary", "text": "Hello"}
 		]
@@ -48,8 +47,8 @@ func TestEmitAnswerDocumentV2_NoDocumentModelDoesNotWriteV2(t *testing.T) {
 func TestEmitAnswerDocumentV2_EmptyDocumentModelDoesNotWriteV2(t *testing.T) {
 	bus := newV2TestBusContext()
 	tool := &EmitAnswerDocument{}
-	// Explicit empty document_model — pre-PR5 this routed V1 (B3
-	// design); with V1 retired, the call still must not write V2.
+	// Explicit empty document_model should not resurrect any legacy
+	// routing; mixed V1 top-level payload still must not write V2.
 	emptyJSON := json.RawMessage(`{"document_model": "", "shape": "explanation", "summary": "hi"}`)
 	res, err := tool.Execute(bus, emptyJSON)
 	if err != nil {
@@ -87,7 +86,6 @@ func TestEmitAnswerDocumentV2_AcceptsOrderedListItemKind(t *testing.T) {
 	bus := newV2TestBusContext()
 	tool := &EmitAnswerDocument{}
 	payload := json.RawMessage(`{
-		"document_model": "v2",
 		"blocks": [
 			{"id": "list1", "kind": "ordered_list", "items": [
 				{"id": "i1", "kind": "principal", "label": "A", "text": "alpha"},
@@ -117,9 +115,8 @@ func TestEmitAnswerDocumentV2_AcceptsOrderedListItemKind(t *testing.T) {
 func TestEmitAnswerDocumentV2_RejectsV1FieldsAtTopLevel(t *testing.T) {
 	bus := newV2TestBusContext()
 	tool := &EmitAnswerDocument{}
-	// document_model="v2" with V1 'shape' field at top-level → reject.
+	// Legacy top-level V1 field mixed into the block-only carrier → reject.
 	mixed := json.RawMessage(`{
-		"document_model": "v2",
 		"shape": "explanation",
 		"blocks": [{"id":"b1","kind":"summary","text":"x"}]
 	}`)
@@ -144,7 +141,7 @@ func TestEmitAnswerDocumentV2_RejectsV1FieldsAtTopLevel(t *testing.T) {
 func TestEmitAnswerDocumentV2_RejectsEmptyBlocks(t *testing.T) {
 	bus := newV2TestBusContext()
 	tool := &EmitAnswerDocument{}
-	emptyBlocks := json.RawMessage(`{"document_model": "v2", "blocks": []}`)
+	emptyBlocks := json.RawMessage(`{"blocks": []}`)
 	res, _ := tool.Execute(bus, emptyBlocks)
 	if res.Success {
 		t.Fatal("expected empty blocks[] to be rejected")
@@ -155,7 +152,6 @@ func TestEmitAnswerDocumentV2_RejectsMissingBlockID(t *testing.T) {
 	bus := newV2TestBusContext()
 	tool := &EmitAnswerDocument{}
 	bad := json.RawMessage(`{
-		"document_model": "v2",
 		"blocks": [{"kind": "summary", "text": "x"}]
 	}`)
 	res, _ := tool.Execute(bus, bad)
@@ -171,7 +167,6 @@ func TestEmitAnswerDocumentV2_RejectsInvalidBlockKind(t *testing.T) {
 	bus := newV2TestBusContext()
 	tool := &EmitAnswerDocument{}
 	bad := json.RawMessage(`{
-		"document_model": "v2",
 		"blocks": [{"id":"b1","kind":"bogus_kind","text":"x"}]
 	}`)
 	res, _ := tool.Execute(bus, bad)
@@ -192,7 +187,6 @@ func TestEmitAnswerDocumentV2_RejectsDuplicateBlockIDs(t *testing.T) {
 	bus := newV2TestBusContext()
 	tool := &EmitAnswerDocument{}
 	dup := json.RawMessage(`{
-		"document_model": "v2",
 		"blocks": [
 			{"id":"x","kind":"summary","text":"a"},
 			{"id":"x","kind":"summary","text":"b"}
@@ -208,7 +202,6 @@ func TestEmitAnswerDocumentV2_DiagramBlockRequiresPayload(t *testing.T) {
 	bus := newV2TestBusContext()
 	tool := &EmitAnswerDocument{}
 	noPayload := json.RawMessage(`{
-		"document_model": "v2",
 		"blocks": [{"id":"d1","kind":"diagram","text":"x"}]
 	}`)
 	res, _ := tool.Execute(bus, noPayload)
@@ -302,16 +295,12 @@ func TestRepairBlocksAsString_NoTrigger(t *testing.T) {
 // through verbatim.
 func TestRepairBlocksAsString_PreservesOtherFields(t *testing.T) {
 	raw := json.RawMessage(`{
-		"document_model": "v2",
 		"caveats": ["a","b"],
 		"blocks": "[{\"id\":\"b1\",\"kind\":\"summary\"}]"
 	}`)
 	patched, ok := repairBlocksAsString(raw)
 	if !ok {
 		t.Fatal("repair did not fire")
-	}
-	if !strings.Contains(string(patched), `"document_model":"v2"`) {
-		t.Errorf("document_model lost: %s", patched)
 	}
 	if !strings.Contains(string(patched), `"caveats":["a","b"]`) {
 		t.Errorf("caveats lost: %s", patched)
@@ -393,7 +382,6 @@ func TestEmitAnswerDocumentV2_FlatModeRejectsMixedV1FieldsAfterRepair(t *testing
 	bus := newV2TestBusContext()
 	tool := &EmitAnswerDocument{}
 	mixed := json.RawMessage(`{
-		"document_model": "v2",
 		"shape": "explanation",
 		"blocks": "[{\"id\":\"b1\",\"kind\":\"summary\"}]"
 	}`)
@@ -410,7 +398,6 @@ func TestEmitAnswerDocumentV2_FlatModeRejectsMixedV1FieldsAfterRepair(t *testing
 // blocks[] coverage).
 func TestRepairNestedArraysAsString_ItemsAsString(t *testing.T) {
 	raw := json.RawMessage(`{
-		"document_model": "v2",
 		"blocks": [
 			{"id": "list1", "kind": "ordered_list",
 			 "items": "[{\"id\":\"i1\",\"label\":\"A\"},{\"id\":\"i2\",\"label\":\"B\"}]"}
@@ -433,7 +420,6 @@ func TestRepairNestedArraysAsString_ItemsAsString(t *testing.T) {
 // per-block claim_uses[] string-encoded case.
 func TestRepairNestedArraysAsString_ClaimUsesAsString(t *testing.T) {
 	raw := json.RawMessage(`{
-		"document_model": "v2",
 		"blocks": [
 			{"id": "s1", "kind": "summary",
 			 "claim_uses": "[{\"claim_form\":\"definition_fact\"}]"}
@@ -452,7 +438,6 @@ func TestRepairNestedArraysAsString_ClaimUsesAsString(t *testing.T) {
 // nested-deeper diagram.claim_uses[] case.
 func TestRepairNestedArraysAsString_DiagramClaimUses(t *testing.T) {
 	raw := json.RawMessage(`{
-		"document_model": "v2",
 		"blocks": [
 			{"id": "d1", "kind": "diagram",
 			 "diagram": {"kind": "flow", "body": "flowchart TD\nA-->B",
@@ -472,7 +457,6 @@ func TestRepairNestedArraysAsString_DiagramClaimUses(t *testing.T) {
 // repair handles multiple nested-string sites in one emit.
 func TestRepairNestedArraysAsString_MultipleAtOnce(t *testing.T) {
 	raw := json.RawMessage(`{
-		"document_model": "v2",
 		"blocks": [
 			{"id": "list1", "kind": "ordered_list",
 			 "items": "[{\"id\":\"i1\",\"label\":\"A\"}]",
@@ -524,7 +508,6 @@ func TestEmitAnswerDocumentV2_NestedFlatModeAccepts(t *testing.T) {
 	bus := newV2TestBusContext()
 	tool := &EmitAnswerDocument{}
 	flat := json.RawMessage(`{
-		"document_model": "v2",
 		"blocks": [
 			{"id": "list1", "kind": "ordered_list",
 			 "items": "[{\"id\":\"i1\",\"label\":\"first\"},{\"id\":\"i2\",\"label\":\"second\"}]"}
@@ -557,7 +540,6 @@ func TestEmitAnswerDocumentV2_CitationRefInsideClaimUseRemapped(t *testing.T) {
 	bus := newV2TestBusContext()
 	tool := &EmitAnswerDocument{}
 	misplaced := json.RawMessage(`{
-		"document_model": "v2",
 		"blocks": [{
 			"id": "b1",
 			"kind": "summary",
@@ -577,6 +559,39 @@ func TestEmitAnswerDocumentV2_CitationRefInsideClaimUseRemapped(t *testing.T) {
 	} {
 		if !strings.Contains(res.Summary, want) {
 			t.Errorf("error message missing %q (Phase 1-B remap broken); got: %s", want, res.Summary)
+		}
+	}
+}
+
+// TestEmitAnswerDocumentV2_FacetIDsInsideClaimUseRemapped pins the
+// recurring V2 retry failure where the model copies block.facet_ids
+// into claim_uses[] as a plural field. The schema only allows
+// singular facet_id on each claim annotation object; plural facet_ids
+// belongs on the block itself.
+func TestEmitAnswerDocumentV2_FacetIDsInsideClaimUseRemapped(t *testing.T) {
+	bus := newV2TestBusContext()
+	tool := &EmitAnswerDocument{}
+	misplaced := json.RawMessage(`{
+		"blocks": [{
+			"id": "b1",
+			"kind": "summary",
+			"text": "x",
+			"claim_uses": [{"claim_form": "definition_fact", "facet_ids": ["resolved_literal_or_symbol"]}]
+		}]
+	}`)
+	res, _ := tool.Execute(bus, misplaced)
+	if res.Success {
+		t.Fatal("expected misplaced facet_ids reject")
+	}
+	for _, want := range []string{
+		`field "facet_ids"`,
+		"blocks[i].facet_ids",
+		"items[i].claim_use.facet_id",
+		"blocks[i].claim_uses[j].facet_id",
+		"NOT inside",
+	} {
+		if !strings.Contains(res.Summary, want) {
+			t.Errorf("error message missing %q; got: %s", want, res.Summary)
 		}
 	}
 }

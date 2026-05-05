@@ -224,61 +224,69 @@ func (e *extractorEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk
 			b.WriteString("\n")
 		}
 
-		// Cardinality baseline — β + γ + effective floor. This is
-		// still rendered inline because it is dynamic (depends on
-		// this dispatch's Turn A count and the analyzer's MustInclude
-		// list), even though the honesty-contract EXPLANATION lives
-		// in the skill config.
-		b.WriteString("### Cardinality baseline (for completeness claim)\n\n")
-		fmt.Fprintf(&b, "- **Investigation terminal-evidence count:** %d\n", ta.TerminalEvidenceCount)
-		if ctx != nil && ctx.AnalysisIR != nil {
-			must := ctx.AnalysisIR.AnswerContract.MustInclude
-			fmt.Fprintf(&b, "- **Analyzer must-include count:** %d name(s)", len(must))
-			if len(must) > 0 {
-				fmt.Fprintf(&b, " — %s", strings.Join(must, ", "))
+		if needsAnswerSymbols(ctx) {
+			// Cardinality baseline — β + γ + effective floor. This is
+			// still rendered inline because it is dynamic (depends on
+			// this dispatch's Turn A count and the analyzer's MustInclude
+			// list), even though the honesty-contract EXPLANATION lives
+			// in the skill config. Only render it when this dispatch
+			// actually expects an answer-symbol slate; showing a
+			// completeness floor on plain call-chain/mechanism questions
+			// pushes the model toward an unnecessary emit_answer_symbol.
+			b.WriteString("### Cardinality baseline (for completeness claim)\n\n")
+			fmt.Fprintf(&b, "- **Investigation terminal-evidence count:** %d\n", ta.TerminalEvidenceCount)
+			if ctx != nil && ctx.AnalysisIR != nil {
+				must := ctx.AnalysisIR.AnswerContract.MustInclude
+				fmt.Fprintf(&b, "- **Analyzer must-include count:** %d name(s)", len(must))
+				if len(must) > 0 {
+					fmt.Fprintf(&b, " — %s", strings.Join(must, ", "))
+				}
+				b.WriteString("\n")
+				baseline := ta.TerminalEvidenceCount
+				if len(must) > baseline {
+					baseline = len(must)
+				}
+				if boundary := requestedEnumerationBoundary(ctx); boundary != nil {
+					baseline = boundary.DeclaredCount
+					fmt.Fprintf(&b, "- **Requested set boundary override:** %d item(s) from `%s`\n", boundary.DeclaredCount, boundary.SourceQuote)
+					b.WriteString("- **Effective floor (bounded principal set overrides the wider evidence floor):** ")
+				} else {
+					b.WriteString("- **Effective floor (the larger of the two):** ")
+				}
+				fmt.Fprintf(&b, "%d\n", baseline)
+				if baseline > 0 {
+					fmt.Fprintf(&b, "\nIf you claim `complete`, your `emit_answer_symbol` batch MUST have ≥ %d items. ",
+						baseline)
+					b.WriteString("If you cannot reach that floor, emit what you have and choose `lower_bound`.\n")
+				} else {
+					b.WriteString("\nNo baseline data — your claim will be trusted as-is.\n")
+				}
+				// Plan E (2026-05-02) — surface CompletenessObligation +
+				// Buckets to the extractor prompt so the LLM knows up
+				// front that lower_bound is forbidden under exhaustive
+				// demands, and that symbols must be distributable across
+				// user-named buckets.
+				if ctx.AnalysisIR != nil {
+					rm := ctx.AnalysisIR.RequestModel
+					if rm.CompletenessObligation.IsActive() {
+						fmt.Fprintf(&b, "- **Exhaustive demand:** the user asked for every match (`%s` in the question). `completeness=lower_bound` is REJECTED — use `complete` when you have grounded all matches, or `unknown` when the investigation could not determine the full set.\n",
+							rm.CompletenessObligation.SourceQuote)
+					}
+					if len(rm.Buckets) >= 2 {
+						labels := make([]string, 0, len(rm.Buckets))
+						for _, bk := range rm.Buckets {
+							labels = append(labels, fmt.Sprintf("`%s`", bk.Label))
+						}
+						fmt.Fprintf(&b, "- **User-named partition:** the user split the answer into %d named groups: %s. Each symbol's `rationale` should name which bucket it belongs to so downstream rendering can section the slate.\n",
+							len(rm.Buckets), strings.Join(labels, ", "))
+					}
+				}
 			}
 			b.WriteString("\n")
-			baseline := ta.TerminalEvidenceCount
-			if len(must) > baseline {
-				baseline = len(must)
-			}
-			if boundary := requestedEnumerationBoundary(ctx); boundary != nil {
-				baseline = boundary.DeclaredCount
-				fmt.Fprintf(&b, "- **Requested set boundary override:** %d item(s) from `%s`\n", boundary.DeclaredCount, boundary.SourceQuote)
-				b.WriteString("- **Effective floor (bounded principal set overrides the wider evidence floor):** ")
-			} else {
-				b.WriteString("- **Effective floor (the larger of the two):** ")
-			}
-			fmt.Fprintf(&b, "%d\n", baseline)
-			if baseline > 0 {
-				fmt.Fprintf(&b, "\nIf you claim `complete`, your `emit_answer_symbol` batch MUST have ≥ %d items. ",
-					baseline)
-				b.WriteString("If you cannot reach that floor, emit what you have and choose `lower_bound`.\n")
-			} else {
-				b.WriteString("\nNo baseline data — your claim will be trusted as-is.\n")
-			}
-			// Plan E (2026-05-02) — surface CompletenessObligation +
-			// Buckets to the extractor prompt so the LLM knows up
-			// front that lower_bound is forbidden under exhaustive
-			// demands, and that symbols must be distributable across
-			// user-named buckets.
-			if ctx.AnalysisIR != nil {
-				rm := ctx.AnalysisIR.RequestModel
-				if rm.CompletenessObligation.IsActive() {
-					fmt.Fprintf(&b, "- **Exhaustive demand:** the user asked for every match (`%s` in the question). `completeness=lower_bound` is REJECTED — use `complete` when you have grounded all matches, or `unknown` when the investigation could not determine the full set.\n",
-						rm.CompletenessObligation.SourceQuote)
-				}
-				if len(rm.Buckets) >= 2 {
-					labels := make([]string, 0, len(rm.Buckets))
-					for _, bk := range rm.Buckets {
-						labels = append(labels, fmt.Sprintf("`%s`", bk.Label))
-					}
-					fmt.Fprintf(&b, "- **User-named partition:** the user split the answer into %d named groups: %s. Each symbol's `rationale` should name which bucket it belongs to so downstream rendering can section the slate.\n",
-						len(rm.Buckets), strings.Join(labels, ", "))
-				}
-			}
+		} else {
+			b.WriteString("### Structured emit obligations\n\n")
+			b.WriteString("This dispatch does NOT require `emit_answer_symbol`. The principal answer will be rendered downstream from ordered_list / diagram / prose blocks, so do not manufacture a symbol slate just because the user asked for a call chain or mechanism walk. Only the multi-topic anchor skeleton path and the explicit Requested Set Boundary path activate `emit_answer_symbol`.\n\n")
 		}
-		b.WriteString("\n")
 	}
 
 	// -------- Multi-topic explanation skeleton guide --------
@@ -1033,6 +1041,14 @@ const axisStrongAffinityThreshold = 1.2
 // strict — canonicalised by the upstream grounder.
 func axisAnchorRetryHint(ctx *types.AgentContext) string {
 	if ctx == nil || ctx.Mutable == nil || ctx.AnalysisIR == nil {
+		return ""
+	}
+	if !needsAnswerSymbols(ctx) {
+		// Plain call-chain / mechanism questions render their
+		// principal payload downstream as ordered_list / diagram
+		// blocks. If the model emitted a stray answer-symbol slate
+		// anyway, do not reinforce that mistake with an axis-alignment
+		// retry hint.
 		return ""
 	}
 	if viewNeedsBoundedPrincipalList(ctx) {

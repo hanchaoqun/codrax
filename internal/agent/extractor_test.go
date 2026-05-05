@@ -522,6 +522,9 @@ func TestExtractor_BuildPrompt_DigestsTurnAArtifacts(t *testing.T) {
 		Objective: "which handlers register Foo?",
 		Mutable:   mu,
 		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				Intent: types.IntentEnumerate,
+			},
 			AnswerContract: types.AnswerContract{MustInclude: []string{"HandlerA", "HandlerB"}},
 		},
 	}
@@ -595,7 +598,7 @@ func TestExtractor_BuildPrompt_EnumerationBoundaryOverridesDisplayedFloor(t *tes
 				},
 			},
 			AnswerContract: types.AnswerContract{
-				MustInclude:         []string{"checkCoverage", "checkDAGClosure"},
+				MustInclude: []string{"checkCoverage", "checkDAGClosure"},
 			},
 		},
 	}
@@ -610,6 +613,35 @@ func TestExtractor_BuildPrompt_EnumerationBoundaryOverridesDisplayedFloor(t *tes
 	}
 	if !contains(prompt, "MUST have") || !contains(prompt, "7 items") {
 		t.Fatalf("prompt must reuse the requested boundary as the completeness floor, got %q", prompt)
+	}
+}
+
+func TestExtractor_BuildPrompt_PlainCallChainSkipsAnswerSymbolFloor(t *testing.T) {
+	mu := types.NewMutableState("")
+	mu.SetTurnAArtifacts(types.TurnAArtifacts{TerminalEvidenceCount: 12})
+	ctx := &types.AgentContext{
+		Objective: "trace buildAnalysisIR to gate.Run",
+		Mutable:   mu,
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				Intent: types.IntentTrace,
+			},
+			AnswerContract: types.AnswerContract{
+				MustInclude: []string{"compiler.Compile", "gate.RunWith"},
+			},
+		},
+	}
+
+	e := &extractorEvaluator{}
+	prompt := e.BuildInitialInstruction(ctx, nil)
+	if contains(prompt, "Cardinality baseline") {
+		t.Fatalf("plain call-chain prompt must not surface answer-symbol completeness floor: %q", prompt)
+	}
+	if contains(prompt, "emit_answer_symbol batch MUST have") {
+		t.Fatalf("plain call-chain prompt must not push emit_answer_symbol completeness rules: %q", prompt)
+	}
+	if !contains(prompt, "This dispatch does NOT require `emit_answer_symbol`") {
+		t.Fatalf("plain call-chain prompt must explicitly say emit_answer_symbol is inactive: %q", prompt)
 	}
 }
 
@@ -1208,8 +1240,7 @@ func TestExtractor_MultiTopicExplanationTriggersAnchorSkeleton(t *testing.T) {
 				{Summary: "SubExplorer execution path", Entities: []string{"SubExplorer"}},
 			},
 		},
-		AnswerContract: types.AnswerContract{
-		},
+		AnswerContract: types.AnswerContract{},
 	}
 	mut := types.NewMutableState("q")
 	mut.SetTurnAArtifacts(types.TurnAArtifacts{ReadFiles: []string{"a.go"}})
@@ -1244,8 +1275,7 @@ func TestExtractor_MultiTopicExplanationPromptReusesCompiledAnchorBackbone(t *te
 				{Summary: "Hypothesis 的角色", Entities: []string{"Hypothesis"}},
 			},
 		},
-		AnswerContract: types.AnswerContract{
-		},
+		AnswerContract: types.AnswerContract{},
 	}
 	mut := types.NewMutableState("q")
 	mut.SetTurnAArtifacts(types.TurnAArtifacts{ReadFiles: []string{"internal/types/analysis_ir.go"}})
@@ -1299,8 +1329,7 @@ func TestExtractor_BoundedPrincipalStepListPromptReusesCompiledCandidates(t *tes
 				SourceQuote:   "7 checks",
 			},
 		},
-		AnswerContract: types.AnswerContract{
-		},
+		AnswerContract: types.AnswerContract{},
 	}
 	mut := types.NewMutableState("q")
 	mut.SetTurnAArtifacts(types.TurnAArtifacts{ReadFiles: []string{"internal/analysis/gate/gate.go"}})

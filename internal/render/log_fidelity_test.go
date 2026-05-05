@@ -72,7 +72,7 @@ func TestLogFidelity_DockCommitsMirrorToInfo(t *testing.T) {
 	for _, want := range []string{
 		"[render]",
 		"demo question",
-		"已理解问题", // stage_phrase("analyze", "zh", done) — the actual zh label
+		"✓ analyze",
 	} {
 		if !strings.Contains(logs, want) {
 			t.Errorf("INFO log missing %q; full log:\n%s", want, logs)
@@ -188,5 +188,53 @@ func TestLogFidelity_NonTTYMirrors(t *testing.T) {
 		if !strings.Contains(logs, want) {
 			t.Errorf("non-TTY mirror missing %q; log:\n%s", want, logs)
 		}
+	}
+}
+
+func TestLogFidelity_NonTTYRetryDoesNotDoubleMirror(t *testing.T) {
+	getLogs := withTempLogger(t)
+
+	r := newTestRenderer("zh")
+	r.dockSuppressed = true
+	emit := r.Emitter()
+	t0 := time.Now()
+	emit(Event{
+		Kind:         EventAdapterRetry,
+		Timestamp:    t0,
+		RetryAttempt: 1,
+		RetryDelay:   2 * time.Second,
+		RetryReason:  "rate limit",
+	})
+
+	logs := getLogs()
+	if got := strings.Count(logs, "重新请求模型"); got != 1 {
+		t.Fatalf("non-TTY retry should mirror exactly once, got %d occurrences:\n%s", got, logs)
+	}
+	if strings.Contains(logs, "已重新请求模型") {
+		t.Fatalf("non-TTY retry should use the live retry wording only, not the dock scrollback wording:\n%s", logs)
+	}
+}
+
+func TestLogFidelity_NonTTYFallbackDoesNotDoubleMirror(t *testing.T) {
+	getLogs := withTempLogger(t)
+
+	r := newTestRenderer("zh")
+	r.dockSuppressed = true
+	emit := r.Emitter()
+	t0 := time.Now()
+	emit(Event{
+		Kind:         EventAdapterFallback,
+		Timestamp:    t0,
+		FallbackFrom: "provider-A",
+		FallbackTo:   "provider-B",
+		RetryReason:  "rate limit",
+	})
+
+	logs := getLogs()
+	if got := strings.Count(logs, "切换 LLM 服务"); got != 1 {
+		t.Fatalf("non-TTY fallback should mirror exactly once, got %d occurrences:\n%s", got, logs)
+	}
+	if strings.Contains(logs, "切换 provider") {
+		t.Fatalf("non-TTY fallback should not leak the dock scrollback wording:\n%s", logs)
 	}
 }

@@ -27,7 +27,6 @@ func TestUnifiedMutation_FullAndPatchProduceEquivalentMergedDocs(t *testing.T) {
 
 	// Step 1: full emit fresh doc.
 	fullJSON := json.RawMessage(`{
-		"document_model": "v2",
 		"blocks": [
 			{"id": "s1", "kind": "summary", "surface_role": "principal", "text": "final summary",
 			 "facet_ids": ["current_code_path"],

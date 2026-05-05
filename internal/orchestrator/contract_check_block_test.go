@@ -2064,6 +2064,18 @@ func enumView() *types.AnswerSemanticView {
 	return &types.AnswerSemanticView{Family: types.QFEnumeration}
 }
 
+func boundedCallChainView() *types.AnswerSemanticView {
+	return &types.AnswerSemanticView{
+		Family: types.QFCallChain,
+		FacetCoverage: &types.FacetCoverageContract{
+			Family: types.QFCallChain,
+			Required: []types.FacetRequirement{
+				{Kind: types.FacetEnumerationItem, Required: types.FacetHardRequired},
+			},
+		},
+	}
+}
+
 // All 9 items[].label literal-equal AnswerSymbols → no violation.
 func TestEnumerationItemLabelExtractorMatch_AllVerbatimPasses(t *testing.T) {
 	mut := mutWithSymbols("checkCoverage", "checkDAGClosure", "checkBudgetSanity",
@@ -2160,6 +2172,24 @@ func TestEnumerationItemLabelExtractorMatch_NonEnumFamilySkipped(t *testing.T) {
 	view := &types.AnswerSemanticView{Family: types.QFGeneric}
 	if vs := validateEnumerationItemLabelExtractorMatch(doc, view, mut); len(vs) != 0 {
 		t.Errorf("non-enumeration family MUST skip; got %+v", vs)
+	}
+}
+
+func TestEnumerationItemLabelExtractorMatch_PlainCallChainSkipped(t *testing.T) {
+	mut := mutWithSymbols("stepA", "stepB", "stepC")
+	doc := docWithEnumItems("list1", "placeholder 1", "placeholder 2", "placeholder 3")
+	view := &types.AnswerSemanticView{Family: types.QFCallChain}
+	if vs := validateEnumerationItemLabelExtractorMatch(doc, view, mut); len(vs) != 0 {
+		t.Errorf("plain call-chain without bounded enumeration facet MUST skip; got %+v", vs)
+	}
+}
+
+func TestEnumerationItemLabelExtractorMatch_BoundedCallChainStillChecksVerbatimNames(t *testing.T) {
+	mut := mutWithSymbols("stepA", "stepB", "stepC")
+	doc := docWithEnumItems("list1", "placeholder 1", "placeholder 2", "placeholder 3")
+	vs := validateEnumerationItemLabelExtractorMatch(doc, boundedCallChainView(), mut)
+	if len(vs) != 1 || vs[0].Kind != types.ViolEnumerationItemLabelExtractorDrift {
+		t.Fatalf("bounded call-chain should still enforce extractor-backed labels; got %+v", vs)
 	}
 }
 

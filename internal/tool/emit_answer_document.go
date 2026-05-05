@@ -17,13 +17,11 @@ var _ = time.Now // ensure time stays imported when failEmit moved
 // the struct into user-visible prose.
 //
 // B8-T3+T4 (block_only_carrier.md §5.8, 2026-05-03): V1 carrier
-// fully retired. Only document_model="v2" is accepted. B3-F1
-// (post_shape_retirement_consolidated_audit.md §8 Batch B3,
-// 2026-05-04) tightened the gate further: empty / missing
-// document_model is now rejected at the executor with an explicit
-// "document_model must equal \"v2\"" error so schema / executor /
-// type-level contract all say the same thing. The V2 schema is
-// enforced in executeAnswerDocumentV2 (emit_answer_document_v2.go).
+// fully retired. The external tool contract is now a single
+// block-only schema; callers supply `blocks[]` directly and do NOT
+// need to name a carrier version. The executor still tolerates a
+// legacy `document_model` field when present, but it is no longer
+// surfaced in the LLM-facing schema or required by callers.
 //
 // Classified ReadOnly because IsWrite() is the filesystem-write
 // boundary; mutating BusContext is not a filesystem write.
@@ -133,12 +131,10 @@ func (t *EmitAnswerDocument) Parameters() json.RawMessage {
 	return json.RawMessage(schema)
 }
 
-// Execute routes the emit to the V2 validator + writer. V1 carrier
-// is retired (B8-T3); B3-F1 (2026-05-04) tightened the contract so
-// empty / missing document_model is now an explicit fail-fast
-// rejection here at the dispatch boundary, not silently routed to
-// V2 to be rejected later by the executor — keeps schema /
-// dispatch / executor / type-level all saying the same thing.
+// Execute routes the emit to the block-only validator + writer.
+// V1 carrier is retired; there is only one external answer
+// contract now. Historical payloads may still include
+// `document_model`, but it is ignored rather than required.
 func (t *EmitAnswerDocument) Execute(ctx *types.BusContext, params json.RawMessage) (types.ToolResult, error) {
 	now := time.Now()
 	if ctx == nil || ctx.Mutable == nil {

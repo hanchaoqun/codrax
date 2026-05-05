@@ -49,10 +49,10 @@ import (
 // take down the LLM stream consumer that the byte-identity
 // invariant depends on.
 type finalizePreviewHook struct {
-	emit       render.EventEmitter
-	extractor  llm.SummaryExtractor
-	mu         sync.Mutex
-	buf        strings.Builder
+	emit      render.EventEmitter
+	extractor llm.SummaryExtractor
+	mu        sync.Mutex
+	buf       strings.Builder
 	// rawArgs accumulates the full streamed tool-call arguments
 	// (NOT just the extracted "summary" field). Populated alongside
 	// buf so V2 partial salvage can scan the raw JSON for V2 block
@@ -153,19 +153,18 @@ func (h *finalizePreviewHook) onToolCallDelta(index int, name string, argsChunk 
 // Without this, a connection drop mid-summary would discard 5-30 KB
 // of streamed prose and force the user to retry from scratch.
 //
-// V2 carrier note (B3, block_only_carrier.md §5.3 B3-T6):
-// The V1 SummaryExtractor recognises the `summary` JSON field at
-// the document's top level. V2 emits express the answer's lead-in
-// prose through a BlockSummary block whose `text` field carries the
-// equivalent prose; that text reaches this hook through the same
-// argsChunk stream but the V1 extractor does not key on it. As a
-// transitional measure, when the buffered text already contains
-// enough V2-shape signal, the V2 partial salvage helper below
-// drains BlockSummary.text instead. This lets a connection drop
-// mid-V2-emit still rescue the prose. B5 will replace this with a
-// proper V2-aware streaming extractor; B3's helper is the minimum
-// viable path so V2 emits don't silently lose preview / partial-
-// salvage parity with V1.
+// Block-only carrier note (B3, block_only_carrier.md §5.3 B3-T6):
+// The legacy SummaryExtractor recognises the old top-level
+// `summary` JSON field. The current block-only emit expresses the
+// lead-in prose through a summary block whose `text` field carries
+// the equivalent prose; that text reaches this hook through the
+// same argsChunk stream but the legacy extractor does not key on
+// it. As a transitional measure, when the buffered text already
+// contains enough block-only signal, the partial salvage helper
+// below drains the first summary block's `text`. This lets a
+// connection drop mid-emit still rescue the prose. A future
+// streaming extractor can replace this helper once the old path is
+// deleted entirely.
 //
 // Nil-safe (mirrors flush()): non-finalize stages pass nil hooks.
 func (h *finalizePreviewHook) Partial() string {
@@ -212,11 +211,12 @@ func (h *finalizePreviewHook) flush() {
 	})
 }
 
-// v2PartialFromArgsChunk extracts the first BlockSummary text from a
-// streamed V2 emit_answer_document tool-call argument string. Used
-// as a fallback when the V1 SummaryExtractor produced nothing — a
-// V2 emit has no top-level "summary" field so the V1 extractor
-// returns "" and the partial-salvage path needs another route.
+// v2PartialFromArgsChunk extracts the first summary-block text from a
+// streamed block-only emit_answer_document tool-call argument
+// string. Used as a fallback when the legacy SummaryExtractor
+// produced nothing — the block-only emit has no top-level "summary"
+// field so the old extractor returns "" and the partial-salvage
+// path needs another route.
 //
 // The implementation is a deliberately simple character-level
 // state machine: it scans for the first "blocks" array, then within
@@ -224,10 +224,10 @@ func (h *finalizePreviewHook) flush() {
 // then captures that object's "text" field. Truncated streams are
 // fine — we return whatever text characters we have collected.
 //
-// B3 落地 — minimal viable; B5 will replace this with a proper
-// V2-aware streaming extractor once the V2 carrier becomes default.
+// B3 落地 — minimal viable; a future streaming extractor can replace
+// this once the old top-level-summary parser is removed.
 func v2PartialFromArgsChunk(rawArgs string) string {
-	if !strings.Contains(rawArgs, `"v2"`) {
+	if !strings.Contains(rawArgs, `"blocks"`) {
 		return ""
 	}
 	idx := strings.Index(rawArgs, `"kind":"summary"`)
