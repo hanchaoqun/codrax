@@ -477,9 +477,10 @@ func (t *EmitInvestigationComplete) Execute(ctx *types.BusContext, params json.R
 			// the paired Repair (always raised by preCompleteContractCheck)
 			// carry the kind-specific detail.
 			closure.AppendViolation(types.Violation{
-				Kind:   types.ViolPreCompleteDowngrade,
-				Detail: "pre-complete simulator rejected emit_investigation_complete",
-				Stage:  string(types.StageExplore),
+				Kind:       types.ViolPreCompleteDowngrade,
+				Detail:     "pre-complete simulator rejected emit_investigation_complete",
+				ClusterKey: "root:CitationReq|stage:pre_complete",
+				Stage:      string(types.StageExplore),
 				SuspectedRoot: types.SuspectedRoot{
 					IRField:    "CitationReq",
 					Reason:     "closure snapshot fails preflight; evidence insufficient or citations outside ReadSet",
@@ -829,9 +830,10 @@ func preCompleteContractCheck(ctx *types.BusContext, justification string) strin
 			// High-confidence (0.85) signal that the IR's family
 			// classification disagrees with the subject.kind.
 			closure.AppendViolation(types.Violation{
-				Kind:   types.ViolViewSwap,
-				Detail: fmt.Sprintf("pre-complete B2b: AnswerSubject=%s vs family=%s (→ %s)", ir.RequestModel.AnswerSubject.Kind, fromFamily, toFamily),
-				Stage:  string(types.StageExplore),
+				Kind:       types.ViolViewSwap,
+				Detail:     fmt.Sprintf("pre-complete B2b: AnswerSubject=%s vs family=%s (→ %s)", ir.RequestModel.AnswerSubject.Kind, fromFamily, toFamily),
+				ClusterKey: fmt.Sprintf("subject:%s|from:%s|to:%s|root:answer_subject", ir.RequestModel.AnswerSubject.Kind, fromFamily, toFamily),
+				Stage:      string(types.StageExplore),
 				SuspectedRoot: types.SuspectedRoot{
 					IRField:    "answer_subject",
 					Reason:     fmt.Sprintf("subject.kind=%s incompatible with family=%s at pre-complete", ir.RequestModel.AnswerSubject.Kind, fromFamily),

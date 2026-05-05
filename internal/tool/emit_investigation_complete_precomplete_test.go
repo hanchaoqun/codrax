@@ -109,6 +109,13 @@ func TestEmitInvestigationComplete_PreCompleteCheck_CitationFloorBlocks(t *testi
 	if mut.IsInvestigationComplete() {
 		t.Errorf("InvestigationComplete must remain false on citation floor failure")
 	}
+	vs := closure.ViolationsByKind(types.ViolPreCompleteDowngrade)
+	if len(vs) != 1 {
+		t.Fatalf("expected one pre-complete downgrade violation, got %d", len(vs))
+	}
+	if got, want := vs[0].ClusterKey, "root:CitationReq|stage:pre_complete"; got != want {
+		t.Fatalf("ClusterKey=%q, want %q", got, want)
+	}
 }
 
 func TestEmitInvestigationComplete_PreCompleteCheck_ExternalSourceLogWaivesCitationFloor(t *testing.T) {
@@ -248,6 +255,64 @@ func TestEmitInvestigationComplete_PreCompleteCheck_ExplanationFunctionSubject_N
 	}
 }
 
+func TestEmitInvestigationComplete_PreCompleteCheck_ConfigFamilyFunctionSubject_RaisesViewSwap(t *testing.T) {
+	mut := types.NewMutableState("test")
+	closure := mut.EvidenceClosure()
+	closure.SetReadSet(map[string]bool{"internal/config/runtime.go": true})
+	mut.AppendEvidence([]types.EvidenceItem{
+		{
+			Source:    "internal/config/runtime.go",
+			LineStart: 32,
+			LineEnd:   32,
+			Kind:      types.EvidenceDirect,
+		},
+	})
+
+	bus := &types.BusContext{
+		Mutable:  mut,
+		RepoRoot: t.TempDir(),
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				Intent:        types.IntentConfigQuery,
+				AnswerSubject: types.AnswerSubject{Kind: types.SubjectFunctionName, Confidence: 0.90},
+			},
+			AnswerContract: types.AnswerContract{
+				CitationReq: types.CitationReq{
+					Required:     true,
+					MinCitations: 1,
+				},
+			},
+		},
+	}
+
+	tool := &EmitInvestigationComplete{}
+	params, _ := json.Marshal(map[string]any{
+		"reason":      "resolved the config lookup",
+		"confidence":  "high",
+		"result_kind": "resolved",
+	})
+	res, err := tool.Execute(bus, params)
+	if err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+	if strings.Contains(res.Summary, "DOWNGRADED") {
+		t.Fatalf("unexpected downgrade: %s", res.Summary)
+	}
+	if !mut.IsInvestigationComplete() {
+		t.Fatalf("InvestigationComplete should be set when preflight passes")
+	}
+	if got := closure.Stats().ViewSwapRaised; got != 1 {
+		t.Fatalf("ViewSwapRaised=%d, want 1", got)
+	}
+	vs := closure.ViolationsByKind(types.ViolViewSwap)
+	if len(vs) != 1 {
+		t.Fatalf("expected one view-swap violation, got %d", len(vs))
+	}
+	if got, want := vs[0].ClusterKey, "subject:function_name|from:config_precedence|to:role_lookup|root:answer_subject"; got != want {
+		t.Fatalf("ClusterKey=%q, want %q", got, want)
+	}
+}
+
 func TestEmitInvestigationComplete_PreCompleteCheck_MultiTopicExplanationAnchorsBlock(t *testing.T) {
 	mut := types.NewMutableState("test")
 	mut.EvidenceClosure().SetReadSet(map[string]bool{
@@ -284,8 +349,7 @@ func TestEmitInvestigationComplete_PreCompleteCheck_MultiTopicExplanationAnchors
 					{Summary: "AnalysisIR 如何持有 HypothesisSet", Entities: []string{"AnalysisIR.HypothesisSet", "HypothesisSet"}},
 				},
 			},
-			AnswerContract: types.AnswerContract{
-			},
+			AnswerContract: types.AnswerContract{},
 		},
 	}
 
@@ -335,8 +399,7 @@ func TestEmitInvestigationComplete_PreCompleteCheck_SingleTopicExplanationSkipsA
 					{Summary: "Criterion 的角色", Entities: []string{"Criterion"}},
 				},
 			},
-			AnswerContract: types.AnswerContract{
-			},
+			AnswerContract: types.AnswerContract{},
 		},
 	}
 	tool := &EmitInvestigationComplete{}
@@ -405,8 +468,7 @@ func TestEmitInvestigationComplete_PreCompleteCheck_MultiTopicExplanationAnchors
 					{Summary: "AnalysisIR 如何持有 HypothesisSet", Entities: []string{"AnalysisIR.HypothesisSet", "HypothesisSet"}},
 				},
 			},
-			AnswerContract: types.AnswerContract{
-			},
+			AnswerContract: types.AnswerContract{},
 		},
 	}
 
@@ -1043,7 +1105,6 @@ func TestEmitInvestigationComplete_PreCompleteCheck_Phase1UnreadLatchResetOnTask
 	}
 }
 
-
 // TestEmitInvestigationComplete_PreCompleteCheck_AbsenceWaivesCitationFloor:
 // absence_justification skips check (b) by contract.
 func TestEmitInvestigationComplete_PreCompleteCheck_AbsenceWaivesFloor(t *testing.T) {
@@ -1075,7 +1136,6 @@ func TestEmitInvestigationComplete_PreCompleteCheck_AbsenceWaivesFloor(t *testin
 		t.Errorf("absence path should still mark complete")
 	}
 }
-
 
 // TestPrimaryAnchorPendingRead_ProjectOrientationSkipsGate proves
 // that the "primary anchor unread" gate also short-circuits on
