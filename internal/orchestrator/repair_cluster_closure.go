@@ -106,26 +106,30 @@ func ClusterStateForCluster(c RepairCluster) RepairClusterExecutionState {
 // "logical cluster" across retry attempts. Strategy (priority order):
 //
 //  1. producer-side ClusterKey when present
-//  2. typed primary tokens from Detail when present:
+//  2. SuspectedRoot.IRField when present (typed producer-side root
+//     field, independent of Detail wording)
+//  3. EvidenceRefs fingerprint when present (stable references the
+//     producer attached to the violation)
+//  4. typed primary tokens from Detail when present:
 //     - block id        (`block id="<X>"`)
 //     - facet kind      (`facet "<X>"`)
 //     - relation kind   (`relation kind=<X>`)
-//  3. SuspectedRoot.IRField when present (typed producer-side root
-//     field, independent of Detail wording)
-//  4. EvidenceRefs fingerprint when present (stable references the
-//     producer attached to the violation)
 //  5. fallback — sha1 hash of the first 80 bytes of v.Detail
 //
 // The result is a joined typed identity (e.g.
 // "block:summary|root:block_claim_use") when multiple signals are
-// available. This keeps existing high-signal tokens, but reduces the
-// closure detector's dependency on violation.Detail prose phrasing.
+// available. Producer-side typed signals (ClusterKey / IRField /
+// EvidenceRefs) outrank Detail parsing so closure remains stable even
+// when validator wording changes.
 //
 // All branches read **runtime current-dispatch typed substrings /
 // fields** — no static dictionary, no fuzzy matching. R3 invariant.
 func clusterFingerprintOf(v types.Violation) string {
 	if key := strings.TrimSpace(v.ClusterKey); key != "" {
 		return key
+	}
+	if refs := evidenceRefsFingerprint(v.EvidenceRefs); refs != "" {
+		return refs
 	}
 	parts := make([]string, 0, 4)
 	if id := extractBlockIDFromDetail(v.Detail); id != "" {
@@ -142,9 +146,6 @@ func clusterFingerprintOf(v types.Violation) string {
 	}
 	if len(parts) > 0 {
 		return strings.Join(parts, "|")
-	}
-	if refs := evidenceRefsFingerprint(v.EvidenceRefs); refs != "" {
-		return refs
 	}
 	// Fallback — opaque hash of the prefix. Stable across attempts
 	// when the producer emits identical Detail.

@@ -100,6 +100,18 @@ func TestClusterFingerprintOf_FallsBackToEvidenceRefsBeforeDetailHash(t *testing
 	}
 }
 
+func TestClusterFingerprintOf_PrefersEvidenceRefsOverDetailTokens(t *testing.T) {
+	v := types.Violation{
+		Kind:         types.ViolFacetUncovered,
+		Detail:       `required facet "diagram_spine" (essential) is not covered`,
+		EvidenceRefs: []string{"facet:diagram_spine", "coverage:block:summary"},
+	}
+	got := clusterFingerprintOf(v)
+	if got != "refs:coverage:block:summary|facet:diagram_spine" {
+		t.Fatalf("clusterFingerprintOf should prefer stable evidence refs over detail-derived tokens, got %q", got)
+	}
+}
+
 // TestComputeClusterClosure_PrimaryFingerprintDistinguishesSameKindClusters
 // — two ViolFacetUncovered clusters for facet=X and facet=Y are
 // recognised as DISTINCT identities. Resolving X (fresh contains only
