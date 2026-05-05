@@ -505,6 +505,25 @@ type SubTopic struct {
 
 // ── TermGraph ───────────────────────────────────────────────────────────
 
+// TermGraph is the canonical surface graph built by
+// internal/analysis/normalizer.Normalize from the surfaces
+// EXTRACTED FROM rm.RawRequest TEXT. Plus repomap-resolved Kind /
+// Confidence / aliases.
+//
+// CAVEAT for downstream readers (especially amplifier-style rules
+// that derive structure from "what entities did the LLM
+// identify?"): TermGraph is NOT a mirror of the LLM's emit_analysis
+// output. Entity names that the LLM names in its analysis but that
+// the user never typed verbatim into the question text WILL NOT
+// appear in TermGraph.Canonical, and they WILL NOT carry
+// TermKind=TermSymbol. Chinese / natural-language questions almost
+// always fit this shape. For "subjects the LLM identified" use
+// rm.AnalyzerHints.Entities instead.
+//
+// This caveat bit Phase 2.1 of the analyzer amplifier (commit
+// 8dfd27b → 7bf5ce5 → bc340a4); see
+// internal/analysis/amplifier/trap_fixture_test.go for the
+// regression-defending fixture.
 type TermGraph struct {
 	Canonical []CanonicalTerm `json:"canonical"`
 	Aliases   []TermAlias     `json:"aliases,omitempty"`

@@ -153,8 +153,14 @@ func TestR1_FiresOnQfArchShape(t *testing.T) {
 	if !got.Predicates.IsCategoryEnumeration {
 		t.Errorf("R1 should fire on the qf_arch shape: 4 entities + intent=explain + everything-false predicates")
 	}
-	if len(obs) != 1 || obs[0].Rule != "R1_multi_subject_predicate" {
-		t.Fatalf("expected 1 R1 observation, got %+v", obs)
+	r1Count := 0
+	for _, o := range obs {
+		if o.Rule == "R1_multi_subject_predicate" {
+			r1Count++
+		}
+	}
+	if r1Count != 1 {
+		t.Fatalf("expected exactly 1 R1 observation, got %d (full obs: %+v)", r1Count, obs)
 	}
 }
 

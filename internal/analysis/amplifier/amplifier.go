@@ -26,6 +26,31 @@
 // R2 typed-name parity / R3 typed-identifier MustInclude). The
 // public surface stays stable across phases so the agent integration
 // site does not churn.
+//
+// # Authoring rules — the TermGraph trap
+//
+// When writing a new rule that asks "what entities did the LLM
+// identify?" the obvious-looking slot is rm.TermGraph.Canonical
+// filtered by TermKind=TermSymbol. THIS IS A TRAP. TermGraph is
+// built by normalizer.Normalize from surfaces EXTRACTED FROM
+// rm.RawRequest TEXT — it does NOT mirror the LLM's emit_analysis
+// output. Chinese / natural-language questions where the user
+// describes a concept ("有哪几个 stage") and the LLM names the
+// symbols (StageAnalyze / StageExplore / ...) leave TermGraph
+// empty for those names.
+//
+// The right slot is rm.AnalyzerHints.Entities. It is populated
+// directly from emit_analysis and is independent of raw-text
+// surfaces. Rules SHOULD read AnalyzerHints.Entities for any
+// "did the LLM identify N subjects?" gate.
+//
+// trap_fixture_test.go encodes this contract: any new rule whose
+// gate cares about LLM-emitted entity counts MUST pass the
+// empty-TermGraph + populated-Entities scenarios there.
+//
+// History: this trap consumed three Phase 2.1 commits to chase
+// down (8dfd27b → 7bf5ce5 → bc340a4). The fixture exists so the
+// next author does not pay that tax again.
 package amplifier
 
 import (
