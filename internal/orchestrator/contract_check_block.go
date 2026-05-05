@@ -2,6 +2,7 @@ package orchestrator
 
 import (
 	"fmt"
+	"sort"
 	"strings"
 
 	"github.com/hanchaoqun/codrax/internal/types"
@@ -1734,11 +1735,10 @@ func validateEnumerationItemLabelGrounding(doc *types.AnswerDocumentV2, mut *typ
 		return nil
 	}
 	type ungroundedItem struct {
-		blockID string
-		itemID  string
-		label   string
+		itemID string
+		label  string
 	}
-	var ungrounded []ungroundedItem
+	perBlock := make(map[string][]ungroundedItem)
 	for _, b := range doc.Blocks {
 		if b.Kind != types.BlockOrderedList && b.Kind != types.BlockBulletList {
 			continue
@@ -1746,6 +1746,7 @@ func validateEnumerationItemLabelGrounding(doc *types.AnswerDocumentV2, mut *typ
 		if b.SurfaceRole == types.SurfaceProseOnly || b.SurfaceRole == types.SurfaceDiagramOnly {
 			continue
 		}
+		var blockUngrounded []ungroundedItem
 		for _, it := range b.Items {
 			label := strings.TrimSpace(it.Label)
 			if label == "" {
@@ -1754,33 +1755,46 @@ func validateEnumerationItemLabelGrounding(doc *types.AnswerDocumentV2, mut *typ
 			if diagramTokenSupported(label, support) {
 				continue
 			}
-			ungrounded = append(ungrounded, ungroundedItem{
-				blockID: b.ID,
-				itemID:  it.ID,
-				label:   label,
+			blockUngrounded = append(blockUngrounded, ungroundedItem{
+				itemID: it.ID,
+				label:  label,
 			})
 		}
+		if len(blockUngrounded) > 0 {
+			perBlock[b.ID] = blockUngrounded
+		}
 	}
-	if len(ungrounded) == 0 {
+	if len(perBlock) == 0 {
 		return nil
 	}
-	pairs := make([]string, 0, len(ungrounded))
-	for _, u := range ungrounded {
-		pairs = append(pairs, fmt.Sprintf("block=%q item=%q label=%q", u.blockID, u.itemID, u.label))
+	blockIDs := make([]string, 0, len(perBlock))
+	for blockID := range perBlock {
+		blockIDs = append(blockIDs, blockID)
 	}
-	return []types.Violation{{
-		Kind: types.ViolEnumerationLabelUngrounded,
-		Detail: fmt.Sprintf(
-			"%d enumeration item label(s) do not match any evidence pool anchor_symbol / subject / object: [%s]",
-			len(ungrounded), strings.Join(pairs, "; ")),
-		Repair: "for each listed item, copy the label verbatim from one of the evidence pool's anchor_symbol values (or replace the item with one whose label is grounded). Fabricating identifiers that the evidence does not name is silently misleading; if the answer truly requires an item that no evidence supports, reopen the investigation rather than inventing a label.",
-		SuspectedRoot: types.SuspectedRoot{
-			IRField:    "block_items_label",
-			Reason:     "items[].label not supported by any evidence pool anchor",
-			Confidence: 0.85,
-		},
-		Stage: string(types.StageFinalize),
-	}}
+	sort.Strings(blockIDs)
+	out := make([]types.Violation, 0, len(blockIDs))
+	for _, blockID := range blockIDs {
+		ungrounded := perBlock[blockID]
+		pairs := make([]string, 0, len(ungrounded))
+		for _, u := range ungrounded {
+			pairs = append(pairs, fmt.Sprintf("block=%q item=%q label=%q", blockID, u.itemID, u.label))
+		}
+		out = append(out, types.Violation{
+			Kind: types.ViolEnumerationLabelUngrounded,
+			Detail: fmt.Sprintf(
+				"block %q has %d enumeration item label(s) that do not match any evidence pool anchor_symbol / subject / object: [%s]",
+				blockID, len(ungrounded), strings.Join(pairs, "; ")),
+			Repair: "for each listed item, copy the label verbatim from one of the evidence pool's anchor_symbol values (or replace the item with one whose label is grounded). Fabricating identifiers that the evidence does not name is silently misleading; if the answer truly requires an item that no evidence supports, reopen the investigation rather than inventing a label.",
+			SuspectedRoot: types.SuspectedRoot{
+				IRField:    "block_items_label",
+				Reason:     "items[].label not supported by any evidence pool anchor",
+				Confidence: 0.85,
+			},
+			ClusterKey: blockClusterKey(blockID, "block_items_label"),
+			Stage:      string(types.StageFinalize),
+		})
+	}
+	return out
 }
 
 // validateEnumerationItemLabelExtractorMatch (s1a-20260504-130143
@@ -1842,11 +1856,10 @@ func validateEnumerationItemLabelExtractorMatch(doc *types.AnswerDocumentV2, vie
 		return nil
 	}
 	type drifted struct {
-		blockID string
-		itemID  string
-		label   string
+		itemID string
+		label  string
 	}
-	var driftedItems []drifted
+	perBlock := make(map[string][]drifted)
 	for _, b := range doc.Blocks {
 		if b.Kind != types.BlockOrderedList && b.Kind != types.BlockBulletList {
 			continue
@@ -1885,36 +1898,46 @@ func validateEnumerationItemLabelExtractorMatch(doc *types.AnswerDocumentV2, vie
 				continue
 			}
 			blockDrifts = append(blockDrifts, drifted{
-				blockID: b.ID,
-				itemID:  it.ID,
-				label:   label,
+				itemID: it.ID,
+				label:  label,
 			})
 		}
 		// 80% threshold per block: < 80% match → fire for this block.
 		if len(b.Items) > 0 && float64(matched)/float64(len(b.Items)) < 0.80 {
-			driftedItems = append(driftedItems, blockDrifts...)
+			perBlock[b.ID] = append([]drifted(nil), blockDrifts...)
 		}
 	}
-	if len(driftedItems) == 0 {
+	if len(perBlock) == 0 {
 		return nil
 	}
-	pairs := make([]string, 0, len(driftedItems))
-	for _, d := range driftedItems {
-		pairs = append(pairs, fmt.Sprintf("block=%q item=%q label=%q", d.blockID, d.itemID, d.label))
+	blockIDs := make([]string, 0, len(perBlock))
+	for blockID := range perBlock {
+		blockIDs = append(blockIDs, blockID)
 	}
-	return []types.Violation{{
-		Kind: types.ViolEnumerationItemLabelExtractorDrift,
-		Detail: fmt.Sprintf(
-			"%d enumeration item label(s) drifted from the extractor's verbatim identifiers; the answer should preserve these names verbatim: [%s]. Drifted items: [%s]",
-			len(driftedItems), strings.Join(verbatimNames, ", "), strings.Join(pairs, "; ")),
-		Repair: "for each listed item, copy the verbatim identifier from the extractor's AnswerSymbols list (the names are the typed identifiers the extractor selected for the user to read). Abstract placeholders like 'check 1 (line N)' lose the real names the user needs to navigate the codebase. The extractor signal is intact; only the rendering needs to copy the names.",
-		SuspectedRoot: types.SuspectedRoot{
-			IRField:    "block_items_label",
-			Reason:     "finalizer rendered placeholder labels instead of preserving extractor's verbatim identifiers",
-			Confidence: 0.85,
-		},
-		Stage: string(types.StageFinalize),
-	}}
+	sort.Strings(blockIDs)
+	out := make([]types.Violation, 0, len(blockIDs))
+	for _, blockID := range blockIDs {
+		driftedItems := perBlock[blockID]
+		pairs := make([]string, 0, len(driftedItems))
+		for _, d := range driftedItems {
+			pairs = append(pairs, fmt.Sprintf("block=%q item=%q label=%q", blockID, d.itemID, d.label))
+		}
+		out = append(out, types.Violation{
+			Kind: types.ViolEnumerationItemLabelExtractorDrift,
+			Detail: fmt.Sprintf(
+				"block %q has %d enumeration item label(s) drifted from the extractor's verbatim identifiers; the answer should preserve these names verbatim: [%s]. Drifted items: [%s]",
+				blockID, len(driftedItems), strings.Join(verbatimNames, ", "), strings.Join(pairs, "; ")),
+			Repair: "for each listed item, copy the verbatim identifier from the extractor's AnswerSymbols list (the names are the typed identifiers the extractor selected for the user to read). Abstract placeholders like 'check 1 (line N)' lose the real names the user needs to navigate the codebase. The extractor signal is intact; only the rendering needs to copy the names.",
+			SuspectedRoot: types.SuspectedRoot{
+				IRField:    "block_items_label",
+				Reason:     "finalizer rendered placeholder labels instead of preserving extractor's verbatim identifiers",
+				Confidence: 0.85,
+			},
+			ClusterKey: blockClusterKey(blockID, "block_items_label"),
+			Stage:      string(types.StageFinalize),
+		})
+	}
+	return out
 }
 
 // buildEvidenceLabelSupportTokens collects every ground-able token

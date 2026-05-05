@@ -1182,8 +1182,8 @@ func TestValidateAbsenceScopeBound_NegativeWithoutPatternFires(t *testing.T) {
 // oracle skips when the resolution is resolved / unknown / nil.
 func TestValidateAbsenceScopeBound_NonAbsentSkipped(t *testing.T) {
 	for _, status := range []types.AnswerExactResolutionStatus{
-		"",                  // empty
-		"resolved",          // typed
+		"",         // empty
+		"resolved", // typed
 		"unknown",
 	} {
 		doc := &types.AnswerDocumentV2{
@@ -1280,7 +1280,7 @@ func TestEnumerationLabelGrounding_HallucinatedLabelFires(t *testing.T) {
 				Kind: types.BlockOrderedList,
 				Items: []types.AnswerBlockItem{
 					{ID: "i1", Label: "checkCoverage"},
-					{ID: "i2", Label: "checkCrossSignalCoherence"}, // hallucinated
+					{ID: "i2", Label: "checkCrossSignalCoherence"},     // hallucinated
 					{ID: "i3", Label: "checkAnswerSubjectKindIsValid"}, // hallucinated
 				},
 			},
@@ -1301,6 +1301,48 @@ func TestEnumerationLabelGrounding_HallucinatedLabelFires(t *testing.T) {
 	}
 	if !strings.Contains(vs[0].Detail, "2 enumeration item label(s)") {
 		t.Errorf("Detail should report the count; got %q", vs[0].Detail)
+	}
+	if got, want := vs[0].ClusterKey, `block:list|root:block_items_label`; got != want {
+		t.Errorf("ClusterKey = %q, want %q", got, want)
+	}
+}
+
+func TestEnumerationLabelGrounding_MultiBlockSplitsViolationsPerBlock(t *testing.T) {
+	mut := mutWithEvidence([]types.EvidenceItem{
+		{ID: "e1", AnchorSymbol: "checkCoverage"},
+		{ID: "e2", AnchorSymbol: "checkDAGClosure"},
+		{ID: "e3", AnchorSymbol: "checkContractComplete"},
+	})
+	doc := &types.AnswerDocumentV2{
+		DocumentModel: "v2",
+		Blocks: []types.AnswerBlock{
+			{
+				ID:   "listA",
+				Kind: types.BlockOrderedList,
+				Items: []types.AnswerBlockItem{
+					{ID: "a1", Label: "checkCoverage"},
+					{ID: "a2", Label: "missingA"},
+				},
+			},
+			{
+				ID:   "listB",
+				Kind: types.BlockBulletList,
+				Items: []types.AnswerBlockItem{
+					{ID: "b1", Label: "checkDAGClosure"},
+					{ID: "b2", Label: "missingB"},
+				},
+			},
+		},
+	}
+	vs := validateEnumerationItemLabelGrounding(doc, mut)
+	if len(vs) != 2 {
+		t.Fatalf("expected one violation per affected block; got %d (%+v)", len(vs), vs)
+	}
+	if got, want := vs[0].ClusterKey, `block:listA|root:block_items_label`; got != want {
+		t.Errorf("first ClusterKey = %q, want %q", got, want)
+	}
+	if got, want := vs[1].ClusterKey, `block:listB|root:block_items_label`; got != want {
+		t.Errorf("second ClusterKey = %q, want %q", got, want)
 	}
 }
 
@@ -2000,6 +2042,48 @@ func TestEnumerationItemLabelExtractorMatch_AbstractPlaceholdersFire(t *testing.
 	}
 	if !strings.Contains(vs[0].Detail, "checkCoverage") {
 		t.Errorf("detail must list verbatim names; got %q", vs[0].Detail)
+	}
+	if got, want := vs[0].ClusterKey, `block:list1|root:block_items_label`; got != want {
+		t.Errorf("ClusterKey = %q, want %q", got, want)
+	}
+}
+
+func TestEnumerationItemLabelExtractorMatch_MultiBlockSplitsViolationsPerBlock(t *testing.T) {
+	mut := mutWithSymbols(
+		"checkCoverage", "checkDAGClosure", "checkBudgetSanity",
+		"checkContractComplete", "checkHypothesisCoverage", "checkSubtopicCoherence",
+	)
+	doc := &types.AnswerDocumentV2{
+		Blocks: []types.AnswerBlock{
+			{
+				ID:   "list1",
+				Kind: types.BlockOrderedList,
+				Items: []types.AnswerBlockItem{
+					{ID: "i1", Label: "check 1"},
+					{ID: "i2", Label: "check 2"},
+					{ID: "i3", Label: "check 3"},
+				},
+			},
+			{
+				ID:   "list2",
+				Kind: types.BlockBulletList,
+				Items: []types.AnswerBlockItem{
+					{ID: "j1", Label: "check 4"},
+					{ID: "j2", Label: "check 5"},
+					{ID: "j3", Label: "check 6"},
+				},
+			},
+		},
+	}
+	vs := validateEnumerationItemLabelExtractorMatch(doc, enumView(), mut)
+	if len(vs) != 2 {
+		t.Fatalf("expected one violation per drifted block; got %d (%+v)", len(vs), vs)
+	}
+	if got, want := vs[0].ClusterKey, `block:list1|root:block_items_label`; got != want {
+		t.Errorf("first ClusterKey = %q, want %q", got, want)
+	}
+	if got, want := vs[1].ClusterKey, `block:list2|root:block_items_label`; got != want {
+		t.Errorf("second ClusterKey = %q, want %q", got, want)
 	}
 }
 
