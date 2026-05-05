@@ -1,7 +1,7 @@
 # 当前架构缺口整改需求（中文版）
 
 状态：待持续整改  
-代码基线：`origin/main@4b83d1fcb361bfd8a2ee81b5ff9892550ef75570`  
+代码基线：`origin/main@68ebe6f5f8cb2ec47aebfe415900657cf21f4ef6`  
 工作区：`C:\Users\ssccv\codrax`
 
 ---
@@ -33,17 +33,18 @@
 
 也就是说，系统已经**不是**“缺 block-only carrier”或“缺 semantic contract”的阶段。
 
-当前剩余问题已经切换为四条更深的主线：
+当前剩余问题已经收敛成六条主线：
 
-1. repair 已经具备 cluster closure，但 cluster 身份仍未完全摆脱 `Violation.Detail` 文本形状；
-2. diagram relation 已 typed-first，但 relation 真值仍保留 label fallback；
-3. richness / completeness 已经有 typed validator 和 reviewer，但还没有统一成一个单一质量闭环；
-4. full emit / patch emit 已共享 mutation runtime，但外部协议、retry 心智和字段演进仍然是双入口维护面；
-5. 模型可见提示的大头已经正确，但 helper 级提示和文档仍残留少量实现层术语，会继续误导模型和后续开发。
+1. finalizer 的**动态提示**仍有少量 V1 载体残影，和 V2 runtime schema 形成真冲突；
+2. repair 已具备 cluster closure，但 cluster identity 仍未完全摆脱 `Violation.Detail` 文本形状；
+3. diagram relation 已 typed-first，但 relation 真值仍保留 label fallback；
+4. richness / completeness 已有 validator 与 reviewer，但仍未统一成单一质量闭环；
+5. full emit / patch emit 已共享 mutation runtime，但外部协议、retry 心智和字段演进仍然是双入口维护面；
+6. helper 提示与文档仍残留少量实现层术语，会继续误导模型与后续开发。
 
 一句话总结：
 
-> 当前系统的底座已经正确，剩下的核心问题不是“没有机制”，而是“机制之间还没有完全编排成一个稳定、低回归、且不压薄答案的整体”。
+> 当前系统的问题已经不是“没有机制”，而是“机制之间还没有完全编排成一个稳定、低回归、且不压薄答案的整体”。
 
 ---
 
@@ -161,7 +162,54 @@
 
 ## 4. 当前现存问题与根因
 
-### 4.1 问题 A：repair cluster 已有 closure，但 cluster identity 仍未完全结构化
+### 4.1 问题 A：finalizer 动态提示仍残留退休的 V1 payload 心智
+
+优先级：`P1`
+
+代码锚点：
+
+- [C:/Users/ssccv/codrax/internal/agent/answer_document_evaluator.go](C:/Users/ssccv/codrax/internal/agent/answer_document_evaluator.go)
+- [C:/Users/ssccv/codrax/internal/tool/emit_answer_document.go](C:/Users/ssccv/codrax/internal/tool/emit_answer_document.go)
+- [C:/Users/ssccv/codrax/internal/skill/defaults.go](C:/Users/ssccv/codrax/internal/skill/defaults.go)
+
+关键位置：
+
+- `renderAnswerDocSubmissionChecklist(...)`
+- `BuildInitialInstruction(...)`
+- `emit_answer_document` tool schema / V2-only rejection路径
+
+当前现象：
+
+- 主 skill 已基本切到 block-only。
+- 但 dynamic evaluator checklist 仍在以“退休字段的否定式”指导模型，例如：
+  - “Do not emit any retired top-level scalar payload outside blocks.”
+  - “Do not emit any retired top-level decision payload outside blocks.”
+
+根因：
+
+- 静态 skill 和动态 evaluator 是两套提示源。
+- 静态 skill 已按 V2 重写，但动态 evaluator 仍保留从 V1→V2 迁移期遗留的负向约束写法。
+- 这些写法虽然不再直接点名 `value{}` / `boolean{}`，但仍把模型的注意力拉回“旧 payload 是否还能用”，而不是“应该构造什么 block”。
+
+风险：
+
+- 模型的首选心智会变成“避免犯旧错”，而不是“直接按 V2 block contract 组织答案”。
+- 这会继续增加无意义 retry，尤其是在 scalar / decision 题上。
+
+整改要求：
+
+1. `answer_document_evaluator.go` 必须改成**纯正向的 V2 block 指令**。
+2. 任何关于退休字段的说明，最多保留在开发文档或 tool error 文案中，不得继续出现在主提交 checklist。
+3. `BuildInitialInstruction(...)` 中所有 block-specific 指令必须以：
+   - block kind
+   - required fields
+   - citation anchor 写法
+   - `claim_uses` 写法  
+   为中心，不再出现“retired payload”心智。
+
+---
+
+### 4.2 问题 B：repair cluster 已有 closure，但 cluster identity 仍未完全结构化
 
 优先级：`P1`
 
@@ -193,7 +241,7 @@
 根因：
 
 - cluster identity 仍然是“typed signal + detail extraction”的混合体。
-- `SuspectedRoot.IRField`、`EvidenceRefs` 已经接入 fingerprint，但仍不是 producer-side 的显式 cluster id。
+- `SuspectedRoot.IRField`、`EvidenceRefs` 已接入 fingerprint，但仍不是 producer-side 的显式 cluster id。
 - violation producer 没有统一产出“我属于哪个 repair cluster”的结构化字段。
 
 风险：
@@ -210,7 +258,7 @@
 
 ---
 
-### 4.2 问题 B：diagram relation 已 typed-first，但 relation 真值仍保留 label fallback
+### 4.3 问题 C：diagram relation 已 typed-first，但 relation 真值仍保留 label fallback
 
 优先级：`P1`
 
@@ -257,7 +305,7 @@
 
 ---
 
-### 4.3 问题 C：richness / completeness 仍是“多层拼接”，不是单一质量闭环
+### 4.4 问题 D：richness / completeness 仍是“多层拼接”，不是单一质量闭环
 
 优先级：`P1`
 
@@ -310,12 +358,12 @@
    - `must_render`
    - `should_render_when_evidence_sufficient`
    - `telemetry_only`
-3. `contract_check_block` 负责 richness 的主判断；reviewer 只补主合同看不到的“薄而不假”问题。
+3. `contract_check_block` 负责 richness 的主判断；reviewer 只补主合同看不到的剩余“偏薄”问题。
 4. 不允许 richness 永久停留在“软提醒 + reviewer prose”模式。
 
 ---
 
-### 4.4 问题 D：full emit / patch emit 仍然是双入口协议
+### 4.5 问题 E：full emit / patch emit 仍然是双入口协议
 
 优先级：`P2`
 
@@ -366,7 +414,7 @@
 
 ---
 
-### 4.5 问题 E：helper prompt 与文档仍残留少量实现层术语
+### 4.6 问题 F：helper prompt 与文档仍残留少量实现层术语
 
 优先级：`P3`
 
@@ -404,7 +452,33 @@
 
 ## 5. 可执行施工计划（按阶段推进）
 
-### Phase 1：先把 repair cluster identity 完全 typed 化
+### Phase 1：先清理 dynamic finalizer 提示的 V1 残影
+
+目标：
+
+- 让模型看到的所有提交合同都只讲 V2 blocks。
+
+涉及文件：
+
+- [C:/Users/ssccv/codrax/internal/agent/answer_document_evaluator.go](C:/Users/ssccv/codrax/internal/agent/answer_document_evaluator.go)
+- [C:/Users/ssccv/codrax/internal/skill/defaults.go](C:/Users/ssccv/codrax/internal/skill/defaults.go)
+
+具体动作：
+
+1. `renderAnswerDocSubmissionChecklist(...)` 改成纯 V2 正向指令。
+2. 任何“不要发退休字段”的话术移出主 checklist，只保留在 tool error / repair 文案中。
+3. scalar / decision / ordered_list / section / diagram 的提交指导全部按：
+   - block kind
+   - required fields
+   - citation anchor
+   - claim_uses  
+   四类信息组织。
+
+为什么先做：
+
+- 这是当前唯一仍然直接影响模型首轮提交形态的真冲突点。
+
+### Phase 2：把 repair cluster identity 完全 typed 化
 
 目标：
 
@@ -424,12 +498,12 @@
 3. `clusterFingerprintOf(...)` 优先读 `ClusterKey`；旧 Detail 解析只保留 migration fallback。
 4. `computeClusterClosure(...)` 改成只按 typed cluster identity 对比，不再以 prose 片段为主。
 
-为什么先做：
+为什么第二步做：
 
 - 这是 repair 路由稳定性的前提。
 - 不先做这一步，后面的 reviewer / richness / diagram 都可能因为错误 repair owner 被放大噪音。
 
-### Phase 2：把 diagram relation authority 完全 typed 化
+### Phase 3：把 diagram relation authority 完全 typed 化
 
 目标：
 
@@ -450,12 +524,12 @@
 3. validator 把“仅靠 label 满足 relation”的情况先升为 migration warning，再逐步升级为默认 reject。
 4. prompt/schema/examples 全部改成 typed relation 为默认写法。
 
-为什么第二步做：
+为什么第三步做：
 
 - diagram 是用户可见质量的重要部分。
 - 不先把 relation authority typed 化，richness 做得再多也可能只是把“看起来更丰富但关系仍然不够真”的图包装得更漂亮。
 
-### Phase 3：统一 richness contract
+### Phase 4：统一 richness contract
 
 目标：
 
@@ -474,12 +548,12 @@
 2. 把当前散落的 `RichnessCandidates`、`ViolRichnessRegression`、`ViolRichnessGlaringGap`、`ViolPrincipalProseUnderfilled` 收敛到统一 contract。
 3. reviewer 只处理主合同看不到的剩余“偏薄”问题，不再承担 richness 主判定。
 
-为什么第三步做：
+为什么第四步做：
 
-- 你最关心的“答案不能为了少轮次而压薄”本质上就是这里。
+- “答案不能为了少轮次而压薄”本质上就是这里。
 - 不把 richness 收成一级合同，系统永远会在“没胡说”和“够不够有用”之间摇摆。
 
-### Phase 4：继续压缩 full emit / patch emit 的双维护面
+### Phase 5：继续压缩 full emit / patch emit 的双维护面
 
 目标：
 
@@ -499,11 +573,11 @@
 2. retry summary / retained draft / preserve rule 统一由 mutation runtime 生成。
 3. 新增字段时，必须有“full path + patch path + retry path”三位一体测试。
 
-为什么第四步做：
+为什么第五步做：
 
 - 这不是当前最致命的 correctness 问题，但它是未来最容易引入静默回归的地方。
 
-### Phase 5：清理 helper prompt 和文档术语
+### Phase 6：清理 helper prompt 和文档术语
 
 目标：
 
@@ -547,6 +621,7 @@
 
 最终系统应达到：
 
+- finalizer 动态提示与 runtime schema 完全一致；
 - repair 按 typed cluster closure 推进，而不是按 violation 文本或 kind 集合近似推进；
 - diagram relation 的 authority 完全来自 typed edge contract，而不是 surface wording；
 - richness / completeness 成为统一的 surface-quality contract；
