@@ -158,8 +158,7 @@ func TestNormalizeEmitAnswerBlock_AllFieldsPropagate(t *testing.T) {
 		Title: "Title",
 		Text:  "body text",
 		Items: []emitAnswerBlockItemV2{
-			{ID: "i1", Label: "L", Text: "T", CitationRef: 3,
-				ClaimUse: &types.RenderedClaimUse{ClaimForm: types.ClaimDefinitionFact}},
+			{ID: "i1", Label: "L", Text: "T", CitationRef: 3},
 		},
 		Diagram: &emitAnswerDiagramV2{
 			Kind: string(types.DiagramFlow), Body: "flowchart LR\n  A --> B",

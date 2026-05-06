@@ -297,7 +297,7 @@ func (e *answerDocumentEvaluator) BuildInitialInstruction(ctx *types.AgentContex
 		if view.AllowsAnchorSkeleton(ctx.AnalysisIR.RequestModel) && len(ctx.AnswerSymbols) > 0 {
 			b.WriteString("### Anchor skeleton (emit as one optional ordered_list block)\n\n")
 			b.WriteString("The extractor produced these per-sub-topic anchors. " +
-				"Re-emit them verbatim as an additional `ordered_list` block (one item per anchor; each item carries `id`, `label=<symbol-name>`, `text=<rationale>`, top-level `citation_ref=N` (zero-based index into doc.citations[]), and `claim_use={claim_form=definition_fact}` — citation_ref is NEVER inside the claim_use object; pick the claim_form matching what the cited line actually is) " +
+				"Re-emit them verbatim as an additional `ordered_list` block (one item per anchor; each item carries `id`, `label=<symbol-name>`, `text=<rationale>`, top-level `citation_ref=N` (zero-based index into doc.citations[])), and declare the block-level `claim_uses=[{claim_form=definition_fact}]` (or whichever claim_form matches the cited lines). " +
 				"so the renderer can show them as a Key Anchors block beneath your prose. " +
 				"Each anchor's file:line is authoritative — do not modify.\n\n")
 			for _, s := range ctx.AnswerSymbols {
@@ -354,13 +354,13 @@ func renderAnswerDocSubmissionChecklist(ctx *types.AgentContext, view *types.Ans
 			case types.BlockOrderedList:
 				if br.SurfaceRoleHint == types.SurfacePrincipal && view.Family == types.QFEnumeration {
 					items = append(items,
-						"Emit the principal `ordered_list` block with `items[]` (each item carries `id`, optional `label`, `text`, top-level `citation_ref=N` (zero-based index into doc.citations[]), and per-item `claim_use={claim_form=definition_fact}` — citation_ref is NEVER inside the claim_use object; pick `call_edge`, `assignment_fact`, etc. when those match what the cited line actually is). EVERY item.label MUST be the verbatim identifier from an evidence pool anchor_symbol or evidence subject/object — fabricated labels are rejected by the structural enumeration grounding oracle.",
+						"Emit the principal `ordered_list` block with `items[]` (each item carries `id`, optional `label`, `text`, top-level `citation_ref=N` (zero-based index into doc.citations[])); declare the block-level `claim_uses=[{claim_form=definition_fact}]` (or `call_edge` / `assignment_fact` when the cited lines are call sites or assignments). EVERY item.label MUST be the verbatim identifier from an evidence pool anchor_symbol or evidence subject/object — fabricated labels are rejected by the structural enumeration grounding oracle.",
 						"Preserve every grounded member from the prior slate / required-member floor. If the investigation only established a lower bound or an unknown full set, disclose that bound in prose or a `caveat` block; do NOT invent a retired completeness field.",
 						"Use the lead summary block to frame what the list enumerates; do not let the list stand alone without context.",
 					)
 				} else {
 					items = append(items,
-						"Emit the principal `ordered_list` block with `items[]` of ordered logical hops. Per-item top-level `citation_ref=N` (zero-based index into doc.citations[]) AND `claim_use={claim_form=call_edge|guard_condition|return_fact}` is REQUIRED on principal items — citation_ref is NEVER inside the claim_use object; pick the claim_form matching what the cited line actually is (call site / branch condition / return statement).",
+						"Emit the principal `ordered_list` block with `items[]` of ordered logical hops. Per-item top-level `citation_ref=N` (zero-based index into doc.citations[]). Declare the block-level `claim_uses[]` to cover every form the items use — list one entry per form (`call_edge` for caller→callee sites, `guard_condition` for conditional branches, `return_fact` for return-value hops).",
 						"Keep the hop-by-hop detail in items[] `text`; the lead summary block is only the lead-in.",
 						"Do not invent shorthand labels from citation line numbers (for example `L877` or `Line 42`) unless that exact token is itself grounded in cited text.",
 						"Keep each cited item at the abstraction directly named by its own citation. If one hop needs both a guard/condition and a downstream action that are named on different lines, split the hop or cite the line that actually names the action.",
@@ -677,7 +677,7 @@ func renderAnswerDocRetryState(ctx *types.AgentContext) string {
 
 	var b strings.Builder
 	fmt.Fprintf(&b, "## Hard Rule (retry attempt %d)\n\n", rs.Attempt)
-	b.WriteString("Your last `emit_answer_document` was rejected. Re-emit by **starting from your previous payload (shown in 'Previous Emit' below) and changing ONLY the field paths listed in 'Required Changes' below**. Every other field — `blocks[].id`, `blocks[].kind`, `blocks[].facet_ids`, `blocks[].claim_uses[]`, `blocks[].surface_role`, `blocks[].items[]`, `items[].claim_use`, `citations[]`, `exact_resolution` — MUST appear byte-identical to your Previous Emit. Do NOT regenerate from scratch. The validator will reject any retry that loses fields you already filled correctly.\n\n")
+	b.WriteString("Your last `emit_answer_document` was rejected. Re-emit by **starting from your previous payload (shown in 'Previous Emit' below) and changing ONLY the field paths listed in 'Required Changes' below**. Every other field — `blocks[].id`, `blocks[].kind`, `blocks[].facet_ids`, `blocks[].claim_uses[]`, `blocks[].surface_role`, `blocks[].items[]`, `citations[]`, `exact_resolution` — MUST appear byte-identical to your Previous Emit. Do NOT regenerate from scratch. The validator will reject any retry that loses fields you already filled correctly.\n\n")
 
 	// 2. Required Changes (sorted by severity desc, soft excluded).
 	if changes := renderRetryRequiredChanges(rs); changes != "" {
@@ -828,7 +828,7 @@ func renderRetryActiveViolations(rs *types.RetryState) string {
 //   - id + kind + surface_role
 //   - facet_ids verbatim (if non-empty)
 //   - block-level claim_use presence + claim_form (if any)
-//   - item count + items_with_claim_use + items_with_citation (if any)
+//   - item count + items_with_citation (if any)
 //   - text preview (head 400 + tail 200 truncation)
 func renderRetryPrevEmit(rs *types.RetryState) string {
 	if rs == nil || len(rs.PrevEmitSummary.BlockSummaries) == 0 {
@@ -851,8 +851,8 @@ func renderRetryPrevEmit(rs *types.RetryState) string {
 			out.WriteString("  claim_use: ABSENT (verify whether contract requires it)\n")
 		}
 		if bs.HasItems {
-			fmt.Fprintf(&out, "  items: %d total, %d with claim_use, %d with citation\n",
-				bs.ItemCount, bs.ItemsWithClaimUse, bs.ItemsWithCitation)
+			fmt.Fprintf(&out, "  items: %d total, %d with citation\n",
+				bs.ItemCount, bs.ItemsWithCitation)
 		}
 		if bs.EdgeAnchoredClaimUses > 0 {
 			fmt.Fprintf(&out, "  edge_anchors: %d entries (block-level edge_anchors[] array — preserve these on retry)\n",
@@ -1043,7 +1043,7 @@ func renderAnswerDocFacetCoverage(ctx *types.AgentContext) string {
 	b.WriteString("The user's question imposes the following coverage requirements on the rendered answer. " +
 		"Each facet names a semantic surface the answer must touch; the parenthesised hint names the evidence shape that supports it. " +
 		"Cover every HARD facet that has grounded evidence; SOFT facets are recommended but not strictly required; OPTIONAL facets add richness when they fit.\n\n")
-	b.WriteString("To declare a facet on a block, set `block.facet_ids` (or `item.claim_use.facet_id`) to the verbatim string shown after `facet_id:` on each line below — that exact string MUST appear in the emit. The rightmost hint (when present) names the block kind(s) that typically cover the facet so you know where to place it.\n\n")
+	b.WriteString("To declare a facet on a block, set `block.facet_ids` (or `block.claim_uses[j].facet_id`) to the verbatim string shown after `facet_id:` on each line below — that exact string MUST appear in the emit. The rightmost hint (when present) names the block kind(s) that typically cover the facet so you know where to place it.\n\n")
 	b.WriteString("Each line ends with `(evidence: N)` — N is the count of typed evidence items already bound to the facet. " +
 		"For SOFT facets this count gates the coverage demand: when N=0 the facet is skipped (no typed evidence to surface), so do NOT invent claims for it. " +
 		"For HARD facets, coverage is demanded regardless of N (the question pinned the facet as essential). " +
@@ -2728,7 +2728,7 @@ func (e *answerDocumentEvaluator) emitAnswerDocumentRejectSignal(ctx *types.Agen
 		return LoopSignal{}
 	}
 
-	hint := answerDocPreserveHintIntro + " Re-emit `emit_answer_document` now: paste the FULL previous payload byte-identical, then change ONLY the field(s) named in the tool error. Every other field — `blocks[]` (every block id and item id you previously emitted), `citations[]`, `claim_use` annotations, `exact_resolution` — must reproduce the prior emit byte-identical. Do not reopen files or call read/search tools. Do not write free-form prose outside the tool call."
+	hint := answerDocPreserveHintIntro + " Re-emit `emit_answer_document` now: paste the FULL previous payload byte-identical, then change ONLY the field(s) named in the tool error. Every other field — `blocks[]` (every block id and item id you previously emitted), `citations[]`, `claim_uses[]` annotations, `exact_resolution` — must reproduce the prior emit byte-identical. Do not reopen files or call read/search tools. Do not write free-form prose outside the tool call."
 	reasonKey := "tool-reject"
 	if repair != nil && strings.TrimSpace(repair.Hint) != "" {
 		hint = strings.TrimSpace(repair.Hint)

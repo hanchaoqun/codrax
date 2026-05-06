@@ -54,7 +54,7 @@ import (
 func BuildAnswerDocumentSemanticContractDescription() string {
 	return "Block kinds (the user section's Required Answer Blocks list flags which kinds + counts your answer must include): " +
 		"summary (block.text — a multi-paragraph explanation), section (title + text — per-bucket / per-layer chunks), " +
-		"ordered_list / bullet_list (items[] each with id, optional label, text, optional top-level citation_ref, optional per-item claim_use), " +
+		"ordered_list / bullet_list (items[] each with id, optional label, text, optional top-level citation_ref), " +
 		"scalar (block.text carries the literal; optional one-element items=[{citation_ref:N}] anchors the cite), " +
 		"decision (block.text carries verdict + rationale; same one-element items pattern for the cite), " +
 		"table (markdown table inside text, OR items[] with one item per row), " +
@@ -65,7 +65,7 @@ func BuildAnswerDocumentSemanticContractDescription() string {
 		"\n\n" +
 		"PRINCIPAL BLOCKS (the user-section's Required Answer Blocks list flags these as `surface_role=principal`) MUST carry a claim annotation when the contract's AcceptableClaimForms list is non-empty. " +
 		"Allowed claim_form values: `definition_fact` (cited line establishes a typed fact: const, struct field, function signature, default value), `call_edge` (caller→callee call site), `guard_condition` (branch / condition gating the answer), `assignment_fact` (config / variable / field assignment), `return_fact` (return statement / function output), `absence_fact` (cited evidence carries Negative scope — search confirmed absent), `precedence_role` (cited evidence carries a layer / override role), `external_observation` (cited evidence is from runtime log / perf trace, not repo source), `import_edge` (module / package import edge). " +
-		"Annotation placement: at BLOCK level use `claim_uses[]` (PLURAL ARRAY — single-form blocks emit a one-element array like `claim_uses=[{claim_form=definition_fact}]`); at ITEM level use `items[i].claim_use` (SINGULAR object). The schema does NOT have a singular `claim_use` at block level — emitting `block.claim_use` is rejected with `unknown field \"claim_use\"`. " +
+		"Annotation placement: claim annotations live ONLY at block level on `claim_uses[]` (a plural array, one entry per applicable claim form). Single-form blocks emit a one-element array like `claim_uses=[{claim_form=definition_fact}]`; when items inside the block contribute distinct claim forms (e.g. some hops are `call_edge`, others are `guard_condition`), list one entry per form. There is no per-item claim_use field. " +
 		"\n\n" +
 		"DIAGRAM BLOCKS — `diagram.kind` is the SEMANTIC FAMILY (`flow` / `sequence` / `architecture` / `call_dag`), NOT a Mermaid keyword. Mermaid syntax (`flowchart` / `sequenceDiagram`) goes inside `diagram.body` with `diagram.language=\"mermaid\"`. " +
 		"\n\n" +
@@ -88,9 +88,10 @@ func BuildAnswerDocumentSemanticContractDescription() string {
 		"{\"blocks\":[\n" +
 		"  {\"id\":\"s1\",\"kind\":\"summary\",\"text\":\"<lead-in framing the chain>\"},\n" +
 		"  {\"id\":\"hops\",\"kind\":\"ordered_list\",\"surface_role\":\"principal\",\n" +
+		"   \"claim_uses\":[{\"claim_form\":\"call_edge\"}],\n" +
 		"   \"items\":[\n" +
-		"    {\"id\":\"h1\",\"label\":\"Stage A\",\"text\":\"<what stage A does>\",\"citation_ref\":0,\"claim_use\":{\"claim_form\":\"call_edge\"}},\n" +
-		"    {\"id\":\"h2\",\"label\":\"Stage B\",\"text\":\"<what stage B does>\",\"citation_ref\":1,\"claim_use\":{\"claim_form\":\"call_edge\"}}\n" +
+		"    {\"id\":\"h1\",\"label\":\"Stage A\",\"text\":\"<what stage A does>\",\"citation_ref\":0},\n" +
+		"    {\"id\":\"h2\",\"label\":\"Stage B\",\"text\":\"<what stage B does>\",\"citation_ref\":1}\n" +
 		"   ]}\n" +
 		"],\"citations\":[{\"file\":\"a.go\",\"line\":10},{\"file\":\"b.go\",\"line\":20}]}\n" +
 		"```\n" +
@@ -100,9 +101,10 @@ func BuildAnswerDocumentSemanticContractDescription() string {
 		"{\"blocks\":[\n" +
 		"  {\"id\":\"s1\",\"kind\":\"summary\",\"text\":\"<frames what the list enumerates>\"},\n" +
 		"  {\"id\":\"slate\",\"kind\":\"ordered_list\",\"surface_role\":\"principal\",\n" +
+		"   \"claim_uses\":[{\"claim_form\":\"definition_fact\"}],\n" +
 		"   \"items\":[\n" +
-		"    {\"id\":\"m1\",\"label\":\"MemberA\",\"text\":\"<role / why it belongs>\",\"citation_ref\":0,\"claim_use\":{\"claim_form\":\"definition_fact\"}},\n" +
-		"    {\"id\":\"m2\",\"label\":\"MemberB\",\"text\":\"<role / why it belongs>\",\"citation_ref\":1,\"claim_use\":{\"claim_form\":\"definition_fact\"}}\n" +
+		"    {\"id\":\"m1\",\"label\":\"MemberA\",\"text\":\"<role / why it belongs>\",\"citation_ref\":0},\n" +
+		"    {\"id\":\"m2\",\"label\":\"MemberB\",\"text\":\"<role / why it belongs>\",\"citation_ref\":1}\n" +
 		"   ]}\n" +
 		"],\"citations\":[{\"file\":\"x.go\",\"line\":1},{\"file\":\"y.go\",\"line\":1}]}\n" +
 		"```\n" +

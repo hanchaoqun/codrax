@@ -445,7 +445,7 @@ func renderSemanticQualityUserMessage(in SemanticQualityInput) string {
 
 // countFacetCoverageDepth counts (declared, anchored) pairs for the
 // named facet kind on doc:
-//   - declared = number of sites (block.FacetIDs / item.ClaimUse.FacetID
+//   - declared = number of sites (block.FacetIDs
 //     / block.ClaimUses[].FacetID) that name this facet
 //   - anchored = subset of declared sites that ALSO carry a non-empty
 //     EvidenceID or ClaimForm on the same surface
@@ -463,7 +463,7 @@ func countFacetCoverageDepth(doc *types.AnswerDocumentV2, kind string) (declared
 			}
 			declared++
 			// A block-level FacetIDs declaration is "anchored" when
-			// any of its block-level ClaimUses or any item.ClaimUse
+			// any of its block-level ClaimUses
 			// also declares this facet kind WITH a ClaimForm or
 			// EvidenceID — proving the claim is grounded in evidence,
 			// not just labelled.
@@ -480,38 +480,17 @@ func countFacetCoverageDepth(doc *types.AnswerDocumentV2, kind string) (declared
 				anchored++
 			}
 		}
-		for _, item := range b.Items {
-			if item.ClaimUse == nil {
-				continue
-			}
-			if strings.TrimSpace(item.ClaimUse.FacetID) != kind {
-				continue
-			}
-			declared++
-			if item.ClaimUse.EvidenceID != "" || item.ClaimUse.ClaimForm != "" {
-				anchored++
-			}
-		}
 	}
 	return declared, anchored
 }
 
-// blockHasAnchoredClaim reports whether the block has any claim_use
-// (block-level or item-level) for the named facet kind that also
-// names a ClaimForm or EvidenceID. Used by countFacetCoverageDepth
-// to distinguish label-only declarations from grounded ones.
+// blockHasAnchoredClaim reports whether the block has any block-level
+// claim_use for the named facet kind that also names a ClaimForm or
+// EvidenceID. Used by countFacetCoverageDepth to distinguish label-only
+// declarations from grounded ones.
 func blockHasAnchoredClaim(b types.AnswerBlock, kind string) bool {
 	for _, cu := range b.ClaimUses {
 		if strings.TrimSpace(cu.FacetID) == kind && (cu.EvidenceID != "" || cu.ClaimForm != "") {
-			return true
-		}
-	}
-	for _, item := range b.Items {
-		if item.ClaimUse == nil {
-			continue
-		}
-		if strings.TrimSpace(item.ClaimUse.FacetID) == kind &&
-			(item.ClaimUse.EvidenceID != "" || item.ClaimUse.ClaimForm != "") {
 			return true
 		}
 	}
@@ -554,11 +533,6 @@ func BuildSemanticQualityInput(
 				covered[strings.TrimSpace(cu.FacetID)] = true
 			}
 		}
-		for _, item := range b.Items {
-			if item.ClaimUse != nil && item.ClaimUse.FacetID != "" {
-				covered[strings.TrimSpace(item.ClaimUse.FacetID)] = true
-			}
-		}
 	}
 
 	// v3 B2: project SystemDetectedGaps from the typed validators so
@@ -592,7 +566,7 @@ func BuildSemanticQualityInput(
 				typedClaimCount = len(b.ClaimUses)
 			case types.BlockOrderedList, types.BlockBulletList:
 				for _, item := range b.Items {
-					if item.ClaimUse != nil && !item.ClaimUse.IsEmpty() {
+					if item.CitationRef >= 0 {
 						typedClaimCount++
 					}
 				}

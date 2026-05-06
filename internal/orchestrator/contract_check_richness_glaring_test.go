@@ -212,13 +212,14 @@ func TestValidatePrincipalProseUnderfilled_OrderedListChecksItemsAggregated(t *t
 				SurfaceRole: types.SurfacePrincipal,
 				Text:        "", // empty lead-in (typical pattern)
 				Items: []types.AnswerBlockItem{
-					{ID: "i1", Text: "calls `foo`", ClaimUse: &cu},
-					{ID: "i2", Text: "calls `bar`", ClaimUse: &cu},
-					{ID: "i3", Text: "calls `baz`", ClaimUse: &cu},
+					{ID: "i1", Text: "calls `foo`", CitationRef: 0},
+					{ID: "i2", Text: "calls `bar`", CitationRef: 1},
+					{ID: "i3", Text: "calls `baz`", CitationRef: 2},
 				},
 			},
 		},
 	}
+	_ = cu
 	if vs := validatePrincipalProseUnderfilled(doc); len(vs) != 0 {
 		t.Errorf("ordered_list with inline-code in items[] → no violation; got %+v", vs)
 	}
@@ -228,7 +229,6 @@ func TestValidatePrincipalProseUnderfilled_OrderedListChecksItemsAggregated(t *t
 // — ordered_list with 3 items with claim_use but ZERO inline-code in
 // any item.Text → fires.
 func TestValidatePrincipalProseUnderfilled_OrderedListWithoutInlineCodeFires(t *testing.T) {
-	cu := types.RenderedClaimUse{ClaimForm: types.ClaimCallEdge, EvidenceID: "e1"}
 	doc := &types.AnswerDocumentV2{
 		DocumentModel: "v2",
 		Blocks: []types.AnswerBlock{
@@ -237,9 +237,9 @@ func TestValidatePrincipalProseUnderfilled_OrderedListWithoutInlineCodeFires(t *
 				Kind:        types.BlockOrderedList,
 				SurfaceRole: types.SurfacePrincipal,
 				Items: []types.AnswerBlockItem{
-					{ID: "i1", Text: "first the system invokes the worker", ClaimUse: &cu},
-					{ID: "i2", Text: "then the result is checked", ClaimUse: &cu},
-					{ID: "i3", Text: "finally the response is returned", ClaimUse: &cu},
+					{ID: "i1", Text: "first the system invokes the worker", CitationRef: 0},
+					{ID: "i2", Text: "then the result is checked", CitationRef: 1},
+					{ID: "i3", Text: "finally the response is returned", CitationRef: 2},
 				},
 			},
 		},

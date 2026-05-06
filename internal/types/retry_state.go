@@ -164,7 +164,6 @@ type RetryBlockSummary struct {
 	ClaimForm         ClaimForm       `json:"claim_form,omitempty"`
 	HasItems          bool            `json:"has_items"`
 	ItemCount         int             `json:"item_count,omitempty"`
-	ItemsWithClaimUse int             `json:"items_with_claim_use,omitempty"`
 	ItemsWithCitation int             `json:"items_with_citation,omitempty"`
 	// EdgeAnchoredClaimUses counts how many DiagramEdgeAnchor
 	// entries this block carries (Phase 1-B source-fix, 2026-05-04).

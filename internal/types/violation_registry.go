@@ -573,7 +573,7 @@ func init() {
 		Kind: ViolFacetUncovered, DefaultSeverity: SeverityMedium,
 		SoftByDefault: true, Promotable: true, FallbackLocus: LocusExplore,
 		Layer: "v2_oracle", CaveatFamilyID: CaveatFamilyAnswerCoverage,
-		SchemaDescriptionFragment: "Every required facet listed in the user section MUST be claimed by at least one block — set block.facet_ids=[<facet>] OR items[i].claim_use.facet_id=<facet>.",
+		SchemaDescriptionFragment: "Every required facet listed in the user section MUST be claimed by at least one block — set block.facet_ids=[<facet>] OR block.claim_uses[j].facet_id=<facet>.",
 		// Fix path: finalizer can claim existing facet via
 		// facet_ids; if facet has no evidence, explorer re-investigation
 		// is needed.
@@ -642,7 +642,7 @@ func init() {
 		Kind: ViolPrincipalClaimUseMissing, DefaultSeverity: SeverityCritical,
 		SoftByDefault: false, Promotable: true, FallbackLocus: LocusFinalizer,
 		Layer: "v2_oracle", CaveatFamilyID: CaveatFamilyCitationGrounded,
-		SchemaDescriptionFragment: "Every principal block (surface_role=principal) whose required AcceptableClaimForms list is non-empty MUST emit at least one entry in claim_uses[] (or items[i].claim_use for list/table blocks).",
+		SchemaDescriptionFragment: "Every principal block (surface_role=principal) whose required AcceptableClaimForms list is non-empty MUST emit at least one entry in the block's claim_uses[] array.",
 	})
 	RegisterViolKind(ViolKindSpec{
 		Kind: ViolDiagramEdgeUnsupported, DefaultSeverity: SeverityMedium,

@@ -137,7 +137,7 @@ func runContractCheck(out *agent.StageOutput, c types.AnswerContract, mut *types
 					validateEnumerationEvidenceCoverage(mut, view)...)
 			}
 			// V2 structural-enumeration divergence oracle. Reads typed
-			// V2 blocks (block.facet_ids + per-item claim_use) and the
+			// V2 blocks (block.facet_ids + block.claim_uses) and the
 			// graph's ImplementersOf / Subclasses relations.
 			if rmFull := mut.RequestModel(); rmFull != nil {
 				result.Violations = append(result.Violations,
@@ -722,11 +722,6 @@ func runCrossCitationConflictOracleV2(docV2 *types.AnswerDocumentV2) []types.Vio
 // Returns "" when no signal is usable; caller skips the item so
 // the oracle never groups by wordy prose.
 func crossCitationIdentityKey(item types.AnswerBlockItem) string {
-	if item.ClaimUse != nil {
-		if id := strings.TrimSpace(item.ClaimUse.EvidenceID); id != "" {
-			return "evidence:" + id
-		}
-	}
 	if id := strings.TrimSpace(item.ID); id != "" {
 		return "id:" + id
 	}

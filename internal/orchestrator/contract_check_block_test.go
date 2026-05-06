@@ -175,23 +175,6 @@ func TestPrincipalClaimUse_MissingFires(t *testing.T) {
 	}
 }
 
-
-func TestPrincipalClaimUse_ItemLevelClaimSatisfies(t *testing.T) {
-	view := principalClaimUseView()
-	cu := types.RenderedClaimUse{ClaimForm: types.ClaimDefinitionFact}
-	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{
-		{
-			ID:          "s1",
-			Kind:        types.BlockScalar,
-			SurfaceRole: types.SurfacePrincipal,
-			Items:       []types.AnswerBlockItem{{Label: "v", ClaimUse: &cu}},
-		},
-	}}
-	if vs := validatePrincipalClaimUse(doc, view); len(vs) != 0 {
-		t.Errorf("item-level ClaimUse must satisfy; got %+v", vs)
-	}
-}
-
 // ── validateDiagramEdgeSupport ─────────────────────────────
 
 func diagramRequiredView(kind types.DiagramKind) *types.AnswerSemanticView {
@@ -468,9 +451,8 @@ func TestDiagramEdgeSupport_NilClaimUsesDoesNotPanic(t *testing.T) {
 			ID:   "d1",
 			Kind: types.BlockDiagram,
 			Diagram: &types.AnswerDiagramBlock{
-				Kind:      types.DiagramFlow,
-				Body:      body,
-				ClaimUses: nil,
+				Kind: types.DiagramFlow,
+				Body: body,
 			},
 		},
 	}}
@@ -827,13 +809,16 @@ func TestValidateFacetCoverage_OptionalFacetSkipped(t *testing.T) {
 }
 
 // TestValidateFacetCoverage_ClaimUseFacetIDCounts confirms FacetID
-// declared via item.ClaimUse.FacetID also satisfies coverage.
+// declared via block.ClaimUses[].FacetID satisfies coverage.
 func TestValidateFacetCoverage_ClaimUseFacetIDCounts(t *testing.T) {
 	doc := &types.AnswerDocumentV2{
 		Blocks: []types.AnswerBlock{{
 			Kind: types.BlockOrderedList,
+			ClaimUses: []types.RenderedClaimUse{
+				{FacetID: "facet.steps"},
+			},
 			Items: []types.AnswerBlockItem{
-				{Label: "step1", ClaimUse: &types.RenderedClaimUse{FacetID: "facet.steps"}},
+				{Label: "step1"},
 			},
 		}},
 	}
@@ -845,7 +830,7 @@ func TestValidateFacetCoverage_ClaimUseFacetIDCounts(t *testing.T) {
 		},
 	}
 	if vs := validateFacetCoverage(doc, view); len(vs) > 0 {
-		t.Errorf("item.ClaimUse.FacetID must satisfy coverage; got %+v", vs)
+		t.Errorf("block.ClaimUses FacetID must satisfy coverage; got %+v", vs)
 	}
 }
 
@@ -1046,13 +1031,11 @@ func TestValidateClaimFormSupport_MatchPasses(t *testing.T) {
 		Blocks: []types.AnswerBlock{{
 			ID:   "b1",
 			Kind: types.BlockOrderedList,
-			Items: []types.AnswerBlockItem{{
-				Label: "step1",
-				ClaimUse: &types.RenderedClaimUse{
-					EvidenceID: "ev1",
-					ClaimForm:  types.ClaimDefinitionFact,
-				},
+			ClaimUses: []types.RenderedClaimUse{{
+				EvidenceID: "ev1",
+				ClaimForm:  types.ClaimDefinitionFact,
 			}},
+			Items: []types.AnswerBlockItem{{Label: "step1"}},
 		}},
 	}
 	if vs := validateClaimFormSupport(doc, mut); len(vs) > 0 {
@@ -1073,13 +1056,11 @@ func TestValidateClaimFormSupport_MismatchFires(t *testing.T) {
 		Blocks: []types.AnswerBlock{{
 			ID:   "b1",
 			Kind: types.BlockBulletList,
-			Items: []types.AnswerBlockItem{{
-				Label: "x",
-				ClaimUse: &types.RenderedClaimUse{
-					EvidenceID: "ev1",
-					ClaimForm:  types.ClaimDefinitionFact, // wrong — evidence is a call
-				},
+			ClaimUses: []types.RenderedClaimUse{{
+				EvidenceID: "ev1",
+				ClaimForm:  types.ClaimDefinitionFact, // wrong — evidence is a call
 			}},
+			Items: []types.AnswerBlockItem{{Label: "x"}},
 		}},
 	}
 	vs := validateClaimFormSupport(doc, mut)
@@ -1104,13 +1085,11 @@ func TestValidateClaimFormSupport_GeneralisationOK(t *testing.T) {
 	doc := &types.AnswerDocumentV2{
 		Blocks: []types.AnswerBlock{{
 			Kind: types.BlockBulletList,
-			Items: []types.AnswerBlockItem{{
-				Label: "x",
-				ClaimUse: &types.RenderedClaimUse{
-					EvidenceID: "ev1",
-					ClaimForm:  types.ClaimAssignmentFact,
-				},
+			ClaimUses: []types.RenderedClaimUse{{
+				EvidenceID: "ev1",
+				ClaimForm:  types.ClaimAssignmentFact,
 			}},
+			Items: []types.AnswerBlockItem{{Label: "x"}},
 		}},
 	}
 	if vs := validateClaimFormSupport(doc, mut); len(vs) > 0 {
@@ -1126,13 +1105,11 @@ func TestValidateClaimFormSupport_UnknownEvidenceIDSkipped(t *testing.T) {
 	doc := &types.AnswerDocumentV2{
 		Blocks: []types.AnswerBlock{{
 			Kind: types.BlockBulletList,
-			Items: []types.AnswerBlockItem{{
-				Label: "x",
-				ClaimUse: &types.RenderedClaimUse{
-					EvidenceID: "ev_phantom",
-					ClaimForm:  types.ClaimDefinitionFact,
-				},
+			ClaimUses: []types.RenderedClaimUse{{
+				EvidenceID: "ev_phantom",
+				ClaimForm:  types.ClaimDefinitionFact,
 			}},
+			Items: []types.AnswerBlockItem{{Label: "x"}},
 		}},
 	}
 	if vs := validateClaimFormSupport(doc, mut); len(vs) > 0 {
@@ -1161,10 +1138,10 @@ func TestValidateClaimFormSupport_EmptyClaimFormSkipped(t *testing.T) {
 	doc := &types.AnswerDocumentV2{
 		Blocks: []types.AnswerBlock{{
 			Kind: types.BlockBulletList,
-			Items: []types.AnswerBlockItem{{
-				Label:    "x",
-				ClaimUse: &types.RenderedClaimUse{EvidenceID: "ev1"}, // no ClaimForm declared
-			}},
+			ClaimUses: []types.RenderedClaimUse{
+				{EvidenceID: "ev1"}, // no ClaimForm declared
+			},
+			Items: []types.AnswerBlockItem{{Label: "x"}},
 		}},
 	}
 	if vs := validateClaimFormSupport(doc, mut); len(vs) > 0 {

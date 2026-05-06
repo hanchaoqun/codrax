@@ -370,42 +370,9 @@ func TestRunCrossCitationConflictOracleV2_WordyLabelNoLongerFires(t *testing.T) 
 	}
 }
 
-// TestRunCrossCitationConflictOracleV2_EvidenceIDGroupingFires pins
-// the precise-typed-signal path: when both items carry a
-// RenderedClaimUse with the same EvidenceID, that's the canonical
-// "same evidence" claim — different cite resolutions = real
-// contradiction.
-func TestRunCrossCitationConflictOracleV2_EvidenceIDGroupingFires(t *testing.T) {
-	cu := func(eid string) *types.RenderedClaimUse {
-		return &types.RenderedClaimUse{EvidenceID: eid}
-	}
-	doc := &types.AnswerDocumentV2{
-		DocumentModel: "v2",
-		Citations: []types.Citation{
-			{File: "x.go", Line: 100},
-			{File: "x.go", Line: 200},
-		},
-		Blocks: []types.AnswerBlock{{
-			Kind: types.BlockOrderedList,
-			Items: []types.AnswerBlockItem{
-				// Wordy Labels but SAME EvidenceID → group + fire.
-				{Label: "the long prose label A", CitationRef: 0, ClaimUse: cu("ev_42")},
-				{Label: "the long prose label B", CitationRef: 1, ClaimUse: cu("ev_42")},
-			},
-		}},
-	}
-	vs := runCrossCitationConflictOracleV2(doc)
-	if len(vs) != 1 {
-		t.Fatalf("EvidenceID-keyed grouping must fire once; got %d (%+v)", len(vs), vs)
-	}
-	if !strings.Contains(vs[0].Detail, "evidence:ev_42") {
-		t.Errorf("Detail must name the evidence-keyed identity; got %q", vs[0].Detail)
-	}
-}
-
 // TestRunCrossCitationConflictOracleV2_ItemIDGroupingFires confirms
-// the second-priority signal: when EvidenceID is empty but ID is
-// set, ID becomes the identity key.
+// the typed-signal path: items sharing the same ID become the
+// identity key.
 func TestRunCrossCitationConflictOracleV2_ItemIDGroupingFires(t *testing.T) {
 	doc := &types.AnswerDocumentV2{
 		DocumentModel: "v2",
@@ -451,25 +418,16 @@ func TestLooksLikeIdentifierShape(t *testing.T) {
 }
 
 // TestCrossCitationIdentityKey_PriorityOrder pins the priority:
-// EvidenceID > ID > Label (ident-shape only).
+// ID > Label (ident-shape only).
 func TestCrossCitationIdentityKey_PriorityOrder(t *testing.T) {
-	cu := &types.RenderedClaimUse{EvidenceID: "EV"}
-
-	// EvidenceID wins
-	if got := crossCitationIdentityKey(types.AnswerBlockItem{
-		ID: "iid", Label: "Lbl", ClaimUse: cu,
-	}); got != "evidence:EV" {
-		t.Errorf("EvidenceID priority broken: %q", got)
-	}
-
-	// No ClaimUse → ID wins
+	// ID wins
 	if got := crossCitationIdentityKey(types.AnswerBlockItem{
 		ID: "iid", Label: "Lbl",
 	}); got != "id:iid" {
 		t.Errorf("ID priority broken: %q", got)
 	}
 
-	// No ClaimUse, no ID → Label (only when ident-shape)
+	// No ID → Label (only when ident-shape)
 	if got := crossCitationIdentityKey(types.AnswerBlockItem{Label: "Lbl"}); got != "label:Lbl" {
 		t.Errorf("Label fallback broken: %q", got)
 	}

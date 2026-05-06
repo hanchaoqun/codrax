@@ -44,9 +44,11 @@ func samplePrevDoc() *AnswerDocumentV2 {
 			},
 			{
 				ID: "list1", Kind: BlockOrderedList,
+				ClaimUses: []RenderedClaimUse{
+					{ClaimForm: ClaimCallEdge},
+				},
 				Items: []AnswerBlockItem{
-					{ID: "i1", Label: "A", CitationRef: 0,
-						ClaimUse: &RenderedClaimUse{ClaimForm: ClaimCallEdge}},
+					{ID: "i1", Label: "A", CitationRef: 0},
 					{ID: "i2", Label: "B", CitationRef: 1},
 				},
 			},
@@ -111,10 +113,9 @@ func TestApplyPatch_PureUnchangedPreservesAllFields(t *testing.T) {
 	if got.Blocks[1].SurfaceRole != SurfacePrincipal {
 		t.Errorf("lifecycle SurfaceRole lost")
 	}
-	// Item-level claim_use preservation
-	if got.Blocks[2].Items[0].ClaimUse == nil ||
-		got.Blocks[2].Items[0].ClaimUse.ClaimForm != ClaimCallEdge {
-		t.Errorf("list1.i1 item-level claim_use lost")
+	// list1 block-level claim_uses preservation
+	if len(got.Blocks[2].ClaimUses) != 1 || got.Blocks[2].ClaimUses[0].ClaimForm != ClaimCallEdge {
+		t.Errorf("list1 ClaimUses lost; got %+v", got.Blocks[2].ClaimUses)
 	}
 	// Citation pool preservation
 	if len(got.Citations) != 2 {

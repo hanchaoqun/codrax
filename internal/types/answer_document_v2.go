@@ -232,9 +232,9 @@ func (e *DiagramEdgeAnchor) HasTypedRelation() bool {
 	return e.RelationKind.IsValid()
 }
 
-// AnswerBlockItem is one item inside a list / table block. Each item
-// can carry its own claim_use if the items represent independent
-// claims (typical case for OrderedList / BulletList).
+// AnswerBlockItem is one item inside a list / table block. Claim
+// annotations live on the parent block's ClaimUses (block-level only)
+// — items carry just the rendered surface (label / text / citation).
 type AnswerBlockItem struct {
 	// ID is optional; useful when a downstream block needs to
 	// reference this specific item.
@@ -252,12 +252,6 @@ type AnswerBlockItem struct {
 	// Citations, or -1 when no citation backs this item. Renderer
 	// resolves the index to a (file, line) cite at render time.
 	CitationRef int `json:"citation_ref,omitempty"`
-
-	// ClaimUse is the rendered claim annotation for this specific
-	// item. Validators check that the declared ClaimForm matches
-	// the AcceptableClaimForms list of the parent block's
-	// BlockRequirement.
-	ClaimUse *RenderedClaimUse `json:"claim_use,omitempty"`
 }
 
 // AnswerDiagramBlock is the payload for BlockDiagram blocks. It
@@ -278,12 +272,6 @@ type AnswerDiagramBlock struct {
 	// the fenced code block (without the ```mermaid fences — the
 	// renderer adds them). For text: pre-formatted ASCII art.
 	Body string `json:"body"`
-
-	// ClaimUses are diagram-level claim annotations. Each
-	// RenderedClaimUse can name a specific node or edge label so
-	// validateDiagramEdgeSupport (B4) can match the LLM's claim to
-	// the diagram source.
-	ClaimUses []RenderedClaimUse `json:"claim_uses,omitempty"`
 }
 
 // AllowedDocumentModels enumerates the persisted/internal

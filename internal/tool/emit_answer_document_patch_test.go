@@ -32,9 +32,11 @@ func newPatchTestBusContext() *types.BusContext {
 			},
 			{
 				ID: "list1", Kind: types.BlockOrderedList,
+				ClaimUses: []types.RenderedClaimUse{
+					{ClaimForm: types.ClaimCallEdge},
+				},
 				Items: []types.AnswerBlockItem{
-					{ID: "i1", Label: "A", CitationRef: 0,
-						ClaimUse: &types.RenderedClaimUse{ClaimForm: types.ClaimCallEdge}},
+					{ID: "i1", Label: "A", CitationRef: 0},
 				},
 			},
 		},
@@ -96,10 +98,9 @@ func TestEmitAnswerDocumentPatch_PureUnchangedAppliesAndPreserves(t *testing.T) 
 	if doc.Blocks[0].FacetIDs == nil || doc.Blocks[0].FacetIDs[0] != "current_code_path" {
 		t.Errorf("s1 FacetIDs lost; got %+v", doc.Blocks[0].FacetIDs)
 	}
-	// Item-level claim_use preservation
-	if doc.Blocks[1].Items[0].ClaimUse == nil ||
-		doc.Blocks[1].Items[0].ClaimUse.ClaimForm != types.ClaimCallEdge {
-		t.Error("item-level ClaimUse lost on unchanged block")
+	// list1 block-level claim_uses preservation
+	if len(doc.Blocks[1].ClaimUses) != 1 || doc.Blocks[1].ClaimUses[0].ClaimForm != types.ClaimCallEdge {
+		t.Errorf("list1 ClaimUses lost on unchanged block; got %+v", doc.Blocks[1].ClaimUses)
 	}
 }
 

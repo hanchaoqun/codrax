@@ -78,16 +78,14 @@ func NormalizeEmitAnswerBlock(raw emitAnswerBlockV2, fieldPath string) (types.An
 				Label:       it.Label,
 				Text:        it.Text,
 				CitationRef: int(it.CitationRef),
-				ClaimUse:    it.ClaimUse,
 			})
 		}
 	}
 	if raw.Diagram != nil {
 		diag := &types.AnswerDiagramBlock{
-			Kind:      types.DiagramKind(raw.Diagram.Kind),
-			Language:  raw.Diagram.Language,
-			Body:      raw.Diagram.Body,
-			ClaimUses: raw.Diagram.ClaimUses,
+			Kind:     types.DiagramKind(raw.Diagram.Kind),
+			Language: raw.Diagram.Language,
+			Body:     raw.Diagram.Body,
 		}
 		if strings.TrimSpace(diag.Body) == "" {
 			return types.AnswerBlock{}, fmt.Errorf("%s: diagram body is required when diagram is present", fieldPath)

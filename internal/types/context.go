@@ -1588,24 +1588,16 @@ func cloneAnswerDocumentV2(in *AnswerDocumentV2) *AnswerDocumentV2 {
 			if len(b.Items) > 0 {
 				cloned.Items = make([]AnswerBlockItem, len(b.Items))
 				for j, it := range b.Items {
-					itClone := AnswerBlockItem{
+					cloned.Items[j] = AnswerBlockItem{
 						ID:          it.ID,
 						Label:       it.Label,
 						Text:        it.Text,
 						CitationRef: it.CitationRef,
 					}
-					if it.ClaimUse != nil {
-						cu := *it.ClaimUse
-						itClone.ClaimUse = &cu
-					}
-					cloned.Items[j] = itClone
 				}
 			}
 			if b.Diagram != nil {
 				diag := *b.Diagram
-				if len(b.Diagram.ClaimUses) > 0 {
-					diag.ClaimUses = append([]RenderedClaimUse(nil), b.Diagram.ClaimUses...)
-				}
 				cloned.Diagram = &diag
 			}
 			if len(b.ClaimUses) > 0 {

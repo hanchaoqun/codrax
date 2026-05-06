@@ -53,18 +53,16 @@ type emitAnswerBlockV2 struct {
 }
 
 type emitAnswerBlockItemV2 struct {
-	ID          string                  `json:"id,omitempty"`
-	Label       string                  `json:"label,omitempty"`
-	Text        string                  `json:"text,omitempty"`
-	CitationRef FlexInt                 `json:"citation_ref,omitempty"`
-	ClaimUse    *types.RenderedClaimUse `json:"claim_use,omitempty"`
+	ID          string  `json:"id,omitempty"`
+	Label       string  `json:"label,omitempty"`
+	Text        string  `json:"text,omitempty"`
+	CitationRef FlexInt `json:"citation_ref,omitempty"`
 }
 
 type emitAnswerDiagramV2 struct {
-	Kind      string                   `json:"kind"`
-	Language  string                   `json:"language,omitempty"`
-	Body      string                   `json:"body"`
-	ClaimUses []types.RenderedClaimUse `json:"claim_uses,omitempty"`
+	Kind     string `json:"kind"`
+	Language string `json:"language,omitempty"`
+	Body     string `json:"body"`
 }
 
 // executeAnswerDocumentV2 handles block-only emits. It validates the
@@ -90,7 +88,7 @@ func executeAnswerDocumentV2(toolName string, ctx *types.BusContext, raw json.Ra
 	// streaming artefact where the model ran the array through
 	// JSON.stringify before placing it in the tool-call. We
 	// repair top-level blocks[] AND every nested array on each
-	// block (items / claim_uses / diagram.claim_uses) so the
+	// block (items / claim_uses) so the
 	// LLM gets accepted instead of forced to retry, while a WARN
 	// log surfaces the recovery for operator visibility.
 	if repaired, ok := repairBlocksAsString(raw); ok {
@@ -272,7 +270,7 @@ func mustMarshal(v interface{}) json.RawMessage {
 
 // repairNestedArraysAsString detects the same "JSON-encoded string
 // where an array is expected" failure mode for the nested arrays
-// inside each block (items, claim_uses, diagram.claim_uses) and
+// inside each block (items, claim_uses) and
 // returns a re-encoded RawMessage with each affected array inlined
 // as a real array. Mirrors repairBlocksAsString conservatively —
 // only the named fields are patched; everything else passes through
@@ -283,8 +281,7 @@ func mustMarshal(v interface{}) json.RawMessage {
 // repair, or (raw, nil, false) when nothing was repaired.
 //
 // Paths use dotted-bracket notation so the WARN log can name the
-// exact site (e.g. blocks[0].items, blocks[2].claim_uses,
-// blocks[1].diagram.claim_uses).
+// exact site (e.g. blocks[0].items, blocks[2].claim_uses).
 func repairNestedArraysAsString(raw json.RawMessage) (json.RawMessage, []string, bool) {
 	if len(raw) == 0 {
 		return nil, nil, false
@@ -313,20 +310,6 @@ func repairNestedArraysAsString(raw json.RawMessage) (json.RawMessage, []string,
 				blkObj[field] = r
 				paths = append(paths, fmt.Sprintf("blocks[%d].%s", i, field))
 				repaired = true
-			}
-		}
-		// Diagram.claim_uses — one level deeper.
-		if rawDiag, ok := blkObj["diagram"]; ok && len(rawDiag) > 0 && rawDiag[0] == '{' {
-			var diagObj map[string]json.RawMessage
-			if err := json.Unmarshal(rawDiag, &diagObj); err == nil {
-				if r, ok := repairBlockArrayField(diagObj, "claim_uses"); ok {
-					diagObj["claim_uses"] = r
-					if patched, err := json.Marshal(diagObj); err == nil {
-						blkObj["diagram"] = patched
-						paths = append(paths, fmt.Sprintf("blocks[%d].diagram.claim_uses", i))
-						repaired = true
-					}
-				}
 			}
 		}
 		if patched, err := json.Marshal(blkObj); err == nil {
@@ -416,17 +399,16 @@ func summarizeV2Blocks(blocks []types.AnswerBlock) string {
 var answerDocumentV2MisplacedHints = []MisplacedFieldHint{
 	{
 		Field:          "citation_ref",
-		ContainerNames: []string{"claim_use", "claim_uses"},
+		ContainerNames: []string{"claim_uses"},
 		CorrectPaths: []string{
 			"items[i].citation_ref (anchor scalar / decision blocks via a one-element items=[{citation_ref:N}])",
 		},
 	},
 	{
 		Field:          "facet_ids",
-		ContainerNames: []string{"claim_use", "claim_uses"},
+		ContainerNames: []string{"claim_uses"},
 		CorrectPaths: []string{
 			"blocks[i].facet_ids (plural, block-level coverage list)",
-			"items[i].claim_use.facet_id (singular, per-item claim annotation)",
 			"blocks[i].claim_uses[j].facet_id (singular, block-level claim annotation)",
 		},
 	},
@@ -480,14 +462,14 @@ var answerDocumentV2MisplacedHints = []MisplacedFieldHint{
 	// claim_use; remap to the new edge_anchors[] location.
 	{
 		Field:          "from_node",
-		ContainerNames: []string{"claim_use", "claim_uses"},
+		ContainerNames: []string{"claim_uses"},
 		CorrectPaths: []string{
 			"blocks[i].edge_anchors[j].from_node",
 		},
 	},
 	{
 		Field:          "to_node",
-		ContainerNames: []string{"claim_use", "claim_uses"},
+		ContainerNames: []string{"claim_uses"},
 		CorrectPaths: []string{
 			"blocks[i].edge_anchors[j].to_node",
 		},
@@ -498,7 +480,7 @@ var answerDocumentV2MisplacedHints = []MisplacedFieldHint{
 	// neighbour fields from_node / to_node).
 	{
 		Field:          "relation_kind",
-		ContainerNames: []string{"claim_use", "claim_uses"},
+		ContainerNames: []string{"claim_uses"},
 		CorrectPaths: []string{
 			"blocks[i].edge_anchors[j].relation_kind",
 		},

@@ -264,10 +264,10 @@ func ApplyAnswerDocumentV2Patch(prev *AnswerDocumentV2, p *AnswerDocumentV2Patch
 			continue
 		}
 		// Inherit prev block as-is. This is the load-bearing
-		// preservation: every typed annotation (claim_use,
-		// facet_ids, surface_role, items[].claim_use, diagram
-		// payload) flows through structurally — LLM never has a
-		// chance to drop them.
+		// preservation: every typed annotation (claim_uses,
+		// facet_ids, surface_role, edge_anchors, diagram payload)
+		// flows through structurally — LLM never has a chance to
+		// drop them.
 		out.Blocks = append(out.Blocks, prevBlock)
 	}
 	// Append new blocks.

@@ -47,7 +47,7 @@ func (t *EmitAnswerDocumentPatch) Name() string { return "emit_answer_document_p
 func (t *EmitAnswerDocumentPatch) Description() string {
 	return "Emit a DELTA against your previous `emit_answer_document` call instead of re-emitting the whole document. Use ONLY on retry paths (when `## Hard Rule (retry attempt N)` appears in the system prompt and a `## Previous Emit` section is present). On first dispatches, use `emit_answer_document` instead.\n\n" +
 		"Patch fields (all optional, but at least one MUST be non-empty):\n\n" +
-		"- `unchanged_block_ids`: ids of blocks from the previous emit to copy over byte-identical. Use this to assert preservation of every typed annotation field (claim_uses, edge_anchors, facet_ids, surface_role, items[].claim_use) on blocks you do NOT need to edit.\n" +
+		"- `unchanged_block_ids`: ids of blocks from the previous emit to copy over byte-identical. Use this to assert preservation of every typed annotation field (claim_uses, edge_anchors, facet_ids, surface_role) on blocks you do NOT need to edit.\n" +
 		"- `replace_blocks`: full block payloads that replace the previous emit's block with the same id. Each entry must carry a non-empty id that exists in the previous emit. Block payload shape matches the canonical block contract — see below.\n" +
 		"- `add_blocks`: new block payloads to append. Each id must NOT already exist in the previous emit. Block payload shape matches the canonical block contract — see below.\n" +
 		"- `remove_block_ids`: ids of previous-emit blocks to drop.\n" +
@@ -67,7 +67,7 @@ func (t *EmitAnswerDocumentPatch) Parameters() json.RawMessage {
     "unchanged_block_ids": {
       "type": "array",
       "items": {"type": "string"},
-      "description": "Block ids from the previous emit to copy over verbatim. Every id must exist in the previous emit. Use this to assert preservation of typed annotation fields (claim_uses / edge_anchors / facet_ids / surface_role / items[].claim_use) on blocks you are not editing — the system clones the prev block byte-identical, so the LLM cannot accidentally drop a field."
+      "description": "Block ids from the previous emit to copy over verbatim. Every id must exist in the previous emit. Use this to assert preservation of typed annotation fields (claim_uses / edge_anchors / facet_ids / surface_role) on blocks you are not editing — the system clones the prev block byte-identical, so the LLM cannot accidentally drop a field."
     },
     "replace_blocks": {
       "type": "array",

@@ -831,13 +831,8 @@ func buildDiagramSupportTokens(doc *types.AnswerDocumentV2, diagramBlock *types.
 				}
 			}
 		}
-		// Diagram-level claim uses
-		for _, cu := range diagramBlock.Diagram.ClaimUses {
-			add(cu.FacetID)
-			add(cu.EvidenceID)
-		}
 	}
-	// 2) Block titles + 3) item labels + per-block / per-item claim_use
+	// 2) Block titles + 3) item labels + block-level claim_uses
 	if doc != nil {
 		for _, b := range doc.Blocks {
 			add(b.Title)
@@ -847,10 +842,6 @@ func buildDiagramSupportTokens(doc *types.AnswerDocumentV2, diagramBlock *types.
 			}
 			for _, it := range b.Items {
 				add(it.Label)
-				if it.ClaimUse != nil {
-					add(it.ClaimUse.FacetID)
-					add(it.ClaimUse.EvidenceID)
-				}
 			}
 		}
 	}
@@ -1024,21 +1015,10 @@ func validateUncertaintyBlockPresence(doc *types.AnswerDocumentV2, view *types.A
 }
 
 // blockHasClaimUse reports whether a block carries any claim_use
-// annotation — either at block level (b.ClaimUses) or on any item
-// (b.Items[i].ClaimUse non-nil) or on a diagram (b.Diagram.ClaimUses).
+// annotation. Claim annotations live ONLY at block level
+// (b.ClaimUses); items and diagrams no longer carry claim_use.
 func blockHasClaimUse(b types.AnswerBlock) bool {
-	if len(b.ClaimUses) > 0 {
-		return true
-	}
-	for _, it := range b.Items {
-		if it.ClaimUse != nil {
-			return true
-		}
-	}
-	if b.Diagram != nil && len(b.Diagram.ClaimUses) > 0 {
-		return true
-	}
-	return false
+	return len(b.ClaimUses) > 0
 }
 
 // formNames stringifies a ClaimForm slice for error messages.
@@ -1055,9 +1035,9 @@ func formNames(forms []types.ClaimForm) []string {
 // (Tier=Hard/Soft) is covered by at least one V2 block whose
 // block.FacetIDs[] names the facet's Kind.
 //
-// Coverage = "any block declared this FacetID via block.FacetIDs[],
-// item.ClaimUse.FacetID, or block.ClaimUses[i].FacetID" — a precise
-// typed signal (R3 red line).
+// Coverage = "any block declared this FacetID via block.FacetIDs[]
+// or block.ClaimUses[i].FacetID" — a precise typed signal (R3 red
+// line).
 //
 // Promotion gate (G6 post_v2_runtime_gap_remediation, 2026-05-04):
 // the (Tier, len(SourceCandidate)) joint logic is centralised on
@@ -1092,16 +1072,11 @@ func validateFacetCoverage(doc *types.AnswerDocumentV2, view *types.AnswerSemant
 		for _, fid := range b.FacetIDs {
 			covered[strings.TrimSpace(fid)] = true
 		}
-		// Items / ClaimUses MAY also carry FacetID via
+		// Block-level ClaimUses MAY also carry FacetID via
 		// RenderedClaimUse.FacetID — fold those in too.
 		for _, cu := range b.ClaimUses {
 			if cu.FacetID != "" {
 				covered[strings.TrimSpace(cu.FacetID)] = true
-			}
-		}
-		for _, item := range b.Items {
-			if item.ClaimUse != nil && item.ClaimUse.FacetID != "" {
-				covered[strings.TrimSpace(item.ClaimUse.FacetID)] = true
 			}
 		}
 	}
@@ -1176,7 +1151,7 @@ func validateFacetCoverage(doc *types.AnswerDocumentV2, view *types.AnswerSemant
 // Reads:
 //   - view.FacetCoverage.Optional[i].SourceCandidate (non-empty =
 //     evidence is available, the answer COULD have surfaced it)
-//   - block.FacetIDs / item.ClaimUse.FacetID (coverage signal,
+//   - block.FacetIDs / block.ClaimUses[i].FacetID (coverage signal,
 //     same as facet_uncovered above)
 func validateRichnessRegression(doc *types.AnswerDocumentV2, view *types.AnswerSemanticView) []types.Violation {
 	if doc == nil || view == nil || view.FacetCoverage == nil {
@@ -1227,7 +1202,7 @@ func validateRichnessRegression(doc *types.AnswerDocumentV2, view *types.AnswerS
 
 // buildFacetCoverageSet projects the rendered V2 doc's facet
 // coverage signal into a string set: a facet kind appears when ANY
-// block declares it via block.FacetIDs OR item.ClaimUse.FacetID OR
+// block declares it via block.FacetIDs OR
 // block.ClaimUses[i].FacetID. Shared by the facet / richness /
 // glaring-gap validators so coverage logic stays consistent.
 func buildFacetCoverageSet(doc *types.AnswerDocumentV2) map[string]bool {
@@ -1242,11 +1217,6 @@ func buildFacetCoverageSet(doc *types.AnswerDocumentV2) map[string]bool {
 		for _, cu := range b.ClaimUses {
 			if cu.FacetID != "" {
 				covered[strings.TrimSpace(cu.FacetID)] = true
-			}
-		}
-		for _, item := range b.Items {
-			if item.ClaimUse != nil && item.ClaimUse.FacetID != "" {
-				covered[strings.TrimSpace(item.ClaimUse.FacetID)] = true
 			}
 		}
 	}
@@ -1344,9 +1314,13 @@ func validatePrincipalProseUnderfilled(doc *types.AnswerDocumentV2) []types.Viol
 			inlineCode = countInlineCodeSegments(b.Text)
 			claimCount = len(b.ClaimUses)
 		case types.BlockOrderedList, types.BlockBulletList:
+			// Lists declare claim_uses[] once at block level; count
+			// cited items as the evidence-density signal (a list with
+			// many items pointing at citations[] but no inline code in
+			// any item.text is the "abstracted away from evidence" smell).
 			for _, item := range b.Items {
 				inlineCode += countInlineCodeSegments(item.Text)
-				if item.ClaimUse != nil && !item.ClaimUse.IsEmpty() {
+				if item.CitationRef >= 0 {
 					claimCount++
 				}
 			}
@@ -1482,14 +1456,6 @@ func validateClaimFormSupport(doc *types.AnswerDocumentV2, mut *types.MutableSta
 	for _, b := range doc.Blocks {
 		for i := range b.ClaimUses {
 			checkClaim(&b.ClaimUses[i], b.ID, "block-level claim_use")
-		}
-		if b.Diagram != nil {
-			for i := range b.Diagram.ClaimUses {
-				checkClaim(&b.Diagram.ClaimUses[i], b.ID, "diagram claim_use")
-			}
-		}
-		for j := range b.Items {
-			checkClaim(b.Items[j].ClaimUse, b.ID, fmt.Sprintf("item[%d] claim_use", j))
 		}
 	}
 	return out

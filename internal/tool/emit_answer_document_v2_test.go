@@ -404,25 +404,6 @@ func TestRepairNestedArraysAsString_ClaimUsesAsString(t *testing.T) {
 	}
 }
 
-// TestRepairNestedArraysAsString_DiagramClaimUses covers the
-// nested-deeper diagram.claim_uses[] case.
-func TestRepairNestedArraysAsString_DiagramClaimUses(t *testing.T) {
-	raw := json.RawMessage(`{
-		"blocks": [
-			{"id": "d1", "kind": "diagram",
-			 "diagram": {"kind": "flow", "body": "flowchart TD\nA-->B",
-			   "claim_uses": "[{\"claim_form\":\"call_edge\"}]"}}
-		]
-	}`)
-	_, paths, ok := repairNestedArraysAsString(raw)
-	if !ok {
-		t.Fatal("repair must fire")
-	}
-	if len(paths) != 1 || paths[0] != "blocks[0].diagram.claim_uses" {
-		t.Errorf("paths = %v, want [blocks[0].diagram.claim_uses]", paths)
-	}
-}
-
 // TestRepairNestedArraysAsString_MultipleAtOnce confirms the
 // repair handles multiple nested-string sites in one emit.
 func TestRepairNestedArraysAsString_MultipleAtOnce(t *testing.T) {
@@ -431,9 +412,8 @@ func TestRepairNestedArraysAsString_MultipleAtOnce(t *testing.T) {
 			{"id": "list1", "kind": "ordered_list",
 			 "items": "[{\"id\":\"i1\",\"label\":\"A\"}]",
 			 "claim_uses": "[{\"claim_form\":\"call_edge\"}]"},
-			{"id": "d1", "kind": "diagram",
-			 "diagram": {"kind": "flow", "body": "x",
-			   "claim_uses": "[{\"claim_form\":\"definition_fact\"}]"}}
+			{"id": "list2", "kind": "bullet_list",
+			 "items": "[{\"id\":\"i2\",\"label\":\"B\"}]"}
 		]
 	}`)
 	_, paths, ok := repairNestedArraysAsString(raw)
@@ -556,7 +536,6 @@ func TestEmitAnswerDocumentV2_FacetIDsInsideClaimUseRemapped(t *testing.T) {
 	for _, want := range []string{
 		`field "facet_ids"`,
 		"blocks[i].facet_ids",
-		"items[i].claim_use.facet_id",
 		"blocks[i].claim_uses[j].facet_id",
 		"NOT inside",
 	} {

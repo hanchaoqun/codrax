@@ -3168,7 +3168,7 @@ func TestRenderAnswerDocFacetCoverage_VerbatimFacetIDAndOwnerBlock(t *testing.T)
 		t.Errorf("missing verbatim facet_id for current_code_path:\n%s", got)
 	}
 	// preamble teaching that the value is what to copy into emit
-	if !strings.Contains(got, "`block.facet_ids` (or `item.claim_use.facet_id`)") {
+	if !strings.Contains(got, "`block.facet_ids` (or `block.claim_uses[j].facet_id`)") {
 		t.Errorf("missing R7 declarative preamble:\n%s", got)
 	}
 	// reverse-lookup hint (architecture family has BlockRequirement
@@ -3248,7 +3248,7 @@ func TestRenderAnswerDocRetryState_FullPayload(t *testing.T) {
 				{
 					ID: "items_block", Kind: types.BlockOrderedList,
 					HasItems: true, ItemCount: 3,
-					ItemsWithClaimUse: 2, ItemsWithCitation: 3,
+					ItemsWithCitation: 3,
 				},
 			},
 			HasExactResolution: false,
@@ -3333,7 +3333,7 @@ func TestRenderAnswerDocRetryState_FullPayload(t *testing.T) {
 		`facet_ids: ["current_code_path"]`,
 		`claim_use: present (claim_form="definition_fact")`,
 		`Block id="items_block" kind=ordered_list`,
-		"items: 3 total, 2 with claim_use, 3 with citation",
+		"items: 3 total, 3 with citation",
 		"Citations: 5 entries (top files: a.go, b.go)",
 	} {
 		if !strings.Contains(got, want) {

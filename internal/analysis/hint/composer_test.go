@@ -356,7 +356,7 @@ func TestComposer_V2ViolationsRouteThroughV2Vocabulary(t *testing.T) {
 		{
 			name:           "principal_claim_use_missing",
 			kind:           types.ViolPrincipalClaimUseMissing,
-			mustContain:    []string{"claim_uses", "items[i].claim_use", "citation_ref", "principal block"},
+			mustContain:    []string{"claim_uses", "citation_ref", "principal block"},
 			mustNotContain: []string{"shape=", "steps[]"},
 		},
 		{
@@ -374,7 +374,7 @@ func TestComposer_V2ViolationsRouteThroughV2Vocabulary(t *testing.T) {
 		{
 			name:           "claim_form_unsupported",
 			kind:           types.ViolClaimFormUnsupported,
-			mustContain:    []string{"claim_uses[]", "items[i].claim_use", "citation_ref"},
+			mustContain:    []string{"claim_uses[]", "citation_ref"},
 			mustNotContain: []string{"shape="},
 		},
 		{

@@ -35,9 +35,11 @@ func TestPopulateRetryState_RoundTrip(t *testing.T) {
 			},
 			{
 				ID: "list1", Kind: types.BlockOrderedList,
+				ClaimUses: []types.RenderedClaimUse{
+					{ClaimForm: types.ClaimCallEdge},
+				},
 				Items: []types.AnswerBlockItem{
-					{ID: "i1", Label: "A", CitationRef: 0,
-						ClaimUse: &types.RenderedClaimUse{ClaimForm: types.ClaimCallEdge}},
+					{ID: "i1", Label: "A", CitationRef: 0},
 					{ID: "i2", Label: "B", CitationRef: 1},
 				},
 			},
@@ -86,8 +88,8 @@ func TestPopulateRetryState_RoundTrip(t *testing.T) {
 	}
 
 	bs1 := rs.PrevEmitSummary.BlockSummaries[1]
-	if bs1.ItemsWithClaimUse != 1 {
-		t.Errorf("list1 ItemsWithClaimUse = %d, want 1", bs1.ItemsWithClaimUse)
+	if !bs1.HasClaimUse {
+		t.Error("list1 had block-level claim_use; HasClaimUse must be true")
 	}
 	if bs1.ItemsWithCitation != 2 {
 		t.Errorf("list1 ItemsWithCitation = %d, want 2", bs1.ItemsWithCitation)
@@ -212,8 +214,11 @@ func TestSummarizeAnswerDocV2ForRetry_EdgeAnchoredCounted(t *testing.T) {
 				EdgeAnchors: []types.DiagramEdgeAnchor{
 					{FromNode: "X", ToNode: "Y", ClaimForm: types.ClaimCallEdge},
 				},
+				ClaimUses: []types.RenderedClaimUse{
+					{ClaimForm: types.ClaimDefinitionFact},
+				},
 				Items: []types.AnswerBlockItem{
-					{ID: "i1", ClaimUse: &types.RenderedClaimUse{ClaimForm: types.ClaimDefinitionFact}},
+					{ID: "i1"},
 				},
 			},
 		},
