@@ -2435,14 +2435,14 @@ func typedSupportFinalizerRepoFacts(
 	if len(repoFacts) == 0 || ac == nil || !finalizerUsesTypedAnswerSupport(ac) {
 		return fallbackFacts, fallbackFiles
 	}
-	allowed := typedSupportFinalizerFileCeiling(ac)
-	if len(allowed) == 0 {
+	_, allowedFiles := typedSupportFinalizerSupportCeiling(ac)
+	if len(allowedFiles) == 0 {
 		return fallbackFacts, fallbackFiles
 	}
 	filteredFacts := make([]types.RepoFact, 0, len(repoFacts))
 	for _, fact := range repoFacts {
 		source := strings.TrimSpace(strings.ReplaceAll(fact.Source, `\`, `/`))
-		if source == "" || !allowed[source] {
+		if source == "" || !allowedFiles[source] {
 			continue
 		}
 		filteredFacts = append(filteredFacts, fact)
@@ -2457,8 +2457,8 @@ func typedSupportFinalizerEvidencePool(ac *types.AgentContext, items []types.Evi
 	if len(items) == 0 || ac == nil || !finalizerUsesTypedAnswerSupport(ac) {
 		return items
 	}
-	allowed := typedSupportFinalizerFileCeiling(ac)
-	if len(allowed) == 0 {
+	allowedLocations, allowedFiles := typedSupportFinalizerSupportCeiling(ac)
+	if len(allowedLocations) == 0 && len(allowedFiles) == 0 {
 		return items
 	}
 	filtered := make([]types.EvidenceItem, 0, len(items))
@@ -2466,8 +2466,15 @@ func typedSupportFinalizerEvidencePool(ac *types.AgentContext, items []types.Evi
 		if strings.TrimSpace(types.EvidenceAuthoritativeSurfaceText(item, false)) == "" {
 			continue
 		}
+		if len(allowedLocations) > 0 {
+			if !allowedLocations[supportEntryLocationForEvidenceItem(item)] {
+				continue
+			}
+			filtered = append(filtered, item)
+			continue
+		}
 		source := strings.TrimSpace(strings.ReplaceAll(item.Source, `\`, `/`))
-		if source == "" || !allowed[source] {
+		if source == "" || !allowedFiles[source] {
 			continue
 		}
 		filtered = append(filtered, item)
@@ -2475,25 +2482,30 @@ func typedSupportFinalizerEvidencePool(ac *types.AgentContext, items []types.Evi
 	return filtered
 }
 
-func typedSupportFinalizerFileCeiling(ac *types.AgentContext) map[string]bool {
+func typedSupportFinalizerSupportCeiling(ac *types.AgentContext) (map[string]bool, map[string]bool) {
 	plan := types.BuildAnswerSupportPlanForAgentContext(ac)
 	if plan == nil || len(plan.Lanes) == 0 {
-		return nil
+		return nil, nil
 	}
-	allowed := map[string]bool{}
+	allowedLocations := map[string]bool{}
+	allowedFiles := map[string]bool{}
 	for _, lane := range plan.Lanes {
 		for _, entry := range lane.Entries {
-			file := supportPlanEntryFile(entry.Location)
+			location := strings.TrimSpace(strings.ReplaceAll(entry.Location, `\`, `/`))
+			if location != "" {
+				allowedLocations[location] = true
+			}
+			file := supportPlanEntryFile(location)
 			if file == "" {
 				continue
 			}
-			allowed[file] = true
+			allowedFiles[file] = true
 		}
 	}
-	if len(allowed) == 0 {
-		return nil
+	if len(allowedLocations) == 0 && len(allowedFiles) == 0 {
+		return nil, nil
 	}
-	return allowed
+	return allowedLocations, allowedFiles
 }
 
 func supportPlanEntryFile(location string) string {
@@ -2509,6 +2521,17 @@ func supportPlanEntryFile(location string) string {
 		}
 	}
 	return location
+}
+
+func supportEntryLocationForEvidenceItem(item types.EvidenceItem) string {
+	src := strings.TrimSpace(strings.ReplaceAll(item.Source, `\`, `/`))
+	if src == "" {
+		return ""
+	}
+	if item.LineStart > 0 {
+		return fmt.Sprintf("%s:%d", src, item.LineStart)
+	}
+	return src
 }
 
 func isAllDigits(s string) bool {

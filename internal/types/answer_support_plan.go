@@ -2,6 +2,7 @@ package types
 
 import (
 	"fmt"
+	"regexp"
 	"strings"
 )
 
@@ -186,10 +187,11 @@ func compileCurrentCodePathSupportLane(plan *AnswerSurfacePlan) AnswerSupportLan
 		Title: "Current grounded code path",
 		Guidance: "Use this lane for the principal ordered call / path chain. Keep each hop at " +
 			"the abstraction literally supported by its own citation or grounded snippet. " +
-			"These entries prove today's code structure, not necessarily that the older runtime artifact executed every downstream hop exactly as shown.",
+			"These entries prove today's code structure, not necessarily that the older runtime artifact executed every downstream hop exactly as shown. " +
+			"For drift-bounded runtime traces, prefer hops that align to the observed stack-frame transition itself; do not elevate ordinary intra-function helper calls into the principal path unless the observed artifact explicitly names that hop.",
 	}
 	for _, item := range DriftBoundedRenderableSurfaceItems(plan.DriftBoundedSurfaceItems) {
-		if !rootCausePathItemEligible(item) {
+		if !rootCausePathItemEligible(plan, item) {
 			continue
 		}
 		text := strings.TrimSpace(EvidenceAuthoritativeSurfaceText(item, false))
@@ -220,7 +222,7 @@ func compileNearestMechanismSupportLane(plan *AnswerSurfacePlan, strength rootCa
 			"A current guard condition plus a later dereference proves the code contains both sites; by itself it does NOT prove the runtime artifact actually passed that guard and reached the dereference path.",
 	}
 	for _, item := range DriftBoundedRenderableSurfaceItems(plan.DriftBoundedSurfaceItems) {
-		if !rootCauseMechanismItemEligible(item) {
+		if !rootCauseMechanismItemEligible(plan, item) {
 			continue
 		}
 		text := strings.TrimSpace(EvidenceAuthoritativeSurfaceText(item, false))
@@ -272,9 +274,9 @@ func compileUncertaintyBoundarySupportLane(plan *AnswerSurfacePlan, strength roo
 	return lane
 }
 
-func rootCausePathItemEligible(item EvidenceItem) bool {
+func rootCausePathItemEligible(plan *AnswerSurfacePlan, item EvidenceItem) bool {
 	if driftBoundedIsCallItem(item) {
-		return true
+		return rootCauseObservedFrameCallEligible(plan, item)
 	}
 	// When no explicit call edge survives, a grounded definition is the
 	// next-best path anchor; keep it in the path lane rather than forcing
@@ -282,13 +284,49 @@ func rootCausePathItemEligible(item EvidenceItem) bool {
 	return item.AnchorKind == AnchorDefinition
 }
 
-func rootCauseMechanismItemEligible(item EvidenceItem) bool {
-	switch item.AnchorKind {
-	case AnchorCondition, AnchorAssignment, AnchorReturn:
-		return true
-	default:
+func rootCauseObservedFrameCallEligible(plan *AnswerSurfacePlan, item EvidenceItem) bool {
+	subjectTail := normalizedSurfaceSymbolTail(item.Subject)
+	objectTail := normalizedSurfaceSymbolTail(firstNonEmptySurfaceString(item.Object, item.AnchorSymbol))
+	if subjectTail == "" || objectTail == "" {
 		return false
 	}
+	innerTail, outerTail := rootCauseObservedFrameTails(plan)
+	switch {
+	case outerTail != "" && innerTail != "":
+		return subjectTail == outerTail && objectTail == innerTail
+	case innerTail != "":
+		// If we only recovered the innermost current anchor, keep the
+		// incoming call into that frame, not arbitrary intra-function
+		// calls that originate from it.
+		return objectTail == innerTail
+	default:
+		return true
+	}
+}
+
+func rootCauseObservedFrameTails(plan *AnswerSurfacePlan) (innerTail, outerTail string) {
+	if plan == nil {
+		return "", ""
+	}
+	if len(plan.LogObservedAnchors) > 0 {
+		innerTail = normalizedSurfaceSymbolTail(plan.LogObservedAnchors[0].Func)
+	}
+	if innerTail == "" && len(plan.LogSourceDriftAnchors) > 0 {
+		innerTail = normalizedSurfaceSymbolTail(firstNonEmptySurfaceString(
+			plan.LogSourceDriftAnchors[0].OriginalFunc,
+			plan.LogSourceDriftAnchors[0].Func,
+		))
+	}
+	if len(plan.LogObservedAnchors) > 1 {
+		outerTail = normalizedSurfaceSymbolTail(plan.LogObservedAnchors[1].Func)
+	}
+	if outerTail == "" && len(plan.LogSourceDriftAnchors) > 1 {
+		outerTail = normalizedSurfaceSymbolTail(firstNonEmptySurfaceString(
+			plan.LogSourceDriftAnchors[1].OriginalFunc,
+			plan.LogSourceDriftAnchors[1].Func,
+		))
+	}
+	return innerTail, outerTail
 }
 
 type rootCauseMechanismStrength int
@@ -306,7 +344,7 @@ func rootCauseMechanismSupportStrength(plan *AnswerSurfacePlan) rootCauseMechani
 	count := 0
 	hasNonGuard := false
 	for _, item := range DriftBoundedRenderableSurfaceItems(plan.DriftBoundedSurfaceItems) {
-		if !rootCauseMechanismItemEligible(item) {
+		if !rootCauseMechanismItemEligible(plan, item) {
 			continue
 		}
 		count++
@@ -329,7 +367,7 @@ func rootCauseWeakMechanismBoundaryEntry(plan *AnswerSurfacePlan) (AnswerSupport
 		return AnswerSupportEntry{}, false
 	}
 	for _, item := range DriftBoundedRenderableSurfaceItems(plan.DriftBoundedSurfaceItems) {
-		if !rootCauseMechanismItemEligible(item) || item.AnchorKind != AnchorCondition {
+		if !rootCauseMechanismItemEligible(plan, item) || item.AnchorKind != AnchorCondition {
 			continue
 		}
 		text := strings.TrimSpace(EvidenceAuthoritativeSurfaceText(item, false))
@@ -342,6 +380,87 @@ func rootCauseWeakMechanismBoundaryEntry(plan *AnswerSurfacePlan) (AnswerSupport
 		}, true
 	}
 	return AnswerSupportEntry{}, false
+}
+
+var nilGuardPathRe = regexp.MustCompile(`([A-Za-z_][A-Za-z0-9_\.]*)\s*(?:==|!=)\s*nil`)
+
+func rootCauseMechanismItemEligible(plan *AnswerSurfacePlan, item EvidenceItem) bool {
+	switch item.AnchorKind {
+	case AnchorCondition:
+		return true
+	case AnchorAssignment, AnchorReturn:
+		return !rootCauseGuardProtectedCompanion(plan, item)
+	default:
+		return false
+	}
+}
+
+func rootCauseGuardProtectedCompanion(plan *AnswerSurfacePlan, candidate EvidenceItem) bool {
+	if plan == nil || candidate.LineStart <= 0 {
+		return false
+	}
+	if candidate.AnchorKind != AnchorAssignment && candidate.AnchorKind != AnchorReturn {
+		return false
+	}
+	expr := strings.TrimSpace(candidate.Snippet)
+	if expr == "" {
+		expr = strings.TrimSpace(EvidenceStructuredSemanticLine(candidate, false))
+	}
+	if expr == "" {
+		return false
+	}
+	targetFunc := normalizedSurfaceSymbolTail(firstNonEmptySurfaceString(
+		candidate.OwnerSymbol,
+		candidate.AnchorSymbol,
+		candidate.Subject,
+	))
+	candidateFile := strings.TrimSpace(strings.ReplaceAll(candidate.Source, `\`, `/`))
+	for _, item := range DriftBoundedRenderableSurfaceItems(plan.DriftBoundedSurfaceItems) {
+		if item.AnchorKind != AnchorCondition || item.LineStart <= 0 || item.LineStart >= candidate.LineStart {
+			continue
+		}
+		if strings.TrimSpace(strings.ReplaceAll(item.Source, `\`, `/`)) != candidateFile {
+			continue
+		}
+		if targetFunc != "" && !driftBoundedMentionsFunc(item, targetFunc) {
+			continue
+		}
+		guardExpr := strings.TrimSpace(item.Condition)
+		if guardExpr == "" {
+			guardExpr = strings.TrimSpace(item.Snippet)
+		}
+		for _, path := range extractNilGuardedPaths(guardExpr) {
+			if path != "" && strings.Contains(expr, path) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func extractNilGuardedPaths(cond string) []string {
+	cond = strings.TrimSpace(cond)
+	if cond == "" {
+		return nil
+	}
+	matches := nilGuardPathRe.FindAllStringSubmatch(cond, -1)
+	if len(matches) == 0 {
+		return nil
+	}
+	seen := map[string]bool{}
+	out := make([]string, 0, len(matches))
+	for _, match := range matches {
+		if len(match) < 2 {
+			continue
+		}
+		path := strings.TrimSpace(match[1])
+		if path == "" || seen[path] {
+			continue
+		}
+		seen[path] = true
+		out = append(out, path)
+	}
+	return out
 }
 
 func supportEntryLocation(item EvidenceItem) string {

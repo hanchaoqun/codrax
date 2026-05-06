@@ -2545,6 +2545,17 @@ func TestBuildPromptContext_FinalizerTypedSupportEvidencePoolUsesAuthoritativeSu
 			Summary:         "buildAnalysisIR 开头有 nil 检查",
 			GroundingStatus: types.GroundingGrounded,
 		},
+		{
+			Kind:            types.EvidenceDirect,
+			Source:          "internal/agent/analyzer.go",
+			LineStart:       981,
+			AnchorKind:      types.AnchorCall,
+			Subject:         "buildAnalysisIR",
+			Object:          "RequestModel",
+			AnchorSymbol:    "RequestModel",
+			Summary:         "buildAnalysisIR 第 981 行调用 ctx.Mutable.RequestModel()，这就是 panic 的实际代码行",
+			GroundingStatus: types.GroundingGrounded,
+		},
 	})
 
 	bus := &types.BusContext{
@@ -2592,6 +2603,17 @@ func TestBuildPromptContext_FinalizerTypedSupportEvidencePoolUsesAuthoritativeSu
 				Summary:         "buildAnalysisIR 开头有 nil 检查",
 				GroundingStatus: types.GroundingGrounded,
 			},
+			{
+				Kind:            types.EvidenceDirect,
+				Source:          "internal/agent/analyzer.go",
+				LineStart:       981,
+				AnchorKind:      types.AnchorCall,
+				Subject:         "buildAnalysisIR",
+				Object:          "RequestModel",
+				AnchorSymbol:    "RequestModel",
+				Summary:         "buildAnalysisIR 第 981 行调用 ctx.Mutable.RequestModel()，这就是 panic 的实际代码行",
+				GroundingStatus: types.GroundingGrounded,
+			},
 		},
 		AnalysisIR: &types.AnalysisIR{
 			RequestModel: types.RequestModel{
@@ -2619,11 +2641,14 @@ func TestBuildPromptContext_FinalizerTypedSupportEvidencePoolUsesAuthoritativeSu
 	if strings.Contains(sec.Content, "dispatchStage") || strings.Contains(sec.Content, "runAnalyzePhase") {
 		t.Fatalf("typed-support evidence pool leaked out-of-ceiling outer call chain:\n%s", sec.Content)
 	}
+	if strings.Contains(sec.Content, "RequestModel") {
+		t.Fatalf("typed-support evidence pool should not reintroduce intra-function helper calls outside the support lanes:\n%s", sec.Content)
+	}
 	if !strings.Contains(sec.Content, "ParseOutput calls buildAnalysisIR") {
 		t.Fatalf("typed-support evidence pool should keep authoritative call anchor text:\n%s", sec.Content)
 	}
-	if !strings.Contains(sec.Content, "ParseOutput assignment anchor for ctx") {
-		t.Fatalf("typed-support evidence pool should keep authoritative assignment anchor text:\n%s", sec.Content)
+	if strings.Contains(sec.Content, "ParseOutput assignment anchor for ctx") {
+		t.Fatalf("typed-support evidence pool should not keep non-support-lane same-file assignments once location ceiling is active:\n%s", sec.Content)
 	}
 }
 

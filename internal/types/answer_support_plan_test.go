@@ -100,7 +100,7 @@ func TestBuildAnswerSupportPlan_RootCauseTraceCompilesTypedLanes(t *testing.T) {
 	}
 }
 
-func TestBuildAnswerSupportPlan_RootCauseTracePromotesNearestMechanismWithCompanion(t *testing.T) {
+func TestBuildAnswerSupportPlan_RootCauseTraceKeepsGuardProtectedAccessOutOfNearestMechanism(t *testing.T) {
 	plan := &AnswerSurfacePlan{
 		DriftBoundedSurfaceItems: []EvidenceItem{
 			{
@@ -138,6 +138,133 @@ func TestBuildAnswerSupportPlan_RootCauseTracePromotesNearestMechanismWithCompan
 		t.Fatal("expected support plan")
 	}
 	var mechanismLane *AnswerSupportLane
+	var boundaryLane *AnswerSupportLane
+	for i := range got.Lanes {
+		if got.Lanes[i].Kind == SupportLaneNearestMechanism {
+			mechanismLane = &got.Lanes[i]
+		}
+		if got.Lanes[i].Kind == SupportLaneUncertaintyBound {
+			boundaryLane = &got.Lanes[i]
+		}
+	}
+	if mechanismLane != nil && len(mechanismLane.Entries) > 0 {
+		t.Fatalf("guard-protected post-check access should not be promoted into nearest_mechanism: %+v", mechanismLane.Entries)
+	}
+	if boundaryLane == nil || len(boundaryLane.Entries) == 0 {
+		t.Fatal("expected uncertainty boundary lane when only a guard survives as grounded mechanism support")
+	}
+	if !strings.Contains(boundaryLane.Entries[len(boundaryLane.Entries)-1].Text, "only a protective guard") {
+		t.Fatalf("weak guard-only case should stay in boundary lane, got %+v", boundaryLane.Entries)
+	}
+}
+
+func TestBuildAnswerSupportPlan_RootCauseTracePathLanePrefersObservedFrameTransition(t *testing.T) {
+	plan := &AnswerSurfacePlan{
+		LogObservedAnchors: []LogSourceDriftAnchor{
+			{File: "internal/agent/analyzer.go", Func: "buildAnalysisIR", ObservedLine: 250, AnchoredLine: 978},
+			{File: "internal/agent/analyzer.go", Func: "(*analyzerEvaluator).ParseOutput", ObservedLine: 320, AnchoredLine: 743},
+		},
+		DriftBoundedSurfaceItems: []EvidenceItem{
+			{
+				Kind:         EvidenceRelationship,
+				Source:       "internal/agent/analyzer.go",
+				LineStart:    743,
+				AnchorKind:   AnchorCall,
+				Subject:      "ParseOutput",
+				Object:       "buildAnalysisIR",
+				AnchorSymbol: "buildAnalysisIR",
+			},
+			{
+				Kind:         EvidenceConditional,
+				Source:       "internal/agent/analyzer.go",
+				LineStart:    978,
+				AnchorKind:   AnchorCondition,
+				AnchorSymbol: "buildAnalysisIR",
+				Snippet:      "if ctx == nil || ctx.Mutable == nil {",
+			},
+			{
+				Kind:         EvidenceDirect,
+				Source:       "internal/agent/analyzer.go",
+				LineStart:    981,
+				AnchorKind:   AnchorCall,
+				Subject:      "buildAnalysisIR",
+				Object:       "RequestModel",
+				AnchorSymbol: "RequestModel",
+				Snippet:      "raw := ctx.Mutable.RequestModel()",
+			},
+		},
+	}
+
+	got := BuildAnswerSupportPlan(RequestModel{
+		Intent:    IntentRootCause,
+		LogTriage: &LogBundle{Errors: []LogError{{Type: "panic: runtime error"}}},
+	}, plan)
+	if got == nil {
+		t.Fatal("expected support plan")
+	}
+
+	var pathLane *AnswerSupportLane
+	for i := range got.Lanes {
+		if got.Lanes[i].Kind == SupportLaneCurrentCodePath {
+			pathLane = &got.Lanes[i]
+			break
+		}
+	}
+	if pathLane == nil {
+		t.Fatal("expected current_code_path lane")
+	}
+	joined := make([]string, 0, len(pathLane.Entries))
+	for _, entry := range pathLane.Entries {
+		joined = append(joined, entry.Text)
+	}
+	body := strings.Join(joined, "\n")
+	if !strings.Contains(body, "ParseOutput") || !strings.Contains(body, "buildAnalysisIR") {
+		t.Fatalf("path lane should keep the observed frame transition, got:\n%s", body)
+	}
+	if strings.Contains(body, "RequestModel") {
+		t.Fatalf("path lane should not elevate intra-function helper calls into the principal path, got:\n%s", body)
+	}
+}
+
+func TestBuildAnswerSupportPlan_RootCauseTracePromotesIndependentMechanismCompanion(t *testing.T) {
+	plan := &AnswerSurfacePlan{
+		DriftBoundedSurfaceItems: []EvidenceItem{
+			{
+				Kind:         EvidenceRelationship,
+				Source:       "internal/agent/analyzer.go",
+				LineStart:    743,
+				AnchorKind:   AnchorCall,
+				Subject:      "ParseOutput",
+				Object:       "buildAnalysisIR",
+				AnchorSymbol: "buildAnalysisIR",
+			},
+			{
+				Kind:         EvidenceConditional,
+				Source:       "internal/agent/analyzer.go",
+				LineStart:    978,
+				AnchorKind:   AnchorCondition,
+				AnchorSymbol: "buildAnalysisIR",
+				Condition:    "ctx == nil || ctx.Mutable == nil",
+			},
+			{
+				Kind:         EvidenceDirect,
+				Source:       "internal/agent/analyzer.go",
+				LineStart:    1000,
+				AnchorKind:   AnchorAssignment,
+				AnchorSymbol: "buildAnalysisIR",
+				Snippet:      "rm.AnalyzerHints.PrimaryEntities = append([]string(nil), rm.AnalyzerHints.Entities...)",
+			},
+		},
+	}
+
+	got := BuildAnswerSupportPlan(RequestModel{
+		Intent:    IntentRootCause,
+		LogTriage: &LogBundle{Errors: []LogError{{Type: "panic: runtime error"}}},
+	}, plan)
+	if got == nil {
+		t.Fatal("expected support plan")
+	}
+	var mechanismLane *AnswerSupportLane
 	for i := range got.Lanes {
 		if got.Lanes[i].Kind == SupportLaneNearestMechanism {
 			mechanismLane = &got.Lanes[i]
@@ -145,9 +272,15 @@ func TestBuildAnswerSupportPlan_RootCauseTracePromotesNearestMechanismWithCompan
 		}
 	}
 	if mechanismLane == nil || len(mechanismLane.Entries) == 0 {
-		t.Fatal("expected dedicated nearest_mechanism lane when a non-guard companion exists")
+		t.Fatal("independent inner companion should still promote nearest_mechanism lane")
 	}
-	if !strings.Contains(mechanismLane.Guidance, "does NOT prove the runtime artifact actually passed") {
-		t.Fatalf("nearest mechanism guidance missing runtime-path warning: %q", mechanismLane.Guidance)
+	if !strings.Contains(strings.Join(func() []string {
+		out := make([]string, 0, len(mechanismLane.Entries))
+		for _, entry := range mechanismLane.Entries {
+			out = append(out, entry.Text)
+		}
+		return out
+	}(), "\n"), "PrimaryEntities") {
+		t.Fatalf("mechanism lane should keep the independent companion, got %+v", mechanismLane.Entries)
 	}
 }
