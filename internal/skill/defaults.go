@@ -192,7 +192,7 @@ When a block's ` + "`surface_role=principal`" + ` AND the user-section block con
 - ` + "`absence_fact`" + ` — the cited evidence carries a Negative scope (a search confirmed the thing is absent)
 - ` + "`precedence_role`" + ` — the cited evidence carries a layer / override role (config layer, runtime override, default value)
 - ` + "`external_observation`" + ` — the cited evidence is from a runtime log / perf trace / external artifact, not repo source code
-- ` + "`import_edge`" + ` — the cited line is a module / package import edge
+- ` + "`import_edge`" + ` — the cited line is a module / package import edge (Go ` + "`import`" + `, JavaScript / TypeScript ` + "`import` / `require`" + `, Python ` + "`import` / `from … import`" + `, Java ` + "`import`" + `, Rust ` + "`use`" + `, etc.). Use this when the question asks about MODULE / PACKAGE DEPENDENCIES — where a symbol is SOURCED FROM, what packages a module pulls in, or which files import a given target. Do NOT use it for ` + "`call_edge`" + ` (caller→callee inside the codebase) or ` + "`definition_fact`" + ` (where a symbol is DECLARED).
 
 ` + "`claim_uses[]`" + ` is a plural array at block level — single-form blocks emit a one-element array like ` + "`claim_uses=[{claim_form=definition_fact}]`" + `; when items inside the block contribute distinct claim forms (e.g. some hops are ` + "`call_edge`" + `, others are ` + "`guard_condition`" + `), list one entry per form.
 

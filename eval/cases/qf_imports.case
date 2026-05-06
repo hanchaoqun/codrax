@@ -1,0 +1,44 @@
+# Grid B6/B7 — QFImports
+#
+# Family: QFImports (custom — exercises the import_edge claim_form
+# slot that the rest of the eval suite never triggers because no
+# other question shape asks about module-level dependencies).
+#
+# Question shape: "what does file/package X import / depend on".
+# Block contract: principal `ordered_list` enumerating import paths;
+# `claim_uses=[{claim_form=import_edge}]` is the natural typed
+# annotation for an enumeration of imports.
+#
+# Ground truth (verified 2026-05-06 against current source via
+# `head -30 internal/agent/explorer.go | grep -E '^\s+"'`):
+# explorer.go imports include the internal/* paths
+#   - internal/analysis/dataflow
+#   - internal/analysis/declarative
+#   - internal/analysis/normalizer
+#   - internal/analysis/subject
+#   - internal/llm
+#   - internal/logging
+#   - internal/skill
+#   - internal/tool
+#   - internal/tool/ground
+#   - internal/tool/repomap
+#   - internal/types
+# (plus external github.com/* and stdlib; question scope limits to
+# internal/* so the regex isn't over-broad to whatever stdlib the
+# LLM enumerates first).
+#
+# Positive anchor: at least 3 distinct internal/* import paths in
+# the answer body (each line of the regex). Bar is "named several
+# real internal packages explorer.go pulls in" — not "named EVERY
+# import" so a partial-but-correct answer passes. Negative anchor
+# blocks the regression where LLM lists stdlib only or invents
+# packages the source does not actually use.
+
+ID="qf_imports"
+NAME="package imports — explorer.go internal/* dependencies"
+QUESTION="internal/agent/explorer.go 这个文件 import 了哪些 internal/ 开头的 package？逐个列出 import 路径（只列 internal/ 开头的，不列标准库和外部依赖）。"
+EXPECT_CONTAINS="internal/agent/explorer.go"
+EXPECT_MATCHES_REGEX="internal/(types|skill|logging)
+internal/(llm|tool)
+internal/(analysis|tool/ground|tool/repomap)"
+EXPECT_NOT_CONTAINS="fabricated invented hallucinated"
