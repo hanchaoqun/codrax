@@ -60,7 +60,7 @@ func runV2BlockOraclesWithMut(doc *AnswerDocumentV2, view *AnswerSemanticView, m
 }
 ```
 
-外加 `internal/orchestrator/contract_check.go:121-243` 里另外 6 个独立 validator(`runStructuralEnumerationDivergenceOracleV2`、`runExternalArtifactDecodedCheck`、`runAuthorityOverreachCheck`、`runSelfConsistencyReviewV2`、`runSemanticQualityReview`、`runCrossCitationConflictOracleV2`)+ tool 层 `internal/agent/answer_block_normalize.go::failEmit` 的 schema enum 校验。
+外加 `internal/orchestrator/contract_check.go:143-213` 里另外 6 个独立 validator(`runStructuralEnumerationDivergenceOracleV2`、`runExternalArtifactDecodedCheck`、`runAuthorityOverreachCheck`、`runSelfConsistencyReviewV2`、`runSemanticQualityReview`、`runCrossCitationConflictOracleV2` — call sites 在 144/161/176/188/200/213)+ tool 层 `internal/tool/answer_block_normalize.go::failEmit` 的 schema enum 校验。
 
 **所有 validator 都是 PRECISE 信号**(typed enum / index 比对 / substring match in evidence pool),无 score / heuristic — 符合本仓库红线 `feedback_precise_signals_for_hard_gates.md`。
 
@@ -118,10 +118,10 @@ func runV2BlockOraclesWithMut(doc *AnswerDocumentV2, view *AnswerSemanticView, m
 | 文件 | 关键 line | 作用 |
 |---|---|---|
 | `internal/orchestrator/contract_check.go:58-246` | `runContractCheck()` | 顶层入口,在每次 finalizer emit 后运行 |
-| `internal/orchestrator/contract_check.go:111-163` | V2 dispatch | 调用 `runV2BlockOraclesWithMut` + 5 个独立 oracle |
+| `internal/orchestrator/contract_check.go:111-163` | V2 dispatch | 调用 `runV2BlockOraclesWithMut`(line 126)+ 4 个独立 call(`validateEnumerationEvidenceCoverage` line 136 / `runStructuralEnumerationDivergenceOracleV2` line 143 / `runSymbolAnchorTrackOracleV2` line 151 / `runCrossCitationConflictOracleV2` line 160)|
 | `internal/orchestrator/contract_check_block.go:1681-1706` | `runV2BlockOraclesWithMut` | 13 个 V2 validator 装配 |
 | `internal/orchestrator/contract_check_block.go:71-1860` | 各 `validate*` 实现 | 13 个 validator 本体 |
-| `internal/agent/answer_block_normalize.go:48-105` | 整段 | tool 层 schema enum 校验(diagram.kind / block.kind / 必填字段) |
+| `internal/tool/answer_block_normalize.go:48-105` | 整段 | tool 层 schema enum 校验(diagram.kind / block.kind / 必填字段) |
 | `internal/tool/emit_answer_document_v2.go:107-112` | strict-decode | citation_ref 不能进 claim_use / 未知字段 reject |
 
 ### 2.4 Hint composer + cooccurrence
@@ -129,7 +129,7 @@ func runV2BlockOraclesWithMut(doc *AnswerDocumentV2, view *AnswerSemanticView, m
 | 文件 | 关键 line | 作用 |
 |---|---|---|
 | `internal/analysis/hint/composer.go:142-201` | `Compose()` | 顶层入口,接 violations 出 6 字段 Hint struct |
-| `internal/analysis/hint/composer.go:202-244` | `Render()` | Hint struct → 字符串(无长度截断,Phase A 增强可放心扩文本) |
+| `internal/analysis/hint/composer.go:202-238` | `Render()` | Hint struct → 字符串(无长度截断,Phase A 增强可放心扩文本) |
 | `internal/analysis/hint/composer.go:374-440` | `summariseExactFix` | **真实 15 explicit case + 1 default**,本 Phase Commit 1 加 2 case + 改 1 case |
 | `internal/analysis/hint/composer.go:445-540` | `buildAllowedSet` | 给 LLM 列举允许值(claim forms / file list / block kinds)|
 | `internal/orchestrator/repair_cooccurrence.go:83-337` | `defaultCooccurrenceRules` | 9 条 Primary→Derived 折叠规则 |
@@ -198,20 +198,21 @@ func runV2BlockOraclesWithMut(doc *AnswerDocumentV2, view *AnswerSemanticView, m
 | 17 | log-triage 答案 prefer hop-chain | ❌ 无(策略选择题)| **KEEP-FULL** | n/a |
 | 18 | 文件形 token 必须在 citations 里(diagram-grounding gate)| `answer_document_evaluator.go:2770`(diagram-grounding gate)| **DELETE-UNCONDITIONAL** | ✓ reject signal `diagram_grounding` 含 allowed_labels metadata,456 字 |
 | 19 | Sealed-seed rule(diagram 中 file:line verbatim copy)| `appendRetryDiagramSeedHint`(ade:3119)| **DELETE-UNCONDITIONAL** | ✓ 已有专用 retry hint 段 |
-| 20 | log-triage error.Type 必须 verbatim 出现 | `runExternalArtifactDecodedCheck`(cc:248)| **DELETE-UNCONDITIONAL** | ✓ rationale 列举 missing tokens verbatim(cc:165-176)|
+| 20 | log-triage error.Type 必须 verbatim 出现 | `runExternalArtifactDecodedCheck`(func def cc:248,call site cc:176)| **DELETE-UNCONDITIONAL** | ✓ rationale 列举 missing tokens verbatim(in func body 248+)|
 | 21 | Subject discipline(无关同名 file 不进 summary)| ❌ 无(语义判断)| **KEEP-FULL** | n/a |
-| 22 | Authority discipline(drift bound,显式归属)| ⚠ `runAuthorityOverreachCheck`(cc:186)check caveat presence,**prose attribution 是判断题** | **KEEP-FULL** | n/a — partial machine-check 但 prose 部分必须 LLM 判断 |
-| 23 | Code-vs-narrative divergence(不静默选边)| ⚠ `runStructuralEnumerationDivergenceOracleV2`(cc:144)detect divergence,**prose 阐述是判断题** | **KEEP-FULL** | n/a — 同上 |
+| 22 | Authority discipline(drift bound,显式归属)| ⚠ `runAuthorityOverreachCheck`(func def cc:310,call site cc:188)check caveat presence,**prose attribution 是判断题** | **KEEP-FULL** | n/a — partial machine-check 但 prose 部分必须 LLM 判断 |
+| 23 | Code-vs-narrative divergence(不静默选边)| ⚠ `runStructuralEnumerationDivergenceOracleV2`(func def cc:818,call site cc:144)detect divergence,**prose 阐述是判断题** | **KEEP-FULL** | n/a — 同上 |
 | 24 | Absence-citation discipline(status='absent' 必带 negative-scope)| `validateAbsenceScopeBound`(cb:1519)| **DELETE-CONDITIONAL** | ⚠️ `ViolAbsenceScopeExceeded`(violation.go:299)走 DEFAULT fallback — Commit 1 加新 case |
 
-**汇总**:
+**汇总**(总计 24 条 — rule #16 仅在 SPLIT 列表内,SPLIT 自带"半保留半删除"语义,**不在 KEEP-COMPACT 重复计入**):
 - **DELETE-UNCONDITIONAL = 6 条**(#2, #4, #6, #18, #19, #20)— 直接删,hint 已 actionable
 - **DELETE-CONDITIONAL = 5 条**(#5, #7, #11, #14, #24)— 必须先做 Commit 1 hint 增强才删
 - **SPLIT = 1 条**(#16)— "Declare ONCE" 保留,"citation_ref NEVER in claim_use" 删
-- **KEEP-COMPACT = 5 条**(#1, #3, #12, #13, #16 部分)— 合并/压缩为 2-3 条 schema-mechanics 规则
+- **KEEP-COMPACT = 4 条**(#1, #3, #12, #13)— 合并/压缩为 2-3 条 schema-mechanics 规则
 - **KEEP-FULL = 8 条**(#8, #9, #10, #15, #17, #21, #22, #23)— 核心判断题,每条独立保留 + 加 §-锚点
+- **总和 = 6+5+1+4+8 = 24** ✓
 
-**Workflow 净规模**:24 → ~13(KEEP-FULL 8 + KEEP-COMPACT 合并 2-3 + SPLIT 半保留 ~1-2)。A''(#8)在新 list 中份额从 1/24 → ~1/13。
+**Workflow 净规模**:24 → ~13(KEEP-FULL 8 + KEEP-COMPACT 合并 2-3 + SPLIT 半保留 ~1)。A''(#8)在新 list 中份额从 1/24 → ~1/13。
 
 ### 3.1 Prohibitions 10 条决策
 
@@ -388,16 +389,19 @@ Workflow rules below are organized into thematic groups:
 
 `internal/skill/defaults_test.go` 真实 6 个测试函数对 `answer-document-skill` 做 substring assert:
 
-| 测试函数 | 锁定内容 | 对应规则 | Phase A 影响 |
+| 测试函数(真实 line) | 真实锁定内容(grep 验证) | 真实对应规则 | Phase A 影响 |
 |---|---|---|---|
-| 测试 #1(line ~30)| 锁 OutputFormat 含 diagram 教学 | OutputFormat | **SAFE** — Phase A 不动 OutputFormat 主体 |
-| 测试 #2(line ~50)| 锁 OutputFormat 含 V2 carrier 标识 | OutputFormat | **SAFE** |
-| 测试 #3(line ~70)| 锁 Workflow + OutputFormat 不含退役 V1 词汇 | OutputFormat | **SAFE** — Phase A 增加纯化(删规则)反而更绿 |
-| 测试 #4(line ~104)| 锁 Workflow 提及 claim_uses 教学(规则 #4)| 规则 #4 | **MUST VERIFY**:删 #4 后,需确认 OutputFormat §Claim annotations 仍包含等价教学 |
-| 测试 #5(line ~125)| 锁 Workflow 提及 edge_anchors 教学(规则 #5)| 规则 #5 | **MUST VERIFY**:删 #5 后同上 |
-| 测试 #6(line ~155)| 锁 Workflow 含 abstraction-level matching(规则 #8 / A'')| 规则 #8 | **KEEP & EXPAND** — 加 `// task #8 ref` 注释 |
+| `TestFinalizerSkillStepListPrefersDiagramsWhenHelpful`(line 27)| 锁 OutputFormat:`Even when the Diagram Contract does NOT require one` / `3+ hops` / `actor/role handoffs` / `easier to see than to read in prose` | OutputFormat | **SAFE** — Phase A 不动 OutputFormat 主体 |
+| `TestFinalizerSkillKeepsInternalJargonOutOfUserProse`(line 47)| 锁 OutputFormat 含 internal-jargon 教学:`Keep internal pipeline jargon out of the user-facing prose` / `"grounded"` / `'grep' / 'read_file' / 'repo_map' found nothing.` | OutputFormat | **SAFE** — Phase A 增强 hint 文本时必避开锁的内部词 |
+| `TestFinalizerSkill_DoesNotTeachRetiredV1AnswerPayloads`(line 66)| 锁 Workflow + OutputFormat **不含**退役 V1 词汇(`value{literal,citation_ref}` / `boolean.rationale` / `symbols_completeness` 等)| Workflow + OutputFormat | **SAFE** — Phase A 增加纯化(删规则)反而更绿 |
+| `TestFinalizerSkill_TeachesTypedDiagramRelationAuthority`(line 100)| 锁 **规则 #5** edge_anchors+relation_kind 教学:`edge_anchors is the OPTIONAL block-level array` / `relation_kind?: <one of call|guard|import|precedence|contain|observe>` / `PREFERRED: set relation_kind directly` / `the authoritative semantic relation` — **4/4 substring 全在 line 123 (rule #5)**(grep 验证)| 规则 #5 | **MUST VERIFY 删 #5 (commit 4) — 测试会 FAIL**;删 #5 前必须先把这 4 条 substring 等价内容补到 OutputFormat(§Block-kind payloads 或新加 §Edge anchors 子段),或同步更新此测试 |
+| `TestFinalizerSkill_ClarifiesFacetIDAndVerticalDiagramPreference`(line 121)| **主要锁 OutputFormat**(§Claim annotations + §Diagram contract):`claim annotations use singular \`facet_id\`` 在 rule #4 (line 122) AND OutputFormat (line 203) 双重出现;`plural \`facet_ids\` belongs on the block`(lowercase block)**仅在 OutputFormat (line 203,runtime concat 后)** — rule #4 (line 122) 是 BLOCK 大写;`\`flowchart TD\` by default` (line 211, OutputFormat);`keep participant labels short because actors render horizontally` (line 211, OutputFormat)— **3/4 substring 仅在 OutputFormat,1/4 双重出现** | OutputFormat 主体(非 Workflow rule #4 / #5)| **基本 SAFE** — 删 #4 (commit 2) 后 substring "claim annotations use singular `facet_id`" 仍在 OutputFormat (line 203);其他 3 substring 全在 OutputFormat 不受 Workflow 删除影响。但仍建议 commit 后跑此测试确认 |
+| `TestFinalizerSkill_TeachesAbstractionLevelMatching`(line 154)| 锁 Workflow 含 abstraction-level matching trigger:`what does each X do` / `每个 X 负责什么`(规则 #8 / A'')| 规则 #8 | **KEEP & EXPAND** — 加 `// task #8 ref` 注释 |
 
-**验证策略**:Commit 2 / Commit 4 实施前,先确认 `defaults.go::OutputFormat` 的对应 §-标题(§Claim annotations / §Diagram contract)真包含规则 #4 / #5 的等价教学;若不全,先把缺失部分补到 OutputFormat,再删 Workflow 规则。
+**验证策略**(基于真实 substring 来源):
+- **Commit 4 实施前**(删规则 #5)— `TestFinalizerSkill_TeachesTypedDiagramRelationAuthority` 4/4 substring 全锁 rule #5 → **删 #5 后此测试必 FAIL**。必须先把 `edge_anchors is the OPTIONAL` / `relation_kind?: <one of call|guard|import|precedence|contain|observe>` / `PREFERRED: set relation_kind directly` / `the authoritative semantic relation` 等价内容补到 OutputFormat(`§Block-kind payloads` 或新加 `§Edge anchors` 子段),再删 Workflow rule #5。
+- **Commit 2 实施前**(删规则 #4)— `TestFinalizerSkill_ClarifiesFacetIDAndVerticalDiagramPreference` 主要 substring 已在 OutputFormat,删 #4 后大概率 PASS;但 commit 后仍跑此测试验证。
+- **Commit 1 增强 hint 文本时** — `TestFinalizerSkillKeepsInternalJargonOutOfUserProse` 锁 `Keep internal pipeline jargon out of the user-facing prose` 等 substring,新加 hint 不要踩到 jargon banlist(grep 双向确认)。
 
 `internal/agent/answer_document_evaluator_test.go` 中对 OutputFormat 的断言(line 33-71, 2976+)— Agent 验证这些锁的是 **dynamic dispatch 文本而非 static skill 定义** → Phase A 改 static skill 不影响这些测试。
 
@@ -521,10 +525,10 @@ grep -n "validator\|Viol\|evidence pool" internal/orchestrator/llm_facing_jargon
 | 17 | log-triage prefer hop-chain | none — judgment | n/a | KEEP-FULL |
 | 18 | file-shaped tokens in citations | answer_document_evaluator.go:2770 | reject signal `diagram_grounding`(456 字)| DELETE-UNCOND |
 | 19 | sealed-seed verbatim | answer_document_evaluator.go:3119 `appendRetryDiagramSeedHint` | dedicated retry hint | DELETE-UNCOND |
-| 20 | log-triage error.Type verbatim | contract_check.go:248 `runExternalArtifactDecodedCheck` | rationale lists missing tokens | DELETE-UNCOND |
+| 20 | log-triage error.Type verbatim | `runExternalArtifactDecodedCheck` (func def cc:248, call site cc:176) | rationale lists missing tokens | DELETE-UNCOND |
 | 21 | subject discipline | none — judgment | n/a | KEEP-FULL |
-| 22 | authority discipline (drift) | contract_check.go:186 `runAuthorityOverreachCheck`(partial — caveat presence)| n/a — prose attribution judgment | KEEP-FULL |
-| 23 | code-vs-narrative divergence | contract_check.go:144 `runStructuralEnumerationDivergenceOracleV2`(partial)| n/a — prose narrative judgment | KEEP-FULL |
+| 22 | authority discipline (drift) | `runAuthorityOverreachCheck` (func def cc:310, call site cc:188) — partial caveat-presence check | n/a — prose attribution judgment | KEEP-FULL |
+| 23 | code-vs-narrative divergence | `runStructuralEnumerationDivergenceOracleV2` (func def cc:818, call site cc:144) — partial structural divergence | n/a — prose narrative judgment | KEEP-FULL |
 | 24 | absence-citation discipline | contract_check_block.go:1519 `validateAbsenceScopeBound` | (新加 case,见 §4.2 — 真实 ViolKind `ViolAbsenceScopeExceeded` violation.go:299)| DELETE-COND |
 
 `cb` = `contract_check_block.go`, `cc` = `contract_check.go`, `ade` = `answer_document_evaluator.go`.
