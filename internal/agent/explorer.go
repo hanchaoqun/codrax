@@ -8544,57 +8544,55 @@ func applyChainPromotion(in concreteValuesResult, readSet map[string]bool, closu
 		demotedSummaries[anchor.Summary] = true
 		demoteList = append(demoteList, pendingDemote{anchor})
 	}
-	// X1 short-circuit (kept=0 AND every demoted chain's anchor files
-	// are entirely outside the investigator's read-set at the file
-	// level): when the chain producer's connections do not intersect
-	// with the investigator's reading scope at all, the chains are
-	// off-target for this run's actual investigation. Promoting any
-	// anchor here burns an explore re-dispatch reading a file the
-	// investigator already chose to skip.
+	// X1 short-circuit (PER-CHAIN): when a demoted chain's anchor
+	// files are ENTIRELY outside the investigator's read-set at the
+	// file level, the chain producer's connections do not intersect
+	// with the investigator's reading scope for that chain at all.
+	// Promoting any anchor of that chain burns an explore re-dispatch
+	// reading a file the investigator already chose to skip.
 	//
-	// Crucially, we DO NOT short-circuit when kept=0 but at least one
-	// demoted chain has an anchor file in readSet at the file level
-	// (paginated / partial-read shape): that case is "on-target but
-	// incomplete" — the chain reaches into an unread SLICE of a file
-	// the investigator did open, so forcing the missing slice is
-	// the right call. This split is what the partial-anchor unit
-	// tests pin (a.go read, b.go missing → must enqueue PendingRead
-	// for b.go).
+	// Crucially, this is per-chain — a chain whose anchors are
+	// [a.go, b.go] with a.go inside readSet and b.go outside is the
+	// "on-target but incomplete" shape (paginated / partial-read);
+	// such chains DO promote PendingReads on the missing slice, so
+	// the partial-anchor unit tests continue to pass.
 	//
-	// The markdown / cvEvidence demote below STILL fires so the LLM
-	// doesn't see misleading chains; only the closure.AddPendingRead
-	// enqueue is skipped.
+	// The markdown / cvEvidence demote of every demoted chain still
+	// fires so the LLM doesn't see misleading chains; only the
+	// per-chain PendingRead enqueue is skipped when the entire
+	// anchor set is off-target.
 	//
-	// Pre-2026-05-06 attempts gated this on subjectConfidence >= 0.7
-	// then 0.5 — both unreachable since AnswerSubject.Confidence in
-	// this codebase tops out at 0.4 (analyzer_intent.go assigns
-	// 0.1-0.4 across all subject kinds). subjectConfidence is
-	// retained as a parameter for future per-confidence telemetry
-	// but no longer gates the skip.
-	allDemotedAnchorsOutsideReadSet := true
+	// Pre-2026-05-06 attempts gated this on subjectConfidence first
+	// (>= 0.7 / >= 0.5) — unreachable since AnswerSubject.Confidence
+	// in this codebase tops out at 0.4. Then on aggregate kept=0
+	// only — too narrow, missed the "kept=4 / demoted=3 with all
+	// demoted anchors outside readSet" case (qf_arch architecture
+	// questions where 4 chains land on read files and 3 chains land
+	// on a downstream-consumer file the LLM never opened).
+	// subjectConfidence is retained as a parameter for future
+	// per-confidence telemetry but no longer gates the skip.
+	x1Skipped := 0
+
+	// Pass 2: enqueue PendingReads for demoted anchors (X1 per-chain
+	// + X2 per-file filtered).
 	for _, pd := range demoteList {
-		for _, f := range pd.anchor.Files {
+		anchor := pd.anchor
+
+		// X1 per-chain: skip the entire PendingRead enqueue when no
+		// anchor file of THIS chain is in readSet at the file level.
+		anyAnchorFileInReadSet := false
+		for _, f := range anchor.Files {
 			if readSet[f] {
-				allDemotedAnchorsOutsideReadSet = false
+				anyAnchorFileInReadSet = true
 				break
 			}
 		}
-		if !allDemotedAnchorsOutsideReadSet {
-			break
+		if !anyAnchorFileInReadSet {
+			x1Skipped++
+			logging.Debug("[CGEC] X1 chain_promotion: chain %q anchored entirely outside ReadSet (origin=%s, subjectConfidence=%.2f) — skipping PendingRead",
+				anchor.Summary, anchor.Origin, subjectConfidence)
+			continue
 		}
-	}
-	skipPromote := len(keptSummaries) == 0 && len(demoteList) > 0 && allDemotedAnchorsOutsideReadSet
-	if skipPromote {
-		logging.Debug("[CGEC] X1 chain_promotion: kept=0 demoted=%d (subjectConfidence=%.2f) — every demoted anchor file is outside ReadSet; skipping all PendingRead(s)",
-			len(demoteList), subjectConfidence)
-	}
-	// Pass 2: enqueue PendingReads for demoted anchors (X1 + X2
-	// filtered).
-	for _, pd := range demoteList {
-		if skipPromote {
-			break
-		}
-		anchor := pd.anchor
 		// Append PendingRead for every anchor file the closure has
 		// not seen. Origin tags the source so the operator can grep
 		// the trace for which enforcer raised the read.

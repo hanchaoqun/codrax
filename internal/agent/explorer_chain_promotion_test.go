@@ -11,9 +11,17 @@ import (
 // CGEC-I1 regression. The unfiltered concreteValuesResult contains
 // two chains: one anchored in a file Turn A read, and one anchored
 // in a file Turn A did NOT read. After promotion, the second chain
-// must be removed from BOTH the markdown and the evidence slice,
-// and the missing file must show up as a PendingRead on the
-// closure.
+// must be removed from BOTH the markdown and the evidence slice.
+//
+// X1 update (2026-05-06): a chain whose ENTIRE anchor file set is
+// outside readSet is "off-target for this run" — promoting its
+// anchor wastes a forced-read on a file the investigator chose to
+// skip. The test asserts the new semantic: demoted chain dropped
+// from markdown / evidence (still load-bearing); PendingRead for
+// the off-target anchor is NOT enqueued (the X1 short-circuit).
+// Partial-anchor demotion (chain anchors at [a.go, b.go] with a.go
+// inside readSet, b.go outside) continues to enqueue PendingRead
+// for b.go — see TestApplyChainPromotion_PartialAnchorMissing_Demoted.
 func TestApplyChainPromotion_DropsChainsAnchoredOutsideReadSet(t *testing.T) {
 	chainKept := "`A.foo()` binds NewB → `B.bar()` returns \"keep\""
 	chainDropped := "`X.foo()` binds NewY → `Y.bar()` returns \"explorer\""
@@ -95,17 +103,15 @@ func TestApplyChainPromotion_DropsChainsAnchoredOutsideReadSet(t *testing.T) {
 		t.Errorf("non-chain concrete-value evidence was incorrectly dropped")
 	}
 
-	// PendingReads: subagent.go must be queued.
+	// PendingReads: subagent.go must NOT be queued — X1 short-
+	// circuits "anchor entirely outside readSet" demoted chains
+	// because the investigator did not open the file at all
+	// (forced-read would burn budget on an off-target location).
 	pendings := closure.PendingReads()
-	var found bool
 	for _, p := range pendings {
 		if p.File == "internal/agent/subagent.go" {
-			found = true
-			break
+			t.Errorf("X1 should suppress PendingRead for an off-target anchor (anchor entirely outside readSet), got %v", pendings)
 		}
-	}
-	if !found {
-		t.Errorf("expected PendingRead for internal/agent/subagent.go, got %v", pendings)
 	}
 }
 
