@@ -99,10 +99,9 @@ func AllSurfaceRoles() []SurfaceRole {
 //     Mismatch is a soft validator failure (Phase 3) / hard reject
 //     (Phase 4 promotion).
 //
-//   - SurfaceRole: when set to "principal", marks the block as the
-//     main-line answer payload. Empty means "not principal" — used
-//     for supporting context, framing prose, and diagram-only
-//     contributions alike.
+// SurfaceRole moved to AnswerBlock-level only — was dead on
+// RenderedClaimUse (no semantic readers; only IsEmpty() consulted it
+// to detect empty-annotation cases).
 //
 // Phase 1-B source-fix (V2 runtime eval followup, 2026-05-04):
 // FromNode/ToNode were REMOVED from this struct. Their u3a-1 real-
@@ -121,10 +120,9 @@ func AllSurfaceRoles() []SurfaceRole {
 // means an absent annotation serialises to absence (no claim_use
 // key in the JSON output) — back-compat is guaranteed.
 type RenderedClaimUse struct {
-	FacetID     string      `json:"facet_id,omitempty"`
-	EvidenceID  string      `json:"evidence_id,omitempty"`
-	ClaimForm   ClaimForm   `json:"claim_form,omitempty"`
-	SurfaceRole SurfaceRole `json:"surface_role,omitempty"`
+	FacetID    string    `json:"facet_id,omitempty"`
+	EvidenceID string    `json:"evidence_id,omitempty"`
+	ClaimForm  ClaimForm `json:"claim_form,omitempty"`
 }
 
 // IsEmpty reports whether c carries no annotation data. Useful for
@@ -134,6 +132,5 @@ func (c *RenderedClaimUse) IsEmpty() bool {
 	if c == nil {
 		return true
 	}
-	return c.FacetID == "" && c.EvidenceID == "" &&
-		c.ClaimForm == "" && c.SurfaceRole == ""
+	return c.FacetID == "" && c.EvidenceID == "" && c.ClaimForm == ""
 }

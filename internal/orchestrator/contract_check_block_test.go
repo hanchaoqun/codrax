@@ -147,7 +147,7 @@ func principalClaimUseView() *types.AnswerSemanticView {
 
 func TestPrincipalClaimUse_PresentPasses(t *testing.T) {
 	view := principalClaimUseView()
-	cu := types.RenderedClaimUse{ClaimForm: types.ClaimDefinitionFact, SurfaceRole: types.SurfacePrincipal}
+	cu := types.RenderedClaimUse{ClaimForm: types.ClaimDefinitionFact}
 	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{
 		{
 			ID:        "s1",

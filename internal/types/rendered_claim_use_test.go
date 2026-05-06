@@ -75,7 +75,6 @@ func TestRenderedClaimUse_IsEmpty(t *testing.T) {
 		{FacetID: "enumeration_item"},
 		{EvidenceID: "ev-1"},
 		{ClaimForm: ClaimDefinitionFact},
-		{SurfaceRole: SurfacePrincipal},
 	}
 	for _, c := range cases {
 		if c.IsEmpty() {
@@ -164,13 +163,11 @@ func TestRenderedClaimUse_FieldShape(t *testing.T) {
 	// Phase 1-B: claim_use is back to 4 fields (from/to_node moved
 	// to DiagramEdgeAnchor on AnswerBlock.EdgeAnchors[]).
 	c := RenderedClaimUse{
-		FacetID:     "enumeration_item",
-		EvidenceID:  "ev-7",
-		ClaimForm:   ClaimDefinitionFact,
-		SurfaceRole: SurfacePrincipal,
+		FacetID:    "enumeration_item",
+		EvidenceID: "ev-7",
+		ClaimForm:  ClaimDefinitionFact,
 	}
-	if c.FacetID == "" || c.EvidenceID == "" ||
-		c.ClaimForm == "" || c.SurfaceRole == "" {
+	if c.FacetID == "" || c.EvidenceID == "" || c.ClaimForm == "" {
 		t.Fatal("struct field assignment failed")
 	}
 }
