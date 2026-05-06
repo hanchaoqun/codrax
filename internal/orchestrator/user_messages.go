@@ -20,9 +20,17 @@ import (
 //
 // Design contract:
 //
-//   - Soft symbols (⟳, ·, ›, –, ⊘) only. Bright glyphs (📊 · ✅) are
-//     avoided because they dominate the TUI at the cadence the
-//     orchestrator emits these events.
+//   - Soft symbols (⟳, ·, ⊘) only — aligned with the project-wide
+//     palette (status_tokens.go: glyphRecoverable / glyphPending /
+//     glyphCancelled). Bright glyphs (📊, ✅, 🔥) are avoided because
+//     they would dominate the TUI at the cadence the orchestrator
+//     emits these events.
+//   - The bucket color (yellow / gray / cyan, picked by the
+//     OrchestratorNoticeKind passed to formatOrchestratorNotice) is
+//     the primary semantic discriminator; the inline dot/⟳ glyph is
+//     a secondary anchor. So a cyan-color "· Investigation done"
+//     vs a gray-color "· Plan reviewed" share the same glyph but
+//     read distinctly thanks to color.
 //   - User language, not internal jargon. "CGEC E2 / I4", counter
 //     names, and node IDs stay in the operator log (logging.*) and
 //     never appear in Reasoning strings.
@@ -59,9 +67,9 @@ func softForcedReadMessage(lang string, _ int) string {
 // and the orchestrator force-completes with current evidence.
 func softConvergenceStallMessage(lang string) string {
 	if preferZhMessage(lang) {
-		return "– 基于现有证据作答"
+		return "· 基于现有证据作答"
 	}
-	return "– Finalizing with available evidence"
+	return "· Finalizing with available evidence"
 }
 
 // abandonForcedReadMessage renders the user-visible line for the
@@ -206,9 +214,9 @@ func softRetryHintForStage(lang string, stage types.PipelineStage) string {
 // to move to the answer stage.
 func softInvestigationReadyMessage(lang string) string {
 	if preferZhMessage(lang) {
-		return "› 调查完成，准备作答"
+		return "· 调查完成，准备作答"
 	}
-	return "› Investigation done — preparing the answer"
+	return "· Investigation done — preparing the answer"
 }
 
 // softAnswerCheckRetryMessage renders the user-visible line for

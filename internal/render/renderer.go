@@ -208,6 +208,19 @@ type Renderer struct {
 	lastNodeStartAt   time.Time
 	lastNodeStartKind string
 
+	// adapterRetryTotal counts EventAdapterRetry events seen during
+	// this Run. Surfaced in the dock terminal-summary line so a
+	// "✗ Failed · Total elapsed 1m23s (retried 3 times)" makes it
+	// obvious that the system tried before failing — distinct from
+	// a one-shot failure where N=0. Zero is rendered as no suffix so
+	// the success / clean-fail summary stays unchanged.
+	//
+	// adapterFallbackTotal mirrors EventAdapterFallback so the same
+	// summary can name "(retried 3 times, switched provider once)"
+	// when the LLM fallback chain kicked in.
+	adapterRetryTotal    int
+	adapterFallbackTotal int
+
 	// lang is the user-facing locale code consumed by the status
 	// localization layer (status_messages.go). Empty defaults to
 	// zh-style output (mirrors the project-wide isZh fallback). Set

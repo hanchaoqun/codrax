@@ -38,8 +38,8 @@ func TestSoftMessages_LocalizeOnLanguage(t *testing.T) {
 			}
 
 			got = softConvergenceStallMessage(c.lang)
-			if strings.HasPrefix(got, "–") == false {
-				t.Errorf("stall must start with the – soft symbol, got %q", got)
+			if strings.HasPrefix(got, "·") == false {
+				t.Errorf("stall must start with the · info-class symbol, got %q", got)
 			}
 			if c.zh && !strings.Contains(got, "证据") {
 				t.Errorf("zh: stall must be Chinese, got %q", got)
@@ -60,8 +60,8 @@ func TestSoftMessages_LocalizeOnLanguage(t *testing.T) {
 			}
 
 			got = softInvestigationReadyMessage(c.lang)
-			if strings.HasPrefix(got, "›") == false {
-				t.Errorf("investigation-ready must start with the › soft symbol, got %q", got)
+			if strings.HasPrefix(got, "·") == false {
+				t.Errorf("investigation-ready must start with the · symbol, got %q", got)
 			}
 			if c.zh && !strings.Contains(got, "调查") {
 				t.Errorf("zh: investigation-ready must be Chinese, got %q", got)

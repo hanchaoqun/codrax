@@ -485,6 +485,7 @@ func (r *Renderer) handleEvent(ev Event) {
 			retryDelaySec: delaySec,
 			detail:        ev.RetryReason,
 		}
+		r.adapterRetryTotal++
 		// Also commit a permanent record so the run log shows the
 		// retry happened — useful when the user comes back later
 		// and wonders why their run took 60s. User-facing language:
@@ -551,6 +552,7 @@ func (r *Renderer) handleEvent(ev Event) {
 			kind:   activitySwitchingProvider,
 			detail: ev.FallbackTo,
 		}
+		r.adapterFallbackTotal++
 		body := fmt.Sprintf("切换 LLM 服务 %s → %s", ev.FallbackFrom, ev.FallbackTo)
 		if !isZh(r.lang) {
 			body = fmt.Sprintf("switched LLM provider %s → %s", ev.FallbackFrom, ev.FallbackTo)
@@ -1115,6 +1117,60 @@ func formatPhaseProgressLine(lang string, idx, total int, kind PhaseProgressKind
 	return out
 }
 
+// retryCountSuffix renders the "(retried N times)" / "(已重试 N 次)" trailer
+// the dock terminal-summary line appends when adapter retries or
+// fallbacks fired during this Run. Both 0 → empty (no suffix; the
+// summary stays terse for clean / one-shot runs). Surfacing the
+// counter on a fail / cancel summary communicates "we tried" so a
+// budget-exhausted failure reads distinctly from a one-shot failure.
+//
+// Pluralization mirrors the project's existing en/zh patterns (e.g.
+// metaToolCountPhrase): English uses "1 time" vs "N times"; Chinese
+// uses "N 次" uniformly. Provider-fallback count is appended only
+// when non-zero so the suffix stays compact for the common case
+// (retries without a provider switch).
+func retryCountSuffix(retries, fallbacks int, zh bool) string {
+	if retries == 0 && fallbacks == 0 {
+		return ""
+	}
+	if zh {
+		var b strings.Builder
+		b.WriteString("(")
+		if retries > 0 {
+			b.WriteString(fmt.Sprintf("已重试 %d 次", retries))
+		}
+		if fallbacks > 0 {
+			if retries > 0 {
+				b.WriteString("，")
+			}
+			b.WriteString(fmt.Sprintf("切换 provider %d 次", fallbacks))
+		}
+		b.WriteString(")")
+		return b.String()
+	}
+	var b strings.Builder
+	b.WriteString("(")
+	if retries > 0 {
+		if retries == 1 {
+			b.WriteString("retried 1 time")
+		} else {
+			b.WriteString(fmt.Sprintf("retried %d times", retries))
+		}
+	}
+	if fallbacks > 0 {
+		if retries > 0 {
+			b.WriteString(", ")
+		}
+		if fallbacks == 1 {
+			b.WriteString("switched provider once")
+		} else {
+			b.WriteString(fmt.Sprintf("switched provider %d times", fallbacks))
+		}
+	}
+	b.WriteString(")")
+	return b.String()
+}
+
 // orchestratorNoticeStyle returns the pterm style the dock should
 // use for an EventOrchestratorNotice based on its NoticeKind. The
 // three-bucket policy:
@@ -1160,8 +1216,10 @@ func orchestratorNoticeStyle(kind OrchestratorNoticeKind) *pterm.Style {
 //     tag would mislead the user into expecting per-iteration LLM
 //     output
 //   - The message body already carries its own kind glyph (⟳ / · /
-//     – / › / ⊘) chosen by internal/orchestrator/user_messages.go;
-//     the formatter does not double-prefix.
+//     ⊘) chosen by internal/orchestrator/user_messages.go,
+//     aligned with the project palette (status_tokens.go). The
+//     formatter does not double-prefix; bucket COLOR (yellow / gray
+//     / cyan) carries the primary semantic distinction.
 //
 // Empty text → empty output so the caller can degrade silently.
 func formatOrchestratorNotice(kind OrchestratorNoticeKind, text string) string {
@@ -1360,7 +1418,7 @@ func (r *Renderer) commitDockShutdownLocked() {
 			if zh {
 				head = "已失败"
 			} else {
-				head = "failed"
+				head = "Failed"
 			}
 		}
 		var body strings.Builder
@@ -1369,6 +1427,18 @@ func (r *Renderer) commitDockShutdownLocked() {
 		body.WriteString(statusMeta.Sprint("·"))
 		body.WriteString(" ")
 		body.WriteString(statusMeta.Sprint(totalElapsedPhrase(totalElapsed, r.lang)))
+		// Append "(retried N times)" / "(已重试 N 次)" when adapter retries
+		// or fallbacks fired during this Run. Communicates "we tried before
+		// failing" so a one-shot failure (N=0, no suffix) and an exhaustive
+		// retry exhaustion (N>0) read distinctly. Cancelled rows use the same
+		// suffix because user cancel after multiple retries is also useful
+		// context. The suffix is dim gray so it doesn't compete with the
+		// head; it is appended INSIDE the bodyStyle wrap so the entire body
+		// shares one styled segment.
+		if suffix := retryCountSuffix(r.adapterRetryTotal, r.adapterFallbackTotal, zh); suffix != "" {
+			body.WriteString(" ")
+			body.WriteString(statusMeta.Sprint(suffix))
+		}
 		line := formatCommitRow(commitRow{
 			kind: rowKind,
 			body: bodyStyle.Sprint(body.String()),
