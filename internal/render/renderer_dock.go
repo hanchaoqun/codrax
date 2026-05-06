@@ -852,7 +852,15 @@ func (r *Renderer) stageProgressForFocus(row *taskRow) string {
 	}
 	total := r.totalStages
 	if total <= 0 {
-		total = 6
+		// Default matches read mode (4 main dispatch boundaries:
+		// analyze + explore + extract + finalize). Pre-2026-05-06
+		// default was 6, but the 6-slot mapping decomposed explore
+		// into evidence/validate/reconcile sub-stages that share a
+		// single dispatch with the same start/end — the dock could
+		// never observe a 2/6→3/6→4/6 transition. CLI / non-TTY
+		// callers that never call SetTotalStages now get the
+		// architecturally-correct default instead of the legacy 6.
+		total = 4
 	}
 	key := stageKeyFor(row)
 	switch key {
