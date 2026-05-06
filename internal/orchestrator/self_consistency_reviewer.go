@@ -190,7 +190,7 @@ SEMANTIC-NORMALIZATION FIRST (apply before pattern-matching shapes):
 Before deciding "the two parts disagree", canonicalize what each part actually claims. Common normalization moves the reviewer must apply:
   - SAME ENTITY UNDER DIFFERENT NAMES: "the handler", "the dispatcher", "X.Process" may refer to the same function. Normalize to the most specific identifier mentioned (typically a backtick'd identifier or file:line cite). Two statements about an entity disagree only after both refer to the SAME normalized entity.
   - SCOPE QUALIFIER: "all stages" vs "the main pipeline stages" may refer to different scopes (one includes pre-stages, one doesn't). Numbers tied to different scopes are NOT contradictions — they are claims about distinct counts. A contradiction only fires when both scopes coincide.
-  - SAME COUNT EXPRESSED DIFFERENTLY: "6 stages" and "4 stages plus 2 pre-stages" describe the same total. Normalize before flagging numeric mismatch.
+  - SAME COUNT EXPRESSED DIFFERENTLY: "N items total" and "K items plus M optional ones" can describe the same set under different framings. Normalize before flagging numeric mismatch.
   - DIFFERENT FACTS NAMED THE SAME WAY: "the count" in summary may refer to total items; "the count" in body may refer to filtered items. Numbers attached to different underlying facts are NOT a contradiction.
 After normalization, if the two parts still describe the same entity under the same scope with INCOMPATIBLE values, you have a real contradiction.
 

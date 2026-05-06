@@ -872,15 +872,13 @@ func (r *Renderer) stageProgressForFocus(row *taskRow) string {
 		// totalStages=4 covers both:
 		//   read mode      — analyze + explore + extract + finalize
 		//   ModeApply mode — analyze + plan + apply + verify
-		// The two modes use disjoint stage keys, so a shared case is
-		// unambiguous. The read-mode slot count was 6 pre-2026-05-06
-		// (analyze + evidence + validate + reconcile + extract +
-		// finalize), but evidence / validate / reconcile all run inside
-		// the SAME explore stage dispatch with a shared start/end —
-		// the dock cannot observe a 2/6→3/6→4/6 transition because
-		// they end on the same instant. Folding them under "explore=2/4"
-		// removes the phantom slot jump and matches the architectural
-		// reality (4 dispatch boundaries).
+		// The two modes use disjoint stage keys so a shared case is
+		// unambiguous. evidence / validate / reconcile fold under
+		// "explore=2/4" because they run inside the SAME explore
+		// dispatch with a shared start/end — the dock has no
+		// observable transition between them, so giving them
+		// separate slots would be a slot count the user can never
+		// see advance.
 		switch key {
 		case "analyze":
 			return "1/4"
@@ -898,21 +896,6 @@ func (r *Renderer) stageProgressForFocus(row *taskRow) string {
 			return "3/4"
 		case "verify", "verifier":
 			return "4/4"
-		}
-	case 6: // legacy read-mode mapping (kept for callers that explicitly request 6 slots)
-		switch key {
-		case "analyze":
-			return "1/6"
-		case "explore", "evidence":
-			return "2/6"
-		case "validate":
-			return "3/6"
-		case "reconcile":
-			return "4/6"
-		case "extract":
-			return "5/6"
-		case "finalize":
-			return "6/6"
 		}
 	case 3: // write trio (no analyze counted)
 		switch key {

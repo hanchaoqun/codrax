@@ -939,7 +939,12 @@ func (r *Renderer) startSpinnerWithHint(hint string) {
 	r.streamTail = ""
 	r.streamChars = 0
 	if r.totalStages == 0 {
-		r.totalStages = 6
+		// Default matches read mode (4 main dispatch boundaries:
+		// analyze + explore + extract + finalize). Pre-2026-05-06
+		// this was 6 (the 6-slot decomposition that was never
+		// architecturally observable — see the rationale on
+		// repl.go's read-mode SetTotalStages call).
+		r.totalStages = 4
 	}
 	r.dockEnabled = isTTY(r.outputWriter()) && !r.dockSuppressed
 	if r.dockEnabled {
