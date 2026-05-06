@@ -2369,7 +2369,19 @@ func expandEntitiesWithImplementers(ctx *types.AgentContext, rm types.RequestMod
 	// per-language extractors populate (Go `import` blocks, Python
 	// `import` / `from-import`, Java `import`, JS / TS
 	// `import` / `require`, Rust `use`, etc.).
-	if fi, ok := graph.FileIndex[bare]; ok && fi != nil && len(fi.Imports) > 0 {
+	//
+	// Two-step lookup:
+	//   1. Direct: graph.FileIndex[bare] (e.g. canonical path
+	//      "internal/agent/explorer.go").
+	//   2. Suffix-match fallback: when the LLM filled entities with
+	//      a basename ("explorer.go") instead of the full path,
+	//      scan FileIndex for entries whose key ends with
+	//      "/<bare>" or equals "<bare>". Only fires when there is
+	//      EXACTLY ONE match — multiple matches mean the basename
+	//      is ambiguous and we can't disambiguate at analyze time
+	//      (fall through, let the L0-B gate complain so the LLM
+	//      retries with a more specific entity).
+	if fi := lookupFileInfoWithSuffix(graph, bare); fi != nil && len(fi.Imports) > 0 {
 		paths := make([]string, 0, len(fi.Imports))
 		for _, imp := range fi.Imports {
 			if p := strings.TrimSpace(imp.Path); p != "" {
@@ -2383,6 +2395,37 @@ func expandEntitiesWithImplementers(ctx *types.AgentContext, rm types.RequestMod
 	}
 
 	return original
+}
+
+// lookupFileInfoWithSuffix resolves an entity that may be a full
+// repo-relative path OR a basename. Direct match first; on miss,
+// scan FileIndex for any path ending in "/<entity>" or equal to
+// "<entity>". Only returns a hit when exactly ONE FileIndex entry
+// matches (so the suffix is unambiguous). Returns nil when bare
+// is empty, graph is nil, no match, or multiple matches.
+func lookupFileInfoWithSuffix(graph *repomap.Graph, bare string) *repomap.FileInfo {
+	if graph == nil || bare == "" {
+		return nil
+	}
+	if fi, ok := graph.FileIndex[bare]; ok {
+		return fi
+	}
+	suffix := "/" + bare
+	var match *repomap.FileInfo
+	matchCount := 0
+	for path, fi := range graph.FileIndex {
+		if path == bare || strings.HasSuffix(path, suffix) {
+			matchCount++
+			if matchCount > 1 {
+				return nil // ambiguous — multiple files match
+			}
+			match = fi
+		}
+	}
+	if matchCount == 1 {
+		return match
+	}
+	return nil
 }
 
 // mergeExpandedEntities appends `extra` to `original`, dropping
