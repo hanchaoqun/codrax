@@ -18,8 +18,21 @@ QUESTION="Explorer stage 之前的 analyzer stage 里是否允许调用 read_fil
 # the analyzer can call read_file" PASSed without the truthful
 # answer ("no"). Strengthen by requiring the answer to surface
 # (a) a negative verdict (no/forbidden/not allowed/禁止/不允许)
-# AND (b) the enforcer's name (validateAnalyzerPrescanToolCall),
-# proving the answer reached the actual gate logic.
-EXPECT_CONTAINS="analyze read_file validateAnalyzerPrescanToolCall"
-EXPECT_MATCHES_REGEX="(\bno\b|not allowed|forbidden|禁止|不允许|不能)"
+# AND (b) an enforcer's name, proving the answer reached actual
+# gate logic.
+#
+# 2026-05-06 enforcer broadening: read_file is excluded from the
+# analyzer at TWO independent gates and either is a load-bearing
+# answer:
+#   - Schema gate: skill.ToolSuggestions whitelist
+#     (AnalysisToolSuggestions / buildToolSchemas) hides read_file
+#     from the analyzer's tool schema entirely → LLM never sees it
+#   - Runtime gate: validateAnalyzerPrescanToolCall in BaseAgent
+#     rejects any pre-scan call that bypassed the schema
+# Real eval surfaced LLMs naming the schema-side gate (which IS the
+# first line of defense). Both gates are correct answers; requiring
+# exactly one literal was over-strict.
+EXPECT_CONTAINS="analyze read_file"
+EXPECT_MATCHES_REGEX="(\bno\b|not allowed|forbidden|禁止|不允许|不能)
+(validateAnalyzerPrescanToolCall|AnalysisToolSuggestions|buildToolSchemas|ToolSuggestions)"
 EXPECT_NOT_CONTAINS="it.depends sometimes maybe"
