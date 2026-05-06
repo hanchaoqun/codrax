@@ -875,7 +875,7 @@ func pruneToolHistory(messages []llm.Message, budget int) bool {
 // running with `-log-level debug` without polluting normal runs.
 func (b *BaseAgent) Execute(ctx *types.AgentContext, sk *skill.Config) (*StageOutput, error) {
 	// Build tool schemas for LLM
-	toolSchemas := b.buildToolSchemas(sk)
+	toolSchemas := b.buildToolSchemas(sk, ctx)
 
 	// Initialize message history
 	messages := b.buildInitialMessages(ctx, sk)
@@ -1572,7 +1572,7 @@ func (b *BaseAgent) salvagePartialDispatch(
 // sees exactly the three emit_* tools — no more code is needed for
 // Phase 12 beyond this documentation and the tests that pin the
 // invariant.
-func (b *BaseAgent) buildToolSchemas(sk *skill.Config) []llm.ToolSchema {
+func (b *BaseAgent) buildToolSchemas(sk *skill.Config, ctx *types.AgentContext) []llm.ToolSchema {
 	var schemas []llm.ToolSchema
 
 	// Add suggested tools from skill. Tools with high confidence
@@ -1592,10 +1592,20 @@ func (b *BaseAgent) buildToolSchemas(sk *skill.Config) []llm.ToolSchema {
 			} else if c >= 0.3 {
 				desc += " [navigation index — verify with evidence tools]"
 			}
+			// emit_answer_document supports per-dispatch schema
+			// projection: drop fields the AnswerSemanticView says
+			// this dispatch will not need (no diagram → no
+			// edge_anchors, no exact-absence → no exact_resolution,
+			// etc.) so the LLM only sees the surface its contract
+			// actually uses.
+			params := t.Parameters()
+			if ead, ok := t.(*tool.EmitAnswerDocument); ok {
+				params = ead.ParametersFor(ctx)
+			}
 			schemas = append(schemas, llm.ToolSchema{
 				Name:        t.Name(),
 				Description: desc,
-				Parameters:  t.Parameters(),
+				Parameters:  params,
 			})
 		}
 	}

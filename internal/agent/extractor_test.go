@@ -805,7 +805,7 @@ func TestExtractor_ToolSchemas_ExactlyThreeEmitTools(t *testing.T) {
 		},
 	}
 
-	schemas := agent.buildToolSchemas(sk)
+	schemas := agent.buildToolSchemas(sk, nil)
 
 	got := make(map[string]bool, len(schemas))
 	for _, s := range schemas {
@@ -847,7 +847,7 @@ func TestExtractor_ToolSchemas_EmptyToolSuggestions_YieldsEmpty(t *testing.T) {
 	agent := NewExtractorAgent(deps).(*BaseAgent)
 	sk := &skill.Config{Name: "extract-skill", ToolSuggestions: nil}
 
-	schemas := agent.buildToolSchemas(sk)
+	schemas := agent.buildToolSchemas(sk, nil)
 	if len(schemas) != 0 {
 		t.Errorf("empty ToolSuggestions must produce empty schemas, got %d", len(schemas))
 	}

@@ -52,10 +52,30 @@ func (t *EmitAnswerDocument) Description() string {
 		BuildAnswerDocumentSemanticContractDescription()
 }
 
-// Parameters returns the V2 JSON schema. Block kinds + per-block
-// fields are LLM-facing; internal naming (BlockRequirement /
-// AnswerSemanticView etc.) is intentionally absent.
+// Parameters returns the canonical (full) V2 JSON schema. Most
+// callers should use ParametersFor(ctx) so the schema is projected
+// onto the per-dispatch AnswerSemanticView (drop fields the
+// dispatch will not need, restrict enums to the contract's allowed
+// set). Parameters() stays as the test / no-context fallback and
+// as the source of truth that the projection helper edits in
+// place.
 func (t *EmitAnswerDocument) Parameters() json.RawMessage {
+	return t.canonicalParameters()
+}
+
+// ParametersFor returns the V2 schema projected onto the
+// per-dispatch AnswerSemanticView compiled from ctx. Falls back to
+// the canonical schema when no view is available (e.g. ctx==nil
+// or AnalysisIR missing).
+func (t *EmitAnswerDocument) ParametersFor(ctx *types.AgentContext) json.RawMessage {
+	if ctx == nil {
+		return t.canonicalParameters()
+	}
+	view := types.BuildAnswerSemanticViewForAgentContext(ctx)
+	return BuildAnswerDocumentParametersFor(view)
+}
+
+func (t *EmitAnswerDocument) canonicalParameters() json.RawMessage {
 	const schema = `{
   "type": "object",
   "properties": {
