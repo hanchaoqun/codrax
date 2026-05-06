@@ -163,6 +163,21 @@ func validatePrincipalClaimUse(doc *types.AnswerDocumentV2, view *types.AnswerSe
 		if blockHasClaimUse(b) {
 			continue
 		}
+		// Single-choice contract relaxation: when the contract
+		// declares exactly one AcceptableClaimForm AND the block
+		// already carries the structural grounding the contract is
+		// trying to verify (facet_ids non-empty + at least one item
+		// with citation_ref >= 0), the LLM had no real choice — the
+		// "missing" claim_uses[] is a redundant explicit field the
+		// LLM forgot to write while still emitting the grounded
+		// content. Treat as implicit-default; the answer's coverage
+		// is unambiguous. qf_arch run-1 forensic showed iter 3
+		// burning two retries on this exact pattern (section blocks
+		// pre_stages / main_stages each had facet_ids + cited items
+		// but no claim_uses).
+		if len(req.AcceptableClaimForms) == 1 && hasGroundedCoverage(b) {
+			continue
+		}
 		out = append(out, types.Violation{
 			Kind: types.ViolPrincipalClaimUseMissing,
 			Detail: fmt.Sprintf(
@@ -957,6 +972,26 @@ func blockHasClaimUse(b types.AnswerBlock) bool {
 	return len(b.ClaimUses) > 0
 }
 
+// hasGroundedCoverage reports whether a block carries the structural
+// evidence that a single-choice claim contract is trying to verify:
+// non-empty facet_ids (block declares which facets it covers) AND at
+// least one item with citation_ref >= 0 (block is anchored to the
+// citations[] pool). When the contract's AcceptableClaimForms has
+// exactly one entry, the LLM had no real choice — an implicit
+// claim_uses=[{claim_form=<the-only-option>}] is unambiguously
+// correct and the missing explicit field is redundant.
+func hasGroundedCoverage(b types.AnswerBlock) bool {
+	if len(b.FacetIDs) == 0 {
+		return false
+	}
+	for _, item := range b.Items {
+		if item.CitationRef >= 0 {
+			return true
+		}
+	}
+	return false
+}
+
 // formNames stringifies a ClaimForm slice for error messages.
 func formNames(forms []types.ClaimForm) []string {
 	out := make([]string, 0, len(forms))
@@ -1245,6 +1280,7 @@ func validatePrincipalProseUnderfilled(doc *types.AnswerDocumentV2) []types.Viol
 		}
 		var inlineCode int
 		var claimCount int
+		var allItemsLabelAnchored bool
 		switch b.Kind {
 		case types.BlockSummary, types.BlockSection, types.BlockCaveat:
 			inlineCode = countInlineCodeSegments(b.Text)
@@ -1254,10 +1290,26 @@ func validatePrincipalProseUnderfilled(doc *types.AnswerDocumentV2) []types.Viol
 			// cited items as the evidence-density signal (a list with
 			// many items pointing at citations[] but no inline code in
 			// any item.text is the "abstracted away from evidence" smell).
+			//
+			// Eval audit (qf_arch run-1 forensic, 2026-05-06): the
+			// validator was over-firing on enumeration lists where each
+			// item.label IS an identifier (StageLogTriage / StageAnalyze
+			// / etc.). Those labels render as bold row headers in the
+			// final answer — the user sees the identifier even though
+			// item.text doesn't quote it back with backticks. Treat a
+			// list as label-anchored when EVERY item has a non-empty
+			// identifier-shaped label; the prose-density signal still
+			// fires on lists whose items have free-prose labels (which
+			// genuinely need backtick anchors in text).
+			allItemsLabelAnchored = len(b.Items) > 0
 			for _, item := range b.Items {
 				inlineCode += countInlineCodeSegments(item.Text)
 				if item.CitationRef >= 0 {
 					claimCount++
+				}
+				label := strings.TrimSpace(item.Label)
+				if label == "" || !looksLikeIdentifierShape(label) {
+					allItemsLabelAnchored = false
 				}
 			}
 		default:
@@ -1267,6 +1319,9 @@ func validatePrincipalProseUnderfilled(doc *types.AnswerDocumentV2) []types.Viol
 			continue
 		}
 		if inlineCode > 0 {
+			continue
+		}
+		if allItemsLabelAnchored {
 			continue
 		}
 		out = append(out, types.Violation{

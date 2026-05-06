@@ -253,6 +253,33 @@ func TestValidatePrincipalProseUnderfilled_OrderedListWithoutInlineCodeFires(t *
 	}
 }
 
+// TestValidatePrincipalProseUnderfilled_LabelAnchoredOrderedListSkips —
+// when every item.label is identifier-shaped (StageLogTriage / etc.),
+// the rendered row header is the inline anchor users see — skip the
+// prose-density check even when items[].text has no backtick code.
+// qf_arch run-1 forensic showed the validator over-firing on this
+// shape across all 3 finalizer iterations.
+func TestValidatePrincipalProseUnderfilled_LabelAnchoredOrderedListSkips(t *testing.T) {
+	doc := &types.AnswerDocumentV2{
+		DocumentModel: "v2",
+		Blocks: []types.AnswerBlock{
+			{
+				ID:          "key_anchors",
+				Kind:        types.BlockOrderedList,
+				SurfaceRole: types.SurfacePrincipal,
+				Items: []types.AnswerBlockItem{
+					{ID: "i1", Label: "StageLogTriage", Text: "条件性预阶段处理日志输出", CitationRef: 0},
+					{ID: "i2", Label: "StageAnalyze", Text: "意图分类与证据收集", CitationRef: 1},
+					{ID: "i3", Label: "StageExplore", Text: "深入分析与符号溯源", CitationRef: 2},
+				},
+			},
+		},
+	}
+	if vs := validatePrincipalProseUnderfilled(doc); len(vs) != 0 {
+		t.Errorf("label-anchored ordered_list (every item.label identifier-shape) must skip prose-density check; got %+v", vs)
+	}
+}
+
 // TestValidatePrincipalProseUnderfilled_BelowClaimFloorSkipped — only 2
 // claim_uses → below floor=3 → no violation regardless of prose.
 func TestValidatePrincipalProseUnderfilled_BelowClaimFloorSkipped(t *testing.T) {
