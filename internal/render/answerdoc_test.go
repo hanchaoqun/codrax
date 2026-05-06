@@ -185,7 +185,7 @@ func TestRenderV2_BlockTableTextOnly(t *testing.T) {
 				ID:    "t1",
 				Kind:  types.BlockTable,
 				Title: "Layers",
-				Text: "| Layer | Detail |\n|---|---|\n| code default | DefaultExploreHeuristics() |",
+				Text:  "| Layer | Detail |\n|---|---|\n| code default | DefaultExploreHeuristics() |",
 			},
 		},
 	}
@@ -217,6 +217,29 @@ func TestRenderV2_BlockDiagram(t *testing.T) {
 	out := RenderAnswerDocument(doc, "en")
 	if !strings.Contains(out, "```mermaid") || !strings.Contains(out, "flowchart LR") {
 		t.Errorf("diagram rendering wrong; got %q", out)
+	}
+}
+
+func TestRenderV2_BlockDiagram_StripsNestedMermaidFence(t *testing.T) {
+	doc := &types.AnswerDocumentV2{
+		Blocks: []types.AnswerBlock{
+			{
+				ID:   "d1",
+				Kind: types.BlockDiagram,
+				Diagram: &types.AnswerDiagramBlock{
+					Kind:     types.DiagramFlow,
+					Language: "mermaid",
+					Body:     "```mermaid\nflowchart TD\n  A --> B\n```",
+				},
+			},
+		},
+	}
+	out := RenderAnswerDocument(doc, "en")
+	if strings.Count(out, "```mermaid") != 1 {
+		t.Fatalf("nested mermaid fence should be normalized to a single outer fence:\n%s", out)
+	}
+	if !strings.Contains(out, "flowchart TD") {
+		t.Fatalf("normalized diagram body missing payload:\n%s", out)
 	}
 }
 

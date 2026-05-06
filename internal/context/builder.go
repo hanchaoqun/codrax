@@ -617,7 +617,7 @@ func BuildPromptContext(ac *types.AgentContext, sk *skill.Config) *types.PromptC
 	// or the expected subject is SubjectUnknown/SubjectGeneric. Generic
 	// subject matches are intentionally weak, passive hints; rendering
 	// their uniform scores as a ranking directive amplifies noise.
-	if ac.Stage == types.StageExtract || ac.Stage == types.StageFinalize {
+	if (ac.Stage == types.StageExtract || ac.Stage == types.StageFinalize) && !suppressSubjectMatchSummaryForTypedSupportFinalizer(ac) {
 		if sm := formatSubjectMatchSummary(ac.SubjectMatches, ac.ExpectedAnswerSubject); sm != "" {
 			pc.UserSections = append(pc.UserSections, types.PromptSection{
 				Title:   SectionSubjectMatchSummary,
@@ -677,7 +677,7 @@ func BuildPromptContext(ac *types.AgentContext, sk *skill.Config) *types.PromptC
 	// prompt, diluting the load-bearing signal.
 	skipForExtractor := isExtractorSkill(sk)
 
-	if !skipForExtractor && len(ac.RelevantFacts) > 0 {
+	if !skipForExtractor && len(ac.RelevantFacts) > 0 && !suppressKnownFactsForTypedSupportFinalizer(ac) {
 		pc.UserSections = append(pc.UserSections, types.PromptSection{
 			Title:   SectionKnownFacts,
 			Content: strings.Join(ac.RelevantFacts, "\n"),
@@ -713,7 +713,7 @@ func BuildPromptContext(ac *types.AgentContext, sk *skill.Config) *types.PromptC
 	// partial LLM-derived allowlist can no longer be sold as a
 	// verified complete answer unless the producer explicitly claims
 	// complete AND the claim survives Phase 9 validation.
-	if len(ac.AnswerSymbols) > 0 && ac.AnswerSymbolCompleteness == types.CompletenessComplete {
+	if len(ac.AnswerSymbols) > 0 && ac.AnswerSymbolCompleteness == types.CompletenessComplete && !suppressAnswerSymbolsForTypedSupportFinalizer(ac) {
 		var symContent strings.Builder
 		symContent.WriteString("The prior analysis phase has already identified the answer to this question. " +
 			"Your task is to render these symbols as prose. You MUST NOT add or remove symbols; your " +
@@ -733,7 +733,7 @@ func BuildPromptContext(ac *types.AgentContext, sk *skill.Config) *types.PromptC
 			Title:   SectionAnswerSymbolsAuth,
 			Content: symContent.String(),
 		})
-	} else if len(ac.AnswerSymbols) > 0 && ac.AnswerSymbolCompleteness == types.CompletenessLowerBound {
+	} else if len(ac.AnswerSymbols) > 0 && ac.AnswerSymbolCompleteness == types.CompletenessLowerBound && !suppressAnswerSymbolsForTypedSupportFinalizer(ac) {
 		var symContent strings.Builder
 		symContent.WriteString(fmt.Sprintf(
 			"The prior analysis phase has confirmed the following symbols as part of the answer, "+
@@ -844,7 +844,7 @@ func BuildPromptContext(ac *types.AgentContext, sk *skill.Config) *types.PromptC
 	// is explicitly told not to cite them. The extractor also benefits
 	// from the visibility: it can mention a lead in reasoning text
 	// without pulling it into emit_answer_symbol.
-	if leads := formatUnverifiedLeads(ac.EvidenceItems, 12, strictEvidenceLoc); leads != "" {
+	if leads := formatUnverifiedLeads(ac.EvidenceItems, 12, strictEvidenceLoc); leads != "" && !suppressUnverifiedLeadsForTypedSupportFinalizer(ac) {
 		pc.UserSections = append(pc.UserSections, types.PromptSection{
 			Title:   SectionUnverifiedLeads,
 			Content: leads,
@@ -1918,6 +1918,8 @@ func formatLogTriageStructured(bundle *types.LogBundle) string {
 		"Prefer this view for citing frames and reasoning about the error chain — " +
 		"the full raw log is still available in the next section for cross-checking " +
 		"quotes or reading context that did not fit the structured schema.\n\n")
+	b.WriteString("Frame argument tuples such as `func(0x0)` or `method(0x0, ...)` are observation-only encodings from the runtime artifact. " +
+		"Do NOT map their positional values to a specific receiver, source parameter, caller-side provenance, or exact downstream branch unless a current cited code line explicitly proves that mapping.\n\n")
 
 	// ── Front-loaded external-source directive ────────────────
 	//
@@ -2506,6 +2508,22 @@ func typedSupportFinalizerSupportCeiling(ac *types.AgentContext) (map[string]boo
 		return nil, nil
 	}
 	return allowedLocations, allowedFiles
+}
+
+func suppressKnownFactsForTypedSupportFinalizer(ac *types.AgentContext) bool {
+	return ac != nil && ac.AgentName == types.AgentFinalizer && finalizerUsesTypedAnswerSupport(ac)
+}
+
+func suppressAnswerSymbolsForTypedSupportFinalizer(ac *types.AgentContext) bool {
+	return ac != nil && ac.AgentName == types.AgentFinalizer && finalizerUsesTypedAnswerSupport(ac)
+}
+
+func suppressSubjectMatchSummaryForTypedSupportFinalizer(ac *types.AgentContext) bool {
+	return ac != nil && ac.AgentName == types.AgentFinalizer && finalizerUsesTypedAnswerSupport(ac)
+}
+
+func suppressUnverifiedLeadsForTypedSupportFinalizer(ac *types.AgentContext) bool {
+	return ac != nil && ac.AgentName == types.AgentFinalizer && finalizerUsesTypedAnswerSupport(ac)
 }
 
 func supportPlanEntryFile(location string) string {

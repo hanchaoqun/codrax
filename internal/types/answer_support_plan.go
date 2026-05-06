@@ -389,10 +389,40 @@ func rootCauseMechanismItemEligible(plan *AnswerSurfacePlan, item EvidenceItem) 
 	case AnchorCondition:
 		return true
 	case AnchorAssignment, AnchorReturn:
+		if rootCauseControlHeaderCompanion(item) {
+			return false
+		}
+		if !rootCauseMechanismCompanionKindEligible(item) {
+			return false
+		}
 		return !rootCauseGuardProtectedCompanion(plan, item)
 	default:
 		return false
 	}
+}
+
+func rootCauseMechanismCompanionKindEligible(item EvidenceItem) bool {
+	switch item.Kind {
+	case EvidenceDirect, EvidenceMechanism, EvidenceConcrete, EvidenceDataflowPath:
+		return true
+	default:
+		return false
+	}
+}
+
+func rootCauseControlHeaderCompanion(item EvidenceItem) bool {
+	snippet := strings.TrimSpace(item.Snippet)
+	if snippet == "" {
+		snippet = strings.TrimSpace(EvidenceStructuredSemanticLine(item, false))
+	}
+	if snippet == "" {
+		return false
+	}
+	lower := strings.ToLower(snippet)
+	return strings.HasPrefix(lower, "if ") ||
+		strings.HasPrefix(lower, "switch ") ||
+		strings.HasPrefix(lower, "for ") ||
+		strings.HasPrefix(lower, "select ")
 }
 
 func rootCauseGuardProtectedCompanion(plan *AnswerSurfacePlan, candidate EvidenceItem) bool {

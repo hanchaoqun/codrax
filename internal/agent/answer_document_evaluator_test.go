@@ -527,7 +527,7 @@ func TestAnswerDocumentEvaluator_BuildInitialInstruction_SuppressesMultiTopicStr
 	ctx := &types.AgentContext{
 		AnalysisIR: &types.AnalysisIR{
 			RequestModel: types.RequestModel{
-				Intent: types.IntentRootCause,
+				Intent:    types.IntentRootCause,
 				LogTriage: &types.LogBundle{Errors: []types.LogError{{Type: "panic"}}},
 				SubTopics: []types.SubTopic{
 					{Summary: "panic 的直接触发点"},
@@ -537,7 +537,7 @@ func TestAnswerDocumentEvaluator_BuildInitialInstruction_SuppressesMultiTopicStr
 			AnswerContract: types.AnswerContract{},
 		},
 		LogTriage: &types.LogBundle{Errors: []types.LogError{{Type: "panic", Frames: []types.LogFrame{{Raw: "github.com/hanchaoqun/codrax/internal/agent.buildAnalysisIR(0x0)\n\tinternal/agent/analyzer.go:250 +0x1e", File: "internal/agent/analyzer.go", Line: 250, Func: "buildAnalysisIR"}}}}},
-		Mutable:    types.NewMutableState(""),
+		Mutable:   types.NewMutableState(""),
 		EvidenceItems: []types.EvidenceItem{
 			{
 				Kind:            types.EvidenceRelationship,
@@ -1511,6 +1511,7 @@ func TestAnswerDocumentEvaluator_BuildInitialInstruction_RendersLogSourceDriftGu
 		"Do not claim that the current cited line is the exact crashing line from the log",
 		"## Typed Answer Support Lanes",
 		"it does NOT by itself prove the runtime artifact actually passed the guard and reached the dereference path",
+		"do NOT fill the gap with generic language-runtime guesses such as nil-map write, nil-slice index, field dereference",
 		"### Observed artifact facts",
 		"current grounded code exposes only a protective guard near the observed site",
 	} {

@@ -136,11 +136,11 @@ type SemanticFacetSummary struct {
 // SemanticDiagramSummary is the typed projection of the diagram
 // contract.
 type SemanticDiagramSummary struct {
-	Required        bool
-	Edges           []SemanticDiagramEdgeContract
-	BlockPresent    bool   // doc has a BlockDiagram entry
-	BodyTrimmedLen  int    // diagram body length (post-trim) — 0 means body absent
-	BodyExcerpt     string // ≤300 chars, head of body for the reviewer
+	Required       bool
+	Edges          []SemanticDiagramEdgeContract
+	BlockPresent   bool   // doc has a BlockDiagram entry
+	BodyTrimmedLen int    // diagram body length (post-trim) — 0 means body absent
+	BodyExcerpt    string // ≤300 chars, head of body for the reviewer
 }
 
 // SemanticDiagramEdgeContract is one EdgeRelations row.
@@ -197,7 +197,7 @@ type SemanticQualityReviewer interface {
 const SemanticQualityMinConfidenceDefault = 0.85
 
 var semanticQualityTool = llm.ToolSchema{
-	Name: "emit_semantic_quality_review",
+	Name:        "emit_semantic_quality_review",
 	Description: "Emit your verdict on whether the answer surfaces enough of the required facets, diagram relations, and available richness. Do NOT flag stylistic, abstraction-level, or terminology differences. Only flag MISSING coverage where typed evidence is available. Do NOT cross into self-contradiction territory — that is another reviewer's job.",
 	Parameters: json.RawMessage(`{
   "type": "object",
@@ -466,8 +466,12 @@ func countFacetCoverageDepth(doc *types.AnswerDocumentV2, kind string) (declared
 			// any of its block-level ClaimUses
 			// also declares this facet kind WITH a ClaimForm or
 			// EvidenceID — proving the claim is grounded in evidence,
-			// not just labelled.
-			if blockHasAnchoredClaim(b, kind) {
+			// not just labelled. For list-shaped principal blocks,
+			// citation-backed identifier rows (or rows with inline-code
+			// anchors in item text) also count as anchored surface: the
+			// user already sees a concrete grounded member, even when the
+			// block-level claim_use stays intentionally coarse.
+			if blockHasAnchoredClaim(b, kind) || blockHasAnchoredListSurface(b) {
 				anchored++
 			}
 		}
@@ -482,6 +486,23 @@ func countFacetCoverageDepth(doc *types.AnswerDocumentV2, kind string) (declared
 		}
 	}
 	return declared, anchored
+}
+
+func blockHasAnchoredListSurface(b types.AnswerBlock) bool {
+	switch b.Kind {
+	case types.BlockOrderedList, types.BlockBulletList:
+	default:
+		return false
+	}
+	for _, item := range b.Items {
+		if item.CitationRef < 0 {
+			continue
+		}
+		if looksLikeIdentifierShape(strings.TrimSpace(item.Label)) || countInlineCodeSegments(item.Text) > 0 {
+			return true
+		}
+	}
+	return false
 }
 
 // blockHasAnchoredClaim reports whether the block has any block-level

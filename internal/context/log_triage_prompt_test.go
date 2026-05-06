@@ -53,6 +53,30 @@ func TestFormatLogTriageStructured_MetaRendered(t *testing.T) {
 	}
 }
 
+func TestFormatLogTriageStructured_IncludesRuntimeTupleDiscipline(t *testing.T) {
+	bundle := &types.LogBundle{
+		Meta: types.LogMeta{Lang: "go"},
+		Errors: []types.LogError{{
+			Type: "nil pointer dereference",
+			Frames: []types.LogFrame{{
+				File: "internal/agent/analyzer.go",
+				Line: 320,
+				Func: "(*analyzerEvaluator).ParseOutput",
+				Raw:  "github.com/hanchaoqun/codrax/internal/agent.(*analyzerEvaluator).ParseOutput(0x0, 0x0, 0x0)",
+			}},
+		}},
+	}
+	got := formatLogTriageStructured(bundle)
+	for _, want := range []string{
+		"Frame argument tuples such as `func(0x0)` or `method(0x0, ...)` are observation-only encodings",
+		"Do NOT map their positional values to a specific receiver, source parameter, caller-side provenance, or exact downstream branch",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("missing %q in render:\n%s", want, got)
+		}
+	}
+}
+
 // TestFormatLogTriageStructured_CauseChainNested pins the key fix
 // this renderer shipped for: multi-level Cause chains render with
 // nested "caused by" markers so the LLM does not need to re-parse
@@ -246,12 +270,12 @@ func TestBuildPromptContext_LogTriageSection_RenderedForExplorer(t *testing.T) {
 		Errors: []types.LogError{{Type: "runtime error"}},
 	}
 	ac := &types.AgentContext{
-		AgentName:     types.AgentExplorer,
-		Stage:         types.StageExplore,
-		Objective:     "analyze this crash",
-		LogTriage:     bundle,
-		AttachedLog:   "panic: test",
-		Preferences:   []string{},
+		AgentName:   types.AgentExplorer,
+		Stage:       types.StageExplore,
+		Objective:   "analyze this crash",
+		LogTriage:   bundle,
+		AttachedLog: "panic: test",
+		Preferences: []string{},
 	}
 	sk := &skill.Config{Name: "explore-skill", Goal: "investigate"}
 	pc := BuildPromptContext(ac, sk)

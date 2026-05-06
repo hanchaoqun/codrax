@@ -284,3 +284,56 @@ func TestBuildAnswerSupportPlan_RootCauseTracePromotesIndependentMechanismCompan
 		t.Fatalf("mechanism lane should keep the independent companion, got %+v", mechanismLane.Entries)
 	}
 }
+
+func TestBuildAnswerSupportPlan_RootCauseTraceKeepsControlHeaderAssignmentsOutOfNearestMechanism(t *testing.T) {
+	plan := &AnswerSurfacePlan{
+		DriftBoundedSurfaceItems: []EvidenceItem{
+			{
+				Kind:         EvidenceRelationship,
+				Source:       "internal/agent/analyzer.go",
+				LineStart:    743,
+				AnchorKind:   AnchorCall,
+				Subject:      "ParseOutput",
+				Object:       "buildAnalysisIR",
+				AnchorSymbol: "buildAnalysisIR",
+			},
+			{
+				Kind:         EvidenceConditional,
+				Source:       "internal/agent/analyzer.go",
+				LineStart:    978,
+				AnchorKind:   AnchorCondition,
+				AnchorSymbol: "buildAnalysisIR",
+				Snippet:      "if ctx == nil || ctx.Mutable == nil {",
+			},
+			{
+				Kind:         EvidenceConditional,
+				Source:       "internal/agent/analyzer.go",
+				LineStart:    1011,
+				AnchorKind:   AnchorAssignment,
+				AnchorSymbol: "reconcileEnumerationBoundaryScope",
+				Snippet:      "if resolved, reason := reconcileEnumerationBoundaryScope(rm, graph); reason != \"\" {",
+			},
+		},
+	}
+
+	got := BuildAnswerSupportPlan(RequestModel{
+		Intent:    IntentRootCause,
+		LogTriage: &LogBundle{Errors: []LogError{{Type: "panic: runtime error"}}},
+	}, plan)
+	if got == nil {
+		t.Fatal("expected support plan")
+	}
+
+	for _, lane := range got.Lanes {
+		if lane.Kind != SupportLaneNearestMechanism {
+			continue
+		}
+		joined := make([]string, 0, len(lane.Entries))
+		for _, entry := range lane.Entries {
+			joined = append(joined, entry.Text)
+		}
+		if strings.Contains(strings.Join(joined, "\n"), "reconcileEnumerationBoundaryScope") {
+			t.Fatalf("control-header assignment should not enter nearest_mechanism, got %+v", lane.Entries)
+		}
+	}
+}

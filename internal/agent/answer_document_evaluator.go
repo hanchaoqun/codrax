@@ -1777,6 +1777,7 @@ func renderAnswerDocSupportPlan(ctx *types.AgentContext) string {
 	b.WriteString("- Treat any runtime stack-frame argument annotation produced by a panic / exception / traceback dumper — for instance argument-register or pointer-literal tuples attached to a frame, native-method placeholders, or locals snapshots, depending on language and runtime — as observation-only artifacts. They do NOT, by themselves, prove which source parameter was nil, which caller originated the value, or which exact downstream branch executed.\n\n")
 	b.WriteString("- If a function, file, or hop appears elsewhere in the prompt but does NOT appear in the current code path / nearest mechanism / boundary lanes below, treat it as background only: do not turn it into a principal ordered-list hop, summary claim, or diagram node.\n\n")
 	b.WriteString("- In drift-bounded root-cause answers, a current guard plus a later dereference proves the current code contains both sites; it does NOT by itself prove the runtime artifact actually passed the guard and reached the dereference path.\n\n")
+	b.WriteString("- If the lanes below do NOT recover a grounded inner trigger statement, do NOT fill the gap with generic language-runtime guesses such as nil-map write, nil-slice index, field dereference, or similar builtin panic classes. State only that the exact internal trigger remains unrecovered in the current checkout.\n\n")
 	for _, lane := range plan.Lanes {
 		title := strings.TrimSpace(lane.Title)
 		if title == "" {

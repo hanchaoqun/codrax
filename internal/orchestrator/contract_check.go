@@ -316,6 +316,17 @@ func runAuthorityOverreachCheck(mut *types.MutableState, draftText string) []typ
 	if docV2 == nil || len(docV2.Citations) == 0 {
 		return nil
 	}
+	// Post block-only migration, the authority caveat is injected at
+	// render time onto a defensive clone of the V2 carrier and then
+	// stripped from the user-facing surface. A successfully structured
+	// V2 doc therefore does NOT need to persist the private caveat tag
+	// on Mutable itself. Keep this check dormant on the normal
+	// structured-doc path; it only existed to catch renderer bypass /
+	// raw-prose fallback before render-time caveat synthesis became the
+	// source of truth.
+	if len(docV2.Blocks) > 0 {
+		return nil
+	}
 	evidence := mut.EmittedEvidence()
 	if len(evidence) == 0 {
 		return nil

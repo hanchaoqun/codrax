@@ -57,12 +57,11 @@ func TestIsPlumbingFailureViolation_AnswerQualityKindsPassThrough(t *testing.T) 
 	}
 }
 
-// TestRunAuthorityOverreachCheck_RepairIsLLMActionable: the repair
-// hint must speak in terms the LLM has a schema for (tool name +
-// shape + required fields), not internal plumbing names like
-// "ApplyAuthorityHedging" or "render path". B8-T4: switched to V2
-// carrier (AnswerDocumentV2.Citations is the structurally-equivalent
-// pool the AuthorityOverreach check now reads).
+// TestRunAuthorityOverreachCheck_RepairIsLLMActionable keeps the
+// legacy raw-prose / bypass path actionable: when hedging is
+// required but the V2 carrier never materialized any blocks, the
+// repair must still speak in tool/schema terms rather than internal
+// plumbing names.
 func TestRunAuthorityOverreachCheck_RepairIsLLMActionable(t *testing.T) {
 	mut := types.NewMutableState("test")
 	mut.SetAnswerDocumentV2WithMutation(types.MutationReplaceAll, &types.AnswerDocumentV2{
@@ -89,6 +88,25 @@ func TestRunAuthorityOverreachCheck_RepairIsLLMActionable(t *testing.T) {
 		if substringContainsRound6(repair, leak) {
 			t.Errorf("repair leaks internal name %q: %q", leak, repair)
 		}
+	}
+}
+
+func TestRunAuthorityOverreachCheck_PassesWhenStructuredDocExistsWithoutPersistedAuthorityTag(t *testing.T) {
+	mut := types.NewMutableState("test")
+	mut.SetAnswerDocumentV2WithMutation(types.MutationReplaceAll, &types.AnswerDocumentV2{
+		DocumentModel: "v2",
+		Citations:     []types.Citation{{File: "x.go", Line: 10}},
+		Blocks: []types.AnswerBlock{{
+			ID:   "summary",
+			Kind: types.BlockSummary,
+			Text: "Grounded answer body.",
+		}},
+	})
+	mut.AppendEvidence([]types.EvidenceItem{
+		{Source: "x.go", LineStart: 10, Authority: types.AuthorityHistorical},
+	})
+	if viols := runAuthorityOverreachCheck(mut, "Rendered answer without visible authority line."); len(viols) != 0 {
+		t.Fatalf("authority_overreach should stay dormant on the normal structured-doc path; got %+v", viols)
 	}
 }
 

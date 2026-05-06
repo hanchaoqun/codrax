@@ -233,7 +233,7 @@ func renderV2BlockDiagram(b *strings.Builder, blk types.AnswerBlock, _ answerDoc
 		return
 	}
 	d := blk.Diagram
-	body := strings.TrimSpace(d.Body)
+	body := normalizeDiagramBodyForRender(d.Body)
 	if body == "" {
 		return
 	}
@@ -245,6 +245,27 @@ func renderV2BlockDiagram(b *strings.Builder, blk types.AnswerBlock, _ answerDoc
 		lang = "mermaid"
 	}
 	fmt.Fprintf(b, "```%s\n%s\n```\n\n", lang, body)
+}
+
+func normalizeDiagramBodyForRender(body string) string {
+	body = strings.TrimSpace(body)
+	if body == "" {
+		return ""
+	}
+	if !strings.HasPrefix(body, "```") {
+		return body
+	}
+	lines := strings.Split(body, "\n")
+	if len(lines) < 2 {
+		return body
+	}
+	first := strings.TrimSpace(lines[0])
+	last := strings.TrimSpace(lines[len(lines)-1])
+	if !strings.HasPrefix(first, "```") || last != "```" {
+		return body
+	}
+	inner := strings.Join(lines[1:len(lines)-1], "\n")
+	return strings.TrimSpace(inner)
 }
 
 func renderV2BlockCaveat(b *strings.Builder, blk types.AnswerBlock, _ answerDocLang) {

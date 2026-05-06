@@ -31,11 +31,11 @@ func (f *fakeSemanticQualityAdapter) Chat(ctx context.Context, msgs []llm.Messag
 	}, nil
 }
 
-func (f *fakeSemanticQualityAdapter) ModelID() string             { return "fake" }
-func (f *fakeSemanticQualityAdapter) MaxContextTokens() int       { return 1000 }
-func (f *fakeSemanticQualityAdapter) MaxOutputTokens() int        { return 1000 }
+func (f *fakeSemanticQualityAdapter) ModelID() string               { return "fake" }
+func (f *fakeSemanticQualityAdapter) MaxContextTokens() int         { return 1000 }
+func (f *fakeSemanticQualityAdapter) MaxOutputTokens() int          { return 1000 }
 func (f *fakeSemanticQualityAdapter) RequestTimeout() time.Duration { return time.Second }
-func (f *fakeSemanticQualityAdapter) RetryMaxAttempts() int       { return 1 }
+func (f *fakeSemanticQualityAdapter) RetryMaxAttempts() int         { return 1 }
 
 func TestSemanticQualityReviewer_NilAdapterDisabled(t *testing.T) {
 	r := NewSemanticQualityReviewer(nil)
@@ -286,5 +286,28 @@ func TestRenderSemanticQualityUserMessage_UsesPublicFacetLabels(t *testing.T) {
 		if !strings.Contains(msg, want) {
 			t.Fatalf("reviewer user message missing public facet label %q; got\n%s", want, msg)
 		}
+	}
+}
+
+func TestCountFacetCoverageDepth_ListFacetCountsIdentifierAnchors(t *testing.T) {
+	doc := &types.AnswerDocumentV2{
+		Blocks: []types.AnswerBlock{{
+			ID:          "path",
+			Kind:        types.BlockOrderedList,
+			FacetIDs:    []string{"current_code_path"},
+			SurfaceRole: types.SurfacePrincipal,
+			Items: []types.AnswerBlockItem{
+				{ID: "h1", Label: "buildAnalysisIR", CitationRef: 0},
+				{ID: "h2", Label: "analyzerEvaluator.ParseOutput", CitationRef: 1},
+			},
+		}},
+		Citations: []types.Citation{
+			{File: "internal/agent/analyzer.go", Line: 977},
+			{File: "internal/agent/analyzer.go", Line: 743},
+		},
+	}
+	declared, anchored := countFacetCoverageDepth(doc, "current_code_path")
+	if declared != 1 || anchored != 1 {
+		t.Fatalf("current_code_path list facet should count citation-backed identifier rows as anchored; got declared=%d anchored=%d", declared, anchored)
 	}
 }

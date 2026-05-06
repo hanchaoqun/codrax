@@ -2652,6 +2652,91 @@ func TestBuildPromptContext_FinalizerTypedSupportEvidencePoolUsesAuthoritativeSu
 	}
 }
 
+func TestBuildPromptContext_FinalizerTypedSupportSuppressesCompetingSemanticSections(t *testing.T) {
+	mut := types.NewMutableState("panic root cause")
+	mut.SetLogTriage(&types.LogBundle{
+		Errors: []types.LogError{{
+			Type: "panic",
+			Frames: []types.LogFrame{{
+				File: "internal/agent/analyzer.go",
+				Line: 250,
+				Func: "buildAnalysisIR",
+				Raw:  "buildAnalysisIR(0x0)",
+			}},
+		}},
+	})
+	mut.AppendEvidence([]types.EvidenceItem{
+		{
+			Kind:            types.EvidenceRelationship,
+			Source:          "internal/agent/analyzer.go",
+			LineStart:       743,
+			AnchorKind:      types.AnchorCall,
+			Subject:         "ParseOutput",
+			Object:          "buildAnalysisIR",
+			AnchorSymbol:    "buildAnalysisIR",
+			GroundingStatus: types.GroundingGrounded,
+		},
+		{
+			Kind:            types.EvidenceConditional,
+			Source:          "internal/agent/analyzer.go",
+			LineStart:       978,
+			AnchorKind:      types.AnchorCondition,
+			AnchorSymbol:    "buildAnalysisIR",
+			Condition:       "ctx == nil || ctx.Mutable == nil",
+			GroundingStatus: types.GroundingGrounded,
+		},
+		{
+			Kind:            types.EvidenceDirect,
+			Source:          "internal/agent/analyzer.go",
+			LineStart:       320,
+			AnchorKind:      types.AnchorCall,
+			AnchorSymbol:    "ParseOutput",
+			Summary:         "栈帧显示第 320 行调用 ParseOutput，第 1 个参数 0x0 表示 receiver e 为 nil",
+			GroundingStatus: types.GroundingUngrounded,
+		},
+	})
+	mut.SetEmittedAnswerSymbols([]types.AnswerSymbol{{
+		Name:      "dispatchStage",
+		File:      "internal/orchestrator/orchestrator.go",
+		Line:      4701,
+		Rationale: "outer orchestration hop",
+	}}, types.CompletenessLowerBound)
+	mut.EvidenceClosure().SetSubjectMatch("internal/orchestrator/orchestrator.go", 0.91)
+
+	bus := &types.BusContext{
+		PipelineStage: types.StageFinalize,
+		Mutable:       mut,
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				Scenario: types.ScenarioRootCause,
+				Intent:   types.IntentRootCause,
+				LogTriage: &types.LogBundle{
+					Errors: []types.LogError{{Type: "panic"}},
+				},
+			},
+		},
+		RepoFacts: []types.RepoFact{
+			{Key: "read_file", Value: "[internal/agent/analyzer.go: showing lines 698-978]", Source: "internal/agent/analyzer.go", Confidence: 0.8},
+		},
+	}
+
+	ac := BuildAgentContext(bus, types.AgentFinalizer, types.StageFinalize)
+	pc := BuildPromptContext(ac, finalizerSkill())
+
+	if findSectionTitle(pc, SectionKnownFacts) != nil {
+		t.Fatal("typed-support finalizer must suppress Known Facts to avoid competing prose facts")
+	}
+	if findSectionTitle(pc, SectionAnswerSymbolsAuth) != nil || findSectionTitle(pc, SectionAnswerSymbolsFloor) != nil {
+		t.Fatal("typed-support finalizer must suppress Extracted Answer Symbols sections")
+	}
+	if findSectionTitle(pc, SectionSubjectMatchSummary) != nil {
+		t.Fatal("typed-support finalizer must suppress Subject Match Summary")
+	}
+	if findSectionTitle(pc, SectionUnverifiedLeads) != nil {
+		t.Fatal("typed-support finalizer must suppress Unverified Leads")
+	}
+}
+
 // TestStripThinkBlocks covers the Category-4 defense-in-depth: reasoning
 // traces leaking into downstream prompts. Even for read-mode stages
 // (which keep PriorReports), the analyzer's internal deliberation
