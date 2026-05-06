@@ -204,6 +204,25 @@ func TestFormatEvidenceLineForReport_RecoveredTagPreserved(t *testing.T) {
 	}
 }
 
+func TestFormatEvidenceLineForReport_PrefersDeterministicSurfaceOverSummary(t *testing.T) {
+	ev := types.EvidenceItem{
+		Kind:         types.EvidenceConditional,
+		AnchorSymbol: "logBundle",
+		Predicate:    "guards",
+		Condition:    "logBundle != nil",
+		Source:       "internal/agent/analyzer.go",
+		LineStart:    1042,
+		Summary:      "第 1042 行只检查 logBundle != nil，未检查 logBundle.Meta，因此后续一定会因为 Meta 为 nil 而 panic。",
+	}
+	got := formatEvidenceLineForReport(ev, nil)
+	if !strings.Contains(got, "logBundle guards IF logBundle != nil") {
+		t.Fatalf("report line should keep typed surface, got:\n%s", got)
+	}
+	if strings.Contains(got, "未检查 logBundle.Meta") || strings.Contains(got, "一定会因为 Meta 为 nil") {
+		t.Fatalf("report line leaked unsupported summary prose, got:\n%s", got)
+	}
+}
+
 func TestRenderExplorerStageReport_PrimaryEvidenceExcludesNonCitableNoise(t *testing.T) {
 	evidence := []types.EvidenceItem{
 		{

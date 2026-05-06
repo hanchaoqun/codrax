@@ -40,10 +40,13 @@ const (
 	// the perf_triage stage. Same drift semantics as ClaimOriginLog.
 	ClaimOriginPerf ClaimOrigin = "perf"
 
-	// ClaimOriginCrossSource means the anchor is confirmed by BOTH
-	// log/perf observations AND current repository contents at the
-	// same (file, line). The two independent confirmations make this
-	// the strongest origin even if individual scope/grounding is weak.
+	// ClaimOriginCrossSource means the anchor is corroborated by BOTH
+	// attached artifact observations and current repository contents.
+	// The corroboration may be exact same-line agreement OR a typed
+	// drift-mapped current-code counterpart whose uncertainty is then
+	// expressed by AuthorityCeiling + DriftReason. This origin is for
+	// repo-backed evidence that is semantically linked to the artifact;
+	// pure artifact-only evidence keeps ClaimOriginLog / Perf.
 	ClaimOriginCrossSource ClaimOrigin = "cross_source"
 )
 

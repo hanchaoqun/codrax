@@ -1418,7 +1418,7 @@ func TestAnswerDocumentEvaluator_BuildInitialInstruction_RendersLogSourceDriftGu
 		"older or shifted build snapshot",
 		"Do not claim that the current cited line is the exact crashing line from the log",
 		"### Drift-Bounded Current Surface",
-		"buildAnalysisIR IF ctx == nil || ctx.Mutable == nil",
+		"buildAnalysisIR guard condition IF ctx == nil || ctx.Mutable == nil",
 	} {
 		if !strings.Contains(prompt, want) {
 			t.Fatalf("prompt missing %q:\n%s", want, prompt)

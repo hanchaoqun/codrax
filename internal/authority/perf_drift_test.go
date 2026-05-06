@@ -8,8 +8,8 @@ import (
 
 // TestComputeForEvidence_PerfStallDriftDetected: with PerfBundle
 // stalls (no log) and a graph that places the symbol at a different
-// line, ComputeForEvidence must classify the item as Origin=Perf +
-// drift. Round-8 trace-symmetry contract.
+// line, ComputeForEvidence must classify the repo-backed item as
+// cross_source + drift rather than pure perf-origin observation.
 func TestComputeForEvidence_PerfStallDriftDetected(t *testing.T) {
 	SetSymbolLocatorProvider(func(graph any) types.SymbolLocator {
 		return &fakeLocator{
@@ -36,8 +36,8 @@ func TestComputeForEvidence_PerfStallDriftDetected(t *testing.T) {
 		GroundingStatus: types.GroundingGrounded,
 	}
 	p := ComputeForEvidence(item, bus)
-	if p.Origin != types.ClaimOriginPerf {
-		t.Errorf("Origin = %q; want perf (reason=%q)", p.Origin, p.Reason)
+	if p.Origin != types.ClaimOriginCrossSource {
+		t.Errorf("Origin = %q; want cross_source (reason=%q)", p.Origin, p.Reason)
 	}
 	if p.Authority != types.AuthorityConditional {
 		t.Errorf("Authority = %q; want conditional (line drift)", p.Authority)

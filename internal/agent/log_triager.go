@@ -97,9 +97,9 @@ func DefaultLogTriageSettings() LogTriageSettings {
 // which layers around the standard Execute. See dispatchTwoStep for
 // the segmentation + per-segment extraction + merge path.
 type logTriagerEvaluator struct {
-	settings  LogTriageSettings
-	emitSeen  bool // flipped true after a successful emit_log_triage
-	llmCalls  int  // counter toward settings.MaxLLMCalls
+	settings LogTriageSettings
+	emitSeen bool // flipped true after a successful emit_log_triage
+	llmCalls int  // counter toward settings.MaxLLMCalls
 }
 
 // BuildInitialInstruction — the skill carries everything structural;
@@ -221,9 +221,6 @@ func renderLogTriageStageReport(b *types.LogBundle) string {
 		}
 		fmt.Fprintf(&sb, "Signals: %s\n", strings.Join(sigs, ", "))
 	}
-	if b.Meta.Summary != "" {
-		fmt.Fprintf(&sb, "Summary: %s\n", b.Meta.Summary)
-	}
 	fmt.Fprintf(&sb, "Errors: %d\n", len(b.Errors))
 	for i, e := range b.Errors {
 		fmt.Fprintf(&sb, "  [%d] %s — %s (frames=%d)\n",
@@ -245,6 +242,9 @@ func renderLogTriageStageReport(b *types.LogBundle) string {
 	}
 	if len(b.Entities) > 0 {
 		fmt.Fprintf(&sb, "Entities: %s\n", strings.Join(b.Entities, ", "))
+	}
+	if b.Meta.Summary != "" {
+		fmt.Fprintf(&sb, "Synopsis (auxiliary shorthand): %s\n", b.Meta.Summary)
 	}
 	fmt.Fprintf(&sb, "IntentHint: %s\n", b.IntentHint)
 	fmt.Fprintf(&sb, "Coverage: %.2f\n", b.Coverage)

@@ -210,7 +210,8 @@ func TestComputeForEvidence_LogMatchPerfectCrossSource(t *testing.T) {
 
 // TestComputeForEvidence_LogMatchLineDriftConditional: log frame says
 // line 50, current code has Run at line 100 — line drift, ceiling
-// downgrades to conditional.
+// downgrades to conditional while the repo anchor stays cross_source
+// rather than collapsing to pure log origin.
 func TestComputeForEvidence_LogMatchLineDriftConditional(t *testing.T) {
 	SetSymbolLocatorProvider(func(graph any) types.SymbolLocator {
 		return &fakeLocator{
@@ -237,8 +238,8 @@ func TestComputeForEvidence_LogMatchLineDriftConditional(t *testing.T) {
 		GroundingStatus: types.GroundingGrounded,
 	}
 	p := ComputeForEvidence(item, bus); o, a, reason := p.Origin, p.Authority, p.Reason
-	if o != types.ClaimOriginLog {
-		t.Errorf("Origin = %q; want log (reason=%q)", o, reason)
+	if o != types.ClaimOriginCrossSource {
+		t.Errorf("Origin = %q; want cross_source (reason=%q)", o, reason)
 	}
 	if a != types.AuthorityConditional {
 		t.Errorf("Authority = %q; want conditional (reason=%q)", a, reason)
@@ -247,7 +248,8 @@ func TestComputeForEvidence_LogMatchLineDriftConditional(t *testing.T) {
 
 // TestComputeForEvidence_LogMatchFileMovedHistorical: log says the
 // function was in old/x.go, current code has it in new/y.go. file_
-// moved → historical.
+// moved → historical while the repo anchor remains cross_source
+// (repo-backed evidence tied to an old artifact observation).
 func TestComputeForEvidence_LogMatchFileMovedHistorical(t *testing.T) {
 	SetSymbolLocatorProvider(func(graph any) types.SymbolLocator {
 		return &fakeLocator{
@@ -274,10 +276,82 @@ func TestComputeForEvidence_LogMatchFileMovedHistorical(t *testing.T) {
 		GroundingStatus: types.GroundingGrounded,
 	}
 	p := ComputeForEvidence(item, bus); o, a, reason := p.Origin, p.Authority, p.Reason
-	if o != types.ClaimOriginLog {
-		t.Errorf("Origin = %q; want log (reason=%q)", o, reason)
+	if o != types.ClaimOriginCrossSource {
+		t.Errorf("Origin = %q; want cross_source (reason=%q)", o, reason)
 	}
 	if a != types.AuthorityHistorical {
 		t.Errorf("Authority = %q; want historical (reason=%q)", a, reason)
+	}
+}
+
+func TestComputeForEvidence_SameFileUnrelatedLineStaysCurrentRepo(t *testing.T) {
+	SetSymbolLocatorProvider(func(graph any) types.SymbolLocator {
+		return &fakeLocator{
+			defs: map[string][]types.SymbolLocation{
+				"Run": {{File: "x.go", Line: 100, EndLine: 140}},
+			},
+		}
+	})
+	defer SetSymbolLocatorProvider(nil)
+
+	bus := &types.BusContext{Mutable: types.NewMutableState("test-objective")}
+	bus.Mutable.SetSearchGraph(struct{}{})
+	bus.Mutable.SetLogTriage(&types.LogBundle{
+		Errors: []types.LogError{{Frames: []types.LogFrame{
+			{File: "x.go", Line: 100, Func: "Run", Raw: "x.go:100 Run"},
+		}}},
+	})
+	item := types.EvidenceItem{
+		Scope:           types.ScopeLine,
+		Source:          "x.go",
+		LineStart:       190,
+		AnchorKind:      types.AnchorCondition,
+		AnchorSymbol:    "ctx",
+		GroundingStatus: types.GroundingGrounded,
+	}
+	p := ComputeForEvidence(item, bus)
+	if p.Origin != types.ClaimOriginCurrentRepo {
+		t.Errorf("Origin = %q; want current_repo for unrelated same-file line", p.Origin)
+	}
+	if p.Authority != types.AuthorityFactual {
+		t.Errorf("Authority = %q; want factual for unrelated same-file line", p.Authority)
+	}
+}
+
+func TestComputeForEvidence_SameFileCallEdgeToObservedFuncStaysCallEdgeEligible(t *testing.T) {
+	SetSymbolLocatorProvider(func(graph any) types.SymbolLocator {
+		return &fakeLocator{
+			defs: map[string][]types.SymbolLocation{
+				"buildAnalysisIR": {{File: "internal/agent/analyzer.go", Line: 977, EndLine: 1584}},
+			},
+		}
+	})
+	defer SetSymbolLocatorProvider(nil)
+
+	bus := &types.BusContext{Mutable: types.NewMutableState("test-objective")}
+	bus.Mutable.SetSearchGraph(struct{}{})
+	bus.Mutable.SetLogTriage(&types.LogBundle{
+		Errors: []types.LogError{{Frames: []types.LogFrame{
+			{File: "internal/agent/analyzer.go", Line: 250, Func: "buildAnalysisIR", Raw: "internal/agent/analyzer.go:250 buildAnalysisIR"},
+		}}},
+	})
+	item := types.EvidenceItem{
+		Scope:           types.ScopeLine,
+		Source:          "internal/agent/analyzer.go",
+		LineStart:       743,
+		AnchorKind:      types.AnchorCall,
+		AnchorSymbol:    "buildAnalysisIR",
+		Subject:         "ParseOutput",
+		Object:          "buildAnalysisIR",
+		GroundingStatus: types.GroundingGrounded,
+	}
+	p := ComputeForEvidence(item, bus)
+	item.Origin = p.Origin
+	item.Authority = p.Authority
+	if p.Origin != types.ClaimOriginCrossSource {
+		t.Errorf("Origin = %q; want cross_source for repo call edge corroborated by artifact", p.Origin)
+	}
+	if got := types.ClaimFormOf(item); got != types.ClaimCallEdge {
+		t.Errorf("ClaimFormOf(projected item) = %q; want call_edge", got)
 	}
 }

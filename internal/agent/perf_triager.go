@@ -407,9 +407,6 @@ func renderPerfTriageStageReport(b *types.PerfBundle) string {
 	if len(b.Meta.Signals) > 0 {
 		fmt.Fprintf(&sb, "Signals: %s\n", strings.Join(b.Meta.Signals, ", "))
 	}
-	if b.Meta.Summary != "" {
-		fmt.Fprintf(&sb, "Summary: %s\n", b.Meta.Summary)
-	}
 	fmt.Fprintf(&sb, "Frames: %d  Janks: %d  Stalls: %d\n",
 		len(b.Frames), len(b.Janks), len(b.Stalls))
 	for i, j := range b.Janks {
@@ -437,6 +434,9 @@ func renderPerfTriageStageReport(b *types.PerfBundle) string {
 	}
 	if len(b.Entities) > 0 {
 		fmt.Fprintf(&sb, "Entities: %s\n", strings.Join(b.Entities, ", "))
+	}
+	if b.Meta.Summary != "" {
+		fmt.Fprintf(&sb, "Synopsis (auxiliary shorthand): %s\n", b.Meta.Summary)
 	}
 	fmt.Fprintf(&sb, "IntentHint: %s\n", b.IntentHint)
 	return sb.String()

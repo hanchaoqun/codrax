@@ -69,6 +69,9 @@ func TestGroundItem_Tier1LineText(t *testing.T) {
 	if r.OriginalLine != 10 || r.AdjustedLine != 10 {
 		t.Errorf("lines drifted on grounded: %d→%d", r.OriginalLine, r.AdjustedLine)
 	}
+	if it.Snippet != "func Foo() string {" {
+		t.Errorf("snippet not attached from grounded line: got %q", it.Snippet)
+	}
 }
 
 func TestGroundItem_ConfigSurfaceCommentAllowsLooseCorroboration(t *testing.T) {
@@ -238,6 +241,9 @@ func TestGroundItem_SnippetFuzzyRecovery(t *testing.T) {
 	// state leaks.
 	if it.GroundingStatus == types.GroundingUngrounded {
 		t.Fatalf("snippet match should recover, got ungrounded: note=%q", it.GroundingNote)
+	}
+	if it.Snippet != "x := veryDistinctIdentifier(Alpha, Beta, Gamma)" {
+		t.Fatalf("recovered item should keep the grounded line snippet, got %q", it.Snippet)
 	}
 }
 
@@ -612,7 +618,7 @@ func TestGroundItem_Tier1RejectsCommentLine(t *testing.T) {
 	gc := &Context{LineIndex: buildLineIndex(history, "")}
 	it := &types.EvidenceItem{
 		Kind: types.EvidenceDirect, Source: "internal/agent/explorer.go",
-		LineStart: 322, // claim on the same comment block
+		LineStart:  322, // claim on the same comment block
 		AnchorKind: types.AnchorCall, AnchorSymbol: "RegisterDefaultSubAgents",
 	}
 	GroundItem(it, gc)
@@ -620,6 +626,55 @@ func TestGroundItem_Tier1RejectsCommentLine(t *testing.T) {
 		it.GroundingTier == types.TierLineText {
 		t.Fatalf("comment-only line was grounded at Tier 1 — gate did not fire (status=%q tier=%q)",
 			it.GroundingStatus, it.GroundingTier)
+	}
+}
+
+func TestGroundItem_AttachSnippetPreservesStatementLocalLine(t *testing.T) {
+	history := []types.ToolResult{
+		buildGutterReadResult("internal/agent/analyzer.go", 977, []string{
+			"func buildAnalysisIR(ctx *types.AgentContext) (*types.AnalysisIR, error) {",
+			"if ctx == nil || ctx.Mutable == nil { return nil, errors.New(\"analyzer: missing AgentContext.Mutable\") }",
+			"raw := ctx.Mutable.RequestModel()",
+		}, 1200),
+	}
+	gc := &Context{LineIndex: buildLineIndex(history, "")}
+
+	cond := &types.EvidenceItem{
+		Kind:         types.EvidenceConditional,
+		Source:       "internal/agent/analyzer.go",
+		LineStart:    978,
+		Scope:        types.ScopeLine,
+		AnchorKind:   types.AnchorCondition,
+		AnchorSymbol: "buildAnalysisIR",
+		OwnerSymbol:  "buildAnalysisIR",
+		Condition:    "ctx == nil || ctx.Mutable == nil",
+		Snippet:      "if ctx == nil || ctx.Mutable == nil { return nil, errors.New(\"analyzer: missing AgentContext.Mutable\") }",
+	}
+	rep := GroundItem(cond, gc)
+	if rep.Status != types.GroundingGrounded {
+		t.Fatalf("condition grounding status=%s, want grounded", rep.Status)
+	}
+	if got, want := cond.Snippet, "if ctx == nil || ctx.Mutable == nil { return nil, errors.New(\"analyzer: missing AgentContext.Mutable\") }"; got != want {
+		t.Fatalf("condition snippet=%q, want %q", got, want)
+	}
+
+	assign := &types.EvidenceItem{
+		Kind:         types.EvidenceDirect,
+		Source:       "internal/agent/analyzer.go",
+		LineStart:    979,
+		Scope:        types.ScopeLine,
+		AnchorKind:   types.AnchorAssignment,
+		AnchorSymbol: "buildAnalysisIR",
+		OwnerSymbol:  "buildAnalysisIR",
+		Subject:      "buildAnalysisIR",
+		Snippet:      "raw := ctx.Mutable.RequestModel()",
+	}
+	rep = GroundItem(assign, gc)
+	if rep.Status != types.GroundingGrounded {
+		t.Fatalf("assignment grounding status=%s, want grounded", rep.Status)
+	}
+	if got, want := assign.Snippet, "raw := ctx.Mutable.RequestModel()"; got != want {
+		t.Fatalf("assignment snippet=%q, want %q", got, want)
 	}
 }
 

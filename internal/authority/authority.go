@@ -151,8 +151,16 @@ type Projection struct {
 //
 //     - DriftStatusNone with a current-code match → cross_source +
 //       factual.
-//     - LineDrift / TailRename → log/perf + conditional.
-//     - FileMoved / Unmappable → log/perf + historical.
+//     - LineDrift / TailRename → cross_source + conditional.
+//     - FileMoved / Unmappable → cross_source + historical.
+//
+//     Important: this branch is for REPO-BACKED evidence whose
+//     current-code anchor is corroborated by an attached artifact. It
+//     must not collapse to ClaimOriginLog / Perf, because those origins
+//     are reserved for pure artifact observations. Otherwise
+//     ClaimFormOf would reinterpret current-code call/guard/assignment
+//     anchors as external_observation and downstream stages would lose
+//     the mechanism/path distinction.
 //
 //  5. No log/perf match → ClaimOriginCurrentRepo. Authority is
 //     factual when grounding tier is strong (line_text /
@@ -250,7 +258,7 @@ func computeFromLogPerfDrift(item types.EvidenceItem, bus *types.BusContext) (Pr
 	}
 
 	// Try to find a matching frame.
-	matchedFrame, originKind := findMatchingFrame(item, logBundle, perfBundle)
+	matchedFrame, _ := findMatchingFrame(item, logBundle, perfBundle)
 	if matchedFrame == nil {
 		return Projection{}, false
 	}
@@ -285,7 +293,7 @@ func computeFromLogPerfDrift(item types.EvidenceItem, bus *types.BusContext) (Pr
 		}, true
 	case types.DriftStatusLineDrift:
 		return Projection{
-			Origin:    originKind,
+			Origin:    types.ClaimOriginCrossSource,
 			Authority: types.AuthorityConditional,
 			Reason: fmt.Sprintf("line drift: log %d → repo %d in %s",
 				drift.OriginalLine, drift.AnchoredLine, drift.AnchoredFile),
@@ -293,7 +301,7 @@ func computeFromLogPerfDrift(item types.EvidenceItem, bus *types.BusContext) (Pr
 		}, true
 	case types.DriftStatusTailRename:
 		return Projection{
-			Origin:    originKind,
+			Origin:    types.ClaimOriginCrossSource,
 			Authority: types.AuthorityConditional,
 			Reason: fmt.Sprintf("function renamed in %s: log func=%s no longer present",
 				drift.AnchoredFile, drift.OriginalFunc),
@@ -301,7 +309,7 @@ func computeFromLogPerfDrift(item types.EvidenceItem, bus *types.BusContext) (Pr
 		}, true
 	case types.DriftStatusFileMoved:
 		return Projection{
-			Origin:    originKind,
+			Origin:    types.ClaimOriginCrossSource,
 			Authority: types.AuthorityHistorical,
 			Reason: fmt.Sprintf("function moved: log file=%s → repo file=%s",
 				drift.OriginalFile, drift.AnchoredFile),
@@ -309,7 +317,7 @@ func computeFromLogPerfDrift(item types.EvidenceItem, bus *types.BusContext) (Pr
 		}, true
 	case types.DriftStatusUnmappable:
 		return Projection{
-			Origin:    originKind,
+			Origin:    types.ClaimOriginCrossSource,
 			Authority: types.AuthorityHistorical,
 			Reason: fmt.Sprintf("log frame %s:%s no longer maps to current code",
 				drift.OriginalFile, drift.OriginalFunc),
@@ -319,7 +327,7 @@ func computeFromLogPerfDrift(item types.EvidenceItem, bus *types.BusContext) (Pr
 	// Unknown / undetectable — treat as a log-derived match without
 	// drift information; conservative ceiling of conditional.
 	return Projection{
-		Origin:    originKind,
+		Origin:    types.ClaimOriginCrossSource,
 		Authority: types.AuthorityConditional,
 		Reason:    "log/perf-derived anchor, drift detection unavailable",
 	}, true
@@ -417,9 +425,15 @@ func commonSuffixLen(a, b string) int {
 // findMatchingFrame searches log + perf bundles for a frame whose
 // (file, line, func) matches the evidence item's anchor. Returns the
 // frame plus whether the match came from log or perf. Frames are
-// matched by repo-relative file path equality + (when both have a
-// non-zero line) line equality within DefaultDriftLineGap, OR by file
-// + AnchorSymbol/Func equality if line is missing.
+// matched by repo-relative file path equality PLUS a same-locus test:
+//
+//   - exact / near-exact line agreement when both sides have lines
+//   - OR a symbol-tail agreement between the frame function and the
+//     item's semantic locus (anchor / owner / subject / object)
+//
+// Bare same-file equality is intentionally NOT enough. Otherwise any
+// repo line in a logged file inherits log/perf semantics and current
+// code anchors get misprojected as external_observation.
 func findMatchingFrame(item types.EvidenceItem, logBundle *types.LogBundle, perfBundle *types.PerfBundle) (*types.LogFrame, types.ClaimOrigin) {
 	itemFile := normalizePath(item.Source)
 	if itemFile == "" {
@@ -547,24 +561,35 @@ func frameMatches(f *types.LogFrame, itemFile string, item types.EvidenceItem) b
 		if abs(item.LineStart-f.Line) <= logtriage.DefaultDriftLineGap {
 			return true
 		}
-		// Lines disagree but file matches — still a candidate; drift
-		// detection downstream will classify the gap.
-		return true
+		// Large line disagreement is only a valid drift candidate when
+		// the semantic locus still names the same function/symbol.
+		return itemMatchesFrameSymbol(item, frameFunc)
 	}
 	if fileMatch {
-		// File matched but lines missing on one side — accept via
-		// symbol when item provides a tail.
-		if anchor := strings.TrimSpace(item.AnchorSymbol); anchor != "" && frameFunc != "" {
-			if symbolTailEquals(frameFunc, anchor) {
-				return true
-			}
-		}
-		// Otherwise still accept — file equality alone is meaningful
-		// for absence-of-line frames.
-		return true
+		// When one side lacks a concrete line, we still require a symbol
+		// agreement; file-only equality is too coarse and pollutes every
+		// same-file anchor with artifact semantics.
+		return itemMatchesFrameSymbol(item, frameFunc)
 	}
 	// Symbol-only match: already validated by the symbolMatch gate.
 	return true
+}
+
+func itemMatchesFrameSymbol(item types.EvidenceItem, frameFunc string) bool {
+	if strings.TrimSpace(frameFunc) == "" {
+		return false
+	}
+	for _, raw := range []string{
+		item.AnchorSymbol,
+		item.OwnerSymbol,
+		item.Subject,
+		item.Object,
+	} {
+		if symbolTailEquals(raw, frameFunc) {
+			return true
+		}
+	}
+	return false
 }
 
 func symbolTailEquals(a, b string) bool {

@@ -1580,3 +1580,166 @@ func TestEvidencePreferredSurfaceText_NeutralizesExactResolutionRelevantSummary(
 		t.Fatalf("preferred surface lost structural claim: %q", got)
 	}
 }
+
+func TestEvidenceDeterministicSurfaceText_PrefersStructuredCoreOverFreeformSummary(t *testing.T) {
+	item := EvidenceItem{
+		Kind:         EvidenceConditional,
+		AnchorSymbol: "logBundle",
+		Predicate:    "guards",
+		Condition:    "logBundle != nil",
+		Summary:      "the nil check only validates logBundle itself and proves Meta may be nil later",
+	}
+
+	got := EvidenceDeterministicSurfaceText(item, false)
+	if strings.Contains(got, "Meta may be nil") || strings.Contains(got, "proves") {
+		t.Fatalf("deterministic surface leaked stronger summary prose: %q", got)
+	}
+	if got != "logBundle guards IF logBundle != nil" {
+		t.Fatalf("deterministic surface = %q, want typed surface", got)
+	}
+}
+
+func TestEvidenceStructuredSemanticLine_DoesNotFallbackToFreeformSummary(t *testing.T) {
+	item := EvidenceItem{
+		Kind:    EvidenceMechanism,
+		Summary: "the caller definitely passed a nil ctx and the guard already succeeded",
+	}
+
+	if got := EvidenceStructuredSemanticLine(item, false); got != "" {
+		t.Fatalf("structured semantic line leaked freeform summary: %q", got)
+	}
+}
+
+func TestEvidenceDeterministicSurfaceText_AssignmentPrefersGroundedSnippetOverFreeformSemantics(t *testing.T) {
+	item := EvidenceItem{
+		Kind:         EvidenceDirect,
+		AnchorKind:   AnchorAssignment,
+		AnchorSymbol: "RequestModel",
+		OwnerSymbol:  "buildAnalysisIR",
+		Subject:      "buildAnalysisIR",
+		Predicate:    "dereferences",
+		Object:       "nil",
+		Snippet:      "raw := ctx.Mutable.RequestModel()",
+		Summary:      "buildAnalysisIR definitely dereferences nil here and proves caller-side nil provenance",
+	}
+
+	got := EvidenceDeterministicSurfaceText(item, false)
+	if strings.Contains(got, "dereferences") || strings.Contains(got, "caller-side nil provenance") {
+		t.Fatalf("assignment deterministic surface leaked unsupported semantic escalation: %q", got)
+	}
+	if got != "raw := ctx.Mutable.RequestModel()" {
+		t.Fatalf("assignment deterministic surface = %q, want grounded snippet", got)
+	}
+}
+
+func TestEvidenceDeterministicSurfaceText_DefinitionPrefersGroundedSnippetOverFreeformSemantics(t *testing.T) {
+	item := EvidenceItem{
+		Kind:         EvidenceMechanism,
+		AnchorKind:   AnchorDefinition,
+		AnchorSymbol: "buildAnalysisIR",
+		Subject:      "buildAnalysisIR",
+		Predicate:    "defines",
+		Snippet:      "func buildAnalysisIR(ctx *types.AgentContext) (*types.AnalysisIR, error) {",
+		Summary:      "buildAnalysisIR proves the current mechanism and explains why the panic happens",
+	}
+
+	got := EvidenceDeterministicSurfaceText(item, false)
+	if strings.Contains(got, "proves the current mechanism") || strings.Contains(got, "defines") {
+		t.Fatalf("definition deterministic surface leaked unsupported semantic escalation: %q", got)
+	}
+	if got != "func buildAnalysisIR(ctx *types.AgentContext) (*types.AnalysisIR, error) {" {
+		t.Fatalf("definition deterministic surface = %q, want grounded snippet", got)
+	}
+}
+
+func TestEvidenceDeterministicSurfaceText_ConditionPrefersGroundedSnippetOverFreeformSemantics(t *testing.T) {
+	item := EvidenceItem{
+		Kind:         EvidenceConditional,
+		AnchorKind:   AnchorCondition,
+		AnchorSymbol: "buildAnalysisIR",
+		OwnerSymbol:  "buildAnalysisIR",
+		Subject:      "buildAnalysisIR",
+		Predicate:    "returns",
+		Condition:    "ctx == nil || ctx.Mutable == nil",
+		Snippet:      "if ctx == nil || ctx.Mutable == nil { return nil, errors.New(\"analyzer: missing AgentContext.Mutable\") }",
+		Summary:      "the nil guard proves caller-side nil provenance and explains the panic",
+	}
+
+	got := EvidenceDeterministicSurfaceText(item, false)
+	if strings.Contains(got, "proves caller-side nil provenance") || strings.Contains(got, "returns") {
+		t.Fatalf("condition deterministic surface leaked unsupported semantic escalation: %q", got)
+	}
+	if got != "if ctx == nil || ctx.Mutable == nil { return nil, errors.New(\"analyzer: missing AgentContext.Mutable\") }" {
+		t.Fatalf("condition deterministic surface = %q, want grounded snippet", got)
+	}
+}
+
+func TestEvidenceAuthoritativeSurfaceText_DefinitionWithoutSnippetStaysNeutral(t *testing.T) {
+	item := EvidenceItem{
+		Kind:         EvidenceMechanism,
+		AnchorKind:   AnchorDefinition,
+		AnchorSymbol: "buildAnalysisIR",
+		Subject:      "buildAnalysisIR",
+		Predicate:    "proves caller-side nil provenance",
+		Summary:      "buildAnalysisIR proves caller-side nil provenance",
+	}
+
+	got := EvidenceAuthoritativeSurfaceText(item, false)
+	if strings.Contains(got, "proves caller-side nil provenance") {
+		t.Fatalf("authoritative surface leaked unsupported definition semantics: %q", got)
+	}
+	if got != "definition anchor for buildAnalysisIR" {
+		t.Fatalf("authoritative surface = %q, want neutral definition anchor", got)
+	}
+}
+
+func TestEvidenceAuthoritativeSurfaceText_NeverFallsBackToFreeformSummary(t *testing.T) {
+	item := EvidenceItem{
+		Kind:    EvidenceMechanism,
+		Summary: "the caller definitely passed a nil ctx and the guard already succeeded",
+	}
+
+	if got := EvidenceAuthoritativeSurfaceText(item, false); got != "" {
+		t.Fatalf("authoritative surface leaked freeform summary: %q", got)
+	}
+}
+
+func TestEvidenceStructuredSemanticLine_AssignmentWithoutSnippetFallsBackToNeutralAnchor(t *testing.T) {
+	item := EvidenceItem{
+		Kind:         EvidenceDirect,
+		AnchorKind:   AnchorAssignment,
+		AnchorSymbol: "RequestModel",
+		OwnerSymbol:  "buildAnalysisIR",
+		Subject:      "buildAnalysisIR",
+		Predicate:    "dereferences",
+		Object:       "nil",
+	}
+
+	got := EvidenceStructuredSemanticLine(item, false)
+	if strings.Contains(got, "dereferences") || strings.Contains(got, "nil") {
+		t.Fatalf("assignment structured surface leaked unsupported semantics: %q", got)
+	}
+	if got != "buildAnalysisIR assignment anchor for RequestModel" {
+		t.Fatalf("assignment structured surface = %q, want neutral anchor surface", got)
+	}
+}
+
+func TestEvidenceStructuredSemanticLine_ConditionWithoutSnippetFallsBackToGuardSurface(t *testing.T) {
+	item := EvidenceItem{
+		Kind:         EvidenceConditional,
+		AnchorKind:   AnchorCondition,
+		AnchorSymbol: "buildAnalysisIR",
+		OwnerSymbol:  "buildAnalysisIR",
+		Subject:      "buildAnalysisIR",
+		Predicate:    "returns",
+		Condition:    "ctx == nil || ctx.Mutable == nil",
+	}
+
+	got := EvidenceStructuredSemanticLine(item, false)
+	if strings.Contains(got, "returns") {
+		t.Fatalf("condition structured surface leaked unsupported semantics: %q", got)
+	}
+	if got != "buildAnalysisIR guard condition IF ctx == nil || ctx.Mutable == nil" {
+		t.Fatalf("condition structured surface = %q, want neutral guard surface", got)
+	}
+}

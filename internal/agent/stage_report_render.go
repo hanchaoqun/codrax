@@ -213,7 +213,7 @@ func formatEvidenceLineForReport(ev types.EvidenceItem, exactResolution *types.E
 	var parts []string
 	parts = append(parts, fmt.Sprintf("[%s]", ev.Kind))
 
-	semantic := types.EvidencePreferredSurfaceText(ev, exactResolution, false)
+	semantic := types.EvidenceDeterministicSurfaceText(ev, false)
 	if semantic != "" {
 		parts = append(parts, semantic)
 	}
@@ -285,7 +285,7 @@ func emptyAsDash(s string) string {
 // — same cross-stage strictness as formatEvidenceLineForReport.
 func renderAnswerChain(c types.AnswerChain, exactResolution *types.ExactResolutionContract) string {
 	ev := c.Item
-	display := types.EvidencePreferredSurfaceText(ev, exactResolution, false)
+	display := types.EvidenceDeterministicSurfaceText(ev, false)
 	if loc := ev.DisplayLocation(true); loc != "" {
 		display += " (" + loc + ")"
 	}

@@ -145,17 +145,17 @@ type Report struct {
 //
 //  2. Tier 2 — symbol_table: repomap-backed structural match,
 //     dispatched on AnchorKind:
-//       - definition → SymbolsInFile + sym.Line == LineStart
-//       - call       → FileIndex[Source].Relations where
-//                      Kind=="call" + ToEP.Name == AnchorSymbol
-//                      + Line == LineStart
-//       - import     → FileInfo.Imports + imp.Path/Alias match +
-//                      imp.Line == LineStart
-//       - condition/return/assignment → no repomap primitive, degrade
-//                      to line-text scan for the kind's keyword set
-//                      (if/when/unless/switch/case/guard for
-//                      condition; return/yield for return; := or
-//                      standalone = for assignment)
+//     - definition → SymbolsInFile + sym.Line == LineStart
+//     - call       → FileIndex[Source].Relations where
+//     Kind=="call" + ToEP.Name == AnchorSymbol
+//     + Line == LineStart
+//     - import     → FileInfo.Imports + imp.Path/Alias match +
+//     imp.Line == LineStart
+//     - condition/return/assignment → no repomap primitive, degrade
+//     to line-text scan for the kind's keyword set
+//     (if/when/unless/switch/case/guard for
+//     condition; return/yield for return; := or
+//     standalone = for assignment)
 //
 //  3. Recovery R1-R5 — implemented in Step 11 of the redesign.
 //     Placeholder here so GroundItem can be wired end-to-end first.
@@ -181,6 +181,7 @@ func GroundItem(it *types.EvidenceItem, gc *Context) Report {
 
 	// Tier 1: line_text via read_file gutter.
 	if tier1LineText(it, gc) {
+		attachGroundedLineSnippet(it, gc)
 		it.GroundingStatus = types.GroundingGrounded
 		it.GroundingTier = types.TierLineText
 		return Report{
@@ -191,6 +192,7 @@ func GroundItem(it *types.EvidenceItem, gc *Context) Report {
 
 	// Tier 2: symbol_table via repomap dispatch.
 	if tier2SymbolTable(it, gc) {
+		attachGroundedLineSnippet(it, gc)
 		it.GroundingStatus = types.GroundingGrounded
 		it.GroundingTier = types.TierSymbolTable
 		return Report{
@@ -220,6 +222,7 @@ func GroundItem(it *types.EvidenceItem, gc *Context) Report {
 					it.LineEnd = newLine
 				}
 			}
+			attachGroundedLineSnippet(it, gc)
 			it.GroundingStatus = types.GroundingRecovered
 			it.GroundingTier = attempt.tier
 			note := describeRecovery(attempt.tier, originalLine, newLine)
@@ -243,6 +246,92 @@ func GroundItem(it *types.EvidenceItem, gc *Context) Report {
 		OriginalLine: originalLine, AdjustedLine: it.LineStart,
 		Note: it.GroundingNote,
 	}
+}
+
+// attachGroundedLineSnippet upgrades line-scoped evidence with the
+// actual grounded source line once grounding has fixed the final
+// Source/LineStart pair. Deterministic downstream channels should
+// prefer this anchor-local code surface over any free-form semantic
+// prose the LLM previously attached to Subject/Predicate/Object.
+func attachGroundedLineSnippet(it *types.EvidenceItem, gc *Context) {
+	if it == nil || gc == nil || it.Source == "" || it.LineStart <= 0 {
+		return
+	}
+	if it.Scope != "" && it.Scope != types.ScopeLine {
+		return
+	}
+	fileLines, ok := gc.LineIndex[it.Source]
+	if !ok {
+		return
+	}
+	lineNo := it.LineStart
+	if matched, matchedOK := findSnippetLine(fileLines, it.LineStart, 2, it.Snippet); matchedOK {
+		lineNo = matched
+	} else {
+		switch it.AnchorKind {
+		case types.AnchorCondition, types.AnchorReturn, types.AnchorAssignment:
+			if matched, matchedOK := findCorroboratingLine(fileLines, it.LineStart, 2, it, gc.Graph); matchedOK {
+				lineNo = matched
+			}
+		default:
+			if it.AnchorSymbol != "" {
+				if matched, matchedOK := findAnchorLine(fileLines, it.LineStart, 2, it.AnchorSymbol); matchedOK {
+					lineNo = matched
+				}
+			} else if matched, matchedOK := findCorroboratingLine(fileLines, it.LineStart, 2, it, gc.Graph); matchedOK {
+				lineNo = matched
+			}
+		}
+	}
+	lineText, ok := fileLines[lineNo]
+	if !ok {
+		return
+	}
+	lineText = strings.TrimSpace(lineText)
+	if lineText == "" {
+		return
+	}
+	it.Snippet = lineText
+}
+
+func findSnippetLine(fileLines map[int]string, center, radius int, snippet string) (int, bool) {
+	want := normalizeGroundedSnippetLine(snippet)
+	if want == "" {
+		return 0, false
+	}
+	if text, ok := fileLines[center]; ok && normalizeGroundedSnippetLine(text) == want {
+		return center, true
+	}
+	bestLine, bestDist := 0, radius+1
+	for i := center - radius; i <= center+radius; i++ {
+		if i == center || i <= 0 {
+			continue
+		}
+		text, ok := fileLines[i]
+		if !ok || normalizeGroundedSnippetLine(text) != want {
+			continue
+		}
+		d := i - center
+		if d < 0 {
+			d = -d
+		}
+		if d < bestDist {
+			bestDist = d
+			bestLine = i
+		}
+	}
+	if bestLine > 0 {
+		return bestLine, true
+	}
+	return 0, false
+}
+
+func normalizeGroundedSnippetLine(s string) string {
+	fields := strings.Fields(strings.TrimSpace(s))
+	if len(fields) == 0 {
+		return ""
+	}
+	return strings.Join(fields, " ")
 }
 
 // recoveryAttempt pairs a tier name with its implementation so
