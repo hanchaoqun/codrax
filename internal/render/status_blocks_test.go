@@ -123,7 +123,7 @@ func TestStatus_StageLocalization(t *testing.T) {
 	}
 	zhOut := renderRows(t, "zh", rows...)
 	for _, want := range []string{
-		"正在交叉验证证据", "正在归纳探索结果", "正在撰写最终答案",
+		"正在交叉验证证据", "正在归纳探索线索", "正在撰写最终答案",
 	} {
 		if !strings.Contains(zhOut, want) {
 			t.Errorf("expected %q in zh stage output; got:\n%s", want, zhOut)
@@ -140,7 +140,7 @@ func TestStatus_StageLocalization(t *testing.T) {
 	}
 	enOut := renderRows(t, "en", rows...)
 	for _, want := range []string{
-		"Cross-validating evidence", "Consolidating findings", "Composing the final answer",
+		"Cross-validating evidence", "Consolidating exploration threads", "Composing the final answer",
 	} {
 		if !strings.Contains(enOut, want) {
 			t.Errorf("expected %q in en stage output; got:\n%s", want, enOut)
@@ -453,7 +453,7 @@ func TestStatus_ThinkingNTPJumpGuard(t *testing.T) {
 // TestStatus_PendingHasOwnPhrase pins the "待 X" lexical form for
 // pending rows. Pre-fix pending rows reused the running phrase
 // ("正在 X"), distinguishable only by colour — two queued rows
-// rendered as "正在交叉验证证据" / "正在归纳探索结果" reading like
+// rendered as "正在交叉验证证据" / "正在归纳探索线索" reading like
 // concurrent execution. The pending phrasing kills the ambiguity
 // at the lexical level.
 func TestStatus_PendingHasOwnPhrase(t *testing.T) {
@@ -470,7 +470,7 @@ func TestStatus_PendingHasOwnPhrase(t *testing.T) {
 	}
 	// Pending rows MUST NOT use the running form — that would
 	// re-introduce the ambiguity.
-	for _, banned := range []string{"正在交叉验证证据", "正在归纳探索结果", "正在撰写最终答案"} {
+	for _, banned := range []string{"正在交叉验证证据", "正在归纳探索线索", "正在撰写最终答案"} {
 		if strings.Contains(zh, banned) {
 			t.Errorf("zh: pending row leaked running form %q in:\n%s", banned, zh)
 		}

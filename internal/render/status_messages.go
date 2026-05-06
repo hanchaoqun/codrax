@@ -152,9 +152,13 @@ func stagePhrase(key string, lang string, state stagePhraseState) string {
 	//   evidence   → 探索代码并收集证据 / Exploring code, collecting evidence
 	//   validate   → 交叉验证证据      / Cross-validating evidence
 	//                    (was "校核分析结论" — no "结论" exists yet at this point)
-	//   reconcile  → 归纳探索结果      / Consolidating exploration results
-	//                    (was "整理结论" — clarifies this is explore-phase wrap-up,
-	//                     not the final answer)
+	//   reconcile  → 归纳探索线索 (running) / 归纳探索结果 (done)
+	//                Consolidating exploration threads → Findings consolidated.
+	//                Running form uses "线索" (mid-process threads, not yet
+	//                finalized) so the row does not read as a stage wrap-up
+	//                while K=2/4 — the explore stage's K/N has not advanced
+	//                yet. Done form switches to "结果" because by that point
+	//                the consolidated output exists.
 	//   extract    → 提炼关键发现      / Distilling key findings
 	//                    (was "提取关键要点" — slightly tighter)
 	//   finalize   → 撰写最终答案      / Composing the final answer
@@ -192,7 +196,7 @@ func stagePhrase(key string, lang string, state stagePhraseState) string {
 		// emits structured evidence.
 		"evidence":  {"正在探索代码并收集证据", "已完成证据收集", "待探索代码并收集证据", "未收集到足够证据", "证据收集出错,正在重试"},
 		"validate":  {"正在交叉验证证据", "已交叉验证证据", "待交叉验证证据", "交叉验证未完成", "交叉验证出错,正在重试"},
-		"reconcile": {"正在归纳探索结果", "已归纳探索结果", "待归纳探索结果", "未能归纳结果", "归纳结果出错,正在重试"},
+		"reconcile": {"正在归纳探索线索", "已归纳探索结果", "待归纳探索结果", "未能归纳结果", "归纳结果出错,正在重试"},
 		"extract":   {"正在提炼关键发现", "已提炼关键发现", "待提炼关键发现", "未能提炼关键发现", "提炼关键发现出错,正在重试"},
 		"finalize":  {"正在撰写最终答案", "已撰写最终答案", "待撰写最终答案", "未能生成最终答案", "撰写最终答案出错,正在重试"},
 		// Write-mode flow.
@@ -222,7 +226,7 @@ func stagePhrase(key string, lang string, state stagePhraseState) string {
 		"explore":     {"Investigating", "Investigation complete", "Awaiting investigation", "Investigation incomplete", "Investigation hit an error, retrying"},
 		"evidence":    {"Exploring code, collecting evidence", "Evidence collected", "Awaiting evidence", "Could not gather evidence", "Evidence collection hit an error, retrying"},
 		"validate":    {"Cross-validating evidence", "Evidence cross-validated", "Awaiting cross-validation", "Cross-validation incomplete", "Cross-validation hit an error, retrying"},
-		"reconcile":   {"Consolidating findings", "Findings consolidated", "Awaiting consolidation", "Could not consolidate findings", "Consolidation hit an error, retrying"},
+		"reconcile":   {"Consolidating exploration threads", "Findings consolidated", "Awaiting consolidation", "Could not consolidate findings", "Consolidation hit an error, retrying"},
 		"extract":     {"Distilling key findings", "Key findings distilled", "Awaiting key findings", "Could not distill findings", "Key-finding distillation hit an error, retrying"},
 		"finalize":    {"Composing the final answer", "Final answer composed", "Awaiting final answer", "Could not compose answer", "Answer composition hit an error, retrying"},
 		"write_analyze": {"Analyzing task context", "Task context analyzed", "Awaiting task analysis", "Could not analyze task", "Task-context analysis hit an error, retrying"},
