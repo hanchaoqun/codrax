@@ -1920,7 +1920,7 @@ func TestAnswerDocumentEvaluator_BuildInitialInstruction_RendersExternalObservat
 		"structured runtime error type",
 		`runtime artifact includes stack frame "github.com/hanchaoqun/codrax/internal/agent.(*analyzerEvaluator).ParseOutput" at observed internal/agent/analyzer.go:320`,
 		"internal/agent/analyzer.go:651",
-		"Treat raw runtime frame argument tuples such as `func(0x0)` or register-looking values as observation-only artifacts.",
+		"Treat any runtime stack-frame argument annotation produced by a panic / exception / traceback dumper",
 	} {
 		if !strings.Contains(prompt, want) {
 			t.Fatalf("prompt missing %q:\n%s", want, prompt)
