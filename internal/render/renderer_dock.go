@@ -1419,11 +1419,136 @@ func (r *Renderer) softNoticeStageProgressLocked() string {
 	if row := r.focusRow(); row != nil {
 		return r.stageProgressForFocus(row)
 	}
+	// Soft-notice gap handling: between two sequential stage
+	// dispatches there is a brief window where r.current is nil and
+	// no NodeRow is in flight. The generic fallbackRow path then
+	// returns the FIRST pending NodeRow — but read mode's TaskGraph
+	// has no `extract` NodeRow (extract is a stage-only step), so
+	// after explore ends the first-pending NodeRow is `finalize` and
+	// the soft notice K/N would render as 4/4. Architecturally the
+	// imminent next dispatch is extract → 3/4. Compute K via the
+	// stage-topology cursor instead so the notice does not leapfrog
+	// stages that have no NodeRow representation.
+	if progress := r.topologyNextStageProgressLocked(); progress != "" {
+		return progress
+	}
 	if row := r.fallbackRow(); row != nil {
 		return r.stageProgressForFocus(row)
 	}
 	if r.current != nil {
 		return r.stageProgressForFocus(r.current)
+	}
+	return ""
+}
+
+// topologyNextStageProgressLocked returns the K/N progress label for
+// the topologically-next stage after the most-recently-ended stage
+// row. Read-mode topology: log_triage/perf_triage → analyze → explore
+// → extract → finalize. Returns "" when no stage row has ended yet,
+// when the most-recent-ended stage is terminal, when totalStages does
+// not match a known mapping (e.g. ModeApply 4-stage write topology
+// has the same shape but different keys, handled below), or when
+// the renderer's stage cursor cannot be derived structurally.
+//
+// Caller MUST hold r.mu.
+func (r *Renderer) topologyNextStageProgressLocked() string {
+	var newestKey string
+	var newestTime time.Time
+	for _, row := range r.tasks {
+		if row == nil || row.isSubAgent || row.isNodeRow {
+			continue
+		}
+		if row.endTime.IsZero() {
+			continue
+		}
+		if row.endTime.After(newestTime) {
+			newestKey = canonicalStageKey(row.stage)
+			newestTime = row.endTime
+		}
+	}
+	if newestKey == "" {
+		return ""
+	}
+	next := readModeStageAfter(newestKey)
+	if next == "" {
+		next = writeModeStageAfter(newestKey)
+	}
+	if next == "" {
+		return ""
+	}
+	return progressForStageKey(next, r.totalStages)
+}
+
+// readModeStageAfter maps a read-mode stage key to the next stage in
+// the canonical pipeline. Empty for terminal / unknown keys.
+func readModeStageAfter(prev string) string {
+	switch prev {
+	case "log_triage", "perf_triage":
+		return "analyze"
+	case "analyze":
+		return "explore"
+	case "explore":
+		return "extract"
+	case "extract":
+		return "finalize"
+	}
+	return ""
+}
+
+// writeModeStageAfter maps a write-mode stage key to the next stage
+// in the canonical apply-mode pipeline. Empty for terminal / unknown
+// keys.
+func writeModeStageAfter(prev string) string {
+	switch prev {
+	case "write_analyze", "analyze":
+		return "plan"
+	case "plan":
+		return "apply"
+	case "apply":
+		return "verify"
+	}
+	return ""
+}
+
+// progressForStageKey returns the K/N string for a stage key using
+// the same slot mapping as stageProgressForFocus. Empty when the
+// key is not in the slot table for the given total. Read mode uses
+// total==4 with the analyze/explore/extract/finalize layout; write
+// mode (ModeApply) also uses total==4 with analyze/plan/apply/verify.
+func progressForStageKey(key string, total int) string {
+	switch total {
+	case 4:
+		switch key {
+		case "analyze":
+			return "1/4"
+		case "explore", "evidence", "validate", "reconcile", "plan":
+			// `plan` shares slot 2 in ModeApply (analyze=1/4, plan=2/4).
+			// Read mode never sees plan and write mode never sees
+			// explore-family keys, so the unified case is unambiguous.
+			return "2/4"
+		case "extract", "apply":
+			return "3/4"
+		case "finalize", "verify":
+			return "4/4"
+		}
+	case 3:
+		// Write trio (skip analyze) — plan/apply/verify only.
+		switch key {
+		case "plan":
+			return "1/3"
+		case "apply":
+			return "2/3"
+		case "verify":
+			return "3/3"
+		}
+	case 2:
+		// Plan-only / verify-only (analyze + 1 stage).
+		switch key {
+		case "analyze":
+			return "1/2"
+		case "plan", "verify":
+			return "2/2"
+		}
 	}
 	return ""
 }
