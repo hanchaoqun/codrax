@@ -141,30 +141,24 @@ func (r *Renderer) topicProgressFor(focus *taskRow, lang string) string {
 }
 
 // liveBarPrimaryText resolves the focus's stage label via the
-// existing stagePhrase localisation helper. Mirrors
-// friendlyPrimaryText's full lifecycle split (pending / paused /
-// failed / done / running) so the live bar agrees with the dock row
-// regardless of which lifecycle slot the row currently sits in.
+// existing stagePhrase localisation helper. Shares
+// primaryTextLifecycle with friendlyPrimaryText (status_blocks.go)
+// so the dock-row-2 label and the spinner-area / commit-line label
+// can never disagree on the row's lifecycle slot — including the
+// recoverable/retry case (a row that errored and is awaiting retry
+// reads as "X 出错,正在重试" in BOTH places, never as one-sided
+// "未能 X" / "正在重试").
 //
 // paused folds into pending lexically — same rule the spinner area
-// uses (status_blocks.go::friendlyPrimaryText) so a node parked
-// behind another in-flight dispatch reads as "queued" in BOTH the
-// dock and the live bar instead of one-sided "running" / "queued"
-// disagreement.
+// uses so a node parked behind another in-flight dispatch reads as
+// "queued" in BOTH the dock and the live bar instead of one-sided
+// "running" / "queued" disagreement.
 func liveBarPrimaryText(row *taskRow, lang string) string {
 	if row == nil {
 		return ""
 	}
 	key := stageKeyFor(row)
-	state := stagePhraseRunning
-	switch {
-	case row.isNodeRow && (row.pending || row.paused):
-		state = stagePhrasePending
-	case !row.endTime.IsZero() && !row.okFinished:
-		state = stagePhraseFailed
-	case !row.endTime.IsZero():
-		state = stagePhraseDone
-	}
+	state := primaryTextLifecycle(row, classifyStatusError(row))
 	return stagePhrase(key, lang, state)
 }
 

@@ -3473,6 +3473,18 @@ func (o *Orchestrator) runReadSchedulerLoop(stepBudget int) int {
 			stepsUsed++
 			if _, exErr := o.dispatchStage(types.StageExtract); exErr != nil {
 				logging.Warning("[orchestrator] pre-finalize extract dispatch failed (continuing): %v", exErr)
+				// Soft notice so the user sees WHY the next event is
+				// "正在生成最终答案" instead of an extract success
+				// row. Without this the scrollback jumps from
+				// "✗/⟳ 未能提炼关键发现" straight to finalize with no
+				// explanation of the transition.
+				o.emit(render.Event{
+					Kind:       render.EventOrchestratorNotice,
+					Timestamp:  time.Now(),
+					Agent:      "orchestrator",
+					NoticeKind: render.NoticeProceedingWithoutExtract,
+					Reasoning:  softProceedingWithoutExtractMessage(o.busCtx.Language),
+				})
 			} else {
 				o.drainHypothesisVerdicts()
 			}
@@ -3977,6 +3989,18 @@ contractFailureBreak:
 		stepsUsed++
 		if _, exErr := o.dispatchStage(types.StageExtract); exErr != nil {
 			logging.Warning("[orchestrator] pre-forced-finalize extract dispatch failed (continuing): %v", exErr)
+			// Force-finalize escape path: same transparency requirement
+			// as the normal DAG branch — let the user see that we are
+			// dropping extract results before finalize starts, instead
+			// of silently jumping from "未能提炼关键发现" to "正在生成
+			// 最终答案".
+			o.emit(render.Event{
+				Kind:       render.EventOrchestratorNotice,
+				Timestamp:  time.Now(),
+				Agent:      "orchestrator",
+				NoticeKind: render.NoticeProceedingWithoutExtract,
+				Reasoning:  softProceedingWithoutExtractMessage(o.busCtx.Language),
+			})
 		} else {
 			o.drainHypothesisVerdicts()
 		}

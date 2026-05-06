@@ -155,9 +155,27 @@ func classifyStatusError(row *taskRow) statusErrorKind {
 			return statusErrorRecoverable
 		}
 		// Generic terminal failure with neither fatal nor
-		// recoverable cue: treat as fatal so the user sees the run
-		// stopped, not "still working".
-		return statusErrorFatal
+		// recoverable cue: default to recoverable so the user sees
+		// "X 出错,正在重试" instead of a screaming ✗ that the
+		// orchestrator was about to retry anyway.
+		//
+		// History: pre-2026-05-06 this branch returned statusErrorFatal,
+		// which produced ✗ + "未能 X" on the durable scrollback line
+		// for any error message that wasn't on the recoverableMarkers
+		// substring whitelist. The orchestrator's actual retry
+		// decision (retryReadStageDispatchError, transientRetryBudget,
+		// per-stage retry loops) is structured, NOT string-keyed, so
+		// the renderer cannot tell from errorMsg alone whether retry
+		// will fire. Defaulting to fatal therefore lied whenever the
+		// orchestrator's retry path took an error message that did
+		// not happen to contain "retry" / "fallback" / etc. The
+		// orchestrator emits MarkRunFatal at run end when the run
+		// truly cannot continue; that path remains the only source
+		// of the terminal ✗ summary. fatalMarkers above still flags
+		// errors operators recognise as obviously terminal
+		// (verification failed, permission denied, etc.) so the
+		// list is not dead — only the unknown-error fallback flips.
+		return statusErrorRecoverable
 	}
 	// Row is still running OR has no errorMsg. Recovery cues in
 	// detail surface as recoverable (transient retry / forced-read
@@ -321,6 +339,37 @@ func cancelledDetailPhrase(lang string) string {
 		return "已取消：用户中断了本次任务"
 	}
 	return "Cancelled: interrupted by user"
+}
+
+// classifyEventError classifies a raw EventStageEnd / EventTaskNodeEnd
+// Error string using the same priority order as classifyStatusError
+// (cancellation > fatal > recoverable). Used by the dock-event handlers
+// (renderer_dock.go) to pick activityErrorFatal / activityCancelled /
+// activityErrorRecoverable so dock row 1 reads the same severity as
+// the just-committed scrollback line — pre-fix dock row 1 always went
+// recoverable for ANY ev.Error while the commit line could go fatal,
+// producing a momentary "⟳ + ✗" cross-talk between the two surfaces.
+//
+// Empty input returns statusErrorNone — caller should not have invoked
+// us in that case but the no-op return keeps the call site simple.
+func classifyEventError(errMsg string) statusErrorKind {
+	candidate := strings.ToLower(strings.TrimSpace(errMsg))
+	if candidate == "" {
+		return statusErrorNone
+	}
+	if hasMarker(candidate, cancelledMarkers) {
+		return statusErrorCancelled
+	}
+	if hasMarker(candidate, fatalMarkers) && !hasMarker(candidate, []string{"retrying"}) {
+		return statusErrorFatal
+	}
+	// Default to recoverable. Mirrors classifyStatusError's
+	// post-2026-05-06 default — orchestrator's retry decision is
+	// structural (stage retry loops, transient budget) and the
+	// renderer cannot tell from the message alone whether retry
+	// will fire, so the calmer ⟳ shape avoids screaming ✗ on a
+	// recoverable mid-flight error.
+	return statusErrorRecoverable
 }
 
 func hasMarker(text string, markers []string) bool {

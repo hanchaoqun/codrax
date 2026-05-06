@@ -370,6 +370,25 @@ func softFinalizingMessage(lang string) string {
 	return "⟳ Composing the final answer"
 }
 
+// softProceedingWithoutExtractMessage renders the user-visible line
+// emitted when the pre-finalize extract dispatch failed but the
+// orchestrator decided to keep going (the next step is finalize on
+// whatever evidence was already collected). Pre-this-fix the user
+// saw "✗ 未能提炼关键发现" followed immediately by "正在生成最终答案"
+// with NOTHING in between explaining the transition — they had no way
+// to tell the system was deliberately falling back rather than
+// silently swallowing a failure.
+//
+// Surface text spells out (a) which step failed, (b) what the system
+// is doing about it. Keeps the same ⟳ + retry palette as other
+// retry-class notices so the visual language is consistent.
+func softProceedingWithoutExtractMessage(lang string) string {
+	if preferZhMessage(lang) {
+		return "⟳ 提炼关键发现失败，将基于已有证据继续撰写最终答案"
+	}
+	return "⟳ Key-finding distillation failed; finalizing with the evidence already collected"
+}
+
 // forcedFinalizeFailureMessage classifies a force-finalize terminal
 // error and surfaces a localized, plain-language fatal message. The
 // raw error string ("forced finalize: agent finalizer execution:

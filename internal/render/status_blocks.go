@@ -133,7 +133,7 @@ func (r *Renderer) buildStatusLine(row *taskRow, frame string, now time.Time) st
 	return statusLine{
 		Icon:        icon,
 		IconStyle:   iconStyle,
-		PrimaryText: friendlyPrimaryText(row, r.lang),
+		PrimaryText: friendlyPrimaryText(row, errKind, r.lang),
 		DetailText:  friendlyDetailText(row, errKind, r.lang, now),
 		MetaText:    friendlyMetaText(row, now, r.lang),
 		State:       state,
@@ -185,6 +185,7 @@ func (r *Renderer) buildTopicGroup(topicRows []*taskRow, frame string, now time.
 	allPending := true
 	allParked := true
 	anyFailed := false
+	anyRecoverable := false
 	for _, row := range topicRows {
 		if row.endTime.IsZero() {
 			allDone = false
@@ -200,9 +201,19 @@ func (r *Renderer) buildTopicGroup(topicRows []*taskRow, frame string, now time.
 		if live && !(row.pending || row.paused) {
 			allParked = false
 		}
+		if classifyStatusError(row) == statusErrorRecoverable {
+			anyRecoverable = true
+		}
 	}
 	state := stagePhraseRunning
 	switch {
+	case anyRecoverable && !allDone:
+		// At least one child is mid-recovery (errored, retry pending)
+		// while others are still running or queued — group reads as
+		// "retrying". Glyph below switches to ⟳ in lockstep so the
+		// header agrees: "evidence (retrying)" without lying about
+		// any single child's state.
+		state = stagePhraseRetry
 	case allDone && anyFailed:
 		// Whole group terminated, at least one topic failed → group
 		// reads as failed. Without this, a group of N evidence
@@ -219,14 +230,19 @@ func (r *Renderer) buildTopicGroup(topicRows []*taskRow, frame string, now time.
 	count := len(topicRows)
 	parentLine.DetailText = topicCountPhrase(count, r.lang)
 	// Override Icon / IconStyle / State to follow the aggregated
-	// state, not topicRows[0] alone. Five branches keep glyph +
+	// state, not topicRows[0] alone. Six branches keep glyph +
 	// primary text + primary colour in lockstep:
+	//   - anyRecoverable (mid-flight) → ⟳ yellow + retry text
 	//   - allDone + anyFailed → ✗ red + failed text + red primary
 	//   - allDone (no fail)   → ✓ green + done text + gray primary
 	//   - allParked → · dim + pending text + dark-gray primary
 	//   - allPending → · dim + pending text + dark-gray primary
 	//   - else      → spinner glyph + running text + light-blue primary
 	switch {
+	case anyRecoverable && !allDone:
+		parentLine.Icon = string(glyphRecoverable)
+		parentLine.IconStyle = statusRecoverable
+		parentLine.State = "recoverable"
 	case allDone && anyFailed:
 		parentLine.Icon = string(glyphFatal)
 		parentLine.IconStyle = statusFatal
@@ -278,11 +294,15 @@ func (r *Renderer) buildTopicGroup(topicRows []*taskRow, frame string, now time.
 }
 
 // statusIcon picks the glyph + colour + state-string for a row.
-// Four cases drive the result:
+// Six cases drive the result:
 //
 //   1. fatal error → ✗ in muted red, state="failed"
 //   2. recoverable error → ⟳ in muted amber, state="recoverable"
-//   3. cancelled → ✗ in muted red, state="cancelled"
+//   3. cancelled → ⊘ in dim grey, state="cancelled" — distinct from
+//      ✗ because user-initiated stop is NOT a system failure;
+//      mirrors the dock-shutdown summary's commitRowCancelled visual
+//      (renderer_dock.go) so mid-flight rows and the run-end summary
+//      use the same glyph/palette for the same semantic.
 //   4. row terminated cleanly → ✓ muted green, state="done"
 //   5. row pending (planned, not run) → · dim grey, state="pending"
 //   6. row running → animated spinner frame in dim grey, state="running"
@@ -291,7 +311,7 @@ func (r *Renderer) statusIcon(row *taskRow, frame string, errKind statusErrorKin
 	case statusErrorFatal:
 		return string(glyphFatal), statusFatal, "failed"
 	case statusErrorCancelled:
-		return string(glyphFatal), statusFatal, "cancelled"
+		return string(glyphCancelled), statusMeta, "cancelled"
 	case statusErrorRecoverable:
 		return string(glyphRecoverable), statusRecoverable, "recoverable"
 	}
@@ -311,12 +331,18 @@ func (r *Renderer) statusIcon(row *taskRow, frame string, errKind statusErrorKin
 // The stage-key resolver mirrors the priority order the spec calls
 // out: nodeKind > stage > agent > generic fallback.
 //
-// Three lifecycle phrasings: pending ("待 X" — queued, has not
+// Five lifecycle phrasings: pending ("待 X" — queued, has not
 // started), running ("正在 X" — currently executing), done
-// ("已 X" — terminated). The pending case is critical so two
-// rows of "正在 X" / "正在 Y" can never read as concurrent
-// execution when one is actually queued behind the other.
-func friendlyPrimaryText(row *taskRow, lang string) string {
+// ("已 X" — terminated cleanly), failed ("X 失败" / "未能 X" —
+// terminal error), retry ("X 出错,正在重试" — the orchestrator
+// is going to retry this stage). errKind comes from the caller
+// (already computed by classifyStatusError on the same row); when
+// errKind is Recoverable the label resolves to the retry slot so
+// the ⟳ glyph and the text agree on lifecycle. When errKind is
+// Fatal/Cancelled the label still uses the failed slot — those
+// glyphs (✗ / ⊘) match "未能 X". This kills the pre-fix mismatch
+// of "⟳ + 未能 X" (icon: still working / label: gave up).
+func friendlyPrimaryText(row *taskRow, errKind statusErrorKind, lang string) string {
 	if row == nil {
 		return ""
 	}
@@ -326,26 +352,43 @@ func friendlyPrimaryText(row *taskRow, lang string) string {
 		return localizeCollapsedMarker(row.stage, lang)
 	}
 	key := stageKeyFor(row)
-	state := stagePhraseRunning
+	state := primaryTextLifecycle(row, errKind)
+	return stagePhrase(key, lang, state)
+}
+
+// primaryTextLifecycle picks the lifecycle slot used for both
+// friendlyPrimaryText (commit lines + spinner-area block) and
+// liveBarPrimaryText (dock row 2). Centralised so the two surfaces
+// can never disagree on which lifecycle the row is in. Priority
+// (highest first):
+//
+//  1. Recoverable error → retry slot ("X 出错,正在重试"). The
+//     orchestrator may still be mid-retry; the ⟳ glyph + retry
+//     label tell the user we have not given up.
+//  2. Pending / paused (live rows queued behind another dispatch)
+//     → pending slot ("待 X"). Recoverable beats pending so a row
+//     that errored AND was requeued reads as retrying, not queued.
+//  3. Terminated with !okFinished → failed slot ("未能 X").
+//  4. Terminated cleanly → done slot ("已 X").
+//  5. Otherwise → running slot ("正在 X").
+//
+// Caller already computed errKind via classifyStatusError; we do
+// NOT call it again here because it is not free (regexp + multiple
+// hasMarker scans) and the caller often already has the value.
+func primaryTextLifecycle(row *taskRow, errKind statusErrorKind) stagePhraseState {
+	switch errKind {
+	case statusErrorRecoverable:
+		return stagePhraseRetry
+	}
 	switch {
 	case row.isNodeRow && (row.pending || row.paused):
-		// paused folds into pending lexically: a node parked behind
-		// another in-flight dispatch reads as "queued" to the user,
-		// even though scheduler-side it's mid-investigation. This
-		// kills the "evidence + validate look concurrent" misread.
-		state = stagePhrasePending
+		return stagePhrasePending
 	case !row.endTime.IsZero() && !row.okFinished:
-		// Terminal failure — distinct phrase (e.g. "测试未通过" /
-		// "Tests did not pass") instead of the success "已 X" form.
-		// The icon path already distinguishes ✗ vs ✓ via okFinished;
-		// the label must agree, otherwise the row contradicts itself
-		// (the bug that prompted this state: ✗ glyph + "已通过测试
-		// 验证改动" label sat side-by-side).
-		state = stagePhraseFailed
+		return stagePhraseFailed
 	case !row.endTime.IsZero():
-		state = stagePhraseDone
+		return stagePhraseDone
 	}
-	return stagePhrase(key, lang, state)
+	return stagePhraseRunning
 }
 
 // stageKeyFor extracts a normalized stage key from a taskRow's
@@ -567,8 +610,15 @@ func renderStatusLine(line statusLine) string {
 	//     as a completed row
 	primaryStyle := statusPrimary
 	switch line.ErrorKind {
-	case statusErrorFatal, statusErrorCancelled:
+	case statusErrorFatal:
 		primaryStyle = statusFatal
+	case statusErrorCancelled:
+		// User-initiated stop is not a system failure — paint the
+		// label in muted gray so the row doesn't shout "error" when
+		// the user pressed Ctrl+C deliberately. Matches the ⊘ glyph
+		// + statusMeta palette chosen in statusIcon for the same
+		// row, and the run-end commitRowCancelled summary line.
+		primaryStyle = statusMeta
 	case statusErrorRecoverable:
 		primaryStyle = statusRecoverable
 	default:

@@ -238,6 +238,7 @@ const (
 	NoticeSelfConsistencyStart                                         // self-consistency reviewer dispatch
 	NoticeSelfConsistencyContradictionRewriting                        // contradictions found, rewriting answer
 	NoticeNoToolCall                                                   // must-emit stage got zero tool_calls; re-prompting
+	NoticeProceedingWithoutExtract                                     // pre-finalize extract dispatch failed; proceeding with prior evidence
 
 	// info-class — gray (passive informational)
 	NoticeConvergenceStall                   // CGEC I4 plateau finalizing on current evidence

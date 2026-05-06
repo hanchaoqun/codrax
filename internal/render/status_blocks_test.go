@@ -1072,6 +1072,125 @@ func TestStatus_CancelledClassification(t *testing.T) {
 	}
 }
 
+// TestStatus_RecoverableUsesRetryLabel pins the icon-label contract
+// for recoverable rows: glyph is ⟳ AND primary text is the retry
+// phrase ("X 出错,正在重试" / "X hit an error, retrying"), NEVER
+// the failed phrase ("未能 X" / "Could not X"). Pre-2026-05-06 the
+// renderer paired ⟳ with stagePhraseFailed text — icon said "still
+// working", label said "gave up", and the user reasonably read it
+// as "状态说谎".
+func TestStatus_RecoverableUsesRetryLabel(t *testing.T) {
+	row := &taskRow{
+		isNodeRow: true, nodeID: "vN", nodeKind: "analyze",
+		startTime:  time.Now().Add(-time.Second),
+		endTime:    time.Now(),
+		errorMsg:   "transient network blip", // hits "transient" recoverable marker
+		okFinished: false,
+	}
+	if got := classifyStatusError(row); got != statusErrorRecoverable {
+		t.Fatalf("expected recoverable; got %v", got)
+	}
+	zhOut := renderRows(t, "zh", row)
+	if !strings.Contains(zhOut, "⟳") {
+		t.Errorf("zh recoverable: expected ⟳ glyph in:\n%s", zhOut)
+	}
+	if !strings.Contains(zhOut, "出错,正在重试") {
+		t.Errorf("zh recoverable: expected retry slot phrase; got:\n%s", zhOut)
+	}
+	if strings.Contains(zhOut, "未能理解问题") {
+		t.Errorf("zh recoverable MUST NOT use failed slot phrase; got:\n%s", zhOut)
+	}
+	enOut := renderRows(t, "en", row)
+	if !strings.Contains(enOut, "⟳") {
+		t.Errorf("en recoverable: expected ⟳ glyph in:\n%s", enOut)
+	}
+	if !strings.Contains(enOut, "retrying") {
+		t.Errorf("en recoverable: expected 'retrying' in label; got:\n%s", enOut)
+	}
+	if strings.Contains(enOut, "Could not understand request") {
+		t.Errorf("en recoverable MUST NOT use failed slot phrase; got:\n%s", enOut)
+	}
+}
+
+// TestClassifyStatusError_UnknownErrorDefaultsRecoverable pins the
+// post-2026-05-06 default: a terminated row whose errorMsg matches
+// neither fatalMarkers nor recoverableMarkers must classify as
+// recoverable, NOT fatal. The orchestrator's retry decision is
+// structural (stage retry loops, transient budgets) and the renderer
+// cannot tell from the error string alone whether retry will fire,
+// so defaulting to fatal lied for any error message not on the
+// recoverable substring whitelist.
+func TestClassifyStatusError_UnknownErrorDefaultsRecoverable(t *testing.T) {
+	row := &taskRow{
+		isNodeRow: true, nodeID: "vN", nodeKind: "extract",
+		startTime: time.Now().Add(-time.Second),
+		endTime:   time.Now(),
+		errorMsg:  "extractor returned malformed payload (no marker match)",
+	}
+	if got := classifyStatusError(row); got != statusErrorRecoverable {
+		t.Errorf("unknown terminal error: expected recoverable; got %v", got)
+	}
+}
+
+// TestClassifyEventError_AlignsWithRowClassifier confirms the
+// raw-string classifier used by the dock-event handlers picks the
+// same severity bucket as classifyStatusError on the row built from
+// that same error. Pre-fix dock row 1 always rendered ⟳ for ANY
+// ev.Error while the commit line could render ✗, producing visible
+// cross-talk between the two surfaces for the same event.
+func TestClassifyEventError_AlignsWithRowClassifier(t *testing.T) {
+	cases := []struct {
+		errMsg string
+		want   statusErrorKind
+	}{
+		{"verify failed: runner_missing", statusErrorFatal},
+		{"transient network blip", statusErrorRecoverable},
+		{"interrupted by user (SIGINT)", statusErrorCancelled},
+		{"some unknown payload error", statusErrorRecoverable}, // default
+	}
+	for _, c := range cases {
+		got := classifyEventError(c.errMsg)
+		if got != c.want {
+			t.Errorf("classifyEventError(%q) = %v; want %v", c.errMsg, got, c.want)
+		}
+		// Mirror the row classification so the contract is visible.
+		row := &taskRow{
+			startTime: time.Now().Add(-time.Second),
+			endTime:   time.Now(),
+			errorMsg:  c.errMsg,
+		}
+		rowKind := classifyStatusError(row)
+		if rowKind != got {
+			t.Errorf("dock-vs-commit drift for %q: classifyEventError=%v classifyStatusError=%v",
+				c.errMsg, got, rowKind)
+		}
+	}
+}
+
+// TestStatusIcon_CancelledUsesGlyphCancelled pins the cancelled
+// row's glyph + palette to ⊘ + statusMeta (mirrors commitRowCancelled).
+// Pre-fix mid-flight cancellation rows used ✗ + statusFatal, so a
+// Ctrl+C run looked like a system failure on every committed line up
+// until the dock-shutdown summary.
+func TestStatusIcon_CancelledUsesGlyphCancelled(t *testing.T) {
+	r := &Renderer{}
+	row := &taskRow{
+		startTime: time.Now().Add(-time.Second),
+		endTime:   time.Now(),
+		errorMsg:  "user cancelled",
+	}
+	icon, style, state := r.statusIcon(row, "⠋", statusErrorCancelled)
+	if icon != string(glyphCancelled) {
+		t.Errorf("expected glyph %q, got %q", string(glyphCancelled), icon)
+	}
+	if style != statusMeta {
+		t.Errorf("expected statusMeta palette; got different style")
+	}
+	if state != "cancelled" {
+		t.Errorf("expected state 'cancelled'; got %q", state)
+	}
+}
+
 // TestStatus_DiagnosticTokensFiltered defends against internal
 // diagnostic vocabulary leaking through to the user surface.
 func TestStatus_DiagnosticTokensFiltered(t *testing.T) {

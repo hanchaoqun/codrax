@@ -210,12 +210,23 @@ func (r *Renderer) handleEvent(ev Event) {
 			row.okFinished = ev.Error == ""
 			if row == r.current {
 				r.current = nil
-				// Errored stage: hold the recoverable shape on row 1
-				// so the user sees the failure before the next
-				// dispatch overwrites it. Successful stage falls
-				// through to the calmer waitingDispatch hue.
+				// Errored stage: hold the matching activity shape on
+				// row 1 so the user sees the failure before the next
+				// dispatch overwrites it. classifyEventError uses the
+				// same fatalMarkers / cancelledMarkers / recoverable
+				// priority as classifyStatusError → dock row 1 reads
+				// the same severity as the just-committed scrollback
+				// line (no more ⟳ on row 1 + ✗ in scrollback for the
+				// same event).
 				if ev.Error != "" {
-					r.activity = activityState{kind: activityErrorRecoverable, detail: ev.Error}
+					switch classifyEventError(ev.Error) {
+					case statusErrorFatal:
+						r.activity = activityState{kind: activityErrorFatal, detail: ev.Error}
+					case statusErrorCancelled:
+						r.activity = activityState{kind: activityCancelled, detail: ev.Error}
+					default:
+						r.activity = activityState{kind: activityErrorRecoverable, detail: ev.Error}
+					}
 				} else {
 					r.activity = activityState{kind: activityWaitingDispatch}
 				}
@@ -364,7 +375,14 @@ func (r *Renderer) handleEvent(ev Event) {
 			if row == r.current {
 				r.current = nil
 				if ev.Error != "" {
-					r.activity = activityState{kind: activityErrorRecoverable, detail: ev.Error}
+					switch classifyEventError(ev.Error) {
+					case statusErrorFatal:
+						r.activity = activityState{kind: activityErrorFatal, detail: ev.Error}
+					case statusErrorCancelled:
+						r.activity = activityState{kind: activityCancelled, detail: ev.Error}
+					default:
+						r.activity = activityState{kind: activityErrorRecoverable, detail: ev.Error}
+					}
 				} else {
 					r.activity = activityState{kind: activityWaitingDispatch}
 				}
@@ -886,16 +904,28 @@ func (r *Renderer) formatStageDoneLine(row *taskRow, topicTotal int) string {
 	var glyphStyle, labelStyle = statusSuccessMuted, statusPrimaryDone
 	var label string
 	switch errKind {
-	case statusErrorFatal, statusErrorCancelled:
+	case statusErrorFatal:
 		glyph = string(glyphFatal)
 		glyphStyle = statusFatal
 		labelStyle = statusFatal
-		label = friendlyPrimaryText(row, r.lang)
+		label = friendlyPrimaryText(row, errKind, r.lang)
+	case statusErrorCancelled:
+		// User-initiated stop is NOT a system failure — same ⊘ glyph
+		// + dim-gray palette as commitRowCancelled (run-end summary)
+		// and statusIcon for the live spinner area, so mid-flight
+		// cancelled rows do not visually mimic system failure.
+		glyph = string(glyphCancelled)
+		glyphStyle = statusMeta
+		labelStyle = statusMeta
+		label = friendlyPrimaryText(row, errKind, r.lang)
 	case statusErrorRecoverable:
 		glyph = string(glyphRecoverable)
 		glyphStyle = statusRecoverable
 		labelStyle = statusRecoverable
-		label = friendlyPrimaryText(row, r.lang)
+		// friendlyPrimaryText now resolves recoverable to the retry
+		// slot ("X 出错,正在重试") so glyph + label both say "still
+		// working" instead of the pre-fix mismatch ⟳ + "未能 X".
+		label = friendlyPrimaryText(row, errKind, r.lang)
 	default:
 		if row.endTime.IsZero() || !row.okFinished {
 			return ""
@@ -1195,7 +1225,8 @@ func orchestratorNoticeStyle(kind OrchestratorNoticeKind) *pterm.Style {
 		NoticeFinalizing,
 		NoticeSelfConsistencyStart,
 		NoticeSelfConsistencyContradictionRewriting,
-		NoticeNoToolCall:
+		NoticeNoToolCall,
+		NoticeProceedingWithoutExtract:
 		return statusRecoverable
 	case NoticeInvestigationReady:
 		return statusObjective
