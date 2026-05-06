@@ -755,13 +755,20 @@ func renderMermaidFenceBody(match string) (out string, ok bool) {
 	}
 
 	cfg := diagram.DefaultConfig()
-	// Force ASCII-only rendering. The library defaults to Unicode
-	// box-drawing characters which are East-Asian-Width AMBIGUOUS
-	// — exactly the alignment failure mode we are solving by
-	// going through the library in the first place. ASCII-only
-	// output is unambiguously 1-cell per char on every terminal /
-	// locale / monospace font.
-	cfg.UseAscii = true
+	// Use the library's Unicode box-drawing default (┌─┐│└┘┬┴├┤┼)
+	// instead of forcing ASCII (+-|/=). The Unicode characters render
+	// as crisp clean borders in every modern monospace terminal
+	// (Alacritty, iTerm2, kitty, Windows Terminal, GNOME Terminal,
+	// VS Code embedded), and the CJK adapter handles wide-rune
+	// alignment by substituting CJK content to ASCII placeholders
+	// BEFORE the library renders + restoring AFTER, so the grid the
+	// library produces is built against narrow-only widths — the
+	// East-Asian-Width ambiguity of the box-drawing characters
+	// themselves is irrelevant to label alignment under that scheme.
+	// Pre-2026-05-06 we forced ASCII (+/-) to be defensive about
+	// legacy CJK terminal builds; the visual cost (chunky plus-sign
+	// borders, jagged corners) outweighs the safety margin given the
+	// adapter contract.
 	// CLI style (no HTML colour markup); plain text body.
 	cfg.StyleType = "cli"
 
@@ -786,11 +793,36 @@ func renderMermaidFenceBody(match string) (out string, ok bool) {
 	// drawing chars as code (which it would if the fence stayed
 	// `mermaid` or had no tag and chroma auto-detected). `text` is
 	// an explicit "no syntax highlighting" hint chroma honours.
+	//
+	// Prepend a light header label ("─── flowchart ───") so a long
+	// answer with multiple diagram blocks reads with each diagram
+	// clearly demarcated. The keyword comes from the body's first
+	// non-empty trimmed line; "diagram" is the safety-net fallback.
+	header := mermaidHeaderLine(firstMermaidKeywordIn(firstNonEmptyTrimmed(body)))
 	var b strings.Builder
-	b.Grow(len(rendered) + 16)
+	b.Grow(len(rendered) + len(header) + 24)
 	b.WriteString("```text\n")
+	if header != "" {
+		b.WriteString(header)
+		b.WriteString("\n")
+	}
 	b.WriteString(rendered)
 	b.WriteString("\n```")
 	recordMermaidSucceeded()
 	return b.String(), true
+}
+
+// mermaidHeaderLine returns a soft "─── <kind> ───" label rendered
+// above the ASCII grid. Empty when the keyword is unknown so an
+// untyped fallback diagram does not get a meaningless "─── ───"
+// line. Kind is lowercased and length-limited for layout sanity.
+func mermaidHeaderLine(kind string) string {
+	kind = strings.ToLower(strings.TrimSpace(kind))
+	if kind == "" {
+		return ""
+	}
+	if len(kind) > 24 {
+		kind = kind[:24]
+	}
+	return "─── " + kind + " ───"
 }
