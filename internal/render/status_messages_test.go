@@ -23,7 +23,7 @@ func TestLocalizeRetryReason(t *testing.T) {
 	}{
 		{name: "zh transient", reason: "transient", lang: "zh", want: "临时网络抖动"},
 		{name: "zh first-byte", reason: "stream first-byte timeout", lang: "zh", want: "首字节超时"},
-		{name: "zh quota", reason: "quota", lang: "zh", want: "配额已用尽"},
+		{name: "zh quota", reason: "quota", lang: "zh", want: "被临时限流"},
 		{name: "zh rate limit", reason: "rate limit", lang: "zh", want: "限流(请求过频)"},
 		{name: "zh server 502", reason: "server 502", lang: "zh", want: "服务端错误 (502)"},
 		{name: "zh server 503", reason: "server 503", lang: "zh", want: "服务端错误 (503)"},

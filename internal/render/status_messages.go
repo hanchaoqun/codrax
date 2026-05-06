@@ -59,7 +59,14 @@ func localizeRetryReason(reason, lang string) string {
 	case "stream stalled":
 		return "响应流中断"
 	case "quota":
-		return "配额已用尽"
+		// `quota` retry reason covers a body-marker bucket that is
+		// mostly transient throttling (insufficient_quota /
+		// rate_limit_error / 请求量较高 / 套餐 etc) — adapter retries
+		// with a 4-minute long backoff. "配额已用尽" misled users
+		// into thinking their billing quota was exhausted; in reality
+		// the vendor is just throttling and the next retry usually
+		// clears within the longer backoff window.
+		return "被临时限流"
 	case "rate limit":
 		return "限流(请求过频)"
 	}
