@@ -556,7 +556,7 @@ func runSymbolAnchorTrackOracleV2(docV2 *types.AnswerDocumentV2, rm *types.Reque
 	for _, blk := range docV2.Blocks {
 		switch blk.Kind {
 		case types.BlockOrderedList:
-			n := principalOrderedListItemCount(blk.Items)
+			n := len(blk.Items)
 			gotSteps += n
 			gotSymbols += n
 		case types.BlockBulletList, types.BlockTable:
@@ -591,16 +591,6 @@ func runSymbolAnchorTrackOracleV2(docV2 *types.AnswerDocumentV2, rm *types.Reque
 		},
 		Stage: string(types.StageExtract),
 	}}
-}
-
-func principalOrderedListItemCount(items []types.AnswerBlockItem) int {
-	n := 0
-	for _, it := range items {
-		if it.Kind.IsPrincipal() {
-			n++
-		}
-	}
-	return n
 }
 
 // crossCitationLineTolerance is the max line distance two cites may

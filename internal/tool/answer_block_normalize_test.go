@@ -28,7 +28,7 @@ func TestNormalizeEmitAnswerBlock_HappyPathFullProjection(t *testing.T) {
 		Title: "Title",
 		Text:  "body text",
 		Items: []emitAnswerBlockItemV2{
-			{ID: "i1", Kind: string(types.AnswerBlockItemKindPrincipal), Label: "L", Text: "T", CitationRef: 3},
+			{ID: "i1", Label: "L", Text: "T", CitationRef: 3},
 		},
 		ClaimUses: []types.RenderedClaimUse{
 			{ClaimForm: types.ClaimDefinitionFact, FacetID: "f1"},
@@ -46,7 +46,7 @@ func TestNormalizeEmitAnswerBlock_HappyPathFullProjection(t *testing.T) {
 	if got.ID != "b1" || got.Kind != types.BlockSummary || got.Title != "Title" || got.Text != "body text" {
 		t.Errorf("scalar fields lost: %+v", got)
 	}
-	if len(got.Items) != 1 || got.Items[0].CitationRef != 3 || got.Items[0].Kind != types.AnswerBlockItemKindPrincipal {
+	if len(got.Items) != 1 || got.Items[0].CitationRef != 3 {
 		t.Errorf("items[0].CitationRef lost: %+v", got.Items)
 	}
 	if len(got.ClaimUses) != 1 || got.ClaimUses[0].FacetID != "f1" {
@@ -125,22 +125,6 @@ func TestNormalizeEmitAnswerBlock_RejectsInvalidSurfaceRole(t *testing.T) {
 	}
 }
 
-func TestNormalizeEmitAnswerBlock_RejectsInvalidItemKind(t *testing.T) {
-	_, err := NormalizeEmitAnswerBlock(emitAnswerBlockV2{
-		ID:   "b1",
-		Kind: string(types.BlockOrderedList),
-		Items: []emitAnswerBlockItemV2{
-			{ID: "i1", Kind: "bogus", Label: "L"},
-		},
-	}, "blocks[0]")
-	if err == nil {
-		t.Fatal("must reject bogus item kind")
-	}
-	if !strings.Contains(err.Error(), `blocks[0].items[0]`) {
-		t.Errorf("err must include offending item path; got %q", err.Error())
-	}
-}
-
 func TestNormalizeEmitAnswerBlock_DiagramBodyRequired(t *testing.T) {
 	_, err := NormalizeEmitAnswerBlock(emitAnswerBlockV2{
 		ID: "b1", Kind: string(types.BlockDiagram),
@@ -174,7 +158,7 @@ func TestNormalizeEmitAnswerBlock_AllFieldsPropagate(t *testing.T) {
 		Title: "Title",
 		Text:  "body text",
 		Items: []emitAnswerBlockItemV2{
-			{ID: "i1", Kind: string(types.AnswerBlockItemKindFlow), Label: "L", Text: "T", CitationRef: 3,
+			{ID: "i1", Label: "L", Text: "T", CitationRef: 3,
 				ClaimUse: &types.RenderedClaimUse{ClaimForm: types.ClaimDefinitionFact}},
 		},
 		Diagram: &emitAnswerDiagramV2{
@@ -193,10 +177,6 @@ func TestNormalizeEmitAnswerBlock_AllFieldsPropagate(t *testing.T) {
 	if err != nil {
 		t.Fatalf("normalize failed: %v", err)
 	}
-	if got.Items[0].Kind != types.AnswerBlockItemKindFlow {
-		t.Fatalf("item kind dropped: %+v", got.Items[0])
-	}
-
 	// Per-field lock: every emitAnswerBlockV2 input field must surface
 	// a corresponding non-zero typed field. When a new field is added
 	// to emitAnswerBlockV2, fixturise it above AND extend this map.

@@ -488,8 +488,6 @@ func TestAnswerDocumentEvaluator_BuildInitialInstruction_RendersRequestedEnumera
 	prompt := (&answerDocumentEvaluator{}).BuildInitialInstruction(ctx, nil)
 	// Post-shape-retirement: an EnumerationBoundary obligation routes
 	// the family to QFEnumeration (symbols-slate principal payload).
-	// The kind:principal/flow/caveat discipline is only emitted for
-	// QFCallChain / QFRootCauseTrace (steps[] payload).
 	for _, want := range []string{
 		"## Requested Set Boundary",
 		"`7 checks` (7 item(s))",

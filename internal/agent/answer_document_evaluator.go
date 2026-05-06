@@ -361,7 +361,6 @@ func renderAnswerDocSubmissionChecklist(ctx *types.AgentContext, view *types.Ans
 				} else {
 					items = append(items,
 						"Emit the principal `ordered_list` block with `items[]` of ordered logical hops. Per-item top-level `citation_ref=N` (zero-based index into doc.citations[]) AND `claim_use={claim_form=call_edge|guard_condition|return_fact}` is REQUIRED on principal items — citation_ref is NEVER inside the claim_use object; pick the claim_form matching what the cited line actually is (call site / branch condition / return statement).",
-						"Each item carries an optional `kind` field (`principal` / `flow` / `caveat`); only `kind=principal` items count toward any user-quoted bounded set.",
 						"Keep the hop-by-hop detail in items[] `text`; the lead summary block is only the lead-in.",
 						"Do not invent shorthand labels from citation line numbers (for example `L877` or `Line 42`) unless that exact token is itself grounded in cited text.",
 						"Keep each cited item at the abstraction directly named by its own citation. If one hop needs both a guard/condition and a downstream action that are named on different lines, split the hop or cite the line that actually names the action.",
@@ -566,15 +565,11 @@ func renderAnswerDocEnumerationBoundary(ctx *types.AgentContext, view *types.Ans
 	}
 	switch {
 	case view != nil && (view.Family == types.QFCallChain || view.Family == types.QFRootCauseTrace):
-		// Hop-chain principal payload: teach the Kind discipline.
-		// principal counts toward DeclaredCount; flow / caveat do
-		// not. The validator counts only kind=principal; the
-		// orchestrator's contract.Check fires declared_count_drift
-		// (soft) on principal-count below the bound.
-		fmt.Fprintf(&b, "- Mark exactly %d step(s) with `kind: principal` — these are the items the question enumerated.\n", boundary.DeclaredCount)
-		b.WriteString("- Use `kind: flow` for steps that only describe how the sequence transitions or under what condition the next item runs (branch entries, loop boundaries, scope shifts). flow steps do NOT count toward the declared boundary.\n")
-		b.WriteString("- Use `kind: caveat` for steps that qualify the answer's scope rather than belonging to it (e.g. \"this stage is skipped under flag X\"). caveat steps do NOT count toward the declared boundary.\n")
-		b.WriteString("- Empty `kind` defaults to `principal`. Leave `kind` empty only when every step IS principal.\n")
+		// Hop-chain principal payload: keep items[] count to the
+		// declared boundary. The orchestrator's contract.Check fires
+		// declared_count_drift (soft) on item-count below the bound.
+		fmt.Fprintf(&b, "- Keep the principal `ordered_list` block's `items[]` slate to %d step(s) — these are the items the question enumerated.\n", boundary.DeclaredCount)
+		b.WriteString("- Each item is one logical hop; do not collapse two distinct hops into a single item to fit the count, and do not pad with narration items just to hit the number.\n")
 	case view != nil && view.Family == types.QFEnumeration:
 		fmt.Fprintf(&b, "- Keep the principal `ordered_list` block's `items[]` slate to %d item(s) when the grounded evidence supports that boundary.\n", boundary.DeclaredCount)
 	default:

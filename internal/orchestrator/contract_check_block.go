@@ -1730,9 +1730,6 @@ func runV2BlockOraclesWithMut(doc *types.AnswerDocumentV2, view *types.AnswerSem
 //     grounding lanes (citation_ref + grounder).
 //   - Items with empty label: the prose lives in `text`, not the
 //     label, so there's nothing structurally to ground.
-//   - Item kind == "flow" or "caveat": those are narration / scope
-//     notes, not principal enumeration entries — `Kind` discipline
-//     (Plan D, 2026-05-02) explicitly excludes them from the count.
 //   - Block.SurfaceRole == prose_only / diagram_only: not principal
 //     payload.
 //

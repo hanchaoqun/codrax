@@ -54,7 +54,7 @@ import (
 func BuildAnswerDocumentSemanticContractDescription() string {
 	return "Block kinds (the user section's Required Answer Blocks list flags which kinds + counts your answer must include): " +
 		"summary (block.text — a multi-paragraph explanation), section (title + text — per-bucket / per-layer chunks), " +
-		"ordered_list / bullet_list (items[] each with id, optional label, text, optional top-level citation_ref, optional per-item claim_use, optional kind ∈ principal/flow/caveat for ordered_list), " +
+		"ordered_list / bullet_list (items[] each with id, optional label, text, optional top-level citation_ref, optional per-item claim_use), " +
 		"scalar (block.text carries the literal; optional one-element items=[{citation_ref:N}] anchors the cite), " +
 		"decision (block.text carries verdict + rationale; same one-element items pattern for the cite), " +
 		"table (markdown table inside text, OR items[] with one item per row), " +
@@ -89,8 +89,8 @@ func BuildAnswerDocumentSemanticContractDescription() string {
 		"  {\"id\":\"s1\",\"kind\":\"summary\",\"text\":\"<lead-in framing the chain>\"},\n" +
 		"  {\"id\":\"hops\",\"kind\":\"ordered_list\",\"surface_role\":\"principal\",\n" +
 		"   \"items\":[\n" +
-		"    {\"id\":\"h1\",\"label\":\"Stage A\",\"text\":\"<what stage A does>\",\"kind\":\"principal\",\"citation_ref\":0,\"claim_use\":{\"claim_form\":\"call_edge\"}},\n" +
-		"    {\"id\":\"h2\",\"label\":\"Stage B\",\"text\":\"<what stage B does>\",\"kind\":\"principal\",\"citation_ref\":1,\"claim_use\":{\"claim_form\":\"call_edge\"}}\n" +
+		"    {\"id\":\"h1\",\"label\":\"Stage A\",\"text\":\"<what stage A does>\",\"citation_ref\":0,\"claim_use\":{\"claim_form\":\"call_edge\"}},\n" +
+		"    {\"id\":\"h2\",\"label\":\"Stage B\",\"text\":\"<what stage B does>\",\"citation_ref\":1,\"claim_use\":{\"claim_form\":\"call_edge\"}}\n" +
 		"   ]}\n" +
 		"],\"citations\":[{\"file\":\"a.go\",\"line\":10},{\"file\":\"b.go\",\"line\":20}]}\n" +
 		"```\n" +

@@ -192,56 +192,22 @@ func SummaryCapForViewConfig(cfg SummaryCapConfig, view *AnswerSemanticView, pri
 }
 
 // SummaryCapForView dispatches through the package-level
-// summaryCapConfig. principalCount is the count of principal items
-// (steps / symbols / table rows) in the rendered answer; ignored
-// for scalar / explanation answers.
+// summaryCapConfig. principalCount is the count of items in the
+// rendered ordered_list / bullet_list / table block; ignored for
+// scalar / explanation answers.
 func SummaryCapForView(view *AnswerSemanticView, principalCount int) int {
 	return SummaryCapForViewConfig(summaryCapConfig, view, principalCount)
 }
 
-// CitationRefUnset is the sentinel value used when a typed field
-// (AnswerStep, AnswerValue, AnswerBoolean) has no backing citation in
-// the pool. The renderer renders it as "no citation"; the tool schema
-// allows it ONLY when the producing LLM explicitly sets -1 via the
-// JSON input. Zero is NOT the sentinel because zero is a valid index
-// into a single-citation pool — this distinction is critical for the
-// schema validator to flag "forgot to set citation_ref" errors.
+// CitationRefUnset is the sentinel value used when an item has no
+// backing citation in the pool. The renderer renders it as "no
+// citation"; the tool schema allows it ONLY when the producing LLM
+// explicitly sets -1 via the JSON input. Zero is NOT the sentinel
+// because zero is a valid index into a single-citation pool — this
+// distinction is critical for the schema validator to flag "forgot
+// to set citation_ref" errors.
 const CitationRefUnset = -1
 
-// AnswerStepKind classifies an AnswerStep's role in the answer.
-// Introduced 2026-05-02 to fix the s1a regression where the
-// finalizer's RequestedEnumerationBoundary validator could not
-// distinguish a load-bearing principal item (e.g. one of the 9
-// gate.Run checks the user asked about) from a flow-narration step
-// (e.g. "进入 read 模式条件分支") that exists only for reader
-// continuity. Both could carry CitationRef pointing at real lines,
-// so the predecessor `len(Steps) ≤ DeclaredCount` rule punished a
-// faithful 10-step answer (9 principal + 1 narration) and forced
-// the LLM to drop a real principal check on retry.
-//
-// The enum is uniform across shapes that use AnswerStep; future
-// step_list-shaped extensions can reuse it without schema
-// migration. Default-value semantic: empty Kind is normalized to
-// AnswerStepKindPrincipal at decode time so pre-2026-05-02 emits
-// stay byte-identical (every old step counted as principal).
-//
-// AnswerStep is one numbered entry in a ShapeStepList answer. The
-// Description field carries LLM-authored prose for the step's body;
-// the CitationRef integer points at a Citation in the document-level
-// pool. Index is 1-based and set by the LLM (the renderer preserves
-// it verbatim to allow out-of-order declarations).
-//
-// Kind (2026-05-02 add) classifies the step's role for the
-// RequestedEnumerationBoundary validator. principal items count
-// toward the user-declared boundary; flow / caveat steps do not.
-// Empty Kind decodes to principal for back-compat.
-//
-// AnswerValue carries a single concrete value answer. Literal is the
-// verbatim string from the evidence (the renderer emits it in quotes
-// when appropriate). Key is the config-key path for ShapeConfigValue;
-// empty for plain ShapeValue answers.
-//
-// AnswerBoolean carries a YES/NO answer plus a one-sentence rationale.
 // The renderer prefixes Rationale with a language-specific YES/NO
 // word drawn from Decision, so the LLM cannot hedge by supplying
 // "it depends" in Rationale.
