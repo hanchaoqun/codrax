@@ -9549,6 +9549,27 @@ func (e *explorerEvaluator) buildConcreteValuesSection(repoRoot string, readSet 
 	}
 	if len(chains) > chainCap {
 		chains = chains[:chainCap]
+		// Cap chainAnchors in lockstep so applyChainPromotion only
+		// enqueues PendingReads for chains the LLM actually sees in
+		// the synthesis markdown. Without this, low-ranked chains
+		// (subject score below the cap, never shown to the LLM) still
+		// flow through chainAnchors and trigger forced-read explore
+		// retries for anchor files that have nothing to do with the
+		// answer the LLM is forming. Observed cost on architecture
+		// questions: 1 wasted explore round per Run reading whichever
+		// large file the chain pair anchored on.
+		//
+		// allChainsForEvidence (uncapped) was captured above so the
+		// dataflow_path EvidenceItems pool stays fully populated —
+		// that surface has its own top-K and benefits from the
+		// long tail. PendingRead enforcement is a different surface
+		// (forced reads) and must align with what the LLM saw.
+		//
+		// Bridge-literal anchors append to chainAnchors AFTER this
+		// cap (line ~9798) and are intentionally never capped: those
+		// are typed graph-wide JOINs, deliberately small in number,
+		// and worth promoting end-to-end.
+		chainAnchors = chainAnchors[:chainCap]
 	}
 	if len(chains) > 0 {
 		b.WriteString("### Resolution Chains\n\n")
