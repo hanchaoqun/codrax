@@ -149,7 +149,10 @@ func TestStylePalette_DarkInlineFamilies(t *testing.T) {
 		{"Emph", cfg.Emph.Color, "252"},
 		{"Strikethrough", cfg.Strikethrough.Color, "240"},
 		{"HorizontalRule", cfg.HorizontalRule.Color, "238"},
-		{"Table grid", cfg.Table.StyleBlock.StylePrimitive.Color, "238"},
+		// Table cell color is intentionally NOT pinned here — cells
+		// MUST inherit terminal foreground (Text.Color contract). See
+		// TestStylePalette_TableCellsInheritTerminalDefault for the
+		// readability rationale.
 	}
 	for _, tt := range tests {
 		if tt.got == nil {
@@ -209,6 +212,49 @@ func TestStylePalette_DarkTextFallbackUnset(t *testing.T) {
 	cfg := buildDarkPalette()
 	if cfg.Text.Color != nil {
 		t.Errorf("Text.Color must remain nil so terminal theme owns the foreground; got %s", *cfg.Text.Color)
+	}
+}
+
+// TestStylePalette_TableCellsInheritTerminalDefault locks the
+// regression fix for the user-reported "表格的渲染字体颜色和背景太接近
+// 了，看不清楚" readability bug. Pre-fix the dark palette set
+// Table.StyleBlock.StylePrimitive.Color = "238" and the light palette
+// set "250" with the comment "colors the grid runes without touching
+// cell content". That comment was incorrect: glamour's
+// TableCellElement.Render (vendor ansi/table.go:171) applies
+// Table.StylePrimitive to ALL cell content, so cells were rendered
+// in #444 (dark) / #d0d0d0 (light) — barely distinguishable from
+// typical terminal backgrounds. Grid runes (┼ / │ / ─) are written
+// via lipgloss.Border (table.go:104) which does NOT consume
+// StylePrimitive.Color, so leaving the cell color UNSET fixes
+// readability without affecting the grid appearance. This test pins
+// `Color == nil` so a future re-paint accidentally re-introducing
+// the dim cell color is caught at test time.
+func TestStylePalette_TableCellsInheritTerminalDefault(t *testing.T) {
+	dark := buildDarkPalette()
+	if dark.Table.StyleBlock.StylePrimitive.Color != nil {
+		t.Errorf("dark palette: Table cell color must be nil so cells inherit terminal foreground (readability bug fix); got %q", *dark.Table.StyleBlock.StylePrimitive.Color)
+	}
+	light := buildLightPalette()
+	if light.Table.StyleBlock.StylePrimitive.Color != nil {
+		t.Errorf("light palette: Table cell color must be nil so cells inherit terminal foreground (readability bug fix); got %q", *light.Table.StyleBlock.StylePrimitive.Color)
+	}
+	// Grid separators must still be set — they're the structural
+	// indicators that turn a stack of strings into a visible table.
+	for _, c := range []struct {
+		name string
+		cfg  *string
+	}{
+		{"dark CenterSeparator", dark.Table.CenterSeparator},
+		{"dark ColumnSeparator", dark.Table.ColumnSeparator},
+		{"dark RowSeparator", dark.Table.RowSeparator},
+		{"light CenterSeparator", light.Table.CenterSeparator},
+		{"light ColumnSeparator", light.Table.ColumnSeparator},
+		{"light RowSeparator", light.Table.RowSeparator},
+	} {
+		if c.cfg == nil || *c.cfg == "" {
+			t.Errorf("%s missing — grid runes must be configured for visible table structure", c.name)
+		}
 	}
 }
 
@@ -274,7 +320,9 @@ func TestStylePalette_LightMirrorsDarkStructure(t *testing.T) {
 		{"Strikethrough", cfg.Strikethrough.Color},
 		{"Item", cfg.Item.Color},
 		{"Enumeration", cfg.Enumeration.Color},
-		{"Table grid", cfg.Table.StyleBlock.StylePrimitive.Color},
+		// Table cell color: see dark palette test — must stay nil so
+		// cells inherit terminal foreground regardless of background
+		// detection.
 	} {
 		if level.c == nil {
 			t.Errorf("light palette: %s missing explicit colour (mirror with dark)", level.name)

@@ -688,12 +688,20 @@ func applyInlineAndStructure(cfg *ansi.StyleConfig, dark bool) {
 		cfg.Task.Ticked = "[✓]"
 		cfg.Task.Unticked = "[ ]"
 
-		// Table grid — same dim gray as HR. Tables are
-		// structure; the data inside is the focus. Setting
-		// StyleBlock.StylePrimitive.Color colors the grid runes
-		// (the ┼ / │ / ─ characters supplied below) without
-		// touching cell content.
-		cfg.Table.StyleBlock.StylePrimitive.Color = strPtr("238")
+		// Table cells + grid — leave StylePrimitive.Color UNSET so
+		// cell content inherits the terminal foreground (the same
+		// rule prose Text uses; see comment below). The previous
+		// `Color = strPtr("238")` setting was a real readability
+		// bug: glamour's TableCellElement.Render applies
+		// Table.StylePrimitive to ALL cell content (table.go:171),
+		// not just the grid. On dark terminal backgrounds (#000 /
+		// #1e1e1e / #282828) cells were rendered as #444 — barely
+		// distinguishable from the background, the user's reported
+		// "字体颜色和背景太接近了，看不清楚". Grid runes are written
+		// via lipgloss.Border (table.go:104) which does NOT consume
+		// StylePrimitive.Color, so removing the setting only fixes
+		// cell visibility — grid lines keep their terminal-default
+		// rendering exactly as before.
 		cfg.Table.CenterSeparator = strPtr("┼")
 		cfg.Table.ColumnSeparator = strPtr("│")
 		cfg.Table.RowSeparator = strPtr("─")
@@ -727,7 +735,10 @@ func applyInlineAndStructure(cfg *ansi.StyleConfig, dark bool) {
 		cfg.Enumeration.Color = strPtr("21")
 		cfg.Task.Ticked = "[✓]"
 		cfg.Task.Unticked = "[ ]"
-		cfg.Table.StyleBlock.StylePrimitive.Color = strPtr("250")
+		// Light-mode mirror: same fix — leave StylePrimitive.Color
+		// unset so cells inherit terminal default; the previous
+		// `Color = strPtr("250")` (light gray) made cells nearly
+		// invisible on white-bg terminals.
 		cfg.Table.CenterSeparator = strPtr("┼")
 		cfg.Table.ColumnSeparator = strPtr("│")
 		cfg.Table.RowSeparator = strPtr("─")
