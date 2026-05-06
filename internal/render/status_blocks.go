@@ -440,7 +440,14 @@ func canonicalStageKey(s string) string {
 	// abstract "investigating" umbrella. The topic-group parent
 	// line still uses "explore" — it's the umbrella over multiple
 	// per-topic evidence rows.
-	case "evidence", "ground", "rank", "dedupe", "collect":
+	case "evidence", "ground", "rank", "dedupe", "collect", "probe":
+		// "probe" is the first iteration of evidence collection
+		// (breadth scan to locate relevant modules). Pre-fix it had
+		// no K/N mapping, so the dock row 2 showed blank progress
+		// during the entire explore window when focus landed on the
+		// probe node — the user perceived a jump from 1/6 (analyze)
+		// straight to 4/6 (reconcile). Aliasing probe → evidence
+		// makes the explore window register as 2/6 throughout.
 		return "evidence"
 	// NodeValidate cross-checks the explore phase's evidence
 	// findings — distinct from StageVerify (which verifies write-

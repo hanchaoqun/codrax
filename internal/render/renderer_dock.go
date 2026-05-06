@@ -1306,8 +1306,12 @@ func formatOrchestratorNoticeWithProgress(kind OrchestratorNoticeKind, text, pro
 	b.WriteString("  ")
 	b.WriteString(style.Sprint(glyph))
 	if progress != "" {
+		// K/N progress shares the body palette (gray) — only the
+		// glyph carries the bucket colour. Pre-fix the progress was
+		// styled with the bucket palette and read as a second
+		// loud-yellow segment alongside the glyph.
 		b.WriteString(" ")
-		b.WriteString(style.Sprint(progress))
+		b.WriteString(statusMeta.Sprint(progress))
 	}
 	if body != "" {
 		b.WriteString(" ")
