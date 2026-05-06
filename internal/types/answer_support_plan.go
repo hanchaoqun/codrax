@@ -114,13 +114,13 @@ func compileObservedArtifactSupportLane(plan *AnswerSurfacePlan) AnswerSupportLa
 		Kind:  SupportLaneObservedArtifact,
 		Title: "Observed artifact facts",
 		Guidance: "Use this lane only for facts that came from the attached runtime artifact " +
-			"(log / perf trace / external observation). These facts can explain what was " +
-			"observed, but they are not by themselves current-code mechanism proofs. " +
-			"Raw stack-frame argument annotations from runtime traces (argument-register " +
-			"or pointer-literal tuples, native-method placeholders, locals snapshots — " +
-			"the form varies by language and runtime) are observation-only encodings; " +
-			"do not map them to source parameters or caller-side provenance unless " +
-			"current cited code explicitly proves that mapping.",
+			"(log / perf trace / external observation). The system populates this lane " +
+			"from items the typed evidence projector tagged Origin=log or Origin=perf, " +
+			"so every entry here is structurally an observation, not current-code " +
+			"mechanism. These facts can explain what was observed (which frame fired, " +
+			"which signal triggered) but they do not prove caller-side provenance, " +
+			"source-parameter mapping, or exact downstream branch execution unless " +
+			"a separately-cited current-code line establishes that mapping.",
 	}
 	for _, seed := range plan.ExternalObservationSeeds {
 		text, location := renderExternalObservationSupportEntry(seed)

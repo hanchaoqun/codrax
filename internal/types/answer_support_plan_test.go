@@ -91,7 +91,7 @@ func TestBuildAnswerSupportPlan_RootCauseTraceCompilesTypedLanes(t *testing.T) {
 			break
 		}
 	}
-	if !strings.Contains(observedGuidance, "do not map them to source parameters or caller-side provenance") {
+	if !strings.Contains(observedGuidance, "they do not prove caller-side provenance, source-parameter mapping") {
 		t.Fatalf("observed artifact guidance missing raw-argument boundary: %q", observedGuidance)
 	}
 	joinedBoundary := strings.Join(boundaryTexts, "\n")
