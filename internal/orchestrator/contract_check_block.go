@@ -249,13 +249,27 @@ func validateDiagramEdgeSupport(doc *types.AnswerDocumentV2, view *types.AnswerS
 	if diagramBlock == nil || diagramBlock.Diagram == nil {
 		return nil
 	}
-	if plan.Kind != types.DiagramNone &&
+	// Kind-mismatch HARD reject only when the plan is REQUIRED. When
+	// the explore phase couldn't find enough typed-edge evidence to
+	// mandate a specific diagram kind (DiagramPlan.Required=false —
+	// diagramPlanFor still produces a non-nil plan with the family's
+	// preferred Kind, but flags it advisory), the LLM is free to pick
+	// the diagram form that best serves the answer prose. Forcing the
+	// preferred kind in that case wastes a retry on what is, by
+	// contract, just a preference. Eval forensic (qf_arch x4 round on
+	// f399cf4): LLM emitted kind=flow under Required=false → HARD
+	// reject + 1 retry, every cycle. With this gate, the same emit
+	// passes (flow / sequence / call_dag are all reasonable readings
+	// of an architecture answer) and only mandatory family kinds
+	// continue to fire mismatches.
+	if plan.Required &&
+		plan.Kind != types.DiagramNone &&
 		diagramBlock.Diagram.Kind != types.DiagramNone &&
 		diagramBlock.Diagram.Kind != plan.Kind {
 		return []types.Violation{{
 			Kind: types.ViolDiagramEdgeUnsupported,
 			Detail: fmt.Sprintf(
-				"diagram block id=%q declared kind=%s but family contract expects %s",
+				"diagram block id=%q declared kind=%s but family contract requires %s",
 				diagramBlock.ID, diagramBlock.Diagram.Kind, plan.Kind),
 			Repair: fmt.Sprintf(
 				"set diagram.kind=%s OR drop the diagram if the family contract should be relaxed",
