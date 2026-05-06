@@ -162,6 +162,36 @@ func liveBarPrimaryText(row *taskRow, lang string) string {
 	return stagePhrase(key, lang, state)
 }
 
+// fallbackBarPrimaryText is the dock row 2 label resolver for the
+// fallbackRow path. When the dock has an active LLM call / tool call
+// AND the chosen row is a pending NodeRow, the LLM is computing FOR
+// that next node — render the running slot ("正在 X") instead of
+// pending ("待 X") so row 2 reads consistently with row 1's
+// "请求模型中" / "调用工具中" / etc. For non-pending fallback rows
+// (most-recently-finished pick) and for pending rows when no activity
+// is in flight, fall through to the regular liveBarPrimaryText.
+func fallbackBarPrimaryText(row *taskRow, lang string, activity activityKind) string {
+	if row == nil {
+		return ""
+	}
+	if row.isNodeRow && (row.pending || row.paused) && activityIsLive(activity) {
+		key := stageKeyFor(row)
+		return stagePhrase(key, lang, stagePhraseRunning)
+	}
+	return liveBarPrimaryText(row, lang)
+}
+
+// activityIsLive reports whether the dock's current activity kind
+// indicates the engine is actively working (LLM call, tool call,
+// streaming response). Idle / queued / waiting states return false.
+func activityIsLive(kind activityKind) bool {
+	switch kind {
+	case activityRequesting, activityReceiving, activityCallingTool, activityFinalizing:
+		return true
+	}
+	return false
+}
+
 // stageElapsedPhrase / totalElapsedPhrase localise the per-stage and
 // cumulative "本 5s · 总 45s" trailers. Empty input returns empty.
 func stageElapsedPhrase(elapsed, lang string) string {

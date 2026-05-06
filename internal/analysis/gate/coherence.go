@@ -98,7 +98,7 @@ func checkSubtopicCoherence(ir *types.AnalysisIR, resolver normalizer.SymbolReso
 	// R1.1 — Domain divergence.
 	if len(domains) >= 2 && nSub <= 1 {
 		details = append(details, fmt.Sprintf(
-			"R1.1 domain_divergence: TermGraph spans %d distinct repomap-verified domains %s but only %d sub-topic emitted",
+			"R1.1 domain_divergence: the question's identifiers span %d distinct code areas %s but only %d sub-topic emitted",
 			len(domains), formatDomainList(domains), nSub))
 	}
 
@@ -111,7 +111,7 @@ func checkSubtopicCoherence(ir *types.AnalysisIR, resolver normalizer.SymbolReso
 	// is the correct repair surface.
 	if rm.Predicates.IsCrossComponent && nSub <= 1 {
 		details = append(details, fmt.Sprintf(
-			"R1.2 predicate_contradiction: Predicates.IsCrossComponent=true but only %d sub-topic emitted — re-emit emit_analysis with at least 2 sub_topics (\"cross-component\" implies >=2 components by definition). Each sub_topic.summary names one component (e.g. \"the explorer stage's retry mechanism\"), and sub_topic.entities lists identifiers visible in the analyzer's pre-scan repo_map view that anchor that component. OR if the question is actually single-topic after all, set IsCrossComponent=false explicitly",
+			"R1.2 predicate_contradiction: predicates.is_cross_component=true but only %d sub-topic emitted — re-emit emit_analysis with at least 2 sub_topics (\"cross-component\" implies >=2 components by definition). Each sub_topic.summary names one component, and sub_topic.entities lists identifiers visible in the repo overview that anchor that component. OR if the question is actually single-topic after all, set is_cross_component=false explicitly",
 			nSub))
 	}
 
@@ -193,7 +193,7 @@ func checkSubtopicCoherence(ir *types.AnalysisIR, resolver normalizer.SymbolReso
 					formatStringList(s.topic.Entities)))
 			}
 			details = append(details, "R1.5 entity_unresolvable: "+strings.Join(unresolved, "; ")+
-				" — these sub-topics' entities don't resolve to any repo symbol, while sibling sub-topics did; the asymmetry suggests one sub-topic was hallucinated. Rename the entities to identifiers visible in the analyzer pre-scan repo_map, or drop the unresolvable sub-topic and merge its content into a sibling")
+				" — these sub-topics' entities don't resolve to any repo symbol, while sibling sub-topics did; the asymmetry suggests one sub-topic was hallucinated. Rename the entities to identifiers visible in the repo overview, or drop the unresolvable sub-topic and merge its content into a sibling")
 		}
 	}
 
@@ -246,7 +246,7 @@ func checkSubtopicCoherence(ir *types.AnalysisIR, resolver normalizer.SymbolReso
 			}
 			sort.Strings(collapsed)
 			details = append(details, fmt.Sprintf(
-				"R1.4 axis_collapse: %d sub-topics all resolve to domain set %s (<=1 distinct domain) under enumeration intent — your sub-topics enumerate values of one axis (e.g. one mode value per sub_topic) rather than independently-answerable questions. Repair by re-emitting emit_analysis ONCE with EITHER (a) sub_topics omitted entirely (the finalizer will then emit one ordered_list item per enumerated value, with grounded item label/text/citation payload under the V2 answer-document contract; this is the natural form for \"what kinds of X exist\" questions), OR (b) sub_topics retained but each sub-topic's entities now span >=2 distinct repomap domains so the question really is multi-axis",
+				"R1.4 axis_collapse: %d sub-topics all sit in the same code area %s under enumeration intent — your sub-topics enumerate values of one axis (e.g. one mode value per sub_topic) rather than independently-answerable questions. Repair by re-emitting emit_analysis ONCE with EITHER (a) sub_topics omitted entirely (one ordered_list item per enumerated value will be rendered downstream — this is the natural form for \"what kinds of X exist\" questions), OR (b) sub_topics retained but each sub-topic's entities now span >=2 distinct code areas so the question really is multi-axis",
 				nSub, formatDomainList(collapsed)))
 		}
 	}

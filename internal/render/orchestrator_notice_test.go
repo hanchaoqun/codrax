@@ -83,11 +83,15 @@ func TestFormatOrchestratorNotice_ColorByBucket(t *testing.T) {
 		// info-class
 		{"convergence-stall", NoticeConvergenceStall, statusMeta.Sprint(body)},
 		{"abandon-read", NoticeAbandonRead, statusMeta.Sprint(body)},
-		{"fallback-fail-loud", NoticeFallbackFailLoud, statusMeta.Sprint(body)},
 		{"upstream-cap", NoticeUpstreamCap, statusMeta.Sprint(body)},
-		{"yield-kill", NoticeYieldKill, statusMeta.Sprint(body)},
 		{"plan-review", NoticePlanReview, statusMeta.Sprint(body)},
 		{"sc-logged", NoticeSelfConsistencyContradictionLogged, statusMeta.Sprint(body)},
+
+		// fallback-terminal-class — glyph picks up muted yellow so a
+		// "we stopped trying, finalising with what we have" notice
+		// stands out from the regular gray info row.
+		{"fallback-fail-loud", NoticeFallbackFailLoud, statusWarningMuted.Sprint(body)},
+		{"yield-kill", NoticeYieldKill, statusWarningMuted.Sprint(body)},
 
 		// progress-class
 		{"investigation-ready", NoticeInvestigationReady, statusObjective.Sprint(body)},

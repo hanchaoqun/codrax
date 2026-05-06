@@ -2041,6 +2041,13 @@ func classifyGateFailure(report types.GateReport) (hard bool, detail string) {
 		// Single-line each failure detail so the joined string stays
 		// readable when the analyzer renders it into a retry hint.
 		safe := strings.ReplaceAll(strings.ReplaceAll(c.Detail, "\n", " "), "\r", " ")
+		// Strip internal rule prefix (R1.x / R2.x ...) from the body
+		// so the user-facing error reads as plain prose instead of
+		// leaking gate-rule codenames. The retry-hint path has its
+		// own stripper; this is the user-/log-facing surface. Keep
+		// the check name as a category label so operators can see
+		// which gate fired.
+		safe = plainCoherenceDetail(safe)
 		parts = append(parts, fmt.Sprintf("%s: %s", c.Name, safe))
 	}
 	if len(parts) == 0 {

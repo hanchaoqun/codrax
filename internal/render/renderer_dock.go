@@ -88,7 +88,7 @@ func (r *Renderer) handleEvent(ev Event) {
 		// no [agent-N] tag — the user must be able to tell at a
 		// glance whether a line is the LLM thinking aloud or the
 		// orchestrator announcing a control-flow decision.
-		line := formatOrchestratorNotice(ev.NoticeKind, ev.Reasoning)
+		line := r.formatOrchestratorNoticeLocked(ev.NoticeKind, ev.Reasoning)
 		if line == "" {
 			return
 		}
@@ -779,12 +779,18 @@ func (r *Renderer) composeCurrentDockRows() [dockRowCount]string {
 		// "▪ —" with no stage word at all. Pick the most recently
 		// finished row when one exists, otherwise the first pending
 		// row, and render it through the existing label/progress
-		// helpers — same vocabulary, same K/N denominator, just
-		// resolved to a done/pending lifecycle slot instead of
-		// running.
+		// helpers — same vocabulary, same K/N denominator.
+		//
+		// Lifecycle slot: when the fallback row is a pending
+		// NodeRow AND the dock activity is an active LLM call /
+		// tool call, the LLM is computing FOR that next node — show
+		// the running slot ("正在 X") instead of pending ("待 X")
+		// so row 2 doesn't read as contradictory with row 1's
+		// "请求模型中" / "调用工具中". Pending nodes still render
+		// as "待 X" when no activity is in flight (genuinely queued).
 		state.stageKey = stageKeyFor(fallback)
 		state.stageProgress = r.stageProgressForFocus(fallback)
-		state.stageLabel = liveBarPrimaryText(fallback, r.lang)
+		state.stageLabel = fallbackBarPrimaryText(fallback, r.lang, r.activity.kind)
 		state.topicProgress = r.topicProgressFor(fallback, r.lang)
 	} else if r.routeSummary != nil {
 		// Light routes (local / chitchat) have no taskRows — the
@@ -921,10 +927,13 @@ func (r *Renderer) formatStageDoneLine(row *taskRow, topicTotal int) string {
 	case statusErrorRecoverable:
 		glyph = string(glyphRecoverable)
 		glyphStyle = statusRecoverable
-		labelStyle = statusRecoverable
-		// friendlyPrimaryText now resolves recoverable to the retry
-		// slot ("X 出错,正在重试") so glyph + label both say "still
-		// working" instead of the pre-fix mismatch ⟳ + "未能 X".
+		// Body intentionally dimmed (statusPrimaryDone gray) — the
+		// glyph + N/K progress carry the "still working, retrying"
+		// signal in yellow, while the prose body recedes to a
+		// muted hue so a row of retries doesn't fill the dock with
+		// loud yellow text. Pre-fix the whole label was yellow and
+		// drowned out neighbouring success / objective rows.
+		labelStyle = statusPrimaryDone
 		label = friendlyPrimaryText(row, errKind, r.lang)
 	default:
 		if row.endTime.IsZero() || !row.okFinished {
@@ -1202,15 +1211,22 @@ func retryCountSuffix(retries, fallbacks int, zh bool) string {
 }
 
 // orchestratorNoticeStyle returns the pterm style the dock should
-// use for an EventOrchestratorNotice based on its NoticeKind. The
-// three-bucket policy:
+// use for an EventOrchestratorNotice's GLYPH based on its NoticeKind.
+// Body styling is picked separately by softNoticeBodyStyle so retry-
+// class notices can dim their prose body to a muted hue while keeping
+// the bucket signal on the glyph + K/N progress.
 //
-//	retry-class    → statusRecoverable (muted yellow) — actively recovering;
-//	                 catches the eye that "we are continuing, one more pass"
-//	info-class     → statusMeta (dark gray) — quiet informational, will not
-//	                 dominate the dock at orchestrator cadence
-//	progress-class → statusObjective (cyan) — forward milestone, parallel
-//	                 to EventPhaseProgress
+// Buckets:
+//
+//	retry-class            → statusRecoverable (yellow) — actively
+//	                         recovering; "still working, one more pass"
+//	fallback-terminal-class → statusWarningMuted (yellow) — retry budget
+//	                         exhausted; the answer ships with what we
+//	                         have. Distinct GLYPH (·) from retry-class
+//	                         (⟳) so the visual still discriminates
+//	                         "trying again" vs "giving up gracefully".
+//	info-class             → statusMeta (dark gray) — quiet informational
+//	progress-class         → statusObjective (cyan) — forward milestone
 //
 // Default falls through to statusMeta so a future kind added without
 // a switch update is visible (gray) but not loud (no false retry hue).
@@ -1228,38 +1244,148 @@ func orchestratorNoticeStyle(kind OrchestratorNoticeKind) *pterm.Style {
 		NoticeNoToolCall,
 		NoticeProceedingWithoutExtract:
 		return statusRecoverable
+	case NoticeYieldKill, NoticeFallbackFailLoud:
+		// Fallback-terminal: we have stopped trying. Yellow on the
+		// glyph signals "this is a noteworthy state" without screaming
+		// red — the body and the surrounding answer carry the actual
+		// content.
+		return statusWarningMuted
 	case NoticeInvestigationReady:
 		return statusObjective
 	}
 	return statusMeta
 }
 
-// formatOrchestratorNotice returns the dock scrollback line for an
-// EventOrchestratorNotice. Layout policy:
+// formatOrchestratorNoticeLocked returns the dock scrollback line for
+// an EventOrchestratorNotice with the current K/N stage progress
+// inserted between the glyph and the body when available.
+//
+// Caller MUST hold r.mu.
+func (r *Renderer) formatOrchestratorNoticeLocked(kind OrchestratorNoticeKind, text string) string {
+	return formatOrchestratorNoticeWithProgress(kind, text, r.softNoticeStageProgressLocked())
+}
+
+// formatOrchestratorNotice keeps the old test/non-context entry point.
+// Equivalent to formatOrchestratorNoticeWithProgress with empty K/N
+// progress.
+func formatOrchestratorNotice(kind OrchestratorNoticeKind, text string) string {
+	return formatOrchestratorNoticeWithProgress(kind, text, "")
+}
+
+// formatOrchestratorNoticeWithProgress is the underlying formatter.
+// Layout policy:
 //
 //   - 2-space leading indent (mirrors formatReasoning's "  " indent
 //     so the column-1 alignment with surrounding rows is preserved)
-//   - NO `💭` thought-bubble prefix — that icon means "LLM is
-//     reasoning right now", which is precisely what an orchestrator
-//     soft notice IS NOT
-//   - NO `[agent-N]` iteration tag — orchestrator is not an agent in
-//     the sense AgentName covers (analyzer / explorer / etc.); the
-//     tag would mislead the user into expecting per-iteration LLM
-//     output
-//   - The message body already carries its own kind glyph (⟳ / · /
-//     ⊘) chosen by internal/orchestrator/user_messages.go,
-//     aligned with the project palette (status_tokens.go). The
-//     formatter does not double-prefix; bucket COLOR (yellow / gray
-//     / cyan) carries the primary semantic distinction.
+//   - The message body carries its own kind glyph (⟳ / · / ⊘) chosen
+//     by internal/orchestrator/user_messages.go. The glyph keeps the
+//     bucket colour (yellow / gray / cyan); for retry-class notices
+//     we ALSO splice the current K/N stage progress between glyph
+//     and body and dim the prose body to statusPrimaryDone so a
+//     row of retries doesn't fill the dock with loud yellow text.
 //
 // Empty text → empty output so the caller can degrade silently.
-func formatOrchestratorNotice(kind OrchestratorNoticeKind, text string) string {
+func formatOrchestratorNoticeWithProgress(kind OrchestratorNoticeKind, text, progress string) string {
 	text = strings.TrimSpace(text)
 	if text == "" {
 		return ""
 	}
 	style := orchestratorNoticeStyle(kind)
-	return "  " + style.Sprint(text)
+	// Split the leading kind glyph (single rune followed by a space)
+	// from the prose body. user_messages.go produces "⟳ <text>" /
+	// "· <text>" / "⊘ <text>" for soft notices. When the head is a
+	// single rune + space, peel it so we can colour the glyph + the
+	// optional K/N progress in the bucket palette but dim the prose.
+	glyph, body := peelGlyphPrefix(text)
+	if glyph == "" {
+		// No recognisable glyph head — fall back to pre-split styling.
+		return "  " + style.Sprint(text)
+	}
+	bodyStyle := softNoticeBodyStyle(kind)
+	var b strings.Builder
+	b.WriteString("  ")
+	b.WriteString(style.Sprint(glyph))
+	if progress != "" {
+		b.WriteString(" ")
+		b.WriteString(style.Sprint(progress))
+	}
+	if body != "" {
+		b.WriteString(" ")
+		b.WriteString(bodyStyle.Sprint(body))
+	}
+	return b.String()
+}
+
+// peelGlyphPrefix splits a soft-notice text into its leading glyph
+// (one rune, one of ⟳ / · / ⊘ / ◆ / ◇) and the rest of the body. The
+// glyph and trailing space are stripped from the body. Returns
+// ("", text) when the head is not a recognised glyph + space.
+func peelGlyphPrefix(text string) (glyph, body string) {
+	if text == "" {
+		return "", ""
+	}
+	// Walk one rune.
+	for _, r := range text {
+		switch r {
+		case glyphRecoverable, glyphCancelled, glyphWarning,
+			glyphSuccess, glyphFatal:
+			rest := strings.TrimPrefix(text, string(r))
+			rest = strings.TrimPrefix(rest, " ")
+			return string(r), rest
+		}
+		break
+	}
+	return "", text
+}
+
+// softNoticeBodyStyle picks the prose-body palette for an orchestrator
+// soft notice. Retry-class buckets (the yellow ones) dim their body
+// to statusPrimaryDone so a stack of retries does not fill the dock
+// with loud yellow text — the glyph + K/N progress carry the bucket
+// signal, the body recedes. Fallback-terminal-class keeps the body
+// at statusMeta (the prior default) so only the glyph picks up the
+// new yellow tint. info-class and progress-class buckets keep the
+// bucket palette throughout (gray and cyan are already mild).
+func softNoticeBodyStyle(kind OrchestratorNoticeKind) *pterm.Style {
+	switch kind {
+	case NoticeRetry,
+		NoticeForcedRead,
+		NoticeAnswerCheckRetry,
+		NoticeFallbackFinalizerOnly,
+		NoticeFallbackBackToExtract,
+		NoticeFallbackBackToExplore,
+		NoticeFinalizing,
+		NoticeSelfConsistencyStart,
+		NoticeSelfConsistencyContradictionRewriting,
+		NoticeNoToolCall,
+		NoticeProceedingWithoutExtract:
+		return statusPrimaryDone
+	case NoticeYieldKill, NoticeFallbackFailLoud:
+		// Fallback-terminal: glyph picks up the yellow tint; the
+		// prose body stays at statusMeta (same hue as before this
+		// change) so the row only nudges the eye via the glyph.
+		return statusMeta
+	}
+	return orchestratorNoticeStyle(kind)
+}
+
+// softNoticeStageProgressLocked returns the K/N stage progress label
+// for the row best representing the current dispatch — falls back to
+// focusRow / fallbackRow / current. Empty when no row is identifiable
+// (e.g. light routes that bypass the pipeline).
+//
+// Caller MUST hold r.mu.
+func (r *Renderer) softNoticeStageProgressLocked() string {
+	if row := r.focusRow(); row != nil {
+		return r.stageProgressForFocus(row)
+	}
+	if row := r.fallbackRow(); row != nil {
+		return r.stageProgressForFocus(row)
+	}
+	if r.current != nil {
+		return r.stageProgressForFocus(r.current)
+	}
+	return ""
 }
 
 // countTopicSiblings returns how many evidence_tN nodes are present
@@ -1326,7 +1452,7 @@ func (r *Renderer) handleEventNonTTY(ev Event) {
 		// LLM-thinking prefix or [agent-N] tag so log scrapers and
 		// CI operators read the same "this is the orchestrator
 		// talking, not the LLM" cue.
-		if line := formatOrchestratorNotice(ev.NoticeKind, ev.Reasoning); line != "" {
+		if line := r.formatOrchestratorNoticeLocked(ev.NoticeKind, ev.Reasoning); line != "" {
 			r.emitNonTTYLine(line)
 		}
 	case EventAdapterRetry:
