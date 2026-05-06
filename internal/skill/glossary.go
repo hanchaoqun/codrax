@@ -113,6 +113,20 @@ var InternalTermsBlocklist = []string{
 	"AnswerBlockItem",
 	"AnswerDiagramBlock",
 
+	// Carrier-version codenames. The V1 → V2 carrier migration
+	// (block_only_carrier.md) is internal pipeline history; LLMs
+	// have no context for what "V1" / "V2" means and will read
+	// them as generic version numbers. Refer to "the answer
+	// document blocks" / "the kind=scalar block" etc instead.
+	"V1 block",
+	"V2 block",
+	"V1 carrier",
+	"V2 carrier",
+	"V1 layout",
+	"V2 layout",
+	"V1 doc",
+	"V2 doc",
+
 	// Contract-field leakage (Go constant names surfacing as prose).
 	"MustInclude",
 	"must-include floor",

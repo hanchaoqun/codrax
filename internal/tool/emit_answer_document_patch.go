@@ -76,7 +76,7 @@ func (t *EmitAnswerDocumentPatch) Parameters() json.RawMessage {
     },
     "add_blocks": {
       "type": "array",
-      "description": "New block payloads to append after the existing blocks. Each entry has the full AnswerBlock shape; id MUST NOT already exist in the previous emit (use replace_blocks for editing).",
+      "description": "New block payloads to append after the existing blocks. Each entry has the full block shape (id, kind, title, text, items, diagram, claim_uses, edge_anchors, facet_ids, surface_role); id MUST NOT already exist in the previous emit (use replace_blocks for editing).",
       "items": {"type": "object"}
     },
     "remove_block_ids": {

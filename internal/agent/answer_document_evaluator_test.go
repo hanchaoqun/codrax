@@ -1281,7 +1281,7 @@ func TestAnswerDocumentEvaluator_BuildInitialInstruction_RendersScalarLookupDisc
 	for _, want := range []string{
 		"## Submission Checklist",
 		"`scalar` block with the literal in block `text`",
-		"Keep the complete scalar answer inside V2 blocks",
+		"Keep the complete scalar answer inside the answer document blocks",
 		"names the subject being measured",
 		"## Scalar Lookup Discipline",
 		"one named source-code literal",
@@ -1743,11 +1743,11 @@ func TestAnswerDocumentEvaluator_BuildInitialInstruction_DoesNotMentionRetiredTo
 		}
 	}
 	for _, want := range []string{
-		"Keep the complete scalar answer inside V2 blocks",
-		"Keep the complete decision answer inside V2 blocks",
+		"Keep the complete scalar answer inside the answer document blocks",
+		"Keep the complete decision answer inside the answer document blocks",
 	} {
 		if !strings.Contains(prompt, want) {
-			t.Fatalf("submission checklist missing positive V2 guidance %q:\n%s", want, prompt)
+			t.Fatalf("submission checklist missing positive guidance %q:\n%s", want, prompt)
 		}
 	}
 }

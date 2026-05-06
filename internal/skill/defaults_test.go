@@ -86,8 +86,10 @@ func TestFinalizerSkill_DoesNotTeachRetiredV1AnswerPayloads(t *testing.T) {
 		}
 	}
 	for _, want := range []string{
-		"scalar carries the literal in block `text`",
-		"decision carries the verdict + rationale in block `text`",
+		// scalar / decision V2 guidance — per-kind rules 129/130 carry
+		// the active phrasing; rule 121 keeps the V1-rejection note.
+		"put the literal directly in the block's `text` field as the rendered value",
+		"Put the verdict at the START of the block's `text` field",
 		"Put the verdict and the core reasoning together in the decision block's `text` field",
 		"top-level `value` / `boolean` payloads are not part of this tool's schema",
 	} {

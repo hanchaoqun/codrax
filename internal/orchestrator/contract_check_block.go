@@ -1896,9 +1896,9 @@ func validateEnumerationItemLabelExtractorMatch(doc *types.AnswerDocumentV2, vie
 		out = append(out, types.Violation{
 			Kind: types.ViolEnumerationItemLabelExtractorDrift,
 			Detail: fmt.Sprintf(
-				"block %q has %d enumeration item label(s) drifted from the extractor's verbatim identifiers; the answer should preserve these names verbatim: [%s]. Drifted items: [%s]",
+				"block %q has %d enumeration item label(s) drifted from the verbatim identifiers selected upstream; the answer should preserve these names verbatim: [%s]. Drifted items: [%s]",
 				blockID, len(driftedItems), strings.Join(verbatimNames, ", "), strings.Join(pairs, "; ")),
-			Repair: "for each listed item, copy the verbatim identifier from the extractor's AnswerSymbols list (the names are the typed identifiers the extractor selected for the user to read). Abstract placeholders like 'check 1 (line N)' lose the real names the user needs to navigate the codebase. The extractor signal is intact; only the rendering needs to copy the names.",
+			Repair: "for each listed item, copy the verbatim identifier from the typed symbol slate that earlier stages produced (the names are the typed identifiers selected upstream for the user to read). Abstract placeholders like 'check 1 (line N)' lose the real names the user needs to navigate the codebase. The upstream signal is intact; only the rendering needs to copy the names.",
 			SuspectedRoot: types.SuspectedRoot{
 				IRField:    "block_items_label",
 				Reason:     "finalizer rendered placeholder labels instead of preserving extractor's verbatim identifiers",

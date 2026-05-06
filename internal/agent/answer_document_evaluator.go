@@ -349,13 +349,13 @@ func renderAnswerDocSubmissionChecklist(ctx *types.AgentContext, view *types.Ans
 					items = append(items,
 						"Emit the principal `scalar` block with the literal in block `text`, and attach a one-element `items=[{id:\"v\", citation_ref:N}]` when you need a citation anchor. Attach block-level `claim_uses=[{claim_form=definition_fact}]` (plural array). Use `assignment_fact` when the cited line is a config / variable assignment.",
 						"Fill the block's `text` (or the lead summary block) with prose that names the config key / subject and states how the literal was obtained (lookup / file:line / chain).",
-						"Keep the complete scalar answer inside V2 blocks: the literal belongs in the principal `scalar` block, and any framing prose belongs in the `summary` block or the scalar block title.",
+						"Keep the complete scalar answer inside the answer document blocks: the literal belongs in the principal `scalar` block, and any framing prose belongs in the `summary` block or the scalar block's `title`.",
 					)
 				default:
 					items = append(items,
 						"Emit the principal `scalar` block with the literal in block `text`, and attach a one-element `items=[{id:\"v\", citation_ref:N}]` when you need a citation anchor. Attach block-level `claim_uses=[{claim_form=definition_fact}]` (plural array). Use `external_observation` when the literal is from an attached log / external trace.",
 						"Fill the block's `text` (or the lead summary block) with prose that names the subject being measured and states how the literal was obtained (lookup / file:line / command / chain).",
-						"Keep the complete scalar answer inside V2 blocks: the literal belongs in the principal `scalar` block, and any framing prose belongs in the `summary` block or the scalar block title.",
+						"Keep the complete scalar answer inside the answer document blocks: the literal belongs in the principal `scalar` block, and any framing prose belongs in the `summary` block or the scalar block's `title`.",
 					)
 				}
 			case types.BlockOrderedList:
@@ -392,7 +392,7 @@ func renderAnswerDocSubmissionChecklist(ctx *types.AgentContext, view *types.Ans
 			case types.BlockDecision:
 				items = append(items,
 					"Emit the principal `decision` block with the verdict at the START of block `text`, followed by the rationale prose. Attach a one-element `items=[{id:\"d\", citation_ref:N}]` when you need a citation anchor, and attach block-level `claim_uses=[{claim_form=guard_condition|definition_fact}]` (plural array).",
-					"Keep the complete decision answer inside V2 blocks: the verdict and rationale belong in the principal `decision` block, with any extra framing prose in a `summary` or `caveat` block as needed.",
+					"Keep the complete decision answer inside the answer document blocks: the verdict and rationale belong in the principal `decision` block, with any extra framing prose in a `summary` or `caveat` block as needed.",
 				)
 			case types.BlockCaveat:
 				items = append(items,
@@ -2834,7 +2834,7 @@ func (e *answerDocumentEvaluator) emitAnswerDocumentRejectSignal(ctx *types.Agen
 	}
 	if rejectCode == answerDocRejectCodeExactContextSurface {
 		reasonKey = "exact-context-surface"
-		hint = "Your last `emit_answer_document` call was rejected because the `summary` block's text leaked exact-target / nearby-context material that does not belong on the user-visible answer surface. Re-emit `emit_answer_document` now with the same `exact_resolution` object and the same V2 block layout, but treat the `summary` block as the follow-on grounded-context block only."
+		hint = "Your last `emit_answer_document` call was rejected because the `summary` block's text leaked exact-target / nearby-context material that does not belong on the user-visible answer surface. Re-emit `emit_answer_document` now with the same `exact_resolution` object and the same block layout, but treat the `summary` block as the follow-on grounded-context block only."
 		if repair != nil && repair.Metadata != nil {
 			if repeated := strings.TrimSpace(repair.Metadata["repeated_target"]); repeated != "" {
 				hint += " Do NOT restate " + repeated + " in the `summary` block's text: the renderer already prints the exact-target lead for this dispatch."
