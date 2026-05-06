@@ -8544,33 +8544,49 @@ func applyChainPromotion(in concreteValuesResult, readSet map[string]bool, closu
 		demotedSummaries[anchor.Summary] = true
 		demoteList = append(demoteList, pendingDemote{anchor})
 	}
-	// X1 short-circuit (kept=0 + confident subject): when EVERY chain
-	// anchors outside ReadSet AND the analyzer was confident about
-	// the subject classification, the chain producer is fundamentally
-	// talking past the question — promoting any of these anchors just
-	// burns one explore re-dispatch reading a file that has nothing to
-	// do with the answer the LLM is forming.
+	// X1 short-circuit (kept=0 AND every demoted chain's anchor files
+	// are entirely outside the investigator's read-set at the file
+	// level): when the chain producer's connections do not intersect
+	// with the investigator's reading scope at all, the chains are
+	// off-target for this run's actual investigation. Promoting any
+	// anchor here burns an explore re-dispatch reading a file the
+	// investigator already chose to skip.
+	//
+	// Crucially, we DO NOT short-circuit when kept=0 but at least one
+	// demoted chain has an anchor file in readSet at the file level
+	// (paginated / partial-read shape): that case is "on-target but
+	// incomplete" — the chain reaches into an unread SLICE of a file
+	// the investigator did open, so forcing the missing slice is
+	// the right call. This split is what the partial-anchor unit
+	// tests pin (a.go read, b.go missing → must enqueue PendingRead
+	// for b.go).
 	//
 	// The markdown / cvEvidence demote below STILL fires so the LLM
 	// doesn't see misleading chains; only the closure.AddPendingRead
-	// enqueue is skipped. Confidence floor mirrors the existing
-	// rebindFloor (0.4) + headroom — only "high confidence" subject
-	// classifications get this short-circuit; SubjectUnknown / low-
-	// confidence flows continue to promote so a misclassified subject
-	// can still get covered by a forced read.
-	// Threshold aligned with rankChainsBySubject's existing
-	// `highConfFloor = 0.5` — same boundary already used elsewhere
-	// in the chain ranker for "subject confidence is meaningful".
-	// Pre-2026-05-06 this was 0.7 (too strict for SubjectGeneric
-	// architecture / config questions whose Confidence sits in the
-	// 0.5-0.6 band — X1 never fired and the kept=0 + demoted-N
-	// chains all enqueued PendingReads even though the chain
-	// producer was clearly off-target).
-	const x1HighConfidenceFloor = 0.5
-	skipPromote := len(keptSummaries) == 0 && len(demoteList) > 0 && subjectConfidence >= x1HighConfidenceFloor
+	// enqueue is skipped.
+	//
+	// Pre-2026-05-06 attempts gated this on subjectConfidence >= 0.7
+	// then 0.5 — both unreachable since AnswerSubject.Confidence in
+	// this codebase tops out at 0.4 (analyzer_intent.go assigns
+	// 0.1-0.4 across all subject kinds). subjectConfidence is
+	// retained as a parameter for future per-confidence telemetry
+	// but no longer gates the skip.
+	allDemotedAnchorsOutsideReadSet := true
+	for _, pd := range demoteList {
+		for _, f := range pd.anchor.Files {
+			if readSet[f] {
+				allDemotedAnchorsOutsideReadSet = false
+				break
+			}
+		}
+		if !allDemotedAnchorsOutsideReadSet {
+			break
+		}
+	}
+	skipPromote := len(keptSummaries) == 0 && len(demoteList) > 0 && allDemotedAnchorsOutsideReadSet
 	if skipPromote {
-		logging.Debug("[CGEC] X1 chain_promotion: 0 kept @ subjectConfidence=%.2f — skipping %d PendingRead(s)",
-			subjectConfidence, len(demoteList))
+		logging.Debug("[CGEC] X1 chain_promotion: kept=0 demoted=%d (subjectConfidence=%.2f) — every demoted anchor file is outside ReadSet; skipping all PendingRead(s)",
+			len(demoteList), subjectConfidence)
 	}
 	// Pass 2: enqueue PendingReads for demoted anchors (X1 + X2
 	// filtered).
