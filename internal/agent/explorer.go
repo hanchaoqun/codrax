@@ -8558,7 +8558,15 @@ func applyChainPromotion(in concreteValuesResult, readSet map[string]bool, closu
 	// classifications get this short-circuit; SubjectUnknown / low-
 	// confidence flows continue to promote so a misclassified subject
 	// can still get covered by a forced read.
-	const x1HighConfidenceFloor = 0.7
+	// Threshold aligned with rankChainsBySubject's existing
+	// `highConfFloor = 0.5` — same boundary already used elsewhere
+	// in the chain ranker for "subject confidence is meaningful".
+	// Pre-2026-05-06 this was 0.7 (too strict for SubjectGeneric
+	// architecture / config questions whose Confidence sits in the
+	// 0.5-0.6 band — X1 never fired and the kept=0 + demoted-N
+	// chains all enqueued PendingReads even though the chain
+	// producer was clearly off-target).
+	const x1HighConfidenceFloor = 0.5
 	skipPromote := len(keptSummaries) == 0 && len(demoteList) > 0 && subjectConfidence >= x1HighConfidenceFloor
 	if skipPromote {
 		logging.Debug("[CGEC] X1 chain_promotion: 0 kept @ subjectConfidence=%.2f — skipping %d PendingRead(s)",
@@ -10144,7 +10152,25 @@ func computeIsDefFile(graph *repomap.Graph, files []string, chainSummary string)
 		return out
 	}
 	terminal := strings.TrimSpace(subject.ChainTerminalToken(chainSummary))
+	if terminal == "" {
+		// Extraction failed — no signal to base the def/usage split
+		// on. Preserve historical promotion behaviour (fail-open).
+		return out
+	}
 	if !looksLikeSymbolName(terminal) {
+		// Terminal IS something but is a literal / punctuation
+		// (`true` / `false` / `{` / numeric / etc). The chain has
+		// no concrete subject identifier — no symbol to ground TO,
+		// so a forced-read on its anchor file is grounding nothing.
+		// Fail-closed: mark every file as USAGE-only so
+		// applyChainPromotion's X2 filter skips the per-file
+		// PendingRead. Pre-2026-05-06 this branch fell through to
+		// fail-open, which let SubjectGeneric architecture
+		// questions enqueue forced-reads for chains whose terminals
+		// were `{` literals from struct returns.
+		for i := range out {
+			out[i] = false
+		}
 		return out
 	}
 	for i, f := range files {
