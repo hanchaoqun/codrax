@@ -1094,8 +1094,13 @@ func TestStatus_RecoverableUsesRetryLabel(t *testing.T) {
 	if !strings.Contains(zhOut, "⟳") {
 		t.Errorf("zh recoverable: expected ⟳ glyph in:\n%s", zhOut)
 	}
-	if !strings.Contains(zhOut, "出错,正在重试") {
-		t.Errorf("zh recoverable: expected retry slot phrase; got:\n%s", zhOut)
+	// Retry slot post-2026-05-06 fronts "模型响应出错,正在重新…" so
+	// the cause-side ("model response") and the recovery action read
+	// together. The test asserts the new shape and continues to ban
+	// the failed-slot phrase so a recoverable row is structurally
+	// distinguishable from a fatal row.
+	if !strings.Contains(zhOut, "模型响应出错") || !strings.Contains(zhOut, "重新") {
+		t.Errorf("zh recoverable: expected '模型响应出错' + '重新…' retry phrase; got:\n%s", zhOut)
 	}
 	if strings.Contains(zhOut, "未能理解问题") {
 		t.Errorf("zh recoverable MUST NOT use failed slot phrase; got:\n%s", zhOut)
@@ -1104,8 +1109,8 @@ func TestStatus_RecoverableUsesRetryLabel(t *testing.T) {
 	if !strings.Contains(enOut, "⟳") {
 		t.Errorf("en recoverable: expected ⟳ glyph in:\n%s", enOut)
 	}
-	if !strings.Contains(enOut, "retrying") {
-		t.Errorf("en recoverable: expected 'retrying' in label; got:\n%s", enOut)
+	if !strings.Contains(enOut, "Model response error") || !strings.Contains(enOut, "re-running") {
+		t.Errorf("en recoverable: expected 'Model response error … re-running' phrase; got:\n%s", enOut)
 	}
 	if strings.Contains(enOut, "Could not understand request") {
 		t.Errorf("en recoverable MUST NOT use failed slot phrase; got:\n%s", enOut)

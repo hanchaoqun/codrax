@@ -234,10 +234,20 @@ func recoverableDetailPhrase(row *taskRow, lang string) string {
 			return "模型服务暂不可用，正在尝试基于已有结果收尾"
 		}
 		return "Model service is temporarily unavailable; finalizing with available results"
+	// "stream stalled" is an LLM upstream issue (the model's response
+	// stream stopped sending bytes), so it MUST split off from the
+	// generic "alternate path / fallback / transient" bucket — pre-fix
+	// the bucket said "工具调用失败,正在尝试替代路径" / "Tool call
+	// failed; trying an alternate path", which read as "the agent's
+	// tool call failed" when really the model itself stalled.
+	case strings.Contains(probe, "stream stalled"):
+		if zh {
+			return "模型响应中断,正在重新请求"
+		}
+		return "Model response stalled; re-requesting"
 	case strings.Contains(probe, "alternate path"),
 		strings.Contains(probe, "fallback"),
-		strings.Contains(probe, "transient"),
-		strings.Contains(probe, "stream stalled"):
+		strings.Contains(probe, "transient"):
 		if zh {
 			return "工具调用失败，正在尝试替代路径"
 		}

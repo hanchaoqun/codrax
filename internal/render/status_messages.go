@@ -56,6 +56,8 @@ func localizeRetryReason(reason, lang string) string {
 		return "临时网络抖动"
 	case "stream first-byte timeout":
 		return "首字节超时"
+	case "stream stalled":
+		return "响应流中断"
 	case "quota":
 		return "配额已用尽"
 	case "rate limit":
@@ -180,25 +182,36 @@ func stagePhrase(key string, lang string, state stagePhraseState) string {
 	// but the trailing "正在重试" / "retrying" tells them the
 	// orchestrator has not given up. This is the column the ⟳ glyph
 	// resolves against: glyph + label both point at "still working".
+	// Retry-column phrasing (post-2026-05-06 audit): for LLM-dispatch
+	// stages the recoverable retry is overwhelmingly a model
+	// response/request issue (timeout, stream stall, gate-driven
+	// rejection of the model output). Pre-fix the column read
+	// "<stage>出错,正在重试" — which the user parses as "the stage's
+	// business logic failed", because the verb "出错" attaches to the
+	// stage gerund. New phrasing fronts "模型响应出错,正在重新…X" so
+	// the recovery action and the cause-side ("model response") read
+	// together, and the stage gerund describes what the retry is
+	// trying to redo. Apply and verify keep tool-side framing — those
+	// retries are git/patch and test-runner layers, not LLM.
 	tableZh := map[string]quint{
 		// Pre-stages
-		"log_triage":  {"正在解析日志", "已解析日志", "待解析日志", "未能解析日志", "解析日志出错,正在重试"},
-		"perf_triage": {"正在解析性能数据", "已解析性能数据", "待解析性能数据", "未能解析性能数据", "解析性能数据出错,正在重试"},
+		"log_triage":  {"正在解析日志", "已解析日志", "待解析日志", "未能解析日志", "模型响应出错,正在重新解析日志"},
+		"perf_triage": {"正在解析性能数据", "已解析性能数据", "待解析性能数据", "未能解析性能数据", "模型响应出错,正在重新解析性能数据"},
 		// Read-mode core flow
-		"analyze": {"正在理解问题", "已理解问题", "待理解问题", "未能理解问题", "理解问题出错,正在重试"},
+		"analyze": {"正在理解问题", "已理解问题", "待理解问题", "未能理解问题", "模型响应出错,正在重新理解问题"},
 		// "explore" is the orchestrator-level stage AND the topic-
 		// group parent label when multiple sub-topics fan out. As a
 		// single status line it reads as "正在深入分析" — the broad
 		// umbrella over the per-topic evidence work.
-		"explore": {"正在深入分析", "已完成深入分析", "待深入分析", "深入分析未完成", "深入分析出错,正在重试"},
+		"explore": {"正在深入分析", "已完成深入分析", "待深入分析", "深入分析未完成", "模型响应出错,正在重新深入分析"},
 		// "evidence" is the NodeEvidence sub-step where the agent
 		// actually reads code (read_file / grep / repo_map) and
 		// emits structured evidence.
-		"evidence":  {"正在探索代码并收集证据", "已完成证据收集", "待探索代码并收集证据", "未收集到足够证据", "证据收集出错,正在重试"},
-		"validate":  {"正在交叉验证证据", "已交叉验证证据", "待交叉验证证据", "交叉验证未完成", "交叉验证出错,正在重试"},
-		"reconcile": {"正在归纳探索线索", "已归纳探索结果", "待归纳探索结果", "未能归纳结果", "归纳结果出错,正在重试"},
-		"extract":   {"正在提炼关键发现", "已提炼关键发现", "待提炼关键发现", "未能提炼关键发现", "提炼关键发现出错,正在重试"},
-		"finalize":  {"正在撰写最终答案", "已撰写最终答案", "待撰写最终答案", "未能生成最终答案", "撰写最终答案出错,正在重试"},
+		"evidence":  {"正在探索代码并收集证据", "已完成证据收集", "待探索代码并收集证据", "未收集到足够证据", "模型响应出错,正在重新收集证据"},
+		"validate":  {"正在交叉验证证据", "已交叉验证证据", "待交叉验证证据", "交叉验证未完成", "模型响应出错,正在重新交叉验证"},
+		"reconcile": {"正在归纳探索线索", "已归纳探索结果", "待归纳探索结果", "未能归纳结果", "模型响应出错,正在重新归纳证据"},
+		"extract":   {"正在提炼关键发现", "已提炼关键发现", "待提炼关键发现", "未能提炼关键发现", "模型响应出错,正在重新提炼关键发现"},
+		"finalize":  {"正在撰写最终答案", "已撰写最终答案", "待撰写最终答案", "未能生成最终答案", "模型响应出错,正在重新撰写答案"},
 		// Write-mode flow.
 		// plan failure: "未生成改动方案" — the model didn't produce a
 		//   usable plan this round; reads as "no plan" not "plan
@@ -214,23 +227,32 @@ func stagePhrase(key string, lang string, state stagePhraseState) string {
 		// Pre-2026-05-01 it had no entry and rendered as the generic
 		// "正在处理任务" / "Processing task" — visually invisible during
 		// a real LLM call.
-		"write_analyze": {"正在分析任务上下文", "已分析任务上下文", "待分析任务上下文", "未能分析任务上下文", "分析任务上下文出错,正在重试"},
-		"plan":          {"正在设计改动方案", "已设计改动方案", "待设计改动方案", "未生成改动方案", "设计改动方案出错,正在重试"},
-		"apply":         {"正在应用改动", "已应用改动", "待应用改动", "未能应用改动", "应用改动出错,正在重试"},
-		"verify":        {"正在跑测试验证改动", "已通过测试验证改动", "待跑测试验证改动", "测试未通过", "测试验证出错,正在重试"},
+		"write_analyze": {"正在分析任务上下文", "已分析任务上下文", "待分析任务上下文", "未能分析任务上下文", "模型响应出错,正在重新分析任务上下文"},
+		"plan":          {"正在设计改动方案", "已设计改动方案", "待设计改动方案", "未生成改动方案", "模型响应出错,正在重新设计改动方案"},
+		// apply / verify retries originate from the git-patch layer and
+		// the test-runner layer respectively — NOT from a model call,
+		// so the retry phrasing keeps tool-side framing instead of the
+		// "模型响应出错…" prefix.
+		"apply":  {"正在应用改动", "已应用改动", "待应用改动", "未能应用改动", "应用改动出错,正在重试"},
+		"verify": {"正在跑测试验证改动", "已通过测试验证改动", "待跑测试验证改动", "测试未通过", "测试验证出错,正在重试"},
 	}
+	// English retry mirrors the Chinese "模型响应出错,正在重新…X"
+	// shape: "Model response error, re-running X" puts the
+	// recovery + cause together, and the stage gerund describes
+	// what is being redone. Apply / verify keep tool-side framing
+	// (git-patch / test-runner layers, not LLM).
 	tableEn := map[string]quint{
-		"log_triage":  {"Parsing attached log", "Log parsed", "Awaiting log", "Could not parse log", "Log parse hit an error, retrying"},
-		"perf_triage": {"Parsing performance trace", "Performance trace parsed", "Awaiting trace", "Could not parse trace", "Trace parse hit an error, retrying"},
-		"analyze":     {"Understanding the request", "Request understood", "Awaiting analysis", "Could not understand request", "Request understanding hit an error, retrying"},
-		"explore":     {"Investigating", "Investigation complete", "Awaiting investigation", "Investigation incomplete", "Investigation hit an error, retrying"},
-		"evidence":    {"Exploring code, collecting evidence", "Evidence collected", "Awaiting evidence", "Could not gather evidence", "Evidence collection hit an error, retrying"},
-		"validate":    {"Cross-validating evidence", "Evidence cross-validated", "Awaiting cross-validation", "Cross-validation incomplete", "Cross-validation hit an error, retrying"},
-		"reconcile":   {"Consolidating exploration threads", "Findings consolidated", "Awaiting consolidation", "Could not consolidate findings", "Consolidation hit an error, retrying"},
-		"extract":     {"Distilling key findings", "Key findings distilled", "Awaiting key findings", "Could not distill findings", "Key-finding distillation hit an error, retrying"},
-		"finalize":    {"Composing the final answer", "Final answer composed", "Awaiting final answer", "Could not compose answer", "Answer composition hit an error, retrying"},
-		"write_analyze": {"Analyzing task context", "Task context analyzed", "Awaiting task analysis", "Could not analyze task", "Task-context analysis hit an error, retrying"},
-		"plan":          {"Drafting change plan", "Change plan ready", "Awaiting change plan", "No change plan produced", "Change-plan draft hit an error, retrying"},
+		"log_triage":  {"Parsing attached log", "Log parsed", "Awaiting log", "Could not parse log", "Model response error, re-parsing log"},
+		"perf_triage": {"Parsing performance trace", "Performance trace parsed", "Awaiting trace", "Could not parse trace", "Model response error, re-parsing trace"},
+		"analyze":     {"Understanding the request", "Request understood", "Awaiting analysis", "Could not understand request", "Model response error, re-running request understanding"},
+		"explore":     {"Investigating", "Investigation complete", "Awaiting investigation", "Investigation incomplete", "Model response error, re-running investigation"},
+		"evidence":    {"Exploring code, collecting evidence", "Evidence collected", "Awaiting evidence", "Could not gather evidence", "Model response error, re-gathering evidence"},
+		"validate":    {"Cross-validating evidence", "Evidence cross-validated", "Awaiting cross-validation", "Cross-validation incomplete", "Model response error, re-running cross-validation"},
+		"reconcile":   {"Consolidating exploration threads", "Findings consolidated", "Awaiting consolidation", "Could not consolidate findings", "Model response error, re-consolidating findings"},
+		"extract":     {"Distilling key findings", "Key findings distilled", "Awaiting key findings", "Could not distill findings", "Model response error, re-distilling key findings"},
+		"finalize":    {"Composing the final answer", "Final answer composed", "Awaiting final answer", "Could not compose answer", "Model response error, re-composing the final answer"},
+		"write_analyze": {"Analyzing task context", "Task context analyzed", "Awaiting task analysis", "Could not analyze task", "Model response error, re-analyzing task context"},
+		"plan":          {"Drafting change plan", "Change plan ready", "Awaiting change plan", "No change plan produced", "Model response error, re-drafting change plan"},
 		"apply":         {"Applying changes", "Changes applied", "Awaiting apply", "Apply incomplete", "Apply hit an error, retrying"},
 		"verify":        {"Running tests", "Tests passed", "Awaiting verification", "Tests did not pass", "Test verification hit an error, retrying"},
 	}

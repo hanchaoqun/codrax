@@ -535,10 +535,17 @@ func (r *Renderer) handleEvent(ev Event) {
 		// stayed at the prior verify's "请求模型中" for 5-30s,
 		// indistinguishable from a stalled tool call.
 		// PhaseIndex/PhaseTotal carry into detail so a 3-phase
-		// run shows "审查中 ▸ phase 2/3".
+		// run shows "审查中 ▸ 阶段 2/3" (zh) / "review ▸ phase 2/3"
+		// (en). Pre-2026-05-06 detail was hardcoded "phase N/M" in
+		// English regardless of language — Chinese users saw a
+		// mixed-language "审查中 ▸ phase 2/3" tail.
 		detail := ""
 		if ev.PhaseTotal > 0 {
-			detail = fmt.Sprintf("phase %d/%d", ev.PhaseIndex+1, ev.PhaseTotal)
+			if isZh(r.lang) {
+				detail = fmt.Sprintf("阶段 %d/%d", ev.PhaseIndex+1, ev.PhaseTotal)
+			} else {
+				detail = fmt.Sprintf("phase %d/%d", ev.PhaseIndex+1, ev.PhaseTotal)
+			}
 		}
 		r.activity = activityState{
 			kind:   activityAcceptanceReview,
@@ -1149,7 +1156,14 @@ func formatPhaseProgressLine(lang string, idx, total int, kind PhaseProgressKind
 	case PhaseProgressRejected:
 		icon = "✗"
 	}
-	header := fmt.Sprintf("%s Phase %d/%d", icon, idx+1, total)
+	// "Phase" → "阶段" so a zh user does not see "▶ Phase 2/3 启动"
+	// — pre-fix the noun was hardcoded English regardless of language.
+	var header string
+	if zh {
+		header = fmt.Sprintf("%s 阶段 %d/%d", icon, idx+1, total)
+	} else {
+		header = fmt.Sprintf("%s Phase %d/%d", icon, idx+1, total)
+	}
 	suffix := ""
 	switch kind {
 	case PhaseProgressStart:
