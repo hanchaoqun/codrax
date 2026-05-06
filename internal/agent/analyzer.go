@@ -1323,6 +1323,30 @@ func buildAnalysisIR(ctx *types.AgentContext) (*types.AnalysisIR, error) {
 		rm = amplified
 	}
 
+	// L0-B-pre (2026-05-06) — Implementers expansion for enumeration
+	// questions whose entity is an interface/trait/protocol declaration.
+	//
+	// Pre-fix: questions like "list all implementers of LoopController" were
+	// classified as IsCategoryEnumeration=true (correctly — the answer is a
+	// set), but at analyze time the LLM has not read code yet so it can only
+	// name the interface itself, populating entities=[LoopController]. The
+	// L0-B gate below then rejects (distinctNamedEntities ≤ 1) and the
+	// analyze stage exhausts its retry budget with no answer.
+	//
+	// Fix: when the analyzer's classification declares enumeration intent
+	// AND the named entity is a known interface/trait/protocol Symbol in
+	// the repo graph, expand AnalyzerHints.Entities with the typed list of
+	// implementer names from Graph.ImplementersOf. The graph primitive is
+	// language-agnostic (populateImplementers post-pass handles Go's
+	// structural method-set check, Java/Kotlin's `implements`, Rust's
+	// `impl Trait`, Python's ABC subclass list, etc.) and is the same
+	// signal explorer.implementerFilesFromGraph already uses, so this
+	// keeps the typed-signal contract that L0-B requires.
+	//
+	// Empty / non-interface-shaped entities short-circuit so the
+	// expansion is a no-op for any case it cannot ground precisely.
+	rm.AnalyzerHints.Entities = expandEntitiesWithImplementers(ctx, rm)
+
 	// L0-B (2026-05-05) — Enumeration cardinality structural sanity.
 	// When the analyzer LLM (or amplifier R1 flip) declares the
 	// question as IsCategoryEnumeration=true but only emitted ≤1
@@ -2240,6 +2264,130 @@ func extractQuotedLiterals(s string) []string {
 // rule existed solely to nudge AnalyzerHints.Shape toward "value"
 // on a quoted-literal hit, and the V2 carrier no longer keys answer
 // rendering off shape.
+
+// expandEntitiesWithImplementers is the L0-B-pre helper that turns
+// "list all implementers of <interface>" questions into emit-able
+// shape for the L0-B cardinality gate. When the analyzer's
+// classification says the question IS an enumeration (or
+// registration) but the LLM only emitted the interface / trait /
+// protocol name (because it has not yet read the implementing
+// types), this helper consults the repo graph and expands the
+// entity list with the names of every concrete implementer.
+//
+// Returns the expansion when ALL of the following hold:
+//
+//  1. rm.Predicates.IsCategoryEnumeration is true (question is an
+//     enumeration of values).
+//  2. distinctNamedEntities(rm.AnalyzerHints.Entities) is exactly 1
+//     (the LLM has the wrapper handle but not the values).
+//  3. The single entity is a known Symbol in the repo graph with
+//     Kind ∈ {interface, trait, protocol} — the language-agnostic
+//     marker that "this token is the interface side of an
+//     implements relation". populateImplementers (graph build
+//     post-pass) cross-references this against every concrete type
+//     whose method set / `impl Trait` / `extends Class` / Python
+//     ABC subclass list satisfies the interface, regardless of
+//     source language.
+//
+// When any condition fails the input slice is returned unchanged
+// (no expansion). The helper is a pure read on rm + graph; no
+// closure mutation. Empty / nil receiver / unknown entity / no
+// implementers all degrade to the same "return as-is" path.
+//
+// Why here (analyze stage, post-amplifier, pre-L0-B): the L0-B
+// gate is the load-bearing structural check that traps the
+// interface-only emit. Doing the expansion just before L0-B means
+// the gate sees the populated entities slice as if the LLM had
+// emitted them, and the rest of the pipeline (compiler /
+// scenario template / downstream rendering) consumes the
+// authoritative implementer list rather than the wrapper handle.
+//
+// Cross-language note: the typed signal Symbol.Kind +
+// Symbol.Implements (populated by populateImplementers) abstracts
+// per-language implementation. Go uses structural method-set
+// checking; Java / Kotlin / Swift use the `implements` /
+// `Protocol` keyword; Rust uses `impl Trait for T`; Python uses
+// ABC subclass registration. The graph normalises all these into
+// the same Implements list, so this helper does not need to know
+// which language the file is in.
+func expandEntitiesWithImplementers(ctx *types.AgentContext, rm types.RequestModel) []string {
+	original := rm.AnalyzerHints.Entities
+	if !rm.Predicates.IsCategoryEnumeration {
+		return original
+	}
+	if distinctNamedEntities(original) != 1 {
+		return original
+	}
+	graph := analyzerGraphForNormalize(ctx, rm)
+	if graph == nil {
+		return original
+	}
+	// Pick the single distinct entity (case-trim).
+	var bare string
+	for _, e := range original {
+		t := strings.TrimSpace(e)
+		if t != "" {
+			bare = t
+			break
+		}
+	}
+	if bare == "" {
+		return original
+	}
+	// Confirm the entity is the interface side of an implements
+	// relation in the graph. Skip when the entity is a struct /
+	// function / const — those legitimately go through the L0-B
+	// gate as "missing the enumerated values" rather than being
+	// auto-expanded here.
+	defs, ok := graph.SymbolDefs[bare]
+	if !ok {
+		return original
+	}
+	isInterfaceShaped := false
+	for _, d := range defs {
+		if d == nil {
+			continue
+		}
+		switch d.Kind {
+		case "interface", "trait", "protocol":
+			isInterfaceShaped = true
+		}
+		if isInterfaceShaped {
+			break
+		}
+	}
+	if !isInterfaceShaped {
+		return original
+	}
+	ids := graph.ImplementersOf(bare)
+	if len(ids) == 0 {
+		return original
+	}
+	// Translate SymbolIDs to canonical concrete-type names. Same
+	// receiver / package may appear multiple times (one per file
+	// scan); dedupe case-insensitively to keep the L0-B gate's
+	// distinctNamedEntities accurate. Insertion order is
+	// preserved so the downstream prompt's entity rendering is
+	// deterministic.
+	out := append([]string(nil), original...)
+	seen := make(map[string]bool, len(ids)+len(out))
+	for _, e := range out {
+		seen[strings.ToLower(strings.TrimSpace(e))] = true
+	}
+	for _, id := range ids {
+		sym, ok := graph.SymbolByID[id]
+		if !ok || sym == nil || sym.Name == "" {
+			continue
+		}
+		key := strings.ToLower(strings.TrimSpace(sym.Name))
+		if key == "" || seen[key] {
+			continue
+		}
+		seen[key] = true
+		out = append(out, sym.Name)
+	}
+	return out
+}
 
 // distinctNamedEntities counts the case-folded distinct non-blank
 // entries in entities. Used by the L0-B enumeration cardinality
