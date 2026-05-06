@@ -89,10 +89,10 @@ func (t *EmitAnswerDocument) canonicalParameters() json.RawMessage {
           "kind": {
             "type": "string",
             "enum": ["summary", "section", "ordered_list", "bullet_list", "scalar", "decision", "table", "diagram", "caveat"],
-            "description": "Block kind. Required."
+            "description": "Block kind. Required. Each kind expects a specific payload field — the wrong payload location is the most common shape error: summary/section/scalar/decision/caveat use block.text; ordered_list/bullet_list/table use block.items[]; **kind=diagram REQUIRES the sibling diagram object below (with kind, language, body) — diagram body NEVER goes in block.text**."
           },
           "title": {"type": "string", "description": "Optional sub-heading for section / table / diagram / caveat blocks."},
-          "text": {"type": "string", "description": "Block body prose. Used by summary / section / scalar / decision / caveat. Markdown-flavoured."},
+          "text": {"type": "string", "description": "Block body prose. Used by summary / section / scalar / decision / caveat. Markdown-flavoured. NEVER use this field on diagram blocks — diagram body lives in diagram.body."},
           "items": {
             "type": "array",
             "description": "Block items for ordered_list / bullet_list / table. For tables each item is one row.",
@@ -108,7 +108,7 @@ func (t *EmitAnswerDocument) canonicalParameters() json.RawMessage {
           },
           "diagram": {
             "type": "object",
-            "description": "Diagram payload for kind=diagram blocks. Body is the raw mermaid (or text) source.",
+            "description": "Diagram payload object — REQUIRED whenever kind=diagram (the validator rejects a diagram-kind block that omits this field). Three required sub-fields: {kind: <semantic family enum below>, language: \"mermaid\", body: <raw mermaid source>}. Diagram body goes here, in body — NOT in the block-level text field. Do not emit this field on non-diagram blocks.",
             "properties": {
               "kind":     {"type": "string", "enum": ["flow", "sequence", "architecture", "call_dag"], "description": "SEMANTIC family of the diagram, NOT a Mermaid keyword. Use the family the contract names: flow (branches/guards), sequence (actor-to-actor over time), architecture (layered components), call_dag (one-to-many dispatch). Mermaid syntax tokens like \"flowchart\" and \"sequenceDiagram\" belong inside diagram.body, NOT here."},
               "language": {"type": "string", "description": "Diagram source language. Defaults to \"mermaid\" — the only currently rendered subset."},

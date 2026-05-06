@@ -124,7 +124,7 @@ func validateMergedV2Doc(doc *types.AnswerDocumentV2) error {
 		}
 		seenIDs[id] = true
 		if b.Kind == types.BlockDiagram && b.Diagram == nil {
-			return fmt.Errorf("merged blocks[%d]: kind=diagram requires a non-nil diagram payload", i)
+			return fmt.Errorf("merged blocks[%d]: kind=diagram requires the sibling `diagram` object {kind: <flow|sequence|architecture|call_dag>, language: \"mermaid\", body: <raw mermaid source>}. If you removed it on a patch retry, restore it on `replace_blocks`; do not move the diagram body into the block-level `text` field", i)
 		}
 	}
 	return nil

@@ -115,6 +115,70 @@ func TestBuildAnswerDocumentParametersFor_ArchitectureKeepsDiagramAndPinsKind(t 
 	}
 }
 
+// TestBuildAnswerDocumentParametersFor_PerKindPayloadConditionals
+// pins the if/then conditionals that teach the LLM each kind's
+// required payload field. Pre-fix only kind=diagram had a hard
+// reject for missing payload (and the customer reported diagram
+// payload as a frequent retry source); other kinds silently
+// shipped broken-empty renders. Now every allowed kind carries an
+// allOf entry mapping kind=X to required=[id, kind, <payload>].
+func TestBuildAnswerDocumentParametersFor_PerKindPayloadConditionals(t *testing.T) {
+	view := &types.AnswerSemanticView{
+		Family: types.QFArchitecture,
+		RequiredBlocks: []types.BlockRequirement{
+			{Kind: types.BlockSummary, Required: true},
+			{Kind: types.BlockSection, Required: true},
+			{Kind: types.BlockOrderedList, Required: true},
+			{Kind: types.BlockDiagram, Required: true},
+		},
+		DiagramPlan: &types.DiagramFacetGraph{Required: true, Kind: types.DiagramArchitecture},
+	}
+	got := BuildAnswerDocumentParametersFor(view)
+	var root map[string]any
+	if err := json.Unmarshal(got, &root); err != nil {
+		t.Fatalf("schema must parse: %v", err)
+	}
+	props := root["properties"].(map[string]any)
+	blocks := props["blocks"].(map[string]any)
+	bItems := blocks["items"].(map[string]any)
+	allOf, ok := bItems["allOf"].([]any)
+	if !ok {
+		t.Fatalf("blocks.items must carry allOf conditionals; got %+v", bItems)
+	}
+	wantPayloads := map[string]string{
+		"summary":      "text",
+		"section":      "text",
+		"ordered_list": "items",
+		"diagram":      "diagram",
+	}
+	gotPayloads := make(map[string]string, len(allOf))
+	for _, c := range allOf {
+		entry := c.(map[string]any)
+		ifNode := entry["if"].(map[string]any)
+		ifProps := ifNode["properties"].(map[string]any)
+		kindNode := ifProps["kind"].(map[string]any)
+		kind := kindNode["const"].(string)
+		thenNode := entry["then"].(map[string]any)
+		req := thenNode["required"].([]any)
+		// Find the payload field — it is the third entry after "id"
+		// and "kind" in the canonical order.
+		for _, r := range req {
+			s := r.(string)
+			if s != "id" && s != "kind" {
+				gotPayloads[kind] = s
+			}
+		}
+	}
+	if len(gotPayloads) != len(wantPayloads) {
+		t.Errorf("expected one conditional per allowed kind; got %v", gotPayloads)
+	}
+	for k, want := range wantPayloads {
+		if got := gotPayloads[k]; got != want {
+			t.Errorf("kind=%q want payload=%q got %q", k, want, got)
+		}
+	}
+}
+
 // TestBuildAnswerDocumentParametersFor_BlockKindEnumRestricted
 // confirms block.kind is narrowed to the kinds the view declares.
 func TestBuildAnswerDocumentParametersFor_BlockKindEnumRestricted(t *testing.T) {

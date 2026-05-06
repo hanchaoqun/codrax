@@ -55,6 +55,7 @@ func BuildAnswerDocumentParametersFor(view *types.AnswerSemanticView) json.RawMe
 			projectDiagramField(blockProps, view)
 			projectEdgeAnchorsField(blockProps, view)
 		}
+		projectKindPayloadConditionals(blockItems, view)
 	}
 
 	// Document-level conditional fields.
@@ -185,6 +186,110 @@ func projectDiagramField(blockProps map[string]any, view *types.AnswerSemanticVi
 	}
 	if dk := view.DiagramPlan.Kind; dk != "" {
 		kindField["enum"] = []string{string(dk)}
+	}
+	// Inside the diagram object: kind + body are load-bearing; mark
+	// them required so the LLM cannot emit `{}` for the payload.
+	// language defaults to "mermaid" downstream; not required.
+	diagramField["required"] = []string{"kind", "body"}
+}
+
+// blockKindPayloadField maps each block kind to the load-bearing
+// payload field the LLM MUST fill on that kind. The runtime
+// normalize / validator layers expect these fields populated; making
+// them schema-required teaches the LLM the per-kind shape contract
+// up front instead of waiting for a downstream reject.
+//
+//   - summary / section / scalar / decision / caveat → block.text
+//     (the prose / literal / verdict / scope-note carrier)
+//   - ordered_list / bullet_list / table → block.items[]
+//     (rows / list entries — empty list is a structural failure)
+//   - diagram → block.diagram (the {kind, language, body} payload
+//     object — diagram body never goes in block.text)
+var blockKindPayloadField = map[string]string{
+	"summary":      "text",
+	"section":      "text",
+	"scalar":       "text",
+	"decision":     "text",
+	"caveat":       "text",
+	"ordered_list": "items",
+	"bullet_list":  "items",
+	"table":        "items",
+	"diagram":      "diagram",
+}
+
+// projectKindPayloadConditionals teaches the schema, via JSON Schema's
+// allOf+if/then construct, that each block-kind requires its load-
+// bearing payload field. The block.required array stays at
+// ["id", "kind"] (those are universal); the conditional then-clause
+// adds the per-kind field. Only kinds present in the projected enum
+// (i.e. the view's allowed RequiredBlocks ∪ OptionalBlocks) get
+// conditionals — projecting irrelevant kinds wastes prompt budget.
+//
+// Pre-fix only kind=diagram had a normalize-layer hard reject for
+// missing payload (and the customer reported it as a frequent retry
+// cause). Other kinds silently produced empty / broken renders.
+// Centralising the requirement here makes the per-kind contract
+// uniform: the LLM sees up front what each kind expects, the
+// runtime normalize / validators have less to catch later, and
+// retries on "I forgot the payload" disappear from the budget.
+func projectKindPayloadConditionals(blockItems map[string]any, view *types.AnswerSemanticView) {
+	allowed := allowedKindSet(view)
+	if len(allowed) == 0 {
+		return
+	}
+	conditionals := make([]map[string]any, 0, len(allowed))
+	for _, k := range allowedKindOrder() {
+		if !allowed[k] {
+			continue
+		}
+		payload, ok := blockKindPayloadField[k]
+		if !ok {
+			continue
+		}
+		conditionals = append(conditionals, map[string]any{
+			"if": map[string]any{
+				"properties": map[string]any{
+					"kind": map[string]any{"const": k},
+				},
+			},
+			"then": map[string]any{
+				"required": []string{"id", "kind", payload},
+			},
+		})
+	}
+	if len(conditionals) > 0 {
+		blockItems["allOf"] = conditionals
+	}
+}
+
+// allowedKindSet returns the set of block-kind strings this dispatch
+// allows the LLM to emit, as restricted by the view's RequiredBlocks
+// + OptionalBlocks. Empty when the view declares neither — the caller
+// then treats every canonical kind as allowed.
+func allowedKindSet(view *types.AnswerSemanticView) map[string]bool {
+	out := make(map[string]bool, 9)
+	for _, br := range view.RequiredBlocks {
+		if br.Kind != "" {
+			out[string(br.Kind)] = true
+		}
+	}
+	for _, br := range view.OptionalBlocks {
+		if br.Kind != "" {
+			out[string(br.Kind)] = true
+		}
+	}
+	return out
+}
+
+// allowedKindOrder returns the canonical block-kind enumeration order
+// (matches AllAnswerBlockKinds). Used by the conditionals projector
+// so the resulting schema's allOf list is deterministic across runs.
+func allowedKindOrder() []string {
+	return []string{
+		"summary", "section",
+		"ordered_list", "bullet_list",
+		"scalar", "decision",
+		"table", "diagram", "caveat",
 	}
 }
 

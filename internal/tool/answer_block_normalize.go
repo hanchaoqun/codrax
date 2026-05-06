@@ -88,11 +88,11 @@ func NormalizeEmitAnswerBlock(raw emitAnswerBlockV2, fieldPath string) (types.An
 			Body:     raw.Diagram.Body,
 		}
 		if strings.TrimSpace(diag.Body) == "" {
-			return types.AnswerBlock{}, fmt.Errorf("%s: diagram body is required when diagram is present", fieldPath)
+			return types.AnswerBlock{}, fmt.Errorf("%s: diagram.body is empty — set diagram.body to the raw Mermaid source (the part inside the ```mermaid fences; the renderer adds the fences itself). diagram.body is the only place the diagram source lives — do not put it in the block-level text field", fieldPath)
 		}
 		blk.Diagram = diag
 	} else if blk.Kind == types.BlockDiagram {
-		return types.AnswerBlock{}, fmt.Errorf("%s: kind=diagram requires a non-nil diagram payload", fieldPath)
+		return types.AnswerBlock{}, fmt.Errorf("%s: kind=diagram requires the sibling `diagram` object {kind: <flow|sequence|architecture|call_dag>, language: \"mermaid\", body: <raw mermaid source>}. If the diagram body is currently in the block-level `text` field, move it into `diagram.body` and set diagram.kind to the SEMANTIC family the contract names (NOT the Mermaid keyword)", fieldPath)
 	}
 	return blk, nil
 }
