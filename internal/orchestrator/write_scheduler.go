@@ -238,10 +238,11 @@ func (o *Orchestrator) runWriteSchedulerLoop(stepBudget int) int {
 					logging.Warning("[orchestrator] %s transient dispatch error; requeued for retry %d/%d (transient budget): %v",
 						stage, state.transientRetryUsed, o.transientRetryBudget, reason)
 					o.emit(render.Event{
-						Kind:      render.EventAgentReasoning,
-						Timestamp: time.Now(),
-						Agent:     "orchestrator",
-						Reasoning: softRetryHintForStage(o.busCtx.Language, stage),
+						Kind:       render.EventOrchestratorNotice,
+						Timestamp:  time.Now(),
+						Agent:      "orchestrator",
+						NoticeKind: render.NoticeRetry,
+						Reasoning:  softRetryHintForStage(o.busCtx.Language, stage),
 					})
 					// IMPORTANT: do NOT emit EventTaskNodeEnd here.
 					// The node is going to be re-dispatched, so the
@@ -374,10 +375,11 @@ func (o *Orchestrator) runWriteSchedulerLoop(stepBudget int) int {
 					logging.Info("[orchestrator] verify SC failed; requeued %v for retry %d/%d",
 						targets, state.retryUsed, g.ExecutionPolicy.RetryBudget)
 					o.emit(render.Event{
-						Kind:      render.EventAgentReasoning,
-						Timestamp: time.Now(),
-						Agent:     "orchestrator",
-						Reasoning: softRetryHintForStage(o.busCtx.Language, stage),
+						Kind:       render.EventOrchestratorNotice,
+						Timestamp:  time.Now(),
+						Agent:      "orchestrator",
+						NoticeKind: render.NoticeRetry,
+						Reasoning:  softRetryHintForStage(o.busCtx.Language, stage),
 					})
 					// Same retry-render contract as the transient-retry
 					// branch above: do NOT emit EventTaskNodeEnd because

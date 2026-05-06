@@ -320,10 +320,11 @@ func (o *Orchestrator) runForcedReads() int {
 			closure.BumpForcedReads(legacyCount)
 		}
 		o.emit(render.Event{
-			Kind:      render.EventAgentReasoning,
-			Timestamp: time.Now(),
-			Agent:     "orchestrator",
-			Reasoning: softForcedReadMessage(o.busCtx.Language, success),
+			Kind:       render.EventOrchestratorNotice,
+			Timestamp:  time.Now(),
+			Agent:      "orchestrator",
+			NoticeKind: render.NoticeForcedRead,
+			Reasoning:  softForcedReadMessage(o.busCtx.Language, success),
 		})
 	}
 	return success
@@ -388,10 +389,11 @@ func (o *Orchestrator) emitAbandonEvent(file, cause string) {
 		lang = o.busCtx.Language
 	}
 	o.emit(render.Event{
-		Kind:      render.EventAgentReasoning,
-		Timestamp: time.Now(),
-		Agent:     "orchestrator",
-		Reasoning: abandonForcedReadMessage(lang, file, cause),
+		Kind:       render.EventOrchestratorNotice,
+		Timestamp:  time.Now(),
+		Agent:      "orchestrator",
+		NoticeKind: render.NoticeAbandonRead,
+		Reasoning:  abandonForcedReadMessage(lang, file, cause),
 	})
 }
 
@@ -726,10 +728,11 @@ func (o *Orchestrator) detectStallAndAct() bool {
 			})
 			o.busCtx.Mutable.SetInvestigationComplete(fmt.Sprintf("convergence stall: %d consecutive explore rounds with no investigation progress", cgecStallThresholdHard))
 			o.emit(render.Event{
-				Kind:      render.EventAgentReasoning,
-				Timestamp: time.Now(),
-				Agent:     "orchestrator",
-				Reasoning: softConvergenceStallMessage(o.busCtx.Language),
+				Kind:       render.EventOrchestratorNotice,
+				Timestamp:  time.Now(),
+				Agent:      "orchestrator",
+				NoticeKind: render.NoticeConvergenceStall,
+				Reasoning:  softConvergenceStallMessage(o.busCtx.Language),
 			})
 			return true
 		}

@@ -214,10 +214,11 @@ func planPostHook(o *Orchestrator, out *agent.StageOutput) error {
 			// on plan.PlanCritique; the dock line is a discoverability
 			// hint, not a replacement.
 			o.emit(render.Event{
-				Kind:      render.EventAgentReasoning,
-				Timestamp: time.Now(),
-				Agent:     "plan_critic",
-				Reasoning: softPlanCriticReviewMessage(o.busCtx.Language, riskCount),
+				Kind:       render.EventOrchestratorNotice,
+				Timestamp:  time.Now(),
+				Agent:      "orchestrator",
+				NoticeKind: render.NoticePlanReview,
+				Reasoning:  softPlanCriticReviewMessage(o.busCtx.Language, riskCount),
 			})
 		}
 	}

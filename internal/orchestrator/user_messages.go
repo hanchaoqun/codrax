@@ -4,17 +4,23 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/hanchaoqun/codrax/internal/render"
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
 // user_messages.go — short localized strings rendered into
-// EventAgentReasoning when the orchestrator needs to update the user
-// about internal scheduler decisions (forced reads, convergence
-// stalls, etc.).
+// EventOrchestratorNotice when the orchestrator needs to update the
+// user about internal scheduler decisions (forced reads, convergence
+// stalls, etc.). Pre-this-event the strings flowed through
+// EventAgentReasoning and the dock rendered them with the same
+// `💭 [orchestrator-N] …` style as genuine LLM thinking — users
+// could not tell which lines were the LLM and which were the
+// orchestrator. The new event drops the 💭 prefix + agent tag so
+// the two surfaces are visually distinct.
 //
 // Design contract:
 //
-//   - Soft symbols (⟳, ·, ›, –) only. Bright glyphs (📊 · ✅) are
+//   - Soft symbols (⟳, ·, ›, –, ⊘) only. Bright glyphs (📊 · ✅) are
 //     avoided because they dominate the TUI at the cadence the
 //     orchestrator emits these events.
 //   - User language, not internal jargon. "CGEC E2 / I4", counter
@@ -22,6 +28,9 @@ import (
 //     never appear in Reasoning strings.
 //   - One sentence, describes what is happening from the user's
 //     point of view, not what internal enforcer fired.
+//   - Each emit site picks a render.OrchestratorNoticeKind that
+//     matches the message's semantic bucket (retry / info /
+//     progress); the renderer paints color from that classification.
 
 // preferZhMessage reports whether the busCtx language indicator
 // prefers Simplified Chinese. Mirrors the list render.answerdoc uses
@@ -260,6 +269,27 @@ func softFallbackTargetMessage(lang string, target FallbackTarget) string {
 		return "⟳ Answer needs more evidence — re-investigating"
 	}
 	return softAnswerCheckRetryMessage(lang)
+}
+
+// noticeKindForFallbackTarget maps a Block 3 fallback target to the
+// dock NoticeKind used when surfacing the corresponding soft message.
+// FailLoud is the terminal "shipping with caveat" path — informational,
+// gray. The three layer-rerun targets are active retry signals — yellow.
+// Keeps the call site at orchestrator.go:emit clean.
+func noticeKindForFallbackTarget(target FallbackTarget) render.OrchestratorNoticeKind {
+	switch target {
+	case FallbackFailLoud:
+		return render.NoticeFallbackFailLoud
+	case FallbackFinalizerOnly:
+		return render.NoticeFallbackFinalizerOnly
+	case FallbackBackToExtract:
+		return render.NoticeFallbackBackToExtract
+	case FallbackBackToExplore:
+		return render.NoticeFallbackBackToExplore
+	}
+	// Unknown / reserved (BackToAnalyze) — degrade to gray info so the
+	// dock still reads as a soft notice rather than dropping silent.
+	return render.NoticeFallbackFailLoud
 }
 
 // softUpstreamFallbackCapMessage (B.7+ audit followup, 2026-05-02)

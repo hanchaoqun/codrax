@@ -1158,12 +1158,13 @@ func (b *BaseAgent) Execute(ctx *types.AgentContext, sk *skill.Config) (*StageOu
 				lang = ctx.Language
 			}
 			b.deps.Emit(render.Event{
-				Kind:      render.EventAgentReasoning,
-				Timestamp: time.Now(),
-				Agent:     "orchestrator",
-				Stage:     ctx.Stage,
-				Iteration: i,
-				Reasoning: softNoToolCallMessage(lang),
+				Kind:       render.EventOrchestratorNotice,
+				Timestamp:  time.Now(),
+				Agent:      "orchestrator",
+				Stage:      ctx.Stage,
+				Iteration:  i,
+				NoticeKind: render.NoticeNoToolCall,
+				Reasoning:  softNoToolCallMessage(lang),
 			})
 		}
 

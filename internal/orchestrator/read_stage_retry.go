@@ -97,10 +97,11 @@ func (o *Orchestrator) retryReadStageDispatchError(
 	logging.Warning("[orchestrator] retrying %s after transient dispatch error (%d/%d transient budget): %v",
 		stage, state.transientRetryUsed, o.transientRetryBudget, err)
 	o.emit(render.Event{
-		Kind:      render.EventAgentReasoning,
-		Timestamp: time.Now(),
-		Agent:     "orchestrator",
-		Reasoning: softRetryHintMessage(o.busCtx.Language),
+		Kind:       render.EventOrchestratorNotice,
+		Timestamp:  time.Now(),
+		Agent:      "orchestrator",
+		NoticeKind: render.NoticeRetry,
+		Reasoning:  softRetryHintMessage(o.busCtx.Language),
 	})
 	return true
 }

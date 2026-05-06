@@ -1769,10 +1769,11 @@ func (o *Orchestrator) runSelfConsistencyReviewV2(doc *types.AnswerDocumentV2, m
 
 	// Status line: never silent background work.
 	o.emit(render.Event{
-		Kind:      render.EventAgentReasoning,
-		Timestamp: time.Now(),
-		Agent:     "orchestrator",
-		Reasoning: selfConsistencyReviewStartMessage(o.busCtx.Language),
+		Kind:       render.EventOrchestratorNotice,
+		Timestamp:  time.Now(),
+		Agent:      "orchestrator",
+		NoticeKind: render.NoticeSelfConsistencyStart,
+		Reasoning:  selfConsistencyReviewStartMessage(o.busCtx.Language),
 	})
 
 	// Pull summary + body off V2 blocks. Strip system-injected
@@ -1809,12 +1810,20 @@ func (o *Orchestrator) runSelfConsistencyReviewV2(doc *types.AnswerDocumentV2, m
 		return nil
 	}
 
-	// Surface contradiction count + rewrite-mode to the user.
+	// Surface contradiction count + rewrite-mode to the user. The
+	// NoticeKind tracks the rewrite flag so the dock paints active
+	// rewriting in yellow (system is doing more work) and the
+	// advisory-only path in gray (already shipping; just FYI).
+	contradictionKind := render.NoticeSelfConsistencyContradictionLogged
+	if o.selfConsistencyRewriteOnContradiction {
+		contradictionKind = render.NoticeSelfConsistencyContradictionRewriting
+	}
 	o.emit(render.Event{
-		Kind:      render.EventAgentReasoning,
-		Timestamp: time.Now(),
-		Agent:     "orchestrator",
-		Reasoning: selfConsistencyContradictionMessage(o.busCtx.Language, o.selfConsistencyRewriteOnContradiction, len(verdict.Contradictions)),
+		Kind:       render.EventOrchestratorNotice,
+		Timestamp:  time.Now(),
+		Agent:      "orchestrator",
+		NoticeKind: contradictionKind,
+		Reasoning:  selfConsistencyContradictionMessage(o.busCtx.Language, o.selfConsistencyRewriteOnContradiction, len(verdict.Contradictions)),
 	})
 
 	out := make([]types.Violation, 0, len(verdict.Contradictions))

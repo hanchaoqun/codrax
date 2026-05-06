@@ -2839,10 +2839,11 @@ func (o *Orchestrator) handleStructurallyEmptyInvestigation(state *graphState, f
 		}
 		state.recordRetry()
 		o.emit(render.Event{
-			Kind:      render.EventAgentReasoning,
-			Timestamp: time.Now(),
-			Agent:     "orchestrator",
-			Reasoning: softRetryHintMessage(o.busCtx.Language),
+			Kind:       render.EventOrchestratorNotice,
+			Timestamp:  time.Now(),
+			Agent:      "orchestrator",
+			NoticeKind: render.NoticeRetry,
+			Reasoning:  softRetryHintMessage(o.busCtx.Language),
 		})
 		return nil, msg, true
 	}
@@ -3210,10 +3211,11 @@ func (o *Orchestrator) runReadSchedulerLoop(stepBudget int) int {
 						o.emitNodeEnd(n.ID, true, "")
 					}
 					o.emit(render.Event{
-						Kind:      render.EventAgentReasoning,
-						Timestamp: time.Now(),
-						Agent:     "orchestrator",
-						Reasoning: softInvestigationReadyMessage(o.busCtx.Language),
+						Kind:       render.EventOrchestratorNotice,
+						Timestamp:  time.Now(),
+						Agent:      "orchestrator",
+						NoticeKind: render.NoticeInvestigationReady,
+						Reasoning:  softInvestigationReadyMessage(o.busCtx.Language),
 					})
 					o.runAutoVerdicts()
 					o.drainHypothesisVerdicts()
@@ -3240,10 +3242,11 @@ func (o *Orchestrator) runReadSchedulerLoop(stepBudget int) int {
 					// the INFO log above — the user-facing event stays
 					// jargon-free per the user_messages.go contract.
 					o.emit(render.Event{
-						Kind:      render.EventAgentReasoning,
-						Timestamp: time.Now(),
-						Agent:     "orchestrator",
-						Reasoning: softRetryHintMessage(o.busCtx.Language),
+						Kind:       render.EventOrchestratorNotice,
+						Timestamp:  time.Now(),
+						Agent:      "orchestrator",
+						NoticeKind: render.NoticeRetry,
+						Reasoning:  softRetryHintMessage(o.busCtx.Language),
 					})
 					// No EventTaskNodeEnd on requeue — the renderer treats
 					// the node as still "running" until the next
@@ -3320,10 +3323,11 @@ func (o *Orchestrator) runReadSchedulerLoop(stepBudget int) int {
 						logging.Info("[scheduler/stuck] validate %s: trigger=%s injected=%d inconclusive verdict(s)",
 							valFailed.ID, trigger, injected)
 						o.emit(render.Event{
-							Kind:      render.EventAgentReasoning,
-							Timestamp: time.Now(),
-							Agent:     "orchestrator",
-							Reasoning: softConvergenceStallMessage(o.busCtx.Language),
+							Kind:       render.EventOrchestratorNotice,
+							Timestamp:  time.Now(),
+							Agent:      "orchestrator",
+							NoticeKind: render.NoticeConvergenceStall,
+							Reasoning:  softConvergenceStallMessage(o.busCtx.Language),
 						})
 					} else {
 						// Neither fingerprint matched — run the normal
@@ -3423,10 +3427,11 @@ func (o *Orchestrator) runReadSchedulerLoop(stepBudget int) int {
 				// via the pendingViolation pathway and the WARN above,
 				// not leaked to the user-facing event.
 				o.emit(render.Event{
-					Kind:      render.EventAgentReasoning,
-					Timestamp: time.Now(),
-					Agent:     "orchestrator",
-					Reasoning: softRetryHintMessage(o.busCtx.Language),
+					Kind:       render.EventOrchestratorNotice,
+					Timestamp:  time.Now(),
+					Agent:      "orchestrator",
+					NoticeKind: render.NoticeRetry,
+					Reasoning:  softRetryHintMessage(o.busCtx.Language),
 				})
 				continue
 			}
@@ -3495,10 +3500,11 @@ func (o *Orchestrator) runReadSchedulerLoop(stepBudget int) int {
 		// row sits silent on "thinking" for the full composition
 		// window. Users lose any signal that the answer is imminent.
 		o.emit(render.Event{
-			Kind:      render.EventAgentReasoning,
-			Timestamp: time.Now(),
-			Agent:     "orchestrator",
-			Reasoning: softFinalizingMessage(o.busCtx.Language),
+			Kind:       render.EventOrchestratorNotice,
+			Timestamp:  time.Now(),
+			Agent:      "orchestrator",
+			NoticeKind: render.NoticeFinalizing,
+			Reasoning:  softFinalizingMessage(o.busCtx.Language),
 		})
 		stepsUsed++
 		out, err := o.dispatchStage(types.StageFinalize)
@@ -3728,10 +3734,11 @@ func (o *Orchestrator) runReadSchedulerLoop(stepBudget int) int {
 			// design (no new progress on any tracked axis), not a
 			// silent jump from "retry" to fail-loud answer header.
 			o.emit(render.Event{
-				Kind:      render.EventAgentReasoning,
-				Timestamp: time.Now(),
-				Agent:     "orchestrator",
-				Reasoning: softYieldKillMessage(o.busCtx.Language),
+				Kind:       render.EventOrchestratorNotice,
+				Timestamp:  time.Now(),
+				Agent:      "orchestrator",
+				NoticeKind: render.NoticeYieldKill,
+				Reasoning:  softYieldKillMessage(o.busCtx.Language),
 			})
 			out.FinalAnswer = o.applyContractViolations(out.FinalAnswer, res)
 			out.FinalAnswer = AppendUserCaveatsToAnswer(out.FinalAnswer, res.Violations, o.busCtx.Language)
@@ -3821,9 +3828,10 @@ func (o *Orchestrator) runReadSchedulerLoop(stepBudget int) int {
 			// design — not a silent jump from "retry" to "fail-loud
 			// header in answer text".
 			o.emit(render.Event{
-				Kind:      render.EventAgentReasoning,
-				Timestamp: time.Now(),
-				Agent:     "orchestrator",
+				Kind:       render.EventOrchestratorNotice,
+				Timestamp:  time.Now(),
+				Agent:      "orchestrator",
+				NoticeKind: render.NoticeUpstreamCap,
 				Reasoning: softUpstreamFallbackCapMessage(o.busCtx.Language,
 					state.upstreamFallbacksUsed, o.maxUpstreamFallbacksPerRun),
 			})
@@ -3938,10 +3946,11 @@ func (o *Orchestrator) runReadSchedulerLoop(stepBudget int) int {
 		// "answer needs another pass" message rendered for every
 		// target, hiding the real scope of the retry.
 		o.emit(render.Event{
-			Kind:      render.EventAgentReasoning,
-			Timestamp: time.Now(),
-			Agent:     "orchestrator",
-			Reasoning: softFallbackTargetMessage(o.busCtx.Language, fallback),
+			Kind:       render.EventOrchestratorNotice,
+			Timestamp:  time.Now(),
+			Agent:      "orchestrator",
+			NoticeKind: noticeKindForFallbackTarget(fallback),
+			Reasoning:  softFallbackTargetMessage(o.busCtx.Language, fallback),
 		})
 	}
 
@@ -3978,10 +3987,11 @@ contractFailureBreak:
 		// escape still runs a composition-only LLM call with no tool
 		// activity.
 		o.emit(render.Event{
-			Kind:      render.EventAgentReasoning,
-			Timestamp: time.Now(),
-			Agent:     "orchestrator",
-			Reasoning: softFinalizingMessage(o.busCtx.Language),
+			Kind:       render.EventOrchestratorNotice,
+			Timestamp:  time.Now(),
+			Agent:      "orchestrator",
+			NoticeKind: render.NoticeFinalizing,
+			Reasoning:  softFinalizingMessage(o.busCtx.Language),
 		})
 		// Force-finalize transient retry. Pre-2026-04-30 the
 		// force-finalize was a single-shot dispatch; an
@@ -4028,10 +4038,11 @@ contractFailureBreak:
 			// Surface a brief recovery cue to the user so the
 			// spinner area shows we're not stuck silent.
 			o.emit(render.Event{
-				Kind:      render.EventAgentReasoning,
-				Timestamp: time.Now(),
-				Agent:     "orchestrator",
-				Reasoning: softRetryHintMessage(o.busCtx.Language),
+				Kind:       render.EventOrchestratorNotice,
+				Timestamp:  time.Now(),
+				Agent:      "orchestrator",
+				NoticeKind: render.NoticeRetry,
+				Reasoning:  softRetryHintMessage(o.busCtx.Language),
 			})
 			// Reuse the LLM adapter's production-tested backoff
 			// schedule (Retry-After header > quota long-ramp >
@@ -5159,10 +5170,11 @@ func (o *Orchestrator) applyStageOutput(output *agent.StageOutput) {
 		// users cannot interpret. The full body stays in the debug
 		// log via `[<agent>] retry hint built key=…` for operators.
 		o.emit(render.Event{
-			Kind:      render.EventAgentReasoning,
-			Timestamp: time.Now(),
-			Agent:     "orchestrator",
-			Reasoning: softRetryHintMessage(o.busCtx.Language),
+			Kind:       render.EventOrchestratorNotice,
+			Timestamp:  time.Now(),
+			Agent:      "orchestrator",
+			NoticeKind: render.NoticeRetry,
+			Reasoning:  softRetryHintMessage(o.busCtx.Language),
 		})
 	}
 
