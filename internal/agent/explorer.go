@@ -2745,33 +2745,64 @@ func (e *explorerEvaluator) coverageScopeFiles(discovered []string, readSet map[
 	return out
 }
 
-// implementerFilesFromGraph returns repo-relative paths of every
-// FileInfo that contains a concrete-type symbol whose Implements
-// field carries an interface SymbolID matching one of `entities`.
-// Returns nil when graph is nil OR no entity resolves to an
-// interface OR no implementers exist. P2 #4 (2026-05-03) — replaces
-// the keyword-ranker's noisy file list for category-enumeration
-// questions with the typed structural answer set, eliminating the
-// 12+ unrelated-file recommendations the s5a regression surfaced
-// (the ranker returned files like loop_policy.go / agent.go /
-// finalize_preview.go that have no LoopController implementer
-// but matched popular keywords).
+// ImplementerExpansion is the typed result of expanding interface /
+// trait / protocol entity names into their concrete implementers via
+// the repo graph. Both consumers of the implementers-of-interface
+// graph walk fill from the SAME single traversal:
 //
-// Pure typed-signal helper — reads only graph.SymbolDefs for the
-// interface lookup and walks fi.Symbols[i].Implements for the
-// concrete-side membership. Zero substring matching, zero ranker
-// scoring. Per the precise-signals-for-hard-gates red line, this
-// signal IS precise enough to drive a structural decision.
-func implementerFilesFromGraph(graph any, entities []string) []string {
+//   - Files: canonical repo-relative paths of every FileInfo that
+//     contains an implementing concrete-type Symbol. Used by the
+//     explorer's mid-loop scope hint (P2 #4) to replace the keyword
+//     ranker's noisy file list for category-enumeration questions.
+//
+//   - Names: bare Symbol.Name of each concrete implementer
+//     (insertion-order preserved, deduped case-insensitively). Used
+//     by the analyzer's L0-B-pre entity expansion (2026-05-06) so the
+//     enumeration cardinality gate sees the implementer values rather
+//     than the wrapper-interface name alone.
+//
+// Both fields are populated in one graph walk so a future third
+// consumer (extract / finalize / etc.) can consume either or both
+// without re-traversing.
+type ImplementerExpansion struct {
+	Files []string
+	Names []string
+}
+
+// expandImplementersFromGraph is the unified typed-graph primitive
+// read for "find concrete implementers of these interface entities".
+// Pre-2026-05-06 the explorer (`implementerFilesFromGraph`) and the
+// analyzer (`expandEntitiesWithImplementers`) each walked the graph
+// independently — same `g.SymbolDefs[entity]` lookup + same
+// `fi.Symbols[i].Implements` traversal — diverging only at the
+// final field they kept (file path vs symbol name). The unified
+// helper does the walk once, returns both, and lets the two
+// consumers each take what they need.
+//
+// Returns a zero-value ImplementerExpansion when graph is nil, no
+// entity resolves to an interface declaration, or no implementers
+// exist. Both fields preserve insertion order for deterministic
+// downstream rendering, and dedupe case-insensitively (Files dedup
+// by canonical path; Names dedup by lowercased trimmed token).
+//
+// Per the precise-signals-for-hard-gates red line: this signal IS
+// precise enough to drive a structural decision. Reads only
+// graph.SymbolDefs (declaration site) and Symbol.Implements
+// (concrete-side membership populated by populateImplementers).
+// Zero substring matching, zero ranker scoring; cross-language by
+// construction (per-language extractors fill Implements uniformly).
+func expandImplementersFromGraph(graph any, entities []string) ImplementerExpansion {
 	if graph == nil || len(entities) == 0 {
-		return nil
+		return ImplementerExpansion{}
 	}
 	g, ok := graph.(*repotypes.Graph)
 	if !ok || g == nil {
-		return nil
+		return ImplementerExpansion{}
 	}
-	seen := make(map[string]bool)
-	var out []string
+	seenFile := make(map[string]bool)
+	seenName := make(map[string]bool)
+	var files []string
+	var names []string
 	for _, entity := range entities {
 		entity = strings.TrimSpace(entity)
 		if entity == "" {
@@ -2786,15 +2817,30 @@ func implementerFilesFromGraph(graph any, entities []string) []string {
 			if !ok || sym == nil {
 				continue
 			}
-			file := canonicalExplorerPath(sym.File)
-			if file == "" || seen[file] {
-				continue
+			if file := canonicalExplorerPath(sym.File); file != "" && !seenFile[file] {
+				seenFile[file] = true
+				files = append(files, file)
 			}
-			seen[file] = true
-			out = append(out, file)
+			if name := strings.TrimSpace(sym.Name); name != "" {
+				key := strings.ToLower(name)
+				if !seenName[key] {
+					seenName[key] = true
+					names = append(names, name)
+				}
+			}
 		}
 	}
-	return out
+	return ImplementerExpansion{Files: files, Names: names}
+}
+
+// implementerFilesFromGraph is the explorer-side thin wrapper around
+// expandImplementersFromGraph that returns just the canonical file
+// paths. Kept as its own entry point so the existing call site at
+// explorer.go:6318 (P2 #4 mid-loop scope hint) stays a one-line
+// invocation. Behaviour is byte-identical to the pre-2026-05-06
+// stand-alone implementation.
+func implementerFilesFromGraph(graph any, entities []string) []string {
+	return expandImplementersFromGraph(graph, entities).Files
 }
 
 func (e *explorerEvaluator) rankerCoverageFiles() []string {

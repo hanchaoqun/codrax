@@ -2359,32 +2359,27 @@ func expandEntitiesWithImplementers(ctx *types.AgentContext, rm types.RequestMod
 	if !isInterfaceShaped {
 		return original
 	}
-	ids := graph.ImplementersOf(bare)
-	if len(ids) == 0 {
+	// Reuse the unified graph walk (explorer.expandImplementersFromGraph)
+	// so this analyzer-side expansion and the explorer-side scope
+	// hint (implementerFilesFromGraph) read from a single typed
+	// primitive. We consume only the .Names half here; .Files is
+	// what explorer needs.
+	exp := expandImplementersFromGraph(graph, []string{bare})
+	if len(exp.Names) == 0 {
 		return original
 	}
-	// Translate SymbolIDs to canonical concrete-type names. Same
-	// receiver / package may appear multiple times (one per file
-	// scan); dedupe case-insensitively to keep the L0-B gate's
-	// distinctNamedEntities accurate. Insertion order is
-	// preserved so the downstream prompt's entity rendering is
-	// deterministic.
 	out := append([]string(nil), original...)
-	seen := make(map[string]bool, len(ids)+len(out))
+	seen := make(map[string]bool, len(exp.Names)+len(out))
 	for _, e := range out {
 		seen[strings.ToLower(strings.TrimSpace(e))] = true
 	}
-	for _, id := range ids {
-		sym, ok := graph.SymbolByID[id]
-		if !ok || sym == nil || sym.Name == "" {
-			continue
-		}
-		key := strings.ToLower(strings.TrimSpace(sym.Name))
+	for _, name := range exp.Names {
+		key := strings.ToLower(strings.TrimSpace(name))
 		if key == "" || seen[key] {
 			continue
 		}
 		seen[key] = true
-		out = append(out, sym.Name)
+		out = append(out, name)
 	}
 	return out
 }
