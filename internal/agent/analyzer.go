@@ -2334,46 +2334,69 @@ func expandEntitiesWithImplementers(ctx *types.AgentContext, rm types.RequestMod
 	if bare == "" {
 		return original
 	}
-	// Confirm the entity is the interface side of an implements
-	// relation in the graph. Skip when the entity is a struct /
-	// function / const — those legitimately go through the L0-B
-	// gate as "missing the enumerated values" rather than being
-	// auto-expanded here.
-	defs, ok := graph.SymbolDefs[bare]
-	if !ok {
-		return original
-	}
-	isInterfaceShaped := false
-	for _, d := range defs {
-		if d == nil {
-			continue
+	// Two expansion paths share the same shape:
+	//   (a) entity is an interface / trait / protocol → expand with
+	//       concrete implementers via Graph.ImplementersOf
+	//   (b) entity is a file path → expand with the file's import
+	//       paths via graph.FileIndex[path].Imports
+	// Both pull from typed graph primitives populated by the
+	// per-language extractors, so the expansion is structurally
+	// correct + cross-language.
+
+	// Path (a): interface / trait / protocol → implementers.
+	if defs, ok := graph.SymbolDefs[bare]; ok {
+		for _, d := range defs {
+			if d == nil {
+				continue
+			}
+			switch d.Kind {
+			case "interface", "trait", "protocol":
+				exp := expandImplementersFromGraph(graph, []string{bare})
+				if len(exp.Names) == 0 {
+					return original
+				}
+				return mergeExpandedEntities(original, exp.Names)
+			}
 		}
-		switch d.Kind {
-		case "interface", "trait", "protocol":
-			isInterfaceShaped = true
+	}
+
+	// Path (b): entity is a file path that resolves in graph.FileIndex
+	// AND has at least one tracked import. The natural enumeration
+	// for "list X's imports" / "what does X depend on" questions is
+	// the file's import paths themselves. Symbol-based lookup did
+	// not match (the entity is not an interface symbol), and the
+	// FileIndex lookup gives us the typed import slice the
+	// per-language extractors populate (Go `import` blocks, Python
+	// `import` / `from-import`, Java `import`, JS / TS
+	// `import` / `require`, Rust `use`, etc.).
+	if fi, ok := graph.FileIndex[bare]; ok && fi != nil && len(fi.Imports) > 0 {
+		paths := make([]string, 0, len(fi.Imports))
+		for _, imp := range fi.Imports {
+			if p := strings.TrimSpace(imp.Path); p != "" {
+				paths = append(paths, p)
+			}
 		}
-		if isInterfaceShaped {
-			break
+		if len(paths) == 0 {
+			return original
 		}
+		return mergeExpandedEntities(original, paths)
 	}
-	if !isInterfaceShaped {
-		return original
-	}
-	// Reuse the unified graph walk (explorer.expandImplementersFromGraph)
-	// so this analyzer-side expansion and the explorer-side scope
-	// hint (implementerFilesFromGraph) read from a single typed
-	// primitive. We consume only the .Names half here; .Files is
-	// what explorer needs.
-	exp := expandImplementersFromGraph(graph, []string{bare})
-	if len(exp.Names) == 0 {
-		return original
-	}
+
+	return original
+}
+
+// mergeExpandedEntities appends `extra` to `original`, dropping
+// case-folded duplicates and preserving insertion order. Shared
+// helper for the two expansion paths in
+// expandEntitiesWithImplementers (interface → implementers, file
+// path → imports).
+func mergeExpandedEntities(original, extra []string) []string {
 	out := append([]string(nil), original...)
-	seen := make(map[string]bool, len(exp.Names)+len(out))
+	seen := make(map[string]bool, len(extra)+len(out))
 	for _, e := range out {
 		seen[strings.ToLower(strings.TrimSpace(e))] = true
 	}
-	for _, name := range exp.Names {
+	for _, name := range extra {
 		key := strings.ToLower(strings.TrimSpace(name))
 		if key == "" || seen[key] {
 			continue
