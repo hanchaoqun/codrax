@@ -68,7 +68,7 @@ func TestFormatLogTriageStructured_IncludesRuntimeTupleDiscipline(t *testing.T) 
 	}
 	got := formatLogTriageStructured(bundle)
 	for _, want := range []string{
-		"Frame argument tuples such as `func(0x0)` or `method(0x0, ...)` are observation-only encodings",
+		"Stack-frame argument annotations attached by the runtime artifact's panic / exception / traceback dumper",
 		"Do NOT map their positional values to a specific receiver, source parameter, caller-side provenance, or exact downstream branch",
 	} {
 		if !strings.Contains(got, want) {

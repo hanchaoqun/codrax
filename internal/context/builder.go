@@ -1918,8 +1918,11 @@ func formatLogTriageStructured(bundle *types.LogBundle) string {
 		"Prefer this view for citing frames and reasoning about the error chain — " +
 		"the full raw log is still available in the next section for cross-checking " +
 		"quotes or reading context that did not fit the structured schema.\n\n")
-	b.WriteString("Frame argument tuples such as `func(0x0)` or `method(0x0, ...)` are observation-only encodings from the runtime artifact. " +
-		"Do NOT map their positional values to a specific receiver, source parameter, caller-side provenance, or exact downstream branch unless a current cited code line explicitly proves that mapping.\n\n")
+	b.WriteString("Stack-frame argument annotations attached by the runtime artifact's panic / exception / traceback dumper " +
+		"(argument-register or pointer-literal tuples, native-method placeholders, locals snapshots — exact form varies by " +
+		"language and runtime) are observation-only encodings. Do NOT map their positional values to a specific receiver, " +
+		"source parameter, caller-side provenance, or exact downstream branch unless a current cited code line explicitly " +
+		"proves that mapping.\n\n")
 
 	// ── Front-loaded external-source directive ────────────────
 	//
