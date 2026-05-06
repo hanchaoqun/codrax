@@ -53,7 +53,7 @@ QUESTION="codrax 的 read-mode pipeline 由哪几个 stage 组成？每个 stage
 # alternation member is a verb the case's ground truth would
 # accept as "this answer correctly describes the stage's role".
 EXPECT_CONTAINS="analyze explore extract finalize"
-EXPECT_MATCHES_REGEX="(classif|分类|hypothes|假设|意图|理解|推断|识别|解析|静态分析|task.?graph|任务图|AnalysisIR)
+EXPECT_MATCHES_REGEX="(classif|分类|hypothes|假设|意图|理解|推断|识别|解析|静态分析|[Tt]ask.?[Gg]raph|任务图|AnalysisIR)
 (read_file|grep|investig|读取|调查|探索|遍历|evidence|证据|分派|fan.?out)
 (structured|symbol|结构化|提取|抽取|validate|verify|验证|核实|证据链|抽证)
 (render|emit_answer_document|渲染|生成|综合|输出|synthes|compose|合成)"
