@@ -59,9 +59,9 @@ func softForcedReadMessage(lang string, _ int) string {
 // and the orchestrator force-completes with current evidence.
 func softConvergenceStallMessage(lang string) string {
 	if preferZhMessage(lang) {
-		return "– 根据已有线索作答"
+		return "– 基于现有证据作答"
 	}
-	return "– Finalizing with current leads"
+	return "– Finalizing with available evidence"
 }
 
 // abandonForcedReadMessage renders the user-visible line for the
@@ -87,9 +87,9 @@ func abandonForcedReadMessage(lang, file, cause string) string {
 // not silent background work. Bilingual.
 func selfConsistencyReviewStartMessage(lang string) string {
 	if preferZhMessage(lang) {
-		return "⟳ 审查答案前后一致性"
+		return "⟳ 检查答案是否前后一致"
 	}
-	return "⟳ Reviewing answer self-consistency"
+	return "⟳ Checking the answer for inconsistencies"
 }
 
 // selfConsistencyContradictionMessage (commit 62): rendered when
@@ -99,14 +99,14 @@ func selfConsistencyReviewStartMessage(lang string) string {
 func selfConsistencyContradictionMessage(lang string, rewrite bool, count int) string {
 	if preferZhMessage(lang) {
 		if rewrite {
-			return fmt.Sprintf("⟳ 检测到 %d 处前后矛盾，正在重写答案", count)
+			return fmt.Sprintf("⟳ 检测到 %d 处前后不一致，正在重写答案", count)
 		}
-		return fmt.Sprintf("· 检测到 %d 处前后矛盾（仅记录，未重写）", count)
+		return fmt.Sprintf("· 检测到 %d 处前后不一致（仅记录，未重写）", count)
 	}
 	if rewrite {
-		return fmt.Sprintf("⟳ Found %d self-contradiction(s) — rewriting answer", count)
+		return fmt.Sprintf("⟳ Found %d inconsistency(ies) — rewriting the answer", count)
 	}
-	return fmt.Sprintf("· Found %d self-contradiction(s) (logged, not rewritten)", count)
+	return fmt.Sprintf("· Found %d inconsistency(ies) (logged, not rewritten)", count)
 }
 
 // softRetryHintMessage renders the user-visible line for the generic
@@ -154,13 +154,13 @@ func plannerProseFallbackMessage(ctx *types.BusContext) string {
 		zh = preferZhMessage(ctx.Language)
 	}
 	if zh {
-		return "本轮没产出可执行的改动方案。下一步两选一:\n\n" +
-			"  • 咨询类问题(怎么修复 / 怎么安装 / 是什么原因):/mode read 后原样再问\n" +
-			"  • 确实要改代码:把目标说具体(改哪个文件 / 加什么 / 接口长什么样)再发一遍"
+		return "本轮没生成改动方案。下一步两选一:\n\n" +
+			"  • 咨询类问题(怎么装、为什么报错、是什么原因):/mode read 后再问一次\n" +
+			"  • 真要改代码:把目标说具体(改哪个文件 / 加什么 / 接口长什么样)再发一遍"
 	}
-	return "no executable change plan was produced this turn. Pick one:\n\n" +
-		"  • advisory question (how to install, why this failed): /mode read then re-ask\n" +
-		"  • genuine code change: re-send the request with a concrete target (which file, what to add, what interface)"
+	return "No actionable change plan was produced this turn. Pick one:\n\n" +
+		"  • Advice / how-to question (e.g. \"how do I install X?\"): /mode read, then re-ask\n" +
+		"  • Real code change: re-send with a specific target — which file, what to add, what interface"
 }
 
 // softRetryHintForStage is the stage-aware variant. Write-mode
@@ -206,9 +206,9 @@ func softRetryHintForStage(lang string, stage types.PipelineStage) string {
 // to move to the answer stage.
 func softInvestigationReadyMessage(lang string) string {
 	if preferZhMessage(lang) {
-		return "› 调查就绪，准备作答"
+		return "› 调查完成，准备作答"
 	}
-	return "› Investigation ready, preparing answer"
+	return "› Investigation done — preparing the answer"
 }
 
 // softAnswerCheckRetryMessage renders the user-visible line for
@@ -249,24 +249,24 @@ func softFallbackTargetMessage(lang string, target FallbackTarget) string {
 	switch target {
 	case FallbackFailLoud:
 		if zh {
-			return "· 答案存在未解决问题,已无法通过重试修复"
+			return "· 答案存在未解决问题，已无法通过重试修复"
 		}
 		return "· Answer has unresolved issues that retry cannot fix"
 	case FallbackFinalizerOnly:
 		if zh {
-			return "⟳ 答案待完善,正在重新组织表述"
+			return "⟳ 答案待完善，正在重写"
 		}
-		return "⟳ Answer needs polishing — re-composing"
+		return "⟳ Polishing the answer — rewriting"
 	case FallbackBackToExtract:
 		if zh {
-			return "⟳ 答案结构待修正,回到结构化阶段"
+			return "⟳ 重新整理答案结构"
 		}
-		return "⟳ Answer structure needs fixing — restructuring"
+		return "⟳ Reworking the answer structure"
 	case FallbackBackToExplore:
 		if zh {
-			return "⟳ 答案证据不足,回到调查阶段"
+			return "⟳ 证据不足，继续探索"
 		}
-		return "⟳ Answer needs more evidence — re-investigating"
+		return "⟳ Need more evidence — exploring further"
 	}
 	return softAnswerCheckRetryMessage(lang)
 }
@@ -302,9 +302,9 @@ func noticeKindForFallbackTarget(target FallbackTarget) render.OrchestratorNotic
 // unaware that the retry was capped rather than naturally completed.
 func softUpstreamFallbackCapMessage(lang string, used, cap int) string {
 	if preferZhMessage(lang) {
-		return fmt.Sprintf("· 已达调查回退上限 (%d/%d),不再回退,以现有证据作答", used, cap)
+		return fmt.Sprintf("· 已达重试上限 (%d/%d)，基于现有证据作答", used, cap)
 	}
-	return fmt.Sprintf("· Upstream fallback cap reached (%d/%d) — finalizing with current evidence", used, cap)
+	return fmt.Sprintf("· Retry budget reached (%d/%d) — finalizing with what we have", used, cap)
 }
 
 // softYieldKillMessage (A.2 audit followup, 2026-05-02) renders the
@@ -318,7 +318,7 @@ func softUpstreamFallbackCapMessage(lang string, used, cap int) string {
 // with no explanation of WHY the retry stopped early.
 func softYieldKillMessage(lang string) string {
 	if preferZhMessage(lang) {
-		return "· 重试无新进展,以现有结论作答"
+		return "· 重试无新进展，基于现有结论作答"
 	}
 	return "· Retry produced no new progress — finalizing"
 }
@@ -337,12 +337,12 @@ func softPlanCriticReviewMessage(lang string, riskCount int) string {
 	zh := preferZhMessage(lang)
 	if riskCount == 0 {
 		if zh {
-			return "· 方案已审阅,未发现风险点"
+			return "· 方案已审阅，未发现风险点"
 		}
 		return "· Plan reviewed — no risks flagged"
 	}
 	if zh {
-		return fmt.Sprintf("· 方案已审阅,记录 %d 项风险点 (查看 /plan show)", riskCount)
+		return fmt.Sprintf("· 方案已审阅，记录 %d 项风险点(查看 /plan show)", riskCount)
 	}
 	return fmt.Sprintf("· Plan reviewed — %d risk(s) flagged (see /plan show)", riskCount)
 }
@@ -357,7 +357,7 @@ func softPlanCriticReviewMessage(lang string, riskCount int) string {
 // into the finalize stage.
 func softFinalizingMessage(lang string) string {
 	if preferZhMessage(lang) {
-		return "⟳ 正在组织最终答案"
+		return "⟳ 正在生成最终答案"
 	}
 	return "⟳ Composing the final answer"
 }
@@ -386,22 +386,22 @@ func forcedFinalizeFailureMessage(err error, lang string) string {
 		strings.Contains(probe, "connection reset"),
 		strings.Contains(probe, "connection refused"):
 		if zh {
-			return "无法继续：与模型的连接中断,可能是网络抖动或上游临时不可用,请稍后重试"
+			return "无法继续：与模型的连接中断，可能是网络抖动或上游临时不可用，请稍后重试"
 		}
 		return "Cannot continue: connection to the model dropped (transient network or upstream issue); please retry"
 	case strings.Contains(probe, "no deployments available"),
 		strings.Contains(probe, "rate limit"),
 		strings.Contains(probe, "429"):
 		if zh {
-			return "无法继续：模型服务暂不可用或限流,请稍后重试"
+			return "无法继续：模型服务暂不可用或限流，请稍后重试"
 		}
 		return "Cannot continue: model service is unavailable or rate-limited; please retry"
 	case strings.Contains(probe, "context canceled"),
 		strings.Contains(probe, "context cancelled"):
 		if zh {
-			return "已取消：用户中断了本次任务"
+			return "已取消：本次任务被中断"
 		}
-		return "Cancelled: interrupted by user"
+		return "Cancelled by user"
 	case strings.Contains(probe, "deadline exceeded"),
 		strings.Contains(probe, "timeout"):
 		if zh {

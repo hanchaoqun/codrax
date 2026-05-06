@@ -162,7 +162,7 @@ func TestHandleMergeCmd_NoApplyYet(t *testing.T) {
 	r.handleMergeCmd("/merge")
 
 	got := out.String()
-	if !strings.Contains(got, "no worktree to merge from") {
+	if !strings.Contains(strings.ToLower(got), "no worktree to merge from") {
 		t.Errorf("expected 'no worktree to merge from'; got: %q", got)
 	}
 }

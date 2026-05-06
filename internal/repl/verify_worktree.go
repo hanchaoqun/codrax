@@ -37,7 +37,7 @@ func (r *REPL) handleVerifyCmd(line string) {
 	var planPath string
 	if arg == "" {
 		if r.pendingPlanPath == "" {
-			r.info("no pending plan — supply a plan id (see /plan list) or /mode plan first")
+			r.info("No pending plan — supply a plan id (see /plan list) or /mode plan first")
 			return
 		}
 		planPath = r.pendingPlanPath

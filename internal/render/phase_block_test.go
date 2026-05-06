@@ -93,7 +93,7 @@ func TestActivityPhrase_AcceptanceReview(t *testing.T) {
 	if zh != "验收审查中" {
 		t.Errorf("zh phrase drift; got %q", zh)
 	}
-	if en != "acceptance review" {
+	if en != "Acceptance review" {
 		t.Errorf("en phrase drift; got %q", en)
 	}
 }

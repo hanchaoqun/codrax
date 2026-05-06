@@ -45,7 +45,7 @@ func TestFriendlyRunError_TranslatesStreamStalled(t *testing.T) {
 	wrapped := fmt.Errorf("LLM call failed: %w", stalled)
 
 	enGot := friendlyRunError("en", wrapped)
-	if !strings.Contains(enGot, "upstream LLM stream stalled") {
+	if !strings.Contains(strings.ToLower(enGot), "upstream llm stream stalled") {
 		t.Errorf("en: expected 'upstream LLM stream stalled' phrase; got %q", enGot)
 	}
 	if !strings.Contains(enGot, "60s") && !strings.Contains(enGot, "1m0s") {
@@ -77,20 +77,20 @@ func TestFriendlyRunError_FirstByteTimeoutHasDistinctMessage(t *testing.T) {
 	wrapped := fmt.Errorf("LLM call failed: %w", fb)
 
 	enGot := friendlyRunError("en", wrapped)
-	if !strings.Contains(enGot, "no SSE bytes") {
-		t.Errorf("en: expected 'no SSE bytes' phrase; got %q", enGot)
+	if !strings.Contains(strings.ToLower(enGot), "never sent any response") {
+		t.Errorf("en: expected 'never sent any response' phrase; got %q", enGot)
 	}
 	if !strings.Contains(enGot, "20s") && !strings.Contains(enGot, "20.0s") {
 		t.Errorf("en: idle duration missing; got %q", enGot)
 	}
 	// Must NOT mention "stalled mid-stream" (different error class).
-	if strings.Contains(enGot, "mid-emit") {
+	if strings.Contains(enGot, "mid-stream") || strings.Contains(enGot, "mid-emit") {
 		t.Errorf("en: first-byte must not borrow stall prose; got %q", enGot)
 	}
 
 	zhGot := friendlyRunError("zh", wrapped)
-	if !strings.Contains(zhGot, "未返回任何 SSE 字节") {
-		t.Errorf("zh: expected '未返回任何 SSE 字节'; got %q", zhGot)
+	if !strings.Contains(zhGot, "无任何响应") {
+		t.Errorf("zh: expected '无任何响应'; got %q", zhGot)
 	}
 }
 
@@ -105,7 +105,7 @@ func TestFriendlyRunError_FirstByteMatchesBeforeStreamStalled(t *testing.T) {
 		Cause:   context.Canceled,
 	}
 	got := friendlyRunError("en", fb)
-	if !strings.Contains(got, "no SSE bytes") {
+	if !strings.Contains(strings.ToLower(got), "never sent any response") {
 		t.Errorf("first-byte branch must take precedence over stall branch; got %q", got)
 	}
 	if strings.Contains(got, "stalled with no bytes") {
@@ -183,11 +183,11 @@ func TestBannerCapabilityLine(t *testing.T) {
 // cryptic "??" pre-fix rendering.
 func TestEmptyResponseHint_BothLangs(t *testing.T) {
 	en := emptyResponseHint("en")
-	if !strings.Contains(en, "no content") || !strings.Contains(en, "log") {
+	if !strings.Contains(strings.ToLower(en), "no content") || !strings.Contains(en, "log") {
 		t.Errorf("en hint must explain absence + name log; got: %q", en)
 	}
 	zh := emptyResponseHint("zh")
-	if !strings.Contains(zh, "无内容") || !strings.Contains(zh, "log") {
+	if !strings.Contains(zh, "没有产出") || !strings.Contains(zh, "log") {
 		t.Errorf("zh hint must explain absence + name log; got: %q", zh)
 	}
 }
@@ -318,7 +318,7 @@ func TestRejectConfirmed_BothLangs(t *testing.T) {
 	if !strings.Contains(zhWith, "已拒绝") || !strings.Contains(zhWith, "plan-X") || !strings.Contains(zhWith, "broken patch") {
 		t.Errorf("zh-with-reason malformed; got %q", zhWith)
 	}
-	if !strings.Contains(enWith, "rejected") || !strings.Contains(enWith, "plan-X") {
+	if !strings.Contains(strings.ToLower(enWith), "rejected") || !strings.Contains(enWith, "plan-X") {
 		t.Errorf("en-with-reason malformed; got %q", enWith)
 	}
 	zhNo := rejectConfirmedNoReason("zh", "plan-Y")
@@ -346,7 +346,7 @@ func TestModeSwitched_BothLangs(t *testing.T) {
 	if !strings.Contains(modeSwitched("zh", "plan"), "已切换") {
 		t.Error("zh missing 已切换")
 	}
-	if !strings.Contains(modeSwitched("en", "plan"), "switched") {
+	if !strings.Contains(strings.ToLower(modeSwitched("en", "plan")), "switched") {
 		t.Error("en missing 'switched'")
 	}
 }
@@ -498,7 +498,7 @@ func TestPlanShowFooter_StatusAware(t *testing.T) {
 		{"verify_failed", "--retry"},
 		{"partially_applied", "--retry"},
 		{"unverified", "--retry"},
-		{"applied", "/merge to fold"},
+		{"applied", "/merge to merge"},
 	} {
 		lines := planShowFooter("en", c.status)
 		joined := strings.Join(lines, " ")

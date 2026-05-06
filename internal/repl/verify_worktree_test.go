@@ -49,7 +49,7 @@ func TestVerify_NoPendingPlan(t *testing.T) {
 	store := NewPlanStore(t.TempDir())
 	r, out := newScriptedREPL(t, store)
 	r.handleVerifyCmd("/verify")
-	if !strings.Contains(out.String(), "no pending plan") {
+	if !strings.Contains(out.String(), "No pending plan") {
 		t.Errorf("expected no-pending message; got %q", out.String())
 	}
 }

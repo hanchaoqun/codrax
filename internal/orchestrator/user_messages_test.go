@@ -41,10 +41,10 @@ func TestSoftMessages_LocalizeOnLanguage(t *testing.T) {
 			if strings.HasPrefix(got, "–") == false {
 				t.Errorf("stall must start with the – soft symbol, got %q", got)
 			}
-			if c.zh && !strings.Contains(got, "线索") {
+			if c.zh && !strings.Contains(got, "证据") {
 				t.Errorf("zh: stall must be Chinese, got %q", got)
 			}
-			if !c.zh && !strings.Contains(got, "Finalizing") {
+			if !c.zh && !strings.Contains(got, "evidence") {
 				t.Errorf("en: stall must be English, got %q", got)
 			}
 
@@ -85,7 +85,7 @@ func TestSoftMessages_LocalizeOnLanguage(t *testing.T) {
 			if strings.HasPrefix(got, "⟳") == false {
 				t.Errorf("finalizing must start with the ⟳ soft symbol, got %q", got)
 			}
-			if c.zh && !strings.Contains(got, "组织") {
+			if c.zh && !strings.Contains(got, "生成") {
 				t.Errorf("zh: finalizing must be Chinese, got %q", got)
 			}
 			if !c.zh && !strings.Contains(got, "Composing") {

@@ -140,7 +140,7 @@ func TestStatus_StageLocalization(t *testing.T) {
 	}
 	enOut := renderRows(t, "en", rows...)
 	for _, want := range []string{
-		"Cross-validating evidence", "Consolidating exploration results", "Composing the final answer",
+		"Cross-validating evidence", "Consolidating findings", "Composing the final answer",
 	} {
 		if !strings.Contains(enOut, want) {
 			t.Errorf("expected %q in en stage output; got:\n%s", want, enOut)
@@ -262,7 +262,7 @@ func TestStatus_WriteModeFlow(t *testing.T) {
 	}
 	enOut := renderRows(t, "en", rows...)
 	for _, want := range []string{
-		"Change plan ready", "Changes applied", "Running tests for verification",
+		"Change plan ready", "Changes applied", "Running tests",
 	} {
 		if !strings.Contains(enOut, want) {
 			t.Errorf("en write-mode flow: expected %q in:\n%s", want, enOut)

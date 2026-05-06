@@ -46,7 +46,7 @@ func TestRecoverPendingPlanFromStore_FindsLatestPending(t *testing.T) {
 // TestRecoverPendingPlanFromStore_NoPendingReturnsFalse verifies the
 // helper returns false when only applied / failed / rejected plans
 // exist. The /plan show caller falls through to the existing
-// "no pending plan" message.
+// "No pending plan" message.
 func TestRecoverPendingPlanFromStore_NoPendingReturnsFalse(t *testing.T) {
 	store := NewPlanStore(t.TempDir())
 	if _, err := store.SaveForTest(&types.ChangePlan{
@@ -73,7 +73,7 @@ func TestRecoverPendingPlanFromStore_NoPendingReturnsFalse(t *testing.T) {
 // TestPlanShow_RecoversFromStoreWhenPointerEmpty is the integration
 // test for the bug fix: /plan show with empty pendingPlanPath now
 // finds and rebinds the most recent pending plan from PlanStore
-// instead of printing "no pending plan". This is the user-visible
+// instead of printing "No pending plan". This is the user-visible
 // recovery after /approve fails pre-flight.
 func TestPlanShow_RecoversFromStoreWhenPointerEmpty(t *testing.T) {
 	store := NewPlanStore(t.TempDir())
@@ -97,7 +97,7 @@ func TestPlanShow_RecoversFromStoreWhenPointerEmpty(t *testing.T) {
 	r.handlePlanCmd("/plan show")
 
 	got := out.String()
-	if !strings.Contains(got, "recovered pending plan") {
+	if !strings.Contains(got, "Recovered pending plan") {
 		t.Errorf("expected recovery banner; got: %q", got)
 	}
 	if !strings.Contains(got, "plan-recovery-target") {
@@ -109,7 +109,7 @@ func TestPlanShow_RecoversFromStoreWhenPointerEmpty(t *testing.T) {
 }
 
 // TestPlanShow_NoRecoveryWhenNothingPending verifies the original
-// "no pending plan" message still prints when there's truly nothing
+// "No pending plan" message still prints when there's truly nothing
 // to recover (empty PlanStore).
 func TestPlanShow_NoRecoveryWhenNothingPending(t *testing.T) {
 	store := NewPlanStore(t.TempDir())
@@ -118,10 +118,10 @@ func TestPlanShow_NoRecoveryWhenNothingPending(t *testing.T) {
 	r.handlePlanCmd("/plan show")
 
 	got := out.String()
-	if !strings.Contains(got, "no pending plan") {
-		t.Errorf("expected 'no pending plan' message; got: %q", got)
+	if !strings.Contains(got, "No pending plan") {
+		t.Errorf("expected 'No pending plan' message; got: %q", got)
 	}
-	if strings.Contains(got, "recovered pending plan") {
+	if strings.Contains(got, "Recovered pending plan") {
 		t.Errorf("recovery banner should not fire on empty store; got: %q", got)
 	}
 }

@@ -162,23 +162,23 @@ func stagePhrase(key string, lang string, state stagePhraseState) string {
 	// reached its goal without scanning glyphs.
 	tableZh := map[string]quad{
 		// Pre-stages
-		"log_triage":  {"正在解析日志", "已解析日志", "待解析日志", "解析日志失败"},
-		"perf_triage": {"正在解析性能数据", "已解析性能数据", "待解析性能数据", "解析性能数据失败"},
+		"log_triage":  {"正在解析日志", "已解析日志", "待解析日志", "未能解析日志"},
+		"perf_triage": {"正在解析性能数据", "已解析性能数据", "待解析性能数据", "未能解析性能数据"},
 		// Read-mode core flow
-		"analyze": {"正在理解问题", "已理解问题", "待理解问题", "理解问题失败"},
+		"analyze": {"正在理解问题", "已理解问题", "待理解问题", "未能理解问题"},
 		// "explore" is the orchestrator-level stage AND the topic-
 		// group parent label when multiple sub-topics fan out. As a
 		// single status line it reads as "正在深入分析" — the broad
 		// umbrella over the per-topic evidence work.
-		"explore": {"正在深入分析", "已完成深入分析", "待深入分析", "深入分析失败"},
+		"explore": {"正在深入分析", "已完成深入分析", "待深入分析", "深入分析未完成"},
 		// "evidence" is the NodeEvidence sub-step where the agent
 		// actually reads code (read_file / grep / repo_map) and
 		// emits structured evidence.
-		"evidence":  {"正在探索代码并收集证据", "已完成证据收集", "待探索代码并收集证据", "证据收集失败"},
-		"validate":  {"正在交叉验证证据", "已交叉验证证据", "待交叉验证证据", "证据交叉验证失败"},
-		"reconcile": {"正在归纳探索结果", "已归纳探索结果", "待归纳探索结果", "归纳探索结果失败"},
-		"extract":   {"正在提炼关键发现", "已提炼关键发现", "待提炼关键发现", "提炼关键发现失败"},
-		"finalize":  {"正在撰写最终答案", "已撰写最终答案", "待撰写最终答案", "撰写最终答案失败"},
+		"evidence":  {"正在探索代码并收集证据", "已完成证据收集", "待探索代码并收集证据", "未收集到足够证据"},
+		"validate":  {"正在交叉验证证据", "已交叉验证证据", "待交叉验证证据", "交叉验证未完成"},
+		"reconcile": {"正在归纳探索结果", "已归纳探索结果", "待归纳探索结果", "未能归纳结果"},
+		"extract":   {"正在提炼关键发现", "已提炼关键发现", "待提炼关键发现", "未能提炼关键发现"},
+		"finalize":  {"正在撰写最终答案", "已撰写最终答案", "待撰写最终答案", "未能生成最终答案"},
 		// Write-mode flow.
 		// plan failure: "未生成改动方案" — the model didn't produce a
 		//   usable plan this round; reads as "no plan" not "plan
@@ -194,25 +194,25 @@ func stagePhrase(key string, lang string, state stagePhraseState) string {
 		// Pre-2026-05-01 it had no entry and rendered as the generic
 		// "正在处理任务" / "Processing task" — visually invisible during
 		// a real LLM call.
-		"write_analyze": {"正在分析任务上下文", "已分析任务上下文", "待分析任务上下文", "任务上下文分析失败"},
+		"write_analyze": {"正在分析任务上下文", "已分析任务上下文", "待分析任务上下文", "未能分析任务上下文"},
 		"plan":          {"正在设计改动方案", "已设计改动方案", "待设计改动方案", "未生成改动方案"},
-		"apply":         {"正在应用改动", "已应用改动", "待应用改动", "应用改动失败"},
+		"apply":         {"正在应用改动", "已应用改动", "待应用改动", "未能应用改动"},
 		"verify":        {"正在跑测试验证改动", "已通过测试验证改动", "待跑测试验证改动", "测试未通过"},
 	}
 	tableEn := map[string]quad{
-		"log_triage":  {"Parsing attached log", "Log parsed", "Awaiting log parse", "Log parse failed"},
-		"perf_triage": {"Parsing performance trace", "Performance trace parsed", "Awaiting trace parse", "Trace parse failed"},
-		"analyze":     {"Understanding the request", "Request understood", "Awaiting request understanding", "Request understanding failed"},
-		"explore":     {"Investigating the problem", "Investigation complete", "Awaiting investigation", "Investigation failed"},
-		"evidence":    {"Exploring code, collecting evidence", "Evidence collected", "Awaiting code exploration", "Evidence collection failed"},
-		"validate":    {"Cross-validating evidence", "Evidence cross-validated", "Awaiting cross-validation", "Cross-validation failed"},
-		"reconcile":   {"Consolidating exploration results", "Exploration results consolidated", "Awaiting consolidation", "Consolidation failed"},
-		"extract":     {"Distilling key findings", "Key findings distilled", "Awaiting key-finding distillation", "Key-finding distillation failed"},
-		"finalize":    {"Composing the final answer", "Final answer composed", "Awaiting final-answer composition", "Final-answer composition failed"},
-		"write_analyze": {"Analyzing task context", "Task context analyzed", "Awaiting task-context analysis", "Task-context analysis failed"},
+		"log_triage":  {"Parsing attached log", "Log parsed", "Awaiting log", "Could not parse log"},
+		"perf_triage": {"Parsing performance trace", "Performance trace parsed", "Awaiting trace", "Could not parse trace"},
+		"analyze":     {"Understanding the request", "Request understood", "Awaiting analysis", "Could not understand request"},
+		"explore":     {"Investigating", "Investigation complete", "Awaiting investigation", "Investigation incomplete"},
+		"evidence":    {"Exploring code, collecting evidence", "Evidence collected", "Awaiting evidence", "Could not gather evidence"},
+		"validate":    {"Cross-validating evidence", "Evidence cross-validated", "Awaiting cross-validation", "Cross-validation incomplete"},
+		"reconcile":   {"Consolidating findings", "Findings consolidated", "Awaiting consolidation", "Could not consolidate findings"},
+		"extract":     {"Distilling key findings", "Key findings distilled", "Awaiting key findings", "Could not distill findings"},
+		"finalize":    {"Composing the final answer", "Final answer composed", "Awaiting final answer", "Could not compose answer"},
+		"write_analyze": {"Analyzing task context", "Task context analyzed", "Awaiting task analysis", "Could not analyze task"},
 		"plan":          {"Drafting change plan", "Change plan ready", "Awaiting change plan", "No change plan produced"},
-		"apply":         {"Applying changes", "Changes applied", "Awaiting change apply", "Apply failed"},
-		"verify":        {"Running tests for verification", "Tests verified", "Awaiting verification", "Tests did not pass"},
+		"apply":         {"Applying changes", "Changes applied", "Awaiting apply", "Apply incomplete"},
+		"verify":        {"Running tests", "Tests passed", "Awaiting verification", "Tests did not pass"},
 	}
 	var t quad
 	var ok bool

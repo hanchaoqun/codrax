@@ -16,7 +16,7 @@ import (
 // store or skip the persistence path.
 //
 // Language is forced to English here so the historical assertions
-// ("no pending plan", "approve cancelled", "mode set to plan")
+// ("No pending plan", "Approve cancelled", "mode set to plan")
 // stay deterministic across the bilingual messages.go rollout.
 // Tests that want to exercise the zh path explicitly should set
 // r.language = "zh" before driving the handler.
@@ -56,7 +56,7 @@ func TestHandleMode_SetPlan(t *testing.T) {
 	if r.currentMode != types.ModePlan {
 		t.Errorf("currentMode = %q, want %q", r.currentMode, types.ModePlan)
 	}
-	if !strings.Contains(out.String(), "switched to plan mode") {
+	if !strings.Contains(out.String(), "Switched to plan mode") {
 		t.Errorf("expected success message, got: %q", out.String())
 	}
 }
@@ -106,7 +106,7 @@ func TestHandleMode_PrintsWorkflowHint(t *testing.T) {
 	})
 	r.handleModeCmd("/mode read")
 	got := out.String()
-	if !strings.Contains(got, "switched to read mode") {
+	if !strings.Contains(got, "Switched to read mode") {
 		t.Errorf("/mode read should print success line; got: %q", got)
 	}
 	if strings.Contains(got, "ChangePlan") || strings.Contains(got, "/approve") {
@@ -161,7 +161,7 @@ func TestHandleMode_InvalidRejected(t *testing.T) {
 	if r.currentMode != before {
 		t.Errorf("invalid /mode should not change state; before=%q after=%q", before, r.currentMode)
 	}
-	if !strings.Contains(out.String(), "unknown mode") {
+	if !strings.Contains(strings.ToLower(out.String()), "unknown mode") {
 		t.Errorf("expected 'unknown mode' warning, got: %q", out.String())
 	}
 }
@@ -193,8 +193,8 @@ func TestHandlePlan_ShowEmpty(t *testing.T) {
 	store := NewPlanStore(t.TempDir())
 	r, out := newScriptedREPL(t, store)
 	r.handlePlanCmd("/plan show")
-	if !strings.Contains(out.String(), "no pending plan") {
-		t.Errorf("expected 'no pending plan' message, got: %q", out.String())
+	if !strings.Contains(out.String(), "No pending plan") {
+		t.Errorf("expected 'No pending plan' message, got: %q", out.String())
 	}
 }
 
@@ -267,7 +267,7 @@ func TestHandlePlan_ClearEmpty(t *testing.T) {
 	store := NewPlanStore(t.TempDir())
 	r, out := newScriptedREPL(t, store)
 	r.handlePlanCmd("/plan clear")
-	if !strings.Contains(out.String(), "no pending plan to clear") {
+	if !strings.Contains(out.String(), "No pending plan to clear") {
 		t.Errorf("expected 'no pending plan to clear' message, got: %q", out.String())
 	}
 }
@@ -353,7 +353,7 @@ func TestHandlePlan_UnknownSubcommand(t *testing.T) {
 	store := NewPlanStore(t.TempDir())
 	r, out := newScriptedREPL(t, store)
 	r.handlePlanCmd("/plan frobnicate")
-	if !strings.Contains(out.String(), "unknown /plan subcommand") {
+	if !strings.Contains(strings.ToLower(out.String()), "unknown /plan subcommand") {
 		t.Errorf("expected unknown subcommand warning, got: %q", out.String())
 	}
 }

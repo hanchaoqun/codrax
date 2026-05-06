@@ -108,7 +108,7 @@ func approveCancelled(lang string) string {
 	if isZh(lang) {
 		return "已取消 approve"
 	}
-	return "approve cancelled"
+	return "Approve cancelled"
 }
 
 // rejectConfirmedWithReason — message printed after /reject lands
@@ -117,7 +117,7 @@ func rejectConfirmedWithReason(lang, planID, reason string) string {
 	if isZh(lang) {
 		return formatN(lang, "已拒绝 plan %s — 原因: %s", planID, reason)
 	}
-	return formatN(lang, "rejected plan %s — reason: %s", planID, reason)
+	return formatN(lang, "Rejected plan %s — reason: %s", planID, reason)
 }
 
 // rejectConfirmedNoReason — same, no reason given.
@@ -125,7 +125,7 @@ func rejectConfirmedNoReason(lang, planID string) string {
 	if isZh(lang) {
 		return formatN(lang, "已拒绝 plan %s", planID)
 	}
-	return formatN(lang, "rejected plan %s", planID)
+	return formatN(lang, "Rejected plan %s", planID)
 }
 
 // writeModeDisabled — printed when /mode plan|apply|verify or
@@ -166,7 +166,7 @@ func writeModeDisabled(lang, mode, settingsPath string) []string {
 	out := []string{
 		formatN(lang, "%s rejected: write_enabled is false (or unset)", mode),
 		formatN(lang, "  Set `write_enabled: true` in %s and restart to enable plan / apply / verify modes.", target),
-		"  Read mode (default) needs no extra configuration.",
+		"  Read mode (the default) needs no extra configuration.",
 	}
 	if created != "" {
 		out = append(out, created)
@@ -256,9 +256,9 @@ func bannerCapabilityLine(lang string, writeEnabled bool, settingsPath string) s
 // what to do next.
 func emptyResponseHint(lang string) string {
 	if isZh(lang) {
-		return "  (无内容输出 — 可能是分析器拒绝了请求或上游 LLM 返回为空)。详情见 codrax-*.log;尝试换种问法或 /clear 后重试。"
+		return "  (没有产出内容 — 可能是分析器拒绝了请求，或上游 LLM 返回为空)。详情见 codrax-*.log；可以换一种问法，或 /clear 后再试。"
 	}
-	return "  (no content rendered — likely the analyzer rejected the request or the upstream LLM returned empty). See codrax-*.log for details; rephrase or /clear and retry."
+	return "  (No content produced — the analyzer may have rejected the request, or the upstream LLM returned empty.) See codrax-*.log for details; rephrase the question, or /clear and try again."
 }
 
 // chitchatRouteSummary returns the (label, segments) pair the
@@ -284,9 +284,9 @@ func chitchatRouteSummary(lang string) (string, []string) {
 // would just bounce off the L2 gate.
 func noPendingPlan(lang string) string {
 	if isZh(lang) {
-		return "没有待处理的 plan — 先 /mode plan 生成一份"
+		return "当前没有待处理的方案 — 先用 /mode plan 生成一份"
 	}
-	return "no pending plan — run a /mode plan dispatch to generate one"
+	return "No pending plan — run /mode plan to generate one"
 }
 
 // noPendingPlanWriteDisabled — same surface as noPendingPlan but for
@@ -300,8 +300,8 @@ func noPendingPlanWriteDisabled(lang string) []string {
 		}
 	}
 	return []string{
-		"no pending plan, and write mode is disabled.",
-		"  Set `write_enabled: true` in codrax.yaml and restart, then /mode plan to generate one.",
+		"No pending plan, and write mode is disabled.",
+		"  Set `write_enabled: true` in codrax.yaml and restart, then run /mode plan to generate one.",
 	}
 }
 
@@ -363,12 +363,12 @@ func mergeNothingToDo(lang, baseBranch string) string {
 func mergeNoApplyYet(lang string) []string {
 	if isZh(lang) {
 		return []string{
-			"没有可合并的 worktree。/merge 需要一次成功的 /approve 留下的 worktree。",
-			"  先 /mode plan 生成 plan,/approve 落地(确保 codrax.yaml 里 pipeline_keep_worktree_on_success: true),再 /merge。",
+			"没有可合并的 worktree。/merge 需要一次成功 /approve 留下的 worktree。",
+			"  先用 /mode plan 生成方案，再 /approve 落地（请确认 codrax.yaml 里 pipeline_keep_worktree_on_success: true），最后 /merge。",
 		}
 	}
 	return []string{
-		"no worktree to merge from. /merge consumes a worktree preserved by a successful /approve.",
+		"No worktree to merge from. /merge needs a worktree preserved by a successful /approve.",
 		"  Run /mode plan, then /approve (with pipeline_keep_worktree_on_success: true), then /merge.",
 	}
 }
@@ -430,7 +430,7 @@ func unsettledModePlanReject(lang, planID, status string) []string {
 			}
 		} else {
 			menu = []string{
-				"  /merge         fold back into the main repo",
+				"  /merge         merge into the main repo",
 				"  /reject        discard (keep audit record)",
 				"  /plan clear    delete outright (no audit)",
 			}
@@ -474,7 +474,7 @@ func unsettledModePlanReject(lang, planID, status string) []string {
 		"  Settle it first so the next plan can be drafted against the current repo state:",
 	}
 	out := append(header, menu...)
-	out = append(out, "  Then re-run /mode plan.")
+	out = append(out, "  Then run /mode plan again.")
 	return out
 }
 
@@ -530,9 +530,9 @@ func unsettledBanner(lang, planID, status string, worktreeMissing bool) string {
 // the mode flipped so they don't get surprised.
 func autoModeReadAfterMergeNudge(lang string) string {
 	if isZh(lang) {
-		return "  已自动切回 read 模式 — 直接提问就行。再 /mode plan 进入 plan 模式即可继续改代码。"
+		return "  已自动切回 read 模式 — 直接提问即可。要继续改代码就 /mode plan。"
 	}
-	return "  Auto-switched back to read mode — ask your next question directly. /mode plan to make another change."
+	return "  Auto-switched back to read mode — ask your next question directly. Use /mode plan when you want to make another change."
 }
 
 // mergeSuccess — printed after a clean MergeIntoBranch return.
@@ -542,12 +542,12 @@ func mergeSuccess(lang, strategy, finalBranch string, count int) []string {
 		case "fast_forward":
 			return []string{
 				formatN(lang, "  ✓ 已 fast-forward %d 个 commit 到 %s。", count, finalBranch),
-				"  下一步:git push(可选)。",
+				"  下一步：git push（可选）。",
 			}
 		default:
 			return []string{
-				formatN(lang, "  ✓ 已在主仓创建分支 %s,cherry-pick %d 个 commit。", finalBranch, count),
-				formatN(lang, "  下一步:cd <主仓> && git push -u origin %s,然后开 PR。", finalBranch),
+				formatN(lang, "  ✓ 已在主仓创建分支 %s，cherry-pick %d 个 commit。", finalBranch, count),
+				formatN(lang, "  下一步：cd <主仓> && git push -u origin %s，然后开 PR。", finalBranch),
 			}
 		}
 	}
@@ -559,7 +559,7 @@ func mergeSuccess(lang, strategy, finalBranch string, count int) []string {
 		}
 	default:
 		return []string{
-			formatN(lang, "  ✓ Branch %s created on main repo with %d cherry-picked commit(s).", finalBranch, count),
+			formatN(lang, "  ✓ Branch %s created on the main repo with %d cherry-picked commit(s).", finalBranch, count),
 			formatN(lang, "  Next: cd <main repo> && git push -u origin %s, then open a PR.", finalBranch),
 		}
 	}
@@ -577,7 +577,7 @@ func otherPendingPlansHint(lang, planID string, others int) string {
 			others, planID)
 	}
 	return formatN(lang,
-		"  note: %d other pending or verify-failed plan(s) exist. About to approve %s; target a different one via /approve <plan-id> (/plan list shows ids).",
+		"  Note: %d other pending or verify-failed plan(s) exist. About to approve %s; target a different one via /approve <plan-id> (/plan list shows them).",
 		others, planID)
 }
 
@@ -586,9 +586,9 @@ func otherPendingPlansHint(lang, planID string, others int) string {
 // skipped so they don't expect a "tests passed" verdict.
 func skipVerifyAcknowledged(lang string) string {
 	if isZh(lang) {
-		return "  --skip-verify 已生效:本次 approve 跳过 verify 阶段(只 apply,不跑测试)"
+		return "  --skip-verify 已生效：本次 approve 只 apply，不跑 verify 测试"
 	}
-	return "  --skip-verify acknowledged: this approve skips the verify stage (apply only, no tests)"
+	return "  --skip-verify acknowledged: this approve will only apply, no verify tests will run"
 }
 
 // mergeForceFailedWarning — printed when the user passes
@@ -600,12 +600,12 @@ func mergeForceFailedWarning(lang, planID string) []string {
 	if isZh(lang) {
 		return []string{
 			formatN(lang, "  · 强制合入 plan %s — 该 plan 的 verify 阶段曾失败。", planID),
-			"  请先确认 /plan show 的 diff 与失败摘要,确保失败是环境/CI 类原因(非代码缺陷)。",
+			"  请先用 /plan show 核对 diff 和失败摘要，确认失败属于环境/CI 类原因（不是代码缺陷）再继续。",
 		}
 	}
 	return []string{
 		formatN(lang, "  · Force-merging plan %s — its verify stage previously failed.", planID),
-		"  Confirm /plan show diff + failure summary; only proceed if the failure is environmental (CI/infra), not a code defect.",
+		"  Confirm the diff and failure summary via /plan show; only proceed if the failure is environmental (CI/infra), not a code defect.",
 	}
 }
 
@@ -616,13 +616,13 @@ func mergeForceFailedWarning(lang, planID string) []string {
 func mergeFailure(lang, gitDiag string) []string {
 	if isZh(lang) {
 		return []string{
-			formatN(lang, "  ✗ 合并失败:%s", oneLine(gitDiag)),
-			"  主仓已回滚到合并前的状态。可以 /worktree show 检查冲突文件,或 /reject 弃掉 plan 重新规划。",
+			formatN(lang, "  ✗ 合并失败：%s", oneLine(gitDiag)),
+			"  主仓已回滚到合并前的状态。可用 /worktree show 检查冲突文件，或 /reject 丢弃 plan 后重新规划。",
 		}
 	}
 	return []string{
 		formatN(lang, "  ✗ Merge failed: %s", oneLine(gitDiag)),
-		"  Main repo restored to prior state. /worktree show to inspect, or /reject to discard the plan.",
+		"  The main repo was restored to its prior state. Use /worktree show to inspect, or /reject to discard the plan.",
 	}
 }
 
@@ -632,17 +632,17 @@ func mergeFailure(lang, gitDiag string) []string {
 // /approve doesn't make the plan invisible.
 func recoveredPendingPlan(lang, planID string) string {
 	if isZh(lang) {
-		return formatN(lang, "  恢复待审批改动方案: %s", planID)
+		return formatN(lang, "  已恢复待审批方案: %s", planID)
 	}
-	return formatN(lang, "  recovered pending plan: %s", planID)
+	return formatN(lang, "  Recovered pending plan: %s", planID)
 }
 
 // noPendingPlanReject — same as noPendingPlan but for /reject.
 func noPendingPlanReject(lang string) string {
 	if isZh(lang) {
-		return "没有待拒绝的 plan"
+		return "当前没有可拒绝的 plan"
 	}
-	return "no pending plan to reject"
+	return "No pending plan to reject"
 }
 
 // modeSwitched — info line when user runs /mode <X>.
@@ -650,7 +650,7 @@ func modeSwitched(lang, mode string) string {
 	if isZh(lang) {
 		return formatN(lang, "已切换到 %s 模式", mode)
 	}
-	return formatN(lang, "switched to %s mode", mode)
+	return formatN(lang, "Switched to %s mode", mode)
 }
 
 // modeWorkflowHint returns a 1-2 line nudge for a newly-entered
@@ -663,31 +663,31 @@ func modeWorkflowHint(lang, mode string) []string {
 	case "plan":
 		if zh {
 			return []string{
-				"  下一条请求会产生改动方案,不直接回答。",
-				"  之后:/plan show 看 diff · /approve 落地 · /reject 丢弃 · /mode read 回读模式",
+				"  下一条请求会生成改动方案，不会直接回答。",
+				"  随后可用：/plan show 查看 diff · /approve 落地 · /reject 丢弃 · /mode read 回到读模式",
 			}
 		}
 		return []string{
-			"  Your next request produces a change proposal instead of an answer.",
+			"  Your next request will produce a change proposal instead of a direct answer.",
 			"  Then: /plan show · /approve · /reject · /mode read",
 		}
 	case "apply":
 		if zh {
 			return []string{
-				"  通常用 /approve 进入 apply,而不是 /mode apply。",
+				"  通常用 /approve 进入 apply，直接 /mode apply 大多不是想要的效果。",
 			}
 		}
 		return []string{
-			"  Reach apply via /approve; /mode apply directly is rarely what you want.",
+			"  Use /approve to enter apply; /mode apply directly is rarely what you want.",
 		}
 	case "verify":
 		if zh {
 			return []string{
-				"  仅重跑已 apply plan 的测试。/history 查 plan id。",
+				"  仅对已 apply 的方案重跑测试；/history 列出方案 ID。",
 			}
 		}
 		return []string{
-			"  Reruns tests against an already-applied plan. /history lists plan ids.",
+			"  Reruns tests against an already-applied plan; /history lists plan IDs.",
 		}
 	}
 	return nil
@@ -701,7 +701,7 @@ func modeWorkflowHint(lang, mode string) []string {
 func planReadyNudge(lang string, planID string, changeCount int) []string {
 	if isZh(lang) {
 		return []string{
-			formatN(lang, "改动方案已就绪: %s (%d 处改动)。", planID, changeCount),
+			formatN(lang, "改动方案已就绪：%s（%d 处改动）。", planID, changeCount),
 			"  /plan show · /approve · /approve --skip-verify · /reject · /mode read",
 		}
 	}
@@ -737,11 +737,11 @@ func planReadyMultiPhaseNudge(lang string, phaseCount int) []string {
 func applyDoneNudge(lang string) []string {
 	if isZh(lang) {
 		return []string{
-			"  apply 完成,已自动切回 read 模式。继续改代码用 /mode plan。",
+			"  Apply 完成，已自动切回 read 模式。要继续改代码就 /mode plan。",
 		}
 	}
 	return []string{
-		"  apply complete; auto-switched to read mode. /mode plan to make another change.",
+		"  Apply complete — auto-switched to read mode. Use /mode plan to make another change.",
 	}
 }
 
@@ -760,48 +760,48 @@ func planShowFooter(lang string, planStatus string) []string {
 	case "verify_failed":
 		if zh {
 			return []string{
-				"  下一步: /approve --retry 重试 · /merge --include-failed 接受失败强合 · /reject 丢弃",
+				"  下一步：/approve --retry 重试 · /merge --include-failed 强行合入 · /reject 丢弃",
 			}
 		}
 		return []string{
-			"  next: /approve --retry to retry · /merge --include-failed to merge anyway · /reject to discard",
+			"  Next: /approve --retry to retry · /merge --include-failed to merge anyway · /reject to discard",
 		}
 	case "partially_applied":
 		if zh {
 			return []string{
-				"  下一步: /approve --retry 续 apply 剩余 paths · /reject 丢弃 (注意:/merge 拒收 partially_applied)",
+				"  下一步：/approve --retry 续 apply 剩余路径 · /reject 丢弃（注意：/merge 拒收 partially_applied 状态）",
 			}
 		}
 		return []string{
-			"  next: /approve --retry to apply remaining paths · /reject to discard (note: /merge refuses partially_applied)",
+			"  Next: /approve --retry to apply remaining paths · /reject to discard (note: /merge refuses partially_applied)",
 		}
 	case "unverified":
 		if zh {
 			return []string{
-				"  下一步: /approve --retry 重跑 (加 tests 后) · /merge --include-failed 接受未验证强合 · /reject 丢弃",
+				"  下一步：/approve --retry 重跑（加上 tests 后）· /merge --include-failed 跳过验证强行合入 · /reject 丢弃",
 			}
 		}
 		return []string{
-			"  next: /approve --retry to re-run (after adding tests) · /merge --include-failed to land without verification · /reject to discard",
+			"  Next: /approve --retry to re-run (after adding tests) · /merge --include-failed to merge without verification · /reject to discard",
 		}
 	case "applied":
 		if zh {
 			return []string{
-				"  下一步: /merge 合回主仓 · /verify 重跑测试 · /worktree list 查看保留的 worktree",
+				"  下一步：/merge 合并到主仓 · /verify 重跑测试 · /worktree list 查看保留的 worktree",
 			}
 		}
 		return []string{
-			"  next: /merge to fold into main · /verify to re-run tests · /worktree list to see preserved worktrees",
+			"  Next: /merge to merge into main · /verify to re-run tests · /worktree list to see preserved worktrees",
 		}
 	}
 	// Default (pending_approval / unknown): the original footer.
 	if zh {
 		return []string{
-			"  下一步: /approve 落地 · /reject 丢弃 · /plan clear 仅删本地副本",
+			"  下一步：/approve 落地 · /reject 丢弃 · /plan clear 仅删本地副本",
 		}
 	}
 	return []string{
-		"  next: /approve to apply · /reject to discard · /plan clear to delete the local copy",
+		"  Next: /approve to apply · /reject to discard · /plan clear to delete the local copy",
 	}
 }
 
@@ -834,9 +834,9 @@ func friendlyRunError(lang string, err error) string {
 	if errors.As(err, &fb) {
 		idle := fb.IdleFor
 		if isZh(lang) {
-			return fmt.Sprintf("上游 LLM 在请求被接受 %s 后仍未返回任何 SSE 字节。可能是 provider 服务侧死锁、网络中间设备劫持、或模型 cold-start 卡死。再试一次,或换 provider/model 看看。", idle)
+			return fmt.Sprintf("上游 LLM 收到请求后 %s 内仍无任何响应。可能是 provider 服务端死锁、网络中间设备拦截，或模型 cold-start 卡住。请重试，或换一个 provider/model。", idle)
 		}
-		return fmt.Sprintf("upstream LLM produced no SSE bytes within %s of the request being accepted. Likely causes: provider-side deadlock, middlebox interference, or cold-start hang. Retry, or try a different provider/model.", idle)
+		return fmt.Sprintf("Upstream LLM never sent any response within %s of receiving the request. Likely causes: provider-side deadlock, middlebox interference, or a cold-start hang. Retry, or try a different provider/model.", idle)
 	}
 	// Streaming-watchdog mid-stream stall: stream started but went
 	// silent for more than streamStallTimeout (default 60s).
@@ -844,23 +844,23 @@ func friendlyRunError(lang string, err error) string {
 	if errors.As(err, &ss) {
 		idle := ss.IdleFor
 		if isZh(lang) {
-			return fmt.Sprintf("上游 LLM 流式响应停滞 %s 无新字节,已自动中止。原因可能是模型 mid-emit 卡住、上游网络抖动、或 thinking 块过大。再试一次,或换一个 provider/model 看看。", idle)
+			return fmt.Sprintf("上游 LLM 的流式响应停滞 %s 无新字节，已自动中止。可能是模型在生成中卡住、上游网络抖动，或 thinking 块过大。请重试，或换一个 provider/model。", idle)
 		}
-		return fmt.Sprintf("upstream LLM stream stalled with no bytes for %s; aborted automatically. Likely causes: model stuck mid-emit, upstream network blip, or oversized thinking block. Retry, or try a different provider/model.", idle)
+		return fmt.Sprintf("Upstream LLM stream stalled with no bytes for %s; aborted automatically. Likely causes: model stuck mid-stream, upstream network blip, or an oversized thinking block. Retry, or try a different provider/model.", idle)
 	}
 	msg := err.Error()
 	low := strings.ToLower(msg)
 	if strings.Contains(low, "context canceled") || strings.Contains(low, "context cancelled") {
 		if isZh(lang) {
-			return "请求被中断(可能是 Ctrl+C 或上游连接关闭)。再试一次或检查网络。"
+			return "请求被中断（可能是 Ctrl+C 或上游连接关闭）。请重试或检查网络。"
 		}
-		return "request interrupted (likely Ctrl+C or upstream connection closed). Retry or check the network."
+		return "Request interrupted (likely Ctrl+C or upstream connection closed). Retry or check the network."
 	}
 	if strings.Contains(low, "deadline exceeded") {
 		if isZh(lang) {
-			return formatN(lang, "请求超时:%s", msg)
+			return formatN(lang, "请求超时：%s", msg)
 		}
-		return formatN(lang, "request timed out: %s", msg)
+		return formatN(lang, "Request timed out: %s", msg)
 	}
 	return msg
 }
@@ -1194,7 +1194,7 @@ func shellBangExit(lang string, err error) string {
 // PlanStore wiring is missing (test stubs typically).
 func commandDisabled(lang, cmd, reason string) string {
 	if isZh(lang) {
-		return formatN(lang, "%s 已禁用 (%s)", cmd, reason)
+		return formatN(lang, "%s 已禁用（%s）", cmd, reason)
 	}
 	return formatN(lang, "%s disabled (%s)", cmd, reason)
 }
@@ -1202,7 +1202,7 @@ func commandDisabled(lang, cmd, reason string) string {
 // noPlanStoreReason — common reason embedded in commandDisabled.
 func noPlanStoreReason(lang string) string {
 	if isZh(lang) {
-		return "改动方案存储未配置"
+		return "方案存储未配置"
 	}
 	return "plan store unavailable"
 }
@@ -1210,9 +1210,9 @@ func noPlanStoreReason(lang string) string {
 // unknownSlashCommand — printed when handleSlash falls through.
 func unknownSlashCommand(lang, cmd string) string {
 	if isZh(lang) {
-		return formatN(lang, "未知命令 %q —— 输入 /help 看完整列表\n", cmd)
+		return formatN(lang, "未知命令 %q —— 输入 /help 查看完整列表\n", cmd)
 	}
-	return formatN(lang, "unknown command %q — try /help\n", cmd)
+	return formatN(lang, "Unknown command %q — try /help\n", cmd)
 }
 
 // unknownPlanSubcommand — /plan <unknown>.
@@ -1220,7 +1220,7 @@ func unknownPlanSubcommand(lang, sub string) string {
 	if isZh(lang) {
 		return formatN(lang, "未知的 /plan 子命令 %q —— 应是 show / clear / list 之一\n", sub)
 	}
-	return formatN(lang, "unknown /plan subcommand %q — expected: show, clear, list\n", sub)
+	return formatN(lang, "Unknown /plan subcommand %q — expected: show, clear, list\n", sub)
 }
 
 // unknownModeValue — /mode <unknown>.
@@ -1228,23 +1228,23 @@ func unknownModeValue(lang, val string) string {
 	if isZh(lang) {
 		return formatN(lang, "未知模式 %q —— 应是 read / plan / apply / verify 之一\n", val)
 	}
-	return formatN(lang, "unknown mode %q — expected one of: read, plan, apply, verify\n", val)
+	return formatN(lang, "Unknown mode %q — expected one of: read, plan, apply, verify\n", val)
 }
 
 // planNotFound — /approve <id> / /plan show <id> with non-existent ID.
 func planNotFound(lang, planID string) string {
 	if isZh(lang) {
-		return formatN(lang, "在 PlanStore 里找不到 plan %q (用 /plan list 看 ID)\n", planID)
+		return formatN(lang, "找不到 plan %q（可用 /plan list 查看现有 ID）\n", planID)
 	}
-	return formatN(lang, "plan %q not found in PlanStore (try /plan list)\n", planID)
+	return formatN(lang, "Plan %q not found (try /plan list)\n", planID)
 }
 
 // noPendingPlanToClear — /plan clear with empty pendingPlanPath.
 func noPendingPlanToClear(lang string) string {
 	if isZh(lang) {
-		return "没有待清除的 plan"
+		return "当前没有可清除的 plan"
 	}
-	return "no pending plan to clear"
+	return "No pending plan to clear"
 }
 
 // noPlansInStore — /plan list on an empty PlanStore.
@@ -1252,7 +1252,7 @@ func noPlansInStore(lang, dir string) string {
 	if isZh(lang) {
 		return formatN(lang, "%s 里还没有 plan", dir)
 	}
-	return formatN(lang, "no plans saved in %s", dir)
+	return formatN(lang, "No plans saved in %s", dir)
 }
 
 // approveRefusedStatusMsg — re-approving a non-pending /
@@ -1260,12 +1260,12 @@ func noPlansInStore(lang, dir string) string {
 func approveRefusedStatusMsg(lang, planID, status, pending, retry string) string {
 	if isZh(lang) {
 		return formatN(lang,
-			"approve 被拒:plan %s 当前状态为 %q。可重新 approve 的状态:%q (新生成的 plan)、%q (修复环境后重试)。"+
-				"用 /mode plan 生成新 plan。\n",
+			"approve 被拒：plan %s 当前状态为 %q。可重新 approve 的状态：%q（新生成的方案）、%q（修复环境后重试）。"+
+				"用 /mode plan 生成新方案。\n",
 			planID, status, pending, retry)
 	}
 	return formatN(lang,
-		"approve refused: plan %s is in status %q. "+
+		"Approve refused: plan %s is in status %q. "+
 			"Re-approvable statuses: %q (fresh plan), %q (env-fix retry). "+
 			"Run /mode plan to generate a fresh plan.\n",
 		planID, status, pending, retry)
@@ -1275,7 +1275,7 @@ func approveRefusedStatusMsg(lang, planID, status, pending, retry string) string
 // planPathSetter. Hits in tests; surfaces fail-loud in real REPL.
 func approveStubRunnerMsg(lang string) string {
 	if isZh(lang) {
-		return "/approve 需要 runner 支持 SetMode + SetPlanPath (检测到 stub runner)\n"
+		return "/approve 需要 runner 支持 SetMode + SetPlanPath（检测到 stub runner）\n"
 	}
 	return "/approve requires a runner with SetMode + SetPlanPath (stub runner detected)\n"
 }
@@ -1285,7 +1285,7 @@ func approveStubRunnerMsg(lang string) string {
 // scripted-test scenarios.
 func approveSkipVerifyStubMsg(lang string) string {
 	if isZh(lang) {
-		return "--skip-verify 已请求但 runner 未实现 SetSkipVerify (test stub?);忽略\n"
+		return "--skip-verify 已请求，但 runner 未实现 SetSkipVerify（test stub?）；忽略\n"
 	}
 	return "--skip-verify requested but runner does not implement SetSkipVerify (test stub?); ignoring\n"
 }
@@ -1295,11 +1295,11 @@ func approveSkipVerifyStubMsg(lang string) string {
 func approveBareDirNoAuthMsg(lang, repoRoot, state string) string {
 	if isZh(lang) {
 		return formatN(lang,
-			"approve:目标 %s 状态为 %s —— 用 --auto-init-repo 重跑或在 codrax.yaml 设 write_auto_init_repo: true\n",
+			"approve：目标 %s 状态为 %s —— 请用 --auto-init-repo 重新运行，或在 codrax.yaml 设置 write_auto_init_repo: true\n",
 			repoRoot, state)
 	}
 	return formatN(lang,
-		"approve: target %s is %s — re-run with --auto-init-repo or set codrax.yaml :: write_auto_init_repo: true\n",
+		"Approve: target %s is %s — re-run with --auto-init-repo, or set codrax.yaml :: write_auto_init_repo: true\n",
 		repoRoot, state)
 }
 
@@ -1307,7 +1307,7 @@ func approveBareDirNoAuthMsg(lang, repoRoot, state string) string {
 func mergeToIgnoredNoWorktreeMsg(lang, branch string) string {
 	if isZh(lang) {
 		return formatN(lang,
-			"--merge-to=%s 已忽略:没有保留的 worktree (在 codrax.yaml 设 pipeline_keep_worktree_on_success: true 即可)\n",
+			"--merge-to=%s 已忽略：没有保留的 worktree（在 codrax.yaml 设置 pipeline_keep_worktree_on_success: true 即可）\n",
 			branch)
 	}
 	return formatN(lang,
@@ -1318,7 +1318,7 @@ func mergeToIgnoredNoWorktreeMsg(lang, branch string) string {
 // mergeListPlansFailedMsg — PlanStore.List error in /merge.
 func mergeListPlansFailedMsg(lang string, err error) string {
 	if isZh(lang) {
-		return formatN(lang, "merge:列出 plan 失败:%v\n", err)
+		return formatN(lang, "merge：列出 plan 失败：%v\n", err)
 	}
 	return formatN(lang, "merge: list plans: %v\n", err)
 }
@@ -1326,7 +1326,7 @@ func mergeListPlansFailedMsg(lang string, err error) string {
 // branchCheckoutFailedMsg — /branch <name> with bad name.
 func branchCheckoutFailedMsg(lang string, err error) string {
 	if isZh(lang) {
-		return formatN(lang, "branch: git checkout 失败:%v\n", err)
+		return formatN(lang, "branch：git checkout 失败：%v\n", err)
 	}
 	return formatN(lang, "branch: git checkout failed: %v\n", err)
 }
@@ -1336,59 +1336,59 @@ func noLogAttached(lang string) string {
 	if isZh(lang) {
 		return "未附加日志"
 	}
-	return "no log attached"
+	return "No log attached"
 }
 
 func noTraceAttached(lang string) string {
 	if isZh(lang) {
 		return "未附加 trace"
 	}
-	return "no hitrace attached"
+	return "No hitrace attached"
 }
 
 func attachedLogClearedMsg(lang string) string {
 	if isZh(lang) {
 		return "已清除附加日志"
 	}
-	return "attached log cleared"
+	return "Attached log cleared"
 }
 
 func attachedTraceClearedMsg(lang string) string {
 	if isZh(lang) {
 		return "已清除附加 trace"
 	}
-	return "attached hitrace cleared"
+	return "Attached hitrace cleared"
 }
 
 // pasteCapturePromptLog — /log paste capture mode prompt.
 func pasteCapturePromptLog(lang string) string {
 	if isZh(lang) {
-		return "粘贴日志,以单独一行 /end 结束捕获"
+		return "粘贴日志，单独一行输入 /end 结束捕获"
 	}
-	return "paste log, terminate with a lone /end line"
+	return "Paste the log; type /end on its own line to finish"
 }
 
 // pasteCapturePromptGeneric — /paste mode prompt.
 func pasteCapturePromptGeneric(lang string) string {
 	if isZh(lang) {
-		return "粘贴内容,以单独一行 /end 结束捕获;空捕获按 Enter 取消"
+		return "粘贴内容，单独一行输入 /end 结束捕获；不输入直接按 Enter 即取消"
 	}
-	return "paste content, terminate with a lone /end line; press Enter to cancel an empty capture"
+	return "Paste the content; type /end on its own line to finish, or press Enter to cancel"
 }
 
 // pasteNoCapture — log/generic paste mode aborted with no input.
 func pasteNoCaptureLog(lang string) string {
 	if isZh(lang) {
-		return "未捕获到内容;附加日志保持不变"
+		return "未捕获到内容；附加日志保持不变"
 	}
-	return "no input captured; attached log unchanged"
+	return "No input captured; the attached log is unchanged"
 }
 
 func pasteNoCaptureGeneric(lang string) string {
 	if isZh(lang) {
 		return "未捕获到内容"
 	}
-	return "no input captured"
+	return "No input captured"
 }
 
 // memoryClearCancelled / Cleared / EmptyCancelled.
@@ -1396,14 +1396,14 @@ func memoryClearCancelled(lang string) string {
 	if isZh(lang) {
 		return "已取消清除"
 	}
-	return "clear cancelled"
+	return "Clear cancelled"
 }
 
 func memoryClearedMsg(lang string) string {
 	if isZh(lang) {
 		return "已清除会话 memory。"
 	}
-	return "conversation memory cleared."
+	return "Conversation memory cleared."
 }
 
 func memoryEmpty(lang string) string {
@@ -1419,7 +1419,7 @@ func memoryEmpty(lang string) string {
 // escalates to process exit.
 func spinnerCancelHint(lang string) string {
 	if isZh(lang) {
-		return "Ctrl+C 取消(连按 2 次强制退出)"
+		return "Ctrl+C 取消（连按 2 次强制退出）"
 	}
 	return "Ctrl+C to cancel (double-tap within 2s to force-exit)"
 }
@@ -1430,9 +1430,9 @@ func spinnerCancelHint(lang string) string {
 // "spinner stuck for ~30s" surprise is preempted.
 func cancelInProgressMsg(lang string) string {
 	if isZh(lang) {
-		return "✗ 取消已请求,等当前 LLM call 返回后生效(最多 ~30s)。再按一次 Ctrl+C 强制退出。"
+		return "✗ 取消已请求，等当前 LLM 调用返回后生效（最多约 30s）。再按一次 Ctrl+C 可强制退出。"
 	}
-	return "✗ cancel requested; takes effect when the current LLM call returns (up to ~30s). Press Ctrl+C again to force exit."
+	return "✗ Cancel requested; takes effect when the current LLM call returns (up to ~30s). Press Ctrl+C again to force exit."
 }
 
 // idleConfirmExitMsg — first Ctrl+C at the idle prompt (no Run in
@@ -1446,7 +1446,7 @@ func cancelInProgressMsg(lang string) string {
 // the REPL — Ctrl+C at the prompt is no longer a one-way trap.
 func idleConfirmExitMsg(lang string) string {
 	if isZh(lang) {
-		return "✗ 再按一次 Ctrl+C 退出 codrax(2 秒内),或继续使用 REPL。"
+		return "✗ 2 秒内再按一次 Ctrl+C 即退出 codrax；或继续使用 REPL。"
 	}
 	return "✗ Press Ctrl+C again within 2s to exit codrax, or keep using the REPL."
 }
@@ -1517,9 +1517,9 @@ func memoryClearConfirmLineHint(lang string) string {
 // line, no exit — operators can still /exit themselves.
 func cancelNothingRunningMsg(lang string) string {
 	if isZh(lang) {
-		return "没有正在执行的请求可取消。/exit 退出。"
+		return "没有正在执行的请求可取消。/exit 退出 codrax。"
 	}
-	return "no Run in flight to cancel. /exit to leave."
+	return "No request in flight to cancel. /exit to leave."
 }
 
 // canceledByUserMsg — final user-facing summary line printed in the
@@ -1530,12 +1530,12 @@ func cancelNothingRunningMsg(lang string) string {
 func canceledByUserMsg(lang, stage string) string {
 	if isZh(lang) {
 		if stage != "" {
-			return fmt.Sprintf("✗ 已取消(在 stage=%s 处中断)。worktree(若有)已保留以便检查 — /worktree show 列出。", stage)
+			return fmt.Sprintf("✗ 已取消（在 %s 阶段中断）。worktree（若有）已保留 — /worktree show 查看。", stage)
 		}
-		return "✗ 已取消。worktree(若有)已保留以便检查 — /worktree show 列出。"
+		return "✗ 已取消。worktree（若有）已保留 — /worktree show 查看。"
 	}
 	if stage != "" {
-		return fmt.Sprintf("✗ canceled (interrupted at stage=%s). Worktree (if any) preserved for inspection — /worktree show.", stage)
+		return fmt.Sprintf("✗ Cancelled at the %s stage. Worktree (if any) preserved — /worktree show.", stage)
 	}
-	return "✗ canceled. Worktree (if any) preserved for inspection — /worktree show."
+	return "✗ Cancelled. Worktree (if any) preserved — /worktree show."
 }

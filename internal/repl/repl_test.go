@@ -108,7 +108,7 @@ func TestClearPromptDeclined(t *testing.T) {
 		t.Fatalf("Loop: %v", err)
 	}
 
-	if !strings.Contains(out.String(), "clear cancelled") {
+	if !strings.Contains(out.String(), "Clear cancelled") {
 		t.Errorf("expected 'clear cancelled' in output, got:\n%s", out.String())
 	}
 	if got := len(store.Recent()); got != 1 {
@@ -137,7 +137,7 @@ func TestClearPromptAccepted(t *testing.T) {
 		t.Fatalf("Loop: %v", err)
 	}
 
-	if !strings.Contains(out.String(), "conversation memory cleared") {
+	if !strings.Contains(out.String(), "Conversation memory cleared") {
 		t.Errorf("expected confirmation in output, got:\n%s", out.String())
 	}
 	if got := len(store.Recent()); got != 0 {
@@ -290,7 +290,7 @@ func TestPasteSlashEmptyCaptureNoOp(t *testing.T) {
 	if r.pendingPaste != "" {
 		t.Errorf("pendingPaste should be empty on no-input capture, got %q", r.pendingPaste)
 	}
-	if !strings.Contains(out.String(), "no input captured") {
+	if !strings.Contains(out.String(), "No input captured") {
 		t.Errorf("expected 'no input captured' in output, got:\n%s", out.String())
 	}
 }

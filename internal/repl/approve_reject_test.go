@@ -71,7 +71,7 @@ func newApprovalREPL(t *testing.T, confirmInput string, runner Runner) (*REPL, *
 		Branch:    "main",
 		Render:    renderNothing,
 		PlanStore: store,
-		// English to keep the historical "approve cancelled" /
+		// English to keep the historical "Approve cancelled" /
 		// "plan rejected" substring assertions deterministic across
 		// the bilingual messages.go rollout.
 		Language:     "en",
@@ -97,8 +97,8 @@ func TestApprove_NoPendingPlan(t *testing.T) {
 	store := NewPlanStore(t.TempDir())
 	r, out := newScriptedREPL(t, store)
 	r.handleApproveCmd("/approve")
-	if !strings.Contains(out.String(), "no pending plan") {
-		t.Errorf("expected 'no pending plan' message, got: %q", out.String())
+	if !strings.Contains(out.String(), "No pending plan") {
+		t.Errorf("expected 'No pending plan' message, got: %q", out.String())
 	}
 }
 
@@ -163,7 +163,7 @@ func TestApprove_CancelledAtConfirm(t *testing.T) {
 	if runner.runCalled {
 		t.Error("Run should NOT be called when user cancels confirm")
 	}
-	if !strings.Contains(out.String(), "approve cancelled") {
+	if !strings.Contains(out.String(), "Approve cancelled") {
 		t.Errorf("expected 'approve cancelled' message, got: %q", out.String())
 	}
 	if r.pendingPlanPath != originalPath {
@@ -273,7 +273,7 @@ func TestApprove_RefusesTerminalStatus(t *testing.T) {
 				t.Errorf("/approve should NOT dispatch Run when Status=%q", tc.status)
 			}
 			got := out.String()
-			if !strings.Contains(got, "approve refused") {
+			if !strings.Contains(strings.ToLower(got), "approve refused") {
 				t.Errorf("output should include 'approve refused'; got %q", got)
 			}
 			if !strings.Contains(got, tc.status) {
@@ -454,7 +454,7 @@ func TestReject_NoPendingPlan(t *testing.T) {
 	store := NewPlanStore(t.TempDir())
 	r, out := newScriptedREPL(t, store)
 	r.handleRejectCmd("/reject")
-	if !strings.Contains(out.String(), "no pending plan to reject") {
+	if !strings.Contains(out.String(), "No pending plan to reject") {
 		t.Errorf("expected 'no pending plan to reject' message, got: %q", out.String())
 	}
 }
@@ -527,7 +527,7 @@ func TestReject_SettlesPlanWithoutDeletingFile(t *testing.T) {
 	if settled.Status != types.PlanStatusRejected {
 		t.Errorf("settled plan Status should be %q; got %q", types.PlanStatusRejected, settled.Status)
 	}
-	if !strings.Contains(out.String(), "rejected plan ") {
+	if !strings.Contains(out.String(), "Rejected plan ") {
 		t.Errorf("expected 'plan rejected' message, got: %q", out.String())
 	}
 }
@@ -549,7 +549,7 @@ func TestReject_WithReason(t *testing.T) {
 	r.handleRejectCmd("/reject scope too wide")
 
 	got := out.String()
-	if !strings.Contains(got, "rejected plan ") {
+	if !strings.Contains(got, "Rejected plan ") {
 		t.Errorf("expected 'plan rejected' message, got: %q", got)
 	}
 	if !strings.Contains(got, "scope too wide") {

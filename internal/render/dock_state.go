@@ -61,37 +61,37 @@ func activityPhrase(s activityState, lang string) string {
 		if zh {
 			return "准备流水线"
 		}
-		return "preparing pipeline"
+		return "Preparing pipeline"
 	case activityWaitingDispatch:
 		if zh {
 			return "等待派发"
 		}
-		return "awaiting dispatch"
+		return "Queued"
 	case activityWaitingNode:
 		if zh {
 			return "等待开始"
 		}
-		return "starting"
+		return "Starting"
 	case activityRequesting:
 		if zh {
 			return "请求模型中"
 		}
-		return "requesting model"
+		return "Calling the model"
 	case activityReceiving:
 		if zh {
 			return "接收中"
 		}
-		return "receiving"
+		return "Receiving response"
 	case activityCallingTool:
 		if zh {
 			return "调用工具中"
 		}
-		return "calling tool"
+		return "Calling tool"
 	case activityFinalizing:
 		if zh {
 			return "撰写最终答案"
 		}
-		return "writing answer"
+		return "Writing answer"
 	case activityRetrying:
 		// User-facing language: spell out WHAT is being retried (the
 		// LLM model request — operators reading old "重试中（#N）"
@@ -100,44 +100,44 @@ func activityPhrase(s activityState, lang string) string {
 		// those are layer-of-the-retry-stack identifiers in the
 		// system log, not end-user terms.
 		if zh {
-			return fmt.Sprintf("正在重新请求模型 (第 %d 次,等 %ds)", s.retryAttempt, s.retryDelaySec)
+			return fmt.Sprintf("正在重新请求模型（%ds 后第 %d 次重试）", s.retryDelaySec, s.retryAttempt)
 		}
-		return fmt.Sprintf("retrying model request (attempt %d, in %ds)", s.retryAttempt, s.retryDelaySec)
+		return fmt.Sprintf("Retrying model request in %ds (attempt %d)", s.retryDelaySec, s.retryAttempt)
 	case activitySwitchingProvider:
 		if zh {
 			return "正在切换 LLM 服务"
 		}
-		return "switching LLM provider"
+		return "Switching LLM provider"
 	case activityPreparingWorktree:
 		if zh {
 			return "准备 worktree 中"
 		}
-		return "preparing worktree"
+		return "Preparing worktree"
 	case activityCapturingBaseline:
 		if zh {
 			return "抓取基准"
 		}
-		return "capturing baseline"
+		return "Capturing baseline"
 	case activityAcceptanceReview:
 		if zh {
 			return "验收审查中"
 		}
-		return "acceptance review"
+		return "Acceptance review"
 	case activityErrorRecoverable:
 		if zh {
 			return "错误恢复中"
 		}
-		return "recovering"
+		return "Recovering"
 	case activityErrorFatal:
 		if zh {
 			return "已失败"
 		}
-		return "failed"
+		return "Failed"
 	case activityCancelled:
 		if zh {
 			return "已取消"
 		}
-		return "cancelled"
+		return "Cancelled"
 	}
 	return ""
 }
