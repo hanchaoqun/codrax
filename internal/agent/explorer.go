@@ -8429,6 +8429,20 @@ type chainAnchorInfo struct {
 	// the terminal lives at line 350 — correctly demotes the chain.
 	// A zero line degrades to the file-level HasRead grant.
 	FileLines []int
+	// IsDefFile is a parallel slice aligned 1:1 with Files: entry i
+	// is true when the file at Files[i] contains the chain terminal
+	// symbol's DEFINITION (graph.FileIndex symbol with matching
+	// Name + Receiver), false when it is only a USAGE site.
+	// applyChainPromotion's X2 filter drops promotions whose anchor
+	// is USAGE-only — forcing the LLM to read a file that just
+	// references a symbol (vs the file that defines it) wastes a
+	// read budget on a tangential location.
+	//
+	// Empty / nil slice => fail-open (every file treated as DefFile).
+	// This preserves behaviour for paths that have not been wired up
+	// (older test fixtures, bridge-literal anchors before this audit
+	// is rolled out across all producers).
+	IsDefFile []bool
 	Origin    string // "concrete_values_tracer", "bridge_literal", "hierarchy"
 }
 
@@ -8462,7 +8476,7 @@ func (e *explorerEvaluator) getConcreteValuesCached(repoRoot string, readSet map
 	if closure == nil {
 		return *e.cachedConcreteValues
 	}
-	return applyChainPromotion(*e.cachedConcreteValues, readSet, closure, repoRoot)
+	return applyChainPromotion(*e.cachedConcreteValues, readSet, closure, repoRoot, e.answerSubject.Confidence)
 }
 
 // applyChainPromotion is the CGEC chain-promotion enforcer. Given an
@@ -8483,12 +8497,19 @@ func (e *explorerEvaluator) getConcreteValuesCached(repoRoot string, readSet map
 // EvidenceItems land in TurnAArtifacts and the extractor / finalizer
 // prompt, so an unread-anchor item can mislead Turn B. Both render
 // paths must be cleaned for the invariant to hold.
-func applyChainPromotion(in concreteValuesResult, readSet map[string]bool, closure *types.EvidenceClosure, repoRoot string) concreteValuesResult {
+func applyChainPromotion(in concreteValuesResult, readSet map[string]bool, closure *types.EvidenceClosure, repoRoot string, subjectConfidence float64) concreteValuesResult {
 	if closure == nil || len(in.chainAnchors) == 0 {
 		return in
 	}
 	keptSummaries := make(map[string]bool, len(in.chainAnchors))
 	demotedSummaries := make(map[string]bool, len(in.chainAnchors))
+	// Pass 1: classify each anchor as kept (all files in ReadSet) or
+	// demoted (at least one file unread). Side-effect-free: closure
+	// is only mutated in pass 2's enqueue loop. Splitting these two
+	// concerns lets the X1 short-circuit decide BEFORE we touch the
+	// PendingRead queue.
+	type pendingDemote struct{ anchor chainAnchorInfo }
+	var demoteList []pendingDemote
 	for _, anchor := range in.chainAnchors {
 		// Row-level check: for each anchor file, require either
 		//   (a) file-level readSet[f] covers it (pure fallback for
@@ -8521,6 +8542,35 @@ func applyChainPromotion(in concreteValuesResult, readSet map[string]bool, closu
 			continue
 		}
 		demotedSummaries[anchor.Summary] = true
+		demoteList = append(demoteList, pendingDemote{anchor})
+	}
+	// X1 short-circuit (kept=0 + confident subject): when EVERY chain
+	// anchors outside ReadSet AND the analyzer was confident about
+	// the subject classification, the chain producer is fundamentally
+	// talking past the question — promoting any of these anchors just
+	// burns one explore re-dispatch reading a file that has nothing to
+	// do with the answer the LLM is forming.
+	//
+	// The markdown / cvEvidence demote below STILL fires so the LLM
+	// doesn't see misleading chains; only the closure.AddPendingRead
+	// enqueue is skipped. Confidence floor mirrors the existing
+	// rebindFloor (0.4) + headroom — only "high confidence" subject
+	// classifications get this short-circuit; SubjectUnknown / low-
+	// confidence flows continue to promote so a misclassified subject
+	// can still get covered by a forced read.
+	const x1HighConfidenceFloor = 0.7
+	skipPromote := len(keptSummaries) == 0 && len(demoteList) > 0 && subjectConfidence >= x1HighConfidenceFloor
+	if skipPromote {
+		logging.Debug("[CGEC] X1 chain_promotion: 0 kept @ subjectConfidence=%.2f — skipping %d PendingRead(s)",
+			subjectConfidence, len(demoteList))
+	}
+	// Pass 2: enqueue PendingReads for demoted anchors (X1 + X2
+	// filtered).
+	for _, pd := range demoteList {
+		if skipPromote {
+			break
+		}
+		anchor := pd.anchor
 		// Append PendingRead for every anchor file the closure has
 		// not seen. Origin tags the source so the operator can grep
 		// the trace for which enforcer raised the read.
@@ -8545,6 +8595,18 @@ func applyChainPromotion(in concreteValuesResult, readSet map[string]bool, closu
 				continue
 			}
 			if readSet[f] && line == 0 {
+				continue
+			}
+			// X2 def-vs-usage filter: skip when the anchor file does
+			// NOT contain the chain terminal symbol's definition —
+			// the file just USES the symbol, so forcing the LLM to
+			// read it pollutes ReadSet with a tangential location.
+			// Fail-open default (IsDefFile slice empty / true) keeps
+			// legacy paths working; only triggers when computeIsDefFile
+			// confidently determined the anchor file is USAGE-only.
+			if i < len(anchor.IsDefFile) && !anchor.IsDefFile[i] {
+				logging.Debug("[CGEC] X2 chain_promotion: skipping usage-only anchor file=%s origin=%s — terminal not defined here",
+					f, anchor.Origin)
 				continue
 			}
 			if !closure.IsScanned(f) {
@@ -9497,10 +9559,12 @@ func (e *explorerEvaluator) buildConcreteValuesSection(repoRoot string, readSet 
 					anchorFileLine{File: v.file, Line: v.line},
 					anchorFileLine{File: rv.file, Line: rv.line},
 				)
+				isDefFile := computeIsDefFile(graph, files, summary)
 				chainAnchors = append(chainAnchors, chainAnchorInfo{
 					Summary:   summary,
 					Files:     files,
 					FileLines: lines,
+					IsDefFile: isDefFile,
 					Origin:    "concrete_values_tracer",
 				})
 			}
@@ -9816,10 +9880,13 @@ func (e *explorerEvaluator) buildConcreteValuesSection(repoRoot string, readSet 
 			// level enforcer can demote a chain whose definition sits
 			// in a paginated-unread slice. LineStart==0 degrades to
 			// the file-level grant via HasReadLine.
+			files := []string{it.Source}
+			isDefFile := computeIsDefFile(graph, files, it.Summary)
 			chainAnchors = append(chainAnchors, chainAnchorInfo{
 				Summary:   it.Summary,
-				Files:     []string{it.Source},
+				Files:     files,
 				FileLines: []int{it.LineStart},
+				IsDefFile: isDefFile,
 				Origin:    "bridge_literal",
 			})
 		}
@@ -10042,6 +10109,121 @@ func dedupeAnchorFiles(files ...string) []string {
 type anchorFileLine struct {
 	File string
 	Line int
+}
+
+// computeIsDefFile returns a parallel-to-files slice marking whether
+// each file contains the chain terminal symbol's DEFINITION (true) or
+// is only a USAGE site (false). Used by applyChainPromotion's X2
+// filter so a forced-read budget is not spent on a file that just
+// references a symbol — the LLM should be reading the file that
+// DEFINES the symbol when it needs ground truth.
+//
+// Language-agnostic: matches against fields the repomap extractor
+// already populates per-language (Symbol.Name + optional
+// Symbol.Receiver), accepting any of the common qualified-form
+// surface syntaxes — bare name, "Receiver.Member" (Go / Java /
+// Python / Kotlin / Swift / TS / Ruby), "Receiver::Member" (Rust /
+// C++ / Cangjie), or just "Receiver" alone (when the terminal is
+// the type itself, not a member). The filter does NOT parse the
+// terminal token according to any one language's grammar; instead it
+// constructs candidate qualified forms FROM the symbol record and
+// equality-checks each against the terminal string.
+//
+// Fail-open semantics: when graph is nil, file is missing from
+// FileIndex, or terminal is empty / a non-symbol-shaped string
+// (literal like "true" / "{" / "false" / a numeric), every entry is
+// true so promotion continues to fire just like before this audit.
+// The filter only triggers when we have HIGH confidence the anchor
+// file is USAGE-only.
+func computeIsDefFile(graph *repomap.Graph, files []string, chainSummary string) []bool {
+	out := make([]bool, len(files))
+	for i := range out {
+		out[i] = true // fail-open default
+	}
+	if graph == nil || len(files) == 0 || chainSummary == "" {
+		return out
+	}
+	terminal := strings.TrimSpace(subject.ChainTerminalToken(chainSummary))
+	if !looksLikeSymbolName(terminal) {
+		return out
+	}
+	for i, f := range files {
+		fi, ok := graph.FileIndex[f]
+		if !ok || fi == nil {
+			out[i] = true // unknown file → fail open
+			continue
+		}
+		out[i] = false
+		for _, sym := range fi.Symbols {
+			if symbolMatchesTerminal(sym, terminal) {
+				out[i] = true
+				break
+			}
+		}
+	}
+	return out
+}
+
+// symbolMatchesTerminal checks whether a graph symbol could be the
+// chain terminal. Constructs candidate keys from the symbol's own
+// fields and compares each against terminal — language-agnostic
+// because the symbol fields are populated by per-language extractors
+// in repomap and already encode whatever qualifier conventions the
+// source language uses.
+func symbolMatchesTerminal(sym repotypes.Symbol, terminal string) bool {
+	if terminal == "" || sym.Name == "" {
+		return false
+	}
+	if sym.Name == terminal {
+		return true
+	}
+	if sym.Receiver != "" {
+		// Common qualified surface syntaxes used by codrax-supported
+		// languages. The compare order doesn't matter (each is an
+		// equality check); we list them explicitly so a future
+		// language that introduces a new qualifier (e.g. "<<") needs
+		// only one extra case, not a parser rewrite.
+		if sym.Receiver+"."+sym.Name == terminal {
+			return true
+		}
+		if sym.Receiver+"::"+sym.Name == terminal {
+			return true
+		}
+		if sym.Receiver == terminal {
+			return true
+		}
+	}
+	return false
+}
+
+// looksLikeSymbolName is a language-agnostic guard for "terminal is
+// shaped like an identifier we can usefully look up", screening out
+// literal terminals (`true`, `{`, numeric, punctuation-only) that
+// would never appear in graph.FileIndex.Symbols anyway. Requires at
+// least one alphabetic character + no whitespace / brackets / common
+// keyword-literals in any of the codrax-supported languages.
+func looksLikeSymbolName(s string) bool {
+	if s == "" {
+		return false
+	}
+	switch s {
+	case "true", "false", "True", "False", "TRUE", "FALSE",
+		"nil", "null", "None", "NULL", "Nothing", "undefined":
+		return false
+	}
+	hasAlpha := false
+	for _, r := range s {
+		switch {
+		case r == ' ' || r == '\t' || r == '\n' || r == '\r':
+			return false
+		case r == '{' || r == '}' || r == '(' || r == ')' ||
+			r == '[' || r == ']' || r == ',' || r == ';' || r == '\'':
+			return false
+		case (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z'):
+			hasAlpha = true
+		}
+	}
+	return hasAlpha
 }
 
 // dedupeAnchorFilesWithLines is the range-aware counterpart of
