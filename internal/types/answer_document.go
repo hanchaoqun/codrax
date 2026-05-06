@@ -237,6 +237,25 @@ type Citation struct {
 	FileRoleLabel    FileRoleLabel `json:"file_role_label,omitempty"`
 	CrossfileSummary string        `json:"crossfile_summary,omitempty"`
 	NegativePattern  string        `json:"negative_pattern,omitempty"`
+
+	// EnclosingFunction is auto-populated at emit time when the
+	// cite's (File, Line) falls inside a function / method body
+	// recorded in the repo graph. Renderers append it as
+	// `(in `<fn>`)` so a cite to a function-internal line surfaces
+	// the callable's identifier alongside the file:line — readers
+	// no longer have to open the source to learn which function
+	// owns the cited line, and answers naturally surface
+	// load-bearing identifiers (e.g. defaults-emitting helpers)
+	// even when the LLM's prose narrows to the underlying type.
+	//
+	// Empty when (a) the cite scope is non-line (Section / File /
+	// Crossfile / Negative populate richer fields already), (b)
+	// the line is at module / package level outside any function,
+	// or (c) the repo graph is unavailable at emit time. The field
+	// is structurally derived from the graph — never LLM-authored —
+	// so render-side display rules can rely on its accuracy without
+	// re-validating against the graph at render time.
+	EnclosingFunction string `json:"enclosing_function,omitempty"`
 }
 
 // DefaultCitationMaxQuoteChars is the baseline preview ceiling used

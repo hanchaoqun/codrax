@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/hanchaoqun/codrax/internal/logging"
+	repotypes "github.com/hanchaoqun/codrax/internal/tool/repomap/types"
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
@@ -128,7 +129,7 @@ func executeAnswerDocumentV2(toolName string, ctx *types.BusContext, raw json.Ra
 	// both paths share them.
 	doc := &types.AnswerDocumentV2{
 		DocumentModel:         "v2",
-		Citations:             p.Citations,
+		Citations:             enrichCitationsWithEnclosingFunction(p.Citations, ctx),
 		ExactResolution:       p.ExactResolution,
 		MissingRequestedRoles: p.MissingRequestedRoles,
 		Caveats:               p.Caveats,
@@ -485,4 +486,93 @@ var answerDocumentV2MisplacedHints = []MisplacedFieldHint{
 			"blocks[i].edge_anchors[j].relation_kind",
 		},
 	},
+}
+
+
+// enrichCitationsWithEnclosingFunction populates each Citation's
+// EnclosingFunction field by looking up the cite's (File, Line) in
+// the repo graph's per-file Symbol table. The graph is fetched from
+// MutableState.SearchGraph (set once per Run by the explorer's
+// pre-scan). Only ScopeLine / ScopeLineRange / ScopeSection citations
+// trigger the lookup — File / Crossfile / Negative citations carry
+// their own context fields and do not need a per-line enrichment.
+//
+// Idempotent on EnclosingFunction already populated. Returns the
+// input slice mutated in place (caller still receives the slice
+// header for assignment readability). Graceful degradation: any
+// missing graph / file / symbol bracket leaves the field empty —
+// the renderer treats empty as "no enclosing function known" and
+// emits the cite without the (in `<fn>`) suffix.
+func enrichCitationsWithEnclosingFunction(citations []types.Citation, ctx *types.BusContext) []types.Citation {
+	if len(citations) == 0 || ctx == nil || ctx.Mutable == nil {
+		return citations
+	}
+	rawGraph := ctx.Mutable.SearchGraph()
+	if rawGraph == nil {
+		return citations
+	}
+	graph, ok := rawGraph.(*repotypes.Graph)
+	if !ok || graph == nil {
+		return citations
+	}
+	for i := range citations {
+		c := &citations[i]
+		if c.EnclosingFunction != "" {
+			continue
+		}
+		switch c.Scope {
+		case types.ScopeFile, types.ScopeCrossfile, types.ScopeNegative:
+			continue
+		}
+		if c.File == "" || c.Line <= 0 {
+			continue
+		}
+		fi, ok := graph.FileIndex[c.File]
+		if !ok || fi == nil {
+			continue
+		}
+		c.EnclosingFunction = lookupEnclosingFunction(fi.Symbols, c.Line)
+	}
+	return citations
+}
+
+// lookupEnclosingFunction walks the file's Symbols and returns the
+// callable identifier whose body brackets the given line. Prefers
+// the smallest enclosing range (innermost function for nested
+// callables), and formats methods as `Receiver.Name` so the cite
+// reader sees the type-qualified handle.
+//
+// Empty when no callable Symbol brackets the line — module-level
+// declarations, imports, comments, struct-literal lines outside
+// any function. Language-agnostic: relies on Symbol.Kind values
+// the per-language extractor populates ("function" / "method" are
+// the universal kinds; other languages map their concept onto these
+// in the repomap layer).
+func lookupEnclosingFunction(symbols []repotypes.Symbol, line int) string {
+	if line <= 0 {
+		return ""
+	}
+	bestStart := 0
+	var best string
+	for _, sym := range symbols {
+		if sym.Kind != "function" && sym.Kind != "method" {
+			continue
+		}
+		if sym.Line <= 0 || sym.EndLine <= 0 {
+			continue
+		}
+		if sym.Line > line || sym.EndLine < line {
+			continue
+		}
+		if sym.Line <= bestStart && best != "" {
+			continue
+		}
+		bestStart = sym.Line
+		if sym.Receiver != "" {
+			best = sym.Receiver + "." + sym.Name
+		} else {
+			best = sym.Name
+		}
+	}
+	return best
 }

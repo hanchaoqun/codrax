@@ -76,6 +76,15 @@ func renderCitationDisplay(c types.Citation) string {
 			head = fmt.Sprintf("`%s`", c.File)
 		}
 	}
+	// Append the auto-derived enclosing-function suffix when the cite
+	// resolved to a function-internal line. EnclosingFunction is set
+	// at emit time by enrichCitationsWithEnclosingFunction (graph
+	// lookup) so the renderer can rely on it without re-querying
+	// the graph here. Empty for module-level / unresolved cites —
+	// nothing is appended in that case.
+	if fn := strings.TrimSpace(c.EnclosingFunction); fn != "" {
+		head = head + fmt.Sprintf(" (in `%s`)", fn)
+	}
 	if q := strings.TrimSpace(c.Quote); q != "" {
 		return head + " — " + q
 	}
