@@ -22,8 +22,21 @@ QUESTION="explore_mid_loop_hint_budget 的最终有效值是怎么计算出来�
 # CLI) AND (b) note that explore_* group lacks CLI binding (the
 # load-bearing fact for this question). Generic chain-listing
 # without the "no CLI for explore_*" verdict no longer PASSes.
-EXPECT_CONTAINS="codrax.yaml DefaultExploreHeuristics"
+#
+# 2026-05-06 vocabulary broadening: real eval surfaced LLMs
+# correctly identifying the struct + file:line that holds the
+# defaults (ExploreHeuristics at internal/types/config.go:831)
+# without literally writing the function name DefaultExploreHeuristics.
+# Substantively the struct + line IS where defaults live; the
+# Default<X>() function returning that struct is a synonymous
+# handle, not the only acceptable identifier. EC now accepts
+# "ExploreHeuristics" (the struct), which DefaultExploreHeuristics
+# also matches as a substring — both function-naming and
+# struct-naming pass. Negative regex still requires the "no CLI
+# binding" verdict; broadened to accept 无绑定 / 不绑定 / 不存在
+# (no-绑定 vs 未-绑定 was a single-character mismatch the LLM hit).
+EXPECT_CONTAINS="codrax.yaml ExploreHeuristics"
 EXPECT_MATCHES_REGEX="(default|默认值|默认值|代码默认)
 (yaml|codrax\.yaml)
-(no CLI|CLI flag.*not|no flag|没有.*CLI|未绑定|不接受)"
+(no CLI|CLI flag.*not|no flag|没有.*CLI|未绑定|无绑定|不绑定|不接受|不存在.*CLI|CLI.*不存在)"
 EXPECT_NOT_CONTAINS="os.Getenv environment.variable .env"
