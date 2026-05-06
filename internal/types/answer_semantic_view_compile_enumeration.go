@@ -72,7 +72,6 @@ func compileEnumeration(ir *AnalysisIR, plan *AnswerSurfacePlan) *AnswerSemantic
 			FacetIDs: []string{string(FacetBucketLabel)},
 			Rationale: "When the user partitioned the question into named buckets, each bucket is " +
 				"its own section under a header matching the user's verbatim label.",
-			SurfaceRoleHint: SurfaceSupport,
 		},
 		optionalCaveatBlock(
 			"When the typed graph reports more members than your enumeration includes, OR when "+

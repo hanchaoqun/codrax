@@ -68,7 +68,6 @@ func compileRootCauseTrace(ir *AnalysisIR, plan *AnswerSurfacePlan) *AnswerSeman
 			},
 			Rationale: "When the cause chain crosses ≥3 hops, a sequence diagram makes the order " +
 				"visually obvious. Each node is a function/site; each edge is a call/causation step.",
-			SurfaceRoleHint: SurfaceDiagramOnly,
 		},
 		optionalCaveatBlock(
 			"When the observed event came from an attached log/perf trace, name which file:line "+

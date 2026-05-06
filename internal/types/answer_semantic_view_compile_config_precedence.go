@@ -82,7 +82,6 @@ func compileConfigPrecedence(ir *AnalysisIR, plan *AnswerSurfacePlan) *AnswerSem
 			FacetIDs: []string{string(FacetConfigPrecedenceRole)},
 			Rationale: "Alternatively, when the precedence forms a clear linear chain (no per-key " +
 				"split), an ordered list of layer-source pairs reads more naturally than a table.",
-			SurfaceRoleHint: SurfaceSupport,
 		},
 		optionalCaveatBlock(
 			"When the resolved value comes from a fallback / default / absence-scope finding, "+

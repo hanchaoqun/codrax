@@ -154,10 +154,9 @@ type AnswerBlock struct {
 	FacetIDs []string `json:"facet_ids,omitempty"`
 
 	// SurfaceRole declares whether this block is principal answer
-	// content (SurfacePrincipal) vs supporting context (SurfaceSupport)
-	// vs prose-only (SurfaceProseOnly) vs diagram-only (SurfaceDiagramOnly).
-	// Validators use this to distinguish principal payload from
-	// supporting blocks when checking claim use coverage.
+	// content (SurfacePrincipal) or anything else. Empty means "not
+	// principal" — validators that gate claim_use coverage and slate
+	// counts only fire on principal blocks.
 	SurfaceRole SurfaceRole `json:"surface_role,omitempty"`
 
 	// EdgeAnchors carry typed (from_node, to_node, claim_form)

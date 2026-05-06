@@ -12,9 +12,6 @@ func TestSurfaceRole_IsValid(t *testing.T) {
 		want bool
 	}{
 		{SurfacePrincipal, true},
-		{SurfaceSupport, true},
-		{SurfaceProseOnly, true},
-		{SurfaceDiagramOnly, true},
 		{"", false},
 		{"unknown", false},
 		{"PRINCIPAL", false}, // case-sensitive — caller must use NormalizeSurfaceRole
@@ -39,10 +36,11 @@ func TestNormalizeSurfaceRole(t *testing.T) {
 		{"  ", "", true, "whitespace-only passes through as empty"},
 		{"principal", SurfacePrincipal, true, "exact match"},
 		{"PRINCIPAL", SurfacePrincipal, true, "case-folded"},
-		{"  Support  ", SurfaceSupport, true, "trim + case-fold"},
-		{"prose_only", SurfaceProseOnly, true, "exact"},
-		{"diagram_only", SurfaceDiagramOnly, true, "exact"},
-		{"bogus", SurfacePrincipal, false, "unknown returns fallback + ok=false"},
+		{"  Principal  ", SurfacePrincipal, true, "trim + case-fold"},
+		{"support", "", false, "retired value falls back to empty + ok=false"},
+		{"prose_only", "", false, "retired value falls back to empty + ok=false"},
+		{"diagram_only", "", false, "retired value falls back to empty + ok=false"},
+		{"bogus", "", false, "unknown returns empty + ok=false"},
 	}
 	for _, c := range cases {
 		t.Run(c.comment, func(t *testing.T) {
@@ -57,8 +55,8 @@ func TestNormalizeSurfaceRole(t *testing.T) {
 func TestAllSurfaceRoles_DefensiveCopy(t *testing.T) {
 	a := AllSurfaceRoles()
 	b := AllSurfaceRoles()
-	if len(a) != 4 {
-		t.Fatalf("expected 4 roles, got %d", len(a))
+	if len(a) != 1 {
+		t.Fatalf("expected 1 role, got %d", len(a))
 	}
 	a[0] = "mutated"
 	if b[0] == "mutated" {

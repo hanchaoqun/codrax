@@ -31,11 +31,13 @@ import "strings"
 //     enumeration items 1,3,5,7"; the per-payload form is the
 //     direct schema for that semantic.
 
-// SurfaceRole names how the LLM intends a payload's content to
-// surface in the rendered answer. Used by Phase 4 validators to
-// enforce per-facet shape constraints (e.g. FacetEnumerationItem
-// requires SurfacePrincipal — supporting prose alone does not
-// satisfy an enumeration slot).
+// SurfaceRole flags whether a block is the principal answer payload.
+// Empty (the default) means "not principal" — the block is supporting
+// context, framing prose, or a diagram-only contribution. Validators
+// that gate principal-only obligations (claim_use coverage, slate
+// counts) only fire on SurfacePrincipal blocks; everything else is
+// treated uniformly as not-principal, so a single principal flag is
+// sufficient.
 type SurfaceRole string
 
 const (
@@ -43,23 +45,6 @@ const (
 	// Counts toward enumeration boundaries, role-lookup answers,
 	// and any other "the answer IS this" surface.
 	SurfacePrincipal SurfaceRole = "principal"
-
-	// SurfaceSupport: this payload provides supporting context
-	// for a principal answer — citing a guard condition that
-	// gates a path, or a definition that anchors a name.
-	SurfaceSupport SurfaceRole = "support"
-
-	// SurfaceProseOnly: this payload narrates flow / transition
-	// and does NOT contribute a citable claim. Used for AnswerStep
-	// entries with Kind=flow or Kind=caveat where the citation is
-	// background rather than evidentiary.
-	SurfaceProseOnly SurfaceRole = "prose_only"
-
-	// SurfaceDiagramOnly: this payload contributes a node / edge
-	// to the rendered diagram and does NOT appear in prose.
-	// Allows the LLM to ground a diagram element without forcing
-	// a parallel prose mention.
-	SurfaceDiagramOnly SurfaceRole = "diagram_only"
 )
 
 // IsValid reports whether r is one of the known SurfaceRole values.
@@ -68,18 +53,13 @@ const (
 // itself (omitted => annotation absent) is enforced one level up
 // in NormalizeSurfaceRole.
 func (r SurfaceRole) IsValid() bool {
-	switch r {
-	case SurfacePrincipal, SurfaceSupport, SurfaceProseOnly, SurfaceDiagramOnly:
-		return true
-	}
-	return false
+	return r == SurfacePrincipal
 }
 
 // NormalizeSurfaceRole canonicalizes a raw string. Empty input is
 // passed through as "" (caller treats as "not annotated"); a
-// non-empty unknown value falls back to SurfacePrincipal with
-// ok=false so the schema validator can decide whether to reject.
-// Mirrors NormalizeAnswerStepKind's contract.
+// non-empty unknown value falls back to "" with ok=false so the
+// schema validator can decide whether to reject.
 func NormalizeSurfaceRole(raw string) (SurfaceRole, bool) {
 	trimmed := strings.TrimSpace(strings.ToLower(raw))
 	if trimmed == "" {
@@ -89,7 +69,7 @@ func NormalizeSurfaceRole(raw string) (SurfaceRole, bool) {
 	if r.IsValid() {
 		return r, true
 	}
-	return SurfacePrincipal, false
+	return "", false
 }
 
 // AllSurfaceRoles returns a defensive copy of every valid
@@ -98,9 +78,6 @@ func NormalizeSurfaceRole(raw string) (SurfaceRole, bool) {
 func AllSurfaceRoles() []SurfaceRole {
 	return []SurfaceRole{
 		SurfacePrincipal,
-		SurfaceSupport,
-		SurfaceProseOnly,
-		SurfaceDiagramOnly,
 	}
 }
 
@@ -122,9 +99,10 @@ func AllSurfaceRoles() []SurfaceRole {
 //     Mismatch is a soft validator failure (Phase 3) / hard reject
 //     (Phase 4 promotion).
 //
-//   - SurfaceRole: when set, must be one of the four enum values.
-//     Used by Phase 4 facet validators (e.g. FacetEnumerationItem
-//     requires SurfacePrincipal).
+//   - SurfaceRole: when set to "principal", marks the block as the
+//     main-line answer payload. Empty means "not principal" — used
+//     for supporting context, framing prose, and diagram-only
+//     contributions alike.
 //
 // Phase 1-B source-fix (V2 runtime eval followup, 2026-05-04):
 // FromNode/ToNode were REMOVED from this struct. Their u3a-1 real-

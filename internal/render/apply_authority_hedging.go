@@ -23,9 +23,9 @@ import (
 //   - Diagram blocks are NOT hedged in-place — the diagram body
 //     stays verbatim; the dedicated BlockCaveat carries the
 //     "diagram lines may have drifted from runtime" disclosure.
-//   - SurfaceRole=support / prose_only / diagram_only blocks are
-//     NEVER hedged — only principal blocks (the answer's main-line
-//     payload) carry hedge sentinels.
+//   - Non-principal blocks (SurfaceRole empty) are NEVER hedged —
+//     only principal blocks (the answer's main-line payload) carry
+//     hedge sentinels.
 //
 // Returns the in-place mutated doc. Nil-safe.
 //
@@ -154,10 +154,9 @@ func addV2AuthorityCaveat(doc *types.AnswerDocumentV2, evidence []types.Evidence
 	}
 	// Otherwise append a new caveat block.
 	doc.Blocks = append(doc.Blocks, types.AnswerBlock{
-		ID:          "_authority_caveat",
-		Kind:        types.BlockCaveat,
-		Text:        caveatText,
-		SurfaceRole: types.SurfaceProseOnly,
+		ID:   "_authority_caveat",
+		Kind: types.BlockCaveat,
+		Text: caveatText,
 	})
 }
 

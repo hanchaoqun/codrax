@@ -56,7 +56,6 @@ func compileRoleLookup(ir *AnalysisIR, plan *AnswerSurfacePlan) *AnswerSemanticV
 			Rationale: "Add a supporting section when the resolved literal alone is ambiguous — " +
 				"surrounding type, call-site, or sibling symbols that disambiguate which role this " +
 				"specific literal plays.",
-			SurfaceRoleHint: SurfaceSupport,
 		},
 		optionalCaveatBlock(
 			"When the role lookup hit a renamed / drifted symbol or returned absence, name the "+

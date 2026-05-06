@@ -58,7 +58,6 @@ func compileArchitecture(ir *AnalysisIR, plan *AnswerSurfacePlan) *AnswerSemanti
 			},
 			Rationale: "A flowchart showing the components and their relations. Top-down direction " +
 				"for layered architectures; left-right for pipelines.",
-			SurfaceRoleHint: SurfaceDiagramOnly,
 		},
 	}
 	view.OptionalBlocks = []BlockRequirement{
@@ -70,7 +69,6 @@ func compileArchitecture(ir *AnalysisIR, plan *AnswerSurfacePlan) *AnswerSemanti
 			FacetIDs: []string{string(FacetComponentRelation)},
 			Rationale: "Within a layer section, a bullet list enumerating the sub-components is " +
 				"often clearer than dense prose.",
-			SurfaceRoleHint: SurfaceSupport,
 		},
 		optionalCaveatBlock(
 			"When some components are mentioned by convention only (no on-disk file), or when "+

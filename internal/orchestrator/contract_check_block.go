@@ -1730,8 +1730,6 @@ func runV2BlockOraclesWithMut(doc *types.AnswerDocumentV2, view *types.AnswerSem
 //     grounding lanes (citation_ref + grounder).
 //   - Items with empty label: the prose lives in `text`, not the
 //     label, so there's nothing structurally to ground.
-//   - Block.SurfaceRole == prose_only / diagram_only: not principal
-//     payload.
 //
 // Match semantics: case-folded substring match in BOTH directions
 // (label-contains-anchor OR anchor-contains-label) so a label like
@@ -1759,9 +1757,6 @@ func validateEnumerationItemLabelGrounding(doc *types.AnswerDocumentV2, mut *typ
 	perBlock := make(map[string][]ungroundedItem)
 	for _, b := range doc.Blocks {
 		if b.Kind != types.BlockOrderedList && b.Kind != types.BlockBulletList {
-			continue
-		}
-		if b.SurfaceRole == types.SurfaceProseOnly || b.SurfaceRole == types.SurfaceDiagramOnly {
 			continue
 		}
 		var blockUngrounded []ungroundedItem
@@ -1884,9 +1879,6 @@ func validateEnumerationItemLabelExtractorMatch(doc *types.AnswerDocumentV2, vie
 	perBlock := make(map[string][]drifted)
 	for _, b := range doc.Blocks {
 		if b.Kind != types.BlockOrderedList && b.Kind != types.BlockBulletList {
-			continue
-		}
-		if b.SurfaceRole == types.SurfaceProseOnly || b.SurfaceRole == types.SurfaceDiagramOnly {
 			continue
 		}
 		if len(b.Items) < 3 {

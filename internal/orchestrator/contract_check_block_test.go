@@ -175,15 +175,6 @@ func TestPrincipalClaimUse_MissingFires(t *testing.T) {
 	}
 }
 
-func TestPrincipalClaimUse_NonPrincipalSkipped(t *testing.T) {
-	view := principalClaimUseView()
-	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{
-		{ID: "s1", Kind: types.BlockScalar, Text: "42", SurfaceRole: types.SurfaceSupport},
-	}}
-	if vs := validatePrincipalClaimUse(doc, view); len(vs) != 0 {
-		t.Errorf("non-principal block must skip; got %+v", vs)
-	}
-}
 
 func TestPrincipalClaimUse_ItemLevelClaimSatisfies(t *testing.T) {
 	view := principalClaimUseView()
@@ -1457,38 +1448,6 @@ func TestEnumerationLabelGrounding_NonListBlocksSkipped(t *testing.T) {
 	}
 }
 
-// TestEnumerationLabelGrounding_ProseOnlyAndDiagramOnlySkipped —
-// SurfaceRole gates prose_only / diagram_only out of the oracle.
-func TestEnumerationLabelGrounding_ProseOnlyAndDiagramOnlySkipped(t *testing.T) {
-	mut := mutWithEvidence([]types.EvidenceItem{
-		{ID: "e1", AnchorSymbol: "X"},
-	})
-	doc := &types.AnswerDocumentV2{
-		DocumentModel: "v2",
-		Blocks: []types.AnswerBlock{
-			{
-				ID:          "prose",
-				Kind:        types.BlockBulletList,
-				SurfaceRole: types.SurfaceProseOnly,
-				Items: []types.AnswerBlockItem{
-					{ID: "p1", Label: "ungrounded_in_prose_only"},
-				},
-			},
-			{
-				ID:          "diagOnly",
-				Kind:        types.BlockOrderedList,
-				SurfaceRole: types.SurfaceDiagramOnly,
-				Items: []types.AnswerBlockItem{
-					{ID: "d1", Label: "ungrounded_in_diagram_only"},
-				},
-			},
-		},
-	}
-	if vs := validateEnumerationItemLabelGrounding(doc, mut); len(vs) != 0 {
-		t.Errorf("prose_only / diagram_only blocks should be skipped; got %+v", vs)
-	}
-}
-
 // TestEnumerationLabelGrounding_EmptyLabelSkipped — empty / whitespace
 // labels do not fire the oracle (the prose lives in `text`).
 func TestEnumerationLabelGrounding_EmptyLabelSkipped(t *testing.T) {
@@ -1720,9 +1679,8 @@ func docWithDiagramBody(body string, edgeAnchors ...types.DiagramEdgeAnchor) *ty
 				},
 			},
 			{
-				ID:          "d1",
-				Kind:        types.BlockDiagram,
-				SurfaceRole: types.SurfaceDiagramOnly,
+				ID:   "d1",
+				Kind: types.BlockDiagram,
 				Diagram: &types.AnswerDiagramBlock{
 					Kind:     types.DiagramSequence,
 					Language: "mermaid",
@@ -2221,28 +2179,5 @@ func TestEnumerationItemLabelExtractorMatch_EightyPercentThreshold(t *testing.T)
 		"zetaFn", "etaFn", "row 1 (xyz)", "row 2 (xyz)", "row 3 (xyz)")
 	if vs := validateEnumerationItemLabelExtractorMatch(doc7, enumView(), mut); len(vs) == 0 {
 		t.Errorf("<80%% match MUST fire")
-	}
-}
-
-// SurfaceProseOnly / SurfaceDiagramOnly blocks skip — they don't
-// represent enumerated answers.
-func TestEnumerationItemLabelExtractorMatch_SurfaceRoleSkip(t *testing.T) {
-	mut := mutWithSymbols("checkCoverage", "checkDAGClosure", "checkBudgetSanity")
-	doc := &types.AnswerDocumentV2{
-		Blocks: []types.AnswerBlock{
-			{
-				ID:          "prose",
-				Kind:        types.BlockOrderedList,
-				SurfaceRole: types.SurfaceProseOnly,
-				Items: []types.AnswerBlockItem{
-					{ID: "i1", Label: "abstract 1"},
-					{ID: "i2", Label: "abstract 2"},
-					{ID: "i3", Label: "abstract 3"},
-				},
-			},
-		},
-	}
-	if vs := validateEnumerationItemLabelExtractorMatch(doc, enumView(), mut); len(vs) != 0 {
-		t.Errorf("prose_only block MUST skip; got %+v", vs)
 	}
 }

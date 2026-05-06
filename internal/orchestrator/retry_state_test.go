@@ -196,9 +196,8 @@ func TestSummarizeAnswerDocV2ForRetry_EdgeAnchoredCounted(t *testing.T) {
 	doc := &types.AnswerDocumentV2{
 		Blocks: []types.AnswerBlock{
 			{
-				ID:          "d1",
-				Kind:        types.BlockDiagram,
-				SurfaceRole: types.SurfaceDiagramOnly,
+				ID:   "d1",
+				Kind: types.BlockDiagram,
 				EdgeAnchors: []types.DiagramEdgeAnchor{
 					{FromNode: "Auth", ToNode: "Worker", ClaimForm: types.ClaimCallEdge},
 					{FromNode: "Worker", ToNode: "DB", ClaimForm: types.ClaimGuardCondition},

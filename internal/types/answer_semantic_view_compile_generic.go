@@ -53,7 +53,6 @@ func compileGeneric(ir *AnalysisIR, plan *AnswerSurfacePlan) *AnswerSemanticView
 			Required: false,
 			Rationale: "When the answer covers multiple topics, structure with sub-headed sections " +
 				"so the reader can navigate. One section per major topic.",
-			SurfaceRoleHint: SurfaceSupport,
 		},
 		{
 			Kind:     BlockOrderedList,
@@ -62,7 +61,6 @@ func compileGeneric(ir *AnalysisIR, plan *AnswerSurfacePlan) *AnswerSemanticView
 			Required: false,
 			Rationale: "When the explanation walks a sequence (steps in a process, hops in a flow), " +
 				"an ordered list inside a section reads better than dense prose.",
-			SurfaceRoleHint: SurfaceSupport,
 		},
 		{
 			Kind:     BlockBulletList,
@@ -71,7 +69,6 @@ func compileGeneric(ir *AnalysisIR, plan *AnswerSurfacePlan) *AnswerSemanticView
 			Required: false,
 			Rationale: "When listing parallel items (features, options, alternatives), a bullet list " +
 				"is clearer than a comma-separated paragraph.",
-			SurfaceRoleHint: SurfaceSupport,
 		},
 		{
 			Kind:     BlockDiagram,
@@ -80,7 +77,6 @@ func compileGeneric(ir *AnalysisIR, plan *AnswerSurfacePlan) *AnswerSemanticView
 			Required: false,
 			Rationale: "Add a diagram when the answer involves control flow, dispatch, timing, " +
 				"architecture, or fan-out — visual structure aids comprehension. Optional otherwise.",
-			SurfaceRoleHint: SurfaceDiagramOnly,
 		},
 		optionalCaveatBlock(
 			"When the explanation is bounded to a sub-tree, or when external/log evidence "+

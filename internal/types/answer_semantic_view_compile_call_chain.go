@@ -58,7 +58,6 @@ func compileCallChain(ir *AnalysisIR, plan *AnswerSurfacePlan) *AnswerSemanticVi
 			},
 			Rationale: "A sequence diagram showing the chain visually — actor-to-actor edges " +
 				"matching the ordered list. Use Mermaid sequenceDiagram form.",
-			SurfaceRoleHint: SurfaceDiagramOnly,
 		},
 	}
 	view.OptionalBlocks = []BlockRequirement{

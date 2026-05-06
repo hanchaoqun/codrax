@@ -86,9 +86,6 @@ func IsValidAnswerBlockKind(k AnswerBlockKind) bool {
 
 // SurfaceRole is re-exported here as a doc-comment cross-reference
 // for B1 readers — the actual type lives in
-// internal/types/rendered_claim_use.go (SurfacePrincipal /
-// SurfaceSupport / SurfaceProseOnly / SurfaceDiagramOnly). V2 blocks
+// internal/types/rendered_claim_use.go (SurfacePrincipal). V2 blocks
 // carry SurfaceRole to tell validators whether the block is
-// principal answer content or supporting context. No new type added
-// here — we deliberately reuse the existing SurfaceRole enum so
-// V1 ClaimUse semantics and V2 block semantics stay aligned.
+// principal answer content; empty means "not principal".

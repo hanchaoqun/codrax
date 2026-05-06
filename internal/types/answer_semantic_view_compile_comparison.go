@@ -93,7 +93,6 @@ func compileComparison(ir *AnalysisIR, plan *AnswerSurfacePlan) *AnswerSemanticV
 			Rationale: "When the comparison has multiple discrete axes, a side-by-side table " +
 				"makes the axis × bucket grid scannable. Row 1 names the axes; one column " +
 				"per bucket carries that bucket's value on each axis.",
-			SurfaceRoleHint: SurfaceSupport,
 		},
 		optionalCaveatBlock(
 			"When the comparison axis is asymmetric (e.g. one bucket lacks a feature the "+

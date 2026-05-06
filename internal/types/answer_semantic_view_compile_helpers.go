@@ -89,7 +89,7 @@ func applyExactAbsenceSummaryLead(view *AnswerSemanticView, plan *AnswerSurfaceP
 	scalar := &view.RequiredBlocks[scalarIdx]
 	scalar.Required = false
 	scalar.MinCount = 0
-	scalar.SurfaceRoleHint = SurfaceSupport
+	scalar.SurfaceRoleHint = ""
 	scalar.Rationale = strings.TrimSpace(scalar.Rationale +
 		" Optional only when a grounded literal truly exists; when the exact target is absent, do not emit a synthetic `(missing)` / `(不存在)` scalar.")
 }
@@ -103,9 +103,8 @@ func optionalCaveatBlock(rationale string, facetIDs ...string) BlockRequirement 
 		MinCount:        0,
 		MaxCount:        0, // 0 = no upper limit (R5: no layer assumption)
 		Required:        false,
-		Rationale:       rationale,
-		FacetIDs:        appendUniqueStr(nil, facetIDs...),
-		SurfaceRoleHint: SurfaceProseOnly,
+		Rationale: rationale,
+		FacetIDs:  appendUniqueStr(nil, facetIDs...),
 	}
 }
 

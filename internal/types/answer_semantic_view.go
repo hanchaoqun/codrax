@@ -125,11 +125,12 @@ type BlockRequirement struct {
 	// internal jargon (R4).
 	Rationale string
 
-	// SurfaceRoleHint, when set, tells the LLM whether this block
-	// is principal answer content (SurfacePrincipal) vs supporting
-	// context (SurfaceSupport) etc. Validators use the hint to
-	// distinguish which blocks count as the "principal payload"
-	// when checking claim use coverage.
+	// SurfaceRoleHint, when set to SurfacePrincipal, tells the LLM
+	// this block is principal answer content. Empty means "not
+	// principal" — supporting context, framing prose, and
+	// diagram-only contributions all default to empty. Validators
+	// use the hint to distinguish which blocks count as the
+	// "principal payload" when checking claim use coverage.
 	SurfaceRoleHint SurfaceRole
 }
 
