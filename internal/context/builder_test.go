@@ -1717,7 +1717,7 @@ func measurementScalarIR() *types.AnalysisIR {
 			Predicates: types.SemanticPredicates{IsScalarAnswer: true},
 		},
 		AnswerContract: types.AnswerContract{
-			CitationReq:         types.CitationReq{Required: false, MinCitations: 0},
+			CitationReq: types.CitationReq{Required: false, MinCitations: 0},
 		},
 	}
 }
@@ -1729,7 +1729,7 @@ func measurementScalarIR() *types.AnalysisIR {
 func explanationIR() *types.AnalysisIR {
 	return &types.AnalysisIR{
 		AnswerContract: types.AnswerContract{
-			CitationReq:         types.CitationReq{Required: true, MinCitations: 3, Granularity: "file_line"},
+			CitationReq: types.CitationReq{Required: true, MinCitations: 3, Granularity: "file_line"},
 		},
 	}
 }
@@ -1758,7 +1758,7 @@ func TestShouldRenderRawToolOutputs_Gate(t *testing.T) {
 		{"value shape with citation still required does not render",
 			&types.AgentContext{Stage: types.StageFinalize, Mutable: mu, AnalysisIR: &types.AnalysisIR{
 				AnswerContract: types.AnswerContract{
-					CitationReq:         types.CitationReq{Required: true, MinCitations: 1},
+					CitationReq: types.CitationReq{Required: true, MinCitations: 1},
 				},
 			}}, false},
 		{"nil Mutable never renders",
@@ -2171,7 +2171,7 @@ func TestBuildAgentContext_WriteStage_ScrubsReadModeArtifacts(t *testing.T) {
 			leakSections := []string{
 				SectionPriorStageFindings,
 				SectionUnverifiedAnalyzer,
-				"Structured Evidence",                  // historical name — guard against accidental re-introduction
+				"Structured Evidence", // historical name — guard against accidental re-introduction
 				SectionDataflowFindings,
 				SectionAnswerSymbolsAuth,
 				"Extracted Answer Symbols (lower-bound)", // historical name — guard against accidental re-introduction
@@ -2342,6 +2342,28 @@ func TestBuildAgentContext_ReadStage_PropagatesArtifacts(t *testing.T) {
 	}
 	if len(ac.PriorReports) == 0 {
 		t.Error("PriorReports empty for read stage — gate leaked into read mode")
+	}
+}
+
+func TestRenderAnswerChainForPrompt_PrefersDeterministicSurface(t *testing.T) {
+	chain := types.AnswerChain{
+		Item: types.EvidenceItem{
+			Kind:         types.EvidenceConditional,
+			Source:       "internal/agent/analyzer.go",
+			LineStart:    861,
+			AnchorKind:   types.AnchorCondition,
+			AnchorSymbol: "buildAnalysisIR",
+			Condition:    "ctx == nil || ctx.Mutable == nil",
+			Summary:      "nil ctx definitely flowed in from the caller and skipped the guard",
+		},
+	}
+
+	got := renderAnswerChainForPrompt(chain)
+	if !strings.Contains(got, "buildAnalysisIR guard condition IF ctx == nil || ctx.Mutable == nil") {
+		t.Fatalf("expected deterministic guard surface, got: %s", got)
+	}
+	if strings.Contains(got, "nil ctx definitely flowed in from the caller") {
+		t.Fatalf("answer-chain prompt should not replay over-strong free summary: %s", got)
 	}
 }
 

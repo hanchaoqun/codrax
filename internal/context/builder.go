@@ -2726,7 +2726,7 @@ func formatBulletList(items []string) string {
 // dropped. Pure formatting — zero logic.
 func renderAnswerChainForPrompt(c types.AnswerChain) string {
 	ev := c.Item
-	display := ev.Summary
+	display := strings.TrimSpace(types.EvidenceDeterministicSurfaceText(ev, false))
 	if display == "" {
 		display = fmt.Sprintf("[%s] %s %s %s", ev.Kind, ev.Subject, ev.Predicate, ev.Object)
 	}

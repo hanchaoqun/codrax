@@ -580,6 +580,36 @@ func TestExtractor_BuildPrompt_DigestsTurnAArtifacts(t *testing.T) {
 	}
 }
 
+func TestExtractor_BuildPrompt_DeterministicEvidencePrefersTypedSurface(t *testing.T) {
+	mu := types.NewMutableState("")
+	mu.SetTurnAArtifacts(types.TurnAArtifacts{
+		EvidenceItems: []types.EvidenceItem{{
+			Kind:         types.EvidenceConditional,
+			Source:       "internal/agent/analyzer.go",
+			LineStart:    861,
+			AnchorKind:   types.AnchorCondition,
+			AnchorSymbol: "buildAnalysisIR",
+			Condition:    "ctx == nil || ctx.Mutable == nil",
+			Summary:      "nil ctx definitely flowed in from the caller and skipped the guard",
+		}},
+	})
+	ctx := &types.AgentContext{
+		Objective: "why does this panic happen?",
+		Mutable:   mu,
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{Intent: types.IntentRootCause},
+		},
+	}
+
+	prompt := (&extractorEvaluator{}).BuildInitialInstruction(ctx, nil)
+	if !contains(prompt, "buildAnalysisIR guard condition IF ctx == nil || ctx.Mutable == nil") {
+		t.Fatalf("prompt should render deterministic guard surface:\n%s", prompt)
+	}
+	if contains(prompt, "nil ctx definitely flowed in from the caller") {
+		t.Fatalf("prompt should not reuse over-strong free summary in deterministic evidence section:\n%s", prompt)
+	}
+}
+
 func TestExtractor_BuildPrompt_EnumerationBoundaryOverridesDisplayedFloor(t *testing.T) {
 	mu := types.NewMutableState("")
 	mu.SetTurnAArtifacts(types.TurnAArtifacts{TerminalEvidenceCount: 15})

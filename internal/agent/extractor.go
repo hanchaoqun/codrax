@@ -192,7 +192,7 @@ func (e *extractorEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk
 				if loc := ev.DisplayLocation(true); loc != "" {
 					cite = " @ " + loc
 				}
-				summary := strings.TrimSpace(ev.Summary)
+				summary := strings.TrimSpace(types.EvidenceDeterministicSurfaceText(ev, false))
 				if summary == "" {
 					parts := []string{ev.Subject, ev.Predicate, ev.Object}
 					summary = strings.TrimSpace(strings.Join(parts, " "))

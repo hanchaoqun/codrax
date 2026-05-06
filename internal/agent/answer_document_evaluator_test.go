@@ -1415,8 +1415,10 @@ func TestAnswerDocumentEvaluator_BuildInitialInstruction_RendersLogSourceDriftGu
 		"## Log Source Drift",
 		"older or shifted build snapshot",
 		"Do not claim that the current cited line is the exact crashing line from the log",
-		"### Drift-Bounded Current Surface",
-		"buildAnalysisIR guard condition IF ctx == nil || ctx.Mutable == nil",
+		"## Typed Answer Support Lanes",
+		"### Observed artifact facts",
+		"### Nearest grounded mechanism",
+		"buildAnalysisIR guard condition IF ctx == nil || ctx.Mutable == nil (`internal/agent/analyzer.go:861`)",
 	} {
 		if !strings.Contains(prompt, want) {
 			t.Fatalf("prompt missing %q:\n%s", want, prompt)
@@ -1590,8 +1592,8 @@ func TestAnswerDocumentEvaluator_BuildInitialInstruction_UsesStableAbsenceStateA
 	for _, want := range []string{
 		"Investigation state: the exact target is currently absent in the repo / branch under inspection.",
 		"no config key named `explore_mid_loop_hint_budget` exists in the repo",
-		"## Accepted Closure Rationale",
-		"all three nearby precedence layers were already traced before the window reset",
+		"## Accepted Closure Status",
+		"Treat prior closure state only as a scope / completeness floor.",
 		"Emit `exact_resolution.status=\"absent\"`",
 		"do NOT emit a principal scalar block with a synthetic literal",
 		"grounded same-scope anchors may appear in `summary` even when they do not carry a validated diagram role",
@@ -1816,11 +1818,11 @@ func TestAnswerDocumentEvaluator_BuildInitialInstruction_RendersExternalObservat
 
 	prompt := (&answerDocumentEvaluator{}).BuildInitialInstruction(ctx, nil)
 	for _, want := range []string{
-		"## External Observation Seeds",
-		"citation_ref` to `-1`",
-		"Structured log error type",
+		"## Typed Answer Support Lanes",
+		"### Observed artifact facts",
+		"structured runtime error type",
 		"ParseOutput(0x0, 0x0, 0x0)",
-		"current code anchor `internal/agent/analyzer.go:651`",
+		"internal/agent/analyzer.go:651",
 	} {
 		if !strings.Contains(prompt, want) {
 			t.Fatalf("prompt missing %q:\n%s", want, prompt)

@@ -208,11 +208,18 @@ func (e *answerDocumentEvaluator) BuildInitialInstruction(ctx *types.AgentContex
 	if closure := renderAnswerDocAcceptedClosure(ctx); closure != "" {
 		b.WriteString(closure)
 	}
+	renderedTypedSupport := false
+	if support := renderAnswerDocSupportPlan(ctx); support != "" {
+		renderedTypedSupport = true
+		b.WriteString(support)
+	}
 	if drift := renderAnswerDocLogSourceDrift(ctx); drift != "" {
 		b.WriteString(drift)
 	}
-	if observations := renderAnswerDocExternalObservationSeeds(ctx); observations != "" {
-		b.WriteString(observations)
+	if !renderedTypedSupport {
+		if observations := renderAnswerDocExternalObservationSeeds(ctx); observations != "" {
+			b.WriteString(observations)
+		}
 	}
 	if checklist := renderAnswerDocSubmissionChecklist(ctx, view, e.diagramRequired); checklist != "" {
 		b.WriteString(checklist)
@@ -475,6 +482,13 @@ func answerSurfacePlan(ctx *types.AgentContext) *types.AnswerSurfacePlan {
 		types.ApplyAnswerSymbolStepBackbone(plan, ctx.AnalysisIR, ctx.AnswerSymbols, ctx.AnswerSymbolCompleteness)
 	}
 	return plan
+}
+
+func answerSupportPlan(ctx *types.AgentContext) *types.AnswerSupportPlan {
+	if ctx == nil || ctx.AnalysisIR == nil {
+		return nil
+	}
+	return types.BuildAnswerSupportPlanForAgentContext(ctx)
 }
 
 func answerDocRequestModel(ctx *types.AgentContext) types.RequestModel {
@@ -1717,18 +1731,53 @@ func renderAnswerDocAcceptedClosure(ctx *types.AgentContext) string {
 	if plan == nil {
 		return ""
 	}
-	reason := strings.TrimSpace(plan.StableInvestigationReason)
-	if reason == "" {
+	if strings.TrimSpace(plan.StableInvestigationReason) == "" && strings.TrimSpace(plan.StableAbsenceJustification) == "" {
 		return ""
 	}
-	justification := strings.TrimSpace(plan.StableAbsenceJustification)
 	var b strings.Builder
-	b.WriteString("## Accepted Closure Rationale\n\n")
-	fmt.Fprintf(&b, "- Prior accepted exploration closure: %s\n", reason)
-	if justification != "" && justification != reason {
-		fmt.Fprintf(&b, "- Stable absence justification: %s\n", justification)
+	b.WriteString("## Accepted Closure Status\n\n")
+	b.WriteString("- A prior exploration window already reached a stable closure for this dispatch.\n")
+	if plan.StableAbsent {
+		b.WriteString("- The stable state currently remains an accepted bounded absence / no-hit result for the exact target under the explored scope.\n")
 	}
-	b.WriteString("- Treat the accepted closure as the authoritative scope/richness floor for this dispatch. Keep its grounded mechanism / precedence / comparison coverage unless the current citations and surface plan explicitly forbid a piece of it.\n\n")
+	b.WriteString("- Treat prior closure state only as a scope / completeness floor.\n")
+	b.WriteString("- Rebuild user-visible principal claims from the typed support lanes, current citations, and the semantic view below. Do not copy prior closure prose into the `summary` block or principal `ordered_list` items.\n\n")
+	return b.String()
+}
+
+func renderAnswerDocSupportPlan(ctx *types.AgentContext) string {
+	plan := answerSupportPlan(ctx)
+	if plan == nil || len(plan.Lanes) == 0 {
+		return ""
+	}
+	var b strings.Builder
+	b.WriteString("## Typed Answer Support Lanes\n\n")
+	b.WriteString("- Build the principal `summary` block and principal `ordered_list` items only from the lanes below.\n")
+	b.WriteString("- Keep observed runtime facts, current code path facts, nearest grounded mechanism facts, and uncertainty disclosures in their own lanes.\n")
+	b.WriteString("- Do not promote an observation lane into caller-side provenance, old-build internals, or exact mechanism unless a current cited line explicitly proves that stronger claim.\n\n")
+	for _, lane := range plan.Lanes {
+		title := strings.TrimSpace(lane.Title)
+		if title == "" {
+			continue
+		}
+		fmt.Fprintf(&b, "### %s\n\n", title)
+		if guidance := strings.TrimSpace(lane.Guidance); guidance != "" {
+			b.WriteString(guidance)
+			b.WriteString("\n\n")
+		}
+		for _, entry := range lane.Entries {
+			text := strings.TrimSpace(entry.Text)
+			if text == "" {
+				continue
+			}
+			if loc := strings.TrimSpace(entry.Location); loc != "" {
+				fmt.Fprintf(&b, "- %s (`%s`)\n", text, loc)
+			} else {
+				fmt.Fprintf(&b, "- %s\n", text)
+			}
+		}
+		b.WriteString("\n")
+	}
 	return b.String()
 }
 
@@ -1924,7 +1973,7 @@ func renderAnswerDocLogSourceDrift(ctx *types.AgentContext) string {
 		fmt.Fprintf(&b, "- `%s:%d` in `%s` aligns most closely to current grounded anchor `%s:%d`.\n",
 			anchor.File, anchor.ObservedLine, funcLabel, anchor.File, anchor.AnchoredLine)
 	}
-	if len(plan.DriftBoundedSurfaceItems) > 0 {
+	if len(plan.DriftBoundedSurfaceItems) > 0 && answerSupportPlan(ctx) == nil {
 		b.WriteString("\n### Drift-Bounded Current Surface\n\n")
 		b.WriteString("Only claims directly expressible from the grounded anchors below belong in the `summary` block's text or in any principal `ordered_list` / `bullet_list` items. Treat anything beyond them as unproven older-build detail.\n\n")
 		for _, item := range plan.DriftBoundedSurfaceItems {
