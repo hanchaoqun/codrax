@@ -163,6 +163,27 @@ const (
 	// only the cache-miss + capture path fires the pair.
 	EventBaselineCapturingStart
 	EventBaselineCapturingEnd
+
+	// Orchestrator soft notice. Emitted by the scheduler / CGEC
+	// enforcers / contract checker / write coordinator when a
+	// non-LLM control-flow decision needs to surface to the user
+	// (retry hints, forced-read, convergence stall, fallback
+	// targets, plan-critic review summary, etc.). Pre-this-event
+	// these messages flowed through EventAgentReasoning and were
+	// rendered with the same `💭 [orchestrator-N] …` LLM-thinking
+	// style the renderer uses for genuine LLM reasoning text —
+	// users could not distinguish "the LLM is thinking" from "the
+	// orchestrator just decided to retry". The new event renders
+	// without the 💭 thought-bubble or [agent-N] tag so the two
+	// surfaces are visually distinct.
+	//
+	// NoticeKind classifies the message into one of three buckets
+	// (retry-class yellow / info-class gray / progress-class cyan).
+	// Reasoning carries the localized message body produced by
+	// internal/orchestrator/user_messages.go (each helper already
+	// embeds its own ⟳/·/–/›/⊘ glyph; the renderer adds no further
+	// prefix).
+	EventOrchestratorNotice
 )
 
 // PhaseInfo is the renderable per-phase projection carried on
@@ -183,6 +204,52 @@ const (
 	PhaseProgressStart PhaseProgressKind = iota
 	PhaseProgressAccepted
 	PhaseProgressRejected
+)
+
+// OrchestratorNoticeKind classifies an EventOrchestratorNotice into
+// one of three visual buckets so the dock picks color without parsing
+// the message body.
+//
+//	retry-class (statusRecoverable / yellow):
+//	    system is actively recovering / retrying — gives the user a
+//	    visible "we are continuing, one more pass" cue.
+//	info-class (statusMeta / dark gray):
+//	    decision logged for transparency, no further action expected;
+//	    quiet so it does not dominate the dock at orchestrator cadence.
+//	progress-class (statusObjective / cyan):
+//	    forward milestone (e.g. investigation ready); reads as a peer
+//	    of the EventPhaseProgress structural progression line.
+//
+// The kind is enumerated rather than free-form so the formatter is a
+// single switch and a code review can verify every emit site picks
+// the right bucket. Adding a new kind is a 1-line enum addition + 1
+// formatter case + N call-site updates.
+type OrchestratorNoticeKind int
+
+const (
+	// retry-class — yellow ⟳ (active recovery)
+	NoticeRetry                          OrchestratorNoticeKind = iota // generic stage retry hint
+	NoticeForcedRead                                                   // CGEC E2 forced-read fill
+	NoticeAnswerCheckRetry                                             // post-finalize answer-contract backtrack
+	NoticeFallbackFinalizerOnly                                        // Block 3 fallback: re-run finalizer only
+	NoticeFallbackBackToExtract                                        // Block 3 fallback: re-run extract layer
+	NoticeFallbackBackToExplore                                        // Block 3 fallback: re-run explore layer
+	NoticeFinalizing                                                   // pre-finalize composition cue
+	NoticeSelfConsistencyStart                                         // self-consistency reviewer dispatch
+	NoticeSelfConsistencyContradictionRewriting                        // contradictions found, rewriting answer
+	NoticeNoToolCall                                                   // must-emit stage got zero tool_calls; re-prompting
+
+	// info-class — gray (passive informational)
+	NoticeConvergenceStall                   // CGEC I4 plateau finalizing on current evidence
+	NoticeAbandonRead                        // forced-read abandoned (file unreadable)
+	NoticeFallbackFailLoud                   // Block 3 terminal: shipping with caveat
+	NoticeUpstreamCap                        // upstream-fallback budget reached
+	NoticeYieldKill                          // yield-delta kill: retry produced no progress
+	NoticePlanReview                         // write-mode plan_critic review summary
+	NoticeSelfConsistencyContradictionLogged // contradictions found, NOT rewriting (advisory only)
+
+	// progress-class — cyan (forward milestone)
+	NoticeInvestigationReady // explorer signaled investigation_complete
 )
 
 // TaskNodeInfo is the renderable summary of a TaskGraph node carried
@@ -304,6 +371,14 @@ type Event struct {
 	RetryReason  string
 	FallbackFrom string
 	FallbackTo   string
+
+	// EventOrchestratorNotice payload.
+	//   NoticeKind  — three-bucket classification (retry / info /
+	//                 progress) controlling glyph color without
+	//                 parsing the message body. Reasoning carries
+	//                 the localized text (with its own embedded
+	//                 ⟳/·/–/›/⊘ glyph chosen by user_messages.go).
+	NoticeKind OrchestratorNoticeKind
 }
 
 // EventEmitter is the callback signature for pipeline event delivery.

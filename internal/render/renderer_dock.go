@@ -9,6 +9,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/hanchaoqun/codrax/internal/logging"
+	"github.com/pterm/pterm"
 )
 
 // dockTickInterval is the animation refresh cadence. 100 ms is the
@@ -76,6 +77,21 @@ func (r *Renderer) handleEvent(ev Event) {
 			return
 		}
 		line := formatReasoning(string(ev.Agent), ev.Iteration, ev.Reasoning)
+		if !r.dockEnabled && r.dock == nil {
+			r.handleEventNonTTY(ev)
+			return
+		}
+		r.commitLineLocked(line)
+		return
+	case EventOrchestratorNotice:
+		// Distinct from EventAgentReasoning: no 💭 thought bubble,
+		// no [agent-N] tag — the user must be able to tell at a
+		// glance whether a line is the LLM thinking aloud or the
+		// orchestrator announcing a control-flow decision.
+		line := formatOrchestratorNotice(ev.NoticeKind, ev.Reasoning)
+		if line == "" {
+			return
+		}
 		if !r.dockEnabled && r.dock == nil {
 			r.handleEventNonTTY(ev)
 			return
@@ -1099,6 +1115,64 @@ func formatPhaseProgressLine(lang string, idx, total int, kind PhaseProgressKind
 	return out
 }
 
+// orchestratorNoticeStyle returns the pterm style the dock should
+// use for an EventOrchestratorNotice based on its NoticeKind. The
+// three-bucket policy:
+//
+//	retry-class    → statusRecoverable (muted yellow) — actively recovering;
+//	                 catches the eye that "we are continuing, one more pass"
+//	info-class     → statusMeta (dark gray) — quiet informational, will not
+//	                 dominate the dock at orchestrator cadence
+//	progress-class → statusObjective (cyan) — forward milestone, parallel
+//	                 to EventPhaseProgress
+//
+// Default falls through to statusMeta so a future kind added without
+// a switch update is visible (gray) but not loud (no false retry hue).
+func orchestratorNoticeStyle(kind OrchestratorNoticeKind) *pterm.Style {
+	switch kind {
+	case NoticeRetry,
+		NoticeForcedRead,
+		NoticeAnswerCheckRetry,
+		NoticeFallbackFinalizerOnly,
+		NoticeFallbackBackToExtract,
+		NoticeFallbackBackToExplore,
+		NoticeFinalizing,
+		NoticeSelfConsistencyStart,
+		NoticeSelfConsistencyContradictionRewriting,
+		NoticeNoToolCall:
+		return statusRecoverable
+	case NoticeInvestigationReady:
+		return statusObjective
+	}
+	return statusMeta
+}
+
+// formatOrchestratorNotice returns the dock scrollback line for an
+// EventOrchestratorNotice. Layout policy:
+//
+//   - 2-space leading indent (mirrors formatReasoning's "  " indent
+//     so the column-1 alignment with surrounding rows is preserved)
+//   - NO `💭` thought-bubble prefix — that icon means "LLM is
+//     reasoning right now", which is precisely what an orchestrator
+//     soft notice IS NOT
+//   - NO `[agent-N]` iteration tag — orchestrator is not an agent in
+//     the sense AgentName covers (analyzer / explorer / etc.); the
+//     tag would mislead the user into expecting per-iteration LLM
+//     output
+//   - The message body already carries its own kind glyph (⟳ / · /
+//     – / › / ⊘) chosen by internal/orchestrator/user_messages.go;
+//     the formatter does not double-prefix.
+//
+// Empty text → empty output so the caller can degrade silently.
+func formatOrchestratorNotice(kind OrchestratorNoticeKind, text string) string {
+	text = strings.TrimSpace(text)
+	if text == "" {
+		return ""
+	}
+	style := orchestratorNoticeStyle(kind)
+	return "  " + style.Sprint(text)
+}
+
 // countTopicSiblings returns how many evidence_tN nodes are present
 // in r.tasks. Used by commit to decide whether the "关注点 K/M"
 // suffix should appear on the completion line.
@@ -1158,6 +1232,14 @@ func (r *Renderer) handleEventNonTTY(ev Event) {
 		}
 	case EventAgentReasoning:
 		r.emitNonTTYLine(formatReasoning(string(ev.Agent), ev.Iteration, ev.Reasoning))
+	case EventOrchestratorNotice:
+		// Mirror of the TTY branch above: render WITHOUT the 💭
+		// LLM-thinking prefix or [agent-N] tag so log scrapers and
+		// CI operators read the same "this is the orchestrator
+		// talking, not the LLM" cue.
+		if line := formatOrchestratorNotice(ev.NoticeKind, ev.Reasoning); line != "" {
+			r.emitNonTTYLine(line)
+		}
 	case EventAdapterRetry:
 		// Non-TTY mode (CI / piped stdout) — same user-facing
 		// language as the dock activity row + permanent commit so
