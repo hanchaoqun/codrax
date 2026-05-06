@@ -645,6 +645,15 @@ func (r *Renderer) dockHandlePreviewClear(ev Event) {
 // so a post-run audit of the log file reads back the same screen
 // timeline the user saw.
 //
+// Consecutive duplicate suppression: the orchestrator can emit the
+// same soft notice twice in a row (e.g. two forced-read passes both
+// firing "⟳ 正在补充关键信息" within the same dispatch). Compare the
+// new line byte-identically to the immediately-prior committed line
+// and skip when they match — legitimate non-notice commits (per-stage
+// success / failure / question rows) carry distinguishing K/N or
+// stage labels, so a real byte-identical duplicate only happens on
+// the soft-notice path.
+//
 // Caller MUST hold r.mu.
 func (r *Renderer) commitLineLocked(line string) {
 	if line == "" {
@@ -653,6 +662,10 @@ func (r *Renderer) commitLineLocked(line string) {
 	if r.dock == nil {
 		return
 	}
+	if line == r.lastCommittedLine {
+		return
+	}
+	r.lastCommittedLine = line
 	mirrorDockLineToLog(line)
 	rows := r.composeCurrentDockRows()
 	r.dock.commitToScrollback(line+"\n", rows)

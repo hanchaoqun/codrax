@@ -181,6 +181,14 @@ type Renderer struct {
 	tasks   []*taskRow
 	current *taskRow // most recent non-sub-agent row with endTime zero; receives tool / thinking events
 
+	// lastCommittedLine remembers the byte-identical text of the most
+	// recent commitLineLocked write so consecutive duplicates (e.g. a
+	// soft-notice fired twice in a row by the orchestrator) get
+	// suppressed before they paint the scrollback. Cleared implicitly
+	// when any DIFFERENT line is committed; nothing reads it outside
+	// commitLineLocked, so no external invariant depends on the value.
+	lastCommittedLine string
+
 	// analysisReady flips to true on EventAnalysisReady. Once flipped,
 	// stage-dispatch events (EventStageStart / EventStageEnd) for
 	// explore / extract / finalize are ignored — the task graph's
