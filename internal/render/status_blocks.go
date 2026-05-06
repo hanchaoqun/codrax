@@ -442,12 +442,11 @@ func canonicalStageKey(s string) string {
 	// per-topic evidence rows.
 	case "evidence", "ground", "rank", "dedupe", "collect", "probe":
 		// "probe" is the first iteration of evidence collection
-		// (breadth scan to locate relevant modules). Pre-fix it had
-		// no K/N mapping, so the dock row 2 showed blank progress
-		// during the entire explore window when focus landed on the
-		// probe node — the user perceived a jump from 1/6 (analyze)
-		// straight to 4/6 (reconcile). Aliasing probe → evidence
-		// makes the explore window register as 2/6 throughout.
+		// (breadth scan to locate relevant modules). Without this
+		// alias the dock row 2 shows a blank K/N when focus lands on
+		// the probe node, so the explore window appears to skip its
+		// slot. Aliasing probe → evidence keeps the explore window
+		// registered at the explore stage's slot throughout.
 		return "evidence"
 	// NodeValidate cross-checks the explore phase's evidence
 	// findings — distinct from StageVerify (which verifies write-

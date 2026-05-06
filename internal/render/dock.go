@@ -319,7 +319,7 @@ func composeDockRow1(s dockRowState) string {
 
 // composeDockRow2 renders the stage row:
 //
-//   "  ▪ 2/6 探索证据 · 关注点 1/3 · 第 1 轮 · 5 工具 · 已收到 312 字"
+//   "  ▪ 2/4 探索证据 · 关注点 1/3 · 第 1 轮 · 5 工具 · 已收到 312 字"
 //
 // glyph ▪ in statusObjective (cyan). K/N + stage label always
 // rendered; counters appended only when > 0. streamChars is finalize-

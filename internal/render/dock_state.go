@@ -179,7 +179,7 @@ func activityGlyphFor(kind activityKind) activityGlyphKind {
 // stagePhraseDoneFor returns the localized "已 X" phrase for the
 // commit row when a stage finishes successfully. Currently delegates
 // to the existing stagePhrase helper (state=stagePhraseDone) so the
-// 6-stage / pre-stage / write-stage labels stay in one source.
+// read / pre-stage / write-stage labels stay in one source.
 func stagePhraseDoneFor(stageKey, lang string) string {
 	return stagePhrase(stageKey, lang, stagePhraseDone)
 }
