@@ -89,6 +89,7 @@ const (
 	glyphSuccess     = '✓'
 	glyphFatal       = '✗'
 	glyphRecoverable = '⟳'
+	glyphCancelled   = '⊘' // user-initiated stop; distinct from ✗ (system failure)
 	glyphWarning     = '·'
 	glyphPending     = '·'
 	glyphTopicBullet = '·'

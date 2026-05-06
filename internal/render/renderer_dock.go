@@ -1260,9 +1260,14 @@ func (r *Renderer) commitDockShutdownLocked() {
 		}
 		var head string
 		var rowKind commitRowKind
+		var bodyStyle = statusFatal
 		switch {
 		case r.activity.kind == activityCancelled:
 			rowKind = commitRowCancelled
+			// User-initiated stop is not a system failure — paint the
+			// summary head in muted gray so it visually reads as "we
+			// stopped because you asked", not "something went wrong".
+			bodyStyle = statusMeta
 			if zh {
 				head = "已取消"
 			} else {
@@ -1284,7 +1289,7 @@ func (r *Renderer) commitDockShutdownLocked() {
 		body.WriteString(statusMeta.Sprint(totalElapsedPhrase(totalElapsed, r.lang)))
 		line := formatCommitRow(commitRow{
 			kind: rowKind,
-			body: statusFatal.Sprint(body.String()),
+			body: bodyStyle.Sprint(body.String()),
 		})
 		r.commitLineLocked(line)
 		r.dock.clearDock()

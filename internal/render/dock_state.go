@@ -221,14 +221,14 @@ type commitRowKind int
 
 const (
 	commitRowSuccess commitRowKind = iota // ✓ green
-	commitRowFailure                      // ✗ red
-	commitRowCancelled                    // ✗ red, "已取消"
+	commitRowFailure                      // ✗ red (system failure)
+	commitRowCancelled                    // ⊘ gray (user-initiated stop, NOT a failure)
 	commitRowRetry                        // ⟳ yellow
 	commitRowReasoning                    // 💭 dark gray
 	commitRowQuestion                     // ❯ cyan
 	commitRowFinal                        // ◆ green muted (run summary)
 	commitRowFinalLight                   // ◇ green muted (light-route summary — local / chat / clarify)
-	commitRowNotice                       // ✗ yellow (e.g. "草稿被丢弃")
+	commitRowNotice                       // ⟳ yellow (soft notice, e.g. "草稿被丢弃, 正在重写" — recoverable, not failure)
 	commitRowSubTopicHeader               // (no glyph; the sub-topic enumeration block is multiline)
 )
 
@@ -247,8 +247,9 @@ type commitRow struct {
 //
 // Style policy (dark mode reference):
 //   ✓ — statusSuccessMuted (green)
-//   ✗ — statusFatal (red) for failure / cancelled / notice
-//   ⟳ — statusRecoverable (yellow)
+//   ✗ — statusFatal (red) for system failure
+//   ⊘ — statusMeta (dark gray) for user-initiated cancellation (not failure)
+//   ⟳ — statusRecoverable (yellow) for retry AND soft notice (recoverable)
 //   💭 — statusMeta (dark gray)
 //   ❯ — statusObjective (light cyan)
 //   ◆ — statusSuccessMuted (green)
@@ -261,9 +262,18 @@ func formatCommitRow(row commitRow) string {
 	switch row.kind {
 	case commitRowSuccess:
 		b.WriteString(statusSuccessMuted.Sprint(string(glyphSuccess)))
-	case commitRowFailure, commitRowCancelled, commitRowNotice:
+	case commitRowFailure:
 		b.WriteString(statusFatal.Sprint(string(glyphFatal)))
-	case commitRowRetry:
+	case commitRowCancelled:
+		// User-initiated stop is NOT a system failure — distinct
+		// glyph (⊘) + muted color so the dock doesn't shout "error"
+		// when the user pressed Ctrl+C deliberately.
+		b.WriteString(statusMeta.Sprint(string(glyphCancelled)))
+	case commitRowRetry, commitRowNotice:
+		// Both are "system is recovering / continuing" signals — same
+		// ⟳ + yellow palette. Notice is a one-shot soft message
+		// (e.g. draft rewrite); Retry is an adapter-level retry. The
+		// shared visual reads as "we are still working on it".
 		b.WriteString(statusRecoverable.Sprint(string(glyphRecoverable)))
 	case commitRowReasoning:
 		b.WriteString(statusMeta.Sprint("💭"))
