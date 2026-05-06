@@ -1669,19 +1669,29 @@ func docWithDiagramBody(body string, edgeAnchors ...types.DiagramEdgeAnchor) *ty
 	}
 }
 
-// Layer 2 fires when a labelled edge has no anchored claim_use.
-func TestValidateDiagramEdgeSupport_LabelledEdgeMissingClaimUseFires(t *testing.T) {
+// Layer 2: a labelled edge whose vocabulary (e.g. "invoke" → call)
+// is recognised by InferRelationFromLabel is treated as self-anchored
+// — the label IS the typed declaration. Per-edge HARD reject was the
+// largest remaining diagram-block retry source on architecture / call-
+// chain answers, so the validator only fires SOFT
+// ViolDiagramRelationLabelOnly to advise typed declarations on the
+// label-only edges; the EdgeRelations.Min contract is satisfied via
+// label inference.
+func TestValidateDiagramEdgeSupport_LabelledEdgePassesViaLabelInference(t *testing.T) {
 	view := callChainViewWithDiagram()
 	doc := docWithDiagramBody("sequenceDiagram\n  Auth->>Worker: invoke\n")
 	vs := validateDiagramEdgeSupport(doc, view)
+	// One SOFT advisory expected; no HARD ViolDiagramEdgeUnsupported.
+	for _, v := range vs {
+		if v.Kind == types.ViolDiagramEdgeUnsupported {
+			t.Errorf("HARD ViolDiagramEdgeUnsupported must not fire when the label vocabulary already types the relation; got %+v", v)
+		}
+	}
 	if len(vs) == 0 {
-		t.Fatal("expected violation: labelled call-edge has no anchored claim_use")
+		t.Fatal("expected SOFT ViolDiagramRelationLabelOnly advisory")
 	}
-	if vs[0].Kind != types.ViolDiagramEdgeUnsupported {
-		t.Errorf("kind = %q, want ViolDiagramEdgeUnsupported", vs[0].Kind)
-	}
-	if !strings.Contains(vs[0].Detail, "call_edge") {
-		t.Errorf("detail does not name expected claim_form; got %q", vs[0].Detail)
+	if vs[0].Kind != types.ViolDiagramRelationLabelOnly {
+		t.Errorf("kind = %q, want ViolDiagramRelationLabelOnly", vs[0].Kind)
 	}
 }
 

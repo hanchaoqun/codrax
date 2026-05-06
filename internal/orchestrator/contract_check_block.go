@@ -389,6 +389,17 @@ func validateDiagramRelationLegality(
 		if expected == types.ClaimUnknown {
 			continue
 		}
+		// Label-only edges whose vocabulary the system already recognises
+		// (guard / call / observe / etc. via InferRelationFromLabel) carry
+		// the typed signal in the label itself — requiring a duplicate
+		// edge_anchors[] entry just for "claim_form" was the largest
+		// remaining diagram-block retry source. Trust the label as the
+		// typed declaration; the EdgeRelations.Min contract still fires
+		// ViolDiagramRelationLabelOnly (SOFT) so operators can encourage
+		// typed declarations without burning a hard reject.
+		if !hasTyped {
+			continue
+		}
 		if !claimUseAnchorsEdge(anchoredIndex, e.from, e.to, expected) {
 			missing = append(missing, missingAnchor{
 				from: e.from, to: e.to, label: e.label, want: expected,
