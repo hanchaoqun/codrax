@@ -823,14 +823,14 @@ func (r *Renderer) composeCurrentDockRows() [dockRowCount]string {
 
 // stageProgressForFocus returns the K/N progress string for the dock
 // row 2 stage column. The value of K depends on totalStages — which
-// the REPL sets per mode (read=6, ModeApply=4, ModePlan=2,
+// the REPL sets per mode (read=4, ModeApply=4, ModePlan=2,
 // ModeVerify=2, write trio=3) — because the same stage key maps to
 // a different sequence position depending on which stages actually
 // run in this Run.
 //
 // Examples:
 //
-//	totalStages=6 (read) — analyze=1/6, evidence=2/6, ..., finalize=6/6
+//	totalStages=4 (read) — analyze=1/4, explore-family=2/4, extract=3/4, finalize=4/4
 //	totalStages=4 (apply) — analyze=1/4, plan=2/4, apply=3/4, verify=4/4
 //	totalStages=3 (write trio, no analyze) — plan=1/3, apply=2/3, verify=3/3
 //	totalStages=2 (plan-only) — analyze=1/2, plan=2/2
@@ -860,7 +860,38 @@ func (r *Renderer) stageProgressForFocus(row *taskRow) string {
 		return "—"
 	}
 	switch total {
-	case 6: // read mode
+	case 4:
+		// totalStages=4 covers both:
+		//   read mode      — analyze + explore + extract + finalize
+		//   ModeApply mode — analyze + plan + apply + verify
+		// The two modes use disjoint stage keys, so a shared case is
+		// unambiguous. The read-mode slot count was 6 pre-2026-05-06
+		// (analyze + evidence + validate + reconcile + extract +
+		// finalize), but evidence / validate / reconcile all run inside
+		// the SAME explore stage dispatch with a shared start/end —
+		// the dock cannot observe a 2/6→3/6→4/6 transition because
+		// they end on the same instant. Folding them under "explore=2/4"
+		// removes the phantom slot jump and matches the architectural
+		// reality (4 dispatch boundaries).
+		switch key {
+		case "analyze":
+			return "1/4"
+		// Read-mode explore-family slots collapse into 2/4.
+		case "explore", "evidence", "validate", "reconcile":
+			return "2/4"
+		case "extract":
+			return "3/4"
+		case "finalize":
+			return "4/4"
+		// Write-mode ModeApply slots.
+		case "plan", "planner":
+			return "2/4"
+		case "apply", "coder":
+			return "3/4"
+		case "verify", "verifier":
+			return "4/4"
+		}
+	case 6: // legacy read-mode mapping (kept for callers that explicitly request 6 slots)
 		switch key {
 		case "analyze":
 			return "1/6"
@@ -874,17 +905,6 @@ func (r *Renderer) stageProgressForFocus(row *taskRow) string {
 			return "5/6"
 		case "finalize":
 			return "6/6"
-		}
-	case 4: // ModeApply: analyze + plan + apply + verify
-		switch key {
-		case "analyze":
-			return "1/4"
-		case "plan", "planner":
-			return "2/4"
-		case "apply", "coder":
-			return "3/4"
-		case "verify", "verifier":
-			return "4/4"
 		}
 	case 3: // write trio (no analyze counted)
 		switch key {

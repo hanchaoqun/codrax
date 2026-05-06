@@ -1728,7 +1728,16 @@ func (r *REPL) dispatch(line, display string) {
 		case types.ModeVerify:
 			r.renderer.SetTotalStages(2)
 		default:
-			r.renderer.SetTotalStages(6)
+			// Read mode: 4 main stages (analyze + explore + extract +
+			// finalize). Pre-2026-05-06 this defaulted to 6 (slots for
+			// each TaskGraph node kind: evidence/validate/reconcile)
+			// but evidence/validate/reconcile share a single explore
+			// dispatch with the same start/end — the dock saw the row
+			// jump from analyze=1/6 to reconcile=4/6 missing 2/6 and
+			// 3/6. Folding them under explore=2/4 matches the
+			// architectural reality and gives the user a clean
+			// monotonic 1/4 → 2/4 → 3/4 → 4/4 progression.
+			r.renderer.SetTotalStages(4)
 		}
 		r.renderer.StartSpinnerWithCancelHint(spinnerCancelHint(r.language))
 	}
