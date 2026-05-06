@@ -1479,6 +1479,24 @@ func (r *Renderer) RenderResult(busCtx *types.BusContext) string {
 					// text body that didn't match the gray-family
 					// done rows above it.
 					r.printFinalizeBanner()
+					// Convert ```mermaid``` fences to aligned ASCII
+					// grids before glamour styles the markdown. The
+					// mermaid library lives in this package and only
+					// fires when mermaidRenderingEnabled is true (the
+					// default for REPL — set false by single-shot CLI
+					// callers that want raw source). Pre-2026-05-06
+					// this call was missing: the doc comment on
+					// repl.renderRichResponse claimed "the pipeline
+					// path gets this via RenderResult", but RenderResult
+					// only ran RenderMarkdown — so REPL pipeline
+					// answers shipped raw ```mermaid``` fences that
+					// glamour rendered as plain code blocks. CLI single-
+					// shot bypasses RenderResult entirely (cmd/root.go
+					// prints Mutable.Result() directly with its own
+					// optional --mermaid-render hook), so this addition
+					// affects ONLY the REPL path it was supposed to
+					// already cover.
+					clean = RenderMermaidBlocks(clean)
 					b.WriteString(r.renderMarkdown(clean))
 				}
 				b.WriteString("\n")
