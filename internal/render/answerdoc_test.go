@@ -299,7 +299,7 @@ func TestRenderV2_StripsAuthorityMarkersFromPrincipalBlocks(t *testing.T) {
 	}
 }
 
-func TestRenderV2_PreservesAuthorityCaveatBodyAndPrivateTag(t *testing.T) {
+func TestRenderV2_HidesAuthorityCaveatFromUserSurface(t *testing.T) {
 	doc := &types.AnswerDocumentV2{
 		Blocks: []types.AnswerBlock{
 			{
@@ -310,11 +310,11 @@ func TestRenderV2_PreservesAuthorityCaveatBodyAndPrivateTag(t *testing.T) {
 		},
 	}
 	out := RenderAnswerDocument(doc, "en")
-	if !strings.Contains(out, "Answer rests on mixed-authority evidence.") {
-		t.Fatalf("rendered authority caveat body missing:\n%s", out)
+	if strings.Contains(out, AuthorityCaveatTag()) {
+		t.Fatalf("rendered authority caveat leaked private tag to user surface:\n%s", out)
 	}
-	if !strings.Contains(out, AuthorityCaveatTag()) {
-		t.Fatalf("rendered authority caveat lost the private tag needed by contract checks:\n%s", out)
+	if strings.Contains(out, "Authority:") || strings.Contains(out, "Answer rests on mixed-authority evidence.") {
+		t.Fatalf("rendered authority caveat should stay internal, got:\n%s", out)
 	}
 }
 

@@ -3708,6 +3708,7 @@ func (e *answerDocumentEvaluator) ParseOutput(ctx *types.AgentContext, messages 
 	if ctx != nil && ctx.Mutable != nil {
 		caveat := render.SynthesiseAuthorityCaveatFor(answerDocumentAuthorityEvidencePool(ctx), e.language)
 		if caveat != "" {
+			caveat = render.StripAuthorityArtifactsForRender(caveat)
 			combined = warning + "\n\n*" + caveat + "*"
 		}
 	}

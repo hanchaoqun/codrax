@@ -161,24 +161,24 @@ func StripAuthorityArtifacts(text string) string {
 	return strings.Join(out, "\n")
 }
 
-// StripAuthorityArtifactsForRender removes only the user-visible
-// authority markup that should not appear in rendered prose, while
-// preserving the system-private authority caveat tag embedded inside
-// the caveat line. This lets user-facing output stay clean while the
-// rendered draft still carries a machine-grep-able signal for
-// contract/reviewer checks.
+// StripAuthorityArtifactsForRender removes user-facing authority
+// disclosure lines and inline hedge markers from rendered prose.
 //
-// Differences from StripAuthorityArtifacts:
-//   - inline hedge markers / terse reasons are stripped
-//   - lines containing authorityCaveatTag are preserved
-//   - the private tag itself remains in the rendered string (it's
-//     invisible to users because the token contains zero-width chars)
+// The private authority tag must survive on the structured
+// AnswerDocumentV2 caveat block for internal contract checks, but it
+// must not leak into the user-visible final answer. This helper is
+// therefore intentionally render-only: it drops any line carrying the
+// private tag while leaving the structured doc untouched.
 func StripAuthorityArtifactsForRender(text string) string {
 	if text == "" {
 		return text
 	}
 	out := make([]string, 0, len(text)/40+1)
 	for _, line := range strings.Split(text, "\n") {
+		if strings.Contains(line, authorityCaveatTag) {
+			continue
+		}
+		line = strings.ReplaceAll(line, authorityCaveatTag, "")
 		line = stripLeadingMarkerAndReason(line)
 		for _, m := range []string{HedgeMarkerIllustrative, HedgeMarkerHistorical, HedgeMarkerConditional} {
 			line = stripInlineMarkerWithReason(line, m)

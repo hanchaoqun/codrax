@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/hanchaoqun/codrax/internal/llm"
+	"github.com/hanchaoqun/codrax/internal/render"
 	"github.com/hanchaoqun/codrax/internal/skill"
 	"github.com/hanchaoqun/codrax/internal/types"
 )
@@ -3014,8 +3015,14 @@ func TestAnswerDocumentEvaluator_ParseOutput_MissingDoc_SynthesizesAuthorityCave
 	if err != nil {
 		t.Fatalf("ParseOutput err: %v", err)
 	}
-	if !strings.Contains(out.FinalAnswer, "Authority:") {
-		t.Fatalf("fallback output missing synthesized authority caveat: %q", out.FinalAnswer)
+	if strings.Contains(out.FinalAnswer, render.AuthorityCaveatTag()) {
+		t.Fatalf("fallback output leaked private authority tag: %q", out.FinalAnswer)
+	}
+	if strings.Contains(out.FinalAnswer, "Authority:") {
+		t.Fatalf("fallback output should hide authority caveat from user surface: %q", out.FinalAnswer)
+	}
+	if !strings.Contains(out.FinalAnswer, "raw fallback text") {
+		t.Fatalf("fallback output lost raw answer body: %q", out.FinalAnswer)
 	}
 }
 
@@ -3040,8 +3047,24 @@ func TestAnswerDocumentEvaluator_ParseOutputV2_AuthorityCaveatUsesMergedEvidence
 	if err != nil {
 		t.Fatalf("parseOutputV2 err: %v", err)
 	}
-	if !strings.Contains(got.FinalAnswer, "Authority:") {
-		t.Fatalf("rendered V2 answer missing authority caveat sourced from merged evidence pool:\n%s", got.FinalAnswer)
+	if strings.Contains(got.FinalAnswer, render.AuthorityCaveatTag()) {
+		t.Fatalf("rendered V2 answer leaked private authority tag:\n%s", got.FinalAnswer)
+	}
+	if strings.Contains(got.FinalAnswer, "Authority:") {
+		t.Fatalf("rendered V2 answer should hide authority caveat from user surface:\n%s", got.FinalAnswer)
+	}
+	if !strings.Contains(got.FinalAnswer, "summary body") {
+		t.Fatalf("rendered V2 answer lost summary body:\n%s", got.FinalAnswer)
+	}
+	foundStructuredCaveat := false
+	for _, blk := range doc.Blocks {
+		if blk.Kind == types.BlockCaveat && strings.Contains(blk.Text, render.AuthorityCaveatTag()) {
+			foundStructuredCaveat = true
+			break
+		}
+	}
+	if !foundStructuredCaveat {
+		t.Fatalf("authority hedging should remain on the structured doc for downstream checks; doc=%+v", doc.Blocks)
 	}
 }
 

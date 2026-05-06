@@ -340,12 +340,12 @@ func runAuthorityOverreachCheck(mut *types.MutableState, draftText string) []typ
 		return nil
 	}
 
-	// Doc-level caveat present (system tag inside) → renderer ran
-	// successfully → the user sees the hedging signal. Pass. We grep
-	// for the system-private tag rather than the user-visible prefix
-	// "Authority: " so an LLM-written caveat that happens to start
-	// with that prefix isn't mistaken for the system's signal.
-	if strings.Contains(draftText, render.AuthorityCaveatTag()) {
+	// The authoritative signal lives in the structured V2 caveat
+	// block, not in the user-visible rendered prose. The renderer is
+	// free to strip the private tag from the final UI surface as long
+	// as the structured carrier still contains the system-generated
+	// caveat block.
+	if docV2CarriesAuthorityCaveat(docV2) {
 		return nil
 	}
 
@@ -374,6 +374,21 @@ func runAuthorityOverreachCheck(mut *types.MutableState, draftText string) []typ
 		},
 		Stage: string(types.StageFinalize),
 	}}
+}
+
+func docV2CarriesAuthorityCaveat(doc *types.AnswerDocumentV2) bool {
+	if doc == nil {
+		return false
+	}
+	for _, blk := range doc.Blocks {
+		if blk.Kind != types.BlockCaveat {
+			continue
+		}
+		if strings.Contains(blk.Text, render.AuthorityCaveatTag()) {
+			return true
+		}
+	}
+	return false
 }
 
 // isPlumbingFailureViolation reports whether a ViolationKind

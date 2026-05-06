@@ -92,18 +92,23 @@ func TestRunAuthorityOverreachCheck_RepairIsLLMActionable(t *testing.T) {
 	}
 }
 
-func TestRunAuthorityOverreachCheck_PassesWhenRenderedDraftCarriesAuthorityTag(t *testing.T) {
+func TestRunAuthorityOverreachCheck_PassesWhenStructuredDocCarriesAuthorityTag(t *testing.T) {
 	mut := types.NewMutableState("test")
 	mut.SetAnswerDocumentV2WithMutation(types.MutationReplaceAll, &types.AnswerDocumentV2{
 		DocumentModel: "v2",
 		Citations:     []types.Citation{{File: "x.go", Line: 10}},
+		Blocks: []types.AnswerBlock{{
+			ID:   "_authority_caveat",
+			Kind: types.BlockCaveat,
+			Text: render.AuthorityCaveatPrefix + render.AuthorityCaveatTag() + "Answer rests on mixed-authority evidence.",
+		}},
 	})
 	mut.AppendEvidence([]types.EvidenceItem{
 		{Source: "x.go", LineStart: 10, Authority: types.AuthorityHistorical},
 	})
-	draft := "> " + render.AuthorityCaveatPrefix + render.AuthorityCaveatTag() + "Answer rests on mixed-authority evidence."
+	draft := "> " + render.AuthorityCaveatPrefix + "Answer rests on mixed-authority evidence."
 	if viols := runAuthorityOverreachCheck(mut, draft); len(viols) != 0 {
-		t.Fatalf("authority_overreach should not fire when rendered draft keeps the private caveat tag; got %+v", viols)
+		t.Fatalf("authority_overreach should not fire when structured doc keeps the private caveat tag; got %+v", viols)
 	}
 }
 
