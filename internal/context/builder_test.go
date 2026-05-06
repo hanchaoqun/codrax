@@ -2367,6 +2367,266 @@ func TestRenderAnswerChainForPrompt_PrefersDeterministicSurface(t *testing.T) {
 	}
 }
 
+func TestBuildAgentContext_FinalizerTypedSupportSuppressesCompetingStageReports(t *testing.T) {
+	mut := types.NewMutableState("panic root cause")
+	bus := &types.BusContext{
+		PipelineStage: types.StageFinalize,
+		Mutable:       mut,
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				Scenario: types.ScenarioRootCause,
+				Intent:   types.IntentRootCause,
+				LogTriage: &types.LogBundle{
+					Errors: []types.LogError{{Type: "panic"}},
+				},
+			},
+			AnswerContract: types.AnswerContract{},
+		},
+		StageReports: []types.StageReport{
+			{Stage: types.StageLogTriage, Agent: types.AgentLogTriager, Findings: "structured triage narrative"},
+			{Stage: types.StageAnalyze, Agent: types.AgentAnalyzer, Findings: "analysis narrative"},
+			{Stage: types.StageExplore, Agent: types.AgentExplorer, Findings: "investigation summary"},
+			{Stage: types.StageExtract, Agent: types.AgentExtractor, Findings: "free-form extractor conclusion"},
+		},
+	}
+	mut.SetLogTriage(&types.LogBundle{
+		Errors: []types.LogError{{
+			Type: "panic",
+			Frames: []types.LogFrame{{
+				File: "internal/agent/analyzer.go",
+				Line: 250,
+				Func: "buildAnalysisIR",
+				Raw:  "buildAnalysisIR(0x0)",
+			}},
+		}},
+	})
+	mut.AppendEvidence([]types.EvidenceItem{
+		{
+			Kind:            types.EvidenceRelationship,
+			Source:          "internal/agent/analyzer.go",
+			LineStart:       743,
+			AnchorKind:      types.AnchorCall,
+			Subject:         "ParseOutput",
+			Object:          "buildAnalysisIR",
+			AnchorSymbol:    "buildAnalysisIR",
+			GroundingStatus: types.GroundingGrounded,
+		},
+		{
+			Kind:            types.EvidenceConditional,
+			Source:          "internal/agent/analyzer.go",
+			LineStart:       978,
+			AnchorKind:      types.AnchorCondition,
+			AnchorSymbol:    "buildAnalysisIR",
+			Condition:       "ctx == nil || ctx.Mutable == nil",
+			GroundingStatus: types.GroundingGrounded,
+		},
+	})
+
+	ac := BuildAgentContext(bus, types.AgentFinalizer, types.StageFinalize)
+	if len(ac.PriorReports) != 0 {
+		t.Fatalf("typed-support finalizer should suppress all prior stage reports, got %d", len(ac.PriorReports))
+	}
+}
+
+func TestBuildAgentContext_FinalizerTypedSupportFiltersRepoFactsToSupportFiles(t *testing.T) {
+	mut := types.NewMutableState("panic root cause")
+	mut.SetLogTriage(&types.LogBundle{
+		Errors: []types.LogError{{
+			Type: "panic",
+			Frames: []types.LogFrame{{
+				File: "internal/agent/analyzer.go",
+				Line: 250,
+				Func: "buildAnalysisIR",
+				Raw:  "buildAnalysisIR(0x0)",
+			}},
+		}},
+	})
+	mut.AppendEvidence([]types.EvidenceItem{
+		{
+			Kind:            types.EvidenceRelationship,
+			Source:          "internal/agent/analyzer.go",
+			LineStart:       743,
+			AnchorKind:      types.AnchorCall,
+			Subject:         "ParseOutput",
+			Object:          "buildAnalysisIR",
+			AnchorSymbol:    "buildAnalysisIR",
+			GroundingStatus: types.GroundingGrounded,
+		},
+		{
+			Kind:            types.EvidenceConditional,
+			Source:          "internal/agent/analyzer.go",
+			LineStart:       978,
+			AnchorKind:      types.AnchorCondition,
+			AnchorSymbol:    "buildAnalysisIR",
+			Condition:       "ctx == nil || ctx.Mutable == nil",
+			GroundingStatus: types.GroundingGrounded,
+		},
+	})
+
+	bus := &types.BusContext{
+		PipelineStage: types.StageFinalize,
+		Mutable:       mut,
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				Scenario: types.ScenarioRootCause,
+				Intent:   types.IntentRootCause,
+				LogTriage: &types.LogBundle{
+					Errors: []types.LogError{{Type: "panic"}},
+				},
+			},
+		},
+		RepoFacts: []types.RepoFact{
+			{Key: "read_file", Value: "[internal/agent/analyzer.go: showing lines 698-978]", Source: "internal/agent/analyzer.go", Confidence: 0.8},
+			{Key: "read_file", Value: "[internal/orchestrator/orchestrator.go: showing lines 4701-4780]", Source: "internal/orchestrator/orchestrator.go", Confidence: 0.8},
+		},
+	}
+
+	ac := BuildAgentContext(bus, types.AgentFinalizer, types.StageFinalize)
+	if len(ac.RelevantFiles) != 1 || ac.RelevantFiles[0] != "internal/agent/analyzer.go" {
+		t.Fatalf("RelevantFiles = %v, want only internal/agent/analyzer.go", ac.RelevantFiles)
+	}
+	if len(ac.RelevantFacts) != 1 || !strings.Contains(ac.RelevantFacts[0], "internal/agent/analyzer.go") {
+		t.Fatalf("RelevantFacts = %v, want only analyzer.go sourced facts", ac.RelevantFacts)
+	}
+}
+
+func TestBuildPromptContext_FinalizerTypedSupportEvidencePoolUsesAuthoritativeSurface(t *testing.T) {
+	mut := types.NewMutableState("panic root cause")
+	mut.SetLogTriage(&types.LogBundle{
+		Errors: []types.LogError{{
+			Type: "panic",
+			Frames: []types.LogFrame{{
+				File: "internal/agent/analyzer.go",
+				Line: 250,
+				Func: "buildAnalysisIR",
+				Raw:  "buildAnalysisIR(0x0)",
+			}},
+		}},
+	})
+	mut.AppendEvidence([]types.EvidenceItem{
+		{
+			Kind:            types.EvidenceRelationship,
+			Source:          "internal/agent/analyzer.go",
+			LineStart:       743,
+			AnchorKind:      types.AnchorCall,
+			Subject:         "ParseOutput",
+			Object:          "buildAnalysisIR",
+			AnchorSymbol:    "buildAnalysisIR",
+			Summary:         "ParseOutput 第 743 行直接将 ctx 传递给 buildAnalysisIR，如果 ctx 为 nil 则传入 nil",
+			GroundingStatus: types.GroundingGrounded,
+		},
+		{
+			Kind:            types.EvidenceDirect,
+			Source:          "internal/agent/analyzer.go",
+			LineStart:       698,
+			AnchorKind:      types.AnchorAssignment,
+			AnchorSymbol:    "ctx",
+			OwnerSymbol:     "ParseOutput",
+			Summary:         "ParseOutput 的第一个参数是 ctx *types.AgentContext，日志显示调用时传入了 nil (0x0)",
+			GroundingStatus: types.GroundingGrounded,
+		},
+		{
+			Kind:            types.EvidenceDirect,
+			Source:          "internal/orchestrator/orchestrator.go",
+			LineStart:       4701,
+			AnchorKind:      types.AnchorCall,
+			Subject:         "dispatchStage",
+			Object:          "runAnalyzePhase",
+			Summary:         "dispatchStage 继续把 nil ctx 向外层传递",
+			GroundingStatus: types.GroundingGrounded,
+		},
+		{
+			Kind:            types.EvidenceConditional,
+			Source:          "internal/agent/analyzer.go",
+			LineStart:       978,
+			AnchorKind:      types.AnchorCondition,
+			AnchorSymbol:    "buildAnalysisIR",
+			Condition:       "ctx == nil || ctx.Mutable == nil",
+			Summary:         "buildAnalysisIR 开头有 nil 检查",
+			GroundingStatus: types.GroundingGrounded,
+		},
+	})
+
+	bus := &types.BusContext{
+		PipelineStage: types.StageFinalize,
+		Mutable:       mut,
+		EvidenceItems: []types.EvidenceItem{
+			{
+				Kind:            types.EvidenceRelationship,
+				Source:          "internal/agent/analyzer.go",
+				LineStart:       743,
+				AnchorKind:      types.AnchorCall,
+				Subject:         "ParseOutput",
+				Object:          "buildAnalysisIR",
+				AnchorSymbol:    "buildAnalysisIR",
+				Summary:         "ParseOutput 第 743 行直接将 ctx 传递给 buildAnalysisIR，如果 ctx 为 nil 则传入 nil",
+				GroundingStatus: types.GroundingGrounded,
+			},
+			{
+				Kind:            types.EvidenceDirect,
+				Source:          "internal/agent/analyzer.go",
+				LineStart:       698,
+				AnchorKind:      types.AnchorAssignment,
+				AnchorSymbol:    "ctx",
+				OwnerSymbol:     "ParseOutput",
+				Summary:         "ParseOutput 的第一个参数是 ctx *types.AgentContext，日志显示调用时传入了 nil (0x0)",
+				GroundingStatus: types.GroundingGrounded,
+			},
+			{
+				Kind:            types.EvidenceDirect,
+				Source:          "internal/orchestrator/orchestrator.go",
+				LineStart:       4701,
+				AnchorKind:      types.AnchorCall,
+				Subject:         "dispatchStage",
+				Object:          "runAnalyzePhase",
+				Summary:         "dispatchStage 继续把 nil ctx 向外层传递",
+				GroundingStatus: types.GroundingGrounded,
+			},
+			{
+				Kind:            types.EvidenceConditional,
+				Source:          "internal/agent/analyzer.go",
+				LineStart:       978,
+				AnchorKind:      types.AnchorCondition,
+				AnchorSymbol:    "buildAnalysisIR",
+				Condition:       "ctx == nil || ctx.Mutable == nil",
+				Summary:         "buildAnalysisIR 开头有 nil 检查",
+				GroundingStatus: types.GroundingGrounded,
+			},
+		},
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				Scenario: types.ScenarioRootCause,
+				Intent:   types.IntentRootCause,
+				LogTriage: &types.LogBundle{
+					Errors: []types.LogError{{Type: "panic"}},
+				},
+			},
+		},
+	}
+
+	ac := BuildAgentContext(bus, types.AgentFinalizer, types.StageFinalize)
+	pc := BuildPromptContext(ac, &skill.Config{Name: "finalize-answer"})
+	sec := findSectionTitle(pc, SectionEvidencePool)
+	if sec == nil {
+		t.Fatalf("missing Knowledge & Evidence Pool section")
+	}
+	if !strings.Contains(sec.Content, "citation coverage only") {
+		t.Fatalf("typed-support evidence preamble missing:\n%s", sec.Content)
+	}
+	if strings.Contains(sec.Content, "传入了 nil") || strings.Contains(sec.Content, "0x0") {
+		t.Fatalf("typed-support evidence pool must not replay freeform nil-provenance summaries:\n%s", sec.Content)
+	}
+	if strings.Contains(sec.Content, "dispatchStage") || strings.Contains(sec.Content, "runAnalyzePhase") {
+		t.Fatalf("typed-support evidence pool leaked out-of-ceiling outer call chain:\n%s", sec.Content)
+	}
+	if !strings.Contains(sec.Content, "ParseOutput calls buildAnalysisIR") {
+		t.Fatalf("typed-support evidence pool should keep authoritative call anchor text:\n%s", sec.Content)
+	}
+	if !strings.Contains(sec.Content, "ParseOutput assignment anchor for ctx") {
+		t.Fatalf("typed-support evidence pool should keep authoritative assignment anchor text:\n%s", sec.Content)
+	}
+}
+
 // TestStripThinkBlocks covers the Category-4 defense-in-depth: reasoning
 // traces leaking into downstream prompts. Even for read-mode stages
 // (which keep PriorReports), the analyzer's internal deliberation

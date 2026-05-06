@@ -472,6 +472,99 @@ func TestAnswerDocumentEvaluator_BuildInitialInstruction_RendersFallbackStepBack
 	}
 }
 
+func TestAnswerDocumentEvaluator_BuildInitialInstruction_SuppressesStepBackboneWhenTypedSupportPlanExists(t *testing.T) {
+	mut := types.NewMutableState("")
+	syms := []types.AnswerSymbol{
+		{Name: "ParseOutput", File: "internal/agent/analyzer.go", Line: 698, Rationale: "stack trace shows all args are nil"},
+		{Name: "buildAnalysisIR", File: "internal/agent/analyzer.go", Line: 743, Rationale: "panic must come from deeper nil path"},
+	}
+	mut.SetEmittedAnswerSymbols(syms, types.CompletenessLowerBound)
+	ctx := &types.AgentContext{
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				Intent:    types.IntentRootCause,
+				LogTriage: &types.LogBundle{Errors: []types.LogError{{Type: "panic"}}},
+			},
+			AnswerContract: types.AnswerContract{},
+		},
+		LogTriage:                &types.LogBundle{Errors: []types.LogError{{Type: "panic", Frames: []types.LogFrame{{Raw: "github.com/hanchaoqun/codrax/internal/agent.buildAnalysisIR(0x0)\n\tinternal/agent/analyzer.go:250 +0x1e", File: "internal/agent/analyzer.go", Line: 250, Func: "buildAnalysisIR"}}}}},
+		Mutable:                  mut,
+		AnswerSymbols:            syms,
+		AnswerSymbolCompleteness: types.CompletenessLowerBound,
+		EvidenceItems: []types.EvidenceItem{
+			{
+				Kind:            types.EvidenceRelationship,
+				Source:          "internal/agent/analyzer.go",
+				LineStart:       743,
+				AnchorKind:      types.AnchorCall,
+				Subject:         "ParseOutput",
+				Object:          "buildAnalysisIR",
+				AnchorSymbol:    "buildAnalysisIR",
+				GroundingStatus: types.GroundingGrounded,
+			},
+			{
+				Kind:            types.EvidenceConditional,
+				Source:          "internal/agent/analyzer.go",
+				LineStart:       978,
+				AnchorKind:      types.AnchorCondition,
+				AnchorSymbol:    "buildAnalysisIR",
+				Condition:       "ctx == nil || ctx.Mutable == nil",
+				GroundingStatus: types.GroundingGrounded,
+			},
+		},
+	}
+	prompt := (&answerDocumentEvaluator{}).BuildInitialInstruction(ctx, nil)
+	if !strings.Contains(prompt, "## Typed Answer Support Lanes") {
+		t.Fatalf("typed support lanes missing:\n%s", prompt)
+	}
+	if strings.Contains(prompt, "## Resolved Step Sequence") {
+		t.Fatalf("legacy step backbone should be suppressed when typed support lanes exist:\n%s", prompt)
+	}
+}
+
+func TestAnswerDocumentEvaluator_BuildInitialInstruction_SuppressesMultiTopicStructureWhenTypedSupportPlanExists(t *testing.T) {
+	ctx := &types.AgentContext{
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				Intent: types.IntentRootCause,
+				LogTriage: &types.LogBundle{Errors: []types.LogError{{Type: "panic"}}},
+				SubTopics: []types.SubTopic{
+					{Summary: "panic 的直接触发点"},
+					{Summary: "外层调用链"},
+				},
+			},
+			AnswerContract: types.AnswerContract{},
+		},
+		LogTriage: &types.LogBundle{Errors: []types.LogError{{Type: "panic", Frames: []types.LogFrame{{Raw: "github.com/hanchaoqun/codrax/internal/agent.buildAnalysisIR(0x0)\n\tinternal/agent/analyzer.go:250 +0x1e", File: "internal/agent/analyzer.go", Line: 250, Func: "buildAnalysisIR"}}}}},
+		Mutable:    types.NewMutableState(""),
+		EvidenceItems: []types.EvidenceItem{
+			{
+				Kind:            types.EvidenceRelationship,
+				Source:          "internal/agent/analyzer.go",
+				LineStart:       743,
+				AnchorKind:      types.AnchorCall,
+				Subject:         "ParseOutput",
+				Object:          "buildAnalysisIR",
+				AnchorSymbol:    "buildAnalysisIR",
+				GroundingStatus: types.GroundingGrounded,
+			},
+			{
+				Kind:            types.EvidenceConditional,
+				Source:          "internal/agent/analyzer.go",
+				LineStart:       978,
+				AnchorKind:      types.AnchorCondition,
+				AnchorSymbol:    "buildAnalysisIR",
+				Condition:       "ctx == nil || ctx.Mutable == nil",
+				GroundingStatus: types.GroundingGrounded,
+			},
+		},
+	}
+	prompt := (&answerDocumentEvaluator{}).BuildInitialInstruction(ctx, nil)
+	if strings.Contains(prompt, "## Answer Structure (multi-topic)") {
+		t.Fatalf("multi-topic scaffold should be suppressed when typed support lanes are authoritative:\n%s", prompt)
+	}
+}
+
 func TestAnswerDocumentEvaluator_BuildInitialInstruction_RendersRequestedEnumerationBoundary(t *testing.T) {
 	ctx := &types.AgentContext{
 		AnalysisIR: &types.AnalysisIR{
@@ -1416,13 +1509,16 @@ func TestAnswerDocumentEvaluator_BuildInitialInstruction_RendersLogSourceDriftGu
 		"older or shifted build snapshot",
 		"Do not claim that the current cited line is the exact crashing line from the log",
 		"## Typed Answer Support Lanes",
+		"it does NOT by itself prove the runtime artifact actually passed the guard and reached the dereference path",
 		"### Observed artifact facts",
-		"### Nearest grounded mechanism",
-		"buildAnalysisIR guard condition IF ctx == nil || ctx.Mutable == nil (`internal/agent/analyzer.go:861`)",
+		"current grounded code exposes only a protective guard near the observed site",
 	} {
 		if !strings.Contains(prompt, want) {
 			t.Fatalf("prompt missing %q:\n%s", want, prompt)
 		}
+	}
+	if strings.Contains(prompt, "### Nearest grounded mechanism") {
+		t.Fatalf("guard-only drift prompt should not surface a dedicated nearest-mechanism lane:\n%s", prompt)
 	}
 }
 
@@ -1821,8 +1917,9 @@ func TestAnswerDocumentEvaluator_BuildInitialInstruction_RendersExternalObservat
 		"## Typed Answer Support Lanes",
 		"### Observed artifact facts",
 		"structured runtime error type",
-		"ParseOutput(0x0, 0x0, 0x0)",
+		`runtime artifact includes stack frame "github.com/hanchaoqun/codrax/internal/agent.(*analyzerEvaluator).ParseOutput" at observed internal/agent/analyzer.go:320`,
 		"internal/agent/analyzer.go:651",
+		"Treat raw runtime frame argument tuples such as `func(0x0)` or register-looking values as observation-only artifacts.",
 	} {
 		if !strings.Contains(prompt, want) {
 			t.Fatalf("prompt missing %q:\n%s", want, prompt)
@@ -2896,6 +2993,55 @@ func TestAnswerDocumentEvaluator_ParseOutput_MissingDoc_SanitizesFallback(t *tes
 	}
 	if !strings.Contains(out.FinalAnswer, "Grounded user-facing answer.") {
 		t.Fatalf("sanitized fallback lost user-facing content: %q", out.FinalAnswer)
+	}
+}
+
+func TestAnswerDocumentEvaluator_ParseOutput_MissingDoc_SynthesizesAuthorityCaveatFromContextEvidence(t *testing.T) {
+	ctx := &types.AgentContext{
+		Mutable: types.NewMutableState(""),
+		EvidenceItems: []types.EvidenceItem{{
+			ID:        "ev1",
+			Source:    "internal/agent/analyzer.go",
+			LineStart: 981,
+			Authority: types.AuthorityHistorical,
+		}},
+	}
+	messages := []llm.Message{
+		{Role: "assistant", Content: "raw fallback text"},
+	}
+	e := &answerDocumentEvaluator{language: "en"}
+	out, err := e.ParseOutput(ctx, messages, nil, nil)
+	if err != nil {
+		t.Fatalf("ParseOutput err: %v", err)
+	}
+	if !strings.Contains(out.FinalAnswer, "Authority:") {
+		t.Fatalf("fallback output missing synthesized authority caveat: %q", out.FinalAnswer)
+	}
+}
+
+func TestAnswerDocumentEvaluator_ParseOutputV2_AuthorityCaveatUsesMergedEvidencePool(t *testing.T) {
+	ctx := &types.AgentContext{
+		Mutable: types.NewMutableState(""),
+		EvidenceItems: []types.EvidenceItem{{
+			ID:        "ev1",
+			Source:    "internal/agent/analyzer.go",
+			LineStart: 981,
+			Authority: types.AuthorityHistorical,
+		}},
+	}
+	doc := &types.AnswerDocumentV2{
+		Blocks: []types.AnswerBlock{
+			{ID: "s1", Kind: types.BlockSummary, Text: "summary body"},
+		},
+	}
+	e := &answerDocumentEvaluator{language: "en"}
+	out := &StageOutput{}
+	got, err := e.parseOutputV2(ctx, doc, out)
+	if err != nil {
+		t.Fatalf("parseOutputV2 err: %v", err)
+	}
+	if !strings.Contains(got.FinalAnswer, "Authority:") {
+		t.Fatalf("rendered V2 answer missing authority caveat sourced from merged evidence pool:\n%s", got.FinalAnswer)
 	}
 }
 

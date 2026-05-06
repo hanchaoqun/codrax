@@ -87,6 +87,7 @@ func compileRootCauseSupportPlan(plan *AnswerSurfacePlan) *AnswerSupportPlan {
 	if plan == nil {
 		return nil
 	}
+	mechanismStrength := rootCauseMechanismSupportStrength(plan)
 	out := &AnswerSupportPlan{Family: QFRootCauseTrace}
 
 	if lane := compileObservedArtifactSupportLane(plan); len(lane.Entries) > 0 {
@@ -95,10 +96,10 @@ func compileRootCauseSupportPlan(plan *AnswerSurfacePlan) *AnswerSupportPlan {
 	if lane := compileCurrentCodePathSupportLane(plan); len(lane.Entries) > 0 {
 		out.Lanes = append(out.Lanes, lane)
 	}
-	if lane := compileNearestMechanismSupportLane(plan); len(lane.Entries) > 0 {
+	if lane := compileNearestMechanismSupportLane(plan, mechanismStrength); len(lane.Entries) > 0 {
 		out.Lanes = append(out.Lanes, lane)
 	}
-	if lane := compileUncertaintyBoundarySupportLane(plan); len(lane.Entries) > 0 {
+	if lane := compileUncertaintyBoundarySupportLane(plan, mechanismStrength); len(lane.Entries) > 0 {
 		out.Lanes = append(out.Lanes, lane)
 	}
 	if len(out.Lanes) == 0 {
@@ -113,7 +114,10 @@ func compileObservedArtifactSupportLane(plan *AnswerSurfacePlan) AnswerSupportLa
 		Title: "Observed artifact facts",
 		Guidance: "Use this lane only for facts that came from the attached runtime artifact " +
 			"(log / perf trace / external observation). These facts can explain what was " +
-			"observed, but they are not by themselves current-code mechanism proofs.",
+			"observed, but they are not by themselves current-code mechanism proofs. " +
+			"Raw frame argument tuples or register-looking values are observation-only " +
+			"encodings; do not map them to source parameters or caller-side provenance " +
+			"unless current cited code explicitly proves that mapping.",
 	}
 	for _, seed := range plan.ExternalObservationSeeds {
 		text, location := renderExternalObservationSupportEntry(seed)
@@ -139,6 +143,21 @@ func renderExternalObservationSupportEntry(seed ExternalObservationSeed) (string
 			return "", ""
 		}
 		return fmt.Sprintf("structured runtime error type %q", raw), ""
+	case "signal":
+		if raw == "" {
+			return "", ""
+		}
+		return fmt.Sprintf("structured runtime signal %q", raw), ""
+	}
+	if funcLabel := strings.TrimSpace(seed.Func); funcLabel != "" {
+		observedLoc := ""
+		if file := strings.TrimSpace(strings.ReplaceAll(seed.File, `\`, `/`)); file != "" && seed.Line > 0 {
+			observedLoc = fmt.Sprintf("%s:%d", file, seed.Line)
+		}
+		if observedLoc != "" {
+			return fmt.Sprintf("runtime artifact includes stack frame %q at observed %s", funcLabel, observedLoc), ""
+		}
+		return fmt.Sprintf("runtime artifact includes stack frame %q", funcLabel), ""
 	}
 	if raw == "" {
 		raw = strings.TrimSpace(seed.Func)
@@ -164,7 +183,8 @@ func compileCurrentCodePathSupportLane(plan *AnswerSurfacePlan) AnswerSupportLan
 		Kind:  SupportLaneCurrentCodePath,
 		Title: "Current grounded code path",
 		Guidance: "Use this lane for the principal ordered call / path chain. Keep each hop at " +
-			"the abstraction literally supported by its own citation or grounded snippet.",
+			"the abstraction literally supported by its own citation or grounded snippet. " +
+			"These entries prove today's code structure, not necessarily that the older runtime artifact executed every downstream hop exactly as shown.",
 	}
 	for _, item := range DriftBoundedRenderableSurfaceItems(plan.DriftBoundedSurfaceItems) {
 		if !rootCausePathItemEligible(item) {
@@ -185,13 +205,17 @@ func compileCurrentCodePathSupportLane(plan *AnswerSurfacePlan) AnswerSupportLan
 	return lane
 }
 
-func compileNearestMechanismSupportLane(plan *AnswerSurfacePlan) AnswerSupportLane {
+func compileNearestMechanismSupportLane(plan *AnswerSurfacePlan, strength rootCauseMechanismStrength) AnswerSupportLane {
+	if strength != rootCauseMechanismStrong {
+		return AnswerSupportLane{}
+	}
 	lane := AnswerSupportLane{
 		Kind:  SupportLaneNearestMechanism,
 		Title: "Nearest grounded mechanism",
 		Guidance: "Use this lane for the closest current-code guard / assignment / return / " +
 			"definition that helps explain the failure path. Do not promote this lane into " +
-			"caller-side provenance or old-build internals unless current citations explicitly prove it.",
+			"caller-side provenance or old-build internals unless current citations explicitly prove it. " +
+			"A current guard condition plus a later dereference proves the code contains both sites; by itself it does NOT prove the runtime artifact actually passed that guard and reached the dereference path.",
 	}
 	for _, item := range DriftBoundedRenderableSurfaceItems(plan.DriftBoundedSurfaceItems) {
 		if !rootCauseMechanismItemEligible(item) {
@@ -212,7 +236,7 @@ func compileNearestMechanismSupportLane(plan *AnswerSurfacePlan) AnswerSupportLa
 	return lane
 }
 
-func compileUncertaintyBoundarySupportLane(plan *AnswerSurfacePlan) AnswerSupportLane {
+func compileUncertaintyBoundarySupportLane(plan *AnswerSurfacePlan, strength rootCauseMechanismStrength) AnswerSupportLane {
 	lane := AnswerSupportLane{
 		Kind:  SupportLaneUncertaintyBound,
 		Title: "Boundary / uncertainty disclosures",
@@ -238,6 +262,11 @@ func compileUncertaintyBoundarySupportLane(plan *AnswerSurfacePlan) AnswerSuppor
 			break
 		}
 	}
+	if strength == rootCauseMechanismWeakGuardOnly {
+		if entry, ok := rootCauseWeakMechanismBoundaryEntry(plan); ok {
+			lane.Entries = append(lane.Entries, entry)
+		}
+	}
 	return lane
 }
 
@@ -258,6 +287,59 @@ func rootCauseMechanismItemEligible(item EvidenceItem) bool {
 	default:
 		return false
 	}
+}
+
+type rootCauseMechanismStrength int
+
+const (
+	rootCauseMechanismNone rootCauseMechanismStrength = iota
+	rootCauseMechanismWeakGuardOnly
+	rootCauseMechanismStrong
+)
+
+func rootCauseMechanismSupportStrength(plan *AnswerSurfacePlan) rootCauseMechanismStrength {
+	if plan == nil {
+		return rootCauseMechanismNone
+	}
+	count := 0
+	hasNonGuard := false
+	for _, item := range DriftBoundedRenderableSurfaceItems(plan.DriftBoundedSurfaceItems) {
+		if !rootCauseMechanismItemEligible(item) {
+			continue
+		}
+		count++
+		if item.AnchorKind != AnchorCondition {
+			hasNonGuard = true
+		}
+	}
+	switch {
+	case hasNonGuard || count >= 2:
+		return rootCauseMechanismStrong
+	case count == 1:
+		return rootCauseMechanismWeakGuardOnly
+	default:
+		return rootCauseMechanismNone
+	}
+}
+
+func rootCauseWeakMechanismBoundaryEntry(plan *AnswerSurfacePlan) (AnswerSupportEntry, bool) {
+	if plan == nil {
+		return AnswerSupportEntry{}, false
+	}
+	for _, item := range DriftBoundedRenderableSurfaceItems(plan.DriftBoundedSurfaceItems) {
+		if !rootCauseMechanismItemEligible(item) || item.AnchorKind != AnchorCondition {
+			continue
+		}
+		text := strings.TrimSpace(EvidenceAuthoritativeSurfaceText(item, false))
+		if text == "" {
+			continue
+		}
+		return AnswerSupportEntry{
+			Text:     fmt.Sprintf("current grounded code exposes only a protective guard near the observed site (%s); no additional grounded inner statement in the same path was recovered to prove a closer current crash mechanism", text),
+			Location: supportEntryLocation(item),
+		}, true
+	}
+	return AnswerSupportEntry{}, false
 }
 
 func supportEntryLocation(item EvidenceItem) string {

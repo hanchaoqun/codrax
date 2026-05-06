@@ -422,6 +422,6 @@ func escapePipe(s string) string {
 }
 
 func renderUserSurfaceText(s string) string {
-	s = StripAuthorityArtifacts(s)
+	s = StripAuthorityArtifactsForRender(s)
 	return strings.TrimSpace(s)
 }

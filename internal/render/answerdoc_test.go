@@ -299,6 +299,25 @@ func TestRenderV2_StripsAuthorityMarkersFromPrincipalBlocks(t *testing.T) {
 	}
 }
 
+func TestRenderV2_PreservesAuthorityCaveatBodyAndPrivateTag(t *testing.T) {
+	doc := &types.AnswerDocumentV2{
+		Blocks: []types.AnswerBlock{
+			{
+				ID:   "_authority_caveat",
+				Kind: types.BlockCaveat,
+				Text: AuthorityCaveatPrefix + AuthorityCaveatTag() + "Answer rests on mixed-authority evidence.",
+			},
+		},
+	}
+	out := RenderAnswerDocument(doc, "en")
+	if !strings.Contains(out, "Answer rests on mixed-authority evidence.") {
+		t.Fatalf("rendered authority caveat body missing:\n%s", out)
+	}
+	if !strings.Contains(out, AuthorityCaveatTag()) {
+		t.Fatalf("rendered authority caveat lost the private tag needed by contract checks:\n%s", out)
+	}
+}
+
 func TestRenderV2_BoundaryEmptyBlocks(t *testing.T) {
 	doc := &types.AnswerDocumentV2{
 		Blocks: []types.AnswerBlock{

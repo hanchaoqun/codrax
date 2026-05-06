@@ -31,13 +31,12 @@ func compileRootCauseTrace(ir *AnalysisIR, plan *AnswerSurfacePlan) *AnswerSeman
 		view.FacetCoverage = plan.FacetCoverage
 		view.SummaryMode = plan.SummarySurfaceMode
 	}
+	mechanismStrength := rootCauseMechanismSupportStrength(plan)
 	if ir != nil && ir.AnswerContract.ExactResolution != nil {
 		view.ExactResolution = ir.AnswerContract.ExactResolution
 	}
 	view.RequiredBlocks = []BlockRequirement{
-		requireSummaryBlock(
-			"Open with the core conclusion: state the failure mode and the load-bearing line " +
-				"where the cause originates. Keep it tight — the ordered cause chain below carries the hop-by-hop detail."),
+		requireSummaryBlock(rootCauseTraceSummaryRationale(plan)),
 		{
 			Kind:     BlockOrderedList,
 			MinCount: 1,
@@ -51,8 +50,7 @@ func compileRootCauseTrace(ir *AnalysisIR, plan *AnswerSurfacePlan) *AnswerSeman
 				ClaimDefinitionFact,
 				ClaimCallEdge,
 			},
-			Rationale: "Walk the principal cause chain from the innermost failing frame outward. " +
-				"Each list item is one hop with file:line; the order matches the call/causation sequence.",
+			Rationale:       rootCauseTraceOrderedListRationale(plan),
 			SurfaceRoleHint: SurfacePrincipal,
 		},
 	}
@@ -90,5 +88,30 @@ func compileRootCauseTrace(ir *AnalysisIR, plan *AnswerSurfacePlan) *AnswerSeman
 	// v3 B2 — root-cause-trace answers benefit from branch_guard +
 	// nearest_mechanism context to keep the explanation reproducible.
 	markGlaringFacets(view, FacetBranchGuard, FacetNearestMechanism)
+	if mechanismStrength != rootCauseMechanismStrong {
+		demoteFacetToOptional(view, FacetNearestMechanism)
+	}
 	return view
+}
+
+func rootCauseTraceSummaryRationale(plan *AnswerSurfacePlan) string {
+	if plan != nil && plan.SummarySurfaceMode == AnswerSummarySurfaceDriftBoundedRootCause {
+		return "Open with what the attached runtime artifact observed and the nearest grounded current-code path/mechanism available in the current checkout. " +
+			"Keep the lead conclusion bounded: current cited code can prove what the code contains today, but it may not prove the exact internal runtime branch taken by the older build. " +
+			"Name the strongest supported current-code mechanism without upgrading it into a stronger historical path claim. " +
+			"If the current checkout only exposes a lone precondition guard (and no grounded companion statement deeper in the same path), describe that as the closest current boundary rather than as the crash mechanism itself."
+	}
+	return "Open with the core conclusion: state the failure mode and the load-bearing line " +
+		"where the cause originates. Keep it tight — the ordered cause chain below carries the hop-by-hop detail."
+}
+
+func rootCauseTraceOrderedListRationale(plan *AnswerSurfacePlan) string {
+	if plan != nil && plan.SummarySurfaceMode == AnswerSummarySurfaceDriftBoundedRootCause {
+		return "Walk the grounded current-code path from the innermost cited frame outward. " +
+			"Each list item is one current-code hop or mechanism anchor with file:line. " +
+			"Do not convert a current guard / downstream dereference pair into a claimed runtime branch unless the observed artifact or a cited current line explicitly proves that path was taken. " +
+			"When the closest grounded current fact is only an entry guard, keep it as a boundary note rather than promoting it into the principal crash step."
+	}
+	return "Walk the principal cause chain from the innermost failing frame outward. " +
+		"Each list item is one hop with file:line; the order matches the call/causation sequence."
 }

@@ -137,7 +137,7 @@ func applyHedgeMarkerToV2Block(blk *types.AnswerBlock, marker string, _ answerDo
 // The caveat block carries SurfaceRole=ProseOnly so V2 validators
 // don't treat it as principal and require a claim_use.
 func addV2AuthorityCaveat(doc *types.AnswerDocumentV2, evidence []types.EvidenceItem, l answerDocLang) {
-	caveatText := authorityCaveatProse(evidence, l)
+	caveatText := authorityCaveatText(authority.AuthorityHistogram(evidence), l)
 	if caveatText == "" {
 		return
 	}
@@ -158,48 +158,4 @@ func addV2AuthorityCaveat(doc *types.AnswerDocumentV2, evidence []types.Evidence
 		Kind: types.BlockCaveat,
 		Text: caveatText,
 	})
-}
-
-// authorityCaveatProse returns the bilingual caveat prose when the
-// evidence pool contains any drift-bounded items, or "" otherwise.
-// Reuses the V1 hedging templates (en/zh) so wording is consistent
-// across V1+V2 during the migration window.
-func authorityCaveatProse(evidence []types.EvidenceItem, l answerDocLang) string {
-	hasConditional, hasHistorical, hasIllustrative := false, false, false
-	for _, e := range evidence {
-		switch e.Authority {
-		case types.AuthorityConditional:
-			hasConditional = true
-		case types.AuthorityHistorical:
-			hasHistorical = true
-		case types.AuthorityIllustrative:
-			hasIllustrative = true
-		}
-	}
-	if !hasConditional && !hasHistorical && !hasIllustrative {
-		return ""
-	}
-	parts := make([]string, 0, 3)
-	if l == answerDocLangZH {
-		if hasConditional {
-			parts = append(parts, "部分论据来自条件分支，结论在该条件下成立")
-		}
-		if hasHistorical {
-			parts = append(parts, "部分论据来自历史快照（log/perf），与当前源码可能已漂移")
-		}
-		if hasIllustrative {
-			parts = append(parts, "部分论据是说明性的，不具直接因果约束力")
-		}
-		return strings.Join(parts, "；") + "。"
-	}
-	if hasConditional {
-		parts = append(parts, "some evidence is conditional and the conclusion holds under that branch")
-	}
-	if hasHistorical {
-		parts = append(parts, "some evidence is historical (log / perf) and may have drifted from current source")
-	}
-	if hasIllustrative {
-		parts = append(parts, "some evidence is illustrative and does not establish direct causation")
-	}
-	return strings.Join(parts, "; ") + "."
 }

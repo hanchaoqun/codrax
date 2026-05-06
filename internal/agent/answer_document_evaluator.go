@@ -282,7 +282,7 @@ func (e *answerDocumentEvaluator) BuildInitialInstruction(ctx *types.AgentContex
 	}
 
 	// Multi-topic: guide the finalizer to address each sub-topic.
-	if ctx != nil && ctx.AnalysisIR != nil && len(ctx.AnalysisIR.RequestModel.SubTopics) > 1 {
+	if answerDocAllowSubTopicStructure(ctx, view) {
 		b.WriteString("## Answer Structure (multi-topic)\n\n")
 		b.WriteString("The user asked about multiple topics. " +
 			"Your principal blocks MUST address each one with a clearly labeled section (use `section` blocks per topic OR a single `summary` block whose text carries one labeled section per topic):\n\n")
@@ -323,6 +323,16 @@ func (e *answerDocumentEvaluator) BuildInitialInstruction(ctx *types.AgentContex
 	}
 
 	return b.String()
+}
+
+func answerDocAllowSubTopicStructure(ctx *types.AgentContext, view *types.AnswerSemanticView) bool {
+	if ctx == nil || ctx.AnalysisIR == nil || len(ctx.AnalysisIR.RequestModel.SubTopics) <= 1 {
+		return false
+	}
+	if view != nil && view.Family == types.QFRootCauseTrace && answerSupportPlan(ctx) != nil {
+		return false
+	}
+	return true
 }
 
 func renderAnswerDocSubmissionChecklist(ctx *types.AgentContext, view *types.AnswerSemanticView, diagramRequired bool) string {
@@ -504,6 +514,15 @@ func renderAnswerDocStepBackbone(ctx *types.AgentContext, view *types.AnswerSema
 	// of items). Use Family directly so we can distinguish hop chain
 	// vs enumeration slate while both produce a principal ordered list.
 	if view == nil || (view.Family != types.QFCallChain && view.Family != types.QFRootCauseTrace) {
+		return ""
+	}
+	// When a typed AnswerSupportPlan is present for drift-bounded
+	// root-cause answers, it becomes the authoritative principal-input
+	// contract. Keeping the older step-backbone scaffold alongside it
+	// reintroduces summary/rationale prose from answer symbols and can
+	// overpower the stricter support lanes with a more speculative
+	// sequence. Suppress the legacy scaffold in that mode.
+	if view.Family == types.QFRootCauseTrace && answerSupportPlan(ctx) != nil {
 		return ""
 	}
 	plan := answerSurfacePlan(ctx)
@@ -1755,6 +1774,9 @@ func renderAnswerDocSupportPlan(ctx *types.AgentContext) string {
 	b.WriteString("- Build the principal `summary` block and principal `ordered_list` items only from the lanes below.\n")
 	b.WriteString("- Keep observed runtime facts, current code path facts, nearest grounded mechanism facts, and uncertainty disclosures in their own lanes.\n")
 	b.WriteString("- Do not promote an observation lane into caller-side provenance, old-build internals, or exact mechanism unless a current cited line explicitly proves that stronger claim.\n\n")
+	b.WriteString("- Treat raw runtime frame argument tuples such as `func(0x0)` or register-looking values as observation-only artifacts. They do NOT, by themselves, prove which source parameter was nil, which caller originated the value, or which exact downstream branch executed.\n\n")
+	b.WriteString("- If a function, file, or hop appears elsewhere in the prompt but does NOT appear in the current code path / nearest mechanism / boundary lanes below, treat it as background only: do not turn it into a principal ordered-list hop, summary claim, or diagram node.\n\n")
+	b.WriteString("- In drift-bounded root-cause answers, a current guard plus a later dereference proves the current code contains both sites; it does NOT by itself prove the runtime artifact actually passed the guard and reached the dereference path.\n\n")
 	for _, lane := range plan.Lanes {
 		title := strings.TrimSpace(lane.Title)
 		if title == "" {
@@ -1796,6 +1818,17 @@ func exactResolutionSurfaceEvidencePool(ctx *types.AgentContext) []types.Evidenc
 		emitted = ctx.Mutable.EmittedEvidence()
 	}
 	return types.ExactResolutionSurfaceEvidencePool(emitted, ctx.EvidenceItems, ctx.AnswerChains)
+}
+
+func answerDocumentAuthorityEvidencePool(ctx *types.AgentContext) []types.EvidenceItem {
+	if ctx == nil {
+		return nil
+	}
+	var emitted []types.EvidenceItem
+	if ctx.Mutable != nil {
+		emitted = ctx.Mutable.EmittedEvidence()
+	}
+	return mergeEvidenceItems(emitted, ctx.EvidenceItems)
 }
 
 func renderAnswerDocAllowedExactContextAnchors(ctx *types.AgentContext, contract *types.ExactResolutionContract, citationGradeRendered bool) string {
@@ -3673,7 +3706,7 @@ func (e *answerDocumentEvaluator) ParseOutput(ctx *types.AgentContext, messages 
 	}
 	combined := warning
 	if ctx != nil && ctx.Mutable != nil {
-		caveat := render.SynthesiseAuthorityCaveatFor(ctx.Mutable.EmittedEvidence(), e.language)
+		caveat := render.SynthesiseAuthorityCaveatFor(answerDocumentAuthorityEvidencePool(ctx), e.language)
 		if caveat != "" {
 			combined = warning + "\n\n*" + caveat + "*"
 		}
@@ -3847,8 +3880,8 @@ func (e *answerDocumentEvaluator) parseOutputV2(ctx *types.AgentContext, docV2 *
 	}
 	// Apply V2 hedging in-place on the defensive copy
 	// (ctx.Mutable.AnswerDocumentV2() returns a clone).
-	if ctx != nil && ctx.Mutable != nil {
-		render.ApplyAuthorityHedging(docV2, ctx.Mutable.EmittedEvidence(), e.language)
+	if ctx != nil {
+		render.ApplyAuthorityHedging(docV2, answerDocumentAuthorityEvidencePool(ctx), e.language)
 	}
 	prose := render.RenderAnswerDocument(docV2, e.language)
 	out.Data = marshalStageData(answerDocumentStageData{

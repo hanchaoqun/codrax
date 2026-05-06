@@ -121,6 +121,58 @@ func TestCompileRootCauseTrace_HasUncertaintyRule(t *testing.T) {
 	}
 }
 
+func TestCompileRootCauseTrace_DemotesNearestMechanismWhenOnlyGuardEvidenceExists(t *testing.T) {
+	plan := &AnswerSurfacePlan{
+		FacetCoverage: &FacetCoverageContract{
+			Family: QFRootCauseTrace,
+			Required: []FacetRequirement{
+				{
+					Kind:            FacetNearestMechanism,
+					Required:        FacetSoftRequired,
+					AcceptableForms: []ClaimForm{ClaimDefinitionFact, ClaimCallEdge},
+					SourceCandidate: []string{"ev-1"},
+					Tier:            TierExpected,
+					PromotionPolicy: PromotionWhenEvidenceSufficient,
+				},
+			},
+			Optional: []FacetRequirement{},
+		},
+		DriftBoundedSurfaceItems: []EvidenceItem{
+			{
+				Kind:         EvidenceConditional,
+				Source:       "internal/agent/analyzer.go",
+				LineStart:    978,
+				AnchorKind:   AnchorCondition,
+				AnchorSymbol: "buildAnalysisIR",
+				Snippet:      "if ctx == nil || ctx.Mutable == nil {",
+			},
+		},
+	}
+	view := BuildAnswerSemanticView(irForRootCauseTrace(), plan)
+	if view == nil || view.FacetCoverage == nil {
+		t.Fatal("view/facet coverage nil")
+	}
+	var got *FacetRequirement
+	for i := range view.FacetCoverage.Required {
+		if view.FacetCoverage.Required[i].Kind == FacetNearestMechanism {
+			got = &view.FacetCoverage.Required[i]
+			break
+		}
+	}
+	if got == nil {
+		t.Fatal("nearest_mechanism facet missing")
+	}
+	if got.Required != FacetOptional {
+		t.Fatalf("nearest_mechanism requiredness = %q, want optional when only a lone guard is grounded", got.Required)
+	}
+	if got.EffectivePromotionPolicy() != PromotionAdvisoryOnly {
+		t.Fatalf("nearest_mechanism promotion policy = %q, want advisory_only", got.EffectivePromotionPolicy())
+	}
+	if got.IsPromoted() {
+		t.Fatal("nearest_mechanism should not stay promoted in guard-only drift mode")
+	}
+}
+
 // ── QFConfigPrecedence 3 cases ─────────────────────────────────────
 
 func TestCompileConfigPrecedence_ResolvesFamily(t *testing.T) {

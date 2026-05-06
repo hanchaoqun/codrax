@@ -2251,6 +2251,19 @@ func CollectExternalObservationSeeds(bundle *LogBundle, observed []LogSourceDrif
 			return out
 		}
 	}
+	for _, sig := range bundle.Meta.Signals {
+		name := strings.TrimSpace(string(sig))
+		if name == "" {
+			continue
+		}
+		record(ExternalObservationSeed{
+			Kind: "signal",
+			Raw:  name,
+		})
+		if len(out) >= 6 {
+			return out
+		}
+	}
 	for _, err := range bundle.Errors {
 		for _, frame := range err.Frames {
 			if strings.TrimSpace(frame.Raw) == "" && strings.TrimSpace(frame.Func) == "" {

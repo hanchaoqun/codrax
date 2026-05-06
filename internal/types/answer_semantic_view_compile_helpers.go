@@ -273,6 +273,42 @@ func markGlaringFacets(view *AnswerSemanticView, kinds ...AnswerFacetKind) {
 	}
 }
 
+// demoteFacetToOptional rewrites a compiled facet requirement from a
+// promoted/soft requirement into advisory-only optional coverage.
+// Used when family-specific typed support proves the facet is too weak
+// to sustain a principal-answer obligation for this dispatch.
+func demoteFacetToOptional(view *AnswerSemanticView, kind AnswerFacetKind) {
+	if view == nil || view.FacetCoverage == nil {
+		return
+	}
+	for i := range view.FacetCoverage.Required {
+		req := &view.FacetCoverage.Required[i]
+		if req.Kind != kind {
+			continue
+		}
+		req.Required = FacetOptional
+		req.Tier = TierEnrichment
+		req.PromotionPolicy = PromotionAdvisoryOnly
+		req.MinEvidenceForPromotion = 0
+		req.Strength = EnrichmentNone
+		req.MinEvidenceForGlaring = 0
+		return
+	}
+	for i := range view.FacetCoverage.Optional {
+		req := &view.FacetCoverage.Optional[i]
+		if req.Kind != kind {
+			continue
+		}
+		req.Required = FacetOptional
+		req.Tier = TierEnrichment
+		req.PromotionPolicy = PromotionAdvisoryOnly
+		req.MinEvidenceForPromotion = 0
+		req.Strength = EnrichmentNone
+		req.MinEvidenceForGlaring = 0
+		return
+	}
+}
+
 // familyGlaringEvidenceThreshold returns the per-family floor on
 // SourceCandidate count above which an optional facet marked
 // EnrichmentGlaring promotes to ViolRichnessGlaringGap (Medium /

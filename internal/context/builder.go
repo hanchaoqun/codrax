@@ -134,7 +134,7 @@ func BuildAgentContext(bus *types.BusContext, agentName types.AgentName, stage t
 		// Carry forward all prior stage reports so this agent can read
 		// what earlier stages concluded instead of re-deriving it from
 		// raw tool dumps. Append-only; the prompt builder formats them.
-		ac.PriorReports = bus.StageReports
+		ac.PriorReports = stageReportsForAgent(bus.StageReports, ac)
 
 		// CGEC C1: surface UnverifiedFindings written by the analyzer's
 		// findings_validator into the AgentContext so BuildPromptContext
@@ -154,6 +154,9 @@ func BuildAgentContext(bus *types.BusContext, agentName types.AgentName, stage t
 		}
 		if bus.AnalysisIR != nil {
 			ac.ExpectedAnswerSubject = bus.AnalysisIR.RequestModel.AnswerSubject
+		}
+		if ac.AgentName == types.AgentFinalizer && finalizerUsesTypedAnswerSupport(ac) {
+			ac.RelevantFacts, ac.RelevantFiles = typedSupportFinalizerRepoFacts(bus.RepoFacts, ac, ac.RelevantFacts, ac.RelevantFiles)
 		}
 	}
 
@@ -509,7 +512,7 @@ func BuildPromptContext(ac *types.AgentContext, sk *skill.Config) *types.PromptC
 	// parallel goroutines), so adding it alongside the raw section
 	// is a small prompt-budget cost in exchange for consistent
 	// causality rendering in downstream answers.
-	if ac.AgentName != types.AgentLogTriager {
+	if ac.AgentName != types.AgentLogTriager && !finalizerUsesTypedAnswerSupport(ac) {
 		if section := formatLogTriageStructured(ac.LogTriage); section != "" {
 			pc.UserSections = append(pc.UserSections, types.PromptSection{
 				Title:   SectionLogTriageExtraction,
@@ -542,11 +545,13 @@ func BuildPromptContext(ac *types.AgentContext, sk *skill.Config) *types.PromptC
 	//     for paginated access to the middle.
 	//
 	// Empty AttachedLog is a no-op.
-	if section := formatAttachedLog(ac.AttachedLog, ac.WorkDir); section != "" {
-		pc.UserSections = append(pc.UserSections, types.PromptSection{
-			Title:   SectionAttachedRuntimeLog,
-			Content: section,
-		})
+	if !finalizerUsesTypedAnswerSupport(ac) {
+		if section := formatAttachedLog(ac.AttachedLog, ac.WorkDir); section != "" {
+			pc.UserSections = append(pc.UserSections, types.PromptSection{
+				Title:   SectionAttachedRuntimeLog,
+				Content: section,
+			})
+		}
 	}
 
 	// Attached HiTrace / atrace — rendered verbatim for the
@@ -773,13 +778,22 @@ func BuildPromptContext(ac *types.AgentContext, sk *skill.Config) *types.PromptC
 	// own recovered lines so iterative investigation can reference
 	// earlier-window anchors.
 	strictEvidenceLoc := ac.Stage == types.StageExtract || ac.Stage == types.StageFinalize
-	evidence := formatEvidenceItemsWithOptions(ac.EvidenceItems, 18, evidenceRenderOptions{
+	evidenceItems := ac.EvidenceItems
+	evidencePreamble := knowledgePoolPreamble()
+	evidenceOpts := evidenceRenderOptions{
 		StrictLocation:            strictEvidenceLoc,
 		NeutralizeExactResolution: ac.Stage == types.StageFinalize || ac.Stage == types.StageExtract,
 		ExactResolutionContract:   exactResolutionContractForRender(ac),
 		ExactResolutionScenario:   exactResolutionScenarioForRender(ac),
 		TypedRelationHints:        ac.TypedRelationHints,
-	})
+	}
+	if finalizerUsesTypedAnswerSupport(ac) {
+		evidenceItems = typedSupportFinalizerEvidencePool(ac, evidenceItems)
+		evidencePreamble = typedSupportKnowledgePoolPreamble()
+		evidenceOpts.AuthoritativeSurface = true
+		evidenceOpts.TypedRelationHints = nil
+	}
+	evidence := formatEvidenceItemsWithOptions(evidenceItems, 18, evidenceOpts)
 	findings := formatFlowFindings(ac.FlowFindings, 10)
 	logging.Debug("[builder] %s/%s: evidence_section_len=%d findings_section_len=%d", ac.AgentName, ac.Stage, len(evidence), len(findings))
 	// Phase 1 of Semantic Surface Contract
@@ -820,7 +834,7 @@ func BuildPromptContext(ac *types.AgentContext, sk *skill.Config) *types.PromptC
 		// typed call-tree) plug in without forking the prompt.
 		pc.UserSections = append(pc.UserSections, types.PromptSection{
 			Title:   SectionEvidencePool,
-			Content: knowledgePoolPreamble() + evidence,
+			Content: evidencePreamble + evidence,
 		})
 	}
 
@@ -854,7 +868,7 @@ func BuildPromptContext(ac *types.AgentContext, sk *skill.Config) *types.PromptC
 	// Mutable for this kind of late read. Legacy paths without the
 	// extractor simply produce an empty buffer and the section is
 	// dropped.
-	if ac.Mutable != nil {
+	if ac.Mutable != nil && !finalizerUsesTypedAnswerSupport(ac) {
 		if verdicts := ac.Mutable.EmittedHypothesisVerdicts(); len(verdicts) > 0 {
 			var vc strings.Builder
 			vc.WriteString("The extractor (Turn B) reached the following verdicts on the hypotheses the analyzer posed. " +
@@ -1147,6 +1161,7 @@ func producerRank(item types.EvidenceItem) int {
 type evidenceRenderOptions struct {
 	StrictLocation            bool
 	NeutralizeExactResolution bool
+	AuthoritativeSurface      bool
 	ExactResolutionContract   *types.ExactResolutionContract
 	ExactResolutionScenario   types.Scenario
 
@@ -1184,6 +1199,10 @@ func knowledgePoolPreamble() string {
 	return "The pool below unifies evidence the investigation collected (provenance=llm_evidence) " +
 		"with structurally-derived candidates from the project's typed graph (provenance=typed_graph). " +
 		"Both lanes are authoritative grounding for citations; treat them as one source of truth and pick whichever rows your answer needs.\n\n"
+}
+
+func typedSupportKnowledgePoolPreamble() string {
+	return "Use the pool below as citation coverage only. Build user-visible principal claims from the typed support lanes above; do not introduce new principal conclusions from this pool alone.\n\n"
 }
 
 func formatEvidenceItems(items []types.EvidenceItem, limit int, strictLocation bool) string {
@@ -1250,6 +1269,9 @@ func formatEvidenceItemsWithOptions(items []types.EvidenceItem, limit int, opts 
 			break
 		}
 		line := evidencePromptLine(item, opts)
+		if strings.TrimSpace(line) == "" {
+			continue
+		}
 		if loc := item.DisplayLocation(opts.StrictLocation); loc != "" {
 			line += " (" + loc + ")"
 		}
@@ -1382,6 +1404,9 @@ func typedRelationDedupKey(subject, object string, ak types.AnchorKind) string {
 }
 
 func evidencePromptLine(item types.EvidenceItem, opts evidenceRenderOptions) string {
+	if opts.AuthoritativeSurface {
+		return types.EvidenceAuthoritativeSurfaceText(item, true)
+	}
 	contract := (*types.ExactResolutionContract)(nil)
 	if opts.NeutralizeExactResolution {
 		contract = opts.ExactResolutionContract
@@ -1692,6 +1717,14 @@ func formatNumberedList(items []string) string {
 		fmt.Fprintf(&b, "%d. %s\n", i+1, item)
 	}
 	return b.String()
+}
+
+func finalizerUsesTypedAnswerSupport(ac *types.AgentContext) bool {
+	if ac == nil || ac.AgentName != types.AgentFinalizer {
+		return false
+	}
+	plan := types.BuildAnswerSupportPlanForAgentContext(ac)
+	return plan != nil && len(plan.Lanes) > 0
 }
 
 // AttachedLogBlobName is the canonical filename codrax writes the
@@ -2373,6 +2406,121 @@ func formatStageReports(reports []types.StageReport) string {
 		fmt.Fprintf(&b, "### [%s / %s]\n%s", r.Stage, r.Agent, findings)
 	}
 	return b.String()
+}
+
+func stageReportsForAgent(reports []types.StageReport, ac *types.AgentContext) []types.StageReport {
+	if len(reports) == 0 {
+		return nil
+	}
+	if ac == nil || ac.AgentName != types.AgentFinalizer || !finalizerUsesTypedAnswerSupport(ac) {
+		return reports
+	}
+	// In typed-support finalizer mode, *all* free-form StageReports
+	// become competing semantic channels beside the compiled support
+	// lanes. Even the analyzer report can contain an eager narrative
+	// lead ("the root cause is already clear...") that outruns the
+	// grounded support contract. The finalizer should rebuild its
+	// principal claims from typed support lanes, known facts, and
+	// citations only; StageReports remain useful upstream but must not
+	// survive into the final synthesis prompt.
+	return nil
+}
+
+func typedSupportFinalizerRepoFacts(
+	repoFacts []types.RepoFact,
+	ac *types.AgentContext,
+	fallbackFacts []string,
+	fallbackFiles []string,
+) ([]string, []string) {
+	if len(repoFacts) == 0 || ac == nil || !finalizerUsesTypedAnswerSupport(ac) {
+		return fallbackFacts, fallbackFiles
+	}
+	allowed := typedSupportFinalizerFileCeiling(ac)
+	if len(allowed) == 0 {
+		return fallbackFacts, fallbackFiles
+	}
+	filteredFacts := make([]types.RepoFact, 0, len(repoFacts))
+	for _, fact := range repoFacts {
+		source := strings.TrimSpace(strings.ReplaceAll(fact.Source, `\`, `/`))
+		if source == "" || !allowed[source] {
+			continue
+		}
+		filteredFacts = append(filteredFacts, fact)
+	}
+	if len(filteredFacts) == 0 {
+		return fallbackFacts, fallbackFiles
+	}
+	return extractRelevantFacts(filteredFacts), extractRelevantFiles(filteredFacts)
+}
+
+func typedSupportFinalizerEvidencePool(ac *types.AgentContext, items []types.EvidenceItem) []types.EvidenceItem {
+	if len(items) == 0 || ac == nil || !finalizerUsesTypedAnswerSupport(ac) {
+		return items
+	}
+	allowed := typedSupportFinalizerFileCeiling(ac)
+	if len(allowed) == 0 {
+		return items
+	}
+	filtered := make([]types.EvidenceItem, 0, len(items))
+	for _, item := range items {
+		if strings.TrimSpace(types.EvidenceAuthoritativeSurfaceText(item, false)) == "" {
+			continue
+		}
+		source := strings.TrimSpace(strings.ReplaceAll(item.Source, `\`, `/`))
+		if source == "" || !allowed[source] {
+			continue
+		}
+		filtered = append(filtered, item)
+	}
+	return filtered
+}
+
+func typedSupportFinalizerFileCeiling(ac *types.AgentContext) map[string]bool {
+	plan := types.BuildAnswerSupportPlanForAgentContext(ac)
+	if plan == nil || len(plan.Lanes) == 0 {
+		return nil
+	}
+	allowed := map[string]bool{}
+	for _, lane := range plan.Lanes {
+		for _, entry := range lane.Entries {
+			file := supportPlanEntryFile(entry.Location)
+			if file == "" {
+				continue
+			}
+			allowed[file] = true
+		}
+	}
+	if len(allowed) == 0 {
+		return nil
+	}
+	return allowed
+}
+
+func supportPlanEntryFile(location string) string {
+	location = strings.TrimSpace(strings.ReplaceAll(location, `\`, `/`))
+	if location == "" {
+		return ""
+	}
+	if idx := strings.LastIndex(location, ":"); idx > 0 {
+		if linePart := strings.TrimSpace(location[idx+1:]); linePart != "" {
+			if isAllDigits(linePart) {
+				return strings.TrimSpace(location[:idx])
+			}
+		}
+	}
+	return location
+}
+
+func isAllDigits(s string) bool {
+	if s == "" {
+		return false
+	}
+	for _, r := range s {
+		if r < '0' || r > '9' {
+			return false
+		}
+	}
+	return true
 }
 
 func priorReportsContainSection(reports []types.StageReport, heading string) bool {

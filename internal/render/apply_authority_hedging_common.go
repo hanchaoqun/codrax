@@ -161,6 +161,33 @@ func StripAuthorityArtifacts(text string) string {
 	return strings.Join(out, "\n")
 }
 
+// StripAuthorityArtifactsForRender removes only the user-visible
+// authority markup that should not appear in rendered prose, while
+// preserving the system-private authority caveat tag embedded inside
+// the caveat line. This lets user-facing output stay clean while the
+// rendered draft still carries a machine-grep-able signal for
+// contract/reviewer checks.
+//
+// Differences from StripAuthorityArtifacts:
+//   - inline hedge markers / terse reasons are stripped
+//   - lines containing authorityCaveatTag are preserved
+//   - the private tag itself remains in the rendered string (it's
+//     invisible to users because the token contains zero-width chars)
+func StripAuthorityArtifactsForRender(text string) string {
+	if text == "" {
+		return text
+	}
+	out := make([]string, 0, len(text)/40+1)
+	for _, line := range strings.Split(text, "\n") {
+		line = stripLeadingMarkerAndReason(line)
+		for _, m := range []string{HedgeMarkerIllustrative, HedgeMarkerHistorical, HedgeMarkerConditional} {
+			line = stripInlineMarkerWithReason(line, m)
+		}
+		out = append(out, line)
+	}
+	return strings.Join(out, "\n")
+}
+
 // authorityCaveatText returns the localized caveat string with the
 // system-private tag embedded.
 func authorityCaveatText(hist map[types.AuthorityCeiling]int, l answerDocLang) string {

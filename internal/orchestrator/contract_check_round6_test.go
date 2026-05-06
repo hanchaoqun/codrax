@@ -3,6 +3,7 @@ package orchestrator
 import (
 	"testing"
 
+	"github.com/hanchaoqun/codrax/internal/render"
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
@@ -88,6 +89,21 @@ func TestRunAuthorityOverreachCheck_RepairIsLLMActionable(t *testing.T) {
 		if substringContainsRound6(repair, leak) {
 			t.Errorf("repair leaks internal name %q: %q", leak, repair)
 		}
+	}
+}
+
+func TestRunAuthorityOverreachCheck_PassesWhenRenderedDraftCarriesAuthorityTag(t *testing.T) {
+	mut := types.NewMutableState("test")
+	mut.SetAnswerDocumentV2WithMutation(types.MutationReplaceAll, &types.AnswerDocumentV2{
+		DocumentModel: "v2",
+		Citations:     []types.Citation{{File: "x.go", Line: 10}},
+	})
+	mut.AppendEvidence([]types.EvidenceItem{
+		{Source: "x.go", LineStart: 10, Authority: types.AuthorityHistorical},
+	})
+	draft := "> " + render.AuthorityCaveatPrefix + render.AuthorityCaveatTag() + "Answer rests on mixed-authority evidence."
+	if viols := runAuthorityOverreachCheck(mut, draft); len(viols) != 0 {
+		t.Fatalf("authority_overreach should not fire when rendered draft keeps the private caveat tag; got %+v", viols)
 	}
 }
 
