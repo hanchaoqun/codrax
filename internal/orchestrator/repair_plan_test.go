@@ -352,6 +352,13 @@ func TestEveryHardDefaultViolKindHasCooccurrenceCoverage(t *testing.T) {
 		// cooccurrence — they're orthogonal to V1 oracle clusters.
 		types.ViolRichnessGlaringGap:        "v3 B2 richness escalation; finalizer re-emits to surface missing optional facet",
 		types.ViolPrincipalProseUnderfilled: "v3 B2 prose-density escalation; finalizer re-emits with inline anchors",
+		// Lane → block-kind compliance is a typed-signal finalize-
+		// local repair: the principal block kind is wrong for the
+		// lane its citations resolve to. Repair is "re-render the
+		// same content under a different block kind" — strictly
+		// finalizer-side, no upstream stage participates and no
+		// other oracle reports the same condition.
+		types.ViolLaneBlockKindMismatch: "lane → block-kind alignment is a finalizer-local re-render; standalone with no upstream cooccurrence",
 	}
 
 	for _, kind := range types.AllViolationKinds() {

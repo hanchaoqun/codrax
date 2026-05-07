@@ -384,6 +384,13 @@ func TestBuildAnswerSupportPlan_RootCauseTraceKeepsReturnFactsOutOfNearestMechan
 				Snippet:      `return nil, errors.New("analyzer: emit_analysis was not called")`,
 			},
 		},
+		// Mark the plan as runtime-artifact-sourced so
+		// AnswerSurfacePlan.IsCrashSourcedRootCause returns true and
+		// the AnchorReturn exclusion stays active. Real-world plans
+		// produced by BuildAnswerSurfacePlanForBusContext always
+		// populate this slice from the LogBundle's resolved frames;
+		// the manual fixture has to set it explicitly.
+		LogObservedAnchors: []LogSourceDriftAnchor{{File: "internal/agent/analyzer.go", ObservedLine: 983}},
 	}
 
 	got := BuildAnswerSupportPlan(RequestModel{
@@ -404,5 +411,86 @@ func TestBuildAnswerSupportPlan_RootCauseTraceKeepsReturnFactsOutOfNearestMechan
 		if strings.Contains(strings.Join(joined, "\n"), "emit_analysis was not called") {
 			t.Fatalf("return facts should not be promoted into nearest_mechanism, got %+v", lane.Entries)
 		}
+	}
+}
+
+// TestRootCauseMechanismItemEligible_ReturnGatedByCrashSource confirms
+// AnchorReturn is excluded from the nearest_mechanism lane only when
+// the surface plan is sourced from a runtime artifact (panic/exception
+// /perf jank). For non-crash root-cause questions ("Foo returns nil —
+// why?") the early-return statement legitimately IS the mechanism and
+// must remain eligible.
+func TestRootCauseMechanismItemEligible_ReturnGatedByCrashSource(t *testing.T) {
+	returnItem := EvidenceItem{
+		Kind:       EvidenceDirect,
+		Source:     "internal/foo/loader.go",
+		LineStart:  88,
+		AnchorKind: AnchorReturn,
+		Snippet:    "return defaultValue",
+	}
+
+	t.Run("crash-sourced plan excludes AnchorReturn", func(t *testing.T) {
+		plan := &AnswerSurfacePlan{
+			LogObservedAnchors: []LogSourceDriftAnchor{
+				{File: "internal/foo/loader.go", ObservedLine: 88},
+			},
+		}
+		if rootCauseMechanismItemEligible(plan, returnItem) {
+			t.Error("crash-sourced plan must exclude AnchorReturn from mechanism lane")
+		}
+	})
+
+	t.Run("non-crash-sourced plan keeps AnchorReturn eligible", func(t *testing.T) {
+		plan := &AnswerSurfacePlan{
+			// No LogObservedAnchors, no ExternalObservationSeeds —
+			// "Foo returns nil — why?" style code-only debug.
+		}
+		if !rootCauseMechanismItemEligible(plan, returnItem) {
+			t.Error("non-crash root-cause plan must keep AnchorReturn eligible — early-return IS the mechanism")
+		}
+	})
+
+	t.Run("non-crash control-header companion still excluded", func(t *testing.T) {
+		plan := &AnswerSurfacePlan{}
+		controlHeader := EvidenceItem{
+			Kind:       EvidenceDirect,
+			Source:     "internal/foo/loader.go",
+			LineStart:  90,
+			AnchorKind: AnchorReturn,
+			Snippet:    "if v == nil { return nil }",
+		}
+		if rootCauseMechanismItemEligible(plan, controlHeader) {
+			t.Error("control-header companion (snippet starts with 'if ') must be filtered even on non-crash plans")
+		}
+	})
+}
+
+// TestIsCrashSourcedRootCause confirms the helper's structural
+// signal sources (ExternalObservationSeeds + LogObservedAnchors).
+func TestIsCrashSourcedRootCause(t *testing.T) {
+	cases := []struct {
+		name string
+		plan *AnswerSurfacePlan
+		want bool
+	}{
+		{name: "nil plan", plan: nil, want: false},
+		{name: "empty plan", plan: &AnswerSurfacePlan{}, want: false},
+		{
+			name: "log observed anchors set",
+			plan: &AnswerSurfacePlan{LogObservedAnchors: []LogSourceDriftAnchor{{File: "x.go", ObservedLine: 1}}},
+			want: true,
+		},
+		{
+			name: "external observation seeds set",
+			plan: &AnswerSurfacePlan{ExternalObservationSeeds: []ExternalObservationSeed{{Kind: "log_frame", File: "x.go", Line: 1}}},
+			want: true,
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := tc.plan.IsCrashSourcedRootCause(); got != tc.want {
+				t.Errorf("got %v, want %v", got, tc.want)
+			}
+		})
 	}
 }

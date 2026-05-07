@@ -2234,3 +2234,192 @@ func TestEnumerationItemLabelExtractorMatch_EightyPercentThreshold(t *testing.T)
 		t.Errorf("<80%% match MUST fire")
 	}
 }
+
+// TestAddSelectorTokenAndSuffixes_DropsBareSegment confirms the
+// post-2026-05-07 tightening: selector chains contribute their FULL
+// form and every MULTI-segment suffix, but bare single-segment tails
+// (`Sprintf`, `Get`, `Normalize`) are NEVER admitted as standalone
+// tokens. Load-bearing tails are still reachable through the label
+// oracle's bidirectional substring fallback against the pooled chain.
+func TestAddSelectorTokenAndSuffixes_DropsBareSegment(t *testing.T) {
+	cases := []struct {
+		name         string
+		input        string
+		mustContain  []string
+		mustNotMatch []string // tokens that must NOT be admitted
+	}{
+		{
+			name:         "two-segment chain: full chain only",
+			input:        "normalizer.Normalize",
+			mustContain:  []string{"normalizer.normalize"},
+			mustNotMatch: []string{"normalize"},
+		},
+		{
+			name:         "stdlib helper: full chain only, bare tail rejected",
+			input:        "fmt.Sprintf",
+			mustContain:  []string{"fmt.sprintf"},
+			mustNotMatch: []string{"sprintf"},
+		},
+		{
+			name:         "three-segment chain: full + multi-segment suffix",
+			input:        "ctx.Mutable.RequestModel",
+			mustContain:  []string{"ctx.mutable.requestmodel", "mutable.requestmodel"},
+			mustNotMatch: []string{"requestmodel"},
+		},
+		{
+			name:         "single token (no dot): nothing admitted",
+			input:        "Normalize",
+			mustContain:  nil,
+			mustNotMatch: []string{"normalize"},
+		},
+		{
+			name:         "two-segment chain: bare tail still rejected",
+			input:        "errs.New",
+			mustContain:  []string{"errs.new"},
+			mustNotMatch: []string{"new"},
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			out := map[string]struct{}{}
+			addSelectorTokenAndSuffixes(out, tc.input)
+			for _, mc := range tc.mustContain {
+				if _, ok := out[mc]; !ok {
+					t.Errorf("expected token %q in support set; got keys=%v", mc, mapKeys(out))
+				}
+			}
+			for _, nm := range tc.mustNotMatch {
+				if _, ok := out[nm]; ok {
+					t.Errorf("token %q should NOT be admitted (single-segment, not load-bearing); got keys=%v", nm, mapKeys(out))
+				}
+			}
+		})
+	}
+}
+
+func mapKeys(m map[string]struct{}) []string {
+	out := make([]string, 0, len(m))
+	for k := range m {
+		out = append(out, k)
+	}
+	return out
+}
+
+// TestValidateLaneBlockKindCompliance_ObservedArtifactNotOrderedList
+// is the load-bearing test for the P2 hard validator: a principal
+// ordered_list block whose only citation resolves to an
+// observed_artifact lane entry (which allows only summary/caveat)
+// must produce a ViolLaneBlockKindMismatch violation.
+func TestValidateLaneBlockKindCompliance_ObservedArtifactNotOrderedList(t *testing.T) {
+	doc := &types.AnswerDocumentV2{
+		Citations: []types.Citation{
+			{File: "internal/agent/foo.go", Line: 42},
+		},
+		Blocks: []types.AnswerBlock{
+			{
+				ID:          "p1",
+				Kind:        types.BlockOrderedList,
+				SurfaceRole: types.SurfacePrincipal,
+				Items: []types.AnswerBlockItem{
+					{ID: "i1", Label: "frame Foo", CitationRef: 0},
+				},
+			},
+		},
+	}
+	supportPlan := &types.AnswerSupportPlan{
+		Family: types.QFRootCauseTrace,
+		Lanes: []types.AnswerSupportLane{
+			{
+				Kind:          types.SupportLaneObservedArtifact,
+				Title:         "Observed artifact facts",
+				AllowedBlocks: []string{"summary", "caveat"},
+				Entries: []types.AnswerSupportEntry{
+					{Text: "panic frame Foo at line 42", Location: "internal/agent/foo.go:42"},
+				},
+			},
+		},
+	}
+	violations := validateLaneBlockKindCompliance(doc, supportPlan)
+	if len(violations) != 1 {
+		t.Fatalf("expected exactly 1 violation, got %d: %+v", len(violations), violations)
+	}
+	if violations[0].Kind != types.ViolLaneBlockKindMismatch {
+		t.Errorf("wrong kind: got %q", violations[0].Kind)
+	}
+	if !strings.Contains(violations[0].Detail, `"p1"`) {
+		t.Errorf("detail must name block id; got %q", violations[0].Detail)
+	}
+}
+
+// TestValidateLaneBlockKindCompliance_AllowedKindPasses confirms the
+// validator does NOT fire when the block kind is in the lane's
+// AllowedBlocks set.
+func TestValidateLaneBlockKindCompliance_AllowedKindPasses(t *testing.T) {
+	doc := &types.AnswerDocumentV2{
+		Citations: []types.Citation{
+			{File: "internal/agent/foo.go", Line: 42},
+		},
+		Blocks: []types.AnswerBlock{
+			{
+				ID:          "p1",
+				Kind:        types.BlockSummary,
+				SurfaceRole: types.SurfacePrincipal,
+				Items: []types.AnswerBlockItem{
+					{ID: "i1", Label: "summary anchor", CitationRef: 0},
+				},
+			},
+		},
+	}
+	supportPlan := &types.AnswerSupportPlan{
+		Family: types.QFRootCauseTrace,
+		Lanes: []types.AnswerSupportLane{
+			{
+				Kind:          types.SupportLaneObservedArtifact,
+				Title:         "Observed artifact facts",
+				AllowedBlocks: []string{"summary", "caveat"},
+				Entries: []types.AnswerSupportEntry{
+					{Text: "frame Foo at 42", Location: "internal/agent/foo.go:42"},
+				},
+			},
+		},
+	}
+	violations := validateLaneBlockKindCompliance(doc, supportPlan)
+	if len(violations) != 0 {
+		t.Errorf("expected no violations for summary block sourced from observed_artifact lane; got %+v", violations)
+	}
+}
+
+// TestValidateLaneBlockKindCompliance_NonPrincipalBlockSkipped
+// confirms only principal blocks are subject to lane discipline.
+func TestValidateLaneBlockKindCompliance_NonPrincipalBlockSkipped(t *testing.T) {
+	doc := &types.AnswerDocumentV2{
+		Citations: []types.Citation{
+			{File: "internal/agent/foo.go", Line: 42},
+		},
+		Blocks: []types.AnswerBlock{
+			{
+				ID:   "aux",
+				Kind: types.BlockOrderedList,
+				// No SurfaceRole = not principal
+				Items: []types.AnswerBlockItem{
+					{ID: "i1", Label: "x", CitationRef: 0},
+				},
+			},
+		},
+	}
+	supportPlan := &types.AnswerSupportPlan{
+		Family: types.QFRootCauseTrace,
+		Lanes: []types.AnswerSupportLane{
+			{
+				Kind:          types.SupportLaneObservedArtifact,
+				AllowedBlocks: []string{"summary", "caveat"},
+				Entries: []types.AnswerSupportEntry{
+					{Location: "internal/agent/foo.go:42"},
+				},
+			},
+		},
+	}
+	if got := validateLaneBlockKindCompliance(doc, supportPlan); len(got) != 0 {
+		t.Errorf("non-principal block must be skipped; got %+v", got)
+	}
+}

@@ -74,6 +74,45 @@ type AnswerSurfacePlan struct {
 	FacetCoverage *FacetCoverageContract
 }
 
+// IsCrashSourcedRootCause reports whether the surface plan was
+// derived from a runtime artifact — a panic / exception / sanitizer
+// log or a perf jank trace — rather than from a code-only debugging
+// question ("Foo returns nil — why?", "why does config X get the
+// default?") where return / assignment anchors ARE the mechanism the
+// user is asking about.
+//
+// The judgement uses two structural signals already present on the
+// surface plan, both populated only by the log_triage / perf_triage
+// pipelines:
+//
+//  1. ExternalObservationSeeds — populated by
+//     CollectExternalObservationSeeds from a non-nil LogBundle (kinds:
+//     "error_type" / "signal" / "log_frame" / "log_residue"). Empty
+//     when no runtime artifact was attached.
+//  2. LogObservedAnchors — runtime frames lifted from the typed
+//     bundle's resolved files. Empty when no log_triage ran or no
+//     frame resolved.
+//
+// Both are typed signals — no prose-cue / keyword tables. When both
+// are empty the plan is treated as a non-runtime root-cause flow and
+// downstream gates that exclude code-mechanism evidence (such as the
+// AnchorReturn exclusion in the principal mechanism lane) stay open.
+//
+// Naming: the historical name "crash-sourced" reflects the dominant
+// failure mode but the gate is correctly broader — any runtime
+// artifact (including non-crash perf jank traces) routes through the
+// same lane discipline because the runtime-vs-current-code drift
+// argument applies identically.
+func (plan *AnswerSurfacePlan) IsCrashSourcedRootCause() bool {
+	if plan == nil {
+		return false
+	}
+	if len(plan.ExternalObservationSeeds) > 0 {
+		return true
+	}
+	return len(plan.LogObservedAnchors) > 0
+}
+
 type AnswerSummarySurfaceMode string
 
 const (

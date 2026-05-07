@@ -2058,19 +2058,233 @@ func addSnippetDerivedLabelSupportTokens(out map[string]struct{}, it types.Evide
 	}
 }
 
+// addSelectorTokenAndSuffixes admits the FULL dot-qualified selector
+// chain (e.g. `normalizer.Normalize`) and every MULTI-segment suffix
+// of it (e.g. `pkg.Normalize`) into the support pool. The FINAL bare
+// segment (`Normalize`, `Sprintf`, `Get`, …) is intentionally NOT
+// admitted as a standalone token, even when it looks load-bearing.
+//
+// Why no bare-segment admission:
+//
+//   - The label oracle (and diagramTokenSupported) uses bidirectional
+//     case-folded substring matching: a label like `Normalize` will
+//     match a pooled token `normalizer.normalize` because `normalize`
+//     is a substring of the chain. So load-bearing project tails are
+//     already reachable without polluting the pool.
+//   - Admitting bare segments would let common helpers from any
+//     grounded snippet (e.g. `Sprintf` from `fmt.Sprintf`, `Println`
+//     from `log.Println`, `Get` / `Set` / `New` from countless
+//     callsites) silently legitimise fabricated enumeration item
+//     labels merely because the LLM happened to read code that
+//     invokes a popular helper. The risk is asymmetric: false
+//     positives (fabricated labels passing) are silent quality
+//     regressions; false negatives (legitimate labels rejected) get
+//     caught at retry by the bidirectional substring fallback.
+//
+// Net effect: snippets contribute the dot-qualified selector chains
+// they expose, the label oracle resolves bare tails through the
+// substring path, and stdlib short names never enter the pool as
+// independent tokens.
 func addSelectorTokenAndSuffixes(out map[string]struct{}, raw string) {
 	raw = strings.TrimSpace(raw)
 	if raw == "" {
 		return
 	}
 	parts := strings.Split(raw, ".")
-	for i := 0; i < len(parts); i++ {
-		token := strings.TrimSpace(strings.Join(parts[i:], "."))
-		if token == "" {
+	if len(parts) < 2 {
+		return
+	}
+	for i := 0; i < len(parts)-1; i++ {
+		token := strings.Join(parts[i:], ".")
+		if token == "" || !strings.Contains(token, ".") {
 			continue
 		}
 		out[strings.ToLower(token)] = struct{}{}
 	}
+}
+
+// laneAttrib carries the minimum lane-identity needed by the
+// validator: a human-readable title for the violation message and
+// the AllowedBlocks set the lane declares.
+type laneAttrib struct {
+	title         string
+	allowedBlocks []string
+}
+
+// validateLaneBlockKindCompliance enforces the typed
+// AnswerSupportLane.AllowedBlocks contract as a hard validator. Each
+// active support lane (observed_artifact / current_code_path /
+// nearest_mechanism / uncertainty_boundary) declares the block kinds
+// that may legitimately render its content. This oracle locates the
+// lane each principal block is sourced from by matching its citation
+// pool against AnswerSupportEntry.Location, then rejects the block
+// when its kind is absent from that lane's AllowedBlocks set.
+//
+// Skip conditions (no false positives):
+//
+//   - supportPlan == nil OR no lanes carry an AllowedBlocks restriction:
+//     the family doesn't model a lane → block kind contract.
+//   - Block has SurfaceRole != principal: only main-line answer
+//     blocks carry the lane discipline; supporting context, framing
+//     prose, and standalone diagram nodes are unconstrained.
+//   - Block has no resolved citations referencing lane locations:
+//     the block isn't sourced from any lane the validator can
+//     attribute, so the validator declines to claim a violation.
+//
+// The validator is the typed-signal upgrade for the previously
+// advisory `Allowed block kinds: ...` prompt line; the LLM still
+// sees the prompt, but emit-time non-compliance is now hard-rejected
+// instead of relying on prose-level adherence.
+func validateLaneBlockKindCompliance(
+	doc *types.AnswerDocumentV2,
+	supportPlan *types.AnswerSupportPlan,
+) []types.Violation {
+	if doc == nil || supportPlan == nil || len(supportPlan.Lanes) == 0 {
+		return nil
+	}
+	// Build location → lane index, restricted to lanes that actually
+	// declare an AllowedBlocks set. Lanes without the field are
+	// treated as unconstrained and contribute no entry to the index.
+	locIndex := make(map[string]laneAttrib)
+	for _, lane := range supportPlan.Lanes {
+		if len(lane.AllowedBlocks) == 0 {
+			continue
+		}
+		attrib := laneAttrib{title: strings.TrimSpace(lane.Title), allowedBlocks: lane.AllowedBlocks}
+		for _, entry := range lane.Entries {
+			key := normalizeLaneLocationKey(entry.Location)
+			if key == "" {
+				continue
+			}
+			// First lane wins for a given location — distinct lanes
+			// should not co-own the same (file, line) anchor; if they
+			// do (defensive), the earlier-declared lane (typically
+			// observed_artifact) keeps the slot.
+			if _, exists := locIndex[key]; !exists {
+				locIndex[key] = attrib
+			}
+		}
+	}
+	if len(locIndex) == 0 {
+		return nil
+	}
+	var out []types.Violation
+	for blockIdx := range doc.Blocks {
+		block := &doc.Blocks[blockIdx]
+		if block.SurfaceRole != types.SurfacePrincipal {
+			continue
+		}
+		blockID := strings.TrimSpace(block.ID)
+		if blockID == "" {
+			blockID = fmt.Sprintf("#%d", blockIdx)
+		}
+		matchedLane, anyAllowed, hasMatch := blockLaneAlignment(doc, block, locIndex)
+		if !hasMatch || anyAllowed {
+			continue
+		}
+		out = append(out, types.Violation{
+			Kind: types.ViolLaneBlockKindMismatch,
+			Detail: fmt.Sprintf(
+				"principal block %q has kind=%q but every cited location is sourced from support lane %q whose AllowedBlocks is %v",
+				blockID, block.Kind, matchedLane.title, matchedLane.allowedBlocks),
+			Repair: fmt.Sprintf(
+				"either re-render block %q as one of %v (the kinds that lane allows — typically summary/caveat for observation lanes, ordered_list/diagram for current-code-path lanes), or move this content to a different lane that allows %q. Lane → kind alignment is the typed boundary that keeps observation facts from being silently promoted into call-chain hops.",
+				blockID, matchedLane.allowedBlocks, block.Kind),
+			SuspectedRoot: types.SuspectedRoot{
+				IRField:    "block_kind_vs_lane_allowed",
+				Reason:     "principal block kind not in lane.AllowedBlocks for any lane its citations resolve to",
+				Confidence: 0.9,
+			},
+			ClusterKey: blockClusterKey(blockID, "lane_block_kind"),
+		})
+	}
+	return out
+}
+
+// normalizeLaneLocationKey maps an AnswerSupportEntry.Location to the
+// canonical "file:line" form the citation index uses. Empty input
+// returns "". Path separators are normalised so Windows-style paths
+// match POSIX ones.
+func normalizeLaneLocationKey(location string) string {
+	location = strings.TrimSpace(location)
+	if location == "" {
+		return ""
+	}
+	location = strings.ReplaceAll(location, `\`, `/`)
+	return strings.ToLower(location)
+}
+
+// blockLaneAlignment scans a block's items[].citation_ref for
+// lane-attributable citations and reports whether ANY cited location
+// resolves to a lane whose AllowedBlocks contains the block's kind.
+//
+// Returns (matchedLane, anyAllowed, hasMatch):
+//   - hasMatch=false → the block has no citation that resolves to
+//     any lane in the index; validator declines to fire.
+//   - hasMatch=true / anyAllowed=true → at least one cited location
+//     is sourced from a lane that allows this block kind; validator
+//     declines to fire.
+//   - hasMatch=true / anyAllowed=false → every cited location is
+//     sourced from lanes that do NOT allow this block kind;
+//     validator returns the FIRST matched lane as the suspect.
+func blockLaneAlignment(
+	doc *types.AnswerDocumentV2,
+	block *types.AnswerBlock,
+	locIndex map[string]laneAttrib,
+) (laneAttrib, bool, bool) {
+	var firstMatch laneAttrib
+	matched := false
+	allowed := false
+	for _, item := range block.Items {
+		ref := item.CitationRef
+		if ref < 0 || ref >= len(doc.Citations) {
+			continue
+		}
+		cit := doc.Citations[ref]
+		key := citationLocationKey(cit)
+		if key == "" {
+			continue
+		}
+		attrib, ok := locIndex[key]
+		if !ok {
+			continue
+		}
+		if !matched {
+			firstMatch = attrib
+			matched = true
+		}
+		if blockKindAllowedByLane(string(block.Kind), attrib.allowedBlocks) {
+			allowed = true
+			break
+		}
+	}
+	return firstMatch, allowed, matched
+}
+
+// citationLocationKey renders a Citation as the same canonical
+// "file:line" key normalizeLaneLocationKey produces for lane entries.
+// Empty file or zero / negative line returns "" so file-only lane
+// entries (Location="") don't accidentally match a citation with
+// no line.
+func citationLocationKey(cit types.Citation) string {
+	file := strings.TrimSpace(cit.File)
+	if file == "" || cit.Line <= 0 {
+		return ""
+	}
+	file = strings.ReplaceAll(file, `\`, `/`)
+	return strings.ToLower(fmt.Sprintf("%s:%d", file, cit.Line))
+}
+
+func blockKindAllowedByLane(kind string, allowed []string) bool {
+	if kind == "" || len(allowed) == 0 {
+		return false
+	}
+	for _, a := range allowed {
+		if strings.EqualFold(strings.TrimSpace(a), kind) {
+			return true
+		}
+	}
+	return false
 }
 
 // _ keeps strings import used (formNames + Detail strings).

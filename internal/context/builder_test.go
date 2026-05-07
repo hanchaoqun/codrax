@@ -2969,3 +2969,91 @@ func TestBuildAgentContext_PlumbsReadOnlyToolFields(t *testing.T) {
 		t.Errorf("Language dropped: got %q", ac.Language)
 	}
 }
+
+// TestShouldSuppressAttachedRuntimeTrace_PerfBundleAuthoritative is
+// the perf-trace mirror of the existing log-side suppression test.
+// When a typed PerfBundle has resolved frames + the "performance"
+// IntentHint, downstream non-perf-triager agents should NOT see the
+// raw trace section — the structured bundle is authoritative and
+// the raw text's tuple-dense payload (thread ids, hex addresses,
+// μs timestamps) only bait the LLM into rationalising those numbers.
+func TestShouldSuppressAttachedRuntimeTrace_PerfBundleAuthoritative(t *testing.T) {
+	mu := types.NewMutableState("why is the cold start slow")
+	mu.SetPerfTrace(&types.PerfBundle{
+		IntentHint:    "performance",
+		ResolvedFiles: []string{"app/main.ets"},
+		Meta:          types.PerfMeta{Source: "hitrace", Signals: []string{"cold-start-slow"}},
+	})
+	ac := &types.AgentContext{
+		AgentName:       types.AgentAnalyzer,
+		Stage:           types.StageAnalyze,
+		Objective:       "why is the cold start slow",
+		Mutable:         mu,
+		PerfTrace:       mu.PerfTrace(),
+		AttachedHitrace: "0xabc12345 cpu 3 sched_switch prev_comm=app prev_pid=1 next_comm=ui next_pid=2\n",
+	}
+	pc := BuildPromptContext(ac, &skill.Config{Name: "test"})
+	for _, s := range pc.UserSections {
+		if s.Title == SectionAttachedPerfTrace {
+			t.Fatalf("raw perf trace section should be suppressed when typed PerfBundle is authoritative; got %q", s.Content)
+		}
+	}
+}
+
+// TestShouldSuppressAttachedRuntimeTrace_PerfTriagerStillSeesIt
+// confirms the perf_triager itself is exempt from suppression — it
+// is the producer of the typed bundle and must read the raw trace
+// to produce it.
+func TestShouldSuppressAttachedRuntimeTrace_PerfTriagerStillSeesIt(t *testing.T) {
+	mu := types.NewMutableState("why is the cold start slow")
+	mu.SetPerfTrace(&types.PerfBundle{
+		IntentHint:    "performance",
+		ResolvedFiles: []string{"app/main.ets"},
+		Meta:          types.PerfMeta{Source: "hitrace"},
+	})
+	ac := &types.AgentContext{
+		AgentName:       types.AgentPerfTriager,
+		Stage:           types.StagePerfTriage,
+		Objective:       "why is the cold start slow",
+		Mutable:         mu,
+		PerfTrace:       mu.PerfTrace(),
+		AttachedHitrace: "0xabc12345 cpu 3 sched_switch prev_comm=app\n",
+	}
+	pc := BuildPromptContext(ac, &skill.Config{Name: "test"})
+	hasSection := false
+	for _, s := range pc.UserSections {
+		if s.Title == SectionAttachedPerfTrace {
+			hasSection = true
+			break
+		}
+	}
+	if !hasSection {
+		t.Fatal("perf_triager must see the raw perf trace section regardless of authoritative bundle")
+	}
+}
+
+// TestShouldSuppressAttachedRuntimeTrace_NoBundle_StillRenders
+// confirms the gate falls through to "render" when no typed bundle
+// is on Mutable — non-authoritative state means the LLM should still
+// see the raw trace as the only legible input channel.
+func TestShouldSuppressAttachedRuntimeTrace_NoBundle_StillRenders(t *testing.T) {
+	mu := types.NewMutableState("why is the cold start slow")
+	ac := &types.AgentContext{
+		AgentName:       types.AgentAnalyzer,
+		Stage:           types.StageAnalyze,
+		Objective:       "why is the cold start slow",
+		Mutable:         mu,
+		AttachedHitrace: "0xabc12345 cpu 3 sched_switch prev_comm=app\n",
+	}
+	pc := BuildPromptContext(ac, &skill.Config{Name: "test"})
+	hasSection := false
+	for _, s := range pc.UserSections {
+		if s.Title == SectionAttachedPerfTrace {
+			hasSection = true
+			break
+		}
+	}
+	if !hasSection {
+		t.Fatal("raw perf trace must render when no typed PerfBundle is present")
+	}
+}

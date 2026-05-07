@@ -76,6 +76,34 @@ func BuildAnswerSupportPlan(rm RequestModel, plan *AnswerSurfacePlan) *AnswerSup
 	return buildAnswerSupportPlanForFamily(ResolveQuestionFamily(rm), plan)
 }
 
+// BuildAnswerSupportPlanForBusContext mirrors
+// BuildAnswerSupportPlanForAgentContext for the orchestrator's
+// BusContext — the same compile rules but reachable from the
+// contract-check dispatch path which already holds *BusContext + mut.
+// Returns nil when the bus state is incomplete (no AnalysisIR) or
+// when no family currently materialises a support-lane plan.
+func BuildAnswerSupportPlanForBusContext(bus *BusContext) *AnswerSupportPlan {
+	if bus == nil || bus.AnalysisIR == nil {
+		return nil
+	}
+	plan := BuildAnswerSurfacePlanForBusContext(bus)
+	if plan == nil {
+		return nil
+	}
+	view := BuildAnswerSemanticViewForBusContext(bus)
+	if view != nil {
+		if out := buildAnswerSupportPlanForFamily(view.Family, plan); out != nil {
+			return out
+		}
+	}
+	if plan.SummarySurfaceMode == AnswerSummarySurfaceDriftBoundedRootCause ||
+		len(plan.LogObservedAnchors) > 0 ||
+		len(plan.LogSourceDriftAnchors) > 0 {
+		return buildAnswerSupportPlanForFamily(QFRootCauseTrace, plan)
+	}
+	return BuildAnswerSupportPlan(bus.AnalysisIR.RequestModel, plan)
+}
+
 func buildAnswerSupportPlanForFamily(family QuestionFamily, plan *AnswerSurfacePlan) *AnswerSupportPlan {
 	switch family {
 	case QFRootCauseTrace:
@@ -399,12 +427,30 @@ func rootCauseMechanismItemEligible(plan *AnswerSurfacePlan, item EvidenceItem) 
 		return true
 	case AnchorReturn:
 		// A return statement can expose a current fail-fast / error-return
-		// path, but for a crash/panic trace it is not, by itself, proof of
-		// the runtime crash instruction that actually executed. Keeping
-		// return anchors out of the principal mechanism lane prevents the
-		// finalizer from turning "current checkout returns an error here"
-		// into "older runtime panicked because this return path fired".
-		return false
+		// path. For a CRASH-sourced root-cause trace (panic / exception /
+		// sanitizer) it is not, by itself, proof of the runtime crash
+		// instruction that actually executed — keeping return anchors out
+		// of the principal mechanism lane prevents the finalizer from
+		// turning "current checkout returns an error here" into "older
+		// runtime panicked because this return path fired".
+		//
+		// For NON-crash root-cause questions ("Foo returns nil — why?",
+		// "Why did config X get the default?") an early-return statement
+		// frequently IS the mechanism the user is asking about. Excluding
+		// returns unconditionally would hollow out the mechanism lane on
+		// these questions and force the finalizer onto the weak-mechanism
+		// fallback prose path. So the exclusion is gated on whether the
+		// surface plan was actually sourced from a crash artifact.
+		if plan.IsCrashSourcedRootCause() {
+			return false
+		}
+		if rootCauseControlHeaderCompanion(item) {
+			return false
+		}
+		if !rootCauseMechanismCompanionKindEligible(item) {
+			return false
+		}
+		return !rootCauseGuardProtectedCompanion(plan, item)
 	case AnchorAssignment:
 		if rootCauseControlHeaderCompanion(item) {
 			return false

@@ -269,6 +269,12 @@ func TestAllViolationKindsHaveProducer(t *testing.T) {
 		// validatePrincipalProseUnderfilled.
 		ViolRichnessGlaringGap:        true,
 		ViolPrincipalProseUnderfilled: true,
+		// Lane → block-kind compliance (high-priority gap from the
+		// 2026-05-07 lane-discipline audit). Producer wired in
+		// orchestrator/contract_check_block.go
+		// validateLaneBlockKindCompliance, dispatched from
+		// contract_check.go after BuildAnswerSupportPlanForBusContext.
+		ViolLaneBlockKindMismatch: true,
 	}
 	pending := map[ViolationKind]string{
 		ViolFamilyMismatch:                 "P9-C-retired-V1-checkShape (V2 block oracles cover read-mode block contract via runV2BlockOracles)",
@@ -334,6 +340,8 @@ func TestAllViolationKindsHaveProducer(t *testing.T) {
 		ViolUncertaintyBlockMissing:           "ViolUncertaintyBlockMissing",
 		// B6-F1 (post-shape consolidated audit, 2026-05-04).
 		ViolCrossCitationConflict: "ViolCrossCitationConflict",
+		// 2026-05-07 lane-discipline audit.
+		ViolLaneBlockKindMismatch: "ViolLaneBlockKindMismatch",
 	}
 
 	// Match only the "Kind: ViolXxx" composite-literal pattern —

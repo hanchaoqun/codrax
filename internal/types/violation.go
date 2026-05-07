@@ -638,6 +638,31 @@ const (
 	// (renders). Fallback target: FinalizerOnly — the extraction
 	// signal is intact; only finalizer rendering needs rewrite.
 	ViolEnumerationItemLabelExtractorDrift ViolationKind = "enumeration_item_label_extractor_drift"
+
+	// ViolLaneBlockKindMismatch (high-priority gap from the
+	// 2026-05-07 lane-discipline audit) fires when a principal
+	// AnswerBlock cites evidence whose location is sourced from a
+	// support lane whose AllowedBlocks set does not include the
+	// block's kind.
+	//
+	// Example failure mode this gates: the root_cause family's
+	// observed_artifact lane is restricted to {summary, caveat} —
+	// runtime stack frames are observation facts, not call-chain
+	// hops. When the LLM ignores that surface boundary and renders
+	// a principal ordered_list whose item citations all map to
+	// observed_artifact entries, the answer silently promotes
+	// "runtime hit frame X" to "the call chain begins at X". Prior
+	// to this oracle the boundary was advisory prompt prose only;
+	// upgrading it to a typed validator keeps the lane → block-kind
+	// table load-bearing instead of LLM-discretionary.
+	//
+	// Default classification: STRICT — silently mis-attributing a
+	// support lane's content to a forbidden block kind is a hard
+	// answer-quality regression that no other oracle catches.
+	// Fallback target: FinalizerOnly — re-rendering the same
+	// citations under the correct block kind is finalizer-local;
+	// upstream stages have already supplied the right evidence.
+	ViolLaneBlockKindMismatch ViolationKind = "lane_block_kind_mismatch"
 )
 
 // AllViolationKinds returns every declared ViolationKind in a stable
@@ -687,6 +712,7 @@ func AllViolationKinds() []ViolationKind {
 		ViolSymbolAnchorMismatch,
 		ViolEnumerationLabelUngrounded,
 		ViolEnumerationItemLabelExtractorDrift,
+		ViolLaneBlockKindMismatch,
 		ViolStructuralEnumerationDivergence,
 		ViolCrossCitationConflict,
 		// CGEC frequency bridges (R10).

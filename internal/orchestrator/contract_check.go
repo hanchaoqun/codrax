@@ -126,6 +126,17 @@ func runContractCheck(out *agent.StageOutput, c types.AnswerContract, mut *types
 				result.Violations = append(result.Violations,
 					runV2BlockOraclesWithMut(docV2, view, mut)...)
 			}
+			// validateLaneBlockKindCompliance — typed-signal hard
+			// gate on AnswerSupportLane.AllowedBlocks. Compiled here
+			// instead of inside runV2BlockOraclesWithMut because the
+			// support plan needs the BusContext (RequestModel +
+			// AnswerSurfacePlan), not just the Mutable handle.
+			// Returns no violations when the active family has no
+			// support-lane plan or no lane declares AllowedBlocks.
+			if supportPlan := types.BuildAnswerSupportPlanForBusContext(o.busCtx); supportPlan != nil {
+				result.Violations = append(result.Violations,
+					validateLaneBlockKindCompliance(docV2, supportPlan)...)
+			}
 			// 修 B (post_v2_runtime_gap_remediation, 2026-05-04) —
 			// enumeration evidence pool structural gate. Fires when
 			// the user's question states an explicit count N AND the

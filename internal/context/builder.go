@@ -555,22 +555,28 @@ func BuildPromptContext(ac *types.AgentContext, sk *skill.Config) *types.PromptC
 		}
 	}
 
-	// Attached HiTrace / atrace — rendered verbatim for the
-	// perf_triager agent only; other stages read the structured
-	// bundle via ac.PerfTrace. The section size follows the same
-	// inline-vs-blob strategy as the log section; a multi-MB trace
-	// would otherwise balloon every prompt.
-	if section := formatAttachedTrace(ac.AttachedHitrace, ac.WorkDir); section != "" {
-		pc.UserSections = append(pc.UserSections, types.PromptSection{
-			// Title order matches the user-facing CLI flag order:
-			// HiTrace / atrace / systrace / perfetto are all
-			// ftrace-compatible siblings that flow through the
-			// same channel; the prompt section name lists every
-			// supported source so a model that pattern-matches on
-			// section title doesn't bias toward a single platform.
-			Title:   SectionAttachedPerfTrace,
-			Content: section,
-		})
+	// Attached HiTrace / atrace — same suppression discipline as the
+	// raw log section (see shouldSuppressAttachedRuntimeLog above).
+	// A typed PerfBundle with resolved files + a strong perf intent
+	// hint already encodes the frames / janks / stalls the downstream
+	// stages need; leaving the raw trace in the prompt would re-
+	// introduce a competing free-form channel, and runtime trace text
+	// is even denser in tuple-shaped tokens (thread ids, hex
+	// timestamps, event ids) that bait the LLM into spurious
+	// caller-provenance claims.
+	if !shouldSuppressAttachedRuntimeTrace(ac) {
+		if section := formatAttachedTrace(ac.AttachedHitrace, ac.WorkDir); section != "" {
+			pc.UserSections = append(pc.UserSections, types.PromptSection{
+				// Title order matches the user-facing CLI flag order:
+				// HiTrace / atrace / systrace / perfetto are all
+				// ftrace-compatible siblings that flow through the
+				// same channel; the prompt section name lists every
+				// supported source so a model that pattern-matches on
+				// section title doesn't bias toward a single platform.
+				Title:   SectionAttachedPerfTrace,
+				Content: section,
+			})
+		}
 	}
 
 	if len(ac.PriorReports) > 0 {
@@ -921,6 +927,34 @@ func shouldSuppressAttachedRuntimeLog(ac *types.AgentContext) bool {
 		return false
 	}
 	return bundleHasAuthoritativeCrashFrames(bundle)
+}
+
+// shouldSuppressAttachedRuntimeTrace mirrors
+// shouldSuppressAttachedRuntimeLog for the perf-trace channel.
+// perf_triager always sees the raw trace (it is the producer);
+// finalizers running typed-answer-support mode always suppress it
+// (typed support lanes carry the authoritative summary). For all
+// other agents the gate is "typed PerfBundle is non-nil + carries a
+// performance IntentHint + has at least one resolved file" — at that
+// point the structured Frames / Janks / Stalls / Startup view is
+// the authoritative anchor set, and the raw trace's tuple-dense
+// payload (thread ids, hex addresses, μs timestamps) only bait the
+// LLM into rationalising those numbers as causation.
+func shouldSuppressAttachedRuntimeTrace(ac *types.AgentContext) bool {
+	if ac == nil {
+		return false
+	}
+	if ac.AgentName == types.AgentPerfTriager {
+		return false
+	}
+	if finalizerUsesTypedAnswerSupport(ac) {
+		return true
+	}
+	bundle := ac.PerfTrace
+	if bundle == nil {
+		return false
+	}
+	return bundleHasAuthoritativePerfFrames(bundle)
 }
 
 // ToMessages converts a PromptContext into a flat message list for the LLM.
@@ -2372,6 +2406,31 @@ func bundleHasAuthoritativeCrashFrames(bundle *types.LogBundle) bool {
 		return false
 	}
 	return logBundleSignalsIncludeCrash(bundle)
+}
+
+// bundleHasAuthoritativePerfFrames mirrors
+// bundleHasAuthoritativeCrashFrames for PerfBundle. Authoritative
+// requires (a) at least one resolved file (so structured frames
+// carry repo-grounded anchors) AND (b) the perf-triage stage tagged
+// the bundle with the performance intent hint (set by
+// derivePerfLayer4 when any jank / stall / cold-start signal fires).
+// Either condition alone is insufficient: bare resolved files with
+// no perf signal are usually unrelated trace noise, and a perf
+// intent without resolved anchors falls back to the raw trace as
+// the only legible channel.
+// perfIntentHintAuthoritative is the verbatim value
+// derivePerfLayer4 / MergePerfBundles assign to PerfBundle.IntentHint
+// when at least one jank / stall / cold-start signal is present. We
+// compare against the literal — no IntentPerformance constant exists
+// (see derivePerfLayer4 in internal/tool/emit_perf_trace.go and
+// MergePerfBundles in internal/analysis/perftriage/merge.go).
+const perfIntentHintAuthoritative = "performance"
+
+func bundleHasAuthoritativePerfFrames(bundle *types.PerfBundle) bool {
+	if bundle == nil || len(bundle.ResolvedFiles) == 0 {
+		return false
+	}
+	return strings.TrimSpace(bundle.IntentHint) == perfIntentHintAuthoritative
 }
 
 var runtimeFrameTupleAtomRe = regexp.MustCompile(`^(?:0x[0-9a-fA-F]+|nil|<nil>|-?\d+)$`)
