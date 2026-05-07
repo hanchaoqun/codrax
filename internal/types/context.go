@@ -99,6 +99,14 @@ type MutableState struct {
 	emittedAnswerSymbolDeclaredCount int
 	emittedHypothesisVerdicts        []HypothesisVerdict
 	turnAArtifacts                   *TurnAArtifacts
+	// cachedLabelSupport memoises the dot-qualified selector / anchor /
+	// subject / object support pool drawn from turnAArtifacts.EvidenceItems.
+	// Built lazily on first call to CachedLabelSupportTokens; cleared
+	// whenever turnAArtifacts changes (Set / Reset). The cache key is
+	// the internal turnAArtifacts pointer (NOT the value TurnAArtifacts()
+	// returns — that helper produces a fresh defensive copy each call).
+	cachedLabelSupport       map[string]struct{}
+	cachedLabelSupportSource *TurnAArtifacts
 	// searchGraph is an opaque handle to the repomap.Graph produced by
 	// explorer.keywordSearch. Carried as `any` so internal/types stays
 	// decoupled from internal/tool/repomap — consumers (emit_evidence,
@@ -2278,6 +2286,9 @@ func (m *MutableState) SetTurnAArtifacts(a TurnAArtifacts) {
 		snap.FlowFindings = append([]FlowFindingDigest(nil), a.FlowFindings...)
 	}
 	m.turnAArtifacts = &snap
+	// Snapshot changed → invalidate the memoised label-support pool.
+	m.cachedLabelSupport = nil
+	m.cachedLabelSupportSource = nil
 }
 
 // TurnAArtifacts returns a snapshot of the buffered handoff payload,
@@ -2323,6 +2334,36 @@ func (m *MutableState) ResetTurnAArtifacts() {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.turnAArtifacts = nil
+	m.cachedLabelSupport = nil
+	m.cachedLabelSupportSource = nil
+}
+
+// CachedLabelSupportTokens returns the dot-qualified selector / anchor /
+// subject / object token pool drawn from the buffered Turn A
+// EvidenceItems, memoised across calls until a Set / Reset of
+// turnAArtifacts invalidates it. The `build` function is supplied by
+// the caller so MutableState stays decoupled from
+// internal/orchestrator (where the actual token-extraction logic
+// lives).
+//
+// Returns nil when no Turn A snapshot is buffered or when build is nil.
+// The returned map is shared — callers MUST treat it as read-only.
+func (m *MutableState) CachedLabelSupportTokens(build func([]EvidenceItem) map[string]struct{}) map[string]struct{} {
+	if m == nil || build == nil {
+		return nil
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.turnAArtifacts == nil {
+		return nil
+	}
+	if m.cachedLabelSupportSource == m.turnAArtifacts && m.cachedLabelSupport != nil {
+		return m.cachedLabelSupport
+	}
+	out := build(m.turnAArtifacts.EvidenceItems)
+	m.cachedLabelSupport = out
+	m.cachedLabelSupportSource = m.turnAArtifacts
+	return out
 }
 
 // AppendPrescanSummary appends `summary` to the per-dispatch

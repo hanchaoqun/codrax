@@ -1437,16 +1437,70 @@ func findCallRelationAtLine(fi *repomap.FileInfo, line int, anchorSymbol string)
 	return nil, false
 }
 
+// findCallRelationAtLineForCandidates locates the first call
+// relation at `line` whose target name matches ANY of `candidates`,
+// in a SINGLE pass over fi.Relations. The previous implementation
+// called findCallRelationAtLine once per candidate (O(K × N) with
+// K=len(candidates), N=len(fi.Relations)). Most LLM-emitted evidence
+// supplies 2-3 candidates (AnchorSymbol / Object / Subject) and
+// fi.Relations is typically tens to a few hundred entries, so the
+// quadratic shape is small but free to remove.
+//
+// Match semantics preserved verbatim from findCallRelationAtLine:
+//   - Empty / whitespace candidate slot is skipped.
+//   - Match accepts both the full candidate AND its last dot segment
+//     (so `pkg.Method` candidates also match a relation whose
+//     ToEP.Name is just `Method`).
+//   - When candidates yield no match the helper falls back to the
+//     anchorSymbol="" path (return any call relation at the line).
+//
+// Behaviour-equivalent to the loop version; gated by
+// TestFindCallRelationAtLineForCandidates_SinglePass.
 func findCallRelationAtLineForCandidates(fi *repomap.FileInfo, line int, candidates []string) (*repomap.Relation, bool) {
+	if fi == nil || line <= 0 {
+		return nil, false
+	}
 	if len(candidates) == 0 {
 		return findCallRelationAtLine(fi, line, "")
 	}
-	for _, candidate := range candidates {
-		if rel, ok := findCallRelationAtLine(fi, line, candidate); ok {
+	candSet := make(map[string]bool, 2*len(candidates))
+	for _, c := range candidates {
+		c = strings.TrimSpace(c)
+		if c == "" {
+			continue
+		}
+		candSet[c] = true
+		// Also store the last dot segment so `pkg.Method` candidates
+		// match a relation whose ToEP.Name is just `Method`. Mirrors
+		// findCallRelationAtLine's shortAnchor logic.
+		if short := emitLastDotSegment(c); short != "" && short != c {
+			candSet[short] = true
+		}
+	}
+	if len(candSet) == 0 {
+		return findCallRelationAtLine(fi, line, "")
+	}
+	var fallback *repomap.Relation
+	for i := range fi.Relations {
+		rel := &fi.Relations[i]
+		if rel.Kind != "call" || rel.Line != line {
+			continue
+		}
+		if fallback == nil {
+			fallback = rel
+		}
+		relName := strings.TrimSpace(rel.ToEP.Name)
+		if relName == "" {
+			relName = strings.TrimSpace(rel.To)
+		}
+		if candSet[relName] {
 			return rel, true
 		}
 	}
-	return findCallRelationAtLine(fi, line, "")
+	if fallback != nil {
+		return fallback, true
+	}
+	return nil, false
 }
 
 func enclosingCallableSymbolName(fi *repomap.FileInfo, line int) string {

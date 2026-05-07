@@ -1778,11 +1778,12 @@ func validateEnumerationItemLabelGrounding(doc *types.AnswerDocumentV2, mut *typ
 	if doc == nil || mut == nil {
 		return nil
 	}
-	var evidenceItems []types.EvidenceItem
-	if turnA := mut.TurnAArtifacts(); turnA != nil {
-		evidenceItems = turnA.EvidenceItems
-	}
-	support := buildEvidenceLabelSupportTokens(evidenceItems)
+	// Use the memoised support pool — Turn A artifacts are frozen for
+	// the lifetime of an extract / finalize cycle, so re-running the
+	// regex + suffix expansion on every contract check (including
+	// every retry) was wasted work. The cache is keyed off the
+	// internal turnAArtifacts pointer and invalidated on Set / Reset.
+	support := mut.CachedLabelSupportTokens(buildEvidenceLabelSupportTokens)
 	if len(support) == 0 {
 		return nil
 	}
@@ -2287,5 +2288,3 @@ func blockKindAllowedByLane(kind string, allowed []string) bool {
 	return false
 }
 
-// _ keeps strings import used (formNames + Detail strings).
-var _ = strings.TrimSpace

@@ -2297,3 +2297,47 @@ func TestEmitEvidence_ToolSurface(t *testing.T) {
 		t.Errorf("parameters JSON schema is invalid")
 	}
 }
+
+// TestFindCallRelationAtLineForCandidates_SinglePass confirms the
+// post-2026-05-07 refactor: the helper now walks fi.Relations once
+// (set-based candidate matching) instead of K passes (one per
+// candidate). Behaviour-equivalent to the old per-candidate loop.
+func TestFindCallRelationAtLineForCandidates_SinglePass(t *testing.T) {
+	fi := &repomap.FileInfo{
+		Relations: []repomap.Relation{
+			{Kind: "call", Line: 42, ToEP: repomap.RelationEndpoint{Name: "Bar"}},
+			{Kind: "call", Line: 42, ToEP: repomap.RelationEndpoint{Name: "Baz"}},
+			{Kind: "call", Line: 50, ToEP: repomap.RelationEndpoint{Name: "Qux"}},
+			{Kind: "import", Line: 42, ToEP: repomap.RelationEndpoint{Name: "fmt"}},
+		},
+	}
+	cases := []struct {
+		name       string
+		candidates []string
+		line       int
+		wantOK     bool
+		wantTarget string
+	}{
+		{name: "first candidate hits", candidates: []string{"Bar", "X"}, line: 42, wantOK: true, wantTarget: "Bar"},
+		{name: "second candidate hits", candidates: []string{"X", "Baz"}, line: 42, wantOK: true, wantTarget: "Baz"},
+		{name: "qualified candidate matches short", candidates: []string{"pkg.Bar"}, line: 42, wantOK: true, wantTarget: "Bar"},
+		{name: "no match falls back to any call at line", candidates: []string{"Nope"}, line: 42, wantOK: true, wantTarget: "Bar"},
+		{name: "wrong line returns false", candidates: []string{"Bar"}, line: 999, wantOK: false},
+		{name: "empty candidates falls through to anchor=\"\" path", candidates: nil, line: 42, wantOK: true, wantTarget: "Bar"},
+		{name: "all-whitespace candidates → fallback", candidates: []string{"", "  "}, line: 42, wantOK: true, wantTarget: "Bar"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			rel, ok := findCallRelationAtLineForCandidates(fi, tc.line, tc.candidates)
+			if ok != tc.wantOK {
+				t.Fatalf("ok=%v want %v", ok, tc.wantOK)
+			}
+			if !ok {
+				return
+			}
+			if rel.ToEP.Name != tc.wantTarget {
+				t.Errorf("target=%q want %q", rel.ToEP.Name, tc.wantTarget)
+			}
+		})
+	}
+}

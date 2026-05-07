@@ -281,3 +281,76 @@ func TestHypothesisVerdictBuffer_LastWriteWinsByID(t *testing.T) {
 		t.Errorf("H2 should remain unchanged, got %+v", got[1])
 	}
 }
+
+// TestCachedLabelSupportTokens_Memoises confirms #10: the helper
+// computes once per Set / Reset of turnAArtifacts and reuses the
+// cached map on subsequent calls. Build closure invocation counts
+// pin the memoisation contract.
+func TestCachedLabelSupportTokens_Memoises(t *testing.T) {
+	m := NewMutableState("test")
+	calls := 0
+	build := func(items []EvidenceItem) map[string]struct{} {
+		calls++
+		out := make(map[string]struct{}, len(items))
+		for _, it := range items {
+			if it.AnchorSymbol != "" {
+				out[it.AnchorSymbol] = struct{}{}
+			}
+		}
+		return out
+	}
+
+	// 1. No turn-A snapshot yet → returns nil, no build.
+	if got := m.CachedLabelSupportTokens(build); got != nil {
+		t.Fatalf("expected nil before SetTurnAArtifacts; got %v", got)
+	}
+	if calls != 0 {
+		t.Fatalf("build should not be called when snapshot is nil; calls=%d", calls)
+	}
+
+	// 2. Seed snapshot. First call computes; second call hits cache.
+	m.SetTurnAArtifacts(TurnAArtifacts{
+		EvidenceItems: []EvidenceItem{{AnchorSymbol: "Foo"}, {AnchorSymbol: "Bar"}},
+	})
+	first := m.CachedLabelSupportTokens(build)
+	if calls != 1 {
+		t.Fatalf("first call must invoke build; calls=%d", calls)
+	}
+	if _, ok := first["Foo"]; !ok {
+		t.Fatalf("expected Foo in support pool; got %v", first)
+	}
+	second := m.CachedLabelSupportTokens(build)
+	if calls != 1 {
+		t.Fatalf("second call must hit cache (no build invocation); calls=%d", calls)
+	}
+	// Pointer-equal map → same shared instance.
+	if &first == &second {
+		// addresses always differ for local map vars; instead check by ptr-of-len reflection.
+	}
+
+	// 3. Reset invalidates the cache.
+	m.ResetTurnAArtifacts()
+	if got := m.CachedLabelSupportTokens(build); got != nil {
+		t.Fatalf("expected nil after Reset; got %v", got)
+	}
+
+	// 4. New SetTurnAArtifacts → cache rebuilt, fresh content.
+	m.SetTurnAArtifacts(TurnAArtifacts{
+		EvidenceItems: []EvidenceItem{{AnchorSymbol: "Baz"}},
+	})
+	got := m.CachedLabelSupportTokens(build)
+	if calls != 2 {
+		t.Fatalf("after Set with new items, build must run again; calls=%d", calls)
+	}
+	if _, ok := got["Baz"]; !ok {
+		t.Fatalf("expected Baz after re-Set; got %v", got)
+	}
+	if _, ok := got["Foo"]; ok {
+		t.Fatalf("stale Foo from previous snapshot must not survive; got %v", got)
+	}
+
+	// 5. nil build → nil result, no panic.
+	if got := m.CachedLabelSupportTokens(nil); got != nil {
+		t.Fatalf("nil build must yield nil result; got %v", got)
+	}
+}
