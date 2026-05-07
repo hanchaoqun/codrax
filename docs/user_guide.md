@@ -50,8 +50,9 @@
 
 ## 1.1 codrax 能做什么
 
-- **读模式(默认)**:用自然语言问代码仓库的问题(中文 / 英文都行),返回**带 `file:line` 引用**的答案。不修改任何文件。
-- **写模式(可选)**:在沙箱 git worktree 里产生改动 plan,通过你审批后才落地。主仓 HEAD 永不自动变。
+- **读模式(默认)**:用自然语言问代码仓库的问题(中文 / 英文都行),返回**带 `file:line` 引用**的答案。不修改任何文件。每条 citation 都经过 7 层落地校验,LLM 编造或与源码不一致的引用进 "Unverified Leads" 段不入正文。
+- **写模式(可选)**:在沙箱 git worktree 里产生改动 plan,通过你审批后才落地。主仓 HEAD 永不自动变。支持 12 种测试 runner 自动探测,verify 失败 → planner 自动重新规划(带早停守门)。
+- **附加日志 / 性能 trace**:`--log` 喂 panic / exception / sanitizer / traceback,`--htrace` / `--atrace` 喂 HiTrace / atrace / systrace / perfetto;LLM 抽成结构化 bundle,系统侧验证仓内文件后注入下游。
 - **不会**上传代码到任何第三方,只调用你在 `providers.yaml` 里指定的 LLM。
 
 ## 1.2 准备
@@ -475,7 +476,9 @@ write_enabled: true
 
 ## 4.2 完整流程
 
-写模式分三步:**plan(产出改动方案)**、**apply(在 worktree 里执行)**、**verify(跑测试)**。REPL 实际流程:
+写模式分三步:**plan(产出改动方案)**、**apply(在 worktree 里执行)**、**verify(跑测试)**。在 plan 之前还有两个隐式分类阶段——`analyze`(读模式 analyzer 复用作请求分类)+ `write_analyze`(写模式专属,产 `WriteAnalysisIR`:任务 kind/scope/risk/期望结果,可选多阶段拆分提议)。这两个阶段对用户不可见,直接喂 prompt 给 planner 帮它"开局就有上下文",不需要 planner 自己冷启动 5 轮探索。
+
+REPL 实际流程:
 
 ### 第 1 步:`/mode plan`,描述要做的事
 
@@ -535,11 +538,13 @@ write_enabled: true
 `/approve` 自动:
 
 1. 创建临时 worktree(基于当前 branch)
-2. 在 worktree 里 `git apply` 每个文件改动
-3. 自动检测 runner 跑测试(go / pytest / cargo / npm test / mvn / cmake / hvigor / cjpm / rspec / 等 12 种)
+2. 在 worktree 里 `apply_patch` 每个文件改动(支持 create / modify / delete / patch / rename)
+3. 自动检测 runner 跑测试 — 12 种自动探测:go / node(jest/vitest)/ python(pytest)/ rust(cargo)/ java(maven 或 gradle,含 Kotlin/Android)/ ruby(rspec)/ swift / cmake(ctest)/ meson / make / hvigor(HarmonyOS ArkTS)/ cjpm(Cangjie)
 4. 测试通过 → 标记 `applied`;失败 → 标记 `verify_failed`(可重试)
 
-> 测试失败时,`pipeline_write_retry_budget`(默认 3)允许自动重新规划:把失败摘要喂回 planner,重 plan 再 apply 再 verify。**这一步不用你手动操作**,直到重试预算耗尽或 verify 通过。
+> verifier agent 也可以**绕过自动探测**,显式声明 `runner=<choice>` + `working_dir`(都在 worktree 内的白名单里);适用于多 manifest 仓 / 测试目录在子目录的场景。
+
+> 测试失败时,`pipeline_write_retry_budget`(默认 3,硬上限 5)允许自动重新规划:把失败摘要 + top-3 失败测试 + 嫌疑文件清单喂回 planner,重 plan 再 apply 再 verify。**这一步不用你手动操作**。两条早停守门避免烧 budget:`runner_missing` 一等信号(`pytest: command not found` 等)直接 fall-through 给安装提示;fingerprint 比对(AppliedCount + VerifyPassed + VerifyFailed + FailureSummaryHash 完全相等 → 视为"无进展")跳过本轮 retry。
 
 特殊场景:
 
@@ -692,18 +697,19 @@ llm:
     model: "gpt-4o"
 
   agents:
-    # 4 个主流水线 agent
-    analyzer: { model: "gpt-4o-mini" }      # 分类器,可用便宜模型
-    explorer: {}                             # 继承 default
+    # 读模式 4 个主流水线 agent
+    analyzer: { model: "gpt-4o-mini" }       # 分类器,可用便宜模型
+    explorer: {}                              # 继承 default
     extractor: { model: "gpt-4o-mini" }
-    finalizer: {}                            # 继承 default
+    finalizer: {}                             # 继承 default
 
-    # 写模式 3 个 agent
+    # 写模式 4 个 agent(write_analyzer 是 plan 之前的请求分类器)
+    write_analyzer: { model: "gpt-4o-mini" }  # 写模式专属请求分类
     planner: {}
     coder: {}
     verifier: { model: "gpt-4o-mini" }
 
-    # 预阶段
+    # 条件前置
     log_triager: { model: "gpt-4o-mini" }
     perf_triager: { model: "gpt-4o-mini" }
 
@@ -712,6 +718,7 @@ llm:
     chitchat_classifier: { model: "gpt-4o-mini" }   # 每轮 1 次,务必廉价
     memory_summarizer: { model: "gpt-4o-mini" }
     reflector: { model: "gpt-4o-mini" }             # verify 失败时的 critic
+    plan_critic: { model: "gpt-4o-mini" }           # apply 前 plan review(可选)
     env_recommender: { model: "gpt-4o-mini" }       # 环境诊断推荐
 ```
 
@@ -874,6 +881,7 @@ REPL 启动后,任何以 `/` 开头的输入是斜杠命令;TAB 自动补全。`
 | `/env stats` / `/env stats reset` | 推荐管线计数器 |
 | `/branch <name>` | 主仓 `git checkout <name>` |
 | `/branch -b <name>` | 创建并切换 |
+| `/mermaid <body>` | 把一段 mermaid 代码渲染成 ASCII / 终端预览(独立工具,不走流水线) |
 | `!<shell-cmd>` | 在工作目录执行 shell 命令(单次) |
 
 **写模式专用**(`write_enabled: true` 才能用):
@@ -898,6 +906,11 @@ REPL 启动后,任何以 `/` 开头的输入是斜杠命令;TAB 自动补全。`
 | `/merge` | 把 worktree 合回当前 branch(fast-forward) |
 | `/merge --branch=<name>` | 在主仓拉新分支并 cherry-pick |
 | `/merge --include-failed` / `--force` | 把 verify_failed plan 纳入候选 |
+| `/baseline` | 显示当前 baseline 测试快照(`pipeline_baseline_capture_enabled` 打开时可用) |
+| `/baseline clear` | 清掉 baseline 缓存 |
+| `/phase` | 多阶段方案组的当前进度;每阶段独立 retry 预算,同 worktree 累积 |
+| `/pitfalls` | 列出本仓积累的 active failure pattern(写模式 planner 会自动看到) |
+| `/pitfalls clear` | 清掉本仓 failure taxonomy |
 
 **多行输入**:行尾加 `\` 进多行模式;`/paste` + `/end` 是另一种粘贴 fallback。
 
@@ -1034,7 +1047,7 @@ CLI 单次模式输出:
 → 空目录从零创建项目需要单独授权。在 yaml 里同时设 `write_auto_init_repo: true` + `write_scaffold_enabled: true`,或启动时同时加 `--auto-init-repo --allow-scaffold`。两者职责不同 — 前者授权初始化 git,后者授权凭空生成文件。
 
 **runner 检测错了 / runner 不存在**
-→ codrax 会显示推荐安装命令(`env_recommend`)。也可以在 ChangePlan 里手动指定 runner,但通常自动检测 12 种 runner(go / pytest / jest / cargo / mvn / gradle / cmake / meson / make / cjpm / hvigor / rspec)足够覆盖。
+→ codrax 自动探测 12 种 runner(go / node(jest+vitest)/ pytest / cargo / mvn / gradle(含 Kotlin/Android)/ cmake(ctest)/ meson / make / cjpm / hvigor / rspec / swift)。`runner_missing` 信号识别"二进制没装"(`pytest: command not found` 等),自动跳过 verify→plan 重试,显示推荐安装命令(`env_recommend` 启动一条诊断 → 推荐 → 双语渲染管线;命令以 `!` 前缀给出方便复制)。也可以在 verifier prompt 里声明 `runner=<choice>` + `working_dir` 显式指定,绕过自动探测。
 
 **`/merge` 说 "no worktree to merge from"**
 → apply 完 worktree 被清了。`codrax.yaml` 加 `pipeline_keep_worktree_on_success: true`,下次 apply 后 worktree 会保留。

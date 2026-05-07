@@ -53,7 +53,14 @@ llm:
     base_url: ""              # 空 → https://api.openai.com/v1
 ```
 
-需要按 agent 换模型,加 `agents:` 段;未列出的 agent 自动继承 `default`。合法的 agent 名:`analyzer` · `explorer` · `extractor` · `finalizer` · `log_triager` · `planner` · `coder` · `verifier` · `chitchat_responder` · `chitchat_classifier` · `memory_summarizer`。
+需要按 agent 换模型,加 `agents:` 段;未列出的 agent 自动继承 `default`。合法的 agent 名:
+
+- **读模式 4 个**:`analyzer` · `explorer` · `extractor` · `finalizer`
+- **写模式 4 个**:`write_analyzer` · `planner` · `coder` · `verifier`
+- **条件前置**:`log_triager` · `perf_triager`
+- **辅助**:`chitchat_responder` · `chitchat_classifier` · `memory_summarizer` · `reflector` · `plan_critic` · `env_recommender`
+
+每个 agent 槽都支持 `<name>_fallback`,主 provider 失败时自动切到 fallback,适合多区域容灾。
 
 更多模板见 [`providers.yaml.example`](providers.yaml.example)。
 
@@ -71,18 +78,18 @@ CODRAX_SETTINGS=/etc/codrax/team-shared.yaml codrax
 
 ### 读模式(默认)
 
-`analyze → explore → extract → finalize`,4 阶段 × 4 Agent 硬编码拓扑。两条独立条件前置阶段:`--log` / `/log` 附加运行时日志触发 `log_triage`;`--htrace` / `--atrace` / `/htrace` 附加性能 trace(HiTrace / atrace / systrace / perfetto)触发 `perf_triage`。两个前置阶段可同时触发。
+`analyze → explore → extract → finalize`,4 阶段 × 4 Agent 硬编码拓扑。两条独立条件前置阶段:`--log` / `/log` 附加运行时日志触发 `log_triage`;`--htrace` / `--atrace` / `/htrace` 附加性能 trace(HiTrace / atrace / systrace / perfetto)触发 `perf_triage`。两个前置阶段可同时触发,失败均不阻塞主流水线。
 
 | 阶段 | Agent | 做什么 |
 |---|---|---|
-| `log_triage`(条件) | `log_triager` | LLM 把日志解析成结构化 bundle(错误类型 / 栈帧 / 因果链 / 信号分类),系统侧做路径校验 + 仓内存在性过滤;失败不阻塞主流水线。50 KB+ 自动两步分诊(`emit_log_segmentation` 切段 → 逐段 `emit_log_triage` → merge) |
-| `perf_triage`(条件) | `perf_triager` | LLM 把 HiTrace / atrace / systrace / perfetto 解析成 `PerfBundle`(Frames / Janks / Stalls / Startup),按 16.6 ms 帧预算 / 100 ms 主线程阻塞 / 1.2 s 冷启动阈值自动打 signals。64 KB+ 自动两步分诊。失败不阻塞主流水线 |
-| `analyze` | `analyzer` | 一次 `emit_analysis` 产出 `RequestModel`(意图 / 场景 / 复杂度),后处理管线确定性组装 `AnalysisIR`(TaskGraph + EvidencePlan + AnswerContract + HypothesisSet + 风险矩阵)。同时消费 `LogTriage` + `PerfTrace` 派生的 entities + ResolvedFiles |
-| `explore` | `explorer` | Turn A 调查:read_file / grep / repo_map ReAct 循环,通过 `emit_evidence` 累积证据 |
-| `extract` | `extractor` | Turn B 结构化:读 Turn A 冻结快照,产出带 completeness claim 的答案面板 |
-| `finalize` | `finalizer` | `emit_answer_document` 产出 typed `AnswerDocument`,渲染成用户可见散文 |
+| `log_triage`(条件) | `log_triager` | LLM 把日志解析成结构化 bundle(错误类型 / 栈帧 / 因果链 / 10 类信号),系统侧做路径校验 + 仓内存在性过滤 + Layer 4 派生(ResolvedFiles / Entities / IntentHint / Coverage)。32 KB+ 或单次覆盖率偏低时自动两步分诊(`emit_log_segmentation` 切段 → 逐段 `emit_log_triage` → `MergeBundles` 合并) |
+| `perf_triage`(条件) | `perf_triager` | LLM 把 HiTrace / atrace / systrace / perfetto 解析成 `PerfBundle`(Frames / Janks / Stalls / Startup),按 16.6 ms 帧预算 / 100 ms 主线程阻塞 / 1.2 s 冷启动阈值自动打 signals。64 KB+ 自动两步分诊 |
+| `analyze` | `analyzer` | 一次 `emit_analysis` 产出 v4 `RequestModel`(Intent / Scenario / Complexity / 7 个跨语言 SemanticPredicates / AnswerSubject / SubTopics 等);系统跑 33 步确定性后处理装配 `AnalysisIR`(TaskGraph + EvidencePlan + AnswerContract + HypothesisSet + RiskMatrix)。同时消费 LogTriage + PerfTrace 派生的 entities + ResolvedFiles |
+| `explore` | `explorer` | Turn A 调查:read_file / grep / repo_map ReAct 循环,通过 `emit_evidence` 累积证据;`emit_investigation_complete` 显式收尾 |
+| `extract` | `extractor` | Turn B 结构化:读 Turn A 冻结快照,产出带 completeness claim 的答案 slate + 假设判定;**禁止再读文件** |
+| `finalize` | `finalizer` | `emit_answer_document` 产出 typed `AnswerDocumentV2`(9 种 typed block + citation 池),renderer 渲染成用户可见散文 |
 
-Citation 由 finalizer 发射时同步校验(`internal/tool/ground/`),文件 / 行号 / 文本三重匹配,越界 / 编造 / 与源码不一致的引用会被打回重试。
+Citation 由 finalizer 发射时同步校验(`internal/tool/ground/`),7 层落地(T1 line_text / T2 symbol_table / R1-R5 recovery)文件 / 行号 / 文本三重匹配,越界 / 编造 / 与源码不一致的引用进 "Unverified Leads" 段不入 citation 池。
 
 ### 写模式(opt-in)
 
@@ -91,21 +98,29 @@ Citation 由 finalizer 发射时同步校验(`internal/tool/ground/`),文件 / �
 完整生命周期:
 
 ```
-           /mode plan
-            或 --mode=plan                      /approve  或  --mode=apply              /merge
-read ────────────────────►  plan ────────────────►  apply  ────► verify ────► applied ────► main
-                              │   (planner 写 ChangePlan)  │  (coder 在 worktree     │ (verifier 跑    (fast-forward
-                              │                            │   里逐单元 apply_patch)  │  run_tests)     或 cherry-pick
-                              ▼                            ▼                                            到新分支)
-                          /plan show              /worktree list / discard
-                          /reject [reason]        /verify [plan-id]
+                /mode plan                        /approve 或 --mode=apply           /merge
+read ──► analyze ──► write_analyze ──► plan ──► apply ──► verify ──► applied ────► main
+              │           │              │ (planner    │ (coder 在  │ (verifier      (fast-forward
+              │           │              │  写 plan)    │  worktree │  跑 run_tests) 或 cherry-pick
+              │           │              ▼              │  里逐单元                    到新分支)
+              │           │          /plan show         │  apply_patch)
+              │           │          /reject [reason]   ▼
+              │           │                          /worktree list / discard
+              │           ▼                          /verify [plan-id]
+              │      WriteAnalysisIR
+              │      (kind / scope / risk
+              │       / 多阶段提议)
+              ▼
+       AnalysisIR(分类信号)
 ```
 
 | 阶段 | Agent | 工具 | 产出 |
 |---|---|---|---|
-| `plan` | `planner` | `emit_change_plan` | `ChangePlan` JSON 落盘(`.codrax/plans/<id>.json`),包含 Changes[](path / kind / rationale / depends_on) + AcceptanceTests[] + TargetPaths[] |
-| `apply` | `coder` | `apply_patch`(每 ChangeUnit 一次) | 在 git worktree 里按拓扑序写文件;支持 `create` / `modify` / `delete` / `patch`(kind=patch 通过 `git apply -` 喂 unified diff) |
-| `verify` | `verifier` | `run_tests` + 可选 `emit_test_results` | 在 worktree 里跑测试套件,产出 `ChangeReport` |
+| `analyze` | `analyzer` | (与读模式同) | 复用读模式 analyzer 作分类器,产 AnalysisIR(读模式字节级保持不变) |
+| `write_analyze` | `write_analyzer` | `emit_write_analysis` | `WriteAnalysisIR`:任务 kind(feature / fix / chore)/ scope / risk flag / 期望结果 / 可选多阶段拆分提议。pin 在第一份 ChangePlan 上,retry / multi-phase 复用 |
+| `plan` | `planner` | `emit_change_plan` / `emit_plan_skeleton` / `emit_plan_change`(多轮流式) | `ChangePlan` JSON 落盘(`.codrax/plans/<id>.json`),含 Changes[](path / kind / rationale / depends_on / new_content / patch / new_path) + AcceptanceTests[] + TargetPaths[] + 嵌入的 WriteAnalysisIR |
+| `apply` | `coder` | `apply_patch`(每 ChangeUnit 一次,schema 仅 `{path, kind}`,内容从 Mutable.ChangePlan 取防转抄错) | 在 git worktree 里按拓扑序写文件;支持 `create` / `modify` / `delete` / `patch` / `rename`;W1 / W1b 闭包检查;同路径连续 3 次拒 → plan-defect 升级 |
+| `verify` | `verifier` | `run_tests` + 可选 `emit_test_results` | 在 worktree 里自动探测 12 种 runner,产 `ChangeReport`;LLM 可选发 narrative 区分 REGRESSION / PRE-EXISTING / FIXED,但 `Passed` verdict 来自 parser 不被覆盖 |
 
 **`run_tests` 识别 12 种 runner**:Go(`go test -json`)、Node(jest/vitest `--json`)、Python(pytest-json-report)、Rust(cargo test)、Java / Kotlin(Maven `mvn test` 或 Gradle `./gradlew test`,JUnit XML)、Ruby(RSpec `--format json`)、Swift(`swift test`,Package.swift 探测)、CMake(ctest `--output-junit`)、Meson(`meson test --xunit-file`)、Make(`make check` / `make test`,exit-code 判定)、HarmonyOS hvigor(`hvigorw test`,JUnit XML 复用 Java 解析)、Cangjie cjpm(`cjpm test`,Cargo 风格文本)。探测通过仓根的 manifest 文件(`go.mod` / `oh-package.json5` / `cjpm.toml` / `package.json` / `Cargo.toml` / `pom.xml` / `build.gradle.kts` / `Package.swift` / `CMakeLists.txt` / `Makefile` 等),HarmonyOS / Cangjie manifest 优先级排在通用语言之前。**零测试发现**(pytest exit 5、jest "no tests found"、`go test ./...` 无 `_test.go`)被作为一等信号 `NoTestsRunners` 单独记录,不会被误判为测试失败。缺失 runner 会在 verify 阶段 fail-loud。
 
@@ -114,7 +129,7 @@ read ────────────────────►  plan ─�
 - `apply_patch` 强制 W1(`path` 必须在 `ChangePlan.TargetPaths`)+ W1b(`DependsOn` 必须已 applied)。违规直接拒绝,coder 看到错误可在下一轮自修正。
 - 默认 Run 结束**销毁** worktree(清理磁盘)。开启 `pipeline_keep_worktree_on_success: true` 后,apply + verify 双双通过时保留 worktree,用户可 `cd` 进去 review / cherry-pick 到主仓。失败路径无条件清理。
 
-**verify→plan 重试循环**(可选):`pipeline_write_retry_budget` 大于 0 时,verify 失败会把失败 summary + top-3 失败测试 + 前一 plan 的 `TargetPaths`(嫌疑文件清单)喂给 planner 做二次规划。硬上限 5 次,默认 0(保守)。
+**verify→plan 重试循环**:`pipeline_write_retry_budget` 控制 verify 失败后自动重新规划次数。失败 summary + top-3 失败测试 + 前一 plan 的 `TargetPaths`(嫌疑文件清单)喂给 planner 做二次规划。硬上限 5 次,默认 3。两条早停守门:`runner_missing` 一等信号(`pytest: command not found` 等)直接 fall-through 不重试,给安装提示;`verifyStallReason` fingerprint 比对——AppliedCount / VerifyPassed / VerifyFailed / FailureSummaryHash 完全 byte-equal → 视为"无进展"跳本轮 retry,避免 budget 烧光在原地重打。
 
 **baseline 捕获**(可选):`pipeline_baseline_capture_enabled: true` 会在 apply 前跑一遍测试套件作为 baseline 快照。verifier LLM 提示里会列出 baseline 已失败的测试,引导区分"这个 plan 造成的 REGRESSION"与"预存 PRE-EXISTING 失败"。默认关闭(测试墙钟时间翻倍)。
 
@@ -170,12 +185,13 @@ make test          # 运行所有测试
 REPL 斜杠命令(支持 `\` 前缀别名,如 `\exit` ≡ `/exit`):
 
 ```
-/help  /exit  /quit  /version  /history  /clear  /compact
-/log   /paste  /chat
-/mode  /plan   /approve  /reject  /verify  /worktree  /merge
+通用:  /help  /exit  /quit  /version  /history  /clear  /compact
+       /log   /htrace  /atrace  /paste  /chat  /env  /mermaid  /cancel
+写模式: /mode  /plan  /approve  /reject  /verify  /worktree  /merge
+       /branch  /baseline  /phase  /pitfalls
 ```
 
-每条都支持 Tab 补齐。
+每条都支持 Tab 补齐;`!shell-cmd` 直通系统 shell。
 
 ### 粘贴兜底(SSH / tmux 环境)
 
@@ -316,16 +332,19 @@ REPL:`/htrace <path>` / `/htrace append <path>` / `/htrace show` / `/htrace clea
 - **多实例并发安全**:同一目标仓多开 codrax 时,日志按 PID 隔离、`MEMORY.md` 周期写入由 `flock` 串行化、`/clear` 提示对等进程数、retention sweep 跳过活进程文件
 - **跨平台**:Linux / macOS 用 `flock(2)`,Windows 通过 `kernel32.dll!LockFileEx` 实现等价语义,全程零非 stdlib 依赖
 - **默认语言**:`--lang=zh` 默认简体中文作答;`--lang=off` / `none` 关闭;任一非空值保留"用户若用其他语言提问则跟随"兜底
-- **Answer contract**:finalizer 输出结构化 `AnswerDocument`(typed symbols / steps / value / boolean / explanation + citation pool),cardinality 验证器把"谎称 complete 但 slate 不足基线"的 claim 自动降级为 lower_bound
+- **Answer contract**:finalizer 输出 typed `AnswerDocumentV2`(9 种 typed block:summary / section / ordered_list / bullet_list / scalar / decision / table / diagram / caveat + citation 池);8 种 QuestionFamily 各自的 RequiredBlocks 合同决定该题该填哪些 block;cardinality 验证器把"谎称 complete 但 slate 不足基线"的 claim 自动降级为 lower_bound;retry 用 `emit_answer_document_patch` 增量补丁结构性保留 byte-identical 的未改 block(避免 LLM 重写时把之前精心标注的 claim_uses / facet_ids 顺手丢了)
 - **日志分诊**:`--log / --log-text` 或 REPL `/log` 附加运行时日志,LLM 驱动的 log_triage 阶段把任意格式 panic / exception / sanitizer / traceback / 结构化应用日志解析成结构化锚点;日志正文独立通道不污染提问关键词识别
-- **写模式沙箱**:`plan → apply → verify → merge` 全部在 git worktree 里跑,主仓 HEAD 永不自动变;严格 W1/W1b 写闭包检查;可选 verify→plan 重试循环 + baseline 回归对比 + worktree 保留 + 12 种 test runner 自动探测;`NoTestsRunners` 一等信号区分"零测试发现"与"测试失败";`FailureKindRunnerMissing` 一等信号识别"runner 二进制没装"(`pytest: command not found`)并跳过 verify→plan 重试,直接给安装提示而非无脑 re-plan;analyzer 在写模式下跳过 `hypothesis_coverage` / `contract_complete`(读模式专属质量门),让"用 python 写一个猜数字游戏"这种从零起步的请求顺利分类;orchestrator 入口 fail-loud 拒收意外喂入的 slash 字面量(`/approve plan-XXX` 等),不再让 analyzer 烧 12+ 次迭代;执行进程组隔离(Linux `Setpgid` / Windows JobObject)+ 内存/CPU 上限,防止失控测试拖死主进程
+- **写模式沙箱**:`analyze → write_analyze → plan → apply → verify → merge` 全部在 git worktree 里跑,主仓 HEAD 永不自动变;严格 W1/W1b 写闭包检查;可选 verify→plan 重试循环(fingerprint stall 早停)+ baseline 回归对比 + worktree TTL/quota 回收 + 12 种 test runner 自动探测;`NoTestsRunners` 一等信号区分"零测试发现"与"测试失败";`FailureKindRunnerMissing` 一等信号识别"runner 二进制没装"并跳过 verify→plan 重试直接给安装提示;analyzer 在写模式下跳过 `hypothesis_coverage` / `contract_complete`(读模式专属质量门),让"用 python 写一个猜数字游戏"这种从零起步的请求顺利分类;执行进程组隔离(Linux `Setpgid` / Windows JobObject)+ 内存/CPU 上限,防止失控测试拖死主进程;跨 Run Failure Taxonomy 持久化让 planner 看到"本仓库历史踩过的坑"
 - **合并回主仓优雅化**:`/merge` 把 worktree 里的 commit 自动 fast-forward 到当前分支或 cherry-pick 到新分支(`--branch=fix/x`);`/approve --merge-to=fix/x` 一步合并;`--include-failed` / `--force` 在 review 后强制合入 verify_failed plan(适用于本地起不了集成测试、想扔 CI 跑的场景);冲突 = 完整回滚不留半成品,主仓工作区脏不动;裸目录 + commitless repo 三档授权(REPL y/N、yaml `write_auto_init_repo`、CLI `--auto-init-repo`)允许自动 `git init` 脚手架
 - **测试 runner 跨 worktree 用主仓 deps**:verify 在沙箱 worktree 里跑,但 `.venv/` / `node_modules/` / `vendor/` / `oh_modules/` 这类 gitignored 依赖目录都在主仓里(worktree 里不存在)。codrax 自动:Python 通过 `<main>/.venv/bin/python -m pytest` 直接用主仓 venv 解释器(系统 python3 兜底);Node / Ruby / hvigor 把主仓的 `node_modules/` / `vendor/` / `oh_modules/` 软链到 worktree 里,让 `npm test` / `bundle exec` / `hvigorw` 自然解析依赖。runner_missing 信号区分"二进制没装"和"模块没装"两种 env 错误,跳过 verify→plan 重试,直接给中英双语安装提示。Go / Rust / Swift / Java(maven/gradle)/ CMake / Meson / Make / cjpm 用全局缓存或源码重建,不需要这套联动
 - **REPL UX 调淡**:`SUCCESS` / `INFO` / `WARN` / `ERROR` 前缀去掉了 pterm 默认的高对比背景色,只用单字符 + 彩色前缀(`• ✓ ⚠ ✗`),消息体走终端默认色,不再咋眼
-- **/help 显示子命令**:`/plan show|list|clear`、`/log show|clear|append`、`/htrace show|clear|append`、`/worktree list|discard`、`/mode read|plan|apply|verify`、`/approve [<plan-id>] [--merge-to=][--skip-verify]`、`/merge [--branch=][--include-failed]` 全部缩进显示在 `/help` 里 —— 之前只有顶层命令可见,子命令"隐藏"在使用时才发现
-- **多 pending plan 时精确 approve**:`/approve <plan-id>` / `/plan show <plan-id>` 定向到任意 PlanStore 条目;弹出 confirm 前自动提示"还有 N 个其它可批准的 plan";`/approve --skip-verify` 在本地起不了集成测试时只 apply 不跑 verify(扔给 CI 跑),自动**蕴含 keep-on-success**(无需手动开 yaml 知 旋钮),plan.WorktreePath 持久到磁盘以便 `/merge` 找得到
+- **/help 显示子命令**:`/plan show|list|clear`、`/log show|clear|append`、`/htrace show|clear|append`、`/worktree list|discard`、`/mode read|plan|apply|verify`、`/approve [<plan-id>] [--merge-to=][--skip-verify]`、`/merge [--branch=][--include-failed]`、`/env show|probe|explain|cache|stats`、`/baseline`、`/phase`、`/pitfalls` 全部缩进显示在 `/help` 里 —— 子命令一目了然
+- **多 pending plan 时精确 approve**:`/approve <plan-id>` / `/plan show <plan-id>` 定向到任意 PlanStore 条目;弹出 confirm 前自动提示"还有 N 个其它可批准的 plan";`/approve --skip-verify` 在本地起不了集成测试时只 apply 不跑 verify(扔给 CI 跑),自动**蕴含 keep-on-success**(无需手动开 yaml 旋钮),plan.WorktreePath 持久到磁盘以便 `/merge` 找得到
 - **当前 git 分支感知**:启动 banner 和每行 REPL prompt 的 sticky tag 带 `[git:<branch>]`(detached 显示 `[git:detached@<sha>]`),跨进程切换分支也能在下一行 prompt 反映;`/branch [<name>]` 在 REPL 内查看 / 切换分支(`git checkout` 透传,支持 `-b new-name` 创建);`/approve --merge-to=` 和 `/merge`(无 flag)默认目标自动跟随实时 git HEAD,不再用启动时的 `--branch` 粘滞值
 - **`!shell` 直通**:`!ls` / `!cat foo` / `!grep -rn ...` 等系统 shell 命令在 REPL 内直接执行,工作目录是 r.repoRoot,stdout/stderr 实时显示。`!cd` 特殊提醒(bare cd 不持久,链式 `!cd /tmp && ...` 有效)
+- **环境诊断与推荐**:测试 runner 缺失或裸目录拒接时,`/env` 系列命令(`/env show|probe|explain|cache|stats`)启动 3 层管线——OS / shell / 包管理器 / 项目 manifest probe → 6 检测器 diagnose → LLM 推荐 + DocsLink 兜底。结果按 `Strategy`(Venv > Project > User > ToolchainBootstrap > Global > Docs)排序,每条命令带 `!` 前缀直接复制粘贴;90 天磁盘缓存避免重复调用,`recommend_global_install: false`(默认)下不产 sudo 命令
+- **多阶段方案组**(可选):大改动 plan 可 split 成 sequential 多阶段,每阶段独立 plan→apply→verify + 独立 retry 预算,同 worktree 累积。`/phase` 命令查看阶段进度;每阶段过 LLM-driven acceptance check 分类 PhaseAccepted / PhaseRolledBack / PhaseAcceptanceUnverified
+- **AnswerDocumentV2 carrier**:V2 block-only 答案载体替代 V1 shape enum——LLM 用 typed `blocks[]` 构造答案,validator 读 typed enum 不读 prose;`emit_answer_document_patch` 让 retry 时 LLM 声明"哪些 block 保留 byte-identical / 哪些替换 / 哪些追加 / 哪些删除",系统结构性保留所有 typed 注解(claim_uses / facet_ids / surface_role / edge_anchors)
 
 ## 文档
 
