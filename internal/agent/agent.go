@@ -1680,6 +1680,23 @@ func (b *BaseAgent) buildInitialMessages(ctx *types.AgentContext, sk *skill.Conf
 }
 
 func (b *BaseAgent) executeTool(ctx *types.AgentContext, tc llm.ToolCall) (*types.ToolResult, *types.MCPResponse) {
+	// Fix G (2026-05-07 customer report): repair common LLM-induced
+	// JSON corruption in tool call parameters before validation /
+	// execution. LLMs occasionally emit a trailing extra `}` (the
+	// model closing its outer thought at the same indent as the
+	// params object) or a trailing `,` before `}`/`]` (streaming
+	// tokeniser artefact). Both fail strict json.Unmarshal and
+	// previously caused the tool to error out with "invalid
+	// character ... after top-level value", forcing a retry
+	// round-trip. The repair is bounded — only trailing garbage /
+	// pre-terminator commas are stripped; the function never adds
+	// JSON syntax — and the repaired payload is re-validated
+	// before being substituted.
+	if repaired, ok := repairToolParamsJSON(tc.Params); ok {
+		logging.Warning("[agent] tool %q params auto-repaired (LLM-corrupted JSON: trailing garbage / comma stripped)", tc.Name)
+		tc.Params = repaired
+	}
+
 	// Stage-specific pre-execution parameter validation. The
 	// analyzer's evidence-lite boundary forbids line-level grep
 	// results — pre-scan must use `files_only=true` because
@@ -1910,13 +1927,34 @@ func validateAnalyzerPrescanToolCall(ctx *types.AgentContext, tc llm.ToolCall) *
 		return rejectAnalyzerPrescanTool(ctx, tc,
 			"classification_grep disabled by config; retry with files_only=true")
 	}
-	if ctx.Mutable == nil || !ctx.Mutable.ClassificationGrepTriggered() {
+	if ctx.Mutable == nil {
 		return rejectAnalyzerPrescanTool(ctx, tc,
-			"grep in analyze stage must be called with files_only=true "+
-				"(evidence-lite boundary). Round 2 line-level grep is only "+
-				"allowed after the classification_grep trigger fires "+
-				"(ambiguous subject/shape + declarative candidates). Retry "+
-				"with files_only=true.")
+			"grep in analyze stage requires the per-dispatch budget tracker; "+
+				"retry with files_only=true.")
+	}
+	// Fix H (2026-05-07 customer report): the LLM's explicit choice
+	// of files_only=false IS the typed signal that the
+	// classification needs line content. Instead of rejecting and
+	// forcing the LLM to retry with files_only=true, we treat the
+	// LLM's intent as the trigger and auto-fire it. The existing
+	// budget caps (ClassificationGrepMaxCalls /
+	// ClassificationGrepMaxTotalBytes / per-call MaxMatchesPerCall
+	// auto-clamp) all continue to apply, so the line-level cost
+	// stays bounded regardless of the trigger source.
+	//
+	// Rationale: the original heuristic trigger
+	// (prescanHasDeclarativeCandidateResults — Round 1 surfacing
+	// files matching topology/defaults/registry/routes/wire/init/
+	// manifest/schema/enum patterns) was over-narrow. Many
+	// legitimate questions where line context aids classification
+	// (e.g. "REPL status line — what does row 2 show") have no
+	// declarative-pattern filename, so the trigger never fired and
+	// the LLM's correct files_only=false intent was rejected,
+	// burning a retry round. The LLM's intent is itself a precise
+	// signal; deferring to it removes the heuristic bottleneck.
+	if !ctx.Mutable.ClassificationGrepTriggered() {
+		ctx.Mutable.SetClassificationGrepTriggered(true)
+		logging.Debug("[analyzer] classification_grep auto-triggered by LLM files_only=false intent (Fix H)")
 	}
 	// Call budget.
 	if limits.ClassificationGrepMaxCalls > 0 &&

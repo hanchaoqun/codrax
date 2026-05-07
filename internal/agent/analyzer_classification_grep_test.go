@@ -34,17 +34,24 @@ func makeGrepCall(params map[string]any) llm.ToolCall {
 	return llm.ToolCall{Name: "grep", Params: raw}
 }
 
-// TestValidator_Round1StillRejectsFilesOnlyFalse guards the
-// evidence-lite boundary: Round 1 (trigger NOT set) must reject
-// any files_only=false grep regardless of other state. The
-// rejection message must mention "files_only=true" so the LLM
-// sees how to recover.
-func TestValidator_Round1StillRejectsFilesOnlyFalse(t *testing.T) {
+// TestValidator_Round1FilesOnlyFalseAutoTriggers (Fix H, 2026-05-07
+// customer report) supersedes the prior pin that required Round 1
+// to REJECT files_only=false. Fix H changes the contract: when the
+// LLM expresses files_only=false intent in analyze stage, the
+// classification_grep trigger auto-fires instead of forcing a
+// retry round-trip. The LLM's explicit choice IS the typed signal
+// that line content is needed — the system no longer second-guesses
+// it. Budget caps (MaxCalls / MaxTotalBytes) still bound the cost.
+func TestValidator_Round1FilesOnlyFalseAutoTriggers(t *testing.T) {
 	saveAnalysisLimits(t)
 	tool.SetAnalysisLimits(tool.DefaultAnalysisLimits())
 
 	mut := types.NewMutableState("test")
-	// Explicitly leave trigger OFF — this is Round 1.
+	// Explicitly leave trigger OFF — Round 1 / no declarative
+	// candidates surfaced by pre-scan.
+	if mut.ClassificationGrepTriggered() {
+		t.Fatalf("test setup error: trigger should start OFF")
+	}
 	ctx := &types.AgentContext{
 		Stage:   types.StageAnalyze,
 		Mutable: mut,
@@ -56,14 +63,13 @@ func TestValidator_Round1StillRejectsFilesOnlyFalse(t *testing.T) {
 	})
 
 	res := validateAnalyzerPrescanToolCall(ctx, tc)
-	if res == nil {
-		t.Fatal("Round 1 files_only=false must be rejected, got nil (pass)")
+	if res != nil {
+		t.Fatalf("Fix H: Round 1 files_only=false must auto-trigger and pass; got rejection: %q", res.Summary)
 	}
-	if res.Success {
-		t.Errorf("rejection must have Success=false, got Success=true")
-	}
-	if !strings.Contains(res.Summary, "files_only=true") {
-		t.Errorf("rejection message must instruct retry with files_only=true; got %q", res.Summary)
+	// The trigger MUST have flipped on as a side effect, so the
+	// per-dispatch budget tracking starts from this call.
+	if !mut.ClassificationGrepTriggered() {
+		t.Errorf("Fix H: classification_grep trigger must be flipped ON after files_only=false intent")
 	}
 }
 
