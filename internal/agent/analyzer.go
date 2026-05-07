@@ -1346,6 +1346,7 @@ func buildAnalysisIR(ctx *types.AgentContext) (*types.AnalysisIR, error) {
 	// Empty / non-interface-shaped entities short-circuit so the
 	// expansion is a no-op for any case it cannot ground precisely.
 	rm.AnalyzerHints.Entities = expandEntitiesWithImplementers(ctx, rm)
+	rm.AnalyzerHints.PrimaryEntities = promoteSubTopicFileAnchorToPrimary(ctx, rm)
 
 	// L0-B (2026-05-05) — Enumeration cardinality structural sanity.
 	// When the analyzer LLM (or amplifier R1 flip) declares the
@@ -2448,6 +2449,114 @@ func mergeExpandedEntities(original, extra []string) []string {
 		out = append(out, name)
 	}
 	return out
+}
+
+// promoteSubTopicFileAnchorToPrimary covers the third axis of the
+// "list X's Y" enumeration emit shape, the counterpart of paths
+// (a) and (b) in expandEntitiesWithImplementers.
+//
+// Paths (a) and (b) target the count==1 form (LLM emits the
+// container handle as the lone primary entity, downstream gates
+// ground the values via graph). The skill prompt's "list values
+// not container" guidance pushes a more capable LLM toward the
+// count>=2 form instead:
+//
+//	PrimaryEntities = [value1, value2, ...]      (the values lane)
+//	SubTopics       = [{entities: [<container>]}] (the anchor lane)
+//
+// This shape clears the L0-B cardinality gate (≥2 distinct
+// entities) but trips R1.3 (entity_orphan in
+// internal/analysis/gate/coherence.go) because the sub-topic's
+// entity shares no element with PrimaryEntities. Structurally the
+// emit is correct — the values are listed, the container is named
+// — but the gate cannot reconcile the two lanes on its own.
+//
+// Repair: when the single sub-topic's lone entity resolves to a
+// typed graph anchor (file in graph.FileIndex OR interface /
+// trait / protocol in graph.SymbolDefs), promote that anchor into
+// PrimaryEntities. R1.3's overlap check is satisfied; downstream
+// structural reasoning sees both lanes.
+//
+// Gates (all must hold):
+//
+//  1. rm.Predicates.IsCategoryEnumeration is true.
+//  2. len(rm.SubTopics) == 1 and the sub-topic has exactly one
+//     entity. (≥2 sub-topics is R1.4 axis_collapse territory; 0
+//     sub-topics means no orphan check fires.)
+//  3. distinctNamedEntities(rm.AnalyzerHints.PrimaryEntities) >= 2.
+//     (count<=1 is path (a)/(b)'s domain; coherence.go's R1.3
+//     gate only fires when PrimaryEntities count >= 2.)
+//  4. The sub-topic's entity resolves to either a file in
+//     graph.FileIndex OR an interface / trait / protocol Symbol
+//     in graph.SymbolDefs — the same typed graph primitives paths
+//     (a) and (b) consume.
+//  5. The resolved anchor is not already a case-folded member of
+//     PrimaryEntities.
+//
+// Returns the (possibly augmented) PrimaryEntities slice. Pure
+// read on rm + graph; the helper never shrinks the slice.
+func promoteSubTopicFileAnchorToPrimary(ctx *types.AgentContext, rm types.RequestModel) []string {
+	original := rm.AnalyzerHints.PrimaryEntities
+	if !rm.Predicates.IsCategoryEnumeration {
+		return original
+	}
+	if len(rm.SubTopics) != 1 {
+		return original
+	}
+	// Mirror coherence.coherenceMinPrimaryEntitiesForOrphan (literal
+	// 2 — duplicating the threshold here avoids a package import
+	// cycle into internal/analysis/gate).
+	if distinctNamedEntities(original) < 2 {
+		return original
+	}
+	subEnts := rm.SubTopics[0].Entities
+	if len(subEnts) != 1 {
+		return original
+	}
+	bare := strings.TrimSpace(subEnts[0])
+	if bare == "" {
+		return original
+	}
+	for _, e := range original {
+		if strings.EqualFold(strings.TrimSpace(e), bare) {
+			return original
+		}
+	}
+	graph := analyzerGraphForNormalize(ctx, rm)
+	if graph == nil {
+		return original
+	}
+	if !subTopicAnchorResolvesInGraph(graph, bare) {
+		return original
+	}
+	out := append([]string(nil), original...)
+	return append(out, bare)
+}
+
+// subTopicAnchorResolvesInGraph is the typed-signal predicate
+// promoteSubTopicFileAnchorToPrimary uses to decide whether the
+// sub-topic's lone entity is a structural container (file path or
+// interface / trait / protocol symbol). Returns true on the first
+// matching path.
+func subTopicAnchorResolvesInGraph(graph *repomap.Graph, bare string) bool {
+	if graph == nil || bare == "" {
+		return false
+	}
+	if fi := lookupFileInfoWithSuffix(graph, bare); fi != nil {
+		return true
+	}
+	if defs, ok := graph.SymbolDefs[bare]; ok {
+		for _, d := range defs {
+			if d == nil {
+				continue
+			}
+			switch d.Kind {
+			case "interface", "trait", "protocol":
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // distinctNamedEntities counts the case-folded distinct non-blank
