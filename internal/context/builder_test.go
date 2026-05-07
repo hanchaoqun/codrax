@@ -3057,3 +3057,92 @@ func TestShouldSuppressAttachedRuntimeTrace_NoBundle_StillRenders(t *testing.T) 
 		t.Fatal("raw perf trace must render when no typed PerfBundle is present")
 	}
 }
+
+// TestSanitizeRuntimeFrameRaw_AllLines confirms #5: every line of a
+// multi-line stack-frame raw payload gets scrubbed, not just the
+// first. Real-world Go panics put the runtime tuple on the SECOND
+// line (the body line, after the goroutine header) — only sanitising
+// lines[0] would let the tuple leak intact.
+func TestSanitizeRuntimeFrameRaw_AllLines(t *testing.T) {
+	raw := "goroutine 1 [running]:\n" +
+		"main.Foo(0xc000010040, 0x0, 0x42)\n" +
+		"\t/path/to/main.go:42 +0x88"
+	got := sanitizeRuntimeFrameRaw(raw)
+	if strings.Contains(got, "0xc000010040") || strings.Contains(got, "0x0,") {
+		t.Errorf("body-line tuple not sanitised; got:\n%s", got)
+	}
+	if !strings.Contains(got, "main.Foo(...)") {
+		t.Errorf("body line should have been collapsed to Func(...); got:\n%s", got)
+	}
+	// Header line ("goroutine 1 [running]:") is not function-call
+	// shaped so the per-line sanitiser leaves it as-is.
+	if !strings.Contains(got, "goroutine 1 [running]:") {
+		t.Errorf("non-tuple header line should not be touched; got:\n%s", got)
+	}
+}
+
+// TestRuntimeFrameTupleAtomRe_ExtendedAtoms confirms #7: bool / null
+// sentinels in different runtimes / decimal / scientific notation
+// are now treated as atoms, so all-atom tuples in non-Go panics
+// (Rust / Python / Java / sanitizer) get scrubbed too.
+func TestRuntimeFrameTupleAtomRe_ExtendedAtoms(t *testing.T) {
+	cases := []struct {
+		name string
+		line string
+		want string // expected output ("" for no change)
+	}{
+		{name: "go nil + hex", line: "main.Foo(nil, 0xc0000)", want: "main.Foo(...)"},
+		{name: "rust null", line: "rust_panic(null)", want: "rust_panic(...)"},
+		{name: "python None", line: "wrap(None, None)", want: "wrap(...)"},
+		{name: "go bool", line: "Bar(true, false)", want: "Bar(...)"},
+		{name: "decimal float", line: "Baz(3.14, -1.5)", want: "Baz(...)"},
+		{name: "scientific", line: "Big(1.5e+09, -2.0E-3)", want: "Big(...)"},
+		{name: "string preserved", line: "Foo(\"hello\", 42)", want: "Foo(\"hello\", 42)"},
+		{name: "non-atom mixed", line: "Foo(0x1, someVar)", want: "Foo(0x1, someVar)"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := sanitizeRuntimeFrameTupleLine(tc.line)
+			if got != tc.want {
+				t.Errorf("got %q, want %q", got, tc.want)
+			}
+		})
+	}
+}
+
+// TestBundleHasAuthoritativeCrashFrames_ResolutionThreshold confirms
+// #6: the gate now requires ≥2 resolved files OR ≥50% resolution
+// rate. Single-resolve bundles (Java basename glob hit 1 of 5
+// frames) fall through so the raw log stays visible for the LLM.
+func TestBundleHasAuthoritativeCrashFrames_ResolutionThreshold(t *testing.T) {
+	mk := func(resolved []string, frameCount int) *types.LogBundle {
+		b := &types.LogBundle{
+			Meta:          types.LogMeta{Signals: []types.LogSignal{types.SignalPanic}},
+			ResolvedFiles: resolved,
+		}
+		if frameCount > 0 {
+			frames := make([]types.LogFrame, frameCount)
+			b.Errors = []types.LogError{{Frames: frames}}
+		}
+		return b
+	}
+	cases := []struct {
+		name   string
+		bundle *types.LogBundle
+		want   bool
+	}{
+		{name: "no signal", bundle: &types.LogBundle{ResolvedFiles: []string{"a"}}, want: false},
+		{name: "1 of 5 (low rate)", bundle: mk([]string{"a"}, 5), want: false},
+		{name: "1 of 1 (full rate, single)", bundle: mk([]string{"a"}, 1), want: true},
+		{name: "2 of 5 (≥2 absolute)", bundle: mk([]string{"a", "b"}, 5), want: true},
+		{name: "3 of 5 (≥50%)", bundle: mk([]string{"a", "b", "c"}, 5), want: true},
+		{name: "header-only crash", bundle: mk([]string{"a"}, 0), want: true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := bundleHasAuthoritativeCrashFrames(tc.bundle); got != tc.want {
+				t.Errorf("got %v, want %v", got, tc.want)
+			}
+		})
+	}
+}

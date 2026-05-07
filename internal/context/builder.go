@@ -2401,11 +2401,47 @@ func logBundleSignalsIncludeCrash(bundle *types.LogBundle) bool {
 	return false
 }
 
+// bundleHasAuthoritativeCrashFrames is true when the typed LogBundle
+// is rich enough that suppressing the raw log section will not strand
+// the LLM. Three conjoint conditions:
+//
+//  1. At least one signal is panic / crash / oom — non-crash logs
+//     route through different downstream lanes that still need raw
+//     prose.
+//  2. The bundle resolved at least 2 files OR a majority (≥50%) of
+//     its top-level frames. The bare ">=1 resolved file" gate was
+//     too lax: Java-basename-glob commonly resolves only 1 of 5
+//     frames, and suppressing the raw log there hides the 4
+//     unresolved frames the LLM would otherwise be able to read in
+//     prose. Either of these signals proves the structured view
+//     has enough coverage to stand alone.
+//
+// The constants are package-private — they encode a correctness
+// boundary (when does the typed view actually substitute for the
+// raw text), not a tuning knob for operators.
 func bundleHasAuthoritativeCrashFrames(bundle *types.LogBundle) bool {
 	if bundle == nil || len(bundle.ResolvedFiles) == 0 {
 		return false
 	}
-	return logBundleSignalsIncludeCrash(bundle)
+	if !logBundleSignalsIncludeCrash(bundle) {
+		return false
+	}
+	const minResolvedAbsolute = 2
+	if len(bundle.ResolvedFiles) >= minResolvedAbsolute {
+		return true
+	}
+	totalTopFrames := 0
+	for _, e := range bundle.Errors {
+		totalTopFrames += len(e.Frames)
+	}
+	if totalTopFrames == 0 {
+		// Header-only bundle (signal present but no frames). Stay on
+		// the safe side and DO suppress: there is no useful raw text
+		// to hide either way.
+		return true
+	}
+	// resolved/total ≥ 1/2  ⇔  2*resolved ≥ total
+	return 2*len(bundle.ResolvedFiles) >= totalTopFrames
 }
 
 // bundleHasAuthoritativePerfFrames mirrors
@@ -2433,7 +2469,32 @@ func bundleHasAuthoritativePerfFrames(bundle *types.PerfBundle) bool {
 	return strings.TrimSpace(bundle.IntentHint) == perfIntentHintAuthoritative
 }
 
-var runtimeFrameTupleAtomRe = regexp.MustCompile(`^(?:0x[0-9a-fA-F]+|nil|<nil>|-?\d+)$`)
+// runtimeFrameTupleAtomRe matches a single tuple atom — the kind of
+// value that appears as a register-level argument in a runtime
+// stack-frame dump. Coverage spans every common runtime's panic
+// surface, not just Go's:
+//
+//   - Hex pointer literals: 0x0, 0xc0000064c0
+//   - Null sentinels:       nil (Go), <nil>, null (JS / Rust),
+//                           None (Python)
+//   - Booleans:             true / false (Go / Rust / Python /
+//                           Java / Kotlin / C++23)
+//   - Integers:             0, -1, 42 (any signed decimal)
+//   - Decimals / scientific: 3.14, -1.5, 1.5e+09, 2.0E-3
+//
+// A line is scrubbed to `Func(...)` only when EVERY tuple element
+// matches this atom shape, so a real string / object / multi-arg
+// payload like `Func("hello", 42)` is left intact (the string isn't
+// an atom). The common runtime-level "all-pointer / all-null tuple"
+// pattern that bait LLMs into mapping `0x0` onto "the receiver was
+// nil" gets neutered without false positives on legitimate calls.
+var runtimeFrameTupleAtomRe = regexp.MustCompile(
+	`^(?:` +
+		`0x[0-9a-fA-F]+` + // hex pointer
+		`|nil|<nil>|null|None` + // null sentinels (Go/JS/Rust/Python)
+		`|true|false` + // booleans
+		`|[+-]?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?` + // int / decimal / scientific
+		`)$`)
 
 func sanitizeRuntimeFrameRaw(raw string) string {
 	if raw == "" {
@@ -2443,7 +2504,17 @@ func sanitizeRuntimeFrameRaw(raw string) string {
 	if len(lines) == 0 {
 		return raw
 	}
-	lines[0] = sanitizeRuntimeFrameTupleLine(lines[0])
+	// Walk every line — multi-line raw frames (typical Go panic dumps:
+	// `goroutine 1 [running]:` header line + `main.Foo(0xc0000064c0,
+	// 0x0, 0x42)` body line + `\t/path/main.go:42 +0x88` location
+	// line) carry the load-bearing tuple on a non-first line. Only
+	// scrubbing lines[0] would let the body line leak intact and the
+	// LLM would still rationalise the tuple into a caller-provenance
+	// claim. The per-line sanitiser is a no-op on lines that don't
+	// match the tuple shape, so this is safe to apply unconditionally.
+	for i := range lines {
+		lines[i] = sanitizeRuntimeFrameTupleLine(lines[i])
+	}
 	return strings.Join(lines, "\n")
 }
 
