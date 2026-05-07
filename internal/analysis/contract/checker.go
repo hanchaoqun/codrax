@@ -463,8 +463,134 @@ func checkAcceptanceOracle(draft Answer, c types.AnswerContract, oracle types.Sy
 // opposite, actually: we want TaskList to match TaskListSize. The
 // compromise is plain substring match, which is more permissive and
 // safer for "include this symbol" style checks.
+//
+// Token-form-aware fallback (root cause of s5a r2 retry storm):
+// when the plain substring miss happens AND the needle is
+// identifier-shaped (ASCII letters/digits/_/- only), the matcher
+// scans the text for contiguous identifier-character runs and
+// checks whether any run's case-folded, separator-stripped
+// "flat form" contains the needle's flat form. This makes
+// snake_case ↔ camelCase ↔ PascalCase ↔ kebab-case ↔ SCREAMING_SNAKE
+// ↔ flatcase equivalences match — e.g. analyzer-extracted
+// wire-name "sub_explorer" hits finalizer-emitted Go-type
+// "subExplorerEvaluator" without forcing a contract retry.
+//
+// Language coverage: the equivalence set is purposely conservative
+// (only `_` and `-` separators stripped, ASCII case folded), so it
+// is correct for every language repomap supports — Go (camel /
+// Pascal), Python (snake / Pascal), Rust (snake / Pascal /
+// SCREAMING_SNAKE), Swift (camel / Pascal), Java (camel / Pascal /
+// SCREAMING_SNAKE), Ruby (snake / Pascal), JS/TS (camel / Pascal),
+// ArkTS (camel / Pascal), Cangjie (camel / Pascal / snake), Kotlin
+// (camel / Pascal). Language-specific qualifier separators —
+// Rust/C++ `::`, Ruby `#`, Java/Kotlin/JS/Python/Swift `.` package
+// dots — are handled by run-boundary semantics: `::` and `#` break
+// runs (so `mod::Item` produces two runs and the answer "Item"
+// still satisfies the needle), while `.` is kept inside a run so
+// filenames like "sub_explorer.go" / "SubExplorer.kt" /
+// "sub_explorer.py" satisfy the needle.
+//
+// Run boundaries (whitespace / punctuation other than _-./) are
+// respected, so the prose phrase "the sub explorer" still does NOT
+// satisfy a "sub_explorer" must_include — only contiguous
+// identifier-shaped occurrences count. Symmetric with must_exclude:
+// forbidden-symbol matches across token forms also count as
+// violations.
 func containsSymbol(text, needle string) bool {
-	return strings.Contains(text, needle)
+	if strings.Contains(text, needle) {
+		return true
+	}
+	if !isIdentifierShaped(needle) {
+		return false
+	}
+	flatNeedle := flattenIdentifier(needle)
+	if len(flatNeedle) < 4 {
+		return false
+	}
+	return flatCaseRunContains(text, flatNeedle)
+}
+
+// isIdentifierShaped reports whether s is composed solely of ASCII
+// identifier characters (letters, digits, _, -). Empty strings,
+// strings with whitespace, dots, slashes, or any other punctuation
+// return false. Used as the gate for token-form-aware matching:
+// only identifier-shaped needles get the flat-form fallback;
+// multi-word phrases keep strict substring semantics.
+func isIdentifierShaped(s string) bool {
+	if s == "" {
+		return false
+	}
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		switch {
+		case c >= 'a' && c <= 'z',
+			c >= 'A' && c <= 'Z',
+			c >= '0' && c <= '9',
+			c == '_', c == '-':
+			continue
+		default:
+			return false
+		}
+	}
+	return true
+}
+
+// flattenIdentifier strips _ and - separators and lowercases ASCII
+// letters, leaving an unambiguous "flat" representation that's
+// invariant across snake_case, camelCase, PascalCase, kebab-case,
+// and flatcase. Examples: "sub_explorer" → "subexplorer",
+// "subExplorer" → "subexplorer", "Sub-Explorer" → "subexplorer",
+// "SUBEXPLORER" → "subexplorer".
+func flattenIdentifier(s string) string {
+	var b strings.Builder
+	b.Grow(len(s))
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		if c == '_' || c == '-' {
+			continue
+		}
+		if c >= 'A' && c <= 'Z' {
+			c += 'a' - 'A'
+		}
+		b.WriteByte(c)
+	}
+	return b.String()
+}
+
+// flatCaseRunContains scans text for contiguous identifier-character
+// runs (a-zA-Z0-9_-.) and reports whether any run's flat form
+// contains flatNeedle as a substring. The . is included in the run
+// charset because filenames like "sub_explorer.go" should satisfy a
+// "sub_explorer" needle — the file basename is still a recognisable
+// reference to the symbol. Whitespace / other punctuation breaks
+// runs, so "sub explorer" (English prose) does NOT match a
+// "sub_explorer" needle — only contiguous identifier-shaped
+// occurrences satisfy.
+func flatCaseRunContains(text, flatNeedle string) bool {
+	var run strings.Builder
+	flush := func() bool {
+		if run.Len() == 0 {
+			return false
+		}
+		flat := flattenIdentifier(run.String())
+		run.Reset()
+		return strings.Contains(flat, flatNeedle)
+	}
+	for i := 0; i < len(text); i++ {
+		c := text[i]
+		switch {
+		case c >= 'a' && c <= 'z',
+			c >= 'A' && c <= 'Z',
+			c >= '0' && c <= '9',
+			c == '_', c == '-', c == '.':
+			run.WriteByte(c)
+		default:
+			if flush() {
+				return true
+			}
+		}
+	}
+	return flush()
 }
 
 var (
