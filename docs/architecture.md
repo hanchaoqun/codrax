@@ -2,94 +2,132 @@
 
 codrax 是一个**代码分析 + 变更提议**工具：
 
-- **读模式**（默认）：接收自然语言问题，经确定性主流水线 `analyze → explore → extract → finalize`（4 阶段 × 4 Agent）产出带 citation 的结构化答案；附加日志时条件触发 `log_triage` 前置阶段，附加性能 trace（HiTrace / atrace / systrace / perfetto）时条件触发 `perf_triage` 前置阶段。**不触碰源文件**。
-- **写模式**（opt-in，需 `codrax.yaml :: write_enabled: true`）：沿用读模式的 analyze 做请求分类，分流到 `plan → apply → verify` 阶段链（3 个专用 agent：`planner` / `coder` / `verifier`）；所有写动作发生在沙箱 git worktree 里，主仓库 HEAD 字节永不自动变更。
+- **读模式**（默认）：用户用自然语言提问，系统经过一条确定性的主流水线 `analyze → explore → extract → finalize`（4 个阶段，每个阶段一个专用 Agent），产出带 citation 的结构化答案；当用户附加运行时日志时再前置 `log_triage`，附加性能 trace（HiTrace / atrace / systrace / perfetto）时再前置 `perf_triage`。**不触碰源文件**。
+- **写模式**（opt-in，需要 `codrax.yaml :: write_enabled: true`）：复用读模式的 analyzer 做请求分类，分流到 `plan → apply → verify` 阶段链（3 个专用 agent：`planner` / `coder` / `verifier`）；所有写动作发生在沙箱 git worktree 里，主仓库 HEAD 字节永不自动变更。
 
-拓扑硬编码在 `internal/orchestrator/topology.go`，不存在运行时覆盖。
+流水线拓扑硬编码在 `internal/orchestrator/topology.go`，运行时不可覆盖。
 
 ## 目录
 
-- [1. 概述](#1-概述)
-- [2. 四阶段流水线](#2-四阶段流水线)
-- [3. 组件详情](#3-组件详情)
-- [4. 阶段规范](#4-阶段规范)
-- [5. 数据结构](#5-数据结构)
-- [6. 请求生命周期](#6-请求生命周期)
-- [7. 分析器后处理管线](#7-分析器后处理管线)
-- [8. 关键设计模式](#8-关键设计模式)
-- [9. 运行时子系统](#9-运行时子系统)
-- [10. 配置](#10-配置)
-- [11. 可扩展性](#11-可扩展性)
+- [1. 概述与设计哲学](#1-概述与设计哲学)
+- [2. 整体流水线](#2-整体流水线)
+- [3. 核心组件分层](#3-核心组件分层)
+- [4. 用户意图识别](#4-用户意图识别)
+- [5. 证据采集与投影](#5-证据采集与投影)
+- [6. AnswerDocument 结构化答案](#6-answerdocument-结构化答案)
+- [7. 阶段细则](#7-阶段细则)
+- [8. 写模式 plan / apply / verify](#8-写模式-plan--apply--verify)
+- [9. 数据结构](#9-数据结构)
+- [10. 请求生命周期](#10-请求生命周期)
+- [11. 关键设计模式](#11-关键设计模式)
+- [12. 运行时子系统](#12-运行时子系统)
+- [13. 配置](#13-配置)
+- [14. 可扩展性](#14-可扩展性)
 
 ---
 
-## 1. 概述
+## 1. 概述与设计哲学
 
-### 系统目标
+### 1.1 系统目标
 
-codrax 接受用户的自然语言问题，通过一条**确定性的主流水线（4 阶段 × 4 Agent）**分析目标仓库，产出结构化的答案文档。附加运行时日志时跑 `log_triage` 前置阶段做结构化抽取；附加性能 trace 时跑 `perf_triage` 前置阶段抽 jank / stall / startup 指标。两个前置阶段彼此独立，可同时触发。系统不修改代码，不调用有副作用的外部服务，只做：读文件、跑 grep、构建 repo map、执行 shell 查询。
+codrax 的目标是让一个 LLM 在不出错的前提下回答一个真实代码仓库里的问题，或者按用户描述安全地修改代码。"不出错" 在这里是核心约束：模型说的每一条 file:line 都必须是真实存在的、模型读过的代码，模型给的每一份 plan 都必须能干净地 apply、能跑过测试。
 
-### 核心设计原则
+### 1.2 一个核心理念：LLM 只在边界出现，中间数据全是 typed struct
 
-- **LLM 只做两件事**：(1) analyzer 里一次 `emit_analysis` 调用完成请求分类；(2) 各 stage 的 ReAct 循环里调用工具并产出 tool call。所有下游推导（TaskGraph、EvidencePlan、假设集、质量门、答案契约、citation 验证）都在 `internal/analysis/` 的 21 个确定性子包里完成。
-- **Fail-loud**：LLM 没调 `emit_analysis` → 阶段直接报错 + 重试，不静默合成零值 IR。
-- **Structured data, prose only at LLM boundary**：所有跨 stage / 跨 Agent 的数据通道都是 Go struct；string 仅允许出现在 LLM prompt（struct → markdown）和 LLM 回答（tool call → struct）两个边界。
-- **Read-only**：所有 tool 嵌入 `tool.ReadOnly`；工具拿到的 `BusContext` 是窄视图，只有 `Mutable` 字段可写。
+> *打个比方：把 LLM 当作一个会画画的实习生，但只让它在两张工位之间画——一张是"老板交代任务的记事卡"，一张是"实习生回答问题的答题卡"。两张卡之间，所有信息都用打孔的塑料卡片在传送带上传递；不让实习生在塑料卡片上自己写字，因为它一写下游就要靠"猜字"做决定。*
 
-### 分层
+整条流水线只有两个地方让 LLM 自由生成文字：
 
-| 组件 | 包路径 | 职责 | 调用谁 | 被谁调用 |
-|------|--------|------|--------|----------|
-| **编排器** | `internal/orchestrator` | 走 criterion-aware DAG、分派阶段、fail-loud 重试、CGEC enforcer | Agent、Analysis（criterion/stopcond） | `cmd/root.go` |
-| **Agent** | `internal/agent` | 4 个专业 Agent（analyzer / explorer / extractor / finalizer），各跑一轮 ReAct 循环 | LLM、Tool、Analysis（仅 analyzer 调全套）、Skill（读配置） | 编排器 |
-| **Skill** | `internal/skill` | 声明式配置：4 个 skill 定义 workflow / 工具 allowlist / 输出格式 / 禁令 | 无（纯数据） | Agent（读取后注入 prompt） |
-| **Tool** | `internal/tool` | 只读工具（grep / read_file / repo_map 等）+ 6 个 emit_* 结构化发射器 + `ground/` citation 验证 | 文件系统、MutableState | Agent（`executeTool`） |
-| **LLM** | `internal/llm` | 可插拔 adapter，per-agent 模型路由 | 外部 API | Agent（ReAct 循环） |
-| **Analysis** | `internal/analysis/*` | 21 个确定性子包，组装 IR + 运行时求值 criterion | 无（纯函数） | analyzer agent（`buildAnalysisIR`）、编排器（criterion/stopcond）、emit_* 工具（ground/contract） |
-| **Render** | `internal/render` | 事件流（`event.go`）+ CLI 渲染（`renderer.go`）+ AnswerDocument → markdown（`answerdoc.go`） | 无 | `cmd/root.go` |
-| **Context builder** | `internal/context/builder.go` | struct → markdown prompt 的唯一装配点，canonical section 顺序锁死 | `skill.Config`、`AgentContext` | `BaseAgent.buildInitialMessages` |
+1. 模型在 prompt 里看到的文字（typed struct → markdown）
+2. 模型回写的 tool call 参数（schema 解码 → typed struct）
 
-**关键规则：**
-- 所有 tool 调用和 LLM 调用都必须通过 Agent。编排器不直接调工具或 LLM。
-- Analysis 层是纯确定性函数 —— 不调 LLM、不调工具、不读文件系统。
-- Skill 是声明式配置，被 Agent 读取后渲染进 prompt，自己不调任何东西。
+这两点之外，从一阶段交给下一阶段的所有信息都走 Go struct 通道。**没有"上一个 agent 在最后一行写了 'COMPLETE'，下一个 agent 用 strings.Contains 解析"** 这种隐式协议。新增一份跨阶段数据 = 加一个 typed 字段，加 schema 描述。
 
-### V2 写入主链（单一收口，v3 2026-05）
+这个理念让系统具备两个非常重要的性质：
 
-V2 carrier 全链已统一收口到一条单一主链；新增 block 字段 / claim_form / 关系类型时，每条只改一处即可。
+- **可审计**：调试一个问题时，沿着字段所有 producer / consumer 一路 grep 到底就能看完整路径。
+- **可重构**：要换 LLM provider、换 prompt 风格、换 tool 实现，typed 边界是稳定的；任何 prose-heavy 的胶水都集中在 boundary 一处。
 
-| 角色 | 真理源 | 加新内容改这一处 |
+### 1.3 Fail-loud 而不是静默兜底
+
+> *像装修验收：水电没过、墙没干就直接停工通知客户，绝不"反正差不多看不见就先贴瓷砖了"。第一次出错就让人看见，比起后面发现一面墙是空的代价低得多。*
+
+如果 LLM 没按约定调 `emit_analysis`，analyzer 就让阶段返回 error，编排器负责按 `pipeline_max_retries_per_stage` 重试，重试耗尽则终止 Run；不会"静默生成一个零值 IR 让下游凑合跑"。整个系统的所有结构化发射器（`emit_*` 系列）都遵守同一个原则：调用失败，就让本阶段失败。
+
+### 1.4 读取与写入严格分离
+
+读模式工具全部嵌入 `tool.ReadOnly`，写模式工具嵌入 `tool.WriteCapable`。`IsWrite()` 是单一真源，决定一个 tool 在哪种 Mode 下才会出现在 LLM 的 schema 里。读模式 agent 物理上看不到 `apply_patch` / `emit_change_plan`，写模式 agent 物理上看不到读模式专属的 emit 工具。`internal/context/builder.go` 在写阶段（`PipelineStage.IsWrite() == true`）跳过所有读模式 stage artifact 的传播——planner / coder / verifier 永不会看到 explorer 留下的 EvidenceItems 或 analyzer 的 StageReport prose。
+
+### 1.5 精确信号才能用作硬约束
+
+> *像安检：金属探测器（typed enum、精确比较）才能用来"开门 / 不开门"决策；瞳孔识别打分（heuristic）只能用来"给前面安检员一个提醒"。把"瞳孔不像本人 = 不开门"作为硬规则，会让 100 个普通乘客有 1 个被卡。*
+
+系统里有大量"信号"——LLM 自评的 predicate、grep 命中数、相似度打分、子话题数量等。架构里有一条明确的红线：**精确信号（typed enum、数值比较、子串完全匹配、schema 校验过的字段）才能驱动硬性 gate**；嘈声信号（ranker 打分、heuristic 分类）只能驱动软提示（skill prompt 提醒、advisory log）。把硬 gate 架在嘈声信号上，必然导致结构正常的请求偶发被拒。
+
+---
+
+## 2. 整体流水线
+
+### 2.1 阶段一览
+
+读模式 4 个核心阶段加 2 条条件前置，写模式 3 个核心阶段：
+
+| 阶段 | 默认 Agent | 默认 Skill | 触发条件 | Terminal |
+|------|-----------|-----------|---------|:-:|
+| `log_triage` | `log_triager` | `log-triage-skill` | `BusContext.AttachedLog` 非空 | |
+| `perf_triage` | `perf_triager` | `perf-triage-skill` | `BusContext.AttachedHitrace` 非空 | |
+| `analyze` | `analyzer` | `analysis-skill` | 无条件 | |
+| `explore` | `explorer` | `explore-skill` | 读模式无条件 | |
+| `extract` | `extractor` | `extract-skill` | 读模式无条件 | |
+| `finalize` | `finalizer` | `answer-document-skill` | 读模式无条件 | ✅ |
+| `plan` | `planner` | `change-plan-skill` | 写模式 | |
+| `apply` | `coder` | `code-write-skill` | 写模式 | |
+| `verify` | `verifier` | `test-execute-skill` | 写模式 | ✅ |
+
+`log_triage` 和 `perf_triage` 互相独立——同一个 Run 可以同时挂 panic 日志和性能 trace，两个前置阶段并行写 `Mutable.LogTriage()` / `Mutable.PerfTrace()`，下游 analyzer 同时消费。任一前置阶段失败都不会阻塞主流水线，bundle 留为 nil，每个下游消费者都会 nil-check 优雅降级。
+
+### 2.2 读模式：DAG-aware 调度
+
+> *像一个总指挥拿着工程图纸（TaskGraph）调度工地：每天早上看哪些工序的前置条件都满足了（"水电过验收了"），就把今天能干的活合并成一份派工单交给现场（explorer）。完工后逐项检查（SuccessCriteria），不合格的让相关人员返工（requeue 上游 evidence 节点），但不重启整个工地。原地打转的工序专门有兜底机制（shape-guard）。*
+
+analyzer 一次性产出整张 `TaskGraph`（DAG），编排器（`internal/orchestrator/scheduler.go::runTaskGraph`）按 DAG 边沿迭代调度。每一轮：
+
+1. **就绪窗口收集**：扫描所有 pending / requeued 节点，对每个节点的 `EntryConditions`（`[]Criterion`）调用 `criterion.Eval` 判断是否满足；满足的非 finalize 节点合并成**一次** explorer dispatch。
+2. **窗口分派**：explorer 在一次 ReAct 循环里同时为窗口内所有节点收集证据，结束后系统把节点状态推进。
+3. **Shape-guard 短路**：编排器记录每次 pure-read 检查的 `envShape`（八维 int 指纹：Evidence / AnswerSymbols / AnswerChains / ToolResults / ReadSet / PendingReads / DecidedHypotheses / PrescanBytes 计数）。新一轮检查时若 shape 未变，直接跳过——避免"同一组输入反复触发同一个 predicate" 的死循环。
+4. **success criterion 评估**：分派完成后，每个窗口节点的 `SuccessCriteria` 用 `criterion.Eval` 判定。通过 → done；不通过 → requeued，沿 `EdgeValidationFeedback` 边只 requeue 必要的上游 evidence 节点（精细回溯，不重启整个窗口）。
+5. **Stuck 逃生**：validate 节点的 SC 失败时，系统记录 envShape；如果下次失败时 shape 与上次相同（重新调查没带来新证据），系统判定"此路不通"，给所有还是 HypUnknown 的假设注入诚实的 `HypInconclusive` verdict + stuck rationale，标 done 不再 requeue。
+6. **finalize 派发**：所有非 finalize 节点都 done 时分派 finalizer。
+7. **contract check**：finalizer 写出 AnswerDocument 后，系统跑一遍合同检查（typed validators），通过则结束；不通过且预算未耗尽则把违规诊断写进 retry hint，requeue finalize + 所有 done 的 explorer 节点跑一轮 cross-window retry；预算耗尽则在原答案前面 prepend 一条 fail-loud 警告后返回（让用户看见模型最后想说什么）。
+
+### 2.3 写模式：线性 3 节点图
+
+写模式不走 DAG scheduler。`Run()` 入口先验证 `write_enabled`，跑一次 analyzer 作请求分类器（产出标准 `AnalysisIR`，但下游 plan/apply/verify 消费的是另一份）。然后跑 `write_analyzer`（独立 agent + tool `emit_write_analysis`）产出 `WriteAnalysisIR`——任务的 kind / scope / risk / 期望结果，可选的多阶段拆分提议。`BuildWriteTaskGraph` 把这份 IR 翻译成线性 3 节点 plan→apply→verify graph，由 `runWriteSchedulerLoop` 顺序走完。
+
+写模式的三个阶段各自有典型 success criterion：
+
+| 节点 | 通过条件（criterion.Kind） | 输入 |
 |---|---|---|
-| 用户语义合同 | `internal/types/answer_semantic_view.go::AnswerSemanticView` | family compile 文件的 RequiredBlocks / OptionalBlocks |
-| 唯一载体 | `internal/types/answer_document_v2.go::AnswerDocumentV2` | 该文件加 typed 字段 |
-| 唯一写入协议 | `internal/types/answer_document_v2_mutation.go::AnswerDocumentMutation` (kind: `replace_all` \| `partial`) | 不需要扩种类，typed 字段在载体层走完即可 |
-| 唯一写入闭环 | `internal/tool/answer_document_mutation_runtime.go::ApplyAndPersistMutation` | merged-doc 不变量加这里 |
-| 唯一 setter | `MutableState.SetAnswerDocumentV2WithMutation(kind, doc)` | 不再有 split full/patch setter |
-| LLM-facing 块合同 | `internal/tool/answer_document_block_schema.go::BuildAnswerDocumentSemanticContractDescription` | tool Description() 自动同步 |
-| Diagram 关系合同 | `internal/skill/diagram_relation_doc.go::BuildDiagramRelationContractDoc` (从 `types.AllDiagramRelationKinds` 自动渲染) | 加 RelationKind / keyword / claim_form 自动同步 prompt |
-| 校验主链 | `internal/orchestrator/contract_check_block.go::runV2BlockOraclesWithMut` (HARD/correctness + Layer 2 completeness + Layer 3 richness) | 加 validator 入此 dispatch |
-| 二级反检 | `internal/orchestrator/semantic_quality_reviewer.go` (reverse-check system-detected gaps) | reviewer prompt + SemanticQualityInput |
-| 修复编排 | `internal/orchestrator/repair_execution_plan.go` + `repair_cluster_closure.go` (cluster-state closure progresses owners) | classifyNextPlanAction |
-| ViolKind 注册 | `internal/types/violation_registry.go::RegisterViolKind` (单源真理，5 张派生表自动覆盖) | 新 kind 一处 spec 即可 |
+| plan | `CritPlanReady` — `Mutable.ChangePlan` 非空、`WriteClosure.PendingApplies > 0` | Mutable.ChangePlan |
+| apply | `CritPatchApplies` — `WriteClosure.AppliedSet ⊇ ChangePlan.TargetPaths` | Mutable.WriteClosure |
+| verify | `CritTestsPass` AND `CritNoRegression` | Mutable.ChangeReport ± BaselineReport |
 
-加新 block 字段成本路径：typed model + NormalizeEmitAnswerBlock → 自动覆盖 full + patch + tool Description + 校验主链。
+读模式 Run 里这 4 个 typed env slot 全是 nil，对应的 evaluator 直接返回 Satisfied=true（保持读模式字节级行为不变的红线）。
 
-### 系统概览
+### 2.4 系统概览图
 
 ```mermaid
 graph TB
     User([用户请求])
 
     subgraph Orchestrator["编排器 internal/orchestrator"]
-        Orch["读模式：criterion-aware DAG scheduler
-        + fail-loud retry + CGEC enforcers I1-I4
-        写模式：plan / apply / verify phase 直分派
-        （绕过 scheduler）"]
+        Orch["读模式：criterion-aware DAG scheduler<br/>+ contract check + retry budget<br/>+ CGEC enforcers I1-I4<br/>写模式：plan / apply / verify 直分派"]
     end
 
     subgraph Agents["Agent internal/agent"]
         LT["log_triager · 条件前置"]
         PT["perf_triager · 条件前置"]
+        WA["write_analyzer · 写模式分类"]
         A1["analyzer"]
         A2["explorer · Turn A"]
         A3["extractor · Turn B"]
@@ -99,326 +137,97 @@ graph TB
         V["verifier · write"]
     end
 
-    subgraph Skills["Skill internal/skill · 声明式配置"]
-        S["log-triage-skill / log-segmentation-skill
-        perf-triage-skill / perf-segmentation-skill
-        analysis-skill / explore-skill / extract-skill
-        answer-document-skill
-        change-plan-skill / code-write-skill
-        test-execute-skill"]
+    subgraph Skills["Skill · 声明式配置"]
+        S["log-triage / log-segmentation<br/>perf-triage / perf-segmentation<br/>analysis / explore / extract<br/>answer-document<br/>change-plan / code-write / test-execute"]
     end
 
     subgraph Tools["Tool internal/tool"]
-        T["只读工具
-        grep / read_file / list_files
-        repo_map / exec_command
-        git_diff / git_log"]
-        E["结构化发射器
-        emit_log_triage / emit_log_segmentation
-        emit_perf_trace / emit_perf_segmentation
-        emit_analysis / emit_evidence
-        emit_answer_symbol / emit_hypothesis_verdict
-        emit_answer_document
-        emit_investigation_complete
-        propose_sub_agents"]
-        W["写模式工具 · WriteCapable
-        emit_change_plan（含 git apply --check 预检）
-        apply_patch（schema {path, kind}；内容源于 Mutable）
-        run_tests（12 种 runner：go / node / python / rust / java（含 Kotlin/Android via gradle）/ ruby / swift / cmake / meson / make / hvigor / cjpm）
-        emit_test_results"]
-        G["internal/tool/ground
-        citation / evidence 落地验证
-        T1 / T2 + R1-R5 recovery"]
-        FB["internal/tool/feedback
-        composePatchRejection
-        conflictContextSnippet"]
+        T["只读工具<br/>grep / read_file / list_files<br/>repo_map / exec_command<br/>git_diff / git_log<br/>recall_memory / list_memory"]
+        E["结构化发射器 emit_*<br/>analysis · evidence<br/>answer_symbol · hypothesis_verdict<br/>investigation_complete<br/>answer_document · answer_document_patch<br/>log_triage · perf_trace · 两步切片"]
+        W["写模式工具 · WriteCapable<br/>emit_write_analysis<br/>emit_change_plan / emit_plan_change<br/>apply_patch · run_tests · emit_test_results"]
+        G["internal/tool/ground<br/>citation / evidence 落地验证<br/>T1 / T2 + R1-R5 recovery"]
     end
 
     subgraph Subsystems["运行时子系统"]
-        WT["internal/worktree
-        git worktree 沙箱会话
-        活跃集 + PID 回收"]
-        PS["internal/repl/planstore
-        ChangePlan 持久化"]
+        WT["internal/worktree<br/>git worktree 沙箱会话<br/>活跃集 + PID 回收"]
+        PS["internal/repl plan store<br/>ChangePlan 持久化"]
+        MEM["internal/memory<br/>REPL 多轮记忆"]
     end
 
-    subgraph Analysis["Analysis internal/analysis · 21 确定性子包"]
-        AN["normalizer / compiler / budget
-        sourcemix / risk / hdp / priority
-        binder / counterfactual / gate
-        stopcond / criterion / contract / dataflow
-        aggregator / declarative / findings_validator
-        hint / patcher / axis / subject"]
+    subgraph Analysis["Analysis · 25 确定性子包"]
+        AN["normalizer / amplifier / compiler<br/>budget / sourcemix / risk / hdp<br/>priority / binder / counterfactual<br/>gate / criterion / contract / dataflow<br/>aggregator / declarative / findings_validator<br/>hint / patcher / axis / subject / prescan<br/>stopcond / logtriage / perftriage"]
     end
 
     User --> Orch
-    Orch -->|读模式 dispatch| LT & PT & A1 & A2 & A3 & A4
-    Orch -->|写模式 dispatch| P & C & V
-    LT & PT & A1 & A2 & A3 & A4 & P & C & V -.->|读配置| S
+    Orch -->|读模式| LT & PT & A1 & A2 & A3 & A4
+    Orch -->|写模式| WA & P & C & V
+    LT & PT & A1 & A2 & A3 & A4 & WA & P & C & V -.->|读配置| S
     LT & PT & A1 & A2 & P & C & V -->|调用| T
     LT & PT & A1 & A2 & A3 & A4 -->|调用| E
     P -->|调用| W
+    WA -->|调用| W
     C -->|调用| W
     V -->|调用| W
-    W -->|"git apply → patch(1) fallback"| FB
     E -->|同步调用| G
-    LT & PT & A1 & A2 & A3 & A4 & P & C & V -->|调用 LLM| LLM[LLM internal/llm]
     A1 -->|buildAnalysisIR| AN
     Orch -->|stopcond / criterion / cgec| AN
-    A3 -->|criterion auto-verdict| AN
     Orch -->|provision / discard| WT
-    Orch -->|持久化 / 加载| PS
+    Orch -->|持久化 / 加载| PS & MEM
 ```
 
 ---
 
-## 2. 四阶段流水线
+## 3. 核心组件分层
 
-拓扑是**硬编码**的（`internal/orchestrator/topology.go`）：主流水线 4 阶段 × 4 agent 永远按序执行；`log_triage` / `perf_triage` 是两条独立的条件前置阶段，`BusContext.AttachedLog` / `AttachedHitrace` 非空时分别触发（Guard 定义在同文件的 `preStages` 列表中），任一前置阶段失败都不阻塞主流水线。
+| 组件 | 包路径 | 职责 |
+|------|--------|------|
+| **Orchestrator** | `internal/orchestrator` | DAG 调度、阶段分派、retry / contract check、CGEC enforcer、写模式三阶段直分派 |
+| **Agent** | `internal/agent` | 9 个专业 Agent；每个嵌入 `BaseAgent` 跑 ReAct 循环 |
+| **Skill** | `internal/skill` | 声明式配置：每个 skill 写明 workflow / 工具 allowlist / 输出格式 / 禁令 |
+| **Tool** | `internal/tool` | 只读工具 + 结构化发射器 + 写模式工具 + grounding 验证 |
+| **Analysis** | `internal/analysis/*` | 25 个确定性子包，组装 IR + 运行时求值 criterion |
+| **Context builder** | `internal/context` | typed struct → markdown prompt 唯一装配点；canonical section 顺序锁死 |
+| **LLM** | `internal/llm` | 可插拔 adapter 接口；per-agent 模型路由；流式回调；fallback 链 |
+| **Render** | `internal/render` | 事件流 + CLI 渲染器 + AnswerDocument → markdown |
 
-```go
-// 主流水线（无条件）
-var pipelineTopology = map[types.PipelineStage]struct {
-    Agent    types.AgentName
-    Skill    string
-    Terminal bool
-}{
-    types.StageLogTriage: {Agent: types.AgentLogTriager, Skill: "log-triage-skill"},
-    types.StageAnalyze:   {Agent: types.AgentAnalyzer,   Skill: "analysis-skill"},
-    types.StageExplore:   {Agent: types.AgentExplorer,   Skill: "explore-skill"},
-    types.StageExtract:   {Agent: types.AgentExtractor,  Skill: "extract-skill"},
-    types.StageFinalize:  {Agent: types.AgentFinalizer,  Skill: "answer-document-skill", Terminal: true},
-}
+四条铁律：
 
-// 条件前置阶段列表（按声明顺序依次尝试）
-var preStages = []preStageEntry{
-    {Stage: types.StageLogTriage,  Guard: /* AttachedLog != "" */},
-    {Stage: types.StagePerfTriage, Guard: /* AttachedHitrace != "" */},
-}
-```
+1. **所有 tool 调用和 LLM 调用必须经 Agent**——orchestrator 不直接调工具或 LLM。
+2. **Analysis 层是纯函数**——不调 LLM、不调工具、不读文件系统。
+3. **Skill 是声明式数据**——加载后被 Agent 渲染进 prompt，自己不主动调任何东西。
+4. **Tool 收到的 BusContext 是窄视图**——只有 `Mutable` 字段允许写入，其他字段都是 read-only handle。
 
-| 阶段 | 默认 Agent | 默认 Skill | 触发条件 | Terminal |
-|------|-----------|-----------|---------|:-:|
-| `log_triage` | `log_triager` | `log-triage-skill` | `AttachedLog` 非空 | |
-| `perf_triage` | `perf_triager` | `perf-triage-skill` | `AttachedHitrace` 非空 | |
-| `analyze` | `analyzer` | `analysis-skill` | 无条件 | |
-| `explore` | `explorer` | `explore-skill` | 无条件 | |
-| `extract` | `extractor` | `extract-skill` | 无条件 | |
-| `finalize` | `finalizer` | `answer-document-skill` | 无条件 | ✅ |
+### 3.1 Agent 与 ReAct 循环
 
-两条前置阶段彼此独立 —— 同一个 Run 可以同时挂日志（panic 栈）+ trace（性能事件），各自走自己的 triager 写出 `Mutable.LogTriage()` / `Mutable.PerfTrace()`，下游 analyzer 同时消费两份。
+`BaseAgent` 提供统一的 ReAct 循环。每个 agent 通过实现 4 个钩子接入循环：
 
-### 运行时流程
+- `BuildInitialInstruction` — 给本次 dispatch 注入 stage-specific 的动态补充（不重述 skill 已写的内容）
+- `ShouldStop` — 决定何时退出循环
+- `ParseOutput` — LLM 停下后跑确定性后处理
+- `DetermineMissingPiece` — 失败时分类失败原因，驱动 retry hint
 
-**读模式（`Mode == ModeRead`）**：
+可选实现 `LoopController` 接入循环控制：每轮 tool call 后（`PhaseMidLoop`）和 LLM 返回纯文本无 tool call 时（`PhaseSoftStop`）调用 `Observe(ctx, obs)`，返回 `Progress` / `StopRequested` / `HintRequested+Hint+HintKey`。节流（`MinInjectInterval`）、去重（按 `HintKey`）、预算（`MaxContinuations` / `MaxMidLoopInjects`）、idle-streak 强停统一交给 `loopPolicyState.Apply` 执行。
 
-```mermaid
-stateDiagram-v2
-    [*] --> logTriageGate
-    logTriageGate --> log_triage : AttachedLog 非空
-    logTriageGate --> perfTriageGate : AttachedLog 空或 log_triage 失败（降级）
-    log_triage --> perfTriageGate : bundle 写入 Mutable.LogTriage
-    perfTriageGate --> perf_triage : AttachedHitrace 非空
-    perfTriageGate --> analyze : AttachedHitrace 空或 perf_triage 失败（降级）
-    perf_triage --> analyze : bundle 写入 Mutable.PerfTrace
-    analyze --> taskLoop : AnalysisIR.TaskGraph 生成
-    taskLoop --> explore : readyExplorerWindow 非空
-    explore --> extract : 当前 window 全 done
-    extract --> finalize : finalize 节点 ready
-    finalize --> contractCheck
-    contractCheck --> taskLoop : 失败且 retry budget 有余（requeue）
-    contractCheck --> [*] : 通过 / retry 耗尽（fail-loud）
-```
+**Terminal-tool-call stop**：每个 agent 的 `Observe` 检测到自己的"终态工具"成功返回后立即 `StopRequested: true`：
 
-**写模式（`Mode ∈ {ModePlan, ModeApply, ModeVerify}`）**：不经 `runTaskGraph`，`Run()` 根据 Mode 直接分派到 phase 函数；analyze 仍跑一次作为分类器。
+| Agent | 终态工具 |
+|-------|---------|
+| log_triager | `emit_log_triage`（两步升级时为第二轮 emit） |
+| perf_triager | `emit_perf_trace`（两步升级时为第二轮 emit） |
+| analyzer | `emit_analysis` |
+| explorer | `emit_investigation_complete` |
+| extractor | 任何成功的 `emit_*` |
+| finalizer | `emit_answer_document` 或 `emit_answer_document_patch` |
+| write_analyzer | `emit_write_analysis` |
+| planner | `emit_change_plan` 或 `emit_plan_change`（多轮流式） |
+| coder | `WriteClosure.AppliedSet ⊇ ChangePlan.TargetPaths` |
+| verifier | `run_tests` 成功安装 ChangeReport（`emit_test_results` 可选） |
 
-```mermaid
-stateDiagram-v2
-    [*] --> writeGate
-    writeGate --> [*] : write_enabled=false → fail-loud
-    writeGate --> analyze : write_enabled=true
+**Context-pressure 监控**：每轮裁剪 tool history 之后，`BaseAgent.Execute` 估算 wire-level prompt 字节数和 `context_window × BytesPerToken` 比值。`agent_context_pressure_soft_ratio`（默认 0.7）超过则记 `WARN [SOFT]`；`agent_context_pressure_hard_ratio`（默认 0.9）超过则 append 一条 user-role hint（用 6 段格式：What failed / Why / What I already did / How to fix / Allowed / Do NOT），下一轮强制退出。每个 agent 自带的 AllowedSet / ForbiddenPatterns 跟它真正能调的工具集合对齐——verifier 看到的 hint 只列 `run_tests`，coder 只列 `apply_patch`，避免跨 stage 工具名误导。
 
-    analyze --> planPhase : Mode=ModePlan
-    analyze --> applyPhase : Mode=ModeApply 且 PlanPath 已设
-    analyze --> planPhase2 : Mode=ModeApply 且 PlanPath 未设
-    analyze --> verifyPhase : Mode=ModeVerify
+### 3.2 Skill 的角色
 
-    planPhase --> emitChangePlan : planner dispatch
-    emitChangePlan --> preflightCheck : 每个 kind=patch
-    preflightCheck --> emitChangePlan : 拒收（planner 下轮重试 / cap=6）
-    preflightCheck --> planDone : git apply --check --recount 通过
-    emitChangePlan --> planDone : 无 kind=patch 或全通过
-    planDone --> persistPlan : .codrax/plans/<id>.json
-    persistPlan --> [*] : pending_approval
-
-    planPhase2 --> emitChangePlan
-    applyPhase --> worktreeProvision : git worktree add
-    worktreeProvision --> baselineCapture : pipeline_baseline_capture_enabled=true
-    worktreeProvision --> coderDispatch : 默认
-    baselineCapture --> coderDispatch : BaselineReport 挂载
-    coderDispatch --> applyPatch : 每个 change 一次
-    applyPatch --> applyPatch : W1 / W1b / kind match 失败 → 下轮重试
-    applyPatch --> coderDispatch : AppliedSet ⊇ TargetPaths？
-    coderDispatch --> verifyPhase : 是
-    coderDispatch --> verifyRetry : 否 → apply_failed
-
-    verifyPhase --> runTests : run_tests 自动探测 runner
-    runTests --> changeReportInstalled : parser 产出 ChangeReport
-    changeReportInstalled --> verifySuccess : Passed=true
-    changeReportInstalled --> verifyRetryGate : Passed=false
-
-    verifyRetryGate --> verifyRetry : pipeline_write_retry_budget > attempts
-    verifyRetryGate --> verifyFailed : 重试耗尽
-    verifyRetry --> planPhase : PlanningHint 注入 → reset plan/report/worktree
-
-    verifySuccess --> worktreeDecide
-    worktreeDecide --> preserved : pipeline_keep_worktree_on_success=true
-    worktreeDecide --> discarded : 默认
-    preserved --> [*] : PlanStatus=applied; plan.WorktreePath 暴露
-    discarded --> [*] : PlanStatus=applied; worktree 销毁
-
-    verifyFailed --> [*] : PlanStatus=verify_failed; worktree 无条件销毁
-```
-
-0. **Phase 0 — `log_triage`**（条件前置）：`BusContext.AttachedLog` 非空时触发。`log_triager` agent 读取日志原文，LLM 通过 `emit_log_triage` 发出四层结构化 bundle（`Meta` / `Errors` 含递归 `Cause` / `Residue`），系统调用 `logtriage.ValidateBundle` 做路径校验 + 仓内存在性过滤 + Layer 4 派生（`ResolvedFiles` / `Entities` / `IntentHint` / `Coverage`），写进 `Mutable.LogTriage()`。coverage 过低或日志体积超阈值（默认 32 KB）自动走两步升级（`emit_log_segmentation` → 逐段 `emit_log_triage` → `MergeBundles`）。阶段失败**不阻塞**主流水线——bundle 停留为 nil，每个下游消费者（analyzer 的 entity merge / intent override / RequiredFiles seed）都 nil-check 优雅降级。详见 §4.5。
-1. **Phase 1 — `analyze`** 跑一次。analyzer 先用 1-2 轮 evidence-lite 预扫（`repo_map` / `grep files_only=true` / `list_files`）验证用户提到的实体和术语是否在仓库里出现，然后一次 `emit_analysis` 调用写出 v4 `RequestModel`。`analyzer.ParseOutput` 随后确定性地跑后处理管线（见 §7）组装完整的 `AnalysisIR` 并写进 `BusContext.AnalysisIR`。analyzer **禁止**读文件内容（`read_file` / `exec_command` 不在它的 tool allowlist）。
-2. **Phase 2 — per-task DAG 执行**。`runTaskPhase` 调用 `runTaskGraph` 遍历 `AnalysisIR.TaskGraph.Nodes`：
-   - **criterion-aware window schedule**：`readyExplorerWindow` 返回两个列表：`ready`（所有 `EntryConditions` 满足的 pending/requeued 非 finalize 非 counterfactual 节点）和 `blocked`（entry condition 未满足的节点——在 retry hint 中暴露阻塞的 criterion 诊断）。Ready 节点合并成**一次** `explore` dispatch。每轮开始前 `stopcond.ShouldStop` 评估 `EvidencePlan.StopConditions`（OR 语义），命中则跳到 finalize。编排器在入口从 `EvidencePlan.NodeBudgetHints` 安装 `ExploreBudget` 到 `MutableState`；explorer 的 `BaseAgent.executeTool` 在每次工具调用前检查剩余预算，超额返回失败 `ToolResult`。
-   - **Shape-guard 保护 pure-read 分支**：`stopcond.ShouldStop` 和 validate 节点的 SuccessCriteria 评估都是 pure functions over `criterion.Env`——相同 env 永远返回相同 verdict。调度器用 `envShape`（`Evidence` / `AnswerSymbols` / `AnswerChains` / `ToolResults` / `ReadSet` / `PendingReads` / `DecidedHypotheses` / `PrescanBytes` 八维 int 指纹，O(1) 计算与比较）对每一次 pure-read 检查做 gate：记录上次评估时的 shape，下次 shape 未变就跳过或升级处理。该机制在 `runTaskGraph` 里解决整类"predicate 输入是 pure-read + 分支 body 不推进输入 → 热循环"结构脆弱性，不依赖每个 predicate 自己加 latch。
-   - **StageExtract** 在 explore window 完成后作为 Turn B 分派。dispatch 后 `markSuccessCriteriaFailed` 评估每个 window 节点的 `SuccessCriteria`——通过的节点标 done，未通过的标 requeued。若失败的是 **validate** 节点，额外触发 `requeueValidationTargets`：沿 `EdgeValidationFeedback` 边只 requeue 其上游 evidence 节点（细粒度回溯，非整个 window）。**Shape-stuck 逃生**：`lastSCFailShape[validateID]` 记录每个 validate 节点上一次 SC 失败时的 shape；如果这次失败时 shape 相同（re-investigation 没带来新证据），调度器判定"此路不通"——调用 `injectInconclusiveForStuckHypotheses(validateID)` 对仍 HypUnknown 的假设注入诚实 `HypInconclusive` verdict + stuck-signal rationale，`markDone(validateID)`，不再 requeue。典型触发场景：Java trace 配 Go repo，假设引用的类在仓里根本不存在，explorer 再读 N 轮都读不出来。extractor 的 `ParseOutput` 对每条 hypothesis 调用 `criterion.Eval`：`RequiredEvidence` 全满足但无 LLM verdict → 注入 `HypInconclusive`；`FalsificationCondition` 满足 → 注入 `HypRejected`（覆盖 LLM verdict）。
-   - **StageFinalize** 仅在 `firstFinalizeReadyMerged` 返回非 nil（所有非 finalize、非 counterfactual 节点都 `done`）时分派。
-   - **investigation_complete 策略**（`agent_investigation_complete_policy`，默认 `soft`）：当 LLM 调用了 `emit_investigation_complete` 但 DAG 节点的 `SuccessCriteria` 数量不满足时，`soft` 把 `InvestigationComplete=true` 注入 `criterion.Env` 让阈值降到 ≥ 1；`override` 跳过所有 SuccessCriteria；`strict` 忽略完成信号按模板阈值硬跑。
-   - **多话题 DAG**：`RequestModel.SubTopics` 非空时，`compiler.expandEvidenceNodes` 为每个子话题生成独立 evidence DAG 节点；prescan / explorer iterations / pipeline steps / **analyzer retry budget** / **extractor soft cap** / **verifier soft cap** 全部按 `agent_subtopic_*` + `agent_*_complexity_extra` + `agent_target_paths_*_extra` 自适应扩充，硬顶分别走 `agent_prescan_rounds_ceil` / `agent_explorer_scaled_iter_max` / `pipeline_max_steps_ceil` / `agent_max_retry_budget_ceil` / `agent_extractor_scaled_iter_max` / `agent_verifier_scaled_iter_max`（全部 yaml 可调，零值回落到代码默认）。`AgentContext.{ExtractorSoftIterCapOverride, VerifierSoftIterCapOverride}` 分别给 extractor 和 verifier 在 `BuildInitialInstruction` 注入 per-dispatch 软上限，hard cap = soft + recovery slack；与 `MaxIterOverride`（外层 ReAct ceiling）解耦保持 soft→hard recovery window。`pipeline_max_retries_per_stage` 在 `runAnalyzePhase` 入口被 `dynamicAnalyzeRetries` 按 `EstimateSubTopicCount(objective) / 2 × agent_subtopic_retry_extra` 动态扩展。
-   - **Contract check**：finalize 返回后跑 `contract.Check`。不通过且 retry budget 未耗尽 → requeue finalize + 所有 done 的 explorer 节点，记一次 cross-window retry，把违规诊断塞进下一轮 `RetryHint`；retry 耗尽 → 在原答案上 prepend 一条 fail-loud 警告后返回。
-3. Finalize 把答案写进 `Mutable.Result()`（`recordTaskFinalize`）。`Run()` 返回 `BusContext`，`cmd/root.go` 渲染结果。
-
-**全局预算** `pipeline_max_steps` 是整 Run 的硬上限，跨 Phase 1/2 共用；`EvidencePlan.Budget.MaxReactIters` 是**每个 task** 的额外上限。
-
----
-
-## 3. 组件详情
-
-### 3.1 编排器（`internal/orchestrator`）
-
-| 文件 | 职责 |
-|------|------|
-| `orchestrator.go` | `Run()` 入口、Phase 1 / Phase 2 主循环、contract.Check retry budget |
-| `scheduler.go` | `runTaskGraph`、`readyExplorerWindow`、`markSuccessCriteriaFailed`、`requeueValidationTargets`、`runAutoVerdicts`、`drainHypothesisVerdicts`、`forceCloseExploreWindow` |
-| `topology.go` | 4 stage × 4 agent × 4 skill 硬编码 map |
-| `cgec_enforcers.go` | CGEC I1-I4 执行入口：`applyChainPromotion`、`preCompleteContractCheck`、`detectStallAndAct`、`runForcedReads`、`renderWindowHint`、`emitCGECSummary` |
-| `contract_check.go` | AnswerContract 的 finalize 后置检查 + retry budget |
-| `prior_conv_policy.go` | 4 值 `PriorConvPolicy` 在 per-stage 的可见性解析 |
-| `tier1_floor.go` | evidence Tier-1 floor 检查（`evidence_tier1_floor`） |
-| `user_messages.go` | 向用户渲染的 fail-loud / stall 文案 |
-
-编排器的核心数据类型 `graphState` 记录每个 DAG 节点的状态（`pending` / `running` / `done` / `failed` / `requeued`）和跨 window retry 计数。
-
-### 3.2 Agent（`internal/agent`）
-
-所有 Agent 嵌 `BaseAgent`，后者提供 ReAct 循环，通过 `Evaluator` 接口接入每个 Agent 的四个钩子：`BuildInitialInstruction` / `ShouldStop` / `ParseOutput` / `DetermineMissingPiece`。可选 `LoopController` 接口接入循环控制。
-
-读模式 6 个 agent：
-
-| Agent | Stage | 工具权限 | 职责 |
-|-------|-------|----------|------|
-| `log_triager`（条件前置） | `log_triage` | `read_file`（仅用于分页读 attached log blob） + `emit_log_triage` + `emit_log_segmentation`（两步升级才激活） | 仅在 `BusContext.AttachedLog` 非空时触发。读原始日志，emit 结构化 `LogBundle` 的 Layer 1-3（Meta / Errors / Residue）；系统侧 `logtriage.ValidateBundle` 做路径校验并派生 Layer 4。失败不阻塞主流水线（§4.5） |
-| `perf_triager`（条件前置） | `perf_triage` | `read_file`（仅用于分页读 attached trace blob） + `emit_perf_trace` + `emit_perf_segmentation`（两步升级才激活） | 仅在 `BusContext.AttachedHitrace` 非空时触发。读 HiTrace / atrace / systrace / perfetto 文本，emit 结构化 `PerfBundle` 的 Layer 1-3（Meta / Frames+Janks+Stalls+Startup / Residue）；系统侧 `derivePerfLayer4` 派生 IntentHint=performance / Entities / ResolvedFiles / 自动 signals。两步升级用 `perf-segmentation-skill` 切 `frame_window/jank_region/startup/thread_run/context/noise` 段后逐段重抽。失败不阻塞主流水线 |
-| `analyzer` | `analyze` | `emit_analysis` + evidence-lite 预扫（`repo_map` / `grep files_only=true` / `list_files`） | 1-2 轮预扫验证实体，然后一次 `emit_analysis` LLM 调用产出 v4 `RequestModel`；`ParseOutput` 跑确定性管线组装 `AnalysisIR` |
-| `explorer`（Turn A） | `explore` | `grep` / `read_file` / `repo_map` / `list_files` / `exec_command` / `emit_evidence` / `emit_investigation_complete` / `propose_sub_agents` | 两阶段调查（Phase 0 Breadth → Phase 1 Depth），独占写 `EvidenceItems` / `AnswerChains` / `FlowFindings`，把投影快照写入 `TurnAArtifacts` |
-| `extractor`（Turn B） | `extract` | **仅** `emit_answer_symbol` + `emit_hypothesis_verdict` | 一次性 LLM 调用产出答案 slate + completeness claim + hypothesis verdict。**禁止文件 IO、禁止 `emit_evidence`**。工具参数校验失败有一次 retry 窗口（`ShouldStop: iteration >= 2`） |
-| `finalizer` | `finalize` | `emit_answer_document` | 按 `AnswerSemanticView`（QuestionFamily 编译） + 必填 block 渲染结构化 V2 答案文档，触发 block-only contract check |
-
-写模式 3 个 agent（需 `write_enabled: true`，详见 §4.6）：
-
-| Agent | Stage | 工具权限 | 职责 |
-|-------|-------|----------|------|
-| `planner` | `plan` | `read_file` / `grep` / `list_files` / `repo_map` / `exec_command` / `emit_change_plan` | 读代码理解当前结构，产出完整 ChangePlan；不写文件；soft cap **per-dispatch 自适应**（`orchestrator.go` 按分析器输出按 sub-topic 数 × `agent_subtopic_planner_extra` 默认 3 + complexity 等级 × `agent_planner_complexity_extra` 默认 2 算出 soft cap，写到 `AgentContext.PlannerSoftIterCapOverride`（与 explorer 用的 `MaxIterOverride` **解耦** — 外层 ReAct loop 仍跑默认 `MaxIterations=20`，留给 soft→hard recovery window 实际可用空间），planner 在 `BuildInitialInstruction` 消费；hard 在 soft 基础上加 `defaultHard - defaultSoft` recovery 余量；总硬顶 `plannerScaledIterMax=20`），冷启动 6 次默认仅在分析器无 IR 时兜底|
-| `coder` | `apply` | `read_file` / `apply_patch` / `exec_command` | 按 `plan.Changes[]` 逐单元调用 `apply_patch(path, kind)`；工具从 `Mutable.ChangePlan()` 读取 `NewContent`/`Patch`（LLM 不转抄内容，schema 禁止）；ShouldStop 在 `WriteClosure.AppliedSet ⊇ plan.TargetPaths` 时触发 |
-| `verifier` | `verify` | `read_file` / `run_tests` / `emit_test_results`（可选） / `exec_command` | `BuildInitialInstruction` 总是发射"## Verify phase"阶段定向指令（即使 plan 无 AcceptanceTests 也不返回空串）；`run_tests` 同步 install `ChangeReport`；`emit_test_results` 是可选 LLM narrative；权威 pass/fail 来自 parser，不由 LLM 覆盖 |
-
-**读→写 context 隔离**（`internal/context/builder.go`）：`PipelineStage.IsWrite() ∈ {StagePlan, StageApply, StageVerify}` 为 true 时，`BuildAgentContext` 跳过所有读模式字段的传播（`RelevantFacts` / `EvidenceItems` / `AnswerChains` / `AnswerSymbols` / `PriorReports` / `UnverifiedAnalyzerFindings` / `SubjectMatches` / `ExpectedAnswerSubject` 等）；`BuildPromptContext` 对 `StageApply` / `StageVerify` 另外抑制 "User Request" 段（用户的原始自然语言请求通常是 plan-shaped，会干扰 apply/verify 的机械执行角色；plan 意图已在 `Mutable.ChangePlan` 上供 stage-specific 使用）。`StageAnalyze` 即便在写模式下也视为读模式（它仍需分类器输入）。这些边界由 `internal/types/pipeline_stage_test.go::TestPipelineStage_IsWrite` 和 `internal/context/builder_test.go::TestBuildAgentContext_WriteStage_ScrubsReadModeArtifacts` 硬编码测试固化。`formatStageReports` 额外剥 `<think>…</think>` 片段作为 defense-in-depth，读模式也受益（explorer / extractor / finalizer 不再看到 analyzer 的内部推理）。
-
-#### ReAct 循环
-
-```mermaid
-graph TD
-    Start([Agent 接收 prompt]) --> Think[LLM 推理]
-    Think --> Decide{需要工具?}
-    Decide -->|是| Act[调用工具]
-    Act --> MidLoop{LoopController<br/>Observe PhaseMidLoop}
-    MidLoop -->|InjectHint| Think
-    MidLoop -->|Stop| Output
-    MidLoop -->|Continue| Think
-    Decide -->|否| SoftStop{LoopController<br/>Observe PhaseSoftStop}
-    SoftStop -->|InjectHint| Think
-    SoftStop -->|Stop/Continue| Output[ParseOutput → StageOutput]
-    Output --> Done([返回编排器])
-```
-
-- **`LoopController`**（`agent.go`）统一的循环控制钩子。`BaseAgent.Execute` 在两个时机调用它：
-  - `PhaseMidLoop` — 每一轮 tool 调用后；
-  - `PhaseSoftStop` — LLM 返回纯文本且没 tool 调用时。
-
-  评估器的 `Observe(ctx, obs) LoopSignal` 只做**检测**，返回 `Progress` / `StopRequested` / `HintRequested`+`Hint`+`HintKey`。节流（`MinInjectInterval`）、去重（按 `HintKey`）、预算（`MaxContinuations` / `MaxMidLoopInjects`）、idle-streak 强停（`IdleStopThreshold`）统一由 **`LoopPolicy`**（`loop_policy.go`）的 `loopPolicyState.Apply` 执行。
-
-- **Terminal-tool-call stop**：4 个 agent 的 `Observe` 在 `PhaseMidLoop` 检测到各自的终态工具调用**成功**后立即返回 `StopRequested: true`。失败（参数校验错误等）**不触发** stop，允许 LLM 下一轮看到错误并重试。
-
-  | Agent | 终态工具 | Stop 条件 |
-  |-------|---------|-----------|
-  | log_triager | `emit_log_triage`（单步）或两步 fallback 的第二轮 `emit_log_triage` | 成功 emit 并 `logtriage.ValidateBundle` 通过；两步升级由 agent controller 驱动（§4.5） |
-  | analyzer | `emit_analysis` | `LastToolResult.Success == true` |
-  | explorer | `emit_investigation_complete` | `LastToolResult.Success == true` |
-  | extractor | 任何 emit_* | `AllToolResults` 中存在 `Success == true` |
-  | finalizer | `emit_answer_document` | `MutableState.AnswerDocument()` 非空 |
-
-- **ExploreHeuristics**（`types.DefaultExploreHeuristics()`）：explorer 的 mid-loop / soft-stop 检测用的 16 个阈值（mid-loop / soft-stop / Phase 0 / enumeration / parallelize 等）全部通过 `codrax.yaml` 的 `explore_*` 键覆盖，零值用代码默认。
-
-- **Context-pressure 监控**（所有 agent 通用）：`BaseAgent.Execute` 在每轮 `pruneToolHistory` 之后立刻执行监控。若 `b.deps.LLM.MaxContextTokens() > 0` 且 `AgentSettings.ContextPressureSoftRatio/HardRatio` 有至少一项 > 0：
-  - `estimateMessagesBytes(messages)` 估算 wire-level prompt 字节（Role + Content + ToolCallID + ToolCalls[*].ID/Name/Params 的总 len）
-  - `byteBudget = ctxWindow × types.BytesPerToken` 作分母，算 `ratio`
-  - `ratio ≥ HardRatio` → `logging.Warning "HARD"` + append 一条 user-role hint（通过 `contextPressureDirective(name, promptBytes, byteBudget, hardRatio)` 生成，**复用 `internal/analysis/hint.Composer`** 的 "**What failed** / **Why it failed** / **What I already did** / **How to fix now** / **Allowed** / **Do NOT**" 6 段格式）+ 设 `forceStop = true`（本轮 LLM 调用照跑，下一轮就退出）
-  - `ratio ≥ SoftRatio` → 仅 `logging.Warning "SOFT"`（不改循环控制）
-  - AllowedSet / ForbiddenPatterns **per-agent 定制**：只列该 agent 能调用的终结工具（如 verifier 只看到 `run_tests`、coder 只看到 `apply_patch`、extractor 看到 `emit_answer_symbol`+`emit_hypothesis_verdict`），避免跨 stage 工具名误导；另加 shared-core "禁止更多调查/读/搜" + per-agent 补充（extractor "不能 claim complete"、coder "不要 re-read 文件" 等）
-  - 阈值默认 0.7 / 0.9，yaml 键 `agent_context_pressure_soft_ratio` / `_hard_ratio` 覆写；任一设 0 关对应那一侧
-
-#### Skill vs Evaluator 职责边界
-
-| 层级 | 归属 | 承载内容 | 物理位置 |
-|------|------|----------|----------|
-| **Static（静态契约）** | Skill | 角色身份、Workflow、OutputFormat、Prohibitions、字段枚举、ToolSuggestions | `internal/skill/*.go` 的 `Config` 字面量 |
-| **Dynamic（通用动态段）** | Builder | per-dispatch 段：User Request / Retry Directive / Prior Findings / Known Facts / Structured Evidence / Dataflow Findings / Answer Symbols / Hypothesis Verdicts / Relevant Files / Missing Piece | `internal/context/builder.go::BuildPromptContext`，`canonicalSystemSectionOrder` / `canonicalUserSectionOrder` 锁死顺序 |
-| **Stage-specific supplement（本轮专属）** | Evaluator | 只有 builder 无法泛化产出的段：extractor 的 Turn A digest、answer-document 的 resolved shape + cardinality baseline + prior slate | `Evaluator.BuildInitialInstruction`，`BaseAgent.buildInitialMessages` 作为**额外**的 user 消息追加在 builder 输出之后 |
-
-Evaluator 的 `BuildInitialInstruction` 绝对不能重述 skill 的任何字段，也不能再发射 builder 已经写过的标题——会让 LLM 看到两份同名段并产生矛盾指令。`TestAnalyzer_BuildInitialInstruction_IsEmpty` 把 analyzer 的"空补充"契约固化（它的动态段 builder 全能产出）。Extractor 和 Finalizer 是"非空补充"的参照。
-
-#### Canonical section 顺序
-
-`internal/context/builder.go`：
-
-```
-canonicalSystemSectionOrder:
-  Agent Identity, Reasoning Hygiene, Think Aloud, Constraints,
-  User Preferences, Pipeline State, Skill Goal, Workflow,
-  Output Format, Prohibitions
-
-canonicalUserSectionOrder:
-  Retry Directive (READ FIRST), User Request,
-  Prior Conversation (reference only),
-  Log Triage — Validated Extraction, Attached Runtime Log,
-  Prior Stage Findings, Known Facts,
-  Extracted Answer Symbols (deterministic, authoritative),
-  Answer Symbols (deterministic floor, may extend with cited evidence),
-  Structured Evidence, Unverified Leads (not for citation),
-  Dataflow Findings, Hypothesis Verdicts, Relevant Files
-```
-
-`Log Triage — Validated Extraction` 由 `formatLogTriageStructured(ac.LogTriage)` 渲染，仅对非 `log_triager` agent 生效（producer 自己不消费自己的输出）；`Attached Runtime Log` 渲染 `AttachedLog` 原文。两段永远成对出现——结构化视图优先、原文备查。详见 §4.5。
-
-#### 子 Agent
-
-explorer 可以通过 `propose_sub_agents` 工具向编排器申请派生并行 `sub_explorer` 实例分摊独立调查子问题。`sub_explorer` 不共享 `Mutable`（`BuildSubAgentContext` 故意把 `ac.Mutable` 留成 nil），`todo_write` / `emit_*` 在 sub-agent 上下文会被拒绝。实现：`sub_explorer.go` + `subagent.go` + `subagent_runtime.go`。
-
-### 3.3 Skill（`internal/skill`）
+> *像给每个工种发一本"岗位作业手册"：木工的手册写"先量后切，禁用电锯近水"，水电工的手册写"先标线后开槽，必须装漏电保护"。手册里写好目标、流程、能用什么工具、不能做什么。Agent 上岗就读自己那本手册——同一个工人换岗到木工就读木工手册，行为完全跟着手册走。*
 
 ```go
 type Config struct {
@@ -431,710 +240,1249 @@ type Config struct {
 }
 ```
 
-技能是**声明式配置**。Agent 加载 skill，按它的 `Workflow` 决定 prompt、按 `ToolSuggestions` 决定允许的工具、按 `Prohibitions` 决定禁令。
+Skill 是**纯配置**。Agent 加载它后，按 `Workflow` 决定 prompt、按 `ToolSuggestions` 决定允许的工具（`buildToolSchemas` 物理裁剪 LLM 看到的工具 schema）、按 `Prohibitions` 决定禁令。analyzer 的 `analysis-skill` 是个例外：它由 `BuildAnalysisSkill()` 程序化构建，字段枚举来自 `analysis_contract.go` 的单一真源表（`emit_analysis` schema 也从这里读枚举）。
 
-| Skill | 所属 Agent | 核心约束 |
-|-------|-----------|----------|
-| `log-triage-skill` | log_triager | Tool allowlist：`read_file`（仅 blob pagination） + `emit_log_triage`。Prohibitions：禁止自己做路径解析（系统工作）、禁止 grep / list_files / repo_map（`logtriage.ValidateBundle` 负责仓内验证）、禁止一次 dispatch 多个 emit |
-| `log-segmentation-skill` | log_triager（两步升级） | Tool allowlist：`read_file` + `emit_log_segmentation`。当单次抽取 `Coverage < 0.3` 或日志 ≥ 32 KB 时激活；只按字节坐标切 `stack`/`caused_by`/`header`/`context`/`trace`/`noise` 段，agent controller 再逐段重调 `emit_log_triage` |
-| `analysis-skill` | analyzer | 由 `internal/skill/analysis_contract.go::BuildAnalysisSkill` 构造，字段枚举来自同文件 SSOT 表（`emit_analysis` schema 从这里读枚举）。Tool allowlist：仅 `emit_analysis` + 3 个 evidence-lite 预扫工具 |
-| `explore-skill` | explorer | 两阶段 workflow；Tool allowlist：6 个只读工具 + 3 个 emit_*。Prohibitions：无假设、无 "next steps"、无纯 prose headings |
-| `extract-skill` | extractor | Prohibition 显式禁 `emit_evidence`（Turn B 不能侵犯 Turn A 的 evidence 通道）；Tool allowlist：**仅** `emit_answer_symbol` + `emit_hypothesis_verdict` |
-| `answer-document-skill` | finalizer | Tool allowlist：仅 `emit_answer_document`；OutputFormat 按 V2 必填 block（BlockSummary / BlockOrderedList / BlockScalar / BlockDecision / BlockSection / BlockTable / BlockDiagram / BlockCaveat）分支 |
+### 3.3 Tool 的两类签名
 
-`buildToolSchemas` 物理裁剪 LLM 看到的工具 schema：skill 没声明的工具 LLM 根本看不到。
+| 类别 | 接口标记 | 读取 BusContext 字段 | 在哪些 Mode 下注册到 LLM |
+|---|---|---|---|
+| `tool.ReadOnly` | `IsWrite()=false` | RepoRoot / Branch / Commit / WorkDir / Mutable | 全部 Mode |
+| `tool.WriteCapable` | `IsWrite()=true` | 上述 + MainRepoRoot / WorktreePath / Mode / PlanPath | 仅 ModePlan / ModeApply / ModeVerify |
 
-### 3.4 Tool（`internal/tool`）
+工具结果超过 `blob_max_inline_bytes`（默认 32 KB）时会落到 WorkDir，只把 head/tail preview 塞进 LLM 上下文；想看全文 LLM 自己 `read_file RawRef`。
 
-工具通过嵌入 `tool.ReadOnly` 或 `tool.WriteCapable` 声明副作用语义：`IsWrite() bool` 返回 `false`（只读）或 `true`（写模式专属）。读模式 agent 的 skill allowlist **只**包含 read-only 工具；写模式 agent（`planner` / `coder` / `verifier`）才能看到 write-capable 工具。`Execute` 收到的 `*BusContext` 是窄视图：只有 `RepoRoot` / `Branch` / `Commit` / `WorkDir` / `Mutable` / （写模式额外的）`MainRepoRoot` / `WorktreePath` / `Mode` / `PlanPath` 被填充。
+### 3.4 Analysis 层 — 25 个确定性子包
 
-#### 内置 read-only 工具
+> *像公司里 25 个专业小职能科室：词典科、风险评估科、预算科、合同科、假设规划科……每个科室都是纯函数（接到表格、填好表格、不打电话给外面）。analyzer 把请求拆成多份表格，串行交给各科室填，最后汇总成完整的工作单。*
+>
+> *TermGraph 的"canonical + alias"像汉译书的术语对照表：把"探员 / 探查器 / explorer"统一对到一个 canonical 名 explorer，下游再讲到这三个词都知道指的是同一个东西。*
 
-| 工具 | 描述 |
-|------|------|
-| `grep` | 按模式搜索；支持 `files_only=true`（对应 `rg -l`）返回匹配文件列表而非每行 |
-| `read_file` | 读整文件；大文件用 `offset+limit` slice 读。`readfile_small_limit_threshold` 对小文件的懒惰 limit 做保护性展开 |
-| `list_files` | 列目录 |
-| `repo_map` | 生成仓库符号/关系索引的结构化视图。`task_map` 视图给 breadth scan 快速定位角色 |
-| `exec_command` | 执行 shell 命令（按 read-only 处理，写限制靠外部沙箱） |
-| `git_diff` / `git_log` | git 状态查询 |
+| 子包 | 职责 |
+|---|---|
+| `normalizer` | 把请求文本和 LLM 给的实体收编为 TermGraph（canonical 名 + alias 边），用 repomap-backed `SymbolResolver` 验证哪些 surface 真的是 repo 里的 symbol |
+| `amplifier` | 用 typed 信号（TermGraph kind / confidence / Intent / AnswerSubject / Entities）填补 LLM 漏掉的 optional predicate，纯结构化规则不读 prose |
+| `axis` | PredicateAxis × AnchorKind affinity 矩阵（call × call=1.6, call × definition=0.9 等），驱动 evidence ranker 重排 |
+| `binder` | 把 hypothesis 按相关性绑定到 TaskNode（Jaccard(hyp terms, node hints) + surface 提及 + kind-family 亲和） |
+| `budget` | 计算 EvidencePlan budget：`base × termFactor × hypFactor × probeFactor`，复杂度 / 假设数 / prescan 命中率倍乘 |
+| `compiler` | RequestModel → TaskGraph + EvidencePlan + 默认 AnswerContract；按 Scenario 模板分支 |
+| `contract` | AnswerContract 的 finalize 后置检查（citation 数、MustInclude、AcceptanceTests） |
+| `counterfactual` | 复杂 + 模糊的 explain / root_cause 触发推测分支扩展 |
+| `criterion` | 19+ 种 typed Criterion Kind 的运行时 evaluator（CritCitationCountGE、CritEvidenceKindCovered、CritChainTermResolved、写模式 4 种等） |
+| `dataflow` | 结构化数据流引擎：source → sink 路径分析 |
+| `declarative` | 声明式文件 keyword stem 表（topology/defaults/registry/routes/wire/init/manifest/schema/enum） |
+| `findings_validator` | 验证 analyzer 自报的 entity / file 是否在仓库内真存在；不存在的写进 `EvidenceClosure.UnverifiedFindings` 在下游 prompt 里渲染为"未验证"警告 |
+| `gate` | 9 项 hard / 1 项 soft 质量门 + 5 条跨信号 coherence 闸（R1.1 / R1.2 / R1.3 / R2.1 / R2.2） |
+| `hdp` | 假设规划：从 RequestModel + Risk 派生 falsifiable hypothesis 集 |
+| `hint` | 6 段 retry hint composer（What failed / Why / What I did / How to fix / Allowed / Do NOT） |
+| `logtriage` | LogBundle 的派生层（路径校验、Java basename 仓内 glob、运行时内部文件过滤、Layer 4 派生）；MergeBundles 合并两步抽取结果 |
+| `normalizer` | 上文已述 |
+| `patcher` | 写模式补丁的预 / 后处理辅助 |
+| `perftriage` | PerfBundle 的派生 + MergePerfBundles |
+| `prescan` | exact_target token 在 graph + seen blob 中的分类（primary hit / aux hit / no hit），驱动 UnverifiedFinding 录入 |
+| `priority` | hypothesis 4 维优先级打分（IntentMatch 0.35 / RiskElevation 0.30 / TermCardinality 0.20 / AmbiguityResolution 0.15） |
+| `risk` | RiskMatrix 六维 0-5 打分（security / data_integrity / compatibility / performance / ops / compliance），从 term graph 推导 |
+| `sourcemix` | 把 ratio map 转成 `NodeBudgetHints`（per-tool caps） |
+| `stopcond` | OR 语义的停止条件评估（StopConditions、Tier1Floor、ChainResolved 等） |
+| `subject` | AnswerSubjectKind taxonomy + per-kind judge（chain terminal token 是否匹配预期 subject） |
 
-工具分类（`toolConfidence` 接口）：`EvidenceTool` 0.8（grep/read_file/list_files/git_*/exec_command）/ `NavigationTool` 0.3（repo_map）/ `NonEvidenceTool` 0（其余）。
+整层是**纯函数**：不调 LLM，不调工具，不读文件系统（除了 logtriage / perftriage 的 `os.Stat` 路径校验）。
 
-#### 写模式工具（内置，`WriteCapable`）
+### 3.5 Context Builder — 唯一的 prompt 装配点
 
-只在 Mode ∈ {plan, apply, verify} 且写模式 agent 的 skill allowlist 下暴露给 LLM。详见 §4.6。
+`internal/context/builder.go` 把 typed `BusContext` 裁剪为 agent 视图（`AgentContext`），再装配为 LLM prompt（`PromptContext`）。两个 canonical 顺序常量锁死段落布局：
 
-| 工具 | 独占 Agent | 行为 |
-|------|-----------|------|
-| `emit_change_plan` | planner | 校验 + 写 `Mutable.ChangePlan`。多步校验（任一失败返回 ToolResult 拒收 Summary + re-prime schema reminder）：（a）empty / 截断 payload guard；（b）schema decode + summary/changes 非空；（c）dup-path；（d）empty / self / unknown depends_on；（e）depends_on cycle；（f）**deps-closure**（Go imports vs go.mod）；（g）**wiring-closure**（`internal/{mcp,skill,tool,agent}/*.go` create 必须搭配 wiring 文件 modify）；（h）**summary-fidelity**（summary 提及的路径/包名必须实际出现在 changes[]/imports）；（i）**dry-build**（多语言：Go `go vet` / Python `py_compile` / Node `node --check` / Ruby `ruby -c`，hardlink overlay 后跑）；（j）**单文件静态检查**（kind=create 限定，注册表式覆盖 10 语言：Go gofmt / C gcc-Werror / C++ g++-Werror / Python ruff / JS node --check / TS tsc --noEmit / Ruby ruby -wc / Rust rustc --emit=metadata / Java javac -Xlint / Swift swift -frontend）；（k）**项目级静态检查**（kind=create + 项目根有 manifest 时触发：ArkTS hvigor lint when oh-package.json5 / Cangjie cjpm check when cjpm.toml）；（l）kind=patch 预检 `git apply --check --recount`。dry-build / 静态检查在工具链缺失时优雅降级（log + skip）；其他验证硬性。静态检查总开关 `pipeline_lint_enabled` (yaml, default true) |
-| `apply_patch` | coder | JSON schema 仅 `{path, kind}`，`DisallowUnknownFields` 拒绝任何内容字段。Execute 从 `Mutable.ChangePlan().Changes[i]` 直接取 `NewContent`/`Patch`，LLM 物理上无法转抄错内容。按 kind：`create`（`os.Stat` 必须不存在 → `os.WriteFile(unit.NewContent)`）/ `modify`（必须存在 → `os.WriteFile(unit.NewContent)`）/ `delete`（缺失视作幂等，warning）/ `patch`（pipe `unit.Patch` 到 `runUnifiedDiff`）。每次调用前强 W1（path ∈ TargetPaths；失败 Summary 枚举 valid 路径）+ W1b（DependsOn 都已 applied；失败 Summary 枚举当前 AppliedSet）。kind=patch 失败时 `composeApplyRejection` 带冲突文件片段 |
-| `run_tests` | verifier | 12 种 runner（go / node / python / rust / java（含 Kotlin/Android via gradle）/ ruby / swift / cmake / meson / make / hvigor / cjpm）自动探测（见 §4.6）；build 阶段挂时合成 `build` suite 单条失败结果；run tests 异常时 `RawRef` 指向完整输出 blob；零测试发现（pytest exit 5 / jest "no tests found" / `go test ./...` 无 `_test.go`）作为 `ChangeReport.NoTestsRunners` 一等信号单独记录，**不**进 `FailureSummary`（`Passed=true`），避免 verifier 误判触发 fabricate-tests 重新规划 |
-| `emit_test_results` | verifier | 可选：LLM 写 FailureSummary narrative 叠加到 ChangeReport（不能覆盖 parser 产出的 Passed） |
+```
+canonicalSystemSectionOrder:
+  Agent Identity, Reasoning Hygiene, Think Aloud, Constraints,
+  User Preferences, Pipeline State, Skill Goal, Workflow,
+  Output Format, Prohibitions
 
-**统一 diff 应用链**（`apply_patch.go::runUnifiedDiff` / `CheckUnifiedDiff`）：先 `git apply --recount`（pre-processor 对非 `\n` 结尾的 patch 文本补一个 `\n`；`--recount` 让 git 从 body 重算 `@@ -X,Y +X,Y @@` header，容忍 LLM 的 off-by-one 计数错误），失败回退 `patch -p1 --force --no-backup-if-mismatch --silent`（GNU patch(1) 的 fuzz 匹配挽救 git 严格模式拒绝但语义等价的 LLM-slop 形状：缺尾部 context、header 计数严重不符等）。`checkOnly=true` 时两条路径分别加 `--check` / `--dry-run`。rejection message 统一走 `internal/tool/feedback.go`，把 git stderr 里的 `patch failed: <file>:<N>` 解析后读文件 ±5 行带 `▶` 标记嵌入。
-
-#### 结构化发射器（emit_* 系列）
-
-| 工具 | 独占 Agent | 作用 |
-|------|-----------|------|
-| `emit_log_triage` | log_triager | 写 `LogBundle` 的 Layer 1-3：`Meta`（lang / signals / summary） + `Errors[]`（递归 `Cause` 链） + `Residue`（未结构化的 `unknown_chunks`）。Execute 调 `logtriage.ValidateBundle` 做路径 `os.Stat` 校验并派生 Layer 4（`ResolvedFiles` / `Entities` / `IntentHint` / `Coverage`），结果挂到 `Mutable.LogTriage()` 供分析 + explorer + extractor + finalizer 消费 |
-| `emit_log_segmentation` | log_triager（两步升级 Step A） | 写按字节坐标切好的 segment 列表（kind = `stack` / `caused_by` / `header` / `context` / `trace` / `noise`），agent controller 随后对每个 `stack` / `caused_by` / `trace` 段逐段重调 `emit_log_triage`，`logtriage.MergeBundles` 合并结果 |
-| `emit_perf_trace` | perf_triager | 写 `PerfBundle` 的 Layer 1-3：`Meta`（source ∈ {hitrace/atrace/systrace/perfetto/unknown} / duration_ms / app_pid / signals / summary） + `Frames[]` / `Janks[]` / `Stalls[]` / `Startup` + `Residue`。Execute 调 `derivePerfLayer4` 派生 `IntentHint=performance`、`Entities`（trigger spans + tags + stall symbols）、`ResolvedFiles`（stall files），并按阈值（`PerfFrameBudget60HzMs` 16.67ms / `PerfStartupSlowColdMs` 1.2s / `PerfMainThreadStallMs` 100ms）自动追加 signals。结果挂到 `Mutable.PerfTrace()` |
-| `emit_perf_segmentation` | perf_triager（两步升级 Step A） | 写按字节坐标切好的 segment 列表（kind = `frame_window` / `jank_region` / `startup` / `thread_run` / `context` / `noise`），agent controller 对每个 `frame_window` / `jank_region` / `startup` / `thread_run` 段逐段重调 `emit_perf_trace`，`internal/analysis/perftriage.MergePerfBundles` 合并：frame/jank/stall 按签名去重、startup 取最大 `app_launch_ms`、signals/residue 并集、Layer 4 重派生 |
-| `emit_analysis` | analyzer | 一次性写 `RequestModel`（intent / scenario / complexity / keywords / entities / question_kind / sub_topics / answer_subject / predicates / predicate_axis）；`ParseOutput` 随后跑确定性管线组装完整 `AnalysisIR` |
-| `emit_evidence` | explorer | 批量写 `EvidenceItem`（kind / subject / object / source / line_start / line_end / anchor_kind / anchor_symbol / condition / summary）。`kind` 为 6 种 `IsLLMEmittable` 值之一。Execute 内同步调 `ground.GroundItem` 做 tier 验证 |
-| `emit_investigation_complete` | explorer | 显式完成信号。需要 `reason` + `confidence`（high/medium），`low` 被拒。Execute 内跑 **CGEC I3** `preCompleteContractCheck`（6 条预检）并在失败时 downgrade + emit Repair |
-| `emit_answer_symbol` | extractor | 写答案符号 slate + `CompletenessClaim`（`complete` / `lower_bound` / `unknown`）。`extractor.ParseOutput` 跑 cardinality validator 自动降级不诚实的 `complete` claim（基线 `max(β=TerminalEvidenceCount, γ=len(MustInclude))`） |
-| `emit_hypothesis_verdict` | extractor | 为 `AnalysisIR.HypothesisSet` 的每条 hypothesis 写 status（`confirmed` / `rejected` / `inconclusive`）+ rationale + `file:line` citation。编排器 post-extract hook 通过 `AnalysisIR.MarkHypothesis` 写回 IR |
-| `emit_answer_document` | finalizer | 按 shape 写 typed `AnswerDocument`。Execute 内同步调 `ground.GroundCitation` 验证 citations（**CGEC I2**），失败时 `AddRepair(RepairReadFile)`。**Literal-grounding gate**：每个带 citation 的 shape 都要求 claim 文本（`value.literal` / `symbols[i].name` / `steps[i].description` / `boolean.rationale`）与 cited file 的 ±3 行窗口至少有一个 identifier token 重叠；否则 Execute 返回 error + 指引使用 `citation_ref=-1`。覆盖 5/6 shape（explanation 例外，prose 全域不适用） |
-| `propose_sub_agents` | explorer | 向编排器申请派生并行 sub-agent |
-
-#### ToolResult 与 blob 机制
-
-```go
-type ToolResult struct {
-    ToolName  string
-    Summary   string
-    RawRef    string    // 大输出落到 WorkDir 时写的文件路径
-    Success   bool
-    Timestamp time.Time
-}
+canonicalUserSectionOrder:
+  Retry Directive (READ FIRST), User Request,
+  Prior Conversation (reference only),
+  Log Triage — Validated Extraction, Attached Runtime Log,
+  Perf Triage — Validated Extraction, Attached Runtime Trace,
+  Prior Stage Findings, Known Facts,
+  Extracted Answer Symbols (deterministic, authoritative),
+  Answer Symbols (deterministic floor, may extend with cited evidence),
+  Structured Evidence, Unverified Leads (not for citation),
+  Dataflow Findings, Hypothesis Verdicts, Relevant Files,
+  Required Answer Blocks, Diagram Contract, ...
 ```
 
-工具结果超过 `blob_max_inline_bytes`（默认 32 KB）时会 offload 到 WorkDir，只把 head/tail preview 塞进 LLM 上下文。Agent 想看全文就 `read_file` 指向 `RawRef`。WorkDir 默认 `<CWD>/.codrax/blob/<timestamp>-<pid>/`（per-process 共享，启动时按 `blob_max_sessions=7` 保留，存活 PID 永不删）；设 `blob_max_sessions: 0` 回退到 per-trace `os.MkdirTemp`+`RemoveAll`。
+**读 → 写隔离**：`PipelineStage.IsWrite()` 为真时，`BuildAgentContext` 跳过所有读模式 stage artifact 的传播（RelevantFacts / EvidenceItems / AnswerChains / AnswerSymbols / PriorReports / UnverifiedAnalyzerFindings 等）；`BuildPromptContext` 在 StageApply / StageVerify 抑制 "User Request" 段（用户原始 plan-shaped 描述会干扰 apply / verify 的机械执行角色，plan 意图已在 `Mutable.ChangePlan` 上）。`StageAnalyze` 即使在写管线下也按读模式处理（分类器需要其读模式输入）。
 
-#### Turn A → Turn B Summary banner 约定
+`formatStageReports` 额外剥 `<think>…</think>` 段作为防御纵深——读模式下游 agent 不会看到 analyzer 的内部推理。
 
-`ToolResult` 不带 `Params` 字段。Turn B 的 prompt 只通过 `ToolName` + `Summary` 两个渠道看到 Turn A 的调用。约束：**任何 Turn B 需要看到的 Turn A 调用参数（命令、pattern、path、flags），必须由工具自己写进 `Summary` 文本**。每个工具 `Execute` 里把 Summary 第一行做成自述 banner：
-
-| 工具 | Summary 首行 banner |
-|------|----------------------|
-| `read_file` | `[path: showing lines X-Y of Z total]` 或 `[path: showing all N lines (B bytes); limit=L expanded ...]` |
-| `exec_command` | `[exec_command: $ <command>]`（成功 / 失败 / 超时三条路径都挂） |
-| `grep` | 两行：`[grep: N matching {lines,files}]` + `[grep params: pattern=... path=... file_type=... include=... context_lines=... case_insensitive=... files_only=...]` |
-| `list_files` | `[list_files: path=... recursive=...]` |
-| `git_diff` | `[git_diff: path=... ref=... staged=...]` |
-| `git_log` | `[git_log: path=... count=... format=...]` |
-
-辅助函数 `internal/tool/builtin.go::kvBanner(name, kv...)` 处理去空值 + `sanitizeForBanner` 消控制字符 + 200 字节截断。
-
-下游消费者（`contract_check.go::strings.HasPrefix("[grep:")`、explorer 的 `extractFileCoverage` 解析 `[path: showing lines X-Y of Z]`、`runForcedReads` 的 `[forced_read]` 标记）都是字符串模式匹配 banner —— 改 banner 格式时必须同步查 parser。
-
-#### Citation / evidence 路径规范化
-
-`emit_answer_document` 的 citation 白名单和 `ground.GroundCitation` / `ground.GroundItem` 的 `LineIndex[file]` + `FileIndex[file]` lookup 都做字符串相等比较。为避免 LLM 用不一致路径形式（相对 vs 绝对、不同工具产出的 path）造成整批 citation 被 drop，所有 key 产地和查询端都穿过 `internal/tool/ground/path.go::CanonicalRepoRelative(path, repoRoot)`：
-
-- empty → empty
-- 绝对且在 `repoRoot` 内 → `filepath.Rel` 剥前缀
-- 绝对但在 `repoRoot` 外（或 `Rel` 经 `..` 逃逸） → 保留 `filepath.Clean` 后的绝对形式
-- 相对 → `filepath.Clean` 之后原样
-
-落地点：`ground.BuildContext` / `buildLineIndex` / `GroundCitation` / `GroundItem`（原地 mutate `it.Source`）/ `emit_answer_document.turnAReadFileSet` / `buildEmitAnswerDocumentCitations`。
-
-#### Evidence grounding tier 结构
-
-`internal/tool/ground/ground.go`：
-
-```go
-type GroundingStatus string
-const (
-    GroundingGrounded   GroundingStatus = "grounded"
-    GroundingRecovered  GroundingStatus = "recovered"
-    GroundingUngrounded GroundingStatus = "ungrounded"
-)
-
-type GroundingTier string
-const (
-    TierLineText         GroundingTier = "line_text"          // T1
-    TierSymbolTable      GroundingTier = "symbol_table"       // T2
-    TierFQNameSameFile   GroundingTier = "fqname_same_file"   // R1
-    TierSnippetFuzzy     GroundingTier = "snippet_fuzzy"      // R2
-    TierPackageSymbol    GroundingTier = "package_symbol"     // R3
-    TierNearestCall      GroundingTier = "nearest_call"       // R4
-    TierNearestCondition GroundingTier = "nearest_condition"  // R5
-)
-
-type AnchorKind string
-const (
-    AnchorDefinition AnchorKind = "definition"
-    AnchorCall       AnchorKind = "call"
-    AnchorCondition  AnchorKind = "condition"
-    AnchorReturn     AnchorKind = "return"
-    AnchorAssignment AnchorKind = "assignment"
-    AnchorImport     AnchorKind = "import"
-)
-```
-
-- **T1** (`line_text`): LLM cited line 的原文包含 AnchorSymbol 作为整 token（支持 ±1 行邻居）
-- **T2** (`symbol_table`): repomap.Graph 结构匹配 AnchorKind（`graphMatchDefinition` / `graphMatchCall` / `graphMatchImport`），还要求 line 落在某 symbol 的 `[Line - docRadius, EndLine]` 或 prologue `[1, firstSymbolLine - docRadius]`
-- **R1-R5** Recovery tiers 在 T1/T2 失败时按顺序试：同文件 FQN、片段 fuzzy、包内 symbol、最近的 call、最近的 condition —— 命中后返回 `GroundingRecovered` + `AnchorAdjusted` 并记 `GroundingTier`
-- 全部失败 → `GroundingUngrounded`，item 进独立 "Unverified Leads" 段，不进 citation pool
-
-### 3.5 LLM（`internal/llm`）
-
-可插拔 adapter 接口：
+### 3.6 LLM Adapter
 
 ```go
 type Adapter interface {
-    Chat(messages []Message, tools []ToolSchema, opts ChatOptions) (Response, error)
+    Chat(ctx context.Context, messages []Message, tools []ToolSchema, opts ChatOptions) (Response, error)
     ModelID() string
-    MaxContextTokens() int   // 从 providers.yaml :: context_window 注入；0 → 回落 128000
+    MaxContextTokens() int
+    MaxOutputTokens() int
+    RequestTimeout() time.Duration
+    RetryMaxAttempts() int
 }
 ```
 
-Per-agent 模型路由在 `providers.yaml` 配（不同 Agent 可指向不同模型 / 不同 provider）。provider 级降级链（主模型 → fast 模型）也在 provider config 声明。
+Per-agent 模型路由在 `providers.yaml` 配，不同 agent 可指向不同模型 / 不同 provider。Provider 级降级链（主模型 → fast 模型）也在 provider config 声明，由 `FallbackAdapter` 串起。
 
-**`context_window` 传播链**（`providers.yaml` 声明 → 全链路消费）：
+**ChatOptions 的回调家族**：
+- `OnContentDelta(delta)` — 流式 content chunk
+- `OnToolCallDelta(index, name, argsChunk)` — 流式 tool call 参数 chunk（**被动**观察，不影响 adapter 内部累积，让 finalizer 预览这条流不破坏最终 parse）
+- `OnRetry(attempt, delay, reason)` — adapter 内 transient retry 触发（429 / 5xx / 首字节超时）
+- `OnFallback(from, to, reason)` — provider 级 fallback 触发
 
-1. `types.LLMProviderConfig.ContextWindow int` 承载 yaml 值，merge 规则是"非零覆盖"，agent-level 非 0 覆盖 default-level
-2. `llm.NewOpenAIAdapter(..., contextWindow int, ...)` 在构造时存储；`MaxContextTokens()` 返回存储值，0 时回落 `128000` 作为保守默认（下游除数安全）
-3. `cmd/root.go` 启动时 `logging.Info("[llm] default adapter: model=%s context_window=%d tokens", ...)` —— 操作员 sanity-check"codrax 认为模型能吃多少"
-4. `config.ResolveByteBudget(fraction, absolute, codeDefault, contextWindow int)` 是 fraction-form 旋钮的单一真源：`fraction > 0 && contextWindow > 0` 时返回 `int(contextWindow * fraction * types.BytesPerToken)`，否则 absolute → codeDefault
-5. `BaseAgent` 的 context-pressure watchdog（见 §3.2）直接读 `b.deps.LLM.MaxContextTokens()` 作阈值分母
+**`MaxContextTokens()` 传播链**：`providers.yaml :: context_window` → `LLMProviderConfig.ContextWindow`（非零覆盖 merge）→ `NewOpenAIAdapter` 构造存储 → `MaxContextTokens()` 返回（0 时回落 128000 作为保守默认，下游除数安全）。`config.ResolveByteBudget(fraction, absolute, codeDefault, contextWindow)` 是 fraction-form 旋钮的单一真源：`fraction > 0 && contextWindow > 0` 时返回 `int(contextWindow * fraction * BytesPerToken)`，否则 absolute → codeDefault。
 
-**`types.BytesPerToken = 4`** 是整个项目的字节-token 换算常数，既用于 fraction-form 预算解析，也用于 watchdog 估算。保守（英文文本实际约 4 B/tok；CJK 约 2 B/tok，估算会过大所以更安全）。配置层 `config.BytesPerToken` 是类型别名，保证单一数值真源。
+**`BytesPerToken = 4`**：项目级字节-token 换算常数，用于 fraction-form 预算解析和 watchdog 估算。英文文本约 4 B/tok，CJK 约 2 B/tok（估算偏大更安全）。
 
 ---
 
-## 4. 阶段规范
+## 4. 用户意图识别
 
-### 4.1 `analyze` — 请求理解
+> **这一章解决一个 LLM 系统里最容易出问题的环节：把自然语言问题翻译成下游可消费的 typed 结构。**
 
-| 方面 | 详情 |
-|------|------|
-| **Agent** | analyzer |
-| **Skill** | `analysis-skill` |
-| **工具** | `emit_analysis` + evidence-lite 预扫（`repo_map` / `grep`（强制 `files_only=true`） / `list_files`） |
-| **输入** | 用户原始请求 |
-| **工作** | **Phase A**：1-2 轮 evidence-lite 预扫，验证用户提到的实体/术语是否在仓库出现（**不读内容**）→ **Phase B**：一次 `emit_analysis` LLM 调用写 v4 RequestModel → `ParseOutput` 跑后处理管线（§7） |
-| **输出** | `BusContext.AnalysisIR`（`TaskGraph` / `EvidencePlan` / `AnswerContract` / `HypothesisSet` / `QualityGate`） |
+### 4.1 为什么要把"意图识别"做成一整层
 
-#### Evidence-lite 预扫边界规则
+> *像医院挂号 + 分诊：病人随口说"我不舒服"，前台不直接把人送进手术室。先填一份完整的"病历 + 主诉"——主诉是什么、有没有过敏史、要做哪些检查、什么指标算正常——交给后面的医生。后面的医生看着这份病历干活，不用反复回头问病人。*
 
-由 `internal/skill/analysis_contract.go::AnalysisHardRules` 的 `EVIDENCE-LITE BOUNDARY:` 规则 + `BaseAgent.executeTool::validateAnalyzerPrescanToolCall` 运行时 gate 共同强制：
+代码仓库的问题千变万化——"这个 bug 怎么发生的"、"这个 config key 在哪生效"、"列出所有 X 的实现"、"对比 A 与 B 的差异"。如果把这些问题直接交给探索阶段，LLM 的探索方式会被问题的字面措辞牵着走："那么共有几个" 可能让模型只 grep 一遍数完了事，"为什么会 panic" 可能让模型一头扎进 stack trace 不看周边。
 
-- 只允许 `repo_map`、`grep`（必须 `files_only=true`）、`list_files` 三个只读导航工具——`BaseAgent.buildToolSchemas` 通过 `analysis-skill.ToolSuggestions` allowlist 物理裁剪 LLM schema。grep 没带 `files_only=true` 时 `validateAnalyzerPrescanToolCall` 合成失败 `ToolResult`，LLM 下一轮看到错误可重试。
-- 预扫硬上限 2 轮，由 `analyzerEvaluator.Observe` 在 PhaseMidLoop 强制：每轮预扫工具调用让 `prescanRounds` +1；超过 `tool.AnalysisLimits.MaxPrescanRounds`（默认 2，`analysis_max_prescan_rounds` 可覆写；设 0 禁用）下一次预扫返回 `LoopSignal{StopRequested: true}`。
-- **pre-scan → validator 数据通道**：同一次 `Observe` 把 `LastToolResult.Summary` 通过 `Mutable.AppendPrescanSummary` 追加到 per-dispatch 缓冲。`emit_analysis.Execute` 读取此缓冲作两个独立机制的输入：
-  - **verified-entity 白名单**（`filterGenericEntitiesWithWhitelist`）：实体命中 generic blocklist 但小写形式出现在 seen-blob 里时保留并触发 `kept_generic_verified_entities` 告警。
-  - **runtime quality probe**（`ComputeAnalysisQualityProbe`）：计算 `keyword_hit_ratio` 和 `entity_hit_ratio`，软阈值 `analysis_warn_below_keyword_hit_ratio` / `analysis_warn_below_entity_hit_ratio`（默认 0 = 不触发告警）控制 Summary `[warn: …]` 提示。完整 probe 结构以 `analysis_quality_probe` 写入 `StageOutput.Data`。
+codrax 的解决思路是：**把问题先翻译成一份完整的 typed 结构（`AnalysisIR`）**，把它当作下游所有阶段的"接到的工作单"。问题归类、需要查什么文件、要列哪些 facet、答案的形状、如何判定完成、citation 要满足什么——全部由这一份 IR 决定。下游就不用再"看着字面意思猜该怎么做"。
 
-#### emit_analysis call-count gate
+> *IR（Intermediate Representation）这个词本身就是"中间表示"——不是用户能读的自然语言、也不是机器能直接执行的代码，而是夹在两者中间的一份 typed 结构，方便程序对它做检查、转换、验证。*
 
-`analyzer.ParseOutput` 在走 `buildAnalysisIR` 前扫本次 dispatch 的 tool-result 流统计 `emit_analysis` 调用次数，结构化透出到 `StageOutput.Data` 的 `analysis_emit_calls` 字段：
+### 4.2 两步法：少量 LLM 决策 + 大量确定性后处理
 
-- **0 次**：强告警 + hard `StageOutput.Error`，`runAnalyzePhase` 重试至 `MaxRetriesPerStage`；预算耗尽后 Run 终止。
-- **1 次**：happy path。
-- **>1 次**：由 `tool.AnalysisLimits.RejectMultipleEmit`（`analysis_reject_multiple_emit`）决定。默认 `false` → warning + 保留最后一次 + 继续；`true` → 额外把消息写进 `StageOutput.Error`。IR 始终按最后一次写入填充。
+analyzer 阶段分两个 phase：
 
-#### Quality Gate
+- **Phase A — Evidence-lite 预扫**：1-2 轮（`analysis_max_prescan_rounds` 默认 2）。允许的工具只有三个：`repo_map`、`grep`（强制 `files_only=true`）、`list_files`。这一步是为了让 LLM 在做最终分类**之前**先验证用户提到的实体和术语是否在仓库里出现——`SubExplorer` 是个真符号还是用户记错的名字？`internal/agent` 这个目录真的存在吗？`grep` 必须 `files_only=true` 是因为分类阶段不能让 line-level 输出溢出 context 预算（运行时由 `BaseAgent.executeTool::validateAnalyzerPrescanToolCall` 强制；不带这个参数会合成失败 ToolResult，让 LLM 下一轮看到错误自修正）。
+- **Phase B — 一次 emit_analysis 调用**：LLM 把整份 typed `RequestModel` 一次性写出。
 
-`internal/analysis/gate.Run(ir, th, mode)` 9 检查（读模式）/ 5 检查（写模式）：
+预扫的 tool result 文本通过 `Mutable.AppendPrescanSummary` 喂给 emit_analysis 工具的运行时校验。校验会做两件事：(1) verified-entity 白名单——实体命中通用词黑名单（"count" / "function" 等）但小写形式出现在预扫文本里时保留并打 `kept_generic_verified_entities` 告警；(2) runtime quality probe——计算 `keyword_hit_ratio` 和 `entity_hit_ratio`，软阈值不命中时写 `[warn:...]` 提示。
 
-- **Hard**：`nil_ir` / `dag_closure` / `contract_complete` / `coverage` / `budget_sanity` / `hypothesis_coverage` / `subtopic_coherence` / `shape_subject_coherence` / `criterion_resolvable`。Coverage 加权（Symbol=1.0, Config=0.7, Concept=0.4），阈值通过 `gate.GlobalThresholds()`（`gate_coverage_*`、`gate_hypothesis_min_priority`）。
-- **Soft**：`pending_fields_wellformed`（pending artifact-exchange 字段检查）→ warning，继续跑。
-- **Mode-aware skipping**：`mode` 参数从 `BusContext.Mode` 透传(读 `""` / `"read"`,写 `"plan"` / `"apply"` / `"verify"`)。写模式跳过 `hypothesis_coverage` / `contract_complete` / `subtopic_coherence` / `shape_subject_coherence` —— 写流水线有自己的 criterion 套件(`CritPlanReady` / `CritPatchApplies` / `CritTestsPass` / `CritNoRegression`)替代 read-mode 的多 sub-topic / shape 假设。否则 "用 python 写一个猜数字游戏" 这种从零起步的 plan 请求会因为没有可调查的代码实体导致所有 hypothesis priority < 30 → check fail → retry budget 烧光在凭空捏造假设上。结构性检查(`coverage` / `dag_closure` / `budget_sanity` / `criterion_resolvable` / `pending_fields_wellformed`)所有模式都跑。
+### 4.3 RequestModel — 一份完整的"工作单"
 
-##### 跨信号 coherence 闸门（read mode）
+LLM 通过 `emit_analysis` 一次性写出的 `RequestModel`（`internal/types/analysis_ir.go`）包含 13 类信息：
 
-`internal/analysis/gate/coherence.go` 提供两条上游 cross-signal 检查，在 LLM 的 SubTopics 切错或 AnswerSubject 与上游 Intent 不一致时硬失败 + 触发 retry —— 全部基于 IR 内部 struct field 比对，**不引入任何关键字表**：
+| 类别 | 字段 | 含义 |
+|---|---|---|
+| 分类 enum | `Intent` | explain / root_cause / trace / enumerate / config_query / return_value / unknown |
+| | `Scenario` | architecture_explain / root_cause / config_trace / performance_bottleneck / generic |
+| | `Complexity` | simple / moderate / complex |
+| | `QuestionFamily` | 8 种问答家族（根因追踪、配置优先级、角色查找、调用链、枚举、架构、对比、通用） |
+| Predicate | `SemanticPredicates` | 7 个跨语言布尔 predicate：`is_scalar_answer`、`is_role_locate_lookup`、`is_count_question`、`is_cross_component`、`is_relational_lookup`、`is_category_enumeration`、`is_history_lookup` |
+| | `PredicateAxis` | 行动动词轴：call / register / define / return / configure / condition / implement / unknown |
+| 实体 | `Keywords[]` | 关键词集 |
+| | `Entities[]` | 全部实体 |
+| | `PrimaryEntities[]` | 用户问题字面提到的实体 |
+| | `MentionedEntities[]` | 字面提到子集（明确出现在 RawRequest 文本里） |
+| | `DerivedEntities[]` | 推导出的实体（互补于 Mentioned） |
+| 答案形状 | `AnswerSubject{Kind, Confidence}` | 答案字面值类型：function_name / type_name / config_key / handler_route / return_value / file_path / struct_field / interface_name / enum_value / numeric / string_literal / generic / unknown |
+| | `DiagramHint` | LLM 建议的图形家族：flow / sequence / call_dag / architecture |
+| 多话题 | `SubTopics[]` | 每个含 `summary` + `entities[]`，由编译器展开成独立 evidence DAG 节点 |
+| 精确目标 | `ExactTargets[]` | 用户字面问的 config key / file path / symbol（验证过出现在 RawRequest） |
+| | `ExactContextTerms[]` | 同 scope 上下文窄词（用于优先级类问答） |
+| | `ExactContextRoles[]` | 抽象层：default / config / runtime / override（用于 config-trace） |
+| 边界声明 | `EnumerationBoundary` | 用户声明的有界集合大小（"the 7 checks"）+ verbatim quote |
+| | `CompletenessObligation` | 用户要求穷举（"all the X"） |
+| | `Buckets[]` | 用户分组（"X for A, Y for B"） |
+| 附加层 | `LogTriage` / `PerfTrace` | 前置阶段产出的 typed bundle（如适用） |
+| 提示 | `AnalyzerHints` | verbatim 给下游的 LLM 原文字段（entities / keywords / 杂项） |
+
+**所有 SemanticPredicates 都是必填**——LLM 必须显式 emit `true` 或 `false`，不允许省略。这是用 schema 强制的"跨语言信号"——把"这个问题是不是要数个数"从中文/英文 prose 提取，变成模型自评 typed 字段。系统据此做硬决策时不再依赖 prose-cue 关键词表。
+
+> *Predicate 像勾选项：与其用关键词表去检查问题里有没有"几个"、"多少"、"how many"、"count"等等不同语言的表达（永远列不全），不如直接让 LLM 自己判断"这个问题要不要数数"，✓ 或 ✗ 二选一。AnswerSubject 像"答案的形状"：用户问"哪个函数处理 X"答案就该是 function_name；问"X 的默认值"答案就该是 string_literal 或 numeric——下游照"形状"渲染答案就不会跑偏。*
+
+### 4.4 buildAnalysisIR — 33 步确定性后处理
+
+`emit_analysis` 调用一返回，analyzer 就跑一条 33 步的确定性管线把 RequestModel 装配成完整 `AnalysisIR`。每一步要么是 reconcile（修正 LLM 的不一致），要么是补全（infer 漏掉的字段），要么是产出（基于已有信号生成下游所需结构）：
+
+| 阶段 | 步骤 | 包/函数 | 作用 |
+|---|---|---|---|
+| 附挂 | 1 | analyzer.go inline | 挂上 LogTriage / PerfTrace bundle，merge entity（`logtriage.MergeEntities` 经 SymbolResolver 验证） |
+| 子话题归一 | 2 | inline | `SubTopics > 5` 截到 5；`SubTopics > 1` 把 simple → moderate |
+| Predicate reconcile | 3 | analyzer_predicate.reconcileSemanticPredicates | 单 exact target 没多话题没多轴信号 → `is_cross_component=true` 降 false |
+| Complexity 7 规则 | 4 | analyzer_complexity.reconcileComplexity | sub-topics≥3 锁 complex / cross-component 锁 complex / 单实体单话题 → simple / 多实体多关键词 → complex / sparse-prompt 强制 simple / mechanism 多实体 → complex / enumeration+relational → moderate |
+| Intent reconcile | 5 | analyzer_intent.reconcileIntent | count + enumerate 罕见组合 → return_value（防御纵深） |
+| AnswerSubject 推断 | 6 | inferAnswerSubject | LLM 给 unknown 时按双语 cue + question_kind fallback；最弱 fallback 是 SubjectGeneric (confidence=0.1)，永不让下游拿到 SubjectUnknown |
+| PredicateAxis pass-through | 7 | reconcilePredicateAxis | 当前 no-op，留作未来 axis suppression 钩子 |
+| Scenario reconcile | 8 | reconcileScenario | 单话题结构 trace 的 architecture 问题 → generic（避开模板开销） |
+| Capability surface | 9 | inline | stage / tool / skill capability 类问题产出 `CapabilitySurfaceHint` |
+| Measurement-scalar / history-lookup 检测 | 10 | analyzer_intent | 捕获 isMeasurementScalarRequest（count 动词 + simple + enumerate/return_value）和 isHistoryLookupRequest |
+| Sub-topic 实体合并 | 11 | inline | 把 sub-topic 的 entities 并进主 entity 集，保留 PrimaryEntities / MentionedEntities 的来源标 |
+| 边界 scope 收窄 | 12 | analyzer_boundary.reconcileEnumerationBoundaryScope | 用户声明有界（"the 7 checks"）且单 owner 时丢掉子话题，把 entity 收窄到 owner，让结构成单话题 |
+| Normalize | 13 | normalizer.Normalize | 抽 RawRequest 里的 surface，用 repomap-backed SymbolResolver canonicalize，建 alias 边；产出 TermGraph.Canonical + Aliases |
+| Amplifier pre-compile | 14 | amplifier.Amplify | 用 TermGraph 形 + 已有 typed 字段填补 LLM 漏掉的 optional predicate（R1 多 subject、R2 typed-name parity 等） |
+| Implementer 展开 | 15 | inline + Graph.ImplementersOf / FileIndex / SymbolDefs | enumeration intent 命名 entity 是 graph 中的 interface/trait/protocol 时，把实现者 / file basename / sub-topic file anchor 提升到 PrimaryEntities |
+| Cardinality sanity | 16 | inline | `IsCategoryEnumeration=true` 但 distinct named entities ≤ 1 → 硬失败 retry |
+| Auto-keyword boost | 17 | appendDeclarativeKeywords | registration / config_mapping / call_chain / source-literal subject 问题追加 declarative filename stems |
+| Scenario infer | 18 | compiler.InferScenario | 没填 Scenario 时填默认 |
+| Compile pass 1 | 19 | compiler.Compile | RequestModel + BudgetSignals → TaskGraph + AnswerContract |
+| Risk evaluate | 20 | risk.Evaluate | 六维 0-5 |
+| HDP plan | 21 | hdp.Plan | 派生 hypothesis 集 |
+| Budget recompute | 22 | compiler.RecomputeBudget | 用真实 hypothesis 数重算 EvidencePlan |
+| Amplifier post-compile | 23 | amplifier.AmplifyPostCompile | enumeration over named entity 时把 typed identifier pin 进 `AnswerContract.MustInclude` |
+| Hypothesis 绑定 | 24 | binder.BindByRelevance | hypothesis ↔ TaskNode 相关性绑定 |
+| Counterfactual | 25 | counterfactual.Expand | complex + ambiguous explain/root_cause 触发，新分支再 BindByRelevance |
+| Measurement-scalar carve-out | 26 | inline | isMeasurementScalar / isHistoryLookup 时剥 3 层 citation gate（CitationReq.Required / AcceptanceTests / SuccessCriteria 中的 CritCitationCountGE） |
+| Diagram contract | 27 | analyzer_intent.reconcileDiagramContract | 综合 intent + predicates + axis + log evidence + scenario，产 DiagramContract.Required + PreferredKinds + ScopeHint |
+| Exact resolution contract | 28 | types.BuildExactResolutionContract | 有 exact_targets 时建 TargetKind + TargetLabel + RequireTargetMention + AliasRequiresProof + RelatedContextPolicy |
+| IR 装配 | 29 | inline | 组装 final AnalysisIR |
+| Required files | 30 | analyzerRequiredFiles | 用 repomap graph 查实体的定义文件，写进 EvidencePlan.RequiredFiles |
+| Quality gate | 31 | gate.RunWith | 9 项 hard / 1 项 soft 检查；写模式跳 hypothesis_coverage / contract_complete / subtopic_coherence / shape_subject_coherence（写流水线另有套 criterion） |
+| Mutable writeback | 32 | inline | 把 reconciled RequestModel 写回 ctx.Mutable，下游工具 / extractor 能读到 |
+| Observability | 33 | EmitReconcileSummary | 输出 `[reconcile-shadow]` 行，聚合所有 reconcile 事件 |
+
+### 4.5 跨信号 coherence 闸门
+
+> *像填表自检：表格里既有"我懂英语？✓"又有"英语水平：完全不懂"——这两个字段的内部矛盾不是看字面意思能发现的，必须做字段级比对。coherence 闸门就是把 LLM 自己填的多份字段拿出来交叉验证，发现矛盾就让它重填。*
+
+`internal/analysis/gate/coherence.go` 5 条规则。在 LLM 的 SubTopics / AnswerSubject 与上游 Intent 不一致时硬失败 + 触发 retry —— **全部基于 IR 内部 typed field 比对，绝不引入关键词表**：
 
 | ID | 规则 | 信号来源 |
 |----|------|---------|
-| **R1.1** Domain divergence | `count(distinct {c.Domain}) ≥ 2 ∧ len(SubTopics) ≤ 1`，仅统计 `c.Kind=TermSymbol ∧ c.Confidence ≥ 0.7` 的 TermGraph.Canonical 项 | normalizer + repomap.Package（repo 验证过的事实） |
-| **R1.2** Predicate self-contradiction | `Predicates.IsCrossComponent ∧ len(SubTopics) ≤ 1` | LLM 自评 SemanticPredicates |
-| **R1.3** Sub-topic entity orphan | `len(PrimaryEntities) ≥ 2 ∧ ∅ = union(SubTopics[].Entities) ∩ PrimaryEntities` | LLM 自身两组 entity |
-| **R2.1** Scalar vs multi-topic | `Predicates.IsScalarAnswer ∧ len(SubTopics) ≥ 2` | LLM 自评 |
-| **R2.2** Explanation vs scalar subject | `Intent ∈ {IntentExplain, IntentRootCause, IntentTrace} ∧ AnswerSubject.Kind ∈ {Numeric, StringLiteral, ReturnValue} ∧ AnswerSubject.Confidence ≥ 0.6` | LLM 自评 + reconcile 链 |
+| R1.1 域分歧 | TermGraph 跨 ≥2 个 repomap-verified 域（c.Kind=TermSymbol ∧ c.Confidence ≥ 0.7）但 SubTopics ≤ 1 | normalizer + repomap.Package |
+| R1.2 自相矛盾 | `IsCrossComponent ∧ len(SubTopics) ≤ 1` | LLM 自评 |
+| R1.3 子话题 entity orphan | 子话题 entity 与 PrimaryEntities 交集为空 | LLM 两组 entity |
+| R2.1 标量 vs 多话题 | `IsScalarAnswer ∧ len(SubTopics) ≥ 2` | LLM 自评 |
+| R2.2 explain vs scalar subject | `Intent ∈ {explain, root_cause, trace}` 且 `AnswerSubject.Kind ∈ {Numeric, StringLiteral, ReturnValue}` 且 confidence ≥ 0.6 | LLM 自评 + reconcile 链 |
 
-**Retry 反馈**：失败的 coherence detail 写到 `Mutable.AnalyzerRetryHint`（consume-once 通道，镜像 `PlanningHint` 的语义）；下一次 `prependEmitRetryDirective` 取出渲染到 `## Structural contradiction` 段落注入 LLM prompt，让模型看到具体的 IR field-level 矛盾（例如 `R1.1 domain_divergence: TermGraph spans 3 distinct repomap-verified domains [agent, finalizer, orchestrator] but only 1 sub-topic emitted`）而不是泛化的 "gate rejected"。consume-once 在第一次 directive 渲染后把 hint 字段清掉，避免重渲染。
+失败的 detail 写到 `Mutable.AnalyzerRetryHint`（consume-once 通道）；下次 `prependEmitRetryDirective` 取出渲染到 `## Structural contradiction` 段落注入 LLM prompt——让模型看到具体的 IR field-level 矛盾（"R1.1 domain_divergence: TermGraph 跨 3 个 repomap-verified 域 [agent, finalizer, orchestrator] 但只有 1 个 sub-topic"）而不是泛化的"gate rejected"。
 
-**Confidence 阈值是 correctness boundary，不是 budget 旋钮**：因此 `coherenceTermSymbolMinConfidence = 0.7` / `coherenceSubjectConfidenceFloor = 0.6` / `coherenceMinPrimaryEntitiesForOrphan = 2` **不暴露 yaml**。降低这些值会削弱闸门而不解决 LLM 上游的误分类。
+### 4.6 Confidence 阈值是 correctness boundary，不是 budget 旋钮
 
-### 4.2 `explore` — Turn A：调查 + 证据收集
+coherence 用到的 `coherenceTermSymbolMinConfidence = 0.7` / `coherenceSubjectConfidenceFloor = 0.6` / `coherenceMinPrimaryEntitiesForOrphan = 2` **不暴露 yaml**。降低这些值会削弱闸门而不解决 LLM 上游的误分类。
 
-| 方面 | 详情 |
-|------|------|
-| **Agent** | `AgentExplorer` (`internal/agent/explorer.go`) |
-| **Skill** | `explore-skill` |
-| **允许工具** | `grep` / `read_file` / `repo_map` / `list_files` / `exec_command` / `emit_evidence` / `emit_investigation_complete` / `propose_sub_agents` |
-| **内部状态** | `explorerEvaluator.phase`（0=breadth, 1=depth），`complexity` / `answerSubject` / `predicateAxis` / `requiredFiles`（从 IR 缓存），`fileSymbols` / `searchResult` / `exactAnchorFiles` / `declarativeAnchorFiles` / `ermRequirements` / `cachedConcreteValues` |
-| **输出** | `StageOutput.{EvidenceItems, AnswerChains, FlowFindings, StageReport}` + `MutableState.TurnAArtifacts` |
+### 4.7 Quality Gate
 
-#### 两阶段工作流
+`gate.Run(ir, thresholds, mode)`：
 
-- **Phase 0 — Breadth Scan**：`repo_map`（task_map 视图）+ `grep files_only=true` + `list_files` 快速定位相关文件，不读全文。LLM 产出 3-6 个文件的优先读取清单。
-- **Phase 0 → Phase 1 质量门**（仅 `ContinuationsUsed >= 1` 时生效）：必须同时满足 (1) 用过 grep，(2) 用过 repo_map 或 list_files，(3) 发现 ≥ 3 个文件。任一未满足返回一次补救 prompt（`phase0ExtraRound` 确保最多触发一次）。
-- **Phase 0 早期证据退出**：`firstSoftStop`（`ContinuationsUsed == 0`）且 `hasHighConfidenceEvidence` 为 true（history 中任何 `confidence > 0.5` 的成功 tool 结果）时跳过质量门直接接受停止（`e.phase = 1` + 空信号）。覆盖 exec_command / grep-only / read_file-only / list_files-only 等单工具即可回答的场景。
-- **Phase 1 — Depth Read + Evidence Collection**：LLM 按清单 `read_file`，每读一个文件调 `emit_evidence(items=[...])`。大文件（>500 行）强制先 grep 再 slice read。行号必须来自 `read_file` 的 gutter。
-- **ParseOutput（确定性管线）**：`ensureStructuredEvidence` 合并 emit_evidence buffer + markdown fallback → `groundEvidenceItems`（调 `ground.GroundItem`）→ `mergeEvidenceItems` → `rankEvidenceByRelevance` → `scrubSiblingEvidenceBlocks` → `identifyAnswerChains` → `SetTurnAArtifacts` 把投影快照交给 Turn B。
+- **Hard**：`nil_ir` / `dag_closure` / `contract_complete` / `coverage` / `budget_sanity` / `hypothesis_coverage` / `subtopic_coherence` / `shape_subject_coherence` / `criterion_resolvable`。Coverage 加权（Symbol=1.0, Config=0.7, Concept=0.4），阈值由 `gate_coverage_*` / `gate_hypothesis_min_priority` 调节。
+- **Soft**：`pending_fields_wellformed` → warning，继续跑。
+- **Mode-aware**：写模式跳 hypothesis_coverage / contract_complete / subtopic_coherence / shape_subject_coherence——写流水线有自己的 criterion 套件（CritPlanReady / CritPatchApplies / CritTestsPass / CritNoRegression）替代读模式的多 sub-topic / shape 假设。否则"用 python 写一个猜数字游戏"这种从零起步的 plan 请求会因为没有可调查的代码实体导致所有 hypothesis priority 不够 → check fail → retry budget 烧光在凭空捏造假设上。
 
-#### 证据排名
+### 4.8 三份产物 — TaskGraph / EvidencePlan / AnswerContract
 
-`rankEvidenceByRelevance`：`entity overlap × kindWeight × sourceWeight × bridgeBonus × producerBoost`。LLM 通过 `emit_evidence` 提交的证据（`IsLLMEmittable` + 非 ungrounded）获得 1.5x `producerBoost`；`EvidenceConcrete`（确定性自动提取）`kindWeight=0.50`；axis alignment 通过 `internal/analysis/axis::Affinity(PredicateAxis, AnchorKind)` 调节。
+> *打个比方：用户问"装修这间房"。analyzer 不直接动手，它产出三份纸——一份**施工流程图**（先拆墙、再走水电、再贴砖、最后验收），一份**预算清单**（材料钱多少、工期多长、什么情况算"够了"），一份**验收单**（哪些项必须做完、要多少张照片为证）。下游 explorer / extractor / finalizer 拿着这三份纸干活，不用再问用户一句话。*
 
-#### HasEnoughFacts 多维质量门
+`internal/analysis/compiler` 包负责把 reconcile 后的 `RequestModel` 翻译成三份 typed artifact，再加上 `internal/analysis/hdp` 产的假设集，构成完整 `AnalysisIR`：
+
+| 产物 | 是什么 | 用来做什么 | 通俗类比 |
+|---|---|---|---|
+| **TaskGraph** | DAG，节点是任务，边是依赖 | scheduler 决定每轮派发哪些 evidence 节点；节点的 EntryConditions / SuccessCriteria 是 typed `[]Criterion` | 施工流程图：先 A 再 B 再 C，每步有"完成标志" |
+| **EvidencePlan** | 一份"如何调查"的预算 + 计划 | explorer 据此决定每个工具能用多少次、什么时候停、什么文件必须读 | 预算清单：grep 用 N 次、read_file 用 M 次、必须先打开这几间房 |
+| **AnswerContract** | 一份"答案要满足什么"的验收单 | finalizer 据此构造答案，validator 据此判 pass/fail；写模式的 acceptance test 也走这里 | 验收单：每个房间要 3 张照片、必填项 X / Y / Z |
+| **HypothesisSet** | falsifiable 假设集 | extractor 给每条假设写 verdict（confirmed / rejected / inconclusive） | 故障假设清单：水管漏 / 防水失败 / 楼上滴水，逐条排查 |
+
+**为什么是三份不是一份**：调度（图遍历）、预算（资源）、验收（合同）是三个正交的 concern，分开后新加 scenario 只需要写一份模板（templates.go 的 `templateXxx` 函数），三份产物自动同时刷新。
+
+#### Compiler 的两阶段流程
+
+`compiler.Compile(rm, sig)` 入口分两阶段：
+
+```
+RequestModel + budget.BudgetSignals
+        │
+        ▼
+   pickTemplate(rm)              // 按 Scenario 选模板
+        │
+        ▼
+   templateXxx(rm)               // 模板函数构造 TaskGraph + EvidencePlan + AnswerContract 骨架
+        │
+        ▼
+   applyAdaptiveCitationThresholds  // 按 complexity + 子话题数自适应 citation 上下限
+        │
+        ▼
+   budget.Compute(rm, sig)       // 算 EvidenceBudget（公式见下文）
+        │
+        ▼
+   sourcemix.FromTemplateMix     // 把 ratio map 转 NodeBudgetHints（per-tool caps）
+        │
+        ▼
+        Output{TaskGraph, EvidencePlan, AnswerContract}
+```
+
+`Compile` 跑完后 analyzer 调 `hdp.Plan` 算最终 hypothesis 集，然后 `compiler.RecomputeBudget` 用真实 hypothesis count 再算一次预算。两阶段是为了打破"budget 依赖 hypothesis count，hypothesis count 依赖 budget"的循环。
+
+#### 6 个 Scenario 模板
+
+每个模板是 `templateXxx(rm) Output` 函数，按场景手工调过：
+
+| Scenario | 节点骨架（3-5 节点） | 典型 evidence_count / citation_count | RetryBudget |
+|---|---|---|---|
+| `architecture_explain` | probe → evidence(架构) → reconcile → finalize | 3 / 3（高） | 3 |
+| `root_cause` | probe → evidence(原因) → validate(假设) → reconcile → finalize | 3 / 3（高） | 4（最高） |
+| `config_trace` | probe → evidence(默认 + config + runtime) → reconcile → finalize | 3 / 2（中） | 3 |
+| `performance_bottleneck` | probe → evidence(perf) → validate → finalize | 3 / 2（中） | 3 |
+| `trace_walkthrough` | probe → evidence(call chain) → finalize | 2 / 2（中） | 2 |
+| `generic` | probe → evidence → finalize | 1 / 1（低） | 2 |
+
+模板内联常量集中在 `templates.go` 顶部（`TmplEvidenceCountHigh = 3` 等）——一次 grep 看全所有节点预算阈值。**没有外部 yaml 模板**——加 scenario 等于加一个 Go 函数。
+
+#### 子话题展开 — `expandEvidenceNodes`
+
+每个非 generic 模板都通过 `expandEvidenceNodes(rm, spec)` 把 evidence 节点 fan out。`len(SubTopics) <= 1` 时产单个节点；多于 1 个时每子话题一个独立 evidence 节点，节点 ID 加 `_tN` 后缀，Objective 取子话题 Summary，SearchHints 取子话题 Entities。原本 3 节点的架构问答，问 4 个独立架构层就变成 6 节点（probe + 4 个 evidence + reconcile + finalize），每层独立调查、独立判完。
+
+#### Budget 公式
+
+`internal/analysis/budget.Compute(rm, sig)`：
+
+```
+base       := baseFor(rm, Complexity)                  // {files, iters, tool_calls}
+termFactor := clamp(0.6 + 0.05 × TermCount, 0.6, 2.0)
+hypFactor  := clamp(0.7 + 0.10 × HypothesisCount, 0.7, 2.0)
+probeFactor:= clamp(1.0 + (1 − PrescanHitRatio) × 0.5, 1.0, 1.5)
+
+Final = base × termFactor × hypFactor × probeFactor
+```
+
+> *像装修预算：基础按户型档位定（complexity → 基线），但材料越多（TermCount 高）多 60-100% 边际、改造点越多（HypothesisCount 高）再加 70-100%、施工方对环境越生（PrescanHitRatio 低）再加 50%。每个维度都有上限不让乘出天文数字。*
+
+输出字段：`MaxFiles` / `MaxReactIters` / `MaxToolCalls`，分别钳到对应模板的 caps。
+
+#### 自适应 citation 阈值
+
+`applyAdaptiveCitationThresholds` 看 complexity + 子话题数把模板默认的 `MinCitations` 上下浮动：simple + 单话题的 lookup 不会被强制要求 3 个 citation；complex + 多话题的 architecture survey 自动抬到 5+。
+
+#### Source Mix → Per-tool 预算
+
+每个模板还声明一份 `SourceMix`——比如 root_cause 偏向 `read_file: 0.4 / grep: 0.3 / repo_map: 0.2 / exec_command: 0.1`。`sourcemix.FromTemplateMix(mix, totalBudget)` 把比例转每工具硬 cap，挂到 `EvidencePlan.NodeBudgetHints`。explorer 在 `BaseAgent.executeTool` 看这份预算决定还能不能再调某工具。
+
+> *像家装预算细分：总价定了之后再分配——主材占 40%、人工 30%、辅材 20%、其他 10%。每项都有上限，刷漆超 30% 就停，转去贴砖。*
+
+#### 编译失败怎么办
+
+模板不会失败（所有路径都走过手工调）；budget.Compute 永不返回零（所有 factor 都有 floor）。Quality gate 跑在 Compile 之后，gate fail → analyzer ParseOutput 返 hard error → orchestrator 重试或终止。"零节点 TaskGraph" 这种结构性病态被 gate 的 `dag_closure` 检查抓住。
+
+### 4.9 HDP — 假设规划（hypothesis-driven planning）
+
+> *像医生看病：症状报告（用户的问题）+ 病人体征（RequestModel）→ 列出几条可能的病因假设（"A 处理路径短路？"、"B 配置层覆盖了？"），每条配一个"如果体温 < 36 度就排除这条"的可证伪条件。然后调查阶段就按假设去找证据，extractor 阶段对每条假设打"确诊 / 排除 / 不确定"。*
+
+`internal/analysis/hdp.Plan(rm)` 输入 `RequestModel`，输出 `[]Hypothesis`。每条 Hypothesis 含：
+
+- `ID` / `Statement`：要证或证伪的命题
+- `RequiredEvidence []Criterion`：构成"成立"必须收集到的证据条件
+- `FalsificationCondition Criterion`：满足即直接判 reject（不用等正向证据）
+- `Priority`：4 维加权打分（IntentMatch 0.35 / RiskElevation 0.30 / TermCardinality 0.20 / AmbiguityResolution 0.15）
+
+**为什么要假设而不是直接搜证据**：用户问"为什么 panic 了"如果不分假设，模型会一头扎进 stack trace 看完所有帧产出大段 prose。划成"是否传错参数？"、"是否并发修改？"、"是否 nil deref？"几个具体假设后，每个假设可以独立判定，答案 prose 就能写成"假设 1 排除（line 42 已 nil check），假设 2 确诊（在 line 88 看见无锁写）"——精准、可审计。
+
+`binder.BindByRelevance` 把 hypothesis 按 Jaccard(hyp terms, node hints) + surface 提及 + kind-family 亲和绑定到对应 TaskNode，让调度器知道某个证据节点是为哪些假设而做。`counterfactual.Expand` 在 complex + 模糊场景再加推测分支（"如果 X 不是这样，会怎样？"），新分支自动再走一遍 binding。
+
+extractor 阶段 LLM 给每条假设写 `confirmed` / `rejected` / `inconclusive` + citation。系统额外有确定性兜底——`runAutoVerdicts` 跑 `criterion.Eval`：`FalsificationCondition` 满足 → 直接 rejected（不管 LLM 怎么写）；`RequiredEvidence` 全 pass 但 LLM 没给 verdict → inconclusive。
+
+### 4.10 子话题展开如何驱动 DAG / 预算扩张
+
+子话题数（`len(SubTopics)`）是几乎所有预算的乘子：
+
+- **TaskGraph**：每个 sub-topic 一个独立 evidence DAG 节点
+- **Prescan rounds**：`agent_subtopic_prescan_extra` × N（默认 1，硬顶 `agent_prescan_rounds_ceil` 默认 4）
+- **Explorer iterations**：`agent_subtopic_explorer_extra` × N（默认 3，硬顶 `agent_explorer_scaled_iter_max` 默认 35）
+- **Pipeline 总步数**：`agent_subtopic_pipeline_extra` × N（默认 5，硬顶 `pipeline_max_steps_ceil` 默认 100）
+- **Retry budget**：每 2 个 sub-topic 加 1（`agent_subtopic_retry_extra`，硬顶 `agent_max_retry_budget_ceil` 默认 5）
+- **Extractor / verifier soft cap**：分别由 `agent_subtopic_extractor_extra` / `agent_target_paths_verifier_extra` 控制
+- **Planner soft cap**：`agent_subtopic_planner_extra` × N + `agent_planner_complexity_extra` × complexity 等级
+
+每条都是软上限到硬顶之间的渐进扩张。设计假设是：用户问 5 件事就该比问 1 件事多花 5 倍的资源。
+
+---
+
+## 5. 证据采集与投影
+
+> **这一章解决"模型说的每一句话都必须有真实代码作支撑"——也就是 codrax 不出错的核心保证。**
+
+### 5.1 整体思路
+
+> *把整条证据流想象成法庭审判：探员（explorer）满世界跑收集物证，每件物证要附上"什么时间从哪间房间拿的"（grounding）；不能自证的物证（ungrounded）扔进"未确认线索"档案盒，永不出庭。所有合格物证封存进证物柜（TurnAArtifacts），到了陪审阶段（extractor）只看证物柜不再外出取证。最后法官（finalizer）写判决书，每条引用的物证编号要能从证物柜真查到——任何编号不对都判书无效（contract check）。*
+
+读模式从 explorer 出发，证据要走的路径是：
+
+```
+1. explorer 调 read_file / grep / repo_map 等工具读真实代码
+2. explorer 调 emit_evidence 提交 typed EvidenceItem（同步走 grounder 落地）
+3. 每条 EvidenceItem 标 grounded / recovered / ungrounded
+4. ungrounded 的进 "Unverified Leads"，永远不入 citation pool
+5. explorer 跑确定性后处理：merge / rank / chain identification
+6. 把 typed 快照（TurnAArtifacts）冻结，交给 extractor
+7. extractor 不再读文件，只从快照里挑 AnswerSymbols + 写 hypothesis verdict
+8. finalizer 按 AnswerSemanticView 的 RequiredBlocks 渲染 V2 答案
+9. 答案里的 citation 经 ground.GroundCitation 二次落地校验
+10. citation 全程跟 ReadSet / ScannedSet 闭包对齐，不一致就触发 CGEC repair
+```
+
+### 5.2 EvidenceItem 数据形状
+
+每条 EvidenceItem（`internal/types/evidence.go`）至少携带 6 类信息：
+
+**Kind 11 值**：6 个 LLM-emittable（`direct` / `conditional` / `registration` / `mechanism` / `relationship` / `absent`），5 个 deterministic-only（`concrete_value` / `dataflow_path` / `conflict` / `unresolved` / `analysis_truncated`）。LLM 物理上不能 emit deterministic kind——这些需要 Go 代码实际跑过分析才能签发。
+
+**Anchor 字段**：
+- `AnchorKind`：6 值 enum——`definition` / `call` / `condition` / `return` / `assignment` / `import`。告诉 grounder 该行是"什么"。少了 anchor kind，"line 42 是 foo() 的定义还是 foo() 的调用点"就要靠猜。
+- `AnchorSymbol`：LLM 声称该行出现的代码标识符
+- `LineStart` / `LineEnd`：1-based 行号
+- `Snippet`：grounder 验证后填的实际源码行
+
+**Scope 6 值**：
+- `ScopeLine`：单行锚点（最常见）
+- `ScopeLineRange`：多行块（struct body / function body / 注释块）
+- `ScopeSection`：命名结构段（YAML 顶层组、Go const block）；要 `SectionPath`
+- `ScopeFile`：file 自身作为某个 layer（codrax.yaml 是 canonical config layer）；要 `FileRoleLabel`，line=0
+- `ScopeCrossfile`：跨文件契约（"X 在 file A 注册 + file B 实现"，"任何文件都没有 CLI flag for X"）；要 `CrossfileQuery` + `CrossfileAssertion`
+- `ScopeNegative`：确认缺失（"X 不在 codrax.yaml"）；要 `NegativeQuery` + `NegativeScope`，配 `Kind=absent`
+
+**语义字段**：Subject / Predicate / Object / Summary —— 主体 / 关系 / 客体 / prose summary。
+
+**Grounding 输出**（`emit_evidence.Execute` 同步填）：
+- `GroundingStatus`：grounded / recovered / ungrounded
+- `GroundingTier`：T1 line_text / T2 symbol_table / R1-R5 recovery
+- `GroundingNote`：人类可读说明
+
+**Authority 轴**：
+- `Origin`：current_repo / log / perf / cross_source（来源出处）
+- `Authority`：factual / conditional / historical / illustrative（强度）
+- `AuthorityReason`：operator-readable 短提示
+
+### 5.3 Grounding 七层 — 怎么验证一条 citation 真在仓库里
+
+> *像查论文引用：作者写"《XX 大学学报》第 42 期 page 88 提到"，编辑要逐层验证——(1) 拿真实期刊翻到 page 88 看那行有没有这个出处（T1 line_text，最强）；(2) 期刊不在馆但符号表里能查到这条（T2 symbol_table，中等强）；(3) 翻不到那行但同一期刊里能查到（R1 fqname_same_file，恢复）；(4) 文字片段近似匹配（R2 snippet_fuzzy）……七层全失败 → 这条引用列入"未核实"，正文不允许引用。*
+
+落地由 `internal/tool/ground` 包负责，`emit_evidence.Execute` 同步调用。每条 item 按从严到宽的顺序试七层：
+
+- **T1 line_text**：LLM cited 的 source 文件 LineStart ±1 行的原文里整 token 出现 `AnchorSymbol`。强信号——证明 LLM 真读过那一行看到了那个 identifier。注释行特例：纯注释里出现 anchor 不算数，配置文件类例外。
+- **T2 symbol_table**：repomap.Graph 结构匹配 `AnchorKind`：
+  - definition → `sym.Line == LineStart`
+  - call → FileIndex.Relations 找 `ToEP.Name == AnchorSymbol && Line == LineStart`
+  - import → imports 找 `imp.Path == AnchorSymbol || imp.Alias == AnchorSymbol`
+  - condition / return / assignment 没有 repomap 原语 → 退化为关键词扫（if/when/unless/switch/case/guard、return/yield、`:=` 或 `=`）
+- **R1 fqname_same_file**：同文件内 graph 查 AnchorSymbol 的第一个结构匹配
+- **R2 snippet_fuzzy**：需要 Snippet 字段；±15 行内最佳 token 重合（≥60%）；fallback 字节子串匹配支持 Unicode
+- **R3 package_symbol**：仅 definition / import；同包同目录内找 AnchorSymbol，返回那个文件的 file:line
+- **R4 nearest_call**：仅 call；FileInfo.Relations 找最近的 AnchorSymbol call site，距离封顶 40 行
+- **R5 nearest_condition**：仅 condition；±10 行内找以 condition 关键词起头的行
+
+七层全 miss → `GroundingUngrounded`，item 进 "Unverified Leads" 段，永不入 citation pool。
+
+**Path 规范化**：所有 Source / file / citation 路径在落地前都过 `internal/tool/ground/path.go::CanonicalRepoRelative(path, repoRoot)`：empty → empty；绝对且在 repoRoot 内 → `filepath.Rel`；绝对且逃逸 → `filepath.Clean` 后保留绝对形式；相对 → `filepath.Clean`。修一条经典 bug：用 `/abs/repo/README.md:7` 引用，但 LineIndex 是 `read_file path=README.md` 建的，相等比较失败导致整批 citation 被 drop。
+
+### 5.4 Explorer 两阶段循环
+
+- **Phase 0 Breadth Scan**：`repo_map`（task_map view）+ `grep files_only=true` + `list_files` 快速定位相关文件，不读全文。LLM 产出 3-6 个文件的优先读取清单。
+- **Phase 0 → Phase 1 质量门**：必须同时满足 (1) 用过 grep，(2) 用过 repo_map 或 list_files，(3) 发现 ≥3 个文件。任一未满足返回一次补救 prompt（最多触发一次）。早期证据退出：`ContinuationsUsed == 0` 且 history 中任何 `confidence > 0.5` 的成功 tool 结果存在 → 跳过质量门直接接受停止（覆盖 exec_command / grep-only / read_file-only / list_files-only 等单工具即可回答的场景）。
+- **Phase 1 Depth Read + Evidence Collection**：LLM 按清单 `read_file`，每读一个文件调 `emit_evidence(items=[...])`。大文件（>500 行）强制先 grep 后 slice read；行号必须来自 read_file gutter。
+
+### 5.5 ERM — Evidence Requirement Model
+
+> *像家里办喜事的备菜清单：清单上列着"凉菜 4 份、热菜 6 份、汤 2 份、主食够 10 人"。每备好一道菜就打勾，全部打勾 = 可以开席（停止采买）。少一道菜就接着去买。ERM 就是把"够不够答案 = 够不够证据"翻译成 typed 清单，让停的时机不靠 LLM 自我感觉良好。*
+
+`internal/agent/explorer_erm.go` 是"还要读什么 / 什么时候可以停"的规则引擎。它跟踪一组 `EvidenceRequirement{Kind, Entities, Status}`：每条 requirement 绑定一种 evidence kind 到一组实体（用户问的 symbol），每轮检查"我们至少有一条 grounded-or-recovered 的目标 kind 证据 mention 这些实体吗"。全部 satisfied → 信号 STOP；否则继续。
+
+### 5.6 HasEnoughFacts 多维质量门
 
 `ParseOutput` 计算 `HasEnoughFacts` 信号，决定 DAG 中带 `has_enough_facts` 入口条件的节点是否 ready。三子检查 AND：
 
-- **toolDiversity**：`len(sources) >= 2`（sources 只计 `confidence > 0.5` 的工具）
+- **toolDiversity**：`len(sources) >= 2`（仅计 confidence > 0.5 的工具）
 - **fileCoverage**：`coverage >= 0.5 || len(readSet) >= 3`
-- **evidenceQuality**：`directCount >= 2`（investigation notes 中的 `[DIRECT]`/`[REGISTRATION]` 标签）
+- **evidenceQuality**：`directCount >= 2`（投资笔记里的 `[DIRECT]` / `[REGISTRATION]` 标签）
 
-枚举查询（`isEnumerationQuery`）阈值更严（覆盖率 ≥ 80%）。**单来源调查旁路**：`len(sources) == 1` 时三个 floor 全部 true，覆盖单工具调查场景。`emit_investigation_complete` 显式调用**无条件 override** 所有 heuristic。
+枚举查询的阈值更严（覆盖率 ≥80%）。**单来源调查旁路**：`len(sources) == 1` 时三个 floor 全 true，覆盖单工具调查场景。`emit_investigation_complete` 显式调用**无条件 override** 所有 heuristic。
 
-### 4.3 `extract` — Turn B：答案结构化 + 假设判定
+### 5.7 Answer Chains — 确定性排序
 
-| 方面 | 详情 |
-|------|------|
-| **Agent** | `AgentExtractor` (`internal/agent/extractor.go`) |
-| **Skill** | `extract-skill` |
-| **允许工具** | **仅** `emit_answer_symbol` + `emit_hypothesis_verdict` |
-| **禁止工具** | `read_file` / `grep` / `repo_map` / `list_files` / `exec_command` / `emit_evidence` |
-| **ShouldStop** | `iteration >= 2`（one-shot + 一次 retry 窗口） |
-| **输入** | `MutableState.TurnAArtifacts` digest + `AnalysisIR.HypothesisSet` + `AnswerContract.MustInclude` + (measurement-scalar only) Raw Tool Outputs 段 |
-| **输出** | `StageOutput.{AnswerSymbols, AnswerSymbolCompleteness}` + 回写 `HypothesisSet[i].Status` |
+> *像高考作文阅卷的复评：所有作文（evidence）按一套打分公式（实体重叠 × 类别权重 × 来源加权 × 主题对齐）排队；同分时按一套 tiebreaker（confidence、链长、源行号、字典序）继续比，直到唯一名次。整个过程不靠人感觉好坏——同一份作文 100 次跑出 100 次完全相同的排序。*
 
-Turn B 的两项**独特职责**：
+`identifyAnswerChains` 是纯 Go 函数（不调 LLM）。从 evidence pool 出发产 `[]AnswerChain{Item, Score, StrictOK, ...}`：
 
-1. **LLM-driven answer_symbol slate + completeness claim**。Phase 9 cardinality validator（`validateCompletenessClaim`）：LLM claim `complete` 但 `len(items) < max(TerminalEvidenceCount, len(MustInclude))` 时，claim 自动降级为 `lower_bound` + log warning。
-2. **LLM-driven hypothesis verdict + citation**。`confirmed`/`rejected` 强制带 `file:line` citation。编排器 post-extract hook 调 `AnalysisIR.MarkHypothesis` 写回。注意：`rejected` 和 `inconclusive` 有确定性路径——`ParseOutput` 的 auto-verdict 用 `criterion.Eval` 评估 `FalsificationCondition` → rejected、`RequiredEvidence` all-pass → inconclusive。编排器还在每次 explore window 后调 `runAutoVerdicts`（同样逻辑，不调 LLM）+ `drainHypothesisVerdicts` 更新 IR。
+1. **Base set**：resolution chain（`EvidenceDataflowPath` + Predicate=resolution_chain）、registration（`Registration` kind 或 `Concrete` + Predicate=returns/decorates/maps）、concrete return
+2. **ERM-opened slot**：conditional / relationship call / mechanism 项——仅当 ERM 当前 requirement 需要时
+3. **实体重叠**：剥掉 file path locator，统计问题实体在 Summary+Subject+Object 中的出现数
+4. **加成**：base 1.0 / multi-hop chain 2.0；short-literal bonus ×1.5（chain 终止于 returns "x"）；binds-first bonus ×1.3（chain 起头是 binds 动词）；self-ref demote ×0.2（chain terminal 就是问题主实体）
+5. **L0-1 predicate**：terminal predicate（registration / call_chain 要求 terminal 是具体 symbol ref，非 Go 关键词）+ origin predicate（registration 要求 chain 左端是 binding 动词）；失败的 ×0.2 / ×0.1 demote 但保留
+6. **打分**：`(overlap / len(entities)) * bonus`
+7. **稳定多键排序**：score desc → strictOK → confidence desc → chain length asc → SourceLine asc → Summary 字典序
+8. **Subject 匹配**：通过 `subject.Score` 给 Object（或 Summary 尾）匹配预期 AnswerSubjectKind 的 chain ×2.0
+9. **Axis affinity**：`AxisCall × AnchorCall = 1.6` boost ×2.0；`AxisCall × AnchorDefinition = 0.9` 直接乘
+10. **多样性约束**：(source_file, subject, anchor_symbol) 三元组上限 2 条——枚举答案像 "Run calls {checkA, checkB, checkC}" 不会塌成 top-2
 
-#### Anchor skeleton for explanation + sub_topics ≥ 1
+### 5.8 TurnAArtifacts — 冻结快照
 
-`isMultiTopicExplanation(ctx)` 谓词：当 `RequestModel.SubTopics > 0` 且 V2 view 的 family 落到 explanation 簇时，`Observe.needSymbols = true`，把 `emit_answer_symbol` 提升为 expected emit。LLM 为每个 sub-topic 产一条 anchor symbol（load-bearing identifier + `file:line` + `rationale=子话题描述`），作为 finalizer 多段 prose 的骨架。
+> *像法庭"封存证物"：证据链一旦封存，公诉方（extractor）只能用证物柜里的东西做指控，不能再回外面取证。这样"作出判决之后才发现还有其他证据"的情形被结构性消除——extractor 看到的就是 explorer 在那个时刻认定的全部事实，retry 也不会带新信息进来。*
 
-配套：`emit_answer_document` 对 explanation 答案允许 optional `symbols[]` skeleton（仍禁 `steps[] / value / boolean`），completeness 在 skeleton 路径不要求；`render/answerdoc.go::renderAnswerDocExplanationSkeleton` 在 summary 和 citation pool 之间渲染 "Key anchors" / "关键锚点" 块；`answer_document_evaluator.go` 的 finalizer prompt 把 extractor 产的 per-topic slate 原样传下去附 "re-emit verbatim in symbols[]" 指令。单话题 explanation（`SubTopics == 0`）保持原路径——summary 就是答案。
+Turn A 末尾，explorer 把整份调查结果冻结成 `TurnAArtifacts`：
 
-#### Turn B 的诚实契约
+| 字段 | 内容 |
+|---|---|
+| `UserQuestion` | 原始任务问题（Turn B 不用从 normalize 后的 IR 反推） |
+| `InvestigationNotes` | 每轮 ReAct 的 LLM narrative 块 |
+| `ReadFiles` | Turn A 拉过的 repo-relative file paths（去重）。Turn B 用这个防御 LLM 引用没看过的文件 |
+| `ToolResults` | Turn A 的 tool result history（按时序，受 pruneToolHistory 约束）。Turn B 不再调工具——这是它能看到原始数据的唯一窗口 |
+| `EvidenceItems` | Turn A 的 ParseOutput 已产出的确定性 evidence（concrete_value / flow finding / mechanism scan / grounded markdown）。Turn B 可以再 emit_evidence 加新的，drain 时合并 |
+| `FlowFindings` | dataflow analysis 输出 |
+| `TerminalEvidenceCount` | Turn A 标的"terminal evidence"数 β——结构上单 symbol 的 answer 候选数。Turn B 的 emit_answer_symbol cardinality validator 用它做 floor |
 
-Turn B 看不到新文件——所有信息在 Turn A transcript 快照里冻结。retry 带不来新信息。错了就降级为 `lower_bound` 而不是 retry。`ShouldStop` 设 `iteration >= 2`（而非 `>= 1`）给工具参数校验失败留一次 retry 窗口（LLM 下一轮看到 tool error 并修正参数）。`Observe` 在 `PhaseMidLoop` 检测至少一个**成功**的 emit_* 后立即 `StopRequested`。`PhaseSoftStop` 对 `list_of_symbols` 问题在 LLM 停下但未调 `emit_answer_symbol` 时注入一次 correction hint（`maxExtractorCorrectionRetries = 1`）。
+`SetTurnAArtifacts` 防御性拷贝 slice header；`TurnAArtifacts()` 每次返回新 copy。Turn A 反复 set 不会污染历史。
 
-### 4.4 `finalize` — 输出收敛
+### 5.9 Extractor — 看快照写答案 slate
 
-| 方面 | 详情 |
-|------|------|
-| **Agent** | finalizer |
-| **Skill** | `answer-document-skill`（硬编码于 `topology.go`） |
-| **工具** | `emit_answer_document`（独占） |
-| **输入** | `BusContext.AnalysisIR.AnswerContract` + `AnswerSymbols` + completeness + `HypothesisSet` + Turn A 的 `StageReport` + (measurement-scalar only) Raw Tool Outputs 段 |
-| **工作** | 按 `AnswerSemanticView` 必填 block（BlockSummary / BlockOrderedList / BlockScalar / BlockDecision / BlockSection / BlockTable / BlockDiagram / BlockCaveat）构造 V2 typed payload → 调 `emit_answer_document` → renderer 渲染 |
-| **输出** | `StageOutput.FinalAnswer`（写进 task.Result）|
+> *像论文作者写"结论"那一节：本节不能再做新实验、不能再引入新数据，只能从前面已经收集好的数据里挑出"实验结论是 A、B、C，每条对应表 3 第 5 行"。挑错或挑漏直接判 lower_bound（"以上至少这些，可能还有更多"）—— 这是诚实的退路，比"不知道但说了 14 个"安全。*
 
-#### 职责边界（严格不重叠）
+Turn B 没有文件读取工具——它的 skill `extract-skill` 的 `ToolSuggestions` 只开放 `emit_answer_symbol` + `emit_hypothesis_verdict`，`buildToolSchemas` 物理裁剪 schema。Turn B 干两件事：
 
-| 产物 | 归属 | 路径 |
-|------|------|------|
-| `EvidenceItems` | **Explorer 独占** | `emit_evidence` + markdown fallback + merge |
-| `AnswerChains` | **Explorer 独占** | 确定性 `identifyAnswerChains` |
-| `FlowFindings` | **Explorer 独占** | 确定性 dataflow pipeline |
-| `StageReport` prose digest | **Explorer 独占** | `renderExplorerStageReport` |
-| `TurnAArtifacts` 快照 | **Explorer 写，Extractor 读** | `SetTurnAArtifacts` / `TurnAArtifacts()` |
-| `AnswerSymbols` + completeness claim | **Extractor 独占** | `emit_answer_symbol` + Phase 9 validator |
-| `HypothesisSet[i].Status` | **Extractor 写 buffer** | `emit_hypothesis_verdict` + `drainHypothesisVerdicts` |
-| `AnswerDocument` | **Finalizer 独占** | `emit_answer_document` + renderer |
+**1. emit_answer_symbol**：写答案 symbol slate + completeness claim（complete / lower_bound / unknown）。Cardinality validator 防过度声明：
+- 自报 count → 验证 `len(items) == count`（防"找到 47 个调用者"但 emit 12 项）
+- analyzer 检测到 EnumerationBoundary.DeclaredCount=K → LLM 必须 emit ≥K（floor）
+- CompletenessObligation.Required=true → 拒收 `lower_bound`（用户要穷举答 lower_bound 是欺骗）
+- Floor grounding：每条 item，cited file 已 read_file 过时，验证 claimed 行 ±2 含 symbol；行幻觉（cite 调用点声称是定义）在这里被抓
+- 以 `max(β=TerminalEvidenceCount, γ=len(MustInclude))` 为 baseline——slate 不足就把 complete 自动降级 lower_bound
 
-#### Summary 长度：block-kind-tiered cap
+**2. emit_hypothesis_verdict**：每条 hypothesis 写 status（confirmed / rejected / inconclusive）+ rationale + file:line。confirmed / rejected 强制带 citation。系统额外有确定性兜底——`runAutoVerdicts` 用 `criterion.Eval` 评估 `FalsificationCondition` → rejected、`RequiredEvidence` all-pass → inconclusive，结果通过 `drainHypothesisVerdicts` 写回 IR。
 
-`emit_answer_document` 的 `summary` 长度由 `types.SummaryCapConfig` + `types.SummaryCapFor(blockKind, itemCount)` 决定。**默认 disabled**（`SummaryCapConfig.Enabled=false` → `SummaryCapUnlimited`）。`codrax.yaml` 的 `summary_cap_enabled: true` 激活:
+**ShouldStop 设 `iteration >= 2`**——给工具参数校验失败留一次 retry 窗口（LLM 下一轮看到 tool error 修正参数）。`Observe` 在 PhaseMidLoop 检测至少一个成功 emit 后立即 StopRequested。
 
-| principal block kind | 上限 | 用途 |
+**Anchor skeleton**：`isMultiTopicExplanation` 判定（SubTopics > 0 且 V2 view 落 explanation 簇）时，把 `emit_answer_symbol` 提为 expected emit。LLM 为每个 sub-topic 产一条 anchor symbol（load-bearing identifier + file:line + rationale），作为 finalizer 多段 prose 的骨架。
+
+### 5.10 AnswerSupportPlan / AnswerSurfacePlan — 渲染前的 typed lane
+
+`internal/types/answer_surface_plan.go` / `answer_support_plan.go` 是连接 compile 与 render 的 typed bridge：
+
+**AnswerSurfacePlan**：
+- `DriftBoundedSurfaceItems`：drift-bounded 渲染后的 principal item（root-cause-trace 绑定 runtime artifact 用）
+- `LogObservedAnchors` / `LogSourceDriftAnchors`：观察到的 stack frame vs 当前 code anchor 映射
+- `ExternalObservationSeeds`：runtime error type / signal / observed frame 种子
+- `StepBackbone`：step_list 答案的有序 step anchor
+- `TerminalAnchorCount`：达到 answer-grade proof 的 item 数
+- `SummarySurfaceMode`：渲染派发提示（如 `AnswerSummarySurfaceDriftBoundedRootCause`）
+
+**AnswerSupportPlan**（root-cause-trace 专用，4 lane）：
+- `SupportLaneObservedArtifact`：log/perf 观察到的事实（**不是**当前代码 mechanism）
+- `SupportLaneCurrentCodePath`：当前 grounded code 的主调用 / 路径链
+- `SupportLaneNearestMechanism`：最近的 guard / assignment / return（解释失败路径）
+- `SupportLaneUncertaintyBound`：drift / proof-boundary caveat
+
+每 lane 是 `[]AnswerSupportEntry{Text, Location}`。finalizer 的 prompt builder 渲染时带显式指引——"这条 lane 只能描述 X"——强制把"日志观察到的事"和"当前代码 mechanism"严格分开。否则会发生"observed frame F 是当前代码里 X 的调用点"这种漂移到当前 code 的假断言（log 是旧 build，源码已经 drift）。
+
+### 5.11 EvidenceClosure — 跨阶段状态总线
+
+> *像项目部门的共享白板：白板上写"今天读过哪些文件 / 扫过哪些文件 / 引用的有哪些 / 待读的有哪些 / 哪些 finding 没核实"——每个字段都有谁负责写、谁负责读，写完不读 / 读了没人写都会被结构性测试抓出来。*
+
+`internal/types/evidence_closure.go` 是跨 stage 共享的证据闭环。每字段都至少有一个 production consumer（结构性测试 `TestEvidenceClosureAllFieldsHaveConsumer` 锁死）：
+
+| 字段 | Producer | Consumer |
 |---|---|---|
-| `summary` (explanation) | `Explanation` (default 2500) | Summary **IS** 答案正文 —— 多段 prose + 可选 Mermaid |
-| `decision` | `Boolean` (default 800) | 1-3 句 lead-in + rationale |
-| `scalar` | `Value` / `ConfigValue` (default 500) | 单句 lead-in + scalar literal |
-| `ordered_list` (hop chain) | `min(StepListMax, StepListBase + n·StepListPerItem)` (default 1000 + 120·n, max 2500) | lead-in；随步数扩张 |
-| `ordered_list` (enumeration) | `min(SymbolsMax, SymbolsBase + n·SymbolsPerItem)` (default 1000 + 100·n, max 2500) | lead-in；随 symbol 数扩张 |
+| `readSet` | explorer.SetReadSet | I1/I2/I3/I4 全读 |
+| `scannedSet` | explorer Phase 0 SetScannedSet | chain_promotion PendingRead 过滤 + preComplete 分段渲染 + runForcedReads advisory |
+| `citedRefs` | `emit_answer_document.RecordCitation` | I4 CitedRefsHash 第 4 维 fingerprint |
+| `pendingReads` | chain_promotion + A1 bridge（grounder → PendingReads 镜像） | I3 check + runForcedReads |
+| `unverifiedFinds` | analyzer findings_validator.Validate | builder "## Unverified Analyzer Findings" + preComplete check + AddRepair(RepairExpandSearch) |
+| `subjectMatches` | rankChainsBySubject.SetSubjectMatch | preComplete SubjectMatch<0.4 check + Subject Match Summary prompt 段 |
+| `fingerprints` | detectStallAndAct.Append | detectStallAndAct 4 维比较 |
+| `repairs` | 5 种 producer | ConsumeRepairs → renderWindowHint |
+| `stats` | 各 enforcer Bump | emitCGECSummary 任务末尾摘要 |
 
-全部字段通过 `codrax.yaml` 的 `summary_cap_*` 覆盖。`cmd/root.go` 加载 YAML 后调 `types.SetSummaryCapConfig` 一次性替换 package-level config，下游 `emit_answer_document` + shrinkage-salvage trimmer 共用。
+### 5.12 CGEC — 4 条不变量
 
-#### Citation Quote：preview 预览截断，锚点不丢
+> *像图书馆的"借书必还"规则：(I1) 任何被引用的页码都必须真在馆藏目录里；(I2) 写论文时引用的页码必须是借过的书的页码（不能引用没借过的）；(I3) 声称"调查完成"前要确保引用集自洽；(I4) 重试若什么都没新读、没新引、没改过，就是死循环——强制读 N 个待读页或者降级"我已尽力但确实不全"。这四条规则配 5 种"修复指令"卡片，每张卡告诉系统下一步该做什么。*
 
-`Citation.Quote` 是 optional 的 verbatim 源码预览，超过 `types.CitationMaxQuoteChars()`（默认 `DefaultCitationMaxQuoteChars = 500`）后**静默截到 UTF-8 边界**，`File` / `Line` 始终保留。Prose-smuggling 防御由 `ground.GroundCitation` 的 `QuoteMatched` token 匹配兜底（Quote token 跟源码行 ±2 行邻域无重合 → Quote 清空，走 `quoteCleared` → Tier-1-proven 闸决定是否丢掉整条 citation），跟长度无关。这条 cap 因此是纯渲染预览宽度，不是正确性门。运行时通过 `types.SetCitationMaxQuoteChars` 替换，`codrax.yaml :: citation_quote_max_chars` 单键覆盖；非正数忽略。
+CGEC（Citation-Grounded Evidence Closure）跨阶段的证据闭环契约。4 条不变量配 5 种 RepairKind：
 
-#### Forbidden 字段：reject 不 scrub
+| # | 不变量 | Enforcer | 违反后做什么 |
+|---|---|---|---|
+| **I1** | 所有 prompt 中 surface 的 `file:line` ⊆ ReadSet | explorer applyChainPromotion / Type Hierarchy filter / findings_validator | chain anchor ∉ ReadSet → 不渲染 prompt + anchor file 进 PendingReads；analyzer 幻觉 path/symbol → UnverifiedFindings 段渲染 `~~text~~ ⚠️[未验证]` |
+| **I2** | 所有 emit_*-接受的 citation ⊆ ReadSet | emit_answer_document 白名单 + pre-finalize dry-run（simulateCitationGrounding） | dry-run 在调真 grounder 前预检；全 miss 直接 reject tool call；grounder 本身 drop citation + RepairDirective{RepairReadFile} 进 Repairs + A1 bridge 镜像到 PendingReads |
+| **I3** | `emit_investigation_complete` ⇒ 模拟 contract.Check 能过 | preCompleteContractCheck 6 条 a-f | (a) PendingReads 非空 downgrade + 按 ScannedSet 分段渲染 Forced Read List vs Suspicious Anchors；(b) citation 预检；(c) MinCit 短缺 → emit RepairExpandSearch；(d) subject×view mismatch → RepairSwapView；(e) evidence.Source 落 unverifiedFinds.Path → downgrade + RepairExpandSearch；(f) 所有 chain SubjectMatch<0.4 → RepairRebindSubject |
+| **I4** | retry 间至少 (ReadSet, Evidence, ChainTerm, CitedRefs) 四维之一单调进步 | detectStallAndAct + runForcedReads（pre/post-dispatch 两处） | soft stall（默认 2）→ runForcedReads 框架代读 ≤N 个 PendingReads（单轮上限 `cgec_forced_reads_per_round=3`）+ emit RepairExpandSearch；hard stall（默认 3）→ SetInvestigationComplete + RepairForceCompleteDowngrade |
 
-`rejectForbiddenFields`（`emit_answer_document.go`）**失败**整个 call 而不是静默清洗 —— shape=explanation 带着非零 `boolean{decision:"否", ...}` 会收到 `"shape=explanation forbids boolean{}; remove the field and retry"`，LLM 下一轮必清。零值字段（`value.Literal==""` / `boolean.Decision==""`）仍然静默 nil。`FinalizerMaxCorrectionRetries` default 3。
+5 种 RepairKind 每种都有 ≥1 producer 和 1 consumer（结构性测试锁死）：
 
-#### Shrinkage-salvage
+| Kind | 触发 | 渲染段 |
+|---|---|---|
+| `RepairReadFile` | grounder I2 + chain_promotion I1 + pre-finalize dry-run | "## Forced Read List" + Lazy Auto-Read |
+| `RepairExpandSearch` | Phase 0 broaden 耗尽 + stall 时 ReadSet 饱和 + preComplete 低 MinCit + findings_validator 未验证 | "## Search Coverage Gap" |
+| `RepairSwapView` | emit_answer_document view mismatch + preComplete subject/view mismatch | "## View Reconcile"（跨 explore→extract→finalize 持久） |
+| `RepairRebindSubject` | rankChainsBySubject bestMatch<0.4 + preComplete SubjectMatch<0.4 | "## Subject Constraint" |
+| `RepairForceCompleteDowngrade` | detectStallAndAct hard stall | "## Force-Complete Downgrade" + SetInvestigationComplete |
 
-`answer_document_evaluator` 对所有 shape 检测 "iter 0 rich prose → iter 1 压缩 summary" 模式：当 summary 明显少于前次 draft 的 `shrinkageRatio`（按 shape 缩放 floor：explanation 1.0×／list/step 0.5×／boolean 3/8×／value 0.25×），把 `findLastPreToolCallDraft(messages)` 选中的上一轮 draft verbatim 复制进 `summary[]`，UTF-8 rune-boundary trim 到 `SummaryCapFor(shape)`，追加双语 caveat，log `[finalizer/shrinkage]`。由 `agent_finalizer_*`（`preserve_prior_prose` / `shrinkage_min_prose_len` / `shrinkage_ratio`）控制。
+所有 enforcer fire log 统一前缀 `[CGEC] ...`，一次 grep 看全。
 
-### 4.5 Log Triage — 用户附加日志 → 结构化锚点注入下游
+### 5.13 Citation 反伪三层防御
 
-当用户通过 `--log <file|->` / `--log-text <inline>` / REPL `/log` 附加一条运行时日志时，在 analyze 之前会先跑一个独立的 `log_triage` 阶段。这个阶段是**条件触发**的（`BusContext.AttachedLog` 非空才激活），运行的是一个独立 agent（`log_triager`）而不是 analyzer 的 bolt-on；失败不阻塞主流水线。
+防止 LLM 伪造 cite 过关：
 
-**责任边界**（硬契约）：
+| # | 位置 | 行为 |
+|---|---|---|
+| 1 | `emit_investigation_complete.Execute` | Mutable 缓冲已有 ≥1 条 grounded/recovered 证据时，`absence_justification` 参数直接 reject——关掉 finalize citation floor 豁免 |
+| 2 | `ground.GroundCitation` Tier 2 | 要求 line 落在某 symbol 的 [Line - docRadius, EndLine] 或 prologue [1, firstSymbolLine - docRadius]。两 symbol 间的 dead zone 被 reject |
+| 3 | `emit_answer_document.buildEmitAnswerDocumentCitations` Tier 1 peer 规则 | pool 里全是 Tier 2-only 且至少一条 quote 被清（fabricated）→ 全部 quote-cleared citation 整批 drop |
 
-| 侧 | 职责 | 不做的事 |
-|---|------|---------|
-| LLM（`log_triager` agent + `log-triage-skill`） | 读取 `AttachedLog` 正文，emit 结构化 `LogBundle` | 不做路径解析、不做仓内存在性验证、不填派生字段 |
-| 系统（`internal/analysis/logtriage.ValidateBundle`） | 路径归一化、`os.Stat` 校验、Java basename 仓内 glob、运行时内部文件过滤、派生 `ResolvedFiles`/`Entities`/`IntentHint`/`Coverage` | 不改 LLM 发出的 `Meta` / `Errors` / `Residue` 三层 |
+`Citation.Quote` 是 optional 预览，超过 `citation_quote_max_chars`（默认 500）静默截到 UTF-8 边界，file/line 始终保留。Prose-smuggling 防御由 `ground.GroundCitation` 的 `QuoteMatched` token 匹配兜底（quote token 与源码行 ±2 邻域无重合 → quote 清空，走 quoteCleared）。这条 cap 因此是纯渲染预览宽度，不是正确性门。
 
-由 LLM 做抽取而不是写死的正则 parser，使得支持的日志格式不再是一个固定列表——Go panic、Java exception（含 `Caused by` 链 → 递归 `Cause` 指针）、C/C++ ASAN / UBSAN / gdb、Python traceback（含 `During handling` → 递归 `Cause`）、Node.js V8 stack、Rust `#[source]` 链、Ruby backtrace、结构化 JSON 应用日志、编译器错误报告都走同一套代码路径。
+### 5.14 emit_evidence 的 graceful-degrade
 
-**LogBundle 数据结构**（`internal/types/log_bundle.go`）分四层：
+三条规则降低单条参数错误的整批 reject：
 
-| 层 | 来源 | 字段 | 说明 |
-|---|------|------|------|
-| 1. Meta | LLM | `Lang` / `Signals[]` / `Summary` | 日志整体分类。`Signals` 是 10 值 enum：`panic` / `crash` / `oom` / `timeout` / `permission` / `db` / `network` / `validation` / `logic` / `other` |
-| 2. Errors | LLM | `[]LogError{Type, Message, Frames[], Cause *LogError}` | 错误树。顶层 slice 是**平行快照**（Go goroutine dump 里多个同时 panic 的 goroutine），`Cause` 指针是**时序因果链**（Java `Caused by` / Rust `#[source]` / Python `__cause__`）。递归深度由系统兜底截到 5 层 |
-| 3. Residue | LLM | `UnknownChunks[]` | LLM 抽不进 `Errors` 的段（最多 8 段，每段 ≤ 500 字符） |
-| 4. Derived | 系统 | `ResolvedFiles[]` / `Entities[]` / `IntentHint` / `Coverage` | 系统侧派生：`ResolvedFiles` 是 `os.Stat` 校验过的仓内路径（按 `Confidence` 降序，上限 10）；`Entities` 是从 `Func` / `Pkg` / `Error.Type` / `Signals` 派生的关键词（上限 32）；`IntentHint` 在有真实栈帧或信号含 `panic`/`crash`/`oom` 时置为 `IntentRootCause`；`Coverage` = `1 - bytes(Residue)/bytes(raw)`，驱动两步升级决策 |
+1. **`line_end < line_start` 自动 swap**：保留并附 "AUTO-SWAPPED; double-check" 提示
+2. **Sparse per-item reject**（<50% 失败率）：单条 validation error 跳过该 item 保留多数，reject 的 index + 原因写进 Summary
+3. **Majority reject**（≥50% 失败率）：整批失败，所有原因列在错误信息里
 
-每个 `LogFrame` 带 `File` / `Line` / `Func` / `Pkg` / `Raw`（原始日志行）/ `Confidence`（0.0-1.0）。系统侧把 `Confidence < 0.6` 或 `File == ""` / `Line == 0` 的帧保留在 bundle 中（贡献到 `Entities`）但不晋升到 `ResolvedFiles`——这是零信息丢失的恢复策略。
 
-**数据流**：
+---
+
+## 6. AnswerDocument 结构化答案
+
+> **这一章解决"答案怎么从 LLM 自由文本变成机器可校验、可渲染、可重试的结构"。**
+
+### 6.1 设计动机
+
+> *像申请专利：发明人不能用一段抒情散文描述发明，必须按"权利要求 1 / 2 / 3"、"附图 1 / 2"、"实施例"这种结构化模板填表。审查员看模板字段就能机械判定"权利要求 1 范围太宽不予授权"，不用解读散文。AnswerDocumentV2 就是答案的"专利申请书"——LLM 必须把内容填进 typed block 槽里，每个槽什么 kind、必填项是什么都被 schema 锁定。*
+
+如果让 LLM 直接产 markdown 答案，contract check 只能读 prose——回退到关键词匹配、prose 解析、heuristic 分类。每次 retry LLM 微改字面就可能让 validator 误判通过或误拒。codrax 的解法是：**LLM 的最终输出是一份 typed `AnswerDocumentV2`**——一组 typed `Block` + 一份 typed `Citation` 池 + 几个文档级元数据字段。validator / renderer 只读 typed enum 和精确字符串匹配，不读 prose 不做 fuzzy 匹配。
+
+### 6.2 三种载体语义：carrier / mutation / patch
+
+> *像编辑长文章：carrier 是"当前定稿"；mutation 是"改动指令"——可以是"整篇推倒重写"（replace_all）也可以是"第 3 段保留、第 5 段替换、末尾加一段、删第 7 段"（partial）。partial 是为了避免 retry 时 LLM 把第 3 段那些精心标注的字段（claim_uses / facet_ids 等）顺手丢了——系统结构性 byte-identical 复制保留段。*
+
+| 角色 | 类型 | 责任 |
+|---|---|---|
+| 唯一载体 | `AnswerDocumentV2{DocumentModel, Blocks[], Citations[], ExactResolution, MissingRequestedRoles, Caveats, Snippets}` | 答案的内存表示 |
+| 唯一写入协议 | `AnswerDocumentMutation{Kind, Replace, Patch}`（Kind=replace_all 或 partial） | 唯一改动语义 |
+| 唯一写入闭环 | `tool.ApplyAndPersistMutation` | 唯一写入入口 |
+| 唯一 setter | `MutableState.SetAnswerDocumentV2WithMutation` | 唯一 mutation 在 Mutable 上的回响 |
+
+**全量发射（emit_answer_document）**：LLM 一次性写完整文档 → 包成 `NewReplaceAllMutation(doc)` → ApplyAndPersistMutation。
+
+**增量补丁（emit_answer_document_patch）**：LLM 在 retry 时声明：哪些 block 保留 byte-identical、哪些替换、哪些追加、哪些删除 → 包成 `NewPartialMutation(patch)` → 通过 `ApplyAnswerDocumentV2Patch(prev, patch)` 合并。**保留语义是 typed 的**——LLM 用 `UnchangedBlockIDs[]` 列出要保留的 id，系统结构性 byte-identical 复制（包括 claim_uses / facet_ids / surface_role / edge_anchors / diagram payload 等所有 typed 注解）。这样修一次"diagram 节点漏了一条边" retry 不会顺手把其他 block 上费力构造好的 facet 标注弄丢。
+
+`emit_answer_document.Execute` 内：
+
+1. **V1 字段检测**：扫 raw JSON 里的 retired top-level 字段（shape / steps / symbols / value / boolean / summary）；混合 V1+V2 payload 直接 reject
+2. **Flat-mode 容错**：嵌套 array 被 LLM 误编码为 JSON string（`"[{...}]"`）时，`repairBlocksAsString` / `repairNestedArraysAsString` 透明再编码并 WARN
+3. **Typed 归一**：每个 raw block 过 `NormalizeEmitAnswerBlock`，校验 kind / diagram payload / citations / claim_uses / edge_anchors / facet_ids
+4. 包成 mutation，调 `ApplyAndPersistMutation`：
+   - `mutation.Apply(prev)` 得到 merged doc
+   - `runContractCheck(ctx, mutation)` 跑 validator 套件
+   - 写到 `Mutable.SetAnswerDocumentV2FromMutation`
+   - ToolResult 返回 telemetry（block 数 / violation 数）
+
+### 6.3 Block kinds — 9 种典型答案块
+
+> *像写文章用不同段落工具：summary 是开头综述、section 是带小标题的子节、ordered_list 是步骤列表、scalar 是单值（"答案：42"）、decision 是是非判定（"是 / 否 + 理由"）、diagram 是配图、table 是对比表、caveat 是文末"注意事项"。每种都有自己专门的内容格式，下游渲染器看到 kind 就知道怎么排版。*
+
+每个 block 至少有 `id`（LLM 指定的稳定标识，retry hint 引用它）+ `kind`，外加 kind-specific payload。可选字段：`title` / `facet_ids[]` / `surface_role`（principal 标记主线答案块）/ `claim_uses[]` / `edge_anchors[]`（diagram 边的 typed 锚点）。
+
+| kind | payload | 用途 |
+|---|---|---|
+| `summary` | `text`（prose） | 开场段或解释体。多为整答的引子 |
+| `section` | `title` + `text` + 可选 `items[]` | 子标题分块（per-bucket / per-layer / per-topic） |
+| `ordered_list` | `items[]`（每项 `id` + `label` + `text` + 顶层 `citation_ref`） | 序敏感枚举（hop chain / 步骤 / 优先级层 / 有序成员） |
+| `bullet_list` | 同上 | 序无关枚举（选项 / 同级成员） |
+| `scalar` | `text`（字面值）+ 一元 `items[]`（`citation_ref`） | 单字面答案（count / 路径 / config 值） |
+| `decision` | `text`（开头 yes/no/是/否 + rationale）+ 一元 `items[]` | 判决答案 |
+| `table` | markdown 表 inside `text` 或 `items[]` 行式 | 多列对比 |
+| `diagram` | `diagram{kind, language, body}` | 结构图（`diagram.kind` 是语义家族 flow/sequence/architecture/call_dag，`body` 是 mermaid 源码） |
+| `caveat` | `title` + `text` | 范围声明 / 出口外提醒 / 不确定性 |
+
+**核心原则**：scalar / decision 的字面值放在 `text` 里，citation 通过一元 `items=[{id, citation_ref:N}]` 锚——top-level 不存在 `value{}` / `boolean{}`（V2 不接受这些 V1 字段）。
+
+### 6.4 AnswerSemanticView — 把问题家族编译成"答案合同"
+
+> *像考研政治的答题模板：问"分析 X 现象"→ 模板规定"必须有：(1) 现象描述 (2) 原因分析 (3) 对策 (4) 总结"，问"列出 X 的特征"→ 模板规定"必须有：(1) 引言 (2) 5 条特征列表 + 每条引用资料"。view 就是按问题家族（QuestionFamily）匹配出的"该题的答题骨架"，规定哪些 block 必填、各自配多少 facet。*
+
+`AnswerSemanticView`（`internal/types/answer_semantic_view.go`）是连接 analyzer 与下游 prompt / validator / renderer 的 typed bridge。它显式声明**这次 dispatch 的答案必须包含什么、blocks 怎么排**。
+
+字段（节选）：
+- `Family`：8 种 `QuestionFamily` enum——`QFRootCauseTrace` / `QFConfigPrecedence` / `QFRoleLookup` / `QFCallChain` / `QFEnumeration` / `QFArchitecture` / `QFComparison` / `QFGeneric`。由 `ResolveQuestionFamily` 从 typed 信号推导（Intent / Scenario / SemanticPredicates / SubTopics / Buckets），不读关键词。
+- `RequiredBlocks[] BlockRequirement`：Kind / MinCount / MaxCount(0=不限) / Required / FacetIDs / ClaimForms / Rationale（LLM-natural prose）
+- `OptionalBlocks[]`：可选块（增加丰富度）
+- `DiagramPlan`：family 期望 diagram 时载明（Required / Kind / NodeFacets / EdgeFacets / EdgeRelations 数组）
+- `ExactResolution`：精确解析 status=resolved/absent/unknown 合同
+- `MissingRequestedRoles`：config-precedence absent 答案的用户请求层（CLI / config / env / runtime）零 grounded coverage 列表，渲染时显式打"该层未找到"
+- `SummaryMode`：风格提示（普通 vs drift-bounded root-cause）
+- `UncertaintyRules[]`：(trigger facet) → (expected block kind) → (repair prose) 三元组
+- `RichnessCandidates`：optional facet 列表（提升完整度的扩展项）
+
+**编译入口**：`BuildAnswerSemanticView(ir, plan)` 按 Family 分派到 8 个 family-specific compile_<family>.go：
+
+| Family | RequiredBlocks | OptionalBlocks | Diagram |
+|---|---|---|---|
+| QFRootCauseTrace | 1 summary（结论 + 失败位置）+ ≥1 ordered_list（cause chain，从内层 frame 向外） | sequence diagram（chain ≥3 跳）/ caveat（drift） | optional |
+| QFRoleLookup | 1 summary（subject + 角色）+ 1 scalar（字面 + file:line） | section / caveat | — |
+| QFConfigPrecedence | 1 summary + ≥1 scalar 或 table（终值或层级网格） | ordered_list / caveat | — |
+| QFCallChain | 1 summary + ≥1 ordered_list（hops）+ **1 diagram（sequence，必填）** | caveat（drift） | required |
+| QFEnumeration | 1 summary + ≥1 ordered_list / table / bullet_list（枚举，MaxCount=0） | section（buckets）/ caveat | — |
+| QFArchitecture | 1 summary + ≥1 section（每组件层）+ **1 diagram（flowchart/architecture，必填）** | bullet_list / caveat | required |
+| QFComparison | 1 summary（命名所有 bucket）+ 恰 N 个 section（N=user buckets） | table / caveat | — |
+| QFGeneric | 1 summary（解释直接放这里） | section / list / diagram / caveat | optional |
+
+每个 family compiler 还会标"glaring facet"——确实存在的 facet 但当前答案没覆盖时触发 ViolRichnessGlaringGap（soft，遥测用）。
+
+### 6.5 Diagram relation 与 edge anchor
+
+Diagram 的 node / edge 不只是视觉。`DiagramRelationKind` 把 edge 的语义关系闭枚举：call / guard / import / precedence / contain / observe。系统按优先级扫 mermaid 边标签匹配关键词（guard/if/when > precedence/override/layer > import/depends > observe > contain > call）。未知标签返回 `DiagramRelUnknown`（合法——只要端点 grounded 即可）。
+
+**DiagramEdgeAnchor**（`AnswerBlock.EdgeAnchors[]`）是 `(FromNode, ToNode, ClaimForm, RelationKind)` 四元组，绑定一条带标签的 edge 到显式的 claim form。FromNode / ToNode 必须是 diagram body 里 verbatim 的 node id；RelationKind 是优先信号（authoritative），缺省时 validator 从 label 推断；ClaimForm 按 claim_use 协议（call_edge / guard_condition / import_edge / precedence_role / external_observation 等）。这样让 LLM 显式声明语义，又把 edge label 留给读者读 prose 用。
+
+`DiagramFacetGraph` 进一步声明哪些 facet 必须作为 node、哪些作为 edge：call_dag/sequence 的 node 是 `FacetCurrentCodePath`，edge 是 `FacetPrincipalPathEdge`；architecture 的 edge 是 `FacetComponentRelation`。`EdgeRelations[]` 数组写入 typed 合同——"diagram 必须至少有 1 条 call relation（label 推断或 relation_kind 显式声明），由 ClaimCallEdge 支撑"。
+
+### 6.6 Validator 链 — 三层校验
+
+`internal/orchestrator/contract_check_block.go` 在 mutation 写入 Mutable 之前跑校验，HARD / Layer 2 / Layer 3 三层：
+
+**HARD correctness**（永远 strict）：
+- block id 唯一非空（NormalizeEmitAnswerBlock + executeAnswerDocumentV2）
+- block.kind 在 `AllAnswerBlockKinds()` 中
+- BlockDiagram 时 `block.diagram` 非 nil 且 body 非空
+- DiagramPlan.Required=true 时 diagram 块必存在；NodeFacets/EdgeFacets 设了时解析 mermaid body 校验 nodes/edges 出现
+
+**Layer 2 completeness**（默认 soft，按 `pipeline_contract_strict_kinds` 提到 strict）：
+- `validateRequiredBlockCoverage`：每个 Required=true 的 BlockRequirement 都按 MinCount ≤ actual ≤ MaxCount（MaxCount>0 时）出现，否则 `ViolBlockCoverageMissing`
+- `validatePrincipalClaimUse`：surface_role=principal 且 view 的 AcceptableClaimForms 非空时，block 必须挂 claim_uses[] 且至少一条 entry 覆盖每个声明的 claim form，否则 `ViolClaimCoverageMissing`
+- `validateUncertaintyBlockPresence`：UncertaintyRule 的 trigger facet 在文档里被覆盖时，ExpectedBlockKind（通常 BlockCaveat）必须出现，否则 `ViolUncertaintyBlockMissing` 并把 rule 的 MissingMessage 作 repair text
+- `validateFacetCoverage`：FacetHardRequired 的 facet 必有至少 1 个 block 在 `block.facet_ids[]` 声明它或带 grounded citation，否则 `ViolFacetUncovered`
+
+**Layer 3 richness**（telemetry，不阻塞）：
+- `validateRichnessRegression`：optional facet 覆盖率比基线低 → 软违规
+- `validateRichnessGlaringGap`：标 glaring 的 facet 完全缺席 → 软违规
+- `validateDiagramEdgeSupport`：DiagramEdgeRelationContract 的最少边数 / 对应 ClaimForm 锚检查
+- `validatePrincipalProseUnderfilled`：principal block text 太短（默认 50 字符）→ 软违规
+
+violation 集中在 `internal/types/violation.go::ViolationKind` enum 里注册。每个 ViolationKind 还能挂 `ViolKindSpec.SchemaDescriptionFragment`——LLM-facing prose——auto-injected 到 answer-document tool prompt，让 LLM 在第一次 emit 之前就看到约束，而不是 emit 完才知道哪里不合规。
+
+### 6.7 ClaimForm / SurfaceRole / AnswerBlockItem
+
+> *ClaimForm 像论文里的"引用类型"：直接引文（definition_fact）、调用关系（call_edge）、条件断言（guard_condition）、外部观察（external_observation）等。每条引用必须声明自己属于哪类，验证时按对应规则核对——直接引文要求引文行真含目标字符串，调用关系要求两端是真实函数。SurfaceRole 像论文段落"主体段 / 引言 / 注脚"标签：principal 是主体段，验证最严；其他是辅助。*
+
+**ClaimForm**：EvidenceItem 的 typed 字段（Origin / Scope / DiagramRole / AnchorKind）确定性投影到基础句形：
 
 ```
---log / /log                             ┌──▶ Meta (Lang, Signals, Summary)
-     │                                   │
-     ▼                                   ├──▶ Errors[] (递归 Cause)
-BusContext.AttachedLog     emit_log_triage├
-     │                         │         └──▶ Residue (UnknownChunks)
-     │              ┌──────────┘                         │
-     │              ▼                                    ▼
-     └──▶ log_triager agent ──▶ logtriage.ValidateBundle (os.Stat + 过滤 + 派生)
-                                            │
-                                            ▼
-                                    Mutable.LogTriage() (LogBundle)
-                                            │
-              ┌─────────────────────────────┼──────────────────────────────┐
-              ▼                             ▼                              ▼
-   analyzer 读 bundle.Entities       reconcileIntent                 analyzerRequiredFiles
-   union 进 AnalyzerHints.Entities   (IntentHint=RootCause →          读 bundle.ResolvedFiles
-                                      强制切 root_cause)               prepend 到
-                                                                       EvidencePlan.RequiredFiles
+Log/Perf origin → ClaimExternalObservation
+Negative scope → ClaimAbsenceFact
+Config/Runtime/Override DiagramRole → ClaimPrecedenceRole
+AnchorKind=call → ClaimCallEdge
+AnchorKind=condition → ClaimGuardCondition
+AnchorKind=return → ClaimReturnFact
+AnchorKind=assignment → ClaimAssignmentFact
+import 锚 → ClaimImportEdge
+否则 → ClaimDefinitionFact
+fallback → ClaimUnknown
 ```
 
-**下游 prompt 渲染**：`Mutable.LogTriage()` 镜像到 `AgentContext.LogTriage`，`context/builder.go::formatLogTriageStructured` 对非 `log_triager` agent 渲染一个"Log Triage — Validated Extraction" prompt section,内容按审计友好结构:
+LLM 在 RenderedClaimUse 上声明 claim_form，validator 从 evidence 重派生再对比——不一致 reject。这是纯函数，不读 LLM 也不做 heuristic。
 
-- **Meta 块**:`Language` / `Signals` / `Summary` / `Coverage` / `IntentHint` 逐行
-- **Errors 树**:顶层按平行快照编号,递归 `Cause` 链以 `↳ caused by` 缩进渲染。每帧带 `★ resolved` 标记(当 File+Line 都验证通过时)/`(unresolved)` 标记(当 File 被清空或 Confidence < 0.6 时),末尾附 `confidence 0.XX` + `raw:` 原日志行
-- **Unstructured residue**:`Residue.UnknownChunks` 显式标注"NOT citeable"
-- **Provenance legend**:明确告诉 LLM ★ 的含义、不带 ★ 的帧不得 cite、每条 `raw:` 用于 auditor 交叉比对
+**SurfaceRole**：当前一个值 `SurfacePrincipal`，flag 主线答案块。空（默认）= 支持上下文。validator 只对 principal 块跑 claim_use coverage 和 count 约束，其余按"不是 principal"统一处理。
 
-该 section 放在 "Attached Runtime Log"(原始日志)**之前**,结构化视图优先,原文作为备查。修复了 Java / Python / Rust 多层 `Caused by` 链在 finalizer 重新 parse 原文时偶尔漏层的质量回退——LLM 直接读已验证的树而不是 re-derive。`log_triager` agent 自身跳过该 section(产品消费自环)。
+**AnswerBlockItem**：list/table 的单项——`id` / `label`（主文本/行头）/ `text`（详情/行内容）/ `citation_ref`（zero-based 索引到 Citations[]，-1 = 无 cite）。
 
-**两步自适应抽取**：默认单次 `emit_log_triage` 调用。当 `len(AttachedLog) >= log_triage_two_step_bytes`（默认 32 KB）或单次抽取结果 `Coverage < log_triage_two_step_coverage`（默认 0.3）时自动升级：先调 `emit_log_segmentation` 让 LLM 按 `stack` / `caused_by` / `header` / `context` / `trace` / `noise` 切片打字节坐标，再对每个 `stack` / `caused_by` / `trace` 段分别调 `emit_log_triage`，最后 `logtriage.MergeBundles` 合并——`Meta.Signals` 并集、`Errors[]` 平行拼接、Layer 4 基于合并后的 Layer 1-3 重新派生。全过程 LLM 调用次数受 `log_triage_max_llm_calls`（默认 12，sized 1 single-shot + 1 segmentation + 10 per-segment）硬上限。
+### 6.8 Renderer
 
-**多文件附加**：`--log a.log --log b.log`（`StringArrayVar`，可重复）或 REPL `/log append <path>` 在多份日志间插入 `# codrax-source: <path>\n` 边界头；log-triage-skill 的 prompt 已教 LLM 把每段视为独立 capture（不同进程 panic / 不同时间窗口）。stdin (`-`) 跨 `--log` / `--htrace` / `--atrace` 整体只允许一次。
+`internal/render/answerdoc.go` 把 AnswerDocumentV2 渲染成 markdown，`render.RenderAnswerDocument(doc, lang)` 顺序遍历 `doc.Blocks` 派发到 per-kind helper：
+
+- `renderV2BlockSummary`：title 是 `## `；text 作 prose 段
+- `renderV2BlockSection`：title 是 `### `；items 转为 `- label: text`
+- `renderV2BlockOrderedList`：items 编号 1./2./3.；CitationRef 渲染时解析
+- `renderV2BlockBulletList`：items 用 dash
+- `renderV2BlockScalar`：`**Value:** \`literal\``，可选 title 作 italic
+- `renderV2BlockDecision`：`**Decision:** verdict + rationale`
+- `renderV2BlockTable`：用 text 的 markdown table，否则从 items 重建
+- `renderV2BlockDiagram`：fenced mermaid 块（用 diagram.language 决定围栏）
+- `renderV2BlockCaveat`：title 作 `## `，text 作 prose
+
+CitationRef 在 render 时解析；-1 = 无 cite。`MissingRequestedRoles` 渲染为显式 typed 句（"The `CLI` layer has no grounded binding for this key."）而不是模糊 N/A。文档级 `Caveats` 单独段渲染。`Snippets` 在末尾作 fenced code。
+
+renderer **永不 mutate 文档**也永不修复 block id / 缺失字段——按"系统只读"红线，输出是字符串 markdown。语言敏感（中英 preamble + section title）。
+
+---
+
+## 7. 阶段细则
+
+### 7.1 log_triage — 用户附加日志 → 结构化锚点注入下游
+
+> *像医院急诊分诊：病人推进来时先有一个分诊护士看一眼伤情、量个体温、登记基本情况（panic 类型、栈帧、出错文件），把这份"分诊单"贴在病历上。后面医生（analyzer）拿到病历看到分诊单，第一眼就知道"这是个外伤多发病人，先看 X 光"，不用从急救描述里再去猜。LogBundle 就是日志的分诊单。*
+
+当用户通过 `--log <file|->` / `--log-text <inline>` / REPL `/log` 附加运行时日志时，在 analyze 之前先跑独立的 `log_triage` 阶段。条件触发（`BusContext.AttachedLog` 非空）；失败不阻塞主流水线。
+
+**责任分离**：
+- LLM（log_triager + log-triage-skill）：读取 AttachedLog，emit 结构化 LogBundle 的 Layer 1-3。**不做路径解析、不做仓内存在性验证、不填派生字段**
+- 系统（`internal/analysis/logtriage.ValidateBundle`）：路径归一、`os.Stat` 校验、Java basename 仓内 glob、运行时内部文件过滤、派生 Layer 4
+
+把抽取交给 LLM 而不是写死正则，使支持的日志格式不再是固定列表——Go panic / Java exception（含 `Caused by` 链）/ C/C++ ASAN/UBSAN/gdb / Python traceback（含 `During handling`）/ Node.js V8 / Rust `#[source]` 链 / Ruby backtrace / 结构化 JSON / 编译器错误 全部走同一代码路径。
+
+**LogBundle 四层**：
+
+| 层 | 来源 | 字段 |
+|---|------|------|
+| 1. Meta | LLM | `Lang` / `Signals[]`（10 值 enum：panic/crash/oom/timeout/permission/db/network/validation/logic/other） / `Summary` |
+| 2. Errors | LLM | `[]LogError{Type, Message, Frames[], Cause *LogError}`。顶层 slice 是平行快照（goroutine dump 多个同时 panic）；`Cause` 指针是时序因果链（Java `Caused by` / Rust `#[source]` / Python `__cause__`）。系统截深度 5 |
+| 3. Residue | LLM | `UnknownChunks[]`（最多 8 段，每段 ≤ 500 字符） |
+| 4. Derived | 系统 | `ResolvedFiles[]`（仓内验证过，按 Confidence desc，≤10）/ `Entities[]`（≤32）/ `IntentHint`（有真实栈帧或信号 panic/crash/oom 时 `IntentRootCause`）/ `Coverage`（1 - bytes(Residue)/bytes(raw)） |
+
+每个 `LogFrame` 带 `File` / `Line` / `Func` / `Pkg` / `Raw` / `Confidence`（0-1）。`Confidence < 0.6` 或 file/line 缺的帧保留在 bundle（贡献 Entities）但不晋升 ResolvedFiles。
+
+**两步自适应**：默认单次 emit_log_triage；当 `len(AttachedLog) >= log_triage_two_step_bytes`（默认 32 KB）或 Coverage < `log_triage_two_step_coverage`（默认 0.3）自动升级——先调 emit_log_segmentation 让 LLM 按字节坐标切 stack/caused_by/header/context/trace/noise，再对每个 stack/caused_by/trace 段分别调 emit_log_triage，最后 `MergeBundles` 合并。LLM 调用上限 `log_triage_max_llm_calls`（默认 12）。
+
+**多文件附加**：`--log a.log --log b.log` 或 REPL `/log append` 在多份日志间插入 `# codrax-source: <path>` 边界头；prompt 已教 LLM 把每段视为独立 capture。stdin (`-`) 跨 `--log` / `--htrace` / `--atrace` 整体只允许一次。
 
 **路径解析与过滤**（`internal/analysis/logtriage/resolver.go`）：
-- `StripBuildPathPrefix` 按优先级剥 `/build/src/` / `/rpmbuild/BUILD/` / `/home/<user>/src/` 等 CI / build 前缀 + repo basename + `log_triage_source_prefix` / `--log-source-prefix` 覆盖。
-- `ResolveJavaFile(pkg, basename, candidates)` 处理 Java frame 只带 basename（`Bar.java`）不带目录的情况：用 package 后缀（`com.foo` → `**/com/foo/Bar.java`）消歧，tier 1（精确后缀）> tier 2（`src/main/java/` 布局后匹配）> tier 3（仅 basename）。
-- `IsRuntimeInternalFile` 过滤 Go runtime（`asm_amd64.s` / `/go/src/runtime/`）、Node `node:` URI、`java.base/*`——这些不是 user repo 文件，不进 `ResolvedFiles`。
-- `ResolveFrameFile` 做 `filepath.Rel` + `..` 逃逸检查 + `os.Stat` 硬校验，所有存在性都在仓内验证。
+- `StripBuildPathPrefix` 按优先级剥 `/build/src/` / `/rpmbuild/BUILD/` / `/home/<user>/src/` 等 CI/build 前缀
+- `ResolveJavaFile(pkg, basename, candidates)` 处理 Java frame 只带 basename：用 package 后缀消歧（tier 1 精确后缀 > tier 2 src/main/java/ 布局后匹配 > tier 3 仅 basename）
+- `IsRuntimeInternalFile` 过滤 Go runtime / Node `node:` URI / `java.base/*`
+- `ResolveFrameFile` 做 `filepath.Rel` + `..` 逃逸检查 + `os.Stat` 硬校验
 
-**Intent 覆盖**：`reconcileIntent(intent, predicates, *LogBundle)` 在 `bundle.IntentHint == IntentRootCause` 且 LLM declared 不是 `root_cause` 时强制切换。因为分析 agent 看得到 `AttachedLog` 原文（在 prompt section 里）但不是每次都会正确分类为调试查询，这里做 defence-in-depth。
+**Intent 覆盖**：`reconcileIntent(intent, predicates, *LogBundle)` 在 `bundle.IntentHint == IntentRootCause` 且 LLM declared 不是 root_cause 时强制切换。analyzer 看得到 AttachedLog 原文但不一定每次都正确分类——这里做防御纵深。
 
-**可调项**：
+**下游 prompt 渲染**：`Mutable.LogTriage()` 镜像到 `AgentContext.LogTriage`，`context/builder.go::formatLogTriageStructured` 对非 log_triager agent 渲染 "Log Triage — Validated Extraction" prompt section，结构：
+- Meta：Language / Signals / Summary / Coverage / IntentHint
+- Errors 树：顶层平行快照编号，递归 Cause 链以 `↳ caused by` 缩进；每帧带 `★ resolved` 或 `(unresolved)`，末附 `confidence 0.XX` + `raw:` 原日志行
+- Residue：显式标 "NOT citeable"
+- Provenance legend：明确 ★ 含义、不带 ★ 的帧不得 cite
 
-- **Triage 侧（`log_triage_*`）**：`log_triage_enabled` / `log_triage_source_prefix` / `log_triage_min_bytes` / `log_triage_max_retries` / `log_triage_two_step_enabled` / `log_triage_two_step_bytes` / `log_triage_two_step_coverage` / `log_triage_max_llm_calls`。
-- **Trace 容量（`trace_attach_max_bytes`）**：perf 通道独立的字节上限。未设时继承 `log_attach_max_bytes`，让"配一处即两通道对称"的常态符合默认；显式设置可独立调整（例如 trace 200 MB / log 50 MB）。同一 1 GiB 硬顶约束。
+放在 "Attached Runtime Log"（原始日志）**之前**，结构化视图优先，原文备查。
 
-### 4.5b Perf Triage — 用户附加 HiTrace / atrace / systrace / perfetto
+### 7.2 perf_triage — HiTrace / atrace / systrace / perfetto
 
-并行通道。当 `BusContext.AttachedHitrace` 非空时 `perf_triage` 阶段触发，`perf_triager` agent 用 `emit_perf_trace` 工具写出结构化 `PerfBundle`：
+并行通道，`AttachedHitrace` 非空触发。perf_triager + emit_perf_trace 写 PerfBundle：
 
-- Layer 1 **Meta**：`source`（hitrace / atrace / systrace / perfetto / unknown） / `duration_ms` / `app_pid` / `signals[]`（jank / cold-start-slow / main-thread-stall / io-block / gc-pause / render-miss） / `summary`
-- Layer 2 **Events**：`Frames[]`（FrameNo / TsMs / DurationMs / Phase / Janky）、`Janks[]`（start_ts_ms / duration_ms / trigger_span / reason / tags[]）、`Stalls[]`（symbol / file / line）、`Startup`（mode=cold/warm/hot / app_launch_ms / ability_init_ms / first_frame_ms）
-- Layer 3 **Residue**：`residue[]`
-- Layer 4 **派生**（`tool/emit_perf_trace.go::derivePerfLayer4`）：任一 jank / stall / 慢冷启动 → `IntentHint=performance`；`Entities`（cap 32）从 trigger spans + tags + stall symbols + startup mode；`ResolvedFiles`（cap 10）从 stall files；signals 按阈值（`PerfFrameBudget60HzMs` 16.67ms / `PerfStartupSlowColdMs` 1.2s / `PerfMainThreadStallMs` 100ms）自动追加
+- Layer 1 Meta：`source` (hitrace/atrace/systrace/perfetto/unknown) / `duration_ms` / `app_pid` / `signals[]` (jank/cold-start-slow/main-thread-stall/io-block/gc-pause/render-miss) / `summary`
+- Layer 2 Events：`Frames[]`（FrameNo / TsMs / DurationMs / Phase / Janky）/ `Janks[]`（start_ts_ms / duration_ms / trigger_span / reason / tags[]）/ `Stalls[]`（symbol / file / line）/ `Startup`（mode=cold/warm/hot / app_launch_ms / ability_init_ms / first_frame_ms）
+- Layer 3 Residue：`residue[]`
+- Layer 4 派生（`derivePerfLayer4`）：任一 jank/stall/慢冷启动 → `IntentHint=performance`；Entities (cap 32) 来自 trigger spans + tags + stall symbols + startup mode；ResolvedFiles (cap 10) 来自 stall files；signals 按阈值（PerfFrameBudget60HzMs 16.67ms / PerfStartupSlowColdMs 1.2s / PerfMainThreadStallMs 100ms）自动追加
 
-**两步自适应**：单次 `emit_perf_trace` 调用为默认。当 `len(AttachedHitrace) >= perf_triage_two_step_bytes`（默认 64 KB）或 `Coverage < perf_triage_two_step_coverage`（默认 0.3）时升级：先调 `emit_perf_segmentation` 切 `frame_window / jank_region / startup / thread_run / context / noise` 段，再对每个可抽取段（context / noise 跳过）逐段重调 `emit_perf_trace`，最后 `internal/analysis/perftriage.MergePerfBundles` 合并：frame / jank / stall 按签名去重，startup 取最大 `app_launch_ms`，signals/residue 并集，Layer 4 重派生。LLM 调用上限 `perf_triage_max_llm_calls`（默认 12）。
+两步切片同 log（emit_perf_segmentation 切 frame_window/jank_region/startup/thread_run/context/noise；MergePerfBundles 合并：frame/jank/stall 按签名去重，startup 取最大 app_launch_ms）。
 
-**支持的来源**：HarmonyOS `hdc shell hitrace`、Android `adb shell atrace`、Android systrace（旧名）、perfetto 文本 dump。CLI flag `--htrace` / `--atrace` 是别名（同存储），`StringArrayVar` 可重复传多个文件，自动加 `# codrax-source: <path>` 头分隔。REPL `/htrace <path>` / `/htrace append <path>` 与 `/atrace` 别名同形态。
+CLI flag `--htrace` / `--atrace` 是别名（同存储）。REPL `/htrace <path>` / `/htrace append <path>` / `/atrace` 同形态。
 
-**knobs（`perf_triage_*`，与 `log_triage_*` 同形态）**：`perf_triage_enabled` / `perf_triage_min_bytes`（默认 200）/ `perf_triage_max_retries`（默认 1）/ `perf_triage_two_step_enabled` / `perf_triage_two_step_bytes`（默认 64 KB）/ `perf_triage_two_step_coverage`（默认 0.3）/ `perf_triage_max_llm_calls`（默认 12）。
+**下游消费**：analyzer 同时读 LogTriage 和 PerfTrace —— `MergeEntities` 把 perf entities (trigger spans / stall symbols) union 进 AnalyzerHints.Entities；`analyzerRequiredFiles` 把 perf 的 ResolvedFiles 与 log 的 ResolvedFiles 取并集（cap 10）。
 
-**下游消费**：analyzer 同时读 LogTriage 和 PerfTrace —— `MergeEntities` 把 perf entities（trigger spans / stall symbols）union 进 `AnalyzerHints.Entities`；`analyzerRequiredFiles` 把 perf 的 `ResolvedFiles` 与 log 的 `ResolvedFiles` 取并集（cap 10），共同充当结构化 ranker 之前的 first-class 文件锚点。
-- **接入侧（`log_attach_*`，在 log_triage 之前生效）**：`log_attach_max_bytes`（默认 `52428800` = 50 MiB）限制日志通道的字节上限。覆盖 `--log <file>`（`StringArrayVar`，可重复）/ `--log -`（stdin 用 `io.LimitReader(N+1)`）/ `--log-text` / REPL `/log <path>` / `/log append <path>` / `/log` 粘贴模式 / 自动识别路径。多文件之间插入 `# codrax-source: <path>\n` 边界头方便 LLM 区分独立 capture。stdin (`-`) 跨 `--log` / `--htrace` / `--atrace` 整体只允许一次。超限尾部 `s[:N]` 截断并打 `WARN [cmd] attached log truncated`。`log_triage_enabled: false` 下也生效（这是内存安全 knob，不是分诊 knob）。非正值回退到默认。整体硬顶 `maxAttachedLogHardCeiling = 1 GiB`，超过则 WARN 钳到 1 GiB（防 OOM）。
+**支持来源**：HarmonyOS hdc shell hitrace、Android adb shell atrace、Android systrace（旧名）、perfetto 文本 dump。
+**暂不支持**：C/C++ glibc 裸 backtrace（只有返回地址）、tail/stream/远端源（Loki / ES / CloudWatch）。
 
-见 `codrax.yaml.example` 的逐项注释。
+### 7.3 analyze — 请求理解
 
-**暂不支持**：
-- C/C++ glibc 裸 backtrace（只有返回地址，没 `file:line`，缺少足够锚点）
-- 日志文件 tail / live stream / 远端源（Loki / ES / CloudWatch）
+|||
+|---|---|
+| Agent | analyzer |
+| Skill | analysis-skill（由 BuildAnalysisSkill 程序化构建，字段 SST 来自 analysis_contract.go） |
+| 工具 | emit_analysis + 三个 evidence-lite 预扫工具（repo_map / grep `files_only=true` / list_files） |
+| 输入 | 用户原始请求 + 已挂的 LogBundle / PerfBundle |
+| 工作 | Phase A 1-2 轮预扫（运行时 gate）→ Phase B 一次 emit_analysis → ParseOutput 跑 33 步确定性管线 |
+| 输出 | `BusContext.AnalysisIR`（TaskGraph / EvidencePlan / AnswerContract / HypothesisSet / QualityGate） |
 
-### 4.6 写模式 — plan → apply → verify
+**Evidence-lite 边界**：由 `AnalysisHardRules` 的 `EVIDENCE-LITE BOUNDARY:` 规则 + `BaseAgent.executeTool::validateAnalyzerPrescanToolCall` 共同强制——只允 repo_map / grep(files_only=true) / list_files 三个工具；grep 没带 files_only=true 合成失败 ToolResult；预扫硬上限 `analysis_max_prescan_rounds`（默认 2）由 `analyzerEvaluator.Observe` 在 PhaseMidLoop 强制；超限下一次预扫返回 StopRequested。
 
-**触发条件**：`codrax.yaml :: write_enabled: true` **并且** `BusContext.Mode ∈ {ModePlan, ModeApply, ModeVerify}`（CLI `--mode=plan|apply|verify` 或 REPL `/mode plan|apply|verify` 设置）。两个条件缺一，`Run()` 在入口处 fail-loud 拒绝，避免误改动。
+**emit_analysis 调用次数 gate**：扫本次 dispatch 的 tool-result 流统计 emit_analysis 次数：0 次 → 强告警 + hard error + 重试；1 次 = happy path；>1 次按 `analysis_reject_multiple_emit` 决定 warning/error，IR 以最后一次为准。
 
-**与读模式的调度关系**：写模式的 3 个阶段（`plan` / `apply` / `verify`）**不经过** `runTaskGraph` 的 criterion-aware DAG scheduler。读模式的 analyze 先跑一次作为请求分类器，随后 `Run()` 分支到 mode-specific phase 函数，3 个 phase 通过 `dispatchStage` 直接分派：
+详细的 RequestModel 和 33 步管线见 §4。
 
-| Mode | 阶段链 | Run 退出点 |
+### 7.4 explore — Turn A：调查 + 证据收集
+
+|||
+|---|---|
+| Agent | explorer |
+| Skill | explore-skill |
+| 工具 | grep / read_file / repo_map / list_files / exec_command / emit_evidence / emit_investigation_complete / propose_sub_agents / recall_memory / list_memory |
+| 输出 | StageOutput.{EvidenceItems, AnswerChains, FlowFindings, StageReport} + MutableState.TurnAArtifacts |
+
+工作模式见 §5.4 / §5.5 / §5.6。`ParseOutput` 的确定性管线：`ensureStructuredEvidence` 合并 emit_evidence buffer + markdown fallback → `groundEvidenceItems` → `mergeEvidenceItems` → `rankEvidenceByRelevance` → `scrubSiblingEvidenceBlocks` → `identifyAnswerChains` → `SetTurnAArtifacts`。
+
+**证据排名**：`rankEvidenceByRelevance = entity overlap × kindWeight × sourceWeight × bridgeBonus × producerBoost`。LLM 通过 emit_evidence 提交且非 ungrounded 的获 1.5x producerBoost；EvidenceConcrete kindWeight=0.50；axis affinity 通过 `axis::Affinity(PredicateAxis, AnchorKind)` 调节。
+
+**子 Agent**：explorer 可通过 `propose_sub_agents` 工具向编排器申请派生并行 sub_explorer 实例分摊独立调查子问题。sub_explorer **不共享 Mutable**（`BuildSubAgentContext` 故意把 `ac.Mutable` 留 nil）；`todo_write` / `emit_*` 在 sub-agent 上下文会被拒。
+
+### 7.5 extract — Turn B：答案结构化 + 假设判定
+
+|||
+|---|---|
+| Agent | extractor |
+| Skill | extract-skill |
+| 允许工具 | **仅** `emit_answer_symbol` + `emit_hypothesis_verdict` |
+| 禁止工具 | 所有读取工具 + emit_evidence |
+| ShouldStop | `iteration >= 2` |
+| 输入 | TurnAArtifacts digest + AnalysisIR.HypothesisSet + AnswerContract.MustInclude + (measurement-scalar only) Raw Tool Outputs 段 |
+| 输出 | StageOutput.{AnswerSymbols, AnswerSymbolCompleteness} + 回写 HypothesisSet[i].Status |
+
+详见 §5.9。Turn B 看不到新文件——所有信息在 Turn A 快照里冻结，retry 带不来新信息。错了就降级 lower_bound，不是 retry。
+
+### 7.6 finalize — 输出收敛
+
+|||
+|---|---|
+| Agent | finalizer |
+| Skill | answer-document-skill |
+| 工具 | `emit_answer_document` 或 `emit_answer_document_patch` |
+| 输入 | AnalysisIR.AnswerContract + AnswerSymbols + completeness + HypothesisSet + Turn A 的 StageReport + AnswerSemanticView + AnswerSurfacePlan / AnswerSupportPlan |
+| 工作 | 按 view 的 RequiredBlocks 构造 typed AnswerDocumentV2 → emit → renderer 渲染 |
+| 输出 | StageOutput.FinalAnswer 写进 task.Result |
+
+详见 §6。
+
+**Forbidden 字段是 reject 不 scrub**：shape 不允许的字段（V1 残留、不该有的 boolean/value）会让整个 call 失败而不是静默清洗。`agent_finalizer_max_correction_retries` 默认 3 次。
+
+**Shrinkage-salvage**：检测到 "iter 0 rich prose → iter 1 压缩 summary" 时，把 `findLastPreToolCallDraft(messages)` 选中的上一轮 draft verbatim 复制进 summary，UTF-8 边界 trim 到 cap，追加双语 caveat，log `[finalizer/shrinkage]`。由 `agent_finalizer_*` 控制（preserve_prior_prose / shrinkage_min_prose_len / shrinkage_ratio）。
+
+**Citation Quote 截断**：`citation_quote_max_chars`（默认 500）UTF-8 边界静默截，file/line 始终保留。
+
+### 7.7 Summary 长度：block-kind-tiered cap
+
+`emit_answer_document` 的 summary 长度由 `types.SummaryCapConfig` + `types.SummaryCapFor(blockKind, itemCount)` 决定。**默认 disabled**（`SummaryCapConfig.Enabled=false`）。`codrax.yaml :: summary_cap_enabled: true` 激活：
+
+| principal block kind | 上限默认 | 用途 |
 |---|---|---|
-| `ModePlan` | analyze → `runPlanPhase` | Plan 写入 `Mutable.ChangePlan`；cmd/root.go 写 `--plan-out` 或 `.codrax/plans/<id>.json`；REPL 走 PlanStore 自动保存 |
-| `ModeApply` | analyze → `runPlanPhase`（当 `PlanPath` 已设则跳过，复用 user-approved plan）→ `runApplyPhase` → `runVerifyPhase` | 三阶段任一失败 → fail-loud；全部成功 → `PlanStatus=applied`；worktree 默认销毁，开 `pipeline_keep_worktree_on_success` 则保留 |
-| `ModeVerify` | analyze → `runVerifyPhase` | 独立 re-verify：对已有 plan 的 worktree 重跑测试；不会重新 apply |
+| summary (explanation) | 2500 | 多段 prose + 可选 Mermaid |
+| decision | 800 | 1-3 句 lead-in + rationale |
+| scalar | 500 | 单句 lead-in + 字面 |
+| ordered_list (hop chain) | 1000 + 120·n（max 2500） | lead-in；随步数扩张 |
+| ordered_list (enumeration) | 1000 + 100·n（max 2500） | lead-in；随 symbol 数扩张 |
 
-读模式（`ModeRead`）继续走 `runTaskGraph`，字节级行为不变（L1 红线）。
+字段全部 yaml 可调（`summary_cap_*`）。
 
-#### 四模式枚举
 
-`internal/types/pipeline_mode.go`：
+---
+
+## 8. 写模式 plan / apply / verify
+
+### 8.1 触发条件与 mode 粘滞
+
+> *写模式像家用电锯：(1) 厂家在出厂时把"启用电锯"开关焊在主板上（write_enabled yaml）—— 没启用，不管怎么按按钮都不通电；(2) 启用后，每次用还要按"打开"按钮（--mode flag 或 REPL /mode）。两道门一起守，避免单一手滑就开锯。Mode 粘滞像档位——挂上去之后所有提问都按那档跑，不用每条命令都重选。*
+
+写模式的入口由两个独立 gate 控制，缺一不可：
+
+1. `codrax.yaml :: write_enabled: true`
+2. `BusContext.Mode ∈ {ModePlan, ModeApply, ModeVerify}`（CLI `--mode=plan|apply|verify` 或 REPL `/mode plan|apply|verify` 设置）
+
+`Run()` 入口检查；缺任一 → fail-loud。这是为了避免误改：部署时设 `write_enabled: true` 是个慎重决策，不是 per-invocation flag。
+
+`PipelineMode` 是粘滞的：REPL `/mode plan` 之后所有提问都走 ModePlan，直到显式切回。CLI 单次调用每次 `--mode` 决定该次。
 
 ```go
+// internal/types/pipeline_mode.go
 const (
-    ModeRead   PipelineMode = "read"
+    ModeRead   PipelineMode = "read"   // 默认
     ModePlan   PipelineMode = "plan"
     ModeApply  PipelineMode = "apply"
     ModeVerify PipelineMode = "verify"
 )
 ```
 
-BusContext 默认 `ModeRead`。Mode 是粘滞的：REPL `/mode plan` 之后所有提问都走 `ModePlan`，直到显式切回。
+`IsWrite()` 区分读 vs 写（空和 ModeRead 都算读）。ModePlan 虽不改主仓字节，但产出 ChangePlan 副作用，仍算写。
 
-#### Agent + 工具
+### 8.2 Per-mode 调度链
 
-| Agent | Stage | 工具 | 职责 |
-|---|---|---|---|
-| `planner` | `plan` | `read_file` / `grep` / `list_files` / `repo_map` / `exec_command` / `emit_change_plan` | 读代码理解当前结构，产出完整 ChangePlan；不写文件；soft iteration cap **per-dispatch 自适应**（`orchestrator.go` 的 per-dispatch scaling block 按 analyzer 输出 sub-topic 数 × `agent_subtopic_planner_extra` 默认 3 + complexity 等级 × `agent_planner_complexity_extra` 默认 2 算出 soft cap 写到 `AgentContext.PlannerSoftIterCapOverride`（与 explorer 用的 `MaxIterOverride` **解耦**：外层 ReAct loop 仍跑默认 `MaxIterations=20`，soft→hard recovery window 才有空间），planner 在 `BuildInitialInstruction` 消费；hard 在 soft 上加 recovery 余量；总硬顶 `plannerScaledIterMax=20`，分析器无 IR 时回退到 `agent_planner_soft_iter_cap` 默认 6 / hard 9）；`BuildInitialInstruction` 同时消费一次 `Mutable.PlanningHint()`（verify→plan retry loop 注入） |
-| `coder` | `apply` | `read_file` / `apply_patch` / `exec_command` | 按 `plan.Changes[]` 逐单元调用 `apply_patch(path, kind)`；工具从 `Mutable.ChangePlan()` 读内容，LLM 不转抄；ShouldStop 在 `WriteClosure.AppliedSet ⊇ plan.TargetPaths` 时触发；iteration cap = `len(TargetPaths) + 3` |
-| `verifier` | `verify` | `read_file` / `run_tests` / `emit_test_results`（可选） / `exec_command` | `BuildInitialInstruction` 总是发射 `## Verify phase` 定向指令（即使 plan 无 AcceptanceTests 也不返回空串，避免 LLM 落到 system prompt 之外的次级信号）；`run_tests` 自动探测 runner 并同步 install `ChangeReport`；`emit_test_results` 是可选 LLM narrative；权威 pass/fail verdict 来自 parser，不由 LLM 覆盖 |
-
-所有 3 个 agent 嵌 `BaseAgent`，沿用 ReAct 循环 + Evaluator 钩子（BuildInitialInstruction / ShouldStop / ParseOutput / DetermineMissingPiece），与读模式 agent 同构。3 个 agent 均**不**实现 `LoopController`（写阶段无 mid-loop 注入逻辑）。
-
-| Tool | 所在 agent | 行为 |
+| Mode | 阶段链 | 退出条件 |
 |---|---|---|
-| `emit_change_plan` | planner | 校验 Changes[] 多步：（a）empty / 截断 payload guard + schema 重发；（b）schema decode + summary/changes 非空；（c）dup-path；（d）empty / self / unknown dep；（e）cycle-via-DFS；（f）**deps-closure**（new_content imports ⊆ go.mod ∪ 同 plan go.mod modify）；（g）**wiring-closure**；（h）**summary-fidelity**；（i）**dry-build**（多语言 fan-out：Go `go vet` / Python `py_compile` / Node `node --check` / Ruby `ruby -c`；hardlink overlay）；（j）**单文件静态检查**（kind=create only，注册表式覆盖 10 语言）；（k）**项目级静态检查**（kind=create + 项目根 manifest 命中：ArkTS / Cangjie）；（l）kind=patch `git apply --check --recount` 预检。全过才写 `Mutable.ChangePlan`；`TargetPaths` 从 Changes 派生。静态检查总开关 `pipeline_lint_enabled` (yaml, default true)；启动日志一行单文件 + 一行项目级 banner |
-| `apply_patch` | coder | JSON schema 仅 `{path, kind}`（`new_content` / `patch` 被 `DisallowUnknownFields` 拒绝）。Execute 从 `Mutable.ChangePlan().Changes[i]` 直接取 `NewContent` / `Patch`。四种 kind：`create`（`os.Stat` 必须不存在 → `os.WriteFile(unit.NewContent)`）/ `modify`（必须存在 → `os.WriteFile(unit.NewContent)`）/ `delete`（缺失幂等 + warning）/ `patch`（`runUnifiedDiff(ctx.RepoRoot, unit.Patch)`）。每次 Execute 前强制 W1 + W1b，失败 Summary 枚举当前 valid 集（TargetPaths 或 AppliedSet） |
-| `run_tests` | verifier | **LLM-driven runner 选择**（首选）：verifier agent 看 worktree（list_files / read_file / repo_map）后调 `run_tests` 时带 `runner=<choice>` + 可选 `working_dir`，系统验证 runner ∈ allowedRunners 白名单（12 个：go/node/python/rust/java/ruby/swift/cmake/meson/make/hvigor/cjpm）+ working_dir 在 worktree 内（`resolveLLMRunnerChoice`）后跑对应模板。不传 `runner` 时回退 manifest 自动探测（`detectRunnerPlans`，关键字 fallback；裸目录 repo 会失败）；支持 JUnit XML / JSON / 文本 / 退出码 4 类输出协议；build 阶段失败合成 `build` suite 单条失败结果 |
-| `emit_test_results` | verifier | 可选；LLM 在 FailureSummary 里写人话（区分 REGRESSION / PRE-EXISTING / FIXED）。不能覆盖 parser 的 `Passed` 字段 |
+| ModePlan | analyze → write_analyze → runPlanPhase | Plan 写到 Mutable.ChangePlan；cmd/root.go 写 `--plan-out` 或 `.codrax/plans/<id>.json`；REPL 走 PlanStore 自动保存 |
+| ModeApply | analyze → write_analyze → runPlanPhase（PlanPath 已设则跳过）→ runApplyPhase → runVerifyPhase | 任一失败 fail-loud；全成功 PlanStatus=applied；worktree 默认销毁，开 `pipeline_keep_worktree_on_success` 则保留 |
+| ModeVerify | analyze → write_analyze → runVerifyPhase | 独立 re-verify：对已有 plan 的 worktree 重跑测试；不会重新 apply |
 
-#### Patch 应用链（`internal/tool/apply_patch.go`）
+读模式（ModeRead）继续走 runTaskGraph，字节级行为不变。写模式 3 个阶段不经 DAG scheduler；analyzer 仍跑一次作分类器（保持 read mode L1 byte-identity）；随后 `Run()` 分支到 mode-specific phase 函数。
 
-`CheckUnifiedDiff`（预检，emit 时） / `applyUnifiedDiff`（落盘，apply 时）共用 `runUnifiedDiff`：
+### 8.3 write_analyzer — 写模式专属请求分类
 
-1. **Pre-processor**：非 `\n` 结尾的 patch 文本补一个 `\n`，防止 git 把未终结的尾行当 EOF。
-2. **Primary**：`git apply --recount [--check]`。`--recount` 让 git 从 body 重算 `@@ -X,Y +X,Y @@` 的 line 数，容忍 LLM 的 off-by-one 计数错误（git 官方文档称此 flag 专为"hand-edited patch header 没更新"设计）。
-3. **Fallback**：primary 失败后试 `patch -p1 --force --no-backup-if-mismatch --silent [--dry-run]`。GNU patch(1) 的 fuzz 匹配挽救 git 严格模式拒绝但语义等价的 LLM-slop 形状（缺尾部 context、context 行有空格漂移等）。
-4. **错误透传**：两条路径都失败时返回 git 的 stderr（它是更严格 validator，诊断信息量更大）。
+读模式 analyzer 跑完后，写模式额外跑一次独立 `write_analyzer` 阶段，用 `emit_write_analysis` 写 `WriteAnalysisIR`：
 
-#### Rejection 增强（`internal/tool/feedback.go`）
+- `Kind`：feature / fix / chore（任务类型）
+- `Scope`：用户请求里命名的目录/包/文件
+- `RiskFlags`：（可选）涉及高敏感区域的标记
+- `ExpectedOutcomes`：自然语言期望
+- `PhaseProposal`（可选）：多阶段拆分提议（split=`single` 或 `sequential` + 阶段列表）
 
-LLM 失败时 retry 的唯一"事实源"是 tool 的 rejection Summary。两条专用 composer 把 git stderr 解析成带文件真实内容的诊断，让 LLM 的下一次尝试有 ground truth 而非再次凭记忆生成：
+`BuildWriteTaskGraph` 把这份 IR 翻译成线性 3 节点 plan→apply→verify graph，由 `runWriteSchedulerLoop` 顺序走完。`WriteAnalysisIR` 被 pin 到第一份 ChangePlan，retry 或 multi-phase 后续 Run 复用同一份 IR——避免下次 dispatch 重新分类时与原版不一致。
+
+### 8.4 Planner Agent
+
+|||
+|---|---|
+| 工具 | read_file / grep / list_files / repo_map / exec_command / emit_change_plan / emit_plan_skeleton / emit_plan_change |
+| Soft cap | per-dispatch 自适应——`agent_subtopic_planner_extra` × N + `agent_planner_complexity_extra` × complexity，硬顶 `agent_planner_scaled_iter_max=20` |
+| Hard cap | soft + recovery slack（默认 3） |
+| 冷启动 | 没分析器 IR 时回落 `agent_planner_soft_iter_cap=6` / hard 9 |
+
+planner 在 `BuildInitialInstruction` 消费一次 `Mutable.PlanningHint()`（verify→plan retry loop 注入），并接 6 个可选 prompt section：task framing（IR shape）/ 相关文件清单（top 12 by structural+keyword rank）/ 测试面（manifest / test dir / runner）/ plan-stage probe 结果 / 迭代历史（prior attempts + failures verbatim）/ active pitfalls（来自 failure-taxonomy store）。
+
+planner 是单 emit ReAct loop——目标调一次 emit_change_plan / emit_plan_skeleton / emit_plan_change 完成。`emit_plan_change` 是流式多轮路径——大 plan 分多次 patch 进 Mutable.ChangePlan 直到完整。
+
+### 8.5 emit_change_plan 校验链
+
+emit_change_plan 跑多步 pre-flight gate（任一失败 reject 全部并 re-prime schema reminder）：
+
+1. 路径归一（`./` strip，必须 relative）
+2. Kind sanity（create / modify / delete / patch / rename）
+3. 一文件一变更（同 path 不能有两个 entry）
+4. TargetPaths 去重（保序，第一次出现胜出）
+5. DependsOn 校验（每个引用必须命名兄弟 path；DFS 拒环）
+6. 文件存在性（create 必须不存在；modify 必须存在；delete 缺失幂等）
+7. Rename 目标（new_path 不能与现有冲突）
+8. **Deps-closure**（Go imports vs go.mod；同 plan go.mod modify 也算）
+9. **Wiring-closure**（`internal/{mcp,skill,tool,agent}/*.go` 创建必须搭配 wiring 文件 modify）
+10. **Summary-fidelity**（summary 提到的路径 / 包名必须实际出现在 changes[] / imports）
+11. **Dry-build**（多语言 fan-out：Go `go vet` / Python `py_compile` / Node `node --check` / Ruby `ruby -c`，hardlink overlay 后跑）
+12. **单文件静态检查**（kind=create 限定，注册表覆盖 10 语言：Go gofmt / C gcc -Werror / C++ g++ -Werror / Python ruff / JS node --check / TS tsc --noEmit / Ruby ruby -wc / Rust rustc --emit=metadata / Java javac -Xlint / Swift swift -frontend）
+13. **项目级静态检查**（kind=create + 项目根 manifest 命中：ArkTS hvigor lint when oh-package.json5 / Cangjie cjpm check when cjpm.toml）
+14. **Unified-diff 预检**（kind=patch，跑 `git apply --check --recount`，失败回退 `patch -p1 --dry-run`）
+15. **AcceptanceTests** 列举（自然语言准则，verifier prompt 可见）
+16. **流式截断检测**（PartialChangePlan 在 loop boundary 还有 missing body → 反馈再 emit）
+17. **Fingerprint 稳定**（plan ID 格式 `plan-<unix-nano>-<pid>`）
+
+dry-build / 静态检查在工具链缺失时优雅降级（log + skip），其他验证硬性。静态检查总开关 `pipeline_lint_enabled`（默认 true）。启动期一行 banner 打印单文件 + 项目级覆盖。
+
+### 8.6 Coder Agent
+
+|||
+|---|---|
+| 工具 | read_file / apply_patch / exec_command |
+| ShouldStop | `WriteClosure.AppliedSet ⊇ ChangePlan.TargetPaths` |
+| iteration cap | `len(TargetPaths) + agent_coder_soft_iter_slack`（默认 3）+ `agent_coder_hard_iter_recovery`（默认 3） |
+
+coder 是 "dumb marshaller"：每次 apply_patch 工具的 schema 仅 `{path, kind}`，`DisallowUnknownFields` 拒绝任何内容字段。`Execute` 从 `Mutable.ChangePlan().Changes[i]` 直接取 `NewContent` / `Patch`，**LLM 物理上无法转抄错内容**。
+
+四种 kind：
+- `create` — `os.Stat` 必须不存在 → `os.WriteFile(unit.NewContent)`
+- `modify` — 必须存在 → `os.WriteFile(unit.NewContent)`
+- `delete` — 缺失幂等 + warning
+- `patch` — pipe `unit.Patch` 到 `runUnifiedDiff`
+- `rename` — 移动文件并把新旧两路径都标 applied
+
+每次 Execute 前强 W1 / W1b 检查（详见 §8.8）。
+
+### 8.7 Verifier Agent
+
+|||
+|---|---|
+| 工具 | read_file / run_tests / emit_test_results（可选） / exec_command |
+| 输出 | `Mutable.ChangeReport` |
+
+`BuildInitialInstruction` 总是发射 `## Verify phase` 阶段定向指令（即使 plan 无 AcceptanceTests 也不返回空串，避免 LLM 落到 system prompt 之外的次级信号）。`run_tests` 同步 install ChangeReport；`emit_test_results` 是可选 LLM narrative。**权威 pass/fail verdict 来自 parser**，LLM narrative 不能覆盖 `Passed` 字段。
+
+`emit_test_results` 携带可选的三组 assertion 分类——`regression_assertions` / `preexisting_assertions` / `fixed_assertions`——区分"本 plan 引入的回归"vs"plan 之前就有的失败"，让 `CritNoRegression` 的判定能区分新旧问题。
+
+**LLM-driven runner 选择**（首选）：verifier agent 看 worktree 后调 `run_tests` 时带 `runner=<choice>` + 可选 `working_dir`，系统验证 runner ∈ allowedRunners 白名单 + working_dir 在 worktree 内（`resolveLLMRunnerChoice`）。不传 runner 时回退 manifest 自动探测（`detectRunnerPlans`）；裸目录会失败。
+
+### 8.8 Write Closure — W1 / W1b 不变量
+
+> *像装修白名单：(W1) 工人只能改业主签字"允许动"的房间（TargetPaths），动其他房间立刻拦下；(W1b) 一道工序有前置依赖（"贴砖前必须先做防水"），前置没过验收就开工的话立刻拦下。LLM 连撞 3 次拦截还要改同一个不在白名单的房间——不是工人手抖，是设计图（plan）漏了那个房间，需要回去重画图。*
+
+读模式有 CGEC，写模式对应有 **WriteClosure**（`internal/types/evidence_closure.go`）。两条不变量由 `apply_patch.Execute` 在文件 I/O 之前强制：
+
+- **W1**：`params.Path` 必须在 `ChangePlan.TargetPaths` 里。违规 → 失败 ToolResult，Summary **枚举当前 valid TargetPaths 全集** + 指令"pick one of the listed paths or abandon this target"
+- **W1b**：当前 ChangeUnit 的每个 DependsOn 路径都必须已在 `WriteClosure.AppliedSet` 里。违规 → 失败 ToolResult，Summary **枚举当前 AppliedSet 全集** + 指令"apply X first, then retry Y"
+
+成功 apply 后 `WriteClosure.MarkApplied(path)`。**幂等**：二次 apply 同一路径是 no-op success。
+
+**W1 / W1b 同路径连续拒 → plan-defect 升级**：`WriteClosure.RecordRejection(path)` 在拒收时累计；`MarkApplied(any)` 清零所有计数（任意路径前进就视为有进展）。`SaturatedRejectionPath()` 阈值固定 3——LLM 已经在 ToolResult 看过 valid TargetPaths + 改正建议，仍连续 3 次拒同一路径 → 不是 LLM 笔误，**是 planner 的 TargetPaths 没正确包含 LLM 想改的路径**。coderEvaluator.ShouldStop 探测 saturation 即返 true；ParseOutput 把这条信号写进 StageOutput.Error。scheduler 当 SuccessCriteria fail 处理 → 进入 verify→plan retry 分支：planner 下次 dispatch 在 PlanningHint 里看到 plan-defect narrative，要么改写 plan，要么把 stuck 路径加进 TargetPaths。
+
+结构性测试 `internal/tool/write_mode_red_lines_test.go` 用 `go/ast` 扫描断言 `apply_patch` / `emit_change_plan` / `run_tests` **从不** import `internal/tool/ground`——写路径不是 citation 路径，grounding 语义无意义。
+
+### 8.9 统一 diff 应用链
+
+`apply_patch.go::runUnifiedDiff`（落盘） / `CheckUnifiedDiff`（预检）共用：
+
+1. **Pre-processor**：非 `\n` 结尾的 patch 文本补一个 `\n`
+2. **Primary**：`git apply --recount [--check]`。`--recount` 让 git 从 body 重算 `@@ -X,Y +X,Y @@` 计数，容忍 LLM 的 off-by-one
+3. **Fallback**：失败后试 `patch -p1 --force --no-backup-if-mismatch --silent [--dry-run]`。GNU patch(1) 的 fuzz 匹配挽救 git 严格模式拒绝但语义等价的 LLM-slop（缺尾部 context、context 漂移空格等）
+4. **错误透传**：两条都失败时返回 git 的 stderr（更严格 validator，诊断量大）
+
+**Rejection 增强**（`internal/tool/feedback.go`）：把 git stderr 解析成带文件真实内容的诊断：
 
 - `parseGitConflictLocator(gitErr)` 抽 `patch failed: <file>:<N>` 的 `(file, line)`
-- `conflictContextSnippet(repoRoot, gitErr)` 读文件 ±5 行，用 `▶` 标记 claim line 产出 markdown 片段
-- `composePatchRejection(repoRoot, path, gitErr)` — emit_change_plan 预检失败用；prefix "emit_change_plan rejected"
-- `composeApplyRejection(repoRoot, path, gitErr)` — apply_patch 运行时失败用；prefix "apply_patch: git apply failed"
-- 无 `patch failed: <file>:<N>` 可解析时（如 "corrupt patch at line N" 这类指 patch body 内部而非文件的错误）fallback 到通用 hint string
+- `conflictContextSnippet(repoRoot, gitErr)` 读文件 ±5 行，用 `▶` 标记 claim line 产 markdown 片段
+- `composePatchRejection` — emit_change_plan 预检失败用
+- `composeApplyRejection` — apply_patch 运行时失败用
 
-W1 / W1b 失败的 Summary 同样枚举参考集（W1 → valid TargetPaths；W1b → current AppliedSet），LLM 看到完整的修正空间，不需再读 plan 或猜。
+无 `patch failed: <file>:<N>` 可解析时 fallback 到通用 hint。W1 / W1b 失败 Summary 同样枚举参考集（W1 → valid TargetPaths；W1b → current AppliedSet）。
 
-#### ChangePlan 数据结构（`internal/types/change_plan.go`）
+### 8.10 ChangePlan 数据结构
 
 ```go
 type ChangePlan struct {
-    ID              string          // plan-<unix-nano>-<pid>
-    Request         string          // 用户原始自然语言请求
-    Summary         string          // planner 写的 3-10 句总结
-    Changes         []FileChange    // 顺序敏感的文件级变更
-    AcceptanceTests []string        // 自然语言 AcceptanceTests（verifier prompt 可见）
-    TargetPaths     []string        // 声明的写作用域（W1 门）
-    Status          string          // pending_approval | applied | applied_failed | verify_failed | rejected
-    AppliedCommitSHA string         // worktree commit sha
-    WorktreePath    string          // 保留的 worktree 路径（keep_on_success 开启）
-    CreatedAt       time.Time
-    AppliedAt       *time.Time
+    ID                string         // plan-<unix-nano>-<pid>
+    Request           string         // 用户原始请求
+    Summary           string         // planner 写的 3-10 句总结
+    Changes           []FileChange   // 顺序敏感的文件级变更
+    AcceptanceTests   []string       // verifier prompt 可见
+    TargetPaths       []string       // W1 门
+    Status            string         // pending_approval | applied | applied_failed | verify_failed | unverified | partially_applied | rejected | merged
+    AppliedPaths      []string       // 实际成功 apply 的子集（partial 状态用）
+    AppliedCommitSHA  string         // worktree commit SHA
+    WorktreePath      string         // 保留的 worktree 路径
+    WriteAnalysisIR   *WriteAnalysisIR // pin 在 plan 上，retry / multi-phase 复用
+    CreatedAt         time.Time
+    AppliedAt         *time.Time
 }
 
 type FileChange struct {
     Path       string   // 仓库相对路径
-    Kind       string   // create | modify | delete | patch
-    NewContent string   // create / modify 的完整 body
+    Kind       string   // create | modify | delete | patch | rename
+    NewContent string   // create / modify 完整 body
     Patch      string   // kind=patch 的 unified diff
-    Rationale  string   // 为什么要改这个文件
-    DependsOn  []string // 本 plan 内必须先 apply 的其他路径
+    NewPath    string   // kind=rename 的目标
+    Rationale  string   // 为什么改
+    DependsOn  []string // 同 plan 内必须先 apply 的其他路径
 }
 ```
 
-`LoadChangePlanFromFile` 读盘时重算 `TargetPaths` 为 `Changes[].Path` 的去重列表，并拒绝 `len(Changes)==0` / 重复 path 的 plan（兜底手改坏的 JSON）。`UpdatePlanStatusOnDisk(path, status, appliedAt, worktreePath)` 做局部更新，空 worktreePath 语义是"不动 WorktreePath 字段"，让后续生命周期更新（apply → verify_failed）不会抹掉之前 applied 时写入的 worktree 路径。
+`LoadChangePlanFromFile` 读盘时重算 TargetPaths 为 `Changes[].Path` 去重列表，并拒绝 `len(Changes)==0` / 重复 path 的 plan（兜底手改坏的 JSON）。`UpdatePlanStatusOnDisk(path, status, appliedAt, worktreePath)` 做局部更新；空 worktreePath 语义"不动 WorktreePath"，让生命周期更新（apply→verify_failed）不会抹掉之前 applied 时写入的 worktree 路径。
 
-#### CGEC-W：WriteClosure 写闭包（W1 / W1b）
+### 8.11 Worktree 沙箱生命周期
 
-对应读模式的 CGEC（Citation-Grounded Evidence Closure），写模式有 **Write Closure** 两条不变量，由 `apply_patch.Execute` 在文件 I/O 之前强制：
-
-- **W1**：`params.Path` 必须在 `ChangePlan.TargetPaths` 里。违规 → 失败 ToolResult，Summary **枚举当前 valid TargetPaths 全集** + 指令 "pick one of the listed paths or abandon this target"，coder 下轮可见错误自修正。
-- **W1b**：当前 `ChangeUnit.DependsOn` 列的每个前置路径都必须已经在 `WriteClosure.AppliedSet` 里。违规 → 失败 ToolResult，Summary **枚举当前 AppliedSet 全集** + 指令 "apply X first, then retry Y"。
-
-此外 Execute 还做 kind 一致性检查（tool call 的 kind 必须等于 `unit.Kind`）、path 越界检查（traversal via `..` 拒绝）。
-
-成功 apply 后 `WriteClosure.MarkApplied(path)`。**幂等性**：二次 apply 同一路径是无操作 success。coder 的 ShouldStop 等价于 `WriteClosure.AppliedSet ⊇ plan.TargetPaths`。
-
-##### W1 / W1b 同路径连续拒 → plan-defect 升级
-
-`WriteClosure.RecordRejection(path)` 在 W1 / W1b 拒收时累计该 path 的连续拒次数。`MarkApplied(any path)` **清零所有计数**(任意路径成功 = 前进信号,先前的拒不再算"卡死")。
-
-`SaturatedRejectionPath()` 阈值固定为 3:LLM 已经在 ToolResult 看过 valid TargetPaths 列表 + 改正建议,仍连续 3 次拒同一路径 → 不是 LLM 笔误,**是 planner 的 TargetPaths 没正确包含 LLM 想改的路径**。`coderEvaluator.ShouldStop` 探测到 saturation 即返回 true;`ParseOutput` 把这条信号写进 `StageOutput.Error`("plan defect — apply_patch rejected path %q on 3 consecutive iterations …")。
-
-scheduler 把 StageOutput.Error 当 SuccessCriteria fail 处理 → 进入 verify→plan retry 分支(如果 budget > 0):planner 下一次 dispatch 在 PlanningHint 里看到这条 plan-defect narrative,知道要么改写 plan(改成 LLM 实际想做的事)、要么把 stuck 路径加进 TargetPaths,而不是让 coder 在同一面墙上再撞 N 次。
-
-结构性测试 `internal/tool/write_mode_red_lines_test.go` 用 `go/ast` 扫描断言 `apply_patch` / `emit_change_plan` / `run_tests` **从不** import `internal/tool/ground`（L3：写路径不是 citation 路径，grounding 语义无意义）。
-
-#### Worktree 沙箱生命周期
+> *像装修拍效果图：不在毛坯房直接砸墙，而是先在电脑里 (worktree) 复制一份户型，所有改动都在副本上做、跑测试也在副本上。客户验收满意了才决定要不要把改动 fast-forward 合并到真房子（merge），不满意就直接整间作废（discard）—— 真房子的墙一砖未动。*
 
 `internal/worktree/session.go`：
 
-1. `runApplyPhase` 入口 `worktree.Create(mainRoot, traceID, baseDir)` → `git worktree add` 生成 `<baseDir>/<trace-id>-<pid>/`，注册进 `activeSessions`。
-2. `BusContext.RepoRoot` 临时换到 worktree 路径，`coder` 的所有 `apply_patch` 都相对这个路径写。
-3. `runVerifyPhase` 继续复用 worktree（RepoRoot 仍指向 worktree），`run_tests` 在 worktree 里跑测试。
-4. `Run()` 顶层 defer 决定清理策略：
-   - 失败路径 → **无条件** `worktree.DiscardByPath`（避免磁盘堆积）
-   - 成功路径 + `pipeline_keep_worktree_on_success == true` + `Mode == ModeApply` + `TaskState.LastError == ""` → 跳过清理，`busCtx.WorktreePath` 暴露给 caller，`persistPlanStatus` 额外把路径写入 `plan.WorktreePath`
-   - 其他（成功但没开 keep knob，或读模式 Run 连 WorktreePath 都没设）→ 清理（读模式的 `DiscardByPath("")` short-circuit）
-5. SIGINT / SIGTERM **不触发 defer**（Go 默认 `os.Exit`），由 `internal/worktree/signal_exit_unix.go` / `signal_exit_windows.go` 装的进程级信号 handler 遍历 `activeSessions` 统一 Discard 再 re-raise。
-6. SIGKILL / 电源丢失无法在进程内清理 → 下次启动的 `worktree.PruneDeadSessions` 按嵌入 PID 的存活性扫 `baseDir` 回收孤儿。
+1. `runApplyPhase` 入口 `worktree.Create(mainRoot, traceID, baseDir)` → `git worktree add` 生成 `<baseDir>/<trace-id>-<pid>/`，注册进 `activeSessions`
+2. `BusContext.RepoRoot` 临时换到 worktree 路径，coder 的所有 apply_patch 都相对这个路径写
+3. `runVerifyPhase` 复用 worktree（RepoRoot 仍指向 worktree），run_tests 在 worktree 跑
+4. `Run()` 顶层 defer 决定清理：
+   - 失败路径 → **无条件** `worktree.DiscardByPath`
+   - 成功 + `pipeline_keep_worktree_on_success: true` + ModeApply + `TaskState.LastError == ""` → 跳过清理，busCtx.WorktreePath 暴露给 caller，`persistPlanStatus` 把路径写入 plan.WorktreePath
+   - 其他 → 清理（读模式 short-circuit）
+5. SIGINT / SIGTERM **不触发 defer**（Go 默认 `os.Exit`），由 `internal/worktree/signal_exit_*.go` 装的进程级 handler 遍历 activeSessions 统一 Discard 再 re-raise
+6. SIGKILL / 电源丢失无法在进程内清理 → 下次启动的 `worktree.PruneDeadSessions` 按嵌入 PID 的存活性扫 baseDir 回收孤儿
+7. **TTL + quota 回收**：startup 时 `PruneByAgeAndQuota` 按 `worktree_keep_ttl_hours`（默认 168 = 7 天）TTL + `worktree_keep_max_count`（默认 20）quota LRU 删除保留下来的 worktree
 
-REPL `/worktree list` 扫 PlanStore 过滤 `Status=applied && WorktreePath != ""`；`/worktree discard <plan-id>` 调 `DiscardByPath` + 清 `plan.WorktreePath` 字段。
+REPL `/worktree list` 扫 PlanStore 过滤 `Status=applied && WorktreePath != ""`；`/worktree discard <plan-id>` 调 DiscardByPath + 清 plan.WorktreePath。
 
-#### 合并回主仓（`internal/worktree/merge.go`）
+### 8.12 合并回主仓
 
-`/merge` 命令和 `/approve --merge-to=<branch>` 共用 `worktree.MergeIntoBranch`。语义：
+`/merge` 命令和 `/approve --merge-to=<branch>` 共用 `worktree.MergeIntoBranch`（worktree 已 discard 时退化为 `MergeFromRef`，从 `refs/codrax/applied/<plan-id>` 读）。语义：
 
 - **MergeAuto**（默认）：
-  - `TargetBranch == BaseBranch` 且 base 是 worktree HEAD 的 ancestor → fast-forward base
-  - 否则 → 在 base 上拉新分支 `TargetBranch`，cherry-pick `base..worktreeHEAD` 的 commits
-- **MergeFastForwardOnly**：强制 ff，非 ff 状态返回 `ErrNonFastForward`
-- **MergeNewBranch**：强制走 cherry-pick 新分支路径；分支已存在返回 `ErrTargetBranchExists`
+  - TargetBranch == BaseBranch 且 base 是 worktree HEAD 的 ancestor → fast-forward base
+  - 否则 → 在 base 上拉新分支 TargetBranch，cherry-pick base..worktreeHEAD 的 commits
+- **MergeFastForwardOnly**：强制 ff，非 ff 状态返 ErrNonFastForward
+- **MergeNewBranch**：强制走 cherry-pick 新分支路径；分支已存在返 ErrTargetBranchExists
 
-预检：
-- 主仓 `git status --porcelain` 非空 → 拒绝（避免 ff 越过用户未提交的本地改动）
-- worktree HEAD == base tip → `ErrNothingToMerge`
+预检：主仓 `git status --porcelain` 非空 → 拒（避免 ff 越过用户未提交改动；只有 .codrax/ 运行时文件 dirty 时自动 untrack）；worktree HEAD == base tip → ErrNothingToMerge。
 
-冲突回滚（cherry-pick branch 路径）：单步 cherry-pick 失败 → `git cherry-pick --abort` → `git checkout <priorBranch>` → `git branch -D <newBranch>` → 返回带 git stderr 的 wrapped error。fast-forward 路径不会冲突（git 自身的 ff 语义保证）。
+冲突回滚（cherry-pick branch 路径）：单步 cherry-pick 失败 → `git cherry-pick --abort` → `git checkout <priorBranch>` → `git branch -D <newBranch>` → 返 wrapped error。fast-forward 路径不会冲突。
 
 REPL 流程：
-- `handleApproveCmd` 解析 `--merge-to=<branch>` → 仅在 `cleanSuccess`（apply + verify 都过、TaskState.LastError 空）后调 `runMerge`
-- `handleMergeCmd` 扫 PlanStore 找最近一条 `Status=applied && WorktreePath != "" && os.Stat(WorktreePath) == nil` 的 plan → 调 `runMerge`
-- `runMerge` 成功后调 `worktree.DiscardByPath` 清 worktree + 调 `clearWorktreePathOnAppliedPlan` 把 plan JSON 的 `WorktreePath` 字段写空（plan `Status=applied` 不变，历史可追）
+- `handleApproveCmd` 解析 `--merge-to=<branch>` → 仅在 cleanSuccess（apply + verify 都过、TaskState.LastError 空）后调 runMerge
+- `handleMergeCmd` 扫 PlanStore 找最近一条 `Status=applied && WorktreePath != ""` 的 plan
+- runMerge 成功后 DiscardByPath 清 worktree + clearWorktreePathOnAppliedPlan 把 plan JSON 的 WorktreePath 字段写空（Status=applied 不变，历史可追）
 
-红线：
-- **永不 push**：`MergeIntoBranch` 不调 `git push`。所有远程动作由用户手动。
-- **永不动主仓 HEAD（除显式 ff 路径）**：MergeNewBranch 严格只新建分支不动 base
-- **失败 = 完整回滚**：cherry-pick 中途的 conflict / dirty-tree / 分支冲突 → 主仓状态字节回到调用前
+红线：**永不 push**（远程动作由用户手动）；**永不动主仓 HEAD**（除显式 ff 路径）；**失败 = 完整回滚**（中途 conflict / dirty-tree / 分支冲突 → 主仓状态字节回到调用前）。
 
-#### 裸目录三档授权（`internal/worktree/repo_state.go`）
+### 8.13 裸目录三档授权
 
-`git worktree add --detach HEAD` 在两种状态下失败：(1) `.git` 不存在；(2) `.git` 存在但 HEAD 不解析（无 commit）。三档授权让"裸目录脚手架"成为合法用例：
+`git worktree add --detach HEAD` 在两种状态失败：(1) `.git` 不存在；(2) `.git` 存在但 HEAD 不解析（无 commit）。三档授权让"裸目录脚手架"成为合法用例：
 
-- 档 1：REPL `/approve` 检测 `RepoState.NeedsInit() == true` → 弹 `huh.NewConfirm` 的 y/N → `y` 后 per-Run 调 `Orchestrator.SetAutoInitRepo(true)` defer-restore
-- 档 2：`codrax.yaml :: write_auto_init_repo: true` → 启动期 `cmd/root.go` 写到 `app.writeAutoInitRepo` → `orch.SetAutoInitRepo`
+- 档 1：REPL `/approve` 检测 `RepoState.NeedsInit() == true` → 弹 `huh.NewConfirm` 的 y/N
+- 档 2：`codrax.yaml :: write_auto_init_repo: true` → 启动期 `cmd/root.go` 写 `app.writeAutoInitRepo` → `orch.SetAutoInitRepo`
 - 档 3：CLI `--auto-init-repo` → 同档 2
 
-所有档汇聚到 `applyPreHook` 的同一段代码：
-1. `worktree.DetectRepoState(MainRepoRoot)` 分类 `RepoReady` / `RepoNotInitialized` / `RepoNoCommits`
-2. 仅 `NeedsInit()` 时进入授权检查；未授权 → fail-loud 错误带三条恢复路径
-3. 授权 → `worktree.EnsureInitialCommit(MainRepoRoot, "codrax: initial commit for "+plan.ID)`
-4. EnsureInitialCommit 跑最小命令集：缺 `.git` 跑 `git init`；缺 `user.email`/`user.name` 时本地设 `codrax@local`/`codrax`（不覆盖已存在的）；最后 `git commit --allow-empty -m <msg>`
-5. 成功后正常 `worktree.Create` + 后续 apply
+汇聚到 `applyPreHook`：`worktree.DetectRepoState` 分类 `RepoReady` / `RepoNotInitialized` / `RepoNoCommits` → `NeedsInit()` 时检查授权 → 授权后 `EnsureInitialCommit`（缺 `.git` 跑 `git init`；缺 `user.email` / `user.name` 时本地设 `codrax@local` / `codrax`，不覆盖已存在的；最后 `git commit --allow-empty -m <msg>`）。Idempotent：`RepoReady` 状态下 EnsureInitialCommit 立即 return nil。
 
-红线：
-- **idempotent**：`RepoReady` 状态下 `EnsureInitialCommit` 立即 return nil；不会重复造空 commit
-- **不动用户已有 git 状态**：只在缺失键时设默认值，不改 user 已设的 email / name
-- **不 add / 不 push**：仅 `git init` + `git commit --allow-empty`，不动 working tree
+### 8.14 verify→plan 重试循环
 
-#### 写模式 Criterion（`internal/analysis/criterion/eval.go`）
+`pipeline_write_retry_budget`（默认 3，硬上限 5 通过 `pipeline_write_retry_budget_ceil`）控制 ModeApply 里 plan→apply→verify 的最大迭代次数。第一次失败后 `prepareVerifyRetry(attempt)`：
 
-读模式 19 种 Criterion Kind 之外，写模式新增 4 种，被 `AnswerContract.AcceptanceTests` / `TaskNode.SuccessCriteria` 消费：
+1. 调 `buildRetryHint(ChangeReport, ChangePlan, prevAttempt)` 合成 PlanningHint：失败 summary（≤300 字符）+ top-3 失败测试（AssertionID + Suite + FailureDetail 首行 ≤140 字符）+ plan.TargetPaths（cap 10）作"嫌疑文件清单"。上限 1500 字符
+2. `worktree.DiscardByPath` 清掉上一 worktree，busCtx.RepoRoot 回 MainRepoRoot
+3. `Mutable.ResetChangePlan` / `ResetChangeReport` / `WriteClosure.Reset` / 清 `o.planPath`（强制重新规划，即使 user 原本供了 plan-file）
+4. BaselineReport 保留（规范化的 pre-apply 快照，跨 retry 稳定）
+5. `Mutable.SetPlanningHint(hint)`
 
-| Kind | 语义 | 评估输入 |
-|---|---|---|
-| `CritPlanReady` | `ChangePlan` 已发射且非空、`WriteClosure.PendingApplies > 0` | Mutable.ChangePlan |
-| `CritPatchApplies` | `AppliedSet ∩ TargetPaths == TargetPaths`（所有声明路径都已 applied） | Mutable.WriteClosure |
-| `CritTestsPass` | `ChangeReport != nil && ChangeReport.Passed` | Mutable.ChangeReport |
-| `CritNoRegression` | `BaselineReport` nil → Satisfied=true（无快照可比）；否则比较 baseline 与 current 的 `MetricDeltas`，超过每项 `Threshold` 视作回归 | Mutable.BaselineReport + Mutable.ChangeReport |
+planner 下次 dispatch 在 BuildInitialInstruction 消费一次 PlanningHint——reset 完取就是空（避免下个 sub-dispatch 重复注入）。
 
-读模式 Run 里这 4 个 env slot 都是 nil，`CritPlanReady` / `CritPatchApplies` 等对应 evaluator 直接返回 Satisfied=true（L3 byte-identity 红线）。
+**重试停滞早停**——retry budget 不是无脑用满：
 
-#### 可选：verify→plan 重试循环
+1. **`shouldSuppressVerifyRetry(report)`** — `ChangeReport.FailureKind == runner_missing` 时直接 fall-through（env 类失败 LLM 解决不了）
+2. **`verifyStallReason(closure)`** — 比较 WriteClosure.fingerprints 最末两条 ApplyVerifyFingerprint：`AppliedCount` / `VerifyPassed` / `VerifyFailed` / `FailureSummaryHash` 全相等 → 视为"无进展" → 跳本轮 retry
 
-`pipeline_write_retry_budget`（yaml，默认 0，硬上限 5）控制 `ModeApply` 里 `plan → apply → verify` 的最大迭代次数。第一次失败后：
+`ApplyVerifyFingerprint.FailureSummaryHash` 是 FailureSummary 的 FNV-32 hex。完全 byte-equal 才算"同信号"——任一维度变（多 apply 一个文件、多过/少过一个测试、failure 文本变样）都算有进展继续 retry。守门**通用**：不分 failure 类型，所有"原地重打"场景都生效。
 
-1. `orchestrator.prepareVerifyRetry(attempt)`：
-   - 调 `buildRetryHint(ChangeReport, ChangePlan, prevAttempt)` 合成 PlanningHint：失败 summary（≤300 字符）+ top-3 失败测试（AssertionID + Suite + FailureDetail 首行 ≤140 字符）+ `plan.TargetPaths`（cap 10）作"嫌疑文件清单"。上限 1500 字符。
-   - `worktree.DiscardByPath` 清掉上一 worktree，`busCtx.RepoRoot` 回归 `MainRepoRoot`
-   - `Mutable.ResetChangePlan` / `ResetChangeReport` / `WriteClosure.Reset` / 清 `o.planPath`（强制重新规划，即使 user 原本供了 plan-file）
-   - `BaselineReport` 保留（规范化的 pre-apply 快照，跨 retry 稳定）
-   - `Mutable.SetPlanningHint(hint)`
-2. `plannerEvaluator.BuildInitialInstruction` 消费一次 `Mutable.PlanningHint()` —— reset 完再取就是空（避免下个 sub-dispatch 重复注入）。
-3. 下一次 `runPlanPhase` 正常跑，planner 看到 hint 里的嫌疑文件 + 失败 narrative 修订 plan。
+失败到顶：`verifyErr > applyErr > planErr` 优先级把最深的塞 `TaskState.LastError`。
 
-失败到顶：`verifyErr > applyErr > planErr` 的优先级把最深的一层塞进 `TaskState.LastError`。
+### 8.15 Baseline 捕获（可选）
 
-##### 重试停滞早停（fingerprint 同信号守门）
+`pipeline_baseline_capture_enabled`（默认 false）打开后，runApplyPhase 在 coder dispatch 之前主动跑一次 `tool.RunTests{}.Execute` 作 baseline：
 
-retry budget 不是无脑用满的。两个守门器在 `runWriteSchedulerLoop` 的 retry 决策分支里前置短路:
-
-1. **`shouldSuppressVerifyRetry(report)`** — `ChangeReport.FailureKind == runner_missing` 时直接 fall-through 到 terminal(env 类失败 LLM 解决不了,前面 commit 已上)。
-
-2. **`verifyStallReason(closure)`**(本轮新增)— 比较 WriteClosure.fingerprints 最末两条 `ApplyVerifyFingerprint`:`AppliedCount` / `VerifyPassed` / `VerifyFailed` / `FailureSummaryHash` 全相等 → 视为"无进展" → 跳过本轮 retry。
-
-`ApplyVerifyFingerprint.FailureSummaryHash` 是 FailureSummary 的 FNV-32 hex(verify post-hook 在 `appendVerifyFingerprint` 里追加)。完全 byte-equal 才算"同信号",任一维度变(多 apply 一个文件、多过 / 少过一个测试、failure 文本变样)都视为有进展继续 retry。这个守门是**通用的**:不分 failure 类型,在 tests-failed plateau / build-failure plateau 等所有 budget 耗尽前的"原地重打"场景都生效。
-
-#### 可选：Baseline 捕获
-
-`pipeline_baseline_capture_enabled`（yaml，默认 `false`）打开后，`runApplyPhase` 3b 步（coder dispatch 前、worktree 已 swap 但尚无任何写入）主动跑一次 `tool.RunTests{}.Execute` 作为 baseline：
-
-1. `run_tests` 正常 install 到 `Mutable.ChangeReport`
-2. 立即 `Mutable.SetBaselineReport(report)` + `ResetChangeReport`（腾出槽位给后续 verify）
+1. run_tests 正常 install 到 Mutable.ChangeReport
+2. 立即 `Mutable.SetBaselineReport(report)` + `ResetChangeReport`（腾位置给后续 verify）
 3. 可选持久化到 `.codrax/plans/<id>.baseline.json`（磁盘失败只 warning）
-4. Baseline **失败非致命**：`evalNoRegression` 见 nil baseline 短路为 Satisfied=true
+4. Baseline **失败非致命**：`evalNoRegression` 见 nil baseline 短路 Satisfied=true
 
-Verifier 的 `BuildInitialInstruction` 在 baseline 非 nil 且有失败测试时渲染 `## Pre-existing baseline failures` 段（cap 15 条），教 LLM 用 REGRESSION / PRE-EXISTING / FIXED 分类写 FailureSummary narrative；`test-execute-skill` 的 Workflow 也声明这条约束。
+Verifier 的 `BuildInitialInstruction` 在 baseline 非 nil 且有失败测试时渲染 `## Pre-existing baseline failures` 段（cap 15 条），教 LLM 用 REGRESSION / PRE-EXISTING / FIXED 分类写 FailureSummary narrative。
 
-#### 测试 runner 矩阵
+`pipeline_baseline_cache_max`（默认 16）按 HEAD SHA 缓存 baseline——同一 commit 不同 plan 复用同一 baseline，节省一次完整测试跑。
+
+### 8.16 测试 runner 矩阵 — 12 种
 
 | Runner | Manifest | 命令 | 输出协议 |
 |---|---|---|---|
-| Go | `go.mod` | `go test -json ./...` | JSONL stream，`goTestEvent` 事件流 |
-| Node | `package.json` | `npm test -- --json --silent` | Jest/Vitest 共通的单 JSON 对象（`testResults[].assertionResults[]`） |
-| Python | `pyproject.toml` / `pytest.ini` / `setup.py` | `pytest --json-report --json-report-file=<tmp>` | `pytest-json-report` 插件写 JSON 到 extraFile |
-| Rust | `Cargo.toml` | `cargo test` | 文本：`test ... ok`/`FAILED`，`test result: FAILED. N passed; M failed`，失败块 `---- name stdout ----` |
-| Java Maven | `pom.xml` | `mvn -B -q test` | `target/surefire-reports/*.xml`（JUnit XML，post-exec 目录扫描） |
-| Java Gradle | `build.gradle` / `build.gradle.kts` | `./gradlew --no-daemon --console=plain test` | `build/test-results/test/*.xml`（JUnit XML） |
-| Ruby | `Gemfile` | `bundle exec rspec --format json` | 单 JSON 对象，`examples[].status` |
-| CMake | `CMakeLists.txt` + 已配置 build dir | `ctest --test-dir <build> --output-junit <tmp> --output-on-failure` | 单 JUnit XML 文件 |
-| Meson | `meson.build` + 已配置 build dir | `meson test -C <build> --xunit-file <tmp>` | 单 JUnit XML 文件 |
-| Make | `Makefile` / `makefile` / `GNUmakefile` | `make check` / `make test`（按 Makefile 首列扫择优） | 无结构化输出；`parseMakeOutput(stdout, runErr)` 用 exit code 判定 + `extractBuildErrorExcerpt` 抽取 stdout |
-| HarmonyOS hvigor (ArkTS) | `oh-package.json5` / `build-profile.json5` / `hvigorfile.ts` | `hvigorw --no-daemon test` | JUnit XML（复用 Java 解析器） |
-| HarmonyOS cjpm (Cangjie) | `cjpm.toml` | `cjpm test` | 文本（Cargo 风格）：`test result: FAILED. N passed; M failed` |
-| Swift | `Package.swift` | `swift test`（可带 `--filter`） | 文本：`Test Case '...' passed/failed`，`Executed N tests, with M failures` |
+| Go | `go.mod` | `go test -json ./...` | JSONL stream，goTestEvent 事件流 |
+| Node | `package.json` | `npm test -- --json --silent` | Jest/Vitest 共通的单 JSON 对象 |
+| Python | `pyproject.toml` / `pytest.ini` / `setup.py` | `pytest --json-report --json-report-file=<tmp>` | pytest-json-report 写 extraFile |
+| Rust | `Cargo.toml` | `cargo test` | 文本：`test ... ok`/`FAILED` |
+| Java Maven | `pom.xml` | `mvn -B -q test` | `target/surefire-reports/*.xml` |
+| Java Gradle | `build.gradle` / `build.gradle.kts` | `./gradlew --no-daemon --console=plain test` | `build/test-results/test/*.xml` |
+| Ruby | `Gemfile` | `bundle exec rspec --format json` | 单 JSON 对象 |
+| CMake | `CMakeLists.txt` + 已配置 build dir | `ctest --test-dir <build> --output-junit <tmp>` | 单 JUnit XML |
+| Meson | `meson.build` + 已配置 build dir | `meson test -C <build> --xunit-file <tmp>` | 单 JUnit XML |
+| Make | `Makefile`/`makefile`/`GNUmakefile` | `make check` / `make test` | 无结构化；exit code + stdout |
+| HarmonyOS hvigor | `oh-package.json5` / `build-profile.json5` / `hvigorfile.ts` | `hvigorw --no-daemon test` | JUnit XML（复用 Java parser） |
+| HarmonyOS cjpm | `cjpm.toml` | `cjpm test` | 文本（Cargo 风格） |
+| Swift | `Package.swift` | `swift test` | 文本 |
 
-CMake / Meson 要求 build dir 已配置（codrax 不跑 configure 步），探测的目录名：`build`（CMake / Meson）/ `Build` / `builddir`（Meson 默认）/ `out` / `cmake-build-debug` / `cmake-build-release`（CLion 默认）。每个候选必须含 `CMakeCache.txt`（CMake sentinel）或 `meson-info/`（Meson sentinel）才算数，避免空 `build/` 误判。
+CMake / Meson 要求 build dir 已配置（codrax 不跑 configure）；探测目录名：build / Build / builddir / out / cmake-build-debug / cmake-build-release，每个候选必须含 sentinel（CMakeCache.txt / meson-info/）。
 
-manifest 探测优先级排序在 `runnerManifest` 表（`internal/tool/run_tests.go`）：HarmonyOS / Cangjie 的 manifest 排在通用语言（go/node/python/...）之前，确保混合工程优先走 hvigor / cjpm。verifier agent 也可以**绕过自动探测**，直接给 `run_tests` 传 `runner=<choice>` + 可选 `working_dir`（系统校验 ∈ allowedRunners 白名单 + working_dir 在 worktree 内即接受）。
+manifest 探测优先级排序在 `runnerManifest` 表：HarmonyOS / Cangjie 排在通用语言之前确保混合工程优先走 hvigor / cjpm。verifier 也可绕过自动探测直接传 `runner=<choice>` + 可选 `working_dir`（白名单 12 + worktree 内即接受）。
 
-**共用的 build-failure 合成**：Java / CMake / Meson / hvigor 任何一个 runner 的 XML artifact 没产出（build 阶段就挂了）时，`synthesizeBuildFailureReport(ctx, toolName, runner, assertionID, label, output)` 合成一条 `{Passed: false, AssertionID: "<lang>-build", Suite: "build", FailureDetail: extractBuildErrorExcerpt(output)}`，写入 `Mutable.ChangeReport` 并在 ToolResult Summary 里带上截取的第一条错误行 —— retry loop 的 PlanningHint 因此总能拿到具体错误文本而不是"build 失败"这种空信号。
+**共用 build-failure 合成**：Java / CMake / Meson / hvigor 任何 runner 的 XML artifact 没产出（build 阶段就挂）时，`synthesizeBuildFailureReport` 合成一条 `{Passed:false, AssertionID:"<lang>-build", Suite:"build", FailureDetail:extractBuildErrorExcerpt(output)}`，写入 ChangeReport 并在 ToolResult Summary 带上截取的第一条错误行——retry loop 的 PlanningHint 因此总能拿到具体错误文本。
 
-**零测试发现作为一等信号**：pytest exit code 5（"no tests collected"）/ jest "no tests found" / `go test ./...` 在没有 `_test.go` 的项目上退出 0 但 `passed=0` —— 这些场景被旧 parser 误映射成 `Passed=false` 然后触发"加测试文件"的错误重新规划。12 个 runner 的 parser 全部把"零测试发现"作为 `ChangeReport.NoTestsRunners []string` 一等信号单独记录（runner label），**`Passed` 保持 true**；verifier prompt 据此驱动语法 only 兜底而不是 fabricate 测试。`internal/types/change_plan.go::ChangeReport.NoTestsRunners` 是 public API。
+**零测试发现作为一等信号**：pytest exit 5 / jest "no tests found" / `go test ./...` 在没 `_test.go` 的项目上 exit 0 但 passed=0——这些场景**不**进 FailureSummary（`Passed=true`），单独记录到 `ChangeReport.NoTestsRunners []string`，避免 verifier 误判触发 fabricate-tests 重新规划。
 
-#### 进程组隔离 + 资源墙（exec supervisor）
+### 8.17 进程组隔离 + 资源墙
 
-`run_tests` / `emit_change_plan` 的 dry-build / 静态检查 / patch pre-check 全部走 `internal/tool/exec_supervisor.go::SupervisedRun`，跨平台等价语义包住测试子进程的 blast radius：
+`run_tests` / `emit_change_plan` 的 dry-build / 静态检查 / patch pre-check 全走 `internal/tool/exec_supervisor.go::SupervisedRun`：
 
-- **Linux**：`cmd.SysProcAttr.Setpgid = true` 创建独立进程组 → 失控测试 fork 出来的子孙进程能被一并 kill；启动后挂 `prlimit` 设置内存上限 (`memoryLimitBytes`，默认按 cgroup 自适应) + CPU time 上限 (`cpuLimitSeconds`)。
-- **Windows**：`golang.org/x/sys/windows` 创建 JobObject + `JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE` + `JobObjectExtendedLimitInformation::JobMemoryLimit`，等价语义。
-- **退出归类**：`SupervisedRun` 返回 `SupervisedExitKind ∈ {Normal, Timeout, OOM, CPULimit}`；run_tests parser 把 `OOM` / `CPULimit` / `Timeout` 直接映射到 `ChangeReport.FailureKind`（7 值 enum：`tests_failed`(default) / `build_failure` / `timeout` / `oom` / `cpu_limit` / `crash` / `runner_missing`），retry-hint composer 据此分类 —— OOM 不会被当作"测试逻辑挂了"重写一份巨大 plan，而是触发"显存/内存上限"专属 hint 引导减小测试规模或 mock heavy fixture。
-- **runner_missing 跳过 retry**：`detectRunnerMissing(runner, runErr, output)` 在 parser 之前先看：shell 退出码 127 / `errors.Is(runErr, exec.ErrNotFound)` / 输出含 `<binary>: not found` / `<binary>: command not found` / `executable file not found` / Windows `is not recognized as an internal or external command`。命中即合成 `makeRunnerMissingReport`，FailureKind=runner_missing + BuildFailed=true + FailureSummary 带 per-runner 安装 hint。`internal/orchestrator/write_scheduler.go::shouldSuppressVerifyRetry` 见此 FailureKind 直接 fall-through 到 terminal 失败路径（不经 clearForReplan、不消耗 RetryBudget）—— 重新规划解决不了"工具没装",retry 只会烧 LLM token。误报防御：binary 名称必须出现在 stderr 文本里才算（测试断言里出现 `'foo' not found` 不会触发）。每个 runner 的安装 hint 由 `runnerInstallHint(runner)` 提供（drift-guard 测试 `TestRunnerInstallHint_AllRunnersCovered` 锁定 12 个 runner 全覆盖）。
-- **超时**：`pipeline_max_steps` 把整个 Run 强制收尾，worktree 在 outer defer 里清理。SIGINT / SIGTERM 由 `internal/worktree/signal_exit_*.go` 装的进程级 handler 拦截，先遍历 `activeSessions` 统一 Discard 再 re-raise（Go 默认 `os.Exit` 不跑 defer，所以必须装 handler）。
+- **Linux**：`cmd.SysProcAttr.Setpgid = true` 创建独立进程组（失控测试 fork 出来的子孙进程能被一并 kill）；启动后挂 prlimit 设内存 (`verify_mem_limit_mb` 默认 2048) + CPU time (`verify_cpu_limit_seconds` 默认 600)
+- **Windows**：`golang.org/x/sys/windows` 创建 JobObject + `JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE` + `JobMemoryLimit`，等价语义
+- **退出归类**：`SupervisedExitKind ∈ {Normal, Timeout, OOM, CPULimit}`；run_tests parser 把 OOM / CPULimit / Timeout 直接映射到 `ChangeReport.FailureKind`（7 值 enum：tests_failed / build_failure / timeout / oom / cpu_limit / crash / runner_missing）。retry-hint composer 据此分类——OOM 不会被当"测试逻辑挂了"重写一份巨大 plan，而是触发"显存/内存上限"专属 hint
+- **runner_missing 跳 retry**：`detectRunnerMissing` 在 parser 之前先看：shell exit 127 / `errors.Is(runErr, exec.ErrNotFound)` / 输出含 `<binary>: not found` 等。命中即合成 `makeRunnerMissingReport`，FailureKind=runner_missing + BuildFailed=true + FailureSummary 带 per-runner 安装 hint。`shouldSuppressVerifyRetry` 见此 FailureKind 直接 fall-through——重新规划解决不了"工具没装"。每个 runner 的安装 hint 由 `runnerInstallHint(runner)` 提供（drift-guard 测试锁定 12 个 runner 全覆盖）
 
-#### 红线总结
+### 8.18 失败学习 — Failure Taxonomy 跨 Run 持久化
 
-- **L1**：读模式 Run 字节级行为不变（`runTaskPhase` 不变）；写模式 opt-in 从不影响读模式。
-- **L2**：`write_enabled: false`（默认）下写模式阶段**拒绝启动**。
-- **L3**：写工具（`emit_change_plan` / `apply_patch` / `run_tests` / `emit_test_results`）**不得** import `internal/tool/ground`；由 `write_mode_red_lines_test.go` 结构性扫描固化。
-- **L5**：worktree 清理 defer 位于 `Run()` 顶层，失败路径**无条件**触发；keep-on-success 仅是成功路径的 opt-out。
-- **L6**：写模式的 skill（`change-plan-skill` / `code-write-skill` / `test-execute-skill`）在 `ToolSuggestions` 里**保留** `exec_command` —— worktree 沙箱已经把 blast radius 限住，LLM 偶尔用 `git status` / `ls` 诊断是合理的。
+> *像项目部的"经验教训本"：每次失败的事故都登记进本子——什么场景触发的、后果是什么。下个项目开工前，项目经理（planner）翻一遍"这个工地之前砸过水管、用 X 钉子拆 Y 面墙时"，意识到风险但不强制怎么改，把判断留给经理。*
 
-### 4.7 env_recommend — 环境诊断 + 安装推荐
+`pipeline_failure_taxonomy_enabled`（默认 true）打开后，每次写模式 Run 失败时，系统记录 plan + report 对到 `.codrax/.../taxonomy/<repo-slug>.json`。下次 Run 在 planner 的 `BuildInitialInstruction` 渲染 active pitfall 段：name / description / trigger / consequence。planner LLM 看到"this repo has seen X failure before when Y condition triggered — avoid it"——不强制改写 plan，只展示模式。
 
-`internal/env/`（probe / diag / recommend / cache）+ `internal/env/render.go` + `internal/repl/handle_env.go` 实现的 3 层管线，把"测试失败 / scaffold 拒绝时丢一条硬编码字符串"升级为"诊断 → 推荐 → 双语渲染 → 复制即用"。
+参数 `pipeline_failure_taxonomy_max_items`（默认 50）/ `pipeline_failure_taxonomy_decay_days`（默认 90）。读模式有对应 `pipeline_answer_taxonomy_*`（默认 true / 50 / 90）做答案模式累积。
 
-#### 数据流
+### 8.19 写模式 Criterion
+
+读模式 19 种 Criterion Kind 之外，写模式新增 4 种被 `AnswerContract.AcceptanceTests` / `TaskNode.SuccessCriteria` 消费：
+
+| Kind | 语义 | 输入 |
+|---|---|---|
+| `CritPlanReady` | ChangePlan 已发射且非空、`WriteClosure.PendingApplies > 0` | Mutable.ChangePlan |
+| `CritPatchApplies` | `AppliedSet ∩ TargetPaths == TargetPaths` | Mutable.WriteClosure |
+| `CritTestsPass` | `ChangeReport != nil && ChangeReport.Passed` | Mutable.ChangeReport |
+| `CritNoRegression` | BaselineReport nil → Satisfied=true；否则比较 baseline 与 current 的 MetricDeltas | Mutable.BaselineReport + Mutable.ChangeReport |
+
+读模式 Run 这 4 个 env slot 都 nil，对应 evaluator 直接 Satisfied=true（保持 read mode 字节级行为）。
+
+### 8.20 多阶段方案组（可选）
+
+`WriteAnalysisIR.PhaseProposal.Split == "sequential"` 且 ≥2 个阶段且 ModeApply 且 `PlanGroupStore` wired 时，`runPhaseGroup` 启动多阶段循环：
+
+每个阶段一份独立 3 节点 plan→apply→verify graph + 独立 retry budget；同一 worktree 跨阶段累积；每阶段 verify 后跑可选 LLM-driven acceptance check（`acceptance_checker.go`）分类 verdict：`PhaseAccepted` / `PhaseRolledBack` / `PhaseAcceptanceUnverified`。Accept → 进下个阶段；Reject → group 立即失败。
+
+参数 `pipeline_max_phases_per_run`（默认 5，硬顶 12）。
+
+### 8.21 红线总结
+
+- **L1**：读模式 Run 字节级行为不变；写模式 opt-in 从不影响读模式
+- **L2**：`write_enabled: false`（默认）下写模式阶段拒启动
+- **L3**：写工具（emit_change_plan / apply_patch / run_tests / emit_test_results）**不得** import `internal/tool/ground`；由 `write_mode_red_lines_test.go` 结构性扫描固化
+- **L5**：worktree 清理 defer 位于 Run() 顶层，失败路径**无条件**触发；keep-on-success 仅是成功路径的 opt-out
+- **L6**：写模式 skill（change-plan-skill / code-write-skill / test-execute-skill）`ToolSuggestions` 保留 exec_command——worktree 沙箱已限住 blast radius
+- **L7**：合并/退出全程**不 push** 远程；任何 cherry-pick conflict 完整回滚
+
+### 8.22 env_recommend — 测试失败 / 裸目录拒绝时的诊断 + 推荐
+
+`internal/env/`（probe / diag / recommend / cache）+ `internal/env/render.go` + `internal/repl/handle_env.go` 实现 3 层管线：
 
 ```
                  (一次性，Run 入口)
@@ -1145,180 +1493,93 @@ manifest 探测优先级排序在 `runnerManifest` 表（`internal/tool/run_test
 run_tests 失败                                  apply_pre_hook 拒裸仓
    │                                                      │
    ▼                                                      ▼
-env.Diagnose(stderr, runner, EnvFacts)        env.Diagnose(state) （NeedsInit）
+env.Diagnose(stderr, runner, EnvFacts)        env.Diagnose(state)
    │                                                      │
    ▼                                                      ▼
-env.Recommend(d, EnvFacts, settings)           env.Recommend(d, EnvFacts, settings)
+env.Recommend(d, EnvFacts, settings)           env.Recommend(...)
    │                                                      │
    ▼                                                      ▼
 env.RenderRecommendations(d, recs, lang)       env.RenderRecommendations(...)
-   │                                                      │
-   ▼                                                      ▼
-updateFailureSummaryWithHint                   bareDirAuthorizationMessage
-（替换 legacy "请先安装"标记）                  （三层授权门 prose 包裹）
 ```
 
-#### 三层组件
+- **L1 Probe**：OS / shell / Python（多解释器）/ Node / Rust / Java / Ruby / 40+ 包管理器 / 项目 manifest / 容器 / 网络 reachability（可选）/ git state（复用 `worktree.DetectRepoState`）
+- **L2 Diagnose**：6 检测器顺序 `system_lib > git_state > runner_missing > deps_missing > toolchain_missing > config_missing`，全 miss → DiagUnknown
+- **L3 Recommend**：4 段决策——稳定表（git_state / system_lib_missing）→ 磁盘缓存 → LLM 推荐（`agents.env_recommender`）→ DocsLink 兜底
 
-| 层 | 包 | 入口 | 角色 |
-|---|---|---|---|
-| L1 Probe | `internal/env/probe` | `Probe(ProbeOptions) *EnvFacts` | OS / shell / Python（多解释器）/ Node / Rust / Java / Ruby / 40+ 包管理器 / 项目 manifest / 容器探测 / 网络 reachability（可选）/ git state（复用 `internal/worktree.DetectRepoState`） |
-| L2 Diagnose | `internal/env/diag` | `Diagnose(stderr, runner, *EnvFacts) Diagnosis` | 6 个检测器顺序：`system_lib > git_state > runner_missing > deps_missing > toolchain_missing > config_missing`，全 miss 落 `DiagUnknown` |
-| L3 Recommend | `internal/env/recommend` | `Recommend(Diagnosis, *EnvFacts, Settings) []Recommendation` | 4 段决策：`recommend_system.go`（git_state / system_lib_missing 稳定表）→ 磁盘缓存 → LLM 推荐（`agents.env_recommender`）→ DocsLink 兜底。Per-runner 推荐由 LLM 在结构化 prompt（DiagKind + OS family + 包管理器 + 项目 manifest）下合成，结果回写 disk cache 摊销。策略优先级 `Venv > Project > User > ToolchainBootstrap > Global > Docs`，`recommend_global_install: false` 时 Global 整段过滤。 |
+`Diagnosis.Kind` 8 值：runner_missing / deps_missing / toolchain_missing / system_lib_missing / config_missing / git_not_installed / git_not_initialized / git_no_commits。每条 `Recommendation` 带 Strategy / NeedsSudo / NeedsNetwork / EstimatedSec / Why / Caveats[]。命令 `Command` 一律 `!` 前缀（用户复制即用）。策略优先级 `Venv > Project > User > ToolchainBootstrap > Global > Docs`，`recommend_global_install: false` 时 Global 整段过滤。
 
-`Diagnosis.Kind` 8 个值 + Unknown sentinel：`runner_missing` / `deps_missing` / `toolchain_missing` / `system_lib_missing` / `config_missing` / `git_not_installed` / `git_not_initialized` / `git_no_commits`。每条 `Recommendation` 携带 `Strategy`、`NeedsSudo`、`NeedsNetwork`、`EstimatedSec`、`Why`、`Caveats[]`，命令 `Command` 一律 `!` 前缀（`internal/env/render.go` 的双语渲染按 strategy 分组打印 `# ~Ns, 项目隔离, 需 sudo, 无需网络` 这类提示行）。
+**红线**：codrax 永不自己执行推荐命令（`!` 前缀只是粘贴提示）；`recommend_global_install: false` 默认下 registry 不产 sudo / `apt install`；`env_recommend_enabled: false` 把整条管线短路；关掉时 `FailureSummary` / `apply_pre_hook` 字节级回到硬编码字符串（结构性测试守护）。
 
-#### 决策流
-
-```
-DiagKind ∈ {git_*, system_lib_missing}
-    └─► Stage 1 systemRecommender 直接出，零 LLM
-
-DiagKind ∈ {runner_missing, deps_missing, toolchain_missing, config_missing}
-    └─► Stage 2 disk cache 命中 → 直接返回
-        └─► Stage 3 LLM 调 emit_env_recommendation → 写回 cache → 返回
-            └─► Stage 4 DocsLink fallback（`runnerDocsURL` 12 入口）
-```
-
-设计要点：
-
-- **覆盖度**：包名 / 包管理器 / OS family 由 LLM 在 prompt 上下文里合成，覆盖到罕见 distro（Void / Gentoo / NixOS）等长尾。
-- **首次延迟**：LLM 单次调用 ~2-3 秒可见；命中 disk cache 后 sub-ms，同机同诊断只付一次成本。
-- **离线降级**：`env_recommend_llm_enabled: false` 时 Stage 3 短路，直接走 Stage 4 DocsLink，12 runner 全部覆盖、零网络依赖。
-
-#### 缓存 + LLM
-
-- **磁盘缓存** `~/.codrax/cache/env-cache.json`（schema_version=1，原子重命名写入）。键 = SHA(`DiagKind` + 关键 EnvFacts 字段)；值 = `[]Recommendation` + 时间戳。默认 90 天 TTL，`env_cache_ttl_days` 可调；`/env cache list` / `/env cache clear` 由 REPL 暴露。
-- **LLM 推荐** Stage 1 不命中时触发（即所有 per-runner DiagKind），单次 Chat 调用，结构化 schema 限制输出（`Command` 必须 `!` 前缀、`Strategy` enum）。`providers.yaml :: agents.env_recommender` 路由（缺省继承 `agents.chitchat_classifier` 再缺省 `llm.default`，**强烈建议路由便宜模型**）。`env_recommend_llm_timeout_sec`（默认 6 秒）超时直落 Stage 4 DocsLink，不阻塞主流程。结果回写缓存。
-- **观测埋点**：`internal/env/recommend/metrics.go` 累加 `Calls / Stage1Hits / CacheHits / LLMCalls / LLMSuccess / LLMTimeouts / LLMErrors / DocsLinkFallbacks / EmptyResults / DisabledCalls`。REPL `/env stats` 渲染当前窗口、`/env stats reset` 清零。
-
-#### 8 条红线（R1-R8）
-
-| 红线 | 内容 | 守护方式 |
-|---|---|---|
-| R1 Per-runner LLM-driven | git / system_lib 走稳定表；per-runner 推荐由 LLM 合成 | `internal/env/recommend/registry.go::Recommend` 流程；`internal/env/recommend/docslink.go` 离线兜底 |
-| R2 Schema-bound output | LLM 输出走 `emit_env_recommendation` tool schema，结构性 reject 不合规 | tool 注册 + JSON schema 验证 |
-| R3 全部可缓存 | LLM / probe / diag 结果都过 disk cache，第二次相同输入 0 LLM 调用 | `internal/env/cache` |
-| R4 便宜模型路由 | `agents.env_recommender` 默认继承 `chitchat_classifier`（已是便宜模型） | provider 链 fallback |
-| R5 Fully off-able | `env_recommend_enabled: false` 把整条管线短路 | `BusContext.EnvRecommendSettings.Enabled` 检查 |
-| **R6 Byte-identical fallback** | **关掉时 `FailureSummary` / `apply_pre_hook` 字节级回到 v1 硬编码字符串** | **`internal/tool/run_tests_env_recommend_test.go` 5 个 guard test;`internal/orchestrator/stage_hooks_env_recommend.go::bareDirAuthorizationMessage` 先用 `legacy` 字符串构造，再 `if !ctx.EnvRecommendSettings.Enabled \|\| ctx.EnvFacts == nil { return legacy }`** |
-| R7 No auto-execution | codrax 永不自己执行推荐命令；`!` 前缀只是给用户一个粘贴提示 | 设计层面，无代码执行点 |
-| R8 Sudo recommend default-disabled | `recommend_global_install: false`（默认）下 registry 不产 sudo / `apt install` 等命令 | `internal/env/recommend/registry.go` 的 strategy 过滤 |
-
-#### 消费者
-
-| 调用点 | 文件 | 触发场景 | 替换的旧行为 |
-|---|---|---|---|
-| 测试 runner 缺失 | `internal/tool/run_tests.go::~451` | `run_tests` 检测到 runner binary 不在 PATH | 旧版硬编码 `runnerInstallHint` |
-| 写模式裸仓拒绝 | `internal/orchestrator/stage_hooks_env_recommend.go::bareDirAuthorizationMessage` | apply_pre_hook 检测目标目录非 git 仓 / 无 commits 且未授权自动 init | 旧版 `apply stage: target ... is X` 单行 |
-| REPL 显式触发 | `internal/repl/handle_env.go` | `/env show / probe / explain [stderr] / cache list / cache clear` | 没有等价旧行为 —— 全新功能 |
-| 读模式 INFO 信号 | `internal/orchestrator/orchestrator.go::Run` | Run 入口探测后 `EnvFacts.GitRepoState ∈ {not_initialized, no_commits, git_missing}` | 旧版 silent —— 用户不知情 |
-
-#### 与三层授权门的协作（写模式 scaffold）
-
-env_recommend 提供 *推荐 + 解释*；`worktree.EnsureInitialCommit` 提供 *执行*；三层授权门（`--auto-init-repo` CLI / `write_auto_init_repo: true` yaml / REPL `/approve` 前 y/N 提示）提供 *授权*。`bareDirAuthorizationMessage` 把三者拼成一段:
-
-```
-apply stage 拒绝:目标目录非 git 仓且未授权自动初始化。
-
-✗ 环境诊断:目标目录非 git 仓 (git)
-信号: apply_pre_hook: detected via worktree.DetectRepoState
-
-推荐:
-  1) !git init -q  # ~1s, 项目目录内, 无需网络
-     原因: 创建 .git 目录使 worktree 沙箱可以工作
-  2) !git add . && git commit -m "init" -q  # ~1s, 项目目录内, 无需网络
-     原因: codrax 写模式需要至少一个 commit 作为基线
-...
-
-如需 codrax 自动 scaffold(走三层授权门):
-  - 单次 CLI:加 --auto-init-repo
-  - 持久化:codrax.yaml 设 write_auto_init_repo: true
-  - REPL 模式:下次 /approve 前会有 y/N 确认提示
-```
-
-设计文档 `docs/design/env_recommend.md` 锁定 8 阶段架构 + 5 项客户决策 + 12 runner × 8 DiagKind 矩阵；CLAUDE.md 的 yaml-key 段落收录 6 个 `env_recommend_*` 键。
 
 ---
 
-## 5. 数据结构
+## 9. 数据结构
 
 > **BusContext 不是 model context 本身。** 它是构建 Agent 专属 model context 的运行时事实源：
 >
 > `BusContext`（完整共享状态） → 裁剪 → `AgentContext`（Agent 范围视图） → 组装 → `PromptContext`（模型 prompt 载荷） → 发送 LLM
 
-### 枚举
+### 9.1 枚举
 
 ```go
 // internal/types/enums.go
 type PipelineStage string
 const (
-    // 读模式阶段
-    StageLogTriage PipelineStage = "log_triage" // 条件前置；AttachedLog 非空才触发
-    StageAnalyze   PipelineStage = "analyze"
-    StageExplore   PipelineStage = "explore"
-    StageExtract   PipelineStage = "extract"
-    StageFinalize  PipelineStage = "finalize"
-    // 写模式阶段（Mode ∈ {ModePlan, ModeApply, ModeVerify} 时才触发；
-    // runPlanPhase / runApplyPhase / runVerifyPhase 直分派，不走
-    // runTaskGraph scheduler）
+    StageLogTriage  PipelineStage = "log_triage"  // 条件前置
+    StagePerfTriage PipelineStage = "perf_triage" // 条件前置
+    StageAnalyze    PipelineStage = "analyze"
+    StageExplore    PipelineStage = "explore"
+    StageExtract    PipelineStage = "extract"
+    StageFinalize   PipelineStage = "finalize"
+    // 写模式
     StagePlan   PipelineStage = "plan"
     StageApply  PipelineStage = "apply"
     StageVerify PipelineStage = "verify"
 )
 
-// IsWrite 是读→写 context 隔离的单一真源。context.BuildAgentContext
-// 对 write stage 跳过所有读模式字段传播；BuildPromptContext 对
-// StageApply / StageVerify 抑制 User Request 段。StageAnalyze 即使
-// 在写管线里也视为读模式（分类器仍需其读模式输入）。
+// IsWrite 是读→写 context 隔离的单一真源
 func (s PipelineStage) IsWrite() bool {
     return s == StagePlan || s == StageApply || s == StageVerify
 }
 
 type AgentName string
 const (
-    // 读模式 agent
-    AgentLogTriager AgentName = "log_triager" // 仅 log_triage 阶段使用
-    AgentAnalyzer   AgentName = "analyzer"
-    AgentExplorer   AgentName = "explorer"   // Turn A
-    AgentExtractor  AgentName = "extractor"  // Turn B
-    AgentFinalizer  AgentName = "finalizer"
-    // 写模式 agent
-    AgentPlanner  AgentName = "planner"
-    AgentCoder    AgentName = "coder"
-    AgentVerifier AgentName = "verifier"
+    AgentLogTriager     AgentName = "log_triager"
+    AgentPerfTriager    AgentName = "perf_triager"
+    AgentAnalyzer       AgentName = "analyzer"
+    AgentExplorer       AgentName = "explorer"   // Turn A
+    AgentExtractor      AgentName = "extractor"  // Turn B
+    AgentFinalizer      AgentName = "finalizer"
+    AgentWriteAnalyzer  AgentName = "write_analyzer"
+    AgentPlanner        AgentName = "planner"
+    AgentCoder          AgentName = "coder"
+    AgentVerifier       AgentName = "verifier"
 )
 
-// internal/types/pipeline_mode.go — 写模式粘滞状态
+// internal/types/pipeline_mode.go
 type PipelineMode string
 const (
-    ModeRead   PipelineMode = "read"   // 默认
+    ModeRead   PipelineMode = "read"
     ModePlan   PipelineMode = "plan"
     ModeApply  PipelineMode = "apply"
     ModeVerify PipelineMode = "verify"
 )
 
-// IsWrite 区分读 vs 写（空串和 ModeRead 均为读）
-// ModePlan 虽然不改主仓字节，但产出 ChangePlan 副作用，仍算写
-
-// internal/types/change_plan.go — ChangePlan 生命周期状态
+// internal/types/change_plan.go — ChangePlan 生命周期
 const (
-    PlanStatusPending      = "pending_approval" // emit_change_plan 刚写
-    PlanStatusApplied      = "applied"           // apply + verify 双双成功
-    PlanStatusApplyFailed  = "applied_failed"    // apply 阶段 fail
-    PlanStatusVerifyFailed = "verify_failed"     // apply 成功但 verify fail
-    PlanStatusRejected     = "rejected"          // REPL /reject
+    PlanStatusPending          = "pending_approval"
+    PlanStatusApplied          = "applied"
+    PlanStatusApplyFailed      = "applied_failed"
+    PlanStatusVerifyFailed     = "verify_failed"
+    PlanStatusUnverified       = "unverified"
+    PlanStatusPartiallyApplied = "partially_applied"
+    PlanStatusRejected         = "rejected"
+    PlanStatusMerged           = "merged"
 )
 
-type Intent string      // IntentExplain / IntentRootCause / IntentTrace /
-                        // IntentEnumerate / IntentConfigQuery /
-                        // IntentReturnValue / IntentUnknown
-
-type Scenario string    // ScenarioArchitectureExplain / ScenarioRootCause /
-                        // ScenarioConfigTrace /
-                        // ScenarioPerformanceBottleneck / ScenarioGeneric
-
-type Complexity string  // ComplexitySimple / ComplexityModerate / ComplexityComplex
+type Intent string      // explain / root_cause / trace / enumerate / config_query / return_value / unknown
+type Scenario string    // architecture_explain / root_cause / config_trace / performance_bottleneck / generic
+type Complexity string  // simple / moderate / complex
 
 type MissingPiece string
 const (
@@ -1336,31 +1597,16 @@ const (
     TaskFailed     TaskStatus = "failed"
 )
 
-// type AnswerShape 已退役（见 docs/migration/answer_shape_terminal_retirement.md）。
-// V2 block-only 答案载体改由 internal/types/answer_semantic_view.go 编译的
-// AnswerSemanticView 驱动，关键 facets 通过 internal/types/facet_plan.go 的
-// FacetCoverageContract 表达；分类层落到 QuestionFamily（见
-// internal/types/answer_semantic_view.go）。
-
 // internal/types/analysis_ir.go — AnswerSubjectKind
 // SubjectUnknown / SubjectFunctionName / SubjectTypeName / SubjectHandlerRoute /
 // SubjectConfigKey / SubjectReturnValue / SubjectFilePath / SubjectStringLiteral /
 // SubjectNumeric / SubjectEnumValue / SubjectStructField / SubjectInterface /
 // SubjectGeneric（E1 hard-fallback 保证下游永不拿到 SubjectUnknown）
-
-// internal/types/evidence.go — CompletenessClaim
-// "complete" / "lower_bound" / "unknown"
-
-// internal/types/violation.go — ViolationKind
-// ShapeViolation / CitationViolation / LiteralFormFailed /
-// GhostAnchor / SelfRefLiteral / Other
-
-// internal/types/repair.go — RepairKind
-// RepairReadFile / RepairEmitEvidence / RepairExpandSearch /
-// RepairSwapView / RepairRebindSubject / RepairForceCompleteDowngrade
 ```
 
-### BusContext
+### 9.2 BusContext
+
+> *像项目共享白板：所有 agent / tool 都能看见上面的事实（RepoRoot、attached log、IR、Mutable 区域里的 evidence、ChangePlan 等），但只有 Mutable 区域允许工具拿粉笔写——其他位置都是 read-only。每个 agent 看到的视图（AgentContext）是从这块白板"拍照剪裁"的子集，避免某 agent 看见不该看的字段。*
 
 ```go
 type BusContext struct {
@@ -1370,11 +1616,20 @@ type BusContext struct {
     PipelineStage PipelineStage
     ActiveAgent   AgentName
 
-    RepoRoot  string
-    Branch    string
-    Commit    string
-    WorkDir   string
-    ModuleMap []string
+    Mode PipelineMode  // read / plan / apply / verify
+
+    RepoRoot     string
+    MainRepoRoot string  // 写模式下指向真实主仓；读模式留空
+    Branch       string
+    Commit       string
+    WorkDir      string
+    WorktreePath string  // 写模式下 worktree 路径
+    PlanPath     string  // 写模式下 --plan-file 路径
+    ModuleMap    []string
+
+    // 附加运行时材料
+    AttachedLog     string
+    AttachedHitrace string
 
     RepoFacts                []RepoFact
     EvidenceItems            []EvidenceItem
@@ -1384,16 +1639,24 @@ type BusContext struct {
     AnswerSymbolCompleteness CompletenessClaim
     ToolResults              []ToolResult
     StageReports             []StageReport
+    MCPResponses             []MCPResponse
 
-    Signals ExecutionSignals   // 只剩 HasEnoughFacts
+    Signals ExecutionSignals  // 当前只有 HasEnoughFacts
 
     Constraints []string
     Preferences []string
+    Language    string
 
     LastTransitionReason string
     TraceID              string
 
-    AnalysisIR *AnalysisIR
+    AnalysisIR *AnalysisIR  // analyzer 唯一 writer
+
+    Memory               MemoryReader  // recall_memory tool 用
+    EnvFacts             *EnvFacts      // Run 入口探测一次
+    EnvRecommendSettings EnvSettings
+
+    Ctx context.Context  // 取消控制
 }
 
 type ExecutionSignals struct {
@@ -1401,7 +1664,7 @@ type ExecutionSignals struct {
 }
 ```
 
-### AnalysisIR
+### 9.3 AnalysisIR
 
 Analyzer 是**唯一** writer；下游 stage 只能通过 dedicated API（`MarkHypothesis`、per-node 执行状态）做受控修改。
 
@@ -1409,16 +1672,16 @@ Analyzer 是**唯一** writer；下游 stage 只能通过 dedicated API（`MarkH
 type AnalysisIR struct {
     Version        string          // "v4"
     TraceID        string
-    RequestModel   RequestModel    // Intent / Scenario / Complexity / Predicates /
-                                   // PredicateAxis / SubTopics / TermGraph /
-                                   // RiskMatrix / AnalyzerHints / AnswerSubject /
-                                   // ShapeConfidence / ComplexityConfidence /
-                                   // IntentConfidence
+    RequestModel   RequestModel    // Intent / Scenario / Complexity / SemanticPredicates /
+                                   // PredicateAxis / SubTopics / TermGraph / RiskMatrix /
+                                   // AnalyzerHints / AnswerSubject / EnumerationBoundary /
+                                   // CompletenessObligation / Buckets / ExactTargets / ...
     TaskGraph      TaskGraph       // Nodes / Edges / ExecutionPolicy
     EvidencePlan   EvidencePlan    // Budget / SourceMix / StopConditions /
                                    // NodeBudgetHints / RequiredFiles
     AnswerContract AnswerContract  // MustInclude / MustExclude / CitationReq /
-                                   // Language / AcceptanceTests ([]Criterion)
+                                   // Language / AcceptanceTests ([]Criterion) /
+                                   // ExactResolutionContract / DiagramContract
     HypothesisSet  []Hypothesis
     QualityGate    GateReport
 }
@@ -1437,32 +1700,58 @@ const (
 )
 ```
 
-Scheduler 的 `stageMapping` 把前四种节点全部映射到 `StageExplore`，只有 `NodeFinalize` 映射到 `StageFinalize`。`TaskNode.EntryConditions` / `SuccessCriteria` 是 `[]Criterion`（typed，由 `criterion.Eval` 运行时求值，19 种 registered Kinds）。
+Scheduler 的 `stageMapping` 把前四种全映射到 `StageExplore`，只有 `NodeFinalize` 映射到 `StageFinalize`。`TaskNode.EntryConditions` / `SuccessCriteria` 是 `[]Criterion`（typed，运行时 `criterion.Eval` 求值，19+ 种 Kind）。
 
 #### RiskMatrix
 
-六维 0-5 打分（`Security` / `DataIntegrity` / `Compatibility` / `Performance` / `Ops` / `Compliance`），`risk.Evaluate` 从 term graph 推导。`hdp.Plan` 根据 risk level 决定是否额外 plan hypothesis，`priority.Score` 对每条 hypothesis 做 4 维打分，`binder.BindByRelevance` 基于相关性绑定到 TaskNode。
+> *像保险体检表：从安全、数据完整、兼容、性能、运维、合规六个维度各打 0-5 分。问"为什么 panic"涉及"系统稳定性"会在 ops 维高分；问"对比 A vs B 的 API 兼容"会在 compatibility 高分。分数高的维度让 HDP 多准备假设、让 priority 更早调度。*
 
-### MutableState
+六维 0-5 打分（`Security` / `DataIntegrity` / `Compatibility` / `Performance` / `Ops` / `Compliance`），`risk.Evaluate` 从 term graph 推导。`hdp.Plan` 据 risk level 决定是否额外 plan hypothesis；`priority.Score` 对每条 hypothesis 做 4 维打分；`binder.BindByRelevance` 基于相关性绑定到 TaskNode。
 
-BusContext 中唯一允许工具直接 mutate 的区域，通过指针共享。内置 RWMutex。Sub-agent 不共享这个区域（`BuildSubAgentContext` 故意把 `ac.Mutable` 留成 nil）。公开 API goroutine-safe：`TaskList()` / `SetTaskList()` / `UpdateTaskStatus()` / `UpdateTaskResult()` / `SetCurrentTask()`，以及 emit_* tool 用的 buffer getter/setter + `Reset*` 家族（跨 task 清零）。
+### 9.4 MutableState
 
-重要字段：`requestModel`、`emittedEvidence`、`emittedAnswerSymbols` + `emittedAnswerSymbolCompleteness`、`emittedHypothesisVerdicts`、`turnAArtifacts`、`searchGraph`（repomap.Graph handle）、`phase1Ranking`、`dispatchToolResults`（per-dispatch 内 grounding 用）、`evidenceClosure` (CGEC 状态总线)。
+> *像项目部里那块"今天活儿干到哪了"的白板：所有 stage / tool 都能写——但写之前要拿"专属粉笔"（dedicated setter）按格式写，不能乱涂。读的人随时能看最新进度，不用每次去问别人。RWMutex 保证多人同时改不会写花。*
 
-### AgentContext
+BusContext 中**唯一**允许工具直接 mutate 的区域，通过指针共享。内置 RWMutex。Sub-agent 不共享这个区域（`BuildSubAgentContext` 故意把 `ac.Mutable` 留 nil）。公开 API goroutine-safe：`TaskList()` / `SetTaskList()` / `UpdateTaskStatus()` / `UpdateTaskResult()` / `SetCurrentTask()`，以及 emit_* tool 用的 buffer getter/setter + `Reset*` 家族（跨 task 清零）。
+
+重要字段：
+
+| 字段 | 用途 |
+|---|---|
+| `requestModel` | analyzer 写回的 reconciled RequestModel；下游工具读这个而非 BusContext.AnalysisIR.RequestModel |
+| `emittedEvidence` | explorer / extractor 产出的 EvidenceItem buffer |
+| `emittedAnswerSymbols` + `emittedAnswerSymbolCompleteness` | extractor 产 |
+| `emittedHypothesisVerdicts` | extractor 产，drainHypothesisVerdicts 写回 IR |
+| `turnAArtifacts` | Turn A 冻结快照 |
+| `searchGraph` | repomap.Graph handle |
+| `phase1Ranking` | explorer Phase 1 排名 |
+| `dispatchToolResults` | per-dispatch 内 grounding 用 |
+| `evidenceClosure` | CGEC 状态总线 |
+| `answerDocumentV2` | finalizer 产的 typed doc |
+| `changePlan` | planner 产；coder 读取内容；W1 / W1b 检查输入 |
+| `writeClosure` | AppliedSet / PendingApplies / fingerprints / RecordRejection |
+| `changeReport` / `baselineReport` | verifier 产；CritTestsPass / CritNoRegression 读 |
+| `planningHint` | verify→plan retry 注入；planner 读完即清 |
+| `analyzerRetryHint` | coherence gate / amplifier 注入；analyzer 下次 dispatch 读完即清 |
+| `logTriage` / `perfTrace` | 前置阶段产；下游所有 agent 通过 AgentContext.LogTriage / PerfTrace 镜像读 |
+| `unverifiedFindings` | 通过 EvidenceClosure 暴露 |
+
+### 9.5 AgentContext
 
 ```go
 type AgentContext struct {
     AgentName AgentName
     Stage     PipelineStage
+    Mode      PipelineMode
 
     Objective              string
     CurrentTaskID          string
     CurrentTask            string
     CurrentTaskDescription string
 
-    AnalysisIR *AnalysisIR  // 别名 BusContext.AnalysisIR
+    AnalysisIR *AnalysisIR  // BusContext.AnalysisIR 别名
 
+    // 读模式 stage artifact（写模式跳过）
     RelevantFacts            []string
     RelevantFiles            []string
     EvidenceItems            []EvidenceItem
@@ -1471,54 +1760,65 @@ type AgentContext struct {
     AnswerSymbols            []AnswerSymbol
     AnswerSymbolCompleteness CompletenessClaim
     RelevantToolSummaries    []string
+    RelevantMCPNotes         []string
     PriorReports             []StageReport
+    TypedRelationHints       []TypedRelationHint
+    UnverifiedAnalyzerFindings []UnverifiedFinding
+    SubjectMatches           []SubjectMatch
+    ExpectedAnswerSubject    *AnswerSubject
 
     Constraints []string
     Preferences []string
+    Language    string
 
-    MissingPiece MissingPiece
-    RetryHint    string           // contract-check backtrack 时带进来的违规诊断
-    PriorConvHidden bool          // PriorConvPolicy 门控
+    MissingPiece    MissingPiece
+    RetryHint       string  // 跨 stage 持久化的 retry 诊断
+    PriorConvHidden bool    // PriorConvPolicy 门控
 
-    UnverifiedAnalyzerFindings  []UnverifiedFinding  // CGEC C1 渲染
-    SubjectMatches              []SubjectMatch       // CGEC E4/E5 渲染
-    ExpectedAnswerSubject       *AnswerSubject
+    // Per-evaluator soft cap override（per-dispatch scaling 写）
+    PlannerSoftIterCapOverride   int
+    ExtractorSoftIterCapOverride int
+    VerifierSoftIterCapOverride  int
+    MaxIterOverride              int  // explorer 用
 
-    RepoRoot string
-    Branch   string
-    Commit   string
-    WorkDir  string
+    // 附加 / 派生
+    LogTriage        *LogBundle
+    PerfTrace        *PerfBundle
+    AttachedLog      string
+    AttachedHitrace  string
 
-    Mutable *MutableState  // 别名 BusContext.Mutable 让工具可写
+    RepoRoot     string
+    MainRepoRoot string
+    Branch       string
+    Commit       string
+    WorkDir      string
+
+    Mutable *MutableState  // 别名
+
+    Memory               MemoryReader
+    EnvFacts             *EnvFacts
+    EnvRecommendSettings EnvSettings
+
+    Ctx context.Context
 }
 ```
 
-### EvidenceClosure（CGEC 状态总线）
+### 9.6 EvidenceClosure（CGEC 状态总线）
 
-`internal/types/evidence_closure.go`。跨 stage 共享的证据闭环总线，每字段都有 ≥1 production consumer（`TestEvidenceClosureAllFieldsHaveConsumer` 锁死）。
-
-| 字段 | Producer | Consumer |
-|---|---|---|
-| `readSet` | explorer.SetReadSet | I1/I2/I3/I4 全读 |
-| `scannedSet` | explorer Phase 0 `SetScannedSet(allScoredFiles)` | chain_promotion PendingRead 过滤 + preComplete 分段渲染 + runForcedReads advisory warning |
-| `citedRefs` | `emit_answer_document.RecordCitation` | I4 `CitedRefsHash` 第 4 维 fingerprint |
-| `pendingReads` | chain_promotion + A1 bridge（grounder → PendingReads 镜像） | I3 check + runForcedReads |
-| `unverifiedFinds` | analyzer `findings_validator.Validate` | context/builder "## Unverified Analyzer Findings" + preComplete check + `AddRepair(RepairExpandSearch)` |
-| `subjectMatches` | `rankChainsBySubject.SetSubjectMatch` | preComplete SubjectMatch<0.4 check + Subject Match Summary prompt 段 |
-| `fingerprints` | `detectStallAndAct.Append` | detectStallAndAct 4 维比较 |
-| `repairs` | 5 种 Producer（见 §8 CGEC） | `ConsumeRepairs → renderWindowHint` |
-| `stats` | 各 enforcer `Bump` | `emitCGECSummary` 任务末尾一行摘要 |
+`internal/types/evidence_closure.go`。详见 §5.11。
 
 ---
 
-## 6. 请求生命周期
+## 10. 请求生命周期
 
-**读模式（`Mode == ModeRead`）**：
+**读模式（Mode == ModeRead）**：
 
 ```mermaid
 sequenceDiagram
     participant User
     participant Orch as Orchestrator
+    participant LT as log_triager
+    participant PT as perf_triager
     participant A as analyzer
     participant E as explorer (Turn A)
     participant X as extractor (Turn B)
@@ -1529,57 +1829,70 @@ sequenceDiagram
     User->>Orch: request
     Note over Orch: init BusContext<br/>Mutable=NewMutableState(Objective=request)
 
+    opt AttachedLog 非空
+    Orch->>LT: dispatchStage(log_triage)
+    LT->>Tool: emit_log_triage（必要时先 emit_log_segmentation 切片）
+    Tool->>Tool: ValidateBundle (os.Stat + 派生 Layer 4)
+    LT-->>Orch: LogBundle 写到 Mutable.LogTriage
+    end
+
+    opt AttachedHitrace 非空
+    Orch->>PT: dispatchStage(perf_triage)
+    PT->>Tool: emit_perf_trace（必要时先 emit_perf_segmentation 切片）
+    PT-->>Orch: PerfBundle 写到 Mutable.PerfTrace
+    end
+
     rect rgb(245,245,245)
-    Note over Orch: Phase 1 — analyze (一次)
+    Note over Orch: Phase 1 — analyze
     Orch->>A: dispatchStage(analyze)
+    A->>Tool: 1-2 轮预扫（repo_map / grep files_only / list_files）
     A->>LLM: emit_analysis 指令
     LLM->>Tool: emit_analysis(v4 RequestModel)
-    A->>A: buildAnalysisIR (normalizer→reconcile→compiler→risk→hdp+priority+binder→counterfactual→gate→findings_validator)
+    A->>A: buildAnalysisIR 33 步管线
     A-->>Orch: StageOutput.AnalysisIR
     end
 
     rect rgb(240,248,255)
-    Note over Orch: Phase 2 — per-task loop
-    loop 每个 pending task
-        Orch->>Orch: reset Turn A/B buffers + Signals
-        loop runTaskGraph rounds
-            Orch->>Orch: readyExplorerWindow → window + CGEC I4 pre-dispatch forced reads
-            Orch->>E: dispatchStage(explore) w/ window hint
-            E->>Tool: grep/read_file/repo_map/...
-            E->>Tool: emit_evidence per file
-            E-->>Orch: StageOutput (EvidenceItems, TurnAArtifacts)
-            Note over Orch: runAutoVerdicts + drainHypothesisVerdicts → MarkHypothesis
-            alt finalize ready
-                Orch->>X: dispatchStage(extract)
-                X->>Tool: emit_answer_symbol + emit_hypothesis_verdict
-                X-->>Orch: StageOutput (AnswerSymbols + verdicts)
-                Orch->>Orch: drainHypothesisVerdicts → MarkHypothesis
-                Orch->>F: dispatchStage(finalize)
-                F->>Tool: emit_answer_document (同步调 ground.GroundCitation)
-                F-->>Orch: StageOutput.FinalAnswer
-                Orch->>Orch: contract.Check
-                alt pass
-                    Orch->>Orch: Mutable.UpdateTaskResult(DONE)
-                else fail & budget left
-                    Orch->>Orch: requeue finalize + upstream evidence (via EdgeValidationFeedback)<br/>+ inject retry hint
-                else fail & budget exhausted
-                    Orch->>Orch: fail-loud prepend warning → DONE
-                end
+    Note over Orch: Phase 2 — DAG loop
+    loop runTaskGraph rounds
+        Orch->>Orch: readyExplorerWindow → 收集就绪节点 + CGEC pre-dispatch forced reads
+        Orch->>E: dispatchStage(explore) w/ window hint
+        E->>Tool: grep / read_file / repo_map / ...
+        E->>Tool: emit_evidence per file（同步 grounding）
+        E->>Tool: emit_investigation_complete
+        E-->>Orch: StageOutput (EvidenceItems / TurnAArtifacts)
+        Note over Orch: runAutoVerdicts + drainHypothesisVerdicts
+        alt finalize ready
+            Orch->>X: dispatchStage(extract)
+            X->>Tool: emit_answer_symbol + emit_hypothesis_verdict
+            X-->>Orch: StageOutput
+            Orch->>Orch: drainHypothesisVerdicts → MarkHypothesis
+            Orch->>F: dispatchStage(finalize)
+            F->>Tool: emit_answer_document（同步调 GroundCitation）
+            F-->>Orch: StageOutput.FinalAnswer
+            Orch->>Orch: contract.Check
+            alt pass
+                Orch->>Orch: Mutable.UpdateTaskResult(DONE)
+            else fail & budget left
+                Orch->>Orch: requeue finalize + 上游 evidence + RetryHint
+            else budget exhausted
+                Orch->>Orch: prepend fail-loud warning → DONE
             end
         end
     end
     end
 
-    Orch-->>User: BusContext(每个 task 自带 Result)
+    Orch-->>User: BusContext（每个 task 自带 Result）
 ```
 
-**写模式（`Mode == ModeApply`，单次完整 plan → apply → verify 生命周期）**：
+**写模式（Mode == ModeApply，单次完整 plan → apply → verify 生命周期）**：
 
 ```mermaid
 sequenceDiagram
     participant User
     participant Orch as Orchestrator
     participant A as analyzer
+    participant WA as write_analyzer
     participant P as planner
     participant C as coder
     participant V as verifier
@@ -1587,28 +1900,34 @@ sequenceDiagram
     participant Tool
     participant LLM
 
-    User->>Orch: --mode=apply + --plan-file (已有 plan) 或 --mode=plan 后 /approve
+    User->>Orch: --mode=apply + --plan-file（或 --mode=plan 后 /approve）
     Note over Orch: writeGate：write_enabled=true？否则 fail-loud
 
     rect rgb(245,245,245)
     Note over Orch: analyze（分类器复用；仅读模式字段）
     Orch->>A: dispatchStage(analyze)
-    A-->>Orch: AnalysisIR（分类信号）
+    end
+
+    rect rgb(255,250,250)
+    Note over Orch: write_analyze
+    Orch->>WA: dispatchStage(write_analyze)
+    WA->>Tool: emit_write_analysis
+    WA-->>Orch: WriteAnalysisIR（kind / scope / risk / phases?）
     end
 
     opt PlanPath 未设
     rect rgb(255,250,235)
     Note over Orch: runPlanPhase
     Orch->>P: dispatchStage(plan)
-    loop 最多 6 iter
+    loop soft / hard cap
         P->>Tool: read_file / grep / repo_map / ...
         P->>LLM: 起草 ChangePlan
         P->>Tool: emit_change_plan
-        Tool->>Tool: 5 步校验 + 每个 kind=patch 跑 CheckUnifiedDiff (git apply --check --recount → patch(1) fallback)
-        alt 校验通过
+        Tool->>Tool: 多步校验 + kind=patch 跑 git apply --check --recount
+        alt 通过
             Tool->>Orch: Mutable.SetChangePlan
-        else 校验失败
-            Tool-->>P: 失败 Summary（含 conflictContextSnippet 真实文件片段）
+        else 失败
+            Tool-->>P: 失败 Summary（含 conflict snippet 文件片段）
         end
     end
     P-->>Orch: ChangePlan 就位
@@ -1625,15 +1944,15 @@ sequenceDiagram
         Tool-->>Orch: BaselineReport → Mutable.SetBaselineReport
     end
     Orch->>C: dispatchStage(apply)
-    loop len(TargetPaths)+3 iter cap
+    loop len(TargetPaths) + slack
         C->>Tool: apply_patch({path, kind})
-        Tool->>Tool: W1 / W1b / kind match 校验
+        Tool->>Tool: W1 / W1b / kind 校验
         alt kind=patch
-            Tool->>Tool: runUnifiedDiff(RepoRoot, unit.Patch)：git apply --recount，失败回退 patch -p1
-        else kind=create/modify/delete
-            Tool->>Tool: os.WriteFile(unit.NewContent) / os.Remove
+            Tool->>Tool: runUnifiedDiff (git apply --recount，失败回退 patch -p1)
+        else create / modify / delete / rename
+            Tool->>Tool: os.WriteFile / os.Remove / os.Rename
         end
-        Tool-->>C: Success=true → WriteClosure.MarkApplied(path)；或失败 Summary（含冲突点文件片段 / valid-path 枚举）
+        Tool-->>C: Success → WriteClosure.MarkApplied；或 Saturation → ShouldStop=true
     end
     C-->>Orch: AppliedSet ⊇ TargetPaths？
     end
@@ -1641,12 +1960,12 @@ sequenceDiagram
     rect rgb(240,255,240)
     Note over Orch: runVerifyPhase
     Orch->>V: dispatchStage(verify)
-    V->>Tool: run_tests（9 runner 自动探测；build 失败合成 build suite 单条结果）
+    V->>Tool: run_tests（runner 自动探测或 LLM 选）
     Tool-->>Orch: Mutable.SetChangeReport
     opt 可选 narrative
         V->>Tool: emit_test_results（FailureSummary；不能覆盖 Passed）
     end
-    V-->>Orch: Passed=true ？
+    V-->>Orch: Passed=true ?
     alt Passed=true
         Orch->>Orch: persistPlanStatus(applied)
         alt pipeline_keep_worktree_on_success=true
@@ -1655,9 +1974,9 @@ sequenceDiagram
             Orch->>WT: worktree.DiscardByPath
         end
     else Passed=false
-        alt pipeline_write_retry_budget > attempts
-            Orch->>Orch: prepareVerifyRetry：buildRetryHint → Mutable.SetPlanningHint；reset ChangePlan/ChangeReport/WriteClosure；discard 当前 worktree；回到 runPlanPhase
-        else 耗尽
+        alt budget > attempts && 非 stall && 非 runner_missing
+            Orch->>Orch: prepareVerifyRetry → PlanningHint → reset → runPlanPhase
+        else
             Orch->>Orch: persistPlanStatus(verify_failed)
             Orch->>WT: worktree.DiscardByPath（失败路径无条件）
         end
@@ -1669,98 +1988,36 @@ sequenceDiagram
 
 ---
 
-## 7. 分析器后处理管线
+## 11. 关键设计模式
 
-`analyzer.buildAnalysisIR`（`internal/agent/analyzer.go`）在 ReAct 循环结束后**确定性**地跑以下步骤：
+### 11.1 Turn A / Turn B 双 Agent 分离
 
-| 步骤 | 包 / 文件 | 作用 |
-|------|----|------|
-| 1. Sub-topic post-processing | `analyzer.go` 内联 | `SubTopics > 1` → complexity simple → moderate 升级（多 sub-topic 走更宽预算）;`SubTopics > 5` 截断 |
-| 2a. Complexity sanity | `analyzer_complexity.go::reconcileComplexity` | 5 条 deterministic rule（sub-topic ≥3 floor / cross-component cue / lookup-shape downgrade / multi-entity upgrade / sparse-prompt floor），强信号反对才覆写 |
-| 2b. Intent sanity | `analyzer_intent.go::reconcileIntent` | 首句 count-verb prefix + `IntentEnumerate + ComplexitySimple` → 降级 `IntentReturnValue` |
-| 2c. AnswerSubject inference | `analyzer_intent.go::inferAnswerSubject` | LLM 未填时用双语 cue 表 + question_kind fallback + **E1 hard-fallback** 永不 SubjectUnknown（weakest SubjectGeneric, confidence=0.1） |
-| 2d. PredicateAxis reconcile | `analyzer_predicate.go::reconcilePredicateAxis` | verb-cue 表填空 `PredicateAxis`；零值 `AxisUnknown` 是 no-op；只填空不覆盖 |
-| 2e. Sub-topic entity merge | `analyzer.go` | 把每个 sub-topic 的 entities 合并到主 `AnalyzerHints.Entities` |
-| 3. Normalize | `internal/analysis/normalizer::Normalize` | 产 `TermGraph`（canonical terms + aliases），用 repomap-backed `SymbolResolver` + LLM Entities；`kindEnWord` 双门升级 `TermSymbol`：`NormalizeCodeKey(surface) ∈ Entities` ∧ resolver ≥1 hit |
-| 4. Observation reconcile | `analyzer_observability.go::reconcileFromObservations` | round 2 grep 观察重新定型 classification，refined `answer_subject.kind` 进后续管线 |
-| 5. Auto-keywords | `analyzer.go::appendDeclarativeKeywords` | registration / config_mapping / call_chain / source-literal subject 问题追加 declarative filename stems（topology/defaults/registry/routes/wire/init/manifest/schema/enum） |
-| 6. Infer scenario | `internal/analysis/compiler::InferScenario` | LLM 未指定时填 Scenario 默认 |
-| 7. Compile | `internal/analysis/compiler::Compile` | 产 `TaskGraph` + `EvidencePlan` + 默认 `AnswerContract`；`sourcemix.FromTemplateMix` → `NodeBudgetHints` |
-| 8. Risk evaluate + HDP | `internal/analysis/risk` + `hdp` + `priority` | `RiskMatrix`（六维 0-5 打分）+ `[]Hypothesis`（IntentMatch 0.35 / RiskElevation 0.30 / TermCardinality 0.20 / AmbiguityResolution 0.15） |
-| 9. Recompute budget | `compiler.RecomputeBudget` | 用真实 hypothesis count 重算 |
-| 10. Bind hypotheses | `internal/analysis/binder::BindByRelevance` | hypothesis ↔ node 相关性绑定 |
-| 11. Counterfactual | `internal/analysis/counterfactual::Expand` | complex + ambiguous explain/root_cause 触发；新分支再 `BindByRelevance` 一遍 |
-| 12. Measurement-scalar carve-out | `analyzer.go` 内联 | `isMeasurementScalarRequest` flag 驱动：剥 3 层 citation gate（`CitationReq` / `AcceptanceTests` / 每个 `TaskNode.SuccessCriteria`）；V2 carrier 下答案落 `block.kind=scalar` + `value{literal, citation_ref:-1}` |
-| 13. Subject reconcile | `analyzer_intent.go::inferAnswerSubject` + 周边 reconcile（B8-T1 后已无独立 reconcileShape 函数,subject 调整逻辑归入 inferAnswerSubject + measurement-scalar carve-out） | subject 是源码 literal（skill_name / agent_name / function_name / type_name / handler_route / return_value）时由 V2 carrier 自动落 `block.kind=scalar`;runs after measurement-scalar 所以两规则互不干扰 |
-| 14. RequiredFiles | `analyzer.go::analyzerRequiredFiles` | 用 repomap graph 查 `AnalyzerHints.Entities` 的定义文件写进 `EvidencePlan.RequiredFiles`，explorer keyword-search 会 merge 这份列表 |
-| 15. Quality gate | `internal/analysis/gate::Run` | 7 check hard/soft 分级（见 §4.1） |
+> *像调查记者写专题：A 阶段是出去采访（开放工具、消耗预算、累积大量笔记），B 阶段是回办公室关门写稿（不再外出，只能从笔记里挑事实）。两阶段用同一个 LLM 但工具权限差别巨大——记者已经回了办公室就不该再"我去补一个采访"，否则把"今天到此为止的事实"边界模糊掉，不利于审稿。*
 
-**不变量**：每步都可在零输入下退化到安全默认值。LLM 完全没调 `emit_analysis` 时，analyzer 返回 hard `StageOutput.Error`；`runAnalyzePhase` 重试至 `MaxRetriesPerStage` 次，预算耗尽后 Run 终止。
+调查 explore 阶段混合两种本质不同的活动：**调查**（读文件、收集事实）和**结构化**（组织成机器可消费的答案 slate / hypothesis verdict）。两种活动对 LLM 的上下文预算、工具访问权限和 prompt 压力完全不同。
 
-### Measurement-scalar carve-out — 三层 citation gate 剥离
-
-系统共有 **3 个独立的 citation gate 表面**，都共用 `types.CritCitationCountGE` Kind 但从三条不同代码路径读。测量 scalar 类问题（"how many X" → `find | wc -l`）答案天然无 file:line 可 cite，任何一条 gate 还在 enabled 都会循环 retry。
-
-| # | 数据位置 | 读它的代码 | 错误消息 |
-|---|---|---|---|
-| 1 | `AnswerContract.CitationReq.Required + MinCitations` | `internal/analysis/contract/checker.go::checkCitations` | `"0 citations provided, N required"` |
-| 2 | `AnswerContract.AcceptanceTests` | `contract/checker.go::checkAcceptance` | `"only 0 citations, need ≥N"` |
-| 3 | `TaskNode.SuccessCriteria`（finalize 节点） | `scheduler.go::markSuccessCriteriaFailed` → `criterion.Eval` | `"finalize success_criterion citation_count_ge N"` |
-
-`isMeasurementScalar` 信号（由 `isMeasurementScalarRequest` 在 `analyzer_intent.go` 计算）：`complexity == simple + intent ∈ {enumerate, return_value} + 首句命中 count-verb`。flag 为 true 时步骤 12 在一个 block 里应用 3 个后果（AnswerShape 已退役，原 RequiredAnswerShape / AnalyzerHints.Shape 两步已删除）：
-
-1. `CitationReq.Required = false` + `MinCitations = 0`（gate #1）
-2. `AcceptanceTests = dropCitationCountGE(...)`（gate #2）
-3. 每个 TaskNode `SuccessCriteria = dropCitationCountGE(...)`（gate #3）
-
-V2 carrier 下 measurement-scalar 答案落 `block.kind=scalar` + `value{literal, citation_ref:-1}`；renderer / Turn-B 渲染从这里读，不再依赖 RequiredAnswerShape。
-
-"one signal, one response" 契约让 `grep isMeasurementScalar` 一次能看到所有因果链。全仓 `CitationReq.Required = false` 唯一生产点是 `analyzer.go` 的这个 block。
-
-### Turn A → Turn B 的第 4 道 gate —— Raw Tool Outputs 渲染
-
-`emit_evidence` schema 物理无法承载命令级 scalar（必须带 `source + line_start + anchor_kind`），一个 `find ... | wc -l` 的输出 `73396 total` 无 source file / line / anchor kind 可填。`internal/context/builder.go` 在 Turn B user prompt 里加 "Raw Tool Outputs from Turn A" 段直接渲染 `TurnAArtifacts.ToolResults` 里成功的 tool 输出。`shouldRenderRawToolOutputs` gate：
-
-| # | 条件 |
-|---|------|
-| 1 | `Stage ∈ {extract, finalize}` |
-| 2-3 | `Mutable != nil && AnalysisIR != nil` |
-| 4 | `AnswerContract.CitationReq.Required == false`（与 measurement-scalar carve-out 共用设点；V2 carrier 下 RequiredAnswerShape 已退役） |
-
-渲染：`head + (trim marker) + tail` —— **tail 永远保留**（shell 工具把 summarising scalar 放在输出末尾）。per-call head/tail 800/400 字节、total cap 4000 字节。skip list：所有 `emit_*` + `propose_sub_agents` + `repo_map`。开头 preamble 明确告诉 LLM："这些 tool output **不是** citations[] 的入口 —— 对 measurement scalar 用 `value{literal, citation_ref:-1}`"。
-
----
-
-## 8. 关键设计模式
-
-### 调查与结构化分离（Turn A / Turn B 双 Agent）
-
-探索阶段混合两种本质不同的活动：**调查**（读文件、收集事实）和**结构化**（组织成机器可消费的答案 slate / hypothesis verdict）。两种活动对 LLM 的上下文预算、工具访问权限和 prompt 压力完全不同。
-
-#### ERM vs Extractor — 职责边界
-
-ERM（Evidence Requirement Model）和 extractor 是**同一条流水线上两个不重叠阶段**：
+#### ERM vs Extractor 的职责边界
 
 |  | **ERM**（Turn A 内） | **Extractor**（Turn B） |
 |---|---|---|
-| **文件** | `internal/agent/explorer_erm.go` | `internal/agent/extractor.go` |
+| **位置** | `internal/agent/explorer_erm.go` | `internal/agent/extractor.go` |
 | **关心的问题** | "LLM 还需读哪些文件才能回答？什么时候可以停？" | "Turn A 收集的证据里，哪些是真正的答案？列完了吗？" |
 | **输入** | AnalysisIR + 运行中累积的 notes/evidence | Turn A 冻结后的完整 `TurnAArtifacts` 快照 |
-| **产出** | 下一步读文件建议（`ermSuggestFiles`）+ 停止信号（`ermAllSatisfied`）+ β 基线（`terminalEvidenceCount`） | `AnswerSymbols[]` + `CompletenessClaim` + `HypothesisVerdicts[]` |
-| **工具权限** | 完整：`read_file` / `grep` / `repo_map` / `emit_evidence` | 严格受限：只 `emit_answer_symbol` / `emit_hypothesis_verdict` |
-| **LLM 调用次数** | 每轮一次（ReAct loop，可能 3~10 次） | **一次**（`ShouldStop: iteration >= 2`） |
-| **运行模式** | 确定性规则（纯 Go，LLM 不参与） | LLM 主导 + 确定性验证兜底（`validateCompletenessClaim`） |
+| **产出** | 下一步读文件建议 + 停止信号 + β 基线（terminalEvidenceCount） | AnswerSymbols[] + CompletenessClaim + HypothesisVerdicts[] |
+| **工具权限** | 完整：read_file / grep / repo_map / emit_evidence | 严格受限：仅 emit_answer_symbol / emit_hypothesis_verdict |
+| **LLM 调用次数** | 每轮一次（ReAct loop，可能 3-10 次） | **一次**（ShouldStop iteration >= 2） |
+| **运行模式** | 确定性规则（纯 Go，LLM 不参与） | LLM 主导 + 确定性验证兜底（cardinality validator） |
 
 #### 强约束（Invariants）
 
-1. **Turn B 禁止文件 IO。** `extract-skill.ToolSuggestions` 只开放 `emit_answer_symbol` / `emit_hypothesis_verdict`，`buildToolSchemas` 依赖此 allowlist 物理裁剪 LLM schema。
-2. **Turn A 禁止答案面板。** `StageOutput.AnswerSymbols` 和 `AnswerSymbolCompleteness` 在 Turn A 的 ParseOutput 显式置零。
-3. **Analyzer 是 AnalysisIR 的唯一 writer。** 其他 stage 只能通过 `MarkHypothesis` 修改 `HypothesisSet[*].Status`。`applyStageOutput` 只在首次非 nil 时赋值，后续 analyze re-dispatch 不会覆盖 IR。
-4. **Turn A 的 StageReport 必须是确定性渲染。** `renderExplorerStageReport` 从 typed `[]EvidenceItem` / `[]FlowFindingDigest` / `[]AnswerChain` 产 canonical markdown，不读 LLM 最后一条消息。
-5. **Completeness claim 必须经过 cardinality validator。** `validateCompletenessClaim` 用 `max(β=TerminalEvidenceCount, γ=len(MustInclude))` 交叉验证；slate 不足就降级为 `lower_bound`。
-6. **`extract-skill.Prohibitions` 禁止 Turn B 调用 `emit_evidence`。**
+1. **Turn B 禁止文件 IO**——`extract-skill.ToolSuggestions` 只开放 emit_*，buildToolSchemas 物理裁剪
+2. **Turn A 禁止答案面板**——StageOutput.AnswerSymbols 在 Turn A ParseOutput 显式置零
+3. **Analyzer 是 AnalysisIR 唯一 writer**——其他 stage 只能 MarkHypothesis；applyStageOutput 只在首次非 nil 时赋值
+4. **Turn A 的 StageReport 必须确定性渲染**——renderExplorerStageReport 从 typed slice 产 canonical markdown，不读 LLM 最后一条消息
+5. **Completeness claim 必须经 cardinality validator**——基线 max(β=TerminalEvidenceCount, γ=len(MustInclude))，slate 不足降 lower_bound
+6. **extract-skill.Prohibitions 禁 emit_evidence**——Turn B 不能侵犯 Turn A 的 evidence 通道
 
-### 结构化数据贯穿全架构，prose 仅在 LLM 边界
+### 11.2 结构化数据贯穿全架构，prose 仅在 LLM 边界
 
 代码层所有层间数据流都是 Go struct，字符串只在两处合法出现 —— LLM 的 prompt 渲染（struct → markdown）和 LLM 回答的重新结构化（tool call → struct）。
 
@@ -1770,188 +2027,138 @@ ERM（Evidence Requirement Model）和 extractor 是**同一条流水线上两�
 | Agent → Tool（请求） | `json.RawMessage` params，受每工具 JSON schema 约束 |
 | Agent → LLM（schema） | `[]llm.ToolSchema{Name, Description, Parameters}` |
 | LLM → Agent（tool call） | `llm.ToolCall{ID, Name, Arguments json.RawMessage}` → schema decode |
-| StageOutput → BusContext | struct 直拷（`applyStageOutput`） |
+| StageOutput → BusContext | struct 直拷（applyStageOutput） |
 | Analyzer → 流水线 | `*AnalysisIR`（深度 typed tree） |
-| Turn A → Turn B | `*TurnAArtifacts`（struct 快照 + `[]EvidenceItem` 严格子集） |
-| 确定性 chain 排序 | `[]AnswerChain{Item EvidenceItem, Score, StrictOK}` 从 `identifyAnswerChains` 产 |
-| Extractor → Finalizer | `[]AnswerSymbol` + `CompletenessClaim` + `[]HypothesisVerdict`（`MutableState` 缓冲区） |
-| Finalizer → Renderer | `*AnswerDocument`（typed Summary/Steps/Symbols/Value/Boolean/Citations） |
+| Turn A → Turn B | `*TurnAArtifacts` + `[]EvidenceItem`（typed） |
+| 确定性 chain 排序 | `[]AnswerChain{Item EvidenceItem, Score, StrictOK}` |
+| Extractor → Finalizer | `[]AnswerSymbol` + `CompletenessClaim` + `[]HypothesisVerdict` |
+| Finalizer → Renderer | `*AnswerDocumentV2` + `Citations[]`（typed Block） |
 | Tool → MutableState（emit_* 侧信道） | 每工具有专属 typed setter |
-
-**LLM 边界 — 唯一合法的 flatten 点**：
-
-```
-                 <flatten>                              <re-structure>
-typed data ───────────────> Markdown prompt ───> LLM ──────────────────> typed tool call → typed fields
-          context/builder                            emit_* schema decoder
-```
 
 #### 强约束
 
-1. **LLM 的 assistant content 不得 drive 下游代码分支。** 任何 `if strings.Contains(lastAssistantMsg, "...")` 都是反模式。
-2. **跨 stage 数据必须走 StageOutput 的 typed 字段。** 不允许 "Agent A 在 assistant content 里埋约定文本，Agent B 解析" 这种 out-of-band channel。
-3. **新增数据流必须先加 struct 字段，不许走 `map[string]any` / `json.RawMessage` 逃生舱。**
-4. **Tool schema 是强制的。** 新 tool 必须定义 JSON schema，`params` 必须能 unmarshal 到 struct，失败即拒。
-5. **确定性渲染优先于 LLM prose。**
+1. **LLM 的 assistant content 不得 drive 下游代码分支**——任何 `if strings.Contains(lastAssistantMsg, "...")` 都是反模式
+2. **跨 stage 数据必须走 StageOutput 的 typed 字段**——不允许 "Agent A 在 assistant content 里埋约定文本，Agent B 解析" 这种 out-of-band channel
+3. **新增数据流必须先加 struct 字段**，不许走 `map[string]any` / `json.RawMessage` 逃生舱
+4. **Tool schema 是强制的**——新 tool 必须定义 JSON schema，params 必须能 unmarshal 到 struct，失败即拒
+5. **确定性渲染优先于 LLM prose**
 
-### CGEC — Citation-Grounded Evidence Closure
+### 11.3 Merged-window DAG schedule
 
-跨 stage 的**证据闭环契约**。Codrax 有两套并行证据系统，作用域不一致：
+Analyzer 产出的 TaskGraph 理论上允许 node 级并发调度，但 `runTaskGraph` 把每一轮所有 ready 的非 finalize 节点合并成**一次** explorer dispatch。`readyExplorerWindow` 用 criterion.Eval 求值 EntryConditions 决定节点就绪；contract check fail 时 `requeueValidationTargets` 沿 EdgeValidationFeedback 边只 requeue 特定上游 evidence 节点（非整个 window）。
 
-| 系统 | 数据 | 作用域 | 谁强制 |
-|---|---|---|---|
-| LLM-driven | `EvidenceItem` (emit_evidence) | `ReadSet` = LLM 真正 `read_file` 过的文件 | grounder **强制** citation ⊆ ReadSet |
-| Deterministic | Resolution Chain / Concrete Value / type hierarchy | `ScannedSet` = keyword-scored + LLM-read 的并集（≫ ReadSet）| prompt **命令** "primary basis, do NOT contradict" |
+### 11.4 Shape-guard 保护 pure-read 分支
 
-致命矛盾区 = `ScannedSet \ ReadSet`。chain 落进这里时 prompt 强制使用 + grounder 强制拒绝 = 死结。CGEC 用 **4 条不变量 + 5 种 RepairKind + 9 个 enforcer 入口**堵死：
+> *像办公室的水龙头自动停：检测到"上次开了 5 秒没人接水"就自动关——避免空转浪费水。系统这里检测"两次评估输入完全一样、什么都没变"就跳出循环——避免空转浪费 LLM 调用。判断"什么都没变"用一个 8 维指纹（八个数）一秒比对完，不必逐字段细看。*
 
-| # | 不变量 | Enforcer 位置 | 违反后做什么 |
-|---|---|---|---|
-| **I1** | 所有 prompt 中 surface 的 `file:line` ⊆ ReadSet | explorer `applyChainPromotion`、Type Hierarchy filter、`findings_validator` | chain 锚点 ∉ ReadSet → 不渲染 prompt + 锚点 file 进 PendingReads；analyzer 幻觉 path/symbol → UnverifiedFindings + prompt "## Unverified Analyzer Findings" 段渲染 `~~text~~ ⚠️[未验证]` |
-| **I2** | 所有 emit_*-接受的 citation ⊆ ReadSet | `emit_answer_document.go` 的 whitelist check + **pre-finalize dry-run**（`simulateCitationGrounding`）| dry-run 在调真 grounder 前先预检，全 miss 时直接 reject tool call；grounder 本身 drop citation + `RepairDirective{Kind: RepairReadFile, ...}` 进 Repairs 队列 + **A1 bridge** 同步镜像到 PendingReads |
-| **I3** | `emit_investigation_complete` ⇒ 模拟 `contract.Check` 能过 | `emit_investigation_complete.go::preCompleteContractCheck`（6 条 check a-f） | (a) PendingReads 非空 downgrade + 按 ScannedSet 分段渲染 Forced Read List vs Suspicious Anchors；(b) citation 预检；(c) MinCit 短缺 → emit `RepairExpandSearch`；(d) subject×view mismatch → `RepairSwapView`；(e) evidence.Source 落在 unverifiedFinds.Path → downgrade + `RepairExpandSearch`；(f) 所有 chain SubjectMatch<0.4 → `RepairRebindSubject` |
-| **I4** | retry 间至少 (ReadSet, Evidence, ChainTerm, CitedRefs) 四维之一单调进步 | `cgec_enforcers.go::detectStallAndAct + runForcedReads`；调用点在 `orchestrator.runTaskGraph` 的 pre-dispatch + post-dispatch 两处 | soft stall（默认 2）→ `runForcedReads`（Lazy Auto-Read，框架代读 ≤N 个 PendingReads，单轮上限 `cgec_forced_reads_per_round=3`）+ emit `RepairExpandSearch`；hard stall（默认 3）→ `SetInvestigationComplete` + `RepairForceCompleteDowngrade` |
+stopcond.ShouldStop 和 validate 节点的 SuccessCriteria 评估都是 pure functions over `criterion.Env`——相同 env 永远返回相同 verdict。调度器用 `envShape`（八维 int 指纹，O(1) 计算与比较）对每一次 pure-read 检查做 gate：记录上次评估时的 shape，下次 shape 未变就跳过或升级处理。该机制在 runTaskGraph 里解决整类 "predicate 输入是 pure-read + 分支 body 不推进输入 → 热循环" 结构脆弱性，不依赖每个 predicate 自己加 latch。
 
-#### 5 种 RepairKind
+### 11.5 诚实失败（fail-loud）
 
-每种都有 ≥1 producer + 1 consumer（`TestAllRepairKindsHaveProducer` 锁死）：
+> *像考试不及格判卷：阅卷老师不会偷偷给你 60 分让你顺利毕业，而是诚实写"未通过，扣分原因 A、B、C"，把试卷连同评语一起还给你。把决定权留给学生（用户）：要么补考、要么找别的路子、要么承认成绩。*
 
-| Kind | Producer | Consumer |
-|---|---|---|
-| `RepairReadFile` | grounder (I2) + chain_promotion (I1) + pre-finalize dry-run | `renderWindowHint` "## Forced Read List" + runForcedReads Lazy Auto-Read |
-| `RepairExpandSearch` | explorer Phase 0 broaden 耗尽 + stall 时 ReadSet 饱和 + preComplete 低 MinCit + findings_validator unverified 符号 | `renderWindowHint` "## Search Coverage Gap" |
-| `RepairSwapView` | `emit_answer_document` view mismatch + preComplete subject/view mismatch | `renderWindowHint` "## View Reconcile"（retry hint 跨 explore→extract→finalize 持久） |
-| `RepairRebindSubject` | `rankChainsBySubject.bestMatch<0.4` + preComplete SubjectMatch<0.4 | `renderWindowHint` "## Subject Constraint" |
-| `RepairForceCompleteDowngrade` | `detectStallAndAct` hard stall | `renderWindowHint` "## Force-Complete Downgrade" + `SetInvestigationComplete` |
+contract check 反复失败、retry budget 耗尽时，编排器**不会丢弃**最后一次 finalizer 的原始答案 —— 而是在它前面 prepend 一条警告告诉用户答案未通过契约。用户至少能看到模型实际想说什么，再自行判断。
 
-#### 辅助层
+### 11.6 Prior Conversation intent-aware 可见性
 
-- **AnswerSubject taxonomy**（`internal/types/analysis_ir.go::AnswerSubjectKind` + `internal/analysis/subject/taxonomy.go` 的 per-kind judge）
-- **`inferAnswerSubject`**：双语 cue 表 + question_kind fallback + E1 hard-fallback 永不 SubjectUnknown（weakest: SubjectGeneric, confidence=0.1），保证下游 `rankChainsBySubject` / preComplete 的 subject 检查不因 Unknown 退化为死代码
-- **`rankChainsBySubject`**：chain 终端 token 按 `subject.Score` 重排 + Subject Match Summary 渲染在 extractor/finalizer prompt
-
-#### RetryHint 跨 stage 持久
-
-`orchestrator.applyStageOutput` 只在 `output.RetryHint != ""` 时覆盖 `TaskState.RetryHint`，让 explorer 写入的 View Reconcile / Forced Read List / Subject Constraint 段贯穿 explore → extract → finalize 一个 retry 回合，下一轮 `applyWindowHint` 再重置。
-
-所有 enforcer fire log 统一前缀 `[CGEC] <I|E|A|B|C|D|E|F|G> <event>`（9 处入口），一次 grep 看全。
-
-#### 配置
-
-`codrax.yaml` 的 `cgec_*` 系列：`cgec_forced_reads_per_round`（默认 3）/ `cgec_stall_threshold_soft`（2）/ `cgec_stall_threshold_hard`（3）/ `cgec_phase1_unread_top_k`（5）/ `cgec_phase1_unread_min_unread`（2）。I1-I3 永远 on，I4 可调。三个核心旋钮接受 `0` = 禁用，负值忽略。`agent_investigation_complete_policy: override` 让 `preCompleteContractCheck` 整体跳过。
-
-### Merged-window DAG schedule
-
-Analyzer 产出的 TaskGraph 理论上允许 node 级并发调度，但 `runTaskGraph` 把每一轮所有 ready 的非 finalize 节点合并成**一次** explorer dispatch。`readyExplorerWindow` 用 `criterion.Eval` 求值 `EntryConditions` 决定节点就绪；contract check fail 时 `requeueValidationTargets` 沿 `EdgeValidationFeedback` 边只 requeue 特定上游 evidence 节点（非整个 window）。
-
-### 诚实失败（fail-loud）
-
-contract check 反复失败、retry budget 耗尽时，编排器不会**丢弃**最后一次 finalizer 的原始答案 —— 而是在它前面 prepend 一条警告告诉用户答案未通过契约。用户至少能看到模型实际想说什么，再自行判断。
-
-### Prior Conversation intent-aware 可见性
+> *像医院科室协作：前台分诊看到完整既往病史（包括今天用户问的"那个 panic"指的是上一轮的什么）；但具体科室医生（下游 stage）通常只看分诊单上消歧后的具体名字（"主诉左肩痛"），不必看完整聊天记录——既保护"分诊护士消歧后的事实"作为唯一真源，也避免下游被原始措辞影响。*
 
 REPL `Store.BuildContext` 从 memory 拉上下文，把最近几轮 Q/A 拼进 `Objective` 前缀（`## Prior conversation\n...\n\n## Current request\n...`）。`AgentSettings.PriorConvPolicy` 四值决定 per-stage 可见性：
 
 | 值 | stage 可见性 | 场景 |
 |---|---|---|
 | `always` | 全部可见 | 历史行为 opt-out |
-| `analyzer` **(默认)** | 仅 analyzer 可见 | analyzer 做实体消歧需要 Prior；下游 stage 靠 `AnalysisIR.entities` 拿已消歧的 identifier |
-| `continue` | analyzer 始终 + 下游看 `IsContinuation(current, prior)` | 连续追问体验：首字符命中 `再/继续/那/more on/elaborate/...` 或首 40 字符是裸代词且不含 CamelCase/snake_case identifier 判定为追问 |
+| `analyzer`（默认） | 仅 analyzer 可见 | analyzer 做实体消歧需 Prior；下游靠 AnalysisIR.entities 拿已消歧的 identifier |
+| `continue` | analyzer 始终 + 下游看 IsContinuation 判定 | 连续追问体验：首字符命中 `再/继续/那/more on/elaborate/...` 或首 40 字符是裸代词且不含 CamelCase/snake_case identifier |
 | `never` | 全部不可见 | 极端隔离，stress test |
 
 **数据流不变量**：
-- `Objective` 始终携带完整 "Prior + Current" payload —— `StripConversationPrefix` / `SplitConversation` 继续工作。policy 只门控渲染，不门控存在。
-- `AgentContext.PriorConvHidden` 反义 bool：零值 = 可见（保证单次 dispatch 的 zero-value 路径沿用老行为）。
-- `context/builder.go` 用 `!ac.PriorConvHidden` 门控 "Prior Conversation (reference only)" 段渲染；"User Request" 永远渲染。
-- `orchestrator.priorConvVisibleForStage` 一处 resolve；debug-level trace `[orchestrator] prior_conv: stage=X policy=Y visible=bool`。
+- Objective 始终携带完整 "Prior + Current" payload —— StripConversationPrefix / SplitConversation 继续工作。policy 只门控渲染，不门控存在
+- AgentContext.PriorConvHidden 反义 bool：零值 = 可见
+- builder 用 `!ac.PriorConvHidden` 门控 "Prior Conversation (reference only)" 段渲染；"User Request" 永远渲染
+- orchestrator.priorConvVisibleForStage 一处 resolve；debug-level trace `[orchestrator] prior_conv: stage=X policy=Y visible=bool`
 
-**关键配套**：`skill/analysis_contract.go` 的 analyzer prompt 要求当 Prior 消歧了某个代词时，analyzer **必须**把消歧后的具体 identifier verbatim 写进 `emit_analysis.entities`——这是 `policy=analyzer` 可行的前提。REPL memory store 不受影响（policy 只改可见性，不触碰持久化）。
+**关键配套**：analyzer prompt 要求当 Prior 消歧了某个代词时，analyzer 必须把消歧后的具体 identifier verbatim 写进 emit_analysis.entities——这是 `policy=analyzer` 可行的前提。REPL memory store 不受影响（policy 只改可见性，不触碰持久化）。
 
-### Citation fabrication 三层防御
-
-防止 LLM 伪造 cite 过关的 pool-level 不变量：
-
-| # | 位置 | 代码入口 | 行为 |
-|---|---|---|---|
-| 1 | `emit_investigation_complete.Execute` | `hasGroundedOrRecovered(evidence)` | Mutable 缓冲区已有 ≥1 条 `GroundingGrounded` / `GroundingRecovered` 时，`absence_justification` 参数**直接 reject**，关掉 finalize citation floor 豁免 |
-| 2 | `ground.GroundCitation` Tier 2 | `tier2LineInStructuralRegion(fi, line)` | 要求 line 落在某 symbol 的 `[Line - docRadius, EndLine]`（docRadius=10）或 prologue `[1, firstSymbolLine - docRadius]`。两 symbol 之间的 dead zone 被 reject |
-| 3 | `emit_answer_document.buildEmitAnswerDocumentCitations` | Tier 1 peer 规则 | pool 中所有保留的 citation 都是 Tier 2-only（无 `TierLineText`）且至少一条 quote 被清理（fabricated）→ 全部 quote-cleared citation 整批 drop |
-
-**数据流**：`CitationReport.Tier` 字段沿 `GroundCitation` → `buildEmitAnswerDocumentCitations` 传递。empty Tier（单测路径）表示跳过 pool-level rule。
-
-### emit_evidence per-item reject + auto-swap
-
-三条 graceful-degrade 规则：
-
-1. **`line_end < line_start` 自动 swap**：转置笔误，swap 后保留，Summary 附 "AUTO-SWAPPED; double-check the range"。
-2. **Sparse per-item reject**（< 50% 失败率）：单条 validation error 跳过该 item 保留多数，reject 的 index + 原因写进 Summary。
-3. **Majority reject**（≥ 50% 失败率）：整批失败，所有原因列在错误信息里。
-
-实现在 `buildEmitEvidenceItemWithSwap` 包装 + 主循环的 "collect into `rejectedItems`, continue" 模式。
-
-### 反过拟合设计原则
+### 11.7 反过拟合设计原则
 
 - LLM-facing prompt 文本遵循**角色优先、格式无关**原则：用**角色**描述文件（类型定义、核心逻辑、配置/规则声明、入口点），不用文件格式（`*.yaml` / `*.go`）
 - 用**通用模式**过滤噪音（VCS 目录、依赖目录、测试文件），不用项目特定路径
 - OutputFormat 示例使用**混合语言**（Python / Ruby / TypeScript）的文件路径，强化"只学格式，不学语言"
 - 不在 prompt 里硬编码任何特定项目的目录结构、工具名或配置格式
 
+
 ---
 
-## 9. 运行时子系统
+## 12. 运行时子系统
 
-### `internal/logging`
+### 12.1 internal/logging — 分级 + 多进程安全的日志
 
-leveled logger（`error` / `warning` / `info` / `debug`），写到 `logs/codrax-YYYYMMDD-HHMMSS-mmm-<pid>.log`，4 MB rotation + `log_max_files` 文件 retention（默认 7）。每次进程启动开**新的** PID-stamped 文件；retention sweeper 解析文件名里的 PID，owning process 仍存活时跳过删除。PID liveness 检查在 Unix 上用 `syscall.Kill(pid, 0)`，Windows 上用 `OpenProcess` + `GetExitCodeProcess`（`pid_{unix,windows}.go`，`//go:build` 分发）。
+leveled logger（error / warning / info / debug），写到 `logs/codrax-YYYYMMDD-HHMMSS-mmm-<pid>.log`，4 MB rotation + `log_max_files` 文件 retention（默认 7）。每次进程启动开**新的** PID-stamped 文件；retention sweeper 解析文件名里的 PID，owning process 仍存活时跳过删除。PID liveness 检查在 Unix 上用 `syscall.Kill(pid, 0)`，Windows 上用 `OpenProcess` + `GetExitCodeProcess`（`pid_{unix,windows}.go`，`//go:build` 分发）。
 
 Debug-gated `[diag ...]` trace 在 `BaseAgent.Execute` 里 dump 完整的 ReAct 循环（initial prompt、assistant turns、tool results、stop reason），`-log-level debug` 打开。
 
-### `internal/memory`
+### 12.2 internal/memory — 多轮 REPL 记忆
 
-多 turn REPL store。Recent turns 存内存 + 磁盘上 verbatim 的 `memory/turns/<id>.md`，其中 `<id> = turn-<unix-nano>-<pid>`。Recent buffer 超过 `memory_max_recent_turns`（6）或 `memory_max_recent_bytes`（20KB）时，最老的 turn 被 LLM summarize 成 `{topic, keywords, summary, full_ref}` 条目 append 到 `memory/MEMORY.md`。
+> *像随手记笔记本：最近几张活页（recent turns）原话存档；写满了就把最老那张交给秘书（LLM）压成"3 月 5 日讨论了 X 项目，关键词：A/B"这种摘要塞进总目录（MEMORY.md），原话仍存档案室能反查（full_ref）。下次提问时按摘要 + 关键词检索相关历史。*
+
+Recent turns 存内存 + 磁盘上 verbatim 的 `memory/turns/<id>.md`，其中 `<id> = turn-<unix-nano>-<pid>`。Recent buffer 超过 `memory_max_recent_turns`（6）或 `memory_max_recent_bytes`（20KB）时，最老的 turn 被 LLM summarize 成 `{topic, keywords, summary, full_ref}` 条目 append 到 `memory/MEMORY.md`。
 
 **跨进程安全**：
-- `MEMORY.md.lock` 是 per-operation flock，shared lock 用于 `loadIndex` / `BuildContext`，exclusive lock 用于 `appendIndexEntry` / `Clear` / `compactOldest`。每次操作 acquire lock 后重新 load `s.index` 保证 peer 写入立即可见。
-- `.instance.lock` 是 lifetime shared lock，做 presence detection：`NewStore` 试一次 non-blocking exclusive —— 成功说明唯一 Store，可安全跑 `loadOrphanRecent` 恢复崩溃 session 的 tail；失败说明有 peer，跳过 orphan recovery。
-- Turn ID 带 PID 保证两个进程不会在 turn filename 上碰撞。
-- Windows 的 `LockFileEx` / `UnlockFileEx` stdlib `syscall` 不导出，`lock_windows.go` 通过 `syscall.NewLazyDLL("kernel32.dll")` 手动调用。
 
-### `internal/repl`
+- `MEMORY.md.lock` 是 per-operation flock，shared lock 用于 loadIndex / BuildContext，exclusive lock 用于 appendIndexEntry / Clear / compactOldest。每次操作 acquire lock 后重新 load `s.index` 保证 peer 写入立即可见
+- `.instance.lock` 是 lifetime shared lock，做 presence detection：`NewStore` 试一次 non-blocking exclusive —— 成功说明唯一 Store，可安全跑 `loadOrphanRecent` 恢复崩溃 session 的 tail；失败说明有 peer，跳过 orphan recovery
+- Turn ID 带 PID 保证两个进程不会在 turn filename 上碰撞
+- Windows 的 LockFileEx / UnlockFileEx stdlib `syscall` 不导出，`lock_windows.go` 通过 `syscall.NewLazyDLL("kernel32.dll")` 手动调用
 
-交互式 REPL。逐行读取，用 `Store.BuildContext` 把历史对话 prepend 成 `## Prior conversation\n...\n\n## Current request\n...` 注入请求字符串——零修改 BusContext 或 Agent。Slash command 分两组（每条都支持 `\` 前缀别名，如 `\exit` ≡ `/exit`）：
+**Per-Kind 检索策略**：5 个 Kind（chitchat / shell / pipeline / plan / default）每个含 5 字段（`session_pin_count` / `recent_body_chars` / `compacted_match_cap` / `entity_score_mul` / `refs_chain_depth`）。`types.DefaultMemoryKindPolicies` 是真值源，`internal/memory.policyFor` 在其上叠 yaml override。共 17 个原 hardcode 数全部暴露成 `memory_policy_*` 嵌套字段。
 
-- **通用**：`/exit` `/quit` `/help` `/version` `/history` `/clear` `/compact` `/log` `/paste` `/chat`
-- **写模式**（需 `codrax.yaml :: write_enabled: true`）：`/mode` `/plan` `/approve` `/reject` `/verify` `/worktree`
+### 12.3 internal/repl — 交互式 REPL
 
-`slashCommands`（`internal/repl/input.go`）驱动 Tab 补齐面板；`replCommandAliases`（`internal/types/conversation.go`）是 `NormalizeREPLCommandAlias` 唯一的来源，`Loop` 先归一再派发给 `handleSlash`。两个列表的漂移由 `TestSlashCommandsMatchCanonicalRegistry` + `TestHandleSlashDispatchMatchesRegistry` 两个结构测试固化——任一新 `/xxx` 的 `case` 没同步到 `replCommandAliases` 都会在 `go test` 时 fail-loud。
+逐行读取，用 `Store.BuildContext` 把历史对话 prepend 成 `## Prior conversation\n...\n\n## Current request\n...` 注入请求字符串——零修改 BusContext 或 Agent。Slash command 分两组（每条都支持 `\` 前缀别名，如 `\exit` ≡ `/exit`）：
 
-**`/chat <message>`**：绕过 analyze→explore→extract→finalize 流水线。memory 已接入时走**有界 2 轮 ReAct 循环**——第 1 轮 LLM 拿到 `recall_memory` 工具描述，可选调一次查"我们之前聊过 X 吗"；第 2 轮（无工具）综合答复。LLM 不调工具就退化为单次 `adapter.Chat`（行为字节级不变）。两个数值旋钮 `chitchat_recall_default_limit`（默认 5）/ `chitchat_recall_max_limit`（默认 10）夹在用户传给 recall_memory 的 limit 上，比 explorer 的 20 小因为 chitchat 是单回合对话不是迭代调查。配合 `codrax.yaml :: chitchat_classifier_enabled`（默认 `true`）每轮 REPL 前跑一次廉价 LLM 分类器，判为 chitchat 的轮次自动走此路径。想省成本就把 `chitchat_classifier` 在 `providers.yaml` 路由到小模型；想关就设 `false` 或启动时加 `--chitchat-classifier=false`。失败路径：responder 错 → print warning + 不写 memory（不污染 prior conversation）；classifier 错 → 回落流水线（fail-safe）。
+- **通用**：`/exit` `/quit` `/help` `/version` `/history` `/clear` `/compact` `/log` `/htrace` `/atrace` `/paste` `/chat` `/env`
+- **写模式**（需 `write_enabled: true`）：`/mode` `/plan` `/approve` `/reject` `/verify` `/worktree` `/merge` `/baseline` `/phase` `/pitfalls`
 
-**写模式命令**：见 §4.6。`/mode` 切换粘滞 mode；`/plan show` 渲染 unified-diff 预览（per-change 4 KB、总计 16 KB 上限）；`/approve` 只接受 `Status == pending_approval` 的 plan（前置检查），触发第二次 Run 带 `Mode = ModeApply` + `SetPlanPath`；`/reject [reason]` 把 plan 从 PlanStore 清掉并记入 memory（`memory.KindPlan`）；`/verify [plan-id]` 对 `Status ∈ {applied, verify_failed}` 且有保留 worktree 的 plan 重跑 ModeVerify；`/worktree list / discard <plan-id>` 管理 `pipeline_keep_worktree_on_success` 保留下来的 worktree。
+`slashCommands`（`internal/repl/input.go`）驱动 Tab 补齐面板；`replCommandAliases`（`internal/types/conversation.go`）是 `NormalizeREPLCommandAlias` 唯一来源，`Loop` 先归一再派发给 `handleSlash`。两个列表的漂移由结构性测试 `TestSlashCommandsMatchCanonicalRegistry` + `TestHandleSlashDispatchMatchesRegistry` 固化——任一新 `/xxx` 的 case 没同步到 `replCommandAliases` 都会在 `go test` 时 fail-loud。
 
-**`/log` 子命令**：`/log <path>` 从文件载入 / `/log`（无参）进入粘贴模式以 `/end` 结束 / `/log clear` 丢弃 / `/log show` 预览前 20 行。attached log **跨 turn sticky**（用户通常同一条 panic 分多个问题问），只有显式 `/log clear` 或覆盖式 `/log <path>` 替换。`/clear`（清 conversation 历史）不动 attached log。
+**`/chat <message>`**：绕过 analyze→explore→extract→finalize 流水线。memory 已接入时走**有界 2 轮 ReAct 循环**——第 1 轮 LLM 拿到 `recall_memory` / `list_memory` 工具描述，可选调一次查"我们之前聊过 X 吗"；第 2 轮（无工具）综合答复。LLM 不调工具就退化为单次 `adapter.Chat`。两个数值旋钮 `chitchat_recall_default_limit` / `chitchat_recall_max_limit` 夹在用户传给 recall_memory 的 limit 上。配合 `chitchat_classifier_enabled`（默认 true）每轮 REPL 前跑一次廉价 LLM 分类器，判为 chitchat 的轮次自动走此路径。想省成本就把 `chitchat_classifier` 在 `providers.yaml` 路由到小模型；想关就设 false 或启动时加 `--chitchat-classifier=false`。失败路径：responder 错 → print warning + 不写 memory；classifier 错 → 回落流水线（fail-safe）。
 
-### `internal/tool/blob`
+**`/log` 子命令**：`/log <path>` 从文件载入 / `/log`（无参）进入粘贴模式以 `/end` 结束 / `/log clear` 丢弃 / `/log show` 预览前 20 行。attached log **跨 turn sticky**（用户通常同一条 panic 分多个问题问），只有显式 `/log clear` 或覆盖式 `/log <path>` 替换。`/clear`（清 conversation 历史）不动 attached log。`/htrace` `/atrace` 是平行通道。
+
+**写模式命令**：详见 §8。`/mode` 切换粘滞 mode；`/plan show` 渲染 unified-diff 预览（per-change 4 KB、总 16 KB 上限）；`/approve` 只接受 `Status == pending_approval` 的 plan，触发第二次 Run 带 `Mode = ModeApply` + SetPlanPath；`/reject [reason]` 把 plan 从 PlanStore 清掉并记入 memory（`memory.KindPlan`）；`/verify [plan-id]` 对 `Status ∈ {applied, verify_failed}` 且有保留 worktree 的 plan 重跑 ModeVerify；`/worktree list / discard <plan-id>` 管理保留下来的 worktree；`/merge` 触发 worktree.MergeIntoBranch；`/baseline` 显示当前 baseline；`/phase` 多阶段方案进度；`/pitfalls` 列出 active pitfall。
+
+### 12.4 internal/tool/blob — Tool 输出落盘
 
 per-process blob 存储。Session dir `<CWD>/.codrax/blob/<timestamp>-<pid>/`，assigned 到 `BusContext.WorkDir`。`PruneBlobSessions` 在启动时按 `blob_max_sessions` 保留最近 N 个，存活 PID 的 peer session 永不删。设 `blob_max_sessions: 0` 回退到 per-trace `os.MkdirTemp` + `RemoveAll`。
 
-### `internal/render`
+工具结果超过 `blob_max_inline_bytes`（默认 32 KB）落到 WorkDir，只把 head/tail preview 塞进 LLM 上下文。Agent 想看全文就 `read_file` 指向 `RawRef`。
+
+### 12.5 internal/render — 事件流 + CLI 渲染
 
 | 文件 | 职责 |
 |------|------|
 | `event.go` | Event struct（Kind, Timestamp, TraceID, Agent, ...) + 事件类型（PipelineStart/End, StageDispatch, AgentReasoning, ToolCall, ToolResult, AnalysisReady, TaskNodeStart/End, ...） |
-| `renderer.go` | CLI 渲染器（pterm.Area + 实时事件消费） |
-| `answerdoc.go` | `AnswerDocument → markdown` 渲染器，block-kind-aware，多语言（zh/en），code block 语法标记，citation pool 渲染 |
+| `renderer.go` / `renderer_dock.go` | CLI 渲染器（pterm.Area + 实时事件消费）+ docking station（双行状态栏） |
+| `answerdoc.go` | AnswerDocumentV2 → markdown 渲染器，block-kind-aware，多语言（zh/en），code block 语法标记，citation pool 渲染 |
+| `mermaid_render.go` | Mermaid 内嵌预览 + library-subset 的失败兜底（fence 改为 ```text` + 注入 `# ⚠ <reason>` leader） |
+| `apply_authority_hedging.go` | drift-bounded 答案的权威标注渲染（`[hedged]` / `[historical]` / `[illustrative]` 带状） |
+| `cjk_adapter.go` / `wrap_by_display_width_test.go` | CJK 字符等宽显示 / 换行宽度计算 |
+| `dock.go` / `dock_state.go` / `tty_preview_area.go` | 终端实时预览（finalizer 流式 summary 提取） |
+| `status_blocks.go` / `status_classify.go` / `status_messages.go` | 状态消息分类 + 多语言文本 |
+| `diff_color.go` | unified diff 着色 |
 
-### 响应语言
+**响应语言**：`-lang`（默认 `zh`）→ `orchestrator.SetLanguage` → append 到 `BusContext.Preferences` → 作 "User Preferences" system 段渲染。始终带 fallback 分句——另一语言提问能用那语言回答。`-lang=off` / `none` 回退。
 
-`-lang`（默认 `zh`）→ `orchestrator.SetLanguage` → append 到 `BusContext.Preferences` → 作 "User Preferences" system 段渲染。始终带 fallback 分句——另一语言提问能用那语言回答。`-lang=off` / `none` 回退。
+### 12.6 internal/mcp — MCP（Model Context Protocol）外置工具桥
+
+可选 MCP server 接入：在 `providers.yaml` 配置后，对应工具会作为常规 tool 暴露给 explorer / planner（按 skill allowlist）。`MCPResponses` 记录 tool 调用结果作 prompt section。
 
 ---
 
-## 10. 配置
+## 13. 配置
 
-两个 YAML 文件平铺在二进制同目录（`<exeDir>/`），严格不重叠：
+### 13.1 两个文件平铺在二进制同目录
 
 | 文件 | 内容 | 加载器 |
 |------|------|--------|
@@ -1959,70 +2166,97 @@ per-process blob 存储。Session dir `<CWD>/.codrax/blob/<timestamp>-<pid>/`，
 | `codrax.yaml` | per-process 运行时 knob：log/memory 路径、语言、repo/branch、blob 尺寸 + session 保留、pipeline 预算等 | `internal/config/runtime.go` |
 
 **路径锚点分两层**：
-- 配置锚点 `<exeDir>` —— `providers_config` 在这里解析
-- 运行产物锚点 `<CWD>/.codrax/` —— `log_dir` / `memory_dir` / `cache_dir` / blob 会话根在这里解析
+- 配置锚点 `<exeDir>` —— `providers_config` 在这里解析（安装 = 一份配置树，跟工作目录无关）
+- 运行产物锚点 `<CWD>/.codrax/` —— `log_dir` / `memory_dir` / `cache_dir` / blob 会话根 / worktree base / plan dir 在这里解析（运行产物跟随用户工作区）
 
-### `codrax.yaml` 分组
+### 13.2 providers.yaml schema
+
+`llm.default` block + `llm.agents.<name>` overrides。Merge order：agent-level → default-level → 环境变量。**Non-zero merge 规则**：agent-level 字段为零值时继承 default-level；非零总是胜出。允许一份 providers.yaml 跨异构模型按字段独立 scale。
+
+`llm.default` 字段：`provider` / `api_key` / `model` / `base_url` / `think_aloud` / `stream` / `context_window` / `max_output_tokens` / `max_output_fraction` / `tls_ca_file` / `tls_insecure_skip_verify` / `request_timeout_seconds` / `retry_max_attempts` / `stream_stall_timeout_seconds` / `stream_first_byte_timeout_seconds`。
+
+**Per-agent override**：任一字段都能 per-agent 覆盖。Boolean 字段用 nil-sentinel：nil = 继承，true/false = override。
+
+**Fallback slot**：可选 `<name>_fallback` 给任一 agent。
+
+**支持的 agent 名**（10+）：
+
+读模式：`analyzer` / `explorer` / `extractor` / `finalizer`；
+写模式：`write_analyzer` / `planner` / `coder` / `verifier`；
+前置：`log_triager` / `perf_triager`；
+特殊：`memory_summarizer` / `chitchat_responder` / `chitchat_classifier` / `plan_critic` / `env_recommender`。
+
+未配置的 agent 继承 `llm.default`。
+
+### 13.3 codrax.yaml — 按前缀分组
 
 所有字段指针类型以让 merge 区分 "absent" vs "explicit zero value"：
 
-| 前缀 | 用途 |
-|------|------|
-| 裸 key | `log_dir` / `log_level` / `log_stdout` / `memory_dir` / `cache_dir` / `lang` / `repo` / `branch` / `providers_config` — 进程级 UX |
-| `log_*` | `log_max_files` — 日志保留条数 |
-| `blob_*` | `blob_max_inline_bytes` / `blob_preview_head_bytes` / `blob_preview_tail_bytes` / `blob_max_sessions` — Tool 输出 offload 阈值 + 会话目录保留数。**`blob_max_inline_fraction`** 是占比形式（`fraction × context_window × 4 B/token` → 有效字节阈值），fraction 设置时优先于 bytes 绝对值 |
-| `readfile_*` | `readfile_small_limit_threshold` — read_file 懒惰 limit 保护 |
-| `analysis_*` | `analysis_warn_below_keywords` / `analysis_reject_below_keywords` / `analysis_generic_entity_blocklist` / `analysis_reject_multiple_emit` / `analysis_max_prescan_rounds` / `analysis_warn_below_keyword_hit_ratio` / `analysis_warn_below_entity_hit_ratio` — emit_analysis 运行时验证 |
-| `evidence_*` | `evidence_grounding_floor` / `evidence_tier1_floor` — explorer completion gate |
-| `pipeline_*` | `pipeline_max_steps`（默认 50）/ `pipeline_max_steps_ceil`（默认 100；多话题扩充硬顶）/ `pipeline_max_retries_per_stage`（默认 2，**按 `EstimateSubTopicCount` 动态扩展**，硬顶 `agent_max_retry_budget_ceil` 默认 5）/ `pipeline_max_stage_visits` — 流水线预算；`pipeline_write_retry_budget`（写模式 verify→plan 重试上限，默认 3）/ `pipeline_write_retry_budget_ceil`（默认 5；`SetWriteRetryBudget` 内部硬上限）/ `pipeline_baseline_capture_enabled`（写模式 apply 前测试快照）/ `pipeline_keep_worktree_on_success`（写模式成功后保留 worktree）/ `pipeline_lint_enabled`（静态检查总开关，默认 true）|
-| `write_enabled` | 顶层写模式开关。`false`（默认）时 `--mode=plan|apply|verify` 和 REPL `/mode plan|apply|verify` 全部 fail-loud 拒绝 |
-| `write_default_mode` | `--mode` 不传时的默认值。合法值：`read`（默认）/ `plan`。`apply` / `verify` 在这里被**拒绝**（必须 per-run opt-in） |
-| `write_auto_approval` | 预留给 REPL `/approve` 的交互默认值和 batch 工作流。单次调用不读此字段（直接看 `--auto-apply` CLI flag） |
-| `write_plan_dir` | 覆盖 `.codrax/plans/` 作为 plan JSON 输出目录。绝对路径或 runtime-anchor 相对路径；非绝对形式由 cmd/root.go 锚定 |
-| `gate_*` | `gate_coverage_min` / `gate_coverage_weight_{symbol,config,concept}` / `gate_hypothesis_min_priority` — analyzer 质量门阈值 |
-| `explore_*` | `explore_per_tool_default_cap` + 15 个 `ExploreHeuristics` 阈值（mid-loop / soft-stop / Phase 0 / enumeration / parallelize） |
-| `agent_*` | `agent_max_iterations` / `agent_max_tool_history_bytes` / **`agent_max_tool_history_fraction`**（fraction × context_window × 4 B/token；同 `blob_max_inline_fraction` 的优先级规则） / 4 个 `agent_loop_*` / 3 个 `agent_finalizer_shrinkage_*` + `agent_finalizer_max_correction_retries` + `agent_finalizer_preserve_prior_prose` / `agent_extractor_max_correction_retries` / **per-evaluator 双段 iter caps**（`agent_planner_soft_iter_cap`/`hard_iter_cap` 默认 6/9，`agent_extractor_soft_iter_cap`/`hard_iter_cap` 默认 3/5，`agent_verifier_soft_iter_cap`/`hard_iter_cap` 默认 5/8，`agent_coder_soft_iter_slack` 默认 3 + `agent_coder_hard_iter_recovery` 默认 3）/ **per-dispatch scaling**（`agent_subtopic_{prescan,explorer,planner,pipeline,retry,extractor}_extra` × N，外加 `agent_planner_complexity_extra` 默认 2 / `agent_extractor_complexity_extra` 默认 1 按 complexity 等级放大，`agent_target_paths_verifier_extra` 默认 1 按 plan.TargetPaths 数量给 verifier 放大；orchestrator 的 per-dispatch scaling block 把每个 evaluator 的软上限写到 `AgentContext.{PlannerSoftIterCapOverride, ExtractorSoftIterCapOverride, VerifierSoftIterCapOverride}`，evaluator 在 `BuildInitialInstruction` 消费；硬顶分别走 `agent_{prescan_rounds,explorer_scaled_iter_max,planner_scaled_iter_max,extractor_scaled_iter_max,verifier_scaled_iter_max,max_retry_budget}_ceil`，全部 yaml 可调，零值回落到代码默认）/ `agent_log_triager_iter_cap` / `agent_perf_triager_iter_cap`（默认均 6） / `agent_investigation_complete_policy` / `agent_prior_conversation_policy` / **`agent_context_pressure_soft_ratio`** / **`agent_context_pressure_hard_ratio`**（context-pressure 监控软/硬阈值，默认 0.7 / 0.9）|
-| `memory_*` | REPL 多轮记忆存储 + 检索调优。**容量**(5 key):`memory_dir` / `memory_max_recent_turns` / `memory_max_recent_bytes` / `memory_max_turn_body_bytes` / `memory_max_build_context_matches`。**检索打分**(2 key):`memory_entity_min_runes`(默认 3,过滤短噪声 entity)/ `memory_session_tie_breaker_bonus`(默认 1,同 session 命中并列时排序加分)。**按 Kind 策略**(5 个嵌套):`memory_policy_{chitchat,shell,pipeline,plan,default}`,每个含 5 字段 `session_pin_count` / `recent_body_chars` / `compacted_match_cap` / `entity_score_mul` / `refs_chain_depth`,字段级合并(override 字段为 0 表示沿用默认)。所有 17 个原 hardcode 数已暴露,单一真值源在 `types.DefaultMemoryKindPolicies`,`internal/memory.policyFor` 在其上叠 yaml override |
-| `summary_cap_*` | `summary_cap_enabled`（master switch，默认 false）+ 11 个 per-block-kind cap — Summary 长度上限 |
-| `citation_quote_max_chars` | citation quote 预览字符上限（默认 500，UTF-8 边界静默截断）。file+line 始终保留；prose 防御由 grounder token 匹配兜底，跟长度无关 |
-| `cgec_*` | `cgec_forced_reads_per_round` / `cgec_stall_threshold_soft` / `cgec_stall_threshold_hard` / `cgec_phase1_unread_top_k` / `cgec_phase1_unread_min_unread` — Citation-Grounded Evidence Closure 调节 |
+| 前缀 | 用途 | 关键字段 |
+|------|------|---------|
+| 裸 key | 进程级 UX | `log_dir` / `log_level` / `log_stdout` / `memory_dir` / `cache_dir` / `lang` / `repo` / `branch` / `providers_config` |
+| `log_*` | 日志保留 | `log_max_files`（7） |
+| `blob_*` | Tool 输出 offload | `blob_max_inline_bytes`（32 KB）/ `blob_preview_head_bytes` / `blob_preview_tail_bytes` / `blob_max_sessions`（7）/ `blob_max_inline_fraction`（占比形式，优先于 bytes） |
+| `readfile_*` | read_file 懒惰 limit 保护 | `readfile_small_limit_threshold`（100） |
+| `analysis_*` | emit_analysis 运行时验证 | `analysis_warn_below_keywords`（8）/ `analysis_reject_below_keywords` / `analysis_generic_entity_blocklist` / `analysis_reject_multiple_emit` / `analysis_max_prescan_rounds`（2）/ `analysis_warn_below_keyword_hit_ratio` / `analysis_warn_below_entity_hit_ratio` / `analysis_grounding_floor` / `analysis_evidence_tier1_floor` |
+| `evidence_*` | explorer completion gate | `evidence_grounding_floor`（0.5）/ `evidence_tier1_floor`（0.3） |
+| `pipeline_*` | 流水线预算 + 行为开关 | `pipeline_max_steps`（50）/ `pipeline_max_steps_ceil`（100）/ `pipeline_max_retries_per_stage`（3）/ `pipeline_max_stage_visits`（4）/ `pipeline_write_retry_budget`（3）/ `pipeline_write_retry_budget_ceil`（5）/ `pipeline_max_phases_per_run`（5）/ `pipeline_baseline_capture_enabled` / `pipeline_baseline_cache_max`（16）/ `pipeline_keep_worktree_on_success` / `pipeline_lint_enabled`（true）/ `pipeline_richness_softening_warn`（true）/ `pipeline_demotion_storm_threshold`（10）/ `pipeline_forced_read_storm_threshold`（8）/ `pipeline_finalizer_local_retries_before_escalate`（2）/ `pipeline_cluster_stable_budget`（2）/ `pipeline_finalizer_retry_no_think`（true）/ `pipeline_failure_taxonomy_enabled` 系列 / `pipeline_answer_taxonomy_enabled` 系列 / `pipeline_contract_soft_kinds` / `pipeline_contract_strict_kinds` / `pipeline_fallback_policy_overrides` / `pipeline_max_upstream_fallbacks_per_run`（2）/ `pipeline_facet_validators_enabled`（true）/ `pipeline_self_consistency_review_enabled` 系列 / `pipeline_semantic_quality_review_enabled`（true）/ `pipeline_transient_retry_budget`（1）/ `pipeline_force_finalize_attempts`（3）/ `pipeline_write_max_seconds`（600）/ `pipeline_plan_critic_enabled` / `pipeline_mermaid_renderability_gate`（"soft"） |
+| `write_*` | 写模式 gate | `write_enabled`（false）/ `write_default_mode`（"read"，仅接受 read/plan）/ `write_auto_approval` / `write_plan_dir` / `write_auto_init_repo` / `write_scaffold_enabled` |
+| `gate_*` | analyzer 质量门 | `gate_coverage_min`（0.6）/ `gate_coverage_weight_{symbol,config,concept}`（1.0/0.7/0.4）/ `gate_hypothesis_min_priority` |
+| `explore_*` | explorer heuristics | `explore_per_tool_default_cap` + 15 个 ExploreHeuristics 阈值 |
+| `agent_*` | Agent 限额 | `agent_max_iterations`（20）/ `agent_max_tool_history_bytes`（150 KB）/ `agent_max_tool_history_fraction`（fraction × ctxwin × 4）/ 4 个 `agent_loop_*` / `agent_finalizer_*`（max_correction_retries / preserve_prior_prose / shrinkage_min_prose_len / shrinkage_ratio）/ `agent_extractor_max_correction_retries` / per-evaluator 双段 iter cap（planner 6/9 / extractor 3/5 / verifier 5/8 / coder slack=3 recovery=3）/ per-dispatch scaling（subtopic_{prescan,explorer,planner,pipeline,retry,extractor}_extra + planner_complexity_extra / extractor_complexity_extra / target_paths_verifier_extra）/ scaled_iter_max ceiling 系列 / `agent_max_retry_budget_ceil`（5）/ `agent_log_triager_iter_cap`（20）/ `agent_perf_triager_iter_cap`（20）/ `agent_investigation_complete_policy`（"soft"）/ `agent_prior_conversation_policy`（"analyzer"）/ `agent_context_pressure_soft_ratio`（0.7）/ `agent_context_pressure_hard_ratio`（0.9） |
+| `memory_*` | REPL 多轮记忆 | 容量 5 字段（recent_turns 6 / recent_bytes 20K / turn_body_bytes 16K / build_context_matches 3 / search_max_limit 20 / list_max_limit 30）+ 检索打分 2 字段（entity_min_runes 3 / session_tie_breaker_bonus 1）+ 5 个嵌套 per-kind policy（chitchat / shell / pipeline / plan / default） |
+| `summary_cap_*` | Summary 长度上限 | `summary_cap_enabled`（false 默认禁用）+ 11 个 per-block-kind cap |
+| `citation_*` | citation quote 预览 | `citation_quote_max_chars`（500） |
+| `cgec_*` | CGEC 调节 | `cgec_forced_reads_per_round`（3）/ `cgec_stall_threshold_soft`（2）/ `cgec_stall_threshold_hard`（3）/ `cgec_phase1_unread_top_k`（5）/ `cgec_phase1_unread_min_unread`（2）/ `cgec_multi_path_*` 系列 / `cgec_external_artifact_decoded_floor`（0.4） |
+| `chitchat_*` | /chat 通道 | `chitchat_enabled`（true）/ `chitchat_classifier_enabled`（true）/ recall/list 默认 + max limit |
+| `env_*` / `recommend_*` | 环境诊断 | `env_recommend_enabled`（true）/ `env_recommend_llm_enabled`（true）/ `env_recommend_llm_timeout_sec` / `recommend_global_install`（false）/ `env_probe_network` / `env_cache_ttl_days`（90） |
+| `log_triage_*` | 日志分诊 | enabled / source_prefix / min_bytes（50）/ max_retries（1）/ two_step_enabled / two_step_bytes（32K）/ two_step_coverage（0.3）/ max_llm_calls（12） |
+| `perf_triage_*` | 性能分诊 | 同 log_triage 结构（默认 64K threshold） |
+| `log_attach_*` / `trace_attach_*` | 接入侧字节上限 | `log_attach_max_bytes`（50 MiB，硬顶 1 GiB）/ `trace_attach_max_bytes`（未设时继承 log_attach） |
+| `analyzer_*` / `repomap_*` / `concrete_values_*` / `diagram_identifier_whitelist` | 结构化分析微调 | mention sibling suffixes / mention count floor / max grep / reconcile strict mode / repomap min_parse_tier / tier warn/alert ratio / config layer extensions / runtime/default method prefixes / diagram identifier whitelist |
+| `verify_*` / `worktree_*` | 写模式资源墙 | `verify_mem_limit_mb`（2048）/ `verify_cpu_limit_seconds`（600）/ `worktree_keep_ttl_hours`（168 = 7 天）/ `worktree_keep_max_count`（20） |
+| `repl_*` | REPL UX | `repl_paste_fold_min_chars`（120） |
 
-### 优先级（precedence）
+### 13.4 优先级（precedence）
 
 | key 组 | 优先级（低 → 高） |
 |--------|------------------|
-| 裸 key | code default → `codrax.yaml` → CLI flag |
-| `pipeline_*` | code default → `codrax.yaml` → CLI flag（`--pipeline-max-steps` / `--pipeline-max-retries` / `--pipeline-max-stage-visits`）。`pipeline_write_retry_budget` / `pipeline_baseline_capture_enabled` / `pipeline_keep_worktree_on_success` 仅 yaml，无 CLI override |
-| `write_enabled` | 仅 yaml（部署时决策，不按 invocation）。`--mode` 是 CLI flag，但在 `write_enabled: false` 时拒绝;REPL `/mode` 同 gate |
-| 其他所有 `*_` 组 | code default → `codrax.yaml`。**无 CLI override** |
+| 裸 key | code default → codrax.yaml → CLI flag |
+| `pipeline_*`（部分） | code default → codrax.yaml → CLI flag（`--pipeline-max-steps` / `--pipeline-max-retries` / `--pipeline-max-stage-visits`） |
+| `write_enabled` | 仅 yaml（部署时决策）。`--mode` CLI flag 在 `write_enabled: false` 时拒绝；REPL `/mode` 同 gate |
+| 其他所有组 | code default → codrax.yaml。**无 CLI override** |
 
-### Path anchoring
+带 CLI override 的 flag：`--repo` / `--branch` / `--request` / `--max-steps` / `--max-retries` / `--max-stage-visits` / `--log-dir` / `--log-level` / `--log-stdout` / `--memory-dir` / `--cache-dir` / `--lang` / `--log <file>` / `--log -` / `--log-text` / `--htrace` / `--atrace` / `--htrace-text` / `--atrace-text` / `--log-source-prefix` / `--chitchat-classifier` / `--mode` / `--auto-apply` / `--auto-init-repo` / `--allow-scaffold`。
 
-`cmd/root.go` 两套 anchor：
+### 13.5 codrax.yaml 查找顺序
 
-- **`configAnchor = <exeDir>`**：`providers_config` 的相对路径在此解析。安装 = 一份配置树，跟工作目录无关。
-- **`runtimeAnchor = <CWD>/.codrax/`**：`log_dir` / `memory_dir` / `cache_dir` / blob session 根在此解析。运行产物跟随用户工作区。
+`$CODRAX_SETTINGS` → `<exeDir>/codrax.yaml` → `<exeDir>/codrax/codrax.yaml` → `<exeDir>/config/codrax.yaml`（legacy，warn）→ `<exeDir>/../config/codrax.yaml`（legacy，warn）→ `<CWD>/config/codrax.yaml`（legacy，warn）。两个 anchor 都在 flag 注册前解析成绝对路径。`-repo` 不参与 anchoring——默认 `.` 永远代表 CWD。
 
-`codrax.yaml` 查找顺序（flat-first，exe 优先）：`$CODRAX_SETTINGS` → `<exeDir>/codrax.yaml` → `<exeDir>/codrax/codrax.yaml` → `<exeDir>/config/codrax.yaml`（*legacy，warn*）→ `<exeDir>/../config/codrax.yaml`（*legacy，warn*）→ `<CWD>/config/codrax.yaml`（*legacy，warn*）。两个 anchor 都在 flag 注册之前解析成绝对路径。`-repo` 不参与 anchoring —— 默认 `.` 永远代表 CWD。
+### 13.6 Per-target-repo namespacing
 
-### Per-target-repo namespacing
+> *像合租屋每人一个上锁的储物柜：同一台 codrax 跟着用户跑多个不同的代码仓库，各自的日志、记忆、缓存自动分到独立子目录里（按仓库名 + 哈希）——分析仓 A 时不会误读仓 B 的旧记忆，删掉一个仓的痕迹也不影响别的。*
 
-默认 `log_dir` / `memory_dir` 带一个 `<basename>-<fnv32>` 后缀，derive 自 absolute + symlink-resolved `-repo` 路径，这样多个 target repo 共享一份 codrax 安装时，各自的 log / memory 落在互不相交的子树（`<CWD>/.codrax/logs/foo-a3f9c2b1/` / `<CWD>/.codrax/memory/foo-a3f9c2b1/`）。Slug 在 flag default 里 baked，`-h` 打印最终路径；用户显式覆盖 `-repo` 同时保留 `-log-dir`/`-memory-dir` 默认时，`cmd/root.go` 在 `flag.Parse` 后 re-slug。显式 `-log-dir` / `-memory-dir` 总是胜出。
+默认 `log_dir` / `memory_dir` 带 `<basename>-<fnv32>` 后缀，derive 自 absolute + symlink-resolved `-repo` 路径。多个 target repo 共享一份 codrax 安装时各自的 log / memory 落在互不相交的子树（`<CWD>/.codrax/logs/foo-a3f9c2b1/` / `<CWD>/.codrax/memory/foo-a3f9c2b1/`）。Slug 在 flag default 里 baked，`-h` 打印最终路径；用户显式覆盖 `-repo` 同时保留 `-log-dir` / `-memory-dir` 默认时，`cmd/root.go` 在 `flag.Parse` 后 re-slug。显式 `-log-dir` / `-memory-dir` 总是胜出。
 
-Blob session 根**不**做 per-repo 分区——一个进程所有 Run 共用 `<CWD>/.codrax/blob/<timestamp>-<pid>/`，因为 blob 文件是 content-addressed（`<tool>-<sha8>.txt`），跨仓库相同输出天然去重。
+Blob session 根**不**做 per-repo 分区——一个进程所有 Run 共用 `<CWD>/.codrax/blob/<timestamp>-<pid>/`，因为 blob 文件 content-addressed（`<tool>-<sha8>.txt`），跨仓库相同输出天然去重。
 
-### Multi-instance safety
+### 13.7 Multi-instance safety
 
-- 日志：文件名带 PID，retention 跳过 live-PID
-- Memory：`MEMORY.md.lock` 每操作 flock + `.instance.lock` lifetime shared probe
-- Turn IDs 带 PID
+- 日志文件名带 PID，retention 跳过 live-PID
+- Memory：MEMORY.md.lock 每操作 flock + .instance.lock lifetime shared probe
+- Turn ID 带 PID
+- Blob session 按 PID 存活性回收
+- Worktree 按嵌入 PID 存活性 + TTL/quota 回收
 - Windows 文件锁：`syscall.NewLazyDLL("kernel32.dll")`
 
-### Evidence-lite runtime gate
+### 13.8 BytesPerToken = 4
 
-`BaseAgent.executeTool` → `validateAnalyzerPrescanToolCall` 在 `StageAnalyze` 拒绝 `grep` 没带 `files_only=true` 的调用。硬约束：line-level 匹配会溢出 analyze 的 context 预算。其他 stage 不受影响。
+整个项目的字节-token 换算常数，既用于 fraction-form 预算解析，也用于 watchdog 估算。保守（英文文本实际约 4 B/tok；CJK 约 2 B/tok，估算会过大所以更安全）。配置层 `config.BytesPerToken` 是类型别名，保证单一数值真源。
 
-### 依赖
+`config.ResolveByteBudget(fraction, absolute, codeDefault, contextWindow)` 是 fraction-form 旋钮的单一真源：`fraction > 0 && contextWindow > 0` 时返回 `int(contextWindow * fraction * BytesPerToken)`，否则 absolute → codeDefault。
+
+### 13.9 依赖
 
 Go 1.24.0。主要依赖：
 
@@ -2031,62 +2265,101 @@ Go 1.24.0。主要依赖：
 - `github.com/charmbracelet/glamour` / `huh` / `lipgloss` — TUI / markdown 渲染
 - `github.com/pterm/pterm` — 进度显示
 - `github.com/smacker/go-tree-sitter` — 代码解析（多语言）
-- `golang.org/x/term` — 终端控制
+- `golang.org/x/term` / `golang.org/x/sys` — 终端控制 + 信号
 
 无外部 LLM SDK：codrax 自己实现 `llm.Adapter` 接口以保持 provider 独立。
 
 ---
 
-## 11. 可扩展性
+## 14. 可扩展性
 
-### 添加新工具
+### 14.1 添加新工具
 
-1. 实现 `Tool` 接口，嵌入 `tool.ReadOnly` 提供 `IsWrite() bool`
+1. 实现 `Tool` 接口，嵌入 `tool.ReadOnly`（或 `tool.WriteCapable` 用于写模式）提供 `IsWrite() bool`
 2. 在 `cmd/root.go` 的 tool registry 注册
 3. 在相关 skill 的 `ToolSuggestions` 里引用
+4. 写 JSON schema（`Parameters`），保证 params 能 unmarshal 到 typed struct
+5. 在 `Execute` 里调 schema 解码 + 执行 + 返回 `ToolResult`
 
-### 添加新 Agent
+### 14.2 添加新 Agent
 
 1. 新增 `AgentName` 枚举常量
-2. 实现 `Evaluator` 接口（`BuildInitialInstruction` / `ShouldStop` / `ParseOutput` / `DetermineMissingPiece`），可选实现 `LoopController`
+2. 实现 `Evaluator` 接口（BuildInitialInstruction / ShouldStop / ParseOutput / DetermineMissingPiece），可选实现 `LoopController`
 3. 在 agent registry 用 `NewBaseAgent(name, deps, eval)` 包装注册
 4. 绑到新阶段时同步更新 `topology.go` 的 `pipelineTopology` map 和 `PipelineStage` 枚举
+5. 在 `IsWrite()` 里决定该阶段是读还是写——会影响 context builder 的字段裁剪
 
-### 添加新 Skill
+### 14.3 添加新 Skill
 
 1. 定义 `skill.Config`（goal / workflow / toolSuggestions / outputFormat / prohibitions）
-2. 在 skill registry 注册
+2. 在 `skill.RegisterDefaults` 注册
 3. bind 到 `pipelineTopology` 某阶段作 default skill
 
-### 添加新 AnalysisIR 节点类型 / Intent / Scenario
+### 14.4 添加新 AnalysisIR 节点类型 / Intent / Scenario
 
-1. 新增枚举常量
+1. 新增枚举常量（`internal/types/analysis_ir.go` 等）
 2. TaskNodeType → `scheduler.stageMapping` 加映射
 3. Scenario → `internal/analysis/compiler/templates.go` 补模板
 4. Intent → `internal/analysis/compiler/scenario.go::InferScenario` 可能加分支
+5. 同步 `analysis-skill` 的字段枚举（`analysis_contract.go`）
 
-### 添加新 AnswerBlock kind / SurfaceRole
+### 14.5 添加新 typed signal — 6 处同步
 
-> 历史"添加新 AnswerShape"章节已删除 —— V2 carrier (block-only) 已替代 AnswerShape。
-> 退役过程见 `docs/migration/answer_shape_terminal_retirement.md`。
+新增的 typed 字段（如新 Predicate / 新 AnswerSubjectKind / 新 AnchorKind）必须 6 处同步：
 
-1. 新增 `AnswerBlockKind` 或 `SurfaceRole` 常量并加进 `AllAnswerBlockKinds()` /
-   `IsValidAnswerBlockKind` / `NormalizeSurfaceRole`
-2. `internal/tool/emit_answer_document_v2.go` 的 schema 描述补充新 kind 含义 + worked
-   example;`detectV1FieldsInV2Emit` 不需要变(V1 字段集已固定)
-3. `internal/render/answerdoc.go` 的 V2 renderer 加分支(block kind switch)
-4. `internal/orchestrator/contract_check_block.go` 加 oracle 验证规则(family ↔ block
-   kind 必填关系)
+1. **Struct 字段定义**（`internal/types/`）
+2. **JSON schema 描述**（`emit_*` 工具的 schema）
+3. **Skill prompt 文字**（向 LLM 解释字段含义）
+4. **Retry hint 文字**（`internal/analysis/hint`，让 LLM 看到新字段相关的失败诊断）
+5. **JSON decoder error remap**（兼容 LLM 误填的字段名）
+6. **Cooccurrence rule / RepairLocus 映射**（contract check / repair plan 知道新字段对应哪个 owner）
 
-### 添加新 AnswerSubjectKind
+漏一处都会让结构 hint 与 LLM 表现脱节。
+
+### 14.6 添加新 AnswerBlock kind / SurfaceRole
+
+1. 新增 `AnswerBlockKind` 或 `SurfaceRole` 常量并加进 `AllAnswerBlockKinds()` / `IsValidAnswerBlockKind` / `NormalizeSurfaceRole`
+2. `internal/tool/emit_answer_document_v2.go` 的 schema 描述补充新 kind 含义 + worked example
+3. `internal/render/answerdoc.go` 的 V2 renderer 加分支（block kind switch）
+4. `internal/orchestrator/contract_check_block.go` 加 oracle 验证规则（family ↔ block kind 必填关系）
+5. `internal/types/answer_semantic_view_compile_<family>.go` 选择性把新 kind 加入对应 family 的 RequiredBlocks / OptionalBlocks
+
+### 14.7 添加新 AnswerSubjectKind
 
 1. 新增 `AnswerSubjectKind` 常量
 2. `internal/analysis/subject/taxonomy.go` 加 per-kind judge
 3. `analyzer_intent.go::inferAnswerSubject` 的 cue 表加 trigger
+4. 新 kind 必须有非 SubjectGeneric 的有效路径——E1 hard-fallback 永不让下游拿到 SubjectUnknown
 
-### 添加新 CGEC RepairKind
+### 14.8 添加新 CGEC RepairKind
 
 1. 新增 `RepairKind` 常量（`internal/types/repair.go`）
 2. 加 producer：某 enforcer 构造 `RepairDirective{Kind: ..., ...}` 调 `AddRepair`
 3. 加 consumer：`renderWindowHint` 加对应渲染段
 4. 更新 `TestAllRepairKindsHaveProducer` + `TestAllRepairKindsHaveConsumer` 断言
+
+### 14.9 添加新 Criterion Kind
+
+1. 新增 `CriterionKind` 常量
+2. 在 `internal/analysis/criterion/eval.go` 加 evaluator
+3. 在 typed env（`criterion.Env`）按需新增 slot
+4. 写模式新增的 Crit 在读模式 Run 时该 slot 为 nil，evaluator 直接返回 Satisfied=true（保持读模式字节级行为）
+
+### 14.10 添加新 ViolationKind
+
+1. 在 `internal/types/violation.go::RegisterViolKind` 注册（单源真理，5 张派生表自动覆盖）
+2. 可选挂 `ViolKindSpec.SchemaDescriptionFragment`——LLM-facing prose——auto-injected 到对应 emit 工具的 prompt
+3. 可选挂 `ClusterKey`——告诉 repair plan 这条 violation 归属哪个 cluster（同 cluster 的 violation 共一个 owner）
+4. 可选挂 fallback policy（`pipeline_fallback_policy_overrides` yaml 可调）
+
+---
+
+**架构概览速记**：
+
+- **Pipeline**: `[log_triage?] [perf_triage?] → analyze → explore → extract → finalize`（read）；写模式加 `write_analyze → plan → apply → verify`
+- **Agents**: read = log_triager / perf_triager / analyzer / explorer / extractor / finalizer；write = write_analyzer / planner / coder / verifier
+- **12 test runners**: Go / Node / Python / Rust / Swift / Java / Ruby / CMake / Meson / Make / hvigor / cjpm
+- **Carrier**: V2 block-only AnswerDocumentV2，9 种 block kind + 8 种 QuestionFamily 对应的 RequiredBlocks 合同
+- **CGEC**: EvidenceClosure 4 不变量 I1-I4 + 5 种 RepairKind + 9 个 enforcer 入口
+- **Write 模式**: 4 modes（read 默认 / plan / apply / verify）；write_enabled yaml gate；REPL `/approve` `/reject` `/plan` `/merge`；baseline cache + Failure Taxonomy 跨 Run 学习
+- **Fail-loud**: analyzer 0-emit → StageOutput.Error → 重试 → 终止；citation 全 fail → 在原答案前 prepend warning 不丢答案
