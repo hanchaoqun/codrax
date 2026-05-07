@@ -2240,7 +2240,13 @@ func validateEnumerationItemLabelHallucination(doc *types.AnswerDocumentV2, orac
 			if !contract.IsIdentifierShaped(ident) {
 				continue
 			}
-			found, tier := oracle.SymbolExists(ident)
+			// Fix E: cross-form existence — yaml-tag / CLI-flag /
+			// snake-case / Pascal-case renderings of the same logical
+			// identifier all collapse to the same flat-form key in the
+			// graph oracle's lazy flat index, so `pipeline_max_steps`
+			// (yaml form) resolves the same Go field as
+			// `PipelineMaxSteps` (Pascal form).
+			found, tier := oracle.SymbolExistsFlat(ident)
 			if found && tier < 3 {
 				continue
 			}
@@ -2365,7 +2371,8 @@ func validateDiagramEdgeEndpointHallucination(doc *types.AnswerDocumentV2, oracl
 			if !contract.IsIdentifierShaped(ident) {
 				return
 			}
-			found, tier := oracle.SymbolExists(ident)
+			// Fix E: cross-form existence — see Fix C for rationale.
+			found, tier := oracle.SymbolExistsFlat(ident)
 			if found && tier < 3 {
 				return
 			}

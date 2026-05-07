@@ -376,6 +376,15 @@ func (s *stubOracle) SymbolExists(name string) (bool, int) {
 	return false, 0
 }
 
+// SymbolExistsFlat (Fix E) — same valid-set as SymbolExists; the
+// logtriage merge tests don't exercise cross-form behaviour (their
+// hallucination scenario uses unique fake names), so this stub
+// just delegates to the exact path. Production code uses the
+// repomap graphOracle which has the real flat index.
+func (s *stubOracle) SymbolExistsFlat(name string) (bool, int) {
+	return s.SymbolExists(name)
+}
+
 // TestMergeEntities_OracleDropsHallucinated pins the commit-52 P1
 // contract: bundle-extracted entities the LLM made up (no matching
 // symbol in the repomap) get dropped before merge. Entities already
@@ -420,6 +429,12 @@ func (s *stubTierOracle) SymbolExists(name string) (bool, int) {
 		return true, t
 	}
 	return false, 0
+}
+
+// SymbolExistsFlat (Fix E) — delegate to exact path; tier-floor
+// tests don't exercise cross-form lookup.
+func (s *stubTierOracle) SymbolExistsFlat(name string) (bool, int) {
+	return s.SymbolExists(name)
 }
 
 // TestMergeEntities_OracleRejectsTier3Plus pins that low-tier

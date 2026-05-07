@@ -26,6 +26,31 @@ package types
 // can pass nil to disable validation without nil-checking each
 // site (used by tests + single-shot CLI flows that don't build a
 // repomap).
+//
+// SymbolExistsFlat (Fix E, 2026-05-07) is the case-form-aware
+// variant. It canonicalises `name` by stripping `_` / `-` and
+// lowercasing ASCII (the same `contract.FlattenIdentifier` rule
+// that drives must_include / must_exclude / acceptance / extractor
+// match across the contract layer), then matches against any
+// graph-indexed symbol whose own canonicalised name equals the
+// query. So `pipeline_max_steps` (yaml-tag form), `PipelineMaxSteps`
+// (Go-field form), `pipeline-max-steps` (CLI-flag form), and
+// `PIPELINE_MAX_STEPS` (env-var form) all resolve to the SAME
+// underlying symbol. minTier semantics are identical to
+// SymbolExists: lowest tier across all matching definitions.
+//
+// Use SymbolExistsFlat when the question is "does this logical
+// identifier name a real codebase entity, regardless of which
+// surface form the LLM rendered?" — true for hallucination-gate
+// validators (Fix C / Fix D) and any future check that asks the
+// existence question against an LLM-emitted identifier.
+//
+// Use SymbolExists when the question is "does this exact-form
+// name resolve?" — true for must_include / must_exclude / acceptance
+// where the contract terms are themselves authoritative form
+// declarations (the analyzer / contract author chose the form
+// deliberately).
 type SymbolOracle interface {
 	SymbolExists(name string) (found bool, minTier int)
+	SymbolExistsFlat(name string) (found bool, minTier int)
 }

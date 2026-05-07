@@ -23,6 +23,29 @@ func (s *stubOracle) SymbolExists(name string) (bool, int) {
 	return false, 0
 }
 
+// SymbolExistsFlat (Fix E test stub) flattens both the query and
+// each tier-map key, then matches case-insensitively across forms.
+// Mirrors the production graphOracle's lazy flat index but built
+// per-call (cheap for test scale).
+func (s *stubOracle) SymbolExistsFlat(name string) (bool, int) {
+	if s == nil || s.tiers == nil {
+		return false, 0
+	}
+	flatQ := flattenIdentifier(name)
+	if flatQ == "" {
+		return false, 0
+	}
+	for k, t := range s.tiers {
+		if t <= 0 {
+			continue
+		}
+		if flattenIdentifier(k) == flatQ {
+			return true, t
+		}
+	}
+	return false, 0
+}
+
 func TestCheck_NilOracleIsByteIdenticalSubstring(t *testing.T) {
 	// Pre-commit-55 contract: a substring hit on must_include
 	// passes regardless of whether the term is a real symbol.

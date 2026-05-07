@@ -4,6 +4,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/hanchaoqun/codrax/internal/analysis/contract"
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
@@ -23,6 +24,29 @@ func (s *stubOracleFixB) SymbolExists(name string) (bool, int) {
 	}
 	if t, ok := s.tiers[name]; ok && t > 0 {
 		return true, t
+	}
+	return false, 0
+}
+
+// SymbolExistsFlat (Fix E) flattens both the query and each tier-
+// map key, then matches case-insensitively across forms. Mirrors
+// the production graphOracle's lazy flat index — built per-call
+// (cheap for test scale).
+func (s *stubOracleFixB) SymbolExistsFlat(name string) (bool, int) {
+	if s == nil || s.tiers == nil {
+		return false, 0
+	}
+	flatQ := contract.FlattenIdentifier(name)
+	if flatQ == "" {
+		return false, 0
+	}
+	for k, t := range s.tiers {
+		if t <= 0 {
+			continue
+		}
+		if contract.FlattenIdentifier(k) == flatQ {
+			return true, t
+		}
 	}
 	return false, 0
 }
