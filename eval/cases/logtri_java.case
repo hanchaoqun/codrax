@@ -40,10 +40,23 @@ EXPECT_CONTAINS="NullPointerException"
 # marker. LLM output variance is real; the architecture is what we
 # test, not the exact prose.
 #
-# The Chinese root-cause marker accepts either "根因" (concise, session
-# 19 spec) or "根本原因" (fuller phrasing the LLM often picks on its
-# own). Both anchor the same claim — that the answer frames the chain
-# bottom-up; which synonym the model picks is not the architectural
-# contract we're verifying.
+# The Chinese root-cause marker is a SEMANTIC anchor along the
+# "根 ... 因" / "根源" axis — multiple natural synonyms anchor the
+# same claim, and the architectural contract is the bottom-up
+# chain framing, NOT the specific synonym choice. Observed LLM
+# pickings include:
+#
+#   - "根因" (concise, session 19 spec)
+#   - "根本原因" (fuller phrasing the LLM often picks on its own)
+#   - "根本触发原因" (LLM-2026-05-07 batch: adds "触发" between
+#                    "根本" and "原因"; same semantic anchor)
+#   - "根源" (terse alternative)
+#
+# The regex below matches all four shapes via the "根" + flexible
+# middle (≤10 chars before "因") OR the bare "根源" form. Past
+# attempts to tighten this regex created coin-flip flakes the way
+# patch_go_typo did before Method M — the case-spec contract is
+# the bottom-up framing, so the marker check stays loose along
+# this axis on purpose.
 EXPECT_SECTIONS="IOException"
-EXPECT_MATCHES_REGEX="根(本原)?因"
+EXPECT_MATCHES_REGEX="(根因|根本.{0,10}因|根源)"
