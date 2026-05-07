@@ -20,9 +20,10 @@ codrax 是一个**代码分析 + 变更提议**工具：
 - [9. 数据结构](#9-数据结构)
 - [10. 请求生命周期](#10-请求生命周期)
 - [11. 关键设计模式](#11-关键设计模式)
-- [12. 运行时子系统](#12-运行时子系统)
-- [13. 配置](#13-配置)
-- [14. 可扩展性](#14-可扩展性)
+- [12. 为什么不走 RAG](#12-为什么不走-rag)
+- [13. 运行时子系统](#13-运行时子系统)
+- [14. 配置](#14-配置)
+- [15. 可扩展性](#15-可扩展性)
 
 ---
 
@@ -2090,15 +2091,175 @@ REPL `Store.BuildContext` 从 memory 拉上下文，把最近几轮 Q/A 拼进 `
 
 ---
 
-## 12. 运行时子系统
+## 12. 为什么不走 RAG
 
-### 12.1 internal/logging — 分级 + 多进程安全的日志
+> *本章把"RAG 在代码问答场景下到底差在哪"摊开讲。不是说 RAG 没价值，而是要说明：当目标是"答案锚到字节、可被复核、对错可问责"，RAG 的几个底层假设都不成立。*
+
+### 12.1 先把 RAG 是什么讲清楚
+
+RAG（Retrieval-Augmented Generation）的标准做法有两步：
+
+1. **离线索引**：把代码切块（按文件 / 函数 / 固定 token 数）→ 调 embedding 模型把每块映射成向量 → 存进向量库（pgvector / Chroma / FAISS / Pinecone 等）
+2. **在线问答**：把用户问题也 embedding → 在向量库里找余弦相似度 top-K 个块 → 把这些块作为 context 拼进 prompt → LLM 写答案
+
+听起来很自然——召回相关代码 + LLM 写答案。GitHub Copilot Chat / Cursor 的早期版本、几乎所有"chat with your codebase" SaaS 都是这个套路。**但用在"必须可审计的代码问答"场景上，RAG 有一组结构性问题。**
+
+### 12.2 RAG 的 10 条结构性弊端
+
+#### 弊端 1：相似度检索 ≠ 真实关系
+
+> *像图书馆按"封面颜色"找书。两本封面相似的书内容可能完全无关；两本封面差很大的书可能是同一作者的上下卷。embedding 把"看起来像"等同于"语义相关"，但代码里"看起来像"经常误导。*
+
+`class A implements Runnable` 和 `class B uses Runnable` 在 embedding 空间里很近——前者是接口实现关系，后者是依赖关系。问"Runnable 的实现都有哪些"，RAG 召回会混进 B；要把 B 剔出去，要么靠 LLM 二次过滤（耗 token + 不可靠），要么放弃精确性。
+
+代码里这种"字面接近、语义不同"的情况遍地都是：
+- `func Foo()` 的**定义** vs `Foo()` 的**调用** vs `// see Foo` 的**注释提及**——三者 embedding 距离接近，关系本质不同
+- `Config{Timeout: 5*time.Second}` 的**值** vs `Timeout = c.Timeout` 的**读取** vs `c.Timeout = ...` 的**赋值**——三者文本几乎一样
+- 同名 struct 在不同 package（`pkg/a.User` vs `pkg/b.User`）——embedding 不区分 package scope
+
+embedding 训练时是按"自然语言相似性"训的，没把"调用 / 定义 / 实现 / 提及"这种代码 typed 关系作为信号。**做"找最像"它擅长，做"按 typed 关系找"它先天不擅长。**
+
+#### 弊端 2：Top-K 不能表达"完整集合"
+
+> *用户问"项目里所有 HTTP handler 是哪些"，期望答案是 12 个全列。RAG 默认 top-5 给前 5 个像的；K=20 给前 20 个但混进 8 个不是 handler 的；K=∞ 不现实。*
+
+枚举类问题（"列出所有 X" / "几个 Y"）对 RAG 是结构性难题。三个出路都不好：
+
+- **K 太小**：少召回，答案漏掉真实 handler——用户根本不知道少了
+- **K 太大**：多召回，混进无关代码——LLM 要么按"prompt 里出现"全报（错），要么按它自己的判断过滤（不可靠）
+- **结构化二次过滤**：把召回结果再交给图谱 / AST 验证——但这等于承认 embedding 召回不够用、要换路径
+
+codrax 走的是图遍历：`Graph.ImplementersOf(interface)` 直接确定性返回所有实现者，`FileIndex` 找出所有 HTTP handler 注册——结果带完整性保证，不被 K 截断。
+
+#### 弊端 3：Absence 表达不出来
+
+> *RAG 的本质是"返回 top-K 最像的"——它**永远会返回什么**。这意味着对"不存在"的问题，它会编造存在感。*
+
+用户问 "X 这个 config key 在哪生效？" 如果代码里根本没有 X：
+- RAG 召回 top-5 个**最像 X 的** chunk（可能是 X' / Y / Z 等）
+- LLM 看到 5 个相似 chunk，倾向于回答"X 在 X' 的 path 生效……"——把"找不到"变成"找到了类似的"
+
+这种"silently fabricated existence"是 RAG 在代码场景下最危险的失败模式之一：**RAG 给不出 'no result' 信号**，永远召回 top-K，LLM 永远会有素材可写。
+
+codrax 的 evidence 系统有 `ScopeNegative` 和 `ScopeCrossfile`（forbidden assertion）专门表达 absence——一个 evidence item 可以 verbatim 记录"我跑了 grep 这个模式，repo 里 0 命中"，answer document 的 `MissingRequestedRoles` 字段把这种 absence 渲染成显式句子。
+
+#### 弊端 4：跨文件多跳推理走不通
+
+> *像问"为什么 Foo() 返回 nil？" —— 答案是"A.go:42 调用 X → B.go:88 X 检查 cache 失败返回 default → C.go:120 default 是 nil"。这是三跳，每跳一个文件，跨文件的关系才是答案本身。*
+
+RAG 召回单 chunk。跨文件推理要么靠：
+- **召回 N 个相关 chunk 同时塞 prompt**：LLM 自己拼关系图，概率性正确，长链尤其差
+- **多轮 retrieve-then-reason 循环**：每跳召回一次——但召回器没有"我已经走到链的哪个位置" 的状态，每轮都从头算相似度
+
+codrax 的 Answer Chain 是显式 typed 多跳数据结构（`identifyAnswerChains`）：从 evidence pool 出发，按"调用链 / 注册→使用 / 配置层级 / 返回值传递"几种典型模式构造 multi-hop chain，按确定性多键排序后呈现。第几跳、跳之间的关系、每跳的 file:line——全部有 typed 字段，validator 能逐项检查。
+
+#### 弊端 5：embedding 索引必然会 stale
+
+> *仓库每次 push 都得重建一遍索引，否则查的是旧代码。**索引重建成本高 + 时间窗口里答案都是错的**。*
+
+embedding 索引的 staleness 不是小问题：
+- **重建成本**：百万行代码切块 + embedding（按 OpenAI text-embedding-3-small $0.02/M tokens 算，几百到几千美元一次）；本地模型要 GPU
+- **增量更新难**：embed 整个 repo 容易，找出"哪些文件变了 + 重 embed 哪些块" 需要 diff 跟踪 + 块边界对齐——chunking 策略变了或文件 rename 时，增量更新就失效了
+- **多分支**：每个 feature branch 都要独立索引 vs 共享 main 的索引但答 feature 分支的问题——两难
+
+codrax 的 repomap 用 tree-sitter 现解，per-Run 现建（首次几秒到几十秒，后续走 cache_dir），HEAD 是什么状态看到的就是什么状态——零 staleness 窗口。代价是首次启动慢一点，但**所有结果都是当下代码的事实**。
+
+#### 弊端 6：黑盒相似度没法审计
+
+> *RAG 召回了一个 chunk，相似度 0.87。这个 0.87 是哪来的？为什么是 0.87 不是 0.91？被它召回意味着什么？—— 没法解释。*
+
+embedding 相似度是单一标量，不告诉你"为什么这个 chunk 比那个相关 0.05"。代码场景下这是真问题：
+
+- 用户答案错了，运维要追责——chunk B 被召回是 LLM 错读了，还是召回错了？说不清
+- 同一个问题不同时间答案不同——是 embedding 模型升级了？K 改了？块边界变了？没法定位
+- 想"这个 chunk 不该被召回，加 negative example" —— embedding 是 frozen model，加不进去
+
+codrax 的每条 evidence 有结构化标签：`GroundingTier`（T1 line_text / T2 symbol_table / R1-R5 recovery / ungrounded）+ `GroundingNote`（人类可读的"我是怎么落地的"）。运维 / 调试时按 tag 一查就知道哪条是 LLM 自己读的、哪条是 grounder 修复的、哪条根本进不了 citation 池。**每一步可解释 = 出错时可追溯 = 系统可改进**。
+
+#### 弊端 7：Citation 锚不到字节
+
+> *RAG 给 LLM 几页"主题相关的内容"，让 LLM 写答案。LLM 写"参见 Foo.go:42"——这一句话里的 `Foo.go:42` **不一定是召回的内容里真存在的位置**。LLM 是从相关 chunk 里"提炼"出来的，可能 hallucinate。*
+
+RAG 的 chunk 携带 file path 和大致行范围（chunk 的起始行）；LLM 在 chunk 文本里"看到" `func Foo() {`，然后在答案里写"Foo 定义在 Foo.go:42"——但 chunk 是从 line 30-80 切的，"42" 是 LLM 自己 + 估计的。引用错位是常态。
+
+codrax 的 `ground.GroundCitation` 强制每条 citation 走 7 层校验：T1 要求 LLM 真在 read_file 时看过那一行 ±2 邻域（同步从 read_file gutter 数据库查）；T2 要求 repomap 结构匹配；R1-R5 是 fallback 恢复路径。任意一条 citation 在 7 层全 miss → 丢出 citation pool 进 "Unverified Leads" 段——**永远不会出现"模型说在 line 42 但 line 42 实际是别的内容"**。
+
+#### 弊端 8：Chunking 策略两难
+
+> *按行数切？跨函数边界。按函数切？大函数撑爆 chunk size。按文件切？大文件超 token。每种切法都有 pathological case。*
+
+RAG 必须 chunk，因为 embedding model 有 max length，prompt 也有 budget。但代码的语义边界不规则：
+
+- **按行数切**（最常见）：一个 200 行的函数被切成 10 块——同一函数的 import 在第 1 块，定义在第 3 块，关键判断在第 7 块。问"Foo 函数为什么会 nil deref" 时召回了第 7 块，但 import 和签名信息不在召回结果里
+- **按函数切**：100 行的函数是一块——超 embedding model 长度，要么截断（丢信息），要么用更大模型（贵）。函数嵌套（lambda / 闭包）边界模糊
+- **按文件切**：大文件超长。每个 chunk 一个文件，召回粒度太粗，问"timeout 在哪定义" 把整个 1000 行 config.go 都返回回来，全是噪音
+- **重叠切片**：每块和邻块共享 N% 内容，避免切到中段——存储 / embedding 成本翻倍，召回还可能多次返回同段
+
+codrax 不切代码——repomap 是按 typed 实体（symbol / file / package）建的索引，explorer 调 read_file 时按用户行号读真实文件，不需要"块"这个抽象。
+
+#### 弊端 9：问题家族异质性吃亏
+
+> *"为什么 panic"和 "列出所有 handler"和 "默认 timeout 是多少"是三种本质不同的问题。RAG 用同一组 top-K + 同一个 prompt 模板套全部，注定有些类目效果差。*
+
+RAG pipeline 是同构的——任何问题都走"embed → retrieve top-K → stuff prompt → ask LLM"。但代码问题异质性极大：
+
+- **根因类**："Foo panic 怎么发生的" → 答案需要按时序的 cause chain
+- **枚举类**："列出所有 X" → 答案需要完整集合 + 每条 file:line
+- **配置追溯**："X 这个 key 默认 / 配置 / 运行时各值是多少" → 答案需要 layer-aware 表
+- **架构理解**："这个模块是怎么组织的" → 答案需要 component diagram + 各组件的 role
+- **路径查找**："消息从 X 怎么到 Y" → 答案需要多跳 call chain
+
+每种问题对答案的 shape、citation 数量、必填 facet 都不一样。codrax 的 8 种 QuestionFamily + 对应的 RequiredBlocks 合同 + family-specific scenario template——每种问题走自己的模板，答案 shape 强制规范。RAG 没有这层 routing，要求 LLM 自己适配——结果是某些类目效果好（像简单查找），某些类目效果差（像枚举 / 多跳 / absence）。
+
+#### 弊端 10：写模式根本用不上
+
+> *embedding 相似度对"该改 line 42 而不是 line 56"这种精确决策完全无能为力。RAG 是给"读问题写答案"设计的，"修改代码"是另一套。*
+
+写模式（plan / apply / verify）需要的是 typed 工程理解：哪个函数定义在哪、签名是什么、调用者是谁、import 关系。RAG 召回若干"内容相似" chunk 给 LLM 让它"自己想清楚怎么改"——结果是：
+
+- LLM 在 chunk 文本里看到的行号可能是 chunk 起始行 + 偏移，不是文件真实行号
+- 跨文件改动（A 里改函数签名 + B / C / D 里改调用点）需要图遍历，RAG 只召单点
+- patch 怎么 apply、apply 完测试怎么跑——RAG 不管这些
+
+codrax 的写模式有 typed `WriteAnalysisIR` + planner 看 `repomap.Graph` + apply_patch 物理只接受 `{path, kind}` 字段防 LLM 转抄 + worktree 沙箱 + 12 种 runner 自动 verify——这一整套是专为写场景设计，跟 RAG 的"召回相似上下文" 是不同维度的工作。
+
+### 12.3 codrax 借用了 RAG 哪些思路
+
+不是把 RAG 全砍掉。**部分思路 codrax 仍在用，只是定位不同**：
+
+| RAG 做法 | codrax 怎么用 | 区别 |
+|---|---|---|
+| 离线索引便于在线快查 | repomap 用 tree-sitter 建 typed Graph index（`internal/tool/repomap/`） | typed 索引而不是向量；按 symbol/file 名查比 embedding 准 |
+| 召回相关候选 | explorer Phase 0 broadly scan：repo_map + grep + list_files | 召回结果只是"该看哪"，不是"答案在这"——LLM 必须真去 read_file |
+| TF-IDF 风格关键词权重 | Required Files 排序、entity ranker | 参与排序但不决定 citation；citation 必须经 grounding |
+| chunking 长上下文 | tool-history pruning（`pruneToolHistory`） | 修剪历史只为控 context 预算，不影响下一轮召回逻辑 |
+
+**核心差别**：RAG 把召回结果**直接当 ground truth 喂 LLM**；codrax 把召回结果当 **导航辅助**——LLM 看完导航还要真去读文件，事实必须再读再核才进 citation 池。
+
+### 12.4 RAG 在哪些场景仍然合适
+
+不是说 RAG 一无是处。它在另一类场景下是**最优解**：
+
+| RAG 适合 | 原因 |
+|---|---|
+| 大语料、用户问句的关键词覆盖差（如客服问答 / 文档问答） | 自然语言相似度恰好是首要信号，"找最像" 等于"找答案" |
+| 答案不需要 file:line 锚点（如政策摘要 / 概念解释） | 召回 + summarize 即可，不要求字节级可审计 |
+| 知识更新慢（每周 / 每月 reindex 可接受） | 索引 staleness 不构成核心风险 |
+| 答案是 prose 不是 facts（如风格建议 / 设计感想） | LLM 的 generative 能力本身就是产出主体 |
+
+代码问答恰好不在上面任一格。对"代码 + 必须可审计 + 必须锚到字节" 这条赛道，RAG 的弊端会逐条暴露。codrax 选 typed pipeline + grounding-first，是直接奔着这条赛道去的。
+
+---
+
+## 13. 运行时子系统
+
+### 13.1 internal/logging — 分级 + 多进程安全的日志
 
 leveled logger（error / warning / info / debug），写到 `logs/codrax-YYYYMMDD-HHMMSS-mmm-<pid>.log`，4 MB rotation + `log_max_files` 文件 retention（默认 7）。每次进程启动开**新的** PID-stamped 文件；retention sweeper 解析文件名里的 PID，owning process 仍存活时跳过删除。PID liveness 检查在 Unix 上用 `syscall.Kill(pid, 0)`，Windows 上用 `OpenProcess` + `GetExitCodeProcess`（`pid_{unix,windows}.go`，`//go:build` 分发）。
 
 Debug-gated `[diag ...]` trace 在 `BaseAgent.Execute` 里 dump 完整的 ReAct 循环（initial prompt、assistant turns、tool results、stop reason），`-log-level debug` 打开。
 
-### 12.2 internal/memory — 多轮 REPL 记忆
+### 13.2 internal/memory — 多轮 REPL 记忆
 
 > *像随手记笔记本：最近几张活页（recent turns）原话存档；写满了就把最老那张交给秘书（LLM）压成"3 月 5 日讨论了 X 项目，关键词：A/B"这种摘要塞进总目录（MEMORY.md），原话仍存档案室能反查（full_ref）。下次提问时按摘要 + 关键词检索相关历史。*
 
@@ -2113,7 +2274,7 @@ Recent turns 存内存 + 磁盘上 verbatim 的 `memory/turns/<id>.md`，其中 
 
 **Per-Kind 检索策略**：5 个 Kind（chitchat / shell / pipeline / plan / default）每个含 5 字段（`session_pin_count` / `recent_body_chars` / `compacted_match_cap` / `entity_score_mul` / `refs_chain_depth`）。`types.DefaultMemoryKindPolicies` 是真值源，`internal/memory.policyFor` 在其上叠 yaml override。共 17 个原 hardcode 数全部暴露成 `memory_policy_*` 嵌套字段。
 
-### 12.3 internal/repl — 交互式 REPL
+### 13.3 internal/repl — 交互式 REPL
 
 逐行读取，用 `Store.BuildContext` 把历史对话 prepend 成 `## Prior conversation\n...\n\n## Current request\n...` 注入请求字符串——零修改 BusContext 或 Agent。Slash command 分两组（每条都支持 `\` 前缀别名，如 `\exit` ≡ `/exit`）：
 
@@ -2128,13 +2289,13 @@ Recent turns 存内存 + 磁盘上 verbatim 的 `memory/turns/<id>.md`，其中 
 
 **写模式命令**：详见 §8。`/mode` 切换粘滞 mode；`/plan show` 渲染 unified-diff 预览（per-change 4 KB、总 16 KB 上限）；`/approve` 只接受 `Status == pending_approval` 的 plan，触发第二次 Run 带 `Mode = ModeApply` + SetPlanPath；`/reject [reason]` 把 plan 从 PlanStore 清掉并记入 memory（`memory.KindPlan`）；`/verify [plan-id]` 对 `Status ∈ {applied, verify_failed}` 且有保留 worktree 的 plan 重跑 ModeVerify；`/worktree list / discard <plan-id>` 管理保留下来的 worktree；`/merge` 触发 worktree.MergeIntoBranch；`/baseline` 显示当前 baseline；`/phase` 多阶段方案进度；`/pitfalls` 列出 active pitfall。
 
-### 12.4 internal/tool/blob — Tool 输出落盘
+### 13.4 internal/tool/blob — Tool 输出落盘
 
 per-process blob 存储。Session dir `<CWD>/.codrax/blob/<timestamp>-<pid>/`，assigned 到 `BusContext.WorkDir`。`PruneBlobSessions` 在启动时按 `blob_max_sessions` 保留最近 N 个，存活 PID 的 peer session 永不删。设 `blob_max_sessions: 0` 回退到 per-trace `os.MkdirTemp` + `RemoveAll`。
 
 工具结果超过 `blob_max_inline_bytes`（默认 32 KB）落到 WorkDir，只把 head/tail preview 塞进 LLM 上下文。Agent 想看全文就 `read_file` 指向 `RawRef`。
 
-### 12.5 internal/render — 事件流 + CLI 渲染
+### 13.5 internal/render — 事件流 + CLI 渲染
 
 | 文件 | 职责 |
 |------|------|
@@ -2150,15 +2311,15 @@ per-process blob 存储。Session dir `<CWD>/.codrax/blob/<timestamp>-<pid>/`，
 
 **响应语言**：`-lang`（默认 `zh`）→ `orchestrator.SetLanguage` → append 到 `BusContext.Preferences` → 作 "User Preferences" system 段渲染。始终带 fallback 分句——另一语言提问能用那语言回答。`-lang=off` / `none` 回退。
 
-### 12.6 internal/mcp — MCP（Model Context Protocol）外置工具桥
+### 13.6 internal/mcp — MCP（Model Context Protocol）外置工具桥
 
 可选 MCP server 接入：在 `providers.yaml` 配置后，对应工具会作为常规 tool 暴露给 explorer / planner（按 skill allowlist）。`MCPResponses` 记录 tool 调用结果作 prompt section。
 
 ---
 
-## 13. 配置
+## 14. 配置
 
-### 13.1 两个文件平铺在二进制同目录
+### 14.1 两个文件平铺在二进制同目录
 
 | 文件 | 内容 | 加载器 |
 |------|------|--------|
@@ -2169,7 +2330,7 @@ per-process blob 存储。Session dir `<CWD>/.codrax/blob/<timestamp>-<pid>/`，
 - 配置锚点 `<exeDir>` —— `providers_config` 在这里解析（安装 = 一份配置树，跟工作目录无关）
 - 运行产物锚点 `<CWD>/.codrax/` —— `log_dir` / `memory_dir` / `cache_dir` / blob 会话根 / worktree base / plan dir 在这里解析（运行产物跟随用户工作区）
 
-### 13.2 providers.yaml schema
+### 14.2 providers.yaml schema
 
 `llm.default` block + `llm.agents.<name>` overrides。Merge order：agent-level → default-level → 环境变量。**Non-zero merge 规则**：agent-level 字段为零值时继承 default-level；非零总是胜出。允许一份 providers.yaml 跨异构模型按字段独立 scale。
 
@@ -2188,7 +2349,7 @@ per-process blob 存储。Session dir `<CWD>/.codrax/blob/<timestamp>-<pid>/`，
 
 未配置的 agent 继承 `llm.default`。
 
-### 13.3 codrax.yaml — 按前缀分组
+### 14.3 codrax.yaml — 按前缀分组
 
 所有字段指针类型以让 merge 区分 "absent" vs "explicit zero value"：
 
@@ -2218,7 +2379,7 @@ per-process blob 存储。Session dir `<CWD>/.codrax/blob/<timestamp>-<pid>/`，
 | `verify_*` / `worktree_*` | 写模式资源墙 | `verify_mem_limit_mb`（2048）/ `verify_cpu_limit_seconds`（600）/ `worktree_keep_ttl_hours`（168 = 7 天）/ `worktree_keep_max_count`（20） |
 | `repl_*` | REPL UX | `repl_paste_fold_min_chars`（120） |
 
-### 13.4 优先级（precedence）
+### 14.4 优先级（precedence）
 
 | key 组 | 优先级（低 → 高） |
 |--------|------------------|
@@ -2229,11 +2390,11 @@ per-process blob 存储。Session dir `<CWD>/.codrax/blob/<timestamp>-<pid>/`，
 
 带 CLI override 的 flag：`--repo` / `--branch` / `--request` / `--max-steps` / `--max-retries` / `--max-stage-visits` / `--log-dir` / `--log-level` / `--log-stdout` / `--memory-dir` / `--cache-dir` / `--lang` / `--log <file>` / `--log -` / `--log-text` / `--htrace` / `--atrace` / `--htrace-text` / `--atrace-text` / `--log-source-prefix` / `--chitchat-classifier` / `--mode` / `--auto-apply` / `--auto-init-repo` / `--allow-scaffold`。
 
-### 13.5 codrax.yaml 查找顺序
+### 14.5 codrax.yaml 查找顺序
 
 `$CODRAX_SETTINGS` → `<exeDir>/codrax.yaml` → `<exeDir>/codrax/codrax.yaml` → `<exeDir>/config/codrax.yaml`（legacy，warn）→ `<exeDir>/../config/codrax.yaml`（legacy，warn）→ `<CWD>/config/codrax.yaml`（legacy，warn）。两个 anchor 都在 flag 注册前解析成绝对路径。`-repo` 不参与 anchoring——默认 `.` 永远代表 CWD。
 
-### 13.6 Per-target-repo namespacing
+### 14.6 Per-target-repo namespacing
 
 > *像合租屋每人一个上锁的储物柜：同一台 codrax 跟着用户跑多个不同的代码仓库，各自的日志、记忆、缓存自动分到独立子目录里（按仓库名 + 哈希）——分析仓 A 时不会误读仓 B 的旧记忆，删掉一个仓的痕迹也不影响别的。*
 
@@ -2241,7 +2402,7 @@ per-process blob 存储。Session dir `<CWD>/.codrax/blob/<timestamp>-<pid>/`，
 
 Blob session 根**不**做 per-repo 分区——一个进程所有 Run 共用 `<CWD>/.codrax/blob/<timestamp>-<pid>/`，因为 blob 文件 content-addressed（`<tool>-<sha8>.txt`），跨仓库相同输出天然去重。
 
-### 13.7 Multi-instance safety
+### 14.7 Multi-instance safety
 
 - 日志文件名带 PID，retention 跳过 live-PID
 - Memory：MEMORY.md.lock 每操作 flock + .instance.lock lifetime shared probe
@@ -2250,13 +2411,13 @@ Blob session 根**不**做 per-repo 分区——一个进程所有 Run 共用 `<
 - Worktree 按嵌入 PID 存活性 + TTL/quota 回收
 - Windows 文件锁：`syscall.NewLazyDLL("kernel32.dll")`
 
-### 13.8 BytesPerToken = 4
+### 14.8 BytesPerToken = 4
 
 整个项目的字节-token 换算常数，既用于 fraction-form 预算解析，也用于 watchdog 估算。保守（英文文本实际约 4 B/tok；CJK 约 2 B/tok，估算会过大所以更安全）。配置层 `config.BytesPerToken` 是类型别名，保证单一数值真源。
 
 `config.ResolveByteBudget(fraction, absolute, codeDefault, contextWindow)` 是 fraction-form 旋钮的单一真源：`fraction > 0 && contextWindow > 0` 时返回 `int(contextWindow * fraction * BytesPerToken)`，否则 absolute → codeDefault。
 
-### 13.9 依赖
+### 14.9 依赖
 
 Go 1.24.0。主要依赖：
 
@@ -2271,9 +2432,9 @@ Go 1.24.0。主要依赖：
 
 ---
 
-## 14. 可扩展性
+## 15. 可扩展性
 
-### 14.1 添加新工具
+### 15.1 添加新工具
 
 1. 实现 `Tool` 接口，嵌入 `tool.ReadOnly`（或 `tool.WriteCapable` 用于写模式）提供 `IsWrite() bool`
 2. 在 `cmd/root.go` 的 tool registry 注册
@@ -2281,7 +2442,7 @@ Go 1.24.0。主要依赖：
 4. 写 JSON schema（`Parameters`），保证 params 能 unmarshal 到 typed struct
 5. 在 `Execute` 里调 schema 解码 + 执行 + 返回 `ToolResult`
 
-### 14.2 添加新 Agent
+### 15.2 添加新 Agent
 
 1. 新增 `AgentName` 枚举常量
 2. 实现 `Evaluator` 接口（BuildInitialInstruction / ShouldStop / ParseOutput / DetermineMissingPiece），可选实现 `LoopController`
@@ -2289,13 +2450,13 @@ Go 1.24.0。主要依赖：
 4. 绑到新阶段时同步更新 `topology.go` 的 `pipelineTopology` map 和 `PipelineStage` 枚举
 5. 在 `IsWrite()` 里决定该阶段是读还是写——会影响 context builder 的字段裁剪
 
-### 14.3 添加新 Skill
+### 15.3 添加新 Skill
 
 1. 定义 `skill.Config`（goal / workflow / toolSuggestions / outputFormat / prohibitions）
 2. 在 `skill.RegisterDefaults` 注册
 3. bind 到 `pipelineTopology` 某阶段作 default skill
 
-### 14.4 添加新 AnalysisIR 节点类型 / Intent / Scenario
+### 15.4 添加新 AnalysisIR 节点类型 / Intent / Scenario
 
 1. 新增枚举常量（`internal/types/analysis_ir.go` 等）
 2. TaskNodeType → `scheduler.stageMapping` 加映射
@@ -2303,7 +2464,7 @@ Go 1.24.0。主要依赖：
 4. Intent → `internal/analysis/compiler/scenario.go::InferScenario` 可能加分支
 5. 同步 `analysis-skill` 的字段枚举（`analysis_contract.go`）
 
-### 14.5 添加新 typed signal — 6 处同步
+### 15.5 添加新 typed signal — 6 处同步
 
 新增的 typed 字段（如新 Predicate / 新 AnswerSubjectKind / 新 AnchorKind）必须 6 处同步：
 
@@ -2316,7 +2477,7 @@ Go 1.24.0。主要依赖：
 
 漏一处都会让结构 hint 与 LLM 表现脱节。
 
-### 14.6 添加新 AnswerBlock kind / SurfaceRole
+### 15.6 添加新 AnswerBlock kind / SurfaceRole
 
 1. 新增 `AnswerBlockKind` 或 `SurfaceRole` 常量并加进 `AllAnswerBlockKinds()` / `IsValidAnswerBlockKind` / `NormalizeSurfaceRole`
 2. `internal/tool/emit_answer_document_v2.go` 的 schema 描述补充新 kind 含义 + worked example
@@ -2324,28 +2485,28 @@ Go 1.24.0。主要依赖：
 4. `internal/orchestrator/contract_check_block.go` 加 oracle 验证规则（family ↔ block kind 必填关系）
 5. `internal/types/answer_semantic_view_compile_<family>.go` 选择性把新 kind 加入对应 family 的 RequiredBlocks / OptionalBlocks
 
-### 14.7 添加新 AnswerSubjectKind
+### 15.7 添加新 AnswerSubjectKind
 
 1. 新增 `AnswerSubjectKind` 常量
 2. `internal/analysis/subject/taxonomy.go` 加 per-kind judge
 3. `analyzer_intent.go::inferAnswerSubject` 的 cue 表加 trigger
 4. 新 kind 必须有非 SubjectGeneric 的有效路径——E1 hard-fallback 永不让下游拿到 SubjectUnknown
 
-### 14.8 添加新 CGEC RepairKind
+### 15.8 添加新 CGEC RepairKind
 
 1. 新增 `RepairKind` 常量（`internal/types/repair.go`）
 2. 加 producer：某 enforcer 构造 `RepairDirective{Kind: ..., ...}` 调 `AddRepair`
 3. 加 consumer：`renderWindowHint` 加对应渲染段
 4. 更新 `TestAllRepairKindsHaveProducer` + `TestAllRepairKindsHaveConsumer` 断言
 
-### 14.9 添加新 Criterion Kind
+### 15.9 添加新 Criterion Kind
 
 1. 新增 `CriterionKind` 常量
 2. 在 `internal/analysis/criterion/eval.go` 加 evaluator
 3. 在 typed env（`criterion.Env`）按需新增 slot
 4. 写模式新增的 Crit 在读模式 Run 时该 slot 为 nil，evaluator 直接返回 Satisfied=true（保持读模式字节级行为）
 
-### 14.10 添加新 ViolationKind
+### 15.10 添加新 ViolationKind
 
 1. 在 `internal/types/violation.go::RegisterViolKind` 注册（单源真理，5 张派生表自动覆盖）
 2. 可选挂 `ViolKindSpec.SchemaDescriptionFragment`——LLM-facing prose——auto-injected 到对应 emit 工具的 prompt
