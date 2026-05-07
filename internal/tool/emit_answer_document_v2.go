@@ -795,11 +795,31 @@ func repairStringWrappedArrayFields(raw json.RawMessage) (json.RawMessage, []str
 			repaired = append(repaired, key)
 			continue
 		}
+		// Path B: whole-document stringify — the LLM put MULTIPLE
+		// top-level fields inside this string value (typical when
+		// the blocks array is followed by replace_citations / etc
+		// inside the same stringified blob). Wrap as
+		// `{"<key>": <trimmed>}` and parse; the merged document
+		// then has the array at `key` plus the other top-level keys
+		// re-surfaced. Outer keys not in the wrapped doc are
+		// preserved (the outer probe wins on conflict).
+		wrapped := []byte(`{"` + key + `": ` + trimmed + `}`)
+		if patched, ok := mergeWholeDocStringify(probe, key, wrapped); ok {
+			probe = patched
+			repaired = append(repaired, key)
+			continue
+		}
 		// Path C inner: normalise control chars inside the inner
-		// string and retry the array decode.
+		// string and retry both Path A and Path B.
 		if normalised, changed := normalizeControlCharsInJSONStrings(trimmed); changed {
 			if err := json.Unmarshal([]byte(normalised), &inner); err == nil {
 				probe[key] = mustMarshal(inner)
+				repaired = append(repaired, key)
+				continue
+			}
+			wrappedC := []byte(`{"` + key + `": ` + normalised + `}`)
+			if patched, ok := mergeWholeDocStringify(probe, key, wrappedC); ok {
+				probe = patched
 				repaired = append(repaired, key)
 				continue
 			}
@@ -881,6 +901,45 @@ func repairNestedArraysAsString(raw json.RawMessage) (json.RawMessage, []string,
 		return raw, nil, false
 	}
 	return out, paths, true
+}
+
+// mergeWholeDocStringify is the Path B helper for
+// repairStringWrappedArrayFields. It parses `wrapped` (a candidate
+// `{"<key>": <trimmed>}` byte slice that, on success, supplies the
+// array at `key` along with any sibling top-level fields that the
+// LLM crammed inside the stringified blob), then merges the result
+// back into the outer probe so the patch payload retains every
+// originally-emitted top-level key.
+//
+// Returns (patched, true) when wrapped parses to a JSON object
+// whose `key` field is a real array; (nil, false) otherwise. The
+// merge rule: wrapped's keys win for `key` AND for any sibling key
+// the outer probe did not already define; the outer probe wins on
+// conflict for every other key (so non-target fields are not
+// silently overridden by malformed inner content).
+func mergeWholeDocStringify(probe map[string]json.RawMessage, key string, wrapped []byte) (map[string]json.RawMessage, bool) {
+	var fullDoc map[string]json.RawMessage
+	if err := json.Unmarshal(wrapped, &fullDoc); err != nil {
+		return nil, false
+	}
+	rawArr, ok := fullDoc[key]
+	if !ok || len(rawArr) == 0 || rawArr[0] != '[' {
+		return nil, false
+	}
+	merged := make(map[string]json.RawMessage, len(probe)+len(fullDoc))
+	for k, v := range probe {
+		merged[k] = v
+	}
+	merged[key] = rawArr
+	for k, v := range fullDoc {
+		if k == key {
+			continue
+		}
+		if _, exists := merged[k]; !exists {
+			merged[k] = v
+		}
+	}
+	return merged, true
 }
 
 // repairNestedArraysInPatch applies the same items / claim_uses
