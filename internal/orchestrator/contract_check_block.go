@@ -2293,32 +2293,82 @@ func validateEnumerationItemLabelHallucination(doc *types.AnswerDocumentV2, orac
 	return out
 }
 
+// isCodeContextDiagramKind reports whether the diagram's kind
+// declaration ITSELF asserts the diagram's nodes must be codebase
+// symbols. Only DiagramCallDAG qualifies — call DAGs by definition
+// connect code-callable entities (functions / methods). Other
+// kinds (flow, sequence, architecture) routinely use abstract role
+// labels (`Analyzer`, `HTTP Handler`, `Cache Layer`) without code
+// grounding, per the explicit "conceptual role labels are fine
+// without a citation" prompt contract in skill/defaults.go.
+func isCodeContextDiagramKind(k types.DiagramKind) bool {
+	return k == types.DiagramCallDAG
+}
+
+// isCodeContextRelationKind reports whether a typed relation
+// declares the SPECIFIC edge as connecting code-callable entities.
+// Only DiagramRelCall qualifies — call edges are by definition
+// caller→callee where both ends are function/method names. Other
+// relations connect packages (Import), conceptual roles (Contain
+// in architecture), abstract states (Guard / Precedence /
+// Observe) where endpoints aren't required to be Go-source
+// symbols.
+func isCodeContextRelationKind(r types.DiagramRelationKind) bool {
+	return r == types.DiagramRelCall
+}
+
 // validateDiagramEdgeEndpointHallucination (Fix D, 2026-05-07
-// post-Fix-C diagram audit) verifies that every mermaid edge
-// endpoint (the `from` and `to` node identifiers) in a BlockDiagram
-// resolves to a Tier 1-2 codebase symbol via the typed graph
-// SymbolOracle. Mirror of validateEnumerationItemLabelHallucination
-// applied to the diagram surface — same precise typed-graph
-// counterpart to validateDiagramEdgeSupport's pool substring vouch.
+// post-Fix-C diagram audit; refined by Fix F, 2026-05-07
+// post-m1a-r1 false-positive forensic) verifies that every mermaid
+// edge endpoint (the `from` and `to` node identifiers) in a
+// code-context diagram resolves to a Tier 1-2 codebase symbol via
+// the typed graph SymbolOracle.
 //
-// Why this gate is needed: validateDiagramEdgeSupport's
-// diagramTokenSupported uses bidirectional case-folded substring
-// matching against a support pool that includes prose tokens
-// (block titles, item labels, claim_use annotations). Short prose
-// tokens like "coherence" or "validate" appearing anywhere in the
-// answer's grounding pool can vouch a fabricated compound mermaid
-// node id like `validateFakeCoherenceCheck`. The graph oracle
-// rejects the same name because no source file declares it,
-// preventing the user from receiving a diagram that references
-// identifiers that don't exist.
+// Fix F refinement — code-context typed gate (m1a r1 forensic):
+// Fix D's initial scope (any BlockDiagram with identifier-shape
+// endpoints ≥ 10 chars) over-fired on architecture / flow /
+// sequence diagrams whose endpoints are abstract role labels
+// (`ExplorerAgent`, `EmitEvidence_TA`) — not codebase symbols.
+// The skill prompt explicitly permits role labels in such
+// diagrams without code grounding ("conceptual / role labels are
+// fine without a citation"). Fix F restricts the oracle gate to
+// edges in a code-context, determined by TWO typed signals:
 //
-// Trigger conditions (all required, defensively narrow — same
-// shape as validateEnumerationItemLabelHallucination):
+//   - Diagram-level: diagram.Kind == DiagramCallDAG. Call DAGs by
+//     declaration require nodes to be code-callable entities.
+//   - Edge-level: the LLM-declared EdgeAnchor.RelationKind ==
+//     DiagramRelCall. A typed `call` relation by definition
+//     connects function/method endpoints regardless of the
+//     containing diagram's kind.
+//
+// An edge passes through the oracle gate iff EITHER signal holds.
+// Edges that satisfy neither — architecture role nodes, flow
+// state nodes, sequence actors, import edges between packages —
+// skip the validator entirely. Both signals are typed enums LLM
+// authors deliberately, mirroring R3's "precise typed signals
+// drive hard gates, noisy signals drive soft guidance".
+//
+// Why this gate is needed (independent of Fix F):
+// validateDiagramEdgeSupport's diagramTokenSupported uses
+// bidirectional case-folded substring matching against a support
+// pool that includes prose tokens (block titles, item labels,
+// claim_use annotations). Short prose tokens like "coherence" or
+// "validate" appearing anywhere in the answer's grounding pool
+// can vouch a fabricated compound mermaid node id like
+// `validateFakeCoherenceCheck`. The graph oracle rejects the same
+// name because no source file declares it, preventing the user
+// from receiving a diagram that references identifiers that don't
+// exist — but only when the typed signals say the diagram is
+// about code, not abstract roles.
+//
+// Trigger conditions (all required, defensively narrow):
 //
 //   - oracle != nil — unit-test path / no-graph runs disable the
 //     validator.
 //   - block.Kind == BlockDiagram with a non-empty Diagram.Body —
 //     other shapes don't carry mermaid edges.
+//   - The edge is in a CODE CONTEXT — diagram.Kind ==
+//     DiagramCallDAG OR EdgeAnchor.RelationKind == DiagramRelCall.
 //   - endpoint is shaped <identifier>[<separator><prose>] —
 //     prose-id endpoints (e.g. "Step 1") skip via
 //     labelLeadingSymbolIdentifier returning "" when the leading
@@ -2327,8 +2377,8 @@ func validateEnumerationItemLabelHallucination(doc *types.AnswerDocumentV2, orac
 //     (10 chars) — short ids (`A`, `Foo`, `node1`) are typically
 //     mermaid stub identifiers, not source-file symbol references,
 //     and would false-positive.
-//   - oracle returns Tier=0 (not found) OR Tier ≥ 3 (low-confidence
-//     parse) — same precision contract as the sister validators.
+//   - oracle (Fix E SymbolExistsFlat) returns Tier=0 (not found)
+//     OR Tier ≥ 3 (low-confidence parse). Tier 1-2 → pass.
 //
 // Default classification: Medium severity, retry-eligible
 // finalizer-only. Operators promote via
@@ -2341,6 +2391,11 @@ func validateDiagramEdgeEndpointHallucination(doc *types.AnswerDocumentV2, oracl
 		endpoint string
 		ident    string
 	}
+	// Build the typed (from,to) → RelationKind index once for the
+	// whole document; reused per block to decide whether each edge
+	// is in a code context. Keys are case-folded trimmed strings to
+	// match the parseMermaidEdges normalisation.
+	typedRel := buildTypedRelationIndex(doc)
 	perBlock := make(map[string][]hallucinated)
 	for i := range doc.Blocks {
 		b := &doc.Blocks[i]
@@ -2355,6 +2410,9 @@ func validateDiagramEdgeEndpointHallucination(doc *types.AnswerDocumentV2, oracl
 		if len(edges) == 0 {
 			continue
 		}
+		// Fix F: a CallDAG-kind diagram puts every edge in a code
+		// context regardless of edge-level relation declarations.
+		kindIsCodeContext := isCodeContextDiagramKind(b.Diagram.Kind)
 		// Track the hallucinated endpoints encountered in this block;
 		// dedupe so the same endpoint named in 5 edges only reports
 		// once per block.
@@ -2386,6 +2444,22 @@ func validateDiagramEdgeEndpointHallucination(doc *types.AnswerDocumentV2, oracl
 			})
 		}
 		for _, e := range edges {
+			// Fix F: per-edge code-context decision. Skip the gate
+			// entirely when neither the diagram kind nor the edge's
+			// own typed relation says "this is a code-call edge".
+			edgeIsCodeContext := kindIsCodeContext
+			if !edgeIsCodeContext {
+				key := edgeKey{
+					from: strings.ToLower(strings.TrimSpace(e.from)),
+					to:   strings.ToLower(strings.TrimSpace(e.to)),
+				}
+				if rel, ok := typedRel[key]; ok && isCodeContextRelationKind(rel) {
+					edgeIsCodeContext = true
+				}
+			}
+			if !edgeIsCodeContext {
+				continue
+			}
 			check(e.from)
 			check(e.to)
 		}

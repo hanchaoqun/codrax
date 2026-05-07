@@ -8,7 +8,11 @@ import (
 )
 
 // docWithDiagram builds a minimal V2 doc carrying a single
-// BlockDiagram with the supplied mermaid body.
+// BlockDiagram with the supplied mermaid body. Defaults to
+// DiagramCallDAG kind because that's the kind whose declaration
+// itself puts every edge in a code context (Fix F gate). Tests
+// that need a non-call_dag kind (flow / sequence / architecture)
+// build their own AnswerDocumentV2 directly.
 func docWithDiagram(blockID, body string) *types.AnswerDocumentV2 {
 	return &types.AnswerDocumentV2{
 		Blocks: []types.AnswerBlock{
@@ -17,7 +21,7 @@ func docWithDiagram(blockID, body string) *types.AnswerDocumentV2 {
 				Kind:        types.BlockDiagram,
 				SurfaceRole: types.SurfacePrincipal,
 				Diagram: &types.AnswerDiagramBlock{
-					Kind: types.DiagramFlow,
+					Kind: types.DiagramCallDAG,
 					Body: body,
 				},
 			},
@@ -92,13 +96,15 @@ func TestDiagramEdgeEndpointHallucination_NilOracleSkips(t *testing.T) {
 // TestDiagramEdgeEndpointHallucination_ShortIdentSkipsFloor confirms
 // the length floor: short mermaid stub identifiers (`A`, `Foo`,
 // `node1`) bypass the validator. These are typically mermaid scaffold
-// node ids, not source-file symbol references.
+// node ids, not source-file symbol references. Use DiagramCallDAG
+// (the default helper kind) so the Fix F code-context gate doesn't
+// skip the whole block before the floor check runs.
 func TestDiagramEdgeEndpointHallucination_ShortIdentSkipsFloor(t *testing.T) {
 	body := "graph TD\n" +
 		"    A[Analyzer] --> B[Explorer]\n" +
 		"    B --> Foo\n" +
 		"    Foo --> node1\n"
-	doc := docWithDiagram("flow", body)
+	doc := docWithDiagram("call_dag", body)
 	// Empty oracle would fail every endpoint, but all are below the
 	// 10-char floor, so none should fire.
 	oracle := &stubOracleFixB{tiers: map[string]int{}}
@@ -166,14 +172,14 @@ func TestDiagramEdgeEndpointHallucination_MultiBlockSplits(t *testing.T) {
 			{
 				ID: "diagram1", Kind: types.BlockDiagram,
 				Diagram: &types.AnswerDiagramBlock{
-					Kind: types.DiagramFlow,
+					Kind: types.DiagramCallDAG,
 					Body: "graph TD\n    fakeFunctionOne --> realFunction\n",
 				},
 			},
 			{
 				ID: "diagram2", Kind: types.BlockDiagram,
 				Diagram: &types.AnswerDiagramBlock{
-					Kind: types.DiagramFlow,
+					Kind: types.DiagramCallDAG,
 					Body: "graph TD\n    fakeFunctionTwo --> realFunction\n",
 				},
 			},
