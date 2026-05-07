@@ -105,6 +105,119 @@ func (r *repomapSymbolResolver) LookupSymbol(surface string) []normalizer.Symbol
 	return hits
 }
 
+// roleSuffixCanonicalLowers is the canonical list of role-naming
+// suffixes that the LookupSymbolStem fallback strips before
+// stem-substring matching. The list captures common conceptual
+// role nouns the user may attach to a symbol's logical name when
+// the codebase uses a different implementation suffix:
+//
+//	user "AnalyzerAgent" + repo `analyzerEvaluator` (Agent → Evaluator)
+//	user "RequestHandler" + repo `requestProcessor` (Handler → Processor)
+//	user "ConfigService" + repo `configManager`     (Service → Manager)
+//
+// Only role suffixes go here (not common type-ish nouns) — entries
+// like "User" / "Item" would match too many false-positive cases.
+// Each entry is the lowercase form; matching is case-insensitive.
+var roleSuffixCanonicalLowers = []string{
+	"agent", "handler", "manager", "service", "worker", "driver",
+	"controller", "dispatcher", "processor", "runner", "executor",
+	"module", "component", "adapter", "provider", "factory", "builder",
+	"impl", "wrapper", "delegate", "facade", "client", "server",
+}
+
+// stemSuffixFloor is the minimum stem length subject to substring
+// flat-match. "ClassA" → strip "class" → "a" (below floor → skip);
+// "AnalyzerAgent" → strip "agent" → "analyzer" (8 chars ≥ 4 → ok).
+const stemSuffixFloor = 4
+
+// LookupSymbolStem (Fix J, 2026-05-07 m1b r1 forensic) is the
+// concept-form fallback for callers that need "is this user-
+// expressed entity grounded in the codebase even if the graph
+// uses a different role suffix?". Use only after LookupSymbol
+// returns empty. Matches the m1b case where the user said
+// "analyzer agent" and the graph has `analyzerEvaluator`.
+//
+// Three-stage stem-aware lookup:
+//
+//  1. Strip a known role-naming suffix (Agent / Handler / Manager
+//     / Service / etc.) from the surface, case-insensitive.
+//  2. If the remaining stem is < stemSuffixFloor chars, abort
+//     (trivial stems would substring-match too many symbols).
+//  3. Flat-form-canonicalise the stem (NormalizeCodeKey) and scan
+//     SymbolDefs for any name whose flat form CONTAINS the stem
+//     flat. Cap hits at maxSymbolResolverHits. Returns nil when
+//     no role suffix matches.
+//
+// Distinct semantic from LookupSymbol: this is a fuzzier
+// "concept-existence" match used by gates (e.g. coherence
+// entity-resolution) that ask "does this concept have ANY
+// implementation in the repo?" — NOT "what is the canonical
+// symbol for this name?".
+func (r *repomapSymbolResolver) LookupSymbolStem(surface string) []normalizer.SymbolHit {
+	if r == nil || r.graph == nil {
+		return nil
+	}
+	trimmed := strings.TrimSpace(surface)
+	if trimmed == "" {
+		return nil
+	}
+	stem := stripRoleSuffix(trimmed)
+	if stem == "" || len(stem) < stemSuffixFloor {
+		return nil
+	}
+	flatStem := normalizer.NormalizeCodeKey(stem)
+	if flatStem == "" || len(flatStem) < stemSuffixFloor {
+		return nil
+	}
+	hits := make([]normalizer.SymbolHit, 0, maxSymbolResolverHits)
+	seen := make(map[string]bool, maxSymbolResolverHits)
+	for name, defs := range r.graph.SymbolDefs {
+		if !strings.Contains(normalizer.NormalizeCodeKey(name), flatStem) {
+			continue
+		}
+		for _, sym := range defs {
+			if sym == nil || sym.Name == "" {
+				continue
+			}
+			key := sym.Name + "|" + sym.File
+			if seen[key] {
+				continue
+			}
+			seen[key] = true
+			hits = append(hits, normalizer.SymbolHit{
+				Canonical: sym.Name,
+				Domain:    symbolDomain(r.graph, sym),
+			})
+			if len(hits) >= maxSymbolResolverHits {
+				return hits
+			}
+		}
+	}
+	return hits
+}
+
+// stripRoleSuffix removes a recognised role-naming suffix (case-
+// insensitive) from the end of name and returns the remaining
+// stem. Returns "" when no role suffix matches. Used by
+// LookupSymbolStem to bridge user-concept-form
+// (`AnalyzerAgent`) ↔ repo-implementation-form
+// (`analyzerEvaluator`).
+func stripRoleSuffix(name string) string {
+	lower := strings.ToLower(name)
+	for _, suffix := range roleSuffixCanonicalLowers {
+		if !strings.HasSuffix(lower, suffix) {
+			continue
+		}
+		stem := name[:len(name)-len(suffix)]
+		// Trim a trailing separator that joined the role suffix to
+		// the stem (`request_handler` → `request_`; trim trailing
+		// `_` to get `request`).
+		stem = strings.TrimRight(stem, "_-")
+		return stem
+	}
+	return ""
+}
+
 // symbolDomain maps a Symbol to a free-form domain tag. Prefers the
 // extractor-declared package name (FileInfo.Package — Go/Java/Rust
 // extractors populate this) and falls back to the immediate parent

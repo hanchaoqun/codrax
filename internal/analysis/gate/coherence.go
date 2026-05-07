@@ -169,9 +169,25 @@ func checkSubtopicCoherence(ir *types.AnalysisIR, resolver normalizer.SymbolReso
 			}
 			s := subTopicState{index: i, topic: st}
 			for _, ent := range st.Entities {
-				if hits := resolver.LookupSymbol(strings.TrimSpace(ent)); len(hits) > 0 {
+				trimmed := strings.TrimSpace(ent)
+				if hits := resolver.LookupSymbol(trimmed); len(hits) > 0 {
 					s.hit = true
 					break
+				}
+				// Fix J (2026-05-07 m1b r1 forensic): when exact +
+				// flat lookup misses, try stem-aware fallback for
+				// user concept-form (`AnalyzerAgent`) ↔ repo
+				// implementation-form (`analyzerEvaluator`)
+				// translation. Optional protocol — not every
+				// resolver implementation supports stem matching;
+				// type-assert and skip when absent.
+				if stemr, ok := resolver.(interface {
+					LookupSymbolStem(string) []normalizer.SymbolHit
+				}); ok {
+					if hits := stemr.LookupSymbolStem(trimmed); len(hits) > 0 {
+						s.hit = true
+						break
+					}
 				}
 			}
 			states = append(states, s)
