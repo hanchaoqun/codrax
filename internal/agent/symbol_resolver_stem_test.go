@@ -72,6 +72,11 @@ func TestLookupSymbolStem_RoleSuffixVariants(t *testing.T) {
 		{"Processor", "DataProcessor", "dataPipeline", true, "Processor → data ⊂ datapipeline"},
 		{"Runner", "TestRunner", "testHarness", true, "Runner → test ⊂ testharness"},
 		{"Module", "AuthModule", "authPkg", true, "auth stem 4 chars + authpkg contains 'auth' ⊂ → match"},
+		{"ImplCpp", "BufferImpl", "buffer_internal", true, "C++ Impl suffix (lowercase 'impl') → strip → buffer ⊂ buffer_internal flat='bufferinternal'"},
+		{"WrapperCpp", "TaskWrapper", "TaskInternal", true, "C++ Wrapper suffix → Task ⊂ TaskInternal"},
+		{"ServerC", "AuthServer", "auth_daemon", true, "C-style Server role → auth ⊂ auth_daemon flat='authdaemon'"},
+		{"ClientC", "MetricsClient", "metrics_collector", true, "C-style Client → metrics ⊂ metrics_collector flat='metricscollector'"},
+		{"FactoryCpp", "ConnectionFactory", "connection_pool", true, "Factory → connection ⊂ connection_pool flat"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

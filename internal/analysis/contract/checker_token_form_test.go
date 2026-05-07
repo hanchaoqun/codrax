@@ -93,6 +93,48 @@ func TestContainsSymbol_TokenFormEquivalence(t *testing.T) {
 		{"cangjie", "TaskRunner", "func task_runner_init() {}", true,
 			"Pascal → snake_case Cangjie fn"},
 
+		// ── C ─────────────────────────────────────────────────────
+		{"c", "pthread_create", "int pthread_create(pthread_t *t, ...);", true,
+			"snake_case C / POSIX function"},
+		{"c", "MAX_BUFFER_SIZE", "#define MAX_BUFFER_SIZE 4096", true,
+			"SCREAMING_SNAKE C macro"},
+		{"c", "size_t", "typedef unsigned long size_t;", true,
+			"POSIX-style _t suffix typedef"},
+		{"c", "kErrorCode", "static const int kErrorCode = -1;", true,
+			"Google-style camel const"},
+
+		// ── C++ ───────────────────────────────────────────────────
+		{"cpp", "MyClass", "class MyClass : public Base {};", true,
+			"PascalCase C++ class"},
+		{"cpp", "thread_local", "thread_local int counter = 0;", true,
+			"snake_case C++11 keyword"},
+		{"cpp", "BufferImpl", "class buffer_impl { /* ... */ };", true,
+			"Pascal → snake C++ implementation class"},
+		{"cpp_qualified", "vector_size", "size_t std_vector_size = nums.size();", true,
+			"qualified-name run `std_vector_size` flat contains `vectorsize`"},
+
+		// ── Objective-C ──────────────────────────────────────────
+		{"objc", "NSString", "@interface NSString : NSObject", true,
+			"PascalCase Obj-C class (NS prefix)"},
+		{"objc", "did_finish_launching", "- (void)applicationDidFinishLaunching:", true,
+			"snake → camelCase Obj-C method"},
+
+		// ── Lua ───────────────────────────────────────────────────
+		{"lua", "task_handler", "function TaskHandler:new() end", true,
+			"snake → PascalCase Lua module"},
+		{"lua", "process_request", "function M.processRequest(req) end", true,
+			"snake → camelCase Lua method"},
+
+		// ── Proto / gRPC ──────────────────────────────────────────
+		{"proto", "user_account", "message UserAccount { string id = 1; }", true,
+			"snake → PascalCase proto message"},
+		{"proto", "RpcService", "service rpc_service { rpc Get(...); }", true,
+			"Pascal → snake proto service"},
+
+		// ── CUDA (uses cpp grammar) ───────────────────────────────
+		{"cuda", "kernel_launch", "__global__ void kernelLaunch(float *x);", true,
+			"snake → camel CUDA kernel"},
+
 		// ── Filename anchors (`.` kept inside run) ────────────────
 		{"go", "sub_explorer", "see sub_explorer.go for details", true,
 			"snake_case filename with extension still satisfies the needle"},

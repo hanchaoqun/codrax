@@ -228,6 +228,20 @@ func TestDiagramEdgeEndpointHallucination_MultiLanguage(t *testing.T) {
 			"ArkTS PascalCase + Pascal fake"},
 		{"cangjie", "TaskRunnerEntry", "FakeTaskRunner",
 			"Cangjie PascalCase + Pascal fake"},
+		{"c", "pthread_mutex_lock", "pthread_fake_mutex",
+			"C POSIX snake_case + snake fake (real ≥10 chars stem)"},
+		{"cpp", "BufferImplBase", "FakeBufferImpl",
+			"C++ Pascal + Pascal fake"},
+		{"cpp_macro", "MAX_CALLBACK_DEPTH", "MAX_FAKE_DEPTH",
+			"C/C++ SCREAMING_SNAKE macro (≥10 chars stem)"},
+		{"objc", "NSStringFormatter", "FakeStringFormatter",
+			"Obj-C Pascal + Pascal fake"},
+		{"lua", "task_handler_init", "fake_handler_init",
+			"Lua snake + snake fake"},
+		{"proto", "UserAccountSchema", "FakeAccountSchema",
+			"Proto Pascal + Pascal fake"},
+		{"cuda", "kernel_launch_grid", "fake_kernel_launch",
+			"CUDA snake (uses cpp grammar) + snake fake"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.lang+"/"+tc.realSym, func(t *testing.T) {
