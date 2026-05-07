@@ -324,9 +324,8 @@ func BuildPromptContext(ac *types.AgentContext, sk *skill.Config) *types.PromptC
 	// as a real user-role message rather than buried in the system role.
 	pc.SystemSections = []types.PromptSection{
 		{
-			Title: SectionAgentIdentity,
-			Content: fmt.Sprintf("You are the %s agent operating in the %s stage.",
-				ac.AgentName, ac.Stage),
+			Title:   SectionAgentIdentity,
+			Content: agentIdentityPrompt(ac.AgentName, ac.Stage),
 		},
 		{
 			Title:   SectionReasoningHygiene,
@@ -910,6 +909,51 @@ func BuildPromptContext(ac *types.AgentContext, sk *skill.Config) *types.PromptC
 	pc.EnabledTools = sk.ToolSuggestions
 
 	return pc
+}
+
+// agentIdentityPrompt renders the system-prompt opening sentence
+// without leaking internal stage codenames into the LLM's context.
+// The Go-side AgentName / PipelineStage values double as wire-format
+// identifiers (e.g. "finalizer" / "log_triager") and are deliberately
+// listed in skill.InternalTermsBlocklist; we map each one to a
+// user-facing role description so the LLM still gets a clear
+// orientation cue without seeing the codename.
+//
+// Falls back to a neutral generic prompt when AgentName is unknown
+// (defensive — the production registry covers every shipping agent
+// today).
+func agentIdentityPrompt(name types.AgentName, stage types.PipelineStage) string {
+	role := ""
+	switch name {
+	case types.AgentAnalyzer, types.AgentWriteAnalyzer:
+		role = "a request-classifier reading the user's question and producing a structured analysis"
+	case types.AgentExplorer:
+		role = "a code investigator reading source files and collecting grounded evidence"
+	case "sub_explorer":
+		role = "a focused sub-investigator reading source files within a narrow scope"
+	case types.AgentExtractor:
+		role = "an answer-slate extractor selecting the typed answer items from the prior investigation's frozen evidence"
+	case types.AgentFinalizer:
+		role = "an answer author writing the final structured response from typed evidence"
+	case types.AgentLogTriager:
+		role = "a log structurer parsing the attached runtime log into a typed bundle"
+	case types.AgentPerfTriager:
+		role = "a performance-trace structurer parsing the attached trace into a typed bundle"
+	case types.AgentPlanner:
+		role = "a change planner producing a structured plan of file-level edits"
+	case types.AgentCoder:
+		role = "a patch applier executing the planned edits in a sandbox worktree"
+	case types.AgentVerifier:
+		role = "a test runner executing the project's tests against the applied changes"
+	default:
+		if string(name) != "" {
+			role = "an AI assistant performing the " + string(name) + " role"
+		} else {
+			role = "an AI assistant in a code-analysis pipeline"
+		}
+	}
+	_ = stage // stage codename intentionally not surfaced to the LLM — the role above already conveys the position.
+	return "You are " + role + "."
 }
 
 func shouldSuppressAttachedRuntimeLog(ac *types.AgentContext) bool {
