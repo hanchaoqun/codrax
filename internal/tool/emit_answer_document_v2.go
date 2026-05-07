@@ -196,7 +196,70 @@ func detectV1FieldsInV2Emit(raw json.RawMessage) string {
 // V1-field detection (detectV1FieldsInV2Emit) still fires after the
 // repair, so we cannot soften any of the V1↔V2 mutual-exclusion
 // invariants.
+// repairBlocksAsString is the layered recovery entry-point. The
+// layers, in order:
+//
+//   1. Path A — pure-array stringify (`{"blocks":"[…]"}`); the LLM
+//      stringified just the blocks array; everything else is at
+//      top-level.
+//   2. Path B — whole-document stringify (`{"blocks":"[…], \"citations\":[…]"}`);
+//      the LLM put the entire answer body inside the blocks string.
+//   3. Path C — structured control-char normalisation: Paths A/B fail
+//      when raw \n / \r / \t / 0x00–0x1F appears inside a string
+//      literal (strict json.Unmarshal rejects unescaped control
+//      bytes in strings). The state-machine pass walks every byte,
+//      re-escapes control bytes ONLY inside string scope, and retries
+//      Paths A/B.
+//   4. Path D (heuristic) — brace-balanced block extraction: when
+//      everything above fails, walk the trimmed string and emit one
+//      `{...}` element per top-level brace pair. Each candidate is
+//      individually json.Unmarshal-validated before being kept; bad
+//      blocks are silently dropped. Validators downstream still run
+//      on the recovered set so a partial recovery does not silently
+//      ship — block-coverage / claim-use / facet-coverage oracles
+//      will reject if the recovered set is below the contract floor,
+//      triggering the standard reject→LLM-retry path.
+//
+// Each layer falls through to the next on failure. Returns
+// `(repaired, true)` on the first successful layer; `(nil, false)`
+// when even Path D could not extract a single valid block.
 func repairBlocksAsString(raw json.RawMessage) (json.RawMessage, bool) {
+	if len(raw) == 0 {
+		return nil, false
+	}
+	// Pass 1: try as-is (handles the well-formed string-wrapped
+	// case where Paths A or B succeed without normalisation).
+	if patched, ok := tryRepairBlocksAsString(raw); ok {
+		return patched, true
+	}
+	// Pass 2 (Path C): normalise control characters inside string
+	// scope, then retry the structural Paths A/B. Fixes the streaming
+	// bug where the LLM emits unescaped \n / \r / \t inside diagram
+	// bodies / multi-line text fields.
+	if normalised, changed := normalizeControlCharsInJSONStrings(string(raw)); changed {
+		if patched, ok := tryRepairBlocksAsString(json.RawMessage(normalised)); ok {
+			return patched, true
+		}
+	}
+	// Pass 3 (Path D, heuristic): brace-balanced extraction. When
+	// structural normalisation cannot rescue the payload (truncated
+	// closing brackets, mid-string unescaped quotes, mixed corruption),
+	// walk byte-by-byte and emit one valid `{...}` block per top-level
+	// brace pair. Bad blocks drop silently; validator oracles
+	// downstream catch insufficient recovery and trigger LLM retry
+	// through the existing reject→retry path.
+	if patched, ok := extractBlocksByBraceBalance(raw); ok {
+		return patched, true
+	}
+	return nil, false
+}
+
+// tryRepairBlocksAsString runs Path A + Path B against the supplied
+// payload (no normalisation). Returns (patched, true) on success;
+// (nil, false) on any structural mismatch — including the outer
+// json.Unmarshal failing, which is the dominant failure mode when
+// the outer raw itself contains unescaped control characters.
+func tryRepairBlocksAsString(raw json.RawMessage) (json.RawMessage, bool) {
 	if len(raw) == 0 {
 		return nil, false
 	}
@@ -208,7 +271,6 @@ func repairBlocksAsString(raw json.RawMessage) (json.RawMessage, bool) {
 	if !ok {
 		return nil, false
 	}
-	// blocks must be encoded as a JSON string for this repair path.
 	if len(rawBlocks) == 0 || rawBlocks[0] != '"' {
 		return nil, false
 	}
@@ -220,25 +282,322 @@ func repairBlocksAsString(raw json.RawMessage) (json.RawMessage, bool) {
 	if !strings.HasPrefix(trimmed, "[") {
 		return nil, false
 	}
-	// Path A: pure-array stringify ("[{...},{...}]"). Repair just
-	// the blocks key, preserve every other top-level field.
+	// Path A: pure-array stringify. Repair just blocks; preserve all
+	// other top-level keys verbatim.
 	var inner []json.RawMessage
 	if err := json.Unmarshal([]byte(trimmed), &inner); err == nil {
 		probe["blocks"] = mustMarshal(inner)
-		patched, err := json.Marshal(probe)
-		if err != nil {
-			return nil, false
+		if patched, err := json.Marshal(probe); err == nil {
+			return patched, true
 		}
+	}
+	// Path B: whole-document stringify — wrap in `{"blocks": ...}`
+	// and merge.
+	wrapped := []byte(`{"blocks": ` + trimmed + `}`)
+	if patched, ok := finishStringWrappedRepair(probe, wrapped); ok {
 		return patched, true
 	}
-	// Path B: whole-document stringify — the LLM put the entire
-	// answer body inside the blocks string, so trimmed looks like
-	//   "[{...blocks...}], \"citations\": [{...}], \"caveats\": [...]"
-	// Recovery: wrap the encoded string with `{"blocks":` ... `}`
-	// to form a fresh top-level object, parse, then merge with the
-	// outer probe (outer wins on key conflict so caller-side keys
-	// are not silently dropped).
-	wrapped := []byte(`{"blocks": ` + trimmed + `}`)
+	// Path C inner pass: the outer parse succeeded, but the decoded
+	// inner string itself carries unescaped control chars (typical
+	// when the LLM stringifies an array containing a multi-line
+	// diagram body). Re-normalise the trimmed inner string and
+	// retry both Path A and Path B.
+	if normalised, changed := normalizeControlCharsInJSONStrings(trimmed); changed {
+		var innerC []json.RawMessage
+		if err := json.Unmarshal([]byte(normalised), &innerC); err == nil {
+			probe["blocks"] = mustMarshal(innerC)
+			if patched, err := json.Marshal(probe); err == nil {
+				return patched, true
+			}
+		}
+		wrappedC := []byte(`{"blocks": ` + normalised + `}`)
+		if patched, ok := finishStringWrappedRepair(probe, wrappedC); ok {
+			return patched, true
+		}
+	}
+	return nil, false
+}
+
+// extractBlocksByBraceBalance is Path D's heuristic recovery.
+//
+// The input is the original raw payload (post-normalisation if Path
+// C ran). The function:
+//
+//  1. Locates the JSON-encoded string value of the `blocks` key by
+//     finding the first `"blocks"` entry at the top level of the
+//     outer object. We can't rely on json.Unmarshal because the
+//     payload is corrupt; we use a small state-machine to find the
+//     blocks-string boundary ourselves.
+//  2. Walks the inner string content (or directly the raw if blocks
+//     turns out to be a real array) byte-by-byte, tracking string
+//     state + brace depth. Each top-level `{...}` group at depth 0
+//     becomes one element candidate.
+//  3. Each candidate is independently `json.Unmarshal`-validated
+//     against `map[string]json.RawMessage`. Pass = keep; fail = drop.
+//  4. If at least one valid block survives, marshals the recovered
+//     array as the new blocks value and returns the merged top-level
+//     payload.
+//
+// Heuristic safety: per-block validation prevents structurally-broken
+// bytes from poisoning the merged payload. The downstream block-
+// coverage / claim-use / facet-coverage oracles will reject if the
+// recovered set is incomplete — that triggers the existing
+// reject→LLM-retry path, so a "partial-but-incomplete" recovery does
+// NOT silently ship.
+func extractBlocksByBraceBalance(raw json.RawMessage) (json.RawMessage, bool) {
+	if len(raw) == 0 {
+		return nil, false
+	}
+	body, leadKeys, trailKeys, ok := isolateBlocksStringBody(raw)
+	if !ok {
+		return nil, false
+	}
+	body = strings.TrimSpace(body)
+	if len(body) < 2 {
+		return nil, false
+	}
+	// Strip leading `[` if present; final `]` is balanced via
+	// state-machine below.
+	start := 0
+	if body[0] == '[' {
+		start = 1
+	}
+	scan := body[start:]
+
+	var elements []json.RawMessage
+	depth := 0
+	inStr := false
+	esc := false
+	elemStart := -1
+	for i := 0; i < len(scan); i++ {
+		c := scan[i]
+		if inStr {
+			if esc {
+				esc = false
+				continue
+			}
+			switch c {
+			case '\\':
+				esc = true
+			case '"':
+				inStr = false
+			}
+			continue
+		}
+		switch c {
+		case '"':
+			inStr = true
+		case '{':
+			if depth == 0 {
+				elemStart = i
+			}
+			depth++
+		case '}':
+			depth--
+			if depth == 0 && elemStart >= 0 {
+				candidate := strings.TrimSpace(scan[elemStart : i+1])
+				elemStart = -1
+				if candidate == "" {
+					continue
+				}
+				var probe map[string]json.RawMessage
+				if err := json.Unmarshal([]byte(candidate), &probe); err == nil {
+					elements = append(elements, json.RawMessage(candidate))
+				}
+				// Else drop silently — downstream validators catch
+				// insufficient recovery and trigger LLM retry.
+			}
+		case '[':
+			if depth > 0 {
+				depth++ // nested array inside a block — count as depth
+			}
+			// outer-level `[` (e.g. starting nested arrays inside
+			// values) is structurally fine; we only treat braces
+			// as block boundaries.
+		case ']':
+			if depth > 0 {
+				depth--
+			}
+		}
+	}
+	if len(elements) == 0 {
+		return nil, false
+	}
+	// Reconstruct merged payload: leadKeys ∪ {"blocks": elements} ∪
+	// trailKeys. Keys collide only on `blocks`; the recovered array
+	// wins. Other key data is preserved byte-for-byte.
+	merged := make(map[string]json.RawMessage, len(leadKeys)+len(trailKeys)+1)
+	for k, v := range leadKeys {
+		merged[k] = v
+	}
+	for k, v := range trailKeys {
+		merged[k] = v
+	}
+	merged["blocks"] = mustMarshal(elements)
+	patched, err := json.Marshal(merged)
+	if err != nil {
+		return nil, false
+	}
+	return patched, true
+}
+
+// isolateBlocksStringBody finds the `blocks` string value within a
+// corrupt outer JSON object and returns its (best-effort decoded)
+// content along with the unaffected outer keys. Used by Path D when
+// json.Unmarshal of the outer raw fails.
+//
+// Strategy:
+//  1. Try the happy path: `json.Unmarshal(raw, &probe)`. If success
+//     and `blocks` is a JSON string, decode it and return its body
+//     plus all other top-level keys. (Same conditions as
+//     tryRepairBlocksAsString — ensures Path D can rescue cases that
+//     pass the outer parse but fail the inner array parse.)
+//  2. Fallback: walk the bytes manually to extract the value of
+//     `blocks` even when the outer object is malformed. Returns the
+//     content between the opening / closing quotes of the blocks
+//     string (or the array body if it is a real array). Other keys
+//     cannot be rescued in this branch — empty maps returned.
+func isolateBlocksStringBody(raw json.RawMessage) (body string, lead map[string]json.RawMessage, trail map[string]json.RawMessage, ok bool) {
+	// Branch 1: outer JSON parses cleanly.
+	var probe map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &probe); err == nil {
+		rawBlocks, present := probe["blocks"]
+		if !present {
+			return "", nil, nil, false
+		}
+		// Other keys preserved.
+		others := make(map[string]json.RawMessage, len(probe)-1)
+		for k, v := range probe {
+			if k == "blocks" {
+				continue
+			}
+			others[k] = v
+		}
+		switch {
+		case len(rawBlocks) == 0:
+			return "", nil, nil, false
+		case rawBlocks[0] == '[':
+			// Already a real array — repair was not needed. Path D
+			// must NOT fire on well-formed input; the contract is
+			// "repair returns true ONLY when an actual structural fix
+			// was made", and a clean array means no fix is needed.
+			// (If the array body itself were malformed we would still
+			// hit Branch 2 below via outer parse failure.)
+			return "", nil, nil, false
+		case rawBlocks[0] == '"':
+			var encoded string
+			if err := json.Unmarshal(rawBlocks, &encoded); err != nil {
+				return "", nil, nil, false
+			}
+			return encoded, others, nil, true
+		default:
+			return "", nil, nil, false
+		}
+	}
+	// Branch 2: outer JSON broken. Best-effort byte walk to find
+	// `"blocks"` key + its associated value.
+	bs := []byte(raw)
+	idx := bytes.Index(bs, []byte(`"blocks"`))
+	if idx < 0 {
+		return "", nil, nil, false
+	}
+	// Skip past `"blocks"`, optional whitespace, ':' separator.
+	cur := idx + len(`"blocks"`)
+	for cur < len(bs) && (bs[cur] == ' ' || bs[cur] == '\t') {
+		cur++
+	}
+	if cur >= len(bs) || bs[cur] != ':' {
+		return "", nil, nil, false
+	}
+	cur++
+	for cur < len(bs) && (bs[cur] == ' ' || bs[cur] == '\t') {
+		cur++
+	}
+	if cur >= len(bs) {
+		return "", nil, nil, false
+	}
+	switch bs[cur] {
+	case '[':
+		// Find balanced closing `]` via state-machine.
+		depth := 0
+		inStr := false
+		esc := false
+		closeAt := -1
+		for j := cur; j < len(bs); j++ {
+			c := bs[j]
+			if inStr {
+				if esc {
+					esc = false
+					continue
+				}
+				switch c {
+				case '\\':
+					esc = true
+				case '"':
+					inStr = false
+				}
+				continue
+			}
+			if c == '"' {
+				inStr = true
+				continue
+			}
+			if c == '[' {
+				depth++
+			} else if c == ']' {
+				depth--
+				if depth == 0 {
+					closeAt = j
+					break
+				}
+			}
+		}
+		if closeAt < 0 {
+			// Truncated; return whatever we have.
+			return string(bs[cur:]), nil, nil, true
+		}
+		return string(bs[cur : closeAt+1]), nil, nil, true
+	case '"':
+		// Find balanced closing `"` via state-machine.
+		esc := false
+		closeAt := -1
+		for j := cur + 1; j < len(bs); j++ {
+			c := bs[j]
+			if esc {
+				esc = false
+				continue
+			}
+			if c == '\\' {
+				esc = true
+				continue
+			}
+			if c == '"' {
+				closeAt = j
+				break
+			}
+		}
+		if closeAt < 0 {
+			return "", nil, nil, false
+		}
+		// json.Unmarshal the quoted string to get the decoded body.
+		var encoded string
+		if err := json.Unmarshal(bs[cur:closeAt+1], &encoded); err != nil {
+			return "", nil, nil, false
+		}
+		return encoded, nil, nil, true
+	default:
+		return "", nil, nil, false
+	}
+}
+
+// finishStringWrappedRepair takes the outer `probe` (top-level keys
+// of the original raw payload) and a `wrapped` candidate `{"blocks":
+// ... }` byte slice. When the wrapped slice parses successfully and
+// its `blocks` value is a real array, the function merges the wrapped
+// fields with the outer probe (outer wins on key conflicts other
+// than `blocks`) and returns the marshalled patched payload. Used by
+// Path B and Path C-B which share this merge / serialise tail.
+func finishStringWrappedRepair(probe map[string]json.RawMessage, wrapped []byte) (json.RawMessage, bool) {
 	var fullDoc map[string]json.RawMessage
 	if err := json.Unmarshal(wrapped, &fullDoc); err != nil {
 		return nil, false
@@ -263,6 +622,104 @@ func repairBlocksAsString(raw json.RawMessage) (json.RawMessage, bool) {
 	}
 	return patched, true
 }
+
+// normalizeControlCharsInJSONStrings is a deterministic recovery
+// pass for the "raw control char inside JSON string literal" streaming
+// artefact. Walks `s` byte-by-byte while tracking string-state via a
+// quote / escape state machine. Inside string literals, raw \n / \r /
+// \t / form-feed / backspace are rewritten to their two-char escape
+// sequences (\\n / \\r / \\t / \\f / \\b); other control bytes
+// (0x00–0x1F minus the named ones) are rewritten to \\u00XX. Outside
+// strings the input bytes pass through verbatim so structural braces
+// / brackets / commas are unaffected.
+//
+// Returns (rewritten, changed). When the input is already valid JSON
+// (no raw control chars in strings) the rewritten value is byte-
+// identical to s and changed=false; the caller can skip a redundant
+// re-parse in that case.
+//
+// The state machine is intentionally minimal:
+//   - mode == "outside" or "inside-string"
+//   - inside-string: a `"` exits unless preceded by an odd-count of
+//     `\` (escape char). The escape-count is tracked by counting the
+//     trailing `\` of the recently-emitted bytes.
+func normalizeControlCharsInJSONStrings(s string) (string, bool) {
+	// Fast path: scan for any byte < 0x20 (the entire control-char
+	// range JSON forbids inside string literals). When the string is
+	// already control-char-free, return early — Paths A/B failed for
+	// a non-control-char reason and we have nothing to add.
+	hasControl := false
+	for i := 0; i < len(s); i++ {
+		if s[i] < 0x20 {
+			hasControl = true
+			break
+		}
+	}
+	if !hasControl {
+		return s, false
+	}
+	var out strings.Builder
+	out.Grow(len(s) + 16)
+	inString := false
+	escapeCount := 0
+	changed := false
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		if !inString {
+			out.WriteByte(c)
+			if c == '"' {
+				inString = true
+				escapeCount = 0
+			}
+			continue
+		}
+		// inside string
+		if c == '\\' {
+			out.WriteByte(c)
+			escapeCount++
+			continue
+		}
+		if c == '"' && escapeCount%2 == 0 {
+			out.WriteByte(c)
+			inString = false
+			escapeCount = 0
+			continue
+		}
+		// Reset escape counter on any non-backslash byte (the next
+		// `"` after `\\` IS terminal because the second `\` already
+		// consumed the first as an escape pair).
+		switch c {
+		case '\n':
+			out.WriteString(`\n`)
+			changed = true
+		case '\r':
+			out.WriteString(`\r`)
+			changed = true
+		case '\t':
+			out.WriteString(`\t`)
+			changed = true
+		case '\f':
+			out.WriteString(`\f`)
+			changed = true
+		case '\b':
+			out.WriteString(`\b`)
+			changed = true
+		default:
+			if c < 0x20 {
+				fmt.Fprintf(&out, `\u%04x`, c)
+				changed = true
+			} else {
+				out.WriteByte(c)
+			}
+		}
+		escapeCount = 0
+	}
+	if !changed {
+		return s, false
+	}
+	return out.String(), true
+}
+
 
 func mustMarshal(v interface{}) json.RawMessage {
 	b, _ := json.Marshal(v)

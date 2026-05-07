@@ -644,3 +644,129 @@ func TestEmitAnswerDocumentV2_FromNodeInsideClaimUseRemapped(t *testing.T) {
 		}
 	}
 }
+
+// TestRepairBlocksAsString_Path_C_ControlCharRecovery confirms
+// Path C's structured fallback: when the LLM's stringified blocks
+// array contains UNESCAPED control characters inside string values
+// (raw \n in a diagram body, etc.), Path A/B both fail because
+// json.Unmarshal rejects raw control bytes inside string literals.
+// Path C runs a deterministic state-machine pass that re-escapes
+// the control chars and retries the same parse.
+//
+// This test simulates the MiniMax streaming bug where the model
+// stringified an array but emitted single-escape \n instead of
+// double-escape \\n inside the string.
+func TestRepairBlocksAsString_Path_C_ControlCharRecovery(t *testing.T) {
+	// Crafted payload: blocks key holds a JSON-encoded string whose
+	// content is a valid JSON array EXCEPT one diagram body has a
+	// raw newline (0x0A) inside a string literal — invalid per RFC
+	// 7159 §7.
+	rawWithControlChar := []byte(`{"blocks": "[{\"id\":\"d1\",\"kind\":\"diagram\",\"diagram\":{\"body\":\"flowchart TD
+    A --> B\"}}]"}`)
+	// Sanity: confirm Path A/B would reject this (raw newline inside
+	// the inner JSON string makes json.Unmarshal fail).
+	repaired, ok := repairBlocksAsString(rawWithControlChar)
+	if !ok {
+		t.Fatalf("Path C must rescue control-char-corrupted blocks; got ok=false")
+	}
+	// The repaired payload must round-trip through the strict V2
+	// schema decoder.
+	var probe map[string]json.RawMessage
+	if err := json.Unmarshal(repaired, &probe); err != nil {
+		t.Fatalf("repaired payload is not valid JSON: %v\n%s", err, string(repaired))
+	}
+	blocks, ok := probe["blocks"]
+	if !ok || len(blocks) == 0 || blocks[0] != '[' {
+		t.Fatalf("repaired blocks is not a real array: got %s", string(blocks))
+	}
+	var inner []json.RawMessage
+	if err := json.Unmarshal(blocks, &inner); err != nil {
+		t.Fatalf("repaired blocks array does not parse: %v", err)
+	}
+	if len(inner) != 1 {
+		t.Fatalf("expected 1 block, got %d", len(inner))
+	}
+	// And the diagram body must round-trip with the newline preserved
+	// (escaped as \n in the JSON value, but a literal newline in the
+	// decoded Go string).
+	var blk struct {
+		Diagram struct {
+			Body string `json:"body"`
+		} `json:"diagram"`
+	}
+	if err := json.Unmarshal(inner[0], &blk); err != nil {
+		t.Fatalf("decode block: %v", err)
+	}
+	if !strings.Contains(blk.Diagram.Body, "flowchart TD") || !strings.Contains(blk.Diagram.Body, "A --> B") {
+		t.Errorf("diagram body lost content; got %q", blk.Diagram.Body)
+	}
+	if !strings.Contains(blk.Diagram.Body, "\n") {
+		t.Errorf("diagram body must preserve the newline as a real \\n char; got %q", blk.Diagram.Body)
+	}
+}
+
+// TestNormalizeControlCharsInJSONStrings_Atomic exercises the
+// state-machine in isolation. The recovery contract:
+//
+//   - raw \n / \r / \t / \f / \b inside a string become escape pairs
+//   - other 0x00–0x1F bytes inside strings become \uXXXX
+//   - bytes OUTSIDE strings pass through verbatim (so structural
+//     braces / brackets / commas are unaffected)
+//   - a string literal already-escaped inputs are byte-identical and
+//     `changed=false` (fast path)
+func TestNormalizeControlCharsInJSONStrings_Atomic(t *testing.T) {
+	cases := []struct {
+		name   string
+		in     string
+		want   string
+		change bool
+	}{
+		{
+			name:   "no controls — fast path",
+			in:     `[{"a":"b"}]`,
+			want:   `[{"a":"b"}]`,
+			change: false,
+		},
+		{
+			name:   "raw newline inside string",
+			in:     "{\"body\":\"line1\nline2\"}",
+			want:   `{"body":"line1\nline2"}`,
+			change: true,
+		},
+		{
+			name:   "tab + carriage return",
+			in:     "{\"body\":\"a\tb\rc\"}",
+			want:   `{"body":"a\tb\rc"}`,
+			change: true,
+		},
+		{
+			name:   "newline outside string preserved",
+			in:     "[\n  {\"a\":\"b\"}\n]",
+			want:   "[\n  {\"a\":\"b\"}\n]",
+			change: false,
+		},
+		{
+			name:   "escaped quote inside string ignored",
+			in:     `{"a":"x\"y"}`,
+			want:   `{"a":"x\"y"}`,
+			change: false,
+		},
+		{
+			name:   "low byte gets uXXXX escape",
+			in:     "{\"a\":\"x\x07y\"}",
+			want:   `{"a":"x\u0007y"}`,
+			change: true,
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got, changed := normalizeControlCharsInJSONStrings(tc.in)
+			if got != tc.want {
+				t.Errorf("got %q\nwant %q", got, tc.want)
+			}
+			if changed != tc.change {
+				t.Errorf("changed=%v want %v", changed, tc.change)
+			}
+		})
+	}
+}
