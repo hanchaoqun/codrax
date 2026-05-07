@@ -621,6 +621,38 @@ const (
 	// item composition; replaying explore wastes budget.
 	ViolEnumerationLabelUngrounded ViolationKind = "enumeration_label_ungrounded"
 
+	// ViolEnumerationLabelHallucinated (Fix C, s1a-20260507
+	// hallucination forensic, 2026-05-07) fires when finalizer's
+	// ordered_list / bullet_list / table block carries items whose
+	// leading identifier-shape token does NOT resolve to any Tier
+	// 1-2 codebase symbol via the typed-graph SymbolOracle.
+	//
+	// Distinct from ViolEnumerationLabelUngrounded:
+	//
+	//   - Ungrounded = "explorer evidence pool didn't see this name"
+	//     (the label might be a real symbol explorer missed —
+	//     recovery: BackToExtract / re-investigation).
+	//   - Hallucinated = "the typed graph does not contain this
+	//     name at all" (the label is a fabrication — recovery:
+	//     finalizer re-emit with a name that exists).
+	//
+	// Detected case (s1a r1, 2026-05-07): finalizer fabricated
+	// `checkNamingConvention` and `checkSignalSufficiency` for items
+	// 8-9 of the gate.Run check enumeration; the real names at
+	// gate.go:171/172 are `checkCriterionResolvable` and
+	// `checkPendingFieldsWellformed`. Existing ungrounded oracle
+	// caught only c8 because evidence pool prose contained "signal"
+	// substring vouching for c9. The graph oracle catches BOTH
+	// because neither fabricated name has a Tier 1-2 definition.
+	//
+	// Default classification: Medium severity, retry-eligible
+	// finalizer-only. Operators promote to STRICT via
+	// pipeline_contract_strict_kinds when answer-quality regressions
+	// are intolerable. Fallback target: BackToFinalize — the
+	// extractor's slate is fine; only the finalizer rendered
+	// fabricated names.
+	ViolEnumerationLabelHallucinated ViolationKind = "enumeration_label_hallucinated"
+
 	// ViolEnumerationItemLabelExtractorDrift (s1a-20260504-130143
 	// abstraction-drift forensic, 2026-05-04) fires when finalizer's
 	// ordered_list / bullet_list items[i].label values do NOT
@@ -711,6 +743,7 @@ func AllViolationKinds() []ViolationKind {
 		ViolValueSecondaryCitationOffFocus,
 		ViolSymbolAnchorMismatch,
 		ViolEnumerationLabelUngrounded,
+		ViolEnumerationLabelHallucinated,
 		ViolEnumerationItemLabelExtractorDrift,
 		ViolLaneBlockKindMismatch,
 		ViolStructuralEnumerationDivergence,

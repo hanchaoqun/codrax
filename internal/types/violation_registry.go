@@ -782,6 +782,17 @@ func init() {
 		Layer: "contract_check", CaveatFamilyID: CaveatFamilyEnumerationDepth,
 	})
 	RegisterViolKind(ViolKindSpec{
+		Kind: ViolEnumerationLabelHallucinated, DefaultSeverity: SeverityMedium,
+		SoftByDefault: false, Promotable: true, FallbackLocus: LocusFinalizer,
+		Layer: "contract_check", CaveatFamilyID: CaveatFamilyEnumerationDepth,
+		SchemaDescriptionFragment: "For enumeration ordered_list / bullet_list / table blocks, every items[i].label whose leading identifier is ≥10 chars MUST be a real function / type / constant declared in the codebase. Fabricated names that no source file declares are silent answer-quality regressions and are rejected.",
+		// Fix path: finalizer single-agent — the extractor's slate is
+		// fine; only the rendered name is wrong. Re-emitting from the
+		// existing slate substitutes a real identifier without
+		// re-running explore.
+		FixableByAgents: []AgentName{AgentFinalizer},
+	})
+	RegisterViolKind(ViolKindSpec{
 		Kind: ViolLaneBlockKindMismatch, DefaultSeverity: SeverityMedium,
 		SoftByDefault: false, Promotable: true, FallbackLocus: LocusFinalizer,
 		Layer: "contract_check", CaveatFamilyID: CaveatFamilyAcceptance,

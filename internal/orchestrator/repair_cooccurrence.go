@@ -265,6 +265,33 @@ var defaultCooccurrenceRules = []CooccurrenceRule{
 	},
 
 	// ─────────────────────────────────────────────────────────────
+	// Rule C6.2 — Hallucinated label ⇒ pool-substring grounding can
+	// still pass (Fix C, s1a-20260507 hallucination forensic).
+	//
+	// Invariant: validateEnumerationItemLabelHallucination uses the
+	// SymbolOracle (typed graph) to confirm the leading identifier
+	// of every list-item label resolves to a Tier 1-2 codebase
+	// symbol. validateEnumerationItemLabelGrounding only requires
+	// substring match against the evidence pool — short prose
+	// tokens ("signal", "naming") in evidence summaries can vouch
+	// for a fabricated name like `checkSignalSufficiency` even
+	// though the symbol does not exist in any source file. The
+	// hallucination signal is the precise typed-graph verdict;
+	// when it fires, ungrounded may also fire on the SAME label
+	// (the symbol is gone from both evidence + graph) — cluster
+	// them so the repair targets the renderer once.
+	// Source: contract_check_block.go
+	// validateEnumerationItemLabelHallucination +
+	// validateEnumerationItemLabelGrounding.
+	{
+		Primary: types.ViolEnumerationLabelHallucinated,
+		Derived: []types.ViolationKind{
+			types.ViolEnumerationLabelUngrounded,
+		},
+		Reason: "hallucinated-label and ungrounded-label can fire on the same item when the symbol is missing from both evidence and the codebase symbol index; cluster so the answer rendering is rewritten once with a name the codebase confirms",
+	},
+
+	// ─────────────────────────────────────────────────────────────
 	// Rule C7 — Chain demoted ⇒ step verifier sees no real def-line.
 	//
 	// Invariant: ChainDemoted fires when no anchor in a resolution

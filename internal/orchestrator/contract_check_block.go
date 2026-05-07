@@ -5,6 +5,8 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+	"unicode"
+	"unicode/utf8"
 
 	"github.com/hanchaoqun/codrax/internal/analysis/contract"
 	"github.com/hanchaoqun/codrax/internal/types"
@@ -1750,8 +1752,75 @@ func runV2BlockOraclesWithOracle(doc *types.AnswerDocumentV2, view *types.Answer
 	out = append(out, validateAbsenceScopeBound(doc)...)
 	out = append(out, validateEnumerationItemLabelGrounding(doc, mut)...)
 	out = append(out, validateEnumerationItemLabelExtractorMatch(doc, view, mut, oracle)...)
+	out = append(out, validateEnumerationItemLabelHallucination(doc, oracle)...)
 	return out
 }
+
+// labelLeadingSymbolIdentifier returns the leading identifier-shape
+// token of a list-item label IFF the label is shaped like
+// "<identifier>" or "<identifier><separator><prose>" — i.e., starts
+// with an identifier-shape token followed by EITHER end-of-string OR
+// a punctuation/non-alphanumeric character that signals the
+// identifier ended.
+//
+// Returns "" if the label continues into more letters / digits
+// after the leading identifier (which means the label is prose like
+// "Step 1: read evidence", not a symbol reference, and should not
+// be subject to the SymbolOracle existence gate).
+//
+// Examples:
+//
+//	"checkCoverage"                  → "checkCoverage"     (bare ident)
+//	"checkCoverage — 资源检查"        → "checkCoverage"     (ident + em-dash separator)
+//	"checkCoverage (note)"           → "checkCoverage"     (ident + paren)
+//	"checkCoverage: desc"            → "checkCoverage"     (ident + colon)
+//	"Step 1: read evidence"          → ""                  (ident continues into digit prose)
+//	"the checkCoverage function"     → "the"               (3-char leading; caller filters by length)
+//	""                               → ""
+func labelLeadingSymbolIdentifier(label string) string {
+	label = strings.TrimSpace(label)
+	if label == "" {
+		return ""
+	}
+	end := 0
+	for end < len(label) {
+		c := label[end]
+		if (c >= 'a' && c <= 'z') ||
+			(c >= 'A' && c <= 'Z') ||
+			(c >= '0' && c <= '9') ||
+			c == '_' {
+			end++
+			continue
+		}
+		break
+	}
+	if end == 0 {
+		return ""
+	}
+	rest := strings.TrimLeftFunc(label[end:], unicode.IsSpace)
+	if rest == "" {
+		return label[:end]
+	}
+	r, _ := utf8.DecodeRuneInString(rest)
+	if unicode.IsLetter(r) || unicode.IsDigit(r) || r == '_' {
+		// Leading identifier is followed by more identifier-shape
+		// content (after just whitespace) — this is prose, not a
+		// symbol reference.
+		return ""
+	}
+	return label[:end]
+}
+
+// labelHallucinationGateLengthFloor is the minimum identifier
+// length subject to the SymbolOracle existence gate. Below this
+// floor we trust the evidence-pool substring match and skip the
+// oracle check, because short identifiers (≤9 chars) are
+// disproportionately stdlib helpers (`Sprintf`, `Println`, `New`,
+// `Get`, …) that the project's repomap doesn't index but which
+// LLMs legitimately reference. Hallucinations observed in
+// production (s1a r1: `checkNamingConvention` 20 chars,
+// `checkSignalSufficiency` 22 chars) are well above this floor.
+const labelHallucinationGateLengthFloor = 10
 
 // validateEnumerationItemLabelGrounding (post-shape s1a-20260504-064754
 // hallucination forensic, 2026-05-04) checks that every
@@ -1786,6 +1855,16 @@ func runV2BlockOraclesWithOracle(doc *types.AnswerDocumentV2, view *types.Answer
 // label `checkCoverage`. This mirrors the diagram edge oracle's
 // `diagramTokenSupported` semantics (R4.3) so the two oracles
 // behave consistently across enumeration vs diagram surfaces.
+//
+// Note (Fix C, 2026-05-07): bidirectional substring vouching has a
+// known noise mode — short prose tokens (`signal`, `naming`,
+// `coverage`) appearing in any evidence summary / anchor label can
+// vouch for HALLUCINATED symbol-shape labels. The hallucination case
+// is handled separately by validateEnumerationItemLabelHallucination
+// (graph-existence oracle); this validator keeps its original
+// "evidence-pool grounding" semantics so the two failure modes
+// remain distinct typed signals (different repair paths, severity,
+// telemetry).
 func validateEnumerationItemLabelGrounding(doc *types.AnswerDocumentV2, mut *types.MutableState) []types.Violation {
 	if doc == nil || mut == nil {
 		return nil
@@ -2088,6 +2167,123 @@ func viewNeedsExtractorBackedEnumerationSlate(view *types.AnswerSemanticView) bo
 		}
 	}
 	return false
+}
+
+// validateEnumerationItemLabelHallucination (Fix C, s1a-20260507
+// hallucination forensic) verifies that every list-item's leading
+// identifier resolves to a Tier 1-2 codebase symbol via the typed
+// graph SymbolOracle. The validator is the precise typed-graph
+// counterpart to validateEnumerationItemLabelGrounding's evidence-
+// pool substring vouch — short prose tokens ("signal", "naming")
+// in evidence summaries can vouch for a hallucinated name like
+// `checkSignalSufficiency` even though no source file declares such
+// a function. The graph oracle catches BOTH the prose-vouched
+// hallucinations (which Ungrounded misses) and the prose-not-vouched
+// hallucinations (where Ungrounded would also fire — this rule
+// pre-empts the duplicate via cooccurrence rule C6.2).
+//
+// Trigger conditions (all required, defensively narrow):
+//
+//   - oracle != nil — unit-test path / no-graph runs disable the
+//     validator.
+//   - block kind ∈ { ordered_list, bullet_list, table } — only
+//     surfaces that carry "this is a list of named symbols"
+//     semantics; scalar / decision / diagram / section / summary
+//     have their own oracle paths.
+//   - label is shaped <identifier>[<separator><prose>] — prose
+//     labels like "Step 1: read evidence" skip via
+//     labelLeadingSymbolIdentifier returning "" when the leading
+//     identifier continues into more letters/digits (i.e., the
+//     label is not a symbol reference).
+//   - leading identifier length ≥ labelHallucinationGateLengthFloor
+//     (10 chars) — short identifiers are disproportionately stdlib
+//     helpers (Sprintf / Println / New / Get) that the project's
+//     repomap doesn't index but which LLMs legitimately reference.
+//     Production hallucinations observed (s1a r1:
+//     `checkNamingConvention` 20 chars, `checkSignalSufficiency`
+//     22 chars) are well above this floor.
+//   - oracle returns Tier=0 (not found) OR Tier ≥ 3 (low-confidence
+//     parse) — same precision contract as contract.must_include /
+//     extractor_match oracle gates: Tier 1-2 is "real symbol",
+//     anything else is "not vouched".
+//
+// Default classification: Medium severity, retry-eligible
+// finalizer-only (the extractor's slate is fine; only the rendered
+// label is wrong). Operators promote to STRICT via
+// pipeline_contract_strict_kinds when answer-quality regressions
+// are intolerable.
+func validateEnumerationItemLabelHallucination(doc *types.AnswerDocumentV2, oracle types.SymbolOracle) []types.Violation {
+	if doc == nil || oracle == nil {
+		return nil
+	}
+	type hallucinated struct {
+		itemID string
+		label  string
+		ident  string
+	}
+	perBlock := make(map[string][]hallucinated)
+	for _, b := range doc.Blocks {
+		if b.Kind != types.BlockOrderedList && b.Kind != types.BlockBulletList && b.Kind != types.BlockTable {
+			continue
+		}
+		var blockHits []hallucinated
+		for _, it := range b.Items {
+			label := strings.TrimSpace(it.Label)
+			if label == "" {
+				continue
+			}
+			ident := labelLeadingSymbolIdentifier(label)
+			if len(ident) < labelHallucinationGateLengthFloor {
+				continue
+			}
+			if !contract.IsIdentifierShaped(ident) {
+				continue
+			}
+			found, tier := oracle.SymbolExists(ident)
+			if found && tier < 3 {
+				continue
+			}
+			blockHits = append(blockHits, hallucinated{
+				itemID: it.ID,
+				label:  label,
+				ident:  ident,
+			})
+		}
+		if len(blockHits) > 0 {
+			perBlock[b.ID] = blockHits
+		}
+	}
+	if len(perBlock) == 0 {
+		return nil
+	}
+	blockIDs := make([]string, 0, len(perBlock))
+	for blockID := range perBlock {
+		blockIDs = append(blockIDs, blockID)
+	}
+	sort.Strings(blockIDs)
+	out := make([]types.Violation, 0, len(blockIDs))
+	for _, blockID := range blockIDs {
+		hits := perBlock[blockID]
+		pairs := make([]string, 0, len(hits))
+		for _, h := range hits {
+			pairs = append(pairs, fmt.Sprintf("block=%q item=%q ident=%q label=%q", blockID, h.itemID, h.ident, h.label))
+		}
+		out = append(out, types.Violation{
+			Kind: types.ViolEnumerationLabelHallucinated,
+			Detail: fmt.Sprintf(
+				"block %q has %d enumeration item label(s) whose leading identifier does not match any function / type / constant declared in the codebase (likely fabricated identifier): [%s]",
+				blockID, len(hits), strings.Join(pairs, "; ")),
+			Repair: "the leading identifier in each listed label is a fabricated name that no source file declares. Replace with a real identifier the answer should reference — copy verbatim from a grounded evidence anchor or symbol slate. Fabricated names mislead the reader: the file:line citation will point at a different declaration than the rendered name claims.",
+			ClusterKey: blockClusterKey(blockID, "block_items_label"),
+			SuspectedRoot: types.SuspectedRoot{
+				IRField:    "block_items_label",
+				Reason:     "answer rendering used identifiers the codebase does not declare (fabricated names)",
+				Confidence: 0.9,
+			},
+			Stage: string(types.StageFinalize),
+		})
+	}
+	return out
 }
 
 // buildEvidenceLabelSupportTokens collects every ground-able token

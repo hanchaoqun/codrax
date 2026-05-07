@@ -258,6 +258,7 @@ var composerExactFixSkipWhitelist = map[types.ViolationKind]string{
 	types.ViolSymbolAnchorMismatch:               "uses violation.Repair for fix prose",
 	types.ViolEnumerationLabelUngrounded:         "uses violation.Repair for fix prose",
 	types.ViolEnumerationItemLabelExtractorDrift: "uses violation.Repair for fix prose",
+	types.ViolEnumerationLabelHallucinated:       "uses violation.Repair for fix prose (validator stamps per-block list of fabricated identifiers + the rewrite directive)",
 	types.ViolStructuralEnumerationDivergence:    "uses violation.Repair for fix prose",
 	types.ViolLaneBlockKindMismatch:              "uses violation.Repair for fix prose (validator emits per-block lane attribution + AllowedBlocks set)",
 	types.ViolRichnessRegression:                 "uses violation.Repair for fix prose",

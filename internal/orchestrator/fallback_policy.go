@@ -368,6 +368,13 @@ func legacyDefaultFallbackPolicy() FallbackPolicy {
 		// needs rewrite to copy the verbatim names. Hence
 		// FinalizerOnly.
 		types.ViolEnumerationItemLabelExtractorDrift: FallbackFinalizerOnly,
+		// Fix C, s1a-20260507 hallucination forensic — finalizer
+		// emitted enumeration items whose leading identifier the
+		// typed-graph SymbolOracle reports as Tier 0 (no source
+		// definition). Re-running explore wastes budget; the fact is
+		// already in the existing extractor slate / evidence pool.
+		// Recovery: finalizer single-agent re-emit with a real name.
+		types.ViolEnumerationLabelHallucinated: FallbackFinalizerOnly,
 		// P3 #6 precise variant (2026-05-03) — code-vs-comment
 		// divergence transparency. Remediation is in extractor's
 		// hands (re-emit emit_answer_symbol with caveat rows or

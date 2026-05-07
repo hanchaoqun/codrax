@@ -232,6 +232,7 @@ func TestAllViolationKindsHaveProducer(t *testing.T) {
 		ViolSymbolAnchorMismatch:               true, // orchestrator/contract_check.go runSymbolAnchorTrackOracleV2
 		ViolEnumerationLabelUngrounded:         true, // orchestrator/contract_check_block.go validateEnumerationItemLabelGrounding (post-shape s1a-20260504-064754, 2026-05-04)
 		ViolEnumerationItemLabelExtractorDrift: true, // orchestrator/contract_check_block.go validateEnumerationItemLabelExtractorMatch (s1a-20260504-130143, 2026-05-04)
+		ViolEnumerationLabelHallucinated:       true, // orchestrator/contract_check_block.go validateEnumerationItemLabelHallucination (Fix C s1a-20260507, 2026-05-07)
 		ViolStructuralEnumerationDivergence:    true, // orchestrator/contract_check.go runStructuralEnumerationDivergenceOracleV2
 		// B4 V2 block-only carrier validators (block_only_carrier.md §5.4).
 		ViolBlockCoverageMissing:     true, // orchestrator/contract_check_block.go validateRequiredBlockCoverage
