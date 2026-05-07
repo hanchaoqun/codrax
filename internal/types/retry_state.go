@@ -420,6 +420,7 @@ func legacyDeriveSeverity(kind ViolationKind, isStrict bool) Severity {
 		ViolSymbolAnchorMismatch,
 		ViolEnumerationLabelUngrounded,
 		ViolEnumerationLabelHallucinated,
+		ViolDiagramEdgeEndpointHallucinated,
 		ViolEnumerationItemLabelExtractorDrift,
 		ViolCrossCitationConflict,
 		ViolDeclaredCountDrift,

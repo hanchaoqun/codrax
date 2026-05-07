@@ -621,6 +621,37 @@ const (
 	// item composition; replaying explore wastes budget.
 	ViolEnumerationLabelUngrounded ViolationKind = "enumeration_label_ungrounded"
 
+	// ViolDiagramEdgeEndpointHallucinated (Fix D, 2026-05-07,
+	// post-Fix-C diagram audit) fires when a mermaid edge's `from`
+	// or `to` node identifier in a BlockDiagram is identifier-
+	// shaped (≥10 chars), passes the existing
+	// validateDiagramEdgeSupport substring vouch (because some
+	// support-pool prose token happens to be a substring of the
+	// fabricated name), but the typed graph SymbolOracle reports
+	// no Tier 1-2 codebase declaration for the leading identifier.
+	//
+	// Distinct from ViolDiagramEdgeUnsupported:
+	//
+	//   - Unsupported = "edge endpoint not vouched by any item /
+	//     title / claim_use / declared node label" (the LLM cited
+	//     a name that's not in the answer's grounding pool).
+	//   - EndpointHallucinated = "the typed graph does not contain
+	//     the named symbol at all" (the LLM fabricated a node
+	//     name; the substring vouch was prose noise).
+	//
+	// Detected risk profile (mirrors s1a r1 enumeration case
+	// extended to diagrams): finalizer emits a call_dag /
+	// class_diagram with a fabricated compound symbol name like
+	// `validateFakeCoherenceCheck` and the support pool's prose
+	// (e.g. "coherence" / "validate") substring-vouches the bad
+	// name. Without this gate, the user receives a mermaid
+	// diagram referencing identifiers no source file declares.
+	//
+	// Default classification: Medium severity, retry-eligible
+	// finalizer-only. Operators promote via
+	// pipeline_contract_strict_kinds.
+	ViolDiagramEdgeEndpointHallucinated ViolationKind = "diagram_edge_endpoint_hallucinated"
+
 	// ViolEnumerationLabelHallucinated (Fix C, s1a-20260507
 	// hallucination forensic, 2026-05-07) fires when finalizer's
 	// ordered_list / bullet_list / table block carries items whose
@@ -744,6 +775,7 @@ func AllViolationKinds() []ViolationKind {
 		ViolSymbolAnchorMismatch,
 		ViolEnumerationLabelUngrounded,
 		ViolEnumerationLabelHallucinated,
+		ViolDiagramEdgeEndpointHallucinated,
 		ViolEnumerationItemLabelExtractorDrift,
 		ViolLaneBlockKindMismatch,
 		ViolStructuralEnumerationDivergence,

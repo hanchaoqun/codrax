@@ -292,6 +292,30 @@ var defaultCooccurrenceRules = []CooccurrenceRule{
 	},
 
 	// ─────────────────────────────────────────────────────────────
+	// Rule C6.3 — Hallucinated diagram endpoint ⇒ pool-substring
+	// vouch can still pass (Fix D, 2026-05-07 diagram audit).
+	//
+	// Mirrors C6.2 in the diagram surface:
+	// validateDiagramEdgeEndpointHallucination uses the SymbolOracle
+	// to confirm a mermaid edge endpoint resolves to a Tier 1-2
+	// codebase symbol. validateDiagramEdgeSupport only requires
+	// substring vouch against the diagram support pool — the pool
+	// includes prose tokens that can accidentally vouch for a
+	// fabricated compound symbol name. When the hallucination signal
+	// fires, edge-unsupported may also fire on the same edge —
+	// cluster them so the renderer rewrites the diagram once.
+	// Source: contract_check_block.go
+	// validateDiagramEdgeEndpointHallucination +
+	// validateDiagramEdgeSupport.
+	{
+		Primary: types.ViolDiagramEdgeEndpointHallucinated,
+		Derived: []types.ViolationKind{
+			types.ViolDiagramEdgeUnsupported,
+		},
+		Reason: "hallucinated-diagram-endpoint and edge-unsupported can fire on the same edge when both substring vouching fails AND the codebase has no such symbol; cluster so the diagram is rewritten once with node names the codebase confirms",
+	},
+
+	// ─────────────────────────────────────────────────────────────
 	// Rule C7 — Chain demoted ⇒ step verifier sees no real def-line.
 	//
 	// Invariant: ChainDemoted fires when no anchor in a resolution

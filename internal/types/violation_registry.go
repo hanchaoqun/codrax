@@ -793,6 +793,16 @@ func init() {
 		FixableByAgents: []AgentName{AgentFinalizer},
 	})
 	RegisterViolKind(ViolKindSpec{
+		Kind: ViolDiagramEdgeEndpointHallucinated, DefaultSeverity: SeverityMedium,
+		SoftByDefault: false, Promotable: true, FallbackLocus: LocusFinalizer,
+		Layer: "contract_check", CaveatFamilyID: CaveatFamilyDiagramFidelity,
+		SchemaDescriptionFragment: "For diagram blocks, every mermaid edge endpoint (the `from` and `to` node identifiers) whose leading identifier is ≥10 chars MUST be a real function / type / constant declared in the codebase. Fabricated node names that no source file declares are rejected — the rendered diagram cannot reference identifiers that don't exist.",
+		// Fix path: finalizer single-agent — the diagram body is
+		// LLM-rendered and the extractor's slate is fine; the only
+		// fix is re-emitting the diagram with a real identifier.
+		FixableByAgents: []AgentName{AgentFinalizer},
+	})
+	RegisterViolKind(ViolKindSpec{
 		Kind: ViolLaneBlockKindMismatch, DefaultSeverity: SeverityMedium,
 		SoftByDefault: false, Promotable: true, FallbackLocus: LocusFinalizer,
 		Layer: "contract_check", CaveatFamilyID: CaveatFamilyAcceptance,

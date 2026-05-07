@@ -1753,6 +1753,7 @@ func runV2BlockOraclesWithOracle(doc *types.AnswerDocumentV2, view *types.Answer
 	out = append(out, validateEnumerationItemLabelGrounding(doc, mut)...)
 	out = append(out, validateEnumerationItemLabelExtractorMatch(doc, view, mut, oracle)...)
 	out = append(out, validateEnumerationItemLabelHallucination(doc, oracle)...)
+	out = append(out, validateDiagramEdgeEndpointHallucination(doc, oracle)...)
 	return out
 }
 
@@ -2278,6 +2279,138 @@ func validateEnumerationItemLabelHallucination(doc *types.AnswerDocumentV2, orac
 			SuspectedRoot: types.SuspectedRoot{
 				IRField:    "block_items_label",
 				Reason:     "answer rendering used identifiers the codebase does not declare (fabricated names)",
+				Confidence: 0.9,
+			},
+			Stage: string(types.StageFinalize),
+		})
+	}
+	return out
+}
+
+// validateDiagramEdgeEndpointHallucination (Fix D, 2026-05-07
+// post-Fix-C diagram audit) verifies that every mermaid edge
+// endpoint (the `from` and `to` node identifiers) in a BlockDiagram
+// resolves to a Tier 1-2 codebase symbol via the typed graph
+// SymbolOracle. Mirror of validateEnumerationItemLabelHallucination
+// applied to the diagram surface — same precise typed-graph
+// counterpart to validateDiagramEdgeSupport's pool substring vouch.
+//
+// Why this gate is needed: validateDiagramEdgeSupport's
+// diagramTokenSupported uses bidirectional case-folded substring
+// matching against a support pool that includes prose tokens
+// (block titles, item labels, claim_use annotations). Short prose
+// tokens like "coherence" or "validate" appearing anywhere in the
+// answer's grounding pool can vouch a fabricated compound mermaid
+// node id like `validateFakeCoherenceCheck`. The graph oracle
+// rejects the same name because no source file declares it,
+// preventing the user from receiving a diagram that references
+// identifiers that don't exist.
+//
+// Trigger conditions (all required, defensively narrow — same
+// shape as validateEnumerationItemLabelHallucination):
+//
+//   - oracle != nil — unit-test path / no-graph runs disable the
+//     validator.
+//   - block.Kind == BlockDiagram with a non-empty Diagram.Body —
+//     other shapes don't carry mermaid edges.
+//   - endpoint is shaped <identifier>[<separator><prose>] —
+//     prose-id endpoints (e.g. "Step 1") skip via
+//     labelLeadingSymbolIdentifier returning "" when the leading
+//     identifier continues into more letters/digits.
+//   - leading identifier length ≥ labelHallucinationGateLengthFloor
+//     (10 chars) — short ids (`A`, `Foo`, `node1`) are typically
+//     mermaid stub identifiers, not source-file symbol references,
+//     and would false-positive.
+//   - oracle returns Tier=0 (not found) OR Tier ≥ 3 (low-confidence
+//     parse) — same precision contract as the sister validators.
+//
+// Default classification: Medium severity, retry-eligible
+// finalizer-only. Operators promote via
+// pipeline_contract_strict_kinds.
+func validateDiagramEdgeEndpointHallucination(doc *types.AnswerDocumentV2, oracle types.SymbolOracle) []types.Violation {
+	if doc == nil || oracle == nil {
+		return nil
+	}
+	type hallucinated struct {
+		endpoint string
+		ident    string
+	}
+	perBlock := make(map[string][]hallucinated)
+	for i := range doc.Blocks {
+		b := &doc.Blocks[i]
+		if b.Kind != types.BlockDiagram || b.Diagram == nil {
+			continue
+		}
+		body := strings.TrimSpace(b.Diagram.Body)
+		if body == "" {
+			continue
+		}
+		edges := parseMermaidEdges(body)
+		if len(edges) == 0 {
+			continue
+		}
+		// Track the hallucinated endpoints encountered in this block;
+		// dedupe so the same endpoint named in 5 edges only reports
+		// once per block.
+		seen := make(map[string]struct{})
+		var blockHits []hallucinated
+		check := func(endpoint string) {
+			if endpoint == "" {
+				return
+			}
+			ident := labelLeadingSymbolIdentifier(endpoint)
+			if len(ident) < labelHallucinationGateLengthFloor {
+				return
+			}
+			if !contract.IsIdentifierShaped(ident) {
+				return
+			}
+			found, tier := oracle.SymbolExists(ident)
+			if found && tier < 3 {
+				return
+			}
+			if _, dup := seen[ident]; dup {
+				return
+			}
+			seen[ident] = struct{}{}
+			blockHits = append(blockHits, hallucinated{
+				endpoint: endpoint,
+				ident:    ident,
+			})
+		}
+		for _, e := range edges {
+			check(e.from)
+			check(e.to)
+		}
+		if len(blockHits) > 0 {
+			perBlock[b.ID] = blockHits
+		}
+	}
+	if len(perBlock) == 0 {
+		return nil
+	}
+	blockIDs := make([]string, 0, len(perBlock))
+	for blockID := range perBlock {
+		blockIDs = append(blockIDs, blockID)
+	}
+	sort.Strings(blockIDs)
+	out := make([]types.Violation, 0, len(blockIDs))
+	for _, blockID := range blockIDs {
+		hits := perBlock[blockID]
+		pairs := make([]string, 0, len(hits))
+		for _, h := range hits {
+			pairs = append(pairs, fmt.Sprintf("block=%q ident=%q endpoint=%q", blockID, h.ident, h.endpoint))
+		}
+		out = append(out, types.Violation{
+			Kind: types.ViolDiagramEdgeEndpointHallucinated,
+			Detail: fmt.Sprintf(
+				"diagram block %q has %d edge endpoint identifier(s) that do not match any function / type / constant declared in the codebase (likely fabricated identifier): [%s]",
+				blockID, len(hits), strings.Join(pairs, "; ")),
+			Repair: "the listed mermaid endpoint identifiers are fabricated names that no source file declares. Replace each with a real identifier from the existing evidence anchors / symbol slate, OR rename the node to a non-symbol-shape label so the diagram clearly conveys an abstract role rather than a fictional code location.",
+			ClusterKey: blockClusterKey(blockID, "diagram_edges"),
+			SuspectedRoot: types.SuspectedRoot{
+				IRField:    "diagram_edges",
+				Reason:     "mermaid endpoint identifier not declared in the codebase (fabricated names)",
 				Confidence: 0.9,
 			},
 			Stage: string(types.StageFinalize),
