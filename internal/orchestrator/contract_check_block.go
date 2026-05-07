@@ -1754,6 +1754,7 @@ func runV2BlockOraclesWithOracle(doc *types.AnswerDocumentV2, view *types.Answer
 	out = append(out, validateEnumerationItemLabelExtractorMatch(doc, view, mut, oracle)...)
 	out = append(out, validateEnumerationItemLabelHallucination(doc, oracle)...)
 	out = append(out, validateDiagramEdgeEndpointHallucination(doc, oracle)...)
+	out = append(out, validateInlineIdentifierHallucination(doc, oracle)...)
 	return out
 }
 
@@ -2492,6 +2493,142 @@ func validateDiagramEdgeEndpointHallucination(doc *types.AnswerDocumentV2, oracl
 			SuspectedRoot: types.SuspectedRoot{
 				IRField:    "diagram_edges",
 				Reason:     "mermaid endpoint identifier not declared in the codebase (fabricated names)",
+				Confidence: 0.9,
+			},
+			Stage: string(types.StageFinalize),
+		})
+	}
+	return out
+}
+
+// inlineBacktickIdentRE captures markdown inline-code spans whose
+// content starts with an identifier-shape token. The capture group
+// returns the token UP TO the first non-identifier character — so
+// `\`fmt.Sprintf\`` captures `fmt` (and the validator's leading-ident
+// + length floor then drops it as a stdlib reference). Identifier
+// chars: ASCII letter / digit / `_` only — `-` excluded so kebab-
+// case CLI flags don't accidentally match.
+var inlineBacktickIdentRE = regexp.MustCompile("`([A-Za-z_][A-Za-z0-9_]*)`")
+
+// validateInlineIdentifierHallucination (Fix I, 2026-05-07
+// post-batch eval forensic) extends the typed-graph SymbolOracle
+// existence check (Fix C / Fix D) to PROSE TEXT surfaces — Title /
+// Text fields on Summary / Section / Scalar / Decision / Caveat
+// blocks plus Items[].Text. Catches the failure mode where the
+// finalizer renders an enumeration as markdown numbered prose
+// inside a Section block (instead of structured items[].label),
+// quoting fabricated identifiers in inline backticks that the
+// list-block-only Fix C cannot see.
+//
+// Production-shape (s1a r1, batch eval 2026-05-07): finalizer
+// emitted the gate.Run check enumeration as
+// `1. \`checkAnswerContract\`(...) — desc / 2. \`checkSubtopicConsistency\`...
+// inside BlockSection.Text. Five names were partial hallucinations
+// (`checkAnswerContract` for `checkContractComplete`,
+// `checkSubtopicConsistency` for `checkSubtopicCoherence`, etc.);
+// the answer shipped to the user with mis-attributed file:line
+// citations because no validator scanned section text.
+//
+// Trigger conditions (mirrors Fix C / Fix D defensively-narrow gate):
+//
+//   - oracle != nil — unit-test path / no-graph runs disable.
+//   - block.Kind ∈ { Summary, Section, Scalar, Decision, Caveat,
+//     OrderedList, BulletList, Table } — every prose-bearing
+//     block kind. (List blocks scan Items[].Text not Items[].Label
+//     so we don't double-count Fix C surface.)
+//   - regex extracts a backtick-delimited token starting with
+//     an identifier-shape character.
+//   - leading identifier (extracted via labelLeadingSymbolIdentifier)
+//     length ≥ labelHallucinationGateLengthFloor (10 chars) —
+//     stdlib helpers (`Sprintf`, `Println`, `Get`) skip.
+//   - oracle (Fix E SymbolExistsFlat) returns Tier=0 OR Tier ≥ 3.
+//
+// Default classification: Medium severity, retry-eligible
+// finalizer-only. Operators promote via
+// pipeline_contract_strict_kinds.
+func validateInlineIdentifierHallucination(doc *types.AnswerDocumentV2, oracle types.SymbolOracle) []types.Violation {
+	if doc == nil || oracle == nil {
+		return nil
+	}
+	type hallucinated struct {
+		ident   string
+		surface string
+	}
+	perBlock := make(map[string][]hallucinated)
+	checkText := func(blockID, text, surface string, seen map[string]struct{}, hits *[]hallucinated) {
+		if text == "" {
+			return
+		}
+		matches := inlineBacktickIdentRE.FindAllStringSubmatch(text, -1)
+		for _, m := range matches {
+			if len(m) < 2 {
+				continue
+			}
+			token := m[1]
+			ident := labelLeadingSymbolIdentifier(token)
+			if len(ident) < labelHallucinationGateLengthFloor {
+				continue
+			}
+			if !contract.IsIdentifierShaped(ident) {
+				continue
+			}
+			found, tier := oracle.SymbolExistsFlat(ident)
+			if found && tier < 3 {
+				continue
+			}
+			if _, dup := seen[ident]; dup {
+				continue
+			}
+			seen[ident] = struct{}{}
+			*hits = append(*hits, hallucinated{ident: ident, surface: surface})
+		}
+	}
+	for i := range doc.Blocks {
+		b := &doc.Blocks[i]
+		switch b.Kind {
+		case types.BlockSummary, types.BlockSection, types.BlockScalar,
+			types.BlockDecision, types.BlockCaveat,
+			types.BlockOrderedList, types.BlockBulletList, types.BlockTable:
+			// supported — every block kind that carries prose text
+		default:
+			continue
+		}
+		seen := make(map[string]struct{})
+		var hits []hallucinated
+		checkText(b.ID, b.Title, "title", seen, &hits)
+		checkText(b.ID, b.Text, "text", seen, &hits)
+		for j := range b.Items {
+			checkText(b.ID, b.Items[j].Text, fmt.Sprintf("items[%d].text", j), seen, &hits)
+		}
+		if len(hits) > 0 {
+			perBlock[b.ID] = hits
+		}
+	}
+	if len(perBlock) == 0 {
+		return nil
+	}
+	blockIDs := make([]string, 0, len(perBlock))
+	for blockID := range perBlock {
+		blockIDs = append(blockIDs, blockID)
+	}
+	sort.Strings(blockIDs)
+	out := make([]types.Violation, 0, len(blockIDs))
+	for _, blockID := range blockIDs {
+		hits := perBlock[blockID]
+		pairs := make([]string, 0, len(hits))
+		for _, h := range hits {
+			pairs = append(pairs, fmt.Sprintf("block=%q ident=%q surface=%q", blockID, h.ident, h.surface))
+		}
+		out = append(out, types.Violation{
+			Kind: types.ViolInlineIdentifierHallucinated,
+			Detail: fmt.Sprintf(
+				"block %q has %d inline-backtick identifier(s) in prose text that do not match any function / type / constant declared in the codebase (likely fabricated identifier): [%s]",
+				blockID, len(hits), strings.Join(pairs, "; ")),
+			Repair: "the listed inline-backtick identifiers in this block's prose text are fabricated names that no source file declares. Replace each with a real identifier from the existing evidence anchors / symbol slate, OR remove the inline backticks if the surrounding text is generic prose rather than a code reference. Fabricated names mislead the reader because the inline backtick visually presents them as authoritative code references.",
+			ClusterKey: blockClusterKey(blockID, "inline_identifier"),
+			SuspectedRoot: types.SuspectedRoot{
+				IRField:    "inline_identifier",
+				Reason:     "answer prose used inline-backtick identifiers the codebase does not declare (fabricated names)",
 				Confidence: 0.9,
 			},
 			Stage: string(types.StageFinalize),

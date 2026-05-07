@@ -316,6 +316,26 @@ var defaultCooccurrenceRules = []CooccurrenceRule{
 	},
 
 	// ─────────────────────────────────────────────────────────────
+	// Rule C6.4 — Inline-prose hallucination shares root with
+	// list-block hallucination (Fix I, 2026-05-07).
+	//
+	// When a finalizer answer fabricates an identifier, it commonly
+	// renders the same fabricated name in MULTIPLE surfaces — both
+	// as a list-item label AND inside prose backticks describing
+	// the same item. Cluster so a single rewrite directive
+	// addresses the whole answer rather than one fix per surface.
+	// Source: contract_check_block.go
+	// validateInlineIdentifierHallucination +
+	// validateEnumerationItemLabelHallucination.
+	{
+		Primary: types.ViolInlineIdentifierHallucinated,
+		Derived: []types.ViolationKind{
+			types.ViolEnumerationLabelHallucinated,
+		},
+		Reason: "inline-prose hallucinations and list-label hallucinations often co-fire when the LLM rendered the same fabricated name across both the structured items[].label slot and the surrounding prose backticks; cluster so the answer rendering is rewritten once",
+	},
+
+	// ─────────────────────────────────────────────────────────────
 	// Rule C7 — Chain demoted ⇒ step verifier sees no real def-line.
 	//
 	// Invariant: ChainDemoted fires when no anchor in a resolution

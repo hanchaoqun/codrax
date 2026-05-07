@@ -621,6 +621,50 @@ const (
 	// item composition; replaying explore wastes budget.
 	ViolEnumerationLabelUngrounded ViolationKind = "enumeration_label_ungrounded"
 
+	// ViolInlineIdentifierHallucinated (Fix I, 2026-05-07, post-Fix-D
+	// post-batch eval forensic) fires when a block's prose text
+	// (Title / Text / Items[].Text fields on Summary / Section /
+	// Scalar / Decision / Caveat blocks) contains an inline
+	// backtick-delimited identifier like `\`checkAnswerContract\`` that
+	// the typed graph SymbolOracle reports as Tier 0 — i.e., the
+	// LLM rendered a fabricated name within prose where the existing
+	// list-block-only Fix C / diagram-only Fix D validators could
+	// not see it.
+	//
+	// Detected case (s1a r1, batch eval 2026-05-07): finalizer LLM
+	// emitted a 9-item enumeration as markdown numbered prose inside
+	// a BlockSection.Text field, with each item using inline
+	// backtick to quote a check name. Five of the nine names were
+	// "semantically right but lexically fabricated" partial
+	// hallucinations: `checkAnswerContract` (real:
+	// checkContractComplete), `checkSubtopicConsistency` (real:
+	// checkSubtopicCoherence), `checkShapeSubjectConsistency` (real:
+	// checkShapeSubjectCoherence), `checkCriterionResolution`
+	// (real: checkCriterionResolvable), `checkCoherence` (real:
+	// checkPendingFieldsWellformed — fully fabricated). All five
+	// resolved to Tier 0 in the graph's flat-form index, but
+	// because the answer was rendered in prose-text rather than
+	// ordered_list items[].label, neither Fix C nor any other
+	// validator caught the drift, and the answer shipped to the
+	// user with mis-attributed file:line citations.
+	//
+	// Distinct from the sister hallucination kinds:
+	//
+	//   - ViolEnumerationLabelHallucinated — list-block items[].label
+	//   - ViolDiagramEdgeEndpointHallucinated — mermaid edge endpoints
+	//   - ViolInlineIdentifierHallucinated   — prose-text inline backticks
+	//
+	// Together these three cover every surface where the LLM may
+	// render a symbol-shape token; collectively they enforce the
+	// "every visible identifier MUST be a real codebase symbol"
+	// contract across all V2 block kinds.
+	//
+	// Default classification: Medium severity, retry-eligible
+	// finalizer-only. Operators promote via
+	// pipeline_contract_strict_kinds. Recovery: finalizer re-emit
+	// the block's prose with real names from the existing slate.
+	ViolInlineIdentifierHallucinated ViolationKind = "inline_identifier_hallucinated"
+
 	// ViolDiagramEdgeEndpointHallucinated (Fix D, 2026-05-07,
 	// post-Fix-C diagram audit) fires when a mermaid edge's `from`
 	// or `to` node identifier in a BlockDiagram is identifier-
@@ -775,6 +819,7 @@ func AllViolationKinds() []ViolationKind {
 		ViolSymbolAnchorMismatch,
 		ViolEnumerationLabelUngrounded,
 		ViolEnumerationLabelHallucinated,
+		ViolInlineIdentifierHallucinated,
 		ViolDiagramEdgeEndpointHallucinated,
 		ViolEnumerationItemLabelExtractorDrift,
 		ViolLaneBlockKindMismatch,

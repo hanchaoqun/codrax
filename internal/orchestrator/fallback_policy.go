@@ -383,6 +383,13 @@ func legacyDefaultFallbackPolicy() FallbackPolicy {
 		// Recovery: finalizer single-agent re-emit the diagram with
 		// node names the codebase confirms.
 		types.ViolDiagramEdgeEndpointHallucinated: FallbackFinalizerOnly,
+		// Fix I, 2026-05-07 post-batch eval forensic — finalizer
+		// rendered fabricated identifiers inside prose backticks of
+		// Summary / Section / Scalar / Decision blocks. The
+		// extraction stage's slate is fine; only the prose
+		// rendering needs to copy real names. Same recovery as
+		// Fix C / Fix D: finalizer single-agent re-emit.
+		types.ViolInlineIdentifierHallucinated: FallbackFinalizerOnly,
 		// P3 #6 precise variant (2026-05-03) — code-vs-comment
 		// divergence transparency. Remediation is in extractor's
 		// hands (re-emit emit_answer_symbol with caveat rows or

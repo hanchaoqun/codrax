@@ -793,6 +793,16 @@ func init() {
 		FixableByAgents: []AgentName{AgentFinalizer},
 	})
 	RegisterViolKind(ViolKindSpec{
+		Kind: ViolInlineIdentifierHallucinated, DefaultSeverity: SeverityMedium,
+		SoftByDefault: false, Promotable: true, FallbackLocus: LocusFinalizer,
+		Layer: "contract_check", CaveatFamilyID: CaveatFamilyEnumerationDepth,
+		SchemaDescriptionFragment: "For prose text on Summary / Section / Scalar / Decision / Caveat / Title fields and item text, every inline backtick-delimited token whose leading identifier is ≥10 chars MUST be a real function / type / constant declared in the codebase. Fabricated names that no source file declares — even when wrapped in markdown inline code — are silent answer-quality regressions and are rejected.",
+		// Fix path: finalizer single-agent — the prose itself is
+		// LLM-rendered and the slate carries real names; recovery is
+		// re-emitting the block's text with verbatim identifiers.
+		FixableByAgents: []AgentName{AgentFinalizer},
+	})
+	RegisterViolKind(ViolKindSpec{
 		Kind: ViolDiagramEdgeEndpointHallucinated, DefaultSeverity: SeverityMedium,
 		SoftByDefault: false, Promotable: true, FallbackLocus: LocusFinalizer,
 		Layer: "contract_check", CaveatFamilyID: CaveatFamilyDiagramFidelity,
