@@ -2,11 +2,14 @@ package orchestrator
 
 import (
 	"fmt"
+	"regexp"
 	"sort"
 	"strings"
 
 	"github.com/hanchaoqun/codrax/internal/types"
 )
+
+var snippetSelectorTokenRE = regexp.MustCompile(`\b[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)+\b`)
 
 func blockClusterKey(blockID string, rootField string) string {
 	return types.BlockClusterKey(blockID, rootField)
@@ -399,10 +402,13 @@ func validateDiagramRelationLegality(
 			}
 		default:
 			rel = labelRel
-			if labelRel != types.DiagramRelUnknown {
-				labelRelCounts[labelRel]++
-				labelOnlyEdges[labelRel] = append(labelOnlyEdges[labelRel],
-					labelOnlyEdge{from: e.from, to: e.to, label: e.label, labelInferred: labelRel})
+			if rel == types.DiagramRelUnknown {
+				rel = implicitDiagramRelationKind(diagramBlock, e)
+			}
+			if rel != types.DiagramRelUnknown {
+				labelRelCounts[rel]++
+				labelOnlyEdges[rel] = append(labelOnlyEdges[rel],
+					labelOnlyEdge{from: e.from, to: e.to, label: e.label, labelInferred: rel})
 			}
 		}
 		// Per-edge claim_form match check is fully retired:
@@ -526,6 +532,21 @@ func validateDiagramRelationLegality(
 		})
 	}
 	return violations
+}
+
+func implicitDiagramRelationKind(diagramBlock *types.AnswerBlock, edge mermaidEdge) types.DiagramRelationKind {
+	if diagramBlock == nil || diagramBlock.Diagram == nil {
+		return types.DiagramRelUnknown
+	}
+	if diagramBlock.Diagram.Kind == types.DiagramSequence && strings.TrimSpace(edge.label) == "" {
+		// In Mermaid sequence diagrams an unlabelled directed message
+		// arrow still semantically represents one participant sending
+		// control to another. Treat this as the typed default `call`
+		// relation so call-chain/root-cause sequence spines do not burn
+		// retries purely for omitting a redundant edge label.
+		return types.DiagramRelCall
+	}
+	return types.DiagramRelUnknown
 }
 
 // edgeKey is the (lowercase from, lowercase to) lookup key for the
@@ -787,6 +808,14 @@ func buildDiagramSupportTokens(doc *types.AnswerDocumentV2, diagramBlock *types.
 			if line == "" || strings.HasPrefix(line, "%%") {
 				continue
 			}
+			for _, decl := range mermaidSequenceParticipantDeclarations(line) {
+				if decl.ident != "" {
+					add(decl.ident)
+				}
+				if decl.label != "" {
+					add(decl.label)
+				}
+			}
 			for _, decl := range mermaidNodeDeclarationsAll(line) {
 				if decl.ident != "" {
 					add(decl.ident)
@@ -819,6 +848,42 @@ func buildDiagramSupportTokens(doc *types.AnswerDocumentV2, diagramBlock *types.
 type mermaidNodeDecl struct {
 	ident string
 	label string
+}
+
+func mermaidSequenceParticipantDeclarations(line string) []mermaidNodeDecl {
+	trimmed := strings.TrimSpace(line)
+	if trimmed == "" {
+		return nil
+	}
+	rest := ""
+	switch {
+	case strings.HasPrefix(trimmed, "participant "):
+		rest = strings.TrimSpace(strings.TrimPrefix(trimmed, "participant "))
+	case strings.HasPrefix(trimmed, "actor "):
+		rest = strings.TrimSpace(strings.TrimPrefix(trimmed, "actor "))
+	default:
+		return nil
+	}
+	if rest == "" {
+		return nil
+	}
+	if idx := strings.Index(rest, " as "); idx > 0 {
+		ident := strings.TrimSpace(rest[:idx])
+		label := strings.TrimSpace(rest[idx+4:])
+		if ident == "" && label == "" {
+			return nil
+		}
+		return []mermaidNodeDecl{{ident: ident, label: label}}
+	}
+	fields := strings.Fields(rest)
+	if len(fields) == 0 {
+		return nil
+	}
+	ident := strings.TrimSpace(fields[0])
+	if ident == "" {
+		return nil
+	}
+	return []mermaidNodeDecl{{ident: ident, label: ident}}
 }
 
 // mermaidNodeDeclarationsAll walks `line` and returns every node
@@ -1713,11 +1778,11 @@ func validateEnumerationItemLabelGrounding(doc *types.AnswerDocumentV2, mut *typ
 	if doc == nil || mut == nil {
 		return nil
 	}
-	turnA := mut.TurnAArtifacts()
-	if turnA == nil || len(turnA.EvidenceItems) == 0 {
-		return nil
+	var evidenceItems []types.EvidenceItem
+	if turnA := mut.TurnAArtifacts(); turnA != nil {
+		evidenceItems = turnA.EvidenceItems
 	}
-	support := buildEvidenceLabelSupportTokens(turnA.EvidenceItems)
+	support := buildEvidenceLabelSupportTokens(evidenceItems)
 	if len(support) == 0 {
 		return nil
 	}
@@ -1766,9 +1831,9 @@ func validateEnumerationItemLabelGrounding(doc *types.AnswerDocumentV2, mut *typ
 		out = append(out, types.Violation{
 			Kind: types.ViolEnumerationLabelUngrounded,
 			Detail: fmt.Sprintf(
-				"block %q has %d enumeration item label(s) that do not match any evidence pool anchor_symbol / subject / object: [%s]",
+				"block %q has %d enumeration item label(s) that do not match any grounded support token (evidence anchor / grounded snippet selector): [%s]",
 				blockID, len(ungrounded), strings.Join(pairs, "; ")),
-			Repair: "for each listed item, copy the label verbatim from one of the evidence pool's anchor_symbol values (or replace the item with one whose label is grounded). Fabricating identifiers that the evidence does not name is silently misleading; if the answer truly requires an item that no evidence supports, reopen the investigation rather than inventing a label.",
+			Repair: "for each listed item, copy the label verbatim from a grounded support token — anchor_symbol, subject/object, or a selector/type identifier visibly present on a grounded snippet line — or replace the item with one whose label is grounded. Fabricating identifiers that the evidence does not name is silently misleading; if the answer truly requires an item that no evidence supports, reopen the investigation rather than inventing a label.",
 			SuspectedRoot: types.SuspectedRoot{
 				IRField:    "block_items_label",
 				Reason:     "items[].label not supported by any evidence pool anchor",
@@ -1954,6 +2019,12 @@ func viewNeedsExtractorBackedEnumerationSlate(view *types.AnswerSemanticView) bo
 //     ContractComplete").
 //   - EvidenceItem.OwnerSymbol — the enclosing function / type when
 //     the anchor is itself nested.
+//   - Grounded snippet selector chains — qualified identifiers that
+//     visibly appear on the grounded line itself (e.g.
+//     normalizer.Normalize, ctx.Mutable.RequestModel,
+//     types.AnalysisIR). Suffix variants are also admitted so
+//     readable labels can drop leading qualifiers without becoming
+//     ungrounded.
 //
 // Empty tokens are dropped. Each token also has its leading/trailing
 // whitespace trimmed before lower-casing so the diagramTokenSupported
@@ -1972,8 +2043,34 @@ func buildEvidenceLabelSupportTokens(items []types.EvidenceItem) map[string]stru
 		add(it.OwnerSymbol)
 		add(it.Subject)
 		add(it.Object)
+		addSnippetDerivedLabelSupportTokens(out, it)
 	}
 	return out
+}
+
+func addSnippetDerivedLabelSupportTokens(out map[string]struct{}, it types.EvidenceItem) {
+	snippet := strings.TrimSpace(it.Snippet)
+	if snippet == "" || it.GroundingStatus == types.GroundingUngrounded {
+		return
+	}
+	for _, match := range snippetSelectorTokenRE.FindAllString(snippet, -1) {
+		addSelectorTokenAndSuffixes(out, match)
+	}
+}
+
+func addSelectorTokenAndSuffixes(out map[string]struct{}, raw string) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return
+	}
+	parts := strings.Split(raw, ".")
+	for i := 0; i < len(parts); i++ {
+		token := strings.TrimSpace(strings.Join(parts[i:], "."))
+		if token == "" {
+			continue
+		}
+		out[strings.ToLower(token)] = struct{}{}
+	}
 }
 
 // _ keeps strings import used (formNames + Detail strings).

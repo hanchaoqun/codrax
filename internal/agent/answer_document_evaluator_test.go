@@ -518,6 +518,15 @@ func TestAnswerDocumentEvaluator_BuildInitialInstruction_SuppressesStepBackboneW
 	if !strings.Contains(prompt, "## Typed Answer Support Lanes") {
 		t.Fatalf("typed support lanes missing:\n%s", prompt)
 	}
+	if !strings.Contains(prompt, "Allowed block kinds: summary, caveat") {
+		t.Fatalf("typed support lanes should expose block-kind boundaries:\n%s", prompt)
+	}
+	if !strings.Contains(prompt, "If a lane does not list `ordered_list`, do not turn its entries into principal hop items") {
+		t.Fatalf("typed support instructions should forbid boundary/observation lanes from becoming principal hops:\n%s", prompt)
+	}
+	if !strings.Contains(prompt, "If the **Nearest grounded mechanism** lane is absent, do NOT invent a likely internal cause") {
+		t.Fatalf("typed support instructions should forbid speculative cause promotion when mechanism lane is absent:\n%s", prompt)
+	}
 	if strings.Contains(prompt, "## Resolved Step Sequence") {
 		t.Fatalf("legacy step backbone should be suppressed when typed support lanes exist:\n%s", prompt)
 	}

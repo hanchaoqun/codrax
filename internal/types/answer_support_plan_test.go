@@ -85,18 +85,43 @@ func TestBuildAnswerSupportPlan_RootCauseTraceCompilesTypedLanes(t *testing.T) {
 		t.Fatalf("observed artifact lane should not expose raw stack arguments, got:\n%s", joinedObserved)
 	}
 	var observedGuidance string
+	var observedAllowed []string
+	var boundaryAllowed []string
 	for _, lane := range got.Lanes {
 		if lane.Kind == SupportLaneObservedArtifact {
 			observedGuidance = lane.Guidance
+			observedAllowed = append(observedAllowed, lane.AllowedBlocks...)
+		}
+		if lane.Kind == SupportLaneUncertaintyBound {
+			boundaryAllowed = append(boundaryAllowed, lane.AllowedBlocks...)
 			break
 		}
 	}
 	if !strings.Contains(observedGuidance, "they do not prove caller-side provenance, source-parameter mapping") {
 		t.Fatalf("observed artifact guidance missing raw-argument boundary: %q", observedGuidance)
 	}
+	if got, want := strings.Join(observedAllowed, ","), "summary,caveat"; got != want {
+		t.Fatalf("observed lane allowed blocks = %q, want %q", got, want)
+	}
+	if got, want := strings.Join(boundaryAllowed, ","), "caveat,summary"; got != want {
+		t.Fatalf("boundary lane allowed blocks = %q, want %q", got, want)
+	}
+	var boundaryGuidance string
+	for _, lane := range got.Lanes {
+		if lane.Kind == SupportLaneUncertaintyBound {
+			boundaryGuidance = lane.Guidance
+			break
+		}
+	}
+	if !strings.Contains(boundaryGuidance, "do not identify a specific variable, receiver field, or caller-provided value as the likely cause") {
+		t.Fatalf("weak boundary guidance should forbid variable-level speculation, got: %q", boundaryGuidance)
+	}
 	joinedBoundary := strings.Join(boundaryTexts, "\n")
 	if !strings.Contains(joinedBoundary, "current grounded code exposes only a protective guard") {
 		t.Fatalf("weak guard-only case should surface a boundary-only note, got:\n%s", joinedBoundary)
+	}
+	if strings.Contains(joinedBoundary, "ctx == nil || ctx.Mutable == nil") {
+		t.Fatalf("boundary-only weak guard note should not leak raw guard variables, got:\n%s", joinedBoundary)
 	}
 }
 
@@ -334,6 +359,50 @@ func TestBuildAnswerSupportPlan_RootCauseTraceKeepsControlHeaderAssignmentsOutOf
 		}
 		if strings.Contains(strings.Join(joined, "\n"), "reconcileEnumerationBoundaryScope") {
 			t.Fatalf("control-header assignment should not enter nearest_mechanism, got %+v", lane.Entries)
+		}
+	}
+}
+
+func TestBuildAnswerSupportPlan_RootCauseTraceKeepsReturnFactsOutOfNearestMechanism(t *testing.T) {
+	plan := &AnswerSurfacePlan{
+		DriftBoundedSurfaceItems: []EvidenceItem{
+			{
+				Kind:         EvidenceRelationship,
+				Source:       "internal/agent/analyzer.go",
+				LineStart:    743,
+				AnchorKind:   AnchorCall,
+				Subject:      "ParseOutput",
+				Object:       "buildAnalysisIR",
+				AnchorSymbol: "buildAnalysisIR",
+			},
+			{
+				Kind:         EvidenceDirect,
+				Source:       "internal/agent/analyzer.go",
+				LineStart:    983,
+				AnchorKind:   AnchorReturn,
+				AnchorSymbol: "buildAnalysisIR",
+				Snippet:      `return nil, errors.New("analyzer: emit_analysis was not called")`,
+			},
+		},
+	}
+
+	got := BuildAnswerSupportPlan(RequestModel{
+		Intent:    IntentRootCause,
+		LogTriage: &LogBundle{Errors: []LogError{{Type: "panic: runtime error"}}},
+	}, plan)
+	if got == nil {
+		t.Fatal("expected support plan")
+	}
+	for _, lane := range got.Lanes {
+		if lane.Kind != SupportLaneNearestMechanism {
+			continue
+		}
+		joined := make([]string, 0, len(lane.Entries))
+		for _, entry := range lane.Entries {
+			joined = append(joined, entry.Text)
+		}
+		if strings.Contains(strings.Join(joined, "\n"), "emit_analysis was not called") {
+			t.Fatalf("return facts should not be promoted into nearest_mechanism, got %+v", lane.Entries)
 		}
 	}
 }

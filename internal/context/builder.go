@@ -529,14 +529,15 @@ func BuildPromptContext(ac *types.AgentContext, sk *skill.Config) *types.PromptC
 		}
 	}
 
-	// Raw attached log body. Kept as a distinct section alongside the
-	// structured Validated Extraction above so the LLM can still read
-	// exact text when it needs a quote the structured view summarised,
-	// or when it wants to see non-stack context (log lines adjacent to
-	// the error that hint at timing / configuration / upstream state).
-	// AnalyzerHints.Entities and EvidencePlan.RequiredFiles already
-	// carry the parsed anchors; this section exists for narrative
-	// continuity and for auditor cross-check against quotes.
+	// Raw attached log body. Kept as a distinct section only when the
+	// structured LogBundle is absent or non-authoritative. Once the
+	// bundle is a verified panic/crash anchor set, showing the raw log
+	// alongside the typed bundle creates a competing semantic channel:
+	// runtime tuple payloads like Func(0x0, ...) keep baiting the model
+	// into caller-provenance / source-parameter claims that the typed
+	// contract explicitly marks as observation-only. In that regime the
+	// structured bundle already carries the message, frame tree, call
+	// chain, and residue snippets the downstream stages need.
 	//
 	// Size strategy (mirrors internal/tool/blob for tool results):
 	//   - ≤ inlineCap (4 KB): inline the whole body.
@@ -545,7 +546,7 @@ func BuildPromptContext(ac *types.AgentContext, sk *skill.Config) *types.PromptC
 	//     for paginated access to the middle.
 	//
 	// Empty AttachedLog is a no-op.
-	if !finalizerUsesTypedAnswerSupport(ac) {
+	if !shouldSuppressAttachedRuntimeLog(ac) {
 		if section := formatAttachedLog(ac.AttachedLog, ac.WorkDir); section != "" {
 			pc.UserSections = append(pc.UserSections, types.PromptSection{
 				Title:   SectionAttachedRuntimeLog,
@@ -903,6 +904,23 @@ func BuildPromptContext(ac *types.AgentContext, sk *skill.Config) *types.PromptC
 	pc.EnabledTools = sk.ToolSuggestions
 
 	return pc
+}
+
+func shouldSuppressAttachedRuntimeLog(ac *types.AgentContext) bool {
+	if ac == nil {
+		return false
+	}
+	if ac.AgentName == types.AgentLogTriager {
+		return false
+	}
+	if finalizerUsesTypedAnswerSupport(ac) {
+		return true
+	}
+	bundle := ac.LogTriage
+	if bundle == nil || bundle.IsExternalSource() {
+		return false
+	}
+	return bundleHasAuthoritativeCrashFrames(bundle)
 }
 
 // ToMessages converts a PromptContext into a flat message list for the LLM.
@@ -1915,9 +1933,10 @@ func formatLogTriageStructured(bundle *types.LogBundle) string {
 
 	var b strings.Builder
 	b.WriteString("The attached runtime log was parsed into the structured view below. " +
-		"Prefer this view for citing frames and reasoning about the error chain — " +
-		"the full raw log is still available in the next section for cross-checking " +
-		"quotes or reading context that did not fit the structured schema.\n\n")
+		"Prefer this view for citing frames and reasoning about the error chain. " +
+		"When the validated frame set is already authoritative, downstream stages " +
+		"may omit the raw log section to avoid competing interpretations of runtime-only " +
+		"tuple payloads; rely on the structured bundle and residue snippets below.\n\n")
 	b.WriteString("Stack-frame argument annotations attached by the runtime artifact's panic / exception / traceback dumper " +
 		"(argument-register or pointer-literal tuples, native-method placeholders, locals snapshots — exact form varies by " +
 		"language and runtime) are observation-only encodings. Do NOT map their positional values to a specific receiver, " +
@@ -1960,9 +1979,6 @@ func formatLogTriageStructured(bundle *types.LogBundle) string {
 			sigs[i] = string(s)
 		}
 		fmt.Fprintf(&b, "- Signals: %s\n", strings.Join(sigs, ", "))
-	}
-	if bundle.Meta.Summary != "" {
-		fmt.Fprintf(&b, "- Summary: %s\n", bundle.Meta.Summary)
 	}
 	fmt.Fprintf(&b, "- Coverage: %.2f", bundle.Coverage)
 	residueBytes := 0
@@ -2080,9 +2096,6 @@ func formatPerfTriageStructured(bundle *types.PerfBundle) string {
 	}
 	if len(bundle.Meta.Signals) > 0 {
 		fmt.Fprintf(&b, "- Signals: %s\n", strings.Join(bundle.Meta.Signals, ", "))
-	}
-	if bundle.Meta.Summary != "" {
-		fmt.Fprintf(&b, "- Summary: %s\n", bundle.Meta.Summary)
 	}
 	if bundle.IntentHint != "" {
 		fmt.Fprintf(&b, "- Intent hint: %s\n", bundle.IntentHint)
@@ -2243,7 +2256,7 @@ func renderLogFrame(b *strings.Builder, f *types.LogFrame, depth int) {
 		fmt.Fprintf(b, " (pkg: `%s`)", f.Pkg)
 	}
 	fmt.Fprintf(b, " — confidence %.2f", f.Confidence)
-	if raw := strings.TrimSpace(f.Raw); raw != "" {
+	if raw := sanitizeRuntimeFrameRaw(strings.TrimSpace(f.Raw)); raw != "" {
 		fmt.Fprintf(b, "\n%s  raw: `%s`", indent, truncateForPrompt(raw, 200))
 	}
 	b.WriteString("\n")
@@ -2354,6 +2367,58 @@ func logBundleSignalsIncludeCrash(bundle *types.LogBundle) bool {
 	return false
 }
 
+func bundleHasAuthoritativeCrashFrames(bundle *types.LogBundle) bool {
+	if bundle == nil || len(bundle.ResolvedFiles) == 0 {
+		return false
+	}
+	return logBundleSignalsIncludeCrash(bundle)
+}
+
+var runtimeFrameTupleAtomRe = regexp.MustCompile(`^(?:0x[0-9a-fA-F]+|nil|<nil>|-?\d+)$`)
+
+func sanitizeRuntimeFrameRaw(raw string) string {
+	if raw == "" {
+		return ""
+	}
+	lines := strings.Split(raw, "\n")
+	if len(lines) == 0 {
+		return raw
+	}
+	lines[0] = sanitizeRuntimeFrameTupleLine(lines[0])
+	return strings.Join(lines, "\n")
+}
+
+func sanitizeRuntimeFrameTupleLine(line string) string {
+	if line == "" {
+		return ""
+	}
+	trimmedLeft := strings.TrimLeft(line, " \t")
+	prefix := line[:len(line)-len(trimmedLeft)]
+	content := strings.TrimSpace(trimmedLeft)
+	if content == "" {
+		return line
+	}
+	open := strings.LastIndex(content, "(")
+	close := strings.LastIndex(content, ")")
+	if open <= 0 || close <= open || close != len(content)-1 {
+		return line
+	}
+	args := strings.TrimSpace(content[open+1 : close])
+	if args == "" {
+		return line
+	}
+	parts := strings.Split(args, ",")
+	if len(parts) == 0 {
+		return line
+	}
+	for _, part := range parts {
+		if !runtimeFrameTupleAtomRe.MatchString(strings.TrimSpace(part)) {
+			return line
+		}
+	}
+	return prefix + content[:open] + "(...)"
+}
+
 // truncateForPrompt clips a string for prompt rendering. Unlike
 // truncateStr (log-line digest), this one appends an explicit
 // ellipsis marker so the LLM sees that truncation happened and does
@@ -2417,7 +2482,7 @@ func stageReportsForAgent(reports []types.StageReport, ac *types.AgentContext) [
 	if len(reports) == 0 {
 		return nil
 	}
-	if ac == nil || ac.AgentName != types.AgentFinalizer || !finalizerUsesTypedAnswerSupport(ac) {
+	if ac == nil {
 		return reports
 	}
 	// In typed-support finalizer mode, *all* free-form StageReports
@@ -2428,7 +2493,27 @@ func stageReportsForAgent(reports []types.StageReport, ac *types.AgentContext) [
 	// principal claims from typed support lanes, known facts, and
 	// citations only; StageReports remain useful upstream but must not
 	// survive into the final synthesis prompt.
-	return nil
+	if ac.AgentName == types.AgentFinalizer && finalizerUsesTypedAnswerSupport(ac) {
+		return nil
+	}
+	filtered := make([]types.StageReport, 0, len(reports))
+	for _, report := range reports {
+		switch report.Agent {
+		case types.AgentLogTriager:
+			if ac.LogTriage != nil {
+				continue
+			}
+		case types.AgentPerfTriager:
+			if ac.PerfTrace != nil {
+				continue
+			}
+		}
+		filtered = append(filtered, report)
+	}
+	if len(filtered) == 0 {
+		return nil
+	}
+	return filtered
 }
 
 func typedSupportFinalizerRepoFacts(

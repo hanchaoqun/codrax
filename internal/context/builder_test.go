@@ -2428,6 +2428,123 @@ func TestBuildAgentContext_FinalizerTypedSupportSuppressesCompetingStageReports(
 	}
 }
 
+func TestBuildPromptContext_AnalyzerSuppressesRawAttachedLogWhenLogBundleIsAuthoritative(t *testing.T) {
+	mut := types.NewMutableState("panic root cause")
+	mut.SetLogTriage(&types.LogBundle{
+		Meta:          types.LogMeta{Lang: "go", Signals: []types.LogSignal{types.SignalPanic}},
+		ResolvedFiles: []string{"internal/agent/analyzer.go"},
+		Errors: []types.LogError{{
+			Type: "panic",
+			Frames: []types.LogFrame{
+				{
+					File:       "internal/agent/analyzer.go",
+					Line:       250,
+					Func:       "buildAnalysisIR",
+					Raw:        "github.com/hanchaoqun/codrax/internal/agent.buildAnalysisIR(0x0)",
+					Confidence: 0.95,
+				},
+			},
+		}},
+	})
+	bus := &types.BusContext{
+		PipelineStage: types.StageAnalyze,
+		Mutable:       mut,
+		AttachedLog: "github.com/hanchaoqun/codrax/internal/agent.buildAnalysisIR(0x0)\n\tinternal/agent/analyzer.go:250 +0x1e\n" +
+			"github.com/hanchaoqun/codrax/internal/agent.(*analyzerEvaluator).ParseOutput(0x0, 0x0, 0x0)\n\tinternal/agent/analyzer.go:320 +0x2a",
+	}
+
+	ac := BuildAgentContext(bus, types.AgentAnalyzer, types.StageAnalyze)
+	pc := BuildPromptContext(ac, &skill.Config{Name: "analysis-skill"})
+	if findSectionTitle(pc, SectionAttachedRuntimeLog) != nil {
+		t.Fatal("authoritative structured log bundle should suppress raw attached runtime log for downstream analyzer prompts")
+	}
+	sec := findSectionTitle(pc, SectionLogTriageExtraction)
+	if sec == nil {
+		t.Fatal("expected structured log triage section when authoritative bundle exists")
+	}
+	if strings.Contains(sec.Content, "buildAnalysisIR(0x0)") {
+		t.Fatalf("structured section should redact raw runtime tuple payloads:\n%s", sec.Content)
+	}
+	if !strings.Contains(sec.Content, "buildAnalysisIR(...)") {
+		t.Fatalf("structured section should retain the frame identity after redaction:\n%s", sec.Content)
+	}
+}
+
+func TestBuildAgentContext_ExtractorSuppressesTriageStageReportsWhenStructuredBundlesExist(t *testing.T) {
+	mut := types.NewMutableState("triage prompt hygiene")
+	mut.SetLogTriage(&types.LogBundle{
+		Meta: types.LogMeta{Lang: "go", Summary: "auxiliary log summary"},
+		Errors: []types.LogError{{
+			Type: "panic",
+		}},
+	})
+	bus := &types.BusContext{
+		PipelineStage: types.StageExtract,
+		Mutable:       mut,
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				Scenario:  types.ScenarioRootCause,
+				Intent:    types.IntentRootCause,
+				LogTriage: mut.LogTriage(),
+			},
+		},
+		StageReports: []types.StageReport{
+			{Stage: types.StageLogTriage, Agent: types.AgentLogTriager, Findings: "Synopsis (auxiliary shorthand): nil receiver"},
+			{Stage: types.StageExplore, Agent: types.AgentExplorer, Findings: "investigation summary"},
+		},
+	}
+
+	ac := BuildAgentContext(bus, types.AgentExtractor, types.StageExtract)
+	if len(ac.PriorReports) != 1 {
+		t.Fatalf("expected only non-triager prior reports to survive, got %d", len(ac.PriorReports))
+	}
+	if ac.PriorReports[0].Agent != types.AgentExplorer {
+		t.Fatalf("unexpected surviving prior report agent: %s", ac.PriorReports[0].Agent)
+	}
+}
+
+func TestBuildPromptContext_ExtractorOmitsStructuredLogSummaryProse(t *testing.T) {
+	mut := types.NewMutableState("triage prompt hygiene")
+	mut.SetLogTriage(&types.LogBundle{
+		Meta: types.LogMeta{
+			Lang:    "go",
+			Signals: []types.LogSignal{types.SignalPanic},
+			Summary: "ParseOutput 收到了 nil receiver",
+		},
+		Errors: []types.LogError{{
+			Type: "panic",
+			Frames: []types.LogFrame{{
+				File:       "internal/agent/analyzer.go",
+				Line:       250,
+				Func:       "buildAnalysisIR",
+				Raw:        "buildAnalysisIR(0x0)",
+				Confidence: 0.95,
+			}},
+		}},
+	})
+	bus := &types.BusContext{
+		PipelineStage: types.StageExtract,
+		Mutable:       mut,
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				Scenario:  types.ScenarioRootCause,
+				Intent:    types.IntentRootCause,
+				LogTriage: mut.LogTriage(),
+			},
+		},
+	}
+
+	ac := BuildAgentContext(bus, types.AgentExtractor, types.StageExtract)
+	pc := BuildPromptContext(ac, &skill.Config{Name: "extract-skill"})
+	sec := findSectionTitle(pc, SectionLogTriageExtraction)
+	if sec == nil {
+		t.Fatal("missing structured log triage section")
+	}
+	if strings.Contains(sec.Content, "Summary:") || strings.Contains(sec.Content, "nil receiver") {
+		t.Fatalf("structured log triage section must not surface auxiliary summary prose:\n%s", sec.Content)
+	}
+}
+
 func TestBuildAgentContext_FinalizerTypedSupportFiltersRepoFactsToSupportFiles(t *testing.T) {
 	mut := types.NewMutableState("panic root cause")
 	mut.SetLogTriage(&types.LogBundle{

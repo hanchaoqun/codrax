@@ -36,6 +36,18 @@ func TestResolveQuestionFamily_TraceWithoutArtifactGoesToCallChain(t *testing.T)
 	}
 }
 
+func TestResolveQuestionFamily_TraceFunctionSubjectStillGoesToCallChain(t *testing.T) {
+	// Explicit trace intent must not be stolen by QFRoleLookup just
+	// because the analyzer inferred a function-like AnswerSubject.
+	rm := RequestModel{
+		Intent:        IntentTrace,
+		AnswerSubject: AnswerSubject{Kind: SubjectFunctionName, Confidence: 0.8},
+	}
+	if got := ResolveQuestionFamily(rm); got != QFCallChain {
+		t.Errorf("got %q, want QFCallChain", got)
+	}
+}
+
 func TestResolveQuestionFamily_ConfigPrecedence(t *testing.T) {
 	cases := []struct {
 		name string

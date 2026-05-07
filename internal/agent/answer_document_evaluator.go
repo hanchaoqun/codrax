@@ -371,7 +371,7 @@ func renderAnswerDocSubmissionChecklist(ctx *types.AgentContext, view *types.Ans
 			case types.BlockOrderedList:
 				if br.SurfaceRoleHint == types.SurfacePrincipal && view.Family == types.QFEnumeration {
 					items = append(items,
-						"Emit the principal `ordered_list` block with `items[]` (each item carries `id`, optional `label`, `text`, top-level `citation_ref=N` (zero-based index into doc.citations[])); declare the block-level `claim_uses=[{claim_form=definition_fact}]` (or `call_edge` / `assignment_fact` when the cited lines are call sites or assignments). EVERY item.label MUST be the verbatim identifier from an evidence pool anchor_symbol or evidence subject/object — fabricated labels are rejected by the structural enumeration grounding oracle.",
+						"Emit the principal `ordered_list` block with `items[]` (each item carries `id`, optional `label`, `text`, top-level `citation_ref=N` (zero-based index into doc.citations[])); declare the block-level `claim_uses=[{claim_form=definition_fact}]` (or `call_edge` / `assignment_fact` when the cited lines are call sites or assignments). EVERY item.label MUST be grounded in the evidence pool: prefer a verbatim anchor_symbol / subject / object, or a selector-qualified identifier visibly present on a grounded snippet line (for example a qualified call or type name). Fabricated labels are rejected by the structural enumeration grounding oracle.",
 						"Preserve every grounded member from the prior slate / required-member floor. If the investigation only established a lower bound or an unknown full set, disclose that bound in prose or a `caveat` block; do NOT invent a retired completeness field.",
 						"Use the lead summary block to frame what the list enumerates; do not let the list stand alone without context.",
 					)
@@ -1774,10 +1774,21 @@ func renderAnswerDocSupportPlan(ctx *types.AgentContext) string {
 	b.WriteString("- Build the principal `summary` block and principal `ordered_list` items only from the lanes below.\n")
 	b.WriteString("- Keep observed runtime facts, current code path facts, nearest grounded mechanism facts, and uncertainty disclosures in their own lanes.\n")
 	b.WriteString("- Do not promote an observation lane into caller-side provenance, old-build internals, or exact mechanism unless a current cited line explicitly proves that stronger claim.\n\n")
+	b.WriteString("- Treat each lane's `Allowed block kinds` as a hard surface boundary. If a lane does not list `ordered_list`, do not turn its entries into principal hop items. If a lane does not list `diagram`, do not turn its entries into diagram edges or nodes.\n\n")
 	b.WriteString("- Items rendered under the **Observed artifact facts** lane are runtime trace observations (the system tags them by typed source: panic / exception / traceback / perf bundle, regardless of language). They prove that the runtime hit the cited frame, but do NOT, by themselves, prove which source parameter was nil, which caller originated the value, or which exact downstream branch executed. Promotion to caller-side provenance / source-parameter mapping / exact mechanism requires a separately-cited current-code line.\n\n")
 	b.WriteString("- If a function, file, or hop appears elsewhere in the prompt but does NOT appear in the current code path / nearest mechanism / boundary lanes below, treat it as background only: do not turn it into a principal ordered-list hop, summary claim, or diagram node.\n\n")
 	b.WriteString("- In drift-bounded root-cause answers, a current guard plus a later dereference proves the current code contains both sites; it does NOT by itself prove the runtime artifact actually passed the guard and reached the dereference path.\n\n")
 	b.WriteString("- If the lanes below do NOT recover a grounded inner trigger statement, do NOT fill the gap with generic language-runtime guesses such as nil-map write, nil-slice index, field dereference, or similar builtin panic classes. State only that the exact internal trigger remains unrecovered in the current checkout.\n\n")
+	hasMechanismLane := false
+	for _, lane := range plan.Lanes {
+		if lane.Kind == types.SupportLaneNearestMechanism && len(lane.Entries) > 0 {
+			hasMechanismLane = true
+			break
+		}
+	}
+	if !hasMechanismLane {
+		b.WriteString("- If the **Nearest grounded mechanism** lane is absent, do NOT invent a likely internal cause, specific nil-bearing variable, receiver field, or caller-side provenance from the current code path or boundary lanes alone. Keep the answer at the level of the observed frame, the grounded current path, and the explicit uncertainty boundary.\n\n")
+	}
 	for _, lane := range plan.Lanes {
 		title := strings.TrimSpace(lane.Title)
 		if title == "" {
@@ -1787,6 +1798,9 @@ func renderAnswerDocSupportPlan(ctx *types.AgentContext) string {
 		if guidance := strings.TrimSpace(lane.Guidance); guidance != "" {
 			b.WriteString(guidance)
 			b.WriteString("\n\n")
+		}
+		if len(lane.AllowedBlocks) > 0 {
+			fmt.Fprintf(&b, "Allowed block kinds: %s\n\n", strings.Join(lane.AllowedBlocks, ", "))
 		}
 		for _, entry := range lane.Entries {
 			text := strings.TrimSpace(entry.Text)

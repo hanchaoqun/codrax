@@ -551,13 +551,13 @@ type FacetCoverageContract struct {
 //  2. Intent == ConfigQuery OR Scenario == ConfigTrace
 //     → QFConfigPrecedence (s3a falls here)
 //
-//  3. AnswerSubject.Kind ∈ {SubjectFunctionName, SubjectHandlerRoute,
+//  3. Intent == Trace AND no obligation
+//     → QFCallChain (s1a/s8a style "how does X reach Y" questions)
+//
+//  4. AnswerSubject.Kind ∈ {SubjectFunctionName, SubjectHandlerRoute,
 //     SubjectConfigKey, SubjectStructField, SubjectInterface}
 //     AND QuestionStructure.HasAnyObligation()=false
 //     → QFRoleLookup (typical "what's the X for Y" questions)
-//
-//  4. Intent == Trace AND no obligation
-//     → QFCallChain (s1a falls here when 9-checks counted as trace)
 //
 //  5. QuestionStructure.HasAnyObligation()=true
 //     OR Intent == Enumerate
@@ -599,7 +599,19 @@ func ResolveQuestionFamily(rm RequestModel, sinks ...RichnessTelemetrySink) Ques
 		return QFComparison
 	}
 
-	// Rule 4: role-lookup detection (named-entity subject + no
+	// Rule 4: trace intent without obligation.
+	if !hasObligation {
+		if rm.Intent == IntentTrace {
+			// Explicit trace intent is semantically stronger than a
+			// function-like AnswerSubject. Without this ordering,
+			// inferred SubjectFunctionName from call_chain questions
+			// can be stolen by QFRoleLookup and lose the path-shaped
+			// scaffold the user actually asked for.
+			return QFCallChain
+		}
+	}
+
+	// Rule 5: role-lookup detection (named-entity subject + no
 	// enumeration obligation).
 	if !hasObligation {
 		switch rm.AnswerSubject.Kind {
@@ -607,14 +619,6 @@ func ResolveQuestionFamily(rm RequestModel, sinks ...RichnessTelemetrySink) Ques
 			SubjectConfigKey, SubjectStructField, SubjectInterface:
 			return QFRoleLookup
 		}
-	}
-
-	// Rule 5: trace intent without obligation.
-	if rm.Intent == IntentTrace && !hasObligation {
-		// bucketCount < 2 here (QFComparison handled above);
-		// no telemetry needed — single-bucket trace cleanly fits
-		// QFCallChain.
-		return QFCallChain
 	}
 
 	// Rule 6: enumeration / obligation-bearing.

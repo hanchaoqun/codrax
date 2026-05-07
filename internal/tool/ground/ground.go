@@ -269,6 +269,10 @@ func attachGroundedLineSnippet(it *types.EvidenceItem, gc *Context) {
 		lineNo = matched
 	} else {
 		switch it.AnchorKind {
+		case types.AnchorCall:
+			if matched, matchedOK := findCallCorroboratingLine(fileLines, it.LineStart, 2, it, gc.Graph); matchedOK {
+				lineNo = matched
+			}
 		case types.AnchorCondition, types.AnchorReturn, types.AnchorAssignment:
 			if matched, matchedOK := findCorroboratingLine(fileLines, it.LineStart, 2, it, gc.Graph); matchedOK {
 				lineNo = matched
@@ -656,21 +660,33 @@ func recoverFQNameSameFile(it *types.EvidenceItem, gc *Context) (string, int, bo
 	if gc == nil || gc.Graph == nil {
 		return "", 0, false
 	}
-	name := preferredSymbolName(it)
-	if name == "" {
-		return "", 0, false
-	}
-	shortName := lastDotSegment(name)
 	switch it.AnchorKind {
 	case types.AnchorCall:
+		candidates := preferredCallTargetNames(it)
+		if len(candidates) == 0 {
+			return "", 0, false
+		}
 		if fi, ok := gc.Graph.FileIndex[it.Source]; ok && fi != nil {
 			for _, rel := range fi.Relations {
-				if rel.Kind == "call" && (rel.ToEP.Name == name || rel.ToEP.Name == shortName) && rel.Line > 0 {
-					return "", rel.Line, true
+				if rel.Kind != "call" || rel.Line <= 0 {
+					continue
+				}
+				relName := strings.TrimSpace(rel.ToEP.Name)
+				if relName == "" {
+					relName = strings.TrimSpace(rel.To)
+				}
+				for _, candidate := range candidates {
+					if relName == candidate || relName == lastDotSegment(candidate) {
+						return "", rel.Line, true
+					}
 				}
 			}
 		}
 	case types.AnchorImport:
+		name := preferredSymbolName(it)
+		if name == "" {
+			return "", 0, false
+		}
 		if fi, ok := gc.Graph.FileIndex[it.Source]; ok && fi != nil {
 			for _, imp := range fi.Imports {
 				if (imp.Path == name || imp.Alias == name) && imp.Line > 0 {
@@ -679,6 +695,11 @@ func recoverFQNameSameFile(it *types.EvidenceItem, gc *Context) (string, int, bo
 			}
 		}
 	default:
+		name := preferredSymbolName(it)
+		if name == "" {
+			return "", 0, false
+		}
+		shortName := lastDotSegment(name)
 		for _, sym := range gc.Graph.SymbolsInFile(it.Source) {
 			if (sym.Name == name || sym.Name == shortName) && sym.Line > 0 {
 				return "", sym.Line, true
@@ -945,6 +966,16 @@ func tier1LineText(it *types.EvidenceItem, gc *Context) bool {
 	if !ok {
 		return false
 	}
+	if it.AnchorKind == types.AnchorCall {
+		matchedLine, ok := findCallCorroboratingLine(fileLines, it.LineStart, 2, it, gc.Graph)
+		if !ok {
+			return false
+		}
+		if isLineComment(fileLines, matchedLine, it.Source) {
+			return false
+		}
+		return true
+	}
 	configSurface := configSurfaceAllowsLooseLineGrounding(it)
 	// Anchor-first check: when the LLM supplied AnchorSymbol, pick the
 	// specific line in ±2 that actually contains the token, then comment-
@@ -1205,6 +1236,39 @@ func findCorroboratingLine(fileLines map[int]string, center, radius int, it *typ
 	return 0, false
 }
 
+func findCallCorroboratingLine(fileLines map[int]string, center, radius int, it *types.EvidenceItem, graph *repomap.Graph) (int, bool) {
+	if text, ok := fileLines[center]; ok {
+		if lineCorroboratesCallSite(text, it, graph, center) {
+			return center, true
+		}
+	}
+	bestLine, bestDist := 0, radius+1
+	for i := center - radius; i <= center+radius; i++ {
+		if i == center || i <= 0 {
+			continue
+		}
+		text, ok := fileLines[i]
+		if !ok {
+			continue
+		}
+		if !lineCorroboratesCallSite(text, it, graph, i) {
+			continue
+		}
+		d := i - center
+		if d < 0 {
+			d = -d
+		}
+		if d < bestDist {
+			bestDist = d
+			bestLine = i
+		}
+	}
+	if bestLine > 0 {
+		return bestLine, true
+	}
+	return 0, false
+}
+
 // ── Tier 2 ────────────────────────────────────────────────────────────
 
 // tier2SymbolTable dispatches on AnchorKind to the repomap-backed
@@ -1286,11 +1350,10 @@ func graphMatchCall(it *types.EvidenceItem, gc *Context) bool {
 	if !ok || fi == nil {
 		return false
 	}
-	name := preferredSymbolName(it)
-	if name == "" {
+	candidates := preferredCallTargetNames(it)
+	if len(candidates) == 0 {
 		return false
 	}
-	shortName := lastDotSegment(name)
 	for _, rel := range fi.Relations {
 		if rel.Kind != "call" {
 			continue
@@ -1298,8 +1361,14 @@ func graphMatchCall(it *types.EvidenceItem, gc *Context) bool {
 		if rel.Line != it.LineStart {
 			continue
 		}
-		if rel.ToEP.Name == name || rel.ToEP.Name == shortName {
-			return true
+		relName := strings.TrimSpace(rel.ToEP.Name)
+		if relName == "" {
+			relName = strings.TrimSpace(rel.To)
+		}
+		for _, candidate := range candidates {
+			if relName == candidate || relName == lastDotSegment(candidate) {
+				return true
+			}
 		}
 	}
 	return false
@@ -1386,6 +1455,126 @@ func lineContainsAssignment(it *types.EvidenceItem, gc *Context) bool {
 			continue
 		}
 		return true
+	}
+	return false
+}
+
+func lineCorroboratesCallSite(lineText string, it *types.EvidenceItem, graph *repomap.Graph, lineNo int) bool {
+	candidates := preferredCallTargetNames(it)
+	if len(candidates) == 0 {
+		return false
+	}
+	if graphLineHasCallToAnyTarget(graph, it.Source, lineNo, candidates) {
+		return true
+	}
+	if looksLikeCallableDefinitionLine(lineText) {
+		return false
+	}
+	for _, target := range candidates {
+		if !lineContainsCallTarget(lineText, target) {
+			continue
+		}
+		if looksLikeCallSyntax(lineText, target) {
+			return true
+		}
+	}
+	return false
+}
+
+func graphLineHasCallToAnyTarget(graph *repomap.Graph, source string, line int, targets []string) bool {
+	if graph == nil || source == "" || line <= 0 || len(targets) == 0 {
+		return false
+	}
+	fi, ok := graph.FileIndex[source]
+	if !ok || fi == nil {
+		return false
+	}
+	want := make(map[string]bool, len(targets)*2)
+	for _, target := range targets {
+		target = strings.TrimSpace(target)
+		if target == "" {
+			continue
+		}
+		want[target] = true
+		if leaf := lastDotSegment(target); leaf != "" {
+			want[leaf] = true
+		}
+	}
+	if len(want) == 0 {
+		return false
+	}
+	for _, rel := range fi.Relations {
+		if rel.Kind != "call" || rel.Line != line {
+			continue
+		}
+		if want[rel.ToEP.Name] {
+			return true
+		}
+		if want[strings.TrimSpace(rel.To)] {
+			return true
+		}
+	}
+	return false
+}
+
+func lineContainsCallTarget(lineText, target string) bool {
+	target = strings.TrimSpace(target)
+	if target == "" {
+		return false
+	}
+	have := tokenSet(lineText)
+	if len(have) == 0 {
+		return false
+	}
+	if have[target] {
+		return true
+	}
+	leaf := lastDotSegment(target)
+	return leaf != target && have[leaf]
+}
+
+func looksLikeCallableDefinitionLine(lineText string) bool {
+	lower := strings.ToLower(strings.TrimSpace(lineText))
+	switch {
+	case strings.HasPrefix(lower, "func "):
+		return true
+	case strings.HasPrefix(lower, "def "):
+		return true
+	case strings.HasPrefix(lower, "function "):
+		return true
+	case strings.HasPrefix(lower, "fn "):
+		return true
+	default:
+		return false
+	}
+}
+
+func looksLikeCallSyntax(lineText, target string) bool {
+	lineText = strings.TrimSpace(lineText)
+	target = strings.TrimSpace(target)
+	if lineText == "" || target == "" {
+		return false
+	}
+	candidates := []string{target}
+	if leaf := lastDotSegment(target); leaf != "" && leaf != target {
+		candidates = append(candidates, leaf)
+	}
+	for _, candidate := range candidates {
+		patterns := []string{
+			candidate + "(",
+			candidate + " (",
+			"." + candidate + "(",
+			"." + candidate + " (",
+			"->" + candidate + "(",
+			"->" + candidate + " (",
+			"::" + candidate + "(",
+			"::" + candidate + " (",
+		}
+		for _, pattern := range patterns {
+			if strings.Contains(lineText, pattern) {
+				return true
+			}
+		}
 	}
 	return false
 }
@@ -1591,4 +1780,24 @@ func preferredSymbolName(it *types.EvidenceItem) string {
 		return s
 	}
 	return strings.TrimSpace(it.Subject)
+}
+
+func preferredCallTargetNames(it *types.EvidenceItem) []string {
+	if it == nil {
+		return nil
+	}
+	seen := make(map[string]bool, 3)
+	out := make([]string, 0, 3)
+	add := func(s string) {
+		s = strings.TrimSpace(s)
+		if s == "" || seen[s] {
+			return
+		}
+		seen[s] = true
+		out = append(out, s)
+	}
+	add(it.AnchorSymbol)
+	add(it.Object)
+	add(it.Subject)
+	return out
 }

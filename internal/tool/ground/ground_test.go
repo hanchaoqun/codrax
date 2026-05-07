@@ -214,6 +214,115 @@ func TestGroundItem_Tier2Call(t *testing.T) {
 	}
 }
 
+func TestGroundItem_Tier1CallAcceptsRealCallsiteWithoutGraph(t *testing.T) {
+	history := []types.ToolResult{
+		buildGutterReadResult("a.go", 20, []string{
+			"func ParseOutput(ctx *AgentContext) error {",
+			"\tir, buildErr := buildAnalysisIR(ctx)",
+			"\treturn buildErr",
+		}, 30),
+	}
+	gc := &Context{LineIndex: buildLineIndex(history, "")}
+	it := &types.EvidenceItem{
+		Kind:       types.EvidenceRelationship,
+		Source:     "a.go",
+		LineStart:  21,
+		AnchorKind: types.AnchorCall,
+		// LLM-facing contract says call anchors should use the callee
+		// name as anchor_symbol; Tier 1 should still accept the real
+		// callsite without needing a graph.
+		AnchorSymbol: "buildAnalysisIR",
+		Subject:      "ParseOutput",
+		Object:       "buildAnalysisIR",
+	}
+	GroundItem(it, gc)
+	if it.GroundingStatus != types.GroundingGrounded || it.GroundingTier != types.TierLineText {
+		t.Fatalf("real callsite should Tier-1 ground without graph: status=%q tier=%q note=%q", it.GroundingStatus, it.GroundingTier, it.GroundingNote)
+	}
+}
+
+func TestGroundItem_Tier1CallRejectsFunctionDefinitionLine(t *testing.T) {
+	history := []types.ToolResult{
+		buildGutterReadResult("a.go", 10, []string{
+			"func ParseOutput(ctx *AgentContext) error {",
+			"\treturn nil",
+			"}",
+		}, 20),
+	}
+	gc := &Context{LineIndex: buildLineIndex(history, "")}
+	it := &types.EvidenceItem{
+		Kind:         types.EvidenceRelationship,
+		Source:       "a.go",
+		LineStart:    10,
+		AnchorKind:   types.AnchorCall,
+		AnchorSymbol: "ParseOutput", // caller-shaped, not callee-shaped
+		Subject:      "ParseOutput",
+		Object:       "buildAnalysisIR",
+	}
+	GroundItem(it, gc)
+	if it.GroundingStatus == types.GroundingGrounded && it.GroundingTier == types.TierLineText {
+		t.Fatalf("function definition line must not Tier-1 ground as a callsite")
+	}
+}
+
+func TestGroundItem_CallAnchorUsesCalleeForRecovery(t *testing.T) {
+	history := []types.ToolResult{
+		buildGutterReadResult("internal/agent/analyzer.go", 10, []string{
+			"func (e *analyzerEvaluator) ParseOutput(ctx *types.AgentContext, messages []llm.Message, toolResults []types.ToolResult, _ []types.MCPResponse) (*StageOutput, error) {",
+			"\treturn nil, nil",
+			"}",
+			"",
+			"",
+			"",
+			"",
+			"",
+			"",
+			"func another() {}",
+			"",
+			"",
+			"",
+			"",
+			"",
+			"",
+			"",
+			"",
+			"",
+			"\tir, buildErr := buildAnalysisIR(ctx)",
+		}, 40),
+	}
+	graph := &repomap.Graph{
+		FileIndex: map[string]*repomap.FileInfo{
+			"internal/agent/analyzer.go": {
+				RelPath: "internal/agent/analyzer.go",
+				Relations: []repomap.Relation{
+					{Kind: "call", File: "internal/agent/analyzer.go", Line: 29, ToEP: repomap.RelationEndpoint{Name: "buildAnalysisIR"}},
+				},
+			},
+		},
+	}
+	gc := &Context{LineIndex: buildLineIndex(history, ""), Graph: graph}
+	it := &types.EvidenceItem{
+		Kind:         types.EvidenceRelationship,
+		Source:       "internal/agent/analyzer.go",
+		LineStart:    10,
+		AnchorKind:   types.AnchorCall,
+		AnchorSymbol: "ParseOutput", // caller-shaped anchor, common LLM mistake
+		Subject:      "ParseOutput",
+		Object:       "buildAnalysisIR",
+		Snippet:      "ir, buildErr := buildAnalysisIR(ctx)",
+	}
+	GroundItem(it, gc)
+	if it.GroundingStatus == types.GroundingUngrounded {
+		t.Fatalf("call anchor should recover via callee-backed grounding, got ungrounded: note=%q", it.GroundingNote)
+	}
+	if it.LineStart != 29 {
+		t.Fatalf("call anchor recovered line = %d, want 29", it.LineStart)
+	}
+	if got, want := it.Snippet, "ir, buildErr := buildAnalysisIR(ctx)"; got != want {
+		t.Fatalf("recovered callsite snippet=%q, want %q", got, want)
+	}
+}
+
 // TestGroundItem_SnippetFuzzyRecovery locks the R2 path: LLM cites
 // line 12 but the actual snippet appears at line 15, snippet is
 // provided so the fuzzy search rewrites the line.

@@ -26,10 +26,11 @@ const (
 )
 
 type AnswerSupportLane struct {
-	Kind     AnswerSupportLaneKind
-	Title    string
-	Guidance string
-	Entries  []AnswerSupportEntry
+	Kind          AnswerSupportLaneKind
+	Title         string
+	Guidance      string
+	AllowedBlocks []string
+	Entries       []AnswerSupportEntry
 }
 
 type AnswerSupportEntry struct {
@@ -111,8 +112,9 @@ func compileRootCauseSupportPlan(plan *AnswerSurfacePlan) *AnswerSupportPlan {
 
 func compileObservedArtifactSupportLane(plan *AnswerSurfacePlan) AnswerSupportLane {
 	lane := AnswerSupportLane{
-		Kind:  SupportLaneObservedArtifact,
-		Title: "Observed artifact facts",
+		Kind:          SupportLaneObservedArtifact,
+		Title:         "Observed artifact facts",
+		AllowedBlocks: []string{"summary", "caveat"},
 		Guidance: "Use this lane only for facts that came from the attached runtime artifact " +
 			"(log / perf trace / external observation). The system populates this lane " +
 			"from items the typed evidence projector tagged Origin=log or Origin=perf, " +
@@ -183,8 +185,9 @@ func renderExternalObservationSupportEntry(seed ExternalObservationSeed) (string
 
 func compileCurrentCodePathSupportLane(plan *AnswerSurfacePlan) AnswerSupportLane {
 	lane := AnswerSupportLane{
-		Kind:  SupportLaneCurrentCodePath,
-		Title: "Current grounded code path",
+		Kind:          SupportLaneCurrentCodePath,
+		Title:         "Current grounded code path",
+		AllowedBlocks: []string{"ordered_list", "diagram", "summary"},
 		Guidance: "Use this lane for the principal ordered call / path chain. Keep each hop at " +
 			"the abstraction literally supported by its own citation or grounded snippet. " +
 			"These entries prove today's code structure, not necessarily that the older runtime artifact executed every downstream hop exactly as shown. " +
@@ -214,8 +217,9 @@ func compileNearestMechanismSupportLane(plan *AnswerSurfacePlan, strength rootCa
 		return AnswerSupportLane{}
 	}
 	lane := AnswerSupportLane{
-		Kind:  SupportLaneNearestMechanism,
-		Title: "Nearest grounded mechanism",
+		Kind:          SupportLaneNearestMechanism,
+		Title:         "Nearest grounded mechanism",
+		AllowedBlocks: []string{"summary", "ordered_list"},
 		Guidance: "Use this lane for the closest current-code guard / assignment / return / " +
 			"definition that helps explain the failure path. Do not promote this lane into " +
 			"caller-side provenance or old-build internals unless current citations explicitly prove it. " +
@@ -242,10 +246,15 @@ func compileNearestMechanismSupportLane(plan *AnswerSurfacePlan, strength rootCa
 
 func compileUncertaintyBoundarySupportLane(plan *AnswerSurfacePlan, strength rootCauseMechanismStrength) AnswerSupportLane {
 	lane := AnswerSupportLane{
-		Kind:  SupportLaneUncertaintyBound,
-		Title: "Boundary / uncertainty disclosures",
+		Kind:          SupportLaneUncertaintyBound,
+		Title:         "Boundary / uncertainty disclosures",
+		AllowedBlocks: []string{"caveat", "summary"},
 		Guidance: "Use this lane for drift and proof-boundary caveats. It can narrow or hedge the " +
-			"principal explanation, but it must not be turned into a speculative mechanism story.",
+			"principal explanation, but it must not be turned into a speculative mechanism story. " +
+			"Do not turn entries from this lane into principal ordered-list hops, diagram edges, or candidate nil-source / caller-provenance claims.",
+	}
+	if strength == rootCauseMechanismWeakGuardOnly {
+		lane.Guidance += " When this is the strongest current-code mechanism support available, do not identify a specific variable, receiver field, or caller-provided value as the likely cause from this lane alone; state only that the exact internal trigger remains unrecovered in the current checkout."
 	}
 	for _, anchor := range plan.LogSourceDriftAnchors {
 		file := strings.TrimSpace(anchor.File)
@@ -375,7 +384,7 @@ func rootCauseWeakMechanismBoundaryEntry(plan *AnswerSurfacePlan) (AnswerSupport
 			continue
 		}
 		return AnswerSupportEntry{
-			Text:     fmt.Sprintf("current grounded code exposes only a protective guard near the observed site (%s); no additional grounded inner statement in the same path was recovered to prove a closer current crash mechanism", text),
+			Text:     "current grounded code exposes only a protective guard near the observed site; no additional grounded inner statement in the same path was recovered to prove a closer current crash mechanism",
 			Location: supportEntryLocation(item),
 		}, true
 	}
@@ -388,7 +397,15 @@ func rootCauseMechanismItemEligible(plan *AnswerSurfacePlan, item EvidenceItem) 
 	switch item.AnchorKind {
 	case AnchorCondition:
 		return true
-	case AnchorAssignment, AnchorReturn:
+	case AnchorReturn:
+		// A return statement can expose a current fail-fast / error-return
+		// path, but for a crash/panic trace it is not, by itself, proof of
+		// the runtime crash instruction that actually executed. Keeping
+		// return anchors out of the principal mechanism lane prevents the
+		// finalizer from turning "current checkout returns an error here"
+		// into "older runtime panicked because this return path fired".
+		return false
+	case AnchorAssignment:
 		if rootCauseControlHeaderCompanion(item) {
 			return false
 		}

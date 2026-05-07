@@ -1520,6 +1520,46 @@ func TestEnumerationLabelGrounding_BidirectionalSubstring(t *testing.T) {
 	}
 }
 
+func TestEnumerationLabelGrounding_GroundedSnippetQualifiedSelectorsAlsoSupport(t *testing.T) {
+	mut := mutWithEvidence([]types.EvidenceItem{
+		{
+			ID:              "e1",
+			AnchorKind:      types.AnchorCall,
+			Snippet:         "normalized := normalizer.Normalize(amplified, ctx)",
+			GroundingStatus: types.GroundingGrounded,
+		},
+		{
+			ID:              "e2",
+			AnchorKind:      types.AnchorCall,
+			Snippet:         "model := ctx.Mutable.RequestModel()",
+			GroundingStatus: types.GroundingRecovered,
+		},
+		{
+			ID:              "e3",
+			AnchorKind:      types.AnchorDefinition,
+			Snippet:         "return &types.AnalysisIR{Stages: stages}",
+			GroundingStatus: types.GroundingGrounded,
+		},
+	})
+	doc := &types.AnswerDocumentV2{
+		DocumentModel: "v2",
+		Blocks: []types.AnswerBlock{
+			{
+				ID:   "list",
+				Kind: types.BlockOrderedList,
+				Items: []types.AnswerBlockItem{
+					{ID: "i1", Label: "normalizer.Normalize"},
+					{ID: "i2", Label: "Mutable.RequestModel()"},
+					{ID: "i3", Label: "types.AnalysisIR 组装"},
+				},
+			},
+		},
+	}
+	if vs := validateEnumerationItemLabelGrounding(doc, mut); len(vs) != 0 {
+		t.Errorf("grounded snippet-derived selector tokens should support readable labels; got %+v", vs)
+	}
+}
+
 // ── Phase 3-C2: parseMermaidEdges label capture ───────────────────
 
 // TestParseMermaidEdges_PipeLabelCaptured — flowchart `A -->|cond| B`
@@ -1798,24 +1838,18 @@ func TestValidateDiagramEdgeSupport_TypedSatisfiesNoAdvisoryOnExtraLabels(t *tes
 	}
 }
 
-// EdgeRelations.Min shortfall fires its own violation.
-func TestValidateDiagramEdgeSupport_MinCountShortfallFires(t *testing.T) {
+// Unlabelled sequence-diagram arrows default to relation_kind=call for
+// the minimum-count contract. They may still emit a SOFT advisory, but
+// they must not fail the call-edge minimum purely because the label is
+// omitted.
+func TestValidateDiagramEdgeSupport_UnlabelledSequenceDefaultsToCall(t *testing.T) {
 	view := callChainViewWithDiagram()
-	// Body has only unlabelled edges — Min=1 for relation=call not met.
 	doc := docWithDiagramBody("sequenceDiagram\n  Auth->>Worker\n")
 	vs := validateDiagramEdgeSupport(doc, view)
-	if len(vs) == 0 {
-		t.Fatal("expected violation: EdgeRelations.Min not met by labelled edges")
-	}
-	var found bool
 	for _, v := range vs {
-		if strings.Contains(v.Detail, "expected at least 1") &&
-			strings.Contains(v.Detail, "kind=call") {
-			found = true
+		if v.Kind == types.ViolDiagramEdgeUnsupported {
+			t.Fatalf("unlabelled sequence edge should satisfy the call-edge minimum; got %+v", v)
 		}
-	}
-	if !found {
-		t.Errorf("missing min-count violation in %+v", vs)
 	}
 }
 
@@ -1831,6 +1865,38 @@ func TestValidateDiagramEdgeSupport_Layer1FailureShortCircuitsLayer2(t *testing.
 	}
 	if !strings.Contains(vs[0].Detail, "endpoints are not grounded") {
 		t.Errorf("expected Layer 1 violation; got %q", vs[0].Detail)
+	}
+}
+
+func TestValidateDiagramEdgeSupport_SequenceParticipantAliasGroundsEndpoints(t *testing.T) {
+	view := callChainViewWithDiagram()
+	doc := &types.AnswerDocumentV2{
+		Blocks: []types.AnswerBlock{
+			{
+				ID:   "d1",
+				Kind: types.BlockDiagram,
+				Diagram: &types.AnswerDiagramBlock{
+					Kind:     types.DiagramSequence,
+					Language: "mermaid",
+					Body: "sequenceDiagram\n" +
+						"  participant OP as ParseOutput\n" +
+						"  participant IR as buildAnalysisIR\n" +
+						"  OP->>IR: invoke\n",
+				},
+				EdgeAnchors: []types.DiagramEdgeAnchor{{
+					FromNode:     "OP",
+					ToNode:       "IR",
+					RelationKind: types.DiagramRelCall,
+					ClaimForm:    types.ClaimCallEdge,
+				}},
+			},
+		},
+	}
+	vs := validateDiagramEdgeSupport(doc, view)
+	for _, v := range vs {
+		if v.Kind == types.ViolDiagramEdgeUnsupported && strings.Contains(v.Detail, "endpoints are not grounded") {
+			t.Fatalf("sequence participant aliases should ground endpoints, got %+v", v)
+		}
 	}
 }
 

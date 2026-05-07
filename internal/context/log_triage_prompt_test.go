@@ -27,7 +27,8 @@ func TestFormatLogTriageStructured_EmptyBundle_EmptyString(t *testing.T) {
 }
 
 // TestFormatLogTriageStructured_MetaRendered verifies the Meta block
-// surfaces Lang / Signals / Summary / Coverage / IntentHint.
+// surfaces Lang / Signals / Coverage / IntentHint while omitting the
+// triager's auxiliary free-form Summary from downstream prompts.
 func TestFormatLogTriageStructured_MetaRendered(t *testing.T) {
 	bundle := &types.LogBundle{
 		Meta: types.LogMeta{
@@ -43,13 +44,15 @@ func TestFormatLogTriageStructured_MetaRendered(t *testing.T) {
 	for _, want := range []string{
 		"Language: java",
 		"Signals: panic, db",
-		"Summary: database connection refused",
 		"Coverage: 0.92",
 		"Intent hint: root_cause",
 	} {
 		if !strings.Contains(got, want) {
 			t.Errorf("missing %q in render:\n%s", want, got)
 		}
+	}
+	if strings.Contains(got, "Summary: database connection refused") {
+		t.Fatalf("structured log prompt must not surface auxiliary summary prose:\n%s", got)
 	}
 }
 
@@ -74,6 +77,12 @@ func TestFormatLogTriageStructured_IncludesRuntimeTupleDiscipline(t *testing.T) 
 		if !strings.Contains(got, want) {
 			t.Fatalf("missing %q in render:\n%s", want, got)
 		}
+	}
+	if strings.Contains(got, "ParseOutput(0x0, 0x0, 0x0)") {
+		t.Fatalf("structured prompt should redact runtime tuple payloads in raw frame surfaces:\n%s", got)
+	}
+	if !strings.Contains(got, "ParseOutput(...)") {
+		t.Fatalf("structured prompt should preserve the frame shape while redacting tuple payloads:\n%s", got)
 	}
 }
 

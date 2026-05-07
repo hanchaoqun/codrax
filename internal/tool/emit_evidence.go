@@ -1149,7 +1149,7 @@ func normalizeCallEvidenceDirection(it *types.EvidenceItem, gc *ground.Context) 
 	if !ok || fi == nil {
 		return false
 	}
-	rel, ok := findCallRelationAtLine(fi, it.LineStart, it.AnchorSymbol)
+	rel, ok := findCallRelationAtLineForCandidates(fi, it.LineStart, emitPreferredCallTargetNames(it))
 	if !ok {
 		return false
 	}
@@ -1172,6 +1172,26 @@ func normalizeCallEvidenceDirection(it *types.EvidenceItem, gc *ground.Context) 
 			it.Source, it.LineStart, it.Subject, it.Predicate, it.Object)
 	}
 	return changed
+}
+
+func emitPreferredCallTargetNames(it *types.EvidenceItem) []string {
+	if it == nil {
+		return nil
+	}
+	seen := make(map[string]bool, 3)
+	out := make([]string, 0, 3)
+	add := func(s string) {
+		s = strings.TrimSpace(s)
+		if s == "" || seen[s] {
+			return
+		}
+		seen[s] = true
+		out = append(out, s)
+	}
+	add(it.AnchorSymbol)
+	add(it.Object)
+	add(it.Subject)
+	return out
 }
 
 func stampEvidenceOwnerSymbol(it *types.EvidenceItem, gc *ground.Context) bool {
@@ -1415,6 +1435,18 @@ func findCallRelationAtLine(fi *repomap.FileInfo, line int, anchorSymbol string)
 		return fallback, true
 	}
 	return nil, false
+}
+
+func findCallRelationAtLineForCandidates(fi *repomap.FileInfo, line int, candidates []string) (*repomap.Relation, bool) {
+	if len(candidates) == 0 {
+		return findCallRelationAtLine(fi, line, "")
+	}
+	for _, candidate := range candidates {
+		if rel, ok := findCallRelationAtLine(fi, line, candidate); ok {
+			return rel, true
+		}
+	}
+	return findCallRelationAtLine(fi, line, "")
 }
 
 func enclosingCallableSymbolName(fi *repomap.FileInfo, line int) string {
