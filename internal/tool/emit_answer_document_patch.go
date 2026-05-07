@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/hanchaoqun/codrax/internal/logging"
@@ -153,6 +154,25 @@ func (t *EmitAnswerDocumentPatch) Execute(ctx *types.BusContext, params json.Raw
 	if prev == nil {
 		return failEmit(t.Name(), now,
 			"emit_answer_document_patch: no previous emit found. The patch tool is only valid on retry paths after a successful emit_answer_document call. First dispatches must use emit_answer_document.")
+	}
+
+	// Flat-mode tolerance for the streaming-bug pattern where an LLM
+	// stringifies an array field instead of emitting a real JSON
+	// array. Mirrors the protection emit_answer_document already has
+	// — applied here so add_blocks / replace_blocks / replace_citations
+	// / append_citations / replace_missing_requested_roles /
+	// replace_caveats / replace_snippets / unchanged_block_ids /
+	// remove_block_ids all get the same Path A/C recovery without
+	// forcing an LLM retry round-trip.
+	if repaired, fields, ok := repairStringWrappedArrayFields(params); ok {
+		logging.Warning("[emit_answer_document_patch] string-wrapped array field(s) re-parsed via flat-mode tolerance: %s",
+			strings.Join(fields, ", "))
+		params = repaired
+	}
+	if repaired, paths, ok := repairNestedArraysInPatch(params); ok {
+		logging.Warning("[emit_answer_document_patch] nested arrays re-parsed via flat-mode tolerance: %s",
+			strings.Join(paths, ", "))
+		params = repaired
 	}
 
 	// Decode params.

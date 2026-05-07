@@ -726,6 +726,102 @@ func mustMarshal(v interface{}) json.RawMessage {
 	return b
 }
 
+// repairStringWrappedArrayFields scans every top-level key of raw
+// and repairs any value that arrived as a JSON-encoded string
+// wrapping a JSON array. Same MiniMax streaming-bug pattern that
+// repairBlocksAsString targets for the `blocks` field, generalised
+// to every top-level array slot — used by tools (patch / full emit)
+// whose schema has multiple array fields any of which may be
+// stringified by the LLM.
+//
+// Layered:
+//
+//  1. Outer-level Path C normalisation: the outer json.Unmarshal
+//     can fail when ANY string field contains raw control bytes
+//     (not just array-typed fields). When the bare unmarshal fails
+//     and normalisation changes the bytes, retry the unmarshal on
+//     the normalised payload.
+//  2. Per-field Path A: each top-level value that looks like a
+//     JSON-encoded string starting with `[` gets unwrapped and
+//     parsed as a real array. Success → replace; failure → fall
+//     through.
+//  3. Per-field Path C: re-run the per-field parse on the
+//     normalised inner string when Path A fails (the inner
+//     stringified content may itself carry unescaped control chars
+//     for the same reason the outer payload did).
+//
+// Returns (raw, nil, false) when nothing needed repair. Returns
+// (patched, [list of repaired field names], true) when at least one
+// field was rebuilt OR when only the outer normalisation was
+// applied (in that case the field list contains the sentinel
+// "<outer-normalisation>"). Path D (brace-balance) is intentionally
+// NOT generalised here — it is specific to the `blocks` semantics
+// (object array with id contracts) and lives in
+// extractBlocksByBraceBalance.
+func repairStringWrappedArrayFields(raw json.RawMessage) (json.RawMessage, []string, bool) {
+	if len(raw) == 0 {
+		return nil, nil, false
+	}
+	var probe map[string]json.RawMessage
+	outerNormalised := false
+	if err := json.Unmarshal(raw, &probe); err != nil {
+		normalised, changed := normalizeControlCharsInJSONStrings(string(raw))
+		if !changed {
+			return raw, nil, false
+		}
+		if err := json.Unmarshal([]byte(normalised), &probe); err != nil {
+			return raw, nil, false
+		}
+		outerNormalised = true
+	}
+
+	var repaired []string
+	for key, val := range probe {
+		if len(val) == 0 || val[0] != '"' {
+			continue
+		}
+		var encoded string
+		if err := json.Unmarshal(val, &encoded); err != nil {
+			continue
+		}
+		trimmed := strings.TrimSpace(encoded)
+		if !strings.HasPrefix(trimmed, "[") {
+			continue
+		}
+		// Path A: direct array decode after the string unwrap.
+		var inner []json.RawMessage
+		if err := json.Unmarshal([]byte(trimmed), &inner); err == nil {
+			probe[key] = mustMarshal(inner)
+			repaired = append(repaired, key)
+			continue
+		}
+		// Path C inner: normalise control chars inside the inner
+		// string and retry the array decode.
+		if normalised, changed := normalizeControlCharsInJSONStrings(trimmed); changed {
+			if err := json.Unmarshal([]byte(normalised), &inner); err == nil {
+				probe[key] = mustMarshal(inner)
+				repaired = append(repaired, key)
+				continue
+			}
+		}
+	}
+
+	if len(repaired) == 0 && !outerNormalised {
+		return raw, nil, false
+	}
+	patched, err := json.Marshal(probe)
+	if err != nil {
+		return raw, nil, false
+	}
+	if len(repaired) == 0 {
+		// Outer normalisation alone fixed control-char-in-string-
+		// field issues; surface that so the caller can log it
+		// distinctly.
+		return patched, []string{"<outer-normalisation>"}, true
+	}
+	return patched, repaired, true
+}
+
 // repairNestedArraysAsString detects the same "JSON-encoded string
 // where an array is expected" failure mode for the nested arrays
 // inside each block (items, claim_uses) and
@@ -779,6 +875,72 @@ func repairNestedArraysAsString(raw json.RawMessage) (json.RawMessage, []string,
 	}
 	if patchedBlocks, err := json.Marshal(blocks); err == nil {
 		probe["blocks"] = patchedBlocks
+	}
+	out, err := json.Marshal(probe)
+	if err != nil {
+		return raw, nil, false
+	}
+	return out, paths, true
+}
+
+// repairNestedArraysInPatch applies the same items / claim_uses
+// JSON-string-array repair that repairNestedArraysAsString does for
+// the full emit, but operates on the patch tool's `replace_blocks`
+// AND `add_blocks` arrays (the emit's `blocks` is the singular
+// equivalent). Patch payload normally arrives well-formed, but when
+// the LLM stringifies a nested array inside a block in either
+// replace_blocks or add_blocks the strict decode rejects with the
+// same "must be a native JSON array" error — so we apply identical
+// flat-mode tolerance here.
+func repairNestedArraysInPatch(raw json.RawMessage) (json.RawMessage, []string, bool) {
+	if len(raw) == 0 {
+		return nil, nil, false
+	}
+	var probe map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &probe); err != nil {
+		return nil, nil, false
+	}
+	var paths []string
+	repairedAny := false
+	for _, topField := range []string{"replace_blocks", "add_blocks"} {
+		rawList, ok := probe[topField]
+		if !ok || len(rawList) == 0 || rawList[0] != '[' {
+			continue
+		}
+		var blocks []json.RawMessage
+		if err := json.Unmarshal(rawList, &blocks); err != nil {
+			continue
+		}
+		listChanged := false
+		for i, blk := range blocks {
+			var blkObj map[string]json.RawMessage
+			if err := json.Unmarshal(blk, &blkObj); err != nil {
+				continue
+			}
+			blockChanged := false
+			for _, field := range []string{"items", "claim_uses"} {
+				if r, ok := repairBlockArrayField(blkObj, field); ok {
+					blkObj[field] = r
+					paths = append(paths, fmt.Sprintf("%s[%d].%s", topField, i, field))
+					blockChanged = true
+				}
+			}
+			if blockChanged {
+				if patched, err := json.Marshal(blkObj); err == nil {
+					blocks[i] = patched
+					listChanged = true
+				}
+			}
+		}
+		if listChanged {
+			if patched, err := json.Marshal(blocks); err == nil {
+				probe[topField] = patched
+				repairedAny = true
+			}
+		}
+	}
+	if !repairedAny {
+		return raw, nil, false
 	}
 	out, err := json.Marshal(probe)
 	if err != nil {

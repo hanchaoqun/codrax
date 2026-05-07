@@ -242,3 +242,57 @@ func TestEmitAnswerDocumentPatch_ToolMetadata(t *testing.T) {
 		t.Errorf("Schema not valid JSON: %v", err)
 	}
 }
+
+// TestEmitAnswerDocumentPatch_StringWrappedAddBlocks confirms the
+// flat-mode tolerance fix-up: when the LLM stringifies the
+// `add_blocks` array (same MiniMax streaming bug that hits the full
+// emit's `blocks` field), the patch tool now silently re-parses
+// instead of forcing an LLM retry.
+func TestEmitAnswerDocumentPatch_StringWrappedAddBlocks(t *testing.T) {
+	bus := &types.BusContext{Mutable: types.NewMutableState("")}
+	// Seed a previous emit so the patch has something to apply against.
+	prev := &types.AnswerDocumentV2{
+		Blocks: []types.AnswerBlock{
+			{ID: "s1", Kind: types.BlockSummary, Text: "lead"},
+		},
+	}
+	bus.Mutable.SetAnswerDocumentV2WithMutation(types.MutationReplaceAll, prev)
+
+	// Stringified add_blocks — exact MiniMax bug shape.
+	params := json.RawMessage(`{"add_blocks": "[{\"id\":\"sec_extra\",\"kind\":\"section\",\"title\":\"More\",\"text\":\"detail\",\"surface_role\":\"principal\",\"claim_uses\":[{\"claim_form\":\"definition_fact\"}]}]","unchanged_block_ids":["s1"]}`)
+	tool := &EmitAnswerDocumentPatch{}
+	res, _ := tool.Execute(bus, params)
+	if !res.Success {
+		t.Fatalf("patch tool must auto-repair stringified add_blocks; got Success=false: %s", res.Summary)
+	}
+	doc := bus.Mutable.AnswerDocumentV2()
+	if doc == nil {
+		t.Fatal("repaired patch did not write merged doc")
+	}
+	if len(doc.Blocks) != 2 {
+		t.Errorf("expected 2 blocks after patch (s1 unchanged + sec_extra added); got %d", len(doc.Blocks))
+	}
+}
+
+// TestEmitAnswerDocumentPatch_StringWrappedReplaceBlocks confirms
+// the same fix-up for replace_blocks (the more common patch field).
+func TestEmitAnswerDocumentPatch_StringWrappedReplaceBlocks(t *testing.T) {
+	bus := &types.BusContext{Mutable: types.NewMutableState("")}
+	prev := &types.AnswerDocumentV2{
+		Blocks: []types.AnswerBlock{
+			{ID: "s1", Kind: types.BlockSummary, Text: "old summary"},
+		},
+	}
+	bus.Mutable.SetAnswerDocumentV2WithMutation(types.MutationReplaceAll, prev)
+
+	params := json.RawMessage(`{"replace_blocks": "[{\"id\":\"s1\",\"kind\":\"summary\",\"text\":\"new summary\"}]"}`)
+	tool := &EmitAnswerDocumentPatch{}
+	res, _ := tool.Execute(bus, params)
+	if !res.Success {
+		t.Fatalf("patch tool must auto-repair stringified replace_blocks; got Success=false: %s", res.Summary)
+	}
+	doc := bus.Mutable.AnswerDocumentV2()
+	if doc == nil || len(doc.Blocks) == 0 || doc.Blocks[0].Text != "new summary" {
+		t.Errorf("repaired replace_blocks did not apply; got %+v", doc)
+	}
+}

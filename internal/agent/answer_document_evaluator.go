@@ -2786,10 +2786,21 @@ func (e *answerDocumentEvaluator) unexpectedFinalizerToolSignal(obs LoopObservat
 	if obs.Phase != PhaseMidLoop || len(obs.Response.ToolCalls) == 0 {
 		return LoopSignal{}
 	}
+	// Both emit_answer_document AND emit_answer_document_patch are
+	// legitimate finalizer-stage tools (per
+	// answer-document-skill.ToolSuggestions). The patch tool is the
+	// preferred surface on retry paths because it preserves typed
+	// annotations on unchanged blocks byte-identical. Treating patch
+	// as "unexpected" was a regression that nudged the model away
+	// from the more efficient path whenever a single patch call
+	// failed (e.g. for a streaming-bug repair fix-up). The hint
+	// fires only for tools genuinely outside the finalizer's
+	// allowlist (read_file / grep / etc, which a pure synthesizer
+	// stage never legitimately calls).
 	var unexpected []string
 	for _, tc := range obs.Response.ToolCalls {
 		name := strings.TrimSpace(tc.Name)
-		if name == "" || name == "emit_answer_document" {
+		if name == "" || name == "emit_answer_document" || name == "emit_answer_document_patch" {
 			continue
 		}
 		unexpected = append(unexpected, name)
