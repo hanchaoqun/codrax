@@ -22,6 +22,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/hanchaoqun/codrax/internal/analysis/normalizer"
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
@@ -535,26 +536,30 @@ func isIdentifierShaped(s string) bool {
 	return true
 }
 
-// flattenIdentifier strips _ and - separators and lowercases ASCII
-// letters, leaving an unambiguous "flat" representation that's
-// invariant across snake_case, camelCase, PascalCase, kebab-case,
-// and flatcase. Examples: "sub_explorer" → "subexplorer",
-// "subExplorer" → "subexplorer", "Sub-Explorer" → "subexplorer",
-// "SUBEXPLORER" → "subexplorer".
+// flattenIdentifier delegates to normalizer.NormalizeCodeKey, which
+// is the SINGLE canonical implementation of identifier flat-form
+// canonicalisation across the codebase (Fix K, 2026-05-07).
+//
+// The two functions used to be duplicate implementations — Fix A
+// added flattenIdentifier here for the contract layer's
+// identifier-existence checks, while NormalizeCodeKey predates it
+// in the analysis/normalizer package for the symbol-resolver
+// path. Both stripped `_` / `-` and lowercased ASCII identically.
+// Fix K consolidates onto NormalizeCodeKey so future changes to
+// the canonicalisation rule have one place to land.
+//
+// flattenIdentifier is preserved as a thin wrapper for back-
+// compat with existing internal call sites; the public
+// contract.FlattenIdentifier export and normalizer.NormalizeCodeKey
+// both flow into the same implementation.
+//
+// Equivalence: snake_case, camelCase, PascalCase, kebab-case,
+// SCREAMING_SNAKE_CASE, flatcase all collapse to the same lower-
+// case separator-stripped form. Examples: "sub_explorer" →
+// "subexplorer", "subExplorer" → "subexplorer", "Sub-Explorer"
+// → "subexplorer", "SUBEXPLORER" → "subexplorer".
 func flattenIdentifier(s string) string {
-	var b strings.Builder
-	b.Grow(len(s))
-	for i := 0; i < len(s); i++ {
-		c := s[i]
-		if c == '_' || c == '-' {
-			continue
-		}
-		if c >= 'A' && c <= 'Z' {
-			c += 'a' - 'A'
-		}
-		b.WriteByte(c)
-	}
-	return b.String()
+	return normalizer.NormalizeCodeKey(s)
 }
 
 // flatCaseRunContains scans text for contiguous identifier-character
