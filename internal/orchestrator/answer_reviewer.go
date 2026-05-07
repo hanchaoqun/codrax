@@ -127,7 +127,7 @@ var answerPatternTool = llm.ToolSchema{
     "applies_to_families": {
       "type": "array",
       "items": {"type": "string"},
-      "description": "Optional. Restrict relevance to specific AnswerSemanticView family values: role_lookup / config_precedence / enumeration / call_chain / root_cause_trace / architecture / generic. Empty = applies to all families."
+      "description": "Optional. Restrict relevance to specific question family values: role_lookup / config_precedence / enumeration / call_chain / root_cause_trace / architecture / generic. Empty = applies to all families."
     }
   },
   "required": ["name", "description", "trigger", "confidence"]

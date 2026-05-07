@@ -642,7 +642,7 @@ func init() {
 		Kind: ViolPrincipalClaimUseMissing, DefaultSeverity: SeverityCritical,
 		SoftByDefault: false, Promotable: true, FallbackLocus: LocusFinalizer,
 		Layer: "v2_oracle", CaveatFamilyID: CaveatFamilyCitationGrounded,
-		SchemaDescriptionFragment: "Every principal block (surface_role=principal) whose required AcceptableClaimForms list is non-empty MUST emit at least one entry in the block's claim_uses[] array.",
+		SchemaDescriptionFragment: "Every principal block (surface_role=principal) whose user-section contract lists allowed `claim_form` values MUST emit at least one matching entry in the block's claim_uses[] array.",
 	})
 	RegisterViolKind(ViolKindSpec{
 		Kind: ViolDiagramEdgeUnsupported, DefaultSeverity: SeverityMedium,

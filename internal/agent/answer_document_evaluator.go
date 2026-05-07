@@ -385,7 +385,7 @@ func renderAnswerDocSubmissionChecklist(ctx *types.AgentContext, view *types.Ans
 				}
 			case types.BlockSection:
 				items = append(items,
-					"Emit one `section` block per layer / component / topic, each with a grounded `title` and prose `text`. When the block's contract carries `AcceptableClaimForms`, attach block-level `claim_uses=[{claim_form=definition_fact}]` (plural array). Section blocks have no built-in citation field — if the section needs a citation, restructure to put the cited fact in a child scalar/list block where citation_ref lives natively.",
+					"Emit one `section` block per layer / component / topic, each with a grounded `title` and prose `text`. When the user-section contract lists allowed `claim_form` values for this block, attach block-level `claim_uses=[{claim_form=definition_fact}]` (plural array). Section blocks have no built-in citation field — if the section needs a citation, restructure to put the cited fact in a child scalar/list block where citation_ref lives natively.",
 				)
 			case types.BlockTable:
 				items = append(items,

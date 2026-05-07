@@ -1980,7 +1980,7 @@ func validateEnumerationItemLabelExtractorMatch(doc *types.AnswerDocumentV2, vie
 			Repair: "for each listed item, copy the verbatim identifier from the typed symbol slate that earlier stages produced (the names are the typed identifiers selected upstream for the user to read). Abstract placeholders like 'check 1 (line N)' lose the real names the user needs to navigate the codebase. The upstream signal is intact; only the rendering needs to copy the names.",
 			SuspectedRoot: types.SuspectedRoot{
 				IRField:    "block_items_label",
-				Reason:     "finalizer rendered placeholder labels instead of preserving extractor's verbatim identifiers",
+				Reason:     "answer rendering used placeholder labels instead of preserving the verbatim identifiers selected upstream",
 				Confidence: 0.85,
 			},
 			ClusterKey: blockClusterKey(blockID, "block_items_label"),
@@ -2185,14 +2185,14 @@ func validateLaneBlockKindCompliance(
 		out = append(out, types.Violation{
 			Kind: types.ViolLaneBlockKindMismatch,
 			Detail: fmt.Sprintf(
-				"principal block %q has kind=%q but every cited location is sourced from support lane %q whose AllowedBlocks is %v",
+				"principal block %q has kind=%q but every cited location is sourced from the %q support lane, which only allows the following block kinds: %v",
 				blockID, block.Kind, matchedLane.title, matchedLane.allowedBlocks),
 			Repair: fmt.Sprintf(
-				"either re-render block %q as one of %v (the kinds that lane allows — typically summary/caveat for observation lanes, ordered_list/diagram for current-code-path lanes), or move this content to a different lane that allows %q. Lane → kind alignment is the typed boundary that keeps observation facts from being silently promoted into call-chain hops.",
+				"either change block %q's kind to one of %v (the block kinds the supporting lane allows — typically `summary` or `caveat` for observation lanes, `ordered_list` or `diagram` for current-code-path lanes), or move this content under a different supporting lane that allows %q blocks. The block kind must match the lane it draws from so observation facts do not get silently presented as call-chain steps.",
 				blockID, matchedLane.allowedBlocks, block.Kind),
 			SuspectedRoot: types.SuspectedRoot{
 				IRField:    "block_kind_vs_lane_allowed",
-				Reason:     "principal block kind not in lane.AllowedBlocks for any lane its citations resolve to",
+				Reason:     "principal block kind not in any matching support lane's allowed-kind list",
 				Confidence: 0.9,
 			},
 			ClusterKey: blockClusterKey(blockID, "lane_block_kind"),

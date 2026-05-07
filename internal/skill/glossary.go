@@ -95,6 +95,10 @@ var InternalTermsBlocklist = []string{
 	"ClaimFormOf",
 	"FacetRequiredness",
 	"AcceptableForms",
+	"AcceptableClaimForms",
+	"AnswerSupportPlan",
+	"AnswerSupportLane",
+	"AllowedBlocks",
 	"SourceCandidate",
 
 	// Block-Only Carrier (B6 of block_only_carrier.md, 2026-05-03)

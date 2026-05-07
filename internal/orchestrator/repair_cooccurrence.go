@@ -261,7 +261,7 @@ var defaultCooccurrenceRules = []CooccurrenceRule{
 		Derived: []types.ViolationKind{
 			types.ViolEnumerationLabelUngrounded,
 		},
-		Reason: "extractor-drift and ungrounded-label both fire when finalizer abstracted enumeration identifiers; cluster so a single rewrite restores verbatim names",
+		Reason: "extractor-drift and ungrounded-label both fire when answer rendering abstracted enumeration identifiers; cluster so a single rewrite restores verbatim names",
 	},
 
 	// ─────────────────────────────────────────────────────────────
