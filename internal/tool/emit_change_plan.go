@@ -269,6 +269,22 @@ func (t *EmitChangePlan) Execute(ctx *types.BusContext, params json.RawMessage) 
 		}, nil
 	}
 
+	// Method M (2026-05-07 patch_go_typo r1 forensic): typed-signal
+	// hard gate. When the analyzer classified the task as micro
+	// scope (single-function / single-constant edit), the plan MUST
+	// use kind=patch instead of overwriting the whole file with
+	// kind=modify. The gate runs at structural-validate time so
+	// the planner sees the rejection in the same dispatch and can
+	// re-emit with the right kind.
+	if rej := validatePlanScopeKindAlignment(ctx, fcs); rej != "" {
+		return types.ToolResult{
+			ToolName:  t.Name(),
+			Success:   false,
+			Summary:   "emit_change_plan rejected: " + rej,
+			Timestamp: time.Now(),
+		}, nil
+	}
+
 	// 3) Cycle detection. A cyclic DependsOn graph has no valid
 	//    apply order — reject with the specific cycle path so the
 	//    planner's retry (B1 fail-loud surface) can fix it.

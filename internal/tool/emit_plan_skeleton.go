@@ -206,6 +206,18 @@ func (t *EmitPlanSkeleton) Execute(ctx *types.BusContext, params json.RawMessage
 			Timestamp: time.Now(),
 		}, nil
 	}
+	// Method M: typed-signal hard gate on task.scope=micro →
+	// kind=patch (see validatePlanScopeKindAlignment for full
+	// rationale). Skeleton path catches the mismatch before any
+	// per-file emit_plan_change is wasted.
+	if rej := validatePlanScopeKindAlignment(ctx, fcs); rej != "" {
+		return types.ToolResult{
+			ToolName:  t.Name(),
+			Success:   false,
+			Summary:   "emit_plan_skeleton rejected: " + rej,
+			Timestamp: time.Now(),
+		}, nil
+	}
 	if cycle := detectDepsCycle(fcs); cycle != "" {
 		return types.ToolResult{
 			ToolName:  t.Name(),

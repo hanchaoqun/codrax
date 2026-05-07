@@ -130,6 +130,74 @@ func validatePlanGraphIntegrity(changes []types.FileChange) string {
 // is empty there). emit_plan_change calls this exactly once — when
 // the last placeholder slot is filled — and only then promotes the
 // PartialChangePlan to ChangePlan.
+// validatePlanScopeKindAlignment (Method M, 2026-05-07
+// patch-vs-modify forensic) enforces the typed-signal hard gate
+// between WriteAnalysisIR.Request.Task.Scope and FileChange.Kind:
+//
+//	task.scope == "micro"  →  every existing-file change MUST be
+//	                          kind=patch (kind=modify rejected)
+//	other scopes           →  unconstrained (kind=patch / modify
+//	                          decision left to the planner)
+//
+// "micro" is defined in WriteScope as "change is contained to one
+// function or one constant in one file" — exactly the shape where
+// kind=patch's surgical-diff guarantee is most valuable. Allowing
+// kind=modify on micro-scope tasks routinely produced full-file
+// overwrites for one-line typo fixes (eval forensic 2026-05-07
+// patch_go_typo r1) — observably worse for the user (line-level
+// review collapsed to whole-file diff) and structurally redundant
+// (the same content can be expressed as a 1-hunk patch).
+//
+// Carve-outs (kind != "modify" → no enforcement):
+//
+//   - kind=create: new file; cannot patch what doesn't exist.
+//   - kind=delete: file removal; no content edit needed.
+//   - kind=rename: pure rename; the diff happens at git level,
+//     not via patch. A rename + content edit needs TWO entries
+//     (rename for the move, modify/patch for the content change),
+//     so the modify/patch entry is independently scope-checked.
+//   - kind=patch: ✓ what the gate enforces.
+//
+// Returns "" on success or a rejection reason naming the offending
+// path + the WORKED EXAMPLE pointer so the LLM can fix without
+// guessing the unified diff format.
+//
+// Skip when ctx == nil OR ctx.Mutable == nil OR no WriteAnalysisIR
+// has been emitted yet (defensive: the gate is content-dependent
+// and pre-IR emits should not crash on a nil dereference). Skip
+// when task.scope is empty / unknown (gate fires only on an
+// authoritative LLM scope decision, never on absence).
+func validatePlanScopeKindAlignment(ctx *types.BusContext, changes []types.FileChange) string {
+	if ctx == nil || ctx.Mutable == nil {
+		return ""
+	}
+	ir := ctx.Mutable.WriteAnalysisIR()
+	if ir == nil {
+		return ""
+	}
+	scope := ir.Request.Task.Scope
+	if scope != types.ScopeMicro {
+		return ""
+	}
+	for i, c := range changes {
+		if strings.TrimSpace(c.Kind) != "modify" {
+			continue
+		}
+		path := strings.TrimSpace(c.Path)
+		if path == "" {
+			path = fmt.Sprintf("changes[%d]", i)
+		}
+		return fmt.Sprintf(
+			"task.scope=micro forbids kind=modify on %q — micro-scope tasks (one function / one constant / one line in one file, per the analyzer's classification) MUST use kind=patch with a unified diff. "+
+				"A whole-file overwrite for a one-line edit collapses the diff the user reviews. "+
+				"Re-emit this change with kind=patch and a unified diff that touches only the affected line(s); "+
+				"the change-plan-skill prompt's WORKED EXAMPLE shows the exact format (--- / +++ headers, @@ hunk header with line counts, ' '/'-'/'+' line prefixes, byte-for-byte context match including tabs). "+
+				"Carve-outs: kind=create (new file) / kind=delete (removal) / kind=rename (pure move) bypass this gate; only kind=modify-on-existing-file is rejected.",
+			path)
+	}
+	return ""
+}
+
 func validatePlanFullContent(ctx *types.BusContext, summary string, changes []types.FileChange) string {
 	if GitAvailable() && ctx != nil && strings.TrimSpace(ctx.RepoRoot) != "" {
 		for _, c := range changes {
