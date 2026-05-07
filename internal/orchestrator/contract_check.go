@@ -121,10 +121,17 @@ func runContractCheck(out *agent.StageOutput, c types.AnswerContract, mut *types
 		if docV2 := mut.AnswerDocumentV2(); docV2 != nil && o != nil && o.busCtx != nil {
 			view := types.BuildAnswerSemanticViewForBusContext(o.busCtx)
 			if view != nil {
-				// mut-aware variant so validateClaimFormSupport can
-				// read the evidence pool.
+				// Oracle-aware variant so validators that opt in
+				// (today: validateEnumerationItemLabelExtractorMatch,
+				// Fix B 2026-05-07) verify finalizer-emitted labels
+				// against the typed graph as a precise fallback when
+				// the (noisy) extractor slate misses or typos a real
+				// symbol. The same `oracle` constructed above for
+				// must_include / must_exclude / acceptance is reused —
+				// single truth source for all symbol-existence
+				// checks across the contract layer.
 				result.Violations = append(result.Violations,
-					runV2BlockOraclesWithMut(docV2, view, mut)...)
+					runV2BlockOraclesWithOracle(docV2, view, mut, oracle)...)
 			}
 			// validateLaneBlockKindCompliance — typed-signal hard
 			// gate on AnswerSupportLane.AllowedBlocks. Compiled here

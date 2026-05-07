@@ -2096,7 +2096,7 @@ func TestEnumerationItemLabelExtractorMatch_AllVerbatimPasses(t *testing.T) {
 		"checkCoverage", "checkDAGClosure", "checkBudgetSanity",
 		"checkContractComplete", "checkHypothesisCoverage", "checkSubtopicCoherence",
 		"checkShapeSubjectCoherence", "checkCriterionResolvable", "checkPendingFieldsWellformed")
-	if vs := validateEnumerationItemLabelExtractorMatch(doc, enumView(), mut); len(vs) != 0 {
+	if vs := validateEnumerationItemLabelExtractorMatch(doc, enumView(), mut, nil); len(vs) != 0 {
 		t.Errorf("verbatim labels MUST pass; got %+v", vs)
 	}
 }
@@ -2111,7 +2111,7 @@ func TestEnumerationItemLabelExtractorMatch_AbstractPlaceholdersFire(t *testing.
 		"check 1 (gate.go:148)", "check 2 (gate.go:149)", "check 3 (gate.go:150)",
 		"check 4 (gate.go:156)", "check 5 (gate.go:157)", "check 6 (gate.go:168)",
 		"check 7 (gate.go:169)", "check 8 (gate.go:171)", "check 9 (gate.go:172)")
-	vs := validateEnumerationItemLabelExtractorMatch(doc, enumView(), mut)
+	vs := validateEnumerationItemLabelExtractorMatch(doc, enumView(), mut, nil)
 	if len(vs) != 1 {
 		t.Fatalf("abstract placeholder labels MUST fire; got %d violations", len(vs))
 	}
@@ -2153,7 +2153,7 @@ func TestEnumerationItemLabelExtractorMatch_MultiBlockSplitsViolationsPerBlock(t
 			},
 		},
 	}
-	vs := validateEnumerationItemLabelExtractorMatch(doc, enumView(), mut)
+	vs := validateEnumerationItemLabelExtractorMatch(doc, enumView(), mut, nil)
 	if len(vs) != 2 {
 		t.Fatalf("expected one violation per drifted block; got %d (%+v)", len(vs), vs)
 	}
@@ -2171,7 +2171,7 @@ func TestEnumerationItemLabelExtractorMatch_RelaxedSubstringPasses(t *testing.T)
 	mut := mutWithSymbols("checkCoverage", "checkDAGClosure", "checkBudgetSanity")
 	doc := docWithEnumItems("list1",
 		"checkCoverage — 资源检查", "checkDAGClosure (closure check)", "checkBudgetSanity")
-	if vs := validateEnumerationItemLabelExtractorMatch(doc, enumView(), mut); len(vs) != 0 {
+	if vs := validateEnumerationItemLabelExtractorMatch(doc, enumView(), mut, nil); len(vs) != 0 {
 		t.Errorf("substring containment MUST pass; got %+v", vs)
 	}
 }
@@ -2181,7 +2181,7 @@ func TestEnumerationItemLabelExtractorMatch_NonEnumFamilySkipped(t *testing.T) {
 	mut := mutWithSymbols("X", "Y", "Z")
 	doc := docWithEnumItems("list1", "abstract 1", "abstract 2", "abstract 3")
 	view := &types.AnswerSemanticView{Family: types.QFGeneric}
-	if vs := validateEnumerationItemLabelExtractorMatch(doc, view, mut); len(vs) != 0 {
+	if vs := validateEnumerationItemLabelExtractorMatch(doc, view, mut, nil); len(vs) != 0 {
 		t.Errorf("non-enumeration family MUST skip; got %+v", vs)
 	}
 }
@@ -2190,7 +2190,7 @@ func TestEnumerationItemLabelExtractorMatch_PlainCallChainSkipped(t *testing.T) 
 	mut := mutWithSymbols("stepA", "stepB", "stepC")
 	doc := docWithEnumItems("list1", "placeholder 1", "placeholder 2", "placeholder 3")
 	view := &types.AnswerSemanticView{Family: types.QFCallChain}
-	if vs := validateEnumerationItemLabelExtractorMatch(doc, view, mut); len(vs) != 0 {
+	if vs := validateEnumerationItemLabelExtractorMatch(doc, view, mut, nil); len(vs) != 0 {
 		t.Errorf("plain call-chain without bounded enumeration facet MUST skip; got %+v", vs)
 	}
 }
@@ -2198,7 +2198,7 @@ func TestEnumerationItemLabelExtractorMatch_PlainCallChainSkipped(t *testing.T) 
 func TestEnumerationItemLabelExtractorMatch_BoundedCallChainStillChecksVerbatimNames(t *testing.T) {
 	mut := mutWithSymbols("stepA", "stepB", "stepC")
 	doc := docWithEnumItems("list1", "placeholder 1", "placeholder 2", "placeholder 3")
-	vs := validateEnumerationItemLabelExtractorMatch(doc, boundedCallChainView(), mut)
+	vs := validateEnumerationItemLabelExtractorMatch(doc, boundedCallChainView(), mut, nil)
 	if len(vs) != 1 || vs[0].Kind != types.ViolEnumerationItemLabelExtractorDrift {
 		t.Fatalf("bounded call-chain should still enforce extractor-backed labels; got %+v", vs)
 	}
@@ -2208,7 +2208,7 @@ func TestEnumerationItemLabelExtractorMatch_BoundedCallChainStillChecksVerbatimN
 func TestEnumerationItemLabelExtractorMatch_SmallSymbolSetSkipped(t *testing.T) {
 	mut := mutWithSymbols("A", "B")
 	doc := docWithEnumItems("list1", "abstract 1", "abstract 2", "abstract 3")
-	if vs := validateEnumerationItemLabelExtractorMatch(doc, enumView(), mut); len(vs) != 0 {
+	if vs := validateEnumerationItemLabelExtractorMatch(doc, enumView(), mut, nil); len(vs) != 0 {
 		t.Errorf("symbols<3 MUST skip; got %+v", vs)
 	}
 }
@@ -2223,14 +2223,14 @@ func TestEnumerationItemLabelExtractorMatch_EightyPercentThreshold(t *testing.T)
 	doc8 := docWithEnumItems("list1",
 		"alphaFn", "betaFn", "gammaFn", "deltaFn", "epsilonFn",
 		"zetaFn", "etaFn", "thetaFn", "row 1 (xyz)", "row 2 (xyz)")
-	if vs := validateEnumerationItemLabelExtractorMatch(doc8, enumView(), mut); len(vs) != 0 {
+	if vs := validateEnumerationItemLabelExtractorMatch(doc8, enumView(), mut, nil); len(vs) != 0 {
 		t.Errorf("80%% match MUST pass; got %+v", vs)
 	}
 	// 7 verbatim + 3 unrelated → 70% — fires
 	doc7 := docWithEnumItems("list1",
 		"alphaFn", "betaFn", "gammaFn", "deltaFn", "epsilonFn",
 		"zetaFn", "etaFn", "row 1 (xyz)", "row 2 (xyz)", "row 3 (xyz)")
-	if vs := validateEnumerationItemLabelExtractorMatch(doc7, enumView(), mut); len(vs) == 0 {
+	if vs := validateEnumerationItemLabelExtractorMatch(doc7, enumView(), mut, nil); len(vs) == 0 {
 		t.Errorf("<80%% match MUST fire")
 	}
 }

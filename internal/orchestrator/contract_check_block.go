@@ -6,6 +6,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/hanchaoqun/codrax/internal/analysis/contract"
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
@@ -1715,6 +1716,17 @@ func runV2BlockOracles(doc *types.AnswerDocumentV2, view *types.AnswerSemanticVi
 // unit tests that don't wire a Mutable). Production caller in
 // contract_check.go::runContractCheck threads mut.
 func runV2BlockOraclesWithMut(doc *types.AnswerDocumentV2, view *types.AnswerSemanticView, mut *types.MutableState) []types.Violation {
+	return runV2BlockOraclesWithOracle(doc, view, mut, nil)
+}
+
+// runV2BlockOraclesWithOracle is the oracle-aware variant. nil
+// oracle preserves pre-fix-B behaviour (validators that opt into
+// the oracle gate fall back to their pre-existing match-only
+// semantics). Production caller in contract_check.go::runContractCheck
+// threads the same SymbolOracle that the contract.CheckWithOracle
+// path uses, so V2 block validators see the same Tier 1-2 truth
+// table as the contract.must_include / must_exclude oracles.
+func runV2BlockOraclesWithOracle(doc *types.AnswerDocumentV2, view *types.AnswerSemanticView, mut *types.MutableState, oracle types.SymbolOracle) []types.Violation {
 	if doc == nil || view == nil {
 		return nil
 	}
@@ -1737,7 +1749,7 @@ func runV2BlockOraclesWithMut(doc *types.AnswerDocumentV2, view *types.AnswerSem
 	out = append(out, validateMissingRequestedRoleDisclosure(doc, view)...)
 	out = append(out, validateAbsenceScopeBound(doc)...)
 	out = append(out, validateEnumerationItemLabelGrounding(doc, mut)...)
-	out = append(out, validateEnumerationItemLabelExtractorMatch(doc, view, mut)...)
+	out = append(out, validateEnumerationItemLabelExtractorMatch(doc, view, mut, oracle)...)
 	return out
 }
 
@@ -1871,10 +1883,44 @@ func validateEnumerationItemLabelGrounding(doc *types.AnswerDocumentV2, mut *typ
 //   - principal ordered_list / bullet_list block with at least
 //     3 items
 //
-// Match rule: case-folded equality between items[i].label
-// (trimmed) and one of AnswerSymbols[j].Name. Allows items[].label
-// to wrap the verbatim name with surrounding text ("checkCoverage
-// — 资源检查") via substring containment as a relaxed fallback.
+// Match rule (four-stage, in order):
+//
+//  1. Exact case-folded equality between items[i].label (trimmed)
+//     and one of AnswerSymbols[j].Name.
+//  2. Relaxed substring: items[].label wraps the verbatim name
+//     with surrounding text ("checkCoverage — 资源检查").
+//  3. Token-form-aware (Fix B, 2026-05-07 s5a r2 forensic):
+//     flatten both label and slate names by stripping `_`/`-` and
+//     case-folding, then check substring in either direction.
+//     Catches snake↔camel↔Pascal↔kebab↔SCREAMING_SNAKE↔flatcase
+//     equivalences that the extractor and finalizer LLMs spell
+//     differently. Reuses contract.FlattenIdentifier so the
+//     equivalence rule is identical to the contract.containsSymbol
+//     fallback applied at must_include / must_exclude / acceptance
+//     check sites — single source of truth across the contract
+//     layer for token-form normalisation.
+//  4. SymbolOracle gate (Fix B, 2026-05-07 s5a r2 forensic): when
+//     `oracle` is non-nil and the label is identifier-shaped, the
+//     label counts as matched if the oracle confirms it as a real
+//     Tier 1-2 codebase symbol — even when the extractor's slate
+//     missed the identifier or spelled it with a typo. This is
+//     the same precision/noise red-line the contract.must_include
+//     oracle gate applies: extractor LLM emit is a noisy signal
+//     (we observed real cases where it missed 3 of 8 implementers
+//     and typo'd 2 more); typed_graph is the precise signal.
+//
+// Language coverage (multi-language generalisation): both the
+// flat-form match (stage 3) and the SymbolOracle gate (stage 4)
+// are language-agnostic. Stage 3's flatten handles every casing
+// convention used by the languages repomap supports — Go (camel /
+// Pascal), Python (snake / Pascal), Rust (snake / Pascal /
+// SCREAMING_SNAKE), Swift (camel / Pascal), Java (camel / Pascal /
+// SCREAMING_SNAKE), Ruby (snake / Pascal), JS/TS (camel / Pascal),
+// ArkTS (camel / Pascal), Cangjie (camel / Pascal / snake), Kotlin
+// (camel / Pascal). Stage 4's oracle is repomap-backed, which
+// already indexes every supported language uniformly, so the
+// validator behaves identically regardless of the active
+// codebase's source language.
 //
 // Threshold: at least 80% of items must match an AnswerSymbol.
 // Below 80% the violation fires with the list of drifted labels
@@ -1884,7 +1930,7 @@ func validateEnumerationItemLabelGrounding(doc *types.AnswerDocumentV2, mut *typ
 // preservation is the contract between extractor (selects) and
 // finalizer (renders). Operators can soften via
 // pipeline_contract_strict_kinds yaml.
-func validateEnumerationItemLabelExtractorMatch(doc *types.AnswerDocumentV2, view *types.AnswerSemanticView, mut *types.MutableState) []types.Violation {
+func validateEnumerationItemLabelExtractorMatch(doc *types.AnswerDocumentV2, view *types.AnswerSemanticView, mut *types.MutableState, oracle types.SymbolOracle) []types.Violation {
 	if doc == nil || view == nil || mut == nil {
 		return nil
 	}
@@ -1897,6 +1943,7 @@ func validateEnumerationItemLabelExtractorMatch(doc *types.AnswerDocumentV2, vie
 	}
 	// Build a case-folded lookup of verbatim extractor names.
 	nameSet := make(map[string]struct{}, len(symbols))
+	flatNameSet := make(map[string]struct{}, len(symbols))
 	verbatimNames := make([]string, 0, len(symbols))
 	for _, s := range symbols {
 		n := strings.TrimSpace(s.Name)
@@ -1904,6 +1951,9 @@ func validateEnumerationItemLabelExtractorMatch(doc *types.AnswerDocumentV2, vie
 			continue
 		}
 		nameSet[strings.ToLower(n)] = struct{}{}
+		if flat := contract.FlattenIdentifier(n); len(flat) >= 4 {
+			flatNameSet[flat] = struct{}{}
+		}
 		verbatimNames = append(verbatimNames, n)
 	}
 	if len(nameSet) == 0 {
@@ -1933,10 +1983,10 @@ func validateEnumerationItemLabelExtractorMatch(doc *types.AnswerDocumentV2, vie
 				matched++
 				continue
 			}
-			// Relaxed: allow label to contain the verbatim name as
-			// substring ("checkCoverage — 资源检查"). The verbatim
-			// name appearing somewhere in the label still preserves
-			// the identifier the user needs.
+			// Stage 2 — relaxed: allow label to contain the verbatim
+			// name as substring ("checkCoverage — 资源检查"). The
+			// verbatim name appearing somewhere in the label still
+			// preserves the identifier the user needs.
 			containsName := false
 			for vname := range nameSet {
 				if strings.Contains(ll, vname) {
@@ -1947,6 +1997,37 @@ func validateEnumerationItemLabelExtractorMatch(doc *types.AnswerDocumentV2, vie
 			if containsName {
 				matched++
 				continue
+			}
+			// Stage 3 — token-form-aware (Fix B): flatten both sides
+			// to strip _/-, lowercase, then check substring either
+			// way. snake↔camel↔Pascal↔kebab all collapse to the same
+			// flat form, so spelling-form drift between extractor
+			// and finalizer no longer fires.
+			flatLabel := contract.FlattenIdentifier(label)
+			if len(flatLabel) >= 4 {
+				flatHit := false
+				for fname := range flatNameSet {
+					if strings.Contains(flatLabel, fname) || strings.Contains(fname, flatLabel) {
+						flatHit = true
+						break
+					}
+				}
+				if flatHit {
+					matched++
+					continue
+				}
+			}
+			// Stage 4 — SymbolOracle gate (Fix B): when the oracle
+			// confirms the label is a real Tier 1-2 codebase symbol,
+			// trust the finalizer over the (noisy) extractor slate.
+			// shouldOracleGateInclude restricts this to identifier-
+			// shaped tokens ≥4 chars so prose like "the dispatcher"
+			// can never satisfy via this stage.
+			if oracle != nil && contract.ShouldOracleGateInclude(label) {
+				if found, tier := oracle.SymbolExists(label); found && tier < 3 {
+					matched++
+					continue
+				}
 			}
 			blockDrifts = append(blockDrifts, drifted{
 				itemID: it.ID,
