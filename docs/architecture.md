@@ -2641,6 +2641,28 @@ multigraph: mode=multi discovered=3 active=2 cap=3 evicted_in_60s=0 pending=[rep
 
 **剩余 raw consumer migration**(P4.B/C/D/E 设计原始任务)→ 重新分类为 **cross-sub-repo opt-in 增强**,非半成品。LRU + routing 架构使每个 Run 见到正确路由的子仓,跨仓 fan-out API 全部 wired,消费方按需消费。
 
+### 16.11 Cross-sub-repo fan-out — 6 类场景全启用(2026-05-08 收尾)
+
+为多仓 workflow 核心用户,所有 cross-sub-repo 自动 fan-out 全部启用(不再 opt-in 状态):
+
+| 场景 | 修复点 | Migration |
+|---|---|---|
+| **Sc 1+2** Hallucination gate false-positive / drift detector miss | `orch.runContractCheck` oracle 构造单点改 `mg.Oracle()` + `authority.LocatorFromBusContext` 优先 mg.Locator() | `ef34a08` |
+| **Sc 1** Implementers 跨仓 | `expandImplementersFromGraph` type-switch + 3 调用点优先 mg | `5884f24` |
+| **Sc 3** 跨仓 call chain | **架构 inert**(§16.4 已声明跨仓 import edge 不解析) | N/A |
+| **Sc 4** Config precedence | `analyzer.buildAnalyzerRepoOverview` 多仓 prepend `renderMultiRepoOverviewHeader` | `a956550` |
+| **Sc 5** Keyword search ranking | `repoMapRank` iterate `mg.AllGraphs()` aggregate + sub-repo prefix | `90a96c5` |
+| **Sc 6** Token identifier 分类 | ground package `crossRepoOracle` + 3 emit tool 入口 `SetCrossRepoOracle` | `152eb7c` |
+
+**zero 单仓回归** — 每个 fan-out 路径都有 `mg!=nil && !mg.IsSingle()` 守卫;单仓 mg.Oracle()/Locator() 在内部对单 graph forward,与 legacy 单图 oracle/locator 行为字节级一致。
+
+**用户可见症状全部修复**(对照 §16.9 受影响场景):
+- 多仓 entity 跨仓存在性查询(false-negative / false-positive)→ ✅ 经 oracle/locator fan-out 修复
+- Implementers 跨仓收集 → ✅ analyzer/explorer 自动跨仓
+- Config precedence(跨仓 manifest 列表) → ✅ analyzer prompt prepend
+- Keyword search ranking 跨仓覆盖 → ✅ repoMapRank aggregate
+- Code identifier 分类正确性 → ✅ ground.crossRepoOracle fallback
+
 ---
 
 **架构概览速记**：

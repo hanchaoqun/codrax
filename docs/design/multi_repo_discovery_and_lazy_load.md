@@ -571,6 +571,22 @@ P4.F routing fold 落地后,消费者侧的语义重新理解:5 个 BuildOrLoadG
 
 **100% 完整 = 架构件全 ship + 路由正确 + 写模式 fail-loud + 跨仓 API wired**(消费侧按需消费)。剩余"raw consumer 迁移"是 cross-sub-repo opt-in 增强,触发条件:用户提的问题确实跨子仓(`/repos` 列表 N≥2 + 问题 entity 跨多 RootRel),此时 partial_typed_lane disclosure 自动暴露,用户决定是否 `/repos focus` 或拆 Run。
 
+### 4.9 Cross-sub-repo opt-in 增强 — 6 类场景全启用(2026-05-08)
+
+为多仓核心 workflow 用户启用所有 cross-sub-repo fan-out:
+
+| Scenario | 站点 | 状态 |
+|---|---|---|
+| **Sc 1+2** Hallucination gate false-positive(symbol 在非 routed 子仓真实存在却被 reject) | `orch/contract_check.go:86` 单点 oracle 构造改 `mg.Oracle()` fan-out → 7+ validator(must_include/exclude/acceptance + 3 hallucination + extractor match)自动跨仓正确 | ✅ ship |
+| **Sc 1+2** drift detector cross-sub-repo | `authority.LocatorFromBusContext` 优先 mg.Locator() / fallback 单图 | ✅ ship |
+| **Sc 1** Implementers 跨仓 | `expandImplementersFromGraph` type-switch 加 *MultiGraph 分支 + analyzer/explorer/contract 3 调用点优先喂 mg | ✅ ship |
+| **Sc 3** 跨仓 call chain | **架构 inert** — 设计 §3.5 已声明跨仓 import edge 不解析(独立 namespace),`CallersOf/ResolveCallTarget` 9 处消费点全是 per-graph compute,无须迁移 | ✅ N/A |
+| **Sc 4** Config precedence | `analyzer.buildAnalyzerRepoOverview` 多仓 posture prepend `renderMultiRepoOverviewHeader`(每子仓 langs+files+manifest 路径,sub-repo prefix preserve) | ✅ ship |
+| **Sc 5** Keyword search 跨仓 ranking | `repoMapRank` 多仓 posture iterate `mg.AllGraphs()` aggregate scores,path 加 sub-repo prefix;`keywordSearchResult.MultiGraph` 透传给下游 | ✅ ship |
+| **Sc 6** Token identifier 分类(`looksLikeCodeIdentifier`) | ground package level `crossRepoOracle` slot + 3 个 emit tool 入口前 wire `SetCrossRepoOracle`,inline interface 避免 import cycle | ✅ ship |
+
+**Migration 总投入**:5 commit / ~340 LOC。**zero 单仓回归** — 所有 fan-out 路径都有 `mg!=nil && !mg.IsSingle()` 守卫,单仓走 legacy 单图;mg.Oracle()/Locator() 内部对单 graph 的 forward 与 legacy 单图 oracle 行为字节级一致。
+
 ## 5. 内存预算
 
 | 项 | 单仓量级 | cap=3 时多仓量级 | 说明 |
