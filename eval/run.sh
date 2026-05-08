@@ -455,7 +455,16 @@ run_one() {
           echo "run $i: FAIL multirepo_setup_fail" >&2
           return
         fi
+        # The multirepo-basic fixture has three sub-repos and the
+        # mr_* eval cases assume every one is active. Phase 0
+        # (2026-05-08) lowered the default cap from 3 → 2 for
+        # production; export the eval-specific override so the
+        # routing fold keeps all three resident. Single-repo cases
+        # bypass this branch and continue to read the operator's
+        # default config.
+        export CODRAX_SETTINGS="$ROOT/eval/fixtures/multirepo_settings.yaml"
         run_read_step "$i" "$out" "$logdir" "$scratch"
+        unset CODRAX_SETTINGS
       else
         run_read_step "$i" "$out" "$logdir"
       fi

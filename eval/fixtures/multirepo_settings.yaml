@@ -1,0 +1,21 @@
+# multirepo_settings.yaml — eval-specific runtime overrides for
+# MULTIREPO=<seed> cases (eval/cases/mr_*.case).
+#
+# The default multi_repo_max_active=2 covers the common cross-repo
+# investigation — one canonical sub-repo + one collaborator. The
+# multirepo-basic fixture has THREE sub-repos and the eval cases ask
+# the LLM to enumerate / search across all of them, so the test
+# routinely needs cap=3 to keep every sub-repo in the active set.
+#
+# Without this override, the routing fold deterministically excludes
+# one sub-repo per Run (alphabetical / size-fallback) and the LLM
+# correctly reports the absent identifier as "out of active set,
+# user should adjust scope" — that is the L0 advisory contract
+# working as designed, but it doesn't match the eval cases' EMR
+# expectations (which presume every sub-repo is active).
+#
+# The override stays scoped to the multirepo eval — eval/run.sh
+# exports CODRAX_SETTINGS only when MULTIREPO is set, so single-
+# repo cases continue to read the operator's normal codrax.yaml
+# (or the binary's defaults).
+multi_repo_max_active: 3
