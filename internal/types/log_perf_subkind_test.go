@@ -91,6 +91,41 @@ func TestLogPerfSubKindOf_TimeoutFrame(t *testing.T) {
 	}
 }
 
+// TestLogPerfSubKindOf_PerformanceFrame locks the 2026-05-08
+// expansion: SignalPerformance log frames now project to
+// LogPerformanceFrame instead of falling through to the generic
+// LogErrorFrame.
+func TestLogPerfSubKindOf_PerformanceFrame(t *testing.T) {
+	item := EvidenceItem{Source: "api.go", LineStart: 42}
+	bundle := &LogBundle{
+		Meta: LogMeta{Signals: []LogSignal{SignalPerformance}},
+		// LogError carries a typed entry so frame-match succeeds —
+		// real perf-mention logs typically have a structured
+		// "slow API took 5s" record. logBundleFrameMatch walks
+		// the Errors tree.
+		Errors: []LogError{{Type: "SlowAPI", Frames: []LogFrame{{File: "api.go", Line: 42}}}},
+	}
+	if got := LogPerfSubKindOf(item, bundle, nil); got != LogPerformanceFrame {
+		t.Errorf("expected LogPerformanceFrame; got %q", got)
+	}
+}
+
+// TestLogPerfSubKindOf_PerformanceLowerThanTimeout pins the severity
+// ladder ranking: when both timeout and performance signals are
+// present (e.g. a request that timed out AND was slow), the
+// timeout-class wins because it carries stronger semantics
+// (operation was cancelled) than the perf observation.
+func TestLogPerfSubKindOf_PerformanceLowerThanTimeout(t *testing.T) {
+	item := EvidenceItem{Source: "api.go", LineStart: 42}
+	bundle := &LogBundle{
+		Meta:   LogMeta{Signals: []LogSignal{SignalPerformance, SignalTimeout}},
+		Errors: []LogError{{Type: "DeadlineExceeded", Frames: []LogFrame{{File: "api.go", Line: 42}}}},
+	}
+	if got := LogPerfSubKindOf(item, bundle, nil); got != LogTimeoutFrame {
+		t.Errorf("expected LogTimeoutFrame (timeout outranks performance); got %q", got)
+	}
+}
+
 func TestLogPerfSubKindOf_ErrorFrameWithoutSeveritySignal(t *testing.T) {
 	item := EvidenceItem{Source: "handler.go", LineStart: 30}
 	bundle := &LogBundle{
@@ -221,8 +256,11 @@ func TestLogPerfSubKindOf_CauseChainTraversed(t *testing.T) {
 func TestAllLogPerfSubKinds_DefensiveCopy(t *testing.T) {
 	a := AllLogPerfSubKinds()
 	b := AllLogPerfSubKinds()
-	if len(a) != 8 {
-		t.Fatalf("expected 8 sub-kinds, got %d", len(a))
+	// 2026-05-08: 9 sub-kinds — added LogPerformanceFrame between
+	// LogTimeoutFrame and LogErrorFrame so SignalPerformance log
+	// frames stop collapsing to the generic LogErrorFrame.
+	if len(a) != 9 {
+		t.Fatalf("expected 9 sub-kinds, got %d", len(a))
 	}
 	a[0] = "MUTATED"
 	if b[0] == "MUTATED" {

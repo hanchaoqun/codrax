@@ -58,10 +58,23 @@ const (
 	// Deadline exceeded / context canceled at the cited frame.
 	LogTimeoutFrame LogPerfSubKind = "timeout_frame"
 
+	// LogPerformanceFrame — Meta.Signals contains SignalPerformance.
+	// Log-level performance observation: slow API call / GC pause /
+	// long-blocked operation / lock contention / frame drop. Pre-
+	// 2026-05-08 these frames collapsed to LogErrorFrame, conflating
+	// "performance observation" with "error event" — the finalizer
+	// then rendered slow-API evidence with error-shaped prose. This
+	// sub-kind keeps performance evidence on a separate facet so
+	// answers can read "the operation was slow" rather than "the
+	// operation failed". Distinct from PerfBundle's PerfStall /
+	// PerfJank: those are trace-tool signals (HiTrace / atrace /
+	// systrace / perfetto); LogPerformanceFrame is application-log
+	// mention of a perf symptom.
+	LogPerformanceFrame LogPerfSubKind = "performance_frame"
+
 	// LogErrorFrame — frame appears in the LogBundle.Errors tree
-	// (with a non-empty LogError.Type) but no panic/oom/timeout
-	// signal is present. Generic structured error with stack
-	// trace.
+	// (with a non-empty LogError.Type) but no severe / performance
+	// signal is present. Generic structured error with stack trace.
 	LogErrorFrame LogPerfSubKind = "error_frame"
 
 	// LogNoiseFrame — frame matched but no Errors-tree entry and
@@ -95,7 +108,7 @@ func (s LogPerfSubKind) IsValid() bool {
 	switch s {
 	case LogPerfSubKindUnknown,
 		LogPanicFrame, LogOOMFrame, LogTimeoutFrame,
-		LogErrorFrame, LogNoiseFrame,
+		LogPerformanceFrame, LogErrorFrame, LogNoiseFrame,
 		PerfJankFrame, PerfStallFrame, PerfStartupFrame:
 		return true
 	}
@@ -103,11 +116,11 @@ func (s LogPerfSubKind) IsValid() bool {
 }
 
 // IsLogSubKind reports whether s is one of the log-side
-// sub-kinds (panic / oom / timeout / error / noise).
+// sub-kinds (panic / oom / timeout / performance / error / noise).
 func (s LogPerfSubKind) IsLogSubKind() bool {
 	switch s {
 	case LogPanicFrame, LogOOMFrame, LogTimeoutFrame,
-		LogErrorFrame, LogNoiseFrame:
+		LogPerformanceFrame, LogErrorFrame, LogNoiseFrame:
 		return true
 	}
 	return false
@@ -128,7 +141,7 @@ func (s LogPerfSubKind) IsPerfSubKind() bool {
 func AllLogPerfSubKinds() []LogPerfSubKind {
 	return []LogPerfSubKind{
 		LogPanicFrame, LogOOMFrame, LogTimeoutFrame,
-		LogErrorFrame, LogNoiseFrame,
+		LogPerformanceFrame, LogErrorFrame, LogNoiseFrame,
 		PerfJankFrame, PerfStallFrame, PerfStartupFrame,
 	}
 }
@@ -193,6 +206,13 @@ func LogPerfSubKindOf(item EvidenceItem, log *LogBundle, perf *PerfBundle) LogPe
 				return LogOOMFrame
 			case SignalTimeout:
 				return LogTimeoutFrame
+			case SignalPerformance:
+				// Performance observation: not an error, not an
+				// abort. Distinct from LogErrorFrame so the
+				// finalizer's facet template can render
+				// "operation was slow" prose vs error-shaped
+				// prose.
+				return LogPerformanceFrame
 			}
 		}
 		// (3) Generic error (frame in Errors tree, no severe signal).
@@ -210,13 +230,20 @@ func LogPerfSubKindOf(item EvidenceItem, log *LogBundle, perf *PerfBundle) LogPe
 }
 
 // logBundleSeveritySignal returns the most-severe signal in the
-// bundle's Meta.Signals list (panic > crash > oom > timeout >
-// other). Returns empty when no severity-class signal is present.
+// bundle's Meta.Signals list. Order:
+//
+//	panic > crash > oom > timeout > performance
+//
+// The first four collapse to abort-class semantics (program halted /
+// bounded by a deadline). SignalPerformance ranks below them — the
+// program kept running, just slowly — but above the catch-all
+// "" return so a perf-only log still carries a SubKind classification
+// rather than falling through to LogErrorFrame.
 func logBundleSeveritySignal(b *LogBundle) LogSignal {
 	if b == nil {
 		return ""
 	}
-	hasPanic, hasCrash, hasOOM, hasTimeout := false, false, false, false
+	hasPanic, hasCrash, hasOOM, hasTimeout, hasPerformance := false, false, false, false, false
 	for _, s := range b.Meta.Signals {
 		switch s {
 		case SignalPanic:
@@ -227,6 +254,8 @@ func logBundleSeveritySignal(b *LogBundle) LogSignal {
 			hasOOM = true
 		case SignalTimeout:
 			hasTimeout = true
+		case SignalPerformance:
+			hasPerformance = true
 		}
 	}
 	switch {
@@ -238,6 +267,8 @@ func logBundleSeveritySignal(b *LogBundle) LogSignal {
 		return SignalOOM
 	case hasTimeout:
 		return SignalTimeout
+	case hasPerformance:
+		return SignalPerformance
 	}
 	return ""
 }

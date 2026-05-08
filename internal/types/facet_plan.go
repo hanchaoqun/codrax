@@ -1013,6 +1013,17 @@ func rootCauseRequiredSubKind(rm RequestModel) LogPerfSubKind {
 				return LogTimeoutFrame
 			}
 		}
+		// 2026-05-08: SignalPerformance gets a dedicated SubKind so
+		// "slow API / GC pause / lock contention" log evidence
+		// renders on the performance facet rather than the generic
+		// error facet. Ranks below abort-class signals — when the
+		// log carries BOTH a panic and a perf observation, the
+		// panic is the load-bearing anchor.
+		for _, s := range rm.LogTriage.Meta.Signals {
+			if s == SignalPerformance {
+				return LogPerformanceFrame
+			}
+		}
 	}
 	return LogPerfSubKindUnknown
 }
