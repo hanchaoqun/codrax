@@ -40,6 +40,13 @@ type PerfBundle struct {
 
 // PerfMeta carries trace-level descriptive fields.
 type PerfMeta struct {
+	// BugClasses mirrors LogMeta.BugClasses for the perf channel
+	// (deterministic cross-platform bug-pattern detection populated
+	// by the perf_triage entry hook before the LLM dispatch). Empty
+	// when no registered pattern fired. See log_bundle.go for the
+	// architectural rationale.
+	BugClasses []DetectedBugClass `json:"bug_classes,omitempty"`
+
 	// Source is the capture tool's canonical name: "hitrace"
 	// (HarmonyOS) / "atrace" (Android) / "systrace" (legacy) /
 	// "perfetto" (when the LLM decoded a perfetto text dump) /

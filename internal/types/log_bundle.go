@@ -82,6 +82,22 @@ type LogMeta struct {
 	// available to future answer-rendering code that wants a one-line
 	// headline. Optional.
 	Summary string `json:"summary,omitempty"`
+
+	// BugClasses is the deterministic cross-language bug-pattern
+	// detection result, populated by the log_triage entry hook BEFORE
+	// the LLM dispatch (so the LLM-facing skill prompt can render
+	// canonical terminology hints like "数据竞争 / data race" /
+	// "死锁 / deadlock" / "空指针 / nil deref"). Each entry carries
+	// the matched signature substring for evidence pinning. Empty
+	// when no registered pattern fired.
+	//
+	// Distinct from Signals (which is the LLM-emitted operational-
+	// tier classification) — BugClasses is the diagnostic-tier
+	// classification the LLM does NOT emit; the system stamps it
+	// from a regex registry that knows cross-language signatures
+	// (Go runtime / TSan / Java exceptions / Rust panics / Python
+	// errors / etc.).
+	BugClasses []DetectedBugClass `json:"bug_classes,omitempty"`
 }
 
 // LogError is one error snapshot with optional causal chain. The tree
