@@ -389,6 +389,48 @@ func softProceedingWithoutExtractMessage(lang string) string {
 	return "⟳ Key-finding distillation failed; finalizing with the evidence already collected"
 }
 
+// multiRepoScanStartMessage / multiRepoScanEndMessage render the
+// user-visible push lines for Phase 4 multi-repo scan progress.
+// Generic prose, no internal pipeline terminology — the operator
+// sees one line per sub-repo scanned, append-only, so a 50+
+// sub-repo workspace where the spinner sat on "preparing pipeline"
+// for 30 s now surfaces "scanning sub-repo X" / "scan complete X
+// (1.2s)" lines as scanning progresses.
+func multiRepoScanStartMessage(lang, rootRel string) string {
+	if preferZhMessage(lang) {
+		return "⚳ 正在扫描代码仓 `" + rootRel + "`"
+	}
+	return "⚳ Scanning sub-repo `" + rootRel + "`"
+}
+
+func multiRepoScanEndMessage(lang, rootRel string, elapsedMs int64, ok bool) string {
+	zh := preferZhMessage(lang)
+	if !ok {
+		if zh {
+			return "✗ 代码仓 `" + rootRel + "` 扫描失败(" + formatScanElapsed(elapsedMs) + ")"
+		}
+		return "✗ Sub-repo `" + rootRel + "` scan failed (" + formatScanElapsed(elapsedMs) + ")"
+	}
+	if zh {
+		return "✓ 代码仓 `" + rootRel + "` 扫描完成(" + formatScanElapsed(elapsedMs) + ")"
+	}
+	return "✓ Sub-repo `" + rootRel + "` scan complete (" + formatScanElapsed(elapsedMs) + ")"
+}
+
+// formatScanElapsed renders the per-sub-repo scan duration for the
+// dock push line. Sub-second scans land in millis, ≥1s gets a
+// human-friendly "1.2s" form so a quick scan does not look broken
+// next to a slow one.
+func formatScanElapsed(ms int64) string {
+	if ms < 1000 {
+		if ms < 1 {
+			return "<1ms"
+		}
+		return fmt.Sprintf("%dms", ms)
+	}
+	return fmt.Sprintf("%.1fs", float64(ms)/1000)
+}
+
 // forcedFinalizeFailureMessage classifies a force-finalize terminal
 // error and surfaces a localized, plain-language fatal message. The
 // raw error string ("forced finalize: agent finalizer execution:

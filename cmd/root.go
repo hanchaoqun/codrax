@@ -392,6 +392,15 @@ type appContext struct {
 	// graph at the field level — the actual access goes through
 	// repomap.MultiGraphFromContext / direct cast in the provider.
 	multigraph any
+
+	// multiRepoScanNotifier is the closure forwarded into
+	// MultiGraph.Config.ScanNotifier so per-sub-repo scan progress
+	// (Phase 4, 2026-05-08) reaches the dock as transient
+	// EventOrchestratorNotice push lines. Captures app at closure
+	// build time and reads app.orch dynamically — initApp builds
+	// the multigraph at startup BEFORE app.orch is wired, so the
+	// closure must lazy-resolve.
+	multiRepoScanNotifier func(rootRel, slug string, started bool, ok bool, elapsedMs int64)
 }
 
 var app appContext
@@ -1125,7 +1134,7 @@ func runREPL(_ *cobra.Command) error {
 			// so the next Run sees the new sub-repo set + a clean LRU.
 			app.topology = newTopo
 			if app.multiRepoEnabled {
-				if mg, err := repomap.BuildOrLoadMultiGraph(newTopo, "", app.multiRepoMaxActive, nil); err == nil {
+				if mg, err := repomap.BuildOrLoadMultiGraph(newTopo, "", app.multiRepoMaxActive, nil, app.multiRepoScanNotifier); err == nil {
 					app.multigraph = mg
 				}
 			}
@@ -1554,8 +1563,23 @@ func initApp(cmd *cobra.Command, _ []string) error {
 	// Build the session-shared *MultiGraph carrier when topology is
 	// populated AND multi_repo_enabled (default true). nil here =
 	// orchestrator falls back to legacy single-graph behaviour.
+	//
+	// Initialise the scan notifier closure FIRST so MultiGraph picks
+	// it up at construction. The closure reads app.orch lazily — orch
+	// is wired later in initApp, so at MultiGraph build time it may
+	// be nil. EmitMultiRepoScanNotice tolerates a nil receiver and
+	// nil emit.
+	app.multiRepoScanNotifier = func(rootRel, slug string, started bool, ok bool, elapsedMs int64) {
+		if app.orch == nil {
+			return
+		}
+		app.orch.EmitMultiRepoScanNotice(rootRel, slug, started, ok, elapsedMs)
+	}
 	if app.topology != nil && app.multiRepoEnabled {
-		mg, err := repomap.BuildOrLoadMultiGraph(app.topology, "", app.multiRepoMaxActive, nil)
+		mg, err := repomap.BuildOrLoadMultiGraph(
+			app.topology, "", app.multiRepoMaxActive, nil,
+			app.multiRepoScanNotifier,
+		)
 		if err != nil {
 			logging.Info("multi-repo: BuildOrLoadMultiGraph failed (%v) — falling back to single-graph", err)
 		} else {

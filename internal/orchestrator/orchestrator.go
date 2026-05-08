@@ -489,6 +489,37 @@ func (o *Orchestrator) SetEmitter(emit render.EventEmitter) {
 	o.emit = emit
 }
 
+// EmitMultiRepoScanNotice surfaces a per-sub-repo scan-progress
+// notice through the orchestrator's event emitter. Phase 4 (2026-
+// 05-08) calls this from MultiGraph.EnsureLoaded via the
+// multiRepoScanNotifier callback so the dock + log render a
+// transient append-only line for each scan start / end.
+//
+// Safe to call before SetEmitter: emit defaults to render.NopEmitter,
+// so the call quietly drops if the emitter has not been wired yet
+// (single-shot tests / partial-init paths).
+func (o *Orchestrator) EmitMultiRepoScanNotice(rootRel, slug string, started, ok bool, elapsedMs int64) {
+	if o == nil || o.emit == nil {
+		return
+	}
+	var noticeKind render.OrchestratorNoticeKind
+	var msg string
+	if started {
+		noticeKind = render.NoticeMultiRepoScanStart
+		msg = multiRepoScanStartMessage(o.busCtx.Language, rootRel)
+	} else {
+		noticeKind = render.NoticeMultiRepoScanEnd
+		msg = multiRepoScanEndMessage(o.busCtx.Language, rootRel, elapsedMs, ok)
+	}
+	o.emit(render.Event{
+		Kind:       render.EventOrchestratorNotice,
+		Timestamp:  time.Now(),
+		Agent:      "orchestrator",
+		NoticeKind: noticeKind,
+		Reasoning:  msg,
+	})
+}
+
 // SetMaxSteps overrides the maximum number of pipeline steps (default 50).
 func (o *Orchestrator) SetMaxSteps(n int) {
 	o.maxSteps = n

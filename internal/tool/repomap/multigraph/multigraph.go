@@ -52,6 +52,16 @@ type Config struct {
 	// LocatorFactory mirrors OracleFactory for SymbolLocator. Nil
 	// falls back to a graph-method-only locator.
 	LocatorFactory func(*rmtypes.Graph) types.SymbolLocator
+
+	// ScanNotifier is an optional callback fired around every
+	// EnsureLoaded build call. Phase 4 (2026-05-08) uses it to
+	// surface per-sub-repo scan progress to the dock (one push
+	// notice per scan via EventOrchestratorNotice). started=true is
+	// the start event; ok / elapsedMs apply to the end event. Nil
+	// disables the notification path entirely (single-shot CLI
+	// runs / tests). Callbacks fire synchronously inside the
+	// MultiGraph mutex so consumers MUST be non-blocking.
+	ScanNotifier func(rootRel, slug string, started bool, ok bool, elapsedMs int64)
 }
 
 // MultiGraph is the multi-repo carrier. See package doc.
@@ -82,6 +92,8 @@ type MultiGraph struct {
 
 	oracleFactory  func(*rmtypes.Graph) types.SymbolOracle
 	locatorFactory func(*rmtypes.Graph) types.SymbolLocator
+
+	scanNotifier func(rootRel, slug string, started bool, ok bool, elapsedMs int64)
 }
 
 // New constructs a MultiGraph from cfg. Returns an error if topology
@@ -121,6 +133,7 @@ func New(cfg Config) (*MultiGraph, error) {
 		focusSet:       make(map[string]bool, len(cfg.FocusSlugs)),
 		oracleFactory:  cfg.OracleFactory,
 		locatorFactory: cfg.LocatorFactory,
+		scanNotifier:   cfg.ScanNotifier,
 	}
 	for _, slug := range cfg.FocusSlugs {
 		mg.focusSet[slug] = true
@@ -217,11 +230,17 @@ func (m *MultiGraph) EnsureLoaded(slug string) (*rmtypes.Graph, error) {
 	// "preparing pipeline".
 	scanStart := time.Now()
 	logging.Info("multigraph: scanning sub-repo %s (slug=%s)", sr.RootRel, slug)
+	if m.scanNotifier != nil {
+		m.scanNotifier(sr.RootRel, slug, true /*started*/, true /*ok placeholder*/, 0)
+	}
 	g, err := m.build(sr.RootAbs, m.query)
 	if err != nil {
 		elapsedMs := time.Since(scanStart).Milliseconds()
 		logging.Warning("multigraph: scan failed sub-repo %s (slug=%s) elapsed=%dms err=%v",
 			sr.RootRel, slug, elapsedMs, err)
+		if m.scanNotifier != nil {
+			m.scanNotifier(sr.RootRel, slug, false /*ended*/, false /*ok=false*/, elapsedMs)
+		}
 		m.mu.Unlock()
 		return nil, fmt.Errorf("multigraph.EnsureLoaded(%s): %w", slug, err)
 	}
@@ -229,12 +248,18 @@ func (m *MultiGraph) EnsureLoaded(slug string) (*rmtypes.Graph, error) {
 		elapsedMs := time.Since(scanStart).Milliseconds()
 		logging.Warning("multigraph: scan returned nil graph sub-repo %s (slug=%s) elapsed=%dms",
 			sr.RootRel, slug, elapsedMs)
+		if m.scanNotifier != nil {
+			m.scanNotifier(sr.RootRel, slug, false, false, elapsedMs)
+		}
 		m.mu.Unlock()
 		return nil, fmt.Errorf("multigraph.EnsureLoaded(%s): build returned nil graph", slug)
 	}
 	elapsedMs := time.Since(scanStart).Milliseconds()
 	logging.Info("multigraph: scan complete sub-repo %s (slug=%s) elapsed=%dms",
 		sr.RootRel, slug, elapsedMs)
+	if m.scanNotifier != nil {
+		m.scanNotifier(sr.RootRel, slug, false, true, elapsedMs)
+	}
 	evictedSlug, _, evicted := m.active.Put(slug, g)
 	if evicted {
 		m.thrash.Record()

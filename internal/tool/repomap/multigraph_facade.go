@@ -28,7 +28,13 @@ import (
 // across the multigraph fan-out.
 //
 // Refs: docs/design/multi_repo_discovery_and_lazy_load.md §4.5 Phase 4.1.
-func BuildOrLoadMultiGraph(topo *topology.RepoTopology, query string, cap int, focusSlugs []string) (*multigraph.MultiGraph, error) {
+func BuildOrLoadMultiGraph(
+	topo *topology.RepoTopology,
+	query string,
+	cap int,
+	focusSlugs []string,
+	scanNotifier func(rootRel, slug string, started bool, ok bool, elapsedMs int64),
+) (*multigraph.MultiGraph, error) {
 	if topo == nil {
 		return nil, fmt.Errorf("repomap.BuildOrLoadMultiGraph: nil topology")
 	}
@@ -40,6 +46,7 @@ func BuildOrLoadMultiGraph(topo *topology.RepoTopology, query string, cap int, f
 		FocusSlugs:     focusSlugs,
 		OracleFactory:  func(g *rmtypes.Graph) types.SymbolOracle { return NewSymbolOracle(g) },
 		LocatorFactory: func(g *rmtypes.Graph) types.SymbolLocator { return NewSymbolLocator(g) },
+		ScanNotifier:   scanNotifier,
 	}
 	mg, err := multigraph.New(cfg)
 	if err != nil {

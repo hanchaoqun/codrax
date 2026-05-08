@@ -251,6 +251,16 @@ const (
 
 	// progress-class — cyan (forward milestone)
 	NoticeInvestigationReady // explorer signaled investigation_complete
+
+	// 2026-05-08 add — multi-repo scan progress (Phase 4). Emitted
+	// once when MultiGraph.EnsureLoaded begins building a sub-repo
+	// graph and once on completion. The dock surfaces them as
+	// transient append-only lines (not a new dock state machine),
+	// so the operator can see which sub-repo is being scanned and
+	// how long each one took without requiring a render goroutine
+	// rewrite.
+	NoticeMultiRepoScanStart // ⚳ scan begins for one sub-repo
+	NoticeMultiRepoScanEnd   // ✓ scan complete (or ✗ on failure)
 )
 
 // TaskNodeInfo is the renderable summary of a TaskGraph node carried
