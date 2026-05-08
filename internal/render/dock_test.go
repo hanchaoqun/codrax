@@ -275,3 +275,80 @@ func TestRenderer_StateMutationsWithoutDock(t *testing.T) {
 		t.Errorf("EventAgentThinking must flip activity to requesting; got %v", r.activity.kind)
 	}
 }
+
+// TestFinalDockSummary_StageCountFiltersSubRows is the regression
+// guard for the 2026-05-08 "N 阶段" bug. A bare read-mode question
+// (no log / trace attached) walks 4 stages — analyze, explore,
+// extract, finalize — but the dock displayed "6 阶段" because the
+// completion counter looped over EVERY r.tasks row, including the
+// isNodeRow rows EventAnalysisReady inserts for the explore family
+// sub-nodes (probe / evidence / validate / chain) and any
+// isSubAgent rows EventSubAgentStart appends.
+//
+// Fix: the loop now skips isNodeRow + isSubAgent before
+// incrementing completed. totalTools (sum) and totalIters (max)
+// stay unfiltered — those metrics are semantically correct across
+// every row.
+func TestFinalDockSummary_StageCountFiltersSubRows(t *testing.T) {
+	r := newTestRenderer("zh")
+	t0 := time.Now()
+	// 4 stage rows (all completed) — the right count.
+	for _, stage := range []string{"analyze", "explore", "extract", "finalize"} {
+		r.tasks = append(r.tasks, &taskRow{
+			stage:     stage,
+			endTime:   t0.Add(time.Second),
+			toolCount: 2, // 8 tools total
+			iteration: 3, // max iter = 3
+		})
+	}
+	// 2 explore-family sub-node rows (also completed).
+	for _, kind := range []string{"probe", "evidence"} {
+		r.tasks = append(r.tasks, &taskRow{
+			isNodeRow: true,
+			nodeKind:  kind,
+			endTime:   t0.Add(time.Second),
+			toolCount: 1, // +2 -> totalTools=10
+			iteration: 5, // max iter = 5 (sub-node deeper than stage)
+		})
+	}
+	// 1 sub-agent row (also completed).
+	r.tasks = append(r.tasks, &taskRow{
+		isSubAgent: true,
+		endTime:    t0.Add(time.Second),
+		toolCount:  1, // +1 -> totalTools=11
+		iteration:  2,
+	})
+
+	completed := 0
+	totalTools := 0
+	totalIters := 0
+	for _, row := range r.tasks {
+		if row == nil {
+			continue
+		}
+		if !row.isNodeRow && !row.isSubAgent && !row.endTime.IsZero() {
+			completed++
+		}
+		totalTools += row.toolCount
+		if row.iteration > totalIters {
+			totalIters = row.iteration
+		}
+	}
+
+	if completed != 4 {
+		t.Errorf("completed = %d, want 4 (analyze + explore + extract + finalize; sub-node + sub-agent rows must NOT be counted as stages)", completed)
+	}
+	// totalTools intentionally aggregates across ALL rows (each tool
+	// call increments exactly one current-row counter, so the sum is
+	// the unique-call count). 4 stage rows x 2 + 2 sub-node x 1 + 1
+	// sub-agent x 1 = 11.
+	if totalTools != 11 {
+		t.Errorf("totalTools = %d, want 11 (sum across all rows including sub-rows)", totalTools)
+	}
+	// totalIters is max(row.iteration) across ALL rows — sub-node
+	// iter (5) is deeper than the stage iters (3), so the deepest
+	// ReAct chain is the sub-node's.
+	if totalIters != 5 {
+		t.Errorf("totalIters = %d, want 5 (max across all rows)", totalIters)
+	}
+}

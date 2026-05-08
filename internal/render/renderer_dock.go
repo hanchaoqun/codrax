@@ -1793,6 +1793,24 @@ func (r *Renderer) commitDockShutdownLocked() {
 		r.routeSummary = nil
 		return
 	}
+	// completed counts STAGE rows only (analyze / explore / extract /
+	// finalize / plan / apply / verify). Sub-node rows (isNodeRow,
+	// emitted via EventAnalysisReady's TaskNodes payload — probe /
+	// evidence / validate / chain) and sub-agent rows (isSubAgent —
+	// EventSubAgentStart) are dock-UX artefacts of the topology DAG,
+	// not independent pipeline stages, so counting them here reads
+	// back to the operator as "this Run had 6 stages" when there are
+	// only 4 real stages plus 2 explore-family sub-nodes. The other
+	// loops in this file (e.g. line 240) already filter via
+	// "row.isSubAgent || row.isNodeRow continue" — this counter was
+	// the last hold-out.
+	//
+	// totalTools (sum) and totalIters (max) intentionally aggregate
+	// across ALL rows: each tool call increments exactly one current
+	// row's toolCount (sum = unique-call count), and per-row
+	// iteration tracks each row's ReAct depth so max(iter) reads as
+	// "deepest ReAct chain seen in this Run" — both metrics stay
+	// semantically correct.
 	completed := 0
 	totalTools := 0
 	totalIters := 0
@@ -1800,7 +1818,7 @@ func (r *Renderer) commitDockShutdownLocked() {
 		if row == nil {
 			continue
 		}
-		if !row.endTime.IsZero() {
+		if !row.isNodeRow && !row.isSubAgent && !row.endTime.IsZero() {
 			completed++
 		}
 		totalTools += row.toolCount
