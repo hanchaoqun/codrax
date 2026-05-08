@@ -47,6 +47,16 @@ type keywordFileScore struct {
 type keywordSearchResult struct {
 	Files []keywordFileScore
 	Graph *repomap.Graph // may be nil if repo_map is unavailable
+
+	// MultiGraph is the optional cross-sub-repo carrier (P4-cross-
+	// sub-repo Sc 5, 2026-05-08). Non-nil when keyword_search ran
+	// against a multi-repo workspace; downstream consumers that want
+	// cross-sub-repo Symbol fan-out reach for it via
+	// repomap.MultiGraphFromXxx helpers. Files[].Path uses path-
+	// from-parent (sub-repo prefix prepended) when MultiGraph != nil
+	// AND mg.IsSingle()==false; single-repo posture keeps un-prefixed
+	// paths byte-identically.
+	MultiGraph any
 }
 
 // keywordSearchOptions tunes the scoring and cap behavior of
@@ -392,7 +402,7 @@ func keywordSearchWithOptions(keywords []string, repoRoot string, opts keywordSe
 
 	logging.Debug("[keyword_search] %d keywords, %d entities → %d files scored (cap=%d)",
 		len(keywords), len(opts.Entities), len(results), maxFiles)
-	return &keywordSearchResult{Files: results, Graph: graph}
+	return &keywordSearchResult{Files: results, Graph: graph, MultiGraph: opts.MultiGraph}
 }
 
 func shouldDeprioritizeAuxiliaryExactHit(path string, contract *types.ExactResolutionContract) bool {
@@ -656,6 +666,20 @@ func exactPathFiles(graph *repomap.Graph, entity string) []string {
 // Only returns files that matched the query (QueryScores > 0), so
 // infrastructure files with high structural scores but no query relevance
 // are excluded. Also returns the graph for symbol extraction.
+//
+// P4-cross-sub-repo (Sc 5, 2026-05-08): when mgHandle resolves to a
+// multi-repo MultiGraph (mg.IsSingle()==false), aggregate scores
+// across every active sub-repo. Per-sub-repo scores are collected
+// from each sub-repo's QueryScores/Scores maps and the path keys
+// are rewritten to path-from-parent form (sub-repo prefix
+// prepended) so cross-sub-repo files don't collide on names like
+// "main.go" or "lib.rs". The returned *Graph is the routed sub-repo
+// (best-effort primary) so downstream typed lookups (graph.SymbolDefs,
+// FileIndex direct access) keep their pre-multi-repo semantics for
+// the routed sub-repo. Cross-sub-repo Symbol queries should go
+// through ctx.MultiGraph.Oracle() / .LookupSymbol — the carrier is
+// also preserved on keywordSearchResult.MultiGraph for consumers
+// that want it.
 func repoMapRank(keywords []string, entities []string, repoRoot string, mgHandle any) (scores map[string]float64, graph *repomap.Graph) {
 	terms := make([]string, 0, len(keywords)+len(entities))
 	seen := make(map[string]bool, len(keywords)+len(entities))
@@ -672,6 +696,57 @@ func repoMapRank(keywords []string, entities []string, repoRoot string, mgHandle
 		terms = append(terms, trimmed)
 	}
 	query := strings.Join(terms, " ")
+
+	// Multi-repo aggregation path: when MultiGraph carrier is wired
+	// AND it's truly multi-repo (cap > 1, ≥ 2 active sub-repos),
+	// merge QueryScores/Scores across active sub-repos.
+	if mg := repomap.MultiGraphFromContext(&types.BusContext{MultiGraph: mgHandle}); mg != nil && !mg.IsSingle() {
+		// Make sure every active sub-repo's graph has been built
+		// against this query. Routing fold has already EnsureMany'd
+		// the active set at Run entry; here we just iterate what's
+		// resident.
+		active := mg.AllGraphs()
+		if len(active) > 0 {
+			scores = make(map[string]float64)
+			subMap := make(map[string]bool, len(active))
+			topo := mg.Topology()
+			subRepoMap := map[string]string{}
+			if topo != nil {
+				for i := range topo.Repos {
+					subRepoMap[topo.Repos[i].Slug] = topo.Repos[i].RootRel
+				}
+			}
+			for slug, g := range active {
+				if g == nil {
+					continue
+				}
+				rootRel := subRepoMap[slug]
+				for path, qScore := range g.QueryScores {
+					if qScore > 0 {
+						prefixed := path
+						if rootRel != "" && rootRel != "." {
+							prefixed = rootRel + "/" + path
+						}
+						scores[prefixed] = g.Scores[path]
+					}
+				}
+				subMap[slug] = true
+			}
+			// Pick the routed sub-repo's *Graph for the second return
+			// (downstream typed access). Prefer the first active
+			// (LRU MRU); fall back to mg.Single() if that fails.
+			for _, g := range active {
+				if g != nil {
+					graph = g
+					break
+				}
+			}
+			logging.Debug("[keyword_search] repo_map (multi-repo): %d files matched query across %d sub-repo(s)", len(scores), len(active))
+			return scores, graph
+		}
+	}
+
+	// Single-graph (legacy / single-repo / fallback) path.
 	var err error
 	graph, err = repomap.GraphFromBusContextOrLoad(&types.BusContext{MultiGraph: mgHandle}, repoRoot, query)
 	if err != nil {
