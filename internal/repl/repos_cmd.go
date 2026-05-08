@@ -6,6 +6,8 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/pterm/pterm"
+
 	"github.com/hanchaoqun/codrax/internal/config"
 	repomapindex "github.com/hanchaoqun/codrax/internal/tool/repomap/index"
 	"github.com/hanchaoqun/codrax/internal/tool/repomap/topology"
@@ -65,13 +67,27 @@ func (r *REPL) handleReposCmd(line string) {
 	}
 }
 
-// printReposList renders a tabular view of the topology snapshot and
-// the session-local focus + cap state.
+// printReposList renders a tabular view of the topology snapshot,
+// the session-local focus + cap state, and the current LRU-resident
+// (auto-active) sub-repo set. Phase 5 (2026-05-08) adds per-row
+// status markers + ANSI color so the operator can tell at a glance
+// which sub-repos are pinned, which the routing fold auto-selected
+// for the most recent Run, and which are inactive.
+//
+// Three states (mutually exclusive):
+//   - pinned (★ green)        — operator ran /repos focus
+//   - auto-active (+ cyan)    — routing fold loaded into LRU
+//   - inactive (· dark gray)  — neither pinned nor in LRU
+//
+// Non-TTY (pipe / scripted stdin) collapses to plain markers; the
+// underlying r.info path bypasses pterm in that mode.
 func (r *REPL) printReposList() {
 	r.multiRepoMu.Lock()
 	topo := r.topology
 	focus := append([]string(nil), keysOf(r.multiRepoFocus)...)
 	override := r.multiRepoMaxActiveOverride
+	mg := r.topology
+	_ = mg
 	r.multiRepoMu.Unlock()
 	sort.Strings(focus)
 
@@ -80,7 +96,13 @@ func (r *REPL) printReposList() {
 		return
 	}
 
-	cap := r.activeMultiRepoMaxActiveLocked(override)
+	// Auto-active = LRU-resident slugs that are NOT pinned. Pulled
+	// from the MultiGraph carrier through the topology.* interface
+	// the REPL already has via the orch wiring (avoids importing the
+	// multigraph package directly here).
+	autoActive := r.multiRepoLRUSnapshot()
+
+	cap := r.activeMultiRepoMaxActive()
 
 	header := fmt.Sprintf("multi-repo topology — parent=%s slug=%s sub-repos=%d cap=%d",
 		topo.ParentRoot, topo.ParentSlug, len(topo.Repos), cap)
@@ -98,17 +120,37 @@ func (r *REPL) printReposList() {
 		return
 	}
 
+	colorEnabled := r.interactive()
 	for _, sr := range topo.Repos {
-		marker := " "
+		state := reposRowStateInactive
 		if r.isFocused(sr.Slug) {
-			marker = "*"
+			state = reposRowStatePinned
+		} else if autoActive[sr.Slug] {
+			state = reposRowStateAutoActive
 		}
+		marker, label := reposRowDecor(state, colorEnabled)
 		langs := strings.Join(sr.PrimaryLangs, ",")
 		if langs == "" {
 			langs = "-"
 		}
-		r.info(fmt.Sprintf("  %s %-30s slug=%s git=%s files=%d langs=%s tier=%d",
-			marker, sr.RootRel, sr.Slug, displayGitMode(sr.GitMode), sr.FileCount, langs, sr.PrimaryLangsTier))
+		// Build the row body, then color it based on state.
+		body := fmt.Sprintf("%-30s slug=%s git=%s files=%d langs=%s tier=%d",
+			sr.RootRel, sr.Slug, displayGitMode(sr.GitMode), sr.FileCount, langs, sr.PrimaryLangsTier)
+		if colorEnabled {
+			body = reposRowColor(state, body)
+		}
+		r.info(fmt.Sprintf("  %s %s", marker, body))
+		_ = label
+	}
+
+	// Legend trailer so the markers are self-explanatory.
+	if colorEnabled {
+		r.info(fmt.Sprintf("  legend: %s pinned (`/repos focus`)  %s auto-active (routing fold)  %s inactive",
+			reposRowGlyphColored(reposRowStatePinned),
+			reposRowGlyphColored(reposRowStateAutoActive),
+			reposRowGlyphColored(reposRowStateInactive)))
+	} else {
+		r.info("  legend: ★ pinned (`/repos focus`)  + auto-active (routing fold)  · inactive")
 	}
 
 	if len(focus) > 0 {
@@ -117,6 +159,83 @@ func (r *REPL) printReposList() {
 	if override > 0 {
 		r.info(fmt.Sprintf("  cap override (session): %d (yaml value: %d)", override, r.multiRepoMaxActive))
 	}
+}
+
+// reposRowState classifies a sub-repo's display state in the /repos
+// listing. Phase 5 (2026-05-08).
+type reposRowState int
+
+const (
+	reposRowStateInactive reposRowState = iota
+	reposRowStateAutoActive
+	reposRowStatePinned
+)
+
+// reposRowDecor returns the marker glyph + (unused legend label).
+// Color is applied only when the REPL is in interactive (TTY) mode
+// — pipe / scripted callers see plain ASCII so log scraping stays
+// stable.
+func reposRowDecor(state reposRowState, colorEnabled bool) (marker, label string) {
+	switch state {
+	case reposRowStatePinned:
+		if colorEnabled {
+			return pterm.NewStyle(pterm.FgGreen, pterm.Bold).Sprint("★"), "pinned"
+		}
+		return "★", "pinned"
+	case reposRowStateAutoActive:
+		if colorEnabled {
+			return pterm.NewStyle(pterm.FgCyan).Sprint("+"), "auto-active"
+		}
+		return "+", "auto-active"
+	default:
+		if colorEnabled {
+			return pterm.NewStyle(pterm.FgDarkGray).Sprint("·"), "inactive"
+		}
+		return "·", "inactive"
+	}
+}
+
+// reposRowGlyphColored returns the colored marker glyph alone, used
+// for the legend trailer when color is enabled.
+func reposRowGlyphColored(state reposRowState) string {
+	m, _ := reposRowDecor(state, true)
+	return m
+}
+
+// reposRowColor wraps the row body in the state's color so the
+// pinned line jumps off the page, the auto-active line reads as
+// "currently in scope", and the inactive lines recede.
+func reposRowColor(state reposRowState, body string) string {
+	switch state {
+	case reposRowStatePinned:
+		return pterm.NewStyle(pterm.FgGreen, pterm.Bold).Sprint(body)
+	case reposRowStateAutoActive:
+		return pterm.NewStyle(pterm.FgCyan).Sprint(body)
+	default:
+		return pterm.NewStyle(pterm.FgDarkGray).Sprint(body)
+	}
+}
+
+// multiRepoLRUSnapshot returns the slug → bool map of currently
+// LRU-resident sub-repos by reflecting MultiGraph.AllGraphs through
+// a typed interface. The REPL's topology/multigraph wiring lives
+// in cmd/root.go's onMultiRepoFocusChange / SetCap / SetFocus
+// callbacks; we cannot reach the MultiGraph itself from this
+// package without an import cycle, so the access goes through the
+// types.* interface BusContext.MultiGraph already exposes.
+//
+// Falls back to empty map when no MultiGraph has been wired (single-
+// repo / pre-multi-repo callers) — in that case the listing simply
+// has no auto-active rows.
+func (r *REPL) multiRepoLRUSnapshot() map[string]bool {
+	if r == nil {
+		return map[string]bool{}
+	}
+	snapper, ok := r.multigraphForListing.(interface{ ActiveSlugSnapshot() map[string]bool })
+	if !ok || snapper == nil {
+		return map[string]bool{}
+	}
+	return snapper.ActiveSlugSnapshot()
 }
 
 // reposFocus pins a sub-repo into the active routing set. The

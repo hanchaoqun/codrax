@@ -318,6 +318,15 @@ type Config struct {
 	// out-of-active sub-repos to surface in the prompt.
 	MultiRepoInactivePreviewCount int
 
+	// Multigraph is the cmd/root-supplied carrier handle the REPL
+	// reads to render the /repos listing (auto-active row marker
+	// + color). Stored as any so the REPL stays free of an
+	// internal/tool/repomap/multigraph import. The REPL probes for
+	// the ActiveSlugSnapshot() method via type-assert; nil disables
+	// the auto-active marker so the listing falls back to the
+	// 2-state pinned/inactive view.
+	Multigraph any
+
 	// OnMultiRepoFocusChange is invoked by the REPL when the user
 	// runs /repos focus or /repos unfocus. cmd/root.go wires this to
 	// app.multigraph.SetFocus so the next Run picks up the change.
@@ -355,6 +364,16 @@ type REPL struct {
 	// else the session-local override.
 	topology                  *topology.RepoTopology
 	multiRepoEnabled          bool
+
+	// multigraphForListing is the cmd/root-supplied handle the REPL
+	// uses to read the LRU-resident slug set when rendering /repos.
+	// Stored as any so this package stays free of an
+	// internal/tool/repomap/multigraph import (which would create a
+	// cycle through the repomap package). The type-assert in
+	// multiRepoLRUSnapshot probes for the ActiveSlugSnapshot method;
+	// nil here disables the auto-active marker (the listing falls
+	// back to a 2-state pinned/inactive view).
+	multigraphForListing any
 	multiRepoMaxActive        int // canonical value (Config.MultiRepoMaxActive)
 	multiRepoFocus            map[string]bool
 	multiRepoMaxActiveOverride int
@@ -587,6 +606,7 @@ func New(cfg Config) *REPL {
 		topology:                 cfg.Topology,
 		multiRepoEnabled:         cfg.MultiRepoEnabled,
 		multiRepoMaxActive:       cfg.MultiRepoMaxActive,
+		multigraphForListing:     cfg.Multigraph,
 		multiRepoFocus:           map[string]bool{},
 		onMultiRepoFocusChange:   cfg.OnMultiRepoFocusChange,
 		onMultiRepoCapChange:     cfg.OnMultiRepoCapChange,

@@ -310,6 +310,22 @@ func (m *MultiGraph) AllGraphs() map[string]*rmtypes.Graph {
 	return m.active.Snapshot()
 }
 
+// ActiveSlugSnapshot returns the slug → bool set of currently LRU-
+// resident sub-repos. Phase 5 (2026-05-08) /repos UX uses it to
+// label rows as "auto-active" vs "inactive". Empty map when m is
+// nil — caller treats that as "no auto-active rows".
+func (m *MultiGraph) ActiveSlugSnapshot() map[string]bool {
+	if m == nil || m.active == nil {
+		return map[string]bool{}
+	}
+	graphs := m.active.Snapshot()
+	out := make(map[string]bool, len(graphs))
+	for slug := range graphs {
+		out[slug] = true
+	}
+	return out
+}
+
 // GraphFor returns the *Graph for the SubRepo owning relPathFromParent
 // IF that graph is currently active. The third return is true on
 // active-hit. When the owning sub-repo exists in topology but is not

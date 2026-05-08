@@ -1117,6 +1117,12 @@ func runREPL(_ *cobra.Command) error {
 		MultiRepoEnabled:              app.multiRepoEnabled,
 		MultiRepoMaxActive:            app.multiRepoMaxActive,
 		MultiRepoInactivePreviewCount: app.multiRepoInactivePreviewCount,
+		// Phase 5 (2026-05-08): /repos listing reads the LRU-resident
+		// slug set from the multigraph carrier through this handle so
+		// auto-active rows can be color-marked. Stored as any to keep
+		// the REPL package free of an internal/tool/repomap/multigraph
+		// import.
+		Multigraph:                    app.multigraph,
 		// Push REPL /repos mutations into the session-shared
 		// MultiGraph so the next Run picks them up.
 		OnMultiRepoFocusChange: func(slugs []string) {
