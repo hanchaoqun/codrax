@@ -1855,37 +1855,57 @@ const AttachedLogBlobName = "attached_log.txt"
 // with the other inside the shared WorkDir.
 const AttachedTraceBlobName = "attached_trace.txt"
 
-// renderBugClassesSection produces the LLM-facing "Detected
-// Failure Patterns" block for the log_triage / perf_triage prompt
-// section. Two regimes:
+// renderBugClassesSection produces the LLM-facing canonical-pattern
+// block for the log_triage / perf_triage prompt section.
+// `modality` is "log" or "trace" — adjusts user-facing terminology
+// (frames vs spans/tags, failure vs observation) while keeping the
+// anti-hallucination guard generic.
 //
-//   - bundle.Meta.BugClasses non-empty → render canonical bilingual
-//     labels + matched signature substrings, plus a generic
-//     instruction to use those terms verbatim and avoid speculating
-//     about cause from unrelated repository code.
-//   - empty → render an "unknown / business-domain failure" guide so
-//     the LLM understands no standard pattern matched and the
-//     classification must come from the log's own content (custom
-//     business error code, application-specific exception class,
-//     domain term). Same anti-hallucination guard either way.
+// Two regimes:
+//
+//   - detected non-empty → render canonical bilingual labels +
+//     matched signature substrings + generic instruction to use those
+//     terms verbatim and avoid speculating about cause from unrelated
+//     repository code.
+//   - detected empty → render an "unknown / business-domain pattern"
+//     guide so the LLM understands no standard pattern matched and
+//     should address the user's question using terminology drawn
+//     from the input's own content (custom business operation names,
+//     application-specific identifiers, third-party domain terms).
+//     This regime does NOT presuppose the user is asking about a
+//     failure — performance characterisation, business audit, or
+//     any other intent is equally valid.
 //
 // R6 / R4 compliance:
 //   - No internal pipeline terminology (no "BugClass", "TypedDenials",
 //     "registry", phase names)
-//   - No fixture-specific examples (no "race condition / NPE" in the
-//     instructions; only canonical labels from the bundle's actual
-//     detection appear, plus generic prose)
+//   - No fixture-specific examples — only canonical labels from the
+//     bundle's actual detection appear; instructions are generic
 //   - Generic enough to apply to any input modality (log / trace /
-//     future MCP) and any failure class — known or business-domain
-//
-// Empty section is intentional: when bundle has no signals at all
-// (parser-degraded / informational log), nothing to surface.
-func renderBugClassesSection(detected []types.DetectedBugClass) string {
+//     future MCP) and any user intent — failure analysis,
+//     performance investigation, business observation, audit
+//   - Does NOT constrain the user's question intent: even when known
+//     patterns are detected, the LLM is free to address whatever
+//     dimension the user actually asked about; the canonical labels
+//     are a vocabulary aid, not a topic redirect
+func renderBugClassesSection(detected []types.DetectedBugClass, modality string) string {
+	if modality != "trace" {
+		modality = "log" // default
+	}
+	inputNoun := "log"
+	contentDescriptor := "the function names, the message text, the call sequence"
+	emptyDescriptor := "the exception type, the error message, the application module names visible in frames"
+	if modality == "trace" {
+		inputNoun = "trace"
+		contentDescriptor = "the span/tag names, the durations, the call sequence"
+		emptyDescriptor = "the tag names, the span operations, the application module names visible in events"
+	}
+
 	var b strings.Builder
 	if len(detected) > 0 {
-		b.WriteString("### Detected Failure Patterns\n")
-		b.WriteString("The raw log contains one or more well-known failure signatures. " +
-			"The system identified the following canonical failure type(s) — when describing the root cause in your answer, " +
+		b.WriteString("### Detected Patterns\n")
+		b.WriteString("The raw " + inputNoun + " contains one or more well-known signatures. " +
+			"The system identified the following canonical type(s) — when these patterns are RELEVANT to what the user asked, " +
 			"USE THESE EXACT TERMS rather than paraphrasing or inventing alternative names:\n\n")
 		for _, d := range detected {
 			label := d.HumanLabel()
@@ -1894,29 +1914,34 @@ func renderBugClassesSection(detected []types.DetectedBugClass) string {
 			}
 			b.WriteString("- **" + label + "**")
 			if sig := strings.TrimSpace(d.MatchedSignature); sig != "" {
-				// Single-line signature; trim newlines so the prompt
-				// stays compact.
 				flat := strings.ReplaceAll(strings.ReplaceAll(sig, "\n", " "), "\r", " ")
 				b.WriteString(" — matched: `" + flat + "`")
 			}
 			b.WriteString("\n")
 		}
-		b.WriteString("\nIMPORTANT: the failure mechanism for these classes is well-documented across the engineering literature. " +
-			"Explain the cause from the log's own evidence (the function names, the message text, the call sequence) — " +
-			"do NOT search the surrounding repository for code that happens to resemble names mentioned in the log. " +
-			"Repository code is supplementary; the log's structured signature is the authoritative cause classification.\n\n")
+		b.WriteString("\nIMPORTANT: these canonical labels are a VOCABULARY AID, not a topic redirect. " +
+			"Address whatever dimension the user actually asked about (failure cause, performance characterisation, " +
+			"business behaviour, audit, or any other intent). When the user's question DOES touch the detected pattern, " +
+			"explain it from the " + inputNoun + "'s own evidence (" + contentDescriptor + ") — " +
+			"do NOT search the surrounding repository for code that happens to resemble names mentioned in the " + inputNoun + ". " +
+			"Repository code is supplementary; the " + inputNoun + "'s structured signature is the authoritative classification.\n\n")
 		return b.String()
 	}
-	// Empty — unknown / business-domain failure regime.
-	b.WriteString("### Failure Pattern Classification\n")
-	b.WriteString("The raw log did not match any cross-language standard failure signature. " +
-		"This typically means the failure is application-specific (custom exception class, " +
-		"business-domain error code, third-party library or service-specific signature). " +
-		"Classify the failure using terminology drawn from the log's own content " +
-		"(the exception type, the error message, the application module names visible in frames) — " +
-		"do NOT invent a generic category and do NOT speculate that the failure resembles an unrelated repository symbol just because the names look similar. " +
-		"When the log carries identifiers that are NOT defined in this repository, " +
-		"treat them as opaque external names: cite them verbatim and explain the failure from the log's own causality, not from repository introspection.\n\n")
+	// Empty — unknown / business-domain regime. Modality-neutral guidance
+	// that does NOT presuppose the user is asking about a failure.
+	b.WriteString("### Pattern Classification\n")
+	b.WriteString("The raw " + inputNoun + " did not match any cross-language / cross-platform standard signature. " +
+		"This typically means the content is application-specific (custom operation names, " +
+		"business-domain identifiers, third-party library or service-specific terminology) " +
+		"OR the input is informational (no failure signal at all — performance baseline, " +
+		"business audit trail, debug breadcrumb).\n\n" +
+		"Address the user's question using terminology drawn from the " + inputNoun + "'s own content " +
+		"(" + emptyDescriptor + ") — " +
+		"do NOT invent a generic category and do NOT speculate that any name in the " + inputNoun + " resembles an " +
+		"unrelated repository symbol just because the names look similar. " +
+		"When the " + inputNoun + " carries identifiers that are NOT defined in this repository, " +
+		"treat them as opaque external names: cite them verbatim and address the user's question from the " +
+		inputNoun + "'s own causality / evidence, not from repository introspection.\n\n")
 	return b.String()
 }
 
@@ -2132,14 +2157,14 @@ func formatLogTriageStructured(bundle *types.LogBundle) string {
 		"source parameter, caller-side provenance, or exact downstream branch unless a current cited code line explicitly " +
 		"proves that mapping.\n\n")
 
-	// ── Detected failure patterns (cross-language, deterministic) ──
+	// ── Detected patterns (cross-language, deterministic) ──
 	// Surfaces canonical bilingual terminology for any well-known
-	// failure signature found in the raw log (Go data race / JVM
-	// deadlock / Python recursion / TLS handshake / etc.). When no
-	// pattern fires, emit the "no canonical pattern detected"
-	// guidance so the LLM knows to derive its own classification
-	// from the log content rather than guess.
-	b.WriteString(renderBugClassesSection(bundle.Meta.BugClasses))
+	// signature found in the raw log. When no pattern fires, emit
+	// the unknown / business-domain guidance so the LLM addresses
+	// the user's question using log-content terminology rather than
+	// inventing a category or speculating from unrelated repository
+	// symbols.
+	b.WriteString(renderBugClassesSection(bundle.Meta.BugClasses, "log"))
 
 	// ── Front-loaded external-source directive ────────────────
 	//
@@ -2282,14 +2307,17 @@ func formatPerfTriageStructured(bundle *types.PerfBundle) string {
 		"measurements — the full raw trace is still in the next section for " +
 		"context the structured schema did not capture.\n\n")
 
-	// Cross-language failure pattern detector — same engine the
-	// log_triage section uses. Empty result is the dominant case for
-	// healthy traces; non-empty surfaces canonical terminology when
-	// a panic / deadlock / race signature was embedded in the trace
-	// stream.
-	if len(bundle.Meta.BugClasses) > 0 {
-		b.WriteString(renderBugClassesSection(bundle.Meta.BugClasses))
-	}
+	// ── Detected patterns (same engine the log_triage section uses) ──
+	// Always render — non-empty surfaces canonical terminology for
+	// any well-known signature embedded in the trace stream
+	// (deadlock, race, OOM, etc.); empty surfaces the unknown /
+	// business-domain guidance so the LLM addresses the user's
+	// question (whether that is failure cause, performance
+	// characterisation, business audit, or any other intent) using
+	// trace-content terminology rather than inventing a category or
+	// speculating from unrelated repository symbols. Symmetric with
+	// the log_triage section to avoid input-modality skew.
+	b.WriteString(renderBugClassesSection(bundle.Meta.BugClasses, "trace"))
 
 	// Meta block
 	if bundle.Meta.Source != "" {
