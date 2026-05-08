@@ -366,8 +366,17 @@ type appContext struct {
 	multiRepoEnabled bool
 
 	// multiRepoMaxActive mirrors codrax.yaml :: multi_repo_max_active
-	// (default 3). The LRU cap on resident sub-repo *Graphs.
+	// (config.MultiRepoMaxActiveDefault, 2; hard ceiling
+	// config.MultiRepoMaxActiveCeiling, 3). The LRU cap on resident
+	// sub-repo *Graphs.
 	multiRepoMaxActive int
+
+	// multiRepoInactivePreviewCount mirrors codrax.yaml ::
+	// multi_repo_inactive_preview_count
+	// (config.MultiRepoInactivePreviewCountDefault, 2; hard ceiling
+	// config.MultiRepoInactivePreviewCountCeiling, 3). Caps how many
+	// out-of-active sub-repos the L0 LLM advisory surfaces.
+	multiRepoInactivePreviewCount int
 
 	// multigraph is the session-shared MultiGraph carrier for the
 	// multi-repo runtime. Constructed once in initApp from app.topology
@@ -1095,9 +1104,10 @@ func runREPL(_ *cobra.Command) error {
 		WriteAutoInitRepo:     app.writeAutoInitRepo,
 		WriteScaffoldEnabled:  app.writeScaffoldEnabled,
 		SettingsPath:          app.settingsPath,
-		Topology:              app.topology,
-		MultiRepoEnabled:      app.multiRepoEnabled,
-		MultiRepoMaxActive:    app.multiRepoMaxActive,
+		Topology:                      app.topology,
+		MultiRepoEnabled:              app.multiRepoEnabled,
+		MultiRepoMaxActive:            app.multiRepoMaxActive,
+		MultiRepoInactivePreviewCount: app.multiRepoInactivePreviewCount,
 		// Push REPL /repos mutations into the session-shared
 		// MultiGraph so the next Run picks them up.
 		OnMultiRepoFocusChange: func(slugs []string) {
@@ -1496,13 +1506,23 @@ func initApp(cmd *cobra.Command, _ []string) error {
 	// Resolve enabled + cap flags onto app — REPL Config and Phase 4
 	// multigraph wiring both read these. Default true / 3.
 	app.multiRepoEnabled = true
-	app.multiRepoMaxActive = 3
+	app.multiRepoMaxActive = config.MultiRepoMaxActiveDefault
+	app.multiRepoInactivePreviewCount = config.MultiRepoInactivePreviewCountDefault
 	if rs != nil {
 		if rs.MultiRepoEnabled != nil {
 			app.multiRepoEnabled = *rs.MultiRepoEnabled
 		}
-		if rs.MultiRepoMaxActive != nil && *rs.MultiRepoMaxActive > 0 {
-			app.multiRepoMaxActive = *rs.MultiRepoMaxActive
+		if rs.MultiRepoMaxActive != nil {
+			// ClampMultiRepoMaxActive enforces the hard ceiling
+			// (config.MultiRepoMaxActiveCeiling, 3) even if yaml
+			// requests a higher value. Returns the default when
+			// the yaml value is non-positive.
+			app.multiRepoMaxActive = config.ClampMultiRepoMaxActive(*rs.MultiRepoMaxActive)
+		}
+		if rs.MultiRepoInactivePreviewCount != nil {
+			// Same clamp pattern: hard ceiling
+			// MultiRepoInactivePreviewCountCeiling (3).
+			app.multiRepoInactivePreviewCount = config.ClampMultiRepoInactivePreviewCount(*rs.MultiRepoInactivePreviewCount)
 		}
 	}
 	parentSlug := repomapindex.CacheDirSlug(flagRepo)
@@ -2841,6 +2861,9 @@ func initApp(cmd *cobra.Command, _ []string) error {
 		}
 		return subs, pending
 	})
+	// Stamp the L0-advisory inactive preview cap (clamped at yaml load).
+	// Read by context/builder.go::formatMultiRepoActiveSetAdvisory.
+	app.orch.SetMultiRepoInactivePreviewCount(app.multiRepoInactivePreviewCount)
 
 	// Stage 3 (commit 40): per-repo Failure Taxonomy wiring.
 	// Lifted out of runREPL into initApp so the single-shot CLI

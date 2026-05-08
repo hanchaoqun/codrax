@@ -6,6 +6,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/hanchaoqun/codrax/internal/config"
 	repomapindex "github.com/hanchaoqun/codrax/internal/tool/repomap/index"
 	"github.com/hanchaoqun/codrax/internal/tool/repomap/topology"
 )
@@ -251,14 +252,22 @@ func (r *REPL) reposRefresh() {
 }
 
 func (r *REPL) reposCap(n int) {
+	clamped := config.ClampMultiRepoMaxActive(n)
 	r.multiRepoMu.Lock()
-	r.multiRepoMaxActiveOverride = n
+	r.multiRepoMaxActiveOverride = clamped
 	cb := r.onMultiRepoCapChange
 	r.multiRepoMu.Unlock()
 	if cb != nil {
-		cb(n)
+		cb(clamped)
 	}
-	r.info(fmt.Sprintf("/repos cap: session-local override set to %d (yaml multi_repo_max_active=%d)", n, r.multiRepoMaxActive))
+	if clamped != n {
+		// Tell the user we clamped — surprise prevention.
+		r.info(fmt.Sprintf(
+			"/repos cap: requested %d clamped to %d (hard ceiling %d). yaml multi_repo_max_active=%d",
+			n, clamped, config.MultiRepoMaxActiveCeiling, r.multiRepoMaxActive))
+		return
+	}
+	r.info(fmt.Sprintf("/repos cap: session-local override set to %d (yaml multi_repo_max_active=%d)", clamped, r.multiRepoMaxActive))
 }
 
 // === Read accessors used by Phase 4 routing fold (read-only) ===
@@ -302,6 +311,12 @@ func (r *REPL) activeMultiRepoMaxActive() int {
 }
 
 // activeMultiRepoMaxActiveLocked must be called with multiRepoMu held.
+//
+// Returns the effective LRU cap, picking — in priority order — the
+// session-local override (`/repos cap N`), the yaml value, then the
+// shared default. All three flow through ClampMultiRepoMaxActive at
+// their respective set sites, so this getter never returns a value
+// above the hard ceiling.
 func (r *REPL) activeMultiRepoMaxActiveLocked(override int) int {
 	if override > 0 {
 		return override
@@ -309,7 +324,7 @@ func (r *REPL) activeMultiRepoMaxActiveLocked(override int) int {
 	if r.multiRepoMaxActive > 0 {
 		return r.multiRepoMaxActive
 	}
-	return 3 // hard default mirroring Phase 2 yaml default
+	return config.MultiRepoMaxActiveDefault
 }
 
 func (r *REPL) isFocused(slug string) bool {

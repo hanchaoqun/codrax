@@ -3338,6 +3338,14 @@ type BusContext struct {
 	// internal pipeline identifiers out of LLM prompts (R6 red line).
 	PendingSubRepos []string `json:"pending_sub_repos,omitempty"`
 
+	// MultiRepoInactivePreviewCount caps how many out-of-active sub-
+	// repos the L0 advisory surfaces to the LLM. Stamped by cmd/root
+	// from codrax.yaml :: multi_repo_inactive_preview_count and clamped
+	// through config.ClampMultiRepoInactivePreviewCount (default 2,
+	// hard ceiling 3). 0 here is treated as "not yet stamped" by the
+	// advisory builder, which falls back to the config default.
+	MultiRepoInactivePreviewCount int `json:"multi_repo_inactive_preview_count,omitempty"`
+
 	// TypedDenials is the architectural negative-knowledge channel.
 	// Any typed gate that downgrades a structured field (frame.File
 	// cleared by frameFileCorroboratesFunc / oracle.SymbolExists fail
@@ -3512,10 +3520,11 @@ type AgentContext struct {
 	// read the multi-repo carrier without taking a *BusContext
 	// reference. Stored as `any` for the same import-cycle reason
 	// described on BusContext.MultiGraph.
-	MultiGraph      any               `json:"-"`
-	SubRepos        []SubRepoSnapshot `json:"sub_repos,omitempty"`
-	ActiveSubRepo   *SubRepoSnapshot  `json:"active_sub_repo,omitempty"`
-	PendingSubRepos []string          `json:"pending_sub_repos,omitempty"`
+	MultiGraph                    any               `json:"-"`
+	SubRepos                      []SubRepoSnapshot `json:"sub_repos,omitempty"`
+	ActiveSubRepo                 *SubRepoSnapshot  `json:"active_sub_repo,omitempty"`
+	PendingSubRepos               []string          `json:"pending_sub_repos,omitempty"`
+	MultiRepoInactivePreviewCount int               `json:"multi_repo_inactive_preview_count,omitempty"`
 
 	// TypedDenials mirrors BusContext.TypedDenials (Phase A.2 of the
 	// negative-knowledge architecture). Tools dispatched from the

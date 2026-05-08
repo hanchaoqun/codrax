@@ -8,6 +8,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/hanchaoqun/codrax/internal/config"
 	"github.com/hanchaoqun/codrax/internal/logging"
 	"github.com/hanchaoqun/codrax/internal/skill"
 	"github.com/hanchaoqun/codrax/internal/types"
@@ -41,10 +42,11 @@ func BuildAgentContext(bus *types.BusContext, agentName types.AgentName, stage t
 		// surface multi-repo state without reaching back through the
 		// full BusContext. Defensive copy for the slices to keep
 		// AgentContext mutation isolated from BusContext.
-		MultiGraph:      bus.MultiGraph,
-		SubRepos:        append([]types.SubRepoSnapshot(nil), bus.SubRepos...),
-		ActiveSubRepo:   bus.ActiveSubRepo,
-		PendingSubRepos: append([]string(nil), bus.PendingSubRepos...),
+		MultiGraph:                    bus.MultiGraph,
+		SubRepos:                      append([]types.SubRepoSnapshot(nil), bus.SubRepos...),
+		ActiveSubRepo:                 bus.ActiveSubRepo,
+		PendingSubRepos:               append([]string(nil), bus.PendingSubRepos...),
+		MultiRepoInactivePreviewCount: bus.MultiRepoInactivePreviewCount,
 
 		// TypedDenials shares the SAME pointer (not a copy) — when
 		// a tool call mid-dispatch stamps a new denial, subsequent
@@ -629,6 +631,12 @@ func BuildPromptContext(ac *types.AgentContext, sk *skill.Config) *types.PromptC
 		pc.UserSections = append(pc.UserSections, types.PromptSection{
 			Title:   SectionToolSourcedValue,
 			Content: toolValue,
+		})
+	}
+	if mrAdvisory := formatMultiRepoActiveSetAdvisory(ac); mrAdvisory != "" {
+		pc.UserSections = append(pc.UserSections, types.PromptSection{
+			Title:   SectionMultiRepoActiveSet,
+			Content: mrAdvisory,
 		})
 	}
 
@@ -3290,6 +3298,100 @@ func formatExactResolutionHint(ac *types.AgentContext) string {
 		b.WriteString(" Read same-scope anchors first, then close the investigation with `emit_investigation_complete(result_kind=\"absence\", absence_justification=...)` instead of completing a positive substitute chain if the exact target remains absent.")
 	}
 	return b.String()
+}
+
+// formatMultiRepoActiveSetAdvisory composes the L0 LLM advisory that
+// tells the explorer / extractor / finalizer which sub-repos its
+// file-system tools (read_file / grep / repo_map) may operate within
+// and surfaces a short preview of out-of-active sub-repos so the LLM
+// can name the ones the user might want to pin via `/repos focus`.
+//
+// 2026-05-08 (u7a-style multi-repo gap remediation): without this
+// section the LLM has no way to know the workspace contains multiple
+// sub-repos — it would see only the user request and the per-tool
+// results, then "blind-fire" tool calls against arbitrary paths and
+// hit the L1 gate (Phase 1.L1) repeatedly. Surfacing the active set
+// up front cuts the wasted ReAct iterations.
+//
+// Render rule:
+//   - When ac.SubRepos has < 2 entries the workspace is single-repo
+//     (or one sub-repo) — no advisory; the existing prompt sections
+//     already convey the scope.
+//   - active = SubRepos minus PendingSubRepos; sorted alphabetically
+//     by RootRel for deterministic, stable rendering across Runs.
+//   - Inactive preview is capped at MultiRepoInactivePreviewCount
+//     (yaml-clamped at config load; default 2; hard ceiling 3).
+//
+// R6 audit: every line is generic prose with no internal pipeline
+// terminology (no stage names, no slug values, no routing channel
+// letters). Examples are placeholder-free; all identifiers come from
+// the workspace itself.
+func formatMultiRepoActiveSetAdvisory(ac *types.AgentContext) string {
+	if ac == nil || len(ac.SubRepos) < 2 {
+		return ""
+	}
+	pendingSet := make(map[string]bool, len(ac.PendingSubRepos))
+	for _, p := range ac.PendingSubRepos {
+		pendingSet[p] = true
+	}
+	var active, inactive []types.SubRepoSnapshot
+	for _, sr := range ac.SubRepos {
+		if pendingSet[sr.RootRel] {
+			inactive = append(inactive, sr)
+		} else {
+			active = append(active, sr)
+		}
+	}
+	if len(active) == 0 {
+		// Defensive: every snapshot was marked pending. The orchestrator
+		// would not normally produce this state, so don't render an
+		// advisory whose active list is empty (it would mislead the LLM).
+		return ""
+	}
+	sort.Slice(active, func(i, j int) bool {
+		return active[i].RootRel < active[j].RootRel
+	})
+	sort.Slice(inactive, func(i, j int) bool {
+		return inactive[i].RootRel < inactive[j].RootRel
+	})
+
+	previewN := ac.MultiRepoInactivePreviewCount
+	if previewN <= 0 {
+		// Builder fallback when the orchestrator stamped a zero
+		// (single-shot tests / very old fixtures). The clamp helper
+		// would have rejected a negative value already.
+		previewN = config.MultiRepoInactivePreviewCountDefault
+	}
+
+	var b strings.Builder
+	b.WriteString("Active sub-repos for this question (file-system tool calls — read_file, grep, repo_map — must stay within these):\n")
+	for _, sr := range active {
+		writeSubRepoLine(&b, sr)
+	}
+	if len(inactive) > 0 {
+		visible := previewN
+		if visible > len(inactive) {
+			visible = len(inactive)
+		}
+		b.WriteString("\nOut of active set (paths inside these will be refused by the file-system tools):\n")
+		for i := 0; i < visible; i++ {
+			writeSubRepoLine(&b, inactive[i])
+		}
+		if extra := len(inactive) - visible; extra > 0 {
+			fmt.Fprintf(&b, "  ... and %d more\n", extra)
+		}
+	}
+	b.WriteString("\nIf the user's question genuinely needs to consult a sub-repo currently out of the active set, name that requirement in your investigation summary so the user can pin it via `/repos focus <name>`. Do not attempt file-system tool calls against an out-of-set path — they will fail.\n")
+	return b.String()
+}
+
+func writeSubRepoLine(b *strings.Builder, sr types.SubRepoSnapshot) {
+	langs := strings.Join(sr.PrimaryLangs, ", ")
+	if langs != "" {
+		fmt.Fprintf(b, "- %s (%s)\n", sr.RootRel, langs)
+	} else {
+		fmt.Fprintf(b, "- %s\n", sr.RootRel)
+	}
 }
 
 func formatToolSourcedValueHint(ac *types.AgentContext) string {

@@ -96,7 +96,14 @@ func New(cfg Config) (*MultiGraph, error) {
 	}
 	capN := cfg.Cap
 	if capN <= 0 {
-		capN = 3
+		// Defensive fallback — primary callers (cmd/root.go yaml
+		// load + REPL `/repos cap`) already pass a config-clamped
+		// cap. This path only fires for tests / callers that pass
+		// cfg.Cap=0 by accident. internal/config sets the canonical
+		// default (2); we mirror it as a literal here so multigraph
+		// stays free of an internal/config import (no cycle on
+		// types-only consumers).
+		capN = 2
 	}
 	// In single-repo mode the cap is forced to 1 — the LRU only
 	// holds one entry and there's no thrashing surface.

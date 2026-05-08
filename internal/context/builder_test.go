@@ -3146,3 +3146,103 @@ func TestBundleHasAuthoritativeCrashFrames_ResolutionThreshold(t *testing.T) {
 		})
 	}
 }
+
+
+// =====================================================================
+// Phase 1.L0 (2026-05-08) — multi-repo active-set advisory tests
+// =====================================================================
+
+func TestFormatMultiRepoActiveSetAdvisory_SingleRepoSuppressed(t *testing.T) {
+	ac := &types.AgentContext{
+		SubRepos:                      []types.SubRepoSnapshot{{RootRel: "."}},
+		MultiRepoInactivePreviewCount: 2,
+	}
+	if got := formatMultiRepoActiveSetAdvisory(ac); got != "" {
+		t.Errorf("single-repo workspace must produce empty advisory, got %q", got)
+	}
+}
+
+func TestFormatMultiRepoActiveSetAdvisory_MultiRepoNoPending(t *testing.T) {
+	ac := &types.AgentContext{
+		SubRepos: []types.SubRepoSnapshot{
+			{RootRel: "repo-a", PrimaryLangs: []string{"Go"}},
+			{RootRel: "repo-b", PrimaryLangs: []string{"Python"}},
+		},
+		PendingSubRepos:               nil,
+		MultiRepoInactivePreviewCount: 2,
+	}
+	got := formatMultiRepoActiveSetAdvisory(ac)
+	if got == "" {
+		t.Fatalf("multi-repo advisory must render, got empty")
+	}
+	if !strings.Contains(got, "Active sub-repos") {
+		t.Errorf("advisory missing active header: %q", got)
+	}
+	if !strings.Contains(got, "repo-a") || !strings.Contains(got, "repo-b") {
+		t.Errorf("advisory must list both active sub-repos: %q", got)
+	}
+	if strings.Contains(got, "Out of active set") {
+		t.Errorf("no inactive should not render the inactive header: %q", got)
+	}
+}
+
+func TestFormatMultiRepoActiveSetAdvisory_TruncatesInactivePreview(t *testing.T) {
+	ac := &types.AgentContext{
+		SubRepos: []types.SubRepoSnapshot{
+			{RootRel: "repo-a", PrimaryLangs: []string{"Go"}},
+			{RootRel: "repo-b", PrimaryLangs: []string{"Python"}},
+			{RootRel: "repo-c", PrimaryLangs: []string{"Rust"}},
+			{RootRel: "repo-d", PrimaryLangs: []string{"TypeScript"}},
+			{RootRel: "repo-e", PrimaryLangs: []string{"Kotlin"}},
+		},
+		// active = repo-a only; rest pending.
+		PendingSubRepos:               []string{"repo-b", "repo-c", "repo-d", "repo-e"},
+		MultiRepoInactivePreviewCount: 2,
+	}
+	got := formatMultiRepoActiveSetAdvisory(ac)
+	// Active section shows repo-a.
+	if !strings.Contains(got, "- repo-a (Go)") {
+		t.Errorf("active list missing repo-a: %q", got)
+	}
+	// Preview shows repo-b + repo-c (alphabetical, count=2).
+	if !strings.Contains(got, "- repo-b (Python)") || !strings.Contains(got, "- repo-c (Rust)") {
+		t.Errorf("inactive preview missing first 2 alphabetical entries: %q", got)
+	}
+	// Truncation marker for the remaining 2.
+	if !strings.Contains(got, "... and 2 more") {
+		t.Errorf("inactive preview must surface truncation marker: %q", got)
+	}
+	// repo-d / repo-e (beyond preview) MUST NOT be listed verbatim.
+	if strings.Contains(got, "repo-d") || strings.Contains(got, "repo-e") {
+		t.Errorf("inactive preview must respect cap and not leak beyond it: %q", got)
+	}
+	// /repos focus tip present.
+	if !strings.Contains(got, "/repos focus") {
+		t.Errorf("advisory must surface /repos focus tip: %q", got)
+	}
+}
+
+func TestFormatMultiRepoActiveSetAdvisory_ZeroCountFallsBackToConfigDefault(t *testing.T) {
+	ac := &types.AgentContext{
+		SubRepos: []types.SubRepoSnapshot{
+			{RootRel: "active-a"},
+			{RootRel: "inactive-x"},
+			{RootRel: "inactive-y"},
+			{RootRel: "inactive-z"},
+		},
+		PendingSubRepos:               []string{"inactive-x", "inactive-y", "inactive-z"},
+		MultiRepoInactivePreviewCount: 0, // not stamped → fallback
+	}
+	got := formatMultiRepoActiveSetAdvisory(ac)
+	// Default is 2 → first two inactive show, third is in "and 1 more".
+	if !strings.Contains(got, "inactive-x") || !strings.Contains(got, "inactive-y") {
+		t.Errorf("default preview should show first 2 inactive: %q", got)
+	}
+	if strings.Contains(got, "inactive-z") {
+		t.Errorf("default preview must not exceed default count: %q", got)
+	}
+	if !strings.Contains(got, "... and 1 more") {
+		t.Errorf("expected truncation marker for remaining 1: %q", got)
+	}
+}
+

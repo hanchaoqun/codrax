@@ -609,8 +609,27 @@ type RuntimeSettings struct {
 	// resident in the multigraph LRU at once. Eviction is LRU.
 	// Routing fold (design §3.5) pre-trims candidates to this cap;
 	// EnsureMany is a defence-in-depth fail-loud for callers that
-	// bypass routing. Default 3.
+	// bypass routing.
+	//
+	// Default = MultiRepoMaxActiveDefault (2). Hard ceiling =
+	// MultiRepoMaxActiveCeiling (3): yaml values above the ceiling
+	// are clamped at config-load time. Cross-repo investigation
+	// scenarios beyond 3 are rare in practice and pushing the cap
+	// higher mostly grows scan cost + LLM context without measurable
+	// answer-quality lift; ClampMultiRepoMaxActive enforces this.
 	MultiRepoMaxActive *int `yaml:"multi_repo_max_active"`
+
+	// MultiRepoInactivePreviewCount controls how many out-of-active
+	// sub-repos are surfaced (by RootRel + PrimaryLangs) in the
+	// LLM advisory injected at multi-repo Run start. Listing more
+	// inflates the prompt without giving the LLM additional
+	// actionable context — it just needs enough to recognise that
+	// the workspace has more sub-repos available behind a `/repos
+	// focus` pin. Default = MultiRepoInactivePreviewCountDefault (2).
+	// Hard ceiling = MultiRepoInactivePreviewCountCeiling (3).
+	// ClampMultiRepoInactivePreviewCount enforces both at load
+	// time.
+	MultiRepoInactivePreviewCount *int `yaml:"multi_repo_inactive_preview_count"`
 
 	// MultiRepoDiscoveryDepth caps how deep the parent-directory
 	// BFS walk goes when searching for `.git` boundaries. 0
@@ -1211,3 +1230,67 @@ func warnLegacyKeys(path string, data []byte) {
 // IsNotExist is re-exported so main.go can keep its runtime-config
 // branching self-contained without importing os just for this check.
 func IsNotExist(err error) bool { return errors.Is(err, os.ErrNotExist) }
+
+// Multi-repo cap defaults + hard ceilings (2026-05-08).
+//
+// Single source of truth so cmd/root.go (yaml load), repl/repos_cmd.go
+// (`/repos cap N` REPL command), and any future caller stay aligned.
+// Hard ceilings are enforced via ClampMultiRepoMaxActive /
+// ClampMultiRepoInactivePreviewCount — the binary refuses to operate
+// above the ceiling regardless of yaml input.
+const (
+	// MultiRepoMaxActiveDefault: how many sub-repo Graphs the
+	// multigraph LRU keeps resident when the operator has not set
+	// `multi_repo_max_active` in codrax.yaml. 2 covers the common
+	// cross-repo scenario (one canonical sub-repo + one collaborator
+	// sub-repo) without paying scan cost for a third.
+	MultiRepoMaxActiveDefault = 2
+
+	// MultiRepoMaxActiveCeiling: yaml values above this are clamped.
+	// Beyond 3 the LLM-side context inflation outpaces the answer-
+	// quality lift in observed multi-repo eval cases; raising this
+	// requires re-validating the L0 advisory + scan-progress UX.
+	MultiRepoMaxActiveCeiling = 3
+
+	// MultiRepoInactivePreviewCountDefault: how many out-of-active
+	// sub-repos to surface (by RootRel + PrimaryLangs) in the L0
+	// LLM advisory when multi-repo + ≥2 sub-repos. Default 2 matches
+	// the active-set default — together they fit a typical LLM
+	// prompt budget without truncation.
+	MultiRepoInactivePreviewCountDefault = 2
+
+	// MultiRepoInactivePreviewCountCeiling: yaml values above this
+	// are clamped. Listing more than 3 inactive sub-repos inflates
+	// the prompt without giving the LLM additional actionable
+	// context — it just needs enough to recognise that the
+	// workspace has more sub-repos behind a `/repos focus` pin.
+	MultiRepoInactivePreviewCountCeiling = 3
+)
+
+// ClampMultiRepoMaxActive returns max(1, min(MultiRepoMaxActiveCeiling, n))
+// when n > 0, else MultiRepoMaxActiveDefault. Centralises the clamp so
+// every caller (yaml load, REPL `/repos cap`, future flags) treats
+// out-of-range input identically.
+func ClampMultiRepoMaxActive(n int) int {
+	if n <= 0 {
+		return MultiRepoMaxActiveDefault
+	}
+	if n > MultiRepoMaxActiveCeiling {
+		return MultiRepoMaxActiveCeiling
+	}
+	return n
+}
+
+// ClampMultiRepoInactivePreviewCount returns max(0, min(
+// MultiRepoInactivePreviewCountCeiling, n)) when n > 0, else
+// MultiRepoInactivePreviewCountDefault. 0 is a valid value (suppress
+// the inactive list entirely); negative falls to default.
+func ClampMultiRepoInactivePreviewCount(n int) int {
+	if n < 0 {
+		return MultiRepoInactivePreviewCountDefault
+	}
+	if n > MultiRepoInactivePreviewCountCeiling {
+		return MultiRepoInactivePreviewCountCeiling
+	}
+	return n
+}

@@ -91,6 +91,11 @@ type Orchestrator struct {
 	// cmd/root.go alongside multiGraphProvider; both consulted at
 	// every Run entry.
 	multiRepoSnapshotProvider func() ([]types.SubRepoSnapshot, []string)
+
+	// multiRepoInactivePreviewCount is the L0-advisory cap stamped on
+	// every BusContext at Run entry. cmd/root.go calls
+	// SetMultiRepoInactivePreviewCount once after yaml load.
+	multiRepoInactivePreviewCount int
 	// mode controls the B0 write-mode dispatch in Run(). Zero value
 	// ("") is treated as ModeRead by busCtx.Mode.Normalize at Run
 	// entry, so every pre-B0 caller sees identical read-only
@@ -566,6 +571,15 @@ func (o *Orchestrator) SetMultiGraphProvider(provider func() any) {
 // without a *multigraph.MultiGraph reference.
 func (o *Orchestrator) SetMultiRepoSnapshotProvider(provider func() ([]types.SubRepoSnapshot, []string)) {
 	o.multiRepoSnapshotProvider = provider
+}
+
+// SetMultiRepoInactivePreviewCount stamps the LLM-advisory cap that
+// context/builder.go reads when composing the L0 active-set advisory
+// section. Default 0 → builder falls back to
+// config.MultiRepoInactivePreviewCountDefault. cmd/root.go calls this
+// once at orchestrator construction with the clamped yaml value.
+func (o *Orchestrator) SetMultiRepoInactivePreviewCount(n int) {
+	o.multiRepoInactivePreviewCount = n
 }
 
 // Cancel marks the in-flight Run as canceled with the given reason.
@@ -1256,6 +1270,7 @@ func (o *Orchestrator) Run(request string, repoRoot string, branch string) (*typ
 	if o.multiRepoSnapshotProvider != nil {
 		o.busCtx.SubRepos, o.busCtx.PendingSubRepos = o.multiRepoSnapshotProvider()
 	}
+	o.busCtx.MultiRepoInactivePreviewCount = o.multiRepoInactivePreviewCount
 	// Phase 4.F routing fold (design §3.5). Pre-trim active set per
 	// Run so the typed-lane queries hit a deterministic, focus-aware
 	// subset. Channels at Run entry:

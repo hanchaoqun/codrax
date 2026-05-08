@@ -311,6 +311,12 @@ type Config struct {
 	// /repos cap <N> overrides this value session-locally.
 	MultiRepoMaxActive int
 
+	// MultiRepoInactivePreviewCount mirrors codrax.yaml ::
+	// multi_repo_inactive_preview_count. Threaded through to BusContext
+	// so context/builder.go's L0 LLM advisory can decide how many
+	// out-of-active sub-repos to surface in the prompt.
+	MultiRepoInactivePreviewCount int
+
 	// OnMultiRepoFocusChange is invoked by the REPL when the user
 	// runs /repos focus or /repos unfocus. cmd/root.go wires this to
 	// app.multigraph.SetFocus so the next Run picks up the change.
