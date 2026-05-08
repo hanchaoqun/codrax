@@ -3289,6 +3289,55 @@ type BusContext struct {
 	// needs the "original root" falls back to RepoRoot in that case.
 	MainRepoRoot string `json:"main_repo_root,omitempty"`
 
+	// MultiGraph is the multi-repo carrier for this Run (design v2).
+	// Non-nil when codrax.yaml :: multi_repo_enabled is true (the
+	// default) AND the orchestrator has a topology to wire (cmd/root
+	// builds it from app.topology). Single-repo posture wraps a
+	// single *Graph; multi-repo posture exposes per-sub-repo graphs
+	// via AllGraphs / GraphFor / Oracle / Locator.
+	//
+	// nil when multi_repo_enabled=false OR the orchestrator was not
+	// supplied a topology (test fixtures, eval harness without an
+	// app context). Read-side consumers MUST tolerate nil and fall
+	// back to legacy `repomap.BuildOrLoadGraph(RepoRoot, query)`
+	// pre-multi-repo behaviour.
+	//
+	// Mutating MultiGraph mid-Run is forbidden — the orchestrator
+	// installs it once at Run entry and treats it as immutable for
+	// the lifetime of the BusContext. The carrier itself is
+	// thread-safe (its LRU has internal locking).
+	//
+	// Treated as opaque by JSON serialisation (json:"-"). Stored as
+	// any so types/ stays free of import cycles on the multigraph
+	// package — consumers (agent / orchestrator layer) cast to
+	// *multigraph.MultiGraph at the use site. nil-tolerant: the
+	// helper MultiGraphFromContext below performs the cast and
+	// surfaces nil when the field is unset / non-multigraph.
+	MultiGraph any `json:"-"`
+
+	// SubRepos is a snapshot of the multi-repo topology — same
+	// content as MultiGraph.Topology().Repos but copied here so
+	// non-MultiGraph-aware consumers (REPL renderer, telemetry) can
+	// read sub-repo metadata without owning a *MultiGraph reference.
+	// nil in single-repo / pre-multi-repo callers.
+	SubRepos []SubRepoSnapshot `json:"sub_repos,omitempty"`
+
+	// ActiveSubRepo names the single sub-repo this Run is targeting.
+	// Set by write-mode flows (plan / apply / verify) to the
+	// converged target — design §4.5.5 fail-louds when a write
+	// ChangePlan would span multiple sub-repos. Read mode leaves
+	// this nil; multi-repo Routing fold treats the entire active
+	// LRU as queryable, not just one sub-repo.
+	ActiveSubRepo *SubRepoSnapshot `json:"active_sub_repo,omitempty"`
+
+	// PendingSubRepos is the user-visible RootRel list of sub-repos
+	// the routing fold left INACTIVE because of cap pressure. Read
+	// by the LLM-facing summary so the answer can disclose
+	// "we did not consult X / Y / Z" (R3 partial_typed_lane red
+	// line). Slugs are NEVER surfaced here — only RootRel — to keep
+	// internal pipeline identifiers out of LLM prompts (R6 red line).
+	PendingSubRepos []string `json:"pending_sub_repos,omitempty"`
+
 	// Memory is the read-only handle into the REPL memory store. nil
 	// in single-shot CLI runs / non-REPL test fixtures (no Store to
 	// wire). recall_memory tool nil-checks before calling Search;
@@ -3436,6 +3485,16 @@ type AgentContext struct {
 	// need to talk about "the user's repo" rather than the sandbox.
 	// Empty in non-write paths is fine — RepoRoot is then the same dir.
 	MainRepoRoot string `json:"main_repo_root,omitempty"`
+
+	// Multi-repo mirrors of BusContext fields — so agents that hold
+	// only an AgentContext (most do, post-AgentContextBuilder) can
+	// read the multi-repo carrier without taking a *BusContext
+	// reference. Stored as `any` for the same import-cycle reason
+	// described on BusContext.MultiGraph.
+	MultiGraph      any               `json:"-"`
+	SubRepos        []SubRepoSnapshot `json:"sub_repos,omitempty"`
+	ActiveSubRepo   *SubRepoSnapshot  `json:"active_sub_repo,omitempty"`
+	PendingSubRepos []string          `json:"pending_sub_repos,omitempty"`
 
 	// Memory mirrors BusContext.Memory so the recall_memory tool can
 	// query prior-conversation memory from the agent dispatch path.
